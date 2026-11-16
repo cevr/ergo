@@ -88,6 +88,9 @@ type funcDecl struct {
 	// known is the Go name of the known-callback variant once it is
 	// queued (known.go, knownName).
 	known string
+	// dropped is the Go name of the variant with no result once it is
+	// queued (forms.go, droppedName).
+	dropped string
 }
 
 // declareNames gives every package-level declaration of the user package its
@@ -149,6 +152,10 @@ func (l *lowerer) declareName(d syntax.Decl) {
 				for _, id := range spec.Names {
 					if v, ok := l.info.Defs[id].(*check.Var); ok {
 						l.vars[v] = l.pkgName(pkgKey{"let", v}, v.Name)
+						if formsOn() && l.constLet(spec, v) {
+							l.consts[v] = true
+							l.constVals[v] = l.info.Values[spec.Values[0]]
+						}
 					}
 				}
 				if spec.Pattern != nil {
@@ -225,7 +232,7 @@ func (l *lowerer) decl(d syntax.Decl) {
 		if !ok {
 			ice(d.Name, "the type %s has no Defs entry", d.Name.Name)
 		}
-		if n, ok := tn.Type.(*check.Named); ok && l.runtimeType(n, d.Name) != "" {
+		if n, ok := tn.Type.(*check.Named); ok && l.runtimeNamed(n, d.Name) {
 			// A std type the runtime declares (std's own ledger build,
 			// whose root is a std package): no declaration of the program.
 			return
@@ -262,6 +269,17 @@ func (l *lowerer) decl(d syntax.Decl) {
 // typeName is a type declaration's Go name in the package scope.
 func (l *lowerer) typeName(tn *check.TypeName) string {
 	if td := l.types[tn]; td != nil {
+		return td.name
+	}
+	if tn.Pkg.Host() {
+		// A Go type of import go is Go's own declaration, named through
+		// its package's import (goType): it takes no package-scope name
+		// and is never emitted. Its structure (a record's fields, read by
+		// a selection or a copy) is still its typeDecl's. The name does not
+		// mark the import used: only a written type does (hostPkg).
+		path := tn.Pkg.Path
+		td := &typeDecl{tn: tn, name: l.pkgName(pkgKey{"import", path}, hostBase(path)) + "." + tn.Name, library: true, emitted: true}
+		l.types[tn] = td
 		return td.name
 	}
 	td := &typeDecl{tn: tn, name: l.pkgName(pkgKey{"type", tn}, tn.Name), library: tn.Pkg != l.pkg}
@@ -340,6 +358,12 @@ func (l *lowerer) typeDecl(tn *check.TypeName, site syntax.Node) *typeDecl {
 	case *syntax.StructType:
 		td.kind = kindRecord
 		td.fieldName = map[string]string{}
+		if check.IsNever(named) {
+			// The prelude's Never, a union of no variants (types.md,
+			// Never): Go's struct{}, which no lowered code builds, since
+			// no Ergo expression makes a Never.
+			break
+		}
 		td.errorType = l.errorType(named)
 		// A defined error type over this record keeps its Go field names,
 		// so they avoid its Error method too.
@@ -396,6 +420,17 @@ func (l *lowerer) typeDecl(tn *check.TypeName, site syntax.Node) *typeDecl {
 				}
 				taken[memberName(op.Name)] = true
 				td.ops = append(td.ops, op)
+			}
+		}
+		// A member `..I` includes I's operations (types.md, Interface
+		// assignability 1): the checked method set holds them, after the
+		// written ones.
+		if it, ok := named.Underlying().(*check.Interface); ok {
+			for _, op := range it.Methods {
+				if !taken[memberName(op.Name)] {
+					taken[memberName(op.Name)] = true
+					td.ops = append(td.ops, op)
+				}
 			}
 		}
 	case *syntax.MachineType:
@@ -481,6 +516,13 @@ func constraintOf(tp *check.TypeParam) *check.Interface {
 // as a witness value (witness.go; stage E1 orchestrator answer 2), and a
 // type declaration's fields need none.
 func (l *lowerer) constraint(tp *check.TypeParam, site syntax.Node) string {
+	if tp.Slot {
+		// A Slot row's Go argument is an error type, or error (goParam).
+		return "error"
+	}
+	if tp.Kind == check.KindUses && l.isHeld(tp) {
+		return l.envCopier() // a held row (inforce.go)
+	}
 	if tp.Constraint == nil {
 		return "any"
 	}
@@ -569,7 +611,11 @@ func (l *lowerer) emitType(td *typeDecl) {
 	switch td.kind {
 	case kindRecord:
 		b.WriteString("type " + td.name + tparams + " struct {\n")
-		for _, f := range td.fields {
+		// The Go field order is the lowering's (layout.go); every use reads
+		// a field by its Go name.
+		order := l.layoutOrder(td)
+		l.layoutReport(td, order)
+		for _, f := range order {
 			b.WriteString("\t" + td.fieldName[f.Name] + " " + tc.goType(f.Type) + "\n")
 		}
 		b.WriteString("}\n\n")
@@ -706,6 +752,11 @@ func (l *lowerer) methodReceiver(f *check.Func) (*typeDecl, bool) {
 	if len(f.Sig.Params) == 0 || f.Decl == nil || f.Name == "main" {
 		return nil, false
 	}
+	if l.hasGoRow(f.Sig) {
+		// A held row is a Go type parameter of the function's own, which
+		// a Go method cannot declare (inforce.go).
+		return nil, false
+	}
 	first := f.Sig.Params[0].Type
 	ptr := false
 	if p, ok := first.(*check.Pointer); ok {
@@ -716,6 +767,14 @@ func (l *lowerer) methodReceiver(f *check.Func) (*typeDecl, bool) {
 		return nil, false
 	}
 	if _, isRecord := n.Obj.Decl.Spec.(*syntax.StructType); !isRecord {
+		return nil, false
+	}
+	if _, bound := check.GoTypeOf(n); bound {
+		// A record whose declaration names a runtime Go type (`extern go
+		// …/runtime/v1.RPCMalformed type Malformed {…}`, FD1-g2): the
+		// runtime declares the Go type, and Go takes a method only in its
+		// receiver's package, so the function stays a Go function. Its calls
+		// follow, as funcDecl decides both.
 		return nil, false
 	}
 	var own []*check.TypeParam
@@ -778,13 +837,20 @@ func (l *lowerer) intrinsic(f *check.Func) func(fc *funcCtx, params []string) st
 		return nil
 	}
 	s := f.Sig
+	if f.Name == "InForce" && len(s.TParams) == 1 && len(s.Params) == 0 {
+		// Each call is written in place (inforce.go); the Go function is
+		// never called.
+		return func(_ *funcCtx, _ []string) string {
+			return "\tpanic(\"InForce is lowered at each call\")\n"
+		}
+	}
 	if len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 {
 		return nil
 	}
 	if bridge := l.hostBlockingIntrinsic(f); bridge != nil {
 		return bridge
 	}
-	// The functions on slices and Maps (D-D6): Append, Delete and Put call
+	// The functions on slices and Maps (D-D6): Append and Put call
 	// their runtime/v1 bodies; Get builds the program's Option, which the
 	// lowering emits in each program, so its body is written here.
 	if len(s.Params) < 2 || len(s.Params) > 3 || len(s.Results) != 1 {
@@ -800,10 +866,6 @@ func (l *lowerer) intrinsic(f *check.Func) func(fc *funcCtx, params []string) st
 	case f.Name == "Append" && len(s.TParams) == 1 && isSliceOf(s.Params[0].Type, s.TParams[0]) && s.Params[1].Type == s.TParams[0] && isSliceOf(s.Results[0], s.TParams[0]):
 		return func(_ *funcCtx, params []string) string {
 			return "\treturn " + l.rt() + ".Append(" + params[0] + ", " + params[1] + ")\n"
-		}
-	case f.Name == "Delete" && len(s.TParams) == 2 && isMapOf(s.Params[0].Type, s.TParams[0], s.TParams[1]) && s.Params[1].Type == s.TParams[0] && isMapOf(s.Results[0], s.TParams[0], s.TParams[1]):
-		return func(_ *funcCtx, params []string) string {
-			return "\treturn " + l.rt() + ".Delete(" + params[0] + ", " + params[1] + ")\n"
 		}
 	case preludeGet(f):
 		return func(fc *funcCtx, params []string) string {
@@ -923,12 +985,14 @@ func (l *lowerer) emitFunc(fd *funcDecl) {
 }
 
 // emitFuncBody writes fd's Go declaration.
-func (l *lowerer) emitFuncBody(fd *funcDecl) { l.emitBody(fd, false, nil) }
+func (l *lowerer) emitFuncBody(fd *funcDecl) { l.emitBody(fd, false, nil, false) }
 
 // emitBody writes what emitFuncBody writes, or, with known, fd's
 // known-callback variant (known.go): its callback parameters plain and no
-// entry poll; with sp, fd's copy for a known record (record.go).
-func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy) {
+// entry poll; with sp, fd's copy for a known record (record.go); with
+// drop, fd's variant with no result (drop.go): each return evaluates its
+// value for its effects and returns nothing.
+func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	l.bodies++
 	f := fd.fn
 	l.readsOf(f)
@@ -953,6 +1017,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy) {
 	scope := newNamer(l.names)
 	site := syntax.Node(f.Decl.Name)
 	fc := newFuncCtx(l, scope, directives)
+	fc.hot = l.hotFunc(f)
 	fc.owner = f.Name
 	if fd.method != nil {
 		fc.owner = fd.method.tn.Name + "." + f.Name
@@ -990,10 +1055,10 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy) {
 		ice(site, "%s declares %d parameters and its signature has %d", f.Name, len(params), len(f.Sig.Params))
 	}
 	// Type parameters: a method's are its receiver's; a function's are its
-	// own type-kinded ones.
+	// own type-kinded ones and its Slot rows (goParam).
 	var own []*check.TypeParam
 	for _, tp := range f.Sig.TParams {
-		if tp.Kind == check.KindType {
+		if l.goParam(tp) {
 			own = append(own, tp)
 		}
 	}
@@ -1010,11 +1075,16 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy) {
 	// own and keeps f's name for a wrapper that copies them (values.go, V5).
 	bodyName, wrapHead, wrapParams := fd.name, "", ""
 	var typeArgs, args []string
-	owned := !known && sp == nil && fd.method == nil && fd.extern == "" && len(l.ownedParams(f)) > 0
+	owned := !known && sp == nil && !drop && fd.extern == "" && len(l.ownedParams(f)) > 0
 	if owned {
 		bodyName = l.pkgName(ownedKey(f), f.Name+"Owned")
 	}
 	methodName := fd.name
+	if owned && fd.method != nil {
+		// A method's owned body is a method of its own (calls.go).
+		methodName = bodyName
+	}
+	recvName := ""
 	if known {
 		if fd.extern != "" {
 			ice(site, "the known variant of %s is not a plain body", f.Name)
@@ -1027,7 +1097,14 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy) {
 			}
 		}
 	}
-	if fd.method != nil {
+	if drop {
+		if known || sp != nil || fd.extern != "" || fd.dropped == "" {
+			ice(site, "the variant of %s with no result is not a plain body", f.Name)
+		}
+		bodyName, methodName = fd.dropped, fd.dropped
+	}
+
+	if fd.method != nil && sp == nil {
 		tps := map[*check.TypeParam]string{}
 		var args []string
 		for _, tp := range own {
@@ -1044,11 +1121,15 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy) {
 		}
 		paramNames[0] = name(0)
 		head.WriteString("func (" + paramNames[0] + " " + recv + ") " + methodName + "(")
+		wrapHead = "func (" + paramNames[0] + " " + recv + ") " + fd.name + "("
+		recvName = paramNames[0]
+		typeArgs = nil // the receiver binds them
 	} else if sp != nil {
-		// A copy for a known record (record.go): one instance, its type
-		// parameters the call's Go types.
-		if fd.method != nil || owned || known {
-			ice(site, "the copy of %s for a known record is not a plain function", f.Name)
+		// A copy for a known record (record.go) or a monomorphic copy
+		// (mono.go): one instance, its type parameters the call's Go
+		// types. A method's copy is a plain function of its receiver.
+		if (fd.method != nil && sp.rec != nil) || owned || known {
+			ice(site, "the copy of %s is not a plain function", f.Name)
 		}
 		fc.params, fc.mono, fc.bound = sp.typeArgs, true, sp.bound
 		head.WriteString("func " + sp.name + "(")
@@ -1082,16 +1163,25 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy) {
 			ice(site, "the Go method %s has a witness for %s; methodReceiver keeps such a function a Go function", f.Name, tp.Name)
 		}
 		fc.witness[tp] = scope.alloc("w" + tp.Name)
+		if sp != nil && sp.wit != nil && sp.wit.Param == tp {
+			// A copy for a known witness (witspec.go): no parameter; a
+			// use of the witness itself takes one built in the copy.
+			fc.static = map[*check.TypeParam]*check.Witness{tp: sp.wit}
+			continue
+		}
 		parts = append(parts, fc.witness[tp]+" "+fc.witnessType(tp, tp))
 		args = append(args, fc.witness[tp])
 	}
 	for i, p := range f.Sig.Params {
-		if fd.method != nil && i == 0 {
+		if fd.method != nil && sp == nil && i == 0 {
 			continue
 		}
 		paramNames[i] = name(i)
 		if s, ok := p.Type.(*check.Signature); ok && known {
 			parts = append(parts, paramNames[i]+" "+fc.plainFuncType(s))
+		} else if sp != nil && sp.prov != nil && i == sp.param {
+			// A copy for a known provider (provider.go): the adapter.
+			parts = append(parts, paramNames[i]+" *"+l.pkgNames[pkgKey{"adapter", sp.prov.key}])
 		} else {
 			parts = append(parts, paramNames[i]+" "+fc.goType(p.Type))
 		}
@@ -1099,7 +1189,9 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy) {
 	}
 	head.WriteString(strings.Join(parts, ", ") + ")")
 	wrapParams = strings.Join(parts, ", ") + ")"
-	if sp != nil && params[sp.param] != nil {
+	if sp != nil && sp.prov != nil && params[sp.param] != nil {
+		fc.provs = map[*check.Var]*knownProv{params[sp.param]: sp.prov}
+	} else if sp != nil && sp.rec != nil && params[sp.param] != nil {
 		fc.recs = map[*check.Var]*knownRec{params[sp.param]: sp.rec}
 		if l.copyScopes == nil {
 			l.copyScopes = map[*namer]bool{}
@@ -1109,7 +1201,9 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy) {
 	if len(f.Sig.Results) > 1 {
 		unreachable(site, ruleOneResult, "the function %s has %d results", f.Name, len(f.Sig.Results))
 	}
-	if len(f.Sig.Results) == 1 {
+	if len(f.Sig.Results) == 1 && !drop {
+		// The variant with no result (forms.go, droppedName) returns
+		// nothing: each return evaluates its value for its effects alone.
 		fc.frame.result = f.Sig.Results[0]
 	}
 	if fd.extern != "" {
@@ -1165,22 +1259,22 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy) {
 		for _, g := range []struct {
 			on     bool
 			reason string
-		}{{known, "known-callback variant"}, {owned, "owned parameters"}, {needsFrame, "body that needs a frame"}} {
+		}{{known, "known-callback variant"}, {drop, "variant with no result"}, {isClose(f), "checked Close (closeBody masks it)"}, {owned, "owned parameters"}, {needsFrame, "body that needs a frame"}} {
 			if g.on {
 				gates = append(gates, g.reason)
 			}
 		}
-		if l.ir.body(fc, fd, params, gates) {
+		if l.ir.body(fc, fd, params, gates, drop) {
 			fd.lowered, fd.readsEnv = true, fc.env != ""
 			b.WriteString(directive + head.String() + "\n\n")
 			return
 		}
 	}
-	recvName := ""
+	closeRecv := ""
 	if len(paramNames) > 0 {
-		recvName = paramNames[0]
+		closeRecv = paramNames[0]
 	}
-	fc.closeBody(f, recvName, site, func() {
+	fc.closeBody(f, closeRecv, site, func() {
 		if needsFrame {
 			fc.site = site
 			fc.openFrame(frameErr)
@@ -1198,6 +1292,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy) {
 		default:
 			fc.entryPoll(f.Pkg.Info, f.Decl)
 		}
+		fc.entryFacts(f, fd.pure) // facts.go
 		fc.body(f.Decl.Body.List)
 	})
 	if fc.frame.static != nil {
@@ -1205,14 +1300,21 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy) {
 		fc.out.Reset()
 		fc.out.WriteString(body)
 	}
-	if !known && sp == nil {
+	if !known && sp == nil && !drop {
 		fd.lowered, fd.readsEnv = true, fc.env != "" && namesIdent(fc.out.String(), fc.env)
 	}
-	b.WriteString(directive + head.String() + " {\n" + fc.out.String() + "}\n\n")
+	body := fc.out.String()
+	if sp != nil && sp.wit != nil {
+		if w := fc.witness[sp.wit.Param]; namesIdent(body, w) {
+			fc.depth = 1
+			body = "\t" + w + " := " + fc.witnessValue(sp.wit, site) + "\n" + body
+		}
+	}
+	b.WriteString(directive + head.String() + " {\n" + body + "}\n\n")
 	if owned {
 		// The wrapper stands in the generated part, before the first
 		// //line directive: a defect names no Ergo frame for it.
-		l.gen.WriteString(fc.ownedWrapper(f, wrapHead, wrapParams, results, bodyName, typeArgs, args, site))
+		l.gen.WriteString(fc.ownedWrapper(f, wrapHead, wrapParams, results, bodyName, typeArgs, args, recvName, site))
 	}
 }
 
@@ -1397,13 +1499,62 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 	l.analyzeValues(x, l.info)
 	val := fc.assigned(x)
 	if _, constant := l.info.Values[x]; constant && fc.out.Len() == 0 {
+		if ok && l.consts[v] {
+			if l.constFold(v) {
+				l.stats.Consts++ // read by its bare name (forms.go)
+			}
+			l.letDecl(id, "const "+name+" "+goType+" = "+val+"\n\n")
+			return
+		}
 		l.letDecl(id, "var "+name+" "+goType+" = "+val+"\n\n")
 		return
+	}
+	if ok && l.consts[v] {
+		ice(id, "the constant let %s needs statements", id.Name)
 	}
 	if name != "_" {
 		l.letDecl(id, "var "+name+" "+goType+"\n\n")
 	}
 	l.addInit(x, id, fc.out.String(), []string{name + " = " + val})
+}
+
+// constLet reports whether the package let v, of spec, lowers to a Go
+// constant (wf10 1BRC): a single name whose initializer the checker
+// evaluated to a constant, of type bool, string or an integer type. A Go
+// package variable is a load at every read, and Go folds no expression
+// over it: `h & (Slots - 1)` loads Slots and subtracts on every probe of
+// examples/onebrc's table, and a constant is an immediate. Every read is
+// then v1.Let(name) (letRead), a call of an identity that gc inlines and
+// whose result is no Go constant expression, so Go evaluates every
+// expression over it as it evaluates one over the variable: an integer
+// wraps, a division by zero is a defect at run time, and a conversion
+// out of range wraps, where a constant expression would be a Go compile
+// error. A float stays a variable, since Go evaluates a float constant
+// expression exactly, not rounded at each step. A package let is
+// immutable and never borrowed (grammar.md, let), so no read needs its
+// address.
+func (l *lowerer) constLet(spec *syntax.VarSpec, v *check.Var) bool {
+	if !formsOn() {
+		return false // the OPT5 reference keeps every let a variable
+	}
+	if spec.Pattern != nil || len(spec.Names) != 1 || len(spec.Values) != 1 {
+		return false
+	}
+	if _, constant := l.info.Values[spec.Values[0]]; !constant {
+		return false
+	}
+	b, ok := v.Type.(*check.Basic)
+	return ok && b.Kind >= check.Bool && b.Kind <= check.Uintptr
+}
+
+// letRead is the Go text of a read of the package let v, Go-named name.
+func (l *lowerer) letRead(v *check.Var, name string) string {
+	if l.consts[v] && !l.constFold(v) {
+		// A let read only where Go's folding cannot fail is read by its
+		// bare name, so Go folds it (forms.go, constFold).
+		return l.rt() + ".Let(" + name + ")"
+	}
+	return name
 }
 
 // letDecl writes the Go declaration text of a package let: a program
@@ -1576,6 +1727,9 @@ func (l *lowerer) envType(b *strings.Builder) {
 	}
 	b.WriteString("type " + l.envName + " struct {\n")
 	b.WriteString("\t" + envTask + " *" + l.taskPkg() + ".Task\n")
+	if l.holdsRows() {
+		b.WriteString("\t" + envWith + " *" + l.rt() + ".Scope\n") // inforce.go
+	}
 	for _, cap := range l.envOrder {
 		b.WriteString("\t" + cap.field + " " + cap.goType + "\n")
 	}

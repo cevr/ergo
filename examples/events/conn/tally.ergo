@@ -1,0 +1,56 @@
+// Tally is what a log of events adds up to: how many of each kind, the
+// bytes sent, and the connections still open at its end.
+type Tally { Opened int, Sent int, Bytes int, Closed int, Failed int }
+
+// Empty is the tally of no events.
+let Empty = Tally{Opened: 0, Sent: 0, Bytes: 0, Closed: 0, Failed: 0}
+
+// Add is t with e counted.
+func Add(t Tally, e Event) Tally {
+	match e {
+	case Opened:
+		Tally{..t, Opened: t.Opened + 1}
+	case Sent as s:
+		Tally{..t, Sent: t.Sent + 1, Bytes: t.Bytes + s.Bytes}
+	case Closed:
+		Tally{..t, Closed: t.Closed + 1}
+	case Failed:
+		Tally{..t, Failed: t.Failed + 1}
+	}
+}
+
+// Open is how many connections opened and did not end.
+func Open(t Tally) int { t.Opened - t.Closed - t.Failed }
+
+// Report is the tally's text, one line per figure.
+func Report(t Tally) string {
+	"opened \(t.Opened)\nsent \(t.Sent) (\(t.Bytes) bytes)\nclosed \(t.Closed)\nfailed \(t.Failed)\nopen \(t.Open())\n"
+}
+
+// Of is the tally of es.
+func Of(es []Event) Tally {
+	let mut t = Empty
+	for e in es {
+		t = Add(t, e)
+	}
+	t
+}
+
+// AddCountsEach: every event counts once, in its own kind.
+law AddCountsEach(es []Event) {
+	let t = Of(es)
+	t.Opened+t.Sent+t.Closed+t.Failed == len(es)
+}
+
+// AddIsOrderFree: a tally does not depend on the order of the events.
+law AddIsOrderFree(a []Event, b []Event) {
+	Of(join(a, b)) == Of(join(b, a))
+}
+
+func join(a []Event, b []Event) []Event {
+	let mut out = a
+	for e in b {
+		out = out.Append(e)
+	}
+	out
+}

@@ -36,7 +36,7 @@ type NumberEvent { Text string }
 type Event = BoolEvent | IntEvent | UintEvent | FloatEvent | StringEvent | BeginListEvent | EndListEvent | BeginObjectEvent | TagEvent | KeyEvent | EndObjectEvent | NullEvent | NumberEvent
 
 // Events records the events written to it.
-type Events { log sync.Ref[[]Event] }
+type Events { log sync.Ref[[]Event] } implements Writer
 
 // NewEvents is an Events with no event yet.
 func NewEvents() Events { Events{log: sync.NewRef[[]Event]([]Event{})} }
@@ -63,14 +63,14 @@ func EndObject(e Events)          { record(e, EndObjectEvent) }
 
 // RoundTrip is v through Events and back: decode[T] of a Replay of the
 // events encode(v) wrote. Its row is wired[T], the row of decode[T].
-func RoundTrip[T wire](v T) T fails wired[T] {
+func RoundTrip[T wire](v T) T fails wired[T] needs wired[T] {
 	let e = NewEvents()
 	encode(v, e)
 	decode[T](NewReplay(Recorded(e)))
 }
 
 // Replay reads back a list of events.
-type Replay { events []Event, at sync.Ref[int] }
+type Replay { events []Event, at sync.Ref[int] } implements Reader
 
 // NewReplay reads events from the first.
 func NewReplay(events []Event) Replay { Replay{events: events, at: sync.NewRef[int](0)} }

@@ -35,7 +35,9 @@ func (c *checker) try(x *syntax.TryExpr, hint Type) operand {
 		t.tries++
 		defer func() {
 			t.tries--
-			t.tried = saved || t.tried
+			// A failure belongs to the nearest try that covers it: an
+			// enclosing try does not count it (q105, the redundant try).
+			t.tried = saved
 		}()
 	}
 	if ce, ok := unparen(x.X).(*syntax.CatchExpr); ok {
@@ -74,6 +76,13 @@ func (c *checker) try(x *syntax.TryExpr, hint Type) operand {
 	// The row escapes; an unknown row is fallible (Row.unknown), so the
 	// check below is silent on it.
 	op.addressable = false
+	if op.fallible() || inner {
+		if c.cover.right[x] {
+			c.useTrys([]*syntax.TryExpr{x})
+		}
+	} else if c.cover.right[x] {
+		return op // what it covers to its right decides (cover.go)
+	}
 	if !op.fallible() && inner {
 		return op
 	}
@@ -529,7 +538,7 @@ func (cs *catchSpace) judge(it catchItem, row *Row, valid bool) (refused bool) {
 			if it.whole && cs.wholeSeen[id] {
 				c.errorf(it.te, CodeType, "%s is caught twice (rows.md, Catch 2)", it.t)
 			} else {
-				c.errorf(it.te, CodeType, "%s (unreachable; rows.md, Catch 2)", c.coveredBy(m.rows, m.origin))
+				c.errorf(it.te, CodeType, "%s (unreachable; rows.md, Catch 2)", c.coveredBy(m.rows, m.origin, it.te))
 			}
 			return
 		}

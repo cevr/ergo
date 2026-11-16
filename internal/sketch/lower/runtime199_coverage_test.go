@@ -33,7 +33,7 @@ var i1CallRules = map[check.CallKind][]i1CallRule{
 			decls: func(row, clause string) string {
 				// The operation's row is empty. Its own with discharges
 				// walk's row, independently of walk's footprint clause.
-				return "type Shape { Area(n int) int }\ntype Sq {}\nfunc Area(s Sq, n int) int { with Local { walk(s, n) } }\n" +
+				return "type Shape { Area(n int) int }\ntype Sq {} implements Shape\nfunc Area(s Sq, n int) int { with Local { walk(s, n) } }\n" +
 					i1Fib("walk(s Shape, n int)", "s.Area(n - 1)", "s.Area(n - 2)")(row, clause)
 			}, call: "walk(Sq, %d)",
 		}},
@@ -79,8 +79,8 @@ func i1OpaqueGraph(name, effect string) *i1Graph {
 	// (std-align S2b), so a written row of its frames lists Ambient too.
 	ambient := name == "extern"
 	return &i1Graph{name: name, opaque: true, ambient: ambient, frames: []string{"left"}, call: "left(%d)", decls: func(row, clause string) string {
-		if ambient && row != "" {
-			row += " | Ambient"
+		if ambient {
+			row = withAmbient(row)
 		}
 		defs := ""
 		if name == "context-reentry" {

@@ -8,7 +8,7 @@ extern go ergo.local/prototype/runtime/v1.UTF8RuneCount func RuneCount(s string)
 
 // Decoded is the first rune of a text and its size in bytes: Go's two
 // results of DecodeRuneInString as one record.
-type Decoded { Rune rune, Size int }
+extern go ergo.local/prototype/runtime/v1.Decoded type Decoded { Rune rune, Size int }
 
 // DecodeRuneInString is the first rune of s and its size in bytes. An
 // invalid byte is (U+FFFD, 1) and an empty s is (U+FFFD, 0), as in Go, so

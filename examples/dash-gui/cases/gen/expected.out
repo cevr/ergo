@@ -1,0 +1,10 @@
+pause 0
+run 120
+policy 9 newest
+policy 2 newest
+show
+run 76
+run 31
+run 59
+show
+drops

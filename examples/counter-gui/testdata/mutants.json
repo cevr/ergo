@@ -1,0 +1,45 @@
+{
+  "about": "counter-gui model and view mutants. Killers are the examples suite (examples:counter-gui: its laws, tests and CLI cases); each rule names the law or case that kills it.",
+  "mutants": [
+    {
+      "name": "x-gui-dec-below-zero",
+      "origin": "X-gui",
+      "file": "examples/counter-gui/counter/counter.ergo",
+      "from": "} else { 0 }, By: c.By}}",
+      "to": "} else { c.Value - c.By }, By: c.By}}",
+      "rule": "NeverNegative: a Dec from below the step stops at zero.",
+      "anchor": {"tests": ["examples:counter-gui"]},
+      "killers": ["examples:counter-gui"]
+    },
+    {
+      "name": "x-gui-step-above-100-taken",
+      "origin": "X-gui",
+      "file": "examples/counter-gui/counter/counter.ergo",
+      "from": "if s.By < 1 || s.By > 100 {",
+      "to": "if s.By < 1 {",
+      "rule": "BadStepIgnored: a step above 100 changes nothing.",
+      "anchor": {"tests": ["examples:counter-gui"]},
+      "killers": ["examples:counter-gui"]
+    },
+    {
+      "name": "x-gui-reset-forgets-the-step",
+      "origin": "X-gui",
+      "file": "examples/counter-gui/counter/counter.ergo",
+      "from": "Enter[Count]{Next: Count{Value: 0, By: c.By}}",
+      "to": "Enter[Count]{Next: Count{Value: 0, By: 1}}",
+      "rule": "ResetKeepsTheStep: Reset keeps the step the user picked.",
+      "anchor": {"tests": ["examples:counter-gui"]},
+      "killers": ["examples:counter-gui"]
+    },
+    {
+      "name": "x-gui-minus-key-counts-up",
+      "origin": "X-gui",
+      "file": "examples/counter-gui/view/view.ergo",
+      "from": "case \"-\":\n\t\t\t\tSome{Value: counter.Dec}",
+      "to": "case \"-\":\n\t\t\t\tSome{Value: counter.Inc}",
+      "rule": "cases/play: the - key counts down (the view maps keys to signals; no law sees the view).",
+      "anchor": {"tests": ["examples:counter-gui"]},
+      "killers": ["examples:counter-gui"]
+    }
+  ]
+}

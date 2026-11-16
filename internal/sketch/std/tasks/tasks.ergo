@@ -168,12 +168,12 @@ law RepeatFollowsDecide(work int, k int, limit int) {
 // binds. f is escaping: its calls run on other tasks, at once, so a
 // literal f writes no let mut of its caller (types.md, Function values 2
 // and 3); a result it builds is its own.
-extern go ergo.local/prototype/runtime/v1.TasksTransform func Transform[A, B, E, R](xs []A, limit int, f escaping func(x A) B fails E needs R) []B fails E needs R
+extern go ergo.local/prototype/runtime/v1.TasksTransform func Transform[A, B, E, R](xs []A, limit int, f own func(x A) B fails E needs R) []B fails E needs R
 
 // Closed is the failure of Go on a Set that admits no more tasks: FailFast
 // ended it, or it was stopped. Like queue.Closed, it is a normal end of
 // the protocol, not a stop of the caller.
-type Closed {}
+extern go ergo.local/prototype/runtime/v1.TasksClosed type Closed {}
 
 // FailFast is the policy under which the first failure or defect of a
 // member ends the Set: admission closes, the other members are stopped,
@@ -203,8 +203,9 @@ type Policy = FailFast | LogFailures | Restart
 // frame owns a Task: the frame's end stops every member and waits for
 // it, a return moves the Set to the caller, and no block or other task
 // may hold it. Only the task that made it calls its operations.
-type Set[E] {
+extern go ergo.local/prototype/runtime/v1.Set type Set[E] {
 	runtimeOnly(),
+	..Closer,
 	// Wait waits until no member runs. It fails with the failure that
 	// ended the Set, at this Wait and at each later one, and raises the
 	// defects of members that no Wait or Stop raised yet. A stop of the
@@ -214,9 +215,6 @@ type Set[E] {
 	// ended, its exit actions included. It raises the members' defects
 	// and drops their failures.
 	Stop(),
-	// Close is the Set's release (#197 L8 B3t; resources R1): its owner's
-	// scope calls it at the scope's end. It is Stop; a Set is a resource.
-	Close(),
 	// Len is how many members run now.
 	Len() int,
 
@@ -247,7 +245,7 @@ extern go ergo.local/prototype/runtime/v1.TasksNewSet func newSet[E](kind int, l
 // caller's, and returns at once. The body keeps running after Go returns,
 // so it is escaping. It fails with Closed, and starts nothing, when set
 // admits no more tasks.
-extern go ergo.local/prototype/runtime/v1.TasksGo func Go[E, R](set Set[E], body escaping func() fails E needs R) fails Closed needs R
+extern go ergo.local/prototype/runtime/v1.TasksGo func Go[E, R](set Set[E], body own func() fails E needs R) fails Closed needs R
 
 // setFailed is the failure of a member in the Set laws.
 type setFailed {}

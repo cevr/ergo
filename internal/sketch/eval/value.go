@@ -3,11 +3,11 @@ package eval
 import (
 	"fmt"
 	"go/constant"
+	"math"
 	"strconv"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
-	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // Value is an evaluated Ergo value, in a private tagged form. A basic
@@ -34,6 +34,35 @@ type record struct {
 	t      *check.Named
 	key    string
 	fields []Value
+}
+
+// newRecord is a record of t with n fields, all nil: the record and its
+// fields one allocation when n is small (ORACLE O32).
+func newRecord(t *check.Named, key string, n int) *record {
+	switch {
+	case n <= 2:
+		p := &struct {
+			r record
+			a [2]Value
+		}{}
+		p.r = record{t: t, key: key, fields: p.a[:n:n]}
+		return &p.r
+	case n <= 4:
+		p := &struct {
+			r record
+			a [4]Value
+		}{}
+		p.r = record{t: t, key: key, fields: p.a[:n:n]}
+		return &p.r
+	case n <= 8:
+		p := &struct {
+			r record
+			a [8]Value
+		}{}
+		p.r = record{t: t, key: key, fields: p.a[:n:n]}
+		return &p.r
+	}
+	return &record{t: t, key: key, fields: make([]Value, n)}
 }
 
 type tuple struct{ elems []Value }
@@ -97,7 +126,7 @@ func fromConstant(t check.Type, v constant.Value) (Value, bool) {
 func fromInt64(k check.BasicKind, i int64) (Value, bool) {
 	switch k {
 	case check.Int, check.Int64, check.Duration:
-		return i, true
+		return boxInt(i), true
 	case check.Int8:
 		return int8(i), true
 	case check.Int16:
@@ -135,38 +164,53 @@ func fromUint64(k check.BasicKind, u uint64) (Value, bool) {
 // out of an integer's range implementation-defined, so the evaluator does
 // not guess (plan section 4).
 func fromFloat(k check.BasicKind, f float64) (Value, bool) {
-	// A float converts to an integer by the one rule the lowering calls
-	// (types.md, Conversions 4; S-conv): runtime/v1's FloatTo* truncate
-	// toward zero, saturate at the bounds and take NaN to 0.
+	// A float converts to an integer by the one rule of types.md,
+	// Conversions 4 (S-conv): toward zero, saturated at the type's bounds,
+	// NaN to 0. The evaluator's own code: runtime/v1's FloatTo* are the
+	// built program's, which TestEvalAgreesWithGo holds this to.
+	sat := func(lo, hi int64) int64 { return min(max(floatToInt64(f), lo), hi) }
 	switch k {
 	case check.Float32:
 		return float32(f), true
 	case check.Float64:
 		return f, true
-	case check.Int:
-		return int64(v1.FloatToInt(f)), true
+	case check.Int, check.Int64:
+		return floatToInt64(f), true
 	case check.Int8:
-		return v1.FloatToInt8(f), true
+		return int8(sat(math.MinInt8, math.MaxInt8)), true
 	case check.Int16:
-		return v1.FloatToInt16(f), true
+		return int16(sat(math.MinInt16, math.MaxInt16)), true
 	case check.Int32:
-		return v1.FloatToInt32(f), true
-	case check.Int64:
-		return v1.FloatToInt64(f), true
-	case check.Uint:
-		return uint64(v1.FloatToUint(f)), true
+		return int32(sat(math.MinInt32, math.MaxInt32)), true
 	case check.Uint8:
-		return v1.FloatToUint8(f), true
+		return uint8(sat(0, math.MaxUint8)), true
 	case check.Uint16:
-		return v1.FloatToUint16(f), true
+		return uint16(sat(0, math.MaxUint16)), true
 	case check.Uint32:
-		return v1.FloatToUint32(f), true
-	case check.Uint64:
-		return v1.FloatToUint64(f), true
-	case check.Uintptr:
-		return uint64(v1.FloatToUintptr(f)), true
+		return uint32(sat(0, math.MaxUint32)), true
+	case check.Uint, check.Uint64, check.Uintptr:
+		switch {
+		case math.IsNaN(f) || f <= -1:
+			return uint64(0), true
+		case f >= 0x1p64:
+			return uint64(math.MaxUint64), true
+		}
+		return uint64(f), true
 	}
 	return nil, false
+}
+
+// floatToInt64 is f toward zero, saturated at int64's bounds, NaN 0.
+func floatToInt64(f float64) int64 {
+	switch {
+	case math.IsNaN(f):
+		return 0
+	case f >= 0x1p63:
+		return math.MaxInt64
+	case f < -0x1p63:
+		return math.MinInt64
+	}
+	return int64(f)
 }
 
 // convertBasic converts v to the basic kind k as Go's conversion does, or
@@ -266,7 +310,10 @@ func equal(a, b Value, spend func(int64) bool) (eq, paid bool) {
 		if !spend(int64(len(a.b.m))) {
 			return false, false
 		}
-		for k, av := range a.b.m {
+		// The walk stops at the first different entry, so it walks the
+		// keys' fixed order, not the Map's (keyOrder).
+		for _, k := range keyOrder(a.b.m) {
+			av := a.b.m[k]
 			bw, ok := bv.b.m[k]
 			if !ok {
 				return false, true
@@ -331,6 +378,10 @@ func describe(v Value) string {
 		return "no value"
 	case term:
 		return v.termText()
+	case *operation:
+		return describe(v.value)
+	case opObject:
+		return v.describe()
 	}
 	if s, ok := describeColl(v); ok {
 		return s

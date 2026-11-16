@@ -1,0 +1,123 @@
+// Package app is the program as one machine: the route the address
+// names, and the People page's search, which a People route drives. It
+// declares Location, the address and its history, which the host
+// provides.
+
+import fkroutes/people
+import fkroutes/route
+
+// Results is the People page's list: loading the search Query, or loaded
+// with the people Found for it.
+type Results = Loading{Query string} | Loaded{Query string, Found []people.Person}
+
+// Page is the People page: the search field, the searches made (newest
+// first), and the results.
+type Page { Input string, History []string, Results Results }
+
+// App is the route and the People page, which lives on while other
+// routes show.
+type App { Route route.Route, Page Page }
+
+// Key is a navigation shortcut: G then H, P, F or N.
+type Key = GH{} | GP{} | GF{} | GN{}
+
+// Signal is what the program reads: the address changed (a push, a back,
+// a typed address), a shortcut, the search field typed in, Search
+// clicked, and the search's answer, which the Loading page's timer gives.
+type Signal = Navigated{Path string} | Pressed{Key Key} | Typed{Text string} | Submit{} | Fetched{}
+
+// Go is the program's request to navigate: the host pushes Path on the
+// Location and tells the machine Navigated.
+type Go { Path string }
+
+// SearchTakes is how long a search takes to answer.
+let SearchTakes = 300ms
+
+// Target is the route a shortcut goes to.
+func Target(k Key) route.Route {
+	match k {
+	case GH:
+		route.Home
+	case GP:
+		route.People{Search: None}
+	case GF:
+		route.FilesIndex
+	case GN:
+		route.Nested
+	}
+}
+
+func searchOf(r route.Route) string {
+	match r {
+	case route.People as p:
+		match p.Search {
+		case Some[string] as s:
+			s.Value
+		case None:
+			""
+		}
+	case route.Home, route.Nested, route.Person, route.FilesIndex, route.Files, route.NotFound:
+		""
+	}
+}
+
+// Open is the program at the address path: its route, and a People page
+// searching the route's text (none but a People route's).
+func Open(path string) App {
+	let r = route.Parse(path)
+	let s = searchOf(r)
+	App{Route: r, Page: Page{Input: s, History: people.Remember([]string{}, s), Results: Loading{Query: s}}}
+}
+
+// Step is the program's transition. A new address sets the route; a
+// People route also sets the field to its search, records the search and
+// searches again, a new entry, so the search's timer starts anew. Any
+// other route keeps the entry, so a search under way still answers. A
+// shortcut and Search ask the host to navigate (an Emit); the address
+// changes only when the host says so.
+func Step(a App, sig Signal) Decision[App, Go] {
+	match sig {
+	case Navigated as n:
+		let r = route.Parse(n.Path)
+		match r {
+		case route.People:
+			let s = searchOf(r)
+			Enter[App]{Next: App{Route: r, Page: Page{Input: s, History: people.Remember(a.Page.History, s), Results: Loading{Query: s}}}}
+		case route.Home, route.Nested, route.Person, route.FilesIndex, route.Files, route.NotFound:
+			Stay[App]{Next: App{..a, Route: r}}
+		}
+	case Pressed as p:
+		Emit[App, Go]{Next: a, Output: Go{Path: route.Print(Target(p.Key))}}
+	case Typed as t:
+		Stay[App]{Next: App{..a, Page: Page{..a.Page, Input: t.Text}}}
+	case Submit:
+		let search = if a.Page.Input == "" { None } else { Some[string]{Value: a.Page.Input} }
+		Emit[App, Go]{Next: a, Output: Go{Path: route.Print(route.People{Search: search})}}
+	case Fetched:
+		match a.Page.Results {
+		case Loading as l:
+			Stay[App]{Next: App{..a, Page: Page{..a.Page, Results: Loaded{Query: l.Query, Found: people.Search(l.Query)}}}}
+		case Loaded:
+			Ignore
+		}
+	}
+}
+
+// Timer is the search's: a Loading page answers Fetched after
+// SearchTakes.
+func Timer(a App) Option[Timeout[Signal]] {
+	match a.Page.Results {
+	case Loading:
+		Some[Timeout[Signal]]{Value: Timeout[Signal]{In: SearchTakes, Signal: Fetched}}
+	case Loaded:
+		None
+	}
+}
+
+// Router is the program as a machine. Its input is the address it opens
+// at.
+type Router machine[App, Signal] {
+	initial: Open,
+	step:    Step,
+	after:   Timer,
+}

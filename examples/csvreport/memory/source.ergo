@@ -8,7 +8,7 @@ type Entry = Readable{Name string, Text string} | Broken{Name string, Reason str
 
 // Shelf is a report.Source of fixed entries. A name with no entry is
 // report.Missing.
-type Shelf { Entries []Entry }
+type Shelf { Entries []Entry } implements report.Source
 
 // Read is the text of the first entry named name.
 func Read(s Shelf, name string) string fails report.Missing | report.Unreadable {

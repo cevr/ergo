@@ -21,9 +21,12 @@ func (b *irBuilder) valueCopy(x syntax.Expr, e *irExpr) *irExpr {
 	if !b.l.holdsValue(t) {
 		return e
 	}
+	// The emitter's expr1: deep for Go (V8, vals.deep), else cloneValue,
+	// deep unless the entry rule holds (cloneOf).
+	deep := b.l.vals.deep[x] || !entryRule()
 	switch u := underEqual(t).(type) {
 	case *check.Map:
-		if !b.l.holdsValue(u.Elem) || valueMutant == "shallow" {
+		if !deep && !b.l.entryWritten(t) || !b.l.holdsValue(u.Elem) || valueMutant == "shallow" {
 			k, v := b.goType(u.Key, x), b.goType(u.Elem, x)
 			m := "map[" + k + "]" + v
 			if b.goType(t, x) != m {
@@ -47,7 +50,7 @@ func (b *irBuilder) valueCopy(x syntax.Expr, e *irExpr) *irExpr {
 		}
 	}
 	b.goType(t, x)
-	name, free := b.l.cloneFunc(t, x)
+	name, free := b.l.cloneFunc(t, x, deep)
 	args := make([]string, len(free))
 	for i, tp := range free {
 		args[i] = b.goType(tp, x)

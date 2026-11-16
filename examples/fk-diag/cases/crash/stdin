@@ -1,0 +1,16 @@
+app crash
+# The app's one screen: the Crash button.
+screen
+crashed
+# Any press defects: the window shows the crash view, and the report ran.
+tap Crash
+crashed
+screen
+reports
+# Reload starts the app afresh, on its first screen.
+tap Reload
+crashed
+screen
+# A second crash is reported once more.
+tap Crash
+reports

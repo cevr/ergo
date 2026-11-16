@@ -9,7 +9,7 @@ import ssg/site
 // Source is a site.Source held in memory: Content holds each page by its
 // path, and Layouts each template by its name. Package files reads one
 // from a folder; a test writes one.
-type Source { Content Map[string, string], Layouts Map[string, string] }
+type Source { Content Map[string, string], Layouts Map[string, string] } implements site.Source
 
 // Pages is the path of each page, sorted.
 func Pages(s Source) []string { slices.Sorted(maps.Keys(s.Content)) }

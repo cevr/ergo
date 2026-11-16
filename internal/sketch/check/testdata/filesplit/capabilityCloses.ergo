@@ -1,4 +1,4 @@
 // capabilityCloses (withown.go): a capability's Close called directly.
-type Releaser { Close() }
+type Releaser { ..Closer }
 
 func capability() needs Releaser { Releaser.Close() }

@@ -294,6 +294,9 @@ func shape(t Type) (kind byte, ref any, n int64, s string, kids []Type) {
 	case *Tuple:
 		return vTuple, nil, int64(len(t.Types)), "", t.Types
 	case *Wired:
+		if t.Uses {
+			return vWired, nil, 1, "", []Type{t.T}
+		}
 		return vWired, nil, 0, "", []Type{t.T}
 	case *Signature:
 		kids := make([]Type, 0, len(t.Params)+len(t.Results)+2)
@@ -305,6 +308,9 @@ func shape(t Type) (kind byte, ref any, n int64, s string, kids []Type) {
 		s := strconv.Itoa(len(t.Params)) + "," + strconv.Itoa(len(t.Results))
 		if t.NonEscaping {
 			s += "!" // a non-escaping parameter's type (escaping.go)
+		}
+		if t.Entry {
+			s += "e" // an entry's send (Signature.Entry)
 		}
 		// The takes clause is part of the type (Gap 39, L8 A3).
 		s += takesKey(t)

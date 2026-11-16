@@ -8,6 +8,7 @@
 import actor
 import journal
 import journal/memory
+import queue
 import router/route
 import router/script
 import strings
@@ -152,7 +153,12 @@ func applied(r Router, id int) bool {
 // Stopped, and the new lane's host gives a running courier.
 law HostSeesItsEntry(n int) {
 	with context { route.Registry: NewDirectory(), Scheduler: time.NewManual(0) } {
-		let d = actor.StartMachine(route.Routing{}, 4, func(o route.Output) {})
+		let told = queue.New[route.Output](4)
+		let d = actor.StartMachine(route.Routing{}, 4, func(o route.Output) {
+			told.Push(o) catch {
+			case queue.Closed:
+			}
+		})
 		if !applied(d, 1) {
 			return false
 		}
@@ -190,12 +196,21 @@ law HostSeesItsEntry(n int) {
 		case actor.Stopped:
 			return false
 		}
-		let s = actor.WaitFor(d, func(s route.Router) bool { len(route.LogOf(s)) == 1 }) catch {
-		case actor.Stopped:
-			return false
+		// The courier's message is told; a question would come first.
+		let mut carried Option[route.Delivered] = None
+		for carried == None {
+			let o = told.Pop() catch {
+			case queue.Closed:
+				return false
+			}
+			match o {
+			case route.Delivered as m:
+				carried = Some[route.Delivered]{Value: m}
+			case route.Question:
+			}
 		}
 		d.Stop()
-		len(route.LogOf(s)) == 1
+		carried == Some[route.Delivered]{Value: route.Delivered{Topic: "logs", Dest: "disk", Body: "x"}}
 	}
 }
 

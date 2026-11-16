@@ -1,0 +1,64 @@
+// ownedit (TestHandoverGrowsLinearly): GP2b's editor document (wf10
+// corpus GP, examples/editor-gui edit/doc.ergo at 43205740b), cut down.
+// Make binds `let mut b = d.Buf` and threads b = apply(b, e) through a
+// match: at 6a61de87b the bind copied the buffer with its line index, and
+// the caller copied the whole Doc back (d = Make(d, …)), so n edits did
+// O(n²) work. Run: ownedit N makes N edits.
+
+import os
+import strconv
+
+type Edit = Inserted{At int, Text string} | Deleted{At int, Text string}
+
+type Buffer { text string, breaks []int }
+
+type Change { Edits []Edit, Before int, After int }
+
+type Doc { Buf Buffer, Caret int, Undo []Change, Redo []Change, Dirty bool }
+
+func insert(b Buffer, at int, t string) Buffer {
+	Buffer{text: b.text, breaks: b.breaks.Append(at)}
+}
+
+func remove(b Buffer, at int, n int) Buffer {
+	Buffer{text: b.text, breaks: b.breaks.Append(at + n)}
+}
+
+func apply(b Buffer, e Edit) Buffer {
+	match e {
+	case Inserted as i:
+		insert(b, i.At, i.Text)
+	case Deleted as d:
+		remove(b, d.At, len(d.Text))
+	}
+}
+
+func Make(d Doc, edits []Edit, after int) Doc {
+	if len(edits) == 0 {
+		return d
+	}
+	let mut b = d.Buf
+	for e in edits {
+		b = apply(b, e)
+	}
+	let c = Change{Edits: edits, Before: d.Caret, After: after}
+	Doc{Buf: b, Caret: after, Undo: d.Undo.Append(c), Redo: []Change{}, Dirty: true}
+}
+
+func main() fails os.Exit needs Ambient {
+	let args = os.NewHost().Args()
+	if len(args) != 1 {
+		return os.Exit{Code: 2, Message: "usage: ownedit N"}
+	}
+	let n = strconv.Atoi(args[0]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return os.Exit{Code: 2, Message: "N"}
+	}
+	let mut d = Doc{Buf: Buffer{text: "", breaks: []int{}}, Caret: 0, Undo: []Change{}, Redo: []Change{}, Dirty: false}
+	for i in 0..n {
+		d = Make(d, []Edit{Inserted{At: i, Text: "x"}}, i + 1)
+	}
+	if len(d.Buf.breaks) != n || len(d.Undo) != n {
+		return os.Exit{Code: 1, Message: "lost edits"}
+	}
+}

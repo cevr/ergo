@@ -1,0 +1,1 @@
+printf '{"columns":[{"id":"now","name":"Tonight","cards":[{"id":"m1","title":"Open the dome","description":"","sortKey":"V"},{"id":"m2","title":"Cool the camera","description":"to -20 C","sortKey":"k"}]},{"id":"later","name":"Later","cards":[]}]}\n' > board.json

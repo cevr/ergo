@@ -71,7 +71,7 @@ func GenerateContextProgram(seed int64) ContextProgram {
 		for c := 0; c < 1+rng.Intn(3); c++ {
 			op, rec, v := fmt.Sprintf("C%d_%d", i, c), fmt.Sprintf("R%d_%d", i, c), 1+rng.Intn(9)
 			method := fmt.Sprintf("Get%d_%d", i, c)
-			fmt.Fprintf(&b, "type %s { %s() int }\ntype %s {}\nfunc %s(_ %s) int { %d }\n", op, method, rec, method, rec, v)
+			fmt.Fprintf(&b, "type %s { %s() int }\ntype %s {} implements %s\nfunc %s(_ %s) int { %d }\n", op, method, rec, op, method, rec, v)
 			provider := rec
 			if rng.Intn(2) == 0 {
 				provider = "New" + rec + "()"

@@ -90,8 +90,7 @@ func (w *borrowWalk) call(call *syntax.CallExpr) {
 			places = append(places, p)
 		}
 	}
-	if k := w.info.Calls[call]; k != nil && k.Kind == CallFunc && k.Recv != nil && k.Func != nil && k.Func.Sig != nil &&
-		len(k.Func.Sig.Params) > 0 && isPointer(k.Func.Sig.Params[0].Type) {
+	if k := w.info.Calls[call]; recvBorrow(w.info, k) {
 		add(k.Recv) // the implicit borrow, or a borrow passed on
 	}
 	for _, a := range call.Args {

@@ -1,0 +1,38 @@
+title = "TOML \"sample\" é"
+path = "C:\\Users\\tom"
+"quoted key" = 1000
+
+[site]
+"google.com" = true
+
+[owner]
+name = "Tom"
+dob = 1979-05-27T07:32:00-08:00
+lunch = 12:30:00
+day = 1979-05-27
+
+[numbers]
+hex = 3735928559
+oct = 493
+bin = 13
+float = -6.02e+23
+specials = [inf, -inf, nan]
+
+[strings]
+poem = "Roses are red and violets are blue"
+raw = "first line\nsecond's line"
+
+[[fruit]]
+name = "apple"
+
+[fruit.physical]
+color = "red"
+
+[fruit.physical.shape]
+kind = "round"
+
+[fruit.variety]
+names = ["red delicious", "granny smith"]
+
+[[fruit]]
+name = "banana"

@@ -1,0 +1,132 @@
+{
+  "about": "internal/opcount: the repository's one instruction counter (a count is whole or refused; a run that did not finish has no number), the workload file of scripts/opcount, and the numbers of a bench.v1 receipt. The counter's real-process tests skip on a host with no hardware counter; the exit hook is checked by hand (an opcount run reports its counters, or NoMetric).",
+  "mutants": [
+    {
+      "name": "count-no-inherit",
+      "origin": "wf10 STROBE OPC",
+      "file": "internal/opcount/counter_linux.go",
+      "from": "Flags:      perfFlagDisabled | perfFlagInherit | perfFlagExclKernel",
+      "to": "Flags:      perfFlagDisabled | perfFlagExclKernel",
+      "rule": "The counter is inherited by the program and every process it starts: the whole tree is counted.",
+      "killers": ["internal/opcount:TestCountsTheProcessTree"]
+    },
+    {
+      "name": "count-not-enabled-at-exec",
+      "origin": "wf10 STROBE OPC",
+      "file": "internal/opcount/counter_linux.go",
+      "from": "perfFlagExclHV | perfFlagEnableExec,",
+      "to": "perfFlagExclHV,",
+      "rule": "The counter starts at the program's exec, so the caller's threads are never counted and the program always is.",
+      "killers": ["internal/opcount:TestCountsTheProcessTree"]
+    },
+    {
+      "name": "count-exit-ignored",
+      "origin": "wf10 STROBE OPC (run-dir check-cpu.sh's || true)",
+      "file": "internal/opcount/counter_linux.go",
+      "from": "case ws.ExitStatus() != 0:",
+      "to": "case false:",
+      "rule": "A run that exits with a status other than 0 is RunIncomplete: a failed run is not a fast run.",
+      "killers": ["internal/opcount:TestRefusesARunThatDidNotFinish"]
+    },
+    {
+      "name": "count-group-left-admitted",
+      "origin": "wf10 STROBE OPC",
+      "file": "internal/opcount/counter_linux.go",
+      "from": "syscall.Kill(-group, 0) == nil {",
+      "to": "syscall.Kill(-group, 0) == nil && false {",
+      "rule": "A process of the program's group still running when it exits makes the run RunIncomplete (its count is not in yet).",
+      "killers": ["internal/opcount:TestRefusesARunThatDidNotFinish"]
+    },
+    {
+      "name": "count-multiplexed-admitted",
+      "origin": "wf10 STROBE OPC",
+      "file": "internal/opcount/opcount.go",
+      "from": "case running < enabled:",
+      "to": "case false:",
+      "rule": "A counter that ran for less time than it was enabled is Multiplexed: its short value is never a count.",
+      "killers": ["internal/opcount:TestShortCountIsRefused"]
+    },
+    {
+      "name": "workload-sizes-unordered",
+      "origin": "wf10 STROBE OPC",
+      "file": "internal/opcount/workload.go",
+      "from": "small <= 0 || large <= small {",
+      "to": "small <= 0 {",
+      "rule": "The small size is below the large one, or the slope divides by zero or flips its sign.",
+      "killers": ["internal/opcount:TestWorkloadFileReads"]
+    },
+    {
+      "name": "workload-unknown-key-admitted",
+      "origin": "wf10 STROBE OPC",
+      "file": "internal/opcount/workload.go",
+      "from": "bad(line, \"unknown key %q",
+      "to": "_ = fmt.Sprint(line, \"unknown key %q",
+      "rule": "A key the workload does not know is a problem at its line, not a silently ignored setting.",
+      "killers": ["internal/opcount:TestWorkloadFileReads"]
+    },
+    {
+      "name": "workload-duplicate-admitted",
+      "origin": "wf10 STROBE OPC",
+      "file": "internal/opcount/workload.go",
+      "from": "if first, dup := seen[key]; dup {",
+      "to": "if first, dup := seen[key]; dup && false {",
+      "rule": "A key given twice is a problem at the second line; the later line does not silently win.",
+      "killers": ["internal/opcount:TestWorkloadFileReads"]
+    },
+    {
+      "name": "workload-unsized-admitted",
+      "origin": "wf10 STROBE OPC",
+      "file": "internal/opcount/workload.go",
+      "from": "if !sized {",
+      "to": "if !sized && false {",
+      "rule": "A workload whose arguments and input never name {n} runs the same work at both sizes: a problem at its args line.",
+      "killers": ["internal/opcount:TestWorkloadFileReads"]
+    },
+    {
+      "name": "workload-required-unchecked",
+      "origin": "wf10 STROBE OPC",
+      "file": "internal/opcount/workload.go",
+      "from": "for _, key := range []string{\"unit\", \"sizes\", \"args\"} {",
+      "to": "for _, key := range []string{} {",
+      "rule": "unit, sizes and args are required.",
+      "killers": ["internal/opcount:TestWorkloadFileReads"]
+    },
+    {
+      "name": "slope-not-difference",
+      "origin": "wf10 STROBE OPC",
+      "file": "internal/opcount/receipt.go",
+      "from": "return (large - small) / float64(largeN-smallN)",
+      "to": "return large / float64(largeN)",
+      "rule": "The cost of a unit is the slope between the two sizes, so a run's fixed cost cancels.",
+      "killers": ["internal/opcount:TestReceiptNumbers"]
+    },
+    {
+      "name": "series-refused-value",
+      "origin": "wf10 STROBE OPC",
+      "file": "internal/opcount/receipt.go",
+      "from": "if refused != nil || len(values) == 0 {",
+      "to": "if refused == nil && len(values) == 0 {",
+      "rule": "A refused series holds no number, whatever the rounds measured.",
+      "killers": ["internal/opcount:TestReceiptNumbers"]
+    },
+    {
+      "name": "compare-refused-ratio",
+      "origin": "wf10 STROBE OPC",
+      "file": "internal/opcount/receipt.go",
+      "from": "\t\tif s.Refusal != nil {\n\t\t\tc.Verdict",
+      "to": "\t\tif s.Refusal != nil && false {\n\t\t\tc.Verdict",
+      "rule": "A comparison with a refused side is refused and holds no ratio.",
+      "killers": ["internal/opcount:TestReceiptNumbers"]
+    },
+    {
+      "name": "hook-allocs-unreported",
+      "origin": "wf10 STROBE OPC",
+      "file": "internal/opcount/hook.go",
+      "from": "\"allocs %d\\nalloc_bytes %d\\ngc_cycles %d\\n\"",
+      "to": "\"alloc %d\\nalloc_bytes %d\\ngc_cycles %d\\n\"",
+      "rule": "The exit hook reports every counter scripts/opcount reads; a missing one is NoMetric in the receipt, never 0.",
+      "killers": [],
+      "gap": "The hook runs only inside a program scripts/opcount builds and runs; its run is a tool check by hand (round-1 request: opcount on examples/lru and examples/onebrc), not a gate test."
+    }
+  ]
+}

@@ -41,7 +41,7 @@ var taskReleaseLaws = map[string]string{
 func TestRuntime199MaskProperty(t *testing.T) {
 	needsBuild(t)
 	routes := map[releaseRoute][]string{}
-	for name, binding := range runtimeBindings {
+	for name, binding := range runtimeBindings() {
 		if binding.release == notRelease || taskReleaseLaws[name] != "" {
 			continue
 		}
@@ -111,8 +111,8 @@ func closeDispatch(t *testing.T) map[string]bool {
 			// value of Close is refused (resources R33: a function value owns
 			// no resource; check TestCloseMethodValueRefused).
 			paths["value"] = true
-		case check.CallConversion, check.CallLen, check.CallWith, check.CallPrelude, check.CallGoError, check.CallEncode, check.CallDecode, check.CallEmbed:
-			// A conversion, len, go.Is and go.As, encode and decode (L11)
+		case check.CallConversion, check.CallLen, check.CallWith, check.CallPrelude, check.CallGoError, check.CallEncode, check.CallDecode, check.CallEmbed, check.CallPattern:
+			// A conversion, len, a pattern (FKre), go.Is and go.As, encode and decode (L11)
 			// and a with block call no Close; a prelude dot call is a
 			// CallFunc since check-v1 stage D3a.
 		case check.CallLawOp:
@@ -225,7 +225,7 @@ import scope
 import task
 
 type Fault {}
-type Conn { Fail bool }
+type Conn { Fail bool } implements Closer
 // Mark is Conn without a Close: it crosses (resources R1), so the twin
 // owns nothing and enters no release.
 type Mark { Fail bool }
@@ -246,7 +246,7 @@ func Finish(c Mark) needs Scheduler {
 	}
 }
 
-func viaDot(fail bool, signal queue.Queue[int]) {
+func viaDot(fail bool, signal queue.Queue[int]) needs Ambient {
 	with context { Scheduler: NewLiveScheduler() } {
 		let c = Conn{Fail: fail}
 		signal.End()
@@ -254,7 +254,7 @@ func viaDot(fail bool, signal queue.Queue[int]) {
 	}
 }
 
-func twinFinish(fail bool, signal queue.Queue[int]) {
+func twinFinish(fail bool, signal queue.Queue[int]) needs Ambient {
 	with context { Scheduler: NewLiveScheduler() } {
 		let c = Mark{Fail: fail}
 		signal.End()
@@ -275,7 +275,7 @@ func fail(exit int) fails Fault needs Scheduler {
 	}
 }
 
-func frame(exit int, nested bool, releaseFail bool) fails Fault {
+func frame(exit int, nested bool, releaseFail bool) fails Fault needs Ambient {
 	with context { Scheduler: NewLiveScheduler() } {
 		scope.OnExit() {
 			Scheduler.Sleep(6h)
@@ -296,7 +296,7 @@ func frame(exit int, nested bool, releaseFail bool) fails Fault {
 	}
 }
 
-func launch() Task[int, Fault] {
+func launch() Task[int, Fault] needs Ambient {
 	task.Go() {
 		try frame(0, true, false)
 		0
@@ -312,9 +312,9 @@ var maskPrograms = []maskProgram{
 	{
 		name: "operations",
 		extra: `
-type Plain { Fail bool, Live LiveScheduler }
+type Plain { Fail bool, Live LiveScheduler } implements Releaser, Closer
 type Other { Fail bool }
-type Releaser { Close() }
+type Releaser { ..Closer }
 
 func Close(p Plain) {
 	p.Live.Sleep(2h)
@@ -332,13 +332,13 @@ func Close(o Other, n int) needs Scheduler {
 	}
 }
 
-func viaOp(fail bool, signal queue.Queue[int]) {
+func viaOp(fail bool, signal queue.Queue[int]) needs Ambient {
 	let r Releaser = Plain{Fail: fail, Live: NewLiveScheduler()}
 	signal.End()
 	r.Close()
 }
 
-func twinOperand(fail bool, signal queue.Queue[int]) {
+func twinOperand(fail bool, signal queue.Queue[int]) needs Ambient {
 	with context { Scheduler: NewLiveScheduler() } {
 		let o = Other{Fail: fail}
 		signal.End()
@@ -356,7 +356,7 @@ func twinOperand(fail bool, signal queue.Queue[int]) {
 	{
 		name: "single",
 		extra: `
-func viaPlain(fail bool, signal queue.Queue[int]) {
+func viaPlain(fail bool, signal queue.Queue[int]) needs Ambient {
 	with context { Scheduler: NewLiveScheduler() } {
 		let c = Conn{Fail: fail}
 		signal.End()
@@ -364,7 +364,7 @@ func viaPlain(fail bool, signal queue.Queue[int]) {
 	}
 }
 
-func viaValue(fail bool, signal queue.Queue[int]) {
+func viaValue(fail bool, signal queue.Queue[int]) needs Ambient {
 	with context { Scheduler: NewLiveScheduler() } {
 		let c = Conn{Fail: fail}
 		let f = Close
@@ -383,7 +383,7 @@ func viaValue(fail bool, signal queue.Queue[int]) {
 		// A generic receiver: the Close is instantiated at the call.
 		name: "generic",
 		extra: `
-type Box[T] { Fail bool, V T }
+type Box[T] { Fail bool, V T } implements Closer
 
 func Close[T](b Box[T]) needs Scheduler {
 	Scheduler.Sleep(3h)
@@ -393,7 +393,7 @@ func Close[T](b Box[T]) needs Scheduler {
 	}
 }
 
-func viaGeneric(fail bool, signal queue.Queue[int]) {
+func viaGeneric(fail bool, signal queue.Queue[int]) needs Ambient {
 	with context { Scheduler: NewLiveScheduler() } {
 		let b = Box[string]{Fail: fail, V: "x"}
 		signal.End()
@@ -408,7 +408,7 @@ func viaGeneric(fail bool, signal queue.Queue[int]) {
 		// A pointer receiver, called through a pointer value.
 		name: "pointer",
 		extra: `
-type Held { Fail bool }
+type Held { Fail bool } implements Closer
 
 func Close(h *Held) needs Scheduler {
 	Scheduler.Sleep(4h)
@@ -418,7 +418,7 @@ func Close(h *Held) needs Scheduler {
 	}
 }
 
-func viaPointer(fail bool, signal queue.Queue[int]) {
+func viaPointer(fail bool, signal queue.Queue[int]) needs Ambient {
 	with context { Scheduler: NewLiveScheduler() } {
 		let mut h = Held{Fail: fail}
 		let p = &h
@@ -471,7 +471,9 @@ func maskNative(t *testing.T, p maskProgram, o *lowered) {
 			from := "func (q *Queue[T]) End() {"
 			data = replace(data, from, from+"\n\tMaskEnter(\"Queue.End\", nil, 0)")
 		case "ergo/runtime/rt/clock.go":
-			data = replace(data, "return liveTimer{time.NewTimer(d)}", "return BlockingClock.NewTimer(d)")
+			data = replace(data, "return newLiveTimer(d)", "return BlockingClock.NewTimer(d)")
+			// Live sleeps take the swapped timer, not the pooled host one.
+			data = replace(data, "if _, ok := s.(Live); ok {", "if _, ok := s.(Live); ok && BlockingClock == nil {")
 		}
 		write(f.Path, data)
 	}
@@ -584,7 +586,7 @@ func observe(t *testing.T, worker *rt.Task, p plan, call func() error) (*trace, 
  quit, pumped := make(chan struct{}), make(chan struct{})
  go func() {
   defer close(pumped)
-  for { select { case <-quit: return; default: }; if clock.Pending() > 0 { clock.Advance(24 * time.Hour) }; runtime.Gosched() }
+  for { select { case <-quit: return; default: }; if clock.Pending() > 0 { clock.Advance(rt.Span(24 * time.Hour)) }; runtime.Gosched() }
  }()
  type result struct { err error; p any }
  done := make(chan result, 1)
@@ -782,7 +784,7 @@ func TestExitActionTask(t *testing.T) {
 // user extern is refused at its use; only prelude externs lower), so the
 // test gives a checked Close an extern target directly and expects the ICE.
 func TestRuntime199ExternClose(t *testing.T) {
-	const src = `type Conn { Fail bool }
+	const src = `type Conn { Fail bool } implements Closer
 
 func Close(c Conn) {
 	if c.Fail {

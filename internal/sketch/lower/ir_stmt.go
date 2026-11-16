@@ -4,6 +4,7 @@ package lower
 
 import (
 	"fmt"
+	"strconv"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -29,17 +30,47 @@ func (b *irBuilder) local(v *check.Var, id *syntax.Ident) int {
 	if b.l.info.OwnedVars[v] != nil {
 		irNo("owned local")
 	}
-	i := b.declare(v.Name, b.goType(v.Type, id), b.pos(id, id.Pos()))
+	i := b.named(v.Name, b.goType(v.Type, id), b.pos(id, id.Pos()))
 	b.locals[v] = i
 	return i
 }
 
-// declare declares a local of the IR body named name; a local no Ergo
-// variable names is a temp (ir_fail.go), whose name is made unique.
+// temp declares a temporary local of the Go type typ (an if expression's
+// result, a try's pair, a spilled operand), named after name but unique in
+// the function (tempNames): two temporaries never share a name, so the Go
+// text view (TXT) and DWARF tell them apart.
+func (b *irBuilder) temp(name, typ string, p irPos) int {
+	return b.declare(b.names.alloc(name), typ, p)
+}
+
+// named declares the local of a source variable spelled name (a let, an
+// `as` binding): it keeps its spelling unless that is taken (localName).
+func (b *irBuilder) named(name, typ string, p irPos) int {
+	return b.declare(b.localName(name), typ, p)
+}
+
+// localName is the Go name of a source local spelled name, the emitter's
+// discipline (names.go): its spelling when Go's scope of the function (its
+// parameters, the package, Go's reserved and predeclared names) and every
+// local and temporary of the body so far leave it free, else the
+// temporaries' namer's name_N. A local spelled len or string never shadows
+// Go's, and two locals of one spelling in two scopes are told apart.
+func (b *irBuilder) localName(name string) string {
+	if !b.fc.scope.taken(name) && !b.given[name] {
+		return name
+	}
+	return b.names.alloc(name)
+}
+
+// declare appends the local name of the Go type typ to the body.
 func (b *irBuilder) declare(name, typ string, p irPos) int {
 	i := b.next
 	b.next++
 	b.fn.Locals = append(b.fn.Locals, irLocal{Name: name, Type: typ, Pos: p})
+	if b.given == nil {
+		b.given = map[string]bool{}
+	}
+	b.given[name] = true
 	return i
 }
 
@@ -76,6 +107,11 @@ func (b *irBuilder) tailTo(list []syntax.Stmt, ret bool, to *yieldTo) []*irStmt 
 type yieldTo struct {
 	local int
 	t     check.Type // the local's type: a variant joins its union (ir_union.go)
+	// fails marks a fallible with's block under try or catch (ir_with.go,
+	// failWith): a tail that is a fallible call puts its error in err, and
+	// local is -1 when the with has no value.
+	fails bool
+	err   int
 }
 
 // yield is s in result position: its value is returned, or put in to.
@@ -87,8 +123,17 @@ func (b *irBuilder) yield(s syntax.Stmt, to *yieldTo) []*irStmt {
 		if m, ok := unparen(s.X).(syntax.Stmt); ok && !conv {
 			switch m.(type) {
 			case *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
+				if to != nil && to.fails {
+					irNo("with whose block fails in a match")
+				}
 				return b.matchStmt(m, true, to) // ir_match.go: each arm yields
 			}
+		}
+		if w, ok := b.isWith(s.X); ok && !conv {
+			return b.withStmt(w, true, to) // ir_with.go: the block's tail yields
+		}
+		if to != nil && to.fails {
+			return b.failYield(s.X, to, p) // ir_with.go
 		}
 		if to != nil {
 			pre, x := b.value(s.X)
@@ -99,6 +144,9 @@ func (b *irBuilder) yield(s syntax.Stmt, to *yieldTo) []*irStmt {
 	case *syntax.ReturnStmt:
 		return b.stmt(s)
 	case *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
+		if to != nil && to.fails {
+			irNo("with whose block fails in a match")
+		}
 		return b.matchStmt(s, true, to) // ir_match.go
 	case *syntax.IfStmt:
 		if s.Else == nil {
@@ -192,9 +240,15 @@ func (b *irBuilder) ifValue(s *syntax.IfStmt) ([]*irStmt, *irExpr) {
 func (b *irBuilder) discard(x syntax.Expr) []*irStmt {
 	x = unparen(x)
 	p := b.pos(x, x.Pos())
+	if w, ok := b.isWith(x); ok {
+		return b.withStmt(w, false, nil) // ir_with.go
+	}
 	if call, ok := x.(*syntax.CallExpr); ok {
 		if c := b.l.info.Calls[call]; c != nil && c.Kind != check.CallConversion && c.Kind != check.CallLen {
 			pre, e := b.call(call, true)
+			if e == nil {
+				return pre // a function value's call, bound and dropped (ir_closure.go)
+			}
 			return append(pre, &irStmt{K: "expr", Pos: p, X: e})
 		}
 	}
@@ -214,10 +268,20 @@ func (b *irBuilder) discard(x syntax.Expr) []*irStmt {
 
 func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 	switch s := s.(type) {
+	case *syntax.AssertStmt:
+		return b.assert(s) // ir_assert.go
 	case *syntax.DeclStmt:
 		var out []*irStmt
 		for _, spec := range s.Decl.Specs {
+			if spec.Pattern == nil && len(spec.Names) == 1 && len(spec.Values) == 0 {
+				out = append(out, b.letDefault(s.Decl, spec)...) // ir_letpat.go
+				continue
+			}
 			if spec.Pattern != nil || len(spec.Names) != 1 || len(spec.Values) != 1 {
+				if tl, ok := b.letTuple(spec, b.pos(s.Decl, s.Decl.Pos())); ok {
+					out = append(out, tl...) // ir_tuple.go
+					continue
+				}
 				irNo("let pattern")
 			}
 			id := spec.Names[0]
@@ -227,13 +291,19 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 				out = append(out, b.discard(spec.Values[0])...)
 				continue
 			}
+			if w, ok := b.l.info.Defs[id].(*check.Context); ok && w.Local {
+				// A local context is a recipe: its let lowers to nothing,
+				// and each with that names it publishes its providers
+				// (ir_with.go, as body.go's letStmt).
+				continue
+			}
 			v, ok := b.l.info.Defs[id].(*check.Var)
 			if !ok {
 				irNo("let without a variable")
 			}
-			if b.fc.scalarOf(v) != nil {
-				b.reserve(v)
-				irNo("scalar-form local")
+			if sl, ok := b.scalarLet(v, spec.Values[0], s.Decl.Mut.IsValid(), b.pos(s.Decl, s.Decl.Pos())); ok {
+				out = append(out, sl...) // ir_scalar.go
+				continue
 			}
 			var pre []*irStmt
 			var x *irExpr
@@ -264,9 +334,16 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		}
 		id, ok := s.Lhs[0].(*syntax.Ident)
 		if !ok {
-			irNo("assignment to a place")
+			return b.store(s, op) // ir_place.go
 		}
 		v, ok := b.l.info.Uses[id].(*check.Var)
+		if sc := b.scalars[v]; sc != nil && ok {
+			if op != "" {
+				irNo("op-assignment of a scalar-form local")
+			}
+			pre, x := b.value(s.Rhs[0])
+			return append(pre, b.scatter(sc, x, s, b.pos(s, s.Pos()))...) // ir_scalar.go
+		}
 		i, known := b.locals[v]
 		if !ok || !known {
 			irNo("assignment to a non-local")
@@ -301,19 +378,28 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		if s.Cond != nil {
 			cond = b.cond(s.Cond)
 		}
-		return []*irStmt{{K: "while", Pos: b.pos(s, s.Pos()), X: cond, Body: b.loopBody(s, s.Body), End: b.pos(s.Body, s.Body.Rbrace)}}
+		st := &irStmt{K: "while", Pos: b.pos(s, s.Pos()), X: cond, End: b.pos(s.Body, s.Body.Rbrace)}
+		b.loopBody(st, s, s.Body)
+		return []*irStmt{st}
 	case *syntax.BranchStmt:
 		if b.loops == 0 {
 			irNo("break or continue outside a loop")
 		}
 		switch s.Tok {
 		case syntax.BREAK:
+			st := &irStmt{K: "break", Pos: b.pos(s, s.Pos())}
 			if b.switches > 0 {
-				irNo("break inside a match") // ir_match.go: Go's break would leave the switch
+				// Go's unlabeled break would leave the switch (ir_match.go):
+				// it names the loop, as the emitter's branch does.
+				if b.label == "" {
+					b.labels++
+					b.label = "loop" + strconv.Itoa(b.labels)
+				}
+				st.Label = b.label
 			}
-			return []*irStmt{{K: "break", Pos: b.pos(s, s.Pos())}}
+			return []*irStmt{st}
 		case syntax.CONTINUE:
-			return []*irStmt{{K: "continue", Pos: b.pos(s, s.Pos())}}
+			return b.continueStmt(s) // ir_fail.go: the back-edge poll first
 		}
 		irNo("statement *syntax.BranchStmt %s", s.Tok)
 	case *syntax.RangeStmt:
@@ -355,65 +441,41 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		}
 		b.part(func() { st.Key = bind(s.Key) })
 		b.part(func() { st.Val = bind(s.Value) })
-		st.Body = b.loopBody(s, s.Body)
+		b.loopBody(st, s, s.Body)
 		return []*irStmt{st}
 	}
 	irNo("statement %T", s)
 	return nil
 }
 
-// loopBody is loop s's body, where break and continue stand, then its
-// back-edge poll in a polling frame (loopPoll, ir_fail.go).
-func (b *irBuilder) loopBody(s syntax.Stmt, body *syntax.BlockStmt) []*irStmt {
+// loopBody gives st, loop s, its body, where break and continue stand,
+// then its back-edge poll in a polling frame (loopPoll, ir_fail.go), and
+// the label a break inside a switch names.
+func (b *irBuilder) loopBody(st *irStmt, s syntax.Stmt, body *syntax.BlockStmt) {
 	b.loops++
-	switches := b.switches
-	b.switches = 0
-	defer func() { b.loops, b.switches = b.loops-1, switches }()
-	return append(b.tail(body.List, false), b.loopPoll(s, body)...)
+	switches, label := b.switches, b.label
+	b.switches, b.label = 0, ""
+	defer func() { b.loops, b.switches, b.label = b.loops-1, switches, label }()
+	st.Body = b.tail(body.List, false)
+	poll := b.loopPoll(s)
+	// The back-edge poll follows a body that reaches its end: after a
+	// break or a terminating statement it never runs, and go vet calls it
+	// unreachable (ir_end.go).
+	if n := len(st.Body); n == 0 || st.Body[n-1].K != "break" && !irTerminates(st.Body[n-1]) {
+		st.Body = append(st.Body, poll...)
+	}
+	st.Label = b.label
 }
 
-// bodyEnd is what follows a body with a result whose last statement may
-// complete (a loop, an if without else): the emitter's panic, which a
-// checked program never reaches (fc.body).
-func (b *irBuilder) bodyEnd(list []syntax.Stmt, end irPos) []*irStmt {
-	if b.result == nil || len(list) == 0 {
+// bodyEnd is what follows the IR body of a function with a result whose
+// last statement does not terminate by Go's rule (a loop that breaks, an
+// if without else; ir_end.go): the emitter's panic, which a checked
+// program never reaches (fc.body). After a terminating statement it
+// writes nothing: go vet calls a statement there unreachable.
+func (b *irBuilder) bodyEnd(body []*irStmt, end irPos) []*irStmt {
+	if b.result == nil || len(body) == 0 || irListTerminates(body) {
 		return nil
-	}
-	switch s := list[len(list)-1].(type) {
-	case *syntax.ExprStmt, *syntax.ReturnStmt:
-		return nil
-	case *syntax.IfStmt:
-		if s.Else != nil && !b.completes(s) {
-			return nil
-		}
 	}
 	msg := &irExpr{K: "const", Pos: end, T: "string", V: "ergo: unreachable: the function's end"}
 	return []*irStmt{{K: "panic", Pos: end, X: msg}}
-}
-
-// completes reports an if chain in result position with a branch whose
-// last statement may complete (a loop, a one-armed if).
-func (b *irBuilder) completes(s *syntax.IfStmt) bool {
-	lastCompletes := func(list []syntax.Stmt) bool {
-		if len(list) == 0 {
-			return true
-		}
-		switch l := list[len(list)-1].(type) {
-		case *syntax.ExprStmt, *syntax.ReturnStmt:
-			return false
-		case *syntax.IfStmt:
-			return l.Else == nil || b.completes(l)
-		}
-		return true
-	}
-	if lastCompletes(s.Body.List) {
-		return true
-	}
-	switch e := s.Else.(type) {
-	case *syntax.BlockStmt:
-		return lastCompletes(e.List)
-	case *syntax.IfStmt:
-		return e.Else == nil || b.completes(e)
-	}
-	return true
 }

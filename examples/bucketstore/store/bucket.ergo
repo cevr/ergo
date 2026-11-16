@@ -1,0 +1,60 @@
+// Package store keeps named buckets of counters in one sync.Ref. A bump
+// changes one counter of one bucket inside the Ref's owned callback: the
+// callback owns the Map it is given, so the lookup copies nothing and the
+// write replaces one entry (the entry rule, docs/spec/types.md, Bindings).
+
+import sync
+
+// Bucket is the counters of one name and the labels each counter carries.
+type Bucket { counts Map[string, int], labels Map[string, Map[string, int]] }
+
+// Store is the Ref that owns every bucket.
+type Store { cell sync.Ref[Map[string, Bucket]] }
+
+// New is an empty store.
+func New() Store { Store{cell: sync.NewRef[Map[string, Bucket]](Map[string, Bucket]{})} }
+
+// fresh is a bucket with no counter yet, labelled as new.
+func fresh() Bucket {
+	Bucket{counts: Map[string, int]{}, labels: Map[string, Map[string, int]]{"state": Map[string, int]{"new": 1}}}
+}
+
+// Bump adds one to counter c of bucket b and returns the new count.
+func Bump(s Store, b string, c string) int {
+	sync.Modify(s.cell, func(all Map[string, Bucket]) (int, Map[string, Bucket]) {
+		let mut m = all
+		let mut k = fresh()
+		match m.Get(b) {
+		case Some[Bucket] as v:
+			k = v.Value
+		case None:
+		}
+		let n = match k.counts.Get(c) {
+		case Some[int] as x:
+			x.Value + 1
+		case None:
+			1
+		}
+		k.counts[c] = n
+		m[b] = k
+		(n, m)
+	})
+}
+
+// Count is counter c of bucket b, 0 when it was never bumped.
+func Count(s Store, b string, c string) int {
+	match s.cell.Get().Get(b) {
+	case Some[Bucket] as v:
+		match v.Value.counts.Get(c) {
+		case Some[int] as x:
+			x.Value
+		case None:
+			0
+		}
+	case None:
+		0
+	}
+}
+
+// Buckets is the number of buckets.
+func Buckets(s Store) int { len(s.cell.Get()) }

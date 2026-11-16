@@ -94,8 +94,20 @@ func (g grant) String() string {
 // subtree only where the test walks the tree and the reads go deeper than
 // one level.
 var declared = map[string][]allowance{
-	"scripts/mutants": {
-		{".", subtree, "TestLedgerEditsApplyOnce walks every package ledger and reads each mutant's source to reject ambiguous or stale edits"},
+	"scripts/bootstrap": {
+		{"toolchain/seed.lock", file, "TestCapstoneRowsOfLandedStages: S0's row is that the seed lock parses"},
+		{"compiler/ergo.mod", file, "TestCapstoneRowsOfLandedStages: S1's row looks the compiler module up"},
+		{"compiler/cmd/ergo/main.ergo", file, "TestCapstoneRowsOfLandedStages: S5's row looks the Ergo main package up"},
+		{"cmd/ergo", subtree, "TestCapstoneRowsOfLandedStages walks each Go compiler package (filepath.WalkDir) to count its Go product files"},
+		{"internal/bindc", subtree, "TestCapstoneRowsOfLandedStages walks each Go compiler package to count its Go product files"},
+		{"internal/gobind", subtree, "TestCapstoneRowsOfLandedStages walks each Go compiler package to count its Go product files"},
+		{"internal/report", subtree, "TestCapstoneRowsOfLandedStages walks each Go compiler package to count its Go product files"},
+		{"internal/sketchfront", subtree, "TestCapstoneRowsOfLandedStages walks each Go compiler package to count its Go product files"},
+		{"internal/sketch/syntax", subtree, "TestCapstoneRowsOfLandedStages walks each Go compiler package to count its Go product files"},
+		{"internal/sketch/format", subtree, "TestCapstoneRowsOfLandedStages walks each Go compiler package to count its Go product files"},
+		{"internal/sketch/check", subtree, "TestCapstoneRowsOfLandedStages walks each Go compiler package to count its Go product files"},
+		{"internal/sketch/lower", subtree, "TestCapstoneRowsOfLandedStages walks each Go compiler package to count its Go product files"},
+		{"internal/sketch/machinegraph", subtree, "TestCapstoneRowsOfLandedStages walks each Go compiler package to count its Go product files"},
 	},
 	"internal/residue": {
 		{".", subtree, "the residue checks read every tracked file by design: git grep, git ls-files and Go's reads of each file"},
@@ -112,6 +124,13 @@ var declared = map[string][]allowance{
 		glob("docs/research/ef-migrate/*.ergo", "round19 checks the migrated examples"),
 		[]allowance{{"docs/spec/diagnostics.md", file, "TestRegistry: the spec's code rows and the code table agree"}},
 	),
+	"examples/lintpack/policy": exactly("the in-process fixture tests run the example pack over its fixtures under its configurations, as `ergo lint test` does; loading the manifest admits (stats) the program it names",
+		"examples/lintpack/policy.json", "examples/lintpack/provider.lint.json", "examples/lintpack/failure.lint.json", "examples/lintpack/bin/policy-lint",
+		"examples/lintpack/testdata/provider_boundary.ergo", "examples/lintpack/testdata/provider_boundary.lint.json",
+		"examples/lintpack/testdata/forbidden_failure.ergo", "examples/lintpack/testdata/forbidden_failure.lint.json"),
+	"internal/sketch/lint": {
+		{"examples", subtree, "TestLayoutPresetOnExamples lints every example module under the layout preset (DiscoverPackages walks each, the loader reads its sources)"},
+	},
 	"internal/sketch/lower": declare(
 		[]allowance{
 			{"cmd/ergo", program, "the tests drive the public CLI, built once per process"},
@@ -122,12 +141,39 @@ var declared = map[string][]allowance{
 			{"docs/spec/stdlib.md", file, "the std law runners pass their laws to lawledger.Run, which reads the Std laws ledger to hold each restatement to its row (fu-ledger-runner)"},
 		},
 	),
+	// The std tests import internal/sketch/lower (TestStdCopyAgrees lowers
+	// each std package and its copy), so lower's files, its test files
+	// among them, are in the package's closure: TestStdLawLedger's read of
+	// them (runnerPackages) needs no grant.
 	"internal/sketch/std": declare(
-		[]allowance{{"docs/spec/stdlib.md", file, "TestStdLawLedger and the host law runner read the Std laws ledger (std-align S1a, fu-ledger-runner)"}},
-		glob("internal/sketch/lower/*_test.go", "TestStdLawLedger reads the test files of the runner packages (runnerPackages) to find each ledger runner and whether it calls lawledger.Run"),
+		[]allowance{
+			{"docs/spec/stdlib.md", file, "TestStdLawLedger and the host law runner read the Std laws ledger (std-align S1a, fu-ledger-runner)"},
+			// The CLI's compiled closure holds the directories of
+			// internal/sketch/lower and internal/rpcgen, so it covers the
+			// reads that were globs of their test files here:
+			// TestStdLawLedger reads the runner packages' test files
+			// (runnerPackages), and TestStdStrengthsTable reads
+			// internal/rpcgen's for the rpc row's benchmark (benchmarkIndex).
+			{"cmd/ergo", program, "TestDenseAgreesWithModel builds the ergo CLI once per process and builds its model program with it (DN1)"},
+		},
+		[]allowance{{"docs/receipts/std-count.md", file, "TestStdStrengthsTable holds the counted: cells of the strengths table to the std count receipt's packages (std-better SB0)"}},
+		glob("runtime/v1/csv/*_test.go", "TestStdStrengthsTable reads the test files of the leaf csv for the benchmark its table names"),
+		glob("runtime/v1/digest/*_test.go", "TestStdLawLedger reads the test files of the runner packages (runnerPackages): the leaf digest runs the hex, base64 and crc32 laws"),
+		glob("runtime/v1/exec/*_test.go", "TestStdLawLedger reads the test files of the runner packages (runnerPackages): the leaf exec runs the exec laws"),
+		glob("runtime/v1/http/*_test.go", "TestStdStrengthsTable reads the test files of the leaf http for the benchmark its table names"),
+		glob("runtime/v1/rand/*_test.go", "TestStdLawLedger reads the test files of the runner packages (runnerPackages): the leaf rand runs the rand laws"),
 	),
 	"runtime/v1": {
 		{"docs/spec/stdlib.md", file, "the std law runners of the Go bodies pass their laws to lawledger.Run, which reads the Std laws ledger (fu-ledger-runner)"},
+	},
+	"runtime/v1/digest": {
+		{"docs/spec/stdlib.md", file, "TestStdDigestLaws passes its laws to lawledger.Run, which reads the Std laws ledger"},
+	},
+	"runtime/v1/exec": {
+		{"docs/spec/stdlib.md", file, "the exec law runners pass their laws to lawledger.Run, which reads the Std laws ledger"},
+	},
+	"runtime/v1/rand": {
+		{"docs/spec/stdlib.md", file, "TestRandLaws passes its laws to lawledger.Run, which reads the Std laws ledger"},
 	},
 	"internal/sketch/syntax": declare(
 		glob("internal/sketch/testdata/*.ergo", "decidedInputs parses every source of the shared corpus"),
@@ -182,6 +228,7 @@ var declared = map[string][]allowance{
 		{"examples/editions/sketch/expected.out", file, "TestSketchBuildRunsProgram compares the run with the expected output"},
 		{"examples", subtree, "TestExamplesOutputIsAFunctionOfInput walks every example package folder (filepath.WalkDir) and checks and lowers each, in this process and in two children; TestDirectMatchesGoBuild walks the example programs and builds each by the direct path and by go build"},
 		{"ergo.mod", file, "CheckDir of a one-folder example looks for its module upward and stats the checkout root's ergo.mod (absent); adding one makes the example a package of it"},
+		{"internal/sketch/check/testdata/corpus", subtree, "TestStdSnapshotAgrees checks the checker's corpus with std from source and from each snapshot (stdCorpus globs its archives)"},
 	},
 	"internal/testinputs": declare(
 		[]allowance{
@@ -212,8 +259,12 @@ var declared = map[string][]allowance{
 		{".git", members, "the mapping asks git whether evidence is tracked (git ls-files reads .git, a file in a worktree and the repository's metadata directory in a clone, one level deep)"},
 		{"internal/sketch/lower/*_test.go", files, "the mapping parses each evidence test file to find the subtest of its case (fu-conf-pending); every evidence file is a test of the lowering today"},
 	},
+	"internal/sketch/facts": {
+		{"examples", subtree, "TestTablesAgreeWithScanOnExamples checks every example program (examples/*/cmd/*), and the loader reads each package it imports, so a changed example reruns it"},
+	},
 	"scripts/examples": {
 		{"examples", subtree, "TestRepoExamplesHoldTheirLaws loads every program folder of the repository's examples/ (loadExamples lists it and walks each program, packages and cmd/ included), so an added or changed example reruns it"},
+		{"docs/domain.md", file, "TestDomainDocQuotesResolve holds each code block of the domain modeling page to the examples/ declarations it quotes (DK1)"},
 	},
 	"scripts/gate": {
 		{".", subtree, "gate-speed2 owns scripts/gate (do not touch); its tests build in the module with VCS stamping and walk the tree (follow-up)"},
@@ -458,6 +509,9 @@ func TestClosureClassifiesInputs(t *testing.T) {
 		{"stat", "runtime/rt/x.go/go.mod"},
 		{"stat", "vendor"},
 		{"getenv", "HOME"},
+		// GNU ld's cwd lookup while the go command links a cgo
+		// dependency: the cmd/ergo sweep failed on it (c7486603b).
+		{"open", "-lc"},
 	}
 	out := []entry{
 		{"list", "."},                       // listing the root
@@ -685,6 +739,10 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	cpuCosts, err := readCPUCosts(root, module)
+	if err != nil {
+		t.Fatal(err)
+	}
 	roots := []string{root}
 	protect, err := filepath.EvalSymlinks(root)
 	if err != nil {
@@ -703,6 +761,10 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 	if err := checkSandboxAsATest(protect, root, filepath.Join(work, "sandbox.out")); err != nil {
 		t.Fatalf("the sweep cannot run: %v", err)
 	}
+	std, err := fillStdStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
 	closures, all := modulePackages(t, root)
 	targets, skipped, errs := sweepTargets(selection, closures, all, unsweepable)
 	for _, err := range errs {
@@ -719,6 +781,11 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 	for dir := range declared {
 		if _, ok := closures[dir]; !ok {
 			t.Errorf("declared package %s is not a test package of the module", dir)
+		}
+	}
+	for dir := range runsAlone {
+		if _, ok := closures[dir]; !ok {
+			t.Errorf("the package %s of runsAlone is not a test package of the module", dir)
 		}
 	}
 	for dir := range declaredKernelWrites {
@@ -742,7 +809,7 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			name := strings.ReplaceAll(dir, "/", "_")
-			entries, took, err := runPackage(root, protect, roots, dir, filepath.Join(binaries, name+".test"), filepath.Join(work, name), costs[dir], sem)
+			entries, took, err := runPackage(root, protect, roots, dir, filepath.Join(binaries, name+".test"), filepath.Join(work, name), costs[dir], cpuCosts[dir], std, sem)
 			results[i].took = took
 			if err != nil {
 				results[i].err = err
@@ -976,7 +1043,7 @@ func modulePackages(t *testing.T, root string) (map[string]closure, []string) {
 // and stem.out, of a run of a split package to stem.<i>.log and
 // stem.<i>.out. took says how long the build and each run took once it
 // held its slot.
-func runPackage(root, protect string, roots []string, dir, binary, stem string, costs map[string]float64, sem chan struct{}) (entries []entry, took string, err error) {
+func runPackage(root, protect string, roots []string, dir, binary, stem string, costs, cpu map[string]float64, std string, sem chan struct{}) (entries []entry, took string, err error) {
 	sem <- struct{}{}
 	start := time.Now()
 	err = buildTestBinary(root, dir, binary)
@@ -990,8 +1057,12 @@ func runPackage(root, protect string, roots []string, dir, binary, stem string, 
 	if err != nil {
 		return nil, took, err
 	}
-	plan := planRuns(names, costs, sweepRunBudget)
-	entries, durations, err := runPlan(protect, roots, dir, pkgDir, stem, binary, plan, sem, nil)
+	plan, err := sweepPlan(dir, names, costs)
+	if err != nil {
+		return nil, took, err
+	}
+	plan = withDeadlineCosts(plan, cpu)
+	entries, durations, err := runPlan(protect, roots, dir, pkgDir, stem, binary, plan, std, sem, nil)
 	took += fmt.Sprintf(", %d runs of at most %.0fs of recorded test time (%.0fs in all): %s", len(plan), sweepRunBudget, planCost(plan), strings.Join(durations, " "))
 	return entries, took, err
 }
@@ -1011,13 +1082,20 @@ func runPackage(root, protect string, roots []string, dir, binary, stem string, 
 // build read: those reads are in the log of the run of this package that
 // made the entry, so the union of the runs, which the closure checks, has
 // them still. A cache that another package's runs filled would hide them
-// (TestSharedCacheKeepsEachPackagesInputs).
-func runPlan(protect string, roots []string, dir, pkgDir, stem, binary string, plan []sweepRun, sem chan struct{}, extra []string) ([]entry, []string, error) {
+// (TestSharedCacheKeepsEachPackagesInputs). A std store (std, when not
+// empty; fillStdStore) seeds the cache with the standard library's
+// compiles, which read nothing in the working tree.
+func runPlan(protect string, roots []string, dir, pkgDir, stem, binary string, plan []sweepRun, std string, sem chan struct{}, extra []string) ([]entry, []string, error) {
 	cache, err := newSharedCache()
 	if err != nil {
 		return nil, nil, err
 	}
 	defer removeTree(cache)
+	if std != "" {
+		if _, err := seedCache(std, cache); err != nil {
+			return nil, nil, fmt.Errorf("seeding the shared cache from the std store %s: %w", std, err)
+		}
+	}
 	runs := make([][]entry, len(plan))
 	errs := make([]error, len(plan))
 	durations := make([]string, len(plan))
@@ -1034,7 +1112,7 @@ func runPlan(protect string, roots []string, dir, pkgDir, stem, binary string, p
 				runStem = fmt.Sprintf("%s.%d", stem, i+1)
 			}
 			start := time.Now()
-			runs[i], errs[i] = runTestsWith(protect, roots, dir, pkgDir, runStem, cache, extra, binary, run.args...)
+			runs[i], errs[i] = runTestsWith(protect, roots, dir, pkgDir, runStem, cache, run.deadlineCost, extra, binary, run.args...)
 			durations[i] = time.Since(start).Round(100 * time.Millisecond).String()
 			errs[i] = runFailure(i, len(plan), run, errs[i])
 		})
@@ -1055,7 +1133,7 @@ func runPlan(protect string, roots []string, dir, pkgDir, stem, binary string, p
 // has a run's bound (runDeadline), so a build that does not end fails with
 // its package named.
 func buildTestBinary(root, dir, binary string) error {
-	bound, err := runDeadline()
+	bound, err := runDeadline(0)
 	if err != nil {
 		return err
 	}
@@ -1091,19 +1169,20 @@ func sweepEnvironment() []string { return testenv.Environment(os.Environ()) }
 // removal, such a path would name an absent place in scratch, which is no
 // input, and the read would be classified by nothing.
 func runTests(protect string, roots []string, pkg, pkgDir, stem string, extra []string, binary string, args ...string) ([]entry, error) {
-	return runTestsWith(protect, roots, pkg, pkgDir, stem, "", extra, binary, args...)
+	return runTestsWith(protect, roots, pkg, pkgDir, stem, "", 0, extra, binary, args...)
 }
 
 // runTestsWith is runTests with cache, when not empty, as the run's
 // GOCACHE: a directory the runs of one package share (runPlan), writable in
-// the run's sandbox as its scratch directories are.
-func runTestsWith(protect string, roots []string, pkg, pkgDir, stem, cache string, extra []string, binary string, args ...string) ([]entry, error) {
+// the run's sandbox as its scratch directories are; and with cost, the
+// run's recorded seconds, which set its deadline (runDeadline).
+func runTestsWith(protect string, roots []string, pkg, pkgDir, stem, cache string, cost float64, extra []string, binary string, args ...string) ([]entry, error) {
 	var entries []entry
 	classify := func(run observedRun) (err error) {
 		entries, err = run.entries(roots)
 		return err
 	}
-	if _, err := runObserved(protect, pkg, pkgDir, stem, cache, extra, classify, binary, args...); err != nil {
+	if _, err := runObserved(protect, pkg, pkgDir, stem, cache, cost, extra, classify, binary, args...); err != nil {
 		return nil, err
 	}
 	return entries, nil
@@ -1128,7 +1207,7 @@ func (o observedRun) entries(roots []string) ([]entry, error) {
 
 // runObserved is runTestsWith up to the classification. classify, if not
 // nil, runs while the run's scratch directories still exist.
-func runObserved(protect, pkg, pkgDir, stem, cache string, extra []string, classify func(observedRun) error, binary string, args ...string) (observedRun, error) {
+func runObserved(protect, pkg, pkgDir, stem, cache string, cost float64, extra []string, classify func(observedRun) error, binary string, args ...string) (observedRun, error) {
 	fail := func(err error) (observedRun, error) { return observedRun{}, err }
 	s, err := newScratch()
 	if err != nil {
@@ -1138,7 +1217,7 @@ func runObserved(protect, pkg, pkgDir, stem, cache string, extra []string, class
 	log := filepath.Join(s.log, "test.log")
 	identityFile := filepath.Join(s.log, "identity.json")
 	// The binary's own deadline ends inside the run's (runTestTimeout).
-	deadline, err := runDeadline()
+	deadline, err := runDeadline(cost)
 	if err != nil {
 		return fail(err)
 	}

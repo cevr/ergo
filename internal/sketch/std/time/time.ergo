@@ -27,12 +27,12 @@ type Time { sec int64, nsec int64, mono int64, hasMono bool }
 
 // ParseError is the failure of Parse: Value does not match Layout. Message
 // is Go's text of the error.
-type ParseError { Layout string, Value string, Message string }
+extern go ergo.local/prototype/runtime/v1.ParseError type ParseError { Layout string, Value string, Message string }
 
 // Reading is one read of a clock: Unix seconds, nanoseconds and a
 // monotonic reading in nanoseconds. A clock provider gives one; Now makes
 // it a Time. It carries no authority: a Time is made only in this package.
-type Reading { Sec int64, Nsec int64, Mono int64 }
+extern go ergo.local/prototype/runtime/v1.Reading type Reading { Sec int64, Nsec int64, Mono int64 }
 
 // Layout is how Format writes a Time and Parse reads one: one of Go's
 // named layouts, or Custom with a layout in Go's reference-time form

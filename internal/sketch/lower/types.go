@@ -95,7 +95,7 @@ func (tc *typeCtx) goType(t check.Type) string {
 		var args []string
 		for i, a := range t.TArgs {
 			if i < len(origin.TParams) && origin.TParams[i].Kind == check.KindType {
-				args = append(args, tc.goType(a))
+				args = append(args, tc.slotType(a))
 			}
 		}
 		if len(args) == 0 {
@@ -471,6 +471,12 @@ func freeTypeParams(t check.Type) []*check.TypeParam {
 	var walk func(t check.Type)
 	walk = func(t check.Type) {
 		switch u := t.(type) {
+		case *check.Union:
+			// A Slot row in a type argument is a Go type parameter (goParam).
+			if tp := check.SlotRow(u); tp != nil && tp.Slot && !seen[tp] {
+				seen[tp] = true
+				out = append(out, tp)
+			}
 		case *check.TypeParam:
 			if u.Kind == check.KindType && !seen[u] {
 				seen[u] = true
@@ -673,12 +679,49 @@ func (tc *typeCtx) constant(t check.Type, v constant.Value, site syntax.Node) st
 				return goType + "(" + i.ExactString() + ")"
 			}
 		}
-		return goType + "(" + exactFloat(v) + ")"
+		kind := check.Float64
+		if basic != nil && basic.Kind == check.Float32 {
+			kind = check.Float32
+		}
+		return goType + "(" + floatSpelling(v, kind) + ")"
 	case constant.Complex:
-		return goType + "(complex(" + exactFloat(constant.Real(v)) + ", " + exactFloat(constant.Imag(v)) + "))"
+		kind := check.Float64
+		if basic != nil && basic.Kind == check.Complex64 {
+			kind = check.Float32
+		}
+		return goType + "(complex(" + floatSpelling(constant.Real(v), kind) + ", " + floatSpelling(constant.Imag(v), kind) + "))"
 	}
 	ice(site, "the constant %s has no Go spelling", v)
 	return ""
+}
+
+// goConstBits is the size of the largest integer constant Go holds: gc and
+// go/types refuse a larger one as "constant overflow".
+const goConstBits = 512
+
+// floatSpelling spells the float constant v for a value of the float kind
+// k (Float64 or Float32). When Go can hold its fraction's parts, it is the
+// exact fraction (exactFloat), so the conversion rounds once, from the
+// exact value. A literal far from 1 (2.5e-300, 1e300) has parts of about
+// a thousand bits, which Go refuses; it is then v correctly rounded to k
+// and written in the shortest decimal that reads back as that value of k
+// (strconv.FormatFloat), which is what the conversion would have given.
+func floatSpelling(v constant.Value, k check.BasicKind) string {
+	if v.Kind() == constant.Int {
+		return exactFloat(v)
+	}
+	// Num and Denom are Unknown for a float go/constant holds as a
+	// big.Float (a binary exponent past 4096); that takes the decimal too.
+	if num, den := constant.Num(v), constant.Denom(v); num.Kind() == constant.Int && den.Kind() == constant.Int &&
+		constant.BitLen(num) <= goConstBits && constant.BitLen(den) <= goConstBits {
+		return exactFloat(v)
+	}
+	if k == check.Float32 {
+		f, _ := constant.Float32Val(v)
+		return "(" + strconv.FormatFloat(float64(f), 'g', -1, 32) + ")"
+	}
+	f, _ := constant.Float64Val(v)
+	return "(" + strconv.FormatFloat(f, 'g', -1, 64) + ")"
 }
 
 // exactFloat spells a float constant exactly as Go untyped constant
@@ -736,6 +779,11 @@ func (l *lowerer) isErrorValue(t check.Type, p *check.Package, o check.FactOwner
 			if tp, ok := v.(*check.TypeParam); ok && tp.Kind == check.KindErrors {
 				// An error row parameter's member: some error types of
 				// the row it is bound to (types.md, Generics 1; q47).
+				continue
+			}
+			if _, ok := v.(*check.Wired); ok {
+				// wired[T]: the shape failures of decode[T], error
+				// types that T's argument decides (types.md, Codecs 2).
 				continue
 			}
 			if !l.isErrorValue(v, p, o) {

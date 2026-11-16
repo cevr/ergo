@@ -201,9 +201,8 @@ func (c *checker) checkTest(test *Test) {
 			for _, id := range field.Names {
 				v := &Var{Name: id.Name, Type: typ, Pos: id.Pos(), id: id, param: true, used: true}
 				test.Params = append(test.Params, v)
-				if id.Name == "_" {
-					continue
-				}
+				// A parameter _ is never in the frame (Scope.insert), so a
+				// second _ is no second parameter.
 				if prior, ok := frame.names[id.Name].(*Var); ok && prior.param {
 					c.errorf(id, CodeType, "%s is already a parameter of %s", id.Name, name)
 					continue

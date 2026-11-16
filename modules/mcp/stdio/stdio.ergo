@@ -1,0 +1,19 @@
+// Package stdio is the mcp.Transport of a client that starts the server
+// as a process (AP2): the client's messages are the lines of standard
+// input, and each answer is a line of standard output. A program's
+// cmd/<name>/main.ergo makes it, since only main holds Ambient.
+
+import github.com/cevr/ergo/modules/mcp
+import io
+
+// Transport is standard input and output.
+type Transport { input io.In, out io.Host } implements mcp.Transport
+
+// New is the process's standard input and output.
+func New() Transport needs Ambient { Transport{input: io.NewStdin(), out: io.NewHost()} }
+
+// Messages is the lines of standard input, until it ends.
+func Messages(t Transport) Seq[string] { t.input.Lines() }
+
+// Send writes message and a line feed to standard output.
+func Send(t Transport, message string) { t.out.Println(message) }

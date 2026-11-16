@@ -1,0 +1,31 @@
+// Package memory is an mcp.Transport in the process's memory (AP2): the
+// client's messages are given at the start, and what the server sends is
+// kept for the test to read.
+
+import github.com/cevr/ergo/modules/mcp
+import sync
+
+// Transport is a session whose client sends Input. Its values are copies
+// of one session.
+type Transport { Input []string, sent sync.Ref[[]string] } implements mcp.Transport
+
+// New is a session whose client sends input.
+func New(input []string) Transport { Transport{Input: input, sent: sync.NewRef([]string{})} }
+
+// Messages is Input, in order.
+func Messages(t Transport) Seq[string] {
+	let input = t.Input
+	Seq[string](func(yield func(v string) bool) {
+		for m in input {
+			if !yield(m) {
+				return
+			}
+		}
+	})
+}
+
+// Send keeps message.
+func Send(t Transport, message string) { t.sent.Update(func(xs []string) []string { xs.Append(message) }) }
+
+// Sent is what the server sent, in order.
+func Sent(t Transport) []string { t.sent.Get() }

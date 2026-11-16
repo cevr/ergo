@@ -5,10 +5,21 @@ package lower
 import (
 	"go/constant"
 	"strconv"
+	"unicode/utf8"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
+
+// irString is the string constant s as the IR file holds it: JSON text,
+// which carries only UTF-8 (encoding/json writes U+FFFD for any other
+// byte), so a constant that is not stays the emitter's.
+func irString(s string) string {
+	if !utf8.ValidString(s) {
+		irNo("string constant that is not UTF-8")
+	}
+	return s
+}
 
 // value is x as an IR expression, after the statements that must run
 // before it (polls, an if expression's branches). Only a whole value takes
@@ -19,6 +30,10 @@ func (b *irBuilder) value(x syntax.Expr) ([]*irStmt, *irExpr) {
 	var e *irExpr
 	switch y := unparen(x).(type) {
 	case *syntax.CallExpr:
+		if w, ok := b.isWith(y); ok {
+			pre, e = b.withValue(w) // ir_with.go
+			break
+		}
 		pre, e = b.call(y, false)
 	case *syntax.IfStmt:
 		b.plain(y)
@@ -28,6 +43,29 @@ func (b *irBuilder) value(x syntax.Expr) ([]*irStmt, *irExpr) {
 		pre, e = b.matchValue(y) // ir_match.go
 	case *syntax.TryExpr, *syntax.CatchExpr:
 		pre, e = b.failValue(y) // ir_fail.go
+	case *syntax.TupleExpr:
+		b.plain(y)
+		pre, e = b.tupleValue(y) // ir_tuple.go
+	case *syntax.Ident:
+		sc := b.scalarIdent(y)
+		if sc == nil {
+			return nil, b.expr(x)
+		}
+		pre, e = b.gather(sc, y, b.pos(y, y.Pos())) // ir_scalar.go
+	case *syntax.BinaryExpr:
+		// An if or a match as an operand of an operator that evaluates
+		// both: its statements run in operand order (the emitter's binary
+		// takes its operands).
+		op := y.Op.String()
+		if op == "&&" || op == "||" || op == ".." || !isBranch(y.X) && !isBranch(y.Y) {
+			return nil, b.expr(x)
+		}
+		b.plain(y)
+		b.goType(b.l.info.Types[y], y)
+		b.operator(op, b.l.info.Types[y.X], y)
+		var vals []*irExpr
+		pre, vals = b.operands([]syntax.Expr{y.X, y.Y}) // ir_fail.go
+		e = &irExpr{K: "bin", Pos: b.pos(y, y.OpPos), Op: op, X: vals[0], Y: vals[1]}
 	default:
 		return nil, b.expr(x) // expr converts
 	}
@@ -94,6 +132,16 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			if i, known := b.locals[o]; known {
 				return &irExpr{K: "local", Pos: p, I: i}
 			}
+			if b.scalars[o] != nil {
+				// Its gather writes statements: a value (ir_scalar.go).
+				irNo("scalar-form local inside an expression")
+			}
+			if val, ok := b.l.constVals[o]; ok && b.l.consts[o] {
+				// A package let lowered as a Go constant (constLet): its
+				// value, an IR constant, which Go does not fold either
+				// (the emitter's v1.Let read).
+				return b.constant(o.Type, val, x, p)
+			}
 			if name, ok := b.l.vars[o]; ok {
 				// A package let: its Go variable.
 				b.goType(o.Type, x)
@@ -116,15 +164,23 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		op := x.Op.String()
 		switch op {
 		case "!", "-", "+", "^":
+		case "&":
+			b.goType(t, x)
+			return &irExpr{K: "addr", Pos: p, X: b.place(x.X)}
 		default:
 			irNo("unary %s", op)
 		}
 		b.goType(t, x)
 		return &irExpr{K: "un", Pos: p, Op: op, X: b.expr(x.X)}
+	case *syntax.StarExpr:
+		// *p: the value p points at (FLIP F2).
+		b.goType(t, x)
+		return &irExpr{K: "deref", Pos: p, X: b.expr(x.X)}
 	case *syntax.SelectorExpr:
+		// A field through a pointer (FLIP F2): Go's p.f.
 		n, ok := derefNamed(b.l.info.Types[x.X]) // ir_pkg.go
 		if !ok {
-			irNo("selector on a non-record")
+			return b.selectOther(x, p) // ir_select.go
 		}
 		b.goType(n, x)
 		// goType queued the declaration, unless the runtime's Go type
@@ -140,12 +196,12 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			irNo("index form")
 		}
 		if _, ok := b.l.info.Types[x.X].(*check.Slice); !ok {
-			irNo("index of a non-slice")
+			return b.indexOther(x, p) // ir_index.go
 		}
 		return &irExpr{K: "index", Pos: p, X: b.expr(x.X), Y: b.expr(x.Indices[0])}
 	case *syntax.CompositeLit:
 		if x.Base != nil || x.Type == nil {
-			irNo("record update or elided literal type")
+			return b.updateLit(x, t, p) // ir_update.go
 		}
 		if _, ok := b.l.info.Spreads[x]; ok {
 			irNo("spread")
@@ -179,6 +235,14 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 				if !ok {
 					irNo("record key")
 				}
+				for _, f := range s.Fields {
+					if f.Name == k.Name && b.fc.goType(b.l.info.Types[kv.Value]) != b.fc.goType(f.Type) {
+						// Go converts a variant to its row's error field;
+						// the decoder takes identical types only (I-FLIP:
+						// examples/jobs).
+						irNo("record field of a converted value")
+					}
+				}
 				lit.Keys = append(lit.Keys, td.fieldName[k.Name])
 				lit.Elems = append(lit.Elems, b.expr(kv.Value))
 			}
@@ -188,6 +252,18 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		return lit
 	case *syntax.InterpolatedString:
 		return b.text(x, p)
+	case *syntax.TupleExpr:
+		tt, ok := t.(*check.Tuple)
+		if !ok || len(tt.Types) != len(x.Elts) || len(tt.Types) < 2 {
+			irNo("type *check.Tuple")
+		}
+		vals := make([]*irExpr, len(x.Elts))
+		for i, e := range x.Elts {
+			vals[i] = b.expr(e)
+		}
+		return b.tupleLit(tt, vals, x, p) // ir_tuple.go
+	case *syntax.FuncLit:
+		return b.closureLit(x, nil) // ir_closure.go
 	case *syntax.CallExpr:
 		pre, e := b.call(x, false)
 		if len(pre) > 0 {
@@ -213,7 +289,7 @@ func (b *irBuilder) constant(t check.Type, v constant.Value, x syntax.Expr, p ir
 	case constant.Bool:
 		return &irExpr{K: "const", Pos: p, T: gt, V: strconv.FormatBool(constant.BoolVal(v))}
 	case constant.String:
-		return &irExpr{K: "const", Pos: p, T: gt, V: constant.StringVal(v)}
+		return &irExpr{K: "const", Pos: p, T: gt, V: irString(constant.StringVal(v))}
 	case constant.Int, constant.Float:
 		switch {
 		case isInteger(t) || bt.Kind == check.Duration:

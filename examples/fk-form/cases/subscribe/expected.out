@@ -1,0 +1,35 @@
+name "" | email "" | note "" | not sent
+> submit
+  (ignored)
+> name A
+name "A" (Name must be at least 2 characters) | email "" | note "" | not sent
+> name Alice
+name "Alice" ok | email "" | note "" | not sent
+> email not-an-email
+name "Alice" ok | email "not-an-email" (Please enter a valid email address) | note "" | not sent
+> email
+name "Alice" ok | email "" (Email is required) | note "" | not sent
+> email Test@Example.com
+name "Alice" ok | email "Test@Example.com" checking... | note "" | not sent
+name "Alice" ok | email "Test@Example.com" (This email is already on the list) | note "" | not sent
+> note Hello there.
+name "Alice" ok | email "Test@Example.com" (This email is already on the list) | note "Hello there." | not sent
+> submit
+  (ignored)
+> email alice@example.com
+name "Alice" ok | email "alice@example.com" checking... | note "Hello there." | not sent
+name "Alice" ok | email "alice@example.com" ok | note "Hello there." | not sent
+> submit
+name "Alice" ok | email "alice@example.com" ok | note "Hello there." | sending...
+name "Alice" ok | email "alice@example.com" ok | note "Hello there." | Welcome to the release notes, Alice! The next notes arrive with the next release.
+> submit
+name "Alice" ok | email "alice@example.com" ok | note "Hello there." | sending...
+name "Alice" ok | email "alice@example.com" ok | note "Hello there." | Welcome to the release notes, Alice! The next notes arrive with the next release.
+> name
+name "" | email "alice@example.com" ok | note "Hello there." | Welcome to the release notes, Alice! The next notes arrive with the next release.
+> email bob@mail.invalid
+name "" | email "bob@mail.invalid" checking... | note "Hello there." | Welcome to the release notes, Alice! The next notes arrive with the next release.
+name "" | email "bob@mail.invalid" ok | note "Hello there." | Welcome to the release notes, Alice! The next notes arrive with the next release.
+> submit
+name "" | email "bob@mail.invalid" ok | note "Hello there." | sending...
+name "" | email "bob@mail.invalid" ok | note "Hello there." | Sorry, the list could not take the subscription. Please try again.

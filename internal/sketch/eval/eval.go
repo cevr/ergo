@@ -51,6 +51,30 @@ type Budget struct {
 	// and valueBytes per collection slot it builds, never freed. It is
 	// not a measure of the process's memory.
 	Bytes int64
+	// Verdicts, when set, is the store of law verdicts (lawcache): a law
+	// run whose verdict it holds is not run, and a run that held is
+	// stored in it.
+	Verdicts Verdicts
+}
+
+// Verdicts is a store of the verdicts of law runs that held, keyed by
+// every input of the run (lawcache; v1 audit 3, F7): the law, its
+// binding (none for a machine's law), the seed and the budget of states.
+// Cached gives the verdict of a held run; Held stores one. A run the
+// store does not key gives none and stores nothing.
+type Verdicts interface {
+	Cached(law *check.Law, binding []check.LawProvider) (Verdict, bool)
+	Held(law *check.Law, binding []check.LawProvider, v Verdict)
+}
+
+// Verdict is what a cached run reports of a run that held: its evidence
+// (proved or tested), its cases, and for a reachability law its reason
+// and its search.
+type Verdict struct {
+	Evidence          string
+	Cases, TotalCases int
+	Reason            string
+	Machine           *MachineSearch
 }
 
 // DefaultBudget is the editor budget the plan proposes (section 5): one
@@ -123,8 +147,16 @@ type Result struct {
 	Evidence    string
 	Seed        uint64
 	Arguments   []Argument
+	// Schedule is the schedule seed of the case that decided the result
+	// when it started a task, else 0: the evaluator runs one schedule per
+	// seed (sched.go), and says which.
+	Schedule uint64
 	// Machine is a reachability law's search (machine.go), else nil.
 	Machine *MachineSearch
+	// Cached marks a law run that did not run: Budget.Verdicts held its
+	// verdict, from an earlier evaluation or test build of the same
+	// inputs.
+	Cached bool
 }
 
 type Argument struct{ Name, Value string }
@@ -164,6 +196,7 @@ func Run(pkg *check.Package, b Budget) (rep Report, err error) {
 	if b.Steps <= 0 || b.Depth <= 0 {
 		return Report{}, ErrBudget
 	}
+	defer raiseGC()()
 	if pkg == nil || pkg.Info == nil {
 		return Report{}, errors.New("eval: no checked package")
 	}
@@ -176,7 +209,29 @@ func Run(pkg *check.Package, b Budget) (rep Report, err error) {
 	if b.Bytes == 0 {
 		b.Bytes = defaultBytes
 	}
-	in := &interp{budget: b, root: pkg, files: map[syntax.Decl]*syntax.File{}, initials: map[*check.TypeName]Value{}}
+	rep, ranged, err := runOrdered(pkg, b, mapAscending)
+	if err != nil || !ranged {
+		return rep, err
+	}
+	// A for over a Map ran: only what the other order also reaches is a
+	// verdict (maporder.go).
+	other, _, err := runOrdered(pkg, b, mapDescending)
+	if err != nil {
+		return rep, err
+	}
+	for i := range rep.Results {
+		if i >= len(other.Results) || !sameResult(rep.Results[i], other.Results[i]) {
+			r := &rep.Results[i]
+			r.Status, r.Reason, r.Case, r.Arguments = Skipped, orderNote, 0, nil
+		}
+	}
+	return rep, nil
+}
+
+// runOrdered is Run with every Map visited in order; it says whether a
+// for over a Map ran.
+func runOrdered(pkg *check.Package, b Budget, order mapOrder) (rep Report, ranged bool, err error) {
+	in := &interp{budget: b, root: pkg, files: map[syntax.Decl]*syntax.File{}, initials: map[*check.TypeName]Value{}, mapOrder: order}
 	rep.Limit, rep.BytesLimit = b.Steps, b.Bytes
 	defer func() {
 		if r := recover(); r != nil {
@@ -204,10 +259,13 @@ func Run(pkg *check.Package, b Budget) (rep Report, err error) {
 			res = Result{Name: res.Name, Status: NotRun, Reason: stopped, Site: res.Site}
 		}
 		rep.Results = append(rep.Results, res)
-		switch res.Status {
-		case Defect:
+		// An incomplete obligation used its own budget (begin): the next
+		// one has the whole budget again. An exhausted initializer stops
+		// every one (initFail).
+		switch {
+		case res.Status == Defect:
 			stopped = "a defect stopped the run"
-		case Incomplete:
+		case res.Status == Incomplete && initFail != nil:
 			stopped = "the evaluation budget ran out"
 		}
 	}
@@ -216,6 +274,7 @@ func Run(pkg *check.Package, b Budget) (rep Report, err error) {
 			add(Result{Name: t.Name, Site: in.site(pkg, t.Decl, t.Decl.Pos())})
 			continue
 		}
+		in.begin()
 		add(in.runTest(pkg, t))
 	}
 	for _, run := range pkg.LawRuns {
@@ -225,11 +284,26 @@ func Run(pkg *check.Package, b Budget) (rep Report, err error) {
 				add(res)
 				continue
 			}
-			add(in.runLawTarget(run.Law, target, res))
+			// A target with no why is a binding of the run (lawTargets).
+			keyed := b.Verdicts != nil && target.why == ""
+			if keyed {
+				if v, ok := b.Verdicts.Cached(run.Law, target.binding); ok {
+					res.Status, res.Evidence, res.Seed, res.Cached = Passed, v.Evidence, b.Seed, true
+					res.Cases, res.TotalCases, res.Reason, res.Machine = v.Cases, v.TotalCases, v.Reason, v.Machine
+					add(res)
+					continue
+				}
+			}
+			in.begin()
+			out := in.runLawTarget(run.Law, target, res)
+			if keyed && out.Status == Passed && (out.Evidence == "proved" || out.Evidence == "tested") {
+				b.Verdicts.Held(run.Law, target.binding, Verdict{Evidence: out.Evidence, Cases: out.Cases, TotalCases: out.TotalCases, Reason: out.Reason, Machine: out.Machine})
+			}
+			add(out)
 		}
 	}
 	rep.Steps, rep.Bytes = in.steps, in.bytes
-	return rep, nil
+	return rep, in.mapRanged, nil
 }
 
 func lawName(l *check.Law) string {
@@ -268,10 +342,10 @@ func (in *interp) impure(pkg *check.Package, key syntax.Node) string {
 		ice("no footprint for the frame at %d", key.Pos())
 	}
 	switch {
-	case len(fp.Caps) > 0:
-		return fmt.Sprintf("it uses the capability %s, which check-time evaluation never runs", fp.Caps[0])
 	case fp.Tasks:
 		return "it starts a task, which check-time evaluation never runs"
+	case len(fp.Caps) > 0:
+		return fmt.Sprintf("it uses the capability %s, which check-time evaluation never runs", fp.Caps[0])
 	case fp.Opaque:
 		return "it calls code whose footprint is unknown (a function value, an operation or a Go function)"
 	}
@@ -285,16 +359,50 @@ func (in *interp) runBody(pkg *check.Package, decl syntax.Decl, body *syntax.Blo
 	return in.runBodyFrame(fr, body, law, res)
 }
 
+// rootTask runs body, fr's statements, as the root task of a schedule of
+// its own (sched.go), ends fr, and ends every task still running. It
+// returns the schedule's seed when body started a task (else 0) and the
+// exit: the stop of another task, or a deadlock, ends the root's too.
+func (in *interp) rootTask(fr *frame, name string, body func() *abrupt) (uint64, *abrupt) {
+	in.bodies++
+	s := in.newScheduler(scheduleSeed(in.budget.Seed, name, in.bodies))
+	in.sched, in.taskState = s, taskState{cur: s.root}
+	defer func() {
+		if r := recover(); r != nil {
+			if s.fatal == nil {
+				s.fatal = &abrupt{kind: ctlAbort, msg: "an internal error"}
+			}
+			s.panicked = nil
+			in.shutdown()
+			panic(r)
+		}
+	}()
+	ab := in.endFrame(fr, body())
+	started := s.nextID > 2
+	in.shutdown()
+	if s.fatal != nil && s.fatal.kind != ctlAbort {
+		ab = s.fatal
+	}
+	if !started {
+		return 0, ab
+	}
+	return s.seed, ab
+}
+
 func (in *interp) runBodyFrame(fr *frame, body *syntax.BlockStmt, law bool, res Result) Result {
 	pkg, decl := fr.pkg, fr.decl
 	start := in.steps
 	var val Value
 	var ab *abrupt
-	if law {
-		val, ab = in.bodyValue(fr, body.List)
-	} else {
-		ab = in.stmts(fr, body.List)
-	}
+	res.Schedule, ab = in.rootTask(fr, res.Name, func() *abrupt {
+		var ab *abrupt
+		if law {
+			val, ab = in.bodyValue(fr, body.List)
+		} else {
+			ab = in.stmts(fr, body.List)
+		}
+		return ab
+	})
 	res.Steps = in.steps - start
 	if ab == nil {
 		if law && val != nil && !truth(val) {
@@ -326,6 +434,10 @@ func (in *interp) runBodyFrame(fr *frame, body *syntax.BlockStmt, law bool, res 
 		res.Status, res.Reason = Incomplete, ab.msg
 	case ctlUnsupported:
 		res.Status, res.Reason = Skipped, ab.msg
+	case ctlInterrupt:
+		// Nothing stops the root task; an interruption that reaches it
+		// came from a task it waited for.
+		res.Status, res.Reason = Defect, "interrupted"
 	default:
 		ice("the control %d left the body", ab.kind)
 	}

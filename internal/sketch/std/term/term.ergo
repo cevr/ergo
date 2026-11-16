@@ -21,7 +21,7 @@ import sync
 
 // NotTerminal is the failure of a mode change or a size read when
 // standard input or output is not a terminal.
-type NotTerminal {}
+extern go ergo.local/prototype/runtime/v1.TermNotTerminal type NotTerminal {}
 
 // Mode is a terminal mode: RawMode reads each key as it comes, with no
 // echo, no line editing and no signal keys (Ctrl-C is the key Interrupt);
@@ -29,7 +29,7 @@ type NotTerminal {}
 type Mode = RawMode{} | NoEchoMode{}
 
 // Window is the terminal's size, in columns and rows.
-type Window { Cols int, Rows int }
+extern go ergo.local/prototype/runtime/v1.TermWindow type Window { Cols int, Rows int }
 
 // Key is one key a person pressed. Char is a printable character, one
 // rune. Interrupt is Ctrl-C, which a raw mode passes as a key. EndOfInput
@@ -70,7 +70,7 @@ func NoEcho[T, E, R](body func() T fails E needs R) T fails E | NotTerminal need
 
 // Host is the host's Terminal provider. Its field gives this package the
 // construction authority (types.md, Zero values 6).
-type Host { live hostOnly }
+type Host { live hostOnly } implements Terminal
 
 // hostOnly is the zero-size type of Host's field.
 type hostOnly {}
@@ -133,7 +133,7 @@ func Decode(token string) Key {
 // then EndOfInput; Size is Window; SetMode and Restore keep the modes set
 // and not restored, for Modes. Its state is in sync.Refs, so every copy of
 // a Script (the one a context binds, the one the test reads) shares it.
-type Script { keys []Key, window Window, at sync.Ref[int], modes sync.Ref[[]Mode] }
+type Script { keys []Key, window Window, at sync.Ref[int], modes sync.Ref[[]Mode] } implements Terminal
 
 // NewScript is the Script that plays keys and has the size window.
 func NewScript(keys []Key, window Window) Script {

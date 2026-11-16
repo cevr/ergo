@@ -58,20 +58,28 @@ type knownRec struct {
 	fields map[string]*check.Func
 }
 
-// specKey is one copy: a function and the record it is copied for.
+// specKey is one copy: a function and the record it is copied for, or
+// the key of the provider's adapter (provider.go).
 type specKey struct {
-	f  *check.Func
-	tn *check.TypeName
+	f    *check.Func
+	tn   *check.TypeName
+	prov string
 }
 
 // specCopy is the copy of f for rec: its Go name, the index of the record
 // parameter and the Go types of f's type parameters.
 type specCopy struct {
-	f        *check.Func
-	fd       *funcDecl
-	name     string
-	param    int
-	rec      *knownRec
+	f     *check.Func
+	fd    *funcDecl
+	name  string
+	param int
+	rec   *knownRec
+	// prov is the provider a copy for a known provider is made for
+	// (provider.go); rec is nil then.
+	prov *knownProv
+	// wit is the known witness a copy for a known witness is made for
+	// (witspec.go); rec and prov are nil then, and param is -1.
+	wit      *check.Witness
 	typeArgs map[*check.TypeParam]string
 	// bound is each type parameter's type argument, when the call names
 	// one with no type parameter of its own (scalar.go reads it).
@@ -176,7 +184,7 @@ func (l *lowerer) reserveSpecs(pkgs []*check.Package, machines []*check.TypeName
 				continue
 			}
 			for _, tn := range machines {
-				l.pkgName(pkgKey{"spec", specKey{f, tn}}, f.Name+tn.Name)
+				l.pkgName(pkgKey{"spec", specKey{f: f, tn: tn}}, f.Name+tn.Name)
 			}
 		}
 	}
@@ -229,25 +237,52 @@ func (fc *funcCtx) knownRecord(x syntax.Expr) *knownRec {
 // specAt is the copy the call x of c goes to, made and queued for emission
 // at its first call; nil when x takes the function itself.
 func (fc *funcCtx) specAt(x *syntax.CallExpr, c *check.Call) *specCopy {
-	if recordLowering == "opaque" || c.Kind != check.CallFunc || c.Func == nil || c.Recv != nil || c.Site != nil || x.Trailing != nil || c.StartsTask {
+	if c.Kind != check.CallFunc || c.Func == nil || c.Site != nil || x.Trailing != nil || c.StartsTask {
 		return nil
 	}
 	f := c.Func
-	k := fc.l.recordParam(f)
-	if k < 0 || k >= len(x.Args) {
-		return nil
+	var rec *knownRec
+	var prov *knownProv
+	k := -1
+	if recordLowering != "opaque" && c.Recv == nil {
+		k = fc.l.recordParam(f)
 	}
-	rec := fc.knownRecord(x.Args[k])
+	if k >= 0 && k < len(x.Args) {
+		rec = fc.knownRecord(x.Args[k])
+	}
+	var wit *check.Witness
 	if rec == nil {
-		return nil
+		k = -1
+		if c.Recv == nil {
+			k = fc.l.provParam(f)
+		}
+		if k >= 0 && k < len(x.Args) {
+			prov = fc.knownProvider(x.Args[k])
+		}
+		if prov == nil {
+			// A copy for a known witness (witspec.go).
+			k = -1
+			if wit = fc.knownWitness(x, f); wit == nil {
+				return nil
+			}
+		}
 	}
 	fd := fc.l.funcDecl(f)
-	if fd.method != nil || fd.extern != "" || len(fc.l.ownedParams(f)) > 0 {
+	if fd.method != nil || fd.extern != "" || len(fc.l.ownedParams(f)) > 0 || fc.l.hasGoRow(f.Sig) {
 		return nil
 	}
-	name, ok := fc.l.pkgNames[pkgKey{"spec", specKey{f, rec.tn}}]
+	var key specKey
+	if wit != nil {
+		tn, ptr := witArg(wit.Arg)
+		key = witKey(f, tn, ptr)
+	} else if rec != nil {
+		key = specKey{f: f, tn: rec.tn}
+	} else {
+		key = specKey{f: f, prov: prov.key}
+	}
+	name, ok := fc.l.pkgNames[pkgKey{"spec", key}]
 	if !ok {
-		return nil // the naming pass names the machines of the program's own packages
+		return nil // the naming pass names the machines of the program's own packages and the providers it converts
 	}
 	// The copy is one instance: each type argument is a Go type, never a
 	// type parameter of a generic caller (a copy's are Go types).
@@ -279,28 +314,34 @@ func (fc *funcCtx) specAt(x *syntax.CallExpr, c *check.Call) *specCopy {
 	if j != len(own) {
 		return nil
 	}
-	key := specKey{f, rec.tn}
 	if sp := fc.l.specs[key]; sp != nil {
 		return sp
 	}
 	if fc.l.specs == nil {
 		fc.l.specs = map[specKey]*specCopy{}
 	}
-	sp := &specCopy{f: f, fd: fd, name: name, param: k, rec: rec, typeArgs: args, bound: bound}
+	sp := &specCopy{f: f, fd: fd, name: name, param: k, rec: rec, prov: prov, wit: wit, typeArgs: args, bound: bound}
 	fc.l.specs[key] = sp
-	fc.l.stats.Specialized++
-	fc.l.pending = append(fc.l.pending, func() { fc.l.emitBody(fd, false, sp) })
+	if wit != nil {
+		fc.l.stats.Witnessed++
+	} else if prov != nil {
+		fc.l.stats.Providers++
+	} else {
+		fc.l.stats.Specialized++
+	}
+	fc.l.pending = append(fc.l.pending, func() { fc.l.emitBody(fd, false, sp, false) })
 	return sp
 }
 
 // inlineField inlines x, a call of the field of a known record whose
 // function is g, when the inline rule (inline.go) allows g with the
-// budget copyGrowth: a copy is written once for its record, so its field
+// budget fieldBudget and the growth rule admits it (a copy's paths take
+// copyGrowth): a copy is written once for its record, so its field
 // calls cost one body each. g takes no callback (its callbacks would be
 // unknown here). The call's identity stays the field call's, so a defect
 // report names the frame it names without inlining.
 func (fc *funcCtx) inlineField(x *syntax.CallExpr, c *check.Call, g *check.Func, gd *funcDecl) bool {
-	if fc.frame == nil || fc.inlDepth >= inlineDepth || len(callbackParams(g)) > 0 || !fc.l.inlineWithin(g, inlineGrowth) {
+	if fc.frame == nil || fc.inlDepth >= inlineDepth || len(callbackParams(g)) > 0 || !fc.l.inlineWithin(g, fieldBudget) || !fc.pays(g) {
 		return false
 	}
 	if len(g.Sig.Results) == 1 && fc.noValue(x) {
@@ -309,14 +350,9 @@ func (fc *funcCtx) inlineField(x *syntax.CallExpr, c *check.Call, g *check.Func,
 	if !gd.pure && fc.env == "" {
 		return false
 	}
-	if fc.l.inlineGrown == nil {
-		fc.l.inlineGrown = map[*namer]int{}
-	}
-	size := inlineSize(g.Decl.Body)
-	if fc.l.inlineGrown[fc.scope]+size > fc.l.growthOf(fc.scope) {
+	if !fc.grow(inlineSize(g.Decl.Body)) {
 		return false
 	}
-	fc.l.inlineGrown[fc.scope] += size
 	if token.IsExported(g.Name) {
 		fc.l.useFunc(g, x)
 	}

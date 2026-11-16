@@ -37,11 +37,11 @@ type IRReport struct {
 	Hash     string         `json:"hash"`
 }
 
-// LowerIR is Lower with the experimental IR bodies. The report's Hash
-// names the IR file's content. The build keys the main package's compile
-// on the IR through one key only: the -ergoir flag names a copy of the IR
-// file named by its content (irspike's stableIR), so main.go carries no
-// hash of its own (batch-18 verify M2: a second key was redundant).
+// LowerIR is Lower with the IR bodies. The report's Hash names the IR
+// file's content. A build keys the main package's compile on the IR
+// through one key: the direct path digests the IR file into the compile's
+// action key, go build's -ergoir flag names a file whose path names its
+// content (batch-18 verify M2: main.go carries no hash of its own).
 func LowerIR(u Unit) ([]File, IRReport, error) { return lowerIR(u, nil) }
 
 // LowerIRTests is LowerTests with the IR bodies: the test build's IR
@@ -116,30 +116,88 @@ func (st *irState) reachAll(l *lowerer) {
 }
 
 func lowerIR(u Unit, tests *testLowering) ([]File, IRReport, error) {
-	if err := u.Validate(); err != nil {
+	files, _, report, _, err := lowerIRModule(u, tests)
+	if err != nil {
 		return nil, IRReport{}, err
+	}
+	data, err := json.Marshal(report.out)
+	if err != nil {
+		return nil, IRReport{}, err
+	}
+	sum := sha256.Sum256(data)
+	report.Hash = hex.EncodeToString(sum[:])
+	files = append(files, File{Path: IRFileName, Data: data})
+	return files, report.IRReport, nil
+}
+
+// LowerIRSplit is LowerIR (LowerIRTests when tests is set) with the
+// package split (LowerSplit): one Go package per Ergo package and std
+// package, each with the IR file of its own bodies (pkgsplit_ir.go). A
+// program the split does not split keeps LowerIR's one package and its
+// one IR file, with the reason in the report.
+func LowerIRSplit(u Unit, tests bool) ([]File, IRReport, SplitReport, error) {
+	return lowerIRSplit(u, tests, programModule)
+}
+
+func lowerIRSplit(u Unit, tests bool, base string) ([]File, IRReport, SplitReport, error) {
+	var tl *testLowering
+	if tests {
+		tl = &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}
+	}
+	files, origins, report, l, err := lowerIRModule(u, tl)
+	if err != nil {
+		return nil, IRReport{}, SplitReport{}, err
+	}
+	i := slices.IndexFunc(files, func(f File) bool { return isMainGo(f.Path) })
+	var out []File
+	rep := SplitReport{Reason: "no main.go"}
+	if i >= 0 {
+		out, rep = splitMain(u, files[i].Data, base, origins, &l.ir.out)
+	}
+	res := files
+	if out == nil {
+		if rep.Packages == 0 {
+			rep.Packages = 1
+		}
+		data, err := json.Marshal(report.out)
+		if err != nil {
+			return nil, IRReport{}, SplitReport{}, err
+		}
+		res = append(slices.Clone(files), File{Path: IRFileName, Data: data})
+	} else {
+		res = append(slices.Clone(files[:i]), out...)
+		res = append(res, files[i+1:]...)
+	}
+	report.Hash = irHash(res)
+	return res, report.IRReport, rep, nil
+}
+
+// irModule is what lowerIRModule made: the report and the IR file.
+type irModule struct {
+	IRReport
+	out *irFile
+}
+
+// lowerIRModule lowers u with IR bodies: the module's files without an IR
+// file, the std origins of its names (the split's), and the IR.
+func lowerIRModule(u Unit, tests *testLowering) ([]File, map[string]*check.Package, irModule, *lowerer, error) {
+	if err := u.Validate(); err != nil {
+		return nil, nil, irModule{}, nil, err
 	}
 	l := newBuildLowerer(u, tests)
 	l.ir = &irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}}
 	code, err := l.program()
 	if err != nil {
-		return nil, IRReport{}, err
+		return nil, nil, irModule{}, nil, err
 	}
 	sort.Slice(l.ir.out.Funcs, func(i, j int) bool { return l.ir.out.Funcs[i].Name < l.ir.out.Funcs[j].Name })
 	l.ir.out.V = 1
-	data, err := json.Marshal(&l.ir.out)
-	if err != nil {
-		return nil, IRReport{}, err
-	}
-	sum := sha256.Sum256(data)
-	l.ir.report.Hash = hex.EncodeToString(sum[:])
 	for _, decl := range slices.Sorted(maps.Keys(l.ir.keep)) {
 		code = append(code, []byte("\n"+decl+" // an import an IR body names\n")...)
 	}
 	files := append(moduleFiles(u.Go, code), l.assetFiles()...)
-	files = append(files, File{Path: IRFileName, Data: data})
 	sort.Strings(l.ir.report.IR)
-	return files, l.ir.report, nil
+	return files, l.stdOrigins(), irModule{IRReport: l.ir.report, out: &l.ir.out}, l, nil
 }
 
 // irState is the IR a LowerIR run collects.
@@ -218,8 +276,15 @@ type irStmt struct {
 	Op string `json:"op,omitempty"`
 	// Cases are a "tswitch"'s clauses (ir_fail.go); Else is its default.
 	Cases []*irCase `json:"cases,omitempty"`
-	// Y is a "count" loop's bound (ir_pkg.go countLoop).
+	// Label is a loop's or a block's label, or the one a break, continue
+	// or goto names (ir_tree.go).
+	Label string `json:"label,omitempty"`
+	// Y is a "count" loop's bound (ir_pkg.go countLoop), or a store's
+	// value: X = Y, X a field (ir_with.go).
 	Y *irExpr `json:"y,omitempty"`
+	// Ls are a "tdef"'s locals, one per result of its Go call, in order:
+	// l0, l1, … := X (ir_tuple.go).
+	Ls []int `json:"ls,omitempty"`
 }
 
 type irExpr struct {
@@ -235,6 +300,11 @@ type irExpr struct {
 	Args  []*irExpr `json:"args,omitempty"`
 	Elems []*irExpr `json:"elems,omitempty"`
 	Keys  []string  `json:"keys,omitempty"`
+	// Params, Body and End are a function literal's ("func",
+	// ir_closure.go): its parameters' locals, its statements, its brace.
+	Params []int     `json:"params,omitempty"`
+	Body   []*irStmt `json:"body,omitempty"`
+	End    *irPos    `json:"end,omitempty"`
 }
 
 // irUnsupported stops an IR body: the function keeps its source body.
@@ -259,15 +329,29 @@ type irBuilder struct {
 	// tries counts the try expressions being built (ir_fail.go): inside
 	// one, a fallible call fails the frame too.
 	tries int
-	// names allocates the temporaries' names (ir_fail.go, tempNames).
-	names *namer
 	// admitted are the unions admitted so far (ir_union.go): one that
 	// holds itself is admitted once.
 	admitted map[*check.TypeName]bool
 	// switches is the depth of Go switches (a match's, a catch's) inside
 	// the innermost loop: a break there would leave the switch, not the
-	// loop (ir_match.go).
+	// loop, so it names the loop's label (ir_match.go).
 	switches int
+	// label is the innermost loop's label, "" until a break inside a
+	// switch needs one; labels counts the function's labels (ir_tree.go).
+	label  string
+	labels int
+	// scalars are the locals in the scalar form (ir_scalar.go).
+	scalars map[*check.Var]*irScalar
+	// names allocates the temporaries' names (ir_fail.go, tempNames).
+	names *namer
+	// given are the names the body's locals and temporaries have: a
+	// source local keeps its spelling unless Go's scope or one of these
+	// has it (ir_stmt.go, localName).
+	given map[string]bool
+	// law is the law whose body is built (ir_assert.go), nil in any
+	// other body and inside a function literal: each value it returns is
+	// checked where it is returned.
+	law *check.Law
 }
 
 // gate stops the body for reason; a census records it and goes on.
@@ -310,43 +394,42 @@ func (b *irBuilder) part(f func()) {
 // body tries an IR body for fd. params are the Ergo parameters in order;
 // gates are the emitter's reasons this body cannot take an IR body (a
 // frame, a variant, owned or generic parameters). It reports whether fd
-// got one. The caller has written fd's Go head.
-func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []string) (ok bool) {
+// got one. The caller has written fd's Go head. drop is set for fd's
+// variant with no result (drop.go), which the census names by its own Go
+// name (a gate keeps it a Go body).
+func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []string, drop bool) (ok bool) {
 	f := fd.fn
 	b := &irBuilder{fc: fc, l: fc.l, st: st, locals: map[*check.Var]int{}, env: -1, result: fc.frame.result}
 	name := fd.name
+	if drop {
+		name = fd.dropped
+	}
 	if fd.method != nil {
-		name = fd.method.name + "." + fd.name
+		name = fd.method.name + "." + name
 	}
 	if n := b.copyName(f); n != "" {
 		name = n // a copy for a known record (ir_known.go)
 	}
-	defer func() {
-		if r := recover(); r != nil {
-			u, isNo := r.(irUnsupported)
-			if !isNo {
-				panic(r)
-			}
-			st.report.Fallback[u.reason]++
-			b.note(u.reason)
-			ok = false
-		}
-		if st.census != nil {
-			pkg := ""
-			if f.Pkg != nil {
-				pkg = f.Pkg.Path
-			}
-			file := ""
-			if _, sourced := b.l.sourceOf(f.Decl); sourced {
-				_, file, _, _ = b.l.at(f.Decl, f.Decl.Pos())
-			}
-			st.census.Funcs = append(st.census.Funcs, IRCensusFunc{Pkg: pkg, Name: name, File: file, Std: f.Pkg.Std(), Reasons: b.reasons})
-			ok = false
-		}
-	}()
-	if !fc.directives {
-		b.gate("library body")
+	pkg := ""
+	if f.Pkg != nil {
+		pkg = f.Pkg.Path
 	}
+	census := name
+	for _, g := range gates {
+		switch g {
+		case "known-callback variant", "variant with no result", "copy for a known record":
+			// A variant is a body of its own beside the function's: the
+			// census names it apart, so the function's IR body and the
+			// variant's fallback are two records, not one function with
+			// both (IR-RED-2).
+			census = name + " (" + g + ")"
+		}
+	}
+	defer st.finish(b, pkg, census, f.Decl, f.Pkg.Std(), &ok)
+	// A library body (a std body the program reaches, written with no
+	// //line directive) takes an IR body as a sourced one does: its
+	// positions name its std file (pos), so its lines and its defects'
+	// locations are its .ergo source's (G5).
 	for _, g := range gates {
 		b.gate(g)
 	}
@@ -401,13 +484,36 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 		b.fn.Body = append(b.fn.Body, b.poll(f.Decl))
 	}
 	b.fn.Body = append(b.fn.Body, b.bodyStmts(f.Decl.Body.List)...) // ir_fail.go
-	b.fn.Body = append(b.fn.Body, b.bodyEnd(f.Decl.Body.List, b.fn.End)...)
+	b.fn.Body = append(b.fn.Body, b.bodyEnd(b.fn.Body, b.fn.End)...)
+	b.fn.Body = irUseLocals(b.fn.Body) // ir_end.go
 	if st.census != nil {
 		return false
 	}
 	st.out.Funcs = append(st.out.Funcs, *b.fn)
 	st.report.IR = append(st.report.IR, name)
 	return true
+}
+
+// finish ends a body's build, deferred: a reason the builder stopped at
+// is its fallback, and a census records the body with every reason.
+func (st *irState) finish(b *irBuilder, pkg, name string, decl syntax.Node, std bool, ok *bool) {
+	if r := recover(); r != nil {
+		u, isNo := r.(irUnsupported)
+		if !isNo {
+			panic(r)
+		}
+		st.report.Fallback[u.reason]++
+		b.note(u.reason)
+		*ok = false
+	}
+	if st.census != nil {
+		file := ""
+		if _, sourced := b.l.sourceOf(decl); sourced {
+			_, file, _, _ = b.l.at(decl, decl.Pos())
+		}
+		st.census.Funcs = append(st.census.Funcs, IRCensusFunc{Pkg: pkg, Name: name, File: file, Std: std, Reasons: b.reasons})
+		*ok = false
+	}
 }
 
 // intrinsic records f, whose body is the lowerer's own Go text (an extern
@@ -423,16 +529,16 @@ func (st *irState) intrinsic(f *check.Func) {
 	st.census.Funcs = append(st.census.Funcs, IRCensusFunc{Pkg: pkg, Name: f.Name, Std: f.Pkg.Std(), Reasons: []string{"intrinsic body"}})
 }
 
-// pos is n's position as the IR spells it. A census also walks bodies
-// outside the program's sources (std); their positions are not needed.
+// pos is n's position as the IR spells it: its file in the program's
+// sources, or, in a std body, its embedded std file (std/<pkg>/<file>,
+// the path a std body's defect names; locate).
 func (b *irBuilder) pos(n syntax.Node, p syntax.Pos) irPos {
 	if _, ok := b.l.sourceOf(n); !ok {
-		if b.st.census != nil {
-			return irPos{}
+		if _, ok := b.l.stdFileOf(n); !ok {
+			irNo("node outside the program's and std's sources")
 		}
-		irNo("node outside the program's sources")
 	}
-	_, path, line, col := b.l.at(n, p)
+	path, line, col := b.l.locate(n, p)
 	i, ok := b.st.files[path]
 	if !ok {
 		i = len(b.st.out.Files)

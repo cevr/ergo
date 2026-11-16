@@ -1,0 +1,57 @@
+// Package workload writes the JSON document the receipts parse: an array
+// of n records in jq's layout. Each record has numbers of every form,
+// strings with escapes and text outside ASCII, a nested object and an
+// array, so the parser's every path runs. The seed draws the values, so
+// two seeds give two documents of one shape.
+
+import rand
+import strings
+
+let words = []string{"alpha", "beta", "gamma", "delta", "tab\\there", "quote \\\"q\\\"", "snow ☃", "\\u00e9t\\u00e9", "\\ud83d\\ude00 face", "path\\/to"}
+
+// Document is the workload of n records for seed.
+func Document(seed int, n int) string {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		write(n)
+	}
+}
+
+func word() string needs Random { words[Random.IntN(len(words))] }
+
+func numeral() string needs Random {
+	match Random.IntN(4) {
+	case 0:
+		"\(Random.IntN(1000000))"
+	case 1:
+		"-\(Random.IntN(1000)).\(Random.IntN(1000))"
+	case 2:
+		"\(Random.IntN(10)).\(Random.IntN(100))e-\(Random.IntN(20))"
+	case _:
+		"\(Random.IntN(100))E+\(Random.IntN(9))"
+	}
+}
+
+func write(n int) string needs Random {
+	let mut b = strings.NewBuilder()
+	b.WriteString("[")
+	for i in 0..n {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		b.WriteString("\n  {\n    \"id\": \(i),\n    \"name\": \"" + word() + "\",\n")
+		b.WriteString("    \"score\": " + numeral() + ",\n")
+		b.WriteString("    \"active\": " + (if Random.IntN(2) == 0 { "true" } else { "false" }) + ",\n")
+		b.WriteString("    \"parent\": " + (if Random.IntN(3) == 0 { "null" } else { "\(Random.IntN(i + 1))" }) + ",\n")
+		b.WriteString("    \"tags\": [")
+		let tags = Random.IntN(4)
+		for k in 0..tags {
+			if k > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString("\"" + word() + "\"")
+		}
+		b.WriteString("],\n    \"at\": {\"x\": " + numeral() + ", \"y\": " + numeral() + ", \"note\": \"" + word() + " " + word() + "\"}\n  }")
+	}
+	b.WriteString("\n]\n")
+	b.String()
+}

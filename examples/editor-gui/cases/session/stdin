@@ -1,0 +1,30 @@
+# a session: type, move, select, find, replace, undo, save
+show
+type hello wörld
+enter
+type second line
+show
+up 1
+end
+show
+select
+left 3
+type LD
+show
+undo
+show
+redo
+find
+type o
+show
+next
+show
+replace 0
+show
+undo
+show
+save
+show
+bogus
+left x
+home extra

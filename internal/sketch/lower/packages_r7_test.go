@@ -23,7 +23,7 @@ func setProgram(n int, refuse bool) []pkgSource {
 	var caps, errs, ctxs, uses, tries, arms []string
 	for k := 0; k < n; k++ {
 		files = append(files, pkgSource{fmt.Sprintf("/set/f%d.ergo", k), fmt.Sprintf(`type C%[1]d { Get() int }
-type P%[1]d {}
+type P%[1]d {} implements C%[1]d
 func Get(x P%[1]d) int { %[2]d }
 let X%[1]d = context { C%[1]d: P%[1]d }
 func use%[1]d() int needs C%[1]d { C%[1]d.Get() }

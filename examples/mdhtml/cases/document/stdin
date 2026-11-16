@@ -27,6 +27,31 @@ func main() {
 ## [bad](javascript:alert(1)) link
 ###### six
 ####### seven is text
+
+Setext heading
+--------------
+
+> A quote with a list:
+> - one
+>   - nested *deeper*
+>
+> and a [reference][Go] link,
+lazily continued.
+
+    indented code
+      keeps its spaces
+
+<div class="note">
+*raw* HTML is left out
+</div>
+
+An ![image *alt*](/pic.png "a title"), an autolink <https://example.com/a b>,
+<me@example.com>, &copy; &#9731; &amp;, a hard\
+break and another  
+one, *a **nested** run* and **strong *em***.
+
+[go]: https://go.dev "The Go site"
+
 ```
 an unclosed fence
 runs to the end

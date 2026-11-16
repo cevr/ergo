@@ -366,25 +366,26 @@ func TestMachineLawsAgreeWithModel(t *testing.T) {
 		if k != len(rep.Results) {
 			fail("%d results, %d laws", len(rep.Results), k)
 		}
-		// A cut budget: the law it stops in is incomplete, the rest not run.
-		if rep.Steps > 1 {
+		// A cut budget: each law that needs more than it is incomplete,
+		// and each other law has the whole run's verdict.
+		most := int64(0)
+		for _, res := range rep.Results {
+			most = max(most, res.Steps)
+		}
+		if most > 1 {
 			b := DefaultBudget()
-			b.Steps = 1 + r.Int63n(rep.Steps-1)
+			b.Steps = 1 + r.Int63n(most-1)
 			cut, err := Run(pkg, b)
 			if err != nil {
 				fail("%v", err)
 			}
-			stopped := false
 			for i, res := range cut.Results {
+				whole := rep.Results[i]
 				switch {
-				case stopped && res.Status != NotRun,
-					!stopped && res.Status != Incomplete && res.Status != rep.Results[i].Status:
-					fail("budget %d of %d: %s is %s (%s), the whole run's %s", b.Steps, rep.Steps, res.Name, res.Status, res.Reason, rep.Results[i].Status)
+				case whole.Steps > b.Steps && res.Status != Incomplete,
+					whole.Steps <= b.Steps && res.Status != whole.Status:
+					fail("budget %d: %s is %s (%s), the whole run's %s in %d steps", b.Steps, res.Name, res.Status, res.Reason, whole.Status, whole.Steps)
 				}
-				stopped = stopped || res.Status == Incomplete
-			}
-			if !stopped {
-				fail("budget %d of %d: no law is incomplete", b.Steps, rep.Steps)
 			}
 			reach["cut"]++
 		}

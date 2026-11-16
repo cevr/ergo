@@ -1,0 +1,65 @@
+// Closures keep the frame they were made in; functions of a block are
+// bound when the block starts, so they may call each other.
+fn counter(start) {
+	let n = start
+	return fn() {
+		n = n + 1
+		return n
+	}
+}
+
+let a = counter(0)
+let b = counter(10)
+a()
+a()
+print(a())
+print(b())
+
+fn isEven(n) {
+	if n == 0 {
+		return true
+	}
+	return isOdd(n - 1)
+}
+
+fn isOdd(n) {
+	if n == 0 {
+		return false
+	}
+	return isEven(n - 1)
+}
+
+print(isEven(10))
+print(isOdd(7))
+
+// A variable lives as long as its function's call: the functions made in
+// one loop share the loop's variable.
+let fs = []
+let i = 0
+while i < 3 {
+	let k = i * 10
+	push(fs, fn() {
+		return k
+	})
+	i = i + 1
+}
+for f in fs {
+	print(f())
+}
+
+fn compose(f, g) {
+	return fn(x) {
+		return f(g(x))
+	}
+}
+
+let inc = fn(x) {
+	return x + 1
+}
+let dbl = fn(x) {
+	return x * 2
+}
+print(compose(inc, dbl)(5))
+print(compose(dbl, inc)(5))
+print(inc)
+print(print)

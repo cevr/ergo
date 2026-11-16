@@ -58,7 +58,7 @@ func main() fails os.Exit needs Ambient {
 }
 
 // run answers with handle, from standard input or on the listener.
-func run(v flag.Values, handle escaping func(http.Request) http.Response needs api.Jobs) fails os.Exit needs Ambient | io.Stdout | io.Stdin {
+func run(v flag.Values, handle own func(http.Request) http.Response needs api.Jobs) fails os.Exit needs Ambient | io.Stdout | io.Stdin {
 	let store = memory.NewTable()
 	if replayFlag.Get(v) {
 		let l = try listen("127.0.0.1:0")
@@ -107,7 +107,7 @@ func listen(addr string) http.Listener fails os.Exit needs Ambient {
 	}
 }
 
-func serve(l http.Listener, handle escaping func(http.Request) http.Response needs api.Jobs) fails os.Exit needs api.Jobs | Scheduler {
+func serve(l http.Listener, handle own func(http.Request) http.Response needs api.Jobs) fails os.Exit needs api.Jobs | Scheduler {
 	http.Serve(l, limits, handle) catch {
 	case http.InvalidLimits:
 		return os.Exit{Code: 2, Message: "jobs: the server's limits are not positive"}

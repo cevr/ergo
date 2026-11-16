@@ -31,7 +31,7 @@ import (
 // f being built is, or "" when it is f itself.
 func (b *irBuilder) copyName(f *check.Func) string {
 	for _, rec := range b.fc.recs {
-		if sp := b.l.specs[specKey{f, rec.tn}]; sp != nil {
+		if sp := b.l.specs[specKey{f: f, tn: rec.tn}]; sp != nil {
 			return sp.name
 		}
 	}

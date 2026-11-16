@@ -1,8 +1,10 @@
 package build
 
 import (
+	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -36,12 +38,16 @@ type Toolchain struct {
 	// direct path of Build (direct.go).
 	GoBuild bool
 	// Strip links without the symbol table and DWARF (`-ldflags=-s -w`):
-	// the default of `ergo build`, which `--debug` turns off. The pclntab
+	// the default of `ergo build`, `run` and `test`, which `--debug` turns
+	// off (compile-speed CS7). The pclntab
 	// stays, so tracebacks and the defect report do not change. The flag
 	// stands first in the action's GOFLAGS, so an -ldflags of the user's
 	// own GOFLAGS replaces it, as a later flag does in the go command.
 	// The direct path passes -s -w to the linker where go build does.
 	Strip bool
+	// Pins are the pin archive sets the direct path may take std's and
+	// the runtime's archives from (pin.go); the zero value is none.
+	Pins Pins
 }
 
 // stripFlags is the GOFLAGS word of a stripped link, quoted as the go
@@ -67,6 +73,15 @@ func (t Toolchain) Command(module Module, output string) *exec.Cmd {
 	if len(t.Tags) > 0 {
 		args = append(args, "-tags", strings.Join(t.Tags, ","))
 	}
+	for _, rel := range irDirs(module) {
+		// The pattern "." is the package in the module directory, the
+		// root, and "./D" the package in its folder D; the quotes keep a
+		// path with a space one word. Go's action cache keys the compile
+		// on the flag, whose path is in the module's folder, named by
+		// the module's key.
+		ir := ergoIR(filepath.Join(module.Dir, rel))
+		args = append(args, "-gcflags="+irPattern(rel)+"='"+ir[0]+"="+ir[1]+"'")
+	}
 	args = append(args, "-o", output, ".")
 	child := exec.Command(t.Go, args...)
 	child.Dir = module.Dir
@@ -76,6 +91,45 @@ func (t Toolchain) Command(module Module, output string) *exec.Cmd {
 	}
 	child.Env = t.env(goflags)
 	return child
+}
+
+// IRFile is the typed IR of a package of a module (lower.IRFileName), in
+// the package's folder: the root's beside its go.mod.
+const IRFile = "ergoir.json"
+
+// ergoIR is the compiler flag of the package in folder dir that reads its
+// IR bodies, `-ergoir FILE`, which only ergo's patched compile knows
+// (internal/toolchain, Patch); nil for a package without IR.
+func ergoIR(dir string) []string {
+	file := filepath.Join(dir, IRFile)
+	if _, err := os.Stat(file); err != nil {
+		return nil
+	}
+	return []string{"-ergoir", file}
+}
+
+// irDirs are the folders of the module's packages that have an IR file,
+// relative to the module's folder ("." the root), in path order.
+func irDirs(module Module) []string {
+	var dirs []string
+	filepath.WalkDir(module.Dir, func(p string, e fs.DirEntry, err error) error {
+		if err == nil && !e.IsDir() && e.Name() == IRFile {
+			if rel, err := filepath.Rel(module.Dir, filepath.Dir(p)); err == nil {
+				dirs = append(dirs, filepath.ToSlash(rel))
+			}
+		}
+		return nil
+	})
+	slices.Sort(dirs)
+	return dirs
+}
+
+// irPattern is the go command's package pattern of the folder rel.
+func irPattern(rel string) string {
+	if rel == "." {
+		return "."
+	}
+	return "./" + rel
 }
 
 // env is the environment of the go command for this toolchain: the

@@ -1,0 +1,15 @@
+func pick(xs []int, i int) int {
+	xs[i]
+}
+
+func middle(n int) int needs Console {
+	Console.Println("middle")
+	pick([]int{1, 2}, n)
+}
+
+func main() needs Console {
+	let v = middle(5)
+	if v == 0 {
+		Console.Println("zero")
+	}
+}

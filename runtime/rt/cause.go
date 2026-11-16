@@ -1,7 +1,7 @@
 package rt
 
 import (
-	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -152,6 +152,7 @@ func (c *Cause) recovered(t *Task, p any, inRelease bool, floor int) {
 // capability call the panic unwound, 0 for none.
 func (c *Cause) defect(t *Task, p any, inRelease bool, left uint64) {
 	chain, cut := t.Chain()
+	p = FaultValue(p)
 	c.Reasons = append(c.Reasons, Reason{Kind: KindDefect, Value: p, Chain: chain, ChainCut: cut, InRelease: inRelease})
 	if t.trace != nil {
 		t.traceDefect(p, inRelease, left, &chain[0])
@@ -189,18 +190,18 @@ func (c *Cause) Error() string {
 		}
 		switch r.Kind {
 		case KindFailure:
-			fmt.Fprintf(&b, "failure: %v", r.Err)
+			b.WriteString("failure: " + Text(r.Err))
 		case KindDefect:
 			if r.InRelease {
-				fmt.Fprintf(&b, "defect in release: %v", r.Value)
+				b.WriteString("defect in release: " + Text(r.Value))
 			} else {
-				fmt.Fprintf(&b, "defect: %v", r.Value)
+				b.WriteString("defect: " + Text(r.Value))
 			}
 			for _, f := range r.Chain {
-				fmt.Fprintf(&b, "\n  task #%d %s", f.Task, f.Span)
+				b.WriteString("\n  task #" + strconv.FormatUint(f.Task, 10) + " " + f.Span)
 			}
 			if r.ChainCut {
-				fmt.Fprintf(&b, "\n  %s", ChainCutLine)
+				b.WriteString("\n  " + ChainCutLine)
 			}
 		case KindInterruption:
 			b.WriteString("interrupted")

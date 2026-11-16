@@ -1,0 +1,17 @@
+# The hooks of the IR compiler patch in Go's own files (common.md MINIMAL
+# FORK PATCH, owner 2026-11-16: "as minimal as a large patch can be";
+# PATCH-MIN plan, run dir patch-min/plan.md). Our code lives in new files
+# (the -ergoir reader, noder/ergoir*.go), which never conflict with a Go
+# release; a hunk in a file Go already has is a hook, a cost at every
+# rebase. internal/residue TestPatchHooksBudgeted holds this file to the
+# patch toolchain/ir/lock names: one line per hunk, its exact count, its
+# first changed line (a prefix, runs of spaces as one) and the reason gc
+# must call our code there, and the total. A unit that adds or grows a hook
+# edits its line and says why; one that shrinks or drops one updates it.
+#
+# file | +added -deleted | the hunk's first changed line | why gc must call us there
+src/cmd/compile/internal/base/flag.go | +3 -0 | ErgoIR string "help:\"experimental: read typed function bodies | the -ergoir, -ergoirtext and -ergoirshape flags: cmd/go keys its build cache on -gcflags, and base.Flag's fields are the compile's flags (PATCH-MIN move M1 takes them to a flag.Var in our file: 0 lines)
+src/cmd/compile/internal/noder/unified.go | +7 -0 | if base.Flag.ErgoIR != "" { | the one call into the reader: after types2 checked the package and before the unified writer encodes it, the IR bodies are attached as typed syntax (ergoAttach), and the text and shape views are written
+src/cmd/compile/internal/noder/irgen.go | +5 -0 | if base.Flag.ErgoIR != "" && terr.Code == errors.BadDecl && msg == "generic function is missing function body" { | types2 reports a generic function with no body during the check, before ergoAttach can give it its IR body (FLIP F1); the error is dropped only under -ergoir, and ergoAttach reports any generic function still without one
+src/cmd/compile/internal/noder/irgen.go | +3 -0 | if terr, ok := err.(types2.Error); ok && base.Flag.ErgoIR != "" && terr.Code == errors.BadDecl && terr.Msg == "generic function is missing function body" { | conf.Check also returns that first error after conf.Error saw it, so the check's result must forget it too (FLIP F1); the same one error, only under -ergoir
+total +18 -0

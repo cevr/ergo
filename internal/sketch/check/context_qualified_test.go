@@ -13,13 +13,13 @@ import (
 // The context w is unexported.
 const qualifiedLib = `type Store { Get() string }
 type Log { Say(s string) }
-type Mem { V string }
+type Mem { V string } implements Store
 func Get(m Mem) string { m.V }
 func read() string needs Log {
 	Log.Say("read")
 	"x"
 }
-type Quiet {}
+type Quiet {} implements Log
 func Say(_ Quiet, s string) {}
 let W = context { Log: Quiet, Store: Mem{V: read()} }
 let w = context { Log: Quiet }
@@ -52,9 +52,9 @@ func TestQualifiedContextEmbed(t *testing.T) {
 	src := `import lib
 
 type Box { Peek() int }
-type Lid {}
+type Lid {} implements Box
 func Peek(_ Lid) int { 1 }
-type Mine {}
+type Mine {} implements lib.Store
 func Get(_ Mine) string { "mine" }
 
 func inline() string {
@@ -162,12 +162,12 @@ func local() string {
 		if err != nil {
 			t.Fatal(err)
 		}
-		b, err := syntax.Parse("import lib\nfunc b() { with context { lib.W } {\n\tlet _ = lib.Store.Get()\n\tConsole.Println(\"x\")\n} }\n")
+		b, err := syntax.Parse("import lib\nfunc b() needs Console { with context { lib.W } {\n\tlet _ = lib.Store.Get()\n\tConsole.Println(\"x\")\n} }\n")
 		if err != nil {
 			t.Fatal(err)
 		}
 		_, ds := check.Check("main", []*syntax.File{a, b}, imp)
-		// b's inferred row keeps Console, so main's call of b is the S102.
+		// b writes the Console row, so main's call of b is the S102.
 		if len(ds) != 1 || ds[0].Code != "S102" || ds[0].File != 0 || !strings.Contains(ds[0].Message, "Console") {
 			t.Errorf("second file: diagnostics %v, want one S102 for Console at main's call of b", ds)
 		}

@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"math/rand/v2"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -26,14 +27,20 @@ import (
 // timer.
 //
 // The program's run build and test build are lowered with the flat unions
-// and with the reference, form A for every union (unionLowering
-// "interface"); each pair must print the same stdout and stderr and exit
-// with the same code. A failing seed prints the Ergo source, both outputs
-// and its replay command. The fixed seeds reach every generator path. The
-// flat lowering builds flat Options and flat unions and bails on none; each
-// generated union is flat exactly where the rule's model (unionGen.flat)
-// says; the niche holds in the seeds with no generic go.Ref and not in the
-// others; and the reference builds no flat value.
+// and their shared slots (U1), with the flat unions and a slot per variant
+// (unionLowering "slots", the shared form's reference) and with the
+// reference, form A for every union (unionLowering "interface"); each
+// must print what the reference prints, on stdout and stderr, and exit
+// with its code. A failing seed prints the Ergo source, both outputs and
+// its replay command. The fixed seeds reach every generator path. The
+// flat lowerings build flat Options and flat unions and bail on none; each
+// generated union has the form (shared slots, a slot per variant, an
+// interface) that the rule's model (unionGen.form) says, a union past
+// the register bound flat when no call carries it (R3b, carry.go) and an
+// interface under the register-bound reference (unionBound "register"),
+// which the program also runs; the niche holds
+// in the seeds with no generic go.Ref and not in the others; and the
+// reference builds no flat value.
 
 var flatSeed = flag.Uint64("flat.seed", 0, "run TestFlatUnionsAgree on this seed alone")
 
@@ -133,7 +140,7 @@ func openH(name string, ok bool) Handle {
 	Shut
 }
 
-func useH(h Handle) needs Console {
+func useH(h own Handle) needs Console {
 	match h {
 	case Opened as o:
 		Console.Println("use \(o.F.name)")
@@ -238,7 +245,7 @@ type Missing { At int }
 
 type Lost { Hint Option[string], Code int }
 
-type File { name string }
+type File { name string } implements Closer
 
 type Holder { Name string, O Option[int], Xs []Option[int], W Option[Option[int]] }
 
@@ -343,7 +350,7 @@ func open(name string, ok bool) Option[File] {
 	None
 }
 
-func use(o Option[File]) needs Console {
+func use(o own Option[File]) needs Console {
 	match o {
 	case Some[File] as s:
 		Console.Println("use \(s.Value.name)")
@@ -752,19 +759,23 @@ func optionProgram(seed uint64, reached map[string]bool) (src string, u *unionGe
 }
 
 // lowerOptionMode lowers src's run build, or its test build (test), with
-// the flat unions or with the reference (ref): unionLowering "interface";
-// noTree lowers every match without its tree (matchLowering "flat"). It
-// returns the lowering's counts.
-func lowerOptionMode(t *testing.T, name, src string, test, ref, noTree bool) (*lowered, knownStats) {
+// the unionLowering mode: "" the flat unions with shared slots, "slots"
+// the flat unions with a slot per variant (the shared form's reference),
+// "interface" the reference; noTree lowers every match without its tree
+// (matchLowering "flat"). It returns the lowering's counts.
+func lowerOptionMode(t *testing.T, name, src string, test bool, mode string, noTree bool) (*lowered, knownStats) {
 	t.Helper()
-	savedUnion, savedHook, savedMatch := unionLowering, statsHook, matchLowering
-	defer func() { unionLowering, statsHook, matchLowering = savedUnion, savedHook, savedMatch }()
-	unionLowering = ""
+	savedUnion, savedHook, savedMatch, savedBound := unionLowering, statsHook, matchLowering, unionBound
+	defer func() {
+		unionLowering, statsHook, matchLowering, unionBound = savedUnion, savedHook, savedMatch, savedBound
+	}()
+	unionLowering = mode
+	if mode == "register" {
+		// R3b's reference: the shared slots under the register bound alone.
+		unionLowering, unionBound = "", "register"
+	}
 	if noTree {
 		matchLowering = "flat"
-	}
-	if ref {
-		unionLowering = "interface"
 	}
 	var stats knownStats
 	statsHook = func(s knownStats) { stats = s }
@@ -787,53 +798,61 @@ func TestFlatUnionsAgree(t *testing.T) {
 	}
 	reached := map[string]bool{}
 	type pair struct {
-		seed      uint64
-		src       string
-		flat, ref string
+		seed                  uint64
+		src                   string
+		flat, slots, reg, ref string
 	}
 	var pairs []pair
 	var programs []*lowered
-	var flatStats, refStats knownStats
+	var flatStats, refStats, regStats knownStats
 	for _, seed := range seeds {
 		src, u := optionProgram(seed, reached)
 		replay := fmt.Sprintf("Replay: go test -run '^TestFlatUnionsAgree$' ./internal/sketch/lower -args -flat.seed=%d", seed)
 		for _, test := range []bool{false, true} {
 			p := pair{seed: seed, src: src}
-			for _, ref := range []bool{false, true} {
+			for _, mode := range []string{"", "slots", "register", "interface"} {
 				name := fmt.Sprintf("flat%d", seed)
 				if test {
 					name += "test"
 				}
-				if ref {
-					name += "ref"
-				}
+				name += map[string]string{"": "", "slots": "slots", "register": "reg", "interface": "ref"}[mode]
 				// Seed 6 (the niche on) lowers its flat programs with no match
 				// tree, so the tag tests are reached as well as the switches.
-				noTree := seed%6 == 0 && !ref
+				noTree := seed%6 == 0 && mode != "interface"
 				if noTree {
 					reached["no match tree"] = true
 				}
-				prog, s := lowerOptionMode(t, name, src, test, ref, noTree)
+				prog, s := lowerOptionMode(t, name, src, test, mode, noTree)
 				programs = append(programs, prog)
-				if ref {
+				switch mode {
+				case "interface":
 					p.ref = name
 					refStats = addStats(refStats, s)
 					continue
+				case "slots":
+					p.slots = name
+				case "register":
+					p.reg = name
+					regStats = addStats(regStats, s)
+				default:
+					p.flat = name
+					flatStats = addStats(flatStats, s)
 				}
-				p.flat = name
-				flatStats = addStats(flatStats, s)
 				if s.FlatOptions == 0 || s.OptionBails != 0 || s.FlatUnions == 0 || s.UnionBails != 0 {
 					t.Errorf("%s: the flat lowering did not keep Option and the unions flat: %+v\n%s", name, s, replay)
 				}
 				if (s.NicheOptions > 0) == u.nicheOff {
 					t.Errorf("%s: the pointer niche is taken %v, want %v: %+v\n%s", name, s.NicheOptions > 0, !u.nicheOff, s, replay)
 				}
-				// Each generated union is flat exactly where the rule's
-				// model says (size, fields, recursion).
+				// Each generated union has the form the rule's model
+				// says (shared slots, a slot per variant or an
+				// interface: size, fields, recursion); "slots" never
+				// shares.
+				share := mode != "slots"
+				register := mode == "register"
 				for i := range u.unions {
-					flat := strings.Contains(prog.mainGo(), fmt.Sprintf("type U%d struct {", i))
-					if want := u.flat(i); flat != want {
-						t.Errorf("%s: U%d is flat %v, want %v (%s)\n%s\n%s", name, i, flat, want, u.why(i), replay, src)
+					if got, want := goForm(prog.mainGo(), i), u.form(i, share, register); got != want {
+						t.Errorf("%s: U%d is %s, want %s (%s)\n%s\n%s", name, i, got, want, u.why(i, share, register), replay, src)
 					}
 				}
 			}
@@ -845,15 +864,22 @@ func TestFlatUnionsAgree(t *testing.T) {
 		t.Fatalf("the flat union programs do not build (seeds %v)", seeds)
 	}
 	for _, p := range pairs {
-		out, errOut, code := runExe(t, exes[p.flat])
 		rout, rerr, rcode := runExe(t, exes[p.ref])
-		if out != rout || errOut != rerr || code != rcode {
-			t.Errorf("seed %d, %s: the flat unions and the reference differ\nReplay: go test -run '^TestFlatUnionsAgree$' ./internal/sketch/lower -args -flat.seed=%d\n%s\n--- flat (exit %d)\n%s%s\n--- reference (exit %d)\n%s%s", p.seed, p.flat, p.seed, p.src, code, out, errOut, rcode, rout, rerr)
+		for _, name := range []string{p.flat, p.slots, p.reg} {
+			out, errOut, code := runExe(t, exes[name])
+			if out != rout || errOut != rerr || code != rcode {
+				t.Errorf("seed %d, %s: the flat unions and the reference differ\nReplay: go test -run '^TestFlatUnionsAgree$' ./internal/sketch/lower -args -flat.seed=%d\n%s\n--- %s (exit %d)\n%s%s\n--- reference (exit %d)\n%s%s", p.seed, name, p.seed, p.src, name, code, out, errOut, rcode, rout, rerr)
+			}
 		}
 	}
 	t.Logf("seeds %v: flat %+v, reference %+v", seeds, flatStats, refStats)
 	if refStats.FlatOptions != 0 || refStats.FlatUnions != 0 || refStats.NicheOptions != 0 {
 		t.Errorf("the reference built a flat value: %+v", refStats)
+	}
+	// R3b: unions past the register bound are flat by use under the rule,
+	// and none under its reference.
+	if flatStats.UsedFlat == 0 || regStats.UsedFlat != 0 || refStats.UsedFlat != 0 {
+		t.Errorf("unions flat by use (R3b): %d under the rule (want some), %d under the register bound and %d under the interface reference (want none)", flatStats.UsedFlat, regStats.UsedFlat, refStats.UsedFlat)
 	}
 	if *flatSeed != 0 {
 		return
@@ -872,14 +898,58 @@ func addStats(a, b knownStats) knownStats {
 	a.FlatUnions += b.FlatUnions
 	a.UnionBails += b.UnionBails
 	a.NicheOptions += b.NicheOptions
+	a.UsedFlat += b.UsedFlat
 	return a
 }
+
+// carrierNames are the ways a call carries a value (carry.go), one fixed
+// union each: carrierCalls is its use in main (%d: the union, the union,
+// a variant index) and carrierDecls the generic carriers.
+var carrierNames = []string{"tail", "return", "pass", "let", "capture", "function value", "literal result"}
+
+var carrierCalls = map[string]string{
+	"tail":           "showU%d(idAny(mkU%d(%d)))",
+	"return":         "showU%d(retAny(mkU%d(%d)))",
+	"pass":           "showU%d(passAny(mkU%d(%d)))",
+	"let":            "showU%d(letAny(mkU%d(%d)))",
+	"capture":        "\"\\(litAny(mkU%[1]d(%[3]d)))\"",
+	"function value": "\"\\(callAny(func(v U%[1]d) int { len(showU%[1]d(v)) }, mkU%[2]d(%[3]d)))\"",
+	"literal result": "showU%[1]d(callR(func() U%[1]d { mkU%[2]d(%[3]d) }))",
+}
+
+const carrierDecls = `func retAny[T](x T) T {
+	return x
+}
+
+func passAny[T](x T) T { idAny(x) }
+
+func letAny[T](x T) T {
+	let y = x
+	y
+}
+
+func litAny[T](x T) int {
+	let f = func() int {
+		let _ = Some{x}
+		1
+	}
+	f()
+}
+
+func callAny[T](f func(T) int, x T) int { f(x) }
+
+func callR[T](f func() T) T { f() }
+
+`
 
 // unionPaths are the shapes of generated unions the fixed seeds reach: a
 // union of each outcome of the rule, and each kind of field.
 var unionPaths = []string{
 	"union flat", "union too large", "union too many fields", "union recursive", "union recursive through Option",
-	"union in a flat union", "field int", "field string", "field bool", "field slice", "field Option", "field union",
+	"union in a flat union", "union shares a slot", "union shares a slice slot", "union two slots of one type", "union shared too wide, slot per variant",
+	"field int", "field string", "field bool", "field slice", "field Option", "field union",
+	"union flat by use", "union carried past the bound", "union carried by payload", "union past the use bound",
+	"carried by tail", "carried by return", "carried by pass", "carried by let", "carried by capture", "carried by function value", "carried by literal result",
 	"niche on", "niche off", "niche off by a record", "no match tree",
 }
 
@@ -897,6 +967,11 @@ type unionGen struct {
 	reached  map[string]bool
 	unions   [][][]gField // by union, by variant
 	nicheOff bool
+	// carried are the unions some call of the program carries (carry.go):
+	// u-generic passes one to or, which returns it, and finish passes each
+	// fixed carried union to its carrier (carriers, by union).
+	carried  map[int]bool
+	carriers map[int]string
 }
 
 // fieldKinds are the kinds of a variant's fields: "self" is a field of the
@@ -904,7 +979,7 @@ type unionGen struct {
 var fieldKinds = []string{"int", "string", "bool", "bool", "bool", "slice", "option", "union", "union", "self", "next"}
 
 func newUnionGen(r *rand.Rand, reached map[string]bool) *unionGen {
-	u := &unionGen{r: r, reached: reached}
+	u := &unionGen{r: r, reached: reached, carried: map[int]bool{}, carriers: map[int]string{}}
 	n := 3 + r.IntN(2)
 	for i := range n {
 		nv := 2 + r.IntN(3)
@@ -941,40 +1016,105 @@ func newUnionGen(r *rand.Rand, reached map[string]bool) *unionGen {
 		}
 		u.unions = append(u.unions, variants)
 	}
-	if r.IntN(2) == 0 {
-		// A wide union: one variant of five or six small fields fits the
-		// size bound but not the field count bound.
+	// A union whose variants share an int slot, one of them in two int
+	// slots (stackvm's Instr in small).
+	u.reached["field int"] = true
+	u.unions = append(u.unions, [][]gField{{{kind: "int", name: "N"}, {kind: "int", name: "Nx"}}, {{kind: "int", name: "N"}}, {}})
+	// A union whose variants share a slice slot (vt's Csi and Hook).
+	u.reached["field slice"] = true
+	u.unions = append(u.unions, [][]gField{{{kind: "slice", name: "Xs"}}, {{kind: "slice", name: "Xs"}}, {}})
+	{
+		// A wide union: one variant of five small fields fits the size
+		// bound but not the field count bound; of four, it misses the
+		// bound in the shared form only, so it keeps a slot per variant.
 		base := []gField{}
 		if r.IntN(2) == 0 {
 			base = append(base, gField{kind: "int", name: "N"})
 		}
 		var wide []gField
 		name := "B"
-		for range 5 + r.IntN(2) {
+		for range 4 + len(u.unions)%2 {
 			wide = append(wide, gField{kind: "bool", name: name})
 			name += "x"
 		}
 		u.reached["field bool"] = true
 		u.unions = append(u.unions, [][]gField{base, wide})
 	}
+	{
+		// Past the register bound in both forms (a tag, a string, a
+		// slice, an int and a bool: 64 bytes): flat by use, and the same
+		// union carried by each carrier (finish), an interface. Six slices
+		// are past the use bound (152 bytes): an interface.
+		big := func() [][]gField {
+			return [][]gField{{{kind: "string", name: "S"}, {kind: "slice", name: "Xs"}, {kind: "int", name: "N"}}, {{kind: "bool", name: "B"}}, {}}
+		}
+		u.unions = append(u.unions, big())
+		for _, c := range carrierNames {
+			u.unions = append(u.unions, big())
+			u.carried[len(u.unions)-1] = true
+			u.carriers[len(u.unions)-1] = c
+		}
+		// A big union held in place by a carried union (carried by
+		// return): the payload of a carried union is carried too.
+		u.unions = append(u.unions, big())
+		held := len(u.unions) - 1
+		u.unions = append(u.unions, [][]gField{{{kind: "union", name: "W", of: held}}, {}})
+		u.carried[len(u.unions)-1] = true
+		u.carriers[len(u.unions)-1] = "return"
+		var huge []gField
+		name := "Xs"
+		for range 6 {
+			huge = append(huge, gField{kind: "slice", name: name})
+			name += "x"
+		}
+		u.unions = append(u.unions, [][]gField{huge, {}})
+		u.reached["field string"], u.reached["field slice"] = true, true
+	}
 	for i := range u.unions {
-		lay, why := u.layout(i, map[int]bool{})
+		lay, shared, why := u.layout(i, true, false)
 		switch {
 		case why == "recursive":
 			u.reached["union recursive"] = true
 		case why == "recursive through Option":
 			u.reached["union recursive through Option"] = true
-		case lay.size > 32:
-			u.reached["union too large"] = true
 		case !lay.ssa:
-			u.reached["union too many fields"] = true
+			if lay.size > 32 {
+				u.reached["union too large"] = true
+			} else {
+				u.reached["union too many fields"] = true
+			}
+			switch {
+			case lay.size > useBytes:
+				u.reached["union past the use bound"] = true
+			case u.carried[i]:
+				// Marked by the fixed carried union; u-generic may carry
+				// another later.
+				u.reached["union carried past the bound"] = true
+			case u.isCarried(i):
+				u.reached["union carried by payload"] = true
+			default:
+				u.reached["union flat by use"] = true
+			}
 		default:
 			u.reached["union flat"] = true
+			if !shared {
+				u.reached["union shared too wide, slot per variant"] = true
+			} else if u.slotShared(i) {
+				u.reached["union shares a slot"] = true
+				if u.slotSharedOf(i, "slice") {
+					u.reached["union shares a slice slot"] = true
+				}
+			}
 			for _, v := range u.unions[i] {
+				kinds := map[string]bool{}
 				for _, f := range v {
-					if f.kind == "union" && u.flat(f.of) {
+					if f.kind == "union" && u.flat(f.of, true, false) {
 						u.reached["union in a flat union"] = true
 					}
+					if shared && kinds[f.kind] && (f.kind == "int" || f.kind == "bool" || f.kind == "string" || f.kind == "slice") {
+						u.reached["union two slots of one type"] = true
+					}
+					kinds[f.kind] = true
 				}
 			}
 		}
@@ -982,64 +1122,211 @@ func newUnionGen(r *rand.Rand, reached map[string]bool) *unionGen {
 	return u
 }
 
-// layout is the model of the rule (flatunion.go, steps 3 and 4) for the
-// generated union i: its Go layout as a flat struct, and why it is not
-// flat ("" when it is).
-func (u *unionGen) layout(i int, path map[int]bool) (goLayout, string) {
-	if path[i] {
-		return goLayout{}, "recursive"
+// slotShared reports whether two variants of union i hold a field of one
+// basic kind, so the shared form puts both in one slot.
+func (u *unionGen) slotShared(i int) bool {
+	return u.slotSharedOf(i, "int", "bool", "string", "slice")
+}
+
+// slotSharedOf reports whether two variants of union i hold a field of
+// one of kinds.
+func (u *unionGen) slotSharedOf(i int, kinds ...string) bool {
+	seen := map[string]bool{}
+	for _, v := range u.unions[i] {
+		mine := map[string]bool{}
+		for _, f := range v {
+			if slices.Contains(kinds, f.kind) {
+				if seen[f.kind] {
+					return true
+				}
+				mine[f.kind] = true
+			}
+		}
+		for k := range mine {
+			seen[k] = true
+		}
 	}
-	path[i] = true
-	defer delete(path, i)
+	return false
+}
+
+// layout is the model of the rule (flatunion.go, steps 3 and 4, with the
+// shared slots of U1 when share holds) for the generated union i: its Go
+// layout as a flat struct, whether that is the shared form, and why it is
+// not flat ("" when it is). The shared form is taken where it fits the
+// register limits, else the slot per variant; past both, the shared form
+// (R3b keeps it flat when no call carries it, flat); a union inside takes
+// its own form by the same rule, under the register bound alone when
+// register holds.
+func (u *unionGen) layout(i int, share, register bool) (lay goLayout, shared bool, why string) {
 	word := func(size int) goLayout { return goLayout{size: size, align: 8, ssa: true} }
-	slots := []goLayout{{size: 1, align: 1, ssa: true}}
+	for _, v := range u.unions[i] {
+		for _, f := range v {
+			switch f.kind {
+			case "self":
+				return goLayout{}, false, "recursive"
+			case "next":
+				return goLayout{}, false, "recursive through Option"
+			}
+		}
+	}
+	field := func(f gField) goLayout {
+		switch f.kind {
+		case "int":
+			return word(8)
+		case "string":
+			return word(16)
+		case "bool":
+			return goLayout{size: 1, align: 1, ssa: true}
+		case "slice":
+			return word(24)
+		case "option":
+			return word(16) // Option[int]: a tag and Some[int]
+		}
+		if u.flat(f.of, share, register) {
+			l, _, _ := u.layout(f.of, share, register)
+			return l
+		}
+		return word(16) // an interface
+	}
+	tag := goLayout{size: 1, align: 1, ssa: true}
+	var sharedLay goLayout
+	if share {
+		// One slot per field of the widest variant, by Go type: a basic
+		// type by its kind, a union by its declaration, a slice ([]int)
+		// by its element; an Option[int] (a generic instance) has a slot
+		// of its own.
+		var keys []string
+		slots := []goLayout{tag}
+		for _, v := range u.unions[i] {
+			used := map[int]bool{}
+			for n, f := range v {
+				key := f.kind
+				switch f.kind {
+				case "union":
+					key = fmt.Sprintf("U%d", f.of)
+				case "option":
+					key = fmt.Sprintf("own %d %d", len(keys), n)
+				}
+				s := -1
+				for j, k := range keys {
+					if k == key && !used[j] {
+						s = j
+						break
+					}
+				}
+				if s < 0 {
+					s = len(keys)
+					keys = append(keys, key)
+					slots = append(slots, field(f))
+				}
+				used[s] = true
+			}
+		}
+		sharedLay = structLayout(slots)
+		if sharedLay.ssa {
+			return sharedLay, true, ""
+		}
+	}
+	slots := []goLayout{tag}
 	for _, v := range u.unions[i] {
 		if len(v) == 0 {
 			continue
 		}
 		var fs []goLayout
 		for _, f := range v {
-			switch f.kind {
-			case "int":
-				fs = append(fs, word(8))
-			case "string":
-				fs = append(fs, word(16))
-			case "bool":
-				fs = append(fs, goLayout{size: 1, align: 1, ssa: true})
-			case "slice":
-				fs = append(fs, word(24))
-			case "option":
-				fs = append(fs, word(16)) // Option[int]: a tag and Some[int]
-			case "self":
-				return goLayout{}, "recursive"
-			case "next":
-				return goLayout{}, "recursive through Option"
-			case "union":
-				if l, why := u.layout(f.of, path); why == "" && l.ssa {
-					fs = append(fs, l)
-				} else {
-					fs = append(fs, word(16)) // an interface
-				}
-			}
+			fs = append(fs, field(f))
 		}
 		slots = append(slots, structLayout(fs))
 	}
-	return structLayout(slots), ""
+	if lay := structLayout(slots); lay.ssa || !share {
+		return lay, false, ""
+	}
+	return sharedLay, true, ""
 }
 
-// flat reports whether the rule makes union i flat.
-func (u *unionGen) flat(i int) bool {
-	lay, why := u.layout(i, map[int]bool{})
-	return why == "" && lay.ssa
+// flat reports whether the rule makes union i flat; share and register
+// as in layout. Past the register bound, a union no call carries is flat
+// up to the use bound (R3b).
+func (u *unionGen) flat(i int, share, register bool) bool {
+	lay, _, why := u.layout(i, share, register)
+	return why == "" && (lay.ssa || !register && !u.isCarried(i) && lay.size <= useBytes)
+}
+
+// isCarried reports whether union i is carried: some call carries it, or
+// a carried union holds it in place, through union fields (carry.go's
+// carryPayload).
+func (u *unionGen) isCarried(i int) bool {
+	var holds func(j int, seen map[int]bool) bool
+	holds = func(j int, seen map[int]bool) bool {
+		if j == i {
+			return true
+		}
+		if seen[j] {
+			return false
+		}
+		seen[j] = true
+		for _, v := range u.unions[j] {
+			for _, f := range v {
+				if f.kind == "union" && holds(f.of, seen) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	for j := range u.unions {
+		if u.carried[j] && holds(j, map[int]bool{}) {
+			return true
+		}
+	}
+	return false
+}
+
+// form is the model's form of union i: "shared", "slots" or "interface".
+func (u *unionGen) form(i int, share, register bool) string {
+	_, shared, _ := u.layout(i, share, register)
+	fields := false
+	for _, v := range u.unions[i] {
+		fields = fields || len(v) > 0
+	}
+	switch {
+	case !u.flat(i, share, register):
+		return "interface"
+	case shared || !fields:
+		return "shared" // a lone tag is one text in both forms
+	}
+	return "slots"
 }
 
 // why is the model's reason for union i's form.
-func (u *unionGen) why(i int) string {
-	lay, why := u.layout(i, map[int]bool{})
+func (u *unionGen) why(i int, share, register bool) string {
+	lay, shared, why := u.layout(i, share, register)
 	if why != "" {
 		return why
 	}
-	return fmt.Sprintf("%d bytes, ssa %v", lay.size, lay.ssa)
+	return fmt.Sprintf("%d bytes, ssa %v, shared %v, carried %v", lay.size, lay.ssa, shared, u.isCarried(i))
+}
+
+// goForm is the form of union i in the lowered Go text: "shared",
+// "slots" (a slot per variant) or "interface". A union with no fieldful
+// variant is a lone tag in both flat forms: the shared one.
+func goForm(main string, i int) string {
+	head := fmt.Sprintf("type U%d struct {", i)
+	at := strings.Index(main, head)
+	if at < 0 {
+		return "interface"
+	}
+	body := main[at+len(head):]
+	body = body[:strings.Index(body, "}")]
+	for _, line := range strings.Split(body, "\n") {
+		if end := strings.LastIndex(line, "*/"); end >= 0 {
+			line = line[end+2:] // a /*line …*/ position
+		}
+		if f := strings.Fields(line); len(f) > 0 && strings.HasPrefix(f[0], "v") {
+			return "slots"
+		}
+	}
+	return "shared"
 }
 
 // comparable reports whether union i's values are Go comparable, so a Map
@@ -1117,6 +1404,7 @@ func (u *unionGen) any(i int) string { return u.lit(i, u.r.IntN(len(u.unions[i])
 func (u *unionGen) decls() string {
 	var b strings.Builder
 	b.WriteString("func idAny[T](x T) T { x }\n\n")
+	b.WriteString(carrierDecls)
 	for i, variants := range u.unions {
 		var vs []string
 		for j, v := range variants {
@@ -1194,6 +1482,10 @@ func (u *unionGen) lets(g *optionGen) {
 // finish writes each let mut once and prints what the paths stored.
 func (u *unionGen) finish(g *optionGen) {
 	for i := range u.unions {
+		if c := u.carriers[i]; c != "" {
+			g.line("Console.Println(" + fmt.Sprintf(carrierCalls[c], i, i, i) + ")")
+			u.reached["carried by "+c] = true
+		}
 		g.line(fmt.Sprintf("us%d = us%d.Append(mkU%d(1))", i, i, i))
 		g.line(fmt.Sprintf("for x in us%d {", i))
 		g.line(fmt.Sprintf("\tConsole.Println(showU%d(x))", i))
@@ -1250,6 +1542,8 @@ func (u *unionGen) stmt(g *optionGen, path string) {
 		g.line("}")
 		g.line(fmt.Sprintf("Console.Println(showU%d(%s) + \" \" + showU%d(%s))", i, v, i, w))
 	case "u-generic":
+		// or returns its d: the union is carried (carry.go).
+		u.carried[i] = true
 		g.line(fmt.Sprintf("Console.Println(showU%d(or(find([]U%d{mkU%d(%d)}, %d), mkU%d(%d))) + \" \" + showOU%d(find([]U%d{%s}, %d)))", i, i, i, k(), g.index(), i, k(), i, i, u.any(i), g.index()))
 	}
 }

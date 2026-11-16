@@ -1,0 +1,79 @@
+  stage: plan (overnight)
+> continue
+  stage: supplies (overnight)
+  log 0: Plan -> Supplies on Continue
+> continue
+  stage: permit (overnight, no leader)
+  log 1: Supplies -> Permit on Continue
+> back
+  stage: supplies (overnight)
+  log 2: Permit -> Supplies on Back
+> back
+  stage: plan (overnight)
+  log 3: Supplies -> Plan on Back
+> trip day
+  stage: plan (day trip)
+  log 4: Plan -> Plan on Chose
+> continue
+  stage: permit (day trip, no leader)
+  log 5: Plan -> Permit on Continue
+> back
+  stage: plan (day trip)
+  log 6: Permit -> Plan on Back
+> cancel
+  stage: cancelled (day trip)
+  log 7: Plan -> Cancelled on Cancel
+> file
+  log 8: File ignored in Cancelled
+> startover
+  stage: plan (day trip)
+  log 9: Cancelled -> Plan on StartOver
+> continue
+  stage: permit (day trip, no leader)
+  log 10: Plan -> Permit on Continue
+> leader on
+  stage: permit (day trip, leader)
+  log 11: Permit -> Permit on Led
+> continue
+  stage: review (day trip, leader, rules not agreed, no code)
+  log 12: Permit -> Review on Continue
+> code  ranger10
+  field: "ranger10"
+  log 13: Review -> Review on Edited
+> apply
+  stage: review (day trip, leader, rules not agreed, RANGER10 applied, 10% off)
+  log 14: Review -> Review on Applied
+> code BOGUS
+  field: "BOGUS"
+  log 15: Review -> Review on Edited
+> apply
+  stage: review (day trip, leader, rules not agreed, that code isn't recognized)
+  log 16: Review -> Review on Unknown
+> code WINTER2
+  field: "WINTER2"
+  stage: review (day trip, leader, rules not agreed, no code)
+  log 17: Review -> Review on Edited
+> code winter20
+  field: "winter20"
+  log 18: Review -> Review on Edited
+> apply
+  stage: review (day trip, leader, rules not agreed, WINTER20 applied, 20% off)
+  log 19: Review -> Review on Applied
+> file
+  log 20: File ignored in Review
+> agree on
+  stage: review (day trip, leader, rules agreed, WINTER20 applied, 20% off)
+  log 21: Review -> Review on Agreed
+> file
+  stage: filing (day trip, WINTER20, 20% off)
+  log 22: Review -> Filing on File
+> wait 999
+> cancel
+  log 23: Cancel ignored in Filing
+> wait 1
+  stage: confirmed: permit DAY-1001 (day trip, WINTER20, 20% off)
+  log 24: Filing -> Confirmed on Filed
+> startover
+  stage: plan (day trip)
+  log 25: Confirmed -> Plan on StartOver
+> stop

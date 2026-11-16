@@ -39,7 +39,9 @@ import (
 // replacement not applied to the required version; the exact replacement
 // of the required version not preferred over the version-less one; the
 // main module's path admitted as a requirement; the conflict reported at
-// the earlier line; the runtime's go.mod compared with the replacement's.
+// the earlier line; the runtime's go.mod compared with the replacement's;
+// go.mod's go directive dropped from the emitted go.mod (the H3g bug: a
+// host module that needs Go 1.27.3 could not build).
 //
 // It runs go list, which resolves modules and packages and builds nothing:
 // whether go accepts an emitted go.mod is the go command's question, and
@@ -198,7 +200,12 @@ func genMergeCase(r *rand.Rand, runtime []lower.File) mergeCase {
 	}
 	moduleLine := add("module %s", quoteMaybe(r, own))
 	add("")
-	add("go 1.27")
+	// The required modules may need a later Go than the runtime's 1.27
+	// (1.27.0 is later: a release after its language version), and then
+	// go.mod states it; the emitted go.mod must state it too, or go list
+	// -mod=readonly asks for an update (the H3g bug).
+	goLine := []string{"1.27", "1.27.0"}[r.IntN(2)]
+	add("go %s", goLine)
 	// prototype writes a directory that holds the runtime, other bytes of
 	// it when other is set, and a package only it holds.
 	prototype := func(dir string, other bool) {
@@ -225,7 +232,7 @@ func genMergeCase(r *rand.Rand, runtime []lower.File) mergeCase {
 			{"app/local/m" + strconv.Itoa(i), "./local/m" + strconv.Itoa(i)},
 			{"mods/m" + strconv.Itoa(i), "$ROOT/mods/m" + strconv.Itoa(i)},
 		}[r.IntN(3)]
-		c.files[dir[0]+"/go.mod"] = "module " + mod + "\n\ngo 1.27\n"
+		c.files[dir[0]+"/go.mod"] = "module " + mod + "\n\ngo " + goLine + "\n"
 		c.files[dir[0]+"/p/p.go"] = "package p\n"
 		c.imports = append(c.imports, mod+"/p")
 		req := add("require %s %s", quoteMaybe(r, mod), version)

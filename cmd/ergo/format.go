@@ -134,7 +134,7 @@ func parseFmtOptions(args []string) (fmtOptions, error) {
 				continue
 			default:
 				if strings.HasPrefix(arg, "-") {
-					return opts, fmt.Errorf("unknown option %s", arg)
+					return opts, unknownOption("", arg)
 				}
 			}
 		}

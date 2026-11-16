@@ -1,9 +1,9 @@
 package v1
 
 import (
-	"fmt"
 	"iter"
 	"math"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -151,6 +151,9 @@ type Actor[S, E, D any] struct {
 	task    *rt.Task
 	sleeper Sleeper
 	span    string
+	// graph gives the machine's graph to the trace helpers alone
+	// (actor_trace.go); nil when the program has none for it.
+	graph GraphOf
 
 	step  func(*rt.Task, S, E) (D, error)
 	fire  func(*rt.Task, S, S) (D, error)
@@ -177,7 +180,10 @@ type Actor[S, E, D any] struct {
 
 	mu    sync.Mutex
 	state S // the last committed state
-	ended bool
+	// version counts the states published: 1 for the first, one more for
+	// each state a Changes loop is given (ActorShown).
+	version int
+	ended   bool
 	// doneWait are the waitDone callers parked in a clock's domain.
 	doneWait []*rt.Task
 	exit     error // the runner's exit, read after done closes
@@ -256,6 +262,7 @@ const (
 	decideIgnore
 	decideReject
 	decideDone
+	decideTell // a Stay that gives an output
 )
 
 // The envelope kinds of the inbox.
@@ -295,21 +302,23 @@ type ActorStopped struct{}
 // Error is the failure's text, its Ergo name.
 func (ActorStopped) Error() string { return "actor.Stopped" }
 
-// MachineStart is actor.StartMachine's body. span, t and sl are the hidden
-// site, task and scheduler arguments: the actor's task is a child of t (a
-// stop of t stops it), and its timers sleep on sl. initial is the first
-// state; capacity is the inbox's (0 makes each Send wait for the runner to
-// take it; a negative capacity is a defect). workOf, hasWork and work are
-// the entries' work (rule 10): workOf(s) is the program's Work value of a
-// state, hasWork reports whether it is one, and work runs it on the work's
-// task with send. It returns once the runner has armed the first entry's
-// timer and started its work; the runner then waits for signals.
-func MachineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
+// MachineStart is actor.StartMachine's body. span, t, sl and graph are the
+// hidden site, task, scheduler and graph arguments: the actor's task is a
+// child of t (a stop of t stops it), its timers sleep on sl, and a traced
+// actor names its arms and timers from graph (nil for none). initial is
+// the first state; capacity is the inbox's (0 makes each Send wait for the
+// runner to take it; a negative capacity is a defect). workOf, hasWork and
+// work are the entries' work (rule 10): workOf(s) is the program's Work
+// value of a state, hasWork reports whether it is one, and work runs it on
+// the work's task with send. It returns once the runner has armed the
+// first entry's timer and started its work; the runner then waits for
+// signals.
+func MachineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, graph GraphOf, initial S,
 	step func(*rt.Task, S, E) (D, error), fire func(*rt.Task, S, S) (D, error),
 	delay func(S) time.Duration, workOf func(S) W, hasWork func(W) bool,
 	work func(*rt.Task, W, func(E)), kind func(D) int, next func(S, D) S,
 	out func(*rt.Task, D), capacity int) *Actor[S, E, D] {
-	return machineStart(span, t, sl, initial, step, fire, delay, workOf, hasWork, work, kind, next,
+	return machineStart(span, t, sl, graph, initial, step, fire, delay, workOf, hasWork, work, kind, next,
 		out, capacity, nil, nil, 0)
 }
 
@@ -319,20 +328,22 @@ func MachineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
 // StartMachine passes limit 0, which restarts none and never calls fresh. A
 // typed failure of fresh is a defect of the incarnation (ActorFreshDefect).
 // A negative limit is a defect, as tasks.Restart's is.
-func MachineSupervise[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
+//
+//ergo:wait child
+func MachineSupervise[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, graph GraphOf, initial S,
 	fresh func(*rt.Task) (S, error), limit int,
 	step func(*rt.Task, S, E) (D, error), fire func(*rt.Task, S, S) (D, error),
 	delay func(S) time.Duration, workOf func(S) W, hasWork func(W) bool,
 	work func(*rt.Task, W, func(E)), kind func(D) int, next func(S, D) S,
 	out func(*rt.Task, D), capacity int) *Actor[S, E, D] {
 	if limit < 0 {
-		panic(fmt.Sprintf("actor.Supervise: a negative restart limit %d", limit))
+		panic("actor.Supervise: a negative restart limit " + strconv.Itoa(limit))
 	}
 	if limit == 0 {
 		// No restart: the runner of MachineStart, which never calls fresh.
 		fresh = nil
 	}
-	return machineStart(span, t, sl, initial, step, fire, delay, workOf, hasWork, work, kind, next,
+	return machineStart(span, t, sl, graph, initial, step, fire, delay, workOf, hasWork, work, kind, next,
 		out, capacity, nil, fresh, limit)
 }
 
@@ -349,6 +360,8 @@ func (d *ActorFreshDefect) String() string {
 
 // ActorRestarts is std actor's Restarts(a): how many times a supervised
 // actor restarted (rule 16); 0 for one that never did.
+//
+//ergo:wait none
 func ActorRestarts[S, E, D any](a *Actor[S, E, D]) int { return int(a.restarts.Load()) }
 
 // MachineChild is actor.Child's body (rule 13): MachineStart for a child
@@ -363,7 +376,9 @@ func ActorRestarts[S, E, D any](a *Actor[S, E, D]) int { return int(a.restarts.L
 // starts only when host is an empty host of the calling work's entry, and
 // fills it; any other host is a defect (ActorHostDefect), with nothing
 // started.
-func MachineChild[S, E, D, W, P any](span Site, t *rt.Task, sl Sleeper, host *Host[*Actor[S, E, D]], initial S,
+//
+//ergo:wait child
+func MachineChild[S, E, D, W, P any](span Site, t *rt.Task, sl Sleeper, graph GraphOf, host *Host[*Actor[S, E, D]], initial S,
 	step func(*rt.Task, S, E) (D, error), fire func(*rt.Task, S, S) (D, error),
 	delay func(S) time.Duration, workOf func(S) W, hasWork func(W) bool,
 	work func(*rt.Task, W, func(E)), kind func(D) int, next func(S, D) S,
@@ -378,7 +393,7 @@ func MachineChild[S, E, D, W, P any](span Site, t *rt.Task, sl Sleeper, host *Ho
 		cell = host
 	}
 	adopted, hostOK := owner.adopt(cell, func(report func(*rt.Task, error) bool, deliver func(*rt.Task, P)) func(*rt.Task) error {
-		c = machineStart(span, t, sl, initial, step, fire, delay, workOf, hasWork, work, kind, next,
+		c = machineStart(span, t, sl, graph, initial, step, fire, delay, workOf, hasWork, work, kind, next,
 			func(ct *rt.Task, d D) { out(ct, d, func(p P) { deliver(ct, p) }) }, capacity, report, nil, 0)
 		return c.halt
 	}, func() { host.fill(c) })
@@ -397,6 +412,8 @@ func MachineChild[S, E, D, W, P any](span Site, t *rt.Task, sl Sleeper, host *Ho
 // defect (ActorSaveDefect) that ends the actor: the actor cannot keep its
 // promise that a committed state outlives it. effect-machine's cluster
 // journal defects an append failure the same way.
+//
+//ergo:wait none
 func ActorKeep[S, E any](t *rt.Task, save func(*rt.Task, S, S, E) error, prev, next S, sig E) {
 	if err := save(t, prev, next, sig); err != nil {
 		panic(&ActorSaveDefect{Reason: err.Error()})
@@ -431,19 +448,19 @@ func (d *ActorChildDefect) String() string {
 // machineStart starts an actor; report is the parent entry's for a child
 // (rule 13), whose task then starts shielded from t's interruption, and
 // nil otherwise.
-func machineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
+func machineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, graph GraphOf, initial S,
 	step func(*rt.Task, S, E) (D, error), fire func(*rt.Task, S, S) (D, error),
 	delay func(S) time.Duration, workOf func(S) W, hasWork func(W) bool,
 	work func(*rt.Task, W, func(E)), kind func(D) int, next func(S, D) S,
 	out func(*rt.Task, D), capacity int, report func(*rt.Task, error) bool,
 	fresh func(*rt.Task) (S, error), limit int) *Actor[S, E, D] {
 	if capacity < 0 {
-		panic(fmt.Sprintf("actor.StartMachine: negative capacity %d", capacity))
+		panic("actor.StartMachine: negative capacity " + strconv.Itoa(capacity))
 	}
 	a := &Actor[S, E, D]{
-		sleeper: sl, span: string(span),
+		sleeper: sl, span: string(span), graph: graph,
 		step: step, fire: fire, delay: delay, kind: kind, next: next, out: out,
-		done: make(chan struct{}), state: initial,
+		done: make(chan struct{}), state: initial, version: 1,
 		report: report, fresh: fresh, limit: limit,
 		// A durable start's recovered hosts (DH1): this actor's first
 		// entry binds or closes them.
@@ -724,17 +741,22 @@ func (a *Actor[S, E, D]) handle(at *rt.Task, s S, env *envelope[S, E, D]) (S, bo
 	}
 	k := a.kind(d)
 	// The step's hosts (rule 15): an Enter's and an Emit's are bound in
-	// open, a Stay's to the current entry; any other decision enters no
+	// open, a Stay's and a Tell's to the current entry; any other decision enters no
 	// state, so they close.
 	if len(a.newHosts) > 0 {
 		switch k {
-		case decideStay:
+		case decideStay, decideTell:
 			a.bindNewHosts()
 		case decideIgnore, decideReject, decideDone:
 			a.closeNewHosts()
 		}
 	}
-	if k == decideStay {
+	if k == decideStay || k == decideTell {
+		// A Tell keeps the entry, its timer and its work, as a Stay does
+		// (rule 4); its output goes first (rule 17).
+		if k == decideTell {
+			a.out(at, d)
+		}
 		// One lock for the decision and the commit (MU18).
 		s = a.next(s, d)
 		a.mu.Lock()
@@ -1130,6 +1152,8 @@ func (a *Actor[S, E, D]) arm(at *rt.Task, s S) {
 const noTimer = time.Duration(math.MinInt64)
 
 // ActorNoTimer is the delay std actor gives a state whose After is None.
+//
+//ergo:wait none
 func ActorNoTimer() time.Duration { return noTimer }
 
 // stopTimer stops and drains the current entry's timer child (rule 5). A
@@ -1156,6 +1180,7 @@ func (a *Actor[S, E, D]) publish(s S) {
 // publishLocked is publish with a.mu held.
 func (a *Actor[S, E, D]) publishLocked(s S) {
 	a.state = s
+	a.version++
 	if len(a.subs) == 0 {
 		return
 	}
@@ -1195,6 +1220,8 @@ type feed struct {
 // ends there. It fails ActorStopped when a has ended or its Stop was
 // requested; run then never runs. A stop of t while it waits raises
 // rt.Interrupted.
+//
+//ergo:wait caller
 func ActorFeed[S, E, D any](t *rt.Task, a *Actor[S, E, D], run func(*rt.Task, func(E))) error {
 	a.feedMu.Lock()
 	a.feedSeq++
@@ -1268,6 +1295,8 @@ func (a *Actor[S, E, D]) startFeed(at *rt.Task, id uint64) {
 // read that fails ActorStopped when a has ended before it was answered
 // (std actor's Can reads it, MU10). It raises rt.Interrupted when t is
 // stopped while it waits.
+//
+//ergo:wait caller
 func ActorLiveState[S, E, D any](t *rt.Task, a *Actor[S, E, D]) (S, error) {
 	reply := a.takeReply(t)
 	if err := a.inbox.Push(t, envelope[S, E, D]{kind: stateRead, reply: reply}); err != nil {
@@ -1358,6 +1387,8 @@ func (a *Actor[S, E, D]) finish(exit error) {
 // inbox is full, and returns once e is queued, before it is stepped. It
 // fails ActorStopped when the actor has ended or its Stop was requested.
 // It raises rt.Interrupted when t is stopped before or while it waits.
+//
+//ergo:wait caller
 func (a *Actor[S, E, D]) Send(t *rt.Task, e E) error {
 	if err := a.inbox.Push(t, envelope[S, E, D]{kind: sendSignal, sig: e}); err != nil {
 		return ActorStopped{}
@@ -1370,6 +1401,8 @@ func (a *Actor[S, E, D]) Send(t *rt.Task, e E) error {
 // typed failure (the actor goes on). It fails ActorStopped when the actor
 // ended before e was stepped, and raises rt.Interrupted when t is stopped
 // while it waits (the step, once taken, still runs).
+//
+//ergo:wait caller
 func (a *Actor[S, E, D]) Ask(t *rt.Task, e E) (D, error) {
 	reply := a.takeReply(t)
 	var zero D
@@ -1424,6 +1457,8 @@ func (a *Actor[S, E, D]) giveReply(r *replySlot[S, D]) {
 // it, read in inbox order, so a sender's State follows its own Sends. On an
 // ended actor it is the last committed state. It never fails; it raises
 // rt.Interrupted when t is stopped while it waits.
+//
+//ergo:wait caller
 func (a *Actor[S, E, D]) State(t *rt.Task) S {
 	reply := a.takeReply(t)
 	if err := a.inbox.Push(t, envelope[S, E, D]{kind: stateRead, reply: reply}); err != nil {
@@ -1516,6 +1551,8 @@ func (a *Actor[S, E, D]) dropDoneWait(t *rt.Task, p rt.Parked) {
 // work's included (rule 10). A Stop of an ended
 // actor returns the same at once; every Stop is idempotent. t, the
 // caller's task, waits parked in a clock's domain (waitEnd).
+//
+//ergo:wait end
 func (a *Actor[S, E, D]) Stop(t *rt.Task) error {
 	// The interruption comes first: once it is set, the runner's next Pop
 	// raises at its check, so no envelope is taken after the request, also
@@ -1539,6 +1576,8 @@ func (a *Actor[S, E, D]) Stop(t *rt.Task) error {
 // result is Stop's: the typed failure that ended the actor, its defect
 // raised. A Stop during a Drain overtakes it: the rest is dropped. t, the
 // caller's task, waits parked in a clock's domain (waitEnd).
+//
+//ergo:wait end
 func (a *Actor[S, E, D]) Drain(t *rt.Task) error {
 	rt.Point(t, rt.Op{Kind: rt.OpClose, On: a})
 	if a.task.Traced() {
@@ -1580,6 +1619,8 @@ const (
 // waits until the runner has ended and gives how (exitFinished …
 // exitDefected). Every caller gets the same answer, and so does Stop (one
 // exit, rule 12). A stop of t raises rt.Interrupted.
+//
+//ergo:wait caller
 func ActorExitKind[S, E, D any](t *rt.Task, a *Actor[S, E, D]) int {
 	a.waitDone(t)
 	a.mu.Lock()
@@ -1607,6 +1648,8 @@ func (a *Actor[S, E, D]) exitKindLocked() int {
 
 // ActorFinal is std actor's final(a): the Done decision that ended a, read
 // after ActorExitKind gave exitFinished.
+//
+//ergo:wait none
 func ActorFinal[S, E, D any](a *Actor[S, E, D]) D {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -1615,6 +1658,8 @@ func ActorFinal[S, E, D any](a *Actor[S, E, D]) D {
 
 // ActorFailure is std actor's failure(a): the typed failure that ended a,
 // read after ActorExitKind gave exitFailed.
+//
+//ergo:wait none
 func ActorFailure[S, E, D any](a *Actor[S, E, D]) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -1626,15 +1671,30 @@ func ActorFailure[S, E, D any](a *Actor[S, E, D]) error {
 
 // ActorHasLatest is std actor's hasLatest(a): whether a has stepped a
 // signal. Once true it stays true, so ActorLatest after it has a decision.
+//
+//ergo:wait none
 func ActorHasLatest[S, E, D any](a *Actor[S, E, D]) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.hasLatest
 }
 
+// ActorShown is std actor's shown(a): the state a showed last (the one
+// a Changes loop was given last) and its version, the count of states a
+// showed, read together under the actor's lock. It does not wait.
+//
+//ergo:wait none
+func ActorShown[S, E, D any](a *Actor[S, E, D]) (S, int) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.state, a.version
+}
+
 // ActorLatest is std actor's latest(a): the decision of the last signal a
 // stepped (rule 12; a Reject and an Ignore included, a dropped signal
 // not).
+//
+//ergo:wait none
 func ActorLatest[S, E, D any](a *Actor[S, E, D]) D {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -1658,6 +1718,8 @@ func defectsOnly(err error) error {
 
 // Dropped is a.Dropped(): how many timer signals and work signals of ended
 // entries the runner dropped (rule 6; decision MQ6).
+//
+//ergo:wait none
 func (a *Actor[S, E, D]) Dropped() int { return int(a.dropped.Load()) }
 
 // Changes is a.Changes() on the iterating task t: the actor's state when
@@ -1666,6 +1728,8 @@ func (a *Actor[S, E, D]) Dropped() int { return int(a.dropped.Load()) }
 // the states committed before are given. A break ends the subscription.
 // Each step waits on t: a stop of t raises rt.Interrupted. A subscriber
 // that does not read keeps every state in its buffer.
+//
+//ergo:wait caller
 func (a *Actor[S, E, D]) Changes(t *rt.Task) iter.Seq[S] {
 	return func(yield func(S) bool) {
 		c := &changes[S]{}

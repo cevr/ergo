@@ -1,0 +1,2 @@
+ERGO-LINT 1 62
+{"error":"unsupported protocol version 2; this pack speaks 1"}

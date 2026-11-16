@@ -135,12 +135,12 @@ const (
 	oPair                 // Pair{R Res, S Res}
 	oTup                  // (Res, Res)
 	oGuard                // Guard{R Res}, with its own Close
-	oBox                  // Box{C Closer, n int}: an operation type stored in a field
+	oBox                  // Box{C Usable, n int}: an operation type stored in a field
 	oSlot                 // Slot = Full{R Res} | Vacant
 	oTypes
 )
 
-var ogTypeName = [oTypes]string{"Res", "Closer", "Pair", "(Res, Res)", "Guard", "Box", "Slot"}
+var ogTypeName = [oTypes]string{"Res", "Usable", "Pair", "(Res, Res)", "Guard", "Box", "Slot"}
 var ogTypeKey = [oTypes]string{"Res", "Closer", "Pair", "Tup", "Guard", "Box", "Slot"}
 
 // ogPrelude declares the types and the fixed functions. Every event goes
@@ -150,12 +150,12 @@ var ogTypeKey = [oTypes]string{"Res", "Closer", "Pair", "Tup", "Guard", "Box", "
 const ogPrelude = `import sync
 import tasks
 
-type Res { id int, bad bool, log sync.Ref[string] }
+type Res { id int, bad bool, log sync.Ref[string] } implements Usable
 type Bad { n int }
-type Closer { Use(), Close() }
+type Usable { ..Closer, Use() }
 type Pair { R Res, S Res }
-type Guard { R Res }
-type Box { C Closer, n int }
+type Guard { R Res } implements Closer
+type Box { C Usable, n int }
 type Full { R Res }
 type Vacant {}
 type Slot = Full | Vacant
@@ -206,7 +206,7 @@ func give2(a int, b int, log sync.Ref[string], n int, c int) (Res, Res) fails Ba
 	return (open(a, false, log), try openf(b, false, log, n, c))
 }
 
-func pass(r Res) Res takes r {
+func pass(r own Res) Res {
 	r
 }
 
@@ -214,7 +214,7 @@ func swap(r Res, id int, log sync.Ref[string]) Res {
 	open(id, false, log)
 }
 
-func slotOf(s Slot) Slot takes s {
+func slotOf(s own Slot) Slot {
 	s
 }
 
@@ -236,7 +236,7 @@ func twice(f func()) {
 }
 
 func lendRes(r Res) { r.Use() }
-func lendCloser(c Closer) { c.Use() }
+func lendCloser(c Usable) { c.Use() }
 func lendPair(p Pair) {
 	p.R.Use()
 	p.S.Use()
@@ -246,36 +246,36 @@ func lendGuard(g Guard) { g.R.Use() }
 func lendBox(b Box) { b.C.Use() }
 func lendSlot(s Slot) {}
 
-func keepRes(r Res) takes r {}
-func keepCloser(c Closer) takes c {}
-func keepPair(p Pair) takes p {}
-func keepTup(t (Res, Res)) takes t {}
-func keepGuard(g Guard) takes g {}
-func keepBox(b Box) takes b {}
-func keepSlot(s Slot) takes s {}
+func keepRes(r own Res) {}
+func keepCloser(c own Usable) {}
+func keepPair(p own Pair) {}
+func keepTup(t own (Res, Res)) {}
+func keepGuard(g own Guard) {}
+func keepBox(b own Box) {}
+func keepSlot(s own Slot) {}
 
 type Core { R Res }
 type Wide { ..Core, X Res }
 type Thin { ..Core, n int }
 
-func wideOf(w Wide) Wide takes w {
+func wideOf(w own Wide) Wide {
 	w
 }
 
 func lendThin(t Thin) { t.R.Use() }
-func keepThin(t Thin) takes t {}
-func keepTwo(a Res, b Res) takes a, b {}
+func keepThin(t own Thin) {}
+func keepTwo(a own Res, b own Res) {}
 
 `
 
 // ogFilePrelude declares the Go file consumers and fdCount, the number
 // of the process's open files (Linux's /proc; 0 where it has none), for
 // a program that opens Go files (goFile).
-const ogFilePrelude = `func lendFile(f go.Ref[os.File]) {
+const ogFilePrelude = `func lendFile(f go.Ref[os.File]) needs go.Foreign {
 	_ = f.Name()
 }
 
-func keepFile(f go.Ref[os.File]) takes f {}
+func keepFile(f own go.Ref[os.File]) needs go.Foreign {}
 
 func fdCount() int needs go.Foreign {
 	let mut n = 0
@@ -293,6 +293,15 @@ func fdCount() int needs go.Foreign {
 
 // ogDevNull opens a Go file that always opens.
 const ogDevNull = `os.Open("/dev/null") catch { case go.Error: Unreachable("/dev/null") }`
+
+// ogHeader is x as a header's expression: a composite literal there is
+// parenthesized, as the parser requires (O1).
+func ogHeader(x string) string {
+	if x != "" && x[0] >= 'A' && x[0] <= 'Z' {
+		return "(" + x + ")"
+	}
+	return x
+}
 
 // ogStmt is a generated statement: a line (it may hold several lines),
 // or a compound whose line is its header and whose arms hold blocks.
@@ -797,7 +806,7 @@ func (g *ogGen) matchExpr(t ogType, d int) string {
 	g.restore(before)
 	b := g.arm(t, d)
 	g.join(then)
-	return fmt.Sprintf("match %s { case Full{R: %s}: %s; case Vacant: %s }", subj, bind, a, b)
+	return fmt.Sprintf("match %s { case Full{R: %s}: %s; case Vacant: %s }", ogHeader(subj), bind, a, b)
 }
 
 // catchExpr is a catch used as a value: its arm gives the resource when
@@ -828,7 +837,7 @@ func (g *ogGen) helper(t ogType, d int) string {
 		return ""
 	}
 	kind := g.r.IntN(3)
-	arg, param, takes := "", "", ""
+	arg, param := "", ""
 	badArg := false
 	switch kind {
 	case 1:
@@ -856,7 +865,7 @@ func (g *ogGen) helper(t ogType, d int) string {
 			arg = ", " + g.expr(oRes, d-1)
 			g.pos = pos
 		}
-		param, takes = ", a Res", " takes a"
+		param = ", a own Res"
 	}
 	saved := *g
 	g.scopes = [][]*ogVar{nil}
@@ -868,7 +877,7 @@ func (g *ogGen) helper(t ogType, d int) string {
 	// Its name is taken after its argument and before its body draw
 	// others.
 	name := fmt.Sprintf("h%d", len(g.p.helpers))
-	fn := &ogFunc{sig: fmt.Sprintf("func %s(log sync.Ref[string], n int%s) %s fails Bad%s", name, param, ogTypeName[t], takes)}
+	fn := &ogFunc{sig: fmt.Sprintf("func %s(log sync.Ref[string], n int%s) %s fails Bad", name, param, ogTypeName[t])}
 	g.p.helpers = append(g.p.helpers, fn)
 	fn.body = g.stmts(1+g.r.IntN(3), 1)
 	fn.body = append(fn.body, g.flush()...)
@@ -1396,7 +1405,7 @@ func (g *ogGen) match(d int) *ogStmt {
 		}
 		g.f("match:temp")
 	}
-	s := &ogStmt{line: pre + "match " + subj}
+	s := &ogStmt{line: pre + "match " + ogHeader(subj)}
 	before := g.save()
 	var states []map[*ogVar]uint8
 	arm := func(head string, binds ...string) {

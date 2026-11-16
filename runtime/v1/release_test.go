@@ -158,7 +158,7 @@ type releaseScheduler struct {
 	armed chan struct{}
 }
 
-func (s releaseScheduler) NewTimer(d time.Duration) rt.Timer {
+func (s releaseScheduler) NewTimer(d rt.Span) rt.Timer {
 	timer := s.clock.NewTimer(d)
 	close(s.armed)
 	return timer
@@ -212,7 +212,7 @@ func TestReleaseKeepsStopPending(t *testing.T) {
 					if !finished {
 						select {
 						case <-armed:
-							clock.Advance(time.Hour)
+							clock.Advance(rt.Span(time.Hour))
 						case <-done:
 							finished = true
 						case <-testwait.After(t):
@@ -244,7 +244,7 @@ func TestReleaseKeepsStopPending(t *testing.T) {
 				if masked {
 					select {
 					case <-armed:
-						clock.Advance(time.Hour)
+						clock.Advance(rt.Span(time.Hour))
 					case err := <-done:
 						finished = true
 						t.Fatalf("pending stop interrupted release: %v", err)

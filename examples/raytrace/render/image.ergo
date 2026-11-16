@@ -1,0 +1,122 @@
+// The camera, the pixels and the tiles an image is rendered in.
+
+import math
+import slices
+import tasks
+import raytrace/geom
+
+// Camera is a pinhole: rays leave Origin through the view rectangle whose
+// lower left corner is Corner, spanned by Horiz and Vert.
+type Camera { Origin geom.Vec, Corner geom.Vec, Horiz geom.Vec, Vert geom.Vec }
+
+// ViewHeight is the height of the view rectangle one unit from the
+// pinhole: 2·tan(20°), a vertical field of view of 40°.
+let ViewHeight = 0.7279404685324047
+
+// LookAt is the camera at from, looking at at, the view aspect wide (width
+// over height); up is +Y.
+func LookAt(from geom.Vec, at geom.Vec, aspect float64) Camera {
+	let w = geom.Unit(geom.Sub(from, at))
+	let u = geom.Unit(geom.Cross(geom.V(0.0, 1.0, 0.0), w))
+	let v = geom.Cross(w, u)
+	let horiz = geom.Scale(u, aspect*ViewHeight)
+	let vert = geom.Scale(v, ViewHeight)
+	let corner = geom.Sub(geom.Sub(geom.Sub(from, geom.Scale(horiz, 0.5)), geom.Scale(vert, 0.5)), w)
+	Camera{Origin: from, Corner: corner, Horiz: horiz, Vert: vert}
+}
+
+// Through is the ray through the view at (u, v), each from 0 to 1.
+func Through(c Camera, u float64, v float64) geom.Ray {
+	let to = geom.Add(geom.Add(c.Corner, geom.Scale(c.Horiz, u)), geom.Scale(c.Vert, v))
+	geom.Ray{Origin: c.Origin, Dir: geom.Sub(to, c.Origin)}
+}
+
+// Pixel is the light of pixel (x, y) of a w×h image, y down from the top:
+// the mean of spp samples, each a ray through a point of the pixel drawn
+// from the pixel's own stream.
+func Pixel(sc Scene, x int, y int, w int, h int, spp int, seed uint64) geom.Vec {
+	let mut s = PixelStream(seed, y*w+x)
+	let mut sum = geom.V(0.0, 0.0, 0.0)
+	for _ in 0..spp {
+		let du = s.Float()
+		let dv = s.Float()
+		let u = (float64(x) + du) / float64(w)
+		let v = (float64(h-1-y) + dv) / float64(h)
+		sum = geom.Add(sum, Trace(sc, Through(sc.Camera, u, v), &s))
+	}
+	geom.Scale(sum, 1.0/float64(spp))
+}
+
+// Level is the byte of a channel's light: gamma 2, clamped to 0..255.
+func Level(c float64) uint8 {
+	let mut g = 0.0
+	if c > 0.0 {
+		g = math.Sqrt(c)
+	}
+	if g > 0.999 {
+		g = 0.999
+	}
+	uint8(int(g * 256.0))
+}
+
+// Tile is the pixels from (X0, Y0) up to (X1, Y1).
+type Tile { X0 int, Y0 int, X1 int, Y1 int }
+
+// Tiles cuts a w×h image into tiles of size×size, the last ones in a row
+// or column smaller, row by row.
+func Tiles(w int, h int, size int) []Tile {
+	let mut tiles = []Tile{}
+	let mut y = 0
+	for y < h {
+		let mut x = 0
+		for x < w {
+			tiles = tiles.Append(Tile{X0: x, Y0: y, X1: lesser(x+size, w), Y1: lesser(y+size, h)})
+			x += size
+		}
+		y += size
+	}
+	tiles
+}
+
+func lesser(a int, b int) int {
+	if b < a {
+		return b
+	}
+	a
+}
+
+// RenderTile is the bytes of t's pixels, red, green and blue, row by row.
+func RenderTile(sc Scene, t Tile, w int, h int, spp int, seed uint64) []uint8 {
+	let mut out = slices.WithCapacity[uint8]((t.X1 - t.X0) * (t.Y1 - t.Y0) * 3)
+	for y in t.Y0..t.Y1 {
+		for x in t.X0..t.X1 {
+			let c = Pixel(sc, x, y, w, h, spp, seed)
+			out = out.Append(Level(c.X))
+			out = out.Append(Level(c.Y))
+			out = out.Append(Level(c.Z))
+		}
+	}
+	out
+}
+
+// Render is the bytes of a w×h image, red, green and blue, row by row:
+// its tiles of size×size rendered by workers tasks at once.
+func Render(sc Scene, w int, h int, spp int, seed uint64, workers int, size int) []uint8 {
+	let tiles = Tiles(w, h, size)
+	let parts = tasks.Transform(tiles, workers, func(t Tile) []uint8 { RenderTile(sc, t, w, h, spp, seed) })
+	let mut image = slices.Repeat([]uint8{0}, w*h*3)
+	for i, t in tiles {
+		let part = parts[i]
+		let mut k = 0
+		for y in t.Y0..t.Y1 {
+			for x in t.X0..t.X1 {
+				let at = (y*w + x) * 3
+				image[at] = part[k]
+				image[at+1] = part[k+1]
+				image[at+2] = part[k+2]
+				k += 3
+			}
+		}
+	}
+	image
+}

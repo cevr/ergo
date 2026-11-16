@@ -475,7 +475,7 @@ type Wrap { inner Box }
 
 type Num { Get() int }
 
-type Seven {}
+type Seven {} implements Num
 
 func Get(_ Seven) int { return 7 }
 

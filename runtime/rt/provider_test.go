@@ -9,11 +9,11 @@ import (
 // panicOnC is a Scheduler whose timer panics in C once the child has started.
 type panicOnC struct{ started <-chan struct{} }
 
-func (s panicOnC) NewTimer(time.Duration) Timer { return panicOnCTimer(s) }
+func (s panicOnC) NewTimer(Span) Timer { return panicOnCTimer(s) }
 
 type panicOnCTimer struct{ started <-chan struct{} }
 
-func (p panicOnCTimer) C() <-chan time.Time {
+func (p panicOnCTimer) C() <-chan Instant {
 	<-p.started
 	panic("timer defect")
 }
@@ -23,11 +23,11 @@ func (panicOnCTimer) Stop() bool { return true }
 // panicOnStop is a Scheduler whose timer never fires and panics in Stop.
 type panicOnStop struct{}
 
-type panicOnStopTimer struct{ never chan time.Time }
+type panicOnStopTimer struct{ never chan Instant }
 
-func (panicOnStop) NewTimer(time.Duration) Timer { return panicOnStopTimer{make(chan time.Time)} }
-func (p panicOnStopTimer) C() <-chan time.Time   { return p.never }
-func (panicOnStopTimer) Stop() bool              { panic("timer stop defect") }
+func (panicOnStop) NewTimer(Span) Timer      { return panicOnStopTimer{make(chan Instant)} }
+func (p panicOnStopTimer) C() <-chan Instant { return p.never }
+func (panicOnStopTimer) Stop() bool          { panic("timer stop defect") }
 
 // Reviewer probe (round 1, M1): a provider panic in Timer.C unwinds After
 // through its boundary, which drains the child before the caller's releases.

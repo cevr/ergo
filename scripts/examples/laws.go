@@ -95,7 +95,31 @@ func isOperationType(tn *check.TypeName) bool {
 		return false
 	}
 	it, ok := n.Underlying().(*check.Interface)
-	return ok && len(it.Methods) > 0
+	return ok && len(it.Methods) > 0 && !onlyIncludes(it)
+}
+
+// onlyIncludes reports an operation type that adds no operation to the
+// ones its members `..I` include but seal (modules/xml's Cursor, the
+// prelude's Reader sealed): it states no contract of its own, and the
+// included types' laws are its.
+func onlyIncludes(it *check.Interface) bool {
+	if len(it.Includes()) == 0 {
+		return false
+	}
+	included := map[string]bool{"seal": true}
+	for _, inc := range it.Includes() {
+		if ii, ok := inc.Underlying().(*check.Interface); ok {
+			for _, m := range ii.Methods {
+				included[m.Name] = true
+			}
+		}
+	}
+	for _, m := range it.Methods {
+		if !included[m.Name] {
+			return false
+		}
+	}
+	return true
 }
 
 // relTo is name relative to base, slash-separated; name when it is not

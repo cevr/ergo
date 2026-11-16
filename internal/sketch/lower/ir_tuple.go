@@ -1,0 +1,253 @@
+package lower
+
+// IR builder: tuples and calls of import go (FLIP F4b). See ir.go.
+//
+// A tuple value is the emitter's Go struct, struct{F0 T0; F1 T1} (expr.go,
+// TupleExpr; tupleField): the IR spells it so, builds it as a keyed
+// literal ("lit"), and reads an element as a field. A let that destructures
+// a tuple binds each name to its element.
+//
+// A call of a Go function of import go (gocall.go) is a call of its Go
+// target by its import path ("pcall"), as goCall writes it, when every
+// parameter and result is a Go basic type: no copy, no adapter, no error
+// and no poll (a host call is not an interruption point; runtime.md). A Go
+// function with several results is bound by one "tdef", Go's own
+// `a, b := f(…)`: a let that destructures it binds its names there, and
+// any other use reads the results into the tuple's struct.
+//
+// Prior art: Gleam returns a tuple from an Erlang function as Erlang's
+// tuple, and ReScript compiles a tuple to a JavaScript array; OCaml and
+// MLton unbox a tuple that does not escape into registers, as Go's SSA
+// does with a small struct; Go's own multi-value call is what goCall
+// writes.
+
+import (
+	"strings"
+
+	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/syntax"
+)
+
+func isTuple(t check.Type) bool {
+	tu, ok := t.(*check.Tuple)
+	return ok && len(tu.Types) >= 2
+}
+
+// tupleType is the IR spelling of the tuple t: struct{F0 T0; F1 T1}.
+func (b *irBuilder) tupleType(t *check.Tuple, site syntax.Node) string {
+	parts := make([]string, len(t.Types))
+	for i, e := range t.Types {
+		parts[i] = tupleField(i) + " " + b.goType(e, site)
+	}
+	return "struct{" + strings.Join(parts, "; ") + "}"
+}
+
+// tupleLit is the tuple value of type t whose elements are vals.
+func (b *irBuilder) tupleLit(t *check.Tuple, vals []*irExpr, site syntax.Node, p irPos) *irExpr {
+	lit := &irExpr{K: "lit", Pos: p, T: b.tupleType(t, site)}
+	for i, v := range vals {
+		lit.Keys = append(lit.Keys, tupleField(i))
+		lit.Elems = append(lit.Elems, v)
+	}
+	return lit
+}
+
+// tupleValue is the tuple expression x, (a, b), after its operands'
+// statements.
+func (b *irBuilder) tupleValue(x *syntax.TupleExpr) ([]*irStmt, *irExpr) {
+	t, ok := b.l.info.Types[x].(*check.Tuple)
+	if !ok || len(t.Types) != len(x.Elts) || len(t.Types) < 2 {
+		irNo("type *check.Tuple")
+	}
+	pre, vals := b.operands(x.Elts) // ir_fail.go
+	return pre, b.tupleLit(t, vals, x, b.pos(x, x.Pos()))
+}
+
+// hostBasic reports a Go basic type that a Go call passes or returns with
+// no adapter: not a Duration (time.Duration in Go), complex or uintptr.
+func hostBasic(t check.Type) bool {
+	bt, ok := t.(*check.Basic)
+	if !ok {
+		return false
+	}
+	switch bt.Kind {
+	case check.Complex64, check.Complex128, check.Uintptr, check.Invalid, check.Duration:
+		return false
+	}
+	return true
+}
+
+// hostResults are the Go results of the import go function f.
+func hostResults(f *check.Func) []check.Type {
+	if len(f.Sig.Results) == 1 {
+		if t, ok := f.Sig.Results[0].(*check.Tuple); ok {
+			return t.Types
+		}
+	}
+	return f.Sig.Results
+}
+
+// hostCall is the call x of f, a Go function of import go: its Go
+// target's "pcall", or, for a target with several results, a "tdef" of
+// them into fresh locals and their tuple. The domain is goCall's
+// boundary with nothing to adapt.
+func (b *irBuilder) hostCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p irPos) ([]*irStmt, *irExpr, bool) {
+	pre, call := b.hostTarget(x, c, f, p)
+	results := hostResults(f)
+	if len(results) < 2 {
+		return pre, call, true
+	}
+	t, ok := b.l.info.Types[x].(*check.Tuple)
+	if !ok || len(t.Types) != len(results) {
+		irNo("call of a Go package function")
+	}
+	tpre, tuple := b.tdef(call, t, x, p)
+	return append(pre, tpre...), tuple, false
+}
+
+// tdef binds call, a Go call whose results are t's elements, to fresh
+// locals in one "tdef", and is their tuple: the call runs in the tdef, so
+// the tuple only reads the locals (letTuple binds the names there instead).
+func (b *irBuilder) tdef(call *irExpr, t *check.Tuple, x syntax.Node, p irPos) ([]*irStmt, *irExpr) {
+	def := &irStmt{K: "tdef", Pos: p, X: call}
+	vals := make([]*irExpr, len(t.Types))
+	for i, r := range t.Types {
+		l := b.temp("r", b.goType(r, x), p)
+		def.Ls = append(def.Ls, l)
+		vals[i] = &irExpr{K: "local", Pos: p, I: l}
+	}
+	return []*irStmt{def}, b.tupleLit(t, vals, x, p)
+}
+
+// readsTdef reports whether e is the tuple of def, a tdef: its elements
+// read def's locals in order, so a let can bind its names in def itself.
+// A tuple literal whose operand only ran a tdef, (bits.Add64(…), 3), is
+// not.
+func readsTdef(e *irExpr, def *irStmt) bool {
+	if e == nil || e.K != "lit" || def.K != "tdef" || len(e.Elems) != len(def.Ls) {
+		return false
+	}
+	for i, x := range e.Elems {
+		if x.K != "local" || x.I != def.Ls[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// hostTarget is the "pcall" of f's Go target with x's operands, after
+// their statements; it refuses a call outside the plain domain.
+func (b *irBuilder) hostTarget(x *syntax.CallExpr, c *check.Call, f *check.Func, p irPos) ([]*irStmt, *irExpr) {
+	switch {
+	case c.Recv != nil || f.Decl == nil || f.Decl.Extern == nil || f.Decl.Extern.Target == nil,
+		len(f.Sig.TParams) > 0, f.Sig.Fallible, check.GoVariadic(f), check.GoContext(f),
+		len(x.Args) != len(f.Sig.Params):
+		irNo("call of a Go package function")
+	}
+	for _, q := range f.Sig.Params {
+		if !hostBasic(q.Type) {
+			irNo("call of a Go package function")
+		}
+	}
+	for _, r := range hostResults(f) {
+		if !hostBasic(r) {
+			irNo("call of a Go package function")
+		}
+	}
+	path, goName := f.Decl.Extern.Split()
+	name := b.l.hostPkg(path, x)
+	b.keepImport("var _ = " + name + "." + goName)
+	pre, args := b.operands(x.Args) // ir_fail.go
+	return pre, &irExpr{K: "pcall", Pos: p, T: path, Name: goName, Args: args}
+}
+
+// letTuple lowers `let (a, b) = x` and `let a, b = x` of the tuple x:
+// each name, in order, is defined from its element. A call of a Go
+// function with several results defines the names in its "tdef" itself
+// (`a, b := f(…)`); any other value is bound once and read by field.
+// ok is false for a let that is not one of these shapes.
+func (b *irBuilder) letTuple(spec *syntax.VarSpec, p irPos) (out []*irStmt, ok bool) {
+	if len(spec.Values) != 1 {
+		return nil, false
+	}
+	x := spec.Values[0]
+	var names []*syntax.Ident
+	var vars []*check.Var // each name's variable; nil for _
+	switch {
+	case spec.Pattern == nil && len(spec.Names) > 1:
+		names = spec.Names
+		for _, id := range names {
+			v, _ := b.l.info.Defs[id].(*check.Var)
+			if v == nil && id.Name != "_" {
+				irNo("let without a variable")
+			}
+			vars = append(vars, v)
+		}
+	case spec.Pattern != nil:
+		tp, isTuple := unparen(spec.Pattern).(*syntax.TupleExpr)
+		pat := b.l.info.Patterns[spec.Pattern]
+		if !isTuple || pat == nil || pat.Kind != check.PatTuple || len(pat.Elems) != len(tp.Elts) {
+			return nil, false
+		}
+		for i, e := range tp.Elts {
+			id, isIdent := unparen(e).(*syntax.Ident)
+			k := pat.Elems[i].Kind
+			if !isIdent || k != check.PatBind && k != check.PatWildcard || k == check.PatBind && pat.Elems[i].Var == nil {
+				return nil, false
+			}
+			names = append(names, id)
+			vars = append(vars, pat.Elems[i].Var) // nil for _
+		}
+	default:
+		return nil, false
+	}
+	t, isTuple := b.l.info.Types[x].(*check.Tuple)
+	if !isTuple || len(t.Types) != len(names) {
+		return nil, false
+	}
+	if _, conv := b.l.info.Implicit[x]; conv {
+		irNo("let pattern")
+	}
+	for _, v := range vars {
+		if v != nil && b.fc.scalarOf(v) != nil {
+			irNo("scalar-form local")
+		}
+	}
+	var pre []*irStmt
+	var e *irExpr
+	b.part(func() { pre, e = b.value(x) })
+	out = append(out, pre...)
+	if n := len(out); n > 0 && readsTdef(e, out[n-1]) {
+		// The Go call's own locals are the names: `a, b := f(…)`.
+		def := out[n-1]
+		for i, v := range vars {
+			if v == nil {
+				def.Ls[i] = -1 // Go's _
+				continue
+			}
+			l := -1
+			b.part(func() { l = b.local(v, names[i]) })
+			if l < 0 {
+				b.reserve(v)
+			}
+			def.Ls[i] = l
+		}
+		return out, true
+	}
+	tmp := -1
+	b.part(func() { tmp = b.temp("p", b.goType(t, x), p) })
+	out = append(out, &irStmt{K: "def", Pos: p, Local: tmp, X: e})
+	for i, v := range vars {
+		if v == nil {
+			continue
+		}
+		l := -1
+		b.part(func() { l = b.local(v, names[i]) })
+		if l < 0 {
+			b.reserve(v)
+		}
+		field := &irExpr{K: "field", Pos: p, Name: tupleField(i), X: &irExpr{K: "local", Pos: p, I: tmp}}
+		out = append(out, &irStmt{K: "def", Pos: p, Local: l, X: field})
+	}
+	return out, true
+}

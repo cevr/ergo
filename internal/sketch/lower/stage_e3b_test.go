@@ -121,7 +121,7 @@ var lawFacts = []lawFact{
 		law:   "law L() {\n\t\tlet f = func() int fails Bang3 { return make3() }\n\t\tlet v = f() catch {\n\t\tcase Bang3 as e:\n\t\t\te.Code\n\t\t}\n\t\tv == 3\n\t}"},
 	// An implicit conversion to an operation table needs an adapter.
 	{name: "adapter", canary: "opsSq4AsShape4",
-		decls: "type Shape4 {\n\tArea() int,\n}\n\ntype Sq4 {}\n\nfunc Area(_ Sq4) int {\n\t4\n}\n",
+		decls: "type Shape4 {\n\tArea() int,\n}\n\ntype Sq4 {} implements Shape4\n\nfunc Area(_ Sq4) int {\n\t4\n}\n",
 		law:   "law L() {\n\t\tlet s Shape4 = Sq4\n\t\ts.Area() == 4\n\t}"},
 	// A let without a value of a defined type holding a Map needs a
 	// default (a record has none: types.md, Zero values 3).
@@ -134,15 +134,15 @@ var lawFacts = []lawFact{
 		law:   "law L(s string, n int) { wrap6(s).V == s && wrap6(n).V == n }"},
 	// A named context only a law opens.
 	{name: "named-context", canary: "buildLive7",
-		decls: "type Store7 {\n\tPeek() int,\n}\n\ntype Mem7 {}\n\nfunc Peek(_ Mem7) int {\n\t7\n}\n\nlet Live7 = context {\n\tStore7: Mem7,\n}\n",
+		decls: "type Store7 {\n\tPeek() int,\n}\n\ntype Mem7 {} implements Store7\n\nfunc Peek(_ Mem7) int {\n\t7\n}\n\nlet Live7 = context {\n\tStore7: Mem7,\n}\n",
 		law:   "law L() { with Live7 { Store7.Peek() } == 7 }"},
 	// A context literal only a law opens.
 	{name: "literal-context", canary: "opsMem8AsStore8",
-		decls: "type Store8 {\n\tLook() int,\n}\n\ntype Mem8 {}\n\nfunc Look(_ Mem8) int {\n\t8\n}\n",
+		decls: "type Store8 {\n\tLook() int,\n}\n\ntype Mem8 {} implements Store8\n\nfunc Look(_ Mem8) int {\n\t8\n}\n",
 		law:   "law L() { with context { Store8: Mem8 } { Store8.Look() } == 8 }"},
 	// A function generic over its needs, called only by a law.
 	{name: "generic-needs", canary: "opsMem9AsStore9",
-		decls: "type Store9 {\n\tGet9() int,\n}\n\ntype Mem9 {}\n\nfunc Get9(_ Mem9) int {\n\t9\n}\n\nfunc run9[F](f func() int needs F) int needs F {\n\tf()\n}\n",
+		decls: "type Store9 {\n\tGet9() int,\n}\n\ntype Mem9 {} implements Store9\n\nfunc Get9(_ Mem9) int {\n\t9\n}\n\nfunc run9[F](f func() int needs F) int needs F {\n\tf()\n}\n",
 		law:   "law L() { with context { Store9: Mem9 } { run9() { Store9.Get9() } } == 9 }"},
 	// A library only a law uses; the erasure property blanks the import
 	// with the law.
@@ -179,7 +179,7 @@ func lawProgram(b ownerBase, f lawFact, top bool) string {
 	} else {
 		// LawHostMem is the provider the test build runs the member law
 		// against (#162 law-run-1).
-		parts = append(parts, "type LawHost {\n\tHostPing() int,\n\n\t"+f.law+",\n}\n", "type LawHostMem {}\n\nfunc HostPing(_ LawHostMem) int {\n\t0\n}\n", b.main)
+		parts = append(parts, "type LawHost {\n\tHostPing() int,\n\n\t"+f.law+",\n}\n", "type LawHostMem {} implements LawHost\n\nfunc HostPing(_ LawHostMem) int {\n\t0\n}\n", b.main)
 	}
 	for _, d := range parts {
 		if d != "" {

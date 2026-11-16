@@ -38,7 +38,10 @@ func TestReleaseNeedsRun(t *testing.T) {
 	var programs []*lowered
 	srcs := map[string]string{}
 	for seed := uint64(1); seed <= 400 && len(cases) < 12; seed++ {
-		g := sketchtest.NewRelNeeds(rand.New(rand.NewPCG(seed, 0x5e1ea5e)))
+		// With the inferred clauses written, as ergo fix writes them, so
+		// the program checks under the one mode wherever it does under
+		// inference.
+		g := sketchtest.NewRelNeeds(rand.New(rand.NewPCG(seed, 0x5e1ea5e))).Explicit()
 		if !g.Releases() {
 			continue
 		}

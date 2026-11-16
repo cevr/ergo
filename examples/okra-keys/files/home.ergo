@@ -9,7 +9,7 @@ import okrakeys/keys
 
 // Home is the key store under a home directory: None when HOME is not
 // set. Its fields are unexported, so only New builds one.
-type Home { files fs.Files, writes fs.Writes, home Option[string] }
+type Home { files fs.Files, writes fs.Writes, home Option[string] } implements keys.Store
 
 // New is the store under home, read through files and written through
 // writes.

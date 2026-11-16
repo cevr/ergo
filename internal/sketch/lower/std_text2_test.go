@@ -167,6 +167,65 @@ test StringsLinesStops(s string, t string) {
 	}
 }
 
+test StringsBuilderConcatenates(a string, c byte, d string) {
+	let mut b = strings.NewBuilder()
+	b.WriteString(a)
+	b.Grow(len(d))
+	b.WriteByte(c)
+	let mut copy = b
+	copy.WriteString(d)
+	let mut one = strings.NewBuilder()
+	one.WriteByte(c)
+	let want = a + one.String()
+	assert b.String() == want && b.Len() == len(want)
+	assert copy.String() == want+d && copy.Len() == len(want)+len(d)
+	b.WriteString(d + d)
+	assert copy.String() == want+d && b.String() == want+d+d
+}
+
+test StringsWriteFromRepeats(a string, start int, n int) {
+	let text = a + "x"
+	let from = if start < 0 { -(start + 1) % len(text) } else { start % len(text) }
+	let count = if n < 0 { -(n + 1) % 300 } else { n % 300 }
+	let mut b = strings.NewBuilder()
+	b.WriteString(text)
+	b.WriteFrom(from, count)
+	let mut want = strings.Bytes(text)
+	for k in 0..count {
+		want = want.Append(want[from+k])
+	}
+	assert b.String() == strings.FromBytes(want) && b.Len() == len(text)+count
+}
+
+test StringsBytesRoundTrip(s string, c byte) {
+	let text = s + "x"
+	let mut a = strings.Bytes(text)
+	let shared = a
+	let t = strings.FromBytes(shared)
+	let u = strings.FromBytes(a)
+	a[0] = c
+	let mut b = strings.NewBuilder()
+	b.WriteString(s)
+	b.WriteBytes(a)
+	let mut w = strings.NewBuilder()
+	w.WriteString(s)
+	w.WriteByte(c)
+	w.WriteString(strings.Slice(text, 1, len(text)))
+	assert t == text && u == text && strings.FromBytes(strings.Bytes(s)) == s && b.String() == w.String() && b.Len() == len(s)+len(text)
+}
+
+test StringsTrimLeftRightKeepEnds(s string, cutset string) {
+	for set in []string{cutset, " \t", "ab", "é\xff", ""} {
+		let l = strings.TrimLeft(s, set)
+		let r = strings.TrimRight(s, set)
+		assert strings.HasSuffix(s, l) && strings.HasPrefix(s, r)
+		assert strings.TrimLeft(l, set) == l && strings.TrimRight(r, set) == r
+	}
+	// A prefix or suffix of cutset runes is trimmed with the rest (the
+	// fixed set's runes are valid, so they never join a byte of s).
+	assert strings.TrimLeft(" \t"+s, " \t") == strings.TrimLeft(s, " \t") && strings.TrimRight(s+"\t ", " \t") == strings.TrimRight(s, " \t")
+}
+
 // last is 1 when text ends in a line with no line feed.
 func last(text string) int {
 	if strings.HasSuffix(text, "\n") || text == "" {
@@ -202,9 +261,13 @@ func last(text string) int {
 		t.Errorf("the laws: exit %d\n%s\n%s", code, stdout, firstLines(stderr, 10))
 	}
 	lawledger.Run(t, lawsPassed(t, map[string]string{
-		"strings CutRebuilds":  `CutRebuilds(s string, sep string) { match Cut(s, sep) { case Some[Halves] as h: h.Value.Before+sep+h.Value.After == s && Index(h.Value.Before+sep, sep) == len(h.Value.Before) case None: !Contains(s, sep) } }`,
-		"strings LinesRebuild": `LinesRebuild(s string) { let mut joined = "" for line in Lines(s) { joined = joined + line } joined == s }`,
-		"strings LinesStops":   `LinesStops(s string) { let lines = Lines(s) let mut n = 0 lines(func(line string) bool { n = n + 1 true }) for k in 1..n+2 { let mut calls = 0 lines(func(line string) bool { calls = calls + 1 calls < k }) if calls != (if k < n { k } else { n }) { return false } } true }`,
+		"strings BuilderConcatenates":   `BuilderConcatenates(a string, c byte, d string) { let mut b = NewBuilder() b.WriteString(a) b.Grow(len(d)) b.WriteByte(c) let mut copy = b copy.WriteString(d) let want = a + builderText([]byte{c}) b.String() == want && b.Len() == len(want) && copy.String() == want+d && copy.Len() == len(want)+len(d) }`,
+		"strings WriteFromRepeats":      `WriteFromRepeats(a string, start int, n int) { let text = a + "x" let from = if start < 0 { -(start + 1) % len(text) } else { start % len(text) } let count = if n < 0 { -(n + 1) % 300 } else { n % 300 } let mut b = NewBuilder() b.WriteString(text) b.WriteFrom(from, count) let mut want = Bytes(text) for k in 0..count { want = want.Append(want[from+k]) } b.String() == FromBytes(want) && b.Len() == len(text)+count }`,
+		"strings BytesRoundTrip":        `BytesRoundTrip(s string, c byte) { let text = s + "x" let mut a = Bytes(text) let shared = a let t = FromBytes(shared) let u = FromBytes(a) a[0] = c let mut b = NewBuilder() b.WriteString(s) b.WriteBytes(a) let mut w = NewBuilder() w.WriteString(s) w.WriteByte(c) w.WriteString(Slice(text, 1, len(text))) t == text && u == text && FromBytes(Bytes(s)) == s && b.String() == w.String() && b.Len() == len(s)+len(text) }`,
+		"strings CutRebuilds":           `CutRebuilds(s string, sep string) { match Cut(s, sep) { case Some[Halves] as h: h.Value.Before+sep+h.Value.After == s && Index(h.Value.Before+sep, sep) == len(h.Value.Before) case None: !Contains(s, sep) } }`,
+		"strings LinesRebuild":          `LinesRebuild(s string) { let mut joined = "" for line in Lines(s) { joined = joined + line } joined == s }`,
+		"strings TrimLeftRightKeepEnds": `TrimLeftRightKeepEnds(s string, cutset string) { let l = TrimLeft(s, cutset) let r = TrimRight(s, cutset) HasSuffix(s, l) && HasPrefix(s, r) && TrimLeft(l, cutset) == l && TrimRight(r, cutset) == r }`,
+		"strings LinesStops":            `LinesStops(s string) { let lines = Lines(s) let mut n = 0 lines(func(line string) bool { n = n + 1 true }) for k in 1..n+2 { let mut calls = 0 lines(func(line string) bool { calls = calls + 1 calls < k }) if calls != (if k < n { k } else { n }) { return false } } true }`,
 	}, func(key string) string {
 		return "Strings" + strings.TrimPrefix(key, "strings ")
 	}, laws, stdout))

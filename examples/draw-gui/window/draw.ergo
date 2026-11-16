@@ -1,0 +1,111 @@
+// The picture's paint list: each shape the screen shows, in paint order,
+// in screen units, as ui paint ops. A shape of the selection is drawn in
+// the selection's colour; a shape being drawn or a band being dragged is
+// drawn over the picture.
+
+import draw/canvas
+import ui
+
+// Draw paints s's picture as the window shows it.
+func Draw(p *ui.Paint, s canvas.State) {
+	let c = canvas.CanvasOf(s)
+	let screen = canvas.Box{Lo: canvas.Point{X: 0, Y: 0}, Hi: canvas.Screen}
+	for placed in canvas.Order(c.Pic) {
+		let b = canvas.BoxOf(placed.Shape)
+		if !canvas.Overlaps(canvas.BoxBetween(canvas.ScreenOf(c.View, b.Lo), canvas.ScreenOf(c.View, b.Hi)), screen) {
+			continue
+		}
+		let ink = if chosen(c.Selected, placed.Id) { selection } else { layerInk(placed.Layer) }
+		shape(p, c.View, placed.Shape, ink)
+	}
+	match s {
+	case canvas.Drawing as d:
+		if len(d.Points) > 0 {
+			ui.Stroke(p, polyline(c.View, d.Points), pending, 1.0)
+		}
+	case canvas.Selecting as l:
+		let a = canvas.ScreenOf(c.View, l.From)
+		let z = canvas.ScreenOf(c.View, l.To)
+		let lo = canvas.Point{X: least(a.X, z.X), Y: least(a.Y, z.Y)}
+		ui.Stroke(p, ui.RectPath(px(lo.X), px(lo.Y), px(abs(z.X-a.X)), px(abs(z.Y-a.Y))), pending, 1.0)
+	case canvas.Idle, canvas.Dragging:
+	}
+}
+
+// shape paints one shape in screen units.
+func shape(p *ui.Paint, v canvas.View, sh canvas.Shape, ink ui.Color) {
+	match sh {
+	case canvas.Stroke as k:
+		ui.Stroke(p, polyline(v, k.Points), ink, 2.0)
+	case canvas.Rect as r:
+		let at = canvas.ScreenOf(v, r.At)
+		ui.Stroke(p, ui.RectPath(px(at.X), px(at.Y), px(r.W*v.Zoom/100), px(r.H*v.Zoom/100)), ink, 2.0)
+	case canvas.Ellipse as e:
+		let c = canvas.ScreenOf(v, e.Center)
+		ui.Stroke(p, oval(c.X, c.Y, e.RX*v.Zoom/100, e.RY*v.Zoom/100), ink, 2.0)
+	case canvas.Line as l:
+		ui.Stroke(p, polyline(v, []canvas.Point{l.From, l.To}), ink, 2.0)
+	}
+}
+
+// polyline is the path through points, in screen units.
+func polyline(v canvas.View, points []canvas.Point) ui.Path {
+	let mut segs = []ui.Seg{}
+	for i in 0..len(points) {
+		let at = canvas.ScreenOf(v, points[i])
+		if i == 0 {
+			segs = segs.Append(ui.MoveTo{X: px(at.X), Y: px(at.Y)})
+		} else {
+			segs = segs.Append(ui.LineTo{X: px(at.X), Y: px(at.Y)})
+		}
+	}
+	ui.Path{Segs: segs}
+}
+
+// Kappa is the length of a quarter ellipse's control arms, as a share of
+// its radius, in thousandths (4/3 (sqrt 2 - 1) = 0.5523): the four cubic
+// curves of oval are within 0.03% of the ellipse. The arms are rounded to
+// whole pixels, so every coordinate of the paint list is a whole number.
+let Kappa = 552
+
+// oval is the ellipse at (cx, cy) with radii a and b as four cubic curves.
+func oval(cx int, cy int, a int, b int) ui.Path {
+	let x = px(cx)
+	let y = px(cy)
+	let rx = px(a)
+	let ry = px(b)
+	let kx = px((a*Kappa + 500) / 1000)
+	let ky = px((b*Kappa + 500) / 1000)
+	ui.Path{Segs: []ui.Seg{
+		ui.MoveTo{X: x + rx, Y: y},
+		ui.CubicTo{C1X: x + rx, C1Y: y + ky, C2X: x + kx, C2Y: y + ry, X: x, Y: y + ry},
+		ui.CubicTo{C1X: x - kx, C1Y: y + ry, C2X: x - rx, C2Y: y + ky, X: x - rx, Y: y},
+		ui.CubicTo{C1X: x - rx, C1Y: y - ky, C2X: x - kx, C2Y: y - ry, X: x, Y: y - ry},
+		ui.CubicTo{C1X: x + kx, C1Y: y - ry, C2X: x + rx, C2Y: y - ky, X: x + rx, Y: y},
+		ui.ClosePath,
+	}}
+}
+
+func chosen(ids []int, id int) bool {
+	for x in ids {
+		if x == id {
+			return true
+		}
+	}
+	false
+}
+
+func px(n int) float64 { float64(n) }
+
+func least(a int, b int) int { if a < b { a } else { b } }
+
+func abs(v int) int { if v < 0 { -v } else { v } }
+
+let selection = ui.Color{R: 30, G: 120, B: 230, A: 255}
+let pending = ui.Color{R: 230, G: 120, B: 30, A: 255}
+
+// layerInk is a layer's colour: darker for a higher layer.
+func layerInk(layer int) ui.Color {
+	let g = uint8(200 - layer*50)
+	ui.Color{R: g, G: g, B: g, A: 255}
+}

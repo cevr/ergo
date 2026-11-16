@@ -15,6 +15,18 @@ import (
 // path among the package's imports, and the lowering keeps the import used,
 // keepImport).
 func (b *irBuilder) goType(t check.Type, site syntax.Node) string {
+	switch u := t.(type) {
+	case *check.Signature:
+		return b.sigType(u, site) // ir_closure.go
+	case *check.Tuple:
+		if len(u.Types) >= 2 {
+			return b.tupleType(u, site) // ir_tuple.go
+		}
+	case *check.Slice:
+		if hasSig(u) || isTuple(u.Elem) {
+			return "[]" + b.goType(u.Elem, site)
+		}
+	}
 	b.admit(t, 0)
 	return b.spelling(b.fc.goType(t)) // ir_pkg.go
 }
@@ -30,11 +42,16 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 	case *check.Slice:
 		b.admit(t.Elem, depth+1)
 		return
+	case *check.Array:
+		b.admit(t.Elem, depth+1) // FLIP F7 (ir_index.go): Go's [N]T
+		return
 	case *check.Map:
 		b.admitMap(t, depth) // ir_pkg.go
 		return
 	case *check.Pointer:
-		b.admit(t.Elem, depth+1) // a *T receiver (IRG4b r2)
+		// A pointer to an admitted type (FLIP F2; IRG4b r2): a *T
+		// parameter, a receiver, &p.
+		b.admit(t.Elem, depth+1)
 		return
 	case *check.TypeParam:
 		// A type parameter of the generic body (F1): the decoder resolves
@@ -44,6 +61,27 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 		b.admitCopyParam(t, depth) // ir_known.go
 		if _, ok := b.fc.params[t]; !ok {
 			irNo("type parameter outside its declaration")
+		}
+		return
+	case *check.Tuple:
+		// A tuple value: the emitter's struct{F0 T0; F1 T1} (ir_tuple.go).
+		if len(t.Types) < 2 {
+			irNo("type *check.Tuple")
+		}
+		for _, e := range t.Types {
+			b.admit(e, depth+1)
+		}
+		return
+	case *check.Signature:
+		// A function value's type (ir_closure.go, sigType).
+		if len(t.Results) > 1 {
+			irNo("function type with several results")
+		}
+		for _, p := range t.Params {
+			b.admit(p.Type, depth+1)
+		}
+		for _, r := range t.Results {
+			b.admit(r, depth+1)
 		}
 		return
 	case *check.Named:
@@ -69,6 +107,15 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 			b.admit(f.Type, depth+1)
 		}
 		return
+	case *check.Union:
+		// A row, the error of a fallible call (a catch's `case err:`): a
+		// Go error, its variants the error types (ir_tree.go).
+		if b.fc.goType(t) == "error" {
+			for _, v := range t.Variants {
+				b.admit(v, depth+1)
+			}
+			return
+		}
 	}
 	irNo("type %T", t)
 }

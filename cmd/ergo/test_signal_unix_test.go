@@ -37,7 +37,7 @@ func TestTestSignals(t *testing.T) {
 	t.Setenv("TMPDIR", tmp)
 	for signal, want := range map[syscall.Signal]int{syscall.SIGINT: 130, syscall.SIGTERM: 143} {
 		stdout, stderr, code := runInterruptedEntry(t, binary, root, signal, "test", file)
-		if stdout != "ok First\n" || code != want || stderr != "" {
+		if stdout != "ok First\n" || code != want || withoutBuildNote(stderr) != "" {
 			t.Errorf("%v: code=%d stdout=%q stderr=%q; want exit %d, the test binary ended by the forwarded signal", signal, code, stdout, stderr, want)
 		}
 		if entries, err := os.ReadDir(tmp); err != nil || len(entries) != 0 {

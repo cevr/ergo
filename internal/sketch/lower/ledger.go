@@ -226,7 +226,7 @@ func instanceText(in RewriteInstance) string {
 // changes no token of one, moves one, or touches a declaration the law
 // does not reach leaves it as it was.
 func LawDigest(law *check.Law, prov *check.Named, conv check.Conversion, ctor *check.Func, inst string) string {
-	d := &digester{seen: map[any]bool{}, decls: map[string]bool{}, lets: map[*check.Var]letDecl{}, named: map[*check.Package]map[string]*check.Var{}, indexed: map[*check.Package]bool{}}
+	d := newDigester()
 	d.typ(law.Owner)
 	d.typ(prov.Obj)
 	roots := tableFuncs(conv)
@@ -253,6 +253,250 @@ func LawDigest(law *check.Law, prov *check.Named, conv check.Conversion, ctor *c
 	fmt.Fprintf(h, "c%d:%s", len(closed), closed)
 	fmt.Fprintf(h, "i%d:%s", len(inst), inst)
 	return "h1:" + base64.StdEncoding.EncodeToString(h.Sum(nil))
+}
+
+func newDigester() *digester {
+	return &digester{seen: map[any]bool{}, decls: map[string]bool{}, lets: map[*check.Var]letDecl{}, named: map[*check.Package]map[string]*check.Var{}, indexed: map[*check.Package]bool{}}
+}
+
+// TargetDigest is the digest of every input of the verdict of the run of
+// law with binding in the test build of pkg (lawcache; v1 audit 3, F7),
+// LawDigest's rule over every slot: the law's declaration (its owner's,
+// or its own at top level), each slot's provider, its type and the
+// functions its conversion and constructor reach, whether its
+// construction is closed, and, so that an edit of how a case is drawn
+// makes it stale too, the generator of every type the walk reached: its
+// constructor and, for an operation type, its builder in pkg (check's
+// builders.go), which no name in the law reaches.
+func TargetDigest(pkg *check.Package, law *check.Law, binding []check.LawProvider) string {
+	d := newDigester()
+	switch {
+	case law.Owner != nil:
+		d.typ(law.Owner)
+	case law.Machine != nil:
+		d.typ(law.Machine)
+	case law.Pkg != nil && law.Decl != nil:
+		d.decl("law "+law.Pkg.Path+"."+law.Name, law.Pkg, law.Decl)
+	}
+	var slots []string
+	for k, p := range binding {
+		if p.Type == nil {
+			continue
+		}
+		d.typ(p.Type.Obj)
+		roots := tableFuncs(p.Conv)
+		if p.Ctor != nil {
+			roots = append(roots, p.Ctor)
+		}
+		for _, f := range roots {
+			d.fn(f)
+		}
+		closed := "closed"
+		if constructionOpen(p.Type, p.Ctor, p.Conv) != nil {
+			closed = "open"
+		}
+		slots = append(slots, fmt.Sprintf("%d %s %s %t", k, p.Type, closed, p.Value))
+	}
+	return d.sum(pkg, slots)
+}
+
+// ContextDigest is the digest of every input of the verdict of the run of
+// law under the named context lc in the test build of pkg (lawcache): the
+// law's owner's declaration, the context's declaration and those of the
+// contexts it embeds, every function, type and package let their
+// provider expressions reach (each provider's constructor among them),
+// the functions of each acquired provider's conversions, the instance's
+// parameter types, and the generators of every type reached, by the
+// tokens of each (no position). An edit of any of them makes a new
+// digest.
+func ContextDigest(pkg *check.Package, law *check.Law, lc check.LawContext) string {
+	d := newDigester()
+	d.typ(law.Owner)
+	d.context(lc.Context)
+	var slots []string
+	if lc.With != nil {
+		for _, a := range lc.With.Acquired {
+			if a.Entry == nil {
+				continue
+			}
+			for _, conv := range a.Entry.Conversions {
+				for _, f := range tableFuncs(conv) {
+					d.fn(f)
+				}
+			}
+			for _, c := range a.Entry.Caps {
+				slots = append(slots, "acquires "+c.String())
+			}
+		}
+		for _, t := range lc.With.Discharged {
+			slots = append(slots, "binds "+t.String())
+		}
+	}
+	for _, t := range lc.Params {
+		slots = append(slots, "param "+t.String())
+		if n, ok := t.(*check.Named); ok {
+			d.typ(n.Obj)
+		}
+	}
+	slots = append(slots, "context "+lc.Context.Name, "unrun "+lc.Unrun)
+	return d.sum(pkg, slots)
+}
+
+// context adds the declaration of the named context c, and of each
+// context it embeds, and walks their provider expressions.
+func (d *digester) context(c *check.Context) {
+	if c == nil || d.seen[c] {
+		return
+	}
+	d.seen[c] = true
+	// A law runs only under a named context (planLawContexts), which has
+	// its declaration; an embedded one is named too.
+	if p := c.Package(); p != nil && c.Decl != nil {
+		d.decl("context "+p.Path+"."+c.Name, p, c.Decl)
+	} else {
+		d.decls["context "+c.Name] = true
+	}
+	for _, e := range c.Entries {
+		d.context(e.Embedded)
+	}
+}
+
+// sum is the digest of the declarations the walk added, the generators
+// of the types it reached in pkg, and slots, in order.
+func (d *digester) sum(pkg *check.Package, slots []string) string {
+	d.generators(pkg)
+	keys := make([]string, 0, len(d.decls))
+	for k := range d.decls {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	h := sha256.New()
+	fmt.Fprintf(h, "%d:%s", len(LawRunVersion), LawRunVersion)
+	for _, k := range keys {
+		fmt.Fprintf(h, "%d:%s", len(k), k)
+	}
+	for _, s := range slots {
+		fmt.Fprintf(h, "s%d:%s", len(s), s)
+	}
+	return "h1:" + base64.StdEncoding.EncodeToString(h.Sum(nil))
+}
+
+// generators adds the generator of each type the walk reached, until it
+// reaches no new one: the type's constructor, and an operation type's
+// builder in pkg.
+func (d *digester) generators(pkg *check.Package) {
+	done := map[*check.TypeName]bool{}
+	for {
+		var next []*check.TypeName
+		for k := range d.seen {
+			if t, ok := k.(*check.TypeName); ok && !done[t] {
+				next = append(next, t)
+			}
+		}
+		if len(next) == 0 {
+			return
+		}
+		for _, t := range next {
+			done[t] = true
+			d.fn(t.Constructor())
+			if n, ok := t.Type.(*check.Named); ok && pkg != nil {
+				if _, ops := n.Underlying().(*check.Interface); ops {
+					if b := pkg.Builder(n); b != nil {
+						d.fn(b.Func)
+					}
+				}
+			}
+		}
+	}
+}
+
+// RunTarget is a run of a law the test build of a package reports under
+// Label, which the verdict store keys (lawcache): a binding of a law that
+// runs, whose providers all run; a run of an owner's law under a named
+// context (Context set); or a machine's reachability law (Machine).
+type RunTarget struct {
+	Law     *check.Law
+	Binding []check.LawProvider
+	// Context is the named context the run builds, nil for a binding's
+	// or a machine's run.
+	Context *check.LawContext
+	// Machine marks a reachability law's run: its search, which each
+	// runner reports in its own terms (eval.MachineSearch, the test
+	// build's line), so each keeps its own verdict of it.
+	Machine bool
+	Label   string
+}
+
+// Digest is TargetDigest of t, or ContextDigest for a run under a
+// context.
+func (t RunTarget) Digest(pkg *check.Package) string {
+	if t.Context != nil {
+		return ContextDigest(pkg, t.Law, *t.Context)
+	}
+	return TargetDigest(pkg, t.Law, t.Binding)
+}
+
+// RunTargets are the targets of pkg's law runs, in run order. Two runs
+// with one label are no target: a line names one run.
+func RunTargets(pkg *check.Package) []RunTarget {
+	var out []RunTarget
+	count := map[string]int{}
+	add := func(t RunTarget) {
+		count[t.Label]++
+		out = append(out, t)
+	}
+	for _, r := range pkg.LawRuns {
+		if r.Law.Unrun != "" {
+			continue
+		}
+		if r.Law.Machine != nil && r.Law.Decl != nil && r.Law.Decl.Reach != nil {
+			add(RunTarget{Law: r.Law, Machine: true, Label: "law " + r.Law.Title(pkg)})
+			continue
+		}
+		for _, b := range r.Bindings {
+			if bindingUnrun(b) != "" {
+				continue
+			}
+			add(RunTarget{Law: r.Law, Binding: b, Label: BindingLabel(pkg, r.Law, b)})
+		}
+		for i := range r.Contexts {
+			lc := &r.Contexts[i]
+			if lc.Unrun != "" {
+				continue
+			}
+			add(RunTarget{Law: r.Law, Context: lc, Label: "law " + r.Law.Title(pkg) + " under " + lc.Context.Name})
+		}
+	}
+	return slices.DeleteFunc(out, func(t RunTarget) bool { return count[t.Label] > 1 })
+}
+
+// BindingLabel is the report's name of a run of law with the binding b
+// in the test build of pkg: `law T.L for P` for a member law's owner,
+// then `with x = P` for each parameter of an operation type.
+func BindingLabel(pkg *check.Package, law *check.Law, b []check.LawProvider) string {
+	label := "law " + law.Title(pkg)
+	var with []string
+	for k, s := range law.Slots {
+		if s.Param < 0 {
+			label += " for " + providerTitleIn(pkg, b[k])
+			continue
+		}
+		with = append(with, law.Params[s.Param].Name+" = "+providerTitleIn(pkg, b[k]))
+	}
+	if len(with) > 0 {
+		label += " with " + strings.Join(with, ", ")
+	}
+	return label
+}
+
+// providerTitleIn is the name a report of pkg's test build gives a
+// provider: its type's name, with its package's name before it when it
+// is of another package.
+func providerTitleIn(pkg *check.Package, p check.LawProvider) string {
+	if q := p.Type.Obj.Pkg; q != nil && q != pkg {
+		return q.Name + "." + p.Type.Obj.Name
+	}
+	return p.Type.Obj.Name
 }
 
 // tableFuncs are the conversion's functions, in operation order.
@@ -517,7 +761,7 @@ func (e *LedgerEvidence) Admit(law *check.Law, prov *check.Named, in RewriteInst
 		return false, "ergo.laws: " + key + " is " + state + "; run ergo test"
 	}
 	why := "law " + key + " is " + entry.Verdict + ", not proved: only proved laws change code"
-	r := e.rules[e.names.law(law)+" for "+e.names.provider(prov)]
+	r := e.rule(law, prov)
 	if open := constructionWhy(prov, r.ctor, r.conv, (*openConstruction).at); open != "" {
 		why += "; " + open
 	}
@@ -529,10 +773,46 @@ func (e *LedgerEvidence) digest(key string, law *check.Law, prov *check.Named, i
 	if d, ok := e.digests[key]; ok {
 		return d
 	}
-	r := e.rules[e.names.law(law)+" for "+e.names.provider(prov)]
+	r := e.rule(law, prov)
 	d := LawDigest(law, prov, r.conv, r.ctor, inst)
 	e.digests[key] = d
 	return d
+}
+
+// rule is the rule of law for prov: the root's, or, for a provider of
+// another package of the module (cellRewriter), one of the laws that
+// package runs, read once.
+func (e *LedgerEvidence) rule(law *check.Law, prov *check.Named) rwRule {
+	key := e.names.law(law) + " for " + e.names.provider(prov)
+	if r, ok := e.rules[key]; ok || prov.Obj.Pkg == nil {
+		return r
+	}
+	for p, rules := range newRewriter(prov.Obj.Pkg, nil).rules {
+		for _, r := range rules {
+			if k := e.names.law(r.law) + " for " + e.names.provider(p); e.rules[k].law == nil {
+				e.rules[k] = r
+			}
+		}
+	}
+	return e.rules[key]
+}
+
+// evidenceFor is the evidence for the laws of the providers pkg declares:
+// the ledger of the module that declares pkg, chosen here alone and by
+// module, never by a package's name or std membership (owner, 2026-11-12:
+// the standard library gets no special treatment; STD-NOPRIV NP2). A
+// package with a unit is the build's module's: it takes the run build's
+// evidence, the module's ergo.laws (nil in a build that takes none). A
+// package with none ships in the compiler with its ledger (shippedLedger),
+// which answers for it. A required module's own ledger joins here (MD1).
+func (l *lowerer) evidenceFor(pkg *check.Package) RewriteEvidence {
+	if l.isSourced(pkg) {
+		if l.rewrite == nil {
+			return nil
+		}
+		return l.rewrite.ev
+	}
+	return newShippedEvidence(pkg)
 }
 
 // Read is the text of the entries the build read, sorted: the run build
@@ -592,15 +872,20 @@ func (e *LedgerEvidence) record(l *lowerer, applied int) []byte {
 // LedgerEntries are the ledger's entries from the check runs of ev, the
 // evidence RewriteChecks returned for u, whose packages names names: for
 // each rewrite or post law and provider whose run printed a verdict, one
-// with no instance and one per site instance the run took. A law no run
-// took writes nothing.
+// with no instance and one per site instance the run took, for the root's
+// providers and its imports' (importRules). A law no run took writes
+// nothing.
 func LedgerEntries(u Unit, names LedgerNames, ev RewriteEvidence) []LedgerEntry {
 	c, ok := ev.(*checkedEvidence)
 	if !ok {
 		return nil
 	}
 	var out []LedgerEntry
-	for prov, rules := range newRewriter(u.Package, nil).rules {
+	all := newRewriter(u.Package, nil).rules
+	for prov, rules := range importRules(u) {
+		all[prov] = append(all[prov], rules...)
+	}
+	for prov, rules := range all {
 		for _, r := range rules {
 			if !c.ran[r.law] {
 				continue

@@ -29,7 +29,7 @@ func Word(d Decision[Pad, Output]) string {
 		"enter"
 	case Stay[Pad]:
 		"stay"
-	case Emit[Pad, Output]:
+	case Emit[Pad, Output], Tell[Pad, Output]:
 		"emit"
 	case Ignore:
 		"ignore"
@@ -219,7 +219,7 @@ type Keypad machine[Pad, Signal] {
 			}
 		case Enter[Pad]:
 			false
-		case Stay[Pad]:
+		case Stay[Pad], Tell[Pad, Output]:
 			false
 		case Ignore:
 			false

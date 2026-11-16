@@ -1,0 +1,94 @@
+// twig runs programs of twig, a small language of functions, closures,
+// records, lists and loops: a lexer, a Pratt parser, a resolver and a
+// tree-walking interpreter.
+//
+//	twig run [-stats] FILE    run FILE; -stats adds the nodes evaluated and the calls
+//	twig check FILE           parse and resolve FILE, and run nothing
+//	twig gen -seed S -n N     write the workload of N rounds for seed S
+//
+// This binary is the only place that chooses the providers: the host's
+// files.
+
+import fs
+import io
+import os
+import strconv
+import strings
+import twig/files
+import twig/script
+import twig/workload
+
+// Usage is the text of a usage failure.
+let Usage = "usage: twig run [-stats] FILE | twig check FILE | twig gen -seed S -n N"
+
+func usage() os.Exit { os.Exit{Code: 2, Message: Usage} }
+
+// amount is the count that text spells.
+func amount(text string) int fails os.Exit {
+	let n = strconv.Atoi(text) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return usage()
+	}
+	if n < 0 {
+		return usage()
+	}
+	n
+}
+
+// finish writes o and ends with its status.
+func finish(o script.Outcome) fails os.Exit needs io.Stdout | io.Stderr {
+	io.Stdout.Print(o.Out)
+	if o.Status == 0 {
+		io.Stderr.Eprint(o.Err)
+		return
+	}
+	os.Exit{Code: 1, Message: strings.TrimSuffix(o.Err, "\n")}
+}
+
+// run is twig on args.
+func run(args []string) fails os.Exit needs io.Stdout | io.Stderr | script.Sources {
+	if len(args) == 0 {
+		return usage()
+	}
+	match args[0] {
+	case "run":
+		match len(args) {
+		case 2:
+			try finish(script.Load(args[1], false))
+		case 3:
+			if args[1] != "-stats" {
+				return usage()
+			}
+			try finish(script.Load(args[2], true))
+		case _:
+			return usage()
+		}
+	case "check":
+		if len(args) != 2 {
+			return usage()
+		}
+		let src = script.Sources.Read(args[1]) catch {
+		case script.Unreadable as u:
+			return os.Exit{Code: 1, Message: "twig: " + u.Path + ": " + u.Reason}
+		}
+		let _ = script.Compile(args[1], src) catch {
+		case script.Rejected as r:
+			return os.Exit{Code: 1, Message: "twig: " + r.Line}
+		}
+	case "gen":
+		if len(args) != 5 || args[1] != "-seed" || args[3] != "-n" {
+			return usage()
+		}
+		let seed = try amount(args[2])
+		io.Stdout.Print(workload.Program(seed, try amount(args[4])))
+	case _:
+		return usage()
+	}
+}
+
+func main() fails os.Exit needs Ambient {
+	let host = os.NewHost()
+	with context { io.Stdout: io.NewHost(), io.Stderr: io.NewErrors(), script.Sources: files.New(fs.NewHost()) } {
+		try run(host.Args())
+	}
+}

@@ -70,7 +70,11 @@ func (b *irBuilder) admitNamed(t *check.Named, depth int) {
 		b.admit(td.defined, depth+1)
 		return
 	case kindOps:
-		b.admitOps(t) // ir_pkg.go
+		// An operation type is its Go interface, which the emitter
+		// declares (IRG6: a with's capability fields, an adapter's
+		// conversion); Go's checker checks every use of its values. A
+		// generic one is an instance (admitOps, ir_pkg.go).
+		b.admitOps(t)
 		return
 	case kindMachine:
 		b.admitMachine(t) // ir_machine.go
@@ -121,9 +125,12 @@ func (b *irBuilder) implicit(x syntax.Expr, e *irExpr) *irExpr {
 	case check.ConvMachine:
 		return b.machineValue(conv, e, x) // ir_machine.go
 	case check.ConvRow:
-		irNo("row conversion")
+		// The row value (a Go error) holds one of the union's error
+		// variants, which implement its sealed interface (the emitter's
+		// convert, D-C3).
+		return &irExpr{K: "assert", Pos: e.Pos, T: b.goType(conv.To, x), X: e}
 	case check.ConvOperations:
-		irNo("operations conversion")
+		return b.opsConv(conv, e, x) // ir_with.go
 	}
 	irNo("implicit conversion")
 	return nil
@@ -185,6 +192,14 @@ func (b *irBuilder) bareRecord(tn *check.TypeName, t check.Type, site syntax.Nod
 func (b *irBuilder) narrow(fu *flatUnion, s int, k int, p irPos, site syntax.Node) *irExpr {
 	if !fu.slot[k] {
 		return &irExpr{K: "zero", Pos: p, T: b.goType(fu.variants[k], site)}
+	}
+	if fu.shared {
+		// U1's shared slots: the as method rebuilds the variant from its
+		// slots (sharedDecl), as flatNarrow reads it.
+		if len(fu.variants[k].Underlying().(*check.Struct).Fields) == 0 {
+			return &irExpr{K: "zero", Pos: p, T: b.goType(fu.variants[k], site)}
+		}
+		return &irExpr{K: "mcall", Pos: p, Name: asName(k), X: &irExpr{K: "local", Pos: p, I: s}}
 	}
 	return &irExpr{K: "field", Pos: p, Name: slotName(k), X: &irExpr{K: "local", Pos: p, I: s}}
 }

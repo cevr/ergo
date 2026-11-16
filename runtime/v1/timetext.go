@@ -24,6 +24,7 @@ func (e ParseError) Error() string { return e.Message }
 // TimeFormat is time.Unix(sec, nsec) in UTC, formatted by layout.
 //
 //ergo:pure
+//ergo:wait none
 func TimeFormat(sec int64, nsec int64, layout string) string {
 	return time.Unix(sec, nsec).UTC().Format(layout)
 }
@@ -34,6 +35,7 @@ func TimeFormat(sec int64, nsec int64, layout string) string {
 // message.
 //
 //ergo:pure
+//ergo:wait none
 func TimeParse(layout string, value string) (Reading, error) {
 	t, err := time.ParseInLocation(layout, value, time.UTC)
 	if err != nil {
@@ -47,6 +49,7 @@ func TimeParse(layout string, value string) (Reading, error) {
 // monotonic reading.
 //
 //ergo:pure
+//ergo:wait none
 func TimeSub(sec int64, nsec int64, usec int64, unsec int64) time.Duration {
 	return time.Unix(sec, nsec).Sub(time.Unix(usec, unsec))
 }
@@ -56,6 +59,7 @@ func TimeSub(sec int64, nsec int64, usec int64, unsec int64) time.Duration {
 // have one.
 //
 //ergo:pure
+//ergo:wait none
 func TimeSubMono(a int64, b int64) time.Duration {
 	d := time.Duration(a - b)
 	switch {
@@ -73,6 +77,7 @@ func TimeSubMono(a int64, b int64) time.Duration {
 // text as Value and Go's message.
 //
 //ergo:pure
+//ergo:wait none
 func TimeParseDuration(s string) (time.Duration, error) {
 	d, err := time.ParseDuration(s)
 	if err != nil {
@@ -84,6 +89,7 @@ func TimeParseDuration(s string) (time.Duration, error) {
 // TimeDurationText is Go's Duration.String: "1h2m3.5s", "1.5ms", "0s".
 //
 //ergo:pure
+//ergo:wait none
 func TimeDurationText(d time.Duration) string { return d.String() }
 
 // TimeTimes is d * n, saturated at the range of a duration where Go's
@@ -91,6 +97,7 @@ func TimeDurationText(d time.Duration) string { return d.String() }
 // of its sign, as Go's Time.Sub saturates.
 //
 //ergo:pure
+//ergo:wait none
 func TimeTimes(d time.Duration, n int) time.Duration {
 	if d == 0 || n == 0 {
 		return 0
@@ -110,6 +117,7 @@ func TimeTimes(d time.Duration, n int) time.Duration {
 // duration, where Go's wraps. An n of 0 panics, a defect, as in Go.
 //
 //ergo:pure
+//ergo:wait none
 func TimeDivide(d time.Duration, n int) time.Duration {
 	if n == -1 && d == time.Duration(-1<<63) {
 		return time.Duration(1<<63 - 1)
@@ -123,6 +131,7 @@ func TimeDivide(d time.Duration, n int) time.Duration {
 // panics, a defect.
 //
 //ergo:pure
+//ergo:wait none
 func TimeCount(d time.Duration, unit time.Duration) int {
 	if unit == -1 && d == time.Duration(-1<<63) {
 		return int(^uint(0) >> 1) // the largest int on every GOARCH (math.MaxInt)
@@ -138,6 +147,7 @@ func TimeCount(d time.Duration, unit time.Duration) int {
 // After raises MachineTimerNotPositive first, with its names.
 //
 //ergo:pure
+//ergo:wait none
 func MachineTimerNotPositiveAt(now time.Duration, in time.Duration) {
 	panic(&MachineTimerDefect{At: now, In: in})
 }

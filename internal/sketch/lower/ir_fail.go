@@ -34,14 +34,6 @@ type irCase struct {
 	Def  bool      `json:"def,omitempty"`
 }
 
-// temp declares a temporary local of the Go type t (an if expression's
-// result, a try's pair, a spilled operand), named after name but unique in
-// the function (tempNames): two temporaries never share a name, so the Go
-// text view (TXT) and DWARF tell them apart.
-func (b *irBuilder) temp(name, t string, p irPos) int {
-	return b.declare(b.names.alloc(name), t, p)
-}
-
 // tempNames is the namer of a body's temporaries: below the function's Go
 // scope (its parameters, the package, Go's reserved names), with every
 // identifier the body spells taken, so a temporary captures no source
@@ -75,6 +67,15 @@ func (b *irBuilder) fallibleCall(x syntax.Expr) *syntax.CallExpr {
 // retExpr: a value of an error type is a failure; an untried fallible
 // call returns its value and error as they are.
 func (b *irBuilder) ret(x syntax.Expr, p irPos) []*irStmt {
+	out := b.retOf(x, p)
+	if b.law != nil {
+		out = b.lawResult(x, out) // ir_assert.go
+	}
+	return out
+}
+
+// retOf is ret's statements before a law's check.
+func (b *irBuilder) retOf(x syntax.Expr, p irPos) []*irStmt {
 	if x == nil {
 		if b.result != nil {
 			irNo("bare return")
@@ -83,7 +84,16 @@ func (b *irBuilder) ret(x syntax.Expr, p irPos) []*irStmt {
 	}
 	if call := b.fallibleCall(x); call != nil {
 		if _, implicit := b.l.info.Implicit[x]; implicit {
-			irNo("implicit conversion")
+			// The value converts (a variant into the result's union):
+			// the call's failure leaves first, then the value returns.
+			pre, v := b.try(call)
+			return append(pre, &irStmt{K: "ret", Pos: p, X: b.implicit(x, v)})
+		}
+		if c := b.l.info.Calls[call]; c != nil && c.Kind == check.CallFuncValue && b.result == nil {
+			// A function value's pair: its failure leaves, then the
+			// frame returns with no value (ir_closure.go).
+			pre, _ := b.try(call)
+			return append(pre, &irStmt{K: "ret", Pos: p})
 		}
 		pre, e := b.rawCall(call)
 		return append(pre, &irStmt{K: "ret", Pos: p, X: e})
@@ -222,10 +232,19 @@ func (b *irBuilder) try(call *syntax.CallExpr) ([]*irStmt, *irExpr) {
 // bind evaluates the fallible call into a value local (-1: none) and an
 // error local.
 func (b *irBuilder) bind(call *syntax.CallExpr) (pre []*irStmt, v, e int) {
+	if w, ok := b.isWith(call); ok {
+		return b.failWith(w) // ir_with.go
+	}
 	pre, x := b.rawCall(call)
 	p := b.pos(call, call.Pos())
 	e = b.temp("err", "error", p)
 	t := b.l.info.Types[call]
+	if x.K == "vcall" && (t == nil || isNoValue(t) || b.fc.noValue(call)) {
+		// A function value with no value returns struct{} first
+		// (ir_closure.go).
+		u := b.temp("unit", "struct{}", p)
+		return append(pre, &irStmt{K: "def2", Pos: p, Local: u, Val: &e, X: x}), -1, e
+	}
 	if t == nil || isNoValue(t) {
 		return append(pre, &irStmt{K: "def", Pos: p, Local: e, X: x}), -1, e
 	}
@@ -274,13 +293,19 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 		body  []syntax.Stmt
 	}
 	var arms []arm
+	// A catch with record patterns, `case err:` or `case _` takes the
+	// emitter's match tree on the error (patternCatch; ir_tree.go).
+	var alts [][]*check.Pattern
+	patterned := false
 	for _, a := range x.Arms {
 		ar := arm{body: a.Body, pos: b.pos(x, a.Case)}
+		var as []*check.Pattern
 		for _, te := range a.Types {
 			p := b.l.info.Patterns[te]
 			if p == nil {
 				irNo("catch arm without a pattern")
 			}
+			as = append(as, p)
 			switch {
 			case p.Kind == check.PatTypeTest:
 				ar.types = append(ar.types, b.goType(p.Type, te))
@@ -289,10 +314,11 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 				ar.types = append(ar.types, ar.asT)
 				ar.as = p.Var
 			default:
-				irNo("catch with patterns")
+				patterned = true
 			}
 		}
 		arms = append(arms, ar)
+		alts = append(alts, as)
 	}
 	pre, v, e := b.bind(call)
 	p := b.pos(x, x.Catch)
@@ -306,18 +332,6 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 		result = b.temp("caught", rt, p)
 		pre = append(pre, &irStmt{K: "def", Pos: p, Local: result, X: &irExpr{K: "zero", Pos: p, T: rt}})
 	}
-	sw := &irStmt{K: "tswitch", Pos: p, End: b.pos(x, x.Rbrace), X: &irExpr{K: "local", Pos: p, I: e}}
-	for i, a := range arms {
-		c := &irCase{Pos: a.pos, Types: a.types}
-		if a.as != nil {
-			name := b.temp(a.as.Name, a.asT, a.pos)
-			b.locals[a.as] = name
-			c.Body = append(c.Body, &irStmt{K: "def", Pos: a.pos, Local: name, X: &irExpr{K: "assert", Pos: a.pos, T: a.asT, X: &irExpr{K: "local", Pos: a.pos, I: e}}})
-		}
-		c.Body = append(c.Body, b.armBody(x.Arms[i], result, m.Result)...)
-		sw.Cases = append(sw.Cases, c)
-	}
-	sw.ElsePos = b.pos(x, x.Rbrace)
 	k := "panic"
 	if partial {
 		k = "fail"
@@ -325,8 +339,33 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 			k = "panic"
 		}
 	}
+	sw := &irStmt{K: "tswitch", Pos: p, End: b.pos(x, x.Rbrace), X: &irExpr{K: "local", Pos: p, I: e}}
+	var then []*irStmt
+	if patterned {
+		t := &treeIR{b: b, s: x, site: x, p: p}
+		t.body = func(i int) []*irStmt { return b.armBody(x.Arms[i], result, m.Result) }
+		t.exit = func(ep irPos) []*irStmt {
+			return []*irStmt{{K: k, Pos: ep, X: &irExpr{K: "local", Pos: ep, I: e}}}
+		}
+		then = t.write([]treeHead{{e, &check.Union{Variants: m.Subjects}}}, alts, sw.End)
+		arms = nil
+	}
+	for i, a := range arms {
+		c := &irCase{Pos: a.pos, Types: a.types}
+		if a.as != nil {
+			name := b.named(a.as.Name, a.asT, a.pos)
+			b.locals[a.as] = name
+			c.Body = append(c.Body, &irStmt{K: "def", Pos: a.pos, Local: name, X: &irExpr{K: "assert", Pos: a.pos, T: a.asT, X: &irExpr{K: "local", Pos: a.pos, I: e}}})
+		}
+		c.Body = append(c.Body, b.armBody(x.Arms[i], result, m.Result)...)
+		sw.Cases = append(sw.Cases, c)
+	}
+	sw.ElsePos = b.pos(x, x.Rbrace)
 	sw.Else = []*irStmt{{K: k, Pos: sw.ElsePos, X: &irExpr{K: "local", Pos: sw.ElsePos, I: e}}}
-	ifs := &irStmt{K: "if", Pos: p, End: sw.End, X: b.notNil(e, p), Then: []*irStmt{sw}}
+	if then == nil {
+		then = []*irStmt{sw}
+	}
+	ifs := &irStmt{K: "if", Pos: p, End: sw.End, X: b.notNil(e, p), Then: then}
 	if result >= 0 && v >= 0 {
 		ifs.ElsePos, ifs.ElseEnd = sw.End, sw.End
 		// The call's value joins the union of the arms' (ir_union.go).
@@ -353,6 +392,14 @@ func (b *irBuilder) armBody(a *syntax.CatchArm, result int, rt check.Type) []*ir
 		return nil
 	}
 	last, isExpr := list[len(list)-1].(*syntax.ExprStmt)
+	switch s := list[len(list)-1].(type) {
+	case *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
+		if result >= 0 {
+			// A match yields the catch's value (ir_match.go).
+			out := b.tail(list[:len(list)-1], false)
+			return append(out, b.matchStmt(s, true, &yieldTo{local: result, t: rt})...)
+		}
+	}
 	if !isExpr {
 		if result >= 0 {
 			if _, isRet := list[len(list)-1].(*syntax.ReturnStmt); !isRet {
@@ -387,18 +434,27 @@ func (b *irBuilder) operand(x syntax.Expr) ([]*irStmt, *irExpr) {
 			if v == nil {
 				irNo("try without a value")
 			}
-			return pre, v
+			return pre, b.implicit(x, v) // as value converts (ir_expr.go)
 		}
-	case *syntax.IfStmt, *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
-		return nil, b.expr(x) // inside an operand it keeps its gate (value)
 	}
-	return b.value(x) // the implicit conversion too (ir_union.go)
+	return b.value(x) // an if or match too, the implicit conversion too (ir_union.go)
 }
 
-// operands evaluates list left to right (the emitter's callArgs): an
+// isBranch reports an if or a match: a value whose statements may assign
+// a local.
+func isBranch(x syntax.Expr) bool {
+	switch unparen(x).(type) {
+	case *syntax.IfStmt, *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
+		return true
+	}
+	return false
+}
+
+// operands evaluates list left to right (the emitter's operands): an
 // operand before one that runs statements is spilled to a temporary, so
-// it is evaluated first. A constant or a local needs no spill: no
-// statement IR writes before a later operand assigns a local.
+// it is evaluated first. A constant needs no spill, nor a local unless a
+// later operand is an if or a match, whose arms may assign it: no other
+// statement IR writes assigns a source local.
 func (b *irBuilder) operands(list []syntax.Expr) ([]*irStmt, []*irExpr) {
 	pres := make([][]*irStmt, len(list))
 	vals := make([]*irExpr, len(list))
@@ -408,18 +464,31 @@ func (b *irBuilder) operands(list []syntax.Expr) ([]*irStmt, []*irExpr) {
 	var pre []*irStmt
 	for i, a := range list {
 		pre = append(pre, pres[i]...)
-		later := false
-		for _, p := range pres[i+1:] {
+		later, branch := false, false
+		for k, p := range pres[i+1:] {
 			later = later || len(p) > 0
+			branch = branch || isBranch(list[i+1+k])
 		}
-		if later && vals[i].K != "const" && vals[i].K != "local" {
+		if later && vals[i].K != "const" && (vals[i].K != "local" || branch) {
 			p := vals[i].Pos
-			t := b.temp("arg", b.goType(b.l.info.Types[a], a), p)
+			// The temporary has the operand's type after its implicit
+			// conversion, which operand applied.
+			t := b.temp("arg", b.goType(b.operandType(a), a), p)
 			pre = append(pre, &irStmt{K: "def", Pos: p, Local: t, X: vals[i]})
 			vals[i] = &irExpr{K: "local", Pos: p, I: t}
 		}
 	}
 	return pre, vals
+}
+
+// operandType is the type of operand a's value: its implicit
+// conversion's target when it has one (value applies it), else its own.
+// A variant passed as its union spills into a local of the union.
+func (b *irBuilder) operandType(a syntax.Expr) check.Type {
+	if conv, ok := b.l.info.Implicit[a]; ok && conv.To != nil {
+		return conv.To
+	}
+	return b.l.info.Types[a]
 }
 
 // hoist binds an effectful call's value to a temporary, so it runs here,
@@ -435,32 +504,26 @@ func (b *irBuilder) hoist(pre []*irStmt, x *irExpr, call *syntax.CallExpr) ([]*i
 }
 
 // loopPoll is the back-edge poll that ends each iteration of a loop in a
-// polling frame (the emitter's loopBody). A continue would skip it.
-func (b *irBuilder) loopPoll(s syntax.Stmt, body *syntax.BlockStmt) []*irStmt {
-	if b.env < 0 || !b.fc.frame.polls {
+// polling frame (the emitter's loopBody). A continue polls before it
+// leaves the iteration (continueStmt), so it skips no poll.
+func (b *irBuilder) loopPoll(s syntax.Stmt) []*irStmt {
+	if !b.loopPolls() {
 		return nil
-	}
-	if b.fc.containsContinue(body) {
-		b.gate("continue in a polling loop")
 	}
 	return []*irStmt{b.poll(s)}
 }
 
-// containsContinue reports a continue in body, outside a function
-// literal: a nested loop's counts too (conservative: a labelled continue
-// may leave the nested loop).
-func (fc *funcCtx) containsContinue(body *syntax.BlockStmt) bool {
-	found := false
-	syntax.Inspect(body, func(n syntax.Node) bool {
-		switch n := n.(type) {
-		case *syntax.FuncLit:
-			return false
-		case *syntax.BranchStmt:
-			if n.Tok == syntax.CONTINUE {
-				found = true
-			}
-		}
-		return !found
-	})
-	return found
+// loopPolls reports a frame whose loops end each iteration in a poll.
+func (b *irBuilder) loopPolls() bool { return b.env >= 0 && b.fc.frame.polls }
+
+// continueStmt is continue: in a polling frame, the back-edge poll and
+// then Go's continue. The emitter's continue jumps to the poll that ends
+// the iteration (body.go branch); the poll then the next iteration is the
+// same path, and needs no label.
+func (b *irBuilder) continueStmt(s *syntax.BranchStmt) []*irStmt {
+	var out []*irStmt
+	if b.loopPolls() {
+		out = append(out, b.poll(s))
+	}
+	return append(out, &irStmt{K: "continue", Pos: b.pos(s, s.Pos())})
 }

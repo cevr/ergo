@@ -1,0 +1,148 @@
+// Package app is flattree's commands: each reads a document through
+// Documents, parses it flat (package flat) or, for the plain side, into
+// a tree (package tree), and gives what the user reads, with each
+// failure as the line flattree: FILE:LINE:COL: reason. The two sides
+// give the same bytes for every command.
+
+import flattree/flat
+import flattree/tree
+
+// Unreadable is a document that cannot be read.
+type Unreadable { Path string, Reason string }
+
+// Documents is where the text of a document comes from. The binary
+// chooses the provider: the host's files, or texts in memory.
+type Documents {
+	Read(path string) string fails Unreadable,
+
+	// Repeatable: two reads of one document give one text.
+	law Repeatable(path string) {
+		let a = Read(path) catch {
+		case Unreadable:
+			return true
+		}
+		let b = Read(path) catch {
+		case Unreadable:
+			return false
+		}
+		a == b
+	},
+}
+
+// Outcome is what a command gives the user: standard output, the line of
+// its failure (empty when it has none) and the exit status.
+type Outcome { Out string, Err string, Status int }
+
+// Failed is a failure that ends a command, with the line that says why.
+type Failed { Line string }
+
+func failed(line string) Outcome { Outcome{Out: "", Err: "flattree: " + line, Status: 1} }
+
+// Side is how a command reads a document.
+type Side =
+	| Flat{}
+	| Plain{}
+
+// read is the text of the document at path.
+func read(path string) string fails Failed needs Documents {
+	Documents.Read(path) catch {
+	case Unreadable as u:
+		return Failed{Line: u.Path + ": " + u.Reason}
+	}
+}
+
+func malformed(path string, m tree.Malformed) Failed {
+	Failed{Line: path + ":\(m.Line):\(m.Col): " + m.Reason}
+}
+
+// LoadFlat is the flat tree of the document at path.
+func LoadFlat(path string) flat.Tree fails Failed needs Documents {
+	let src = try read(path)
+	flat.Parse(src) catch {
+	case tree.Malformed as m:
+		return malformed(path, m)
+	}
+}
+
+// LoadTree is the value of the document at path.
+func LoadTree(path string) tree.Value fails Failed needs Documents {
+	let src = try read(path)
+	tree.Parse(src) catch {
+	case tree.Malformed as m:
+		return malformed(path, m)
+	}
+}
+
+func done(out string) Outcome { Outcome{Out: out, Err: "", Status: 0} }
+
+// Stats is how many values of each kind the document at path holds, how
+// deep they nest and how many distinct keys it uses.
+func Stats(side Side, path string) Outcome needs Documents {
+	match side {
+	case Flat:
+		let t = LoadFlat(path) catch {
+		case Failed as f:
+			return failed(f.Line)
+		}
+		done(tree.Text(flat.StatsOf(t)))
+	case Plain:
+		let v = LoadTree(path) catch {
+		case Failed as f:
+			return failed(f.Line)
+		}
+		done(tree.Text(tree.StatsOf(v)))
+	}
+}
+
+func badPointer(b tree.BadPointer) Outcome { failed(b.Pointer + ": " + b.Why) }
+
+func noValue(path string, n tree.NoValue) Outcome { failed(path + ": no value at " + n.At) }
+
+// Path is the value at ptr (RFC 6901) in the document at path, in jq's
+// layout.
+func Path(side Side, path string, ptr string) Outcome needs Documents {
+	match side {
+	case Flat:
+		let t = LoadFlat(path) catch {
+		case Failed as f:
+			return failed(f.Line)
+		}
+		let at = flat.Get(t, ptr) catch {
+		case tree.BadPointer as b:
+			return badPointer(b)
+		case tree.NoValue as n:
+			return noValue(path, n)
+		}
+		done(flat.Indent(t, at) + "\n")
+	case Plain:
+		let v = LoadTree(path) catch {
+		case Failed as f:
+			return failed(f.Line)
+		}
+		let at = tree.Get(v, ptr) catch {
+		case tree.BadPointer as b:
+			return badPointer(b)
+		case tree.NoValue as n:
+			return noValue(path, n)
+		}
+		done(tree.Indent(at) + "\n")
+	}
+}
+
+// Print is the document at path on one line.
+func Print(side Side, path string) Outcome needs Documents {
+	match side {
+	case Flat:
+		let t = LoadFlat(path) catch {
+		case Failed as f:
+			return failed(f.Line)
+		}
+		done(flat.Compact(t, flat.Root(t)) + "\n")
+	case Plain:
+		let v = LoadTree(path) catch {
+		case Failed as f:
+			return failed(f.Line)
+		}
+		done(tree.Compact(v) + "\n")
+	}
+}

@@ -16,10 +16,14 @@ type Line { Indent int, Cells []string }
 // Layout is the state of the output.
 type Layout {
 	Lines []Line,
-	// Cells are the finished cells of the current line, Parts the text of
-	// its open cell.
-	Cells []string,
-	Parts []string,
+	// Cells are the finished cells of the current line, Cell the text of
+	// its open cell. CellsTail is the last byte of the finished cells and
+	// CellTail of the open cell (0 when there is none), so the last byte
+	// of the line is known without reading the text again.
+	Cells     []string,
+	Cell      strings.Builder,
+	CellsTail byte,
+	CellTail  byte,
 	// Started reports that the current line has an item.
 	Started bool,
 	Indent  int,
@@ -46,7 +50,7 @@ type Command =
 
 // NewLayout is the empty output.
 func NewLayout() Layout {
-	Layout{Lines: []Line{}, Cells: []string{}, Parts: []string{}, Started: false, Indent: 0, PendingNL: 0, PendingSpace: false, NoBlank: false}
+	Layout{Lines: []Line{}, Cells: []string{}, Cell: strings.NewBuilder(), CellsTail: 0, CellTail: 0, Started: false, Indent: 0, PendingNL: 0, PendingSpace: false, NoBlank: false}
 }
 
 // step applies c to l.
@@ -108,10 +112,19 @@ func emit(l *Layout, blank bool) {
 
 // put appends text to the open cell as it is.
 func put(l *Layout, text string) {
-	l.Parts = l.Parts.Append(text)
+	if text != "" {
+		l.Cell.WriteString(text)
+		l.CellTail = text[len(text)-1]
+	}
 }
 
-func cellText(l *Layout) string { strings.Join(l.Parts, "") }
+// closeCell is the text of the open cell, which it empties.
+func closeCell(l *Layout) string {
+	let text = l.Cell.String()
+	l.Cell = strings.NewBuilder()
+	l.CellTail = 0
+	text
+}
 
 // endLine closes the current line: its open cell is its last cell, and
 // trailing empty cells are dropped.
@@ -119,42 +132,32 @@ func endLine(l *Layout) {
 	if !l.Started {
 		return
 	}
-	let mut cells = l.Cells.Append(l.cellText())
-	l.Parts = []string{}
+	let mut cells = l.Cells.Append(l.closeCell())
 	for len(cells) > 1 && cells[len(cells)-1] == "" {
 		cells = slices.Slice(cells, 0, len(cells)-1)
 	}
 	l.Lines[len(l.Lines)-1].Cells = cells
 	l.Cells = []string{}
+	l.CellsTail = 0
 	l.Started = false
 }
 
 // sep ends the open cell: the next text aligns with the cells of the same
 // column on the neighbouring lines.
 func sep(l *Layout) {
-	l.Cells = l.Cells.Append(trimRightOf(l.cellText(), " "))
-	l.Parts = []string{}
+	let cell = strings.TrimRight(l.closeCell(), " ")
+	if cell != "" {
+		l.CellsTail = cell[len(cell)-1]
+	}
+	l.Cells = l.Cells.Append(cell)
 }
 
 // lastByte is the last byte written on the current line, or 0.
 func lastByte(l *Layout) byte {
-	let mut i = len(l.Parts) - 1
-	for i >= 0 {
-		let s = l.Parts[i]
-		if s != "" {
-			return s[len(s)-1]
-		}
-		i -= 1
+	if l.Cell.Len() > 0 {
+		return l.CellTail
 	}
-	let mut j = len(l.Cells) - 1
-	for j >= 0 {
-		let s = l.Cells[j]
-		if s != "" {
-			return s[len(s)-1]
-		}
-		j -= 1
-	}
-	0
+	l.CellsTail
 }
 
 // write appends text with a blank first when the last byte and text's

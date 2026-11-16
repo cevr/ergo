@@ -1,0 +1,18 @@
+# a short name keeps a checked address from being sent
+email ada@example.org
+name A
+submit
+# addresses upstream's pattern refuses: no dot after the @, a dot at the
+# edge of the domain, a space, two @, no local part
+email ada@example
+email ada@.org
+email ada@example.
+email ada lovelace@example.org
+email ada@home@example.org
+email @example.org
+# two bytes make a name; the malformed address still blocks the submit
+# until a well-formed one has been checked
+name Ad
+submit
+email ada@example.org
+submit

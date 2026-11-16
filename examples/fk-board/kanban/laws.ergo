@@ -1,0 +1,176 @@
+// The program's laws (plan §18.3 FK11). They step the machine and answer
+// its commands at once, as a host would: a save is done, an id is
+// "new-N", a keyboard move goes where the board says.
+
+import fkboard/board
+import fkboard/drag
+import strings
+
+// Run is the program after sig and the answers to what it asks, with the
+// saves it asked for.
+type Run { Board Board, Saves int, Made int }
+
+// feed steps r with sig and answers every command it causes.
+func feed(r Run, sig Signal) Run {
+	let mut at = r
+	let mut queue = []Signal{sig}
+	for len(queue) > 0 {
+		let s = queue[0]
+		queue = queue[1:]
+		let d = Step(at.Board, s)
+		at = Run{..at, Board: After(at.Board, d)}
+		for c in Commands(d) {
+			match c {
+			case MakeID as m:
+				at = Run{..at, Made: at.Made + 1}
+				queue = queue.Append(IDMade{ID: "new-\(at.Made)", Column: m.Column, Title: m.Title})
+			case Save:
+				at = Run{..at, Saves: at.Saves + 1}
+				queue = queue.Append(Saved)
+			case FocusForm:
+				queue = queue.Append(FormFocused)
+			case FocusCard:
+				queue = queue.Append(Dragging{Signal: drag.Focused})
+			case Locate as l:
+				let to = board.Step(at.Board.Columns, l.Item, l.At, l.Way)
+				queue = queue.Append(Dragging{Signal: drag.Resolved{Container: to.Column, Index: to.Index}})
+			}
+		}
+	}
+	at
+}
+
+func fresh() Run { Run{Board: Start(board.Defaults), Saves: 0, Made: 0} }
+
+func pick(n int, size int) int { ((n % size) + size) % size }
+
+let columnIDs = []string{"todo", "in-progress", "done"}
+
+let titles = []string{"", "   ", "Polish the lens", "  Count the moths  "}
+
+// NewCardFollowsTheForm: drawn clicks, titles, submits and cancels
+// against a reference of the form: a click opens it on its column with
+// no title; a submit of a title that is not blank adds the trimmed title
+// as a card at the end of that column, shuts the form and saves once; a
+// blank submit or a submit with the form shut changes nothing; a cancel
+// shuts it.
+law NewCardFollowsTheForm(ops []int) {
+	let mut r = fresh()
+	let mut adding = ""
+	let mut title = ""
+	let mut want = Run{Board: r.Board, Saves: 0, Made: 0}
+	let mut lists = board.Defaults
+	for o in ops {
+		let op = pick(o, 4)
+		if op == 0 {
+			let c = columnIDs[pick(o/4, 3)]
+			r = feed(r, AddClicked{Column: c})
+			adding = c
+			title = ""
+		} else if op == 1 {
+			let t = titles[pick(o/4, len(titles))]
+			r = feed(r, Typed{Text: t})
+			title = t
+		} else if op == 2 {
+			r = feed(r, Submitted)
+			let trimmed = strings.TrimSpace(title)
+			if adding != "" && trimmed != "" {
+				want = Run{..want, Saves: want.Saves + 1, Made: want.Made + 1}
+				let mut next = []board.Column{}
+				for c in lists {
+					next = next.Append(if c.ID == adding { board.Append(c, board.Card{ID: "new-\(want.Made)", Title: trimmed, Description: "", Key: ""}) } else { c })
+				}
+				lists = next
+				adding = ""
+				title = ""
+			}
+		} else {
+			r = feed(r, Cancelled)
+			adding = ""
+			title = ""
+		}
+		let open Option[string] = if adding == "" { None } else { Some[string]{Value: adding} }
+		if r.Board.Adding != open || r.Board.Title != title || r.Board.Columns != lists || r.Saves != want.Saves {
+			return false
+		}
+	}
+	true
+}
+
+// dragSignal is a drawn drag signal that never drops: a press, a move
+// over a drawn target or none, an arrow, a pick-up, Escape, or a release
+// over nothing.
+func dragSignal(b Board, o int) drag.Signal {
+	let col = b.Columns[pick(o/8, 3)]
+	let index = pick(o/24, 8)
+	let item = if len(col.Cards) == 0 { "card-1" } else { col.Cards[pick(o/24, len(col.Cards))].ID }
+	let op = pick(o, 8)
+	if op == 0 {
+		return drag.Pressed{Item: item, Container: col.ID, Index: index, Screen: drag.Point{X: 100, Y: 100}}
+	}
+	if op == 1 || op == 2 {
+		let target Option[drag.Target] = if op == 1 { Some[drag.Target]{Value: drag.Target{Container: col.ID, Index: index}} } else { None }
+		return drag.Moved{Screen: drag.Point{X: 100 + index*3, Y: 100 + index*7}, Client: drag.Point{X: 1, Y: 1}, Target: target}
+	}
+	if op == 3 {
+		let ways = []drag.Direction{drag.Up, drag.Down, drag.Left, drag.Right, drag.NextContainer, drag.PreviousContainer}
+		return drag.Arrow{Way: ways[pick(o/8, 6)]}
+	}
+	if op == 4 {
+		return drag.Activated{Item: item, Container: col.ID, Index: index}
+	}
+	if op == 5 {
+		return drag.Cancel
+	}
+	if op == 6 {
+		return drag.ScrollFrame
+	}
+	drag.Moved{Screen: drag.Point{X: 0, Y: 0}, Client: drag.Point{X: 0, Y: 0}, Target: None}
+}
+
+// CancelRestoresTheBoard: any drag, by pointer or keyboard, that is
+// given up (Escape, or a release over nothing) leaves the board as it
+// was and asks for no save, and Escape leaves the drag idle.
+law CancelRestoresTheBoard(ops []int) {
+	let mut r = fresh()
+	for o in ops {
+		r = feed(r, Dragging{Signal: dragSignal(r.Board, o)})
+		match r.Board.Drag.State {
+		case drag.Dragging as g:
+			// A release here would drop on the target; give it up instead.
+			if pick(o/3, 2) == 0 {
+				r = feed(r, Dragging{Signal: drag.Moved{Screen: g.Origin, Client: g.At, Target: None}})
+				r = feed(r, Dragging{Signal: drag.Released})
+			}
+		case drag.Idle, drag.Pending, drag.Lifted:
+		}
+	}
+	r = feed(r, Dragging{Signal: drag.Cancel})
+	r.Board.Columns == board.Defaults && r.Saves == 0 && r.Board.Drag.State == drag.Idle
+}
+
+// KeyboardDropEqualsPointerDrop: moving a drawn card to a drawn spot by
+// pointer (press, move past the threshold over the spot, release) and by
+// keyboard (Space, the spot resolved, Space) gives the same board, and
+// each saves it once.
+law KeyboardDropEqualsPointerDrop(card int where 1 <= card && card <= 17, to int where 0 <= to && to <= 2, index int where 0 <= index && index <= 7) {
+	let id = "card-\(card)"
+	let from = match board.Where(board.Defaults, id) {
+	case Some[board.Spot] as s:
+		s.Value
+	case None:
+		return false
+	}
+	let target = drag.Target{Container: columnIDs[to], Index: index}
+	let mut p = fresh()
+	p = feed(p, Dragging{Signal: drag.Pressed{Item: id, Container: from.Column, Index: from.Index, Screen: drag.Point{X: 100, Y: 100}}})
+	p = feed(p, Dragging{Signal: drag.Moved{Screen: drag.Point{X: 100, Y: 200}, Client: drag.Point{X: 100, Y: 200}, Target: Some[drag.Target]{Value: target}}})
+	p = feed(p, Dragging{Signal: drag.Released})
+	let mut k = fresh()
+	k = feed(k, Dragging{Signal: drag.Activated{Item: id, Container: from.Column, Index: from.Index}})
+	k = feed(k, Dragging{Signal: drag.Resolved{Container: target.Container, Index: target.Index}})
+	k = feed(k, Dragging{Signal: drag.Confirmed})
+	let mut want = board.Defaults
+	want = board.Reorder(want, id, from.Column, target.Container, target.Index)
+	p.Board.Columns == k.Board.Columns && p.Board.Columns == want && p.Saves == 1 && k.Saves == 1
+}

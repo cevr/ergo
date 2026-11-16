@@ -1,0 +1,292 @@
+// Package flow is the second scene: particles that drift along a field of
+// noise that moves with time, swirl round the pointer, and leave trails.
+// The scene keeps about 55 alive: each frame adds up to 3 when fewer
+// are; a press bursts 22 outward from the pointer. A particle dies at the
+// end of its life or well off the canvas. Every number a particle is
+// born with is drawn from the scene's own stream, as upstream's commands
+// draw them from Random.
+
+import fkflow/seed
+
+// Width and Height are the canvas's size.
+let Width = 960.0
+
+let Height = 600.0
+
+let deltaCap = 0.05
+
+let targetCount = 55
+
+let initialCount = 45
+
+let burstCount = 22
+
+let spawnPerFrame = 3
+
+let trailLength = 36
+
+let lifeMin = 4500.0
+
+let lifeMax = 9000.0
+
+let speedMin = 60.0
+
+let speedMax = 140.0
+
+let hueMax = 360.0
+
+let driftMin = -45.0
+
+let driftMax = 45.0
+
+let spatialScale = 0.0028
+
+let timeScale = 0.085
+
+let driftX = 12.0
+
+let driftY = 7.0
+
+let octaves = 3
+
+let persistence = 0.5
+
+let lacunarity = 2.0
+
+let pointerRadius = 130.0
+
+let radialBias = -0.4
+
+let boostMs = 700.0
+
+let hueAnchorPerSecond = 35.0
+
+let settleBand = 80.0
+
+let burstJitter = 6.0
+
+let burstLifeFactor = 0.85
+
+let burstScaleMin = 1.4
+
+let burstScaleMax = 2.2
+
+let burstHueJitter = 30.0
+
+let halfPi = 1.5707963267948966
+
+// StrengthMin, StrengthMax and StrengthStep are the flow strength
+// slider's range and step; ScaleMin, ScaleMax and ScaleStep the noise
+// scale slider's.
+let StrengthMin = 0.25
+
+let StrengthMax = 3.0
+
+let StrengthStep = 0.05
+
+let ScaleMin = 0.4
+
+let ScaleMax = 2.4
+
+let ScaleStep = 0.05
+
+// Point is a point on the canvas.
+type Point { X float64, Y float64 }
+
+// Particle is a particle: its number, its trail (the head last), its
+// colour's hue and drift in degrees a second, its age and life, its
+// speed, when it was born, and for a burst particle the heading and
+// speed boost it starts with.
+type Particle {
+	ID                int,
+	Trail             []Point,
+	BaseHue           float64,
+	HueDrift          float64,
+	AgeMs             float64,
+	LifespanMs        float64,
+	Speed             float64,
+	BornAt            float64,
+	InitialAngle      Option[float64],
+	InitialSpeedScale float64,
+}
+
+// Field is the scene: its particles, the next one's number, the seconds
+// it has run, the pointer if it is over the canvas, whether it runs, the
+// two sliders' values, and the stream its particles are drawn from.
+type Field {
+	Particles []Particle,
+	NextID    int,
+	Elapsed   float64,
+	Pointer   Option[Point],
+	Running   bool,
+	Strength  float64,
+	Scale     float64,
+	Seed      seed.Seed,
+}
+
+// New is the scene at its start, drawing from s: 45 particles, running,
+// at the sliders' first values.
+func New(s seed.Seed) Field {
+	let mut f = Field{Particles: []Particle{}, NextID: 0, Elapsed: 0.0, Pointer: None, Running: true, Strength: 1.4, Scale: 1.0, Seed: s}
+	for _ in 0..initialCount {
+		f = ambient(f)
+	}
+	f
+}
+
+func clamp(v float64, lo float64, hi float64) float64 {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	v
+}
+
+func add(f Field, p Particle) Field {
+	Field{..f, Particles: f.Particles.Append(Particle{..p, ID: f.NextID, BornAt: f.Elapsed}), NextID: f.NextID + 1}
+}
+
+// ambient is f with a particle born somewhere inside the settling band.
+func ambient(f Field) Field {
+	let x, s1 = seed.Between(f.Seed, settleBand, Width-settleBand)
+	let y, s2 = seed.Between(s1, settleBand, Height-settleBand)
+	let hue, s3 = seed.Between(s2, 0.0, hueMax)
+	let drift, s4 = seed.Between(s3, driftMin, driftMax)
+	let life, s5 = seed.Between(s4, lifeMin, lifeMax)
+	let speed, s6 = seed.Between(s5, speedMin, speedMax)
+	let p = Particle{ID: 0, Trail: []Point{Point{X: x, Y: y}}, BaseHue: hue, HueDrift: drift, AgeMs: 0.0, LifespanMs: life, Speed: speed, BornAt: 0.0, InitialAngle: None, InitialSpeedScale: 1.0}
+	add(Field{..f, Seed: s6}, p)
+}
+
+// burstOne is f with a particle born near (x, y) heading at angle, with a
+// hue near anchor and a speed boost that fades.
+func burstOne(f Field, x float64, y float64, angle float64, anchor float64) Field {
+	let jx, s1 = seed.Between(f.Seed, -burstJitter, burstJitter)
+	let jy, s2 = seed.Between(s1, -burstJitter, burstJitter)
+	let offset, s3 = seed.Between(s2, -burstHueJitter, burstHueJitter)
+	let drift, s4 = seed.Between(s3, driftMin, driftMax)
+	let life, s5 = seed.Between(s4, lifeMin*burstLifeFactor, lifeMax*burstLifeFactor)
+	let speed, s6 = seed.Between(s5, speedMin, speedMax)
+	let scale, s7 = seed.Between(s6, burstScaleMin, burstScaleMax)
+	let hue = mod(anchor+offset+hueMax, hueMax)
+	let p = Particle{ID: 0, Trail: []Point{Point{X: x + jx, Y: y + jy}}, BaseHue: hue, HueDrift: drift, AgeMs: 0.0, LifespanMs: life, Speed: speed, BornAt: 0.0, InitialAngle: Some[float64]{Value: angle}, InitialSpeedScale: scale}
+	add(Field{..f, Seed: s7}, p)
+}
+
+func mod(a float64, b float64) float64 { a - b*floor(a/b) }
+
+// Burst is f with 22 particles born at (x, y), heading out evenly round
+// the circle, their hues near one that turns with the scene's time.
+func Burst(f Field, x float64, y float64) Field {
+	let anchor = mod(f.Elapsed*hueAnchorPerSecond, hueMax)
+	let mut g = f
+	for i in 0..burstCount {
+		g = burstOne(g, x, y, float64(i)/float64(burstCount)*twoPi, anchor)
+	}
+	g
+}
+
+// PointAt is f with the pointer at (x, y).
+func PointAt(f Field, x float64, y float64) Field { Field{..f, Pointer: Some[Point]{Value: Point{X: x, Y: y}}} }
+
+// Reset is f with no particles and no pointer; the numbering, the time
+// and the stream go on.
+func Reset(f Field) Field { Field{..f, Particles: []Particle{}, Pointer: None} }
+
+// Toggle is f paused if it runs, and running if paused.
+func Toggle(f Field) Field { Field{..f, Running: !f.Running} }
+
+func snap(v float64, lo float64, hi float64, step float64) float64 {
+	clamp(lo+floor((clamp(v, lo, hi)-lo)/step+0.5)*step, lo, hi)
+}
+
+// SetStrength is f with the flow strength at v, kept in the slider's
+// range and on its step, as the slider keeps it.
+func SetStrength(f Field, v float64) Field { Field{..f, Strength: snap(v, StrengthMin, StrengthMax, StrengthStep)} }
+
+// SetScale is f with the noise scale at v, kept in the slider's range and
+// on its step.
+func SetScale(f Field, v float64) Field { Field{..f, Scale: snap(v, ScaleMin, ScaleMax, ScaleStep)} }
+
+func fieldAngle(at Point, elapsed float64, strength float64, scale float64) float64 {
+	let s = spatialScale * scale
+	let nx = (at.X + elapsed*driftX) * s
+	let ny = (at.Y + elapsed*driftY) * s
+	Fractal(nx+elapsed*timeScale, ny, octaves, persistence, lacunarity) * twoPi * strength
+}
+
+func blend(a float64, b float64, t float64) float64 {
+	let ax = cos(a)
+	let ay = sin(a)
+	atan2(ay+(sin(b)-ay)*t, ax+(cos(b)-ax)*t)
+}
+
+func swirl(angle float64, at Point, pointer Option[Point]) float64 {
+	match pointer {
+	case None:
+		angle
+	case Some[Point] as m:
+		let dx = at.X - m.Value.X
+		let dy = at.Y - m.Value.Y
+		let distance = hypot(dx, dy)
+		if distance > pointerRadius {
+			return angle
+		}
+		let radial = atan2(dy, dx)
+		blend(angle, blend(radial+halfPi, radial, radialBias), 1.0-distance/pointerRadius)
+	}
+}
+
+func boost(ageMs float64) float64 { clamp(1.0-ageMs/boostMs, 0.0, 1.0) }
+
+// Outside is whether at is past the settling band round the canvas.
+func Outside(at Point) bool {
+	at.X < -settleBand || at.X > Width+settleBand || at.Y < -settleBand || at.Y > Height+settleBand
+}
+
+// step is p after seconds, at the scene's time elapsed, or None when it
+// dies: at the end of its life or past the settling band.
+func step(p Particle, seconds float64, f Field, elapsed float64) Option[Particle] {
+	let at = p.Trail[len(p.Trail)-1]
+	let fieldWise = swirl(fieldAngle(at, elapsed, f.Strength, f.Scale), at, f.Pointer)
+	let b = boost(p.AgeMs)
+	let angle = match p.InitialAngle {
+	case None:
+		fieldWise
+	case Some[float64] as a:
+		blend(a.Value, fieldWise, 1.0-b)
+	}
+	let speed = p.Speed * (1.0 + (p.InitialSpeedScale-1.0)*b)
+	let next = Point{X: at.X + cos(angle)*speed*seconds, Y: at.Y + sin(angle)*speed*seconds}
+	let age = p.AgeMs + seconds*1000.0
+	if age >= p.LifespanMs || Outside(next) {
+		return None
+	}
+	let trail = p.Trail.Append(next)
+	let kept = if len(trail) > trailLength { trail[len(trail)-trailLength:] } else { trail }
+	Some[Particle]{Value: Particle{..p, Trail: kept, AgeMs: age}}
+}
+
+// Advance is f after a frame of ms milliseconds (at most 50 count): its
+// particles move and age, the dead go, and up to 3 are born while fewer
+// than 55 live.
+func Advance(f Field, ms float64) Field {
+	let seconds = clamp(ms/1000.0, 0.0, deltaCap)
+	let elapsed = f.Elapsed + seconds
+	let mut alive = []Particle{}
+	for p in f.Particles {
+		match step(p, seconds, f, elapsed) {
+		case Some[Particle] as q:
+			alive = alive.Append(q.Value)
+		case None:
+		}
+	}
+	let mut g = Field{..f, Particles: alive, Elapsed: elapsed}
+	let missing = clamp(float64(targetCount-len(alive)), 0.0, float64(spawnPerFrame))
+	for _ in 0..int(missing) {
+		g = ambient(g)
+	}
+	g
+}

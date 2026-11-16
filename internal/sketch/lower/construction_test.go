@@ -88,7 +88,7 @@ func constructionProgram(seed int64) (src, want, form string) {
 	}
 	var b strings.Builder
 	b.WriteString("type Small int where 0 <= it && it < 4\n\n")
-	fmt.Fprintf(&b, "type P { s Small, xs []Small%s }\n\n", field)
+	fmt.Fprintf(&b, "type P { s Small, xs []Small%s } implements Ops\n\n", field)
 	fmt.Fprintf(&b, "func NewP() P { P{s: 0, xs: []Small{}%s} }\n\n", ctorField)
 	b.WriteString("func step(n Small) Small {\n\tmatch int(n) {\n\tcase 0:\n\t\t1\n\tcase 1:\n\t\t2\n\tcase 2:\n\t\t3\n\tcase _:\n\t\t0\n\t}\n}\n\n")
 	b.WriteString("func Inc(p *P) { p.s = step(p.s) }\n\nfunc Read(p P) int { int(p.s) }\n\n")

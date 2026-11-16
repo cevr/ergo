@@ -35,7 +35,6 @@ stackvm bench 3000000      # a counting loop of 39 million instructions
 New gaps (`gaps-ex-f.md`):
 
 - G-ex-f-8: the match on `Instr` lowers to a Go type switch over boxed interfaces; a rough run takes 0.20 s against the hand Go loop's 0.156 s.
-- G-ex-f-9: `try` stands only at the start of an expression, so `0 - try Eval(x)` needs a `let`.
 
 Also hit before: G-ex-b-2, G-ex-f-1 (the stack keeps its own `sp`).
 

@@ -66,6 +66,8 @@ type hostRunner interface {
 // first entry binds it when its first state holds it, and closes it
 // otherwise (DH1, actor_recover.go). Made anywhere else, no entry owns it,
 // so it is closed at once: Get fails ActorStopped.
+//
+//ergo:wait none
 func NewHost[A any](t *rt.Task) *Host[A] {
 	h := &Host[A]{}
 	if r, ok := t.Value(hostKey{}).(hostRunner); ok && r.takeHost(t, h) {
@@ -78,6 +80,8 @@ func NewHost[A any](t *rt.Task) *Host[A] {
 // Get is h.Get() on the caller's task t: the child once h's entry's work
 // filled h; ActorStopped once that entry ended (or when no entry owns h).
 // It waits while h is empty; a stop of t raises rt.Interrupted.
+//
+//ergo:wait caller
 func (h *Host[A]) Get(t *rt.Task) (A, error) {
 	var zero A
 	for {
@@ -171,6 +175,8 @@ func (h *Host[A]) wakeLocked() {
 }
 
 // ActorNoHost is the host std actor.Child gives MachineChild: none.
+//
+//ergo:wait none
 func ActorNoHost[A any]() *Host[A] { return nil }
 
 // ActorHostDefect is the defect of an actor.ChildIn whose host its work's

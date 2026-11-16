@@ -81,6 +81,174 @@
       "to": "\t\t} else if only && false {\n\t\t\tcontinue\n\t\t}\n\t\t// A hermetic package",
       "rule": "The fast tier declares no step for a full-tier-only package (fullTierOnly).",
       "killers": ["scripts/gate:TestFastStepsKeyEveryTestPackage"]
-    }
+    },
+    {
+      "name": "b17-fast-all-large-stepped",
+      "origin": "wf10 batch-17 integration (TRY1's scripts/langmigrate)",
+      "file": "scripts/gate/tier.go",
+      "from": "if len(names) > 0 && len(fast) == 0 {",
+      "to": "if false && len(names) > 0 && len(fast) == 0 {",
+      "rule": "A package whose every test is large has no fast step, so it costs the fast budget nothing.",
+      "killers": ["scripts/gate:TestFastTierReachOfAnEdit"]
+    },
+    {
+      "name": "gf3-shards-dealt-by-wall",
+      "origin": "wf10 batch-16b gate16b-fix3",
+      "file": "scripts/gate/testcpu.go",
+      "from": "if rows := cpu[importPath]; len(rows) > 0 {",
+      "to": "if rows := cpu[importPath]; len(rows) > 1e9 {",
+      "rule": "A package with recorded CPU rows deals its shards by CPU, not wall time.",
+      "killers": ["scripts/gate:TestShardsBalanceTheirRecordedCPU"]
+    },
+    {
+      "name": "gf3-hang-floor-at-go-default",
+      "origin": "wf10 batch-16b gate16b-fix3",
+      "file": "scripts/gate/testcpu.go",
+      "from": "const hangFloor = 30 * time.Minute",
+      "to": "const hangFloor = 15 * time.Minute",
+      "rule": "No go test step's deadline is go test's 15 minute default.",
+      "killers": ["scripts/gate:TestGoTestStepsHaveHangDeadlines"]
+    },
+    {
+      "name": "gf3-build-step-without-deadline",
+      "origin": "wf10 batch-16b gate16b-fix3",
+      "file": "scripts/gate/steps.go",
+      "from": "Argv: []string{\"go\", \"test\", testTimeout, \"-run\", \"^$\", \"./...\"}",
+      "to": "Argv: []string{\"go\", \"test\", \"-run\", \"^$\", \"./...\"}",
+      "rule": "Every go test command of a step passes -timeout.",
+      "killers": ["scripts/gate:TestGoTestStepsHaveHangDeadlines"]
+    },
+    {
+      "name": "gf3-shard-deadline-ignores-cost",
+      "origin": "wf10 batch-16b gate16b-fix3",
+      "file": "scripts/gate/steps.go",
+      "from": "argv := append([]string{\"go\", \"test\", testTimeoutFor(weights[i])}, selection...)",
+      "to": "argv := append([]string{\"go\", \"test\", testTimeout}, selection...)",
+      "rule": "A shard's deadline is ten times its recorded cost.",
+      "killers": ["scripts/gate:TestGoTestStepsHaveHangDeadlines"]
+    },
+    {
+      "name": "gf3-pause-keeps-the-span",
+      "origin": "wf10 batch-16b gate16b-fix3",
+      "file": "scripts/gate/testcpu.go",
+      "from": "case !sub && top == s.running:",
+      "to": "case !sub && top == s.running && action != \"=== PAUSE\":",
+      "rule": "A paused test's wait is not its CPU.",
+      "killers": ["scripts/gate:TestCPUSpansAttributeToTopLevelTests"]
+    },
+    {
+      "name": "gate-key-stale-binary",
+      "origin": "wf10 FU-b18 (batch-18 verify, gate start key)",
+      "file": "scripts/gate/wholegate.go",
+      "from": "\tentries = slices.DeleteFunc(entries, func(e replay.Entry) bool { return gateOutput(e.Path, e.Class) })\n",
+      "to": "\t_ = gateOutput\n",
+      "rule": "No key holds the gate's own outputs (bin/): a gate started on a stale bin/ergo, which its build rewrites, still records.",
+      "killers": ["scripts/gate:TestWholeGateRecordsOverAStaleBuild"]
+    },
+    {
+      "name": "gate-replay-stale-binary",
+      "origin": "wf10 FU-b18 r2 (orchestrator: a replay leaves a stale bin/ergo)",
+      "file": "scripts/gate/wholegate.go",
+      "from": "\t\tif len(step.Writes) == 0 {\n\t\t\tcontinue\n\t\t}\n\t\tcmd := exec.Command(",
+      "to": "\t\tif true || len(step.Writes) == 0 {\n\t\t\tcontinue\n\t\t}\n\t\tcmd := exec.Command(",
+      "rule": "After a whole-gate replay the gate builds its outputs again, so bin/ergo matches the tree.",
+      "killers": ["scripts/gate:TestWholeGateRecordsOverAStaleBuild"]
+    },
+    {
+      "name": "gate-prescope-replay-stale-binary",
+      "origin": "wf10 FU-b18 r2 (orchestrator: a replay leaves a stale bin/ergo)",
+      "file": "scripts/gate/main.go",
+      "from": "if !rebuildOutputs(root, []*Step{replayBuild(root)}, out) {",
+      "to": "if !rebuildOutputs(root, []*Step{replayBuild(root)}[:0], out) {",
+      "rule": "The replay before the scope builds bin/ergo again, so the binary matches the tree.",
+      "killers": ["scripts/gate:TestWholeGateRecordNamesItsTier"]
+    },
+    {
+      "name": "sandbox-ready-fixed-limit",
+      "origin": "wf10 FU-b18 r2 (no fixed run limits in scripts/gate)",
+      "file": "scripts/gate/sandbox_linux.go",
+      "from": "\t\tcase <-tick.C:\n\t\t\tif pid := childPid.Load(); pid != 0 && processEnded(int(pid)) {",
+      "to": "\t\tcase <-time.After(time.Millisecond):\n\t\t\terr, waiting = errors.New(\"the export took too long\"), false\n\t\tcase <-tick.C:\n\t\t\tif pid := childPid.Load(); pid != 0 && processEnded(int(pid)) {",
+      "rule": "The sandbox's start waits for an event (ready, or its first process ended), never for a fixed time: a fixed bound fails an export that is still running (a 1 ms bound stands for a loaded host).",
+      "killers": ["scripts/gate:TestSandboxAdmitsSymlinkRoots", "scripts/gate:TestSandboxModuleZipIsConstructed"]
+    },
+    {
+      "name": "sandbox-first-process-unwatched",
+      "origin": "wf10 FU-b18 r2 (no fixed run limits in scripts/gate)",
+      "file": "scripts/gate/sandbox_linux.go",
+      "from": "if pid := childPid.Load(); pid != 0 && processEnded(int(pid)) {",
+      "to": "if pid := childPid.Load(); false && pid != 0 && processEnded(int(pid)) {",
+      "rule": "A sandbox whose first process fails is a failure at once: with no time bound on the start, the watch of that process is what ends the wait (killed by the test's deadline, which names TestMergeTierFailsClosed/bwrap_fails_to_mount).",
+      "killers": ["scripts/gate:TestMergeTierFailsClosed"]
+    },
+    {
+      "name": "gs3-fast-runs-all",
+      "origin": "wf10 GS3",
+      "file": "scripts/gate/tier.go",
+      "from": "step.Argv = append(slices.Clone(step.Argv), programs...)",
+      "to": "step.Argv = slices.Clone(step.Argv)",
+      "rule": "The fast tier's examples step runs only the programs of scripts/examples/fast-tier.txt; the full tier runs every default program.",
+      "killers": ["scripts/gate:TestFastTierHoldsNoHeavyStep"]
+    },
+    { "name": "gs4-coverage-ignored", "origin": "wf10 GS4", "file": "scripts/gate/selection.go", "from": "\t\t\t\t\t\t\tselected[t] = true", "to": "\t\t\t\t\t\t\t_ = t", "rule": "A function body's edit runs the tests whose recorded blocks it touches.", "killers": ["scripts/gate:TestSelectionRunsEveryTestAnEditReaches"] },
+    { "name": "gs4-reads-ignored", "origin": "wf10 GS4", "file": "scripts/gate/selection.go", "from": "moved[i] = readState(root, r.Path, r.Lookup) != r.State", "to": "moved[i] = false && readState(root, r.Path, r.Lookup) != r.State", "rule": "A file, directory or lookup a test read that is now otherwise runs that test.", "killers": ["scripts/gate:TestSelectionRunsEveryTestAnEditReaches"] },
+    { "name": "gs4-env-ignored", "origin": "wf10 GS4", "file": "scripts/gate/selection.go", "from": "if !slices.Contains(performanceVariables, name) && valueDigest(env, name) != digest {", "to": "if false && valueDigest(env, name) != digest {", "rule": "A variable a test read whose value changed runs that test.", "killers": ["scripts/gate:TestSelectionRunsEveryTestAnEditReaches"] },
+    { "name": "gs9-observed-embed-runs-all", "origin": "wf10 GS9", "file": "scripts/gate/selection.go", "from": "\t\t\t// An observed embedded file: its readers (below).\n", "to": "\t\t\treturn all(rel + \" changed\")\n", "rule": "An edit of an observed embedded file (a std .ergo file) reruns its readers, not every test.", "killers": ["scripts/gate:TestSelectionRunsEveryTestAnEditReaches"] },
+    { "name": "gs9-record-unobserved", "origin": "wf10 GS9", "file": "scripts/gate/selection.go", "from": "\t\tcommand.Env = setEnvironmentVariable(command.Env, embedObserveVariable, root)\n", "to": "", "rule": "The record sets the observe variable, so a test's reads of observed embedded files are in its record.", "killers": ["scripts/gate:TestSelectionRunsEveryTestAnEditReaches"] },
+    { "name": "gs11-cli-unrecorded", "origin": "wf10 GS11 r1", "file": "scripts/gate/selection.go", "from": "\t\t\tcommand.Env = setEnvironmentVariable(command.Env, cliVariable, wrapper)\n", "to": "\t\t\t_, _ = cliVariable, wrapper\n", "rule": "The record hands a test of a recordedCLIs package the covered CLI: a test that runs the command is not tied to every source file by a build of its own.", "killers": ["scripts/gate:TestSelectionSeesTheCLIATestRuns"] },
+    { "name": "gs11-cli-counters-lost", "origin": "wf10 GS11 r1", "file": "scripts/gate/selection.go", "from": "script := fmt.Sprintf(\"#!/bin/sh\\nGOCOVERDIR='%s' %s='%s' exec '%s' \\\"$@\\\"\\n\", counters, embedObserveVariable, root, cli)", "to": "script := fmt.Sprintf(\"#!/bin/sh\\n%s='%s' exec '%s' \\\"$@\\\"\\n\", embedObserveVariable, root, cli)", "rule": "The CLI a test runs writes its counters beside the test's, whatever environment the test gives it: a body the command runs selects the test.", "killers": ["scripts/gate:TestSelectionSeesTheCLIATestRuns"] },
+    { "name": "gs11-cli-embeds-unobserved", "origin": "wf10 GS11 r1", "file": "scripts/gate/selection.go", "from": "script := fmt.Sprintf(\"#!/bin/sh\\nGOCOVERDIR='%s' %s='%s' exec '%s' \\\"$@\\\"\\n\", counters, embedObserveVariable, root, cli)", "to": "script := fmt.Sprintf(\"#!/bin/sh\\nGOCOVERDIR='%s' exec '%s' \\\"$@\\\"\\n\", counters, cli)", "rule": "The CLI a test runs observes its embedded files whatever environment the test gives it: an edit of an embedded std file the CLI reads selects the test.", "gap": "The fixtures run plain go tests, which observe only their own process (a child is observed under internal/testinputs.Main, which a module outside this one cannot import), so no fixture sees the CLI open its embedded file. Receipt: the cmd/ergo record lists the tests that read internal/sketch/std/json/fields.ergo (gs11 request)." },
+    { "name": "gs9-embed-own-folder", "origin": "wf10 GS9 r1", "file": "scripts/gate/selection.go", "from": "\t\tif deps[dir] {\n\t\t\treturn dir\n", "to": "\t\tif true {\n\t\t\treturn dir\n", "rule": "An embedded file in a folder below its package (std's json/*.ergo) belongs to that package: it is observed, so its edit reruns its readers only.", "killers": ["scripts/gate:TestSelectionRunsEveryTestAnEditReaches"] },
+    { "name": "gs9-prefix-observes", "origin": "wf10 GS9 r1", "file": "scripts/gate/selection.go", "from": "slices.Contains(observedEmbeds, embeddingPackage(rel, deps))", "to": "slices.ContainsFunc(observedEmbeds, func(d string) bool { return strings.HasPrefix(rel, d+\"/\") })", "rule": "A file another package embeds below an observing package (std's gostd/src) is not observed: its edit runs every test.", "killers": ["scripts/gate:TestSelectionRunsEveryTestAnEditReaches"] },
+    { "name": "gs10-shared-gotmpdir", "origin": "wf10 GS10", "file": "scripts/gate/selection.go", "from": "setEnvironmentVariable(setEnvironmentVariable(env, \"TMPDIR\", temporary), \"GOTMPDIR\", temporary)", "to": "setEnvironmentVariable(env, \"TMPDIR\", temporary)", "rule": "The record runs each test with its own GOTMPDIR, so the shared one's listing, which every go build changes, is no read that selects a test.", "killers": ["scripts/gate:TestSelectionRunsEveryTestAnEditReaches"] },
+    { "name": "gs4-declaration-as-body", "origin": "wf10 GS4", "file": "scripts/gate/selection.go", "from": "\t\tif !inside {\n\t\t\tcontinue", "to": "\t\tif !inside && false {\n\t\t\tcontinue", "rule": "An edit outside every function body (a constant, a declaration) runs every test: no block holds it.", "killers": ["scripts/gate:TestSelectionRunsEveryTestAnEditReaches"] },
+    { "name": "gs4-one-hunk", "origin": "wf10 GS4", "file": "scripts/gate/linediff.go", "from": "\tkeepA, keepB, ok := myersKeep(a, b)\n\tif !ok {", "to": "\tkeepA, keepB, ok := myersKeep(a, b)\n\tif !ok || true {", "rule": "Two edited function bodies of one file are two hunks, each judged in its function (the line diff), not one span across both.", "killers": ["scripts/gate:TestSelectionRunsEveryTestAnEditReaches"] },
+    { "name": "gs4-skip-unwired", "origin": "wf10 GS4", "file": "scripts/gate/tier.go", "from": "large = append(large, chosen.skip...)", "to": "large = append(large)", "rule": "A test the selection skips joins the names every shard of the package skips.", "killers": ["scripts/gate:TestFastTierSkipsWhatTheSelectorSkips"] },
+    { "name": "gs6-chain-ignored", "origin": "wf10 GS6", "file": "scripts/gate/priority.go", "from": "priority[i] = own[i] + chain", "to": "priority[i] = own[i]", "rule": "A step's priority adds the longest chain of the steps that need it.", "killers": ["scripts/gate:TestStepPrioritiesFollowTheLongestChain", "scripts/gate:TestRecordedTimeOrdersTheNextRun"] },
+    { "name": "gs6-times-ignored", "origin": "wf10 GS6", "file": "scripts/gate/priority.go", "from": "recorded := times.longest(step.Name); recorded > 0 {", "to": "recorded := times.longest(step.Name); recorded > 1e18 {", "rule": "A step's recorded time on this host replaces its declared weight.", "killers": ["scripts/gate:TestStepPrioritiesFollowTheLongestChain", "scripts/gate:TestRecordedTimeOrdersTheNextRun"] },
+    { "name": "gs6-last-not-longest", "origin": "wf10 GS6", "file": "scripts/gate/priority.go", "from": "return slices.Max(t[name])", "to": "return t[name][len(t[name])-1]", "rule": "The longest of a step's kept times weighs it, not the last, so a run that replayed most of the step does not start it last next time.", "killers": ["scripts/gate:TestStepPrioritiesFollowTheLongestChain"] },
+    { "name": "gs6-run-ignores-priority", "origin": "wf10 GS6", "file": "scripts/gate/main.go", "from": "slots.acquireN(first[i], priority[i], held)", "to": "slots.acquireN(first[i], step.Weight+0*priority[i], held)", "rule": "The gate's slots go by stepPriorities, not the declared weight alone.", "killers": ["scripts/gate:TestRecordedTimeOrdersTheNextRun"] },
+    { "name": "gs6-times-unwritten", "origin": "wf10 GS6", "file": "scripts/gate/main.go", "from": "if err := writeStepTimes(g.cacheDir, times, g.steps, results); err != nil {", "to": "if err := writeStepTimes(\"\", times, g.steps, results); err != nil {", "rule": "A run records its steps' times in the gate cache for the next run.", "killers": ["scripts/gate:TestRecordedTimeOrdersTheNextRun"] },
+    { "name": "gs6-keep-all", "origin": "wf10 GS6", "file": "scripts/gate/priority.go", "from": "merged[step.Name] = list[max(0, len(list)-stepTimesKept):]", "to": "merged[step.Name] = list", "rule": "The times file keeps each step's last stepTimesKept times: it does not grow with every run.", "killers": ["scripts/gate:TestStepTimesKeepTheLastRuns"] },
+    { "name": "gs6-failed-recorded", "origin": "wf10 GS6", "file": "scripts/gate/priority.go", "from": "(r.outcome != passed && r.outcome != cached)", "to": "(r.outcome == blocked)", "rule": "A failed step's time, cut short, is not recorded.", "killers": ["scripts/gate:TestStepTimesKeepTheLastRuns"] },
+    { "name": "gs6-examples-unweighted", "origin": "wf10 GS6", "file": "scripts/gate/tier.go", "from": "step.Weight = fastExamplesWeight", "to": "step.Weight = 0", "rule": "The fast tier's examples step, its longest, weighs the most of its steps.", "killers": ["scripts/gate:TestFastTierHoldsNoHeavyStep"] },
+    { "name": "gs16-cpu-record-path", "origin": "wf10 GS16", "file": "scripts/gate/testcpu.go", "from": "\t\tenv = setEnvironmentVariable(env, \"PATH\", ", "to": "\t\t_ = setEnvironmentVariable(env, \"PATH\", ", "rule": "-record-durations -cpu runs a test binary with the toolchain first on PATH, as go test does.", "gap": "a record of cmd/ergo under an empty HOME; manual: -record-durations -cpu ./cmd/ergo exits 2 with the mutant" },
+    {
+      "name": "gatesandbox-sweep-store-per-step",
+      "origin": "wf10 fu-gate-sandbox",
+      "file": "scripts/gate/steps.go",
+      "from": "sweepVariable + \"=\" + selection, sweepStdVariable + \"=\" + sweepStdDir()}",
+      "to": "sweepVariable + \"=\" + selection}",
+      "rule": "The closure sweep steps of a run share one std store, outside each step's TMPDIR.",
+      "killers": ["scripts/gate:TestSweepsShareOneStdStore"]
+    },
+    {
+      "name": "gatesandbox-floor-unchecked",
+      "origin": "wf10 fu-gate-sandbox",
+      "file": "scripts/gate/main.go",
+      "from": "if reason := belowDiskFloor(floor, tmpDir, g.cacheDir); reason != \"\" {",
+      "to": "if reason := belowDiskFloor(floor*0, tmpDir, g.cacheDir); reason != \"\" {",
+      "rule": "A step is not started below the disk floor: it fails naming the disk, not partway with ENOSPC.",
+      "killers": ["scripts/gate:TestStepBelowDiskFloorIsNotStarted"]
+    },
+    {
+      "name": "gatesandbox-floor-compare",
+      "origin": "wf10 fu-gate-sandbox",
+      "file": "scripts/gate/diskfloor.go",
+      "from": "\t\tif free < floor {\n",
+      "to": "\t\tif free < floor/2 {\n",
+      "rule": "Any free space below the floor refuses the step.",
+      "killers": ["scripts/gate:TestStepBelowDiskFloorIsNotStarted"]
+    },
+    {
+      "name": "gatesandbox-floor-unreadable-passes",
+      "origin": "wf10 fu-gate-sandbox",
+      "file": "scripts/gate/diskfloor.go",
+      "from": "\t\t\treturn fmt.Sprintf(\"disk floor: cannot read the free space under %s: %v\", path, err)\n",
+      "to": "\t\t\tcontinue\n",
+      "rule": "Free space that cannot be read refuses the step (fail closed).",
+      "killers": ["scripts/gate:TestStepBelowDiskFloorIsNotStarted"]
+    },
+    {"name":"mk0-step-blind-to-modules","origin":"wf10 MK0","file":"scripts/gate/steps.go","from":"\t\t\tInstalled: []string{\"examples\", \"modules\"},","to":"\t\t\tInstalled: []string{\"examples\"},","rule":"The examples step walks modules/ too, so an edit of a module reruns it (the fast tier's reach).","killers":["scripts/gate:TestFastTierReachOfAnEdit"]}
   ]
 }

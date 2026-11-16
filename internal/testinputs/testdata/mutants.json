@@ -1,0 +1,10 @@
+{
+  "about": "The mutant ledger of internal/testinputs: edits of the observer that its tests must kill. Run it with go run ./scripts/mutants ./internal/testinputs; the package's own tests run unobserved, so the sweep gives them no identity. Seeded by wf10 fu-sweep-mounts.",
+  "mutants": [
+    {"name":"mount-change-ignored","origin":"wf10 fu-sweep-mounts","file":"internal/testinputs/identity_linux.go","from":"\tcase mountsChanged:","to":"\tcase false && mountsChanged:","rule":"A mount made during the run over a directory a lookup passed leaves the run's inputs unknown.","killers":["internal/testinputs:TestMountTableChangeIsSeen"]},
+    {"name":"mount-verdict-any-point","origin":"wf10 fu-sweep-mounts","file":"internal/testinputs/identity_linux.go","from":"\t\tif lookedIn(p) {","to":"\t\tif true {","rule":"A mount no lookup of the run passed (another lane's Rift) is no reason.","killers":["internal/testinputs:TestMountVerdict","internal/testinputs:TestMountTableChangeIsSeen"]},
+    {"name":"mount-verdict-no-point","origin":"wf10 fu-sweep-mounts","file":"internal/testinputs/identity_linux.go","from":"\t\tif lookedIn(p) {","to":"\t\tif false {","rule":"A changed mount a lookup passed is a reason.","killers":["internal/testinputs:TestMountVerdict","internal/testinputs:TestMountTableChangeIsSeen"]},
+    {"name":"mount-undone-accepted","origin":"wf10 fu-sweep-mounts","file":"internal/testinputs/identity_linux.go","from":"\t\treturn prefix + \", and changed back, so where is unknown\"","to":"\t\treturn \"\"","rule":"A change made and undone during the run, whose place is unknown, is a reason.","killers":["internal/testinputs:TestMountVerdict"]},
+    {"name":"mount-lookup-name-ignored","origin":"wf10 fu-sweep-mounts","file":"internal/testinputs/identity_linux.go","from":"filepath.Base(p)); ok {","to":"filepath.Base(p)); false && ok {","rule":"A mount at a name a lookup used is a reason, though the run never looked inside it.","killers":["internal/testinputs:TestMountVerdict"]}
+  ]
+}
