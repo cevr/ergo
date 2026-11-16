@@ -1113,21 +1113,52 @@ func (p *parser) parseLawDecl(doc *CommentGroup, top bool) *LawDecl {
 	if p.tok.tok != EQL && r.When == NoPos {
 		return d
 	}
+	if top && r.When == NoPos {
+		p.parseLawEquation(d)
+		return d
+	}
 	p.parseLawRewrite(d, r, guard, top)
 	return d
+}
+
+// parseLawEquation parses the rest of a top-level rewrite law (types.md,
+// Laws 14; LAWFFI LF6a), `law L(params) { lhs } == { rhs }`, after its
+// left block: each block holds one expression, and the law's Body becomes
+// `lhs == rhs`, so it is the property it states (LawDecl.Equation).
+func (p *parser) parseLawEquation(d *LawDecl) {
+	lhsB := d.Body
+	eq := p.want(EQL)
+	rhsB := p.parseBlock()
+	side := func(b *BlockStmt) Expr {
+		if len(b.List) == 1 {
+			if s, ok := b.List[0].(*ExprStmt); ok {
+				return s.X
+			}
+		}
+		p.errorAt(b.Lbrace, 1, "a top-level rewrite law has one expression on each side: law L(x T) { f(g(x)) } == { x }")
+		return nil
+	}
+	lhs, rhs := side(lhsB), side(rhsB)
+	if lhs == nil || rhs == nil {
+		d.Body = &BlockStmt{Lbrace: lhsB.Lbrace, List: append(append([]Stmt(nil), lhsB.List...), rhsB.List...), Rbrace: rhsB.Rbrace}
+		return
+	}
+	d.Equation = &LawEquation{LhsLbrace: lhsB.Lbrace, LhsRbrace: lhsB.Rbrace, RhsLbrace: rhsB.Lbrace, RhsRbrace: rhsB.Rbrace}
+	d.Body = &BlockStmt{Lbrace: lhsB.Lbrace, List: []Stmt{&ExprStmt{X: &BinaryExpr{X: lhs, OpPos: eq, Op: EQL, Y: rhs}}}, Rbrace: rhsB.Rbrace}
 }
 
 // parseLawRewrite parses the rest of a rewrite law (types.md, Laws 14),
 // `law L(params) [when R() == C] { lhs } == { rhs }`, after its left
 // block: a law whose body is two blocks joined by == is a rewrite law,
 // the left block the pattern and the right the replacement. Its Body then
-// holds the guard, lhs and rhs (LawDecl.Rewrite). A top-level rewrite law
-// is S108: a rewrite is of an operation type's own operations.
+// holds the guard, lhs and rhs (LawDecl.Rewrite). A top-level law with a
+// guard is refused: a law over functions takes no guard in v1, and one
+// true only under a guard stays a property.
 func (p *parser) parseLawRewrite(d *LawDecl, r *LawRewrite, guard Expr, top bool) {
 	lhs := d.Body
 	var rhs *BlockStmt
 	if top {
-		p.errorAt(d.Law, 3, "a rewrite law is a member of an operation type; a top-level law has no operations to rewrite")
+		p.errorAt(r.When, 4, "a top-level rewrite law takes no when: a law over functions has no guard in v1, and a law true only under a guard stays a property")
 	}
 	if p.tok.tok != EQL {
 		p.errorAt(p.tok.pos, 1, "expected == { … } after a guarded law's block; a law with when is a rewrite law, { lhs } == { rhs }")
