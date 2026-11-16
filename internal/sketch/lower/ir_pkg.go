@@ -176,6 +176,18 @@ func (b *irBuilder) valueSource(x *syntax.CallExpr, c *check.Call, args []syntax
 	}
 }
 
+// builtinAppend reports a call of the prelude's Append intrinsic that the
+// IR writes as Go's builtin append (FLIP F3), not as a call of the
+// intrinsic's Go function. The two are one append (decls.go intrinsic:
+// `return rt.Append(xs, x)`, and rt.Append is `append(xs, x)`), but Go's
+// inliner sees the builtin at once. The value rule has already clipped
+// the source of a call that may not write it in place (valueSource), and
+// the builtin takes that clipped source, so an Append to a place another
+// value shares still copies.
+func (b *irBuilder) builtinAppend(f *check.Func) bool {
+	return f.Name == "Append" && f.Pkg.Path == "prelude"
+}
+
 // admitMap admits a Map, Go's map[K]V: its key and its value. A Map is a
 // value (V3): a call that writes one writes a copy unless it may write in
 // place (valueSource), and a copy of a local is the value rule's ("value

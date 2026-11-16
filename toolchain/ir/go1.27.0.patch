@@ -340,10 +340,10 @@ index 0000000..29ad509
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_expr.go b/src/cmd/compile/internal/noder/ergoir_expr.go
 new file mode 100644
-index 0000000..1be85c9
+index 0000000..641fcf3
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_expr.go
-@@ -0,0 +1,372 @@
+@@ -0,0 +1,404 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -589,6 +589,38 @@ index 0000000..1be85c9
 +		call.SetPos(pos)
 +		ergoValue(call, types2.Typ[types2.Int], nil)
 +		return call, types2.Typ[types2.Int]
++	case "append":
++		// append(xs, v): Go's builtin append of one element, as types2
++		// records it (builtins.go _Append: func(S, ...E) S, variadic).
++		if len(x.Args) != 2 {
++			c.errorf(x.Pos, "ergoir: append of %d operands", len(x.Args))
++			return nil, nil
++		}
++		xs, xt := c.expr(x.Args[0])
++		v, vt := c.expr(x.Args[1])
++		if xs == nil || v == nil {
++			return nil, nil
++		}
++		sl, ok := types2.CoreType(xt).(*types2.Slice)
++		if !ok {
++			c.errorf(x.Pos, "ergoir: append to %v, not a slice", xt)
++			return nil, nil
++		}
++		if !c.assignable(x.Pos, "append", vt, sl.Elem()) {
++			return nil, nil
++		}
++		b := types2.Universe.Lookup("append")
++		fun := syntax.NewName(pos, "append")
++		c.info.Uses[fun] = b
++		tv := syntax.TypeAndValue{Type: types2.NewSignatureType(nil, nil, nil,
++			types2.NewTuple(types2.NewParam(pos, nil, "", xt), types2.NewParam(pos, nil, "", types2.NewSlice(sl.Elem()))),
++			types2.NewTuple(types2.NewParam(pos, nil, "", xt)), true)}
++		tv.SetIsBuiltin()
++		fun.SetTypeInfo(tv)
++		call := &syntax.CallExpr{Fun: fun, ArgList: []syntax.Expr{xs, v}}
++		call.SetPos(pos)
++		ergoValue(call, xt, nil)
++		return call, xt
 +	case "lit":
 +		t := c.typ(x.Pos, x.T)
 +		if t == nil {
