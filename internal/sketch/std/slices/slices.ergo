@@ -27,8 +27,12 @@ func WithCapacity[T](n int) []T { MakeSlice[T](n) }
 // Take gives up xs and returns its element at i and the remaining slice,
 // in order. With resource elements, the element and remainder have
 // separate owners. Plain-data xs is unchanged. An index outside
-// 0..len(xs) is a defect, as Go's index is.
-func Take[T](xs own []T, i int) (T, []T) { xs.TakeAt(i) }
+// 0..len(xs) is a defect, as Go's index is. It keeps the runtime body
+// xs.TakeAt calls: an Ergo body over TakeAt, generic in T, would leave
+// xs released by no one when the index is out of range (a generic
+// function cannot release an owned value of a type parameter, B2), where
+// the caller's frame holds xs until a runtime body returns (D-C).
+extern go ergo.local/prototype/runtime/v1.SlicesTake func Take[T](xs own []T, i int) (T, []T)
 
 // Sort is a copy of xs in ascending order. A float NaN sorts first, as in
 // Go.
