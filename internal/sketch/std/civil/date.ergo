@@ -1,0 +1,261 @@
+// Package civil is calendar values with no zone: a Date, a TimeOfDay, a
+// DateTime, a Period of calendar units and a Span of dates, with the
+// calendar arithmetic over them (docs/spec/stdlib.md, civil; std-spike
+// T1). Go's name for zone-less values is civil (cloud.google.com/go/civil);
+// Temporal calls them PlainDate, PlainTime and PlainDateTime. The calendar
+// is ISO 8601's proleptic Gregorian calendar, years 1 to 9999, with no leap
+// seconds, as Go's time, Temporal and Effect's DateTime have it. Rules that
+// differ from Go, each for a guarantee:
+//   - only this package builds a Date, so 30 February and month 13 do not
+//     exist: NewDate fails NoSuchDate where Go's time.Date normalises;
+//   - month and year arithmetic clamps to the last day of the month
+//     (31 January + 1 month is 28 or 29 February), as Effect, date-fns,
+//     day.js and Temporal do, where Go's AddDate overflows into March;
+//   - arithmetic past year 1 or 9999 gives MinDate or MaxDate (saturated),
+//     as time.Sub saturates;
+//   - a calendar unit is the closed union Unit, so a week carries the day
+//     it starts on and has no hidden default.
+// civil imports time for Month, Weekday, Time and duration; time does not
+// import civil. The two calendars are held equal by the law
+// CivilAgreesWithCalendar.
+
+import time
+
+// Date is a day of the calendar, years 1 to 9999. It holds the count of
+// days from 1970-01-01, so comparing, subtracting and stepping dates are
+// integer operations, and it is four bytes. Its field is unexported: only
+// this package builds one (NewDate, DateOf, FromUnixDays, ParseISODate and
+// the arithmetic), so every Date is a real day.
+type Date { day int32 }
+
+// NoSuchDate is the failure of NewDate: the year is not 1 to 9999, or the
+// day is not in the month.
+type NoSuchDate { Year int, Month int, Day int }
+
+// Week is an ISO 8601 week: its week-numbering year and its number, 1 to
+// 52 or 53.
+type Week { Year int, Week int }
+
+// minDay and maxDay are the day numbers of 0001-01-01 and 9999-12-31.
+func minDay() int64 { -719162 }
+
+func maxDay() int64 { 2932896 }
+
+// MinDate is 0001-01-01, the first Date.
+func MinDate() Date { Date{day: int32(minDay())} }
+
+// MaxDate is 9999-12-31, the last Date.
+func MaxDate() Date { Date{day: int32(maxDay())} }
+
+// FromUnixDays is the date n days after 1970-01-01, saturated at MinDate
+// and MaxDate.
+func FromUnixDays(n int64) Date {
+	if n < minDay() {
+		MinDate()
+	} else if n > maxDay() {
+		MaxDate()
+	} else {
+		Date{day: int32(n)}
+	}
+}
+
+// UnixDays is the count of days from 1970-01-01 to d, negative before it.
+func UnixDays(d Date) int64 { int64(d.day) }
+
+// NewDate is the date year-month-day, or NoSuchDate when the year is not
+// 1 to 9999 or the day is not 1 to DaysIn(year, month).
+func NewDate(year int, month time.Month, day int) Date fails NoSuchDate {
+	if year < 1 || year > 9999 || day < 1 || day > DaysIn(year, month) {
+		return NoSuchDate{Year: year, Month: time.MonthNumber(month), Day: day}
+	}
+	Date{day: int32(daysFromCivil(int64(year), int64(time.MonthNumber(month)), int64(day)))}
+}
+
+// DateOf is the date of t in UTC, saturated at MinDate and MaxDate.
+func DateOf(t time.Time) Date { FromUnixDays(floorDiv(time.UnixSeconds(t), 86400)) }
+
+// Year is the year of d, 1 to 9999.
+func Year(d Date) int { int(civilFromDays(int64(d.day)).year) }
+
+// Month is the month of d.
+func Month(d Date) time.Month { monthOf(civilFromDays(int64(d.day)).month) }
+
+// Day is the day of the month of d, 1 to 31.
+func Day(d Date) int { int(civilFromDays(int64(d.day)).day) }
+
+// Weekday is the day of the week of d.
+func Weekday(d Date) time.Weekday { weekdayOf(floorMod(int64(d.day)+4, 7)) }
+
+// YearDay is the day of the year of d, 1 to 366.
+func YearDay(d Date) int { int(int64(d.day)-daysFromCivil(civilFromDays(int64(d.day)).year, 1, 1)) + 1 }
+
+// Quarter is the quarter of the year of d, 1 to 4.
+func Quarter(d Date) int { (time.MonthNumber(Month(d))-1)/3 + 1 }
+
+// ISOWeek is the ISO 8601 week of d: weeks start on Monday, and week 1 is
+// the week that holds the year's first Thursday, so 1 January may be in
+// week 52 or 53 of the year before, and 31 December in week 1 of the next.
+func ISOWeek(d Date) Week {
+	let thursday = int64(d.day) - isoDay(d) + 3
+	let c = civilFromDays(thursday)
+	Week{Year: int(c.year), Week: int((thursday-daysFromCivil(c.year, 1, 1))/7) + 1}
+}
+
+// isoDay is the ISO number of d's weekday less one: Monday 0 to Sunday 6.
+func isoDay(d Date) int64 { floorMod(int64(d.day)+3, 7) }
+
+// IsLeap reports whether year has 366 days: a multiple of 4, but not of
+// 100 unless of 400.
+func IsLeap(year int) bool { year%4 == 0 && (year%100 != 0 || year%400 == 0) }
+
+// DaysIn is the number of days of month in year, 28 to 31.
+func DaysIn(year int, month time.Month) int {
+	match month {
+	case time.February:
+		if IsLeap(year) { 29 } else { 28 }
+	case time.April, time.June, time.September, time.November:
+		30
+	case time.January, time.March, time.May, time.July, time.August, time.October, time.December:
+		31
+	}
+}
+
+// Compare is -1 when a is before b, +1 when it is after, and 0 when they
+// are the same day.
+func Compare(a Date, b Date) int {
+	if a.day < b.day {
+		-1
+	} else if a.day > b.day {
+		1
+	} else {
+		0
+	}
+}
+
+// Before reports whether a is before b.
+func Before(a Date, b Date) bool { a.day < b.day }
+
+// After reports whether a is after b.
+func After(a Date, b Date) bool { a.day > b.day }
+
+// Min is the earlier of a and b.
+func Min(a Date, b Date) Date { if b.day < a.day { b } else { a } }
+
+// Max is the later of a and b.
+func Max(a Date, b Date) Date { if b.day > a.day { b } else { a } }
+
+// Clamp is d moved into lo..hi: lo when d is before lo, hi when it is after
+// hi. When hi is before lo, it is lo.
+func Clamp(d Date, lo Date, hi Date) Date { Max(lo, Min(d, hi)) }
+
+// months are the months in order; weekdays are Go's order, Sunday first.
+func monthOf(n int64) time.Month {
+	[]time.Month{time.January, time.February, time.March, time.April, time.May, time.June, time.July, time.August, time.September, time.October, time.November, time.December}[int(n)-1]
+}
+
+func weekdayOf(n int64) time.Weekday {
+	[]time.Weekday{time.Sunday, time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday, time.Saturday}[int(n)]
+}
+
+// floorDiv is a / b rounded down, for b > 0; floorMod is a - floorDiv(a,
+// b)*b, in 0..b-1.
+func floorDiv(a int64, b int64) int64 {
+	let q = a / b
+	if a%b < 0 { q - 1 } else { q }
+}
+
+func floorMod(a int64, b int64) int64 { a - floorDiv(a, b)*b }
+
+// ymd is a proleptic Gregorian date as three numbers.
+type ymd { year int64, month int64, day int64 }
+
+// daysFromCivil is the count of days from 1970-01-01 to y-m-d, for m in
+// 1..12 (Hinnant, days_from_civil).
+func daysFromCivil(y int64, m int64, d int64) int64 {
+	let yy = if m <= 2 { y - 1 } else { y }
+	let era = floorDiv(yy, 400)
+	let yoe = yy - era*400
+	let mp = if m > 2 { m - 3 } else { m + 9 }
+	let doy = (153*mp+2)/5 + d - 1
+	let doe = yoe*365 + yoe/4 - yoe/100 + doy
+	era*146097 + doe - 719468
+}
+
+// civilFromDays is the date days after 1970-01-01 (Hinnant,
+// civil_from_days).
+func civilFromDays(days int64) ymd {
+	let z = days + 719468
+	let era = floorDiv(z, 146097)
+	let doe = z - era*146097
+	let yoe = (doe - doe/1460 + doe/36524 - doe/146096) / 365
+	let doy = doe - (365*yoe + yoe/4 - yoe/100)
+	let mp = (5*doy + 2) / 153
+	let d = doy - (153*mp+2)/5 + 1
+	let m = if mp < 10 { mp + 3 } else { mp - 9 }
+	let y = yoe + era*400
+	ymd{year: if m <= 2 { y + 1 } else { y }, month: m, day: d}
+}
+
+// within is n moved into lo..hi by whole spans (n itself when it is in
+// range), so a law covers every n; anyDay is the
+// Date n names when moved into years 1 to 9999.
+func within(n int64, lo int64, hi int64) int64 {
+	let span = hi - lo + 1
+	let r = (n - lo) % span
+	if r < 0 { lo + (r + span) } else { lo + r }
+}
+
+func anyDay(n int64) Date { FromUnixDays(within(n, minDay(), maxDay())) }
+
+// DateRoundTrips: a date's own year, month and day build it again, and
+// NewDate fails exactly when the year is not 1 to 9999 or the day is not
+// in the month.
+law DateRoundTrips(n int64, y int64, m int64, dd int64) {
+	let d = anyDay(n)
+	let back = NewDate(Year(d), Month(d), Day(d)) catch {
+	case NoSuchDate:
+		return false
+	}
+	let year = int(within(y, -1, 10001))
+	let month = monthOf(within(m, 1, 12))
+	let day = int(within(dd, -1, 33))
+	let valid = year >= 1 && year <= 9999 && day >= 1 && day <= DaysIn(year, month)
+	let made = NewDate(year, month, day) catch {
+	case NoSuchDate:
+		return back == d && !valid
+	}
+	back == d && valid && Year(made) == year && Month(made) == month && Day(made) == day
+}
+
+// CivilAgreesWithCalendar: the date and time of day of an instant are
+// time.Calendar's, field by field, weekday and day of the year too.
+law CivilAgreesWithCalendar(sec int64, nsec int64) {
+	let t = time.NewTime(sec, nsec)
+	let c = time.Calendar(t)
+	let dt = DateTimeOf(t)
+	let d = dt.Date
+	Year(d) == c.Year && Month(d) == c.Month && Day(d) == c.Day && Weekday(d) == c.Weekday && YearDay(d) == c.YearDay && Hour(dt.Time) == c.Hour && Minute(dt.Time) == c.Minute && Second(dt.Time) == c.Second && Nanosecond(dt.Time) == c.Nanosecond
+}
+
+// WeekdayStepsByDay: the day after d is the next weekday.
+law WeekdayStepsByDay(n int64) {
+	let d = anyDay(n)
+	d == MaxDate() || time.WeekdayNumber(Weekday(AddDays(d, 1))) == (time.WeekdayNumber(Weekday(d))+1)%7
+}
+
+// ISOWeekIsThursdays: the ISO week of d is the week of the Thursday of d's
+// Monday week, numbered from that year's first Thursday, 1 to 53.
+law ISOWeekIsThursdays(n int64) {
+	let d = anyDay(n)
+	let w = ISOWeek(d)
+	let thursday = AddDays(StartOf(d, Weeks{First: time.Monday}), 3)
+	w.Year == Year(thursday) && w.Week == (YearDay(thursday)+6)/7 && w.Week >= 1 && w.Week <= 53 && Weekday(thursday) == time.Thursday
+}
+
+// CompareIsTotalOrder: Compare is antisymmetric, negative exactly when a
+// is before b, and zero exactly when the dates are equal.
+law CompareIsTotalOrder(x int64, y int64) {
+	let a = anyDay(x)
+	let b = FromUnixDays(UnixDays(a) + within(y, -2, 2))
+	Compare(a, b) == -Compare(b, a) && (Compare(a, b) < 0) == Before(a, b) && (Compare(a, b) == 0) == (a == b) && Clamp(b, a, a) == a
+}

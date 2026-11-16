@@ -12,6 +12,7 @@ base64	same
 bench	same
 bits	same
 cache	same
+civil	same
 code	same
 cmp	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
 codec	same
@@ -60,6 +61,9 @@ time	same
 timeout	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
 toml	differs	lower: the flat std program suffixes a name another std package declares too (toml's DecodeMono_1 beside json's), the copy's names are unique	follow-up std-name-suffix
 trace	same
+tz	same
+tz/host	same
+tz/iana	same
 ui	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
 ui/layout	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
 utf8	same

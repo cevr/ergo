@@ -1,0 +1,392 @@
+// Calendar arithmetic on dates: days, weeks, months and years, a Period of
+// them, the difference in calendar units, and the start and end of a
+// calendar period.
+
+import time
+
+// Unit is a calendar period. Weeks carries the day its weeks start on (ISO
+// 8601 and most of Europe start on Monday, the United States on Sunday),
+// so no week has a hidden default. Effect's startOf takes a string and an
+// option bag ("week", { weekStartsOn }); day.js takes "week".
+type Days {}
+type Weeks { First time.Weekday }
+type Months {}
+type Quarters {}
+type Years {}
+type Unit = Days | Weeks | Months | Quarters | Years
+
+// Period is an amount of calendar units. Add applies its years and months
+// first, as one count of months with one clamp, then its weeks and days,
+// in Temporal's order.
+type Period { Years int, Months int, Weeks int, Days int }
+
+// span is the count of days from MinDate to MaxDate; a step of more is
+// saturated before any product can overflow.
+func span() int64 { maxDay() - minDay() }
+
+// AddDays is d moved n days, saturated at MinDate and MaxDate.
+func AddDays(d Date, n int) Date { FromUnixDays(int64(d.day) + within64(int64(n), span())) }
+
+// AddWeeks is d moved n weeks, saturated.
+func AddWeeks(d Date, n int) Date { FromUnixDays(int64(d.day) + within64(int64(n), span()/7+1)*7) }
+
+// AddMonths is d moved n months, with its day clamped to the last day of
+// the new month, and saturated at MinDate and MaxDate. So 31 January plus
+// one month is 28 or 29 February, where Go's AddDate gives 3 March.
+func AddMonths(d Date, n int) Date {
+	let c = civilFromDays(int64(d.day))
+	let total = c.year*12 + c.month - 1 + within64(int64(n), 120000)
+	let y = floorDiv(total, 12)
+	let m = total - y*12 + 1
+	if y < 1 {
+		return MinDate()
+	}
+	if y > 9999 {
+		return MaxDate()
+	}
+	let last = int64(DaysIn(int(y), monthOf(m)))
+	Date{day: int32(daysFromCivil(y, m, if c.day > last { last } else { c.day }))}
+}
+
+// AddYears is d moved n years, clamped as AddMonths clamps (29 February
+// plus a year is 28 February), and saturated.
+func AddYears(d Date, n int) Date { AddMonths(d, int(within64(int64(n), 10000)*12)) }
+
+// Add is d moved by p: its years and months as one count of months, with
+// one clamp, then its weeks and days.
+func Add(d Date, p Period) Date {
+	let months = within64(int64(p.Years), 10000)*12 + within64(int64(p.Months), 120000)
+	let days = within64(int64(p.Weeks), span()/7+1)*7 + within64(int64(p.Days), span())
+	AddDays(AddMonths(d, int(months)), int(days))
+}
+
+// within64 is n kept in -bound..bound: a larger step saturates the result
+// anyway, and the bound keeps every product in an int64.
+func within64(n int64, bound int64) int64 {
+	if n > bound {
+		bound
+	} else if n < -bound {
+		-bound
+	} else {
+		n
+	}
+}
+
+// DaysBetween is the count of days from from to to, negative when to is
+// before from.
+func DaysBetween(from Date, to Date) int { int(int64(to.day) - int64(from.day)) }
+
+// monthsBetween is the most whole months m, counted from from toward to,
+// such that AddMonths(from, m) does not pass to.
+func monthsBetween(from Date, to Date) int {
+	let a = civilFromDays(int64(from.day))
+	let b = civilFromDays(int64(to.day))
+	let m = int((b.year*12 + b.month) - (a.year*12 + a.month))
+	if !Before(to, from) && After(AddMonths(from, m), to) {
+		m - 1
+	} else if Before(to, from) && Before(AddMonths(from, m), to) {
+		m + 1
+	} else {
+		m
+	}
+}
+
+// Between is the difference from from to to in whole calendar units, the
+// largest of them largest, counted from from with the clamping of Add, so
+// Add(from, Between(from, to, u)) is to. Years gives years, months and
+// days; Months and Quarters give months and days; Weeks gives weeks and
+// days; Days gives days. Every part has the sign of to - from. So 31
+// January to 28 February is 0 months and 28 days, where date-fns's
+// differenceInMonths says 1 by a special case for the month's last day.
+func Between(from Date, to Date, largest Unit) Period {
+	match largest {
+	case Days:
+		Period{Years: 0, Months: 0, Weeks: 0, Days: DaysBetween(from, to)}
+	case Weeks:
+		let n = DaysBetween(from, to)
+		Period{Years: 0, Months: 0, Weeks: n / 7, Days: n % 7}
+	case Months, Quarters:
+		let m = monthsBetween(from, to)
+		Period{Years: 0, Months: m, Weeks: 0, Days: DaysBetween(AddMonths(from, m), to)}
+	case Years:
+		let m = monthsBetween(from, to)
+		Period{Years: m / 12, Months: m % 12, Weeks: 0, Days: DaysBetween(AddMonths(from, m), to)}
+	}
+}
+
+// StartOf is the first day of the period of unit u that holds d, and EndOf
+// its last day: the day itself, its week (from u's first day), its month,
+// its quarter or its year. A week that starts before year 1 starts on
+// MinDate.
+func StartOf(d Date, u Unit) Date {
+	let c = civilFromDays(int64(d.day))
+	match u {
+	case Days:
+		d
+	case Weeks as w:
+		AddDays(d, -int(floorMod(int64(time.WeekdayNumber(Weekday(d))-time.WeekdayNumber(w.First)), 7)))
+	case Months:
+		Date{day: int32(daysFromCivil(c.year, c.month, 1))}
+	case Quarters:
+		Date{day: int32(daysFromCivil(c.year, (c.month-1)/3*3+1, 1))}
+	case Years:
+		Date{day: int32(daysFromCivil(c.year, 1, 1))}
+	}
+}
+
+// EndOf is the last day of the period of unit u that holds d (inclusive).
+// A week that ends after year 9999 ends on MaxDate.
+func EndOf(d Date, u Unit) Date {
+	let c = civilFromDays(int64(d.day))
+	match u {
+	case Days:
+		d
+	case Weeks as w:
+		AddDays(d, 6-int(floorMod(int64(time.WeekdayNumber(Weekday(d))-time.WeekdayNumber(w.First)), 7)))
+	case Months:
+		Date{day: int32(daysFromCivil(c.year, c.month, int64(DaysIn(int(c.year), monthOf(c.month)))))}
+	case Quarters:
+		let last = (c.month-1)/3*3 + 3
+		Date{day: int32(daysFromCivil(c.year, last, int64(DaysIn(int(c.year), monthOf(last)))))}
+	case Years:
+		Date{day: int32(daysFromCivil(c.year, 12, 31))}
+	}
+}
+
+// Next is the first day after d that is a w, one to seven days later;
+// Previous the last day before d that is a w. Both saturate.
+func Next(d Date, w time.Weekday) Date {
+	let n = floorMod(int64(time.WeekdayNumber(w)-time.WeekdayNumber(Weekday(d))), 7)
+	AddDays(d, if n == 0 { 7 } else { int(n) })
+}
+
+func Previous(d Date, w time.Weekday) Date {
+	let n = floorMod(int64(time.WeekdayNumber(Weekday(d))-time.WeekdayNumber(w)), 7)
+	AddDays(d, -(if n == 0 { 7 } else { int(n) }))
+}
+
+// anyUnit is the unit n names, with first as a week's first day.
+func anyUnit(n int64, first int64) Unit {
+	match within(n, 0, 4) {
+	case 0:
+		Days
+	case 1:
+		Weeks{First: weekdayOf(within(first, 0, 6))}
+	case 2:
+		Months
+	case 3:
+		Quarters
+	case _:
+		Years
+	}
+}
+
+// AddDaysInverts: n days and back is d, and DaysBetween counts them,
+// unless a step saturated.
+law AddDaysInverts(x int64, k int64) {
+	let d = anyDay(x)
+	let n = int(within(k, -4000000, 4000000))
+	let raw = UnixDays(d) + int64(n)
+	raw < minDay() || raw > maxDay() || AddDays(AddDays(d, n), -n) == d && DaysBetween(d, AddDays(d, n)) == n && AddWeeks(d, 1) == AddDays(d, 7)
+}
+
+// ArithmeticSaturates: a step past year 1 or 9999 gives MinDate or
+// MaxDate, never a wrapped date, for every count of days or months.
+law ArithmeticSaturates(x int64, k int64) {
+	let d = anyDay(x)
+	let n = int(k)
+	let days = AddDays(d, n)
+	let months = AddMonths(d, n)
+	let raw = UnixDays(d) + within64(k, span())
+	(raw >= minDay() && raw <= maxDay() || days == (if n < 0 { MinDate() } else { MaxDate() })) && (n < 0 || !Before(months, d)) && (n > 0 || !After(months, d)) && (n < 120000 || months == MaxDate()) && (n > -120000 || months == MinDate())
+}
+
+// AddMonthsClamps: AddMonths moves the month by exactly n and keeps the
+// day, or the new month's last day when the day is past it.
+law AddMonthsClamps(x int64, k int64) {
+	let d = anyDay(x)
+	let n = int(within(k, -130000, 130000))
+	let r = AddMonths(d, n)
+	let moved = (Year(r)*12 + time.MonthNumber(Month(r))) - (Year(d)*12 + time.MonthNumber(Month(d)))
+	let last = DaysIn(Year(r), Month(r))
+	r == MinDate() || r == MaxDate() || moved == n && Day(r) == (if Day(d) > last { last } else { Day(d) })
+}
+
+// AddMonthsRetracts: n months and back is d's month, on d's day or an
+// earlier one (a clamp is not undone), and d itself on a day up to 28.
+law AddMonthsRetracts(x int64, k int64) {
+	let d = anyDay(x)
+	let n = int(within(k, -1300, 1300))
+	let there = AddMonths(d, n)
+	let r = AddMonths(there, -n)
+	there == MinDate() || there == MaxDate() || Year(r) == Year(d) && Month(r) == Month(d) && Day(r) <= Day(d) && (Day(d) > 28 || r == d)
+}
+
+// AddMonthsAdds: from the first of a month, a months then b months is a+b
+// months, across years and to the ends of the calendar.
+law AddMonthsAdds(x int64, i int64, j int64) {
+	let d = StartOf(anyDay(x), Months)
+	let a = int(within(i, -60000, 60000))
+	let b = int(within(j, -60000, 60000))
+	let mid = AddMonths(d, a)
+	mid == MinDate() || StartOf(mid, Months) != mid || AddMonths(mid, b) == AddMonths(d, a+b)
+}
+
+// BetweenInvertsAdd: Add of the difference in any unit gives the date
+// back, and every part has the sign of the difference.
+law BetweenInvertsAdd(x int64, k int64, u int64, w int64) {
+	let from = anyDay(x)
+	let to = anyDay(UnixDays(from) + within(k, -40000, 40000))
+	let p = Between(from, to, anyUnit(u, w))
+	let n = DaysBetween(from, to)
+	let signed = if n < 0 { p.Years <= 0 && p.Months <= 0 && p.Weeks <= 0 && p.Days <= 0 } else { p.Years >= 0 && p.Months >= 0 && p.Weeks >= 0 && p.Days >= 0 }
+	Add(from, p) == to && signed
+}
+
+// StartOfBounds: a period's start and end hold d, a start is its own
+// start, a week starts on its first day, and the day after a period's end
+// starts the next period (periods tile), away from the calendar's ends.
+law StartOfBounds(x int64, u int64, w int64) {
+	let d = anyDay(x)
+	let unit = anyUnit(u, w)
+	let start = StartOf(d, unit)
+	let end = EndOf(d, unit)
+	let first = match unit {
+	case Weeks as week:
+		start == MinDate() || Weekday(start) == week.First
+	case Days, Months, Quarters, Years:
+		true
+	}
+	!After(start, d) && !Before(end, d) && StartOf(start, unit) == start && EndOf(end, unit) == end && first && (end == MaxDate() || StartOf(AddDays(end, 1), unit) == AddDays(end, 1))
+}
+
+// NextIsTheNextWeekday: Next is a w after d by one to seven days, and
+// Previous one before it, unless saturated.
+law NextIsTheNextWeekday(x int64, w int64) {
+	let d = anyDay(x)
+	let day = weekdayOf(within(w, 0, 6))
+	let n = Next(d, day)
+	let p = Previous(d, day)
+	(n == MaxDate() || Weekday(n) == day && DaysBetween(d, n) >= 1 && DaysBetween(d, n) <= 7) && (p == MinDate() || Weekday(p) == day && DaysBetween(p, d) >= 1 && DaysBetween(p, d) <= 7)
+}
+
+// PeriodText is p as ISO 8601's duration of calendar units: P, then each
+// field that is not zero with its letter, Y, M, W, D, in that order, each
+// with its own sign as Java's Period writes it ("P1Y2M", "P-3D",
+// "P1Y-2M"); a zero Period is "P0D". It has no time part: a duration of
+// hours is time.DurationISO's text.
+func PeriodText(p Period) string {
+	if p.Years == 0 && p.Months == 0 && p.Weeks == 0 && p.Days == 0 {
+		return "P0D"
+	}
+	let mut s = "P"
+	if p.Years != 0 {
+		s = s + "\(p.Years)Y"
+	}
+	if p.Months != 0 {
+		s = s + "\(p.Months)M"
+	}
+	if p.Weeks != 0 {
+		s = s + "\(p.Weeks)W"
+	}
+	if p.Days != 0 {
+		s = s + "\(p.Days)D"
+	}
+	s
+}
+
+// ParsePeriod is the Period s writes: an optional sign that applies to
+// every field, P, then one or more numbers, each with an optional sign
+// and one of the letters Y, M, W, D, in that order, each once. A time part
+// ("PT1M", a minute) or any other text fails ParseError, as does a field
+// past the range of an int; so "P1M" is one month, never a minute.
+func ParsePeriod(s string) Period fails ParseError {
+	let n = len(s)
+	let mut i = 0
+	let mut negate = false
+	if i < n && (s[i] == '+' || s[i] == '-') {
+		negate = s[i] == '-'
+		i += 1
+	}
+	if i >= n || s[i] != 'P' {
+		return ParseError{Text: s, At: i, Reason: "want P"}
+	}
+	i += 1
+	if i < n && s[i] == 'T' {
+		return ParseError{Text: s, At: i, Reason: "a Period has no time part; time.ParseDurationISO reads PT"}
+	}
+	let mut f = []int{0, 0, 0, 0}
+	let mut next = 0
+	if i >= n {
+		return ParseError{Text: s, At: i, Reason: "want a number"}
+	}
+	for i < n {
+		let start = i
+		let mut minus = false
+		if s[i] == '+' || s[i] == '-' {
+			minus = s[i] == '-'
+			i += 1
+		}
+		// v is the field's value made negative, so the smallest int is read.
+		let mut v = 0
+		let digits = i
+		for i < n && s[i] >= '0' && s[i] <= '9' {
+			let d = int(s[i] - '0')
+			if v < -922337203685477580 || v == -922337203685477580 && d > 8 {
+				return ParseError{Text: s, At: start, Reason: "out of range"}
+			}
+			v = v * 10 - d
+			i += 1
+		}
+		if i == digits {
+			return ParseError{Text: s, At: i, Reason: "want a digit"}
+		}
+		if i >= n {
+			return ParseError{Text: s, At: i, Reason: "want Y, M, W or D"}
+		}
+		let k = if s[i] == 'Y' { 0 } else if s[i] == 'M' { 1 } else if s[i] == 'W' { 2 } else if s[i] == 'D' { 3 } else { -1 }
+		if k < 0 {
+			return ParseError{Text: s, At: i, Reason: if s[i] == 'T' { "a Period has no time part; time.ParseDurationISO reads it" } else { "want Y, M, W or D" }}
+		}
+		if k < next {
+			return ParseError{Text: s, At: i, Reason: "want Y, M, W, D in that order, each once"}
+		}
+		if minus == negate {
+			if v == -9223372036854775807 - 1 {
+				return ParseError{Text: s, At: start, Reason: "out of range"}
+			}
+			v = -v
+		}
+		f[k] = v
+		next = k + 1
+		i += 1
+	}
+	Period{Years: f[0], Months: f[1], Weeks: f[2], Days: f[3]}
+}
+
+// PeriodTextRoundTrips: ParsePeriod reads back every Period's text, each
+// field from the smallest int to the largest.
+law PeriodTextRoundTrips(y int64, m int64, w int64, d int64) {
+	let p = Period{Years: int(y), Months: int(m), Weeks: int(w), Days: int(d)}
+	let back = ParsePeriod(PeriodText(p)) catch {
+	case ParseError:
+		return false
+	}
+	back == p
+}
+
+// PeriodAndDurationTextsApart: a Period's text is no duration's and a
+// duration's is no Period's, so "P1M" is a month and "PT1M" a minute,
+// never the other.
+law PeriodAndDurationTextsApart(y int64, d int64) {
+	let p = Period{Years: 0, Months: int(within(y, 1, 1000)), Weeks: 0, Days: 0}
+	let _ = time.ParseDurationISO(PeriodText(p)) catch {
+	case time.ParseError:
+		let _ = ParsePeriod(time.DurationISO(duration(d))) catch {
+		case ParseError:
+			return true
+		}
+		return false
+	}
+	false
+}

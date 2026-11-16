@@ -262,7 +262,7 @@ func TestStdExternCallersHoldAuthority(t *testing.T) {
 	}
 	slices.Sort(hosts)
 	want := []string{"config.hostEnviron", "exec.confine", "exec.confineSink", "exec.hostAlive", "exec.hostKill", "exec.hostRun", "exec.hostRunIn", "exec.hostSpawn", "exec.hostStart", "exec.hostStartIn", "fs.OpenRoot", "fs.confine", "fs.hostAppendFile", "fs.hostChmod", "fs.hostLockFile", "fs.hostMapFile", "fs.hostMkdirAll", "fs.hostMkdirAllMode",
-		"fs.hostReadDir", "fs.hostReadFile", "fs.hostRemove", "fs.hostRename", "fs.hostStat", "fs.hostUnlockFile", "fs.hostWriteFile", "fs.hostWriteFileMode",
+		"fs.hostReadDir", "fs.hostReadFile", "fs.hostRemove", "fs.hostRename", "fs.hostStat", "fs.hostUnlockFile", "fs.hostWriteFile", "fs.hostWriteFileMode", "host.hostEnv", "host.hostLocal", "host.hostZone",
 		"http.IntoFile", "http.Listen", "http.fetch", "http.fetchInto", "http.send", "http.sendInto", "http.serve",
 		"io.hostEprint", "io.hostIsTerminal", "io.hostLines", "io.hostPrint", "io.hostRead", "io.hostReadAll", "io.hostStderrIsTerminal", "io.hostStdinIsTerminal",
 		"os.hostArgs", "os.hostGetenv", "os.hostGetwd", "os.hostHasEnv", "prelude.Sleep",

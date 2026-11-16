@@ -182,7 +182,7 @@ internal/tsproj/testdata/runtime.mjs	// seed-selected wire names are independent
 internal/sketch/lower/wire.go	*
 internal/sketch/std/prelude.ergo	// Reader gives the events of a wire form back, in the order
 internal/sketch/std/prelude.ergo	// Writer takes the events of a value's wire form (types.md, Codecs):
-runtime/embed.go	//go:embed v1/time.go v1/timetext.go v1/timeappend.go v1/wire.go v1/json.go
+runtime/embed.go	//go:embed v1/time.go v1/timetext.go v1/timeappend.go v1/tzdata.go v1/tzhost.go v1/wire.go v1/json.go
 # a pinned upstream copy (sha256 in internal/bindc): OpenTUI's opentui.h says wire bytes and wire modifiers
 internal/bindc/testdata/opentui/opentui.h	*
 internal/sketch/check/testdata/fixtures/spec/types-laws.ergo	// Quantity.Wire become its operations.

@@ -55,6 +55,7 @@ stars-gui
 starter
 sudoku
 tidewalk-replay
+timetable
 todo-gui
 tomlparse
 tui

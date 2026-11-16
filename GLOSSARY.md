@@ -400,6 +400,28 @@ The building blocks of domain-driven design, as Ergo writes them. [docs/domain.m
 
 **Driver**: What a provider module implements for one kind: `Attrs`, `Apply`, `Read` and `Delete`, keyed by id, with the laws `AttrsIsApply`, `RetrySafe`, `ReadAfterApply` and `DeleteIsIdempotent`. Distinct from **Resource**, a value with a checked `Close`.
 
+**Civil date**: A day of the calendar with no zone, `civil.Date`: ISO 8601's proleptic Gregorian calendar, years 1 to 9999. It holds the count of days from 1970-01-01, and only package `civil` builds one, so it is always a real day. Temporal's `PlainDate`; Go's `cloud.google.com/go/civil.Date`. See [stdlib](docs/spec/stdlib.md#civil).
+
+**Period**: An amount of calendar units, `civil.Period { Years, Months, Weeks, Days }`. Adding one moves the years and months as one count of months, with the day clamped to the new month's last day, then the weeks and days. A period is not a duration: a month has no fixed length.
+
+**Civil span**: A range of civil dates with both ends included, `civil.Span`, built only by `NewSpan`. A range of instants is `time.Interval`, half open.
+
+**Civil format**: A format of dates and times as a value, `civil.DateFormat` or `civil.DateTimeFormat`: a list of `civil.Field` values, built once by `Pattern` (LDML letters), `FromLayout` (Go's layout) or `Fields`, and checked when built. Go's layout is a string read on each call. See [stdlib](docs/spec/stdlib.md#civil).
+
+**Relative distance**: How far apart two instants or two dates are, as a count of one unit and a direction, `civil.Approx { Count, Unit, Past }`, by date-fns's `formatDistanceStrict` rule; `civil.Phrase` writes it in a `Words` value ("3 days ago"). See [stdlib](docs/spec/stdlib.md#civil).
+
+**Zone**: A time zone, `tz.Zone`: the offsets from UTC a place has used and the instants it changed them, read from the IANA database's TZif bytes. Go calls it a `Location`. See [stdlib](docs/spec/stdlib.md#tz).
+
+**Zoned time**: An instant seen on a zone's wall clock, `tz.Zoned { At, Zone }`. Its calendar arithmetic (`tz.Add`) moves the wall date and keeps the wall time; its text is RFC 9557's (`2027-03-14T03:30:00-04:00[America/Toronto]`). Temporal calls it a `ZonedDateTime`. See [stdlib](docs/spec/stdlib.md#tz).
+
+**Local zone**: The zone a program's host calls its own, the capability `tz.Local`: a program that shows local time has it in its row, and its context chooses the provider (`tz/host`'s, which reads `TZ`, or a fixed name). Go's `time.Local` is ambient. See [stdlib](docs/spec/stdlib.md#tz).
+
+**Zone database**: The zones by IANA name, the operation type `tz.Zones` in a function's row. Std's own copy of one IANA release (`tz/iana`) is the default provider; the host's zone files (`tz/host`) are an explicit choice.
+
+**Gap**: A wall time a zone skips, as 02:30 on the day clocks go forward: `tz.Gap`, one variant of what `tz.Resolve` gives. No instant shows it.
+
+**Overlap**: A wall time a zone shows twice, as 01:30 on the day clocks go back: `tz.Overlap`, with the earlier and the later instant.
+
 ## Earlier `.ef` language
 
 These terms describe the retired `.ef` language, with its `effect fn`, `run`, `raises` and `service` forms. [#205](https://github.com/cevr/ergo/issues/205) removed its compiler ([retirement record](docs/receipts/retire-ef.md)); its runtime, `runtime/ergo`, was removed in batch 14. The terms stay as design reference. The Go-shaped language replaces it; where a term has a counterpart above, the entry says so.

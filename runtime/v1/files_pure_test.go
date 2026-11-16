@@ -68,7 +68,7 @@ func TestPureBodiesKeepTheAllowlist(t *testing.T) {
 		"StringsTrimSpace", "StringsTrimPrefix", "StringsTrimSuffix", "StringsFields",
 		"StringsRepeat", "StringsToLower", "StringsToUpper", "StringsIndex",
 		"StringsContains", "StringsSlice", "StrconvItoa", "StrconvAtoi", "StrconvQuote",
-		"TimeFormat", "TimeAppendUTC", "TimeParse", "TimeSub", "TimeSubMono",
+		"TimeFormat", "TimeAppendUTC", "TimeParse", "TimeTruncate", "TimeRound", "TimeSub", "TimeSubMono",
 		"Append", "Get", "Put", // the prelude's collection intrinsics (lw-pure-prelude; Delete binds Go's delete, OPT7)
 	} {
 		if !slices.Contains(marked, name) {

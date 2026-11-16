@@ -4,6 +4,12 @@ This file is the dated log of the owner's decisions for Ergo, newest first. A de
 
 ## Owner direction, 2026-11-15
 
+- **Std carries its own zone database (2026-11-15, std-spike q184).** Told that following the host's zone files, with Go's `time/tzdata` as a fallback, cannot promise the same rules on every host or that the valid names are the database's, the owner answered: "Okay, then just make our own time zone host then."
+  - Std `tz/iana` is std's own copy of one IANA release, written by a checked generator (`go run ./scripts/tzdata`, `-check`) and linked only into a program that uses it. It is the default `tz.Zones` provider.
+  - A reader written in Ergo reads its TZif bytes; Go's reader of the same bytes is the test oracle (`TestStdTzMatchesGo`).
+  - Following the host's zone files is the explicit opt-in provider `tz/host`. Go's `time/tzdata` is not used by `tz`.
+  - It supersedes the same day's earlier answer (host first, Go's `time/tzdata` as the fallback). See [stdlib.md, tz](spec/stdlib.md#tz).
+
 - **A law sits with what it is about; the language checks it (2026-11-15, LAWLOC).** The owner: "laws being in their own file is kind of an anti-pattern. Because they're really tied to implementation. And so, maybe our skill can kind of encapsulate that in the domain driven design." Then: "maybe we should make this rule about laws a sort of a language level construct". Decided:
   - A top-level law's **subjects** are the declarations of its own package that it names, its parameters' types included, seen through its helpers: functions, types and their operations, variants and fields, package lets and contexts. A law helper (an unexported function, type, let or context that only laws, tests and other helpers use) is not a subject; what it names is.
   - A top-level law sits in a file that declares one of its subjects, else S115 names each subject's file: "law L is about Add (shelf.ergo); state it in that file". A law that names nothing in its package is S115 too: "law L names nothing in package P; state it in the package it is about". A member or machine law's subject is its type, which declares it, so it always holds ([types](spec/types.md#laws) Laws 15; [grammar](spec/grammar.md#declarations) rule 11).
