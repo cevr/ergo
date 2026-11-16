@@ -240,6 +240,7 @@ type engine struct {
 	cfg         Config
 	compileOnly bool // CompileRows: each row is applied and compiled, no test runs
 	module      string
+	goRoot      string // the module's toolchain: every child's GOROOT, its bin first on PATH
 	files       []treeFile
 	key         string
 	cov         *coverage
@@ -305,6 +306,12 @@ func newEngine(cfg Config) (*engine, error) {
 	}
 	if e.module == "" {
 		return nil, errors.New("go.mod names no module")
+	}
+	// The toolchain go test would put first on PATH and in GOROOT (env).
+	cmd := exec.Command("go", "env", "GOROOT")
+	cmd.Dir = cfg.Root
+	if out, err := cmd.Output(); err == nil && strings.TrimSpace(string(out)) != "" {
+		e.goRoot = strings.TrimSpace(string(out))
 	}
 	return e, os.MkdirAll(cfg.Work, 0o755)
 }
@@ -466,16 +473,34 @@ func (e *engine) verifyCopy(dst string, touched map[string]bool) error {
 // thread share, and extra. GOFLAGS is empty: a go command's default -p is
 // GOMAXPROCS, and a set GOFLAGS makes ergo build refuse its direct path,
 // which failed the cmd/ergo tests that require it on the unmutated tree
-// (FT11b: TestDirectBuildStartsNoGoCommand, TestBuildGoesThroughIR).
+// (FT11b: TestDirectBuildStartsNoGoCommand, TestBuildGoesThroughIR). The
+// module's toolchain is first on PATH, as go test puts it: a test binary
+// run directly found the host's go first, and cmd/ergo's
+// TestLRUCountsAsHandGo failed on the unmutated tree ("Go go1.27.0 has no
+// port of the IR compiler patch"), so opt9-fail-around-noresult was
+// unjudged (GT-BOUND).
 func (e *engine) env(extra ...string) []string {
 	var out []string
 	for _, kv := range os.Environ() {
-		name, _, _ := strings.Cut(kv, "=")
+		name, value, _ := strings.Cut(kv, "=")
 		switch name {
 		case "GOCOVERDIR", "GOMAXPROCS", "GOFLAGS", "GOWORK", MutantVariable, coverGoVariable, embedReadsVariable:
 			continue
+		case "PATH":
+			if e.goRoot != "" {
+				kv = "PATH=" + filepath.Join(e.goRoot, "bin") + string(os.PathListSeparator) + value
+			}
+		case "GOROOT":
+			if e.goRoot != "" {
+				continue // set below, with PATH's
+			}
 		}
 		out = append(out, kv)
+	}
+	if e.goRoot != "" {
+		// A GOROOT that is not the go first on PATH fails every build
+		// ("compile: version go1.27.4 does not match go tool version").
+		out = append(out, "GOROOT="+e.goRoot)
 	}
 	procs := strconv.Itoa(e.cfg.Procs)
 	out = append(out, "GOMAXPROCS="+procs, "GOWORK=off")

@@ -250,6 +250,8 @@ func (e *engine) baselines(ctx context.Context, items []item, pending []int, jr 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var addErr error
+	ended := 0
+	e.logf("baseline: %d named tests to run on the unmutated tree", len(ids))
 	for _, id := range ids {
 		if ctx.Err() != nil {
 			break
@@ -272,6 +274,8 @@ func (e *engine) baselines(ctx context.Context, items []item, pending []int, jr 
 			}
 			mu.Lock()
 			e.base[id] = t
+			ended++
+			e.logf("baseline: %d/%d %s %.1fs", ended, len(ids), id, t.Seconds)
 			mu.Unlock()
 			if err := jr.add(journalEntry{Baseline: t}); err != nil {
 				mu.Lock()

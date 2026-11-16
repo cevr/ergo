@@ -197,6 +197,9 @@ func (m fakeModule) testSource(pkg string) string {
 				// It sees the go command's settings as the gate sets them:
 				// a set GOFLAGS makes ergo build refuse its direct path.
 				b.WriteString("\tif f := os.Getenv(\"GOFLAGS\"); f != \"\" {\n\t\tt.Fatalf(\"GOFLAGS=%q\", f)\n\t}\n")
+				// It finds the module's toolchain first on PATH, as go test
+				// puts it: ergo build refuses another go (opt9's killer).
+				b.WriteString("\tif out, err := exec.Command(\"go\", \"env\", \"GOROOT\").Output(); err != nil || strings.Split(os.Getenv(\"PATH\"), string(os.PathListSeparator))[0] != strings.TrimSpace(string(out))+string(os.PathSeparator)+\"bin\" {\n\t\tt.Fatalf(\"the toolchain is not first on PATH %q (%s, %v)\", os.Getenv(\"PATH\"), out, err)\n\t}\n")
 				continue
 			case "two.Grow":
 				fmt.Fprintf(&b, "\tif two.Grow(1) != 1 {\n\t\tt.Fatal(%q)\n\t}\n", fn)
@@ -636,6 +639,17 @@ func (p pass) check(t *testing.T, log io.Writer) []Result {
 	seed, all, repo, store, memoryLimit, mutants, want := p.seed, p.all, p.repo, p.store, p.memory, p.mutants, p.want
 	logPath := filepath.Join(t.TempDir(), "ran.log")
 	t.Setenv("FAKE_LOG", logPath)
+	// go test put the toolchain first on this process's PATH; the runner
+	// must put it there itself, as it does when run by go run.
+	if out, err := exec.Command("go", "env", "GOROOT").Output(); err == nil {
+		bin := filepath.Join(strings.TrimSpace(string(out)), "bin")
+		kept := slices.DeleteFunc(filepath.SplitList(os.Getenv("PATH")), func(d string) bool { return d == bin })
+		// Only where another go is on PATH (the host's); else the runner
+		// could not start go at all.
+		if slices.ContainsFunc(kept, func(d string) bool { _, err := os.Stat(filepath.Join(d, "go")); return err == nil }) {
+			t.Setenv("PATH", strings.Join(kept, string(os.PathListSeparator)))
+		}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	cfg := Config{
@@ -670,7 +684,13 @@ func (p pass) check(t *testing.T, log io.Writer) []Result {
 			}
 		}
 	}
-	results, _, err := Run(ctx, cfg, []Job{{Path: filepath.Join(repo, "one/testdata/mutants.json"), Ledger: &Ledger{Mutants: mutants}, Select: p.sel}})
+	results, cov, err := Run(ctx, cfg, []Job{{Path: filepath.Join(repo, "one/testdata/mutants.json"), Ledger: &Ledger{Mutants: mutants}, Select: p.sel}})
+	for _, ct := range cov.Tests {
+		if ct.Failed && ct.ID != "one:TestBroken" {
+			// Only TestBroken fails on the unmutated tree by design.
+			t.Errorf("seed %d: %s fails on the unmutated tree:\n%s", seed, ct.ID, ct.Detail)
+		}
+	}
 	if err != nil && ctx.Err() == nil {
 		t.Fatalf("seed %d: run: %v", seed, err)
 	}
