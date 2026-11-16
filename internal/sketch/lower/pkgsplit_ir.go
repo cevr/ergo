@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"go/ast"
 	"maps"
 	"path"
@@ -49,6 +50,9 @@ type irSplit struct {
 	uses map[int]map[string]bool
 	// groupOf is the group of each package-scope name of main.go.
 	groupOf map[string]int
+	// qual are, by package, the generic names of other packages its IR
+	// bodies use, each spelled PATH.Name (foreignDecls).
+	qual map[int]map[string]string
 }
 
 // newIRSplit reads the references of ir's bodies; groupOf is the group
@@ -102,20 +106,32 @@ func (d splitDefs) add(name string, n ast.Node, i int) {
 // foreignDecls writes, into each package's extra text, the declarations
 // of the names its IR bodies use from other packages: text spells a part
 // of a declaration as a package spells it, qualified a name of another
-// package. It reports why it cannot, "" when it can.
-func (s *irSplit) foreignDecls(defs splitDefs, taken map[string]bool, text func(k, decl int, n ast.Node) string, qualified func(k int, name string) string, extra []bytes.Buffer) string {
+// package. A generic name gets no declaration: Go has no generic alias of
+// a function, so the IR spells it PATH.Name (goPath), as it spells a Go
+// package's names, and the patched compile resolves it in the package's
+// imports (Q5, option b). It reports why it cannot, "" when it can.
+func (s *irSplit) foreignDecls(defs splitDefs, taken map[string]bool, text func(k, decl int, n ast.Node) string, qualified, goPath func(k int, name string) string, extra []bytes.Buffer) string {
+	s.qual = map[int]map[string]string{}
+	generic := func(k int, name string) {
+		if s.qual[k] == nil {
+			s.qual[k] = map[string]string{}
+		}
+		s.qual[k][name] = goPath(k, name)
+	}
 	for _, k := range slices.Sorted(maps.Keys(s.uses)) {
 		for _, name := range slices.Sorted(maps.Keys(s.uses[k])) {
 			decl := defs.decl[name]
 			switch n := defs.node[name].(type) {
 			case *ast.TypeSpec:
 				if n.TypeParams != nil {
-					return "an IR body uses the generic type " + name + " of another package"
+					generic(k, name)
+					continue
 				}
 				extra[k].WriteString("\ntype " + name + " = " + qualified(k, name) + "\n")
 			case *ast.FuncDecl:
 				if n.Type.TypeParams != nil {
-					return "an IR body calls the generic function " + name + " of another package"
+					generic(k, name)
+					continue
 				}
 				var params, args []string
 				for _, field := range n.Type.Params.List {
@@ -209,9 +225,12 @@ func (s *irSplit) files(pkgOf func(i int) int, rename map[string]string, plan *s
 		}
 		own := func(n *string) {
 			// A name of another package keeps its spelling: its alias or
-			// forwarding function in p has it. A name of no declaration
-			// of main.go (int, error) is no package-scope name.
-			if _, declared := s.groupOf[*n]; declared && !s.uses[p][*n] {
+			// forwarding function in p has it. A generic one is spelled
+			// PATH.Name. A name of no declaration of main.go (int, error)
+			// is no package-scope name.
+			if q, ok := s.qual[p][*n]; ok {
+				*n = q
+			} else if _, declared := s.groupOf[*n]; declared && !s.uses[p][*n] {
 				renamed(n)
 			}
 		}
@@ -223,6 +242,9 @@ func (s *irSplit) files(pkgOf func(i int) int, rename map[string]string, plan *s
 			fn.Name += "." + method
 		}
 		fn.walk(own, renamed)
+		if err := pcalls(&fn, s.qual[p]); err != nil {
+			return nil, 0, err
+		}
 		byPkg[p] = append(byPkg[p], fn)
 	}
 	var out []File
@@ -240,6 +262,70 @@ func (s *irSplit) files(pkgOf func(i int) int, rename map[string]string, plan *s
 		out = append(out, File{Path: path.Join(plan.pkgs[p].dir, IRFileName), Data: data})
 	}
 	return out, withIR, nil
+}
+
+// pcalls makes each call of a generic function of another package, which
+// files spelled PATH.Name (qual's values), the IR's call of a function
+// of an imported package: pcall, its path in T, its type arguments in V.
+// A use of one as a value has no such form.
+func pcalls(fn *irFunc, qual map[string]string) error {
+	if len(qual) == 0 {
+		return nil
+	}
+	foreign := map[string]bool{}
+	for _, q := range qual {
+		foreign[q] = true
+	}
+	var err error
+	fn.exprs(func(x *irExpr) {
+		if !foreign[x.Name] {
+			return
+		}
+		switch x.K {
+		case "call":
+			at := strings.LastIndex(x.Name, ".")
+			x.K, x.V, x.T, x.Name = "pcall", x.T, x.Name[:at], x.Name[at+1:]
+		case "global":
+			if err == nil {
+				err = fmt.Errorf("an IR body uses the generic function %s of another package as a value", x.Name)
+			}
+		}
+	})
+	return err
+}
+
+// exprs calls f on every expression of fn's body, outer first.
+func (fn *irFunc) exprs(f func(*irExpr)) {
+	var expr func(x *irExpr)
+	var stmts func(list []*irStmt)
+	expr = func(x *irExpr) {
+		if x == nil {
+			return
+		}
+		f(x)
+		expr(x.X)
+		expr(x.Y)
+		for _, a := range x.Args {
+			expr(a)
+		}
+		for _, e := range x.Elems {
+			expr(e)
+		}
+		stmts(x.Body)
+	}
+	stmts = func(list []*irStmt) {
+		for _, s := range list {
+			expr(s.X)
+			expr(s.Y)
+			stmts(s.Then)
+			stmts(s.Else)
+			stmts(s.Body)
+			for _, c := range s.Cases {
+				stmts(c.Body)
+			}
+		}
+	}
+	stmts(fn.Body)
 }
 
 // irHash is the digest of a module's IR files, in path order.
@@ -312,6 +398,10 @@ func (fn *irFunc) walk(name, member func(*string)) {
 			name(&x.Name)
 		case "mcall", "field":
 			member(&x.Name)
+		case "pcall":
+			// A generic function's instance of another package: V lists
+			// its type arguments (slices.Clone[[]Ref[node[E]], …]).
+			typ(&x.V)
 		}
 		typ(&x.T)
 		for i := range x.Keys {
