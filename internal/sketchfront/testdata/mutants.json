@@ -1,1149 +1,133 @@
 {
   "about": "Build-time embedding mutants. The focused unit runner runs the named sketchfront tests; runtime tree-prefix behavior is also exercised by the embedded-assets example.",
   "mutants": [
-    {
-      "name": "module-door-untrusted",
-      "origin": "wf10 STD-NOPRIV NP4d",
-      "file": "internal/sketch/check/extern.go",
-      "from": "\tif !c.pkg.trusted {\n\t\treturn fmt.Sprintf(\"extern go %s binds a body of the module's own Go package",
-      "to": "\tif false && !c.pkg.trusted {\n\t\treturn fmt.Sprintf(\"extern go %s binds a body of the module's own Go package",
-      "rule": "interop.md Trusted Go 3: a package binds its module's own Go bodies only when the root module trusts its Go.",
-      "killers": ["internal/sketchfront:TestModuleGoBodies"]
-    },
-    {
-      "name": "binding-policy-default-nowait",
-      "origin": "wf10 STD-NOPRIV NP4d",
-      "file": "runtime/v1/files.go",
-      "from": "\tcase body.Wait == \"\":",
-      "to": "\tcase false:",
-      "rule": "interop.md Trusted Go 3: a body states its waiting policy; one with no mark is not read as one that does not wait.",
-      "killers": ["internal/sketchfront:TestModuleGoBodies"]
-    },
-    {
-      "name": "module-hidden-unqualified",
-      "origin": "wf10 STD-NOPRIV NP4d",
-      "file": "runtime/v1/files.go",
-      "from": "\t\treturn ok && q.v1 != \"\" && q.v1 != \".\" && id.Name == q.v1 && x.Sel.Name == name",
-      "to": "\t\treturn false && ok && q.v1 != \"\" && q.v1 != \".\" && id.Name == q.v1 && x.Sel.Name == name",
-      "rule": "stdlib.md Hidden arguments: a module's Go package names v1's hidden types through its import of runtime/v1.",
-      "killers": ["internal/sketchfront:TestModuleGoBodies"]
-    },
-    {
-      "name": "loader-ignores-trust",
-      "origin": "wf10 STD-NOPRIV NP4e",
-      "file": "internal/sketchfront/load.go",
-      "from": "\treturn l.module, l.module != \"\" && slices.Contains(l.trust, l.module)",
-      "to": "\treturn l.module, false",
-      "rule": "interop.md Trusted Go: ergo.mod's trust line for the module opens the runtime door.",
-      "killers": ["internal/sketchfront:TestTrustLineOpensTheRuntimeDoor"]
-    },
-    {
-      "name": "trust-std-path",
-      "origin": "wf10 STD-NOPRIV NP4e",
-      "file": "internal/sketchfront/load.go",
-      "from": "\t\t\tif reason := modulePathProblem(fields[2]); reason != \"\" {",
-      "to": "\t\t\tif reason := modulePathProblem(fields[2]); false && reason != \"\" {",
-      "rule": "interop.md Trusted Go: a trust line names a module path, never std's.",
-      "killers": ["internal/sketchfront:TestLoaderModuleFile"]
-    },
-    {
-      "name": "trust-twice",
-      "origin": "wf10 STD-NOPRIV NP4e",
-      "file": "internal/sketchfront/load.go",
-      "from": "\t\t\tif slices.Contains(trust, fields[2]) {",
-      "to": "\t\t\tif false && slices.Contains(trust, fields[2]) {",
-      "rule": "interop.md Trusted Go: each module is trusted once.",
-      "killers": ["internal/sketchfront:TestLoaderModuleFile"]
-    },
-    {
-      "name": "chk1b-cache-prepares-again",
-      "origin": "wf10 CHK1b",
-      "file": "internal/sketchfront/stdcache.go",
-      "from": "stdCache.once.Do(func() {",
-      "to": "func(f func()) { f() }(func() {",
-      "rule": "A later check must not snapshot caller-mutated std state or touch the cache again.",
-      "killers": ["internal/sketchfront:TestStdCacheWork"]
-    },
-    {
-      "name": "chk1b-cache-install-skipped",
-      "origin": "wf10 CHK1b",
-      "file": "internal/sketchfront/stdcache.go",
-      "from": "err == nil && check.InstallStd(f, info.Size()) == nil",
-      "to": "false && err == nil && check.InstallStd(f, info.Size()) == nil",
-      "rule": "A warm process installs the checked std instead of checking it again.",
-      "killers": ["internal/sketchfront:TestStdCacheWork"]
-    },
-    {
-      "name": "chk1b-cache-compiler-not-keyed",
-      "origin": "wf10 CHK1b",
-      "file": "internal/sketchfront/stdcache.go",
-      "from": "std-snapshot-2\\x00%d:%s\", len(compiler), compiler)",
-      "to": "std-snapshot-2\\x00%d:%s\", 0, \"\")",
-      "rule": "Snapshots are keyed by the compiler bytes.",
-      "killers": ["internal/sketchfront:TestStdCacheWork"]
-    },
-    {
-      "name": "chk1b-cache-private-identity-reused",
-      "origin": "wf10 CHK1b",
-      "file": "internal/sketchfront/stdcache.go",
-      "from": "if !reusable(compiler) {",
-      "to": "if false && !reusable(compiler) {",
-      "rule": "A process-only producer identity cannot publish reusable checked state.",
-      "killers": ["internal/sketchfront:TestStdCacheWork"]
-    },
-    {
-      "name": "embed-missing-directive-tree",
-      "file": "internal/sketch/lower/embed.go",
-      "from": "l.user.WriteString(\"//go:embed \" + strings.Join",
-      "to": "l.user.WriteString(\"//not-embedded \" + strings.Join",
-      "killers": ["internal/sketchfront:TestEmbeddedAssetsSnapshot"],
-      "anchor": {"tests":["internal/sketchfront:TestEmbeddedAssetsSnapshot"]}
-    },
-    {
-      "name": "embed-missing-directive-file",
-      "file": "internal/sketch/lower/embed.go",
-      "from": "l.user.WriteString(\"//go:embed \" + strconv.Quote",
-      "to": "l.user.WriteString(\"//not-embedded \" + strconv.Quote",
-      "killers": ["internal/sketchfront:TestEmbeddedAssetsSnapshot"],
-      "anchor": {"tests":["internal/sketchfront:TestEmbeddedAssetsSnapshot"]}
-    },
-    {
-      "name": "embed-payload-not-keyed",
-      "file": "internal/sketchfront/embed.go",
-      "from": "l.texts[filepath.ToSlash(rel)] = string(data)",
-      "to": "_ = rel",
-      "killers": ["internal/sketchfront:TestEmbeddedAssetsSnapshot"]
-    },
-    {
-      "name": "embed-asset-dropped",
-      "file": "internal/sketch/lower/embed.go",
-      "from": "Data: slices.Clone(byPath[name])",
-      "to": "Data: nil",
-      "killers": ["internal/sketchfront:TestEmbeddedAssetsSnapshot"]
-    },
-    {
-      "name": "embed-parent-escape",
-      "file": "internal/sketchfront/embed.go",
-      "from": "!fs.ValidPath(pattern)",
-      "to": "false",
-      "killers": ["internal/sketchfront:TestEmbeddedDiagnostics"]
-    },
-    {
-      "name": "embed-local-initializer",
-      "file": "internal/sketch/check/embed.go",
-      "from": "if spec == nil {",
-      "to": "if spec == nil && false {",
-      "killers": ["internal/sketchfront:TestEmbeddedDiagnostics"]
-    },
-    {
-      "name": "embed-multiple-string-files",
-      "file": "internal/sketchfront/embed.go",
-      "from": "if !tree && len(selected) != 1 {",
-      "to": "if false {",
-      "killers": ["internal/sketchfront:TestEmbeddedDiagnostics"]
-    },
-    {
-      "name": "embed-tree-prefix-retained",
-      "file": "runtime/v1/embed.go",
-      "from": "fs.Sub(files, prefix)",
-      "to": "fs.Sub(files, \".\")",
-      "killers": ["examples:router"],
-      "anchor": {"tests":["examples:router"]}
-    },
-    {
-      "name": "embed-invalid-element",
-      "file": "internal/sketchfront/embed.go",
-      "from": "if !embedNameAllowed(name) {",
-      "to": "if false {",
-      "killers": ["internal/sketchfront:TestEmbeddedDiagnostics"]
-    },
-    {
-      "name": "ll1-prune-off",
-      "origin": "wf10 LL1 r2",
-      "file": "internal/sketchfront/rewrite.go",
-      "from": "\t\t\tchanged++ // pruned",
-      "to": "\t\t\tnext[k] = e // kept",
-      "rule": "ergo test removes the entries of a law, provider or package the module no longer declares: a renamed or deleted law's entries go.",
-      "killers": ["internal/sketchfront:TestLedgerPrunes","internal/sketchfront:TestLedgerModuleOrder"]
-    },
-    {
-      "name": "ll1-prune-by-run",
-      "origin": "wf10 LL1 r3",
-      "file": "internal/sketchfront/rewrite.go",
-      "from": "\t\tif src.declares(e) {",
-      "to": "\t\tif false && src.declares(e) {",
-      "rule": "ergo.laws is module-wide, as go.sum is: ergo test never removes an entry because its run did not take it, so any order of ergo test over a module's binaries writes one ledger.",
-      "killers": ["internal/sketchfront:TestLedgerModuleOrder"]
-    },
-    {
-      "name": "ll1-main-name",
-      "origin": "wf10 LL1 r3",
-      "file": "internal/sketchfront/rewrite.go",
-      "from": "\treturn lower.LedgerNames{a.program.root.pkg: a.program.root.path}",
-      "to": "\treturn nil",
-      "rule": "A binary's main package is named in the ledger by its folder's import path, so two binaries' entries never collide.",
-      "killers": ["internal/sketchfront:TestLedgerModuleOrder"]
-    },
-    {
-      "name": "ll1-site-position",
-      "origin": "wf10 LL1 r2",
-      "file": "internal/sketch/lower/ledger.go",
-      "from": "\t\tFile: file, Line: line, Column: col,",
-      "to": "\t\tFile: file,",
-      "rule": "ergo inspect names each rewrite site by its source position.",
-      "killers": ["internal/sketchfront:TestRewriteLawReported"]
-    },
-    {
-      "name": "ll1-stale-accepted",
-      "origin": "wf10 LL1",
-      "file": "internal/sketch/lower/ledger.go",
-      "from": "\tcase e.digest(key, law, prov, inst) != entry.Digest:",
-      "to": "\tcase false && e.digest(key, law, prov, inst) != entry.Digest:",
-      "rule": "An entry whose digest is not the one the sources give is stale: the site keeps the reference lowering (plan-2 §3).",
-      "killers": ["internal/sketchfront:TestLedgerGatesRewrites"]
-    },
-    {
-      "name": "ll1-digest-misses-callee",
-      "origin": "wf10 LL1",
-      "file": "internal/sketch/lower/ledger.go",
-      "from": "\td.walk(p, n)\n}\n\n// index",
-      "to": "\tif !strings.HasPrefix(key, \"func \") {\n\t\td.walk(p, n)\n\t}\n}\n\n// index",
-      "rule": "The digest covers every function the provider's operations reach, at any depth.",
-      "killers": ["internal/sketchfront:TestLedgerGatesRewrites"]
-    },
-    {
-      "name": "lrs-inspect-why",
-      "origin": "wf10 LR-sound (v1 audit 3 G1)",
-      "file": "internal/sketch/lower/ledger.go",
-      "from": "\t\twhy += \"; \" + open",
-      "to": "\t\t_ = open",
-      "rule": "ergo inspect says why a site keeps the reference: a provider whose construction is open has its proof over every value, and the place that opens it is named.",
-      "killers": ["internal/sketchfront:TestRewriteLawReported"]
-    },
-    {
-      "name": "lrs-digest-skips-let",
-      "origin": "wf10 LR-sound (v1 audit 3 G2)",
-      "file": "internal/sketch/lower/ledger.go",
-      "from": "\t\t\tcase *check.Var:\n\t\t\t\td.let(obj)",
-      "to": "\t\t\tcase *check.Var:\n\t\t\t\t_ = obj",
-      "rule": "The digest covers every package let a reached declaration reads, through other lets too: a same-length edit of one makes the entry stale.",
-      "killers": ["internal/sketchfront:TestLedgerGatesRewrites"]
-    },
-    {
-      "name": "lrs-digest-skips-qualified",
-      "origin": "wf10 LR-sound (v1 audit 3 G2)",
-      "file": "internal/sketch/lower/ledger.go",
-      "from": "\t\t\t\t\td.member(pn.Pkg, n.Sel.Name)",
-      "to": "\t\t\t\t\t_ = pn",
-      "rule": "The digest covers a qualified name's member (another package's let, type or function), which the checker records no use of.",
-      "killers": ["internal/sketchfront:TestLedgerModuleOrder"]
-    },
-    {
-      "name": "lrs-digest-key-position",
-      "origin": "wf10 LR-sound (v1 audit 3 G2)",
-      "file": "internal/sketch/lower/ledger.go",
-      "from": "\td.decls[key+\"\\n\"+",
-      "to": "\td.decls[key+fmt.Sprint(n.Pos())+\"\\n\"+",
-      "rule": "The digest holds no position: a declaration added above the provider or a moved declaration leaves the entry current.",
-      "killers": ["internal/sketchfront:TestLedgerGatesRewrites"]
-    },
-    {
-      "name": "lrs-digest-raw-text",
-      "origin": "wf10 LR-sound (v1 audit 3 G2)",
-      "file": "internal/sketch/lower/ledger.go",
-      "from": "syntax.TokenText(declText(p, n))",
-      "to": "declText(p, n)",
-      "rule": "The digest reads a declaration's tokens: spaces, line breaks and comments leave the entry current.",
-      "killers": ["internal/sketchfront:TestLedgerGatesRewrites"]
-    },
-    {
-      "name": "lrs-digest-no-construction",
-      "origin": "wf10 LR-sound (v1 audit 3 G1, G2)",
-      "file": "internal/sketch/lower/ledger.go",
-      "from": "if constructionOpen(prov, ctor, conv) != nil {\n\t\tclosed = \"open\"",
-      "to": "if constructionOpen(prov, ctor, conv) != nil {\n\t\tclosed = \"closed\"",
-      "rule": "The digest covers whether the provider's construction is closed, which decides the proof's state set: a literal of the provider added outside its constructor makes the entry stale.",
-      "killers": ["internal/sketchfront:TestLedgerGatesRewrites"]
-    },
-    {
-      "name": "lrs-tokens-closing-semicolon",
-      "origin": "wf10 LR-sound (v1 audit 3 G2)",
-      "file": "internal/sketch/syntax/tokens.go",
-      "from": "\t\tcase RPAREN, RBRACK, RBRACE:\n\t\t\tsemi = false",
-      "to": "\t\tcase RPAREN, RBRACK, RBRACE:",
-      "rule": "A declaration reflowed over more lines keeps its token text: the semicolon a line break inserts before a closing brace is not a token of the digest.",
-      "killers": ["internal/sketchfront:TestLedgerGatesRewrites"]
-    },
-    {
-      "name": "ll1-digest-whole-package",
-      "origin": "wf10 LL1",
-      "file": "internal/sketch/lower/ledger.go",
-      "from": "\troots := tableFuncs(conv)",
-      "to": "\troots := append(tableFuncs(conv), prov.Obj.Pkg.Funcs...)",
-      "rule": "An edit the law does not reach leaves the entry current: ergo test changes 0 entries.",
-      "killers": ["internal/sketchfront:TestLedgerGatesRewrites"]
-    },
-    {
-      "name": "ll1-build-writes",
-      "origin": "wf10 LL1",
-      "file": "internal/sketchfront/sketchfront.go",
-      "from": "(*lower.LedgerEvidence, []lower.File, error) {\n\ttext, err := ledgerText(req.Inputs, req.Ledger)",
-      "to": "(*lower.LedgerEvidence, []lower.File, error) {\n\t_, _ = UpdateLedger(a, req)\n\ttext, err := ledgerText(req.Inputs, req.Ledger)",
-      "rule": "Only ergo test writes ergo.laws; the run build reads it and never runs a law for evidence.",
-      "killers": ["internal/sketchfront:TestLedgerGatesRewrites"]
-    },
-    {
-      "name": "ll1-instance-not-in-digest",
-      "origin": "wf10 LL1",
-      "file": "internal/sketch/lower/ledger.go",
-      "from": "\tfmt.Fprintf(h, \"i%d:%s\", len(inst), inst)",
-      "to": "\t_ = inst",
-      "rule": "The digest covers the entry's instance: a line for new constants written by hand with another line's digest is stale.",
-      "killers": ["internal/sketchfront:TestLedgerGatesRewrites"]
-    },
-    {
-      "name": "ll1-std-ledger-not-fresh",
-      "origin": "wf10 LL1",
-      "file": "internal/sketch/std/std.go",
-      "from": "func Ledger() string { return ledger }",
-      "to": "func Ledger() string { return ledger + \"law json.Text.SepDue for json.text proved h1:AAAA\\n\" }",
-      "rule": "The checked-in std ledger is the one a fresh run writes (go run ./scripts/stdlaws).",
-      "killers": ["internal/sketchfront:TestStdLedgerFresh"]
-    },
-    {
-      "name": "ps1-front-refutation-falls-back",
-      "origin": "wf10 PS1, retargeted LL1",
-      "file": "internal/sketchfront/rewrite.go",
-      "from": "\tev, err := lower.RewriteChecksCached(unit, lawChecks(req, input), req.Laws)\n\tif err != nil {\n\t\treturn 0, err\n\t}",
-      "to": "\tev, err := lower.RewriteChecksCached(unit, lawChecks(req, input), req.Laws)\n\tif err != nil {\n\t\treturn 0, nil\n\t}",
-      "rule": "A reachable proof counterexample fails ergo test's ledger writer, which writes no entry (runtime.md, Tests 10).",
-      "killers": ["internal/sketchfront:TestLedgerRefusesReachableRewrite"]
-    },
-    {
-      "name": "lr3a-inspect-no-rewrite",
-      "origin": "wf10 LR3a, retargeted LL1",
-      "file": "internal/sketchfront/inspect.go",
-      "from": "\treturn ev.Sites(), nil",
-      "to": "\treturn []lower.RewriteSite{}, nil",
-      "rule": "ergo inspect lists each rewrite site with its law, provider, verdict and ledger state (runtime.md, Tests 10; docs/tooling.md, inspect).",
-      "killers": ["internal/sketchfront:TestRewriteLawReported"]
-    },
-    {
-      "name": "lr3a-inspect-applied",
-      "origin": "wf10 LR3a, retargeted LL1",
-      "file": "internal/sketch/lower/ledger.go",
-      "from": "\tif ok && law.Rewrite != nil {",
-      "to": "\tif law.Rewrite != nil {",
-      "rule": "A site whose entry is stale, missing or not proved is never applied, and inspect says so (owner q115, q122).",
-      "killers": ["internal/sketchfront:TestRewriteLawReported"]
-    },
-    {
-      "name": "lr3a-check-reason",
-      "origin": "wf10 LR3a",
-      "file": "internal/sketch/eval/cases.go",
-      "from": "\t\twhy = RewriteVerdict()",
-      "to": "\t\twhy = \"a rewrite law\"",
-      "rule": "ergo check's evaluation skips a rewrite law with its verdict: tested, its run's bounds, not applied (owner q115).",
-      "killers": ["internal/sketchfront:TestRewriteLawReported"]
-    },
-    {
-      "name": "gomod-runtime-replacement-kept",
-      "origin": "G1",
-      "file": "internal/sketch/lower/gomodule.go",
-      "from": "written.alive = false",
-      "to": "written.alive = true",
-      "rule": "a directory that holds the runtime's bytes serves the runtime: its replacement alone is emitted (go: conflicting replacements)",
-      "killers": ["internal/sketchfront:TestEmittedGoModMergesGoMod"]
-    },
-    {
-      "name": "gomod-other-runtime-bytes-admitted",
-      "origin": "G1",
-      "file": "internal/sketchfront/gomod.go",
-      "from": "case string(data) != string(f.Data):",
-      "to": "case string(data) != string(f.Data) && false:",
-      "rule": "a replacement of the runtime's module by a directory with other runtime bytes conflicts",
-      "killers": ["internal/sketchfront:TestEmittedGoModMergesGoMod"]
-    },
-    {
-      "name": "gomod-two-versions-required",
-      "origin": "G1",
-      "file": "internal/sketch/lower/gomodule.go",
-      "from": "case prev.Version != r.Version:",
-      "to": "case false:",
-      "rule": "one module is required at one version; two versions conflict",
-      "killers": ["internal/sketchfront:TestEmittedGoModMergesGoMod"]
-    },
-    {
-      "name": "gomod-absolute-replacement-joined",
-      "origin": "G1",
-      "file": "internal/sketchfront/gomod.go",
-      "from": "localReplacement(target) && !filepath.IsAbs(target)",
-      "to": "localReplacement(target)",
-      "rule": "an absolute replacement directory stays as it is",
-      "killers": ["internal/sketchfront:TestEmittedGoModMergesGoMod"]
-    },
-    {
-      "name": "gomod-versionless-replacement-not-applied",
-      "origin": "G1",
-      "file": "internal/sketch/lower/gomodule.go",
-      "from": "e.OldVersion != r.Version && e.OldVersion != \"\"",
-      "to": "e.OldVersion != r.Version",
-      "rule": "a version-less replacement applies to the required version when no exact one does",
-      "killers": ["internal/sketchfront:TestEmittedGoModMergesGoMod"]
-    },
-    {
-      "name": "gomod-exact-replacement-not-preferred",
-      "origin": "G1",
-      "file": "internal/sketch/lower/gomodule.go",
-      "from": "prev == nil || prev.OldVersion == \"\"",
-      "to": "prev == nil",
-      "rule": "the replacement of the exact required version wins over the version-less one, as go build chooses",
-      "killers": ["internal/sketchfront:TestEmittedGoModMergesGoMod"]
-    },
-    {
-      "name": "gomod-main-module-unclaimed",
-      "origin": "G1",
-      "file": "internal/sketch/lower/gomodule.go",
-      "from": "out.Main = s.Main",
-      "to": "_ = s.Main",
-      "rule": "no source requires the emitted main module's path",
-      "killers": ["internal/sketchfront:TestEmittedGoModMergesGoMod"]
-    },
-    {
-      "name": "gomod-runtime-gomod-compared",
-      "origin": "G1",
-      "file": "internal/sketch/lower/gomodule.go",
-      "from": "if rel != \"go.mod\" {",
-      "to": "if true {",
-      "rule": "the runtime's go.mod is not one of the bytes a replacement must hold: go checks the module path, and the repository's go.mod is its own",
-      "killers": ["internal/sketchfront:TestEmittedGoModMergesGoMod"]
-    },
-    {
-      "name": "gomod-conflict-at-earlier-line",
-      "origin": "G1",
-      "file": "internal/sketch/lower/gomodule.go",
-      "from": "Line: max(a, b)",
-      "to": "Line: min(a, b)",
-      "rule": "a conflict is reported at the later go.mod line of its two directives",
-      "killers": ["internal/sketchfront:TestEmittedGoModMergesGoMod"]
-    },
-    {
-      "name": "fu-role-from-path",
-      "file": "internal/sketch/check/builders.go",
-      "from": "if q.testOf == tn.Pkg {",
-      "to": "if q.Path == tn.Pkg.Path+\"test\" {",
-      "killers": ["internal/sketchfront:TestTestPackageChecksAlikeAsRoot"]
-    },
-    {
-      "name": "fu-role-not-given",
-      "file": "internal/sketchfront/load.go",
-      "from": "check.CheckTestOptions(path, files, imp, l.testOf(p), l.opts)",
-      "to": "check.CheckTestOptions(path, files, imp, nil, l.opts)",
-      "killers": ["internal/sketchfront:TestTestPackageChecksAlikeAsRoot"]
-    },
-    {
-      "name": "lc-key-no-digest",
-      "origin": "wf10 LAWCACHE r1",
-      "file": "internal/sketchfront/lawverdicts.go",
-      "from": "parts := []string{\"law run\", t.Label, t.Digest(pkg),",
-      "to": "parts := []string{\"law run\", t.Label, \"\",",
-      "rule": "A law verdict is keyed by every input it reads: an edit of a declaration the law reads runs it again.",
-      "killers": ["internal/sketchfront:TestLawVerdictsStale"]
-    },
-    {
-      "name": "lc-digest-no-generators",
-      "origin": "wf10 LAWCACHE r1",
-      "file": "internal/sketch/lower/ledger.go",
-      "from": "\td.generators(pkg)\n",
-      "to": "\t_ = pkg\n",
-      "rule": "A law's digest holds the generators of the types it draws (a constructor, an operation type's builder), which no name in the law reaches: an edit of one runs the law again.",
-      "killers": ["internal/sketchfront:TestLawVerdictsStale"]
-    },
-    {
-      "name": "lc-eval-ignores-store",
-      "origin": "wf10 LAWCACHE r1",
-      "file": "internal/sketch/eval/eval.go",
-      "from": "if v, ok := b.Verdicts.Cached(run.Law, target.binding); ok {",
-      "to": "if v, ok := b.Verdicts.Cached(run.Law, target.binding); ok && false {",
-      "rule": "Check-time evaluation does not run a law whose verdict at its inputs is stored.",
-      "killers": ["internal/sketchfront:TestLawRunsOnce","internal/sketchfront:TestLawVerdictsStale"]
-    },
-    {
-      "name": "lc-ledger-ignores-store",
-      "origin": "wf10 LAWCACHE r1",
-      "file": "internal/sketch/lower/rewritecheck.go",
-      "from": "if text, hit := store.Get(key); hit {",
-      "to": "if text, hit := store.Get(key); hit && false {",
-      "rule": "The ledger's check build does not run a law whose check run at its inputs is stored.",
-      "killers": ["internal/sketchfront:TestLawRunsOnce"]
-    },
-    {
-      "name": "lc-store-keeps-failure",
-      "origin": "wf10 LAWCACHE r1",
-      "file": "internal/sketch/lawcache/lawcache.go",
-      "from": "if text == \"\" || failed(text) {",
-      "to": "if text == \"\" {",
-      "rule": "A refuted verdict is never stored, so a refuted law runs every time.",
-      "killers": ["internal/sketchfront:TestLawRunsOnce"]
-    },
-    {
-      "name": "lc-context-digest-no-decl",
-      "origin": "wf10 LAWCACHE r2",
-      "file": "internal/sketch/lower/ledger.go",
-      "from": "\td.context(lc.Context)\n",
-      "to": "\n",
-      "rule": "A run under a named context is keyed by the tokens of the context's declaration: an edit of it runs the law again.",
-      "killers": ["internal/sketchfront:TestLawVerdictsStale"]
-    },
-    {
-      "name": "lc-context-runs-uncached",
-      "origin": "wf10 LAWCACHE r2",
-      "file": "internal/sketch/lower/ledger.go",
-      "from": "add(RunTarget{Law: r.Law, Context: lc, Label: \"law \" + r.Law.Title(pkg) + \" under \" + lc.Context.Name})",
-      "to": "_ = lc",
-      "rule": "A run under a named context is a target of the store: unchanged, it runs once.",
-      "killers": ["internal/sketchfront:TestLawVerdictsStale"]
-    },
-    {
-      "name": "lc-machine-runs-uncached",
-      "origin": "wf10 LAWCACHE r2",
-      "file": "internal/sketch/lower/ledger.go",
-      "from": "add(RunTarget{Law: r.Law, Machine: true, Label: \"law \" + r.Law.Title(pkg)})",
-      "to": "_ = 0",
-      "rule": "A machine's search is a target of the store: unchanged, it runs once in each runner.",
-      "killers": ["internal/sketchfront:TestLawVerdictsStale"]
-    },
-    {
-      "name": "embed-unreached-asset-written",
-      "origin": "wf10 fu-embed-snap",
-      "file": "internal/sketch/lower/embed.go",
-      "from": "\t\t\tif sourced && !l.declReached(d) {",
-      "to": "\t\t\tif false && sourced && !l.declReached(d) {",
-      "rule": "An asset is a build input only when the build lowers its let's directive: a let main does not reach writes no asset (reach.go, BS5).",
-      "killers": ["internal/sketchfront:TestEmbeddedAssetsSnapshot"]
-    },
-    {
-      "name": "gomod-go-directive-dropped",
-      "origin": "H3g",
-      "file": "internal/sketch/lower/gomodule.go",
-      "from": "\"\\n\\ngo \" + newerGo(goVersion, m.Go) + \"\\n\"",
-      "to": "\"\\n\\ngo \" + goVersion + \"\\n\"",
-      "rule": "the emitted go.mod states go.mod's go version when it is later than the runtime's: go build -mod=readonly cannot raise it",
-      "killers": ["internal/sketchfront:TestEmittedGoModMergesGoMod"]
-    },
-    {
-      "name": "md1-copy-hash-unchecked",
-      "origin": "wf10 MD1",
-      "file": "internal/sketchfront/modules.go",
-      "from": "if got != want {",
-      "to": "if false && got != want {",
-      "rule": "A module's cached copy serves packages only when its h1 hash is go.sum's.",
-      "killers": ["internal/sketchfront:TestModuleResolutionAgrees"]
-    },
-    {
-      "name": "md1-gomod-hash-unchecked",
-      "origin": "wf10 MD1",
-      "file": "internal/sketchfront/modules.go",
-      "from": "GoModFile: data}); got != want {",
-      "to": "GoModFile: data}); false && got != want {",
-      "rule": "A go.mod read for the module graph is checked against go.sum's path version/go.mod hash.",
-      "killers": ["internal/sketchfront:TestModuleResolutionAgrees"]
-    },
-    {
-      "name": "md1-sum-missing-accepted",
-      "origin": "wf10 MD1",
-      "file": "internal/sketchfront/modules.go",
-      "from": "\twant, ok := sums(l.goSum)[key]\n\tif !ok {",
-      "to": "\twant, ok := sums(l.goSum)[key]\n\tif false && !ok {",
-      "rule": "A module with no go.sum line is a diagnostic that names the fetch command.",
-      "killers": ["internal/sketchfront:TestModuleResolutionAgrees"]
-    },
-    {
-      "name": "md1-lower-version",
-      "origin": "wf10 MD1",
-      "file": "internal/sketchfront/modules.go",
-      "from": "ok && compareVersions(r.version, v) > 0",
-      "to": "ok && compareVersions(r.version, v) < 0",
-      "rule": "Of two versions of one module in the graph, the higher is selected (minimal version selection).",
-      "killers": ["internal/sketchfront:TestModuleResolutionAgrees"]
-    },
-    {
-      "name": "md1-graph-not-read",
-      "origin": "wf10 MD1",
-      "file": "internal/sketchfront/modules.go",
-      "from": "\t\treqs, why := l.requirements(path, pinned[path])",
-      "to": "\t\treqs, why := []goRequire(nil), pinned[path][:0]",
-      "rule": "The go.mod of each required module raises the versions it requires.",
-      "killers": ["internal/sketchfront:TestModuleResolutionAgrees"]
-    },
-    {
-      "name": "md1-replace-ignored",
-      "origin": "wf10 MD1",
-      "file": "internal/sketchfront/modules.go",
-      "from": "if dir, other, otherVersion, ok := l.replacement(path, version); ok {\n\t\tif dir != \"\" {",
-      "to": "if dir, other, otherVersion, ok := l.replacement(path, version); ok && false {\n\t\tif dir != \"\" {",
-      "rule": "A replacement in the root's go.mod by a local folder serves the module's packages.",
-      "killers": ["internal/sketchfront:TestModuleResolutionAgrees"]
-    },
-    {
-      "name": "md1-go-module-accepted",
-      "origin": "wf10 MD1",
-      "file": "internal/sketchfront/modules.go",
-      "from": "\t\tm.reason = fmt.Sprintf(\"module %s is a Go module, not an Ergo module: its root holds no %s\", m.name, ModFile)\n\t\treturn m",
-      "to": "\t\treturn m",
-      "rule": "A required module serves Ergo packages only when its root holds ergo.mod.",
-      "killers": ["internal/sketchfront:TestModuleResolutionAgrees"]
-    },
-    {
-      "name": "md1-module-name-unchecked",
-      "origin": "wf10 MD1",
-      "file": "internal/sketchfront/modules.go",
-      "from": "\tcase name != path:",
-      "to": "\tcase false:",
-      "rule": "A required module's ergo.mod names the module's path.",
-      "killers": ["internal/sketchfront:TestModuleResolutionAgrees"]
-    },
-    {
-      "name": "md1-unexported-visible",
-      "origin": "wf10 MD1",
-      "file": "internal/sketch/check/expr.go",
-      "from": "if !ok || !isExported(x.Sel.Name) {",
-      "to": "if !ok {",
-      "rule": "A dependency's unexported declaration is not visible across the module line (grammar.md, Visibility 2).",
-      "killers": ["internal/sketchfront:TestModuleResolutionAgrees"]
-    },
-    {
-      "name": "md1-dependency-test-run",
-      "origin": "wf10 MD1",
-      "file": "internal/sketch/lower/tests.go",
-      "from": "\treturn l.canon.tests(l.pkg)\n}",
-      "to": "\tout := l.canon.tests(l.pkg)\n\tfor p := range l.canon.sourced {\n\t\tif p != l.pkg {\n\t\t\tout = append(out, l.canon.tests(p)...)\n\t\t}\n\t}\n\treturn out\n}",
-      "rule": "ergo test of the root runs the root's tests, never a dependency's.",
-      "killers": ["cmd/ergo:TestErgoModuleRequirement","cmd/ergo:TestErgoPackages"]
-    },
-    {
-      "name": "md1-modcache-env-ignored",
-      "origin": "wf10 MD1",
-      "file": "internal/sketchfront/modules.go",
-      "from": "if v := get(\"GOMODCACHE\"); filepath.IsAbs(v) {",
-      "to": "if v := get(\"GOMODCACHE\"); false && filepath.IsAbs(v) {",
-      "rule": "The loader reads the module cache the go command fills: GOMODCACHE first.",
-      "killers": ["cmd/ergo:TestErgoModuleRequirement"],
-      "anchor": {"tests":["cmd/ergo:TestErgoModuleRequirement"]}
-    },
-    {
-      "name": "md1-cache-unescaped",
-      "origin": "wf10 MD1",
-      "file": "internal/sketchfront/modules.go",
-      "from": "\t\tif 'A' <= r && r <= 'Z' {",
-      "to": "\t\tif false {",
-      "rule": "The module cache spells an upper-case letter as ! and its lower case.",
-      "killers": ["internal/sketchfront:TestModuleResolutionAgrees"]
-    },
-    {
-      "name": "md3-trust-ignored",
-      "origin": "wf10 MD3",
-      "file": "internal/sketchfront/modules.go",
-      "from": "trusted := slices.Contains(l.trust, p.mod.path)",
-      "to": "trusted := true",
-      "rule": "A dependency's Go (import go, extern go) needs the root's trust go line.",
-      "killers": ["internal/sketchfront:TestModuleResolutionAgrees"]
-    },
-    {
-      "name": "md3-trust-lines-unread",
-      "origin": "wf10 MD3",
-      "file": "internal/sketchfront/modules.go",
-      "from": "trusted := slices.Contains(l.trust, p.mod.path)",
-      "to": "trusted := false && slices.Contains(l.trust, p.mod.path)",
-      "rule": "A trust go line of the root's ergo.mod admits the module's Go.",
-      "killers": ["internal/sketchfront:TestModuleResolutionAgrees"]
-    },
-    {
-      "name": "md3-extern-unseen",
-      "origin": "wf10 MD3",
-      "file": "internal/sketchfront/modules.go",
-      "from": "\t\t\t}\n\t\t\textern(d.Extern)\n\t\tcase *syntax.TypeDecl:",
-      "to": "\t\t\t}\n\t\tcase *syntax.TypeDecl:",
-      "rule": "An extern go function of a dependency is a use of Go, as an import go is.",
-      "killers": ["internal/sketchfront:TestModuleResolutionAgrees"]
-    },
-    {
-      "name": "md3-dependency-unchecked",
-      "origin": "wf10 MD3",
-      "file": "internal/sketchfront/load.go",
-      "from": "\tpkg, found := check.CheckTestOptions(path, files, imp, l.testOf(p), l.opts)\n",
-      "to": "\tpkg, found := check.CheckTestOptions(path, files, imp, l.testOf(p), l.opts)\n\tif p.mod != nil {\n\t\tfound = nil\n\t}\n",
-      "rule": "A dependency's package is checked as a local one: it reaches the host only through the capabilities in its rows (the Ambient rule across the module line).",
-      "killers": ["internal/sketchfront:TestModuleResolutionAgrees"]
-    },
-    {
-      "name": "snapshot-std-only",
-      "origin": "wf10 NP5",
-      "file": "internal/sketchfront/load.go",
-      "from": "if pkg, ok := check.InstalledPackage(key); ok && adopt(p, pkg) {",
-      "to": "if pkg, ok := check.InstalledPackage(key); ok && false && adopt(p, pkg) {",
-      "rule": "A required module's package gets the checked snapshot std gets: a warm check decodes it (std-nopriv S3, NP5).",
-      "killers": ["internal/sketchfront:TestModuleSnapshotAgrees"]
-    },
-    {
-      "name": "np5-local-held",
-      "origin": "wf10 NP5",
-      "file": "internal/sketchfront/load.go",
-      "from": "if p.mod == nil || p.mod.sum == \"\" || len(p.goUses) > 0 || p.broken {",
-      "to": "if p.mod == nil || len(p.goUses) > 0 || p.broken {",
-      "rule": "Only a module copy named by its content hash is snapshotted; a local replacement may change.",
-      "killers": ["internal/sketchfront:TestModuleSnapshotAgrees"]
-    },
-    {
-      "name": "np5-go-held",
-      "origin": "wf10 NP5",
-      "file": "internal/sketchfront/load.go",
-      "from": "if p.mod == nil || p.mod.sum == \"\" || len(p.goUses) > 0 || p.broken {",
-      "to": "if p.mod == nil || p.mod.sum == \"\" || p.broken {",
-      "rule": "A dependency package that uses Go reads the root's bindings and trust lines, so no snapshot holds it.",
-      "killers": ["internal/sketchfront:TestModuleSnapshotAgrees"]
-    },
-    {
-      "name": "np5-import-unwrapped",
-      "origin": "wf10 NP5",
-      "file": "internal/sketchfront/load.go",
-      "from": "\t\timp = check.ModuleImporter(l)\n",
-      "to": "",
-      "rule": "A module package is checked through check.ModuleImporter, so its snapshot carries no loader.",
-      "killers": ["internal/sketchfront:TestModuleSnapshotAgrees"]
-    },
-    {
-      "name": "np5-syntax-kept",
-      "origin": "wf10 NP5",
-      "file": "internal/sketchfront/load.go",
-      "from": "\t\tp.files[k].syntax = decoded[p.files[k].syntax.Name]\n",
-      "to": "\t\t_ = k\n",
-      "rule": "A package decoded from the snapshot is lowered from the syntax its checked result names.",
-      "killers": ["internal/sketchfront:TestModuleSnapshotAgrees"]
-    },
-    {
-      "name": "embed-tree-std-only",
-      "origin": "wf10 STD-NOPRIV NP3d",
-      "file": "internal/sketch/check/body.go",
-      "from": "\treturn err == nil && len(body.Results) == 1 && body.Results[0] == \"*\"+goName\n",
-      "to": "\treturn err == nil && len(body.Results) == 1 && body.Results[0] == \"*\"+goName && n.Obj.Pkg.Std()\n",
-      "rule": "stdlib.md The body contract: embedded[T] builds a tree for any type whose declaration names the runtime's tree type, not only embed.FS.",
-      "killers": ["internal/sketchfront:TestEmbeddedAssetsSnapshot"]
-    },
-    {
-      "name": "cs-count-skips-std",
-      "origin": "wf10 CS0",
-      "file": "internal/sketchfront/stagereport.go",
-      "from": "\tr[\"files_parsed\"] += w.StdFilesParsed\n",
-      "to": "",
-      "rule": "The stage report's parse count holds std's files parsed: a cold check that parses std is not reported as parsing only the program.",
-      "killers": ["internal/sketchfront:TestStageReportCountsAgree"]
-    },
-    {
-      "name": "cs-dep-summary-hashes-program",
-      "origin": "wf10 CS0",
-      "file": "internal/sketchfront/load.go",
-      "from": "\t\tfor _, f := range q.files {\n\t\t\tfiles[f.abs] = f.text\n\t\t}\n\t\tfor name, data := range q.assets",
-      "to": "\t\tfor _, r := range p.imports {\n\t\t\tfor _, f := range r.files {\n\t\t\t\tfiles[f.abs] = f.text\n\t\t\t}\n\t\t}\n\t\tfor name, data := range q.assets",
-      "rule": "A package's dependency summary hashes that package's files, so the emission key's work is linear in the program; one that hashes the whole program per package is correct and quadratic.",
-      "killers": ["internal/sketchfront:TestFrontEndWorkGrowsLinearly"]
-    },
-    {
-      "name": "cs-warm-key-omits-new-file",
-      "origin": "wf10 CS2",
-      "file": "internal/sketchfront/warmhit.go",
-      "from": "if got, ok := listing(dir); !ok || got != digest {",
-      "to": "if got, ok := listing(dir); !ok || got != digest && false {",
-      "rule": "The warm check lists every folder the request listed: a file added to a package is a miss.",
-      "killers": ["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"],
-      "anchor": {"tests":["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"]}
-    },
-    {
-      "name": "cs-warm-key-omits-asset",
-      "origin": "wf10 CS2",
-      "file": "internal/sketchfront/warm.go",
-      "from": "\tr.inputs.Files[name] = FileStamp{SHA256: p.sum, Size: int64(len(p.data))}\n",
-      "to": "\tif strings.HasSuffix(name, \".ergo\") || strings.HasSuffix(name, ModFile) {\n\t\tr.inputs.Files[name] = FileStamp{SHA256: p.sum, Size: int64(len(p.data))}\n\t}\n",
-      "rule": "The manifest holds every file the request read, embedded assets included, not only sources.",
-      "killers": ["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"],
-      "anchor": {"tests":["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"]}
-    },
-    {
-      "name": "cs-warm-key-omits-release",
-      "origin": "wf10 CS2",
-      "file": "internal/sketchfront/warm.go",
-      "from": "\twrite(compiler)\n",
-      "to": "\t_ = compiler\n",
-      "rule": "The request key holds the compiler's identity: another compiler is another request.",
-      "killers": ["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"],
-      "anchor": {"tests":["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"]}
-    },
-    {
-      "name": "cs-warm-trusts-mtime",
-      "origin": "wf10 CS2",
-      "file": "internal/sketchfront/warm.go",
-      "from": "same[k] = int64(len(data)) == want.Size && reads[k].sum == want.SHA256",
-      "to": "same[k] = int64(len(data)) == want.Size",
-      "rule": "The warm check compares the bytes' hash, never metadata: an edit that keeps a file's size and modification time is a miss.",
-      "killers": ["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"],
-      "anchor": {"tests":["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"]}
-    },
-    {
-      "name": "cs-warm-latest-only",
-      "origin": "wf10 CS2",
-      "file": "internal/sketchfront/warm.go",
-      "from": "for _, p := range parts {",
-      "to": "for _, p := range parts[:min(2, len(parts))] {",
-      "rule": "One manifest per request key, not per folder (the model's LatestOnly): a request with other options never takes another's answer.",
-      "killers": ["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"],
-      "anchor": {"tests":["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"]}
-    },
-    {
-      "name": "cs-warm-rereads",
-      "origin": "wf10 CS2",
-      "file": "internal/sketchfront/warm.go",
-      "from": "p, ok := r.read[name]",
-      "to": "p, ok := r.read[name+\"\\x00\"]",
-      "rule": "On a miss the normal path checks the bytes the warm check read and hashed (the model's CompileRereads), reading each input once.",
-      "killers": ["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"],
-      "anchor": {"tests":["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"]}
-    },
-    {
-      "name": "cs-snap-stale-accepted",
-      "origin": "wf10 compile-speed CS1",
-      "file": "internal/sketchfront/stdsnap.go",
-      "from": "if len(embeddedStd) == 0 || stdSourcesDigest(deps) != embeddedStdSources {",
-      "to": "if len(embeddedStd) == 0 {",
-      "rule": "The compiler refuses an embedded snapshot of other std sources than the ones it embeds.",
-      "killers": ["internal/sketchfront:TestStdSnapshotIsCurrent"]
-    },
-    {
-      "name": "cs-snap-drops-law",
-      "origin": "wf10 compile-speed CS1",
-      "file": "internal/sketch/check/export_gen.go",
-      "from": "\te.encT7(v.Tests)\n\te.encT8(v.Laws)",
-      "to": "\te.encT7(v.Tests)\n\te.encT8(nil)",
-      "rule": "A snapshot keeps every std package's laws, which a program's provider of a std operation type runs.",
-      "killers": ["internal/sketchfront:TestStdSnapshotAgrees"]
-    },
-    {
-      "name": "cs-snap-eager-load",
-      "origin": "wf10 compile-speed CS1",
-      "file": "internal/sketch/check/export.go",
-      "from": "\tif !s.need(i, count) {\n\t\treturn nil, false\n\t}",
-      "to": "\tfor j := range s.segs {\n\t\ts.need(j, count)\n\t}\n\tif !s.need(i, count) {\n\t\treturn nil, false\n\t}",
-      "rule": "The embedded snapshot is decoded lazily: a check decodes the std packages its imports reach, and no other.",
-      "killers": ["internal/sketchfront:TestColdCheckReadsNoStdSource"]
-    },
-    {
-      "name": "cs-snap-not-installed",
-      "origin": "wf10 compile-speed CS1",
-      "file": "internal/sketchfront/stdcache.go",
-      "from": "\t\tif useEmbedded && installEmbedded() {",
-      "to": "\t\tif false && installEmbedded() {",
-      "rule": "With every cache empty, the compiler's first check reads std from the embedded snapshot, not from source.",
-      "killers": ["internal/sketchfront:TestColdCheckReadsNoStdSource"]
-    },
-    {
-      "name": "npj-import-law-runs-dropped",
-      "origin": "wf10 REF NOPRIV-JSON",
-      "file": "internal/sketch/lower/rewritecheck.go",
-      "from": "\t\tt.ImportLaws = importLawRuns(u, laws)",
-      "to": "\t\tt.ImportLaws = nil",
-      "rule": "The binary's check build runs the law runs its sites ask of a provider an imported package declares: a library has no sites, so no other run checks them.",
-      "killers": ["internal/sketchfront:TestLedgerChecksAnImportedProvider"]
-    },
-    {
-      "name": "npj-check-runs-root-laws-only",
-      "origin": "wf10 REF NOPRIV-JSON",
-      "file": "internal/sketch/lower/tests.go",
-      "from": "\tif l.tests == nil || len(l.tests.importLaws) == 0 {\n\t\treturn runs\n\t}",
-      "to": "\tif true {\n\t\treturn runs\n\t}",
-      "rule": "The test build lowers and reports the imported law runs it is given beside the root's.",
-      "killers": ["internal/sketchfront:TestLedgerChecksAnImportedProvider"]
-    },
-    {
-      "name": "npj-ledger-entries-root-only",
-      "origin": "wf10 REF NOPRIV-JSON",
-      "file": "internal/sketch/lower/ledger.go",
-      "from": "\tfor prov, rules := range importRules(u) {\n\t\tall[prov] = append(all[prov], rules...)\n\t}",
-      "to": "\tfor prov, rules := range map[*check.Named][]rwRule{} {\n\t\tall[prov] = append(all[prov], rules...)\n\t}",
-      "rule": "The ledger writer writes the entries of an imported provider's laws the check ran.",
-      "killers": ["internal/sketchfront:TestLedgerChecksAnImportedProvider"]
-    },
-    {
-      "name": "npj-rewrite-laws-root-only",
-      "origin": "wf10 REF NOPRIV-JSON",
-      "file": "internal/sketch/lower/rewritecheck.go",
-      "from": "\treturn len(newRewriter(u.Package, nil).rules) > 0 || len(importRules(u)) > 0",
-      "to": "\treturn len(newRewriter(u.Package, nil).rules) > 0",
-      "rule": "A binary whose only rewrite laws are an import's still checks them and reads the ledger for them.",
-      "killers": ["internal/sketchfront:TestLedgerChecksAnImportedProvider"]
-    },
-    {
-      "name": "xmd-builtin-extern-trusted",
-      "origin": "wf10 REF XMD",
-      "file": "internal/sketchfront/modules.go",
-      "from": "path == \"\" && check.IsGoBuiltin(name) {",
-      "to": "path == \"\" && false && check.IsGoBuiltin(name) {",
-      "rule": "A required module's binding of a Go builtin (extern go len, append) runs no Go code and needs no trust go line.",
-      "killers": ["internal/sketchfront:TestModuleResolutionAgrees"]
-    },
-    {
-      "name": "gs8-digest-no-runtime",
-      "origin": "wf10 GS8",
-      "file": "internal/sketchfront/sketchfront.go",
-      "from": "all := append(slices.Clone(lower.Runtime()), files...)",
-      "to": "all := files",
-      "rule": "The emitted digest covers the runtime files the module holds: a runtime edit reruns every example.",
-      "killers": ["internal/sketchfront:TestEmittedDigestIsThePublishedModule"]
-    },
-    {
-      "name": "gs8-digest-build-lowering",
-      "origin": "wf10 GS8",
-      "file": "internal/sketchfront/sketchfront.go",
-      "from": "\t\tif files, err = lowerUnit(a, unit, lowering); err != nil {\n\t\t\treturn \"\", err",
-      "to": "\t\tif files, err = lowerUnit(a, unit, lower.Lower); err != nil {\n\t\t\t_ = lowering\n\t\t\treturn \"\", err",
-      "rule": "The emitted digest of a test build is the test module's: ergo test --emitted keys the test leg.",
-      "killers": ["internal/sketchfront:TestEmittedDigestIsThePublishedModule"]
-    },
-    {
-      "name": "cs-ir-file-shared",
-      "origin": "wf10 compile-speed CS10",
-      "file": "internal/sketch/lower/pkgsplit_ir.go",
-      "from": "\t\tbyPkg[p] = append(byPkg[p], fn)",
-      "to": "\t\tbyPkg[1] = append(byPkg[1], fn)",
-      "rule": "Each Go package of the IR split has the IR file of its own bodies in its folder; one shared IR file would recompile every package on any IR edit, and a package's compile would find no body for its functions.",
-      "killers": ["internal/sketchfront:TestIRFilePerPackage"]
-    },
-    {
-      "name": "cs-ir-foreign-undeclared",
-      "origin": "wf10 compile-speed CS10",
-      "file": "internal/sketch/lower/pkgsplit_ir.go",
-      "from": "\tfor _, k := range slices.Sorted(maps.Keys(s.uses)) {",
-      "to": "\tfor _, k := range slices.Sorted(maps.Keys(s.uses))[:0] {",
-      "rule": "A name an IR body spells that the split places in another package is declared again in the body's package: the patched compile resolves IR names in the body's package only.",
-      "killers": ["internal/sketchfront:TestIRFilePerPackage"]
-    },
-    {
-      "name": "cs-dev-stat-never-kept",
-      "origin": "wf10 compile-speed CS9",
-      "file": "internal/sketchfront/warmhit.go",
-      "from": "\tif stated && again && before == after && settled {",
-      "to": "\tif stated && again && before == after && settled && false {",
-      "rule": "ergo dev keeps an input's hash while its stat stays the same: a served request reads no unchanged input.",
-      "killers": ["internal/sketchfront:TestStatSumsReadOnlyWhatChanged"]
-    },
-    {
-      "name": "cs-dev-stat-ignored",
-      "origin": "wf10 compile-speed CS9",
-      "file": "internal/sketchfront/warmhit.go",
-      "from": "\t\tif found && k.stat == before {",
-      "to": "\t\tif found {",
-      "rule": "A kept hash stands only while the file's stat is the one it was read with.",
-      "killers": ["internal/sketchfront:TestStatSumsReadOnlyWhatChanged"]
-    },
-    {
-      "name": "cs-dev-stat-racy",
-      "origin": "wf10 compile-speed CS9",
-      "file": "internal/sketchfront/warmhit.go",
-      "from": "max(after.Mtime, after.Ctime))) > settle\n",
-      "to": "max(after.Mtime, after.Ctime))) > settle || true\n",
-      "rule": "A file changed within settle of its read is read again: a second write in the same timestamp tick may leave its stat as it was.",
-      "killers": ["internal/sketchfront:TestStatSumsReadOnlyWhatChanged"]
-    },
-    {
-      "name": "cs-dev-hit-ignores-hash",
-      "origin": "wf10 compile-speed CS9",
-      "file": "internal/sketchfront/warmhit.go",
-      "from": "\t\tif !ok || size != want.Size || sum != want.SHA256 {",
-      "to": "\t\tif !ok || false && (size != want.Size || sum != want.SHA256) {",
-      "rule": "ergo dev answers only when every input has the content of the manifest.",
-      "killers": ["cmd/ergo:TestDevAnswersAWarmCheck"]
-    },
-    {
-      "name": "cs5b1-hook-skipped",
-      "origin": "wf10 CS5b-1",
-      "file": "internal/sketchfront/load.go",
-      "from": "\tif checkedHook != nil {\n",
-      "to": "\tif checkedHook != nil && false {\n",
-      "rule": "The census sees every package right after its own check, so an importer's writes to it are compared, never skipped (compile-speed/cs5b.md §5).",
-      "killers": ["internal/sketchfront:TestImporterLeavesImportUnchanged"]
-    },
-    {
-      "name": "cs5b1-alias-owner-imported",
-      "origin": "wf10 CS5b-1",
-      "file": "internal/sketch/check/decl.go",
-      "from": "if n == nil || n.Obj.Pkg != c.pkg || n.method(f.Name) != nil {",
-      "to": "if n == nil || n.method(f.Name) != nil {",
-      "rule": "A function whose first parameter is an alias of an imported type stays a function: checking the importer adds no method to the imported type (types.md, Methods 3; compile-speed/cs5b.md §5).",
-      "killers": ["internal/sketchfront:TestImporterLeavesImportUnchanged"]
-    },
-    {
-      "name": "cs5b2-walk-skips-interface",
-      "origin": "wf10 CS5b-2",
-      "file": "internal/sketch/check/objpath.go",
-      "from": "\tcase reflect.Interface:\n\t\tif !v.IsNil() {\n\t\t\tw.walk(v.Elem(), path)",
-      "to": "\tcase reflect.Interface:\n\t\tif false {\n\t\t\tw.walk(v.Elem(), path)",
-      "rule": "Every object a user segment names in another user package has an object path, through interface-valued fields too (compile-speed/cs5b.md §3).",
-      "killers": ["internal/sketchfront:TestPathsRoundTrip"]
-    },
-    {
-      "name": "cs5b2-resolve-field-off-by-one",
-      "origin": "wf10 CS5b-2",
-      "file": "internal/sketch/check/objpath.go",
-      "from": "\t\t\tv = v.Field(i)\n",
-      "to": "\t\t\tv = v.Field(min(i+1, v.NumField()-1))\n",
-      "rule": "A path resolves to the object it was taken from (compile-speed/cs5b.md §3).",
-      "killers": ["internal/sketchfront:TestPathsRoundTrip"]
-    },
-    {
-      "name": "cs5b2-encode-ids-not-paths",
-      "origin": "wf10 CS5b-2",
-      "file": "internal/sketch/check/export.go",
-      "from": "\t\t\tif e.symbolic != nil {\n",
-      "to": "\t\t\tif e.symbolic != nil && false {\n",
-      "rule": "A user segment names another user package's objects by object path, so it decodes against a fresh check of that package (compile-speed/cs5b.md §2).",
-      "killers": ["internal/sketchfront:TestPathsRoundTrip"]
-    },
-    {
-      "name": "teqb-counted-as-ir",
-      "origin": "wf10 TEQb (TEST-one's module binary through IR)",
-      "file": "internal/sketchfront/sketchfront.go",
-      "from": "\t\tif req.IR {\n\t\t\tstage.Add(stage.BinariesIR, 1)\n",
-      "to": "\t\tif true {\n\t\t\tstage.Add(stage.BinariesIR, 1)\n",
-      "rule": "The stage report counts a binary lowered without IR as binaries_text, which the examples runner's guard reads.",
-      "killers": ["internal/sketchfront:TestStageReportCountsAgree"],
-      "anchor": {"tests":["internal/sketchfront:TestStageReportCountsAgree"]}
-    },
-    {
-      "name": "ft-incomplete-reads-as-pass",
-      "origin": "wf10 FT1 (ergo test on the evaluator)",
-      "file": "internal/sketchfront/evaluatetests.go",
-      "from": "\tlines, stderr, exit, ok := eval.Summary(rep.Results, source)\n",
-      "to": "\tlines, stderr, exit, ok := eval.Summary(func() []eval.Result {\n\t\tfor i := range rep.Results {\n\t\t\tif rep.Results[i].Status == eval.Incomplete {\n\t\t\t\trep.Results[i].Status, rep.Results[i].Evidence = eval.Passed, \"evaluated\"\n\t\t\t}\n\t\t}\n\t\treturn rep.Results\n\t}(), source)\n",
-      "rule": "An obligation the evaluator left incomplete (its budget ran out) is no pass: the native binary answers its package.",
-      "killers": ["internal/sketch/eval:TestTiersAgree"],
-      "anchor": {"tests":["internal/sketch/eval:TestTiersAgree"]}
-    },
-    {
-      "name": "ft-undecided-dropped",
-      "origin": "wf10 FT1 (ergo test on the evaluator)",
-      "file": "internal/sketchfront/evaluatetests.go",
-      "from": "\tlines, stderr, exit, ok := eval.Summary(rep.Results, source)\n",
-      "to": "\tlines, stderr, exit, ok := eval.Summary(func() (kept []eval.Result) {\n\t\tfor _, r := range rep.Results {\n\t\t\tif _, ok := eval.VerdictLine(r, source); ok {\n\t\t\t\tkept = append(kept, r)\n\t\t\t}\n\t\t}\n\t\treturn kept\n\t}(), source)\n",
-      "rule": "An obligation the evaluator does not decide is run by the native binary, never dropped from the answer.",
-      "killers": ["internal/sketch/eval:TestTiersAgree"],
-      "anchor": {"tests":["internal/sketch/eval:TestTiersAgree"]}
-    },
-    {
-      "name": "ft-seed-not-shared",
-      "origin": "wf10 FT1 (ergo test on the evaluator)",
-      "file": "internal/sketchfront/evaluatetests.go",
-      "from": "\tb.Seed, b.States = seed, states\n",
-      "to": "\tb.States = states\n",
-      "rule": "Both tiers draw a law's or a property's cases from the seed ergo test was given.",
-      "killers": ["internal/sketch/eval:TestTiersAgree"],
-      "anchor": {"tests":["internal/sketch/eval:TestTiersAgree"]}
-    },
-    {
-      "name": "ft-evidence-says-native",
-      "origin": "wf10 FT1 (ergo test on the evaluator)",
-      "file": "internal/sketchfront/evaluatetests.go",
-      "from": "\t\tmark := EvaluatedMark\n",
-      "to": "\t\tmark := \"\"\n",
-      "rule": "Each verdict line the evaluator wrote says so (\" (evaluated)\"): a reader always knows which tier answered.",
-      "killers": ["internal/sketch/eval:TestTiersAgree"],
-      "anchor": {"tests":["internal/sketch/eval:TestTiersAgree"]}
-    },
-    {
-      "name": "ft-key-omits-seed",
-      "origin": "wf10 FT2 (stored verdicts and route notes)",
-      "file": "internal/sketchfront/storedtests.go",
-      "from": "lower.TestDigest(pkg, t), strconv.FormatUint(seed, 10))",
-      "to": "lower.TestDigest(pkg, t))",
-      "rule": "A test's stored verdict is keyed by the seed its cases are drawn from.",
-      "killers": ["internal/sketchfront:TestStoredVerdictsAgree"],
-      "anchor": {"tests":["internal/sketchfront:TestStoredVerdictsAgree"]}
-    },
-    {
-      "name": "ft-test-verdict-never-stored",
-      "origin": "wf10 FT2 (stored verdicts and route notes)",
-      "file": "internal/sketchfront/storedtests.go",
-      "from": "\tv.store.Put(v.key(t), ",
-      "to": "\treturn\n\tv.store.Put(v.key(t), ",
-      "rule": "A passed test's verdict is stored: an edit that changes no token it reaches runs it not again.",
-      "killers": ["internal/sketchfront:TestStoredVerdictsAgree"],
-      "anchor": {"tests":["internal/sketchfront:TestStoredVerdictsAgree"]}
-    },
-    {
-      "name": "ft-route-note-ignored",
-      "origin": "wf10 FT2 (stored verdicts and route notes)",
-      "file": "internal/sketchfront/evaluatetests.go",
-      "from": "ok && text == routeNote {",
-      "to": "ok && text == routeNote && false {",
-      "rule": "A route note sends the package to the test binary with no evaluation.",
-      "killers": ["internal/sketchfront:TestRouteNoteSkipsEvaluation"],
-      "anchor": {"tests":["internal/sketchfront:TestRouteNoteSkipsEvaluation"]}
-    },
-    {
-      "name": "ft-route-key-omits-digest",
-      "origin": "wf10 FT2 (stored verdicts and route notes)",
-      "file": "internal/sketchfront/storedtests.go",
-      "from": "\t\tout[t.Name] = routeKey(testKey(pkg, t, seed), steps)\n",
-      "to": "\t\tout[t.Name] = routeKey(t.Name, steps)\n",
-      "rule": "A route note is keyed by the obligation's reach digest: an edit of what it reaches lets the evaluator try again.",
-      "killers": ["internal/sketchfront:TestRouteNoteSkipsEvaluation"],
-      "anchor": {"tests":["internal/sketchfront:TestRouteNoteSkipsEvaluation"]}
-    },
-    {
-      "name": "ft-key-omits-compiler",
-      "origin": "wf10 FT2 (stored verdicts and route notes)",
-      "file": "internal/sketch/lawcache/lawcache.go",
-      "from": "\tname = Key(s.compiler, key)\n",
-      "to": "\tname = Key(key)\n",
-      "rule": "A stored verdict is keyed by the compiler's identity (the ergo executable's digest: lowering, evaluator, std, runtime): another compiler never replays a pass.",
-      "killers": ["internal/sketchfront:TestStoredVerdictsAgree"],
-      "anchor": {"tests":["internal/sketchfront:TestStoredVerdictsAgree"]}
-    },
-    {
-      "name": "ft-native-key-omits-toolchain",
-      "origin": "wf10 FT2 (stored verdicts and route notes)",
-      "file": "internal/sketchfront/lawverdicts.go",
-      "from": "\t\t\tk = lawcache.Key(k, \"toolchain\", toolchain)\n",
-      "to": "",
-      "rule": "A law verdict the test binary wrote is keyed by the Go toolchain that linked it: another toolchain, and the evaluator, never read it.",
-      "killers": ["internal/sketchfront:TestNativeVerdictsKeyTheToolchain"],
-      "anchor": {"tests":["internal/sketchfront:TestNativeVerdictsKeyTheToolchain"]}
-    },
-    {
-      "name": "ft-check-ignores-pinned",
-      "origin": "wf10 FT2 (stored verdicts and route notes)",
-      "file": "internal/sketchfront/lawverdicts.go",
-      "from": "\t\tif t.Machine || v.native == \"\" {\n",
-      "to": "\t\tif true {\n",
-      "rule": "ergo check and tier 1 read a law verdict the test binary wrote under the pinned toolchain they would build with: no double work.",
-      "killers": ["internal/sketchfront:TestNativeVerdictsKeyTheToolchain"],
-      "anchor": {"tests":["internal/sketchfront:TestNativeVerdictsKeyTheToolchain"]}
-    },
-    {
-      "name": "ft5-raw-not-in-key",
-      "origin": "wf10 test-speed FT5",
-      "file": "internal/sketchfront/sketchfront.go",
-      "from": "\t\tinput.Flags = append(input.Flags, rawFlag)\n",
-      "to": "",
-      "rule": "The dev profile's unformatted module has an emission key of its own.",
-      "killers": ["internal/sketchfront:TestRawLoweringKeepsLines"]
-    },
-    {
-      "name": "ft5-raw-unit-not-set",
-      "origin": "wf10 test-speed FT5",
-      "file": "internal/sketchfront/sketchfront.go",
-      "from": "\t\tunit.Raw = true\n",
-      "to": "",
-      "rule": "The dev profile lowers without go/format.",
-      "killers": ["internal/sketchfront:TestRawLoweringKeepsLines"]
-    },
+    {"name":"module-door-untrusted","origin":"wf10 STD-NOPRIV NP4d","file":"internal/sketch/check/extern.go","from":"\tif !c.pkg.trusted {\n\t\treturn fmt.Sprintf(\"extern go %s binds a body of the module's own Go package","to":"\tif false && !c.pkg.trusted {\n\t\treturn fmt.Sprintf(\"extern go %s binds a body of the module's own Go package","rule":"interop.md Trusted Go 3: a package binds its module's own Go bodies only when the root module trusts its Go.","killers":["internal/sketchfront:TestModuleGoBodies"]},
+    {"name":"binding-policy-default-nowait","origin":"wf10 STD-NOPRIV NP4d","file":"runtime/v1/files.go","from":"\tcase body.Wait == \"\":","to":"\tcase false:","rule":"interop.md Trusted Go 3: a body states its waiting policy; one with no mark is not read as one that does not wait.","killers":["internal/sketchfront:TestModuleGoBodies"]},
+    {"name":"module-hidden-unqualified","origin":"wf10 STD-NOPRIV NP4d","file":"runtime/v1/files.go","from":"\t\treturn ok && q.v1 != \"\" && q.v1 != \".\" && id.Name == q.v1 && x.Sel.Name == name","to":"\t\treturn false && ok && q.v1 != \"\" && q.v1 != \".\" && id.Name == q.v1 && x.Sel.Name == name","rule":"stdlib.md Hidden arguments: a module's Go package names v1's hidden types through its import of runtime/v1.","killers":["internal/sketchfront:TestModuleGoBodies"]},
+    {"name":"loader-ignores-trust","origin":"wf10 STD-NOPRIV NP4e","file":"internal/sketchfront/load.go","from":"\treturn l.module, l.module != \"\" && slices.Contains(l.trust, l.module)","to":"\treturn l.module, false","rule":"interop.md Trusted Go: ergo.mod's trust line for the module opens the runtime door.","killers":["internal/sketchfront:TestTrustLineOpensTheRuntimeDoor"]},
+    {"name":"trust-std-path","origin":"wf10 STD-NOPRIV NP4e","file":"internal/sketchfront/load.go","from":"\t\t\tif reason := modulePathProblem(fields[2]); reason != \"\" {","to":"\t\t\tif reason := modulePathProblem(fields[2]); false && reason != \"\" {","rule":"interop.md Trusted Go: a trust line names a module path, never std's.","killers":["internal/sketchfront:TestLoaderModuleFile"]},
+    {"name":"trust-twice","origin":"wf10 STD-NOPRIV NP4e","file":"internal/sketchfront/load.go","from":"\t\t\tif slices.Contains(trust, fields[2]) {","to":"\t\t\tif false && slices.Contains(trust, fields[2]) {","rule":"interop.md Trusted Go: each module is trusted once.","killers":["internal/sketchfront:TestLoaderModuleFile"]},
+    {"name":"chk1b-cache-prepares-again","origin":"wf10 CHK1b","file":"internal/sketchfront/stdcache.go","from":"stdCache.once.Do(func() {","to":"func(f func()) { f() }(func() {","rule":"A later check must not snapshot caller-mutated std state or touch the cache again.","killers":["internal/sketchfront:TestStdCacheWork"]},
+    {"name":"chk1b-cache-install-skipped","origin":"wf10 CHK1b","file":"internal/sketchfront/stdcache.go","from":"err == nil && check.InstallStd(f, info.Size()) == nil","to":"false && err == nil && check.InstallStd(f, info.Size()) == nil","rule":"A warm process installs the checked std instead of checking it again.","killers":["internal/sketchfront:TestStdCacheWork"]},
+    {"name":"chk1b-cache-compiler-not-keyed","origin":"wf10 CHK1b","file":"internal/sketchfront/stdcache.go","from":"std-snapshot-2\\x00%d:%s\", len(compiler), compiler)","to":"std-snapshot-2\\x00%d:%s\", 0, \"\")","rule":"Snapshots are keyed by the compiler bytes.","killers":["internal/sketchfront:TestStdCacheWork"]},
+    {"name":"chk1b-cache-private-identity-reused","origin":"wf10 CHK1b","file":"internal/sketchfront/stdcache.go","from":"if !reusable(compiler) {","to":"if false && !reusable(compiler) {","rule":"A process-only producer identity cannot publish reusable checked state.","killers":["internal/sketchfront:TestStdCacheWork"]},
+    {"name":"embed-missing-directive-tree","file":"internal/sketch/lower/embed.go","from":"l.user.WriteString(\"//go:embed \" + strings.Join","to":"l.user.WriteString(\"//not-embedded \" + strings.Join","killers":["internal/sketchfront:TestEmbeddedAssetsSnapshot"],"anchor":{"tests":["internal/sketchfront:TestEmbeddedAssetsSnapshot"]}},
+    {"name":"embed-missing-directive-file","file":"internal/sketch/lower/embed.go","from":"l.user.WriteString(\"//go:embed \" + strconv.Quote","to":"l.user.WriteString(\"//not-embedded \" + strconv.Quote","killers":["internal/sketchfront:TestEmbeddedAssetsSnapshot"],"anchor":{"tests":["internal/sketchfront:TestEmbeddedAssetsSnapshot"]}},
+    {"name":"embed-payload-not-keyed","file":"internal/sketchfront/embed.go","from":"l.texts[filepath.ToSlash(rel)] = string(data)","to":"_ = rel","killers":["internal/sketchfront:TestEmbeddedAssetsSnapshot"]},
+    {"name":"embed-asset-dropped","file":"internal/sketch/lower/embed.go","from":"Data: slices.Clone(byPath[name])","to":"Data: nil","killers":["internal/sketchfront:TestEmbeddedAssetsSnapshot"]},
+    {"name":"embed-parent-escape","file":"internal/sketchfront/embed.go","from":"!fs.ValidPath(pattern)","to":"false","killers":["internal/sketchfront:TestEmbeddedDiagnostics"]},
+    {"name":"embed-local-initializer","file":"internal/sketch/check/embed.go","from":"if spec == nil {","to":"if spec == nil && false {","killers":["internal/sketchfront:TestEmbeddedDiagnostics"]},
+    {"name":"embed-multiple-string-files","file":"internal/sketchfront/embed.go","from":"if !tree && len(selected) != 1 {","to":"if false {","killers":["internal/sketchfront:TestEmbeddedDiagnostics"]},
+    {"name":"embed-tree-prefix-retained","file":"runtime/v1/embed.go","from":"fs.Sub(files, prefix)","to":"fs.Sub(files, \".\")","killers":["examples:router"],"anchor":{"tests":["examples:router"]}},
+    {"name":"embed-invalid-element","file":"internal/sketchfront/embed.go","from":"if !embedNameAllowed(name) {","to":"if false {","killers":["internal/sketchfront:TestEmbeddedDiagnostics"]},
+    {"name":"ll1-prune-off","origin":"wf10 LL1 r2","file":"internal/sketchfront/rewrite.go","from":"\t\t\tchanged++ // pruned","to":"\t\t\tnext[k] = e // kept","rule":"ergo test removes the entries of a law, provider or package the module no longer declares: a renamed or deleted law's entries go.","killers":["internal/sketchfront:TestLedgerPrunes","internal/sketchfront:TestLedgerModuleOrder"]},
+    {"name":"ll1-prune-by-run","origin":"wf10 LL1 r3","file":"internal/sketchfront/rewrite.go","from":"\t\tif src.declares(e) {","to":"\t\tif false && src.declares(e) {","rule":"ergo.laws is module-wide, as go.sum is: ergo test never removes an entry because its run did not take it, so any order of ergo test over a module's binaries writes one ledger.","killers":["internal/sketchfront:TestLedgerModuleOrder"]},
+    {"name":"ll1-main-name","origin":"wf10 LL1 r3","file":"internal/sketchfront/rewrite.go","from":"\treturn lower.LedgerNames{a.program.root.pkg: a.program.root.path}","to":"\treturn nil","rule":"A binary's main package is named in the ledger by its folder's import path, so two binaries' entries never collide.","killers":["internal/sketchfront:TestLedgerModuleOrder"]},
+    {"name":"ll1-site-position","origin":"wf10 LL1 r2","file":"internal/sketch/lower/ledger.go","from":"\t\tFile: file, Line: line, Column: col,","to":"\t\tFile: file,","rule":"ergo inspect names each rewrite site by its source position.","killers":["internal/sketchfront:TestRewriteLawReported"]},
+    {"name":"ll1-stale-accepted","origin":"wf10 LL1","file":"internal/sketch/lower/ledger.go","from":"\tcase e.digest(key, law, prov, inst) != entry.Digest:","to":"\tcase false && e.digest(key, law, prov, inst) != entry.Digest:","rule":"An entry whose digest is not the one the sources give is stale: the site keeps the reference lowering (plan-2 §3).","killers":["internal/sketchfront:TestLedgerGatesRewrites"]},
+    {"name":"ll1-digest-misses-callee","origin":"wf10 LL1","file":"internal/sketch/lower/ledger.go","from":"\td.walk(p, n)\n}\n\n// index","to":"\tif !strings.HasPrefix(key, \"func \") {\n\t\td.walk(p, n)\n\t}\n}\n\n// index","rule":"The digest covers every function the provider's operations reach, at any depth.","killers":["internal/sketchfront:TestLedgerGatesRewrites"]},
+    {"name":"lrs-inspect-why","origin":"wf10 LR-sound (v1 audit 3 G1)","file":"internal/sketch/lower/ledger.go","from":"\t\twhy += \"; \" + open","to":"\t\t_ = open","rule":"ergo inspect says why a site keeps the reference: a provider whose construction is open has its proof over every value, and the place that opens it is named.","killers":["internal/sketchfront:TestRewriteLawReported"]},
+    {"name":"lrs-digest-skips-let","origin":"wf10 LR-sound (v1 audit 3 G2)","file":"internal/sketch/lower/ledger.go","from":"\t\t\tcase *check.Var:\n\t\t\t\td.let(obj)","to":"\t\t\tcase *check.Var:\n\t\t\t\t_ = obj","rule":"The digest covers every package let a reached declaration reads, through other lets too: a same-length edit of one makes the entry stale.","killers":["internal/sketchfront:TestLedgerGatesRewrites"]},
+    {"name":"lrs-digest-skips-qualified","origin":"wf10 LR-sound (v1 audit 3 G2)","file":"internal/sketch/lower/ledger.go","from":"\t\t\t\t\td.member(pn.Pkg, n.Sel.Name)","to":"\t\t\t\t\t_ = pn","rule":"The digest covers a qualified name's member (another package's let, type or function), which the checker records no use of.","killers":["internal/sketchfront:TestLedgerModuleOrder"]},
+    {"name":"lrs-digest-key-position","origin":"wf10 LR-sound (v1 audit 3 G2)","file":"internal/sketch/lower/ledger.go","from":"\td.decls[key+\"\\n\"+","to":"\td.decls[key+fmt.Sprint(n.Pos())+\"\\n\"+","rule":"The digest holds no position: a declaration added above the provider or a moved declaration leaves the entry current.","killers":["internal/sketchfront:TestLedgerGatesRewrites"]},
+    {"name":"lrs-digest-raw-text","origin":"wf10 LR-sound (v1 audit 3 G2)","file":"internal/sketch/lower/ledger.go","from":"syntax.TokenText(declText(p, n))","to":"declText(p, n)","rule":"The digest reads a declaration's tokens: spaces, line breaks and comments leave the entry current.","killers":["internal/sketchfront:TestLedgerGatesRewrites"]},
+    {"name":"lrs-digest-no-construction","origin":"wf10 LR-sound (v1 audit 3 G1, G2)","file":"internal/sketch/lower/ledger.go","from":"if constructionOpen(prov, ctor, conv) != nil {\n\t\tclosed = \"open\"","to":"if constructionOpen(prov, ctor, conv) != nil {\n\t\tclosed = \"closed\"","rule":"The digest covers whether the provider's construction is closed, which decides the proof's state set: a literal of the provider added outside its constructor makes the entry stale.","killers":["internal/sketchfront:TestLedgerGatesRewrites"]},
+    {"name":"lrs-tokens-closing-semicolon","origin":"wf10 LR-sound (v1 audit 3 G2)","file":"internal/sketch/syntax/tokens.go","from":"\t\tcase RPAREN, RBRACK, RBRACE:\n\t\t\tsemi = false","to":"\t\tcase RPAREN, RBRACK, RBRACE:","rule":"A declaration reflowed over more lines keeps its token text: the semicolon a line break inserts before a closing brace is not a token of the digest.","killers":["internal/sketchfront:TestLedgerGatesRewrites"]},
+    {"name":"ll1-digest-whole-package","origin":"wf10 LL1","file":"internal/sketch/lower/ledger.go","from":"\troots := tableFuncs(conv)","to":"\troots := append(tableFuncs(conv), prov.Obj.Pkg.Funcs...)","rule":"An edit the law does not reach leaves the entry current: ergo test changes 0 entries.","killers":["internal/sketchfront:TestLedgerGatesRewrites"]},
+    {"name":"ll1-build-writes","origin":"wf10 LL1","file":"internal/sketchfront/sketchfront.go","from":"(*lower.LedgerEvidence, []lower.File, error) {\n\ttext, err := ledgerText(req.Inputs, req.Ledger)","to":"(*lower.LedgerEvidence, []lower.File, error) {\n\t_, _ = UpdateLedger(a, req)\n\ttext, err := ledgerText(req.Inputs, req.Ledger)","rule":"Only ergo test writes ergo.laws; the run build reads it and never runs a law for evidence.","killers":["internal/sketchfront:TestLedgerGatesRewrites"]},
+    {"name":"ll1-instance-not-in-digest","origin":"wf10 LL1","file":"internal/sketch/lower/ledger.go","from":"\tfmt.Fprintf(h, \"i%d:%s\", len(inst), inst)","to":"\t_ = inst","rule":"The digest covers the entry's instance: a line for new constants written by hand with another line's digest is stale.","killers":["internal/sketchfront:TestLedgerGatesRewrites"]},
+    {"name":"ll1-std-ledger-not-fresh","origin":"wf10 LL1","file":"internal/sketch/std/std.go","from":"func Ledger() string { return ledger }","to":"func Ledger() string { return ledger + \"law json.Text.SepDue for json.text proved h1:AAAA\\n\" }","rule":"The checked-in std ledger is the one a fresh run writes (go run ./scripts/stdlaws).","killers":["internal/sketchfront:TestStdLedgerFresh"]},
+    {"name":"ps1-front-refutation-falls-back","origin":"wf10 PS1, retargeted LL1","file":"internal/sketchfront/rewrite.go","from":"\tev, err := lower.RewriteChecksCached(unit, lawChecks(req, input), req.Laws)\n\tif err != nil {\n\t\treturn 0, err\n\t}","to":"\tev, err := lower.RewriteChecksCached(unit, lawChecks(req, input), req.Laws)\n\tif err != nil {\n\t\treturn 0, nil\n\t}","rule":"A reachable proof counterexample fails ergo test's ledger writer, which writes no entry (runtime.md, Tests 10).","killers":["internal/sketchfront:TestLedgerRefusesReachableRewrite"]},
+    {"name":"lr3a-inspect-no-rewrite","origin":"wf10 LR3a, retargeted LL1","file":"internal/sketchfront/inspect.go","from":"\treturn ev.Sites(), nil","to":"\treturn []lower.RewriteSite{}, nil","rule":"ergo inspect lists each rewrite site with its law, provider, verdict and ledger state (runtime.md, Tests 10; docs/tooling.md, inspect).","killers":["internal/sketchfront:TestRewriteLawReported"]},
+    {"name":"lr3a-inspect-applied","origin":"wf10 LR3a, retargeted LL1","file":"internal/sketch/lower/ledger.go","from":"\tif ok && law.Rewrite != nil {","to":"\tif law.Rewrite != nil {","rule":"A site whose entry is stale, missing or not proved is never applied, and inspect says so (owner q115, q122).","killers":["internal/sketchfront:TestRewriteLawReported"]},
+    {"name":"lr3a-check-reason","origin":"wf10 LR3a","file":"internal/sketch/eval/cases.go","from":"\t\twhy = RewriteVerdict()","to":"\t\twhy = \"a rewrite law\"","rule":"ergo check's evaluation skips a rewrite law with its verdict: tested, its run's bounds, not applied (owner q115).","killers":["internal/sketchfront:TestRewriteLawReported"]},
+    {"name":"gomod-runtime-replacement-kept","origin":"G1","file":"internal/sketch/lower/gomodule.go","from":"written.alive = false","to":"written.alive = true","rule":"a directory that holds the runtime's bytes serves the runtime: its replacement alone is emitted (go: conflicting replacements)","killers":["internal/sketchfront:TestEmittedGoModMergesGoMod"]},
+    {"name":"gomod-other-runtime-bytes-admitted","origin":"G1","file":"internal/sketchfront/gomod.go","from":"case string(data) != string(f.Data):","to":"case string(data) != string(f.Data) && false:","rule":"a replacement of the runtime's module by a directory with other runtime bytes conflicts","killers":["internal/sketchfront:TestEmittedGoModMergesGoMod"]},
+    {"name":"gomod-two-versions-required","origin":"G1","file":"internal/sketch/lower/gomodule.go","from":"case prev.Version != r.Version:","to":"case false:","rule":"one module is required at one version; two versions conflict","killers":["internal/sketchfront:TestEmittedGoModMergesGoMod"]},
+    {"name":"gomod-absolute-replacement-joined","origin":"G1","file":"internal/sketchfront/gomod.go","from":"localReplacement(target) && !filepath.IsAbs(target)","to":"localReplacement(target)","rule":"an absolute replacement directory stays as it is","killers":["internal/sketchfront:TestEmittedGoModMergesGoMod"]},
+    {"name":"gomod-versionless-replacement-not-applied","origin":"G1","file":"internal/sketch/lower/gomodule.go","from":"e.OldVersion != r.Version && e.OldVersion != \"\"","to":"e.OldVersion != r.Version","rule":"a version-less replacement applies to the required version when no exact one does","killers":["internal/sketchfront:TestEmittedGoModMergesGoMod"]},
+    {"name":"gomod-exact-replacement-not-preferred","origin":"G1","file":"internal/sketch/lower/gomodule.go","from":"prev == nil || prev.OldVersion == \"\"","to":"prev == nil","rule":"the replacement of the exact required version wins over the version-less one, as go build chooses","killers":["internal/sketchfront:TestEmittedGoModMergesGoMod"]},
+    {"name":"gomod-main-module-unclaimed","origin":"G1","file":"internal/sketch/lower/gomodule.go","from":"out.Main = s.Main","to":"_ = s.Main","rule":"no source requires the emitted main module's path","killers":["internal/sketchfront:TestEmittedGoModMergesGoMod"]},
+    {"name":"gomod-runtime-gomod-compared","origin":"G1","file":"internal/sketch/lower/gomodule.go","from":"if rel != \"go.mod\" {","to":"if true {","rule":"the runtime's go.mod is not one of the bytes a replacement must hold: go checks the module path, and the repository's go.mod is its own","killers":["internal/sketchfront:TestEmittedGoModMergesGoMod"]},
+    {"name":"gomod-conflict-at-earlier-line","origin":"G1","file":"internal/sketch/lower/gomodule.go","from":"Line: max(a, b)","to":"Line: min(a, b)","rule":"a conflict is reported at the later go.mod line of its two directives","killers":["internal/sketchfront:TestEmittedGoModMergesGoMod"]},
+    {"name":"fu-role-from-path","file":"internal/sketch/check/builders.go","from":"if q.testOf == tn.Pkg {","to":"if q.Path == tn.Pkg.Path+\"test\" {","killers":["internal/sketchfront:TestTestPackageChecksAlikeAsRoot"]},
+    {"name":"fu-role-not-given","file":"internal/sketchfront/load.go","from":"check.CheckTestOptions(path, files, imp, l.testOf(p), l.opts)","to":"check.CheckTestOptions(path, files, imp, nil, l.opts)","killers":["internal/sketchfront:TestTestPackageChecksAlikeAsRoot"]},
+    {"name":"lc-key-no-digest","origin":"wf10 LAWCACHE r1","file":"internal/sketchfront/lawverdicts.go","from":"parts := []string{\"law run\", t.Label, t.Digest(pkg),","to":"parts := []string{\"law run\", t.Label, \"\",","rule":"A law verdict is keyed by every input it reads: an edit of a declaration the law reads runs it again.","killers":["internal/sketchfront:TestLawVerdictsStale"]},
+    {"name":"lc-digest-no-generators","origin":"wf10 LAWCACHE r1","file":"internal/sketch/lower/ledger.go","from":"\td.generators(pkg)\n","to":"\t_ = pkg\n","rule":"A law's digest holds the generators of the types it draws (a constructor, an operation type's builder), which no name in the law reaches: an edit of one runs the law again.","killers":["internal/sketchfront:TestLawVerdictsStale"]},
+    {"name":"lc-eval-ignores-store","origin":"wf10 LAWCACHE r1","file":"internal/sketch/eval/eval.go","from":"if v, ok := b.Verdicts.Cached(run.Law, target.binding); ok {","to":"if v, ok := b.Verdicts.Cached(run.Law, target.binding); ok && false {","rule":"Check-time evaluation does not run a law whose verdict at its inputs is stored.","killers":["internal/sketchfront:TestLawRunsOnce","internal/sketchfront:TestLawVerdictsStale"]},
+    {"name":"lc-ledger-ignores-store","origin":"wf10 LAWCACHE r1","file":"internal/sketch/lower/rewritecheck.go","from":"if text, hit := store.Get(key); hit {","to":"if text, hit := store.Get(key); hit && false {","rule":"The ledger's check build does not run a law whose check run at its inputs is stored.","killers":["internal/sketchfront:TestLawRunsOnce"]},
+    {"name":"lc-store-keeps-failure","origin":"wf10 LAWCACHE r1","file":"internal/sketch/lawcache/lawcache.go","from":"if text == \"\" || failed(text) {","to":"if text == \"\" {","rule":"A refuted verdict is never stored, so a refuted law runs every time.","killers":["internal/sketchfront:TestLawRunsOnce"]},
+    {"name":"lc-context-digest-no-decl","origin":"wf10 LAWCACHE r2","file":"internal/sketch/lower/ledger.go","from":"\td.context(lc.Context)\n","to":"\n","rule":"A run under a named context is keyed by the tokens of the context's declaration: an edit of it runs the law again.","killers":["internal/sketchfront:TestLawVerdictsStale"]},
+    {"name":"lc-context-runs-uncached","origin":"wf10 LAWCACHE r2","file":"internal/sketch/lower/ledger.go","from":"add(RunTarget{Law: r.Law, Context: lc, Label: \"law \" + r.Law.Title(pkg) + \" under \" + lc.Context.Name})","to":"_ = lc","rule":"A run under a named context is a target of the store: unchanged, it runs once.","killers":["internal/sketchfront:TestLawVerdictsStale"]},
+    {"name":"lc-machine-runs-uncached","origin":"wf10 LAWCACHE r2","file":"internal/sketch/lower/ledger.go","from":"add(RunTarget{Law: r.Law, Machine: true, Label: \"law \" + r.Law.Title(pkg)})","to":"_ = 0","rule":"A machine's search is a target of the store: unchanged, it runs once in each runner.","killers":["internal/sketchfront:TestLawVerdictsStale"]},
+    {"name":"embed-unreached-asset-written","origin":"wf10 fu-embed-snap","file":"internal/sketch/lower/embed.go","from":"\t\t\tif sourced && !l.declReached(d) {","to":"\t\t\tif false && sourced && !l.declReached(d) {","rule":"An asset is a build input only when the build lowers its let's directive: a let main does not reach writes no asset (reach.go, BS5).","killers":["internal/sketchfront:TestEmbeddedAssetsSnapshot"]},
+    {"name":"gomod-go-directive-dropped","origin":"H3g","file":"internal/sketch/lower/gomodule.go","from":"\"\\n\\ngo \" + newerGo(goVersion, m.Go) + \"\\n\"","to":"\"\\n\\ngo \" + goVersion + \"\\n\"","rule":"the emitted go.mod states go.mod's go version when it is later than the runtime's: go build -mod=readonly cannot raise it","killers":["internal/sketchfront:TestEmittedGoModMergesGoMod"]},
+    {"name":"md1-copy-hash-unchecked","origin":"wf10 MD1","file":"internal/sketchfront/modules.go","from":"if got != want {","to":"if false && got != want {","rule":"A module's cached copy serves packages only when its h1 hash is go.sum's.","killers":["internal/sketchfront:TestModuleResolutionAgrees"]},
+    {"name":"md1-gomod-hash-unchecked","origin":"wf10 MD1","file":"internal/sketchfront/modules.go","from":"GoModFile: data}); got != want {","to":"GoModFile: data}); false && got != want {","rule":"A go.mod read for the module graph is checked against go.sum's path version/go.mod hash.","killers":["internal/sketchfront:TestModuleResolutionAgrees"]},
+    {"name":"md1-sum-missing-accepted","origin":"wf10 MD1","file":"internal/sketchfront/modules.go","from":"\twant, ok := sums(l.goSum)[key]\n\tif !ok {","to":"\twant, ok := sums(l.goSum)[key]\n\tif false && !ok {","rule":"A module with no go.sum line is a diagnostic that names the fetch command.","killers":["internal/sketchfront:TestModuleResolutionAgrees"]},
+    {"name":"md1-lower-version","origin":"wf10 MD1","file":"internal/sketchfront/modules.go","from":"ok && compareVersions(r.version, v) > 0","to":"ok && compareVersions(r.version, v) < 0","rule":"Of two versions of one module in the graph, the higher is selected (minimal version selection).","killers":["internal/sketchfront:TestModuleResolutionAgrees"]},
+    {"name":"md1-graph-not-read","origin":"wf10 MD1","file":"internal/sketchfront/modules.go","from":"\t\treqs, why := l.requirements(path, pinned[path])","to":"\t\treqs, why := []goRequire(nil), pinned[path][:0]","rule":"The go.mod of each required module raises the versions it requires.","killers":["internal/sketchfront:TestModuleResolutionAgrees"]},
+    {"name":"md1-replace-ignored","origin":"wf10 MD1","file":"internal/sketchfront/modules.go","from":"if dir, other, otherVersion, ok := l.replacement(path, version); ok {\n\t\tif dir != \"\" {","to":"if dir, other, otherVersion, ok := l.replacement(path, version); ok && false {\n\t\tif dir != \"\" {","rule":"A replacement in the root's go.mod by a local folder serves the module's packages.","killers":["internal/sketchfront:TestModuleResolutionAgrees"]},
+    {"name":"md1-go-module-accepted","origin":"wf10 MD1","file":"internal/sketchfront/modules.go","from":"\t\tm.reason = fmt.Sprintf(\"module %s is a Go module, not an Ergo module: its root holds no %s\", m.name, ModFile)\n\t\treturn m","to":"\t\treturn m","rule":"A required module serves Ergo packages only when its root holds ergo.mod.","killers":["internal/sketchfront:TestModuleResolutionAgrees"]},
+    {"name":"md1-module-name-unchecked","origin":"wf10 MD1","file":"internal/sketchfront/modules.go","from":"\tcase name != path:","to":"\tcase false:","rule":"A required module's ergo.mod names the module's path.","killers":["internal/sketchfront:TestModuleResolutionAgrees"]},
+    {"name":"md1-unexported-visible","origin":"wf10 MD1","file":"internal/sketch/check/expr.go","from":"if !ok || !isExported(x.Sel.Name) {","to":"if !ok {","rule":"A dependency's unexported declaration is not visible across the module line (grammar.md, Visibility 2).","killers":["internal/sketchfront:TestModuleResolutionAgrees"]},
+    {"name":"md1-dependency-test-run","origin":"wf10 MD1","file":"internal/sketch/lower/tests.go","from":"\treturn l.canon.tests(l.pkg)\n}","to":"\tout := l.canon.tests(l.pkg)\n\tfor p := range l.canon.sourced {\n\t\tif p != l.pkg {\n\t\t\tout = append(out, l.canon.tests(p)...)\n\t\t}\n\t}\n\treturn out\n}","rule":"ergo test of the root runs the root's tests, never a dependency's.","killers":["cmd/ergo:TestErgoModuleRequirement","cmd/ergo:TestErgoPackages"]},
+    {"name":"md1-modcache-env-ignored","origin":"wf10 MD1","file":"internal/sketchfront/modules.go","from":"if v := get(\"GOMODCACHE\"); filepath.IsAbs(v) {","to":"if v := get(\"GOMODCACHE\"); false && filepath.IsAbs(v) {","rule":"The loader reads the module cache the go command fills: GOMODCACHE first.","killers":["cmd/ergo:TestErgoModuleRequirement"],"anchor":{"tests":["cmd/ergo:TestErgoModuleRequirement"]}},
+    {"name":"md1-cache-unescaped","origin":"wf10 MD1","file":"internal/sketchfront/modules.go","from":"\t\tif 'A' <= r && r <= 'Z' {","to":"\t\tif false {","rule":"The module cache spells an upper-case letter as ! and its lower case.","killers":["internal/sketchfront:TestModuleResolutionAgrees"]},
+    {"name":"md3-trust-ignored","origin":"wf10 MD3","file":"internal/sketchfront/modules.go","from":"trusted := slices.Contains(l.trust, p.mod.path)","to":"trusted := true","rule":"A dependency's Go (import go, extern go) needs the root's trust go line.","killers":["internal/sketchfront:TestModuleResolutionAgrees"]},
+    {"name":"md3-trust-lines-unread","origin":"wf10 MD3","file":"internal/sketchfront/modules.go","from":"trusted := slices.Contains(l.trust, p.mod.path)","to":"trusted := false && slices.Contains(l.trust, p.mod.path)","rule":"A trust go line of the root's ergo.mod admits the module's Go.","killers":["internal/sketchfront:TestModuleResolutionAgrees"]},
+    {"name":"md3-extern-unseen","origin":"wf10 MD3","file":"internal/sketchfront/modules.go","from":"\t\t\t}\n\t\t\textern(d.Extern)\n\t\tcase *syntax.TypeDecl:","to":"\t\t\t}\n\t\tcase *syntax.TypeDecl:","rule":"An extern go function of a dependency is a use of Go, as an import go is.","killers":["internal/sketchfront:TestModuleResolutionAgrees"]},
+    {"name":"md3-dependency-unchecked","origin":"wf10 MD3","file":"internal/sketchfront/load.go","from":"\tpkg, found := check.CheckTestOptions(path, files, imp, l.testOf(p), l.opts)\n","to":"\tpkg, found := check.CheckTestOptions(path, files, imp, l.testOf(p), l.opts)\n\tif p.mod != nil {\n\t\tfound = nil\n\t}\n","rule":"A dependency's package is checked as a local one: it reaches the host only through the capabilities in its rows (the Ambient rule across the module line).","killers":["internal/sketchfront:TestModuleResolutionAgrees"]},
+    {"name":"snapshot-std-only","origin":"wf10 NP5","file":"internal/sketchfront/load.go","from":"if pkg, ok := check.InstalledPackage(key); ok && adopt(p, pkg) {","to":"if pkg, ok := check.InstalledPackage(key); ok && false && adopt(p, pkg) {","rule":"A required module's package gets the checked snapshot std gets: a warm check decodes it (std-nopriv S3, NP5).","killers":["internal/sketchfront:TestModuleSnapshotAgrees"]},
+    {"name":"np5-local-held","origin":"wf10 NP5","file":"internal/sketchfront/load.go","from":"if p.mod == nil || p.mod.sum == \"\" || len(p.goUses) > 0 || p.broken {","to":"if p.mod == nil || len(p.goUses) > 0 || p.broken {","rule":"Only a module copy named by its content hash is snapshotted; a local replacement may change.","killers":["internal/sketchfront:TestModuleSnapshotAgrees"]},
+    {"name":"np5-go-held","origin":"wf10 NP5","file":"internal/sketchfront/load.go","from":"if p.mod == nil || p.mod.sum == \"\" || len(p.goUses) > 0 || p.broken {","to":"if p.mod == nil || p.mod.sum == \"\" || p.broken {","rule":"A dependency package that uses Go reads the root's bindings and trust lines, so no snapshot holds it.","killers":["internal/sketchfront:TestModuleSnapshotAgrees"]},
+    {"name":"np5-import-unwrapped","origin":"wf10 NP5","file":"internal/sketchfront/load.go","from":"\t\timp = check.ModuleImporter(l)\n","to":"","rule":"A module package is checked through check.ModuleImporter, so its snapshot carries no loader.","killers":["internal/sketchfront:TestModuleSnapshotAgrees"]},
+    {"name":"np5-syntax-kept","origin":"wf10 NP5","file":"internal/sketchfront/load.go","from":"\t\tp.files[k].syntax = decoded[p.files[k].syntax.Name]\n","to":"\t\t_ = k\n","rule":"A package decoded from the snapshot is lowered from the syntax its checked result names.","killers":["internal/sketchfront:TestModuleSnapshotAgrees"]},
+    {"name":"embed-tree-std-only","origin":"wf10 STD-NOPRIV NP3d","file":"internal/sketch/check/body.go","from":"\treturn err == nil && len(body.Results) == 1 && body.Results[0] == \"*\"+goName\n","to":"\treturn err == nil && len(body.Results) == 1 && body.Results[0] == \"*\"+goName && n.Obj.Pkg.Std()\n","rule":"stdlib.md The body contract: embedded[T] builds a tree for any type whose declaration names the runtime's tree type, not only embed.FS.","killers":["internal/sketchfront:TestEmbeddedAssetsSnapshot"]},
+    {"name":"cs-count-skips-std","origin":"wf10 CS0","file":"internal/sketchfront/stagereport.go","from":"\tr[\"files_parsed\"] += w.StdFilesParsed\n","to":"","rule":"The stage report's parse count holds std's files parsed: a cold check that parses std is not reported as parsing only the program.","killers":["internal/sketchfront:TestStageReportCountsAgree"]},
+    {"name":"cs-dep-summary-hashes-program","origin":"wf10 CS0","file":"internal/sketchfront/load.go","from":"\t\tfor _, f := range q.files {\n\t\t\tfiles[f.abs] = f.text\n\t\t}\n\t\tfor name, data := range q.assets","to":"\t\tfor _, r := range p.imports {\n\t\t\tfor _, f := range r.files {\n\t\t\t\tfiles[f.abs] = f.text\n\t\t\t}\n\t\t}\n\t\tfor name, data := range q.assets","rule":"A package's dependency summary hashes that package's files, so the emission key's work is linear in the program; one that hashes the whole program per package is correct and quadratic.","killers":["internal/sketchfront:TestFrontEndWorkGrowsLinearly"]},
+    {"name":"cs-warm-key-omits-new-file","origin":"wf10 CS2","file":"internal/sketchfront/warmhit.go","from":"if got, ok := listing(dir); !ok || got != digest {","to":"if got, ok := listing(dir); !ok || got != digest && false {","rule":"The warm check lists every folder the request listed: a file added to a package is a miss.","killers":["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"],"anchor":{"tests":["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"]}},
+    {"name":"cs-warm-key-omits-asset","origin":"wf10 CS2","file":"internal/sketchfront/warm.go","from":"\tr.inputs.Files[name] = FileStamp{SHA256: p.sum, Size: int64(len(p.data))}\n","to":"\tif strings.HasSuffix(name, \".ergo\") || strings.HasSuffix(name, ModFile) {\n\t\tr.inputs.Files[name] = FileStamp{SHA256: p.sum, Size: int64(len(p.data))}\n\t}\n","rule":"The manifest holds every file the request read, embedded assets included, not only sources.","killers":["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"],"anchor":{"tests":["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"]}},
+    {"name":"cs-warm-key-omits-release","origin":"wf10 CS2","file":"internal/sketchfront/warm.go","from":"\twrite(compiler)\n","to":"\t_ = compiler\n","rule":"The request key holds the compiler's identity: another compiler is another request.","killers":["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"],"anchor":{"tests":["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"]}},
+    {"name":"cs-warm-trusts-mtime","origin":"wf10 CS2","file":"internal/sketchfront/warm.go","from":"same[k] = int64(len(data)) == want.Size && reads[k].sum == want.SHA256","to":"same[k] = int64(len(data)) == want.Size","rule":"The warm check compares the bytes' hash, never metadata: an edit that keeps a file's size and modification time is a miss.","killers":["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"],"anchor":{"tests":["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"]}},
+    {"name":"cs-warm-latest-only","origin":"wf10 CS2","file":"internal/sketchfront/warm.go","from":"for _, p := range parts {","to":"for _, p := range parts[:min(2, len(parts))] {","rule":"One manifest per request key, not per folder (the model's LatestOnly): a request with other options never takes another's answer.","killers":["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"],"anchor":{"tests":["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"]}},
+    {"name":"cs-warm-rereads","origin":"wf10 CS2","file":"internal/sketchfront/warm.go","from":"p, ok := r.read[name]","to":"p, ok := r.read[name+\"\\x00\"]","rule":"On a miss the normal path checks the bytes the warm check read and hashed (the model's CompileRereads), reading each input once.","killers":["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"],"anchor":{"tests":["cmd/ergo:TestWarmAnswerAgreesWithFullBuild"]}},
+    {"name":"cs-snap-stale-accepted","origin":"wf10 compile-speed CS1","file":"internal/sketchfront/stdsnap.go","from":"if len(embeddedStd) == 0 || stdSourcesDigest(deps) != embeddedStdSources {","to":"if len(embeddedStd) == 0 {","rule":"The compiler refuses an embedded snapshot of other std sources than the ones it embeds.","killers":["internal/sketchfront:TestStdSnapshotIsCurrent"]},
+    {"name":"cs-snap-drops-law","origin":"wf10 compile-speed CS1","file":"internal/sketch/check/export_gen.go","from":"\te.encT7(v.Tests)\n\te.encT8(v.Laws)","to":"\te.encT7(v.Tests)\n\te.encT8(nil)","rule":"A snapshot keeps every std package's laws, which a program's provider of a std operation type runs.","killers":["internal/sketchfront:TestStdSnapshotAgrees"]},
+    {"name":"cs-snap-eager-load","origin":"wf10 compile-speed CS1","file":"internal/sketch/check/export.go","from":"\tif !s.need(i, count) {\n\t\treturn nil, false\n\t}","to":"\tfor j := range s.segs {\n\t\ts.need(j, count)\n\t}\n\tif !s.need(i, count) {\n\t\treturn nil, false\n\t}","rule":"The embedded snapshot is decoded lazily: a check decodes the std packages its imports reach, and no other.","killers":["internal/sketchfront:TestColdCheckReadsNoStdSource"]},
+    {"name":"cs-snap-not-installed","origin":"wf10 compile-speed CS1","file":"internal/sketchfront/stdcache.go","from":"\t\tif useEmbedded && installEmbedded() {","to":"\t\tif false && installEmbedded() {","rule":"With every cache empty, the compiler's first check reads std from the embedded snapshot, not from source.","killers":["internal/sketchfront:TestColdCheckReadsNoStdSource"]},
+    {"name":"npj-import-law-runs-dropped","origin":"wf10 REF NOPRIV-JSON","file":"internal/sketch/lower/rewritecheck.go","from":"\t\tt.ImportLaws = importLawRuns(u, laws)","to":"\t\tt.ImportLaws = nil","rule":"The binary's check build runs the law runs its sites ask of a provider an imported package declares: a library has no sites, so no other run checks them.","killers":["internal/sketchfront:TestLedgerChecksAnImportedProvider"]},
+    {"name":"npj-check-runs-root-laws-only","origin":"wf10 REF NOPRIV-JSON","file":"internal/sketch/lower/tests.go","from":"\tif l.tests == nil || len(l.tests.importLaws) == 0 {\n\t\treturn runs\n\t}","to":"\tif true {\n\t\treturn runs\n\t}","rule":"The test build lowers and reports the imported law runs it is given beside the root's.","killers":["internal/sketchfront:TestLedgerChecksAnImportedProvider"]},
+    {"name":"npj-ledger-entries-root-only","origin":"wf10 REF NOPRIV-JSON","file":"internal/sketch/lower/ledger.go","from":"\tfor prov, rules := range importRules(u) {\n\t\tall[prov] = append(all[prov], rules...)\n\t}","to":"\tfor prov, rules := range map[*check.Named][]rwRule{} {\n\t\tall[prov] = append(all[prov], rules...)\n\t}","rule":"The ledger writer writes the entries of an imported provider's laws the check ran.","killers":["internal/sketchfront:TestLedgerChecksAnImportedProvider"]},
+    {"name":"npj-rewrite-laws-root-only","origin":"wf10 REF NOPRIV-JSON","file":"internal/sketch/lower/rewritecheck.go","from":"\treturn len(newRewriter(u.Package, nil).rules) > 0 || len(importRules(u)) > 0","to":"\treturn len(newRewriter(u.Package, nil).rules) > 0","rule":"A binary whose only rewrite laws are an import's still checks them and reads the ledger for them.","killers":["internal/sketchfront:TestLedgerChecksAnImportedProvider"]},
+    {"name":"xmd-builtin-extern-trusted","origin":"wf10 REF XMD","file":"internal/sketchfront/modules.go","from":"path == \"\" && check.IsGoBuiltin(name) {","to":"path == \"\" && false && check.IsGoBuiltin(name) {","rule":"A required module's binding of a Go builtin (extern go len, append) runs no Go code and needs no trust go line.","killers":["internal/sketchfront:TestModuleResolutionAgrees"]},
+    {"name":"gs8-digest-no-runtime","origin":"wf10 GS8","file":"internal/sketchfront/sketchfront.go","from":"all := append(slices.Clone(lower.Runtime()), files...)","to":"all := files","rule":"The emitted digest covers the runtime files the module holds: a runtime edit reruns every example.","killers":["internal/sketchfront:TestEmittedDigestIsThePublishedModule"]},
+    {"name":"gs8-digest-build-lowering","origin":"wf10 GS8","file":"internal/sketchfront/sketchfront.go","from":"\t\tif files, err = lowerUnit(a, unit, lowering); err != nil {\n\t\t\treturn \"\", err","to":"\t\tif files, err = lowerUnit(a, unit, lower.Lower); err != nil {\n\t\t\t_ = lowering\n\t\t\treturn \"\", err","rule":"The emitted digest of a test build is the test module's: ergo test --emitted keys the test leg.","killers":["internal/sketchfront:TestEmittedDigestIsThePublishedModule"]},
+    {"name":"cs-ir-file-shared","origin":"wf10 compile-speed CS10","file":"internal/sketch/lower/pkgsplit_ir.go","from":"\t\tbyPkg[p] = append(byPkg[p], fn)","to":"\t\tbyPkg[1] = append(byPkg[1], fn)","rule":"Each Go package of the IR split has the IR file of its own bodies in its folder; one shared IR file would recompile every package on any IR edit, and a package's compile would find no body for its functions.","killers":["internal/sketchfront:TestIRFilePerPackage"]},
+    {"name":"cs-ir-foreign-undeclared","origin":"wf10 compile-speed CS10","file":"internal/sketch/lower/pkgsplit_ir.go","from":"\tfor _, k := range slices.Sorted(maps.Keys(s.uses)) {","to":"\tfor _, k := range slices.Sorted(maps.Keys(s.uses))[:0] {","rule":"A name an IR body spells that the split places in another package is declared again in the body's package: the patched compile resolves IR names in the body's package only.","killers":["internal/sketchfront:TestIRFilePerPackage"]},
+    {"name":"cs-dev-stat-never-kept","origin":"wf10 compile-speed CS9","file":"internal/sketchfront/warmhit.go","from":"\tif stated && again && before == after && settled {","to":"\tif stated && again && before == after && settled && false {","rule":"ergo dev keeps an input's hash while its stat stays the same: a served request reads no unchanged input.","killers":["internal/sketchfront:TestStatSumsReadOnlyWhatChanged"]},
+    {"name":"cs-dev-stat-ignored","origin":"wf10 compile-speed CS9","file":"internal/sketchfront/warmhit.go","from":"\t\tif found && k.stat == before {","to":"\t\tif found {","rule":"A kept hash stands only while the file's stat is the one it was read with.","killers":["internal/sketchfront:TestStatSumsReadOnlyWhatChanged"]},
+    {"name":"cs-dev-stat-racy","origin":"wf10 compile-speed CS9","file":"internal/sketchfront/warmhit.go","from":"max(after.Mtime, after.Ctime))) > settle\n","to":"max(after.Mtime, after.Ctime))) > settle || true\n","rule":"A file changed within settle of its read is read again: a second write in the same timestamp tick may leave its stat as it was.","killers":["internal/sketchfront:TestStatSumsReadOnlyWhatChanged"]},
+    {"name":"cs-dev-hit-ignores-hash","origin":"wf10 compile-speed CS9","file":"internal/sketchfront/warmhit.go","from":"\t\tif !ok || size != want.Size || sum != want.SHA256 {","to":"\t\tif !ok || false && (size != want.Size || sum != want.SHA256) {","rule":"ergo dev answers only when every input has the content of the manifest.","killers":["cmd/ergo:TestDevAnswersAWarmCheck"]},
+    {"name":"cs5b1-hook-skipped","origin":"wf10 CS5b-1","file":"internal/sketchfront/load.go","from":"\tif checkedHook != nil {\n","to":"\tif checkedHook != nil && false {\n","rule":"The census sees every package right after its own check, so an importer's writes to it are compared, never skipped (compile-speed/cs5b.md §5).","killers":["internal/sketchfront:TestImporterLeavesImportUnchanged"]},
+    {"name":"cs5b1-alias-owner-imported","origin":"wf10 CS5b-1","file":"internal/sketch/check/decl.go","from":"if n == nil || n.Obj.Pkg != c.pkg || n.method(f.Name) != nil {","to":"if n == nil || n.method(f.Name) != nil {","rule":"A function whose first parameter is an alias of an imported type stays a function: checking the importer adds no method to the imported type (types.md, Methods 3; compile-speed/cs5b.md §5).","killers":["internal/sketchfront:TestImporterLeavesImportUnchanged"]},
+    {"name":"cs5b2-walk-skips-interface","origin":"wf10 CS5b-2","file":"internal/sketch/check/objpath.go","from":"\tcase reflect.Interface:\n\t\tif !v.IsNil() {\n\t\t\tw.walk(v.Elem(), path)","to":"\tcase reflect.Interface:\n\t\tif false {\n\t\t\tw.walk(v.Elem(), path)","rule":"Every object a user segment names in another user package has an object path, through interface-valued fields too (compile-speed/cs5b.md §3).","killers":["internal/sketchfront:TestPathsRoundTrip"]},
+    {"name":"cs5b2-resolve-field-off-by-one","origin":"wf10 CS5b-2","file":"internal/sketch/check/objpath.go","from":"\t\t\tv = v.Field(i)\n","to":"\t\t\tv = v.Field(min(i+1, v.NumField()-1))\n","rule":"A path resolves to the object it was taken from (compile-speed/cs5b.md §3).","killers":["internal/sketchfront:TestPathsRoundTrip"]},
+    {"name":"cs5b2-encode-ids-not-paths","origin":"wf10 CS5b-2","file":"internal/sketch/check/export.go","from":"\t\t\tif e.symbolic != nil {\n","to":"\t\t\tif e.symbolic != nil && false {\n","rule":"A user segment names another user package's objects by object path, so it decodes against a fresh check of that package (compile-speed/cs5b.md §2).","killers":["internal/sketchfront:TestPathsRoundTrip"]},
+    {"name":"teqb-counted-as-ir","origin":"wf10 TEQb (TEST-one's module binary through IR)","file":"internal/sketchfront/sketchfront.go","from":"\t\tif req.IR {\n\t\t\tstage.Add(stage.BinariesIR, 1)\n","to":"\t\tif true {\n\t\t\tstage.Add(stage.BinariesIR, 1)\n","rule":"The stage report counts a binary lowered without IR as binaries_text, which the examples runner's guard reads.","killers":["internal/sketchfront:TestStageReportCountsAgree"],"anchor":{"tests":["internal/sketchfront:TestStageReportCountsAgree"]}},
+    {"name":"ft-incomplete-reads-as-pass","origin":"wf10 FT1 (ergo test on the evaluator)","file":"internal/sketchfront/evaluatetests.go","from":"\tlines, stderr, exit, ok := eval.Summary(rep.Results, source)\n","to":"\tlines, stderr, exit, ok := eval.Summary(func() []eval.Result {\n\t\tfor i := range rep.Results {\n\t\t\tif rep.Results[i].Status == eval.Incomplete {\n\t\t\t\trep.Results[i].Status, rep.Results[i].Evidence = eval.Passed, \"evaluated\"\n\t\t\t}\n\t\t}\n\t\treturn rep.Results\n\t}(), source)\n","rule":"An obligation the evaluator left incomplete (its budget ran out) is no pass: the native binary answers its package.","killers":["internal/sketch/eval:TestTiersAgree"],"anchor":{"tests":["internal/sketch/eval:TestTiersAgree"]}},
+    {"name":"ft-undecided-dropped","origin":"wf10 FT1 (ergo test on the evaluator)","file":"internal/sketchfront/evaluatetests.go","from":"\tlines, stderr, exit, ok := eval.Summary(rep.Results, source)\n","to":"\tlines, stderr, exit, ok := eval.Summary(func() (kept []eval.Result) {\n\t\tfor _, r := range rep.Results {\n\t\t\tif _, ok := eval.VerdictLine(r, source); ok {\n\t\t\t\tkept = append(kept, r)\n\t\t\t}\n\t\t}\n\t\treturn kept\n\t}(), source)\n","rule":"An obligation the evaluator does not decide is run by the native binary, never dropped from the answer.","killers":["internal/sketch/eval:TestTiersAgree"],"anchor":{"tests":["internal/sketch/eval:TestTiersAgree"]}},
+    {"name":"ft-seed-not-shared","origin":"wf10 FT1 (ergo test on the evaluator)","file":"internal/sketchfront/evaluatetests.go","from":"\tb.Seed, b.States = seed, states\n","to":"\tb.States = states\n","rule":"Both tiers draw a law's or a property's cases from the seed ergo test was given.","killers":["internal/sketch/eval:TestTiersAgree"],"anchor":{"tests":["internal/sketch/eval:TestTiersAgree"]}},
+    {"name":"ft-evidence-says-native","origin":"wf10 FT1 (ergo test on the evaluator)","file":"internal/sketchfront/evaluatetests.go","from":"\t\tmark := EvaluatedMark\n","to":"\t\tmark := \"\"\n","rule":"Each verdict line the evaluator wrote says so (\" (evaluated)\"): a reader always knows which tier answered.","killers":["internal/sketch/eval:TestTiersAgree"],"anchor":{"tests":["internal/sketch/eval:TestTiersAgree"]}},
+    {"name":"ft-key-omits-seed","origin":"wf10 FT2 (stored verdicts and route notes)","file":"internal/sketchfront/storedtests.go","from":"lower.TestDigest(pkg, t), strconv.FormatUint(seed, 10))","to":"lower.TestDigest(pkg, t))","rule":"A test's stored verdict is keyed by the seed its cases are drawn from.","killers":["internal/sketchfront:TestStoredVerdictsAgree"],"anchor":{"tests":["internal/sketchfront:TestStoredVerdictsAgree"]}},
+    {"name":"ft-test-verdict-never-stored","origin":"wf10 FT2 (stored verdicts and route notes)","file":"internal/sketchfront/storedtests.go","from":"\tv.store.Put(v.key(t), ","to":"\treturn\n\tv.store.Put(v.key(t), ","rule":"A passed test's verdict is stored: an edit that changes no token it reaches runs it not again.","killers":["internal/sketchfront:TestStoredVerdictsAgree"],"anchor":{"tests":["internal/sketchfront:TestStoredVerdictsAgree"]}},
+    {"name":"ft-route-note-ignored","origin":"wf10 FT2 (stored verdicts and route notes)","file":"internal/sketchfront/evaluatetests.go","from":"ok && text == routeNote {","to":"ok && text == routeNote && false {","rule":"A route note sends the package to the test binary with no evaluation.","killers":["internal/sketchfront:TestRouteNoteSkipsEvaluation"],"anchor":{"tests":["internal/sketchfront:TestRouteNoteSkipsEvaluation"]}},
+    {"name":"ft-route-key-omits-digest","origin":"wf10 FT2 (stored verdicts and route notes)","file":"internal/sketchfront/storedtests.go","from":"\t\tout[t.Name] = routeKey(testKey(pkg, t, seed), steps)\n","to":"\t\tout[t.Name] = routeKey(t.Name, steps)\n","rule":"A route note is keyed by the obligation's reach digest: an edit of what it reaches lets the evaluator try again.","killers":["internal/sketchfront:TestRouteNoteSkipsEvaluation"],"anchor":{"tests":["internal/sketchfront:TestRouteNoteSkipsEvaluation"]}},
+    {"name":"ft-key-omits-compiler","origin":"wf10 FT2 (stored verdicts and route notes)","file":"internal/sketch/lawcache/lawcache.go","from":"\tname = Key(s.compiler, key)\n","to":"\tname = Key(key)\n","rule":"A stored verdict is keyed by the compiler's identity (the ergo executable's digest: lowering, evaluator, std, runtime): another compiler never replays a pass.","killers":["internal/sketchfront:TestStoredVerdictsAgree"],"anchor":{"tests":["internal/sketchfront:TestStoredVerdictsAgree"]}},
+    {"name":"ft-native-key-omits-toolchain","origin":"wf10 FT2 (stored verdicts and route notes)","file":"internal/sketchfront/lawverdicts.go","from":"\t\t\tk = lawcache.Key(k, \"toolchain\", toolchain)\n","to":"","rule":"A law verdict the test binary wrote is keyed by the Go toolchain that linked it: another toolchain, and the evaluator, never read it.","killers":["internal/sketchfront:TestNativeVerdictsKeyTheToolchain"],"anchor":{"tests":["internal/sketchfront:TestNativeVerdictsKeyTheToolchain"]}},
+    {"name":"ft-check-ignores-pinned","origin":"wf10 FT2 (stored verdicts and route notes)","file":"internal/sketchfront/lawverdicts.go","from":"\t\tif t.Machine || v.native == \"\" {\n","to":"\t\tif true {\n","rule":"ergo check and tier 1 read a law verdict the test binary wrote under the pinned toolchain they would build with: no double work.","killers":["internal/sketchfront:TestNativeVerdictsKeyTheToolchain"],"anchor":{"tests":["internal/sketchfront:TestNativeVerdictsKeyTheToolchain"]}},
+    {"name":"ft5-raw-not-in-key","origin":"wf10 test-speed FT5","file":"internal/sketchfront/sketchfront.go","from":"\t\tinput.Flags = append(input.Flags, rawFlag)\n","to":"","rule":"The dev profile's unformatted module has an emission key of its own.","killers":["internal/sketchfront:TestRawLoweringKeepsLines"]},
+    {"name":"ft5-raw-unit-not-set","origin":"wf10 test-speed FT5","file":"internal/sketchfront/sketchfront.go","from":"\tunit.Raw = req.Toolchain.Profile == build.Dev\n","to":"\tunit.Raw = false\n","rule":"The dev profile lowers without go/format.","killers":["internal/sketchfront:TestRawLoweringKeepsLines"]},
     {"name":"ft-harness-key-has-bodies","origin":"wf10 test-speed FT6 (the harness is its own Go package)","file":"internal/sketch/build/action.go","from":"\t\treturn []string{\"-l\", \"-dwarf=false\"}\n","to":"\t\treturn []string{\"-dwarf=false\"}\n","rule":"Under the dev profile the root package's export data holds no function body, so a body edit of the root compiles the root and reuses the harness.","killers":["internal/sketchfront:TestBodyEditCompilesTheRootAlone"],"anchor":{"tests":["internal/sketchfront:TestBodyEditCompilesTheRootAlone"]}},
     {"name":"ft-harness-key-omits-signature","origin":"wf10 test-speed FT6 (the harness is its own Go package)","file":"internal/sketch/build/direct.go","from":"\t\tk.add(\"export\", a.Export)\n","to":"\t\tif !strings.HasSuffix(imp, \"/ergoroot\") {\n\t\t\tk.add(\"export\", a.Export)\n\t\t}\n","rule":"The harness's compile is keyed by the root package's export data: a declaration added to the root compiles the harness again.","killers":["internal/sketchfront:TestBodyEditCompilesTheRootAlone"],"anchor":{"tests":["internal/sketchfront:TestBodyEditCompilesTheRootAlone"]}}
   ]
