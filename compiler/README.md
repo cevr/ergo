@@ -12,6 +12,8 @@ The binary holds these packages through `internal/linked` (`docs/tooling.md`, Li
 - `syntax/` (pure): the scanner and parser on SELFLAYOUT's layout (capstone S2a, S2b), moved here from their run dirs. The scanner writes token columns (`token.ergo`: a one-byte kind and a start, `End` by a second scan; `scan.ergo`: dispatch on the first byte, keywords by length and compare), `comments.ergo` and `lines.ergo`; the parser (`parse*.ergo`, `diag.ergo`) writes `Tree`, 13-byte rows with one `extra` pool (`tree.ergo`), and `view.ergo` reads a row as the closed unions `Expr`, `Stmt`, `Decl`, `Type` and writes one back (`View`, `Put`). `skip "reason"` is a statement only before a string literal: `skip` is no scanner keyword. The laws are in `scan_laws.ergo` and `tree_laws.ergo`. Not linked yet: the row `syntax` of `linked.Packages` and the agreement tests against the Go scanner and parser come with S2a's and S2b's landing.
 - `check/store/` (pure): the self-hosted checker's tables (capstone S3a): id spaces, object tables, the package scope, the type pool, the declarations with their fingerprints (`Prints`: `Fp` over a declaration's tokens, `Ifp` over what an importer sees), each file with its laws.
 - `check/bind/` (pure): collect and bind on the store (capstone S3b). `collect.ergo` puts each file's package-level declarations into the store; `parents.ergo` is the parent column over the package's rows (`PNode` = file base + row), with each row's children; `bodies.ergo` resolves every identifier (`Uses`) and marks the body's declarations (locals and laws) on one undo stack (`dense.Stack`); `prints.ergo` gives each declaration its prints. `internal/selfhostcheck`'s `TestCompilerBindAgreesWithChecker` holds Uses and Defs equal to the Go checker's over the corpus.
+- `check/types/` (pure): the kinds of bracket parameters and the types of declarations, on the store (capstone S3t). `kinds.ergo` solves each generic type's parameter kinds (type, error row, capability row) by union-find over positions, links through local generic types and the receiver rule (196m); `resolve.ergo` resolves a type expression to a pool type and prints it as the Go checker's `Type.String`; `records.ergo` lists the record declarations, inline variants included. Other packages' types come in as a table until S3c's frozen interfaces. `check/store/types_api.ergo` is S3t's addition to the store: the pointer, tuple, signature, array and foreign kinds, the own and entry marks, and readers. `TestCompilerTypesAgreeWithChecker` and `TestCompilerTypesProperty` hold the kinds and the record field types equal to the Go checker's.
+- `cmd/kinddump`, `cmd/typedump`: print the solved kinds and the resolved record field types of the named files, the agreement tests' dumps.
 - `cmd/binddump`: prints bind's declarations, uses (`-uses`) or declarations with locals (`-locals`) of the named files, the agreement test's dump.
 - `cmd/parsedump`, `cmd/scandump`: print the parser's tree and the scanner's tokens of the named files as the agreement tests' canonical dump.
 
@@ -23,7 +25,8 @@ ergo test compiler/format
 ergo test compiler/syntax
 ergo test compiler/check/store
 ergo test compiler/check/bind
+ergo test compiler/check/types
 ERGO_SELFHOST_SEED=1 go test -count=1 -run '^TestSelfhost(BridgeAgrees|FormatAgrees|LayoutModel)$' ./internal/selfhostcheck
-ERGO_TEST_CLI=bin/ergo go test -count=1 -run '^TestCompiler(Store|Bind)' ./internal/selfhostcheck
+ERGO_TEST_CLI=bin/ergo go test -count=1 -run '^TestCompiler(Store|Bind|Types)' ./internal/selfhostcheck
 go run ./scripts/linked
 ```

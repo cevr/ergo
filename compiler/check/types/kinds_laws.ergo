@@ -1,0 +1,40 @@
+import compiler/check/bind
+import compiler/syntax
+import strings
+
+// chain is a package of n generic records, each passing its parameter
+// to the next, the last putting it in an error row: one equivalence class
+// of n variables, the deepest path union-find can build.
+func chain(n int) string {
+	let mut b = strings.NewBuilder()
+	for i in 0..n {
+		if i == n-1 {
+			b.WriteString("type G\(i)[A] { f func() int fails A }\n")
+		} else {
+			b.WriteString("type G\(i)[A] { f G\(i + 1)[A] }\n")
+		}
+	}
+	b.String()
+}
+
+// solveChain is the solved kinds of chain(n).
+func solveChain(n int) Kinds {
+	let p = syntax.Parse(chain(n))
+	let s = bind.Collect("main", []bind.File{bind.File{Name: "a.ergo", Parsed: p}})
+	SolveKinds(s, []syntax.Parsed{p}, []Ext{})
+}
+
+// KindSolveWorkIsNearLinear: the union-find steps of a chain of 2n
+// declarations are at most twice those of n plus 2n (n log n passes;
+// a find without path compression is quadratic and does not), and every
+// parameter of the chain takes the error row's kind.
+law KindSolveWorkIsNearLinear(xs []int) {
+	let n = 8 + len(xs)%24
+	let a = solveChain(n)
+	let b = solveChain(2 * n)
+	let mut ok = b.Steps <= 2*a.Steps+2*n
+	for ks in b.Of {
+		ok = ok && len(ks) == 1 && ks[0] == kindErrors
+	}
+	ok
+}

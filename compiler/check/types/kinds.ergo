@@ -1,0 +1,683 @@
+// Package types resolves the type expressions of one package's
+// declarations on its store (capstone S3t; selfhost/S3t/plan.md). This
+// file solves the kinds of the bracket parameters of the package's generic
+// type declarations, as the Go checker's solveDeclKinds (kinds.go) does:
+// a parameter's kind follows its positions, and a parameter that is the
+// argument of a local generic type has that type's parameter's kind, so
+// the kinds of all the declarations are one system of equalities, solved
+// by union-find.
+
+import compiler/check/store
+import compiler/syntax
+import dense
+
+// The kinds, as bits of a position set.
+let kindType = 1
+let kindErrors = 2
+let kindUses = 4
+
+// KindConflict is the solved kind of a parameter whose positions disagree
+// (S108 where the declaration resolves).
+let KindConflict = 8
+
+// Ext is the parameter kinds of a generic type that is not the package's
+// own, a prelude type (Option) or an imported one (task.Task), by its head
+// as written. It stands in for the frozen interfaces of S3c.
+type Ext { Head string, Kinds []int }
+
+// gen is one generic type declaration of the package, in collect order:
+// its file, its name row, its bracket parameter names, whether its body is
+// an operation type, and the first variable of the system it owns.
+type gen { file int, name dense.ID[syntax.Node], body dense.ID[syntax.Node], params []string, typed []bool, ops bool, base int }
+
+// solver is the union-find of the kind system: a variable per bracket
+// parameter, the positions seen at each root, and the steps its finds
+// took (the counted guard KindSolveWorkIsNearLinear reads).
+type solver { parent []int, seen []int, steps int }
+
+// find is v's root, halving the path it walks.
+func find(s *solver, v int) int {
+	let mut r = v
+	for s.parent[r] != r {
+		s.parent[r] = s.parent[s.parent[r]]
+		r = s.parent[r]
+		s.steps = s.steps + 1
+	}
+	r
+}
+
+func observe(s *solver, v int, k int) {
+	let r = find(s, v)
+	s.seen[r] = s.seen[r] | k
+}
+
+func union(s *solver, a int, b int) {
+	let ra = find(s, a)
+	let rb = find(s, b)
+	if ra == rb {
+		return
+	}
+	s.parent[ra] = rb
+	s.seen[rb] = s.seen[rb] | s.seen[ra]
+	s.seen[ra] = 0
+}
+
+// solve is the state of one package's solve.
+type solve { s store.Store, files []syntax.Parsed, gens []gen, ext []Ext, sv solver, ownMap bool }
+
+// walker names the variables a walk observes: names[i] is variable
+// vars[i] in file p.
+type walker { p syntax.Parsed, names []string, vars []int }
+
+func nameText(p syntax.Parsed, id dense.ID[syntax.Node]) string {
+	match syntax.ViewOf(p.Tree, id) {
+	case syntax.Name as n:
+		syntax.TokText(p, n.Tok)
+	case _:
+		""
+	}
+}
+
+// self is the variable a bare name x stands for in w, or -1.
+func self(w walker, x dense.ID[syntax.Node]) int {
+	let t = nameText(w.p, unparen(w.p, x))
+	if t == "" {
+		return -1
+	}
+	for i, n in w.names {
+		if n == t {
+			return w.vars[i]
+		}
+	}
+	-1
+}
+
+func unparen(p syntax.Parsed, x dense.ID[syntax.Node]) dense.ID[syntax.Node] {
+	match syntax.ViewOf(p.Tree, x) {
+	case syntax.ParenExpr as pe:
+		unparen(p, pe.X)
+	case _:
+		x
+	}
+}
+
+// localGen is the index in gens of the package's own generic type the
+// head x names, or -1. A head is a bare name the package scope gives a
+// type declaration; a selector names another package's.
+func localGen(st solve, p syntax.Parsed, x dense.ID[syntax.Node]) int {
+	let t = nameText(p, x)
+	if t == "" {
+		return -1
+	}
+	match store.Lookup(st.s, t) {
+	case Some[dense.ID[store.Decl]] as d:
+		let row = store.DeclOf(st.s, d.Value)
+		if store.KindName(int(row.Kind)) != "type" {
+			return -1
+		}
+		for i, g in st.gens {
+			if g.file == int(row.File) && dense.Index(g.name) == int(row.Node) {
+				return i
+			}
+		}
+		-1
+	case None:
+		-1
+	}
+}
+
+// slotKinds is the parameter kinds of a generic type the head x names
+// that is not the package's own: from ext, by the head's text. A name the
+// package scope holds is the package's (a local type has no entry here).
+func slotKinds(st solve, p syntax.Parsed, x dense.ID[syntax.Node]) []int {
+	let mut head = ""
+	match syntax.ViewOf(p.Tree, x) {
+	case syntax.Name as n:
+		let t = syntax.TokText(p, n.Tok)
+		match store.Lookup(st.s, t) {
+		case Some[dense.ID[store.Decl]]:
+			return []int{}
+		case None:
+			head = t
+		}
+	case syntax.SelectorExpr as se:
+		let q = nameText(p, se.X)
+		match store.Lookup(st.s, q) {
+		case Some[dense.ID[store.Decl]] as d:
+			if store.KindName(int(store.DeclOf(st.s, d.Value).Kind)) != "pkg" {
+				return []int{}
+			}
+		case None:
+			return []int{}
+		}
+		head = q + "." + nameText(p, se.Sel)
+	case _:
+		return []int{}
+	}
+	for e in st.ext {
+		if e.Head == head {
+			return e.Kinds
+		}
+	}
+	[]int{}
+}
+
+// orLeaves is the operands of a row argument written as a union, at any
+// nesting; any other expression is its own leaf.
+func orLeaves(p syntax.Parsed, x dense.ID[syntax.Node]) []dense.ID[syntax.Node] {
+	match syntax.ViewOf(p.Tree, unparen(p, x)) {
+	case syntax.BinaryExpr as b:
+		if syntax.TokText(p, b.Op) == "|" {
+			let mut out = orLeaves(p, b.X)
+			for y in orLeaves(p, b.Y) {
+				out = out.Append(y)
+			}
+			return out
+		}
+		[]dense.ID[syntax.Node]{x}
+	case _:
+		[]dense.ID[syntax.Node]{x}
+	}
+}
+
+// linkHead takes over an index expression whose head is the package's
+// own generic type: each argument that is a variable of w unifies with
+// the head's parameter; a lone other argument is walked as a type. It
+// reports whether it took the expression.
+func linkHead(st *solve, w walker, head dense.ID[syntax.Node], indices []dense.ID[syntax.Node]) bool {
+	let g = localGen(*st, w.p, head)
+	if g < 0 {
+		return false
+	}
+	walk(st, w, head, kindType)
+	for i, a in indices {
+		if i >= len(st.gens[g].params) {
+			walk(st, w, a, kindType)
+			continue
+		}
+		let slot = st.gens[g].base + i
+		let args = orLeaves(w.p, a)
+		for arg in args {
+			let v = self(w, arg)
+			if v >= 0 {
+				union(&st.sv, v, slot)
+			} else if len(args) == 1 {
+				walk(st, w, arg, kindType)
+			}
+		}
+	}
+	true
+}
+
+func listIDs(p syntax.Parsed, l syntax.List) []dense.ID[syntax.Node] {
+	let mut out = []dense.ID[syntax.Node]{}
+	for i in 0..syntax.Len(l) {
+		out = out.Append(syntax.Item(p.Tree, l, i))
+	}
+	out
+}
+
+// index walks an index expression head[indices], or lets linkHead take
+// it.
+func index(st *solve, w walker, head dense.ID[syntax.Node], indices []dense.ID[syntax.Node]) {
+	if linkHead(st, w, head, indices) {
+		return
+	}
+	walk(st, w, head, kindType)
+	let kinds = slotKinds(*st, w.p, head)
+	for i, x in indices {
+		walk(st, w, x, if i < len(kinds) { kinds[i] } else { kindType })
+	}
+}
+
+// fields walks the types of a field list.
+func fields(st *solve, w walker, l dense.ID[syntax.Node]) {
+	match syntax.ViewOf(w.p.Tree, l) {
+	case syntax.FieldList as fl:
+		for f in listIDs(w.p, fl.List) {
+			match syntax.ViewOf(w.p.Tree, f) {
+			case syntax.Field as fd:
+				match dense.Unpack(fd.Type) {
+				case Some[dense.ID[syntax.Node]] as t:
+					walk(st, w, t.Value, kindType)
+				case None:
+				}
+			case _:
+			}
+		}
+	case _:
+	}
+}
+
+// walk observes the names in type positions of x with the kind of their
+// position (decl.go typeWalker).
+func walk(st *solve, w walker, x dense.ID[syntax.Node], k int) {
+	match syntax.ViewOf(w.p.Tree, x) {
+	case syntax.Name:
+		let v = self(w, x)
+		if v >= 0 {
+			observe(&st.sv, v, k)
+		}
+	case syntax.ParenExpr as pe:
+		walk(st, w, pe.X, k)
+	case syntax.BinaryExpr as b:
+		walk(st, w, b.X, k)
+		walk(st, w, b.Y, k)
+	case syntax.IndexExpr as ix:
+		index(st, w, ix.X, listIDs(w.p, ix.Indices))
+	case syntax.ArrayType as a:
+		walk(st, w, a.Elt, kindType)
+	case syntax.MapType as m:
+		if st.ownMap {
+			// The package declares its own Map: Map[K, V] is its instance
+			// (bindings.go mapAsDeclared).
+			index(st, w, m.X, []dense.ID[syntax.Node]{m.Key, m.Value})
+		} else {
+			walk(st, w, m.Key, kindType)
+			walk(st, w, m.Value, kindType)
+		}
+	case syntax.StarExpr as s:
+		walk(st, w, s.X, kindType)
+	case syntax.FuncType as ft:
+		fields(st, w, ft.Params)
+		match dense.Unpack(ft.Results) {
+		case Some[dense.ID[syntax.Node]] as r:
+			fields(st, w, r.Value)
+		case None:
+		}
+		match dense.Unpack(ft.Needs) {
+		case Some[dense.ID[syntax.Node]] as n:
+			match syntax.ViewOf(w.p.Tree, n.Value) {
+			case syntax.NeedsClause as nc:
+				for name in listIDs(w.p, nc.Names) {
+					walk(st, w, name, kindUses)
+				}
+			case _:
+			}
+		case None:
+		}
+	case syntax.ErrorRow as er:
+		for t in listIDs(w.p, er.Types) {
+			walk(st, w, t, kindErrors)
+		}
+	case syntax.StructType as s:
+		fields(st, w, s.Fields)
+	case syntax.InterfaceType as it:
+		// Operations and union members are type positions; an include, a
+		// law and an inline variant are not (typeWalker).
+		for m in listIDs(w.p, it.Members) {
+			match syntax.ViewOf(w.p.Tree, m) {
+			case syntax.Field as fd:
+				if fd.Dots < 0 {
+					match dense.Unpack(fd.Type) {
+					case Some[dense.ID[syntax.Node]] as t:
+						walk(st, w, t.Value, kindType)
+					case None:
+					}
+				}
+			case syntax.LawDecl:
+			case syntax.VariantSpec:
+			case _:
+				walk(st, w, m, kindType)
+			}
+		}
+	case syntax.MachineType as mt:
+		walk(st, w, mt.State, kindType)
+		walk(st, w, mt.Signal, kindType)
+	case _:
+	}
+}
+
+// bracketNames is the parameter names of a bracket field list, in order,
+// and whether each is constrained by a type other than `error`.
+func bracketNames(p syntax.Parsed, l dense.ID[syntax.Node]) ([]string, []bool) {
+	let mut names = []string{}
+	let mut typed = []bool{}
+	match syntax.ViewOf(p.Tree, l) {
+	case syntax.FieldList as fl:
+		for f in listIDs(p, fl.List) {
+			match syntax.ViewOf(p.Tree, f) {
+			case syntax.Field as fd:
+				let mut constrained = false
+				match dense.Unpack(fd.Type) {
+				case Some[dense.ID[syntax.Node]] as t:
+					constrained = nameText(p, t.Value) != "error"
+				case None:
+				}
+				for n in listIDs(p, fd.Names) {
+					names = names.Append(nameText(p, n))
+					typed = typed.Append(constrained)
+				}
+			case _:
+			}
+		}
+	case _:
+	}
+	(names, typed)
+}
+
+// Kinds is the solved parameter kinds of each generic type declaration
+// of the package, in collect order, with its name: kindType, kindErrors,
+// kindUses or KindConflict per parameter.
+type Kinds { Names []string, Of [][]int, Steps int }
+
+// SolveKinds solves the kinds of the generic type declarations of the
+// package whose store bind.Collect built from files.
+func SolveKinds(s store.Store, files []syntax.Parsed, ext []Ext) Kinds {
+	let mut st = solve{s: s, files: files, gens: []gen{}, ext: ext, sv: solver{parent: []int{}, seen: []int{}, steps: 0}, ownMap: false}
+	match store.Lookup(s, "Map") {
+	case Some[dense.ID[store.Decl]] as d:
+		st.ownMap = store.KindName(int(store.DeclOf(s, d.Value).Kind)) == "type"
+	case None:
+	}
+	// The variables: one per bracket parameter, in collect order.
+	for f, p in files {
+		if p.Failed {
+			continue
+		}
+		for d in topDecls(p) {
+			match syntax.ViewOf(p.Tree, d) {
+			case syntax.TypeDecl as td:
+				match dense.Unpack(td.TypeParams) {
+				case Some[dense.ID[syntax.Node]] as tp:
+					let (names, typed) = bracketNames(p, tp.Value)
+					let base = len(st.sv.parent)
+					for i, _ in names {
+						st.sv.parent = st.sv.parent.Append(base + i)
+						st.sv.seen = st.sv.seen.Append(if typed[i] { kindType } else { 0 })
+					}
+					let mut ops = false
+					match dense.Unpack(td.Spec) {
+					case Some[dense.ID[syntax.Node]] as sp:
+						match syntax.ViewOf(p.Tree, sp.Value) {
+						case syntax.InterfaceType:
+							ops = true
+						case _:
+						}
+					case None:
+					}
+					let spec = match dense.Unpack(td.Spec) {
+					case Some[dense.ID[syntax.Node]] as sp:
+						sp.Value
+					case None:
+						continue
+					}
+					st.gens = st.gens.Append(gen{file: f, name: td.Name, body: spec, params: names, typed: typed, ops: ops, base: base})
+					// An inline variant of a union is a record with the
+					// union's parameters its fields mention, in the union's
+					// order (shapes.go variantParams).
+					match syntax.ViewOf(p.Tree, spec) {
+					case syntax.InterfaceType as it:
+						for m in listIDs(p, it.Members) {
+							match syntax.ViewOf(p.Tree, m) {
+							case syntax.VariantSpec as vs:
+								let used = mentioned(p, vs.Fields)
+								let vbase = len(st.sv.parent)
+								let mut vnames = []string{}
+								let mut vtyped = []bool{}
+								for i, n in names {
+									if contains(used, n) {
+										st.sv.parent = st.sv.parent.Append(vbase + len(vnames))
+										st.sv.seen = st.sv.seen.Append(if typed[i] { kindType } else { 0 })
+										vnames = vnames.Append(n)
+										vtyped = vtyped.Append(typed[i])
+									}
+								}
+								if len(vnames) > 0 {
+									st.gens = st.gens.Append(gen{file: f, name: vs.Name, body: vs.Fields, params: vnames, typed: vtyped, ops: false, base: vbase})
+								}
+							case _:
+							}
+						}
+					case _:
+					}
+				case None:
+				}
+			case _:
+			}
+		}
+	}
+	// Each declaration's body.
+	for g in st.gens {
+		let p = files[g.file]
+		let mut vars = []int{}
+		for i, _ in g.params {
+			vars = vars.Append(g.base + i)
+		}
+		let w = walker{p: p, names: g.params, vars: vars}
+		match syntax.ViewOf(p.Tree, g.body) {
+		case syntax.FieldList:
+			fields(&st, w, g.body)
+		case _:
+			walk(&st, w, g.body, kindType)
+		}
+	}
+	// A function whose first parameter is a local generic type binds that
+	// type's parameters by position, and its signature constrains them
+	// (196m; round-3 M3). An operation type's functions are not its
+	// methods.
+	for p in files {
+		if p.Failed {
+			continue
+		}
+		for d in topDecls(p) {
+			match syntax.ViewOf(p.Tree, d) {
+			case syntax.FuncDecl as fd:
+				receiverKinds(&st, p, fd)
+			case _:
+			}
+		}
+	}
+	let mut out = Kinds{Names: []string{}, Of: [][]int{}, Steps: 0}
+	for g in st.gens {
+		let mut ks = []int{}
+		for i, _ in g.params {
+			let mut seen = st.sv.seen[find(&st.sv, g.base+i)]
+			if seen == kindType|kindErrors {
+				// An error row in a type position names its value type.
+				seen = kindErrors
+			}
+			// A constrained parameter is a type, whatever its positions
+			// (decl.go resolveNamed: the constraint wins over the solve).
+			if g.typed[i] {
+				seen = kindType
+			}
+			ks = ks.Append(if seen == 0 { kindType } else if seen == kindType || seen == kindErrors || seen == kindUses { seen } else { KindConflict })
+		}
+		out.Names = out.Names.Append(nameText(files[g.file], g.name))
+		out.Of = out.Of.Append(ks)
+	}
+	out.Steps = st.sv.steps
+	out
+}
+
+// mentioned is the names in type positions of a variant's field list,
+// at any depth (walkTypePositions).
+func mentioned(p syntax.Parsed, l dense.ID[syntax.Node]) []string {
+	let mut out = []string{}
+	match syntax.ViewOf(p.Tree, l) {
+	case syntax.FieldList as fl:
+		for f in listIDs(p, fl.List) {
+			match syntax.ViewOf(p.Tree, f) {
+			case syntax.Field as fd:
+				match dense.Unpack(fd.Type) {
+				case Some[dense.ID[syntax.Node]] as t:
+					names(p, t.Value, &out)
+				case None:
+				}
+			case _:
+			}
+		}
+	case _:
+	}
+	out
+}
+
+// names appends each name in a type position of x to out.
+func names(p syntax.Parsed, x dense.ID[syntax.Node], out *[]string) {
+	match syntax.ViewOf(p.Tree, x) {
+	case syntax.Name:
+		*out = (*out).Append(nameText(p, x))
+	case syntax.ParenExpr as pe:
+		names(p, pe.X, out)
+	case syntax.BinaryExpr as b:
+		names(p, b.X, out)
+		names(p, b.Y, out)
+	case syntax.IndexExpr as ix:
+		names(p, ix.X, out)
+		for i in listIDs(p, ix.Indices) {
+			names(p, i, out)
+		}
+	case syntax.ArrayType as a:
+		names(p, a.Elt, out)
+	case syntax.MapType as m:
+		names(p, m.Key, out)
+		names(p, m.Value, out)
+	case syntax.StarExpr as s:
+		names(p, s.X, out)
+	case syntax.FuncType as ft:
+		fieldNames(p, ft.Params, out)
+		match dense.Unpack(ft.Results) {
+		case Some[dense.ID[syntax.Node]] as r:
+			fieldNames(p, r.Value, out)
+		case None:
+		}
+		match dense.Unpack(ft.Needs) {
+		case Some[dense.ID[syntax.Node]] as n:
+			match syntax.ViewOf(p.Tree, n.Value) {
+			case syntax.NeedsClause as nc:
+				for name in listIDs(p, nc.Names) {
+					names(p, name, out)
+				}
+			case _:
+			}
+		case None:
+		}
+	case syntax.ErrorRow as er:
+		for t in listIDs(p, er.Types) {
+			names(p, t, out)
+		}
+	case syntax.StructType as s:
+		fieldNames(p, s.Fields, out)
+	case syntax.MachineType as mt:
+		names(p, mt.State, out)
+		names(p, mt.Signal, out)
+	case _:
+	}
+}
+
+func fieldNames(p syntax.Parsed, l dense.ID[syntax.Node], out *[]string) {
+	match syntax.ViewOf(p.Tree, l) {
+	case syntax.FieldList as fl:
+		for f in listIDs(p, fl.List) {
+			match syntax.ViewOf(p.Tree, f) {
+			case syntax.Field as fd:
+				match dense.Unpack(fd.Type) {
+				case Some[dense.ID[syntax.Node]] as t:
+					names(p, t.Value, out)
+				case None:
+				}
+			case _:
+			}
+		}
+	case _:
+	}
+}
+
+func contains(xs []string, x string) bool {
+	for y in xs {
+		if y == x {
+			return true
+		}
+	}
+	false
+}
+
+func topDecls(p syntax.Parsed) []dense.ID[syntax.Node] {
+	match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+	case syntax.File as root:
+		listIDs(p, root.Decls)
+	case _:
+		[]dense.ID[syntax.Node]{}
+	}
+}
+
+// receiverKinds applies the receiver rule to one function declaration.
+func receiverKinds(st *solve, p syntax.Parsed, fd syntax.FuncDecl) {
+	let own = match dense.Unpack(fd.TypeParams) {
+	case Some[dense.ID[syntax.Node]] as tp:
+		let (names, _) = bracketNames(p, tp.Value)
+		names
+	case None:
+		return
+	}
+	if nameText(p, fd.Name) == "main" {
+		return
+	}
+	let mut first = dense.NoID[syntax.Node]()
+	match syntax.ViewOf(p.Tree, fd.Type) {
+	case syntax.FuncType as ft:
+		match syntax.ViewOf(p.Tree, ft.Params) {
+		case syntax.FieldList as fl:
+			if syntax.Len(fl.List) == 0 {
+				return
+			}
+			match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, fl.List, 0)) {
+			case syntax.Field as f0:
+				first = f0.Type
+			case _:
+			}
+		case _:
+		}
+	case _:
+	}
+	let rt0 = match dense.Unpack(first) {
+	case Some[dense.ID[syntax.Node]] as t:
+		unparen(p, t.Value)
+	case None:
+		return
+	}
+	let rt = match syntax.ViewOf(p.Tree, rt0) {
+	case syntax.StarExpr as s:
+		unparen(p, s.X)
+	case _:
+		rt0
+	}
+	let mut head = dense.NoID[syntax.Node]()
+	let mut indices = []dense.ID[syntax.Node]{}
+	match syntax.ViewOf(p.Tree, rt) {
+	case syntax.IndexExpr as ix:
+		head = dense.OptOf(ix.X)
+		indices = listIDs(p, ix.Indices)
+	case syntax.MapType as m:
+		if st.ownMap {
+			head = dense.OptOf(m.X)
+			indices = []dense.ID[syntax.Node]{m.Key, m.Value}
+		}
+	case _:
+	}
+	let h = match dense.Unpack(head) {
+	case Some[dense.ID[syntax.Node]] as x:
+		x.Value
+	case None:
+		return
+	}
+	let g = localGen(*st, p, h)
+	if g < 0 || st.gens[g].ops {
+		return
+	}
+	let mut names = []string{}
+	let mut vars = []int{}
+	for i, a in indices {
+		let t = nameText(p, unparen(p, a))
+		if t == "" || t == "_" || !contains(own, t) || i >= len(st.gens[g].params) {
+			continue
+		}
+		// A name written twice unifies its positions when the receiver's
+		// type is walked (linkHead), so the position it binds here does not
+		// change a kind; kinds.go keeps the last.
+		names = names.Append(t)
+		vars = vars.Append(st.gens[g].base + i)
+	}
+	walk(st, walker{p: p, names: names, vars: vars}, fd.Type, kindType)
+}

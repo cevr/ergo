@@ -1,0 +1,596 @@
+// This file resolves a type expression of a package-level declaration to
+// a type of the package's store pool, as the Go checker's typExpr
+// (decl.go) does for the forms a declaration writes. A form it does not
+// resolve yet, or a name it cannot find, is the invalid type (basic 0),
+// so nothing that reads it cascades (D3). Diagnostics come with S3c.
+
+import compiler/check/store
+import compiler/syntax
+import dense
+import strconv
+import strings
+
+// maxArrayLen is the Go checker's bound on an array's length (arrays.go).
+let maxArrayLen = 1 << 20
+
+func isInvalid(s store.Store, t dense.ID[store.TKey]) bool { store.KindOfType(s, t) == store.KBasic && store.ArgOf(s, t) == 0 }
+
+// AliasOf is an alias's target expression and its file.
+type AliasOf { p syntax.Parsed, x dense.ID[syntax.Node] }
+
+// aliasTarget is the target of the local type declaration d when it is an
+// alias: a union of one member that is a type, not an inline variant
+// (decl.go aliasTarget).
+func aliasTarget(s store.Store, d dense.ID[store.Decl], files []syntax.Parsed) Option[AliasOf] {
+	let row = store.DeclOf(s, d)
+	if int(row.File) >= len(files) {
+		return None
+	}
+	let p = files[int(row.File)]
+	let decl = parentDecl(p, int(row.Node))
+	match dense.Unpack(decl) {
+	case Some[dense.ID[syntax.Node]] as dn:
+		match syntax.ViewOf(p.Tree, dn.Value) {
+		case syntax.TypeDecl as td:
+			match dense.Unpack(td.Spec) {
+			case Some[dense.ID[syntax.Node]] as sp:
+				match syntax.ViewOf(p.Tree, sp.Value) {
+				case syntax.InterfaceType as it:
+					let ms = listIDs(p, it.Members)
+					if len(ms) != 1 {
+						return None
+					}
+					match syntax.ViewOf(p.Tree, ms[0]) {
+					case syntax.VariantSpec:
+						None
+					case syntax.Field:
+						None
+					case syntax.LawDecl:
+						None
+					case _:
+						Some[AliasOf]{Value: AliasOf{p: p, x: ms[0]}}
+					}
+				case _:
+					None
+				}
+			case None:
+				None
+			}
+		case _:
+			None
+		}
+	case None:
+		None
+	}
+}
+
+// parentDecl is the top-level type declaration of p whose name row is
+// node (a declaration's Node is its name's row).
+func parentDecl(p syntax.Parsed, node int) dense.Opt[syntax.Node] {
+	for d in topDecls(p) {
+		match syntax.ViewOf(p.Tree, d) {
+		case syntax.TypeDecl as td:
+			if dense.Index(td.Name) == node {
+				return dense.OptOf(d)
+			}
+		case _:
+		}
+	}
+	dense.NoID[syntax.Node]()
+}
+
+// Foreign is a type the package can name that is not its own: a
+// universe or prelude type (Qual "-") or an imported package's (Qual is
+// the import's local name), with its arity and its package's path. It
+// stands in for the frozen interfaces of S3c.
+// A non-generic one also has its text and its sort key as the Go
+// checker prints them (an alias's are its target's).
+type Foreign { Qual string, Name string, Arity int, Path string, Print string, Key string }
+
+// Env is what resolving one declaration's type expressions reads: the
+// file, the declaration's bracket parameter names in order, the solved
+// kinds of the package's generic types, the kinds of foreign generic
+// types, and the foreign table.
+type Env {
+	p       syntax.Parsed,
+	params  []string,
+	kinds   Kinds,
+	ext     []Ext,
+	foreign []Foreign,
+	ownMap  bool,
+	depth   int,
+	files   []syntax.Parsed,
+}
+
+// NewEnv is the environment of one declaration of file p.
+func NewEnv(s store.Store, files []syntax.Parsed, p syntax.Parsed, params []string, kinds Kinds, ext []Ext, foreign []Foreign) Env {
+	let mut own = false
+	match store.Lookup(s, "Map") {
+	case Some[dense.ID[store.Decl]] as d:
+		own = store.KindName(int(store.DeclOf(s, d.Value).Kind)) == "type"
+	case None:
+	}
+	Env{p: p, params: params, kinds: kinds, ext: ext, foreign: foreign, ownMap: own, depth: 0, files: files}
+}
+
+// The basic types by name, at their ordinals (the Go checker's
+// BasicKind order: 0 is the invalid type).
+let basicNames = []string{"", "bool", "string", "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "uintptr", "float32", "float64", "complex64", "complex128", "duration"}
+
+// BasicName is the name of the basic type of ordinal n.
+func BasicName(n int) string { if n > 0 && n < len(basicNames) { basicNames[n] } else { "invalid type" } }
+
+func basicOrdinal(name string) int {
+	// byte and rune are uint8 and int32 (the universe's aliases).
+	if name == "byte" {
+		return 9
+	}
+	if name == "rune" {
+		return 6
+	}
+	for i, n in basicNames {
+		if i > 0 && n == name {
+			return i
+		}
+	}
+	0
+}
+
+func invalidType(s *store.Store) dense.ID[store.TKey] { store.TBasic(s, 0) }
+
+// foreignIndex is the index in e.foreign of qual.name, or -1.
+func foreignIndex(e Env, qual string, name string) int {
+	for i, f in e.foreign {
+		if f.Qual == qual && f.Name == name {
+			return i
+		}
+	}
+	-1
+}
+
+func foreignRef(i int) store.XRef { store.XRef{Import: uint32(store.ForeignBit), Decl: uint32(i)} }
+
+// head is what the head of a type name or an index expression names: a
+// parameter, a basic type, a local type declaration or a foreign type.
+type HNone {}
+
+type head = HParam{At int} | HBasic{Ord int} | HLocal{Decl dense.ID[store.Decl], Name string} | HForeign{At int, Text string} | HNone
+
+func headOf(s store.Store, e Env, x dense.ID[syntax.Node]) head {
+	match syntax.ViewOf(e.p.Tree, x) {
+	case syntax.Name:
+		let t = nameText(e.p, x)
+		for i, n in e.params {
+			if n == t {
+				return HParam{At: i}
+			}
+		}
+		match store.Lookup(s, t) {
+		case Some[dense.ID[store.Decl]] as d:
+			if store.KindName(int(store.DeclOf(s, d.Value).Kind)) == "type" {
+				return HLocal{Decl: d.Value, Name: t}
+			}
+			return HNone
+		case None:
+		}
+		let b = basicOrdinal(t)
+		if b > 0 {
+			return HBasic{Ord: b}
+		}
+		let f = foreignIndex(e, "-", t)
+		if f >= 0 {
+			return HForeign{At: f, Text: t}
+		}
+		HNone
+	case syntax.SelectorExpr as se:
+		let q = nameText(e.p, se.X)
+		match store.Lookup(s, q) {
+		case Some[dense.ID[store.Decl]] as d:
+			if store.KindName(int(store.DeclOf(s, d.Value).Kind)) != "pkg" {
+				return HNone
+			}
+		case None:
+			return HNone
+		}
+		let f = foreignIndex(e, q, nameText(e.p, se.Sel))
+		if f >= 0 { HForeign{At: f, Text: q + "." + nameText(e.p, se.Sel)} } else { HNone }
+	case syntax.ParenExpr as pe:
+		headOf(s, e, pe.X)
+	case _:
+		HNone
+	}
+}
+
+// localKinds is the solved kinds of the package's generic type name.
+func localKinds(e Env, name string) []int {
+	for i, n in e.kinds.Names {
+		if n == name {
+			return e.kinds.Of[i]
+		}
+	}
+	[]int{}
+}
+
+func extKinds(e Env, text string) []int {
+	for x in e.ext {
+		if x.Head == text {
+			return x.Kinds
+		}
+	}
+	[]int{}
+}
+
+// instance resolves head[indices]: each argument in a row slot is a row
+// of its union's leaves, any other a type.
+func instance(s *store.Store, e Env, h head, indices []dense.ID[syntax.Node]) dense.ID[store.TKey] {
+	let (origin, kinds, arity) = match h {
+	case HLocal as l:
+		let ks = localKinds(e, l.Name)
+		(store.XRef{Import: uint32(0), Decl: uint32(dense.Index(l.Decl))}, ks, len(ks))
+	case HForeign as f:
+		(foreignRef(f.At), extKinds(e, f.Text), e.foreign[f.At].Arity)
+	case _:
+		return invalidType(s)
+	}
+	if arity == 0 || len(indices) > arity || len(indices) == 0 {
+		return invalidType(s)
+	}
+	// Trailing row parameters left out are the empty row; a left-out
+	// type parameter is an error (instantiateExprs).
+	for i in len(indices)..arity {
+		let k = if i < len(kinds) { kinds[i] } else { kindType }
+		if k != kindErrors && k != kindUses {
+			return invalidType(s)
+		}
+	}
+	let mut args = []dense.ID[store.TKey]{}
+	for i, x in indices {
+		let k = if i < len(kinds) { kinds[i] } else { kindType }
+		if k == kindErrors || k == kindUses {
+			args = args.Append(row(s, e, orLeaves(e.p, x)))
+		} else {
+			args = args.Append(Resolve(s, e, x))
+		}
+	}
+	for _ in len(indices)..arity {
+		args = args.Append(store.TRow(s, []dense.ID[store.TKey]{}))
+	}
+	store.TInstance(s, origin, args)
+}
+
+// row is the row of the types xs.
+func row(s *store.Store, e Env, xs []dense.ID[syntax.Node]) dense.ID[store.TKey] {
+	let mut ts = []dense.ID[store.TKey]{}
+	for x in xs {
+		ts = ts.Append(Resolve(s, e, x))
+	}
+	store.TRow(s, ts)
+}
+
+// Resolve is the type the type expression x writes.
+func Resolve(s *store.Store, e Env, x dense.ID[syntax.Node]) dense.ID[store.TKey] {
+	match syntax.ViewOf(e.p.Tree, x) {
+	case syntax.Name:
+		named(s, e, headOf(*s, e, x))
+	case syntax.SelectorExpr:
+		named(s, e, headOf(*s, e, x))
+	case syntax.ParenExpr as pe:
+		Resolve(s, e, pe.X)
+	case syntax.IndexExpr as ix:
+		instance(s, e, headOf(*s, e, ix.X), listIDs(e.p, ix.Indices))
+	case syntax.ArrayType as a:
+		if a.Len >= 0 {
+			// The parser takes only an integer literal (arrays.go).
+			let n = strconv.Atoi(syntax.TokText(e.p, a.Len)) catch {
+			case _:
+				-1
+			}
+			let el = Resolve(s, e, a.Elt)
+			if n < 0 || n > maxArrayLen || isInvalid(*s, el) {
+				return invalidType(s)
+			}
+			return store.TArray(s, n, el)
+		}
+		store.TSlice(s, Resolve(s, e, a.Elt))
+	case syntax.MapType as m:
+		if e.ownMap {
+			// The package's own Map hides the map type (L6).
+			return instance(s, e, headOf(*s, e, m.X), []dense.ID[syntax.Node]{m.Key, m.Value})
+		}
+		store.TMap(s, Resolve(s, e, m.Key), Resolve(s, e, m.Value))
+	case syntax.StarExpr as st:
+		store.TPointer(s, Resolve(s, e, st.X))
+	case syntax.TupleExpr as t:
+		let mut ts = []dense.ID[store.TKey]{}
+		for el in listIDs(e.p, t.Elts) {
+			ts = ts.Append(Resolve(s, e, el))
+		}
+		store.TTuple(s, ts)
+	case syntax.FuncType as ft:
+		signature(s, e, ft)
+	case _:
+		invalidType(s)
+	}
+}
+
+// named is the type a bare head names: a generic type needs arguments.
+func named(s *store.Store, e Env, h head) dense.ID[store.TKey] {
+	match h {
+	case HParam as p:
+		store.TParam(s, p.At)
+	case HBasic as b:
+		store.TBasic(s, b.Ord)
+	case HLocal as l:
+		if len(localKinds(e, l.Name)) > 0 {
+			return invalidType(s)
+		}
+		match aliasTarget(*s, l.Decl, e.files) {
+		case Some[AliasOf] as a:
+			// A union whose one variant is an existing type is that type
+			// (types.md, Unions 7): its target, resolved in its own file
+			// with no parameters. A cycle of aliases is invalid.
+			if e.depth >= 64 {
+				return invalidType(s)
+			}
+			let mut inner = e
+			inner.p = a.Value.p
+			inner.params = []string{}
+			inner.depth = e.depth + 1
+			Resolve(s, inner, a.Value.x)
+		case None:
+			store.TNamed(s, l.Decl)
+		}
+	case HForeign as f:
+		if e.foreign[f.At].Arity > 0 {
+			return invalidType(s)
+		}
+		store.TForeign(s, f.At)
+	case HNone:
+		invalidType(s)
+	}
+}
+
+// signature is a written function type: its parameters (one per name, a
+// parameter written own marked), its result, its error row and its
+// capability row.
+func signature(s *store.Store, e Env, ft syntax.FuncType) dense.ID[store.TKey] {
+	let mut params = []dense.ID[store.TKey]{}
+	match syntax.ViewOf(e.p.Tree, ft.Params) {
+	case syntax.FieldList as fl:
+		for f in listIDs(e.p, fl.List) {
+			match syntax.ViewOf(e.p.Tree, f) {
+			case syntax.Field as fd:
+				let t = match dense.Unpack(fd.Type) {
+				case Some[dense.ID[syntax.Node]] as ty:
+					let r = Resolve(s, e, ty.Value)
+					let entry = match syntax.ViewOf(e.p.Tree, ty.Value) {
+					case syntax.FuncType as pf:
+						pf.Entry >= 0
+					case _:
+						false
+					}
+					let r2 = if entry { store.TEntry(s, r) } else { r }
+					if fd.Own >= 0 { store.TOwn(s, r2) } else { r2 }
+				case None:
+					invalidType(s)
+				}
+				let n = syntax.Len(fd.Names)
+				for _ in 0..(if n == 0 { 1 } else { n }) {
+					params = params.Append(t)
+				}
+			case _:
+			}
+		}
+	case _:
+	}
+	let mut result = store.TTuple(s, []dense.ID[store.TKey]{})
+	let mut errs = store.TRow(s, []dense.ID[store.TKey]{})
+	match dense.Unpack(ft.Results) {
+	case Some[dense.ID[syntax.Node]] as rs:
+		match syntax.ViewOf(e.p.Tree, rs.Value) {
+		case syntax.FieldList as fl:
+			for f in listIDs(e.p, fl.List) {
+				match syntax.ViewOf(e.p.Tree, f) {
+				case syntax.Field as fd:
+					match dense.Unpack(fd.Type) {
+					case Some[dense.ID[syntax.Node]] as ty:
+						match syntax.ViewOf(e.p.Tree, ty.Value) {
+						case syntax.ErrorRow as er:
+							errs = row(s, e, listIDs(e.p, er.Types))
+						case _:
+							result = Resolve(s, e, ty.Value)
+						}
+					case None:
+					}
+				case _:
+				}
+			}
+		case _:
+		}
+	case None:
+	}
+	let mut uses = store.TRow(s, []dense.ID[store.TKey]{})
+	match dense.Unpack(ft.Needs) {
+	case Some[dense.ID[syntax.Node]] as n:
+		match syntax.ViewOf(e.p.Tree, n.Value) {
+		case syntax.NeedsClause as nc:
+			uses = row(s, e, listIDs(e.p, nc.Names))
+		case _:
+		}
+	case None:
+	}
+	store.TSig(s, params, result, errs, uses)
+}
+
+// Printing, as the Go checker's Type.String prints: local names are
+// qualified with the package's name (main), prelude and universe names
+// are not, imported names with the import's name. A row's elements are
+// in the order of their typeString keys.
+
+// Names is what printing reads besides the store: the parameter names of
+// the declaration in hand, the foreign table and the package's name.
+type Names { Params []string, Foreign []Foreign, Pkg string }
+
+// Text is t's text.
+func Text(s store.Store, n Names, t dense.ID[store.TKey]) string {
+	let k = store.KindOfType(s, t)
+	let ops = store.OperandsOf(s, t)
+	if k == store.KBasic {
+		return BasicName(store.ArgOf(s, t))
+	}
+	if k == store.KParam {
+		let i = store.ArgOf(s, t)
+		return if i < len(n.Params) { n.Params[i] } else { "P\(i)" }
+	}
+	if k == store.KNamed {
+		return qualified(n, store.TypeNameText(s, store.ArgOf(s, t)))
+	}
+	if k == store.KSlice {
+		return "[]" + Text(s, n, ops[0])
+	}
+	if k == store.KArray {
+		return "[\(store.ArrayLen(s, t))]" + Text(s, n, ops[1])
+	}
+	if k == store.KMap {
+		return "Map[" + Text(s, n, ops[0]) + ", " + Text(s, n, ops[1]) + "]"
+	}
+	if k == store.KPointer {
+		return "*" + Text(s, n, ops[0])
+	}
+	if k == store.KOwn {
+		return "own " + Text(s, n, ops[0])
+	}
+	if k == store.KEntry {
+		return "entry " + Text(s, n, ops[0])
+	}
+	if k == store.KForeign {
+		return n.Foreign[store.ArgOf(s, t)].Print
+	}
+	if k == store.KTuple {
+		return "(" + joined(s, n, ops, ", ") + ")"
+	}
+	if k == store.KRow {
+		return rowText(s, n, ops, " | ")
+	}
+	if k == store.KInstance {
+		let o = store.OriginOfType(s, t)
+		let mut name = ""
+		if int(o.Import) == store.ForeignBit {
+			let f = n.Foreign[int(o.Decl)]
+			name = if f.Qual == "-" { f.Name } else { f.Qual + "." + f.Name }
+		} else {
+			name = qualified(n, store.DeclText(s, int(o.Decl)))
+		}
+		if len(ops) == 0 {
+			return name
+		}
+		return name + "[" + joined(s, n, ops, ", ") + "]"
+	}
+	if k == store.KSig {
+		let np = len(ops) - 3
+		let mut b = "func(" + joined(s, n, ops[0:np], ", ") + ")"
+		let res = ops[np]
+		if store.KindOfType(s, res) == store.KTuple {
+			let rs = store.OperandsOf(s, res)
+			if len(rs) == 1 {
+				b = b + " " + Text(s, n, rs[0])
+			} else if len(rs) > 1 {
+				b = b + " " + Text(s, n, res)
+			}
+		} else {
+			b = b + " " + Text(s, n, res)
+		}
+		let errs = rowText(s, n, store.OperandsOf(s, ops[np+1]), " | ")
+		if errs != "" {
+			b = b + " fails " + errs
+		}
+		let uses = rowText(s, n, store.OperandsOf(s, ops[np+2]), " | ")
+		if uses != "" {
+			b = b + " needs " + uses
+		}
+		return b
+	}
+	"?"
+}
+
+// qualified is a local name as the package prints it: with its name,
+// unless the package is the prelude (Pkg "").
+func qualified(n Names, name string) string { if n.Pkg == "" { name } else { n.Pkg + "." + name } }
+
+func joined(s store.Store, n Names, ts []dense.ID[store.TKey], sep string) string {
+	let mut parts = []string{}
+	for t in ts {
+		parts = parts.Append(Text(s, n, t))
+	}
+	strings.Join(parts, sep)
+}
+
+// rowText is a row's elements by their sort keys, the invalid type left
+// out (Row.list).
+func rowText(s store.Store, n Names, ts []dense.ID[store.TKey], sep string) string {
+	let mut keyed = []string{}
+	for t in ts {
+		if store.KindOfType(s, t) == store.KBasic && store.ArgOf(s, t) == 0 {
+			continue
+		}
+		keyed = keyed.Append(sortKey(s, n, t) + "\t" + Text(s, n, t))
+	}
+	let sorted = sortStrings(keyed)
+	let mut parts = []string{}
+	for x in sorted {
+		parts = parts.Append(x[strings.Index(x, "\t")+1 : len(x)])
+	}
+	strings.Join(parts, sep)
+}
+
+func sortStrings(xs []string) []string {
+	let mut out = xs
+	for i in 1..len(out) {
+		let mut j = i
+		for j > 0 && out[j-1] > out[j] {
+			let t = out[j]
+			out[j] = out[j-1]
+			out[j-1] = t
+			j = j - 1
+		}
+	}
+	out
+}
+
+// sortKey is the Go checker's typeString of t: package paths qualify
+// names, a parameter is $Name.
+func sortKey(s store.Store, n Names, t dense.ID[store.TKey]) string {
+	let k = store.KindOfType(s, t)
+	let ops = store.OperandsOf(s, t)
+	if k == store.KParam {
+		return "$" + Text(s, n, t)
+	}
+	if k == store.KNamed {
+		return store.Path(s) + "." + store.TypeNameText(s, store.ArgOf(s, t))
+	}
+	if k == store.KInstance {
+		let o = store.OriginOfType(s, t)
+		let mut key = ""
+		if int(o.Import) == store.ForeignBit {
+			let f = n.Foreign[int(o.Decl)]
+			key = if f.Path == "-" { f.Name } else { f.Path + "." + f.Name }
+		} else {
+			key = store.Path(s) + "." + store.DeclText(s, int(o.Decl))
+		}
+		if len(ops) == 0 {
+			return key
+		}
+		let mut parts = []string{}
+		for o2 in ops {
+			parts = parts.Append(sortKey(s, n, o2))
+		}
+		return key + "[" + strings.Join(parts, ",") + "]"
+	}
+	if k == store.KSlice {
+		return "[]" + sortKey(s, n, ops[0])
+	}
+	if k == store.KForeign {
+		return n.Foreign[store.ArgOf(s, t)].Key
+	}
+	Text(s, n, t)
+}

@@ -1,0 +1,139 @@
+// typedump resolves the field types of one package's records with
+// compiler/check/types and prints them, one line per written field, and
+// one line "REC [P,…]" per record with its parameters:
+//
+//	typedump EXT FOREIGN FILE...   "REC.FIELD TYPE"
+//
+// EXT is the kinds of foreign generic types ("HEAD KIND,…", as kinddump
+// reads it); FOREIGN is the foreign types ("QUAL NAME ARITY PATH PRINT
+// KEY", PRINT with its spaces as ^). The
+// Go side writes both; they stand in for the frozen interfaces. It is
+// the Ergo side of S3t's type agreement.
+
+import compiler/check/bind
+import compiler/check/store
+import compiler/check/types
+import compiler/syntax
+import dense
+import fs
+import io
+import os
+import strconv
+import strings
+
+func base(path string) string {
+	let i = strings.LastIndex(path, "/")
+	if i < 0 { path } else { path[i+1 : len(path)] }
+}
+
+func bit(w string) int {
+	if w == "type" { 1 } else if w == "errors" { 2 } else if w == "uses" { 4 } else { 8 }
+}
+
+func read(path string) string fails os.Exit needs fs.Files {
+	fs.Files.ReadFile(path) catch {
+	case fs.NotFound:
+		return os.Exit{Code: 1, Message: "typedump: no file \(path)"}
+	case fs.Denied:
+		return os.Exit{Code: 1, Message: "typedump: cannot read \(path)"}
+	case fs.Failed as e:
+		return os.Exit{Code: 1, Message: "typedump: cannot read \(path): \(e.Reason)"}
+	}
+}
+
+// fieldLines appends "REC.FIELD TYPE" for each written field of list l.
+func fieldLines(s *store.Store, env types.Env, names types.Names, p syntax.Parsed, rec string, l dense.ID[syntax.Node], out *[]string) {
+	match syntax.ViewOf(p.Tree, l) {
+	case syntax.FieldList as fl:
+		for i in 0..syntax.Len(fl.List) {
+			match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, fl.List, i)) {
+			case syntax.Field as fd:
+				if fd.Dots >= 0 {
+					continue
+				}
+				match dense.Unpack(fd.Type) {
+				case Some[dense.ID[syntax.Node]] as t:
+					let ty = types.Resolve(s, env, t.Value)
+					let text = types.Text(*s, names, ty)
+					for j in 0..syntax.Len(fd.Names) {
+						*out = (*out).Append("\(rec).\(types.NameText(p, syntax.Item(p.Tree, fd.Names, j))) \(text)")
+					}
+				case None:
+				}
+			case _:
+			}
+		}
+	case _:
+	}
+}
+
+func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
+	if len(args) < 2 {
+		return os.Exit{Code: 2, Message: "usage: typedump EXT FOREIGN FILE..."}
+	}
+	let mut ext = []types.Ext{}
+	for line in strings.Split(try read(args[0]), "\n") {
+		let parts = strings.Fields(line)
+		if len(parts) != 2 {
+			continue
+		}
+		let mut ks = []int{}
+		for w in strings.Split(parts[1], ",") {
+			ks = ks.Append(bit(w))
+		}
+		ext = ext.Append(types.Ext{Head: parts[0], Kinds: ks})
+	}
+	let mut foreign = []types.Foreign{}
+	let mut pkgName = "main"
+	let mut pkgPath = "main"
+	for line in strings.Split(try read(args[1]), "\n") {
+		let parts = strings.Fields(line)
+		// "@pkg NAME PATH QUALIFY": the package's name and path, and
+		// whether its types print with its name (the prelude's do not).
+		if len(parts) == 4 && parts[0] == "@pkg" {
+			pkgName = if parts[3] == "1" { parts[1] } else { "" }
+			pkgPath = parts[2]
+			continue
+		}
+		if len(parts) != 6 {
+			continue
+		}
+		let n = strconv.Atoi(parts[2]) catch {
+		case _:
+			0
+		}
+		foreign = foreign.Append(types.Foreign{Qual: parts[0], Name: parts[1], Arity: n, Path: parts[3], Print: strings.ReplaceAll(parts[4], "^", " "), Key: parts[5]})
+	}
+	let mut files = []bind.File{}
+	let mut parsed = []syntax.Parsed{}
+	for path in args[2:len(args)] {
+		let p = syntax.Parse(try read(path))
+		files = files.Append(bind.File{Name: base(path), Parsed: p})
+		parsed = parsed.Append(p)
+	}
+	let mut s = bind.Collect(pkgPath, files)
+	let kinds = types.SolveKinds(s, parsed, ext)
+	let mut out = []string{}
+	for p in parsed {
+		if p.Failed {
+			continue
+		}
+		for r in types.Records(p, pkgName == "") {
+			let env = types.NewEnv(s, parsed, p, r.Params, kinds, ext, foreign)
+			let names = types.Names{Params: r.Params, Foreign: foreign, Pkg: pkgName}
+			out = out.Append("\(r.Name) [\(strings.Join(r.Params, ","))]")
+			fieldLines(&s, env, names, p, r.Name, r.Fields, &out)
+		}
+	}
+	let mut b = strings.NewBuilder()
+	for l in out {
+		b.WriteString(l + "\n")
+	}
+	io.Stdout.Print(b.String())
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
+		try run(os.Process.Args())
+	}
+}
