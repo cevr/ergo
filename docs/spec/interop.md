@@ -85,6 +85,18 @@ func NewCounter() Counter needs go.Foreign {
 
 *Prior art:* Gleam and Elixir reach a mutable host cell only through the host (`:atomics.new`, an ETS table, a process), never as a language value; ReScript's `ref` and OCaml's `Atomic.make` are a heap cell with identity, as here. Effect's `Ref.make` is an effect for the same reason as the `go.Foreign` charge: allocation of identity is not pure. Each lowers to the host's own allocation.
 
+**Set at construction** (GBX5b, 2026-11-16). `go.New(v)` is a `go.Ref[T]` to a new Go `T` holding a copy of `v`. It is how Ergo source sets a Go struct's fields, since they stay read-only after it (q34). `go.Zero[T]()` is Go's zero `T` as a value. It is the explicit base a literal of a Go struct spreads from, because a literal names every field (owner q44: every field value comes from a site that named it):
+
+```
+let sys = go.New(syscall.SysProcAttr{..go.Zero[syscall.SysProcAttr](), Setpgid: true})
+let mut attr = os.ProcAttr{Dir: "", Env: []string{}, Sys: Some{Value: sys}}
+let p = try os.StartProcess("/bin/sh", argv, &attr)
+```
+
+5. **T** follows rule 1, for both. `go.New(v)` also refuses a `T` that holds a slice or Map through its fields (S108 "go.New(v) of os.ProcAttr: its field Env holds a slice or Map that an Ergo value may share …"). Go could write such a slice through the `go.Ref`, and an Ergo value could share it. A `go.Ref` field is Go's memory already and is admitted.
+6. **Rows.** `go.New(v)` charges `go.Foreign` (rule 3). `go.Zero[T]()` is a value with no identity, and charges nothing.
+7. **Lowering.** `n := v` and `&n` for `go.New(v)`, which is hand Go's `&T{…}`; `*new(T)` for `go.Zero[T]()`. A spread from it is a copy and one store per named field (types.md, Structs 3). `TestImportGoRuns` (lower) starts a child with `Setpgid` set and checks that it leads its own process group.
+
 ## Purity and authority
 
 Each call's row comes from the reviewed tables of `runtime/v1`, never from the Go signature:
