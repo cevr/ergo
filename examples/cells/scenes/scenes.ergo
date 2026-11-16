@@ -23,13 +23,15 @@ let Cols = 100
 let Rows = 40
 
 // Outcome is how one step of a script ended on a host.
-type Outcome = Done{} | Missing{Label string} | Refused{} | Broken{}
+type Outcome = Done{} | Missing{Label string} | Unclear{Count int} | Refused{} | Broken{}
 
 // onTest is how a step ended on the test host.
 func onTest[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], act ui.Act) Outcome {
 	ui.Play(h, []ui.Act{act}) catch {
 	case ui.NoNode as n:
 		return Missing{Label: n.Label}
+	case ui.Ambiguous as x:
+		return Unclear{Count: x.Count}
 	case ui.Mismatch:
 		return Refused
 	case _:
@@ -43,6 +45,8 @@ func onCells[E comparable, S, D, F](h *host.Host[S, E, D, F], act ui.Act) Outcom
 	host.Play(h, []ui.Act{act}) catch {
 	case ui.NoNode as n:
 		return Missing{Label: n.Label}
+	case ui.Ambiguous as x:
+		return Unclear{Count: x.Count}
 	case ui.Mismatch:
 		return Refused
 	case _:
