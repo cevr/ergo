@@ -5395,6 +5395,7 @@ func (e *encoder) encFieldscellSite(v *cellSite) {
 	e.encPtrfileInfo(v.file)
 	e.encSyntax_Node(v.at)
 	e.encType(v.arg)
+	e.encT21(v.of)
 }
 
 func (e *encoder) enccellSite(v cellSite) { e.encFieldscellSite(&v) }
@@ -15826,6 +15827,7 @@ func (d *decoder) decFieldscellSite(v *cellSite) {
 	v.file = d.decPtrfileInfo()
 	v.at = d.decSyntax_Node()
 	v.arg = d.decType()
+	v.of = d.decT21()
 }
 
 func (d *decoder) deccellSite() (v cellSite) {

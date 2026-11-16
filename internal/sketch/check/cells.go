@@ -3,7 +3,6 @@ package check
 import (
 	"fmt"
 
-	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -300,7 +299,7 @@ type cellSite struct {
 	file   *fileInfo
 	at     syntax.Node
 	arg    Type
-	option bool // an argument of the prelude's Option or Some
+	of   []*TypeParam // the parameters the instantiation binds
 }
 
 // recordCellArgs records the type arguments of an instantiation.
@@ -308,20 +307,23 @@ func (c *checker) recordCellArgs(tparams []*TypeParam, targs []Type, at syntax.N
 	if c.silent > 0 || at == nil {
 		return
 	}
-	option := false
-	for _, name := range []string{"Option", "Some"} {
-		if c.pkg.Path == std.PreludePath {
-			break // the prelude's own checking: no go.Ref, and prelude() is not yet built
-		}
-		if p := preludeType(name); p != nil && len(p.TParams) == 1 && len(tparams) == 1 && tparams[0] == p.TParams[0] {
-			option = true
-		}
-	}
 	for _, a := range targs {
 		if a != nil {
-			c.cellSites = append(c.cellSites, cellSite{file: c.cur, at: at, arg: a, option: option})
+			c.cellSites = append(c.cellSites, cellSite{file: c.cur, at: at, arg: a, of: tparams})
 		}
 	}
+}
+
+// optionParams reports whether tparams are the prelude Option's or Some's.
+// It is asked only of a site that holds a confined go.Ref, which no
+// prelude declaration does, so the prelude is built by then.
+func optionParams(tparams []*TypeParam) bool {
+	for _, name := range []string{"Option", "Some"} {
+		if p := preludeType(name); p != nil && len(p.TParams) == 1 && len(tparams) == 1 && tparams[0] == p.TParams[0] {
+			return true
+		}
+	}
+	return false
 }
 
 // checkCells refuses a type argument and a package let that hold a cell.
@@ -332,7 +334,7 @@ func (c *checker) checkCells() {
 			continue
 		}
 		if h := c.holdsCell(s.arg); h != nil {
-			if s.option && goConfinedRef(h) {
+			if goConfinedRef(h) && optionParams(s.of) {
 				// An Option holds its value where the walk sees it, and its
 				// code sends nothing to a task: a Go function's *PCG result
 				// is an Option[go.Ref[PCG]] (goconfined.go).
