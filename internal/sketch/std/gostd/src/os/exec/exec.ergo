@@ -113,10 +113,10 @@ extern go os/exec.ExitError.String func (p ExitError) String() string needs go.F
 extern go os/exec.ExitError.Success func (p ExitError) Success() bool needs go.Foreign
 
 // ergo:go func (*os.ProcessState).Sys() any
-// ergo:refused ExitError.Sys: result 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go os/exec.ExitError.Sys func (p ExitError) Sys() go.Any needs go.Foreign
 
 // ergo:go func (*os.ProcessState).SysUsage() any
-// ergo:refused ExitError.SysUsage: result 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go os/exec.ExitError.SysUsage func (p ExitError) SysUsage() go.Any needs go.Foreign
 
 // ergo:go func (*os.ProcessState).SystemTime() time.Duration
 extern go os/exec.ExitError.SystemTime func (p ExitError) SystemTime() duration needs go.Foreign

@@ -28,31 +28,31 @@ extern go sync.Map type Map {}
 extern go sync.Map.Clear func (m *Map) Clear() needs go.Foreign
 
 // ergo:go func (*Map).CompareAndDelete(key any, old any) (deleted bool)
-// ergo:refused Map.CompareAndDelete: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go sync.Map.CompareAndDelete func (m *Map) CompareAndDelete(key go.Any, old go.Any) bool needs go.Foreign
 
 // ergo:go func (*Map).CompareAndSwap(key any, old any, new any) (swapped bool)
-// ergo:refused Map.CompareAndSwap: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go sync.Map.CompareAndSwap func (m *Map) CompareAndSwap(key go.Any, old go.Any, new go.Any) bool needs go.Foreign
 
 // ergo:go func (*Map).Delete(key any)
-// ergo:refused Map.Delete: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go sync.Map.Delete func (m *Map) Delete(key go.Any) needs go.Foreign
 
 // ergo:go func (*Map).Load(key any) (value any, ok bool)
-// ergo:refused Map.Load: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go sync.Map.Load func (m *Map) Load(key go.Any) (go.Any, bool) needs go.Foreign
 
 // ergo:go func (*Map).LoadAndDelete(key any) (value any, loaded bool)
-// ergo:refused Map.LoadAndDelete: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go sync.Map.LoadAndDelete func (m *Map) LoadAndDelete(key go.Any) (go.Any, bool) needs go.Foreign
 
 // ergo:go func (*Map).LoadOrStore(key any, value any) (actual any, loaded bool)
-// ergo:refused Map.LoadOrStore: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go sync.Map.LoadOrStore func (m *Map) LoadOrStore(key go.Any, value go.Any) (go.Any, bool) needs go.Foreign
 
 // ergo:go func (*Map).Range(f func(key any, value any) bool)
-// ergo:refused Map.Range: parameter 1: callback parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go sync.Map.Range func (m *Map) Range(f own func(go.Any, go.Any) bool) needs go.Foreign
 
 // ergo:go func (*Map).Store(key any, value any)
-// ergo:refused Map.Store: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go sync.Map.Store func (m *Map) Store(key go.Any, value go.Any) needs go.Foreign
 
 // ergo:go func (*Map).Swap(key any, value any) (previous any, loaded bool)
-// ergo:refused Map.Swap: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go sync.Map.Swap func (m *Map) Swap(key go.Any, value go.Any) (go.Any, bool) needs go.Foreign
 
 // ergo:go type Mutex struct
 extern go sync.Mutex type Mutex {}
@@ -91,10 +91,10 @@ extern go sync.Pool type Pool {}
 // ergo:refused Pool.New: a Go function as a result, a field or an element
 
 // ergo:go func (*Pool).Get() any
-// ergo:refused Pool.Get: result 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go sync.Pool.Get func (p *Pool) Get() go.Any needs go.Foreign
 
 // ergo:go func (*Pool).Put(x any)
-// ergo:refused Pool.Put: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go sync.Pool.Put func (p *Pool) Put(x go.Any) needs go.Foreign
 
 // ergo:go type RWMutex struct
 extern go sync.RWMutex type RWMutex {}

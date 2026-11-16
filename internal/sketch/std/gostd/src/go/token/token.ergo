@@ -174,13 +174,13 @@ extern go go/token.FileSet.Position func (s *FileSet) Position(p Pos) Position n
 extern go go/token.FileSet.PositionFor func (s *FileSet) PositionFor(p Pos, adjusted bool) Position needs go.Foreign
 
 // ergo:go func (*FileSet).Read(decode func(any) error) error
-// ergo:refused FileSet.Read: parameter 1: callback parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go go/token.FileSet.Read func (s *FileSet) Read(p0 own func(go.Any) fails go.Error) fails go.Error needs go.Foreign
 
 // ergo:go func (*FileSet).RemoveFile(file *File)
 extern go go/token.FileSet.RemoveFile func (s *FileSet) RemoveFile(file own *File) needs go.Foreign
 
 // ergo:go func (*FileSet).Write(encode func(any) error) error
-// ergo:refused FileSet.Write: parameter 1: callback parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go go/token.FileSet.Write func (s *FileSet) Write(p0 own func(go.Any) fails go.Error) fails go.Error needs go.Foreign
 
 // ergo:go const GEQ Token
 extern go go/token.GEQ let GEQ Token

@@ -269,7 +269,8 @@ extern go text/template/parse.ListNode.Type func (t ListNode) Type() NodeType ne
 extern go text/template/parse.Mode type Mode uint
 
 // ergo:go func New(name string, funcs ...map[string]any) *Tree
-// ergo:refused New: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go text/template/parse.New func New(name string, funcs []Map[string, go.Any]) Option[go.Ref[Tree]] needs go.Foreign
 
 // ergo:go func NewIdentifier(ident string) *IdentifierNode
 extern go text/template/parse.NewIdentifier func NewIdentifier(ident string) Option[go.Ref[IdentifierNode]] needs go.Foreign
@@ -397,7 +398,7 @@ extern go text/template/parse.NumberNode.String func (n *NumberNode) String() st
 extern go text/template/parse.NumberNode.Type func (t NumberNode) Type() NodeType needs go.Foreign
 
 // ergo:go func Parse(name string, text string, leftDelim string, rightDelim string, funcs ...map[string]any) (map[string]*Tree, error)
-// ergo:refused Parse: parameter 5: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:refused Parse: result 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go const ParseComments Mode
 extern go text/template/parse.ParseComments let ParseComments Mode

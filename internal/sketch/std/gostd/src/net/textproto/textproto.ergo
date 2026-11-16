@@ -18,7 +18,8 @@ extern go net/textproto.Conn type Conn {
 extern go net/textproto.Conn.Close func (c own *Conn) Close() fails go.Error needs go.Foreign
 
 // ergo:go func (*Conn).Cmd(format string, args ...any) (id uint, err error)
-// ergo:refused Conn.Cmd: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go net/textproto.Conn.Cmd func (c *Conn) Cmd(format string, args []go.Any) uint fails go.Error needs go.Foreign
 
 // ergo:go func (*Reader).DotReader() io.Reader
 extern go net/textproto.Conn.DotReader func (r *Conn) DotReader() io.Reader needs go.Foreign
@@ -36,7 +37,8 @@ extern go net/textproto.Conn.EndResponse func (p *Conn) EndResponse(id uint) nee
 extern go net/textproto.Conn.Next func (p *Conn) Next() uint needs go.Foreign
 
 // ergo:go func (*Writer).PrintfLine(format string, args ...any) error
-// ergo:refused Conn.PrintfLine: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go net/textproto.Conn.PrintfLine func (w *Conn) PrintfLine(format string, args []go.Any) fails go.Error needs go.Foreign
 
 // ergo:go func (*Reader).ReadCodeLine(expectCode int) (code int, message string, err error)
 extern go net/textproto.Conn.ReadCodeLine func (r *Conn) ReadCodeLine(expectCode int) (int, string) fails go.Error needs go.Foreign
@@ -184,4 +186,5 @@ extern go net/textproto.Writer type Writer {
 extern go net/textproto.Writer.DotWriter func (w *Writer) DotWriter() io.WriteCloser needs go.Foreign
 
 // ergo:go func (*Writer).PrintfLine(format string, args ...any) error
-// ergo:refused Writer.PrintfLine: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go net/textproto.Writer.PrintfLine func (w *Writer) PrintfLine(format string, args []go.Any) fails go.Error needs go.Foreign

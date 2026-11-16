@@ -33,7 +33,9 @@ extern go runtime/trace.IsEnabled func IsEnabled() bool needs go.Foreign
 extern go runtime/trace.Log func Log(category string, message string) needs go.Foreign
 
 // ergo:go func Logf(ctx context.Context, category string, format string, args ...any)
-// ergo:refused Logf: parameter 4: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:context
+// ergo:variadic
+extern go runtime/trace.Logf func Logf(category string, format string, args []go.Any) needs go.Foreign
 
 // ergo:go func NewFlightRecorder(cfg FlightRecorderConfig) *FlightRecorder
 extern go runtime/trace.NewFlightRecorder func NewFlightRecorder(cfg FlightRecorderConfig) Option[go.Ref[FlightRecorder]] needs go.Foreign

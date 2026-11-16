@@ -13,11 +13,9 @@ extern go crypto/x509/pkix.AlgorithmIdentifier type AlgorithmIdentifier {
 
 // ergo:go type AttributeTypeAndValue struct
 extern go crypto/x509/pkix.AttributeTypeAndValue type AttributeTypeAndValue {
-	Type asn1.ObjectIdentifier,
+	Type  asn1.ObjectIdentifier,
+	Value go.Any,
 }
-
-// ergo:go Value any
-// ergo:refused AttributeTypeAndValue.Value: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go type AttributeTypeAndValueSET struct
 extern go crypto/x509/pkix.AttributeTypeAndValueSET type AttributeTypeAndValueSET {

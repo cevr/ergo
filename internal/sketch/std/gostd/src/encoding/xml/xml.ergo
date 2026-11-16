@@ -39,10 +39,10 @@ extern go encoding/xml.Decoder type Decoder {
 // ergo:refused Decoder.CharsetReader: a Go function as a result, a field or an element
 
 // ergo:go func (*Decoder).Decode(v any) error
-// ergo:refused Decoder.Decode: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go encoding/xml.Decoder.Decode func (d *Decoder) Decode(v go.Any) fails go.Error needs go.Foreign
 
 // ergo:go func (*Decoder).DecodeElement(v any, start *StartElement) error
-// ergo:refused Decoder.DecodeElement: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go encoding/xml.Decoder.DecodeElement func (d *Decoder) DecodeElement(v go.Any, start own *StartElement) fails go.Error needs go.Foreign
 
 // ergo:go func (*Decoder).InputOffset() int64
 extern go encoding/xml.Decoder.InputOffset func (d *Decoder) InputOffset() int64 needs go.Foreign
@@ -73,10 +73,10 @@ extern go encoding/xml.Encoder type Encoder {} implements Closer
 extern go encoding/xml.Encoder.Close func (enc own *Encoder) Close() fails go.Error needs go.Foreign
 
 // ergo:go func (*Encoder).Encode(v any) error
-// ergo:refused Encoder.Encode: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go encoding/xml.Encoder.Encode func (enc *Encoder) Encode(v go.Any) fails go.Error needs go.Foreign
 
 // ergo:go func (*Encoder).EncodeElement(v any, start StartElement) error
-// ergo:refused Encoder.EncodeElement: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go encoding/xml.Encoder.EncodeElement func (enc *Encoder) EncodeElement(v go.Any, start StartElement) fails go.Error needs go.Foreign
 
 // ergo:go func (*Encoder).EncodeToken(t Token) error
 // ergo:refused Encoder.EncodeToken: parameter 1: type Token is refused: Ergo has no any; an empty interface hides the host type
@@ -108,10 +108,10 @@ extern go encoding/xml.EscapeText func EscapeText(w own io.Writer, s []byte) fai
 extern go encoding/xml.Header let Header string
 
 // ergo:go func Marshal(v any) ([]byte, error)
-// ergo:refused Marshal: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go encoding/xml.Marshal func Marshal(v go.Any) []byte fails go.Error needs go.Foreign
 
 // ergo:go func MarshalIndent(v any, prefix string, indent string) ([]byte, error)
-// ergo:refused MarshalIndent: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go encoding/xml.MarshalIndent func MarshalIndent(v go.Any, prefix string, indent string) []byte fails go.Error needs go.Foreign
 
 // ergo:go type Marshaler interface
 extern go encoding/xml.Marshaler type Marshaler {
@@ -187,7 +187,7 @@ extern go encoding/xml.TagPathError.Error func (e *TagPathError) Error() string 
 // ergo:refused TokenReader: no method of the interface maps
 
 // ergo:go func Unmarshal(data []byte, v any) error
-// ergo:refused Unmarshal: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+extern go encoding/xml.Unmarshal func Unmarshal(data []byte, v go.Any) fails go.Error needs go.Foreign
 
 // ergo:go type UnmarshalError string
 extern go encoding/xml.UnmarshalError type UnmarshalError string

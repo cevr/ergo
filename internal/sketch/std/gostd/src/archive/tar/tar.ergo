@@ -31,11 +31,9 @@ extern go archive/tar.FileInfoNames type FileInfoNames {
 	Mode() fs.FileMode needs go.Foreign,
 	Name() string needs go.Foreign,
 	Size() int64 needs go.Foreign,
+	Sys() go.Any needs go.Foreign,
 	Uname() string fails go.Error needs go.Foreign,
 }
-
-// ergo:go func (fs.FileInfo).Sys() any
-// ergo:refused FileInfoNames.Sys: result 1: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go type Format int
 extern go archive/tar.Format type Format int

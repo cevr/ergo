@@ -406,10 +406,10 @@ extern go os.ProcessState.String func (p *ProcessState) String() string needs go
 extern go os.ProcessState.Success func (p *ProcessState) Success() bool needs go.Foreign
 
 // ergo:go func (*ProcessState).Sys() any
-// ergo:refused ProcessState.Sys: result 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go os.ProcessState.Sys func (p *ProcessState) Sys() go.Any needs go.Foreign
 
 // ergo:go func (*ProcessState).SysUsage() any
-// ergo:refused ProcessState.SysUsage: result 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go os.ProcessState.SysUsage func (p *ProcessState) SysUsage() go.Any needs go.Foreign
 
 // ergo:go func (*ProcessState).SystemTime() time.Duration
 extern go os.ProcessState.SystemTime func (p *ProcessState) SystemTime() duration needs go.Foreign

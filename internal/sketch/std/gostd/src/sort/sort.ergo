@@ -89,13 +89,13 @@ extern go sort.SearchInts func SearchInts(a []int, x int) int
 extern go sort.SearchStrings func SearchStrings(a []string, x string) int
 
 // ergo:go func Slice(x any, less func(i int, j int) bool)
-// ergo:refused Slice: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go sort.Slice func Slice(x go.Any, less own func(int, int) bool)
 
 // ergo:go func SliceIsSorted(x any, less func(i int, j int) bool) bool
-// ergo:refused SliceIsSorted: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go sort.SliceIsSorted func SliceIsSorted(x go.Any, less own func(int, int) bool) bool
 
 // ergo:go func SliceStable(x any, less func(i int, j int) bool)
-// ergo:refused SliceStable: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go sort.SliceStable func SliceStable(x go.Any, less own func(int, int) bool)
 
 // ergo:go func Sort(data Interface)
 extern go sort.Sort func Sort(data own Interface)

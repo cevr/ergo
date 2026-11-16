@@ -4,7 +4,7 @@
 import go io
 
 // ergo:go func Append(buf []byte, order ByteOrder, data any) ([]byte, error)
-// ergo:refused Append: parameter 3: Ergo has no any; an interface{} parameter or result hides the host type
+extern go encoding/binary.Append func Append(buf []byte, order own ByteOrder, data go.Any) []byte fails go.Error needs go.Foreign
 
 // ergo:go type AppendByteOrder interface
 extern go encoding/binary.AppendByteOrder type AppendByteOrder {
@@ -35,10 +35,10 @@ extern go encoding/binary.ByteOrder type ByteOrder {
 }
 
 // ergo:go func Decode(buf []byte, order ByteOrder, data any) (int, error)
-// ergo:refused Decode: parameter 3: Ergo has no any; an interface{} parameter or result hides the host type
+extern go encoding/binary.Decode func Decode(buf []byte, order own ByteOrder, data go.Any) int fails go.Error needs go.Foreign
 
 // ergo:go func Encode(buf []byte, order ByteOrder, data any) (int, error)
-// ergo:refused Encode: parameter 3: Ergo has no any; an interface{} parameter or result hides the host type
+extern go encoding/binary.Encode func Encode(buf []byte, order own ByteOrder, data go.Any) int fails go.Error needs go.Foreign
 
 // ergo:go var LittleEndian littleEndian
 // ergo:refused LittleEndian: a Go variable is host state; call a function
@@ -62,7 +62,7 @@ extern go encoding/binary.PutUvarint func PutUvarint(buf []byte, x uint64) int n
 extern go encoding/binary.PutVarint func PutVarint(buf []byte, x int64) int needs go.Foreign
 
 // ergo:go func Read(r io.Reader, order ByteOrder, data any) error
-// ergo:refused Read: parameter 3: Ergo has no any; an interface{} parameter or result hides the host type
+extern go encoding/binary.Read func Read(r own io.Reader, order own ByteOrder, data go.Any) fails go.Error needs go.Foreign
 
 // ergo:go func ReadUvarint(r io.ByteReader) (uint64, error)
 extern go encoding/binary.ReadUvarint func ReadUvarint(r own io.ByteReader) uint64 fails go.Error needs go.Foreign
@@ -71,7 +71,7 @@ extern go encoding/binary.ReadUvarint func ReadUvarint(r own io.ByteReader) uint
 extern go encoding/binary.ReadVarint func ReadVarint(r own io.ByteReader) int64 fails go.Error needs go.Foreign
 
 // ergo:go func Size(v any) int
-// ergo:refused Size: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go encoding/binary.Size func Size(v go.Any) int needs go.Foreign
 
 // ergo:go func Uvarint(buf []byte) (uint64, int)
 // ergo:reads buf
@@ -82,4 +82,4 @@ extern go encoding/binary.Uvarint func Uvarint(buf []byte) (uint64, int) needs g
 extern go encoding/binary.Varint func Varint(buf []byte) (int64, int) needs go.Foreign
 
 // ergo:go func Write(w io.Writer, order ByteOrder, data any) error
-// ergo:refused Write: parameter 3: Ergo has no any; an interface{} parameter or result hides the host type
+extern go encoding/binary.Write func Write(w own io.Writer, order own ByteOrder, data go.Any) fails go.Error needs go.Foreign

@@ -20,7 +20,7 @@ extern go encoding/json.Decoder type Decoder {}
 extern go encoding/json.Decoder.Buffered func (dec *Decoder) Buffered() io.Reader needs go.Foreign
 
 // ergo:go func (*Decoder).Decode(v any) error
-// ergo:refused Decoder.Decode: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go encoding/json.Decoder.Decode func (dec *Decoder) Decode(v go.Any) fails go.Error needs go.Foreign
 
 // ergo:go func (*Decoder).DisallowUnknownFields()
 extern go encoding/json.Decoder.DisallowUnknownFields func (dec *Decoder) DisallowUnknownFields() needs go.Foreign
@@ -50,7 +50,7 @@ extern go encoding/json.Delim.String func (d Delim) String() string needs go.For
 extern go encoding/json.Encoder type Encoder {}
 
 // ergo:go func (*Encoder).Encode(v any) error
-// ergo:refused Encoder.Encode: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go encoding/json.Encoder.Encode func (enc *Encoder) Encode(v go.Any) fails go.Error needs go.Foreign
 
 // ergo:go func (*Encoder).SetEscapeHTML(on bool)
 extern go encoding/json.Encoder.SetEscapeHTML func (enc *Encoder) SetEscapeHTML(on bool) needs go.Foreign
@@ -92,10 +92,10 @@ extern go encoding/json.InvalidUnmarshalError type InvalidUnmarshalError {
 extern go encoding/json.InvalidUnmarshalError.Error func (e *InvalidUnmarshalError) Error() string needs go.Foreign
 
 // ergo:go func Marshal(v any) ([]byte, error)
-// ergo:refused Marshal: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go encoding/json.Marshal func Marshal(v go.Any) []byte fails go.Error needs go.Foreign
 
 // ergo:go func MarshalIndent(v any, prefix string, indent string) ([]byte, error)
-// ergo:refused MarshalIndent: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go encoding/json.MarshalIndent func MarshalIndent(v go.Any, prefix string, indent string) []byte fails go.Error needs go.Foreign
 
 // ergo:go type Marshaler = json.Marshaler
 // ergo:refused Marshaler: a Go alias; the binding names the type it stands for
@@ -175,7 +175,7 @@ extern go encoding/json.SyntaxError.Error func (e *SyntaxError) Error() string n
 // ergo:refused Token: Ergo has no any; an empty interface hides the host type
 
 // ergo:go func Unmarshal(data []byte, v any) error
-// ergo:refused Unmarshal: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+extern go encoding/json.Unmarshal func Unmarshal(data []byte, v go.Any) fails go.Error needs go.Foreign
 
 // ergo:go func UnmarshalArrayFromAnyLength(v bool) Options
 // ergo:refused UnmarshalArrayFromAnyLength: result 1: type Options is refused: it is declared in an internal or vendored package

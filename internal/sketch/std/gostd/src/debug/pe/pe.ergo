@@ -38,13 +38,11 @@ extern go debug/pe.DataDirectory type DataDirectory {
 
 // ergo:go type File struct
 extern go debug/pe.File type File {
-	FileHeader  FileHeader,
-	COFFSymbols []COFFSymbol,
-	StringTable StringTable,
+	FileHeader     FileHeader,
+	OptionalHeader go.Any,
+	COFFSymbols    []COFFSymbol,
+	StringTable    StringTable,
 } implements Closer
-
-// ergo:go OptionalHeader any
-// ergo:refused File.OptionalHeader: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go Sections []*pe.Section
 // ergo:refused File.Sections: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field

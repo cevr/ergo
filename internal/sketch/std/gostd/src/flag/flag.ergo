@@ -173,12 +173,10 @@ extern go flag.Func func Func(name string, usage string, fn own func(string) fai
 
 // ergo:go type Getter interface
 extern go flag.Getter type Getter {
+	Get() go.Any needs go.Foreign,
 	Set(p0 string) fails go.Error needs go.Foreign,
 	String() string needs go.Foreign,
 }
-
-// ergo:go func (flag.Getter).Get() any
-// ergo:refused Getter.Get: result 1: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func Int(name string, value int, usage string) *int
 // ergo:refused Int: result 1: a pointer to an unnamed type int

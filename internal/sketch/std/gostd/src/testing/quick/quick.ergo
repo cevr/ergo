@@ -5,21 +5,17 @@ import go math/rand
 import go reflect
 
 // ergo:go func Check(f any, config *Config) error
-// ergo:refused Check: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go testing/quick.Check func Check(f go.Any, config own *Config) fails go.Error needs go.Foreign
 
 // ergo:go func CheckEqual(f any, g any, config *Config) error
-// ergo:refused CheckEqual: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go testing/quick.CheckEqual func CheckEqual(f go.Any, g go.Any, config own *Config) fails go.Error needs go.Foreign
 
 // ergo:go type CheckEqualError struct
 extern go testing/quick.CheckEqualError type CheckEqualError {
 	CheckError CheckError,
+	Out1       []go.Any,
+	Out2       []go.Any,
 }
-
-// ergo:go Out1 []any
-// ergo:refused CheckEqualError.Out1: Ergo has no any; an interface{} parameter or result hides the host type
-
-// ergo:go Out2 []any
-// ergo:refused CheckEqualError.Out2: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*CheckEqualError).Error() string
 extern go testing/quick.CheckEqualError.Error func (s *CheckEqualError) Error() string needs go.Foreign
@@ -27,10 +23,8 @@ extern go testing/quick.CheckEqualError.Error func (s *CheckEqualError) Error() 
 // ergo:go type CheckError struct
 extern go testing/quick.CheckError type CheckError {
 	Count int,
+	In    []go.Any,
 }
-
-// ergo:go In []any
-// ergo:refused CheckError.In: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*CheckError).Error() string
 extern go testing/quick.CheckError.Error func (s *CheckError) Error() string needs go.Foreign

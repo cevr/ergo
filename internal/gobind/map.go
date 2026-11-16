@@ -764,6 +764,9 @@ func (m *sigMapper) typ(t types.Type, at pos, cb bool) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		if k == "go.Any" {
+			return "", refuse("Ergo compares no go.Any, so a go.Any keys no Map")
+		}
 		v, err := m.typ(t.Elem(), atInner, cb)
 		if err != nil {
 			return "", err
@@ -786,7 +789,9 @@ func (m *sigMapper) typ(t types.Type, at pos, cb bool) (string, error) {
 		return "", refuse("Ergo has no channels (196c); wrap the Go channel in a Go function of your module, or use std queue")
 	case *types.Interface:
 		if t.Empty() {
-			return "", refuse("Ergo has no any; an interface{} parameter or result hides the host type")
+			// GB2: Go's empty interface is go.Any; a value with a Go form
+			// goes in, and go.As[T] takes one out (interop.md, Go any).
+			return "go.Any", nil
 		}
 		return "", refuse("an unnamed interface type")
 	case *types.Struct:

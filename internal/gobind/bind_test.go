@@ -335,7 +335,12 @@ func ref(t *gt, pos at, cb bool) (string, bool) {
 	case "slice":
 		e, ok := ref(t.elem, inner, cb)
 		return "[]" + e, ok
+	case "any":
+		return "go.Any", true // GB2: Go's empty interface
 	case "map":
+		if t.key.kind == "any" {
+			return "", false // Ergo compares no go.Any, so it keys no Map
+		}
 		k, ok1 := ref(t.key, inner, cb)
 		v, ok2 := ref(t.elem, inner, cb)
 		return "Map[" + k + ", " + v + "]", ok1 && ok2
@@ -377,7 +382,7 @@ func ref(t *gt, pos at, cb bool) (string, bool) {
 		}
 		return s, true
 	}
-	// uintptr, any, an unnamed interface or struct, *int, a chan
+	// uintptr, an unnamed non-empty interface or struct, *int, a chan
 	return "", false
 }
 
@@ -534,6 +539,13 @@ func genPackage(name string, r *rand.Rand) (string, map[string]verdict) {
 		want["Conn."+m.name] = verdict{ergo: "func (c " + mode + "*Conn) " + m.name + "() " + m.ergo + " needs go.Foreign"}
 	}
 	b.WriteString("\n")
+	// GB2: go.Any in, out, in a variadic and in a Go struct field; a Map
+	// keyed by go.Any is refused (Ergo compares no go.Any).
+	b.WriteString("func AnyIn(k string, v any, rest ...any) {}\nfunc AnyOut() any { panic(0) }\nfunc AnyKey(m map[any]int) {}\ntype AnyArgs struct{ Values any }\n\n")
+	want["AnyIn"] = verdict{ergo: "func AnyIn(k string, v go.Any, rest []go.Any) needs go.Foreign", variadic: true}
+	want["AnyOut"] = verdict{ergo: "func AnyOut() go.Any needs go.Foreign"}
+	want["AnyKey"] = verdict{refused: true}
+	want["AnyArgs"] = verdict{ergo: "type AnyArgs { Values go.Any, }"}
 	// BV1's smallest repro: os.Stdout was refused as ordinary host state.
 	b.WriteString("var Stdout = os.Stdout\n\n")
 	want["Stdout"] = verdict{ergo: "let Stdout Option[go.Ref[os.File]]"}

@@ -32,10 +32,12 @@ extern go testing.B.Context func (c *B) Context() gocontext.Context needs go.For
 extern go testing.B.Elapsed func (b *B) Elapsed() duration needs go.Foreign
 
 // ergo:go func (*common).Error(args ...any)
-// ergo:refused B.Error: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go testing.B.Error func (c *B) Error(args []go.Any) needs go.Foreign
 
 // ergo:go func (*common).Errorf(format string, args ...any)
-// ergo:refused B.Errorf: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go testing.B.Errorf func (c *B) Errorf(format string, args []go.Any) needs go.Foreign
 
 // ergo:go func (*common).Fail()
 extern go testing.B.Fail func (c *B) Fail() needs go.Foreign
@@ -47,19 +49,23 @@ extern go testing.B.FailNow func (c *B) FailNow() needs go.Foreign
 extern go testing.B.Failed func (c *B) Failed() bool needs go.Foreign
 
 // ergo:go func (*common).Fatal(args ...any)
-// ergo:refused B.Fatal: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go testing.B.Fatal func (c *B) Fatal(args []go.Any) needs go.Foreign
 
 // ergo:go func (*common).Fatalf(format string, args ...any)
-// ergo:refused B.Fatalf: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go testing.B.Fatalf func (c *B) Fatalf(format string, args []go.Any) needs go.Foreign
 
 // ergo:go func (*common).Helper()
 extern go testing.B.Helper func (c *B) Helper() needs go.Foreign
 
 // ergo:go func (*common).Log(args ...any)
-// ergo:refused B.Log: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go testing.B.Log func (c *B) Log(args []go.Any) needs go.Foreign
 
 // ergo:go func (*common).Logf(format string, args ...any)
-// ergo:refused B.Logf: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go testing.B.Logf func (c *B) Logf(format string, args []go.Any) needs go.Foreign
 
 // ergo:go func (*B).Loop() bool
 extern go testing.B.Loop func (b *B) Loop() bool needs go.Foreign
@@ -95,13 +101,15 @@ extern go testing.B.SetParallelism func (b *B) SetParallelism(p int) needs go.Fo
 extern go testing.B.Setenv func (c *B) Setenv(key string, value string) needs go.Foreign
 
 // ergo:go func (*common).Skip(args ...any)
-// ergo:refused B.Skip: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go testing.B.Skip func (c *B) Skip(args []go.Any) needs go.Foreign
 
 // ergo:go func (*common).SkipNow()
 extern go testing.B.SkipNow func (c *B) SkipNow() needs go.Foreign
 
 // ergo:go func (*common).Skipf(format string, args ...any)
-// ergo:refused B.Skipf: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go testing.B.Skipf func (c *B) Skipf(format string, args []go.Any) needs go.Foreign
 
 // ergo:go func (*common).Skipped() bool
 extern go testing.B.Skipped func (c *B) Skipped() bool needs go.Foreign
@@ -170,7 +178,8 @@ extern go testing.Coverage func Coverage() float64 needs go.Foreign
 extern go testing.F type F {}
 
 // ergo:go func (*F).Add(args ...any)
-// ergo:refused F.Add: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go testing.F.Add func (f *F) Add(args []go.Any) needs go.Foreign
 
 // ergo:go func (*common).ArtifactDir() string
 extern go testing.F.ArtifactDir func (c *F) ArtifactDir() string needs go.Foreign
@@ -188,10 +197,12 @@ extern go testing.F.Cleanup func (c *F) Cleanup(f own func()) needs go.Foreign
 extern go testing.F.Context func (c *F) Context() gocontext.Context needs go.Foreign
 
 // ergo:go func (*common).Error(args ...any)
-// ergo:refused F.Error: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go testing.F.Error func (c *F) Error(args []go.Any) needs go.Foreign
 
 // ergo:go func (*common).Errorf(format string, args ...any)
-// ergo:refused F.Errorf: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go testing.F.Errorf func (c *F) Errorf(format string, args []go.Any) needs go.Foreign
 
 // ergo:go func (*F).Fail()
 extern go testing.F.Fail func (f *F) Fail() needs go.Foreign
@@ -203,22 +214,26 @@ extern go testing.F.FailNow func (c *F) FailNow() needs go.Foreign
 extern go testing.F.Failed func (c *F) Failed() bool needs go.Foreign
 
 // ergo:go func (*common).Fatal(args ...any)
-// ergo:refused F.Fatal: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go testing.F.Fatal func (c *F) Fatal(args []go.Any) needs go.Foreign
 
 // ergo:go func (*common).Fatalf(format string, args ...any)
-// ergo:refused F.Fatalf: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go testing.F.Fatalf func (c *F) Fatalf(format string, args []go.Any) needs go.Foreign
 
 // ergo:go func (*F).Fuzz(ff any)
-// ergo:refused F.Fuzz: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go testing.F.Fuzz func (f *F) Fuzz(ff go.Any) needs go.Foreign
 
 // ergo:go func (*F).Helper()
 extern go testing.F.Helper func (f *F) Helper() needs go.Foreign
 
 // ergo:go func (*common).Log(args ...any)
-// ergo:refused F.Log: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go testing.F.Log func (c *F) Log(args []go.Any) needs go.Foreign
 
 // ergo:go func (*common).Logf(format string, args ...any)
-// ergo:refused F.Logf: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go testing.F.Logf func (c *F) Logf(format string, args []go.Any) needs go.Foreign
 
 // ergo:go func (*common).Name() string
 extern go testing.F.Name func (c *F) Name() string needs go.Foreign
@@ -230,13 +245,15 @@ extern go testing.F.Output func (c *F) Output() io.Writer needs go.Foreign
 extern go testing.F.Setenv func (c *F) Setenv(key string, value string) needs go.Foreign
 
 // ergo:go func (*common).Skip(args ...any)
-// ergo:refused F.Skip: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go testing.F.Skip func (c *F) Skip(args []go.Any) needs go.Foreign
 
 // ergo:go func (*common).SkipNow()
 extern go testing.F.SkipNow func (c *F) SkipNow() needs go.Foreign
 
 // ergo:go func (*common).Skipf(format string, args ...any)
-// ergo:refused F.Skipf: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go testing.F.Skipf func (c *F) Skipf(format string, args []go.Any) needs go.Foreign
 
 // ergo:go func (*F).Skipped() bool
 extern go testing.F.Skipped func (f *F) Skipped() bool needs go.Foreign
@@ -336,10 +353,12 @@ extern go testing.T.Context func (c *T) Context() gocontext.Context needs go.For
 extern go testing.T.Deadline func (t *T) Deadline() (time.Time, bool) needs go.Foreign
 
 // ergo:go func (*common).Error(args ...any)
-// ergo:refused T.Error: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go testing.T.Error func (c *T) Error(args []go.Any) needs go.Foreign
 
 // ergo:go func (*common).Errorf(format string, args ...any)
-// ergo:refused T.Errorf: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go testing.T.Errorf func (c *T) Errorf(format string, args []go.Any) needs go.Foreign
 
 // ergo:go func (*common).Fail()
 extern go testing.T.Fail func (c *T) Fail() needs go.Foreign
@@ -351,19 +370,23 @@ extern go testing.T.FailNow func (c *T) FailNow() needs go.Foreign
 extern go testing.T.Failed func (c *T) Failed() bool needs go.Foreign
 
 // ergo:go func (*common).Fatal(args ...any)
-// ergo:refused T.Fatal: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go testing.T.Fatal func (c *T) Fatal(args []go.Any) needs go.Foreign
 
 // ergo:go func (*common).Fatalf(format string, args ...any)
-// ergo:refused T.Fatalf: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go testing.T.Fatalf func (c *T) Fatalf(format string, args []go.Any) needs go.Foreign
 
 // ergo:go func (*common).Helper()
 extern go testing.T.Helper func (c *T) Helper() needs go.Foreign
 
 // ergo:go func (*common).Log(args ...any)
-// ergo:refused T.Log: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go testing.T.Log func (c *T) Log(args []go.Any) needs go.Foreign
 
 // ergo:go func (*common).Logf(format string, args ...any)
-// ergo:refused T.Logf: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go testing.T.Logf func (c *T) Logf(format string, args []go.Any) needs go.Foreign
 
 // ergo:go func (*common).Name() string
 extern go testing.T.Name func (c *T) Name() string needs go.Foreign
@@ -381,13 +404,15 @@ extern go testing.T.Run func (t *T) Run(name string, f own func(*T)) bool needs 
 extern go testing.T.Setenv func (t *T) Setenv(key string, value string) needs go.Foreign
 
 // ergo:go func (*common).Skip(args ...any)
-// ergo:refused T.Skip: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go testing.T.Skip func (c *T) Skip(args []go.Any) needs go.Foreign
 
 // ergo:go func (*common).SkipNow()
 extern go testing.T.SkipNow func (c *T) SkipNow() needs go.Foreign
 
 // ergo:go func (*common).Skipf(format string, args ...any)
-// ergo:refused T.Skipf: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go testing.T.Skipf func (c *T) Skipf(format string, args []go.Any) needs go.Foreign
 
 // ergo:go func (*common).Skipped() bool
 extern go testing.T.Skipped func (c *T) Skipped() bool needs go.Foreign
@@ -415,28 +440,28 @@ extern go testing.TB type TB {
 }
 
 // ergo:go func (testing.TB).Error(args ...any)
-// ergo:refused TB.Error: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:refused TB.Error: a variadic interface method
 
 // ergo:go func (testing.TB).Errorf(format string, args ...any)
-// ergo:refused TB.Errorf: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:refused TB.Errorf: a variadic interface method
 
 // ergo:go func (testing.TB).Fatal(args ...any)
-// ergo:refused TB.Fatal: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:refused TB.Fatal: a variadic interface method
 
 // ergo:go func (testing.TB).Fatalf(format string, args ...any)
-// ergo:refused TB.Fatalf: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:refused TB.Fatalf: a variadic interface method
 
 // ergo:go func (testing.TB).Log(args ...any)
-// ergo:refused TB.Log: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:refused TB.Log: a variadic interface method
 
 // ergo:go func (testing.TB).Logf(format string, args ...any)
-// ergo:refused TB.Logf: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:refused TB.Logf: a variadic interface method
 
 // ergo:go func (testing.TB).Skip(args ...any)
-// ergo:refused TB.Skip: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:refused TB.Skip: a variadic interface method
 
 // ergo:go func (testing.TB).Skipf(format string, args ...any)
-// ergo:refused TB.Skipf: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:refused TB.Skipf: a variadic interface method
 
 // ergo:go func Testing() bool
 extern go testing.Testing func Testing() bool needs go.Foreign

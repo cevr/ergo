@@ -618,7 +618,7 @@ extern go debug/dwarf.Entry type Entry {
 extern go debug/dwarf.Entry.AttrField func (e *Entry) AttrField(a Attr) Option[go.Ref[Field]] needs go.Foreign
 
 // ergo:go func (*Entry).Val(a Attr) any
-// ergo:refused Entry.Val: result 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go debug/dwarf.Entry.Val func (e *Entry) Val(a Attr) go.Any needs go.Foreign
 
 // ergo:go type EnumType struct
 extern go debug/dwarf.EnumType type EnumType {
@@ -650,11 +650,9 @@ extern go debug/dwarf.ErrUnknownPC let ErrUnknownPC go.Error
 // ergo:go type Field struct
 extern go debug/dwarf.Field type Field {
 	Attr  Attr,
+	Val   go.Any,
 	Class Class,
 }
-
-// ergo:go Val any
-// ergo:refused Field.Val: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go type FloatType struct
 extern go debug/dwarf.FloatType type FloatType {

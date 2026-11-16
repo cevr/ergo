@@ -5,13 +5,12 @@
 extern go container/ring.New func New(n int) Option[go.Ref[Ring]] needs go.Foreign
 
 // ergo:go type Ring struct
-extern go container/ring.Ring type Ring {}
-
-// ergo:go Value any
-// ergo:refused Ring.Value: Ergo has no any; an interface{} parameter or result hides the host type
+extern go container/ring.Ring type Ring {
+	Value go.Any,
+}
 
 // ergo:go func (*Ring).Do(f func(any))
-// ergo:refused Ring.Do: parameter 1: callback parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go container/ring.Ring.Do func (r *Ring) Do(f own func(go.Any)) needs go.Foreign
 
 // ergo:go func (*Ring).Len() int
 extern go container/ring.Ring.Len func (r *Ring) Len() int needs go.Foreign

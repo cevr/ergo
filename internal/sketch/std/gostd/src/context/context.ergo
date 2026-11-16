@@ -25,13 +25,11 @@ extern go context.Cause func Cause(c own Context) fails go.Error needs go.Foreig
 extern go context.Context type Context {
 	Deadline() (time.Time, bool) needs go.Foreign,
 	Err() fails go.Error needs go.Foreign,
+	Value(key go.Any) go.Any needs go.Foreign,
 }
 
 // ergo:go func (context.Context).Done() <-chan struct{}
 // ergo:refused Context.Done: result 1: Ergo has no channels (196c); wrap the Go channel in a Go function of your module, or use std queue
-
-// ergo:go func (context.Context).Value(key any) any
-// ergo:refused Context.Value: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go var DeadlineExceeded error
 extern go context.DeadlineExceeded let DeadlineExceeded go.Error
@@ -58,7 +56,7 @@ extern go context.TODO func TODO() Context needs go.Foreign
 // ergo:refused WithTimeoutCause: result 2: type CancelFunc is refused: a Go function type maps to no Ergo host type in v1
 
 // ergo:go func WithValue(parent Context, key any, val any) Context
-// ergo:refused WithValue: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+extern go context.WithValue func WithValue(parent own Context, key go.Any, val go.Any) Context needs go.Foreign
 
 // ergo:go func WithoutCancel(parent Context) Context
 extern go context.WithoutCancel func WithoutCancel(parent own Context) Context needs go.Foreign

@@ -260,13 +260,13 @@ extern go sync/atomic.Uintptr type Uintptr {}
 extern go sync/atomic.Value type Value {}
 
 // ergo:go func (*Value).CompareAndSwap(old any, new any) (swapped bool)
-// ergo:refused Value.CompareAndSwap: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go sync/atomic.Value.CompareAndSwap func (v *Value) CompareAndSwap(old go.Any, new go.Any) bool needs go.Foreign
 
 // ergo:go func (*Value).Load() (val any)
-// ergo:refused Value.Load: result 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go sync/atomic.Value.Load func (v *Value) Load() go.Any needs go.Foreign
 
 // ergo:go func (*Value).Store(val any)
-// ergo:refused Value.Store: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go sync/atomic.Value.Store func (v *Value) Store(val go.Any) needs go.Foreign
 
 // ergo:go func (*Value).Swap(new any) (old any)
-// ergo:refused Value.Swap: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go sync/atomic.Value.Swap func (v *Value) Swap(new go.Any) go.Any needs go.Foreign

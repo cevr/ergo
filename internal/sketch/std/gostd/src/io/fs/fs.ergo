@@ -46,10 +46,8 @@ extern go io/fs.FileInfo type FileInfo {
 	Mode() FileMode needs go.Foreign,
 	Name() string needs go.Foreign,
 	Size() int64 needs go.Foreign,
+	Sys() go.Any needs go.Foreign,
 }
-
-// ergo:go func (fs.FileInfo).Sys() any
-// ergo:refused FileInfo.Sys: result 1: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func FileInfoToDirEntry(info FileInfo) DirEntry
 extern go io/fs.FileInfoToDirEntry func FileInfoToDirEntry(info own FileInfo) DirEntry needs go.Foreign

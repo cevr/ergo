@@ -3,6 +3,7 @@
 
 import go io
 import go io/fs
+import go template2 text/template
 import go text/template/parse
 
 // ergo:go type CSS string
@@ -75,10 +76,11 @@ extern go html/template.HTMLEscape func HTMLEscape(w own io.Writer, b []byte) ne
 extern go html/template.HTMLEscapeString func HTMLEscapeString(s string) string needs go.Foreign
 
 // ergo:go func HTMLEscaper(args ...any) string
-// ergo:refused HTMLEscaper: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go html/template.HTMLEscaper func HTMLEscaper(args []go.Any) string needs go.Foreign
 
 // ergo:go func IsTrue(val any) (truth bool, ok bool)
-// ergo:refused IsTrue: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go html/template.IsTrue func IsTrue(val go.Any) (bool, bool) needs go.Foreign
 
 // ergo:go type JS string
 extern go html/template.JS type JS string
@@ -90,7 +92,8 @@ extern go html/template.JSEscape func JSEscape(w own io.Writer, b []byte) needs 
 extern go html/template.JSEscapeString func JSEscapeString(s string) string needs go.Foreign
 
 // ergo:go func JSEscaper(args ...any) string
-// ergo:refused JSEscaper: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go html/template.JSEscaper func JSEscaper(args []go.Any) string needs go.Foreign
 
 // ergo:go type JSStr string
 extern go html/template.JSStr type JSStr string
@@ -136,13 +139,13 @@ extern go html/template.Template.DefinedTemplates func (t *Template) DefinedTemp
 extern go html/template.Template.Delims func (t *Template) Delims(left string, right string) Option[go.Ref[Template]] needs go.Foreign
 
 // ergo:go func (*Template).Execute(wr io.Writer, data any) error
-// ergo:refused Template.Execute: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+extern go html/template.Template.Execute func (t *Template) Execute(wr own io.Writer, data go.Any) fails go.Error needs go.Foreign
 
 // ergo:go func (*Template).ExecuteTemplate(wr io.Writer, name string, data any) error
-// ergo:refused Template.ExecuteTemplate: parameter 3: Ergo has no any; an interface{} parameter or result hides the host type
+extern go html/template.Template.ExecuteTemplate func (t *Template) ExecuteTemplate(wr own io.Writer, name string, data go.Any) fails go.Error needs go.Foreign
 
 // ergo:go func (*Template).Funcs(funcMap FuncMap) *Template
-// ergo:refused Template.Funcs: parameter 1: type FuncMap is refused: Ergo has no any; an interface{} parameter or result hides the host type
+extern go html/template.Template.Funcs func (t *Template) Funcs(funcMap template2.FuncMap) Option[go.Ref[Template]] needs go.Foreign
 
 // ergo:go func (*Template).Lookup(name string) *Template
 extern go html/template.Template.Lookup func (t *Template) Lookup(name string) Option[go.Ref[Template]] needs go.Foreign
@@ -178,4 +181,5 @@ extern go html/template.Template.ParseGlob func (t *Template) ParseGlob(pattern 
 extern go html/template.URL type URL string
 
 // ergo:go func URLQueryEscaper(args ...any) string
-// ergo:refused URLQueryEscaper: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:variadic
+extern go html/template.URLQueryEscaper func URLQueryEscaper(args []go.Any) string needs go.Foreign

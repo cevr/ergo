@@ -42,7 +42,7 @@ extern go reflect.Complex64 let Complex64 Kind
 extern go reflect.Copy func Copy(dst own Value, src own Value) int needs go.Foreign
 
 // ergo:go func DeepEqual(x any, y any) bool
-// ergo:refused DeepEqual: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go reflect.DeepEqual func DeepEqual(x go.Any, y go.Any) bool needs go.Foreign
 
 // ergo:go const Float32 Kind
 extern go reflect.Float32 let Float32 Kind
@@ -241,7 +241,7 @@ extern go reflect.StructTag.Get func (tag StructTag) Get(key string) string need
 extern go reflect.StructTag.Lookup func (tag StructTag) Lookup(key string) (string, bool) needs go.Foreign
 
 // ergo:go func Swapper(slice any) func(i int, j int)
-// ergo:refused Swapper: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+// ergo:refused Swapper: result 1: a Go function as a result, a field or an element
 
 // ergo:go type Type interface
 extern go reflect.Type type Type {
@@ -295,7 +295,7 @@ extern go reflect.TypeAssert func TypeAssert[T](v own Value) (T, bool) needs go.
 extern go reflect.TypeFor func TypeFor[T]() Type needs go.Foreign
 
 // ergo:go func TypeOf(i any) Type
-// ergo:refused TypeOf: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go reflect.TypeOf func TypeOf(i go.Any) Type needs go.Foreign
 
 // ergo:go const Uint Kind
 extern go reflect.Uint let Uint Kind
@@ -417,7 +417,7 @@ extern go reflect.Value.Index func (v own Value) Index(i int) Value needs go.For
 extern go reflect.Value.Int func (v Value) Int() int64 needs go.Foreign
 
 // ergo:go func (Value).Interface() (i any)
-// ergo:refused Value.Interface: result 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go reflect.Value.Interface func (v own Value) Interface() go.Any needs go.Foreign
 
 // ergo:go func (Value).InterfaceData() [2]uintptr
 // ergo:refused Value.InterfaceData: result 1: Ergo has no uintptr
@@ -570,7 +570,7 @@ extern go reflect.ValueError type ValueError {
 extern go reflect.ValueError.Error func (e *ValueError) Error() string needs go.Foreign
 
 // ergo:go func ValueOf(i any) Value
-// ergo:refused ValueOf: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go reflect.ValueOf func ValueOf(i go.Any) Value needs go.Foreign
 
 // ergo:go func VisibleFields(t Type) []StructField
 extern go reflect.VisibleFields func VisibleFields(t own Type) []StructField needs go.Foreign

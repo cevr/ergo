@@ -2,6 +2,7 @@
 // ergo:bind go/ast go1.27 darwin/amd64 darwin/arm64 linux/amd64 linux/arm64
 
 import go go/token
+import go io
 import go reflect
 
 // ergo:go type ArrayType struct
@@ -431,7 +432,7 @@ extern go go/ast.ForStmt.End func (s *ForStmt) End() token.Pos needs go.Foreign
 extern go go/ast.ForStmt.Pos func (s *ForStmt) Pos() token.Pos needs go.Foreign
 
 // ergo:go func Fprint(w io.Writer, fset *token.FileSet, x any, f FieldFilter) error
-// ergo:refused Fprint: parameter 3: Ergo has no any; an interface{} parameter or result hides the host type
+extern go go/ast.Fprint func Fprint(w own io.Writer, fset own *token.FileSet, x go.Any, f own func(string, reflect.Value) bool) fails go.Error needs go.Foreign
 
 // ergo:go const Fun ObjKind
 extern go go/ast.Fun let Fun ObjKind
@@ -702,16 +703,10 @@ extern go go/ast.ObjKind.String func (kind ObjKind) String() string needs go.For
 extern go go/ast.Object type Object {
 	Kind ObjKind,
 	Name string,
+	Decl go.Any,
+	Data go.Any,
+	Type go.Any,
 }
-
-// ergo:go Decl any
-// ergo:refused Object.Decl: Ergo has no any; an interface{} parameter or result hides the host type
-
-// ergo:go Data any
-// ergo:refused Object.Data: Ergo has no any; an interface{} parameter or result hides the host type
-
-// ergo:go Type any
-// ergo:refused Object.Type: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*Object).Pos() token.Pos
 extern go go/ast.Object.Pos func (obj *Object) Pos() token.Pos needs go.Foreign
@@ -763,7 +758,7 @@ extern go go/ast.Preorder func Preorder(root own Node) Seq[Node] needs go.Foreig
 extern go go/ast.PreorderStack func PreorderStack(root own Node, stack own []Node, f own func(Node, []Node) bool) needs go.Foreign
 
 // ergo:go func Print(fset *token.FileSet, x any) error
-// ergo:refused Print: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+extern go go/ast.Print func Print(fset own *token.FileSet, x go.Any) fails go.Error needs go.Foreign
 
 // ergo:go const RECV ChanDir
 extern go go/ast.RECV let RECV ChanDir

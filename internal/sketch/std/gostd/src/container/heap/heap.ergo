@@ -11,20 +11,16 @@ extern go container/heap.Init func Init(h own Interface) needs go.Foreign
 extern go container/heap.Interface type Interface {
 	Len() int needs go.Foreign,
 	Less(i int, j int) bool needs go.Foreign,
+	Pop() go.Any needs go.Foreign,
+	Push(x go.Any) needs go.Foreign,
 	Swap(i int, j int) needs go.Foreign,
 }
 
-// ergo:go func (heap.Interface).Pop() any
-// ergo:refused Interface.Pop: result 1: Ergo has no any; an interface{} parameter or result hides the host type
-
-// ergo:go func (heap.Interface).Push(x any)
-// ergo:refused Interface.Push: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
-
 // ergo:go func Pop(h Interface) any
-// ergo:refused Pop: result 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go container/heap.Pop func Pop(h own Interface) go.Any needs go.Foreign
 
 // ergo:go func Push(h Interface, x any)
-// ergo:refused Push: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+extern go container/heap.Push func Push(h own Interface, x go.Any) needs go.Foreign
 
 // ergo:go func Remove(h Interface, i int) any
-// ergo:refused Remove: result 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go container/heap.Remove func Remove(h own Interface, i int) go.Any needs go.Foreign

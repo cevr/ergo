@@ -107,7 +107,7 @@ extern go runtime.GoroutineProfile func GoroutineProfile(p []StackRecord) (int, 
 extern go runtime.Gosched func Gosched() needs go.Foreign
 
 // ergo:go func KeepAlive(x any)
-// ergo:refused KeepAlive: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go runtime.KeepAlive func KeepAlive(x go.Any) needs go.Foreign
 
 // ergo:go func LockOSThread()
 extern go runtime.LockOSThread func LockOSThread() needs go.Foreign
@@ -201,7 +201,7 @@ extern go runtime.PanicNilError.RuntimeError func (r *PanicNilError) RuntimeErro
 extern go runtime.Pinner type Pinner {}
 
 // ergo:go func (*Pinner).Pin(pointer any)
-// ergo:refused Pinner.Pin: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go runtime.Pinner.Pin func (p *Pinner) Pin(pointer go.Any) needs go.Foreign
 
 // ergo:go func (*Pinner).Unpin()
 extern go runtime.Pinner.Unpin func (p *Pinner) Unpin() needs go.Foreign
@@ -225,7 +225,7 @@ extern go runtime.SetCPUProfileRate func SetCPUProfileRate(hz int) needs go.Fore
 extern go runtime.SetDefaultGOMAXPROCS func SetDefaultGOMAXPROCS() needs go.Foreign
 
 // ergo:go func SetFinalizer(obj any, finalizer any)
-// ergo:refused SetFinalizer: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go runtime.SetFinalizer func SetFinalizer(obj go.Any, finalizer go.Any) needs go.Foreign
 
 // ergo:go func SetMutexProfileFraction(rate int) int
 extern go runtime.SetMutexProfileFraction func SetMutexProfileFraction(rate int) int needs go.Foreign
