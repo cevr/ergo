@@ -89,6 +89,15 @@ func give(id int, k int) Res needs Console {
 				}
 			case 2:
 				fmt.Fprintf(&b, "\tif k == %d {\n\t\treturn s + %d\n\t}\n", r.IntN(4), j)
+			case 3:
+				// A scope inside the frame (unit 2): its value is released
+				// at the scope's end, or before a break leaves the loop.
+				id := 100*(i+1) + j
+				if r.IntN(2) == 0 {
+					fmt.Fprintf(&b, "\tif k > %d {\n\t\tlet t%d = open(%d, false)\n\t\tlet v%d = use(t%d)\n\t\ts = s + v%d\n\t}\n", r.IntN(3), j, id, j, j, j)
+				} else {
+					fmt.Fprintf(&b, "\tfor q in 0..3 {\n\t\tlet t%d = open(%d + q, false)\n\t\tlet v%d = use(t%d)\n\t\ts = s + v%d\n\t\tif q == k {\n\t\t\tbreak\n\t\t}\n\t}\n", j, id, j, j, j)
+				}
 			}
 		}
 		if len(live) > 0 && r.IntN(2) == 0 {

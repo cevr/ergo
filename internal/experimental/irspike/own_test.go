@@ -25,6 +25,7 @@ import (
 func TestIROwnedMatchSource(t *testing.T) {
 	src, ir := needsBuild(t)
 	first, count := envInt("ERGO_IRSPIKE_SEED", 1), envInt("ERGO_IRSPIKE_SEEDS", 6)
+	inBody := 0
 	for seed := first; seed < first+count; seed++ {
 		dir := t.TempDir()
 		text := GenerateOwn(seed)
@@ -62,5 +63,13 @@ func TestIROwnedMatchSource(t *testing.T) {
 		if len(missing) > 0 {
 			t.Fatalf("seed %d: no IR body for %v (fallback %v)\n%s\n%s", seed, missing, rep.Fallback, replay, text)
 		}
+		// A release inside a body calls its slot's helper (ir_own.go
+		// slotRelease), named <f>Free.
+		if data, err := os.ReadFile(filepath.Join(dir, "ir", "ergoir.json")); err == nil && strings.Contains(string(data), `Free"`) {
+			inBody++
+		}
+	}
+	if count >= 6 && inBody == 0 {
+		t.Fatalf("no seed of %d..%d releases a value inside a body", first, first+count-1)
 	}
 }
