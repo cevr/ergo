@@ -13,7 +13,8 @@ import (
 // slice of ints and a Map of ints (slices.Clone, maps.Clone), a slice of
 // records that hold a slice, a Map of slices and a record that holds one
 // (the generated copy functions), and a generic slice (slices.Clone at a
-// type parameter). The caller's slices have spare capacity, so an append
+// type parameter), and the rest of a Map's Take from a live source
+// (PRIM-3). The caller's slices have spare capacity, so an append
 // of an uncopied slice writes the caller's array, and two appends of one
 // source show it; a Map written in place shows in the caller's length.
 func GenerateCopy(seed uint64) string {
@@ -26,6 +27,9 @@ func GenerateCopy(seed uint64) string {
 	fmt.Fprintf(&b, "func copySlice(xs []int, k int) int {\n\tlet mut ys = xs\n\tys = ys.Append(k)\n\tlet mut zs = xs\n\tzs = zs.Append(k + %d)\n\tys[len(ys)-1]*1000 + zs[len(zs)-1]*10 + len(xs)\n}\n\n", k())
 	// copyMap: a copy written in place by Put.
 	fmt.Fprintf(&b, "func copyMap(m Map[string, int], k int) int {\n\tlet mut o = m\n\to = o.Put(\"k%d\", k)\n\tlen(o)*100 + len(m)\n}\n\n", g.n(3))
+	// takeMap: a Take from a parameter the caller still holds (PRIM-3):
+	// its rest is a copy, so the caller's Map keeps k0.
+	b.WriteString("func takeMap(m Map[string, int]) int {\n\tlet _, rest = m.Take(\"k0\")\n\tlen(rest)*100 + len(m)\n}\n\n")
 	// copyBoxes: a slice of records that hold a slice, two copies appended.
 	fmt.Fprintf(&b, "func copyBoxes(bs []Box, k int) int {\n\tlet mut out = bs\n\tout = out.Append(Box{items: []int{k}, tag: \"a\"})\n\tlet mut more = bs\n\tmore = more.Append(Box{items: []int{k + %d}, tag: \"b\"})\n\tout[len(out)-1].items[0]*100 + more[len(more)-1].items[0] + len(bs)\n}\n\n", k())
 	// copyLists: a Map of slices written in place by Put.
@@ -46,7 +50,7 @@ func GenerateCopy(seed uint64) string {
 	b.WriteString("\tlet sa = \"a\"\n\tlet sb = \"b\"\n")
 	for i := 0; i < 2; i++ {
 		v := g.n(50)
-		fmt.Fprintf(&b, "\tConsole.Println(\"%d: \\(copySlice(xs, %d)) \\(copyMap(m, %d)) \\(len(m)) \\(copyBoxes(bs, %d)) \\(copyLists(lists, %d)) \\(len(lists)) \\(copyBox(x, %d)) \\(copyAny(xs, %d, %d)) \\(copyAny(ss, sa, sb)) \\(len(xs))\")\n", i, v, v, v, v, v, v, v+1)
+		fmt.Fprintf(&b, "\tConsole.Println(\"%d: \\(copySlice(xs, %d)) \\(copyMap(m, %d)) \\(takeMap(m)) \\(len(m)) \\(copyBoxes(bs, %d)) \\(copyLists(lists, %d)) \\(len(lists)) \\(copyBox(x, %d)) \\(copyAny(xs, %d, %d)) \\(copyAny(ss, sa, sb)) \\(len(xs))\")\n", i, v, v, v, v, v, v, v+1)
 	}
 	b.WriteString("}\n")
 	return b.String()

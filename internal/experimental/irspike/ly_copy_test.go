@@ -19,8 +19,10 @@ import (
 // It builds Go because a copy left out shows only when the compiled
 // program's append or Put writes the caller's array or map.
 func TestIRCopiesMatchSource(t *testing.T) {
-	lyProperty(t, "TestIRCopiesMatchSource", GenerateCopy, []string{"slices.Clone", "maps.Clone", "ergoCloneSlice", "ergoCloneMap", "ergoCloneBox"},
-		"copySlice", "copyMap", "copyBoxes", "copyLists", "Box.copyBox", "copyAny")
+	// No ergoCloneMap: under the entry rule (V8) a Map of slices whose
+	// entries are not written copies by maps.Clone.
+	lyProperty(t, "TestIRCopiesMatchSource", GenerateCopy, []string{"slices.Clone", "maps.Clone", "ergoCloneSlice", "ergoCloneBox"},
+		"copySlice", "copyMap", "takeMap", "copyBoxes", "copyLists", "Box.copyBox", "copyAny")
 }
 
 // lyProperty runs the programs gen draws at ERGO_IRSPIKE_SEEDS seeds from
