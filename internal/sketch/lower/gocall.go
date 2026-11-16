@@ -374,7 +374,7 @@ func (fc *funcCtx) goResult(x syntax.Node, t check.Type, r, e, name string) stri
 		fc.line("\tpanic(&" + fc.l.rt() + ".GoNilDefect{Func: " + strconv.Quote(name) + ", At: " + strconv.Quote(fc.l.siteText(x)) + "})")
 		fc.line("}")
 		return r
-	case fc.l.holdsValue(t) && valueRule() && !fc.goShares(x) && !goFresh(x, name):
+	case fc.l.holdsValue(t) && !goFresh(x, name) && valueRule() && !fc.goShares(x):
 		return fc.cloneDeep(t, r, x) // Go may still write an entry (V8)
 	}
 	return r
