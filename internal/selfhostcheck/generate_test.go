@@ -444,7 +444,11 @@ func (g *gen) decl() {
 		g.fields(", ")
 		g.w("}", g.pick("", " | Z", "\n\t| W{}"))
 	case 4:
-		g.w("type ", g.name(), " {\n\tGet(k string) int fails NotFound needs Store,\n\tPut(k string, v int)", g.pick("", " takes v"), ",\n\n\tlaw RoundTrip(k string, v int) { Put(k, v); try Get(k) == v },\n}")
+		// Includes, operations and laws may interleave: the printer keeps
+		// source order (sh-members-unsorted).
+		g.w("type ", g.name(), " {\n", g.pick("", "\t..Closer,\n"), "\tGet(k string) int fails NotFound needs Store,\n",
+			g.pick("", "\tlaw Seen(k string) { Get(k) >= 0 },\n", "\t..Sized,\n"),
+			"\t", g.pick("", "own "), "Put(k string, v int)", g.pick("", " takes v"), ",\n\n\tlaw RoundTrip(k string, v int) { Put(k, v); try Get(k) == v },\n}")
 	case 5:
 		g.w("type M machine[State, Signal] {\n\tinitial: ", g.name(), "{},\n\tstep:", g.pick(" ", "    "), "step,\n\tlaw Reach reaches Done,\n\tlaw P never path [A, B],\n\tlaw I invariant ok,\n}")
 	case 6:
