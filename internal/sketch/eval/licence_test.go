@@ -2,7 +2,6 @@ package eval
 
 import (
 	"fmt"
-	"math"
 	"math/rand/v2"
 	"os"
 	"slices"
@@ -12,7 +11,6 @@ import (
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
-	"ergo.local/prototype/runtime/testgen"
 )
 
 // licenceFixture is the functions the generated laws compose. Each is the
@@ -150,39 +148,38 @@ func (l licenceLaw) model() (string, string) {
 		}
 		return s, ""
 	}
+	// The model's own statement of the classes that matter here, in the
+	// spec's order (lengths before contents; runtime.md Tests 6), not
+	// testgen's tables: a class dropped from a table is then a run the
+	// model disagrees with.
+	strs := []string{"", strings.Repeat("abcd", 1024), "a\xe4\xb8"}
 	switch {
 	case l.cat:
-		for _, a := range testgen.StringClasses() {
-			for _, b := range testgen.StringClasses() {
-				x, _ := str(l.fns, a.Value)
-				y, _ := str(l.second, b.Value)
-				if x != a.Value || y != b.Value {
+		for _, a := range strs {
+			for _, b := range strs {
+				x, _ := str(l.fns, a)
+				y, _ := str(l.second, b)
+				if x != a || y != b {
 					return "refuted", "the law is false"
 				}
 			}
 		}
 	case l.typ == "string":
-		for _, c := range testgen.StringClasses() {
-			s, stop := str(l.fns, c.Value)
+		for _, c := range strs {
+			s, stop := str(l.fns, c)
 			if stop != "" {
 				return "tested", "string.len>=4096"
 			}
-			if s != c.Value {
+			if s != c {
 				return "refuted", "the law is false"
 			}
 		}
-	case l.typ == "int":
-		for _, c := range testgen.IntClasses(64, true) {
-			if c.Value == 1<<63 && slices.Contains(l.fns, "NotMin") {
-				return "refuted", "the law is false"
-			}
-		}
-	case l.typ == "float64":
-		for _, c := range testgen.FloatClasses(64) {
-			if math.IsNaN(c.Value) && slices.Contains(l.fns, "NaNz") {
-				return "refuted", "the law is false"
-			}
-		}
+	case l.typ == "int" && slices.Contains(l.fns, "NotMin"):
+		// The minimum int is a class.
+		return "refuted", "the law is false"
+	case l.typ == "float64" && slices.Contains(l.fns, "NaNz"):
+		// A NaN is a class.
+		return "refuted", "the law is false"
 	}
 	return "validated", ""
 }
