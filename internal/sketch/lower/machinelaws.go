@@ -173,7 +173,7 @@ func (l *lowerer) reachRuns(b *strings.Builder, law *check.Law, scope *namer, en
 	for _, v := range du.Variants {
 		vn, _ := v.(*check.Named)
 		switch {
-		case isPreludeType(v, "Enter"), isPreludeType(v, "Stay"), isPreludeType(v, "Emit"):
+		case isPreludeType(v, "Enter"), isPreludeType(v, "Stay"), isPreludeType(v, "Emit"), isPreludeType(v, "Tell"):
 			next := l.typeDecl(vn.Obj, site).fieldName["Next"]
 			step.WriteString("\t\t\tcase " + tc.goType(v) + ":\n\t\t\t\treturn " + nv + "." + next + ", true\n")
 		case isPreludeType(v, "Done"):
@@ -228,7 +228,9 @@ func (l *lowerer) reachRuns(b *strings.Builder, law *check.Law, scope *namer, en
 		needs = "\t// needs: import machines\n"
 	}
 
-	b.WriteString("\t{\n")
+	// A search whose verdict ergo test found in its store (--cached;
+	// lawcache) prints it, marked, and does not run.
+	b.WriteString("\tif !" + l.helper("CachedRun") + "(" + strconv.Quote(label) + ") {\n")
 	b.WriteString("\t\t" + g + " := " + l.helper("Graph") + "[" + state + ", " + signal + "]{\n")
 	b.WriteString("\t\t\tstarts: " + starts + ",\n")
 	b.WriteString("\t\t\tstart: " + start + ",\n")

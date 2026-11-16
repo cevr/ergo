@@ -27,6 +27,19 @@ func (s *ExternSpec) SplitMethod() (path, typ, name string) {
 	return path, typ, name
 }
 
+// RuntimeModule is the Go module path of the Ergo runtime. An extern type
+// whose target is in it names the runtime Go type of an Ergo declaration
+// (docs/spec/stdlib.md, The body contract), which the checker checks as
+// Ergo, so it may refine its type with where; any other extern type is a
+// binding's host type, which Go checks nothing on.
+const RuntimeModule = "ergo.local/prototype/runtime"
+
+// IsRuntimeTarget reports whether the import path is the runtime module or
+// one of its packages.
+func IsRuntimeTarget(path string) bool {
+	return path == RuntimeModule || len(path) > len(RuntimeModule) && path[:len(RuntimeModule)+1] == RuntimeModule+"/"
+}
+
 // IsBindingDecl reports whether d is a declaration only a Go binding has
 // (docs/spec/interop.md): an extern host type, an extern let, or an extern
 // method with a receiver.
@@ -217,6 +230,20 @@ type AsPattern struct {
 func (x *AsPattern) Pos() Pos { return x.X.Pos() }
 func (x *AsPattern) End() Pos { return x.Name.End() }
 func (*AsPattern) exprNode()  {}
+
+// OrPattern is `P | Q` nested in a case's pattern: a tuple element, a
+// record pattern's field or a parenthesised pattern (FK7a; orpattern.go).
+// It matches when one alternative matches. The parser expands a case
+// whose patterns hold one into the case's list of patterns, so only the
+// formatter reads it (CaseClause.Written, CatchArm.Written).
+type OrPattern struct {
+	Alts []Expr
+	Bars []Pos // the `|` before each alternative after the first
+}
+
+func (x *OrPattern) Pos() Pos { return x.Alts[0].Pos() }
+func (x *OrPattern) End() Pos { return x.Alts[len(x.Alts)-1].End() }
+func (*OrPattern) exprNode()  {}
 
 // InterpolatedString is `"a \(x) b"`. Texts holds the raw source of each
 // literal segment, delimiters included: the head runs from the opening

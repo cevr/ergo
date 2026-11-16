@@ -37,17 +37,19 @@ import (
 // the store of the current toolchain and the lock that guards its filling.
 const stdStoreDir = "ergo-closure-std"
 
-// stdStoreVariable, when set, names the directory that holds the stores
-// instead (stdStoreParent). The gate sets it to one directory for every
-// sweep step of a run (scripts/gate, sweepStdStore): each step has a TMPDIR
-// of its own that the gate empties before it runs, so a store under it was
-// filled again by every step, 4 std builds and about 370 CPU-s each, also
-// for a package the sweep skips (GATE2 GT4, measured: a skipped sweep of
-// scripts/gate took 377 CPU-s with an empty TMPDIR, 1.6 with the store).
-const stdStoreVariable = "ERGO_CLOSURE_STD_STORE"
+// stdStoreVariable names the directory of the std store when set: the gate
+// sets it for its closure sweep steps to one directory beside their own
+// temporary directories (scripts/gate, sweepStdDir), so that the sweeps of
+// one gate run share one store. Under each step's own TMPDIR every sweep
+// filled a store of its own: 781 MB each, ten at once in a merge tier's
+// sandbox, 7.7 GB of its 12 GB and ENOSPC in the sweeps (fu-gate-sandbox);
+// and 4 std builds and about 370 CPU-s each, also for a package the sweep
+// skips (GATE2 GT4: a skipped sweep of scripts/gate took 377 CPU-s with an
+// empty TMPDIR, 1.6 with the store).
+const stdStoreVariable = "ERGO_CLOSURE_STD_DIR"
 
-// stdStoreParent is the directory of the stores: stdStoreVariable's value,
-// else stdStoreDir under the temporary directory.
+// stdStoreParent is the directory of the std store: stdStoreVariable, or
+// stdStoreDir under the temporary directory.
 func stdStoreParent() string {
 	if dir := os.Getenv(stdStoreVariable); dir != "" {
 		return dir

@@ -44,6 +44,15 @@ var running = map[string]bool{
 // (running).
 func StopsRunning(name string) bool { return running[name] }
 
+// Inert reports a body that acts on nothing outside the value it makes:
+// it reads its hidden arguments, so it is not marked pure, but it runs no
+// capability, starts no task and calls no Ergo code, so a call made again
+// in a replay acts on nothing (a reviewed body fact; the checker reads it
+// for any extern that binds the body, check/body.go). NewHost makes an
+// empty host cell, which the actor's entry binds (actor_host.go; DH1;
+// runtime.md, Machines and actors 17): a durable step may make hosts.
+func Inert(name string) bool { return name == "NewHost" }
+
 // MovingBody names the callback whose captures move to a child task's
 // root lifetime (R12). Repeated is true when the callback can run again:
 // it only lends those captures, as any repeated nested frame does. This
@@ -67,6 +76,20 @@ func CallbackKeeper(name string) (int, bool) {
 		return -1, true
 	case "TasksGo":
 		return 0, true
+	}
+	return 0, false
+}
+
+// EndsRunsBeforeReturn is the reviewed fact that the body name runs its
+// callback parameter param only during the call: every run of it, on any
+// task, has ended when the body returns, whatever the exit. A frame passed
+// there may capture a mapped text (types.md, Borrows 8): a text is read
+// only, so its runs read it at once without a race, and none reads it
+// after the call. TasksTransform waits for every task it starts.
+func EndsRunsBeforeReturn(name string) (param int, ok bool) {
+	switch name {
+	case "TasksTransform":
+		return 2, true
 	}
 	return 0, false
 }

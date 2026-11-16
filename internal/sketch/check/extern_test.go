@@ -23,7 +23,7 @@ const p3Text = "an extern function is called directly; wrap it in a literal: fun
 // detect a missing contract in a particular standard-library declaration.
 func TestExecStopTakes(t *testing.T) {
 	_, diags := check.CheckSource(`import exec
-func stopped(p exec.Running) int takes p {
+func stopped(p own exec.Running) int {
 	_ = p.Stop()
 	p.Wait()
 }
@@ -299,7 +299,7 @@ func main() {
 `,
 	"embed.FS": `import embed
 import fs
-type Mine {}
+type Mine {} implements fs.Files
 func ReadFile(_ Mine, path string) string fails fs.NotFound | fs.Denied | fs.Failed { "" }
 func ReadDir(_ Mine, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { []string{} }
 func Stat(_ Mine, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.Info{Name: path, Size: 0, Dir: false, Perm: 292} }
@@ -420,7 +420,7 @@ func main() {
 	// std tasks (batch 13 tasks-set): newSet's extern returns the Set.
 	"tasks.Set": `import tasks
 
-type Mine {}
+type Mine {} implements Closer
 
 func Wait(_ Mine) fails tasks.Closed {}
 func Stop(_ Mine) {}
@@ -437,7 +437,7 @@ func main() {
 	// providers that programs could write too.
 	"journal.Journal": `import journal
 
-type Mine {}
+type Mine {} implements journal.Journal[int, int]
 
 func Append(_ Mine, e int) fails journal.Failed {}
 func Snapshot(_ Mine, s int) fails journal.Failed {}
@@ -455,7 +455,7 @@ func main() {
 `,
 	"journal.Codec": `import journal
 
-type Mine {}
+type Mine {} implements journal.Codec[int]
 
 func Encode(_ Mine, v int) string { "" }
 func Decode(_ Mine, text string) int fails journal.Failed { 0 }
@@ -489,10 +489,26 @@ func main() {
 
 type Mine {}
 
-func Answer(_ Mine, f escaping func() int) {}
+func Answer(_ Mine, f own func() int) {}
 func Calls(_ Mine) []testing.NoArgs { []testing.NoArgs{} }
 
 func use(o testing.Op[testing.NoArgs, func() int]) { _ = o.Calls() }
+
+func main() {
+	use(Mine)
+}
+`,
+	// std testing (SC2): a stage is any running program a test acts on.
+	"testing.Stage": `import testing
+
+type Mine {} implements testing.Stage[int, int]
+
+func Do(_ Mine, a int) fails testing.Refused {}
+func Advance(_ Mine, d duration) {}
+func Settle(_ Mine) {}
+func Show(_ Mine) int { 0 }
+
+func use(s testing.Stage[int, int]) { _ = s.Show() }
 
 func main() {
 	use(Mine)
@@ -517,7 +533,7 @@ func main() {
 	// std rand (S2c): Seeded's extern returns the Stream.
 	"rand.Stream": `import rand
 
-type Mine {}
+type Mine {} implements Random
 
 func Uint64(_ Mine) uint64 { 0 }
 func IntN(_ Mine, n int) int { 0 }
@@ -529,10 +545,20 @@ func main() {
 	use(Mine)
 }
 `,
-	"prelude.Task": `type Fault {}
-type Mine {}
+	"prelude.Closer": `type Mine {} implements Closer
 
-func Wait(m Mine) int fails Fault takes m { 0 }
+func Close(_ Mine) {}
+
+func use(c Closer) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	"prelude.Task": `type Fault {}
+type Mine {} implements Closer
+
+func Wait(m own Mine) int fails Fault { 0 }
 func Stop(_ Mine) {}
 func Close(_ Mine) {}
 
@@ -542,7 +568,17 @@ func main() {
 	use(Mine)
 }
 `,
-	"prelude.Console": `type Mine {}
+	"prelude.Keeping": `type Mine {}
+
+func drain(_ Mine) []int { []int{} }
+
+func use(_ Keeping[int]) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	"prelude.Console": `type Mine {} implements Console
 
 func Println(_ Mine, line string) {}
 
@@ -554,7 +590,7 @@ func main() {
 `,
 	// Sleep is a prelude name no program redeclares, so the program value
 	// is one of a program operation type.
-	"prelude.Scheduler": `type Mine { Sleep(d duration) }
+	"prelude.Scheduler": `type Mine { ..Scheduler }
 
 func use(s Scheduler) { s.Sleep(1ms) }
 
@@ -563,7 +599,7 @@ func pass(m Mine) {
 }
 `,
 	// The codec events (L11): a format or a program provides each.
-	"prelude.Writer": `type Mine {}
+	"prelude.Writer": `type Mine {} implements Writer
 
 func Null(_ Mine) {}
 func Number(_ Mine, text string) {}
@@ -585,7 +621,7 @@ func main() {
 	use(Mine)
 }
 `,
-	"prelude.Reader": `type Mine {}
+	"prelude.Reader": `type Mine {} implements Reader
 
 func TakeNull(_ Mine) bool { false }
 func Peek(_ Mine) WireKind { WireEnd }
@@ -613,9 +649,10 @@ func main() {
 	// std time (S2b): the prelude's Clock moved here, with Now() time.Time.
 	"time.Clock": `import time
 
-type Mine {}
+type Mine {} implements time.Clock
 
 func Now(_ Mine) time.Time { time.Unix(0, 0) }
+func Elapsed(_ Mine, t time.Time) duration { 0s }
 
 func use(c time.Clock) { _ = c.Now() }
 
@@ -623,7 +660,7 @@ func main() {
 	use(Mine)
 }
 `,
-	"prelude.Random": `type Mine {}
+	"prelude.Random": `type Mine {} implements Random
 
 func Uint64(_ Mine) uint64 { 0 }
 func IntN(_ Mine, n int) int { 0 }
@@ -639,7 +676,7 @@ func main() {
 	// os 5).
 	"os.Process": `import os
 
-type Mine {}
+type Mine {} implements os.Process
 
 func Args(_ Mine) []string { []string{} }
 func Getenv(_ Mine, key string) Option[string] { None }
@@ -655,7 +692,7 @@ func main() {
 	// fs 5).
 	"fs.Files": `import fs
 
-type Mine {}
+type Mine {} implements fs.Files
 
 func ReadFile(_ Mine, path string) string fails fs.NotFound | fs.Denied | fs.Failed { "" }
 func ReadDir(_ Mine, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { []string{} }
@@ -672,7 +709,7 @@ func main() {
 	// std fs writes (G4b): open, as fs.Files is.
 	"fs.Writes": `import fs
 
-type Mine {}
+type Mine {} implements fs.Writes
 
 func WriteFile(_ Mine, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed {}
 func MkdirAll(_ Mine, path string) fails fs.Denied | fs.Failed {}
@@ -693,7 +730,7 @@ func main() {
 	// (stdlib.md, io 6).
 	"io.Stdout": `import io
 
-type Mine {}
+type Mine {} implements io.Stdout
 
 func Print(_ Mine, text string) {}
 func Println(_ Mine, line string) {}
@@ -707,7 +744,7 @@ func main() {
 `,
 	"io.Stderr": `import io
 
-type Mine {}
+type Mine {} implements io.Stderr
 
 func Eprint(_ Mine, text string) {}
 func Eprintln(_ Mine, line string) {}
@@ -721,7 +758,7 @@ func main() {
 `,
 	"io.Stdin": `import io
 
-type Mine {}
+type Mine {} implements io.Stdin
 
 func ReadAll(_ Mine) string fails io.ReadFailed { "" }
 func Lines(_ Mine) Seq[string] { io.Input{Text: ""}.Lines() }
@@ -735,7 +772,7 @@ func main() {
 `,
 	"config.Config": `import config
 
-type Mine {}
+type Mine {} implements config.Config
 
 func Lookup(_ Mine, name string) Option[string] { None }
 func Environ(_ Mine, prefix string) []config.Variable { []config.Variable{} }
@@ -762,7 +799,7 @@ func main() {
 	"term.Terminal": `import io
 import term
 
-type Mine {}
+type Mine {} implements term.Terminal
 
 func SetMode(_ Mine, m term.Mode) fails term.NotTerminal {}
 func Restore(_ Mine) {}
@@ -779,7 +816,7 @@ func main() {
 	// exec). exec.Script is the std's test provider of it.
 	"exec.Runner": `import exec
 
-type Mine {}
+type Mine {} implements exec.Runner
 
 func Run(_ Mine, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
 	exec.Result{Status: 0, Stdout: "", Stderr: ""}
@@ -795,16 +832,79 @@ func main() {
 	use(Mine)
 }
 `,
+	// std ui (merged with ia2b): open; a program or a host module
+	// provides each (ui.MemoryClipboard, ui.Monospace, the hosts' Host).
+	"ui.Clipboard": `import ui
+
+type Mine {} implements ui.Clipboard
+
+func Read(_ Mine) string { "" }
+func Write(_ Mine, text string) {}
+
+func use(c ui.Clipboard) { _ = c.Read() }
+
+func main() {
+	use(Mine)
+}
+`,
+	"ui.Measure": `import ui
+
+type Mine {} implements ui.Measure
+
+func Width(_ Mine, text string, font ui.Font) ui.Length { 0.0 }
+func LineHeight(_ Mine, font ui.Font) ui.Length { 0.0 }
+
+func use(m ui.Measure) { _ = m.LineHeight(ui.Font{Family: "x", Size: 1.0}) }
+
+func main() {
+	use(Mine)
+}
+`,
+	"ui.Host": `import ui
+
+type Mine {} implements ui.Host[int]
+
+func Show(_ Mine, ops []ui.Op[int]) {}
+func Next(_ Mine) ui.Event[int] fails ui.Closed { ui.Closed }
+func Post(_ Mine, ev ui.Event[int]) {}
+func Frames(_ Mine, on bool) {}
+
+func use(h ui.Host[int]) { h.Frames(false) }
+
+func main() {
+	use(Mine)
+}
+`,
+	// exec.Spawner (IA2b): open, as no std extern's result names it;
+	// exec.Processes is the std's memory provider of it.
+	"exec.Spawner": `import exec
+
+type Mine {} implements exec.Spawner
+
+func Spawn(_ Mine, c exec.Command, s exec.Streams) exec.Detached fails exec.NotFound | exec.Denied | exec.Failed {
+	exec.Detached{Pid: 1, Start: 1, Name: c.Name}
+}
+
+func Alive(_ Mine, d exec.Detached) bool { false }
+
+func Kill(_ Mine, d exec.Detached, grace duration) {}
+
+func use(s exec.Spawner) { _ = s.Alive(exec.Detached{Pid: 1, Start: 1, Name: "x"}) }
+
+func main() {
+	use(Mine)
+}
+`,
 	// exec.Running (CU4): the Script's and the Host's Start externs
 	// return it, so it is sealed.
 	"exec.Running": `import exec
 
-type Mine {}
+type Mine {} implements Closer
 
 func Lines(_ Mine) Seq[exec.Line] { Seq[exec.Line](func(yield func(v exec.Line) bool) {}) }
 func Chunks(_ Mine) Seq[exec.Chunk] { Seq[exec.Chunk](func(yield func(v exec.Chunk) bool) {}) }
 func Wait(_ Mine) int { 0 }
-func Stop(m Mine) int takes m { Close(m); 0 }
+func Stop(m own Mine) int { Close(m); 0 }
 func Close(_ Mine) {}
 
 func use(r exec.Running) { _ = r.Wait() }
@@ -820,7 +920,7 @@ func main() {
 	// transport hands each request's Exchange to the handler adapter.
 	"http.Listener": `import http
 
-type Mine {}
+type Mine {} implements Closer
 
 func Addr(_ Mine) string { "" }
 func Close(_ Mine) {}
@@ -864,7 +964,7 @@ func main() {
 	// Net (H1) is open: a test binds its own transport (CU6b adds SendInto).
 	"http.Net": `import http
 
-type Mine {}
+type Mine {} implements http.Net
 
 func Send(_ Mine, r http.Request) http.Response fails http.RequestFailed { http.Response{Status: 200, Header: []http.Field{}, Body: ""} }
 func SendInto(_ Mine, r http.Request, accept http.Accept, put func(part string) fails http.SinkFailed) http.Response fails http.RequestFailed | http.StatusRefused | http.SinkFailed { http.Response{Status: 200, Header: []http.Field{}, Body: ""} }
@@ -879,7 +979,7 @@ func main() {
 	// SendURLInto).
 	"http.Network": `import http
 
-type Mine {}
+type Mine {} implements http.Network
 
 func SendURL(_ Mine, r http.URLRequest) http.Response fails http.RequestFailed | http.OriginRefused | http.RedirectLimit { http.Response{Status: 200, Header: []http.Field{}, Body: ""} }
 func SendURLInto(_ Mine, r http.URLRequest, accept http.Accept, put func(part string) fails http.SinkFailed) http.Response fails http.RequestFailed | http.OriginRefused | http.RedirectLimit | http.StatusRefused | http.SinkFailed { http.Response{Status: 200, Header: []http.Field{}, Body: ""} }
@@ -917,7 +1017,7 @@ func main() {
 	// std fs Root (G1f): open; fstest.Tree is a program-side provider.
 	"fs.Root": `import fs
 
-type Mine {}
+type Mine {} implements fs.Root
 
 func ReadFile(_ Mine, path string) string fails fs.Escapes { fs.Escapes{Path: path} }
 func ReadDir(_ Mine, path string) []string fails fs.Escapes { fs.Escapes{Path: path} }
@@ -934,7 +1034,7 @@ func main() {
 	// unexported hostRooted keeps every program value out.
 	"fs.HostRoot": `import fs
 
-type Mine {}
+type Mine {} implements fs.Root
 
 func ReadFile(_ Mine, path string) string fails fs.Escapes { fs.Escapes{Path: path} }
 func ReadDir(_ Mine, path string) []string fails fs.Escapes { fs.Escapes{Path: path} }
@@ -948,6 +1048,81 @@ func main() {
 	use(Mine)
 }
 `,
+	// std fs Mapped (wf10 MAPPED): MapFile and MapText return it, and its
+	// runtimeOnly keeps every program value out. Mine has no Text: fs.Text
+	// is never a program function's result (types.md, Borrows 8).
+	"fs.Mapped": `import fs
+
+type Mine {} implements Closer
+
+func Close(_ Mine) {}
+
+func use(m fs.Mapped) { _ = len(m.Text()) }
+
+func main() {
+	use(Mine)
+}
+`,
+	"ui/layout.Measure": `import ui/layout
+
+type Mine {} implements layout.Measure
+
+func Widths(_ Mine, text string, size float32) layout.Intrinsic { layout.Intrinsic{Max: 0.0, Min: 0.0} }
+func Height(_ Mine, text string, size float32, width float32) float32 { 0.0 }
+
+func use(m layout.Measure) { _ = m.Height("x", 1.0, 1.0) }
+
+func main() {
+	use(Mine)
+}
+`,
+	"io.Source": `import io
+
+type Mine {} implements io.Source
+
+func Read(_ Mine) Option[string] fails io.ReadFailed { None }
+
+func use(r io.Source) { _ = r.Read() catch { case io.ReadFailed: None } }
+
+func main() {
+	use(Mine)
+}
+`,
+	"bench.Meter": `import bench
+
+type Mine {} implements bench.Meter
+
+func Measure(_ Mine, b bench.Block, series []bench.Series) []bench.Sample { []bench.Sample{} }
+
+func use(m bench.Meter) { _ = len(m.Measure(bench.Block{Side: bench.Base, Number: 0, Warm: false}, []bench.Series{})) }
+
+func main() {
+	use(Mine)
+}
+`,
+	// ui GroupArgs (P-ui): the frame's memo of a component's arguments,
+	// runtimeOnly, made only by the composer.
+	"ui.GroupArgs": `import ui
+
+type Mine {}
+
+func use(m ui.GroupArgs) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	"ui.Location": `import ui
+type Mine {} implements ui.Location
+func Current(_ Mine) ui.URL { ui.ParseURL("/") }
+func Push(_ Mine, u ui.URL) {}
+func Replace(_ Mine, u ui.URL) {}
+func Back(_ Mine) bool { false }
+func use(l ui.Location) { l.Push(ui.ParseURL("/a")) }
+func main() {
+	use(Mine)
+}
+`,
 }
 
 // unexportedStd is the std operation types sealed by an unexported
@@ -955,6 +1130,7 @@ func main() {
 // text. The other runtime protocols declare runtimeOnly for the same rule.
 var unexportedStd = map[string]string{
 	"prelude.Ambient": "ambient is an unexported operation of prelude.Ambient, so only a type of package prelude implements it",
+	"prelude.Keeping": "drain is an unexported operation of prelude.Keeping, so only a type of package prelude implements it",
 	"http.Listener":   "bound is an unexported operation of http.Listener, so only a type of package http implements it",
 	"http.Streaming":  "open is an unexported operation of http.Streaming, so only a type of package http implements it",
 	"fs.HostRoot":     "hostRooted is an unexported operation of fs.HostRoot, so only a type of package fs implements it",
@@ -966,9 +1142,11 @@ var unexportedStd = map[string]string{
 // std seal at the migration base. Some already have private operations,
 // listed in unexportedStd. Every other entry now declares its seal.
 var openStd = map[string]bool{
+	"prelude.Closer":    true,
 	"prelude.Console":   true,
 	"prelude.Scheduler": true,
 	"time.Clock":        true,
+	"testing.Stage":     true,
 	"prelude.Random":    true,
 	"prelude.Writer":    true,
 	"prelude.Reader":    true,
@@ -980,6 +1158,10 @@ var openStd = map[string]bool{
 	"io.Stderr":         true,
 	"io.Stdin":          true,
 	"exec.Runner":       true,
+	"exec.Spawner":      true,
+	"ui.Clipboard":      true,
+	"ui.Measure":        true,
+	"ui.Host":           true,
 	"journal.Journal":   true,
 	"journal.Codec":     true,
 	"http.Streaming":    true,
@@ -987,6 +1169,12 @@ var openStd = map[string]bool{
 	"http.Network":      true,
 	"config.Config":     true,
 	"term.Terminal":     true,
+	// Declared after the migration with no private operation: a program
+	// provides each one, and cmd/<name>/main.ergo binds it.
+	"ui.Location":       true,
+	"ui/layout.Measure": true,
+	"io.Source":         true,
+	"bench.Meter":       true,
 }
 
 // stdOperationTypes lists, as path.Name, every exported operation type
@@ -1093,9 +1281,9 @@ func pass(m Mine) {
 }
 `,
 		"task": `type Fault {}
-type Mine {}
+type Mine {} implements Closer
 
-func Wait(m Mine) int fails Fault takes m { 0 }
+func Wait(m own Mine) int fails Fault { 0 }
 func Stop(_ Mine) {}
 func Close(_ Mine) {}
 
@@ -1115,7 +1303,7 @@ func main() {
 	use(queue.New[int](1))
 }
 `,
-		"console-param": `type Mine {}
+		"console-param": `type Mine {} implements Console
 
 func Println(_ Mine, line string) {}
 
@@ -1125,7 +1313,7 @@ func main() {
 	use(Mine)
 }
 `,
-		"console-provider": `type Quiet {}
+		"console-provider": `type Quiet {} implements Console
 
 func Println(_ Quiet, line string) {}
 
@@ -1191,7 +1379,11 @@ func main() {
 // withForgedSeal attempts to spoof the private operation by spelling it
 // in the importing package too. Its package is part of its identity.
 func withForgedSeal(src string) string {
-	src = strings.Replace(src, "type Mine {}", "type Mine {}\nfunc runtimeOnly(_ Mine) {}", 1)
+	// After the declaration's whole line: it may end in an implements clause.
+	if i := strings.Index(src, "type Mine {}"); i >= 0 {
+		end := i + strings.IndexByte(src[i:]+"\n", '\n')
+		src = src[:end] + "\nfunc runtimeOnly(_ Mine) {}" + src[end:]
+	}
 	return strings.Replace(src, "type Mine {\n", "type Mine {\n\truntimeOnly(),\n", 1)
 }
 
@@ -1210,7 +1402,7 @@ func judgeSealSites(t *testing.T, src string) {
 func TestStdProtocolOpen(t *testing.T) {
 	const fake = `import os
 
-type FakeEnv { Argv []string }
+type FakeEnv { Argv []string } implements os.Process
 
 func Args(e FakeEnv) []string { e.Argv }
 
@@ -1242,6 +1434,40 @@ func main() needs Ambient {
 	use(FakeEnv{Argv: []string{}})
 	let p os.Process = os.NewHost()
 	use(p)
+}
+`,
+		// IA2 (STD-NOPRIV): a module's stateful fake implements
+		// exec.Runner, its Start giving exec.Ended's Running. Mutant
+		// exec-ended-unexported (std exec has no Ended) refuses it.
+		"exec-runner": `import exec
+
+type Fake { Ran Map[string, int] } implements exec.Runner
+
+func Run(f Fake, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
+	exec.Result{Status: 0, Stdout: c.Name, Stderr: ""}
+}
+
+func Start(f Fake, c exec.Command, s exec.Streams) exec.Running fails exec.NotFound | exec.Denied | exec.Failed {
+	exec.Ended(s, try f.Run(c))
+}
+
+func run() needs exec.Runner { _ = exec.Runner.Run(exec.New("true", []string{})) catch { case exec.NotFound, exec.Denied, exec.Failed: exec.Result{Status: 1, Stdout: "", Stderr: ""} } }
+
+func main() {
+	with context { exec.Runner: Fake{Ran: Map[string, int]{}} } { run() }
+}
+`,
+		// NP3c: Keeping is the release's contract; a queue implements it
+		// and still never converts to it (its drain is the runtime's).
+		// Mutant keeps-converts admits it.
+		"keeps-value": `import queue
+
+func use(k Keeping[int]) {}
+
+func main() {
+	let q = queue.New[int](1)
+	use(q) // want S108
+	q.End()
 }
 `,
 		"queue-param": queueMine + `
@@ -1276,8 +1502,8 @@ func sortedHas(xs []string, x string) bool {
 func TestCloseRefusals(t *testing.T) {
 	cases := map[string]string{
 		"operation": `type A { Use() }
-type Releaser { Use(), Close() }
-type R {}
+type Releaser { ..A, ..Closer }
+type R {} implements Releaser, Closer
 func Use(_ R) {}
 func Close(_ R) {}
 func make() Releaser { R }
@@ -1285,21 +1511,21 @@ let W = context { A: make() }
 func main() { with W { A.Use() } }
 `,
 		"generic": `type A { Use() }
-type G[T] { Value T }
+type G[T] { Value T } implements A, Closer
 func Use[T](_ G[T]) {}
 func Close[T](_ G[T]) {}
 let W = context { A: G[int]{Value: 1} }
 func main() { with W { A.Use() } }
 `,
 		"pointer-close-value-provider": `type A { Use() }
-type P {}
+type P {} implements A, Closer
 func Use(_ P) {}
 func Close(_ *P) {}
 let W = context { A: P }
 func main() { with W { A.Use() } }
 `,
 		"value-close": `type A { Use() }
-type P {}
+type P {} implements A, Closer
 func Use(_ P) {}
 func Close(_ P) {}
 let W = context { A: P }
@@ -1307,9 +1533,9 @@ func main() { with W { A.Use() } }
 `,
 		"generic-witnessed": `type A { Use() }
 type Named { Name() string }
-type N {}
+type N {} implements Named
 func Name(_ N) string { "n" }
-type G[T] { Value T }
+type G[T] { Value T } implements A, Closer
 func Use[T Named](_ G[T]) {}
 func Close[T Named](_ G[T]) {}
 let W = context { A: G[N]{Value: N} } // want S109
@@ -1318,9 +1544,9 @@ func main() { with W { A.Use() } }
 		// Once per provider, though two withs release it.
 		"generic-witnessed-once": `type A { Use() }
 type Named { Name() string }
-type N {}
+type N {} implements Named
 func Name(_ N) string { "n" }
-type G[T] { Value T }
+type G[T] { Value T } implements A, Closer
 func Use[T Named](_ G[T]) {}
 func Close[T Named](_ G[T]) {}
 let W = context { A: G[N]{Value: N} } // want S109
@@ -1334,9 +1560,9 @@ func main() {
 		// mutant own-check-15: the continue after the refusal dropped).
 		"generic-witnessed-no-charge": `type A { Use() }
 type Named { Name() string }
-type N {}
+type N {} implements Named
 func Name(_ N) string { "n" }
-type G[T] { Value T }
+type G[T] { Value T } implements A, Closer
 func Use[T Named](_ G[T]) {}
 func Close[T Named](_ G[T]) needs Console { Console.Println("closed") }
 let W = context { A: G[N]{Value: N} } // want S109
@@ -1347,7 +1573,7 @@ func main() { with W { A.Use() } }
 		t.Run(name, func(t *testing.T) { judgeOutside(t, src, "#197") })
 	}
 	t.Run("user-extern-close", func(t *testing.T) {
-		judgeOutside(t, "type R {}\nextern go example.com/x.F func Close(r R) // want S109\n", "#202")
+		judgeOutside(t, "type R {} implements Closer\nextern go example.com/x.F func Close(r R) // want S109\n", "#202")
 	})
 	t.Run("no-std-extern-close", func(t *testing.T) {
 		prog, ds := check.CheckSource("func f(c Console) { c.Println(\"x\") }\n")

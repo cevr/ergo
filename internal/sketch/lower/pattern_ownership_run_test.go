@@ -56,7 +56,7 @@ Console.Println("body")`
 	case 5:
 		fail := r.IntN(2) == 0
 		extra = fmt.Sprintf(`type Bad {}
-func acquire() Pair fails Bad {
+func acquire() Pair fails Bad needs Console {
 let r = Res{id: %d, bad: false}
 if %t { return Bad }
 Pair{R: r, S: Res{id: %d, bad: false}, N: true}
@@ -74,7 +74,7 @@ Console.Println("body")
 			want = []string{closeA, "failed", "end"}
 		}
 	case 6:
-		extra = "type Closed { R Res }\nfunc Close(c Closed) needs Console { Console.Println(\"custom\") }\nfunc lendClosed(c Closed) {}\n"
+		extra = "type Closed { R Res } implements Closer\nfunc Close(c Closed) needs Console { Console.Println(\"custom\") }\nfunc lendClosed(c Closed) {}\n"
 		body = fmt.Sprintf("match (Closed{R: Res{id: %d, bad: false}}) { case Closed as owner: lendClosed(owner); Console.Println(\"body\") }", a)
 		want = []string{"body", "custom", closeA, "end"}
 	case 7:

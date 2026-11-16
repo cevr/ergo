@@ -1,0 +1,63 @@
+// The rules of the saga as laws of its timed runs. Each runs under
+// machines.RunTimed on a testing.VirtualClock, so a run of seconds takes
+// no wall time, and the saga's timer fires at its deadline.
+
+import machines
+import testing
+import time
+
+// Told is the end of a timed run of the saga: the orders it gave, the
+// last order of a run that gave up (None for one that did not), and
+// where it is.
+type Told { Orders []Order, Last Option[Order], At Attempt }
+
+// timed runs the saga over trace until end, on a fresh virtual clock.
+func timed(trace []machines.Timed[Signal], end duration) Told {
+	let c = testing.NewVirtualClock(0)
+	with context { Scheduler: c, time.Clock: c } { run(trace, end) }
+}
+
+func run(trace []machines.Timed[Signal], end duration) Told needs time.Clock | Scheduler {
+	let o = machines.RunTimed(Saga{}, trace, end) catch {
+	case machines.Rejected:
+		return Told{Orders: []Order{}, Last: None, At: First(Standard)}
+	}
+	match o {
+	case machines.Running[Attempt, Order] as r:
+		Told{Orders: r.Emitted, Last: None, At: r.State}
+	case machines.Finished[Attempt, Order] as f:
+		Told{Orders: f.Emitted, Last: Some[Order]{Value: f.Output}, At: f.State}
+	}
+}
+
+func ms(n int) duration { duration(int64(((n%500)+500)%500) * int64(1ms)) }
+
+// GivesUpAfterAttempts: a stage whose every try fails is tried Attempts
+// times, each try ordered after its wait, and then given up, whenever in
+// its try each failure comes (a failure at the very instant of its order
+// comes before it, so each comes at least 1ms after).
+law GivesUpAfterAttempts(gaps []int) {
+	let mut trace = []machines.Timed[Signal]{}
+	let mut at = 0s
+	for n in 1..(Standard.Attempts + 1) {
+		let gap = 1ms + (if n-1 < len(gaps) { ms(gaps[n-1]) } else { 0s })
+		trace = trace.Append(machines.Timed[Signal]{At: at + gap, Signal: Failed})
+		at = at + gap + Delay(Standard, n)
+	}
+	let t = timed(trace, at+1s)
+	let mut want = []Order{}
+	for n in 2..(Standard.Attempts + 1) {
+		want = want.Append(Again{Try: n})
+	}
+	t.Orders == want && t.Last == Some[Order]{Value: GiveUp{Tries: Standard.Attempts}}
+}
+
+// WaitsItsBackoff: after a failed try the next is ordered exactly when
+// its wait ends: not a moment before.
+law WaitsItsBackoff(early int) {
+	let fail = []machines.Timed[Signal]{machines.Timed[Signal]{At: 0s, Signal: Failed}}
+	let wait = Delay(Standard, 1)
+	let before = timed(fail, wait-1ms-ms(early))
+	let after = timed(fail, wait)
+	len(before.Orders) == 0 && after.Orders == []Order{Again{Try: 2}}
+}

@@ -1,0 +1,13 @@
+# fk-wizard: the upstream tests of state-machine at d21db423 and what restates each.
+# No story is an Ergo test: a law and the tour case kill every mutant a test of it would (README.md, "Upstream tests").
+src/story.test.ts: PlaceOrder waits before succeeding -> `permit` law `FilingTakesASecond`; case `tour` (wait 999, then wait 1)
+src/story.test.ts: physical carts visit Shipping before Payment -> `permit` law `Wizard.Confirms` (its run packs supplies); case `tour` (its first lines)
+src/story.test.ts: digital carts skip Shipping through the otherwise branch -> `permit` law `Wizard.DayTripsSkipSupplies`; case `tour` (trip day)
+src/story.test.ts: starting over after cancelling keeps the selected edition -> `permit` law `CancelFromEveryOpenStep`; case `tour` (cancel, startover)
+src/story.test.ts: a known promo code resolves to a discount and an unknown one clears it -> `permit` laws `CodesIgnoreCaseAndSpace` and `EditClearsOnlyARefusal`; case `tour` (code, apply)
+src/story.test.ts: unaccepted review ignores place order without a Command -> `permit` law `ReviewGatesFile`; case `tour` (the first file in review)
+src/story.test.ts: ready review emits PlaceOrder after its guard passes -> `permit` laws `ReviewGatesFile` and `FilingTakesASecond`; case `tour`
+src/story.test.ts: the transition log truncates to the newest twenty entries -> `desk` law `LogKeepsTheNewest`
+src/scene.test.ts: initial view shows the hardcover order and state machine inspector -> not restated: stage a has no view (FK7b, after H4 and H4r)
+src/scene.test.ts: digital order skips Shipping and can be confirmed -> not restated: stage a has no view (FK7b); case `tour` runs the same acts on the actor
+src/scene.test.ts: an applied promo code discounts the order total -> not restated: stage a has no view (FK7b); case `tour` (code, apply)

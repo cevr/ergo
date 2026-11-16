@@ -1,0 +1,192 @@
+# The VT parser's transition table, transcribed from Ghostty's
+# src/terminal/parse_table.zig (genTable) at commit cf3a8a6594ee, one line
+# per call of single or range, in the order the source makes them. A later
+# line overrides an earlier one for the same state and byte, and a pair no
+# line sets stays in its state with the action none, as genTable's final
+# loop does. "anywhere" stands for the loop over every state.
+#
+#   single BYTE FROM TO ACTION
+#   range  LOW HIGH FROM TO ACTION      (both bytes included)
+#
+# The law StepMatchesTable (ghostty/table.ergo) holds the parser's step to this
+# table for every state and every byte.
+#
+# Ghostty's notice, which covers the transcribed table:
+#
+# MIT License
+#
+# Copyright (c) 2024 Mitchell Hashimoto, Ghostty contributors
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+# anywhere => ground
+single 0x18 anywhere ground execute
+single 0x1A anywhere ground execute
+range 0x80 0x8F anywhere ground execute
+range 0x91 0x97 anywhere ground execute
+single 0x99 anywhere ground execute
+single 0x9A anywhere ground execute
+single 0x9C anywhere ground none
+# anywhere => escape
+single 0x1B anywhere escape none
+# anywhere => sos_pm_apc_string
+single 0x98 anywhere sos_pm_apc_string none
+single 0x9E anywhere sos_pm_apc_string none
+single 0x9F anywhere sos_pm_apc_string none
+# anywhere => csi_entry
+single 0x9B anywhere csi_entry none
+# anywhere => dcs_entry
+single 0x90 anywhere dcs_entry none
+# anywhere => osc_string
+single 0x9D anywhere osc_string none
+
+# ground
+single 0x19 ground ground execute
+range 0x00 0x17 ground ground execute
+range 0x1C 0x1F ground ground execute
+range 0x20 0x7F ground ground print
+
+# escape_intermediate
+single 0x19 escape_intermediate escape_intermediate execute
+range 0x00 0x17 escape_intermediate escape_intermediate execute
+range 0x1C 0x1F escape_intermediate escape_intermediate execute
+range 0x20 0x2F escape_intermediate escape_intermediate collect
+single 0x7F escape_intermediate escape_intermediate ignore
+range 0x30 0x7E escape_intermediate ground esc_dispatch
+
+# sos_pm_apc_string
+single 0x19 sos_pm_apc_string sos_pm_apc_string apc_put
+range 0x00 0x17 sos_pm_apc_string sos_pm_apc_string apc_put
+range 0x1C 0x1F sos_pm_apc_string sos_pm_apc_string apc_put
+range 0x20 0x7F sos_pm_apc_string sos_pm_apc_string apc_put
+
+# escape
+single 0x19 escape escape execute
+range 0x00 0x17 escape escape execute
+range 0x1C 0x1F escape escape execute
+single 0x7F escape escape ignore
+range 0x30 0x4F escape ground esc_dispatch
+range 0x51 0x57 escape ground esc_dispatch
+range 0x60 0x7E escape ground esc_dispatch
+single 0x59 escape ground esc_dispatch
+single 0x5A escape ground esc_dispatch
+single 0x5C escape ground esc_dispatch
+range 0x20 0x2F escape escape_intermediate collect
+single 0x58 escape sos_pm_apc_string none
+single 0x5E escape sos_pm_apc_string none
+single 0x5F escape sos_pm_apc_string none
+single 0x50 escape dcs_entry none
+single 0x5B escape csi_entry none
+single 0x5D escape osc_string none
+
+# dcs_entry
+single 0x19 dcs_entry dcs_entry ignore
+range 0x00 0x17 dcs_entry dcs_entry ignore
+range 0x1C 0x1F dcs_entry dcs_entry ignore
+single 0x7F dcs_entry dcs_entry ignore
+range 0x20 0x2F dcs_entry dcs_intermediate collect
+single 0x3A dcs_entry dcs_ignore none
+range 0x30 0x39 dcs_entry dcs_param param
+single 0x3B dcs_entry dcs_param param
+range 0x3C 0x3F dcs_entry dcs_param collect
+range 0x40 0x7E dcs_entry dcs_passthrough none
+
+# dcs_intermediate
+single 0x19 dcs_intermediate dcs_intermediate ignore
+range 0x00 0x17 dcs_intermediate dcs_intermediate ignore
+range 0x1C 0x1F dcs_intermediate dcs_intermediate ignore
+range 0x20 0x2F dcs_intermediate dcs_intermediate collect
+single 0x7F dcs_intermediate dcs_intermediate ignore
+range 0x30 0x3F dcs_intermediate dcs_ignore none
+range 0x40 0x7E dcs_intermediate dcs_passthrough none
+
+# dcs_ignore
+single 0x19 dcs_ignore dcs_ignore ignore
+range 0x00 0x17 dcs_ignore dcs_ignore ignore
+range 0x1C 0x1F dcs_ignore dcs_ignore ignore
+range 0x80 0xFF dcs_ignore dcs_ignore ignore
+
+# dcs_param
+single 0x19 dcs_param dcs_param ignore
+range 0x00 0x17 dcs_param dcs_param ignore
+range 0x1C 0x1F dcs_param dcs_param ignore
+range 0x30 0x39 dcs_param dcs_param param
+single 0x3B dcs_param dcs_param param
+single 0x7F dcs_param dcs_param ignore
+single 0x3A dcs_param dcs_ignore none
+range 0x3C 0x3F dcs_param dcs_ignore none
+range 0x20 0x2F dcs_param dcs_intermediate collect
+range 0x40 0x7E dcs_param dcs_passthrough none
+
+# dcs_passthrough
+single 0x19 dcs_passthrough dcs_passthrough put
+range 0x00 0x17 dcs_passthrough dcs_passthrough put
+range 0x1C 0x1F dcs_passthrough dcs_passthrough put
+range 0x20 0x7E dcs_passthrough dcs_passthrough put
+single 0x7F dcs_passthrough dcs_passthrough ignore
+range 0x80 0xFF dcs_passthrough dcs_passthrough put
+
+# csi_param
+single 0x19 csi_param csi_param execute
+range 0x00 0x17 csi_param csi_param execute
+range 0x1C 0x1F csi_param csi_param execute
+range 0x30 0x39 csi_param csi_param param
+single 0x3A csi_param csi_param param
+single 0x3B csi_param csi_param param
+single 0x7F csi_param csi_param ignore
+range 0x40 0x7E csi_param ground csi_dispatch
+range 0x3C 0x3F csi_param csi_ignore none
+range 0x20 0x2F csi_param csi_intermediate collect
+
+# csi_ignore
+single 0x19 csi_ignore csi_ignore execute
+range 0x00 0x17 csi_ignore csi_ignore execute
+range 0x1C 0x1F csi_ignore csi_ignore execute
+range 0x20 0x3F csi_ignore csi_ignore ignore
+single 0x7F csi_ignore csi_ignore ignore
+range 0x40 0x7E csi_ignore ground none
+
+# csi_intermediate
+single 0x19 csi_intermediate csi_intermediate execute
+range 0x00 0x17 csi_intermediate csi_intermediate execute
+range 0x1C 0x1F csi_intermediate csi_intermediate execute
+range 0x20 0x2F csi_intermediate csi_intermediate collect
+single 0x7F csi_intermediate csi_intermediate ignore
+range 0x40 0x7E csi_intermediate ground csi_dispatch
+range 0x30 0x3F csi_intermediate csi_ignore none
+
+# csi_entry
+single 0x19 csi_entry csi_entry execute
+range 0x00 0x17 csi_entry csi_entry execute
+range 0x1C 0x1F csi_entry csi_entry execute
+single 0x7F csi_entry csi_entry ignore
+range 0x40 0x7E csi_entry ground csi_dispatch
+single 0x3A csi_entry csi_ignore none
+range 0x20 0x2F csi_entry csi_intermediate collect
+range 0x30 0x39 csi_entry csi_param param
+single 0x3B csi_entry csi_param param
+range 0x3C 0x3F csi_entry csi_param collect
+
+# osc_string
+single 0x19 osc_string osc_string ignore
+range 0x00 0x06 osc_string osc_string ignore
+range 0x08 0x17 osc_string osc_string ignore
+range 0x1C 0x1F osc_string osc_string ignore
+range 0x20 0xFF osc_string osc_string osc_put
+single 0x07 osc_string ground none

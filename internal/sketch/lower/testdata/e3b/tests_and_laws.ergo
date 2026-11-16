@@ -9,7 +9,7 @@ type Codec {
 	law Width(v int) { len(Encode(v)) >= 1 },
 }
 
-type Plain {}
+type Plain {} implements Codec
 
 func Encode(_ Plain, v int) string {
 	"\(v)"

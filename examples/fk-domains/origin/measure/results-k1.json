@@ -1,0 +1,193 @@
+{
+ "variant": "k1",
+ "base": "http://127.0.0.1:5391",
+ "viewport": {
+  "width": 1280,
+  "height": 720
+ },
+ "startedAt": "2026-11-13T01:17:23.006Z",
+ "loadavgStart": "30.96 38.32 43.91 40/2519 2649672",
+ "phases": {
+  "scroll": {
+   "sortFirst": false,
+   "start": {
+    "dom": {
+     "elements": 780,
+     "rows": 36,
+     "items": 6,
+     "cards": 4,
+     "height": 19535,
+     "scrollY": 0
+    },
+    "rpc": 2
+   },
+   "sort": null,
+   "stepPx": 576,
+   "steps": 34,
+   "reachedBottom": true,
+   "end": {
+    "dom": {
+     "elements": 838,
+     "rows": 40,
+     "items": 7,
+     "cards": 4,
+     "height": 19535,
+     "scrollY": 18815
+    },
+    "rpc": 18
+   },
+   "requestsDuringScroll": 16,
+   "responseBytes": 9624,
+   "maxRows": 72,
+   "maxItems": 12,
+   "maxElements": 1200,
+   "perStep": {
+    "scriptMs": {
+     "median": 105.612,
+     "p95": 274.318,
+     "max": 310.755
+    },
+    "taskMs": {
+     "median": 110.27,
+     "p95": 329.244,
+     "max": 375.926
+    },
+    "layoutMs": {
+     "median": 1.78,
+     "p95": 6.627
+    },
+    "nodesAdded": {
+     "median": 310,
+     "p95": 436
+    },
+    "nodesRemoved": {
+     "median": 340,
+     "p95": 376
+    },
+    "mutationRecords": {
+     "median": 19,
+     "p95": 50
+    }
+   },
+   "rpcBodies": [
+    "done 209B {\"_tag\":\"Request\",\"id\":0,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":0,\"limit\":4},\"traceId\":\"87a62de27e97755a08437681bcd65e83\",\"spanId\":\"f34d5692f53afd3f\",\"sampled\":true,\"headers\":[]}",
+    "done 680B {\"_tag\":\"Request\",\"id\":1,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":4,\"limit\":56},\"traceId\":\"8adb0cc1b44ad0b3ca59396bb3bb94ad\",\"spanId\":\"2384ad8456e70f0a\",\"sampled\":true,\"headers\":[]}",
+    "done 579B {\"_tag\":\"Request\",\"id\":2,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":60,\"limit\":60},\"traceId\":\"f5de909423f3e68f6be0679df064974d\",\"spanId\":\"d581ac988f7bc71c\",\"sampled\":true,\"headers\":[]}",
+    "done 620B {\"_tag\":\"Request\",\"id\":3,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":120,\"limit\":60},\"traceId\":\"460d3f25a84032638f9e2c04996e6345\",\"spanId\":\"07c462a70c255506\",\"sampled\":true,\"headers\":[]}",
+    "done 600B {\"_tag\":\"Request\",\"id\":4,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":180,\"limit\":60},\"traceId\":\"58817330c80d01dae75ddb22ed921006\",\"spanId\":\"6c2d77f95369369c\",\"sampled\":true,\"headers\":[]}",
+    "done 608B {\"_tag\":\"Request\",\"id\":5,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":240,\"limit\":60},\"traceId\":\"e4dd592bc39b64afc45d45cca8cfb7b7\",\"spanId\":\"cbb337615f7d28d4\",\"sampled\":true,\"headers\":[]}",
+    "done 579B {\"_tag\":\"Request\",\"id\":6,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":300,\"limit\":60},\"traceId\":\"44568add81f47bb5cec512e0ee4ec9de\",\"spanId\":\"0f903c85518d75b0\",\"sampled\":true,\"headers\":[]}",
+    "done 598B {\"_tag\":\"Request\",\"id\":7,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":360,\"limit\":60},\"traceId\":\"9eb0444c664274691fae33cc846ac5db\",\"spanId\":\"6e7f8a19176928f7\",\"sampled\":true,\"headers\":[]}",
+    "done 595B {\"_tag\":\"Request\",\"id\":8,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":420,\"limit\":60},\"traceId\":\"9b4ce6afff0ff11e0ba67e695ca59a35\",\"spanId\":\"91e5bdae522a3744\",\"sampled\":true,\"headers\":[]}",
+    "done 614B {\"_tag\":\"Request\",\"id\":9,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":480,\"limit\":60},\"traceId\":\"9933e313e4ff2531c43ac7e1c7b8e5ad\",\"spanId\":\"12f3364b6467d0ec\",\"sampled\":true,\"headers\":[]}",
+    "done 582B {\"_tag\":\"Request\",\"id\":10,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":540,\"limit\":60},\"traceId\":\"7776b0a2ccf669d68a0fc692d240a3b7\",\"spanId\":\"a3b6e5df34bc4ffd\",\"sampled\":true,\"headers\":[]}",
+    "done 495B {\"_tag\":\"Request\",\"id\":11,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":600,\"limit\":60},\"traceId\":\"825ac74d4c81490e7b447fa1a6fa2bfd\",\"spanId\":\"58a65e22b0a0e96c\",\"sampled\":true,\"headers\":[]}",
+    "done 493B {\"_tag\":\"Request\",\"id\":12,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":660,\"limit\":60},\"traceId\":\"aa163bf4a5c5bcddf5536f17e07ad052\",\"spanId\":\"5e74e1cd96d400f9\",\"sampled\":true,\"headers\":[]}",
+    "done 495B {\"_tag\":\"Request\",\"id\":13,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":720,\"limit\":60},\"traceId\":\"9dffbad98a4ee4c1894b77559e26e18f\",\"spanId\":\"5dff07c0a8153261\",\"sampled\":true,\"headers\":[]}"
+   ],
+   "errors": [],
+   "heapAfterScrollGc": 14634936
+  },
+  "sortThenScroll": {
+   "sortFirst": true,
+   "start": {
+    "dom": {
+     "elements": 780,
+     "rows": 36,
+     "items": 6,
+     "cards": 4,
+     "height": 19535,
+     "scrollY": 0
+    },
+    "rpc": 2
+   },
+   "sort": {
+    "cpuMs": {
+     "ScriptDuration": 357.523,
+     "TaskDuration": 499.914,
+     "LayoutDuration": 3.433,
+     "RecalcStyleDuration": 8.555,
+     "LayoutCount": 6,
+     "RecalcStyleCount": 32
+    },
+    "mutations": {
+     "records": 109,
+     "added": 587,
+     "removed": 574,
+     "attrs": 39,
+     "text": 2
+    },
+    "requests": [
+     "done 7073B {\"_tag\":\"Request\",\"id\":2,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":0,\"limit\":1000},\"traceId\":\"be8fc62e27cf788a81d96f6710bcc4bb\",\"spanId\":\"dae4bd43681c06a5\",\"sampled\":true,\"headers\":[]}"
+    ],
+    "heapBefore": 12141644,
+    "heapAfterGc": 14149800,
+    "dom": {
+     "elements": 792,
+     "rows": 36,
+     "items": 6,
+     "cards": 4,
+     "height": 19535,
+     "scrollY": 0
+    }
+   },
+   "stepPx": 576,
+   "steps": 34,
+   "reachedBottom": true,
+   "end": {
+    "dom": {
+     "elements": 826,
+     "rows": 40,
+     "items": 7,
+     "cards": 4,
+     "height": 19535,
+     "scrollY": 18815
+    },
+    "rpc": 3
+   },
+   "requestsDuringScroll": 0,
+   "responseBytes": 7962,
+   "maxRows": 72,
+   "maxItems": 12,
+   "maxElements": 1200,
+   "perStep": {
+    "scriptMs": {
+     "median": 73.969,
+     "p95": 124.032,
+     "max": 134.983
+    },
+    "taskMs": {
+     "median": 83.197,
+     "p95": 135.924,
+     "max": 150.305
+    },
+    "layoutMs": {
+     "median": 1.557,
+     "p95": 2.468
+    },
+    "nodesAdded": {
+     "median": 340,
+     "p95": 408
+    },
+    "nodesRemoved": {
+     "median": 340,
+     "p95": 340
+    },
+    "mutationRecords": {
+     "median": 10,
+     "p95": 11
+    }
+   },
+   "rpcBodies": [
+    "done 209B {\"_tag\":\"Request\",\"id\":0,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":0,\"limit\":4},\"traceId\":\"cdd03249ea3ca808431e7e8d5ccad46b\",\"spanId\":\"5c890b3f31728a91\",\"sampled\":true,\"headers\":[]}",
+    "done 680B {\"_tag\":\"Request\",\"id\":1,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":4,\"limit\":56},\"traceId\":\"b4ec45e5cc69b49003fa45d5df37dd9c\",\"spanId\":\"f204135fe05f4c73\",\"sampled\":true,\"headers\":[]}",
+    "done 7073B {\"_tag\":\"Request\",\"id\":2,\"tag\":\"SearchDomains\",\"payload\":{\"label\":\"foldkit\",\"offset\":0,\"limit\":1000},\"traceId\":\"be8fc62e27cf788a81d96f6710bcc4bb\",\"spanId\":\"dae4bd43681c06a5\",\"sampled\":true,\"headers\":[]}"
+   ],
+   "errors": [],
+   "heapAfterScrollGc": 15031300
+  }
+ },
+ "browser": "156.0.8078.4",
+ "loadavgEnd": "31.79 37.69 43.49 36/2622 2661180",
+ "endedAt": "2026-11-13T01:17:56.384Z"
+}

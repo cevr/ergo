@@ -1,0 +1,182 @@
+import embed
+import fs
+import http
+import json
+import rpc
+import strings
+import fk-domains/domains
+import fk-domains/sample
+
+// Recorded is the original's server wire at 039c941a (MIT): 20 requests
+// that recorded/wire.mjs sent to its worker, each response, and
+// recorded/index.json with each case's status and headers.
+let Recorded = embedded[embed.FS]("recorded")
+
+// index is recorded/index.json.
+type index { Cases []recordedCase }
+
+type recordedCase { Case string, Path string, Method string, Status int, ContentType json.Nullable[string], CacheControl json.Nullable[string] }
+
+// frame is one element of an Effect RPC json answer: an Exit, or a
+// server-wide Defect (a body the server could not read).
+type frame = Exit{RequestId json.Value, Exit outcome} | Defect{Defect json.Value}
+
+// outcome is an Exit's exit. A failure's cause is not compared: a Die's
+// text is Effect's schema message on one side and the port's on the
+// other.
+type outcome = Success{Value []domains.Listing} | Failure{Cause json.Value}
+
+func read(path string) string {
+	Recorded.ReadFile(path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return ""
+	}
+}
+
+// contentType is the Content-Type the case was sent with: wire.mjs sends
+// application/json, but text/plain for not-json-type.
+func contentType(c recordedCase) string {
+	if strings.HasSuffix(c.Case, "-not-json-type") {
+		return "text/plain"
+	}
+	"application/json"
+}
+
+// requestOf is the case's request as http.Serve hands it over under
+// Limits: a body over MaxBodyBytes is http.BodyTooLarge.
+func requestOf(c recordedCase) http.Request {
+	let text = read("recorded/" + c.Case + ".request.json")
+	let body http.Body = if len(text) > Limits().MaxBodyBytes { http.BodyTooLarge{Limit: Limits().MaxBodyBytes} } else { http.Buffered{Text: text} }
+	http.Request{Method: c.Method, Path: c.Path, Query: []http.Field{}, Header: []http.Field{http.Field{Name: "Content-Type", Value: contentType(c)}}, Body: body}
+}
+
+func headerText(h []http.Field, name string) string {
+	match http.Header(h, name) {
+	case Some as v:
+		v.Value
+	case None:
+		""
+	}
+}
+
+func nullableText(v json.Nullable[string]) string {
+	match v {
+	case json.NonNull[string] as s:
+		s.Value
+	case json.Null:
+		""
+	}
+}
+
+// sameFrames is "" when the port's answer frames want's, else what differs.
+func sameFrames(want string, got string) string {
+	let w = rpc.Decode[[]frame]("recorded answer", want) catch {
+	case rpc.Transport as t:
+		return "the recorded answer does not read: \(t.Reason)"
+	}
+	let g = rpc.Decode[[]frame]("port answer", got) catch {
+	case rpc.Transport as t:
+		return "the port's answer does not read: \(t.Reason): \(got)"
+	}
+	if len(w) != len(g) {
+		return "\(len(g)) frames, want \(len(w))"
+	}
+	for i, x in w {
+		let d = sameFrame(x, g[i])
+		if d != "" {
+			return d
+		}
+	}
+	""
+}
+
+func sameFrame(want frame, got frame) string {
+	match want {
+	case Defect:
+		match got {
+		case Defect:
+			""
+		case Exit:
+			"an Exit, want a Defect"
+		}
+	case Exit as w:
+		match got {
+		case Defect:
+			"a Defect, want an Exit"
+		case Exit as g:
+			if rpc.Encode(w.RequestId) != rpc.Encode(g.RequestId) {
+				return "request id \(rpc.Encode(g.RequestId)), want \(rpc.Encode(w.RequestId))"
+			}
+			sameOutcome(w.Exit, g.Exit)
+		}
+	}
+}
+
+func sameOutcome(want outcome, got outcome) string {
+	match want {
+	case Failure:
+		match got {
+		case Failure:
+			""
+		case Success:
+			"a Success, want a Failure"
+		}
+	case Success as w:
+		match got {
+		case Failure:
+			"a Failure, want a Success"
+		case Success as g:
+			if len(w.Value) != len(g.Value) {
+				return "\(len(g.Value)) listings, want \(len(w.Value))"
+			}
+			for i, x in w.Value {
+				if x != g.Value[i] {
+					return "listing \(i) is \(rpc.Encode(g.Value[i])), want \(rpc.Encode(x))"
+				}
+			}
+			""
+		}
+	}
+}
+
+// agrees is "" when the port's server answers c as the original did:
+// the same status, Content-Type and Cache-Control, and for a 200 the
+// same frames, a success with the same listings field for field.
+func agrees(c recordedCase) string {
+	let a = with context { domains.Registry: sample.NewSample(), http.Streaming: http.NewRecorder() } {
+		Answer(requestOf(c))
+	}
+	if a.Status != c.Status {
+		return "\(c.Case): status \(a.Status), want \(c.Status)"
+	}
+	if headerText(a.Header, "Content-Type") != nullableText(c.ContentType) {
+		return "\(c.Case): Content-Type \(headerText(a.Header, "Content-Type")), want \(nullableText(c.ContentType))"
+	}
+	if headerText(a.Header, "Cache-Control") != nullableText(c.CacheControl) {
+		return "\(c.Case): Cache-Control \(headerText(a.Header, "Cache-Control")), want \(nullableText(c.CacheControl))"
+	}
+	if c.Status != 200 {
+		return ""
+	}
+	let d = sameFrames(read("recorded/"+c.Case+".response.txt"), a.Body)
+	if d != "" {
+		return "\(c.Case): \(d)"
+	}
+	""
+}
+
+// WireAgreesWithOrigin: for each of the 20 recorded cases the port's
+// server gives the original's status and headers, and for a 200 the same
+// frames.
+test WireAgreesWithOrigin {
+	let ix = try rpc.Decode[index]("index", read("recorded/index.json"))
+	assert len(ix.Cases) > 0
+	let mut wrong = []string{}
+	for c in ix.Cases {
+		let d = agrees(c)
+		if d != "" {
+			wrong = wrong.Append(d)
+		}
+	}
+	assert wrong == []string{}
+}

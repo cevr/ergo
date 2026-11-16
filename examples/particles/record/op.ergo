@@ -1,0 +1,58 @@
+// Package record keeps what a test double was asked: an Op is one
+// operation's answer and the calls it got. It is the field type of sim's
+// recorder (patterns.md, Provider plans 3), written in Ergo with no runtime
+// Go type: NewOp makes one, Call records a call and gives the answer, and
+// the checker derives a provider of any capability from it, as std's
+// testing.Op does for testing.Script.
+
+import sync
+
+// Op is one operation of a recorder. A is the operation's arguments: the
+// one parameter's type, a tuple of several, or NoArgs. G is its signature
+// as a function type. Every copy of an Op is the same operation: both
+// fields are shared cells.
+type Op[A, G] {
+	calls  sync.Ref[[]A],
+	answer sync.Ref[Option[G]],
+}
+
+// NoArgs is the arguments of a call of an operation that takes none.
+type NoArgs {}
+
+// NewOp is an Op with no answer and no calls; the recorder's literal makes
+// one per operation.
+func NewOp[A, G]() Op[A, G] {
+	Op[A, G]{calls: sync.NewRef[[]A]([]A{}), answer: sync.NewRef[Option[G]](None)}
+}
+
+// Answer makes f the operation's answer from now on.
+func Answer[A, G](o Op[A, G], f G) {
+	o.answer.Set(Some{f})
+}
+
+// Calls is the arguments of each call so far, oldest first.
+func Calls[A, G](o Op[A, G]) []A {
+	o.calls.Get()
+}
+
+// Call records the arguments a of one call and returns the answer, if the
+// test set one; the recorder raises the defect of an unanswered operation.
+func Call[A, G](o Op[A, G], a A) Option[G] {
+	o.calls.Update(func(v []A) []A { v.Append(a) })
+	o.answer.Get()
+}
+
+// AnswerIsKept: the answer a test sets is the one each later call gets.
+test AnswerIsKept {
+	let o = NewOp[int, func() int]()
+	assert len(Calls(o)) == 0
+	Answer(o, func() int { 7 })
+	let got = match Call(o, 1) {
+	case Some{f}:
+		f()
+	case None:
+		0
+	}
+	assert got == 7
+	assert len(Calls(o)) == 1
+}

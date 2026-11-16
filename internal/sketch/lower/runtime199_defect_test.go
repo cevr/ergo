@@ -821,7 +821,7 @@ func TestRuntime199DefectOwner(t *testing.T) {
 						case *ast.SelectorExpr:
 							switch fun.Sel.Name {
 							case "Stack":
-								uses = append(uses, use{"debug.Stack", in})
+								uses = append(uses, use{"runtime.Stack", in})
 							case "AddDefect":
 								uses = append(uses, use{"AddDefect", in})
 							}
@@ -851,11 +851,13 @@ func TestRuntime199DefectOwner(t *testing.T) {
 	}
 	allowed := map[use]bool{
 		{"Panic literal", "defectOf"}: true,
-		{"debug.Stack", "defectOf"}:   true,
+		{"runtime.Stack", "defectOf"}: true,
 		{"AddDefect", "capture"}:      true,
 		{"reportDefect", "report"}:    true,
 		{`"panic: "`, "reportDefect"}: true,
-		{"report", "Main"}:            true,
+		// Main's exit report, written by mainStatus, which Main exits with
+		// (SB8: standard output flushed after it).
+		{"report", "mainStatus"}: true,
 		// LogFailures writes a member's exit as main's exit report does.
 		{"report", "end"}: true,
 	}

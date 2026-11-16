@@ -127,7 +127,7 @@ type Tokens machine[Bucket, Signal] {
 			}
 			let d = Step(b, Spend{Cost: k})
 			match d {
-			case Emit[Bucket, Told]:
+			case Emit[Bucket, Told], Tell[Bucket, Told]:
 				told = told + 1
 			case Enter[Bucket], Stay[Bucket], Ignore, Reject, Done[Told]:
 			}
@@ -168,7 +168,7 @@ func told(d Decision[Bucket, Told]) Option[Told] {
 	match d {
 	case Emit[Bucket, Told] as e:
 		Some[Told]{Value: e.Output}
-	case Enter[Bucket], Stay[Bucket], Ignore, Reject, Done[Told]:
+	case Enter[Bucket], Stay[Bucket], Tell[Bucket, Told], Ignore, Reject, Done[Told]:
 		None
 	}
 }

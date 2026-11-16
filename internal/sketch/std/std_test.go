@@ -301,28 +301,33 @@ func TestStdTypesBindRuntimeTypes(t *testing.T) {
 				t.Errorf("%s.%s is neither a record nor an operations type: it needs a binding rule", path, tn.Name)
 				continue
 			}
-			if _, row := v1.StdRecord(path, tn.Name); !row && hasUnexportedField(st) {
-				// A record with construction authority and no row of the
-				// binding table (slices.Ascending, SS5) is the program's
+			if _, named := check.GoTypeOf(n); !named && hasUnexportedField(st) {
+				// A record with construction authority whose declaration
+				// names no Go type (slices.Ascending, SS5) is the program's
 				// declaration (lower runtimeType): only its package builds
 				// it, so it is never an error value of the runtime.
 				if _, err := v1.StructFields(tn.Name); err == nil {
-					t.Errorf("%s.%s has no row in the binding table, and v1 declares a struct of its name", path, tn.Name)
+					t.Errorf("%s.%s names no Go type, and v1 declares a struct of its name", path, tn.Name)
 				}
 				continue
 			}
 			seen++
+			goName, named := check.GoTypeOf(n)
+			if !named || goName != tn.Name {
+				t.Errorf("%s.%s names the Go type %q (%v); a v1 package's record names v1.%s", path, tn.Name, goName, named, tn.Name)
+				continue
+			}
 			var want []string
 			for _, f := range st.Fields {
 				want = append(want, f.Name)
 			}
-			got, err := v1.StructFields(tn.Name)
+			got, err := v1.StructFields(goName)
 			if err != nil {
 				t.Errorf("%s.%s: %v", path, tn.Name, err)
 				continue
 			}
 			if !slices.Equal(got, want) {
-				t.Errorf("%s.%s has fields %v, its Go type v1.%s has %v", path, tn.Name, want, tn.Name, got)
+				t.Errorf("%s.%s has fields %v, its Go type v1.%s has %v", path, tn.Name, want, goName, got)
 			}
 			name := path + "." + tn.Name
 			v, ok := errorValues[name]
@@ -747,7 +752,11 @@ func NewHost() Host needs Ambient { Host{root: "/"} }
 	// readerBase is the batch-10 r5 B1 probes' package: Host implements
 	// the open operation type Reader (Get), so a Host can leave as a
 	// Reader, which no signature walk sees.
-	const readerBase = hostLit + `type Reader { Get() string fails Gone }
+	const readerBase = `type Host { root string } implements Reader
+
+func NewHost() Host needs Ambient { Host{root: "/"} }
+
+type Reader { Get() string fails Gone }
 
 func Get(h Host) string fails Gone { try Read(h) }
 
@@ -757,7 +766,7 @@ func Get(h Host) string fails Gone { try Read(h) }
 	// mentions Live too (batch-10 r4 M1).
 	const sealedBase = `type Host { peek() int }
 
-type Live { root string }
+type Live { root string } implements Host
 
 func peek(_ Live) int { 1 }
 
@@ -873,7 +882,7 @@ type Tok { v int }
 
 type Toks { Next() Tok }
 
-type Mint { n int }
+type Mint { n int } implements Toks
 
 func Next(_ Mint) Tok { Tok{v: 1} }
 
@@ -931,11 +940,10 @@ func Next(_ mint) Tok { Tok{v: 1} }
 let Minter = mint
 `, wrapped},
 		{"record passed by borrow to a function the caller supplies", tokBase + "func Give(f func(p *Tok)) {}\n", wrapped},
-		// The inferred failure row of an unexported function, handed out
-		// as a value.
-		{"record in the inferred failure row of a function value", tokBase + `func raise() int fails Tok { return Tok{v: 1} }
+		// The failure row of an unexported function, handed out as a value.
+		{"record in the failure row of a function value", tokBase + `func raise() int fails Tok { return Tok{v: 1} }
 
-func mk() int { try raise() }
+func mk() int fails Tok { try raise() }
 
 let Mk = mk
 `, wrapped},
@@ -980,11 +988,11 @@ func Next(_ mint) Host { Host{root: "/"} }
 let Minter = mint
 `, []string{mentions("Next", "fixture.Host"), builds("Next", "fixture.Host (a literal)")}},
 		{"Host passed by borrow to a function the caller supplies", hostBase + "func Give(f func(p *Host)) {}\n", give},
-		{"Host in the inferred failure row of a function value", hostBase + `type Oops { H Host }
+		{"Host in the failure row of a function value", hostBase + `type Oops { H Host }
 
 func raise() int fails Oops { try raise() }
 
-func mk() int { try raise() }
+func mk() int fails Oops { try raise() }
 
 let Mk = mk
 `, []string{letMentions("Mk", "fixture.Host")}},
@@ -1045,11 +1053,6 @@ func Give() M { Give() }
 		{"P1 Host as an open operation type, function result", readerBase + "func Open() Reader { Host{root: \"/\"} }\n", []string{builds("Open", "fixture.Host (a literal)")}},
 		{"P1 control: lists Ambient", readerBase + "func Open() Reader needs Ambient { Host{root: \"/\"} }\n", nil},
 		{"P2 Host as an open operation type, named context", readerBase + "let Disk = context { Reader: Host{root: \"/\"} }\n", []string{placeBuilds("Disk", "fixture.Host (a literal)", "a named context")}},
-		// An inferred row is not a written one: the mint rule, as the
-		// mention rule, reads only what the source writes (decided by
-		// "simpler, reversible"; std writes Ambient where it builds).
-		{"build under an inferred Ambient", readerBase + "func mk() Host {\n\tlet h = NewHost()\n\tHost{..h, root: \"x\"}\n}\n", []string{builds("mk", "fixture.Host (a record update)")}},
-		{"build in a closure under an inferred Ambient", readerBase + "func mk() string fails Gone {\n\tlet f = func() Host {\n\t\tlet h = NewHost()\n\t\tHost{..h, root: \"x\"}\n\t}\n\ttry Read(f())\n}\n", []string{builds("mk", "fixture.Host (a record update)")}},
 		{"generated test parameter that holds a Host", readerBase + "type Box { H Host }\n\ntest T(b Box) {\n\tassert true\n}\n", []string{placeBuilds("T", "fixture.Host (a generated parameter)", "a test")}},
 		{"build in a trailing block", readerBase + "func run(f func() string fails Gone) string fails Gone { try f() }\n\nfunc F() string fails Gone {\n\ttry run() {\n\t\ttry Read(Host{root: \"/\"})\n\t}\n}\n", []string{builds("F", "fixture.Host (a literal)")}},
 		// fu-ambient-ctor r7 (batch-10 r6 Unproven E1, E3): an extern has
@@ -1102,7 +1105,7 @@ func Run(b Box[func(h Host)]) { Run(b) }
 		// passes (before, every operation type was reported).
 		{"sealed operation type whose implementer has authority", `type Host { peek() int }
 
-type Live { root string }
+type Live { root string } implements Host
 
 func peek(_ Live) int { 1 }
 
@@ -1110,7 +1113,7 @@ func NewHost() Host needs Ambient { Live{root: "/"} }
 `, nil},
 		{"sealed operation type with an open implementer", `type Host { peek() int }
 
-type Live { Root string }
+type Live { Root string } implements Host
 
 func peek(_ Live) int { 1 }
 
@@ -1118,7 +1121,7 @@ func NewHost() Host needs Ambient { Live{Root: "/"} }
 `, []string{sealedText}},
 		{"open operation type", `type Host { Peek() int }
 
-type Live { root string }
+type Live { root string } implements Host
 
 func Peek(_ Live) int { 1 }
 
@@ -1149,7 +1152,7 @@ func NewHost() Host { Host{} }
 		// Only std binds runtime/v1 (S108); the fixture is checked as a
 		// program package, so its extern has that one diagnostic.
 		for _, d := range ds {
-			if !strings.Contains(d.Message, "only std binds the Ergo runtime") {
+			if !strings.Contains(d.Message, "which a package binds only when the root module trusts its Go") {
 				t.Fatalf("%s: %v", row.kind, ds)
 			}
 		}
@@ -1281,10 +1284,10 @@ var handModes = []struct {
 	// gives an R, and a named context needs no authority (rows.md,
 	// Context 4). The same through an embedded unexported context.
 	{"context", func(r string) string {
-		return "type GiveSrc { Get() " + r + " }\n\ntype GiveImpl { n int }\n\nfunc Get(_ GiveImpl) " + r + " { Get(GiveImpl{n: 1}) }\n\nlet Given = context { GiveSrc: GiveImpl{n: 1} }\n"
+		return "type GiveSrc { Get() " + r + " }\n\ntype GiveImpl { n int } implements GiveSrc\n\nfunc Get(_ GiveImpl) " + r + " { Get(GiveImpl{n: 1}) }\n\nlet Given = context { GiveSrc: GiveImpl{n: 1} }\n"
 	}, false, "fixture.Given is an exported context that mentions", "fixture.Get mentions"},
 	{"context-embedded", func(r string) string {
-		return "type GiveSrc { Get() " + r + " }\n\ntype GiveImpl { n int }\n\nfunc Get(_ GiveImpl) " + r + " { Get(GiveImpl{n: 1}) }\n\nlet given = context { GiveSrc: GiveImpl{n: 1} }\n\nlet Given = context { given }\n"
+		return "type GiveSrc { Get() " + r + " }\n\ntype GiveImpl { n int } implements GiveSrc\n\nfunc Get(_ GiveImpl) " + r + " { Get(GiveImpl{n: 1}) }\n\nlet given = context { GiveSrc: GiveImpl{n: 1} }\n\nlet Given = context { given }\n"
 	}, false, "fixture.Given is an exported context that mentions", "fixture.Get mentions"},
 	// fu-ambient-ctor r4 (batch-10 r3 verifier M1): the caller binds the
 	// capability of Give's needs row: its Put receives the R.
@@ -1381,7 +1384,7 @@ extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) 
 				}
 				fake, ds := check.Check("fixture", []*syntax.File{f}, nil)
 				for _, d := range ds {
-					if !strings.Contains(d.Message, "only std binds the Ergo runtime") {
+					if !strings.Contains(d.Message, "which a package binds only when the root module trusts its Go") {
 						t.Fatalf("%s/%s: %v\n%s", s.name, m.name, ds, src)
 					}
 				}
@@ -1561,7 +1564,7 @@ extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) 
 			}
 			fake, ds := check.Check("fixture", []*syntax.File{f}, nil)
 			for _, d := range ds {
-				if !strings.Contains(d.Message, "only std binds the Ergo runtime") {
+				if !strings.Contains(d.Message, "which a package binds only when the root module trusts its Go") {
 					t.Fatalf("%v\n%s", ds, src)
 				}
 			}
@@ -1622,7 +1625,7 @@ extern go os.Getenv func getenv(k string) string
 func Read(_ Disk) string { hostRead("x") }
 
 extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) string
-`, "only std binds the Ergo runtime"},
+`, "which a package binds only when the root module trusts its Go"},
 		{"record holding a std host provider", `import fs
 
 type Disk { H fs.Host }

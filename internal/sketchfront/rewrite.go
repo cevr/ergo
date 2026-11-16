@@ -20,6 +20,7 @@ import (
 	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
+	"ergo.local/prototype/internal/stage"
 )
 
 // The law ledger (runtime.md, Tests 10; lower/ledger.go): ergo test writes
@@ -40,11 +41,14 @@ func (e *LedgerError) Error() string {
 }
 
 // ledgerText reads the ledger at path; a missing file is an empty ledger.
-func ledgerText(path string) (string, error) {
+func ledgerText(fsys FS, path string) (string, error) {
 	if path == "" {
 		return "", nil
 	}
-	data, err := os.ReadFile(path)
+	if fsys == nil {
+		fsys = hostFS{}
+	}
+	data, err := fsys.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", nil
 	}
@@ -60,19 +64,14 @@ func ledgerNames(a Analysis) lower.LedgerNames {
 	return lower.LedgerNames{a.program.root.pkg: a.program.root.path}
 }
 
-// ledgerEvidence is the run build's evidence from the module ledger's text
-// and the std ledger.
+// ledgerEvidence is the run build's evidence from the module ledger's
+// text: the evidence for the laws of the module's own packages. A package
+// another module declares takes its own module's ledger (lower's
+// evidenceFor), so this ledger never answers for it (STD-NOPRIV NP2).
 func ledgerEvidence(a Analysis, unit lower.Unit, text string) (*lower.LedgerEvidence, error) {
-	entries, err := lower.ParseLedger(std.Ledger())
-	if err != nil {
-		return nil, fmt.Errorf("the std law ledger: %w", err)
-	}
-	mod, err := lower.ParseLedger(text)
+	entries, err := lower.ParseLedger(text)
 	if err != nil {
 		return nil, err
-	}
-	for k, e := range mod {
-		entries[k] = e
 	}
 	return lower.NewLedgerEvidence(unit.Package, ledgerNames(a), entries), nil
 }
@@ -112,15 +111,14 @@ func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 		return 0, nil
 	}
 	names := ledgerNames(a)
-	var fresh []lower.LedgerEntry
-	if lower.NewLedgerEvidence(unit.Package, names, nil).HasRules() {
-		ev, err := lower.RewriteChecks(unit, lawChecks(req, input))
-		if err != nil {
-			return 0, err
-		}
-		fresh = lower.LedgerEntries(unit, names, ev)
+	// RewriteChecks runs nothing when neither the root nor an import has a
+	// rewrite law: an import's provider is checked at the root's sites.
+	ev, err := lower.RewriteChecksCached(unit, lawChecks(req, input), req.Laws)
+	if err != nil {
+		return 0, err
 	}
-	text, err := ledgerText(req.Ledger)
+	fresh := lower.LedgerEntries(unit, names, ev)
+	text, err := ledgerText(req.Inputs, req.Ledger)
 	if err != nil {
 		return 0, err
 	}
@@ -194,8 +192,7 @@ func (s ledgerSource) find(name string) (*check.Package, bool) {
 	if s.a.pkg != nil && s.names.Of(s.a.pkg) == name {
 		return s.a.pkg, true
 	}
-	if _, ok := std.Package(name); ok {
-		p, err := check.Std.Import(name)
+	if p, shipped, err := shippedImport(name); shipped {
 		return p, err == nil
 	}
 	prog := s.a.program
@@ -281,7 +278,7 @@ func FreshStdLedger(req BuildRequest) (string, error) {
 		test := req
 		test.Mode = build.ModeTest
 		input := func() (build.Input, error) { return unitInput(unit, stdDependencies(), test) }
-		ev, err := lower.RewriteChecks(unit, lawChecks(req, input))
+		ev, err := lower.RewriteChecksCached(unit, lawChecks(req, input), req.Laws)
 		if err != nil {
 			return "", fmt.Errorf("std %s: %w", path, err)
 		}
@@ -370,6 +367,8 @@ func lawCheckRun(req BuildRequest, inputOf func() (build.Input, error)) func(fil
 			stderr = io.Discard
 		}
 		child.Stdout, child.Stderr = stderr, stderr
+		stage.Add(stage.GoCommands, 1)
+		stage.Add(stage.Processes, 1)
 		if err := child.Run(); err != nil {
 			return "", fmt.Errorf("the law ledger's check build failed: %w", err)
 		}
@@ -378,6 +377,7 @@ func lawCheckRun(req BuildRequest, inputOf func() (build.Input, error)) func(fil
 			run := exec.Command(exe, "--seed", lower.RewriteCheckSeed, "--law", law)
 			run.Stdout, run.Stderr = &out, io.Discard
 			// A refuted law exits non-zero; its line is its verdict.
+			stage.Add(stage.Processes, 1)
 			_ = run.Run()
 		}
 		return out.String(), nil

@@ -33,7 +33,7 @@ type Tagger {
 	Tag(note string, site CallSite) string,
 }
 
-type Plain {}
+type Plain {} implements Tagger
 
 func Tag(p Plain, note string, site CallSite) string {
 	"\(note) \(site.Line):\(site.Column)"

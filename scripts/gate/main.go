@@ -177,6 +177,9 @@ type Step struct {
 	// Class says which tiers run the step (stepClass). Every declared
 	// step has one; the fast tier keeps only its classFast steps.
 	Class stepClass
+	// Note is a line the gate prints before any step runs: the fast tier's
+	// test-impact selection of the step's package (selectTests).
+	Note string
 }
 
 // Inputs declares everything a cached step's result depends on.
@@ -366,9 +369,13 @@ func main() {
 	recordDurations := flag.Bool("record-durations", false, "measure the tests of the named Go packages (every test package when none is named) serially and rewrite their rows of "+durationsFile)
 	fast := flag.Bool("fast", false, "with -record-durations: run the named packages' fast-tier steps one at a time and rewrite their CPU seconds in "+fastCPUFile)
 	cpu := flag.Bool("cpu", false, "with -record-durations: measure the CPU seconds of each test of the named packages (the sharded packages when none is named), one test at a time, and rewrite their rows of "+testCPUFile)
+	coverage := flag.Bool("coverage", false, "with -record-durations: record the per-test coverage and reads of the named packages' fast tests (those of the test-impact selection when none is named) in the gate cache, the base the fast tier selects its tests against")
 	flag.Parse()
 	if *fast && !*recordDurations {
 		fatal(errors.New("-fast goes with -record-durations only"))
+	}
+	if *coverage && (!*recordDurations || *fast || *cpu) {
+		fatal(errors.New("-coverage goes with -record-durations only, without -fast or -cpu"))
 	}
 	if *cpu && (!*recordDurations || *fast) {
 		fatal(errors.New("-cpu goes with -record-durations only, without -fast"))
@@ -424,7 +431,8 @@ func main() {
 		command, reason := scopeProbe(budget, cpus)
 		probed = command != ""
 		if !*noCache && !*merge && !*recordDurations {
-			// The replay path starts no step, so it needs no scope.
+			// The replay path starts no step but the cached go build of
+			// bin/ergo (rebuildOutputs), so it enters no scope.
 			root, err := repositoryRoot()
 			if err != nil {
 				fatal(err)
@@ -443,6 +451,12 @@ func main() {
 	}
 	if *recordDurations {
 		g.recordCPU = *cpu
+		if *coverage {
+			if err := writeCoverage(g.root, g.cacheDir, g.limit, flag.Args(), os.Stdout); err != nil {
+				fatal(err)
+			}
+			return
+		}
 		if err := g.recordDurations(os.Stdout, flag.Args(), *fast); err != nil {
 			fatal(err)
 		}
@@ -515,17 +529,31 @@ func setUpTier(scope, scopeNote, tier string) (*gate, error) {
 	if tier == "" {
 		return g, nil
 	}
-	if g.steps, err = stepsFor(g.root, tier); err != nil {
+	if tier == fastTier {
+		// The fast tier selects the compiler's tests against the coverage
+		// record of its cache (selectTests, gate-speed GS4).
+		g.steps, err = fastStepsSelected(g.root, func(p testPackage, env, names []string) selection {
+			return selectTests(g.root, g.cacheDir, p, env, names)
+		})
+	} else {
+		g.steps, err = stepsFor(g.root, tier)
+	}
+	if err != nil {
 		return nil, err
 	}
 	return g, nil
 }
 
+// replayBuild is the step replayWholeGate runs after its replay: buildCLI.
+// A test gives a fixture's build.
+var replayBuild = buildCLI
+
 // replayWholeGate replays the whole-gate record of the checkout's key, if
 // one replays (replay.Store.TryReplay): the identity line, then the
 // recorded run. It reports whether it replayed, and the exit code. It runs
-// before the gate enters its scope, and starts no step. It replays only a
-// record of the run's tier.
+// before the gate enters its scope, and starts no step but the build of
+// bin/ergo, so the binary matches the tree (rebuildOutputs). It replays
+// only a record of the run's tier.
 func replayWholeGate(root, mechanism, tier string, out *os.File) (int, bool) {
 	g := &gate{root: root, cacheDir: cacheDirectory(), tier: tier}
 	if g.cacheDir == "" {
@@ -557,6 +585,9 @@ func replayWholeGate(root, mechanism, tier string, out *os.File) (int, bool) {
 	if err := recorded.Print(out); err != nil {
 		fmt.Fprintf(out, "gate: print the replay: %v\n", err)
 		return 2, true
+	}
+	if !rebuildOutputs(root, []*Step{replayBuild(root)}, out) {
+		return 1, true
 	}
 	return 0, true
 }
@@ -816,6 +847,11 @@ func (g *gate) run(out io.Writer) int {
 		return 2
 	}
 	fmt.Fprintf(out, "gate: cpu budget: %s\n", describeCPUs(g.limit, cpus))
+	for _, step := range g.steps {
+		if step.Note != "" {
+			fmt.Fprintf(out, "gate: %s: %s\n", step.Name, step.Note)
+		}
+	}
 	if g.spoolDir, err = outputSpoolDir(g.cacheDir); err != nil {
 		fmt.Fprintln(out, "gate:", err)
 		return 2
@@ -839,6 +875,9 @@ func (g *gate) run(out io.Writer) int {
 				g.verdicts = map[string]replay.Verdict{}
 				for _, step := range recorded.Record.Steps {
 					g.verdicts[step.Name] = replay.Pass
+				}
+				if !rebuildOutputs(g.root, g.steps, out) {
+					return 1
 				}
 				return 0
 			} else {
@@ -880,6 +919,8 @@ func (g *gate) run(out io.Writer) int {
 	// they need take a freed slot first (slotPool).
 	slots := newSlotPool(cpus)
 	first := writerPath(g.steps, index)
+	times := readStepTimes(g.cacheDir)
+	priority := stepPriorities(g.steps, index, times)
 	for i, step := range g.steps {
 		go func() {
 			defer close(done[i])
@@ -899,7 +940,7 @@ func (g *gate) run(out io.Writer) int {
 			if step.MemoryHeavy {
 				held = cpus
 			}
-			slots.acquireN(first[i], step.Weight, held)
+			slots.acquireN(first[i], priority[i], held)
 			if step.Sweep != "" {
 				results[i] = g.sweepCheckout(step)
 			} else {
@@ -975,6 +1016,11 @@ func (g *gate) run(out io.Writer) int {
 			recording.Passed(step.Name, object, outcome, r.duration.Seconds(), r.passedAt)
 		}
 	}
+	// This run's times order the next run's steps (stepPriorities); a
+	// failure to write them costs only that order.
+	if err := writeStepTimes(g.cacheDir, times, g.steps, results); err != nil {
+		fmt.Fprintf(out, "gate: step times: %v\n", err)
+	}
 	// The end facts, collected once: the package records and the
 	// whole-gate record both compare their start keys with them.
 	collectEnd := g.collect
@@ -1045,6 +1091,18 @@ func (g *gate) execute(step *Step) *result {
 	if err := emptyStepTempDir(tmpDir); err != nil {
 		_ = unlockStepTemp(lock)
 		return &result{outcome: failed, output: []byte(fmt.Sprintf("gate: %s: prepare step temp dir: %v\n", step.Name, err))}
+	}
+	// A step that would start on a nearly full disk is not started: it
+	// fails here, naming the disk, not partway with ENOSPC.
+	floor, err := diskFloor()
+	if err == nil {
+		if reason := belowDiskFloor(floor, tmpDir, g.cacheDir); reason != "" {
+			err = errors.New(reason)
+		}
+	}
+	if err != nil {
+		_ = unlockStepTemp(lock)
+		return &result{outcome: failed, output: []byte(fmt.Sprintf("gate: %s: not started: %v\n", step.Name, err))}
 	}
 	started := time.Now()
 	argv := step.Argv

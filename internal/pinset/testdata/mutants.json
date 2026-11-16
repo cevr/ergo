@@ -1,0 +1,8 @@
+{
+  "about": "Pin archive set mutants (internal/pinset/pinset.go, compile-speed CS3): a set's name must key every field of its pin and target, and a fetched set must be refused unless its tar has the lock's sha256. TestPinSetNameKeysEveryInput changes each key field in turn; TestRefusedArchiveFallsBack serves sets whose bytes are not the locked ones and builds Go (full tier).",
+  "mutants": [
+    {"name":"cs-pin-key-omits-patch","origin":"wf10 CS3","file":"internal/pinset/pinset.go","from":"{\"patch\", k.Patch}, ","to":"","rule":"A set's name keys the IR patch digest: a set compiled by the stock compile, or by another patch, is another set.","killers":["internal/pinset:TestPinSetNameKeysEveryInput"]},
+    {"name":"cs-pin-key-omits-flags","origin":"wf10 CS3","file":"internal/pinset/pinset.go","from":", {\"flags\", k.Flags}","to":"","rule":"A set's name keys the compile flags (-trimpath, cgo off, -shared, the tags): a set compiled with other flags is another set.","killers":["internal/pinset:TestPinSetNameKeysEveryInput"]},
+    {"name":"cs-pin-digest-unchecked","origin":"wf10 CS3","file":"internal/pinset/pinset.go","from":"got != want {","to":"false && got != want {","rule":"A fetched set is installed only when its tar's sha256 is the lock's; otherwise it is refused with one line and the build compiles what it would have held.","killers":["internal/sketchfront:TestRefusedArchiveFallsBack"]}
+  ]
+}

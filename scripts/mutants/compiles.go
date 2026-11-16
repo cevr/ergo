@@ -201,6 +201,45 @@ func (w *worker) apply(m *Mutant, path string, original []byte) (func(), string)
 	}, ""
 }
 
+// applyChecked applies m and checks the mutated file: it compiles
+// (compiles), and the source check of its kind (Config.Sources: FK7a's
+// formatting, FK12a's diagnostics) finds nothing the unmutated file does
+// not have, unless the row says the refusal is its point (Mutant.Refused).
+// It returns the function that restores the file (nil when the edit was
+// not written) and why the mutant is invalid, or "".
+func (w *worker) applyChecked(ctx context.Context, m *Mutant, path string, original []byte) (func(), string) {
+	source := w.e.sourceCheck(m.File)
+	if m.Refused != "" {
+		source = nil
+	}
+	var before sourceState
+	if source != nil {
+		var err error
+		if before, err = w.source(ctx, source, path, false); err != nil {
+			return nil, err.Error()
+		}
+	}
+	restore, detail := w.apply(m, path, original)
+	if restore == nil {
+		return nil, detail
+	}
+	if m.Refused == "" {
+		if detail := w.compiles(ctx, m, path, original); detail != "" {
+			return restore, detail
+		}
+	}
+	if source != nil {
+		after, err := w.source(ctx, source, path, true)
+		if err != nil {
+			return restore, err.Error()
+		}
+		if why := before.refusal(after); why != "" {
+			return restore, why
+		}
+	}
+	return restore, ""
+}
+
 // CompileRows applies each selected row in a copy and compiles it, as judge
 // does before it runs a test, and runs no test and no coverage pass
 // (-compiles): a sweep of every ledger for rows that do not compile.

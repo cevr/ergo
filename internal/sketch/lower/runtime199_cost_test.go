@@ -55,7 +55,7 @@ const costSource = `type Sink {
 	Put(v int) int,
 }
 
-type Keep {}
+type Keep {} implements Sink
 
 func Put(_ Keep, v int) int {
 	v + 1

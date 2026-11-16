@@ -1,0 +1,163 @@
+// The derived list: the index of catalog positions the page shows, in
+// the order and the filters of the route (the original's
+// filterAndSortDomainListings). It is kept in the state and built again
+// only by the signals that change what it lists: an answer, the order, a
+// filter, a new route; never by a scroll or a resize (target P3).
+
+import fk-domains/domains
+import fk-domains/search/plan
+import fk-domains/search/route
+import fk-domains/search/window
+
+// rebuild is s with its index built again from the route and the loaded
+// listings. With no filter and the relevance order the index is the
+// catalog itself (Identity, nothing per candidate). Length and
+// alphabetical sort every name at once (the label is common to every
+// name, so the TLD orders it). A price order sorts the available listings
+// by price, then the taken ones, then the rest; while the whole catalog
+// is not loaded it lists the catalog's order and sorts nothing, so
+// choosing a price order makes one sort, after its one load (P8).
+func rebuild(s Search) Search {
+	let n = len(s.Catalog)
+	let tld = tldOf(s.Route)
+	let available = availableOf(s.Route)
+	let order = orderOf(s.Route)
+	let built = s.IndexBuilds + 1
+	let plain = match order {
+	case route.Relevance:
+		tld == "" && !available
+	case route.Length, route.Alphabetical, route.PriceAscending, route.PriceDescending:
+		false
+	}
+	if plain {
+		return Search{..s, Index: Identity{N: n}, IndexBuilds: built, Window: window.Spec{..s.Window, Count: n}}
+	}
+	let mut rows = []int{}
+	for p in 0..n {
+		if tld != "" && s.Catalog[p] != tld {
+			continue
+		}
+		if available && taken(s, p) {
+			continue
+		}
+		rows = rows.Append(p)
+	}
+	let whole = match s.Whole {
+	case plan.Loaded:
+		true
+	case plan.NotLoaded, plan.Loading, plan.Failed:
+		plan.Count(n) == 1 && s.Checked >= n
+	}
+	let sorted = match order {
+	case route.Relevance:
+		Sorted{Rows: rows, Comparisons: 0}
+	case route.Length:
+		Sort(rows, func(a int, b int) bool {
+			let x = s.Catalog[a]
+			let y = s.Catalog[b]
+			len(x) < len(y) || len(x) == len(y) && x < y
+		})
+	case route.Alphabetical:
+		Sort(rows, func(a int, b int) bool { s.Catalog[a] < s.Catalog[b] })
+	case route.PriceAscending, route.PriceDescending:
+		if !whole {
+			Sorted{Rows: rows, Comparisons: 0}
+		} else {
+			let up = order == route.PriceAscending
+			Sort(rows, func(a int, b int) bool { cheaper(s, a, b, up) })
+		}
+	}
+	Search{..s, Index: Listed{Rows: sorted.Rows}, IndexBuilds: built, Comparisons: s.Comparisons + sorted.Comparisons, Window: window.Spec{..s.Window, Count: len(sorted.Rows)}}
+}
+
+// taken is whether position p is loaded and taken (the available filter
+// keeps the positions not loaded yet, as the original keeps unchecked
+// names).
+func taken(s Search, p int) bool {
+	match ListingAt(s, p) {
+	case Some[domains.Listing] as l:
+		match l.Value {
+		case domains.Unavailable:
+			true
+		case domains.Available:
+			false
+		}
+	case None:
+		false
+	}
+}
+
+// rank is position p's group in a price order: 0 available, 1 taken,
+// 2 not loaded; and its price.
+type rank { Group int, Price float64 }
+
+func rankOf(s Search, p int) rank {
+	match ListingAt(s, p) {
+	case Some[domains.Listing] as l:
+		match l.Value {
+		case domains.Available as a:
+			rank{Group: 0, Price: a.Price}
+		case domains.Unavailable:
+			rank{Group: 1, Price: 0.0}
+		}
+	case None:
+		rank{Group: 2, Price: 0.0}
+	}
+}
+
+// cheaper is a before b in a price order (up: ascending).
+func cheaper(s Search, a int, b int, up bool) bool {
+	let x = rankOf(s, a)
+	let y = rankOf(s, b)
+	if x.Group != y.Group {
+		return x.Group < y.Group
+	}
+	if x.Group != 0 {
+		return false
+	}
+	if up { x.Price < y.Price } else { x.Price > y.Price }
+}
+
+// Sorted is a sort's result and the comparisons it made.
+type Sorted { Rows []int, Comparisons int }
+
+// Sort is rows sorted by less, stably, by a bottom-up merge sort: at most
+// n * ceil(log2 n) comparisons, counted.
+func Sort(rows []int, less func(a int, b int) bool) Sorted {
+	let n = len(rows)
+	let mut src = rows
+	let mut count = 0
+	let mut width = 1
+	for width < n {
+		let mut dst = []int{}
+		let mut lo = 0
+		for lo < n {
+			let mid = if lo+width < n { lo + width } else { n }
+			let hi = if lo+2*width < n { lo + 2*width } else { n }
+			let mut i = lo
+			let mut j = mid
+			for i < mid && j < hi {
+				count = count + 1
+				if less(src[j], src[i]) {
+					dst = dst.Append(src[j])
+					j = j + 1
+				} else {
+					dst = dst.Append(src[i])
+					i = i + 1
+				}
+			}
+			for i < mid {
+				dst = dst.Append(src[i])
+				i = i + 1
+			}
+			for j < hi {
+				dst = dst.Append(src[j])
+				j = j + 1
+			}
+			lo = hi
+		}
+		src = dst
+		width = width * 2
+	}
+	Sorted{Rows: src, Comparisons: count}
+}

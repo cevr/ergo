@@ -1,0 +1,275 @@
+// Print writes a tree back as source, with the fewest parentheses that
+// keep its shape: Parse(Print(p)) is p, up to positions (law
+// PrintParsesBack).
+
+import strconv
+import strings
+
+// Print is the source of the statements stmts.
+func Print(stmts []Stmt) string {
+	let mut b = strings.NewBuilder()
+	putBlock(&b, stmts, 0)
+	b.String()
+}
+
+func indent(b *strings.Builder, depth int) {
+	for _ in 0..depth {
+		b.WriteByte('\t')
+	}
+}
+
+func putBlock(b *strings.Builder, stmts []Stmt, depth int) {
+	for s in stmts {
+		indent(b, depth)
+		stmt(b, s, depth)
+		b.WriteByte('\n')
+	}
+}
+
+// body writes { stmts } with the closing brace at depth.
+func body(b *strings.Builder, stmts []Stmt, depth int) {
+	b.WriteString("{\n")
+	putBlock(b, stmts, depth+1)
+	indent(b, depth)
+	b.WriteByte('}')
+}
+
+func names(b *strings.Builder, ns []string) {
+	b.WriteByte('(')
+	for i, n in ns {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(n)
+	}
+	b.WriteByte(')')
+}
+
+func stmt(b *strings.Builder, s Stmt, depth int) {
+	match s {
+	case FnDecl as f:
+		b.WriteString("fn " + f.Name)
+		names(b, f.Params)
+		b.WriteByte(' ')
+		body(b, f.Body, depth)
+	case Let as l:
+		b.WriteString("let " + l.Name + " = ")
+		putExpr(b, l.Val, 0, depth)
+	case Assign as a:
+		putExpr(b, a.Target, 0, depth)
+		b.WriteString(" = ")
+		putExpr(b, a.Val, 0, depth)
+	case If as i:
+		putIf(b, i, depth)
+	case While as w:
+		b.WriteString("while ")
+		putExpr(b, w.Cond, 0, depth)
+		b.WriteByte(' ')
+		body(b, w.Body, depth)
+	case For as f:
+		b.WriteString("for " + f.Var + " in ")
+		putExpr(b, f.Over, 0, depth)
+		b.WriteByte(' ')
+		body(b, f.Body, depth)
+	case Return as r:
+		b.WriteString("return ")
+		putExpr(b, r.Val, 0, depth)
+	case Break:
+		b.WriteString("break")
+	case Continue:
+		b.WriteString("continue")
+	case ExprStmt as e:
+		// A statement that starts with - would continue the line before
+		// it as a subtraction.
+		if startsWithMinus(e.X) {
+			b.WriteByte('(')
+			putExpr(b, e.X, 0, depth)
+			b.WriteByte(')')
+		} else {
+			putExpr(b, e.X, 0, depth)
+		}
+	}
+}
+
+func putIf(b *strings.Builder, i If, depth int) {
+	b.WriteString("if ")
+	putExpr(b, i.Cond, 0, depth)
+	b.WriteByte(' ')
+	body(b, i.Then, depth)
+	if len(i.Else) == 0 {
+		return
+	}
+	b.WriteString(" else ")
+	if len(i.Else) == 1 {
+		match i.Else[0] {
+		case If as inner:
+			putIf(b, inner, depth)
+			return
+		case _:
+		}
+	}
+	body(b, i.Else, depth)
+}
+
+// startsWithMinus reports whether the text of e starts with -.
+func startsWithMinus(e Expr) bool {
+	match e {
+	case Unary as u:
+		match u.Op {
+		case Neg:
+			true
+		case Not:
+			false
+		}
+	case Binary as x:
+		match x.L {
+		case Binary as l:
+			Power(l.Op) >= Power(x.Op) && startsWithMinus(x.L)
+		case _:
+			startsWithMinus(x.L)
+		}
+	case Call as c:
+		postfixTarget(c.Fn) && startsWithMinus(c.Fn)
+	case Index as x:
+		postfixTarget(x.X) && startsWithMinus(x.X)
+	case Field as f:
+		postfixTarget(f.X) && startsWithMinus(f.X)
+	case IntLit, FloatLit, StrLit, BoolLit, NilLit, Name, ListLit, RecLit, FnLit:
+		false
+	}
+}
+
+// postfixTarget reports whether e is written bare before a call, an
+// index or a field: an operator expression needs parentheses there.
+func postfixTarget(e Expr) bool {
+	match e {
+	case Unary, Binary:
+		false
+	case IntLit, FloatLit, StrLit, BoolLit, NilLit, Name, Call, Index, Field, ListLit, RecLit, FnLit:
+		true
+	}
+}
+
+// expr writes e where an operator of power min or more may stand bare.
+func putExpr(b *strings.Builder, e Expr, min int, depth int) {
+	match e {
+	case IntLit as x:
+		b.WriteString(strconv.Itoa(x.N))
+	case FloatLit as x:
+		let text = strconv.FormatFloat(x.F, 'f', -1)
+		b.WriteString(text)
+		if !strings.Contains(text, ".") {
+			b.WriteString(".0")
+		}
+	case StrLit as x:
+		quote(b, x.S)
+	case BoolLit as x:
+		b.WriteString(if x.B { "true" } else { "false" })
+	case NilLit:
+		b.WriteString("nil")
+	case Name as x:
+		b.WriteString(x.Id)
+	case Unary as x:
+		let wrap = min > PrefixPower
+		if wrap {
+			b.WriteByte('(')
+		}
+		match x.Op {
+		case Neg:
+			b.WriteByte('-')
+		case Not:
+			b.WriteString("not ")
+		}
+		putExpr(b, x.X, PrefixPower, depth)
+		if wrap {
+			b.WriteByte(')')
+		}
+	case Binary as x:
+		let power = Power(x.Op)
+		let wrap = power < min
+		if wrap {
+			b.WriteByte('(')
+		}
+		putExpr(b, x.L, power, depth)
+		b.WriteString(" " + Symbol(x.Op) + " ")
+		putExpr(b, x.R, power+1, depth)
+		if wrap {
+			b.WriteByte(')')
+		}
+	case Call as x:
+		target(b, x.Fn, depth)
+		b.WriteByte('(')
+		for i, a in x.Args {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			putExpr(b, a, 0, depth)
+		}
+		b.WriteByte(')')
+	case Index as x:
+		target(b, x.X, depth)
+		b.WriteByte('[')
+		putExpr(b, x.I, 0, depth)
+		b.WriteByte(']')
+	case Field as x:
+		target(b, x.X, depth)
+		b.WriteString("." + x.Key)
+	case ListLit as x:
+		b.WriteByte('[')
+		for i, a in x.Items {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			putExpr(b, a, 0, depth)
+		}
+		b.WriteByte(']')
+	case RecLit as x:
+		b.WriteByte('{')
+		for i, k in x.Keys {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString(k + ": ")
+			putExpr(b, x.Vals[i], 0, depth)
+		}
+		b.WriteByte('}')
+	case FnLit as x:
+		b.WriteString("fn")
+		names(b, x.Params)
+		b.WriteByte(' ')
+		body(b, x.Body, depth)
+	}
+}
+
+// target writes e before a call, an index or a field.
+func target(b *strings.Builder, e Expr, depth int) {
+	if postfixTarget(e) {
+		putExpr(b, e, 0, depth)
+		return
+	}
+	b.WriteByte('(')
+	putExpr(b, e, 0, depth)
+	b.WriteByte(')')
+}
+
+// quote writes s as a string literal: a quote, a backslash, a newline and
+// a tab escaped, every other byte as it is.
+func quote(b *strings.Builder, s string) {
+	b.WriteByte('"')
+	for i in 0..len(s) {
+		let c = s[i]
+		match c {
+		case '"':
+			b.WriteString("\\\"")
+		case '\\':
+			b.WriteString("\\\\")
+		case '\n':
+			b.WriteString("\\n")
+		case '\t':
+			b.WriteString("\\t")
+		case _:
+			b.WriteByte(c)
+		}
+	}
+	b.WriteByte('"')
+}

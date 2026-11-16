@@ -33,7 +33,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"lowerer.rootTask":         "the root Env literal of a root task: main's, the test build's main's (196l), an exported function's (IG11)",
 			"funcCtx.scriptOperations": "a Script adapter's Env literal for the caller's task, as an operation table's (script.go)",
 			"irBuilder.poll":           "the experimental IR's interruption point (Check), as funcCtx.poll's, as an IR node instead of taskOf's text (wf10 IR1)",
-			"irBuilder.call":           "the experimental IR's capability operation call, the caller's task first, as funcCtx.callText's, as an IR node (wf10 IR1)",
+			"irBuilder.callParts":      "the experimental IR's capability operation call, the caller's task first, as funcCtx.callText's, as an IR node (wf10 IR1)",
 		}},
 		{"taskOf", map[string]string{
 			"funcCtx.hiddenArgs":      "runtimeCall's hidden CallerTask argument",
@@ -45,11 +45,13 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"funcCtx.envClosure":      "a task callback's Env copy",
 			"funcCtx.operations":      "an operation adapter's copy of the converting frame's Env, on the caller's task (OWGEN round 3)",
 			"funcCtx.goContext":       "rt.GoContext, the task as the hidden context.Context of a Go call; it neither waits nor releases (IG10)",
+			"funcCtx.everyTimers":     "a machines.Every After's firing mark (MachineFiringNow, no wait) and the Clock's Now through the Env's provider field, as callText's (FKG1)",
 			"lowerer.testRun":         "a test case's task, which the case's Capture classifies its unwinding against (E3a M3)",
 			"lowerer.lawRuns":         "a law case's task, which the case's Capture classifies its unwinding against (#162)",
+			"lowerer.lawTarget":       "a law case's task of one binding's run, which the case's Capture classifies its unwinding against (#162)",
 			"lowerer.listedRun":       "a listed law or property case's task, which the case's Capture classifies its unwinding against (MU6b, mu6c)",
 			"lowerer.reachRuns":       "a reachability law's task, which its case's Capture classifies its unwinding against (MU6)",
-			"lowerer.rewriteRuns":     "a rewrite law case's task, which its Capture classifies its unwinding against and its drawn operation calls take (Laws 14)",
+			"lowerer.rewriteCompare":  "a rewrite law case's task, which its Capture classifies its unwinding against and its drawn operation calls take (Laws 14)",
 			"lowerer.wireFunc":        "a codec function's Writer or Reader calls, through the prelude operation type's Go interface (L11)",
 			"typeCtx.wireEncodeWith":  "an inline codec event on the Writer interface (L11) or on a direct writer's methods (wiredirect.go)",
 			"typeCtx.wireDecode":      "an inline codec read on the Reader interface (L11)",
@@ -60,6 +62,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"funcCtx.runtimeCall":       "the runtime binding emitter",
 			"funcCtx.programOpCall":     "a program-declared operation's method",
 			"funcCtx.callText":          "a capability operation's method",
+			"funcCtx.everyTimers":       "a machines.Every After's Timeout fields In and Signal (FKG1)",
 			"funcCtx.operations":        "an operation table's method values",
 			"funcCtx.witnessCall":       "a call through a witness field",
 			"funcCtx.witnessMethod":     "a witness adapter's method and the field it calls",
@@ -84,7 +87,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"funcCtx.scriptOperations":  "a Script adapter's methods and the fields they call (script.go)",
 			"lowerer.scriptType":        "a Script's struct fields (script.go)",
 			"lowerer.rewriteObserve":    "a rewrite law case's drawn operation call on the provider (Laws 14)",
-			"irBuilder.call":            "the experimental IR's capability operation method, as funcCtx.callText's (wf10 IR1)",
+			"irBuilder.callParts":       "the experimental IR's capability operation method, as funcCtx.callText's (wf10 IR1)",
 		}},
 	} {
 		obj := scope.Lookup(c.obj)
@@ -121,34 +124,41 @@ func TestRuntime199TaskReaders(t *testing.T) {
 // fails here until the catalog states its waiting policy. Waits inside rt
 // (a drain's join) are the drain owner's (drainWait), outside this scan.
 func TestRuntime199NoWaitBindings(t *testing.T) {
-	src := typedPackage(t, "../../../runtime/v1")
+	// The bodies are in runtime/v1 and in its leaves (v1.Leaves): each
+	// body's package (v1.Body.Package) is scanned, within that package.
+	srcs := map[string]*typedSource{runtimeImport: typedPackage(t, "../../../runtime/v1")}
+	for _, leaf := range v1.Leaves {
+		srcs[runtimeImport+"/"+leaf] = typedPackage(t, "../../../runtime/v1/"+leaf)
+	}
 	decls := map[types.Object]*ast.FuncDecl{}
-	src.owners(func(_ string, decl ast.Decl) {
-		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Body != nil {
-			decls[src.info.Defs[fn.Name]] = fn
-		}
-	})
-	lookup := func(name string) types.Object {
+	for _, src := range srcs {
+		src.owners(func(_ string, decl ast.Decl) {
+			if fn, ok := decl.(*ast.FuncDecl); ok && fn.Body != nil {
+				decls[src.info.Defs[fn.Name]] = fn
+			}
+		})
+	}
+	lookup := func(src *typedSource, name string) types.Object {
 		if recv, method, ok := strings.Cut(name, "."); ok {
 			return src.method(t, recv, method)
 		}
 		obj := src.pkg.Scope().Lookup(name)
 		if obj == nil {
-			t.Fatalf("runtime/v1 has no function %s", name)
+			t.Fatalf("%s has no function %s", src.pkg.Path(), name)
 		}
 		return obj
 	}
 	checked := 0
 	for _, name := range sortedKeys(func() map[string]bool {
 		m := map[string]bool{}
-		for name, b := range runtimeBindings {
+		for name, b := range runtimeBindings() {
 			if b.wait == noWait {
 				m[name] = true
 			}
 		}
 		return m
 	}()) {
-		b := runtimeBindings[name]
+		b := runtimeBindings()[name]
 		if b.release == callerRelease && taskReleaseLaws[name] != "" {
 			// A release that stops running code waits for it, masked
 			// (resources R9): a Task's in rt, a Running's for its program.
@@ -159,6 +169,7 @@ func TestRuntime199NoWaitBindings(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		src := srcs[body.Package]
 		if hasHidden(body.Hidden, v1.CallerTask) && b.release != callerRelease && !b.reads && !b.task {
 			t.Errorf("%s takes a hidden task and declares no wait", name)
 		}
@@ -197,7 +208,7 @@ func TestRuntime199NoWaitBindings(t *testing.T) {
 				return true
 			})
 		}
-		visit(lookup(name), name)
+		visit(lookup(src, name), name)
 		checked++
 	}
 	if checked == 0 {
@@ -220,9 +231,16 @@ func originOf(obj types.Object) types.Object {
 func TestRuntime199BlockingOwner(t *testing.T) {
 	helpers := map[string]bool{
 		"Append": true, "Delete": true, "Put": true, "NewScope": true, "NewOwnerScope": true, "Site": true,
-		"RegisterCalls": true, "RegisterInlines": true, "TextBool": true, "TextDuration": true,
+		"RegisterCalls": true, "RegisterInlines": true, "RegisterCompactCalls": true, "TextBool": true, "TextDuration": true,
 		"TextInt": true, "TextUint": true, "TextFloat": true, "TextList": true,
 		"Main": true, "Println": true, "End": true,
+		// A law case's with scope (lawCaseScope, EX-entry r4): frame
+		// plumbing as NewScope is; it neither waits nor releases. A with
+		// in a body opens its scope through scopeCall.
+		"OpenWith": true,
+		// SB8: the entry's choice of direct standard output, before Main
+		// starts any task: one store and a flush, no wait.
+		"StdoutDirect": true,
 		// IG11: an exported function's root task, as Main is main's; Go's
 		// caller waits on it, no Ergo task does. L5b: a Script operation's
 		// record of a call (script.go): one lock for one append, no wait,
@@ -245,10 +263,36 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		"GoCallbackError": true, "GoUntunnel": true, "GoUntunnelEager": true,
 		// S-json: the fast path appends a string to a json Text; no wait.
 		"JSONAppendTextString": true,
+		// 1BRC: a read of a let lowered as a Go constant (constLet), an
+		// identity; no wait.
+		"Let": true,
+		// BCE1: unchecked loads under a bounds fact (bounds.go,
+		// unchecked.go); each reads memory and returns, no wait.
+		"ByteAt": true, "StringAt": true, "StringN": true, "AddrAt": true,
+		// OWN1: the hand-over's Appends (handover.go, lineage.go); each
+		// appends under at most one uncontended lock, no wait.
+		"AppendPoison": true, "LineageAppend": true, "LineageAppendCheck": true,
+		// VI1: a table entry's flag (tabulate.go, v1.MemoFlag): one
+		// compare-and-swap or atomic store; no wait.
+		"Claim": true, "Done": true,
+		// GX2: an append loop's room (reserve.go), Go's slices.Grow; no
+		// wait, no release.
+		"Reserve": true,
+		// CK-rowarg part 3: a held context's install checks that its
+		// owning with has not ended (a panic value, no wait), then calls
+		// the generated copier of its row, a method of the program's own.
+		"HeldLive": true, "copyEnv": true,
+		// FKG1: a machines.Every After reads the task's firing mark, a
+		// field read; no wait.
+		"MachineFiringNow": true,
 	}
+	// capabilityOps are the owners that call a capability operation on
+	// the Env's provider field outside callText, and the operation: FKG1's
+	// Every After reads time.Clock's Now only when its timer fires.
+	capabilityOps := map[string]string{"everyTimers": "Now"}
 	call := regexp.MustCompile(`\.([A-Za-z][A-Za-z0-9_]*)\(`)
 	methods := map[string]bool{}
-	for name, binding := range runtimeBindings {
+	for name, binding := range runtimeBindings() {
 		if binding.wait != noWait {
 			parts := strings.Split(name, ".")
 			methods[parts[len(parts)-1]] = true
@@ -282,6 +326,9 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		})
 		for _, text := range literals {
 			for _, m := range call.FindAllStringSubmatch(text, -1) {
+				if capabilityOps[owner] == m[1] {
+					continue
+				}
 				if methods[m[1]] || usesRuntime && !helpers[m[1]] {
 					t.Errorf("%s emits runtime binding %s outside runtimeCall", owner, m[1])
 				}

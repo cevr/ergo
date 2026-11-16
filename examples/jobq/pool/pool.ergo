@@ -60,7 +60,7 @@ func work(w int, js queue.Queue[jobs.Job], tokens queue.Queue[token], out queue.
 				let wait = jobs.Backoff(p, n)
 				Scheduler.Sleep(wait)
 				now = now + wait
-			case Emit[jobs.Phase, jobs.Outcome]:
+			case Emit[jobs.Phase, jobs.Outcome], Tell[jobs.Phase, jobs.Outcome]:
 				Unreachable("jobs.Step never emits")
 			case Stay[jobs.Phase], Ignore, Reject:
 				try out.Push(Report{ID: j.ID, Worker: w, Out: jobs.GaveUp{N: n, At: now, Why: "the queue sent a wrong signal"}})

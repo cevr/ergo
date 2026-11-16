@@ -17,7 +17,7 @@ test WritesTheBoxAndItsStatus {
 }
 
 // terminal is a Stdout that is a terminal, writing to a Recorder.
-type terminal { out io.Recorder }
+type terminal { out io.Recorder } implements io.Stdout
 
 func Print(t terminal, text string) { t.out.Print(text) }
 

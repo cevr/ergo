@@ -1,0 +1,92 @@
+// flattree reads JSON (RFC 8259) into a flat tree (package flat: values
+// as ids into hand columns, children as runs of two pools, keys interned)
+// and reports on it, prints it, or prints a part of it.
+//
+//	flattree stats FILE            values of each kind, depth, distinct keys
+//	flattree path FILE POINTER     the value at POINTER (RFC 6901), in jq's layout
+//	flattree print FILE            FILE on one line
+//	flattree gen -seed S -n N      write the workload of N records for seed S
+//
+// stats, path and print take -tree after the command word: they then read
+// the document into package tree, the plain twin (one box per value), and
+// print the same bytes.
+//
+// A text that is not JSON fails with its line and column. This binary is
+// the only place that chooses the providers: the host's files.
+
+import fs
+import io
+import flattree/app
+import flattree/files
+import flattree/workload
+import os
+import strconv
+
+// Usage is the text of a usage failure.
+let Usage = "usage: flattree stats [-tree] FILE | path [-tree] FILE POINTER | print [-tree] FILE | gen -seed S -n N"
+
+func usage() os.Exit { os.Exit{Code: 2, Message: Usage} }
+
+// amount is the count that text spells.
+func amount(text string) int fails os.Exit {
+	let n = strconv.Atoi(text) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return usage()
+	}
+	if n < 0 {
+		return usage()
+	}
+	n
+}
+
+// finish writes o and ends with its status.
+func finish(o app.Outcome) fails os.Exit needs io.Stdout {
+	io.Stdout.Print(o.Out)
+	if o.Status != 0 {
+		return os.Exit{Code: 1, Message: o.Err}
+	}
+}
+
+// command is a command of words, read on side.
+func command(side app.Side, words []string) fails os.Exit needs io.Stdout | app.Documents {
+	match (words[0], len(words)) {
+	case ("stats", 2):
+		try finish(app.Stats(side, words[1]))
+	case ("path", 3):
+		try finish(app.Path(side, words[1], words[2]))
+	case ("print", 2):
+		try finish(app.Print(side, words[1]))
+	case _:
+		return usage()
+	}
+}
+
+// run is flattree on args.
+func run(args []string) fails os.Exit needs io.Stdout | app.Documents {
+	if len(args) == 0 {
+		return usage()
+	}
+	if args[0] == "gen" {
+		if len(args) != 5 || args[1] != "-seed" || args[3] != "-n" {
+			return usage()
+		}
+		let seed = try amount(args[2])
+		io.Stdout.Print(workload.Document(seed, try amount(args[4])))
+		return
+	}
+	if len(args) >= 2 && args[1] == "-tree" {
+		let mut words = []string{args[0]}
+		for i in 2..len(args) {
+			words = words.Append(args[i])
+		}
+		return command(app.Plain, words)
+	}
+	command(app.Flat, args)
+}
+
+func main() fails os.Exit needs Ambient {
+	let host = os.NewHost()
+	with context { io.Stdout: io.NewHost(), app.Documents: files.New(fs.NewHost()) } {
+		try run(host.Args())
+	}
+}

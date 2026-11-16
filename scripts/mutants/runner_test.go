@@ -25,30 +25,41 @@ const seedVariable = "ERGO_MUTANTS_SEED"
 // wrong package runs the wrong tests); each test calls a random set of
 // functions and asserts a random part of them; one test fails on the
 // unmutated tree, so a mutant it covers or that names it is unjudged
-// (FT11b: a red baseline judges nothing). Its ledger holds one value mutant per function (known
-// killers drawn at random, some wrong), a mutant that does not build, a
-// mutant of a package no test binary imports that no longer compiles, whose
-// named killer builds that package (invalid, not killed: GT-COMPILE), one
-// that no longer applies, a string-literal mutant with an anchor and one
-// without (no block of one runs it, but two:TestReadsOne reads one/f.go:
-// its test log selects it for every mutant of that file, and it kills this
-// one, GT8), the same mutant named with that killer (fu-mutants-xpkg), and
-// on Linux one
-// that allocates past the memory limit. A named killer runs whether or not
-// it covers the lines. TestGreet
-// also reads the repository with git ls-files, as internal/residue's rules
-// do: in a copy with no Git index it would fail on the unmutated tree; and
-// it fails when GOFLAGS is set, as cmd/ergo's direct-path tests do.
+// (FT11b: a red baseline judges nothing). Its ledger holds one value mutant
+// per function (known killers drawn at random, some wrong), a mutant that
+// does not build, a mutant of a package no test binary imports that no
+// longer compiles, whose named killer builds that package (invalid, not
+// killed: GT-COMPILE), one that no longer applies, a string-literal mutant
+// with an anchor and one without (no block of one runs it, but
+// two:TestReadsOne reads one/f.go: its test log selects it for every mutant
+// of that file, and it kills this one, GT8), the same mutant named with
+// that killer (fu-mutants-xpkg), mutants of a data file (one/word.txt, as
+// std's .ergo sources) that the tests reading it judge, with those their
+// rows name, on Linux one that allocates past the memory limit, and
+// mutants of a source file that a source check validates (Config.Sources;
+// a stand-in for .ergo): a value change, one the formatter would rewrite
+// (FK7a), one the compiler refuses (FK12a), and that refusal declared as
+// the row's point. A named killer runs whether or not it covers the lines.
+// TestGreet also reads the repository with git ls-files, as
+// internal/residue's rules do: in a copy with no Git index it would fail
+// on the unmutated tree; and it fails when GOFLAGS is set, as cmd/ergo's
+// direct-path tests do. TestPlain fails when its binary is built with
+// coverage, as internal/closure's sandboxed self-runs do, and when it has
+// no deadline, as internal/closure's reap test does; it is the only killer
+// of plain-only, which is uncovered unless the coverage pass reruns it
+// without coverage and with a -test.timeout.
 //
 // It checks that the runner reports exactly the model's status for each
 // mutant, that a killer is a test that asserts the mutated function (with
 // All, that the killers are exactly those tests), that the mutant pass runs
 // only tests that cover the mutated lines, that a mutant that does not
-// build is invalid and never killed, that the memory mutant is killed by
-// the memory limit, and that the checkout is left equal to HEAD. Seed 1
-// runs a second pass over the coverage store the first filled (GT6): it
-// reuses two's segment, measures one again, and its verdicts are the
-// model's too.
+// build, format or check is invalid and never killed, that the memory
+// mutant is killed by the memory limit, and that the checkout is left
+// equal to HEAD. Seed 1 runs a second pass over the coverage store the
+// first filled (GT6): it reuses two's segment, measures one again, and its
+// verdicts are the model's too. Mutants of the runner it catches include
+// fk7a-format-ignored, fk12a-refusal-ignored and fk12a-declared-ignored
+// (this package's ledger).
 //
 // It builds Go because the runner's whole job is to build and run go test
 // binaries on mutated copies; no in-process check stands in for that.
@@ -81,6 +92,12 @@ type fakeTest struct {
 	calls       []string
 	asserts     []string
 	broken      bool
+	// plainOnly fails when its binary is built with coverage, as
+	// internal/closure's sandboxed self-runs do, or when it has no
+	// deadline (go test always passes -test.timeout); it passes without
+	// coverage and with a deadline.
+	plainOnly bool
+	reads     bool // asserts the data file one/word.txt
 }
 
 func (f fakeTest) id() string { return f.suite + ":" + f.name }
@@ -126,6 +143,8 @@ func generate(r *rand.Rand) fakeModule {
 		fakeTest{suite: "one", name: "TestGreet", calls: []string{"one.Greet"}, asserts: []string{"one.Greet"}},
 		fakeTest{suite: "one", name: "TestBroken", calls: []string{m.funcs[0]}, asserts: []string{m.funcs[0]}, broken: true},
 		fakeTest{suite: "two", name: "TestGrow", calls: []string{"two.Grow"}, asserts: []string{"two.Grow"}},
+		fakeTest{suite: "two", name: "TestPlain", calls: []string{"two.Plain"}, asserts: []string{"two.Plain"}, plainOnly: true},
+		fakeTest{suite: "one", name: "TestWord", reads: true},
 	)
 	return m
 }
@@ -142,7 +161,7 @@ func (m fakeModule) source(pkg string) string {
 	if pkg == "one" {
 		b.WriteString("var greeting = \"hello\"\n\nvar farewell = \"bye\"\n\nfunc Greet() string { return greeting + farewell }\n")
 	} else {
-		b.WriteString("func Grow(n int) int { return n }\n")
+		b.WriteString("func Grow(n int) int { return n }\n\nfunc Plain() int { return 7 }\n")
 	}
 	return b.String()
 }
@@ -170,6 +189,9 @@ func (m fakeModule) testSource(pkg string) string {
 			case "two.Grow":
 				fmt.Fprintf(&b, "\tif two.Grow(1) != 1 {\n\t\tt.Fatal(%q)\n\t}\n", fn)
 				continue
+			case "two.Plain":
+				fmt.Fprintf(&b, "\tif two.Plain() != 7 {\n\t\tt.Fatal(%q)\n\t}\n", fn)
+				continue
 			}
 			if slices.Contains(ft.asserts, fn) {
 				fmt.Fprintf(&b, "\tif %s != %d {\n\t\tt.Fatal(%q)\n\t}\n", got, value(fn), fn)
@@ -177,8 +199,15 @@ func (m fakeModule) testSource(pkg string) string {
 				fmt.Fprintf(&b, "\t_ = %s\n", got)
 			}
 		}
+		if ft.reads {
+			b.WriteString("\tif b, _ := os.ReadFile(\"word.txt\"); string(b) != \"hi\\n\" {\n\t\tt.Fatal(\"word.txt\")\n\t}\n")
+		}
 		if ft.broken {
 			b.WriteString("\tt.Fatal(\"fails on the unmutated tree\")\n")
+		}
+		if ft.plainOnly {
+			b.WriteString("\tif _, ok := t.Deadline(); !ok {\n\t\tt.Fatal(\"no -test.timeout, unlike go test\")\n\t}\n")
+			b.WriteString("\tif testing.CoverMode() != \"\" {\n\t\tt.Fatal(\"fails when built with coverage\")\n\t}\n")
 		}
 		b.WriteString("}\n\n")
 	}
@@ -233,6 +262,79 @@ func Ran(t testing.TB) {
 	f.Close()
 }
 `
+
+// srcTest reads one/data.src as the examples runner reads a program: it
+// fails when the file is not formatted (a double space), when the
+// compiler would refuse it (ERROR), or when its value is not 1.
+const srcTest = `package one_test
+
+import (
+	"os"
+	"strings"
+	"testing"
+
+	"fake.test/m/internal/fakelog"
+)
+
+func TestSrc(t *testing.T) {
+	fakelog.Ran(t)
+	data, err := os.ReadFile("data.src")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	switch {
+	case strings.Contains(text, "  "):
+		t.Fatal("not formatted")
+	case strings.Contains(text, "ERROR"):
+		t.Fatal("refused")
+	case text != "value 1\n":
+		t.Fatalf("value %q", text)
+	}
+}
+`
+
+// srcTool is the source check's tool: "fmt FILE" fails on a double space,
+// "check DIR" prints one E1 diagnostic per ERROR in DIR's .src files.
+const srcTool = `package main
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+func main() {
+	switch os.Args[1] {
+	case "fmt":
+		data, err := os.ReadFile(os.Args[2])
+		if err != nil || strings.Contains(string(data), "  ") {
+			os.Exit(1)
+		}
+	case "check":
+		files, _ := filepath.Glob(filepath.Join(os.Args[2], "*.src"))
+		var codes []string
+		for _, f := range files {
+			data, _ := os.ReadFile(f)
+			for range strings.Count(string(data), "ERROR") {
+				codes = append(codes, ` + "`" + `{"code":"E1"}` + "`" + `)
+			}
+		}
+		fmt.Printf("{\"diagnostics\":[%s]}\n", strings.Join(codes, ","))
+	}
+}
+`
+
+var srcAnchor = &Anchor{Tests: []string{"one:TestSrc"}}
+
+func srcExpect(status string) expect {
+	e := expect{status: status, covering: []string{"one:TestSrc"}}
+	if status == Killed {
+		e.killers = e.covering
+	}
+	return e
+}
 
 // expect is the model's verdict on a mutant: its status, the tests that
 // kill it, and the tests that cover it (the only ones the runner may run).
@@ -325,6 +427,10 @@ func checkModel(t *testing.T, seed uint64, all bool) {
 		// tests build a lowered program against runtime/v1.
 		"gen/g.go":        "package gen\n\nfunc G() int { return 1 }\n",
 		"two/gen_test.go": genTest,
+		"one/word.txt":    "hi\n",
+		"one/data.src":    "value 1\n",
+		"one/src_test.go": srcTest,
+		"cmd/src/main.go": srcTool,
 	}
 	for name, text := range files {
 		writeFile(t, filepath.Join(repo, name), text)
@@ -368,6 +474,26 @@ func checkModel(t *testing.T, seed uint64, all bool) {
 		// suites build, and the mutant is invalid, not killed (GT-COMPILE).
 		{&Mutant{Name: "gen-does-not-compile", File: "gen/g.go", From: "return 1 }", To: "return \"x\" }", Killers: []string{"two:TestBuildsGen"}},
 			expect{status: Invalid, detail: "does not compile: gen/g.go:3:"}},
+		{&Mutant{Name: "plain-only", File: "two/f.go", From: "func Plain() int { return 7 }", To: "func Plain() int { return 8 }"}, m.model("two.Plain", false)},
+		// A mutant of a file that is not Go (std's .ergo sources) is in no
+		// block: the tests that read it (one:TestWord, its test log) and
+		// those its row names judge it. A named test that fails on the
+		// unmutated tree leaves it unjudged (GT8b).
+		{&Mutant{Name: "data-named", File: "one/word.txt", From: "hi", To: "ho", Killers: []string{"one:TestWord"}},
+			expect{status: Killed, killers: []string{"one:TestWord"}, covering: []string{"one:TestWord"}}},
+		{&Mutant{Name: "data-wrong-killer", File: "one/word.txt", From: "hi", To: "ho", Killers: []string{"one:TestGreet"}},
+			expect{status: Killed, killers: []string{"one:TestWord"}, covering: []string{"one:TestGreet", "one:TestWord"}}},
+		{&Mutant{Name: "data-broken-killer", File: "one/word.txt", From: "hi", To: "ho", Killers: []string{"one:TestBroken", "one:TestWord"}},
+			expect{status: Unjudged}},
+		{&Mutant{Name: "data-unnamed", File: "one/word.txt", From: "hi", To: "ho"},
+			expect{status: Killed, killers: []string{"one:TestWord"}, covering: []string{"one:TestWord"}}},
+		// Source mutants (Config.Sources): TestSrc fails on any of them, as
+		// the examples runner's fmt and check legs do; only a value change
+		// or a declared refusal is a kill.
+		{&Mutant{Name: "src-value", File: "one/data.src", From: "value 1", To: "value 2", Anchor: srcAnchor}, srcExpect(Killed)},
+		{&Mutant{Name: "src-unformatted", File: "one/data.src", From: "value 1", To: "value  1", Anchor: srcAnchor}, srcExpect(Invalid)},
+		{&Mutant{Name: "src-refused", File: "one/data.src", From: "value 1", To: "value 1 ERROR", Anchor: srcAnchor}, srcExpect(Invalid)},
+		{&Mutant{Name: "src-refused-declared", File: "one/data.src", From: "value 1", To: "value 1 ERROR", Anchor: srcAnchor, Refused: "the refusal is the rule"}, srcExpect(Killed)},
 	}
 	memoryLimit := uint64(0)
 	if runtime.GOOS == "linux" {
@@ -429,6 +555,12 @@ func checkPass(t *testing.T, seed uint64, all bool, repo, store string, memoryLi
 		All:        all,
 		CoverStore: store,
 		Log:        log, // the engine's logf writes under its lock
+		Sources: []SourceCheck{{
+			Ext:    ".src",
+			Tool:   Tool{Name: "src", Package: "./cmd/src"},
+			Format: []string{"{bin:src}", "fmt", "{file}"},
+			Check:  []string{"{bin:src}", "check", "{dir}"},
+		}},
 	}
 	results, _, err := Run(context.Background(), cfg, []Job{{Path: filepath.Join(repo, "one/testdata/mutants.json"), Ledger: &Ledger{Mutants: mutants}}})
 	if err != nil {

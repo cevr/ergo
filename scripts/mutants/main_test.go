@@ -130,7 +130,10 @@ func TestScopeIsTheLedgersPackage(t *testing.T) {
 // (Named), a note after the test is dropped, and only the selected rows
 // bring suites: the run's work is the suites it builds, counted here.
 // Before, the x7 rows were judged by the untagged binary, where their
-// killers do not exist, and the other rows were run by hand.
+// killers do not exist, and the other rows were run by hand. An id that
+// names no suite, or no test of its suite, is an error: the runner skipped
+// it before, and rows whose killers were v1:, sched: or rt-explore: ran
+// without them (MUT-names).
 func TestKillerInAnotherSuiteIsRun(t *testing.T) {
 	root := t.TempDir()
 	for _, dir := range []string{"runtime/v1", "internal/sketchfront", "examples/demo/memory"} {
@@ -138,8 +141,17 @@ func TestKillerInAnotherSuiteIsRun(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, f := range []string{"runtime/v1/v1.go", "runtime/v1/v1_test.go", "examples/demo/memory/demo.ergo"} {
-		if err := os.WriteFile(filepath.Join(root, f), nil, 0o644); err != nil {
+	for f, text := range map[string]string{
+		"runtime/v1/v1.go":                "",
+		"runtime/v1/v1_test.go":           "func TestA(t *testing.T) {}\nfunc TestB(t *testing.T) {}\nfunc TestC(t *testing.T) {}\nfunc TestOwn(t *testing.T) {}\n",
+		"internal/sketchfront/f_test.go":  "func TestF(t *testing.T) {}\n",
+		"internal/sketch/lower/l_test.go": "func TestL(t *testing.T) {}\n",
+		"examples/demo/memory/demo.ergo":  "",
+	} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, f)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, f), []byte(text), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -153,7 +165,7 @@ func TestKillerInAnotherSuiteIsRun(t *testing.T) {
 	// A killer in a nested module (internal/selfhostcheck/testdata/selfhost,
 	// batch-18 r4 M2) is built in that module, and its package is covered
 	// by no -coverpkg: go test from the root refuses both.
-	for f, text := range map[string]string{"nested/m/go.mod": "module nested.test/m\n", "nested/m/p/p.go": "package p\n", "nested/m/p/p_test.go": "package p\n"} {
+	for f, text := range map[string]string{"nested/m/go.mod": "module nested.test/m\n", "nested/m/p/p.go": "package p\n", "nested/m/p/p_test.go": "package p\n\nfunc TestN(t *testing.T) {}\n"} {
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, f)), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -171,10 +183,16 @@ func TestKillerInAnotherSuiteIsRun(t *testing.T) {
 		{Name: "b", Killers: []string{"lower:TestL", "runtime/v1:TestOwn (a note)"}, Anchor: &Anchor{Tests: []string{"runtime/v1[ergoexplore]:TestC"}}},
 		{Name: "c", Killers: []string{"internal/closure:TestOther"}},
 	}}
-	path := ledgerPath(root, filepath.Join(root, "runtime", "v1"))
-	_, tools, suites, err := suitesFor(root, []Job{{Path: path, Ledger: ledger, Select: regexp.MustCompile("^[ab]$")}})
+	at := ledgerPath(root, filepath.Join(root, "runtime", "v1"))
+	_, tools, suites, err := suitesFor(root, []Job{{Path: at, Ledger: ledger, Select: regexp.MustCompile("^[ab]$")}})
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, id := range []string{"v1:TestA", "runtime/v1:TestNone", "lower:TestNone", "examples:nowhere", "runtime/v1[ergoexplore:TestA"} {
+		bad := &Ledger{Mutants: []*Mutant{{Name: "c", Killers: []string{"runtime/v1:TestB", id}}}}
+		if _, _, _, err := suitesFor(root, []Job{{Path: at, Ledger: bad}}); err == nil || !strings.Contains(err.Error(), id) {
+			t.Errorf("killer %q: error %v, want one that names it", id, err)
+		}
 	}
 	type got struct {
 		name, pkg, tags string
@@ -201,7 +219,44 @@ func TestKillerInAnotherSuiteIsRun(t *testing.T) {
 		t.Errorf("tools %+v, want the ergo CLI that lower runs", tools)
 	}
 	ledger.Mutants = append(ledger.Mutants, &Mutant{Name: "d", Killers: []string{"v1:TestNone"}})
-	if _, _, _, err := suitesFor(root, []Job{{Path: path, Ledger: ledger}}); err == nil || !strings.Contains(err.Error(), "v1:TestNone") {
+	if _, _, _, err := suitesFor(root, []Job{{Path: at, Ledger: ledger}}); err == nil || !strings.Contains(err.Error(), "v1:TestNone") {
 		t.Errorf("a killer in no suite: err %v, want it named", err)
+	}
+}
+
+// TestLedgerEnvReachesItsOwnSuite: a package ledger's env is the
+// environment of its own suite, where its killers run, and of no other
+// suite. Before, tsproj's TS-leg killers skipped unless the person running
+// the runner remembered ERGO_TS_TEST=1, and 36 of its 62 rows went
+// unjudged (MUT-names r1). check and lower share the ergo suites, so an
+// env in their ledgers is refused rather than leaking into every suite.
+func TestLedgerEnvReachesItsOwnSuite(t *testing.T) {
+	root := t.TempDir()
+	// Only a package with tests is a suite (suitesFor), so tsproj has one.
+	for _, f := range []string{"internal/sketch/lower/l_test.go", "internal/tsproj/p_test.go"} {
+		path := filepath.Join(root, filepath.FromSlash(f))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("func TestL(t *testing.T) {}\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	env := []string{"ERGO_TS_TEST=1"}
+	own := &Ledger{Env: env, Mutants: []*Mutant{{Name: "a", Killers: []string{"lower:TestL"}}}}
+	_, _, suites, err := suitesFor(root, []Job{{Path: ledgerPath(root, filepath.Join(root, "internal", "tsproj")), Ledger: own}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(suites) < 2 || suites[0].Name != "internal/tsproj" || !slices.Equal(suites[0].Env, env) {
+		t.Fatalf("suites %+v: the ledger's own suite comes first with its env", suites)
+	}
+	for _, s := range suites[1:] {
+		if slices.Contains(s.Env, env[0]) {
+			t.Errorf("suite %s got the tsproj ledger's env: %q", s.Name, s.Env)
+		}
+	}
+	if _, _, _, err := suitesFor(root, []Job{{Path: ledgerPath(root, "lower"), Ledger: &Ledger{Env: env}}}); err == nil {
+		t.Error("lower's ledger took an env")
 	}
 }

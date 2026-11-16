@@ -6,6 +6,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -20,12 +21,16 @@ import (
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/eval"
+	"ergo.local/prototype/internal/sketch/lawcache"
 	"ergo.local/prototype/internal/sketchfront"
 	sourcefile "ergo.local/prototype/internal/source"
+	"ergo.local/prototype/internal/stage"
 )
 
 func main() {
 	tuneGC()
+	// The checked std is in the binary (compile-speed CS1).
+	sketchfront.UseEmbeddedStd(true)
 	// The compiler's identity recalls its image digest from the cache root
 	// it keys, so a command does not hash the whole binary each run.
 	if root, err := build.DefaultRoot(); err == nil {
@@ -33,25 +38,46 @@ func main() {
 		// The checked std snapshot lives beside the emission cache (CHK1b).
 		sketchfront.UseStdCache(root)
 	}
-	if err := command(os.Args[1:]); err != nil {
-		if exit, ok := err.(exitStatusError); ok {
-			if !exit.handled && exit.message != "" {
-				fmt.Fprintln(os.Stderr, exit.message)
-			}
-			os.Exit(exit.code)
-		}
-		fmt.Fprintln(os.Stderr, err)
-		if _, usage := err.(usageError); usage {
-			os.Exit(2)
-		}
-		os.Exit(1)
+	err := command(os.Args[1:])
+	if werr := sketchfront.WriteStageReport(); werr != nil {
+		fmt.Fprintln(os.Stderr, "ergo: stage report:", werr)
 	}
+	if err != nil {
+		if exit, ok := err.(exitStatusError); !ok || !exit.handled && exit.message != "" {
+			fmt.Fprintln(os.Stderr, err)
+		}
+		os.Exit(exitCode(err))
+	}
+}
+
+// exitCode is the process exit code of a command's error: an
+// exitStatusError's code, 2 for an invalid invocation (usageError), and 1
+// for every other failure.
+func exitCode(err error) int {
+	switch e := err.(type) {
+	case nil:
+		return 0
+	case exitStatusError:
+		return e.code
+	case usageError:
+		return 2
+	}
+	return 1
 }
 
 // usageError is an invalid invocation: exit 2.
 type usageError struct{ message string }
 
 func (e usageError) Error() string { return e.message }
+
+// unknownOption is the one refusal of an option a command does not take:
+// an invalid invocation, so every command exits 2 on it.
+func unknownOption(command, option string) error {
+	if command == "" {
+		return usageError{message: "unknown option " + option}
+	}
+	return usageError{message: command + ": unknown option " + option}
+}
 
 // exitStatusError exits with code, printing message unless the command
 // already reported the failure (handled).
@@ -62,6 +88,16 @@ type exitStatusError struct {
 }
 
 func (e exitStatusError) Error() string { return e.message }
+
+// flagError is the refusal of a flag set's parse error: an option the set
+// does not define is the one unknown-option refusal, and any other parse
+// error (an option without its value) is usage.
+func flagError(err error, usage string) error {
+	if option, ok := strings.CutPrefix(err.Error(), "flag provided but not defined: "); ok {
+		return unknownOption("", option)
+	}
+	return usageError{message: usage}
+}
 
 func invalidInvocation(err error) error {
 	if err == nil {
@@ -95,9 +131,10 @@ func requireSourceExtension(path string) error {
 	return nil
 }
 
-const diagnosticsHelp = "usage: ergo diagnostics FILE|DIR [--strict] [--json] [--target go]\n" +
+const diagnosticsHelp = "usage: ergo diagnostics FILE|DIR [--lint-config FILE] [--rules MANIFEST]... [--strict] [--json] [--target go]\n" +
 	"Locations: one-based UTF-16 lines/columns in text; zero-based UTF-16 ranges and original UTF-8 byte spans in JSON.\n" +
 	"A DIR is a package: each finding names its file relative to the module root (file in JSON).\n" +
+	"Lint advice (ergo lint) follows the compiler's findings, under the module's ergo.lint.json; --strict fails policy on a warning too.\n" +
 	"Exit codes: 0 policy passed; 1 failed policy or source/operational failure; 2 invalid invocation.\n" +
 	"With --json, source findings produce a report on stdout even when policy fails; operational failures produce no report and explain the error on stderr.\n"
 
@@ -110,6 +147,13 @@ type fileOptions struct {
 	// locked is build's and run's --locked: a stale or missing law
 	// ledger entry refuses the build (owner q122).
 	locked bool
+	// emitted is build's and test's --emitted: print the digest of the Go
+	// module the command would build (sketchfront.EmittedDigest) and build
+	// nothing (gate-speed GS8).
+	emitted bool
+	// debug is build's, run's and test's --debug: the link keeps the symbol
+	// table and DWARF, which it leaves out by default (compile-speed CS7).
+	debug bool
 	// explore is test's --explore: the tests run under the controlled
 	// scheduler (runtime.md, Explored schedules). search is its mode
 	// (dfs, pct, random, or replay with --schedule) and bounds; with no
@@ -133,18 +177,28 @@ type fileOptions struct {
 	law, skipLaw string
 	// run is test's --run NAME: the one test or law the test binary runs,
 	// plain or explored; empty runs every one (X8).
-	run  string
-	file string
+	run string
+	// uncached is test's --count 1: the run neither replays nor keeps a
+	// cached result (testcache.go), as go test -count=1.
+	uncached bool
+	file     string
 	// args are run's program arguments: every word after the source, as
 	// go run passes them, less one "--" right after the source.
 	args []string
 	// platform is the GOOS/GOARCH the command checks for (platformOf).
 	platform gobind.Platform
+	// goText is build's -go-text DIR: build through IR and write the Go
+	// text of what was compiled into DIR (buildGoText).
+	goText string
+	// report is build's -report KIND: "copies" prints the form of each
+	// Append and Concat site (in place, one extender or copy, and why) on
+	// stderr (OWN1); empty prints none.
+	report string
 }
 
 // parseFileOptions reads the options of command. --strict and --json belong
-// to diagnostics, -o and --platform to build, -work to build and test,
-// --seed N (or --seed=N) to check and test, --eval-steps N and
+// to diagnostics, -o, --platform, -go-text DIR and -report copies to build, -work and --emitted to build and test,
+// --debug to build, run and test, --seed N (or --seed=N) to check and test, --eval-steps N and
 // --eval-bytes N to check, and --states N, --law NAME, --skip-law NAME,
 // --run NAME (or --run=NAME), --receipt FILE and --explore to test; any
 // other option is unknown. A target other than Go is the EF110 refusal,
@@ -152,7 +206,22 @@ type fileOptions struct {
 // before the source, and the
 // words after it are the program's arguments (`ergo run FILE|DIR [--]
 // ARGS...`, as `go run`).
+//
+// Every refusal here is an invalid invocation (exit 2), whatever the
+// command: an unknown option, an option given to a command that does not
+// take it, a missing or extra source, a source without the extension, and
+// an unsupported target or platform. A source that names no file is found
+// later, by load: an operational failure (exit 1).
 func parseFileOptions(command string, args []string) (fileOptions, error) {
+	opts, err := fileOptionsOf(command, args)
+	if err != nil {
+		return opts, invalidInvocation(err)
+	}
+	return opts, nil
+}
+
+// fileOptionsOf is parseFileOptions before its refusal is classified.
+func fileOptionsOf(command string, args []string) (fileOptions, error) {
 	opts := fileOptions{target: report.Target, command: command, search: exploreDefaults("")}
 	var positional []string
 	seeded, searched := false, false
@@ -160,6 +229,7 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 	selected, ran := false, false
 	platform, platformed := "", false
 	stepsGiven, bytesGiven := false, false
+	count, counted := "", false
 	for i := 0; i < len(args); i++ {
 		if command == "run" && len(positional) == 1 {
 			opts.args = args[i:]
@@ -174,6 +244,10 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 		}
 		if value, ok := strings.CutPrefix(args[i], "--run="); ok {
 			opts.run, ran = value, true
+			continue
+		}
+		if value, ok := strings.CutPrefix(args[i], "--count="); ok {
+			count, counted = value, true
 			continue
 		}
 		if value, ok := strings.CutPrefix(args[i], "--states="); ok {
@@ -206,11 +280,15 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 			continue
 		}
 		switch args[i] {
-		case "--target", "-o", "--seed", "--states", "--receipt", "--law", "--skip-law", "--platform", "--eval-steps", "--eval-bytes", "--run":
+		case "--target", "-o", "--seed", "--states", "--receipt", "--law", "--skip-law", "--platform", "--eval-steps", "--eval-bytes", "--run", "--count", "-go-text", "-report":
 			if i+1 == len(args) {
 				return opts, fmt.Errorf("%s requires a value", args[i])
 			}
 			switch args[i] {
+			case "--count":
+				count, counted = args[i+1], true
+			case "-report":
+				opts.report = args[i+1]
 			case "--eval-steps":
 				opts.evalSteps, stepsGiven = args[i+1], true
 			case "--eval-bytes":
@@ -231,6 +309,8 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 				opts.skipLaw, selected = args[i+1], true
 			case "--run":
 				opts.run, ran = args[i+1], true
+			case "-go-text":
+				opts.goText = args[i+1]
 			default:
 				opts.seed, seeded = args[i+1], true
 			}
@@ -243,6 +323,10 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 			opts.work = true
 		case "--locked":
 			opts.locked = true
+		case "--emitted":
+			opts.emitted = true
+		case "--debug":
+			opts.debug = true
 		case "--explore":
 			opts.explore = true
 			if i+1 < len(args) && slices.Contains(exploreModes, args[i+1]) {
@@ -251,7 +335,7 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 			}
 		default:
 			if strings.HasPrefix(args[i], "-") {
-				return opts, fmt.Errorf("unknown option %s", args[i])
+				return opts, unknownOption("", args[i])
 			}
 			positional = append(positional, args[i])
 		}
@@ -262,18 +346,28 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 	switch {
 	case len(positional) == 0:
 		return opts, fmt.Errorf("source file required")
-	case opts.strict && command != "diagnostics":
-		return opts, fmt.Errorf("--strict is only supported by diagnostics")
-	case opts.json && command != "diagnostics" && command != "run" && command != "test":
-		return opts, fmt.Errorf("--json is only supported by diagnostics, run and test")
+	case opts.strict && command != "diagnostics" && command != "lint":
+		return opts, fmt.Errorf("--strict is only supported by diagnostics and lint")
+	case opts.json && command != "diagnostics" && command != "lint" && command != "run" && command != "test":
+		return opts, fmt.Errorf("--json is only supported by diagnostics, lint, run and test")
 	case opts.output != "" && command != "build":
 		return opts, fmt.Errorf("-o is only supported by build")
 	case platformed && command != "build":
 		return opts, fmt.Errorf("--platform is only supported by build")
+	case opts.goText != "" && command != "build":
+		return opts, fmt.Errorf("-go-text is only supported by build")
+	case opts.report != "" && command != "build":
+		return opts, fmt.Errorf("-report is only supported by build")
+	case opts.report != "" && opts.report != "copies":
+		return opts, fmt.Errorf("-report takes copies, not %q", opts.report)
 	case opts.work && command != "build" && command != "test":
 		return opts, fmt.Errorf("-work is only supported by build and test")
 	case opts.locked && command != "build" && command != "run":
 		return opts, fmt.Errorf("--locked is only supported by build and run")
+	case opts.emitted && command != "build" && command != "test":
+		return opts, fmt.Errorf("--emitted is only supported by build and test")
+	case opts.debug && command != "build" && command != "run" && command != "test":
+		return opts, fmt.Errorf("--debug is only supported by build, run and test")
 	case opts.receipt != "" && command != "test":
 		return opts, fmt.Errorf("--receipt is only supported by test")
 	case (opts.explore || searched) && command != "test":
@@ -284,6 +378,10 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--seed is only supported by check and test")
 	case ran && command != "test":
 		return opts, fmt.Errorf("--run is only supported by test")
+	case counted && command != "test":
+		return opts, fmt.Errorf("--count is only supported by test")
+	case counted && count != "1":
+		return opts, fmt.Errorf("--count takes 1, a run that ignores the cached result, not %q", count)
 	case ran && opts.run == "":
 		return opts, fmt.Errorf("--run takes the name of a test or a law")
 	case seeded && !validSeed(opts.seed):
@@ -310,6 +408,7 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 		return opts, err
 	}
 	opts.file = positional[0]
+	opts.uncached = counted
 	if opts.search.mode != "" {
 		// --schedule alone replays: it needs the explored build too.
 		opts.explore = true
@@ -362,8 +461,14 @@ func load(path, target string) (loaded, error) {
 }
 
 func loadForPlatform(path, target string, platform gobind.Platform) (loaded, error) {
+	return loadThrough(nil, path, target, platform)
+}
+
+// loadThrough is loadForPlatform reading a package folder through fsys (a
+// warm request's Recorder); nil reads the host.
+func loadThrough(fsys sketchfront.FS, path, target string, platform gobind.Platform) (loaded, error) {
 	if isPackageFolder(path) {
-		return loadFolder(path, target, platform)
+		return loadFolder(fsys, path, target, platform)
 	}
 	if err := requireSourceExtension(path); err != nil {
 		return loaded{}, err
@@ -385,6 +490,8 @@ func loadForPlatform(path, target string, platform gobind.Platform) (loaded, err
 	if err != nil {
 		return loaded{}, err
 	}
+	stage.Add(stage.FilesRead, 1)
+	stage.Add(stage.BytesRead, int64(len(text)))
 	analysis := sketchfront.Check(string(text))
 	return loaded{
 		source:   source,
@@ -397,7 +504,7 @@ func loadForPlatform(path, target string, platform gobind.Platform) (loaded, err
 
 // loadFolder admits a package folder once and checks its program. The
 // executable is named after the folder, as go build names it.
-func loadFolder(path, target string, platform gobind.Platform) (loaded, error) {
+func loadFolder(fsys sketchfront.FS, path, target string, platform gobind.Platform) (loaded, error) {
 	source, err := receipt.LocateSource(path)
 	if err != nil {
 		return loaded{}, err
@@ -406,7 +513,12 @@ func loadFolder(path, target string, platform gobind.Platform) (loaded, error) {
 	if err != nil {
 		return loaded{}, err
 	}
-	analysis, err := sketchfront.CheckDirForPlatform(source.Admitted(), platform)
+	var analysis sketchfront.Analysis
+	if fsys == nil {
+		analysis, err = sketchfront.CheckDirForPlatform(source.Admitted(), platform)
+	} else {
+		analysis, err = sketchfront.CheckDirFS(fsys, source.Admitted(), platform)
+	}
 	if err != nil {
 		return loaded{}, err
 	}
@@ -447,17 +559,40 @@ func checkCommand(args []string) error {
 		return err
 	}
 	if recursivePattern(opts.file) {
-		return recursiveCommand(opts, checkPackage)
+		if shared, err := sharedCheckCommand(opts); shared {
+			return err
+		}
+		return recursiveCommand(opts, nil, checkPackage)
+	}
+	// A daemon of this release serving the working directory answers a
+	// warm check with no work here (ergo dev).
+	if wd, err := os.Getwd(); err == nil && isPackageFolder(opts.file) {
+		if stdout, ok := askDev(wd, opts.file, append([]string{"check"}, args...)); ok {
+			_, err := os.Stdout.Write(stdout)
+			return err
+		}
 	}
 	return checkPackage(opts)
 }
 
 func checkPackage(opts fileOptions) error {
-	l, err := loadForPlatform(opts.file, opts.target, opts.platform)
+	w := startWarm(opts, nil)
+	if w != nil && w.hit {
+		_, err := os.Stdout.Write(w.answer.Stdout)
+		return err
+	}
+	l, err := loadThrough(w.fsys(), opts.file, opts.target, opts.platform)
 	if err != nil {
 		return err
 	}
-	if err := l.result.Qualify(producer.Current()); err != nil {
+	return checkLoaded(opts, l, w)
+}
+
+// checkLoaded prints the check envelope of a loaded package, evaluated
+// when it checks, and returns check's exit status.
+func checkLoaded(opts fileOptions, l loaded, w *warm) error {
+	id := producer.Current()
+	if err := l.result.Qualify(id); err != nil {
 		return err
 	}
 	if !l.result.Checked {
@@ -468,15 +603,34 @@ func checkPackage(opts fileOptions) error {
 	}
 	// Only a source that checks is evaluated (L7): in process, with no Go
 	// build and no child.
-	evaluation, err := l.analysis.Evaluation(evalBudget(opts), opts.file)
+	budget := evalBudget(opts)
+	// A law run whose verdict the store holds is reported cached, and a
+	// run that held is stored (lawcache), so ergo test does not run it
+	// again. The store is keyed by the identity check acquired for its
+	// envelope: check acquires none for the cache.
+	var store *lawcache.Store
+	if compiler, err := build.IdentityOf(id); err == nil {
+		store = lawStoreOf(compiler)
+	}
+	budget.Verdicts = l.analysis.EvalVerdicts(store, budget.Seed, budget.States)
+	evaluation, err := l.analysis.Evaluation(budget, opts.file)
+	boundLaws(store)
 	if err != nil {
 		return err
 	}
 	l.result.SetEvaluation(evaluation)
-	if err := printProjectionJSON(l.result.CheckEnvelope()); err != nil {
+	var out bytes.Buffer
+	if err := json.NewEncoder(&out).Encode(l.result.CheckEnvelope()); err != nil {
 		return err
 	}
-	return evaluationExit(evaluation)
+	if _, err := os.Stdout.Write(out.Bytes()); err != nil {
+		return err
+	}
+	exit := evaluationExit(evaluation)
+	if exit == nil {
+		w.record(sketchfront.WarmAnswer{Stdout: out.Bytes()})
+	}
+	return exit
 }
 
 // evalBudget is check's evaluation budget: the editor default
@@ -558,7 +712,14 @@ func inspectGoCommand(args []string) error {
 // diagnosticsCommand prints the diagnostic report as text or JSON; exit 1
 // when the policy fails, 2 on an invalid invocation.
 func diagnosticsCommand(args []string) error {
-	opts, err := parseFileOptions("diagnostics", args)
+	presets, sel, rest, err := lintFlags(args)
+	if err != nil {
+		return invalidInvocation(err)
+	}
+	if len(presets) > 0 {
+		return invalidInvocation(fmt.Errorf("--preset belongs to ergo lint"))
+	}
+	opts, err := parseFileOptions("diagnostics", rest)
 	if err != nil {
 		return invalidInvocation(err)
 	}
@@ -566,10 +727,14 @@ func diagnosticsCommand(args []string) error {
 	if err != nil {
 		return err
 	}
+	run, err := lintLoaded(l, nil, sel)
+	if err != nil {
+		return invalidInvocation(err)
+	}
 	if err := l.result.Qualify(producer.Current()); err != nil {
 		return err
 	}
-	findings := l.result.Report(l.snapshot, opts.strict)
+	findings := l.result.ReportWithLint(l.snapshot, opts.strict, run.Advice())
 	if opts.json {
 		err = printJSON(findings)
 	} else {

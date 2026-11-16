@@ -1,0 +1,178 @@
+// The laws of text spans. A law's integers become offsets by near, so a
+// generated span is In its text often and outside it sometimes.
+import strings
+
+// near is k folded into -1..n+1: an offset of a text of n bytes, or one
+// step outside it. A negative n (the width of a reversed span) counts as 0.
+func near(n int, k int) int {
+	let m = if n < 0 { 3 } else { n + 3 }
+	(k%m + m) % m - 1
+}
+
+// wordText is an ASCII text of words and white space made from the bytes
+// of s, one byte each, so a generated s gives words to cut.
+func wordText(s string) string {
+	let alphabet = "  abcab\tc"
+	let mut out = ""
+	for i in 0..len(s) {
+		let k = int(s[i]) % len(alphabet)
+		out = out + strings.Slice(alphabet, k, k+1)
+	}
+	out
+}
+
+// spanNear is the span of a and b folded by near into s.
+func spanNear(s string, a int, b int) Span { Span{Start: near(len(s), a), End: near(len(s), b)} }
+
+// CutOfWholeIsTheText: the whole span is In the text and its piece is the
+// text.
+law CutOfWholeIsTheText(s string) { In(s, Whole(s)) && Cut(s, Whole(s)) == s && Width(Whole(s)) == len(s) }
+
+// GetIsCut: Get is the piece Cut reads when the span is In the text, and
+// None when it is not.
+law GetIsCut(s string, a int, b int) {
+	let sp = spanNear(s, a, b)
+	match Get(s, sp) {
+	case Some[string] as v:
+		In(s, sp) && v.Value == Cut(s, sp) && len(v.Value) == Width(sp)
+	case None:
+		!In(s, sp)
+	}
+}
+
+// SubThenCutIsCutThenSlice: a sub-span is In the text and reads what a
+// slice of the span's piece reads; it is None exactly when the span is not
+// In the text or the offsets are outside the piece.
+law SubThenCutIsCutThenSlice(s string, a int, b int, from int, to int) {
+	let sp = spanNear(s, a, b)
+	let f = near(Width(sp), from)
+	let t = near(Width(sp), to)
+	match Sub(s, sp, f, t) {
+	case Some[Span] as u:
+		In(s, u.Value) && Cut(s, u.Value) == strings.Slice(Cut(s, sp), f, t)
+	case None:
+		!In(s, sp) || f < 0 || f > t || t > Width(sp)
+	}
+}
+
+// EqualAgreesWithCut: Equal is whether Get reads lit.
+law EqualAgreesWithCut(s string, a int, b int, lit string) {
+	let sp = spanNear(s, a, b)
+	Equal(s, sp, lit) == (Get(s, sp) == Some[string]{Value: lit}) && (!In(s, sp) || Equal(s, sp, Cut(s, sp)))
+}
+
+// FindIsTheFirstInside: Find's span is In the text, inside the searched
+// span, and reads sub, with no sub before it inside the span; None means
+// the span is not In the text or its piece has no sub.
+law FindIsTheFirstInside(s string, a int, b int, sub string) {
+	let sp = spanNear(s, a, b)
+	match Find(s, sp, sub) {
+	case Some[Span] as f:
+		let u = f.Value
+		let first = if sub == "" { u.Start == sp.Start } else { !strings.Contains(strings.Slice(s, sp.Start, u.End-1), sub) }
+		In(s, u) && sp.Start <= u.Start && u.End <= sp.End && Cut(s, u) == sub && first
+	case None:
+		!In(s, sp) || !strings.Contains(Cut(s, sp), sub)
+	}
+}
+
+// FieldsAreGoFields: for an ASCII text of words, the pieces of Fields are
+// Go's strings.Fields, each span In the text, in order and apart.
+law FieldsAreGoFields(raw string) {
+	let s = wordText(raw)
+	let spans = Fields(s)
+	let words = strings.Fields(s)
+	if len(spans) != len(words) {
+		return false
+	}
+	let mut ok = true
+	let mut last = -1
+	for i, sp in spans {
+		ok = ok && In(s, sp) && Width(sp) > 0 && sp.Start > last && Cut(s, sp) == words[i]
+		last = sp.End
+	}
+	ok
+}
+
+// CollectChecksEverySpan: Collect makes a Spans exactly when every span is
+// In the text, and its reads are the pieces of the text.
+law CollectChecksEverySpan(s string, xs []int) {
+	let mut at = []Span{}
+	for i in 0..len(xs)/2 {
+		at = at.Append(spanNear(s, xs[2*i], xs[2*i+1]))
+	}
+	let mut all = true
+	for sp in at {
+		all = all && In(s, sp)
+	}
+	match Collect(s, at) {
+	case Some[Spans] as d:
+		let mut ok = all && Source(d.Value) == s && Count(d.Value) == len(at)
+		for i, sp in at {
+			ok = ok && SpanAt(d.Value, i) == sp && At(d.Value, i) == Cut(s, sp)
+		}
+		ok
+	case None:
+		!all
+	}
+}
+
+// ModelAgrees is the seeded property: a run of up to 63 operations over
+// the words of a text (cut a word, a sub-span of it, a find in it, store
+// the spans and read one back) agrees step by step with a model that keeps
+// every word as its own string, read with Go's strings.
+law ModelAgrees(raw string, seed int, count int) {
+	let s = wordText(raw)
+	let n = (count%64 + 64) % 64
+	let mut x = (seed%2147483648 + 2147483648) % 2147483648
+	let spans = Fields(s)
+	let words = strings.Fields(s)
+	if len(spans) == 0 {
+		return true
+	}
+	let d = match Collect(s, spans) {
+	case Some[Spans] as v:
+		v.Value
+	case None:
+		return false
+	}
+	for _ in 0..n {
+		x = (x*1103515245 + 12345) % 2147483648
+		let k = (x / 65536) % len(spans)
+		let sp = spans[k]
+		let w = words[k]
+		let from = (x / 8) % (len(w) + 1)
+		let to = from + (x / 512) % (len(w) - from + 1)
+		match (x / 2) % 4 {
+		case 0:
+			if Cut(s, sp) != w || Get(s, sp) != (Some[string]{Value: w}) {
+				return false
+			}
+		case 1:
+			match Sub(s, sp, from, to) {
+			case Some[Span] as u:
+				if Cut(s, u.Value) != strings.Slice(w, from, to) {
+					return false
+				}
+			case None:
+				return false
+			}
+		case 2:
+			let sub = strings.Slice(w, from, to)
+			let want = strings.Index(w, sub)
+			match Find(s, sp, sub) {
+			case Some[Span] as f:
+				if f.Value.Start-sp.Start != want || Cut(s, f.Value) != sub {
+					return false
+				}
+			case None:
+				return false
+			}
+		case _:
+			if At(d, k) != w || SpanAt(d, k) != sp || !Equal(s, sp, w) {
+				return false
+			}
+		}
+	}
+	true
+}

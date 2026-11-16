@@ -4,9 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+
+	"ergo.local/prototype/internal/gobind"
 )
 
 // PackageTarget is one selected package of a recursive module command.
@@ -22,7 +24,15 @@ type PackageTarget struct {
 // Nested modules, testdata and hidden/underscore directories are excluded;
 // directory symlinks are not followed. Imports outside dir may supply ordering
 // edges, but do not enlarge the set of selected packages.
-func DiscoverPackages(dir string) ([]PackageTarget, error) {
+func DiscoverPackages(dir string) ([]PackageTarget, error) { return DiscoverPackagesThrough(nil, dir) }
+
+// DiscoverPackagesThrough is DiscoverPackages reading through fsys (a warm
+// request's Recorder, so a new or removed package folder is an input);
+// nil reads the host. It lists folders in name order.
+func DiscoverPackagesThrough(fsys FS, dir string) ([]PackageTarget, error) {
+	if fsys == nil {
+		fsys = hostFS{}
+	}
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, err
@@ -31,7 +41,8 @@ func DiscoverPackages(dir string) ([]PackageTarget, error) {
 	if err != nil {
 		return nil, err
 	}
-	l := &loader{fsys: hostFS{}, root: abs, pkgs: map[string]*loadedPackage{}, missing: map[string]string{}, state: map[*loadedPackage]int{}, texts: map[string]string{}}
+	l := newLoader(fsys, gobind.Platform{}, abs, "")
+	l.localOnly = true
 	found, err := l.findModule(abs)
 	if err != nil {
 		return nil, err
@@ -44,21 +55,16 @@ func DiscoverPackages(dir string) ([]PackageTarget, error) {
 	}
 	var roots []*loadedPackage
 	selected := map[*loadedPackage]bool{}
-	err = filepath.WalkDir(abs, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if !entry.IsDir() {
-			return nil
-		}
+	var walk func(path string) error
+	walk = func(path string) error {
 		if path != abs {
-			name := entry.Name()
+			name := filepath.Base(path)
 			if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || name == "testdata" {
-				return filepath.SkipDir
+				return nil
 			}
-			_, modErr := os.Stat(filepath.Join(path, ModFile))
+			_, modErr := fsys.Stat(filepath.Join(path, ModFile))
 			if modErr == nil {
-				return filepath.SkipDir
+				return nil
 			}
 			if !errors.Is(modErr, fs.ErrNotExist) {
 				return modErr
@@ -72,7 +78,7 @@ func DiscoverPackages(dir string) ([]PackageTarget, error) {
 		if rel != "." {
 			name += "/" + filepath.ToSlash(rel)
 		}
-		p, err := l.read(name, path)
+		p, err := l.read(name, path, nil)
 		if err != nil {
 			return err
 		}
@@ -80,9 +86,21 @@ func DiscoverPackages(dir string) ([]PackageTarget, error) {
 			roots = append(roots, p)
 			selected[p] = true
 		}
+		entries, err := fsys.ReadDir(path)
+		if err != nil {
+			return err
+		}
+		slices.SortFunc(entries, func(a, b fs.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
+		for _, e := range entries {
+			if e.IsDir() {
+				if err := walk(filepath.Join(path, e.Name())); err != nil {
+					return err
+				}
+			}
+		}
 		return nil
-	})
-	if err != nil {
+	}
+	if err := walk(abs); err != nil {
 		return nil, err
 	}
 	if len(roots) == 0 {

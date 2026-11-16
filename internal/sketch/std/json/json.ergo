@@ -32,10 +32,12 @@
 // become constant text. The law FastAgreesWithWriter holds that it writes
 // what the Writer operations write.
 
+import strings
+
 // Malformed is the failure of a text that is not one JSON value, or is
 // longer than MaxBytes, or nests deeper than MaxDepth: Offset is the byte
 // offset where the text breaks the rule, Reason the rule.
-type Malformed { Offset int, Reason string }
+extern go ergo.local/prototype/runtime/v1.JSONMalformed type Malformed { Offset int, Reason string }
 
 // Text is JSON text being written: the prelude's Writer events, and the
 // text they wrote so far. Its one provider is text. The private
@@ -51,21 +53,7 @@ type Malformed { Offset int, Reason string }
 // text's code (internal/sketch/std/ergo.laws). SetCommaSets is the plain
 // law SepAfterSet rests on.
 type Text {
-	Bool(b bool),
-	Int(n int64),
-	Uint(n uint64),
-	Float(f float64),
-	String(s string),
-	BeginList(n int),
-	EndList(),
-	BeginObject(n int),
-	Tag(name string),
-	Key(k string),
-	EndObject(),
-	// Null writes the null event, including a Nullable's empty state.
-	Null(),
-	// Number writes a number's spelling as it is (json.Value's numbers).
-	Number(text string),
+	..Writer,
 	// Written is the text written so far.
 	Written() string,
 
@@ -89,7 +77,7 @@ type Text {
 	floatBody(f float64),
 	// finish is the text written, and gives the buffer back to the pool
 	// (Encode only: nothing may use the Text after).
-	finish() string,
+	finish(hint int) string,
 
 	law SetCommaSets(due bool) { setComma(due); commaDue() == due },
 
@@ -111,7 +99,7 @@ type Text {
 // bracket: one flag is the whole state, since a key ends every object
 // member's comma question and a value every list element's); html, whether
 // strings escape <, > and &; and out, the bytes written.
-type text { comma bool, html bool, out []byte }
+type text { comma bool, html bool, out []byte } implements Text
 
 // appendString appends the bytes of s to out (Go's append at its string
 // shape, interop.md, Lowering 13).
@@ -126,11 +114,6 @@ extern go ergo.local/prototype/runtime/v1.JSONAppendFloat func appendFloat(out [
 
 // bytesText is the bytes of out as a string.
 extern go ergo.local/prototype/runtime/v1.JSONBytesText func bytesText(out []byte) string
-
-// take is an empty buffer from a pool; recycle puts out's buffer back, so
-// nothing may use it after (Encode only).
-extern go ergo.local/prototype/runtime/v1.JSONTake func take() []byte
-extern go ergo.local/prototype/runtime/v1.JSONRecycle func recycle(out []byte) []byte
 
 func raw(t *text, s string) { t.out = appendString(t.out, s) }
 
@@ -268,9 +251,9 @@ func Key(t *text, k string) {
 
 func Written(t *text) string { bytesText(t.out) }
 
-func finish(t *text) string {
-	let s = bytesText(t.out)
-	t.out = recycle(t.out)
+func finish(t *text, hint int) string {
+	let s = strings.FromBytes(t.out)
+	t.out = strings.Give(t.out, hint)
 	s
 }
 
@@ -286,7 +269,7 @@ func NewHTMLText() Text { text{comma: false, html: true, out: []byte{}} }
 // of the innermost open list or object; Wrong says when it was not of the
 // kind asked for.
 // law-exempt: only open makes a Cursor, from a text, so a law cannot draw one; the package law RoundTrips holds its reads through Reader and decode.
-type Cursor {
+extern go ergo.local/prototype/runtime/v1.Cursor type Cursor {
 	runtimeOnly(),
 	TakeNull() bool,
 	// Kind is the next value's kind in WireKind's order (0 null to 6 end).
@@ -314,7 +297,7 @@ type Cursor {
 extern go ergo.local/prototype/runtime/v1.JSONOpen func open(text string, maxBytes int, maxDepth int) Cursor fails Malformed
 
 // Reader reads a JSON text for decode[T](r).
-type Reader { c Cursor }
+type Reader { c Cursor } implements Reader
 
 // Open validates text whole, as one JSON value, no longer than maxBytes
 // bytes (no limit when maxBytes <= 0) and nested no deeper than maxDepth
@@ -424,17 +407,19 @@ func End(r Reader) { r.c.End() }
 type Codec[T wire] { MaxBytes int, MaxDepth int }
 
 // Encode is v's JSON text.
-// (Its Text's buffer is pooled, take and recycle, as encoding/json keeps its
-// encodeState: no other code sees it.)
-func Encode[T wire](c Codec[T], v T) string {
-	let t Text = text{comma: false, html: false, out: take()}
+// (Its Text's buffer is borrowed, strings.Borrow and Give, as
+// encoding/json keeps its encodeState: no other code sees it. The hint
+// is T's, so an encode after a GC allocates one buffer of T's last size.)
+func Encode[T wire](c Codec[T], v T) string needs wired[T] {
+	let hint = strings.Hint[text, T]()
+	let t Text = text{comma: false, html: false, out: strings.Borrow(hint)}
 	encode(v, t)
-	t.finish()
+	t.finish(hint)
 }
 
 // Decode is the T that text writes: Malformed when the text breaks
 // Open's rules, else the failures of decode[T] on its shape.
-func Decode[T wire](c Codec[T], text string) T fails Malformed | wired[T] {
+func Decode[T wire](c Codec[T], text string) T fails Malformed | wired[T] needs wired[T] {
 	let r = try Open(text, c.MaxBytes, c.MaxDepth)
 	try decode[T](r)
 }

@@ -25,6 +25,8 @@ import "slices"
 // WithCapacity is slices.WithCapacity[T](n): an empty slice with room for
 // n elements. It fabricates no element (parse-v1 ruling 7 withdrew
 // slice.Repeat). A negative n is a defect, Go's own makeslice panic.
+//
+//ergo:wait none
 func WithCapacity[T any](n int) []T { return make([]T, 0, n) }
 
 // ArenaValue is the physical storage of arena's private stored[T]. It is
@@ -40,6 +42,7 @@ type ArenaValue[T any] struct{ Value T }
 // that could bypass Ergo's initialization or construction authority.
 //
 //ergo:pure
+//ergo:wait none
 func ArenaTake[T any](s *ArenaValue[T]) T {
 	v := s.Value
 	var zero T
@@ -47,12 +50,28 @@ func ArenaTake[T any](s *ArenaValue[T]) T {
 	return v
 }
 
+// Let is a read of a package let that the lowering declares as a Go
+// constant (lower.constLet): x itself, as a value and not a constant
+// expression, so Go evaluates an expression over it as it evaluates one
+// over a variable (an integer wraps, a division by zero panics at run
+// time). gc inlines it and still folds the constant into the code.
+func Let[T any](x T) T { return x }
+
 // Append is the prelude's xs.Append(x): xs with x added at the end. Like
 // Go's append, the result may share xs's array; the lowering passes a
 // clipped xs where xs is still seen elsewhere.
 //
 //ergo:pure
 func Append[T any](xs []T, x T) []T { return append(xs, x) }
+
+// Reserve is xs with room for n more elements: xs itself when it has the
+// room, else a copy in a new array with at least that room (slices.Grow).
+// The lowering calls it before a for-in over a slice or a Map whose body
+// appends to xs once per iteration, with n the domain's length (lower
+// reserve.go), so the loop grows xs once.
+//
+//ergo:pure
+func Reserve[T any](xs []T, n int) []T { return slices.Grow(xs, n) }
 
 // Get is the read behind the prelude's m.Get(k): the value of k in m and
 // whether m has the key, Go's comma-ok form. The lowering writes the
@@ -83,6 +102,7 @@ func Put[K comparable, V any](m map[K]V, k K, v V) map[K]V {
 // Index validation precedes allocation and every write.
 //
 //ergo:pure
+//ergo:wait none
 func SlicesTake[T any](xs []T, i int) (T, []T) {
 	value := xs[i]
 	xs = slices.Clone(xs)
@@ -96,6 +116,7 @@ func SlicesTake[T any](xs []T, i int) (T, []T) {
 // wraps value and found in the program's Option and returns it beside m.
 //
 //ergo:pure
+//ergo:wait none
 func MapTake[K comparable, V any](m map[K]V, k K) (V, bool, map[K]V) {
 	value, found := m[k]
 	rest := make(map[K]V, len(m))

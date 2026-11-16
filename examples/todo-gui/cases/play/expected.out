@@ -1,0 +1,37 @@
+1: 0 items, 0 left, all: 
+2: 1 items, 1 left, all: [ ] milk
+3: 1 items, 1 left, all: [ ] milk
+4: 2 items, 2 left, all: [ ] milk; [ ] eggs
+5: 2 items, 2 left, all: [ ] milk; [ ] eggs
+6: 2 items, 2 left, all: [ ] milk; [ ] eggs
+7: 2 items, 2 left, all: [ ] milk; [ ] eggs
+8: 3 items, 3 left, all: [ ] milk; [ ] eggs; [ ] tea
+9: 3 items, 2 left, all: [x] milk; [ ] eggs; [ ] tea
+10: 3 items, 1 left, all: [x] milk; [ ] eggs; [x] tea
+11: 3 items, 1 left, open: [x] milk; [ ] eggs; [x] tea
+12: 3 items, 1 left, done: [x] milk; [ ] eggs; [x] tea
+13: 3 items, 2 left, done: [ ] milk; [ ] eggs; [x] tea
+14: 3 items, 2 left, all: [ ] milk; [ ] eggs; [x] tea
+15: 2 items, 2 left, all: [ ] milk; [ ] eggs
+16: 1 items, 1 left, all: [ ] milk
+17: no node del eggs
+column
+  row
+    input "" (new item)
+    button "add"
+      text "Add"
+  scroll
+    row
+      [ ] "milk"
+      button "del milk"
+        text "×"
+  row
+    text "1 left"
+    button "all"
+      text "All"
+    button "open"
+      text "Open"
+    button "done"
+      text "Done"
+    button "clear"
+      text "Clear done"

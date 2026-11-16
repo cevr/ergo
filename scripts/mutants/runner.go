@@ -56,6 +56,27 @@ type Config struct {
 	// earlier run to derive a deadline from.
 	CoverDeadline time.Duration
 	Log           io.Writer
+	// Sources check a mutant of a source file that go build does not
+	// compile (an .ergo row) before any test runs.
+	Sources []SourceCheck
+}
+
+// SourceCheck validates the mutants of one kind of source file. A mutated
+// file that the formatter would rewrite (FK7a), or that the compiler
+// refuses with a diagnostic the unmutated file does not have (FK12a), fails
+// every test that formats or checks it for that reason alone: such a
+// mutant is invalid, never killed, unless its row declares that the
+// refusal is its point (Mutant.Refused). Format and Check are commands;
+// their words may hold {bin:TOOL} (Tool, built from the unmutated copy),
+// {file} (the mutated file) and {dir} (its directory). Format exits 0 when
+// the file is formatted. Check prints a JSON object whose "diagnostics"
+// hold a "code" each; output that is not one counts as a refusal when the
+// command fails.
+type SourceCheck struct {
+	Ext    string
+	Tool   Tool
+	Format []string
+	Check  []string
 }
 
 // Tool is a binary that suites run, built from the checkout (with
@@ -173,7 +194,7 @@ func covered(ctx context.Context, cfg Config, jobs []Job) (*engine, error) {
 	if err := e.load(ledgers); err != nil {
 		return nil, err
 	}
-	if err := e.prepareCoverage(ctx); err != nil {
+	if err := e.prepareCoverage(ctx, jobs); err != nil {
 		return nil, err
 	}
 	return e, nil
@@ -187,6 +208,15 @@ type engine struct {
 	key         string
 	cov         *coverage
 	logMu       sync.Mutex
+	// plain are the coverage pass's test binaries built without coverage,
+	// by suite name, built the first time one is needed (plainBinary).
+	plainMu sync.Mutex
+	plain   map[string]*plainBuild
+}
+
+type plainBuild struct {
+	once sync.Once
+	err  error
 }
 
 type treeFile struct {
@@ -603,14 +633,19 @@ func (e *engine) buildSuite(ctx context.Context, root, bin string, s *Suite, cov
 	return e.exec(ctx, filepath.Join(root, filepath.FromSlash(s.Module)), argv, e.env(), deadline)
 }
 
-// argv returns how to run one test of a suite, and where.
-func (e *engine) argv(s *Suite, root, bin, test string) ([]string, string, []string) {
+// argv returns how to run one test of a suite, and where. A Go test binary
+// gets a -test.timeout inside the run's deadline, as go test always gives
+// one: a test that bounds its children by t.Deadline (internal/closure's
+// TestReapEndedLeavesTheHelperAndRunningChildren) fails at once without
+// it, so it judged nothing (MUT-names r2). Its own timeout also names the
+// stuck test before the runner stops the run.
+func (e *engine) argv(s *Suite, root, bin, test string, deadline time.Duration) ([]string, string, []string) {
 	var env []string
 	for _, kv := range s.Env {
 		env = append(env, expand(kv, bin, root, test))
 	}
 	if s.Package != "" {
-		return []string{filepath.Join(bin, s.Name+".test"), "-test.run=^" + regexp.QuoteMeta(test) + "$", "-test.count=1"},
+		return []string{filepath.Join(bin, s.Name+".test"), "-test.run=^" + regexp.QuoteMeta(test) + "$", "-test.count=1", "-test.timeout=" + (deadline * 9 / 10).String()},
 			filepath.Join(root, filepath.FromSlash(s.Module), filepath.FromSlash(s.Package)), env
 	}
 	var argv []string
@@ -642,21 +677,31 @@ func killerIDs(m *Mutant) []string {
 	return out
 }
 
-// prepareCoverage reads the coverage file, the cached one of this tree, or
-// measures it.
-func (e *engine) prepareCoverage(ctx context.Context) error {
+// prepareCoverage reads the coverage file, the cached one of this tree and
+// of the scope the selected mutants of jobs need (coverScope), or measures
+// it. It logs a receipt of the coverage work either way.
+func (e *engine) prepareCoverage(ctx context.Context, jobs []Job) error {
 	path := e.cfg.Coverage
-	if path == "" {
-		path = filepath.Join(e.cfg.Work, "coverage-"+e.key+".json.gz")
+	if path != "" {
+		e.logf("coverage receipt: read %s, no test run", path)
+	} else {
+		scope, err := e.scope(jobs)
+		if err != nil {
+			return err
+		}
+		path = filepath.Join(e.cfg.Work, "coverage-"+e.key+"-"+scope.key()+".json.gz")
 		if _, err := os.Stat(path); err != nil {
-			e.logf("coverage: tree %s into %s", e.key, path)
-			c, err := e.coverageOfTree(ctx)
+			suites := scope.of(e.cfg.Suites)
+			e.logf("coverage: tree %s into %s; not measured: the suites %v, which can cover no selected mutant", e.key, path, scope.skipped)
+			c, err := e.coverageOfTree(ctx, suites)
 			if err != nil {
 				return err
 			}
 			if err := saveCoverage(path, c); err != nil {
 				return err
 			}
+		} else {
+			e.logf("coverage receipt: reused %s, no test run", path)
 		}
 	}
 	c, err := loadCoverage(path)
@@ -690,10 +735,12 @@ func (e *engine) measure(ctx context.Context, suites []Suite) (*coverage, error)
 		}
 	}
 	c := &coverage{Key: e.key, Builds: map[string]float64{}}
+	builds := 0
 	for _, t := range e.cfg.Tools {
 		if !need[t.Name] {
 			continue
 		}
+		builds++
 		o, err := e.buildTool(ctx, root, bin, t.Name, true, e.cfg.CoverDeadline)
 		if err == nil && o.reason != "" {
 			err = fmt.Errorf("build %s with coverage: %s\n%s", t.Name, o.reason, o.tail)
@@ -707,6 +754,7 @@ func (e *engine) measure(ctx context.Context, suites []Suite) (*coverage, error)
 		s := &suites[i]
 		var names []string
 		if s.Package != "" {
+			builds++
 			o := e.buildSuite(ctx, root, bin, s, true, e.cfg.CoverDeadline)
 			if o.reason != "" {
 				return nil, fmt.Errorf("build suite %s with coverage: %s\n%s", s.Name, o.reason, o.tail)
@@ -754,6 +802,7 @@ func (e *engine) measure(ctx context.Context, suites []Suite) (*coverage, error)
 	k := &collector{module: e.module, blocks: map[blockKey][]int{}, ergo: newErgoMapper(filepath.Join(e.cfg.Work, "cover", "ergo-go"), root)}
 	var mu sync.Mutex
 	var firstErr error
+	done, seconds := 0, 0.0
 	next := make(chan int)
 	var wg sync.WaitGroup
 	for w := 0; w < e.cfg.Workers; w++ {
@@ -762,13 +811,14 @@ func (e *engine) measure(ctx context.Context, suites []Suite) (*coverage, error)
 			defer wg.Done()
 			for i := range next {
 				err := e.measureOne(ctx, root, bin, c.Tests[i], i, k, &mu)
-				if err != nil {
-					mu.Lock()
-					if firstErr == nil {
-						firstErr = err
-					}
-					mu.Unlock()
+				mu.Lock()
+				if err != nil && firstErr == nil {
+					firstErr = err
 				}
+				done++
+				seconds += c.Tests[i].Seconds
+				e.logf("coverage: %d/%d %s %.1fs", done, len(c.Tests), c.Tests[i].ID, c.Tests[i].Seconds)
+				mu.Unlock()
 			}
 		}()
 	}
@@ -780,6 +830,7 @@ func (e *engine) measure(ctx context.Context, suites []Suite) (*coverage, error)
 	}
 	close(next)
 	wg.Wait()
+	e.logf("coverage receipt: %d tests measured; %d of %d suites; %d builds; %.0f s of tests", done, len(suites), len(e.cfg.Suites), builds, seconds)
 	if firstErr == nil {
 		firstErr = ctx.Err()
 	}
@@ -798,7 +849,7 @@ func (e *engine) measureOne(ctx context.Context, root, bin string, t *covTest, i
 	defer os.RemoveAll(dir)
 	suiteName, name := splitID(t.ID)
 	s := e.suite(suiteName)
-	argv, cwd, env := e.argv(s, root, bin, name)
+	argv, cwd, env := e.argv(s, root, bin, name, e.cfg.CoverDeadline)
 	if s.Package != "" && s.Module == "" && len(e.cfg.Cover) > 0 {
 		// A nested module's suite is built without coverage (Suite.Module),
 		// and so is every suite when no package is covered (a ledger of
@@ -825,6 +876,26 @@ func (e *engine) measureOne(ctx context.Context, root, bin string, t *covTest, i
 		}
 	}
 	t.Seconds = o.seconds
+	if o.reason != "" && s.Package != "" && s.Module == "" && len(e.cfg.Cover) > 0 {
+		// A test may fail only because its binary is built with coverage:
+		// internal/closure's tests run their own binary in a sandbox where
+		// all but fresh scratch is read-only, and a coverage-built binary
+		// writes its coverage at exit under TMPDIR, so the run fails though
+		// its tests pass. The mutant pass runs binaries built without
+		// coverage, so such a test still judges mutants: run it once so,
+		// and if it passes there, keep it, with the blocks its coverage run
+		// recorded (MUT-names r2: 8 closure tests, rm-cgo-link-input's
+		// killer among them, judged nothing).
+		plain, err := e.plainRun(ctx, root, s, name)
+		if err != nil {
+			return err
+		}
+		if plain.reason == "" {
+			e.logf("coverage: %s fails only when built with coverage (%s); it passes without, so it stays a killer", t.ID, o.reason)
+			t.Seconds = max(t.Seconds, plain.seconds)
+			o = plain
+		}
+	}
 	if o.reason != "" {
 		t.Failed = true
 		t.Detail = o.reason + ": " + lastLines(o.tail, 20)
@@ -848,6 +919,36 @@ func (e *engine) measureOne(ctx context.Context, root, bin string, t *covTest, i
 	mu.Lock()
 	defer mu.Unlock()
 	return k.add(i, f)
+}
+
+// plainRun runs one test of the Go suite s in the coverage pass's copy at
+// root with the suite's binary built without coverage, built once per suite.
+func (e *engine) plainRun(ctx context.Context, root string, s *Suite, test string) (outcome, error) {
+	bin := filepath.Join(e.cfg.Work, "cover", "plain")
+	e.plainMu.Lock()
+	if e.plain == nil {
+		e.plain = map[string]*plainBuild{}
+	}
+	b := e.plain[s.Name]
+	if b == nil {
+		b = &plainBuild{}
+		e.plain[s.Name] = b
+	}
+	e.plainMu.Unlock()
+	b.once.Do(func() {
+		if err := os.MkdirAll(bin, 0o755); err != nil {
+			b.err = err
+			return
+		}
+		if o := e.buildSuite(ctx, root, bin, s, false, e.cfg.CoverDeadline); o.reason != "" {
+			b.err = fmt.Errorf("build suite %s without coverage: %s\n%s", s.Name, o.reason, o.tail)
+		}
+	})
+	if b.err != nil {
+		return outcome{}, b.err
+	}
+	argv, cwd, env := e.argv(s, root, bin, test, e.cfg.CoverDeadline)
+	return e.exec(ctx, cwd, argv, e.env(env...), e.cfg.CoverDeadline), nil
 }
 
 // headerLine reports whether the line of text at byte offset at is a case
@@ -922,6 +1023,11 @@ type worker struct {
 	bin     string
 	touched map[string]bool
 	err     error
+	// unmutated holds each source file's state before any mutant (they
+	// are restored after each one), and sourceTools the source checks'
+	// tools built from the unmutated copy.
+	unmutated   map[string]sourceState
+	sourceTools map[string]bool
 }
 
 // judge applies one mutant, runs its covering tests and the tests its ledger
@@ -944,14 +1050,12 @@ func (w *worker) judge(ctx context.Context, m *Mutant) (r Result) {
 	at := strings.Index(string(original), m.From)
 	r.Line = 1 + strings.Count(string(original[:at]), "\n")
 	if w.e.compileOnly {
-		restore, detail := w.apply(m, path, original)
-		if restore == nil {
-			r.Status, r.Detail = Invalid, detail
-			return r
+		restore, detail := w.applyChecked(ctx, m, path, original)
+		if restore != nil {
+			defer restore()
 		}
-		defer restore()
-		r.Status = Compiles
-		if detail := w.compiles(ctx, m, path, original); detail != "" {
+		r.Status, r.Detail = Compiles, ""
+		if detail != "" {
 			r.Status, r.Detail = Invalid, detail
 		}
 		return r
@@ -984,6 +1088,8 @@ func (w *worker) judge(ctx context.Context, m *Mutant) (r Result) {
 			hi = lo + strings.Count(a.Text, "\n")
 		}
 	}
+	// A .ergo file's lines have blocks too (the cover marks of std bodies,
+	// ergolines.go), and every file a test opens covers it (reads.go).
 	covering := w.e.cov.covering(file, lo, hi, header && m.Anchor == nil, extra)
 	r.Covering = len(covering)
 	if len(covering) == 0 {
@@ -1004,15 +1110,13 @@ func (w *worker) judge(ctx context.Context, m *Mutant) (r Result) {
 		r.Status, r.Detail = Unjudged, strings.Join(red, " ")+" fails on the unmutated tree"
 		return r
 	}
-	restore, detail := w.apply(m, path, original)
-	if restore == nil {
-		r.Status, r.Detail = Invalid, detail
-		return r
-	}
-	defer restore()
 	// A test that fails because the mutated file does not compile kills
-	// nothing the ledger can trust (compiles.go, GT-COMPILE).
-	if detail := w.compiles(ctx, m, path, original); detail != "" {
+	// nothing the ledger can trust (compiles.go, GT-COMPILE; FK7a, FK12a).
+	restore, detail := w.applyChecked(ctx, m, path, original)
+	if restore != nil {
+		defer restore()
+	}
+	if detail != "" {
 		r.Status, r.Detail = Invalid, detail
 		return r
 	}
@@ -1031,8 +1135,8 @@ func (w *worker) judge(ctx context.Context, m *Mutant) (r Result) {
 			r.Status, r.Detail, r.Killers, r.Killer = Invalid, detail, nil, ""
 			return r
 		}
-		argv, cwd, env := w.e.argv(s, w.root, w.bin, name)
 		deadline := max(testFloor, time.Duration(deadlineFactor*w.e.cov.test(id).Seconds*float64(time.Second)))
+		argv, cwd, env := w.e.argv(s, w.root, w.bin, name, deadline)
 		o := w.e.exec(ctx, cwd, argv, w.e.env(append(env, MutantVariable+"="+m.Name)...), deadline)
 		r.Ran = append(r.Ran, id)
 		if o.reason == "interrupted" {

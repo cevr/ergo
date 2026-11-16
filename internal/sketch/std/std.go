@@ -13,7 +13,9 @@ package std
 import (
 	"embed"
 	"io/fs"
+	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -37,7 +39,9 @@ var sourceDir = embedread.Dir()
 //go:embed sync/*.ergo
 //go:embed embed/*.ergo
 //go:embed atomic/*.ergo
-//go:embed arena/*.ergo
+//go:embed arena/*.ergo dense/*.ergo
+//go:embed ui/*.ergo
+//go:embed text/*.ergo
 //go:embed filepath/*.ergo
 //go:embed exec/*.ergo
 //go:embed math/*.ergo bits/*.ergo
@@ -50,6 +54,9 @@ var sourceDir = embedread.Dir()
 //go:embed http/*.ergo
 //go:embed actor/*.ergo
 //go:embed journal/*.ergo journal/memory/*.ergo journal/file/*.ergo
+//go:embed lint/*.ergo
+//go:embed bench/*.ergo
+//go:embed ui/layout/*.ergo
 var sources embed.FS
 
 // ledger is the std law ledger (runtime.md, Tests 10): the verdicts of
@@ -66,8 +73,32 @@ func Ledger() string { return ledger }
 // exported declarations are in scope in every package.
 const PreludePath = "prelude"
 
+// ObserveVariable names, when set, the checkout root of a coverage record
+// (scripts/gate, gate-speed GS9): each embedded file a caller reads is then
+// also opened at its checkout path, so the test log of the test that read it,
+// or of the test whose child process read it, names it as a read. The gate's
+// test-impact selection then reruns only the readers of an edited std file,
+// not every test. Unset, nothing is opened.
+const ObserveVariable = "ERGO_EMBED_OBSERVE"
+
+// moduleDir is this package's directory in the module.
+const moduleDir = "internal/sketch/std"
+
+// observe opens the checkout copy of the embedded file name under a coverage
+// record (ObserveVariable).
+var observe = func(name string) {
+	root := os.Getenv(ObserveVariable)
+	if root == "" {
+		return
+	}
+	if f, err := os.Open(filepath.Join(root, filepath.FromSlash(moduleDir), filepath.FromSlash(name))); err == nil {
+		f.Close()
+	}
+}
+
 // Prelude returns the prelude's source files, by file name.
 func Prelude() map[string]string {
+	observe("prelude.ergo")
 	data, err := sources.ReadFile("prelude.ergo")
 	if err != nil {
 		panic("std: the prelude is not embedded: " + err.Error())
@@ -93,6 +124,7 @@ func Package(importPath string) (map[string]string, bool) {
 			continue
 		}
 		name := path.Join(importPath, entry.Name())
+		observe(name)
 		data, err := sources.ReadFile(name)
 		if err != nil {
 			return nil, false

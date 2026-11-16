@@ -1,0 +1,70 @@
+// Package syntax reads twig source into a tree: Lex cuts the text into
+// tokens, Parse builds the statements and expressions by Pratt parsing,
+// and Print writes a tree back as source. Every failure names the line
+// and column where it is.
+
+// Pos is a place in the source: a line and a column, each from 1. A
+// column counts bytes.
+type Pos { Line int, Col int }
+
+// Kind is the class of a token.
+type Kind = Ident | Keyword | IntTok | FloatTok | StrTok | Punct | End
+
+type Ident {}
+type Keyword {}
+type IntTok {}
+type FloatTok {}
+type StrTok {}
+type Punct {}
+type End {}
+
+// Token is a word of the source. Text is the word as written, except for
+// a string, whose Text is its value with the escapes decoded. Fresh
+// reports whether a newline stands before the token: ( and [ continue an
+// expression only on the line where it is.
+type Token { Kind Kind, Text string, At Pos, Fresh bool }
+
+// Keywords are the words that are not names.
+let Keywords = []string{"fn", "let", "if", "else", "while", "for", "in", "return", "break", "continue", "true", "false", "nil", "and", "or", "not"}
+
+// IsKeyword reports whether w is a keyword.
+func IsKeyword(w string) bool {
+	for k in Keywords {
+		if k == w {
+			return true
+		}
+	}
+	false
+}
+
+// IsDigit reports whether c is an ASCII digit.
+func IsDigit(c byte) bool { c >= '0' && c <= '9' }
+
+// IsLetter reports whether c is an ASCII letter or _.
+func IsLetter(c byte) bool { (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' }
+
+// IsName reports whether s is a name: a letter or _, then letters,
+// digits or _, and not a keyword.
+func IsName(s string) bool {
+	if s == "" || IsKeyword(s) {
+		return false
+	}
+	for i in 0..len(s) {
+		if !(IsLetter(s[i]) || (i > 0 && IsDigit(s[i]))) {
+			return false
+		}
+	}
+	true
+}
+
+// Describe is how a failure names t.
+func Describe(t Token) string {
+	match t.Kind {
+	case End:
+		"the end"
+	case StrTok:
+		"a string"
+	case Ident, Keyword, IntTok, FloatTok, Punct:
+		"\"" + t.Text + "\""
+	}
+}

@@ -15,7 +15,8 @@ import (
 // type is an adapter whose methods record the call and call the answer
 // (scriptOperations). Hand Go control: a fake struct with a mutex, a slice
 // of calls and a func field per method, as mockgen writes; the same work
-// per call (one lock, one append, one call).
+// per call (one lock, one append, one call). A held call (Op.Hold) waits
+// inside Op.Call on the caller's task, which the adapter passes.
 
 // scriptBase is the preferred Go name of the struct of the Script n.
 func scriptBase(n *check.Named) string { return "script" + check.ScriptOf(n).Obj.Name }
@@ -120,15 +121,28 @@ func scriptFields(n *check.Named, site syntax.Node) []*check.Field {
 }
 
 // scriptLit is the Go value of the literal of the Script n: each field a
-// new Op with no answer and no calls.
+// new Op with no answer and no calls, named by the Script and the
+// operation for its defect and its end-of-test report.
 func (fc *funcCtx) scriptLit(n *check.Named, site syntax.Node) string {
 	var parts []string
+	scriptText := strconv.Quote(n.String())
 	for _, f := range scriptFields(n, site) {
 		op, ok := f.Type.(*check.Named)
 		if !ok || len(op.TArgs) != 2 {
-			ice(site, "the field %s of %s is not a testing.Op", f.Name, n)
+			ice(site, "the field %s of %s is not a provider field", f.Name, n)
 		}
-		parts = append(parts, memberName(f.Name)+": "+fc.l.rt()+".NewOp["+fc.goType(op.TArgs[0])+", "+fc.goType(op.TArgs[1])+"]()")
+		if pc := f.ProviderCalls(); pc != nil {
+			// An Ergo field type: its NewF (check/provider.go).
+			parts = append(parts, memberName(f.Name)+": "+fc.providerCall(pc.New, pc, fc.envExpr(site), nil, site))
+			continue
+		}
+		// The field type names its runtime Go type G, whose constructor
+		// NewG the checker requires (check/body.go providerFieldRefusal).
+		g, ok := check.GoTypeOf(op)
+		if !ok {
+			ice(site, "the field %s of %s names no runtime Go type", f.Name, n)
+		}
+		parts = append(parts, memberName(f.Name)+": "+fc.l.rt()+"."+check.ProviderFieldNew(g)+"["+fc.goType(op.TArgs[0])+", "+fc.goType(op.TArgs[1])+"]("+scriptText+", "+strconv.Quote(f.Name)+")")
 	}
 	return fc.goType(n) + "{" + strings.Join(parts, ", ") + "}"
 }
@@ -217,10 +231,23 @@ func (fc *funcCtx) scriptOperations(conv check.Conversion, val string, site synt
 			result = sig.Results[0]
 		}
 		fallible := len(rowElems(sig.Errors)) > 0
-		answer, has := locals.alloc("f"), locals.alloc("ok")
+		answer, has := locals.alloc("f"), locals.alloc("has")
 		call := answer + "(" + strings.Join(args, ", ") + ")"
 		b.WriteString("func (" + self + " *" + name + ") " + memberName(op.Name) + "(" + strings.Join(params, ", ") + ")" + tc.resultList(result, fallible) + " {\n")
-		b.WriteString("\t" + answer + ", " + has + " := " + self + ".v." + memberName(op.Name) + ".Call(" + record + ")\n")
+		if pc := f.ProviderCalls(); pc != nil {
+			// An Ergo field type: its Call records the arguments and
+			// returns the answer as an Option (check/provider.go), on the
+			// caller's task.
+			afc := newFuncCtx(l, locals, false)
+			afc.typeCtx = *tc
+			env := "&" + l.env() + "{" + envTask + ": " + task + "}"
+			o, w := locals.alloc("o"), locals.alloc("w")
+			b.WriteString("\t" + o + " := " + afc.providerCall(pc.Call, pc, env, []string{self + ".v." + memberName(op.Name), record}, site) + "\n")
+			b.WriteString("\tvar " + answer + " " + tc.goType(f.Type.(*check.Named).TArgs[1]) + "\n\t" + has + " := false\n")
+			b.WriteString("\tif " + afc.optionSomeIf(pc.CallSig.Results[0], o, w, site) + " {\n\t\t" + answer + ", " + has + " = " + w + "." + memberName("Value") + ", true\n\t}\n")
+		} else {
+			b.WriteString("\t" + answer + ", " + has + " := " + self + ".v." + memberName(op.Name) + ".Call(" + task + ", " + record + ")\n")
+		}
 		noAnswer := l.rt() + ".NoAnswer[struct{}](" + scriptText + ", " + strconv.Quote(op.Name) + ")"
 		switch {
 		case result == nil && !fallible:
@@ -258,4 +285,26 @@ func scriptSig(f *check.Field, site syntax.Node) *check.Signature {
 		ice(site, "the Script field %s answers with %s, not a function", f.Name, op.TArgs[1])
 	}
 	return sig
+}
+
+// providerCall is the Go call of f, the NewF or Call of a provider field
+// declared in Ergo, at the field's type arguments (pc.TypeArgs): env is the
+// environment it runs in and args its Go arguments. It is the direct call
+// funcValue's closure makes; the pair has no row (check/provider.go), so
+// the call returns its one result.
+func (fc *funcCtx) providerCall(f *check.Func, pc *check.ProviderCalls, env string, args []string, site syntax.Node) string {
+	fd := fc.l.useFunc(f, site)
+	if fd.fallible {
+		ice(site, "the provider field function %s has an error row", f.Name)
+	}
+	inst := &check.Instance{Func: f, TypeArgs: pc.TypeArgs}
+	lead := append(fd.envLead(env), fc.witnessArgs(f, inst, site)...)
+	var head string
+	switch {
+	case fd.method != nil:
+		head, args = args[0]+"."+fd.name, args[1:]
+	default:
+		head = fd.name + fc.typeArgs(f.Sig, inst.TypeArgs, site)
+	}
+	return head + "(" + strings.Join(append(lead, args...), ", ") + ")"
 }

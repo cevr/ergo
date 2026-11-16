@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"ergo.local/prototype/internal/pinset"
 )
 
 // inputMutation changes one field of the base input. covers names the
@@ -158,7 +160,7 @@ func TestCacheInputs(t *testing.T) {
 				t.Fatalf("an action change re-emitted: reused=%v emissions=%d err=%v", again.Reused, calls.Load(), err)
 			}
 			command := tc.Command(again, "/out/program")
-			if slices.Equal(command.Env, baseCommand.Env) && command.Path == baseCommand.Path {
+			if slices.Equal(command.Env, baseCommand.Env) && command.Path == baseCommand.Path && slices.Equal(command.Args, baseCommand.Args) {
 				t.Fatal("the action is unchanged")
 			}
 			binary, err := link(t, tc, again)
@@ -187,10 +189,33 @@ func TestCacheInputs(t *testing.T) {
 		t.Run("Strip", func(t *testing.T) {
 			// The stripped link reuses the module (bs4-cache-key: the flag
 			// is the action's, not the emission's) and drops the symbols.
+			// TL1: the stripped link has no symbol table and no DWARF, and
+			// keeps the pclntab a panic's trace reads; it runs the same.
+			// Mutant tl1-strip-keeps-symtab (stripFlags '-ldflags=-w').
 			covered["Toolchain.Strip"] = true
 			tc := hostToolchain()
 			tc.Strip = true
 			data := reuse(t, tc)
+			if runtime.GOOS == "linux" {
+				sections := func(data []byte) map[string]bool {
+					file, err := elf.NewFile(bytes.NewReader(data))
+					if err != nil {
+						t.Fatal(err)
+					}
+					names := map[string]bool{}
+					for _, s := range file.Sections {
+						names[s.Name] = true
+					}
+					return names
+				}
+				stripped, full := sections(data), sections(baseBytes)
+				if !full[".symtab"] || !full[".debug_info"] {
+					t.Fatalf("the base link has no symbols to strip: %v", full)
+				}
+				if stripped[".symtab"] || stripped[".debug_info"] || !stripped[".gopclntab"] {
+					t.Fatalf("the stripped link's sections are %v; want no .symtab or .debug_info, and .gopclntab", stripped)
+				}
+			}
 			binary := filepath.Join(t.TempDir(), "stripped")
 			if err := os.WriteFile(binary, data, 0o755); err != nil {
 				t.Fatal(err)
@@ -217,6 +242,24 @@ func TestCacheInputs(t *testing.T) {
 			want := map[string]elf.Machine{"arm64": elf.EM_AARCH64, "amd64": elf.EM_X86_64}[tc.GOARCH]
 			if file.Machine != want || bytes.Equal(data, baseBytes) {
 				t.Fatalf("GOARCH=%s linked machine %v", tc.GOARCH, file.Machine)
+			}
+		})
+		t.Run("Strip", func(t *testing.T) {
+			// The stripped link reuses the module (bs4-cache-key: the flag
+			// is the action's, not the emission's) and drops the symbols.
+			covered["Toolchain.Strip"] = true
+			tc := hostToolchain()
+			tc.Strip = true
+			data := reuse(t, tc)
+			binary := filepath.Join(t.TempDir(), "stripped")
+			if err := os.WriteFile(binary, data, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if len(data) >= len(baseBytes) {
+				t.Fatalf("the stripped executable has %d bytes, the base %d", len(data), len(baseBytes))
+			}
+			if got, want := runProgram(t, binary), expectedOutput(t, base, "r1", "unset"); got != want {
+				t.Fatalf("stripped executable prints %q, want %q", got, want)
 			}
 		})
 		t.Run("GOOS", func(t *testing.T) {
@@ -294,6 +337,22 @@ func TestCacheInputs(t *testing.T) {
 			}
 			if got, want := runProgram(t, binary), expectedOutput(t, base, "r1", "unset"); got != want {
 				t.Fatalf("the coverage build prints %q, want %q", got, want)
+			}
+		})
+		t.Run("Pins", func(t *testing.T) {
+			// Pin archive sets (pin.go) only replace compiles the direct
+			// path would run with the same bytes: they key neither the
+			// emitted module nor go build's action. TestColdBuildCompilesNoPinPackage
+			// and TestRefusedArchiveFallsBack (sketchfront) check the bytes.
+			covered["Toolchain.Pins"] = true
+			tc := hostToolchain()
+			tc.Pins = Pins{Patch: "another", Source: pinset.Source{Dir: t.TempDir()}}
+			again, err := Cache{Root: root}.Module(base, emitFor(base, &calls))
+			if err != nil || !again.Reused || calls.Load() != 1 {
+				t.Fatalf("pins re-emitted: reused=%v emissions=%d err=%v", again.Reused, calls.Load(), err)
+			}
+			if command := tc.Command(again, "/out/program"); !slices.Equal(command.Args, baseCommand.Args) || !slices.Equal(command.Env, baseCommand.Env) {
+				t.Fatal("pins change go build's action")
 			}
 		})
 		t.Run("Root", func(t *testing.T) {

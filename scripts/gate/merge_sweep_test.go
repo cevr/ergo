@@ -16,7 +16,7 @@ import (
 // edit outside the sweep's closure replays it; an edit inside reruns it. The
 // counts are of real runs of fixture steps. Mutants: gt5-merge-sweeps-uncached
 // (the run replays no sweep), gt5-merge-takes-full (merge keys name the full
-// tier), gt5-end-facts-whole (the end facts come from the whole-gate key the
+// tier), gt5-end-facts-whole (the end facts come from the key of the whole gate, which the
 // run does not have).
 func TestMergeTierReplaysUnchangedSweeps(t *testing.T) {
 	root := fixture(t)

@@ -351,10 +351,62 @@ func callsNeedsBuild(s ast.Stmt) bool {
 	return ok && id.Name == "needsBuild"
 }
 
+// fastExamplesFile lists the example programs the fast tier runs
+// (gate-speed GS3): those a mutant ledger names as a killer. The full tier
+// runs every default program. internal/residue checks the list against
+// the ledgers (TestFastTierExamplesAreLedgerKillers).
+const fastExamplesFile = "scripts/examples/fast-tier.txt"
+
+// fastExamples narrows the fast tier's examples step to the programs of
+// fastExamplesFile. 35 of the 51 default programs were named by no ledger
+// row: 147 of the step's 208 ergo test runs, 261 s (gate-speed.md).
+// A missing or empty list is an error, never a silent full or empty run;
+// a module with no runner (a test's fixture) has no list to read, and
+// the step, if it runs there, fails (examplesRunnerInputs).
+func fastExamples(root string, steps []*Step) error {
+	i := slices.IndexFunc(steps, func(s *Step) bool { return s.Name == examplesStepName })
+	if i < 0 {
+		return nil
+	}
+	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(examplesRunner, "./")))); os.IsNotExist(err) {
+		return nil
+	}
+	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(fastExamplesFile)))
+	if err != nil {
+		return fmt.Errorf("the fast tier's example programs: %w", err)
+	}
+	var programs []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if line = strings.TrimSpace(line); line != "" && !strings.HasPrefix(line, "#") {
+			programs = append(programs, line)
+		}
+	}
+	if len(programs) == 0 {
+		return fmt.Errorf("%s lists no program", fastExamplesFile)
+	}
+	step := *steps[i]
+	step.Argv = append(slices.Clone(step.Argv), programs...)
+	step.Weight = fastExamplesWeight
+	steps[i] = &step
+	return nil
+}
+
 // fastSteps declares the fast tier: the full tier's classFast steps
 // (classFastSteps), and one keyed -short step per test package or shard
 // but the host packages' and the full-tier-only packages' (fullTierOnly).
 func fastSteps(root string) ([]*Step, error) {
+	return fastStepsSelected(root, nil)
+}
+
+// selector judges which fast tests of a selectPackages package an edit
+// reaches (selectTests); env is the step's environment.
+type selector func(p testPackage, env, names []string) selection
+
+// fastStepsSelected is fastSteps, with the fast tests of each of
+// selectPackages narrowed by choose when it is not nil: a skipped test
+// joins the large ones that every shard skips, so a test the record does
+// not know still runs.
+func fastStepsSelected(root string, choose selector) ([]*Step, error) {
 	packages, problem, err := testPackages(root)
 	if err != nil {
 		return nil, err
@@ -374,6 +426,9 @@ func fastSteps(root string) ([]*Step, error) {
 	module := modulePath(root)
 	steps, err := classFastSteps(full)
 	if err != nil {
+		return nil, err
+	}
+	if err := fastExamples(root, steps); err != nil {
 		return nil, err
 	}
 	var tests []*Step
@@ -406,6 +461,13 @@ func fastSteps(root string) ([]*Step, error) {
 		}
 		measured := durations[p.importPath]
 		fast, large := fastSelection(names, measured)
+		note := ""
+		if choose != nil && slices.Contains(selectPackages, relative) {
+			chosen := choose(p, append(stepEnvironment(), env...), fast)
+			fast = slices.DeleteFunc(fast, func(name string) bool { return slices.Contains(chosen.skip, name) })
+			large = append(large, chosen.skip...)
+			note = chosen.note
+		}
 		if len(names) > 0 && len(fast) == 0 {
 			// Every test is large: a step would run none and only build
 			// the test binary, which go vet type-checks. The full tier
@@ -426,7 +488,7 @@ func fastSteps(root string) ([]*Step, error) {
 		groups := shard(fast, measured, n)
 		selections, weights := fastShardArgs(groups, large), shardWeights(groups, measured)
 		for i, selection := range selections {
-			step := &Step{Name: name, Needs: needs, Argv: append(append(append(slices.Clone(base), testTimeoutFor(weights[i])), selection...), pkg), Env: env, ToolEnv: testTools, Package: p.closure, PackageProblem: problem, Weight: weights[i], Class: classFast}
+			step := &Step{Name: name, Needs: needs, Argv: append(append(append(slices.Clone(base), testTimeoutFor(weights[i])), selection...), pkg), Env: env, ToolEnv: testTools, Package: p.closure, PackageProblem: problem, Weight: weights[i], Class: classFast, Note: note}
 			if len(selections) > 1 {
 				step.Name = fmt.Sprintf("go test %s [%d/%d] (fast)", pkg, i+1, len(selections))
 			}
@@ -553,6 +615,18 @@ func writeFastCPU(root string, limit limiter, packages []string) error {
 			i := slices.IndexFunc(steps, func(s *Step) bool { return s.Name == pkg })
 			if i < 0 {
 				return fmt.Errorf("no fast-tier step %q", pkg)
+			}
+			// The examples step keeps a verdict cache whose key a
+			// compiler edit reaches only through what the edit changes
+			// in each program's legs (early cutoff, gate-speed GS8): after
+			// a checker edit a program whose emitted Go and check result
+			// are the same replays. So the row is a run over a warm cache,
+			// what that edit costs; the first run, which fills the cache,
+			// is not counted. Counted cold, every program ran: 560.7 CPU-s
+			// at the batch 19+20+21 head, against 120 measured after a
+			// checker edit (GS29).
+			if _, err := measure(steps[i]); err != nil {
+				return err
 			}
 			cpu, err := measure(steps[i])
 			if err != nil {

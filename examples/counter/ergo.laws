@@ -1,3 +1,3 @@
-law counter.Counter.AddJoins for counter/cmd/counter.Wheel at (1, 2) proved h1:VMG9XXHVgkl4Ad+T93hJO6iyIg9XQbJqKh7Pjp7n+dI=
-law counter.Counter.AddJoins for counter/cmd/counter.Wheel at (3, 4) proved h1:BwtxVhRlp5NcAegowif1BsI8W4dMYIaYQzGPVrI9eYY=
-law counter.Counter.AddJoins for counter/cmd/counter.Wheel proved h1:X9VmL/M/frxiWet14c8SOU4plXSXNlGc7Mnjm1glevo=
+law counter.Counter.AddJoins for counter/cmd/counter.Wheel at (1, 2) proved h1:V0wYqD5mvaXdWqgiQfU6cCJpAG3bRY2ncOeGZHjG3rU=
+law counter.Counter.AddJoins for counter/cmd/counter.Wheel at (3, 4) proved h1:jckcxjtyy+dzg1yreq6ZUhhl4XTBqnGnL6th7HVGYA0=
+law counter.Counter.AddJoins for counter/cmd/counter.Wheel proved h1:FaxwkoqJhagKHkZxKj55DXz288g1hRRqxtO0fGkatZU=

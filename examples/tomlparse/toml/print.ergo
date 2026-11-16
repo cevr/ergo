@@ -1,0 +1,238 @@
+// The printers: a tree as toml-test's tagged JSON, and as TOML.
+
+import math
+import slices
+import strconv
+import strings
+
+let hexDigits = "0123456789abcdef"
+
+// WriteQuoted writes s as a quoted string that JSON and TOML's basic
+// strings read the same: ", \ and the bytes below 0x20 and DEL escaped
+// (the short escapes where both have one), every other byte as it is.
+func WriteQuoted(b *strings.Builder, s string) {
+	b.WriteByte('"')
+	for i in 0..len(s) {
+		let c = s[i]
+		match c {
+		case '"':
+			b.WriteString("\\\"")
+		case '\\':
+			b.WriteString("\\\\")
+		case '\n':
+			b.WriteString("\\n")
+		case '\t':
+			b.WriteString("\\t")
+		case '\r':
+			b.WriteString("\\r")
+		case 0x08:
+			b.WriteString("\\b")
+		case 0x0c:
+			b.WriteString("\\f")
+		case _:
+			if c < 0x20 || c == 0x7f {
+				b.WriteString("\\u00")
+				b.WriteByte(hexDigits[int(c>>4)])
+				b.WriteByte(hexDigits[int(c&15)])
+			} else {
+				b.WriteByte(c)
+			}
+		}
+	}
+	b.WriteByte('"')
+}
+
+// Quoted is s as WriteQuoted writes it.
+func Quoted(s string) string {
+	let mut b = strings.NewBuilder()
+	WriteQuoted(&b, s)
+	b.String()
+}
+
+// FloatText is f as both printers write it: inf, -inf and nan as TOML
+// spells them, and any other float in Go's shortest form.
+func FloatText(f float64) string {
+	if math.IsNaN(f) {
+		return "nan"
+	}
+	if math.IsInf(f, 1) {
+		return "inf"
+	}
+	if math.IsInf(f, -1) {
+		return "-inf"
+	}
+	strconv.FormatFloat(f, 'g', -1)
+}
+
+// sorted is the members of a table in the byte order of their keys.
+func sorted(members []Member) []Member {
+	slices.SortFunc(members, func(a Member, b Member) int { strings.Compare(a.Key, b.Key) })
+}
+
+// Tagged is v as toml-test's tagged JSON on one line: a table is an
+// object with its keys in byte order, an array an array, and a scalar
+// {"type":T,"value":V} with V its text.
+func Tagged(v Value) string {
+	let mut b = strings.NewBuilder()
+	tagged(&b, v)
+	b.String()
+}
+
+func tag(b *strings.Builder, kind string, text string) {
+	b.WriteString("{\"type\":\"" + kind + "\",\"value\":")
+	WriteQuoted(b, text)
+	b.WriteByte('}')
+}
+
+func tagged(b *strings.Builder, v Value) {
+	match v {
+	case Str as s:
+		tag(b, "string", s.S)
+	case Int as n:
+		tag(b, "integer", strconv.FormatInt(n.N, 10))
+	case Float as f:
+		tag(b, "float", FloatText(f.F))
+	case Bool as x:
+		tag(b, "bool", if x.B { "true" } else { "false" })
+	case Moment as m:
+		let kind = match m.Kind {
+		case OffsetDateTime:
+			"datetime"
+		case LocalDateTime:
+			"datetime-local"
+		case LocalDate:
+			"date-local"
+		case LocalTime:
+			"time-local"
+		}
+		tag(b, kind, m.Text)
+	case Array as a:
+		b.WriteByte('[')
+		for i, x in a.Items {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			tagged(b, x)
+		}
+		b.WriteByte(']')
+	case Table as t:
+		b.WriteByte('{')
+		for i, m in sorted(t.Members) {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			WriteQuoted(b, m.Key)
+			b.WriteByte(':')
+			tagged(b, m.Val)
+		}
+		b.WriteByte('}')
+	}
+}
+
+// Print is the table t as TOML: its plain members as key/value pairs,
+// then each table member under its [header] and each array of tables as
+// [[header]] sections, keys in the text's order.
+func Print(t Value) string {
+	let mut b = strings.NewBuilder()
+	match t {
+	case Table as root:
+		section(&b, root, "")
+	case Str, Int, Float, Bool, Moment, Array:
+		inlineValue(&b, t)
+		b.WriteByte('\n')
+	}
+	b.String()
+}
+
+// sections says whether v prints as sections of its own: a table, or a
+// non-empty array whose items are all tables.
+func sections(v Value) bool {
+	match v {
+	case Table:
+		true
+	case Array as a:
+		if len(a.Items) == 0 {
+			return false
+		}
+		for x in a.Items {
+			match x {
+			case Table:
+			case Str, Int, Float, Bool, Moment, Array:
+				return false
+			}
+		}
+		true
+	case Str, Int, Float, Bool, Moment:
+		false
+	}
+}
+
+func section(b *strings.Builder, t Table, path string) {
+	for m in t.Members {
+		if !sections(m.Val) {
+			b.WriteString(Shown(m.Key) + " = ")
+			inlineValue(b, m.Val)
+			b.WriteByte('\n')
+		}
+	}
+	for m in t.Members {
+		if !sections(m.Val) {
+			continue
+		}
+		let inner = joined(path, m.Key)
+		match m.Val {
+		case Table as sub:
+			b.WriteString("\n[" + inner + "]\n")
+			section(b, sub, inner)
+		case Array as a:
+			for x in a.Items {
+				match x {
+				case Table as sub:
+					b.WriteString("\n[[" + inner + "]]\n")
+					section(b, sub, inner)
+				case Str, Int, Float, Bool, Moment, Array:
+				}
+			}
+		case Str, Int, Float, Bool, Moment:
+		}
+	}
+}
+
+// inlineValue writes v as a value on one line.
+func inlineValue(b *strings.Builder, v Value) {
+	match v {
+	case Str as s:
+		WriteQuoted(b, s.S)
+	case Int as n:
+		b.WriteString(strconv.FormatInt(n.N, 10))
+	case Float as f:
+		let text = FloatText(f.F)
+		b.WriteString(text)
+		if !strings.Contains(text, ".") && !strings.Contains(text, "e") && !strings.Contains(text, "n") {
+			b.WriteString(".0")
+		}
+	case Bool as x:
+		b.WriteString(if x.B { "true" } else { "false" })
+	case Moment as m:
+		b.WriteString(m.Text)
+	case Array as a:
+		b.WriteByte('[')
+		for i, x in a.Items {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			inlineValue(b, x)
+		}
+		b.WriteByte(']')
+	case Table as t:
+		b.WriteByte('{')
+		for i, m in t.Members {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString(Shown(m.Key) + " = ")
+			inlineValue(b, m.Val)
+		}
+		b.WriteByte('}')
+	}
+}

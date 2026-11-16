@@ -1,0 +1,46 @@
+// ownring (TestHandoverGrowsLinearly; GP's ring-copy repro from the wf10
+// corpus wave, unchanged below this paragraph).
+//
+// ring-copy: the smallest repro of dash-gui's ring push (examples/dash-gui
+// panel/ring.ergo). A ring of CAP slots takes PUSHES values; once full,
+// each push writes one slot through a `let mut` copy of the record's
+// slice field. Run: ring-copy CAP PUSHES. If the push writes in place,
+// user instructions grow with PUSHES only; if it copies the slots, they
+// grow with CAP x PUSHES.
+
+import io
+import os
+import strconv
+
+type Ring { items []int, head int, cap int }
+
+func push(r Ring, v int) Ring {
+	if len(r.items) < r.cap {
+		return Ring{items: r.items.Append(v), head: r.head, cap: r.cap}
+	}
+	let mut items = r.items
+	items[r.head] = v
+	Ring{items: items, head: (r.head + 1) % r.cap, cap: r.cap}
+}
+
+func main() fails os.Exit needs Ambient {
+	let args = os.NewHost().Args()
+	if len(args) != 2 {
+		return os.Exit{Code: 2, Message: "usage: ring-copy CAP PUSHES"}
+	}
+	let c = strconv.Atoi(args[0]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return os.Exit{Code: 2, Message: "CAP"}
+	}
+	let n = strconv.Atoi(args[1]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return os.Exit{Code: 2, Message: "PUSHES"}
+	}
+	let mut r = Ring{items: []int{}, head: 0, cap: c}
+	for i in 0..n {
+		r = push(r, i)
+	}
+	with context { io.Stdout: io.NewHost() } {
+		io.Stdout.Println("\(len(r.items)) \(r.head) \(r.items[r.head])")
+	}
+}

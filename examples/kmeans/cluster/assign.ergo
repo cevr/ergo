@@ -1,0 +1,86 @@
+// The assignment step: each point to its nearest centroid, in chunks, in
+// parallel, the chunks' Sums merged by Merge.
+
+import tasks
+
+// Chunk is the points from From up to To.
+type Chunk { From int, To int }
+
+// Split cuts n points into at most parts chunks of nearly equal size.
+func Split(n int, parts int) []Chunk {
+	let mut chunks = []Chunk{}
+	for i in 0..parts {
+		let from = n * i / parts
+		let to = n * (i + 1) / parts
+		if to > from {
+			chunks = chunks.Append(Chunk{From: from, To: to})
+		}
+	}
+	chunks
+}
+
+// AssignChunk is the Sums of the points from..to against the centroids
+// that flat holds (Flat).
+func AssignChunk(points []Point, from int, to int, flat []int32) Sums {
+	let mut s = Empty(len(flat) / Dims)
+	for i in from..to {
+		let p = points[i]
+		let (j, d) = Nearest(p, flat)
+		s.Add(p, j, d)
+	}
+	s
+}
+
+// Assign is the Sums of every point against cents, summed in chunks by
+// workers tasks at once and merged in order.
+func Assign(points []Point, cents []Point, workers int) Sums {
+	let flat = Flat(cents)
+	let parts = tasks.Transform(Split(len(points), workers), workers, func(c Chunk) Sums { AssignChunk(points, c.From, c.To, flat) })
+	let mut total = Empty(len(cents))
+	for part in parts {
+		total = Merge(total, part)
+	}
+	total
+}
+
+// Update is the centroids after a step: each centroid with points moves
+// to their mean, each coordinate rounded to the nearest integer (half up);
+// a centroid with none stays. Rounding to the nearest integer keeps the
+// inertia from rising: the old centroid is an integer point too.
+func Update(cents []Point, s Sums) []Point {
+	let mut next = []Point{}
+	for j in 0..len(cents) {
+		let n = s.Count[j]
+		if n == 0 {
+			next = next.Append(cents[j])
+		} else {
+			let mut c = Point{}
+			for d in 0..Dims {
+				c[d] = int32(floorDiv(2*s.Total[j*Dims+d]+n, 2*n))
+			}
+			next = next.Append(c)
+		}
+	}
+	next
+}
+
+// floorDiv is a / b rounded down; b is positive.
+func floorDiv(a int, b int) int {
+	let q = a / b
+	if a%b != 0 && a < 0 {
+		return q - 1
+	}
+	q
+}
+
+// SplitDoesNotMatter: the Sums of the points are the same for every
+// number of workers, the law that lets Assign run in parallel.
+law SplitDoesNotMatter(xs []int, ys []int, w int) {
+	let points = pointsOfWindows(xs)
+	let cents = pointsOfWindows(ys)
+	if len(cents) == 0 {
+		return true
+	}
+	let workers = 1 + (w%9+9)%9
+	Assign(points, cents, workers) == AssignChunk(points, 0, len(points), Flat(cents))
+}

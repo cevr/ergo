@@ -100,6 +100,8 @@ func TestRecordFastCPURecordsAStepByName(t *testing.T) {
 	write(t, root, "go.mod", "module example.test/step\n\ngo 1.24\n")
 	write(t, root, "cmd/ergo/main.go", "package main\n\nfunc main() {}\n")
 	write(t, root, "scripts/examples/main.go", "package main\n\nfunc main() {}\n")
+	// The fast tier's examples step names its programs (fastExamples).
+	write(t, root, fastExamplesFile, "a\n")
 	write(t, root, "scripts/authored_examples.txt", "go.mod\n")
 	write(t, root, fastCPUFile, "{\n  \"example.test/step/q\": 7\n}\n")
 	var out strings.Builder

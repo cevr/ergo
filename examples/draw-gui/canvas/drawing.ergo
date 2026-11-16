@@ -1,0 +1,145 @@
+// A drawing: its shapes by id, the next id, and the grid over them. The
+// grid is kept with every change, so a hit test never scans the drawing.
+
+import slices
+
+// Layers is how many layers a drawing has: 0 to Layers-1.
+let Layers = 4
+
+// Picture is the shapes of a picture. Only Empty and its changes make one.
+type Picture { Shapes Map[int, Placed], Next int, Grid Grid }
+
+// Empty is a drawing with no shapes.
+func Empty() Picture { Picture{Shapes: Map[int, Placed]{}, Next: 1, Grid: Grid{Cells: Map[int, []int]{}}} }
+
+// Add is d with s on layer, and the id it took.
+func Add(d Picture, layer int, s Shape) (Picture, int) {
+	let id = d.Next
+	let p = Placed{Id: id, Layer: Clamp(layer, 0, Layers-1), Shape: s}
+	(Picture{Shapes: d.Shapes.Put(id, p), Next: id + 1, Grid: Index(d.Grid, id, s)}, id)
+}
+
+// Place is d with p under its own id, for a picture read back from text:
+// a shape it already has under that id is replaced.
+func Place(d Picture, p Placed) Picture {
+	let without = Remove(d, p.Id)
+	Picture{
+		Shapes: without.Shapes.Put(p.Id, Placed{..p, Layer: Clamp(p.Layer, 0, Layers-1)}),
+		Next:   most(without.Next, p.Id+1),
+		Grid:   Index(without.Grid, p.Id, p.Shape),
+	}
+}
+
+// Remove is d without the shape id; d when it has none.
+func Remove(d Picture, id int) Picture {
+	match d.Shapes.Get(id) {
+	case Some[Placed] as p:
+		Picture{..d, Shapes: d.Shapes.Delete(id), Grid: Unindex(d.Grid, id, p.Value.Shape)}
+	case None:
+		d
+	}
+}
+
+// Room is the delta nearest to want that keeps every shape of ids inside
+// the world.
+func Room(d Picture, ids []int, want Point) Point {
+	let mut lo = Point{X: -2 * Limit, Y: -2 * Limit}
+	let mut hi = Point{X: 2 * Limit, Y: 2 * Limit}
+	for id in ids {
+		match d.Shapes.Get(id) {
+		case Some[Placed] as p:
+			let b = BoxOf(p.Value.Shape)
+			lo = Point{X: most(lo.X, -Limit-b.Lo.X), Y: most(lo.Y, -Limit-b.Lo.Y)}
+			hi = Point{X: least(hi.X, Limit-b.Hi.X), Y: least(hi.Y, Limit-b.Hi.Y)}
+		case None:
+		}
+	}
+	Point{X: Clamp(want.X, lo.X, hi.X), Y: Clamp(want.Y, lo.Y, hi.Y)}
+}
+
+// Move is d with the shapes of ids moved by delta. The caller keeps them
+// inside the world (Room).
+func Move(d Picture, ids []int, delta Point) Picture {
+	if delta.X == 0 && delta.Y == 0 {
+		return d
+	}
+	let mut out = d
+	for id in ids {
+		match out.Shapes.Get(id) {
+		case Some[Placed] as p:
+			let moved = Shift(p.Value.Shape, delta)
+			out = Picture{
+				..out,
+				Shapes: out.Shapes.Put(id, Placed{..p.Value, Shape: moved}),
+				Grid:   Index(Unindex(out.Grid, id, p.Value.Shape), id, moved),
+			}
+		case None:
+		}
+	}
+	out
+}
+
+// above reports whether a is painted over b: a higher layer, or the same
+// layer and a later id.
+func above(a Placed, b Placed) bool { a.Layer > b.Layer || a.Layer == b.Layer && a.Id > b.Id }
+
+// Top is the id of the shape painted topmost at p, found through the grid.
+func Top(d Picture, p Point) Option[int] { topOf(d, Near(d.Grid, p), p) }
+
+// TopOfAll is Top found by testing every shape: the reference of the grid.
+func TopOfAll(d Picture, p Point) Option[int] {
+	let mut ids = []int{}
+	for id, _ in d.Shapes {
+		ids = ids.Append(id)
+	}
+	topOf(d, ids, p)
+}
+
+func topOf(d Picture, ids []int, p Point) Option[int] {
+	let mut best Option[Placed] = None
+	for id in ids {
+		match d.Shapes.Get(id) {
+		case Some[Placed] as s:
+			if Hits(s.Value.Shape, p) {
+				best = match best {
+				case Some[Placed] as b:
+					if above(s.Value, b.Value) { Some[Placed]{Value: s.Value} } else { best }
+				case None:
+					Some[Placed]{Value: s.Value}
+				}
+			}
+		case None:
+		}
+	}
+	match best {
+	case Some[Placed] as b:
+		Some[int]{Value: b.Value.Id}
+	case None:
+		None
+	}
+}
+
+// Order is the shapes in paint order: by layer, then by id.
+func Order(d Picture) []Placed {
+	let mut out = []Placed{}
+	for _, p in d.Shapes {
+		out = out.Append(p)
+	}
+	slices.SortFunc(out, func(a Placed, b Placed) int {
+		if a.Layer != b.Layer {
+			return a.Layer - b.Layer
+		}
+		a.Id - b.Id
+	})
+}
+
+// Within is the ids, ascending, of the shapes whose box b holds.
+func Within(d Picture, b Box) []int {
+	let mut out = []int{}
+	for p in Order(d) {
+		if Contains(b, BoxOf(p.Shape)) {
+			out = out.Append(p.Id)
+		}
+	}
+	slices.Sort(out)
+}

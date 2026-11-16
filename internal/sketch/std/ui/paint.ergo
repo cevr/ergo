@@ -1,0 +1,144 @@
+// Canvas (H5c): a node whose content is a paint list, values a host
+// replays: paths filled and stroked, under transforms and clips that nest.
+// The list is part of the node, so a pass that paints the same list
+// changes nothing, and a test or an agent reads what a canvas shows as
+// data (the list is the screenshot).
+
+// Seg is one segment of a path, in the canvas's coordinates (after the
+// transforms that enclose it).
+type Seg = MoveTo{X float64, Y float64} | LineTo{X float64, Y float64} | QuadTo{CX float64, CY float64, X float64, Y float64} | CubicTo{C1X float64, C1Y float64, C2X float64, C2Y float64, X float64, Y float64} | ClosePath
+
+// ClosePath joins a path's last point to its last MoveTo.
+type ClosePath {}
+
+// Path is a list of segments.
+type Path { Segs []Seg }
+
+// RectPath is the closed path of the rectangle at x, y of w by h.
+func RectPath(x float64, y float64, w float64, h float64) Path {
+	Path{Segs: []Seg{MoveTo{X: x, Y: y}, LineTo{X: x + w, Y: y}, LineTo{X: x + w, Y: y + h}, LineTo{X: x, Y: y + h}, ClosePath}}
+}
+
+// Color is a colour with straight alpha, a byte each.
+type Color { R uint8, G uint8, B uint8, A uint8 }
+
+// Affine maps x, y to A*x + C*y + E, B*x + D*y + F (the canvas
+// setTransform order).
+type Affine { A float64, B float64, C float64, D float64, E float64, F float64 }
+
+// Identity is the Affine that moves nothing.
+func Identity() Affine { Affine{A: 1.0, B: 0.0, C: 0.0, D: 1.0, E: 0.0, F: 0.0} }
+
+// Translate moves by dx, dy.
+func Translate(dx float64, dy float64) Affine { Affine{A: 1.0, B: 0.0, C: 0.0, D: 1.0, E: dx, F: dy} }
+
+// Scale scales by sx, sy about the origin.
+func Scale(sx float64, sy float64) Affine { Affine{A: sx, B: 0.0, C: 0.0, D: sy, E: 0.0, F: 0.0} }
+
+// PaintOp is one entry of a paint list. A PushTransform or a PushClip
+// holds until its PopPaint; Transformed and Clipped write both, so a list
+// a Canvas made is balanced.
+type PaintOp = FillOp{Path Path, Color Color} | StrokeOp{Path Path, Color Color, Width float64} | PushTransform{M Affine} | PushClip{X float64, Y float64, W float64, H float64} | PopPaint
+
+// PopPaint ends the innermost PushTransform or PushClip.
+type PopPaint {}
+
+// Paint is where a canvas's draw function paints. Only Canvas makes one,
+// and it lives for one call of that function.
+type Paint { ops []PaintOp }
+
+// Fill fills path with c.
+func Fill(p *Paint, path Path, c Color) {
+	p.ops = p.ops.Append(FillOp{Path: path, Color: c})
+}
+
+// Stroke strokes path with c, width wide.
+func Stroke(p *Paint, path Path, c Color, width float64) {
+	p.ops = p.ops.Append(StrokeOp{Path: path, Color: c, Width: width})
+}
+
+// Transformed paints body under m, composed with the transforms around
+// it.
+func Transformed(p *Paint, m Affine, body func()) {
+	p.ops = p.ops.Append(PushTransform{M: m})
+	body()
+	p.ops = p.ops.Append(PopPaint)
+}
+
+// Clipped paints body inside the rectangle at x, y of w by h, in the
+// coordinates of the transforms around it.
+func Clipped(p *Paint, x float64, y float64, w float64, h float64, body func()) {
+	p.ops = p.ops.Append(PushClip{X: x, Y: y, W: w, H: h})
+	body()
+	p.ops = p.ops.Append(PopPaint)
+}
+
+// Canvas writes a canvas of width by height whose content is what draw
+// paints, a leaf named label. draw runs during the pass, once.
+func Canvas[E](f *Frame[E], label string, width Length, height Length, draw func(p *Paint), at CallSite) {
+	let mut p = Paint{ops: []PaintOp{}}
+	draw(&p)
+	let _ = put(f, CanvasNode{Label: label, Width: width, Height: height, Paint: p.ops}, None, None, at)
+}
+
+// PaintOf is the paint list of a canvas node, empty for any other node.
+func PaintOf[E](n Node[E]) []PaintOp {
+	match n {
+	case CanvasNode as c:
+		c.Paint
+	case _:
+		[]PaintOp{}
+	}
+}
+
+// paintLines is a paint list as text, one op a line, indented inside its
+// pushes: the canvas part of a screenshot.
+func paintLines(ops []PaintOp, indent string) []string {
+	let mut out = []string{}
+	let mut at = indent
+	for op in ops {
+		match op {
+		case FillOp as x:
+			out = out.Append(at + "fill \(colorText(x.Color)) \(pathText(x.Path))")
+		case StrokeOp as x:
+			out = out.Append(at + "stroke \(colorText(x.Color)) \(x.Width) \(pathText(x.Path))")
+		case PushTransform as x:
+			let m = x.M
+			out = out.Append(at + "transform \(m.A) \(m.B) \(m.C) \(m.D) \(m.E) \(m.F) {")
+			at = at + "  "
+		case PushClip as x:
+			out = out.Append(at + "clip \(x.X) \(x.Y) \(x.W) \(x.H) {")
+			at = at + "  "
+		case PopPaint:
+			if len(at) >= len(indent)+2 {
+				at = at[2:]
+			}
+			out = out.Append(at + "}")
+		}
+	}
+	out
+}
+
+func colorText(c Color) string { "rgba(\(c.R),\(c.G),\(c.B),\(c.A))" }
+
+func pathText(p Path) string {
+	let mut out = ""
+	for s in p.Segs {
+		if len(out) > 0 {
+			out = out + " "
+		}
+		match s {
+		case MoveTo as x:
+			out = out + "M \(x.X) \(x.Y)"
+		case LineTo as x:
+			out = out + "L \(x.X) \(x.Y)"
+		case QuadTo as x:
+			out = out + "Q \(x.CX) \(x.CY) \(x.X) \(x.Y)"
+		case CubicTo as x:
+			out = out + "C \(x.C1X) \(x.C1Y) \(x.C2X) \(x.C2Y) \(x.X) \(x.Y)"
+		case ClosePath:
+			out = out + "Z"
+		}
+	}
+	out
+}

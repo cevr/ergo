@@ -1,0 +1,53 @@
+import json
+import lint
+
+// failureOptions are forbidden-failure's options: the failure type and the
+// functions it must not escape, each as PKG.Name.
+type failureOptions { Failure string, Functions []string }
+
+// ForbiddenFailure forbids a configured failure from escaping the selected
+// functions. It reads each function's checked failure row: a failure a
+// helper passes on escapes, one the body recovers does not, and the rows
+// of timeout and Go interop count as declared. Each call whose row holds
+// the failure is a related place: where it enters the body. A local, a
+// field, a string or a comment spelled like the failure is in no row.
+let ForbiddenFailure = lint.Rule{
+	Name:            "forbidden-failure",
+	Version:         "2",
+	Description:     "The configured failure must not escape the selected functions.",
+	DefaultSeverity: lint.Error,
+	Requires:        []lint.Family{lint.CallablesFamily, lint.CallsFamily},
+	Options:         []lint.OptionSpec{
+		lint.OptionSpec{Name: "failure", Type: lint.StringOption, Description: "The failure type, as PKG.Name.", Required: true, Enum: []string{}, Default: None},
+		lint.OptionSpec{Name: "functions", Type: lint.StringListOption, Description: "The functions, as PKG.Name, it must not escape.", Required: true, Enum: []string{}, Default: None},
+	},
+	Check: forbiddenFailure,
+}
+
+func forbiddenFailure(s lint.Snapshot, options json.Value) []lint.Finding fails lint.RuleFailed {
+	let o = try lint.OptionsOf[failureOptions](options)
+	let failure = lint.TypeIdentity(o.Failure)
+	let chosen = functions(s, o.Functions) catch {
+	case Unselected as u:
+		return configured("function", u.Name)
+	}
+	let mut out = []lint.Finding{}
+	for c in s.Callables {
+		if !selected(chosen, c.Identity) || !selected(c.Fails, failure) {
+			continue
+		}
+		let mut related = []lint.Related{}
+		for call in s.Calls {
+			if call.Caller == c.Identity && selected(call.Fails, failure) && len(related) < lint.MaxRelatedLocations {
+				related = related.Append(lint.Related{Message: o.Failure + " enters the body here", Span: call.Span})
+			}
+		}
+		out = out.Append(lint.Finding{
+			Message:     "failure \(o.Failure) can escape \(c.Package).\(c.Name)",
+			Span:        c.Span,
+			Related:     related,
+			Suggestions: []lint.Suggestion{},
+		})
+	}
+	out
+}

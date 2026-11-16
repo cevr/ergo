@@ -186,6 +186,10 @@ var clauseUnreached = map[string]string{
 	"http.sendInto.put":            "sendInto is unexported; Client.SendInto passes its own put through, and reaching it needs a live server, which this property does not run",
 	"http.fetchInto.accepts":       "fetchInto is unexported; accepts is Remote.SendURLInto's literal over Accepts, with no capture",
 	"http.fetchInto.put":           "fetchInto is unexported; Remote.SendURLInto passes its put through, and reaching it needs a live origin, which this property does not run",
+	"http.fetchLocal.handle":       "fetchLocal is unexported; its handle is Local.SendURL's answerer over InMemoryNetwork's own handle, which needs http.Streaming",
+	"http.fetchLocalInto.accepts":  "fetchLocalInto is unexported; accepts is Local.SendURLInto's literal over Accepts, with no capture",
+	"http.fetchLocalInto.put":      "fetchLocalInto is unexported; Local.SendURLInto passes its put through, and its answerer needs http.Streaming",
+	"http.fetchLocalInto.handle":   "fetchLocalInto is unexported; its handle is Local.SendURLInto's answerer over InMemoryNetwork's own handle, which needs http.Streaming",
 	"http.serve.l":                 "serve is unexported; a listener is Serve's own parameter, not a callback",
 	"exec.waitFor.p":               "waitFor is unexported; a Running is WaitFor's own parameter, not a callback, and a live one needs Ambient",
 	"http.serve.handle":            "serve is unexported; its handle is Serve's literal over Serve's escaping handle, and a server runs until stopped, which this property does not do",
@@ -222,7 +226,7 @@ const clauseHeader = `
 // its release, so a use after the release shows.
 type Res {
 	log sync.Ref[[]string],
-}
+} implements Closer
 
 func Use(r Res) {
 	r.log.Update(func(xs []string) []string { xs.Append("use") })

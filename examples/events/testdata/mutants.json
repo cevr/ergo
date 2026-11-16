@@ -1,0 +1,37 @@
+{
+  "about": "events' application mutants (wf10 SJ2); each is judged by the example's laws and cases (scripts/examples), not by a compiler test.",
+  "mutants": [
+    {
+      "name": "events-bytes-keeps-last", "origin": "wf10 SJ2",
+      "file": "examples/events/conn/tally.ergo",
+      "from": "Bytes: t.Bytes + s.Bytes}",
+      "to": "Bytes: s.Bytes}",
+      "rule": "A tally adds the bytes of every send, whatever their order (law AddIsOrderFree).",
+      "anchor": {"tests": ["examples:events"]}, "killers": ["examples:events"]
+    },
+    {
+      "name": "events-closed-uncounted", "origin": "wf10 SJ2",
+      "file": "examples/events/conn/tally.ergo",
+      "from": "\tcase Closed:\n\t\tTally{..t, Closed: t.Closed + 1}\n",
+      "to": "\tcase Closed:\n\t\tt\n",
+      "rule": "Every event counts once, in its own kind (law AddCountsEach).",
+      "anchor": {"tests": ["examples:events"]}, "killers": ["examples:events"]
+    },
+    {
+      "name": "events-open-ignores-failed", "origin": "wf10 SJ2",
+      "file": "examples/events/conn/tally.ergo",
+      "from": "t.Opened - t.Closed - t.Failed",
+      "to": "t.Opened - t.Closed",
+      "rule": "A connection that failed has ended: a generated log of whole connections leaves none open (law GeneratedIsBalanced).",
+      "anchor": {"tests": ["examples:events"]}, "killers": ["examples:events"]
+    },
+    {
+      "name": "events-lines-read-as-one-value", "origin": "wf10 SJ2",
+      "file": "examples/events/cmd/events/main.ergo",
+      "from": "json.NewSequenceStream(stdin, 0, 0)",
+      "to": "json.NewStream(stdin, 0, 0)",
+      "rule": "events lines reads newline-delimited JSON, a sequence of values (case lines).",
+      "anchor": {"tests": ["examples:events"]}, "killers": ["examples:events"]
+    }
+  ]
+}

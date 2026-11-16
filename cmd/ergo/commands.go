@@ -48,25 +48,28 @@ const toolingReason = "semantic tooling returns on the new front end"
 // read only this table.
 var commands = []cliCommand{
 	{name: "check", usage: "check FILE|DIR|DIR/... [--seed N] [--eval-steps N] [--eval-bytes N] [--target go]", run: checkCommand},
-	{name: "diagnostics", usage: "diagnostics FILE|DIR [--strict] [--json] [--target go]", help: diagnosticsHelp, run: diagnosticsCommand},
-	{name: "build", usage: "build FILE|DIR [-o PATH] [-work] [--locked] [--platform OS/ARCH] [--target go]", run: buildCommand},
+	{name: "diagnostics", usage: "diagnostics FILE|DIR [--lint-config FILE] [--rules MANIFEST]... [--strict] [--json] [--target go]", help: diagnosticsHelp, run: diagnosticsCommand},
+	{name: "build", usage: "build FILE|DIR [-o PATH] [-work] [--emitted] [--locked] [--debug] [--platform OS/ARCH] [--target go]", run: buildCommand},
 	{name: "run", usage: "run FILE|DIR [--] [ARGS...]", help: runHelp, run: runCommand},
+	{name: "fix", usage: "fix [--check|--dry-run] [--json] [--std DIR] [--go] PATH...", help: fixHelp, run: fixCommand},
 	{name: "fmt", usage: "fmt FILE...|DIR/... [--check] [--json] | fmt --stdin", help: fmtHelp, run: formatCommand},
-	{name: "test", usage: "test FILE|DIR|DIR/... [--seed N] [--states N] [--law NAME] [--skip-law NAME] [--run NAME] [--receipt FILE] [--explore [dfs|pct|random] [--preempt B] [--depth D] [--schedules S]] [--schedule TOKEN] [-work] [--json] [--target go]", run: testCommand},
+	{name: "test", usage: "test FILE|DIR|DIR/... [--seed N] [--states N] [--law NAME] [--skip-law NAME] [--run NAME] [--receipt FILE] [--explore [dfs|pct|random] [--preempt B] [--depth D] [--schedules S]] [--schedule TOKEN] [-work] [--emitted] [--json] [--target go]", run: testCommand},
 	{name: "bind", usage: "bind go [-o DIR] PACKAGE...", help: bindHelp, run: bindCommand},
+	{name: "get", usage: "get MODULE[@VERSION]...", help: getHelp, run: getCommand},
 	{name: "lib", usage: "lib FILE|DIR -o DIR", help: libHelp, run: libCommand},
-	{name: "gen", usage: "gen rpc [--check] DIR.OPTYPE", help: genHelp, run: genCommand},
+	{name: "gen", usage: "gen rpc|cli [--check] DIR.OPTYPE", help: genHelp, run: genCommand},
+	{name: "dev", usage: "dev [DIR] [--idle DURATION]", help: devHelp, run: devCommand},
 	{name: "version", usage: "version [--json]", help: versionHelp, run: versionCommand},
 	{name: "tsmap", usage: "tsmap [--emit-js FILE.ergo]", help: tsmapHelp, run: tsmapCommand},
 	{name: "edition", fate: removed, reason: "there is one language and no editions", ticket: ticketEditions},
-	{name: "lint", fate: removed, reason: "linting returns on the new checker", ticket: ticketTooling},
-	{name: "lint rules", fate: removed, reason: "linting returns on the new checker", ticket: ticketTooling},
-	{name: "lint test", fate: removed, reason: "linting returns on the new checker", ticket: ticketTooling},
-	{name: "lint receipt", fate: removed, reason: "linting returns on the new checker", ticket: ticketTooling},
+	{name: "lint", usage: "lint FILE|DIR [--preset P]... [--lint-config FILE] [--rules MANIFEST]... [--strict] [--json] [--target go]", help: lintHelp, run: lintCommand},
+	{name: "lint rules", usage: "lint rules [--preset P]... [--lint-config FILE] [--rules MANIFEST]...", help: lintRulesHelp, run: lintRulesCommand},
+	{name: "lint test", usage: "lint test PATH... [--update] (--lint-config FILE | --rules MANIFEST...)", help: lintTestHelp, run: lintTestCommand},
+	{name: "lint receipt", fate: removed, reason: "cost receipts return with rule packs", ticket: ticketTooling},
 	{name: "query", fate: removed, reason: toolingReason, ticket: ticketTooling},
 	{name: "type", fate: removed, reason: toolingReason, ticket: ticketTooling},
 	{name: "graph", fate: removed, reason: toolingReason, ticket: ticketTooling},
-	{name: "inspect", usage: "inspect FILE|DIR [--target go] | inspect machine FILE|DIR [--json]", help: inspectHelp, run: inspectCommand},
+	{name: "inspect", usage: "inspect FILE|DIR [--target go] | inspect machine FILE|DIR [--json] | inspect deps DIR [--json] | inspect facts FILE|DIR [--json]", help: inspectHelp, run: inspectCommand},
 	{name: "explain", fate: removed, reason: toolingReason, ticket: ticketTooling},
 	{name: "lsp", fate: dark, ticket: ticketTooling},
 	{name: "mcp", fate: dark, ticket: ticketTooling},
@@ -130,6 +133,9 @@ func command(args []string) error {
 		return exitStatusError{code: 1, message: c.stubMessage()}
 	}
 	rest := args[1:]
+	if strings.Contains(c.name, " ") {
+		rest = args[2:]
+	}
 	if len(rest) == 1 && (rest[0] == "--help" || rest[0] == "-h") {
 		help := c.help
 		if help == "" {

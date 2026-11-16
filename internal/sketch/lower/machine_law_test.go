@@ -300,7 +300,7 @@ func (m *tableMachine) source() string {
 	}
 	// A law over one transition, over every state and signal.
 	fmt.Fprintf(&b, "\tlaw NoDone(s %s, e %s) {\n\t\tmatch %s(s, e) {\n\t\tcase Done[int]:\n\t\t\tfalse\n", st, sg, step)
-	for _, k := range []string{"Enter[" + st + "]", "Stay[" + st + "]", "Emit[" + st + ", int]", "Ignore", "Reject"} {
+	for _, k := range []string{"Enter[" + st + "]", "Stay[" + st + "]", "Emit[" + st + ", int]", "Tell[" + st + ", int]", "Ignore", "Reject"} {
 		fmt.Fprintf(&b, "\t\tcase %s:\n\t\t\ttrue\n", k)
 	}
 	b.WriteString("\t\t}\n\t},\n}\n\n")
@@ -525,7 +525,7 @@ func genListedLaws(r *rand.Rand) *listedLaws {
 		ms = append(ms, member{withBool(ts, withX), falsify})
 	}
 	fmt.Fprintf(&g.src, "type LOp {\n\tLGet() bool,\n\n\t%s,\n}\n\n", strings.Join(members, ",\n\t"))
-	g.src.WriteString("type LOne {}\n\nfunc LGet(_ LOne) bool { true }\n\ntype LTwo { b bool }\n\nfunc LGet(p LTwo) bool { p.b }\n\ntype LWide { n int }\n\nfunc LGet(_ LWide) bool { true }\n\n")
+	g.src.WriteString("type LOne {} implements LOp\n\nfunc LGet(_ LOne) bool { true }\n\ntype LTwo { b bool } implements LOp\n\nfunc LGet(p LTwo) bool { p.b }\n\ntype LWide { n int } implements LOp\n\nfunc LGet(_ LWide) bool { true }\n\n")
 	for k, m := range ms {
 		label := fmt.Sprintf("law LOp.LM%d for ", k)
 		report(label+"LOne", refProduct(append([]listedType{{"LOne", 1}}, m.ts...)), false)
@@ -712,6 +712,8 @@ type Meter machine[Pos, Push] {
 		case Stay[Pos]:
 			false
 		case Emit[Pos, int]:
+			false
+		case Tell[Pos, int]:
 			false
 		case Ignore:
 			false

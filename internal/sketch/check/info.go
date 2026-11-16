@@ -3,11 +3,14 @@ package check
 import (
 	"fmt"
 	"go/constant"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/derive"
 	"ergo.local/prototype/internal/sketch/syntax"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // The Info contract (check-v1 spec, "Interface to lower-v1"). The lowering
@@ -108,12 +111,27 @@ type Package struct {
 	// types 1; owners.go); returning a value of one is a failure in a body
 	// that sees the owner. IsErrorType reads them.
 	ErrorTypes map[FactOwner]map[*Named]bool
+	// Clauses are the inferred rows of the package's functions as the
+	// clauses that write them, under Options.Infer (clausefix.go).
+	Clauses []ClauseFix
 
 	qualify bool // print its types with the package name
 	// std marks the prelude and each package the std importer serves (C30,
 	// check-v1 stage E4). Only prelude and stdImporter.Import set it, before
 	// the package is checked; Std reads it.
 	std bool
+	// module is the module the package belongs to, as its loader names it
+	// ("" when it has none), and trusted reports that the root module
+	// vouches for the Go it binds (ergo.mod `trust`; docs/spec/interop.md,
+	// Trusted Go): its externs may bind the Ergo runtime under the body
+	// contract. The loader sets both through GoTrust before the check; the
+	// toolchain vouches for the packages it ships.
+	module  string
+	trusted bool
+	// goBodies are the bodies its externs bind in its module's own Go
+	// packages, by extern target (moduleDoor; docs/spec/interop.md,
+	// Trusted Go 3). Only the package's own check writes it.
+	goBodies map[string]v1.Body
 	// host is the binding a Go package is read from (gobinding.go); nil
 	// for an Ergo package.
 	host *hostPkg
@@ -129,6 +147,10 @@ type Package struct {
 	// for each operation type of the package it tests (builders.go rule
 	// 2). Only the package's own check writes it.
 	testBuilds map[*TypeName][]*Builder
+	// testOf is the package this one tests, the role its loader gives it
+	// (CheckTest, builders.go rule 2); nil for a package that is no test
+	// package. Set before the package is checked.
+	testOf *Package
 }
 
 // Std reports a std package: the prelude or a package of the embedded
@@ -136,6 +158,14 @@ type Package struct {
 // check-v1 stage E4). A program package never has it, whatever its path,
 // so the lowering keys std's namespaces on it, not on a path string.
 func (p *Package) Std() bool { return p != nil && p.std }
+
+// Trusted reports whether the root module vouches for the Go that p binds
+// (GoTrust): its externs may bind the Ergo runtime under the body contract.
+func (p *Package) Trusted() bool { return p != nil && p.trusted }
+
+// Prelude reports the prelude, the std package whose exported names every
+// package sees without an import.
+func (p *Package) Prelude() bool { return p != nil && p == prelude().pkg }
 
 // Host reports whether p is a Go package read from its binding (import go;
 // docs/spec/interop.md).
@@ -202,10 +232,6 @@ type Info struct {
 	// (types.md, Structs 3; owner q43). A field T names is not listed. An
 	// update with a base of exactly T has no entry: it copies the base.
 	Spreads map[*syntax.CompositeLit][]Spread
-	// Works is every Work literal of the work rule's forms (Run or Listen
-	// with their maps; work.go), which the lowering builds Start from. Nil
-	// when the package has none. Added by MU4 (additive).
-	Works map[*syntax.CompositeLit]*WorkLit
 	// ImplicitElems is, for a value of several elements that a multi-name
 	// let (`let a, b Store = pair()`) or a return of several results takes
 	// apart, each element's implicit conversion in order, a zero
@@ -636,6 +662,11 @@ func (c *checker) instanceWitnesses(inst *Instance, build func(*Func, []Type) (*
 		for _, op := range it.Methods {
 			method, f := c.methodOf(targs[i], op.Name)
 			if method == nil {
+				if c.clauseUnmet(targs[i], it) {
+					// The clause failed at the type (S106 there); the
+					// program does not build, and the use stays silent.
+					return ""
+				}
 				return fmt.Sprintf("cannot complete the witness of %s: %s has no operation %s", fn.Name, targs[i], op.Name)
 			}
 			sig := *op.Sig
@@ -713,6 +744,11 @@ const (
 	CallDecode
 	// CallEmbed is the compile-time embedded[T](pattern) initializer.
 	CallEmbed
+	// CallPattern is a where's matches(it, `…`) in the ParseN and NWhere
+	// a refinement derives: Pattern is the compiled pattern, and the call
+	// is true when it matches the whole of its first argument (types.md,
+	// Refinements 11). Added in FKre.
+	CallPattern
 	// CallKindCount bounds the call kinds. Keep it last: exhaustive
 	// consumers must account for a newly admitted kind.
 	CallKindCount
@@ -755,6 +791,8 @@ type Call struct {
 	// position after the written arguments (types.md, Call sites); nil
 	// otherwise. Added in unit L3 (additive).
 	Site *Named
+	// Pattern is a CallPattern's compiled pattern.
+	Pattern *Matcher
 }
 
 // RecvIsParam reports whether c's receiver is its callee's first
@@ -1098,6 +1136,11 @@ type LawRun struct {
 // rule 7). Params are then the law's parameter types at that instance,
 // one per parameter, for the owner's provider of such a law; nil
 // otherwise.
+//
+// Ptr is a borrow provider (types.md, Laws 10): Type's operations take
+// *Type, so *Type provides the slot and Type does not. The case's Type is
+// built as any provider's is (by Ctor, or generated), and the run binds
+// its address; Conv converts from *Type.
 type LawProvider struct {
 	// Value lends the runner's fresh provider record to pointer operations.
 	// It grants no implicit conversion to a user operation-type value.
@@ -1108,6 +1151,11 @@ type LawProvider struct {
 	Unrun  string
 	Slot   *Named
 	Params []Type
+	Ptr    bool
+
+	// noGenerator marks an Unrun that says the values have no generator;
+	// lawRuns adds the fix the law's shape admits (lawProviderFix).
+	noGenerator bool
 }
 
 // A law is an Object, so Defs records its declaring name.
@@ -1309,7 +1357,8 @@ func (w *Context) EachProvider(f func(cap Type, e *ContextEntry) bool) {
 // check's mark of an unknown row and no failure a client can name
 // (Row.unknown).
 func (c *checker) finishInfo() {
-	for x, call := range c.pkg.Info.Calls {
+	for _, x := range inSourceOrder(c, slices.Collect(maps.Keys(c.pkg.Info.Calls))) {
+		call := c.pkg.Info.Calls[x]
 		switch call.Kind {
 		case CallFunc, CallFuncValue, CallOp, CallProviderOp, CallLawOp:
 			call.StartsTask = c.running(c.pkg.Info.Types[x]) != nil
@@ -1326,7 +1375,8 @@ func (c *checker) finishInfo() {
 			call.Needs = c.types.resolve(call.Needs).known(c.types)
 		}
 	}
-	for x, sig := range c.pkg.Info.Literals {
+	for _, x := range inSourceOrder(c, slices.Collect(maps.Keys(c.pkg.Info.Literals))) {
+		sig := c.pkg.Info.Literals[x]
 		if sig.Errors.unknown(c.types) || sig.Uses.unknown(c.types) {
 			s := *sig
 			s.Errors, s.Uses = sig.Errors.known(c.types), sig.Uses.known(c.types)
@@ -1339,7 +1389,8 @@ func (c *checker) finishInfo() {
 	// A function's type keeps its row variables (inference writes the
 	// solution beside them); Info holds the solved rows (invariant 2).
 	memo := map[Type]Type{}
-	for x, t := range c.pkg.Info.Types {
+	for _, x := range inSourceOrder(c, slices.Collect(maps.Keys(c.pkg.Info.Types))) {
+		t := c.pkg.Info.Types[x]
 		if r := c.finalType(t, memo); r != t {
 			c.pkg.Info.Types[x] = r
 		}

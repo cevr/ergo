@@ -41,7 +41,7 @@ import sync
 
 // Memory is an fs.Files and fs.Writes provider over a tree in memory. Its field is
 // unexported, so NewMemory is its one constructor.
-type Memory { tree sync.Ref[Map[string, entry]] }
+type Memory { tree sync.Ref[Map[string, entry]] } implements fs.Files, fs.Writes
 
 // entry is one file or directory of a Memory: Text is a file's text and
 // Perm its permission bits, as fs.Perm gives them.

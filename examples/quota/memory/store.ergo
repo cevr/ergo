@@ -8,7 +8,7 @@ import sync
 // sync.Ref, so every copy of a Store is the same quota: a Store bound in
 // a context keeps its Table from one call to the next. Each change is one
 // sync.Modify, so two tasks posting at once lose no move.
-type Store { cell sync.Ref[quota.Table] }
+type Store { cell sync.Ref[quota.Table] } implements quota.Store
 
 // NewStore is a Store with an empty Table.
 func NewStore() Store { Store{cell: sync.NewRef[quota.Table](quota.Empty())} }

@@ -1,0 +1,35 @@
+// Upstream's story tests (managed-resource-layer/src/story.test.ts) that
+// have a restatement, as steps of the screen. Two have none: the screen
+// has no StoppedEngine, a lifecycle echo (the end of the entry is the
+// release), and no SkippedCompute (a compute without an engine is
+// ignored in the step, so it is never sent anywhere).
+
+func ready() Mode { Ready{Engine: Engine{ID: "engine-1"}, Computed: 2, Last: None} }
+
+test StartEntersBooting {
+	// ClickedStartEngine requests the engine by entering Booting.
+	assert Step(Off, Start) == Enter[Mode]{Next: Booting}
+}
+
+test StartedIsReadyWithItsId {
+	// StartedEngine marks the engine ready with its id. A Stay: the boot's
+	// entry, which holds the lease, lasts through Ready.
+	assert Step(Booting, Started{Engine: Engine{ID: "engine-7"}}) == Stay[Mode]{Next: Ready{Engine: Engine{ID: "engine-7"}, Computed: 0, Last: None}}
+}
+
+test StopEntersOff {
+	// ClickedStopEngine releases the engine by entering Off: an Enter, which
+	// ends the entry that holds the lease.
+	assert Step(ready(), Stop) == Enter[Mode]{Next: Off}
+}
+
+test RefusedRecordsWhy {
+	// FailedStartEngine records the failure reason.
+	assert Step(Booting, Refused{Why: "boot timeout"}) == Enter[Mode]{Next: Failed{Why: "boot timeout"}}
+}
+
+test ComputeCountsAndSquares {
+	// ClickedCompute increments the counter and fires Compute with the next
+	// value; the result is 9.
+	assert Step(ready(), Compute) == Stay[Mode]{Next: Ready{Engine: Engine{ID: "engine-1"}, Computed: 3, Last: Some{9}}}
+}

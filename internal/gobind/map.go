@@ -306,8 +306,20 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, bool,
 		}
 		tparams = append(tparams, row.name)
 	}
+	// A Go type supplies no lifetime proof. Resource-capable parameters
+	// are kept (own) unless a per-function source review establishes a
+	// lend.
+	off, first := 0, 0
+	if recv != nil {
+		off = 1
+	}
+	if sm.ctx {
+		first = 1
+	}
+	for i := range params {
+		params[i].own = goResourceParam(sig.Params().At(i+first).Type()) && !v1.GoArgLent(target, i+off)
+	}
 	var b strings.Builder
-	recvName := ""
 	b.WriteString("func ")
 	if recv != nil {
 		r := sig.Recv()
@@ -326,8 +338,11 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, bool,
 				name = fmt.Sprintf("r%d", i)
 			}
 		}
-		fmt.Fprintf(&b, "(%s %s) ", name, rt)
-		recvName = name
+		mode := ""
+		if goResourceParam(sig.Recv().Type()) && !v1.GoArgLent(target, 0) {
+			mode = "own "
+		}
+		fmt.Fprintf(&b, "(%s %s%s) ", name, mode, rt)
 	}
 	b.WriteString(f.Name())
 	if len(tparams) > 0 {
@@ -358,28 +373,6 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, bool,
 		}
 	}
 	b.WriteString(needs)
-	// A Go type supplies no lifetime proof. Resource-capable parameters
-	// are kept unless a per-function source review establishes a lend.
-	var takes []string
-	off := 0
-	if recv != nil {
-		off = 1
-		if goResourceParam(sig.Recv().Type()) && !v1.GoArgLent(target, 0) {
-			takes = append(takes, recvName)
-		}
-	}
-	first := 0
-	if sm.ctx {
-		first = 1
-	}
-	for i, p := range params {
-		if goResourceParam(sig.Params().At(i+first).Type()) && !v1.GoArgLent(target, i+off) {
-			takes = append(takes, p.name)
-		}
-	}
-	if len(takes) > 0 {
-		b.WriteString(" takes " + strings.Join(takes, ", "))
-	}
 	return b.String(), variadic, sm.ctx, nil
 }
 
@@ -464,12 +457,20 @@ func constraint(tp *types.TypeParam) (string, types.Type, error) {
 	return "", nil, refuse("type parameter %s has the constraint %s, which has no Ergo form (v1 maps any, comparable, cmp.Ordered, ~[]E and ~map[K]V)", tp.Obj().Name(), types.TypeString(c, func(p *types.Package) string { return p.Name() }))
 }
 
-type param struct{ name, typ string }
+// param is a bound parameter: its name, its Ergo type, and whether the
+// callee keeps it (the mode word own, q168).
+type param struct {
+	name, typ string
+	own       bool
+}
 
 func paramList(ps []param) string {
 	parts := make([]string, len(ps))
 	for i, p := range ps {
 		parts[i] = p.name + " " + p.typ
+		if p.own {
+			parts[i] = p.name + " own " + p.typ
+		}
 	}
 	return "(" + strings.Join(parts, ", ") + ")"
 }
@@ -541,7 +542,7 @@ func (m *sigMapper) signature(sig *types.Signature, cb bool) ([]param, string, b
 			name = fmt.Sprintf("p%d", i)
 		}
 		used[name] = true
-		params = append(params, param{name, text})
+		params = append(params, param{name: name, typ: text})
 	}
 	n := sig.Results().Len()
 	fails := n > 0 && isError(sig.Results().At(n-1).Type())
@@ -689,7 +690,7 @@ func (m *sigMapper) callback(sig *types.Signature) (string, error) {
 			s += " fails go.Error"
 		}
 	default:
-		s = "escaping " + s
+		s = "own " + s // the parameter's mode: the callee may keep it
 		if fails {
 			s += " fails go.Error"
 		}
@@ -911,7 +912,29 @@ func (m *mapper) typeDecl(obj *types.TypeName) (string, []Member, []Line, error)
 				members = append(members, Member{f.Name(), goText, err.Error()})
 				continue
 			}
+			if f.Name() == "Close" && !isGoCloser(obj) && releaseShape(f) && fails {
+				// The release: Go's io.Closer, included as Go embeds it
+				// (resources R1; interop.md, Resources 1). io's own
+				// Closer is the contract's Go form.
+				m.refs = []string{"io.Closer"}
+				include := ".." + m.q(types.NewPackage("io", "io")) + ".Closer"
+				if m.pkg.Path() == "io" {
+					include = "..Closer"
+				}
+				lines = append(lines, Line{f.Name(), goText, include, m.refs})
+				continue
+			}
+			target := m.pkg.Path() + "." + obj.Name() + "." + f.Name()
+			fsig := f.Type().(*types.Signature)
+			kept := false
+			for j := range params {
+				params[j].own = goResourceParam(fsig.Params().At(j).Type()) && !v1.GoArgLent(target, j)
+				kept = kept || params[j].own
+			}
 			line := f.Name() + paramList(params)
+			if !kept && !v1.GoArgLent(target, -1) {
+				line = "own " + line // the operation keeps its receiver
+			}
 			if results != "" {
 				line += " " + results
 			}
@@ -919,19 +942,7 @@ func (m *mapper) typeDecl(obj *types.TypeName) (string, []Member, []Line, error)
 				line += " fails go.Error"
 			}
 			line += m.needs("")
-			var takes []string
-			target := m.pkg.Path() + "." + obj.Name() + "." + f.Name()
-			fsig := f.Type().(*types.Signature)
-			for j, p := range params {
-				if goResourceParam(fsig.Params().At(j).Type()) && !v1.GoArgLent(target, j) {
-					takes = append(takes, p.name)
-				}
-			}
-			if len(takes) > 0 {
-				line += " takes " + strings.Join(takes, ", ")
-			} else if !v1.GoArgLent(target, -1) {
-				line += " takes"
-			}
+
 			lines = append(lines, Line{f.Name(), goText, line, m.refs})
 		}
 		m.refs = nil
@@ -943,10 +954,41 @@ func (m *mapper) typeDecl(obj *types.TypeName) (string, []Member, []Line, error)
 		if err != nil {
 			return "", nil, nil, err
 		}
-		return "type " + obj.Name() + " " + t, nil, nil, nil
+		return "type " + obj.Name() + " " + t + m.releaseClause(n), nil, nil, nil
 	}
 	m.refs = nil
-	return typeText(obj.Name(), lines), members, lines, nil
+	if _, iface := n.Underlying().(*types.Interface); iface {
+		return typeText(obj.Name(), lines), members, lines, nil
+	}
+	return typeText(obj.Name(), lines) + m.releaseClause(n), members, lines, nil
+}
+
+// releaseClause is ` implements Closer` for a Go type whose method set
+// has Close() or Close() error, the release (resources R1; interop.md,
+// Resources 1): the binder reads the name once, and the binding states
+// the contract. In package io, Closer is io.Closer, the contract's Go
+// form; a package that declares another Closer of its own names
+// io.Closer, which stands for the contract in a binding.
+func (m *mapper) releaseClause(n *types.Named) string {
+	if !resourceType(types.NewPointer(n)) {
+		return ""
+	}
+	if m.pkg.Path() != "io" && m.pkg.Scope().Lookup("Closer") != nil {
+		return " implements " + m.q(types.NewPackage("io", "io")) + ".Closer"
+	}
+	return " implements Closer"
+}
+
+// isGoCloser reports Go's io.Closer, whose own Close stays listed.
+func isGoCloser(obj *types.TypeName) bool {
+	return obj.Pkg() != nil && obj.Pkg().Path() == "io" && obj.Name() == "Closer"
+}
+
+// releaseShape reports Close() or Close() error.
+func releaseShape(f *types.Func) bool {
+	sig := f.Type().(*types.Signature)
+	n := sig.Results().Len()
+	return sig.Params().Len() == 0 && !sig.Variadic() && (n == 0 || n == 1 && isError(sig.Results().At(0).Type()))
 }
 
 // typeText is the declaration of a struct or interface type with lines.

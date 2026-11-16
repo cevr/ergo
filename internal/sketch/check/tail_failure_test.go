@@ -8,18 +8,15 @@ import (
 )
 
 // A value of an error type that ends a function is a failure (rows.md,
-// Tail results 3). When the function's one result is a union that has
-// the error type as a variant, and its row does not declare it, the
-// reading is ambiguous: S101 at the value says what to write for each
-// reading, and the value is read on as the result, so no caller gets a
-// failure (lane MB F3). Each row kills a mutant no other test catches:
-// tail-reported (no report: the failure is inferred silently and the
-// caller gets S105; a report that still escapes gives the caller S105
-// too), return-reported (the return path), declared-is-quiet
-// (a declared row that lists it is reported), error-union-stays (a union
-// of error types only is reported, where the advice cannot work). Since
-// fs1 (q27) a result that is a union of error types makes the value the
-// success value, so error-union-stays now has no diagnostic at all.
+// Tail results 3), unless the declared result admits it. Since FK3-g1 a
+// value of an error type that is a variant of the function's one result
+// (a union with a variant that is no error type) is that result's value
+// when the function's written row does not declare it; lowering's
+// TestErrorValueRuleTable runs the rule (its variant targets). The rows
+// left here are the quiet ones: declared-is-quiet (a written row that
+// lists the type chose the failure, so a caller handles it), and
+// error-union-stays (since fs1, q27, a result that is a union of error
+// types makes the value the success value).
 func TestAmbiguousTailFailure(t *testing.T) {
 	const prelude = `type WrongCode {}
 type Other {}
@@ -35,29 +32,7 @@ func check(n int) int fails WrongCode | Other {
 	n
 }
 `
-	const advice = "to return it as a value, write let v Signal = WrongCode and end with v"
 	cases := []struct{ name, src, text string }{
-		{"tail-reported", prelude + `
-func pick(k int) Signal {
-	match k {
-	case 0:
-		WrongCode // want S101
-	case _:
-		Ok
-	}
-}
-
-func use() int {
-	let s = pick(1)
-	_ = s
-	1
-}
-`, advice},
-		{"return-reported", prelude + `
-func early() Signal {
-	return WrongCode // want S101
-}
-`, advice},
 		{"declared-is-quiet", prelude + `
 func fail() Signal fails WrongCode { WrongCode }
 `, ""},

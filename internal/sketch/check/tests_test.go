@@ -13,7 +13,7 @@ const testDecls = `type Store {
 	Get() string,
 }
 
-type Mem {}
+type Mem {} implements Store
 
 func Get(_ Mem) string {
 	"ok"

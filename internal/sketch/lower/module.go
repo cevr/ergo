@@ -2,6 +2,7 @@ package lower
 
 import (
 	"fmt"
+	"go/constant"
 	"go/format"
 	"go/scanner"
 	"go/token"
@@ -15,6 +16,7 @@ import (
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 	runtimefiles "ergo.local/prototype/runtime"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // The emitted module. Its main package is at the root. The runtime package
@@ -24,7 +26,7 @@ import (
 // implements it, the module needs no download and no go.sum, and the build
 // key covers the runtime's exact bytes.
 const (
-	programModule = "ergo.local/program"
+	programModule = v1.ProgramModule
 	runtimeModule = "ergo.local/prototype"
 	runtimeDir    = "ergo"
 	runtimeImport = runtimeModule + "/runtime/v1"
@@ -46,7 +48,16 @@ type File struct {
 // under v1.Main, whose defect report names Ergo call sites (#230).
 func Runtime() []File {
 	files := []File{{Path: runtimeDir + "/go.mod", Data: []byte("module " + runtimeModule + "\n\ngo " + goVersion + "\n")}}
-	src, err := runtimefiles.Files("runtime/v1", "runtime/explore", "runtime/testgen")
+	// Every leaf of runtime/v1 is copied with it: a program imports only
+	// the leaves it calls (rtRef), and the Go linker reads only imported
+	// packages, so a leaf it does not import costs it no byte. The gofmt
+	// and hostwalk leaves (v1.HostText, v1.HostWalk) are copied as well.
+	pkgs := []string{"runtime/v1", "runtime/explore", "runtime/testgen"}
+	for _, leaf := range v1.Leaves {
+		pkgs = append(pkgs, "runtime/v1/"+leaf)
+	}
+	pkgs = append(pkgs, strings.TrimPrefix(v1.HostText, runtimefiles.Module+"/"), strings.TrimPrefix(v1.HostWalk, runtimefiles.Module+"/"))
+	src, err := runtimefiles.Files(pkgs...)
 	if err != nil {
 		panic("lower: the runtime source is not embedded: " + err.Error())
 	}
@@ -55,9 +66,6 @@ func Runtime() []File {
 	}
 	return files
 }
-
-// goMod is the go.mod of a program with no Go requirements.
-var goMod = string(goModFile(GoModule{}))
 
 // moduleFiles are the emitted module's files: go.mod, go.sum when the
 // program has one, and main.go.
@@ -119,16 +127,22 @@ func Lower(u Unit) ([]File, error) {
 	}
 	l := newLowerer(u)
 	code, err := l.program()
+	if u.Copies != nil {
+		u.Copies.Sites = copyReport(l.stats.Copies)
+	}
 	if err != nil {
 		return nil, err
 	}
-	files := append(moduleFiles(u.Go, code), l.assetFiles()...)
-	if ev, ok := u.Rewrite.(*LedgerEvidence); ok && l.rewrite != nil && ev.HasRules() {
-		// The producer record names the ledgers and the rewrites applied
-		// (ledger.go).
+	return l.withRecord(u, append(moduleFiles(u.Go, code), l.assetFiles()...)), nil
+}
+
+// withRecord is files with the producer record of a run build that read a
+// ledger: it names the ledgers and the rewrites applied (ledger.go).
+func (l *lowerer) withRecord(u Unit, files []File) []File {
+	if ev, ok := u.Rewrite.(*LedgerEvidence); ok && l.rewrite != nil && HasRewriteLaws(u) {
 		files = append(files, File{Path: "ergo_laws.go", Data: ev.record(l, l.rewrite.applied)})
 	}
-	return files, nil
+	return files
 }
 
 // lowerPackage lowers the unit's package once: program runs the naming
@@ -177,7 +191,7 @@ type lowerer struct {
 	// nil applies none.
 	rewrite *rewriter
 	// ir collects the experimental IR bodies of LowerIR
-	// (irspike_experimental.go); nil in every other lowering.
+	// (ir.go); nil in every other lowering.
 	ir *irState
 	// goModule is the root unit's Go requirements (hostPkg).
 	goModule GoModule
@@ -197,6 +211,9 @@ type lowerer struct {
 	reassignedVars map[*check.Var]bool
 	// handed is each part a value being built took over (handParts).
 	handed map[syntax.Expr]bool
+	// inPlace is the in-place form of the owned literal being lowered
+	// (refown.go, inPlaceLit).
+	inPlace map[syntax.Node]*inPlaceLit
 	// Root registration callbacks for repeated moving task bodies (R12).
 	captureRoots map[syntax.Node]string
 	libs         []*check.Package // the libraries the program reaches (libraries)
@@ -233,17 +250,31 @@ type lowerer struct {
 	// fresh holds the fresh temporaries (forms.go).
 	fresh map[freshKey]bool
 	// letUses counts each package let's uses and its uses where a Go
-	// constant is safe (forms.go, constLet).
+	// constant is safe (forms.go, constFold).
 	letUses map[*check.Var][2]int
 
-	types    map[*check.TypeName]*typeDecl
-	funcs    map[*check.Func]*funcDecl
-	pure     map[*check.Func]bool       // the program's pure functions (pure.go), once computed
-	known    map[*check.Func]knownState // known-callback variant decisions (known.go)
-	closed   map[*check.Func]knownState // closed-frame decisions (known.go)
-	deps     map[*check.Func][]bool     // result-alias summaries (alias.go)
-	stats    knownStats                 // what known.go and alias.go did (tests only)
-	vars     map[*check.Var]string      // package-level lets
+	types  map[*check.TypeName]*typeDecl
+	funcs  map[*check.Func]*funcDecl
+	pure   map[*check.Func]bool       // the program's pure functions (pure.go), once computed
+	known  map[*check.Func]knownState // known-callback variant decisions (known.go)
+	closed map[*check.Func]knownState // closed-frame decisions (known.go)
+	deps   map[*check.Func][]bool     // result-alias summaries (alias.go)
+	kept   map[*check.Func][]bool     // kept-argument summaries (keeps.go)
+	// carrying are the carried-parameter summaries and carried the
+	// unions some call carries (carry.go, R3b).
+	carrying map[*check.Func][]bool
+	carried  map[*check.TypeName]bool
+	stats    knownStats            // what known.go and alias.go did (tests only)
+	vars     map[*check.Var]string // package-level lets
+	consts   map[*check.Var]bool   // the lets lowered as Go constants (constLet)
+	// constVals are those lets' values, which the bounds facts read
+	// (bounds.go).
+	constVals map[*check.Var]constant.Value
+	// unstable are, per package, the let mut locals a bounds fact never
+	// names (bounds.go, unstableVars).
+	unstable map[*check.Info]map[*check.Var]bool
+	// facts are the facts the run build exports (facts.go), once each.
+	facts    factSet
 	contexts map[contextSet]string
 	adapters map[string]string        // operation-table adapters by source and target Go types
 	scripts  map[string]bool          // Script structs emitted, by instance key (script.go)
@@ -271,11 +302,34 @@ type lowerer struct {
 
 	envName   string
 	envFields map[string]string // by typeKey
-	envOrder  []envCap
+	// heldFacts is the held analysis and heldEmitted the copier
+	// declarations written (inforce.go).
+	heldFacts   *heldInfo
+	heldEmitted map[string]bool
+	envOrder    []envCap
 
 	rtName, timeName, taskName string
-	embedName                  string
-	embedUsed                  bool
+	// lineages numbers the one-extender sites, each a Lineage of the
+	// package's array (handover.go, own-lineage).
+	lineages  map[*syntax.CallExpr]int
+	embedName string
+	embedUsed bool
+	// rtLeaves are the leaves of runtime/v1 that main.go names (rtRef),
+	// by import path.
+	rtLeaves map[string]bool
+	// hostText is set when main.go imports the gofmt leaf of runtime/v1
+	// (v1.HostText) for its init: the program uses a Go package (hostPkg),
+	// whose values only fmt can write, or names a body that writes a
+	// machine state (v1.NeedsHostText).
+	hostText bool
+	// hostWalk is set when main.go imports the hostwalk leaf of runtime/v1
+	// (v1.HostWalk) for its init: the program names a body that makes an
+	// actor's host, which a recover may make (v1.NeedsHostWalk).
+	hostWalk bool
+	// probing is set while runtimeNamed asks runtimeType whether a std type
+	// is the runtime's: runtimeType then names nothing, so no leaf import
+	// is recorded for a reference main.go never writes (binsize BS8).
+	probing bool
 	// hostImports are the Go packages a lowered call of a user extern
 	// names (hostPkg), imported under their reserved names.
 	hostImports map[string]bool
@@ -290,8 +344,9 @@ type lowerer struct {
 	refusals []Refusal
 	reads    map[*check.Var]bool // locals that some expression reads
 
-	readsDone   map[*check.Func]bool // std functions whose reads are in reads (readsOf)
-	builtinDone map[string]bool      // the reference's builtin helpers written (builtinHelper)
+	readsDone    map[*check.Func]bool // std functions whose reads are in reads (readsOf)
+	builtinDone  map[string]bool      // the reference's builtin helpers written (builtinHelper)
+	patternsDone map[string]bool      // the pattern matchers written (refinematch.go)
 
 	calls    []callIdent // the call table (calls.go, #230)
 	callSeen map[*syntax.CallExpr]bool
@@ -304,6 +359,11 @@ type lowerer struct {
 	// machines, in the order they were lowered; initFunc runs them after
 	// every let, in package initialization order (machine.go).
 	machineInits []machineInitial
+	// machineGraphs are the static graphs of the sourced packages'
+	// machines, in the order they were lowered, and graphsUsed records that
+	// an actor's start names ergoMachineGraph (machine.go, graphAccessor).
+	machineGraphs []machineGraphEntry
+	graphsUsed    bool
 	// entryInits records that the entry calls ergoInit; program checks it
 	// against hasInits once every declaration is lowered (F13).
 	entryInits bool
@@ -311,6 +371,15 @@ type lowerer struct {
 	// the copies for known records made so far (record.go).
 	recParams map[*check.Func]int
 	specs     map[specKey]*specCopy
+	monos     map[monoKey]*specCopy // monomorphic copies (mono.go)
+	monoCount map[*check.Func]int   // copies made per function (mono.go)
+	// provParams memoizes each function's operation-type parameter a copy
+	// for a known provider is made for (provider.go).
+	provParams map[*check.Func]int
+	// tabs memoizes each function's table domain (tabulate.go), and
+	// tabEmitted the functions whose table is written.
+	tabs       map[*check.Func]*tabInfo
+	tabEmitted map[*check.Func]bool
 	// scalarMemo holds each body's locals in the scalar form (scalar.go).
 	scalarMemo map[*syntax.BlockStmt]map[*check.Var]bool
 	// flatSet are the program's flat unions (flatunion.go), decided at the
@@ -342,6 +411,9 @@ type lowerer struct {
 	// initEnvArg is the entry's environment variable, which its call of
 	// ergoInit passes (initSlot).
 	initEnvArg string
+	// reached is the reachable set of declarations (reach.go), nil when
+	// every declaration is lowered.
+	reached map[syntax.Decl]bool
 
 	// noEntry lowers a package with an empty Go main instead of a call of
 	// its main: the corpus test lowers library-shaped fixtures this way.
@@ -411,6 +483,8 @@ func lowererOf(c *canonical, pkg *check.Package, goModule GoModule, tests *testL
 		types:     map[*check.TypeName]*typeDecl{},
 		funcs:     map[*check.Func]*funcDecl{},
 		vars:      map[*check.Var]string{},
+		consts:    map[*check.Var]bool{},
+		constVals: map[*check.Var]constant.Value{},
 		contexts:  map[contextSet]string{},
 		adapters:  map[string]string{},
 		scripts:   map[string]bool{},
@@ -493,7 +567,7 @@ func (l *lowerer) guard(f func()) {
 			}
 			s := l.srcs[src]
 			line, col := s.file.Position(ref.pos)
-			l.refusals = append(l.refusals, Refusal{Source: s.unit, Path: s.path, Offset: int(ref.pos), Line: line, Column: col, Message: ref.msg})
+			l.refusals = append(l.refusals, Refusal{Source: s.unit, Path: s.admitted, Offset: int(ref.pos), Line: line, Column: col, Message: ref.msg})
 		}
 	}()
 	f()
@@ -510,15 +584,27 @@ func (l *lowerer) program() ([]byte, error) {
 		defer func() { statsHook(l.stats) }()
 	}
 	l.nameAll()
+	l.computeReach()
 	main := l.mainFunc()
-	l.eachDecl(l.pkg, l.decl)
-	// Every initializer of every sourced package is lowered here: a
-	// library's lets, and its machines' initial values (F13). A library's
-	// other declarations are lowered where they are used, and so is a std
-	// package's let (reachStdLet, wf10 defects D6), so the entry leaves a
-	// slot for the call of ergoInit, filled once every body is lowered.
+	l.eachDecl(l.pkg, func(d syntax.Decl) {
+		if l.declReached(d) {
+			l.decl(d)
+		}
+	})
+	if l.ir != nil {
+		l.ir.reachAll(l) // CensusStd only (ir.go)
+	}
+	// Every initializer of every reached declaration of a sourced package
+	// is lowered here: a library's lets, and its machines' initial values
+	// (F13). A library's other declarations are lowered where they are
+	// used, and so is a std package's let (reachStdLet, wf10 defects D6),
+	// so the entry leaves a slot for the call of ergoInit, filled once
+	// every body is lowered.
 	for _, p := range l.sourcedLibs() {
 		l.eachDecl(p, func(d syntax.Decl) {
+			if !l.declReached(d) {
+				return
+			}
 			switch d := d.(type) {
 			case *syntax.VarDecl:
 				l.packageLet(d)
@@ -574,7 +660,9 @@ func (l *lowerer) program() ([]byte, error) {
 	if len(l.refusals) > 0 {
 		return nil, &Refused{Refusals: sortedRefusals(l.refusals)}
 	}
-	table := l.callTable() // before the imports: it may name the runtime package
+	table := l.callTable()   // before the imports: it may name the runtime package
+	table += l.lineageDecl() // likewise (handover.go)
+	graphs := l.graphAccessor()
 	inits := l.initFunc()
 	var out strings.Builder
 	out.WriteString("// Code generated by ergo from " + path.Base(strings.ReplaceAll(l.srcs[0].path, "\\", "/")) + ". DO NOT EDIT.\n\npackage " + l.goPackage() + "\n\n")
@@ -588,6 +676,15 @@ func (l *lowerer) program() ([]byte, error) {
 	}
 	if l.rtName != "" {
 		imports = append(imports, l.rtName+" "+`"`+runtimeImport+`"`)
+	}
+	for _, leaf := range slices.Sorted(maps.Keys(l.rtLeaves)) {
+		imports = append(imports, l.pkgNames[pkgKey{"import", leaf}]+" "+strconv.Quote(leaf))
+	}
+	if l.hostText {
+		imports = append(imports, "_ "+strconv.Quote(v1.HostText))
+	}
+	if l.hostWalk {
+		imports = append(imports, "_ "+strconv.Quote(v1.HostWalk))
 	}
 	if l.timeName != "" {
 		imports = append(imports, l.timeName+` "time"`)
@@ -613,6 +710,7 @@ func (l *lowerer) program() ([]byte, error) {
 	out.WriteString(entryText)
 	l.envType(&out)
 	out.WriteString(l.gen.String())
+	out.WriteString(graphs)
 	out.WriteString(table)
 	out.WriteString(l.user.String())
 	out.WriteString(inits)
@@ -719,6 +817,31 @@ func (l *lowerer) rt() string {
 	return l.rtName
 }
 
+// rtRef is the Go reference to the exported declaration name of runtime/v1
+// or of one of its leaves (a body, a record or an operation type): through
+// the import of the package that declares it (v1.PackageOf), so a program
+// imports a leaf only when it names one of its declarations.
+func (l *lowerer) rtRef(name string) string {
+	if v1.NeedsHostText(name) {
+		l.hostText = true
+	}
+	if v1.NeedsHostWalk(name) {
+		l.hostWalk = true
+	}
+	pkg := v1.PackageOf(name)
+	if pkg == "" || pkg == runtimeImport {
+		return l.rt() + "." + name
+	}
+	if l.rtLeaves == nil {
+		l.rtLeaves = map[string]bool{}
+	}
+	l.rtLeaves[pkg] = true
+	return l.pkgName(pkgKey{"import", pkg}, leafName(pkg)) + "." + name
+}
+
+// leafName is the name main.go gives the import of the runtime leaf pkg.
+func leafName(pkg string) string { return "ergo" + path.Base(pkg) }
+
 // timePkg is the time package's name in main.go.
 func (l *lowerer) timePkg() string {
 	if l.timeName == "" {
@@ -760,6 +883,12 @@ func (l *lowerer) entry(b *strings.Builder, main *check.Func) {
 		entryError(main.Decl.Name, "main needs %s, and the host provides only Console and Ambient; bind it with a with block inside main", cap)
 	})
 	b.WriteString("func main() {\n")
+	// A main that needs go.Foreign may write the host's stdout through
+	// Go's os.Stdout, which v1's buffer cannot see, so its standard output
+	// stays direct (stdlib.md io 11).
+	if usesGoForeign(main.Sig.Uses) {
+		b.WriteString("\t" + rt + ".StdoutDirect()\n")
+	}
 	// main runs as the root task under v1.Main, which reports its exit:
 	// a typed failure, a defect with its Ergo call sites (#230), or an
 	// interruption (runtime.md, Exit causes). The environment holds that
@@ -771,6 +900,16 @@ func (l *lowerer) entry(b *strings.Builder, main *check.Func) {
 		}
 		return s + "\t\t" + fd.name + "(" + env + ")\n\t\treturn nil\n"
 	}) + ")\n}\n\n" + l.hostDecl(name, provided, "the entry binds"))
+}
+
+// usesGoForeign reports a row that holds go.Foreign.
+func usesGoForeign(uses *check.Row) bool {
+	for _, cap := range rowElems(uses) {
+		if n, ok := cap.(*check.Named); ok && check.IsGoForeign(n) {
+			return true
+		}
+	}
+	return false
 }
 
 // rootTask is the Go closure a root task runs (main's, the test build's,

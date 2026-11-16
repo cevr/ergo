@@ -147,6 +147,7 @@ var cannotCarry = map[string]string{
 	"MachineType":        "a type, not a value",
 	"AsPattern":          "an as binding takes its case's type: an error type or a variant, a record (a defined function type is S109, 196p), never a function value",
 	"VariantSpec":        "a variant written in place in a union declaration: a type, not a value",
+	"OrPattern":          "nested alternatives of a case's pattern, which the parser expands (syntax/orpattern.go): never a value",
 }
 
 // TestInvalidCalleeDomain (round 8 review M2): a callee typing finds
@@ -191,8 +192,8 @@ func TestInvalidCalleeDomain(t *testing.T) {
 						local = r.local + "\n\t"
 					}
 					src := "import go task\n" + r.decls +
-						"func a(" + r.params + ") {\n\t" + local + strings.ReplaceAll(cb.cb, "@", r.callee) + "\n\treturn Bang\n}\n" +
-						"func b() { return a(" + r.args + ") }\n" +
+						"func a(" + r.params + ") fails Bang {\n\t" + local + strings.ReplaceAll(cb.cb, "@", r.callee) + "\n\treturn Bang\n}\n" +
+						"func b() fails Bang { return a(" + r.args + ") }\n" +
 						"type Bang {}\nfunc F() fails Bang { return b() }\nfunc main() {}\n"
 					_, diags := check.CheckSource(src)
 					var got []string

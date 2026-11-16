@@ -1,0 +1,18 @@
+# three transfers: trail-map.png (4.8s), field-notes.txt (8.7s), harbor-sounds.ogg (1.2s)
+@0 start
+@100 start
+@200 start
+# cancel the first; the third arrives at 1400
+@1000 cancel 0
+@1500 restart 0
+# a cancel of a sent transfer changes nothing
+@2000 cancel 2
+# cancel all stops 0 and 1, the two that send, and leaves 2 sent
+@3000 cancelall
+@3500 restart 1
+@4000 start
+# a restart of one that sends changes nothing
+@4100 restart 1
+@4200 cancel 7
+# 1 arrives at 3500 + 8700 = 12200; 3 (seed-catalog.csv, 3.4s) at 7400
+@13000 end

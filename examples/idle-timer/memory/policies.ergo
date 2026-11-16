@@ -4,7 +4,7 @@ import idletimer/display
 
 // Fixed is a display.Policies of two fixed displays: the lobby, with the
 // standard waits, and the library, which waits longer.
-type Fixed {}
+type Fixed {} implements display.Policies
 
 func Names(_ Fixed) []string { []string{"lobby", "library"} }
 

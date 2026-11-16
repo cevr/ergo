@@ -94,7 +94,7 @@ func Feed(running []Running, sig Signal) ([]Running, []backup.Command) {
 		case Done[Reaction] as e:
 			sends = sent(sends, e.Output)
 			continue
-		case Enter[Stage], Stay[Stage], Ignore, Reject:
+		case Enter[Stage], Stay[Stage], Tell[Stage, Reaction], Ignore, Reject:
 		}
 		still = still.Append(Running{Backup: r.Backup, At: machines.Next(r.At, d)})
 	}

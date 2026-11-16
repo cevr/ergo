@@ -1,24 +1,203 @@
 {
   "about": "scripts/examples mutants of the ts leg (X-rpc1) and the examples runner's check/native agreement guard (EV6). The ts example killers run under -tags ts, which needs Bun and a warmed Bun cache: go run ./scripts/examples -tags ts limiter.",
   "mutants": [
-    {"name":"cu5-domain-origin-lost", "origin":"wf10 CU5", "file":"examples/download/network/download.ergo", "from":"d.net.SendURL(request(url)) catch {\n\tcase http.OriginRefused as o:\n\t\treturn domain.Denied{Origin: o.Origin}", "to":"d.net.SendURL(request(url)) catch {\n\tcase http.OriginRefused:\n\t\treturn domain.Denied{Origin: \"\"}", "rule":"The worked provider preserves the refused origin in its domain failure.", "killers":["examples:download"]},
-    {"name":"cu6-save-origin-lost", "origin":"wf10 CU6", "file":"examples/download/network/download.ergo", "from":"request(url)) } catch {\n\tcase http.OriginRefused as o:\n\t\treturn domain.Denied{Origin: o.Origin}", "to":"request(url)) } catch {\n\tcase http.OriginRefused:\n\t\treturn domain.Denied{Origin: \"\"}", "rule":"The worked provider's Save preserves the refused origin in its domain failure.", "killers":["examples:download"]},
-    { "name": "e3b-law-missing", "origin": "E3b", "file": "examples/jobs/api/failure.ergo", "from": "http.FailureStatus{Tag: \"Conflict\", Status: 409},", "to": "", "rule": "The failure coverage law refuses a missing status.", "killers": ["examples:jobs"] },
-    { "name": "e3b-law-repeat", "origin": "E3b", "file": "examples/jobs/api/failure.ergo", "from": "http.FailureStatus{Tag: \"Conflict\", Status: 409},", "to": "http.FailureStatus{Tag: \"Conflict\", Status: 409}, http.FailureStatus{Tag: \"Conflict\", Status: 409},", "rule": "The failure coverage law refuses repeated statuses.", "killers": ["examples:jobs"] },
-    { "name": "e3-direct-empty", "origin": "E3", "file": "examples/jobs/api/queue.ergo", "from": "if draft.Name == \"\"", "to": "if false", "rule": "Jobs rejects an empty draft even when called directly, without DraftOf's HTTP validation.", "killers": ["examples:jobs"] },
-    { "name": "e3-route-missing", "origin": "E3", "file": "examples/jobs/api/routes.ergo", "from": "\thttp.Route{Value: endpoint.DeleteJob, Method: \"DELETE\", Path: \"/jobs/:id\", Status: 204},\n", "to": "", "rule": "RoutesCoverEndpoints refuses a table missing an endpoint.", "killers": ["examples:jobs"] },
-    { "name": "e3-route-repeat", "origin": "E3", "file": "examples/jobs/api/routes.ergo", "from": "\thttp.Route{Value: endpoint.ShowJob, Method: \"GET\", Path: \"/jobs/:id\", Status: 200},\n", "to": "\thttp.Route{Value: endpoint.ShowJob, Method: \"GET\", Path: \"/jobs/:id\", Status: 200},\n\thttp.Route{Value: endpoint.ShowJob, Method: \"GET\", Path: \"/jobs/:id\", Status: 200},\n", "rule": "RoutesCoverEndpoints refuses a repeated endpoint even when Match returns the same response.", "killers": ["examples:jobs"] },
-    { "name": "cu1-route-targets-lost", "origin": "wf10 CU1", "file": "examples/routecli/cli/command.ergo", "from": "Targets: targets.Get(v)", "to": "Targets: []string{}", "rule": "The worked command maps every repeated target into the domain command, in order.", "killers": ["examples:routecli"] },
+    {"name":"gs30-key-check-stores","origin":"wf10 GS30","file":"scripts/examples/main.go","from":"\t\tenv = append(slices.Clip(env), lawCacheOff)\n","to":"\t\t_ = lawCacheOff\n","rule":"Every check the runner makes, the key's included, runs with the law-verdict store off.","killers":["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"]},
+    {"name":"gs30-check-leg-own","origin":"wf10 GS30","file":"scripts/examples/evaluation.go","from":"\to, err := r.tool(r.cfg.testTimeout, \"check\", target)\n","to":"\to, err := r.live.execute([]string{r.cfg.ergo, \"check\", target}, r.cfg.root, append(r.toolEnv[:len(r.toolEnv):len(r.toolEnv)], lawCacheOff), \"\", r.cfg.testTimeout, 0)\n","rule":"A missed program's check leg takes the key's check result; it does not check again.","killers":["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"]},
+    {"name":"gs27-coverage-unchecked","origin":"wf10 GS27","file":"scripts/examples/cache.go","from":"\t\t\tif why := coveredPackages(p, targets, o.stdout); why != \"\" {\n","to":"\t\t\tif why := coveredPackages(p, targets, o.stdout); false {\n\t\t\t\t_ = why\n","rule":"A pattern's key holds only when it names every target, and no other package.","killers":["scripts/examples:TestPatternReachingAnotherPackageIsNotCached"]},
+    {"name":"gs27-coverage-subset","origin":"wf10 GS27","file":"scripts/examples/cache.go","from":"\tif !slices.Equal(slices.Compact(want), got) {\n","to":"\tif len(got) == 0 {\n","rule":"The packages a pattern names are exactly the program's targets.","killers":["scripts/examples:TestPatternKeyCoversEveryTarget"]},
+    {"name":"gs27-stream-kept-whole","origin":"wf10 GS27","file":"scripts/examples/cache.go","from":"\tif len(out) == 0 {\n\t\treturn stdout\n\t}\n\treturn bytes.Join(out, []byte(\"\\n\"))\n","to":"\tif len(out) != 1 {\n\t\treturn stdout\n\t}\n\treturn bytes.Join(out, []byte(\"\\n\"))\n","rule":"Each envelope of a pattern's check loses its producer.","killers":["scripts/examples:TestPatternCheckKeyDropsEveryProducer"]},
+    {"name":"cu5-domain-origin-lost", "origin":"wf10 CU5", "file":"examples/download/network/download.ergo", "from":"d.net.SendURL(request(url)) catch {\n\tcase http.OriginRefused as o:\n\t\treturn domain.Denied{Origin: o.Origin}", "to":"d.net.SendURL(request(url)) catch {\n\tcase http.OriginRefused:\n\t\treturn domain.Denied{Origin: \"\"}", "rule":"The worked provider preserves the refused origin in its domain failure.", "killers":["examples:download"], "anchor":{"tests":["examples:download"]}},
+    {"name":"cu6-save-origin-lost", "origin":"wf10 CU6", "file":"examples/download/network/download.ergo", "from":"request(url)) } catch {\n\tcase http.OriginRefused as o:\n\t\treturn domain.Denied{Origin: o.Origin}", "to":"request(url)) } catch {\n\tcase http.OriginRefused:\n\t\treturn domain.Denied{Origin: \"\"}", "rule":"The worked provider's Save preserves the refused origin in its domain failure.", "killers":["examples:download"], "anchor":{"tests":["examples:download"]}},
+    {
+      "name": "e3b-law-missing",
+      "origin": "E3b",
+      "file": "examples/jobs/api/failure.ergo",
+      "from": "http.FailureStatus{Tag: \"Conflict\", Status: 409},",
+      "to": "",
+      "rule": "The failure coverage law refuses a missing status.",
+      "killers": [
+        "examples:jobs"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:jobs"
+        ]
+      }
+    },
+    {
+      "name": "e3b-law-repeat",
+      "origin": "E3b",
+      "file": "examples/jobs/api/failure.ergo",
+      "from": "http.FailureStatus{Tag: \"Conflict\", Status: 409},",
+      "to": "http.FailureStatus{Tag: \"Conflict\", Status: 409}, http.FailureStatus{Tag: \"Conflict\", Status: 409},",
+      "rule": "The failure coverage law refuses repeated statuses.",
+      "killers": [
+        "examples:jobs"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:jobs"
+        ]
+      }
+    },
+    {
+      "name": "e3-direct-empty",
+      "origin": "E3",
+      "file": "examples/jobs/api/queue.ergo",
+      "from": "if draft.Name == \"\"",
+      "to": "if false",
+      "rule": "Jobs rejects an empty draft even when called directly, without DraftOf's HTTP validation.",
+      "killers": [
+        "examples:jobs"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:jobs"
+        ]
+      }
+    },
+    {
+      "name": "e3-route-missing",
+      "origin": "E3",
+      "file": "examples/jobs/api/routes.ergo",
+      "from": "\thttp.Route{Value: endpoint.DeleteJob, Method: \"DELETE\", Path: \"/jobs/:id\", Status: 204},\n",
+      "to": "",
+      "rule": "RoutesCoverEndpoints refuses a table missing an endpoint.",
+      "killers": [
+        "examples:jobs"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:jobs"
+        ]
+      }
+    },
+    {
+      "name": "e3-route-repeat",
+      "origin": "E3",
+      "file": "examples/jobs/api/routes.ergo",
+      "from": "\thttp.Route{Value: endpoint.ShowJob, Method: \"GET\", Path: \"/jobs/:id\", Status: 200},\n",
+      "to": "\thttp.Route{Value: endpoint.ShowJob, Method: \"GET\", Path: \"/jobs/:id\", Status: 200},\n\thttp.Route{Value: endpoint.ShowJob, Method: \"GET\", Path: \"/jobs/:id\", Status: 200},\n",
+      "rule": "RoutesCoverEndpoints refuses a repeated endpoint even when Match returns the same response.",
+      "killers": [
+        "examples:jobs"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:jobs"
+        ]
+      }
+    },
+    {
+      "name": "cu1-route-targets-lost",
+      "origin": "wf10 CU1",
+      "file": "examples/routecli/cli/command.ergo",
+      "from": "Targets: targets.Get(v)",
+      "to": "Targets: []string{}",
+      "rule": "The worked command maps every repeated target into the domain command, in order.",
+      "killers": [
+        "examples:routecli"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:routecli"
+        ]
+      }
+    },
     { "name": "ts-skip", "file": "scripts/examples/main.go", "from": "\t\t\tr.fail(p.name + \": ts\")\n", "to": "", "rule": "A ts program the leg cannot run fails; it never passes with its cases unrun.", "killers": ["scripts/examples:TestTsLegWithoutBunFails"] },
     { "name": "ts-layout", "file": "scripts/examples/main.go", "from": "if present[\"ts\"] != p.tagged(\"ts\") {", "to": "if false {", "rule": "A ts/ folder and the tag ts go together.", "killers": ["scripts/examples:TestTsLayout"] },
     { "name": "ts-package", "file": "scripts/examples/ts.go", "from": "return dir, os.WriteFile(filepath.Join(dir, \"package.json\"), []byte(tsPackage), 0o644)", "to": "return dir, nil", "rule": "A case's copy has its own package.json, so ergo-ts/bun resolves to the installed package.", "killers": ["examples:limiter"] },
-    { "name": "ts-path", "file": "scripts/examples/ts.go", "from": "path := filepath.Dir(ergo)", "to": "path := \"/nonexistent/loop-probe-x\"", "rule": "The checkout's ergo is first on PATH for the content mapper.", "killers": ["examples:limiter", "examples:limiter"] },
-    { "name": "r3b-hold-release", "file": "examples/limiter/memory/memory.ergo", "from": "\t\tif waits {\n\t\t\tnote(m, Released{Hold: id})", "to": "\t\tif !waits {\n\t\t\tnote(m, Released{Hold: id})", "rule": "A Hold's release runs on every exit, a stop of its caller included: a client that hangs up on the gateway stops the Ergo Hold, and its release is seen.", "killers": ["examples:limiter"] },
-    { "name": "r3b-hold-wake", "file": "examples/limiter/memory/memory.ergo", "from": "\tfor q in maps.Values(woken) {\n\t\tq.End()\n", "to": "\tfor q in maps.Values(woken) {\n\t\tif len(woken) < 0 {\n\t\t\tq.End()\n\t\t}\n", "rule": "An Advance wakes every waiting Hold, so a Hold the clock lets through is granted.", "killers": ["examples:limiter"] },
-    { "name": "x2-same-origin", "file": "examples/jobs-web/cmd/jobs-web/main.ergo", "from": "\tif r.Path == \"/rpc\" || strings.HasPrefix(r.Path, \"/rpc/\") {", "to": "\tif r.Path == \"/rpc-moved\" || strings.HasPrefix(r.Path, \"/rpc/\") {", "rule": "One listener serves the RPC mount beside the page's files: /rpc reaches rpc.Answer, not http.Files.", "killers": ["examples:jobs-web"] },
-    { "name": "x2-cancel-ended", "file": "examples/jobs-web/job/job.ergo", "from": "\t\tif jobs.Terminal(r.State) {\n\t\t\treturn Reject", "to": "\t\tif false && jobs.Terminal(r.State) {\n\t\t\treturn Reject", "rule": "A job that has ended stays ended: a cancel of it is rejected (AlreadyDone with its state), never a second end.", "killers": ["examples:jobs-web", "examples:jobs-web", "examples:jobs-web"] },
-    { "name": "cu3-starter-git-ignored", "origin": "wf10 CU3", "file": "examples/starter/cli/flags.ergo", "from": "Git: git.Get(v)", "to": "Git: false", "rule": "--git makes the plan a repository, so its files end with .gitignore.", "killers": ["examples:starter"] },
-    { "name": "cu3-starter-feature-file-swapped", "origin": "wf10 CU3", "file": "examples/starter/plan/plan.ergo", "from": "\tcase Docs:\n\t\t\"docs/index.md\"", "to": "\tcase Docs:\n\t\t\"tests/main_test.ergo\"", "rule": "Each feature makes its own file.", "killers": ["examples:starter"] },
+    { "name": "ts-path", "file": "scripts/examples/ts.go", "from": "path := filepath.Dir(ergo)", "to": "path := \"/nonexistent/loop-probe-x\"", "rule": "The checkout's ergo is first on PATH for the content mapper.", "killers": ["examples:limiter"] },
+    {
+      "name": "r3b-hold-release",
+      "file": "examples/limiter/memory/memory.ergo",
+      "from": "\t\tif waits {\n\t\t\tnote(m, Released{Hold: id})",
+      "to": "\t\tif !waits {\n\t\t\tnote(m, Released{Hold: id})",
+      "rule": "A Hold's release runs on every exit, a stop of its caller included: a client that hangs up on the gateway stops the Ergo Hold, and its release is seen.",
+      "killers": [
+        "examples:limiter"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:limiter"
+        ]
+      }
+    },
+    {
+      "name": "r3b-hold-wake",
+      "file": "examples/limiter/memory/memory.ergo",
+      "from": "\tfor q in maps.Values(woken) {\n\t\tq.End()\n",
+      "to": "\tfor q in maps.Values(woken) {\n\t\tif len(woken) < 0 {\n\t\t\tq.End()\n\t\t}\n",
+      "rule": "An Advance wakes every waiting Hold, so a Hold the clock lets through is granted.",
+      "killers": [
+        "examples:limiter"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:limiter"
+        ]
+      }
+    },
+    {
+      "name": "x2-same-origin",
+      "file": "examples/jobs-web/cmd/jobs-web/main.ergo",
+      "from": "\tif r.Path == \"/rpc\" || strings.HasPrefix(r.Path, \"/rpc/\") {",
+      "to": "\tif r.Path == \"/rpc-moved\" || strings.HasPrefix(r.Path, \"/rpc/\") {",
+      "rule": "One listener serves the RPC mount beside the page's files: /rpc reaches rpc.Answer, not http.Files.",
+      "killers": [
+        "examples:jobs-web"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:jobs-web"
+        ]
+      }
+    },
+    {
+      "name": "x2-cancel-ended",
+      "file": "examples/jobs-web/job/job.ergo",
+      "from": "\t\tif jobs.Terminal(r.State) {\n\t\t\treturn Reject",
+      "to": "\t\tif false && jobs.Terminal(r.State) {\n\t\t\treturn Reject",
+      "rule": "A job that has ended stays ended: a cancel of it is rejected (AlreadyDone with its state), never a second end.",
+      "killers": ["examples:jobs-web"],
+      "anchor": {
+        "tests": [
+          "examples:jobs-web"
+        ]
+      }
+    },
+    {
+      "name": "cu3-starter-git-ignored",
+      "origin": "wf10 CU3",
+      "file": "examples/starter/cli/flags.ergo",
+      "from": "Git: git.Get(v)",
+      "to": "Git: false",
+      "rule": "--git makes the plan a repository, so its files end with .gitignore.",
+      "killers": [
+        "examples:starter"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:starter"
+        ]
+      }
+    },
+    {
+      "name": "cu3-starter-feature-file-swapped",
+      "origin": "wf10 CU3",
+      "file": "examples/starter/plan/plan.ergo",
+      "from": "\tcase Docs:\n\t\t\"docs/index.md\"",
+      "to": "\tcase Docs:\n\t\t\"tests/main_test.ergo\"",
+      "rule": "Each feature makes its own file.",
+      "killers": [
+        "examples:starter"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:starter"
+        ]
+      }
+    },
     {
       "name": "gcoom-examples-text-only",
       "origin": "wf10 FU-gcoom r2",
@@ -37,6 +216,77 @@
       "rule": "Every example compares each check-time verdict and its evidence with the native test verdict, not just exit codes.",
       "killers": ["scripts/examples:TestCheckVerdictsMatchNative"]
     },
+    {"name":"ert-explore-leg-case-timeout","origin":"wf10 EXPLORE-rt","file":"scripts/examples/explored.go","from":"\t\to, err := r.tool(r.cfg.testTimeout, append(","to":"\t\to, err := r.tool(r.cfg.timeout, append(","rule":"An explore search ends by itself; only -test-timeout, the safety net for a hung one, stops it, never a case's -timeout (batch 18: a healthy search failed 30 s at load 50).","killers":["scripts/examples:TestExploreLegOutlastsTheCaseTimeout"]},
+    {"name":"ert-case-timeout-fixed","origin":"wf10 EXPLORE-rt r2","file":"scripts/examples/main.go","from":"flags.DurationVar(&cfg.timeout, \"timeout\", hangNet,","to":"flags.DurationVar(&cfg.timeout, \"timeout\", 30*time.Second,","rule":"A case is stopped only when it hangs: -timeout's default is the test legs' safety net, never a time limit that fails a slow case under load (AGENTS.md, Tests).","killers":["scripts/examples:TestCaseStopsOnlyAHang"]},
+    {"name":"ert-budget-wall-time","origin":"wf10 EXPLORE-rt r3 (owner q1)","file":"scripts/examples/main.go","from":"r.cfg.budget > 0 && o.cpu > r.cfg.budget","to":"r.cfg.budget > 0 && o.elapsed > r.cfg.budget","rule":"The default budget charges a case's CPU time, never its wall time: the host's load does not fail a healthy case (owner, 2026-11-12).","killers":["scripts/examples:TestBudgetAndSelection"]},
+    {
+      "name": "fk0-each-table-is-title", "origin": "wf10 FK0", "file": "scripts/examples/origin.go",
+      "from": "each: m[1] == \".each\"", "to": "each: false",
+      "rule": "An .each call's title is the first literal after its table, not a value of the table.",
+      "killers": ["scripts/examples:TestOriginFollowsUpstream"]
+    },
+    {
+      "name": "fk0-effect-not-a-test", "origin": "wf10 FK0", "file": "scripts/examples/origin.go",
+      "from": "^(?:test|it)(?:\\.effect)?(\\.each|\\.only|\\.skip)?$", "to": "^(?:test|it)(\\.each|\\.only|\\.skip)?$",
+      "rule": "it.effect and it.effect.each are tests (Foldkit's Effect-vitest form).",
+      "anchor": {"tests": ["scripts/examples:TestOriginFollowsUpstream"]},
+      "killers": ["scripts/examples:TestOriginFollowsUpstream"]
+    },
+    {
+      "name": "fk0-test-inside-a-string", "origin": "wf10 FK0", "file": "scripts/examples/origin.go",
+      "from": "\t\t\ti = endOfString(src, i) + 1\n", "to": "\t\t\ti++\n",
+      "rule": "A test name inside a string literal (a title that says \"it (\") is not a call.",
+      "killers": ["scripts/examples:TestOriginFollowsUpstream"]
+    },
+    {
+      "name": "fk0-title-not-collapsed", "origin": "wf10 FK0", "file": "scripts/examples/origin.go",
+      "from": "titles = append(titles, strings.Join(strings.Fields(src[j+1:end]), \" \"))", "to": "titles = append(titles, src[j+1:end])",
+      "rule": "A title across lines is one line of tests.txt, with its spaces collapsed.",
+      "killers": ["scripts/examples:TestOriginFollowsUpstream"]
+    },
+    {
+      "name": "fk0-any-file-is-upstream", "origin": "wf10 FK0", "file": "scripts/examples/origin.go",
+      "from": "return strings.HasSuffix(name, \"story.test.ts\") || strings.HasSuffix(name, \"scene.test.ts\")", "to": "return strings.HasSuffix(name, \".ts\")",
+      "rule": "Only story and scene test files are restated.",
+      "killers": ["scripts/examples:TestOriginFollowsUpstream"]
+    },
+    {
+      "name": "fk0-empty-restatement", "origin": "wf10 FK0", "file": "scripts/examples/origin.go",
+      "from": "if at < 0 || strings.TrimSpace(line[at+4:]) == \"\" {", "to": "if at < 0 {",
+      "rule": "Every line names its restatement, or not restated with a reason.",
+      "killers": ["scripts/examples:TestOriginFollowsUpstream"]
+    },
+    {
+      "name": "fk0-doubled-line", "origin": "wf10 FK0", "file": "scripts/examples/origin.go",
+      "from": "case have[key] > want[key]:", "to": "case false:",
+      "rule": "A title has as many lines as upstream has tests of that title.",
+      "killers": ["scripts/examples:TestOriginFollowsUpstream"]
+    },
+    {
+      "name": "fk0-extra-line", "origin": "wf10 FK0", "file": "scripts/examples/origin.go",
+      "from": "if want[key] == 0 {", "to": "if false {",
+      "rule": "A line for a test upstream does not have is refused.",
+      "killers": ["scripts/examples:TestOriginFollowsUpstream"]
+    },
+    {
+      "name": "fk0-origin-folder-unchecked", "origin": "wf10 FK0", "file": "scripts/examples/main.go",
+      "from": "\t\t\tproblems = append(problems, checkOrigin(filepath.Join(p.dir, file), filepath.Dir(filepath.Dir(p.dir)))...)\n", "to": "",
+      "rule": "A program of packages with an origin folder has its tests.txt checked.",
+      "killers": ["scripts/examples:TestOriginFolderIsChecked"]
+    },
+    {
+      "name": "fk0-origin-folder-unchecked-single", "origin": "wf10 FK0", "file": "scripts/examples/main.go",
+      "from": "\t\t\tproblems = append(problems, checkOrigin(filepath.Join(dir, file), filepath.Dir(filepath.Dir(dir)))...)\n", "to": "",
+      "rule": "A program of one folder with an origin folder has its tests.txt checked.",
+      "killers": ["scripts/examples:TestOriginFolderIsChecked"]
+    },
+    { "name": "gs1-key-ergo", "origin": "wf10 GS1", "file": "scripts/examples/cache.go", "from": "{{\"runner\", self}, {\"ergo\", cfg.ergo}}", "to": "{{\"runner\", self}}", "rule": "A program's cache key holds the compiler's bytes: another bin/ergo at the same path reruns it.", "killers": ["scripts/examples:TestCachedVerdictEqualsRerun"] },
+    { "name": "gs1-key-env", "origin": "wf10 GS1", "file": "scripts/examples/cache.go", "from": "\tfor _, kv := range env {\n", "to": "\tfor _, kv := range env[:0] {\n", "rule": "A program's cache key holds the environment the compiler and the programs read.", "killers": ["scripts/examples:TestCachedVerdictEqualsRerun"] },
+    { "name": "gs1-volatile-keyed", "origin": "wf10 GS1", "file": "scripts/examples/cache.go", "from": "var volatileEnv = []string{\"INVOCATION_ID\", ", "to": "var volatileEnv = []string{", "rule": "A variable that changes on every invocation and that no verdict reads (systemd's INVOCATION_ID) is not keyed: with it every program missed.", "killers": ["scripts/examples:TestCachedVerdictEqualsRerun"] },
+    { "name": "gs1-key-file-bytes", "origin": "wf10 GS1", "file": "scripts/examples/cache.go", "from": "\t\t\tfmt.Fprintf(h, \"file %q %o %s\\n\", filepath.ToSlash(rel), info.Mode().Perm(), sum)\n", "to": "\t\t\tfmt.Fprintf(h, \"file %q %o\\n\", filepath.ToSlash(rel), info.Mode().Perm())\n\t\t\t_ = sum\n", "rule": "A program's cache key holds the bytes of every file of its folder.", "killers": ["scripts/examples:TestCachedVerdictEqualsRerun"] },
+    { "name": "gs1-record-failure", "origin": "wf10 GS1", "file": "scripts/examples/cache.go", "from": "\tif len(r.failures) == failures {\n", "to": "\tif len(r.failures) >= failures {\n", "rule": "Only a pass is recorded: a failed program always runs again.", "killers": ["scripts/examples:TestCachedVerdictEqualsRerun"] },
+    { "name": "gs1-unreadable-silent", "origin": "wf10 GS1", "file": "scripts/examples/cache.go", "from": "\t\tfmt.Fprintf(r.out, \"examples: %s: not cached: %s\\n\", p.name, why)\n", "to": "\t\t_ = why\n", "rule": "A program with no key runs, and the run says why it was not cached (fail closed, never silent).", "killers": ["scripts/examples:TestCachedVerdictEqualsRerun"] },
+    { "name": "gs1-ts-cached", "origin": "wf10 GS1", "file": "scripts/examples/cache.go", "from": "var uncachedTags = []string{\"ts\", \"net\", \"cc\", \"tty\", \"gui\"}", "to": "var uncachedTags = []string{\"net\", \"cc\", \"tty\", \"gui\"}", "rule": "A ts program is never cached: it reads the Bun cache, which the key cannot name.", "gap": "The law's fixture has no ts program (the ts leg needs Bun and a warm Bun cache); the rule is a list read by programKey." },
     {
       "name": "gateex-programs-serial",
       "origin": "wf10 GATE-ex",
@@ -72,6 +322,154 @@
       "to": "if err := error(nil); err != nil {",
       "rule": "The runner puts a checked-in ergo.laws back as it was: a run leaves the tree unchanged.",
       "killers": ["scripts/examples:TestTestLegFailsAStaleLedger"]
-    }
+    },
+    {
+      "name": "one-module-per-package",
+      "origin": "wf10 TEST-one",
+      "file": "scripts/examples/main.go",
+      "from": "if !(p.module && len(p.tests) > 1 && r.testModule(p)) {",
+      "to": "if !(false && p.module && len(p.tests) > 1 && r.testModule(p)) {",
+      "rule": "The test leg of a program of packages is one ergo test DIR/..., one check of the module and one test binary, not one per package.",
+      "killers": ["scripts/examples:TestModuleProgram"]
+    },
+    {
+      "name": "one-module-ignores-evaluation",
+      "origin": "wf10 TEST-one",
+      "file": "scripts/examples/main.go",
+      "from": "r.compareEvaluation(p, strings.Replace(leg, \"test\", \"check\", 1), evaluation, section)",
+      "to": "_ = section",
+      "rule": "One ergo test of a program of packages still compares each package's check-time verdicts with its part of the native report.",
+      "killers": ["scripts/examples:TestModuleProgramJudgesEachPackage"]
+    },
+    {
+      "name": "one-module-ignores-skips",
+      "origin": "wf10 TEST-one",
+      "file": "scripts/examples/main.go",
+      "from": "if skips := unexpectedSkips(section, p.dir); len(skips) > 0 {",
+      "to": "if skips := unexpectedSkips(section, p.dir); false && len(skips) > 0 {",
+      "rule": "One ergo test of a program of packages fails a package whose part of the report holds a skip that expected-skips does not list (fs4).",
+      "killers": ["scripts/examples:TestModuleProgramJudgesEachPackage"]
+    },
+    {
+      "name": "one-module-any-packages",
+      "origin": "wf10 TEST-one",
+      "file": "scripts/examples/main.go",
+      "from": "if got := slices.Sorted(slices.Values(order)); !slices.Equal(got, slices.Sorted(slices.Values(want))) {",
+      "to": "if got := slices.Sorted(slices.Values(order)); false {",
+      "rule": "A run that tested other packages than the program's fails the program.",
+      "killers": ["scripts/examples:TestModuleProgramRunsEveryPackage"]
+    },
+    {
+      "name": "one-module-check-per-package",
+      "origin": "wf10 TEST-one round 2",
+      "file": "scripts/examples/main.go",
+      "from": "evaluations := r.checkModule(p, order)",
+      "to": "evaluations := r.checkModule(p, nil)",
+      "rule": "The check legs of a program of packages are one ergo check DIR/..., one load of the module, not one per package.",
+      "killers": ["scripts/examples:TestModuleProgram"]
+    },
+    {
+      "name": "one-module-check-misfiled",
+      "origin": "wf10 TEST-one round 2",
+      "file": "scripts/examples/evaluation.go",
+      "from": "out[pkg] = e",
+      "to": "out[order[0]], _ = e, pkg",
+      "rule": "Each envelope of one ergo check DIR/... is judged against its own package's part of the native report, in the order the packages ran.",
+      "killers": ["scripts/examples:TestModuleProgramJudgesEachPackage"]
+    },
+    {
+      "name": "cache-bound-examples-user-cache",
+      "origin": "wf10 CACHE-bound",
+      "file": "scripts/examples/main.go",
+      "from": "r.cfg.root, env, \"\", timeout, 0)",
+      "to": "r.cfg.root, os.Environ(), \"\", timeout, 0)",
+      "rule": "Every compiler call of the runner builds in the run's own emission cache, which the run removes, never the caller's or the user's.",
+      "killers": ["scripts/examples:TestFmtOrBuildFailureFailsOnlyThatProgram"]
+    },
+    { "name": "ex2-no-fix-leg", "origin": "wf10 EX2 r2", "file": "scripts/examples/main.go", "from": "\t\t\tr.toolFailed(p, \"fix\", o, err)\n\t\t\treturn\n", "to": "", "rule": "A program a clause ergo fix would write fails the examples step (q137).", "killers": ["scripts/examples:TestFmtOrBuildFailureFailsOnlyThatProgram"] },
+    {
+      "name": "examples-workload-unexpected",
+      "origin": "wf10 STROBE OPC",
+      "file": "scripts/examples/main.go",
+      "from": "case file == opcount.WorkloadFile && !entry.IsDir():",
+      "to": "case file == \"no \"+opcount.WorkloadFile && !entry.IsDir():",
+      "rule": "A program of packages may hold a workload file (scripts/opcount).",
+      "killers": [
+        "scripts/examples:TestRepoExamplesHoldTheirLaws",
+        "scripts/examples:TestModuleProgramWorkload"
+      ]
+    },
+    {
+      "name": "examples-workload-unchecked",
+      "origin": "wf10 STROBE OPC",
+      "file": "scripts/examples/main.go",
+      "from": "problem(\"%s: %s\", file, w)",
+      "to": "_ = w",
+      "rule": "A workload file that does not read is a layout error naming its line.",
+      "killers": ["scripts/examples:TestModuleProgramWorkload"]
+    },
+    {
+      "name": "md2-mod-cold-skipped",
+      "origin": "wf10 MD2",
+      "file": "scripts/examples/mod.go",
+      "from": "\tr.fail(p.name + \": mod\")\n",
+      "to": "",
+      "rule": "A program tagged mod whose module cache is cold fails; it is never skipped.",
+      "killers": ["scripts/examples:TestModLegColdCacheFails"]
+    },
+    {
+      "name": "md2-mod-leg-unrun",
+      "origin": "wf10 MD2",
+      "file": "scripts/examples/main.go",
+      "from": "if p.tagged(\"mod\") && !r.modLeg(p) {",
+      "to": "if false && !r.modLeg(p) {",
+      "rule": "The mod leg runs before the build of a program tagged mod.",
+      "killers": ["scripts/examples:TestModLegColdCacheFails"]
+    },
+    {"name":"dk1-doc-drift","origin":"wf10 DK1","file":"docs/domain.md","from":"\t\t[]Event{Retried{Stage: k.Stage}}","to":"\t\t[]Event{Retried{Stage: f.Stage}}","rule":"Every code block of docs/domain.md is the current text of the examples/ declarations its marker names.","killers":["scripts/examples:TestDomainDocQuotesResolve"]},
+    {"name":"px2-gen-check-skipped","origin":"wf10 PX2","file":"scripts/examples/main.go","from":"\tif !r.genProgram(p) {\n\t\treturn\n\t}\n","to":"","rule":"A program of packages with generated files runs ergo gen KIND --check on each contract, and a stale file fails it.","killers":["scripts/examples:TestModuleProgramGenCheck"]},
+    {"name":"px2-cmd-folder-unchecked","origin":"wf10 PX2","file":"scripts/examples/main.go","from":"\t\tif info, err := os.Stat(filepath.Join(dir, entry.Name(), \"main.ergo\")); err != nil || !info.Mode().IsRegular() {","to":"\t\tif info, err := os.Stat(filepath.Join(dir, entry.Name(), \"main.ergo\")); false && (err != nil || !info.Mode().IsRegular()) {","rule":"Every folder of a program's cmd is a binary with its main.ergo.","killers":["scripts/examples:TestModuleProgramLayout"]},
+    {"name":"mk0-module-tests-skipped","origin":"wf10 MK0","file":"scripts/examples/modules.go","from":"\tif !r.genProgram(p) {\n\t\treturn\n\t}\n\tr.testProgram(p)\n","to":"\tif !r.genProgram(p) {\n\t\treturn\n\t}\n","rule":"A module of modules/ runs ergo test on every package folder, so a failing law fails it.","killers":["scripts/examples:TestModulesLeg"]},
+    {"name":"mk0-default-run-skips-modules","origin":"wf10 MK0","file":"scripts/examples/main.go","from":"\t\tselected = append(selected, modules...)\n","to":"","rule":"A run of the tags (the gate's examples step) runs every module of modules/ too.","killers":["scripts/examples:TestModulesLeg"]},
+    {"name":"mk0-module-binary-admitted","origin":"wf10 MK0","file":"scripts/examples/modules.go","from":"\t\tcase entry.IsDir() && (file == \"cmd\" || file == \"cases\"):","to":"\t\tcase false && entry.IsDir() && (file == \"cmd\" || file == \"cases\"):","rule":"A module is a library: a cmd/ or cases/ folder in it is a layout error.","killers":["scripts/examples:TestModulesLeg"]},
+    {"name":"mk0-module-names-unchecked","origin":"wf10 MK0","file":"scripts/examples/modules.go","from":"if ergoName != \"\" && goName != \"\" && ergoName != goName {","to":"if false && ergoName != \"\" && goName != \"\" && ergoName != goName {","rule":"A module's ergo.mod and go.mod name one module path, so a replace that points at it resolves.","killers":["scripts/examples:TestModulesLeg"]},
+    {
+      "name": "fksrc-first-source-only", "origin": "wf10 FKsrc", "file": "scripts/examples/origin.go",
+      "from": "\t\t\trels = append(rels, line)\n", "to": "\t\t\trels = append(rels[:0], line)\n",
+      "rule": "Every line of source is an upstream folder whose tests tests.txt restates.",
+      "killers": ["scripts/examples:TestOriginFollowsUpstream"]
+    },
+    {
+      "name": "fksrc-file-not-prefixed", "origin": "wf10 FKsrc", "file": "scripts/examples/origin.go",
+      "from": "\t\t\tprefix = filepath.Base(rel) + \"/\"\n", "to": "\t\t\tprefix = rel[:0]\n",
+      "rule": "With more than one folder, FILE starts with its folder's last element.",
+      "killers": ["scripts/examples:TestOriginFollowsUpstream"]
+    },
+    {
+      "name": "fksrc-same-name-accepted", "origin": "wf10 FKsrc", "file": "scripts/examples/origin.go",
+      "from": "\t\tif other, ok := prefixes[prefix]; ok {\n", "to": "\t\tif other, ok := prefixes[prefix]; ok && other == \"\" {\n",
+      "rule": "Two folders whose last elements match are refused, since their FILEs cannot be told apart.",
+      "killers": ["scripts/examples:TestOriginFollowsUpstream"]
+    },
+    {
+      "name": "xmd-local-modules-untested",
+      "origin": "wf10 REF XMD",
+      "file": "scripts/examples/main.go",
+      "from": "\t\tfor _, dir := range localModules(p) {",
+      "to": "\t\tfor _, dir := range localModules(p)[:0] {",
+      "rule": "A program that installs a module of the repository by a go.mod replace runs the module's package tests in its test leg.",
+      "killers": [
+        "scripts/examples:TestModuleProgramTestsItsLocalModule"
+      ]
+    },
+    { "name": "gs8-driver-unkeyed", "origin": "wf10 GS8", "file": "scripts/examples/cache.go", "from": "\t\tfmt.Fprintf(h, \"driver %s\\n\", driver)\n", "to": "\t\t_ = driver\n", "rule": "Under early cutoff the key holds the driver's sources: an edit of cmd/ergo reruns every program.", "killers": ["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"] },
+    { "name": "gs8-test-emission-unkeyed", "origin": "wf10 GS8", "file": "scripts/examples/cache.go", "from": "[]string{\"check\", target}, []string{\"test\", \"--emitted\", target})", "to": "[]string{\"check\", target})", "rule": "Under early cutoff the key holds the Go each test target emits: a compiler that emits another test binary reruns the program.", "killers": ["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"] },
+    { "name": "gs8-build-emission-unkeyed", "origin": "wf10 GS8", "file": "scripts/examples/cache.go", "from": "p.sources...), {\"build\", \"--emitted\", p.main}}", "to": "p.sources...)}", "rule": "Under early cutoff the key holds the Go the program's main emits: a compiler that emits another main reruns the program.", "killers": ["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"] },
+    { "name": "gs20-key-results-dropped", "origin": "wf10 GS20", "file": "scripts/examples/cache.go", "from": "\t\tr.keyed[keyedCall(args)] = o\n", "to": "\t\t_ = o\n", "rule": "A missed program's fmt and check legs take the results its key's calls made; they do not run again.", "killers": ["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"] },
+    { "name": "gs8-check-unkeyed", "origin": "wf10 GS8", "file": "scripts/examples/cache.go", "from": "[]string{\"check\", target}, []string{\"test\", \"--emitted\", target})", "to": "[]string{\"test\", \"--emitted\", target})", "rule": "Under early cutoff the key holds each check leg's result: a compiler that checks otherwise reruns the program.", "killers": ["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"] },
+    { "name": "gs8-fmt-unkeyed", "origin": "wf10 GS8", "file": "scripts/examples/cache.go", "from": "calls := [][]string{append([]string{\"fmt\", \"--check\"}, p.sources...), ", "to": "calls := [][]string{", "rule": "Under early cutoff the key holds the fmt leg's result: a compiler that formats otherwise reruns the program.", "killers": ["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"] },
+    { "name": "gs8-bytes-keyed", "origin": "wf10 GS8", "file": "scripts/examples/cache.go", "from": "\tearly := err == nil\n", "to": "\tearly := false\n", "rule": "In a checkout with a driver, a compiler of other bytes that emits the same Go replays (early cutoff): a lower edit does not rerun every example.", "killers": ["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"] },
+    { "name": "gs8-producer-keyed", "origin": "wf10 GS8 r1", "file": "scripts/examples/cache.go", "from": "\t\t\tstdout = withoutProducer(stdout)\n", "to": "\t\t\t_ = withoutProducer\n", "rule": "A check leg is keyed without its envelope's producer, the compiler's own digest, which no leg reads: a compiler of other bytes with the same results replays.", "killers": ["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"] },
+    { "name": "gs8-snapshot-producer-keyed", "origin": "wf10 GS8 r1", "file": "scripts/examples/cache.go", "from": "\t\tdelete(snapshot, \"producer\")\n", "to": "\t\tdelete(snapshot, \"\")\n", "rule": "A check leg is keyed without its snapshot's producer either: ergo check names the compiler's digest in both places.", "killers": ["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"] }
   ]
 }

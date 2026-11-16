@@ -31,7 +31,7 @@ import (
 //     the call's result variable itself (renameTail).
 //
 // A package let of a literal, read only where Go's constant folding
-// cannot fail, is a Go const (constLet).
+// cannot fail, is a Go const read by its bare name (constFold).
 //
 // The reference is formLowering "reference": the forms as they were before
 // OPT5. It is set by a test, or by a build with
@@ -314,7 +314,7 @@ func (fc *funcCtx) mapStore(s *syntax.AssignStmt) bool {
 	return true
 }
 
-// constLet reports whether the package let v, whose value is a checked
+// constFold reports whether the package let v, whose value is a checked
 // constant, is written as a Go const: Go then reads its value from the
 // instruction, not from memory (lru's occupied mark, read at every
 // generation check). Go folds an expression whose operands are all
@@ -323,7 +323,7 @@ func (fc *funcCtx) mapStore(s *syntax.AssignStmt) bool {
 // not the run's defect or wrap, so v is a const only when each of its
 // uses, in every package of the program, is in a place where no such fold
 // can fail (constUses).
-func (l *lowerer) constLet(v *check.Var) bool {
+func (l *lowerer) constFold(v *check.Var) bool {
 	if !formsOn() || v == nil {
 		return false
 	}

@@ -1,0 +1,25 @@
+// fib by recursion, and by a loop, which agree.
+fn fib(n) {
+	if n < 2 {
+		return n
+	}
+	return fib(n - 1) + fib(n - 2)
+}
+
+fn fibLoop(n) {
+	let a = 0
+	let b = 1
+	let i = 0
+	while i < n {
+		let next = a + b
+		a = b
+		b = next
+		i = i + 1
+	}
+	return a
+}
+
+print(fib(22))
+print(fibLoop(22))
+print(fibLoop(92))
+print(fibLoop(93))

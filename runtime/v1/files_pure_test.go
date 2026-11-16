@@ -168,7 +168,7 @@ func Abbrev(s string) int64 { t, _ := time.Parse("MST", s); return t.Unix() }
 //ergo:pure
 func Waits() { time.Sleep(1) }
 `
-	decls, err := parseDecls(fstest.MapFS{"host.go": {Data: []byte(host)}, "text.go": {Data: []byte(text)}, "clock.go": {Data: []byte(clock)}})
+	decls, err := parseDecls(fstest.MapFS{"host.go": {Data: []byte(host)}, "text.go": {Data: []byte(text)}, "clock.go": {Data: []byte(clock)}}, Path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +242,7 @@ func Marked() string { return helper() }
 //ergo:host
 func Both() int { return 1 }
 `
-	decls, err := parseDecls(fstest.MapFS{"a.go": {Data: []byte(src)}})
+	decls, err := parseDecls(fstest.MapFS{"a.go": {Data: []byte(src)}}, Path)
 	if err != nil {
 		t.Fatal(err)
 	}

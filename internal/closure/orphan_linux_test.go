@@ -97,7 +97,7 @@ func TestRunReapsAnOrphanThatEndsDuringTheRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	env := testEnv(f.pkg, orphanVariable+"="+scratchDir, orphanStageVariable+"=run")
+	env := testEnv(f.pkg, "TMPDIR="+scratchDir, orphanVariable+"="+scratchDir, orphanStageVariable+"=run")
 	output := filepath.Join(t.TempDir(), "orphan.out")
 	if err := runProtected(sandbox{Root: f.root, Scratch: []string{scratchDir}}, "internal/orphan", f.pkg, env, output, self, "-test.run=^TestOrphanRunTarget$", "-test.count=1", "-test.v"); err != nil {
 		out, _ := os.ReadFile(output)

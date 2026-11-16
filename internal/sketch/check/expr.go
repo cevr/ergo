@@ -230,7 +230,7 @@ func (c *checker) instantiateValue(op *operand, sig *Signature, targs []Type) bo
 		}
 		cons := c.subst(tp.Constraint, m)
 		if why := c.satisfies(targs[i], cons); why != "" {
-			c.errorf(op.expr, CodeType, "%s does not satisfy the constraint %s of %s: %s (types.md, Generics 2)", targs[i], cons, tp.Name, why)
+			c.unsatisfied(op.expr, targs[i], cons, op.fn, tp, why)
 			return false
 		}
 	}
@@ -658,10 +658,6 @@ func (c *checker) compositeLit(x *syntax.CompositeLit, hint Type) operand {
 		return *walkLt
 	}
 	mark := c.undiagSeq
-	if c.workLitForm(x) {
-		// The work rule's forms of a Work literal (work.go).
-		return c.workLit(x, hint)
-	}
 	if x.Base != nil {
 		return c.recordUpdate(x, hint, mark, lt)
 	}
@@ -691,8 +687,10 @@ func (c *checker) compositeLit(x *syntax.CompositeLit, hint Type) operand {
 			return bad(x)
 		}
 	}
-	if _, isContext := contextRow(t); isContext && !c.pkg.std {
-		// Only a conversion makes a Context value (contextvalues.go).
+	if _, isContext := contextRow(t); isContext && t.(*Named).Obj.Pkg != c.pkg {
+		// Only a conversion makes a Context value (contextvalues.go):
+		// its field is unexported, so by construction authority only its
+		// declaring package writes the literal (STD-NOPRIV NP3d).
 		c.errorf(x, CodeType, "a Context value is made from a context: let v %s = context { … } (rows.md, Context values)", t)
 		t = invalid
 	}
@@ -1695,6 +1693,8 @@ func (c *checker) assign(op *operand, t Type, what string) bool {
 		op.mode = modeInvalid
 		return false
 	}
+	captured := false
+	c.capture = &captured
 	a, why := c.assignability(op.typ, t)
 	if !a.ok() {
 		repair := ""
@@ -1734,8 +1734,20 @@ func (c *checker) assign(op *operand, t Type, what string) bool {
 	c.implicit(op.expr, a)
 	if a.clause == assignOperations {
 		c.recordConversion(op.expr, op.typ, t)
+		c.captureForeign(op.expr, captured, op.typ, t)
 	}
 	return true
+}
+
+// captureForeign charges go.Foreign where a provider whose operations call
+// Go becomes a value of an operation type (README Gap 17): the build site
+// holds it for every later call through the operation type, whose own row
+// does not name it. The provider value is the capture; go.Foreign has no
+// provider of its own (rows.md, Entry 4), so nothing is stored.
+func (c *checker) captureForeign(at syntax.Node, captured bool, v, t Type) {
+	if captured {
+		c.chargeAs(at, goForeign(), fmt.Sprintf("building %s as %s, whose operations call Go,", v, t))
+	}
 }
 
 // A tuple call cannot convert its parts as a whole. Destructuring and

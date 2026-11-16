@@ -1,0 +1,278 @@
+// The package dev is the design model of `ergo dev`'s lifecycle
+// (compile-speed plan §4.6, unit CS9, issue #203): one daemon per
+// workspace and Ergo release, the CLI and an editor its clients. Checked
+// by `ergo test <this folder>`: a breadth-first search of every state in
+// the scope below.
+//
+// The world: one workspace, two releases (A, the clients' release, and B,
+// an older one), three daemon processes (D0 and D1 of release A, so two
+// clients may each start one, and D2 of release B) and two clients of
+// release A. Each step is one atomic act:
+//
+//	daemon Run:   start; then take the release's lock (flock, not
+//	              blocking): held, it exits ("already running"); free, it
+//	              removes a stale socket file and listens on the socket of
+//	              its workspace and release. Draining, Run exits.
+//	daemon Idle:  no request for the idle period: it removes its socket
+//	              file and closes the listener (draining), before it gives
+//	              the lock back at exit.
+//	daemon Crash: the process dies at any time; the kernel gives the
+//	              lock back and leaves the socket file.
+//	client Ask:   connect to the socket of its workspace and its release;
+//	              a socket no live daemon listens on, or none, answers the
+//	              request in process. A client whose connection ends with
+//	              no answer (the daemon exited or crashed) answers in
+//	              process too: a request is a pure function of its inputs,
+//	              so asking it twice is safe.
+//	daemon Serve: a serving or draining daemon answers a queued client.
+//
+// The invariants:
+//
+//   - AtMostOne: at most one daemon per workspace and release serves.
+//   - ItsRelease: a request is answered by a daemon of the client's
+//     release or in process.
+//   - NoRequestLost: every request that ends has an answer, idle exit
+//     and crashes included.
+//
+// Mutants, each a machine whose law Breaks must hold:
+//   - SocketCheck: no lock; a daemon serves when no live daemon listens on
+//     the socket, a check and a bind in two steps.
+//   - OneSocket: the socket and the lock are named by the workspace only,
+//     not by the release, so a client may reach an older release.
+//   - NoFallback: a client whose connection ends with no answer ends its
+//     request.
+//
+// Witnesses, each a machine whose law Exists must hold: a daemon answers
+// a request; a client answers in process after its daemon left; a second
+// daemon of the release is refused while one serves; a daemon serves
+// after another of its release idled out.
+//
+// Scope: the processes above, each started once; "proved" means proved
+// in this scope.
+
+type Daemon = D0{} | D1{} | D2{}
+
+type Client = C0{} | C1{}
+
+type Signal = Run{D Daemon} | Idle{D Daemon} | Crash{D Daemon} | Ask{C Client} | Serve{D Daemon, C Client}
+
+// World: Dpc is each daemon's step: 0 not started, 1 started, 2 checked
+// (SocketCheck only), 3 serving, 4 draining, 5 exited. Lock and Sock are
+// indexed by the slot (slot): the lock's holder and the daemon the socket
+// file was bound by, -1 for none. Cpc is each client's step: 0 idle, 1
+// connected to daemon Conn, 2 answered by By (-1 in process). Idled: a
+// daemon of release A idled out.
+type World {
+	Dpc   []int,
+	Lock  []int,
+	Sock  []int,
+	Cpc   []int,
+	Conn  []int,
+	By    []int,
+	Idled bool,
+}
+
+type State = Live{W World} | Broken{Why string} | Served{} | FellBack{} | Refused{} | Restarted{}
+
+func initial() State {
+	return Live{W: World{Dpc: []int{0, 0, 0}, Lock: []int{-1, -1}, Sock: []int{-1, -1},
+		Cpc: []int{0, 0}, Conn: []int{-1, -1}, By: []int{-1, -1}, Idled: false}}
+}
+
+func daemon(d Daemon) int {
+	match d {
+	case D0:
+		return 0
+	case D1:
+		return 1
+	case D2:
+		return 2
+	}
+}
+
+func client(c Client) int {
+	match c {
+	case C0:
+		return 0
+	case C1:
+		return 1
+	}
+}
+
+// release is a daemon's release: 0 is A, the clients' release; 1 is B.
+func release(d int) int {
+	if d == 2 {
+		return 1
+	}
+	return 0
+}
+
+// slot names the socket and the lock of a release; OneSocket has one.
+func slot(r int, mutant int) int {
+	if mutant == 2 {
+		return 0
+	}
+	return r
+}
+
+func live(w World, d int) bool {
+	return w.Dpc[d] == 3 || w.Dpc[d] == 4
+}
+
+// listening reports whether a live daemon listens on the slot's socket.
+func listening(w World, s int) bool {
+	let d = w.Sock[s]
+	return d != -1 && w.Dpc[d] == 3
+}
+
+// atMostOne is AtMostOne: per release, at most one daemon serves.
+func atMostOne(w World) bool {
+	for r in []int{0, 1} {
+		let mut n = 0
+		for d in []int{0, 1, 2} {
+			if release(d) == r && live(w, d) {
+				n = n + 1
+			}
+		}
+		if n > 1 {
+			return false
+		}
+	}
+	return true
+}
+
+// leave is d's exit: the kernel gives its lock back.
+func leave(w World, d int, mutant int) World {
+	let mut out = w
+	let s = slot(release(d), mutant)
+	if out.Lock[s] == d {
+		out.Lock[s] = -1
+	}
+	out.Dpc[d] = 5
+	return out
+}
+
+// mutant: 0 the design, 1 SocketCheck, 2 OneSocket, 3 NoFallback.
+// witness: 0 none, 1 Served, 2 FellBack, 3 Refused, 4 Restarted.
+func step(s State, event Signal, mutant int, witness int) Decision[State, string] {
+	match s {
+	case Live as l:
+		let mut w = l.W
+		match event {
+		case Run as r:
+			let d = daemon(r.D)
+			let sl = slot(release(d), mutant)
+			if w.Dpc[d] == 0 {
+				w.Dpc[d] = 1
+			} else if w.Dpc[d] == 1 && mutant == 1 {
+				if listening(w, sl) {
+					w.Dpc[d] = 5
+				} else {
+					w.Dpc[d] = 2
+				}
+			} else if w.Dpc[d] == 1 {
+				if w.Lock[sl] != -1 {
+					w.Dpc[d] = 5
+					if witness == 3 && live(w, w.Lock[sl]) {
+						return Enter{Refused}
+					}
+				} else {
+					w.Lock[sl] = d
+					w.Sock[sl] = d
+					w.Dpc[d] = 3
+					if witness == 4 && w.Idled && release(d) == 0 {
+						return Enter{Restarted}
+					}
+				}
+			} else if w.Dpc[d] == 2 {
+				w.Sock[sl] = d
+				w.Dpc[d] = 3
+			} else if w.Dpc[d] == 4 {
+				w = leave(w, d, mutant)
+			} else {
+				return Ignore
+			}
+		case Idle as i:
+			let d = daemon(i.D)
+			let sl = slot(release(d), mutant)
+			if w.Dpc[d] != 3 {
+				return Ignore
+			}
+			if w.Sock[sl] == d {
+				w.Sock[sl] = -1
+			}
+			w.Dpc[d] = 4
+			if release(d) == 0 {
+				w.Idled = true
+			}
+		case Crash as k:
+			let d = daemon(k.D)
+			if !live(w, d) {
+				return Ignore
+			}
+			w = leave(w, d, mutant)
+		case Ask as a:
+			let c = client(a.C)
+			let sl = slot(0, mutant)
+			if w.Cpc[c] == 0 {
+				if listening(w, sl) {
+					w.Cpc[c] = 1
+					w.Conn[c] = w.Sock[sl]
+				} else {
+					w.Cpc[c] = 2
+					w.By[c] = -1
+				}
+			} else if w.Cpc[c] == 1 && w.Dpc[w.Conn[c]] == 5 {
+				// The connection ended with no answer.
+				if mutant == 3 {
+					return Enter{Broken{Why: "NoRequestLost"}}
+				}
+				w.Cpc[c] = 2
+				w.By[c] = -1
+				if witness == 2 {
+					return Enter{FellBack}
+				}
+			} else {
+				return Ignore
+			}
+		case Serve as v:
+			let d = daemon(v.D)
+			let c = client(v.C)
+			if w.Cpc[c] != 1 || w.Conn[c] != d || !live(w, d) {
+				return Ignore
+			}
+			if release(d) != 0 {
+				return Enter{Broken{Why: "ItsRelease"}}
+			}
+			w.Cpc[c] = 2
+			w.By[c] = d
+			if witness == 1 {
+				return Enter{Served}
+			}
+		}
+		if !atMostOne(w) {
+			return Enter{Broken{Why: "AtMostOne"}}
+		}
+		return Enter{Live{W: w}}
+	case _:
+		return Ignore
+	}
+}
+
+func design(s State, sig Signal) Decision[State, string]      { return step(s, sig, 0, 0) }
+func socketCheck(s State, sig Signal) Decision[State, string] { return step(s, sig, 1, 0) }
+func oneSocket(s State, sig Signal) Decision[State, string]   { return step(s, sig, 2, 0) }
+func noFallback(s State, sig Signal) Decision[State, string]  { return step(s, sig, 3, 0) }
+func served(s State, sig Signal) Decision[State, string]      { return step(s, sig, 0, 1) }
+func fellBack(s State, sig Signal) Decision[State, string]    { return step(s, sig, 0, 2) }
+func refused(s State, sig Signal) Decision[State, string]     { return step(s, sig, 0, 3) }
+func restarted(s State, sig Signal) Decision[State, string]   { return step(s, sig, 0, 4) }
+
+type Design machine[State, Signal] { initial: initial(), step: design, law Safe never reaches Broken }
+type SocketCheck machine[State, Signal] { initial: initial(), step: socketCheck, law Breaks reaches Broken }
+type OneSocket machine[State, Signal] { initial: initial(), step: oneSocket, law Breaks reaches Broken }
+type NoFallback machine[State, Signal] { initial: initial(), step: noFallback, law Breaks reaches Broken }
+type ServedWitness machine[State, Signal] { initial: initial(), step: served, law Exists reaches Served }
+type FallbackWitness machine[State, Signal] { initial: initial(), step: fellBack, law Exists reaches FellBack }
+type RefusedWitness machine[State, Signal] { initial: initial(), step: refused, law Exists reaches Refused }
+type RestartWitness machine[State, Signal] { initial: initial(), step: restarted, law Exists reaches Restarted }

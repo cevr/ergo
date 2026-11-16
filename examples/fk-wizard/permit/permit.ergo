@@ -1,0 +1,201 @@
+// Package permit is an expedition permit as one machine: plan the trip,
+// pack supplies (an overnight trip only), name the permit's leader,
+// review, file, and the permit is confirmed; or cancel on the way.
+
+import strings
+
+// Allowance is a fee allowance a code grants.
+type Allowance = Ranger{} | Winter{}
+
+// Code is the code that grants a.
+func Code(a Allowance) string {
+	match a {
+	case Ranger:
+		"RANGER10"
+	case Winter:
+		"WINTER20"
+	}
+}
+
+// Percent is how much of the fee a takes off.
+func Percent(a Allowance) int {
+	match a {
+	case Ranger:
+		10
+	case Winter:
+		20
+	}
+}
+
+// ParseCode is the allowance a typed code grants: the code with its
+// spaces trimmed, in any case. None for a code no allowance has.
+func ParseCode(text string) Option[Allowance] {
+	let code = strings.ToUpper(strings.TrimSpace(text))
+	for a in []Allowance{Ranger, Winter} {
+		if Code(a) == code {
+			return Some[Allowance]{Value: a}
+		}
+	}
+	None
+}
+
+// Pass is the review's code: none tried yet, an allowance granted, or a
+// code refused.
+type Pass = NoCode{} | Granted{Allowance Allowance} | Refused{}
+
+// Stage is where the permit is. Every stage keeps the trip's kind, so a
+// cancel and a start over keep the user's choice.
+type Stage = Plan{Overnight bool} | Supplies{Overnight bool} | Permit{Leader bool, Overnight bool} | Review{Leader bool, Overnight bool, Agreed bool, Pass Pass} | Filing{Overnight bool, Allowance Option[Allowance]} | Confirmed{Overnight bool, Allowance Option[Allowance], ID string} | Cancelled{Overnight bool}
+
+// Signal is what the user does, and Filed, the filing office's answer,
+// which the Filing stage's timer gives. A typed code reaches the machine
+// parsed (ParseCode): Applied with its allowance, or Unknown; Edited is
+// the code field changed.
+type Signal = Continue{} | Back{} | Cancel{} | File{} | StartOver{} | Filed{} | Chose{Overnight bool} | Led{On bool} | Agreed{On bool} | Edited{} | Applied{Allowance Allowance} | Unknown{}
+
+// Start is a new permit: an overnight trip, being planned.
+let Start = Plan{Overnight: true}
+
+// FilingTakes is how long the filing office takes to answer.
+let FilingTakes = 1s
+
+// Overnight is whether the permit is for an overnight trip.
+func Overnight(s Stage) bool {
+	match s {
+	case Plan as p:
+		p.Overnight
+	case Supplies as p:
+		p.Overnight
+	case Permit as p:
+		p.Overnight
+	case Review as p:
+		p.Overnight
+	case Filing as p:
+		p.Overnight
+	case Confirmed as p:
+		p.Overnight
+	case Cancelled as p:
+		p.Overnight
+	}
+}
+
+// Open is whether the permit is still being filled in: planned, packed,
+// named or reviewed. Cancel leaves only an open permit.
+func Open(s Stage) bool {
+	match s {
+	case Plan, Supplies, Permit, Review:
+		true
+	case Filing, Confirmed, Cancelled:
+		false
+	}
+}
+
+// IDFor is the permit number the office gives a trip of the kind.
+func IDFor(overnight bool) string {
+	if overnight { "OVN-1001" } else { "DAY-1001" }
+}
+
+func granted(p Pass) Option[Allowance] {
+	match p {
+	case Granted as g:
+		Some[Allowance]{Value: g.Allowance}
+	case NoCode, Refused:
+		None
+	}
+}
+
+// Step is the permit's transition. The guards are conditions in the
+// arms: Continue from the plan packs supplies only for an overnight trip,
+// and Back from the permit returns there only for one; File needs a
+// leader and the rules agreed. Cancel is one arm over every open stage,
+// and StartOver one over both ends. Every other pair is ignored.
+func Step(s Stage, sig Signal) Decision[Stage, Never] {
+	match (s, sig) {
+	case (Plan, Chose as c):
+		Stay[Stage]{Next: Plan{Overnight: c.Overnight}}
+	case (Plan as p, Continue):
+		if p.Overnight {
+			return Enter[Stage]{Next: Supplies{Overnight: p.Overnight}}
+		}
+		Enter[Stage]{Next: Permit{Leader: false, Overnight: p.Overnight}}
+	case (Supplies as p, Continue):
+		Enter[Stage]{Next: Permit{Leader: false, Overnight: p.Overnight}}
+	case (Supplies as p, Back):
+		Enter[Stage]{Next: Plan{Overnight: p.Overnight}}
+	case (Permit as p, Led as l):
+		Stay[Stage]{Next: Permit{..p, Leader: l.On}}
+	case (Permit as p, Continue):
+		Enter[Stage]{Next: Review{Leader: p.Leader, Overnight: p.Overnight, Agreed: false, Pass: NoCode}}
+	case (Permit as p, Back):
+		if p.Overnight {
+			return Enter[Stage]{Next: Supplies{Overnight: p.Overnight}}
+		}
+		Enter[Stage]{Next: Plan{Overnight: p.Overnight}}
+	case (Review as r, Led as l):
+		Stay[Stage]{Next: Review{..r, Leader: l.On}}
+	case (Review as r, Agreed as a):
+		Stay[Stage]{Next: Review{..r, Agreed: a.On}}
+	case (Review as r, Edited):
+		match r.Pass {
+		case Refused:
+			Stay[Stage]{Next: Review{..r, Pass: NoCode}}
+		case NoCode, Granted:
+			Stay[Stage]{Next: r}
+		}
+	case (Review as r, Applied as a):
+		Stay[Stage]{Next: Review{..r, Pass: Granted{Allowance: a.Allowance}}}
+	case (Review as r, Unknown):
+		Stay[Stage]{Next: Review{..r, Pass: Refused}}
+	case (Review as r, File):
+		if !(r.Leader && r.Agreed) {
+			return Ignore
+		}
+		Enter[Stage]{Next: Filing{Overnight: r.Overnight, Allowance: granted(r.Pass)}}
+	case (Review as r, Back):
+		Enter[Stage]{Next: Permit{Leader: r.Leader, Overnight: r.Overnight}}
+	case (Filing as f, Filed):
+		Enter[Stage]{Next: Confirmed{Overnight: f.Overnight, Allowance: f.Allowance, ID: IDFor(f.Overnight)}}
+	case (Plan, Cancel), (Supplies, Cancel), (Permit, Cancel), (Review, Cancel):
+		Enter[Stage]{Next: Cancelled{Overnight: Overnight(s)}}
+	case (Confirmed, StartOver), (Cancelled, StartOver):
+		Enter[Stage]{Next: Plan{Overnight: Overnight(s)}}
+	case (Plan, _), (Supplies, _), (Permit, _), (Review, _), (Filing, _), (Confirmed, _), (Cancelled, _):
+		Ignore
+	}
+}
+
+// Timer is each stage's timer: Filing's office answers Filed after
+// FilingTakes; no other stage has one.
+func Timer(s Stage) Option[Timeout[Signal]] {
+	match s {
+	case Filing:
+		Some[Timeout[Signal]]{Value: Timeout[Signal]{In: FilingTakes, Signal: Filed}}
+	case Plan, Supplies, Permit, Review, Confirmed, Cancelled:
+		None
+	}
+}
+
+// Wizard is the permit as a machine. Its stages and signals can be
+// listed, so ergo test decides its reachability and invariant laws on the
+// whole graph.
+type Wizard machine[Stage, Signal] {
+	initial: Start,
+	step:    Step,
+	after:   Timer,
+
+	// Confirms: some run files the permit and the office confirms it.
+	law Confirms reaches Confirmed,
+
+	// DayTripsSkipSupplies: no run packs supplies for a day trip, by the
+	// plan's Continue or the permit's Back.
+	law DayTripsSkipSupplies always suppliesOnlyOvernight,
+}
+
+func suppliesOnlyOvernight(s Stage) bool {
+	match s {
+	case Supplies as p:
+		p.Overnight
+	case Plan, Permit, Review, Filing, Confirmed, Cancelled:
+		true
+	}
+}

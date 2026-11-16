@@ -16,8 +16,11 @@ import (
 //     has I's type parameters, in their order, and returns I of them
 //     (sync.NewRef[T](v T) Ref[T]).
 //  2. Else it is the one New<X> with no type parameters and no row, of I's
-//     package or of I's test package (the package whose path is I's path
-//     with "test" after it) when the package under check sees that package
+//     package or of I's test package (the role its loader gives it,
+//     CheckTest: the package whose import path is I's path with "test"
+//     after it, TestedPath, whether it is checked as the root or as an
+//     import; the rule compares packages, never paths) when the package
+//     under check sees that package
 //     (itself, the prelude and its imports at any depth, as law runs see
 //     providers, laws.go rule 7), whose one result X is a named type that
 //     provides I by its operations: fstest.NewMemory for fs.Files and
@@ -90,7 +93,7 @@ func builderOf(n *Named, sees map[*Package]bool) (*Builder, string) {
 	cands := append([]*Builder(nil), tn.provides...)
 	if tn.Pkg != nil {
 		for q := range sees {
-			if q.Path == tn.Pkg.Path+"test" {
+			if q.testOf == tn.Pkg {
 				cands = append(cands, q.testBuilds[tn]...)
 			}
 		}
@@ -153,19 +156,8 @@ func (c *checker) planTestBuilds() {
 		return
 	}
 	c.tests.testPlanned = true
-	base, ok := strings.CutSuffix(c.pkg.Path, "test")
-	if !ok || base == "" {
-		return
-	}
-	var under *Package
-	for _, f := range c.pkg.files {
-		for _, pn := range f.imports {
-			if pn.Pkg != nil && !pn.broken && pn.Pkg.Path == base {
-				under = pn.Pkg
-			}
-		}
-	}
-	if under == nil {
+	under := c.pkg.testOf
+	if under == nil || !c.imports(under) {
 		return
 	}
 	for _, f := range c.pkg.Funcs {
@@ -186,6 +178,29 @@ func (c *checker) planTestBuilds() {
 			}
 		}
 	}
+}
+
+// imports reports whether a file of the package under check imports p
+// without error.
+func (c *checker) imports(p *Package) bool {
+	for _, f := range c.pkg.files {
+		for _, pn := range f.imports {
+			if pn.Pkg == p && !pn.broken {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// TestedPath is the import path of the package whose test package is at
+// path, the one place rule 2's test role is read from a path: P+"test" is
+// P's test package (fstest is fs's). Only a loader calls it, with a
+// package's own import path, never the path a root is checked under (main),
+// and hands the role to CheckTest.
+func TestedPath(path string) (string, bool) {
+	base, ok := strings.CutSuffix(path, "test")
+	return base, ok && base != ""
 }
 
 // newResult is the named result X of f when f is New<X> with no error or

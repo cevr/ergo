@@ -1,0 +1,109 @@
+// The board's laws (plan §18.3 FK11), against a reference of the board
+// as lists of ids.
+
+import fkboard/sortkey
+
+// ids is the card ids of each column.
+func ids(columns []Column) [][]string {
+	let mut out = [][]string{}
+	for c in columns {
+		let mut col = []string{}
+		for card in c.Cards {
+			col = col.Append(card.ID)
+		}
+		out = out.Append(col)
+	}
+	out
+}
+
+// moved is the reference of a reorder: the ids with item taken out of
+// column from and put at at (clamped) in column to.
+func moved(lists [][]string, item string, from int, to int, at int) [][]string {
+	let mut has = false
+	for x in lists[from] {
+		if x == item {
+			has = true
+		}
+	}
+	if !has {
+		return lists
+	}
+	let mut out = [][]string{}
+	for i, col in lists {
+		let mut rest = []string{}
+		for x in col {
+			if !(i == from && x == item) {
+				rest = rest.Append(x)
+			}
+		}
+		if i == to {
+			let k = if at < 0 { 0 } else if at > len(rest) { len(rest) } else { at }
+			let mut put = []string{}
+			for j in 0..len(rest) {
+				if j == k {
+					put = put.Append(item)
+				}
+				put = put.Append(rest[j])
+			}
+			if k == len(rest) {
+				put = put.Append(item)
+			}
+			rest = put
+		}
+		out = out.Append(rest)
+	}
+	out
+}
+
+func pick(n int, size int) int { ((n % size) + size) % size }
+
+// ReorderIsAPermutation: drawn reorders of the default board (cards of
+// it and ids it lacks, any columns and one it lacks, positions past
+// either end) move the
+// cards as the reference does: the card leaves its column and lands at
+// its position, every other card keeps its place and the board keeps
+// every card once.
+law ReorderIsAPermutation(moves []int) {
+	let mut board = Defaults
+	let mut want = ids(Defaults)
+	for m in moves {
+		let from = pick(m, 3)
+		let to = pick(m/3, 3)
+		let at = pick(m/9, 9) - 1
+		let col = board[from].Cards
+		let item = if len(col) == 0 || pick(m/81, 8) == 0 { "card-none" } else { col[pick(m/648, len(col))].ID }
+		if pick(m, 13) == 12 {
+			// A column the board does not have changes nothing.
+			board = Reorder(board, item, board[from].ID, "column-none", at)
+			continue
+		}
+		board = Reorder(board, item, board[from].ID, board[to].ID, at)
+		want = moved(want, item, from, to, at)
+		if ids(board) != want {
+			return false
+		}
+	}
+	true
+}
+
+// SortKeysStrictlyIncrease: after drawn reorders of the default board,
+// every column's keys are valid and strictly increasing, so the key order
+// is the board's order.
+law SortKeysStrictlyIncrease(moves []int) {
+	let mut board = Defaults
+	for m in moves {
+		let from = pick(m, 3)
+		let col = board[from].Cards
+		if len(col) > 0 {
+			board = Reorder(board, col[pick(m/3, len(col))].ID, board[from].ID, board[pick(m/100, 3)].ID, pick(m/300, 8))
+		}
+	}
+	for c in board {
+		for i, card in c.Cards {
+			if !sortkey.Valid(card.Key) || (i > 0 && !(c.Cards[i-1].Key < card.Key)) {
+				return false
+			}
+		}
+	}
+	true
+}

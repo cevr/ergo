@@ -1,0 +1,61 @@
+{
+  "about": "kmeans's application mutants (corpus wave HP1): edits of the example that its laws and cases judge, and edits that only TestKmeansAgreesWithControl in cmd/ergo (the seeded property against the plain reference and the hand Go control) sees.",
+  "mutants": [
+    {
+      "name": "kmeans-mean-rounds-down", "origin": "corpus wave HP1",
+      "file": "examples/kmeans/cluster/assign.ergo",
+      "from": "floorDiv(2*s.Total[j*Dims+d]+n, 2*n)",
+      "to": "floorDiv(s.Total[j*Dims+d], n)",
+      "rule": "A mean rounds to the nearest integer, half up; rounding down can leave a centroid farther from its points than the old one.",
+      "anchor": {"tests": ["examples:kmeans"]}, "killers": ["cmd/ergo:TestKmeansAgreesWithControl"]
+    },
+    {
+      "name": "kmeans-last-of-equals-wins", "origin": "corpus wave HP1",
+      "file": "examples/kmeans/cluster/point.ergo",
+      "from": "\t\tif d < bestDist {\n\t\t\tbest = j",
+      "to": "\t\tif d <= bestDist {\n\t\t\tbest = j",
+      "rule": "Of equally near centroids, a point goes to the first.",
+      "anchor": {"tests": ["examples:kmeans"]}, "killers": ["examples:kmeans", "cmd/ergo:TestKmeansAgreesWithControl"]
+    },
+    {
+      "name": "kmeans-merge-drops-inertia", "origin": "corpus wave HP1",
+      "file": "examples/kmeans/cluster/sums.ergo",
+      "from": "\ts.Inertia += b.Inertia\n\ts\n",
+      "to": "\ts\n",
+      "rule": "The inertia of points together is the sum of their parts' inertias.",
+      "anchor": {"tests": ["examples:kmeans"]}, "killers": ["examples:kmeans"]
+    },
+    {
+      "name": "kmeans-seed-draw-off-by-one", "origin": "corpus wave HP1",
+      "file": "examples/kmeans/cluster/seed.ergo",
+      "from": "if acc > u {",
+      "to": "if acc >= u {",
+      "rule": "The draw u is below the total weight, and the point picked is the first whose running weight passes u: a point of weight 0 is never picked.",
+      "anchor": {"tests": ["examples:kmeans"]}, "killers": ["cmd/ergo:TestKmeansAgreesWithControl"]
+    },
+    {
+      "name": "kmeans-one-round-too-many", "origin": "corpus wave HP1",
+      "file": "examples/kmeans/cluster/lloyd.ergo",
+      "from": "} else if it.Round >= it.Max {",
+      "to": "} else if it.Round > it.Max {",
+      "rule": "A run stops after at most ROUNDS rounds.",
+      "anchor": {"tests": ["examples:kmeans"]}, "killers": ["examples:kmeans", "cmd/ergo:TestKmeansAgreesWithControl"]
+    },
+    {
+      "name": "kmeans-empty-cluster-resets", "origin": "corpus wave HP1",
+      "file": "examples/kmeans/cluster/assign.ergo",
+      "from": "\t\t\tnext = next.Append(cents[j])",
+      "to": "\t\t\tnext = next.Append(Point{})",
+      "rule": "A centroid with no point stays where it is.",
+      "anchor": {"tests": ["examples:kmeans"]}, "killers": ["cmd/ergo:TestKmeansAgreesWithControl"]
+    },
+    {
+      "name": "kmeans-split-drops-last-chunk", "origin": "corpus wave HP1",
+      "file": "examples/kmeans/cluster/assign.ergo",
+      "from": "\tfor i in 0..parts {",
+      "to": "\tfor i in 0..parts-1 {",
+      "rule": "The chunks cover every point once.",
+      "anchor": {"tests": ["examples:kmeans"]}, "killers": ["examples:kmeans", "cmd/ergo:TestKmeansAgreesWithControl"]
+    }
+  ]
+}

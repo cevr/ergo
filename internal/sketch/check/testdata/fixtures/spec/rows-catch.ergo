@@ -17,13 +17,13 @@ type Gateway {
 	Charge(order Order) string fails GatewayDown,
 }
 
-type MemoryOrders {}
+type MemoryOrders {} implements Orders
 
 func Find(_ MemoryOrders, id string) Order fails OrderNotFound {
 	return Order{ID: id, Total: 1999}
 }
 
-type FakeGateway { AuthID string }
+type FakeGateway { AuthID string } implements Gateway
 
 func Charge(g FakeGateway, order Order) string fails GatewayDown {
 	return g.AuthID

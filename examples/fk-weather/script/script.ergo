@@ -1,0 +1,110 @@
+// Package script runs the weather lookup as an actor over a script of
+// form events, and shows what the lookup shows after each one.
+
+import actor
+import fkweather/weather
+import io
+import machines
+import strings
+
+// BadLine is a line the script cannot read.
+type BadLine { Line int, Why string }
+
+// Event is a read line: its text and the signal it gives.
+type Event { Text string, Signal weather.Signal }
+
+// Read reads the lines of a script. Each line is `type TEXT`, which makes
+// TEXT (the rest of the line, possibly empty) the draft, or `submit`. A
+// blank line or a line that starts with # is skipped.
+func Read(lines []string) []Event fails BadLine {
+	let mut events = []Event{}
+	for i, line in lines {
+		let text = strings.TrimSpace(line)
+		if text == "" || strings.HasPrefix(text, "#") {
+			continue
+		}
+		let s = if text == "submit" {
+			let v weather.Signal = weather.Submitted
+			v
+		} else if text == "type" || strings.HasPrefix(text, "type ") {
+			// The draft keeps the spaces after the one that ends the word.
+			weather.Edited{Text: strings.TrimPrefix(strings.TrimPrefix(text, "type"), " ")}
+		} else {
+			return BadLine{Line: i + 1, Why: "a line is type TEXT or submit"}
+		}
+		events = events.Append(Event{Text: text, Signal: s})
+	}
+	events
+}
+
+// Run reads the script from io.Stdin and plays it against the lookup on
+// the Forecast of its context. It prints each event as `> EVENT`, then
+// the lookup after it, and, when the event started a fetch, the lookup
+// once the fetch has answered. It returns the exit status: 0, or 1 when
+// the script is refused.
+func Run() int needs Console | io.Stdin | Scheduler | weather.Forecast {
+	let mut lines = []string{}
+	for line in io.Stdin.Lines() {
+		lines = lines.Append(line)
+	}
+	let events = Read(lines) catch {
+	case BadLine as b:
+		Console.Println("? line \(b.Line): \(b.Why)")
+		return 1
+	}
+	let a = actor.StartMachine(weather.Weather{}, 8, func(o weather.Never) {})
+	let mut l = a.State()
+	Console.Println(Show(l))
+	for e in events {
+		Console.Println("> " + e.Text)
+		// Only this loop sends, so the state before the signal is l, and
+		// the decision gives the state after it.
+		let d = a.Ask(e.Signal) catch {
+		case actor.Stopped:
+			return 1
+		}
+		l = machines.Next(l, d)
+		Console.Println(Show(l))
+		if weather.Busy(l) {
+			l = actor.WaitFor(a, func(s weather.Lookup) bool { !weather.Busy(s) }) catch {
+			case actor.Stopped:
+				return 1
+			}
+			Console.Println(Show(l))
+		}
+	}
+	a.Stop()
+	0
+}
+
+// Show is the text of what the lookup shows: the draft, then the panel.
+func Show(l weather.Lookup) string { "[\(l.Draft)] " + panel(l.Panel) }
+
+func panel(p weather.Panel) string {
+	match p {
+	case weather.Blank:
+		"-"
+	case weather.Loading as q:
+		"Fetching weather for \(q.Zip)..."
+	case weather.Ready as r:
+		report(r.Report)
+	case weather.Failed as f:
+		weather.Said(f.Why) + detail(f.Why)
+	}
+}
+
+// detail is what a reason adds to upstream's text: why the forecast could
+// not answer.
+func detail(w weather.Why) string {
+	match w {
+	case weather.Unavailable as u:
+		" (\(u.Reason))"
+	case weather.NoZip, weather.NotFound:
+		""
+	}
+}
+
+func report(r weather.Report) string {
+	let place = if r.Region == "" { r.Location } else { r.Location + ", " + r.Region }
+	"\(r.Zip) \(place): \(r.Temperature)°F, \(r.Description); humidity \(r.Humidity)%, wind \(r.WindSpeed) mph"
+}

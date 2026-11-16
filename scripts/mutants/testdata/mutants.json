@@ -10,6 +10,13 @@
       "rule": "A capped mutant child's span-queue allocation fault has reason memory.",
       "killers": ["scripts/mutants:TestCappedFaultIsMemory"]
     },
+    { "name": "fk7a-format-ignored", "origin": "wf10 FK7a", "file": "scripts/mutants/source.go", "from": "\tif before.formatted && !after.formatted {\n", "to": "\tif false && before.formatted && !after.formatted {\n", "rule": "A mutated source the formatter would rewrite is invalid, never killed: the runner's format check fails it whatever its edit means.", "killers": ["scripts/mutants:TestRunnerMatchesModel"] },
+    { "name": "fk12a-refusal-ignored", "origin": "wf10 FK12a", "file": "scripts/mutants/source.go", "from": "\t\tif after.codes[code] > before.codes[code] {\n", "to": "\t\tif false && after.codes[code] > before.codes[code] {\n", "rule": "A mutated source the compiler refuses with a new diagnostic is invalid, never killed.", "killers": ["scripts/mutants:TestRunnerMatchesModel"] },
+    {"name":"fk12a-declared-ignored","origin":"wf10 FK12a","file":"scripts/mutants/compiles.go","from":"\tif m.Refused != \"\" {\n\t\tsource = nil\n","to":"\tif false {\n\t\tsource = nil\n","rule":"A row that declares the refusal its point (refused) is judged by its tests: the refusal may kill it.","killers":["scripts/mutants:TestRunnerMatchesModel"]},
+    { "name": "scope-select-ignored", "origin": "wf10 GS17", "file": "scripts/mutants/scope.go", "from": "\t\t\tif j.Select != nil && !j.Select.MatchString(m.Name) {\n", "to": "\t\t\tif false {\n", "rule": "The coverage pass measures what the selected mutants need, not what -run leaves out.", "killers": ["scripts/mutants:TestCoverageScopeIsWhatCompilesTheMutants"] },
+    { "name": "scope-tools-ignored", "origin": "wf10 GS17", "file": "scripts/mutants/scope.go", "from": "\t\t\tok = ok || reaches(toolDeps[tool])\n", "to": "\t\t\t_ = tool\n", "rule": "A suite whose tool (the ergo CLI, the examples runner) compiles a mutated package is measured.", "killers": ["scripts/mutants:TestCoverageScopeIsWhatCompilesTheMutants"] },
+    {"name":"scope-anchor-dropped","origin":"wf10 GS17","file":"scripts/mutants/scope.go","from":"\t\t\t\tok = true\n","to":"\t\t\t\tok = ok\n","rule":"A suite whose test a row names (killer or anchor) is measured, whether or not it compiles the mutated package (GT-BOUND merge: the coverage store keeps whole suites).","killers":["scripts/mutants:TestCoverageScopeIsWhatCompilesTheMutants"]},
+    { "name": "scope-deps-unread", "origin": "wf10 GS17", "file": "scripts/mutants/scope.go", "from": "\t\tif p, _, _ := strings.Cut(line, \"\\x00\"); !slices.Contains(deps, p) {\n", "to": "\t\tif p, _, _ := strings.Cut(line, \"\\x00\"); false && !slices.Contains(deps, p) {\n", "rule": "The scope reads what each test binary and tool compiles: a suite misread as compiling nothing would leave its mutants uncovered.", "killers": ["scripts/mutants:TestRunnerMatchesModel"] },
     {
       "name": "mutclean-copy-without-git",
       "origin": "wf10 MUT-clean",
@@ -63,15 +70,6 @@
       "to": "\textra := anchorTests(m)\n",
       "rule": "A ledger's named killer runs whether or not the coverage pass saw it reach the mutated lines: a test in another package kills through a program it builds.",
       "killers": ["scripts/mutants:TestRunnerMatchesModel"]
-    },
-    {
-      "name": "xpkg-unresolved-skipped",
-      "origin": "wf10 fu-mutants-xpkg",
-      "file": "scripts/mutants/main.go",
-      "from": "unresolved = append(unresolved, fmt.Sprintf(\"%s: %s: %s\", j.Path, m.Name, id))",
-      "to": "_ = id",
-      "rule": "A killer whose suite resolves to nothing is refused, not skipped (45 rows named v1:, main:, sched:, tsproj: … and were never run).",
-      "killers": ["scripts/mutants:TestKillerInAnotherSuiteIsRun"]
     },
     {
       "name": "xpkg-select-ignored",
@@ -153,6 +151,60 @@
       "to": "\tif s.Package != \"\" && len(e.cfg.Cover) > 0 {",
       "rule": "A nested module's suite is built without coverage, so its test binary takes no -test.gocoverdir; with it the killer fails on the unmutated tree and kills nothing.",
       "gap": "No runner test builds a nested module's suite; the affected run of internal/selfhostcheck's ledger (r4-m2.log: hostsyntax:TestFamiliesCoverSyntax failed on the unmutated tree) exercises it."
+    },
+    {
+      "name": "mutnames-unresolved-suite-skipped",
+      "origin": "wf10 MUT-names",
+      "file": "scripts/mutants/main.go",
+      "from": "\t\t\t\t\t\tunresolved = append(unresolved, fmt.Errorf(\"%s: mutant %q: %q names no suite",
+      "to": "\t\t\t\t\t\t_ = append(unresolved, fmt.Errorf(\"%s: mutant %q: %q names no suite",
+      "rule": "A killer or anchor id whose suite resolves to nothing is an error of the ledger, never a killer the runner leaves out.",
+      "killers": ["scripts/mutants:TestKillerInAnotherSuiteIsRun"]
+    },
+    {
+      "name": "mutnames-missing-test-accepted",
+      "origin": "wf10 MUT-names",
+      "file": "scripts/mutants/main.go",
+      "from": "\t\t\t\tif !hasTest(absRoot, &suites[i], test) {",
+      "to": "\t\t\t\tif false && !hasTest(absRoot, &suites[i], test) {",
+      "rule": "A killer or anchor id names a test its suite has (a Test func of the package, an example program); a renamed or deleted test is an error of the ledger.",
+      "killers": ["scripts/mutants:TestKillerInAnotherSuiteIsRun"]
+    },
+    {
+      "name": "mutnames-ledger-env-dropped",
+      "origin": "wf10 MUT-names r2",
+      "file": "scripts/mutants/main.go",
+      "from": "Package: \"./\" + rel, Env: slices.Clone(j.Ledger.Env)}",
+      "to": "Package: \"./\" + rel}",
+      "rule": "A package ledger's env is the environment of every run of its own suite, so a plain runner invocation judges killers that need a switch (tsproj's ERGO_TS_TEST=1).",
+      "killers": ["scripts/mutants:TestLedgerEnvReachesItsOwnSuite"]
+    },
+    {
+      "name": "mutnames-ergo-ledger-env-accepted",
+      "origin": "wf10 MUT-names r2",
+      "file": "scripts/mutants/main.go",
+      "from": "\t\t\tif len(j.Ledger.Env) > 0 {",
+      "to": "\t\t\tif false {",
+      "rule": "check's and lower's ledgers share the ergo suites; an env there is refused, not dropped or spread to every suite.",
+      "killers": ["scripts/mutants:TestLedgerEnvReachesItsOwnSuite"]
+    },
+    {
+      "name": "mutnames-plain-rerun-dropped",
+      "origin": "wf10 MUT-names r2",
+      "file": "scripts/mutants/runner.go",
+      "from": "\t\tif plain.reason == \"\" {",
+      "to": "\t\tif false {",
+      "rule": "A test that fails only when its binary is built with coverage (a sandboxed self-run) and passes without stays a killer; it is not dropped as failing on the unmutated tree.",
+      "killers": ["scripts/mutants:TestRunnerMatchesModel"]
+    },
+    {
+      "name": "mutnames-no-test-timeout",
+      "origin": "wf10 MUT-names r2",
+      "file": "scripts/mutants/runner.go",
+      "from": "\"-test.count=1\", \"-test.timeout=\" + (deadline * 9 / 10).String()},",
+      "to": "\"-test.count=1\"},",
+      "rule": "A Go test binary runs with a -test.timeout, as under go test, so a test that bounds its children by t.Deadline judges mutants.",
+      "killers": ["scripts/mutants:TestRunnerMatchesModel"]
     },
     {
       "name": "gt2-edit-unkeyed",
@@ -513,17 +565,7 @@
         "scripts/mutants:TestUnjudgedFailsTheRun"
       ]
     },
-    {
-      "name": "gtc-compile-counted",
-      "origin": "wf10 GATE2 GT-COMPILE",
-      "file": "scripts/mutants/runner.go",
-      "from": "\tif detail := w.compiles(ctx, m, path, original); detail != \"\" {\n\t\tr.Status, r.Detail = Invalid, detail\n\t\treturn r\n\t}\n\tbuilt := map[string]bool{}",
-      "to": "\tbuilt := map[string]bool{}",
-      "rule": "A mutant whose file does not compile is invalid, never killed by a test that fails on the compile error.",
-      "killers": [
-        "scripts/mutants:TestRunnerMatchesModel"
-      ]
-    },
+    {"name":"gtc-compile-counted","origin":"wf10 GATE2 GT-COMPILE","file":"scripts/mutants/compiles.go","from":"\tif m.Refused == \"\" {\n\t\tif detail := w.compiles(ctx, m, path, original); detail != \"\" {\n\t\t\treturn restore, detail\n\t\t}\n\t}\n","to":"","rule":"A mutant whose file does not compile is invalid, never killed by a test that fails on the compile error.","killers":["scripts/mutants:TestRunnerMatchesModel"]},
     {
       "name": "gtc-invalid-exit",
       "origin": "wf10 GATE2 GT-COMPILE",
@@ -564,6 +606,7 @@
       "rule": "A file that fails to compile unmutated (a fixture) makes no row of it invalid.",
       "gap": "No fixture of the fake module fails to compile unmutated; the sweep over every ledger would list such rows invalid.",
       "killers": []
-    }
+    },
+    {"name":"gtb-embedder-none","origin":"wf10 GATE2 GT-BOUND (merge with GS17)","file":"scripts/mutants/scope.go","from":"\t\t\t\treturn d, true\n","to":"\t\t\t\treturn \"\", false\n","rule":"A mutant of a file that is not Go counts as the package that embeds it: the suites that compile that package are measured.","killers":["scripts/mutants:TestCoverageScopeIsWhatCompilesTheMutants"]}
   ]
 }

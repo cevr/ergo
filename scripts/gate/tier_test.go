@@ -303,8 +303,13 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 	if !slices.Equal(fastCPUSteps, []string{examples.Name}) {
 		t.Fatalf("fastCPUSteps is %q: say here what reaches each step", fastCPUSteps)
 	}
+	// A file under a directory the step walks itself (Installed: examples/,
+	// and the modules of modules/, MK0) reaches it too.
+	installed := func(file string) bool {
+		return slices.ContainsFunc(examples.Inputs.Installed, func(dir string) bool { return strings.HasPrefix(file, dir+"/") })
+	}
 	reachSteps := func(file string) (names []string, cpu float64) {
-		if selected(file, examples.Inputs) || packages[cli].closure.Covers(file) {
+		if selected(file, examples.Inputs) || installed(file) || packages[cli].closure.Covers(file) {
 			names = append(names, examples.Name)
 			recorded, ok := fastCPU[examples.Name]
 			if !ok {
@@ -317,6 +322,11 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 	if steps, _ := reachSteps("docs/tooling.md"); len(steps) != 0 {
 		t.Errorf("a docs edit reaches the steps %q; want none", steps)
 	}
+	for _, file := range []string{"examples/pipeline/run/run.ergo", "modules/domain/log/log.ergo"} {
+		if steps, _ := reachSteps(file); !slices.Equal(steps, []string{examples.Name}) {
+			t.Errorf("an edit of %s reaches the steps %q; want %q", file, steps, examples.Name)
+		}
+	}
 	check, cpu := reach("internal/sketch/check/check.go")
 	checkSteps, stepsCPU := reachSteps("internal/sketch/check/check.go")
 	if !slices.Equal(checkSteps, []string{examples.Name}) {
@@ -326,16 +336,22 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 	// scripts/examples builds on the checker since d3-lawcheck-model
 	// (batch 9): its examples runner imports the checker. internal/gobind
 	// (IG1-IG3), internal/sketch/machinegraph (batch 13) and the check-time
-	// evaluator internal/sketch/eval (L7 EV1) import it too.
+	// evaluator internal/sketch/eval (L7 EV1) import it too, and so does
+	// the fact-table builder internal/sketch/facts (SEMTOOLS SEM0).
 	// internal/sketch/api projects the checked public contracts (L8 C3).
-	// tsproj projects the same checked contracts to TS. rpcgen projects
-	// them to RPC, but every test of it builds Go (fullTierOnly), as do
-	// internal/selfhostcheck's and internal/experimental/irspike's; the
+	// tsproj projects the same checked contracts to TS, and rpcgen to RPC
+	// (it has fast tests since batch 21). internal/selfhostcheck's tests
+	// build Go (fullTierOnly); internal/experimental/irspike has fast
+	// tests of the IR text since IRG6, and internal/sketch/fix (ergo fix,
+	// EXC1/EXM1) reads the checker's result; the
 	// direct build path's identity test lives in internal/sketchfront, so
 	// internal/sketch/build's tests import no part of the checker. The
 	// ledger anchor check lives in internal/residue (main's eb40167a3), so
-	// scripts/mutants is not reached.
-	want := []string{"cmd/ergo", "internal/bindc", "internal/gobind", "internal/migrate196", "internal/residue", "internal/sketch/api", "internal/sketch/check", "internal/sketch/eval", "internal/sketch/lower", "internal/sketch/machinegraph", "internal/sketch/std", "internal/sketch/syntax", "internal/sketchfront", "internal/testinputs/guard", "internal/tsproj", "scripts/examples"}
+	// scripts/mutants is not reached. The combined batch 19+20+21 head adds
+	// the lint rules (internal/sketch/lint and the example rule package
+	// examples/lintpack/policy read the checker's result) and
+	// scripts/bootstrap, whose closure covers the checker's sources (GS29).
+	want := []string{"cmd/ergo", "examples/lintpack/policy", "internal/bindc", "internal/experimental/irspike", "internal/gobind", "internal/migrate196", "internal/residue", "internal/rpcgen", "internal/sketch/api", "internal/sketch/check", "internal/sketch/eval", "internal/sketch/facts", "internal/sketch/fix", "internal/sketch/lint", "internal/sketch/lower", "internal/sketch/machinegraph", "internal/sketch/std", "internal/sketch/syntax", "internal/sketchfront", "internal/testinputs/guard", "internal/tsproj", "scripts/bootstrap", "scripts/examples"}
 	if !slices.Equal(check, want) {
 		t.Errorf("a checker edit reaches %v; want %v", check, want)
 	}
@@ -366,7 +382,7 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 // comes down. The follow-ups that close it are in docs/tooling.md.
 const (
 	fastCPUTarget   = 200.0
-	fastCPUKnownGap = 273.0 // 472.6 recorded (examples step 258.5), 2026-11-12: rpcgen's 1.1 left with fullTierOnly
+	fastCPUKnownGap = 153.0 // 352.8, GS29, 2026-11-15; before: 479.8 at the examples step's 258.5, 2026-11-15: rpcgen's 1.1 left with fullTierOnly; facts (SEMTOOLS SEM0) joined at one seed under -short, which is its go test floor (1.0-1.7 recorded at one seed or none; the headroom was 0.9); irspike (2.7) and fix (2.3) joined at batch 20's integration (I20). The batch 19+20+21 combined head recorded 782.0 with the examples step at 560.7: that row was a cold run, every program built and tested. GS29 records it over a warm verdict cache, what a checker edit costs (early cutoff, GS8; one key call per program of packages, GS27): 115.8, the set 352.8 with the rows of lint, lintpack/policy and bootstrap (15.7), which had none
 	fastCPURatchet  = 0.10
 )
 

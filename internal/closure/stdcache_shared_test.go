@@ -14,9 +14,9 @@ import (
 // (measured). With stdStoreVariable naming one directory, as the gate sets
 // it for every sweep step, steps with different TMPDIRs, and sweeps that
 // fill at the same time, run the std builds once in all: a counted guard
-// (the fake go logs each build). Mutants: gt4-store-under-tmpdir (the
-// variable is ignored), gt4-no-recheck (a sweep that waited for another's
-// fill fills again).
+// (the fake go logs each build). Mutant: gt4-no-recheck (a sweep that
+// waited for another's fill fills again); an ignored variable is
+// gatesandbox-std-store-under-tmpdir, TestStdStoreHoldsOnlyStdCompiles's.
 func TestSweepStepsShareOneStdFill(t *testing.T) {
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {

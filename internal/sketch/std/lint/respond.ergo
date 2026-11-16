@@ -1,0 +1,182 @@
+// How a pack answers a request: each requested rule is admitted, run over
+// the snapshot and its findings checked, in the order and with the texts
+// of the Go SDK, so `ergo lint` reports a pack the same whichever SDK it
+// was written with.
+
+import json
+import slices
+import strconv
+import utf8
+
+// Limits on what one finding holds. A rule that passes one fails: no
+// finding is cut short.
+let MaxMessageBytes = 4096
+
+let MaxRelatedLocations = 16
+
+let MaxSuggestionsPerFinding = 8
+
+let MaxEditsPerSuggestion = 64
+
+let MaxEditTextBytes = 64 << 10
+
+// facts is the request's snapshot, decoded once for every rule: values
+// are immutable, so no rule can change what another reads.
+type decoded { Snapshot Snapshot }
+
+type undecoded { Reason string }
+
+type facts = decoded | undecoded
+
+func factsOf(text string) facts {
+	let s = DecodeSnapshot(text) catch {
+	case SnapshotFailed as f:
+		return undecoded{Reason: f.Reason}
+	}
+	decoded{Snapshot: s}
+}
+
+func headerOf(text string) snapshotHeader fails RuleFailed {
+	json.Decode(json.Codec[snapshotHeader]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case _:
+		return RuleFailed{Reason: "decode fact snapshot: the snapshot has no schema and semantic header"}
+	}
+}
+
+// respond runs the requested rules of p over the request's snapshot: one
+// result per requested rule, in the request's order.
+func respond(p Pack, r request) response {
+	let text = json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, r.Snapshot)
+	let header = headerOf(text) catch {
+	// ergo-lint-disable-next-line silent-catch -- each rule's result reports the failure; the response echoes no revision, as the Go SDK's does
+	case RuleFailed:
+		snapshotHeader{Schema: Schema{Name: "", Version: 0}, Semantic: snapshotSemantic{Revision: ""}}
+	}
+	let revision = header.Semantic.Revision
+	let loaded = factsOf(text)
+	let mut results = []wireResult{}
+	for requested in r.Rules {
+		let findings = outcome(p, r.Pack.Namespace, requested, text, loaded) catch {
+		case RuleFailed as f:
+			results = results.Append(wireResult{Name: requested.Name, Status: "failed", Reason: json.Present{Value: f.Reason}, Findings: json.Absent})
+			continue
+		}
+		let mut encoded = []wireFinding{}
+		for f in findings {
+			encoded = encoded.Append(wireFinding{Message: f.Message, Span: f.Span, Related: someList(f.Related), Suggestions: someList(f.Suggestions)})
+		}
+		results = results.Append(wireResult{Name: requested.Name, Status: "completed", Reason: json.Absent, Findings: someList(encoded)})
+	}
+	response{Id: r.Id, Revision: revision, Rules: results}
+}
+
+// outcome is the findings of one requested rule, or why it failed: the
+// request names another pack, a rule p does not have or another version
+// of it, the snapshot is not of a schema p reads, the rule fails, or it
+// reports a finding the snapshot's sources do not hold.
+func outcome(p Pack, namespace string, requested RequestRule, text string, loaded facts) []Finding fails RuleFailed {
+	if namespace != p.Namespace {
+		return RuleFailed{Reason: "request is for pack \(strconv.Quote(namespace)); this pack is \(strconv.Quote(p.Namespace))"}
+	}
+	let rule = match RuleNamed(p, requested.Name) {
+	case None:
+		return RuleFailed{Reason: "pack does not implement its manifest rule " + requested.Name}
+	case Some[Rule] as found:
+		found.Value
+	}
+	if rule.Version != requested.Version {
+		return RuleFailed{Reason: "manifest declares rule version \(requested.Version); the pack implements \(rule.Version)"}
+	}
+	let header = try headerOf(text)
+	if header.Schema.Name != SchemaName || !slices.Contains(p.FactVersions, header.Schema.Version) {
+		return RuleFailed{Reason: "pack does not read fact schema \(header.Schema.Name)/\(header.Schema.Version)"}
+	}
+	let s = match loaded {
+	case undecoded as u:
+		return RuleFailed{Reason: "decode fact snapshot: " + u.Reason}
+	case decoded as d:
+		d.Snapshot
+	}
+	let findings = try rule.Check(s, requested.Options)
+	for f in findings {
+		try validate(f, s.Sources)
+	}
+	findings
+}
+
+// validate checks a finding against the sources the snapshot admits: its
+// texts are short UTF-8, every span is inside an admitted file, and a
+// suggestion's edits are inside it and do not overlap.
+func validate(f Finding, sources []Source) fails RuleFailed {
+	try message(f.Message)
+	try inside(f.Span, sources, "finding \(strconv.Quote(f.Message)): ")
+	if len(f.Related) > MaxRelatedLocations {
+		return RuleFailed{Reason: "finding \(strconv.Quote(f.Message)) has \(len(f.Related)) related locations; the limit is \(MaxRelatedLocations)"}
+	}
+	for r in f.Related {
+		try message(r.Message)
+		try inside(r.Span, sources, "related location \(strconv.Quote(r.Message)): ")
+	}
+	if len(f.Suggestions) > MaxSuggestionsPerFinding {
+		return RuleFailed{Reason: "finding \(strconv.Quote(f.Message)) has \(len(f.Suggestions)) suggestions; the limit is \(MaxSuggestionsPerFinding)"}
+	}
+	for s in f.Suggestions {
+		try suggestion(s, sources, "finding \(strconv.Quote(f.Message)): ")
+	}
+}
+
+func message(m string) fails RuleFailed {
+	if m == "" || len(m) > MaxMessageBytes || !utf8.ValidString(m) {
+		return RuleFailed{Reason: "finding message must be non-empty UTF-8 of at most \(MaxMessageBytes) bytes"}
+	}
+}
+
+// spanText is a span as Go's %+v prints it.
+func spanText(s Span) string {
+	"{File:\(s.File) Offset:\(s.Offset) Length:\(s.Length) Line:\(s.Line) Column:\(s.Column)}"
+}
+
+func inside(s Span, sources []Source, prefix string) fails RuleFailed {
+	let mut found = 0
+	let mut bytes = 0
+	for source in sources {
+		if source.File == s.File {
+			found = found + 1
+			bytes = source.Bytes
+		}
+	}
+	if found == 0 {
+		return RuleFailed{Reason: prefix + "span \(spanText(s)) names no admitted source file"}
+	}
+	if s.Offset < 0 || s.Length < 0 || s.Offset > bytes || s.Length > bytes-s.Offset || s.Line < 1 || s.Column < 1 {
+		return RuleFailed{Reason: prefix + "span \(spanText(s)) is outside the \(bytes)-byte source \(strconv.Quote(s.File))"}
+	}
+	if found > 1 {
+		return RuleFailed{Reason: prefix + "source \(strconv.Quote(s.File)) is admitted twice"}
+	}
+}
+
+func suggestion(s Suggestion, sources []Source, prefix string) fails RuleFailed {
+	message(s.Message) catch {
+	case RuleFailed as f:
+		return RuleFailed{Reason: prefix + "suggestion: " + f.Reason}
+	}
+	let name = strconv.Quote(s.Message)
+	if len(s.Edits) == 0 || len(s.Edits) > MaxEditsPerSuggestion {
+		return RuleFailed{Reason: prefix + "suggestion \(name) must have between 1 and \(MaxEditsPerSuggestion) edits"}
+	}
+	for e in s.Edits {
+		try inside(e.Span, sources, prefix+"suggestion \(name) edit: ")
+		if len(e.NewText) > MaxEditTextBytes || !utf8.ValidString(e.NewText) {
+			return RuleFailed{Reason: prefix + "suggestion \(name) edit text must be UTF-8 of at most \(MaxEditTextBytes) bytes"}
+		}
+	}
+	let edits = slices.SortFunc(s.Edits, func(a Edit, b Edit) int { a.Span.Offset - b.Span.Offset })
+	for i in 1..len(edits) {
+		let previous = edits[i-1].Span
+		let next = edits[i].Span
+		if previous.Offset == next.Offset || previous.Offset+previous.Length > next.Offset {
+			return RuleFailed{Reason: prefix + "suggestion \(name) has overlapping edits at bytes \(previous.Offset) and \(next.Offset)"}
+		}
+	}
+}

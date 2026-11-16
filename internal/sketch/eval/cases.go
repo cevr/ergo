@@ -15,6 +15,7 @@ import (
 type lawTarget struct {
 	name, why string
 	binding   []check.LawProvider
+	ctx       *check.LawContext // a run under a named context (lawcontext.go)
 }
 
 func lawTargets(pkg *check.Package, run check.LawRun) []lawTarget {
@@ -22,8 +23,9 @@ func lawTargets(pkg *check.Package, run check.LawRun) []lawTarget {
 	for _, b := range run.Bindings {
 		out = append(out, lawTarget{name: bindingName(pkg, run.Law, b), binding: b})
 	}
-	for _, c := range run.Contexts {
-		out = append(out, lawTarget{name: qualifiedLaw(pkg, run.Law) + " under " + c.Context.Name, why: "a context-backed law, which check-time evaluation does not build"})
+	for i := range run.Contexts {
+		c := &run.Contexts[i]
+		out = append(out, lawTarget{name: qualifiedLaw(pkg, run.Law) + " under " + c.Context.Name, why: c.Unrun, ctx: c})
 	}
 	if len(out) == 0 {
 		out = append(out, lawTarget{name: qualifiedLaw(pkg, run.Law), why: "no binding of the law runs in this package"})
@@ -59,40 +61,82 @@ func bindingName(pkg *check.Package, law *check.Law, b []check.LawProvider) stri
 }
 
 // operation is a checked provider conversion, never a live Go function value.
+// env is the substitution of the frame that made the conversion, which
+// its instances' type arguments are read in.
 type operation struct {
 	value Value
 	conv  check.Conversion
+	env   *tenv
+	// cell holds value once an operation borrows its receiver: the Go
+	// target's operation value holds a pointer to its provider's copy, so
+	// a write through one call is seen by the next (std json's Text, LR3).
+	cell *slot
 }
 
+// recv is the provider as fn, one of its operations, takes it: a borrow
+// of the operation's own cell when fn borrows its receiver.
+func (r *operation) recv(fn *check.Func) Value {
+	if fn.Ptr {
+		if r.cell == nil {
+			r.cell = &slot{v: r.value}
+		}
+		return &ptrV{root: r.cell}
+	}
+	if r.cell != nil {
+		return r.cell.v
+	}
+	return r.value
+}
+
+// operationCall runs an operation of an operation-type value (CallOp) or
+// of the law's own provider (CallLawOp).
 func (in *interp) operationCall(fr *frame, x *syntax.CallExpr, c *check.Call) (Value, *abrupt) {
-	op := fr.lawOwn
+	var recv Value
+	if fr.lawOwn != nil {
+		recv = fr.lawOwn
+	}
 	if c.Kind == check.CallOp {
 		v, ab := in.expr(fr, c.Recv)
 		if ab != nil {
 			return nil, ab
 		}
-		op, _ = v.(*operation)
+		recv = v
 	}
-	if op == nil {
+	if recv == nil {
 		return nil, fr.unsupported(x, "an unresolved operation")
 	}
-	fn := op.conv.Table[c.Op.Name]
-	if fn == nil {
-		ice("no checked method for operation %s", c.Op.Name)
+	if c.Kind == check.CallLawOp && fr.info.Closes[x] == nil {
+		// The provider under test is the law's capability: its call is
+		// an interruption point (runtime.md, I1 2).
+		if ab := in.poll(fr, x); ab != nil {
+			return nil, ab
+		}
 	}
-	args := []Value{op.value}
+	// A std operation that takes an owned local (queue Push) holds its
+	// entry until it returns (own.go, holdTaken).
+	var held []*syntax.Ident
+	if c.Kind == check.CallOp && c.Op != nil && c.Op.Sig != nil && len(c.Op.Sig.Takes) > 0 {
+		if _, native := recv.(opObject); native {
+			held = in.holdTaken(fr, x.Args, c.Op.Sig.Takes)
+		}
+	}
+	args := make([]Value, 0, len(x.Args))
 	for _, a := range x.Args {
 		v, ab := in.expr(fr, a)
 		if ab != nil {
+			for _, id := range held {
+				delete(fr.held, id) // the call never ran: the frame keeps them
+			}
 			return nil, ab
 		}
 		args = append(args, v)
 	}
-	var targs []check.Type
-	if inst := op.conv.Instances[c.Op.Name]; inst != nil {
-		targs = inst.TypeArgs
+	in.handParts(fr, x.Args...)
+	v, ab := in.dispatch(fr, x, recv, c.Op.Name, args)
+	if len(held) > 0 {
+		ab = in.settleHeld(fr, held, ab)
 	}
-	return in.call(fr, x, fn, targs, args)
+	return v, ab
 }
 
 func (in *interp) testCases(pkg *check.Package, t *check.Test, res Result) Result {
@@ -121,11 +165,14 @@ func (in *interp) runLawTarget(law *check.Law, tg lawTarget, res Result) (out Re
 	if law.Machine != nil && law.Decl.Reach != nil {
 		return in.machineLaw(law, res)
 	}
+	if tg.ctx != nil {
+		return in.contextLaw(law, tg.ctx, res)
+	}
 	fr := in.newFrame(law.Pkg, law.Decl)
 	if own := testplan.GenericOwner(law); own != nil {
-		fr.env = &tenv{m: map[*check.TypeParam]rtype{}}
+		fr.env = &tenv{}
 		for i, tp := range own.TParams {
-			fr.env.m[tp] = rtype{t: tg.binding[0].Slot.TArgs[i]}
+			fr.env.bind(tp, rtype{t: tg.binding[0].Slot.TArgs[i]})
 		}
 	}
 	return in.cases(fr, law.Decl.Body, true, law.Params, testplan.Law(law, tg.binding), res)
@@ -196,35 +243,55 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 		if p.Listed {
 			listed = p.At(k)
 		}
-		args := make([]Argument, 0, len(p.Inputs))
+		// A case's arguments are written only when the case is reported:
+		// a passing case's text was work no one read (ORACLE O31). The
+		// values are the generated ones, which the body cannot change: a
+		// write copies a store its slot does not own.
+		shows := make([]func() Argument, 0, len(p.Inputs))
 		for i, input := range p.Inputs {
 			var v Value
-			text := ""
 			if p.Listed {
 				v = in.listValue(cf, listed[i])
 			} else if input.Provider != nil && input.Provider.Ctor != nil {
 				ctor := input.Provider.Ctor
 				var vs []Value
-				var shown []string
 				for _, param := range ctor.Sig.Params {
-					a := in.generate(cf, r, param.Type, testplan.Depth, nil)
-					vs = append(vs, a)
-					shown = append(shown, in.argument(cf, param.Type, a))
+					vs = append(vs, in.generate(cf, r, param.Type, testplan.Depth, nil))
 				}
 				v = mustValue(in.call(cf, nil, ctor, nil, vs))
-				text = ctor.Name + "(" + strings.Join(shown, ", ") + ")"
+				shows = append(shows, func() Argument {
+					shown := make([]string, len(vs))
+					for j, param := range ctor.Sig.Params {
+						shown[j] = in.argument(cf, param.Type, vs[j])
+					}
+					return Argument{Name: input.Name, Value: ctor.Name + "(" + strings.Join(shown, ", ") + ")"}
+				})
 			} else {
 				v = in.generate(cf, r, input.Type, testplan.Depth, input.Where)
 			}
-			if text == "" {
-				text = in.argument(cf, input.Type, v)
+			switch {
+			case len(shows) > i:
+			case input.Provider != nil:
+				// A provider's state may change as its operations run:
+				// its text is the one it had before the case.
+				a := Argument{Name: input.Name, Value: in.argument(cf, input.Type, v)}
+				shows = append(shows, func() Argument { return a })
+			default:
+				gv := v
+				shows = append(shows, func() Argument { return Argument{Name: input.Name, Value: in.argument(cf, input.Type, gv)} })
 			}
-			args = append(args, Argument{Name: input.Name, Value: text})
 			if input.Provider != nil {
-				v = &operation{value: v, conv: input.Provider.Conv}
+				v = &operation{value: v, conv: input.Provider.Conv, env: cf.env}
 			}
 			if input.Param < 0 {
-				cf.lawOwn = v.(*operation)
+				// A member law's body calls functions that need its own
+				// operation type: the provider under test is bound to it.
+				cf.lawOwn = v
+				to := input.Provider.Conv.To
+				if to == nil {
+					to = input.Type
+				}
+				cf.caps = &capEnv{key: typeKey(cf.rt(to)), op: v, next: cf.caps}
 			} else {
 				cf.bind(params[input.Param], v)
 			}
@@ -232,13 +299,25 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 		result := in.runBodyFrame(cf, body, law, res)
 		out.Cases = k + 1
 		out.Status, out.Reason, out.Site = result.Status, result.Reason, result.Site
+		if result.Schedule != 0 {
+			out.Schedule = result.Schedule
+		}
 		if result.Status != Passed {
-			out.Case, out.Arguments = k+1, args
+			out.Case, out.Arguments = k+1, shown(shows)
 			return
 		}
 	}
 	out.Case = 0
 	return
+}
+
+// shown is the arguments of a reported case, written now.
+func shown(shows []func() Argument) []Argument {
+	args := make([]Argument, len(shows))
+	for i, show := range shows {
+		args[i] = show()
+	}
+	return args
 }
 
 func statusOf(ab *abrupt) Status {
@@ -247,7 +326,7 @@ func statusOf(ab *abrupt) Status {
 		return Incomplete
 	case ctlUnsupported:
 		return Skipped
-	case ctlDefect:
+	case ctlDefect, ctlInterrupt:
 		return Defect
 	case ctlAssert, ctlFail, ctlEscape:
 		return Refuted
@@ -346,7 +425,7 @@ func (in *interp) generate(fr *frame, r *testgen.Stream, t check.Type, d int, re
 		for n := r.Intn(r.Limit(d) + 1); n > 0; n-- {
 			k := in.generate(fr, r, u.Key, d-1, nil)
 			v := in.generate(fr, r, u.Elem, d-1, nil)
-			m.b.m[k] = v
+			m.b.put(k, v)
 		}
 		return m
 	case *check.Tuple:
@@ -397,6 +476,17 @@ func (in *interp) genVariant(fr *frame, r *testgen.Stream, vs []check.Type, d in
 	return in.generate(fr, r, vs[k], d-1, nil)
 }
 func (in *interp) genRefined(fr *frame, r *testgen.Stream, t check.Type, d int, ref *check.Refinement) Value {
+	if ref.Pattern != nil {
+		// A pattern (types.md, Refinements 11): a length it reaches, then a
+		// walk of its automaton (check.Matcher.Generate).
+		n := r.In(ref.GenLengths(32))
+		mustCharge(in, fr, n)
+		s, ok := ref.Pattern.Generate(int(n), r.Intn)
+		if !ok {
+			ice("no value of %d bytes matches the pattern of %s", n, t)
+		}
+		return s
+	}
 	var spans [][2]int64
 	for _, s := range ref.Spans {
 		hi := new(big.Int).Set(s.Hi)
@@ -421,7 +511,7 @@ func (in *interp) genRefined(fr *frame, r *testgen.Stream, t check.Type, d int, 
 		}
 		return v
 	}
-	if n < 0 || n > in.budget.Steps-in.steps {
+	if n < 0 || n > in.stepsLeft() {
 		panic(fr.abrupt(ctlExhausted, fr.decl, nil, "refined length exceeds remaining work"))
 	}
 	mustCharge(in, fr, n)

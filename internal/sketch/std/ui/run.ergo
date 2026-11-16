@@ -1,0 +1,69 @@
+import actor
+
+// Event is what reaches the loop: a press of a node, a text typed into an
+// Input node, the result of a load's fetch (Arrived), which a fetch's task
+// posts with the epoch it was started for, a pointer event on an Area
+// (Point), a key press (KeyDown), a frame at a time since the host
+// started (Tick), which a host sends only while the view animates, or a
+// list's viewport as the host scrolled or sized it (Scrolled), or a
+// change of place the program did not make (URLChanged: the user went
+// back, or to an address), or a state the actor committed that no event
+// of the loop's sent (Committed: a reply its work sent, a timer), which the
+// session's watcher posts, at most one at a time before the next pass.
+type Event[E] = Press{Id Id[E]} | Type{Id Id[E], Text string} | Arrived{Epoch int, Signal E} | Point{Id Id[E], Pointer PointerEvent, Over Option[ZoneBox[E]]} | KeyDown{Press KeyPress} | Tick{At duration} | Scrolled{Id Id[E], Offset Length, Height Length} | URLChanged{URL URL} | Committed{} | Ended{Run int}
+
+// Closed is the failure of Next when the host has closed (its window, its
+// terminal, its script ended).
+type Closed {}
+
+// Host shows patches and reports events. Providers: the desktop host, the
+// terminal host; cmd/<name>/main.ergo chooses one. TestHost drives the
+// same Session in process instead.
+//
+// A host's pointer rules (H5g): a pointer event goes to the topmost Area
+// under the pointer, with Over the topmost Zone under it in that Area and
+// the zone's box in the Area's box; after a Down on an Area, every pointer
+// event goes to that Area, in its box's coordinates, wherever the pointer
+// is, until an Up (capture); and while an Area holds the pointer near an
+// edge of a Scroll, the host scrolls it by EdgeScroll each frame. A
+// LiveNode is its live region: the host says each text a pass newly shows
+// in it. TestHost does the same (PointAt, PointOver, Captured, Announced).
+// law-exempt: a host's laws (the mirror of its patches is what it shows, a tap at a node's box sends that node's event, its pointer rules) need a running host and its screen; they run against each provider, not here.
+type Host[E] {
+	// Show applies one pass's changes.
+	Show(ops []Op[E]),
+	// Next waits for the next event, input or posted, in the order they
+	// came; it fails Closed when the host closed.
+	Next() Event[E] fails Closed,
+	// Post queues ev for Next. A fetch's task calls it with its result, so
+	// a result reaches the loop on the loop's own thread, as input does.
+	// It never waits for the loop.
+	Post(ev Event[E]),
+	// Frames asks for a Tick per frame (on) or for none (off). Run asks
+	// after each pass, while the pass made an Animate.
+	Frames(on bool),
+}
+
+// Run shows view of a's state on h until h closes. Each event is a Step of
+// one Session: its signal goes to a, and the pass after it is shown. A
+// load's fetch runs as a task of Run's caller and posts its result to h;
+// a fetch whose load ended is stopped. Run fails with h's Closed, or with
+// Stopped when a has ended.
+func Run[E comparable, S, D, F, R](h Host[E], a actor.Actor[S, E, D, F], view own func(f *Frame[E], s S) needs R) fails Closed | actor.Stopped needs R {
+	let (s, first) = Start(a, view, func(ev Event[E]) { h.Post(ev) })
+	let mut session = s
+	h.Show(first)
+	let mut frames = Animating(&session.frame)
+	h.Frames(frames)
+	for {
+		let ev = try h.Next()
+		let ops = try Step(&session, ev)
+		if len(ops) > 0 {
+			h.Show(ops)
+		}
+		if Animating(&session.frame) != frames {
+			frames = !frames
+			h.Frames(frames)
+		}
+	}
+}

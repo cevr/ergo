@@ -66,6 +66,9 @@ func typecheckGo(t *testing.T, programs []*lowered) {
 }
 
 // typecheckPrograms returns the type errors of each program that has some.
+// A Go package a program's module holds beside it (lowered.extra, such as
+// hresFiles) is type-checked from its source; its import path is its
+// directory, as the module's replace names it.
 func typecheckPrograms(t *testing.T, programs []*lowered) (map[string][]string, error) {
 	return typecheckArch(t, programs, runtime.GOARCH, nil)
 }
@@ -74,8 +77,14 @@ func typecheckPrograms(t *testing.T, programs []*lowered) (map[string][]string, 
 // arch, filling infos[name] (when infos is not nil) with each program's
 // types and uses.
 func typecheckArch(t *testing.T, programs []*lowered, arch string, infos map[string]*types.Info) (map[string][]string, error) {
+	return typecheckFiles(t, programs, arch, infos, map[string]*ast.File{})
+}
+
+// typecheckFiles is typecheckArch that also fills files[name] with each
+// program's parsed main.go, the syntax infos[name] describes.
+func typecheckFiles(t *testing.T, programs []*lowered, arch string, infos map[string]*types.Info, files map[string]*ast.File) (map[string][]string, error) {
 	fset := token.NewFileSet()
-	files := map[string]*ast.File{}
+	sources := map[string]map[string]*ast.File{} // import path -> file path -> file
 	var imports []string
 	for _, p := range programs {
 		f, err := parser.ParseFile(fset, "p/"+p.name+"/main.go", p.mainGo(), parser.SkipObjectResolution)
@@ -83,21 +92,46 @@ func typecheckArch(t *testing.T, programs []*lowered, arch string, infos map[str
 			return nil, fmt.Errorf("%s: %v", p.name, err)
 		}
 		files[p.name] = f
-		for _, spec := range f.Imports {
-			imports = append(imports, strings.Trim(spec.Path.Value, `"`))
+		var parsed []*ast.File
+		parsed = append(parsed, f)
+		for _, e := range p.extra {
+			dir := filepath.ToSlash(filepath.Dir(e.Path))
+			if !strings.HasSuffix(e.Path, ".go") || dir == "." || sources[dir][e.Path] != nil {
+				continue
+			}
+			g, err := parser.ParseFile(fset, e.Path, e.Data, parser.SkipObjectResolution)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %v", e.Path, err)
+			}
+			if sources[dir] == nil {
+				sources[dir] = map[string]*ast.File{}
+			}
+			sources[dir][e.Path] = g
+			parsed = append(parsed, g)
+		}
+		for _, g := range parsed {
+			for _, spec := range g.Imports {
+				if path := strings.Trim(spec.Path.Value, `"`); sources[path] == nil {
+					imports = append(imports, path)
+				}
+			}
 		}
 	}
 	exports, err := goExports.lookup(t, imports)
 	if err != nil {
 		return nil, err
 	}
-	imp := importer.ForCompiler(fset, "gc", func(path string) (io.ReadCloser, error) {
+	gc := importer.ForCompiler(fset, "gc", func(path string) (io.ReadCloser, error) {
 		file := exports[path]
 		if file == "" {
 			return nil, fmt.Errorf("no export data for %q", path)
 		}
 		return os.Open(file)
 	})
+	imp := gc
+	if len(sources) > 0 {
+		imp = &sourceImporter{fset: fset, gc: gc, sources: sources, done: map[string]*types.Package{}}
+	}
 	failed := map[string][]string{}
 	for _, p := range programs {
 		conf := types.Config{
@@ -114,6 +148,41 @@ func typecheckArch(t *testing.T, programs []*lowered, arch string, infos map[str
 		_, _ = conf.Check(programModule+"/p/"+p.name, fset, []*ast.File{files[p.name]}, info)
 	}
 	return failed, nil
+}
+
+// sourceImporter imports a Go package of a program's module from its
+// parsed source, and every other package from gc export data.
+type sourceImporter struct {
+	fset    *token.FileSet
+	gc      types.Importer
+	sources map[string]map[string]*ast.File
+	done    map[string]*types.Package
+}
+
+func (s *sourceImporter) Import(path string) (*types.Package, error) {
+	if p, ok := s.done[path]; ok {
+		return p, nil
+	}
+	src, ok := s.sources[path]
+	if !ok {
+		return s.gc.Import(path)
+	}
+	var names []string
+	for n := range src {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	var list []*ast.File
+	for _, n := range names {
+		list = append(list, src[n])
+	}
+	conf := types.Config{Importer: s, GoVersion: "go" + goVersion, Sizes: types.SizesFor("gc", runtime.GOARCH)}
+	p, err := conf.Check(path, s.fset, list, nil)
+	if err != nil {
+		return nil, fmt.Errorf("the module's Go package %s: %v", path, err)
+	}
+	s.done[path] = p
+	return p, nil
 }
 
 // goExports are the gc export data files of the packages the emitted

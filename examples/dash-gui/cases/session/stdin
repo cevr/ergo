@@ -1,0 +1,29 @@
+# every command and every refusal
+run 70
+show
+pause 3
+pause 3
+resume 4
+resume 3
+pause 12
+policy 5 newest
+policy 12 oldest
+policy 5 middle
+policy +1 newest
+run 400
+drops
+policy 5 oldest
+run 1
+run -1
+run +2
+run  2
+run x
+fly
+show me
+drops 1
+pause 11
+run 200
+resume 11
+run 1
+show
+drops

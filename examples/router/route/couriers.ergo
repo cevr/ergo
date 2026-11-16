@@ -70,15 +70,3 @@ func LaneOf(s Router, topic string) Option[Lane] {
 		None
 	}
 }
-
-// LogOf is the messages the couriers of s carried in its entry.
-func LogOf(s Router) []Delivered {
-	match s {
-	case Idle as i:
-		i.Log
-	case Confirming:
-		[]Delivered{}
-	case Applying:
-		[]Delivered{}
-	}
-}
