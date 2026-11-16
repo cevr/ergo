@@ -34,6 +34,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"expression *syntax.TupleExpr", "G1"},
 	{"let without a variable", "G1"},
 	{"let pattern*", "G1"},
+	{"let of a default *", "G1"}, // F7 letpat (ir_letpat.go)
 	{"expression *syntax.SliceExpr", "G1"},
 	{"type *check.Array", "G1"},
 	{"index of a non-slice", "G1"},
@@ -44,15 +45,31 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"unary *", "G1"},
 	{"expression *syntax.StarExpr", "G1"},
 	{"selector on a non-record", "G1"},
+	// F7 select (ir_select.go): the qualified names it leaves.
+	{"package function as a value", "G6"},
+	{"Go package variable", "G4"},
+	{"package let without a Go name", "G1"},
+	{"package type name as a value", "G1"},
 	{"selector that is not a field", "G1"},
 	{"record update or elided literal type", "G1"},
+	// F7 update (ir_update.go): the updates it leaves.
+	{"elided literal type", "G1"},
+	{"record update *", "G1"},
 	{"unkeyed record literal", "G1"},
 	{"record literal without every field", "G1"},
 	{"keyed slice literal", "G1"},
 	{"spread", "G1"},
 	{"assignment form *", "G1"},
-	{"assignment to a place", "G1"},
 	{"assignment to a non-local", "G1"},
+	// F2 lowers places (stores, &p, *p, pointer receivers); these remain.
+	{"store to a place a value with statements may move", "F2"},
+	{"call on a receiver's address that operands with statements may move", "F2"},
+	{"place that is not addressable", "F2"}, // a Map entry: Maps are G4's
+	{"place of the IR kind *", "F2"},
+	{"place with a conversion", "F2"},
+	{"place of a handed-off local", "G2"},            // a Close through its address
+	{"place of a taken field", "G2"},                 // takeField: an owned field
+	{"store of a call that updates its place", "F3"}, // mapStore: an append or Update in place
 	{"statement *syntax.BranchStmt", "G1"},
 	{"for without a condition", "G1"},
 	{"result statement *syntax.ForStmt", "G1"},
@@ -93,11 +110,9 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"catch of a non-call", "G2"},
 	{"catch arm without a pattern", "G2"},
 	{"catch arm form", "G2"},
-	{"continue in a polling loop", "G2"},
 	{"failure in a branch tail of a body with no value", "G2"},
 	{"operation call that enters a release", "G2"}, // a checked Close: frames, IRG2b
 	{"checked Close (closeBody masks it)", "G2"},   // the Close body itself, inside its mask
-	{"call of a pointer-receiver method", "G4"},
 	{"call of an extern function", "G4"},
 	{"call that passes owned values", "G4"},
 	{"call that passes witnesses", "G4"},
@@ -143,7 +158,15 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"result statement *syntax.BranchStmt", "G1"},
 	// G4: generics, packages, tasks, references, function values.
 	{"generic or declared-elsewhere type", "G4"},
-	{"generic or task call", "G4"},
+	{"generic or task call", "G4"}, // a generic std body
+	{"task call", "G4"},
+	{"generic call kind *", "G4"},
+	{"generic call without its type arguments", "G4"},
+	{"Option's pointer niche", "G4"},
+	{"append form", "G4"},
+	{"append to a defined slice type", "G4"},
+	{"Map write form", "G4"},
+	{"Map write to a defined Map type", "G4"},
 	// IRG4 calls other packages' functions and std externs with a plain
 	// runtime/v1 body; these call forms remain.
 	{"call without a function", "G4"},
@@ -154,9 +177,18 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"dot call of a std function", "G4"},
 	{"std call *", "G4"}, // hidden arguments, adapted results, converted operands
 	{"type *check.Map", "G4"},
+	{"type *check.Union", "G4"}, // an anonymous union as a type argument (IRG4b instances)
+	// IRG4b r2: operation-type values and their calls, std operations.
+	{"operation call from a pure function", "G4"},
+	{"operation call into an owning literal", "G4"},
+	{"operation call on a *", "G4"},
+	{"std operation without its runtime method", "G4"},
+	{"std Close", "G4"},
+	{"call of a pointer-receiver method on a value", "G1"}, // &x of a place
+	{"for-in over a Range *", "G4"},
+	{"conversion *", "G4"},
+	{"type argument with no value", "G4"}, // a task's T bound by a block with no value
 	{"type *check.TypeParam", "G4"},
-	{"type *check.Pointer", "G4"},
-	{"pointer receiver", "G4"},
 	{"for-in over a non-slice", "G4"},
 	{"call kind 1", "G4"}, // CallOp: an operation-type value's operation
 	{"call kind 4", "G4"}, // CallConversion

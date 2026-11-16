@@ -166,15 +166,23 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		op := x.Op.String()
 		switch op {
 		case "!", "-", "+", "^":
+		case "&":
+			b.goType(t, x)
+			return &irExpr{K: "addr", Pos: p, X: b.place(x.X)}
 		default:
 			irNo("unary %s", op)
 		}
 		b.goType(t, x)
 		return &irExpr{K: "un", Pos: p, Op: op, X: b.expr(x.X)}
+	case *syntax.StarExpr:
+		// *p: the value p points at (FLIP F2).
+		b.goType(t, x)
+		return &irExpr{K: "deref", Pos: p, X: b.expr(x.X)}
 	case *syntax.SelectorExpr:
-		n, ok := b.l.info.Types[x.X].(*check.Named)
+		// A field through a pointer (FLIP F2): Go's p.f.
+		n, ok := derefNamed(b.l.info.Types[x.X]) // ir_pkg.go
 		if !ok {
-			irNo("selector on a non-record")
+			return b.selectOther(x, p) // ir_select.go
 		}
 		b.goType(n, x)
 		// goType queued the declaration, unless the runtime's Go type
@@ -195,12 +203,12 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			irNo("index form")
 		}
 		if _, ok := b.l.info.Types[x.X].(*check.Slice); !ok {
-			irNo("index of a non-slice")
+			return b.indexOther(x, p) // ir_index.go
 		}
 		return &irExpr{K: "index", Pos: p, X: b.expr(x.X), Y: b.expr(x.Indices[0])}
 	case *syntax.CompositeLit:
 		if x.Base != nil || x.Type == nil {
-			irNo("record update or elided literal type")
+			return b.updateLit(x, t, p) // ir_update.go
 		}
 		if _, ok := b.l.info.Spreads[x]; ok {
 			irNo("spread")
@@ -214,6 +222,8 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 				}
 				lit.Elems = append(lit.Elems, b.expr(e))
 			}
+		case *check.Map:
+			lit.Elems = b.mapLit(x) // ir_pkg.go
 		case *check.Named:
 			td := b.l.typeDecl(tt.Obj, x) // queued by goType, as above
 			s := tt.Underlying().(*check.Struct)
@@ -228,6 +238,14 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 				k, ok := kv.Key.(*syntax.Ident)
 				if !ok {
 					irNo("record key")
+				}
+				for _, f := range s.Fields {
+					if f.Name == k.Name && b.fc.goType(b.l.info.Types[kv.Value]) != b.fc.goType(f.Type) {
+						// Go converts a variant to its row's error field;
+						// the decoder takes identical types only (I-FLIP:
+						// examples/jobs).
+						irNo("record field of a converted value")
+					}
 				}
 				lit.Keys = append(lit.Keys, td.fieldName[k.Name])
 				lit.Elems = append(lit.Elems, b.expr(kv.Value))

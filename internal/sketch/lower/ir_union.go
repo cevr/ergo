@@ -49,8 +49,8 @@ func (b *irBuilder) admitNamed(t *check.Named, depth int) {
 		if !ok {
 			irNo("union without its variants")
 		}
-		if fu := b.flatOf(t); fu != nil && (fu.niche || fu.generic) {
-			irNo("generic or declared-elsewhere type")
+		if fu := b.flatOf(t); fu != nil && fu.niche {
+			irNo("Option's pointer niche")
 		}
 		if b.admitted == nil {
 			b.admitted = map[*check.TypeName]bool{}
@@ -73,10 +73,8 @@ func (b *irBuilder) admitNamed(t *check.Named, depth int) {
 		// An operation type is its Go interface, which the emitter
 		// declares (IRG6: a with's capability fields, an adapter's
 		// conversion); Go's checker checks every use of its values. A
-		// generic one stays the emitter's.
-		if len(t.TArgs) > 0 {
-			irNo("generic or declared-elsewhere type")
-		}
+		// generic one is an instance (admitOps, ir_pkg.go).
+		b.admitOps(t)
 		return
 	case kindMachine:
 		irNo("machine value")
@@ -159,7 +157,7 @@ func (b *irBuilder) variantInto(from, to check.Type, e *irExpr, site syntax.Node
 		return e
 	}
 	if fu := b.flatOf(to); fu != nil {
-		if fu.niche || fu.inst != nil || b.fc.goType(fu.tn.Type) != gt {
+		if fu.niche || b.goType(fu.own(), site) != gt { // own: ir_pkg.go
 			irNo("value of a type defined over a flat union")
 		}
 		k := fu.tagOf(from)

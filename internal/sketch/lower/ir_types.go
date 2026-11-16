@@ -42,6 +42,26 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 	case *check.Slice:
 		b.admit(t.Elem, depth+1)
 		return
+	case *check.Array:
+		b.admit(t.Elem, depth+1) // FLIP F7 (ir_index.go): Go's [N]T
+		return
+	case *check.Map:
+		b.admitMap(t, depth) // ir_pkg.go
+		return
+	case *check.Pointer:
+		// A pointer to an admitted type (FLIP F2; IRG4b r2): a *T
+		// parameter, a receiver, &p.
+		b.admit(t.Elem, depth+1)
+		return
+	case *check.TypeParam:
+		// A type parameter of the generic body (F1): the decoder resolves
+		// its Go name among the function's (and its receiver's) type
+		// parameters. Values of it are moved, never operated on: an
+		// operator admits only basic types (operator).
+		if _, ok := b.fc.params[t]; !ok {
+			irNo("type parameter outside its declaration")
+		}
+		return
 	case *check.Tuple:
 		// A tuple value: the emitter's struct{F0 T0; F1 T1} (ir_tuple.go).
 		if len(t.Types) < 2 {
@@ -70,9 +90,10 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 			b.keepImport("var _ " + b.l.rt() + ".GoError")
 			return
 		}
-		if len(t.TArgs) > 0 || len(t.TParams) > 0 || t.Obj.Decl == nil {
+		if len(t.TParams) > 0 || t.Obj.Decl == nil {
 			irNo("generic or declared-elsewhere type")
 		}
+		b.admitArgs(t, depth) // ir_pkg.go
 		if _, ok := t.Obj.Decl.Spec.(*syntax.StructType); !ok {
 			b.admitNamed(t, depth) // ir_union.go
 			return
