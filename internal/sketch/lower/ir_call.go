@@ -19,15 +19,28 @@ func (b *irBuilder) poll(site syntax.Node) *irStmt {
 // that holds it, into a temporary, as the emitter's call does. Go would
 // run a call in place before the expression's other operands (a slice
 // index that panics, say); as a statement before it, the call is a
-// pre-statement, which an operand spills around (operands) or a binary
-// expression refuses ("operation call inside an expression").
+// pre-statement, which earlier operands spill around (operands, inOrder in
+// ir_order.go).
 func (b *irBuilder) call(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr) {
 	if b.fallibleCall(x) != nil {
-		irNo("untried fallible call")
+		if b.tries == 0 {
+			irNo("untried fallible call")
+		}
+		// Inside a try: the call's failure leaves the frame (ir_fail.go
+		// try), as the emitter's value propagates it where the call is.
+		pre, v := b.try(x)
+		if v == nil && !stmt {
+			irNo("try without a value")
+		}
+		return pre, v
 	}
 	pre, e, effect := b.callParts(x, stmt)
-	if e != nil && e.K == "vcall" && !b.plainCallee(x) { // a known callback's is plain (ir_kcb.go)
-		// A function value returns its (value, error) pair (ir_closure.go).
+	if e != nil && (e.K == "vcall" && !b.plainCallee(x) || b.dropsErr[e] && !stmt) {
+		// A function value returns its (value, error) pair (ir_closure.go;
+		// a known callback's is plain, ir_kcb.go),
+		// as a fallible function does where its row is empty (dropErr): the
+		// value is bound and the error, nil, dropped. A statement keeps the
+		// Go call, whose results Go drops.
 		vpre, v := b.valueResult(x, e, stmt)
 		return append(pre, vpre...), v
 	}
@@ -35,6 +48,26 @@ func (b *irBuilder) call(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr) {
 		return b.hoist(pre, e, x)
 	}
 	return pre, e
+}
+
+// dropErr marks e, a call whose Go form returns an error where the row at
+// its site is empty: the error is nil there, and the emitter binds the
+// value and drops the error (calls.go call, failsHere).
+func (b *irBuilder) dropErr(e *irExpr) *irExpr {
+	if b.dropsErr == nil {
+		b.dropsErr = map[*irExpr]bool{}
+	}
+	b.dropsErr[e] = true
+	return e
+}
+
+// opResult is e, the call of c's operation: an operation declared with
+// failures returns an error, which a site whose row is empty drops.
+func (b *irBuilder) opResult(c *check.Call, e *irExpr) *irExpr {
+	if len(rowElems(c.Op.Sig.Errors)) > 0 && !failsHere(c) {
+		return b.dropErr(e)
+	}
+	return e
 }
 
 // rawCall is the fallible call x: its Go call, whose result is the value
@@ -140,8 +173,9 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		case fd.ptr && !b.addrRecv(c) && !b.passesPointer(c, x): // ir_place.go, ir_pkg.go
 			irNo("call of a pointer-receiver method on a value")
 		}
+		mark := func(e *irExpr) *irExpr { return e }
 		if fd.fallible && !failsHere(c) {
-			irNo("fallible call with an empty row at its site")
+			mark = b.dropErr
 		}
 		if !fd.pure && b.env < 0 {
 			irNo("call of an impure function from a pure one")
@@ -174,14 +208,14 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 			irArgs = append(irArgs[:at:at], append([]*irExpr{env}, irArgs[at:]...)...)
 		}
 		if known != "" && fd.method != nil {
-			return pre, &irExpr{K: "mcall", Pos: p, Name: known, X: irArgs[0], Args: irArgs[1:]}, !fd.pure
+			return pre, mark(&irExpr{K: "mcall", Pos: p, Name: known, X: irArgs[0], Args: irArgs[1:]}), !fd.pure
 		} else if known != "" {
 			// The variant takes the function's type arguments (callText).
 			targs := b.typeArgs(c, x)
-			return pre, &irExpr{K: "call", Pos: p, Name: known, T: targs, Args: irArgs}, !fd.pure
+			return pre, mark(&irExpr{K: "call", Pos: p, Name: known, T: targs, Args: irArgs}), !fd.pure
 		}
 		if fd.method != nil {
-			return pre, &irExpr{K: "mcall", Pos: p, Name: b.ownedCallName(x, f, fd.name), X: irArgs[0], Args: irArgs[1:]}, !fd.pure
+			return pre, mark(&irExpr{K: "mcall", Pos: p, Name: b.ownedCallName(x, f, fd.name), X: irArgs[0], Args: irArgs[1:]}), !fd.pure
 		}
 		// Append is Go's builtin append on the value rule's operands
 		// (FLIP F3): Go then sees a place appended back to itself.
@@ -192,9 +226,9 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		// emitter's typeArgs), never left to Go's inference (ir_pkg.go).
 		if sp := b.copyCall(x, c); sp != "" {
 			// The copy for the known record: one instance (ir_known.go).
-			return pre, &irExpr{K: "call", Pos: p, Name: sp, Args: irArgs}, !fd.pure
+			return pre, mark(&irExpr{K: "call", Pos: p, Name: sp, Args: irArgs}), !fd.pure
 		}
-		return pre, &irExpr{K: "call", Pos: p, Name: b.ownedCallName(x, f, fd.name), T: b.typeArgs(c, x), Args: irArgs}, !fd.pure
+		return pre, mark(&irExpr{K: "call", Pos: p, Name: b.ownedCallName(x, f, fd.name), T: b.typeArgs(c, x), Args: irArgs}), !fd.pure
 	case check.CallOp:
 		return b.opCall(x, c, p) // ir_pkg.go
 	case check.CallConversion:
@@ -210,9 +244,6 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		}
 		// A test build calls a capability's operation as a program does
 		// (calls.go: only a law's own operation, CallLawOp, differs).
-		if len(rowElems(c.Op.Sig.Errors)) > 0 && !failsHere(c) {
-			irNo("fallible call with an empty row at its site")
-		}
 		sel, ok := unparen(x.Fun).(*syntax.SelectorExpr)
 		if !ok {
 			irNo("operation call spelling")
@@ -231,7 +262,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		env := &irExpr{K: "local", Pos: p, I: b.env}
 		args := append([]*irExpr{{K: "field", Pos: p, Name: envTask, X: env}}, irArgs...)
 		capField := &irExpr{K: "field", Pos: p, Name: b.l.envField(named), X: env}
-		return pre, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: capField, Args: args}, true
+		return pre, b.opResult(c, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: capField, Args: args}), true
 	case check.CallFuncValue:
 		pre, e := b.valueCall(x, c, p) // ir_closure.go
 		// A known callback's call is pure (ir_kcb.go).

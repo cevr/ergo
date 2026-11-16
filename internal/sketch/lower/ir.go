@@ -353,6 +353,16 @@ type irBuilder struct {
 	// checked where it is returned.
 	law *check.Law
 	own *irOwn // the static frame of owned values (ir_own.go), or nil
+	// pending collects the statements an operand inside an expression
+	// runs first (ir_order.go); nil where no value collects them.
+	pending *[]*irStmt
+	// dropsErr marks the calls whose Go error the site drops: a row
+	// empty there (ir_call.go, dropErr).
+	dropsErr map[*irExpr]bool
+	// voidTail marks the branches of a body with no value whose last
+	// statement ends the body: a tail of an error value fails the frame
+	// (ir_fail.go bodyStmts, ir_stmt.go tailTo).
+	voidTail bool
 }
 
 // gate stops the body for reason; a census records it and goes on.
