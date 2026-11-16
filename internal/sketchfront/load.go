@@ -990,6 +990,21 @@ func (a Analysis) Files() map[string]string {
 	return a.program.texts
 }
 
+// RootPackage is the checked root package of a program read from a folder: its
+// absolute folder, its package and its parsed files (each with its Name
+// and Src). ok is false for a program of one file, and for a root that was
+// not checked (a file that does not parse, or a broken import).
+func (a Analysis) RootPackage() (dir string, pkg *check.Package, files []*syntax.File, ok bool) {
+	if a.program == nil || a.program.root == nil || a.program.root.pkg == nil {
+		return "", nil, nil, false
+	}
+	r := a.program.root
+	for _, f := range r.files {
+		files = append(files, f.syntax)
+	}
+	return r.dir, r.pkg, files, true
+}
+
 func sortedNames(m map[string]string) []string {
 	names := make([]string, 0, len(m))
 	for name := range m {

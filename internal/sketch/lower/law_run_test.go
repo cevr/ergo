@@ -478,7 +478,9 @@ type Fns {} implements Box[func(int) int]
 
 func Put(_ Fns, v own func(int) int) {}
 
-law Calls(f func(int) int) { f(1) == f(1) }
+func Apply(f func(int) int) int { f(1) }
+
+law Calls(f func(int) int) { Apply(f) == Apply(f) }
 
 type Res { n int } implements Shape, Closer
 
@@ -800,11 +802,13 @@ func main() {}
 // fails the run.
 func TestLawRunNoParams(t *testing.T) {
 	needsBuild(t)
-	src := `law Holds() { 1 + 1 == 2 }
+	src := `law Holds() { Two() == 2 }
 
-law Breaks() { 1 + 1 == 3 }
+law Breaks() { Two() == 3 }
 
 func main() {}
+
+func Two() int { 1 + 1 }
 `
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "lawrun_noparams", src)}, true)
 	if exes == nil {
@@ -934,13 +938,14 @@ func genLawRunProgram(r *rand.Rand, i int) lawRunProgram {
 	}
 	top := r.Intn(2) == 0
 	if top {
-		b.WriteString("law Top(a int, b int) { a + b == b + a }\n\n")
+		b.WriteString("law Top(a int, b int) { Sum(a, b) == Sum(b, a) }\n\n")
 		want = append(want, "ok law Top (100 cases)")
 	} else {
-		b.WriteString("law Top(a int, b int) { a - b == b - a }\n\n")
+		b.WriteString("law Top(a int, b int) { Sum(a, -b) == Sum(b, -a) }\n\n")
 		want = append(want, "FAIL law Top (case ")
 		failed++
 	}
+	b.WriteString("func Sum(a int, b int) int { a + b }\n\n")
 	b.WriteString("func main() {}\n")
 	total := providers + 1
 	exit := 0

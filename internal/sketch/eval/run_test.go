@@ -37,7 +37,9 @@ test After {
 	assert true
 }
 
-law Sampled(n int) { n == n }
+law Sampled(n int) { Same(n) == n }
+
+func Same(n int) int { n }
 `)
 	rep, err := Run(pkg, DefaultBudget())
 	if err != nil {
@@ -61,7 +63,9 @@ test After {
 	assert true
 }
 
-law Sampled(n int) { n == n }
+law Sampled(n int) { Same(n) == n }
+
+func Same(n int) int { n }
 `)
 	rep, err = Run(pkg, Budget{Steps: 10_000, Depth: 8})
 	if err != nil {

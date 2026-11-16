@@ -100,6 +100,15 @@ type Package struct {
 	// member, a duplicate name included (stage E3b, 196l; law-top). The
 	// run build never runs one; the test build runs them through LawRuns.
 	Laws []*Law
+	// LawExportedHelpers are the exported functions that would be law
+	// helpers (lawplace.go, rule 2) if they were not exported: every user
+	// in the package is a law, a test or a helper, declared in a file of
+	// laws (one with nothing else). ergo fix unexports the ones no other
+	// package names. In source order.
+	LawExportedHelpers []*syntax.FuncDecl
+	// LawHelpers are the declarations ergo fix moves beside their first
+	// user (lawplace.go), in source order.
+	LawHelpers []LawHelper
 	// LawRuns are the laws the package's test build runs or reports
 	// (laws.go, rule 7): its own laws and the laws of its imports that it
 	// is the least package to see bound to a provider.
@@ -1105,6 +1114,14 @@ type Law struct {
 	// Rewrite is the checked form of a rewrite law (Decl.Rewrite; types.md,
 	// Laws 14), nil for any other law or one whose shape was refused.
 	Rewrite *Rewrite
+	// Subjects are a top-level law's subjects (lawplace.go, rule 1), the
+	// ones it names first, then the ones its helpers name; nil for a member,
+	// machine or derived law.
+	Subjects []LawSubject
+	// FixSubjects are its subjects as ergo fix reads them: with the
+	// exported declarations of a file of laws that only laws and tests use
+	// read as helpers too (Package.LawHelpers).
+	FixSubjects []LawSubject
 
 	file *fileInfo // the declaring file, selected while the law is checked
 }

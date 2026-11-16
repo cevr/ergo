@@ -111,6 +111,8 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		c.checkTests,
 		c.checkLaws,
 		c.planLaws,
+		// After planLaws: a provider the laws run against moves with them.
+		c.checkLawPlacement,
 		c.checkTypeDecls,
 		c.checkImplementsClauses,
 		c.checkContexts,
@@ -149,6 +151,9 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		c.reportWithBudget,
 		// Last: every lazy read of a binding is done (gobinding.go).
 		c.checkGoImports,
+		// After every other pass: S115 only in a package with no other
+		// diagnostic (lawplace.go).
+		c.reportLawPlacements,
 	} {
 		c.cur = nil
 		pass()

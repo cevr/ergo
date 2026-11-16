@@ -35,7 +35,7 @@ are missing (q137: every function writes its clauses). It only adds clause
 elements and the imports they need; it never removes an element and never
 adds a catch. It prints one line per widened signature, public contracts
 first. Other diagnostics are printed, and the exit status is then 1.
-
+` + fixLawsHelp + `
   --dry-run  write nothing
   --check    write nothing; exit 1 when a signature would change
   --json     print the clause results as JSON
@@ -86,10 +86,20 @@ func fixCommand(args []string) error {
 			paths = append(paths, a)
 		}
 	}
-	if len(paths) == 0 || check && dry {
+	if len(paths) == 0 && stdRoot == "" || check && dry {
 		return usageError{message: fixUsage}
 	}
 	write := !check && !dry
+	if len(paths) == 0 {
+		// --std DIR alone: the law pass over the standard library.
+		text, err := fixLaws(nil, stdRoot, write)
+		if err != nil {
+			return exitStatusError{code: 1, message: "ergo fix: " + err.Error()}
+		}
+		fmt.Fprint(os.Stdout, text)
+		return nil
+	}
+	lawPaths, paths := paths, fixFolders(paths)
 	impl, err := fix.Run(fix.Options{Paths: paths, StdRoot: stdRoot, Write: write, Go: goLits})
 	if err != nil {
 		return exitStatusError{code: 1, message: "ergo fix: " + err.Error()}
@@ -114,6 +124,20 @@ func fixCommand(args []string) error {
 			out = os.Stderr // stdout holds only the JSON
 		}
 		fmt.Fprint(out, text)
+	}
+	// The law pass (LAWLOC); --check skips it while S115 is off.
+	if !check {
+		text, err := fixLaws(lawPaths, stdRoot, write)
+		if err != nil {
+			return exitStatusError{code: 1, message: "ergo fix: " + err.Error()}
+		}
+		if text != "" {
+			out := os.Stdout
+			if asJSON {
+				out = os.Stderr // stdout holds only the JSON
+			}
+			fmt.Fprint(out, text)
+		}
 	}
 	rep := fixReport{Changed: []fix.Change{}, Remaining: []fix.Diagnostic{}}
 	for _, path := range paths {

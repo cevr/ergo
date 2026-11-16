@@ -108,7 +108,7 @@ func TestTestCommand(t *testing.T) {
 	// A refuted law prints the command that reruns it alone (X1b): ergo
 	// test on the source as it was given, --law and the seed. That command
 	// prints the same FAIL line, and runs no test.
-	laws := write("replaylaw.ergo", "law Residue(value int) {\n\tvalue % 7 != 3\n}\n\ntest Other { assert true }\n")
+	laws := write("replaylaw.ergo", "law Residue(value int) {\n\tMod7(value) != 3\n}\n\ntest Other { assert true }\n\nfunc Mod7(v int) int { v % 7 }\n")
 	stdout, _, code = run("test", laws, "--seed", "7")
 	rerun, _, code2 := run("test", laws, "--law", "Residue", "--seed", "7")
 	// The refutation is the FAIL line and its positions (EV6: the law's
@@ -164,8 +164,10 @@ func TestTestCommand(t *testing.T) {
 func testReceipt(t *testing.T, write func(name, text string) string, run func(args ...string) (string, string, int)) {
 	t.Helper()
 	// A machine's reachability law is a law run too, so the receipt has
-	// its entry: proved, with the search's report.
-	laws := write("laws.ergo", "law Twice(b bool) { !!b == b }\n\nlaw Holds(n int) { n == n }\n\nlaw Short(s string) { len(s) < 2 }\n\n"+
+	// its entry: proved, with the search's report. Each top-level law
+	// calls a function of the file, its subject (S115).
+	laws := write("laws.ergo", "law Twice(b bool) { Not(Not(b)) == b }\n\nlaw Holds(n int) { Same(n) == n }\n\nlaw Short(s string) { Size(s) < 2 }\n\n"+
+		"func Not(b bool) bool { !b }\n\nfunc Same(n int) int { n }\n\nfunc Size(s string) int { len(s) }\n\n"+
 		"type Light = Red{} | Green{}\n\ntype Tick = Flip{}\n\n"+
 		"func flip(l Light, _ Tick) Decision[Light, int] {\n\tmatch l {\n\tcase Red:\n\t\tEnter[Light]{Next: Green}\n\tcase Green:\n\t\tEnter[Light]{Next: Red}\n\t}\n}\n\n"+
 		"type Lamp machine[Light, Tick] {\n\tinitial: Red,\n\tstep:    flip,\n\n\tlaw Lit reaches Green,\n}\n")
