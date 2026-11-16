@@ -137,6 +137,10 @@ func (b *irBuilder) isFailure(x syntax.Expr) bool {
 // one that cannot fail).
 func (b *irBuilder) bodyStmts(list []syntax.Stmt) []*irStmt {
 	n := len(list)
+	// A body of its own (a function literal's too) starts out of any
+	// enclosing tail.
+	defer func(saved bool) { b.voidTail = saved }(b.voidTail)
+	b.voidTail = false
 	if b.result != nil || n == 0 {
 		return b.tail(list, b.result != nil)
 	}
@@ -146,17 +150,18 @@ func (b *irBuilder) bodyStmts(list []syntax.Stmt) []*irStmt {
 			out = append(out, b.ret(es.X, b.pos(es.X, es.X.Pos()))...)
 			return
 		}
-		if b.failureTail(list[n-1], false) {
-			irNo("failure in a branch tail of a body with no value")
-		}
+		// A branch whose tail is an error value fails the frame there
+		// (tailTo, voidTail).
+		b.voidTail = b.failureTail(list[n-1], false)
 		out = append(out, b.stmt(list[n-1])...)
+		b.voidTail = false
 	})
 	return out
 }
 
 // failureTail reports a branch of s whose tail is an error value: in a
-// body with no value it fails the frame (the emitter's ifYield), which
-// the builder does not spell yet. nested is s inside a branch.
+// body with no value it fails the frame (the emitter's ifYield; tailTo
+// returns it under voidTail). nested is s inside a branch.
 func (b *irBuilder) failureTail(s syntax.Stmt, nested bool) bool {
 	last := func(list []syntax.Stmt) bool {
 		return len(list) > 0 && b.failureTail(list[len(list)-1], true)

@@ -78,18 +78,38 @@ func (b *irBuilder) tail(list []syntax.Stmt, ret bool) []*irStmt {
 	return b.tailTo(list, ret, nil)
 }
 
+// isBranchStmt reports a block, an if or a match: a statement whose
+// branches' tails are the tail of the list that ends with it.
+func isBranchStmt(s syntax.Stmt) bool {
+	switch s.(type) {
+	case *syntax.BlockStmt, *syntax.IfStmt, *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
+		return true
+	}
+	return false
+}
+
 // tailTo is tail; with to set, the last statement yields its value into
 // to (an if expression's branch) instead of returning it.
 func (b *irBuilder) tailTo(list []syntax.Stmt, ret bool, to *yieldTo) []*irStmt {
 	var out []*irStmt
+	voidTail := b.voidTail && !ret && to == nil
+	defer func(saved bool) { b.voidTail = saved }(b.voidTail)
 	for i, s := range list {
 		last := i == len(list)-1
+		// Only the tail's own branches stay in the tail (failureTail).
+		b.voidTail = voidTail && last && isBranchStmt(s)
 		b.part(func() {
 			if len(b.l.info.Releases[s]) > 0 && !b.releasesAtExit(s, last && ret && to == nil) { // ir_own.go
 				irNo("statement that releases owned values")
 			}
 			if last && (ret || to != nil) {
 				out = append(out, b.yield(s, to)...)
+				return
+			}
+			if es, ok := s.(*syntax.ExprStmt); ok && last && voidTail && b.isFailure(es.X) {
+				// A branch tail of an error value in a body with no
+				// value fails the frame (the emitter's ifYield).
+				out = append(out, b.ret(es.X, b.pos(es.X, es.X.Pos()))...) // ir_fail.go
 				return
 			}
 			out = append(out, b.stmt(s)...)
