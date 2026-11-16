@@ -1544,6 +1544,14 @@
       "to": "\tlet left = slices.Filter(try registered(t), func(b string) bool { filepath.Clean(b) != gone || true })\n",
       "rule": "forget-base drops the base it names (memory's BasesAreTheLiveOnes).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wkb-replay-real-registry", "origin": "wf10/semws WK-BASES3 (the Mac)",
+      "file": "scripts/mergereplay/mergereplay.sh",
+      "from": "export HOME=\"$S/home\" XDG_DATA_HOME=\"$S/xdg\"\n",
+      "to": "\n",
+      "rule": "A script that runs work init, new or adopt keeps work's data in its scratch (internal/residue TestWorkScriptsKeepTheirRegistry).",
+      "anchor": {"tests": ["internal/residue:TestWorkScriptsKeepTheirRegistry"]}, "killers": ["internal/residue:TestWorkScriptsKeepTheirRegistry"]
     }
   ]
 }
