@@ -41,6 +41,9 @@ func TestNP4f2MovesKeepMeaning(t *testing.T) {
 			edges2 = append(edges2, two{s, t})
 		}
 	}
+	// pairs equal under case folding but not as bytes (the Kelvin sign
+	// folds to k; ß has no simple fold to ss)
+	edges2 = append(edges2, two{"Kk", "kK"}, two{"\u212a", "k"}, two{"ÉÀ", "éà"}, two{"ß", "SS"}, two{"a\xff", "A\xff"})
 	edges1 := []string{"", " ", "\t a b \t", "ÉÀ ßİ", "\xffA\xe4", "a,b,,c", "Kk\u212a", "\u00a0x\u2003"}
 	one := func(name, show string, ref func(string) string) bodyCase {
 		return with(bodyRows("strings."+name, imp, "s string", show, edges1, n, r, np4f2Text, text, ref))
