@@ -18,7 +18,7 @@ import (
 // toolchain the `// ergo:bind` line names says it neither writes through,
 // keeps, returns a part of nor calls each of them. The checker reads the
 // line into the function's facts; the lowering and `ergo inspect` read
-// them back through GoFacts and GoReads, so they read one decision.
+// them back through GoFacts, so they read one decision.
 
 // readsMarker starts a binding's `reads` line.
 const readsMarker = "// ergo:reads "
@@ -193,17 +193,4 @@ func (h *hostPkg) sliceOperand(f *Func, i int) bool {
 	}
 	_, ok := under(t).(*Slice)
 	return ok
-}
-
-// GoReads reports a Go call's operand i (a method's receiver first) as one
-// the function only reads by a checked `reads` fact: the lowering may pass
-// it with no copy (LAWFFI LF1). A vouched fact is not one here: only the
-// lowering, which reads the ledger, may raise it to validated.
-func GoReads(f *Func, operand int) bool {
-	for _, fact := range GoFacts(f) {
-		if fact.Kind == "reads" && fact.Operand == operand && fact.Level == FactChecked {
-			return true
-		}
-	}
-	return false
 }

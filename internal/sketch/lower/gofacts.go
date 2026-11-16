@@ -33,7 +33,7 @@ import (
 
 // goOperand is a Map or slice operand of a Go call: the call, its callee
 // (nil for a Go interface operation) and the operand's index among the
-// call's operands, a method's receiver first (check.GoReads).
+// call's operands, a method's receiver first (goReads).
 type goOperand struct {
 	call  *syntax.CallExpr
 	fn    *check.Func

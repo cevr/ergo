@@ -1,0 +1,8 @@
+{
+  "about": "The mutant ledger of internal/gofacts, the reviewed table of vouched foreign facts and their guards (LAWFFI LF2; interop.md, Foreign facts 7). Run it with go run ./scripts/mutants ./internal/gofacts.",
+  "mutants": [
+    {"name":"ffi-vouch-without-reason","origin":"wf10 LAWFFI LF2","file":"internal/gofacts/gofacts.go","from":"Reason: \"its body is bytealg.IndexByte, assembly that only loads from b\"","to":"Reason: \"\"","rule":"interop.md Foreign facts 7: every vouched row says why the reviewer holds it.","killers":["internal/gofacts:TestVouchedRowsReviewed"]},
+    {"name":"ffi-vouch-stale-source","origin":"wf10 LAWFFI LF2","file":"internal/gofacts/gofacts.go","from":"Source: \"9cb4c150b9d9\"","to":"Source: \"000000000000\"","rule":"interop.md Foreign facts 7: a row holds the hash of its function's declaration at the pinned toolchain; another hash is reviewed again.","killers":["internal/gofacts:TestVouchedRowsReviewed"]},
+    {"name":"ffi-guard-blind","origin":"wf10 LAWFFI LF2","file":"internal/gofacts/gofacts.go","from":"if !bytes.Equal(held, p) {","to":"if false && !bytes.Equal(held, p) {","rule":"interop.md Foreign facts 7: a guard refutes a row whose function leaves its operand changed.","killers":["internal/gofacts:TestVouchedFactsHold"]}
+  ]
+}
