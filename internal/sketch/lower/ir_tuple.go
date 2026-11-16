@@ -140,24 +140,19 @@ func readsTdef(e *irExpr, def *irStmt) bool {
 func (b *irBuilder) hostTarget(x *syntax.CallExpr, c *check.Call, f *check.Func, p irPos) ([]*irStmt, *irExpr) {
 	switch {
 	case c.Recv != nil || f.Decl == nil || f.Decl.Extern == nil || f.Decl.Extern.Target == nil,
-		len(f.Sig.TParams) > 0, f.Sig.Fallible, check.GoVariadic(f), check.GoContext(f),
+		hostGeneric(f), f.Sig.Fallible, // ir_gocall.go check.GoVariadic(f), check.GoContext(f),
 		len(x.Args) != len(f.Sig.Params):
 		irNo("call of a Go package function")
 	}
-	for _, q := range f.Sig.Params {
-		if !hostBasic(q.Type) {
-			irNo("call of a Go package function")
-		}
-	}
 	for _, r := range hostResults(f) {
-		if !hostBasic(r) {
+		if !b.hostValue(r) { // ir_gocall.go
 			irNo("call of a Go package function")
 		}
 	}
 	path, goName := f.Decl.Extern.Split()
 	name := b.l.hostPkg(path, x)
 	b.keepImport("var _ = " + name + "." + goName)
-	pre, args := b.operands(x.Args) // ir_fail.go
+	pre, args := b.hostArgs(x, f, p) // ir_gocall.go
 	return pre, &irExpr{K: "pcall", Pos: p, T: path, Name: goName, Args: args}
 }
 
