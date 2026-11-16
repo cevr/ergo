@@ -263,6 +263,12 @@ extern go ergo.local/prototype/runtime/v1.MapTake func Take[K comparable, V](m o
 // any type, as return does (docs/spec/types.md, Unreachable).
 extern go ergo.local/prototype/runtime/v1.Unreachable func Unreachable(reason string)
 
+// AsWritten is v. A call tree inside it is kept as written: a rewrite law
+// over functions never takes it as its root or a part of its match
+// (docs/spec/types.md, Laws 14). The lowering knows it by its body's mark
+// (//ergo:aswritten), never by its name.
+extern go ergo.local/prototype/runtime/v1.AsWritten func AsWritten[T](v T) T
+
 // Seq is an iterator: it calls yield with each value in turn and stops
 // when yield returns false. `for v in s` runs the loop body as yield, and a
 // break makes yield return false. Seq is a function type, so it carries no
