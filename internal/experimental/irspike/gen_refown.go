@@ -27,9 +27,16 @@ func GenerateRefOwned(seed uint64) string {
 	fmt.Fprintf(&b, "\tlet out = sync.Modify(r, func(m Map[int, int]) (Map[int, int], Map[int, int]) {\n\t\tlet c = m.Put(%d, 4)\n\t\t(c, c)\n\t})\n\tr.Update(func(m Map[int, int]) Map[int, int] {\n\t\tm.Put(%d, 5)\n\t})\n", 400+g.n(9), 500+g.n(9))
 	b.WriteString("\tlet held = r.Get()\n\tlen(snap) * 1000 + len(held) * 10 + size + len(out) * 100000\n}\n\n")
 	fmt.Fprintf(&b, "func keep(n int) int {\n\tlet r = sync.NewRef[Map[int, int]](Map[int, int]{})\n\tlet mut kept = Map[int, int]{}\n\tfor i in 0..n {\n\t\tkept = kept.Put(i, i)\n\t}\n\tr.Update(func(m Map[int, int]) Map[int, int] {\n\t\tkept\n\t})\n\tr.Update(func(m Map[int, int]) Map[int, int] {\n\t\tm.Put(%d, 3)\n\t})\n\tlet held = r.Get()\n\tlen(kept) * 100 + len(held)\n}\n\n", 300+g.n(9))
+	// A generic site (LWR-REF-GENERIC, std cache's table[K, V]): fill's
+	// literal takes tab[V] over and hands it to put2, which writes it in
+	// place; the second fill copies it once, as snap shares it.
+	b.WriteString("type tab[V] { m Map[int, V], n int }\n\n")
+	b.WriteString("func put2[V](t tab[V], k int, v V) tab[V] {\n\tlet mut u = t\n\tu.m = u.m.Put(k, v)\n\tu.n += 1\n\tu\n}\n\n")
+	b.WriteString("func fill[V](r sync.Ref[tab[V]], n int, v V) {\n\tfor i in 0..n {\n\t\tr.Update(func(t tab[V]) tab[V] {\n\t\t\tput2(t, i, v)\n\t\t})\n\t}\n}\n\n")
+	fmt.Fprintf(&b, "func generic(n int) int {\n\tlet r = sync.NewRef[tab[int]](tab[int]{m: Map[int, int]{}, n: 0})\n\tfill(r, n, %d)\n\tlet snap = r.Get()\n\tfill(r, n + %d, 9)\n\tlet held = r.Get()\n\tlen(snap.m) * 100 + len(held.m) + held.n * 1000\n}\n\n", g.n(9), 1+g.n(3))
 	b.WriteString("func main() needs Console {\n")
 	for k := 0; k < 4; k++ {
-		fmt.Fprintf(&b, "\tConsole.Println(\"%d: \\(tally(%d)) \\(keep(%d))\")\n", k, 1+g.n(6), 1+g.n(6))
+		fmt.Fprintf(&b, "\tConsole.Println(\"%d: \\(tally(%d)) \\(keep(%d)) \\(generic(%d))\")\n", k, 1+g.n(6), 1+g.n(6), 1+g.n(6))
 	}
 	b.WriteString("}\n")
 	return b.String()

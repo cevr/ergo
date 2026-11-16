@@ -28,7 +28,7 @@ func TestIRRefOwnedMatchSource(t *testing.T) {
 		if a != b {
 			t.Fatalf("the paths differ\nsource: %+v\nir:     %+v\n%s\n%s", a, b, replay, text)
 		}
-		for _, f := range []string{"tally", "keep"} {
+		for _, f := range []string{"tally", "keep", "fill", "generic"} {
 			if !slices.Contains(rep.IR, f) {
 				t.Errorf("seed %d: %s has no IR body (IR bodies: %v, fallbacks: %v)\n%s", seed, f, rep.IR, rep.Fallback, text)
 			}
@@ -46,10 +46,9 @@ func TestIRRefOwnedMatchSource(t *testing.T) {
 // plain operation.
 func TestIRRefSitesTakeTheValueOver(t *testing.T) {
 	text := GenerateRefOwned(1)
-	got := irCalls(t, text, "tally", "pcall", "mcall")
-	for _, form := range []string{"RefUpdateOwned", "RefModifyOwned"} {
-		if !got[form] {
-			t.Errorf("tally's IR does not call %s (its calls: %v)\n%s", form, got, text)
+	for _, want := range []struct{ fn, form string }{{"tally", "RefUpdateOwned"}, {"tally", "RefModifyOwned"}, {"fill", "RefUpdateOwned"}} {
+		if got := irCalls(t, text, want.fn, "pcall", "mcall"); !got[want.form] {
+			t.Errorf("%s's IR does not call %s (its calls: %v)\n%s", want.fn, want.form, got, text)
 		}
 	}
 }
