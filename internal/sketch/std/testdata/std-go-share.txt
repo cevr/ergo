@@ -35,8 +35,8 @@ arena	stored	type
 arena	takeValue	language	PRIM
 atomic	Bool	type
 atomic	Int64	type
-atomic	NewBool	library	NP4f-4
-atomic	NewInt64	library	NP4f-4
+atomic	NewBool	library	GBX1b: go.New[atomic.Bool]() charges go.Foreign (interop.md, Go values by address 3), which no test or law holds; Bool's methods are memory-only (GBX6), its constructor is not
+atomic	NewInt64	library	GBX1b: go.New[atomic.Int64]() charges go.Foreign (interop.md, Go values by address 3), which no test or law holds; Int64's methods are memory-only (GBX6), its constructor is not
 base64	Malformed	type
 base64	decodeStd	library	NP4f-5
 base64	decodeURL	library	NP4f-5
@@ -188,10 +188,10 @@ queue	Closed	type
 queue	New	provider
 queue	Queue	type
 rand	Stream	type
-rand	hostFloat64	library	NP4f-4
-rand	hostIntN	library	NP4f-4
-rand	hostUint64	library	NP4f-4
-rand	newStream	library	NP4f-4
+rand	hostFloat64	library	host state: Go's global rand.Float64 reads the runtime's per-thread ChaCha8 state and is bound needs go.Foreign; Host's Float64 holds no row
+rand	hostIntN	library	host state: Go's global rand.IntN reads the runtime's per-thread ChaCha8 state and is bound needs go.Foreign; Host's IntN holds no row
+rand	hostUint64	library	host state: Go's global rand.Uint64 reads the runtime's per-thread ChaCha8 state and is bound needs go.Foreign; Host's Uint64 holds no row
+rand	newStream	library	LOCK: a Stream is shared by tasks behind a lock, and Go's PCG.Uint64 (memory-only) is not safe for two goroutines; sync.Mutex.Lock waits, so it charges go.Foreign
 rpc	Die	computation	NP4f-7
 rpc	Envelope	type
 rpc	Exact	computation	NP4f-7
