@@ -67,7 +67,7 @@ type groupKey[E] { owner arena.Ref[node[E]], id ident }
 // outermost group that held this one when that group was kept, in that
 // group's gen withinGen, or -1: a group inside a group written again is
 // kept through it (keptThrough), not stamped.
-type keptGroup[E] { key groupKey[E], slot int, tops []keptTop[E], inner []int, stamp int, held bool, alone bool, each CallSite, allOff bool, offSelf bool, gen int, within int, withinGen int }
+type keptGroup[E] { key groupKey[E], slot int, tops []keptTop[E], inner []int, stamp int, held bool, alone bool, each CallSite, allOff bool, offSelf bool, gen int, within int, withinGen int, sames int }
 
 // pendingCounts is a kept group written again whose tops' counts the pass
 // has not taken: under parent spec parent (-1 the top), kept group entry,
@@ -82,8 +82,8 @@ type keptTop[E] { node Node[E], id ident, ref arena.Ref[node[E]], onText Option[
 // specs it wrote [start, end), the enclosing group (-1 none), whether it
 // may be kept, the index in keptList of the kept group it wrote again
 // (-1 none) or of the entry its key found (-1 none), and whether its slot
-// is new in this pass.
-type groupRec[E] { parent int, id ident, slot int, start int, end int, outer int, pure bool, again int, entry int, fresh bool }
+// is new in this pass; sames is the Sames inside it (Frame.sames).
+type groupRec[E] { parent int, id ident, slot int, start int, end int, outer int, pure bool, again int, entry int, fresh bool, sames int }
 
 // group writes body's nodes as one group (the compiler's form of a
 // component call, never written by a program): the nodes of the last
@@ -105,7 +105,7 @@ func group[E comparable, A comparable](f *Frame[E], args A, body func(), at Call
 		entry = i.Value
 		slot = f.keptList[entry].slot
 		if argsSame(f.args, slot, args) && writeAgain(f, entry) {
-			let _ = record(f, groupRec[E]{parent: f.parent, id: id, slot: slot, start: start, end: f.nspecs, outer: outer, pure: true, again: entry, entry: entry, fresh: false})
+			keptAgain(f, groupRec[E]{parent: f.parent, id: id, slot: slot, start: start, end: f.nspecs, outer: outer, pure: true, again: entry, entry: entry, fresh: false, sames: f.keptList[entry].sames})
 			return
 		}
 		argsSet(f.args, slot, args)
@@ -146,7 +146,7 @@ func groupBy[E comparable, A](f *Frame[E], args A, same func(a A, b A) bool, che
 		if argsHas[heldArgs[A]](f.args, slot) {
 			let k = argsAt[heldArgs[A]](f.args, slot)
 			if k.deep && same(k.args, args) && writeAgain(f, entry) {
-				let _ = record(f, groupRec[E]{parent: f.parent, id: id, slot: slot, start: start, end: f.nspecs, outer: outer, pure: true, again: entry, entry: entry, fresh: false})
+				keptAgain(f, groupRec[E]{parent: f.parent, id: id, slot: slot, start: start, end: f.nspecs, outer: outer, pure: true, again: entry, entry: entry, fresh: false, sames: f.keptList[entry].sames})
 				return
 			}
 			deep = cheap(k.args, args)
@@ -175,7 +175,8 @@ func heldOf[A](args A, deep bool, keep func(a A) A) heldArgs[A] {
 // the kept group its key found (-1 none), and records whether it may be
 // kept.
 func runGroup[E comparable](f *Frame[E], id ident, outer int, start int, slot int, entry int, body func()) {
-	let r = record(f, groupRec[E]{parent: f.parent, id: id, slot: slot, start: start, end: start, outer: outer, pure: true, again: -1, entry: entry, fresh: entry < 0})
+	let r = record(f, groupRec[E]{parent: f.parent, id: id, slot: slot, start: start, end: start, outer: outer, pure: true, again: -1, entry: entry, fresh: entry < 0, sames: 0})
+	let before = f.sames
 	let cells = f.ncells
 	let loads = f.nloads
 	let keys = f.nkeys
@@ -188,10 +189,19 @@ func runGroup[E comparable](f *Frame[E], id ident, outer int, start int, slot in
 	body()
 	f.group = outer
 	f.groups[r].end = f.nspecs
+	f.groups[r].sames = f.sames - before
 	// A body that read state, or skipped a Same (whose subtree may hold
 	// state), or stopped a group, writes what its arguments alone do not
 	// say.
 	f.groups[r].pure = f.ncells == cells && f.nloads == loads && f.nkeys == keys && f.nurls == urls && f.nanims == anims && f.nstops == stops && f.sameSkips == sames
+}
+
+// keptAgain records g, a group written again: the Sames inside it are
+// written, and kept without running.
+func keptAgain[E](f *Frame[E], g groupRec[E]) {
+	f.sames = f.sames + g.sames
+	f.keptSames = f.keptSames + g.sames
+	let _ = record(f, g)
 }
 
 // record stores g as the pass's next group, in the storage of the last
@@ -433,7 +443,7 @@ func keepGroups[E](f *Frame[E]) {
 			if f.nested {
 				nest = inner[r]
 			}
-			let k = keptGroup[E]{key: key, slot: g.slot, tops: tops, inner: nest, stamp: stamp, held: true, alone: alone, each: each, allOff: allOff, offSelf: offSelf, gen: stamp, within: -1, withinGen: 0}
+			let k = keptGroup[E]{key: key, slot: g.slot, tops: tops, inner: nest, stamp: stamp, held: true, alone: alone, each: each, allOff: allOff, offSelf: offSelf, gen: stamp, within: -1, withinGen: 0, sames: g.sames}
 			let mut at = g.entry
 			if g.entry >= 0 {
 				stamped = stamped + restamp(f, g.entry, stamp)
