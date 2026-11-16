@@ -1,0 +1,32 @@
+// hostsearch: n rank queries over a sorted index of n keys. Each query is
+// sort.SearchInts on the live index, whose binding says Go only reads the
+// slice (LAWFFI LF1, the shortcut host-reads), so a query passes the index
+// with no copy and costs a search, not a copy of n keys.
+
+import go sort
+import os
+import strconv
+
+func ranks(xs []int, n int) int {
+	let mut sum = 0
+	for i in 0..n {
+		sum = sum + sort.SearchInts(xs, i)
+	}
+	sum + len(xs)
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	let args = os.NewHost().Args()
+	if len(args) == 0 {
+		return os.Exit{Code: 2, Message: "usage: hostsearch N"}
+	}
+	let n = strconv.Atoi(args[0]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return os.Exit{Code: 2, Message: "usage: hostsearch N"}
+	}
+	let mut xs = []int{}
+	for i in 0..n {
+		xs = xs.Append(2 * i)
+	}
+	Console.Println(strconv.Itoa(ranks(xs, n)))
+}

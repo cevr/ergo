@@ -39,7 +39,13 @@ import (
 //   - testdata/ownwindow, lane PA's DF1 (flattree's scratch stack) on n
 //     steps: the stack grows to n, and each step closes a two-item window
 //     of it, kept and read, so the elements copied per step are the
-//     window's, independent of the stack's length (gobody.go, goBodyView).
+//     window's, independent of the stack's length (gobody.go, goBodyView);
+//   - testdata/hostsearch, LAWFFI LF1's host-search on n: n rank queries
+//     sort.SearchInts(xs, i) over a sorted index of n keys, which Go only
+//     reads (a checked reads fact, host-reads), so a query passes the
+//     index with no copy: n log n work, where a copy per query is n².
+//     At 16000, 32000, 64000 the head gives d2/d1 2.12 and an ergo whose
+//     readsWhy refuses every site (mutant ffi-reads-off) 3.62 (2026-11-16).
 //
 // The guard is a ratio of counts, never of time: with d1 = I(2n) - I(n)
 // and d2 = I(4n) - I(2n) the user-space instructions of the whole process,
@@ -71,7 +77,7 @@ func TestHandoverGrowsLinearly(t *testing.T) {
 	if cli == "" {
 		cli = buildTestCLI(t)
 	}
-	ws := smokeWorkspace(t, "examples/mdhtml", "examples/router", "cmd/ergo/testdata/ownring", "cmd/ergo/testdata/ownvt", "cmd/ergo/testdata/ownedit", "cmd/ergo/testdata/ownwindow")
+	ws := smokeWorkspace(t, "examples/mdhtml", "examples/router", "cmd/ergo/testdata/ownring", "cmd/ergo/testdata/ownvt", "cmd/ergo/testdata/ownedit", "cmd/ergo/testdata/ownwindow", "cmd/ergo/testdata/hostsearch")
 	dir := t.TempDir()
 	type program struct {
 		name string
@@ -108,6 +114,9 @@ func TestHandoverGrowsLinearly(t *testing.T) {
 			return exec.Command(bin, strconv.Itoa(n)), ""
 		}},
 		{"ownwindow", filepath.Join(ws, "cmd", "ergo", "testdata", "ownwindow", "window.ergo"), 20000, "", func(bin string, n int) (*exec.Cmd, string) {
+			return exec.Command(bin, strconv.Itoa(n)), ""
+		}},
+		{"host-search", filepath.Join(ws, "cmd", "ergo", "testdata", "hostsearch", "search.ergo"), 16000, "search.ergo:13:31 no copy", func(bin string, n int) (*exec.Cmd, string) {
 			return exec.Command(bin, strconv.Itoa(n)), ""
 		}},
 	}
