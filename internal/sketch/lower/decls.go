@@ -879,9 +879,21 @@ func (l *lowerer) intrinsic(f *check.Func) func(fc *funcCtx, params []string) st
 		}
 		return func(fc *funcCtx, params []string) string {
 			v, found, rest, option := fc.temp("value"), fc.temp("found"), fc.temp("rest"), fc.temp("option")
-			call := fc.runtimeCall("MapTake", fc.ownBinding("MapTake", fc.site), "", "", params, "", nil, nil, fc.site)
+			var take string
+			if valueRule() {
+				// The value rule passes a copy of a Map that stays live
+				// (valueSource, PRIM-3), so the body takes k out of its
+				// argument in place: one read and one delete, where
+				// runtime/v1's MapTake, the reference, copies every entry.
+				take = "\t" + v + ", " + found + " := " + params[0] + "[" + params[1] + "]\n" +
+					"\tdelete(" + params[0] + ", " + params[1] + ")\n" +
+					"\t" + rest + " := " + params[0] + "\n"
+			} else {
+				call := fc.runtimeCall("MapTake", fc.ownBinding("MapTake", fc.site), "", "", params, "", nil, nil, fc.site)
+				take = "\t" + v + ", " + found + ", " + rest + " := " + call + "\n"
+			}
 			// optionNone and optionSome: the Option's Go form (flat or not).
-			return "\t" + v + ", " + found + ", " + rest + " := " + call + "\n" +
+			return take +
 				"\tvar " + option + " " + fc.goType(tuple.Types[0]) + " = " + fc.optionNone(tuple.Types[0], fc.site) + "\n" +
 				"\tif " + found + " { " + option + " = " + fc.optionSome(tuple.Types[0], v, fc.site) + " }\n" +
 				"\treturn " + fc.goType(tuple) + "{" + option + ", " + rest + "}\n"

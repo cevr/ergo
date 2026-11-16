@@ -206,7 +206,7 @@ func (b *irBuilder) valueSource(x *syntax.CallExpr, c *check.Call, args []syntax
 		}
 		src := irArgs[0]
 		irArgs[0] = &irExpr{K: "pcall", Pos: src.Pos, T: "slices", Name: "Clip", V: "[]" + elem + ", " + elem, Args: []*irExpr{src}}
-	case preludeMapWrite(c.Func):
+	case preludeMapWrite(c.Func) || preludeMapTake(c.Func):
 		if len(c.TypeArgs) != 2 {
 			irNo("Map write form")
 		}

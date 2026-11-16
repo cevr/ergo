@@ -5814,6 +5814,10 @@
         "lower:TestFloatProductsRound"
       ]
     },
-    {"name":"i20-group-cut-kept","origin":"wf10 I20 (P-ui x H8a)","file":"internal/sketch/std/ui/group.ergo","from":"\tif len(f.groups) <= n {","to":"\tif true {","rule":"A cut (a boundary's body stopped, H8a) takes back the component groups written since its mark: a group whose specs the cut gave back is never kept.","killers":["lower:TestUISkipAgrees"]}
+    {"name":"i20-group-cut-kept","origin":"wf10 I20 (P-ui x H8a)","file":"internal/sketch/std/ui/group.ergo","from":"\tif len(f.groups) <= n {","to":"\tif true {","rule":"A cut (a boundary's body stopped, H8a) takes back the component groups written since its mark: a group whose specs the cut gave back is never kept.","killers":["lower:TestUISkipAgrees"]},
+    {"name":"prim3-take-live-uncopied","origin":"wf10 PRIM-3","file":"internal/sketch/lower/values.go","from":"\tcase preludeMapWrite(c.Func) || preludeMapTake(c.Func):","to":"\tcase preludeMapWrite(c.Func):","rule":"A Take from a Map that stays live takes from a copy (V3): the source keeps its entries.","killers":["lower:TestValueRuleAgrees"]},
+    {"name":"prim3-take-not-in-place","origin":"wf10 PRIM-3","file":"internal/sketch/lower/values.go","from":"(preludeAppend(c.Func) || preludeMapWrite(c.Func) || preludeMapTake(c.Func)) {","to":"(preludeAppend(c.Func) || preludeMapWrite(c.Func)) {","rule":"A Take whose rest is rebound to its dead source is in place: no copy.","killers":["lower:TestCopyCountsMatchModel"]},
+    {"name":"prim3-take-not-a-read","origin":"wf10 PRIM-3","file":"internal/sketch/lower/values.go","from":"(preludeAppend(c.Func) || preludeMapWrite(c.Func) || preludeMapTake(c.Func)):","to":"(preludeAppend(c.Func) || preludeMapWrite(c.Func)):","rule":"A Take that copies its source only reads it, so a later write of the source is in place.","killers":["lower:TestCopyCountsMatchModel"]},
+    {"name":"prim3-take-wrapper-no-delete","origin":"wf10 PRIM-3","file":"internal/sketch/lower/decls.go","from":"\t\t\t\t\t\"\\tdelete(\" + params[0] + \", \" + params[1] + \")\\n\" +","to":"","rule":"Take's in-place body removes the key from its argument.","killers":["lower:TestValueRuleAgrees"]}
   ]
 }
