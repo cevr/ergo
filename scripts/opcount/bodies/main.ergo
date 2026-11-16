@@ -6,15 +6,21 @@
 // the old body and of the new one (README.md).
 
 import bits
+import hex
 import math
 import os
 import strconv
+import strings
 import utf8
 
 func run(kind string, n int) string fails os.Exit {
 	let words = []string{"plain", "é", "世界", "a\xffb", "", "🙂x", "ascii text", "\xe4\xb8"}
 	let floats = []float64{0.5, -3.75, 1e10, 123456.789, -1e15, 42.0, 7.25, -0.0}
 	let runes = []rune{97, 233, 19990, 128512, 55296, -1, 1114111, 1114112}
+	let lines = []string{"  the quick brown fox  ", "a,b,c,d,e", "jumps over the lazy dog ", "Ünïcode, text, 世界"}
+	let upper = []string{"PLAIN", "É", "世界", "A\xffB", "", "🙂X", "ASCII TEXT", "\xe4\xb8"}
+	let parts = []string{"alpha", "beta", "gamma", "delta"}
+	let hexes = []string{"00ff10", "DEADbeef", "abc", "zz12"}
 	let mut acc = 0
 	let mut f = 0.0
 	match kind {
@@ -154,6 +160,143 @@ func run(kind string, n int) string fails os.Exit {
 	case "utf8.RuneLen":
 		for i in 0..n {
 			acc += utf8.RuneLen(runes[i & 7])
+		}
+	case "strings.Compare":
+		for i in 0..n {
+			acc += strings.Compare(words[i & 7], words[(i + 3) & 7])
+		}
+	case "strings.Split":
+		for i in 0..n {
+			acc += len(strings.Split(lines[i & 3], ","))
+		}
+	case "strings.Join":
+		for i in 0..n {
+			acc += len(strings.Join(parts, words[i & 7]))
+		}
+	case "strings.HasPrefix":
+		for i in 0..n {
+			if strings.HasPrefix(lines[i & 3], words[i & 7]) {
+				acc += 1
+			}
+		}
+	case "strings.HasSuffix":
+		for i in 0..n {
+			if strings.HasSuffix(lines[i & 3], words[i & 7]) {
+				acc += 1
+			}
+		}
+	case "strings.TrimSpace":
+		for i in 0..n {
+			acc += len(strings.TrimSpace(lines[i & 3]))
+		}
+	case "strings.TrimPrefix":
+		for i in 0..n {
+			acc += len(strings.TrimPrefix(lines[i & 3], "  the"))
+		}
+	case "strings.TrimSuffix":
+		for i in 0..n {
+			acc += len(strings.TrimSuffix(lines[i & 3], "dog "))
+		}
+	case "strings.TrimLeft":
+		for i in 0..n {
+			acc += len(strings.TrimLeft(lines[i & 3], " t"))
+		}
+	case "strings.TrimRight":
+		for i in 0..n {
+			acc += len(strings.TrimRight(lines[i & 3], " g"))
+		}
+	case "strings.Fields":
+		for i in 0..n {
+			acc += len(strings.Fields(lines[i & 3]))
+		}
+	case "strings.Repeat":
+		for i in 0..n {
+			acc += len(strings.Repeat(words[i & 7], i & 3))
+		}
+	case "strings.ToLower":
+		for i in 0..n {
+			acc += len(strings.ToLower(lines[i & 3]))
+		}
+	case "strings.ToUpper":
+		for i in 0..n {
+			acc += len(strings.ToUpper(lines[i & 3]))
+		}
+	case "strings.Index":
+		for i in 0..n {
+			acc += strings.Index(lines[i & 3], words[i & 7])
+		}
+	case "strings.IndexByte":
+		for i in 0..n {
+			acc += strings.IndexByte(lines[i & 3], byte(97 + (i & 15)))
+		}
+	case "strings.Contains":
+		for i in 0..n {
+			if strings.Contains(lines[i & 3], words[i & 7]) {
+				acc += 1
+			}
+		}
+	case "strings.ReplaceAll":
+		for i in 0..n {
+			acc += len(strings.ReplaceAll(lines[i & 3], "o", "00"))
+		}
+	case "strings.LastIndex":
+		for i in 0..n {
+			acc += strings.LastIndex(lines[i & 3], words[i & 7])
+		}
+	case "strings.Count":
+		for i in 0..n {
+			acc += strings.Count(lines[i & 3], "o")
+		}
+	case "strings.SplitN":
+		for i in 0..n {
+			acc += len(strings.SplitN(lines[i & 3], ",", i & 3))
+		}
+	case "strings.EqualFold":
+		for i in 0..n {
+			if strings.EqualFold(words[i & 7], upper[i & 7]) {
+				acc += 1
+			}
+		}
+	case "strings.ContainsRune":
+		for i in 0..n {
+			if strings.ContainsRune(lines[i & 3], runes[i & 7]) {
+				acc += 1
+			}
+		}
+	case "strings.ToValidUTF8":
+		for i in 0..n {
+			acc += len(strings.ToValidUTF8(words[i & 7], "?"))
+		}
+	case "strconv.Itoa":
+		for i in 0..n {
+			acc += len(strconv.Itoa(i * 7919 - 500000))
+		}
+	case "strconv.FormatInt":
+		for i in 0..n {
+			acc += len(strconv.FormatInt(int64(i * 7919), 2 + (i & 31)))
+		}
+	case "strconv.FormatBool":
+		for i in 0..n {
+			acc += len(strconv.FormatBool((i & 1) == 0))
+		}
+	case "strconv.FormatFloat":
+		for i in 0..n {
+			acc += len(strconv.FormatFloat(floats[i & 7], 'g', -1))
+		}
+	case "strconv.Quote":
+		for i in 0..n {
+			acc += len(strconv.Quote(words[i & 7]))
+		}
+	case "hex.Encode":
+		for i in 0..n {
+			acc += len(hex.Encode(words[i & 7]))
+		}
+	case "hex.Decode":
+		for i in 0..n {
+			acc += len(hex.Decode(hexes[i & 3]) catch {
+			case hex.Malformed as m:
+				"\(m.Offset)"
+			})
 		}
 	case _:
 		return os.Exit{Code: 2, Message: "bodies: no kind \(strconv.Quote(kind))"}
