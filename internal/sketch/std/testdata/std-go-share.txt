@@ -1,0 +1,374 @@
+# The Go share of std (TestStdGoShareOnlyFalls; NP4f, owner q202: std's
+# computation is Ergo alone, and std binds Go's library through import go as
+# a user does). One row per std extern whose Go target is in the Ergo
+# runtime (ergo.local/prototype/runtime/...): `package<TAB>name<TAB>class`,
+# or `package<TAB>name<TAB>class<TAB>unit`. The class is provider (a
+# runtime primitive, Go stays), host (a host leaf Go stays for now), library
+# (a call of Go's library, moves to import go), language (a slice, Map or
+# string operation, moves to PRIM's IR operations), computation (moves to
+# Ergo source) or type (a host type, follows its functions). A library,
+# computation or language row names the unit that moves it. The test reads
+# the checked std packages: every such extern has a row and every row an
+# extern, and no class may hold more rows than its ceiling in
+# stdGoShareCeiling, which only falls.
+
+actor	Actor	type
+actor	Host	type
+actor	NewHost	provider
+actor	Restarts	provider
+actor	Stopped	type
+actor	child	provider
+actor	exitKind	provider
+actor	failure	provider
+actor	feed	provider
+actor	final	provider
+actor	hasLatest	provider
+actor	keep	provider
+actor	latest	provider
+actor	live	provider
+actor	noHost	provider
+actor	noTimer	provider
+actor	recovering	provider
+actor	shown	provider
+actor	start	provider
+arena	stored	type
+arena	takeValue	language	PRIM
+atomic	Bool	type
+atomic	Int64	type
+atomic	NewBool	library	NP4f-4
+atomic	NewInt64	library	NP4f-4
+base64	Malformed	type
+base64	decodeStd	library	NP4f-5
+base64	decodeURL	library	NP4f-5
+base64	encodeStd	library	NP4f-5
+base64	encodeURL	library	NP4f-5
+bits	LeadingZeros	library	NP4f-1
+bits	LeadingZeros64	library	NP4f-1
+bits	Len	library	NP4f-1
+bits	Len64	library	NP4f-1
+bits	OnesCount	library	NP4f-1
+bits	OnesCount64	library	NP4f-1
+bits	RotateLeft32	library	NP4f-1
+bits	RotateLeft64	library	NP4f-1
+bits	TrailingZeros	library	NP4f-1
+bits	TrailingZeros64	library	NP4f-1
+cmp	Compare	computation	NP4f-3
+cmp	Less	computation	NP4f-3
+cmp	Max	computation	NP4f-3
+cmp	Min	computation	NP4f-3
+config	NewRedacted	computation	NP4f-7
+config	Redacted	type
+config	envKey	computation	NP4f-7
+config	envName	computation	NP4f-7
+config	flagKey	computation	NP4f-7
+config	flagName	computation	NP4f-7
+config	hostEnviron	library	NP4f-6
+crc32	Checksum	library	NP4f-5
+crc32	Update	library	NP4f-5
+csv	Format	library	NP4f-5
+csv	ParseError	type
+csv	Position	type
+csv	ReadAll	library	NP4f-5
+csv	scan	library	NP4f-5
+embed	FS	type
+embed	NewEmpty	provider
+exec	Chunk	type
+exec	Denied	type
+exec	Detached	type
+exec	Failed	type
+exec	Line	type
+exec	NotFound	type
+exec	Result	type
+exec	Running	type
+exec	hostAlive	host
+exec	hostKill	host
+exec	hostRun	host
+exec	hostSpawn	host
+exec	hostStart	host
+exec	replay	computation	NP4f-3
+exec	waitFor	provider
+explore	Replay	provider
+filepath	Base	library	NP4f-3
+filepath	Clean	library	NP4f-3
+filepath	Dir	library	NP4f-3
+filepath	Ext	library	NP4f-3
+filepath	IsAbs	library	NP4f-3
+filepath	Join	library	NP4f-3
+filepath	NotRelative	type
+filepath	Parts	type
+filepath	Rel	library	NP4f-3
+filepath	Split	library	NP4f-3
+fs	Clone	library	NP4f-2
+fs	Denied	type
+fs	Escapes	type
+fs	Failed	type
+fs	HostRoot	type
+fs	Info	type
+fs	MapText	provider
+fs	Mapped	type
+fs	NotFound	type
+fs	OpenRoot	library	NP4f-6
+fs	hostAppendFile	library	NP4f-6
+fs	hostChmod	library	NP4f-6
+fs	hostMapFile	provider
+fs	hostMkdirAll	library	NP4f-6
+fs	hostMkdirAllMode	library	NP4f-6
+fs	hostReadDir	library	NP4f-6
+fs	hostReadFile	library	NP4f-6
+fs	hostRemove	library	NP4f-6
+fs	hostRename	library	NP4f-6
+fs	hostStat	library	NP4f-6
+fs	hostWriteFile	library	NP4f-6
+fs	hostWriteFileMode	library	NP4f-6
+hex	Decode	library	NP4f-2
+hex	Encode	library	NP4f-2
+hex	Malformed	type
+http	BodyFile	type
+http	EncodeQuery	computation	NP4f-7
+http	Exchange	type
+http	Field	type
+http	IntoFile	library	NP4f-6
+http	InvalidClient	type
+http	InvalidLimits	type
+http	Limits	type
+http	Listen	library	NP4f-6
+http	ListenFailed	type
+http	Listener	type
+http	OriginRefused	type
+http	ParseQuery	computation	NP4f-7
+http	RedirectLimit	type
+http	Response	type
+http	SendFailed	type
+http	SinkFailed	type
+http	StatusRefused	type
+http	WriteFailed	type
+http	checkNetwork	computation	NP4f-7
+http	checkOrigin	computation	NP4f-7
+http	fetch	library	NP4f-6
+http	fetchInto	library	NP4f-6
+http	fetchLocal	library	NP4f-6
+http	fetchLocalInto	library	NP4f-6
+http	send	library	NP4f-6
+http	sendInto	library	NP4f-6
+http	serve	host
+io	ReadFailed	type
+io	hostEprint	host
+io	hostIsTerminal	host
+io	hostLines	host
+io	hostPrint	host
+io	hostRead	host
+io	hostReadAll	host
+io	hostStderrIsTerminal	host
+io	hostStdinIsTerminal	host
+json	Cursor	type
+json	Malformed	type
+json	appendBool	computation	NP4f-7
+json	appendFloat	computation	NP4f-7
+json	appendInt	library	NP4f-5
+json	appendQuoted	computation	NP4f-7
+json	appendUint	library	NP4f-5
+json	bytesText	language	PRIM
+json	open	computation	NP4f-8
+log	contextBound	provider
+log	contextValue	provider
+machines	firingOff	provider
+machines	firingOn	provider
+machines	notPositive	computation	NP4f-3
+maps	Clone	language	PRIM
+math	Abs	library	NP4f-1
+math	Ceil	library	NP4f-1
+math	Exp	library	NP4f-1
+math	FMA	library	NP4f-1
+math	Floor	library	NP4f-1
+math	Inf	library	NP4f-1
+math	IsInf	library	NP4f-1
+math	IsNaN	library	NP4f-1
+math	Log	library	NP4f-1
+math	Mod	library	NP4f-1
+math	NaN	library	NP4f-1
+math	OutOfRange	type
+math	Pow	library	NP4f-1
+math	Round	library	NP4f-1
+math	Sqrt	library	NP4f-1
+math	ToInt	computation	NP4f-3
+math	ToInt16	computation	NP4f-3
+math	ToInt32	computation	NP4f-3
+math	ToInt64	computation	NP4f-3
+math	ToInt8	computation	NP4f-3
+math	ToUint	computation	NP4f-3
+math	ToUint16	computation	NP4f-3
+math	ToUint32	computation	NP4f-3
+math	ToUint64	computation	NP4f-3
+math	ToUint8	computation	NP4f-3
+math	ToUintptr	computation	NP4f-3
+math	Trunc	library	NP4f-1
+os	Code	type
+os	Exit	type
+os	NoWorkdir	type
+os	hostArgs	library	NP4f-6
+os	hostGetenv	library	NP4f-6
+os	hostGetwd	library	NP4f-6
+os	hostHasEnv	library	NP4f-6
+prelude	Append	language	PRIM
+prelude	Get	language	PRIM
+prelude	InForce	provider
+prelude	Put	language	PRIM
+prelude	Sleep	provider
+prelude	Take	language	PRIM
+prelude	Task	type
+prelude	Unreachable	provider
+queue	Closed	type
+queue	New	provider
+queue	Queue	type
+rand	Stream	type
+rand	hostFloat64	library	NP4f-4
+rand	hostIntN	library	NP4f-4
+rand	hostUint64	library	NP4f-4
+rand	newStream	library	NP4f-4
+rpc	Die	computation	NP4f-7
+rpc	Envelope	type
+rpc	Exact	computation	NP4f-7
+rpc	ExactUint	computation	NP4f-7
+rpc	Failed	type
+rpc	Malformed	type
+rpc	Refuse	computation	NP4f-7
+rpc	TagOf	computation	NP4f-7
+rpc	Tagged	computation	NP4f-7
+rpc	Transport	type
+rpc	Unrepresentable	type
+rpc	call	library	NP4f-6
+rpc	exitLines	computation	NP4f-7
+rpc	exits	computation	NP4f-7
+rpc	nextID	computation	NP4f-7
+rpc	parse	computation	NP4f-7
+rpc	readExit	computation	NP4f-7
+rpc	request	computation	NP4f-7
+scope	OnExit	provider
+sha256	Sum	library	NP4f-5
+slices	Clone	language	PRIM
+slices	Concat	language	PRIM
+slices	Contains	computation	NP4f-3
+slices	Equal	computation	NP4f-3
+slices	Index	computation	NP4f-3
+slices	Repeat	language	PRIM
+slices	Reverse	computation	NP4f-3
+slices	Slice	language	PRIM
+slices	Sort	library	NP4f-5
+slices	SortFunc	library	NP4f-5
+slices	SortStableFunc	library	NP4f-5
+slices	Take	language	PRIM
+slices	WithCapacity	language	PRIM
+slices	largest	computation	NP4f-3
+slices	search	computation	NP4f-3
+slices	smallest	computation	NP4f-3
+strconv	AppendFloat	library	NP4f-5
+strconv	AppendInt	library	NP4f-5
+strconv	AppendUint	library	NP4f-5
+strconv	Atoi	computation	NP4f-7
+strconv	FormatBool	library	NP4f-2
+strconv	FormatFloat	library	NP4f-2
+strconv	FormatInt	library	NP4f-2
+strconv	Itoa	library	NP4f-2
+strconv	Malformed	type
+strconv	OutOfRange	type
+strconv	ParseBool	library	NP4f-5
+strconv	ParseFloat	library	NP4f-5
+strconv	ParseInt	library	NP4f-5
+strconv	Quote	library	NP4f-2
+strconv	Unquote	library	NP4f-5
+strings	Borrow	provider
+strings	Compare	library	NP4f-2
+strings	Contains	library	NP4f-2
+strings	ContainsRune	library	NP4f-2
+strings	Count	library	NP4f-2
+strings	EqualFold	library	NP4f-2
+strings	Fields	library	NP4f-2
+strings	Give	provider
+strings	HasPrefix	library	NP4f-2
+strings	HasSuffix	library	NP4f-2
+strings	Hint	provider
+strings	Index	library	NP4f-2
+strings	IndexByte	library	NP4f-2
+strings	Join	library	NP4f-2
+strings	LastIndex	library	NP4f-2
+strings	PadLeft	computation	NP4f-3
+strings	PadRight	computation	NP4f-3
+strings	Repeat	library	NP4f-2
+strings	ReplaceAll	library	NP4f-2
+strings	Slice	language	PRIM
+strings	Split	library	NP4f-2
+strings	SplitN	library	NP4f-2
+strings	ToLower	library	NP4f-2
+strings	ToUpper	library	NP4f-2
+strings	ToValidUTF8	library	NP4f-2
+strings	TrimLeft	library	NP4f-2
+strings	TrimPrefix	library	NP4f-2
+strings	TrimRight	library	NP4f-2
+strings	TrimSpace	library	NP4f-2
+strings	TrimSuffix	library	NP4f-2
+strings	builderAppend	language	PRIM
+strings	builderAppendByte	language	PRIM
+strings	builderAppendBytes	language	PRIM
+strings	builderAppendFrom	language	PRIM
+strings	builderGrow	language	PRIM
+strings	builderText	provider
+strings	stringsBytes	language	PRIM
+sync	Modify	provider
+sync	NewRef	provider
+sync	Ref	type
+task	Go	provider
+tasks	Closed	type
+tasks	Go	provider
+tasks	Race	provider
+tasks	Set	type
+tasks	Transform	provider
+tasks	newSet	provider
+term	NotTerminal	type
+term	Window	type
+term	hostEnterNoEcho	host
+term	hostEnterRaw	host
+term	hostLeave	host
+term	hostReadKey	host
+term	hostSize	host
+testing	Op	type
+testing	Unanswered	provider
+testing	newLine	provider
+testing	newOp	provider
+time	Count	computation	NP4f-7
+time	Divide	computation	NP4f-7
+time	DurationText	library	NP4f-6
+time	ParseDuration	library	NP4f-6
+time	ParseError	type
+time	Reading	type
+time	Timeline	type
+time	Times	computation	NP4f-7
+time	format	library	NP4f-6
+time	hostMono	library	NP4f-6
+time	hostNow	library	NP4f-6
+time	newTimeline	provider
+time	parse	library	NP4f-6
+time	subMono	computation	NP4f-7
+time	subWall	computation	NP4f-7
+timeout	After	provider
+timeout	Expired	type
+toml	Malformed	type
+toml	Unrepresentable	type
+toml	fromJSON	computation	NP4f-9
+toml	parse	computation	NP4f-9
+trace	contextBound	provider
+trace	contextValue	provider
+ui	GroupArgs	type
+ui	argsFree	provider
+ui	argsHeld	provider
+ui	argsPut	provider
+ui	argsSame	provider
+ui	argsSet	provider
+ui	newArgs	provider
+utf8	AppendRune	library	NP4f-1
+utf8	DecodeRuneInString	library	NP4f-1
+utf8	Decoded	type
+utf8	RuneCount	library	NP4f-1
+utf8	RuneLen	library	NP4f-1
+utf8	RuneText	language	PRIM
+utf8	ValidRune	library	NP4f-1
+utf8	ValidString	library	NP4f-1

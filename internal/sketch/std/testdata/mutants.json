@@ -321,6 +321,8 @@
       "from": "\tobserve(\"prelude.ergo\")\n", "to": "",
       "rule": "Prelude observes the prelude it reads.",
       "killers": ["internal/sketch/std:TestObserveOpensTheCheckoutCopy"]
-    }
+    },
+    {"name":"np4f-share-rises","origin":"wf10 NP4f-0","file":"internal/sketch/std/goshare_test.go","from":"\t\tcase n > most:","to":"\t\tcase n > most+1:","rule":"np4f-plan §6.3: the Go share of std only falls; a class over its ceiling is refused.","killers":["internal/sketch/std:TestStdGoShareRule"]},
+    {"name":"np4f-share-unclassed","origin":"wf10 NP4f-0","file":"internal/sketch/std/goshare_test.go","from":"\t\tif !ok {\n\t\t\tout = append(out, fmt.Sprintf(\"std extern %s binds","to":"\t\tif !ok && false {\n\t\t\tout = append(out, fmt.Sprintf(\"std extern %s binds","rule":"np4f-plan §6.3: a new std extern of the Ergo runtime has a class before it lands.","killers":["internal/sketch/std:TestStdGoShareRule"]}
   ]
 }
