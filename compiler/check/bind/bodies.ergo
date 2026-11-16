@@ -60,9 +60,8 @@ type local { name dense.ID[dense.Str], at dense.ID[store.PNode], prev uint32 }
 // binder is one package's bind state: the store, the parent column (for
 // PNodes), the current file, the locals in scope on one undo stack
 // (C0b's form: a scope is a mark; its end restores what it shadowed), the
-// innermost local of each name, by name id, and one buffer of child rows
-// that every depth of the walk shares (a row's children sit above its
-// parent's until it is walked).
+// innermost local of each name, by name id. A row's children are the
+// parent column's, read in place.
 type binder {
 	s      store.Store,
 	ps     Parents,
@@ -70,7 +69,6 @@ type binder {
 	p      syntax.Parsed,
 	locals dense.Stack[local],
 	inner  dense.Col[dense.Str, uint32],
-	kids   []uint32,
 	uses   Uses,
 	// depth counts the declarations the walk is inside: a let at depth 0
 	// is a package-level let, whose names are the store's.
@@ -94,10 +92,10 @@ func leave(b *binder, m int) {
 // release ends the scope that started at m: each local since m gives its
 // name back to the binding it shadowed.
 func release(b *binder, m int) {
-	let ls = dense.Since(b.locals, m)
-	let mut i = len(ls) - 1
-	for i >= 0 {
-		let l = ls[i]
+	// Each row is read in place: a window bound to a local is a copy.
+	let mut i = dense.Depth(b.locals) - 1
+	for i >= m {
+		let l = dense.Since(b.locals, m)[i-m]
 		dense.SetOf(&b.inner, l.name, l.prev)
 		i = i - 1
 	}
@@ -225,7 +223,7 @@ func universeType(t string) bool {
 // BindUses resolves every identifier of the package's bodies and
 // signatures against the store's package scope and the locals in scope.
 func BindUses(s store.Store, ps Parents, files []File) Uses {
-	let mut b = binder{s: s, ps: ps, file: 0, p: files[0].Parsed, locals: dense.NewStack[local](), inner: dense.NewCol[dense.Str, uint32](), kids: []uint32{}, uses: Uses{at: dense.NewSide[store.PNode, uint32](uint32(notUse)), defs: dense.NewSide[store.PNode, uint8](uint8(0))}, depth: 0}
+	let mut b = binder{s: s, ps: ps, file: 0, p: files[0].Parsed, locals: dense.NewStack[local](), inner: dense.NewCol[dense.Str, uint32](), uses: Uses{at: dense.NewSide[store.PNode, uint32](uint32(notUse)), defs: dense.NewSide[store.PNode, uint8](uint8(0))}, depth: 0}
 	for f, file in files {
 		b.file = f
 		b.p = file.Parsed
@@ -254,13 +252,10 @@ func opt(b *binder, o dense.Opt[syntax.Node]) {
 
 // children walks every child row of x.
 func children(b *binder, x dense.ID[syntax.Node]) {
-	let from = len(b.kids)
-	b.kids = syntax.Children(b.p.Tree, x, b.kids)
-	let to = len(b.kids)
-	for k in from..to {
-		walk(b, syntax.NodeAt(b.p.Tree, int(b.kids[k])))
+	let n = dense.Index(pnode(*b, x))
+	for i in 0..numKids(b.ps, n) {
+		walk(b, syntax.NodeAt(b.p.Tree, kidAt(b.ps, n, i)))
 	}
-	b.kids = b.kids[0:from]
 }
 
 // params declares the names of a field list's fields, after walking
@@ -268,10 +263,11 @@ func children(b *binder, x dense.ID[syntax.Node]) {
 func params(b *binder, o dense.Opt[syntax.Node]) {
 	match dense.Unpack(o) {
 	case Some[dense.ID[syntax.Node]] as x:
-		match syntax.ViewOf(b.p.Tree, x.Value) {
-		case syntax.FieldList as fl:
-			for i in 0..syntax.Len(fl.List) {
-				let fd = syntax.Item(b.p.Tree, fl.List, i)
+		if syntax.KindOf(b.p.Tree, x.Value) == syntax.KFieldList {
+			// A field list's children are its fields.
+			let n = dense.Index(pnode(*b, x.Value))
+			for i in 0..numKids(b.ps, n) {
+				let fd = syntax.NodeAt(b.p.Tree, kidAt(b.ps, n, i))
 				match syntax.ViewOf(b.p.Tree, fd) {
 				case syntax.Field as f:
 					// A parameter's where is the refinement type the checker
@@ -284,7 +280,7 @@ func params(b *binder, o dense.Opt[syntax.Node]) {
 					walk(b, fd)
 				}
 			}
-		case _:
+		} else {
 			walk(b, x.Value)
 		}
 	case None:
@@ -315,14 +311,20 @@ func fieldTypes(b *binder, x dense.ID[syntax.Node]) {
 // signature declares a function type's parameters and walks its result
 // and clauses.
 func signature(b *binder, x dense.ID[syntax.Node]) {
-	match syntax.ViewOf(b.p.Tree, x) {
-	case syntax.FuncType as ft:
-		params(b, dense.OptOf(ft.Params))
-		opt(b, ft.Results)
-		opt(b, ft.Needs)
-		opt(b, ft.Takes)
-	case _:
+	if syntax.KindOf(b.p.Tree, x) != syntax.KFuncType {
 		walk(b, x)
+		return
+	}
+	// A function type's children are its parameters, then its result and
+	// its clauses, those present.
+	let n = dense.Index(pnode(*b, x))
+	for i in 0..numKids(b.ps, n) {
+		let c = syntax.NodeAt(b.p.Tree, kidAt(b.ps, n, i))
+		if i == 0 {
+			params(b, dense.OptOf(c))
+		} else {
+			walk(b, c)
+		}
 	}
 }
 
@@ -330,13 +332,15 @@ func signature(b *binder, x dense.ID[syntax.Node]) {
 // (patterns.go patternNames): in a match a name that names a type tests
 // the value; at a let (let) every name binds.
 func pattern(b *binder, x dense.ID[syntax.Node], atLet bool) {
-	match syntax.ViewOf(b.p.Tree, x) {
-	case syntax.Name:
+	if syntax.KindOf(b.p.Tree, x) == syntax.KIdent {
 		if !atLet && isType(b, text(b.p, x)) {
 			use(b, x)
 		} else {
 			define(b, x)
 		}
+		return
+	}
+	match syntax.ViewOf(b.p.Tree, x) {
 	case syntax.ParenExpr as e:
 		pattern(b, e.X, atLet)
 	case syntax.TupleExpr as e:
@@ -377,15 +381,31 @@ func alternatives(b *binder, l syntax.List) {
 	}
 }
 
-// block walks a list of statements in a scope of its own.
-func block(b *binder, l syntax.List) {
-	let m = mark(*b)
-	each(b, l)
-	release(b, m)
-}
-
 // walk resolves the uses of row x and declares the locals it binds.
 func walk(b *binder, x dense.ID[syntax.Node]) {
+	// The kind decides first: a name is a use, and a row bind treats as
+	// its children are walks them with no view (a view is a union value,
+	// made per call; capstone S3b's counted guard).
+	let k = syntax.KindOf(b.p.Tree, x)
+	if k == syntax.KIdent {
+		use(b, x)
+		return
+	}
+	if k == syntax.KBlockStmt {
+		// A block's children are its statements, in a scope of their own.
+		let m = mark(*b)
+		children(b, x)
+		release(b, m)
+		return
+	}
+	if !apart(k) {
+		children(b, x)
+		return
+	}
+	if k == syntax.KCallExpr && !isWithCall(b, x) {
+		children(b, x)
+		return
+	}
 	match syntax.ViewOf(b.p.Tree, x) {
 	case syntax.Name:
 		use(b, x)
@@ -428,10 +448,10 @@ func walk(b *binder, x dense.ID[syntax.Node]) {
 		signature(b, d.Type)
 		match dense.Unpack(d.Body) {
 		case Some[dense.ID[syntax.Node]] as body:
-			match syntax.ViewOf(b.p.Tree, body.Value) {
-			case syntax.BlockStmt as bl:
-				each(b, bl.List)
-			case _:
+			// The body block's statements are in the function's scope.
+			if syntax.KindOf(b.p.Tree, body.Value) == syntax.KBlockStmt {
+				children(b, body.Value)
+			} else {
 				walk(b, body.Value)
 			}
 		case None:
@@ -571,8 +591,6 @@ func walk(b *binder, x dense.ID[syntax.Node]) {
 		params(b, d.Params)
 		walk(b, d.Body)
 		leave(b, m)
-	case syntax.VarDecl as d:
-		walk(b, d.Spec)
 	case syntax.VarSpec as v:
 		opt(b, v.Type)
 		opt(b, v.Value)
@@ -590,14 +608,12 @@ func walk(b *binder, x dense.ID[syntax.Node]) {
 			}
 		case None:
 		}
-	case syntax.BlockStmt as e:
-		block(b, e.List)
 	case syntax.RangeStmt as e:
 		walk(b, e.X)
 		let m = mark(*b)
 		match dense.Unpack(e.Key) {
-		case Some[dense.ID[syntax.Node]] as k:
-			pattern(b, k.Value, true)
+		case Some[dense.ID[syntax.Node]] as key:
+			pattern(b, key.Value, true)
 		case None:
 		}
 		pattern(b, e.Value, true)
@@ -616,6 +632,22 @@ func walk(b *binder, x dense.ID[syntax.Node]) {
 	case _:
 		children(b, x)
 	}
+}
+
+// apart is whether walk treats a row of kind k other than as its children.
+func apart(k uint8) bool {
+	k == syntax.KImportDecl || k == syntax.KExternSpec || k == syntax.KSelectorExpr || k == syntax.KCompositeLit || k == syntax.KFuncDecl || k == syntax.KFuncLit || k == syntax.KTypeDecl || k == syntax.KStructType || k == syntax.KVariantSpec || k == syntax.KInterfaceType || k == syntax.KFuncType || k == syntax.KContextDecl || k == syntax.KCallExpr || k == syntax.KLawDecl || k == syntax.KTestDecl || k == syntax.KVarSpec || k == syntax.KRangeStmt || k == syntax.KCaseClause || k == syntax.KCatchArm || k == syntax.KContextEntry
+}
+
+// isWithCall is whether call row x may be with's or within's: its first
+// token, its function's, is that word (the view decides the rest).
+func isWithCall(b *binder, x dense.ID[syntax.Node]) bool {
+	let j = syntax.TokStartingAt(b.p, syntax.NodePos(b.p, x))
+	if j < 0 {
+		return false
+	}
+	let t = syntax.TokText(b.p, j)
+	t == "with" || t == "within"
 }
 
 // patternUses walks a package-level pattern for its uses only: its names

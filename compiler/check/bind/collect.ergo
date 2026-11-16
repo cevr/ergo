@@ -11,14 +11,14 @@ import strings
 // File is one parsed file of the package, with its name for dumps.
 type File { Name string, Parsed syntax.Parsed }
 
-// text is the text of a Name row.
+// text is the text of a Name row, "_" for another row. It reads the row's
+// kind and its first token, not its view: a view is a union value, made
+// per call.
 func text(p syntax.Parsed, id dense.ID[syntax.Node]) string {
-	match syntax.ViewOf(p.Tree, id) {
-	case syntax.Name as n:
-		syntax.TokText(p, n.Tok)
-	case _:
-		"_"
+	if syntax.KindOf(p.Tree, id) != syntax.KIdent {
+		return "_"
 	}
+	syntax.TokText(p, syntax.TokStartingAt(p, syntax.NodePos(p, id)))
 }
 
 // nodeText is the text of the one-token node id (an import path is one

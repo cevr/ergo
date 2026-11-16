@@ -64,6 +64,12 @@ law ParentsInvertChildren(picks []int) {
 		for i in 0..syntax.NumNodes(t) {
 			let me = PNodeOf(ps, f, syntax.NodeAt(t, i))
 			kids = syntax.Children(t, syntax.NodeAt(t, i), kids[0:0])
+			// The column's children of the row are the tree's, in order.
+			let n = dense.Index(me)
+			ok = ok && numKids(ps, n) == len(kids)
+			for j, c in kids {
+				ok = ok && j < numKids(ps, n) && kidAt(ps, n, j) == int(c)
+			}
 			for c in kids {
 				ok = ok && ParentOf(ps, PNodeOf(ps, f, syntax.NodeAt(t, int(c)))) == dense.OptOf(me)
 			}

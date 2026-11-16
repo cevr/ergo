@@ -7,13 +7,22 @@ import dense
 // plus the row), the row whose child it is, or none for a file's root. It
 // is built once per package before the bodies are bound, and read only
 // after, where the Go checker rebuilt a parent map per body (C0a: 423,362
-// entries in 7,156 rebuilds).
+// entries in 7,156 rebuilds). It keeps each row's children too, the rows
+// kids[first[n]:first[n+1]] of its file, so a walk reads them in place.
 type Parents {
 	base    []uint32,
 	ids     dense.Count[store.PNode],
 	up      dense.Col[store.PNode, dense.Opt[store.PNode]],
+	first   []uint32,
+	kids    []uint32,
 	written int,
 }
+
+// numKids is the count of PNode n's children; kidAt is the i-th's row in
+// n's file.
+func numKids(ps Parents, n int) int { int(ps.first[n+1]) - int(ps.first[n]) }
+
+func kidAt(ps Parents, n int, i int) int { int(ps.kids[int(ps.first[n])+i]) }
 
 // PNodeOf is the package-wide id of row id of file f.
 func PNodeOf(ps Parents, f int, id dense.ID[syntax.Node]) dense.ID[store.PNode] {
@@ -40,7 +49,7 @@ func Written(ps Parents) int { ps.written }
 // BuildParents is the parent column of the package's files; a file that
 // failed to parse has no rows.
 func BuildParents(files []File) Parents {
-	let mut ps = Parents{base: []uint32{}, ids: dense.NewCount[store.PNode](), up: dense.NewCol[store.PNode, dense.Opt[store.PNode]](), written: 0}
+	let mut ps = Parents{base: []uint32{}, ids: dense.NewCount[store.PNode](), up: dense.NewCol[store.PNode, dense.Opt[store.PNode]](), first: []uint32{}, kids: []uint32{}, written: 0}
 	for file in files {
 		ps.base = ps.base.Append(uint32(dense.Total(ps.ids)))
 		let n = if file.Parsed.Failed { 0 } else { syntax.NumNodes(file.Parsed.Tree) }
@@ -50,6 +59,7 @@ func BuildParents(files []File) Parents {
 		}
 	}
 	let mut kids = []uint32{}
+	let mut first = []uint32{}
 	for f, file in files {
 		if file.Parsed.Failed {
 			continue
@@ -57,13 +67,20 @@ func BuildParents(files []File) Parents {
 		let t = file.Parsed.Tree
 		let base = int(ps.base[f])
 		for i in 0..syntax.NumNodes(t) {
-			kids = syntax.Children(t, syntax.NodeAt(t, i), kids[0:0])
+			// The buffer is passed whole and only grows: a re-slice passed
+			// in is a copy, and a copy's append allocates.
+			let from = len(kids)
+			first = first.Append(uint32(from))
+			kids = syntax.Children(t, syntax.NodeAt(t, i), kids)
 			let me = dense.OptOf(dense.IDAt(ps.ids, base+i))
-			for c in kids {
+			for j in from..len(kids) {
+				let c = kids[j]
 				dense.SetOf(&ps.up, dense.IDAt(ps.ids, base+int(c)), me)
 				ps.written = ps.written + 1
 			}
 		}
 	}
+	ps.first = first.Append(uint32(len(kids)))
+	ps.kids = kids
 	ps
 }
