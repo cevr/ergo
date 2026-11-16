@@ -343,8 +343,11 @@ func bodyOf(s store.Store, ps Parents, files []File, tops []top, from int, to in
 	let mut b = binder{s: s, ps: ps, file: 0, p: files[0].Parsed, locals: dense.NewStack[local](), inner: dense.NewCol[dense.Str, uint32](), innerO: dense.NewCol[dense.Str, uint32](), body: Body{uses: []use32{}, defs: []def{}, names: []localName{}, overlay: dense.NewStrings(), texts: []string{}}, depth: 0}
 	for i in from..to {
 		let t = tops[i]
-		b.file = t.file
-		b.p = files[t.file].Parsed
+		// A file's tree is set once per file: a bound tree is a copy.
+		if t.file != b.file {
+			b.file = t.file
+			b.p = files[t.file].Parsed
+		}
 		walk(&b, t.row)
 	}
 	b.body
