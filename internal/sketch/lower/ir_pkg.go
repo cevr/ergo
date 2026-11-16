@@ -195,15 +195,15 @@ func goRange(d check.LoopDomain) bool {
 // value, in source order: Go's map literal evaluates them in that order,
 // as the emitter's literal does.
 func (b *irBuilder) mapLit(x *syntax.CompositeLit) []*irExpr {
-	var out []*irExpr
+	var list []syntax.Expr
 	for _, e := range x.Elts {
 		kv, ok := e.(*syntax.KeyValueExpr)
 		if !ok {
 			irNo("Map literal element without a key")
 		}
-		out = append(out, b.expr(kv.Key), b.expr(kv.Value))
+		list = append(list, kv.Key, kv.Value)
 	}
-	return out
+	return b.inOrder(list) // ir_order.go: as the emitter's elements
 }
 
 // admitOps admits a value of a program's operation type: the Go interface
@@ -282,9 +282,6 @@ func (b *irBuilder) countLoop(s *syntax.RangeStmt, lp *check.Loop) []*irStmt {
 	} else {
 		pre, x = b.value(s.X)
 	}
-	if len(pre) > 0 {
-		irNo("operation call in a range")
-	}
 	r := b.temp("r", b.goType(n, s.X), p)
 	var v int
 	if bound(s.Value) {
@@ -305,7 +302,9 @@ func (b *irBuilder) countLoop(s *syntax.RangeStmt, lp *check.Loop) []*irStmt {
 	}
 	loop := &irStmt{K: "count", Pos: p, Local: v, X: field("Start"), Y: field("End"), End: b.pos(s.Body, s.Body.Rbrace)}
 	loop.Body = b.loopBody(s, s.Body)
-	return []*irStmt{{K: "def", Pos: p, Local: r, X: x}, loop}
+	// The Range's statements run first, once (rangeStmt).
+	loop.Pos = past(loop.Pos, pre) // ir_match.go
+	return append(pre, &irStmt{K: "def", Pos: p, Local: r, X: x}, loop)
 }
 
 // conversion is the conversion x, T(v), as the emitter writes it: a Go

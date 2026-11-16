@@ -268,6 +268,9 @@ type irBuilder struct {
 	// the innermost loop: a break there would leave the switch, not the
 	// loop (ir_match.go).
 	switches int
+	// pending collects the statements an operand inside an expression
+	// runs first (ir_order.go); nil where no value collects them.
+	pending *[]*irStmt
 }
 
 // gate stops the body for reason; a census records it and goes on.

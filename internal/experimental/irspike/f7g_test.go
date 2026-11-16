@@ -78,13 +78,14 @@ func TestIRContinuePolls(t *testing.T) {
 // TestIROrderMatchesSource is the agreement property over GenerateOrder
 // (F7 GP): each program prints, exits and fails the same on both paths,
 // and the run gives IR bodies to functions with a continue in a polling
-// loop. A failing seed prints the Ergo source, both outcomes and its
+// loop and with operation calls inside an expression, in a condition and
+// in a range. A failing seed prints the Ergo source, both outcomes and its
 // replay command. It builds Go because the question is what the compiled
 // program does: the order of effects, polls and defects.
 func TestIROrderMatchesSource(t *testing.T) {
 	src, ir := needsBuild(t)
-	first, count := envInt("ERGO_IRSPIKE_SEED", 1), envInt("ERGO_IRSPIKE_SEEDS", 12)
-	continued := 0
+	first, count := envInt("ERGO_IRSPIKE_SEED", 1), envInt("ERGO_IRSPIKE_SEEDS", 24)
+	continued, traced, spanned, looped := 0, 0, 0, 0
 	for seed := first; seed < first+count; seed++ {
 		u, text, dir := orderProgram(t, seed)
 		sb, ib, rep := both(t, u, src, ir, dir, BuildOptions{})
@@ -96,10 +97,19 @@ func TestIROrderMatchesSource(t *testing.T) {
 			if bodyHas(text, name, "continue") {
 				continued++
 			}
+			if bodyHas(text, name, " tr(") || bodyHas(text, name, "(tr(") || bodyHas(text, name, "-tr(") {
+				traced++
+			}
+			if bodyHas(text, name, "in span(") {
+				spanned++
+			}
+			if bodyHas(text, name, "< tr(") {
+				looped++
+			}
 		}
 	}
-	if count >= 12 && continued == 0 {
-		t.Fatal("no IR body has a continue")
+	if count >= 12 && (continued == 0 || traced == 0 || spanned == 0 || looped == 0) {
+		t.Fatalf("the run did not reach IR bodies with: a continue %d, an operation call inside an expression %d, a for-in over a call %d, a loop condition with a call %d", continued, traced, spanned, looped)
 	}
 }
 

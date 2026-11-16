@@ -405,21 +405,7 @@ func (b *irBuilder) operands(list []syntax.Expr) ([]*irStmt, []*irExpr) {
 	for i, a := range list {
 		pres[i], vals[i] = b.operand(a)
 	}
-	var pre []*irStmt
-	for i, a := range list {
-		pre = append(pre, pres[i]...)
-		later := false
-		for _, p := range pres[i+1:] {
-			later = later || len(p) > 0
-		}
-		if later && vals[i].K != "const" && vals[i].K != "local" {
-			p := vals[i].Pos
-			t := b.temp("arg", b.goType(b.operandType(a), a), p)
-			pre = append(pre, &irStmt{K: "def", Pos: p, Local: t, X: vals[i]})
-			vals[i] = &irExpr{K: "local", Pos: p, I: t}
-		}
-	}
-	return pre, vals
+	return b.ordered(list, pres, vals), vals // ir_order.go
 }
 
 // operandType is the type of operand a's value: its implicit

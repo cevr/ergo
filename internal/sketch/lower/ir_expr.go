@@ -15,6 +15,11 @@ import (
 // statements: an if expression inside an operand keeps its source body,
 // since hoisting it would move it before the operands to its left.
 func (b *irBuilder) value(x syntax.Expr) ([]*irStmt, *irExpr) {
+	// The statements its operands run first come first (ir_order.go).
+	return b.collect(func() ([]*irStmt, *irExpr) { return b.valueOf(x) })
+}
+
+func (b *irBuilder) valueOf(x syntax.Expr) ([]*irStmt, *irExpr) {
 	var pre []*irStmt
 	var e *irExpr
 	switch y := unparen(x).(type) {
@@ -112,7 +117,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 	case *syntax.BinaryExpr:
 		op := x.Op.String()
 		b.operator(op, b.l.info.Types[x.X], x)
-		return &irExpr{K: "bin", Pos: b.pos(x, x.OpPos), Op: op, X: b.expr(x.X), Y: b.expr(x.Y)}
+		return b.binaryOf(x, op) // ir_order.go: operands in order
 	case *syntax.UnaryExpr:
 		op := x.Op.String()
 		switch op {
@@ -143,7 +148,8 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		if _, ok := b.l.info.Types[x.X].(*check.Slice); !ok {
 			irNo("index of a non-slice")
 		}
-		return &irExpr{K: "index", Pos: p, X: b.expr(x.X), Y: b.expr(x.Indices[0])}
+		xs := b.inOrder([]syntax.Expr{x.X, x.Indices[0]}) // ir_order.go
+		return &irExpr{K: "index", Pos: p, X: xs[0], Y: xs[1]}
 	case *syntax.CompositeLit:
 		if x.Base != nil || x.Type == nil {
 			irNo("record update or elided literal type")
@@ -158,8 +164,8 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 				if _, kv := e.(*syntax.KeyValueExpr); kv {
 					irNo("keyed slice literal")
 				}
-				lit.Elems = append(lit.Elems, b.expr(e))
 			}
+			lit.Elems = b.inOrder(x.Elts) // ir_order.go
 		case *check.Map:
 			lit.Elems = b.mapLit(x) // ir_pkg.go
 		case *check.Named:
@@ -168,6 +174,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			if len(x.Elts) != len(s.Fields) {
 				irNo("record literal without every field")
 			}
+			var values []syntax.Expr
 			for _, e := range x.Elts {
 				kv, ok := e.(*syntax.KeyValueExpr)
 				if !ok {
@@ -178,8 +185,9 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 					irNo("record key")
 				}
 				lit.Keys = append(lit.Keys, td.fieldName[k.Name])
-				lit.Elems = append(lit.Elems, b.expr(kv.Value))
+				values = append(values, kv.Value)
 			}
+			lit.Elems = b.inOrder(values) // ir_order.go
 		default:
 			irNo("literal of %T", t)
 		}
@@ -188,9 +196,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		return b.text(x, p)
 	case *syntax.CallExpr:
 		pre, e := b.call(x, false)
-		if len(pre) > 0 {
-			irNo("operation call inside an expression")
-		}
+		b.runFirst(pre) // ir_order.go: before the expression that holds it
 		return e
 	}
 	irNo("expression %T", x)

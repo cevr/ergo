@@ -76,8 +76,6 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"operation call spelling", "G2"},
 	{"capability without a named type", "G2"},
 	{"call in an operation's argument", "G2"},
-	{"operation call in a range", "G2"},
-	{"operation call in a condition", "G2"},
 	{"operation call inside an expression", "G2"},
 	{"body that needs a frame", "G2"},
 	{"owned local", "G2"},
