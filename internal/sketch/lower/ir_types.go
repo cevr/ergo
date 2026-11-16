@@ -44,6 +44,7 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 		if _, ok := b.fc.params[t]; !ok {
 			irNo("type parameter outside its declaration")
 		}
+		b.admitCopyParam(t, depth) // ir_known.go
 		return
 	case *check.Named:
 		if len(t.TParams) > 0 || t.Obj.Decl == nil {

@@ -1,0 +1,97 @@
+package lower
+
+// IR builder: copies for a known record (FLIP F7 wave 2, "copy for a
+// known record"; record.go, OPT6b).
+//
+// The IR takes both halves of the emitter's rule:
+//   - a call whose record argument the lowering knows (a machine value put
+//     into Machine, or the record parameter of the copy being written)
+//     goes to the callee's copy for that record (specAt), one instance
+//     with no type arguments;
+//   - in a copy, a call p.F(…) of a field the record names is a direct
+//     call of that function, which the IR writes as any call of a declared
+//     function (with its environment when it takes one, its error when it
+//     can fail).
+//
+// The copy's body is the function's body at the copy's type arguments
+// (typeCtx mono): a type parameter is spelled as its Go type argument and
+// admitted as the checked type it stands for (bound). The emitter also
+// inlines a small field function into the copy (inlineField); the IR, which
+// does not inline, calls it.
+//
+// Prior art: GHC's SpecConstr; OCaml's flambda specializes on a known
+// block argument; Gleam, Elixir and ReScript call through the closure.
+
+import (
+	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/syntax"
+)
+
+// copyName is the Go name of the copy for a known record that the body of
+// f being built is, or "" when it is f itself.
+func (b *irBuilder) copyName(f *check.Func) string {
+	for _, rec := range b.fc.recs {
+		if sp := b.l.specs[specKey{f, rec.tn}]; sp != nil {
+			return sp.name
+		}
+	}
+	return ""
+}
+
+// copyCall is the Go name of the copy the call x of c goes to, when its
+// record argument is known (record.go specAt, which queues the copy's
+// body), else "".
+func (b *irBuilder) copyCall(x *syntax.CallExpr, c *check.Call) string {
+	if sp := b.fc.specAt(x, c); sp != nil {
+		return sp.name
+	}
+	return ""
+}
+
+// knownField is c, the call x, as a call of the declared function a field
+// of a known record names, when x calls such a field in a copy
+// (recordCallText's conditions); else c.
+func (b *irBuilder) knownField(x *syntax.CallExpr, c *check.Call) *check.Call {
+	if c.Kind != check.CallFuncValue || b.fc.recs == nil || recordLowering == "opaque" || c.StartsTask {
+		return c
+	}
+	sel, ok := unparen(x.Fun).(*syntax.SelectorExpr)
+	if !ok {
+		return c
+	}
+	id, ok := unparen(sel.X).(*syntax.Ident)
+	if !ok {
+		return c
+	}
+	v, ok := b.l.info.Uses[id].(*check.Var)
+	if !ok || b.fc.recs[v] == nil {
+		return c
+	}
+	g := b.fc.recs[v].fields[sel.Sel.Name]
+	if g == nil || len(g.Sig.TParams) > 0 || len(witnessParams(g.Sig)) > 0 || g.Pkg == nil || g.Pkg.Info == nil {
+		return c
+	}
+	sig, ok := b.l.info.Types[x.Fun].(*check.Signature)
+	if !ok || len(g.Sig.Params) != len(sig.Params) || len(g.Sig.Results) != len(sig.Results) {
+		return c
+	}
+	gd := b.l.funcDecl(g)
+	if gd.method != nil || gd.extern != "" || len(b.l.ownedParams(g)) > 0 {
+		return c
+	}
+	return &check.Call{Kind: check.CallFunc, Func: g, Fails: c.Fails}
+}
+
+// admitCopyParam admits the type parameter t of a copy's body as the
+// checked type it stands for (typeCtx bound); a body that is no copy has
+// none to admit.
+func (b *irBuilder) admitCopyParam(t *check.TypeParam, depth int) {
+	if !b.fc.mono {
+		return
+	}
+	bt, ok := b.fc.bound[t]
+	if !ok {
+		irNo("type parameter of a copy without its type")
+	}
+	b.admit(bt, depth+1)
+}

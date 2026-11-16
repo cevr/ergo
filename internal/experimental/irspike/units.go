@@ -176,7 +176,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"generic body", "G4"},
 	{"owned parameters", "G4"},
 	{"known-callback variant", "G4"},
-	{"copy for a known record", "G4"},
+	{"type parameter of a copy without its type", "G4"}, // a copy for a known record (ir_known.go)
 	{"call without a value", "G4"},
 	{"call without a Calls entry", "G4"},
 	{"value copy of a *", "G4"}, // a value rule copy at a defined slice or Map type (ir_copy.go)

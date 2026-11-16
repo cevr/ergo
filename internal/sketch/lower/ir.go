@@ -318,6 +318,9 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	if fd.method != nil {
 		name = fd.method.name + "." + fd.name
 	}
+	if n := b.copyName(f); n != "" {
+		name = n // a copy for a known record (ir_known.go)
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			u, isNo := r.(irUnsupported)
