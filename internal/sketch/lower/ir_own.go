@@ -20,7 +20,9 @@ package lower
 // Debt: RELEASE-IR makes the helper a named IR function (no Go text),
 // queued before F8; self-hosting does not port this writer.
 //
-// It covers a frame with no error row. A release inside the body (a
+// A frame with an error row hands its helper the error result's address
+// (the derivative's "result" expression), as the emitter's End(&err)
+// does. A release inside the body (a
 // scope's end, a let's or a statement's planned releases, a break or a
 // continue; the emitter's releaseAt and scoped) is the emitter's
 // staticRelease: the value's bit is tested and cleared, then a helper
@@ -61,9 +63,11 @@ type irSlot struct {
 }
 
 // irStaticFrame reports a body whose frame the IR builds: the static
-// release form with no error row (decls.go lifts the frame's gate).
+// release form (decls.go lifts the frame's gate). A fallible one has
+// named results (namedResults); its release helper settles the exit on
+// the error result's address ("result", the emitter's End(&err)).
 func irStaticFrame(fc *funcCtx, fallible bool) bool {
-	return fc.frame != nil && fc.frame.static != nil && !fallible
+	return fc.frame != nil && fc.frame.static != nil
 }
 
 // openOwn starts the static frame of the body of f, whose parameters are
@@ -416,6 +420,18 @@ func (b *irBuilder) ownDone(name string) {
 		params = append(params, kept+" *uint64")
 		args = append(args, b.addrOf(o.kept, o.p))
 	}
+	errArg := "nil"
+	if fc.frame.fallible {
+		// The frame's named error result, last (namedResults): End
+		// settles the exit into it after the body returned.
+		errArg = l.names.alloc("err")
+		params = append(params, errArg+" *error")
+		last := 0
+		if b.result != nil {
+			last = 1
+		}
+		args = append(args, &irExpr{K: "addr", Pos: o.p, X: &irExpr{K: "result", Pos: o.p, I: last}})
+	}
 	slots := make([]string, len(o.slots))
 	for k, s := range o.slots {
 		slots[k] = l.names.alloc("slot")
@@ -445,7 +461,7 @@ func (b *irBuilder) ownDone(name string) {
 	var t strings.Builder
 	t.WriteString("// " + helper + " is the deferred release of " + name + "'s static frame (IR, FLIP F7).\n")
 	t.WriteString("func " + helper + "(" + strings.Join(params, ", ") + ") {\n")
-	t.WriteString("\t" + rel + " := " + fc.runtimeCall("StaticBegin", fc.ownBinding("StaticBegin", site), "", "", []string{"nil", "recover()"}, env, nil, nil, site) + "\n")
+	t.WriteString("\t" + rel + " := " + fc.runtimeCall("StaticBegin", fc.ownBinding("StaticBegin", site), "", "", []string{errArg, "recover()"}, env, nil, nil, site) + "\n")
 	for k := len(o.slots) - 1; k >= 0; k-- {
 		t.WriteString(part(live, k))
 	}
@@ -456,7 +472,7 @@ func (b *irBuilder) ownDone(name string) {
 		}
 		t.WriteString("\t}\n")
 	}
-	t.WriteString("\t" + fc.runtimeCall("Static.End", fc.ownBinding("Static.End", site), "", "&"+rel, []string{"nil"}, "", nil, nil, site) + "\n}\n\n")
+	t.WriteString("\t" + fc.runtimeCall("Static.End", fc.ownBinding("Static.End", site), "", "&"+rel, []string{errArg}, "", nil, nil, site) + "\n}\n\n")
 	// A slot released inside the body (slotRelease): its release alone,
 	// whose defect leaves at once (the emitter's staticRelease).
 	for _, s := range o.slots {
