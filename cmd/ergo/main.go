@@ -22,6 +22,7 @@ import (
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/eval"
 	"ergo.local/prototype/internal/sketch/lawcache"
+	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/sketchfront"
 	sourcefile "ergo.local/prototype/internal/source"
 	"ergo.local/prototype/internal/stage"
@@ -194,7 +195,7 @@ type fileOptions struct {
 	// Append and Concat site (in place, one extender or copy, and why) on
 	// stderr (OWN1); empty prints none.
 	report string
-	// rewrites is build's -rewrites=on|proved|off (lower.Unit.Rewrites):
+	// rewrites is build's -rewrites=on|proved|off|canary[=N] (lower.Unit.Rewrites):
 	// which rewrites over functions the run build applies; empty is on.
 	rewrites string
 }
@@ -266,8 +267,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 			continue
 		}
 		if value, ok := strings.CutPrefix(args[i], "-rewrites="); ok {
-			if value != "on" && value != "proved" && value != "off" {
-				return opts, fmt.Errorf("-rewrites takes on, proved or off, not %q", value)
+			if _, _, err := lower.ParseRewrites(value); err != nil {
+				return opts, err
 			}
 			opts.rewrites = value
 			continue

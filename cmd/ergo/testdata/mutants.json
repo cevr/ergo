@@ -355,7 +355,7 @@
       "killers": ["cmd/ergo:TestTestResultCache"],
       "anchor": {"tests": ["cmd/ergo:TestTestResultCache"]}
     },
-    {"name":"cache-fail-kept","origin":"wf10 g-b2","file":"cmd/ergo/test.go","from":"\tverdicts.Record(out.String())\n\tif err != nil {\n\t\treturn err\n\t}\n","to":"\tverdicts.Record(out.String())\n\tif store != nil {\n\t\tstore(result)\n\t}\n\tif err != nil {\n\t\treturn err\n\t}\n","rule":"Only a passing run is cached or kept as a warm answer: a cached verdict is the verdict of a rerun, and a failure runs again (CS8).","killers":["cmd/ergo:TestTestResultCache","cmd/ergo:TestCachedVerdictAgrees"],"anchor":{"tests":["cmd/ergo:TestTestResultCache","cmd/ergo:TestCachedVerdictAgrees"]}},
+    {"name":"cache-fail-kept","origin":"wf10 g-b2","file":"cmd/ergo/test.go","from":"\t\t\terr = werr\n\t\t}\n\t}\n\tif err != nil {\n\t\treturn err\n\t}\n","to":"\t\t\terr = werr\n\t\t}\n\t}\n\tif store != nil {\n\t\tstore(result)\n\t}\n\tif err != nil {\n\t\treturn err\n\t}\n","rule":"Only a passing run is cached or kept as a warm answer: a cached verdict is the verdict of a rerun, and a failure runs again (CS8).","killers":["cmd/ergo:TestTestResultCache","cmd/ergo:TestCachedVerdictAgrees"],"anchor":{"tests":["cmd/ergo:TestTestResultCache","cmd/ergo:TestCachedVerdictAgrees"]}},
     {
       "name": "cache-hit-links",
       "origin": "wf10 g-b2",
