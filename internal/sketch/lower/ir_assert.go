@@ -156,7 +156,16 @@ func (b *irBuilder) assert(s *syntax.AssertStmt) []*irStmt {
 		op := x.Op.String()
 		b.operator(op, l.info.Types[x.X], x)
 		var vals []*irExpr
+		// A try that starts the assert covers the whole comparison: its
+		// operands are built under it (the emitter's assert, q105).
+		inTry := tried(s.X) != s.X
+		if inTry {
+			b.tries++
+		}
 		pre, vals = b.operands([]syntax.Expr{x.X, x.Y}) // ir_fail.go
+		if inTry {
+			b.tries--
+		}
 		for k, e := range []syntax.Expr{x.X, x.Y} {
 			if vals[k].K == "const" || vals[k].K == "local" {
 				continue
