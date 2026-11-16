@@ -20,9 +20,11 @@ var hookTargets = map[string]bool{
 	runtimeModule + "/runtime/v1.HookPoint": true,
 }
 
-// hookFunc reports whether f is std testing's At or Point.
+// hookFunc reports whether f is an extern of runtime/v1's HookAt or
+// HookPoint (std testing's At and Point): it decides by the extern's
+// target, which any module's declaration may name, not by std membership.
 func hookFunc(f *check.Func) bool {
-	return f != nil && f.Pkg != nil && f.Pkg.Std() && f.Decl != nil && f.Decl.Extern != nil && f.Decl.Extern.Target != nil &&
+	return f != nil && f.Decl != nil && f.Decl.Extern != nil && f.Decl.Extern.Target != nil &&
 		hookTargets[strings.Trim(f.Decl.Extern.Target.Value, "\"`")]
 }
 
