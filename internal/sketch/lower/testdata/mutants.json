@@ -5814,6 +5814,7 @@
         "lower:TestFloatProductsRound"
       ]
     },
-    {"name":"i20-group-cut-kept","origin":"wf10 I20 (P-ui x H8a)","file":"internal/sketch/std/ui/group.ergo","from":"\tif len(f.groups) <= n {","to":"\tif true {","rule":"A cut (a boundary's body stopped, H8a) takes back the component groups written since its mark: a group whose specs the cut gave back is never kept.","killers":["lower:TestUISkipAgrees"]}
+    {"name":"i20-group-cut-kept","origin":"wf10 I20 (P-ui x H8a)","file":"internal/sketch/std/ui/group.ergo","from":"\tif len(f.groups) <= n {","to":"\tif true {","rule":"A cut (a boundary's body stopped, H8a) takes back the component groups written since its mark: a group whose specs the cut gave back is never kept.","killers":["lower:TestUISkipAgrees"]},
+    {"name":"g1-exit-conversion-none","origin":"wf10 FK9-g1c","file":"internal/sketch/lower/expr.go","from":"\", Exit: \" + fc.machineExit(conv, site) + \"}\"","to":"\", Exit: \" + fc.machineNone(conv, \"Exit\", site) + \"}\"","rule":"runtime.md Machines and actors 12a: a declared machine's Exit is its exit function, not None.","killers":["lower:TestStdActorLawsRun"]}
   ]
 }
