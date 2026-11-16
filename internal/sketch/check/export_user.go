@@ -43,7 +43,19 @@ type UserExport struct {
 	// segment index, taken when its segment is written.
 	tables map[int]map[any]objPath
 	Refs   []CrossRef
+	// sets are the programs' Go bindings (withGoBindings); host marks the
+	// segments of their binding packages, written before the first user
+	// segment that reaches them. Like std's, a host segment is the
+	// loader's state, never checked again by an edit: a user segment names
+	// its objects by id, and Decode reads them as this process holds them
+	// (B7e).
+	sets []*GoBindings
+	host map[int]bool
+	done map[*Package]bool
 }
+
+// fixed reports a segment of std or of a Go binding package.
+func (u *UserExport) fixed(seg int) bool { return seg < u.first || u.host[seg] }
 
 // NewUserExport writes std's segments. importers are the values the user
 // packages' checkers hold as their importer (a loader): the export names
@@ -63,10 +75,16 @@ func NewUserExport(importers ...any) (u *UserExport, err error) {
 		return nil, err
 	}
 	e := newEncoder()
+	importers = withGoBindings(importers)
 	for i, imp := range importers {
 		e.ext[imp] = uint64(len(externals()) + i)
 	}
-	u = &UserExport{e: e, first: len(s.packages) + 1, tables: map[int]map[any]objPath{}, nodeCross: map[int]bool{}}
+	u = &UserExport{e: e, first: len(s.packages) + 1, tables: map[int]map[any]objPath{}, nodeCross: map[int]bool{}, host: map[int]bool{}, done: map[*Package]bool{}}
+	for _, imp := range importers {
+		if set, ok := imp.(*GoBindings); ok {
+			u.sets = append(u.sets, set)
+		}
+	}
 	u.segs = append(u.segs, e.segment("", func() { e.encPtrstdBase(s.base) }))
 	u.paths = append(u.paths, "")
 	for i, pkg := range s.packages {
@@ -76,7 +94,7 @@ func NewUserExport(importers ...any) (u *UserExport, err error) {
 	e.crossRef = func(seg int, v any) { u.cross(seg, v) }
 	e.symbolic = func(seg int, v any) (objPath, bool) {
 		cur := len(e.objStarts) - 1
-		if seg < u.first || cur < u.first || seg == cur {
+		if u.fixed(seg) || u.fixed(cur) || seg == cur {
 			return "", false
 		}
 		p, ok := u.tables[seg][v]
@@ -89,7 +107,7 @@ func NewUserExport(importers ...any) (u *UserExport, err error) {
 	e.nodes.Below = func(id uint64) {
 		below(id)
 		seg, cur := segmentOf(e.nodeStarts, id), len(e.nodeStarts)-1
-		if seg >= u.first && cur >= u.first && seg != cur {
+		if !u.fixed(seg) && !u.fixed(cur) && seg != cur {
 			u.nodeCross[cur] = true
 		}
 		u.cross(seg, nil)
@@ -99,7 +117,7 @@ func NewUserExport(importers ...any) (u *UserExport, err error) {
 
 func (u *UserExport) cross(seg int, v any) {
 	cur := len(u.e.objStarts) - 1
-	if seg >= u.first && cur >= u.first && seg != cur {
+	if !u.fixed(seg) && !u.fixed(cur) && seg != cur {
 		r := CrossRef{From: u.paths[cur], To: u.paths[seg], Obj: v}
 		if v != nil {
 			var p objPath
@@ -114,12 +132,35 @@ func (u *UserExport) cross(seg int, v any) {
 // value in its state) is an error; the export is then unusable.
 func (u *UserExport) Add(pkg *Package) (err error) {
 	defer recoverExport(&err)
+	u.addHosts()
+	if u.done[pkg] {
+		return nil // a Go binding package, written by addHosts
+	}
 	u.paths = append(u.paths, pkg.Path)
 	// A derive record is not carried (exportgen skipFields); the measure
 	// does not need it.
 	u.tables[len(u.e.objStarts)] = objectPaths(pkg)
 	u.segs = append(u.segs, u.e.segment(pkg.Path, func() { u.e.encPtrPackage(pkg) }))
 	return nil
+}
+
+// addHosts writes a segment for each binding package of the programs' Go
+// bindings that no segment holds yet, in path order. A binding package one
+// of them reaches, made since, joins that segment.
+func (u *UserExport) addHosts() {
+	for _, set := range u.sets {
+		for _, path := range sortedKeys(set.pkgs) {
+			p := set.pkgs[path]
+			if p == nil || u.done[p] {
+				continue
+			}
+			u.done[p] = true
+			u.host[len(u.e.objStarts)] = true
+			u.paths = append(u.paths, path)
+			u.segs = append(u.segs, u.e.segment(path, func() { u.e.encPtrPackage(p) }))
+			u.stdObjs = nil
+		}
+	}
 }
 
 // Decode reads the segment of the user package at path against current,
@@ -145,17 +186,19 @@ func (u *UserExport) Decode(path string, current func(path string) *Package, imp
 	if u.stdObjs == nil {
 		starts := append(slicesClone(e.objStarts), e.next)
 		u.stdObjs = &objTable{starts: starts, segs: make([][]any, len(starts)-1)}
-		for k := range u.first {
-			u.stdObjs.segs[k] = make([]any, starts[k+1]-starts[k])
+		for k := range len(starts) - 1 {
+			if u.fixed(k) {
+				u.stdObjs.segs[k] = make([]any, starts[k+1]-starts[k])
+			}
 		}
 		for x, id := range e.ids {
-			if k := segmentOf(e.objStarts, id); k < u.first {
+			if k := segmentOf(e.objStarts, id); k >= 0 && u.fixed(k) {
 				u.stdObjs.segs[k][id-starts[k]] = x
 			}
 		}
 	}
 	// A fresh node table each time: the segment's own nodes are new.
-	nodes := e.nodes.Table(append(slicesClone(e.nodeStarts), e.nodes.Next()), u.first)
+	nodes := e.nodes.Table(append(slicesClone(e.nodeStarts), e.nodes.Next()), u.fixed)
 	seg := u.segs[i]
 	n, k := binary.Uvarint(seg.data)
 	if k <= 0 || n > uint64(len(seg.data)-k) {
@@ -165,7 +208,7 @@ func (u *UserExport) Decode(path string, current func(path string) *Package, imp
 		return nil, err
 	}
 	ext := externals()
-	ext = append(ext, importers...)
+	ext = append(ext, withGoBindings(importers)...)
 	d := &decoder{buf: seg.data[k+int(n):], ext: ext, nodes: nodes, table: u.stdObjs, seg: i, start: seg.objStart}
 	d.imports = func(s int) *Package {
 		if s < u.first || s >= i {
@@ -179,6 +222,21 @@ func (u *UserExport) Decode(path string, current func(path string) *Package, imp
 	}
 	d.afterDecode()
 	return pkg, nil
+}
+
+// withGoBindings is importers and, after them, the Go bindings of each
+// that is a GoImporter: the program's Go packages are the loader's state,
+// read through its lookup function, so the export names the set as it
+// names the loader, and a user segment carries a binding package's
+// checked state with no function value (B7e).
+func withGoBindings(importers []any) []any {
+	out := append([]any(nil), importers...)
+	for _, imp := range importers {
+		if gi, ok := imp.(GoImporter); ok && gi.GoBindings() != nil {
+			out = append(out, gi.GoBindings())
+		}
+	}
+	return out
 }
 
 func slicesClone(s []uint64) []uint64 { return append([]uint64(nil), s...) }
