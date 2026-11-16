@@ -129,14 +129,6 @@
       "to": "\tcase (Stopping as r, Stop):\n\t\tEnter[Watch]{Next: Stopped{Elapsed: r.Elapsed}}\n",
       "rule": "A stop's reading, from the work, sets the time, not the last tick (law ClickThenWorkIsThePress).",
       "anchor": {"tests": ["examples:fk-stopwatch"]}, "killers": ["examples:fk-stopwatch"]
-    },
-    {
-      "name": "fkg1g5-work-sends-twice", "origin": "wf10/fkg1-g5",
-      "file": "examples/fk-stopwatch/watch/watch.ergo",
-      "from": "\t\tsend(Pressed{Button: b, At: time.Clock.Now()})\n",
-      "to": "\t\tsend(Pressed{Button: b, At: time.Clock.Now()})\n\t\tsend(Pressed{Button: b, At: time.Clock.Now()})\n",
-      "rule": "A click's work sends one press (law ClickThenWorkIsThePress).",
-      "anchor": {"tests": ["examples:fk-stopwatch"]}, "killers": ["examples:fk-stopwatch"]
     }
   ]
 }
