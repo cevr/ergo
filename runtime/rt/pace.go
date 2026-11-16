@@ -1,6 +1,7 @@
 package rt
 
 import (
+	"io"
 	"math"
 	"os"
 	"path"
@@ -179,7 +180,7 @@ func (p *pacer) stop() { p.stopped.Store(true) }
 // the files cannot be read (cgroup v1, or not Linux). self is the
 // process's cgroup file (/proc/self/cgroup), root the cgroup v2 mount.
 func cgroupMemoryLimit(self, root string) uint64 {
-	data, err := os.ReadFile(self)
+	data, err := readSmall(self)
 	if err != nil {
 		return 0
 	}
@@ -195,7 +196,7 @@ func cgroupMemoryLimit(self, root string) uint64 {
 	}
 	var limit uint64
 	for {
-		if b, err := os.ReadFile(root + dir + "/memory.max"); err == nil {
+		if b, err := readSmall(root + dir + "/memory.max"); err == nil {
 			if n, err := strconv.ParseUint(strings.TrimSpace(string(b)), 10, 64); err == nil && n > 0 && (limit == 0 || n < limit) {
 				limit = n
 			}
@@ -204,5 +205,30 @@ func cgroupMemoryLimit(self, root string) uint64 {
 			return limit
 		}
 		dir = path.Dir(dir)
+	}
+}
+
+// readSmall reads a small file whole. It is not os.ReadFile, which sizes
+// its buffer with File.Stat: a Stat's FileInfo links time's formatting and
+// zone loading into every program (internal/sizes, fact
+// "^time\.Time\.(String|Format|GoString)$"), and a cgroup or proc file
+// reports size 0 anyway.
+func readSmall(name string) ([]byte, error) {
+	f, err := os.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	var data []byte
+	buf := make([]byte, 512)
+	for {
+		n, err := f.Read(buf)
+		data = append(data, buf[:n]...)
+		if err == io.EOF {
+			return data, nil
+		}
+		if err != nil {
+			return nil, err
+		}
 	}
 }
