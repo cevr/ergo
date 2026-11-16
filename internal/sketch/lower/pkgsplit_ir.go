@@ -91,6 +91,29 @@ func (s *irSplit) foreign(p int, name string) {
 	s.uses[p][name] = true
 }
 
+// forwardedInsts are the instances that the forwarding functions
+// foreignDecls writes name in their signatures, each in the package it
+// writes the forwarder into: Go compiles them there too, so the shared
+// lists count those packages (MONO-SHARED, pkginst.go).
+func (s *irSplit) forwardedInsts(defs splitDefs, finder *splitInsts) []splitInst {
+	var out []splitInst
+	for _, k := range slices.Sorted(maps.Keys(s.uses)) {
+		for _, name := range slices.Sorted(maps.Keys(s.uses[k])) {
+			fn, ok := defs.node[name].(*ast.FuncDecl)
+			if !ok || fn.Type.TypeParams != nil {
+				continue
+			}
+			ast.Inspect(fn.Type, func(n ast.Node) bool {
+				if x, ok := n.(ast.Expr); ok && finder.instance(x) {
+					out = append(out, splitInst{x: x, pkg: k})
+				}
+				return true
+			})
+		}
+	}
+	return out
+}
+
 // splitDefs are main.go's package-scope declarations: each name's node
 // (*ast.FuncDecl, *ast.TypeSpec or *ast.ValueSpec) and the index of its
 // declaration.

@@ -715,7 +715,8 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 	if irs != nil && instShared {
 		finder = newSplitInsts(f, groups, groupOf)
 		var names map[string]bool
-		insts, names = finder.shared(finder.collect(f, declGroup), plan, base, minUsers(shards))
+		found := append(finder.collect(f, declGroup), irs.forwardedInsts(defOf, finder)...)
+		insts, names = finder.shared(found, plan, base, minUsers(shards))
 		if len(insts) > 0 {
 			instPkg = len(plan.pkgs)
 			plan.pkgs = append(plan.pkgs, splitPkg{dir: instDir, name: instName, sees: map[int]bool{}})
