@@ -40,6 +40,7 @@ var orderForms = []orderForm{
 	{"error row as a type argument", 2, map[string]int{"calls2": 3, "expr": 10}},
 	{"call with a call site", 2, map[string]int{"calls2": 3, "expr": 11}},
 	{"len and index of a named string", 2, map[string]int{"calls2": 3, "expr": 12}},
+	{"slice of a slice", 2, map[string]int{"calls2": 3, "expr": 13}},
 	{"for-in over a call", 5, nil},
 	{"loop condition with a call", 4, nil},
 	{"try of a non-call", 7, map[string]int{"try7": 1}},
@@ -119,6 +120,10 @@ func (g *fgen) orderDecls() {
 	// tagged takes the length and a byte of a named type over string
 	// (std fs.Text's form).
 	g.b.WriteString("type Tag string\n\nfunc tagged(n int) int {\n\tlet t = Tag(\"ab\\(n)c\")\n\tlen(t)*100 + int(t[len(t)-2])\n}\n\n")
+	// cut takes slices of a slice: both bounds, each one left out, three
+	// indices (whose cap the append sees), a slice changed after it is
+	// cut, and a low bound that can pass the end (a defect).
+	g.b.WriteString("func cut(n int) int {\n\tlet xs = []int{n, n + 1, n + 2, n + 3, n + 4}\n\tlet a = xs[1:4]\n\tlet b = xs[:n%4+1]\n\tlet c = xs[n%3:]\n\tlet d = a[1:2:3]\n\tlet g = d.Append(7)\n\tlet mut e = xs[1:3]\n\te[0] = 99\n\tlen(a)*100000 + a[2]*10000 + len(b)*1000 + c[0]*100 + len(g)*10 + xs[1] + e[0] + len(xs[n%7:])\n}\n\n")
 	// here's last parameter is the call's site, which a call leaves out.
 	g.b.WriteString("func here(n int, at CallSite) int {\n\tn + at.Line*1000 + at.Column*7 + len(at.File) % 5\n}\n\n")
 	g.b.WriteString("func settled(n int) int {\n\tmatch settle(n) {\n\tcase Enter[Pt] as d:\n\t\td.Next.A * 3\n\tcase Stay[Pt] as d:\n\t\td.Next.B - 7\n\tcase Ignore:\n\t\t5\n\tcase Reject:\n\t\t11\n\t}\n}\n\n")
@@ -132,7 +137,9 @@ func (g *fgen) traced() string { return "tr(" + g.expr(1) + ")" }
 // literal, a short-circuit operand; an earlier operand may be a defect
 // (indexed) that must come before a later call's effect.
 func (g *fgen) orderExpr() string {
-	switch g.sub("expr", 13) {
+	switch g.sub("expr", 14) {
+	case 13:
+		return "cut(" + g.traced() + ")"
 	case 12:
 		return "tagged(" + g.traced() + ")"
 	case 11:
