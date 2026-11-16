@@ -516,6 +516,10 @@ func (fc *funcCtx) goErrorOf(x syntax.Expr, e string) {
 // (v1.GoIs), and go.As[T](e), errors.As into a T (v1.GoAs), Some when Go
 // finds one (IG5; check/goerror.go).
 func (fc *funcCtx) goErrorCall(x *syntax.CallExpr, c *check.Call) operand {
+	if c.Name == "go.New" {
+		// go.New[T]() is Go's new(T) (GBX1; check/gonew.go).
+		return operand{val: "new(" + fc.goType(c.Type) + ")"}
+	}
 	args := fc.operands(x.Args, true)
 	if c.Name == "go.Is" {
 		return operand{val: fc.l.rt() + ".GoIs(" + args[0] + ", " + args[1] + ")"}

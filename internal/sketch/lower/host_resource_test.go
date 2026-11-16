@@ -140,6 +140,16 @@ type Names []string
 
 type Tags map[string]int
 
+// Go values used through their address (GBX1): methods with pointer
+// receivers, on a struct and on a named basic type.
+type Counter struct{ n int }
+
+func (c *Counter) Add(d int) int { c.n += d; return c.n }
+
+type Level int
+
+func (l *Level) Raise() { *l++ }
+
 type Retainer interface {
 	Close() error
 	Hold()
