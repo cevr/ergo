@@ -181,7 +181,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		switch {
 		case fd.extern != "" && !intrinsic:
 			irNo("call of an extern function")
-		case len(witnessParams(f.Sig)) > 0:
+		case len(witnessParams(f.Sig)) > 0 && fd.method != nil:
 			irNo("call that passes witnesses")
 		case len(b.fc.captureOwners(x)) > 0:
 			irNo("call that captures owners")
@@ -224,6 +224,14 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 				at = 1
 			}
 			irArgs = append(irArgs[:at:at], append([]*irExpr{env}, irArgs[at:]...)...)
+		}
+		if wits := b.witnessArgs(f, x, p); len(wits) > 0 { // ir_witness.go
+			// After the environment, before the operands (witnessArgs).
+			at := 0
+			if !fd.pure {
+				at = 1
+			}
+			irArgs = append(irArgs[:at:at], append(wits, irArgs[at:]...)...)
 		}
 		if known != "" && fd.method != nil {
 			return pre, mark(&irExpr{K: "mcall", Pos: p, Name: known, X: irArgs[0], Args: irArgs[1:]}), !fd.pure

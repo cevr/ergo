@@ -269,6 +269,9 @@ func (l *lowerer) nameAll() {
 	for _, e := range sortGenerated(generated) {
 		l.pkgName(e.key, e.base)
 	}
+	if l.ir != nil {
+		l.reserveWitnessValues() // an IR lowering's witness variables (ir_witness.go)
+	}
 	l.nameTests() // the test build's names (tests.go); none in the run build
 	l.prenamed = true
 }
