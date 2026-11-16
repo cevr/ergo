@@ -34,6 +34,7 @@ import (
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // irOwn is the static frame of the IR body being built.
@@ -368,6 +369,22 @@ func (b *irBuilder) ownedBodyName(fd *funcDecl, name string, drop bool) string {
 		return name
 	}
 	return b.l.pkgName(ownedKey(f), f.Name+"Owned")
+}
+
+// consumedForm is the runtime/v1 body a std call x of body (named name)
+// calls: its owned form when the value analysis found its first operand
+// consumed (vals.consumes: FromBytesOwned's builderText(bs) takes bs over
+// with no copy), or in a test build its checking form, as the emitter's
+// stdCall chooses them (ownedFormAt); name otherwise (FORK-ALLOC).
+func (b *irBuilder) consumedForm(x *syntax.CallExpr, body v1.Body, name string) string {
+	if b.l.vals == nil || !b.l.vals.consumes[x] || body.Owned == "" {
+		return name
+	}
+	form := b.fc.ownedFormAt(x, body)
+	if _, bound := runtimeBindings()[form]; !bound {
+		irNo("std call with no runtime binding")
+	}
+	return form
 }
 
 // ownedCallName is the Go name a call x of f names: the owned body when
