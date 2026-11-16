@@ -55,7 +55,6 @@ var reasonUnits = []struct{ prefix, unit string }{
 	// F7 update (ir_update.go): the updates it leaves.
 	{"elided literal type", "G1"},
 	{"record update *", "G1"},
-	{"unkeyed record literal", "G1"},
 	{"record literal without every field", "G1"},
 	{"keyed slice literal", "G1"},
 	{"spread", "G1"},
@@ -85,16 +84,12 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"for-in binding without a variable", "G1"},
 	// G2: the failure ABI, frames and operation calls.
 	{"fallible function", "G2"},
-	{"expression *syntax.CatchExpr", "G2"},
-	{"expression *syntax.TryExpr", "G2"},
 	{"loop in an impure frame", "G2"},
 	{"call of an impure, fallible or special function", "G2"},
 	{"operation call form", "G2"},
 	{"operation call spelling", "G2"},
 	{"capability without a named type", "G2"},
 	{"call in an operation's argument", "G2"},
-	{"operation call in a range", "G2"},
-	{"operation call in a condition", "G2"},
 	{"operation call inside an expression", "G2"},
 	{"body that needs a frame", "G2"},
 	{"owned local", "G2"},
@@ -105,12 +100,10 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"fallible call with an empty row at its site", "G2"},
 	{"call of an impure function from a pure one", "G2"},
 	{"try without a value", "G2"},
-	{"try of a non-call", "G2"},
 	{"catch without its Matches entry", "G2"},
 	{"catch of a non-call", "G2"},
 	{"catch arm without a pattern", "G2"},
 	{"catch arm form", "G2"},
-	{"failure in a branch tail of a body with no value", "G2"},
 	{"operation call that enters a release", "G2"}, // a checked Close: frames, IRG2b
 	{"checked Close (closeBody masks it)", "G2"},   // the Close body itself, inside its mask
 	{"call of an extern function", "G4"},

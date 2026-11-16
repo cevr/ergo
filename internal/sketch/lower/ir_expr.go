@@ -26,6 +26,11 @@ func irString(s string) string {
 // statements: an if expression inside an operand keeps its source body,
 // since hoisting it would move it before the operands to its left.
 func (b *irBuilder) value(x syntax.Expr) ([]*irStmt, *irExpr) {
+	// The statements its operands run first come first (ir_order.go).
+	return b.collect(func() ([]*irStmt, *irExpr) { return b.valueOf(x) })
+}
+
+func (b *irBuilder) valueOf(x syntax.Expr) ([]*irStmt, *irExpr) {
 	var pre []*irStmt
 	var e *irExpr
 	switch y := unparen(x).(type) {
@@ -162,7 +167,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		}
 		op := x.Op.String()
 		b.operator(op, b.l.info.Types[x.X], x)
-		return &irExpr{K: "bin", Pos: b.pos(x, x.OpPos), Op: op, X: b.expr(x.X), Y: b.expr(x.Y)}
+		return b.binaryOf(x, op) // ir_order.go: operands in order
 	case *syntax.UnaryExpr:
 		op := x.Op.String()
 		switch op {
@@ -201,7 +206,8 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		if _, ok := b.l.info.Types[x.X].(*check.Slice); !ok {
 			return b.indexOther(x, p) // ir_index.go
 		}
-		return &irExpr{K: "index", Pos: p, X: b.expr(x.X), Y: b.expr(x.Indices[0])}
+		xs := b.inOrder([]syntax.Expr{x.X, x.Indices[0]}) // ir_order.go
+		return &irExpr{K: "index", Pos: p, X: xs[0], Y: xs[1]}
 	case *syntax.CompositeLit:
 		if x.Base != nil || x.Type == nil {
 			return b.updateLit(x, t, p) // ir_update.go
@@ -216,8 +222,8 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 				if _, kv := e.(*syntax.KeyValueExpr); kv {
 					irNo("keyed slice literal")
 				}
-				lit.Elems = append(lit.Elems, b.expr(e))
 			}
+			lit.Elems = b.inOrder(x.Elts) // ir_order.go
 		case *check.Map:
 			lit.Elems = b.mapLit(x) // ir_pkg.go
 		case *check.Named:
@@ -229,26 +235,38 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			if len(x.Elts) != len(s.Fields) {
 				irNo("record literal without every field")
 			}
-			for _, e := range x.Elts {
-				kv, ok := e.(*syntax.KeyValueExpr)
-				if !ok {
+			var values []syntax.Expr
+			for i, e := range x.Elts {
+				name := ""
+				kv, keyed := e.(*syntax.KeyValueExpr)
+				switch {
+				case keyed:
+					k, ok := kv.Key.(*syntax.Ident)
+					if !ok {
+						irNo("record key")
+					}
+					name = k.Name
+					values = append(values, kv.Value)
+				case i < len(td.fields):
+					// A positional element sets the field of its place (the
+					// emitter's composite).
+					name = td.fields[i].Name
+					values = append(values, e)
+				default:
 					irNo("unkeyed record literal")
 				}
-				k, ok := kv.Key.(*syntax.Ident)
-				if !ok {
-					irNo("record key")
-				}
+				v := values[len(values)-1]
 				for _, f := range s.Fields {
-					if f.Name == k.Name && b.fc.goType(b.l.info.Types[kv.Value]) != b.fc.goType(f.Type) {
+					if f.Name == name && b.fc.goType(b.l.info.Types[v]) != b.fc.goType(f.Type) {
 						// Go converts a variant to its row's error field;
 						// the decoder takes identical types only (I-FLIP:
 						// examples/jobs).
 						irNo("record field of a converted value")
 					}
 				}
-				lit.Keys = append(lit.Keys, td.fieldName[k.Name])
-				lit.Elems = append(lit.Elems, b.expr(kv.Value))
+				lit.Keys = append(lit.Keys, td.fieldName[name])
 			}
+			lit.Elems = b.inOrder(values) // ir_order.go
 		default:
 			irNo("literal of %T", t)
 		}
@@ -269,9 +287,13 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		return b.closureLit(x, nil) // ir_closure.go
 	case *syntax.CallExpr:
 		pre, e := b.call(x, false)
-		if len(pre) > 0 {
-			irNo("operation call inside an expression")
-		}
+		b.runFirst(pre) // ir_order.go: before the expression that holds it
+		return e
+	case *syntax.TryExpr, *syntax.CatchExpr:
+		// A try or catch inside an expression: its statements run before
+		// the expression, in order, as a call's do (ir_fail.go, ir_order.go).
+		pre, e := b.failValue(x)
+		b.runFirst(pre)
 		return e
 	}
 	irNo("expression %T", x)
