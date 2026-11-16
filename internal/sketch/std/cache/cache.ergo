@@ -105,7 +105,7 @@ type step[K, V] = found[V] | waiting | loader[K, V]
 // waiting Get runs it.
 func Get[K comparable, V, E, R](c Cache[K, V], k K, lookup func(k K) V fails E needs R) V fails E needs time.Clock | R {
 	for {
-		let now = time.Clock.Now()
+		let now = stampOf(c.config)
 		let next = sync.Modify(c.state, func(t table[K, V]) (step[K, V], table[K, V]) { begin(c.config, k, now, t) })
 		match next {
 		case found[V] as f:
@@ -162,13 +162,19 @@ func startLoad[K comparable, V](k K, t table[K, V]) (loading, table[K, V]) {
 // run runs the lookup of l and keeps its value, if k is still l's: a Put or
 // an Invalidate while it ran wins. However run ends, l's waiters wake.
 func run[K comparable, V, E, R](c Cache[K, V], k K, l loader[K, V], lookup func(k K) V fails E needs R) V fails E needs time.Clock | R {
+	let mut kept = false
 	scope.OnExit() {
-		let _ = sync.Modify(c.state, func(t table[K, V]) (bool, table[K, V]) { abandon(k, l.id, t) })
+		// keep's Modify has replaced or left l's slot when the lookup gave
+		// its value, so only a lookup that failed or stopped is abandoned.
+		if !kept {
+			let _ = sync.Modify(c.state, func(t table[K, V]) (bool, table[K, V]) { abandon(k, l.id, t) })
+		}
 		l.done.End()
 	}
 	let v = try lookup(k)
-	let now = time.Clock.Now()
+	let now = stampOf(c.config)
 	let gone = sync.Modify(c.state, func(t table[K, V]) ([]leaving[K, V], table[K, V]) { keep(c.config, k, l.id, v, now, t) })
+	kept = true
 	releaseAll(c, gone)
 	v
 }
@@ -275,6 +281,16 @@ func evict[K comparable, V](config Config, t table[K, V]) ([]leaving[K, V], tabl
 	(gone, u)
 }
 
+// stampOf is the time to stamp an entry with: the clock's, or, for a
+// config with no Life and no Idle, which never reads a stamp (live), the
+// zero instant, so such a cache reads no clock.
+func stampOf(config Config) time.Time needs time.Clock {
+	if config.Life == 0s && config.Idle == 0s {
+		return time.Unix(0, 0)
+	}
+	time.Clock.Now()
+}
+
 // live reports whether r is younger than the life and was read within the
 // idle time, at now.
 func live[V](config Config, r ready[V], now time.Time) bool {
@@ -291,7 +307,7 @@ func releaseAll[K comparable, V](c Cache[K, V], gone []leaving[K, V]) {
 // Peek is k's value when the cache holds a live entry of k. It runs no
 // lookup, does not wait for one, and does not count as a read.
 func Peek[K comparable, V](c Cache[K, V], k K) Option[V] needs time.Clock {
-	let now = time.Clock.Now()
+	let now = stampOf(c.config)
 	let held = sync.Modify(c.state, func(t table[K, V]) (Option[slot[V]], table[K, V]) { (t.slots.Get(k), t) })
 	match held {
 	case Some[slot[V]] as s:
@@ -310,7 +326,7 @@ func Peek[K comparable, V](c Cache[K, V], k K) Option[V] needs time.Clock {
 // entry of k, which leaves, and wins over a lookup of k in flight, whose
 // waiters then read v.
 func Put[K comparable, V](c Cache[K, V], k K, v V) needs time.Clock {
-	let now = time.Clock.Now()
+	let now = stampOf(c.config)
 	let gone = sync.Modify(c.state, func(t table[K, V]) ([]leaving[K, V], table[K, V]) {
 		let (old, u) = remove(k, t)
 		let mut w = touch(k, ready[V]{value: v, born: now, used: now, stamp: u.next}, u)
@@ -356,7 +372,7 @@ func InvalidateAll[K comparable, V](c Cache[K, V]) {
 
 // Prune drops every entry that has expired at now; each leaves.
 func Prune[K comparable, V](c Cache[K, V]) needs time.Clock {
-	let now = time.Clock.Now()
+	let now = stampOf(c.config)
 	let gone = sync.Modify(c.state, func(t table[K, V]) ([]leaving[K, V], table[K, V]) {
 		let mut u = t
 		let mut out = []leaving[K, V]{}
