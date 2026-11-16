@@ -32,6 +32,13 @@
 // and each helper that changes the tree reads it first, then takes it into
 // one let mut and never reads the parameter again (an owned parameter): a
 // write of a file costs O(path), not O(tree).
+//
+// An append costs O(path) and its own text too, amortized: it adds its text
+// to the file's parts (entry.More), an owned slice that grows as Go's
+// append grows it, and the next read joins the parts once and keeps the
+// join. So a log of n appends copies O(n) bytes, as a host file's appends
+// do, where adding each text to the whole file copies the file again each
+// time, O(n²).
 
 import filepath
 import fs
@@ -43,9 +50,11 @@ import sync
 // unexported, so NewMemory is its one constructor.
 type Memory { tree sync.Ref[Map[string, entry]] } implements fs.Files, fs.Writes
 
-// entry is one file or directory of a Memory: Text is a file's text and
-// Perm its permission bits, as fs.Perm gives them.
-type entry { Dir bool, Text string, Perm int }
+// entry is one file or directory of a Memory: a file's text is Text and
+// then each text of More, in order (More holds the appends since the file
+// was last read or written), and Perm is its permission bits, as fs.Perm
+// gives them. A directory has no text.
+type entry { Dir bool, Text string, More []string, Perm int }
 
 // place is where a cleaned path is in a tree: below a missing directory,
 // below a file, free in a directory that is there, or taken by an entry.
@@ -58,14 +67,14 @@ type outcome = Changed{} | Missing{Path string} | Broken{Path string, Reason str
 // NewMemory is an empty Memory: its two roots and nothing in them.
 func NewMemory() Memory {
 	let mut t = Map[string, entry]{}
-	t["."] = entry{Dir: true, Text: "", Perm: fs.Perm(fs.SharedDir())}
-	t["/"] = entry{Dir: true, Text: "", Perm: fs.Perm(fs.SharedDir())}
+	t["."] = entry{Dir: true, Text: "", More: []string{}, Perm: fs.Perm(fs.SharedDir())}
+	t["/"] = entry{Dir: true, Text: "", More: []string{}, Perm: fs.Perm(fs.SharedDir())}
 	Memory{tree: sync.NewRef[Map[string, entry]](t)}
 }
 
 // ReadFile is the text of the file at path.
 func ReadFile(m Memory, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
-	match look(m, path) {
+	match read(m, path) {
 	case NoParent, Free:
 		return fs.NotFound{Path: path}
 	case UnderFile:
@@ -114,7 +123,7 @@ func Stat(m Memory, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Fail
 	case UnderFile:
 		return fs.Failed{Path: path, Reason: "not a directory"}
 	case Taken as p:
-		let size = if p.At.Dir { 0 } else { len(p.At.Text) }
+		let size = if p.At.Dir { 0 } else { size(p.At) }
 		fs.Info{Name: filepath.Base(filepath.Clean(path)), Size: size, Dir: p.At.Dir, Perm: p.At.Perm}
 	}
 }
@@ -163,7 +172,7 @@ func Chmod(m Memory, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | 
 		case UnderFile:
 			(Broken{Path: path, Reason: "not a directory"}, u)
 		case Taken as p:
-			u[filepath.Clean(path)] = entry{Dir: p.At.Dir, Text: p.At.Text, Perm: perm}
+			u[filepath.Clean(path)] = entry{Dir: p.At.Dir, Text: p.At.Text, More: p.At.More, Perm: perm}
 			(Changed, u)
 		}
 	}))
@@ -261,6 +270,35 @@ law ModeIsKept(path string, text string, more string) {
 	info.Perm == fs.Perm(fs.Private())
 }
 
+// read is look, but a file's appended parts are joined into its Text
+// first, and the join is kept: the next read of the file copies nothing.
+func read(m Memory, path string) place {
+	sync.Modify(m.tree, func(t Map[string, entry]) (place, Map[string, entry]) {
+		let at = find(t, path)
+		let mut u = t
+		match at {
+		case Taken as p:
+			if p.At.Dir || len(p.At.More) == 0 {
+				return (at, u)
+			}
+			let whole = entry{Dir: false, Text: p.At.Text + strings.Join(p.At.More, ""), More: []string{}, Perm: p.At.Perm}
+			u[filepath.Clean(path)] = whole
+			(Taken{At: whole}, u)
+		case NoParent, UnderFile, Free:
+			(at, u)
+		}
+	})
+}
+
+// size is the length of the file e's text.
+func size(e entry) int {
+	let mut n = len(e.Text)
+	for t in e.More {
+		n = n + len(t)
+	}
+	n
+}
+
 // look is the place of path in m's tree.
 func look(m Memory, path string) place {
 	sync.Modify(m.tree, func(t Map[string, entry]) (place, Map[string, entry]) { (find(t, path), t) })
@@ -352,14 +390,18 @@ func write(t Map[string, entry], path string, text string, perm int, add bool) (
 	case UnderFile:
 		(Broken{Path: path, Reason: "not a directory"}, u)
 	case Free:
-		u[c] = entry{Dir: false, Text: text, Perm: if perm < 0 { fs.Perm(fs.Shared()) } else { perm }}
+		u[c] = entry{Dir: false, Text: text, More: []string{}, Perm: if perm < 0 { fs.Perm(fs.Shared()) } else { perm }}
 		(Changed, u)
 	case Taken as p:
 		if p.At.Dir {
 			return (Broken{Path: path, Reason: "is a directory"}, u)
 		}
-		let body = if add { p.At.Text + text } else { text }
-		u[c] = entry{Dir: false, Text: body, Perm: if perm < 0 { p.At.Perm } else { perm }}
+		let mode = if perm < 0 { p.At.Perm } else { perm }
+		if add {
+			u[c] = entry{Dir: false, Text: p.At.Text, More: p.At.More.Append(text), Perm: mode}
+		} else {
+			u[c] = entry{Dir: false, Text: text, More: []string{}, Perm: mode}
+		}
 		(Changed, u)
 	}
 }
@@ -385,10 +427,10 @@ func mkdirAll(t Map[string, entry], path string, perm int) (outcome, Map[string,
 			match u.Get(a) {
 			case Some[entry]:
 			case None:
-				u[a] = entry{Dir: true, Text: "", Perm: perm}
+				u[a] = entry{Dir: true, Text: "", More: []string{}, Perm: perm}
 			}
 		}
-		u[c] = entry{Dir: true, Text: "", Perm: perm}
+		u[c] = entry{Dir: true, Text: "", More: []string{}, Perm: perm}
 		(Changed, u)
 	}
 }
