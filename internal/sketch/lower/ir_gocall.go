@@ -9,6 +9,9 @@
 package lower
 
 import (
+	"strconv"
+	"strings"
+
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 	v1 "ergo.local/prototype/runtime/v1"
@@ -74,6 +77,30 @@ func (b *irBuilder) callbackShape(cb *check.Signature, site syntax.Node) *v1.Bod
 		shape.Results = append(shape.Results, b.goType(r, site))
 	}
 	return shape
+}
+
+// hostCloseCall is the release of a Go value at slot (the emitter's
+// hostRelease): Go's Close inside v1.Release's boundary with the caller's
+// task, its error, when Close returns one, a defect naming the site where
+// the slot took the value (v1.CloseFailed; staticOwn's site). A Go value that is not a pointer (a value whose
+// Close may need Go's implicit address) keeps the Go-text release.
+func (b *irBuilder) hostCloseCall(cl *check.Close, s irSlot, env, slot int, p irPos) (*irExpr, bool) {
+	if !strings.HasPrefix(b.fc.goType(s.t), "*") {
+		return nil, false
+	}
+	call := &irExpr{K: "mcall", Pos: p, Name: "Close", X: &irExpr{K: "deref", Pos: p, X: &irExpr{K: "local", Pos: p, I: slot}}}
+	if cl.HostFallible() {
+		site := s.site
+		src, line, column := b.l.locate(site, site.Pos())
+		at := src + ":" + strconv.Itoa(line) + ":" + strconv.Itoa(column)
+		b.keepImport("var _ = " + b.l.rt() + ".CloseFailed")
+		call = &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "CloseFailed", Args: []*irExpr{{K: "const", Pos: p, T: "string", V: at}, call}}
+	}
+	end := p
+	lit := &irExpr{K: "func", Pos: p, T: "func()", Body: []*irStmt{{K: "expr", Pos: p, X: call}}, End: &end}
+	task := &irExpr{K: "field", Pos: p, Name: envTask, X: &irExpr{K: "local", Pos: p, I: env}}
+	b.keepImport("var _ = " + b.l.rt() + ".Release")
+	return &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "Release", Args: []*irExpr{task, lit}}, true
 }
 
 // hostGeneric reports a Go package function with a type parameter Go
