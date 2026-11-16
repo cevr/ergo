@@ -580,6 +580,7 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 		b.keepImport("var _ = " + b.l.rtRef(name))
 	case targs != "":
 		b.keepImport("var _ " + b.l.rt() + ".Site")
+		_ = b.l.rtRef(name) // the leaf it needs linked (NewHost: hostwalk; LY-FIX)
 	default:
 		b.keepImport("var _ = " + b.l.rtRef(name))
 	}
