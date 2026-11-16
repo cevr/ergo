@@ -3,6 +3,7 @@ package lower
 import (
 	"regexp"
 	"strings"
+	"sync"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -99,8 +100,9 @@ func (fc *funcCtx) tupleLet(spec *syntax.VarSpec, p *check.Pattern) bool {
 }
 
 // goName matches a Go identifier: a tail whose value is one is read field
-// by field with no temporary.
-var goName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+// by field with no temporary. It is compiled on first use, so no process
+// pays for it at start (TestStartBuildsNoTables).
+var goName = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`) })
 
 // tupleYield writes the tail x of an arm into d's names: a tuple literal of
 // d's type element by element, any other value through its fields.
@@ -145,7 +147,7 @@ type tupleInto struct {
 
 // tupleWrite assigns the elements of val, a tuple value, to names.
 func (fc *funcCtx) tupleWrite(names []string, val string) {
-	if !goName.MatchString(val) {
+	if !goName().MatchString(val) {
 		v := fc.temp("p")
 		fc.line(v + " := " + val)
 		val = v

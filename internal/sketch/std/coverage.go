@@ -1,5 +1,7 @@
 package std
 
+import "sync"
+
 // The coverage table: which Go standard-library packages a std package
 // covers, so a program that imports the Go package (import go P) can use
 // std instead (lint rule foreign-where-std; plan LINT1). This is the one
@@ -48,8 +50,9 @@ var coversNone = []string{
 	"task", "tasks", "term", "text", "timeout", "toml", "trace", "ui", "ui/layout",
 }
 
-// covered maps a Go path to the std package that covers it.
-var covered = func() map[string]string {
+// covered maps a Go path to the std package that covers it. It is built on
+// first use, so no process pays for it at start (TestStartBuildsNoTables).
+var covered = sync.OnceValue(func() map[string]string {
 	out := map[string]string{}
 	for p, gos := range coverage {
 		for _, g := range gos {
@@ -57,12 +60,12 @@ var covered = func() map[string]string {
 		}
 	}
 	return out
-}()
+})
 
 // CoveredBy is the std package that covers the Go standard-library package
 // at goPath, and whether one does.
 func CoveredBy(goPath string) (string, bool) {
-	p, ok := covered[goPath]
+	p, ok := covered()[goPath]
 	return p, ok
 }
 
