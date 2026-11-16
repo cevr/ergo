@@ -1335,8 +1335,12 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `os` | `CodeWhere` | `CodeWhere(v Code) { let it = int(v) (1 <= it && it <= 125) && try ParseCode(it) == v }` | `TestStdLawsRun` | tested |
 | `os` | `Process.GetwdIsAbsolute` | `GetwdIsAbsolute() { let dir = Getwd() catch { case NoWorkdir: return true } filepath.IsAbs(dir) }` | `TestStdHostLawsHold` | tested |
 | `os` | `Process.GetwdIsStable` | `GetwdIsStable() { let first = Getwd() catch { case NoWorkdir: let _ = Getwd() catch { case NoWorkdir: return true } return false } let second = Getwd() catch { case NoWorkdir: return false } first == second }` | `TestStdHostLawsHold` | tested |
+| `prelude` | `AppendIsLast` | `AppendIsLast(xs []int, x int) { let ys = xs.Append(x) len(ys) == len(xs) + 1 && ys[len(xs)] == x }` | `TestCollLaws` | tested |
+| `prelude` | `GetAfterDelete` | `GetAfterDelete(m Map[int, int], k int) { match m.Delete(k).Get(k) { case Some[int]: false case None: true } }` | `TestCollLaws` | tested |
+| `prelude` | `GetAfterPut` | `GetAfterPut(m Map[int, int], k int, v int) { match m.Put(k, v).Get(k) { case Some[int] as x: x.Value == v case None: false } }` | `TestCollLaws` | tested |
 | `prelude` | `Random.Float64InUnit` | `Float64InUnit() { let f = Float64() f >= 0.0 && f < 1.0 }` | `TestRandLaws` | tested |
 | `prelude` | `Random.IntNInRange` | `IntNInRange(n int) { if n <= 0 { return true } let x = IntN(n) x >= 0 && x < n }` | `TestRandLaws` | tested |
+| `prelude` | `TakeIsGetAndDelete` | `TakeIsGetAndDelete(m Map[int, int], k int) { let v, rest = m.Take(k) sameEntry(v, m.Get(k)) && sameEntry(rest.Get(k), None) && len(rest) == len(m.Delete(k)) }` | `TestCollLaws` | tested |
 | `prelude` | `Task.StopIsIdempotent` | `StopIsIdempotent() { Stop() Stop() true }` | `TestStdLawsRun` | tested |
 | `queue` | `EndKeepsValues` | `EndKeepsValues(v int) { let q = New[int](1) try q.Push(v) q.End() try q.Pop() == v }` | `TestStdLawsRun` | tested |
 | `queue` | `FirstInFirstOut` | `FirstInFirstOut(a int, b int) { let q = New[int](2) try q.Push(a) try q.Push(b) let first = try q.Pop() let second = try q.Pop() first == a && second == b }` | `TestStdLawsRun` | tested |
@@ -1647,13 +1651,11 @@ The standard library is an ordinary set of packages ([NORTH_STAR.md](../../NORTH
 | `internal/rpcgen/rpcgen.go:pairOf` | `Wire`, the codec's conversion protocol |
 | `internal/sketch/check/authority.go:authorityText` | a prelude constructor, named unqualified |
 | `internal/sketch/check/authority.go:isAmbient` | `Ambient` |
-| `internal/sketch/check/call.go:checker.collFuncs` | `Append`, `Get`, `Delete`, `Put` |
 | `internal/sketch/check/call.go:checker.preludeOp` | a prelude operation, reached by the dot form |
 | `internal/sketch/check/call.go:isUnreachable` | `Unreachable` |
 | `internal/sketch/check/close.go:checker.closeFacts` | `Close`, the release operation |
 | `internal/sketch/check/close.go:checker.closeTakes` | `Close` |
 | `internal/sketch/check/contextvalues.go:contextRow` | `Context` |
-| `internal/sketch/check/decl.go:checker.collectSelfFuncs` | the prelude's ownership declarations |
 | `internal/sketch/check/durable.go:pureSeer.step` | `Machine`, a machine literal whose Step a pure parameter sees |
 | `internal/sketch/check/durable.go:pureSeer.stepValue` | `Machine`'s `Step` |
 | `internal/sketch/check/entry.go:checker.checkErrorMethods` | `Error`, the method of a failure |

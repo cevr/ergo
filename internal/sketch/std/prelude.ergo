@@ -221,37 +221,67 @@ type Context[R] { install func() needs R }
 // the Go function is never called.
 extern go ergo.local/prototype/runtime/v1.InForce func InForce[R]() Context[R] needs R
 
-// The functions on slices and Maps (#196, fourth round, item 2; spec
-// D-D6). Each is reached only by the dot form on a value of exactly its
-// first parameter's type, xs.Append(x), m.Get(k), m.Delete(k) (D-D8): it
-// is an operation of the slice or Map type, not a name in a package's
-// scope, as MoonBit's fn Array::push is called xs.push(x).
+// The operations of the slice and Map types (#196, fourth round, item 2;
+// spec D-D6; PRIM-2b): xs.Append(x), m.Get(k), m.Put(k, v), m.Delete(k)
+// and m.Take(k). Each is reached only by the dot form on a value of
+// exactly a slice or Map type (D-D8): it is an operation of the type, the
+// same in every program, not a name in a package's scope, as MoonBit's
+// fn Array::push is called xs.push(x). The language declares them
+// (check/collop.go); their laws are these, checked against the Go
+// reference bodies of runtime/v1 (TestCollLaws).
 
-// Append is xs with x added at the end. xs is unchanged: a slice is a
-// value (owner q26; types.md, Bindings), and the lowering appends in place
-// only for xs = xs.Append(x) or a dead xs. With resource elements it takes
-// xs and x: the result is their one owner (#197 L8 A3, resources R14).
-extern go ergo.local/prototype/runtime/v1.Append func Append[T](xs own []T, x own T) []T
+// GetAfterPut: a Get of the key a Put set is Some of the value put.
+law GetAfterPut(m Map[int, int], k int, v int) {
+	match m.Put(k, v).Get(k) {
+	case Some[int] as x:
+		x.Value == v
+	case None:
+		false
+	}
+}
 
-// Get is the value of k in m, Some{v}, or None when m has no key k: a Map
-// read may miss, so it returns an Option.
-extern go ergo.local/prototype/runtime/v1.Get func Get[K comparable, V](m Map[K, V], k K) Option[V]
+// GetAfterDelete: a Get of the key a Delete removed is None.
+law GetAfterDelete(m Map[int, int], k int) {
+	match m.Delete(k).Get(k) {
+	case Some[int]:
+		false
+	case None:
+		true
+	}
+}
 
-// Delete is m without the key k. m is unchanged: a Map is a value (owner
-// q26), and the lowering deletes in place only for m = m.Delete(k) or a
-// dead m. It binds Go's builtin delete (OPT7): the call is the builtin
-// itself, with no Go function between.
-extern go delete func Delete[K comparable, V](m Map[K, V], k K) Map[K, V]
+// TakeIsGetAndDelete: a Take is the Get of its key and the Delete of it,
+// and the Map it took from keeps its entries.
+law TakeIsGetAndDelete(m Map[int, int], k int) {
+	let v, rest = m.Take(k)
+	sameEntry(v, m.Get(k)) && sameEntry(rest.Get(k), None) && len(rest) == len(m.Delete(k))
+}
 
-// Put is m with k set to v: the entry is added, or its value replaced. m
-// is unchanged, as Delete leaves it (owner q26), and the lowering writes
-// in place only for m = m.Put(k, v) or a dead m (#196 item 13, L2).
-extern go ergo.local/prototype/runtime/v1.Put func Put[K comparable, V](m Map[K, V], k K, v V) Map[K, V]
+// AppendIsLast: Append adds one element, at the end.
+law AppendIsLast(xs []int, x int) {
+	let ys = xs.Append(x)
+	len(ys) == len(xs) + 1 && ys[len(xs)] == x
+}
 
-// Take gives up m and returns the value at k (Some, or None if absent)
-// and the map without k. Resource values and the remainder have separate
-// owners. With plain-data values, m is unchanged (mode crossing).
-extern go ergo.local/prototype/runtime/v1.MapTake func Take[K comparable, V](m own Map[K, V], k K) (Option[V], Map[K, V])
+// sameEntry reports two reads of a Map entry as equal.
+func sameEntry(a Option[int], b Option[int]) bool {
+	match a {
+	case Some[int] as x:
+		match b {
+		case Some[int] as y:
+			x.Value == y.Value
+		case None:
+			false
+		}
+	case None:
+		match b {
+		case Some[int]:
+			false
+		case None:
+			true
+		}
+	}
+}
 
 // Unreachable states that a path cannot run (owner q29, 2026-11-08). When
 // it runs anyway, it raises a defect that holds reason and the call's

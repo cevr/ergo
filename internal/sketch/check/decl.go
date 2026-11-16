@@ -2521,8 +2521,11 @@ func (c *checker) collectSelfFuncs() {
 			n.opFuncs[f.Name] = f
 		}
 	}
-	if c.pkg.Path == std.PreludePath {
+	if collFile != nil {
 		for _, f := range c.funcs {
+			if f.file == nil || f.file.syntax != collFile {
+				continue // the operations are the language's file's alone (collop.go)
+			}
 			// Defensive: collOwner classifies a collection receiver without reporting.
 			c.cur = f.file
 			if key, args, ok := c.collOwner(f); ok {

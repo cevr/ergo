@@ -792,6 +792,14 @@ func prelude() preludeResult {
 			f.Name = name // the embedded name, which the lowering reports (Files)
 			files = append(files, f)
 		}
+		// The slice and Map operations, the language's own file (collop.go).
+		f, err := syntax.Parse(collSource())
+		if err != nil {
+			panic("check: the slice and Map operations do not parse: " + err.Error())
+		}
+		f.Name = collFileName
+		collFile = f
+		files = append(files, f)
 		c := newChecker(std.PreludePath, nil, u)
 		c.pkg.std = true
 		c.pkg.trusted = true // the toolchain vouches for what it ships

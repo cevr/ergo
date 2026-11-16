@@ -1134,10 +1134,11 @@ func isCallLike(x syntax.Expr) bool {
 
 // ---------------------------------------------------------------- builtins
 
-// collFuncs are the prelude's functions on slices and Maps (D-D6). The
-// prelude reads its own; every other package reads the checked prelude's.
+// collFuncs are the operations on slices and Maps (D-D6; collop.go). The
+// package that holds their file reads its own; every other package reads
+// the checked prelude's.
 func (c *checker) collFuncs() map[collKey]*Func {
-	if c.pkg.Path == std.PreludePath {
+	if c.pkg.collFuncs != nil {
 		return c.pkg.collFuncs
 	}
 	return prelude().pkg.collFuncs
