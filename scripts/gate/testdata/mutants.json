@@ -1,6 +1,13 @@
 {
   "about": "Focused scheduler regression mutants, run with their named killers. Model searches reserve all scheduler slots for memory isolation.",
   "mutants": [
+    {"name":"gs26c-trim-never","origin":"wf10 GS26c","file":"scripts/gate/gostore.go","from":"for ; i < len(files) && t.size > bound; i++ {","to":"for ; false; i++ {","rule":"After each run the test Go stores are trimmed to the bound.","killers":["scripts/gate:TestGoStoreTrimHoldsTheBound"]},
+    {"name":"gs26c-trim-newest-first","origin":"wf10 GS26c","file":"scripts/gate/gostore.go","from":"cmp.Or(cmp.Compare(a.used, b.used)","to":"cmp.Or(cmp.Compare(b.used, a.used)","rule":"The trim removes the least recently used files first.","killers":["scripts/gate:TestGoStoreTrimHoldsTheBound"]},
+    {"name":"gs26c-no-cache-persistent","origin":"wf10 GS26c","file":"scripts/gate/gostore.go","from":"\t\tif g.noCache {","to":"\t\tif false {","rule":"A --no-cache run builds from a fresh test Go store, the reference.","killers":["scripts/gate:TestGoStoreFollowsTheRun"]},
+    {"name":"gs26c-fresh-kept","origin":"wf10 GS26c","file":"scripts/gate/gostore.go","from":"_ = os.RemoveAll(g.goStoreFresh)","to":"_ = 0","rule":"A --no-cache run's fresh store is removed when the run ends.","killers":["scripts/gate:TestGoStoreFollowsTheRun"]},
+    {"name":"gs26c-store-not-passed","origin":"wf10 GS26c","file":"scripts/gate/main.go","from":"\tif step.GoStore {\n\t\tif store","to":"\tif false {\n\t\tif store","rule":"A GoStore step's test processes receive the run's store.","killers":["scripts/gate:TestGoStoreFollowsTheRun"]},
+    {"name":"gs26c-fast-no-store","origin":"wf10 GS26c","file":"scripts/gate/tier.go","from":"GoStore: slices.Contains(goStorePackages, relative), Package","to":"GoStore: false, Package","rule":"The fast tier's cmd/ergo steps get the test Go store.","killers":["scripts/gate:TestGoStorePackagesGetTheStore"]},
+    {"name":"gs26c-full-no-store","origin":"wf10 GS26c","file":"scripts/gate/steps.go","from":"GoStore: slices.Contains(goStorePackages, relative), Weight","to":"GoStore: false, Weight","rule":"The full tier's cmd/ergo steps get the test Go store.","killers":["scripts/gate:TestGoStorePackagesGetTheStore"]},
     {
       "name": "b15-r8-run-memory-reservation-disconnected",
       "origin": "wf10 batch-15 fix-r8, verifier v7-main-held-one",

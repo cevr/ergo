@@ -373,7 +373,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 		selections, weights := shardArgs(groups), shardWeights(groups, measured)
 		for i, selection := range selections {
 			argv := append([]string{"go", "test", testTimeoutFor(weights[i])}, selection...)
-			add(&Step{Name: fmt.Sprintf("go test %s [%d/%d]", shortPackage(root, pkg), i+1, len(selections)), Needs: needs, Argv: append(argv, pkg), Env: env, ToolEnv: testTools, Weight: weights[i], Class: classHeavy})
+			add(&Step{Name: fmt.Sprintf("go test %s [%d/%d]", shortPackage(root, pkg), i+1, len(selections)), Needs: needs, Argv: append(argv, pkg), Env: env, ToolEnv: testTools, GoStore: slices.Contains(goStorePackages, relative), Weight: weights[i], Class: classHeavy})
 		}
 	}
 	others := 0.0

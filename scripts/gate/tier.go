@@ -488,7 +488,7 @@ func fastStepsSelected(root string, choose selector) ([]*Step, error) {
 		groups := shard(fast, measured, n)
 		selections, weights := fastShardArgs(groups, large), shardWeights(groups, measured)
 		for i, selection := range selections {
-			step := &Step{Name: name, Needs: needs, Argv: append(append(append(slices.Clone(base), testTimeoutFor(weights[i])), selection...), pkg), Env: env, ToolEnv: testTools, Package: p.closure, PackageProblem: problem, Weight: weights[i], Class: classFast, Note: note}
+			step := &Step{Name: name, Needs: needs, Argv: append(append(append(slices.Clone(base), testTimeoutFor(weights[i])), selection...), pkg), Env: env, ToolEnv: testTools, GoStore: slices.Contains(goStorePackages, relative), Package: p.closure, PackageProblem: problem, Weight: weights[i], Class: classFast, Note: note}
 			if len(selections) > 1 {
 				step.Name = fmt.Sprintf("go test %s [%d/%d] (fast)", pkg, i+1, len(selections))
 			}
