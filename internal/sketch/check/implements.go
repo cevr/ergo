@@ -522,7 +522,7 @@ func (c *checker) operationBody(tn *TypeName, seen map[*TypeName]bool) bool {
 		} else if it := asInterface(c.resolvedType(target.Type)); it == nil || it.Set != SetAll {
 			return false
 		}
-		tn.Decl.Spec = &syntax.InterfaceType{Lbrace: spec.Fields.Opening, Includes: fields, Rbrace: spec.Fields.Closing}
+		tn.Decl.Spec = made(c, &syntax.InterfaceType{Lbrace: spec.Fields.Opening, Includes: fields, Rbrace: spec.Fields.Closing}, syntax.Node(tn.Decl))
 		return true
 	}
 	return false
