@@ -1,6 +1,6 @@
 package lower
 
-// IR builder: the codec built-ins (FLIP OPC-codec, wire.go). encode(v, w)
+// IR builder: the codec built-ins (FLIP OPC-codec; the emitter's wireCall). encode(v, w)
 // and decode[T](r) call the type's codec function, which the lowering
 // declares once per type (wireFunc), as the emitter's wireCall writes it:
 //
