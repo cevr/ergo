@@ -117,7 +117,7 @@ func TestIROrderMatchesSource(t *testing.T) {
 		}
 	}
 	if count >= 12 && (continued == 0 || traced == 0 || spanned == 0 || looped == 0 || slices.Contains(tries[:], 0)) {
-		t.Fatalf("the run did not reach IR bodies with: a continue %d, an operation call inside an expression %d, a for-in over a call %d, a loop condition with a call %d, the try forms (try of a non-call, try inside an expression, a catch arm that continues, a catch arm whose value is an if; a positional record literal; a fallible call with an empty row; gate's failing branch tails, a call of gate) %v", continued, traced, spanned, looped, tries)
+		t.Fatalf("the run did not reach IR bodies with: a continue %d, an operation call inside an expression %d, a for-in over a call %d, a loop condition with a call %d, the try forms (try of a non-call, try inside an expression, a catch arm that continues, a catch arm whose value is an if; a positional record literal; a fallible call with an empty row; gate's failing branch tails, a call of gate, a catch of a match) %v", continued, traced, spanned, looped, tries)
 	}
 }
 
@@ -133,6 +133,7 @@ var tryForms = [...]*regexp.Regexp{
 	regexp.MustCompile(`app\([^\n]*, func\(n int\) int \{`), // a fallible call whose row is empty at its site (callsStmt)
 	regexp.MustCompile(`\n\t\tE1\{Code: n\}\n\t\} else if`), // gate: a branch tail that fails a body with no value
 	regexp.MustCompile(`try gate\(`),                        // a call of gate (tryStmt)
+	regexp.MustCompile(`\tcase _:\n[^\n]*\n\s*\} catch \{`), // a catch of a match (tryStmt)
 }
 
 // bodyOf is function name's body in text.

@@ -151,6 +151,13 @@ func (g *fgen) tryStmt(in string, budget, k int) bool {
 			g.shown(in, fmt.Sprintf("([]int{try %s, %s})[0]", chk(), g.local()))
 		}
 	case k == 9:
+		if g.n(3) == 0 {
+			// A catch of a match whose arms' tails are fallible calls.
+			arm := func() string { return fmt.Sprintf("%s\t\t%s\n", in, chk()) }
+			g.shown(in, fmt.Sprintf("match %s %% 3 {\n%s\tcase 0:\n%s%s\tcase 1:\n%s%s\tcase _:\n%s\t\t%s\n%s} catch {\n%s\tcase E1 as x:\n%s\t\tx.Code + 100\n%s}",
+				g.expr(1), in, arm(), in, arm(), in, in, g.local(), in, in, in, in))
+			return true
+		}
 		if budget > 0 && g.n(2) == 0 {
 			// A catch arm that continues the loop: the catch has no
 			// value on that path.
