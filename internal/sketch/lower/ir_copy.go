@@ -17,7 +17,12 @@ func (b *irBuilder) valueCopy(x syntax.Expr, e *irExpr) *irExpr {
 	if b.l.vals == nil || !b.l.vals.clone[x] {
 		return e
 	}
-	t := b.fc.typeOf(x)
+	return b.copyAs(b.fc.typeOf(x), e, x)
+}
+
+// copyAs is a copy of e, a value of type t, as valueCopy writes it (an
+// owned site's copy function, ir_refown.go, too).
+func (b *irBuilder) copyAs(t check.Type, e *irExpr, x syntax.Node) *irExpr {
 	if !b.l.holdsValue(t) {
 		return e
 	}

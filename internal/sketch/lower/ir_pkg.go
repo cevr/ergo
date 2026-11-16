@@ -322,8 +322,6 @@ func (b *irBuilder) opCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*irStm
 		irNo("operation call form")
 	case b.env < 0:
 		irNo("operation call from a pure function")
-	case b.fc.refSiteOf(x) != nil:
-		irNo("operation call into an owning literal")
 	}
 	n, ok := b.l.info.Types[c.Recv].(*check.Named)
 	if !ok {
@@ -333,6 +331,9 @@ func (b *irBuilder) opCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*irStm
 		irNo("operation call on a named type that is no operation type")
 	}
 	b.admitOps(n)
+	if s := b.fc.refSiteOf(x); s != nil {
+		return b.ownedRefCall(x, c, s, append([]syntax.Expr{c.Recv}, x.Args...), n, p) // ir_refown.go
+	}
 	if b.l.runtimeType(n, x) != "" {
 		return b.stdOpCall(x, c, n, p)
 	}
@@ -500,7 +501,7 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	case c.Recv != nil:
 		irNo("dot call of a std function")
 	case b.fc.refSiteOf(x) != nil:
-		irNo("std call into an owning literal")
+		return b.ownedRefCall(x, c, b.fc.refSiteOf(x), x.Args, nil, p) // ir_refown.go
 	case defersCall(body) || commaOk(body):
 		irNo("std call with an adapted result")
 	case len(body.Params) != len(x.Args):
