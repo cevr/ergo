@@ -497,7 +497,8 @@ func (b *irBuilder) catchWith(x *syntax.CatchExpr, partial bool, m *check.Match,
 		sw.Cases = append(sw.Cases, c)
 	}
 	sw.ElsePos = b.pos(x, x.Rbrace)
-	sw.Else = []*irStmt{b.formed(b.catchDefault(x, k, partial, e, sw.ElsePos), "fail:error")} // ir_catch_defect.go; ir_forms_flat.go
+	sw.Else = []*irStmt{b.catchDefault(x, k, partial, e, sw.ElsePos)} // ir_catch_defect.go
+	b.formed(sw.Else[0], "fail:error")                                 // ir_forms_flat.go
 	if plain {
 		then = b.armBody(x.Arms[0], result, m.Result)
 	} else if !patterned {

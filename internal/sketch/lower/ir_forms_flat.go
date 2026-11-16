@@ -93,14 +93,14 @@ func (b *irBuilder) flatResOf(f *check.Func) (fl *flatRes) {
 		}
 		st.flat[f] = fl
 	}()
-	if f.Decl == nil || f.Decl.Body == nil || f.Decl.Extern != nil || f.Decl.Recv != nil || f.Sig == nil || f.Name == "main" {
+	if f.Decl == nil || f.Decl.Body == nil || f.Decl.Extern != nil || f.Decl.Recv != nil || f.Sig == nil || f == b.l.mainFunc() {
 		return nil
 	}
 	if len(f.Sig.TParams) > 0 || len(f.Sig.Results) > 1 || len(f.Sig.Takes) > 0 || f.Sig.TakesSelf {
 		return nil
 	}
 	for _, p := range f.Sig.Params {
-		if p == nil || p.Name == "" || p.Name == "_" {
+		if p == nil || len(p.Name) == 0 || p.Name == "_" { // unnamed: no Go parameter to pass on
 			return nil
 		}
 		if _, fn := p.Type.(*check.Signature); fn {
