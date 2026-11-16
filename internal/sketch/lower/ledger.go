@@ -651,6 +651,11 @@ func (d *digester) fn(f *check.Func) {
 	if f.Decl != nil && f.Decl.Extern != nil && f.Decl.Extern.Target != nil {
 		d.foreign[f.Decl.Extern.Target.Value] = true
 	}
+	if f.Pkg.Host() {
+		// A function of an import go package: its Go is keyed as an
+		// extern's target is (LF6a; a law over Go functions, q194).
+		d.foreign[f.Pkg.Path+"."+f.Name] = true
+	}
 	if f.Decl == nil || f.Pkg == nil {
 		d.decls["func "+f.Name] = true
 		return
