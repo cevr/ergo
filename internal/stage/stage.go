@@ -24,8 +24,11 @@ const (
 	BytesParsed
 	// PackagesChecked counts the program's own packages checked, and
 	// DeclsChecked their top-level declarations; std's are in check.Work.
+	// PackagesReused counts the packages a check took from its cache
+	// (sketchfront.CheckCache) instead of checking them.
 	PackagesChecked
 	DeclsChecked
+	PackagesReused
 	// ModulesLowered counts the emitted Go modules lowered, GoBytesLowered
 	// their lowered Go bytes, and ModulesReused the emitted modules taken
 	// from the emission cache.
@@ -63,7 +66,7 @@ const (
 // names are the counters' names in a report, in Counter order.
 var names = [numCounters]string{
 	"files_read", "bytes_read", "files_parsed", "bytes_parsed",
-	"packages_checked", "decls_checked",
+	"packages_checked", "decls_checked", "packages_reused",
 	"modules_lowered", "go_bytes_lowered", "modules_reused",
 	"bytes_hashed",
 	"go_compiles", "go_compiles_reused", "links", "links_reused",

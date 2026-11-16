@@ -39,6 +39,7 @@ import (
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/fingerprint"
 	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/std/gostd"
@@ -182,6 +183,10 @@ type loader struct {
 	segments map[*loadedPackage]string
 	// opts are the checker modes of every local package (clauses.go).
 	opts check.Options
+	// cache, when set, holds earlier checks to take packages from, and fps
+	// the fingerprints of the packages checked or taken so far (CheckCache).
+	cache *CheckCache
+	fps   map[string]fingerprint.Package
 }
 
 // newLoader is a loader of the package folder dir, an absolute path, that
@@ -272,22 +277,35 @@ func checkDirForPlatform(fsys FS, dir string, platform gobind.Platform) (Analysi
 // checkDirIn checks the package in dir with required modules read from the
 // module cache folder modCache.
 func checkDirIn(fsys FS, dir string, platform gobind.Platform, modCache string) (Analysis, error) {
-	return checkDirFull(fsys, dir, platform, modCache, check.Options{})
+	return checkDirFull(fsys, dir, platform, modCache, check.Options{}, nil)
 }
 
 // checkDirWith checks the package in dir in the checker modes opts
 // (clauses.go).
 func checkDirWith(fsys FS, dir string, platform gobind.Platform, opts check.Options) (Analysis, error) {
-	return checkDirFull(fsys, dir, platform, moduleCache(), opts)
+	return checkDirFull(fsys, dir, platform, moduleCache(), opts, nil)
 }
 
-func checkDirFull(fsys FS, dir string, platform gobind.Platform, modCache string, opts check.Options) (Analysis, error) {
+func hostPlatform() gobind.Platform {
+	return gobind.Platform{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
+}
+
+// checkDirCached checks the program at dir, taking packages from cache when
+// it is not nil (CheckCache). It checks in the default modes only: the
+// cache's key does not hold check.Options.
+func checkDirCached(fsys FS, dir string, platform gobind.Platform, cache *CheckCache) (Analysis, error) {
+	return checkDirFull(fsys, dir, platform, moduleCache(), check.Options{}, cache)
+}
+
+func checkDirFull(fsys FS, dir string, platform gobind.Platform, modCache string, opts check.Options, cache *CheckCache) (Analysis, error) {
 	if !filepath.IsAbs(dir) {
 		return Analysis{}, fmt.Errorf("sketchfront: the package folder %s is not absolute", dir)
 	}
 	dir = filepath.Clean(dir)
 	l := newLoader(fsys, platform, dir, modCache)
 	l.opts = opts
+	l.cache = cache
+	l.fps = map[string]fingerprint.Package{}
 	work.loads.Add(1)
 	found, err := l.findModule(dir)
 	if err != nil {
@@ -757,6 +775,28 @@ func (l *loader) checkPackage(p *loadedPackage, main bool, ds map[*loadedPackage
 	if main {
 		path = "main" // the root package is the program's main package
 	}
+	var ckey string
+	cacheable := false
+	if l.cache != nil && !segment {
+		ckey, cacheable = l.cache.key(l, p, path)
+	}
+	if cacheable {
+		if pkg, ok := l.cache.reuse(l, p, ckey); ok {
+			p.pkg = pkg
+			// The decoded package holds its own syntax trees: the
+			// lowering and the evaluator read those.
+			for k, f := range pkg.Files() {
+				p.files[k].syntax = f
+			}
+			stage.Add(stage.PackagesReused, 1)
+			l.fingerprintAfter(p, path, pkg.Files())
+			l.cache.store(l, p, ckey, pkg)
+			if hook := checkedHook; hook != nil {
+				hook(l, path, pkg) // the census sees a reused package too
+			}
+			return false
+		}
+	}
 	pkg, found := check.CheckTestOptions(path, files, imp, l.testOf(p), l.opts)
 	stage.Add(stage.PackagesChecked, 1)
 	for _, f := range files {
@@ -769,6 +809,12 @@ func (l *loader) checkPackage(p *loadedPackage, main bool, ds map[*loadedPackage
 	ds[p] = found
 	if len(found) > 0 {
 		p.broken = true
+	}
+	if l.cache != nil {
+		l.fingerprintAfter(p, path, files)
+		if cacheable && !p.broken {
+			l.cache.store(l, p, ckey, pkg)
+		}
 	}
 	return segment
 }
