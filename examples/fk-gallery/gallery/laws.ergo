@@ -89,7 +89,8 @@ func Last(k kept) Option[string] {
 }
 
 // drawn is the law's op: a key typed, a URL arrived at, a link of the
-// site clicked, or (None) a clock move.
+// site clicked, or (None) a clock move. Half the arrivals are at the
+// studio, so a stay in the studio with a draft is drawn often.
 func drawn(o int) Option[Signal] {
 	let texts = []string{"", "a", "half-finished thought"}
 	let op = if o < 0 { -(o / 2) } else { o }
@@ -97,7 +98,8 @@ func drawn(o int) Option[Signal] {
 	case 0:
 		Some[Signal]{Value: Drafted{Text: texts[(op/4)%3]}}
 	case 1:
-		Some[Signal]{Value: Arrived{URL: Print(routeOf(op/4, 1+op%5))}}
+		let to = if (op/4)%2 == 0 { Studio } else { routeOf(op/8, 1+op%5) }
+		Some[Signal]{Value: Arrived{URL: Print(to)}}
 	case 2:
 		Some[Signal]{Value: Clicked{Link: Internal{URL: Print(routeOf(op/4, 1+op%5))}}}
 	case _:

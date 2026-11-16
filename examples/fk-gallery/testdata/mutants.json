@@ -213,8 +213,8 @@
       "name": "fk9c-saved-not-kept",
       "origin": "wf10/fk9c",
       "file": "examples/fk-gallery/gallery/site.ergo",
-      "from": "\t\tStay[Site]{Next: Site{..s, Saved: r.Draft}}\n",
-      "to": "\t\tStay[Site]{Next: s}\n",
+      "from": "\tcase Recalled as r:\n\t\tStay[Site]{Next: Site{..s, Saved: r.Draft}}\n",
+      "to": "\tcase Recalled:\n\t\tStay[Site]{Next: s}\n",
       "rule": "The studio's work reads the draft last saved back, and the page shows it (case tour: Back to the studio shows the saved draft).",
       "anchor": {
         "tests": [
