@@ -1,0 +1,74 @@
+// tomlparse reads TOML 1.0 with a parser written in Ergo and prints it
+// again, as toml-test's tagged JSON or as TOML.
+//
+//	tomlparse json FILE            FILE as toml-test's tagged JSON, on one line
+//	tomlparse fmt FILE             FILE printed again as TOML
+//	tomlparse check FILE           how many values FILE holds and how deep they nest
+//	tomlparse gen -seed S -n N     write the workload of N records for seed S
+//
+// A text that is not TOML fails with its line and column, and so do a key
+// defined twice and a key used as what it is not. This binary is the
+// only place that chooses the providers: the host's files.
+
+import fs
+import io
+import os
+import strconv
+import tomlparse/app
+import tomlparse/files
+import tomlparse/workload
+
+// Usage is the text of a usage failure.
+let Usage = "usage: tomlparse json FILE | fmt FILE | check FILE | gen -seed S -n N"
+
+func usage() os.Exit { os.Exit{Code: 2, Message: Usage} }
+
+// amount is the count that text spells.
+func amount(text string) int fails os.Exit {
+	let n = strconv.Atoi(text) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return usage()
+	}
+	if n < 0 {
+		return usage()
+	}
+	n
+}
+
+// finish writes o and ends with its status.
+func finish(o app.Outcome) fails os.Exit needs io.Stdout {
+	io.Stdout.Print(o.Out)
+	if o.Status != 0 {
+		return os.Exit{Code: 1, Message: o.Err}
+	}
+}
+
+// run is tomlparse on args.
+func run(args []string) fails os.Exit needs io.Stdout | app.Documents {
+	if len(args) == 0 {
+		return usage()
+	}
+	match (args[0], len(args)) {
+	case ("json", 2):
+		try finish(app.JSON(args[1]))
+	case ("fmt", 2):
+		try finish(app.Fmt(args[1]))
+	case ("check", 2):
+		try finish(app.Check(args[1]))
+	case ("gen", 5):
+		if args[1] != "-seed" || args[3] != "-n" {
+			return usage()
+		}
+		let seed = try amount(args[2])
+		io.Stdout.Print(workload.Document(seed, try amount(args[4])))
+	case _:
+		return usage()
+	}
+}
+
+func main() fails os.Exit needs Ambient {
+	let host = os.NewHost()
+	with context { io.Stdout: io.NewHost(), app.Documents: files.New(fs.NewHost()) } {
+		try run(host.Args())
+	}
+}

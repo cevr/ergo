@@ -1,0 +1,1 @@
+usage: events stream|lines|whole < LOG, or events gen N

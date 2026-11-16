@@ -15,14 +15,13 @@ import time
 // Close): one task owns it, and its scope's end closes it (resources R1,
 // R5), so the server never closes a connection by hand.
 type Conn {
+	..Closer,
 	// Read is the next line the client sent, or Hangup when the client
 	// is gone or the server hung up.
 	Read() string fails Hangup,
 	// Peer is the connection's sending side, which the room keeps for
 	// each member: a shared handle, not a resource.
 	Peer() Peer,
-	// Close releases the connection.
-	Close(),
 
 	// HangupIsFinal: after the peer hangs up, Read hangs up, and hangs up
 	// again. Hangup lends the connection, so the law can read it after.

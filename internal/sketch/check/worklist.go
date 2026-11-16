@@ -86,10 +86,12 @@ func (w *worklist) push(n *bodyNode) {
 	heap.Push(&w.h, n)
 }
 
-// run checks the queued bodies in the shared order until none is queued or
-// check reports that the solve must stop (its budget is spent). check is
-// called once per body check; it wakes callers with push.
-func (w *worklist) run(check func(*bodyNode) bool) {
+// run checks the queued bodies in the shared order until none is queued.
+// check is called once per body check; it wakes callers with push. A solve
+// whose budget is spent stops checking and pushes nothing, so the queue
+// drains (stopping early instead changed no count or result: ledger t6-5,
+// deleted in EX2).
+func (w *worklist) run(check func(*bodyNode)) {
 	type frame struct {
 		n *bodyNode
 		i int
@@ -128,8 +130,6 @@ func (w *worklist) run(check func(*bodyNode) bool) {
 		n := top.n
 		stack = stack[:len(stack)-1]
 		n.active = false
-		if !check(n) {
-			return
-		}
+		check(n)
 	}
 }

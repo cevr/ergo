@@ -34,13 +34,13 @@ type Store {
 	Get() string,
 }
 
-type Mem {}
+type Mem {} implements Store
 
 func Get(_ Mem) string {
 	"ok"
 }
 
-func read() string {
+func read() string needs Store {
 	Store.Get()
 }
 
@@ -50,7 +50,7 @@ func read() string {
 // a capability A, and a context of a capability R with a Close.
 const lawTopSiteDecls = `type A { Use() int }
 
-type Conn { V int }
+type Conn { V int } implements A, Closer
 
 func Use(c Conn) int { c.V }
 
@@ -60,9 +60,9 @@ func get() Conn { Conn{V: 1} }
 
 let Owned = context { A: get() }
 
-type R { Close() }
+type R { ..Closer }
 
-type First {}
+type First {} implements R, Closer
 
 func Close(_ First) {}
 
@@ -274,7 +274,7 @@ law Named(a Money) { Flag(a == a) }
 	x == n
 }
 `},
-	{"a non-escaping function parameter", `func keep(f escaping func(int) int) bool {
+	{"a non-escaping function parameter", `func keep(f own func(int) int) bool {
 	true
 }
 
@@ -286,7 +286,7 @@ law Applies(f func(int) int) { apply(f) }
 
 law Keeps(f func(int) int) { keep(f) } // want S108
 
-law Escapes(f escaping func(int) int) { keep(f) }
+law Escapes(f own func(int) int) { keep(f) }
 `},
 
 	// Frames: a top-level law is a frame of its own, as a test is.
@@ -368,13 +368,13 @@ type Store {
 	Get() string,
 }
 
-type Mem {}
+type Mem {} implements Store
 
 func Get(_ Mem) string {
 	"ok"
 }
 
-func read() string {
+func read() string needs Store {
 	Store.Get()
 }
 
@@ -392,7 +392,7 @@ func count(n int) int fails Bad {
 	n
 }
 
-func keep(f escaping func(int) int) bool {
+func keep(f own func(int) int) bool {
 	true
 }
 
@@ -495,7 +495,7 @@ var paramMenu = []genParam{
 	{"m", "Money", KindNone, "money"},
 	{"xs", "[]int", KindNone, "slice"},
 	{"f", "func(int) int", KindNone, "func"},
-	{"g", "escaping func(int) int", KindNone, "escfunc"},
+	{"g", "own func(int) int", KindNone, "escfunc"},
 }
 
 func genLaw(r *rand.Rand) GenLaw {

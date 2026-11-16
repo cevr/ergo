@@ -39,7 +39,7 @@ func main() needs Console | Ambient {
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, diags := check.CheckSource(src)
-			if len(diags) != 1 || diags[0].Code != "S108" || diags[0].Line != 1 || !strings.Contains(diags[0].Message, "only std binds the Ergo runtime") {
+			if len(diags) != 1 || diags[0].Code != "S108" || diags[0].Line != 1 || !strings.Contains(diags[0].Message, "which a package binds only when the root module trusts its Go") {
 				t.Fatalf("want one S108 for the runtime target at line 1, got\n\t%s", describe(diags))
 			}
 		})
@@ -101,7 +101,7 @@ func TestExternUnsafeTarget(t *testing.T) {
 
 // TestExternTargetDomain is A5.2 of check-v1 stage E4 (C26), as IG4 leaves
 // it: a user extern names a function of a binding. A dotted path is #202's
-// until module bindings (IG7), only std binds the Ergo runtime, and a path
+// until module bindings (IG7), an untrusted package binds no runtime body (Trusted Go), and a path
 // or a name no binding has is S104; a declaration the binding refuses is
 // S109 with its reason, and a type is no function target. TestLevel2AdapterRelation
 // holds the signature of an admitted target.
@@ -110,8 +110,8 @@ func TestExternTargetDomain(t *testing.T) {
 		{"extern go strings.Count func f(s string, sub string) int", "", ""},
 		{"extern go os.Getpid func f() int needs go.Foreign", "", ""},
 		{"extern go example.com/x.F func f(n int) int", "S109", "#202"},
-		{"extern go ergo.local/prototype/runtime/rt.F func f(n int) int", "S108", "only std binds the Ergo runtime"},
-		{"extern go ergo.local/prototype/runtime/v1.F func f(n int) int", "S108", "only std binds the Ergo runtime"},
+		{"extern go ergo.local/prototype/runtime/rt.F func f(n int) int", "S108", "which a package binds only when the root module trusts its Go"},
+		{"extern go ergo.local/prototype/runtime/v1.F func f(n int) int", "S108", "which a package binds only when the root module trusts its Go"},
 		{"extern go unsafe.F func f(n int) int", "S108", "Ergo has no unsafe; unsafe stays at the FFI edge"},
 		{"extern go strings/x.F func f(n int) int", "S104", `no binding for Go package "strings/x"`},
 		{"extern go strings.F func f(n int) int", "S104", "Go package strings has no exported function F"},

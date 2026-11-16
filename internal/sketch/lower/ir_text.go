@@ -21,7 +21,7 @@ func (b *irBuilder) text(x *syntax.InterpolatedString, p irPos) *irExpr {
 	var parts []*irExpr
 	for i, seg := range x.Texts {
 		if s := b.fc.segment(seg, i == 0, i == len(x.Texts)-1); s != "" {
-			parts = append(parts, &irExpr{K: "const", Pos: b.pos(seg, seg.Pos()), T: "string", V: s})
+			parts = append(parts, &irExpr{K: "const", Pos: b.pos(seg, seg.Pos()), T: "string", V: irString(s)})
 		}
 		if i < len(x.Exprs) {
 			parts = append(parts, b.textOf(x.Exprs[i]))
@@ -41,14 +41,20 @@ func (b *irBuilder) text(x *syntax.InterpolatedString, p irPos) *irExpr {
 func (b *irBuilder) textOf(x syntax.Expr) *irExpr {
 	t := b.l.info.Types[x]
 	b.goType(t, x)
-	bt := basicOf(t)
+	// A named scalar's text is its basic type's, through a Go conversion
+	// (ir_union.go's scalarBasic; the emitter's text, as).
+	bt := b.scalarBasic(t)
 	if bt == nil {
 		irNo("interpolated value of type %s", t)
+	}
+	named := basicOf(t) == nil
+	if named && bt.Kind == check.Duration {
+		irNo("interpolated named duration")
 	}
 	v := b.expr(x)
 	p := v.Pos
 	as := func(goType string) *irExpr {
-		if bt.Name == goType {
+		if !named && bt.Name == goType {
 			return v
 		}
 		return &irExpr{K: "conv", Pos: p, T: goType, X: v}

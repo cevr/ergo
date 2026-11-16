@@ -19,6 +19,14 @@
 // them must not be seen through the other (owner q26). r returns every
 // local in one record, and the test asserts it equals the model's value.
 //
+// The body has a host, chosen by the seed (Hosts): the function r() that
+// test V calls, test V's own body, a function literal that r() calls, or
+// the body of law V(), whose tail compares the record with the model's
+// value. Each kind of body is lowered by its own path, and each must keep
+// the same value semantics (the law host found the law-body copy bug: a
+// law's body was lowered with no value analysis, so `let mut y = x`
+// shared x's slices).
+//
 // The model is a plain Go interpreter of the generated statements with
 // copy-on-assignment: each assignment deep-copies, so it shares nothing
 // and has no ownership rule to get wrong. It never reads the checker, the
@@ -49,7 +57,15 @@ type Program struct {
 	// Kinds counts the statement and expression forms the program uses,
 	// so a property can require that its seeds reach every form.
 	Kinds map[string]int
+	// Host is the body that holds the statements (Hosts).
+	Host string
 }
+
+// Hosts are the bodies that hold a program's statements: a function, a
+// test, a function literal and a law. A program the model says defects
+// is not hosted by the law, whose verdict on a defect reads differently;
+// the test hosts it instead.
+var Hosts = []string{"func", "test", "literal", "law"}
 
 // Kinds lists every form a run of seeds must reach.
 var Kinds = []string{
@@ -65,6 +81,7 @@ var Kinds = []string{
 	"if", "literal-capture", "literal-value",
 	"generic-call", "package-let", "recursion", "float-text",
 	"defect-index", "defect-divide", "slice-bound",
+	"host-func", "host-test", "host-literal", "host-law",
 }
 
 // defect is the model's panic for a defect of the Go target.
@@ -100,7 +117,14 @@ func Generate(seed uint64) Program {
 		want = sentinel
 	}
 	p.Want = want
-	p.Source = g.source(want)
+	// The host is the seed's, apart from the statements' stream, so a
+	// seed's statements do not depend on it.
+	p.Host = Hosts[seed%uint64(len(Hosts))]
+	if p.Defect && p.Host == "law" {
+		p.Host = "test"
+	}
+	p.Kinds["host-"+p.Host]++
+	p.Source = g.source(want, p.Host)
 	return p
 }
 
@@ -217,19 +241,48 @@ func appendLent(n int) int {
 `
 }
 
-// source is the program: the declarations, r() and the test.
-func (g *gen) source(want string) string {
+// record is the record of every local that a program's body ends with.
+const record = "Out{n: i0 + 31 * i1 + 7 * i2 + sumArr(a0) + 3 * sumArr(a1) + rangeLive(base) + appendLent(base), w: w0, u: u0, s: t0, xs: s0, ys: s1, g: g0, m: m0, m2: m1, p: p0, q: p1, sh: sh0, f: \"\\(float64(i0) / float64(i1)) \\(float32(i2) / float32(i0))\"}"
+
+// source is the program: the declarations and the body in its host (Hosts):
+// r() and test V asserting r() == want; test V's own body asserting its
+// record == want; r() calling a function literal of the body where it is
+// written; or law V()
+// whose tail is record == want.
+func (g *gen) source(want, host string) string {
 	var b strings.Builder
 	b.WriteString(decls(int(g.m.base - 10)))
-	b.WriteString("func r() Out {\n")
-	for _, l := range g.locals {
-		b.WriteString("\t" + l + "\n")
+	body := func(depth int) {
+		tabs := strings.Repeat("\t", depth)
+		for _, l := range g.locals {
+			b.WriteString(tabs + l + "\n")
+		}
+		for _, s := range g.body {
+			s.write(&b, depth)
+		}
 	}
-	for _, s := range g.body {
-		s.write(&b, 1)
+	switch host {
+	case "test":
+		b.WriteString("test V {\n")
+		body(1)
+		b.WriteString("\tassert " + record + " == " + want + "\n}\n")
+	case "law":
+		b.WriteString("law V() {\n")
+		body(1)
+		b.WriteString("\t" + record + " == " + want + "\n}\n")
+	case "literal":
+		// Called where it is written: the evaluator resolves no function
+		// value a local holds.
+		b.WriteString("func r() Out {\n\tfunc() Out {\n")
+		body(2)
+		b.WriteString("\t\t" + record + "\n\t}()\n}\n\n")
+		b.WriteString("test V {\n\tassert r() == " + want + "\n}\n")
+	default:
+		b.WriteString("func r() Out {\n")
+		body(1)
+		b.WriteString("\t" + record + "\n}\n\n")
+		b.WriteString("test V {\n\tassert r() == " + want + "\n}\n")
 	}
-	b.WriteString("\tOut{n: i0 + 31 * i1 + 7 * i2 + sumArr(a0) + 3 * sumArr(a1) + rangeLive(base) + appendLent(base), w: w0, u: u0, s: t0, xs: s0, ys: s1, g: g0, m: m0, m2: m1, p: p0, q: p1, sh: sh0, f: \"\\(float64(i0) / float64(i1)) \\(float32(i2) / float32(i0))\"}\n}\n\n")
-	b.WriteString("test V {\n\tassert r() == " + want + "\n}\n")
 	return b.String()
 }
 

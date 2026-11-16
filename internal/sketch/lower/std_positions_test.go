@@ -155,7 +155,7 @@ func useSource(c stdMatchFunc, method bool) string {
 		// An escaping parameter (actor.StartDurable's save) takes an
 		// escaping argument, so use's parameter is escaping too.
 		if s, ok := p.Type.(*check.Signature); ok && !s.NonEscaping {
-			params[i] = args[i] + " escaping " + p.Type.String()
+			params[i] = args[i] + " own " + p.Type.String()
 		}
 	}
 	if check.TakesWorkSend(c.fn) {
@@ -196,14 +196,14 @@ func useSource(c stdMatchFunc, method bool) string {
 		call = "try " + call
 	}
 	b.WriteString(" {\n\t" + call + "\n}\n")
-	if check.TakesDurableMachine(c.fn) {
+	if len(check.PureParams(c.fn)) > 0 {
 		return durableUseSource(b.String(), sig.Params[0].Type.String())
 	}
 	return b.String()
 }
 
 // durableUseSource is the use of a durable runner
-// (check.TakesDurableMachine) built from plain, its use with the machine
+// (check.PureParams: its machine is written pure) built from plain, its use with the machine
 // parameter p0 passed through. The durable rule admits only a machine whose
 // step the checker sees, so the call passes a Machine literal whose Step
 // names useStep, a pure package function; the rest of the machine is p0's.
@@ -225,8 +225,8 @@ func durableUseSource(plain, machine string) string {
 }
 
 // workUseSource is the use of a function that needs the work capability
-// (check.TakesWorkSend): the call sits in a Listen work's function, the
-// only place the child rule admits it, and the work's send is its first
+// (check.TakesWorkSend): the call sits in a listening work's Start,
+// whose entry send the child rule admits, and the work's send is its first
 // argument, so use takes the other parameters and returns the work.
 //
 // A written row argument has one element (Work[E, R]), so the work's row
@@ -269,14 +269,14 @@ func workUseSource(c stdMatchFunc, params, args []string) string {
 	// one is escaping (types.md, Function values 2).
 	for i, p := range sig.Params {
 		if s, ok := p.Type.(*check.Signature); ok && s.NonEscaping && i > 0 {
-			params[i] = args[i] + " escaping " + p.Type.String()
+			params[i] = args[i] + " own " + p.Type.String()
 		}
 	}
 	send := sig.Params[0].Type.(*check.Signature)
 	work := "machines.Work[" + send.Params[0].Type.String() + ", " + concrete + "]"
 	args[0] = "send"
 	return head + "(" + bind(strings.Join(params[1:], ", ")) + ") " + work + " {\n\t" +
-		work + "{Listen: func(send " + sig.Params[0].Type.String() + ") needs " + concrete + " {\n\t\tlet _ = " +
+		work + "{Start: func(send entry " + sig.Params[0].Type.String() + ") needs " + concrete + " {\n\t\tlet _ = " +
 		c.pkg.Name + "." + c.fn.Name + "(" + strings.Join(args, ", ") + ")\n\t}}\n}\n"
 }
 

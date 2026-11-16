@@ -187,7 +187,7 @@ func (d *mtDriver) work(t *rt.Task, s mtNode, _ func(mtSig)) {
 	}()
 	for i := range p.kids {
 		id := fmt.Sprintf("%s/%d.%d", s.id, s.entry, i)
-		c := MachineChild(Site("tree"), t, lineSleeper{d.line}, nil, mtNode{id: id, depth: s.depth + 1},
+		c := MachineChild(Site("tree"), t, lineSleeper{d.line}, nil, nil, mtNode{id: id, depth: s.depth + 1},
 			d.step, d.fire, d.delay, func(s mtNode) mtNode { return s }, func(mtNode) bool { return true }, d.work,
 			func(x mtDec) int { return x.k }, mtNext,
 			func(_ *rt.Task, x mtDec, deliver func(mtSig)) {
@@ -367,7 +367,7 @@ func treeCase(seed uint64, seen map[string]bool, where *atomic.Value) (trace []s
 		where.Store(fmt.Sprintf("case seed %d, Advance(%d) after %v", seed, d, trace))
 		dr.line.Advance(root, time.Duration(d))
 	}
-	a := MachineStart(Site("tree"), root, lineSleeper{dr.line}, mtNode{id: "r"}, dr.step, dr.fire, dr.delay,
+	a := MachineStart(Site("tree"), root, lineSleeper{dr.line}, nil, mtNode{id: "r"}, dr.step, dr.fire, dr.delay,
 		func(s mtNode) mtNode { return s }, func(mtNode) bool { return true }, dr.work,
 		func(x mtDec) int { return x.k }, mtNext, func(*rt.Task, mtDec) {}, 4)
 	dr.mu.Lock()

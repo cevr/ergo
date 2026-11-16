@@ -17,7 +17,7 @@ law KeyCommandsTakeOneWord(key string) {
 	if !isWord(key) {
 		return true
 	}
-	(try Parse("get "+key)) == Get{Key: key} && (try Parse(" del  "+key)) == Delete{Key: key}
+	try Parse("get "+key) == Get{Key: key} && try Parse(" del  "+key) == Delete{Key: key}
 }
 
 // isWord reports whether text is one word: not empty, and no white space.

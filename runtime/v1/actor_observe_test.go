@@ -59,7 +59,7 @@ func ostart(t *rt.Task, capacity int, entered, release chan struct{}) *Actor[[]i
 		}
 		return rdec{odecide(e), e}, nil
 	}
-	return MachineStart(Site("observed"), t, releaser{make(chan sleep)}, []int{}, step,
+	return MachineStart(Site("observed"), t, releaser{make(chan sleep)}, nil, []int{}, step,
 		func(*rt.Task, []int, []int) (rdec, error) { return rdec{kind: decideIgnore}, nil },
 		func([]int) time.Duration { return ActorNoTimer() }, noWork[[]int], hasNoWork, runNoWork[int],
 		func(d rdec) int { return d.kind },

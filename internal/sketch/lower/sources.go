@@ -42,10 +42,13 @@ import (
 // unit is its index in the unit's order (Refusal.Source).
 type srcFile struct {
 	file *syntax.File
-	path string
-	text string
-	pkg  *check.Package
-	unit int
+	// admitted is the absolute path diagnostics and refusals name; path is
+	// the name //line directives and the tables hold (emitName).
+	admitted string
+	path     string
+	text     string
+	pkg      *check.Package
+	unit     int
 }
 
 // lowerState is the lowering's current source file and the Info whose facts
@@ -167,6 +170,17 @@ func (l *lowerer) locate(n syntax.Node, pos syntax.Pos) (path string, line, colu
 		_, path, line, column = l.at(n, pos)
 		return path, line, column
 	}
+	sf, ok := l.stdFileOf(n)
+	if !ok {
+		ice(n, "a location of a node that no source file holds")
+	}
+	line, column = sf.file.Position(pos)
+	return sf.path, line, column
+}
+
+// stdFileOf is the embedded std file that holds n, of a std package the
+// program reaches (locate).
+func (l *lowerer) stdFileOf(n syntax.Node) (stdFile, bool) {
 	if l.stdSrc == nil {
 		l.stdSrc = map[syntax.Node]stdFile{}
 		for _, p := range l.libraries() {
@@ -188,11 +202,7 @@ func (l *lowerer) locate(n syntax.Node, pos syntax.Pos) (path string, line, colu
 		}
 	}
 	sf, ok := l.stdSrc[n]
-	if !ok || n == nil {
-		ice(n, "a location of a node that no source file holds")
-	}
-	line, column = sf.file.Position(pos)
-	return sf.path, line, column
+	return sf, ok && n != nil
 }
 
 // eachDecl runs f on each top-level declaration of p's files, in file
@@ -247,6 +257,12 @@ func (l *lowerer) sourcedLibs() []*check.Package {
 	l.initPkgs = importOrder(todo)
 	return l.initPkgs
 }
+
+// shippedLedger is the text of the law ledger that ships with the packages
+// the compiler ships (std's ergo.laws), as their sources do: the evidence
+// for the laws of the providers they declare (evidenceFor). A test swaps it
+// for a fixture's ledger.
+var shippedLedger = std.Ledger
 
 // stdLetPkgs are the reached std packages that declare a top-level let,
 // in initialization order (importOrder). A std package imports no user

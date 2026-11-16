@@ -27,6 +27,7 @@ import (
 	"strings"
 
 	"ergo.local/prototype/internal/experimental/irspike"
+	"ergo.local/prototype/internal/toolchain"
 )
 
 func main() {
@@ -95,16 +96,25 @@ func port(goroot, work, patchFile, lockFile, examples string, noder bool) (resul
 	if err := os.CopyFS(patched, os.DirFS(goroot)); err != nil {
 		return r, fmt.Errorf("copy %s: %w", goroot, err)
 	}
-	abs, err := filepath.Abs(patchFile)
+	// ergo's own applier (internal/toolchain): the row says what ergo
+	// does when it builds the patched compile from this release.
+	applied, err := toolchain.ApplyPatch(goroot, data)
 	if err != nil {
 		return r, err
 	}
-	apply := exec.Command("git", "--no-optional-locks", "apply", "--reject", "--whitespace=nowarn", abs)
-	apply.Dir = patched
-	out, applyErr := apply.CombinedOutput()
-	r.rejected = len(regexp.MustCompile(`(?m)^Rejected hunk`).FindAll(out, -1))
-	if applyErr != nil {
-		return r, fmt.Errorf("git apply: %v\n%s", applyErr, out)
+	r.rejected = len(applied.Rejected)
+	if r.rejected > 0 {
+		return r, fmt.Errorf("rejected hunks: %s", strings.Join(applied.Rejected, "; "))
+	}
+	for name, content := range applied.Files {
+		file := filepath.Join(patched, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+			return r, err
+		}
+		os.Chmod(file, 0o644) // a module copy's files are read only
+		if err := os.WriteFile(file, content, 0o644); err != nil {
+			return r, err
+		}
 	}
 	r.pkgbits = pkgbitsVersion(patched)
 	env := goEnv(patched, filepath.Join(work, "gocache-build"))

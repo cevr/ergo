@@ -22,12 +22,6 @@ type Cost struct {
 // Measure runs cmd; see counter_linux.go.
 func Measure(cmd *exec.Cmd) (Cost, error) { return MeasureBounded(cmd, 0) }
 
-// CountSelf runs f; off Linux it counts nothing (-1).
-func CountSelf(f func()) int64 {
-	f()
-	return -1
-}
-
 // MeasureBounded is Measure with the program under proclimit's memory
 // limit (0: none).
 func MeasureBounded(cmd *exec.Cmd, limit uint64) (Cost, error) {

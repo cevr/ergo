@@ -1,6 +1,8 @@
 package format
 
 import (
+	"sort"
+
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -52,21 +54,27 @@ func (p *printer) decl(d syntax.Decl) {
 			p.token(d.DerivePos, "derive")
 			p.space()
 			p.expr(d.Derive)
-			return
+		} else if t, ok := d.Spec.(*syntax.InterfaceType); ok && t.Union != nil {
+			p.union(t)
+		} else {
+			p.expr(d.Spec)
 		}
-		switch t := d.Spec.(type) {
-		case *syntax.InterfaceType:
-			if t.Union != nil {
-				p.union(t)
-				return
-			}
-		}
-		p.expr(d.Spec)
 		if d.Where != nil {
 			p.space()
 			p.token(d.WherePos, "where")
 			p.space()
 			p.expr(d.Where)
+		}
+		if len(d.Implements) > 0 {
+			p.space()
+			p.token(d.ImplementsPos, "implements")
+			for i, x := range d.Implements {
+				if i > 0 {
+					p.synth(",")
+				}
+				p.space()
+				p.typ(x)
+			}
 		}
 	case *syntax.FuncDecl:
 		p.externSpec(d.Extern)
@@ -311,8 +319,22 @@ func (p *printer) fieldList(l *syntax.FieldList, open, close string) {
 			p.space()
 			p.token(f.Any, "any")
 		}
-		if f.Type != nil {
+		if f.Lent > 0 {
+			p.space()
+			p.token(f.Lent, "lent")
+		}
+		if f.Pure {
+			p.space()
+			p.token(f.PurePos, "pure")
+		}
+		if f.Own != nil {
 			if len(f.Names) > 0 {
+				p.space()
+			}
+			p.token(f.Own.At, "own")
+		}
+		if f.Type != nil {
+			if len(f.Names) > 0 || f.Own != nil {
 				p.space()
 			}
 			p.typ(f.Type)
@@ -449,21 +471,24 @@ func (p *printer) structType(t *syntax.StructType) {
 // source order.
 func (p *printer) operationType(t *syntax.InterfaceType) {
 	var list []member
-	i, j := 0, 0
-	for i < len(t.Methods) || j < len(t.Laws) {
-		if j == len(t.Laws) || i < len(t.Methods) && t.Methods[i].Pos() < t.Laws[j].Pos() {
-			m := t.Methods[i]
-			list = append(list, member{m, func(bool) {
-				p.ident(m.Names[0])
-				p.signature(m.Type.(*syntax.FuncType))
-			}})
-			i++
-			continue
-		}
-		l := t.Laws[j]
-		list = append(list, member{l, func(bool) { p.memberLaw(l) }})
-		j++
+	for _, f := range t.Includes {
+		list = append(list, p.fieldMember(f))
 	}
+	for _, m := range t.Methods {
+		list = append(list, member{m, func(bool) {
+			if m.Own != nil {
+				p.token(m.Own.At, "own")
+				p.space()
+			}
+			p.ident(m.Names[0])
+			p.signature(m.Type.(*syntax.FuncType))
+		}})
+	}
+	for _, l := range t.Laws {
+		list = append(list, member{l, func(bool) { p.memberLaw(l) }})
+	}
+	// Source order: includes, operations and laws may interleave.
+	sort.SliceStable(list, func(i, j int) bool { return list[i].node.Pos() < list[j].node.Pos() })
 	p.members(t.Lbrace, t.Rbrace, list, false)
 }
 
@@ -880,6 +905,15 @@ func (p *printer) clauses(lbrace syntax.Pos, n int, casePos func(i int) syntax.P
 }
 
 // caseHead prints `case P, Q:`, or `case _:` for an empty list.
+// written is a case's patterns as the source wrote them: the parser
+// expands nested alternatives into list and keeps the written ones.
+func written(list, as []syntax.Expr) []syntax.Expr {
+	if as != nil {
+		return as
+	}
+	return list
+}
+
 func (p *printer) caseHead(pos syntax.Pos, list []syntax.Expr, colon syntax.Pos) {
 	p.token(pos, "case")
 	p.space()
@@ -893,7 +927,7 @@ func (p *printer) caseHead(pos syntax.Pos, list []syntax.Expr, colon syntax.Pos)
 
 func (p *printer) caseClauses(lbrace syntax.Pos, list []*syntax.CaseClause, rbrace syntax.Pos) {
 	p.clauses(lbrace, len(list), func(i int) syntax.Pos { return list[i].Case }, func(i int) {
-		p.caseHead(list[i].Case, list[i].List, list[i].Colon)
+		p.caseHead(list[i].Case, written(list[i].List, list[i].Written), list[i].Colon)
 	}, func(i int) []syntax.Stmt { return list[i].Body }, rbrace)
 }
 
@@ -1032,6 +1066,15 @@ func (p *printer) expr1(x syntax.Expr, depth int) {
 		}, x.Rbrace, "}")
 	case *syntax.KeyValueExpr:
 		p.element(x)
+	case *syntax.OrPattern:
+		for i, a := range x.Alts {
+			if i > 0 {
+				p.space()
+				p.token(x.Bars[i-1], "|")
+				p.space()
+			}
+			p.expr1(a, depth)
+		}
 	case *syntax.AsPattern:
 		p.expr1(x.X, depth)
 		p.space()
@@ -1053,7 +1096,7 @@ func (p *printer) expr1(x syntax.Expr, depth int) {
 		p.space()
 		p.clauses(x.Lbrace, len(x.Arms), func(i int) syntax.Pos { return x.Arms[i].Case }, func(i int) {
 			a := x.Arms[i]
-			p.caseHead(a.Case, a.Types, a.Colon)
+			p.caseHead(a.Case, written(a.Types, a.Written), a.Colon)
 		}, func(i int) []syntax.Stmt { return x.Arms[i].Body }, x.Rbrace)
 	case *syntax.ContextLit:
 		p.context(x.Context, x.Provides, x.Needs, x.Body)
@@ -1100,6 +1143,10 @@ func (p *printer) expr1(x syntax.Expr, depth int) {
 func (p *printer) funcType(t *syntax.FuncType) {
 	if t.Escaping.IsValid() {
 		p.token(t.Escaping, "escaping")
+		p.space()
+	}
+	if t.Entry {
+		p.token(t.EntryPos, "entry")
 		p.space()
 	}
 	if t.Func.IsValid() {

@@ -3,7 +3,7 @@
 import task
 
 type Fault {}
-type R { N int }
+type R { N int } implements Closer
 func Close(r R) {}
 func use(r R) {}
 

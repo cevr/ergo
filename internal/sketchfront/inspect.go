@@ -62,12 +62,12 @@ func InspectRewrites(a Analysis, source, ledger string) ([]lower.RewriteSite, er
 	if err != nil {
 		return nil, err
 	}
-	text, err := ledgerText(ledger)
+	text, err := ledgerText(nil, ledger)
 	if err != nil {
 		return nil, err
 	}
 	ev, err := ledgerEvidence(a, unit, text)
-	if err != nil || !ev.HasRules() {
+	if err != nil || !lower.HasRewriteLaws(unit) {
 		return []lower.RewriteSite{}, err
 	}
 	unit.Rewrite = ev
@@ -75,6 +75,49 @@ func InspectRewrites(a Analysis, source, ledger string) ([]lower.RewriteSite, er
 	// names the refusal.
 	_, _ = lower.Lower(unit)
 	return ev.Sites(), nil
+}
+
+// InspectFacts is the fact section of the checked analysis's run build
+// (lower/facts.go; facts.md, Lowering 7): each fact the build exports for
+// Go's optimizer, by position. It lowers the program in process and runs
+// no Go tool; source anchors a program of one source text.
+func InspectFacts(a Analysis, source string) ([]lower.Fact, error) {
+	if len(a.Diagnostics) > 0 || (a.file == nil && a.program == nil) || a.pkg == nil {
+		return nil, &BuildError{Diagnostics: a.Diagnostics}
+	}
+	unit, err := analysisUnit(a, source)
+	if err != nil {
+		return nil, err
+	}
+	facts, err := lower.Facts(unit)
+	if facts == nil && err == nil {
+		facts = []lower.Fact{}
+	}
+	return facts, err
+}
+
+// FactsText is facts as ergo inspect facts prints them, one line each.
+func FactsText(facts []lower.Fact) string { return lower.FactsText(facts) }
+
+// CopyReport is the copy report of the checked analysis's run build
+// (ergo build -report copies; OWN1, lower/handover.go): each Append,
+// Concat and owned-form site, with the form it lowers to (in place, one
+// extender, or copy) and why. It lowers the program in process and runs
+// no Go tool; source anchors a program of one source text.
+func CopyReport(a Analysis, source string) ([]lower.CopySite, error) {
+	if len(a.Diagnostics) > 0 || (a.file == nil && a.program == nil) || a.pkg == nil {
+		return nil, &BuildError{Diagnostics: a.Diagnostics}
+	}
+	unit, err := analysisUnit(a, source)
+	if err != nil {
+		return nil, err
+	}
+	report := &lower.CopyReport{}
+	unit.Copies = report
+	if _, err := lower.Lower(unit); err != nil {
+		return nil, err
+	}
+	return report.Sites, nil
 }
 
 // GoDerived is one `type T derive E`: what it produced and, for a pattern,

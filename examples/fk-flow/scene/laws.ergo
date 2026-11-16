@@ -1,0 +1,137 @@
+import machines
+
+// act is the act a generated code stands for: mostly frames, then
+// presses, pointer moves, the buttons, the sliders and switches.
+func act(code int) Signal {
+	let c = ((code % 1000003) + 1000003) % 1000003
+	let x = float64(c % 600)
+	let y = float64((c / 600) % 400)
+	match c % 14 {
+	case 0, 1, 2, 3, 4:
+		Ticked{Ms: float64(c % 40)}
+	case 5, 6:
+		Pressed{X: x, Y: y}
+	case 7:
+		Moved{X: x, Y: y}
+	case 8:
+		Toggled
+	case 9:
+		Cleared
+	case 10:
+		SetStrength{Value: x / 100.0}
+	case 11:
+		SetScale{Value: y / 100.0}
+	case 12:
+		ShowBalls
+	case _:
+		ShowFlow
+	}
+}
+
+func play(n uint64, codes []int) Scene {
+	let mut s = Open(n)
+	for c in codes {
+		s = machines.Next(s, Step(s, act(c)))
+	}
+	s
+}
+
+func running(s Scene) bool {
+	match s {
+	case Balls as b:
+		b.Running
+	case Flow as f:
+		f.Field.Running
+	}
+}
+
+// look is what a scene shows, as numbers: which scene, whether it runs,
+// and its balls' or particles' places and numbering.
+func look(s Scene) []float64 {
+	match s {
+	case Balls as b:
+		let mut out = []float64{0.0, if b.Running { 1.0 } else { 0.0 }, float64(b.Field.NextID)}
+		for x in b.Field.Balls {
+			out = out.Append(x.X).Append(x.Y).Append(x.VX).Append(x.VY)
+		}
+		out
+	case Flow as f:
+		let mut out = []float64{1.0, if f.Field.Running { 1.0 } else { 0.0 }, float64(f.Field.NextID), f.Field.Elapsed, f.Field.Strength, f.Field.Scale}
+		for p in f.Field.Particles {
+			let head = p.Trail[len(p.Trail)-1]
+			out = out.Append(head.X).Append(head.Y).Append(p.AgeMs)
+		}
+		out
+	}
+}
+
+func same(a []float64, b []float64) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, x in a {
+		if x != b[i] {
+			return false
+		}
+	}
+	true
+}
+
+// SeedReplays: the same seed and the same acts give the same scene, and
+// the stream passes on through a switch, so another seed gives another.
+law SeedReplays(n uint64, codes []int) {
+	let more = codes.Append(13).Append(5)
+	same(look(play(n, more)), look(play(n, more))) && !same(look(play(n, more)), look(play(n+1, more)))
+}
+
+// PausedTickIsIdentity: a frame of a paused scene changes nothing, and a
+// frame of a running one is a step in the same scene.
+law PausedTickIsIdentity(n uint64, codes []int, ms int) {
+	let s = play(n, codes)
+	let frame = Ticked{Ms: float64(((ms % 60) + 60) % 60)}
+	match Step(s, frame) {
+	case Ignore:
+		!running(s)
+	case Stay[Scene] as t:
+		running(s) && running(t.Next) == running(s) && look(t.Next)[0] == look(s)[0]
+	case Enter[Scene], Reject:
+		false
+	}
+}
+
+// ActsReachTheShownScene: an act the shown scene has no use for (a
+// pointer move or a slider over the balls, a switch to the scene shown)
+// is ignored; a switch starts the other scene afresh, running.
+law ActsReachTheShownScene(n uint64, codes []int) {
+	let s = play(n, codes)
+	let ignored = match s {
+	case Balls:
+		[]Signal{Moved{X: 1.0, Y: 1.0}, SetStrength{Value: 1.0}, SetScale{Value: 1.0}, ShowBalls}
+	case Flow:
+		[]Signal{ShowFlow}
+	}
+	for sig in ignored {
+		match Step(s, sig) {
+		case Ignore:
+		case Stay[Scene], Enter[Scene], Reject:
+			return false
+		}
+	}
+	let other = match s {
+	case Balls:
+		ShowFlow
+	case Flow:
+		ShowBalls
+	}
+	match Step(s, other) {
+	case Enter[Scene] as e:
+		match e.Next {
+		case Balls as b:
+			b.Running && len(b.Field.Balls) == 0 && b.Field.NextID == 0
+		case Flow as f:
+			f.Field.Running && len(f.Field.Particles) == 45 && f.Field.Elapsed == 0.0
+		}
+	case Stay[Scene], Ignore, Reject:
+		false
+	}
+}

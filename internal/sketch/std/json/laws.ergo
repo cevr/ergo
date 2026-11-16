@@ -27,7 +27,7 @@ law RoundTrips(v fleet) {
 // the reference path, since NewText's result is a Text whose provider the
 // compiler does not know where encode is called, so its encode calls the
 // Writer interface.
-func viaWriter[T wire](v T) string {
+func viaWriter[T wire](v T) string needs wired[T] {
 	let t = NewText()
 	encode(v, t)
 	t.Written()

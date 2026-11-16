@@ -77,7 +77,7 @@ func ended(e End) Order { Ended{End: e} }
 func hosting(m Manager) Option[machines.Work[Order, Source | Scheduler]] {
 	match m {
 	case Running as r:
-		Some{machines.Work{Listen: func(send func(o Order)) needs Source | Scheduler {
+		Some{machines.Work{Start: func(send entry func(o Order)) needs Source | Scheduler {
 			let _ = actor.ChildIn(send, r.File, machines.Start(Download{}, r.Url), 4, ended)
 		}}}
 	case Idle:

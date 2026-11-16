@@ -22,7 +22,7 @@ func TestLedgerRefusesReachableRewrite(t *testing.T) {
 type Counter { Inc(), Twice(), Read() bool,
 	law Two() { Inc(); Inc() } == { Twice() },
 }
-type Box { at bool }
+type Box { at bool } implements Counter
 func NewBox() Box { Box{at: false} }
 func Inc(p *Box) { p.at = !p.at }
 func Twice(p *Box) { p.at = false }

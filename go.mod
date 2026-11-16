@@ -7,3 +7,7 @@ module ergo.local/prototype
 // that fixes it, empty until one exists:
 // gc-span-queue-fix:
 go 1.27
+
+// The Go release ergo pins (internal/toolchain, Version): the go command
+// switches to it for ergo's own build and tests, on every host.
+toolchain go1.27.4

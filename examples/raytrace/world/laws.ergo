@@ -1,0 +1,33 @@
+// The image's laws, over seeded scenes.
+
+import math
+import raytrace/render
+
+// TileSplitDoesNotMatter: the image is the same for every tile size and
+// number of workers: each pixel draws from its own stream.
+law TileSplitDoesNotMatter(seed uint64, size int, workers int) {
+	let sc = Generate(seed, 6, 1.5)
+	let one = render.Render(sc, 9, 6, 2, seed, 1, 9)
+	let split = render.Render(sc, 9, 6, 2, seed, 1+(workers%4+4)%4, 1+(size%5+5)%5)
+	one == split
+}
+
+// NoNaNPixel: every sample's light is a finite number, at least 0, on
+// every channel: no degenerate normal, refraction or reflection makes a
+// NaN or an infinity, and no material takes light away below zero.
+law NoNaNPixel(seed uint64, x int, y int) {
+	let sc = Generate(seed, 12, 1.0)
+	let mut s = render.PixelStream(seed, 0)
+	let u = float64((x%101+101)%101) / 100.0
+	let v = float64((y%101+101)%101) / 100.0
+	for _ in 0..8 {
+		let c = render.Trace(sc, render.Through(sc.Camera, u, v), &s)
+		if !finite(c.X) || !finite(c.Y) || !finite(c.Z) {
+			return false
+		}
+	}
+	true
+}
+
+// finite is whether f is a number at least 0 and not infinite.
+func finite(f float64) bool { !math.IsNaN(f) && !math.IsInf(f, 0) && f >= 0.0 }

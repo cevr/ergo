@@ -4,6 +4,28 @@ import "ergo.local/prototype/internal/sketch/syntax"
 
 // checkFor checks src as one package and returns the checker, for the
 // tests that read its deterministic counters.
+// checkForInfer is checkFor with ergo fix's inference (Options.Infer), for
+// the tests of the inference engine, which writes ergo fix's clauses.
+func checkForInfer(src string) (*checker, []Diagnostic) {
+	file, err := syntax.Parse(src)
+	if err != nil {
+		return nil, []Diagnostic{{Code: CodeSyntax, Message: err.Error()}}
+	}
+	c := newChecker("main", Std, prelude().scope)
+	c.opts.Infer = true
+	c.run([]*syntax.File{file})
+	return c, c.sorted()
+}
+
+// checkSourceInfer is CheckSource with Options.Infer.
+func checkSourceInfer(src string) (*Package, []Diagnostic) {
+	file, err := syntax.Parse(src)
+	if err != nil {
+		return nil, []Diagnostic{{Code: CodeSyntax, Message: err.Error()}}
+	}
+	return CheckOptions("main", []*syntax.File{file}, nil, Options{Infer: true})
+}
+
 func checkFor(src string) (*checker, []Diagnostic) {
 	file, err := syntax.Parse(src)
 	if err != nil {
@@ -73,7 +95,7 @@ func UsefulSteps(src string) ([]int, []Diagnostic) {
 // graph (round-3 M5: linear in the source, never one per same-named
 // method), with the diagnostics.
 func BodyGraphEdges(src string) (int, []Diagnostic) {
-	c, diags := checkFor(src)
+	c, diags := checkForInfer(src) // the edges inference needs (Options.Infer)
 	if c == nil {
 		return -1, diags
 	}

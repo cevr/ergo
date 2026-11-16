@@ -1,0 +1,58 @@
+print "plain text"
+exec 0d
+exec 0a
+print "café 世界 😀"
+exec 0d
+exec 0a
+print "bad �( �"
+csi "" [1] "m"
+print " � ��� end"
+exec 0d
+exec 0a
+esc "(" "B"
+esc "" "D"
+esc "" "7"
+esc "" "8"
+esc "" "c"
+csi "" [] "H"
+csi "" [2] "J"
+csi "" [10;20] "H"
+csi "?" [25] "l"
+csi "?" [1049] "h"
+csi "" [3;20] "r"
+csi "" [38:2:0:10:20:30] "m"
+csi "" [4:3] "m"
+csi "" [1;38;5;196;48;2;1;2;3] "m"
+csi "" [2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2] "m"
+csi "" [65535] "C"
+csi "" [0;5] "H"
+csi "" [12] "m"
+csi "!!!!" [] "p"
+esc "#" "8"
+exec 18
+print "3"
+exec 1a
+print "6"
+osc "0;title one"
+osc "2;title two"
+esc "" "\\"
+dcs "+" [1;2] "q"
+dcs-end 4
+esc "" "\\"
+apc 10
+esc "" "\\"
+apc 2
+esc "" "\\"
+csi "" [31] "m"
+print "�32m"
+exec 09
+exec 08
+exec 07
+exec 0b
+exec 0c
+exec 00
+print " tail\x7f"
+exec 0d
+exec 0a
+print "�"
+bytes 387 dropped 2 bad-text 8 osc-cut 0

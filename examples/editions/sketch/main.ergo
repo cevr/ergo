@@ -7,7 +7,7 @@ type Greeter {
 	Greet(name string) string fails NotFound,
 }
 
-type Friends {}
+type Friends {} implements Greeter
 
 func Greet(_ Friends, name string) string fails NotFound {
 	if name == "Ada" {

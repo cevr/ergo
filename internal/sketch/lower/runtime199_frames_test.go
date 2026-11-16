@@ -34,7 +34,7 @@ var i1FrameKinds = []i1FrameKind{
 	{name: "decl", goClass: "decl", params: true, sites: map[string]int{"emitBody": 1}, program: func(ps, row, _ string, body string) string {
 		return "func subject(" + ps + ") int" + row + " {\n" + body + "}\n"
 	}},
-	{name: "literal", goClass: "lit", params: true, sites: map[string]int{"funcLitClosure": 1}, program: func(ps, row, attempt string, body string) string {
+	{name: "literal", goClass: "lit", params: true, sites: map[string]int{"funcLitClosure": 1, "closureLit": 1}, program: func(ps, row, attempt string, body string) string {
 		return "func subject(" + ps + ") int" + row + " {\nlet local = func() int" + row + " {\n" + body + "}\n" + attempt + "local()\n}\n"
 	}, wrap: func(d int, body string) string {
 		return "let local" + i1Depth(d) + " = func() int {\n" + body + "}\nlocal" + i1Depth(d) + "()\n"
@@ -44,16 +44,16 @@ var i1FrameKinds = []i1FrameKind{
 	}, wrap: func(d int, body string) string {
 		return "let t" + i1Depth(d) + " = task.Go() {\n" + body + "}\nt" + i1Depth(d) + ".Wait()\n"
 	}},
-	{name: "trailing", goClass: "lit", params: true, sites: map[string]int{"funcLitClosure": 1, "plainLit": 1}, program: func(ps, row, attempt string, body string) string {
+	{name: "trailing", goClass: "lit", params: true, sites: map[string]int{"funcLitClosure": 1, "plainLit": 1, "closureLit": 1}, program: func(ps, row, attempt string, body string) string {
 		return "func run(f func() int" + row + ") int" + row + " { " + attempt + "f() }\nfunc subject(" + ps + ") int" + row + " {\n" + attempt + "run() {\n" + body + "}\n}\n"
 	}, wrap: func(_ int, body string) string { return "run() {\n" + body + "}\n" }},
 	{name: "provider", goClass: "decl", sites: map[string]int{"emitBody": 1}, program: func(_, _, _ string, body string) string {
-		return "type Worker { Run(n int) int }\ntype Impl {}\nfunc Run(_ Impl, n int) int {\n" + body + "}\nlet Work = context { Worker: Impl }\nfunc subject() int { with Work { Worker.Run(1) } }\n"
+		return "type Worker { Run(n int) int }\ntype Impl {} implements Worker\nfunc Run(_ Impl, n int) int {\n" + body + "}\nlet Work = context { Worker: Impl }\nfunc subject() int { with Work { Worker.Run(1) } }\n"
 	}},
 	// The block uses Probe: a with builds only the providers its block
 	// reaches (rows.md, Context 7; With.Acquired).
 	{name: "context", goClass: "lit", sites: map[string]int{"emitContext": 1}, program: func(_, _, _ string, body string) string {
-		return "type Carrier { n int }\nfunc Tick(_ Carrier) {}\nfunc Mark(_ Carrier) {}\nlet Deep = context { Probe: Carrier { n: func() int {\n" + body + "}() } }\nfunc subject() int { with Deep {\nProbe.Tick()\n1\n} }\n"
+		return "type Carrier { n int } implements Probe\nfunc Tick(_ Carrier) {}\nfunc Mark(_ Carrier) {}\nlet Deep = context { Probe: Carrier { n: func() int {\n" + body + "}() } }\nfunc subject() int { with Deep {\nProbe.Tick()\n1\n} }\n"
 	}},
 	// A test body is a frame of the test build only (196l): its cases lower
 	// through LowerTests, since the run build emits no test (i1Lower).

@@ -1,0 +1,29 @@
+// A generated session: the workload of the program at any length, drawn
+// from the Random in the context, so a seed replays it.
+
+import dash/feed
+import strings
+
+// Generate is a script of n steps: runs of the clock, pauses and resumes,
+// policy changes and frames, ending with show and drops.
+func Generate(n int) string needs Random {
+	let panels = len(feed.Kinds())
+	let mut b = strings.NewBuilder()
+	for _ in 0..n {
+		let c = match Random.IntN(10) {
+		case 0:
+			Pause{Panel: Random.IntN(panels)}
+		case 1:
+			Resume{Panel: Random.IntN(panels)}
+		case 2:
+			SetPolicy{Panel: Random.IntN(panels), Policy: if Random.IntN(2) == 0 { feed.DropOldest } else { feed.DropNewest }}
+		case 3:
+			Show
+		case _:
+			Run{Frames: 1 + Random.IntN(120)}
+		}
+		b.WriteString(Line(c) + "\n")
+	}
+	b.WriteString("show\ndrops\n")
+	b.String()
+}

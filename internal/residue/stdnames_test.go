@@ -3,6 +3,7 @@ package residue_test
 import (
 	"bufio"
 	"go/ast"
+	"go/constant"
 	"go/parser"
 	"go/token"
 	"go/types"
@@ -10,7 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -30,9 +30,8 @@ import (
 // fails.
 //
 // A name-keyed decision is a function of a non-test file of the lowering
-// that compares a .Name or .Path selector with a string literal, or with
-// a package-level constant of the lowering whose value is one (== or !=,
-// or a switch on the selector with string cases). The literals "_" and
+// that compares a .Name or .Path selector with a constant string (== or
+// !=, or a switch on the selector with string cases). The literals "_" and
 // "main" are the blank name and the program entry, which the language
 // defines; they are not std names. Every such function must be listed,
 // and every listed function must still hold one, so the inventory never
@@ -51,8 +50,10 @@ func TestLoweringKeysOnNoStdName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("git ls-files: %v", err)
 	}
-	files := map[string]*ast.File{}
+	found := map[string]bool{}
 	fset := token.NewFileSet()
+	var files []*ast.File
+	names := map[*ast.File]string{}
 	for _, name := range strings.Split(strings.TrimSuffix(string(list), "\x00"), "\x00") {
 		if name == "" || strings.HasSuffix(name, "_test.go") || strings.Contains(strings.TrimPrefix(name, "internal/sketch/lower/"), "/") {
 			continue
@@ -65,13 +66,15 @@ func TestLoweringKeysOnNoStdName(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		files[name] = f
+		files = append(files, f)
+		names[f] = name
 	}
-	consts := stringConsts(files)
-	found := map[string]bool{}
-	for name, f := range files {
-		for _, fn := range nameKeyedFuncs(f, consts) {
-			found[filepath.Base(name)+":"+fn] = true
+	info := &types.Info{Types: map[ast.Expr]types.TypeAndValue{}}
+	conf := types.Config{Error: func(error) {}}
+	_, _ = conf.Check("lower", fset, files, info)
+	for _, f := range files {
+		for _, fn := range nameKeyedFuncs(f, info) {
+			found[filepath.Base(names[f])+":"+fn] = true
 		}
 	}
 	listed := readStdNames(t)
@@ -119,42 +122,19 @@ func readStdNames(t *testing.T) map[string]string {
 	return out
 }
 
-// stringConsts are the lowering's package-level constants whose value is
-// a string literal, by name: a comparison with one (n.Obj.Pkg.Path ==
-// jsonPackage) keys on the literal it names, as a comparison with the
-// literal does.
-func stringConsts(files map[string]*ast.File) map[string]*ast.BasicLit {
-	out := map[string]*ast.BasicLit{}
-	for _, f := range files {
-		for _, d := range f.Decls {
-			gd, ok := d.(*ast.GenDecl)
-			if !ok || gd.Tok != token.CONST {
-				continue
-			}
-			for _, s := range gd.Specs {
-				vs := s.(*ast.ValueSpec)
-				for i, n := range vs.Names {
-					if i < len(vs.Values) {
-						if b, ok := vs.Values[i].(*ast.BasicLit); ok && b.Kind == token.STRING {
-							out[n.Name] = b
-						}
-					}
-				}
-			}
+// nameKeyedFuncs are the functions of src (a method as Recv.Name) that
+// compare a .Name or .Path selector with a constant string. go/types
+// evaluates aliases, concatenations and package-local constants across
+// files too. Unresolved
+// imports/types do not prevent it from evaluating independent constants.
+func nameKeyedFuncs(f *ast.File, info *types.Info) []string {
+	stdConst := func(x ast.Expr) bool {
+		value := info.Types[x].Value
+		if value == nil || value.Kind() != constant.String {
+			return false
 		}
-	}
-	return out
-}
-
-// nameKeyedFuncs are the functions of f (a method as Recv.Name) that
-// compare a .Name or .Path selector with a string literal or a constant
-// of consts.
-func nameKeyedFuncs(f *ast.File, consts map[string]*ast.BasicLit) []string {
-	stdLit := func(x ast.Expr) bool {
-		if id, ok := x.(*ast.Ident); ok && consts[id.Name] != nil {
-			x = consts[id.Name]
-		}
-		return stdLit(x)
+		s := constant.StringVal(value)
+		return s != "_" && s != "main" && types.Universe.Lookup(s) == nil
 	}
 	var out []string
 	for _, d := range f.Decls {
@@ -166,14 +146,14 @@ func nameKeyedFuncs(f *ast.File, consts map[string]*ast.BasicLit) []string {
 		ast.Inspect(fd.Body, func(n ast.Node) bool {
 			switch n := n.(type) {
 			case *ast.BinaryExpr:
-				if (n.Op == token.EQL || n.Op == token.NEQ) && (nameSel(n.X) && stdLit(n.Y) || nameSel(n.Y) && stdLit(n.X)) {
+				if (n.Op == token.EQL || n.Op == token.NEQ) && (nameSel(n.X) && stdConst(n.Y) || nameSel(n.Y) && stdConst(n.X)) {
 					keyed = true
 				}
 			case *ast.SwitchStmt:
 				if n.Tag != nil && nameSel(n.Tag) {
 					for _, c := range n.Body.List {
 						for _, e := range c.(*ast.CaseClause).List {
-							if stdLit(e) {
+							if stdConst(e) {
 								keyed = true
 							}
 						}
@@ -206,21 +186,11 @@ func nameSel(x ast.Expr) bool {
 	return ok && (s.Sel.Name == "Name" || s.Sel.Name == "Path")
 }
 
-// stdLit reports a string literal that may name a std declaration: any
-// but the blank name, the program entry and a name Go predeclares (make,
-// nil: the host language's own, which a fact about a Go body reads).
-func stdLit(x ast.Expr) bool {
-	b, ok := x.(*ast.BasicLit)
-	if !ok || b.Kind != token.STRING {
-		return false
-	}
-	s, err := strconv.Unquote(b.Value)
-	return err == nil && s != "_" && s != "main" && types.Universe.Lookup(s) == nil
-}
-
 // stdNamesBaseline is testdata/std-names.txt as OPT6 left it (the rule
 // landed with OPT4a): `category file:function`. A line may leave the
-// inventory; none may join.
+// inventory; none may join. The json-keyed sites the constant-reading
+// detector found (CF1's isJSONText, JSON-fast's jsonWrapper) are gone: LR3
+// removed the Text path, and a codec form a type declares replaced jsonWrapper.
 var stdNamesBaseline = []string{
 	"abi calls.go:funcCtx.callee",
 	"abi calls.go:lowerer.hostImportNames",
@@ -236,7 +206,4 @@ var stdNamesBaseline = []string{
 	"abi types.go:lowerer.foreignOwner",
 	"abi values.go:preludeAppend",
 	"abi values.go:preludeMapWrite",
-	// The detector reads string constants since JSON-fast (wf10); this
-	// binding compared through one before, so it joins with the detector.
-	"abi wirefields.go:jsonWrapper",
 }

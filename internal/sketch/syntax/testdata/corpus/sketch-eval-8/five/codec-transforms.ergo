@@ -117,15 +117,15 @@ func loadSettings() Settings fails json.DecodeFailed needs Env {
 	return settingsJSON.Decode(Env.Get("ORDER_SETTINGS"))
 }
 
-type Members {}
+type Members {} implements Directory
 
 func Known(_ Members, handle string) bool fails DirectoryDown { return handle != "ghost" }
 
-type Outage {}
+type Outage {} implements Directory
 
 func Known(_ Outage, handle string) bool fails DirectoryDown { return DirectoryDown{} }
 
-type Ledger {}
+type Ledger {} implements Audit
 
 func Note(_ Ledger, handle string) fails AuditRefused {
 	if handle == "sealed" {
@@ -133,7 +133,7 @@ func Note(_ Ledger, handle string) fails AuditRefused {
 	}
 }
 
-type StoredSettings {}
+type StoredSettings {} implements Env
 
 func Get(_ StoredSettings, name string) string {
 	return `{"owner":"u-1","defaultStatus":{"_tag":"Enabled"}}`

@@ -1,0 +1,148 @@
+// The generator builds trees from Random, for the laws: any shape the
+// parser can give, with names from a small set, so that a printed tree
+// reads back. Samples binds Random to rand.Seeded(seed), so a law that
+// takes a seed replays from it.
+
+import rand
+
+// Names are the names the generator uses.
+let Names = []string{"a", "b", "f", "xs", "rec"}
+
+// Keys are the field names the generator uses.
+let Keys = []string{"x", "y", "next"}
+
+let binOps = []BinOp{Add, Sub, Mul, Div, Mod, Lt, Le, Gt, Ge, Eq, Ne, And, Or}
+
+let nowhere = Pos{Line: 0, Col: 0}
+
+func pick(xs []string) string needs Random { xs[Random.IntN(len(xs))] }
+
+// GenExpr is an expression of depth at most depth.
+func GenExpr(depth int) Expr needs Random {
+	let leaf = depth <= 0
+	let n = if leaf { Random.IntN(6) } else { Random.IntN(15) }
+	let d = depth - 1
+	match n {
+	case 0:
+		IntLit{N: Random.IntN(1000), At: nowhere}
+	case 1:
+		FloatLit{F: float64(Random.IntN(100000)) / 64.0, At: nowhere}
+	case 2:
+		StrLit{S: pick([]string{"", "a b", "q\"\\", "line\n\ttab", "é"}), At: nowhere}
+	case 3:
+		BoolLit{B: Random.IntN(2) == 0, At: nowhere}
+	case 4:
+		NilLit{At: nowhere}
+	case 5:
+		Name{Id: pick(Names), At: nowhere}
+	case 6:
+		let op UnOp = if Random.IntN(2) == 0 { Neg } else { Not }
+		Unary{Op: op, X: GenExpr(d), At: nowhere}
+	case 7, 8:
+		Binary{Op: binOps[Random.IntN(len(binOps))], L: GenExpr(d), R: GenExpr(d), At: nowhere}
+	case 9:
+		Call{Fn: GenExpr(d), Args: genExprs(d), At: nowhere}
+	case 10:
+		Index{X: GenExpr(d), I: GenExpr(d), At: nowhere}
+	case 11:
+		Field{X: GenExpr(d), Key: pick(Keys), At: nowhere}
+	case 12:
+		ListLit{Items: genExprs(d), At: nowhere}
+	case 13:
+		let mut keys = []string{}
+		let mut vals = []Expr{}
+		for k in Keys {
+			if Random.IntN(2) == 0 {
+				keys = keys.Append(k)
+				vals = vals.Append(GenExpr(d))
+			}
+		}
+		RecLit{Keys: keys, Vals: vals, At: nowhere}
+	case _:
+		FnLit{Params: genParams(), Body: GenStmts(d), At: nowhere}
+	}
+}
+
+func genExprs(depth int) []Expr needs Random {
+	let mut out = []Expr{}
+	for _ in 0..Random.IntN(3) {
+		out = out.Append(GenExpr(depth))
+	}
+	out
+}
+
+func genParams() []string needs Random {
+	let mut out = []string{}
+	for n in Names {
+		if Random.IntN(3) == 0 {
+			out = out.Append(n)
+		}
+	}
+	out
+}
+
+// GenStmts is a list of statements of depth at most depth.
+func GenStmts(depth int) []Stmt needs Random {
+	let mut out = []Stmt{}
+	for _ in 0..Random.IntN(4) {
+		out = out.Append(GenStmt(depth))
+	}
+	out
+}
+
+// GenStmt is a statement of depth at most depth.
+func GenStmt(depth int) Stmt needs Random {
+	let d = depth - 1
+	let n = if depth <= 0 { 3 + Random.IntN(4) } else { Random.IntN(11) }
+	match n {
+	case 0:
+		FnDecl{Name: pick(Names), Params: genParams(), Body: GenStmts(d), At: nowhere}
+	case 1:
+		let els = match Random.IntN(3) {
+		case 0:
+			[]Stmt{}
+		case 1:
+			[]Stmt{GenStmt(d)}
+		case _:
+			GenStmts(d)
+		}
+		If{Cond: GenExpr(d), Then: GenStmts(d), Else: els, At: nowhere}
+	case 2:
+		While{Cond: GenExpr(d), Body: GenStmts(d), At: nowhere}
+	case 3:
+		Let{Name: pick(Names), Val: GenExpr(d), At: nowhere}
+	case 4:
+		let target = match Random.IntN(3) {
+		case 0:
+			Name{Id: pick(Names), At: nowhere}
+		case 1:
+			Index{X: Name{Id: pick(Names), At: nowhere}, I: GenExpr(d), At: nowhere}
+		case _:
+			Field{X: GenExpr(d), Key: pick(Keys), At: nowhere}
+		}
+		Assign{Target: target, Val: GenExpr(d), At: nowhere}
+	case 5:
+		Return{Val: GenExpr(d), At: nowhere}
+	case 6:
+		ExprStmt{X: GenExpr(d), At: nowhere}
+	case 7:
+		For{Var: pick(Names), Over: GenExpr(d), Body: GenStmts(d), At: nowhere}
+	case 8:
+		Break{At: nowhere}
+	case 9:
+		Continue{At: nowhere}
+	case _:
+		ExprStmt{X: Unary{Op: Neg, X: GenExpr(d), At: nowhere}, At: nowhere}
+	}
+}
+
+// Samples is ten programs of depth at most 4 from seed.
+func Samples(seed int) [][]Stmt {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		let mut out = [][]Stmt{}
+		for _ in 0..10 {
+			out = out.Append(GenStmts(4))
+		}
+		out
+	}
+}

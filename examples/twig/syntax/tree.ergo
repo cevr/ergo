@@ -1,0 +1,144 @@
+// The tree of a twig program: statements and expressions, each with the
+// position where it starts.
+
+// Expr is an expression.
+type Expr =
+	| IntLit{N int, At Pos}
+	| FloatLit{F float64, At Pos}
+	| StrLit{S string, At Pos}
+	| BoolLit{B bool, At Pos}
+	| NilLit{At Pos}
+	| Name{Id string, At Pos}
+	| Unary{Op UnOp, X Expr, At Pos}
+	| Binary{Op BinOp, L Expr, R Expr, At Pos}
+	| Call{Fn Expr, Args []Expr, At Pos}
+	| Index{X Expr, I Expr, At Pos}
+	| Field{X Expr, Key string, At Pos}
+	| ListLit{Items []Expr, At Pos}
+	| RecLit{Keys []string, Vals []Expr, At Pos}
+	| FnLit{Params []string, Body []Stmt, At Pos}
+
+// Stmt is a statement.
+type Stmt =
+	| FnDecl{Name string, Params []string, Body []Stmt, At Pos}
+	| Let{Name string, Val Expr, At Pos}
+	| Assign{Target Expr, Val Expr, At Pos}
+	| If{Cond Expr, Then []Stmt, Else []Stmt, At Pos}
+	| While{Cond Expr, Body []Stmt, At Pos}
+	| For{Var string, Over Expr, Body []Stmt, At Pos}
+	| Return{Val Expr, At Pos}
+	| Break{At Pos}
+	| Continue{At Pos}
+	| ExprStmt{X Expr, At Pos}
+
+// UnOp is a prefix operator.
+type UnOp = Neg | Not
+
+type Neg {}
+type Not {}
+
+// BinOp is an infix operator.
+type BinOp = Add | Sub | Mul | Div | Mod | Lt | Le | Gt | Ge | Eq | Ne | And | Or
+
+type Add {}
+type Sub {}
+type Mul {}
+type Div {}
+type Mod {}
+type Lt {}
+type Le {}
+type Gt {}
+type Ge {}
+type Eq {}
+type Ne {}
+type And {}
+type Or {}
+
+// Symbol is the text of op.
+func Symbol(op BinOp) string {
+	match op {
+	case Add:
+		"+"
+	case Sub:
+		"-"
+	case Mul:
+		"*"
+	case Div:
+		"/"
+	case Mod:
+		"%"
+	case Lt:
+		"<"
+	case Le:
+		"<="
+	case Gt:
+		">"
+	case Ge:
+		">="
+	case Eq:
+		"=="
+	case Ne:
+		"!="
+	case And:
+		"and"
+	case Or:
+		"or"
+	}
+}
+
+// Power is the binding power of op: an operator binds its operands
+// tighter than every operator of a lower power. Every infix operator is
+// left-associative.
+func Power(op BinOp) int {
+	match op {
+	case Or:
+		1
+	case And:
+		2
+	case Eq, Ne:
+		3
+	case Lt, Le, Gt, Ge:
+		4
+	case Add, Sub:
+		5
+	case Mul, Div, Mod:
+		6
+	}
+}
+
+// PrefixPower is the binding power of a prefix operator's operand.
+let PrefixPower = 7
+
+// ExprAt is where e starts.
+func ExprAt(e Expr) Pos {
+	match e {
+	case IntLit as x:
+		x.At
+	case FloatLit as x:
+		x.At
+	case StrLit as x:
+		x.At
+	case BoolLit as x:
+		x.At
+	case NilLit as x:
+		x.At
+	case Name as x:
+		x.At
+	case Unary as x:
+		x.At
+	case Binary as x:
+		x.At
+	case Call as x:
+		x.At
+	case Index as x:
+		x.At
+	case Field as x:
+		x.At
+	case ListLit as x:
+		x.At
+	case RecLit as x:
+		x.At
+	case FnLit as x:
+		x.At
+	}
+}

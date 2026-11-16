@@ -58,7 +58,7 @@ test KeysPadByCharacters {
 }
 
 test HundredthsReads {
-	assert (try ParseHundredths("12")) == 1200 && (try ParseHundredths("12.5")) == 1250 && (try ParseHundredths("0.07")) == 7
+	assert try ParseHundredths("12") == 1200 && try ParseHundredths("12.5") == 1250 && try ParseHundredths("0.07") == 7
 	assert Hundredths(1234) == "12.34" && Hundredths(-5) == "-0.05" && Hundredths(100) == "1.00"
 }
 

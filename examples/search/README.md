@@ -30,7 +30,7 @@ The program is a module of packages (`ergo.mod`: `module search`), in the Go lay
 
 ## What it shows
 
-- **State-owned work (MU4) with a full row (MB F8).** `find` gives `Searching` a `machines.Work[Signal, Index | Scheduler]`: the work waits `Latency` on the `Scheduler`, then asks the `Index`. The row names both capabilities, and only `main` binds them. The runner starts it after the entry commits and before an observer sees the entry, and interrupts it when the entry ends. `IndexDown` is a failure of `Index` and also a `Signal`, so the work needs no failure map; the hits need `OnSuccess`, which makes them `Found`.
+- **State-owned work (MU4) with a full row (MB F8).** `find` gives `Searching` a `machines.Work[Signal, Index | Scheduler]`: the work waits `Latency` on the `Scheduler`, then asks the `Index`. The row names both capabilities, and only `main` binds them. The runner starts it after the entry commits and before an observer sees the entry, and interrupts it when the entry ends. The work is `machines.Attempt(run, onSuccess, onFailure)`, an ordinary std function: `onSuccess` makes the hits `Found`, and `IndexDown`, a failure of `Index` that is also a `Signal`, is handed on as a `Signal` by `onFailure`.
 - **Runner-owned timer (`after`).** The pause is `Typing`'s timer. A key re-enters `Typing` with `Enter`, so the pause starts again: the debounce needs no counter.
 - **Observers (MU12) on a settled clock (fua-b).** A watcher task reads the actor's `Changes`: every state the actor commits, once each, in order, stamped with the clock's time. `time.Advance` returns only when every task of the clock's domain waits again, one instant at a time, so `Play` reads no timer of its own: it moves the clock, asks, settles with `Advance(0s)`, and shows the states and outputs of each instant.
 - **`Emit` (q28).** The result of a search moves to `Showing` and tells `Shown` in one decision. A choice tells `Pinned`.
@@ -74,7 +74,7 @@ effect-machine writes this search with a `Context.Service` class for the index, 
 | --- | --- | --- | --- |
 | the service | a `Context.Service` class with a tag | `type Index { Find(query string) []Entry fails IndexDown, law … }`: an operation type whose laws every provider runs | compiler + laws |
 | the work of a state | `.task(State.Searching, …)` in the builder chain | `work: find`, one function over the state union: one work per state, the match exhaustive | compiler |
-| result → event | `onSuccess` and `onFailure`, pinned by overloads; a missing one is TS2769 "No overload matches this call" | `IndexDown` is a `Signal`, so no failure map; the hits need `OnSuccess`, and the checker names a missing map | compiler |
+| result → event | `onSuccess` and `onFailure`, pinned by overloads; a missing one is TS2769 "No overload matches this call" | `machines.Attempt` takes both maps as arguments, so a missing one is a call with too few arguments; `IndexDown` is handed on as a `Signal` | compiler |
 | a result after the state's exit | a plain `self.send` from the task fiber; a result queued before a re-entry can reach the new entry (inferred, em-parity §4.2) | the runner drops it by the entry's id | runner (MU4 model and property) |
 | required services | `R` in the machine's type, provided with `Effect.provideService` | `Work[Signal, Index \| Scheduler]`: the work's row, written as `R` is, a union; only `main` binds it | compiler (equal) |
 | debounce | a `.timeout` or a hand timer with a generation counter | `after: Timer`; `Enter` restarts it | runner + law `DebounceCoalesces` |

@@ -1,0 +1,97 @@
+// Package window is the drawing app's view: a toolbar, the status line,
+// the picture as a canvas that takes the pointer, and the paint list's
+// lines, written once for every ui host (ui.TestHost here; the desktop
+// host at stage c). The tool machine runs under it as an actor.
+
+import draw/canvas
+import ui
+
+// App is the tool as an app: it opens on a picture.
+type App machine[canvas.State, canvas.Signal] {
+	initial: open,
+	step:    step,
+}
+
+// open and step are the tool's, named in this package as a machine's
+// entries must be.
+func open(p canvas.Picture) canvas.State { canvas.Open(p) }
+
+func step(s canvas.State, sig canvas.Signal) Decision[canvas.State, canvas.Output] { canvas.Step(s, sig) }
+
+// Zooms are the zoom buttons' percentages.
+func Zooms() []int { []int{25, 50, 100, 200, 400} }
+
+// Pans are the pan buttons' moves, in screen units.
+func Pans() []canvas.Point {
+	[]canvas.Point{canvas.Point{X: -100, Y: 0}, canvas.Point{X: 100, Y: 0}, canvas.Point{X: 0, Y: -100}, canvas.Point{X: 0, Y: 100}}
+}
+
+// View shows s: the toolbar, the status line, the picture, and one line
+// a shape on the screen, in paint order (canvas.Frame's lines).
+func View(f *ui.Frame[canvas.Signal], s canvas.State) {
+	ui.OnKey(f, func(k ui.KeyPress) Option[canvas.Signal] {
+		match k.Name {
+		case "Escape":
+			Some{Value: canvas.Escape}
+		case "Delete":
+			Some{Value: canvas.Delete}
+		case _:
+			None
+		}
+	})
+	let lines = canvas.Frame(s)
+	ui.Column(f, ui.Plain()) {
+		ui.Row(f, ui.Plain()) {
+			for k in []canvas.Kind{canvas.PenTool, canvas.RectTool, canvas.EllipseTool, canvas.LineTool, canvas.SelectTool} {
+				ui.Pressable(f, "tool "+canvas.ToolName(k), canvas.Pick{Tool: k}) {
+					ui.Text(f, canvas.ToolName(k))
+				}
+			}
+			ui.Pressable(f, "delete", canvas.Delete) {
+				ui.Text(f, "delete")
+			}
+		}
+		ui.Row(f, ui.Plain()) {
+			for n in 0..canvas.Layers {
+				ui.Pressable(f, "layer \(n)", canvas.OnLayer{N: n}) {
+					ui.Text(f, "L\(n)")
+				}
+			}
+			for z in Zooms() {
+				ui.Pressable(f, "zoom \(z)", canvas.Zoom{Percent: z}) {
+					ui.Text(f, "\(z)%")
+				}
+			}
+			for d in Pans() {
+				ui.Pressable(f, "pan \(d.X) \(d.Y)", canvas.Pan{By: d}) {
+					ui.Text(f, "pan")
+				}
+			}
+		}
+		ui.Text(f, lines[0])
+		ui.Area(f, "picture", ui.Plain(), func(p ui.PointerEvent) Option[canvas.Signal] { Pointed(p) }) {
+			ui.Canvas(f, "paint", ui.Length(float64(canvas.Screen.X)), ui.Length(float64(canvas.Screen.Y))) func(p *ui.Paint) {
+				Draw(p, s)
+			}
+		}
+		for i in 1..len(lines) {
+			ui.Text(f, lines[i])
+		}
+	}
+}
+
+// Pointed is the tool's signal of a pointer event at a screen point: a
+// press, a move, a release. A wheel is no signal.
+func Pointed(p ui.PointerEvent) Option[canvas.Signal] {
+	let at = canvas.Point{X: int(p.X), Y: int(p.Y)}
+	match p.Phase {
+	case ui.Down:
+		Some{Value: canvas.Down{At: at}}
+	case ui.Moved:
+		Some{Value: canvas.Drag{At: at}}
+	case ui.Up:
+		Some{Value: canvas.Up{At: at}}
+	case ui.Wheel:
+		None
+	}
+}

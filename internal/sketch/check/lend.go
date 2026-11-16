@@ -4,7 +4,6 @@ import (
 	"slices"
 
 	"ergo.local/prototype/internal/sketch/syntax"
-	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // lendPoint is a release position, not an evaluation position. A path is
@@ -152,12 +151,13 @@ func (w *ownWalk) placePoint(x syntax.Expr) lendPoint {
 }
 
 func (w *ownWalk) argument(x *syntax.CallExpr, index int) syntax.Expr {
-	c := w.info.Calls[x]
-	if c != nil && c.Kind == CallFunc && c.Recv != nil {
-		if index == 0 {
+	// index is a parameter's; the written arguments start where argParam
+	// puts argument 0, after a receiver that binds a parameter.
+	if c := w.info.Calls[x]; c != nil {
+		if index >= 0 && index == argParam(c, -1) {
 			return c.Recv
 		}
-		index--
+		index -= argParam(c, 0)
 	}
 	if index >= 0 && index < len(x.Args) {
 		return x.Args[index]
@@ -275,15 +275,14 @@ func (w *ownWalk) literalRoot(key syntax.Node, v *Var, before bool) (lendPoint, 
 	return lendPoint{}, false
 }
 
+// callbackKeeper is the owner of the moving callback of the call c's bound
+// body (Body.Keeper), for an extern of any package.
 func callbackKeeper(c *Call) (int, bool) {
-	if c == nil || c.Kind != CallFunc || c.Func == nil || c.Func.Pkg == nil || !c.Func.Pkg.Std() || c.Func.Decl == nil || c.Func.Decl.Extern == nil {
+	if c == nil || c.Kind != CallFunc {
 		return 0, false
 	}
-	path, name := c.Func.Decl.Extern.Split()
-	if path != runtimeModule+"/v1" {
-		return 0, false
-	}
-	return v1.CallbackKeeper(name)
+	b := BodyOf(c.Func)
+	return b.Keeper, b.Keeps
 }
 
 func (w *ownWalk) literalEscapes(n syntax.Node) bool {
@@ -320,8 +319,7 @@ func (w *ownWalk) drainsLends(c *Call) bool {
 	if c == nil || c.Op == nil || c.Recv == nil {
 		return false
 	}
-	n, ok := w.info.Types[c.Recv].(*Named)
-	return ok && n.origin().Obj != nil && n.origin().Obj.Pkg.Std() && v1.DrainsLends(n.origin().Obj.Name+"."+c.Op.Name)
+	return OpBodyOf(w.info.Types[c.Recv], c.Op.Name).DrainsLends
 }
 
 func (w *ownWalk) addLoans(n syntax.Node, loans []resourceLoan) {
@@ -539,6 +537,12 @@ func (w *ownWalk) literalCaptures(key syntax.Node, body *syntax.BlockStmt, captu
 			return true
 		}
 		v, _ := w.info.Uses[id].(*Var)
+		if r := w.textRoots[v]; r != nil {
+			// A captured text captures its Mapped's owner (Borrows 8): the
+			// closure holds a lend of it, as a capture of the owner does.
+			w.textCapture(key, id, r, dest, seen)
+			return true
+		}
 		i, ok := w.slot[v]
 		if !ok || seen[v] {
 			return true

@@ -1,0 +1,119 @@
+// Package corpus writes the seeded inputs of the receipts and the cases:
+// text, binary records, zeros and random bytes. A seed gives one input on
+// every host: the stream is SplitMix64, written here.
+
+import strings
+
+// Kind is what an input holds.
+type Kind = Prose{} | Records{} | Zeros{} | Noise{}
+
+// KindOf is the kind a name selects: "text", "binary", "zeros" or
+// "random".
+func KindOf(name string) Option[Kind] {
+	match name {
+	case "text":
+		Some[Kind]{Value: Prose}
+	case "binary":
+		Some[Kind]{Value: Records}
+	case "zeros":
+		Some[Kind]{Value: Zeros}
+	case "random":
+		Some[Kind]{Value: Noise}
+	case _:
+		None
+	}
+}
+
+// Mix is a SplitMix64 stream: its state, advanced by a constant per draw.
+type Mix { state uint64 }
+
+// Seeded is the stream of seed.
+func Seeded(seed uint64) Mix { Mix{state: seed} }
+
+// Next is the stream's next 64 bits.
+func Next(m *Mix) uint64 {
+	m.state += 0x9E3779B97F4A7C15
+	let mut z = m.state
+	z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9
+	z = (z ^ (z >> 27)) * 0x94D049BB133111EB
+	z ^ (z >> 31)
+}
+
+// Below is a draw from 0 to n-1; n > 0.
+func Below(m *Mix, n int) int { int(m.Next() % uint64(n)) }
+
+// Words are the vocabulary of Prose, short ones first, so a skewed draw
+// makes the frequent words short, as in a natural text.
+let Words = []string{"the", "of", "and", "a", "to", "in", "is", "it", "that", "was", "for", "on", "are", "with", "as", "at", "be", "this", "have", "from", "or", "one", "had", "by", "word", "but", "not", "what", "all", "were", "when", "we", "there", "can", "an", "your", "which", "their", "said", "each", "she", "do", "how", "will", "up", "other", "about", "out", "many", "then", "them", "these", "some", "would", "make", "like", "into", "time", "has", "look", "two", "more", "write", "see", "number", "way", "could", "people", "than", "first", "water", "been", "call", "who", "oil", "its", "now", "find", "long", "down", "day", "did", "get", "come", "made", "may", "part", "window", "compressor", "literal", "sequence", "offset", "block", "stream", "header", "boundary", "repetition"}
+
+// Generate is n bytes of kind k from seed.
+func Generate(k Kind, n int, seed uint64) string {
+	let mut m = Seeded(seed)
+	let mut b = strings.NewBuilder()
+	b.Grow(n + 64)
+	match k {
+	case Prose:
+		prose(&b, &m, n)
+	case Records:
+		records(&b, &m, n)
+	case Zeros:
+		for _ in 0..n {
+			b.WriteByte(0)
+		}
+	case Noise:
+		for b.Len() < n {
+			let w = m.Next()
+			for i in 0..8 {
+				b.WriteByte(byte(w >> (uint(i) * 8)))
+			}
+		}
+	}
+	strings.Slice(b.String(), 0, n)
+}
+
+// prose writes sentences of words drawn with a skew toward the first
+// words, a line break every few sentences.
+func prose(b *strings.Builder, m *Mix, n int) {
+	let mut sentence = 0
+	for b.Len() < n {
+		let words = 4 + m.Below(12)
+		for w in 0..words {
+			let r = m.Below(len(Words))
+			let word = Words[m.Below(r+1)]
+			if w > 0 {
+				b.WriteByte(' ')
+			}
+			b.WriteString(word)
+		}
+		sentence += 1
+		if sentence%5 == 0 {
+			b.WriteString(".\n")
+		} else {
+			b.WriteString(". ")
+		}
+	}
+}
+
+// records writes 16-byte records: a counter that rises by small steps, a
+// kind from four, a flags byte, two zero bytes and a value that drifts.
+func records(b *strings.Builder, m *Mix, n int) {
+	let mut counter = 0
+	let mut value = 1000
+	for b.Len() < n {
+		counter += 1 + m.Below(3)
+		value += m.Below(17) - 8
+		le(b, counter, 4)
+		b.WriteByte(byte(m.Below(4)))
+		b.WriteByte(if m.Below(8) == 0 { 0x80 } else { 0 })
+		b.WriteByte(0)
+		b.WriteByte(0)
+		le(b, value, 8)
+	}
+}
+
+// le writes the low size bytes of v, low first.
+func le(b *strings.Builder, v int, size int) {
+	for i in 0..size {
+		b.WriteByte(byte(v >> (uint(i) * 8)))
+	}
+}

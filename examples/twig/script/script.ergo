@@ -1,0 +1,83 @@
+// Package script runs a twig source from end to end: it reads the
+// source through Sources, parses, resolves and runs it, and turns each
+// failure into the line the user reads: FILE:LINE:COL: message.
+
+import twig/eval
+import twig/resolve
+import twig/syntax
+
+// Unreadable is a source that cannot be read.
+type Unreadable { Path string, Reason string }
+
+// Sources is where the text of a source comes from. The binary chooses
+// the provider: the host's files, or texts in memory.
+type Sources {
+	Read(path string) string fails Unreadable,
+
+	// Repeatable: two reads of one source give one text.
+	law Repeatable(path string) {
+		let a = Read(path) catch {
+		case Unreadable:
+			return true
+		}
+		let b = Read(path) catch {
+		case Unreadable:
+			return false
+		}
+		a == b
+	},
+}
+
+// Outcome is what a run gives the user: standard output, standard error
+// and the exit status.
+type Outcome { Out string, Err string, Status int }
+
+// Stats are a run's counters: the nodes evaluated and the calls.
+type Stats { Nodes int, Calls int }
+
+// At is the text of a position in the source named name.
+func At(name string, at syntax.Pos) string { name + ":\(at.Line):\(at.Col)" }
+
+// Compile is the program of src, or the line that says why there is
+// none.
+func Compile(name string, src string) resolve.Program fails Rejected {
+	let stmts = syntax.Parse(src) catch {
+	case syntax.LexError as e:
+		return Rejected{Line: At(name, e.At) + ": " + e.Msg}
+	case syntax.ParseError as e:
+		return Rejected{Line: At(name, e.At) + ": " + e.Msg}
+	}
+	resolve.Resolve(stmts) catch {
+	case resolve.ResolveError as e:
+		return Rejected{Line: At(name, e.At) + ": " + e.Msg}
+	}
+}
+
+// Rejected is a source that is no program, with the line that says why.
+type Rejected { Line string }
+
+// Execute runs the source src named name. With stats, standard error
+// ends with the run's counters.
+func Execute(name string, src string, stats bool) Outcome {
+	let p = Compile(name, src) catch {
+	case Rejected as r:
+		return Outcome{Out: "", Err: "twig: " + r.Line + "\n", Status: 1}
+	}
+	let report = eval.Run(p)
+	let counters = if stats { "nodes \(report.Nodes)\ncalls \(report.Calls)\n" } else { "" }
+	match report.End {
+	case eval.Finished:
+		Outcome{Out: report.Out, Err: counters, Status: 0}
+	case eval.Crashed as c:
+		Outcome{Out: report.Out, Err: "twig: " + At(name, c.At) + ": " + c.Msg + "\n" + counters, Status: 1}
+	}
+}
+
+// Load runs the source at path.
+func Load(path string, stats bool) Outcome needs Sources {
+	let src = Sources.Read(path) catch {
+	case Unreadable as u:
+		return Outcome{Out: "", Err: "twig: " + u.Path + ": " + u.Reason + "\n", Status: 1}
+	}
+	Execute(path, src, stats)
+}

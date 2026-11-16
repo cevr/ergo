@@ -29,7 +29,7 @@ let Numbers = numbers()
 // Nums returns a package-level let: Go gets a copy it may write.
 func Nums() []int { return Numbers }
 
-type Counter { N int }
+type Counter { N int } implements io.Writer
 
 // Write makes a Counter an io.Writer: Go calls it through the adapter.
 func Write(c Counter, p []byte) int fails go.Error needs go.Foreign {

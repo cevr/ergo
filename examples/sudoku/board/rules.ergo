@@ -126,7 +126,7 @@ type Solver {
 		case Unsolvable:
 			return true
 		}
-		(try Solve(s)) == s
+		try Solve(s) == s
 	},
 
 	// InconsistentIsUnsolvable: a puzzle with a digit twice in a unit has

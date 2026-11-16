@@ -1,7 +1,9 @@
 package eval
 
 import (
+	"cmp"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -67,9 +69,27 @@ type sliceV struct {
 }
 
 // sliceRange observes element writes, not replacement of the ranged place.
+// The place is root and the path from it (fields, and indexes with their
+// values when the loop began); a write follows the view only through that
+// same place, since another place may share the store until it is written.
 type sliceRange struct {
 	root *slot
+	path []step
 	view *sliceV
+}
+
+// samePath reports whether a and b name one place: the same fields, and
+// the same index values.
+func samePath(a, b []step) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].field != b[i].field || canonKey(a[i].index) != canonKey(b[i].index) {
+			return false
+		}
+	}
+	return true
 }
 
 func newSlice(elems []Value) sliceV {
@@ -78,17 +98,87 @@ func newSlice(elems []Value) sliceV {
 
 func (s sliceV) elems() []Value { return s.b.data[s.off : s.off+s.n] }
 
-// mapV is a Map value. A key is a basic value, held as its Go value, so
-// Go's own == and hashing decide it: -0 and +0 are one key and each NaN
-// is a key of its own, as in the Go target.
+// mapV is a Map value. A basic key is held as its Go value, so Go's own
+// == and hashing decide it: -0 and +0 are one key and each NaN is a key
+// of its own, as in the Go target; a key with parts is held by its
+// canonical text (mapkeys.go).
 type mapV struct{ b *mapBacking }
 
 type mapBacking struct {
-	m     map[Value]Value
+	m     map[Value]Value // by canonKey
+	orig  map[compKey]Value
 	owner *token
 }
 
 func newMap() mapV { return mapV{b: &mapBacking{m: map[Value]Value{}}} }
+
+// keyOrder is the keys of m in one fixed order, a function of the keys
+// alone. Go's map order changes from one range to the next, so work the
+// evaluator charges while it walks a Map (a sort's comparisons, an
+// equality that stops at the first different entry) walks this order, and
+// a program's step counts are the same on every run
+// (TestEvalReportIsDeterministic). The order costs no steps.
+func keyOrder(m map[Value]Value) []Value {
+	keys := make([]Value, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool { return keyLess(keys[i], keys[j]) })
+	return keys
+}
+
+// keyLess is a strict total order on the basic values a Map holds as keys:
+// by Go type, then by value (cmp.Less, which puts NaN first).
+func keyLess(a, b Value) bool {
+	if ta, tb := reflect.TypeOf(a), reflect.TypeOf(b); ta != tb {
+		return ta.String() < tb.String()
+	}
+	switch x := a.(type) {
+	case string:
+		return x < b.(string)
+	case bool:
+		return !x && b.(bool)
+	case int:
+		return cmp.Less(x, b.(int))
+	case int8:
+		return cmp.Less(x, b.(int8))
+	case int16:
+		return cmp.Less(x, b.(int16))
+	case int32:
+		return cmp.Less(x, b.(int32))
+	case int64:
+		return cmp.Less(x, b.(int64))
+	case uint:
+		return cmp.Less(x, b.(uint))
+	case uint8:
+		return cmp.Less(x, b.(uint8))
+	case uint16:
+		return cmp.Less(x, b.(uint16))
+	case uint32:
+		return cmp.Less(x, b.(uint32))
+	case uint64:
+		return cmp.Less(x, b.(uint64))
+	case uintptr:
+		return cmp.Less(x, b.(uintptr))
+	case float32:
+		return cmp.Less(x, b.(float32))
+	case float64:
+		return cmp.Less(x, b.(float64))
+	case complex64:
+		y := b.(complex64)
+		if real(x) != real(y) {
+			return cmp.Less(real(x), real(y))
+		}
+		return cmp.Less(imag(x), imag(y))
+	case complex128:
+		y := b.(complex128)
+		if real(x) != real(y) {
+			return cmp.Less(real(x), real(y))
+		}
+		return cmp.Less(imag(x), imag(y))
+	}
+	return fmt.Sprintf("%#v", a) < fmt.Sprintf("%#v", b)
+}
 
 // basicValue reports a value with no parts: one that holds no store.
 func basicValue(v Value) bool {
@@ -124,7 +214,14 @@ func (in *interp) ownMap(fr *frame, at syntax.Node, m mapV, tok *token) (mapV, *
 	for k, v := range m.b.m {
 		out[k] = v
 	}
-	return mapV{b: &mapBacking{m: out, owner: tok}}, nil
+	var orig map[compKey]Value
+	if len(m.b.orig) > 0 {
+		orig = make(map[compKey]Value, len(m.b.orig))
+		for k, v := range m.b.orig {
+			orig[k] = v
+		}
+	}
+	return mapV{b: &mapBacking{m: out, orig: orig, owner: tok}}, nil
 }
 
 // appendTo is xs with x at its end. own is the token of the slot that
@@ -168,20 +265,20 @@ func (in *interp) putIn(fr *frame, at syntax.Node, m mapV, k, v Value, own *toke
 	if ab != nil {
 		return nil, ab
 	}
-	m.b.m[k] = v
+	m.b.put(k, v)
 	return m, nil
 }
 
 // deleteIn is m without k.
 func (in *interp) deleteIn(fr *frame, at syntax.Node, m mapV, k Value, own *token) (Value, *abrupt) {
-	if _, ok := m.b.m[k]; !ok {
+	if !m.b.has(k) {
 		return m, nil
 	}
 	m, ab := in.ownMap(fr, at, m, own)
 	if ab != nil {
 		return nil, ab
 	}
-	delete(m.b.m, k)
+	m.b.del(k)
 	return m, nil
 }
 
@@ -196,13 +293,21 @@ func describeColl(v Value) (string, bool) {
 		return "[" + strings.Join(parts, ", ") + "]", true
 	case mapV:
 		parts := make([]string, 0, len(v.b.m))
-		for k, e := range v.b.m {
+		v.b.each(func(k, e Value) {
 			parts = append(parts, describe(k)+": "+describe(e))
-		}
+		})
 		sort.Strings(parts)
 		return "{" + strings.Join(parts, ", ") + "}", true
 	case *closure:
 		return fmt.Sprintf("a function literal at %d", v.lit.Pos()), true
+	case *funcRef:
+		return "the function " + v.fn.Name, true
+	case *nativeFunc:
+		return "the function " + v.name, true
+	case *machinePlan:
+		return v.tn.Name + "{}", true
+	case *ptrV:
+		return "a borrow", true
 	}
 	return "", false
 }

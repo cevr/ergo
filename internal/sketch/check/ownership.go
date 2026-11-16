@@ -2,6 +2,7 @@ package check
 
 import (
 	"fmt"
+	"strings"
 
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -33,8 +34,9 @@ import (
 //
 // The pass records the release plan in Info.Releases: at each scope's end,
 // each statement's end (its temporaries, R43), each exit edge (return,
-// break, continue, a try's failure that leaves the function) and each
-// assignment (the old value, R41), what is still owned there, last
+// break, continue; a try's failure that leaves the function, in
+// Info.TryReleases) and each assignment (the old value, R41), what is
+// still owned there, last
 // acquired first, with a drop flag for a value owned on some paths only.
 //
 // A loop body runs to its fixpoint: the lattice per value is owned,
@@ -166,6 +168,17 @@ func (w *ownWalk) refuse(i int, at syntax.Node, what string, format string, args
 	w.report(at, format, args...)
 }
 
+// refuseLent is refuse for a hand-off of the declaration's lent parameter
+// param (1-based): its diagnostic carries the takes clause to write
+// (takesFix), unless the walk is not of a declaration with a body.
+func (w *ownWalk) refuseLent(i, param int, at syntax.Node, what string, format string, args ...any) {
+	before := len(w.diags)
+	w.refuse(i, at, what, format, args...)
+	if len(w.diags) > before && w.fn != nil && w.fn.Decl != nil && w.fn.Decl.Body != nil && param > 0 {
+		w.diags[len(w.diags)-1].take = param
+	}
+}
+
 type ownScope struct {
 	key   syntax.Node
 	first int
@@ -196,6 +209,9 @@ type ownDiag struct {
 	at   syntax.Node
 	code string
 	msg  string
+	// take is the 1-based declaration parameter whose hand-off the
+	// diagnostic refuses: the takes clause to write names it (takesFix).
+	take int
 }
 
 type ownWalk struct {
@@ -233,7 +249,11 @@ type ownWalk struct {
 	copies  map[*TypeParam]CopySite
 	// borrow maps a let-bound borrow `let p = &h` of an owned local to
 	// that local: a Close called through p takes h (R19).
-	borrow    map[*Var]*Var
+	borrow map[*Var]*Var
+	// textRoots maps a local that holds a mapped text to the local that
+	// owns its Mapped: a use of the text is a use of that owner
+	// (mappedtext.go, Borrows 8).
+	textRoots map[*Var]*Var
 	lending   *lendWalk
 	lendFrame syntax.Node
 	// ranged is the range of the for-in being walked, without its
@@ -276,11 +296,38 @@ func (c *checker) checkOwnership() {
 			default:
 				continue
 			}
+			// A hand-off of a lent parameter names the whole takes clause
+			// to write (q137, EX3): every such site prints one text.
+			var fix *ClauseFix
+			if f := w.fn; f != nil && !(f.Name == "Close" && c.pkg.Info.Closes[f.Decl] != nil) {
+				var missing []int
+				for _, g := range w.diags {
+					if g.take > 0 {
+						missing = append(missing, g.take-1)
+					}
+				}
+				if len(missing) > 0 {
+					fix = c.takesFix(f, missing)
+				}
+			}
 			seen := map[ownDiag]bool{}
 			for _, g := range w.diags {
-				if !seen[g] {
-					seen[g] = true
-					c.errorf(g.at, g.code, "%s", g.msg)
+				if seen[g] {
+					continue
+				}
+				seen[g] = true
+				msg := g.msg
+				if g.take > 0 && fix != nil {
+					if i := strings.LastIndex(msg, "; write own before its type"); i >= 0 {
+						msg = msg[:i]
+					}
+					msg += "; write: " + fix.Signature
+				}
+				before := len(c.diags)
+				c.errorf(g.at, g.code, "%s", msg)
+				if g.take > 0 && fix != nil && len(c.diags) > before {
+					copied := *fix
+					c.diags[len(c.diags)-1].Fix = &copied
 				}
 			}
 		}
@@ -811,28 +858,51 @@ func (w *ownWalk) valuesSeq(x syntax.Expr) (Type, bool) {
 		return nil, false
 	}
 	k := w.info.Calls[call]
-	if k == nil || k.Kind != CallOp || k.Op == nil || k.Op.Name != "Values" {
+	if k == nil || k.Kind != CallOp || k.Op == nil || k.Op.Sig == nil || len(k.Op.Sig.Params) != 0 || len(k.Op.Sig.Results) != 1 {
 		return nil, false
 	}
 	sel, ok := unparen(call.Fun).(*syntax.SelectorExpr)
-	if !ok || !isQueue(w.info.Types[sel.X]) {
+	if !ok {
 		return nil, false
 	}
-	n := w.info.Types[sel.X].(*Named)
-	if len(n.TArgs) != 1 {
-		return nil, true
-	}
-	return n.TArgs[0], true
+	return w.c.keptSeq(w.info.Types[sel.X], k.Op)
 }
 
-// isQueue reports std queue.Queue[T] or an instance of it.
-func isQueue(t Type) bool {
+// keptSeq reports whether op, an operation of t with no parameter, gives
+// a sequence of the values t keeps (STD-NOPRIV NP3c; Q7): t includes the
+// prelude's Keeping[E] (keepsOf), and op's result is a Seq of E
+// (queue.Queue[T]'s Values). Each value such a sequence yields is one t
+// gave back, so it is the iterating code's own. It returns the element
+// type as t's instance has it.
+func (c *checker) keptSeq(t Type, op *Method) (Type, bool) {
+	it := asInterface(t)
+	if it == nil {
+		return nil, false
+	}
+	_, kept := keepsOf(it, c.keeps())
+	if kept == nil {
+		return nil, false
+	}
+	seq, ok := under(op.Sig.Results[0]).(*Signature)
+	if !ok || len(seq.Params) != 1 || len(seq.Results) != 0 {
+		return nil, false
+	}
+	yield, ok := under(seq.Params[0].Type).(*Signature)
+	if !ok || len(yield.Params) != 1 || len(yield.Results) != 1 || !c.identical(yield.Params[0].Type, kept) {
+		return nil, false
+	}
 	n, ok := t.(*Named)
 	if !ok {
-		return false
+		return kept, true
 	}
-	o := n.origin().Obj
-	return o != nil && o.Pkg != nil && o.Pkg.std && o.Pkg.Path == "queue" && o.Name == "Queue"
+	// The method set may be the origin's (kept is its type parameter) or
+	// already the instance's.
+	for i, tp := range n.origin().TParams {
+		if tp == kept && i < len(n.TArgs) {
+			return n.TArgs[i], true
+		}
+	}
+	return kept, true
 }
 
 // ownLoopMemo is a loop's last fixpoint: its entry state, its exit state
@@ -964,6 +1034,7 @@ func (w *ownWalk) letSpec(s syntax.Stmt, spec *syntax.VarSpec) {
 		}
 	}
 	w.letBorrow(spec)
+	w.letText(spec)
 }
 
 // letBorrow records `let p = &h`, or `let q = p` of such a p, where h is
@@ -1285,7 +1356,7 @@ func (w *ownWalk) move(i int, x *syntax.Ident, h hand) {
 		}
 		// A lent T handed off is a copy of it (the caller keeps its own):
 		// a mode, not a mark, so a call with a resource is refused (q56).
-		w.refuse(i, x, fmt.Sprintf("%s is lent and handed off (%s); write takes %s to take it", x.Name, h.how, x.Name), "%s is lent to %s, so it cannot hand %s off (%s) (resources R10, R17); write takes %s in the signature", x.Name, fn, x.Name, h.how, x.Name)
+		w.refuseLent(i, l.param, x, fmt.Sprintf("%s is lent and handed off (%s); write own before its type to take it", x.Name, h.how), "%s is lent to %s, so it cannot hand %s off (%s) (resources R10, R17); write own before its type in the signature: %s own T", x.Name, fn, x.Name, h.how, x.Name)
 		return
 	}
 	w.loanConflict(i, h)
@@ -1368,7 +1439,7 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		// them (withProviders), so the literal evaluates nothing.
 		return
 	case *syntax.BasicLit, *syntax.ArrayType, *syntax.MapType, *syntax.FuncType, *syntax.StructType,
-		*syntax.InterfaceType, *syntax.ErrorRow, *syntax.MachineType, *syntax.VariantSpec, *syntax.AsPattern:
+		*syntax.InterfaceType, *syntax.ErrorRow, *syntax.MachineType, *syntax.VariantSpec, *syntax.AsPattern, *syntax.OrPattern:
 		// A literal, a type or a pattern: no value of a local is used.
 		return
 	case *syntax.KeyValueExpr:
@@ -1498,6 +1569,9 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		v, _ := w.info.Uses[x].(*Var)
 		i, ok := w.slot[v]
 		if v == nil || !ok {
+			if v != nil && w.textUse(x, v, h) {
+				return
+			}
 			w.pkgLetMove(x, v, mode, h)
 			w.funcValue(x, w.info.Types[x])
 			w.valueInstance(x)
@@ -1587,7 +1661,7 @@ func (w *ownWalk) callFailure(x *syntax.CallExpr, h hand) {
 // position: a later failure may follow a block whose locals are already gone.
 // A value absent on any failure path has a drop flag. Each path supplies the
 // order at its production boundary, never the success destination's state.
-func (w *ownWalk) recordFailures(key syntax.Node, paths [][]Release) {
+func (w *ownWalk) recordFailures(key *syntax.TryExpr, paths [][]Release) {
 	var out []Release
 	for i, path := range paths {
 		for j := range out {
@@ -1626,7 +1700,11 @@ func (w *ownWalk) recordFailures(key syntax.Node, paths [][]Release) {
 			}
 		}
 	}
-	w.record(key, out)
+	if len(out) == 0 {
+		delete(w.info.TryReleases, key)
+		return
+	}
+	w.info.TryReleases[key] = out
 }
 
 // lendRoot carries the root owner only when the expression's result holds
@@ -1787,7 +1865,7 @@ func (w *ownWalk) fieldTake(x syntax.Expr, h hand) bool {
 	case l.lent && w.infer && l.param > 0 && w.c.infersTakes(w.fn):
 		w.promote[l.param-1] = true
 	case l.lent:
-		w.refuse(i, sel, fmt.Sprintf("%s is lent and its field is taken", id.Name), "%s is lent to %s, so its field %s cannot be taken (%s) (resources R10, R17, R39); write takes %s in the signature", id.Name, w.name, sel.Sel.Name, h.how, id.Name)
+		w.refuseLent(i, l.param, sel, fmt.Sprintf("%s is lent and its field is taken", id.Name), "%s is lent to %s, so its field %s cannot be taken (%s) (resources R10, R17, R39); write own before its type in the signature: %s own T", id.Name, w.name, sel.Sel.Name, h.how, id.Name)
 	default:
 		w.st.slots[i].fields |= 1 << k
 		w.info.FieldTakes[sel] = FieldTake{Var: l.v, Index: k}
@@ -2435,12 +2513,14 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 			}
 			return false
 		}
-		w.expr(a, mLend, hand{hostLend: hostCallee, lend: func(i int, id *syntax.Ident) {
+		lendTo := func(i int, id *syntax.Ident) {
 			if loan == nil {
 				loan = &ownLoanCall{name: name, active: true}
 			}
 			w.st.slots[i].callLoans = append(liveLoans(w.st.slots[i].callLoans), ownLoan{loan, id})
-		}})
+		}
+		w.expr(a, mLend, hand{hostLend: hostCallee, lend: lendTo})
+		w.textLoan(a, lendTo)
 		if len(w.valueLoans(a)) > 0 && !nonEscaping(pt) {
 			w.checkLoanValue(a)
 		}
@@ -2559,16 +2639,20 @@ func (w *ownWalk) withProviders(x *syntax.CallExpr) {
 	}
 }
 
-// holdsTaken reports a call of a bodiless std operation or function that
-// takes a value: the lowering keeps a taken local's entry on its frame
-// until the call returns (lower.holdTaken, Q7, D-C).
+// holdsTaken reports a call that takes a value and whose body is a Go
+// body of the runtime: an operation of a type whose declaration names its
+// runtime Go type (OpBodyOf; STD-NOPRIV NP4c), or an extern bound to a
+// runtime/v1 body (BodyOf). The Go body does not own an Ergo frame's
+// entry, so the lowering keeps a taken local's entry on its frame until
+// the call returns (lower.holdTaken, Q7, D-C). An operation with an Ergo
+// body owns what it takes itself. It reads declarations, never the
+// package's std mark.
 func (w *ownWalk) holdsTaken(call *Call) bool {
 	switch {
 	case call.Kind == CallOp && call.Op != nil && call.Op.Sig != nil && call.Recv != nil:
-		n, ok := w.info.Types[call.Recv].(*Named)
-		return ok && n.Obj != nil && n.Obj.Pkg != nil && n.Obj.Pkg.std && len(call.Op.Sig.Takes) > 0
-	case call.Kind == CallFunc && call.Func != nil && call.Func.Pkg != nil && call.Func.Pkg.std && call.Func.Decl != nil && call.Func.Decl.Extern != nil:
-		return len(call.Func.Sig.Takes) > 0
+		return len(call.Op.Sig.Takes) > 0 && OpBodyOf(w.info.Types[call.Recv], call.Op.Name).Runtime != ""
+	case call.Kind == CallFunc && call.Func != nil && call.Func.Sig != nil:
+		return len(call.Func.Sig.Takes) > 0 && BodyOf(call.Func).Runtime != ""
 	}
 	return false
 }

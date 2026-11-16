@@ -8,6 +8,7 @@ import (
 	"go/token"
 	"math"
 	"math/rand/v2"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -90,6 +91,10 @@ var textLaws = map[string]func(r *rand.Rand) (bool, any){
 			sub = s[i : i+r.IntN(len(s)-i+1)]
 		}
 		i, j := StringsIndex(s, sub), StringsLastIndex(s, sub)
+		// StringsIndexByte, Lines' line-feed scan, is Index of one byte.
+		if len(sub) > 0 && StringsIndexByte(s, sub[0]) != StringsIndex(s, sub[:1]) {
+			return false, []string{s, sub}
+		}
 		if i < 0 {
 			return j < 0 && !StringsContains(s, sub), []string{s, sub}
 		}
@@ -171,6 +176,12 @@ var textLaws = map[string]func(r *rand.Rand) (bool, any){
 		got, err := StrconvParseFloat(StrconvFormatFloat(f, 'g', -1))
 		return err == nil && got == f, f
 	},
+	"strconv AppendsFormat": func(r *rand.Rand) (bool, any) {
+		n, u, f := r.Int64()>>r.IntN(64), r.Uint64()>>r.IntN(64), randomFloat(r)
+		base := 2 + r.IntN(35)
+		out := StrconvAppendInt(StrconvAppendFloat(StrconvAppendUint(StrconvAppendInt([]byte{}, n, base), u>>1, base), f, 'g', -1), n, base)
+		return string(out) == StrconvFormatInt(n, base)+StrconvFormatInt(int64(u>>1), base)+StrconvFormatFloat(f, 'g', -1)+StrconvFormatInt(n, base), []any{n, u, f, base}
+	},
 	"strconv ParseIntInvertsFormat": func(r *rand.Rand) (bool, any) {
 		n := int(r.Int64()) >> r.IntN(64)
 		got, err := StrconvParseInt(StrconvItoa(n), 10, 64)
@@ -183,6 +194,7 @@ var textLaws = map[string]func(r *rand.Rand) (bool, any){
 // to the ledger, so a law changed in source fails here until its
 // restatement above is changed with it.
 var textLawStatements = map[string]string{
+	"strconv AppendsFormat":          `AppendsFormat(n int64, u uint64, f float64, b int) { let base = 2 + (b%35+35)%35 let out = AppendInt(AppendFloat(AppendUint(AppendInt([]byte{}, n, base), u>>1, base), f, 'g', -1), n, base) strings.FromBytes(out) == FormatInt(n, base)+FormatInt(int64(u>>1), base)+FormatFloat(f, 'g', -1)+FormatInt(n, base) }`,
 	"strconv AtoiInvertsItoa":        `AtoiInvertsItoa(n int) { try Atoi(Itoa(n)) == n }`,
 	"strconv FormatFloatRoundTrips":  `FormatFloatRoundTrips(f float64) { if f != f { return true } try ParseFloat(FormatFloat(f, 'g', -1)) == f }`,
 	"strconv ItoaInvertsAtoi":        `ItoaInvertsAtoi(s string) { let n = Atoi(s) catch { case Malformed, OutOfRange: return true } try Atoi(Itoa(n)) == n }`,
@@ -221,6 +233,9 @@ func textBenches() []textBench {
 	xs := strings.Split(s, ",")
 	buf := make([]byte, 0, 8)
 	bad := s + "\xff\xe4\xb8" + s
+	built := []byte(s)
+	goBuilt := &strings.Builder{}
+	goBuilt.WriteString(s)
 	return []textBench{
 		{"Split", "StringsSplit", func() { textSink = StringsSplit(s, ",") }, func() { textSink = strings.Split(s, ",") }},
 		{"Join", "StringsJoin", func() { textSink = StringsJoin(xs, ";") }, func() { textSink = strings.Join(xs, ";") }},
@@ -229,11 +244,83 @@ func textBenches() []textBench {
 		{"TrimSpace", "StringsTrimSpace", func() { textSink = StringsTrimSpace(s) }, func() { textSink = strings.TrimSpace(s) }},
 		{"TrimPrefix", "StringsTrimPrefix", func() { textSink = StringsTrimPrefix(s, "alpha,") }, func() { textSink = strings.TrimPrefix(s, "alpha,") }},
 		{"TrimSuffix", "StringsTrimSuffix", func() { textSink = StringsTrimSuffix(s, "gamma ") }, func() { textSink = strings.TrimSuffix(s, "gamma ") }},
+		{"TrimLeft", "StringsTrimLeft", func() { textSink = StringsTrimLeft(" \t"+s, " \t") }, func() { textSink = strings.TrimLeft(" \t"+s, " \t") }},
+		{"TrimRight", "StringsTrimRight", func() { textSink = StringsTrimRight(s, " ma") }, func() { textSink = strings.TrimRight(s, " ma") }},
+		// The builder bodies against Go's strings.Builder: a loop of
+		// writes, a Grow, and the text of a built buffer (Go's String
+		// shares its bytes; StringsBuilderText copies them).
+		{"BuilderAppend", "StringsBuilderAppend", func() {
+			var b []byte
+			for range 16 {
+				b = StringsBuilderAppend(b, "alpha,")
+			}
+			textSink = len(b)
+		}, func() {
+			var g strings.Builder
+			for range 16 {
+				g.WriteString("alpha,")
+			}
+			textSink = g.Len()
+		}},
+		{"BuilderAppendByte", "StringsBuilderAppendByte", func() {
+			var b []byte
+			for i := range 64 {
+				b = StringsBuilderAppendByte(b, byte(i))
+			}
+			textSink = len(b)
+		}, func() {
+			var g strings.Builder
+			for i := range 64 {
+				g.WriteByte(byte(i))
+			}
+			textSink = g.Len()
+		}},
+		{"BuilderGrow", "StringsBuilderGrow", func() { textSink = cap(StringsBuilderGrow(nil, 256)) }, func() {
+			var g strings.Builder
+			g.Grow(256)
+			textSink = g.Cap()
+		}},
+		// SB2: a write of bytes, an LZ77 run from the buffer's own text
+		// (Go has no such write: hand Go appends its own slice, byte by
+		// byte where the run overlaps), and []byte(s).
+		{"BuilderAppendBytes", "StringsBuilderAppendBytes", func() {
+			var b []byte
+			for range 16 {
+				b = StringsBuilderAppendBytes(b, built[:6])
+			}
+			textSink = len(b)
+		}, func() {
+			var g []byte
+			for range 16 {
+				g = append(g, built[:6]...)
+			}
+			textSink = len(g)
+		}},
+		{"BuilderAppendFrom", "StringsBuilderAppendFrom", func() {
+			b := append([]byte(nil), "abc"...)
+			for range 16 {
+				b = StringsBuilderAppendFrom(b, len(b)-3, 40)
+			}
+			textSink = len(b)
+		}, func() {
+			b := append([]byte(nil), "abc"...)
+			for range 16 {
+				start := len(b) - 3
+				for k := range 40 {
+					b = append(b, b[start+k])
+				}
+			}
+			textSink = len(b)
+		}},
+		{"Bytes", "StringsBytes", func() { textSink = len(StringsBytes(s)) }, func() { textSink = len([]byte(s)) }},
+		{"BuilderText", "StringsBuilderText", func() { textSink = StringsBuilderText(built) }, func() { textSink = goBuilt.String() }},
+		{"BuilderTextOwned", "StringsBuilderTextOwned", func() { textSink = StringsBuilderTextOwned(built) }, func() { textSink = goBuilt.String() }},
 		{"Fields", "StringsFields", func() { textSink = StringsFields(s) }, func() { textSink = strings.Fields(s) }},
 		{"Repeat", "StringsRepeat", func() { textSink = StringsRepeat("ab", 64) }, func() { textSink = strings.Repeat("ab", 64) }},
 		{"ToLower", "StringsToLower", func() { textSink = StringsToLower("ALPHA,Beta") }, func() { textSink = strings.ToLower("ALPHA,Beta") }},
 		{"ToUpper", "StringsToUpper", func() { textSink = StringsToUpper(s) }, func() { textSink = strings.ToUpper(s) }},
 		{"Index", "StringsIndex", func() { textSink = StringsIndex(s, "gamma alpha") }, func() { textSink = strings.Index(s, "gamma alpha") }},
+		{"IndexByte", "StringsIndexByte", func() { textSink = StringsIndexByte(s, '\n') }, func() { textSink = strings.IndexByte(s, '\n') }},
 		{"Contains", "StringsContains", func() { textSink = StringsContains(s, "delta") }, func() { textSink = strings.Contains(s, "delta") }},
 		{"Slice", "StringsSlice", func() { textSink = StringsSlice(s, 6, 10) }, func() { textSink = s[6:10] }},
 		{"ReplaceAll", "StringsReplaceAll", func() { textSink = StringsReplaceAll(s, ",", ";") }, func() { textSink = strings.ReplaceAll(s, ",", ";") }},
@@ -260,6 +347,9 @@ func textBenches() []textBench {
 		{"ParseFloat", "StrconvParseFloat", func() { textSink, _ = StrconvParseFloat("3.14159e10") }, func() { textSink, _ = strconv.ParseFloat("3.14159e10", 64) }},
 		{"ParseBool", "StrconvParseBool", func() { textSink, _ = StrconvParseBool("false") }, func() { textSink, _ = strconv.ParseBool("false") }},
 		{"FormatBool", "StrconvFormatBool", func() { textSink = StrconvFormatBool(true) }, func() { textSink = strconv.FormatBool(true) }},
+		{"AppendInt", "StrconvAppendInt", func() { buf = StrconvAppendInt(buf[:0], -1234567890, 10) }, func() { buf = strconv.AppendInt(buf[:0], -1234567890, 10) }},
+		{"AppendUint", "StrconvAppendUint", func() { buf = StrconvAppendUint(buf[:0], 1234567890, 16) }, func() { buf = strconv.AppendUint(buf[:0], 1234567890, 16) }},
+		{"AppendFloat", "StrconvAppendFloat", func() { buf = StrconvAppendFloat(buf[:0], 3.14159e10, 'g', -1) }, func() { buf = strconv.AppendFloat(buf[:0], 3.14159e10, 'g', -1, 64) }},
 		{"FormatFloat", "StrconvFormatFloat", func() { textSink = StrconvFormatFloat(3.14159e10, 'g', -1) }, func() { textSink = strconv.FormatFloat(3.14159e10, 'g', -1, 64) }},
 		{"Unquote", "StrconvUnquote", func() { textSink, _ = StrconvUnquote(`"a\tb\u00e9"`) }, func() { textSink, _ = strconv.Unquote(`"a\tb\u00e9"`) }},
 		{"Quote", "StrconvQuote", func() { textSink = StrconvQuote("a\tb\u00e9\xff") }, func() { textSink = strconv.Quote("a\tb\u00e9\xff") }},
@@ -497,4 +587,31 @@ func TestStringsSliceIsADefect(t *testing.T) {
 		}
 	}()
 	StringsSlice("hello", 2, 9)
+}
+
+// TestBuilderAppendFromIsADefect: WriteFrom out of range is a defect
+// (stdlib.md strings 11): a negative count, a start outside the text, or a
+// start at its end with a count above 0 panics with Go's slice or index
+// error; a count of 0 inside the text or at its end is no write. Each call
+// returns or panics at once: the law WriteFromRepeats covers every start
+// and count in range. Mutant sb2-appendfrom-unchecked (the start check
+// before the loop dropped) returns the buffer unchanged for a start at or
+// past the end, since the loop runs only while start is inside the text,
+// so the rows {4, 1} and {3, 1} fail.
+func TestBuilderAppendFromIsADefect(t *testing.T) {
+	for _, start := range []int{0, 3} {
+		if got := string(StringsBuilderAppendFrom([]byte("abc"), start, 0)); got != "abc" {
+			t.Fatalf("AppendFrom(abc, %d, 0) = %q", start, got)
+		}
+	}
+	for _, c := range []struct{ start, n int }{{0, -1}, {2, -1}, {5, -1}, {-1, 0}, {4, 0}, {-1, 1}, {4, 1}, {3, 1}} {
+		func() {
+			defer func() {
+				if _, bounds := recover().(runtime.Error); !bounds {
+					t.Fatalf("AppendFrom(abc, %d, %d) did not return its defect, a slice or index error", c.start, c.n)
+				}
+			}()
+			StringsBuilderAppendFrom([]byte("abc"), c.start, c.n)
+		}()
+	}
 }

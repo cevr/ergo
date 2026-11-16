@@ -1,0 +1,334 @@
+import strconv
+import strings
+import utf8
+
+// Malformed is a text that is not JSON: where the first byte that is not
+// JSON stands (its offset, and its line and column, each from 1, a column
+// counting bytes), and why.
+type Malformed { Offset int, Line int, Col int, Reason string }
+
+// parser is the text and the offset of the next byte, and how deep the
+// arrays and objects around it nest. Parse owns it; each rule borrows it.
+type parser { src string, pos int, depth int }
+
+// Parse is the value of the JSON text src: one value, with whitespace
+// around it and nothing else.
+func Parse(src string) Value fails Malformed {
+	let mut p = parser{src: src, pos: 0, depth: 0}
+	skip(&p)
+	let v = try value(&p)
+	skip(&p)
+	if p.pos < len(p.src) {
+		return fail(&p, p.pos, "expected the end, found "+found(&p))
+	}
+	v
+}
+
+// Locate is the failure at offset of src: its line and column.
+func Locate(src string, offset int, reason string) Malformed {
+	let mut line = 1
+	let mut start = 0
+	for i in 0..offset {
+		if src[i] == '\n' {
+			line += 1
+			start = i + 1
+		}
+	}
+	Malformed{Offset: offset, Line: line, Col: offset - start + 1, Reason: reason}
+}
+
+func fail(p *parser, at int, reason string) Malformed { Locate(p.src, at, reason) }
+
+// found is how a failure names the next byte.
+func found(p *parser) string {
+	if p.pos >= len(p.src) {
+		return "the end"
+	}
+	strconv.Quote(strings.Slice(p.src, p.pos, p.pos+1))
+}
+
+// skip moves past whitespace: space, tab, newline and return.
+func skip(p *parser) {
+	for p.pos < len(p.src) {
+		let c = p.src[p.pos]
+		if c != ' ' && c != '\n' && c != '\t' && c != '\r' {
+			return
+		}
+		p.pos += 1
+	}
+}
+
+// value reads a value that starts at the next byte.
+func value(p *parser) Value fails Malformed {
+	if p.pos >= len(p.src) {
+		return fail(p, p.pos, "expected a value, found the end")
+	}
+	let c = p.src[p.pos]
+	match c {
+	case '{':
+		try object(p)
+	case '[':
+		try array(p)
+	case '"':
+		Str{S: try text(p)}
+	case 't':
+		try word(p, "true")
+		Bool{B: true}
+	case 'f':
+		try word(p, "false")
+		Bool{B: false}
+	case 'n':
+		try word(p, "null")
+		Null
+	case _:
+		if c != '-' && (c < '0' || c > '9') {
+			return fail(p, p.pos, "expected a value, found "+found(p))
+		}
+		try numeral(p)
+	}
+}
+
+// word moves past the literal w, or fails at the first byte that is not
+// w's.
+func word(p *parser, w string) fails Malformed {
+	for k in 0..len(w) {
+		if p.pos >= len(p.src) || p.src[p.pos] != w[k] {
+			return fail(p, p.pos, "expected \(w), found "+found(p))
+		}
+		p.pos += 1
+	}
+}
+
+// numeral reads a number with the machine Numeral.
+func numeral(p *parser) Value fails Malformed {
+	let start = p.pos
+	let (n, broken) = Scan(strings.Slice(p.src, start, len(p.src)))
+	match broken {
+	case Some[string] as why:
+		fail(p, start+n, why.Value)
+	case None:
+		p.pos = start + n
+		Number{Text: strings.Slice(p.src, start, start+n)}
+	}
+}
+
+// enter opens an array or an object: one level deeper, at most MaxDepth.
+func enter(p *parser) fails Malformed {
+	p.depth += 1
+	if p.depth > MaxDepth {
+		return fail(p, p.pos, "nesting deeper than \(MaxDepth)")
+	}
+	p.pos += 1
+	skip(p)
+}
+
+// array reads an array after its [.
+func array(p *parser) Value fails Malformed {
+	try enter(p)
+	let mut items = []Value{}
+	if p.pos < len(p.src) && p.src[p.pos] == ']' {
+		p.pos += 1
+		p.depth -= 1
+		return Array{Items: items}
+	}
+	for {
+		items = items.Append(try value(p))
+		skip(p)
+		if p.pos < len(p.src) {
+			let c = p.src[p.pos]
+			if c == ',' {
+				p.pos += 1
+				skip(p)
+				continue
+			}
+			if c == ']' {
+				p.pos += 1
+				p.depth -= 1
+				return Array{Items: items}
+			}
+		}
+		return fail(p, p.pos, "expected ',' or ']', found "+found(p))
+	}
+}
+
+// object reads an object after its {.
+func object(p *parser) Value fails Malformed {
+	try enter(p)
+	let mut members = []Member{}
+	if p.pos < len(p.src) && p.src[p.pos] == '}' {
+		p.pos += 1
+		p.depth -= 1
+		return Object{Members: members}
+	}
+	for {
+		if p.pos >= len(p.src) || p.src[p.pos] != '"' {
+			return fail(p, p.pos, "expected a string key, found "+found(p))
+		}
+		let key = try text(p)
+		skip(p)
+		if p.pos >= len(p.src) || p.src[p.pos] != ':' {
+			return fail(p, p.pos, "expected ':', found "+found(p))
+		}
+		p.pos += 1
+		skip(p)
+		members = members.Append(Member{Key: key, Val: try value(p)})
+		skip(p)
+		if p.pos < len(p.src) {
+			let c = p.src[p.pos]
+			if c == ',' {
+				p.pos += 1
+				skip(p)
+				continue
+			}
+			if c == '}' {
+				p.pos += 1
+				p.depth -= 1
+				return Object{Members: members}
+			}
+		}
+		return fail(p, p.pos, "expected ',' or '}', found "+found(p))
+	}
+}
+
+// Decoded is a string literal's decoded bytes and the offset after its
+// closing quote.
+type Decoded { Text string, End int }
+
+// ReadString reads the string literal whose opening quote is at offset
+// open of src, as Parse reads one, with Parse's failures.
+func ReadString(src string, open int) Decoded fails Malformed {
+	let mut p = parser{src: src, pos: open, depth: 0}
+	let s = try text(&p)
+	Decoded{Text: s, End: p.pos}
+}
+
+// text reads a string after its opening quote: its bytes, with the
+// escapes decoded. A string with no escape and only ASCII is a slice of
+// the source.
+func text(p *parser) string fails Malformed {
+	let open = p.pos
+	let start = open + 1
+	let mut i = start
+	for i < len(p.src) {
+		let c = p.src[i]
+		if c == '"' {
+			p.pos = i + 1
+			return strings.Slice(p.src, start, i)
+		}
+		if c == '\\' || c < 0x20 || c >= 0x80 {
+			break
+		}
+		i += 1
+	}
+	let mut b = strings.NewBuilder()
+	b.WriteString(strings.Slice(p.src, start, i))
+	for i < len(p.src) {
+		let c = p.src[i]
+		if c == '"' {
+			p.pos = i + 1
+			return b.String()
+		}
+		if c == '\\' {
+			i = try escape(p, &b, i)
+		} else if c < 0x20 {
+			return fail(p, i, "a control character in a string")
+		} else if c < 0x80 {
+			b.WriteByte(c)
+			i += 1
+		} else {
+			let d = utf8.DecodeRuneInString(strings.Slice(p.src, i, len(p.src)))
+			if d.Size == 1 {
+				b.WriteString("\uFFFD")
+			} else {
+				b.WriteString(strings.Slice(p.src, i, i+d.Size))
+			}
+			i += d.Size
+		}
+	}
+	fail(p, len(p.src), "a string has no closing quote")
+}
+
+// escape decodes the escape at offset i into b, and is the offset after
+// it. A \u escape of a surrogate takes the next \u escape with it when the
+// two are a pair; a lone surrogate is U+FFFD, as in Go.
+func escape(p *parser, b *strings.Builder, i int) int fails Malformed {
+	if i+1 >= len(p.src) {
+		return fail(p, len(p.src), "a string has no closing quote")
+	}
+	match p.src[i+1] {
+	case '"':
+		b.WriteByte('"')
+	case '\\':
+		b.WriteByte('\\')
+	case '/':
+		b.WriteByte('/')
+	case 'b':
+		b.WriteByte(0x08)
+	case 'f':
+		b.WriteByte(0x0c)
+	case 'n':
+		b.WriteByte('\n')
+	case 'r':
+		b.WriteByte('\r')
+	case 't':
+		b.WriteByte('\t')
+	case 'u':
+		let bad = badHex(p.src, i+2)
+		if bad >= 0 {
+			return fail(p, bad, "a \\u escape needs four hex digits")
+		}
+		let r = hex4(p.src, i+2)
+		if r >= 0xD800 && r < 0xE000 {
+			let low = if i+7 < len(p.src) && p.src[i+6] == '\\' && p.src[i+7] == 'u' && badHex(p.src, i+8) < 0 { hex4(p.src, i+8) } else { -1 }
+			if r < 0xDC00 && low >= 0xDC00 && low < 0xE000 {
+				b.WriteString(utf8.RuneText(rune(0x10000 + (r-0xD800)*0x400 + (low - 0xDC00))))
+				return i + 12
+			}
+			b.WriteString("\uFFFD")
+			return i + 6
+		}
+		b.WriteString(utf8.RuneText(rune(r)))
+		return i + 6
+	case _:
+		return fail(p, i+1, "an unknown escape")
+	}
+	i + 2
+}
+
+// digit is the value of the hex digit c, or -1.
+func digit(c byte) int {
+	if c >= '0' && c <= '9' {
+		int(c - '0')
+	} else if c >= 'a' && c <= 'f' {
+		int(c-'a') + 10
+	} else if c >= 'A' && c <= 'F' {
+		int(c-'A') + 10
+	} else {
+		-1
+	}
+}
+
+// badHex is the offset of the first of the four bytes at offset i of s
+// that is not a hex digit (len(s) when s ends first), or -1 when all four
+// are.
+func badHex(s string, i int) int {
+	for k in i..i+4 {
+		if k >= len(s) {
+			return len(s)
+		}
+		if digit(s[k]) < 0 {
+			return k
+		}
+	}
+	-1
+}
+
+// hex4 is the value of the four hex digits at offset i of s; badHex says
+// they are there.
+func hex4(s string, i int) int {
+	let mut r = 0
+	for k in i..i+4 {
+		r = r*16 + digit(s[k])
+	}
+	r
+}

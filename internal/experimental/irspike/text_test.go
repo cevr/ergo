@@ -12,8 +12,10 @@ import (
 	"ergo.local/prototype/internal/sketch/lower"
 )
 
-// TestIRTextChecks checks the Go text view of the IR bodies (plan-tier
-// §2, TXT) on every example binary and test build that has IR bodies:
+// irText checks the Go text view of the IR bodies (plan-tier §2, TXT) on
+// every example binary and test build that has IR bodies, split by target
+// (TestIRTextChecksPart0 …; TestSplitsCoverTheirDomain checks that the
+// parts run every target once):
 // GoText builds it through IR with the derivative printing those bodies,
 // then
 //   - the printed module builds with the derivative without -ergoir, so
@@ -26,114 +28,113 @@ import (
 //     text is what was compiled, not only Go that checks (mutant
 //     ir-text-not-what-compiled).
 //
-// One row more is the smallest repro of a fixed bug, testdata/duplocals.ergo.
-// The functions compared must be every IR body of every such target. These
-// tests build Go because the question is what the patched compiler
-// compiled, and types2 and vet of its printed text; no in-process check
-// reaches the derivative's trees.
-func TestIRTextChecks(t *testing.T) {
+// The functions compared must be every IR body of the target. These tests
+// build Go because the question is what the patched compiler compiled,
+// and types2 and vet of its printed text; no in-process check reaches the
+// derivative's trees.
+var irText = newSplit(split[exampleTarget]{
+	name:  "TestIRTextChecks",
+	parts: textParts,
+	cases: exampleDomain,
+	key:   exampleTarget.key,
+	run:   textCheckOn,
+})
+
+// textCheckOn checks the Go text of one target's IR bodies.
+func textCheckOn(t *testing.T, target exampleTarget) {
 	src, ir := needsBuild(t)
-	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	u, err := Load(target.dir)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("%s: %v", target.dir, err)
 	}
-	mains, tests, err := ExampleTargets(root)
+	lowering := lower.LowerIR
+	if target.test {
+		lowering = lower.LowerIRTests
+	}
+	files, rep, err := lowering(u)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("%s: %v", target.key(), err)
 	}
-	only := os.Getenv("ERGO_IRSPIKE_EXAMPLE") // a replay of one program
-	withIR, checked, funcs, wantFuncs := 0, 0, 0, 0
-	check := func(what, program string, files []lower.File, rep lower.IRReport) {
-		if len(rep.IR) == 0 {
-			return
-		}
-		withIR++
-		wantFuncs += len(rep.IR)
-		replay := fmt.Sprintf("replay: ERGO_IRSPIKE_EXAMPLE=%s go test -run TestIRTextChecks ./internal/experimental/irspike", program)
-		work := t.TempDir()
-		text := filepath.Join(work, "text")
-		irShape, textShape := filepath.Join(work, "ir.shape"), filepath.Join(work, "text.shape")
-		if err := goText(files, ir, filepath.Join(work, "ir.bin"), text, irShape, nil); err != nil {
-			t.Errorf("%s: %v\n%s", what, err, replay)
-			return
-		}
-		if _, err := Build(ir, Text, text, filepath.Join(work, "text.bin"), BuildOptions{GCFlags: []string{"-ergoirshape=" + textShape}}); err != nil {
-			t.Errorf("%s: the printed Go text does not build: %v\n%s", what, err, replay)
-			return
-		}
-		vet := exec.Command(filepath.Join(src.GOROOT, "bin", "go"), "vet", "-mod=readonly", ".")
-		vet.Dir, vet.Env = text, goEnv(src.GOROOT, src.GOCACHE)
-		var out strings.Builder
-		vet.Stdout, vet.Stderr = &out, &out
-		if _, err := Measure(vet); err != nil {
-			t.Errorf("%s: go vet of the printed Go text: %v\n%s\n%s", what, err, out.String(), replay)
-			return
-		}
-		compiled, printed := readShapes(t, irShape), readShapes(t, textShape)
-		for _, fn := range rep.IR {
-			a, ok := compiled[fn]
-			if !ok {
-				t.Errorf("%s: %s: the IR build wrote no structure for it\n%s", what, fn, replay)
-				continue
+	textCheck(t, src, ir, target.key(), files, rep)
+}
+
+// TestIRTextRepros runs the text checks on the smallest repros of fixed
+// bugs, each with the function it needs an IR body of:
+//   - duplocals (TXT r1): two try temporaries of one scope were both
+//     named v and err, so the text did not compile, or := reused the
+//     first variable (mutant ir-temp-name-reused);
+//   - shadow (IRG3b): a source local kept its Ergo spelling, so a local
+//     named strconv shadowed the package its int's text calls (mutant
+//     ir-local-raw-spelling);
+//   - pollend (IRG3b): a loop body ending in a return or a break was
+//     followed by its back-edge poll, unreachable code to go vet
+//     (mutant ir-loop-poll-after-terminating-body).
+//
+// It builds Go for the reason TestIRTextChecks does.
+func TestIRTextRepros(t *testing.T) {
+	src, ir := needsBuild(t)
+	for _, r := range []struct{ name, fn string }{{"duplocals", "two"}, {"shadow", "shadow"}, {"pollend", "firstOf"}} {
+		t.Run(r.name, func(t *testing.T) {
+			u, err := Load(filepath.Join("testdata", r.name+".ergo"))
+			if err != nil {
+				t.Fatal(err)
 			}
-			if b := printed[fn]; a != b {
-				t.Errorf("%s: %s: the printed text is not what was compiled\n%s\n%s", what, fn, firstDifference(a, b), replay)
-				continue
+			files, rep, err := lower.LowerIRTests(u)
+			if err != nil {
+				t.Fatal(err)
 			}
-			funcs++
-		}
-		checked++
+			if !slices.Contains(rep.IR, r.fn) {
+				t.Fatalf("%s: %s has no IR body: %v", r.name, r.fn, rep.Fallback)
+			}
+			textCheck(t, src, ir, r.name, files, rep)
+		})
 	}
-	for _, dir := range mains {
-		if only != "" && filepath.Base(programOf(root, dir)) != only {
+}
+
+// textCheck checks the Go text of the IR bodies of one lowered module
+// (what names it): it builds, vets and compiles to what was compiled,
+// for every IR function of rep.
+func textCheck(t *testing.T, src, ir Toolchain, what string, files []lower.File, rep lower.IRReport) {
+	t.Helper()
+	if len(rep.IR) == 0 {
+		t.Logf("%s has no IR bodies", what)
+		return
+	}
+	replay := fmt.Sprintf("replay: go test -run '%s' ./internal/experimental/irspike", t.Name())
+	work := t.TempDir()
+	text := filepath.Join(work, "text")
+	irShape, textShape := filepath.Join(work, "ir.shape"), filepath.Join(work, "text.shape")
+	if err := goText(files, ir, filepath.Join(work, "ir.bin"), text, irShape, nil); err != nil {
+		t.Fatalf("%s: %v\n%s", what, err, replay)
+	}
+	if _, err := Build(ir, Text, text, filepath.Join(work, "text.bin"), BuildOptions{GCFlags: []string{"-ergoirshape=" + textShape}}); err != nil {
+		t.Fatalf("%s: the printed Go text does not build: %v\n%s", what, err, replay)
+	}
+	vet := exec.Command(filepath.Join(src.GOROOT, "bin", "go"), "vet", "-mod=readonly", ".")
+	vet.Dir, vet.Env = text, goEnv(src.GOROOT, src.GOCACHE)
+	var out strings.Builder
+	vet.Stdout, vet.Stderr = &out, &out
+	if _, err := Measure(vet); err != nil {
+		t.Fatalf("%s: go vet of the printed Go text: %v\n%s\n%s", what, err, out.String(), replay)
+	}
+	compiled, printed := readShapes(t, irShape), readShapes(t, textShape)
+	funcs := 0
+	for _, fn := range rep.IR {
+		a, ok := compiled[fn]
+		if !ok {
+			t.Errorf("%s: %s: the IR build wrote no structure for it\n%s", what, fn, replay)
 			continue
 		}
-		u, err := Load(dir)
-		if err != nil {
-			t.Fatalf("%s: %v", dir, err)
-		}
-		files, rep, err := lower.LowerIR(u)
-		if err != nil {
-			t.Fatalf("%s: %v", dir, err)
-		}
-		check(dir, filepath.Base(programOf(root, dir)), files, rep)
-	}
-	for _, dir := range tests {
-		if only != "" && filepath.Base(programOf(root, dir)) != only {
+		if b := printed[fn]; a != b {
+			t.Errorf("%s: %s: the printed text is not what was compiled\n%s\n%s", what, fn, firstDifference(a, b), replay)
 			continue
 		}
-		u, err := Load(dir)
-		if err != nil {
-			t.Fatalf("%s: %v", dir, err)
-		}
-		files, rep, err := lower.LowerIRTests(u)
-		if err != nil {
-			t.Fatalf("%s test build: %v", dir, err)
-		}
-		check(dir+" test", filepath.Base(programOf(root, dir)), files, rep)
+		funcs++
 	}
-	// The smallest repro of the duplicate-locals bug (TXT r1): two try
-	// temporaries of one scope were both named v and err, so the text did
-	// not compile, or := reused the first variable (mutant
-	// ir-temp-name-reused).
-	if only == "" || only == "duplocals" {
-		u, err := Load(filepath.Join("testdata", "duplocals.ergo"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		files, rep, err := lower.LowerIRTests(u)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !slices.Contains(rep.IR, "two") {
-			t.Fatalf("duplocals: two has no IR body: %v", rep.Fallback)
-		}
-		check("duplocals", "duplocals", files, rep)
+	if funcs != len(rep.IR) {
+		t.Fatalf("%s: checked %d of %d IR functions", what, funcs, len(rep.IR))
 	}
-	if checked != withIR || funcs != wantFuncs || (only == "" && funcs == 0) {
-		t.Fatalf("checked %d of %d targets with IR bodies, %d of %d IR functions", checked, withIR, funcs, wantFuncs)
-	}
-	t.Logf("%d targets with IR bodies, %d IR functions: their Go text builds, vets and compiles to what was compiled", checked, funcs)
+	t.Logf("%s: %d IR functions: their Go text builds, vets and compiles to what was compiled", what, funcs)
 }
 
 // readShapes reads an -ergoirshape file: function name -> its structure.

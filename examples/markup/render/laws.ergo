@@ -1,0 +1,38 @@
+// The renderer's rules as laws.
+
+func count(n int) int { (if n < 0 { -(n + 1) } else { n }) % 7 }
+
+// ThreeLinesABlock: n paragraphs render to 3n lines, each body between
+// its tags.
+law ThreeLinesABlock(n int) {
+	let k = count(n)
+	let mut doc = []Block{}
+	for i in 0..k {
+		doc = doc.Append(Para{Text: "p\(i)"})
+	}
+	let out = Lines(doc)
+	let mut ok = len(out) == 3*k
+	for i in 0..k {
+		ok = ok && out[3*i] == "<p>" && out[3*i+1] == "p\(i)" && out[3*i+2] == "</p>"
+	}
+	ok
+}
+
+// QuoteIndents: a quote of n lines renders to 2n + 2 lines.
+law QuoteIndents(n int) {
+	let k = count(n)
+	let mut ls = []string{}
+	for i in 0..k {
+		ls = ls.Append("q\(i)")
+	}
+	len(Lines([]Block{Quote{Lines: ls}, Rule})) == 2*k+3
+}
+
+// TaggedKeepsItsInput: Tagged adds two lines and leaves the caller's
+// lines as they were.
+law TaggedKeepsItsInput(n int) {
+	let lines = Lines([]Block{Heading{Level: 1 + count(n), Text: "t"}})
+	let a = Tagged(lines, "a")
+	let b = Tagged(lines, "b")
+	len(lines) == 3 && len(a) == 5 && len(b) == 5 && a[3] == "<!-- a -->" && b[3] == "<!-- b -->" && lines[2] == "</h\(1 + count(n))>"
+}

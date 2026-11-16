@@ -19,7 +19,7 @@ type Orders {
 type Postgres {
 	pool    sql.Pool,
 	refresh Task[Unit], // a provider may own tasks; Close must consume them
-}
+} implements Orders
 
 func Find(p Postgres, id string) Order fails OrderNotFound {
 	return p.pool.QueryOrder(id)

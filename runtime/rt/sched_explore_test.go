@@ -235,7 +235,7 @@ func (r schedRun) String() string {
 	var b strings.Builder
 	for _, e := range r.res.Events {
 		if e.Tick {
-			fmt.Fprintf(&b, "  tick %v\n", e.Now.UnixNano())
+			fmt.Fprintf(&b, "  tick %v\n", int64(e.Now))
 		} else {
 			fmt.Fprintf(&b, "  %s %v #%d\n", e.Task, e.Kind, e.Handle)
 		}
@@ -333,7 +333,7 @@ func runSchedCase(p schedProgram, seed uint64, replay []string) (schedRun, strin
 		l.mu.Unlock()
 	}
 	clock.mu.Lock()
-	got.final.clock = clock.now.Sub(start)
+	got.final.clock = time.Duration(clock.now - Instant(start.UnixNano()))
 	clock.mu.Unlock()
 	for _, d := range res.Deadlock {
 		got.final.deadlock = append(got.final.deadlock, d.Task)

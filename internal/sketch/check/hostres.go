@@ -36,7 +36,8 @@ package check
 // or *T (a go.Ref[T] reaches both). nil when n is no Go type or has no
 // such Close.
 func (c *checker) hostClose(n *Named) *Func {
-	if n == nil || n.Obj == nil || !n.Obj.Pkg.Host() {
+	if n == nil || n.Obj == nil || !n.Obj.Pkg.Host() || !c.implementsCloser(n) {
+		// The binding declares the release (implements Closer).
 		return nil
 	}
 	f := n.method("Close")

@@ -32,8 +32,9 @@ func IsPredeclared(name string) bool {
 func predeclaredAbove(name string, above *Scope) bool {
 	// The constraint wire is not predeclared: a declaration named wire
 	// shadows it, so wire stays an ordinary identifier (owner q83; 196w),
-	// for the checker and for bindc alike.
-	if name == "_" || notPreludeNames[name] || name == SetWire.String() {
+	// for the checker and for bindc alike. The constraint lent (types.md,
+	// Borrows 7; q137 EX3) follows the same rule.
+	if name == "_" || notPreludeNames[name] || name == SetWire.String() || name == SetLent.String() {
 		return false
 	}
 	if predeclaredNames[name] {

@@ -91,11 +91,13 @@ A construct that the checker refuses never reaches the build. Its diagnostic is 
 | `basic:uint64` | a value of the basic type `uint64` | Checked; runs |  |
 | `basic:uint8` | a value of the basic type `uint8` | Checked; runs |  |
 | `call:Conversion` | a call of kind `Conversion` | Checked; runs |  |
+| `call:Encode` | a call of kind `Encode` | Checked; runs |  |
 | `call:Func` | a call of kind `Func` | Checked; runs |  |
 | `call:FuncValue` | a call of kind `FuncValue` | Checked; runs |  |
 | `call:LawOp` | a call of kind `LawOp` | Checked; runs |  |
 | `call:Len` | a call of kind `Len` | Checked; runs |  |
 | `call:Op` | a call of kind `Op` | Checked; runs |  |
+| `call:Pattern` | a call of kind `Pattern` | Checked; runs |  |
 | `call:ProviderOp` | a call of kind `ProviderOp` | Checked; runs |  |
 | `call:With` | a call of kind `With` | Checked; runs |  |
 | `conv:Machine` | an implicit `Machine` conversion | Checked; runs |  |

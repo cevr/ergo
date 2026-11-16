@@ -95,6 +95,7 @@ func TestVerifyR1InitDAGs(t *testing.T) {
 		}
 		main := "import p0\nimport p1\nimport p2\nimport p3\nfunc main() needs Console {\n\tlet _ = p0.M3{}\n\tlet _ = p1.M2{}\n\tlet _ = p2.M1{}\n\tlet _ = p3.M0{}\n\tConsole.Println(\"\\(" + sum + ")\")\n}\n"
 		if mask%2 == 0 {
+			main = strings.Replace(main, "\tlet _ = p3.M0{}\n", "\tlet _ = p3.M0{}\n\tlet _ = MR{}\n", 1)
 			main += "type R = Root{N int}\nfunc stepR(s R, e p0.Sig) Decision[R, int] { Enter[R]{Next: s} }\ntype MR machine[R, p0.Sig] { initial: Root{N: p3.Read()}, step: stepR }\n"
 		}
 		root := checkPackage(t, "main", []pkgSource{{"/dag/main.ergo", main}}, imp)
@@ -186,7 +187,7 @@ func TestVerifyR1ImportedRefusal(t *testing.T) {
 // record Q with the Get operation of Read, and Make, which converts a Q
 // into a Read.
 func opsLib(n string) string {
-	return "type Read { Get() int }\ntype Q { N int }\nfunc Get(q Q) int { q.N }\nfunc Make() Read { Q{N: " + n + "} }\n"
+	return "type Read { Get() int }\ntype Q { N int } implements Read\nfunc Get(q Q) int { q.N }\nfunc Make() Read { Q{N: " + n + "} }\n"
 }
 
 // The text of an error type's instances over two packages' Q, whose
@@ -234,7 +235,8 @@ func TestImportedOperationTypes(t *testing.T) {
 	paths := []string{"x/lib", "y/lib", "z/lib"}
 	aliases := []string{"a", "b", "c"}
 	src := func(k int) string {
-		return opsLib(fmt.Sprint(k)) + `func Show(r Read) int { r.Get() }
+		lib := strings.Replace(opsLib(fmt.Sprint(k)), "implements Read", "implements Read, Bump", 1)
+		return lib + `func Show(r Read) int { r.Get() }
 func First[T](xs []T, d T) T { d }
 type Bump { Inc() int }
 func Inc(q *Q) int { q.N + 10 }
@@ -288,7 +290,7 @@ func TestContextAcquisitionsAcrossFiles(t *testing.T) {
 	needsBuild(t)
 	provider := func(i int) pkgSource {
 		return pkgSource{fmt.Sprintf("/probe/ctx/p%d.ergo", i), fmt.Sprintf(
-			"type C%[1]d { Get() int }\ntype P%[1]d {}\nfunc Get(x P%[1]d) int { %[2]d }\nlet X%[1]d = context { C%[1]d: P%[1]d }\nfunc use%[1]d() int needs C%[1]d { C%[1]d.Get() }\n", i, i+1)}
+			"type C%[1]d { Get() int }\ntype P%[1]d {} implements C%[1]d\nfunc Get(x P%[1]d) int { %[2]d }\nlet X%[1]d = context { C%[1]d: P%[1]d }\nfunc use%[1]d() int needs C%[1]d { C%[1]d.Get() }\n", i, i+1)}
 	}
 	subsets := [][]int{{1}, {0}, {2}, {0, 2}, {1, 2}, {0, 1, 2}, {2, 0}}
 	var body, expect strings.Builder
@@ -324,8 +326,8 @@ func TestContextAcquisitionsAcrossFiles(t *testing.T) {
 func TestVerifyR1ContextPositions(t *testing.T) {
 	needsBuild(t)
 	root := checkPackage(t, "main", []pkgSource{
-		{"/probe/a.ergo", "type A { Get() int }\ntype One {}\nfunc Get(x One) int { 1 }\nlet X = context { A: One }\nfunc useA() int needs A { A.Get() }\n"},
-		{"/probe/b.ergo", "type B { Get() int }\ntype Two {}\nfunc Get(x Two) int { 2 }\nlet Y = context { B: Two }\nfunc useB() int needs B { B.Get() }\n"},
+		{"/probe/a.ergo", "type A { Get() int }\ntype One {} implements A\nfunc Get(x One) int { 1 }\nlet X = context { A: One }\nfunc useA() int needs A { A.Get() }\n"},
+		{"/probe/b.ergo", "type B { Get() int }\ntype Two {} implements B\nfunc Get(x Two) int { 2 }\nlet Y = context { B: Two }\nfunc useB() int needs B { B.Get() }\n"},
 		{"/probe/c.ergo", `let W = context { X, Y }
 func main() needs Console {
 	let a = with W { useA() }

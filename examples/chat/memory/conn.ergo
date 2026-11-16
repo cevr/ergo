@@ -8,14 +8,14 @@ import chat/server
 import queue
 
 // Server is the server's end of a connection in memory.
-type Server { inbound queue.Queue[string], outbound queue.Queue[string] }
+type Server { inbound queue.Queue[string], outbound queue.Queue[string] } implements server.Conn, Closer
 
 // Client is the client's end of the same connection.
-type Client { inbound queue.Queue[string], outbound queue.Queue[string] }
+type Client { inbound queue.Queue[string], outbound queue.Queue[string] } implements Closer
 
 // Sender is the server end's sending side, its server.Peer: it shares the
 // queues, so the room may keep a copy for each member.
-type Sender { inbound queue.Queue[string], outbound queue.Queue[string] }
+type Sender { inbound queue.Queue[string], outbound queue.Queue[string] } implements server.Peer
 
 // Pipe is a connection whose directions each hold up to capacity lines,
 // as its two ends. A write to a full connection waits for the client to

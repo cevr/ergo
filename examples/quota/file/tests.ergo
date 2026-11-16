@@ -11,7 +11,7 @@ import quota/quota
 import quota/memory
 
 // Broken is a disk that fails every read and write with its reason.
-type Broken { reason string }
+type Broken { reason string } implements fs.Files, fs.Writes
 
 func ReadFile(b Broken, path string) string fails fs.NotFound | fs.Denied | fs.Failed { b.at(path) }
 

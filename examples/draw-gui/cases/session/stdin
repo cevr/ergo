@@ -1,0 +1,44 @@
+# draw a stroke, a rect and an ellipse, select, drag, delete
+show
+down 100 100
+move 101 100
+move 102 100
+move 103 101
+move 110 100
+move 120 130
+up 120 130
+tool rect
+layer 1
+down 200 200
+move 260 240
+show
+up 260 240
+tool ellipse
+down 400 300
+up 450 320
+tool line
+down 10 10
+up 10 10
+hit 230 220
+hit 100 100
+hit 700 500
+tool select
+down 230 220
+move 240 230
+show
+up 240 230
+down 150 150
+move 500 500
+show
+up 500 500
+show
+delete
+show
+zoom 50
+pan -100 -100
+show
+export
+save
+tool brush
+down 1
+show me

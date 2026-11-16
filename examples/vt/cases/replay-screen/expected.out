@@ -1,0 +1,63 @@
+plain line
+{-/-/1}bold{-} {-/-/6}italic underline{-} {-/-/8}inverse{-}
+{1/-/0}red{10/-/0} bright{208/-/0} orange{#10.20.30/-/0} rgb{#10.20.30/#1.2.3/0} colon{-} default
+wide: 世界 ＡＢ 😀 é
+
+                                                                          末尾の\
+文字
+    cdeij
+                                       right
+ x界 界
+
+one
+
+two
+four
+
+
+region bottom
+             scrolled
+
+         +{3/-/1}aved{-}
+
+                                                                          no aue
+scroll 0
+scroll 1
+scroll 2
+scroll 3
+scroll 4
+scroll 5
+scroll 6
+scroll 7
+scroll 8
+scroll 9
+scroll 10
+scroll 11
+scroll 12
+scroll 13
+scroll 14
+scroll 15
+scroll 16
+scroll 17
+scroll 18
+scroll 19
+scroll 20
+scroll 21
+scroll 22
+scroll 23
+scroll 24
+scroll 25
+scroll 26X      B
+scroll 27
+scroll 28
+scroll 29
+cursor 19,17 pending false visible false origin false autowrap true alternate false
+pen -
+title vt case
+bytes 1015 dropped 0 bad-text 0 osc-cut 0
+unhandled apc 1
+unhandled dcs 1
+unhandled esc #8 1
+unhandled esc (0 1
+unhandled mode 2004 1
+unhandled osc 1

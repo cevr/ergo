@@ -1,14 +1,24 @@
 // The memory connection's tests, and the server's: sessions replayed over
 // memory connections with a time.Manual clock, so no test sleeps or
-// touches the host. ergo test skips the Conn and Peer laws (a Server and
-// a Sender hold a queue, and Pipe takes a size; expected-skips), so they
-// are restated as a test.
+// touches the host. A Server and a Sender hold queues, which have no
+// generator, so the law runs need a provider this file picks: the Peer
+// law runs under oneLine, a Sender over two queues of one line each, and
+// the Conn law under oneConn, a Server over two such queues, which each
+// case closes when it ends. LinesBeforeHangup holds what the law does not
+// state: the lines sent before the hang-up are read first.
 
 import chat/server
 import queue
 import time
 
-test HangupIsFinalHolds(lines []string) {
+// oneLine binds the server's sending side to a Sender over fresh queues.
+let oneLine = context { server.Peer: Sender{inbound: queue.New[string](1), outbound: queue.New[string](1)} }
+
+// oneConn binds the server's end of a connection to a Server over fresh
+// queues.
+let oneConn = context { server.Conn: Server{inbound: queue.New[string](1), outbound: queue.New[string](1)} }
+
+test LinesBeforeHangup(lines []string) {
 	// Room for every line: a Send to a full connection waits for a reader,
 	// and this test reads only after the hang-up.
 	let end, c = Pipe(len(lines) + 1)
@@ -19,21 +29,10 @@ test HangupIsFinalHolds(lines []string) {
 		}
 	}
 	end.Peer().Hangup()
-	// HangupIsIdempotent: a second Hangup changes nothing.
-	end.Peer().Hangup()
 	// The lines sent before the hang-up are read first.
 	for l in lines {
-		assert (try end.Read()) == l
+		assert try end.Read() == l
 	}
-	let mut hangups = 0
-	for _ in 0..2 {
-		let _ = end.Read() catch {
-		case server.Hangup:
-			hangups += 1
-			continue
-		}
-	}
-	assert hangups == 2
 }
 
 // replay is the session of steps, on a clock that starts at midnight.

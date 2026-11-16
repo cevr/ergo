@@ -1,6 +1,6 @@
 import site/p
 
-type G {}
+type G {} implements p.S
 
 func N(_ G) string { "mem" }
 

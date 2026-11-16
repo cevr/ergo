@@ -26,6 +26,9 @@ import (
 const asRunner = "EXAMPLES_TEST_AS_RUNNER"
 
 func TestMain(m *testing.M) {
+	// A runner under test keeps no verdict cache unless a test asks for
+	// one (cache_test.go): the caller's cache is not the fixtures'.
+	os.Unsetenv(cacheVariable)
 	if os.Getenv(asRunner) == "1" {
 		os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 	}
@@ -315,7 +318,7 @@ func grows(t *testing.T, file string) bool {
 	return size() != before
 }
 
-// A case past -timeout fails "timed out", and the runner stops its process
+// A case past -timeout fails "hung", and the runner stops its process
 // group: its background children too. A case that exits while its child
 // still holds stdout does not hold the runner, and the child is stopped.
 func TestCaseProcessGroupIsStopped(t *testing.T) {
@@ -334,8 +337,8 @@ func TestCaseProcessGroupIsStopped(t *testing.T) {
 		t.Fatalf("a 1s timeout took %s: the case ended by itself", took)
 	}
 	_, fails := verdicts(out)
-	if code != 1 || !strings.Contains(fails["sleeper/slow"], "timed out after 1s") {
-		t.Fatalf("want FAIL sleeper/slow: timed out; exit %d\n%s", code, out)
+	if code != 1 || !strings.Contains(fails["sleeper/slow"], "hung: no end after 1s") {
+		t.Fatalf("want FAIL sleeper/slow: hung; exit %d\n%s", code, out)
 	}
 	if grows(t, filepath.Join(ticks, "slow")) {
 		t.Fatal("the timed-out case's background child still runs")
@@ -350,23 +353,30 @@ func TestCaseProcessGroupIsStopped(t *testing.T) {
 	}
 }
 
-// A case of a default program over -budget fails naming the budget; a slow
+// A case of a default program whose CPU time passes -budget fails naming
+// the budget; one that only waits as long passes, since the budget charges
+// work and never wall time, which the host's load stretches. A slow
 // program runs only when selected by tag or by name.
+//
+// Mutant: the budget compares the case's wall time (runCase).
 func TestBudgetAndSelection(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
 	slow := map[string]map[string]string{"basic": {"expected.out": "done\n"}}
-	f.program("slowpoke", "#!/bin/sh\nsleep 1\necho done\n", "default\n", slow, nil)
+	// slowpoke burns CPU (a shell loop; at least 10 ms on any host); dozer
+	// sleeps a second and does almost nothing.
+	f.program("slowpoke", "#!/bin/sh\ni=0\nwhile [ $i -lt 200000 ]; do i=$((i+1)); done\necho done\n", "default\n", slow, nil)
+	f.program("dozer", "#!/bin/sh\nsleep 1\necho done\n", "default\n", slow, nil)
 	f.program("lazy", "#!/bin/sh\nsleep 1\necho done\n", "slow net\n", slow, nil)
-	code, out := f.run("-budget", "300ms")
-	_, fails := verdicts(out)
-	if code != 1 || !strings.Contains(fails["slowpoke/basic"], "budget") || strings.Contains(out, "lazy") {
-		t.Fatalf("default selection: want FAIL slowpoke/basic budget and no lazy; exit %d\n%s", code, out)
+	code, out := f.run("-budget", "10ms")
+	oks, fails := verdicts(out)
+	if code != 1 || !strings.Contains(fails["slowpoke/basic"], "budget") || !oks["dozer/basic"] || strings.Contains(out, "lazy") {
+		t.Fatalf("default selection: want FAIL slowpoke/basic budget, ok dozer/basic and no lazy; exit %d\n%s", code, out)
 	}
-	for _, args := range [][]string{{"-tags", "slow", "-budget", "300ms"}, {"-tags", "cc,net"}, {"lazy"}} {
+	for _, args := range [][]string{{"-tags", "slow", "-budget", "10ms"}, {"-tags", "cc,net"}, {"lazy"}} {
 		code, out = f.run(args...)
 		oks, _ := verdicts(out)
-		if code != 0 || !oks["lazy/basic"] || strings.Contains(out, "slowpoke") {
+		if code != 0 || !oks["lazy/basic"] || strings.Contains(out, "slowpoke") || strings.Contains(out, "dozer") {
 			t.Fatalf("%q: want only ok lazy/basic; exit %d\n%s", args, code, out)
 		}
 	}
@@ -454,8 +464,12 @@ func TestLayoutErrorsNameTheFolder(t *testing.T) {
 	}
 }
 
-// A program that fails fmt or build fails alone: its cases do not run, the
-// other programs' do, and the runner writes nothing into the root.
+// A program that fails fmt, fix or build fails alone: its cases do not
+// run, the other programs' do, and the runner writes nothing into the
+// root. Every compiler call gets the run's own emission cache, never the
+// caller's, and the run removes it (toolEnvironment). Mutant
+// (scripts/examples ledger ex2-no-fix-leg): the fix leg dropped, so a
+// clause ergo fix would write passes.
 func TestFmtOrBuildFailureFailsOnlyThatProgram(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -463,13 +477,14 @@ func TestFmtOrBuildFailureFailsOnlyThatProgram(t *testing.T) {
 	hi := map[string]map[string]string{"basic": {"expected.out": "hi\n"}}
 	f.program("nobuild", "#!/bin/sh\n# BUILDFAIL\necho hi\n", "default\n", hi, nil)
 	f.program("messy", "#!/bin/sh\necho hi\n", "default\n", hi, map[string]string{"part.ergo": "# UNFORMATTED\n"})
+	f.program("unfixed", "#!/bin/sh\n# UNFIXED\necho hi\n", "default\n", hi, nil)
 	before := tree(t, f.root)
 	code, out := f.run()
 	oks, fails := verdicts(out)
-	if code != 1 || !strings.Contains(out, "FAIL nobuild: build\n") || !strings.Contains(out, "FAIL messy: fmt\n") || !oks["good/basic"] {
+	if code != 1 || !strings.Contains(out, "FAIL nobuild: build\n") || !strings.Contains(out, "FAIL messy: fmt\n") || !strings.Contains(out, "FAIL unfixed: fix\n") || !oks["good/basic"] {
 		t.Fatalf("exit %d\n%s", code, out)
 	}
-	if oks["nobuild/basic"] || oks["messy/basic"] || fails["nobuild/basic"] != "" || fails["messy/basic"] != "" {
+	if oks["nobuild/basic"] || oks["messy/basic"] || oks["unfixed/basic"] || fails["nobuild/basic"] != "" || fails["messy/basic"] != "" || fails["unfixed/basic"] != "" {
 		t.Fatalf("a failed program's cases ran\n%s", out)
 	}
 	if after := tree(t, f.root); !slices.Equal(before, after) {
@@ -478,10 +493,21 @@ func TestFmtOrBuildFailureFailsOnlyThatProgram(t *testing.T) {
 	calls := readCalls(t, f)
 	for _, want := range []string{
 		"fmt --check " + filepath.Join(f.root, "examples/messy/main.ergo") + " " + filepath.Join(f.root, "examples/messy/part.ergo"),
+		"fix --check " + filepath.Join(f.root, "examples/good/main.ergo"),
 		"build " + filepath.Join(f.root, "examples/good/main.ergo") + " -o ",
 	} {
 		if !slices.ContainsFunc(calls, func(c string) bool { return strings.HasPrefix(c, want) }) {
 			t.Errorf("no call starting %q in %q", want, calls)
+		}
+	}
+	content, _ := read(t, filepath.Join(filepath.Dir(f.calls), "cache.log"))
+	caches := lines([]byte(content))
+	if len(caches) != len(calls) || caches[0] == "unset" || caches[0] == os.Getenv(emissionCacheVariable) {
+		t.Fatalf("compiler calls got %s %q, not the run's own (caller's %q)", emissionCacheVariable, caches, os.Getenv(emissionCacheVariable))
+	}
+	for _, cache := range caches {
+		if _, err := os.Lstat(cache); cache != caches[0] || !os.IsNotExist(err) {
+			t.Errorf("%s %s: not the run's one cache, or left after the run (%v)", emissionCacheVariable, cache, err)
 		}
 	}
 }
@@ -719,6 +745,8 @@ func TestTestLeg(t *testing.T) {
 	for _, p := range []string{"failing", "other", "passing", "pending", "untested"} {
 		want = append(want, "test "+filepath.Join(f.root, "examples", p, "main.ergo"))
 	}
+	// Programs run at once (runAll), so the calls are compared as a set.
+	slices.Sort(tests)
 	if !slices.Equal(tests, want) {
 		t.Fatalf("ergo test calls:\n%q\nwant\n%q", tests, want)
 	}

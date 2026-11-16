@@ -1,0 +1,15 @@
+// MISCOMPILE-1: `!(p && false)` is true for every p. The IR spelled the
+// operand of a unary operator without its parentheses, and Go's writer
+// (staticBool) then read Not(AndAnd(p, false)) as the AndAnd's own value,
+// statically false, and dropped the branch: pick(true) returned 8.
+
+func pick(p bool) int {
+	if !(p && false) {
+		return 1
+	}
+	8
+}
+
+func main() needs Console {
+	Console.Println("pick \(pick(true)) \(pick(false))")
+}

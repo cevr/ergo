@@ -36,12 +36,12 @@ func (b *irBuilder) admitOnce(tn *check.TypeName) bool {
 }
 
 // spelling is the IR spelling of the Go type s, the lowered spelling of a
-// type the subset admits: names, []T, pkg.Name and a generic type's
-// instance Name[T1, T2], where pkg is the name main.go imports a package
-// by. The IR names that package by its import path (the decoder resolves
-// the path among main.go's imports), and the lowering keeps the import
-// used (keepImport): an IR body is not Go text, and Go refuses an unused
-// import.
+// type the subset admits: names, []T, *T (FLIP F2), pkg.Name and a
+// generic type's instance Name[T1, T2], where pkg is the name main.go
+// imports a package by. The IR names that package by its import path (the
+// decoder resolves the path among main.go's imports), and the lowering
+// keeps the import used (keepImport): an IR body is not Go text, and Go
+// refuses an unused import.
 func (b *irBuilder) spelling(s string) string {
 	var out strings.Builder
 	for i := 0; i < len(s); {
@@ -304,7 +304,7 @@ func (b *irBuilder) countLoop(s *syntax.RangeStmt, lp *check.Loop) []*irStmt {
 		return &irExpr{K: "field", Pos: p, Name: td.fieldName[name], X: &irExpr{K: "local", Pos: p, I: r}}
 	}
 	loop := &irStmt{K: "count", Pos: p, Local: v, X: field("Start"), Y: field("End"), End: b.pos(s.Body, s.Body.Rbrace)}
-	loop.Body = b.loopBody(s, s.Body)
+	b.loopBody(loop, s, s.Body) // ir_stmt.go
 	return []*irStmt{{K: "def", Pos: p, Local: r, X: x}, loop}
 }
 
@@ -417,7 +417,7 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	case len(b.fc.captureOwners(x)) > 0:
 		irNo("call that captures owners")
 	}
-	if _, bound := runtimeBindings[name]; !bound {
+	if _, bound := runtimeBindings()[name]; !bound {
 		irNo("std call with no runtime binding")
 	}
 	if _, tuple := b.l.info.Types[x].(*check.Tuple); tuple {
@@ -449,12 +449,21 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	// A generic function stands in Go text only as an instance, whose type
 	// arguments may be the body's own type parameters: the import is
 	// kept by a variable of the runtime's Site type, which is not generic.
-	if targs != "" {
+	// A body of a runtime leaf (runtime/v1/rpc, BS8) is called by the
+	// leaf's import path, which rtRef imports.
+	pkg := v1.PackageOf(name)
+	switch {
+	case pkg != "" && pkg != runtimeImport:
+		b.keepImport("var _ = " + b.l.rtRef(name))
+	case targs != "":
 		b.keepImport("var _ " + b.l.rt() + ".Site")
-	} else {
-		b.keepImport("var _ = " + b.l.rt() + "." + name)
+	default:
+		b.keepImport("var _ = " + b.l.rtRef(name))
 	}
-	return pre, &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: name, V: targs, Args: append(hidden, args...)}, !body.Pure
+	if pkg == "" {
+		pkg = runtimeImport
+	}
+	return pre, &irExpr{K: "pcall", Pos: p, T: pkg, Name: name, V: targs, Args: append(hidden, args...)}, !body.Pure
 }
 
 // stdTypeArgs is the IR type argument list of the call x of a generic std
@@ -576,7 +585,7 @@ func (b *irBuilder) hidden(body v1.Body, x *syntax.CallExpr, c *check.Call, p ir
 // writes it through runtimeCall, when the method needs no adapter.
 func (b *irBuilder) stdOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named, p irPos) ([]*irStmt, *irExpr, bool) {
 	name := n.Obj.Name + "." + c.Op.Name
-	if _, bound := runtimeBindings[name]; !bound {
+	if _, bound := runtimeBindings()[name]; !bound {
 		irNo("std call with no runtime binding")
 	}
 	body, err := v1.BodyOf(name)

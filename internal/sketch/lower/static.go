@@ -20,8 +20,8 @@ import (
 // parameters, its owned locals and temporaries, outside function
 // literals, at most 64) has the release of its type's own Close (no
 // generated release of parts, B2), when no release point carries a drop
-// flag or a field mask (Info.Releases), no owned local is reassigned
-// (R41's two entries), and no bodiless std call holds a taken value
+// flag or a field mask (Info.Releases, Info.TryReleases), no owned local
+// is reassigned (R41's two entries), and no bodiless std call holds a taken value
 // (holdTaken, D-C). A value returned whole (v1.Returned) moves to a kept
 // bit: released only when the frame's exit fails.
 //
@@ -132,28 +132,40 @@ func (l *lowerer) staticPlan(params []*check.Var, body []syntax.Stmt) bool {
 	if !ok || len(keys) == 0 || len(keys) > 64 {
 		return false
 	}
-	for _, rs := range info.Releases {
+	flagged := func(rs []check.Release) bool {
 		for _, r := range rs {
 			var key any = r.Temp
 			if r.Var != nil {
 				key = r.Var
 			}
 			if keys[key] && (r.Flag || r.Fields != 0 || r.MaybeFields != 0) {
-				return false
+				return true
 			}
+		}
+		return false
+	}
+	for _, rs := range info.Releases {
+		if flagged(rs) {
+			return false
+		}
+	}
+	for _, rs := range info.TryReleases {
+		if flagged(rs) {
+			return false
 		}
 	}
 	return true
 }
 
-// takesHeld reports a bodiless std call that takes a value (holdTaken):
-// its entry stays until the call returns, which the static form does not
-// write.
+// takesHeld reports a bodiless call that takes a value (holdTaken): an
+// operation, or an extern of any package bound to a runtime/v1 body
+// (check.BodyOf). Its entry stays until the call returns, which the
+// static form does not write.
 func takesHeld(c *check.Call) bool {
 	switch {
 	case c.Kind == check.CallOp && c.Op != nil && c.Op.Sig != nil:
 		return len(c.Op.Sig.Takes) > 0
-	case c.Kind == check.CallFunc && c.Func != nil && c.Func.Pkg != nil && c.Func.Pkg.Std() && c.Func.Decl != nil && c.Func.Decl.Extern != nil:
+	case c.Kind == check.CallFunc && check.BodyOf(c.Func).Runtime != "" && c.Func.Sig != nil:
 		return len(c.Func.Sig.Takes) > 0
 	}
 	return false

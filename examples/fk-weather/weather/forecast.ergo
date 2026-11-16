@@ -1,0 +1,75 @@
+// Package weather is a weather lookup: type a zip code, submit it, and the
+// lookup shows the current weather there, or why it cannot. The machine
+// Lookup holds the typed draft and the panel; its Loading state owns the
+// fetch, so a newer ask can never be overwritten by an older answer. The
+// package declares the contract it needs, Forecast, with its laws; the
+// providers live in memory (a fixed table) and web (open-meteo over std
+// http).
+
+import strings
+
+// Report is the current weather at a zip code: the temperature in degrees
+// Fahrenheit and the wind in miles per hour, both rounded, the relative
+// humidity in percent, and the place's name and region.
+type Report {
+	Zip         string,
+	Temperature int,
+	Description string,
+	Humidity    int,
+	WindSpeed   int,
+	Location    string,
+	Region      string,
+}
+
+// NotFound is a zip code the forecast knows no place for.
+type NotFound { Zip string }
+
+// Unavailable is a forecast that could not answer: the service failed, or
+// its answer could not be read. Reason says what happened.
+type Unavailable { Reason string }
+
+// Forecast is the contract of the weather service the lookup asks.
+type Forecast {
+	// Fetch is the current weather at zip.
+	Fetch(zip string) Report fails NotFound | Unavailable,
+
+	// A report is the weather at the zip that was asked.
+	law ReportIsForTheZip(n int) { ReportIsForTheZip(n) },
+
+	// A zip with no place is refused with that zip.
+	law NotFoundNamesTheZip(n int) { NotFoundNamesTheZip(n) },
+}
+
+// Probes are the zips the laws ask: two that a provider is likely to know,
+// one that no place has, and two that are not zips.
+let Probes = []string{"90210", "10001", "00000", "x", "902101"}
+
+func probe(n int) string { Probes[pick(n, len(Probes))] }
+
+func pick(n int, count int) int { ((n % count) + count) % count }
+
+// ReportIsForTheZip is the law ReportIsForTheZip of the Forecast in the
+// context, as a function.
+func ReportIsForTheZip(n int) bool needs Forecast {
+	let zip = probe(n)
+	let r = Forecast.Fetch(zip) catch {
+	case NotFound, Unavailable:
+		return true
+	}
+	r.Zip == zip
+}
+
+// NotFoundNamesTheZip is the law NotFoundNamesTheZip as a function.
+func NotFoundNamesTheZip(n int) bool needs Forecast {
+	let zip = probe(n)
+	let _ = Forecast.Fetch(zip) catch {
+	case NotFound as m:
+		return m.Zip == zip
+	case Unavailable:
+		return true
+	}
+	true
+}
+
+// Empty reports whether a draft holds no zip at all.
+func Empty(draft string) bool { strings.TrimSpace(draft) == "" }

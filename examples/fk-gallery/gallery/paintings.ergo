@@ -1,0 +1,24 @@
+// The paintings (upstream's data.ts, without the gradients, which are the
+// view's).
+
+// Work is a painting of the gallery.
+type Work { ID int, Title string, Artist string }
+
+let Paintings = []Work{
+	Work{ID: 1, Title: "Dawn Over the Harbor", Artist: "Mara Ellsworth"},
+	Work{ID: 2, Title: "Static in Bloom", Artist: "Jun Okabe"},
+	Work{ID: 3, Title: "Winter Circuit", Artist: "Ada Lindqvist"},
+	Work{ID: 4, Title: "Ferric Meadow", Artist: "Tomás Reyes"},
+	Work{ID: 5, Title: "Ultraviolet Tide", Artist: "Nadia Boulos"},
+	Work{ID: 6, Title: "Ember Study No. 4", Artist: "Hal Whitaker"},
+}
+
+// Find is the painting with id, if the gallery has it.
+func Find(id int) Option[Work] {
+	for w in Paintings {
+		if w.ID == id {
+			return Some[Work]{Value: w}
+		}
+	}
+	None
+}

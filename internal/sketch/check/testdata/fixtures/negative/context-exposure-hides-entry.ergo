@@ -1,6 +1,6 @@
 type Store { Label() string }
 type Account { Label() string }
-type Memory { Text string }
+type Memory { Text string } implements Store, Account
 
 func Label(m Memory) string { return m.Text }
 

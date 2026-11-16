@@ -1,0 +1,18 @@
+// The time as the watch shows it.
+
+import strings
+import time
+
+// Format is d as MM:SS.cc: whole minutes (two digits at least, not
+// wrapped at an hour), seconds of the minute and hundredths of the second,
+// each rounded down, as upstream's formatTime.
+func Format(d duration) string {
+	let ms = time.Count(d, 1ms)
+	let minutes = ms / 60000
+	let seconds = ms % 60000 / 1000
+	let cents = ms % 1000 / 10
+	"\(two(minutes)):\(two(seconds)).\(two(cents))"
+}
+
+// two is n in decimal with a leading zero below 10.
+func two(n int) string { strings.PadLeft("\(n)", 2, '0') }

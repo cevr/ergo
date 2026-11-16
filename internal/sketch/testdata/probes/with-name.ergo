@@ -1,6 +1,6 @@
 // out: ok
 type with2 { Get() string }
-type Plain {}
+type Plain {} implements with2
 func Get(_ Plain) string { return "ok" }
 let with2 = context { with2: Plain }
 func main() needs Console {

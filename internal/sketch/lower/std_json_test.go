@@ -33,7 +33,7 @@ test JsonRoundTrips(v fleet) {
 	assert back == v
 }
 
-func viaWriter[T wire](v T) string {
+func viaWriter[T wire](v T) string needs wired[T] {
 	let t = json.NewText()
 	encode(v, t)
 	t.Written()

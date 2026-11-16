@@ -50,7 +50,7 @@ var i1Clauses = []i1Clause{
 	{name: "transitive", prefix: "helper()\n", needs: true, impure: true, site: "Probe.Mark()\n"},
 	{name: "recursive", prefix: "ping(2)\n", needs: true, impure: true, site: "Probe.Mark()\n"},
 	{name: "own-with", prefix: "with Local {\nProbe.Tick()\n}\n", impure: true, site: "with Local {\nProbe.Mark()\n}\n", provider: true},
-	{name: "unknown-value", prefix: "cb()\n", param: "cb escaping func()", impure: true},
+	{name: "unknown-value", prefix: "cb()\n", param: "cb own func()", impure: true},
 	{name: "host", prefix: "let _ = hostTrim(\"\")\n", impure: true, provider: true},
 	{name: "task-start", prefix: "let t0 = task.Go() { 1 }\nt0.Stop()\n", impure: true, provider: true},
 }
@@ -108,7 +108,7 @@ type Probe {
 	Tick(),
 	Mark(),
 }
-type Silent {}
+type Silent {} implements Probe
 type Fault {}
 func Tick(_ Silent) {}
 func Mark(_ Silent) {}
@@ -674,6 +674,11 @@ type i1Graph struct {
 	// opaque: the shape calls a function value, so its frames, and a
 	// subject that calls them, poll at entry whatever the effect.
 	opaque bool
+	// polls are frames that poll at entry whatever the effect: a
+	// function that runs its non-escaping parameter's argument is opaque
+	// read alone, while its caller joins the argument's footprint in its
+	// place (H2-fp; rows.md, Footprints 3).
+	polls []string
 	// provider: the recursion runs in a provider method, which has no row.
 	// The subject reaches it through a capability, and its entry is not
 	// asserted.
@@ -685,10 +690,19 @@ type i1Graph struct {
 
 // row is the written row of a frame that calls the shape's frames.
 func (g i1Graph) row(row string) string {
-	if g.ambient && row != "" {
-		return row + " | Ambient"
+	if g.ambient {
+		return withAmbient(row)
 	}
 	return row
+}
+
+// withAmbient adds Ambient to a written capability row (q137: every row is
+// written, the empty one included).
+func withAmbient(row string) string {
+	if row == "" {
+		return " needs Ambient"
+	}
+	return row + " | Ambient"
 }
 
 func i1Fib(name, call1, call2 string) func(row, clause string) string {
@@ -720,13 +734,15 @@ var i1Graphs = append([]i1Graph{
 	}, call: "left(%d)", frames: []string{"left"}},
 	// Through a literal called where it is written: an edge, not a value.
 	{name: "lit-in-place", decls: i1Fib("left(n int)", "func() int { left(n - 1) }()", "left(n - 2)"), call: "left(%d)", frames: []string{"left"}},
-	// Through a user function's trailing block, which run calls as a value.
+	// Through a user function's trailing block, which run calls as its
+	// non-escaping parameter: left joins the block's footprint (H2-fp), so
+	// it polls only when impure, and run, opaque read alone, always polls.
 	{name: "trailing", decls: func(row, clause string) string {
 		return "func run(cb func() int" + row + ") int" + row + " { cb() }\n" + i1Fib("left(n int)", "run() { left(n - 1) }", "run() { left(n - 2) }")(row, clause)
-	}, call: "left(%d)", frames: []string{"left", "run"}, opaque: true},
+	}, call: "left(%d)", frames: []string{"left", "run"}, polls: []string{"run"}},
 	// A provider method recursing by a dot call on its receiver.
 	{name: "provider-self", decls: func(row, clause string) string {
-		return "type Worker { Run(n int) int, }\ntype Impl {}\n" + i1Fib("Run(i Impl, n int)", "i.Run(n - 1)", "i.Run(n - 2)")(row, clause) + "let Work = context { Worker: Impl }\n"
+		return "type Worker { Run(n int) int, }\ntype Impl {} implements Worker\n" + i1Fib("Run(i Impl, n int)", "i.Run(n - 1)", "i.Run(n - 2)")(row, clause) + "let Work = context { Worker: Impl }\n"
 	}, call: "with Work { Worker.Run(%d) }", frames: []string{"Impl.Run"}, provider: true},
 }, i1CallGraphs()...)
 
@@ -735,7 +751,7 @@ var i1Graphs = append([]i1Graph{
 // call's own point is what stops it (the live witness is red under a
 // mutant that drops that point, not under one that drops entry polls).
 const i1OpCycle = `type Worker { Run(n int) int, }
-type Impl {}
+type Impl {} implements Worker
 func Run(_ Impl, n int) int {
 	with Work { left(n) }
 }
@@ -772,6 +788,9 @@ func i1RecursionCases() []i1Case {
 			entries := map[string]bool{}
 			for _, f := range g.frames {
 				entries[f] = want
+			}
+			for _, f := range g.polls {
+				entries[f] = true
 			}
 			if !g.provider {
 				entries["subject"] = e.name == "opaque" || e.name == "scope" || g.opaque
@@ -1282,7 +1301,7 @@ extern go strings.TrimSpace func hostTrim(s string) string
 type Probe {
 	Tick(),
 }
-type Silent {}
+type Silent {} implements Probe
 func Tick(_ Silent) {}
 let Local = context { Probe: Silent }
 func nonnegative(n int) bool { n >= 0 }
@@ -1415,7 +1434,7 @@ func i1LivePrograms() map[string]string {
 		out["decl-"+kind] = work("func spin() int {\n"+loop+"with Local {\nProbe.Tick()\n}\nc\n}\n", "spin()\n")
 		out["literal-"+kind] = work("", "let local = func() int {\n"+loop+"with Local {\nProbe.Tick()\n}\nc\n}\nlocal()\n")
 		out["task-"+kind] = work("", "let u = task.Go() {\n"+loop+"with Local {\nProbe.Tick()\n}\nc\n}\nu.Wait()\n")
-		out["provider-"+kind] = work("type Worker {\n\tRun(n int) int,\n}\ntype Impl {}\nfunc Run(_ Impl, n int) int {\n"+loop+"with Local {\nProbe.Tick()\n}\nc\n}\nlet Work = context { Worker: Impl }\n", "with Work {\nWorker.Run(1)\n}\n")
+		out["provider-"+kind] = work("type Worker {\n\tRun(n int) int,\n}\ntype Impl {} implements Worker\nfunc Run(_ Impl, n int) int {\n"+loop+"with Local {\nProbe.Tick()\n}\nc\n}\nlet Work = context { Worker: Impl }\n", "with Work {\nWorker.Run(1)\n}\n")
 	}
 	out["capability-recursion"] = work("func spinCap() needs Probe {\nProbe.Tick()\nspinCap()\n}\n", "with Local {\nspinCap()\n}\n0\n")
 	out["capability-mutual"] = work("func ping() needs Probe {\npong()\n}\nfunc pong() needs Probe {\nProbe.Tick()\nping()\n}\n", "with Local {\nping()\n}\n0\n")
@@ -1428,7 +1447,7 @@ func i1LivePrograms() map[string]string {
 		if g.provider {
 			e = i1Effects[2]
 		}
-		if g.opaque {
+		if g.opaque || len(g.polls) > 0 {
 			// The shape alone must force entry checks. A separate
 			// capability effect could hide an opacity regression.
 			e = i1Effects[0]
@@ -1441,6 +1460,7 @@ func i1LivePrograms() map[string]string {
 		program := work(g.decls(e.row, e.clause), "with Local {\n"+fmt.Sprintf(g.call, 90)+"\n}\n")
 		if g.ambient {
 			program = strings.Replace(program, "func main() fails queue.Closed needs Console {", "func main() fails queue.Closed needs Console | Ambient {", 1)
+			program = strings.Replace(program, "func work(ready queue.Queue[int]) int fails queue.Closed {", "func work(ready queue.Queue[int]) int fails queue.Closed needs Ambient {", 1)
 		}
 		out["recursion-"+g.name] = program
 	}
@@ -1462,7 +1482,7 @@ func spin() int needs Probe {
 	out["order"] = `type Pair {
 	Join(a string, b string) string,
 }
-type Glue {}
+type Glue {} implements Pair
 func Join(_ Glue, a string, b string) string { a + b }
 let Joined = context { Pair: Glue }
 func step(s string) string needs Console {

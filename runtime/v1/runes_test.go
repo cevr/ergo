@@ -111,6 +111,43 @@ func TestStdRunesMatchGo(t *testing.T) {
 		same("Sqrt", MathSqrt(f), math.Sqrt(f))
 		same("Pow", MathPow(f, g), math.Pow(f, g))
 		same("Mod", MathMod(f, g), math.Mod(f, g))
+		same("Log", MathLog(f), math.Log(f))
+		same("Exp", MathExp(f), math.Exp(f))
+		same("Max", CmpMax(f, g), max(f, g))
+		same("Min", CmpMin(f, g), min(f, g))
+		cut := runeText(r)
+		if got, want := StringsTrimLeft(s, cut), strings.TrimLeft(s, cut); got != want {
+			t.Fatalf("case %d: TrimLeft(%q, %q) = %q; Go %q", i, s, cut, got, want)
+		}
+		if got, want := StringsTrimRight(s, cut), strings.TrimRight(s, cut); got != want {
+			t.Fatalf("case %d: TrimRight(%q, %q) = %q; Go %q", i, s, cut, got, want)
+		}
+		var gb strings.Builder
+		var eb []byte
+		for _, part := range []string{s, cut, repl} {
+			if n := r.IntN(8); n%2 == 0 {
+				gb.Grow(n)
+				eb = StringsBuilderGrow(eb, n)
+				if cap(eb)-len(eb) < n {
+					t.Fatalf("case %d: Grow(%d) left room %d", i, n, cap(eb)-len(eb))
+				}
+			}
+			gb.WriteString(part)
+			eb = StringsBuilderAppend(eb, part)
+			c := byte(r.IntN(256))
+			gb.WriteByte(c)
+			eb = StringsBuilderAppendByte(eb, c)
+		}
+		if StringsBuilderText(eb) != gb.String() || len(eb) != gb.Len() {
+			t.Fatalf("case %d: Builder text %q (len %d); Go %q (len %d)", i, StringsBuilderText(eb), len(eb), gb.String(), gb.Len())
+		}
+		// The owned form shares the consumed buffer: the same text, and
+		// an append past its length (all a Builder writes) leaves it.
+		owned := StringsBuilderTextOwned(eb)
+		eb = StringsBuilderAppend(eb, repl)
+		if owned != gb.String() {
+			t.Fatalf("case %d: owned Builder text %q; Go %q", i, owned, gb.String())
+		}
 		sign := r.IntN(3) - 1
 		if MathIsNaN(f) != math.IsNaN(f) || MathIsInf(f, sign) != math.IsInf(f, sign) || MathInf(sign) != math.Inf(sign) || !math.IsNaN(MathNaN()) {
 			t.Fatalf("case %d: IsNaN, IsInf or Inf of %v, %d", i, f, sign)
@@ -257,6 +294,25 @@ var runesLaws = map[string]func(r *rand.Rand) (bool, any){
 		}
 		return MathAbs(MathTrunc(f)) <= MathAbs(f) && MathTrunc(MathTrunc(f)) == MathTrunc(f), f
 	},
+	// The two FMA laws round each product with float64(…), as Ergo's
+	// lowering does (types.md, Operators 5), so no host fuses the unfused
+	// side of the law.
+	"math FMAWithinTheUnfusedError": func(r *rand.Rand) (bool, any) {
+		a, b, c := int(r.Int64()), int(r.Int64()), int(r.Int64())
+		x := float64(a%1000003) / 3.0
+		y := float64(b%1000033) / 7.0
+		p := float64(x * y)
+		z := float64(c%1009)/11.0 - p
+		unfused := p + z
+		fused := MathFMA(x, y, z)
+		eps := 1.1102230246251565e-16
+		return MathAbs(fused-unfused) <= float64(float64(2.0*eps)*(MathAbs(p)+MathAbs(unfused)+MathAbs(fused))), []any{a, b, c}
+	},
+	"math FMARoundsOnce": func(r *rand.Rand) (bool, any) {
+		k := int(r.Int64())
+		d := float64(float64((k%1000+1000)%1000+1) * 9.313225746154785e-10)
+		return MathFMA(1.0+d, 1.0-d, -1.0) == -float64(d*d), k
+	},
 	"math AbsIsNonNegative": func(r *rand.Rand) (bool, any) {
 		f := anyFloat(r)
 		return MathIsNaN(f) || MathAbs(f) >= 0.0, f
@@ -288,6 +344,8 @@ var runesLawStatements = map[string]string{
 	"math FloorCeilBracket":             `FloorCeilBracket(f float64) { if IsNaN(f) || IsInf(f, 0) { return true } Floor(f) <= f && f <= Ceil(f) && Ceil(f)-Floor(f) <= 1.0 }`,
 	"math TruncTowardZero":              `TruncTowardZero(f float64) { if IsNaN(f) { return true } Abs(Trunc(f)) <= Abs(f) && Trunc(Trunc(f)) == Trunc(f) }`,
 	"math AbsIsNonNegative":             `AbsIsNonNegative(f float64) { IsNaN(f) || Abs(f) >= 0.0 }`,
+	"math FMAWithinTheUnfusedError":     `FMAWithinTheUnfusedError(a int, b int, c int) { let x = float64(a%1000003) / 3.0 let y = float64(b%1000033) / 7.0 let p = x * y let z = float64(c%1009)/11.0 - p let unfused = p + z let fused = FMA(x, y, z) let eps = 1.1102230246251565e-16 Abs(fused-unfused) <= 2.0*eps*(Abs(p)+Abs(unfused)+Abs(fused)) }`,
+	"math FMARoundsOnce":                `FMARoundsOnce(k int) { let d = float64((k%1000+1000)%1000+1) * 9.313225746154785e-10 FMA(1.0+d, 1.0-d, -1.0) == -(d * d) }`,
 	"bits RotateLeft64Inverts":          `RotateLeft64Inverts(x uint64, k int) { RotateLeft64(RotateLeft64(x, k), -k) == x }`,
 	"bits RotateLeft32Inverts":          `RotateLeft32Inverts(x uint32, k int) { RotateLeft32(RotateLeft32(x, k), -k) == x }`,
 	"bits RotateKeepsOnes":              `RotateKeepsOnes(x uint64, k int) { OnesCount64(RotateLeft64(x, k)) == OnesCount64(x) }`,

@@ -1,7 +1,7 @@
 type Fault {}
 
 type Store { Get() int }
-type Mem { N int }
+type Mem { N int } implements Store
 func Get(m Mem) int { m.N }
 
 func risky(n int) int fails Fault {

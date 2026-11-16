@@ -52,7 +52,7 @@ func Played(script []Command) State {
 		match d {
 		case Done[Ending]:
 			return s
-		case Enter[State], Stay[State], Emit[State, Ending], Ignore, Reject:
+		case Enter[State], Stay[State], Emit[State, Ending], Tell[State, Ending], Ignore, Reject:
 		}
 		s = machines.Next(s, d)
 	}
@@ -148,7 +148,7 @@ law EndIsStopped(codes []int, asking bool) {
 	match d {
 	case Done[Ending] as done:
 		done.Output == Stopped{Moves: g.Moves, At: g.At}
-	case Enter[State], Stay[State], Emit[State, Ending], Ignore, Reject:
+	case Enter[State], Stay[State], Emit[State, Ending], Tell[State, Ending], Ignore, Reject:
 		false
 	}
 }

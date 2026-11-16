@@ -235,7 +235,7 @@ test AskerMatchesModel(fallback bool, codes []int) {
 }
 
 // detached is a terminal that is not one, as the host's is on a pipe.
-type detached {}
+type detached {} implements term.Terminal
 
 func SetMode(_ detached, m term.Mode) fails term.NotTerminal { return term.NotTerminal }
 func Restore(_ detached) {}

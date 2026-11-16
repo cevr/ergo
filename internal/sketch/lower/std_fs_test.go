@@ -69,7 +69,7 @@ func viaValue(f fs.Files) string {
 // of paths to text, with the names its root directory lists.
 const fsMemory = `import fs
 
-type Files { Docs Map[string, string], Names []string }
+type Files { Docs Map[string, string], Names []string } implements fs.Files
 
 func ReadFile(m Files, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
 	match m.Docs.Get(path) {

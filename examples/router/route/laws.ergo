@@ -83,6 +83,8 @@ func Fold(moves []int) Run {
 			st.Next
 		case Emit[Router, Output] as em:
 			em.Next
+		case Tell[Router, Output] as tl:
+			tl.Next
 		case _:
 			s
 		}

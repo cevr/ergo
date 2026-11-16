@@ -1,0 +1,82 @@
+// Package retry is the saga of one stage's tries: a failed try waits a
+// backoff, then the stage is tried again; after Attempts failed tries it
+// gives up. It is a machine with a timer on its waiting state, so its
+// laws run under machines.RunTimed on a virtual clock. The pipeline's
+// desk runs it as a pure child: its step calls Step on the attempt of
+// the stage it runs, and its timer is Timer's.
+
+// Policy is how often a stage is tried and how long a failed try waits:
+// Base after the first failure, doubled after each next one.
+type Policy { Attempts int, Base duration }
+
+// Standard is the pipeline's policy: three tries, waits of 1s then 2s.
+let Standard = Policy{Attempts: 3, Base: 1s}
+
+// Attempt is where the tries of a stage are: try Try runs, or it failed
+// and the stage waits before try Try+1.
+type Attempt = Trying{P Policy, Try int} | Backoff{P Policy, Try int}
+
+// Signal is what reaches the saga: a try failed, or a wait ended (its
+// timer).
+type Signal = Failed{} | Due{}
+
+// Order is what the saga tells the stage's owner: try again (Again, the
+// number of the next try), or give up after Tries tries.
+type Order = Again{Try int} | GiveUp{Tries int}
+
+// First is the first try of a stage under p.
+func First(p Policy) Attempt { Trying{P: p, Try: 1} }
+
+// Delay is the wait after the failed try n (1 is the first).
+func Delay(p Policy, n int) duration {
+	let mut d = p.Base
+	for _ in 1..n {
+		d = duration(int64(d) * 2)
+	}
+	d
+}
+
+// Step is the saga's transition. A failed try waits, unless it was the
+// last; a wait's end orders the next try.
+func Step(a Attempt, s Signal) Decision[Attempt, Order] {
+	match (a, s) {
+	case (Trying as t, Failed):
+		if t.Try >= t.P.Attempts {
+			return Done[Order]{Output: GiveUp{Tries: t.Try}}
+		}
+		Enter[Attempt]{Next: Backoff{P: t.P, Try: t.Try}}
+	case (Backoff as b, Due):
+		Emit[Attempt, Order]{Next: Trying{P: b.P, Try: b.Try + 1}, Output: Again{Try: b.Try + 1}}
+	case (Trying, Due):
+		Ignore
+	case (Backoff, Failed):
+		Ignore
+	}
+}
+
+// Timer is the timer of a waiting attempt: Due after its delay.
+func Timer(a Attempt) Option[Timeout[Signal]] {
+	match a {
+	case Backoff as b:
+		Some[Timeout[Signal]]{Value: Timeout[Signal]{In: Delay(b.P, b.Try), Signal: Due}}
+	case Trying:
+		None
+	}
+}
+
+// TryOf is the number of the try a is at.
+func TryOf(a Attempt) int {
+	match a {
+	case Trying as t:
+		t.Try
+	case Backoff as b:
+		b.Try
+	}
+}
+
+// Saga is the tries of one stage under the Standard policy.
+type Saga machine[Attempt, Signal] {
+	initial: First(Standard),
+	step:    Step,
+	after:   Timer,
+}

@@ -57,6 +57,7 @@ func (fc *funcCtx) yieldList(list []syntax.Stmt, d dest) bool {
 	if d.kind == destStmt || len(list) == 0 {
 		return fc.stmts(list)
 	}
+	defer fc.enterList(list)() // one account with its prefix (growth.go)
 	if fc.stmts(list[:len(list)-1]) {
 		// The tail never runs (a `for {}` that only leaves by return ends
 		// the list), and go vet reports it unreachable: it is not written.
@@ -156,7 +157,10 @@ func (fc *funcCtx) ifYield(s *syntax.IfStmt, d dest) bool {
 	cond := fc.headerValue(s.Cond)
 	fc.line("if " + cond + " {")
 	fc.depth++
+	mark := fc.factMark()
+	fc.assume(s.Cond) // bounds.go: the facts the condition gives its body
 	then := fc.scoped(s.Body, func() bool { return fc.yieldList(s.Body.List, d) })
+	fc.factReset(mark)
 	fc.depth--
 	switch e := s.Else.(type) {
 	case nil:
