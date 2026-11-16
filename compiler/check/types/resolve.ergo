@@ -313,7 +313,7 @@ func rowValue(s *store.Store, e Env, xs []dense.ID[syntax.Node]) dense.ID[store.
 
 // wiredParam is P's position when x is wired[P], P a parameter of the
 // declaration and wired not a name of the package (wirecall.go wiredElem).
-// wired[T] of a concrete T stands for the codec rows of T's wire pairs,
+// wired[T] of a concrete T stands for the codec rows of T's Parse pairs,
 // which read other functions' signatures: not resolved yet (invalid).
 func wiredParam(s store.Store, e Env, x dense.ID[syntax.Node]) Option[int] {
 	match syntax.ViewOf(e.p.Tree, unparen(e.p, x)) {
