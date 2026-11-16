@@ -275,10 +275,10 @@ index 0000000..6d89d9f
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_call.go b/src/cmd/compile/internal/noder/ergoir_call.go
 new file mode 100644
-index 0000000..29ad509
+index 0000000..9cec033
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_call.go
-@@ -0,0 +1,59 @@
+@@ -0,0 +1,61 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -299,6 +299,8 @@ index 0000000..29ad509
 +	switch u := types2.CoreType(t).(type) {
 +	case *types2.Slice:
 +		return types2.Typ[types2.Int], u.Elem()
++	case *types2.Array:
++		return types2.Typ[types2.Int], u.Elem() // FLIP F7: Go's range over an array
 +	case *types2.Map:
 +		return u.Key(), u.Elem()
 +	}
@@ -340,7 +342,7 @@ index 0000000..29ad509
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_expr.go b/src/cmd/compile/internal/noder/ergoir_expr.go
 new file mode 100644
-index 0000000..1be85c9
+index 0000000..32ef4a6
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_expr.go
 @@ -0,0 +1,372 @@
@@ -554,15 +556,15 @@ index 0000000..1be85c9
 +		if xs == nil || i == nil {
 +			return nil, nil
 +		}
-+		sl, ok := types2.CoreType(xt).(*types2.Slice)
-+		if !ok || !types2.Identical(it, types2.Typ[types2.Int]) {
++		elem := ergoIndexElem(xt) // ergoir_f7.go
++		if elem == nil || !types2.Identical(it, types2.Typ[types2.Int]) {
 +			c.errorf(x.Pos, "ergoir: index of %v by %v", xt, it)
 +			return nil, nil
 +		}
 +		e := &syntax.IndexExpr{X: xs, Index: i}
 +		e.SetPos(pos)
-+		ergoValue(e, sl.Elem(), nil)
-+		return e, sl.Elem()
++		ergoValue(e, elem, nil)
++		return e, elem
 +	case "len":
 +		xs, xt := c.expr(x.X)
 +		if xs == nil {
@@ -715,6 +717,62 @@ index 0000000..1be85c9
 +		return lt
 +	}
 +	return bad()
++}
+diff --git a/src/cmd/compile/internal/noder/ergoir_f7.go b/src/cmd/compile/internal/noder/ergoir_f7.go
+new file mode 100644
+index 0000000..64823a0
+--- /dev/null
++++ b/src/cmd/compile/internal/noder/ergoir_f7.go
+@@ -0,0 +1,50 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package noder
++
++import (
++	"strconv"
++	"strings"
++
++	"cmd/compile/internal/types2"
++)
++
++// arrayType resolves the spelling [N]T of an array type (FLIP F7): ok is
++// false for any other spelling, and the type is nil when T is no type.
++func (c *ergoChecker) arrayType(p ergoPos, s string) (types2.Type, bool) {
++	rest, ok := strings.CutPrefix(s, "[")
++	if !ok {
++		return nil, false
++	}
++	i := strings.IndexByte(rest, ']')
++	if i <= 0 {
++		return nil, false
++	}
++	n, err := strconv.ParseInt(rest[:i], 10, 64)
++	if err != nil || n < 0 {
++		return nil, false
++	}
++	e := c.typ(p, rest[i+1:])
++	if e == nil {
++		return nil, true
++	}
++	return types2.NewArray(e, n), true
++}
++
++// ergoIndexElem is the element type of an "index" of a value of type t
++// (FLIP F7): a slice's or an array's element, or a byte of a string; nil
++// for any other type.
++func ergoIndexElem(t types2.Type) types2.Type {
++	switch u := types2.CoreType(t).(type) {
++	case *types2.Slice:
++		return u.Elem()
++	case *types2.Array:
++		return u.Elem()
++	}
++	if ergoIsString(t) {
++		return types2.Typ[types2.Byte]
++	}
++	return nil
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_fail.go b/src/cmd/compile/internal/noder/ergoir_fail.go
 new file mode 100644
@@ -2403,10 +2461,10 @@ index 0000000..db6d70e
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_types.go b/src/cmd/compile/internal/noder/ergoir_types.go
 new file mode 100644
-index 0000000..1163d27
+index 0000000..7c5607f
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_types.go
-@@ -0,0 +1,347 @@
+@@ -0,0 +1,350 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2443,6 +2501,9 @@ index 0000000..1163d27
 +			return types2.NewPointer(e)
 +		}
 +		return nil
++	}
++	if t, ok := c.arrayType(p, s); ok { // ergoir_f7.go
++		return t
 +	}
 +	if rest, ok := strings.CutPrefix(s, "map["); ok {
 +		// map[K]V: K ends at the bracket that closes map's.

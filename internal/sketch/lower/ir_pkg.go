@@ -54,6 +54,9 @@ func (b *irBuilder) spelling(s string) string {
 			case strings.HasPrefix(s[i:], "[]"):
 				out.WriteString("[]")
 				i += 2
+			case arrayPrefix(s[i:]) != "": // ir_index.go
+				out.WriteString(arrayPrefix(s[i:]))
+				i += len(arrayPrefix(s[i:]))
 			case s[i] == '*':
 				// A runtime type is a pointer (*ergo.Ref[T]).
 				out.WriteByte('*')
