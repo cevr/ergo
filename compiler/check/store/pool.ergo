@@ -21,27 +21,28 @@ let tInstance = 10
 
 // Pool interns one package's types, so equal ids are equal types. An
 // operand list is interned by its content (its text in lists), so two
-// equal lists have one start in extra and their keys are equal. An
-// instance's list text begins with its origin, so instances of two
-// origins never share a list.
+// equal lists are one list, and a key names its list by number (starts
+// gives the list's run in extra). An instance's list text begins with its
+// origin, so instances of two origins never share a list, even with no
+// arguments (two empty runs share a start, never a number).
 type Pool {
-	keys      dense.Interner[TKey],
-	open      dense.Col[TKey, bool],
-	origin    dense.Side[TKey, XRef],
-	extra     []dense.ID[TKey],
-	lists     dense.Strings,
-	listStart dense.Col[dense.Str, uint32],
+	keys   dense.Interner[TKey],
+	open   dense.Col[TKey, bool],
+	origin dense.Side[TKey, XRef],
+	extra  []dense.ID[TKey],
+	lists  dense.Strings,
+	starts []uint32,
 }
 
 // NewPool is a pool of no types.
 func NewPool() Pool {
 	Pool{
-		keys:      dense.NewInterner[TKey](),
-		open:      dense.NewCol[TKey, bool](),
-		origin:    dense.NewSide[TKey, XRef](XRef{Import: uint32(0), Decl: uint32(0)}),
-		extra:     []dense.ID[TKey]{},
-		lists:     dense.NewStrings(),
-		listStart: dense.NewCol[dense.Str, uint32](),
+		keys:   dense.NewInterner[TKey](),
+		open:   dense.NewCol[TKey, bool](),
+		origin: dense.NewSide[TKey, XRef](XRef{Import: uint32(0), Decl: uint32(0)}),
+		extra:  []dense.ID[TKey]{},
+		lists:  dense.NewStrings(),
+		starts: []uint32{},
 	}
 }
 
@@ -57,8 +58,8 @@ func intern(p *Pool, k TKey, open bool) dense.ID[TKey] {
 	id
 }
 
-// list is the start of ts's run in extra, after prefix: a run equal to
-// one interned before shares its start.
+// list is the number of the list prefix then ts: a list equal to one
+// interned before shares its number.
 func list(p *Pool, prefix string, ts []dense.ID[TKey]) uint32 {
 	let mut b = strings.NewBuilder()
 	b.WriteString(prefix)
@@ -68,15 +69,14 @@ func list(p *Pool, prefix string, ts []dense.ID[TKey]) uint32 {
 	let text = b.String()
 	match dense.FindText(p.lists, text) {
 	case Some[dense.ID[dense.Str]] as id:
-		dense.Of(p.listStart, id.Value)
+		uint32(dense.Index(id.Value))
 	case None:
-		let _ = dense.InternText(&p.lists, text)
-		let start = uint32(len(p.extra))
-		dense.Push(&p.listStart, start)
+		let id = dense.InternText(&p.lists, text)
+		p.starts = p.starts.Append(uint32(len(p.extra)))
 		for t in ts {
 			p.extra = p.extra.Append(t)
 		}
-		start
+		uint32(dense.Index(id))
 	}
 }
 
@@ -91,8 +91,8 @@ func anyOpen(p Pool, ts []dense.ID[TKey]) bool {
 
 // composite interns a type of kind k over the operands ts.
 func composite(p *Pool, k int, ts []dense.ID[TKey]) dense.ID[TKey] {
-	let start = list(p, "", ts)
-	intern(p, TKey{k: uint8(k), a: start, b: uint32(len(ts))}, anyOpen(*p, ts))
+	let l = list(p, "", ts)
+	intern(p, TKey{k: uint8(k), a: l, b: uint32(len(ts))}, anyOpen(*p, ts))
 }
 
 // Basic is the basic type of ordinal n (int, string, …).
@@ -130,8 +130,8 @@ func Row(p *Pool, ts []dense.ID[TKey]) dense.ID[TKey] {
 // type arguments args, interned in this package's pool (C0/plan.md §2.4
 // ruling: identity across packages is Canon's key, never this id).
 func Instance(p *Pool, o XRef, args []dense.ID[TKey]) dense.ID[TKey] {
-	let start = list(p, "\(o.Import).\(o.Decl)", args)
-	let id = intern(p, TKey{k: uint8(tInstance), a: start, b: uint32(len(args))}, anyOpen(*p, args))
+	let l = list(p, "\(o.Import).\(o.Decl)", args)
+	let id = intern(p, TKey{k: uint8(tInstance), a: l, b: uint32(len(args))}, anyOpen(*p, args))
 	dense.SideSet(&p.origin, id, o)
 	id
 }
@@ -146,7 +146,8 @@ func Operands(p Pool, t dense.ID[TKey]) []dense.ID[TKey] {
 	if int(k.k) == tBasic || int(k.k) == tNamed || int(k.k) == tParam {
 		return []dense.ID[TKey]{}
 	}
-	p.extra[int(k.a) : int(k.a)+int(k.b)]
+	let start = int(p.starts[int(k.a)])
+	p.extra[start : start+int(k.b)]
 }
 
 // OriginOf is the declaration an instance instantiates.
@@ -191,6 +192,18 @@ func rising(p Pool, t dense.ID[TKey]) bool {
 		ok = ok && dense.Index(run[k-1]) < dense.Index(run[k])
 	}
 	ok
+}
+
+// InstancesKeepTheirOrigins: two instances with no type arguments are one
+// type exactly when their origins are one, and each keeps its origin (S3t
+// found two origins' empty runs sharing a start, so one key).
+law InstancesKeepTheirOrigins(i int, j int) {
+	let mut p = NewPool()
+	let a = XRef{Import: uint32(0), Decl: uint32(((i % 4) + 4) % 4)}
+	let b = XRef{Import: uint32(0), Decl: uint32(((j % 4) + 4) % 4)}
+	let x = Instance(&p, a, []dense.ID[TKey]{})
+	let y = Instance(&p, b, []dense.ID[TKey]{})
+	(x == y) == (a == b) && OriginOf(p, x) == a && OriginOf(p, y) == b
 }
 
 // PoolInterns: two types of a pool are one id exactly when their
