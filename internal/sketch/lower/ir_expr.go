@@ -69,19 +69,18 @@ func (b *irBuilder) value(x syntax.Expr) ([]*irStmt, *irExpr) {
 	default:
 		return nil, b.expr(x) // expr converts
 	}
+	e = b.valueCopy(unparen(x), e) // ir_copy.go
 	if _, ok := b.l.info.Implicit[x]; !ok {
 		x = unparen(x)
 	}
 	return pre, b.implicit(x, e) // ir_union.go
 }
 
-// plain stops x if the emitter does more than compute it: the value
-// rule's copy, an owned temporary or a context value. An implicit
-// conversion is the caller's (implicit, ir_union.go).
+// plain stops x if the emitter does more than compute it: an owned
+// temporary or a context value. The value rule's copy is built
+// (valueCopy, ir_copy.go); an implicit conversion is the caller's
+// (implicit, ir_union.go).
 func (b *irBuilder) plain(x syntax.Expr) {
-	if b.l.vals != nil && b.l.vals.clone[x] {
-		irNo("value copy")
-	}
 	if b.l.info.OwnedTemps[x] != nil {
 		irNo("owned temporary")
 	}
@@ -111,7 +110,7 @@ func (b *irBuilder) operator(op string, t check.Type, site syntax.Node) {
 
 // expr is x after its implicit conversion (implicit, ir_union.go).
 func (b *irBuilder) expr(x syntax.Expr) *irExpr {
-	return b.implicit(x, b.exprOf(x))
+	return b.implicit(x, b.valueCopy(x, b.exprOf(x))) // ir_copy.go
 }
 
 func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
@@ -220,6 +219,9 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			lit.Elems = b.mapLit(x) // ir_pkg.go
 		case *check.Named:
 			td := b.l.typeDecl(tt.Obj, x) // queued by goType, as above
+			if td.kind == kindMachine {
+				return b.machineLit(x, lit) // ir_machine.go
+			}
 			s := tt.Underlying().(*check.Struct)
 			if len(x.Elts) != len(s.Fields) {
 				irNo("record literal without every field")

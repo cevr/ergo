@@ -144,10 +144,8 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"record pattern of an unnamed type", "G3b"},
 	{"interpolated value of type *", "G3b"},
 	{"interpolated named duration", "G3b"},
-	// A machine's value is ergo.Machine, a generic std record: its bodies
-	// stop at G4's generic types first (no census body reaches these).
-	{"machine conversion", "G4"},
-	{"machine value", "G4"},
+	{"machine *", "G3b"}, // ir_machine.go's refusals (a literal with fields, a second Machine type)
+	{"row conversion", "G3b"},
 	{"type defined over a non-basic type", "G3b"},
 	{"value of a type defined over a flat union", "G3b"},
 	{"value of another type", "G3b"},
@@ -201,7 +199,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"variant with no result", "G4"}, // drop.go's variant of a function whose result a call discards
 	{"call without a value", "G4"},
 	{"call without a Calls entry", "G4"},
-	{"value copy", "G4"}, // the value rule's copy (values.go)
+	{"value copy of a *", "G4"}, // a value rule copy at a defined slice or Map type (ir_copy.go)
 	// G5: std bodies.
 	// A library body takes an IR body as a sourced one does (IRG5).
 	// An extern's body is the lowerer's Go text (Append, Get, Put,
