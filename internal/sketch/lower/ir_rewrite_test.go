@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-
-	"ergo.local/prototype/internal/sketch/check"
 )
 
 // TestRewriteAtTakesOneDecision is rewriteAt (LAWFFI r2 §3.6, LF6c on the
@@ -13,10 +11,12 @@ import (
 // (the promised fact of each form is which functions a body calls, so no
 // Go is built). The law DecEnc is `Dec(Enc(s)) == s`; F's body is the
 // site, H's site has an operand that is a call (Read), G's site is inside
-// AsWritten.
+// AsWritten; PickDrops's right side drops its operand b, so P's Read is
+// still evaluated, once, though no side reads it.
 //
-//   - Run build, the law validated by a named run: F and H call no Enc;
-//     H calls Read once. G calls Enc, and its row says AsWritten.
+//   - Run build, the laws validated by a named run: F and H call no Enc;
+//     H calls Read once; P calls no Pick and Read once. G calls Enc, and
+//     its row says AsWritten.
 //   - The reference, -rewrites=off, -rewrites=proved (the law is only
 //     validated) and a missing entry: F calls Enc.
 //   - Test build: F calls v1.Shadow, even with no ledger; G does not.
@@ -42,10 +42,17 @@ func G(t string) string { AsWritten(Dec(Enc(t))) }
 
 func H(t string) string { Dec(Enc(Read(t))) }
 
+func Pick(a string, b string) string { a }
+
+law PickDrops(a string, b string) { Pick(Enc(a), b) } == { Enc(a) }
+
+func P(t string) string { Pick(Enc(t), Read(t)) }
+
 func main() {
 	let _ = F("a")
 	let _ = G("b")
 	let _ = H("c")
+	let _ = P("d")
 }
 `
 	keys := func(string) ForeignKey { return ForeignKey{} }
@@ -53,19 +60,15 @@ func main() {
 		t.Helper()
 		u := factsUnit(t, src)
 		u.Rewrites = mode
-		var law *check.Law
-		for _, l := range u.Package.Laws {
-			if l.Name == "DecEnc" {
-				law = l
-			}
-		}
-		if law == nil || law.FuncRewrite == nil {
-			t.Fatalf("DecEnc is not in the rewrite's scope")
-		}
 		entries := map[string]LedgerEntry{}
-		if verdict != "" {
-			e := FuncLawEntry(law, LedgerNames{}, verdict, keys)
-			entries[e.Key()] = e
+		for _, law := range u.Package.Laws {
+			if law.FuncRewrite == nil {
+				t.Fatalf("%s is not in the rewrite's scope", law.Name)
+			}
+			if verdict != "" {
+				e := FuncLawEntry(law, LedgerNames{}, verdict, keys)
+				entries[e.Key()] = e
+			}
 		}
 		ev := NewLedgerEvidence(u.Package, LedgerNames{}, entries, keys)
 		u.Rewrite = ev
@@ -105,6 +108,9 @@ func main() {
 	}
 	if count(on["H"], "Read") != 1 {
 		t.Errorf("run build: H calls %v; want Read once", on["H"])
+	}
+	if count(on["P"], "Pick") != 0 || count(on["P"], "Read") != 1 {
+		t.Errorf("run build: P calls %v; want no Pick, and Read still evaluated once, though the right side drops it", on["P"])
 	}
 	if count(on["G"], "Enc") != 1 || len(on["row not applied: AsWritten"]) != 1 {
 		t.Errorf("run build: G calls %v, rows %v; want Enc, kept by AsWritten", on["G"], on)
