@@ -34,7 +34,10 @@ const IRFileName = "ergoir.json"
 type IRReport struct {
 	IR       []string       `json:"ir"`
 	Fallback map[string]int `json:"fallback"`
-	Hash     string         `json:"hash"`
+	// Memo counts the loop-invariant pure calls the IR bodies compute
+	// once per entry of their loop (ir_memo.go).
+	Memo int    `json:"memo,omitempty"`
+	Hash string `json:"hash"`
 }
 
 // LowerIR is Lower with the IR bodies. The report's Hash names the IR
@@ -326,6 +329,11 @@ type irBuilder struct {
 	reasons []string
 	// loops is the depth of loops around the statement being built.
 	loops int
+	// memos are the loops around the statement being built whose
+	// pre-headers take memoized calls, innermost last; memoSites counts
+	// the body's memoized calls (ir_memo.go).
+	memos     []*irMemo
+	memoSites int
 	// tries counts the try expressions being built (ir_fail.go): inside
 	// one, a fallible call fails the frame too.
 	tries int
@@ -521,6 +529,7 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	b.ownDone(name) // ir_own.go
 	st.out.Funcs = append(st.out.Funcs, *b.fn)
 	st.report.IR = append(st.report.IR, name)
+	st.report.Memo += b.memoSites
 	return true
 }
 
