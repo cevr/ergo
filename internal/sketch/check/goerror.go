@@ -47,7 +47,14 @@ func (c *checker) goErrorCall(x *syntax.CallExpr, b *Builtin, targ Type) operand
 	}
 	ok := true
 	for _, a := range x.Args {
-		op := c.valueExpr(a, goErrorType())
+		var hint Type = goErrorType()
+		if b.Name == "go.As" {
+			hint = nil // a go.Error or a go.Any (GB2)
+		}
+		op := c.valueExpr(a, hint)
+		if b.Name == "go.As" && !op.invalid() && IsGoAny(op.typ) {
+			return c.goAnyAs(x, targ)
+		}
 		if op.invalid() || !c.assign(&op, goErrorType(), "argument") {
 			ok = false
 		}

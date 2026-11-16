@@ -696,6 +696,7 @@ type universeState struct {
 	errorName *TypeName
 	goPkg     *Package
 	ref       *Named // go.Ref
+	any       *Named // go.Any
 }
 
 var universeOnce universeState
@@ -753,6 +754,14 @@ func universe() *Scope {
 		ref.Type = &Named{Obj: ref, TParams: []*TypeParam{refT}, under: &Pointer{Elem: refT}, state: 2}
 		goPkg.Scope.insert("Ref", ref)
 		universeOnce.ref = ref.Type.(*Named)
+		// go.Any is Go's empty interface at the import go boundary (GB2;
+		// docs/spec/interop.md, Type mapping): a value with a Go form goes
+		// in (goany.go), and only go.As[T] takes one out. Ergo has no any:
+		// no operator, match or Ergo record field takes a go.Any.
+		anyName := &TypeName{Name: "Any", Pkg: goPkg, id: newID()}
+		anyName.Type = &Named{Obj: anyName, under: &Interface{}, state: 2}
+		goPkg.Scope.insert("Any", anyName)
+		universeOnce.any = anyName.Type.(*Named)
 		universeOnce.goPkg = goPkg
 		s.insert("go", &PkgName{Name: "go", Pkg: goPkg, used: true})
 		universeOnce.scope = s

@@ -51,7 +51,8 @@ A declaration that does not map is listed in the binding with its reason, so the
 | named interface `I` | `extern go P.I type I { M(sig), … }`, an operation type | its exported methods; an interface with no exported method, an empty one and a constraint interface are refused |
 | `error` | `go.Error` | the native error crosses unchanged |
 | last result `error` | the row `fails go.Error` | the other results are dropped on failure |
-| `any`, `interface{}`, an unnamed interface or struct | none | refused: "Ergo has no any" |
+| `any`, `interface{}` | `go.Any` | [Go any](#go-any) (GB2): a value with a Go form goes in, `go.Any` keys no `Map` |
+| an unnamed non-empty interface or struct | none | refused |
 | `func(…) …` parameter, or a parameter of a named Go function type (`fs.WalkDirFunc`) | an Ergo function type without parameter names, of the underlying signature | a callback with one result at most: the call's rows when synchronous, else `own` ([Callbacks](#callbacks)) |
 | `func` result, field or element; a function inside a callback | none | refused |
 | `chan T` | none | refused: "Ergo has no channels (196c); wrap the Go channel in a Go function of your module, or use std queue" |
@@ -170,6 +171,17 @@ Implemented (IG10; #202's G8 host-call stage, outbound direction).
 6. **Proof.** `TestGoContextInterrupts` (cmd/ergo) waits for Go to enter a context-aware wait, then calls the task's `Stop`. The catch arm never runs, the exit action runs masked with a context that cannot be cancelled, and its release has completed when `Stop` returns. It observes owned events, not a process-wide goroutine count. A Level 2 adapter of `runtime/trace.Log` passes the context too. `TestGoContextModel` (runtime/rt) holds the context to `context.Context`'s contract on every sequence of up to five interrupts and reads, from other goroutines, for a task and a child.
 
 Prior art: Go itself passes `ctx` by hand to every call (the convention this lowering writes for the user). Effect's `Effect.tryPromise` gives the callback an `AbortSignal` that the fiber's interruption aborts; Kotlin's `suspendCancellableCoroutine` and Swift's `withTaskCancellationHandler` bridge a host wait to the task's cancellation in the same way. Gleam, ReScript and Elixir have no structured cancellation to pass: a BEAM process exit kills the process, and a NIF cannot be interrupted (dirty schedulers run it to the end), the uninterruptible host wait of item 5.
+
+## Go any
+
+GB2, 2026-11-16. Go's empty interface (`any`, `interface{}`) is the predeclared host type `go.Any` (`check/goany.go`): `db.ExecContext(q, args []go.Any)`, `rdb.Set(key, v go.Any, ttl)`, `rows.Scan(dest []go.Any)`.
+
+1. **In.** A value goes into a `go.Any` when Go reads it as itself: a basic value (a `duration` is Go's `time.Duration`), a value of a Go type, a `go.Any`, a `go.Ref` of a Go type, or a slice, array or `Map` of them. A borrow `&x` goes in as its Go pointer, so Go writes `x` (`try rows.Scan([]go.Any{&id, &name})`), but only as a Go call's argument, alone or in the `[]go.Any` literal of one: a borrow lives no longer than its call (types.md, Borrows). A value of an Ergo type (a record, a union, an `Option`, a named type of the program), a function, a tuple, a type parameter, a `go.Error` and a value that holds a resource stay out, each S108 with its reason ("go.Any takes a value Go reads as itself: …; R is an Ergo type, whose Go form is Ergo's own; pass its fields"). A Go slice or `Map` keeps the value rule of a Go call's operand (Lowering 2).
+2. **Out.** Only `go.As[T](a)` takes a value out, as `Option[T]`: `Some` when `a` holds a Go value of T's Go form, else `None` (a nil `go.Any` included). T has a Go form and is no slice or `Map`, which would share Go's memory, and no `go.Any`. A `go.Any` goes into no other type, a Go interface included ("only go.As[T](a) takes a value out of a go.Any").
+3. **Ergo has no any.** No operator reads a `go.Any` (`==` is refused), a `match` on one admits only `_` and bindings, no Ergo record stores one (S108, "an Ergo record does not store a go.Any"), and a `go.Any` keys no `Map`. A Go struct of a binding holds one as Go declares it (`type XAddArgs { Values go.Any, … }`).
+4. **Lowering.** `go.Any` is Go's `any`; a value goes in by Go's own implicit conversion, with no adapter; `go.As[T](a)` is Go's `v, ok := a.(T)`. `TestValuesIntoGoAny` (lower) is the property: each value kind at each site (a parameter, a variadic element, a Go struct field, a `let`), and each `go.As` target, admitted or refused as the rule says, the admitted ones type-checked as Go.
+
+*Prior art:* Gleam's `Dynamic` and `gleam/dynamic/decode` take a host value out only through a decoder, as `go.As` does; ReScript's `unknown` likewise needs a classify or a cast; Elixir passes any term to an Erlang function and pattern-matches the result. Effect's `Schema.decodeUnknown` is the same one-way door. Each lowers to the host's own dynamic value with no wrapper, as Go's `any` here.
 
 ## Go errors
 

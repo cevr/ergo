@@ -1731,6 +1731,14 @@ func (c *checker) assign(op *operand, t Type, what string) bool {
 		op.mode = modeInvalid
 		return false
 	}
+	if a.clause == assignGoAny && isPointer(op.typ) && what != "argument" && what != "element" {
+		// A borrow lives no longer than its call (types.md, Borrows): it
+		// goes into a go.Any as a Go call's argument, alone or in the
+		// []go.Any of a variadic one (rows.Scan([]go.Any{&id}); GB2).
+		c.errorf(op.expr, CodeType, "cannot use %s as go.Any in %s: a borrow goes into a go.Any only as a Go call's argument, alone or in its []go.Any (rows.Scan([]go.Any{&id}))", op.typ, what)
+		op.mode = modeInvalid
+		return false
+	}
 	c.implicit(op.expr, a)
 	if a.clause == assignOperations {
 		c.recordConversion(op.expr, op.typ, t)

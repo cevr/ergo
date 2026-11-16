@@ -17,6 +17,7 @@ func (e *encoder) encFieldsstdBase(v *stdBase) {
 	e.encPtrTypeName(v.errorName)
 	e.encPtrPackage(v.goPkg)
 	e.encPtrNamed(v.ref)
+	e.encPtrNamed(v.any)
 	e.encpreludeResult(v.prelude)
 	e.encT1(v.nextID)
 }
@@ -8625,6 +8626,7 @@ func (e *encoder) encFieldsuniverseState(v *universeState) {
 	e.encPtrTypeName(v.errorName)
 	e.encPtrPackage(v.goPkg)
 	e.encPtrNamed(v.ref)
+	e.encPtrNamed(v.any)
 }
 
 func (e *encoder) encPtruniverseState(v *universeState) {
@@ -10544,6 +10546,7 @@ func (d *decoder) decFieldsstdBase(v *stdBase) {
 	v.errorName = d.decPtrTypeName()
 	v.goPkg = d.decPtrPackage()
 	v.ref = d.decPtrNamed()
+	v.any = d.decPtrNamed()
 	v.prelude = d.decpreludeResult()
 	v.nextID = d.decT1()
 }
@@ -20665,6 +20668,7 @@ func (d *decoder) decFieldsuniverseState(v *universeState) {
 	v.errorName = d.decPtrTypeName()
 	v.goPkg = d.decPtrPackage()
 	v.ref = d.decPtrNamed()
+	v.any = d.decPtrNamed()
 }
 
 func (d *decoder) decPtruniverseState() *universeState {
