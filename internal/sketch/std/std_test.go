@@ -13,8 +13,10 @@ import (
 )
 
 // v1Packages are the std packages whose Go bodies are runtime/v1's
-// (docs/spec/stdlib.md, v1 packages).
-var v1Packages = []string{"cmp", "log", "queue", "scope", "slices", "task", "trace"}
+// (docs/spec/stdlib.md, v1 packages). log left it with its logging API
+// (std-spike C3): its records and levels are Ergo declarations, as time's
+// are.
+var v1Packages = []string{"cmp", "queue", "scope", "slices", "task", "trace"}
 
 const v1Path = "ergo.local/prototype/runtime/v1"
 
@@ -119,12 +121,13 @@ func main() fails queue.Closed {
 	}
 }
 
-// TestContextPackagesSurface: trace and log export the four declarations
-// of G1 and nothing else (the rest is #206); their values bind through
+// TestContextPackagesSurface: trace exports the two declarations of G1
+// and nothing else (the rest is #206; log's logging API is stdlib.md
+// log); trace's and log's values bind through
 // with by the context-binding protocol and their reads check in a program
 // with no capability.
 func TestContextPackagesSurface(t *testing.T) {
-	want := map[string][]string{"log": {"Annotate", "Annotation"}, "trace": {"Current", "Span"}}
+	want := map[string][]string{"trace": {"Current", "Span"}}
 	for path, names := range want {
 		pkg, err := check.Std.Import(path)
 		if err != nil {

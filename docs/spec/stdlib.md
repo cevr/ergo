@@ -1373,7 +1373,10 @@ The exempt types and their reasons are in their doc comments: `Console`, `Ambien
 | `code` | `UntouchedKeepsBytes` | `UntouchedKeepsBytes(seed int, pick int, word int) { untouchedKeepsBytes(seed, pick, word) }` | `TestStdCodeLawsRun` | tested |
 | `code` | `Writer.UnknownPlanIsNoPlan` | `UnknownPlanIsNoPlan(id string) { unknownPlanIsNoPlan(id) }` | `TestStdCodeLawsRun` | tested |
 | `log` | `AnnotationEndRestores` | `AnnotationEndRestores(key string, text string) { let before = Annotation(key) with Annotate(key, text) { Annotation(key) } Annotation(key) == before }` | `TestStdLawsRun` | tested |
+| `log` | `AnnotationsNest` | `AnnotationsNest(a string, b string, c string) { let before = Annotations() let inner = with Annotate("outer", a) { with Annotate("inner", b) { with Annotate("outer", c) { Annotations() } } } let after = Annotations() inner == []Attr{Attr{Key: "inner", Text: b}, Attr{Key: "outer", Text: c}} && after == before }` | `TestStdLogLawsRun` | tested |
 | `log` | `InnerAnnotationShadows` | `InnerAnnotationShadows(key string, outer string, inner string) { with Annotate(key, outer) { with Annotate(key, inner) { Annotation(key) == Some[string]{Value: inner} } } }` | `TestStdLawsRun` | tested |
+| `log` | `LevelFilters` | `LevelFilters(least int, at int, message string, text string) { let r = NewRecorder(levelAt(least)) with context { Sink: r } { with Annotate("k", text) { Log(levelAt(at), message, []Attr{}) } } let mut want = []Entry{} if Admits(levelAt(least), levelAt(at)) { want = want.Append(Entry{Level: levelAt(at), Message: message, Attrs: []Attr{Attr{Key: "k", Text: text}}}) } r.Entries() == want }` | `TestStdLogLawsRun` | tested |
+| `log` | `Sink.EnabledIsMonotone` | `EnabledIsMonotone(a int, b int) { let lo = levelAt(a) let hi = levelAt(b) !Enabled(lo) \|\| !Admits(lo, hi) \|\| Enabled(hi) }` | `TestStdLogLawsRun` | tested |
 | `machines` | `EnterAndEmitRestartTheTimer` | `EnterAndEmitRestartTheTimer(pokes int) { let k = ((pokes % 10) + 10) % 10 let want = if k > 0 { k + 1 } else { 0 } let (entered, _) = rung(0, pokes) let (emitted, outs) = rung(2, pokes) entered == want && emitted == want && outs == count(want) }` | `TestStdMachinesLawsRun` | tested |
 | `machines` | `NextTakesItsState` | `NextTakesItsState(s int, n int) { Next[int, int](s, Enter[int]{Next: n}) == n && Next[int, int](s, Stay[int]{Next: n}) == n && Next[int, int](s, Emit[int, int]{Next: n, Output: s}) == n && Next[int, int](s, Ignore) == s && Next[int, int](s, Reject) == s && Next[int, int](s, Done[int]{Output: n}) == s && Next[int, int](s, Tell[int, int]{Next: n, Output: s}) == n }` | `TestStdMachinesLawsRun` | tested |
 | `machines` | `RunSplits` | `RunSplits(a []int, b []int) { let mut whole = a for e in b { whole = whole.Append(e) } let first = Run(tally(), a) catch { case Rejected: return true } match first { case Running[int, int] as r: from(0, whole, 0, []int{}) == from(r.State, b, len(a), r.Emitted) case Finished[int, int]: true } }` | `TestStdMachinesLawsRun` | tested |
@@ -1832,6 +1835,27 @@ Decided: a type names its Go type with the binding form `extern go PATH.Name typ
 Decided: the four tables of `runtime/v1/moves.go` stay tables keyed by the body until a second module needs those facts. The key is the body, so they grant std no privilege.
 
 *Prior art:* OCaml's `external` attributes (`[@@noalloc]`, `[@unboxed]`) sit on the declaration and are read for any module. GHC's primop attributes sit on each primop's declaration. Go's compiler reads the runtime's ABI from the runtime's declarations (`mkbuiltin.go`). Erlang NIFs state their scheduling class (dirty CPU or IO) on the C function. Gleam's and ReScript's externals have no hidden arguments and no facts: the call is opaque.
+
+## log
+
+Std `log` (std-spike C3) writes log entries through the `Sink` in the context, with the annotations in force ([Context values: trace and log](#v1-packages-task-scope-queue-and-slice)). It follows Effect's `Logger` and `LogLevel` (a logger is a service, annotations are fiber-local, a minimum level filters) and Go's `log/slog` (levels and their numbers, `JSONHandler`'s lines).
+
+| Name | Signature |
+| --- | --- |
+| `Level` | `LevelDebug \| LevelInfo \| LevelWarn \| LevelError`; `Rank(l Level) int`, `Name(l Level) string`, `Admits(least Level, l Level) bool` |
+| `Entry`, `Attr` | `Entry { Level Level, Message string, Attrs []Attr }`; `Attr { Key string, Text string }` |
+| `Sink` | `Sink { Enabled(l Level) bool, Write(e Entry) }` with the law `EnabledIsMonotone` |
+| logging | `Log(level Level, message string, attrs []Attr) needs Sink`; `Debug`, `Info`, `Warn`, `Error(message string) needs Sink`; `Annotations() []Attr` |
+| providers | `NewJSONLines(out io.Stderr, clock time.Clock, least Level) JSONLines`; `NewRecorder(least Level) Recorder`, `Entries(r Recorder) []Entry` |
+
+1. **Levels.** A level is a union, so a match covers each one. `Rank` is slog's number (Debug -4, Info 0, Warn 4, Error 8) and `Name` its text (`DEBUG`, `INFO`, `WARN`, `ERROR`).
+2. **Filtering.** A sink is made with a least level and writes the entries whose level ranks at or above it (`Admits`); a sink that writes a level writes every level above it (law `Sink.EnabledIsMonotone`). `Log` asks `Sink.Enabled` before it builds an entry, so a level the sink drops costs one call and reads no annotation (law `LevelFilters`).
+3. **Annotations.** An entry's attributes are the annotations in force for the running task, outermost first, an inner annotation of a key in the place of the outer one, then the call's own `attrs` (law `AnnotationsNest`). `Annotations` reads them through the `runtime/v1` body `ContextPairs` (context.go), the context values of the reading package; a task sees the annotations in force when it started.
+4. **Providers.** `JSONLines` writes each entry as one line on its `io.Stderr`: `{"time":…,"level":…,"msg":…}` and then each attribute as a member, the time the clock's reading in RFC 3339 with nanoseconds, all as slog's `JSONHandler` writes them (`TestStdLogMatchesSlog`, against Go's handler on seeded entries). Its strings are json's: a byte of invalid UTF-8 is json's surrogate escape, which reads back, where slog writes U+FFFD. `Recorder` keeps the entries for a test; its copies share them.
+5. **Not taken from Effect**, each a workaround (W4, W12): `Logger.make` over an `Effect` callback and `Logger.zip`/`batched` combinators (a provider is an ordinary record that implements `Sink`, and one that writes to two sinks holds both); `Effect.annotateLogs` as a combinator (`with log.Annotate` is the block form); spans in log lines (`trace`). Not taken from slog: attribute values other than text, groups, `With` handlers.
+6. **Laws and runners.** The laws are beside their declarations in `sink.ergo`. Lower `TestStdLogLawsRun` restates them as Ergo tests, `Sink.EnabledIsMonotone` over both providers at each least level.
+
+*Prior art:* Effect's `Logger`, `LogLevel` and `Effect.annotateLogs`; Go's `log/slog` (`Level`, `Handler.Enabled`, `JSONHandler`). Elixir's `Logger` keeps metadata per process (`Logger.metadata`) and filters by a level before it formats, as `Log` does; Gleam has no logger in its standard library (`gleam_erlang` binds Erlang's `logger`), and ReScript binds `console`. Each compiles a call below the level to a check and nothing else, as `Enabled` is here.
 
 ## Packages by origin
 
