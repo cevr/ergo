@@ -51,11 +51,6 @@ func (g *fgen) orderExpr() string {
 	case 4:
 		return fmt.Sprintf("len(\"a\\(%s)b\\(%s)c\\(%s)\")", g.traced(), g.local(), g.traced())
 	case 5:
-		switch g.n(2) {
-		case 0:
-			// Positional: each element sets the field of its place.
-			return fmt.Sprintf("(Pt{%s, %s}).B - (Pt{%s, %s}).A", g.indexed(3), g.traced(), g.local(), g.expr(1))
-		}
 		return fmt.Sprintf("(Pt{A: %s, B: %s}).B", g.indexed(3), g.traced())
 	case 6:
 		return fmt.Sprintf("if %s > 0 && %s > 1 { 1 } else { 0 }", g.local(), g.traced())
@@ -174,6 +169,11 @@ func (g *fgen) callsStmt(in string, budget, k int) {
 	f := g.cur
 	switch k {
 	case 2:
+		if g.n(3) == 0 {
+			// Positional: each element sets the field of its place.
+			g.shown(in, fmt.Sprintf("(Pt{%s, %s}).B - (Pt{%s, %s}).A", g.indexed(3), g.traced(), g.local(), g.expr(1)))
+			return
+		}
 		g.shown(in, g.orderExpr())
 	case 3:
 		fmt.Fprintf(&g.b, "%sif %s > %d {\n%s\tConsole.Println(\"%s.then\")\n%s} else if %s < 0 {\n%s\tConsole.Println(\"%s.elif\")\n%s}\n",

@@ -117,7 +117,7 @@ func TestIROrderMatchesSource(t *testing.T) {
 		}
 	}
 	if count >= 12 && (continued == 0 || traced == 0 || spanned == 0 || looped == 0 || slices.Contains(tries[:], 0)) {
-		t.Fatalf("the run did not reach IR bodies with: a continue %d, an operation call inside an expression %d, a for-in over a call %d, a loop condition with a call %d, the try forms (try of a non-call, try inside an expression, a catch arm that continues, a catch arm whose value is an if) %v", continued, traced, spanned, looped, tries)
+		t.Fatalf("the run did not reach IR bodies with: a continue %d, an operation call inside an expression %d, a for-in over a call %d, a loop condition with a call %d, the try forms (try of a non-call, try inside an expression, a catch arm that continues, a catch arm whose value is an if; a positional record literal) %v", continued, traced, spanned, looped, tries)
 	}
 }
 
@@ -129,6 +129,7 @@ var tryForms = [...]*regexp.Regexp{
 	regexp.MustCompile(`[(\[{-]\(?try chk\(`),
 	regexp.MustCompile(`case E1:\n\s+continue\n`),
 	regexp.MustCompile(`case E\d as x:\n\s+if `),
+	regexp.MustCompile(`Pt\{[^:}]*\}`), // a positional record literal (orderExpr)
 }
 
 // bodyOf is function name's body in text.
