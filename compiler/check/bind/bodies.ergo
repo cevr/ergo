@@ -268,15 +268,15 @@ func params(b *binder, o dense.Opt[syntax.Node]) {
 			let n = dense.Index(pnode(*b, x.Value))
 			for i in 0..numKids(b.ps, n) {
 				let fd = syntax.NodeAt(b.p.Tree, kidAt(b.ps, n, i))
-				match syntax.ViewOf(b.p.Tree, fd) {
-				case syntax.Field as f:
+				if syntax.KindOf(b.p.Tree, fd) == syntax.KField {
+					let f = syntax.FieldOf(b.p.Tree, fd)
 					// A parameter's where is the refinement type the checker
 					// derives; its names are that type's, not the body's.
 					opt(b, f.Type)
 					for j in 0..syntax.Len(f.Names) {
 						define(b, syntax.Item(b.p.Tree, f.Names, j))
 					}
-				case _:
+				} else {
 					walk(b, fd)
 				}
 			}
@@ -340,30 +340,33 @@ func pattern(b *binder, x dense.ID[syntax.Node], atLet bool) {
 		}
 		return
 	}
-	match syntax.ViewOf(b.p.Tree, x) {
-	case syntax.ParenExpr as e:
-		pattern(b, e.X, atLet)
-	case syntax.TupleExpr as e:
+	// The kind decides and the reader reads the fields: no view is made.
+	let k = syntax.KindOf(b.p.Tree, x)
+	if k == syntax.KParenExpr {
+		pattern(b, syntax.ParenExprOf(b.p.Tree, x).X, atLet)
+	} else if k == syntax.KTupleExpr {
+		let e = syntax.TupleExprOf(b.p.Tree, x)
 		for i in 0..syntax.Len(e.Elts) {
 			pattern(b, syntax.Item(b.p.Tree, e.Elts, i), atLet)
 		}
-	case syntax.CompositeLit as e:
+	} else if k == syntax.KCompositeLit {
+		let e = syntax.CompositeLitOf(b.p.Tree, x)
 		opt(b, e.Type)
 		for i in 0..syntax.Len(e.Elts) {
 			let el = syntax.Item(b.p.Tree, e.Elts, i)
-			match syntax.ViewOf(b.p.Tree, el) {
-			case syntax.KeyValueExpr as kv:
-				pattern(b, kv.Value, atLet)
-			case _:
+			if syntax.KindOf(b.p.Tree, el) == syntax.KKeyValueExpr {
+				pattern(b, syntax.KeyValueExprOf(b.p.Tree, el).Value, atLet)
+			} else {
 				pattern(b, el, atLet)
 			}
 		}
-	case syntax.AsPattern as e:
+	} else if k == syntax.KAsPattern {
+		let e = syntax.AsPatternOf(b.p.Tree, x)
 		pattern(b, e.X, atLet)
 		define(b, e.Name)
-	case syntax.OrPattern as e:
-		alternatives(b, e.Alts)
-	case _:
+	} else if k == syntax.KOrPattern {
+		alternatives(b, syntax.OrPatternOf(b.p.Tree, x).Alts)
+	} else {
 		walk(b, x)
 	}
 }
@@ -406,6 +409,83 @@ func walk(b *binder, x dense.ID[syntax.Node]) {
 		children(b, x)
 		return
 	}
+	// The hot kinds read their fields through their readers, with no view.
+	if k == syntax.KFuncDecl {
+		let d = syntax.FuncDeclOf(b.p.Tree, x)
+		let m = enter(b)
+		params(b, d.TypeParams)
+		signature(b, d.Type)
+		match dense.Unpack(d.Body) {
+		case Some[dense.ID[syntax.Node]] as body:
+			// The body block's statements are in the function's scope.
+			if syntax.KindOf(b.p.Tree, body.Value) == syntax.KBlockStmt {
+				children(b, body.Value)
+			} else {
+				walk(b, body.Value)
+			}
+		case None:
+		}
+		leave(b, m)
+		return
+	}
+	if k == syntax.KFuncLit {
+		let e = syntax.FuncLitOf(b.p.Tree, x)
+		let m = enter(b)
+		signature(b, e.Type)
+		walk(b, e.Body)
+		leave(b, m)
+		return
+	}
+	if k == syntax.KVarSpec {
+		let v = syntax.VarSpecOf(b.p.Tree, x)
+		opt(b, v.Type)
+		opt(b, v.Value)
+		for i in 0..syntax.Len(v.Names) {
+			if b.depth > 0 {
+				define(b, syntax.Item(b.p.Tree, v.Names, i))
+			}
+		}
+		match dense.Unpack(v.Pattern) {
+		case Some[dense.ID[syntax.Node]] as pat:
+			if b.depth > 0 {
+				pattern(b, pat.Value, true)
+			} else {
+				patternUses(b, pat.Value)
+			}
+		case None:
+		}
+		return
+	}
+	if k == syntax.KRangeStmt {
+		let e = syntax.RangeStmtOf(b.p.Tree, x)
+		walk(b, e.X)
+		let m = mark(*b)
+		match dense.Unpack(e.Key) {
+		case Some[dense.ID[syntax.Node]] as key:
+			pattern(b, key.Value, true)
+		case None:
+		}
+		pattern(b, e.Value, true)
+		walk(b, e.Body)
+		release(b, m)
+		return
+	}
+	if k == syntax.KCaseClause {
+		let c = syntax.CaseClauseOf(b.p.Tree, x)
+		let m = mark(*b)
+		alternatives(b, c.List)
+		each(b, c.Body)
+		release(b, m)
+		return
+	}
+	if k == syntax.KCatchArm {
+		let c = syntax.CatchArmOf(b.p.Tree, x)
+		let m = mark(*b)
+		alternatives(b, c.Types)
+		each(b, c.Body)
+		release(b, m)
+		return
+	}
 	match syntax.ViewOf(b.p.Tree, x) {
 	case syntax.Name:
 		use(b, x)
@@ -442,26 +522,6 @@ func walk(b *binder, x dense.ID[syntax.Node]) {
 				walk(b, el)
 			}
 		}
-	case syntax.FuncDecl as d:
-		let m = enter(b)
-		params(b, d.TypeParams)
-		signature(b, d.Type)
-		match dense.Unpack(d.Body) {
-		case Some[dense.ID[syntax.Node]] as body:
-			// The body block's statements are in the function's scope.
-			if syntax.KindOf(b.p.Tree, body.Value) == syntax.KBlockStmt {
-				children(b, body.Value)
-			} else {
-				walk(b, body.Value)
-			}
-		case None:
-		}
-		leave(b, m)
-	case syntax.FuncLit as e:
-		let m = enter(b)
-		signature(b, e.Type)
-		walk(b, e.Body)
-		leave(b, m)
 	case syntax.TypeDecl as d:
 		let m = enter(b)
 		params(b, d.TypeParams)
@@ -591,44 +651,6 @@ func walk(b *binder, x dense.ID[syntax.Node]) {
 		params(b, d.Params)
 		walk(b, d.Body)
 		leave(b, m)
-	case syntax.VarSpec as v:
-		opt(b, v.Type)
-		opt(b, v.Value)
-		for i in 0..syntax.Len(v.Names) {
-			if b.depth > 0 {
-				define(b, syntax.Item(b.p.Tree, v.Names, i))
-			}
-		}
-		match dense.Unpack(v.Pattern) {
-		case Some[dense.ID[syntax.Node]] as pat:
-			if b.depth > 0 {
-				pattern(b, pat.Value, true)
-			} else {
-				patternUses(b, pat.Value)
-			}
-		case None:
-		}
-	case syntax.RangeStmt as e:
-		walk(b, e.X)
-		let m = mark(*b)
-		match dense.Unpack(e.Key) {
-		case Some[dense.ID[syntax.Node]] as key:
-			pattern(b, key.Value, true)
-		case None:
-		}
-		pattern(b, e.Value, true)
-		walk(b, e.Body)
-		release(b, m)
-	case syntax.CaseClause as c:
-		let m = mark(*b)
-		alternatives(b, c.List)
-		each(b, c.Body)
-		release(b, m)
-	case syntax.CatchArm as c:
-		let m = mark(*b)
-		alternatives(b, c.Types)
-		each(b, c.Body)
-		release(b, m)
 	case _:
 		children(b, x)
 	}

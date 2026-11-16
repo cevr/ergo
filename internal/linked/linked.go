@@ -59,6 +59,10 @@ var Packages = []Package{
 	// The formatter of the compiler written in Ergo (capstone S1a), which
 	// internal/hostsyntax calls.
 	{Name: "format", Source: "compiler", Exports: "api"},
+	// The scanner and parser of the compiler written in Ergo (capstone
+	// S2a, S2b): their canonical dumps, which internal/sketch/syntax's
+	// agreement tests compare with the Go scanner's and parser's.
+	{Name: "syntax", Source: "compiler", Exports: "syntax/dump"},
 }
 
 // Module is the Go module path of the repository.

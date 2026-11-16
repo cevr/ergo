@@ -10,34 +10,15 @@
 // files and standard output.
 
 import compiler/syntax
+import compiler/syntax/dump
 import fs
 import io
 import os
 import strings
-import strconv
 
-// dump is the full listing of one scan of src.
-func dump(b *strings.Builder, path string, src string) {
-	let s = syntax.Scan(src)
-	b.WriteString("F " + path + "\n")
-	let t = s.Toks
-	for i in 0..syntax.NumToks(t) {
-		let id = syntax.TokAt(t, i)
-		let k = syntax.Kind(t, id)
-		let start = syntax.Start(t, id)
-		b.WriteString("T " + strconv.Itoa(int(k)) + " " + strconv.Itoa(start) + " " + strconv.Itoa(syntax.End(src, k, start)) + "\n")
-	}
-	let c = s.Comments
-	for i in 0..syntax.NumComments(c) {
-		let id = syntax.CommentAt(c, i)
-		b.WriteString("C " + strconv.Itoa(syntax.CommentStart(c, id)) + " " + strconv.Itoa(syntax.CommentEnd(c, id)) + "\n")
-	}
-	b.WriteString("N " + strconv.Itoa(syntax.NumLines(syntax.LinesOf(src))) + "\n")
-	if s.Failed {
-		b.WriteString("E " + syntax.CodeSyntax + " " + strconv.Itoa(s.Offset) + " " + strconv.Itoa(s.Length) + "\n")
-	} else {
-		b.WriteString("OK\n")
-	}
+// listing is the dump of one file: "F path" and dump.Scan of its text.
+func listing(b *strings.Builder, path string, src string) {
+	b.WriteString("F " + path + "\n" + dump.Scan(src))
 }
 
 func read(file string) string fails os.Exit needs fs.Files {
@@ -77,7 +58,7 @@ func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
 	}
 	let mut b = strings.NewBuilder()
 	for file in args {
-		dump(&b, file, try read(file))
+		listing(&b, file, try read(file))
 	}
 	io.Stdout.Print(b.String())
 }
