@@ -404,7 +404,7 @@ func labelOf[E](n Node[E]) Option[string] {
 	case TextNode as x:
 		Some{Value: x.Value}
 	case InputNode as x:
-		Some{Value: x.Placeholder}
+		Some{Value: fieldName(x)}
 	case _:
 		None
 	}
@@ -685,7 +685,17 @@ func nodeText[E](n Node[E]) string {
 		}
 		"(off) \"\(x.Label)\""
 	case InputNode as x:
-		"input \"\(x.Value)\" (\(x.Placeholder))"
+		let mut out = "input \"\(x.Value)\" (\(x.Placeholder))"
+		if x.Label != "" {
+			out = out + " label \"\(x.Label)\""
+		}
+		if x.Description != "" {
+			out = out + " \"\(x.Description)\""
+		}
+		if x.Invalid {
+			out = out + " invalid"
+		}
+		out
 	case FieldsetNode as x:
 		let mut out = "fieldset"
 		if x.Disabled {

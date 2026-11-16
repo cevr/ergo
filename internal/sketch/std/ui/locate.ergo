@@ -9,8 +9,10 @@ import time
 // a Region, a Canvas an Image, a list of Rows a List, a live region
 // (Announce) a Status, and a Box, Row, Column, Scroll or Zone Generic.
 // The other roles are the kit's (NS4): a Semantic node declares one,
-// with the ARIA states its control has.
-type Role = Button | Checkbox | Switch | TextBox | Static | Group | Region | Image | List | Status | Generic | Tab | TabList | TabPanel | Dialog | Menu | MenuItem | Tree | TreeItem | Heading | Alert | Link | Table | TableRow | TableCell
+// with the ARIA states its control has. Radios and Select declare the
+// choice roles (choice.ergo): RadioGroup and Radio, ListBox and
+// ListOption.
+type Role = Button | Checkbox | Switch | TextBox | Static | Group | Region | Image | List | Status | Generic | Tab | TabList | TabPanel | Dialog | Menu | MenuItem | Tree | TreeItem | Heading | Alert | Link | Table | TableRow | TableCell | RadioGroup | Radio | ListBox | ListOption
 
 // Button is the role of a Pressable (and a Submit).
 type Button {}
@@ -87,6 +89,21 @@ type TableRow {}
 // TableCell is a cell of a table.
 type TableCell {}
 
+// RadioGroup is a group of radio buttons, one of them checked (Radios).
+type RadioGroup {}
+
+// Radio is a radio button of a RadioGroup: Checked says whether it is the
+// group's value.
+type Radio {}
+
+// ListBox is a list of options, one of them selected (Select): its Value
+// is the selected option's name, as a screen reader announces it.
+type ListBox {}
+
+// ListOption is an option of a ListBox (ARIA's "option"): Selected says
+// whether it is the list's value.
+type ListOption {}
+
 // Access is a node as a locator and an assistive technology read it: its
 // role; its accessible name (the label its primitive was given, a Text's
 // value, an Input's placeholder; empty for a container); whether it is a
@@ -98,6 +115,13 @@ type TableCell {}
 // a node that does not expand) or pressed (a toggle button), invalid,
 // busy, whether it opens a popup, and a heading's level.
 type Access { Role Role, Name string, Disabled bool, Description string, Checked Option[bool], Value Option[string], Selected Option[bool], Expanded Option[bool], Pressed Option[bool], Invalid bool, Busy bool, HasPopup bool, Level Option[int] }
+
+// Named is the Access of a node of role named name, with no state (FK2-g1):
+// a container's declaration, written as one call; a view sets the states
+// its control has on the copy it gets.
+func Named(role Role, name string) Access {
+	Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+}
 
 // Locator finds nodes on a screen, as Testing Library's queries do: by
 // role and name (an empty Name matches any), by the label a primitive
@@ -282,9 +306,13 @@ func access[E](n Node[E], off bool, desc string) Access {
 		a.Checked = Some{Value: x.On}
 	case InputNode as x:
 		a.Role = TextBox
-		a.Name = x.Placeholder
+		a.Name = fieldName(x)
 		a.Disabled = off
 		a.Value = Some{Value: x.Value}
+		if x.Description != "" {
+			a.Description = x.Description
+		}
+		a.Invalid = x.Invalid
 	case TextNode as x:
 		a.Role = Static
 		a.Name = x.Value
@@ -307,6 +335,15 @@ func access[E](n Node[E], off bool, desc string) Access {
 	case _:
 	}
 	a
+}
+
+// fieldName is an Input's accessible name: its label, or its placeholder
+// when it has none.
+func fieldName(x InputNode) string {
+	if x.Label != "" {
+		return x.Label
+	}
+	x.Placeholder
 }
 
 // declared is what a Semantic node declared, disabled also under a
@@ -342,6 +379,8 @@ func finds[E](loc Locator, n Node[E], a Access) bool {
 			l.Label == x.Label
 		case SemanticNode[E] as s:
 			s.Access.Name == x.Label
+		case InputNode as i:
+			i.Label != "" && i.Label == x.Label
 		case _:
 			false
 		}
@@ -554,6 +593,14 @@ func roleText(r Role) string {
 		"row"
 	case TableCell:
 		"cell"
+	case RadioGroup:
+		"radiogroup"
+	case Radio:
+		"radio"
+	case ListBox:
+		"listbox"
+	case ListOption:
+		"option"
 	}
 }
 
@@ -592,7 +639,7 @@ func matcherText(is Matcher) string {
 
 // semRoles is every role a Semantic may declare. (a law's helper)
 func semRoles() []Role {
-	[]Role{Button, Checkbox, Switch, TextBox, Static, Group, Region, Image, List, Status, Generic, Tab, TabList, TabPanel, Dialog, Menu, MenuItem, Tree, TreeItem, Heading, Alert, Link, Table, TableRow, TableCell}
+	[]Role{Button, Checkbox, Switch, TextBox, Static, Group, Region, Image, List, Status, Generic, Tab, TabList, TabPanel, Dialog, Menu, MenuItem, Tree, TreeItem, Heading, Alert, Link, Table, TableRow, TableCell, RadioGroup, Radio, ListBox, ListOption}
 }
 
 // semMaybe is a drawn Option[bool]. (a law's helper)

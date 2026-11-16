@@ -372,7 +372,7 @@ func model(p prog, s []int, row int) outcome {
 	case pText as x:
 		done([]ui.Shape[int]{leaf(ui.TextNode{Value: "t\(s[x.slot] + row)", Style: ui.Plain()})})
 	case pInput as x:
-		done([]ui.Shape[int]{leaf(ui.InputNode{Value: "v\(s[x.slot] + row)", Placeholder: "type"})})
+		done([]ui.Shape[int]{leaf(ui.InputNode{Value: "v\(s[x.slot] + row)", Placeholder: "type", Label: "", Description: "", Invalid: false})})
 	case pCheck as x:
 		done([]ui.Shape[int]{leaf(ui.CheckNode{Label: "c", Checked: s[x.slot]%2 == 0, On: s[x.slot] + row})})
 	case pSwap as x:
@@ -696,7 +696,17 @@ func readAs(n ui.Node[int], off bool, desc string) ui.Access {
 	case ui.ToggleNode as x:
 		ui.Access{Role: ui.Switch, Name: x.Label, Disabled: off, Description: desc, Checked: Some{Value: x.On}, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
 	case ui.InputNode as x:
-		ui.Access{Role: ui.TextBox, Name: x.Placeholder, Disabled: off, Description: desc, Checked: None, Value: Some{Value: x.Value}, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+		// A label names the field, a placeholder only an unlabelled one;
+		// its own description wins over the ui.Fieldset's.
+		let mut name = x.Label
+		if name == "" {
+			name = x.Placeholder
+		}
+		let mut d = desc
+		if x.Description != "" {
+			d = x.Description
+		}
+		ui.Access{Role: ui.TextBox, Name: name, Disabled: off, Description: d, Checked: None, Value: Some{Value: x.Value}, Selected: None, Expanded: None, Pressed: None, Invalid: x.Invalid, Busy: false, HasPopup: false, Level: None}
 	case ui.TextNode as x:
 		ui.Access{Role: ui.Static, Name: x.Value, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
 	case ui.FieldsetNode:
@@ -731,9 +741,19 @@ func wants(loc ui.Locator, x seen) bool {
 		x.a.Role == l.Role && (l.Name == "" || x.a.Name == l.Name)
 	case ui.WithLabel as l:
 		let labelled = x.a.Role == ui.Button || x.a.Role == ui.Checkbox || x.a.Role == ui.Switch || x.a.Role == ui.Region || x.a.Role == ui.Image || x.a.Role == ui.List
-		labelled && x.a.Name == l.Label
+		match x.node {
+		case ui.InputNode as i:
+			i.Label != "" && i.Label == l.Label
+		case _:
+			labelled && x.a.Name == l.Label
+		}
 	case ui.WithPlaceholder as l:
-		x.a.Role == ui.TextBox && x.a.Name == l.Text
+		match x.node {
+		case ui.InputNode as i:
+			i.Placeholder == l.Text
+		case _:
+			false
+		}
 	case ui.WithText as l:
 		x.a.Role == ui.Static && x.a.Name == l.Text
 	case ui.WithZone:
@@ -760,6 +780,7 @@ func extras(f *ui.Frame[int], v int) {
 	ui.Fieldset(f, v%2 == 1, "x\(v)") {
 		let on = ui.NewFlag(f, true)
 		ui.Toggle(f, on, "tg\(v % 3)")
+		ui.LabelledInput(f, extraLabel(v), "val", "ph\(v % 2)", func(t string) int { len(t) })
 		ui.Area(f, "area\(v % 2)", ui.Plain(), func(p ui.PointerEvent) Option[int] { None }) {
 			ui.Text(f, "in area")
 		}
@@ -768,8 +789,20 @@ func extras(f *ui.Frame[int], v int) {
 	}
 }
 
+func extraLabel(v int) ui.FieldLabel {
+	let mut l = ui.FieldLabel{Text: "lab\(v % 3)", Description: "", Invalid: v%3 == 0}
+	if v%4 == 0 {
+		l.Text = ""
+	}
+	if v%5 < 2 {
+		l.Description = "own\(v % 2)"
+	}
+	l
+}
+
 func extraShapes(v int) []ui.Shape[int] {
-	let kids = []ui.Shape[int]{leaf(ui.ToggleNode{Label: "tg\(v % 3)", On: true}), ui.Shape[int]{Node: ui.AreaNode{Label: "area\(v % 2)", Style: ui.Plain()}, Kids: []ui.Shape[int]{leaf(ui.TextNode{Value: "in area", Style: ui.Plain()})}}, leaf(ui.CanvasNode{Label: "c\(v % 4)", Width: 4, Height: 4, Paint: []ui.PaintOp{}}), leaf(ui.RowsNode{Label: "rows", Count: 0, RowHeight: 10, First: 0, Offset: 0})}
+	let l = extraLabel(v)
+	let kids = []ui.Shape[int]{leaf(ui.ToggleNode{Label: "tg\(v % 3)", On: true}), leaf(ui.InputNode{Value: "val", Placeholder: "ph\(v % 2)", Label: l.Text, Description: l.Description, Invalid: l.Invalid}), ui.Shape[int]{Node: ui.AreaNode{Label: "area\(v % 2)", Style: ui.Plain()}, Kids: []ui.Shape[int]{leaf(ui.TextNode{Value: "in area", Style: ui.Plain()})}}, leaf(ui.CanvasNode{Label: "c\(v % 4)", Width: 4, Height: 4, Paint: []ui.PaintOp{}}), leaf(ui.RowsNode{Label: "rows", Count: 0, RowHeight: 10, First: 0, Offset: 0})}
 	[]ui.Shape[int]{ui.Shape[int]{Node: ui.FieldsetNode{Disabled: v%2 == 1, Description: "x\(v)"}, Kids: kids}}
 }
 
@@ -4037,7 +4070,7 @@ func lawWithinFindsUnder(seed int) bool {
 }
 
 func semRoles() []ui.Role {
-	[]ui.Role{ui.Button, ui.Checkbox, ui.Switch, ui.TextBox, ui.Static, ui.Group, ui.Region, ui.Image, ui.List, ui.Status, ui.Generic, ui.Tab, ui.TabList, ui.TabPanel, ui.Dialog, ui.Menu, ui.MenuItem, ui.Tree, ui.TreeItem, ui.Heading, ui.Alert, ui.Link, ui.Table, ui.TableRow, ui.TableCell}
+	[]ui.Role{ui.Button, ui.Checkbox, ui.Switch, ui.TextBox, ui.Static, ui.Group, ui.Region, ui.Image, ui.List, ui.Status, ui.Generic, ui.Tab, ui.TabList, ui.TabPanel, ui.Dialog, ui.Menu, ui.MenuItem, ui.Tree, ui.TreeItem, ui.Heading, ui.Alert, ui.Link, ui.Table, ui.TableRow, ui.TableCell, ui.RadioGroup, ui.Radio, ui.ListBox, ui.ListOption}
 }
 
 func semMaybe(r *rng) Option[bool] {
@@ -4092,6 +4125,123 @@ func semWork(s int) Option[func(send func(e int))] {
 
 func withinLabel(j int) string {
 	"card \(j % 2)"
+}
+
+func lawChoiceIsAnnouncedAndReachable(n int, from int, to int, radio bool) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let k = (n%4+4)%4 + 3
+		let options = choiceOptions(k)
+		let start = (from%k + k) % k
+		let target = (to%k + k) % k
+		let view = func(f *ui.Frame[int], s int) {
+			let on = func(v string) int { choiceIndex(options, v) }
+			if radio {
+				ui.Radios(f, "pick", options, options[s], on)
+			} else {
+				ui.Select(f, "pick", options, options[s], on)
+			}
+		}
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: start, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {})
+		let mut h = ui.NewTestHost(a, view, m, 4) catch {
+		case ui.BadPatch:
+			return false
+		}
+		if !choiceShown(&h, k, start, radio) || !choiceKey(&h, "Home") || ui.StateOf(&h) != 0 || !choiceShown(&h, k, 0, radio) {
+			return false
+		}
+		if !choiceWalk(&h, "ArrowDown", k-1, 1) || !choiceShown(&h, k, k-1, radio) {
+			return false
+		}
+		let _ = choiceKey(&h, if radio { "ArrowRight" } else { "ArrowDown" })
+		if ui.StateOf(&h) != if radio { 0 } else { k - 1 } || !choiceKey(&h, "End") || ui.StateOf(&h) != k-1 {
+			return false
+		}
+		if !choiceWalk(&h, "ArrowUp", k-1, -1) || !choiceShown(&h, k, 0, radio) {
+			return false
+		}
+		let _ = choiceKey(&h, if radio { "ArrowLeft" } else { "ArrowUp" })
+		if ui.StateOf(&h) != if radio { k - 1 } else { 0 } {
+			return false
+		}
+		let here = ui.StateOf(&h)
+		let ok = if target >= here { choiceWalk(&h, "ArrowDown", target-here, 1) } else { choiceWalk(&h, "ArrowUp", here-target, -1) }
+		let _ = choiceKey(&h, "x")
+		if !ok || ui.StateOf(&h) != target || !choiceShown(&h, k, target, radio) {
+			return false
+		}
+		let other = (target + 1) % k
+		ui.Play(&h, []ui.Act{ui.ClickOn{At: ui.WithLabel{Label: options[other]}}}) catch {
+		case _:
+			return false
+		}
+		ui.StateOf(&h) == other && choiceShown(&h, k, other, radio)
+	}
+}
+
+func choiceOptions(n int) []string {
+	let mut out = []string{}
+	for i in 0..n {
+		out = out.Append("o\(i)")
+	}
+	out
+}
+
+func choiceIndex(options []string, v string) int {
+	for i, o in options {
+		if o == v {
+			return i
+		}
+	}
+	-1
+}
+
+func choiceShown[S, D, F](h *ui.TestHost[S, int, D, F], n int, sel int, radio bool) bool {
+	let options = choiceOptions(n)
+	let group = if radio { ui.RadioGroup } else { ui.ListBox }
+	let item = if radio { ui.Radio } else { ui.ListOption }
+	let gs = ui.Locate(h, ui.WithRole{Role: group, Name: "pick"})
+	if len(gs) != 1 || ui.AccessAt(h, gs[0]).Value != (Some{Value: options[sel]}) {
+		return false
+	}
+	if len(ui.Locate(h, ui.WithRole{Role: item, Name: ""})) != n {
+		return false
+	}
+	for i, o in options {
+		let ids = ui.Locate(h, ui.WithRole{Role: item, Name: o})
+		if len(ids) != 1 || ui.Locate(h, ui.WithLabel{Label: o}) != ids {
+			return false
+		}
+		let a = ui.AccessAt(h, ids[0])
+		let on = Some{Value: i == sel}
+		if radio && (a.Checked != on || a.Selected != None) {
+			return false
+		}
+		if !radio && (a.Selected != on || a.Checked != None) {
+			return false
+		}
+	}
+	true
+}
+
+func choiceKey[S, D, F](h *ui.TestHost[S, int, D, F], name string) bool {
+	ui.PressKey(h, ui.KeyPress{Name: name, Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch {
+	case actor.Stopped:
+		return false
+	case ui.BadPatch:
+		return false
+	}
+	true
+}
+
+func choiceWalk[D, F](h *ui.TestHost[int, int, D, F], key string, steps int, by int) bool {
+	for _ in 0..steps {
+		let was = ui.StateOf(h)
+		if !choiceKey(h, key) || ui.StateOf(h) != was+by {
+			return false
+		}
+	}
+	true
 }
 
 test UiScriptShowsTheView(seed int, steps int) {
@@ -4250,6 +4400,10 @@ test UiWithinFindsUnder(seed int) {
 	assert lawWithinFindsUnder(seed)
 }
 
+test UiChoiceIsAnnouncedAndReachable(n int, from int, to int, radio bool) {
+	assert lawChoiceIsAnnouncedAndReachable(n, from, to, radio)
+}
+
 
 test UiLocationPushThenBackRestores(path string) {
 	let h = ui.NewMemoryHistory(ui.URL{Path: "/", Query: "", Fragment: ""})
@@ -4326,6 +4480,7 @@ var stdUIHostStatements = map[string]string{
 	"ui AmbiguousActFails":             `AmbiguousActFails(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { let k = (seed%4+4)%4 + 2 let view = func(f *Frame[int], s int) { Column(f, Plain()) { Text(f, "at \(s)") for i in 0..k { Pressable(f, "dup", i+1) { Text(f, "x") } Pressable(f, "one\(i)", 50+i) { Text(f, "y") } Input(f, "", "dupi", func(t string) int { 100 + i }) } } } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: lastStep, After: lastTimer, Work: lastWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } let acts = []Act{TapOn{Label: "dup"}, ClickOn{At: WithRole{Role: Button, Name: "dup"}}, ClickOn{At: WithLabel{Label: "dup"}}, TypeInto{Label: "dupi", Text: "t"}, FillIn{At: WithPlaceholder{Text: "dupi"}, Text: "t"}} for act in acts { let mut count = -1 Play(&h, []Act{act}) catch { case Ambiguous as e: count = e.Count case _: return false } Settle(&h) catch { case _: return false } if count != k || StateOf(&h) != 0 { return false } } // A unique label acts, and First names the first match. Play(&h, []Act{TapOn{Label: "one1"}, SettleAll}) catch { case _: return false } if StateOf(&h) != 51 { return false } Play(&h, []Act{ClickOn{At: First{At: WithRole{Role: Button, Name: "dup"}}}, SettleAll}) catch { case _: return false } if StateOf(&h) != 1 { return false } Play(&h, []Act{FillIn{At: First{At: WithPlaceholder{Text: "dupi"}}, Text: "t"}, SettleAll}) catch { case _: return false } let firsts = Locate(&h, First{At: WithLabel{Label: "dup"}}) StateOf(&h) == 100 && len(firsts) == 1 && Find(&h, "dup") == (Some{Value: firsts[0]}) } }`,
 	"ui AccessIsWhatWasDeclared":       `AccessIsWhatWasDeclared(seed int, count int) { let m = time.NewManual(0) with context { Scheduler: m } { let n = (count%6+6)%6 + 2 let view = func(f *Frame[int], s int) { let ds = semDecls(seed+s*7919, n) Column(f, Plain()) { for i, d in ds { if i%2 == 0 { Semantic(f, d, Some{Value: i + 1}, Plain()) { Text(f, "t\(i)") } } else { Fieldset(f, true, "fs") { Semantic(f, d, Some{Value: i + 1}, Plain()) { Text(f, "t\(i)") } } } } } } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } for s in 0..2 { let ds = semDecls(seed+StateOf(&h)*7919, n) for i, d in ds { let ids = Locate(&h, WithLabel{Label: d.Name}) if len(ids) != 1 { return false } let mut want = d if i%2 == 1 { want.Disabled = true if d.Description == "" { want.Description = "fs" } } if AccessAt(&h, ids[0]) != want { return false } // The matchers of the new states read the same record. if semHolds(&h, d.Name, ToBeSelected) != (want.Selected == (Some{Value: true})) || semHolds(&h, d.Name, ToBeExpanded) != (want.Expanded == (Some{Value: true})) || semHolds(&h, d.Name, ToBeCollapsed) != (want.Expanded == (Some{Value: false})) || semHolds(&h, d.Name, ToBeInvalid) != want.Invalid { return false } } if s == 0 { // A press on the first: the signal when it is enabled. let first = Locate(&h, WithLabel{Label: "n0"}) Tap(&h, first[0]) catch { case _: return false } Settle(&h) catch { case _: return false } if ds[0].Disabled != (StateOf(&h) == 0) { return false } } } true } }`,
 	"ui WithinFindsUnder":              `WithinFindsUnder(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { let mut r = seeded(seed) let mut board = [][]int{} for _ in 0..draw(&r, 4)+1 { let mut col = []int{} for _ in 0..draw(&r, 5) { col = col.Append(draw(&r, 8)) } board = board.Append(col) } let none Option[int] = None let decl = func(role Role, name string, level Option[int]) Access { Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: level} } let view = func(f *Frame[int], s int) { Column(f, Plain()) { for i, col in board { Semantic(f, decl(Region, "col \(i)", None), none, Plain()) { Semantic(f, decl(Heading, "col \(i)", Some{Value: 2}), none, Plain()) { Text(f, "col \(i)") } for j, c in col { if c%2 == 0 { Pressable(f, withinLabel(c/2), 100*i+j) { Text(f, "x") } } else { Box(f, Plain()) { Pressable(f, withinLabel(c/2), 100*i+j) { Text(f, "x") } } } } } } } } let a = actor.StartMachine(Machine[int, int, int]{Initial: -1, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } for i, col in board { let column = WithRole{Role: Region, Name: "col \(i)"} let found = Locate(&h, Within{In: column, At: WithRole{Role: Button, Name: ""}}) if len(found) != len(col) { return false } for j, c in col { if AccessAt(&h, found[j]).Name != withinLabel(c/2) { return false } } let nested = Locate(&h, Within{In: WithRole{Role: Region, Name: ""}, At: Within{In: column, At: WithRole{Role: Button, Name: ""}}}) if nested != found { return false } for j, c in col { let label = withinLabel(c / 2) let mut first = j for k in 0..j { if withinLabel(col[k]/2) == label && first == j { first = k } } if first == j { Play(&h, []Act{ClickOn{At: First{At: Within{In: column, At: WithLabel{Label: label}}}}, SettleAll}) catch { case _: return false } if StateOf(&h) != 100*i+j { return false } } } } // A column is not within itself, nor within another: none nests. let regions = WithRole{Role: Region, Name: ""} len(Locate(&h, Within{In: WithRole{Role: Region, Name: "col 9"}, At: WithRole{Role: Button, Name: ""}})) == 0 && len(Locate(&h, Within{In: regions, At: regions})) == 0 } }`,
+	"ui ChoiceIsAnnouncedAndReachable": `ChoiceIsAnnouncedAndReachable(n int, from int, to int, radio bool) { let m = time.NewManual(0) with context { Scheduler: m } { let k = (n%4+4)%4 + 3 let options = choiceOptions(k) let start = (from%k + k) % k let target = (to%k + k) % k let view = func(f *Frame[int], s int) { let on = func(v string) int { choiceIndex(options, v) } if radio { Radios(f, "pick", options, options[s], on) } else { Select(f, "pick", options, options[s], on) } } let a = actor.StartMachine(Machine[int, int, int]{Initial: start, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } if !choiceShown(&h, k, start, radio) || !choiceKey(&h, "Home") || StateOf(&h) != 0 || !choiceShown(&h, k, 0, radio) { return false } if !choiceWalk(&h, "ArrowDown", k-1, 1) || !choiceShown(&h, k, k-1, radio) { return false } let _ = choiceKey(&h, if radio { "ArrowRight" } else { "ArrowDown" }) if StateOf(&h) != if radio { 0 } else { k - 1 } || !choiceKey(&h, "End") || StateOf(&h) != k-1 { return false } if !choiceWalk(&h, "ArrowUp", k-1, -1) || !choiceShown(&h, k, 0, radio) { return false } let _ = choiceKey(&h, if radio { "ArrowLeft" } else { "ArrowUp" }) if StateOf(&h) != if radio { k - 1 } else { 0 } { return false } let here = StateOf(&h) let ok = if target >= here { choiceWalk(&h, "ArrowDown", target-here, 1) } else { choiceWalk(&h, "ArrowUp", here-target, -1) } let _ = choiceKey(&h, "x") if !ok || StateOf(&h) != target || !choiceShown(&h, k, target, radio) { return false } let other = (target + 1) % k Play(&h, []Act{ClickOn{At: WithLabel{Label: options[other]}}}) catch { case _: return false } StateOf(&h) == other && choiceShown(&h, k, other, radio) } }`,
 	"ui Location.PushThenBackRestores": `PushThenBackRestores(u URL) { let before = Current() Push(u) let there = Current() Back() && there == u && Current() == before }`,
 	"ui Location.ReplaceKeepsDepth":    `ReplaceKeepsDepth(u URL, v URL) { let before = Current() Push(u) Replace(v) let there = Current() Back() && there == v && Current() == before }`,
 	"ui Location.BackStopsAtTheStart":  `BackStopsAtTheStart(u URL) { Replace(u) for Back() { } let first = Current() !Back() && Current() == first }`,

@@ -454,7 +454,22 @@ func Check[E](f *Frame[E], label string, checked bool, on E, at CallSite) {
 // Input shows a text field with value; a text the host takes in it sends
 // onText(text). The program owns the value (in its machine state).
 func Input[E](f *Frame[E], value string, placeholder string, onText own func(t string) E, at CallSite) {
-	let _ = put(f, InputNode{Value: value, Placeholder: placeholder}, Some{Value: onText}, None, at)
+	let _ = put(f, InputNode{Value: value, Placeholder: placeholder, Label: "", Description: "", Invalid: false}, Some{Value: onText}, None, at)
+}
+
+// FieldLabel is what a labelled Input says of itself (FK3-g5, FK5-g3), as
+// HTML's label element, aria-describedby and aria-invalid do: Text is its
+// accessible name (a placeholder names only a field with no label),
+// Description its accessible description (the nearest Fieldset's when
+// empty), and Invalid whether its value is refused. A host draws all
+// three: the label above the field, the description under it, and an
+// invalid field marked.
+type FieldLabel { Text string, Description string, Invalid bool }
+
+// LabelledInput is an Input that says what it is (FieldLabel): a locator
+// finds it by its label (WithLabel) and a script names it by it.
+func LabelledInput[E](f *Frame[E], label FieldLabel, value string, placeholder string, onText own func(t string) E, at CallSite) {
+	let _ = put(f, InputNode{Value: value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid}, Some{Value: onText}, None, at)
 }
 
 // Each writes row(x) for each x of xs. The nodes a row writes take the
