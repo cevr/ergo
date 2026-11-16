@@ -15,7 +15,7 @@ func flushComments(p *Printer, at int) {
 // from what precedes it; that one and the rest belong to the next clause.
 func flushClauseComments(p *Printer, at int) {
 	for p.Ci < len(p.CSlash) && p.CSlash[p.Ci] < at {
-		if p.LastEnd >= 0 && p.ln(p.CSlash[p.Ci])-p.ln(p.LastEnd) >= 2 {
+		if p.LastEnd >= 0 && p.ln(p.CSlash[p.Ci])-p.LastEndLine >= 2 {
 			return
 		}
 		p.comment(at)
@@ -37,7 +37,7 @@ func comment(p *Printer, limit int) {
 	// return the scanner kept because a blank followed it, are dropped, so
 	// the output reads back as the same comment.
 	let text = if isLine { strings.TrimRight(p.CText[ci], " \t\r") } else { p.CText[ci] }
-	let trailing = p.LastEnd >= 0 && p.ln(slash) == p.ln(p.LastEnd)
+	let trailing = p.LastEnd >= 0 && p.ln(slash) == p.LastEndLine
 	if trailing && p.L.PendingNL > 0 {
 		// A comment that ends a line aligns with its neighbours.
 		let nl = p.L.PendingNL
@@ -71,4 +71,5 @@ func comment(p *Printer, limit int) {
 		}
 	}
 	p.LastEnd = end
+	p.LastEndLine = p.ln(end)
 }

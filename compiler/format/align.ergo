@@ -38,9 +38,8 @@ type Widths { Of [][]int }
 // Cells are padded with spaces to the block's widest cell plus one; a
 // block of empty cells takes no width. A positive limit bounds the output
 // in bytes: the size is computed before any text is built, and a larger
-// output is OutputLimit with no text.
-func Finish(layout Layout, limit int) Rendered fails OutputLimit {
-	let mut l = layout
+// output is OutputLimit with no text. It closes l's open line.
+func Finish(l *Layout, limit int) Rendered fails OutputLimit {
 	l.endLine()
 	let lines = l.Lines
 	let mut w = Widths{Of: [][]int{}}

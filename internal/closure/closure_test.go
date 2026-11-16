@@ -196,13 +196,13 @@ var declared = map[string][]allowance{
 	),
 	"internal/selfhostcheck": declare(
 		[]allowance{
-			{"examples", subtree, "TestSelfhostBridgeAgrees parses every examples/**/*.ergo through the Go adapter and the Ergo decoder (filepath.WalkDir)"},
-			{"internal/sketch/syntax/testdata/corpus", subtree, "the bridge property's inputs include sketchtest.Positive, whose Corpus walks the parser's corpus (filepath.WalkDir)"},
+			{"examples", subtree, "TestSelfhostFormatAgrees formats every examples/**/*.ergo on both sides (sourceInputs walks it with filepath.WalkDir)"},
+			{"internal/sketch/syntax/testdata/corpus", subtree, "the format property's inputs include sketchtest.Positive, whose Corpus walks the parser's corpus (filepath.WalkDir)"},
 			{"internal/sketch/format/testdata/fuzz/FuzzFormat", subtree, "TestSelfhostFormatAgrees's inputs include the formatter's checked-in fuzz seeds (fuzzSeeds reads the folder)"},
 		},
-		glob("docs/spec/*.md", "the bridge property's inputs include every go fence of the language spec (sketchtest.SpecFences)"),
-		glob("docs/research/ef-migrate/*.ergo", "the bridge property's inputs include the migrated examples (sketchtest.Repository)"),
-		[]allowance{{"compiler", subtree, "the bridge and format properties' inputs include every compiler/**/*.ergo (bridgeInputs walks it)"}},
+		glob("docs/spec/*.md", "the format property's inputs include every go fence of the language spec (sketchtest.SpecFences)"),
+		glob("docs/research/ef-migrate/*.ergo", "the format property's inputs include the migrated examples (sketchtest.Repository)"),
+		[]allowance{{"compiler", subtree, "the format property's inputs include every compiler/**/*.ergo (sourceInputs walks it)"}},
 	),
 	"cmd/ergo": {
 		{"README.md", file, "the README smoke test runs the README's go blocks and commands"},

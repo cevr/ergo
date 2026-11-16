@@ -122,8 +122,8 @@ func TestSelfhostFormatAgrees(t *testing.T) {
 // mode "format" a case is a source and a limit, and its answers are the Go
 // formatter's outcome and the Ergo formatter's through the facade
 // hostsyntax.Source, read by the same outcome; in mode "laws" a source,
-// and its answer the verdict of compiler/api's Laws over the trees of the
-// source and of the Ergo formatter's text; in mode "steps" a command list
+// and its answer the verdict of compiler/api's Laws, which parses the
+// source and the Ergo formatter's text in Ergo; in mode "steps" a command list
 // and a limit, and its answer compiler/api's Steps.
 func runMode(t *testing.T, mode string, cases [][]string) [][]string {
 	t.Helper()
@@ -140,15 +140,7 @@ func runMode(t *testing.T, mode string, cases [][]string) [][]string {
 			e, eerr := hostsyntax.Source(c[0], limit)
 			out[i] = []string{outcome(g, gerr), outcome(e, eerr)}
 		case "laws":
-			src := c[0]
-			tree := hostsyntax.Parse(src)
-			text, outTree := "", ""
-			if r, err := linked.FormatTree(ctx, tree, 0); err == nil {
-				if s, ok := strings.CutPrefix(r, "ok\n"); ok {
-					text, outTree = s, hostsyntax.Parse(s)
-				}
-			}
-			v, err := linked.Laws(ctx, src, tree, text, outTree)
+			v, err := linked.Laws(ctx, c[0])
 			out[i] = []string{ergoAnswer(v, err)}
 		case "steps":
 			limit, err := strconv.Atoi(c[1])
@@ -200,11 +192,12 @@ func selfhostSeed(t *testing.T) uint64 {
 }
 
 // formatInputs is the input domain of TestSelfhostFormatAgrees: the
-// bridge's domain, the superseded corpus, the formatter's fuzz seeds and
-// generated grammar inputs with their perturbations and edits.
+// repository's sources and their edits (sourceInputs), the superseded
+// corpus, the formatter's fuzz seeds and generated grammar inputs with
+// their perturbations and edits.
 func formatInputs(t *testing.T, seed uint64) []sketchtest.Input {
 	t.Helper()
-	inputs := bridgeInputs(t, seed)
+	inputs := sourceInputs(t, seed)
 	_, superseded, err := sketchtest.Corpus()
 	if err != nil {
 		t.Fatal(err)

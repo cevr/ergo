@@ -467,7 +467,14 @@ func (g *gen) decl() {
 		g.w("law ", g.name(), "(a int, b ", g.typeName(), ") {")
 		g.block()
 	case 10:
-		g.w("type Port int where 1 <= it && it <= ", strconv.Itoa(g.r.IntN(70000)))
+		// A refined type, or a derived one, which has no spec: the Ergo
+		// formatter once read the spec of `type D derive Plan(1)` and
+		// failed (S2c).
+		if g.r.IntN(2) == 0 {
+			g.w("type Port int where 1 <= it && it <= ", strconv.Itoa(g.r.IntN(70000)))
+		} else {
+			g.w("type ", g.name(), g.pick("", "[S]"), " derive ", g.pick("Plan(1)", "Fixed(\"TK\", 6)", "Refine(Of[int](), 1, 65535)"))
+		}
 	case 11:
 		// Variants on one line, one of whose fields span lines: the union
 		// prints one variant per line.

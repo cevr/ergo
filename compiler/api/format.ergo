@@ -1,73 +1,28 @@
 // Package api is the root of the compiler's linked package
 // (internal/linked/format): Go calls its exported functions. Every entry
-// is pure. Go parses and encodes (internal/hostsyntax), and an entry
-// decodes the tree, runs the formatter and turns its typed outcome into
-// text a Go caller reads. It makes no layout decision.
-//
-// Project is the tracer of the parser boundary (SH0). FormatTree, Laws
-// and Steps run the formatter (SH1).
+// is pure. An entry parses with compiler/syntax, runs the formatter and
+// turns its typed outcome into text a Go caller reads. It makes no layout
+// decision. Only the source and the text cross to Go.
 
 import compiler/format
-import compiler/tree
 import strings
 
-// Project decodes the adapter's encoding into the Ergo tree and returns
-// the tree's projection (tree.Project), or the parser's failure
-// (tree.ProjectFailure). An encoding Ergo cannot read is the text
-// "badencoding" with its reason, and a node type the adapter does not
-// carry "unsupported" with its name: the Go side never projects either,
-// so a comparison names them.
-func Project(encoding string) string {
-	let t = tree.Decode(encoding) catch {
-	case tree.SyntaxFailure as f:
-		return tree.ProjectFailure(f)
-	case tree.Unsupported as u:
-		return "unsupported \(u.Family)\n"
-	case tree.BadEncoding as b:
-		return "badencoding \(b.Reason) at \(b.At)\n"
-	}
-	tree.Project(t)
-}
-
-func syntaxOutcome(f tree.SyntaxFailure) string {
-	"syntax \(f.Code) \(len(f.Message)):" + f.Message + " \(f.Offset) \(f.Length) \(f.Line) \(f.Column)\n"
-}
-
-// FormatTree lays out a tree given as the adapter's encoding: "ok\n" and
-// the text, "syntax <code> <len>:<message> <offset> <length> <line>
-// <column>\n" for an encoded syntax failure, "limit <n>\n", or
-// "invalid <node> <reason>\n".
-func FormatTree(encoding string, limit int) string {
-	let t = format.Decoded(encoding) catch {
-	case tree.SyntaxFailure as f:
-		return syntaxOutcome(f)
-	case format.InvalidTree as i:
-		return "invalid \(i.Node) \(i.Reason)\n"
-	}
-	let r = format.Print(t, limit) catch {
+// FormatSource lays out src: "ok\n" and the text, "syntax <code>
+// <len>:<message> <offset> <length> <line> <column>\n" for a source that
+// does not parse, or "limit <n>\n" for a positive limit below the text's
+// size.
+func FormatSource(src string, limit int) string {
+	let text = format.Source(src, limit) catch {
+	case format.SyntaxFailure as f:
+		return "syntax \(f.Code) \(len(f.Message)):" + f.Message + " \(f.Offset) \(f.Length) \(f.Line) \(f.Column)\n"
 	case format.OutputLimit as o:
 		return "limit \(o.Limit)\n"
-	case format.InvalidTree as i:
-		return "invalid \(i.Node) \(i.Reason)\n"
 	}
-	"ok\n" + r.Text
+	"ok\n" + text
 }
 
-// Laws is format.CheckLaws on src, "ok\n" or the broken laws, over the
-// two trees Go parsed: srcTree, the encoding of src, and outTree, the
-// encoding of out, the text FormatTree gave for srcTree. The laws parse
-// no other text; one that did would find an invalid tree and break.
-func Laws(src string, srcTree string, out string, outTree string) string {
-	format.CheckLaws(src, func(text string) tree.Tree fails tree.SyntaxFailure | format.InvalidTree {
-		if text == src {
-			return try format.Decoded(srcTree)
-		}
-		if text == out {
-			return try format.Decoded(outTree)
-		}
-		return format.InvalidTree{Node: -1, Reason: "Laws was given no tree of this text"}
-	})
-}
+// Laws is format.CheckLaws on src: "ok\n" or the broken laws.
+func Laws(src string) string { format.CheckLaws(src) }
 
 // Steps drives the layout state by an encoded command list and renders it:
 // "ok <built>\n" and the text, "limit <n> built <bytes>\n", or "bad <offset>\n"

@@ -1,72 +1,6 @@
 {
-  "about": "The mutant ledger of internal/selfhostcheck and what it tests: the compiler written in Ergo (compiler/, linked as internal/linked/format), the Go bridge internal/hostsyntax and the linked generator internal/linked. An edit of a compiler/ file is judged through the linked Go: regenerate it (go run ./scripts/linked) on the mutated copy, then run the killer (capstone S1a, CAP-mut).",
+  "about": "The mutant ledger of internal/selfhostcheck and what it tests: the compiler written in Ergo (compiler/, linked as internal/linked/format), the Go facade internal/hostsyntax and the linked generator internal/linked. An edit of a compiler/ file is judged through the linked Go: regenerate it (go run ./scripts/linked) on the mutated copy, then run the killer (capstone S1a, CAP-mut).",
   "mutants": [
-    {
-      "name": "sh-tree-drops-child",
-      "origin": "wf10/selfhost/SH0",
-      "file": "compiler/tree/decode.ergo",
-      "from": "\t\t\titems = items.Append(x)\n",
-      "to": "\t\t\tif len(items) + 1 < count {\n\t\t\t\titems = items.Append(x)\n\t\t\t}\n",
-      "rule": "Decode keeps every item of a list: a dropped child is a different tree.",
-      "killers": [
-        "internal/selfhostcheck:TestSelfhostBridgeAgrees"
-      ]
-    },
-    {
-      "name": "sh-tree-loses-absent-pos",
-      "origin": "wf10/selfhost/SH0",
-      "file": "compiler/tree/decode.ergo",
-      "from": "(Position{At: None}, at + 1)",
-      "to": "(Position{At: Some[int]{Value: 0}}, at + 1)",
-      "rule": "An absent position (syntax.NoPos) is None, never offset 0.",
-      "killers": [
-        "internal/selfhostcheck:TestSelfhostBridgeAgrees"
-      ]
-    },
-    {
-      "name": "sh-encoding-replaces-invalid-byte",
-      "origin": "wf10/selfhost/SH0",
-      "file": "internal/hostsyntax/tree.go",
-      "from": "func str(s string) string  { return",
-      "to": "func str(s string) string  { s = strings.ToValidUTF8(s, \"\\uFFFD\"); return",
-      "rule": "The encoding carries every string byte for byte, invalid UTF-8 included.",
-      "killers": [
-        "internal/selfhostcheck:TestSelfhostBridgeAgrees"
-      ]
-    },
-    {
-      "name": "sh-tree-column-off-by-one",
-      "origin": "wf10/selfhost/SH0",
-      "file": "compiler/tree/tree.ergo",
-      "from": "Column: offset - t.Lines[line] + 1}",
-      "to": "Column: offset - t.Lines[line]}",
-      "rule": "Locate counts the line and the byte column from 1, as syntax.File.Position does.",
-      "killers": [
-        "internal/selfhostcheck:TestSelfhostBridgeAgrees"
-      ]
-    },
-    {
-      "name": "sh-encoding-drops-error-location",
-      "origin": "wf10/selfhost/SH0",
-      "file": "internal/hostsyntax/tree.go",
-      "from": "integer(e.Line)",
-      "to": "integer(0)",
-      "rule": "A syntax failure crosses with its code, message, offset, length, line and column.",
-      "killers": [
-        "internal/selfhostcheck:TestSelfhostBridgeAgrees"
-      ]
-    },
-    {
-      "name": "sh-family-table-misses-node",
-      "origin": "wf10/selfhost/SH0",
-      "file": "internal/hostsyntax/tree.go",
-      "from": "syntax.AssertStmt{}, ",
-      "to": "",
-      "rule": "The encoding carries every node type of the syntax package; the corpus may not yet write a new one.",
-      "killers": [
-        "internal/hostsyntax:TestFamiliesCoverSyntax"
-      ]
-    },
     {
       "name": "sh-comment-crosses-token",
       "origin": "wf10/selfhost/SH1",
@@ -74,17 +8,6 @@
       "from": "let at = p.sourceToken(text)",
       "to": "let at = NoPos",
       "rule": "A synthesized token found next in the source prints at its source position, so a comment before it stays before it.",
-      "killers": [
-        "internal/selfhostcheck:TestSelfhostFormatAgrees"
-      ]
-    },
-    {
-      "name": "sh-derive-printed-twice",
-      "origin": "wf10/selfhost/SH1",
-      "file": "compiler/format/span.ergo",
-      "from": "\t\thas(t, id, \"Derived\")\n",
-      "to": "\t\tfalse\n",
-      "rule": "A declaration the parser derived from a refinement is not printed: the parser derives it again.",
       "killers": [
         "internal/selfhostcheck:TestSelfhostFormatAgrees"
       ]
@@ -104,8 +27,8 @@
       "name": "sh-precedence-loses-parens",
       "origin": "wf10/selfhost/SH1",
       "file": "compiler/format/span.ergo",
-      "from": "case \"*\", \"/\", \"%\", \"<<\", \">>\", \"&\", \"&^\":",
-      "to": "case \"*\", \"/\", \"<<\", \">>\", \"&\", \"&^\":",
+      "from": "n == syntax.Rem || ",
+      "to": "",
       "rule": "The precedence table is syntax.Token.Precedence: % binds at level 5, which decides the blanks around it (gofmt's cutoff).",
       "killers": [
         "internal/selfhostcheck:TestSelfhostFormatAgrees"
@@ -192,8 +115,8 @@
       "name": "sh-clause-comment-joins-next",
       "origin": "wf10/selfhost/SH1",
       "file": "compiler/format/comments.ergo",
-      "from": "p.ln(p.CSlash[p.Ci])-p.ln(p.LastEnd) >= 2 {",
-      "to": "p.ln(p.CSlash[p.Ci])-p.ln(p.LastEnd) >= 3 {",
+      "from": "p.ln(p.CSlash[p.Ci])-p.LastEndLine >= 2 {",
+      "to": "p.ln(p.CSlash[p.Ci])-p.LastEndLine >= 3 {",
       "rule": "A comment after a clause's last statement belongs to the next clause when a blank line separates it from the statement.",
       "killers": [
         "internal/selfhostcheck:TestSelfhostFormatAgrees"
@@ -214,8 +137,8 @@
       "name": "sh-forces-break-misses-catch",
       "origin": "wf10/selfhost/SH1",
       "file": "compiler/format/span.ergo",
-      "from": "case \"SwitchStmt\", \"TypeSwitchStmt\", \"CatchExpr\":\n\t\treturn true",
-      "to": "case \"SwitchStmt\", \"TypeSwitchStmt\":\n\t\treturn true",
+      "from": "k == syntax.KTypeSwitchStmt || k == syntax.KCatchExpr {",
+      "to": "k == syntax.KTypeSwitchStmt {",
       "rule": "A catch prints its clauses on lines of their own, so a body that holds one is never on one line.",
       "killers": [
         "internal/selfhostcheck:TestSelfhostFormatAgrees"
@@ -236,8 +159,8 @@
       "name": "sh-number-selector-glues",
       "origin": "wf10/selfhost/SH1",
       "file": "compiler/format/nodes.ergo",
-      "from": "if p.fam(base) == \"BasicLit\" && (p.n(base, \"Kind\") == tokenINT",
-      "to": "if false && (p.n(base, \"Kind\") == tokenINT",
+      "from": "if lk == syntax.Int || lk == syntax.Float {",
+      "to": "if false && lk == syntax.Int {",
       "rule": "A selector on a number literal keeps a blank before the dot, or `0.A` would scan as the number `0.`.",
       "killers": [
         "internal/selfhostcheck:TestSelfhostFormatAgrees"
@@ -268,9 +191,9 @@
     {
       "name": "sh-if-end-ignores-else",
       "origin": "wf10/selfhost/SH1",
-      "file": "compiler/format/span.ergo",
-      "from": "if has(t, id, \"Else\") { endOf(t, kid(t, id, \"Else\")) } else { endOf(t, kid(t, id, \"Body\")) }",
-      "to": "endOf(t, kid(t, id, \"Body\"))",
+      "file": "compiler/syntax/span.ergo",
+      "from": "return if els != uint32(0) { endOf(t, k, els-uint32(1)) } else { endOf(t, k, fixed(t, x, 4, 1)) }",
+      "to": "return if els != uint32(0) { endOf(t, k, fixed(t, x, 4, 1)) } else { endOf(t, k, fixed(t, x, 4, 1)) }",
       "rule": "An if ends where its else ends (syntax.IfStmt.End): an if on one line keeps its blocks on that line.",
       "killers": [
         "internal/selfhostcheck:TestSelfhostFormatAgrees"
@@ -310,23 +233,11 @@
       ]
     },
     {
-      "name": "b18-adapter-drops-law-rewrite",
-      "origin": "batch-18 integration (SH0 x LR1)",
-      "file": "internal/hostsyntax/tree.go",
-      "from": "\t\tsyntax.LawRewrite{}, syntax.Word{},\n",
-      "to": "\t\tsyntax.Word{},\n",
-      "rule": "A struct a family's field points to (LawDecl.Rewrite) is a family: else the encoding is a U document while the Go projection prints it.",
-      "killers": [
-        "internal/hostsyntax:TestFamiliesCoverSyntax",
-        "internal/selfhostcheck:TestSelfhostBridgeAgrees"
-      ]
-    },
-    {
       "name": "b18-format-law-rewrite-as-body",
       "origin": "batch-18 integration (SH1 x LR1)",
       "file": "compiler/format/nodes.ergo",
-      "from": "\tif p.hasK(l, \"Rewrite\") {\n",
-      "to": "\tif false && p.hasK(l, \"Rewrite\") {\n",
+      "from": "\tif x.Rewrite {\n",
+      "to": "\tif false {\n",
       "rule": "A rewrite law prints as `{ lhs } == { rhs }`, as the Go formatter's memberLaw does, not its synthetic Body.",
       "killers": [
         "internal/selfhostcheck:TestSelfhostFormatAgrees"
@@ -336,18 +247,17 @@
       "name": "b18-format-law-rewrite-drops-guard",
       "origin": "batch-18 integration (SH1 x LR1)",
       "file": "compiler/format/nodes.ergo",
-      "from": "\t\tif p.at(r, \"When\") != NoPos {\n",
+      "from": "\t\tif x.When >= 0 {\n",
       "to": "\t\tif false {\n",
       "rule": "A rewrite law's `when R() == C` guard is printed (types.md Laws 14's SepAfterValue fence).",
       "killers": [
         "internal/selfhostcheck:TestSelfhostFormatAgrees"
       ]
     },
-    {"name":"hostsyntax-format-limit-dropped","origin":"wf10/selfhost/S1a","file":"internal/hostsyntax/format.go","from":"format.FormatTree(context.Background(), encode(f), maxBytes)","to":"format.FormatTree(context.Background(), encode(f), 0)","rule":"The facade passes the limit: an output above a positive limit is refused, as format.FileBounded refuses it.","killers":["internal/selfhostcheck:TestSelfhostFormatAgrees"]},
+    {"name":"hostsyntax-format-limit-dropped","origin":"wf10/selfhost/S1a","file":"internal/hostsyntax/format.go","from":"format.FormatSource(context.Background(), src, maxBytes)","to":"format.FormatSource(context.Background(), src, 0)","rule":"The facade passes the limit: an output above a positive limit is refused, as format.FileBounded refuses it.","killers":["internal/selfhostcheck:TestSelfhostFormatAgrees"]},
     {"name":"hostsyntax-format-partial-text","origin":"wf10/selfhost/S1a","file":"internal/hostsyntax/format.go","from":"\t\treturn \"\", &goformat.LimitError{Limit: limit}","to":"\t\treturn out, &goformat.LimitError{Limit: limit}","rule":"A failure returns no text, as format.FileBounded's does.","killers":["internal/selfhostcheck:TestSelfhostFormatAgrees"]},
-    {"name":"sh-implements-dropped","origin":"wf10/selfhost/S1a","file":"compiler/format/nodes.ergo","from":"\t\tif len(implements) > 0 {\n","to":"\t\tif false {\n","rule":"A type's implements clause is printed (types.md, Interface assignability 1).","killers":["internal/selfhostcheck:TestSelfhostFormatAgrees"]},
-    {"name":"sh-own-dropped","origin":"wf10/selfhost/S1a","file":"compiler/format/nodes.ergo","from":"\t\t\tp.token(p.at(p.k(f, \"Own\"), \"At\"), \"own\")\n","to":"","rule":"A parameter's mode word own is printed.","killers":["internal/selfhostcheck:TestSelfhostFormatAgrees"]},
-    {"name":"sh-written-ignored","origin":"wf10/selfhost/S1a","file":"compiler/format/nodes.ergo","from":"\tif len(w) > 0 { w } else { p.ks(arm, patterns) }","to":"\tp.ks(arm, patterns)","rule":"An arm prints its patterns as written: nested alternatives are not expanded.","killers":["internal/selfhostcheck:TestSelfhostFormatAgrees"]},
-    {"name":"sh-members-unsorted","origin":"wf10/selfhost/S1a","file":"compiler/format/nodes.ergo","from":"\t\t\tfor at > 0 && p.start(nodes[at-1]) > p.start(m) {","to":"\t\t\tfor false {","rule":"An operation type's includes, operations and laws print in source order.","killers":["internal/selfhostcheck:TestSelfhostFormatAgrees"]}
+    {"name":"sh-implements-dropped","origin":"wf10/selfhost/S1a","file":"compiler/format/nodes.ergo","from":"\tif len(implements) > 0 {\n","to":"\tif false {\n","rule":"A type's implements clause is printed (types.md, Interface assignability 1).","killers":["internal/selfhostcheck:TestSelfhostFormatAgrees"]},
+    {"name":"sh-own-dropped","origin":"wf10/selfhost/S1a","file":"compiler/format/nodes.ergo","from":"\t\tif f.Own >= 0 {\n\t\t\tp.token(p.tp(f.Own), \"own\")\n\t\t\tp.space()\n\t\t}\n","to":"","rule":"A parameter's mode word own is printed.","killers":["internal/selfhostcheck:TestSelfhostFormatAgrees"]},
+    {"name":"sh-derive-reads-spec","origin":"wf10/selfhost/S2c","file":"compiler/format/nodes.ergo","from":"\tif some(x.Derive) {\n\t\t// As written","to":"\tif false {\n\t\t// As written","rule":"A derived type prints as written, `derive Bundle(…)`: it has no spec to read.","killers":["internal/selfhostcheck:TestSelfhostFormatAgrees"]}
   ]
 }
