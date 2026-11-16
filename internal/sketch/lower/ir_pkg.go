@@ -290,15 +290,15 @@ func goRange(d check.LoopDomain) bool {
 // value, in source order: Go's map literal evaluates them in that order,
 // as the emitter's literal does.
 func (b *irBuilder) mapLit(x *syntax.CompositeLit) []*irExpr {
-	var out []*irExpr
+	var list []syntax.Expr
 	for _, e := range x.Elts {
 		kv, ok := e.(*syntax.KeyValueExpr)
 		if !ok {
 			irNo("Map literal element without a key")
 		}
-		out = append(out, b.expr(kv.Key), b.expr(kv.Value))
+		list = append(list, kv.Key, kv.Value)
 	}
-	return out
+	return b.inOrder(list) // ir_order.go: as the emitter's elements
 }
 
 // admitOps admits a value of a program's operation type: the Go interface
@@ -336,13 +336,10 @@ func (b *irBuilder) opCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*irStm
 	if b.l.runtimeType(n, x) != "" {
 		return b.stdOpCall(x, c, n, p)
 	}
-	if len(rowElems(c.Op.Sig.Errors)) > 0 && !failsHere(c) {
-		irNo("fallible call with an empty row at its site")
-	}
 	pre, vals := b.operands(append([]syntax.Expr{c.Recv}, x.Args...))
 	env := &irExpr{K: "local", Pos: p, I: b.env}
 	args := append([]*irExpr{{K: "field", Pos: p, Name: envTask, X: env}}, vals[1:]...)
-	return pre, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: vals[0], Args: args}, true
+	return pre, b.opResult(c, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: vals[0], Args: args}), true // ir_call.go
 }
 
 // countLoop is the for-in s over a prelude Range[T] of an integer T, as
@@ -377,9 +374,6 @@ func (b *irBuilder) countLoop(s *syntax.RangeStmt, lp *check.Loop) []*irStmt {
 	} else {
 		pre, x = b.value(s.X)
 	}
-	if len(pre) > 0 {
-		irNo("operation call in a range")
-	}
 	r := b.temp("r", b.goType(n, s.X), p)
 	var v int
 	if bound(s.Value) {
@@ -400,7 +394,9 @@ func (b *irBuilder) countLoop(s *syntax.RangeStmt, lp *check.Loop) []*irStmt {
 	}
 	loop := &irStmt{K: "count", Pos: p, Local: v, X: field("Start"), Y: field("End"), End: b.pos(s.Body, s.Body.Rbrace)}
 	b.loopBody(loop, s, s.Body) // ir_stmt.go
-	return []*irStmt{{K: "def", Pos: p, Local: r, X: x}, loop}
+	// The Range's statements run first, once (rangeStmt).
+	loop.Pos = past(loop.Pos, pre) // ir_match.go
+	return append(pre, &irStmt{K: "def", Pos: p, Local: r, X: x}, loop)
 }
 
 // conversion is the conversion x, T(v), as the emitter writes it: a Go
@@ -543,7 +539,7 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 			irNo("std call with a converted operand")
 		}
 	}
-	if goFallible(body) != failsHere(c) {
+	if failsHere(c) && !goFallible(body) || goFallible(body) && !failsHere(c) && isTuple {
 		irNo("fallible call with an empty row at its site")
 	}
 	if !isTuple && goValue(body) && !b.sameGo(b.l.info.Types[x], body.Results[0]) && !b.sameRT(b.l.info.Types[x], body.Results[0], subst) {
@@ -580,6 +576,9 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	if isTuple {
 		tpre, e := b.tdef(call, tuple, x, p) // ir_tuple.go
 		return append(pre, tpre...), e, false
+	}
+	if goFallible(body) && !failsHere(c) {
+		call = b.dropErr(call) // ir_call.go: the row is empty here
 	}
 	return pre, call, !body.Pure
 }
@@ -727,7 +726,7 @@ func (b *irBuilder) stdOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named,
 			irNo("std call with a converted operand")
 		}
 	}
-	if goFallible(body) != failsHere(c) {
+	if failsHere(c) && !goFallible(body) {
 		irNo("fallible call with an empty row at its site")
 	}
 	if goValue(body) && !b.sameGo(b.l.info.Types[x], b.recvTypeArgs(n, body.Results[0])) {
@@ -736,7 +735,11 @@ func (b *irBuilder) stdOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named,
 	hidden := b.hidden(body, x, c, p)
 	pre, vals := b.operands(append([]syntax.Expr{c.Recv}, x.Args...))
 	pre = append(pre, b.adaptOperands(body.Params, x.Args, vals, 1, p)...) // ir_adapt.go
-	return pre, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: vals[0], Args: append(hidden, vals[1:]...)}, !body.Pure
+	e := &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: vals[0], Args: append(hidden, vals[1:]...)}
+	if goFallible(body) && !failsHere(c) {
+		e = b.dropErr(e) // ir_call.go: the row is empty here
+	}
+	return pre, e, !body.Pure
 }
 
 // recvTypeArgs is the Go type s of a runtime method of n's Go type with

@@ -2,8 +2,11 @@ package irspike
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -78,40 +81,107 @@ func TestIRContinuePolls(t *testing.T) {
 // TestIROrderMatchesSource is the agreement property over GenerateOrder
 // (F7 GP): each program prints, exits and fails the same on both paths,
 // and the run gives IR bodies to functions with a continue in a polling
-// loop. A failing seed prints the Ergo source, both outcomes and its
+// loop, with operation calls inside an expression, in a condition and in
+// a range, and with each form of orderForms: seed s's function forced is
+// an IR body of form s mod len(orderForms), and the test's forms and the
+// generator's schedule are the same set. A failing seed prints the Ergo source, both outcomes and its
 // replay command. It builds Go because the question is what the compiled
 // program does: the order of effects, polls and defects.
 func TestIROrderMatchesSource(t *testing.T) {
 	src, ir := needsBuild(t)
-	first, count := envInt("ERGO_IRSPIKE_SEED", 1), envInt("ERGO_IRSPIKE_SEEDS", 12)
-	continued := 0
+	first, count := envInt("ERGO_IRSPIKE_SEED", 1), envInt("ERGO_IRSPIKE_SEEDS", 24)
+	// Every form the test asks for is in GenerateOrder's schedule, and
+	// every scheduled form is one it asks for.
+	for _, f := range orderForms {
+		if orderFormRes[f.name] == nil {
+			t.Fatalf("GenerateOrder schedules %q, which the test does not check", f.name)
+		}
+	}
+	for name := range orderFormRes {
+		if !slices.ContainsFunc(orderForms, func(f orderForm) bool { return f.name == name }) {
+			t.Fatalf("GenerateOrder's schedule has no %q", name)
+		}
+	}
+	seen := map[string]int{}
+	gated := 0
 	for seed := first; seed < first+count; seed++ {
 		u, text, dir := orderProgram(t, seed)
 		sb, ib, rep := both(t, u, src, ir, dir, BuildOptions{})
 		a, b := run(t, sb), run(t, ib)
+		replay := fmt.Sprintf("replay: ERGO_IRSPIKE_SEED=%d ERGO_IRSPIKE_SEEDS=1 go test -run TestIROrderMatchesSource ./internal/experimental/irspike", seed)
 		if a != b {
-			t.Fatalf("seed %d: the paths differ\nsource: %+v\nir:     %+v\nreplay: ERGO_IRSPIKE_SEED=%d ERGO_IRSPIKE_SEEDS=1 go test -run TestIROrderMatchesSource ./internal/experimental/irspike\n%s", seed, a, b, seed, text)
+			t.Fatalf("seed %d: the paths differ\nsource: %+v\nir:     %+v\n%s\n%s", seed, a, b, replay, text)
+		}
+		// The seed's forced function is an IR body of its form.
+		want := OrderFormName(uint64(seed))
+		// settle's result holds the prelude's Never (orderDecls); a
+		// program that calls settled lowers both.
+		if strings.Contains(text, "settled(tr(") && (!slices.Contains(rep.IR, "settle") || !slices.Contains(rep.IR, "settled")) {
+			t.Fatalf("seed %d: settle and settled are not IR bodies (IR %v)\n%s\n%s", seed, rep.IR, replay, text)
+		}
+		if !slices.Contains(rep.IR, "forced") || !orderFormRes[want].MatchString(bodyOf(text, "forced")) {
+			t.Fatalf("seed %d: forced is not an IR body with %s (IR %v)\n%s\n%s", seed, want, rep.IR, replay, text)
 		}
 		for _, name := range rep.IR {
-			if bodyHas(text, name, "continue") {
-				continued++
+			for form, re := range orderFormRes {
+				if re.MatchString(bodyOf(text, name)) {
+					seen[form]++
+				}
+			}
+			if name == "gate" && gateTails.MatchString(bodyOf(text, name)) {
+				gated++
 			}
 		}
 	}
-	if count >= 12 && continued == 0 {
-		t.Fatal("no IR body has a continue")
+	var missing []string
+	for form := range orderFormRes {
+		if seen[form] == 0 {
+			missing = append(missing, form)
+		}
 	}
+	if count >= uint64(len(orderForms)) && (len(missing) > 0 || gated == 0) {
+		slices.Sort(missing)
+		t.Fatalf("the run did not reach IR bodies with: %v (gate's failing branch tails: %d)", missing, gated)
+	}
+}
+
+// orderFormRes are GenerateOrder's forms (orderForms), as each reads in
+// a body.
+var orderFormRes = map[string]*regexp.Regexp{
+	"continue":                                 regexp.MustCompile(`\n\s+continue\n`),
+	"call inside an expression":                regexp.MustCompile(`[ (-]tr\(`),
+	"short-circuit operand with a call":        regexp.MustCompile(` > 0 && tr\(`),
+	"step that gives no output":                regexp.MustCompile(`settled\(tr\(`),
+	"for-in over a call":                       regexp.MustCompile(`in span\(`),
+	"loop condition with a call":               regexp.MustCompile(`< tr\(`),
+	"try of a non-call":                        regexp.MustCompile(`try chk\([^\n]*\) \* 2 \+ chk\(`),
+	"try inside an expression":                 regexp.MustCompile(`[(\[{-]\(?try chk\(`),
+	"catch arm that continues":                 regexp.MustCompile(`case E1:\n\s+continue\n`),
+	"catch arm whose value is an if":           regexp.MustCompile(`case E\d as x:\n\s+if `),
+	"positional record literal":                regexp.MustCompile(`Pt\{[^:}]*\}`),
+	"fallible call with an empty row":          regexp.MustCompile(`app\([^\n]*, func\(n int\) int \{`),
+	"call of gate":                             regexp.MustCompile(`try gate\(`),
+	"catch of a match":                         regexp.MustCompile(`\tcase _:\n[^\n]*\n\s*\} catch \{`),
+	"op-assignment of a value with statements": regexp.MustCompile(` \+= if tr\(`),
+}
+
+// gateTails is gate's body (orderDecls): a branch tail that fails a body
+// with no value.
+var gateTails = regexp.MustCompile(`\n\t\tE1\{Code: n\}\n\t\} else if`)
+
+// bodyOf is function name's body in text.
+func bodyOf(text, name string) string {
+	_, rest, ok := strings.Cut(text, "func "+name+"(")
+	if !ok {
+		return ""
+	}
+	body, _, _ := strings.Cut(rest, "\n}\n")
+	return body
 }
 
 // bodyHas reports that function name's body in text contains s.
 func bodyHas(text, name, s string) bool {
-	_, rest, ok := strings.Cut(text, "func "+name+"(")
-	if !ok {
-		return false
-	}
-	body, _, _ := strings.Cut(rest, "\n}\n")
-	_, _, has := strings.Cut(body, s)
-	return has
+	return strings.Contains(bodyOf(text, name), s)
 }
 
 // hasBackEdgePoll reports a loop in body whose last statement is a poll.

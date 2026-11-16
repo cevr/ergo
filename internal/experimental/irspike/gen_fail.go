@@ -49,8 +49,11 @@ type fgen struct {
 	cur    ffunc
 	locals []string
 	mut    int
-	// order adds GenerateOrder's statements (gen_f7g.go).
-	order bool
+	// order adds GenerateOrder's statements (gen_f7g.go); forced holds the
+	// sub-choices of the form the seed's forced function writes (sub).
+	order  bool
+	force  int
+	forced map[string]int
 }
 
 func (g *fgen) n(k int) int { return g.r.IntN(k) }
@@ -69,6 +72,9 @@ func (g *fgen) program() string {
 	nf := 4 + g.n(5)
 	for i := 0; i < nf; i++ {
 		g.function(i)
+	}
+	if g.order {
+		g.forcedFunction() // gen_f7g.go
 	}
 	g.main()
 	return g.b.String()

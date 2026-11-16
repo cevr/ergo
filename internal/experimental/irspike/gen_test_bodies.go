@@ -8,13 +8,13 @@ import (
 
 // testBodies is the number of tests GenerateTests writes: each gets an IR
 // body in every seed (G6).
-const testBodies = 9
+const testBodies = 10
 
 // GenerateTests is a program of test declarations (G6): asserts whose
 // failure shows its operands (a comparison of ints, of strings, of a
 // multi-line string, which adds a line diff, and of bools), asserts that
 // show only their source text (a call, a comparison of two constants), a
-// test whose try passes a failure on, a property test of a seed, and a
+// test whose try passes a failure on, an assert that a try starts, a property test of a seed, and a
 // test that calls a function value. The seed decides which asserts hold,
 // so a run reports passes and failures with their texts.
 func GenerateTests(seed uint64) string {
@@ -41,6 +41,10 @@ func GenerateTests(seed uint64) string {
 	b.WriteString("func raw() string {\n\t\"\\xff\"\n}\n\n")
 	b.WriteString("test Constants {\n\tassert 1 < 2\n\tassert scale(0) == 0\n\tlet r = raw()\n\tassert len(r) == 1\n}\n\n")
 	fmt.Fprintf(&b, "test Passed {\n\tlet v = try check(%d)\n\tassert v > 0\n}\n\n", r.IntN(7))
+	// A try that starts a shown assert covers the comparison: a failure
+	// fails the test, else the operands show (FLIP F7 GP).
+	y := r.IntN(7)
+	fmt.Fprintf(&b, "test Tried {\n\tassert try check(%d) == %s\n}\n\n", y, pick(fmt.Sprint(y+1), fmt.Sprint(y+2)))
 	fmt.Fprintf(&b, "test Caught {\n\tlet v = check(%d) catch {\n\tcase Bad as e:\n\t\t0 - e.N\n\t}\n\tassert v %s 0\n}\n\n", r.IntN(7), pick(">", "<"))
 	fmt.Fprintf(&b, "test Holds(seed int) {\n\tlet n = seed %% 50\n\tassert scale(n) %s n * %d\n}\n\n", pick("==", "!="), k)
 	fmt.Fprintf(&b, "test Values {\n\tlet f = func(a int) int { a + %d }\n\tlet mut s = 0\n\tfor i in []int{1, 2, 3} {\n\t\tlet v = f(i)\n\t\ts = s + v\n\t}\n\tassert s == %s\n}\n\n", k, pick(fmt.Sprint(6+3*k), fmt.Sprint(7+3*k)))
