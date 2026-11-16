@@ -274,6 +274,10 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		var out []*irStmt
 		for _, spec := range s.Decl.Specs {
 			if spec.Pattern != nil || len(spec.Names) != 1 || len(spec.Values) != 1 {
+				if tl, ok := b.letTuple(spec, b.pos(s.Decl, s.Decl.Pos())); ok {
+					out = append(out, tl...) // ir_tuple.go
+					continue
+				}
 				irNo("let pattern")
 			}
 			id := spec.Names[0]

@@ -420,8 +420,18 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	if _, bound := runtimeBindings()[name]; !bound {
 		irNo("std call with no runtime binding")
 	}
-	if _, tuple := b.l.info.Types[x].(*check.Tuple); tuple {
-		irNo("std call with an adapted result")
+	tuple, isTuple := b.l.info.Types[x].(*check.Tuple)
+	if isTuple {
+		// A body with Go's several results, one per element, is bound by
+		// a tdef (ir_tuple.go, F4b: bits.Add64); any other is adapted.
+		if goFallible(body) || len(tuple.Types) < 2 || len(body.Results) != len(tuple.Types) {
+			irNo("std call with an adapted result")
+		}
+		for i, r := range body.Results {
+			if !b.sameGo(tuple.Types[i], r) {
+				irNo("std call with a converted result")
+			}
+		}
 	}
 	// A generic body's instance (F1): each Go type parameter takes the
 	// call's type argument for the Ergo type parameter of its name, as the
@@ -441,7 +451,7 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	if goFallible(body) != failsHere(c) {
 		irNo("fallible call with an empty row at its site")
 	}
-	if goValue(body) && !b.sameGo(b.l.info.Types[x], body.Results[0]) && !b.sameRT(b.l.info.Types[x], body.Results[0], subst) {
+	if !isTuple && goValue(body) && !b.sameGo(b.l.info.Types[x], body.Results[0]) && !b.sameRT(b.l.info.Types[x], body.Results[0], subst) {
 		irNo("std call with a converted result")
 	}
 	hidden := b.hidden(body, x, c, p)
@@ -463,7 +473,12 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	if pkg == "" {
 		pkg = runtimeImport
 	}
-	return pre, &irExpr{K: "pcall", Pos: p, T: pkg, Name: name, V: targs, Args: append(hidden, args...)}, !body.Pure
+	call := &irExpr{K: "pcall", Pos: p, T: pkg, Name: name, V: targs, Args: append(hidden, args...)}
+	if isTuple {
+		tpre, e := b.tdef(call, tuple, x, p) // ir_tuple.go
+		return append(pre, tpre...), e, false
+	}
+	return pre, call, !body.Pure
 }
 
 // stdTypeArgs is the IR type argument list of the call x of a generic std

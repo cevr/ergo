@@ -43,6 +43,9 @@ func (b *irBuilder) value(x syntax.Expr) ([]*irStmt, *irExpr) {
 		pre, e = b.matchValue(y) // ir_match.go
 	case *syntax.TryExpr, *syntax.CatchExpr:
 		pre, e = b.failValue(y) // ir_fail.go
+	case *syntax.TupleExpr:
+		b.plain(y)
+		pre, e = b.tupleValue(y) // ir_tuple.go
 	case *syntax.Ident:
 		sc := b.scalarIdent(y)
 		if sc == nil {
@@ -231,6 +234,16 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		return lit
 	case *syntax.InterpolatedString:
 		return b.text(x, p)
+	case *syntax.TupleExpr:
+		tt, ok := t.(*check.Tuple)
+		if !ok || len(tt.Types) != len(x.Elts) || len(tt.Types) < 2 {
+			irNo("type *check.Tuple")
+		}
+		vals := make([]*irExpr, len(x.Elts))
+		for i, e := range x.Elts {
+			vals[i] = b.expr(e)
+		}
+		return b.tupleLit(tt, vals, x, p) // ir_tuple.go
 	case *syntax.FuncLit:
 		return b.closureLit(x, nil) // ir_closure.go
 	case *syntax.CallExpr:

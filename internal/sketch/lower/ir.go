@@ -282,6 +282,9 @@ type irStmt struct {
 	// Y is a "count" loop's bound (ir_pkg.go countLoop), or a store's
 	// value: X = Y, X a field (ir_with.go).
 	Y *irExpr `json:"y,omitempty"`
+	// Ls are a "tdef"'s locals, one per result of its Go call, in order:
+	// l0, l1, … := X (ir_tuple.go).
+	Ls []int `json:"ls,omitempty"`
 }
 
 type irExpr struct {
