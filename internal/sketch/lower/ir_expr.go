@@ -130,7 +130,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		switch o := b.l.info.Uses[x].(type) {
 		case *check.Var:
 			if i, known := b.locals[o]; known {
-				return &irExpr{K: "local", Pos: p, I: i}
+				return b.handoff(x, &irExpr{K: "local", Pos: p, I: i}) // ir_own.go
 			}
 			if b.scalars[o] != nil {
 				// Its gather writes statements: a value (ir_scalar.go).

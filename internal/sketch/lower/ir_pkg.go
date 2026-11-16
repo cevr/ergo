@@ -84,8 +84,15 @@ func (b *irBuilder) spelling(s string) string {
 		case strings.Contains(s[i:j], "."):
 			// The whole Go type keeps the import used: a generic type
 			// (ergo.Ref) is no type without its arguments. A path that
-			// is its own name (time) needs it too.
-			b.keepImport("var _ " + s)
+			// is its own name (time) needs it too. A runtime instance
+			// keeps it by Site: its arguments may name a type parameter
+			// of a generic body (F1 × F2: arena's *Of[T].Get), which is
+			// no type at main.go's top level.
+			if strings.Contains(s, "[") && strings.HasPrefix(s[i:j], b.l.rt()+".") {
+				b.keepImport("var _ " + b.l.rt() + ".Site")
+			} else {
+				b.keepImport("var _ " + s)
+			}
 		}
 		out.WriteString(q)
 		i = j

@@ -1259,7 +1259,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		for _, g := range []struct {
 			on     bool
 			reason string
-		}{{known, "known-callback variant"}, {sp != nil, "copy for a known record"}, {drop, "variant with no result"}, {isClose(f), "checked Close (closeBody masks it)"}, {owned, "owned parameters"}, {needsFrame, "body that needs a frame"}} {
+		}{{known, "known-callback variant"}, {sp != nil, "copy for a known record"}, {drop, "variant with no result"}, {isClose(f), "checked Close (closeBody masks it)"}, {owned, "owned parameters"}, {needsFrame && !irStaticFrame(fc, fd.fallible), "body that needs a frame"}} {
 			if g.on {
 				gates = append(gates, g.reason)
 			}
