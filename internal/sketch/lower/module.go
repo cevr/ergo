@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"go/constant"
 	"go/format"
-	"go/scanner"
-	"go/token"
 	"maps"
 	"path"
 	"slices"
@@ -764,67 +762,6 @@ func (l *lowerer) fillInitSlot(entry string) string {
 		call = "\t\t" + l.pkgName(pkgKey{"init", nil}, "ergoInit") + "(" + l.initEnvArg + ")\n"
 	}
 	return strings.Replace(entry, initSlotLine, call, 1)
-}
-
-// anchorLines maps every Go line after a //line directive to that directive.
-// Go counts the lines that follow a //line directive on from it, so a
-// statement go/format spreads over several Go lines (an anonymous struct
-// type, a long literal) would name later .ergo lines, and so would the
-// lines after an inline site directive (atSite). Each Go line that does not
-// directly follow a //line directive gets that directive again, inline,
-// before its first token, so a Go line names its own statement and an
-// inline directive holds for the rest of its line only (stage C round 2
-// review m3). A line inside a raw string or a block comment, and a line
-// that starts with a comment, is left as it is.
-func anchorLines(src []byte) []byte {
-	fset := token.NewFileSet()
-	file := fset.AddFile("", -1, len(src))
-	var s scanner.Scanner
-	s.Init(file, src, nil, scanner.ScanComments)
-	type insert struct {
-		at   int
-		text string
-	}
-	var inserts []insert
-	cur, curLine, lastLine := "", 0, 0
-	for {
-		pos, tok, lit := s.Scan()
-		if tok == token.EOF {
-			break
-		}
-		p := file.PositionFor(pos, false)
-		first := p.Line != lastLine
-		lastLine = p.Line
-		if tok == token.STRING || tok == token.COMMENT {
-			// A raw string or a block comment may span lines. (An implied
-			// semicolon's text is a line feed, but it ends its own line.)
-			lastLine += strings.Count(lit, "\n")
-		}
-		switch {
-		case tok == token.COMMENT && strings.HasPrefix(lit, "//line "):
-			cur, curLine = lit[len("//line "):], p.Line
-		case !first || tok == token.COMMENT || tok == token.SEMICOLON || cur == "" || p.Line == curLine+1:
-		default:
-			inserts = append(inserts, insert{p.Offset, "/*line " + cur + "*/"})
-		}
-	}
-	if len(inserts) == 0 {
-		return src
-	}
-	size := len(src)
-	for _, in := range inserts {
-		size += len(in.text)
-	}
-	// One array of the final size, returned as it is (SL9b: a growing
-	// builder and its copy were most of this pass's bytes).
-	b := make([]byte, 0, size)
-	prev := 0
-	for _, in := range inserts {
-		b = append(b, src[prev:in.at]...)
-		b = append(b, in.text...)
-		prev = in.at
-	}
-	return append(b, src[prev:]...)
 }
 
 // rt is the runtime package's name in main.go.
