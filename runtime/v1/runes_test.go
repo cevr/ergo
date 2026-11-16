@@ -77,9 +77,6 @@ func TestStdRunesMatchGo(t *testing.T) {
 			t.Fatalf("case %d: DecodeRuneInString(%q) = %#v; Go %q %d", i, s, d, gr, gn)
 		}
 		repl := []string{"\uFFFD", "", "?", "\xff"}[r.IntN(4)]
-		if got, want := StringsToValidUTF8(s, repl), strings.ToValidUTF8(s, repl); got != want {
-			t.Fatalf("case %d: ToValidUTF8(%q, %q) = %q; Go %q", i, s, repl, got, want)
-		}
 		c := anyRune(r)
 		if UTF8RuneText(c) != string(c) || UTF8RuneLen(c) != utf8.RuneLen(c) {
 			t.Fatalf("case %d: rune %d: RuneText %q, RuneLen %d", i, c, UTF8RuneText(c), UTF8RuneLen(c))
@@ -87,11 +84,6 @@ func TestStdRunesMatchGo(t *testing.T) {
 		prefix := []byte(s)
 		if got, want := UTF8AppendRune(prefix[:len(prefix):len(prefix)], c), utf8.AppendRune([]byte(s), c); string(got) != string(want) {
 			t.Fatalf("case %d: AppendRune(%q, %d) = %q; Go %q", i, s, c, got, want)
-		}
-		n := int64(r.Uint64())
-		base := 2 + r.IntN(35)
-		if got := StrconvFormatInt(n, base); got != strconv.FormatInt(n, base) {
-			t.Fatalf("case %d: FormatInt(%d, %d) = %q", i, n, base, got)
 		}
 		f, g := anyFloat(r), anyFloat(r)
 		same := func(name string, got, want float64) {
@@ -103,12 +95,6 @@ func TestStdRunesMatchGo(t *testing.T) {
 		same("Max", CmpMax(f, g), max(f, g))
 		same("Min", CmpMin(f, g), min(f, g))
 		cut := runeText(r)
-		if got, want := StringsTrimLeft(s, cut), strings.TrimLeft(s, cut); got != want {
-			t.Fatalf("case %d: TrimLeft(%q, %q) = %q; Go %q", i, s, cut, got, want)
-		}
-		if got, want := StringsTrimRight(s, cut), strings.TrimRight(s, cut); got != want {
-			t.Fatalf("case %d: TrimRight(%q, %q) = %q; Go %q", i, s, cut, got, want)
-		}
 		var gb strings.Builder
 		var eb []byte
 		for _, part := range []string{s, cut, repl} {
@@ -197,13 +183,13 @@ var runesLaws = map[string]func(r *rand.Rand) (bool, any){
 	},
 	"strings ToValidUTF8IsValid": func(r *rand.Rand) (bool, any) {
 		s := runeText(r)
-		v := StringsToValidUTF8(s, "\uFFFD")
-		return utf8.ValidString(v) && (!utf8.ValidString(s) || v == s) && (utf8.ValidString(s) || StringsContains(v, "\uFFFD")), s
+		v := strings.ToValidUTF8(s, "\uFFFD")
+		return utf8.ValidString(v) && (!utf8.ValidString(s) || v == s) && (utf8.ValidString(s) || strings.Contains(v, "\uFFFD")), s
 	},
 	"strconv ParseIntInvertsFormatInt": func(r *rand.Rand) (bool, any) {
 		n, b := int64(r.Uint64()), int(r.Int64())
 		base := 2 + (b%35+35)%35
-		back, err := StrconvParseInt(StrconvFormatInt(n, base), base, 64)
+		back, err := StrconvParseInt(strconv.FormatInt(n, base), base, 64)
 		return err == nil && back == n, []any{n, base}
 	},
 	"math FloorCeilBracket": func(r *rand.Rand) (bool, any) {

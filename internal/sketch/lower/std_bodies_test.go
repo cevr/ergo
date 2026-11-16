@@ -19,7 +19,8 @@ import (
 // bodyCase is one moved function: an Ergo function of the parameters
 // params that prints the new std function's answer, and per input the
 // Ergo arguments and the old body's answer, printed the same way. decls
-// are Ergo declarations the call needs (a helper), written once per text.
+// are Ergo declarations the call uses: helpers set apart by a blank
+// line, each written once.
 type bodyCase struct {
 	name    string // the std function, as package.Name
 	imports []string
@@ -75,9 +76,11 @@ func bodyProgram(cases []bodyCase) string {
 	}
 	decls := map[string]bool{}
 	for _, c := range cases {
-		if c.decls != "" && !decls[c.decls] {
-			decls[c.decls] = true
-			b.WriteString("\n" + c.decls + "\n")
+		for _, d := range strings.Split(c.decls, "\n\n") {
+			if d != "" && !decls[d] {
+				decls[d] = true
+				b.WriteString("\n" + d + "\n")
+			}
 		}
 	}
 	for i, c := range cases {

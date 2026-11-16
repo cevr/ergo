@@ -64,7 +64,7 @@ func TestFilepathLaws(t *testing.T) {
 			return b == "/" || FilepathSplit(b).Dir == ""
 		},
 		"ExtIsSuffixOfBase": func(p, _ string) bool {
-			return StringsHasSuffix(FilepathBase(p), FilepathExt(p))
+			return strings.HasSuffix(FilepathBase(p), FilepathExt(p))
 		},
 		"ExtIsTheExtOfBase": func(p, _ string) bool {
 			if FilepathSplit(p).File == "" {

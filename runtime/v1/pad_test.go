@@ -31,7 +31,7 @@ var padLaws = map[string]func(r *rand.Rand) (bool, any){
 		if r.IntN(4) == 0 {
 			b = a
 		}
-		return StringsCompare(a, b) == -StringsCompare(b, a) && (StringsCompare(a, b) == 0) == (a == b), []any{a, b}
+		return strings.Compare(a, b) == -strings.Compare(b, a) && (strings.Compare(a, b) == 0) == (a == b), []any{a, b}
 	},
 }
 
@@ -80,10 +80,6 @@ func TestStdPadMatchesGo(t *testing.T) {
 		}
 		if got := StringsPadRight(s, w, ' '); got != right {
 			t.Fatalf("case %d: PadRight(%q, %d, ' ') = %q; want %q", i, s, w, got, right)
-		}
-		u := runeText(r)
-		if got, want := StringsCompare(s, u), strings.Compare(s, u); got != want {
-			t.Fatalf("case %d: Compare(%q, %q) = %d; Go %d", i, s, u, got, want)
 		}
 	}
 }
