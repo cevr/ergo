@@ -28,12 +28,22 @@ func Select[E](f *Frame[E], label string, options []string, selected string, on 
 }
 
 // choose writes a choice of role group (RadioGroup or ListBox) and takes
-// its keys.
+// its keys while the focus is in it (OnFocusKey, UC-FOCUS): a press on an
+// option puts it there, so of two choices on a screen the arrows move the
+// one last pressed.
 func choose[E](f *Frame[E], group Role, label string, options []string, selected string, on own func(v string) E, at CallSite) {
 	let radio = group == RadioGroup
 	let mut g = Named(group, label)
 	g.Value = Some{Value: selected}
 	Semantic(f, g, None, Plain(), func() {
+		OnFocusKey(f, func(k KeyPress) Option[E] {
+			match picked(options, selected, k.Name, radio) {
+			case Some[string] as v:
+				Some{Value: on(v.Value)}
+			case None:
+				None
+			}
+		})
 		Each(f, options, func(o string) Key { ByText(o) }) func(o string) {
 			let mut a = Named(ListOption, o)
 			if radio {
@@ -47,14 +57,6 @@ func choose[E](f *Frame[E], group Role, label string, options []string, selected
 			}
 		}
 	}, at)
-	OnKey(f, func(k KeyPress) Option[E] {
-		match picked(options, selected, k.Name, radio) {
-		case Some[string] as v:
-			Some{Value: on(v.Value)}
-		case None:
-			None
-		}
-	})
 }
 
 // picked is the option the key named key picks in options from selected,
@@ -183,7 +185,8 @@ func choiceWalk[D, F](h *TestHost[int, int, D, F], key string, steps int, by int
 // groups and list boxes of 3 to 6 options, from a drawn selection: the
 // group announces its selection (its Value) and exactly the selected
 // option says so (Checked for a radio, Selected for an option), found by
-// role and name and by label; Home and End reach the ends; ArrowDown
+// role and name and by label; once a press on the selected option puts
+// the focus in the choice, Home and End reach the ends; ArrowDown
 // walks from the first option to the last and ArrowUp back, one option
 // per press; past the last option a radio group wraps to the first and a
 // list box stays, and before the first a radio group wraps to the last
@@ -210,7 +213,16 @@ law ChoiceIsAnnouncedAndReachable(n int, from int, to int, radio bool) {
 		case BadPatch:
 			return false
 		}
-		if !choiceShown(&h, k, start, radio) || !choiceKey(&h, "Home") || StateOf(&h) != 0 || !choiceShown(&h, k, 0, radio) {
+		if !choiceShown(&h, k, start, radio) {
+			return false
+		}
+		// The keys reach the choice once the focus is in it: a press on its
+		// selected option (UC-FOCUS).
+		Play(&h, []Act{ClickOn{At: WithLabel{Label: options[start]}}}) catch {
+		case _:
+			return false
+		}
+		if StateOf(&h) != start || !choiceKey(&h, "Home") || StateOf(&h) != 0 || !choiceShown(&h, k, 0, radio) {
 			return false
 		}
 		if !choiceWalk(&h, "ArrowDown", k-1, 1) || !choiceShown(&h, k, k-1, radio) {
@@ -239,5 +251,139 @@ law ChoiceIsAnnouncedAndReachable(n int, from int, to int, radio bool) {
 			return false
 		}
 		StateOf(&h) == other && choiceShown(&h, k, other, radio)
+	}
+}
+
+// namedOptions is the options "<p>0" to "<p><n-1>". (a law's helper)
+func namedOptions(p string, n int) []string {
+	let mut out = []string{}
+	for i in 0..n {
+		out = out.Append("\(p)\(i)")
+	}
+	out
+}
+
+// twoChoices is a screen of two choices, "first" over oa and "second"
+// over ob, each a radio group (ra, rb) or a list box, and a button
+// "elsewhere"; the state is the first's selection times 10 plus the
+// second's. (a law's helper)
+func twoChoices(f *Frame[int], s int, oa []string, ob []string, ra bool, rb bool) {
+	let a = s / 10
+	let b = s % 10
+	Column(f, Plain()) {
+		let onA = func(v string) int { choiceIndex(oa, v)*10 + b }
+		let onB = func(v string) int { a*10 + choiceIndex(ob, v) }
+		if ra {
+			Radios(f, "first", oa, oa[a], onA)
+		} else {
+			Select(f, "first", oa, oa[a], onA)
+		}
+		if rb {
+			Radios(f, "second", ob, ob[b], onB)
+		} else {
+			Select(f, "second", ob, ob[b], onB)
+		}
+		Pressable(f, "elsewhere", s) {
+			Text(f, "away")
+		}
+	}
+}
+
+// choiceKeys is the keys ChoicesTakeKeysWhenFocused presses. (a law's helper)
+func choiceKeys() []string {
+	[]string{"ArrowDown", "ArrowUp", "ArrowRight", "ArrowLeft", "Home", "End", "x"}
+}
+
+// modelPick is the model's index after key on a choice of n options at
+// index at: Home and End go to the ends; ArrowDown (and a radio group's
+// ArrowRight) goes one on, ArrowUp (and ArrowLeft) one back, round for a
+// radio group (wrap) and stopping at the ends for a list box; another key
+// stays. (a law's helper)
+func modelPick(n int, at int, key string, wrap bool) int {
+	if key == "Home" {
+		return 0
+	}
+	if key == "End" {
+		return n - 1
+	}
+	if key == "ArrowDown" || (key == "ArrowRight" && wrap) {
+		return if at+1 < n { at + 1 } else if wrap { 0 } else { n - 1 }
+	}
+	if key == "ArrowUp" || (key == "ArrowLeft" && wrap) {
+		return if at > 0 { at - 1 } else if wrap { n - 1 } else { 0 }
+	}
+	at
+}
+
+// ChoicesTakeKeysWhenFocused (UC-FOCUS): two choices on one screen, each
+// a radio group or a list box as drawn, and a button. Over drawn presses
+// of an option of either choice or of the button, and drawn keys, a key
+// moves only the choice the focus is in, as the model's modelPick does: the one whose
+// option was pressed last, and none before any press or after a press on
+// the button. The other choice keeps its selection. Each run opens with a
+// key before any press (it moves nothing), a press on the second choice's
+// selected option, and a key.
+law ChoicesTakeKeysWhenFocused(seed int, steps int) {
+	let mut r = seeded(seed)
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let oa = namedOptions("a", draw(&r, 4)+3)
+		let ob = namedOptions("b", draw(&r, 4)+3)
+		let ra = draw(&r, 2) == 0
+		let rb = draw(&r, 2) == 0
+		let mut a = draw(&r, len(oa))
+		let mut b = draw(&r, len(ob))
+		let view = func(f *Frame[int], s int) { twoChoices(f, s, oa, ob, ra, rb) }
+		let start = a*10 + b
+		let app = actor.StartMachine(Machine[int, int, int]{Initial: start, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {})
+		let mut h = NewTestHost(app, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		// focus: 0 none, 1 the first choice, 2 the second.
+		let mut focus = 0
+		let keys = choiceKeys()
+		let mut acts = []int{3 + draw(&r, len(keys)), 1, 3 + draw(&r, len(keys))}
+		for _ in 0..(steps%8+8)%8+6 {
+			acts = acts.Append(draw(&r, 3+len(keys)))
+		}
+		for i, act in acts {
+			if act == 0 || act == 1 {
+				let opts = if act == 0 { oa } else { ob }
+				// The run's first press is on the second choice's selected option.
+				let j = if i == 1 { b } else { draw(&r, len(opts)) }
+				Play(&h, []Act{ClickOn{At: WithLabel{Label: opts[j]}}}) catch {
+				case _:
+					return false
+				}
+				if act == 0 {
+					a = j
+					focus = 1
+				} else {
+					b = j
+					focus = 2
+				}
+			} else if act == 2 {
+				Play(&h, []Act{ClickOn{At: WithLabel{Label: "elsewhere"}}}) catch {
+				case _:
+					return false
+				}
+				focus = 0
+			} else {
+				let key = keys[act-3]
+				if !choiceKey(&h, key) {
+					return false
+				}
+				if focus == 1 {
+					a = modelPick(len(oa), a, key, ra)
+				} else if focus == 2 {
+					b = modelPick(len(ob), b, key, rb)
+				}
+			}
+			if StateOf(&h) != a*10+b {
+				return false
+			}
+		}
+		true
 	}
 }

@@ -4242,7 +4242,16 @@ func lawChoiceIsAnnouncedAndReachable(n int, from int, to int, radio bool) bool 
 		case ui.BadPatch:
 			return false
 		}
-		if !choiceShown(&h, k, start, radio) || !choiceKey(&h, "Home") || ui.StateOf(&h) != 0 || !choiceShown(&h, k, 0, radio) {
+		if !choiceShown(&h, k, start, radio) {
+			return false
+		}
+		// The keys reach the choice once the focus is in it: a press on its
+		// selected option (UC-FOCUS).
+		ui.Play(&h, []ui.Act{ui.ClickOn{At: ui.WithLabel{Label: options[start]}}}) catch {
+		case _:
+			return false
+		}
+		if ui.StateOf(&h) != start || !choiceKey(&h, "Home") || ui.StateOf(&h) != 0 || !choiceShown(&h, k, 0, radio) {
 			return false
 		}
 		if !choiceWalk(&h, "ArrowDown", k-1, 1) || !choiceShown(&h, k, k-1, radio) {
@@ -4271,6 +4280,71 @@ func lawChoiceIsAnnouncedAndReachable(n int, from int, to int, radio bool) bool 
 			return false
 		}
 		ui.StateOf(&h) == other && choiceShown(&h, k, other, radio)
+	}
+}
+
+func lawChoicesTakeKeysWhenFocused(seed int, steps int) bool {
+	let mut r = seeded(seed)
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let oa = namedOptions("a", draw(&r, 4)+3)
+		let ob = namedOptions("b", draw(&r, 4)+3)
+		let ra = draw(&r, 2) == 0
+		let rb = draw(&r, 2) == 0
+		let mut a = draw(&r, len(oa))
+		let mut b = draw(&r, len(ob))
+		let view = func(f *ui.Frame[int], s int) { twoChoices(f, s, oa, ob, ra, rb) }
+		let start = a*10 + b
+		let app = actor.StartMachine(Machine[int, int, int]{Initial: start, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {})
+		let mut h = ui.NewTestHost(app, view, m, 4) catch {
+		case ui.BadPatch:
+			return false
+		}
+		// focus: 0 none, 1 the first choice, 2 the second.
+		let mut focus = 0
+		let keys = choiceKeys()
+		let mut acts = []int{3 + draw(&r, len(keys)), 1, 3 + draw(&r, len(keys))}
+		for _ in 0..(steps%8+8)%8+6 {
+			acts = acts.Append(draw(&r, 3+len(keys)))
+		}
+		for i, act in acts {
+			if act == 0 || act == 1 {
+				let opts = if act == 0 { oa } else { ob }
+				// The run's first press is on the second choice's selected option.
+				let j = if i == 1 { b } else { draw(&r, len(opts)) }
+				ui.Play(&h, []ui.Act{ui.ClickOn{At: ui.WithLabel{Label: opts[j]}}}) catch {
+				case _:
+					return false
+				}
+				if act == 0 {
+					a = j
+					focus = 1
+				} else {
+					b = j
+					focus = 2
+				}
+			} else if act == 2 {
+				ui.Play(&h, []ui.Act{ui.ClickOn{At: ui.WithLabel{Label: "elsewhere"}}}) catch {
+				case _:
+					return false
+				}
+				focus = 0
+			} else {
+				let key = keys[act-3]
+				if !choiceKey(&h, key) {
+					return false
+				}
+				if focus == 1 {
+					a = modelPick(len(oa), a, key, ra)
+				} else if focus == 2 {
+					b = modelPick(len(ob), b, key, rb)
+				}
+			}
+			if ui.StateOf(&h) != a*10+b {
+				return false
+			}
+		}
+		true
 	}
 }
 
@@ -4337,6 +4411,56 @@ func choiceWalk[D, F](h *ui.TestHost[int, int, D, F], key string, steps int, by 
 		}
 	}
 	true
+}
+
+func namedOptions(p string, n int) []string {
+	let mut out = []string{}
+	for i in 0..n {
+		out = out.Append("\(p)\(i)")
+	}
+	out
+}
+
+func twoChoices(f *ui.Frame[int], s int, oa []string, ob []string, ra bool, rb bool) {
+	let a = s / 10
+	let b = s % 10
+	ui.Column(f, ui.Plain()) {
+		let onA = func(v string) int { choiceIndex(oa, v)*10 + b }
+		let onB = func(v string) int { a*10 + choiceIndex(ob, v) }
+		if ra {
+			ui.Radios(f, "first", oa, oa[a], onA)
+		} else {
+			ui.Select(f, "first", oa, oa[a], onA)
+		}
+		if rb {
+			ui.Radios(f, "second", ob, ob[b], onB)
+		} else {
+			ui.Select(f, "second", ob, ob[b], onB)
+		}
+		ui.Pressable(f, "elsewhere", s) {
+			ui.Text(f, "away")
+		}
+	}
+}
+
+func choiceKeys() []string {
+	[]string{"ArrowDown", "ArrowUp", "ArrowRight", "ArrowLeft", "Home", "End", "x"}
+}
+
+func modelPick(n int, at int, key string, wrap bool) int {
+	if key == "Home" {
+		return 0
+	}
+	if key == "End" {
+		return n - 1
+	}
+	if key == "ArrowDown" || (key == "ArrowRight" && wrap) {
+		return if at+1 < n { at + 1 } else if wrap { 0 } else { n - 1 }
+	}
+	if key == "ArrowUp" || (key == "ArrowLeft" && wrap) {
+		return if at > 0 { at - 1 } else if wrap { n - 1 } else { 0 }
+	}
+	at
 }
 
 test UiScriptShowsTheView(seed int, steps int) {
@@ -4503,6 +4627,10 @@ test UiChoiceIsAnnouncedAndReachable(n int, from int, to int, radio bool) {
 	assert lawChoiceIsAnnouncedAndReachable(n, from, to, radio)
 }
 
+test UiChoicesTakeKeysWhenFocused(seed int, steps int) {
+	assert lawChoicesTakeKeysWhenFocused(seed, steps)
+}
+
 
 test UiLocationPushThenBackRestores(path string) {
 	let h = ui.NewMemoryHistory(ui.URL{Path: "/", Query: "", Fragment: ""})
@@ -4580,7 +4708,8 @@ var stdUIHostStatements = map[string]string{
 	"ui TypeIntoNamesTheField":         `TypeIntoNamesTheField(seed int, count int) { let m = time.NewManual(0) with context { Scheduler: m } { let n = (count%4+4)%4 + 2 let s = (seed%64 + 64) % 64 let view = func(f *Frame[int], st int) { Column(f, Plain()) { for i in 0..n { LabelledInput(f, FieldLabel{Text: typedLabel(s, i), Description: "", Invalid: false}, "", "ph\(i)", func(t string) int { i*1000 + len(t) }) } } } let a = actor.StartMachine(Machine[int, int, int]{Initial: -1, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } for i in 0..n { let label = typedLabel(s, i) let mut name = label if name == "" { name = "ph\(i)" } let mut text = "" for _ in 0..i+1 { text = text + "x" } Play(&h, []Act{TypeInto{Label: name, Text: text}, SettleAll}) catch { case _: return false } if StateOf(&h) != i*1000+i+1 { return false } if label != "" { let mut missing = false Play(&h, []Act{TypeInto{Label: "ph\(i)", Text: "y"}}) catch { case NoNode: missing = true case _: return false } if !missing || StateOf(&h) != i*1000+i+1 { return false } } } true } }`,
 	"ui AccessIsWhatWasDeclared":       `AccessIsWhatWasDeclared(seed int, count int) { let m = time.NewManual(0) with context { Scheduler: m } { let n = (count%6+6)%6 + 2 let view = func(f *Frame[int], s int) { let ds = semDecls(seed+s*7919, n) Column(f, Plain()) { for i, d in ds { if i%2 == 0 { Semantic(f, d, Some{Value: i + 1}, Plain()) { Text(f, "t\(i)") } } else { Fieldset(f, true, "fs") { Semantic(f, d, Some{Value: i + 1}, Plain()) { Text(f, "t\(i)") } } } } } } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } for s in 0..2 { let ds = semDecls(seed+StateOf(&h)*7919, n) for i, d in ds { let ids = Locate(&h, WithLabel{Label: d.Name}) if len(ids) != 1 { return false } let mut want = d if i%2 == 1 { want.Disabled = true if d.Description == "" { want.Description = "fs" } } if AccessAt(&h, ids[0]) != want { return false } // The matchers of the new states read the same record. if semHolds(&h, d.Name, ToBeSelected) != (want.Selected == (Some{Value: true})) || semHolds(&h, d.Name, ToBeExpanded) != (want.Expanded == (Some{Value: true})) || semHolds(&h, d.Name, ToBeCollapsed) != (want.Expanded == (Some{Value: false})) || semHolds(&h, d.Name, ToBeInvalid) != want.Invalid { return false } } if s == 0 { // A press on the first: the signal when it is enabled. let first = Locate(&h, WithLabel{Label: "n0"}) Tap(&h, first[0]) catch { case _: return false } Settle(&h) catch { case _: return false } if ds[0].Disabled != (StateOf(&h) == 0) { return false } } } true } }`,
 	"ui WithinFindsUnder":              `WithinFindsUnder(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { let mut r = seeded(seed) let mut board = [][]int{} for _ in 0..draw(&r, 4)+1 { let mut col = []int{} for _ in 0..draw(&r, 5) { col = col.Append(draw(&r, 8)) } board = board.Append(col) } let none Option[int] = None let decl = func(role Role, name string, level Option[int]) Access { Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: level} } let view = func(f *Frame[int], s int) { Column(f, Plain()) { for i, col in board { Semantic(f, decl(Region, "col \(i)", None), none, Plain()) { Semantic(f, decl(Heading, "col \(i)", Some{Value: 2}), none, Plain()) { Text(f, "col \(i)") } for j, c in col { if c%2 == 0 { Pressable(f, withinLabel(c/2), 100*i+j) { Text(f, "x") } } else { Box(f, Plain()) { Pressable(f, withinLabel(c/2), 100*i+j) { Text(f, "x") } } } } } } } } let a = actor.StartMachine(Machine[int, int, int]{Initial: -1, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } for i, col in board { let column = WithRole{Role: Region, Name: "col \(i)"} let found = Locate(&h, Within{In: column, At: WithRole{Role: Button, Name: ""}}) if len(found) != len(col) { return false } for j, c in col { if AccessAt(&h, found[j]).Name != withinLabel(c/2) { return false } } let nested = Locate(&h, Within{In: WithRole{Role: Region, Name: ""}, At: Within{In: column, At: WithRole{Role: Button, Name: ""}}}) if nested != found { return false } for j, c in col { let label = withinLabel(c / 2) let mut first = j for k in 0..j { if withinLabel(col[k]/2) == label && first == j { first = k } } if first == j { Play(&h, []Act{ClickOn{At: First{At: Within{In: column, At: WithLabel{Label: label}}}}, SettleAll}) catch { case _: return false } if StateOf(&h) != 100*i+j { return false } } } } // A column is not within itself, nor within another: none nests. let regions = WithRole{Role: Region, Name: ""} len(Locate(&h, Within{In: WithRole{Role: Region, Name: "col 9"}, At: WithRole{Role: Button, Name: ""}})) == 0 && len(Locate(&h, Within{In: regions, At: regions})) == 0 } }`,
-	"ui ChoiceIsAnnouncedAndReachable": `ChoiceIsAnnouncedAndReachable(n int, from int, to int, radio bool) { let m = time.NewManual(0) with context { Scheduler: m } { let k = (n%4+4)%4 + 3 let options = choiceOptions(k) let start = (from%k + k) % k let target = (to%k + k) % k let view = func(f *Frame[int], s int) { let on = func(v string) int { choiceIndex(options, v) } if radio { Radios(f, "pick", options, options[s], on) } else { Select(f, "pick", options, options[s], on) } } let a = actor.StartMachine(Machine[int, int, int]{Initial: start, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } if !choiceShown(&h, k, start, radio) || !choiceKey(&h, "Home") || StateOf(&h) != 0 || !choiceShown(&h, k, 0, radio) { return false } if !choiceWalk(&h, "ArrowDown", k-1, 1) || !choiceShown(&h, k, k-1, radio) { return false } let _ = choiceKey(&h, if radio { "ArrowRight" } else { "ArrowDown" }) if StateOf(&h) != if radio { 0 } else { k - 1 } || !choiceKey(&h, "End") || StateOf(&h) != k-1 { return false } if !choiceWalk(&h, "ArrowUp", k-1, -1) || !choiceShown(&h, k, 0, radio) { return false } let _ = choiceKey(&h, if radio { "ArrowLeft" } else { "ArrowUp" }) if StateOf(&h) != if radio { k - 1 } else { 0 } { return false } let here = StateOf(&h) let ok = if target >= here { choiceWalk(&h, "ArrowDown", target-here, 1) } else { choiceWalk(&h, "ArrowUp", here-target, -1) } let _ = choiceKey(&h, "x") if !ok || StateOf(&h) != target || !choiceShown(&h, k, target, radio) { return false } let other = (target + 1) % k Play(&h, []Act{ClickOn{At: WithLabel{Label: options[other]}}}) catch { case _: return false } StateOf(&h) == other && choiceShown(&h, k, other, radio) } }`,
+	"ui ChoiceIsAnnouncedAndReachable": `ChoiceIsAnnouncedAndReachable(n int, from int, to int, radio bool) { let m = time.NewManual(0) with context { Scheduler: m } { let k = (n%4+4)%4 + 3 let options = choiceOptions(k) let start = (from%k + k) % k let target = (to%k + k) % k let view = func(f *Frame[int], s int) { let on = func(v string) int { choiceIndex(options, v) } if radio { Radios(f, "pick", options, options[s], on) } else { Select(f, "pick", options, options[s], on) } } let a = actor.StartMachine(Machine[int, int, int]{Initial: start, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } if !choiceShown(&h, k, start, radio) { return false } // The keys reach the choice once the focus is in it: a press on its // selected option (UC-FOCUS). Play(&h, []Act{ClickOn{At: WithLabel{Label: options[start]}}}) catch { case _: return false } if StateOf(&h) != start || !choiceKey(&h, "Home") || StateOf(&h) != 0 || !choiceShown(&h, k, 0, radio) { return false } if !choiceWalk(&h, "ArrowDown", k-1, 1) || !choiceShown(&h, k, k-1, radio) { return false } let _ = choiceKey(&h, if radio { "ArrowRight" } else { "ArrowDown" }) if StateOf(&h) != if radio { 0 } else { k - 1 } || !choiceKey(&h, "End") || StateOf(&h) != k-1 { return false } if !choiceWalk(&h, "ArrowUp", k-1, -1) || !choiceShown(&h, k, 0, radio) { return false } let _ = choiceKey(&h, if radio { "ArrowLeft" } else { "ArrowUp" }) if StateOf(&h) != if radio { k - 1 } else { 0 } { return false } let here = StateOf(&h) let ok = if target >= here { choiceWalk(&h, "ArrowDown", target-here, 1) } else { choiceWalk(&h, "ArrowUp", here-target, -1) } let _ = choiceKey(&h, "x") if !ok || StateOf(&h) != target || !choiceShown(&h, k, target, radio) { return false } let other = (target + 1) % k Play(&h, []Act{ClickOn{At: WithLabel{Label: options[other]}}}) catch { case _: return false } StateOf(&h) == other && choiceShown(&h, k, other, radio) } }`,
+	"ui ChoicesTakeKeysWhenFocused":    `ChoicesTakeKeysWhenFocused(seed int, steps int) { let mut r = seeded(seed) let m = time.NewManual(0) with context { Scheduler: m } { let oa = namedOptions("a", draw(&r, 4)+3) let ob = namedOptions("b", draw(&r, 4)+3) let ra = draw(&r, 2) == 0 let rb = draw(&r, 2) == 0 let mut a = draw(&r, len(oa)) let mut b = draw(&r, len(ob)) let view = func(f *Frame[int], s int) { twoChoices(f, s, oa, ob, ra, rb) } let start = a*10 + b let app = actor.StartMachine(Machine[int, int, int]{Initial: start, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(app, view, m, 4) catch { case BadPatch: return false } // focus: 0 none, 1 the first choice, 2 the second. let mut focus = 0 let keys = choiceKeys() let mut acts = []int{3 + draw(&r, len(keys)), 1, 3 + draw(&r, len(keys))} for _ in 0..(steps%8+8)%8+6 { acts = acts.Append(draw(&r, 3+len(keys))) } for i, act in acts { if act == 0 || act == 1 { let opts = if act == 0 { oa } else { ob } // The run's first press is on the second choice's selected option. let j = if i == 1 { b } else { draw(&r, len(opts)) } Play(&h, []Act{ClickOn{At: WithLabel{Label: opts[j]}}}) catch { case _: return false } if act == 0 { a = j focus = 1 } else { b = j focus = 2 } } else if act == 2 { Play(&h, []Act{ClickOn{At: WithLabel{Label: "elsewhere"}}}) catch { case _: return false } focus = 0 } else { let key = keys[act-3] if !choiceKey(&h, key) { return false } if focus == 1 { a = modelPick(len(oa), a, key, ra) } else if focus == 2 { b = modelPick(len(ob), b, key, rb) } } if StateOf(&h) != a*10+b { return false } } true } }`,
 	"ui Location.PushThenBackRestores": `PushThenBackRestores(u URL) { let before = Current() Push(u) let there = Current() Back() && there == u && Current() == before }`,
 	"ui Location.ReplaceKeepsDepth":    `ReplaceKeepsDepth(u URL, v URL) { let before = Current() Push(u) Replace(v) let there = Current() Back() && there == v && Current() == before }`,
 	"ui Location.BackStopsAtTheStart":  `BackStopsAtTheStart(u URL) { Replace(u) for Back() { } let first = Current() !Back() && Current() == first }`,

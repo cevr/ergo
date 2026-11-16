@@ -62,6 +62,31 @@ func OnKey[E](f *Frame[E], on own func(k KeyPress) Option[E]) {
 	f.nkeys = f.nkeys + 1
 }
 
+// OnFocusKey takes the key presses that reach the container being
+// written (UC-FOCUS): while the keyboard's focus is on it or on a node
+// inside it, a press goes first to the OnFocusKey of the focused node,
+// then of each container above it in turn, as a DOM keydown bubbles from
+// its target, and only then to the OnKey calls; the first that gives a
+// signal takes it. A press on a node, or a text typed into one, puts the
+// focus there, as a click on a control does. A container has one; a later
+// call replaces it. At the top, outside any container, it is an OnKey.
+func OnFocusKey[E](f *Frame[E], on own func(k KeyPress) Option[E]) {
+	if f.parent < 0 {
+		OnKey(f, on)
+		return
+	}
+	f.specs[f.parent].onKey = Some{Value: on}
+}
+
+// Focused is the node the keyboard is on: the last one pressed or typed
+// into while the tree holds it, None before any.
+func Focused[E](f *Frame[E]) Option[Id[E]] {
+	if f.focus == arena.Null[node[E]]() || !arena.Has(f.nodes, f.focus) {
+		return None
+	}
+	Some{Value: Id[E]{ref: f.focus}}
+}
+
 // Animate asks for frames while a pass makes it: the host sends a Tick per
 // frame, and on makes the signal of each from the frame's time (since the
 // host started). A pass that makes no Animate asks for no frame, so a
@@ -107,9 +132,19 @@ func pointed[E](f *Frame[E], id Id[E], p PointerEvent) Option[E] {
 	}
 }
 
-// keyed is the signal of a key press: the first OnKey of the last pass
-// that gives one.
+// keyed is the signal of a key press: the first OnFocusKey on the path
+// from the focused node up that gives one, else the first OnKey of the
+// last pass that gives one.
 func keyed[E](f *Frame[E], k KeyPress) Option[E] {
+	match Focused(f) {
+	case Some[Id[E]]:
+		match focusKey(f, f.root, k).signal {
+		case Some[E] as e:
+			return Some{Value: e.Value}
+		case None:
+		}
+	case None:
+	}
 	for i in 0..f.nkeys {
 		match f.keys[i](k) {
 		case Some[E] as e:
@@ -118,4 +153,38 @@ func keyed[E](f *Frame[E], k KeyPress) Option[E] {
 		}
 	}
 	None
+}
+
+// focusHit is focusKey's answer under one node: whether the node holds
+// the focus, and the signal of the first OnFocusKey on the way up from
+// the focused node that gave one.
+type focusHit[E] { found bool, signal Option[E] }
+
+// focusKey looks for the focused node under r (r itself included) and,
+// on the way back up, asks each node's OnFocusKey for k until one gives a
+// signal.
+func focusKey[E](f *Frame[E], r arena.Ref[node[E]], k KeyPress) focusHit[E] {
+	let n = nodeAt(f, r)
+	let mut hit = focusHit[E]{found: r == f.focus, signal: None}
+	if !hit.found {
+		for c in n.kids {
+			if !hit.found {
+				hit = focusKey[E](f, c, k)
+			}
+		}
+	}
+	if !hit.found {
+		return hit
+	}
+	match hit.signal {
+	case Some[E]:
+		return hit
+	case None:
+	}
+	match n.onKey {
+	case Some[func(k KeyPress) Option[E]] as on:
+		hit.signal = on.Value(k)
+	case None:
+	}
+	hit
 }

@@ -448,6 +448,7 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 		if n.off {
 			return out
 		}
+		f.focus = p.Id.ref
 		match n.node {
 		case PressableNode[E] as x:
 			out.Signal = Some{Value: x.On}
@@ -478,6 +479,7 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 		if n.off {
 			return out
 		}
+		f.focus = x.Id.ref
 		match n.onText {
 		case Some[func(t string) E] as g:
 			out.Signal = Some{Value: g.Value(x.Text)}
