@@ -34,6 +34,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"expression *syntax.TupleExpr", "G1"},
 	{"let without a variable", "G1"},
 	{"let pattern*", "G1"},
+	{"let of a default *", "G1"}, // F7 letpat (ir_letpat.go)
 	{"expression *syntax.SliceExpr", "G1"},
 	{"type *check.Array", "G1"},
 	{"index of a non-slice", "G1"},
@@ -44,8 +45,16 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"unary *", "G1"},
 	{"expression *syntax.StarExpr", "G1"},
 	{"selector on a non-record", "G1"},
+	// F7 select (ir_select.go): the qualified names it leaves.
+	{"package function as a value", "G6"},
+	{"Go package variable", "G4"},
+	{"package let without a Go name", "G1"},
+	{"package type name as a value", "G1"},
 	{"selector that is not a field", "G1"},
 	{"record update or elided literal type", "G1"},
+	// F7 update (ir_update.go): the updates it leaves.
+	{"elided literal type", "G1"},
+	{"record update *", "G1"},
 	{"unkeyed record literal", "G1"},
 	{"record literal without every field", "G1"},
 	{"keyed slice literal", "G1"},

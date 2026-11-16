@@ -173,7 +173,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 	case *syntax.SelectorExpr:
 		n, ok := derefNamed(b.l.info.Types[x.X]) // ir_pkg.go
 		if !ok {
-			irNo("selector on a non-record")
+			return b.selectOther(x, p) // ir_select.go
 		}
 		b.goType(n, x)
 		// goType queued the declaration, unless the runtime's Go type
@@ -189,12 +189,12 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			irNo("index form")
 		}
 		if _, ok := b.l.info.Types[x.X].(*check.Slice); !ok {
-			irNo("index of a non-slice")
+			return b.indexOther(x, p) // ir_index.go
 		}
 		return &irExpr{K: "index", Pos: p, X: b.expr(x.X), Y: b.expr(x.Indices[0])}
 	case *syntax.CompositeLit:
 		if x.Base != nil || x.Type == nil {
-			irNo("record update or elided literal type")
+			return b.updateLit(x, t, p) // ir_update.go
 		}
 		if _, ok := b.l.info.Spreads[x]; ok {
 			irNo("spread")

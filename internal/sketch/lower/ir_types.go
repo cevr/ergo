@@ -42,6 +42,9 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 	case *check.Slice:
 		b.admit(t.Elem, depth+1)
 		return
+	case *check.Array:
+		b.admit(t.Elem, depth+1) // FLIP F7 (ir_index.go): Go's [N]T
+		return
 	case *check.Map:
 		b.admitMap(t, depth) // ir_pkg.go
 		return
