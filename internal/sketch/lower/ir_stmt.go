@@ -27,9 +27,7 @@ func (b *irBuilder) local(v *check.Var, id *syntax.Ident) int {
 	if _, dup := b.locals[v]; dup {
 		irNo("local declared twice")
 	}
-	if b.l.info.OwnedVars[v] != nil {
-		irNo("owned local")
-	}
+	b.ownable(v) // ir_own.go
 	i := b.named(v.Name, b.goType(v.Type, id), b.pos(id, id.Pos()))
 	b.locals[v] = i
 	return i
@@ -87,7 +85,7 @@ func (b *irBuilder) tailTo(list []syntax.Stmt, ret bool, to *yieldTo) []*irStmt 
 	for i, s := range list {
 		last := i == len(list)-1
 		b.part(func() {
-			if len(b.l.info.Releases[s]) > 0 {
+			if len(b.l.info.Releases[s]) > 0 && !b.releasesAtExit(s, last && ret && to == nil) { // ir_own.go
 				irNo("statement that releases owned values")
 			}
 			if last && (ret || to != nil) {
@@ -307,6 +305,7 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 				b.reserve(v)
 			}
 			out = append(out, &irStmt{K: "def", Pos: b.pos(s.Decl, s.Decl.Pos()), Local: i, X: x})
+			b.part(func() { out = append(out, b.ownLet(v, i, id)...) }) // ir_own.go
 		}
 		return out
 	case *syntax.AssignStmt:

@@ -349,6 +349,7 @@ type irBuilder struct {
 	// other body and inside a function literal: each value it returns is
 	// checked where it is returned.
 	law *check.Law
+	own *irOwn // the static frame of owned values (ir_own.go), or nil
 }
 
 // gate stops the body for reason; a census records it and goes on.
@@ -474,6 +475,8 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	}
 	b.fn = &irFunc{Name: name, Pos: b.pos(f.Decl, f.Decl.Pos()), End: b.pos(f.Decl, f.Decl.Body.Rbrace)}
 	b.names = b.tempNames(f.Decl.Body) // ir_fail.go
+
+	b.part(func() { b.fn.Body = append(b.fn.Body, b.openOwn(f, params)...) }) // ir_own.go
 	if b.env >= 0 && frameFootprint(f.Pkg.Info, f.Decl).EntryPoll && !b.l.knownClosed(f) && fc.frame.polls {
 		b.fn.Body = append(b.fn.Body, b.poll(f.Decl))
 	}
@@ -483,6 +486,7 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	if st.census != nil {
 		return false
 	}
+	b.ownDone(name) // ir_own.go
 	st.out.Funcs = append(st.out.Funcs, *b.fn)
 	st.report.IR = append(st.report.IR, name)
 	return true

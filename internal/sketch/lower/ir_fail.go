@@ -67,6 +67,7 @@ func (b *irBuilder) fallibleCall(x syntax.Expr) *syntax.CallExpr {
 // retExpr: a value of an error type is a failure; an untried fallible
 // call returns its value and error as they are.
 func (b *irBuilder) ret(x syntax.Expr, p irPos) []*irStmt {
+	defer b.returning(x)() // ir_own.go
 	out := b.retOf(x, p)
 	if b.law != nil {
 		out = b.lawResult(x, out) // ir_assert.go
