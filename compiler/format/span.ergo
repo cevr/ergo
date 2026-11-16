@@ -4,7 +4,7 @@
 // are the Go parser's rules, carried over so that no layout fact comes from
 // the Go side.
 
-import selfhost/tree
+import compiler/tree
 
 // NoPos is the parser's absent position (syntax.NoPos). A position is a
 // byte offset of the source; the tree carries an absent one as None, and

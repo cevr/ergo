@@ -1,7 +1,7 @@
 // The printer: it walks a tree, decides the whitespace before each token
 // from the tree and the source, and hands its requests to the layout.
 
-import selfhost/tree
+import compiler/tree
 import strings
 
 // Printer is the state of one print of a tree.

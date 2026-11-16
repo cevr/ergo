@@ -15,7 +15,7 @@
 // Print is pure. Source parses through the Parser capability, which the
 // composition roots (formatapi, cmd/format) bind to the Go parser.
 
-import selfhost/tree
+import compiler/tree
 import strings
 
 // InvalidTree is a tree the printer cannot read: a node family it does not
