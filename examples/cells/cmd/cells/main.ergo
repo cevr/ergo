@@ -56,6 +56,9 @@ func play[E comparable, S, D, F](h *host.Host[S, E, D, F], acts []ui.Act, frames
 		case ui.NoNode as n:
 			io.Stdout.Println("\(i + 1): no node \(n.Label)")
 			continue
+		case ui.Ambiguous as x:
+			io.Stdout.Println("\(i + 1): \(x.Count) nodes match \(x.At)")
+			continue
 		case ui.Mismatch as m:
 			io.Stdout.Println("\(i + 1): want \(m.Want), got \(m.Got)")
 			continue
