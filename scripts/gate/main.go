@@ -1217,11 +1217,49 @@ const gitOptionalLocks = "GIT_OPTIONAL_LOCKS"
 // ergoGo selects the go command of ergo's builds (internal/toolchain).
 const ergoGo = "ERGO_GO"
 
+// moduleGo is the go command of the toolchain the checkout's go.mod
+// selects: `go env GOROOT` in the repository root, whose go command has
+// already switched to go.mod's toolchain line (go run ./scripts/gate ran
+// under it, so it is in the module cache and nothing is downloaded). The
+// go command on PATH may be an older release that the IR patch is not
+// ported to, and a step's ergo builds programs in directories with no such
+// line (models, temporary programs), where PATH's go would stay itself
+// (I19 full r2 B10). When the query fails, or names no go command, it is
+// "system", PATH's go. The answer is kept per go command it asks
+// (moduleGoCommand: "go" on PATH, the real one in tests, whose PATH holds
+// stubs).
+func moduleGo() string {
+	if v, ok := moduleGos.Load(moduleGoCommand); ok {
+		return v.(string)
+	}
+	v := "system"
+	if root, err := repositoryRoot(); err == nil {
+		command := exec.Command(moduleGoCommand, "env", "GOROOT")
+		command.Dir = root
+		out, err := command.Output()
+		goroot := strings.TrimSpace(string(out))
+		if err == nil && filepath.IsAbs(goroot) {
+			if info, err := os.Stat(filepath.Join(goroot, "bin", "go")); err == nil && !info.IsDir() {
+				v = filepath.Join(goroot, "bin", "go")
+			}
+		}
+	}
+	moduleGos.Store(moduleGoCommand, v)
+	return v
+}
+
+// moduleGoCommand is the go command moduleGo asks; moduleGos its answers.
+var (
+	moduleGoCommand = "go"
+	moduleGos       sync.Map
+)
+
 // keyedEnvironment is the environment the whole-gate key holds
 // (declaredEnvironment): the caller's variables that testenv names, and no
 // other, as Bazel's strict action environment passes only declared
-// variables, with gitOptionalLocks at 0, ERGO_GO at system unless the
-// caller sets it, with the gate's collector target
+// variables, with gitOptionalLocks at 0, ERGO_GO at the go command of the
+// toolchain go.mod selects unless the caller sets it (moduleGo), with the
+// gate's collector target
 // and the soft memory limit below the step budget (stepSoftLimit) unless
 // the caller sets them, and
 // GOMAXPROCS and the go command's -p at most the CPU budget
@@ -1247,11 +1285,12 @@ func keyedEnvironment() []string {
 		environment = append(environment, "GOMEMLIMIT="+stepSoftLimit())
 	}
 	environment = setEnvironmentVariable(environment, gitOptionalLocks, "0")
-	// The ergo a step runs builds with the go command on PATH, the one
-	// that runs the gate, and never downloads its pinned release
-	// (internal/toolchain): no step reads the network.
+	// The ergo a step runs builds with the go command of the toolchain
+	// go.mod selects (moduleGo), the release the IR patch is ported to,
+	// and never downloads ergo's managed release (internal/toolchain): no
+	// step reads the network. ERGO_GO in the caller's environment wins.
 	if _, set := os.LookupEnv(ergoGo); !set {
-		environment = append(environment, ergoGo+"=system")
+		environment = append(environment, ergoGo+"="+moduleGo())
 	}
 	cpus := stepCPUs()
 	environment = setEnvironmentVariable(environment, "GOFLAGS", stepGOFLAGS(os.Getenv("GOFLAGS"), cpus))
