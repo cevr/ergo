@@ -311,7 +311,9 @@ func (b *irBuilder) machineAfter(conv check.Conversion, n *check.Named, p irPos,
 		if after == nil {
 			return []*irStmt{{K: "ret", Pos: p, X: b.machineNone(sig.Results[0], p, site)}}
 		}
-		if len(after.Sig.Params) != 1 || len(after.Sig.Results) != 1 || b.l.funcDecl(after).fallible {
+		// A machines.Every timer is the emitter's everyTimers (LY-FIX:
+		// read as a Timeout, its Option did not type).
+		if len(after.Sig.Params) != 1 || len(after.Sig.Results) != 1 || b.l.funcDecl(after).fallible || everyOption(after.Sig.Results[0]) {
 			irNo("machine after entry of another form")
 		}
 		ot := after.Sig.Results[0]

@@ -171,6 +171,9 @@ func (b *irBuilder) admitArgs(t *check.Named, depth int) {
 // is not generic.
 func (b *irBuilder) typeArgs(c *check.Call, site syntax.Node) string {
 	var out []string
+	if b.l.hasGoRow(c.Func.Sig) {
+		irNo("call of a function with a Go row") // its row is a Go type argument too (rowslot.go; LY-FIX)
+	}
 	for i, tp := range c.Func.Sig.TParams {
 		if tp.Kind != check.KindType {
 			continue

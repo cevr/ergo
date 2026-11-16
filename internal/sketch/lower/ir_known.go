@@ -90,5 +90,12 @@ func (b *irBuilder) knownField(x *syntax.CallExpr, c *check.Call) *check.Call {
 	if gd.method != nil || gd.extern != "" || len(b.l.ownedParams(g)) > 0 {
 		return c
 	}
+	if len(rowElems(sig.Errors)) > 0 && !gd.fallible {
+		// A field whose row can fail naming a function that cannot (a
+		// machine's Step under a runner's W): the IR calls the field's
+		// value, whose (value, error) pair the try reads (LY-FIX: the
+		// direct call gave a value where the try bound a pair).
+		return c
+	}
 	return &check.Call{Kind: check.CallFunc, Func: g, Fails: c.Fails}
 }
