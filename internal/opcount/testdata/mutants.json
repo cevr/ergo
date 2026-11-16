@@ -147,6 +147,15 @@
       "killers": ["internal/opcount:TestPartsSumToTheCount"]
     },
     {
+      "name": "share-ergo-runtime-path",
+      "origin": "wf10 RT-SHARE (the backfill's InstrErgo 0)",
+      "file": "internal/opcount/share.go",
+      "from": "const ergoRuntime = \"ergo.local/prototype/runtime/\"",
+      "to": "const ergoRuntime = \"ergo.local/program/ergo/runtime/v1.\"",
+      "rule": "Ergo's runtime is its own part, named by the package path an emitted program links it under.",
+      "killers": ["internal/opcount:TestErgoRuntimeIsItsPart"]
+    },
+    {
       "name": "parts-short-admitted",
       "origin": "wf10 RT-SHARE",
       "file": "internal/opcount/share.go",

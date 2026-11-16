@@ -46,9 +46,11 @@ func (p Part) Counter() string {
 	return [...]string{"InstrProgram", "InstrErgo", "InstrGC", "InstrAlloc", "InstrBarrier", "InstrSched", "InstrStack", "InstrRuntimeOther", "InstrOutside"}[p]
 }
 
-// ergoRuntime is the package path prefix of Ergo's runtime in an emitted
-// module (module ergo.local/program, runtime at ergo/runtime/v1).
-const ergoRuntime = "ergo.local/program/ergo/runtime/v1."
+// ergoRuntime is the package path prefix of Ergo's runtime as an emitted
+// program links it: runtime/v1 and runtime/rt under the module path the
+// emitted module replaces with its copy (ergo.local/prototype), not the
+// copy's folder (ergo/runtime/v1 of module ergo.local/program).
+const ergoRuntime = "ergo.local/prototype/runtime/"
 
 // Classify is the part of a function of the binary, by its Go symbol name.
 // The runtime's names are matched by family, first match wins: a write
