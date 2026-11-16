@@ -1714,12 +1714,32 @@ index 0000000..3d9db4a
 +	}
 +	c.labels, c.gotos = nil, nil
 +}
+diff --git a/src/cmd/compile/internal/noder/ergoir_opc.go b/src/cmd/compile/internal/noder/ergoir_opc.go
+new file mode 100644
+index 0000000..869bd13
+--- /dev/null
++++ b/src/cmd/compile/internal/noder/ergoir_opc.go
+@@ -0,0 +1,14 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package noder
++
++import "cmd/compile/internal/syntax"
++
++// ergoBareRange is the clause of a range with neither a key nor a value
++// bound (a std body's `for _ in xs`): `for range x`, with no left-hand
++// side, as hand-written Go and the IR's text view spell it.
++func ergoBareRange(x syntax.Expr) *syntax.RangeClause {
++	return &syntax.RangeClause{X: x}
++}
 diff --git a/src/cmd/compile/internal/noder/ergoir_stmt.go b/src/cmd/compile/internal/noder/ergoir_stmt.go
 new file mode 100644
-index 0000000..8c974fc
+index 0000000..317b22e
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_stmt.go
-@@ -0,0 +1,350 @@
+@@ -0,0 +1,354 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2021,6 +2041,10 @@ index 0000000..8c974fc
 +			lhs.ElemList = append(lhs.ElemList, c.name(s.Pos, v, true))
 +		}
 +		rc := &syntax.RangeClause{Lhs: lhs, Def: true, X: x}
++		if s.Key == nil && s.Val == nil {
++			// for range x, as the text view prints it (ergoir_opc.go).
++			rc = ergoBareRange(x)
++		}
 +		rc.SetPos(pos)
 +		st := &syntax.ForStmt{Init: rc}
 +		st.SetPos(pos)
