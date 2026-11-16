@@ -192,6 +192,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	// reaches it through generic instances whose declared types name
 	// their own type parameters (F7 FORK merge of F2).
 	{"type parameter outside its declaration", "G4"},
+	{"failure of a type parameter's result", "G4"},
 	{"owned parameters", "G4"},
 	{"known-callback variant", "G4"},
 	{"copy for a known record", "G4"},

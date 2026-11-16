@@ -472,6 +472,12 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	}
 	if b.result != nil {
 		b.part(func() { b.goType(b.result, f.Decl) })
+		if _, tp := b.result.(*check.TypeParam); tp && fc.frame.fallible {
+			// The decoder's failure zero of T is an untyped nil the reader
+			// makes a zero of T's shape that misses typecheck (F1 × F2,
+			// arena's Free; FLIP F7 FORK merge).
+			b.part(func() { irNo("failure of a type parameter's result") })
+		}
 	}
 	b.fn = &irFunc{Name: name, Pos: b.pos(f.Decl, f.Decl.Pos()), End: b.pos(f.Decl, f.Decl.Body.Rbrace)}
 	b.names = b.tempNames(f.Decl.Body) // ir_fail.go
