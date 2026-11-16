@@ -218,7 +218,8 @@ type irStmt struct {
 	Op string `json:"op,omitempty"`
 	// Cases are a "tswitch"'s clauses (ir_fail.go); Else is its default.
 	Cases []*irCase `json:"cases,omitempty"`
-	// Y is a "count" loop's bound (ir_pkg.go countLoop).
+	// Y is a "count" loop's bound (ir_pkg.go countLoop), a "mapget"'s key
+	// (ir_get.go).
 	Y *irExpr `json:"y,omitempty"`
 }
 

@@ -14,10 +14,10 @@ index c8f1b2d..dbdb46e 100644
  	ImportCfg          func(string) "help:\"read import configuration from `file`\""
 diff --git a/src/cmd/compile/internal/noder/ergoir.go b/src/cmd/compile/internal/noder/ergoir.go
 new file mode 100644
-index 0000000..6d89d9f
+index 0000000..1ee31c4
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir.go
-@@ -0,0 +1,255 @@
+@@ -0,0 +1,256 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -94,7 +94,8 @@ index 0000000..6d89d9f
 +	// Cases are a "tswitch"'s clauses (ergoir_fail.go); Else is its
 +	// default clause, at ElsePos.
 +	Cases []*ergoCase `json:"cases,omitempty"`
-+	// Y is a "count" loop's bound (ergoir_stmt.go).
++	// Y is a "count" loop's bound (ergoir_stmt.go), a "mapget"'s key
++	// (ergoir_f7b.go).
 +	Y *ergoExpr `json:"y,omitempty"`
 +}
 +
@@ -716,6 +717,64 @@ index 0000000..1be85c9
 +	}
 +	return bad()
 +}
+diff --git a/src/cmd/compile/internal/noder/ergoir_f7b.go b/src/cmd/compile/internal/noder/ergoir_f7b.go
+new file mode 100644
+index 0000000..c9a6ec0
+--- /dev/null
++++ b/src/cmd/compile/internal/noder/ergoir_f7b.go
+@@ -0,0 +1,52 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// Ergo IR decoder: F7 lane B's statements. See ergoir.go.
++//
++// "mapget" is Go's comma-ok read of a map, v, ok := m[k] (Local v, Val
++// ok, X the map, Y the key): the index expression's type is the tuple
++// (V, bool), as types2 records a comma-ok form (recordCommaOkTypes), so
++// the unified writer writes an N:1 assignment, which the reader types as
++// OAS2MAPR.
++
++package noder
++
++import (
++	"cmd/compile/internal/syntax"
++	"cmd/compile/internal/types2"
++)
++
++// f7bStmt decodes s when it is one of lane B's forms.
++func (c *ergoChecker) f7bStmt(s *ergoStmt) (syntax.Stmt, bool) {
++	if s.K != "mapget" {
++		return nil, false
++	}
++	pos := c.pos(s.Pos)
++	if s.Val == nil || s.X == nil || s.Y == nil {
++		c.errorf(s.Pos, "ergoir: mapget without its ok local, map or key")
++		return nil, true
++	}
++	v, ok := c.local(s.Pos, s.Local), c.local(s.Pos, *s.Val)
++	m, mt := c.expr(s.X)
++	k, kt := c.expr(s.Y)
++	if v == nil || ok == nil || m == nil || k == nil {
++		return nil, true
++	}
++	mp, isMap := types2.CoreType(mt).(*types2.Map)
++	if !isMap {
++		c.errorf(s.Pos, "ergoir: mapget of %v", mt)
++		return nil, true
++	}
++	if !c.assignable(s.Pos, "mapget key", kt, mp.Key()) || !c.assignable(s.Pos, "mapget value", mp.Elem(), v.Type()) || !c.assignable(s.Pos, "mapget ok", types2.Typ[types2.Bool], ok.Type()) {
++		return nil, true
++	}
++	ix := &syntax.IndexExpr{X: m, Index: k}
++	ix.SetPos(pos)
++	ergoValue(ix, types2.NewTuple(types2.NewParam(pos, nil, "", mp.Elem()), types2.NewParam(pos, nil, "", types2.Typ[types2.Bool])), nil)
++	lhs := &syntax.ListExpr{ElemList: []syntax.Expr{c.name(s.Pos, v, true), c.name(s.Pos, ok, true)}}
++	lhs.SetPos(pos)
++	a := &syntax.AssignStmt{Op: syntax.Def, Lhs: lhs, Rhs: ix}
++	a.SetPos(pos)
++	return a, true
++}
 diff --git a/src/cmd/compile/internal/noder/ergoir_fail.go b/src/cmd/compile/internal/noder/ergoir_fail.go
 new file mode 100644
 index 0000000..257a84e
@@ -1028,10 +1087,10 @@ index 0000000..257a84e
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_stmt.go b/src/cmd/compile/internal/noder/ergoir_stmt.go
 new file mode 100644
-index 0000000..8a9a03f
+index 0000000..8981e9b
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_stmt.go
-@@ -0,0 +1,270 @@
+@@ -0,0 +1,273 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1279,6 +1338,9 @@ index 0000000..8a9a03f
 +		}
 +		st := &syntax.ExprStmt{X: x}
 +		st.SetPos(pos)
++		return st
++	}
++	if st, ok := c.f7bStmt(s); ok { // ergoir_f7b.go
 +		return st
 +	}
 +	if st, ok := c.failStmt(s); ok { // ergoir_fail.go
