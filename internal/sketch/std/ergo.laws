@@ -9,6 +9,15 @@ fact go bytes.IndexByte reads b validated by guard with go1.27.4 h1:8EerKoAWUhg2
 fact go crypto/sha256.Sum256 reads data validated by guard with go1.27.4 h1:T7e2yd/DWHz2kDGtsKGHVxe7Lv8WKVODCneEqC755qE=
 fact go hash/crc32.ChecksumIEEE reads data validated by guard with go1.27.4 h1:h80DFwtsYe10aBd6fyO5Sm0rjPQdNkjGDlSGPGkPwoU=
 fact go hash/crc32.Update reads p validated by guard with go1.27.4 h1:qJZXRd0HLqkICR9up2dTnnZkyp3ff0aXJPGcqkKWpUI=
+fact go regexp.Regexp.FindAllString fresh result validated by guard with go1.27.4 h1:emt3eWjabftdVeKKhGoozPUv/FhSW4WVUEmaEpUyUQ0=
+fact go regexp.Regexp.FindAllStringSubmatch fresh result validated by guard with go1.27.4 h1:TipFFbFEsjDKz54LCn9QBahiUwkcJjA6hYMgkLAWMTg=
+fact go regexp.Regexp.FindStringSubmatch fresh result validated by guard with go1.27.4 h1:joZYyTXg0nCA6bG64A4cEFYIgc/Bf4IECszD8EzzlSo=
+fact go regexp.Regexp.Split fresh result validated by guard with go1.27.4 h1:9CFg3jtV9jmBQh0qhu9NCSVm8xbmWSe1ATSZq9kuAiQ=
+fact go strings.Fields fresh result validated by guard with go1.27.4 h1:ROjrohunMyH7dQSGXuzCMAfAU8snWn4b514ZA+CrcIM=
+fact go strings.FieldsFunc fresh result validated by guard with go1.27.4 h1:iRfGr0k+FMsxaDfCq5/wIRAvmBQdCbm1raSPiw57HdU=
+fact go strings.Split fresh result validated by guard with go1.27.4 h1:XjeU8+u2HFvEF/bsBzrsycZDg7/jw58rFMN1bvAMecg=
+fact go strings.SplitAfter fresh result validated by guard with go1.27.4 h1:uYPfqDt6MgIc625+KyMYGEo20221e0+KjJc6VYnHb2Q=
+fact go strings.SplitN fresh result validated by guard with go1.27.4 h1:tnR1Non91wSZH0VL1CwXD8VKNjSvw1pf/tiCscrS2xw=
 law json.Text.PlainIsRaw for json.text at ("None") proved by native with go1.27.4,runtime/v1@b8d096659ed7 h1:RZ6b3HfMgYVcihRIO4i/AzNPt2O9BT+oT1u87pa3yxo=
 law json.Text.PlainIsRaw for json.text at ("Some") proved by native with go1.27.4,runtime/v1@b8d096659ed7 h1:xFcFOFbR9zIwopePee/M7o3R/Ak7uwcJEbUyA4J930E=
 law json.Text.PlainIsRaw for json.text at ("a") proved by native with go1.27.4,runtime/v1@b8d096659ed7 h1:BkNxMhqCTv1DBuUoJ3whJDtVFhngmBsEqLZnmoE9njI=

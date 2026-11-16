@@ -21,11 +21,16 @@ import (
 // the source tree goroot/src. A row whose Source differs is reviewed
 // again.
 func SourceHash(goroot, target string) (string, error) {
-	i := strings.LastIndex(target, ".")
-	if i < 0 {
-		return "", fmt.Errorf("%s: no package", target)
+	// "path.F", or "path.T.M" for a method of T.
+	slash := strings.LastIndex(target, "/") + 1
+	parts := strings.Split(target[slash:], ".")
+	if len(parts) < 2 || len(parts) > 3 {
+		return "", fmt.Errorf("%s: not path.F or path.T.M", target)
 	}
-	pkg, name := target[:i], target[i+1:]
+	pkg, name, recv := target[:slash]+parts[0], parts[len(parts)-1], ""
+	if len(parts) == 3 {
+		recv = parts[1]
+	}
 	dir := filepath.Join(goroot, "src", filepath.FromSlash(pkg))
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -44,7 +49,7 @@ func SourceHash(goroot, target string) (string, error) {
 		}
 		for _, d := range f.Decls {
 			fd, ok := d.(*ast.FuncDecl)
-			if !ok || fd.Recv != nil || fd.Name.Name != name {
+			if !ok || fd.Name.Name != name || recvName(fd) != recv {
 				continue
 			}
 			var b bytes.Buffer
@@ -60,4 +65,23 @@ func SourceHash(goroot, target string) (string, error) {
 	sort.Strings(texts)
 	sum := sha256.Sum256([]byte(strings.Join(texts, "\n")))
 	return hex.EncodeToString(sum[:])[:12], nil
+}
+
+// recvName is the name of fd's receiver type (T for T and *T), or "" for a
+// function.
+func recvName(fd *ast.FuncDecl) string {
+	if fd.Recv == nil || len(fd.Recv.List) == 0 {
+		return ""
+	}
+	t := fd.Recv.List[0].Type
+	if s, ok := t.(*ast.StarExpr); ok {
+		t = s.X
+	}
+	if ix, ok := t.(*ast.IndexExpr); ok {
+		t = ix.X
+	}
+	if id, ok := t.(*ast.Ident); ok {
+		return id.Name
+	}
+	return "?"
 }

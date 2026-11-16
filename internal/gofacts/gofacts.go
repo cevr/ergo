@@ -26,8 +26,10 @@ import (
 	"fmt"
 	"hash/crc32"
 	"math/rand/v2"
+	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 )
 
 // Row is one vouched fact.
@@ -44,8 +46,11 @@ type Row struct {
 	// toolchain.
 	Source string
 	// Call calls the function with p as the operand Param names, the
-	// other operands drawn from r.
+	// other operands drawn from r (a reads row).
 	Call func(r *rand.Rand, p []byte)
+	// Result draws the operands of one call from r and returns the call,
+	// whose result is a []string or a [][]string (a fresh row, LF2c).
+	Result func(r *rand.Rand) func() any
 	// View allows the run build to pass a view of a string's bytes as the
 	// operand (LAWFFI LF2b; v1.BytesView): a memory-class change, so a row
 	// sets it only with a counted gain, and each such row has its line in
@@ -70,6 +75,63 @@ var Rows = []Row{
 	{Target: "crypto/sha256.Sum256", Fact: "reads", Param: "data", Reason: "Write copies data into the digest's buffer and the block function, assembly, only loads from it", Source: "d1bd973fda38", Call: func(_ *rand.Rand, p []byte) { sha256.Sum256(p) }, View: true},
 	{Target: "hash/crc32.ChecksumIEEE", Fact: "reads", Param: "data", Reason: "it calls the function variable updateIEEE, assembly or a table loop that only loads", Source: "0a577c2fb9b4", Call: func(_ *rand.Rand, p []byte) { crc32.ChecksumIEEE(p) }, View: true},
 	{Target: "hash/crc32.Update", Fact: "reads", Param: "p", Reason: "it calls update, over the function variables updateIEEE and updateCastagnoli or a table loop, that only loads", Source: "fadaf3baa7c7", Call: func(_ *rand.Rand, p []byte) { crc32.Update(0, crc32.IEEETable, p) }, View: true},
+
+	// fresh rows (LF2c): the slice result is new memory on every call, so
+	// the lowering passes it to Ergo with no deep copy (lower/gocall.go,
+	// goResult). They were lower.freshGoResults.
+	{Target: "strings.Split", Fact: "fresh", Param: "result", Reason: "genSplit makes the result with make and fills it with substrings of s", Source: "65e3a355768c", Result: func(r *rand.Rand) func() any {
+		s, sep := text(r), seps[r.IntN(len(seps))]
+		return func() any { return strings.Split(s, sep) }
+	}},
+	{Target: "strings.SplitN", Fact: "fresh", Param: "result", Reason: "genSplit makes the result with make and fills it with substrings of s", Source: "ebc89999b4be", Result: func(r *rand.Rand) func() any {
+		s, sep, n := text(r), seps[r.IntN(len(seps))], r.IntN(5)-1
+		return func() any { return strings.SplitN(s, sep, n) }
+	}},
+	{Target: "strings.SplitAfter", Fact: "fresh", Param: "result", Reason: "genSplit makes the result with make and fills it with substrings of s", Source: "3568d9599e11", Result: func(r *rand.Rand) func() any {
+		s, sep := text(r), seps[r.IntN(len(seps))]
+		return func() any { return strings.SplitAfter(s, sep) }
+	}},
+	{Target: "strings.Fields", Fact: "fresh", Param: "result", Reason: "it makes the result with make (or calls FieldsFunc) and fills it with substrings of s", Source: "03cc79a67909", Result: func(r *rand.Rand) func() any {
+		s := text(r)
+		return func() any { return strings.Fields(s) }
+	}},
+	{Target: "strings.FieldsFunc", Fact: "fresh", Param: "result", Reason: "it makes spans and the result with make and fills the result with substrings of s", Source: "e7015b80f1e8", Result: func(r *rand.Rand) func() any {
+		s := text(r)
+		return func() any { return strings.FieldsFunc(s, func(c rune) bool { return c == ',' }) }
+	}},
+	{Target: "regexp.Regexp.FindAllString", Fact: "fresh", Param: "result", Reason: "it is slices.Collect over allString, which appends each match's substring to a nil slice", Source: "e0b9bb9db7ad", Result: func(r *rand.Rand) func() any {
+		s, n := text(r), r.IntN(4)-1
+		return func() any { return freshRE.FindAllString(s, n) }
+	}},
+	{Target: "regexp.Regexp.FindStringSubmatch", Fact: "fresh", Param: "result", Reason: "it makes the result with make from the match's indexes", Source: "d6982e2c79d9", Result: func(r *rand.Rand) func() any {
+		s := text(r)
+		return func() any { return freshRE.FindStringSubmatch(s) }
+	}},
+	{Target: "regexp.Regexp.FindAllStringSubmatch", Fact: "fresh", Param: "result", Reason: "it is slices.Collect over allStringSubmatch, which makes each match's slice with make", Source: "670036968b42", Result: func(r *rand.Rand) func() any {
+		s, n := text(r), r.IntN(4)-1
+		return func() any { return freshRE.FindAllStringSubmatch(s, n) }
+	}},
+	{Target: "regexp.Regexp.Split", Fact: "fresh", Param: "result", Reason: "it makes the result with make and appends substrings of s", Source: "f9bf7fc8970d", Result: func(r *rand.Rand) func() any {
+		s, n := text(r), r.IntN(4)-1
+		return func() any { return freshRE.Split(s, n) }
+	}},
+}
+
+// freshRE is the receiver of the regexp rows' guards: a group, so a
+// submatch has two strings.
+var freshRE = regexp.MustCompile(`a(b*)`)
+
+// seps are the separators the fresh guards split on.
+var seps = []string{"", ",", "ab", " "}
+
+// text is a drawn string for a fresh guard, over an alphabet the
+// separators and freshRE find.
+func text(r *rand.Rand) string {
+	var b strings.Builder
+	for range r.IntN(24) {
+		b.WriteByte("ab, \t"[r.IntN(5)])
+	}
+	return b.String()
 }
 
 // Digest is the digest of the row's ledger line at toolchain (its shown
@@ -109,7 +171,10 @@ const GuardCases = 200
 // says never happens). A keep with no later write is not seen: review
 // holds it (interop.md, Foreign facts 7).
 func (r Row) Guard(seed uint64) error {
-	if r.Fact != "reads" {
+	if r.Fact == "fresh" && r.Result != nil {
+		return r.freshGuard(seed)
+	}
+	if r.Fact != "reads" || r.Call == nil {
 		return fmt.Errorf("%s: no guard for the fact %s", r.Target, r.Fact)
 	}
 	rng := rand.New(rand.NewPCG(seed, 0x1f2))
@@ -129,6 +194,43 @@ func (r Row) Guard(seed uint64) error {
 		}
 	}
 	return nil
+}
+
+// freshGuard is a fresh row's guard: for GuardCases drawn calls, it calls
+// once, writes every string of the result, and calls again: the second
+// result must be the first's value before the write. A result that shares
+// memory with state Go keeps (regexp.Regexp.SubexpNames) or with the
+// first call's shows the write (plan-r1 §1, fresh: mutate after the call,
+// call again, compare).
+func (r Row) freshGuard(seed uint64) error {
+	rng := rand.New(rand.NewPCG(seed, 0xf5e))
+	for i := range GuardCases {
+		call := r.Result(rng)
+		first := stringSlices(call())
+		held := make([][]string, len(first))
+		for j, s := range first {
+			held[j] = slices.Clone(s)
+			for k := range s {
+				s[k] = "\x00written"
+			}
+		}
+		again := stringSlices(call())
+		if !slices.EqualFunc(held, again, slices.Equal) {
+			return fmt.Errorf("%s: a write to one call's result shows in the next call's at case %d (seed %d): %q, then %q", r.Target, i, seed, held, again)
+		}
+	}
+	return nil
+}
+
+// stringSlices is a fresh row's result as its string slices.
+func stringSlices(v any) [][]string {
+	switch v := v.(type) {
+	case []string:
+		return [][]string{v}
+	case [][]string:
+		return v
+	}
+	panic(fmt.Sprintf("gofacts: a fresh row's result is %T, not []string or [][]string", v))
 }
 
 // draw is n bytes from r, over a small alphabet so a search finds

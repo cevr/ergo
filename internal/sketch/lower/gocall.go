@@ -19,8 +19,9 @@ import (
 //     decision, goArgs): Go may write or keep what it is given;
 //     SetHostCopyAlwaysForTest copies every one, the reference lowering;
 //   - the last argument of a variadic Go function is spread (xs...);
-//   - a result that holds a Map or slice is copied unless the reviewed
-//     table freshGoResults says Go made it new (strings.Split), or another
+//   - a result that holds a Map or slice is copied unless a validated
+//     fresh row of internal/gofacts says Go made it new (strings.Split;
+//     goFresh), or another
 //     Go call takes it as an operand (w.Header().Set: goShares), when it
 //     is never an Ergo value and stays Go's, so a write reaches Go;
 //   - a nullable Go result (a pointer, an interface) whose Ergo type is
@@ -47,18 +48,6 @@ func SetHostCopyAlwaysForTest(always bool) func() {
 	old := hostCopyAlways
 	hostCopyAlways = always
 	return func() { hostCopyAlways = old }
-}
-
-// freshGoResults are the Go functions of the standard library whose slice
-// or Map result is new on every call, reviewed against their source at
-// go1.27: the result shares no memory with an argument or with state Go
-// keeps, so it needs no copy.
-var freshGoResults = map[string]bool{
-	"strings.Split": true, "strings.SplitN": true, "strings.SplitAfter": true, "strings.Fields": true,
-	"strings.FieldsFunc": true, "bytes.Split": false,
-	"regexp.Regexp.FindAllString": true, "regexp.Regexp.FindStringSubmatch": true,
-	"regexp.Regexp.FindAllStringSubmatch": true, "regexp.Regexp.Split": true,
-	"regexp.Regexp.SubexpNames": false,
 }
 
 // goImportCall reports a call of a Go function or method of import go;
@@ -385,7 +374,7 @@ func (fc *funcCtx) goResult(x syntax.Node, t check.Type, r, e, name string) stri
 		fc.line("\tpanic(&" + fc.l.rt() + ".GoNilDefect{Func: " + strconv.Quote(name) + ", At: " + strconv.Quote(fc.l.siteText(x)) + "})")
 		fc.line("}")
 		return r
-	case fc.l.holdsValue(t) && !freshGoResults[name] && valueRule() && !fc.goShares(x):
+	case fc.l.holdsValue(t) && valueRule() && !fc.goShares(x) && !goFresh(x, name):
 		return fc.cloneDeep(t, r, x) // Go may still write an entry (V8)
 	}
 	return r
