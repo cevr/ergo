@@ -754,6 +754,13 @@ func (c *checker) callGeneric(x *syntax.CallExpr, sig *Signature, explicit []Typ
 			in.m[tp] = &RowArg{Row: newRow()}
 			continue
 		}
+		for _, lt := range lits {
+			if lt != nil && containsInvalid(lt) {
+				// A literal whose tail was invalid (reported) binds
+				// nothing: the call is invalid, quietly (D3).
+				return bad(x)
+			}
+		}
 		// Outside the inferred subset (D6 as amended in round 7): never
 		// from the expected result, nor through a method or core-type
 		// constraint; the fix is to write the type arguments.
@@ -918,7 +925,10 @@ func (c *checker) funcLit(x *syntax.FuncLit, expected *Signature, in *inferer) o
 			res := c.yieldingBlock(x.Body, x.Body.List, nil, false, false, func(op *operand) {
 				c.escape(op.expr, op.errs)
 			})
-			if res != nil && res != NoValue {
+			switch {
+			case res == nil:
+				sig.Results = []Type{invalid} // reported, as in blockLit
+			case res != NoValue:
 				sig.Results = []Type{res}
 			}
 			return
@@ -1013,7 +1023,13 @@ func (c *checker) blockLit(b *syntax.BlockStmt, expected *Signature, in *inferer
 			c.escape(op.expr, op.errs)
 		})
 		if resultFree {
-			if res != nil && res != NoValue {
+			switch {
+			case res == nil:
+				// An invalid tail was reported (D3): the block's result is
+				// invalid, not absent, so a Task or call it makes says
+				// nothing more (SB3: "this expression has no value" at Wait).
+				sig.Results = []Type{invalid}
+			case res != NoValue:
 				sig.Results = []Type{res}
 			}
 		} else {
