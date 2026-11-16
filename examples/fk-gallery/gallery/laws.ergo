@@ -1,6 +1,10 @@
 // The site's laws (plan §18.3 FK9): what a navigation means, read from
 // the route before and the route after.
 
+import actor
+import sync
+import time
+
 // Routes are one route of each kind; a painting's id comes from the case.
 func routeOf(k int, id int) Route {
 	let ks = []Route{Home, Gallery, Painting{ID: id}, Studio, NotFound{Path: "/nowhere"}}
@@ -69,64 +73,70 @@ law StayRefetchesOnlyOnIdChange(a int where 1 <= a && a <= 9, b int where 1 <= b
 	asked == (a != b) && after == want
 }
 
-func saves(cs []Command) []string {
-	let mut out = []string{}
-	for c in cs {
-		match c {
-		case SaveDraft as d:
-			out = out.Append(d.Draft)
-		case LoadCatalog, LoadPainting, Push, Leave:
-		}
-	}
-	out
+// kept is a Drafts that keeps every draft saved, in order, for the law.
+type kept { saved sync.Ref[[]string] } implements Drafts
+
+func Save(k kept, draft string) {
+	k.saved.Update(func(v []string) []string { v.Append(draft) })
 }
 
-// answerFirst is the work's answer to the site's oldest job, if it has one.
-func answerFirst(s Site) Site {
-	if len(s.Jobs) == 0 {
-		return s
+func Last(k kept) Option[string] {
+	let v = k.saved.Get()
+	if len(v) == 0 {
+		return None
 	}
-	let j = s.Jobs[0]
-	After(s, Step(s, Answered{Seq: j.Seq, Job: j.Do}))
+	Some[string]{Value: v[len(v)-1]}
 }
 
-// LeavingStudioAlwaysSaves: over drawn navigations, keys typed and
-// answers of the work, each navigation that leaves the studio with a
-// draft asks for one save, of the draft as last typed, and no other step
-// asks for one; once the work has answered every job, the draft last
-// saved is the one the studio was last left with.
+// LeavingStudioAlwaysSaves: the site runs as an actor on one manual
+// clock, and is sent drawn keys typed, URLs arrived at, links clicked
+// and clock moves (which answer its jobs), then stopped. The drafts it
+// saved are, in order, the draft as last typed at each leave of the
+// studio with a draft, then the draft it ends with if it ends in the
+// studio; no other step saves (a key, a click, a stay in the studio, an
+// answer). A reference model reads the same steps: the route and the
+// draft.
 law LeavingStudioAlwaysSaves(ops []int) {
 	let texts = []string{"", "a", "half-finished thought"}
-	let mut s = Blank
-	let mut left Option[string] = None
-	for o in ops {
-		let op = if o < 0 { -(o / 2) } else { o }
-		if op%3 == 2 && len(s.Jobs) == 0 {
-			continue
+	let atStudio = Some[Route]{Value: Studio}
+	let clock = time.NewManual(0)
+	let store = kept{saved: sync.NewRef[[]string]([]string{})}
+	let mut route Option[Route] = None
+	let mut draft = ""
+	let mut want = []string{}
+	with context { time.Clock: clock, Scheduler: clock, Drafts: store } {
+		let site = actor.StartMachine(Gallerist{}, 16, func(cs []Command) {})
+		for o in ops {
+			let op = if o < 0 { -(o / 2) } else { o }
+			let sig Signal = match op % 4 {
+			case 0:
+				draft = texts[(op/4)%3]
+				Drafted{Text: draft}
+			case 1:
+				let next = routeOf(op/4, 1+op%5)
+				if route == atStudio && next != Studio && draft != "" {
+					want = want.Append(draft)
+				}
+				route = Some[Route]{Value: next}
+				Arrived{URL: Print(next)}
+			case 2:
+				Clicked{Link: Internal{URL: Print(routeOf(op/4, 1+op%5))}}
+			case _:
+				clock.Advance(time.Times(100ms, (op/4)%8))
+				continue
+			}
+			site.Send(sig) catch {
+			case actor.Stopped:
+				return false
+			}
 		}
-		let before = s
-		let d = match op % 3 {
-		case 0:
-			Step(s, Drafted{Text: texts[(op/3)%3]})
-		case 1:
-			Step(s, Arrived{URL: Print(routeOf(op/3, 1+op%5))})
-		case _:
-			Step(s, Answered{Seq: s.Jobs[0].Seq, Job: s.Jobs[0].Do})
-		}
-		s = After(before, d)
-		let leaving = before.Route == Some[Route]{Value: Studio} && s.Route != Some[Route]{Value: Studio} && op%3 == 1
-		let want = if leaving && before.Draft != "" { []string{before.Draft} } else { []string{} }
-		if saves(Commands(before, d)) != want {
-			return false
-		}
-		if len(want) == 1 {
-			left = Some[string]{Value: before.Draft}
-		}
+		let _ = site.State()
+		site.Stop()
 	}
-	for _ in s.Jobs {
-		s = answerFirst(s)
+	if route == atStudio && draft != "" {
+		want = want.Append(draft)
 	}
-	len(s.Jobs) == 0 && s.Saved == left
+	store.saved.Get() == want
 }
 
 // LogKeepsTheLastTwenty: after n navigations the log holds the last
