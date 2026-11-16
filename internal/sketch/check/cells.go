@@ -296,9 +296,9 @@ func (c *checker) cellParts(t Type, path map[int32]bool) (*Named, bool) {
 // cellSite is a type argument recorded at an instantiation, decided once
 // every declaration is known (checkCells).
 type cellSite struct {
-	file   *fileInfo
-	at     syntax.Node
-	arg    Type
+	file *fileInfo
+	at   syntax.Node
+	arg  Type
 	of   []*TypeParam // the parameters the instantiation binds
 }
 
