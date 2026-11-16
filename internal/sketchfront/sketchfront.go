@@ -283,6 +283,8 @@ type BuildRequest struct {
 	// Locked refuses a run build that needs a stale or missing ledger
 	// entry (ergo build --locked; owner q122).
 	Locked bool
+	// NoViews is ergo build -views=off (lower.Unit.NoViews).
+	NoViews bool
 	// Inputs, when set, is the file system the build reads the ledger
 	// through (a warm request's Recorder); nil reads the host.
 	Inputs FS
@@ -536,6 +538,7 @@ func emission(a Analysis, req BuildRequest) (lower.Unit, func(lower.Unit) ([]low
 	if err != nil {
 		return lower.Unit{}, nil, false, err
 	}
+	unit.NoViews = req.NoViews
 	split := splitLowering()
 	if split {
 		lowering = splitLowerer(req.Mode == build.ModeTest, req.IR)

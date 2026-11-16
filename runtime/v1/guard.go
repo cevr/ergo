@@ -45,13 +45,13 @@ func (d *ViewDefect) Error() string { return d.String() }
 
 // BytesGuard is one guarded copy of a view's bytes.
 type BytesGuard struct {
-	s                 string
-	fn, param, at     string
-	data              []byte // what the callee is given
-	mem               []byte // the mapping: the pages, then the unmapped page; nil for the heap form
-	id                uint64  // the rt registration of mem
-	pages             uintptr // the bytes of mem before the unmapped page
-	done              bool
+	s             string
+	fn, param, at string
+	data          []byte  // what the callee is given
+	mem           []byte  // the mapping: the pages, then the unmapped page; nil for the heap form
+	id            uint64  // the rt registration of mem
+	pages         uintptr // the bytes of mem before the unmapped page
+	done          bool
 }
 
 // guardRingLen and guardRingBytes bound the ring of finished copies.

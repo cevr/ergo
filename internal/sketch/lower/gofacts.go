@@ -129,6 +129,28 @@ func (w *valueWalk) readsWhy(a syntax.Expr) string {
 	if !ok {
 		return "not a binding or a field of one"
 	}
+	if why := w.callReadsWhy(op); why != "" {
+		return why
+	}
+	vv := w.vars[v]
+	for _, o := range vv.occs {
+		if o.id != id {
+			continue
+		}
+		for f := o.frame; f != nil && f != vv.frame; f = f.parent {
+			if f.escaping {
+				return "a task or a kept function captures it"
+			}
+		}
+	}
+	return ""
+}
+
+// callReadsWhy is "" when the Go call of op leaves its operand op alone
+// but for what op's fact says: the call has no callback, which may reach
+// the same place, and Go may write no other Map or slice operand, which
+// may share its memory; else why not.
+func (w *valueWalk) callReadsWhy(op goOperand) string {
 	c := w.info.Calls[op.call]
 	list := op.call.Args
 	if c.Recv != nil {
@@ -144,17 +166,6 @@ func (w *valueWalk) readsWhy(a syntax.Expr) string {
 		}
 		if ok, _ := goReads(op.call, op.fn, i); i != op.index && goShared(t) && !ok {
 			return "Go may write another operand of the call, which may share its memory"
-		}
-	}
-	vv := w.vars[v]
-	for _, o := range vv.occs {
-		if o.id != id {
-			continue
-		}
-		for f := o.frame; f != nil && f != vv.frame; f = f.parent {
-			if f.escaping {
-				return "a task or a kept function captures it"
-			}
 		}
 	}
 	return ""
@@ -178,6 +189,9 @@ func (w *valueWalk) readsGuardAt(a syntax.Expr) {
 type readsCompare struct {
 	held, given string
 	readsGuard
+	// done is a guarded copy of a view site (view.go), done after the
+	// call in place of a compare.
+	done string
 }
 
 // readsCopy is the test build's operand of a reads site: a copy of val,
@@ -195,6 +209,10 @@ func (fc *funcCtx) readsCopy(x syntax.Expr, val string, g readsGuard) string {
 // copy it was given.
 func (fc *funcCtx) compareReads(mark int) {
 	for _, c := range fc.goCompare[mark:] {
+		if c.done != "" {
+			fc.line(c.done + ".Done()")
+			continue
+		}
 		fc.line(fc.l.rt() + ".GoReadsCheck(" + c.held + ", " + c.given + ", " + strconv.Quote(c.fn) + ", " + strconv.Quote(c.param) + ", " + strconv.Quote(c.at) + ")")
 	}
 	fc.goCompare = fc.goCompare[:mark]
@@ -245,7 +263,7 @@ func (w *valueWalk) goOperandReport(a syntax.Expr, form, why string) {
 		use = "not used: " + form + ", " + why
 	}
 	for _, f := range facts {
-		f.Level, _ = factLevel(op.call, op.fn, f)
+		f.Level, _ = factLevel(op.call, op.fn, f, valueClass)
 		why += "; " + goTarget(op.fn) + " " + f.Kind + " " + f.Param + " (" + f.Level + ": " + f.Source + "): " + use
 		l.foreign = append(l.foreign, placedFact{Fact: Fact{
 			Kind:     "fact-go-" + f.Kind,

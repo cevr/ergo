@@ -197,6 +197,7 @@ type valueFacts struct {
 	field    map[*syntax.CallExpr]bool     // Appends in place on a dead field path (handover.go, own-field)
 	deep     map[syntax.Expr]bool          // copies that go to Go, which may write a Map's entries (V8, cloneDeep)
 	reads    map[syntax.Expr]readsGuard    // copies the test build compares after the Go call, where the run build passes the operand (LF1, gofacts.go)
+	view     map[syntax.Expr]viewSite      // Go operands that take a view of a string's bytes, or its guarded copy (LF2b, view.go)
 	// The entry move-out (V9, moveout.go): the Map types the program
 	// moves an entry out of (by their type strings) and the Gets it reads.
 	entryWrites map[string]bool
@@ -990,6 +991,11 @@ func (w *valueWalk) decide() {
 			// A reads fact (LF1): Go neither writes, keeps nor returns a
 			// part of the operand, so the run build passes it as it is;
 			// the test build copies it and compares after the call.
+			if w.viewOK(a) {
+				// A view of a string's bytes (LF2b, view.go).
+				w.goOperandReport(a, "view", "Go only reads the string's bytes")
+				continue
+			}
 			take, guard := w.readsOK(a)
 			if take {
 				w.goOperandReport(a, "no copy", "Go only reads the operand")
