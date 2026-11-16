@@ -163,6 +163,11 @@ func KindName(k int) string {
 // Unset is the type a row holds before the signature pass gives it one.
 func Unset(s *Store) dense.ID[TKey] { Basic(&s.pool, 0) }
 
+// TSubst is t with the type parameter at position i replaced by args[i]
+// (the pool's Subst): inference renames a callee's parameters past its
+// caller's with it (capstone S3d).
+func TSubst(s *Store, t dense.ID[TKey], args []dense.ID[TKey]) dense.ID[TKey] { Subst(&s.pool, t, args) }
+
 // Frozen is a package's store after its check: immutable, moved into the
 // value every importer task shares with no lock (C0/plan.md §4, Decided
 // 10: the interface is the store, not an export copy).
