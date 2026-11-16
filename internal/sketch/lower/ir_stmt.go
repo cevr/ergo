@@ -27,9 +27,7 @@ func (b *irBuilder) local(v *check.Var, id *syntax.Ident) int {
 	if _, dup := b.locals[v]; dup {
 		irNo("local declared twice")
 	}
-	if b.l.info.OwnedVars[v] != nil {
-		irNo("owned local")
-	}
+	b.ownable(v) // ir_own.go
 	i := b.named(v.Name, b.goType(v.Type, id), b.pos(id, id.Pos()))
 	b.locals[v] = i
 	return i
@@ -87,7 +85,7 @@ func (b *irBuilder) tailTo(list []syntax.Stmt, ret bool, to *yieldTo) []*irStmt 
 	for i, s := range list {
 		last := i == len(list)-1
 		b.part(func() {
-			if len(b.l.info.Releases[s]) > 0 {
+			if len(b.l.info.Releases[s]) > 0 && !b.releasesAtExit(s, last && ret && to == nil) { // ir_own.go
 				irNo("statement that releases owned values")
 			}
 			if last && (ret || to != nil) {
@@ -118,6 +116,9 @@ type yieldTo struct {
 func (b *irBuilder) yield(s syntax.Stmt, to *yieldTo) []*irStmt {
 	switch s := s.(type) {
 	case *syntax.ExprStmt:
+		if call := b.unreachableCall(s.X); call != nil {
+			return b.unreachableStmt(call) // ir_defect.go: a defect leaves the branch
+		}
 		p := b.pos(s.X, s.X.Pos())
 		_, conv := b.l.info.Implicit[s.X]
 		if m, ok := unparen(s.X).(syntax.Stmt); ok && !conv {
@@ -243,6 +244,9 @@ func (b *irBuilder) discard(x syntax.Expr) []*irStmt {
 	if w, ok := b.isWith(x); ok {
 		return b.withStmt(w, false, nil) // ir_with.go
 	}
+	if call := b.unreachableCall(x); call != nil {
+		return b.unreachableStmt(call) // ir_defect.go (FLIP OPC-unreach)
+	}
 	if call, ok := x.(*syntax.CallExpr); ok {
 		if c := b.l.info.Calls[call]; c != nil && c.Kind != check.CallConversion && c.Kind != check.CallLen {
 			pre, e := b.call(call, true)
@@ -315,6 +319,7 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 				b.reserve(v)
 			}
 			out = append(out, &irStmt{K: "def", Pos: b.pos(s.Decl, s.Decl.Pos()), Local: i, X: x})
+			b.part(func() { out = append(out, b.ownLet(v, i, id)...) }) // ir_own.go
 		}
 		return out
 	case *syntax.AssignStmt:

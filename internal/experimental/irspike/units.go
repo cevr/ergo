@@ -145,6 +145,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"interpolated value of type *", "G3b"},
 	{"interpolated named duration", "G3b"},
 	{"machine *", "G3b"}, // ir_machine.go's refusals (a literal with fields, a second Machine type)
+	{"row conversion", "G3b"},
 	{"type defined over a non-basic type", "G3b"},
 	{"value of a type defined over a flat union", "G3b"},
 	{"value of another type", "G3b"},
@@ -192,6 +193,11 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"Go type spelling *", "G4"},
 	{"witness parameter", "G4"},
 	{"generic body", "G4"},
+	// F1's admit of a type parameter the body does not declare: the
+	// merged head's newer std (ui's TestHost functions, machines.Attempt)
+	// reaches it through generic instances whose declared types name
+	// their own type parameters (F7 FORK merge of F2).
+	{"type parameter outside its declaration", "G4"},
 	{"owned parameters", "G4"},
 	{"known-callback variant", "G4"},
 	{"variant with no result", "G4"}, // drop.go's variant of a function whose result a call discards
@@ -229,8 +235,20 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"law result of an untried fallible call", "G6"},
 	{"call kind 10", "G6"}, // CallEncode
 	{"call kind 11", "G6"}, // CallDecode
+	// The codec built-ins take the IR (FLIP OPC-codec), but for these:
+	{"codec of a type that holds type parameters", "G4"}, // codec witnesses, with witness parameters
+	{"codec *", "G6"},
+	{"encode on a direct writer", "G6"},
 	{"call kind 12", "G6"}, // CallEmbed
 	{"call kind 13", "G6"}, // CallPattern: a refinement's matches(it, `…`)
 	{"call kind 8", "G6"},  // CallLawOp
 	{"call kind 9", "G6"},  // CallGoError
+	// IRG6 r2's function values, ported to flip-f1 (flip-fnval): literals,
+	// trailing blocks of program calls, function types, calls of function
+	// values. These stay the emitter's.
+	{"function literal *", "G6"},
+	{"function type with several results", "G6"},
+	{"call of a function value *", "G6"},
+	{"call of a value of a named function type", "G6"},
+	{"call of a known callback", "G4"}, // known.go's plain variant
 }

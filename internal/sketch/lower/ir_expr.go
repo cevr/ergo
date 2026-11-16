@@ -130,7 +130,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		switch o := b.l.info.Uses[x].(type) {
 		case *check.Var:
 			if i, known := b.locals[o]; known {
-				return &irExpr{K: "local", Pos: p, I: i}
+				return b.handoff(x, &irExpr{K: "local", Pos: p, I: i}) // ir_own.go
 			}
 			if b.scalars[o] != nil {
 				// Its gather writes statements: a value (ir_scalar.go).
@@ -157,6 +157,9 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		}
 		irNo("name that is not a local")
 	case *syntax.BinaryExpr:
+		if e := b.binaryOther(x, p); e != nil { // ir_equal.go
+			return e
+		}
 		op := x.Op.String()
 		b.operator(op, b.l.info.Types[x.X], x)
 		return &irExpr{K: "bin", Pos: b.pos(x, x.OpPos), Op: op, X: b.expr(x.X), Y: b.expr(x.Y)}

@@ -211,6 +211,7 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 		"irBuilder.machineFunc":    "the IR's function literal of a machine value's field: its *Env parameter, a local of the IR body; the derivative writes the closure (ir_machine.go, MACHINE-IR)",
 		"lowerer.envCopier":        "the copier interface and join of a held row: method headers copyEnv(d *Env, s Env), no closure (inforce.go)",
 		"lowerer.capsType":         "a capability set's copier type: a method header copyEnv(d *Env, s Env), no closure (inforce.go)",
+		"irBuilder.ownDone":        "an IR static frame's release helper: a declared header func xRelease(env *Env, live *uint64, ...) (ir_own.go, FLIP F7 FORK)",
 	}
 	for _, owner := range sortedKeys(readers) {
 		if _, ok := classified[owner]; !ok {
@@ -224,8 +225,9 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 	}
 	// A reader that writes a Go closure whose parameter is not an Env.
 	otherClosure := map[string]string{
-		"lowerer.rootTask": "a root task's body takes the task and builds the root Env inside",
-		"lowerer.initOnce": "the Once.Do body and its recover take no parameter; they run in the caller's task, on ergoInitRun's env",
+		"lowerer.rootTask":  "a root task's body takes the task and builds the root Env inside",
+		"lowerer.initOnce":  "the Once.Do body and its recover take no parameter; they run in the caller's task, on ergoInitRun's env",
+		"irBuilder.ownDone": "a slot's release closure for Static.Part takes no parameter; it runs on the helper's env",
 	}
 	src.owners(func(owner string, decl ast.Decl) {
 		if !readers[owner] || owner == "funcCtx.envClosure" || otherClosure[owner] != "" {
