@@ -1,5 +1,5 @@
 {
-  "about": "compiler/syntax: the scanner (S2a, SL5; ScanAgreesWithGo kills each) and the tree and parser (S2b, SL6; the tree laws kill each). Paths are from the repository root.",
+  "about": "compiler/syntax: the scanner (S2a, SL5) and the tree and parser (S2b, SL6). TestScanAgreesWithGo and TestParseAgreesWithGo (internal/sketch/syntax, in process through internal/linked/syntax) kill a row that names them; a gap names the law that kills the rest. Paths are from the repository root.",
   "mutants": [
     {
       "name": "scan-semi-after-rparen",
@@ -9,7 +9,7 @@
       "to": " || kind == StringTail || ",
       "rule": "A newline after `)` inserts a semicolon (Go's rule).",
       "killers": [],
-      "gap": "killed by law SemiMasksAreTheRule in the S2b run dir (ergo test compiler/syntax for laws; the scan and parse agreement against the Go parser for the rest); its Go killer ids come with compiler/syntax's linked row and the agreement tests (S2a/S2b in the repository)"
+      "gap": "killed by law SemiMasksAreTheRule (ergo test compiler/syntax), not by the agreement tests; no Go suite runs compiler/'s laws until scripts/mutants has a compiler scope (GT7, batch 22)"
     },
     {
       "name": "scan-end-stops-at-escaped-quote",
@@ -18,8 +18,9 @@
       "from": "\t\t\tif src[i+1] == '(' {\n\t\t\t\treturn i + 2\n\t\t\t}\n\t\t\ti = i + 1\n",
       "to": "\t\t\tif src[i+1] == '(' {\n\t\t\t\treturn i + 2\n\t\t\t}\n",
       "rule": "End steps over an escaped byte of a string: an escaped quote does not end it.",
-      "killers": [],
-      "gap": "killed by TestScanAgreesWithGo in the S2b run dir (ergo test compiler/syntax for laws; the scan and parse agreement against the Go parser for the rest); its Go killer ids come with compiler/syntax's linked row and the agreement tests (S2a/S2b in the repository)"
+      "killers": [
+        "internal/sketch/syntax:TestScanAgreesWithGo"
+      ]
     },
     {
       "name": "scan-raw-end-off-by-one",
@@ -28,8 +29,9 @@
       "from": "\ts.offset = start + close + 2\n",
       "to": "\ts.offset = start + close + 1\n",
       "rule": "A raw string ends after its closing backquote.",
-      "killers": [],
-      "gap": "killed by TestScanAgreesWithGo in the S2b run dir (ergo test compiler/syntax for laws; the scan and parse agreement against the Go parser for the rest); its Go killer ids come with compiler/syntax's linked row and the agreement tests (S2a/S2b in the repository)"
+      "killers": [
+        "internal/sketch/syntax:TestScanAgreesWithGo"
+      ]
     },
     {
       "name": "scan-keyword-prefix",
@@ -39,7 +41,7 @@
       "to": "\tlet w = src[start:end]\n\tif n > 3 && src[start:start+3] == \"for\" {\n\t\treturn For\n\t}\n",
       "rule": "A word is a keyword only when all of it is: `fortune` is an identifier.",
       "killers": [],
-      "gap": "killed by law KeywordTableIsTheRule in the S2b run dir (ergo test compiler/syntax for laws; the scan and parse agreement against the Go parser for the rest); its Go killer ids come with compiler/syntax's linked row and the agreement tests (S2a/S2b in the repository)"
+      "gap": "killed by law KeywordTableIsTheRule (ergo test compiler/syntax), not by the agreement tests; no Go suite runs compiler/'s laws until scripts/mutants has a compiler scope (GT7, batch 22)"
     },
     {
       "name": "scan-two-byte-operator-split",
@@ -48,8 +50,9 @@
       "from": "return if c1 == '=' { Eql } else { Assign }",
       "to": "return Assign",
       "rule": "`==` is one token, not two `=`.",
-      "killers": [],
-      "gap": "killed by TestScanAgreesWithGo in the S2b run dir (ergo test compiler/syntax for laws; the scan and parse agreement against the Go parser for the rest); its Go killer ids come with compiler/syntax's linked row and the agreement tests (S2a/S2b in the repository)"
+      "killers": [
+        "internal/sketch/syntax:TestScanAgreesWithGo"
+      ]
     },
     {
       "name": "scan-rune-octal-bound",
@@ -58,8 +61,9 @@
       "from": "int(lit[4]-'0') <= 255",
       "to": "int(lit[4]-'0') <= 256",
       "rule": "An octal rune escape names a byte: '\\400' is not a rune literal (Go's strconv.Unquote, which oneRune reads without allocating).",
-      "killers": [],
-      "gap": "killed by TestScanAgreesWithGo in the S2b run dir (ergo test compiler/syntax for laws; the scan and parse agreement against the Go parser for the rest); its Go killer ids come with compiler/syntax's linked row and the agreement tests (S2a/S2b in the repository)"
+      "killers": [
+        "internal/sketch/syntax:TestScanAgreesWithGo"
+      ]
     },
     {
       "name": "scan-class-zero-a-letter",
@@ -68,8 +72,9 @@
       "from": "\\x08\\x00\\x28\\x28\\x28\\x0a",
       "to": "\\x08\\x00\\x28\\x28\\x28\\x0b",
       "rule": "A digit is not a letter: `0` cannot start an identifier.",
-      "killers": [],
-      "gap": "killed by law ClassesAreTheRule in the S2b run dir (ergo test compiler/syntax for laws; the scan and parse agreement against the Go parser for the rest); its Go killer ids come with compiler/syntax's linked row and the agreement tests (S2a/S2b in the repository)"
+      "killers": [
+        "internal/sketch/syntax:TestScanAgreesWithGo"
+      ]
     },
     {
       "name": "scan-semi-mask-drops-ident",
@@ -78,8 +83,9 @@
       "from": "let semiLo uint64 = 0x470000c0000013f8",
       "to": "let semiLo uint64 = 0x470000c0000013f0",
       "rule": "A newline after an identifier inserts a semicolon.",
-      "killers": [],
-      "gap": "killed by law SemiMasksAreTheRule in the S2b run dir (ergo test compiler/syntax for laws; the scan and parse agreement against the Go parser for the rest); its Go killer ids come with compiler/syntax's linked row and the agreement tests (S2a/S2b in the repository)"
+      "killers": [
+        "internal/sketch/syntax:TestScanAgreesWithGo"
+      ]
     },
     {
       "name": "scan-kwtable-swaps-two",
@@ -88,8 +94,9 @@
       "from": "\\x00\\x65\\x00\\x51",
       "to": "\\x00\\x51\\x00\\x65",
       "rule": "Each keyword hashes to its own kind.",
-      "killers": [],
-      "gap": "killed by law KeywordTableIsTheRule in the S2b run dir (ergo test compiler/syntax for laws; the scan and parse agreement against the Go parser for the rest); its Go killer ids come with compiler/syntax's linked row and the agreement tests (S2a/S2b in the repository)"
+      "killers": [
+        "internal/sketch/syntax:TestScanAgreesWithGo"
+      ]
     },
     {
       "name": "scan-punct-comma-as-period",
@@ -98,8 +105,9 @@
       "from": "\\x33\\x38\\x00\\x00\\x36",
       "to": "\\x33\\x38\\x00\\x00\\x37",
       "rule": "A comma is Comma.",
-      "killers": [],
-      "gap": "killed by law PunctIsOperator in the S2b run dir (ergo test compiler/syntax for laws; the scan and parse agreement against the Go parser for the rest); its Go killer ids come with compiler/syntax's linked row and the agreement tests (S2a/S2b in the repository)"
+      "killers": [
+        "internal/sketch/syntax:TestScanAgreesWithGo"
+      ]
     },
     {
       "name": "scan-path-ascii-digit-starts-element",
@@ -108,8 +116,9 @@
       "from": "if elementStart && k&clsLetter == 0 ||",
       "to": "if elementStart && k&(clsLetter|clsDigit) == 0 ||",
       "rule": "An import path element starts with a letter or `_`, not a digit.",
-      "killers": [],
-      "gap": "killed by TestScanAgreesWithGo in the S2b run dir (ergo test compiler/syntax for laws; the scan and parse agreement against the Go parser for the rest); its Go killer ids come with compiler/syntax's linked row and the agreement tests (S2a/S2b in the repository)"
+      "killers": [
+        "internal/sketch/syntax:TestScanAgreesWithGo"
+      ]
     },
     {
       "name": "scan-opfast-ignores-doubled",
@@ -118,8 +127,9 @@
       "from": "if c1 == c || k1&clsOpNext != 0 ||",
       "to": "if k1&clsOpNext != 0 ||",
       "rule": "A doubled operator byte (`<<`, `&&`, `..`) is a longer token: run's arm leaves it to opKind.",
-      "killers": [],
-      "gap": "killed by law OpFastIsOpKind in the S2b run dir (ergo test compiler/syntax for laws; the scan and parse agreement against the Go parser for the rest); its Go killer ids come with compiler/syntax's linked row and the agreement tests (S2a/S2b in the repository)"
+      "killers": [
+        "internal/sketch/syntax:TestScanAgreesWithGo"
+      ]
     },
     {
       "name": "comments-blank-line-joins-groups",
@@ -128,8 +138,9 @@
       "from": "if strings.IndexByte(p.src[a+k+1:b], '\\n') < 0 { 1 } else { 2 }",
       "to": "if strings.IndexByte(p.src[a+k+1:b], '\\n') < 0 { 1 } else { 1 }",
       "rule": "A blank line between two comments ends the first one's group (go/parser).",
-      "killers": [],
-      "gap": "killed by TestParseAgreesWithGo in the S2b run dir (ergo test compiler/syntax for laws; the scan and parse agreement against the Go parser for the rest); its Go killer ids come with compiler/syntax's linked row and the agreement tests (S2a/S2b in the repository)"
+      "killers": [
+        "internal/sketch/syntax:TestParseAgreesWithGo"
+      ]
     },
     {
       "name": "failure-position-from-file-start",
@@ -138,8 +149,9 @@
       "from": "PositionOf(LinesOf(src), p.eoff)",
       "to": "PositionOf(LinesOf(src), 0)",
       "rule": "A failure reports the line and column of its own offset.",
-      "killers": [],
-      "gap": "killed by TestParseAgreesWithGo in the S2b run dir (ergo test compiler/syntax for laws; the scan and parse agreement against the Go parser for the rest); its Go killer ids come with compiler/syntax's linked row and the agreement tests (S2a/S2b in the repository)"
+      "killers": [
+        "internal/sketch/syntax:TestParseAgreesWithGo"
+      ]
     },
     {
       "name": "tree-children-flushed-in-reverse",
@@ -148,8 +160,9 @@
       "from": "\t\tt.extra[start+j] = t.stack[m+j]\n",
       "to": "\t\tt.extra[start+j] = t.stack[m+count-1-j]\n",
       "rule": "A record keeps its children in source order.",
-      "killers": [],
-      "gap": "killed by law ChildrenBeforeParent, law OneParent, law RootLast in the S2b run dir (ergo test compiler/syntax for laws; the scan and parse agreement against the Go parser for the rest); its Go killer ids come with compiler/syntax's linked row and the agreement tests (S2a/S2b in the repository)"
+      "killers": [
+        "internal/sketch/syntax:TestParseAgreesWithGo"
+      ]
     },
     {
       "name": "tree-stack-not-cut-after-list",
@@ -158,8 +171,9 @@
       "from": "\tt.ne = start + count\n\tt.top = m\n",
       "to": "\tt.ne = start + count\n",
       "rule": "rec cuts the stack back to the list's mark.",
-      "killers": [],
-      "gap": "killed by law ChildrenBeforeParent, law OneParent, law RootLast in the S2b run dir (ergo test compiler/syntax for laws; the scan and parse agreement against the Go parser for the rest); its Go killer ids come with compiler/syntax's linked row and the agreement tests (S2a/S2b in the repository)"
+      "killers": [
+        "internal/sketch/syntax:TestParseAgreesWithGo"
+      ]
     },
     {
       "name": "tree-rewind-keeps-extra",
@@ -169,17 +183,18 @@
       "to": "",
       "rule": "A rewind cuts extra back to its checkpoint.",
       "killers": [],
-      "gap": "killed by law ExtraTiles in the S2b run dir (ergo test compiler/syntax for laws; the scan and parse agreement against the Go parser for the rest); its Go killer ids come with compiler/syntax's linked row and the agreement tests (S2a/S2b in the repository)"
+      "gap": "killed by law ExtraTiles (ergo test compiler/syntax), not by the agreement tests; no Go suite runs compiler/'s laws until scripts/mutants has a compiler scope (GT7, batch 22)"
     },
     {
       "name": "view-reads-b-for-a",
       "origin": "wf10 S2b (SL6)",
-      "file": "compiler/syntax/view.ergo",
-      "from": "return BinaryExpr{X: nid(t, a), Op: int(tok), Y: nid(t, b)}",
-      "to": "return BinaryExpr{X: nid(t, b), Op: int(tok), Y: nid(t, b)}",
+      "file": "compiler/syntax/readers.ergo",
+      "from": "\tBinaryExpr{X: nid(t, a), Op: int(tok), Y: nid(t, b)}",
+      "to": "\tBinaryExpr{X: nid(t, b), Op: int(tok), Y: nid(t, a)}",
       "rule": "View reads each operand from its own word.",
-      "killers": [],
-      "gap": "killed by law ViewRoundTrips in the S2b run dir (ergo test compiler/syntax for laws; the scan and parse agreement against the Go parser for the rest); its Go killer ids come with compiler/syntax's linked row and the agreement tests (S2a/S2b in the repository)"
+      "killers": [
+        "internal/sketch/syntax:TestParseAgreesWithGo"
+      ]
     },
     {
       "name": "view-none-as-row-0",
@@ -188,8 +203,9 @@
       "from": "\t\treturn dense.NoID[Node]()\n",
       "to": "\t\treturn dense.OptOf(dense.IDAt(t.ids, 0))\n",
       "rule": "An optional child's 0 word is none, never row 0.",
-      "killers": [],
-      "gap": "killed by law ViewRoundTrips in the S2b run dir (ergo test compiler/syntax for laws; the scan and parse agreement against the Go parser for the rest); its Go killer ids come with compiler/syntax's linked row and the agreement tests (S2a/S2b in the repository)"
+      "killers": [
+        "internal/sketch/syntax:TestParseAgreesWithGo"
+      ]
     },
     {
       "name": "tree-row-gains-string",
@@ -208,8 +224,9 @@
       "from": "\tn == String || n == StringHead\n",
       "to": "\tn == String || n == StringHead || n == LParen\n",
       "rule": "skip is a statement only before a string literal: skip(x) stays a call (contextual, no scanner keyword).",
-      "killers": [],
-      "gap": "killed by TestParseAgreesWithGo (the S2b agreement, run from internal/sketch/syntax with the built parsedump; its Go killer id comes with compiler/syntax's linked row)"
+      "killers": [
+        "internal/sketch/syntax:TestParseAgreesWithGo"
+      ]
     },
     {
       "name": "skip-end-at-keyword",
@@ -218,8 +235,9 @@
       "from": "\tif kd == KSkipStmt {\n\t\treturn tokEnd(k, int(a))\n",
       "to": "\tif kd == KSkipStmt {\n\t\treturn tokEnd(k, tok)\n",
       "rule": "A skip statement ends where its reason ends.",
-      "killers": [],
-      "gap": "killed by TestParseAgreesWithGo (the S2b agreement, run from internal/sketch/syntax with the built parsedump; its Go killer id comes with compiler/syntax's linked row)"
+      "killers": [
+        "internal/sketch/syntax:TestParseAgreesWithGo"
+      ]
     },
     {
       "name": "skip-interpolation-accepted",
@@ -228,8 +246,9 @@
       "from": "\tif p.tk == StringHead {\n\t\terrorAt(p, pos(p), tokLen(p), \"skip takes",
       "to": "\tif false {\n\t\terrorAt(p, pos(p), tokLen(p), \"skip takes",
       "rule": "A skip's reason is a literal with no interpolation: an interpolated one is S001 at the literal.",
-      "killers": [],
-      "gap": "killed by TestParseAgreesWithGo (the S2b agreement, run from internal/sketch/syntax with the built parsedump; its Go killer id comes with compiler/syntax's linked row)"
+      "killers": [
+        "internal/sketch/syntax:TestParseAgreesWithGo"
+      ]
     }
   ]
 }
