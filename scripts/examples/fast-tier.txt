@@ -57,6 +57,7 @@ sudoku
 tidewalk-replay
 timetable
 todo-gui
+toktree
 tomlparse
 tui
 twig

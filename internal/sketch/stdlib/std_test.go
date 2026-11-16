@@ -205,6 +205,11 @@ func TestEachExternHasItsGoBody(t *testing.T) {
 			}
 			externs++
 			target, name := f.Decl.Extern.Split()
+			if target == "" {
+				// A Go builtin (append, cap): no runtime/v1 body; the
+				// lowering writes it (interop.md, Lowering 13).
+				continue
+			}
 			if target != v1Path {
 				t.Errorf("%s.%s binds %s.%s; a v1 package binds %s", path, f.Name, target, name, v1Path)
 				continue

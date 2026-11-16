@@ -466,6 +466,13 @@ func (fc *funcCtx) builtinCall(x *syntax.CallExpr, c *check.Call, args []syntax.
 			return "append(" + vals[0] + ", " + vals[1] + "...)"
 		}
 	}
+	if check.AppendSpreads(c.Func) {
+		// One bulk append (SL2): Go's append(xs, ys...).
+		if builtinLowering == "call" {
+			return fc.l.builtinHelper("appendAll", x) + "(" + vals[0] + ", " + vals[1] + ")"
+		}
+		return "append(" + vals[0] + ", " + vals[1] + "...)"
+	}
 	if builtinLowering == "call" {
 		return fc.l.builtinHelper(b, x) + "(" + strings.Join(vals, ", ") + ")"
 	}
@@ -505,6 +512,9 @@ var builtinHelpers = map[string]string{
 	"delete":       "[K comparable, V any](m map[K]V, k K) map[K]V { delete(m, k); return m }",
 	"min":          "[T ORD.Ordered](a T, b T) T { return min(a, b) }",
 	"max":          "[T ORD.Ordered](a T, b T) T { return max(a, b) }",
+
+	// appendAll is the reference of the spread binding (check.AppendSpreads).
+	"appendAll": "[T any](xs []T, ys []T) []T { return append(xs, ys...) }",
 }
 
 // builtinHelper is the name of the reference's Go function for b, written

@@ -521,6 +521,15 @@
     },
     {"name":"wg6-full-tier-in-default-run","origin":"wf10/semws WG6a","file":"scripts/examples/modules.go","from":" && !slices.Contains(p.heavy, target) {","to":" {","rule":"A package folder the module's full-tier file names is left out of every run but -full-tier.","killers":["scripts/examples:TestModulesLeg"]},
     {"name":"wg6-full-tier-runs-the-rest","origin":"wf10/semws WG6a","file":"scripts/examples/modules.go","from":"\tif r.cfg.fullTier {\n\t\tfor _, target := range p.heavy {","to":"\tif false {\n\t\tfor _, target := range p.heavy {","rule":"-full-tier tests the full-tier folders and nothing else.","killers":["scripts/examples:TestModulesLeg"]},
-    {"name":"wg6-full-tier-names-nothing","origin":"wf10/semws WG6a","file":"scripts/examples/modules.go","from":"\t\tif !slices.ContainsFunc(p.sources, func(s string) bool { return filepath.Dir(s) == folder }) {","to":"\t\tif false {","rule":"A full-tier line that names no package folder is a layout error, so no folder leaves the fast tier untested by mistake.","killers":["scripts/examples:TestModulesLeg"]}
+    {"name":"wg6-full-tier-names-nothing","origin":"wf10/semws WG6a","file":"scripts/examples/modules.go","from":"\t\tif !slices.ContainsFunc(p.sources, func(s string) bool { return filepath.Dir(s) == folder }) {","to":"\t\tif false {","rule":"A full-tier line that names no package folder is a layout error, so no folder leaves the fast tier untested by mistake.","killers":["scripts/examples:TestModulesLeg"]},
+    {
+      "name": "examples-workload-folder-is-file",
+      "origin": "wf10 SL1",
+      "file": "scripts/examples/main.go",
+      "from": "case file == opcount.WorkloadFile && !entry.IsDir():",
+      "to": "case file == opcount.WorkloadFile:",
+      "rule": "A package folder named workload is a package, not opcount's workload file (examples/vt).",
+      "killers": ["scripts/examples:TestModuleProgramWorkloadPackage"]
+    }
   ]
 }
