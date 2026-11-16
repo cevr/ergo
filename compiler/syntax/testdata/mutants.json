@@ -1,5 +1,5 @@
 {
-  "about": "compiler/syntax: the scanner (S2a, SL5) and the tree and parser (S2b, SL6). TestScanAgreesWithGo and TestParseAgreesWithGo (internal/sketch/syntax, in process through internal/linked/syntax) kill a row that names them; a gap names the law that kills the rest. Paths are from the repository root.",
+  "about": "compiler/syntax: the scanner (S2a, SL5) and the tree and parser (S2b, SL6), which syntax.Parse decodes since S2d. Since S2e (the Go parser deleted) a row is killed by internal/sketch/syntax's decoder property and parse laws (TestDecodeAgreesWithView, TestFormatParseRoundTrip, TestFormatIsTheCorpusFixpoint and the scan laws), by a fixture or checker test, or, named in gap, by a law of compiler/syntax. Paths are from the repository root.",
   "mutants": [
     {
       "name": "scan-semi-after-rparen",
@@ -19,7 +19,7 @@
       "to": "\t\t\tif src[i+1] == '(' {\n\t\t\t\treturn i + 2\n\t\t\t}\n",
       "rule": "End steps over an escaped byte of a string: an escaped quote does not end it.",
       "killers": [
-        "internal/sketch/syntax:TestScanAgreesWithGo"
+        "internal/sketch/syntax:TestFormatIsTheCorpusFixpoint"
       ]
     },
     {
@@ -30,7 +30,7 @@
       "to": "\ts.offset = start + close + 1\n",
       "rule": "A raw string ends after its closing backquote.",
       "killers": [
-        "internal/sketch/syntax:TestScanAgreesWithGo"
+        "internal/sketch/syntax:TestDecidedFixtures"
       ]
     },
     {
@@ -50,9 +50,8 @@
       "from": "return if c1 == '=' { Eql } else { Assign }",
       "to": "return Assign",
       "rule": "`==` is one token, not two `=`.",
-      "killers": [
-        "internal/sketch/syntax:TestScanAgreesWithGo"
-      ]
+      "killers": [],
+      "gap": "killed by law OpFastIsOpKind (ergo test compiler/syntax): the slow path opKind runs inside an interpolation only, which no Go test reaches; no Go suite runs compiler/'s laws until scripts/mutants has a compiler scope (GT7, batch 22)"
     },
     {
       "name": "scan-rune-octal-bound",
@@ -62,7 +61,7 @@
       "to": "int(lit[4]-'0') <= 256",
       "rule": "An octal rune escape names a byte: '\\400' is not a rune literal (Go's strconv.Unquote, which oneRune reads without allocating).",
       "killers": [
-        "internal/sketch/syntax:TestScanAgreesWithGo"
+        "internal/sketch/syntax:TestRuneLiteralsAgreeWithStrconv"
       ]
     },
     {
@@ -73,7 +72,7 @@
       "to": "\\x08\\x00\\x28\\x28\\x28\\x0b",
       "rule": "A digit is not a letter: `0` cannot start an identifier.",
       "killers": [
-        "internal/sketch/syntax:TestScanAgreesWithGo"
+        "internal/sketch/syntax:TestNumberForms"
       ]
     },
     {
@@ -84,7 +83,7 @@
       "to": "let semiLo uint64 = 0x470000c0000013f0",
       "rule": "A newline after an identifier inserts a semicolon.",
       "killers": [
-        "internal/sketch/syntax:TestScanAgreesWithGo"
+        "internal/sketch/syntax:TestFormatIsTheCorpusFixpoint"
       ]
     },
     {
@@ -95,7 +94,7 @@
       "to": "\\x00\\x51\\x00\\x65",
       "rule": "Each keyword hashes to its own kind.",
       "killers": [
-        "internal/sketch/syntax:TestScanAgreesWithGo"
+        "internal/sketch/syntax:TestDecidedFixtures"
       ]
     },
     {
@@ -106,7 +105,7 @@
       "to": "\\x33\\x38\\x00\\x00\\x37",
       "rule": "A comma is Comma.",
       "killers": [
-        "internal/sketch/syntax:TestScanAgreesWithGo"
+        "internal/sketch/syntax:TestFormatIsTheCorpusFixpoint"
       ]
     },
     {
@@ -117,7 +116,7 @@
       "to": "if elementStart && k&(clsLetter|clsDigit) == 0 ||",
       "rule": "An import path element starts with a letter or `_`, not a digit.",
       "killers": [
-        "internal/sketch/syntax:TestScanAgreesWithGo"
+        "internal/sketch/syntax:TestImportPathGrammar"
       ]
     },
     {
@@ -128,7 +127,7 @@
       "to": "if k1&clsOpNext != 0 ||",
       "rule": "A doubled operator byte (`<<`, `&&`, `..`) is a longer token: run's arm leaves it to opKind.",
       "killers": [
-        "internal/sketch/syntax:TestScanAgreesWithGo"
+        "internal/sketch/syntax:TestFormatIsTheCorpusFixpoint"
       ]
     },
     {
@@ -139,7 +138,7 @@
       "to": "if strings.IndexByte(p.src[a+k+1:b], '\\n') < 0 { 1 } else { 1 }",
       "rule": "A blank line between two comments ends the first one's group (go/parser).",
       "killers": [
-        "internal/sketch/syntax:TestParseAgreesWithGo"
+        "internal/sketch/syntax:TestCommentGroupsEndAtBlankLines"
       ]
     },
     {
@@ -150,7 +149,7 @@
       "to": "PositionOf(LinesOf(src), 0)",
       "rule": "A failure reports the line and column of its own offset.",
       "killers": [
-        "internal/sketch/syntax:TestParseAgreesWithGo"
+        "internal/sketch/check:TestSkipNamesItsReason"
       ]
     },
     {
@@ -161,7 +160,7 @@
       "to": "\t\tt.extra[start+j] = t.stack[m+count-1-j]\n",
       "rule": "A record keeps its children in source order.",
       "killers": [
-        "internal/sketch/syntax:TestParseAgreesWithGo"
+        "internal/sketch/syntax:TestDecodeAgreesWithView"
       ]
     },
     {
@@ -172,7 +171,7 @@
       "to": "\tt.ne = start + count\n",
       "rule": "rec cuts the stack back to the list's mark.",
       "killers": [
-        "internal/sketch/syntax:TestParseAgreesWithGo"
+        "internal/sketch/syntax:TestDecodeAgreesWithView"
       ]
     },
     {
@@ -193,7 +192,7 @@
       "to": "\tBinaryExpr{X: nid(t, b), Op: int(tok), Y: nid(t, a)}",
       "rule": "View reads each operand from its own word.",
       "killers": [
-        "internal/sketch/syntax:TestParseAgreesWithGo"
+        "internal/sketch/syntax:TestDecodeAgreesWithView"
       ]
     },
     {
@@ -204,7 +203,7 @@
       "to": "\t\treturn dense.OptOf(dense.IDAt(t.ids, 0))\n",
       "rule": "An optional child's 0 word is none, never row 0.",
       "killers": [
-        "internal/sketch/syntax:TestParseAgreesWithGo"
+        "internal/sketch/syntax:TestDecodeAgreesWithView"
       ]
     },
     {
@@ -225,7 +224,7 @@
       "to": "\tn == String || n == StringHead || n == LParen\n",
       "rule": "skip is a statement only before a string literal: skip(x) stays a call (contextual, no scanner keyword).",
       "killers": [
-        "internal/sketch/syntax:TestParseAgreesWithGo"
+        "internal/sketch/syntax:TestSkipIsAName"
       ]
     },
     {
@@ -236,7 +235,7 @@
       "to": "\tif kd == KSkipStmt {\n\t\treturn tokEnd(k, tok)\n",
       "rule": "A skip statement ends where its reason ends.",
       "killers": [
-        "internal/sketch/syntax:TestParseAgreesWithGo"
+        "internal/sketch/syntax:TestDecodeAgreesWithView"
       ]
     },
     {
@@ -247,7 +246,7 @@
       "to": "\tif false {\n\t\terrorAt(p, pos(p), tokLen(p), \"skip takes",
       "rule": "A skip's reason is a literal with no interpolation: an interpolated one is S001 at the literal.",
       "killers": [
-        "internal/sketch/syntax:TestParseAgreesWithGo"
+        "internal/sketch/check:TestSkipNamesItsReason"
       ]
     },
     {
@@ -258,7 +257,7 @@
       "to": "\t\tout = out.Append(uint32(tokEnd(t, j)) - uint32(1))",
       "rule": "A token's column carries its end, the second scan's (End): a name's or a literal's text is its whole span.",
       "killers": [
-        "internal/sketch/syntax:TestDecodeAgreesWithGo"
+        "internal/sketch/syntax:TestDecodeAgreesWithView"
       ]
     },
     {
@@ -269,7 +268,7 @@
       "to": "\t\tout = out.Append(uint32(p.gFirst[g]))",
       "rule": "A comment group carries its last comment: a doc of several lines is every line.",
       "killers": [
-        "internal/sketch/syntax:TestDecodeAgreesWithGo"
+        "internal/sketch/syntax:TestFormatIsTheCorpusFixpoint"
       ]
     },
     {
@@ -280,7 +279,7 @@
       "to": "\tout = out.Append(uint32(0))",
       "rule": "A failed parse says so in the header, so a host reports the failure, never an empty tree.",
       "killers": [
-        "internal/sketch/syntax:TestDecodeAgreesWithGo"
+        "internal/sketch/syntax:TestDecodeAgreesWithView"
       ]
     },
     {
@@ -291,8 +290,7 @@
       "to": "\tif isWord(p, \"entry\") && peek(p, 1) == Func && p.i < 0 {",
       "rule": "grammar.md Declarations 17: entry before func is the entry type's prefix.",
       "killers": [
-        "internal/sketch/syntax:TestDecidedFixtures",
-        "internal/sketch/syntax:TestParseAgreesWithGo"
+        "internal/sketch/syntax:TestDecidedFixtures"
       ]
     },
     {
@@ -303,8 +301,7 @@
       "to": "\tif !isWord(p, \"pure\") || p.i >= 0 {\n\t\treturn -1",
       "rule": "grammar.md Declarations 16: pure between a parameter's name and its type is the clause.",
       "killers": [
-        "internal/sketch/syntax:TestDecidedFixtures",
-        "internal/sketch/syntax:TestParseAgreesWithGo"
+        "internal/sketch/syntax:TestDecidedFixtures"
       ]
     },
     {
@@ -315,8 +312,7 @@
       "to": "\tif (path == \"\" && !isGoBuiltin(name) && p.i < 0) || !isIdentifier(name) {",
       "rule": "An extern target with no import path names a Go builtin.",
       "killers": [
-        "check:TestBuiltinBindingShapes",
-        "internal/sketch/syntax:TestParseAgreesWithGo"
+        "check:TestBuiltinBindingShapes"
       ]
     },
     {
@@ -327,8 +323,7 @@
       "to": "\t\t\tif identIs(p, ty, \"lent\") && p.tk != Comma && p.tk != RBrack && p.i < 0 {",
       "rule": "`lent` before a constraint marks the parameter lent: [T lent Counter] (types.md, Borrows 7).",
       "killers": [
-        "internal/sketch/syntax:TestDecidedFixtures",
-        "internal/sketch/syntax:TestParseAgreesWithGo"
+        "internal/sketch/syntax:TestDecidedFixtures"
       ]
     },
     {
@@ -339,8 +334,7 @@
       "to": "\t\tlet x = if k == Try { parseBinary(p, 1) } else { parseUnary(p) }\n\t\tleave(p)\n\t\tlet kind = if k == Mul",
       "rule": "grammar.md Expressions 1 (q105): a try in operand position wraps its operand only; it adds no grouping.",
       "killers": [
-        "internal/sketch/syntax:TestTryAddsNoGrouping",
-        "internal/sketch/syntax:TestParseAgreesWithGo"
+        "internal/sketch/syntax:TestTryAddsNoGrouping"
       ]
     },
     {
@@ -352,7 +346,7 @@
       "rule": "own is contextual: in a named list, own T is a parameter named own (q168).",
       "killers": [
         "internal/sketch/fix:TestOwnSpellsTheOldModes",
-        "internal/sketch/syntax:TestParseAgreesWithGo"
+        "internal/sketch/syntax:TestFormatIsTheCorpusFixpoint"
       ]
     },
     {
@@ -396,8 +390,7 @@
       "to": "\tif p.tk == StringHead && p.i < 0 {\n\t\terrorAt(p, pos(p), tokLen(p), \"skip takes",
       "rule": "A skip's reason has no interpolation, and the message says so.",
       "killers": [
-        "internal/sketch/check:TestSkipNamesItsReason",
-        "internal/sketch/syntax:TestParseAgreesWithGo"
+        "internal/sketch/check:TestSkipNamesItsReason"
       ]
     },
     {
@@ -408,8 +401,7 @@
       "to": "\t\treturn uint8(k)\n\t}\n\tif src[start:end] == \"skip\" {\n\t\treturn Assert\n\t}\n\tIdent\n}\n\n// kwTable",
       "rule": "skip is a contextual keyword: the scanner reads it as a name, so no program loses the name.",
       "killers": [
-        "internal/sketch/syntax:TestSkipIsAName",
-        "internal/sketch/syntax:TestParseAgreesWithGo"
+        "internal/sketch/syntax:TestSkipIsAName"
       ]
     },
     {
@@ -420,8 +412,7 @@
       "to": "\tn != Semicolon && n != EOF\n}",
       "rule": "Only skip followed directly by a string literal is the statement; skip(x) is a call.",
       "killers": [
-        "internal/sketch/syntax:TestSkipIsAName",
-        "internal/sketch/syntax:TestParseAgreesWithGo"
+        "internal/sketch/syntax:TestSkipIsAName"
       ]
     },
     {
