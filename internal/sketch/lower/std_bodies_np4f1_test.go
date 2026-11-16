@@ -200,7 +200,7 @@ func np4fGenRune(r *rand.Rand) rune {
 func np4fRuneArg(v rune) string { return strconv.Itoa(int(v)) }
 
 func np4f1UTF8Cases(r *rand.Rand, n int) []bodyCase {
-	imp := []string{"utf8", "strconv", "strings"}
+	imp := []string{"utf8", "strconv"}
 	texts := []string{"", "a", "é", "世界", "🙂", "\xff", "\xe4\xb8", "a\xffb", "\xed\xa0\x80", "\xf4\x90\x80\x80", "\xc0\xaf", "\x80\x80"}
 	return []bodyCase{
 		bodyRows("utf8.RuneCount", imp, "s string", `"\(utf8.RuneCount(s))"`, texts, n, r, np4fGenText, np4fErgoString,
