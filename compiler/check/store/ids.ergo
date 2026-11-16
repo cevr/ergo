@@ -37,6 +37,10 @@ func KindOf(r ObjRef) int { int(r.bits >> 28) }
 // indexOf is ref's index in its kind's table.
 func indexOf(r ObjRef) int { int(r.bits & 0x0fffffff) }
 
+// PNode is the row tag of a package's nodes: the files' rows laid end to
+// end in file order (C0/plan.md §1, Decided 1).
+type PNode {}
+
 // XRef names a declaration of another package: the position of the
 // import in the importer's sorted import list, and the index of the
 // declaration's id there. Import 0 is the package itself (C0/plan.md §1: ids are local).

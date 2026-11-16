@@ -12,6 +12,7 @@ type Store {
 	names   dense.Strings,
 	scope   dense.Col[dense.Str, dense.Opt[Decl]],
 	decls   dense.Table[Decl],
+	prints  dense.Col[Decl, Prints],
 	objects Objects,
 	pool    Pool,
 }
@@ -25,6 +26,7 @@ func New(path string, imports []string) Store {
 		names:   dense.NewStrings(),
 		scope:   dense.NewCol[dense.Str, dense.Opt[Decl]](),
 		decls:   dense.New[Decl](),
+		prints:  dense.NewCol[Decl, Prints](),
 		objects: NewObjects(),
 		pool:    NewPool(),
 	}
@@ -44,13 +46,35 @@ func Text(s Store, n dense.ID[dense.Str]) string { dense.Text(s.names, n) }
 
 // Declare puts a package-level declaration of name n (from Name), of
 // object o, whose row names n too, and binds the name in the package
-// scope. Bind refuses a second declaration of a name before it calls
-// Declare.
+// scope unless an earlier declaration holds it: a later function of one
+// name (a member group, types.md Methods 3) is in no scope, as in the Go
+// checker, and a type takes its name from a function declared before it.
+// Bind refuses a second declaration that is no member before it calls
+// Declare. The declaration's fingerprints are zero until SetPrints.
 func Declare(s *Store, n dense.ID[dense.Str], file int, node int, o Object) dense.ID[Decl] {
 	let r = Add(&s.objects, o)
 	let d = dense.Put(&s.decls, Decl{Kind: uint8(KindOf(r)), Name: n, File: uint32(file), Node: uint32(node), Obj: r})
-	dense.SetOf(&s.scope, n, dense.OptOf(d))
+	dense.Push(&s.prints, Prints{Fp: Print{Hi: uint64(0), Lo: uint64(0)}, Ifp: Print{Hi: uint64(0), Lo: uint64(0)}})
+	let bind = match dense.Unpack(dense.Of(s.scope, n)) {
+	case Some[dense.ID[Decl]] as prev:
+		KindOf(r) == kTypeName && int(DeclOf(*s, prev.Value).Kind) == kFunc
+	case None:
+		true
+	}
+	if bind {
+		dense.SetOf(&s.scope, n, dense.OptOf(d))
+	}
 	d
+}
+
+// KindOfName is the object kind the package scope binds text to, or 0.
+func KindOfName(s Store, text string) int {
+	match Lookup(s, text) {
+	case Some[dense.ID[Decl]] as d:
+		int(DeclOf(s, d.Value).Kind)
+	case None:
+		0
+	}
 }
 
 // Lookup is the package-level declaration of text, if any.
@@ -65,6 +89,36 @@ func Lookup(s Store, text string) Option[dense.ID[Decl]] {
 
 // DeclOf is the row of d.
 func DeclOf(s Store, d dense.ID[Decl]) Decl { dense.At(s.decls, d) }
+
+// Print is a fingerprint: the first 16 bytes of a SHA-256, big-endian.
+type Print { Hi uint64, Lo uint64 }
+
+// Prints are a declaration's fingerprints (C0/plan.md §3): Fp over the
+// declaration's tokens, Ifp over the tokens an importer sees.
+type Prints { Fp Print, Ifp Print }
+
+// SetPrints records declaration d's fingerprints.
+func SetPrints(s *Store, d dense.ID[Decl], p Prints) { dense.SetOf(&s.prints, d, p) }
+
+// PrintsOf is declaration d's fingerprints.
+func PrintsOf(s Store, d dense.ID[Decl]) Prints { dense.Of(s.prints, d) }
+
+// NumDecls is the number of declaration rows; DeclAt is the i-th's id.
+func NumDecls(s Store) int { dense.Len(s.decls) }
+
+func DeclAt(s Store, i int) dense.ID[Decl] { dense.IDOf(s.decls, i) }
+
+// Decls is every declaration row, in collect order.
+func Decls(s Store) []Decl { dense.Rows(s.decls) }
+
+// KindName is the word of an object kind ordinal, as the agreement dumps
+// write it.
+func KindName(k int) string {
+	if k == kFunc { "func" } else if k == kVar { "var" } else if k == kTypeName { "type" } else if k == kConst { "const" } else if k == kContext { "context" } else if k == kLaw { "law" } else if k == kTest { "test" } else { "pkg" }
+}
+
+// Unset is the type a row holds before the signature pass gives it one.
+func Unset(s *Store) dense.ID[TKey] { Basic(&s.pool, 0) }
 
 // Frozen is a package's store after its check: immutable, moved into the
 // value every importer task shares with no lock (C0/plan.md §4, Decided
