@@ -486,6 +486,7 @@
       "to": "\t_ = report\n",
       "rule": "ergo build -report copies prints the form of each Append and Concat site (tooling.md; types.md, Bindings 2).",
       "killers": ["cmd/ergo:TestHandoverGrowsLinearly"]
-    }
+    },
+    {"name":"opc-hooked-build-host-goroot","origin":"wf10 std-spike c1b22 r3 (opcount program mode)","file":"internal/opcount/build.go","from":"tc.Go, tc.Root = patched.Go, patched.Root","to":"tc.Go, tc.Root = patched.Go, \"\"","rule":"A measured build of an emitted module compiles with the GOROOT of ergo's patched release, whose compile reads the IR bodies (-ergoir); the host GOROOT's compile refuses the flag.","killers":["cmd/ergo:TestEventsStreamCounts"],"anchor":{"tests":["cmd/ergo:TestEventsStreamCounts"]}}
   ]
 }
