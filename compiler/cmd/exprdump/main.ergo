@@ -1,0 +1,158 @@
+// exprdump types one package's expressions with compiler/check/expr and
+// prints one line per typed expression, or with -calls one per inferred
+// generic call, unsorted:
+//
+//	exprdump EXT FOREIGN FILE...          "FILE START END TYPE"
+//	exprdump -calls EXT FOREIGN FILE...   "FILE OFFSET T1 ; T2 …"
+//
+// START and END are the expression's byte offsets (END the byte after
+// it); OFFSET is the callee name's. Types print as the Go checker's
+// Type.String (compiler/check/types Text), no value as "no value". EXT and
+// FOREIGN are typedump's: the Go side writes them, standing in for the
+// imports' interfaces.
+//
+// It is the Ergo side of S3d's expression agreement
+// (internal/selfhostcheck's TestCompilerExprAgreesWithChecker).
+
+import compiler/check/bind
+import compiler/check/expr
+import compiler/check/infer
+import compiler/check/store
+import compiler/check/types
+import compiler/syntax
+import dense
+import fs
+import io
+import os
+import strconv
+import strings
+
+func base(path string) string {
+	let i = strings.LastIndex(path, "/")
+	if i < 0 { path } else { path[i+1 : len(path)] }
+}
+
+func bit(w string) int {
+	if w == "type" { 1 } else if w == "errors" { 2 } else if w == "uses" { 4 } else { 8 }
+}
+
+func read(path string) string fails os.Exit needs fs.Files {
+	fs.Files.ReadFile(path) catch {
+	case fs.NotFound:
+		return os.Exit{Code: 1, Message: "exprdump: no file \(path)"}
+	case fs.Denied:
+		return os.Exit{Code: 1, Message: "exprdump: cannot read \(path)"}
+	case fs.Failed as e:
+		return os.Exit{Code: 1, Message: "exprdump: cannot read \(path): \(e.Reason)"}
+	}
+}
+
+// Tables is what EXT and FOREIGN hold (typedump reads them alike).
+type Tables { ext []types.Ext, foreign []types.Foreign, pkgName string, pkgPath string }
+
+func tables(extText string, foreignText string) Tables {
+	let mut ext = []types.Ext{}
+	for line in strings.Split(extText, "\n") {
+		let parts = strings.Fields(line)
+		if len(parts) != 2 {
+			continue
+		}
+		let mut ks = []int{}
+		for w in strings.Split(parts[1], ",") {
+			ks = ks.Append(bit(w))
+		}
+		ext = ext.Append(types.Ext{Head: parts[0], Kinds: ks})
+	}
+	let mut foreign = []types.Foreign{}
+	let mut pkgName = "main"
+	let mut pkgPath = "main"
+	for line in strings.Split(foreignText, "\n") {
+		let parts = strings.Fields(line)
+		if len(parts) == 4 && parts[0] == "@pkg" {
+			pkgName = if parts[3] == "1" { parts[1] } else { "" }
+			pkgPath = parts[2]
+			continue
+		}
+		if len(parts) != 6 {
+			continue
+		}
+		let n = strconv.Atoi(parts[2]) catch {
+		case _:
+			0
+		}
+		foreign = foreign.Append(types.Foreign{Qual: parts[0], Name: parts[1], Arity: n, Path: parts[3], Print: strings.ReplaceAll(parts[4], "^", " "), Key: parts[5], Variants: []int{}})
+	}
+	for line in strings.Split(foreignText, "\n") {
+		let parts = strings.Fields(line)
+		if len(parts) != 4 || parts[0] != "@union" {
+			continue
+		}
+		let mut vs = []int{}
+		let mut at = -1
+		for i, f in foreign {
+			if f.Qual == parts[1] && f.Name == parts[2] {
+				at = i
+			}
+		}
+		for v in strings.Split(parts[3], ",") {
+			for i, f in foreign {
+				if f.Qual == parts[1] && f.Name == v {
+					vs = vs.Append(i)
+				}
+			}
+		}
+		if at >= 0 {
+			foreign[at].Variants = vs
+		}
+	}
+	Tables{ext: ext, foreign: foreign, pkgName: pkgName, pkgPath: pkgPath}
+}
+
+func run(argv []string) fails os.Exit needs fs.Files | io.Stdout {
+	let calls = len(argv) > 0 && argv[0] == "-calls"
+	let args = if calls { argv[1:len(argv)] } else { argv }
+	if len(args) < 2 {
+		return os.Exit{Code: 2, Message: "usage: exprdump [-calls] EXT FOREIGN FILE..."}
+	}
+	let tab = tables(try read(args[0]), try read(args[1]))
+	let mut files = []bind.File{}
+	for path in args[2:len(args)] {
+		files = files.Append(bind.File{Name: base(path), Parsed: syntax.Parse(try read(path))})
+	}
+	let collected = bind.Collect(tab.pkgPath, files)
+	let ps = bind.BuildParents(files)
+	let (bound, u) = bind.Bind(collected, []store.Frozen{}, ps, files, 1)
+	let mut s = bound
+	let k = expr.Load(&s, files, u, ps, tab.ext, tab.foreign, tab.pkgName == "")
+	let t = expr.Check(&s, k)
+	let none = infer.NoValue(&s)
+	let text = func(ty dense.ID[store.TKey], fn int) string {
+		if ty == none { "no value" } else { types.Text(s, types.Names{Params: k.Fns[fn].Params, Foreign: tab.foreign, Pkg: tab.pkgName}, ty) }
+	}
+	let mut b = strings.NewBuilder()
+	if calls {
+		for c in t.Insts {
+			let (f, row) = bind.RowOf(ps, c.At)
+			let p = files[f].Parsed
+			let mut ts = []string{}
+			for a in c.Args {
+				ts = ts.Append(text(a, c.Fn))
+			}
+			b.WriteString("\(files[f].Name) \(syntax.NodePos(p, syntax.NodeAt(p.Tree, row))) \(strings.Join(ts, " ; "))\n")
+		}
+	} else {
+		for e in t.Entries {
+			let (f, row) = bind.RowOf(ps, e.At)
+			let p = files[f].Parsed
+			let id = syntax.NodeAt(p.Tree, row)
+			b.WriteString("\(files[f].Name) \(syntax.NodePos(p, id)) \(syntax.NodeEnd(p, id)) \(text(e.T, e.Fn))\n")
+		}
+	}
+	io.Stdout.Print(b.String())
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
+		try run(os.Process.Args())
+	}
+}

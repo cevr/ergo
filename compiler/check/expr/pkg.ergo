@@ -1,0 +1,170 @@
+// Package expr types a package's expressions (capstone S3d): each
+// expression of a function body gets its type in the pool, as the Go
+// checker's Info.Types records it, and each call to a generic function its
+// type arguments, inferred with compiler/check/infer on the argument types
+// it gives. It reads the package's bound store (compiler/check/bind), the
+// signatures and record fields compiler/check/types resolves, and the
+// foreign table that stands in for the imports' interfaces.
+//
+// An expression whose type this pass does not know yet is left without
+// one, and so is a constant whose type its context decides when the
+// context is one the pass does not read: the result is sound where it
+// speaks (the agreement compares every typed expression) and its reach is
+// measured (TestCompilerExprAgreesWithChecker logs it).
+
+import compiler/check/bind
+import compiler/check/store
+import compiler/check/types
+import compiler/syntax
+import dense
+
+// Fn is one function declaration of the package with its signature: its
+// file, its declaration and name nodes, its bracket parameters and their
+// row bits, its parameters' name nodes (none for an unnamed one) and its
+// signature in the pool.
+type Fn {
+	File   int,
+	Decl   dense.ID[syntax.Node],
+	Name   dense.ID[syntax.Node],
+	Params []string,
+	Rows   []bool,
+	Names  []dense.Opt[syntax.Node],
+	Sig    dense.ID[store.TKey],
+}
+
+// Field is a record field: its name and type (the record's bracket
+// parameters are the pool's Param(0), Param(1), …).
+type Field { Name string, T dense.ID[store.TKey] }
+
+// Rec is a record of the package: its name, bracket parameters and fields.
+type Rec { Name string, Params []string, Fields []Field }
+
+// Pkg is what typing a package reads.
+type Pkg {
+	Files   []bind.File,
+	Parsed  []syntax.Parsed,
+	U       bind.Uses,
+	Ps      bind.Parents,
+	Kinds   types.Kinds,
+	Ext     []types.Ext,
+	Foreign []types.Foreign,
+	Fns     []Fn,
+	Recs    []Rec,
+}
+
+// paramNames is the name node of each parameter of the function type ft,
+// in order (an unnamed parameter has none).
+func paramNames(p syntax.Parsed, ft dense.ID[syntax.Node]) []dense.Opt[syntax.Node] {
+	let mut out = []dense.Opt[syntax.Node]{}
+	match syntax.ViewOf(p.Tree, ft) {
+	case syntax.FuncType as t:
+		match syntax.ViewOf(p.Tree, t.Params) {
+		case syntax.FieldList as fl:
+			for i in 0..syntax.Len(fl.List) {
+				match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, fl.List, i)) {
+				case syntax.Field as fd:
+					let n = syntax.Len(fd.Names)
+					if n == 0 {
+						out = out.Append(dense.NoID[syntax.Node]())
+					}
+					for j in 0..n {
+						out = out.Append(dense.OptOf(syntax.Item(p.Tree, fd.Names, j)))
+					}
+				case _:
+				}
+			}
+		case _:
+		}
+	case _:
+	}
+	out
+}
+
+// fieldsOf is the written fields of the field list l, resolved in env.
+func fieldsOf(s *store.Store, env types.Env, p syntax.Parsed, l dense.ID[syntax.Node]) []Field {
+	let mut out = []Field{}
+	match syntax.ViewOf(p.Tree, l) {
+	case syntax.FieldList as fl:
+		for i in 0..syntax.Len(fl.List) {
+			match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, fl.List, i)) {
+			case syntax.Field as fd:
+				if fd.Dots >= 0 {
+					continue
+				}
+				match dense.Unpack(fd.Type) {
+				case Some[dense.ID[syntax.Node]] as t:
+					let ty = types.Resolve(s, env, t.Value)
+					for j in 0..syntax.Len(fd.Names) {
+						out = out.Append(Field{Name: types.NameText(p, syntax.Item(p.Tree, fd.Names, j)), T: ty})
+					}
+				case None:
+				}
+			case _:
+			}
+		}
+	case _:
+	}
+	out
+}
+
+// Load is the package of files, collected and bound into s: its
+// signatures and record fields resolved with ext and foreign (the
+// imports' kinds and types), prelude telling whether the package is the
+// prelude.
+func Load(s *store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ext []types.Ext, foreign []types.Foreign, prelude bool) Pkg {
+	let mut parsed = []syntax.Parsed{}
+	for f in files {
+		parsed = parsed.Append(f.Parsed)
+	}
+	let kinds = types.SolveKinds(*s, parsed, ext)
+	let mut fns = []Fn{}
+	for f in types.SolveFuncKinds(*s, parsed, ext, kinds) {
+		let p = parsed[f.File]
+		match syntax.ViewOf(p.Tree, f.Decl) {
+		case syntax.FuncDecl as fd:
+			let env = types.NewEnv(*s, parsed, p, f.Params, kinds, ext, foreign)
+			if types.WiredOfType(*s, env, fd.Type) {
+				continue
+			}
+			let sig = types.Resolve(s, env, fd.Type)
+			let mut rows = []bool{}
+			for k in f.Kinds {
+				rows = rows.Append(k != 1)
+			}
+			fns = fns.Append(Fn{File: f.File, Decl: f.Decl, Name: fd.Name, Params: f.Params, Rows: rows, Names: paramNames(p, fd.Type), Sig: sig})
+		case _:
+		}
+	}
+	let mut recs = []Rec{}
+	for p in parsed {
+		if p.Failed {
+			continue
+		}
+		for r in types.Records(p, prelude) {
+			let env = types.NewEnv(*s, parsed, p, r.Params, kinds, ext, foreign)
+			recs = recs.Append(Rec{Name: r.Name, Params: r.Params, Fields: fieldsOf(s, env, p, r.Fields)})
+		}
+	}
+	Pkg{Files: files, Parsed: parsed, U: u, Ps: ps, Kinds: kinds, Ext: ext, Foreign: foreign, Fns: fns, Recs: recs}
+}
+
+// FnAt is the index in k.Fns of the function whose name node is at in
+// file, -1 when none is.
+func FnAt(k Pkg, file int, at dense.ID[syntax.Node]) int {
+	for i, f in k.Fns {
+		if f.File == file && f.Name == at {
+			return i
+		}
+	}
+	-1
+}
+
+// recOf is the index in k.Recs of the record named name, -1 when none is.
+func recOf(k Pkg, name string) int {
+	for i, r in k.Recs {
+		if r.Name == name {
+			return i
+		}
+	}
+	-1
+}
