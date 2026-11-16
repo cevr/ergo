@@ -7343,6 +7343,7 @@ func (e *encoder) encFieldshand(v *hand) {
 	e.encT12(v.provider)
 	e.encT12(v.root)
 	e.encT12(v.endLoans)
+	e.encT12(v.endKept)
 	e.encT12(v.hostLend)
 	e.encSyntax_Expr(v.ret)
 }
@@ -8358,6 +8359,7 @@ func (e *encoder) encFieldsresourceLoan(v *resourceLoan) {
 	e.enclendPoint(v.end)
 	e.encT12(v.internal)
 	e.encT109(v.keeper)
+	e.encT2(v.kept)
 }
 
 func (e *encoder) encresourceLoan(v resourceLoan) { e.encFieldsresourceLoan(&v) }
@@ -18596,6 +18598,7 @@ func (d *decoder) decFieldshand(v *hand) {
 	v.provider = d.decT12()
 	v.root = d.decT12()
 	v.endLoans = d.decT12()
+	v.endKept = d.decT12()
 	v.hostLend = d.decT12()
 	v.ret = d.decSyntax_Expr()
 }
@@ -20238,6 +20241,7 @@ func (d *decoder) decFieldsresourceLoan(v *resourceLoan) {
 	v.end = d.declendPoint()
 	v.internal = d.decT12()
 	v.keeper = d.decT109()
+	v.kept = d.decT2()
 }
 
 func (d *decoder) decresourceLoan() (v resourceLoan) {
