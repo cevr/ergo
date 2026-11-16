@@ -149,6 +149,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"call without a function", "G4"},
 	{"call of a Go builtin", "G4"},
 	{"call of a user extern", "G4"},
+	{"call of a Go package function", "G4"}, // import go (gostd); IRG6 r2 gates it, the census crashed on it
 	{"call of a std intrinsic", "G4"},
 	{"dot call of a std function", "G4"},
 	{"std call *", "G4"}, // hidden arguments, adapted results, converted operands
@@ -165,12 +166,10 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"conversion *", "G4"},
 	{"type argument with no value", "G4"}, // a task's T bound by a block with no value
 	{"type *check.TypeParam", "G4"},
-	{"type *check.Signature", "G4"},
 	{"type *check.Pointer", "G4"},
 	{"pointer receiver", "G4"},
 	{"for-in over a non-slice", "G4"},
 	{"call kind 1", "G4"}, // CallOp: an operation-type value's operation
-	{"call kind 3", "G4"}, // CallFuncValue
 	{"call kind 4", "G4"}, // CallConversion
 	{"Go type spelling *", "G4"},
 	{"witness parameter", "G4"},
@@ -186,7 +185,6 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"intrinsic body", "G5"},
 	{"std body not reachable alone", "G5"},
 	// G6: the rest (closures, codecs, test and law bodies).
-	{"expression *syntax.FuncLit", "G6"},
 	{"trailing block", "G6"}, // with(…) { }: a context and its frame
 	{"context value", "G6"},
 	// The codec built-ins take the IR (FLIP OPC-codec), but for these:
@@ -196,4 +194,12 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"call kind 12", "G6"}, // CallEmbed
 	{"call kind 8", "G6"},  // CallLawOp
 	{"call kind 9", "G6"},  // CallGoError
+	// IRG6 r2's function values, ported to flip-f1 (flip-fnval): literals,
+	// trailing blocks of program calls, function types, calls of function
+	// values. These stay the emitter's.
+	{"function literal *", "G6"},
+	{"function type with several results", "G6"},
+	{"call of a function value *", "G6"},
+	{"call of a value of a named function type", "G6"},
+	{"call of a known callback", "G4"}, // known.go's plain variant
 }

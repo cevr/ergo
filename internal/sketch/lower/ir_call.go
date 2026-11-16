@@ -26,6 +26,11 @@ func (b *irBuilder) call(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr) {
 		irNo("untried fallible call")
 	}
 	pre, e, effect := b.callParts(x, stmt)
+	if e != nil && e.K == "vcall" {
+		// A function value returns its (value, error) pair (ir_closure.go).
+		vpre, v := b.valueResult(x, e, stmt)
+		return append(pre, vpre...), v
+	}
 	if effect && !stmt {
 		return b.hoist(pre, e, x)
 	}
@@ -42,12 +47,19 @@ func (b *irBuilder) rawCall(x *syntax.CallExpr) ([]*irStmt, *irExpr) {
 // callParts is the call x and the statements before it; effect reports a
 // call with effects.
 func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr, bool) {
-	if x.Trailing != nil {
-		irNo("trailing block")
-	}
 	c := b.l.info.Calls[x]
 	if c == nil {
 		irNo("call without a Calls entry")
+	}
+	// A trailing block is a function literal, the call's last operand:
+	// a call of a function of the program takes it (ir_closure.go).
+	if x.Trailing != nil && (c.Kind != check.CallFunc || c.Func == nil || c.Func.Pkg.Std() || c.Func.Pkg.Host()) {
+		if c.Kind == check.CallFunc && c.Func != nil && c.Func.Pkg.Std() {
+			// timeout.After { … }: the literal is built, the generic std
+			// extern that takes it is not (stdCall).
+			irNo("std call that adapts a function")
+		}
+		irNo("trailing block")
 	}
 	if c.StartsTask {
 		irNo("task call")
@@ -86,6 +98,12 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 			irNo("call of a Go builtin")
 		case userExtern(f):
 			irNo("call of a user extern")
+		case f.Pkg.Host():
+			// A function of a Go package read from its binding (import
+			// go; gostd's runtime.NumCPU): the emitter calls its Go
+			// target, and useFunc would ask the naming pass for a name it
+			// never gave (examples/onebrc).
+			irNo("call of a Go package function")
 		}
 		// A function of another Ergo package of the program, or a std
 		// function with an Ergo body, is a function of the one Go package
@@ -125,6 +143,9 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		}
 		pre, irArgs := b.operands(args)
 		b.valueSource(x, c, args, irArgs) // ir_pkg.go
+		if x.Trailing != nil {
+			irArgs = append(irArgs, b.closureLit(nil, x)) // ir_closure.go
+		}
 		if !fd.pure {
 			// The environment first, after a method's receiver
 			// (callText, taskDestArgs).
@@ -178,6 +199,9 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		args := append([]*irExpr{{K: "field", Pos: p, Name: envTask, X: env}}, irArgs...)
 		capField := &irExpr{K: "field", Pos: p, Name: b.l.envField(named), X: env}
 		return pre, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: capField, Args: args}, true
+	case check.CallFuncValue:
+		pre, e := b.valueCall(x, c, p) // ir_closure.go
+		return pre, e, true
 	}
 	irNo("call kind %d", c.Kind)
 	return nil, nil, false

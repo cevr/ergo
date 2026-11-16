@@ -15,6 +15,14 @@ import (
 // path among the package's imports, and the lowering keeps the import used,
 // keepImport).
 func (b *irBuilder) goType(t check.Type, site syntax.Node) string {
+	switch u := t.(type) {
+	case *check.Signature:
+		return b.sigType(u, site) // ir_closure.go
+	case *check.Slice:
+		if hasSig(u) {
+			return "[]" + b.goType(u.Elem, site)
+		}
+	}
 	b.admit(t, 0)
 	return b.spelling(b.fc.goType(t)) // ir_pkg.go
 }
@@ -43,6 +51,18 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 		// operator admits only basic types (operator).
 		if _, ok := b.fc.params[t]; !ok {
 			irNo("type parameter outside its declaration")
+		}
+		return
+	case *check.Signature:
+		// A function value's type (ir_closure.go, sigType).
+		if len(t.Results) > 1 {
+			irNo("function type with several results")
+		}
+		for _, p := range t.Params {
+			b.admit(p.Type, depth+1)
+		}
+		for _, r := range t.Results {
+			b.admit(r, depth+1)
 		}
 		return
 	case *check.Named:

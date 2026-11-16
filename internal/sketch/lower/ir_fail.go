@@ -85,6 +85,12 @@ func (b *irBuilder) ret(x syntax.Expr, p irPos) []*irStmt {
 		if _, implicit := b.l.info.Implicit[x]; implicit {
 			irNo("implicit conversion")
 		}
+		if c := b.l.info.Calls[call]; c != nil && c.Kind == check.CallFuncValue && b.result == nil {
+			// A function value's pair: its failure leaves, then the
+			// frame returns with no value (ir_closure.go).
+			pre, _ := b.try(call)
+			return append(pre, &irStmt{K: "ret", Pos: p})
+		}
 		pre, e := b.rawCall(call)
 		return append(pre, &irStmt{K: "ret", Pos: p, X: e})
 	}
@@ -226,6 +232,12 @@ func (b *irBuilder) bind(call *syntax.CallExpr) (pre []*irStmt, v, e int) {
 	p := b.pos(call, call.Pos())
 	e = b.temp("err", "error", p)
 	t := b.l.info.Types[call]
+	if x.K == "vcall" && (t == nil || isNoValue(t) || b.fc.noValue(call)) {
+		// A function value with no value returns struct{} first
+		// (ir_closure.go).
+		u := b.temp("unit", "struct{}", p)
+		return append(pre, &irStmt{K: "def2", Pos: p, Local: u, Val: &e, X: x}), -1, e
+	}
 	if t == nil || isNoValue(t) {
 		return append(pre, &irStmt{K: "def", Pos: p, Local: e, X: x}), -1, e
 	}

@@ -204,6 +204,8 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 		"typeCtx.funcType":         "a function type, which has no body",
 		"lowerer.machinePlan":      "a machine plan's declared Step header: func (X) Step(env *Env, ...)",
 		"lowerer.genFunc":          "a generator's assertion of the runner's Env that a constructor or a builder runs in (fu6a, fu7a)",
+		"irBuilder.sigType":        "the IR's function type, typeCtx.funcType's uniform shape: no body (ir_closure.go, IRG6 r2)",
+		"irBuilder.closureLit":     "the IR's function literal: its *Env parameter, a local of the IR body; the derivative writes the closure (ir_closure.go, IRG6 r2)",
 	}
 	for _, owner := range sortedKeys(readers) {
 		if _, ok := classified[owner]; !ok {
