@@ -70,8 +70,14 @@ func (b *irBuilder) fixed(x syntax.Expr) bool {
 // store is the IR of p = v or p op= v, p a place that is not a name.
 func (b *irBuilder) store(s *syntax.AssignStmt, op string) []*irStmt {
 	lhs := s.Lhs[0]
-	if call, ok := unparen(s.Rhs[0]).(*syntax.CallExpr); ok && op == "" && formsOn() && b.l.valueFacts().inPlace[call] {
-		irNo("store of a call that updates its place") // mapStore (forms.go)
+	if op == "" && b.fc.mapStoreForm(s) {
+		// p = p.Put(…) with the call writing p's own Go map in place: the
+		// map it returns is p's, so the call is the statement and the store
+		// back is dropped, as the emitter's mapStore writes it (forms.go).
+		// Any other call the value rule writes in place (Append, a Map
+		// call that p does not hand) is stored back as written: the call's
+		// own IR is the in-place form (valueSource).
+		return b.discard(s.Rhs[0])
 	}
 	if op != "" {
 		b.operator(op, b.l.info.Types[lhs], s)
