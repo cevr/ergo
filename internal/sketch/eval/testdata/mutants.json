@@ -1600,6 +1600,33 @@
       "to": "",
       "rule": "An Enter or an Emit ends the entry with its exit action, before the next entry opens (fk-gallery's tour: the save on leaving the studio).",
       "killers": ["examples:fk-gallery"]
+    },
+    {
+      "name": "evlaw-builder-skipped",
+      "origin": "wf10 MX-EVLAW",
+      "file": "internal/sketch/eval/preflight.go",
+      "from": "\t\t\t// Drawn by its builder, as the Go build draws it (genBuilt).\n",
+      "to": "\t\t\treturn \"an operation-type builder without an interpreter adapter\"\n",
+      "rule": "An operation-type law runs at check time over a provider whose field is an operation type: its builder draws it, as the Go build does.",
+      "killers": ["internal/sketch/eval:TestCasePlansRun"]
+    },
+    {
+      "name": "evlaw-world-cached-converted",
+      "origin": "wf10 MX-EVLAW",
+      "file": "internal/sketch/eval/cases.go",
+      "from": "\t\treturn mustValue(in.call(fr, nil, b.Func, targs, args))\n\t}\n\tvar v Value",
+      "to": "\t\treturn &operation{value: mustValue(in.call(fr, nil, b.Func, targs, args)), conv: b.Conv, env: fr.env}\n\t}\n\tvar v Value",
+      "rule": "A case keeps a world builder's result, not its conversion: one value is each operation type it provides.",
+      "killers": ["internal/sketch/eval:TestCasePlansRun"]
+    },
+    {
+      "name": "evlaw-builder-of-law-package",
+      "origin": "wf10 MX-EVLAW",
+      "file": "internal/sketch/eval/cases.go",
+      "from": "\tb := in.root.Builder(n)\n",
+      "to": "\tb := fr.pkg.Builder(n)\n",
+      "rule": "The builder is the one the checked package sees, as the Go build asks the package it lowers.",
+      "killers": ["internal/sketch/eval:TestCaseProviderIdentity"]
     }
   ]
 }
