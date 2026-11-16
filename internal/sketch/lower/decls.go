@@ -1314,9 +1314,10 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		}
 	}
 	b.WriteString(directive + head.String() + " {\n" + body + "}\n\n")
-	if owned {
+	if owned && (l.ir == nil || !l.ir.ownedWrapper(fc, fd, wrapHead, wrapParams, results, bodyName, typeArgs, args, recvName, site)) {
 		// The wrapper stands in the generated part, before the first
-		// //line directive: a defect names no Ergo frame for it.
+		// //line directive: a defect names no Ergo frame for it. On the
+		// IR path it is IR beside a source body too (ir_own.go).
 		l.gen.WriteString(fc.ownedWrapper(f, wrapHead, wrapParams, results, bodyName, typeArgs, args, recvName, site))
 	}
 }
