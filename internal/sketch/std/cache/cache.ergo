@@ -38,29 +38,34 @@ type Stats { Hits int, Misses int, Size int }
 // Cache is a cache from K to V.
 type Cache[K comparable, V] { state sync.Ref[table[K, V]], config Config, release func(k K, v V) }
 
-// ready is an entry: its value, when its lookup ended, when it was last
-// read, and its stamp, its place in the recency order.
-type ready[V] { value V, born time.Time, used time.Time, stamp int64 }
+// cell is one place of the table: a key and its value, when its lookup
+// ended, when it was last read, and its stamp, its place in the recency
+// order. A cell no key indexes is free, and its stamp is -1.
+type cell[K, V] { key K, value V, born time.Time, used time.Time, stamp int64 }
 
 // loading is a lookup in flight: its number, and the queue its waiters pop,
 // which it ends when the lookup is over, however it ends.
 type loading { id int64, done queue.Queue[int] }
 
-type slot[V] = ready[V] | loading
-
-// mark is an entry's place in the recency order. A mark whose stamp is not
-// its entry's stamp now is stale and skipped.
-type mark[K] { key K, stamp int64 }
+// mark is a cell's place in the recency order. A mark whose stamp is not
+// its cell's stamp now is stale and skipped.
+type mark { at int, stamp int64 }
 
 // leaving is an entry that left, for its release.
 type leaving[K, V] { key K, value V }
 
-// table is what a Cache holds: the slots, the recency order from order[head]
-// (oldest first), the number of ready entries, the next stamp and number,
-// and the counts.
+// table is what a Cache holds. The entries are cells of one slice, which
+// index finds by key, so a hit reads the map once and writes its cell in
+// place; free holds the cells evicted entries left. The lookups in flight
+// are in loads, by key. The recency order runs from order[head], oldest
+// first. size is the number of entries; next numbers the stamps and the
+// lookups; hits and misses are the counts.
 type table[K comparable, V] {
-	slots  Map[K, slot[V]],
-	order  []mark[K],
+	index  Map[K, int],
+	cells  []cell[K, V],
+	free   []int,
+	loads  Map[K, loading],
+	order  []mark,
 	head   int,
 	size   int,
 	next   int64,
@@ -84,7 +89,7 @@ func NewReleasing[K comparable, V](config Config, release escaping func(k K, v V
 	if config.Life < 0s || config.Idle < 0s {
 		return BadConfig{Reason: "a negative time: use 0 for an entry that does not expire"}
 	}
-	let empty = table[K, V]{slots: Map[K, slot[V]]{}, order: []mark[K]{}, head: 0, size: 0, next: 0, hits: 0, misses: 0}
+	let empty = table[K, V]{index: Map[K, int]{}, cells: []cell[K, V]{}, free: []int{}, loads: Map[K, loading]{}, order: []mark{}, head: 0, size: 0, next: 0, hits: 0, misses: 0}
 	Cache[K, V]{state: sync.NewRef[table[K, V]](empty), config: config, release: release}
 }
 
@@ -125,27 +130,30 @@ func Get[K comparable, V, E, R](c Cache[K, V], k K, lookup func(k K) V fails E n
 // begin is the step of a Get of k at now, and the table after it. The
 // table is the last parameter of each helper below, bound to a let mut
 // first, so a helper takes it over and writes it in place (types.md,
-// Bindings 2, owned parameters).
+// Bindings 2, owned parameters). A hit is one read of index and a write of
+// its cell; a miss also reads loads, and writes it when it starts the
+// lookup.
 func begin[K comparable, V](config Config, k K, now time.Time, t table[K, V]) (step[K, V], table[K, V]) {
 	let mut u = t
-	match u.slots.Get(k) {
-	case Some[slot[V]] as s:
-		match s.Value {
-		case ready[V] as r:
-			if live(config, r, now) {
-				u = touch(k, ready[V]{value: r.value, born: r.born, used: now, stamp: u.next}, u)
-				u.hits += 1
-				return (found[V]{value: r.value}, u)
-			}
-			u.size -= 1
-			let (l, w) = startLoad(k, u)
-			(loader[K, V]{id: l.id, done: l.done, gone: []leaving[K, V]{leaving[K, V]{key: k, value: r.value}}}, w)
-		case loading as l:
-			(waiting{done: l.done}, u)
+	match u.index.Get(k) {
+	case Some[int] as i:
+		let e = u.cells[i.Value]
+		if live(config, e, now) {
+			u = touch(i.Value, cell[K, V]{key: k, value: e.value, born: e.born, used: now, stamp: u.next}, u)
+			u.hits += 1
+			return (found[V]{value: e.value}, u)
 		}
-	case None:
+		u = drop(i.Value, u)
 		let (l, w) = startLoad(k, u)
-		(loader[K, V]{id: l.id, done: l.done, gone: []leaving[K, V]{}}, w)
+		(loader[K, V]{id: l.id, done: l.done, gone: []leaving[K, V]{leaving[K, V]{key: k, value: e.value}}}, w)
+	case None:
+		match u.loads.Get(k) {
+		case Some[loading] as l:
+			(waiting{done: l.Value.done}, u)
+		case None:
+			let (l, w) = startLoad(k, u)
+			(loader[K, V]{id: l.id, done: l.done, gone: []leaving[K, V]{}}, w)
+		}
 	}
 }
 
@@ -153,7 +161,7 @@ func begin[K comparable, V](config Config, k K, now time.Time, t table[K, V]) (s
 func startLoad[K comparable, V](k K, t table[K, V]) (loading, table[K, V]) {
 	let mut u = t
 	let l = loading{id: u.next, done: queue.New[int](0)}
-	u.slots[k] = l
+	u.loads[k] = l
 	u.next += 1
 	u.misses += 1
 	(l, u)
@@ -164,7 +172,7 @@ func startLoad[K comparable, V](k K, t table[K, V]) (loading, table[K, V]) {
 func run[K comparable, V, E, R](c Cache[K, V], k K, l loader[K, V], lookup func(k K) V fails E needs R) V fails E needs time.Clock | R {
 	let mut kept = false
 	scope.OnExit() {
-		// keep's Modify has replaced or left l's slot when the lookup gave
+		// keep's Modify has ended or left l's lookup when the lookup gave
 		// its value, so only a lookup that failed or stopped is abandoned.
 		if !kept {
 			let _ = sync.Modify(c.state, func(t table[K, V]) (bool, table[K, V]) { abandon(k, l.id, t) })
@@ -179,57 +187,70 @@ func run[K comparable, V, E, R](c Cache[K, V], k K, l loader[K, V], lookup func(
 	v
 }
 
-// abandon drops k's slot if it is still the lookup id in flight.
-func abandon[K comparable, V](k K, id int64, t table[K, V]) (bool, table[K, V]) {
-	let mut u = t
-	match u.slots.Get(k) {
-	case Some[slot[V]] as s:
-		match s.Value {
-		case loading as l:
-			if l.id == id {
-				u.slots = u.slots.Delete(k)
-				return (true, u)
-			}
-			(false, u)
-		case ready[V]:
-			(false, u)
-		}
+// inFlight reports whether id is the lookup of k in flight in t.
+func inFlight[K comparable, V](t table[K, V], k K, id int64) bool {
+	match t.loads.Get(k) {
+	case Some[loading] as l:
+		l.Value.id == id
 	case None:
-		(false, u)
+		false
 	}
 }
 
-// keep stores v for k if k's slot is still the lookup id, and evicts down
+// abandon ends k's lookup if it is still the lookup id in flight.
+func abandon[K comparable, V](k K, id int64, t table[K, V]) (bool, table[K, V]) {
+	let mut u = t
+	if !inFlight(u, k, id) {
+		return (false, u)
+	}
+	u.loads = u.loads.Delete(k)
+	(true, u)
+}
+
+// keep stores v for k if k's lookup in flight is still id, and evicts down
 // to the capacity.
 func keep[K comparable, V](config Config, k K, id int64, v V, now time.Time, t table[K, V]) ([]leaving[K, V], table[K, V]) {
 	let mut u = t
-	match u.slots.Get(k) {
-	case Some[slot[V]] as s:
-		match s.Value {
-		case loading as l:
-			if l.id != id {
-				return ([]leaving[K, V]{}, u)
-			}
-			u = touch(k, ready[V]{value: v, born: now, used: now, stamp: u.next}, u)
-			u.size += 1
-			evict(config, u)
-		case ready[V]:
-			([]leaving[K, V]{}, u)
-		}
-	case None:
-		([]leaving[K, V]{}, u)
+	if !inFlight(u, k, id) {
+		return ([]leaving[K, V]{}, u)
 	}
+	u.loads = u.loads.Delete(k)
+	u = place(k, v, now, u)
+	evict(config, u)
 }
 
-// touch stores r for k, stamped with the next stamp, at the back of the
-// recency order, and drops stale marks when they outnumber the live ones.
-func touch[K comparable, V](k K, r ready[V], t table[K, V]) table[K, V] {
+// place stores a new entry of v for k, which t does not index, in a free
+// cell or a new one, at the back of the recency order.
+func place[K comparable, V](k K, v V, now time.Time, t table[K, V]) table[K, V] {
 	let mut u = t
-	u.slots[k] = r
-	u.order = u.order.Append(mark[K]{key: k, stamp: r.stamp})
+	let e = cell[K, V]{key: k, value: v, born: now, used: now, stamp: u.next}
+	let n = len(u.free)
+	let mut at = len(u.cells)
+	if n > 0 {
+		at = u.free[n-1]
+		u.free = u.free[0 : n-1]
+		u.cells[at] = e
+	} else {
+		u.cells = u.cells.Append(e)
+	}
+	u.index[k] = at
+	u.size += 1
+	// Assigned back rather than returned: the take-over of an owned
+	// argument applies to `u = f(u)`, and a returned call clones the table.
+	u = touch(at, e, u)
+	u
+}
+
+// touch writes e into the cell at, at the back of the recency order with
+// e's stamp, the next stamp, and drops stale marks when they outnumber the
+// live ones.
+func touch[K comparable, V](at int, e cell[K, V], t table[K, V]) table[K, V] {
+	let mut u = t
+	u.cells[at] = e
+	u.order = u.order.Append(mark{at: at, stamp: e.stamp})
 	u.next += 1
 	if len(u.order)-u.head > 2*u.size+32 {
-		let mut kept = []mark[K]{}
+		let mut kept = []mark{}
 		for i in u.head..len(u.order) {
 			if current(u, u.order[i]) {
 				kept = kept.Append(u.order[i])
@@ -241,19 +262,18 @@ func touch[K comparable, V](k K, r ready[V], t table[K, V]) table[K, V] {
 	u
 }
 
-// current reports whether m is its entry's place in the order now.
-func current[K comparable, V](t table[K, V], m mark[K]) bool {
-	match t.slots.Get(m.key) {
-	case Some[slot[V]] as s:
-		match s.Value {
-		case ready[V] as r:
-			r.stamp == m.stamp
-		case loading:
-			false
-		}
-	case None:
-		false
-	}
+// current reports whether m is its cell's place in the order now.
+func current[K comparable, V](t table[K, V], m mark) bool { t.cells[m.at].stamp == m.stamp }
+
+// drop frees the cell at and its key's index.
+func drop[K comparable, V](at int, t table[K, V]) table[K, V] {
+	let mut u = t
+	let e = u.cells[at]
+	u.index = u.index.Delete(e.key)
+	u.cells[at] = cell[K, V]{key: e.key, value: e.value, born: e.born, used: e.used, stamp: -1}
+	u.free = u.free.Append(at)
+	u.size -= 1
+	u
 }
 
 // evict drops the entries read least recently until t holds no more than
@@ -264,18 +284,10 @@ func evict[K comparable, V](config Config, t table[K, V]) ([]leaving[K, V], tabl
 	for u.size > config.Capacity && u.head < len(u.order) {
 		let m = u.order[u.head]
 		u.head += 1
-		match u.slots.Get(m.key) {
-		case Some[slot[V]] as s:
-			match s.Value {
-			case ready[V] as r:
-				if r.stamp == m.stamp {
-					u.slots = u.slots.Delete(m.key)
-					u.size -= 1
-					gone = gone.Append(leaving[K, V]{key: m.key, value: r.value})
-				}
-			case loading:
-			}
-		case None:
+		if current(u, m) {
+			let e = u.cells[m.at]
+			u = drop(m.at, u)
+			gone = gone.Append(leaving[K, V]{key: e.key, value: e.value})
 		}
 	}
 	(gone, u)
@@ -291,10 +303,10 @@ func stampOf(config Config) time.Time needs time.Clock {
 	time.Clock.Now()
 }
 
-// live reports whether r is younger than the life and was read within the
+// live reports whether e is younger than the life and was read within the
 // idle time, at now.
-func live[V](config Config, r ready[V], now time.Time) bool {
-	(config.Life == 0s || time.Sub(now, r.born) < config.Life) && (config.Idle == 0s || time.Sub(now, r.used) < config.Idle)
+func live[K, V](config Config, e cell[K, V], now time.Time) bool {
+	(config.Life == 0s || time.Sub(now, e.born) < config.Life) && (config.Idle == 0s || time.Sub(now, e.used) < config.Idle)
 }
 
 // releaseAll calls c's release on each entry of gone, in order.
@@ -308,15 +320,18 @@ func releaseAll[K comparable, V](c Cache[K, V], gone []leaving[K, V]) {
 // lookup, does not wait for one, and does not count as a read.
 func Peek[K comparable, V](c Cache[K, V], k K) Option[V] needs time.Clock {
 	let now = stampOf(c.config)
-	let held = sync.Modify(c.state, func(t table[K, V]) (Option[slot[V]], table[K, V]) { (t.slots.Get(k), t) })
-	match held {
-	case Some[slot[V]] as s:
-		match s.Value {
-		case ready[V] as r:
-			if live(c.config, r, now) { Some[V]{Value: r.value} } else { None }
-		case loading:
+	let held = sync.Modify(c.state, func(t table[K, V]) (Option[cell[K, V]], table[K, V]) {
+		let e = match t.index.Get(k) {
+		case Some[int] as i:
+			Some[cell[K, V]]{Value: t.cells[i.Value]}
+		case None:
 			None
 		}
+		(e, t)
+	})
+	match held {
+	case Some[cell[K, V]] as e:
+		if live(c.config, e.Value, now) { Some[V]{Value: e.Value.value} } else { None }
 	case None:
 		None
 	}
@@ -329,8 +344,7 @@ func Put[K comparable, V](c Cache[K, V], k K, v V) needs time.Clock {
 	let now = stampOf(c.config)
 	let gone = sync.Modify(c.state, func(t table[K, V]) ([]leaving[K, V], table[K, V]) {
 		let (old, u) = remove(k, t)
-		let mut w = touch(k, ready[V]{value: v, born: now, used: now, stamp: u.next}, u)
-		w.size += 1
+		let w = place(k, v, now, u)
 		let (evicted, x) = evict(c.config, w)
 		let mut all = old
 		for e in evicted {
@@ -358,14 +372,10 @@ func Invalidate[K comparable, V](c Cache[K, V], k K) bool {
 func InvalidateAll[K comparable, V](c Cache[K, V]) {
 	let gone = sync.Modify(c.state, func(t table[K, V]) ([]leaving[K, V], table[K, V]) {
 		let mut out = []leaving[K, V]{}
-		for k, s in t.slots {
-			match s {
-			case ready[V] as r:
-				out = out.Append(leaving[K, V]{key: k, value: r.value})
-			case loading:
-			}
+		for k, at in t.index {
+			out = out.Append(leaving[K, V]{key: k, value: t.cells[at].value})
 		}
-		(out, table[K, V]{..t, slots: Map[K, slot[V]]{}, order: []mark[K]{}, head: 0, size: 0})
+		(out, table[K, V]{..t, index: Map[K, int]{}, cells: []cell[K, V]{}, free: []int{}, loads: Map[K, loading]{}, order: []mark{}, head: 0, size: 0})
 	})
 	releaseAll(c, gone)
 }
@@ -376,15 +386,11 @@ func Prune[K comparable, V](c Cache[K, V]) needs time.Clock {
 	let gone = sync.Modify(c.state, func(t table[K, V]) ([]leaving[K, V], table[K, V]) {
 		let mut u = t
 		let mut out = []leaving[K, V]{}
-		for k, s in t.slots {
-			match s {
-			case ready[V] as r:
-				if !live(c.config, r, now) {
-					u.slots = u.slots.Delete(k)
-					u.size -= 1
-					out = out.Append(leaving[K, V]{key: k, value: r.value})
-				}
-			case loading:
+		for k, at in t.index {
+			let e = t.cells[at]
+			if !live(c.config, e, now) {
+				u = drop(at, u)
+				out = out.Append(leaving[K, V]{key: k, value: e.value})
 			}
 		}
 		(out, u)
@@ -392,29 +398,31 @@ func Prune[K comparable, V](c Cache[K, V]) needs time.Clock {
 	releaseAll(c, gone)
 }
 
-// holds reports whether t has a slot for k.
+// holds reports whether t has an entry or a lookup in flight for k.
 func holds[K comparable, V](t table[K, V], k K) bool {
-	match t.slots.Get(k) {
-	case Some[slot[V]]:
+	match t.index.Get(k) {
+	case Some[int]:
 		true
 	case None:
-		false
+		match t.loads.Get(k) {
+		case Some[loading]:
+			true
+		case None:
+			false
+		}
 	}
 }
 
-// remove drops k's slot, and gives the entry that leaves with it, if any.
+// remove drops k's entry and its lookup in flight, and gives the entry
+// that leaves, if any.
 func remove[K comparable, V](k K, t table[K, V]) ([]leaving[K, V], table[K, V]) {
 	let mut u = t
-	match u.slots.Get(k) {
-	case Some[slot[V]] as s:
-		u.slots = u.slots.Delete(k)
-		match s.Value {
-		case ready[V] as r:
-			u.size -= 1
-			([]leaving[K, V]{leaving[K, V]{key: k, value: r.value}}, u)
-		case loading:
-			([]leaving[K, V]{}, u)
-		}
+	u.loads = u.loads.Delete(k)
+	match u.index.Get(k) {
+	case Some[int] as i:
+		let e = u.cells[i.Value]
+		u = drop(i.Value, u)
+		([]leaving[K, V]{leaving[K, V]{key: k, value: e.value}}, u)
 	case None:
 		([]leaving[K, V]{}, u)
 	}
