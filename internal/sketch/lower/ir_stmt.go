@@ -313,7 +313,7 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 			}
 			return []*irStmt{{K: "break", Pos: b.pos(s, s.Pos())}}
 		case syntax.CONTINUE:
-			return []*irStmt{{K: "continue", Pos: b.pos(s, s.Pos())}}
+			return b.continueStmt(s) // ir_fail.go: the back-edge poll first
 		}
 		irNo("statement *syntax.BranchStmt %s", s.Tok)
 	case *syntax.RangeStmt:
@@ -369,7 +369,7 @@ func (b *irBuilder) loopBody(s syntax.Stmt, body *syntax.BlockStmt) []*irStmt {
 	switches := b.switches
 	b.switches = 0
 	defer func() { b.loops, b.switches = b.loops-1, switches }()
-	return append(b.tail(body.List, false), b.loopPoll(s, body)...)
+	return append(b.tail(body.List, false), b.loopPoll(s)...)
 }
 
 // bodyEnd is what follows a body with a result whose last statement may
