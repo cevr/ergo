@@ -174,7 +174,8 @@ test StaleSetIsMoved {
 // each stash entry, the newest refs/stash/0; Remote finds a commit a
 // remote-tracking ref holds and not one only a local branch holds; a
 // push by commit writes it under refs/work/archive; GuardPushes gives
-// every remote, not origin only, the refusing push URL.
+// every remote, not origin only, the refusing push URL, and Unguard
+// drops it and no push URL of the owner's.
 test LocalsRemotesAndGuards {
 	with onShell {
 		let script = "git init -q -b main . && git config user.name t && git config user.email t@example.com && printf 'one\\n' > a.txt && git add a.txt && git commit -q -m one && git switch -q -c side && printf 's\\n' > s.txt && git add s.txt && git commit -q -m side && git switch -q main && printf 'x\\n' >> a.txt && git stash -q && printf 'y\\n' >> a.txt && git stash -q && git remote add origin /nonexistent/loop-probe-x && git remote add fork /nonexistent/loop-probe-y && git update-ref refs/remotes/origin/main main && git init -q --bare archive.git"
@@ -202,5 +203,13 @@ test LocalsRemotesAndGuards {
 			let url = try exec.Runner.Run(exec.New("git", []string{"config", "remote.\(remote).pushurl"})).Stdout
 			assert url == Guard+"\n"
 		}
+		// doctor -unguard (the Mac's fork): Unguard drops work's guard
+		// and keeps a push URL the owner set.
+		assert try exec.Runner.Run(exec.New("sh", []string{"-c", "git remote add mine /nonexistent/loop-probe-z && git config remote.mine.pushurl /nonexistent/loop-probe-own"})).Status == 0
+		assert try work.Vcs.Guarded(".") == []string{"fork", "origin"}
+		try work.Vcs.Unguard(".")
+		assert try work.Vcs.Guarded(".") == []string{}
+		assert try exec.Runner.Run(exec.New("sh", []string{"-c", "git config remote.origin.pushurl"})).Status == 1
+		assert try exec.Runner.Run(exec.New("git", []string{"config", "remote.mine.pushurl"})).Stdout == "/nonexistent/loop-probe-own\n"
 	}
 }

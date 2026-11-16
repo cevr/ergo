@@ -724,7 +724,6 @@ func Adopt(t Tool, dir string, o AdoptOptions) Workspace fails NoBase | BadName 
 	if !t.copier.Has(folder) {
 		return Missing{Path: folder}
 	}
-	try guarded(t, folder)
 	let w = Workspace{Name: name, Id: idOf(t, name, folder), Path: folder, Parent: t.base, Branch: try t.vcs.Branch(folder), Cloner: "adopted", State: Active, Since: now(t), Base: try t.vcs.Head(folder), Latest: "", Deps: "", Token: "", Moving: "", Pinned: false, Until: 0}
 	try put(t, w)
 	w

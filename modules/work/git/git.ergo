@@ -300,6 +300,32 @@ func GuardPushes(v Vcs, root string) fails work.VcsFailed {
 	}
 }
 
+// Guarded reads each remote's push URLs (git config --get-all) and names
+// the remotes one of whose is Guard.
+func Guarded(v Vcs, root string) []string fails work.VcsFailed {
+	let mut out = []string{}
+	let remotes = exec.Split(try answer(v, root, []string{"remote"}))
+	for name in remotes {
+		let urls = answer(v, root, []string{"config", "--get-all", "remote.\(name).pushurl"}) catch {
+		case work.VcsFailed:
+			""
+		}
+		if slices.Contains(exec.Split(urls), Guard) {
+			out = out.Append(name)
+		}
+	}
+	out
+}
+
+// Unguard unsets, in each remote that has it, the push URL Guard only
+// (git config --unset-all with a value pattern), so a push URL the owner
+// set stays.
+func Unguard(v Vcs, root string) fails work.VcsFailed {
+	for name in try Guarded(v, root) {
+		let _ = try writes(v, root, []string{"config", "--unset-all", "remote.\(name).pushurl", "^" + Guard + "$"})
+	}
+}
+
 // Locals reads the branches by for-each-ref and the stash entries by
 // git stash list, the newest first.
 func Locals(v Vcs, root string) []work.Local fails work.VcsFailed {

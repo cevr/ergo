@@ -28,8 +28,9 @@ type Report {
 
 // DoctorOptions are doctor's flags: -rift lists the base's Rift copies
 // that no workspace holds (in the registry -registry names, else
-// Rift's own).
-type DoctorOptions { Rift bool, Registry Option[string] }
+// Rift's own); -unguard drops the push guard an older adopt or
+// adopt-rift wrote into an adopted workspace's remotes.
+type DoctorOptions { Rift bool, Registry Option[string], Unguard bool }
 
 // mountOf is the file system type and options of the mount that holds
 // path, from /proc/mounts (the longest mount point that is a prefix); on
@@ -132,6 +133,22 @@ func Doctor(t Tool, o DoctorOptions) Report fails NoBase | BadConfig | Unkept | 
 	}
 	if !ok {
 		notes = notes.Append("work.toml runs commands work trust has not allowed: run work trust")
+	}
+	// adopt and adopt-rift write nothing into a copy now; an older one
+	// gave each adopted copy's remotes the push guard, which stopped the
+	// owner's own pushes (the Mac's fork). -unguard drops it from adopted
+	// workspaces only: a workspace new made keeps its guard.
+	let mut guarded = []string{}
+	for w in try t.registry.All() {
+		if w.Cloner == "adopted" && w.State == Active && len(try t.vcs.Guarded(w.Path)) > 0 {
+			if o.Unguard {
+				try t.vcs.Unguard(w.Path)
+			}
+			guarded = guarded.Append(w.Path)
+		}
+	}
+	if len(guarded) > 0 {
+		notes = notes.Append(if o.Unguard { "dropped the push guard of \(len(guarded)) adopted workspaces" } else { "\(len(guarded)) adopted workspaces carry the push guard an older adopt wrote: run work doctor -unguard" })
 	}
 	let rift = if o.Rift { try RiftLeft(t, RiftOptions{Registry: o.Registry}) } else { []string{} }
 	if len(rift) > 0 {

@@ -21,7 +21,7 @@ let ConfigFile = "work.toml"
 //     Rift's default list.
 //   - Copy allows a plain copy where no clone can share blocks.
 //   - Push is who may push from a workspace: "refuse" (the default)
-//     gives every remote of a new or adopted workspace a push URL that
+//     gives every remote of a workspace new makes a push URL that
 //     refuses every push, so work goes back only through ready;
 //     "origin" leaves the remotes as the clone has them, for a base
 //     whose owner pushes from workspaces.

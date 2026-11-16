@@ -72,6 +72,12 @@ type Vcs {
 	Start(root string, branch string, commit string) fails VcsFailed,
 	// GuardPushes stops every push from the checkout to each of its remotes.
 	GuardPushes(root string) fails VcsFailed,
+	// Guarded is the remotes whose push URL is the guard GuardPushes
+	// writes (another push URL is not work's).
+	Guarded(root string) []string fails VcsFailed,
+	// Unguard drops the push URL GuardPushes wrote from each remote that
+	// has it, and no other push URL.
+	Unguard(root string) fails VcsFailed,
 	// Locals is each local branch and each stash entry of the checkout.
 	Locals(root string) []Local fails VcsFailed,
 	// Tracked reports whether the checkout's index holds path.

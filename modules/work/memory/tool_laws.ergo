@@ -896,3 +896,44 @@ law BasesAreTheLiveOnes(live []bool, forget int) {
 	let kept = if len(liveLeft) == 0 { "" } else { strings.Join(liveLeft, "\n") + "\n" }
 	listed == want && left == wantLeft && pruned == slices.Filter(gone, func(b string) bool { b != lines[k] }) && after == liveLeft && file == kept
 }
+
+// AdoptLeavesPushesToTheOwner: adopt writes no push guard into the copy
+// it takes (its pushes are its owner's: the Mac's fork); a copy an older
+// adopt guarded is noted by doctor and, with -unguard, loses that guard
+// and no push URL of the owner's; a workspace new made keeps its guard
+// either way.
+law AdoptLeavesPushesToTheOwner(own bool) {
+	let w = world(true)
+	let made = w.tool.New("n", fresh(false)) catch {
+	case _:
+		return false
+	}
+	Repo(w.vcs, "/w/fresh", "main", Map[string, string]{"a.txt": "a\n"}, "c7")
+	Repo(w.vcs, "/w/old", "main", Map[string, string]{"a.txt": "a\n"}, "c8")
+	let mine = if own { "https://example.invalid/fork.git" } else { Guard }
+	let _ = Write(w.trees, "/w/old", ".git/config/remote.origin.pushurl", mine)
+	let before = Files(w.trees, "/w/fresh")
+	let _ = w.tool.Adopt("/w/fresh", work.AdoptOptions{Name: None}) catch {
+	case _:
+		return false
+	}
+	let _ = w.tool.Adopt("/w/old", work.AdoptOptions{Name: None}) catch {
+	case _:
+		return false
+	}
+	let o = work.DoctorOptions{Rift: false, Registry: None, Unguard: false}
+	let noted = w.tool.Doctor(o) catch {
+	case _:
+		return false
+	}
+	let note = slices.Contains(noted.Notes, "1 adopted workspaces carry the push guard an older adopt wrote: run work doctor -unguard")
+	let still = Files(w.trees, "/w/old").Get(".git/config/remote.origin.pushurl") == Some[string]{Value: mine}
+	let fixed = w.tool.Doctor(work.DoctorOptions{..o, Unguard: true}) catch {
+	case _:
+		return false
+	}
+	let left = Files(w.trees, "/w/old").Get(".git/config/remote.origin.pushurl")
+	let newKept = Files(w.trees, made.Path).Get(".git/config/remote.origin.pushurl") == Some[string]{Value: Guard}
+	let fixedNote = slices.Contains(fixed.Notes, "dropped the push guard of 1 adopted workspaces")
+	Files(w.trees, "/w/fresh") == before && still && newKept && note == !own && fixedNote == !own && left == (if own { Some[string]{Value: mine} } else { None })
+}

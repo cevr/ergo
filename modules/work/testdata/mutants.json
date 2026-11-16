@@ -1552,6 +1552,46 @@
       "to": "\n",
       "rule": "A script that runs work init, new or adopt keeps work's data in its scratch (internal/residue TestWorkScriptsKeepTheirRegistry).",
       "anchor": {"tests": ["internal/residue:TestWorkScriptsKeepTheirRegistry"]}, "killers": ["internal/residue:TestWorkScriptsKeepTheirRegistry"]
+    },
+    {
+      "name": "wkg-adopt-guards", "origin": "wf10/semws WK-BASES push guard (the Mac)",
+      "file": "modules/work/work/api.ergo",
+      "from": "\tlet w = Workspace{Name: name, Id: idOf(t, name, folder),",
+      "to": "\ttry guarded(t, folder)\n\tlet w = Workspace{Name: name, Id: idOf(t, name, folder),",
+      "rule": "adopt writes no push guard into the copy (memory's AdoptLeavesPushesToTheOwner).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wkg-adopt-rift-guards", "origin": "wf10/semws WK-BASES push guard (the Mac)",
+      "file": "modules/work/work/rift.ergo",
+      "from": "\t\tlet w = Workspace{Name: name, Id: idOf(t, name, c.Path),",
+      "to": "\t\ttry guarded(t, c.Path)\n\t\tlet w = Workspace{Name: name, Id: idOf(t, name, c.Path),",
+      "rule": "adopt-rift writes no file into a copy (memory's AdoptRiftKeepsTheTree).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wkg-unguard-new-too", "origin": "wf10/semws WK-BASES push guard (the Mac)",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\t\tif w.Cloner == \"adopted\" && w.State == Active && len(",
+      "to": "\t\tif w.State == Active && len(",
+      "rule": "doctor -unguard leaves a workspace new made guarded (memory's AdoptLeavesPushesToTheOwner).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wkg-unguard-noop", "origin": "wf10/semws WK-BASES push guard (the Mac)",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\t\t\t\ttry t.vcs.Unguard(w.Path)\n",
+      "to": "",
+      "rule": "doctor -unguard drops the guard of an adopted workspace (memory's AdoptLeavesPushesToTheOwner).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wkg-git-guarded-any-url", "origin": "wf10/semws WK-BASES push guard (the Mac)",
+      "file": "modules/work/git/git.ergo",
+      "from": "\t\tif slices.Contains(exec.Split(urls), Guard) {\n",
+      "to": "\t\tif urls != \"\" {\n",
+      "rule": "Guarded names only work's own guard, so Unguard keeps the owner's push URL (git's LocalsRemotesAndGuards).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     }
   ]
 }
