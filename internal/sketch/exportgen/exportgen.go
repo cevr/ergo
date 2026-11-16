@@ -67,6 +67,7 @@ var skipFields = map[string]string{
 	"check.checker.contextLimit": "test hook",
 	"check.checker.withLimit":    "test hook",
 	"check.checker.nodeCheck":    "test hook",
+	"check.stdImporter.sources":  "test hook: a test's library (TestStdImportNamesBrokenPackage)",
 	"check.checker.elidedAs":     "set only while an elided literal is checked",
 	"check.checker.nodeOrder":    "a memo of the source order, rebuilt on use",
 	"check.checker.neverOrigins": "a memo per union origin (never.go), rebuilt on use",
