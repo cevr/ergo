@@ -887,8 +887,10 @@ func (fc *funcCtx) closeInline(body string, ret *inlineRet, before string) {
 	if strings.Contains(body, jump) {
 		// A label needs a statement: the call may end a match or catch
 		// arm, where the next token is a case (UC H8a). The empty
-		// statement is explicit, so gofmt keeps it.
-		fc.line(ret.label + ": ;")
+		// statement is explicit, so gofmt keeps it, on a line of its own
+		// as gofmt prints it, so the raw text keeps gofmt's lines (FT5).
+		fc.line(ret.label + ":")
+		fc.line(";")
 	}
 	if ret.fail != "" && !strings.Contains(body, "goto "+ret.fail+"\n") {
 		ret.fail = "" // no return fails: the site has no label to place

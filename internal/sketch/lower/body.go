@@ -1318,8 +1318,10 @@ func (fc *funcCtx) typeMatchBody(s *syntax.TypeSwitchStmt, d dest) bool {
 			terminates = terminates && t
 		}
 		if ended {
-			// The empty statement: the label may end a case clause.
-			fc.line(end + ": ;")
+			// The empty statement: the label may end a case clause. On a
+			// line of its own, as gofmt prints it (FT5).
+			fc.line(end + ":")
+			fc.line(";")
 		}
 		return terminates
 	}
