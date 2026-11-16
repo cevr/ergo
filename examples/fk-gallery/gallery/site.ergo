@@ -109,6 +109,8 @@ func Step(s Site, sig Signal) Decision[Site, []Command] {
 			Stay[Site]{Next: e.Next}
 		case Emit[Site, []Command] as e:
 			Stay[Site]{Next: e.Next}
+		case Tell[Site, []Command] as t:
+			Stay[Site]{Next: t.Next}
 		case Ignore, Reject, Done[[]Command]:
 			Stay[Site]{Next: done}
 		}
@@ -210,6 +212,8 @@ func Commands(s Site, d Decision[Site, []Command]) []Command {
 	let mut out = match d {
 	case Emit[Site, []Command] as e:
 		e.Output
+	case Tell[Site, []Command] as t:
+		t.Output
 	case Enter[Site], Stay[Site], Ignore, Reject, Done[[]Command]:
 		[]Command{}
 	}
@@ -262,7 +266,7 @@ func jobs(s Site) Option[machines.Work[Signal, time.Clock | Scheduler]] {
 	if len(s.Jobs) == 0 {
 		return None
 	}
-	Some{machines.Work{Listen: func(send func(e Signal)) needs time.Clock | Scheduler {
+	Some{machines.Work{Start: func(send entry func(e Signal)) needs time.Clock | Scheduler {
 		let now = time.Clock.Now()
 		let mut dues = []due{}
 		for j in s.Jobs {
@@ -306,6 +310,8 @@ func After(s Site, d Decision[Site, []Command]) Site {
 		e.Next
 	case Stay[Site] as st:
 		st.Next
+	case Tell[Site, []Command] as t:
+		t.Next
 	case Ignore, Reject, Done[[]Command]:
 		s
 	}
