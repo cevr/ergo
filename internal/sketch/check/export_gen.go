@@ -17,6 +17,7 @@ func (e *encoder) encFieldsstdBase(v *stdBase) {
 	e.encPtrTypeName(v.errorName)
 	e.encPtrPackage(v.goPkg)
 	e.encPtrNamed(v.ref)
+	e.encPtrNamed(v.any)
 	e.encpreludeResult(v.prelude)
 	e.encT1(v.nextID)
 }
@@ -7378,6 +7379,7 @@ func (e *encoder) encFieldshand(v *hand) {
 	e.encT12(v.provider)
 	e.encT12(v.root)
 	e.encT12(v.endLoans)
+	e.encT12(v.endKept)
 	e.encT12(v.hostLend)
 	e.encSyntax_Expr(v.ret)
 }
@@ -8393,6 +8395,7 @@ func (e *encoder) encFieldsresourceLoan(v *resourceLoan) {
 	e.enclendPoint(v.end)
 	e.encT12(v.internal)
 	e.encT110(v.keeper)
+	e.encT2(v.kept)
 }
 
 func (e *encoder) encresourceLoan(v resourceLoan) { e.encFieldsresourceLoan(&v) }
@@ -8658,6 +8661,7 @@ func (e *encoder) encFieldsuniverseState(v *universeState) {
 	e.encPtrTypeName(v.errorName)
 	e.encPtrPackage(v.goPkg)
 	e.encPtrNamed(v.ref)
+	e.encPtrNamed(v.any)
 }
 
 func (e *encoder) encPtruniverseState(v *universeState) {
@@ -10584,6 +10588,7 @@ func (d *decoder) decFieldsstdBase(v *stdBase) {
 	v.errorName = d.decPtrTypeName()
 	v.goPkg = d.decPtrPackage()
 	v.ref = d.decPtrNamed()
+	v.any = d.decPtrNamed()
 	v.prelude = d.decpreludeResult()
 	v.nextID = d.decT1()
 }
@@ -18674,6 +18679,7 @@ func (d *decoder) decFieldshand(v *hand) {
 	v.provider = d.decT12()
 	v.root = d.decT12()
 	v.endLoans = d.decT12()
+	v.endKept = d.decT12()
 	v.hostLend = d.decT12()
 	v.ret = d.decSyntax_Expr()
 }
@@ -20316,6 +20322,7 @@ func (d *decoder) decFieldsresourceLoan(v *resourceLoan) {
 	v.end = d.declendPoint()
 	v.internal = d.decT12()
 	v.keeper = d.decT110()
+	v.kept = d.decT2()
 }
 
 func (d *decoder) decresourceLoan() (v resourceLoan) {
@@ -20739,6 +20746,7 @@ func (d *decoder) decFieldsuniverseState(v *universeState) {
 	v.errorName = d.decPtrTypeName()
 	v.goPkg = d.decPtrPackage()
 	v.ref = d.decPtrNamed()
+	v.any = d.decPtrNamed()
 }
 
 func (d *decoder) decPtruniverseState() *universeState {

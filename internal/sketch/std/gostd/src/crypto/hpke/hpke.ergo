@@ -6,7 +6,7 @@ import go crypto/ecdh
 
 // ergo:go type AEAD interface
 extern go crypto/hpke.AEAD type AEAD {
-	own ID() uint16 needs go.Foreign,
+	ID() uint16 needs go.Foreign,
 }
 
 // ergo:go func AES128GCM() AEAD
@@ -35,16 +35,16 @@ extern go crypto/hpke.HKDFSHA512 func HKDFSHA512() KDF needs go.Foreign
 
 // ergo:go type KDF interface
 extern go crypto/hpke.KDF type KDF {
-	own ID() uint16 needs go.Foreign,
+	ID() uint16 needs go.Foreign,
 }
 
 // ergo:go type KEM interface
 extern go crypto/hpke.KEM type KEM {
-	own DeriveKeyPair(ikm []byte) PrivateKey fails go.Error needs go.Foreign,
-	own GenerateKey() PrivateKey fails go.Error needs go.Foreign,
-	own ID() uint16 needs go.Foreign,
-	own NewPrivateKey(p0 []byte) PrivateKey fails go.Error needs go.Foreign,
-	own NewPublicKey(p0 []byte) PublicKey fails go.Error needs go.Foreign,
+	DeriveKeyPair(ikm []byte) PrivateKey fails go.Error needs go.Foreign,
+	GenerateKey() PrivateKey fails go.Error needs go.Foreign,
+	ID() uint16 needs go.Foreign,
+	NewPrivateKey(p0 []byte) PrivateKey fails go.Error needs go.Foreign,
+	NewPublicKey(p0 []byte) PublicKey fails go.Error needs go.Foreign,
 }
 
 // ergo:go func MLKEM1024() KEM
@@ -100,25 +100,25 @@ extern go crypto/hpke.Open func Open(k own PrivateKey, kdf own KDF, aead own AEA
 
 // ergo:go type PrivateKey interface
 extern go crypto/hpke.PrivateKey type PrivateKey {
-	own Bytes() []byte fails go.Error needs go.Foreign,
-	own KEM() KEM needs go.Foreign,
-	own PublicKey() PublicKey needs go.Foreign,
+	Bytes() []byte fails go.Error needs go.Foreign,
+	KEM() KEM needs go.Foreign,
+	PublicKey() PublicKey needs go.Foreign,
 }
 
 // ergo:go type PublicKey interface
 extern go crypto/hpke.PublicKey type PublicKey {
-	own Bytes() []byte needs go.Foreign,
-	own KEM() KEM needs go.Foreign,
+	Bytes() []byte needs go.Foreign,
+	KEM() KEM needs go.Foreign,
 }
 
 // ergo:go type Recipient struct
 extern go crypto/hpke.Recipient type Recipient {}
 
 // ergo:go func (*Recipient).Export(exporterContext string, length int) ([]byte, error)
-extern go crypto/hpke.Recipient.Export func (r own *Recipient) Export(exporterContext string, length int) []byte fails go.Error needs go.Foreign
+extern go crypto/hpke.Recipient.Export func (r *Recipient) Export(exporterContext string, length int) []byte fails go.Error needs go.Foreign
 
 // ergo:go func (*Recipient).Open(aad []byte, ciphertext []byte) ([]byte, error)
-extern go crypto/hpke.Recipient.Open func (r own *Recipient) Open(aad []byte, ciphertext []byte) []byte fails go.Error needs go.Foreign
+extern go crypto/hpke.Recipient.Open func (r *Recipient) Open(aad []byte, ciphertext []byte) []byte fails go.Error needs go.Foreign
 
 // ergo:go func SHAKE128() KDF
 extern go crypto/hpke.SHAKE128 func SHAKE128() KDF needs go.Foreign
@@ -133,7 +133,7 @@ extern go crypto/hpke.Seal func Seal(pk own PublicKey, kdf own KDF, aead own AEA
 extern go crypto/hpke.Sender type Sender {}
 
 // ergo:go func (*Sender).Export(exporterContext string, length int) ([]byte, error)
-extern go crypto/hpke.Sender.Export func (s own *Sender) Export(exporterContext string, length int) []byte fails go.Error needs go.Foreign
+extern go crypto/hpke.Sender.Export func (s *Sender) Export(exporterContext string, length int) []byte fails go.Error needs go.Foreign
 
 // ergo:go func (*Sender).Seal(aad []byte, plaintext []byte) ([]byte, error)
-extern go crypto/hpke.Sender.Seal func (s own *Sender) Seal(aad []byte, plaintext []byte) []byte fails go.Error needs go.Foreign
+extern go crypto/hpke.Sender.Seal func (s *Sender) Seal(aad []byte, plaintext []byte) []byte fails go.Error needs go.Foreign

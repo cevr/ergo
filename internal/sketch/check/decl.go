@@ -1030,6 +1030,10 @@ func (c *checker) structType(spec *syntax.StructType, ctx *typeCtx) *Struct {
 	seen := map[string]bool{}
 	for _, field := range spec.Fields.List {
 		t := c.typExpr(field.Type, ctx)
+		if !c.pkg.Host() && mentionsGoAny(t, map[Type]bool{}) {
+			// Ergo has no any (GB2): only a Go struct of a binding holds one.
+			c.errorf(field.Type, CodeType, "an Ergo record does not store a go.Any: Ergo has no any, and only go.As[T] reads one; store the value go.As gives (docs/spec/interop.md, Go any)")
+		}
 		if field.Include {
 			if n := c.includeTarget(field, t); n != nil {
 				s.includes = append(s.includes, &include{member: field, at: len(s.Fields), target: n})

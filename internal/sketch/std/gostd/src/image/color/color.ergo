@@ -45,7 +45,7 @@ extern go image/color.CMYKToRGB func CMYKToRGB(c uint8, m uint8, y uint8, k uint
 
 // ergo:go type Color interface
 extern go image/color.Color type Color {
-	own RGBA() (uint32, uint32, uint32, uint32) needs go.Foreign,
+	RGBA() (uint32, uint32, uint32, uint32) needs go.Foreign,
 }
 
 // ergo:go type Gray struct

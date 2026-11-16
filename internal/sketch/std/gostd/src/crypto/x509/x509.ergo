@@ -22,22 +22,22 @@ extern go crypto/x509.CANotAuthorizedForThisName let CANotAuthorizedForThisName 
 extern go crypto/x509.CertPool type CertPool {}
 
 // ergo:go func (*CertPool).AddCert(cert *Certificate)
-extern go crypto/x509.CertPool.AddCert func (s own *CertPool) AddCert(cert own *Certificate) needs go.Foreign
+extern go crypto/x509.CertPool.AddCert func (s *CertPool) AddCert(cert own *Certificate) needs go.Foreign
 
 // ergo:go func (*CertPool).AddCertWithConstraint(cert *Certificate, constraint func([]*Certificate) error)
 // ergo:refused CertPool.AddCertWithConstraint: parameter 2: callback parameter 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*CertPool).AppendCertsFromPEM(pemCerts []byte) (ok bool)
-extern go crypto/x509.CertPool.AppendCertsFromPEM func (s own *CertPool) AppendCertsFromPEM(pemCerts []byte) bool needs go.Foreign
+extern go crypto/x509.CertPool.AppendCertsFromPEM func (s *CertPool) AppendCertsFromPEM(pemCerts []byte) bool needs go.Foreign
 
 // ergo:go func (*CertPool).Clone() *CertPool
-extern go crypto/x509.CertPool.Clone func (s own *CertPool) Clone() Option[go.Ref[CertPool]] needs go.Foreign
+extern go crypto/x509.CertPool.Clone func (s *CertPool) Clone() Option[go.Ref[CertPool]] needs go.Foreign
 
 // ergo:go func (*CertPool).Equal(other *CertPool) bool
-extern go crypto/x509.CertPool.Equal func (s own *CertPool) Equal(other own *CertPool) bool needs go.Foreign
+extern go crypto/x509.CertPool.Equal func (s *CertPool) Equal(other own *CertPool) bool needs go.Foreign
 
 // ergo:go func (*CertPool).Subjects() [][]byte
-extern go crypto/x509.CertPool.Subjects func (s own *CertPool) Subjects() [][]byte needs go.Foreign
+extern go crypto/x509.CertPool.Subjects func (s *CertPool) Subjects() [][]byte needs go.Foreign
 
 // ergo:go type Certificate struct
 extern go crypto/x509.Certificate type Certificate {
@@ -50,6 +50,7 @@ extern go crypto/x509.Certificate type Certificate {
 	Signature                   []byte,
 	SignatureAlgorithm          SignatureAlgorithm,
 	PublicKeyAlgorithm          PublicKeyAlgorithm,
+	PublicKey                   go.Any,
 	Version                     int,
 	SerialNumber                Option[go.Ref[big.Int]],
 	Issuer                      pkix.Name,
@@ -92,9 +93,6 @@ extern go crypto/x509.Certificate type Certificate {
 	PolicyMappings              []PolicyMapping,
 }
 
-// ergo:go PublicKey any
-// ergo:refused Certificate.PublicKey: Ergo has no any; an interface{} parameter or result hides the host type
-
 // ergo:go URIs []*url.URL
 // ergo:refused Certificate.URIs: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
@@ -105,25 +103,25 @@ extern go crypto/x509.Certificate type Certificate {
 // ergo:refused Certificate.ExcludedIPRanges: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*Certificate).CheckCRLSignature(crl *pkix.CertificateList) error
-extern go crypto/x509.Certificate.CheckCRLSignature func (c own *Certificate) CheckCRLSignature(crl own *pkix.CertificateList) fails go.Error needs go.Foreign
+extern go crypto/x509.Certificate.CheckCRLSignature func (c *Certificate) CheckCRLSignature(crl own *pkix.CertificateList) fails go.Error needs go.Foreign
 
 // ergo:go func (*Certificate).CheckSignature(algo SignatureAlgorithm, signed []byte, signature []byte) error
-extern go crypto/x509.Certificate.CheckSignature func (c own *Certificate) CheckSignature(algo SignatureAlgorithm, signed []byte, signature []byte) fails go.Error needs go.Foreign
+extern go crypto/x509.Certificate.CheckSignature func (c *Certificate) CheckSignature(algo SignatureAlgorithm, signed []byte, signature []byte) fails go.Error needs go.Foreign
 
 // ergo:go func (*Certificate).CheckSignatureFrom(parent *Certificate) error
-extern go crypto/x509.Certificate.CheckSignatureFrom func (c own *Certificate) CheckSignatureFrom(parent own *Certificate) fails go.Error needs go.Foreign
+extern go crypto/x509.Certificate.CheckSignatureFrom func (c *Certificate) CheckSignatureFrom(parent own *Certificate) fails go.Error needs go.Foreign
 
 // ergo:go func (*Certificate).CreateCRL(rand io.Reader, priv any, revokedCerts []pkix.RevokedCertificate, now time.Time, expiry time.Time) (crlBytes []byte, err error)
-// ergo:refused Certificate.CreateCRL: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
+extern go crypto/x509.Certificate.CreateCRL func (c *Certificate) CreateCRL(rand own io.Reader, priv go.Any, revokedCerts []pkix.RevokedCertificate, now time.Time, expiry time.Time) []byte fails go.Error needs go.Foreign
 
 // ergo:go func (*Certificate).Equal(other *Certificate) bool
-extern go crypto/x509.Certificate.Equal func (c own *Certificate) Equal(other own *Certificate) bool needs go.Foreign
+extern go crypto/x509.Certificate.Equal func (c *Certificate) Equal(other own *Certificate) bool needs go.Foreign
 
 // ergo:go func (*Certificate).Verify(opts VerifyOptions) ([][]*Certificate, error)
 // ergo:refused Certificate.Verify: result 1: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*Certificate).VerifyHostname(h string) error
-extern go crypto/x509.Certificate.VerifyHostname func (c own *Certificate) VerifyHostname(h string) fails go.Error needs go.Foreign
+extern go crypto/x509.Certificate.VerifyHostname func (c *Certificate) VerifyHostname(h string) fails go.Error needs go.Foreign
 
 // ergo:go type CertificateInvalidError struct
 extern go crypto/x509.CertificateInvalidError type CertificateInvalidError {
@@ -146,6 +144,7 @@ extern go crypto/x509.CertificateRequest type CertificateRequest {
 	Signature                []byte,
 	SignatureAlgorithm       SignatureAlgorithm,
 	PublicKeyAlgorithm       PublicKeyAlgorithm,
+	PublicKey                go.Any,
 	Subject                  pkix.Name,
 	Attributes               []pkix.AttributeTypeAndValueSET,
 	Extensions               []pkix.Extension,
@@ -155,14 +154,11 @@ extern go crypto/x509.CertificateRequest type CertificateRequest {
 	IPAddresses              []net.IP,
 }
 
-// ergo:go PublicKey any
-// ergo:refused CertificateRequest.PublicKey: Ergo has no any; an interface{} parameter or result hides the host type
-
 // ergo:go URIs []*url.URL
 // ergo:refused CertificateRequest.URIs: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*CertificateRequest).CheckSignature() error
-extern go crypto/x509.CertificateRequest.CheckSignature func (c own *CertificateRequest) CheckSignature() fails go.Error needs go.Foreign
+extern go crypto/x509.CertificateRequest.CheckSignature func (c *CertificateRequest) CheckSignature() fails go.Error needs go.Foreign
 
 // ergo:go type ConstraintViolationError struct
 extern go crypto/x509.ConstraintViolationError type ConstraintViolationError {}
@@ -171,10 +167,10 @@ extern go crypto/x509.ConstraintViolationError type ConstraintViolationError {}
 extern go crypto/x509.ConstraintViolationError.Error func (r ConstraintViolationError) Error() string needs go.Foreign
 
 // ergo:go func CreateCertificate(rand io.Reader, template *Certificate, parent *Certificate, pub any, priv any) ([]byte, error)
-// ergo:refused CreateCertificate: parameter 4: Ergo has no any; an interface{} parameter or result hides the host type
+extern go crypto/x509.CreateCertificate func CreateCertificate(rand own io.Reader, template own *Certificate, parent own *Certificate, pub go.Any, priv go.Any) []byte fails go.Error needs go.Foreign
 
 // ergo:go func CreateCertificateRequest(rand io.Reader, template *CertificateRequest, priv any) (csr []byte, err error)
-// ergo:refused CreateCertificateRequest: parameter 3: Ergo has no any; an interface{} parameter or result hides the host type
+extern go crypto/x509.CreateCertificateRequest func CreateCertificateRequest(rand own io.Reader, template own *CertificateRequest, priv go.Any) []byte fails go.Error needs go.Foreign
 
 // ergo:go func CreateRevocationList(rand io.Reader, template *RevocationList, issuer *Certificate, priv crypto.Signer) ([]byte, error)
 extern go crypto/x509.CreateRevocationList func CreateRevocationList(rand own io.Reader, template own *RevocationList, issuer own *Certificate, priv own crypto.Signer) []byte fails go.Error needs go.Foreign
@@ -358,10 +354,10 @@ extern go crypto/x509.MarshalPKCS1PrivateKey func MarshalPKCS1PrivateKey(key own
 extern go crypto/x509.MarshalPKCS1PublicKey func MarshalPKCS1PublicKey(key own *rsa.PublicKey) []byte needs go.Foreign
 
 // ergo:go func MarshalPKCS8PrivateKey(key any) ([]byte, error)
-// ergo:refused MarshalPKCS8PrivateKey: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go crypto/x509.MarshalPKCS8PrivateKey func MarshalPKCS8PrivateKey(key go.Any) []byte fails go.Error needs go.Foreign
 
 // ergo:go func MarshalPKIXPublicKey(pub any) ([]byte, error)
-// ergo:refused MarshalPKIXPublicKey: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go crypto/x509.MarshalPKIXPublicKey func MarshalPKIXPublicKey(pub go.Any) []byte fails go.Error needs go.Foreign
 
 // ergo:go const NameConstraintsWithoutSANs InvalidReason
 extern go crypto/x509.NameConstraintsWithoutSANs let NameConstraintsWithoutSANs InvalidReason
@@ -405,11 +401,11 @@ extern go crypto/x509.OID.String func (oid OID) String() string needs go.Foreign
 
 // ergo:go func (*OID).UnmarshalBinary(b []byte) error
 // ergo:reads b
-extern go crypto/x509.OID.UnmarshalBinary func (o own *OID) UnmarshalBinary(b []byte) fails go.Error needs go.Foreign
+extern go crypto/x509.OID.UnmarshalBinary func (o *OID) UnmarshalBinary(b []byte) fails go.Error needs go.Foreign
 
 // ergo:go func (*OID).UnmarshalText(text []byte) error
 // ergo:reads text
-extern go crypto/x509.OID.UnmarshalText func (o own *OID) UnmarshalText(text []byte) fails go.Error needs go.Foreign
+extern go crypto/x509.OID.UnmarshalText func (o *OID) UnmarshalText(text []byte) fails go.Error needs go.Foreign
 
 // ergo:go func OIDFromASN1OID(asn1OID asn1.ObjectIdentifier) (OID, error)
 // ergo:reads asn1OID
@@ -465,10 +461,10 @@ extern go crypto/x509.ParsePKCS1PrivateKey func ParsePKCS1PrivateKey(der []byte)
 extern go crypto/x509.ParsePKCS1PublicKey func ParsePKCS1PublicKey(der []byte) go.Ref[rsa.PublicKey] fails go.Error needs go.Foreign
 
 // ergo:go func ParsePKCS8PrivateKey(der []byte) (key any, err error)
-// ergo:refused ParsePKCS8PrivateKey: result 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go crypto/x509.ParsePKCS8PrivateKey func ParsePKCS8PrivateKey(der []byte) go.Any fails go.Error needs go.Foreign
 
 // ergo:go func ParsePKIXPublicKey(derBytes []byte) (pub any, err error)
-// ergo:refused ParsePKIXPublicKey: result 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go crypto/x509.ParsePKIXPublicKey func ParsePKIXPublicKey(derBytes []byte) go.Any fails go.Error needs go.Foreign
 
 // ergo:go func ParseRevocationList(der []byte) (*RevocationList, error)
 extern go crypto/x509.ParseRevocationList func ParseRevocationList(der []byte) go.Ref[RevocationList] fails go.Error needs go.Foreign
@@ -511,7 +507,7 @@ extern go crypto/x509.RevocationList type RevocationList {
 }
 
 // ergo:go func (*RevocationList).CheckSignatureFrom(parent *Certificate) error
-extern go crypto/x509.RevocationList.CheckSignatureFrom func (rl own *RevocationList) CheckSignatureFrom(parent own *Certificate) fails go.Error needs go.Foreign
+extern go crypto/x509.RevocationList.CheckSignatureFrom func (rl *RevocationList) CheckSignatureFrom(parent own *Certificate) fails go.Error needs go.Foreign
 
 // ergo:go type RevocationListEntry struct
 extern go crypto/x509.RevocationListEntry type RevocationListEntry {
