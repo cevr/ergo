@@ -321,16 +321,18 @@ var runtimeBindings = map[string]runtimeBinding{
 	"RandHostFloat64": {},
 	// std sync (stdlib.md, Sync and STM 1): each operation of a Ref holds
 	// its mutex for one step, and an Update's or Modify's function has an
-	// empty row, so none waits on a task and none releases.
+	// empty row, so none waits on a task and none releases. An Update or
+	// Modify runs its function masked on the caller's task (REF-MASK), so
+	// it takes the task, and waits on nothing by itself.
 	"NewRef":     {},
 	"Ref.Get":    {},
 	"Ref.Set":    {},
-	"Ref.Update": {},
-	"RefModify":  {},
+	"Ref.Update": {task: true},
+	"RefModify":  {task: true},
 	// An owned Update or Modify (V6, refown.go): the same step, with the
 	// copy of a shared value under the same lock.
-	"RefUpdateOwned": {},
-	"RefModifyOwned": {},
+	"RefUpdateOwned": {task: true},
+	"RefModifyOwned": {task: true},
 	// std testing Scripts (stdlib.md, Testing 7 to 12): each operation of
 	// an Op holds its mutex for one step and calls no program code.
 	"NewOp":     {},

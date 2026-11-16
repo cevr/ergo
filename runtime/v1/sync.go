@@ -45,9 +45,23 @@ import (
 // Rust's Mutex reports a lock whose holder panicked with a PoisonError.
 // The unlock is deferred, so a poisoned cell is never left locked. Get and
 // Set run no program code under the lock and unlock inline. f has an empty
-// row (the lowering's adaptPlainFunc), so it neither waits nor needs a
-// capability while the lock is held. No operation is an interruption
-// point: none waits for another task beyond the length of one operation.
+// row (the lowering's adaptPlainFunc), so it needs no capability while the
+// lock is held. It may still wait on a handle it captured (a Timeline's
+// Wait, a Queue's Pop); the checker does not refuse that yet (follow-up
+// REF-WAIT), and masked, a stop does not end that wait. No operation is an
+// interruption point: none waits for another task beyond the length of
+// one operation.
+//
+// A stop is not a defect (REF-MASK; ruling of 2026-11-16). f runs with the
+// caller's environment, and its lowered loop heads and impure entries
+// poll a stop there, so a stop requested while f runs would unwind it
+// half way: an owned f leaves a half-written value, and the cell would
+// poison itself on a request. So f runs masked on the caller's task t: a
+// stop requested meanwhile is observed at the caller's next interruption
+// point after the update, and the cell always holds a whole value. Only a
+// defect poisons it. Prior art: Effect's Ref.update and modify are atomic
+// and never interrupted part way; Rust's Mutex is poisoned by a panic, and
+// a cancellation cannot come inside a sync guard.
 //
 // The control is a hand-written Go value guarded by a sync.Mutex
 // (sync_bench_test.go); the body is that value. A Ref built on
@@ -116,11 +130,11 @@ func (r *Ref[T]) Set(v T) {
 // argument or return a value reached from elsewhere, so the stored value
 // is shared. The unlock is deferred: f is the program's code, and a defect
 // in it poisons r and must not leave r locked.
-func (r *Ref[T]) Update(f func(v T) T) {
+func (r *Ref[T]) Update(t *rt.Task, f func(v T) T) {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
 	r.mu.Lock()
 	done := false
-	defer r.end(&done)
+	defer r.end(&done, t.Mask())
 	r.check()
 	r.v = f(r.v)
 	r.shared, done = true, true
@@ -131,14 +145,14 @@ func (r *Ref[T]) Update(f func(v T) T) {
 // The result is the Go form of the Ergo tuple (R, T), an unnamed struct
 // with the fields F0 and F1 (the lowering's goType of a tuple). As in
 // Update, the stored value is shared.
-func RefModify[T, R any](r *Ref[T], f func(v T) struct {
+func RefModify[T, R any](t *rt.Task, r *Ref[T], f func(v T) struct {
 	F0 R
 	F1 T
 }) R {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
 	r.mu.Lock()
 	done := false
-	defer r.end(&done)
+	defer r.end(&done, t.Mask())
 	r.check()
 	out := f(r.v)
 	r.v, r.shared, done = out.F1, true, true
@@ -151,11 +165,11 @@ func RefModify[T, R any](r *Ref[T], f func(v T) struct {
 // value is copied first, with clone, under the lock. fresh is the
 // lowering's proof that f's result is unshared too; without it the stored
 // value is shared.
-func RefUpdateOwned[T any](r *Ref[T], f func(v T) T, clone func(v T) T, fresh bool) {
+func RefUpdateOwned[T any](t *rt.Task, r *Ref[T], f func(v T) T, clone func(v T) T, fresh bool) {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
 	r.mu.Lock()
 	done := false
-	defer r.end(&done)
+	defer r.end(&done, t.Mask())
 	r.check()
 	v := r.v
 	if r.shared {
@@ -169,14 +183,14 @@ func RefUpdateOwned[T any](r *Ref[T], f func(v T) T, clone func(v T) T, fresh bo
 // the held value over, as RefUpdateOwned is for Update. fresh is the proof
 // that both elements of f's result are unshared, so the value returned
 // reaches no part of the value stored.
-func RefModifyOwned[T, R any](r *Ref[T], f func(v T) struct {
+func RefModifyOwned[T, R any](t *rt.Task, r *Ref[T], f func(v T) struct {
 	F0 R
 	F1 T
 }, clone func(v T) T, fresh bool) R {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
 	r.mu.Lock()
 	done := false
-	defer r.end(&done)
+	defer r.end(&done, t.Mask())
 	r.check()
 	v := r.v
 	if r.shared {
@@ -195,10 +209,12 @@ func (r *Ref[T]) check() {
 	}
 }
 
-// end unlocks r at the end of an Update or Modify. When the operation did
-// not finish (done is false), a panic is on its way to the caller: it
-// poisons r, and is not recovered here.
-func (r *Ref[T]) end(done *bool) {
+// end closes the mask f ran under and unlocks r at the end of an Update or
+// Modify. When the operation did not finish (done is false), a panic is on
+// its way to the caller: it poisons r, and is not recovered here. Masked,
+// that panic is a defect, never a stop.
+func (r *Ref[T]) end(done *bool, m rt.Mask) {
+	m.Unmask()
 	if !*done {
 		r.poison = true
 	}
