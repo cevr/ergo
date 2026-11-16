@@ -91,8 +91,8 @@ func Steps(commands []Command, limit int) Rendered fails OutputLimit {
 // ---------------------------------------------------------------- validation
 
 // schema is, for each node family the printer reads, the fields it reads
-// and their kinds: n a node or none, l a list of nodes, p a position, i a
-// number, s a string, b a flag.
+// and their kinds: n a node or none, l a list of nodes, p a position, P a
+// list of positions, i a number, s a string, b a flag.
 let schema = Map[string, string]{
 	"File":               "Src s Decls l Comments l EOF p",
 	"CommentGroup":       "List l",
@@ -101,19 +101,19 @@ let schema = Map[string, string]{
 	"ImportSpec":         "Kind i Name n NamePos p Path n",
 	"VarDecl":            "Doc n Extern n Var p Mut p Specs l",
 	"VarSpec":            "Names l Pattern n Type n Assign p Values l",
-	"TypeDecl":           "Doc n Extern n Type p Name n TypeParams n Spec n WherePos p Where n",
+	"TypeDecl":           "Doc n Extern n Type p Name n TypeParams n Spec n WherePos p Where n DerivePos p Derive n ImplementsPos p Implements l",
 	"FuncDecl":           "Doc n Extern n Func p Recv n Name n TypeParams n Type n Body n Derived n",
 	"ContextDecl":        "Doc n Let p Context p Name n Provides n Needs n Body n",
 	"ContextBody":        "Lbrace p Entries l Rbrace p",
 	"ContextEntry":       "Doc n Kind i Replace p Key n Keys l Assign p Value n",
-	"Field":              "Doc n Names l Type n Key n Any p Include b Dots p WherePos p Where n",
+	"Field":              "Doc n Names l Type n Key n Any p Lent p Include b Dots p WherePos p Where n Pure b PurePos p Own n",
 	"FieldList":          "Opening p List l Closing p",
 	"NeedsClause":        "Needs p Names l",
 	"TakesClause":        "Takes p Names l",
 	"ProvidesClause":     "Provides p Names l",
 	"MachineEntry":       "Doc n NamePos p Name s Colon p Value n",
-	"CatchArm":           "Case p Types l Colon p Body l",
-	"CaseClause":         "Case p List l Colon p Body l",
+	"CatchArm":           "Case p Types l Written l Colon p Body l",
+	"CaseClause":         "Case p List l Written l Colon p Body l",
 	"Ident":              "NamePos p Name s",
 	"BasicLit":           "ValuePos p Kind i Value s ValueEnd p",
 	"CompositeLit":       "Type n Lbrace p DotDot p Base n Elts l Rbrace p",
@@ -133,9 +133,9 @@ let schema = Map[string, string]{
 	"ContextLit":         "Context p Provides n Needs n Body n",
 	"ArrayType":          "Lbrack p Len s LenPos p Elt n",
 	"MapType":            "Map p Lbrack p Key n Value n Rbrack p",
-	"FuncType":           "Escaping p Func p Params n Results n Needs n Takes n",
+	"FuncType":           "Escaping p Entry b EntryPos p Func p Params n Results n Needs n Takes n",
 	"StructType":         "Fields n",
-	"InterfaceType":      "Lbrace p Methods l Laws l Union l Rbrace p",
+	"InterfaceType":      "Lbrace p Includes l Methods l Laws l Union l Rbrace p",
 	"ErrorRow":           "Error p Types l",
 	"MachineType":        "Machine p Lbrack p State n Signal n Rbrack p Lbrace p Entries l Rbrace p Laws l",
 	"TupleExpr":          "Lparen p Elts l Rparen p",
@@ -158,6 +158,8 @@ let schema = Map[string, string]{
 	"AssertStmt":         "Assert p X n",
 	"VariantSpec":        "Name n TypeArgs n Fields n",
 	"AsPattern":          "X n As p Name n",
+	"OrPattern":          "Alts l Bars P",
+	"Word":               "At p",
 	"InterpolatedString": "Texts l Exprs l",
 }
 
@@ -201,13 +203,17 @@ func kindIs(t tree.Tree, it tree.Item, kind string) bool {
 	case tree.Ref as r:
 		kind == "n" && r.Id >= 0 && r.Id < len(t.Nodes)
 	case tree.List as l:
-		if kind != "l" {
+		if kind != "l" && kind != "P" {
 			return false
 		}
 		for x in l.Items {
 			match x {
 			case tree.Ref as r:
-				if r.Id < 0 || r.Id >= len(t.Nodes) {
+				if kind != "l" || r.Id < 0 || r.Id >= len(t.Nodes) {
+					return false
+				}
+			case tree.Position:
+				if kind != "P" {
 					return false
 				}
 			case _:
