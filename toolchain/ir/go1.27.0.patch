@@ -291,6 +291,134 @@ index 0000000..e78b982
 +	}
 +	fd.Body = body
 +}
+diff --git a/src/cmd/compile/internal/noder/ergoir_builtin.go b/src/cmd/compile/internal/noder/ergoir_builtin.go
+new file mode 100644
+index 0000000..1559c7b
+--- /dev/null
++++ b/src/cmd/compile/internal/noder/ergoir_builtin.go
+@@ -0,0 +1,122 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// Ergo IR decoder: calls of Go's builtins. See ergoir.go.
++
++package noder
++
++import (
++	"cmd/compile/internal/syntax"
++	"cmd/compile/internal/types2"
++)
++
++// builtinExpr checks the IR kind "builtin", a call of Go's builtin
++// x.Name, and writes it as Go's own call of the builtin, with the
++// signature types2 records for it (types2/builtins.go): the reader then
++// gives Go's ODELETE, OCOPY, OCLEAR, OMIN, OMAX and OCAP, as Go source
++// does. append here is append(xs, s...) of a string's bytes; append of
++// one element is the kind "append". A call with no result (delete,
++// clear) is void, and only an expression statement takes it.
++func (c *ergoChecker) builtinExpr(x *ergoExpr) (syntax.Expr, types2.Type) {
++	pos := c.pos(x.Pos)
++	var args []syntax.Expr
++	var ts []types2.Type
++	for _, a := range x.Args {
++		e, t := c.expr(a)
++		if e == nil {
++			return nil, nil
++		}
++		if t == nil {
++			c.errorf(a.Pos, "ergoir: %s of a call with no result", x.Name)
++			return nil, nil
++		}
++		args, ts = append(args, e), append(ts, t)
++	}
++	arity := map[string]int{"append": 2, "cap": 1, "clear": 1, "copy": 2, "delete": 2}
++	if n, ok := arity[x.Name]; ok && len(args) != n || !ok && len(args) == 0 {
++		c.errorf(x.Pos, "ergoir: %s of %d operands", x.Name, len(args))
++		return nil, nil
++	}
++	var res types2.Type
++	params := ts
++	variadic, dots := false, false
++	switch x.Name {
++	case "append":
++		sl, ok := types2.CoreType(ts[0]).(*types2.Slice)
++		if !ok || !types2.Identical(sl.Elem(), types2.Typ[types2.Byte]) || !ergoIsString(ts[1]) {
++			c.errorf(x.Pos, "ergoir: append of %v to %v", ts[1], ts[0])
++			return nil, nil
++		}
++		res, variadic, dots = ts[0], true, true
++	case "cap":
++		if _, ok := types2.CoreType(ts[0]).(*types2.Slice); !ok {
++			c.errorf(x.Pos, "ergoir: cap of %v", ts[0])
++			return nil, nil
++		}
++		res = types2.Typ[types2.Int]
++	case "clear":
++		switch types2.CoreType(ts[0]).(type) {
++		case *types2.Slice, *types2.Map:
++		default:
++			c.errorf(x.Pos, "ergoir: clear of %v", ts[0])
++			return nil, nil
++		}
++	case "copy":
++		dst, ok := types2.CoreType(ts[0]).(*types2.Slice)
++		src, ok2 := types2.CoreType(ts[1]).(*types2.Slice)
++		if !ok || !ok2 || !types2.Identical(dst.Elem(), src.Elem()) {
++			c.errorf(x.Pos, "ergoir: copy of %v to %v", ts[1], ts[0])
++			return nil, nil
++		}
++		res = types2.Typ[types2.Int]
++	case "delete":
++		m, ok := types2.CoreType(ts[0]).(*types2.Map)
++		if !ok || !c.assignable(x.Args[1].Pos, "delete key", ts[1], m.Key()) {
++			if !ok {
++				c.errorf(x.Pos, "ergoir: delete from %v", ts[0])
++			}
++			return nil, nil
++		}
++		params = []types2.Type{ts[0], m.Key()}
++	case "min", "max":
++		b, ok := types2.CoreType(ts[0]).(*types2.Basic)
++		if !ok || b.Info()&types2.IsOrdered == 0 {
++			c.errorf(x.Pos, "ergoir: %s of %v", x.Name, ts[0])
++			return nil, nil
++		}
++		for i, t := range ts[1:] {
++			if !types2.Identical(t, ts[0]) {
++				c.errorf(x.Args[i+1].Pos, "ergoir: %s of %v and %v", x.Name, ts[0], t)
++				return nil, nil
++			}
++		}
++		res = ts[0]
++	default:
++		c.errorf(x.Pos, "ergoir: the builtin %q", x.Name)
++		return nil, nil
++	}
++	var in []*types2.Var
++	for _, t := range params {
++		in = append(in, types2.NewParam(pos, nil, "", t))
++	}
++	var out *types2.Tuple
++	if res != nil {
++		out = types2.NewTuple(types2.NewParam(pos, nil, "", res))
++	}
++	fun := syntax.NewName(pos, x.Name)
++	c.info.Uses[fun] = types2.Universe.Lookup(x.Name)
++	tv := syntax.TypeAndValue{Type: types2.NewSignatureType(nil, nil, nil, types2.NewTuple(in...), out, variadic)}
++	tv.SetIsBuiltin()
++	fun.SetTypeInfo(tv)
++	call := &syntax.CallExpr{Fun: fun, ArgList: args, HasDots: dots}
++	call.SetPos(pos)
++	if res == nil {
++		void := syntax.TypeAndValue{}
++		void.SetIsVoid()
++		call.SetTypeInfo(void)
++		return call, nil
++	}
++	ergoValue(call, res, nil)
++	return call, res
++}
 diff --git a/src/cmd/compile/internal/noder/ergoir_call.go b/src/cmd/compile/internal/noder/ergoir_call.go
 new file mode 100644
 index 0000000..b9d8d1c
@@ -590,10 +718,10 @@ index 0000000..1a808a2
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_expr.go b/src/cmd/compile/internal/noder/ergoir_expr.go
 new file mode 100644
-index 0000000..c3c34df
+index 0000000..d9e5c21
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_expr.go
-@@ -0,0 +1,466 @@
+@@ -0,0 +1,468 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -624,6 +752,8 @@ index 0000000..c3c34df
 +		return c.resultExpr(x) // ergoir_f7f.go
 +	case "recover":
 +		return c.recoverExpr(x) // ergoir_f7f.go
++	case "builtin":
++		return c.builtinExpr(x) // ergoir_builtin.go
 +	case "local":
 +		v := c.local(x.Pos, x.I)
 +		if v == nil {
@@ -1847,7 +1977,7 @@ index 0000000..4d58d7f
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_stmt.go b/src/cmd/compile/internal/noder/ergoir_stmt.go
 new file mode 100644
-index 0000000..5e63550
+index 0000000..f547488
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_stmt.go
 @@ -0,0 +1,357 @@
@@ -2165,7 +2295,7 @@ index 0000000..5e63550
 +		st.Body = c.loopBlock(st, s.Label, s.Pos, s.End, s.Body)
 +		return c.labeled(s, st) // ergoir_label.go
 +	case "expr":
-+		if s.X == nil || (s.X.K != "call" && s.X.K != "mcall" && s.X.K != "pcall" && s.X.K != "vcall") {
++		if s.X == nil || (s.X.K != "call" && s.X.K != "mcall" && s.X.K != "pcall" && s.X.K != "vcall" && s.X.K != "builtin") {
 +			c.errorf(s.Pos, "ergoir: an expression statement is a call")
 +			return nil
 +		}
