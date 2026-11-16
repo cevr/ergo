@@ -13,8 +13,9 @@ package lower
 // rooted at one ("the parameter p cannot be reassigned; copy it into a
 // local: let mut p_ = p"), so a body that rebinds it, in a loop or not,
 // rebinds a let mut copy, a variable of its own that is never hoisted. Only
-// a parameter's own local is hoisted (params), never a let, and never an
-// owned parameter (it may be taken over in place). So each field
+// a parameter's own local is hoisted (params), never a let. An owned
+// parameter is no exception: it is written in place only through the let
+// mut that takes it over, and once taken it is not read again. So each field
 // read of it inside a loop reads the field's value at entry: the field is
 // read once, into a local, at the function's entry (entry), and the loop
 // reads the local. Only a field of a type Go holds in registers is hoisted
@@ -53,9 +54,9 @@ func (b *irBuilder) hoistField(x *syntax.SelectorExpr, field string) *irExpr {
 	if !ok {
 		return nil
 	}
-	// Only a parameter's own local: a let mut (std cache's `let mut u = t`,
-	// then u = f(u) in a loop) is rebound, and a function with an owned
-	// parameter has no IR body (ir_pkg.go).
+	// Only a parameter's own local: the checker refuses assigning a
+	// parameter, so a rebinding (std cache's `let mut u = t`, then u = f(u)
+	// in a loop) rebinds a let mut, which is never hoisted.
 	l, ok := b.locals[w]
 	if !ok || !b.params[l] {
 		return nil
