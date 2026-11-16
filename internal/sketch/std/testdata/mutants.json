@@ -80,7 +80,7 @@
     {
       "name": "stdsh-trimleft-binding", "origin": "wf10 STD-sh",
       "file": "internal/sketch/std/strings/strings.ergo",
-      "from": "runtime/v1.StringsTrimLeft func TrimLeft", "to": "runtime/v1.StringsTrimRight func TrimLeft",
+      "from": "{ strings.TrimLeft(s, cutset) }", "to": "{ strings.TrimRight(s, cutset) }",
       "rule": "stdlib.md strings 10: TrimLeft binds Go's TrimLeft (law TrimLeftRightKeepEnds).",
       "anchor": {"tests": ["lower:TestStdTextRuns2"]},
       "killers": ["lower:TestStdTextRuns2"]
@@ -325,7 +325,6 @@
     {"name":"np4f-share-rises","origin":"wf10 NP4f-0","file":"internal/sketch/std/goshare_test.go","from":"\t\tcase n > most:","to":"\t\tcase n > most+1:","rule":"np4f-plan §6.3: the Go share of std only falls; a class over its ceiling is refused.","killers":["internal/sketch/std:TestStdGoShareRule"]},
     {"name":"np4f-share-unclassed","origin":"wf10 NP4f-0","file":"internal/sketch/std/goshare_test.go","from":"\t\tif !ok {\n\t\t\tout = append(out, fmt.Sprintf(\"std extern %s binds","to":"\t\tif !ok && false {\n\t\t\tout = append(out, fmt.Sprintf(\"std extern %s binds","rule":"np4f-plan §6.3: a new std extern of the Ergo runtime has a class before it lands.","killers":["internal/sketch/std:TestStdGoShareRule"]},
     {"name":"np4f2-split-in-two","origin":"wf10 NP4f-2","file":"internal/sketch/std/strings/strings.ergo","from":"{ strings.Split(s, sep) }","to":"{ strings.SplitN(s, sep, 2) }","rule":"strings.Split cuts at every separator, as the old body did.","anchor":{"tests":["lower:TestNP4f2MovesKeepMeaning"]},"killers":["lower:TestNP4f2MovesKeepMeaning"]},
-    {"name":"np4f2-trimleft-right","origin":"wf10 NP4f-2","file":"internal/sketch/std/strings/strings.ergo","from":"{ strings.TrimLeft(s, cutset) }","to":"{ strings.TrimRight(s, cutset) }","rule":"strings.TrimLeft trims the leading runes of the cutset.","anchor":{"tests":["lower:TestNP4f2MovesKeepMeaning"]},"killers":["lower:TestNP4f2MovesKeepMeaning"]},
     {"name":"np4f2-lastindex-first","origin":"wf10 NP4f-2","file":"internal/sketch/std/strings/strings.ergo","from":"{ strings.LastIndex(s, sub) }","to":"{ strings.Index(s, sub) }","rule":"strings.LastIndex finds the last occurrence.","anchor":{"tests":["lower:TestNP4f2MovesKeepMeaning"]},"killers":["lower:TestNP4f2MovesKeepMeaning"]},
     {"name":"np4f2-fold-is-equal","origin":"wf10 NP4f-2","file":"internal/sketch/std/strings/strings.ergo","from":"{ strings.EqualFold(s, t) }","to":"{ s == t }","rule":"strings.EqualFold compares under simple Unicode case folding.","anchor":{"tests":["lower:TestNP4f2MovesKeepMeaning"]},"killers":["lower:TestNP4f2MovesKeepMeaning"]},
     {"name":"np4f2-float-32","origin":"wf10 NP4f-2","file":"internal/sketch/std/strconv/strconv.ergo","from":"{ strconv.FormatFloat(f, fmt, prec, 64) }","to":"{ strconv.FormatFloat(f, fmt, prec, 32) }","rule":"strconv.FormatFloat formats a float64 at 64 bits.","anchor":{"tests":["lower:TestNP4f2MovesKeepMeaning"]},"killers":["lower:TestNP4f2MovesKeepMeaning"]},
