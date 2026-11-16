@@ -47,12 +47,11 @@
 @1900 type "half-finished thought"
   page: <Home> | <Gallery> | <Studio> | # Studio | Write something, then leave. Leaving this route saves whatever is here. | ?half-finished thought? | Nothing saved yet.
 @2000 open /gallery/9
-  asks: load painting 9, save "half-finished thought"
+  asks: load painting 9
   address: /gallery/9 (10 behind)
   page: <Home> | <Gallery> | <Studio> | <← Back to Gallery> | Unpacking the painting…
   log: #10 Studio → Painting 9 [Entered Painting] [Exited Studio]
 @2150 painting 5 loaded
-@2300 saved "half-finished thought"
 @2400 painting 9 loaded
   page: <Home> | <Gallery> | <Studio> | # Painting Not Found | No painting with id 9 hangs in this gallery. | <← Back to Gallery>
 @2500 back

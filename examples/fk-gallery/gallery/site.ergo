@@ -5,11 +5,16 @@ import time
 // Transition helpers (entered, stayed, exited, coldLoad) and returns
 // commands. Here the step matches the route before and the route after:
 // entering the gallery loads the catalog, entering a painting loads it,
-// staying on a painting with another id loads the new one, and leaving the
-// studio saves its draft. The loads and the save are jobs of the site's
-// state, and the machine's work runs them: each takes its time on the
-// clock (Takes) and answers with its signal. The host does only what the
-// page asks of the browser (the step's output): push a URL, or leave.
+// and staying on a painting with another id loads the new one. The loads
+// are jobs of the site's state, and the machine's work runs them: each
+// takes its time on the clock (Takes) and answers with its signal.
+// Leaving the studio saves its draft: the save is the studio's exit
+// action (leave), which runs when the studio's entry ends, with the draft
+// as last typed, whatever ends it (a navigation away, or the site's end).
+// A key typed and a stay in the studio keep the entry, so they save
+// nothing. The studio's work reads the draft last saved back (Recalled).
+// The host does only what the page asks of the browser (the step's
+// output): push a URL, or leave.
 
 // Catalog is the gallery's catalog: not asked for, loading, or loaded.
 type Catalog = Idle{} | Loading{} | Ready{}
@@ -28,7 +33,7 @@ type Logged { Seq int, From Option[Route], To Route }
 // work runs (in the order asked), and the number of jobs asked.
 type Site { Route Option[Route], Log []Logged, Catalog Catalog, Painting Shown, Draft string, Saved Option[string], Jobs []Job, Asked int }
 
-// Job is a load or a save the site asked for: its number, the command,
+// Job is a load the site asked for: its number, the command,
 // and when it answers, once the work has read the clock.
 type Job { Seq int, Do Command, Due Option[time.Time] }
 
@@ -37,16 +42,16 @@ type Job { Seq int, Do Command, Due Option[time.Time] }
 type Link = Internal{URL string} | External{Href string}
 
 // Signal is what the site reads: a URL the page is at (the first one is
-// the cold load), a link clicked, the answers of the three loads, and a
+// the cold load), a link clicked, the answers of the two loads, and a
 // key in the studio's field; and from the work, a job's due time and its
-// end, which gives the job's answer.
-type Signal = Arrived{URL string} | Clicked{Link Link} | CatalogLoaded{} | PaintingLoaded{ID int} | Drafted{Text string} | DraftSaved{Draft string} | Dated{Seq int, At time.Time} | Answered{Seq int, Job Command}
+// end, which gives the job's answer, and in the studio the draft last
+// saved.
+type Signal = Arrived{URL string} | Clicked{Link Link} | CatalogLoaded{} | PaintingLoaded{ID int} | Drafted{Text string} | Recalled{Draft Option[string]} | Dated{Seq int, At time.Time} | Answered{Seq int, Job Command}
 
-// Command is what the site asks for: load the catalog or a painting, or
-// save a draft (a job of the work), push a URL of the site, or leave for
-// a page elsewhere (the step's output, the host's). The host answers a
-// push with Arrived.
-type Command = LoadCatalog{} | LoadPainting{ID int} | SaveDraft{Draft string} | Push{URL string} | Leave{Href string}
+// Command is what the site asks for: load the catalog or a painting (a
+// job of the work), push a URL of the site, or leave for a page elsewhere
+// (the step's output, the host's). The host answers a push with Arrived.
+type Command = LoadCatalog{} | LoadPainting{ID int} | Push{URL string} | Leave{Href string}
 
 // LogSize is how many navigations the log keeps.
 let LogSize = 20
@@ -59,6 +64,7 @@ type Gallerist machine[Site, Signal] {
 	initial: Blank,
 	step:    Step,
 	work:    jobs,
+	exit:    leave,
 }
 
 // Step is the site's transition.
@@ -67,11 +73,13 @@ func Step(s Site, sig Signal) Decision[Site, []Command] {
 	case Arrived as a:
 		arrive(s, Parse(a.URL))
 	case Clicked as c:
+		// A click asks the host for a push or a leave and keeps the entry:
+		// the navigation it causes (Arrived) is what ends the studio's.
 		match c.Link {
 		case Internal as i:
-			Emit[Site, []Command]{Next: s, Output: []Command{Push{URL: i.URL}}}
+			Tell[Site, []Command]{Next: s, Output: []Command{Push{URL: i.URL}}}
 		case External as e:
-			Emit[Site, []Command]{Next: s, Output: []Command{Leave{Href: e.Href}}}
+			Tell[Site, []Command]{Next: s, Output: []Command{Leave{Href: e.Href}}}
 		}
 	case CatalogLoaded:
 		Stay[Site]{Next: Site{..s, Catalog: Ready}}
@@ -116,8 +124,8 @@ func Step(s Site, sig Signal) Decision[Site, []Command] {
 		}
 	case Drafted as d:
 		Stay[Site]{Next: Site{..s, Draft: d.Text}}
-	case DraftSaved as d:
-		Stay[Site]{Next: Site{..s, Saved: Some[string]{Value: d.Draft}}}
+	case Recalled as r:
+		Stay[Site]{Next: Site{..s, Saved: r.Draft}}
 	}
 }
 
@@ -143,6 +151,10 @@ func arrive(s Site, next Route) Decision[Site, []Command] {
 	}
 	let mut painting = false
 	match (before, next) {
+	case (Studio, Studio):
+		// A stay in the studio keeps its entry, so its exit action runs
+		// once, when the site leaves the studio.
+		return Stay[Site]{Next: at}
 	case (Gallery, Gallery):
 		// A stay on the gallery is no entry.
 	case (Home, Gallery), (Painting, Gallery), (Studio, Gallery), (NotFound, Gallery):
@@ -158,14 +170,11 @@ func arrive(s Site, next Route) Decision[Site, []Command] {
 		painting = paintingID(before) != paintingID(next)
 	case (Home, Painting), (Gallery, Painting), (Studio, Painting), (NotFound, Painting):
 		painting = true
-	case (Home, Home), (Home, Studio), (Home, NotFound), (Gallery, Home), (Gallery, Studio), (Gallery, NotFound), (Painting, Home), (Painting, Studio), (Painting, NotFound), (Studio, Home), (Studio, Studio), (Studio, NotFound), (NotFound, Home), (NotFound, Studio), (NotFound, NotFound):
+	case (Home, Home), (Home, Studio), (Home, NotFound), (Gallery, Home), (Gallery, Studio), (Gallery, NotFound), (Painting, Home), (Painting, Studio), (Painting, NotFound), (Studio, Home), (Studio, NotFound), (NotFound, Home), (NotFound, Studio), (NotFound, NotFound):
 	}
 	if painting {
 		at = Site{..at, Painting: LoadingPainting{ID: paintingID(next)}}
 		out = out.Append(LoadPainting{ID: paintingID(next)})
-	}
-	if exitsStudio(s.Route, next) && s.Draft != "" {
-		out = out.Append(SaveDraft{Draft: s.Draft})
 	}
 	if len(out) == 0 {
 		return Enter[Site]{Next: at}
@@ -179,19 +188,23 @@ func arrive(s Site, next Route) Decision[Site, []Command] {
 	Enter[Site]{Next: Site{..at, Jobs: js, Asked: s.Asked + len(out)}}
 }
 
-// exitsStudio is whether a navigation from before to next leaves the
-// studio.
-func exitsStudio(before Option[Route], next Route) bool {
-	match before {
+// leave is each state's exit action: in the studio with a draft, save the
+// draft. The runner gives it the state the studio's entry ends with, so
+// the draft is the one last typed (a key is a Stay), and it runs once per
+// studio visit, at the navigation away or at the site's end.
+func leave(s Site) Option[func() needs Drafts] {
+	if !inStudio(s) || s.Draft == "" {
+		return None
+	}
+	let draft = s.Draft
+	Some{func() needs Drafts { Drafts.Save(draft) }}
+}
+
+// inStudio is whether the site is in the studio.
+func inStudio(s Site) bool {
+	match s.Route {
 	case Some[Route] as r:
-		match (r.Value, next) {
-		case (Studio, Studio):
-			false
-		case (Studio, Home), (Studio, Gallery), (Studio, Painting), (Studio, NotFound):
-			true
-		case (Home, _), (Gallery, _), (Painting, _), (NotFound, _):
-			false
-		}
+		r.Value == Studio
 	case None:
 		false
 	}
@@ -226,15 +239,13 @@ func Commands(s Site, d Decision[Site, []Command]) []Command {
 }
 
 // Answer is the signal a job's end gives: the catalog or the painting
-// loaded, or the draft saved. A push or a leave is never a job.
+// loaded. A push or a leave is never a job.
 func Answer(c Command) Signal {
 	match c {
 	case LoadCatalog:
 		CatalogLoaded
 	case LoadPainting as p:
 		PaintingLoaded{ID: p.ID}
-	case SaveDraft as d:
-		DraftSaved{Draft: d.Draft}
 	case Push as p:
 		Arrived{URL: p.URL}
 	case Leave:
@@ -243,15 +254,14 @@ func Answer(c Command) Signal {
 }
 
 // Takes is how long a job takes, as upstream's sleeps: the catalog 600
-// ms, a painting 400 ms, a save 300 ms.
+// ms, a painting 400 ms. Upstream's save sleeps 300 ms too; here the save
+// is the studio's exit action and the store takes no time (memory).
 func Takes(c Command) duration {
 	match c {
 	case LoadCatalog:
 		600ms
 	case LoadPainting:
 		400ms
-	case SaveDraft:
-		300ms
 	case Push, Leave:
 		0s
 	}
@@ -261,12 +271,18 @@ func Takes(c Command) duration {
 // due time the clock's now and the job's time (Dated), then, in due order
 // (ties in the order asked), sleeps until each and gives its end
 // (Answered). A navigation ends the entry and starts the work again with
-// the jobs left, each at its own due time.
-func jobs(s Site) Option[machines.Work[Signal, time.Clock | Scheduler]] {
-	if len(s.Jobs) == 0 {
+// the jobs left, each at its own due time. In the studio it first reads
+// the draft last saved (Recalled): the studio's exit action saved it as
+// the last visit ended, before this entry opened.
+func jobs(s Site) Option[machines.Work[Signal, time.Clock | Scheduler | Drafts]] {
+	let studio = inStudio(s)
+	if len(s.Jobs) == 0 && !studio {
 		return None
 	}
-	Some{machines.Work{Start: func(send entry func(e Signal)) needs time.Clock | Scheduler {
+	Some{machines.Work{Start: func(send entry func(e Signal)) needs time.Clock | Scheduler | Drafts {
+		if studio {
+			send(Recalled{Draft: Drafts.Last()})
+		}
 		let now = time.Clock.Now()
 		let mut dues = []due{}
 		for j in s.Jobs {
