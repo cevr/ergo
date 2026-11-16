@@ -5,7 +5,6 @@ import (
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
-	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // The view (LAWFFI LF2b; owner q193; docs/spec/interop.md, Foreign facts
@@ -35,24 +34,17 @@ type viewSite struct {
 	guard         bool // the test build's guarded copy
 }
 
-// viewForm is the view form of the body f's call reaches: a std extern of
-// a runtime/v1 body that names one (v1.Body.View), or a std function whose
-// body is one call of such an extern on its one parameter
-// (`func Bytes(s string) []byte { stringsBytes(s) }`); else "".
+// viewForm is the view form of the body f's call reaches: an extern, of
+// any package, of a body whose contract names one (bodyView), or a
+// function whose body is one call of such an extern on its one parameter
+// (`func Bytes(s string) []byte { stringsBytes(s) }`); else "". It reads
+// declarations, never std membership.
 func (l *lowerer) viewForm(f *check.Func) string {
 	if f == nil || f.Decl == nil {
 		return ""
 	}
 	if f.Decl.Extern != nil {
-		if !l.pureV1(f) {
-			return ""
-		}
-		_, name := f.Decl.Extern.Split()
-		body, err := v1.BodyOf(name)
-		if err != nil {
-			return ""
-		}
-		return body.View
+		return bodyView(f)
 	}
 	d := f.Decl
 	if d.Body == nil || len(d.Body.List) != 1 || f.Pkg == nil || d.Type == nil || d.Type.Params == nil || len(d.Type.Params.List) != 1 || len(d.Type.Params.List[0].Names) != 1 {
