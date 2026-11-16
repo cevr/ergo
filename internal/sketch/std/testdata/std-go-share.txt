@@ -76,7 +76,10 @@ exec	hostStart	host
 exec	replay	computation	R2 (np4f-plan §8.4): it builds the runtime's Running (a replay process, channels and a filler goroutine), provider code
 exec	waitFor	provider
 explore	Replay	provider
+filepath	Ext	library	layout: the same inlined Go Ext with a spill and loop-alignment NOPs on its path, 1.023x the body (NP4f-3 count); as RuneLen, a perf annotate may clear it
+filepath	Join	library	LF2: a []string argument to import go's variadic Join is copied in (slices.Clone), 1.344x the body (NP4f-3 count)
 filepath	NotRelative	type
+filepath	Rel	library	ENV-PURE: the failing body takes env, and the go.Error catch adds a branch, 1.096x the body (NP4f-3 count)
 fs	Clone	library	PRIM: a Text converts to nothing (types.md, Borrows 8), so Clone's copy of a borrow into a string is a language operation
 fs	Denied	type
 fs	Escapes	type
@@ -155,6 +158,17 @@ machines	firingOn	provider
 machines	notPositive	computation	RTF3: the defect is the runtime's MachineTimerDefect value, which the scheduler reads; an Ergo body raises no runtime type
 maps	Clone	language	PRIM
 math	OutOfRange	type
+math	ToInt	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Ergo body's guarded int32(f) lowers to the saturating ergo.FloatTo… with its own range tests, which the guard already proved, and the failing body takes env; NP4f-3 count 1.05 to 1.23x the body
+math	ToInt16	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Ergo body's guarded int32(f) lowers to the saturating ergo.FloatTo… with its own range tests, which the guard already proved, and the failing body takes env; NP4f-3 count 1.05 to 1.23x the body
+math	ToInt32	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Ergo body's guarded int32(f) lowers to the saturating ergo.FloatTo… with its own range tests, which the guard already proved, and the failing body takes env; NP4f-3 count 1.05 to 1.23x the body
+math	ToInt64	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Ergo body's guarded int32(f) lowers to the saturating ergo.FloatTo… with its own range tests, which the guard already proved, and the failing body takes env; NP4f-3 count 1.05 to 1.23x the body
+math	ToInt8	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Ergo body's guarded int32(f) lowers to the saturating ergo.FloatTo… with its own range tests, which the guard already proved, and the failing body takes env; NP4f-3 count 1.05 to 1.23x the body
+math	ToUint	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Ergo body's guarded int32(f) lowers to the saturating ergo.FloatTo… with its own range tests, which the guard already proved, and the failing body takes env; NP4f-3 count 1.05 to 1.23x the body
+math	ToUint16	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Ergo body's guarded int32(f) lowers to the saturating ergo.FloatTo… with its own range tests, which the guard already proved, and the failing body takes env; NP4f-3 count 1.05 to 1.23x the body
+math	ToUint32	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Ergo body's guarded int32(f) lowers to the saturating ergo.FloatTo… with its own range tests, which the guard already proved, and the failing body takes env; NP4f-3 count 1.05 to 1.23x the body
+math	ToUint64	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Ergo body's guarded int32(f) lowers to the saturating ergo.FloatTo… with its own range tests, which the guard already proved, and the failing body takes env; NP4f-3 count 1.05 to 1.23x the body
+math	ToUint8	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Ergo body's guarded int32(f) lowers to the saturating ergo.FloatTo… with its own range tests, which the guard already proved, and the failing body takes env; NP4f-3 count 1.05 to 1.23x the body
+math	ToUintptr	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Ergo body's guarded int32(f) lowers to the saturating ergo.FloatTo… with its own range tests, which the guard already proved, and the failing body takes env; NP4f-3 count 1.05 to 1.23x the body
 os	Code	type
 os	Exit	type
 os	NoWorkdir	type

@@ -3,8 +3,10 @@
 // targets for Ergo are Linux and darwin, so the separator is '/' and no
 // path has a volume name. No function reads the file system or the working
 // directory: each function calls Go's path/filepath through import go, as a
-// user binds it (NP4f), and Go's functions are pure, so a call is
-// transparent in a footprint.
+// user binds it (NP4f), but Join, Ext and Rel, which bind runtime/v1
+// bodies (runtime/v1/path.go) until their import go form counts within
+// 1.02 of the body (std-go-share.txt names why). Every one is pure, so a
+// call is transparent in a footprint.
 
 import go path/filepath
 import strings
@@ -12,7 +14,7 @@ import strings
 // Join is the non-empty parts with a separator between each pair, cleaned
 // (Clean); "" when every part is empty. Ergo has no variadic parameters,
 // so the parts are one slice.
-func Join(parts []string) string { filepath.Join(parts) }
+extern go ergo.local/prototype/runtime/v1.FilepathJoin func Join(parts []string) string
 
 // Base is the last element of path, its trailing separators removed: "."
 // for an empty path, "/" for a path of separators only.
@@ -24,7 +26,7 @@ func Dir(path string) string { filepath.Dir(path) }
 
 // Ext is the extension of the last element of path: the text from its
 // last dot, or "" when it has no dot.
-func Ext(path string) string { filepath.Ext(path) }
+extern go ergo.local/prototype/runtime/v1.FilepathExt func Ext(path string) string
 
 // Clean is the shortest path that names the same file as path by lexical
 // processing: one separator in each run, no "." element, no "x/.."
@@ -54,12 +56,7 @@ extern go ergo.local/prototype/runtime/v1.NotRelative type NotRelative { Base st
 // Rel is a path that Join([]string{base, Rel(base, target)}) makes equal
 // to target after Clean. Both are cleaned first; Rel of two equal paths is
 // ".".
-func Rel(base string, target string) string fails NotRelative {
-	filepath.Rel(base, target) catch {
-	case go.Error:
-		return NotRelative{Base: base, Target: target}
-	}
-}
+extern go ergo.local/prototype/runtime/v1.FilepathRel func Rel(base string, target string) string fails NotRelative
 
 // CleanIsIdempotent: a clean path is its own Clean.
 law CleanIsIdempotent(path string) {
