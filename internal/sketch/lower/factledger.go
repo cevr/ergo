@@ -1,6 +1,8 @@
 package lower
 
 import (
+	"fmt"
+
 	"ergo.local/prototype/internal/gofacts"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -52,11 +54,19 @@ func factLevel(n syntax.Node, fn *check.Func, f check.ForeignFact) (level, why s
 	case entry.Digest != row.Digest(toolchain.Version) || entry.With != toolchain.Version:
 		return check.FactVouched, "vouched, and the guard line for " + f.Law + " is stale (the row, its reviewed source or the toolchain changed): run go run ./scripts/stdlaws"
 	case entry.Verdict == "refuted":
-		stop(n, goTarget(fn)+" is vouched to only read "+f.Param+", and its guard refuted it (ergo.laws: fact "+f.Law+" refuted by "+entry.By+"): the build stops; correct or remove the row in internal/gofacts, then run go run ./scripts/stdlaws")
+		factRefuted(n, "%s is vouched to only read %s, and its guard refuted it (ergo.laws: fact %s refuted by %s): the build stops; correct or remove the row in internal/gofacts, then run go run ./scripts/stdlaws", goTarget(fn), f.Param, f.Law, entry.By)
 	case !admitLevel(entry.Verdict, entry.By, valueClass):
 		return check.FactVouched, "vouched, and the guard line for " + f.Law + " is " + entry.Verdict + ": only a validated guard line with its run named lets a vouched fact act"
 	}
 	return check.FactValidated, ""
+}
+
+// factRefuted stops the build at a call whose vouched fact a current
+// ledger line refutes. It is a rule of the evidence, as a refuted law is
+// (LedgerEvidence.Refusals), not a form waiting for an owner: no later
+// stage lowers the call with the fact.
+func factRefuted(n syntax.Node, format string, args ...any) {
+	stop(n, fmt.Sprintf(format, args...))
 }
 
 // goReads reports the Go call n's operand i (a method's receiver first) as
