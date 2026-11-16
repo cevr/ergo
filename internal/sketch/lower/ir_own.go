@@ -623,6 +623,22 @@ func (st *irState) ownedWrapper(fc *funcCtx, fd *funcDecl, head, params, results
 	return true
 }
 
+// consumedForm is the runtime/v1 body a std call x of body (named name)
+// calls: its owned form when the value analysis found its first operand
+// consumed (vals.consumes: FromBytesOwned's builderText(bs) takes bs over
+// with no copy), or in a test build its checking form, as the emitter's
+// stdCall chooses them (ownedFormAt); name otherwise (FORK-ALLOC).
+func (b *irBuilder) consumedForm(x *syntax.CallExpr, body v1.Body, name string) string {
+	if b.l.vals == nil || !b.l.vals.consumes[x] || body.Owned == "" {
+		return name
+	}
+	form := b.fc.ownedFormAt(x, body)
+	if _, bound := runtimeBindings()[form]; !bound {
+		irNo("std call with no runtime binding")
+	}
+	return form
+}
+
 // ownedCallName is the Go name a call x of f names: the owned body when
 // the value analysis decided the call passes its owned arguments
 // unshared (vals.ownCall; an argument that must be copied is a value copy
