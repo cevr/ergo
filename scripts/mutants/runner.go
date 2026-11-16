@@ -240,7 +240,7 @@ type engine struct {
 	cfg         Config
 	compileOnly bool // CompileRows: each row is applied and compiled, no test runs
 	module      string
-	goRoot      string // the module's toolchain: every child's GOROOT, its bin first on PATH
+	goRoot      string // the module's toolchain, whose bin is first on every child's PATH
 	files       []treeFile
 	key         string
 	cov         *coverage
@@ -307,7 +307,7 @@ func newEngine(cfg Config) (*engine, error) {
 	if e.module == "" {
 		return nil, errors.New("go.mod names no module")
 	}
-	// The toolchain go test would put first on PATH and in GOROOT (env).
+	// The toolchain go test would put first on PATH (env).
 	cmd := exec.Command("go", "env", "GOROOT")
 	cmd.Dir = cfg.Root
 	if out, err := cmd.Output(); err == nil && strings.TrimSpace(string(out)) != "" {
@@ -491,16 +491,12 @@ func (e *engine) env(extra ...string) []string {
 				kv = "PATH=" + filepath.Join(e.goRoot, "bin") + string(os.PathListSeparator) + value
 			}
 		case "GOROOT":
-			if e.goRoot != "" {
-				continue // set below, with PATH's
-			}
+			// The go first on PATH finds its own root. A GOROOT of another
+			// toolchain fails every build ("compile: version go1.27.4 does
+			// not match go tool version go1.27.0").
+			continue
 		}
 		out = append(out, kv)
-	}
-	if e.goRoot != "" {
-		// A GOROOT that is not the go first on PATH fails every build
-		// ("compile: version go1.27.4 does not match go tool version").
-		out = append(out, "GOROOT="+e.goRoot)
 	}
 	procs := strconv.Itoa(e.cfg.Procs)
 	out = append(out, "GOMAXPROCS="+procs, "GOWORK=off")

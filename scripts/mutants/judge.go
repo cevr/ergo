@@ -270,7 +270,7 @@ func (e *engine) baselines(ctx context.Context, items []item, pending []int, jr 
 			t := &covTest{ID: id, Seconds: o.seconds}
 			if o.reason != "" {
 				t.Failed, t.Detail = true, o.reason+": "+lastLines(o.tail, 20)
-				e.logf("baseline: %s fails on the unmutated tree (%s): its rows are unjudged", id, o.reason)
+				e.logf("baseline: %s fails on the unmutated tree (%s): its rows are unjudged\n%s", id, o.reason, lastLines(o.tail, 8))
 			}
 			mu.Lock()
 			e.base[id] = t
