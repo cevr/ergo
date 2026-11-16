@@ -36,6 +36,7 @@ import (
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // irOwn is the static frame of the IR body being built.
@@ -101,6 +102,32 @@ func (b *irBuilder) openOwn(f *check.Func, params []*check.Var) []*irStmt {
 		out = append(out, b.ownLet(v, i, f.Decl)...)
 	}
 	return out
+}
+
+// closeMasked is the body of a checked Close f, built: the whole of it
+// (its frame, entry poll and statements) runs as the function literal
+// that v1.Release runs masked, with the caller's task first (the
+// emitter's closeBody). A return in the body returns from the literal,
+// and so from the Close. A Close with a generated release of its
+// receiver's parts after it (CloseParts, glueWith) keeps its source body.
+func (b *irBuilder) closeMasked(f *check.Func, body []*irStmt) []*irStmt {
+	if !isClose(f) {
+		return body
+	}
+	if f.Pkg.Info.CloseParts[f] != nil || b.env < 0 {
+		irNo("checked Close (closeBody masks it)")
+	}
+	const name = "Release"
+	rb, err := runtimeBody(name)
+	if err != nil || len(rb.Hidden) != 1 || rb.Hidden[0] != v1.CallerTask {
+		ice(f.Decl, "the release route %s takes the caller's task alone: %v", name, err)
+	}
+	p := b.pos(f.Decl, f.Decl.Pos())
+	end := b.pos(f.Decl, f.Decl.Body.Rbrace)
+	lit := &irExpr{K: "func", Pos: p, T: "func()", Body: body, End: &end}
+	task := &irExpr{K: "field", Pos: p, Name: envTask, X: &irExpr{K: "local", Pos: p, I: b.env}}
+	b.keepImport("var _ = " + b.l.rt() + "." + name)
+	return []*irStmt{{K: "expr", Pos: p, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: name, Args: []*irExpr{task, lit}}}}
 }
 
 // ownBodyChecks stops a static frame this form does not build: a try's
