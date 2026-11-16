@@ -274,6 +274,9 @@ type BuildRequest struct {
 	// Patch). Every ergo command's build sets it (plan-tier §1.1); the
 	// source lowering stays the test-time reference.
 	IR bool
+	// Rewrites is ergo build's -rewrites switch (lower.Unit.Rewrites): on
+	// (""), proved or off.
+	Rewrites string
 	// Stderr receives the go command's output.
 	Stderr io.Writer
 	// Ledger is the path of the law ledger, ergo.laws beside ergo.mod
@@ -444,6 +447,11 @@ func unitInput(unit lower.Unit, dependencies []build.Dependency, req BuildReques
 	if req.IR {
 		emitter += "+ir"
 	}
+	if unit.Rewrites != "" && unit.Rewrites != "on" {
+		// The switch decides the lowered module (lower.Unit.Rewrites), so
+		// it keys it: an off build never reuses an on build's module.
+		emitter += "+rewrites=" + unit.Rewrites
+	}
 	input := build.Input{
 		Dependencies: dependencies,
 		Compiler:     compiler,
@@ -536,6 +544,7 @@ func emission(a Analysis, req BuildRequest) (lower.Unit, func(lower.Unit) ([]low
 	if err != nil {
 		return lower.Unit{}, nil, false, err
 	}
+	unit.Rewrites = req.Rewrites
 	split := splitLowering()
 	if split {
 		lowering = splitLowerer(req.Mode == build.ModeTest, req.IR)

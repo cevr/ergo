@@ -60,6 +60,13 @@ func inspectCommand(args []string) error {
 	if len(args) > 0 && args[0] == "deps" {
 		return inspectDepsCommand(args[1:])
 	}
+	if len(args) > 0 && args[0] == "rewrites" {
+		if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
+			_, err := os.Stdout.WriteString(inspectRewritesHelp)
+			return err
+		}
+		return inspectRewritesCommand(args[1:])
+	}
 	if len(args) > 0 && args[0] == "facts" {
 		if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
 			_, err := os.Stdout.WriteString(inspectFactsHelp)
@@ -170,6 +177,52 @@ func inspectFactsCommand(args []string) error {
 		return printJSON(facts)
 	}
 	_, err = os.Stdout.WriteString(sketchfront.FactsText(facts))
+	return err
+}
+
+const inspectRewritesHelp = `usage: ergo inspect rewrites FILE|DIR [--json]
+
+Lists the rewrite sites of the run build (types.md, Laws 14): for each, its
+position, its law, its ergo.laws entry's level (with the run and the
+foreign keys that gave it), the entry's state (current, stale or missing)
+and whether the build applies it, or why not (a level that changes no
+code, AsWritten, a body the IR path does not reach). It lowers the program
+in process and runs no Go tool. --json prints the same rows as JSON.
+
+Exit status: 0 when the package checks, 1 when it does not, 2 on an
+invalid invocation.
+`
+
+// inspectRewritesCommand prints the rewrite sites of the run build.
+func inspectRewritesCommand(args []string) error {
+	asJSON := false
+	var rest []string
+	for _, arg := range args {
+		if arg == "--json" {
+			asJSON = true
+			continue
+		}
+		rest = append(rest, arg)
+	}
+	opts, err := parseFileOptions("inspect rewrites", rest)
+	if err != nil {
+		return invalidInvocation(err)
+	}
+	l, err := loadForPlatform(opts.file, opts.target, opts.platform)
+	if err != nil {
+		return err
+	}
+	if !l.result.Checked || l.analysis.Checked() == nil {
+		return refuseUnchecked(l, opts)
+	}
+	sites, err := sketchfront.InspectRewrites(l.analysis, l.source.Admitted(), ledgerPath(opts.file))
+	if err != nil {
+		return err
+	}
+	if asJSON {
+		return printJSON(sites)
+	}
+	_, err = os.Stdout.WriteString(sketchfront.RewritesText(sites))
 	return err
 }
 
