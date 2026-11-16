@@ -10,9 +10,11 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/gobind"
+	"ergo.local/prototype/internal/gofacts"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/std/gostd"
 	"ergo.local/prototype/internal/sketch/syntax"
+	"ergo.local/prototype/internal/toolchain"
 	v1 "ergo.local/prototype/runtime/v1"
 )
 
@@ -87,8 +89,15 @@ test BumpLeavesItsArgument {
 
 // readsfix is in the pure tier in this test binary only, so a test may
 // call Bump (a test never gets go.Foreign; interop.md, Host calls) and the
-// test build's compare runs where `ergo test` runs.
-func init() { v1.PureImports = append(v1.PureImports, "readsfix") }
+// test build's compare runs where `ergo test` runs. Its pure row acts only
+// on a current validated guard line (LAWFFI LF2d, check.PureActs), so the
+// checker's ledger gets one, planted as the row is.
+func init() {
+	v1.PureImports = append(v1.PureImports, "readsfix")
+	line := gofacts.Entry{Key: gofacts.PureKey("readsfix"), Verdict: "validated", By: "planted", With: toolchain.Version, Digest: gofacts.PureDigest("readsfix", nil, toolchain.Version)}.Line()
+	shipped := check.FactLedger
+	check.FactLedger = func() string { return shipped() + "\n" + line + "\n" }
+}
 
 // readsFixImporter gives readsfix's binding, with the planted reads line,
 // beside Go's standard library.
