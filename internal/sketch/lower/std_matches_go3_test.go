@@ -202,7 +202,7 @@ func stdGo3SliceCases(r *rand.Rand, n int, with func(bodyCase) bodyCase) []bodyC
 	fxArg := func(v fx) string { return np4fFloats(v.xs) + ", " + np4fFloatArg(v.x) }
 	fsArg := func(v fx) string { return np4fFloats(v.xs) }
 	type pair struct{ a, b []int }
-	pairEdges := []pair{{nil, nil}, {nil, []int{0}}, {[]int{1, 2}, []int{1, 2}}, {[]int{1, 2}, []int{2, 1}}, {[]int{1}, []int{1, 1}}}
+	pairEdges := []pair{{nil, nil}, {nil, []int{0}}, {[]int{1, 2}, []int{1, 2}}, {[]int{1, 2}, []int{2, 1}}, {[]int{1}, []int{1, 1}}, {[]int{0, 2}, []int{1, 2}}}
 	genPair := func(r *rand.Rand) pair {
 		a := genInts(r)
 		if r.IntN(2) == 0 {

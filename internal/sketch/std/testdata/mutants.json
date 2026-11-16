@@ -337,6 +337,176 @@
     {"name":"stdsh-log","origin":"wf10/STD-sh (NP4f-3: on the import go body)","file":"internal/sketch/std/math/math.ergo","from":"{ math.Log(f) }","to":"{ math.Log1p(f) }","rule":"stdlib.md math: Log is Go's math.Log.","anchor":{"tests":["lower:TestStdMatchesGo"]},"killers":["lower:TestStdMatchesGo"]},
     {"name":"stdsh-exp","origin":"wf10/STD-sh (NP4f-3: on the import go body)","file":"internal/sketch/std/math/math.ergo","from":"{ math.Exp(f) }","to":"{ math.Exp2(f) }","rule":"stdlib.md math: Exp is Go's math.Exp.","anchor":{"tests":["lower:TestStdMatchesGo"]},"killers":["lower:TestStdMatchesGo"]},
     {"name":"math-fma-unfused","origin":"wf10 corpus wave HP4 (NP4f-3: on the import go body)","file":"internal/sketch/std/math/math.ergo","from":"{ math.FMA(x, y, z) }","to":"{ x * y + z }","rule":"math.FMA rounds x*y + z once.","anchor":{"tests":["lower:TestStdMatchesGo"]},"killers":["lower:TestStdMatchesGo"]},
-    {"name":"math-fma-sign","origin":"wf10 corpus wave HP4 (NP4f-3: on the import go body)","file":"internal/sketch/std/math/math.ergo","from":"{ math.FMA(x, y, z) }","to":"{ math.FMA(x, y, -z) }","rule":"math.FMA is Go's FMA of x, y and z.","anchor":{"tests":["lower:TestStdMatchesGo"]},"killers":["lower:TestStdMatchesGo"]}
+    {"name":"math-fma-sign","origin":"wf10 corpus wave HP4 (NP4f-3: on the import go body)","file":"internal/sketch/std/math/math.ergo","from":"{ math.FMA(x, y, z) }","to":"{ math.FMA(x, y, -z) }","rule":"math.FMA is Go's FMA of x, y and z.","anchor":{"tests":["lower:TestStdMatchesGo"]},"killers":["lower:TestStdMatchesGo"]},
+    {
+      "name": "np4f3-runelen-text",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/utf8/utf8.ergo",
+      "from": "func RuneLen(r rune) int { utf8.RuneLen(r) }",
+      "to": "func RuneLen(r rune) int { len(RuneText(r)) }",
+      "rule": "utf8.RuneLen is -1 for a rune that is not valid, as Go's utf8.RuneLen.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f3-base-cleans",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/filepath/filepath.ergo",
+      "from": "func Base(path string) string { filepath.Base(path) }",
+      "to": "func Base(path string) string { filepath.Base(filepath.Clean(path)) }",
+      "rule": "filepath.Base is Go's filepath.Base: the last element as written, not of the cleaned path.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f3-dir-cleans-first",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/filepath/filepath.ergo",
+      "from": "func Dir(path string) string { filepath.Dir(path) }",
+      "to": "func Dir(path string) string { filepath.Dir(filepath.Clean(path)) }",
+      "rule": "filepath.Dir is Go's filepath.Dir: a trailing separator ends the directory.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f3-clean-is-join",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/filepath/filepath.ergo",
+      "from": "func Clean(path string) string { filepath.Clean(path) }",
+      "to": "func Clean(path string) string { filepath.Join([]string{path}) }",
+      "rule": "filepath.Clean of the empty path is \".\", as Go's filepath.Clean.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f3-split-swapped",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/filepath/filepath.ergo",
+      "from": "Parts{Dir: dir, File: file}",
+      "to": "Parts{Dir: file, File: dir}",
+      "rule": "filepath.Split is Go's filepath.Split: Dir then File.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f3-compare-nan-last",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/cmp/cmp.ergo",
+      "from": "\t\t\treturn 0\n\t\t}\n\t\treturn -1\n",
+      "to": "\t\t\treturn 0\n\t\t}\n\t\treturn 1\n",
+      "rule": "cmp.Compare puts a NaN before every other value, as Go's cmp.Compare.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f3-less-ignores-nan",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/cmp/cmp.ergo",
+      "from": "{ (a != a && b == b) || a < b }",
+      "to": "{ a < b }",
+      "rule": "cmp.Less puts a NaN before every other value, as Go's cmp.Less.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f3-padleft-after",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/strings/pad.ergo",
+      "from": "\tstrings.Repeat(utf8.RuneText(pad), width - n) + s\n",
+      "to": "\ts + strings.Repeat(utf8.RuneText(pad), width - n)\n",
+      "rule": "strings.PadLeft puts the pad before s.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f3-padright-space",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/strings/pad.ergo",
+      "from": "\ts + strings.Repeat(utf8.RuneText(pad), width - n)\n",
+      "to": "\ts + strings.Repeat(\" \", width - n)\n",
+      "rule": "strings.PadRight pads with the rune it is given.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f3-padleft-bytes",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/strings/pad.ergo",
+      "from": "\tlet n = utf8.RuneCount(s)\n\tif n >= width {\n\t\treturn s\n\t}\n\tstrings.Repeat",
+      "to": "\tlet n = len(s)\n\tif n >= width {\n\t\treturn s\n\t}\n\tstrings.Repeat",
+      "rule": "strings.PadLeft counts the runes of s, an invalid byte as one, as fmt's %*s does.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f3-contains-nan",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/slices/slices.ergo",
+      "from": "\tfor y in xs {\n\t\tif y == x {\n\t\t\treturn true",
+      "to": "\tfor y in xs {\n\t\tif y == x || y != y && x != x {\n\t\t\treturn true",
+      "rule": "slices.Contains compares by ==, so a NaN is never found, as Go's slices.Contains.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f3-index-last",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/slices/slices.ergo",
+      "from": "\tfor i, y in xs {\n\t\tif y == x {\n\t\t\treturn i\n",
+      "to": "\tfor i, y in xs {\n\t\tif y == x && i > 0 {\n\t\t\treturn i\n",
+      "rule": "slices.Index is the first index of x.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f3-equal-skips-first",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/slices/slices.ergo",
+      "from": "\t\tif x != b[i] {",
+      "to": "\t\tif x != b[i] && i > 0 {",
+      "rule": "slices.Equal compares every element.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f3-largest-no-nan",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/slices/slices.ergo",
+      "from": "\t\tm = cmp.Max(m, xs[i])\n",
+      "to": "\t\tif xs[i] > m {\n\t\t\tm = xs[i]\n\t\t}\n",
+      "rule": "slices.Max is Go's max over the slice: a NaN gives NaN and +0 beats -0.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f3-smallest-no-nan",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/slices/slices.ergo",
+      "from": "\t\tm = cmp.Min(m, xs[i])\n",
+      "to": "\t\tif xs[i] < m {\n\t\t\tm = xs[i]\n\t\t}\n",
+      "rule": "slices.Min is Go's min over the slice: a NaN gives NaN and -0 beats +0.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f3-search-nan-misses",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/slices/slices.ergo",
+      "from": "(xs[i] == x || xs[i] != xs[i] && x != x)",
+      "to": "xs[i] == x",
+      "rule": "slices.BinarySearch finds a NaN in a slice that holds one, as Go's slices.BinarySearch.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f3-search-by-lt",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/slices/slices.ergo",
+      "from": "\t\tif cmp.Less(xs[h], x) {",
+      "to": "\t\tif xs[h] < x {",
+      "rule": "slices.BinarySearch searches in cmp.Less's order, which sorts a NaN first.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    }
   ]
 }
