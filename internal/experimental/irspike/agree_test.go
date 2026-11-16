@@ -176,7 +176,9 @@ var irAgrees = newSplit(split[exampleTarget]{
 // allocations per decode (testing.AllocsPerRun), which the source and IR
 // lowerings may differ in (B-BUILTINS: the IR's unescape appends to its
 // buffer in place, 8 against the source's 10). Their expected.out holds
-// the build path's counts, the IR's; agreeOn does not compare them.
+// the build path's counts, the IR's; agreeOn does not compare them, and
+// logs the skip. Accepted until F8 deletes the text path (orchestrator,
+// 2026-11-16), when the agreement and this set go with it.
 var countedCases = map[string]bool{"catalog/receipt": true}
 
 // agreeOn checks the agreement on one target.
@@ -217,6 +219,7 @@ func agreeOn(t *testing.T, target exampleTarget) {
 	cases := 0
 	for _, c := range loadCases(prog) {
 		if countedCases[filepath.Base(prog)+"/"+c.name] {
+			t.Logf("%s/%s: not compared: it prints a count of the lowering's own work, which the two paths differ in (accepted until F8 deletes the text path)", filepath.Base(prog), c.name)
 			continue
 		}
 		agree(t, filepath.Base(prog)+"/"+c.name, runCase(t, sb, c), runCase(t, ib, c))
