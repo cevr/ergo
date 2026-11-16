@@ -8,7 +8,7 @@ import (
 
 // IfOpFuncs are GenerateIfOp's functions, each with an if or a match
 // inside an operand: each gets an IR body in every seed (F7-cs-ifop).
-var IfOpFuncs = []string{"args", "bin", "lit", "rec", "text", "same", "tup", "pair", "idx", "area", "nested"}
+var IfOpFuncs = []string{"args", "bin", "lit", "rec", "text", "same", "tup", "pair", "idx", "sidx", "area", "nested"}
 
 // GenerateIfOp is a program whose ifs and matches stand inside an operand
 // (F7-cs-ifop, "expression *syntax.IfStmt"): a call's argument, a binary
@@ -37,14 +37,15 @@ func GenerateIfOp(seed uint64) string {
 	b.WriteString("func sum2(t (int, int)) int {\n\tlet a, c = t\n\ta * 100 + c\n}\n\n")
 	fmt.Fprintf(&b, "func pair(x int) int {\n\tlet mut n = x\n\tlet ts = [](int, int){(n, if x > %d {\n\t\tn = n + 5\n\t\tn\n\t} else {\n\t\t1\n\t})}\n\tsum2(ts[0]) + n\n}\n\n", k())
 	fmt.Fprintf(&b, "func idx(x int) int {\n\tlet xs = []int{%d, %d, %d}\n\tlet mut i = 0\n\tlet v = xs[if x > %d {\n\t\ti = 1\n\t\t2\n\t} else {\n\t\ti\n\t}]\n\tv * 10 + i\n}\n\n", k(), k(), k(), k())
+	fmt.Fprintf(&b, "func sidx(x int) int {\n\tlet mut s = \"abc\"\n\tlet v = s[if x > %d {\n\t\ts = \"xyz\"\n\t\t1\n\t} else {\n\t\t2\n\t}]\n\tint(v) * 1000 + len(s)\n}\n\n", k())
 	fmt.Fprintf(&b, "func area(s Shape, x int) int {\n\tx * 1000 + match s {\n\tcase Circle as c:\n\t\tc.R * %d\n\tcase Sq as q:\n\t\tq.S * q.S\n\t}\n}\n\n", 1+k())
 	fmt.Fprintf(&b, "func nested(x int) int {\n\tlet mut n = x\n\tpick(n, if x > %d {\n\t\tif x > %d {\n\t\t\tn = 1\n\t\t\t1\n\t\t} else {\n\t\t\t2\n\t\t}\n\t} else {\n\t\t3\n\t}) + n\n}\n\n", k(), k())
 	b.WriteString("func main() needs Console {\n")
 	for i := 0; i < 5; i++ {
 		x, y := r.IntN(12), r.IntN(12)
 		fmt.Fprintf(&b, "\tlet a%d, c%d = tup(%d)\n", i, i, x)
-		fmt.Fprintf(&b, "\tConsole.Println(\"%d: \\(args(%d)) \\(bin(%d)) \\(lit(%d)[1]) \\(rec(%d).Y) \\(text(%d)) \\(same(%d, %d)) \\(a%d) \\(c%d) \\(idx(%d)) \\(pair(%d)) \\(area(Circle{R: %d}, %d)) \\(area(Sq{S: %d}, %d)) \\(nested(%d))\")\n",
-			i, x, x, x, x, x, x, y, i, i, x, x, y, x, y, x, x)
+		fmt.Fprintf(&b, "\tConsole.Println(\"%d: \\(args(%d)) \\(bin(%d)) \\(lit(%d)[1]) \\(rec(%d).Y) \\(text(%d)) \\(same(%d, %d)) \\(a%d) \\(c%d) \\(idx(%d)) \\(pair(%d)) \\(sidx(%d)) \\(area(Circle{R: %d}, %d)) \\(area(Sq{S: %d}, %d)) \\(nested(%d))\")\n",
+			i, x, x, x, x, x, x, y, i, i, x, x, x, y, x, y, x, x)
 	}
 	b.WriteString("}\n")
 	return b.String()
