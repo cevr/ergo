@@ -85,14 +85,20 @@ func (b *irBuilder) tailTo(list []syntax.Stmt, ret bool, to *yieldTo) []*irStmt 
 	for i, s := range list {
 		last := i == len(list)-1
 		b.part(func() {
-			if len(b.l.info.Releases[s]) > 0 && !b.releasesAtExit(s, last && ret && to == nil) { // ir_own.go
+			exit := b.releasesAtExit(s, last && ret && to == nil) // ir_own.go
+			if len(b.l.info.Releases[s]) > 0 && !exit && b.own == nil {
 				irNo("statement that releases owned values")
 			}
+			var ss []*irStmt
 			if last && (ret || to != nil) {
-				out = append(out, b.yield(s, to)...)
-				return
+				ss = b.yield(s, to)
+			} else {
+				ss = b.stmt(s)
 			}
-			out = append(out, b.stmt(s)...)
+			if !exit {
+				ss = b.scoped(s, ss, b.pos(s, s.Pos())) // ir_own.go: the statement's releases (R43)
+			}
+			out = append(out, ss...)
 		})
 	}
 	if (ret || to != nil) && len(list) == 0 {
@@ -183,12 +189,12 @@ func (b *irBuilder) cond(x syntax.Expr) (cond *irExpr) {
 func (b *irBuilder) ifStmt(s *syntax.IfStmt, ret bool, to *yieldTo) *irStmt {
 	cond := b.cond(s.Cond)
 	st := &irStmt{K: "if", Pos: b.pos(s, s.Pos()), X: cond, End: b.pos(s.Body, s.Body.Rbrace)}
-	st.Then = b.tailTo(s.Body.List, ret && to == nil, to)
+	st.Then = b.scoped(s.Body, b.tailTo(s.Body.List, ret && to == nil, to), b.pos(s.Body, s.Body.Rbrace)) // ir_own.go
 	switch e := s.Else.(type) {
 	case nil:
 	case *syntax.BlockStmt:
 		st.ElsePos, st.ElseEnd = b.pos(e, e.Lbrace), b.pos(e, e.Rbrace)
-		st.Else = b.tailTo(e.List, ret && to == nil, to)
+		st.Else = b.scoped(e, b.tailTo(e.List, ret && to == nil, to), b.pos(e, e.Rbrace)) // ir_own.go
 	case *syntax.IfStmt:
 		// The else block of an else-if wraps the chain to its last brace.
 		last := syntax.Stmt(e)
@@ -313,7 +319,7 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 				b.reserve(v)
 			}
 			out = append(out, &irStmt{K: "def", Pos: b.pos(s.Decl, s.Decl.Pos()), Local: i, X: x})
-			b.part(func() { out = append(out, b.ownLet(v, i, id)...) }) // ir_own.go
+			b.part(func() { out = append(append(out, b.ownLet(v, i, id)...), b.releaseAt(spec, b.pos(id, id.Pos()))...) }) // ir_own.go: the let's temporaries (R43)
 		}
 		return out
 	case *syntax.AssignStmt:
@@ -396,9 +402,9 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 				}
 				st.Label = b.label
 			}
-			return []*irStmt{st}
+			return append(b.releaseAt(s, st.Pos), st) // ir_own.go: what the iterations' scopes own (R6)
 		case syntax.CONTINUE:
-			return b.continueStmt(s) // ir_fail.go: the back-edge poll first
+			return append(b.releaseAt(s, b.pos(s, s.Pos())), b.continueStmt(s)...) // ir_fail.go: the back-edge poll first
 		}
 		irNo("statement *syntax.BranchStmt %s", s.Tok)
 	case *syntax.RangeStmt:
@@ -455,7 +461,7 @@ func (b *irBuilder) loopBody(st *irStmt, s syntax.Stmt, body *syntax.BlockStmt) 
 	switches, label := b.switches, b.label
 	b.switches, b.label = 0, ""
 	defer func() { b.loops, b.switches, b.label = b.loops-1, switches, label }()
-	st.Body = b.tail(body.List, false)
+	st.Body = b.scoped(body, b.tail(body.List, false), b.pos(body, body.Rbrace)) // ir_own.go: the iteration's scope (R6)
 	poll := b.loopPoll(s)
 	// The back-edge poll follows a body that reaches its end: after a
 	// break or a terminating statement it never runs, and go vet calls it

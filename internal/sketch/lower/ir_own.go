@@ -20,9 +20,13 @@ package lower
 // Debt: RELEASE-IR makes the helper a named IR function (no Go text),
 // queued before F8; self-hosting does not port this writer.
 //
-// This first form covers a frame with no error row whose values are
-// released only at the frame's exit: a release inside the body (a
-// statement's temporaries, a scope's end) stays the emitter's.
+// It covers a frame with no error row. A release inside the body (a
+// scope's end, a let's or a statement's planned releases, a break or a
+// continue; the emitter's releaseAt and scoped) is the emitter's
+// staticRelease: the value's bit is tested and cleared, then a helper
+// of the generated part releases it (the slot's Go text, the same
+// RELEASE-IR debt). A planned release at a place the builder does not
+// reach (a condition's temporaries, a match subject) stops the body.
 
 import (
 	"strconv"
@@ -41,12 +45,19 @@ type irOwn struct {
 	returned   *syntax.Ident // the local a return hands off (returning)
 	site       syntax.Node
 	p          irPos
+	// keys are the places of the body whose planned releases the builder
+	// has not reached yet (releaseAt, scoped); pending the owned locals
+	// bound and not yet registered (ownable, ownLet). Both end empty
+	// (ownVisited).
+	keys    map[syntax.Node]bool
+	pending map[*check.Var]bool
 }
 
 type irSlot struct {
-	local int
-	t     check.Type
-	d     *check.Drop
+	local  int
+	t      check.Type
+	d      *check.Drop
+	helper string // the slot's release inside the body, once used
 }
 
 // irStaticFrame reports a body whose frame the IR builds: the static
@@ -65,9 +76,12 @@ func (b *irBuilder) openOwn(f *check.Func, params []*check.Var) []*irStmt {
 	if b.env < 0 {
 		irNo("owned local") // a pure body has no task to settle its exit on
 	}
-	b.ownBodyChecks(f.Decl.Body)
 	p := b.pos(f.Decl, f.Decl.Pos())
-	o := &irOwn{kept: -1, bit: map[*check.Var]int{}, site: f.Decl, p: p}
+	o := &irOwn{kept: -1, bit: map[*check.Var]int{}, site: f.Decl, p: p, keys: map[syntax.Node]bool{}, pending: map[*check.Var]bool{}}
+	b.ownBodyChecks(f.Decl.Body, o)
+	// The body's own scope ends at the frame's exit: its values are the
+	// deferred release's, in the same order (last registered first).
+	delete(o.keys, f.Decl.Body)
 	o.live = b.temp("live", "uint64", p)
 	o.deferred = &irStmt{K: "defer", Pos: p}
 	b.own = o
@@ -85,11 +99,12 @@ func (b *irBuilder) openOwn(f *check.Func, params []*check.Var) []*irStmt {
 	return out
 }
 
-// ownBodyChecks stops a static frame this form does not build: a release
-// inside the body (Info.Releases, TryReleases), an owned temporary or arm
-// value, a record update's replaced fields, a taking receiver passed by
-// its address.
-func (b *irBuilder) ownBodyChecks(body *syntax.BlockStmt) {
+// ownBodyChecks stops a static frame this form does not build: a try's
+// release (TryReleases), an owned temporary or arm value, a record
+// update's replaced fields, a taking receiver passed by its address, a
+// match pattern that owns. It records in o the places with planned
+// releases (Info.Releases), which the builder must each reach.
+func (b *irBuilder) ownBodyChecks(body *syntax.BlockStmt, o *irOwn) {
 	info := b.l.info
 	syntax.Inspect(body, func(n syntax.Node) bool {
 		if n == nil {
@@ -98,15 +113,17 @@ func (b *irBuilder) ownBodyChecks(body *syntax.BlockStmt) {
 		if _, lit := n.(*syntax.FuncLit); lit {
 			return false // a frame of its own
 		}
-		if _, stmt := n.(syntax.Stmt); !stmt && len(info.Releases[n]) > 0 {
-			// A let's or a scope's end (a block, a case clause): a
-			// statement's own is tailTo's (releasesAtExit).
-			irNo("statement that releases owned values")
+		if len(info.Releases[n]) > 0 {
+			o.keys[n] = true
 		}
 		switch n := n.(type) {
 		case *syntax.TryExpr:
 			if len(info.TryReleases[n]) > 0 {
 				irNo("statement that releases owned values")
+			}
+		case *syntax.CaseClause:
+			if po, ok := info.PatternOwners[n]; ok && (len(po.Sources) > 0 || len(po.Bindings) > 0) {
+				irNo("owned local") // patternOwners registers them
 			}
 		case *syntax.CompositeLit:
 			if len(info.Replaced[n]) > 0 {
@@ -135,6 +152,14 @@ func (b *irBuilder) releasesAtExit(s syntax.Stmt, result bool) bool {
 	if b.own == nil {
 		return false
 	}
+	if b.leavesFrame(s, result) {
+		delete(b.own.keys, s)
+		return true
+	}
+	return false
+}
+
+func (b *irBuilder) leavesFrame(s syntax.Stmt, result bool) bool {
 	switch s := s.(type) {
 	case *syntax.ReturnStmt:
 		return true
@@ -153,9 +178,105 @@ func (b *irBuilder) releasesAtExit(s syntax.Stmt, result bool) bool {
 	return false
 }
 
-// ownable stops an owned local outside a static frame the IR builds.
+// ownable stops an owned local outside a static frame the IR builds; in
+// one, the local waits for its registration (ownLet, ownVisited).
 func (b *irBuilder) ownable(v *check.Var) {
-	if b.l.info.OwnedVars[v] != nil && b.own == nil {
+	if b.l.info.OwnedVars[v] == nil {
+		return
+	}
+	if b.own == nil {
+		irNo("owned local")
+	}
+	b.own.pending[v] = true
+}
+
+// releaseAt is the releases the plan records at key, a place that ends
+// inside the frame, in the plan's order (last declared first; a static
+// frame reassigns no owned local, so it is the order of registration):
+// each value whose bit is still set is released now (the emitter's
+// releaseAt and staticRelease). A value with no owner (a type
+// parameter's, B2) is its instance's to release.
+func (b *irBuilder) releaseAt(key syntax.Node, p irPos) []*irStmt {
+	rs := b.l.info.Releases[key]
+	o := b.own
+	if o == nil {
+		return nil // only values with no owner: an owned local stops the body (ownable)
+	}
+	delete(o.keys, key)
+	var out []*irStmt
+	for _, r := range rs {
+		if r.Var == nil {
+			if b.l.info.OwnedTemps[r.Temp] != nil {
+				irNo("owned temporary")
+			}
+			continue
+		}
+		if b.l.info.OwnedVars[r.Var] == nil {
+			continue
+		}
+		k, ok := o.bit[r.Var]
+		if !ok {
+			irNo("statement that releases owned values") // not registered on this path
+		}
+		out = append(out, b.slotRelease(k, p))
+	}
+	return out
+}
+
+// scoped is list, the statements of the scope key, followed by the
+// scope's releases when list reaches its end (the emitter's scoped). A
+// scope that leaves (a return, a break, a continue) has its values
+// released by the frame's exit or by the jump's own releases.
+func (b *irBuilder) scoped(key syntax.Node, list []*irStmt, p irPos) []*irStmt {
+	if b.own == nil || len(b.l.info.Releases[key]) == 0 {
+		return list
+	}
+	if irListEnds(list) {
+		delete(b.own.keys, key)
+		return list
+	}
+	return append(list, b.releaseAt(key, p)...)
+}
+
+// irListEnds reports a list after whose last statement nothing runs: a
+// terminating one, a break or a continue.
+func irListEnds(list []*irStmt) bool {
+	if n := len(list); n > 0 && (list[n-1].K == "break" || list[n-1].K == "continue") {
+		return true
+	}
+	return irListTerminates(list)
+}
+
+// slotRelease releases slot k's value if its bit is set: the bit is
+// cleared first, so a defect in the release leaves the value released
+// once (R9), and the frame's exit releases the rest.
+func (b *irBuilder) slotRelease(k int, p irPos) *irStmt {
+	o := b.own
+	s := &o.slots[k]
+	if s.helper == "" {
+		s.helper = b.l.names.alloc(strings.ReplaceAll(b.fn.Name, ".", "_") + "Free")
+	}
+	live := func() *irExpr { return &irExpr{K: "local", Pos: p, I: o.live} }
+	set := &irExpr{K: "bin", Pos: p, Op: "!=", X: &irExpr{K: "bin", Pos: p, Op: "&", X: live(), Y: b.bitConst(k, p)}, Y: &irExpr{K: "const", Pos: p, T: "uint64", V: "0"}}
+	return &irStmt{K: "if", Pos: p, X: set, End: p, Then: []*irStmt{
+		{K: "set", Pos: p, Local: o.live, X: &irExpr{K: "bin", Pos: p, Op: "&^", X: live(), Y: b.bitConst(k, p)}},
+		{K: "expr", Pos: p, X: &irExpr{K: "call", Pos: p, Name: s.helper, Args: []*irExpr{{K: "local", Pos: p, I: b.env}, b.addrOf(s.local, p)}}},
+	}}
+}
+
+// ownVisited stops a static frame whose body left a planned release
+// unreached or an owned local unregistered (a binding the builder does
+// not register: a pattern's, a loop's). In a census a body that stopped
+// already is not charged for the places it never reached.
+func (b *irBuilder) ownVisited() {
+	o := b.own
+	if o == nil || len(b.reasons) > 0 {
+		return
+	}
+	if len(o.keys) > 0 {
+		irNo("statement that releases owned values")
+	}
+	if len(o.pending) > 0 {
 		irNo("owned local")
 	}
 }
@@ -171,6 +292,7 @@ func (b *irBuilder) ownLet(v *check.Var, i int, site syntax.Node) []*irStmt {
 	if o == nil {
 		irNo("owned local")
 	}
+	delete(o.pending, v)
 	if d.Glue() || d.Close == nil {
 		irNo("owned local") // staticPlan admits a type's own Close only
 	}
@@ -309,5 +431,16 @@ func (b *irBuilder) ownDone(name string) {
 		t.WriteString("\t}\n")
 	}
 	t.WriteString("\t" + fc.runtimeCall("Static.End", fc.ownBinding("Static.End", site), "", "&"+rel, []string{"nil"}, "", nil, nil, site) + "\n}\n\n")
+	// A slot released inside the body (slotRelease): its release alone,
+	// whose defect leaves at once (the emitter's staticRelease).
+	for _, s := range o.slots {
+		if s.helper == "" {
+			continue
+		}
+		slot := l.names.alloc("slot")
+		t.WriteString("// " + s.helper + " releases one value of " + name + "'s static frame inside its body (IR, FLIP F7).\n")
+		t.WriteString("func " + s.helper + "(" + env + " *" + l.env() + ", " + slot + " *" + fc.goType(s.t) + ") {\n\t")
+		t.WriteString(fc.providerRelease(&check.Acquisition{Close: s.d.Close}, env, "(*"+slot+")", site) + "\n}\n\n")
+	}
 	l.gen.WriteString(t.String())
 }
