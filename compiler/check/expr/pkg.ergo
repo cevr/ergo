@@ -20,8 +20,9 @@ import dense
 
 // Fn is one function declaration of the package with its signature: its
 // file, its declaration and name nodes, its bracket parameters and their
-// row bits, its parameters' name nodes (none for an unnamed one) and its
-// signature in the pool.
+// row bits, its parameters' name nodes (none for an unnamed one), its
+// signature in the pool and its body. A law or a test is one too, with
+// the signature its parameters and result make (a law's result is bool).
 type Fn {
 	File   int,
 	Decl   dense.ID[syntax.Node],
@@ -30,6 +31,7 @@ type Fn {
 	Rows   []bool,
 	Names  []dense.Opt[syntax.Node],
 	Sig    dense.ID[store.TKey],
+	Body   dense.Opt[syntax.Node],
 }
 
 // Field is a record field: its name and type (the record's bracket
@@ -55,29 +57,70 @@ type Pkg {
 // paramNames is the name node of each parameter of the function type ft,
 // in order (an unnamed parameter has none).
 func paramNames(p syntax.Parsed, ft dense.ID[syntax.Node]) []dense.Opt[syntax.Node] {
-	let mut out = []dense.Opt[syntax.Node]{}
 	match syntax.ViewOf(p.Tree, ft) {
 	case syntax.FuncType as t:
-		match syntax.ViewOf(p.Tree, t.Params) {
-		case syntax.FieldList as fl:
-			for i in 0..syntax.Len(fl.List) {
-				match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, fl.List, i)) {
-				case syntax.Field as fd:
-					let n = syntax.Len(fd.Names)
-					if n == 0 {
-						out = out.Append(dense.NoID[syntax.Node]())
-					}
-					for j in 0..n {
-						out = out.Append(dense.OptOf(syntax.Item(p.Tree, fd.Names, j)))
-					}
-				case _:
+		listNames(p, t.Params)
+	case _:
+		[]dense.Opt[syntax.Node]{}
+	}
+}
+
+// listNames is the name node of each field of the field list l, in order
+// (an unnamed field has none).
+func listNames(p syntax.Parsed, l dense.ID[syntax.Node]) []dense.Opt[syntax.Node] {
+	let mut out = []dense.Opt[syntax.Node]{}
+	match syntax.ViewOf(p.Tree, l) {
+	case syntax.FieldList as fl:
+		for i in 0..syntax.Len(fl.List) {
+			match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, fl.List, i)) {
+			case syntax.Field as fd:
+				let n = syntax.Len(fd.Names)
+				if n == 0 {
+					out = out.Append(dense.NoID[syntax.Node]())
 				}
+				for j in 0..n {
+					out = out.Append(dense.OptOf(syntax.Item(p.Tree, fd.Names, j)))
+				}
+			case _:
 			}
-		case _:
 		}
 	case _:
 	}
 	out
+}
+
+// hasSig is whether t holds a signature.
+func hasSig(s store.Store, t dense.ID[store.TKey]) bool {
+	if store.KindOfType(s, t) == store.KSig {
+		return true
+	}
+	for o in store.OperandsOf(s, t) {
+		if hasSig(s, o) {
+			return true
+		}
+	}
+	false
+}
+
+// declared is a law's or a test's Fn: its parameters' types from the
+// field list params (none when absent) and its result.
+func declared(s *store.Store, env types.Env, p syntax.Parsed, file int, decl dense.ID[syntax.Node], name dense.ID[syntax.Node], params dense.Opt[syntax.Node], result dense.ID[store.TKey], b dense.Opt[syntax.Node]) Fn {
+	let mut ts = []dense.ID[store.TKey]{}
+	let mut names = []dense.Opt[syntax.Node]{}
+	match dense.Unpack(params) {
+	case Some[dense.ID[syntax.Node]] as l:
+		for f in fieldsOf(s, env, p, l.Value) {
+			ts = ts.Append(f.T)
+		}
+		// A law's function-typed parameter has a row the law's draw
+		// leaves open, which the pool does not write: it is not declared.
+		for i, n in listNames(p, l.Value) {
+			names = names.Append(if i < len(ts) && hasSig(*s, ts[i]) { dense.NoID[syntax.Node]() } else { n })
+		}
+	case None:
+	}
+	let none = store.TRow(s, []dense.ID[store.TKey]{})
+	Fn{File: file, Decl: decl, Name: name, Params: []string{}, Rows: []bool{}, Names: names, Sig: store.TSig(s, ts, result, none, none), Body: b}
 }
 
 // fieldsOf is the written fields of the field list l, resolved in env.
@@ -131,7 +174,29 @@ func Load(s *store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ext [
 			for k in f.Kinds {
 				rows = rows.Append(k != 1)
 			}
-			fns = fns.Append(Fn{File: f.File, Decl: f.Decl, Name: fd.Name, Params: f.Params, Rows: rows, Names: paramNames(p, fd.Type), Sig: sig})
+			fns = fns.Append(Fn{File: f.File, Decl: f.Decl, Name: fd.Name, Params: f.Params, Rows: rows, Names: paramNames(p, fd.Type), Sig: sig, Body: fd.Body})
+		case _:
+		}
+	}
+	for file, p in parsed {
+		if p.Failed {
+			continue
+		}
+		let env = types.NewEnv(*s, parsed, p, []string{}, kinds, ext, foreign)
+		match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+		case syntax.File as root:
+			for i in 0..syntax.Len(root.Decls) {
+				let d = syntax.Item(p.Tree, root.Decls, i)
+				match syntax.ViewOf(p.Tree, d) {
+				case syntax.LawDecl as ld:
+					if ld.Body != dense.NoID[syntax.Node]() {
+						fns = fns.Append(declared(s, env, p, file, d, ld.Name, ld.Params, store.TBasic(s, bBool), ld.Body))
+					}
+				case syntax.TestDecl as td:
+					fns = fns.Append(declared(s, env, p, file, d, td.Name, td.Params, store.TTuple(s, []dense.ID[store.TKey]{}), dense.OptOf(td.Body)))
+				case _:
+				}
+			}
 		case _:
 		}
 	}

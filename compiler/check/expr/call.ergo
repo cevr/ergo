@@ -82,9 +82,6 @@ func args(s *store.Store, k Pkg, t *Typer, c syntax.CallExpr, params []dense.ID[
 	let tr = tree(k, *t)
 	for i in 0..syntax.Len(c.Args) {
 		let a = syntax.Item(tr, c.Args, i)
-		if syntax.KindOf(tr, unparen(tr, a)) == syntax.KFuncLit {
-			continue
-		}
 		if i < len(params) && syntax.Len(c.Args) == len(params) {
 			expr(s, k, t, a, Exactly{T: infer.Unmarked(*s, params[i])})
 		} else {
@@ -187,10 +184,6 @@ func generic(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], c syntax.
 			}
 			continue
 		}
-		if syntax.KindOf(tr, unparen(tr, a)) == syntax.KFuncLit {
-			ins = ins.Append(infer.Unknown)
-			continue
-		}
 		match expr(s, k, t, a, Free) {
 		case Some[dense.ID[store.TKey]] as at:
 			ins = ins.Append(infer.Typed{T: at.Value})
@@ -271,9 +264,8 @@ func composite(s *store.Store, k Pkg, t *Typer, cl syntax.CompositeLit) Option[d
 	}
 	let ty = match dense.Unpack(cl.Type) {
 	case Some[dense.ID[syntax.Node]] as tx:
-		let env = types.NewEnv(*s, k.Parsed, p, k.Fns[t.fn].Params, k.Kinds, k.Ext, k.Foreign)
-		let r = types.Resolve(s, env, tx.Value)
-		if store.KindOfType(*s, r) == store.KBasic && store.ArgOf(*s, r) == 0 { None } else { some(r) }
+		let r = types.Resolve(s, envOf(*s, k, *t), tx.Value)
+		if valid(*s, r) { some(r) } else { None }
 	case None:
 		None
 	}

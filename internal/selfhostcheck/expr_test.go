@@ -145,11 +145,12 @@ func subsetDiff(want, got []string, n int) string {
 	return b.String()
 }
 
-// pkgFiles is the files of pkg's functions, by their syntax.
+// pkgFiles is pkg's files, by their syntax.
 func pkgFiles(pkg *check.Package, unnamed string) map[*syntax.File]string {
 	out := map[*syntax.File]string{}
-	for _, fn := range pkg.Funcs {
-		fi := fieldOf(reflect.ValueOf(fn), "file")
+	files := fieldOf(reflect.ValueOf(pkg), "files")
+	for i := 0; i < files.Len(); i++ {
+		fi := files.Index(i)
 		if fi.IsNil() {
 			continue
 		}
@@ -174,14 +175,23 @@ func goExprTypes(pkg *check.Package, unnamed string) ([]string, map[string]strin
 	forms := map[string]string{}
 	for sf, name := range pkgFiles(pkg, unnamed) {
 		syntax.Inspect(sf, func(n syntax.Node) bool {
-			fd, ok := n.(*syntax.FuncDecl)
-			if !ok {
+			var body *syntax.BlockStmt
+			switch d := n.(type) {
+			case *syntax.FuncDecl:
+				if d.Recv == nil {
+					body = d.Body
+				}
+			case *syntax.LawDecl:
+				body = d.Body
+			case *syntax.TestDecl:
+				body = d.Body
+			default:
 				return true
 			}
-			if fd.Body == nil || fd.Recv != nil {
+			if body == nil {
 				return false
 			}
-			syntax.Inspect(fd.Body, func(n syntax.Node) bool {
+			syntax.Inspect(body, func(n syntax.Node) bool {
 				x, ok := n.(syntax.Expr)
 				if !ok {
 					return true

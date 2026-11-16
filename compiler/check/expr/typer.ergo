@@ -42,6 +42,7 @@ type Typer {
 	frame   infer.Frame,
 	file    int,
 	fn      int,
+	res     Option[dense.ID[store.TKey]],
 }
 
 // The basic ordinals of types.BasicName.
@@ -70,29 +71,188 @@ func basic(s store.Store, ty dense.ID[store.TKey]) int {
 
 // Check types every function body of k.
 func Check(s *store.Store, k Pkg) Typer {
-	let mut t = Typer{Entries: []Entry{}, Insts: []Inst{}, defs: dense.NewSide[store.PNode, dense.Opt[store.TKey]](dense.NoID[store.TKey]()), frame: infer.NewFrame(), file: 0, fn: 0}
+	let mut t = Typer{Entries: []Entry{}, Insts: []Inst{}, defs: dense.NewSide[store.PNode, dense.Opt[store.TKey]](dense.NoID[store.TKey]()), frame: infer.NewFrame(), file: 0, fn: 0, res: None}
 	for i, f in k.Fns {
-		let p = k.Parsed[f.File]
-		match syntax.ViewOf(p.Tree, f.Decl) {
-		case syntax.FuncDecl as fd:
-			match dense.Unpack(fd.Body) {
-			case Some[dense.ID[syntax.Node]] as b:
-				t.file = f.File
-				t.fn = i
-				body(s, k, &t, b.Value)
-			case None:
-			}
-		case _:
+		match dense.Unpack(f.Body) {
+		case Some[dense.ID[syntax.Node]] as b:
+			t.file = f.File
+			t.fn = i
+			t.res = sigResult(*s, f.Sig)
+			params(s, k, &t, f.Names, f.Sig)
+			body(s, k, &t, b.Value)
+		case None:
 		}
 	}
 	t
 }
 
-// result is the function in hand's result type: none for none or several.
-func result(s store.Store, k Pkg, t Typer) Option[dense.ID[store.TKey]] {
-	let ops = store.OperandsOf(s, k.Fns[t.fn].Sig)
+// sigResult is a signature's result type: none for none or several.
+func sigResult(s store.Store, sig dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
+	let ops = store.OperandsOf(s, sig)
 	let r = ops[len(ops)-3]
 	if store.KindOfType(s, r) == store.KTuple { None } else { some(r) }
+}
+
+// params declares a function's parameters, named by names, with the
+// types of the signature sig.
+func params(s *store.Store, k Pkg, t *Typer, names []dense.Opt[syntax.Node], sig dense.ID[store.TKey]) {
+	let ops = store.OperandsOf(*s, sig)
+	for i, n in names {
+		match dense.Unpack(n) {
+		case Some[dense.ID[syntax.Node]] as x:
+			if i < len(ops)-3 {
+				def(k, t, x.Value, infer.Unmarked(*s, ops[i]))
+			}
+		case None:
+		}
+	}
+}
+
+// result is the result type of the function in hand.
+func result(s store.Store, k Pkg, t Typer) Option[dense.ID[store.TKey]] { t.res }
+
+// envOf is the resolver's environment at the function in hand.
+func envOf(s store.Store, k Pkg, t Typer) types.Env {
+	types.NewEnv(s, k.Parsed, k.Parsed[t.file], k.Fns[t.fn].Params, k.Kinds, k.Ext, k.Foreign)
+}
+
+// valid is whether t names no invalid type, and no instance with an
+// empty row argument: a written row argument the resolver does not read
+// yet (a record written as an error row, S3t) resolves empty, so a type
+// that holds one is not trusted.
+func valid(s store.Store, t dense.ID[store.TKey]) bool {
+	let kind = store.KindOfType(s, t)
+	if kind == store.KBasic && store.ArgOf(s, t) == 0 {
+		return false
+	}
+	if kind == store.KInstance {
+		for o in store.OperandsOf(s, t) {
+			if store.KindOfType(s, o) == store.KRow && len(store.OperandsOf(s, o)) == 0 {
+				return false
+			}
+		}
+	}
+	for o in store.OperandsOf(s, t) {
+		if !valid(s, o) {
+			return false
+		}
+	}
+	true
+}
+
+// patterns declares the names of a case's or a catch arm's as-patterns
+// whose type is written: `case T as x` gives x the type T.
+func patterns(s *store.Store, k Pkg, t *Typer, l syntax.List) {
+	let tr = tree(k, *t)
+	for i in 0..syntax.Len(l) {
+		match syntax.ViewOf(tr, syntax.Item(tr, l, i)) {
+		case syntax.AsPattern as ap:
+			let kind = syntax.KindOf(tr, ap.X)
+			if kind == syntax.KIdent || kind == syntax.KSelectorExpr || kind == syntax.KIndexExpr {
+				let ty = types.Resolve(s, envOf(*s, k, *t), ap.X)
+				if valid(*s, ty) {
+					def(k, t, ap.Name, ty)
+				}
+			}
+		case _:
+		}
+	}
+}
+
+// funcLit walks a function literal's body with its parameters declared,
+// and types it by its written signature when its rows are known: a row it
+// writes, or else the row of the function type its context assigns it to
+// when that row names no type parameter (call.go funcLit); a row it
+// leaves to its body is not computed here, so the literal is not typed.
+func funcLit(s *store.Store, k Pkg, t *Typer, fl syntax.FuncLit, w Want) Option[dense.ID[store.TKey]] {
+	let sig = types.Resolve(s, envOf(*s, k, *t), fl.Type)
+	let ok = store.KindOfType(*s, sig) == store.KSig && valid(*s, sig)
+	let outer = t.res
+	t.res = if ok { sigResult(*s, sig) } else { None }
+	if ok {
+		params(s, k, t, paramNames(k.Parsed[t.file], fl.Type), sig)
+	}
+	body(s, k, t, fl.Body)
+	t.res = outer
+	if !ok {
+		return None
+	}
+	let p = k.Parsed[t.file]
+	let ft = match syntax.ViewOf(p.Tree, fl.Type) {
+	case syntax.FuncType as f:
+		f
+	case _:
+		return None
+	}
+	let expected = match w {
+	case Exactly as e:
+		let x = infer.Unmarked(*s, e.T)
+		if store.KindOfType(*s, x) == store.KSig { some(x) } else { None }
+	case _:
+		None
+	}
+	let ops = store.OperandsOf(*s, sig)
+	let n = len(ops)
+	let errs = if writesErrors(p, ft) { some(ops[n-2]) } else { closedRow(*s, expected, 2) }
+	let uses = if ft.Needs != dense.NoID[syntax.Node]() { some(ops[n-1]) } else { closedRow(*s, expected, 1) }
+	match (errs, uses) {
+	case (Some[dense.ID[store.TKey]] as e, Some[dense.ID[store.TKey]] as u):
+		some(store.TSig(s, ops[0:n-3], ops[n-3], e.Value, u.Value))
+	case _:
+		None
+	}
+}
+
+// writesErrors is whether the function type ft writes a fails row.
+func writesErrors(p syntax.Parsed, ft syntax.FuncType) bool {
+	match dense.Unpack(ft.Results) {
+	case Some[dense.ID[syntax.Node]] as r:
+		match syntax.ViewOf(p.Tree, r.Value) {
+		case syntax.FieldList as fl:
+			for i in 0..syntax.Len(fl.List) {
+				match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, fl.List, i)) {
+				case syntax.Field as f:
+					match dense.Unpack(f.Type) {
+					case Some[dense.ID[syntax.Node]] as ty:
+						if syntax.KindOf(p.Tree, ty.Value) == syntax.KErrorRow {
+							return true
+						}
+					case None:
+					}
+				case _:
+				}
+			}
+		case _:
+		}
+	case None:
+	}
+	false
+}
+
+// closedRow is the row at back from the end of the expected signature's
+// operands (2 errors, 1 capabilities), when it names no type parameter.
+func closedRow(s store.Store, expected Option[dense.ID[store.TKey]], back int) Option[dense.ID[store.TKey]] {
+	match expected {
+	case Some[dense.ID[store.TKey]] as x:
+		let ops = store.OperandsOf(s, x.Value)
+		let r = ops[len(ops)-back]
+		if closed(s, r) { some(r) } else { None }
+	case None:
+		None
+	}
+}
+
+// closed is whether t names no type parameter.
+func closed(s store.Store, t dense.ID[store.TKey]) bool {
+	if store.KindOfType(s, t) == store.KParam {
+		return false
+	}
+	for o in store.OperandsOf(s, t) {
+		if !closed(s, o) {
+			return false
+		}
+	}
+	true
 }
 
 // body walks a function's block; its final expression statement is the
@@ -206,8 +366,10 @@ func stmt(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node]) {
 		rangeStmt(s, k, t, r)
 	case syntax.CaseClause as cc:
 		// A case's list is patterns, not expressions.
+		patterns(s, k, t, cc.List)
 		stmts(s, k, t, cc.Body)
 	case syntax.CatchArm as ca:
+		patterns(s, k, t, ca.Types)
 		stmts(s, k, t, ca.Body)
 	case syntax.AssignStmt as a:
 		let lt = expr(s, k, t, a.Lhs, Free)
@@ -239,8 +401,8 @@ func letSpec(s *store.Store, k Pkg, t *Typer, spec dense.ID[syntax.Node]) {
 	case syntax.VarSpec as v:
 		let written = match dense.Unpack(v.Type) {
 		case Some[dense.ID[syntax.Node]] as ty:
-			let env = types.NewEnv(*s, k.Parsed, k.Parsed[t.file], k.Fns[t.fn].Params, k.Kinds, k.Ext, k.Foreign)
-			some(types.Resolve(s, env, ty.Value))
+			let r = types.Resolve(s, envOf(*s, k, *t), ty.Value)
+			if valid(*s, r) { some(r) } else { None }
 		case None:
 			None
 		}
@@ -434,6 +596,13 @@ func exprType(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], w Want) 
 			some(store.TBasic(s, bBool))
 		} else if op == syntax.Sub || op == syntax.Add {
 			expr(s, k, t, u.X, w)
+		} else if op == syntax.And {
+			match expr(s, k, t, u.X, Free) {
+			case Some[dense.ID[store.TKey]] as xt:
+				some(store.TPointer(s, xt.Value))
+			case None:
+				None
+			}
 		} else {
 			expr(s, k, t, u.X, Unsure)
 			None
@@ -475,8 +644,8 @@ func exprType(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], w Want) 
 			}
 		}
 		out
-	case syntax.FuncLit:
-		None
+	case syntax.FuncLit as fl:
+		funcLit(s, k, t, fl, w)
 	case _:
 		walk(s, k, t, x)
 		None
@@ -551,15 +720,6 @@ func ident(s *store.Store, k Pkg, t Typer, x dense.ID[syntax.Node]) Option[dense
 		}
 		let (df, dn) = bind.RowOf(k.Ps, d.At)
 		let at = syntax.NodeAt(k.Parsed[df].Tree, dn)
-		if df == t.file {
-			let me = k.Fns[t.fn]
-			let ops = store.OperandsOf(*s, me.Sig)
-			for i, n in me.Names {
-				if n == dense.OptOf(at) && i < len(ops)-3 {
-					return some(infer.Unmarked(*s, ops[i]))
-				}
-			}
-		}
 		let f = FnAt(k, df, at)
 		if f >= 0 && len(k.Fns[f].Params) == 0 {
 			return some(k.Fns[f].Sig)

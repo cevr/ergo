@@ -53,8 +53,13 @@ func nify(s *store.Store, f *Frame, c Call, x0 dense.ID[store.TKey], y0 dense.ID
 	let d = depth + 1
 	if k >= 0 {
 		if f.slots[c.at+k].row {
-			// A row parameter in a type position: rows bind in unifyRow.
-			return true
+			// A row parameter in a type position. The Go checker accepts
+			// it (rows bind in unifyRow), but it arises only where the
+			// kinds of a generic type's parameters disagree with its uses
+			// (S3t's kinds read Async[T, F]'s F as a type where the Go
+			// checker reads a row), so the binding would be the empty row
+			// where Go's is the argument: the call is left uninferred.
+			return false
 		}
 		match Binding(*f, c, k) {
 		case None:
