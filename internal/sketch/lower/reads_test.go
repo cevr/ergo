@@ -128,7 +128,9 @@ func readsFixFiles() []File {
 // the run build passes the live slice to Bump, which writes it, so the
 // value Ergo holds changes (the class of a false reads fact: a wrong value
 // in memory-safe Go); the test build gives Bump a copy and its compare
-// after the call is the named defect.
+// after the call is the named defect. It builds Go because the subject is
+// what Go's write does to the running program's values and the defect the
+// test binary raises; no in-process check runs the Go function.
 func hostReadsFalseFact(t *testing.T) {
 	t.Helper()
 	file, err := syntax.Parse(readsFixProgram)

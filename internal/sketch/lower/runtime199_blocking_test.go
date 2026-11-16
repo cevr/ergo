@@ -285,6 +285,9 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		// FKG1: a machines.Every After reads the task's firing mark, a
 		// field read; no wait.
 		"MachineFiringNow": true,
+		// LF1: the test build's compare of a reads operand after its Go
+		// call (gofacts.go); a loop of compares, no wait.
+		"GoReadsCheck": true,
 	}
 	// capabilityOps are the owners that call a capability operation on
 	// the Env's provider field outside callText, and the operation: FKG1's
