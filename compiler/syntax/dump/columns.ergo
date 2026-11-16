@@ -1,0 +1,18 @@
+import compiler/syntax
+import strconv
+
+// Columns is the parse of src as syntax.Columns packs it: the token
+// columns, the rows, the extra pool, the comments and their groups, for
+// the Go decoder (internal/sketch/syntax/decode.go).
+func Columns(src string) []uint32 { syntax.Columns(syntax.Parse(src)) }
+
+// Failure is the failure of the parse of src, "" when it parses:
+// "code offset length line column " and the message, the fields of the Go
+// parser's *Error.
+func Failure(src string) string {
+	let p = syntax.Parse(src)
+	if !p.Failed {
+		return ""
+	}
+	p.Code + " " + strconv.Itoa(p.Offset) + " " + strconv.Itoa(p.Length) + " " + strconv.Itoa(p.Line) + " " + strconv.Itoa(p.Column) + " " + p.Message
+}
