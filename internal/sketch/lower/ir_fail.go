@@ -414,12 +414,22 @@ func (b *irBuilder) operands(list []syntax.Expr) ([]*irStmt, []*irExpr) {
 		}
 		if later && vals[i].K != "const" && vals[i].K != "local" {
 			p := vals[i].Pos
-			t := b.temp("arg", b.goType(b.l.info.Types[a], a), p)
+			t := b.temp("arg", b.goType(b.operandType(a), a), p)
 			pre = append(pre, &irStmt{K: "def", Pos: p, Local: t, X: vals[i]})
 			vals[i] = &irExpr{K: "local", Pos: p, I: t}
 		}
 	}
 	return pre, vals
+}
+
+// operandType is the type of operand a's value: its implicit
+// conversion's target when it has one (value applies it), else its own.
+// A variant passed as its union spills into a local of the union.
+func (b *irBuilder) operandType(a syntax.Expr) check.Type {
+	if conv, ok := b.l.info.Implicit[a]; ok && conv.To != nil {
+		return conv.To
+	}
+	return b.l.info.Types[a]
 }
 
 // hoist binds an effectful call's value to a temporary, so it runs here,
