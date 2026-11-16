@@ -1,4 +1,7 @@
 # std law ledger (runtime.md, Tests 10). Written by go run ./scripts/stdlaws; do not edit.
+law bits.RotateKeepsOnes validated by eval with runtime/v1@9ee1b334ca5d h1:qUMrkX05pB93HqA2ZYHWvIzwNhp22Fj+LkdILHze5ok=
+law hex.DecodeInvertsEncode skipped with runtime/v1/digest@e958cc1575e5 h1:UJzfQ3vrqrlxZ4R3DGQ6F/kStZDUN6SxjC0+9FLvGHs=
+law hex.EncodeDoublesLength validated by eval with runtime/v1/digest@0f15dcb98673 h1:49MQOBirv5pqUuWxq+KUVTfOzjxVyZYIM3arp7Z+m+s=
 law json.Text.PlainIsRaw for json.text at ("None") proved by native with go1.27.4,runtime/v1@cb7ebd3591fb h1:kz5828F2RDOSin/y0ibdqVSnLnyNtddf2JLhRFVGbtg=
 law json.Text.PlainIsRaw for json.text at ("Some") proved by native with go1.27.4,runtime/v1@cb7ebd3591fb h1:c2YCa+j6MNPZfsRba+/JCH6WYgnCQKs+hEmo5ghOlcA=
 law json.Text.PlainIsRaw for json.text at ("a") proved by native with go1.27.4,runtime/v1@cb7ebd3591fb h1:ZdwzsTnnFaPea617E6bzwD1tZpJCsCu9KDIJ6QYlocg=
@@ -121,3 +124,10 @@ law json.Text.SetCommaSinksFloat for json.text proved by native with go1.27.4,ru
 law json.Text.SetCommaSinksInt for json.text proved by native with go1.27.4,runtime/v1@cb7ebd3591fb h1:yoP0sVdY5/R24jzXPMlg3YxrM2xfBiAvdiiwydF7q0Y=
 law json.Text.SetCommaSinksString for json.text proved by native with go1.27.4,runtime/v1@cb7ebd3591fb h1:yoP0sVdY5/R24jzXPMlg3YxrM2xfBiAvdiiwydF7q0Y=
 law json.Text.SetCommaSinksUint for json.text proved by native with go1.27.4,runtime/v1@cb7ebd3591fb h1:yoP0sVdY5/R24jzXPMlg3YxrM2xfBiAvdiiwydF7q0Y=
+law strconv.AtoiInvertsItoa validated by eval with runtime/v1@334f1309eb43 h1:qwAiEdhng9mPD0jn0w9GRH7pQ87limikulOj2edBn2g=
+law strconv.ParseBoolInvertsFormat validated by eval with runtime/v1@eae98e624afb h1:7q2BWfIZYtNl9TB2HbNa6sOWDq2bRPfxttIJIUKl1ZE=
+law strconv.ParseIntInvertsFormat validated by eval with runtime/v1@5a3e16d6153c h1:mxbkQWlLl+4oeWJFnRaIijzGs6Bq3SsCsxCtdr05DWk=
+law strconv.UnquoteInvertsQuote validated by eval with runtime/v1@29d7c0dd4963 h1:qeRnv+AXxcWSRoIJR4qCRVs7zvBbhHeRWBILdCw4J1U=
+law strings.ToLowerIsIdempotent validated by eval with runtime/v1@f2824ab03e3f h1:owyAibo3toF2Ewl/xCYK+EXeY4BMm5wmEboeamzSk0A=
+law strings.TrimSpaceIsIdempotent validated by eval with runtime/v1@4a8b994c7710 h1:d82+/5749KYkNOLJj5k7zfs34nhutbJ7ylf2qL8K+nY=
+law time.DurationTextRoundTrips validated by eval with runtime/v1@f813eae9aa66 h1:vAMbV7pDHqg+nUoxMNpHrM0wZWtNUHBJJxHHkeETYyA=

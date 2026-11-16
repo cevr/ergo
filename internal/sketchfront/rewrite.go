@@ -104,8 +104,10 @@ var lawChecks = lawCheckRun
 // binary's sites may need it. So the file after ergo test of several
 // binaries does not depend on their order. It returns the count of
 // entries added, changed and removed, and writes nothing when it is 0 (a
-// missing file stays missing). A library (no main) has no run build and
-// writes nothing. A reachable refutation is a *lower.RefutedRewriteError,
+// missing file stays missing). The package's top-level rewrite laws in
+// scope take the licence run when their entry is not current
+// (licenceEntries); a library (no main) has no run build and writes only
+// those. A reachable refutation is a *lower.RefutedRewriteError,
 // and writes nothing.
 func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 	if len(a.Diagnostics) > 0 || (a.file == nil && a.program == nil) || a.pkg == nil {
@@ -116,18 +118,8 @@ func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 		return 0, err
 	}
 	input := func() (build.Input, error) { return unitInput(unit, analysisDependencies(a), req) }
-	if !hasMain(unit.Package) {
-		// A library has no run build, so no site of its own.
-		return 0, nil
-	}
 	names := ledgerNames(a)
-	// RewriteChecks runs nothing when neither the root nor an import has a
-	// rewrite law: an import's provider is checked at the root's sites.
-	ev, err := lower.RewriteChecksCached(unit, lawChecks(req, input), req.Laws)
-	if err != nil {
-		return 0, err
-	}
-	fresh := lower.LedgerEntries(unit, names, ev, foreignKeys(a, req.Inputs))
+	keys := foreignKeys(a, req.Inputs)
 	text, err := ledgerText(req.Inputs, req.Ledger)
 	if err != nil {
 		return 0, err
@@ -135,6 +127,23 @@ func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 	old, err := lower.ParseLedger(text)
 	if err != nil {
 		return 0, err
+	}
+	// The root's top-level rewrite laws take their licence run, a
+	// library's too: their entries are the package's, not a site's.
+	fresh, err := licenceEntries(unit.Package, names, old, keys, req.Stderr)
+	if err != nil {
+		return 0, err
+	}
+	if hasMain(unit.Package) {
+		// RewriteChecks runs nothing when neither the root nor an import
+		// has a rewrite law: an import's provider is checked at the
+		// root's sites. A library has no run build, so no site of its
+		// own.
+		ev, err := lower.RewriteChecksCached(unit, lawChecks(req, input), req.Laws)
+		if err != nil {
+			return 0, err
+		}
+		fresh = append(fresh, lower.LedgerEntries(unit, names, ev, keys)...)
 	}
 	next := map[string]lower.LedgerEntry{}
 	changed := 0
@@ -179,9 +188,17 @@ func (s ledgerSource) declares(e lower.LedgerEntry) bool {
 	lawPkg, law := e.LawPackage()
 	provPkg, prov := e.ProviderPackage()
 	if p, known := s.pkg(lawPkg); known && (p == nil || !slices.ContainsFunc(p.Laws, func(l *check.Law) bool {
+		if e.Provider == "" {
+			// A top-level law's entry (LF6b): the law, in the
+			// rewrite's scope still.
+			return l.Owner == nil && l.Machine == nil && l.Name == law && l.FuncRewrite != nil
+		}
 		return l.Owner != nil && l.Owner.Name+"."+l.Name == law
 	})) {
 		return false
+	}
+	if e.Provider == "" {
+		return true
 	}
 	if p, known := s.pkg(provPkg); known && (p == nil || !slices.ContainsFunc(p.Types, func(t *check.TypeName) bool { return t.Name == prov })) {
 		return false
@@ -274,12 +291,21 @@ func FreshStdLedger(req BuildRequest) (string, error) {
 				return !rewrites
 			})
 		}
-		if !rewrites {
-			continue
-		}
 		pkg, err := check.Std.Import(path)
 		if err != nil {
 			return "", err
+		}
+		// A top-level rewrite law's licence run is the evaluator's, so
+		// it needs no Go tool (licenceEntries).
+		lic, err := licenceEntries(pkg, nil, nil, lower.ShippedForeignKeys, req.Stderr)
+		if err != nil {
+			return "", fmt.Errorf("std %s: %w", path, err)
+		}
+		for _, e := range lic {
+			entries[e.Key()] = e
+		}
+		if !rewrites {
+			continue
 		}
 		files, sources = pkg.Files(), nil
 		for _, f := range files {
