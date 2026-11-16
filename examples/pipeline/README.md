@@ -36,9 +36,21 @@ pipeline --server http://127.0.0.1:PORT/rpc board
 pipeline --server http://127.0.0.1:PORT/rpc run-of -- build
 ```
 
+## On a machine
+
+`pipeline-infra` deploys `pipeline-server` with module `infra`'s command line over the stack of `deploy/` and module `infra-local`'s drivers on the host. A stage (`-stage`, default `dev`) is the folder `$PIPELINE_HOME/STAGE` (default `./.pipeline/STAGE`) holding the server's folder `data` (its `README` and an `address` file) and the drivers' ledgers and rows; its lock and its outputs (`STAGE.outputs.json`: the server's URL, port and folder) sit beside it. The server is `$PIPELINE_SERVER` (default `pipeline-server`, found on `PATH`) on `$PIPELINE_PORT` (default 8787), and an apply ends once its `/health` answers.
+
+```sh
+PIPELINE_PORT=8787 pipeline-infra plan        # the four creates
+pipeline-infra apply -yes                      # starts the server, writes .pipeline/dev.outputs.json
+pipeline --server http://127.0.0.1:8787/rpc board
+pipeline-infra plan                            # plan: no changes
+pipeline-infra destroy -yes                    # ends the server, removes its folder
+```
+
 ## Layout
 
-The program is a module of packages (`ergo.mod`: `module pipeline`), in the Go layout. Its `go.mod` requires modules `domain` and `mcp` of this repository, each by a `replace` to its folder:
+The program is a module of packages (`ergo.mod`: `module pipeline`), in the Go layout. Its `go.mod` requires modules `domain`, `mcp`, `infra` and `infra-local` of this repository, each by a `replace` to its folder:
 
 | folder | what it holds |
 | --- | --- |
@@ -52,9 +64,11 @@ The program is a module of packages (`ergo.mod`: `module pipeline`), in the Go l
 | `surfaces/` | What every surface shares: `Call` (one request answered as text) and `Loopback` (the client of a context served in this process); the laws `SurfacesAgree` and `LoopbackTakesEachCommandOnce`. |
 | `screen/` | The screen, a machine of its own (`Life`): its state (`Showing` or `Asking`) holds the form, the notice of the last reply, and the board and the picked run as loads (`ui.Async`); a command is a signal that carries the generated rpc package's `Request` (`Ask`). |
 | `view/` | The one view (`View`, `Board`), a function of the screen's state whose loads call the `pipeline.Pipeline` it is given; the law `ReplyIsShown` and the two scenes on `ui.TestHost`. |
+| `deploy/` | The stack: `Stack(Want) Outputs` over `infra.Kind` of module `infra-local`'s directory, file and program; `Place` (a stage's drivers, state stores and lock), `Bind`, `Stages` and `Deployment` (infra's command line over them); the laws `StackConverges` and `ServerListensOnTheOutputsPort` on `fstest.Memory` and `exec.Processes`. |
 | `memory/` | `Flaky`, a `pipeline.Runner` whose stages fail their first tries. |
 | `cmd/pipeline/` | The binary: the flags, the script reader, the text, and the context that binds `pipeline.Runner` to a `memory.Flaky`, the event log to module `domain`'s memory log, the notices' follower (`told`, which runs `notify.React` over the records after its cursor) to a memory cursor, and `Scheduler` to a manual clock that only `wait` moves. With `--server URL` it binds `pipeline.Pipeline` to the generated client instead. It is the only place that chooses them. |
 | `cmd/pipeline-server/` | The server: the context of a memory runner whose stages pass, module `domain`'s memory log and the live clock, served by `rpc.Answer` beside a `/health` route. |
+| `cmd/pipeline-infra/` | The stack's command line: binds `deploy.Place` to `infra-local`'s drivers, rows and file lock on the host, with the HTTP health check. |
 | `cmd/pipeline-mcp/` | The MCP server: the same context as the server's, its tools served by module `mcp` over standard input and output (`mcp/stdio`), for an agent's host that starts it as a process. |
 
 ## What it shows
@@ -93,7 +107,11 @@ The program is a module of packages (`ergo.mod`: `module pipeline`), in the Go l
 | `HeldTryShowsRunningThenPassed` | view | a scene: the runner (a `testing.Script`) holds the try of a submitted run; the screen shows its receipt and the run running; after a `Release` and a refresh, passed | the board hides the running column |
 | `HeldAskShowsSendingThenReceipt` | view | a scene: the Api (a `testing.Script[pipeline.Pipeline]`) holds the screen's submit; the screen shows it sending, then the receipt, and the Api got the form's command | the screen in flight shows the last notice |
 | `LoopbackTakesEachCommandOnce` | surfaces | `Pipeline.DuplicateIsNoop` holds for the generated client over the wire | (the member law's body, on a provider `ergo test` cannot build) |
+| `StackConverges` | deploy | a plan of a new stage lists its four creates; an apply makes them and writes outputs that name the server; a second plan has no change; a destroy ends the server and leaves no row | the stack gives two files one id |
+| `ServerListensOnTheOutputsPort` | deploy | the server is told (`-addr`) the port its outputs name | the stack tells the server port 0 |
 | `ArgsRoundTrip` | pipeline/pipelinecli (generated) | `Parse` reads what `Print` writes as the same request | `Print` drops `-stage` |
+
+On the host, `cmd/ergo`'s `TestPipelineInfraDeploysTheServer` (full tier) builds `pipeline-infra` and `pipeline-server`, applies a stage in a temporary folder, gets `ok` from `/health` at the outputs' URL, plans no change, and destroys it: the server no longer answers, and its folder and the outputs are gone.
 
 The mutants are in `testdata/mutants.json`.
 
@@ -105,6 +123,7 @@ The mutants are in `testdata/mutants.json`.
 - **`Model` has no generator.** `ergo test` skips the member law of `Pipeline` for it (`expected-skips`); `ModelTakesEachCommandOnce` opens one and runs the same body. The generated `Client` has none either (an `rpc.Conn` comes only from `rpc.Dial` or `rpc.Loopback`); `LoopbackTakesEachCommandOnce` runs the body against it.
 - **A screen's signal must compare.** `ui`'s signal type is `comparable`, and a board's columns are slices, so the board's load gives `screen.Lines` (each column joined by `, `), not a `board.View`.
 - **A screen's call is a load, not the machine's work.** A `ui` session renders after its own events only; a signal that an actor's work sends would change the state with no new pass. So the view asks for each call (`ui.Load`), and its answer arrives through the session.
+- **The file lock is not exclusive.** std `fs` has no exclusive create, so two `pipeline-infra` runs that start at the same instant can both take a stage's lock; one that starts while another is on is kept out.
 - **The server's providers.** `pipeline-server` has no `-fail` flag: its runner passes every stage. A case of `--server` would need a server running beside it; `SurfacesAgree` holds the client to the model over `rpc.Loopback` instead.
 
 ## Run it

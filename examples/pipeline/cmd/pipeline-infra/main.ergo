@@ -1,0 +1,69 @@
+// pipeline-infra plans, applies and destroys a stage of pipeline-server
+// on this machine (PX6): infra's command line (plan, apply -yes, destroy
+// -yes, state, unlock) over the stack of package deploy, with module
+// infra-local's drivers on the host. A stage lives in $PIPELINE_HOME/STAGE
+// (default ./.pipeline/STAGE): the server's folder, the drivers' ledgers
+// and the rows; its lock and its outputs (deploy.Outputs, as JSON) sit
+// beside it. The server is $PIPELINE_SERVER (default pipeline-server, found
+// on PATH), on port $PIPELINE_PORT (default 8787). This binary is the only
+// place that chooses those providers.
+
+import github.com/cevr/ergo/modules/infra
+import github.com/cevr/ergo/modules/infra-local/local
+import exec
+import fs
+import http
+import os
+import pipeline/deploy
+import strconv
+
+// setting is the variable key, else fallback.
+func setting(key string, fallback string) string needs os.Process {
+	match os.Process.Getenv(key) {
+	case Some[string] as v:
+		if v.Value != "" {
+			return v.Value
+		}
+	case None:
+	}
+	fallback
+}
+
+func main() fails os.Exit needs Ambient | Console {
+	let host = fs.NewHost()
+	let spawner = exec.NewHost()
+	let proc = os.NewHost()
+	let (home, program, portText, args) = with context { os.Process: proc } {
+		let cwd = os.Process.Getwd() catch {
+		case os.NoWorkdir:
+			return os.Exit{Code: 1, Message: "pipeline-infra: the working directory is gone"}
+		}
+		(setting("PIPELINE_HOME", cwd+"/.pipeline"), setting("PIPELINE_SERVER", "pipeline-server"), setting("PIPELINE_PORT", "8787"), os.Process.Args())
+	}
+	let port = strconv.Atoi(portText) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return os.Exit{Code: 2, Message: "pipeline-infra: PIPELINE_PORT is not a port: \(portText)"}
+	}
+	let checks = local.NewHTTP(50, 100ms) catch {
+	case http.InvalidClient, http.InvalidLimits:
+		return os.Exit{Code: 1, Message: "pipeline-infra: the health check's HTTP client cannot be made"}
+	}
+	let stages = deploy.Stages{
+		Place: func(stage string) deploy.Place {
+			let base = home + "/" + stage
+			deploy.Place{
+				Dirs:        local.DirsOn(host, host, base, base+"/.infra/dirs"),
+				Files:       local.FilesOn(host, host, base, base+"/.infra/files"),
+				Programs:    local.ProgramsOn(host, host, spawner, func(url string) bool { checks.Ready(url) }, base, base+"/.infra/programs", 5s),
+				DirRows:     local.DirRowsOn(host, host, base+"/.infra/rows/dir"),
+				FileRows:    local.FileRowsOn(host, host, base+"/.infra/rows/file"),
+				ProcessRows: local.ProcessRowsOn(host, host, base+"/.infra/rows/process"),
+				Lock:        local.LockOn(host, host, home+"/"+stage+".lock"),
+			}
+		},
+		Want:    func(stage string) deploy.Want { deploy.Want{Stage: stage, Program: program, Port: port} },
+		Writes:  host,
+		Outputs: func(stage string) string { home + "/" + stage + ".outputs.json" },
+	}
+	try infra.Run(deploy.Deployment(stages, "pipeline-infra"), args)
+}
