@@ -35,12 +35,12 @@ func Boundary[E, F, R](f *Frame[E], body func() fails F needs R, at CallSite) fa
 }
 
 // mark is where a pass stood when a group started: the lengths of the
-// pass's lists, the identity counts taken, the parent and its last child,
-// and the row a group in an Each started in.
-type mark { ngroups int, nspecs int, ncells int, nloads int, nkeys int, nurls int, nanims int, nseen int, parent int, last int, each CallSite, key Key }
+// pass's lists, the identity counts taken, the parent, its last child and
+// how many it had, and the row a group in an Each started in.
+type mark { ngroups int, nspecs int, ncells int, nloads int, nkeys int, nurls int, nanims int, nseen int, parent int, last int, nkids int, each CallSite, key Key }
 
 func markOf[E](f *Frame[E]) mark {
-	mark{ngroups: f.ngroups, nspecs: f.nspecs, ncells: f.ncells, nloads: f.nloads, nkeys: f.nkeys, nurls: f.nurls, nanims: f.nanims, nseen: f.nseen, parent: f.parent, last: lastKid(f, f.parent), each: f.each, key: f.key}
+	mark{ngroups: f.ngroups, nspecs: f.nspecs, ncells: f.ncells, nloads: f.nloads, nkeys: f.nkeys, nurls: f.nurls, nanims: f.nanims, nseen: f.nseen, parent: f.parent, last: lastKid(f, f.parent), nkids: kidsWritten(f, f.parent), each: f.each, key: f.key}
 }
 
 // cut takes the pass back to m: the specs, cells, key and frame
@@ -62,14 +62,10 @@ func cut[E](f *Frame[E], m mark) {
 		}
 	}
 	f.ngroups = m.ngroups
+	giveBack(f, m.nspecs)
 	for i in m.nseen..f.nseen {
 		let s = f.seenLog[i]
-		let c = count(f.seen, s)
-		if c <= 1 {
-			f.seen = f.seen.Delete(s)
-		} else {
-			f.seen[s] = c - 1
-		}
+		f.seen[s] = tally{pass: f.pass, n: seenOf(f, s) - 1}
 	}
 	f.nseen = m.nseen
 	f.ncells = m.ncells
@@ -115,8 +111,10 @@ func cut[E](f *Frame[E], m mark) {
 	}
 	if m.parent < 0 {
 		f.last = m.last
+		f.nroot = m.nkids
 	} else {
 		f.specs[m.parent].last = m.last
+		f.specs[m.parent].nkids = m.nkids
 	}
 	f.stopped[m.parent] = true
 }

@@ -260,7 +260,6 @@ func settle[E](f *Frame[E]) {
 		m[l.id] = s
 		loads[o] = m
 	}
-	let mut skipped = Map[arena.Ref[node[E]], bool]{}
 	f.skips = 0
 	for i in 0..f.nspecs {
 		let s = f.specs[i]
@@ -272,7 +271,6 @@ func settle[E](f *Frame[E]) {
 		}
 		if s.skip {
 			// A skipped Same keeps what its last run stored (UC-4).
-			skipped[s.ref] = true
 			if !s.again {
 				f.skips = f.skips + 1
 			}
@@ -301,23 +299,25 @@ func settle[E](f *Frame[E]) {
 	for p, _ in f.stopped {
 		parks[made(f, p)] = true
 	}
-	keep(f, f.root, cells, loads, parks, skipped)
+	keep(f, f.root, cells, loads, parks)
+	for i in 0..f.nspecs {
+		if !f.specs[i].skip {
+			keep(f, f.specs[i].ref, cells, loads, parks)
+		}
+	}
 }
 
-// keep walks the tree: each node gets this pass's cells and loads, and each
-// load it held that this pass does not keep is cancelled.
+// keep gives the node r names this pass's cells and loads, and cancels
+// each load it held that this pass does not keep. settle keeps the root
+// and the node of each spec not skipped, in the order of the specs: the
+// tree's nodes in its order (a pass writes a node before its children,
+// and Commit makes the children of a node its child specs' nodes), less
+// a skipped Same and what is under it, which keep what they hold.
 // A node that holds no cell or load and gets none keeps its empty maps:
 // only the nodes with state are written (GP frame cost, UC-2).
-// A skipped Same and what is under it keep what they hold.
-func keep[E](f *Frame[E], r arena.Ref[node[E]], cells Map[arena.Ref[node[E]], Map[ident, Cell]], loads Map[arena.Ref[node[E]], Map[ident, slot]], parks Map[arena.Ref[node[E]], bool], skipped Map[arena.Ref[node[E]], bool]) {
-	if has(skipped, r) {
-		return
-	}
+func keep[E](f *Frame[E], r arena.Ref[node[E]], cells Map[arena.Ref[node[E]], Map[ident, Cell]], loads Map[arena.Ref[node[E]], Map[ident, slot]], parks Map[arena.Ref[node[E]], bool]) {
 	if hasState(f, r) || has(cells, r) || has(loads, r) {
 		store(f, r, cells, loads, has(parks, r))
-	}
-	for i in 0..kidCount(f, r) {
-		keep[E](f, kidAt(f, r, i), cells, loads, parks, skipped)
 	}
 }
 

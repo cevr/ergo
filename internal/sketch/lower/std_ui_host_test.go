@@ -2477,16 +2477,18 @@ func statsFollow(seed int, steps int) bool needs Scheduler {
 	true
 }
 
-type slowLog { texts int, log []ui.Slow }
+type slowLog { texts int, log []ui.Slow, marks int }
 
-type slowSignal = MoreText{} | WasSlow{S ui.Slow}
+type slowSignal = MoreText{} | WasSlow{S ui.Slow} | SlowMark{}
 
 func slowStep(s slowLog, e slowSignal) Decision[slowLog, int] {
 	match e {
 	case MoreText:
-		Enter[slowLog]{Next: slowLog{texts: s.texts + 1, log: s.log}}
+		Enter[slowLog]{Next: slowLog{texts: s.texts + 1, log: s.log, marks: s.marks}}
 	case WasSlow as w:
-		Enter[slowLog]{Next: slowLog{texts: s.texts, log: s.log.Append(w.S)}}
+		Enter[slowLog]{Next: slowLog{texts: s.texts, log: s.log.Append(w.S), marks: s.marks}}
+	case SlowMark:
+		Enter[slowLog]{Next: slowLog{texts: s.texts, log: s.log, marks: s.marks + 1}}
 	}
 }
 
@@ -2515,7 +2517,7 @@ func slowFollow(seed int, bound int) bool needs Scheduler {
 		}
 	}
 	let posted = queue.New[ui.Event[slowSignal]](256)
-	let a = actor.StartMachine(Machine[slowLog, slowSignal, int]{Initial: slowLog{texts: 0, log: []ui.Slow{}}, Step: slowStep, After: slowTimer, Work: slowWork}, 1, func(o int) {})
+	let a = actor.StartMachine(Machine[slowLog, slowSignal, int]{Initial: slowLog{texts: 0, log: []ui.Slow{}, marks: 0}, Step: slowStep, After: slowTimer, Work: slowWork}, 1, func(o int) {})
 	let (s, _) = ui.Start(a, view, func(ev ui.Event[slowSignal]) {
 		posted.Push(ev) catch {
 		case queue.Closed:
@@ -2523,15 +2525,33 @@ func slowFollow(seed int, bound int) bool needs Scheduler {
 	})
 	let mut session = s
 	let mut want = []ui.Slow{}
+	let mut marks = 0
 	for _ in 0..draw(&r, 8)+3 {
 		let _ = ui.Step(&session, ui.KeyDown{Press: ui.KeyPress{Name: "k", Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}) catch {
 		case actor.Stopped:
 			return false
 		}
-		// The pass wrote the log's line and the texts.
+		// The pass wrote the log's line and the texts. A pass whose count
+		// is wrong fails here: no Slow would come for the wait below.
 		let texts = a.State().texts
+		if ui.SessionStats(&session).Written != texts+1 {
+			return false
+		}
 		if texts%3 != 0 && texts+1 > bound {
 			want = want.Append(ui.Slow{Counter: "Written", Count: texts + 1, Bound: bound})
+			// The pass sent its Slow signals before Step returned, so a mark
+			// sent now is taken after them: the log at the mark is every
+			// Slow so far, and a missing or extra one fails here rather
+			// than in a wait for a line that never comes.
+			marks = marks + 1
+			let target = marks
+			let at = actor.SendAndWait(a, SlowMark, func(st slowLog) bool { st.marks == target }) catch {
+			case actor.Stopped:
+				return false
+			}
+			if len(at.log) != len(want) {
+				return false
+			}
 			// The pass that shows the ui.Slow, a ui.Committed's, is not judged:
 			// the law takes the posted events until it shows it.
 			// A ui.Slow is one commit, so it shows within a few posted

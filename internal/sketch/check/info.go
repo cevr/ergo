@@ -286,6 +286,12 @@ type Info struct {
 	// is not Empty (runtime.md, I1) and never derives a footprint again.
 	// Added for #199 stage 1 (additive).
 	Footprints map[syntax.Node]Footprint
+	// Reads is, for each function of the package with a body, keyed by
+	// its *syntax.FuncDecl, what the body reads of each parameter, one
+	// ReadSet per parameter in order (reads.go). The lowering compares
+	// only the read fields of a component's record argument (NS2b;
+	// stdlib.md, UI 13). Added in NS2b (additive).
+	Reads map[syntax.Node][]ReadSet
 	// Instances is every instantiation of a generic function (D-E1; stage
 	// B round 2 m6): a call of one, keyed by the *syntax.CallExpr, whether
 	// its type arguments are written, inferred or bound by a dot call's
@@ -533,6 +539,7 @@ func newInfo() *Info {
 		Withs:         map[*syntax.CallExpr]*With{},
 		ContextValues: map[syntax.Expr]*With{},
 		Footprints:    map[syntax.Node]Footprint{},
+		Reads:         map[syntax.Node][]ReadSet{},
 		Instances:     map[syntax.Expr]*Instance{},
 
 		ReturnedValues: map[syntax.Expr]bool{},

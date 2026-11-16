@@ -1175,6 +1175,7 @@ var openStd = map[string]bool{
 	"ui/layout.Measure": true,
 	"io.Source":         true,
 	"bench.Meter":       true,
+	// The layout's text measure, which a host provides with its fonts.
 }
 
 // stdOperationTypes lists, as path.Name, every exported operation type

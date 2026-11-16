@@ -137,6 +137,8 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		// After every body: the cell types are declarations (cells.go).
 		c.checkCells,
 		c.footprints,
+		// After every body: what each function reads of its parameters.
+		c.readSets,
 		// After the footprints: the argument of a pure parameter runs a
 		// pure function (Footprints 6), a durable machine's step (MU9).
 		c.checkPureArgs,

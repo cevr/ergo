@@ -11,8 +11,9 @@ func FrameShape[E](f *Frame[E]) []Shape[E] { frameShapes(f, -1) }
 
 func frameShapes[E](f *Frame[E], p int) []Shape[E] {
 	let mut out = []Shape[E]{}
-	for s in childrenOf(f, p) {
-		let sp = f.specs[s]
+	let ks = kidNodes(f, p)
+	for j, s in ks.spec {
+		let sp = kidSpec(f, ks, j)
 		if sp.skip {
 			out = out.Append(Shape[E]{Node: sp.node, Kids: treeShapes[E](f, kidsOf(f, sp.prev))})
 		} else {
