@@ -237,6 +237,7 @@ type hostPkg struct {
 	context  map[*Func]bool           // a function whose hidden first parameter is Go's context.Context (IG10)
 	goLines  map[int]string           // the `// ergo:` comment of each line, read by GoDecl (IG8) on first use
 	reads    map[*Func][]string       // the binders a function's `// ergo:reads` line names (gofacts.go)
+	writes   map[*Func]int            // the parameter a function's `// ergo:writes` line names (GBX2, gowrites.go)
 }
 
 func hostOf(p *Package) *hostPkg {
@@ -299,6 +300,7 @@ func (s *GoBindings) ResolveAll(path string) bool {
 		h.resolve(o)
 		if fn, ok := o.(*Func); ok {
 			h.misfitReads(fn)
+			h.misfitWrites(fn)
 		}
 		if tn, ok := o.(*TypeName); ok {
 			n := tn.Type.(*Named)
@@ -451,7 +453,7 @@ func (h *hostPkg) load() {
 	markers := map[int]string{}
 	for _, g := range f.Comments {
 		for _, cm := range g.List {
-			if cm.Text == "// ergo:variadic" || cm.Text == "// ergo:context" || strings.HasPrefix(cm.Text, readsMarker) {
+			if cm.Text == "// ergo:variadic" || cm.Text == "// ergo:context" || strings.HasPrefix(cm.Text, writesMarker) || strings.HasPrefix(cm.Text, readsMarker) {
 				line, _ := f.Position(cm.Pos())
 				markers[line] = cm.Text
 			}
@@ -471,11 +473,13 @@ func (h *hostPkg) load() {
 		mark := func(fn *Func) {
 			line, _ := f.Position(fn.Decl.Pos())
 			for l := line - 1; markers[l] != ""; l-- {
-				switch text := markers[l]; text {
-				case "// ergo:variadic":
+				switch text := markers[l]; {
+				case text == "// ergo:variadic":
 					h.variadic[fn] = true
-				case "// ergo:context":
+				case text == "// ergo:context":
 					h.context[fn] = true
+				case strings.HasPrefix(text, writesMarker):
+					h.writesLine(fn, strings.TrimPrefix(text, writesMarker))
 				default:
 					h.readsLine(fn, strings.TrimPrefix(text, readsMarker))
 				}

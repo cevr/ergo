@@ -210,12 +210,28 @@ func (fc *funcCtx) goCall(x *syntax.CallExpr, c *check.Call) operand {
 	if variadic && len(vals) > 0 {
 		vals[len(vals)-1] += "..."
 	}
+	// A Go function that writes its slice argument in place (GBX2;
+	// check/gowrites.go): Go gets the operand the value rule gave (a copy,
+	// or the dead local itself), and the call's value is what Go wrote.
+	written := ""
+	if c.Kind == check.CallFunc && c.Recv == nil {
+		if i, ok := check.GoWrites(c.Func); ok && i < len(vals) {
+			written = fc.temp("w")
+			fc.line(written + " := " + vals[i])
+			vals[i] = written
+		}
+	}
 	ctx := c.Kind != check.CallOp && check.GoContext(c.Func)
 	if ctx {
 		vals = append([]string{fc.goContext(x)}, vals...)
 	}
 	text := head + "(" + strings.Join(vals, ", ") + ")"
 	defer fc.identify(x, c)()
+	if written != "" {
+		fc.line(text)
+		fc.afterGoContext(x, ctx)
+		return operand{val: written}
+	}
 	var goResults []check.Type
 	if len(sig.Results) == 1 {
 		if t, ok := sig.Results[0].(*check.Tuple); ok {

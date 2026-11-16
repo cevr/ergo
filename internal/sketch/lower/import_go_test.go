@@ -257,13 +257,15 @@ func goTableLine(rows []string) string {
 
 // TestHostCopyElisionAgrees is IG3's copy-elision property (the value rule
 // at the Go boundary, q26): generated programs pass slices to Go functions
-// that mutate (sort.Ints), retain (bytes.NewBuffer, whose Buffer reads the
+// that write them in place (sort.Ints, slices.Sort, slices.Reverse, whose
+// value is the slice Go wrote: GBX2), retain (bytes.NewBuffer, whose Buffer reads the
 // slice later) and only read (strings.Join) them, with the argument fresh,
 // live and read after, written after, or dead. The elided lowering and the
 // copy-always reference (SetHostCopyAlwaysForTest) print the same lines,
 // and both equal the value-semantics model computed here: Go never changes
 // what an Ergo binding holds, and an Ergo write never reaches Go. A failing
-// seed prints its replay flag and the program.
+// seed prints its replay flag and the program. Mutant it alone catches
+// (lower mutants.json): gbx2-lower-written.
 //
 // It builds Go because the subject is which operand the
 // emitted Go copies; only a run shows an alias.
@@ -281,7 +283,7 @@ func TestHostCopyElisionAgrees(t *testing.T) {
 			want = append(want, model)
 		}
 		var src strings.Builder
-		for _, pkg := range []string{"sort", "bytes", "strings", "regexp"} {
+		for _, pkg := range []string{"sort", "slices", "bytes", "strings", "regexp"} {
 			if strings.Contains(body.String(), pkg+".") {
 				src.WriteString("import go " + pkg + "\n")
 			}
@@ -300,7 +302,7 @@ func TestHostCopyElisionAgrees(t *testing.T) {
 			}
 			return n
 		}
-		if handsOver := strings.Contains(src.String(), "\"done\"") || strings.Contains(src.String(), "case Some as buf: buf"); handsOver && clones(always) <= clones(elided) {
+		if handsOver := strings.Contains(src.String(), "// handover") || strings.Contains(src.String(), "case Some as buf: buf"); handsOver && clones(always) <= clones(elided) {
 			t.Fatalf("seed %d: the copy-always lowering copies %d operands, the rule %d", seed, clones(always), clones(elided))
 		}
 		exes := buildAll(t, []*lowered{elided, always}, true)
@@ -326,19 +328,32 @@ func copyElisionCase(r *rand.Rand, k int) (string, string) {
 	a, b, c := r.IntN(9), r.IntN(9), r.IntN(9)
 	xs := fmt.Sprintf("[]int{%d, %d, %d}", a, b, c)
 	orig := fmt.Sprintf("%d,%d,%d", a, b, c)
-	sorted := []int{a, b, c}
-	slices.Sort(sorted)
+	// A Go function that writes its slice in place (GBX2): its value is
+	// the slice Go wrote; the operand Ergo holds is unchanged.
+	writer, written := "sort.Ints", []int{a, b, c}
+	switch r.IntN(3) {
+	case 0:
+		slices.Sort(written)
+	case 1:
+		writer = "slices.Sort"
+		slices.Sort(written)
+	default:
+		writer = "slices.Reverse"
+		slices.Reverse(written)
+	}
+	wrote := fmt.Sprintf("%d,%d,%d", written[0], written[1], written[2])
+	show := func(v string) string { return "\\(" + v + "[0]),\\(" + v + "[1]),\\(" + v + "[2])" }
 	head := fmt.Sprintf("func case%d() string needs go.Foreign {\n", k)
 	switch r.IntN(7) {
-	case 0: // mutate, read after: Ergo's xs is unchanged
-		return head + "\tlet xs = " + xs + "\n\tsort.Ints(xs)\n\t\"\\(xs[0]),\\(xs[1]),\\(xs[2])\"\n}\n\n", orig
-	case 1: // mutate a let mut, write after, read after
-		return head + "\tlet mut xs = " + xs + "\n\tsort.Ints(xs)\n\txs[0] = 9\n\t\"\\(xs[0]),\\(xs[1]),\\(xs[2])\"\n}\n\n", fmt.Sprintf("9,%d,%d", b, c)
-	case 2: // mutate a dead local, or a fresh literal: nothing to see
+	case 0: // Go writes a copy, read after: Ergo's xs is unchanged
+		return head + "\tlet xs = " + xs + "\n\tlet ys = " + writer + "(xs)\n\t\"" + show("xs") + "|" + show("ys") + "\"\n}\n\n", orig + "|" + wrote
+	case 1: // a let mut, written after: the write reaches neither
+		return head + "\tlet mut xs = " + xs + "\n\tlet ys = " + writer + "(xs)\n\txs[0] = 9\n\t\"" + show("xs") + "|" + show("ys") + "\"\n}\n\n", fmt.Sprintf("9,%d,%d|%s", b, c, wrote)
+	case 2: // a dead local, or a fresh literal: handed over, written in place
 		if r.IntN(2) == 0 {
-			return head + "\tlet xs = " + xs + "\n\tsort.Ints(xs)\n\t\"done\"\n}\n\n", "done"
+			return head + "\tlet xs = " + xs + "\n\tlet ys = " + writer + "(xs) // handover\n\t\"" + show("ys") + "\"\n}\n\n", wrote
 		}
-		return head + "\tsort.Ints(" + xs + ")\n\t\"done\"\n}\n\n", "done"
+		return head + "\tlet ys = " + writer + "(" + xs + ") // handover\n\t\"" + show("ys") + "\"\n}\n\n", wrote
 	case 3: // Go retains the slice; Ergo writes it after the call
 		bs := []byte{byte('a' + a), byte('a' + b)}
 		return head + fmt.Sprintf("\tlet mut bs = []byte{%d, %d}\n", bs[0], bs[1]) +

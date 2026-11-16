@@ -39,6 +39,27 @@ var GoArgClauses = map[string]map[int]GoArgClause{
 	"os.File.ReadDir":      {0: {true, "os/dir.go: returns entries after the directory read"}},
 }
 
+// GoWrite is a reviewed Go function that writes its slice parameter Index
+// in place and returns nothing (GBX2; docs/spec/interop.md, Go writes in
+// place). Its binding returns that slice in Ergo, and the call's value is
+// the slice Go wrote.
+type GoWrite struct {
+	Index  int
+	Reason string
+}
+
+// GoWrites records source facts (go1.27): each function writes only its
+// slice argument's elements, keeps no reference to it, and returns nothing.
+var GoWrites = map[string]GoWrite{
+	"slices.Sort":           {0, "slices/sort.go: pdqsortOrdered sorts x's elements in place, keeps no reference"},
+	"slices.SortFunc":       {0, "slices/sort.go: pdqsortCmpFunc sorts x's elements in place, keeps no reference"},
+	"slices.SortStableFunc": {0, "slices/sort.go: stableCmpFunc sorts x's elements in place, keeps no reference"},
+	"slices.Reverse":        {0, "slices/slices.go: swaps s's elements in place, keeps no reference"},
+	"sort.Ints":             {0, "sort/sort.go: slices.Sort(x)"},
+	"sort.Float64s":         {0, "sort/sort.go: slices.Sort(x)"},
+	"sort.Strings":          {0, "sort/sort.go: slices.Sort(x)"},
+}
+
 // GoArgLent reports a reviewed, reasoned resource lend, never a default.
 func GoArgLent(target string, index int) bool {
 	c := GoArgClauses[target][index]
