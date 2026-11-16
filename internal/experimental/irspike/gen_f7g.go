@@ -29,6 +29,10 @@ func (g *fgen) orderDecls() {
 	g.b.WriteString("func chk(n int) int fails E1 {\n\tif n % 2 == 0 {\n\t\treturn E1{Code: n}\n\t}\n\tn\n}\n\n")
 	g.b.WriteString("func tr(n int) int needs Console {\n\tConsole.Println(\"tr \\(n)\")\n\tn\n}\n\n")
 	g.b.WriteString("func span(n int) []int needs Console {\n\tConsole.Println(\"span \\(n)\")\n\t[]int{n, n + 1}\n}\n\n")
+	// app called with a function that cannot fail: a fallible function
+	// whose row is empty at the site (E is no failure), whose Go error the
+	// caller drops.
+	g.b.WriteString("func app[E](n int, f func(int) int fails E) int fails E {\n\treturn (try f(n)) + 1\n}\n\n")
 }
 
 // traced is a call of tr: an operation call inside an expression.
@@ -169,9 +173,14 @@ func (g *fgen) callsStmt(in string, budget, k int) {
 	f := g.cur
 	switch k {
 	case 2:
-		if g.n(3) == 0 {
+		switch g.n(4) {
+		case 0:
 			// Positional: each element sets the field of its place.
 			g.shown(in, fmt.Sprintf("(Pt{%s, %s}).B - (Pt{%s, %s}).A", g.indexed(3), g.traced(), g.local(), g.expr(1)))
+			return
+		case 1:
+			// A fallible call whose row is empty here, before a call.
+			g.shown(in, fmt.Sprintf("app(%s, func(n int) int { n * %d }) - %s", g.expr(1), 2+g.n(3), g.traced()))
 			return
 		}
 		g.shown(in, g.orderExpr())
