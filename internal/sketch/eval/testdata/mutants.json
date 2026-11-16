@@ -1467,9 +1467,9 @@
       "name": "oracle-o12-ones-count-is-len",
       "origin": "wf10 ORACLE O12",
       "file": "internal/sketch/eval/nativesbits.go",
-      "from": "\tpure(\"bits.OnesCount64\", func(a []Value) Value { return int64(bits.OnesCount64(u(a[0]))) })\n",
-      "to": "\tpure(\"bits.OnesCount64\", func(a []Value) Value { return int64(bits.Len64(u(a[0]))) })\n",
-      "rule": "std bits.OnesCount64 is Go's math/bits.OnesCount64 (stdlib.md; std bits).",
+      "from": "\tgoPure(\"OnesCount64\", func(a []Value) Value { return int64(bits.OnesCount64(u(a[0]))) })\n",
+      "to": "\tgoPure(\"OnesCount64\", func(a []Value) Value { return int64(bits.Len64(u(a[0]))) })\n",
+      "rule": "std bits.OnesCount64 is Go's math/bits.OnesCount64, bound through import go (stdlib.md; std bits).",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     },
     {
@@ -1573,6 +1573,15 @@
       "to": "",
       "rule": "keyOrder's order is a function of the keys alone.",
       "killers": ["internal/sketch/eval:TestEvalReportIsDeterministic"]
+    },
+    {
+      "name": "np4f1-eval-skips-import-go",
+      "origin": "wf10 NP4f-1",
+      "file": "internal/sketch/eval/nativesgo.go",
+      "from": "fn.Pkg == nil || fn.Pkg.Std() {",
+      "to": "fn.Pkg == nil || fn.Pkg.Std() || fn.Pkg.Host() {",
+      "rule": "The evaluator runs a listed Go function a package reaches through import go, as std's bodies now do (NP4f).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     }
   ]
 }

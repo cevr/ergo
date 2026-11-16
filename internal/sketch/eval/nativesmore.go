@@ -2,7 +2,6 @@ package eval
 
 import (
 	"cmp"
-	"math"
 	"slices"
 	"time"
 
@@ -12,7 +11,7 @@ import (
 
 // More std natives (ORACLE O16), each from its std doc comment and Go's
 // own function: slices' WithCapacity (Go's make), SortStableFunc (Go's
-// stable sort of a copy), largest (Go's slices.Max), math.Trunc, arena's
+// stable sort of a copy), largest (Go's slices.Max), arena's
 // grow (Go's append, as the prelude's Append) and takeValue (the stored
 // value, its cell cleared), and machines' notPositive (the defect of a
 // timer that is not positive, in the runtime's text).
@@ -74,12 +73,6 @@ func registerNativesmore() {
 			}
 		}
 		return best, nil
-	}
-	natives["math.Trunc"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
-		if ab := in.charge(fr, at, 1); ab != nil {
-			return nil, ab
-		}
-		return math.Trunc(args[0].(float64)), nil
 	}
 	natives["arena.grow"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return in.appendTo(fr, at, args[0].(sliceV), args[1], nil)

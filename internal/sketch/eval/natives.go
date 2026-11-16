@@ -89,9 +89,14 @@ func registerNatives() {
 	}
 	// pure registers a function of its arguments: cost reads them, or
 	// what Go's function reads of them when reads names it (readsOf).
-	pure := func(name string, f func(args []Value) Value) {
+	// goPure registers one of Go's functions by Go path and name, which a
+	// std body or a program reaches through import go (goNatives).
+	var pureIn func(into map[string]native, name string, f func(args []Value) Value)
+	pure := func(name string, f func(args []Value) Value) { pureIn(natives, name, f) }
+	goPure := func(name string, f func(args []Value) Value) { pureIn(goNatives, name, f) }
+	pureIn = func(into map[string]native, name string, f func(args []Value) Value) {
 		reads := readsOf[name]
-		natives[name] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		into[name] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 			work := argWork(args)
 			if reads != nil {
 				work = reads(args)
@@ -140,7 +145,7 @@ func registerNatives() {
 	pure("strings.ContainsRune", func(a []Value) Value { return strings.ContainsRune(str(a[0]), rune(a[1].(int32))) })
 	pure("strings.ToValidUTF8", func(a []Value) Value { return strings.ToValidUTF8(str(a[0]), str(a[1])) })
 
-	pure("utf8.RuneCount", func(a []Value) Value { return int64(utf8.RuneCountInString(str(a[0]))) })
+	goPure("unicode/utf8.RuneCountInString", func(a []Value) Value { return int64(utf8.RuneCountInString(str(a[0]))) })
 	pure("utf8.RuneText", func(a []Value) Value { return string(rune(a[0].(int32))) })
 	pure("utf8.AppendRune", func(a []Value) Value {
 		p := a[0].(sliceV)
@@ -155,8 +160,8 @@ func registerNatives() {
 		}
 		return newSlice(vs)
 	})
-	pure("utf8.ValidString", func(a []Value) Value { return utf8.ValidString(str(a[0])) })
-	pure("utf8.ValidRune", func(a []Value) Value { return utf8.ValidRune(rune(a[0].(int32))) })
+	goPure("unicode/utf8.ValidString", func(a []Value) Value { return utf8.ValidString(str(a[0])) })
+	goPure("unicode/utf8.ValidRune", func(a []Value) Value { return utf8.ValidRune(rune(a[0].(int32))) })
 	pure("utf8.RuneLen", func(a []Value) Value { return int64(utf8.RuneLen(rune(a[0].(int32)))) })
 	natives["utf8.DecodeRuneInString"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		if ab := in.charge(fr, at, 2); ab != nil {
