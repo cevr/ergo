@@ -82,13 +82,7 @@ func at[E comparable, S, D, F](d *Driver[S, E, D, F], label string) layout.Box f
 	case None:
 		return ui.NoNode{Label: label}
 	}
-	try reveal(d, id)
-	match d.boxes.Get(id) {
-	case Some[layout.Box] as b:
-		b.Value
-	case None:
-		ui.NoNode{Label: label}
-	}
+	try boxAt(d, id, label)
 }
 
 // reveal wheels each Scroll that holds id, outermost first, until the
@@ -137,9 +131,12 @@ func holds[S, E, D, F](d *Driver[S, E, D, F], top ui.Id[E], id ui.Id[E]) bool {
 // Backspace and types the text; KeyIn presses the key; PointOn sends the
 // pointer's phase at its place in the box; ScrollOn turns the wheel on
 // the list until its offset is the step's (the window decides its
-// height); SettleAll settles. AdvanceBy
+// height); SettleAll settles; ClickOn and FillIn act as TapOn and TypeInto on
+// the first node the locator finds on the window's tree, ExpectOn checks
+// its matcher there, and NavigateTo and GoBack move the window's history
+// and send URLChanged, as ui.TestHost does. AdvanceBy
 // does nothing: the window's frames come from its display, not a clock.
-func Play[E comparable, S, D, F](d *Driver[S, E, D, F], script []ui.Act) fails ui.NoNode | ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
+func Play[E comparable, S, D, F](d *Driver[S, E, D, F], script []ui.Act) fails ui.NoNode | ui.Mismatch | ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
 	for act in script {
 		match act {
 		case ui.TapOn as x:
@@ -221,12 +218,64 @@ func Play[E comparable, S, D, F](d *Driver[S, E, D, F], script []ui.Act) fails u
 		case ui.SettleAll:
 			try Settle(d)
 		case ui.AdvanceBy:
-		case ui.ClickOn, ui.FillIn, ui.ExpectOn, ui.NavigateTo, ui.GoBack:
-			// The desktop driver finds nodes by label only: a locator
-			// (H4r) or a location (H7) step is not played here yet, and
-			// fails as a node it cannot find.
-			return ui.NoNode{Label: "a locator or location step (the desktop driver plays labels only)"}
+		case ui.ClickOn as x:
+			let b = try boxAt(d, try located(d, x.At), "a located node")
+			tap(d, b)
+			try Drain(d)
+		case ui.FillIn as x:
+			let id = try located(d, x.At)
+			let b = try boxAt(d, id, "a located node")
+			tap(d, b)
+			try Drain(d)
+			let old = match d.nodes.Get(id) {
+			case Some[held[E]] as h:
+				match h.Value.node {
+				case ui.InputNode as f:
+					f.Value
+				case _:
+					""
+				}
+			case None:
+				""
+			}
+			for _ in 0..utf8.RuneCount(old) {
+				d.w.PressKey("Backspace", false)
+				try Drain(d)
+			}
+			d.w.Type(x.Text)
+			try Drain(d)
+		case ui.ExpectOn as x:
+			try ui.ExpectIn(&d.mirror, x.At, x.Is)
+		case ui.NavigateTo as x:
+			let u = ui.ParseURL(x.Href)
+			ui.Push(d.history, u)
+			try step(d, ui.URLChanged{URL: u})
+		case ui.GoBack:
+			if ui.Back(d.history) {
+				try step(d, ui.URLChanged{URL: ui.Current(d.history)})
+			}
 		}
+	}
+}
+
+// located is the first node of the window's tree loc finds.
+func located[E comparable, S, D, F](d *Driver[S, E, D, F], loc ui.Locator) ui.Id[E] fails ui.NoNode {
+	let ids = ui.LocateIn(&d.mirror, loc)
+	if len(ids) == 0 {
+		return ui.NoNode{Label: "a locator"}
+	}
+	ids[0]
+}
+
+// boxAt is where id shows, after the lists around it scrolled it into
+// view; NoNode names it by label when it shows nowhere.
+func boxAt[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E], label string) layout.Box fails ui.NoNode | ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
+	try reveal(d, id)
+	match d.boxes.Get(id) {
+	case Some[layout.Box] as b:
+		b.Value
+	case None:
+		ui.NoNode{Label: label}
 	}
 }
 

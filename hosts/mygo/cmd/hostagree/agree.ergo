@@ -326,6 +326,8 @@ func played(f func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed |
 	f() catch {
 	case ui.NoNode as n:
 		return Missing{Label: n.Label}
+	case ui.Mismatch as m:
+		return Broke{Why: "want \(m.Want), got \(m.Got)"}
 	case actor.Stopped:
 		return Broke{Why: "stopped"}
 	case ui.BadPatch as b:

@@ -18,6 +18,14 @@ type Item { Id int, Text string, Done bool }
 
 type St { A int, It Item, Items []Item }
 
+type Stop { V int }
+
+func stopIf(c bool, v int) fails Stop {
+	if c {
+		return Stop{V: v}
+	}
+}
+
 func rows(a int) []int {
 	let mut out = []int{}
 	for i in 0..a%4 {
@@ -109,14 +117,6 @@ func step(f *ui.Frame[int], view func(f *ui.Frame[int], s St), s St, press int) 
 	}
 }
 
-// gate stops a boundary's body when on, as a read whose data has not
-// arrived does (H8a).
-func gate(on bool) fails ui.Pending {
-	if on {
-		return ui.Pending
-	}
-}
-
 func card(f *ui.Frame[int], it Item) {
 	ui.Row(f, ui.Plain()) {
 		ui.Check(f, it.Text, it.Done, it.Id)
@@ -128,6 +128,55 @@ func list(f *ui.Frame[int], xs []Item) {
 	ui.Each(f, xs, func(it Item) ui.Key { ui.ByInt(it.Id) }) func(it Item) {
 		card(f, it)
 	}
+}
+
+// framed is a component around a card: when only its tag changes it runs
+// and the card in it, whose argument stayed, is written again.
+func framed(f *ui.Frame[int], it Item, tag int) {
+	ui.Column(f, ui.Plain()) {
+		ui.Text(f, "tag \(tag)")
+		card(f, it)
+	}
+}
+
+func framedView(f *ui.Frame[int], s St) {
+	framed(f, s.It, s.A)
+}
+
+// nested renders framedView at a 0, 0 (framed written again) and 1: the
+// components the last pass ran (the card is kept through the pass that
+// wrote framed again).
+func nested() needs Console {
+	let mut f = ui.NewFrame[int]()
+	let it = Item{Id: 2, Text: "y", Done: false}
+	let _ = ui.Render(&f, framedView, St{A: 0, It: it, Items: []Item{}})
+	let _ = ui.Render(&f, framedView, St{A: 0, It: it, Items: []Item{}})
+	let _ = ui.Render(&f, framedView, St{A: 1, It: it, Items: []Item{}})
+	Console.Println("nested \(ui.GroupRuns(&f))")
+}
+
+func empty(f *ui.Frame[int], s St) {
+	ui.Text(f, "empty \(s.A)")
+}
+
+// headed is the cards under a header that shows a: a pass that changes
+// a changes no row.
+func headed(f *ui.Frame[int], s St) {
+	ui.Text(f, "tick \(s.A)")
+	ui.Column(f, ui.Plain()) {
+		list(f, s.Items)
+	}
+}
+
+// elsewhere renders n cards under a header, then again with only the
+// header changed: the components run and the nodes Commit compared then.
+func elsewhere(n int) needs Console {
+	let mut f = ui.NewFrame[int]()
+	let it = Item{Id: 0, Text: "", Done: false}
+	let xs = listed(n, -1)
+	let _ = ui.Render(&f, headed, St{A: 0, It: it, Items: xs})
+	let _ = ui.Render(&f, headed, St{A: 1, It: it, Items: xs})
+	Console.Println("elsewhere \(n) \(ui.GroupRuns(&f)) \(ui.Compared(&f))")
 }
 
 func listed(n int, changed int) []Item {
@@ -152,6 +201,57 @@ func counterView(f *ui.Frame[int], c *Counter) {
 	counted(f, c)
 }
 
+// flagged is a component whose Same holds a toggle: in a pass that
+// changes a but not a%2 it runs and skips the Same, so it read no cell,
+// yet the cell under the Same is state its arguments do not say.
+func flagged(f *ui.Frame[int], a int) {
+	ui.Same(f, ui.ByInt(a%2)) {
+		let fl = ui.NewFlag(f, false)
+		ui.Toggle(f, fl, "t")
+	}
+}
+
+func flaggedView(f *ui.Frame[int], s St) {
+	flagged(f, s.A)
+}
+
+func checked(f *ui.Frame[int], n int) {
+	ui.Check(f, "c", false, n)
+}
+
+// fenced puts a component under a Fieldset that a%2 disables: the
+// component's arguments stay, its node's disabled state does not.
+func fenced(f *ui.Frame[int], s St) {
+	ui.Fieldset(f, s.A%2 == 1, "") {
+		checked(f, 7)
+	}
+}
+
+// pressLast presses the last node of f's tree in depth-first order (a
+// view's only control here), once.
+func pressLast(f *ui.Frame[int]) needs Console {
+	let all = ids(f, ui.Root(f))
+	let h = ui.Handle(f, ui.Press[int]{Id: all[len(all)-1]})
+	Console.Println("pressed \(sent(h.Signal)) \(b(h.Changed))")
+}
+
+// fixed renders flaggedView at a 0, 2 (the Same skipped), a press of
+// its toggle, 2 again; and fenced at a 0, a press, 1, a press.
+func fixed() needs Console {
+	let it = Item{Id: 1, Text: "x", Done: false}
+	let mut f = ui.NewFrame[int]()
+	let _ = ui.Render(&f, flaggedView, St{A: 0, It: it, Items: []Item{}})
+	let _ = ui.Render(&f, flaggedView, St{A: 2, It: it, Items: []Item{}})
+	pressLast(&f)
+	let _ = ui.Render(&f, flaggedView, St{A: 2, It: it, Items: []Item{}})
+	Console.Println(shot(ui.FrameShape(&f), "flagged "))
+	let mut g = ui.NewFrame[int]()
+	let _ = ui.Render(&g, fenced, St{A: 0, It: it, Items: []Item{}})
+	pressLast(&g)
+	let _ = ui.Render(&g, fenced, St{A: 1, It: it, Items: []Item{}})
+	pressLast(&g)
+}
+
 // pointers renders the counter at each of ns, through one pointer: a
 // component whose argument is a pointer is no group, since an equal
 // pointer may reach a changed value.
@@ -166,35 +266,20 @@ func pointers(ns []int) needs Console {
 	}
 }
 
-// gated is a card inside a boundary that stops after it at odd A: the
-// card, kept at even A, is written again and then cut (H8a).
-func gated(f *ui.Frame[int], s St) {
-	ui.Boundary(f) {
-		card(f, s.It)
-		try gate(s.A%2 == 1)
-	} catch {
-	case ui.Pending:
-		ui.Text(f, "wait")
-	}
-}
-
-func boundaries() needs Console {
-	let mut f = ui.NewFrame[int]()
-	for a in 0..5 {
-		step(&f, gated, St{A: a, It: Item{Id: 1, Text: "x", Done: false}, Items: []Item{}}, -1)
-	}
-}
-
 // growth renders n cards, then the same n with one changed, then one:
-// the runs of each pass and the groups kept after the last.
+// the runs of each pass, the nodes Commit compared and the Sames skipped
+// after the change (none: the list has no Same), and the groups kept
+// after the last.
 func growth(n int) needs Console {
 	let mut f = ui.NewFrame[int]()
 	let _ = ui.Render(&f, list, listed(n, -1))
 	let first = ui.GroupRuns(&f)
 	let _ = ui.Render(&f, list, listed(n, n/2))
 	let changed = ui.GroupRuns(&f)
+	let compared = ui.Compared(&f)
+	let skips = ui.Skips(&f)
 	let _ = ui.Render(&f, list, listed(1, -1))
-	Console.Println("growth \(n) \(first) \(changed) \(ui.GroupsKept(&f))")
+	Console.Println("growth \(n) \(first) \(changed) \(compared) \(skips) \(ui.GroupsKept(&f))")
 }
 `
 
@@ -232,22 +317,11 @@ func (g *uiSkipGen) stmt(i, depth int, indent string) {
 		g.stmts(i, depth+1, indent+"\t")
 		w("}")
 	}
-	kind := g.r.IntN(13)
-	if depth >= 2 && (kind >= 3 && kind <= 5 || kind == 12) {
+	kind := g.r.IntN(15)
+	if depth >= 2 && (kind >= 3 && kind <= 5 || kind >= 12) {
 		kind = 0
 	}
 	switch kind {
-	case 12:
-		// A boundary whose body may stop after it wrote nodes and called
-		// components: the cut takes back the groups written in it (H8a).
-		w("ui.Boundary(f) {")
-		g.stmts(i, depth+1, indent+"\t")
-		w("\ttry gate(a%%%d == %d)", 2+g.r.IntN(2), g.r.IntN(2))
-		g.stmts(i, depth+1, indent+"\t")
-		w("} catch {")
-		w("case ui.Pending:")
-		w("\tui.Text(f, \"wait %d \\(a)\")", i)
-		w("}")
 	case 0:
 		w(`ui.Text(f, "c%d \(a) \(it.Text)")`, i)
 	case 1:
@@ -262,6 +336,23 @@ func (g *uiSkipGen) stmt(i, depth int, indent string) {
 		block("ui.Row(f, ui.Plain())")
 	case 5:
 		block(fmt.Sprintf("if a%%%d == %d", 2+g.r.IntN(2), g.r.IntN(2)))
+	case 12:
+		// A disabled state around what may be kept.
+		block("ui.Fieldset(f, a%2 == 1, \"\")")
+	case 13:
+		// A Same in a component, skipped while a%2 stays: a group that
+		// skipped it may hold state its arguments do not say.
+		block("ui.Same(f, ui.ByInt(a%2))")
+	case 14:
+		// A boundary whose body stops on some states, after writing:
+		// the groups it wrote are cut with their nodes.
+		w("ui.Boundary(f) {")
+		g.stmts(i, depth+1, indent+"\t")
+		w("\ttry stopIf(a%%3 == %d, a)", g.r.IntN(3))
+		w("} catch {")
+		w("case Stop:")
+		w("\tui.Text(f, \"stopped\")")
+		w("}")
 	default:
 		args := []string{"a, it", "it.Id, it", "3, it", "a+1, it"}[g.r.IntN(4)]
 		c := g.call(i, args)
@@ -364,28 +455,38 @@ func (g *uiSkipGen) states(n int) []string {
 // with every call run (SetUISkipForTest(false), the reference). The
 // components nest, repeat at one site in loops and Each rows, change
 // their node counts with their arguments, and some read a flag, so are
-// never kept; a press may flip one; a boundary may stop after its body
-// called components (H8a), so the groups it wrote are cut. A component
-// that takes a pointer
+// never kept; a press may flip one. Some sit under a Fieldset whose
+// disabled state follows the state, in a Same, or in a Boundary whose
+// body stops on some states after writing. Two fixed views hold the
+// cases a draw seldom reaches: a component whose Same holds a toggle,
+// pressed after a pass that skipped the Same, and a component under a
+// Fieldset that disables it while its arguments stay, pressed. A component that takes a pointer
 // renders a counter the program changes through it, at drawn values: an
 // equal pointer must not skip it. A failing seed is replayed with
 // -uiskip.seed=N, and the program's text is in the failure.
 //
 // It also holds that skipping happens, as counted work: a pass that
 // returns the same arguments runs fewer components than the first pass,
-// and one changed card of n runs one component, at n 8 and 64; the
-// groups kept follow the cards when they drop to one (growth).
+// and one changed card of n runs one component and Commit compares its
+// three nodes alone, at n 8 and 64; the groups kept follow the cards when
+// they drop to one (growth); a pass that changes only a header above n
+// cards runs none of them and compares no node of theirs, at n 50 and
+// 200 (elsewhere, NS1); a card inside a component written again is kept
+// with it (nested). After each seed a pass that calls no component holds
+// no argument slot (held 0, as the reference holds none).
 //
 // It builds Go because the subject is the lowered program's behaviour
 // over passes and events, which only runs.
 //
 // Mutants (testdata/mutants.json): ui-group-args-ignored,
-// ui-group-impure-kept, ui-group-count-unchecked, ui-group-parent-unmapped,
+// ui-group-impure-kept, ui-group-count-unchecked, ui-group-again-compared,
 // ui-group-slots-leak, ui-skip-never, ui-skip-pointer-arg,
-// i20-group-cut-kept.
+// ui-group-off-unchecked, ui-group-same-skip-pure, ui-group-cut-kept,
+// ui-group-again-skips, ui-group-fresh-impure-leak, ui-group-cut-slot-leak,
+// ui-group-inner-unstamped, ui-group-inner-unlisted.
 func TestUISkipAgrees(t *testing.T) {
 	needsBuild(t)
-	seeds := []uint64{1, 2, 3, 4, 5, 6}
+	seeds := []uint64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
 	if *uiSkipSeed != 0 {
 		seeds = []uint64{*uiSkipSeed}
 	}
@@ -401,13 +502,15 @@ func TestUISkipAgrees(t *testing.T) {
 		for _, s := range g.states(10) {
 			fmt.Fprintf(&main, "\tstep(&f%d, s%dview, %s)\n", seed, seed, s)
 		}
+		// A last pass that calls no component frees every slot.
+		fmt.Fprintf(&main, "\tlet _ = ui.Render(&f%d, empty, St{A: 0, It: Item{Id: 0, Text: \"\", Done: false}, Items: []Item{}})\n\tConsole.Println(\"held \\(ui.GroupsKept(&f%d))\")\n", seed, seed)
 		var ns []string
 		for range 4 {
 			ns = append(ns, fmt.Sprint(g.r.IntN(3)))
 		}
 		fmt.Fprintf(&main, "\tpointers([]int{%s})\n", strings.Join(ns, ", "))
 	}
-	main.WriteString("\tboundaries()\n\tgrowth(8)\n\tgrowth(64)\n}\n")
+	main.WriteString("\tfixed()\n\tgrowth(8)\n\tgrowth(64)\n\telsewhere(50)\n\telsewhere(200)\n\tnested()\n}\n")
 	src.WriteString(main.String())
 	skip := mustLower(t, "uiskip_groups", src.String())
 	restore := SetUISkipForTest(false)
@@ -429,7 +532,7 @@ func TestUISkipAgrees(t *testing.T) {
 	behaviour := func(s string) []string {
 		var keep []string
 		for _, l := range strings.Split(s, "\n") {
-			if !strings.HasPrefix(l, "runs ") && !strings.HasPrefix(l, "growth ") {
+			if !strings.HasPrefix(l, "runs ") && !strings.HasPrefix(l, "growth ") && !strings.HasPrefix(l, "elsewhere ") && !strings.HasPrefix(l, "nested ") {
 				keep = append(keep, l)
 			}
 		}
@@ -454,7 +557,7 @@ func TestUISkipAgrees(t *testing.T) {
 	}
 	// Counted work: the first pass of each seed against the passes after.
 	var first, later, seeds0 int
-	var growth []string
+	var growth, elsewhere []string
 	for _, l := range strings.Split(out["uiskip_groups"], "\n") {
 		switch {
 		case strings.HasPrefix(l, "seed "):
@@ -470,12 +573,21 @@ func TestUISkipAgrees(t *testing.T) {
 			seeds0++
 		case strings.HasPrefix(l, "growth "):
 			growth = append(growth, l)
+		case strings.HasPrefix(l, "elsewhere "), strings.HasPrefix(l, "nested "):
+			elsewhere = append(elsewhere, l)
 		}
 	}
 	if first == 0 || later >= first*9 {
 		t.Errorf("the groups build ran %d components in first passes and %d in the 9 later ones of each seed: no component was skipped", first, later)
 	}
-	if want := []string{"growth 8 8 1 1", "growth 64 64 1 1"}; strings.Join(growth, "|") != strings.Join(want, "|") {
-		t.Errorf("growth: %q, want %q (n, first runs, runs after one change, groups kept at one card)", growth, want)
+	if want := []string{"growth 8 8 1 3 0 1", "growth 64 64 1 3 0 1"}; strings.Join(growth, "|") != strings.Join(want, "|") {
+		t.Errorf("growth: %q, want %q (n, first runs, runs after one change, nodes compared then, Sames skipped then, groups kept at one card)", growth, want)
+	}
+	// NS1: a change elsewhere than the rows runs no row and compares the
+	// header and its sibling alone, at 50 rows as at 200.
+	// A group written again keeps the groups inside it: the card in framed
+	// is kept through it, so framed alone runs when its tag changes.
+	if want := []string{"elsewhere 50 0 2", "elsewhere 200 0 2", "nested 1"}; strings.Join(elsewhere, "|") != strings.Join(want, "|") {
+		t.Errorf("elsewhere: %q, want %q (n, components run, nodes compared; components run in nested)", elsewhere, want)
 	}
 }
