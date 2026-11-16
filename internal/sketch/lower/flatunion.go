@@ -2,6 +2,7 @@ package lower
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -350,7 +351,7 @@ func (l *lowerer) flatUnionSet() map[*check.TypeName]*flatUnion {
 	// whatever the reference: either past the register bound stays flat
 	// (MSB2, MSB3; carry.go's stateFlat).
 	machineStates := map[*check.TypeName]bool{}
-	for _, p := range l.sourcedPkgs() {
+	for _, p := range l.unionPkgs() {
 		for _, tn := range l.canon.types(p) {
 			if tn.Decl == nil {
 				continue
@@ -475,29 +476,44 @@ func (l *lowerer) flatUnionSet() map[*check.TypeName]*flatUnion {
 	return l.flatSet
 }
 
-// unionPkgs are the packages whose unions the rule decides (step 1): the
-// program's own and, from MSB3, every std package the program reaches.
-// A std union is lowered with the program, as its own are, so its form is
-// the program's choice too: a std function that returns one (tz.Resolve's
-// Resolved) or a table of field-less ones (civil's Pad, time's Month)
-// pays no box. The reference msb3Lowering "off" keeps std unions
-// interfaces, as before MSB3.
+// unionPkgs are the packages whose unions, machines and records the rule
+// reads (step 1): from MSB3, every Ergo package the program reaches, its
+// own, an imported module's and std's alike. The rule is one of shape, and
+// std has no privilege either way (std-priv SP3): a std union is lowered
+// with the program, so a std function that returns one (tz.Resolve's
+// Resolved) or a table of field-less ones (civil's Pad, time's Month) pays
+// no box, and a std machine's state and signal are flat past the bounds as
+// a program's are. The program's own packages come first, in import
+// order, then the others by path, so the lowering is deterministic. The
+// reference msb3Lowering "off" reads the program's own packages alone, as
+// before MSB3.
 func (l *lowerer) unionPkgs() []*check.Package {
 	ps := l.sourcedPkgs()
 	if msb3Lowering == "off" {
 		return ps
 	}
+	seen := map[*check.Package]bool{}
+	for _, p := range ps {
+		seen[p] = true
+	}
+	var rest []*check.Package
 	for _, p := range l.libraries() {
-		if p.Std() && !l.isSourced(p) {
-			ps = append(ps, p)
+		if !seen[p] {
+			rest = append(rest, p)
 		}
 	}
-	return ps
+	slices.SortFunc(rest, func(a, b *check.Package) int { return strings.Compare(a.Path, b.Path) })
+	return append(ps, rest...)
 }
 
-// unionPkg reports whether p is one of unionPkgs.
+// unionPkg reports whether p is one of unionPkgs: under MSB3 any Ergo
+// package (libraries holds every one the program reaches; a Go package
+// has no Ergo declarations).
 func (l *lowerer) unionPkg(p *check.Package) bool {
-	return p != nil && (l.isSourced(p) || msb3Lowering != "off" && p.Std())
+	if p == nil || p.Host() {
+		return false
+	}
+	return msb3Lowering != "off" || l.isSourced(p)
 }
 
 // optionCycle reports whether a record of the program holds itself by
@@ -506,7 +522,7 @@ func (l *lowerer) unionPkg(p *check.Package) bool {
 // the record an invalid recursive Go type, so the program keeps Option an
 // interface.
 func (l *lowerer) optionCycle(opt *check.TypeName) bool {
-	for _, p := range l.sourcedPkgs() {
+	for _, p := range l.unionPkgs() {
 		for _, tn := range l.canon.types(p) {
 			n, ok := tn.Type.(*check.Named)
 			if !ok {

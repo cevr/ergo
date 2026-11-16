@@ -91,7 +91,7 @@ func (l *lowerer) genericShape(n *check.Named) *flatUnion {
 // optionShape gives), skipping the unions skip names, and drops those a
 // record holds itself through.
 func (l *lowerer) genericUnions(skip func(*check.TypeName) bool) {
-	pkgs := l.sourcedPkgs()
+	pkgs := l.unionPkgs()
 	opt := check.PreludeType("Option")
 	if opt != nil {
 		pkgs = append(pkgs, opt.Obj.Pkg)
@@ -132,7 +132,7 @@ func (l *lowerer) genericUnions(skip func(*check.TypeName) bool) {
 // unions of the flat set as through records, so a cycle through two of
 // them drops one, and the next round sees it boxed.
 func (l *lowerer) genericCycle(g *check.TypeName) bool {
-	for _, p := range l.sourcedPkgs() {
+	for _, p := range l.unionPkgs() {
 		for _, tn := range l.canon.types(p) {
 			n, ok := tn.Type.(*check.Named)
 			if !ok {
