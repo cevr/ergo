@@ -32,6 +32,7 @@ import (
 //go:embed v1/time.go v1/timetext.go v1/wire.go v1/json.go v1/json_append.go v1/toml.go
 //go:embed v1/sync.go v1/set.go v1/script.go v1/shrink.go
 //go:embed v1/path.go v1/numbers.go v1/goerror.go v1/goarg.go v1/gocall.go v1/gocallback.go
+//go:embed v1/sql/sql.go
 //go:embed v1/digest/digest.go v1/csv/csv.go v1/rand/rand.go v1/gofmt/gofmt.go v1/hostwalk/hostwalk.go
 //go:embed v1/exec/exec.go v1/exec/exec_exit_kqueue.go v1/exec/exec_exit_linux.go v1/exec/exec_start.go
 //go:embed explore/explore.go
@@ -97,6 +98,11 @@ var packages = map[string]pkg{
 	"runtime/v1/exec": {
 		files:   []string{"exec.go", "exec_exit_kqueue.go", "exec_exit_linux.go", "exec_spawn.go", "exec_spawn_darwin.go", "exec_spawn_linux.go", "exec_spawn_other.go", "exec_start.go", "exec_unix.go"},
 		imports: []string{"runtime/rt", "runtime/v1"},
+	},
+	// database/sql and reflect: std sql's Host (wf10 TX1).
+	"runtime/v1/sql": {
+		files:   []string{"sql.go"},
+		imports: []string{"runtime/rt"},
 	},
 	"runtime/v1/rand": {
 		files: []string{"rand.go"},

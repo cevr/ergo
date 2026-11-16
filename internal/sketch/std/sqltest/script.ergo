@@ -170,15 +170,15 @@ func savepointLine(s Script, text string) fails sql.Timeout | sql.Closed | sql.O
 
 // Savepoint keeps SAVEPOINT name.
 func Savepoint(s Script, name string) fails sql.Timeout | sql.Closed | sql.Other {
-	try savepointLine(s, "SAVEPOINT " + name)
+	try savepointLine(s, "SAVEPOINT "+name)
 }
 
 // Release keeps RELEASE SAVEPOINT name.
 func Release(s Script, name string) fails sql.Timeout | sql.Closed | sql.Other {
-	try savepointLine(s, "RELEASE SAVEPOINT " + name)
+	try savepointLine(s, "RELEASE SAVEPOINT "+name)
 }
 
 // RollbackTo keeps ROLLBACK TO SAVEPOINT name.
 func RollbackTo(s Script, name string) fails sql.Timeout | sql.Closed | sql.Other {
-	try savepointLine(s, "ROLLBACK TO SAVEPOINT " + name)
+	try savepointLine(s, "ROLLBACK TO SAVEPOINT "+name)
 }
