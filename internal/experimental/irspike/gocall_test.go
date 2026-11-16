@@ -11,9 +11,10 @@ import (
 // and every function of the program has an IR body, so the property never
 // passes on the source form alone. A failing seed prints the Ergo source,
 // both outcomes and its replay command. Mutants sp4-host-pure-is-effect
-// (a pure-tier call is an effect, so a call inside an expression drops
-// its body) and sp4-host-error-unwrapped (a Go error fails without
-// becoming go.Error, so its catch misses) fail it.
+// (a call of the reviewed pure tier is an effect, so a call inside an
+// expression drops its body), sp4-host-error-unwrapped (a Go error fails
+// without becoming go.Error, so its catch misses) and
+// sp4-user-extern-refused fail it.
 //
 // It builds Go because the Go calls are decoded by the patched compile
 // and the failure crosses Go's error into Ergo's go.Error: only a compiled
