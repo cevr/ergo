@@ -33,12 +33,14 @@
 // one let mut and never reads the parameter again (an owned parameter): a
 // write of a file costs O(path), not O(tree).
 //
-// An append costs O(path) and its own text too, amortized: it adds its text
-// to the file's parts (entry.More), an owned slice that grows as Go's
-// append grows it, and the next read joins the parts once and keeps the
-// join. So a log of n appends copies O(n) bytes, as a host file's appends
-// do, where adding each text to the whole file copies the file again each
-// time, O(n²).
+// An append costs O(path): it puts its text in front of the file's parts
+// (entry.More), a list that no write changes, so the new list shares the
+// old one and copies nothing; the next read joins the parts once and keeps
+// the join. So a log of n appends and a read copy O(n) bytes, as a host
+// file's appends do, where adding each text to the whole file copies the
+// file again each time, O(n²). The list is a union, not a slice, so an
+// entry holds no slice: a place a read hands out of the Ref shares nothing
+// a later write changes, and the lowering hands it out with no copy.
 
 import filepath
 import fs
@@ -51,10 +53,14 @@ import sync
 type Memory { tree sync.Ref[Map[string, entry]] } implements fs.Files, fs.Writes
 
 // entry is one file or directory of a Memory: a file's text is Text and
-// then each text of More, in order (More holds the appends since the file
-// was last read or written), and Perm is its permission bits, as fs.Perm
-// gives them. A directory has no text.
-type entry { Dir bool, Text string, More []string, Perm int }
+// then the texts appended since the file was last read or written (More,
+// the last first), and Perm is its permission bits, as fs.Perm gives them.
+// A directory has no text.
+type entry { Dir bool, Text string, More parts, Perm int }
+
+// parts is the texts appended to a file, the last first: Part's Before is
+// every text appended before its own.
+type parts = NoParts{} | Part{Text string, Before parts}
 
 // place is where a cleaned path is in a tree: below a missing directory,
 // below a file, free in a directory that is there, or taken by an entry.
@@ -67,8 +73,8 @@ type outcome = Changed{} | Missing{Path string} | Broken{Path string, Reason str
 // NewMemory is an empty Memory: its two roots and nothing in them.
 func NewMemory() Memory {
 	let mut t = Map[string, entry]{}
-	t["."] = entry{Dir: true, Text: "", More: []string{}, Perm: fs.Perm(fs.SharedDir())}
-	t["/"] = entry{Dir: true, Text: "", More: []string{}, Perm: fs.Perm(fs.SharedDir())}
+	t["."] = entry{Dir: true, Text: "", More: NoParts, Perm: fs.Perm(fs.SharedDir())}
+	t["/"] = entry{Dir: true, Text: "", More: NoParts, Perm: fs.Perm(fs.SharedDir())}
 	Memory{tree: sync.NewRef[Map[string, entry]](t)}
 }
 
@@ -115,15 +121,16 @@ func ReadDir(m Memory, path string) []string fails fs.NotFound | fs.Denied | fs.
 }
 
 // Stat describes the file at path: its last element, its size (0 for a
-// directory), whether it is a directory, and its permission bits.
+// directory), whether it is a directory, and its permission bits. It
+// reads the file as ReadFile does, so a Stat after appends joins them.
 func Stat(m Memory, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
-	match look(m, path) {
+	match read(m, path) {
 	case NoParent, Free:
 		return fs.NotFound{Path: path}
 	case UnderFile:
 		return fs.Failed{Path: path, Reason: "not a directory"}
 	case Taken as p:
-		let size = if p.At.Dir { 0 } else { size(p.At) }
+		let size = if p.At.Dir { 0 } else { len(p.At.Text) }
 		fs.Info{Name: filepath.Base(filepath.Clean(path)), Size: size, Dir: p.At.Dir, Perm: p.At.Perm}
 	}
 }
@@ -278,10 +285,12 @@ func read(m Memory, path string) place {
 		let mut u = t
 		match at {
 		case Taken as p:
-			if p.At.Dir || len(p.At.More) == 0 {
+			match p.At.More {
+			case NoParts:
 				return (at, u)
+			case Part:
 			}
-			let whole = entry{Dir: false, Text: p.At.Text + strings.Join(p.At.More, ""), More: []string{}, Perm: p.At.Perm}
+			let whole = entry{Dir: false, Text: joined(p.At.Text, p.At.More), More: NoParts, Perm: p.At.Perm}
 			u[filepath.Clean(path)] = whole
 			(Taken{At: whole}, u)
 		case NoParent, UnderFile, Free:
@@ -290,13 +299,23 @@ func read(m Memory, path string) place {
 	})
 }
 
-// size is the length of the file e's text.
-func size(e entry) int {
-	let mut n = len(e.Text)
-	for t in e.More {
-		n = n + len(t)
+// joined is text and then the texts of more, in the order they were
+// appended. It walks the list in a loop, not by recursion, so a file of
+// many appends needs no deeper stack.
+func joined(text string, more parts) string {
+	let mut texts = []string{}
+	let mut at = more
+	let mut walking = true
+	for walking {
+		match at {
+		case Part as p:
+			texts = texts.Append(p.Text)
+			at = p.Before
+		case NoParts:
+			walking = false
+		}
 	}
-	n
+	text + strings.Join(slices.Reverse(texts), "")
 }
 
 // look is the place of path in m's tree.
@@ -390,7 +409,7 @@ func write(t Map[string, entry], path string, text string, perm int, add bool) (
 	case UnderFile:
 		(Broken{Path: path, Reason: "not a directory"}, u)
 	case Free:
-		u[c] = entry{Dir: false, Text: text, More: []string{}, Perm: if perm < 0 { fs.Perm(fs.Shared()) } else { perm }}
+		u[c] = entry{Dir: false, Text: text, More: NoParts, Perm: if perm < 0 { fs.Perm(fs.Shared()) } else { perm }}
 		(Changed, u)
 	case Taken as p:
 		if p.At.Dir {
@@ -398,9 +417,9 @@ func write(t Map[string, entry], path string, text string, perm int, add bool) (
 		}
 		let mode = if perm < 0 { p.At.Perm } else { perm }
 		if add {
-			u[c] = entry{Dir: false, Text: p.At.Text, More: p.At.More.Append(text), Perm: mode}
+			u[c] = entry{Dir: false, Text: p.At.Text, More: Part{Text: text, Before: p.At.More}, Perm: mode}
 		} else {
-			u[c] = entry{Dir: false, Text: text, More: []string{}, Perm: mode}
+			u[c] = entry{Dir: false, Text: text, More: NoParts, Perm: mode}
 		}
 		(Changed, u)
 	}
@@ -427,10 +446,10 @@ func mkdirAll(t Map[string, entry], path string, perm int) (outcome, Map[string,
 			match u.Get(a) {
 			case Some[entry]:
 			case None:
-				u[a] = entry{Dir: true, Text: "", More: []string{}, Perm: perm}
+				u[a] = entry{Dir: true, Text: "", More: NoParts, Perm: perm}
 			}
 		}
-		u[c] = entry{Dir: true, Text: "", More: []string{}, Perm: perm}
+		u[c] = entry{Dir: true, Text: "", More: NoParts, Perm: perm}
 		(Changed, u)
 	}
 }
