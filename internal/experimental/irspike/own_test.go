@@ -73,3 +73,36 @@ func TestIROwnedMatchSource(t *testing.T) {
 		t.Fatalf("no seed of %d..%d releases a value inside a body", first, first+count-1)
 	}
 }
+
+// TestIROwnedParamsMatchSource runs GenerateOwnedParams's programs by
+// both paths (FLIP F7 FORK unit 3): the outputs agree, and every bumpN
+// has an IR body under its owned body's name (values.go V5), its own name
+// being the wrapper that copies.
+func TestIROwnedParamsMatchSource(t *testing.T) {
+	src, ir := needsBuild(t)
+	first, count := envInt("ERGO_IRSPIKE_SEED", 1), envInt("ERGO_IRSPIKE_SEEDS", 6)
+	for seed := first; seed < first+count; seed++ {
+		dir := t.TempDir()
+		text := GenerateOwnedParams(seed)
+		file := filepath.Join(dir, "p.ergo")
+		if err := os.WriteFile(file, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		u, err := Load(file)
+		if err != nil {
+			t.Fatalf("seed %d: the generated program does not check: %v\n%s", seed, err, text)
+		}
+		sb, ib, rep := both(t, u, src, ir, dir, BuildOptions{})
+		a, b := run(t, sb), run(t, ib)
+		replay := "replay: ERGO_IRSPIKE_SEED=" + itoa(seed) + " ERGO_IRSPIKE_SEEDS=1 go test -run TestIROwnedParamsMatchSource ./internal/experimental/irspike"
+		if a != b {
+			t.Fatalf("seed %d: the paths differ\nsource: %+v\nir:     %+v\n%s\n%s", seed, a, b, replay, text)
+		}
+		for i := 0; strings.Contains(text, fmt.Sprintf("func bump%d(", i)); i++ {
+			want := fmt.Sprintf("bump%dOwned", i)
+			if !slices.ContainsFunc(rep.IR, func(n string) bool { return strings.HasPrefix(n, want) }) {
+				t.Fatalf("seed %d: no IR body %s (IR %v, fallback %v)\n%s\n%s", seed, want, rep.IR, rep.Fallback, replay, text)
+			}
+		}
+	}
+}
