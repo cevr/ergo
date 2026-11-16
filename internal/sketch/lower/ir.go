@@ -356,6 +356,9 @@ type irBuilder struct {
 	// pending collects the statements an operand inside an expression
 	// runs first (ir_order.go); nil where no value collects them.
 	pending *[]*irStmt
+	// dropsErr marks the calls whose Go error the site drops: a row
+	// empty there (ir_call.go, dropErr).
+	dropsErr map[*irExpr]bool
 }
 
 // gate stops the body for reason; a census records it and goes on.
