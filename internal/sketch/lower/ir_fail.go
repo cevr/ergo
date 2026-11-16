@@ -210,11 +210,9 @@ func (b *irBuilder) failExpr(x syntax.Expr) ([]*irStmt, *irExpr) {
 		}
 		call := b.fallibleCall(x.X)
 		if call == nil {
-			// try covers the whole expression: its operands' fallible
-			// calls fail the frame (operand).
-			if _, isCall := unparen(x.X).(*syntax.CallExpr); !isCall {
-				irNo("try of a non-call")
-			}
+			// try covers the whole expression: each fallible call in it
+			// fails the frame where it runs (call, operand), as the
+			// emitter's try does.
 			return b.value(x.X)
 		}
 		return b.try(call)
@@ -398,39 +396,15 @@ func (b *irBuilder) armBody(a *syntax.CatchArm, result int, rt check.Type) []*ir
 		}
 		return nil
 	}
-	last, isExpr := list[len(list)-1].(*syntax.ExprStmt)
-	switch s := list[len(list)-1].(type) {
-	case *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
-		if result >= 0 {
-			// A match yields the catch's value (ir_match.go).
-			out := b.tail(list[:len(list)-1], false)
-			return append(out, b.matchStmt(s, true, &yieldTo{local: result, t: rt})...)
-		}
-	}
-	if isExpr && b.unreachableCall(last.X) != nil {
-		return b.tail(list, false) // ir_defect.go: the defect leaves the arm (FLIP OPC-unreach)
-	}
-	if !isExpr {
-		if result >= 0 {
-			if _, isRet := list[len(list)-1].(*syntax.ReturnStmt); !isRet {
-				irNo("catch arm form")
-			}
-		}
+	if result < 0 {
+		// No value: the statements, the last one's value dropped (the
+		// emitter's stmts, discard).
 		return b.tail(list, false)
 	}
-	out := b.tail(list[:len(list)-1], false)
-	if result < 0 {
-		if _, isCall := unparen(last.X).(*syntax.CallExpr); !isCall {
-			irNo("catch arm form")
-		}
-		return append(out, b.tail(list[len(list)-1:], false)...)
-	}
-	b.part(func() {
-		pre, v := b.value(last.X)
-		v = b.assignedTo(last.X, v, rt) // a variant joins the union (ir_union.go)
-		out = append(append(out, pre...), &irStmt{K: "set", Pos: b.pos(last.X, last.X.Pos()), Local: result, X: v})
-	})
-	return out
+	// The last statement yields the catch's value into result, as the
+	// emitter's yieldList with destAssign: an expression, an if or a
+	// match whose arms yield, a return, or a break or continue.
+	return b.tailTo(list, false, &yieldTo{local: result, t: rt})
 }
 
 // operand is one operand of a call: a try, a catch, a call, or an
@@ -471,29 +445,14 @@ func (b *irBuilder) operands(list []syntax.Expr) ([]*irStmt, []*irExpr) {
 	for i, a := range list {
 		pres[i], vals[i] = b.operand(a)
 	}
-	var pre []*irStmt
-	for i, a := range list {
-		pre = append(pre, pres[i]...)
-		later, branch := false, false
-		for k, p := range pres[i+1:] {
-			later = later || len(p) > 0
-			branch = branch || isBranch(list[i+1+k])
-		}
-		if later && vals[i].K != "const" && (vals[i].K != "local" || branch) {
-			p := vals[i].Pos
-			// The temporary has the operand's type after its implicit
-			// conversion, which operand applied.
-			t := b.temp("arg", b.goType(b.operandType(a), a), p)
-			pre = append(pre, &irStmt{K: "def", Pos: p, Local: t, X: vals[i]})
-			vals[i] = &irExpr{K: "local", Pos: p, I: t}
-		}
-	}
-	return pre, vals
+	return b.ordered(list, pres, vals), vals // ir_order.go
 }
 
 // operandType is the type of operand a's value: its implicit
 // conversion's target when it has one (value applies it), else its own.
-// A variant passed as its union spills into a local of the union.
+// A variant passed as its union spills into a local of the union. The one
+// definition (owner: lane GP): OPC's operandFits (ir_operand.go) reads it
+// too, and a ConvVariant's target is the case OPC's own copy covered.
 func (b *irBuilder) operandType(a syntax.Expr) check.Type {
 	if conv, ok := b.l.info.Implicit[a]; ok && conv.To != nil {
 		return conv.To

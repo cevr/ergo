@@ -19,11 +19,20 @@ func (b *irBuilder) poll(site syntax.Node) *irStmt {
 // that holds it, into a temporary, as the emitter's call does. Go would
 // run a call in place before the expression's other operands (a slice
 // index that panics, say); as a statement before it, the call is a
-// pre-statement, which an operand spills around (operands) or a binary
-// expression refuses ("operation call inside an expression").
+// pre-statement, which earlier operands spill around (operands, inOrder in
+// ir_order.go).
 func (b *irBuilder) call(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr) {
 	if b.fallibleCall(x) != nil {
-		irNo("untried fallible call")
+		if b.tries == 0 {
+			irNo("untried fallible call")
+		}
+		// Inside a try: the call's failure leaves the frame (ir_fail.go
+		// try), as the emitter's value propagates it where the call is.
+		pre, v := b.try(x)
+		if v == nil && !stmt {
+			irNo("try without a value")
+		}
+		return pre, v
 	}
 	pre, e, effect := b.callParts(x, stmt)
 	if e != nil && e.K == "vcall" {

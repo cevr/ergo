@@ -353,6 +353,9 @@ type irBuilder struct {
 	// checked where it is returned.
 	law *check.Law
 	own *irOwn // the static frame of owned values (ir_own.go), or nil
+	// pending collects the statements an operand inside an expression
+	// runs first (ir_order.go); nil where no value collects them.
+	pending *[]*irStmt
 }
 
 // gate stops the body for reason; a census records it and goes on.
