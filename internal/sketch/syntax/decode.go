@@ -19,6 +19,25 @@ import (
 // (an or-pattern case's expansion, a refinement's parse function and law,
 // a codec pair's round-trip law, a machine's entries by name).
 
+// MaxNesting bounds the height, in levels, of the returned tree: the
+// nesting of expressions, types, statements and blocks in any composition
+// (grammar.md, Parser rules). A higher tree is S001 at the first token past
+// the limit, so no input exhausts the stack of the parser or of any consumer
+// of the AST (the printer, the converter, the checker). go/parser bounds
+// nesting at 100 000; 1 000 leaves every consumer a small stack and is far
+// above any program written by hand.
+const MaxNesting = 1000
+
+// CodeMixedMembers is the code of a type declaration that mixes fields with
+// operations or laws (#196, D1.12): the tree cannot hold the mix, so the
+// parser reports it with the checker's code for the rule.
+const CodeMixedMembers = "S108"
+
+// Parse parses one source file with compiler/syntax's parser (ParseRows).
+// It returns the first syntax error, an *Error with code S001 (or S108 for
+// a type that mixes fields and operations), and no file; recovery is #38's.
+func Parse(src string) (*File, error) { return ParseRows(src) }
+
 // ParseRows parses src with compiler/syntax's parser and decodes its rows.
 // Its result is Parse's, failure included.
 func ParseRows(src string) (*File, error) {
@@ -66,7 +85,7 @@ type rowDecoder struct {
 	toks   []token
 	groups []*CommentGroup
 	// typeRow is the row of each Field's type, which a codec pair's law
-	// decodes again (parser.again).
+	// decodes again (again).
 	typeRow map[Expr]uint32
 }
 
@@ -76,17 +95,8 @@ func Decode(src string, cols []uint32) *File {
 	ntok, nrows, nextra, ncmt, ngroups := int(cols[1]), int(cols[2]), int(cols[3]), int(cols[4]), int(cols[5])
 	d := &rowDecoder{src: src, cols: cols, typeRow: map[Expr]uint32{}}
 	w := colHeader
-	d.toks = make([]token, ntok)
-	for j := range d.toks {
-		k := Token(cols[w])
-		pos, end := Pos(cols[w+1]), Pos(cols[w+2])
-		lit := src[pos:end]
-		if k == SEMICOLON && lit == "" {
-			lit = "\n"
-		}
-		d.toks[j] = token{tok: k, pos: pos, end: end, lit: lit}
-		w += 3
-	}
+	d.toks = tokensOf(src, cols[w:w+3*ntok])
+	w += 3 * ntok
 	d.rows = w
 	w += 4 * nrows
 	d.extra = cols[w : w+nextra]
@@ -195,53 +205,41 @@ func (d *rowDecoder) ident(r uint32) *Ident {
 
 func (d *rowDecoder) basicLit(r uint32) *BasicLit {
 	t := d.toks[d.tok(r)]
-	return &BasicLit{ValuePos: t.pos, Kind: t.tok, Value: d.basicText(t), ValueEnd: t.end}
-}
-
-// basicText is a literal's text: a raw string's without carriage returns.
-func (d *rowDecoder) basicText(t token) string {
-	if t.tok == STRING && strings.HasPrefix(t.lit, "`") {
-		return strings.ReplaceAll(t.lit, "\r", "")
-	}
-	return t.lit
+	return &BasicLit{ValuePos: t.pos, Kind: t.tok, Value: t.lit, ValueEnd: t.end}
 }
 
 func (d *rowDecoder) file(r uint32) *File {
 	f := &File{EOF: d.pos(d.tok(r))}
 	n := d.items(r, 0)
-	p := d.parser()
 	for i := 0; i < n; i++ {
 		row := d.item(r, i)
 		decl := one[Decl](d, row)
 		f.Decls = append(f.Decls, decl)
 		if td, ok := decl.(*TypeDecl); ok && td.Where != nil && td.TypeParams == nil {
-			f.Decls = append(f.Decls, d.refinement(p, row, td)...)
+			f.Decls = append(f.Decls, d.refinement(row, td)...)
 		}
 	}
-	p.derivePairs(f)
+	derivePairs(f, d.src, d.again)
 	return f
 }
 
-// parser is a parser over the decoded tokens, for the derivations that
-// read tokens or source (tokenText, parseHalf), with again decoding a
-// type's row once more.
-func (d *rowDecoder) parser() *parser {
-	return &parser{src: d.src, toks: d.toks, retype: func(t Expr) Expr {
-		if r, ok := d.typeRow[t]; ok {
-			return one[Expr](d, r)
-		}
-		return t
-	}}
+// again is a fresh copy of the type t of a Field, decoded once more from
+// its row, for a codec pair's law (pair.go).
+func (d *rowDecoder) again(t Expr) Expr {
+	if r, ok := d.typeRow[t]; ok {
+		return one[Expr](d, r)
+	}
+	return t
 }
 
 // refinement is the parse function and law derived from the refined type
 // of row r (refine.go): its base type and predicate decoded once more, and
 // the predicate's text from its tokens.
-func (d *rowDecoder) refinement(p *parser, r uint32, td *TypeDecl) []Decl {
+func (d *rowDecoder) refinement(r uint32, td *TypeDecl) []Decl {
 	spec, where := d.fixed(r, 10, 4), d.fixed(r, 10, 6)
 	base := func() Expr { return opt[Expr](d, spec) }
 	pred := func() Expr { return opt[Expr](d, where) }
-	return deriveRefinement(td, base, pred, p.tokenText(d.tokenAt(td.Where.Pos()), d.tokenAt(td.Where.End())))
+	return deriveRefinement(td, base, pred, tokenText(d.src, d.toks, d.tokenAt(td.Where.Pos()), d.tokenAt(td.Where.End())))
 }
 
 // tokenAt is the first token at or after pos.

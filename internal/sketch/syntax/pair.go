@@ -47,7 +47,7 @@ import (
 func RoundTripLawName(name string) string { return name + "RoundTrips" }
 
 // derivePairs appends to f the round-trip law of each pair f declares.
-func (p *parser) derivePairs(f *File) {
+func derivePairs(f *File, src string, again func(Expr) Expr) {
 	parses := map[string]*FuncDecl{}
 	types := map[string]*TypeDecl{}
 	for _, d := range f.Decls {
@@ -71,10 +71,10 @@ func (p *parser) derivePairs(f *File) {
 			continue
 		}
 		parse := parses[ParseName(x.Name)]
-		if parse == nil || !p.parseHalf(parse, x.Name, b) {
+		if parse == nil || !parseHalf(src, parse, x.Name, b) {
 			continue
 		}
-		laws = append(laws, p.pairLaw(wire, x, b, openType(types, x.Name, 0), parseFails(parse)))
+		laws = append(laws, pairLaw(wire, x, b, openType(types, x.Name, 0), parseFails(parse), again))
 	}
 	f.Decls = append(f.Decls, laws...)
 }
@@ -165,7 +165,7 @@ func wireHalf(d *FuncDecl) (*Ident, Expr, bool) {
 
 // parseHalf reports whether d is ParseX(b B) X: one parameter of B's text
 // and a result X.
-func (p *parser) parseHalf(d *FuncDecl, x string, b Expr) bool {
+func parseHalf(src string, d *FuncDecl, x string, b Expr) bool {
 	t := d.Type
 	if d.Extern != nil || d.Recv != nil || d.TypeParams != nil || t == nil || t.Needs != nil || t.Params == nil || len(t.Params.List) != 1 || len(t.Params.List[0].Names) > 1 {
 		return false
@@ -177,7 +177,7 @@ func (p *parser) parseHalf(d *FuncDecl, x string, b Expr) bool {
 		return false
 	}
 	pb := t.Params.List[0].Type
-	return pb != nil && p.src[pb.Pos():pb.End()] == p.src[b.Pos():b.End()]
+	return pb != nil && src[pb.Pos():pb.End()] == src[b.Pos():b.End()]
 }
 
 // parseFails reports whether ParseX writes a fails row.
@@ -195,7 +195,7 @@ func parseFails(d *FuncDecl) bool {
 // Wire in the dot form, x.Wire(), which names X's own Wire when the
 // package declares several (196m rule 3), and it writes catch and try
 // only when ParseX fails.
-func (p *parser) pairLaw(wire *FuncDecl, x *Ident, b Expr, open, fails bool) *LawDecl {
+func pairLaw(wire *FuncDecl, x *Ident, b Expr, open, fails bool, again func(Expr) Expr) *LawDecl {
 	at := wire.Func
 	id := func(name string) *Ident { return &Ident{NamePos: at, Name: name} }
 	call := func(fun Expr, args ...Expr) *CallExpr {
@@ -226,26 +226,8 @@ func (p *parser) pairLaw(wire *FuncDecl, x *Ident, b Expr, open, fails bool) *La
 	return &LawDecl{
 		Law:    at,
 		Name:   &Ident{NamePos: wire.Name.NamePos, Name: RoundTripLawName(x.Name)},
-		Params: &FieldList{Opening: at, List: []*Field{{Names: []*Ident{id("b")}, Type: p.again(b), WherePos: NoPos}}, Closing: at},
+		Params: &FieldList{Opening: at, List: []*Field{{Names: []*Ident{id("b")}, Type: again(b), WherePos: NoPos}}, Closing: at},
 		Body:   &BlockStmt{Lbrace: at, List: []Stmt{let, &ExprStmt{X: held}}, Rbrace: at},
 		Pair:   wire,
 	}
-}
-
-// again parses the type expression t once more from its own tokens, so
-// each node stands once in the file.
-func (p *parser) again(t Expr) Expr {
-	if p.retype != nil {
-		return p.retype(t)
-	}
-	for k, tok := range p.toks {
-		if tok.pos == t.Pos() {
-			saved := p.i
-			p.backtrack(k)
-			out := p.parseType(ctxDecl)
-			p.backtrack(saved)
-			return out
-		}
-	}
-	return t
 }

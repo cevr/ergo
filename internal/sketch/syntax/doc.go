@@ -1,5 +1,9 @@
-// Package syntax is the lexer, AST and parser of Ergo: the decided grammar
-// of #196 (docs/spec/grammar.md is normative). The parser accepts that
+// Package syntax is the AST of Ergo and its Go door to the parser: the
+// decided grammar of #196 (docs/spec/grammar.md is normative). Since
+// capstone S2d the scanner and parser are compiler/syntax's, in Ergo,
+// linked into the binary (internal/linked/syntax); Parse decodes their
+// rows into this AST (decode.go). The Go scanner and parser stay as the
+// test-only reference (ref_*_test.go) until S2e. The parser accepts that
 // grammar and nothing else; an old Go-shaped spelling is a diagnostic, and a
 // Go habit's message names the Ergo form (habits.go).
 //

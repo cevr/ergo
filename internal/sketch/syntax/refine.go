@@ -38,50 +38,22 @@ func IsDerived(d Decl) bool {
 	return false
 }
 
-// atWhere reports the contextual word `where`, which is no keyword: a
-// name `where` stays a name everywhere else.
-func (p *parser) atWhere() bool { return p.tok.tok == IDENT && p.tok.lit == "where" }
-
-// parseRefinement parses `where P` after the type of d, which starts at the
-// token typeStart, and derives the parse function and the law into
-// p.derived. A generic type derives nothing: the checker refuses its where.
-func (p *parser) parseRefinement(d *TypeDecl, typeStart int) {
-	d.WherePos = p.tok.pos
-	p.next()
-	predStart := p.i
-	d.Where = p.parseExpr()
-	if d.TypeParams != nil {
-		return
-	}
-	again := func(at int, parse func() Expr) Expr {
-		saved := p.i
-		p.backtrack(at)
-		x := parse()
-		p.backtrack(saved)
-		return x
-	}
-	base := func() Expr { return again(typeStart, func() Expr { return p.parseType(ctxDecl) }) }
-	pred := func() Expr { return again(predStart, p.parseExpr) }
-	text := p.tokenText(predStart, p.i)
-	p.derived = deriveRefinement(d, base, pred, text)
-}
-
 // tokenText is the source of the tokens i..j on one line, without
 // comments: one space between tokens, none inside parentheses or after a
 // unary operator, so a comment or a line break never changes the text.
-func (p *parser) tokenText(i, j int) string {
+func tokenText(src string, toks []token, i, j int) string {
 	var b strings.Builder
 	prev := ILLEGAL
 	for k := i; k < j; k++ {
-		t := p.toks[k]
+		t := toks[k]
 		if t.tok == SEMICOLON || t.end <= t.pos {
 			continue
 		}
-		tight := prev == LPAREN || t.tok == RPAREN || prev == NOT || (prev == SUB || prev == ADD) && p.unaryAt(k-1, i)
+		tight := prev == LPAREN || t.tok == RPAREN || prev == NOT || (prev == SUB || prev == ADD) && unaryAt(toks, k-1, i)
 		if prev != ILLEGAL && !tight {
 			b.WriteByte(' ')
 		}
-		b.WriteString(p.src[t.pos:t.end])
+		b.WriteString(src[t.pos:t.end])
 		prev = t.tok
 	}
 	return b.String()
@@ -91,18 +63,17 @@ func (p *parser) tokenText(i, j int) string {
 // derived parse function's failure states it (tokenText).
 func WhereText(src string, x Expr) string {
 	sub := src[x.Pos():x.End()]
-	s := scan(sub)
-	p := &parser{s: s, src: sub, toks: s.toks}
-	return p.tokenText(0, len(s.toks))
+	toks := scanTokens(sub)
+	return tokenText(sub, toks, 0, len(toks))
 }
 
 // unaryAt reports whether the + or - token k, of a predicate starting at
 // token i, is a sign: it starts the predicate or follows an operator or (.
-func (p *parser) unaryAt(k, i int) bool {
+func unaryAt(toks []token, k, i int) bool {
 	if k == i {
 		return true
 	}
-	before := p.toks[k-1].tok
+	before := toks[k-1].tok
 	return before == LPAREN || before == NOT || isBinaryOp(before)
 }
 

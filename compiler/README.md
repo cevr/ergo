@@ -2,7 +2,7 @@
 
 `compiler/` is the top-level Ergo module (`module compiler`) of the self-hosted compiler (capstone S1 to S6). Its first packages are the formatter of the self-hosting pilot (SH0, SH1), moved here at S1a. The Go formatter (`internal/sketch/format`) stays the product and the oracle until S1c, and it is frozen: a fix goes to both sides, and `internal/selfhostcheck`'s agreement properties are the lock.
 
-The binary holds these packages through `internal/linked` (`docs/tooling.md`, Linked Ergo packages): the row `format` of `linked.Packages` lowers `compiler/api` through the IR into `internal/linked/format/format.go`, and Go calls it. The Go parser is shared until S2d: `internal/hostsyntax` parses, encodes the tree and calls the linked package.
+The binary holds these packages through `internal/linked` (`docs/tooling.md`, Linked Ergo packages): the row `format` of `linked.Packages` lowers `compiler/api` through the IR into `internal/linked/format/format.go`, and Go calls it. The row `syntax` lowers `compiler/syntax/dump` the same way, and since S2d every Go caller of `syntax.Parse` parses with it: `internal/sketch/syntax` decodes the rows into its AST. `internal/hostsyntax` still encodes that AST for the formatter until S1c and S2c.
 
 ## Layout
 

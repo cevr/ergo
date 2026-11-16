@@ -408,7 +408,7 @@ func (d *dumper) node(depth int, n Node) {
 // goParseDump is the canonical dump of the Go parser's tree of src, or of
 // its diagnostic.
 func goParseDump(src string) string {
-	f, err := Parse(src)
+	f, err := parseGo(src)
 	if err != nil {
 		e := err.(*Error)
 		return fmt.Sprintf("E %s %d %d %d %d %s\n", e.Code, e.Offset, e.Length, e.Line, e.Column, strconv.Quote(e.Message))

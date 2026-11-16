@@ -7,27 +7,12 @@ import (
 	"strconv"
 )
 
-// MaxNesting bounds the height, in levels, of the returned tree: the
-// nesting of expressions, types, statements and blocks in any composition
-// (grammar.md, Parser rules). A higher tree is S001 at the first token past
-// the limit, so no input exhausts the stack of the parser or of any consumer
-// of the AST (the printer, the converter, the checker). go/parser bounds
-// nesting at 100 000; 1 000 leaves every consumer a small stack and is far
-// above any program written by hand.
-const MaxNesting = 1000
-
-// CodeMixedMembers is the code of a type declaration that mixes fields with
-// operations or laws (#196, D1.12): the tree cannot hold the mix, so the
-// parser reports it with the checker's code for the rule.
-const CodeMixedMembers = "S108"
-
 // mixedMembers is the message of CodeMixedMembers.
 const mixedMembers = "a record holds data; declare the operations in their own type"
 
-// Parse parses one source file. It returns the first syntax error, an
-// *Error with code S001 (or S108 for a type that mixes fields and
-// operations), and no file; recovery is #38's.
-func Parse(src string) (file *File, err error) {
+// parseGo is the Go parser, the test-only reference of capstone S2d
+// (TestDecodeAgreesWithGo, TestParseAgreesWithGo), deleted in S2e.
+func parseGo(src string) (file *File, err error) {
 	s := scan(src)
 	p := &parser{s: s, src: src, toks: s.toks}
 	p.groupComments()
@@ -78,9 +63,6 @@ type parser struct {
 	// derived holds the declarations derived from the refinement just
 	// parsed (refine.go), which parseFile places after its type.
 	derived []Decl
-	// retype, when set, gives again's fresh copy of a type: the decoder
-	// (decode.go) has tokens and rows, no parse to rewind.
-	retype func(Expr) Expr
 }
 
 // ---------------------------------------------------------------- tokens and errors
@@ -437,7 +419,7 @@ func (p *parser) parseFile() *File {
 		p.endDecl()
 	}
 	f.EOF = p.tok.pos
-	p.derivePairs(f)
+	derivePairs(f, p.src, p.again)
 	return f
 }
 

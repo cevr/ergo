@@ -25,7 +25,7 @@ func TestDecodeAgreesWithGo(t *testing.T) {
 	}
 	failures := 0
 	for _, in := range inputs {
-		want, werr := Parse(in.src)
+		want, werr := parseGo(in.src)
 		got, gerr := ParseRows(in.src)
 		var diff string
 		switch {

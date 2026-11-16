@@ -8,17 +8,6 @@ import (
 	"unicode/utf8"
 )
 
-// token is one lexical token. lit is the source text of identifiers,
-// literals, paths and string segments (carriage returns removed from raw
-// strings, as go/scanner does), and ";" or "\n" for an explicit or inserted
-// semicolon.
-type token struct {
-	tok Token
-	pos Pos
-	end Pos
-	lit string
-}
-
 // durationUnits are the duration literal suffixes (grammar.md, Literals).
 var durationUnits = map[string]bool{"ns": true, "us": true, "ms": true, "s": true, "m": true, "h": true}
 

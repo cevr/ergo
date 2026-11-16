@@ -1,10 +1,29 @@
 import compiler/syntax
+import slices
 import strconv
 
 // Columns is the parse of src as syntax.Columns packs it: the token
 // columns, the rows, the extra pool, the comments and their groups, for
 // the Go decoder (internal/sketch/syntax/decode.go).
 func Columns(src string) []uint32 { syntax.Columns(syntax.Parse(src)) }
+
+// Tokens is the scan of src alone, for a host that reads tokens and no
+// tree (syntax.TokenText, WhereText): kind, start and end per token, a
+// failed scan's ILLEGAL and EOF included.
+func Tokens(src string) []uint32 {
+	let t = syntax.Scan(src).Toks
+	let n = syntax.NumToks(t)
+	let mut out = slices.WithCapacity[uint32](3 * n)
+	for i in 0..n {
+		let id = syntax.TokAt(t, i)
+		let k = syntax.Kind(t, id)
+		let start = syntax.Start(t, id)
+		out = out.Append(uint32(k))
+		out = out.Append(uint32(start))
+		out = out.Append(uint32(syntax.End(src, k, start)))
+	}
+	out
+}
 
 // Failure is the failure of the parse of src, "" when it parses:
 // "code offset length line column " and the message, the fields of the Go
