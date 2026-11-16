@@ -195,7 +195,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		// stands for n (IRG4: a std record such as os.Exit), as fieldName.
 		td := b.l.typeDecl(n.Obj, x)
 		if td.goError {
-			return b.goErrorText(x, p) // ir_golib.go
+			return b.goErrorText(x, td, p) // ir_golib.go
 		}
 		field, ok := td.fieldName[x.Sel.Name]
 		if !ok {

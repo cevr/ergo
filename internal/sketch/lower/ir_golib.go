@@ -11,6 +11,7 @@
 package lower
 
 import (
+	"reflect"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -367,13 +368,35 @@ func (b *irBuilder) goErrorLit(x *syntax.CompositeLit, t check.Type, p irPos) *i
 	return nil
 }
 
-// goErrorText is e.Text, a go.Error's text: the method that computes it
-// from the Go error it keeps (IG5: read when read, never at the failure).
-func (b *irBuilder) goErrorText(x *syntax.SelectorExpr, p irPos) *irExpr {
-	if x.Sel.Name != "Text" {
+// goErrorText is e.Text, a go.Error's field read through td, the
+// declaration goErrorDecl writes: the method its fieldName names, which
+// computes the text from the Go error it keeps (IG5: read when read,
+// never at the failure).
+func (b *irBuilder) goErrorText(x *syntax.SelectorExpr, td *typeDecl, p irPos) *irExpr {
+	m, ok := strings.CutSuffix(td.fieldName[x.Sel.Name], "()")
+	if !ok {
 		irNo("selector that is not a field")
 	}
-	return &irExpr{K: "mcall", Pos: b.pos(x.Sel, x.Sel.Pos()), Name: "Text", X: b.expr(x.X)}
+	return &irExpr{K: "mcall", Pos: b.pos(x.Sel, x.Sel.Pos()), Name: m, X: b.expr(x.X)}
+}
+
+// monoName is the Go name of the monomorphic copy of f whose body b builds
+// (mono.go monoFor: emitBody writes its head as sp.name), or "" for f's
+// own body. A copy's funcCtx takes the copy's type arguments, the same
+// map (fc.params = sp.typeArgs), which names the copy. Without it the
+// copy's IR body took f's name, a second body for f (FORK-GOLIB: snake's
+// machines.Next and NextMono_i1).
+func (b *irBuilder) monoName(f *check.Func) string {
+	if !b.fc.mono || b.fc.params == nil {
+		return ""
+	}
+	at := reflect.ValueOf(b.fc.params).Pointer()
+	for key, sp := range b.l.monos {
+		if key.f == f && sp.typeArgs != nil && reflect.ValueOf(sp.typeArgs).Pointer() == at {
+			return sp.name
+		}
+	}
+	return ""
 }
 
 // nicheOption reports t, an Option of a go.Ref whose Go value is the

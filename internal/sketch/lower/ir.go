@@ -430,6 +430,9 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	if n := b.copyName(f); n != "" {
 		name = n // a copy for a known record (ir_known.go)
 	}
+	if n := b.monoName(f); n != "" {
+		name = n // a monomorphic copy (mono.go; ir_golib.go)
+	}
 	pkg := ""
 	if f.Pkg != nil {
 		pkg = f.Pkg.Path
