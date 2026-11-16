@@ -13,7 +13,7 @@ import (
 // maps.Equal on the same values) expects, and every comparing function
 // has an IR body. The model, not the other path, is the reference: both
 // paths call one equality function per type (equal.go), so a fault in it
-// shows only against the model (mutant equal-slice-length-skipped). A
+// shows only against the model (mutant f7cs-equal-slice-length-skipped). A
 // failing seed prints the Ergo source, the outputs and its replay command.
 //
 // It builds Go because the IR body's call of the equality function is
