@@ -1,0 +1,38 @@
+// The smallest repro of non-monotonic scope positions (wf10 IRFIX-SCOPE,
+// pipeline's drive): a loop-carried union local in the scalar form,
+// assigned a match, is taken apart by a type switch the builder placed at
+// the assignment's start, before the match's own end; gc's DWARF scope
+// marker stopped with "internal compiler error: non-monotonic scope
+// positions".
+
+// Desk holds itself (Idle's Prev), so it is a Go interface, not a flat union.
+type Desk = Busy{N int} | Idle{Done int, Prev Option[Desk]}
+
+func step(d Desk) Desk {
+	match d {
+	case Busy as b:
+		if b.N > 0 { Busy{N: b.N - 1} } else { Idle{Done: 1, Prev: None} }
+	case Idle as i:
+		Idle{Done: i.Done, Prev: i.Prev}
+	}
+}
+
+func drive(d Desk) int {
+	let mut at = d
+	let mut n = 0
+	for {
+		let k = match at {
+		case Busy as b:
+			b.N
+		case Idle:
+			return n
+		}
+		n = n + k
+		at = match step(at) {
+		case Busy as b:
+			Busy{N: b.N}
+		case Idle as i:
+			Idle{Done: i.Done, Prev: i.Prev}
+		}
+	}
+}
