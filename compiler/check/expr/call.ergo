@@ -140,8 +140,7 @@ func call(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], c syntax.Cal
 			if isSome(dense.Unpack(dense.SideOf(t.defs, d.At))) {
 				-1
 			} else {
-				let (df, dn) = bind.RowOf(k.Ps, d.At)
-				FnAt(k, df, syntax.NodeAt(k.Parsed[df].Tree, dn))
+				fnOf(k, t, d.At)
 			}
 		case _:
 			-1
@@ -259,12 +258,12 @@ func generic(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], c syntax.
 func recordOf(s store.Store, k Pkg, ty dense.ID[store.TKey]) (int, []dense.ID[store.TKey]) {
 	let kind = store.KindOfType(s, ty)
 	if kind == store.KNamed {
-		return (recOf(k, store.TypeNameText(s, store.ArgOf(s, ty))), []dense.ID[store.TKey]{})
+		return (recOf(s, k, store.TypeNameText(s, store.ArgOf(s, ty))), []dense.ID[store.TKey]{})
 	}
 	if kind == store.KInstance {
 		let o = store.OriginOfType(s, ty)
 		if int(o.Import) == 0 {
-			return (recOf(k, store.DeclText(s, int(o.Decl))), store.OperandsOf(s, ty))
+			return (recOf(s, k, store.DeclText(s, int(o.Decl))), store.OperandsOf(s, ty))
 		}
 	}
 	(-1, []dense.ID[store.TKey]{})

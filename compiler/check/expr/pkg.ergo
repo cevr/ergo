@@ -52,6 +52,8 @@ type Pkg {
 	Foreign []types.Foreign,
 	Fns     []Fn,
 	Recs    []Rec,
+	fnBy    dense.Side[store.PNode, int],
+	recBy   dense.Side[store.Decl, int],
 }
 
 // paramNames is the name node of each parameter of the function type ft,
@@ -210,26 +212,34 @@ func Load(s *store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ext [
 			recs = recs.Append(Rec{Name: r.Name, Params: r.Params, Fields: fieldsOf(s, env, p, r.Fields)})
 		}
 	}
-	Pkg{Files: files, Parsed: parsed, U: u, Ps: ps, Kinds: kinds, Ext: ext, Foreign: foreign, Fns: fns, Recs: recs}
-}
-
-// FnAt is the index in k.Fns of the function whose name node is at in
-// file, -1 when none is.
-func FnAt(k Pkg, file int, at dense.ID[syntax.Node]) int {
-	for i, f in k.Fns {
-		if f.File == file && f.Name == at {
-			return i
+	// The functions by their name's node and the records by their
+	// declaration: a lookup per expression reads one slot, so typing a
+	// body costs the same in a package of any size.
+	let mut fnBy = dense.NewSide[store.PNode, int](-1)
+	for i, f in fns {
+		dense.SideSet(&fnBy, bind.PNodeOf(ps, f.File, f.Name), i)
+	}
+	let mut recBy = dense.NewSide[store.Decl, int](-1)
+	for i, r in recs {
+		match store.Lookup(*s, r.Name) {
+		case Some[dense.ID[store.Decl]] as d:
+			dense.SideSet(&recBy, d.Value, i)
+		case None:
 		}
 	}
-	-1
+	Pkg{Files: files, Parsed: parsed, U: u, Ps: ps, Kinds: kinds, Ext: ext, Foreign: foreign, Fns: fns, Recs: recs, fnBy: fnBy, recBy: recBy}
 }
+
+// FnAt is the index in k.Fns of the function whose name node is the
+// package node at, -1 when none is.
+func FnAt(k Pkg, at dense.ID[store.PNode]) int { dense.SideOf(k.fnBy, at) }
 
 // recOf is the index in k.Recs of the record named name, -1 when none is.
-func recOf(k Pkg, name string) int {
-	for i, r in k.Recs {
-		if r.Name == name {
-			return i
-		}
+func recOf(s store.Store, k Pkg, name string) int {
+	match store.Lookup(s, name) {
+	case Some[dense.ID[store.Decl]] as d:
+		dense.SideOf(k.recBy, d.Value)
+	case None:
+		-1
 	}
-	-1
 }

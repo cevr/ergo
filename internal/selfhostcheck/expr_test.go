@@ -14,6 +14,18 @@ import (
 	"ergo.local/prototype/internal/testwait"
 )
 
+// TestCompilerExprLawsRun runs the laws of compiler/check/expr (capstone
+// S3d) through `ergo test`: the counted guard
+// TyperWorkPerFunctionIsConstant.
+//
+// It builds Go because `ergo test` lowers the laws into a test program and
+// runs it: the check-time evaluator runs an operation type's laws, not a
+// package's top-level laws, so no in-process check runs these.
+func TestCompilerExprLawsRun(t *testing.T) {
+	needsBuild(t)
+	runCompilerLaws(t, "./check/expr")
+}
+
 // TestCompilerExprAgreesWithChecker is S3d's expression agreement: over
 // every package folder of examples/ and std the Go checker checks, each
 // expression compiler/check/expr types (cmd/exprdump) has the type the Go

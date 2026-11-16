@@ -43,6 +43,18 @@ type Typer {
 	file    int,
 	fn      int,
 	res     Option[dense.ID[store.TKey]],
+	steps   int,
+}
+
+// Steps is the typer's work: one step per expression typed and per
+// declaration looked up (the counted guard's counter).
+func Steps(t Typer) int { t.steps }
+
+// fnOf is the index in k.Fns of the function declared at the package node
+// at, -1 when none is.
+func fnOf(k Pkg, t *Typer, at dense.ID[store.PNode]) int {
+	t.steps = t.steps + 1
+	FnAt(k, at)
 }
 
 // The basic ordinals of types.BasicName.
@@ -71,7 +83,7 @@ func basic(s store.Store, ty dense.ID[store.TKey]) int {
 
 // Check types every function body of k.
 func Check(s *store.Store, k Pkg) Typer {
-	let mut t = Typer{Entries: []Entry{}, Insts: []Inst{}, defs: dense.NewSide[store.PNode, dense.Opt[store.TKey]](dense.NoID[store.TKey]()), frame: infer.NewFrame(), file: 0, fn: 0, res: None}
+	let mut t = Typer{Entries: []Entry{}, Insts: []Inst{}, defs: dense.NewSide[store.PNode, dense.Opt[store.TKey]](dense.NoID[store.TKey]()), frame: infer.NewFrame(), file: 0, fn: 0, res: None, steps: 0}
 	for i, f in k.Fns {
 		match dense.Unpack(f.Body) {
 		case Some[dense.ID[syntax.Node]] as b:
@@ -557,6 +569,7 @@ func constType(s *store.Store, k Pkg, t Typer, x dense.ID[syntax.Node], w Want) 
 
 // expr types x in want, records its type when known, and returns it.
 func expr(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], w Want) Option[dense.ID[store.TKey]] {
+	t.steps = t.steps + 1
 	let ty = exprType(s, k, t, x, w)
 	match ty {
 	case Some[dense.ID[store.TKey]] as r:
@@ -586,7 +599,7 @@ func exprType(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], w Want) 
 	}
 	match syntax.ViewOf(tr, x) {
 	case syntax.Name:
-		ident(s, k, *t, x)
+		ident(s, k, t, x)
 	case syntax.ParenExpr as pe:
 		expr(s, k, t, pe.X, w)
 	case syntax.UnaryExpr as u:
@@ -713,17 +726,15 @@ func binary(s *store.Store, k Pkg, t *Typer, b syntax.BinaryExpr, w Want) Option
 
 // ident is the type of the name x: a parameter's, a local's, a function's
 // (not a generic one's: its instance is the call's), true or false.
-func ident(s *store.Store, k Pkg, t Typer, x dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
-	match bind.ResolutionOf(k.U, k.Ps, pnode(k, t, x)) {
+func ident(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
+	match bind.ResolutionOf(k.U, k.Ps, pnode(k, *t, x)) {
 	case bind.Declared as d:
 		match dense.Unpack(dense.SideOf(t.defs, d.At)) {
 		case Some[dense.ID[store.TKey]] as ty:
 			return ty
 		case None:
 		}
-		let (df, dn) = bind.RowOf(k.Ps, d.At)
-		let at = syntax.NodeAt(k.Parsed[df].Tree, dn)
-		let f = FnAt(k, df, at)
+		let f = fnOf(k, t, d.At)
 		if f >= 0 && len(k.Fns[f].Params) == 0 {
 			return some(k.Fns[f].Sig)
 		}
