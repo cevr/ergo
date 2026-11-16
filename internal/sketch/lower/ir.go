@@ -405,6 +405,7 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	if drop {
 		name = fd.dropped
 	}
+	name = b.ownedBodyName(fd, name, drop) // ir_own.go
 	if fd.method != nil {
 		name = fd.method.name + "." + name
 	}
@@ -484,6 +485,7 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 		b.fn.Body = append(b.fn.Body, b.poll(f.Decl))
 	}
 	b.fn.Body = append(b.fn.Body, b.bodyStmts(f.Decl.Body.List)...) // ir_fail.go
+	b.part(b.ownVisited)                                            // ir_own.go
 	b.fn.Body = append(b.fn.Body, b.bodyEnd(b.fn.Body, b.fn.End)...)
 	b.fn.Body = irScopesIncrease(irUseLocals(b.fn.Body)) // ir_end.go
 	if st.census != nil {

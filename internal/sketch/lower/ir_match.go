@@ -174,7 +174,7 @@ func (b *irBuilder) typeMatch(s *syntax.TypeSwitchStmt, ret bool, to *yieldTo) [
 			}
 			c.Body = append(c.Body, &irStmt{K: "def", Pos: cp, Local: name, X: val})
 		}
-		c.Body = append(c.Body, b.arm(cl.Body, ret, to)...)
+		c.Body = append(c.Body, b.scoped(cl, b.arm(cl.Body, ret, to), cp)...) // ir_own.go
 		if def {
 			// The emitter writes default: for the whole case.
 			if hasDefault {
@@ -252,7 +252,7 @@ func (b *irBuilder) valueMatch(s *syntax.SwitchStmt, ret bool, to *yieldTo) []*i
 				irNo("value case that is not a literal")
 			}
 		}
-		c.Body = b.arm(cl.Body, ret, to)
+		c.Body = b.scoped(cl, b.arm(cl.Body, ret, to), b.pos(cl, cl.Pos())) // ir_own.go
 		if def {
 			// The emitter writes default: for the whole case.
 			if hasDefault {

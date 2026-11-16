@@ -130,8 +130,6 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		switch {
 		case fd.extern != "" && !intrinsic:
 			irNo("call of an extern function")
-		case len(b.l.ownedParams(f)) > 0:
-			irNo("call that passes owned values")
 		case len(witnessParams(f.Sig)) > 0:
 			irNo("call that passes witnesses")
 		case c.Site != nil:
@@ -173,7 +171,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 			irArgs = append(irArgs[:at:at], append([]*irExpr{env}, irArgs[at:]...)...)
 		}
 		if fd.method != nil {
-			return pre, &irExpr{K: "mcall", Pos: p, Name: fd.name, X: irArgs[0], Args: irArgs[1:]}, !fd.pure
+			return pre, &irExpr{K: "mcall", Pos: p, Name: b.ownedCallName(x, f, fd.name), X: irArgs[0], Args: irArgs[1:]}, !fd.pure
 		}
 		// Append is Go's builtin append on the value rule's operands
 		// (FLIP F3): Go then sees a place appended back to itself.
@@ -182,7 +180,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		}
 		// A generic function's call names its Go type arguments (the
 		// emitter's typeArgs), never left to Go's inference (ir_pkg.go).
-		return pre, &irExpr{K: "call", Pos: p, Name: fd.name, T: b.typeArgs(c, x), Args: irArgs}, !fd.pure
+		return pre, &irExpr{K: "call", Pos: p, Name: b.ownedCallName(x, f, fd.name), T: b.typeArgs(c, x), Args: irArgs}, !fd.pure
 	case check.CallOp:
 		return b.opCall(x, c, p) // ir_pkg.go
 	case check.CallConversion:
