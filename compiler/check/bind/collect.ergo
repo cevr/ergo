@@ -6,6 +6,7 @@
 import compiler/check/store
 import compiler/syntax
 import dense
+import slices
 import strings
 
 // File is one parsed file of the package, with its name for dumps.
@@ -66,11 +67,60 @@ func declareAs(s *store.Store, p syntax.Parsed, f int, id dense.ID[syntax.Node],
 	let _ = store.Declare(s, n, f, dense.Index(id), o)
 }
 
+// declareImport puts the import of name text at row id of file f: imp is
+// its place in the store's import list plus one, 0 for a Go import.
+func declareImport(s *store.Store, f int, id dense.ID[syntax.Node], text string, imp int) {
+	if text == "_" {
+		return
+	}
+	let n = store.Name(s, text)
+	let _ = store.Declare(s, n, f, dense.Index(id), store.PkgNameObj{Row: store.PkgName{Name: n, Import: uint32(imp)}})
+}
+
+// importSpec is an import's path, the name it binds and whether it is a
+// Go import (import go PATH), which no Ergo package answers.
+type importSpec { path string, name string, isGo bool }
+
+func importOf(p syntax.Parsed, is syntax.ImportSpec) importSpec {
+	let path = strings.TrimRight(strings.TrimLeft(nodeText(p, is.Path), "\""), "\"")
+	let last = path[strings.LastIndex(path, "/")+1 : len(path)]
+	match dense.Unpack(is.Name) {
+	case Some[dense.ID[syntax.Node]] as n:
+		let alias = text(p, n.Value)
+		if alias == "go" { importSpec{path: path, name: last, isGo: true} } else { importSpec{path: path, name: alias, isGo: false} }
+	case None:
+		importSpec{path: path, name: last, isGo: false}
+	}
+}
+
+// Imports is the Ergo import paths of the package's files, sorted, once
+// each: the store's import list, whose place plus one is an XRef's import.
+func Imports(files []File) []string {
+	let mut out = []string{}
+	for file in files {
+		let p = file.Parsed
+		for d in topDecls(p) {
+			if syntax.KindOf(p.Tree, d) != syntax.KImportDecl {
+				continue
+			}
+			let spec = syntax.ImportDeclOf(p.Tree, d).Spec
+			if syntax.KindOf(p.Tree, spec) != syntax.KImportSpec {
+				continue
+			}
+			let im = importOf(p, syntax.ImportSpecOf(p.Tree, spec))
+			if !im.isGo && !slices.Contains(out, im.path) {
+				out = out.Append(im.path)
+			}
+		}
+	}
+	slices.Sort(out)
+}
+
 // Collect is the store of the package at path with each file's
 // package-level declarations, in file order then source order, each with
 // the prints of the top-level declaration it comes from (prints.ergo).
 func Collect(path string, files []File) store.Store {
-	let mut s = store.New(path, []string{})
+	let mut s = store.New(path, Imports(files))
 	for f, file in files {
 		for d in topDecls(file.Parsed) {
 			let from = store.NumDecls(s)
@@ -195,13 +245,15 @@ func collectDecl(s *store.Store, p syntax.Parsed, f int, d dense.ID[syntax.Node]
 		case syntax.ImportSpec as is:
 			// An import binds its name, or its path's last element, in
 			// the package scope; the Go checker records no Def for it.
-			match dense.Unpack(is.Name) {
+			let im = importOf(p, is)
+			let at = match dense.Unpack(is.Name) {
 			case Some[dense.ID[syntax.Node]] as n:
-				declare(s, p, f, n.Value, 8)
+				if im.isGo { is.Path } else { n.Value }
 			case None:
-				let path = strings.TrimRight(strings.TrimLeft(nodeText(p, is.Path), "\""), "\"")
-				declareAs(s, p, f, is.Path, path[strings.LastIndex(path, "/")+1:len(path)], 8)
+				is.Path
 			}
+			let imp = if im.isGo { 0 } else { store.ImportIndex(*s, im.path) + 1 }
+			declareImport(s, f, at, im.name, imp)
 		case _:
 		}
 	case _:

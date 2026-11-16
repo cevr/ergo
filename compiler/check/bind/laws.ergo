@@ -127,8 +127,8 @@ law JoinIsThreadFree(picks []int, t int, k int) {
 	let files = packageOf(picks.Append(2))
 	let s = Collect("p", files)
 	let ps = BuildParents(files)
-	let (s1, u1) = bindIn(s, ps, files, 1, 1)
-	let (sn, un) = bindIn(s, ps, files, 1+((t%8)+8)%8, 1+((k%16)+16)%16)
+	let (s1, u1) = bindIn(s, []store.Frozen{}, ps, files, 1, 1)
+	let (sn, un) = bindIn(s, []store.Frozen{}, ps, files, 1+((t%8)+8)%8, 1+((k%16)+16)%16)
 	let mut ok = store.NumNames(s1) == store.NumNames(sn)
 	let mut locals = 0
 	for f, file in files {

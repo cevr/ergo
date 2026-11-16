@@ -13,7 +13,8 @@ The binary holds these packages through `internal/linked` (`docs/tooling.md`, Li
 - `syntax/dump/` (pure): `Scan(src)` and `Parse(src)`, the canonical dumps of one scan and one parse (the parse through the view). They are the linked package `internal/linked/syntax` (the row `syntax` of `linked.Packages`), which `internal/sketch/syntax`'s `TestScanAgreesWithGo` and `TestParseAgreesWithGo` compare in process with the Go scanner and parser.
 - `check/store/` (pure): the self-hosted checker's tables (capstone S3a): id spaces, object tables, the package scope, the type pool, the declarations with their fingerprints (`Prints`: `Fp` over a declaration's tokens, `Ifp` over what an importer sees), each file with its laws.
 - `check/bind/` (pure): collect and bind on the store (capstone S3b). `collect.ergo` puts each file's package-level declarations into the store; `parents.ergo` is the parent column over the package's rows (`PNode` = file base + row), with each row's children; `bodies.ergo` resolves every identifier (`Uses`) and marks the body's declarations (locals and laws) on one undo stack (`dense.Stack`), as body tasks (capstone S3c: `Bind` cuts the top-level rows into pieces, runs them through `tasks.Transform`, each into its own `Body` with a names overlay, and `Join` merges them in row order, so the result is the same at any thread count, law `JoinIsThreadFree`); `prints.ergo` gives each declaration its prints. `internal/selfhostcheck`'s `TestCompilerBindAgreesWithChecker` holds Uses and Defs equal to the Go checker's over the corpus.
-- `cmd/binddump`: prints bind's declarations, uses (`-uses`), declarations with locals (`-locals`) or locals' name ids (`-names`) of the named files, the agreement test's dump; `-threads N` binds on up to N tasks.
+- `check/task/` (pure): package tasks (capstone S3c2). `Check` runs a program's packages in waves, a package once every package it imports has frozen its store (`store.Freeze`, the interface importers read with no lock), each wave's packages as tasks; a selector into an import resolves to an `XRef` (the import's place in the sorted import list plus one, and its `Decl`). Laws `ImportsNameTheirDeclarations`, `ProgramIsThreadFree`.
+- `cmd/binddump`: prints bind's declarations, uses (`-uses`), declarations with locals (`-locals`) or locals' name ids (`-names`) of the named files, the agreement test's dump; `-threads N` binds on up to N tasks; `-std DIR` loads the imports (the module's folders, its go.mod's local replaces, then DIR).
 - `cmd/parsedump`, `cmd/scandump`: print the dumps of the named files, one `F path` line before each, and with `-n` the counts the receipts use.
 
 ## Run
@@ -24,8 +25,9 @@ ergo test compiler/format
 ergo test compiler/syntax
 ergo test compiler/check/store
 ergo test compiler/check/bind
+ergo test compiler/check/task
 go test -count=1 -run '^Test(Scan|Parse)AgreesWithGo$' ./internal/sketch/syntax
 ERGO_SELFHOST_SEED=1 go test -count=1 -run '^TestSelfhost(BridgeAgrees|FormatAgrees|LayoutModel)$' ./internal/selfhostcheck
-ERGO_TEST_CLI=bin/ergo go test -count=1 -run '^TestCompiler(Store|Bind)' ./internal/selfhostcheck
+ERGO_TEST_CLI=bin/ergo go test -count=1 -run '^TestCompiler(Store|Bind|Task)' ./internal/selfhostcheck
 go run ./scripts/linked
 ```
