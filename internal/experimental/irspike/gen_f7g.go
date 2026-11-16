@@ -13,9 +13,78 @@ import (
 // poll); impure calls (tr prints its argument) inside an expression,
 // after an operand that may be a defect, in conditions and in for-in
 // domains.
+//
+// Every form is reached by construction: seed s writes a function
+// `forced` whose body is form OrderForm(s) of orderForms, so the seeds
+// 0..len(orderForms)-1 write each form at least once, whatever the
+// random statements draw.
 func GenerateOrder(seed uint64) string {
-	g := &fgen{r: rand.New(rand.NewPCG(seed, seed^0x6f7264657267656e)), order: true}
+	g := &fgen{r: rand.New(rand.NewPCG(seed, seed^0x6f7264657267656e)), order: true, force: OrderForm(seed)}
 	return g.program()
+}
+
+// orderForm is one form of GenerateOrder: the statement kind of orderStmt
+// that writes it and the sub-choices (sub) that pick it within the kind.
+type orderForm struct {
+	name string
+	kind int
+	subs map[string]int
+}
+
+// orderForms is the schedule of forms the forced functions write.
+var orderForms = []orderForm{
+	{"continue", 0, nil},
+	{"call inside an expression", 2, map[string]int{"calls2": 3}},
+	{"short-circuit operand with a call", 2, map[string]int{"calls2": 3, "expr": 6}},
+	{"for-in over a call", 5, nil},
+	{"loop condition with a call", 4, nil},
+	{"try of a non-call", 7, map[string]int{"try7": 1}},
+	{"try inside an expression", 8, nil},
+	{"catch arm that continues", 9, map[string]int{"try9": 1, "try9loop": 0}},
+	{"catch arm whose value is an if", 9, map[string]int{"try9": 1, "try9loop": 1}},
+	{"positional record literal", 2, map[string]int{"calls2": 0}},
+	{"fallible call with an empty row", 2, map[string]int{"calls2": 1}},
+	{"call of gate", 7, map[string]int{"try7": 0}},
+	{"catch of a match", 9, map[string]int{"try9": 0}},
+	{"op-assignment of a value with statements", 3, map[string]int{"calls3": 0}},
+}
+
+// OrderForm is the index in orderForms of the form seed's forced
+// function writes.
+func OrderForm(seed uint64) int { return int(seed % uint64(len(orderForms))) }
+
+// OrderFormName is the name of the form seed's forced function writes.
+func OrderFormName(seed uint64) string { return orderForms[OrderForm(seed)].name }
+
+// sub draws a sub-choice of n named id: the forced function's choice
+// while it is written, else a random one.
+func (g *fgen) sub(id string, n int) int {
+	if c, ok := g.forced[id]; ok {
+		return c
+	}
+	return g.n(n)
+}
+
+// forcedFunction writes `forced`, whose body is the seed's form, and
+// which main calls like the others: it fails E1 and prints, so each form
+// has what it needs.
+func (g *fgen) forcedFunction() {
+	form := orderForms[g.force]
+	f := ffunc{name: "forced", params: 2, row: []string{"E1"}, needs: []string{"Console"}}
+	g.cur = f
+	g.locals = []string{"p0", "p1"}
+	g.b.WriteString("func forced(p0 int, p1 int) int fails E1 needs Console {\n\tConsole.Println(\"forced\")\n")
+	g.forced = form.subs
+	if g.forced == nil {
+		g.forced = map[string]int{}
+	}
+	if !g.orderStmt("\t", 1, form.kind) {
+		panic("irspike: GenerateOrder's forced form " + form.name + " was not written")
+	}
+	g.forced = nil
+	g.tail()
+	g.b.WriteString("}\n\n")
+	g.funcs = append(g.funcs, f)
 }
 
 // orderKinds is the number of statement kinds orderStmt adds.
@@ -46,7 +115,7 @@ func (g *fgen) traced() string { return "tr(" + g.expr(1) + ")" }
 // literal, a short-circuit operand; an earlier operand may be a defect
 // (indexed) that must come before a later call's effect.
 func (g *fgen) orderExpr() string {
-	switch g.n(9) {
+	switch g.sub("expr", 9) {
 	case 0:
 		return g.indexed(2) + " + " + g.traced()
 	case 1:
@@ -136,7 +205,7 @@ func (g *fgen) tryStmt(in string, budget, k int) bool {
 	chk := func() string { return "chk(" + g.expr(1) + ")" }
 	switch {
 	case k == 7 && f.fails("E1"):
-		if slices.Contains(f.needs, "Console") && g.n(3) == 0 {
+		if slices.Contains(f.needs, "Console") && g.sub("try7", 3) == 0 {
 			fmt.Fprintf(&g.b, "%stry gate(%s)\n", in, g.expr(1))
 			return true
 		}
@@ -151,14 +220,14 @@ func (g *fgen) tryStmt(in string, budget, k int) bool {
 			g.shown(in, fmt.Sprintf("([]int{try %s, %s})[0]", chk(), g.local()))
 		}
 	case k == 9:
-		if g.n(3) == 0 {
+		if g.sub("try9", 3) == 0 {
 			// A catch of a match whose arms' tails are fallible calls.
 			arm := func() string { return fmt.Sprintf("%s\t\t%s\n", in, chk()) }
 			g.shown(in, fmt.Sprintf("match %s %% 3 {\n%s\tcase 0:\n%s%s\tcase 1:\n%s%s\tcase _:\n%s\t\t%s\n%s} catch {\n%s\tcase E1 as x:\n%s\t\tx.Code + 100\n%s}",
 				g.expr(1), in, arm(), in, arm(), in, in, g.local(), in, in, in, in))
 			return true
 		}
-		if budget > 0 && g.n(2) == 0 {
+		if budget > 0 && g.sub("try9loop", 2) == 0 {
 			// A catch arm that continues the loop: the catch has no
 			// value on that path.
 			v := fmt.Sprintf("x%d", len(g.locals))
@@ -187,7 +256,7 @@ func (g *fgen) callsStmt(in string, budget, k int) {
 	f := g.cur
 	switch k {
 	case 2:
-		switch g.n(4) {
+		switch g.sub("calls2", 4) {
 		case 0:
 			// Positional: each element sets the field of its place.
 			g.shown(in, fmt.Sprintf("(Pt{%s, %s}).B - (Pt{%s, %s}).A", g.indexed(3), g.traced(), g.local(), g.expr(1)))
@@ -199,7 +268,7 @@ func (g *fgen) callsStmt(in string, budget, k int) {
 		}
 		g.shown(in, g.orderExpr())
 	case 3:
-		if g.n(3) == 0 {
+		if g.sub("calls3", 3) == 0 {
 			// An op-assignment whose value runs statements, one of which
 			// assigns the target: the target is read first (old).
 			init := g.local()
