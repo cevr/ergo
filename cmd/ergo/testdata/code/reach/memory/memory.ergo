@@ -1,7 +1,7 @@
 import reachfix/store
 
 // Fixed holds one key, "a".
-type Fixed {}
+type Fixed {} implements store.Store
 
 func Get(_ Fixed, key string) string fails store.Missing {
 	if key != "a" {

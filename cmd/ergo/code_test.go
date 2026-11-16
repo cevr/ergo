@@ -98,6 +98,10 @@ func TestCodeAnswersAgreeWithTheTables(t *testing.T) {
 	r.Shuffle(len(programs), func(i, j int) { programs[i], programs[j] = programs[j], programs[i] })
 	perPackage := 2
 	for _, dir := range programs {
+		// A Go binary of an example (lintpack's policy-lint) has no Ergo.
+		if src, _ := filepath.Glob(filepath.Join(dir, "*.ergo")); len(src) == 0 {
+			continue
+		}
 		abs, err := filepath.Abs(dir)
 		if err != nil {
 			t.Fatal(err)
@@ -130,6 +134,9 @@ func agreeOnProgram(t *testing.T, a sketchfront.Analysis, r *rand.Rand, perPacka
 		for _, f := range p.Files {
 			syn[f.Rel] = f.Syntax
 			files = append(files, facts.File{Name: f.Rel, Syntax: f.Syntax})
+		}
+		if p.Package == nil {
+			fail("package %s does not check", p.Path)
 		}
 		tb, _ := facts.Build(p.Package, files)
 		tables = append(tables, tb)
@@ -613,6 +620,12 @@ func reachAgrees(t *testing.T, a sketchfront.Analysis, text string, r *rand.Rand
 				syntax.Inspect(fn.Decl, func(n syntax.Node) bool {
 					y, ok := n.(*syntax.CallExpr)
 					if !ok || info.Calls[y] == nil || info.Withs[y] != nil {
+						return true
+					}
+					// A call of no declared function (a builtin such as
+					// decode[T], a function value) has no address in the
+					// tables: what it raises, the function raises itself.
+					if info.Calls[y].Func == nil && info.Calls[y].Op == nil {
 						return true
 					}
 					if name := callName(y.Fun); name != nil {
