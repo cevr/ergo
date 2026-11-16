@@ -137,7 +137,7 @@ func call(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], c syntax.Cal
 	let callee = if syntax.KindOf(tr, fun) == syntax.KIdent {
 		match bind.ResolutionOf(k.U, k.Ps, pnode(k, *t, fun)) {
 		case bind.Declared as d:
-			if isSome(dense.Unpack(dense.SideOf(t.defs, d.At))) {
+			if isSome(dense.Unpack(dense.Of(t.defs, d.At))) {
 				-1
 			} else {
 				fnOf(k, t, d.At)
@@ -238,10 +238,14 @@ func generic(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], c syntax.
 		for i in 0..n {
 			let a = syntax.Item(tr, c.Args, i)
 			if isConst(k, *t, a) && i < len(params) {
-				expr(s, k, t, a, Exactly{T: infer.Unmarked(*s, store.TSubst(s, params[i], targs.Value))})
+				// The substitution writes the pool, so it runs before the
+				// store is read: read after, the store is not copied.
+				let p = store.TSubst(s, params[i], targs.Value)
+				expr(s, k, t, a, Exactly{T: infer.Unmarked(*s, p)})
 			}
 		}
-		resultOf(*s, store.TSubst(s, r, targs.Value))
+		let res = store.TSubst(s, r, targs.Value)
+		resultOf(*s, res)
 	case None:
 		for i in 0..n {
 			let a = syntax.Item(tr, c.Args, i)

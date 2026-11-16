@@ -10,6 +10,7 @@ import compiler/check/store
 import compiler/check/types
 import compiler/syntax
 import dense
+import slices
 
 // Want is what an expression's context tells it: nothing (a constant
 // takes its default type), a type it is assigned to (a constant of a
@@ -38,7 +39,7 @@ type Inst { At dense.ID[store.PNode], Args []dense.ID[store.TKey], Fn int }
 type Typer {
 	Entries []Entry,
 	Insts   []Inst,
-	defs    dense.Side[store.PNode, dense.Opt[store.TKey]],
+	defs    dense.Col[store.PNode, dense.Opt[store.TKey]],
 	frame   infer.Frame,
 	file    int,
 	fn      int,
@@ -83,7 +84,16 @@ func basic(s store.Store, ty dense.ID[store.TKey]) int {
 
 // Check types every function body of k.
 func Check(s *store.Store, k Pkg) Typer {
-	let mut t = Typer{Entries: []Entry{}, Insts: []Inst{}, defs: dense.NewSide[store.PNode, dense.Opt[store.TKey]](dense.NoID[store.TKey]()), frame: infer.NewFrame(), file: 0, fn: 0, res: None, steps: 0}
+	// Each table is sized once from the package's rows, so typing a
+	// function allocates the same bytes however large the package is: a
+	// row holds at most one entry and one local, a call at most one
+	// instance.
+	let (rows, calls) = sizes(k)
+	let mut defs = dense.ColWithCap[store.PNode, dense.Opt[store.TKey]](rows)
+	for _ in 0..rows {
+		dense.Push(&defs, dense.NoID[store.TKey]())
+	}
+	let mut t = Typer{Entries: slices.WithCapacity[Entry](rows), Insts: slices.WithCapacity[Inst](calls), defs: defs, frame: infer.NewFrame(), file: 0, fn: 0, res: None, steps: 0}
 	for i, f in k.Fns {
 		match dense.Unpack(f.Body) {
 		case Some[dense.ID[syntax.Node]] as b:
@@ -96,6 +106,25 @@ func Check(s *store.Store, k Pkg) Typer {
 		}
 	}
 	t
+}
+
+// sizes is the count of the package's rows (its files' nodes, end to end
+// as PNodes are) and of its calls.
+func sizes(k Pkg) (int, int) {
+	let mut rows = 0
+	let mut calls = 0
+	for p in k.Parsed {
+		if !p.Failed {
+			let n = syntax.NumNodes(p.Tree)
+			rows = rows + n
+			for i in 0..n {
+				if syntax.KindOf(p.Tree, syntax.NodeAt(p.Tree, i)) == syntax.KCallExpr {
+					calls = calls + 1
+				}
+			}
+		}
+	}
+	(rows, calls)
 }
 
 // sigResult is a signature's result type: none for none or several.
@@ -403,7 +432,7 @@ func stmt(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node]) {
 
 // def gives the local declared at the name node x the type ty.
 func def(k Pkg, t *Typer, x dense.ID[syntax.Node], ty dense.ID[store.TKey]) {
-	dense.SideSet(&t.defs, pnode(k, *t, x), dense.OptOf(ty))
+	dense.SetOf(&t.defs, pnode(k, *t, x), dense.OptOf(ty))
 }
 
 // letSpec types a let: its written type, or its value's.
@@ -729,7 +758,7 @@ func binary(s *store.Store, k Pkg, t *Typer, b syntax.BinaryExpr, w Want) Option
 func ident(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
 	match bind.ResolutionOf(k.U, k.Ps, pnode(k, *t, x)) {
 	case bind.Declared as d:
-		match dense.Unpack(dense.SideOf(t.defs, d.At)) {
+		match dense.Unpack(dense.Of(t.defs, d.At)) {
 		case Some[dense.ID[store.TKey]] as ty:
 			return ty
 		case None:
