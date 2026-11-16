@@ -431,8 +431,8 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	// itself (types2.Identical), where Go text would also assign a
 	// defined type to its underlying one: each must be spelled alike.
 	for i, q := range body.Params {
-		if q.Func != nil || q.Funcs != nil {
-			irNo("std call that adapts a function")
+		if adapted(q) {
+			continue // adaptOperands, ir_adapt.go
 		}
 		if !b.operandFits(x.Args[i], q.Type, subst) { // ir_operand.go
 			irNo("std call with a converted operand")
@@ -446,6 +446,7 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	}
 	hidden := b.hidden(body, x, c, p)
 	pre, args := b.operands(x.Args)
+	pre = append(pre, b.adaptOperands(body.Params, x.Args, args, 0, p)...) // ir_adapt.go
 	// A generic function stands in Go text only as an instance, whose type
 	// arguments may be the body's own type parameters: the import is
 	// kept by a variable of the runtime's Site type, which is not generic.
@@ -593,8 +594,8 @@ func (b *irBuilder) stdOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named,
 		irNo("std call with an adapted result")
 	}
 	for i, q := range body.Params {
-		if q.Func != nil || q.Funcs != nil {
-			irNo("std call that adapts a function")
+		if adapted(q) {
+			continue // adaptOperands, ir_adapt.go
 		}
 		if !b.operandFits(x.Args[i], b.recvTypeArgs(n, q.Type), nil) { // ir_operand.go
 			irNo("std call with a converted operand")
@@ -608,6 +609,7 @@ func (b *irBuilder) stdOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named,
 	}
 	hidden := b.hidden(body, x, c, p)
 	pre, vals := b.operands(append([]syntax.Expr{c.Recv}, x.Args...))
+	pre = append(pre, b.adaptOperands(body.Params, x.Args, vals, 1, p)...) // ir_adapt.go
 	return pre, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: vals[0], Args: append(hidden, vals[1:]...)}, !body.Pure
 }
 
