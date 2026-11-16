@@ -116,9 +116,9 @@ func (e *shippedEvidence) funcVerdict(law *check.Law) funcVerdict {
 }
 
 // judgeFunc is the one judgement of a top-level law's entry: missing,
-// stale, refuted (refuse is called), a level admitLevel refuses, or
+// stale, refuted (onRefuted is called), a level admitLevel refuses, or
 // admitted.
-func judgeFunc(key string, entry LedgerEntry, found bool, digest, with, ledger string, refuse func()) funcVerdict {
+func judgeFunc(key string, entry LedgerEntry, found bool, digest, with, ledger string, onRefuted func()) funcVerdict {
 	v := funcVerdict{Key: key, Verdict: entry.Verdict, By: entry.By, With: with, State: "current"}
 	switch {
 	case !found:
@@ -130,7 +130,7 @@ func judgeFunc(key string, entry LedgerEntry, found bool, digest, with, ledger s
 		}
 	case entry.Verdict == "refuted":
 		v.Why = "law " + key + " is refuted"
-		refuse()
+		onRefuted()
 	case !admitLevel(entry.Verdict, entry.By, lawRewriteClass):
 		v.Why = "law " + key + " is " + entry.Verdict + ", and only a proved law or one validated by a named run changes code"
 	default:
