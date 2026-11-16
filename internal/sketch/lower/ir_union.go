@@ -117,6 +117,12 @@ func (b *irBuilder) implicit(x syntax.Expr, e *irExpr) *irExpr {
 	if !ok || e == nil {
 		return e
 	}
+	return b.convert(conv, e, x)
+}
+
+// convert is e after the conversion conv, made at x (the emitter's
+// convert): x's implicit one, or an element's (Info.ImplicitElems).
+func (b *irBuilder) convert(conv check.Conversion, e *irExpr, x syntax.Expr) *irExpr {
 	switch conv.Kind {
 	case 0:
 		return e

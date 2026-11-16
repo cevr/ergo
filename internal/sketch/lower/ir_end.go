@@ -18,7 +18,15 @@ package lower
 //   - every local is read: a local declared and only written (a match's
 //     binding that one case does not read, a catch's value a let _
 //     drops, a scalar slot) gets `_ = x` after its declaration, as the
-//     emitter writes it.
+//     emitter writes it;
+//   - the positions where a block, a loop, an if or a switch opens and
+//     closes a scope increase through the body, in the order Go's unified
+//     writer meets them (gc's dwarfgen ScopeMarker: "non-monotonic scope
+//     positions" is an internal compiler error). The builder places a
+//     statement the lowering adds after a nested one (a scatter after the
+//     match it takes apart) at its source statement's start, which is
+//     before that nested statement's end; irScopesIncrease moves such a
+//     position up to the last one before it (IRFIX-SCOPE).
 
 // irTerminates reports a terminating statement.
 func irTerminates(s *irStmt) bool {
@@ -144,4 +152,66 @@ func irUseLocals(body []*irStmt) []*irStmt {
 		return out
 	}
 	return mark(body)
+}
+
+// irScopesIncrease makes the scope positions of body increase, in the
+// decoder's order: an if opens at Pos, its then block ends at End and its
+// else block runs ElsePos..ElseEnd; a switch opens at Pos, each clause at
+// its Pos (a default without a case of its own at ElsePos, last) and it
+// closes at End; a loop or a block runs Pos..End. A position before the
+// last one met, in the same file, becomes that one. A function literal's
+// body is a function of its own (its own scope marks).
+func irScopesIncrease(body []*irStmt) []*irStmt {
+	var last irPos
+	at := func(p *irPos) {
+		if p[0] == last[0] && (p[1] < last[1] || p[1] == last[1] && p[2] < last[2]) {
+			*p = last
+		}
+		last = *p
+	}
+	var stmts func(list []*irStmt)
+	stmts = func(list []*irStmt) {
+		for _, s := range list {
+			irLiterals(s, func(e *irExpr) {
+				saved := last
+				last = irPos{}
+				stmts(e.Body)
+				last = saved
+			})
+			switch s.K {
+			case "if":
+				at(&s.Pos)
+				stmts(s.Then)
+				at(&s.End)
+				if s.Else != nil {
+					at(&s.ElsePos)
+					stmts(s.Else)
+					at(&s.ElseEnd)
+				}
+			case "switch", "tswitch":
+				at(&s.Pos)
+				def := false
+				for _, c := range s.Cases {
+					at(&c.Pos)
+					def = def || c.Def
+					stmts(c.Body)
+				}
+				if !def {
+					at(&s.ElsePos)
+					stmts(s.Else)
+				}
+				at(&s.End)
+			case "while", "count", "range", "block":
+				at(&s.Pos)
+				stmts(s.Body)
+				at(&s.End)
+			default:
+				stmts(s.Then)
+				stmts(s.Else)
+				stmts(s.Body)
+			}
+		}
+	}
+	stmts(body)
+	return body
 }
