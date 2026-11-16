@@ -65,6 +65,9 @@ func TestNativesAgreeWithRuntime(t *testing.T) {
 			in.steps, in.bytes = 0, 0
 			nat := natives[c.name]
 			if nat == nil {
+				nat = goNatives[c.name]
+			}
+			if nat == nil {
 				t.Fatalf("no native %s", c.name)
 			}
 			fn := funcs[c.name]
@@ -294,10 +297,10 @@ func nativeCases(g nativeGen) []nativeCase {
 		{name: "strings.EqualFold", args: []Value{s, u}, v1: func() any { return v1.StringsEqualFold(s, u) }},
 		{name: "strings.ContainsRune", args: []Value{s, rn}, v1: func() any { return v1.StringsContainsRune(s, rn) }},
 		{name: "strings.ToValidUTF8", args: []Value{s, u}, v1: func() any { return v1.StringsToValidUTF8(s, u) }},
-		{name: "utf8.RuneCount", args: []Value{s}, v1: func() any { return int64(v1.UTF8RuneCount(s)) }},
+		{name: "unicode/utf8.RuneCountInString", args: []Value{s}, v1: func() any { return int64(v1.UTF8RuneCount(s)) }},
 		{name: "utf8.RuneText", args: []Value{rn}, v1: func() any { return v1.UTF8RuneText(rn) }},
-		{name: "utf8.ValidString", args: []Value{s}, v1: func() any { return v1.UTF8ValidString(s) }},
-		{name: "utf8.ValidRune", args: []Value{rn}, v1: func() any { return v1.UTF8ValidRune(rn) }},
+		{name: "unicode/utf8.ValidString", args: []Value{s}, v1: func() any { return v1.UTF8ValidString(s) }},
+		{name: "unicode/utf8.ValidRune", args: []Value{rn}, v1: func() any { return v1.UTF8ValidRune(rn) }},
 		{name: "utf8.RuneLen", args: []Value{rn}, v1: func() any { return int64(v1.UTF8RuneLen(rn)) }},
 		{name: "utf8.DecodeRuneInString", args: []Value{s}, v1: func() any { return v1.UTF8DecodeRuneInString(s) }},
 		{name: "utf8.AppendRune", args: []Value{bytesValue(s), rn}, v1: func() any { return v1.UTF8AppendRune([]byte(s), rn) }},
