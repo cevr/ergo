@@ -701,7 +701,7 @@ func (c *checker) recordLegacyReleases() {
 			if it.Set != SetAll {
 				continue
 			}
-			if m := it.method("Close"); closeShape(m) && !m.Sig.Fallible && m.Sig.TakesSelf {
+			if m := it.method(c.closeName()); closeShape(m) && !m.Sig.Fallible && m.Sig.TakesSelf {
 				legacyRecord(LegacyPair{Type: tn, Pkg: c.pkg.Path, Op: cl, Include: true, Site: "release"})
 			}
 			continue

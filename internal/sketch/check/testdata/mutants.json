@@ -2128,8 +2128,8 @@
       "name": "L8-B2 a value with no release admitted",
       "origin": "wf10 L8 B2 (#197)",
       "file": "internal/sketch/check/ownership.go",
-      "from": "\tif d == nil {\n\t\tw.reportCode(at, CodeType,",
-      "to": "\tif d == nil && false {\n\t\tw.reportCode(at, CodeType,",
+      "from": "\tif d == nil {\n\t\trepair, ok := ",
+      "to": "\tif d == nil && false {\n\t\trepair, ok := ",
       "rule": "resources R1, R13: a value whose type keeps resources with no Close has no release, so it is refused, not leaked.",
       "killers": [
         "check:TestNoReleaseRefused"
@@ -3246,6 +3246,37 @@
     {"name":"lawloc-any-file","origin":"wf10 LAWLOC","file":"internal/sketch/check/lawplace.go","from":"\t\tif s.File == law.File() {","to":"\t\tif s.File != nil {","rule":"A top-level law stands in a file that declares one of its subjects, not in any file of its package (S115).","killers":["check:TestLawPlacement"]},
     {"name":"lawloc-helper-is-subject","origin":"wf10 LAWLOC","file":"internal/sketch/check/lawplace.go","from":"\t\t\tif helper[r.decl] {\n\t\t\t\tqueue = append(queue, r.decl)","to":"\t\t\tif false && helper[r.decl] {\n\t\t\t\tqueue = append(queue, r.decl)","rule":"A law helper is no subject, so a helper beside a law never places it; what the helper names is the law's subject.","killers":["check:TestLawPlacement"]},
     {"name":"lawloc-reports-over-errors","origin":"wf10 LAWLOC","file":"internal/sketch/check/lawplace.go","from":"if !c.placeLaws || len(c.diags) > 0 {","to":"if !c.placeLaws {","rule":"A package with another diagnostic gets no S115: an unresolved name is no subject (diagnostics.md, S115).","killers":["check:TestLawPlacement"]},
-    {"name":"gap17-law-silent","origin":"wf10/domain GAP17","file":"internal/sketch/check/laws.go","from":"\tif captured {\n\t\tlp.Unrun = ","to":"\tif captured {\n\t\treturn LawProvider{}, false\n\t\tlp.Unrun = ","rule":"types.md Laws 10: a Go-backed provider of a law is a skip with its reason, never dropped in silence (README Gap 17).","killers":["check:TestProviderBuildHoldsGoForeign"]}
+    {"name":"gap17-law-silent","origin":"wf10/domain GAP17","file":"internal/sketch/check/laws.go","from":"\tif captured {\n\t\tlp.Unrun = ","to":"\tif captured {\n\t\treturn LawProvider{}, false\n\t\tlp.Unrun = ","rule":"types.md Laws 10: a Go-backed provider of a law is a skip with its reason, never dropped in silence (README Gap 17).","killers":["check:TestProviderBuildHoldsGoForeign"]},
+    {
+      "name": "EX R22 repair names no declaration",
+      "origin": "wf10 EX R22TEXT",
+      "file": "internal/sketch/check/resource.go",
+      "from": "\tcase tn.Pkg == c.pkg && tn.Decl != nil && tn.file != nil:",
+      "to": "\tcase false:",
+      "rule": "resources R22: the refusal names the repair that applies, ..Closer at the operation type's declaration (file:line:col) when this package declares it.",
+      "killers": [
+        "check:TestR22NamesCloser"
+      ]
+    },
+    {
+      "name": "EX R13 repair names no declaration",
+      "origin": "wf10 EX R13TEXT",
+      "file": "internal/sketch/check/ownership.go",
+      "from": "\t\trepair, ok := w.c.closerRepair(bad)\n",
+      "to": "\t\trepair, ok := \"\", false\n",
+      "rule": "resources R1, R13: a value that keeps resources in an operation type with no release names the repair that applies, ..Closer at that type's declaration.",
+      "killers": [
+        "check:TestNoReleaseRefused"
+      ]
+    },
+    {"name":"exh1-append-escape","origin":"wf10 EXH1","file":"internal/sketch/check/handle.go","from":"\thow := h.how\n","to":"\thow := h.how\n\tif len(how) > 6 && how[len(how)-7:] == \"takes x\" {\n\t\treturn true\n\t}\n","rule":"A handle of a declared root does not leave it through a taking call (Append takes x) (resources R17, R39; EXH1).","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"exh1-let-alias","origin":"wf10 EXH1","file":"internal/sketch/check/ownership.go","from":"w.acquire(ownLocal{v: v, lent: true, from: from, handle: true})","to":"w.acquire(ownLocal{v: v, loanOnly: true, from: from})","rule":"A let of a declared root's handle lends it; handing the alias off is refused (resources R17; EXH1).","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"exh1-in-place-refused","origin":"wf10 EXH1","file":"internal/sketch/check/handle.go","from":"if w.writeBack != \"\" && exprText(x) == w.writeBack {","to":"if false {","rule":"A write back to the handle's own place (b.xs = b.xs.Append(x)) is admitted (EXH1).","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"exh1-option-unseen","origin":"wf10 EXH1","file":"internal/sketch/check/handle.go","from":"\t\tfor _, a := range t.TArgs {","to":"\t\tfor _, a := range t.TArgs[:0] {","rule":"A value holding a handle inside an Option is a handle (EXH1).","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"exh1-plain-as-handle","origin":"wf10 EXH1","file":"internal/sketch/check/handle.go","from":"\tcase *Interface:\n\t\treturn true\n\t}\n\treturn false\n}","to":"\tcase *Interface:\n\t\treturn true\n\t}\n\treturn true\n}","rule":"A plain field (an int) of a declared root is plain data, free to copy (EXH1).","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"exh1-update-lent","origin":"wf10 EXH1","file":"internal/sketch/check/ownership.go","from":"\t\t\tsrc = append(src, x.Base)\n\t\t}\n\t\tsrc = append(src, x.Elts...)","to":"\t\t}\n\t\tsrc = append(src, x.Elts...)","rule":"A record update moves its base whole, which a lent root cannot give (resources R17).","killers":[],"gap":"batch-22 merge (I22): HEAD's R39 refusal (writtenClose: no update or spread of a type with its own Close) reports every update of a declared root, lent or taken, so the base move is unobservable on that path; TestOwnershipFlowModel passes with the mutant (judged by hand 2026-11-16). A killer needs an update of a resource-holding record without its own Close under a lent root."},
+    {"name":"exh1-for-in-unseen","origin":"wf10 EXH1","file":"internal/sketch/check/ownership.go","from":"\t\t\tif handles && w.c.holdsHandle(v.Type) {","to":"\t\t\tif false && handles && w.c.holdsHandle(v.Type) {","rule":"A for-in over a declared root's handles lends each one (resources R35; EXH1).","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"exh1-match-unseen","origin":"wf10 EXH1","file":"internal/sketch/check/ownpattern.go","from":"\t\t\t\tlocal.handle = w.handleSource(subject)","to":"\t\t\t\tlocal.handle = false","rule":"A match arm binding a declared root's handle is lent (Gap 36; EXH1).","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"exh1-borrow-root-unseen","origin":"wf10 EXH1","file":"internal/sketch/check/handle.go","from":"func (c *checker) declaredRoot(t Type) bool {\n\tif p, ok := t.(*Pointer); ok {\n\t\tt = p.Elem\n\t}","to":"func (c *checker) declaredRoot(t Type) bool {","rule":"A *T borrow of a declared root is a declared root too (EXH1).","killers":["check:TestOwnershipFlowModel"]}
   ]
 }

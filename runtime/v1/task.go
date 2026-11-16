@@ -827,6 +827,29 @@ func OwningParts[T any](h *Owned, v T, rel func(T, uint64)) T {
 	return v
 }
 
+// OwningAt makes h's entry, just registered, release the value at p when
+// it runs, not the value it was registered with: an owned local that the
+// code writes in place, through a *T function or a field, is released
+// with its writes (EXH1; resources R17). The registration keeps the step
+// that receives the value (R8); this only moves where the release reads.
+//
+//ergo:wait none
+func OwningAt[T any](h *Owned, p *T, rel func(T)) {
+	if h != nil && h.e != nil {
+		h.e.own = func() { rel(*p) }
+	}
+}
+
+// OwningPartsAt is OwningAt for a generated release (OwningParts).
+//
+//ergo:wait none
+func OwningPartsAt[T any](h *Owned, p *T, rel func(T, uint64)) {
+	if h != nil && h.e != nil {
+		e := h.e
+		e.own = func() { rel(*p, e.taken) }
+	}
+}
+
 // TakeField marks field k of h's value taken in place: its owner's
 // release skips it. A value whose entry left the list ignores it.
 //

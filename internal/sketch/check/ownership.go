@@ -133,6 +133,9 @@ type ownLocal struct {
 	root     *Var
 	lendEnd  *lendPoint // a binding lent from a subject temporary
 	loanOnly bool
+	// handle marks a binding lent from a declared root's handle (P3,
+	// handle.go): its type need not hold a resource.
+	handle bool
 	// t is the type of a temporary that is no expression of the tree: a
 	// field an update replaces (Info.Replaced).
 	t Type
@@ -161,7 +164,7 @@ func (w *ownWalk) refuse(i int, at syntax.Node, what string, format string, args
 	if !w.st.reached {
 		return
 	}
-	if t := w.typ(w.vars[i]); w.genericOnly(t) {
+	if t := w.typ(w.vars[i]); !w.vars[i].handle && w.genericOnly(t) {
 		w.copySite(t, at, what, false)
 		return
 	}
@@ -224,6 +227,10 @@ type ownWalk struct {
 	vars  []ownLocal
 	slot  map[*Var]int
 	depth int
+	// writeBack is the place an assignment being evaluated writes, such
+	// as b.xs in `b.xs = b.xs.Append(x)`: its own handle written back is
+	// no second owner (P3, handle.go).
+	writeBack string
 	// first is the frame's first slot; name its function's name; nested
 	// the text naming a nested frame ("" for a declaration).
 	first        int
@@ -286,7 +293,7 @@ func (c *checker) checkOwnership() {
 					continue
 				}
 				w.fn = f
-				w.frame(d.Body, takesOf(f), w.paramVars(d.Recv, d.Type.Params), d.Name.Name, "", f.Name == "Close" && c.pkg.Info.Closes[d] != nil)
+				w.frame(d.Body, takesOf(f), w.paramVars(d.Recv, d.Type.Params), d.Name.Name, "", c.pkg.Info.Closes[d] != nil)
 			case *syntax.TestDecl:
 				w.frame(d.Body, nil, w.paramVars(nil, d.Params), d.Name.Name, "", false)
 			case *syntax.LawDecl:
@@ -516,7 +523,11 @@ func (w *ownWalk) owned(l ownLocal) {
 		return // a taken parameter whose type has no release: refused where it is made
 	}
 	if d == nil {
-		w.reportCode(at, CodeType, "%s has no release: it holds %s, an operation type that keeps the values it takes and has no Close() operation, so nothing could release them (resources R1, R13); give it a Close() operation", t, bad)
+		repair, ok := w.c.closerRepair(bad)
+		if !ok {
+			repair = "use an operation type that includes Closer"
+		}
+		w.reportCode(at, CodeType, "%s has no release: it holds %s, an operation type that keeps the values it takes and does not include Closer, so nothing could release them (resources R1, R13); %s", t, bad, repair)
 		return
 	}
 	if l.v != nil {
@@ -830,8 +841,17 @@ func (w *ownWalk) rangeBinds(s *syntax.RangeStmt) func() {
 		return func() { w.acquireParts(parts, ownLocal{}, loans, s.Value) }
 	}
 	var out []ownLocal
+	handles := w.handleSource(s.X)
 	for _, v := range lp.Bindings {
-		if v == nil || !w.tracked(v.Type) {
+		if v == nil {
+			continue
+		}
+		if !w.tracked(v.Type) {
+			if handles && w.c.holdsHandle(v.Type) {
+				// An element of a declared root's handles is lent from
+				// that root (P3, handle.go).
+				out = append(out, ownLocal{v: v, lent: true, from: exprText(s.X), handle: true})
+			}
 			continue
 		}
 		root, _, _ := w.placeRoot(s.X)
@@ -995,12 +1015,19 @@ func (w *ownWalk) letSpec(s syntax.Stmt, spec *syntax.VarSpec) {
 	}
 	var bound []*Var
 	loans := map[*Var][]resourceLoan{}
+	// handles are the names bound to a declared root's handle: a let of
+	// one lends it, as a for-in does (P3, handle.go).
+	handles := map[*Var]string{}
 	w.region(spec, func() {
 		pair := len(spec.Values) == len(spec.Names) && spec.Pattern == nil
 		for i, x := range spec.Values {
 			mode := mMove
 			if pair && spec.Names[i].Name == "_" {
 				mode = mDiscard
+			}
+			if v, _ := w.info.Defs[spec.Names[i]].(*Var); pair && v != nil && mode == mMove && w.handleSource(x) {
+				handles[v] = w.handleFrom(x)
+				mode = mLend
 			}
 			w.expr(x, mode, hand{at: x, how: "let moves it"})
 			if pair {
@@ -1021,6 +1048,10 @@ func (w *ownWalk) letSpec(s syntax.Stmt, spec *syntax.VarSpec) {
 	_ = s
 	for _, id := range spec.Names {
 		if v, ok := w.info.Defs[id].(*Var); ok {
+			if from, ok := handles[v]; ok {
+				w.acquire(ownLocal{v: v, lent: true, from: from, handle: true})
+				continue
+			}
 			_, callable := under(v.Type).(*Signature)
 			if w.tracked(v.Type) || callable || len(loans[v]) > 0 {
 				bound = append(bound, v)
@@ -1113,8 +1144,18 @@ func (w *ownWalk) assign(s *syntax.AssignStmt) {
 		mode := mLend
 		if i < len(s.Lhs) && w.tracked(w.info.Types[s.Lhs[i]]) || len(s.Lhs) > 1 {
 			mode = mMove
+		} else if i < len(s.Lhs) && w.c.holdsHandle(w.info.Types[s.Lhs[i]]) {
+			// A handle stored into a place moves there (P3, handle.go).
+			mode = mMove
+		}
+		saved := w.writeBack
+		if i < len(s.Lhs) && len(s.Lhs) == len(s.Rhs) {
+			if _, direct := unparen(s.Lhs[i]).(*syntax.Ident); !direct {
+				w.writeBack = exprText(s.Lhs[i])
+			}
 		}
 		w.expr(x, mode, hand{at: x, how: "it is assigned"})
+		w.writeBack = saved
 		if i < len(s.Lhs) {
 			if _, k, ok := w.placeRoot(s.Lhs[i]); ok && w.st.reached {
 				if _, direct := unparen(s.Lhs[i]).(*syntax.Ident); direct {
@@ -1481,6 +1522,9 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 				return
 			}
 		}
+		if mode == mMove {
+			w.handleMove(x, h) // a declared root's handle (P3)
+		}
 		if w.selector(x, mode, h) {
 			return
 		}
@@ -1497,6 +1541,7 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		}
 		if mode == mMove {
 			w.checkLoanValue(x)
+			w.handleMove(x, h) // a declared root's handle (P3)
 			w.placeMove(x, "an element", "it is an element of %s, lent by the index; an element cannot be moved or taken out by index (resources R35, R36); hand off %s whole, or lend the element")
 		}
 		w.lendRoot(x.X, w.info.Types[x], mode, h)

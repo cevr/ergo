@@ -1093,7 +1093,7 @@ func (c *checker) interfaceType(spec *syntax.InterfaceType, ctx *typeCtx, owner 
 			c.hostClauses(c.pkg.Path+"."+owner+"."+name.Name, sig, m)
 		}
 		if c.pkg.host == nil {
-			closeOpTakes(name.Name, sig)
+			c.closeOpTakes(name.Name, sig)
 		}
 		if ft.Needs != nil && c.pkg.host == nil {
 			// A Go interface's method runs Go code: its binding charges

@@ -383,7 +383,7 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 		// failure (cmd/compile assignOp's diagnostic order).
 		if !c.providing && !c.hostLendArg(t) && c.holdsResource(v) && !c.releasable(t) {
 			// R22: the operation value would never be released.
-			return assignment{}, resourceIntoCrossingText(v, t)
+			return assignment{}, c.resourceIntoCrossingText(v, t)
 		}
 		if isHostNamed(t) && len(it.Methods) > 0 && ergoOperations(v) {
 			// The operations of an Ergo operation type, or of a type

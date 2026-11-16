@@ -1388,7 +1388,7 @@ func (c *checker) finishInfo() {
 			call.StartsTask = c.running(c.pkg.Info.Types[x]) != nil
 		}
 		if call.Kind == CallFunc && releasesResult(call.Func) {
-			if d, bad := c.dropOf(c.pkg.Info.Types[x]); d != nil && bad == "" {
+			if d, bad := c.dropOf(c.pkg.Info.Types[x]); d != nil && bad == nil {
 				c.pkg.Info.ResultDrops[x] = d
 			}
 		}

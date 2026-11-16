@@ -321,7 +321,7 @@ func (c *checker) takesPass(f *Func) bool {
 	w.fn = f
 	w.copies = map[*TypeParam]CopySite{}
 	w.promote = map[int]bool{}
-	w.frame(f.Decl.Body, takesOf(f), w.paramVars(f.Decl.Recv, f.Decl.Type.Params), f.Decl.Name.Name, "", f.Name == "Close" && c.pkg.Info.Closes[f.Decl] != nil)
+	w.frame(f.Decl.Body, takesOf(f), w.paramVars(f.Decl.Recv, f.Decl.Type.Params), f.Decl.Name.Name, "", c.pkg.Info.Closes[f.Decl] != nil)
 	changed := false
 	if len(w.promote) > 0 {
 		ix := slices.Clone(c.pkg.Info.Takes[f])

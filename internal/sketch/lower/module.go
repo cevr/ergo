@@ -209,6 +209,8 @@ type lowerer struct {
 	owned map[any]string
 	// reassignedVars are the owned locals an assignment replaces (reassigned).
 	reassignedVars map[*check.Var]bool
+	// inPlaceVars is each owned local the code writes in place (inplace.go).
+	inPlaceVars map[*check.Var]bool
 	// handed is each part a value being built took over (handParts).
 	handed map[syntax.Expr]bool
 	// inPlace is the in-place form of the owned literal being lowered
