@@ -60,8 +60,16 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"keyed slice literal", "G1"},
 	{"spread", "G1"},
 	{"assignment form *", "G1"},
-	{"assignment to a place", "G1"},
 	{"assignment to a non-local", "G1"},
+	// F2 lowers places (stores, &p, *p, pointer receivers); these remain.
+	{"store to a place a value with statements may move", "F2"},
+	{"call on a receiver's address that operands with statements may move", "F2"},
+	{"place that is not addressable", "F2"}, // a Map entry: Maps are G4's
+	{"place of the IR kind *", "F2"},
+	{"place with a conversion", "F2"},
+	{"place of a handed-off local", "G2"},            // a Close through its address
+	{"place of a taken field", "G2"},                 // takeField: an owned field
+	{"store of a call that updates its place", "F3"}, // mapStore: an append or Update in place
 	{"statement *syntax.BranchStmt", "G1"},
 	{"for without a condition", "G1"},
 	{"result statement *syntax.ForStmt", "G1"},
@@ -105,7 +113,6 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"failure in a branch tail of a body with no value", "G2"},
 	{"operation call that enters a release", "G2"}, // a checked Close: frames, IRG2b
 	{"checked Close (closeBody masks it)", "G2"},   // the Close body itself, inside its mask
-	{"call of a pointer-receiver method", "G4"},
 	{"call of an extern function", "G4"},
 	{"call that passes owned values", "G4"},
 	{"call that passes witnesses", "G4"},
@@ -182,8 +189,6 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"conversion *", "G4"},
 	{"type argument with no value", "G4"}, // a task's T bound by a block with no value
 	{"type *check.TypeParam", "G4"},
-	{"type *check.Pointer", "G4"},
-	{"pointer receiver", "G4"},
 	{"for-in over a non-slice", "G4"},
 	{"call kind 1", "G4"}, // CallOp: an operation-type value's operation
 	{"call kind 4", "G4"}, // CallConversion

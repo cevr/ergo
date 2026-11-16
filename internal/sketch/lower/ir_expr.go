@@ -165,12 +165,20 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		op := x.Op.String()
 		switch op {
 		case "!", "-", "+", "^":
+		case "&":
+			b.goType(t, x)
+			return &irExpr{K: "addr", Pos: p, X: b.place(x.X)}
 		default:
 			irNo("unary %s", op)
 		}
 		b.goType(t, x)
 		return &irExpr{K: "un", Pos: p, Op: op, X: b.expr(x.X)}
+	case *syntax.StarExpr:
+		// *p: the value p points at (FLIP F2).
+		b.goType(t, x)
+		return &irExpr{K: "deref", Pos: p, X: b.expr(x.X)}
 	case *syntax.SelectorExpr:
+		// A field through a pointer (FLIP F2): Go's p.f.
 		n, ok := derefNamed(b.l.info.Types[x.X]) // ir_pkg.go
 		if !ok {
 			return b.selectOther(x, p) // ir_select.go

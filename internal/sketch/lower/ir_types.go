@@ -49,7 +49,9 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 		b.admitMap(t, depth) // ir_pkg.go
 		return
 	case *check.Pointer:
-		b.admit(t.Elem, depth+1) // a *T receiver (IRG4b r2)
+		// A pointer to an admitted type (FLIP F2; IRG4b r2): a *T
+		// parameter, a receiver, &p.
+		b.admit(t.Elem, depth+1)
 		return
 	case *check.TypeParam:
 		// A type parameter of the generic body (F1): the decoder resolves

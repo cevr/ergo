@@ -334,7 +334,7 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		}
 		id, ok := s.Lhs[0].(*syntax.Ident)
 		if !ok {
-			irNo("assignment to a place")
+			return b.store(s, op) // ir_place.go
 		}
 		v, ok := b.l.info.Uses[id].(*check.Var)
 		if sc := b.scalars[v]; sc != nil && ok {

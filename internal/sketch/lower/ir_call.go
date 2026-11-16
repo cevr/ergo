@@ -127,8 +127,6 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		switch {
 		case fd.extern != "" && !intrinsic:
 			irNo("call of an extern function")
-		case fd.ptr && !b.passesPointer(c, x): // ir_pkg.go
-			irNo("call of a pointer-receiver method on a value")
 		case len(b.l.ownedParams(f)) > 0:
 			irNo("call that passes owned values")
 		case len(witnessParams(f.Sig)) > 0:
@@ -137,6 +135,8 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 			irNo("call with a call site")
 		case len(b.fc.captureOwners(x)) > 0:
 			irNo("call that captures owners")
+		case fd.ptr && !b.addrRecv(c) && !b.passesPointer(c, x): // ir_place.go, ir_pkg.go
+			irNo("call of a pointer-receiver method on a value")
 		}
 		if fd.fallible && !failsHere(c) {
 			irNo("fallible call with an empty row at its site")
@@ -148,7 +148,13 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		if c.Recv != nil {
 			args = append([]syntax.Expr{c.Recv}, args...)
 		}
-		pre, irArgs := b.operands(args)
+		var pre []*irStmt
+		var irArgs []*irExpr
+		if b.addrRecv(c) { // ir_place.go
+			pre, irArgs = b.recvAddrCall(c, x.Args)
+		} else {
+			pre, irArgs = b.operands(args)
+		}
 		b.valueSource(x, c, args, irArgs) // ir_pkg.go
 		if x.Trailing != nil {
 			irArgs = append(irArgs, b.closureLit(nil, x)) // ir_closure.go

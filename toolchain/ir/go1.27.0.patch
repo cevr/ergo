@@ -590,10 +590,10 @@ index 0000000..1a808a2
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_expr.go b/src/cmd/compile/internal/noder/ergoir_expr.go
 new file mode 100644
-index 0000000..a3b283c
+index 0000000..b8520e5
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_expr.go
-@@ -0,0 +1,456 @@
+@@ -0,0 +1,462 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -722,13 +722,19 @@ index 0000000..a3b283c
 +		return e, pt.Elem()
 +	case "addr":
 +		// &x of a local (IRG6: the copy a with's block runs against), or
-+		// &T{…} of a literal (an operations conversion's adapter).
-+		if x.X == nil || x.X.K != "local" && x.X.K != "lit" {
-+			c.errorf(x.Pos, "ergoir: address of a non-local")
++		// &T{…} of a literal (an operations conversion's adapter), or &p
++		// of a place: a field of an addressable record or through a
++		// pointer, a slice's element, *p (FLIP F2).
++		if x.X == nil {
++			c.errorf(x.Pos, "ergoir: address of nothing")
 +			return nil, nil
 +		}
 +		e0, t := c.expr(x.X)
 +		if e0 == nil {
++			return nil, nil
++		}
++		if x.X.K != "lit" && !ergoPlace(e0) {
++			c.errorf(x.Pos, "ergoir: address of a non-place")
 +			return nil, nil
 +		}
 +		pt := types2.NewPointer(t)
@@ -1677,10 +1683,10 @@ index 0000000..3d9db4a
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_stmt.go b/src/cmd/compile/internal/noder/ergoir_stmt.go
 new file mode 100644
-index 0000000..75e6e4e
+index 0000000..8c974fc
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_stmt.go
-@@ -0,0 +1,331 @@
+@@ -0,0 +1,350 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1823,18 +1829,37 @@ index 0000000..75e6e4e
 +		a.SetPos(pos)
 +		return a
 +	case "store":
-+		// x.f = y: a field of a record a local points at (IRG6: a with
-+		// publishes its providers into the environment's copy).
-+		if s.X == nil || s.X.K != "field" {
-+			c.errorf(s.Pos, "ergoir: store to a non-field")
++		// p = y, p op= y: p a place (ergoPlace), a field of a record a
++		// local points at (IRG6: a with publishes its providers into the
++		// environment's copy), a field of a local record, a slice's
++		// element, *q, and any chain of them (FLIP F2).
++		if s.X == nil {
++			c.errorf(s.Pos, "ergoir: store to nothing")
 +			return nil
 +		}
 +		lhs, lt := c.expr(s.X)
 +		rhs, rt := c.expr(s.Y)
-+		if lhs == nil || rhs == nil || !c.assignable(s.Pos, "store", rt, lt) {
++		if lhs == nil || rhs == nil {
++			return nil
++		}
++		if !ergoPlace(lhs) {
++			c.errorf(s.Pos, "ergoir: store to a non-place")
 +			return nil
 +		}
 +		a := &syntax.AssignStmt{Lhs: lhs, Rhs: rhs}
++		if s.Op != "" {
++			op, ok := ergoBinOps[s.Op]
++			if !ok || op == syntax.AndAnd || op == syntax.OrOr {
++				c.errorf(s.Pos, "ergoir: assignment operator %q", s.Op)
++				return nil
++			}
++			if t := c.binType(s.Pos, op, s.Op, lt, rt); t == nil || !c.assignable(s.Pos, s.Op+"=", t, lt) {
++				return nil
++			}
++			a.Op = op
++		} else if !c.assignable(s.Pos, "store", rt, lt) {
++			return nil
++		}
 +		a.SetPos(pos)
 +		return a
 +	case "var":
@@ -3256,10 +3281,10 @@ index 0000000..07c7de5
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_types.go b/src/cmd/compile/internal/noder/ergoir_types.go
 new file mode 100644
-index 0000000..0e8f5fa
+index 0000000..3fc47e7
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_types.go
-@@ -0,0 +1,357 @@
+@@ -0,0 +1,385 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -3612,6 +3637,34 @@ index 0000000..0e8f5fa
 +}
 +
 +// value records t (and v, a constant) as x's type.
++// ergoPlace reports whether x is a place, as Go's addressability has it,
++// and marks it and every place inside it addressable and assignable: a
++// variable, *p, a slice's element, a field through a pointer, a field of
++// a place (FLIP F2: a store's target and &p).
++func ergoPlace(x syntax.Expr) bool {
++	ok := false
++	switch e := x.(type) {
++	case *syntax.Name:
++		return e.GetTypeInfo().Addressable()
++	case *syntax.ParenExpr:
++		ok = ergoPlace(e.X)
++	case *syntax.Operation:
++		ok = e.Op == syntax.Mul && e.Y == nil
++	case *syntax.IndexExpr:
++		_, ok = types2.CoreType(e.X.GetTypeInfo().Type).(*types2.Slice)
++	case *syntax.SelectorExpr:
++		_, ok = types2.CoreType(e.X.GetTypeInfo().Type).(*types2.Pointer)
++		ok = ok || ergoPlace(e.X)
++	}
++	if ok {
++		tv := x.GetTypeInfo()
++		tv.SetAddressable()
++		tv.SetAssignable()
++		x.SetTypeInfo(tv)
++	}
++	return ok
++}
++
 +func ergoValue(x syntax.Expr, t types2.Type, v constant.Value) {
 +	tv := syntax.TypeAndValue{Type: t, Value: v}
 +	tv.SetIsValue()

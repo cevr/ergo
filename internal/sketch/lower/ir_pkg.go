@@ -37,12 +37,12 @@ func (b *irBuilder) admitOnce(tn *check.TypeName) bool {
 }
 
 // spelling is the IR spelling of the Go type s, the lowered spelling of a
-// type the subset admits: names, []T, pkg.Name and a generic type's
-// instance Name[T1, T2], where pkg is the name main.go imports a package
-// by. The IR names that package by its import path (the decoder resolves
-// the path among main.go's imports), and the lowering keeps the import
-// used (keepImport): an IR body is not Go text, and Go refuses an unused
-// import.
+// type the subset admits: names, []T, *T (FLIP F2), pkg.Name and a
+// generic type's instance Name[T1, T2], where pkg is the name main.go
+// imports a package by. The IR names that package by its import path (the
+// decoder resolves the path among main.go's imports), and the lowering
+// keeps the import used (keepImport): an IR body is not Go text, and Go
+// refuses an unused import.
 func (b *irBuilder) spelling(s string) string {
 	var out strings.Builder
 	for i := 0; i < len(s); {
