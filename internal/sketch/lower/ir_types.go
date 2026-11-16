@@ -84,7 +84,7 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 		}
 		return
 	case *check.Named:
-		if t.Obj.Pkg != nil && t.Obj.Pkg.Host() || isGoRef(t) {
+		if t.Obj.Pkg != nil && t.Obj.Pkg.Host() || isGoRef(t) || check.IsGoError(t) {
 			b.admitHost(t, depth) // ir_gocall.go
 			return
 		}

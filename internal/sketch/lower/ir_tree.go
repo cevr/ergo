@@ -286,7 +286,7 @@ func (t *treeIR) node(n *mnode, end irPos) *irStmt {
 		}
 		fu = b.flatOf(ct)
 		if fu != nil {
-			sw.X = b.tagOf(col.I, p)
+			sw.X = b.flatTag(fu, col.I, p, t.s) // ir_golib.go: a niche's tag too
 		} else {
 			if !b.fc.isInterface(ct) {
 				irNo("match tree type switch on a value that is no union")

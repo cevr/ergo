@@ -194,6 +194,9 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		// goType queued the declaration, unless the runtime's Go type
 		// stands for n (IRG4: a std record such as os.Exit), as fieldName.
 		td := b.l.typeDecl(n.Obj, x)
+		if td.goError {
+			return b.goErrorText(x, p) // ir_golib.go
+		}
 		field, ok := td.fieldName[x.Sel.Name]
 		if !ok {
 			irNo("selector that is not a field")
@@ -231,6 +234,9 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			lit.Elems = b.mapLit(x) // ir_pkg.go
 		case *check.Named:
 			td := b.l.typeDecl(tt.Obj, x) // queued by goType, as above
+			if td.goError {
+				return b.goErrorLit(x, t, p) // ir_golib.go
+			}
 			if td.kind == kindMachine {
 				return b.machineLit(x, lit) // ir_machine.go
 			}

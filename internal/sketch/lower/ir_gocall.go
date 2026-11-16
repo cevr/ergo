@@ -24,24 +24,56 @@ import (
 // value runs with the caller's environment, its Go parameters and result
 // basic, its error dropped (a callback type with no fails row never
 // fails). A Go function passed as is (goDirect), a callback that fails
-// (v1.GoCallbackError's tunnel) and any other operand keep the source
-// body.
-func (b *irBuilder) hostArgs(x *syntax.CallExpr, f *check.Func, p irPos) ([]*irStmt, []*irExpr) {
+// (v1.GoCallbackError's tunnel) has its own adapter (hostCallback,
+// ir_golib.go). A go.Error operand is Go's error (goErrorArg). A Go
+// method's receiver (c.Recv) is recv, evaluated before the operands
+// (FORK-GOLIB). Any other operand keeps the source body.
+func (b *irBuilder) hostArgs(x *syntax.CallExpr, c *check.Call, f *check.Func, p irPos) ([]*irStmt, *irExpr, []*irExpr) {
 	shapes := make([]*v1.Body, len(f.Sig.Params))
+	fails := make([]*check.Signature, len(f.Sig.Params))
 	for i, q := range f.Sig.Params {
 		if cb, ok := q.Type.(*check.Signature); ok {
-			shapes[i] = b.callbackShape(cb, x)
 			if b.fc.hostFuncRef(x.Args[i]) != nil {
 				irNo("Go function passed to a Go package function")
 			}
+			if cb.Fallible {
+				fails[i] = cb // ir_golib.go hostCallback
+				continue
+			}
+			shapes[i] = b.callbackShape(cb, x)
 			continue
 		}
-		if !b.hostValue(q.Type) {
+		if !b.hostValue(q.Type) && !isGoErrorArg(q.Type) && !basicSlice(q.Type) { // ir_golib.go
 			irNo("call of a Go package function")
 		}
 	}
-	pre, args := b.operands(x.Args) // ir_fail.go
+	list := x.Args
+	if c.Recv != nil {
+		b.hostRecvOf(f, c.Recv) // ir_golib.go
+		list = append([]syntax.Expr{c.Recv}, list...)
+	}
+	pre, args := b.operands(list) // ir_fail.go
+	var recv *irExpr
+	if c.Recv != nil {
+		recv, args = args[0], args[1:]
+	}
+	for i, q := range f.Sig.Params {
+		if e, ok := b.goErrorArg(q.Type, args[i], p); ok { // ir_golib.go
+			args[i] = e
+		}
+	}
 	for i, shape := range shapes {
+		if fails[i] != nil {
+			t := b.l.info.Types[x.Args[i]]
+			if n, ok := t.(*check.Named); ok {
+				t = n.Underlying()
+			}
+			sig, _ := t.(*check.Signature)
+			bind, lit := b.hostCallback(sig, fails[i], x.Args[i], args[i], p)
+			pre = append(pre, bind...)
+			args[i] = lit
+			continue
+		}
 		if shape == nil {
 			continue
 		}
@@ -53,12 +85,13 @@ func (b *irBuilder) hostArgs(x *syntax.CallExpr, f *check.Func, p irPos) ([]*irS
 		bind, e := b.adaptOperand(sig, x.Args[i], args[i], v1.Param{Func: shape}, p)
 		pre, args[i] = append(pre, bind...), e
 	}
-	return pre, args
+	return pre, recv, args
 }
 
 // callbackShape is the Go function a Go package function's callback
 // parameter cb stands for, as goCallback writes it, when the IR adapts
-// it: basic parameters, at most one basic result, no fails row.
+// it: basic parameters, at most one basic result, no fails row (a
+// callback that fails is hostCallback's).
 func (b *irBuilder) callbackShape(cb *check.Signature, site syntax.Node) *v1.Body {
 	if cb.Fallible || len(cb.Results) > 1 {
 		irNo("Go callback that fails or has several results")
@@ -130,8 +163,12 @@ func (b *irBuilder) hostValue(t check.Type) bool {
 
 // admitHost admits t, a type of a Go package or a go.Ref of one (gocall.go
 // isGoRef): Go's own type, with nothing of the program's to declare.
-// go.Ref[T]'s T is admitted as any type.
+// go.Ref[T]'s T is admitted as any type. go.Error is the runtime's
+// v1.GoError (FORK-GOLIB; decls.go goErrorDecl).
 func (b *irBuilder) admitHost(t *check.Named, depth int) {
+	if check.IsGoError(t) {
+		return
+	}
 	if elem, ok := check.GoRefElem(t); ok {
 		b.admit(elem, depth+1)
 		return

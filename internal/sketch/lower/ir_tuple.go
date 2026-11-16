@@ -92,6 +92,9 @@ func hostResults(f *check.Func) []check.Type {
 // them into fresh locals and their tuple. The domain is goCall's
 // boundary with nothing to adapt.
 func (b *irBuilder) hostCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p irPos) ([]*irStmt, *irExpr, bool) {
+	if pre, v, ok := b.hostBound(x, c, f, p); ok { // ir_golib.go: the task's context, an Option result
+		return pre, v, false
+	}
 	pre, call := b.hostTarget(x, c, f, p)
 	results := hostResults(f)
 	if len(results) < 2 {
@@ -135,25 +138,11 @@ func readsTdef(e *irExpr, def *irStmt) bool {
 	return true
 }
 
-// hostTarget is the "pcall" of f's Go target with x's operands, after
-// their statements; it refuses a call outside the plain domain.
+// hostTarget is the Go call of f's target with x's operands, after their
+// statements (goTarget, ir_golib.go); it refuses a call outside its
+// domain.
 func (b *irBuilder) hostTarget(x *syntax.CallExpr, c *check.Call, f *check.Func, p irPos) ([]*irStmt, *irExpr) {
-	switch {
-	case c.Recv != nil || f.Decl == nil || f.Decl.Extern == nil || f.Decl.Extern.Target == nil,
-		hostGeneric(f), f.Sig.Fallible, // ir_gocall.go check.GoVariadic(f), check.GoContext(f),
-		len(x.Args) != len(f.Sig.Params):
-		irNo("call of a Go package function")
-	}
-	for _, r := range hostResults(f) {
-		if !b.hostValue(r) { // ir_gocall.go
-			irNo("call of a Go package function")
-		}
-	}
-	path, goName := f.Decl.Extern.Split()
-	name := b.l.hostPkg(path, x)
-	b.keepImport("var _ = " + name + "." + goName)
-	pre, args := b.hostArgs(x, f, p) // ir_gocall.go
-	return pre, &irExpr{K: "pcall", Pos: p, T: path, Name: goName, Args: args}
+	return b.goTarget(x, c, f, p) // ir_golib.go (FORK-GOLIB)
 }
 
 // letTuple lowers `let (a, b) = x` and `let a, b = x` of the tuple x:
