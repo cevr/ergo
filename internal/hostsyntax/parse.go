@@ -1,6 +1,6 @@
 // Package hostsyntax is the self-hosting pilot's Go input boundary: it
 // calls Ergo's Go parser and exports only the parser's facts, as an encoding that
-// Ergo code decodes (selfhost/tree). It makes no layout decision and does
+// Ergo code decodes (compiler/tree). It makes no layout decision and does
 // not import the formatter.
 //
 // Encoding v1: the header "ergotree1\n", then one document. An item is

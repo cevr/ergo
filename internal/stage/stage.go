@@ -57,6 +57,11 @@ const (
 	// Go's build cache held it. A plan whose archives come from a pin set
 	// (internal/pinset) takes none.
 	StdExports
+	// SharedTestModules counts the shared test modules a recursive `ergo
+	// test DIR/...` linked and ran (TEST-one), where each package's own
+	// test module is linked otherwise; the examples runner checks that its
+	// test leg linked the modules its key hashed (gate-speed GS32a′).
+	SharedTestModules
 	numCounters
 )
 
@@ -68,6 +73,7 @@ var names = [numCounters]string{
 	"bytes_hashed",
 	"go_compiles", "go_compiles_reused", "links", "links_reused",
 	"go_commands", "processes", "bytes_written", "outputs_placed", "std_exports",
+	"shared_test_modules",
 }
 
 var counts [numCounters]atomic.Int64

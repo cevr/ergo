@@ -15,7 +15,7 @@
 // Print is pure. Source parses through the Parser capability, which the
 // composition roots (formatapi, cmd/format) bind to the Go parser.
 
-import selfhost/tree
+import compiler/tree
 import strings
 
 // InvalidTree is a tree the printer cannot read: a node family it does not
@@ -156,6 +156,7 @@ let schema = Map[string, string]{
 	"LawRewrite":         "When p Eq p",
 	"LawReach":           "Never p Word p Path b Lbrack p Targets l Rbrack p Invariant s Pred n",
 	"AssertStmt":         "Assert p X n",
+	"SkipStmt":           "Skip p ReasonPos p Reason s ReasonEnd p",
 	"VariantSpec":        "Name n TypeArgs n Fields n",
 	"AsPattern":          "X n As p Name n",
 	"InterpolatedString": "Texts l Exprs l",

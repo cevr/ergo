@@ -13,10 +13,12 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path"
@@ -27,6 +29,7 @@ import (
 	"strings"
 	"time"
 
+	"ergo.local/prototype/internal/gobind"
 	"ergo.local/prototype/internal/opcount"
 	"ergo.local/prototype/internal/proclimit"
 	"ergo.local/prototype/internal/sketchfront"
@@ -103,7 +106,12 @@ type program struct {
 	module bool
 	main   string
 	tests  []string
-	cases  []*testCase
+	// checked holds, while a program of packages loads, the checked
+	// analysis of each of its package folders by absolute path, from one
+	// load of them all (checkPackageFolders); checkedDir adds a folder it
+	// checks alone. The asset scan and the law rule read it.
+	checked map[string]sketchfront.Analysis
+	cases   []*testCase
 	// explored are the lines of its explored file (explored.go).
 	explored []explored
 	// library marks a module of modules/ (MK0, modules.go): no binary,
@@ -430,6 +438,8 @@ func loadProgram(dir, name string, record bool) (*program, []string) {
 // folders of .ergo files, beside the files every program holds. Top-level
 // .ergo files are the module root's package.
 func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program, []string) {
+	p.checked = loadPackageFolders(p.dir, entries)
+	defer func() { p.checked = nil }()
 	var problems []string
 	problem := func(format string, args ...any) { problems = append(problems, fmt.Sprintf(format, args...)) }
 	present := map[string]bool{}
@@ -515,6 +525,78 @@ func checkCommands(p *program, dir string) []string {
 	return problems
 }
 
+// checkPackageFolders checks the package folders of a program of packages
+// (the folders below dir, cases, testdata, ergo.bind, origin and ts left
+// out, that hold an .ergo file, and dir itself when it does) with one load
+// (sketchfront.CheckPackages): the std packages and the module's packages
+// they import are read and checked once, not once per folder and again
+// for the law rule. Two in-process checks of every folder were 17 CPU-s
+// of the examples step's 120 after a checker edit, on every run, replays
+// included (gate-speed GS31a). A load that cannot be shared (a
+// diagnostic, a binding) gives no analysis: each folder is then checked
+// alone (checkedDir), as before.
+func checkPackageFolders(dir string, entries []os.DirEntry) map[string]sketchfront.Analysis {
+	dir, err := filepath.Abs(dir)
+	if err != nil {
+		return nil
+	}
+	var dirs []string
+	holdsErgo := func(folder string) bool {
+		files, err := os.ReadDir(folder)
+		if err != nil {
+			return false
+		}
+		return slices.ContainsFunc(files, func(f os.DirEntry) bool {
+			return strings.HasSuffix(f.Name(), ".ergo") && f.Type().IsRegular()
+		})
+	}
+	if holdsErgo(dir) {
+		dirs = append(dirs, dir)
+	}
+	for _, entry := range entries {
+		switch name := entry.Name(); {
+		case !entry.IsDir() || name == "cases" || name == "testdata" || name == "ergo.bind" || name == "origin" || name == "ts":
+			continue
+		}
+		_ = filepath.WalkDir(filepath.Join(dir, entry.Name()), func(path string, d fs.DirEntry, err error) error {
+			if err == nil && d.IsDir() && holdsErgo(path) {
+				dirs = append(dirs, path)
+			}
+			return nil
+		})
+	}
+	if len(dirs) == 0 {
+		return nil
+	}
+	analyses, err := sketchfront.CheckPackages(dirs, gobind.Platform{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH})
+	if err != nil {
+		return nil
+	}
+	checked := make(map[string]sketchfront.Analysis, len(dirs))
+	for i, folder := range dirs {
+		checked[folder] = analyses[i]
+	}
+	return checked
+}
+
+// loadPackageFolders is checkPackageFolders; a test sets it to load
+// nothing, the reference of every folder checked alone.
+var loadPackageFolders = checkPackageFolders
+
+// checkedDir is the checked analysis of the package folder dir, an
+// absolute path: the program's shared load's (checkPackageFolders), or the
+// folder checked alone and kept, so no folder is checked twice.
+func (p *program) checkedDir(dir string) (sketchfront.Analysis, error) {
+	if a, ok := p.checked[dir]; ok {
+		return a, nil
+	}
+	a, err := sketchfront.CheckDir(dir)
+	if err == nil && p.checked != nil {
+		p.checked[dir] = a
+	}
+	return a, err
+}
+
 // packageSources adds the .ergo files of the package folder dir, and of
 // the package folders under it, to the program's sources. A package
 // folder holds .ergo files and package folders only.
@@ -537,7 +619,7 @@ func packageAssetSources(p *program, dir, label string, assets map[string]bool) 
 	var problems []string
 	for _, entry := range entries {
 		if strings.HasSuffix(entry.Name(), ".ergo") {
-			if a, err := sketchfront.CheckDir(dir); err == nil {
+			if a, err := p.checkedDir(dir); err == nil {
 				for _, name := range a.EmbeddedPaths() {
 					assets[name] = true
 				}
@@ -837,11 +919,17 @@ func (r *runner) finish() int {
 // (keyed) and no check stores a verdict the native test leg would print
 // cached.
 func (r *runner) tool(timeout time.Duration, args ...string) (outcome, error) {
+	return r.toolWith(nil, timeout, args...)
+}
+
+// toolWith is tool with the variables extra added to its environment.
+func (r *runner) toolWith(extra []string, timeout time.Duration, args ...string) (outcome, error) {
 	if o, ok := r.keyed[keyedCall(args)]; ok {
 		return o, nil
 	}
-	env := r.toolEnv
-	if len(args) > 0 && args[0] == "check" {
+	env := append(slices.Clip(r.toolEnv), extra...)
+	// test --emitted --json checks each package too (GS31b).
+	if len(args) > 0 && (args[0] == "check" || args[0] == "test" && slices.Contains(args, "--json")) {
 		env = append(slices.Clip(env), lawCacheOff)
 	}
 	return r.live.execute(append([]string{r.cfg.ergo}, args...), r.cfg.root, env, "", timeout, 0)
@@ -863,12 +951,30 @@ const emissionCacheVariable = "ERGO_CACHE"
 // of the run's scratch, whatever the caller set: the runner is a check, and
 // its programs would fill the user's cache (docs/tooling.md, Emission cache
 // bound). The folder goes with the scratch when the run ends.
+//
+// It drops the caller's ERGO_BUILD and ERGO_STAGE_REPORT. ERGO_BUILD=full
+// turns ergo's warm answer off, and `ergo test DIR/...` then links one
+// shared test module (TEST-one) where the key hashed each package's own
+// module (legKey); the runner names its own stage report (testModule)
+// (gate-speed GS32a′).
 func toolEnvironment(environ []string, scratch string) []string {
 	env := slices.DeleteFunc(slices.Clone(environ), func(entry string) bool {
-		return strings.HasPrefix(entry, emissionCacheVariable+"=")
+		name, _, _ := strings.Cut(entry, "=")
+		return name == emissionCacheVariable || name == warmVariable || name == stageReportVariable
 	})
 	return append(env, emissionCacheVariable+"="+filepath.Join(scratch, "cache"))
 }
+
+// warmVariable is sketchfront.WarmVariable, and stageReportVariable
+// sketchfront.StageReportVariable.
+const (
+	warmVariable        = "ERGO_BUILD"
+	stageReportVariable = "ERGO_STAGE_REPORT"
+)
+
+// sharedTestModules is the stage report's count of the shared test modules
+// `ergo test DIR/...` linked (stage.SharedTestModules).
+const sharedTestModules = "shared_test_modules"
 
 // toolFailed prints the failure of a compiler leg (fmt, fix or build) and counts
 // it. Output over the cap is named, never printed.
@@ -986,9 +1092,21 @@ func (r *runner) testModule(p *program) bool {
 	if err != nil {
 		return false
 	}
-	o, err := r.tool(r.cfg.timeout*time.Duration(len(p.tests)), "test", filepath.Join(p.dir, "..."))
+	pattern := filepath.Join(p.dir, "...")
+	report := filepath.Join(r.scratch, "stage-"+p.name+".json")
+	o, err := r.toolWith([]string{stageReportVariable + "=" + report}, r.cfg.timeout*time.Duration(len(p.tests)), "test", pattern)
 	if err != nil || o.overCap() != "" || o.timedOut || !o.passed() {
 		return false
+	}
+	// The key hashed each package's own test module (legKey), so the run
+	// must have linked those: one that linked the shared module (TEST-one)
+	// ran Go the key does not hold, and the verdict is not kept (GS32a′).
+	if _, keyed := r.keyed[keyedCall([]string{"test", "--emitted", "--json", pattern})]; keyed {
+		if why := linkedPerPackage(report); why != "" {
+			fmt.Fprintf(r.out, "FAIL %s: test: %s; its key holds each package's own test module\n", p.name, why)
+			r.fail(p.name + ": test")
+			return true
+		}
 	}
 	sections, order := splitPackages(o.stdout)
 	var want, inside []string
@@ -1038,6 +1156,28 @@ func (r *runner) testModule(p *program) bool {
 		fmt.Fprintf(r.out, "ok %s: %s (in one run of %s)\n", p.name, leg, seconds(o.elapsed))
 	}
 	return true
+}
+
+// linkedPerPackage says why the stage report at path does not show a run
+// that linked each package's own test module, or "": it names no shared
+// test module. A report that cannot be read fails closed.
+func linkedPerPackage(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "ergo test wrote no stage report"
+	}
+	var counts map[string]int64
+	if err := json.Unmarshal(data, &counts); err != nil {
+		return "ergo test's stage report is not JSON"
+	}
+	n, ok := counts[sharedTestModules]
+	if !ok {
+		return "ergo test's stage report has no " + sharedTestModules
+	}
+	if n > 0 {
+		return fmt.Sprintf("ergo test linked %d shared test module", n)
+	}
+	return ""
 }
 
 // splitPackages splits the stdout of `ergo test DIR/...` at each `package

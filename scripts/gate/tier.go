@@ -67,9 +67,10 @@ const fullBuildStep = "go test build"
 
 // sizeCutoff is the size rule (gate-fast decision D3): a test whose
 // recorded serial wall time (durationsFile) is this long or longer is large
-// and runs only in the full tier. A test with no recorded time runs in the
-// fast tier until the next record. The rule reads measured times, so a test
-// that grows leaves the fast tier at the next -record-durations.
+// and runs only in the full tier. The fast tier reads the times its own
+// and full runs observed over the record (testSeconds, GS33b): a test with
+// no time runs in the fast tier once, a test that grows leaves it at the
+// next run, and one whose last full runs are under the cutoff comes back.
 const sizeCutoff = 2.0
 
 // fastFlag is what every fast-tier test step adds: properties and growth
@@ -395,7 +396,7 @@ func fastExamples(root string, steps []*Step) error {
 // (classFastSteps), and one keyed -short step per test package or shard
 // but the host packages' and the full-tier-only packages' (fullTierOnly).
 func fastSteps(root string) ([]*Step, error) {
-	return fastStepsSelected(root, nil)
+	return fastStepsSelected(root, "", nil)
 }
 
 // selector judges which fast tests of a selectPackages package an edit
@@ -405,8 +406,9 @@ type selector func(p testPackage, env, names []string) selection
 // fastStepsSelected is fastSteps, with the fast tests of each of
 // selectPackages narrowed by choose when it is not nil: a skipped test
 // joins the large ones that every shard skips, so a test the record does
-// not know still runs.
-func fastStepsSelected(root string, choose selector) ([]*Step, error) {
+// not know still runs. The size rule reads the times of cacheDir's store
+// over durationsFile's (testSeconds); fastSteps reads durationsFile alone.
+func fastStepsSelected(root, cacheDir string, choose selector) ([]*Step, error) {
 	packages, problem, err := testPackages(root)
 	if err != nil {
 		return nil, err
@@ -419,7 +421,7 @@ func fastStepsSelected(root string, choose selector) ([]*Step, error) {
 	if err != nil {
 		return nil, err
 	}
-	durations, err := readDurations(root)
+	durations, err := testSeconds(root, cacheDir)
 	if err != nil {
 		return nil, err
 	}
@@ -475,7 +477,7 @@ func fastStepsSelected(root string, choose selector) ([]*Step, error) {
 			continue
 		}
 		pkg := "./" + p.dir
-		base := []string{"go", "test", fastFlag}
+		base := []string{"go", "test", fastFlag, "-json"}
 		name := "go test " + pkg + " (fast)"
 		n := 1
 		if slices.Contains(slowPackages, pkg) {
@@ -488,7 +490,7 @@ func fastStepsSelected(root string, choose selector) ([]*Step, error) {
 		groups := shard(fast, measured, n)
 		selections, weights := fastShardArgs(groups, large), shardWeights(groups, measured)
 		for i, selection := range selections {
-			step := &Step{Name: name, Needs: needs, Argv: append(append(append(slices.Clone(base), testTimeoutFor(weights[i])), selection...), pkg), Env: env, ToolEnv: testTools, Package: p.closure, PackageProblem: problem, Weight: weights[i], Class: classFast, Note: note}
+			step := &Step{Name: name, Needs: needs, Argv: append(append(append(slices.Clone(base), testTimeoutFor(weights[i])), selection...), pkg), Env: env, ToolEnv: testTools, Observe: true, Package: p.closure, PackageProblem: problem, Weight: weights[i], Class: classFast, Note: note}
 			if len(selections) > 1 {
 				step.Name = fmt.Sprintf("go test %s [%d/%d] (fast)", pkg, i+1, len(selections))
 			}

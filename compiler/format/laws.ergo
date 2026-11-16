@@ -4,7 +4,7 @@
 // refusals themselves to the Go formatter's. The layout laws are
 // Layouter's, pure, and run on generated command lists.
 
-import selfhost/tree
+import compiler/tree
 import strings
 
 // ---------------------------------------------------------------- source laws

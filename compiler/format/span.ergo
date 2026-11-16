@@ -4,7 +4,7 @@
 // are the Go parser's rules, carried over so that no layout fact comes from
 // the Go side.
 
-import selfhost/tree
+import compiler/tree
 
 // NoPos is the parser's absent position (syntax.NoPos). A position is a
 // byte offset of the source; the tree carries an absent one as None, and
@@ -308,6 +308,8 @@ func posOf(t tree.Tree, id int) int {
 		if n != NoPos { n } else { pos(t, id, "Word") }
 	case "AssertStmt":
 		pos(t, id, "Assert")
+	case "SkipStmt":
+		pos(t, id, "Skip")
 	case "VariantSpec":
 		posOf(t, kid(t, id, "Name"))
 	case "InterpolatedString":
@@ -382,6 +384,8 @@ func endOf(t tree.Tree, id int) int {
 		pos(t, id, "NamePos") + len(str(t, id, "Name"))
 	case "BasicLit":
 		pos(t, id, "ValueEnd")
+	case "SkipStmt":
+		pos(t, id, "ReasonEnd")
 	case "FuncLit":
 		endOf(t, kid(t, id, "Body"))
 	case "ParenExpr":

@@ -66,7 +66,7 @@ type reach struct {
 }
 
 // computeReach sets l.reached, the declarations of the sourced packages
-// that main reaches; it leaves it nil, which lowers every declaration,
+// that main reaches (a library's: that its Go exports reach); it leaves it nil, which lowers every declaration,
 // under reachLowering "all", for the test build and for a library-shaped
 // lowering (noEntry), which has no entry.
 func (l *lowerer) computeReach() {
@@ -95,8 +95,17 @@ func (l *lowerer) computeReach() {
 			}
 		}
 	}
-	if main := l.mainFunc(); main != nil {
+	if main := l.mainFunc(); main != nil && l.lib == "" {
 		r.object(main)
+	}
+	// A library's roots are the functions it exports to Go (IG11): with
+	// main as the only root, a library lowered no body its exports call.
+	if l.lib != "" {
+		for _, e := range l.exportsOf() {
+			if e.reason == "" {
+				r.object(e.fn)
+			}
+		}
 	}
 	for len(r.work) > 0 {
 		di := r.work[len(r.work)-1]

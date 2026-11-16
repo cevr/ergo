@@ -14,6 +14,7 @@ import (
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/sketchfront"
+	"ergo.local/prototype/internal/stage"
 )
 
 func recursivePattern(path string) bool { return filepath.Base(filepath.Clean(path)) == "..." }
@@ -263,6 +264,7 @@ func sharedTestCommand(opts fileOptions, module moduleTestOptions) (shared bool,
 	}); err != nil {
 		return false, nil
 	}
+	stage.Add(stage.SharedTestModules, 1)
 	failed := false
 	for i, r := range runs {
 		fmt.Fprintf(os.Stdout, "package %s\n", packages[i].Path)

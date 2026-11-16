@@ -1573,6 +1573,7 @@
       "to": "",
       "rule": "keyOrder's order is a function of the keys alone.",
       "killers": ["internal/sketch/eval:TestEvalReportIsDeterministic"]
-    }
+    },
+    {"name":"tskip-eval-reason","origin":"wf10 TSKIP","file":"internal/sketch/eval/stmt.go","from":"return fr.abrupt(ctlUnsupported, s, nil, why)","to":"return fr.abrupt(ctlUnsupported, s, nil, \"skipped\" + why[:0])","rule":"Check-time evaluation reports a skip skipped with the test's reason and the statement's site.","killers":["internal/sketch/eval:TestRunReportsTheSkipsReason"]}
   ]
 }
