@@ -647,7 +647,7 @@ func (in *interp) read(fr *frame, v Value, steps []step) (Value, *abrupt) {
 		case sliceV:
 			i, ok := in.index(fr, st.at, st.index, c.n)
 			if !ok {
-				return nil, fr.defect(st.at, "index out of range [%s] with length %d", describe(st.index), c.n)
+				return nil, fr.defect(st.at, "%s", indexError(st.index, c.n))
 			}
 			v = c.b.data[c.off+i]
 		case mapV:
@@ -690,7 +690,7 @@ func (in *interp) storePath(fr *frame, root *slot, cur Value, full []step, k int
 	case sliceV:
 		i, ok := in.index(fr, st.at, st.index, c.n)
 		if !ok {
-			return nil, fr.defect(st.at, "index out of range [%s] with length %d", describe(st.index), c.n)
+			return nil, fr.defect(st.at, "%s", indexError(st.index, c.n))
 		}
 		old := c.b
 		oldOff := c.off

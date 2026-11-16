@@ -1813,6 +1813,33 @@
       "to": "\t\tv, ab := y(in, fr)\n",
       "rule": "A compiled scope releases what it owns at its normal end (R6).",
       "killers": ["internal/sketch/eval:TestEvalReleasesAgreeWithModel"]
+    },
+    {
+      "name": "oracle-f8-runtime-error-unprefixed",
+      "origin": "wf10 ORACLE F8 (irspike GenerateFail probe)",
+      "file": "internal/sketch/eval/ops.go",
+      "from": "\t\tif b == 0 {\n\t\t\treturn nil, \"runtime error: integer divide by zero\", true\n\t\t}\n\t\treturn a / b, \"\", true\n",
+      "to": "\t\tif b == 0 {\n\t\t\treturn nil, \"integer divide by zero\", true\n\t\t}\n\t\treturn a / b, \"\", true\n",
+      "rule": "A defect the Go runtime raises is written as the built program writes it: panic: runtime error: TEXT.",
+      "killers": ["internal/sketch/eval:TestRuntimeErrorsAreGos"]
+    },
+    {
+      "name": "oracle-f8-negative-index-with-length",
+      "origin": "wf10 ORACLE F8 (irspike GenerateFail probe)",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\tif _, negative, _ := shiftCount(iv); negative {\n",
+      "to": "\tif _, negative, _ := shiftCount(iv); negative && false {\n",
+      "rule": "Go names a negative index alone, with no length.",
+      "killers": ["internal/sketch/eval:TestRuntimeErrorsAreGos"]
+    },
+    {
+      "name": "oracle-f8-slice-low-negative-unnamed",
+      "origin": "wf10 ORACLE F8 (irspike GenerateFail probe)",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\tcase lo < 0:\n\t\treturn fmt.Sprintf(\"runtime error: slice bounds out of range [%d:]\", lo), false\n",
+      "to": "\tcase lo < 0:\n\t\treturn fmt.Sprintf(\"runtime error: slice bounds out of range [%d:%d]\", lo, hi), false\n",
+      "rule": "Go names a negative low bound alone: slice bounds out of range [LO:].",
+      "killers": ["internal/sketch/eval:TestRuntimeErrorsAreGos"]
     }
   ]
 }

@@ -54,7 +54,7 @@ func (in *interp) binop(fr *frame, at syntax.Node, op syntax.Token, a, b Value) 
 			ice("a shift count of %T", b)
 		}
 		if negative {
-			return nil, fr.defect(at, "negative shift amount")
+			return nil, fr.defect(at, "runtime error: negative shift amount")
 		}
 		if v, ok := shift(op, a, n); ok {
 			return v, nil
@@ -118,12 +118,12 @@ func intOp[T integer](op syntax.Token, a, b T) (Value, string, bool) {
 		return a * b, "", true
 	case syntax.QUO:
 		if b == 0 {
-			return nil, "integer divide by zero", true
+			return nil, "runtime error: integer divide by zero", true
 		}
 		return a / b, "", true
 	case syntax.REM:
 		if b == 0 {
-			return nil, "integer divide by zero", true
+			return nil, "runtime error: integer divide by zero", true
 		}
 		return a % b, "", true
 	case syntax.AND:
