@@ -174,6 +174,11 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"call of a std intrinsic", "G4"},
 	{"dot call of a std function", "G4"},
 	{"std call *", "G4"}, // hidden arguments, adapted results, converted operands
+	// I-FLIP's integration refusals: a value Go converts implicitly, and a
+	// leaf's generic function named by a generic body's type parameters.
+	{"record field of a converted value", "G4"},
+	{"runtime leaf's generic function in a generic body", "G4"},
+	{"literal of *check.Array", "G1"}, // as "type *check.Array": F7's arrays have no literal yet
 	{"type *check.Map", "G4"},
 	{"type *check.Union", "G4"}, // an anonymous union as a type argument (IRG4b instances)
 	// IRG4b r2: operation-type values and their calls, std operations.
