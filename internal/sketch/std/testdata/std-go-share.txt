@@ -307,4 +307,8 @@ ui	argsPut	provider
 ui	argsSame	provider
 ui	argsSet	provider
 ui	newArgs	provider
+utf8	AppendRune	library	LF2 (FK2): a []byte argument to import go is copied in and out (slices.Clone twice), 1.993x the body; the appender fact removes the copies
+utf8	DecodeRuneInString	library	IR2: the IR lays the record Decoded out as {Size, Rune}, so returning Go's (r, n) swaps registers, 1.093x the body
+utf8	Decoded	type
+utf8	RuneLen	library	NP4f-1 recount: 1.073x at 18.9 instructions a call, the same inlined body with loop-alignment NOPs on its path (Go's block layout), no std capability; the orchestrator rules
 utf8	RuneText	language	PRIM
