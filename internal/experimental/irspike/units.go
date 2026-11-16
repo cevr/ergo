@@ -189,8 +189,10 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"expression *syntax.FuncLit", "G6"},
 	{"trailing block", "G6"}, // with(…) { }: a context and its frame
 	{"context value", "G6"},
-	{"call kind 10", "G6"}, // CallEncode
-	{"call kind 11", "G6"}, // CallDecode
+	// The codec built-ins take the IR (FLIP OPC-codec), but for these:
+	{"codec of a type that holds type parameters", "G4"}, // codec witnesses, with witness parameters
+	{"codec *", "G6"},
+	{"encode on a direct writer", "G6"},
 	{"call kind 12", "G6"}, // CallEmbed
 	{"call kind 8", "G6"},  // CallLawOp
 	{"call kind 9", "G6"},  // CallGoError
