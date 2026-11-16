@@ -313,8 +313,8 @@
       "name": "b18-adapter-drops-law-rewrite",
       "origin": "batch-18 integration (SH0 x LR1)",
       "file": "internal/hostsyntax/tree.go",
-      "from": "\t\tsyntax.LawRewrite{},\n",
-      "to": "",
+      "from": "\t\tsyntax.LawRewrite{}, syntax.Word{},\n",
+      "to": "\t\tsyntax.Word{},\n",
       "rule": "A struct a family's field points to (LawDecl.Rewrite) is a family: else the encoding is a U document while the Go projection prints it.",
       "killers": [
         "internal/hostsyntax:TestFamiliesCoverSyntax",
