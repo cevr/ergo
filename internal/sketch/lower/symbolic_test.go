@@ -188,7 +188,7 @@ func (l symLaw) source(i int) string {
 		names = append(names, fmt.Sprintf("p%d", k))
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "type T%s { c bool, out string }\n", sfx)
+	fmt.Fprintf(&b, "type T%s { c bool, out string } implements Ops%s\n", sfx, sfx)
 	for _, name := range symOpNames {
 		op := symOps[name]
 		if op.result {

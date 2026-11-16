@@ -18,31 +18,37 @@ import "path/filepath"
 // separator between each pair, cleaned; "" when every part is empty.
 //
 //ergo:pure
+//ergo:wait none
 func FilepathJoin(parts []string) string { return filepath.Join(parts...) }
 
 // FilepathBase is filepath.Base.
 //
 //ergo:pure
+//ergo:wait none
 func FilepathBase(path string) string { return filepath.Base(path) }
 
 // FilepathDir is filepath.Dir.
 //
 //ergo:pure
+//ergo:wait none
 func FilepathDir(path string) string { return filepath.Dir(path) }
 
 // FilepathExt is filepath.Ext.
 //
 //ergo:pure
+//ergo:wait none
 func FilepathExt(path string) string { return filepath.Ext(path) }
 
 // FilepathClean is filepath.Clean.
 //
 //ergo:pure
+//ergo:wait none
 func FilepathClean(path string) string { return filepath.Clean(path) }
 
 // FilepathIsAbs is filepath.IsAbs.
 //
 //ergo:pure
+//ergo:wait none
 func FilepathIsAbs(path string) bool { return filepath.IsAbs(path) }
 
 // Parts is filepath.Parts, the result of Split: path up to and including
@@ -55,6 +61,7 @@ type Parts struct{ Dir, File string }
 // of path, as the Go control makes.
 //
 //ergo:pure
+//ergo:wait none
 func FilepathSplit(path string) Parts {
 	dir, file := filepath.Split(path)
 	return Parts{Dir: dir, File: file}
@@ -75,6 +82,7 @@ func (e NotRelative) Error() string {
 // FilepathRel is filepath.Rel; any error is NotRelative{base, target}.
 //
 //ergo:pure
+//ergo:wait none
 func FilepathRel(base, target string) (string, error) {
 	rel, err := filepath.Rel(base, target)
 	if err != nil {

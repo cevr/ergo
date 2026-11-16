@@ -92,7 +92,7 @@ func aliveAfter[S, E, O, F](a actor.Actor[S, E, Decision[S, O], F], e E) bool { 
 // capacity signals, on the providers in force, and its session shows
 // crashes.View when that actor crashes, reports it with crashes.Report,
 // and starts a fresh actor from m on a signal of the crash view.
-func StartApp[E comparable, S, O, F, R, W, Q](m Machine[S, E, O, F, R, W], capacity int, view escaping func(f *Frame[E], s S) needs Q, crashes Crashes[S, E, F], post escaping func(ev Event[E])) (Session[S, E, Decision[S, O], F], []Op[E]) needs R | W | Scheduler | Q {
+func StartApp[E comparable, S, O, F, R, W, Q](m Machine[S, E, O, F, R, W], capacity int, view own func(f *Frame[E], s S) needs Q, crashes Crashes[S, E, F], post own func(ev Event[E])) (Session[S, E, Decision[S, O], F], []Op[E]) needs R | W | Scheduler | Q {
 	let ctx = InForce[R | W | Scheduler]()
 	let fresh = func() actor.Actor[S, E, Decision[S, O], F] {
 		with ctx {
@@ -115,7 +115,7 @@ func CrashOf[S, E, D, F](h *TestHost[S, E, D, F]) Option[Crash[S, E, F]] { h.ses
 
 // NewAppTestHost is NewTestHost for an app (StartApp): m's actor, its
 // crash view once it crashed, and a fresh actor on a reload.
-func NewAppTestHost[E comparable, S, O, F, R, W, Q](m Machine[S, E, O, F, R, W], capacity int, view escaping func(f *Frame[E], s S) needs Q, crashes Crashes[S, E, F], clock time.Manual, room int) TestHost[S, E, Decision[S, O], F] fails BadPatch needs R | W | Scheduler | Q {
+func NewAppTestHost[E comparable, S, O, F, R, W, Q](m Machine[S, E, O, F, R, W], capacity int, view own func(f *Frame[E], s S) needs Q, crashes Crashes[S, E, F], clock time.Manual, room int) TestHost[S, E, Decision[S, O], F] fails BadPatch needs R | W | Scheduler | Q {
 	let posted = queue.New[Event[E]](room)
 	let (s, first) = StartApp(m, capacity, view, crashes, func(ev Event[E]) {
 		posted.Push(ev) catch {
@@ -130,7 +130,7 @@ func NewAppTestHost[E comparable, S, O, F, R, W, Q](m Machine[S, E, O, F, R, W],
 // closes on a crash, RunApp ends as the actor did, as its Stop does: it
 // fails with the step's failure, or raises the defect; else it fails
 // Closed, and Stopped when the actor ended with a Done or a stop.
-func RunApp[E comparable, S, O, F, R, W, Q](h Host[E], m Machine[S, E, O, F, R, W], capacity int, view escaping func(f *Frame[E], s S) needs Q, crashes Crashes[S, E, F]) fails Closed | F | actor.Stopped needs R | W | Scheduler | Q {
+func RunApp[E comparable, S, O, F, R, W, Q](h Host[E], m Machine[S, E, O, F, R, W], capacity int, view own func(f *Frame[E], s S) needs Q, crashes Crashes[S, E, F]) fails Closed | F | actor.Stopped needs R | W | Scheduler | Q {
 	let (s, first) = StartApp(m, capacity, view, crashes, func(ev Event[E]) { h.Post(ev) })
 	let mut session = s
 	h.Show(first)

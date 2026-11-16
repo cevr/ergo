@@ -45,7 +45,7 @@ type Session[S, E, D, F] {
 // InForce, so a Step needs none of its own. An actor that ends under
 // Start's session ends the loop (Step fails Stopped); StartApp's shows
 // its crash view instead.
-func Start[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], view escaping func(f *Frame[E], s S) needs R, post escaping func(ev Event[E])) (Session[S, E, D, F], []Op[E]) needs R {
+func Start[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], view own func(f *Frame[E], s S) needs R, post own func(ev Event[E])) (Session[S, E, D, F], []Op[E]) needs R {
 	let ctx = InForce[R]()
 	let shown = func(f *Frame[E], st S) {
 		with ctx {
@@ -315,3 +315,11 @@ func crashing[S, E, D, F](s *Session[S, E, D, F]) bool {
 
 // InFlight is the number of fetches started and not yet taken or stopped.
 func InFlight[S, E, D, F](s *Session[S, E, D, F]) int { len(s.inflight) }
+
+// SessionRoot is the Id of the root of s's tree, the parent of the first
+// patch's top nodes: a host's mirror starts from it.
+func SessionRoot[S, E, D, F](s *Session[S, E, D, F]) Id[E] { Root(&s.frame) }
+
+// SessionAnimates is whether s's last pass made an Animate: whether its
+// host should send frames (Run's Host.Frames).
+func SessionAnimates[S, E, D, F](s *Session[S, E, D, F]) bool { Animating(&s.frame) }

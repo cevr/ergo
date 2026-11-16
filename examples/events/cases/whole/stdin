@@ -1,0 +1,12 @@
+[{"_tag":"Opened","id":0,"at":0},
+{"_tag":"Sent","id":0,"bytes":7919},
+{"_tag":"Sent","id":0,"bytes":15838},
+{"_tag":"Failed","id":0,"reason":"reset by peer"},
+{"_tag":"Opened","id":1,"at":4},
+{"_tag":"Sent","id":1,"bytes":39595},
+{"_tag":"Sent","id":1,"bytes":47514},
+{"_tag":"Closed","id":1},
+{"_tag":"Opened","id":2,"at":8},
+{"_tag":"Sent","id":2,"bytes":5735},
+{"_tag":"Sent","id":2,"bytes":13654},
+{"_tag":"Closed","id":2}]

@@ -98,15 +98,15 @@ test JsonFieldsAgree(i input) {
 	assert decodeVia(want, g) == Some{Value: g}
 }
 
-func encodeVia[T wire, U wire](g boxed[T, U]) string { json.Encode(c[boxed[T, U]](), g) }
+func encodeVia[T wire, U wire](g boxed[T, U]) string needs wired[T] | wired[U] { json.Encode(c[boxed[T, U]](), g) }
 
-func writeVia[T wire, U wire](g boxed[T, U]) string {
+func writeVia[T wire, U wire](g boxed[T, U]) string needs wired[T] | wired[U] {
 	let t = json.NewText()
 	encode(g, t)
 	t.Written()
 }
 
-func decodeVia[T wire, U wire](text string, like boxed[T, U]) Option[boxed[T, U]] {
+func decodeVia[T wire, U wire](text string, like boxed[T, U]) Option[boxed[T, U]] needs wired[T] | wired[U] {
 	let v = json.Decode(c[boxed[T, U]](), text) catch { case _: return None }
 	Some{Value: v}
 }

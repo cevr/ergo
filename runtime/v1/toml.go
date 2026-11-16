@@ -1,7 +1,6 @@
 package v1
 
 import (
-	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -17,7 +16,7 @@ type TOMLMalformed struct {
 }
 
 func (e TOMLMalformed) Error() string {
-	return fmt.Sprintf("toml line %d key %q: %s", e.Line, e.Key, e.Reason)
+	return "toml line " + strconv.Itoa(e.Line) + " key " + strconv.Quote(e.Key) + ": " + e.Reason
 }
 
 // TOMLParse validates a TOML 1.0 document and writes its value in the JSON
@@ -25,6 +24,8 @@ func (e TOMLMalformed) Error() string {
 // nominal record, ParseX functions, refinements and typed failure rows.
 // There is no host I/O, reflection, or external module dependency.
 // Dates/times are strings; nonfinite floats use json's existing strings.
+//
+//ergo:wait none
 func TOMLParse(text string, maxBytes, maxDepth int) (string, error) {
 	p := tomlParser{line: 1, maxDepth: maxDepth}
 	if maxBytes > 0 && len(text) > maxBytes {

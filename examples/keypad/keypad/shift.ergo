@@ -19,7 +19,7 @@ let CapsWindow = 1s
 // next letter; a second Shift within CapsWindow locks Caps, a later one
 // goes back to Lower; a Shift in Caps ends it. A typed key ends ShiftOnce
 // and leaves Lower and Caps as they are.
-func ShiftStep(m Mode, t Tap) Decision[Mode, Mode] {
+func ShiftStep(m Mode, t Tap) Decision[Mode, Never] {
 	match t {
 	case ShiftTap as s:
 		match m {
@@ -68,17 +68,12 @@ type Shifter machine[Mode, Tap] {
 			return false
 		}
 		let locked = g >= 0s && g <= CapsWindow
-		match o {
-		case machines.Running[Mode, Mode] as r:
-			match r.State {
-			case Caps:
-				locked
-			case Lower:
-				!locked
-			case ShiftOnce:
-				false
-			}
-		case machines.Finished[Mode, Mode]:
+		match machines.LastState(o) {
+		case Caps:
+			locked
+		case Lower:
+			!locked
+		case ShiftOnce:
 			false
 		}
 	},

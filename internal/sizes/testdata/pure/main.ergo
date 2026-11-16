@@ -1,0 +1,29 @@
+// pure sums the Collatz step counts of 1..n: integers and a loop only.
+
+func steps(n int) int {
+	let mut x = n
+	let mut count = 0
+	for x != 1 {
+		if x % 2 == 0 {
+			x = x / 2
+		} else {
+			x = 3 * x + 1
+		}
+		count = count + 1
+	}
+	count
+}
+
+func total(limit int) int {
+	let mut sum = 0
+	let mut i = 1
+	for i <= limit {
+		sum = sum + steps(i)
+		i = i + 1
+	}
+	sum
+}
+
+func main() needs Console {
+	Console.Println("\(total(10000))")
+}

@@ -1,0 +1,25 @@
+// Runner is the external system that runs one stage of a run.
+
+// Offline: the runner did not answer. The pipeline counts it as a
+// failed try.
+type Offline { Why string }
+
+// Runner runs try attempt (1 is the first) of stage stage of the run id,
+// and says whether it passed. A runner keys its work by the run, the stage and the try, so a
+// call sent again after a lost answer runs nothing twice.
+type Runner {
+	Run(id string, stage int, attempt int) bool fails Offline,
+
+	// Repeatable: the same try asked twice gets the same answer.
+	law Repeatable(id string, stage int, attempt int) {
+		let first = Run(id, stage, attempt) catch {
+		case Offline:
+			return true
+		}
+		let again = Run(id, stage, attempt) catch {
+		case Offline:
+			return false
+		}
+		again == first
+	},
+}

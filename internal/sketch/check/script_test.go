@@ -30,7 +30,7 @@ func TestScriptDiagnostics(t *testing.T) {
 		{"literal with fields", head + "func f() testing.Script[Count] {\n\ttesting.Script[Count]{Len: 1}\n}\n", "S108:9 is made with no fields, testing.Script[Count]{}"},
 		{"wider capability", head + "func f(s testing.Script[Count]) More { s }\n", "S108:8 testing.Script[Count]: Count has no method Cap"},
 		{"borrow parameter", head + "type Fill { Fill(b *Box) }\nfunc f(s testing.Script[Fill]) {}\n", "S108:9 testing.Script[Fill]: its operation Fill takes the borrow b *Box"},
-		{"resource parameter", head + "func f(s testing.Script[Pool]) {}\ntype Pool { Use(c Conn) }\ntype Conn { Close() }\n", "S108:8 testing.Script[Pool]: its operation Use takes the resource c Conn"},
+		{"resource parameter", head + "func f(s testing.Script[Pool]) {}\ntype Pool { Use(c Conn) }\ntype Conn { ..Closer }\n", "S108:8 testing.Script[Pool]: its operation Use takes the resource c Conn"},
 	}
 	for _, r := range rows {
 		t.Run(r.name, func(t *testing.T) {

@@ -18,7 +18,8 @@ import (
 // test writes as os.Stdin:
 //
 //   - write: one more line into the pipe;
-//   - reader: start a task that reads with Lines (or ReadAll) until it is
+//   - reader: start a task that reads with Lines (or ReadAll, or IORead's
+//     chunks) until it is
 //     stopped, keeping what it reads;
 //   - stop: stop that task, which must return (a stop that does not end the
 //     wait hangs the test, which its timeout reports);
@@ -78,9 +79,25 @@ func stdinStopRun(seed uint64) (steps []string, diff string) {
 				panic(err)
 			}
 		case k == 2 && reader == nil:
-			all := r.IntN(3) == 0
-			steps = append(steps, map[bool]string{false: "reader Lines", true: "reader ReadAll"}[all])
+			kind := r.IntN(4)
+			all := kind == 0
+			chunks := kind == 1
+			steps = append(steps, map[int]string{0: "reader ReadAll", 1: "reader Read"}[kind]+map[bool]string{true: "reader Lines"}[kind > 1])
 			reader = rt.Go(&scope, "reader", func(ct *rt.Task) (struct{}, error) {
+				if chunks {
+					// Each line is one write of the pipe, shorter than the
+					// shared reader's buffer, so a chunk of 1 MiB at most
+					// holds whole lines.
+					for {
+						s, err := IORead(ct, 1<<20)
+						if err != nil || s == "" {
+							return struct{}{}, err
+						}
+						for line := range strings.Lines(s) {
+							taken(strings.TrimSuffix(line, "\n"))
+						}
+					}
+				}
 				if all {
 					s, err := IOReadAll(ct)
 					if err == nil {

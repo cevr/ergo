@@ -18,7 +18,7 @@ func Run() Ending needs Console | io.Stdin {
 		match d {
 		case Done[Ending] as done:
 			return done.Output
-		case Enter[State], Stay[State], Emit[State, Ending], Ignore, Reject:
+		case Enter[State], Stay[State], Emit[State, Ending], Tell[State, Ending], Ignore, Reject:
 		}
 		s = machines.Next(s, d)
 	}

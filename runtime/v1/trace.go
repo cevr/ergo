@@ -1,7 +1,6 @@
 package v1
 
 import (
-	"fmt"
 	"os"
 
 	"ergo.local/prototype/runtime/rt"
@@ -29,17 +28,21 @@ func rootFor() (*rt.Task, func()) {
 	rec := rttrace.New(traceCapacity)
 	return rt.TracedRoot("main", rec), func() {
 		if err := rttrace.WriteFile(path, rec, "", "ergo", nil); err != nil {
-			fmt.Fprintln(os.Stderr, err)
+			_, _ = stderrSink{}.Write([]byte(err.Error() + "\n"))
 		}
 	}
 }
 
 // UITraced is std ui's traced(): whether the running task's tree records
 // a trace, so Play builds a step's line only when it is kept.
+//
+//ergo:wait none
 func UITraced(t *rt.Task) bool { return t.Traced() }
 
 // UITraceStep is std ui's traceStep(line): a step event of the running
 // task (rt.TraceStep), which `ergo test --trace` prints. It reads the
 // running task and reaches no host state: the recorder is the trace sink
 // TraceEnv bound, written when main ends (stdlib.md, Host packages 7).
+//
+//ergo:wait none
 func UITraceStep(t *rt.Task, line string) { t.TraceStep(line) }

@@ -1,0 +1,68 @@
+import fk-domains/domains
+
+// The route's laws (plan §20.4).
+
+func pick[T](xs []T, n int) T { xs[((n%len(xs))+len(xs))%len(xs)] }
+
+// routeOf is a route drawn from a query, a TLD pick (0 is every TLD), an
+// availability and an order pick.
+func routeOf(q string, tld int, available bool, order int) Route {
+	if q == "" {
+		return Landing
+	}
+	let n = len(domains.Catalog) + 1
+	let t = ((tld % n) + n) % n
+	Search{Query: q, TLD: if t == 0 { "" } else { domains.Catalog[t-1] }, AvailableOnly: available, Order: pick(Orders, order)}
+}
+
+// ParsePrintRoundTrips: a route survives its URL, whatever bytes its
+// query holds.
+law ParsePrintRoundTrips(q string, tld int, available bool, order int) {
+	let r = routeOf(q, tld, available, order)
+	Parse(Print(r)) == r
+}
+
+// keys and values are what query strings are drawn from: the four keys,
+// an unknown one and none; valid and invalid values, escapes good and
+// bad, a fragment and a stray "=".
+let keys = []string{"q", "q", "tld", "available", "sort", "x", ""}
+
+let values = []string{"acme", "Foo%20bar", "a+b", "com", "zz", "1", "0", "price-asc", "length", "%zz", "%2F", "#frag", "a=b", ""}
+
+// PrintParseIsCanonical: printing a parsed URL gives a URL that parses
+// and prints to itself, so a URL has one canonical form. Each drawn pair
+// is a key=value (or a bare key, for a negative draw) between "&"s.
+law PrintParseIsCanonical(pairs []int) {
+	let mut u = "/?"
+	for p in pairs {
+		let k = pick(keys, p)
+		let v = pick(values, p/7)
+		u = u + (if p < 0 { k } else { k + "=" + v }) + "&"
+	}
+	let c = Print(Parse(u))
+	Print(Parse(c)) == c && Parse(c) == Parse(u)
+}
+
+// InvalidParamIsDefault: a parameter with an invalid value is its
+// default, and the other parameters keep theirs.
+law InvalidParamIsDefault(which int, bad int) {
+	let bads = []string{"", "bogus", "COM", "%zz", "2", "true"}
+	let b = pick(bads, bad)
+	let w = ((which % 3) + 3) % 3
+	let tld = if w == 0 { b } else { "com" }
+	let available = if w == 1 { b } else { "1" }
+	let sort = if w == 2 { b } else { "length" }
+	let order Order = if w == 2 { Relevance } else { Length }
+	let want = Search{Query: "acme", TLD: if w == 0 { "" } else { "com" }, AvailableOnly: w != 1, Order: order}
+	Parse("/?q=acme&tld=\(tld)&available=\(available)&sort=\(sort)") == want
+}
+
+// UnknownPathIsNotFound: every path but the root is NotFound, with the
+// path as written.
+law UnknownPathIsNotFound(segment string, query string) {
+	if segment == "" {
+		return true
+	}
+	let path = "/" + Escape(segment)
+	Parse(path+"?q="+Escape(query)) == NotFound{Path: path}
+}

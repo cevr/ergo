@@ -96,7 +96,7 @@ type history { entries []URL, at int }
 
 // MemoryHistory is a Location in memory, the desktop host's and a test's:
 // its copies share one history.
-type MemoryHistory { state sync.Ref[history] }
+type MemoryHistory { state sync.Ref[history] } implements Location
 
 // NewMemoryHistory is a history of one entry, at start.
 func NewMemoryHistory(start URL) MemoryHistory { MemoryHistory{state: sync.NewRef(history{entries: []URL{start}, at: 0})} }
@@ -147,7 +147,7 @@ func Depth(h MemoryHistory) int { h.state.Get().at }
 // OnURL takes the changes of place the host reports (URLChanged): a
 // change goes to the OnURL calls in the order the pass made them, and the
 // first that gives a signal takes it, as OnKey does.
-func OnURL[E](f *Frame[E], on escaping func(u URL) Option[E]) {
+func OnURL[E](f *Frame[E], on own func(u URL) Option[E]) {
 	if f.nurls < len(f.urls) {
 		f.urls[f.nurls] = on
 	} else {
@@ -291,7 +291,7 @@ type QueryShape { Key string }
 // given twice fails QueryRepeated. A program that wants a default for a
 // field it cannot read declares the field json.Optional, or catches the
 // failure and starts from its default query.
-func QueryOf[T wire](u URL) T fails http.QueryRepeated | wired[T] {
+func QueryOf[T wire](u URL) T fails http.QueryRepeated | wired[T] needs wired[T] {
 	try http.DecodeQuery[T](http.ParseQuery(u.Query))
 }
 
@@ -301,14 +301,14 @@ func QueryOf[T wire](u URL) T fails http.QueryRepeated | wired[T] {
 // absent json.Optional writes nothing, a bool is true or false and a
 // number its shortest decimal (a float as Go's strconv 'g', -1). A field
 // whose value has no query form fails QueryShape naming it.
-func EncodeQuery[T wire](v T) string fails QueryShape {
+func EncodeQuery[T wire](v T) string fails QueryShape needs wired[T] {
 	let e = codec.NewEvents()
 	encode(v, e)
 	try queryText(codec.Recorded(e))
 }
 
 // WithQuery is u with its query EncodeQuery(v).
-func WithQuery[T wire](u URL, v T) URL fails QueryShape {
+func WithQuery[T wire](u URL, v T) URL fails QueryShape needs wired[T] {
 	URL{Path: u.Path, Query: try EncodeQuery(v), Fragment: u.Fragment}
 }
 

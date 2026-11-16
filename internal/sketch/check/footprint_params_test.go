@@ -137,7 +137,7 @@ func (c fpParamCase) sources() (lib, main string) {
 	for i, h := range c.callees {
 		esc := ""
 		if h.escaping {
-			esc = "escaping "
+			esc = "own "
 		}
 		fmt.Fprintf(&d, "\nfunc H%d(n int, p %s%s) int%s {\n\t%s", i, esc, ft, fpRow(""), fpCapCalls("", h.caps))
 		if h.opaque {

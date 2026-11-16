@@ -20,7 +20,7 @@ type Port { Host string, Port int, Tags []string }
 
 // Text is the program's own Writer that shares json.Text's name: a value
 // of the program, so its encode takes the Writer path.
-type Text { n int }
+type Text { n int } implements Writer
 
 func Null(t Text)                {}
 func Number(t Text, text string) {}
@@ -40,7 +40,7 @@ func mine(p Port) {
 	encode(p, Text{n: 0})
 }
 
-func show[T wire](v T) string {
+func show[T wire](v T) string needs wired[T] {
 	let t = json.NewText()
 	encode(v, t)
 	t.Written()

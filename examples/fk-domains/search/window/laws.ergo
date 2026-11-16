@@ -1,0 +1,59 @@
+// The window's laws (plan §20.4). None of them mentions a bound that
+// depends on the count: the count is drawn up to 200,000 rows.
+
+func spec(top int, view int, h int, count int, over int) Spec {
+	Spec{ScrollTop: top, Viewport: view, RowHeight: h, Count: count, Overscan: over}
+}
+
+// WindowCoversViewport: every row that the viewport cuts is in the window.
+law WindowCoversViewport(top int where 0 <= top && top <= 30000000, view int where 1 <= view && view <= 4000, h int where 1 <= h && h <= 400, count int where 0 <= count && count <= 200000, over int where 0 <= over && over <= 4) {
+	let w = Of(spec(top, view, h, count, over))
+	// The rows the viewport cuts are the rows r with r*h < top+view and
+	// (r+1)*h > top, below count; check the first, the last and one between.
+	let first = top / h
+	let last = (top + view - 1) / h
+	let inside = func(r int) bool { r >= count || (w.First <= r && r < End(w)) }
+	inside(first) && inside(last) && inside((first+last)/2)
+}
+
+// WindowIsBounded: the window holds at most the rows the viewport can cut
+// plus the overscan on both sides, for every count.
+law WindowIsBounded(top int where 0 <= top && top <= 30000000, view int where 1 <= view && view <= 4000, h int where 1 <= h && h <= 400, count int where 0 <= count && count <= 200000, over int where 0 <= over && over <= 4) {
+	let w = Of(spec(top, view, h, count, over))
+	w.Rows >= 0 && w.Rows <= (view-1)/h+2+2*over
+}
+
+// SpacersSumToTotal: the spacers and the rows are the list's whole height,
+// so the scroll bar does not jump.
+law SpacersSumToTotal(top int where 0 <= top && top <= 30000000, view int where 1 <= view && view <= 4000, h int where 1 <= h && h <= 400, count int where 0 <= count && count <= 200000, over int where 0 <= over && over <= 4) {
+	let w = Of(spec(top, view, h, count, over))
+	w.Before == w.First*h && w.Before+w.Rows*h+w.After == count*h
+}
+
+// WindowIsMonotone: scrolling down never moves either edge of the window
+// up.
+law WindowIsMonotone(top int where 0 <= top && top <= 30000000, down int where 0 <= down && down <= 100000, view int where 1 <= view && view <= 4000, h int where 1 <= h && h <= 400, count int where 0 <= count && count <= 200000, over int where 0 <= over && over <= 4) {
+	let a = Of(spec(top, view, h, count, over))
+	let b = Of(spec(top+down, view, h, count, over))
+	b.First >= a.First && End(b) >= End(a)
+}
+
+// StepWorkIsFlat: a scroll position inside a catalog of 556 rows gives
+// the same window at 556, 1,000, 10,000 and 100,000 rows: the rows to
+// build, and so the work of a step, do not grow with the count. Only the
+// spacer below the window does.
+law StepWorkIsFlat(top int where 0 <= top && top <= 40000, view int where 1 <= view && view <= 2000, over int where 0 <= over && over <= 4) {
+	let h = 60
+	let sizes = []int{1000, 10000, 100000}
+	let a = Of(spec(top, view, h, 556, over))
+	if End(a)+over >= 556 {
+		return true
+	}
+	for n in sizes {
+		let b = Of(spec(top, view, h, n, over))
+		if b.First != a.First || b.Rows != a.Rows || b.Before != a.Before {
+			return false
+		}
+	}
+	true
+}

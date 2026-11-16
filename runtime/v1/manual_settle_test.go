@@ -185,7 +185,7 @@ func settleRun(seed uint64, where *atomic.Value) string {
 		}
 		return d.next
 	}
-	a := MachineStart(Site("settle"), root, lineSleeper{line}, tstate{}, step, fire, delay,
+	a := MachineStart(Site("settle"), root, lineSleeper{line}, nil, tstate{}, step, fire, delay,
 		noWork[tstate], hasNoWork, runNoWork[tsig], func(d tdec) int { return d.kind }, next,
 		func(*rt.Task, tdec) {}, 4)
 
@@ -199,7 +199,7 @@ func settleRun(seed uint64, where *atomic.Value) string {
 		_ = full.Push(ct, e.x)
 		return tdec{kind: decideStay, next: tstate{s.v, s.n + 1}}, nil
 	}
-	sink := MachineStart(Site("sink"), root, lineSleeper{line}, tstate{}, sinkStep, fire,
+	sink := MachineStart(Site("sink"), root, lineSleeper{line}, nil, tstate{}, sinkStep, fire,
 		func(tstate) time.Duration { return ActorNoTimer() },
 		noWork[tstate], hasNoWork, runNoWork[tsig], func(d tdec) int { return d.kind }, next,
 		func(*rt.Task, tdec) {}, 1)

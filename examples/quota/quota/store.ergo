@@ -15,8 +15,7 @@ type Store {
 	law TotalIsKept(t Move) {
 		let mut before = int64(0)
 		for id in try Volumes() {
-			let b = try SizeOf(id)
-			before = before + b
+			before = before + try SizeOf(id)
 		}
 		let _ = Post(t) catch {
 		case KeyReused, BadSize, SameVolume, UnknownVolume, NoSpace, Unavailable:
@@ -24,8 +23,7 @@ type Store {
 		}
 		let mut after = int64(0)
 		for id in try Volumes() {
-			let b = try SizeOf(id)
-			after = after + b
+			after = after + try SizeOf(id)
 		}
 		after == before
 	},

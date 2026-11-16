@@ -57,7 +57,7 @@ func TestStructuralEqualityRefusals(t *testing.T) {
 	for name, tc := range map[string]struct{ src, want string }{
 		"map-key":    {eqDecls + "func f(m Map[Value, int]) int { len(m) }\n", "map key type Value is not comparable"},
 		"constraint": {eqDecls + "func eq[T comparable](a T, b T) bool { a == b }\nfunc f(a Value) bool { eq(a, a) }\n", "Value is not comparable"},
-		"function":   {"func f(g escaping func() int) bool { g == g }\n", "func() int values cannot be compared with =="},
+		"function":   {"func f(g own func() int) bool { g == g }\n", "func() int values cannot be compared with =="},
 	} {
 		t.Run(name, func(t *testing.T) {
 			o := lowerSource("refuse"+name, tc.src+"\nfunc main() {}\n", true)

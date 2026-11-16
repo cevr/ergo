@@ -1,0 +1,87 @@
+import strconv
+import strings
+import utf8
+
+// Render is the events as lines of text, one per event, except that the
+// text of adjacent Text and Glyph events is one print line: where a run
+// of text is cut does not show.
+//
+//	print "hello\u00e9"
+//	exec 0a
+//	esc "(" "B"
+//	csi "?" [25] "h"
+//	csi "" [38:2::1:2:3] "m"
+//	osc "0;title"
+//	dcs "+" [] "q"
+//	dcs-end 12
+//	apc 5
+func Render(events []Event) []string {
+	let mut lines = []string{}
+	let mut text = []string{}
+	for e in events {
+		match e {
+		case Text as t:
+			text = text.Append(t.Run)
+			continue
+		case Glyph as g:
+			text = text.Append(utf8.RuneText(g.C))
+			continue
+		case Control, Esc, Csi, Osc, Hook, Unhook, Apc:
+		}
+		if len(text) > 0 {
+			lines = lines.Append("print " + strconv.Quote(strings.Join(text, "")))
+			text = []string{}
+		}
+		lines = lines.Append(Line(e))
+	}
+	if len(text) > 0 {
+		lines = lines.Append("print " + strconv.Quote(strings.Join(text, "")))
+	}
+	lines
+}
+
+// Line is the line of one event.
+func Line(e Event) string {
+	match e {
+	case Text as t:
+		"print " + strconv.Quote(t.Run)
+	case Glyph as g:
+		"print " + strconv.Quote(utf8.RuneText(g.C))
+	case Control as c:
+		"exec " + Hex(c.C)
+	case Esc as s:
+		"esc " + strconv.Quote(s.Inter) + " " + strconv.Quote(ByteText(s.Final))
+	case Csi as s:
+		"csi " + strconv.Quote(s.Inter) + " [" + ParamText(s.Params, s.Colons) + "] " + strconv.Quote(ByteText(s.Final))
+	case Osc as o:
+		"osc " + strconv.Quote(o.Data)
+	case Hook as h:
+		"dcs " + strconv.Quote(h.Inter) + " [" + ParamText(h.Params, 0) + "] " + strconv.Quote(ByteText(h.Final))
+	case Unhook as u:
+		"dcs-end \(u.Len)"
+	case Apc as a:
+		"apc \(a.Len)"
+	}
+}
+
+// ParamText is the parameters, each followed by ":" when bit i of colons
+// is set and by ";" otherwise, the last by nothing.
+func ParamText(params []int, colons int) string {
+	let mut parts = []string{}
+	for i in 0..len(params) {
+		if i > 0 {
+			parts = parts.Append(if colons&(1<<(i-1)) != 0 { ":" } else { ";" })
+		}
+		parts = parts.Append("\(params[i])")
+	}
+	strings.Join(parts, "")
+}
+
+// Hex is b as two hexadecimal digits.
+func Hex(b byte) string {
+	let i = int(b)
+	digits[i/16:i/16+1] + digits[i%16:i%16+1]
+}
+
+// digits is the hexadecimal digits.
+let digits = "0123456789abcdef"

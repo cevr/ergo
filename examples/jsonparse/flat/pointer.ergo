@@ -1,0 +1,37 @@
+import jsonparse/json
+
+// Get is the id of the value at ptr (RFC 6901) in t, with json.Get's
+// failures and its choice of the last member of a repeated key.
+func Get(t Tree, ptr string) NodeId fails json.BadPointer | json.NoValue {
+	let tokens = try json.Tokens(ptr)
+	let mut at = t.Root
+	let mut prefix = ""
+	for tok in tokens {
+		prefix = prefix + "/" + json.Escaped(tok)
+		at = try step(t, at, tok, prefix)
+	}
+	at
+}
+
+func step(t Tree, id NodeId, tok string, prefix string) NodeId fails json.NoValue {
+	let n = At(t, id)
+	match n.Kind {
+	case Object:
+		let mut k = int(n.B) - 1
+		for k >= 0 {
+			if TextOf(t, At(t, Child(t, n, 2*k))) == tok {
+				return Child(t, n, 2*k+1)
+			}
+			k -= 1
+		}
+		json.NoValue{At: prefix}
+	case Array:
+		let i = json.Index(tok)
+		if i < 0 || i >= int(n.B) {
+			return json.NoValue{At: prefix}
+		}
+		Child(t, n, i)
+	case Null, True, False, Number, Text, Pooled:
+		json.NoValue{At: prefix}
+	}
+}

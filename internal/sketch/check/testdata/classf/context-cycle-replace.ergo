@@ -1,5 +1,5 @@
 type A { M() }
-type P {}
+type P {} implements A
 func M(_ P)     {}
 let W1 = context { // want S108
 	replace A: P,

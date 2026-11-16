@@ -161,7 +161,7 @@ type Job[E] = Fetch{Epoch int, Run func() E} | Cancel{Epoch int}
 // with around the host's entry, or a with the view wrote around this
 // subtree), which Load holds with InForce, not with those of the task
 // that runs it.
-func Load[E, R](f *Frame[E], key Key, fetch escaping func() E needs R, at CallSite) needs R {
+func Load[E, R](f *Frame[E], key Key, fetch own func() E needs R, at CallSite) needs R {
 	let id = identify(f, at)
 	// A load its node already holds with key starts no fetch (settle), so
 	// only a load that may start holds its providers: a kept load costs

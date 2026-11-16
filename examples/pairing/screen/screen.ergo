@@ -154,7 +154,7 @@ func answer(d Decision[pair.Flow, pair.Result]) string {
 		""
 	case Stay[pair.Flow]:
 		""
-	case Emit[pair.Flow, pair.Result]:
+	case Emit[pair.Flow, pair.Result], Tell[pair.Flow, pair.Result]:
 		""
 	case Ignore:
 		"(ignored)"

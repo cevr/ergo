@@ -1,0 +1,136 @@
+// The rules of resolution as laws.
+
+import twig/syntax
+
+// Closed is p inside a function, after a let of every name the generator
+// uses, so every name p reads is declared.
+func Closed(p []syntax.Stmt) []syntax.Stmt {
+	let at = syntax.Pos{Line: 0, Col: 0}
+	let mut out = []syntax.Stmt{}
+	for n in syntax.Names {
+		out = out.Append(syntax.Let{Name: n, Val: syntax.NilLit{At: at}, At: at})
+	}
+	out.Append(syntax.FnDecl{Name: "main", Params: []string{}, Body: p, At: at})
+}
+
+// SlotsFitTheirFrames: in a resolved program, each slot a function reads
+// or writes in its own frame is inside that frame, and each slot it reads
+// or writes hops frames away is inside the frame of the function that
+// many levels out, which exists.
+law SlotsFitTheirFrames(seed int) {
+	for p in syntax.Samples(seed) {
+		let prog = Resolve(Closed(p)) catch {
+		case ResolveError:
+			continue
+		}
+		if !codesFit(prog, prog.Funcs[Main].Body, []int{prog.Funcs[Main].Slots}) {
+			return false
+		}
+	}
+	true
+}
+
+// fits reports whether the slot at hops levels out of the frames sizes,
+// innermost last, is inside its frame.
+func fits(sizes []int, hops int, slot int) bool {
+	hops >= 0 && hops < len(sizes) && slot >= 0 && slot < sizes[len(sizes)-1-hops]
+}
+
+func codesFit(p Program, codes []Code, sizes []int) bool {
+	for c in codes {
+		if !codeFits(p, c, sizes) {
+			return false
+		}
+	}
+	true
+}
+
+func codeFits(p Program, c Code, sizes []int) bool {
+	match c {
+	case Do as d:
+		nodeFits(p, d.X, sizes)
+	case Bind as b:
+		fits(sizes, 0, b.Slot) && nodeFits(p, b.Val, sizes)
+	case SetVar as s:
+		fits(sizes, s.Hops, s.Slot) && nodeFits(p, s.Val, sizes)
+	case SetElem as s:
+		nodeFits(p, s.X, sizes) && nodeFits(p, s.I, sizes) && nodeFits(p, s.Val, sizes)
+	case SetField as s:
+		nodeFits(p, s.X, sizes) && nodeFits(p, s.Val, sizes)
+	case Cond as k:
+		nodeFits(p, k.Test, sizes) && codesFit(p, k.Then, sizes) && codesFit(p, k.Else, sizes)
+	case Loop as l:
+		nodeFits(p, l.Test, sizes) && codesFit(p, l.Body, sizes)
+	case Each as e:
+		fits(sizes, 0, e.Slot) && nodeFits(p, e.Over, sizes) && codesFit(p, e.Body, sizes)
+	case Ret as r:
+		nodeFits(p, r.Val, sizes)
+	case Brk, Cnt:
+		true
+	case MakeFn as f:
+		fits(sizes, 0, f.Slot) && funcFits(p, f.Code, sizes)
+	}
+}
+
+// funcFits reports whether the function code, made in the frames sizes,
+// fits: its parameters are inside its frame, and so is its body.
+func funcFits(p Program, code int, sizes []int) bool {
+	let f = p.Funcs[code]
+	f.Arity <= f.Slots && codesFit(p, f.Body, sizes.Append(f.Slots))
+}
+
+func nodesFit(p Program, ns []Node, sizes []int) bool {
+	for n in ns {
+		if !nodeFits(p, n, sizes) {
+			return false
+		}
+	}
+	true
+}
+
+func nodeFits(p Program, n Node, sizes []int) bool {
+	match n {
+	case KInt, KFloat, KStr, KBool, KNil, Prim:
+		true
+	case Local as l:
+		fits(sizes, 0, l.Slot)
+	case Outer as o:
+		o.Hops > 0 && fits(sizes, o.Hops, o.Slot)
+	case Negate as x:
+		nodeFits(p, x.X, sizes)
+	case Invert as x:
+		nodeFits(p, x.X, sizes)
+	case Bin as b:
+		nodeFits(p, b.L, sizes) && nodeFits(p, b.R, sizes)
+	case Both as b:
+		nodeFits(p, b.L, sizes) && nodeFits(p, b.R, sizes)
+	case Either as b:
+		nodeFits(p, b.L, sizes) && nodeFits(p, b.R, sizes)
+	case Apply as a:
+		nodeFits(p, a.Fn, sizes) && nodesFit(p, a.Args, sizes)
+	case Elem as e:
+		nodeFits(p, e.X, sizes) && nodeFits(p, e.I, sizes)
+	case Get as g:
+		g.Key >= 0 && g.Key < len(p.Fields) && nodeFits(p, g.X, sizes)
+	case MakeList as l:
+		nodesFit(p, l.Items, sizes)
+	case MakeRec as r:
+		len(r.Keys) == len(r.Vals) && nodesFit(p, r.Vals, sizes)
+	case Closure as c:
+		funcFits(p, c.Code, sizes)
+	}
+}
+
+// ResolvesSome: closing the samples of seed lets some of them resolve,
+// so SlotsFitTheirFrames is not true of nothing.
+law ResolvesSome(seed int) {
+	let mut n = 0
+	for p in syntax.Samples(seed) {
+		let _ = Resolve(Closed(p)) catch {
+		case ResolveError:
+			continue
+		}
+		n += 1
+	}
+	n > 0
+}

@@ -4,17 +4,17 @@
 test AddKeepsOrder {
 	let l = Of([]string{"milk", "eggs"}).Add("bread")
 	assert l.Count() == 3 && l.Open() == 3
-	assert (try l.At(3)).Text == "bread" && (try l.At(1)).Text == "milk"
+	assert try l.At(3).Text == "bread" && try l.At(1).Text == "milk"
 }
 
 test CompleteMarksOne {
 	let l = try Of([]string{"milk", "eggs"}).Complete(2)
-	assert l.Open() == 1 && (try l.At(2)).Done && !(try l.At(1)).Done
+	assert l.Open() == 1 && try l.At(2).Done && !try l.At(1).Done
 }
 
 test DropRenumbers {
 	let l = try Of([]string{"milk", "eggs", "bread"}).Drop(1)
-	assert l.Count() == 2 && (try l.At(1)).Text == "eggs"
+	assert l.Count() == 2 && try l.At(1).Text == "eggs"
 }
 
 test NoItemZero {

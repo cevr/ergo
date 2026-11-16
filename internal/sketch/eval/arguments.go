@@ -89,12 +89,17 @@ func (in *interp) argument(fr *frame, t check.Type, v Value) (out string) {
 		}
 		return in.argumentType(t) + "{" + strings.Join(parts, ", ") + "}"
 	case *check.Map:
-		m := v.(mapV).b.m
+		m := v.(mapV).b.plain()
 		mustCharge(in, fr, int64(len(m)))
 		// The sort below charges each comparison, so it starts from the
-		// keys' fixed order, not the Map's (keyOrder; wf10 NONDET1 and
-		// FU-audit fixed the same order, merged into one).
-		keys := keyOrder(m)
+		// keys' fixed order, not the Map's (keyOrder over the backing's
+		// canonical keys; wf10 NONDET1 and FU-audit fixed the same order,
+		// merged into one).
+		mb := v.(mapV).b
+		keys := keyOrder(mb.m)
+		for i, c := range keys {
+			keys[i] = mb.key(c)
+		}
 		b, basic := t.Key.(*check.Basic)
 		sort.Slice(keys, func(i, j int) bool {
 			mustCharge(in, fr, 1)

@@ -37,7 +37,7 @@ func TestEveryExitPathStopsTheGroup(t *testing.T) {
 		{"timeout", func(f *fixture, ticks string) []string {
 			f.program("p", "#!/bin/sh\n"+tick+caseSleep, "slow\n", map[string]map[string]string{"basic": {"env": "TICKS=" + ticks + "\n", "expected.out": ""}}, nil)
 			return []string{"-timeout", "2s", "p"}
-		}, 1, "FAIL p/basic: timed out after 2s"},
+		}, 1, "FAIL p/basic: hung: no end after 2s, stopped"},
 		{"cap", func(f *fixture, ticks string) []string {
 			f.program("p", "#!/bin/sh\n"+tick+fmt.Sprintf("head -c %d /dev/zero\n", outputCap+1)+caseSleep, "slow\n", map[string]map[string]string{"basic": {"env": "TICKS=" + ticks + "\n", "expected.out": ""}}, nil)
 			return []string{"-timeout", caseTimeout(f.t), "p"}

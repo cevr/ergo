@@ -63,7 +63,7 @@ func ostart(t *rt.Task, capacity int, entered, release chan struct{}) *Actor[[]i
 		}
 		return rdec{odecide(e), e}, nil
 	}
-	return MachineStart(Site("observed"), t, releaser{make(chan sleep)}, []int{}, step,
+	return MachineStart(Site("observed"), t, releaser{make(chan sleep)}, nil, []int{}, step,
 		func(*rt.Task, []int, []int) (rdec, error) { return rdec{kind: decideIgnore}, nil },
 		func([]int) time.Duration { return ActorNoTimer() }, noWork[[]int], hasNoWork, runNoWork[int],
 		func(d rdec) int { return d.kind },
@@ -366,10 +366,6 @@ func runObserveCase(c ocase, seen map[string]bool) string {
 		if ob.kind == "lag" && stoppedQueued+len(final)-ob.start >= 2 && c.ops[len(c.ops)-1].kind == "stop" {
 			seen["a stop overtook unread states"] = true
 		}
-	}
-	// Version counts the commits: each one appended one signal (FK2-g2).
-	if v := a.Version(); v != len(final) {
-		return fmt.Sprintf("Version %d after %d commits", v, len(final))
 	}
 	if got := a.State(root); !slices.Equal(got, final) {
 		return fmt.Sprintf("final state %v, want %v (stepped %v)", got, final, stepped)

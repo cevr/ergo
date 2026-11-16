@@ -3,10 +3,10 @@
 import fetchpool/domain
 import sync
 
-type Recording { Log sync.Ref[[]string] }
-type Script {}
-type connection { id int, log sync.Ref[[]string] }
-type Limit { left sync.Ref[int], log sync.Ref[[]string] }
+type Recording { Log sync.Ref[[]string] } implements domain.Fetcher
+type Script {} implements domain.Fetcher
+type connection { id int, log sync.Ref[[]string] } implements domain.Conn, Closer
+type Limit { left sync.Ref[int], log sync.Ref[[]string] } implements domain.Limiter, Closer
 
 func Open(s Recording, id int) domain.Conn fails domain.Offline {
 	if id < 0 {

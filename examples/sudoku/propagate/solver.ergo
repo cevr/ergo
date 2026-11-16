@@ -10,7 +10,7 @@ import bits
 import sudoku/board
 
 // Solver is the propagating solver.
-type Solver {}
+type Solver {} implements board.Solver
 
 // Contradiction is a cell with no digit left, or a digit with no place
 // left in a unit: the choices made so far have no solution.

@@ -5,7 +5,7 @@ import strconv
 
 // Remote is the Downloader over the host network. Save writes below root,
 // which main opened and still owns: Remote only borrows it.
-type Remote { net http.Remote, root fs.HostRoot }
+type Remote { net http.Remote, root fs.HostRoot } implements domain.Downloader
 func New(net http.Remote, root fs.HostRoot) Remote { Remote{net: net, root: root} }
 
 func request(url string) http.URLRequest {

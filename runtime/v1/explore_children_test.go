@@ -76,7 +76,7 @@ func routerStep(_ *rt.Task, s rstate, e int) (xrdec, error) {
 // for the first, a save for the second, then a wait for the stop.
 func routerWork(wt *rt.Task, _ rstate, _ func(int)) {
 	start := func(name string) *Actor[int, int, edec] {
-		return MachineChild(Site(name), wt, noSleep{}, nil, 0, editorStep, nil,
+		return MachineChild(Site(name), wt, noSleep{}, nil, nil, 0, editorStep, nil,
 			func(int) time.Duration { return noTimer }, func(s int) int { return s }, func(int) bool { return false },
 			func(*rt.Task, int, func(int)) {}, func(d edec) int { return d.k },
 			func(s int, d edec) int {
@@ -104,7 +104,7 @@ func routerWork(wt *rt.Task, _ rstate, _ func(int)) {
 }
 
 func routerProgram(t *rt.Task) error {
-	r := MachineStart(Site("router"), t, noSleep{}, rstate{}, routerStep, nil,
+	r := MachineStart(Site("router"), t, noSleep{}, nil, rstate{}, routerStep, nil,
 		func(rstate) time.Duration { return noTimer }, func(s rstate) rstate { return s },
 		func(s rstate) bool { return !s.closed && s.entry == 0 }, routerWork,
 		func(d xrdec) int { return d.k }, func(s rstate, d xrdec) rstate {
@@ -128,7 +128,7 @@ func routerProgram(t *rt.Task) error {
 // schedule to the same failure. Each runner mutant of the runtime/v1
 // ledger, which changes how an entry keeps, stops or hears its children,
 // is found this way. It runs with the ergoexplore tag (the gate's
-// explored worker step). It runs the real runner because the laws are the
+// explored runtime/v1 step). It runs the real runner because the laws are the
 // runner's: no model of it would show the runner's own orders.
 //
 // ERGO_EXPLORE_PREEMPT=b searches the one bound b. ERGO_EXPLORE_MODE=pct

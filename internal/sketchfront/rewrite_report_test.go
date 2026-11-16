@@ -32,7 +32,9 @@ func TestRewriteLawReported(t *testing.T) {
 	base := checked(t, p.source())
 	// The site is the window's first call, `t.Add(2)`, after a tab.
 	line := strings.Count(p.source()[:strings.Index(p.source(), "\tt.Add(2)")], "\n") + 1
-	at := lower.RewriteSite{File: "/ergo-test/ledger.ergo", Line: line, Column: 2, Law: "main.Counter.Joins", Provider: "main.Tally", Instance: "(2, 3)"}
+	// A site names its file as every source report does, relative to the
+	// program's root (binsize BS6).
+	at := lower.RewriteSite{File: "ledger.ergo", Line: line, Column: 2, Law: "main.Counter.Joins", Provider: "main.Tally", Instance: "(2, 3)"}
 	site := func(verdict, state string, applied bool) lower.RewriteSite {
 		s := at
 		s.Verdict, s.State, s.Applied = verdict, state, applied

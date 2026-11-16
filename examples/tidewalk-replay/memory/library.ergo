@@ -4,7 +4,7 @@ import tidewalk/walk
 
 // Fixed is a walk.Library of four fixed replays: a win with every shell, a
 // drowning, rejected moves and a wait, and a bad letter.
-type Fixed {}
+type Fixed {} implements walk.Library
 
 func Replays(_ Fixed) []walk.Replay {
 	return []walk.Replay{

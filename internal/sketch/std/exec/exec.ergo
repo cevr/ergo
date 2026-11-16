@@ -12,24 +12,27 @@
 
 import slices
 import strings
+import time
+import sync
+import timeout
 
 // NotFound is the failure of a program Name that is not on the PATH, or of
 // a path Name with no file at it.
-type NotFound { Name string }
+extern go ergo.local/prototype/runtime/v1/exec.ExecNotFound type NotFound { Name string }
 
 // Denied is the failure of a file Name that the process may not run.
-type Denied { Name string }
+extern go ergo.local/prototype/runtime/v1/exec.ExecDenied type Denied { Name string }
 
 // Failed is any other failure to start the program Name, such as a
 // working directory that does not exist. Reason is the host's text for it.
-type Failed { Name string, Reason string }
+extern go ergo.local/prototype/runtime/v1/exec.ExecFailed type Failed { Name string, Reason string }
 
 // Result is what a program that ran gives back: its exit status and all
 // it wrote to standard output and standard error. A status that is not 0
 // is a Result, not a failure, so a caller matches on it. A program that a
 // signal ended has the status 128 plus the signal's number, as a shell
 // reports it.
-type Result { Status int, Stdout string, Stderr string }
+extern go ergo.local/prototype/runtime/v1/exec.ExecResult type Result { Status int, Stdout string, Stderr string }
 
 // Command is one program to run: the program Name (a name looked up on
 // the PATH, or a path), its arguments after the name, the environment
@@ -139,14 +142,14 @@ type Streams { Stdout Sink, Stderr Sink }
 
 // Line is one line of a stream whose sink is ToCaller, without its line
 // feed, and whether it came from standard error.
-type Line { Text string, Stderr bool }
+extern go ergo.local/prototype/runtime/v1/exec.ExecLine type Line { Text string, Stderr bool }
 
 // Chunk is what one read of a stream whose sink is ToCaller gave: its
 // bytes as the program wrote them (any bytes, line feeds included), and
 // whether it came from standard error. A Chunk with no bytes is the end of
 // its stream. Where a stream is cut into chunks is not a promise: only the
 // bytes of each stream, in their order, are.
-type Chunk { Text string, Stderr bool }
+extern go ergo.local/prototype/runtime/v1/exec.ExecChunk type Chunk { Text string, Stderr bool }
 
 // Running is a started program. It is a resource: the scope that owns it
 // ends the program when it ends (SIGTERM to the program's process group,
@@ -154,17 +157,18 @@ type Chunk { Text string, Stderr bool }
 // of its group is left, on every exit, a stop and a timeout included.
 //
 // law-exempt: the lifecycle is a property against a model over a fake
-// process (runtime/v1 TestRunningMatchesModel); a real program's streams
+// process (runtime/v1/exec TestRunningMatchesModel); a real program's streams
 // are TestExecStreams.
-type Running {
+extern go ergo.local/prototype/runtime/v1/exec.Running type Running {
 	runtimeOnly(),
+	..Closer,
 	// Lines gives the lines of the streams whose sink is ToCaller, each
 	// without its line feed, in the order their line feeds come, until both
 	// end; a last line with no line feed comes at its stream's end. It
 	// reads the chunks Chunks gives, so a caller may mix the two. A break
 	// or a stop leaves the bytes read and not given for the next Lines or
 	// Chunks; after Wait it gives none.
-	// seq-exempt: Running is law-exempt (its lines come from a program, which a law cannot generate); TestRunningMatchesModel (runtime/v1) holds Lines over chunks cut anywhere, a break and the bytes it leaves for Chunks, and the stop of a reader against its model, and lower TestExecStartRuns a break on the host (a follower).
+	// seq-exempt: Running is law-exempt (its lines come from a program, which a law cannot generate); TestRunningMatchesModel (runtime/v1/exec) holds Lines over chunks cut anywhere, a break and the bytes it leaves for Chunks, and the stop of a reader against its model, and lower TestExecStartRuns a break on the host (a follower).
 	Lines() Seq[Line],
 	// Chunks gives the bytes of the streams whose sink is ToCaller as they
 	// are read, with no wait for a line feed, each stream's in its order,
@@ -173,7 +177,7 @@ type Running {
 	// caller's reading paces it. A tee is the caller's loop: write each
 	// Chunk where it goes and keep it. A break leaves the rest for the next
 	// Chunks; after Wait it gives none.
-	// seq-exempt: Running is law-exempt (its bytes come from a program, which a law cannot generate); TestRunningMatchesModel (runtime/v1) holds the bytes of each stream as they come and at the end, a break and the stop of a reader against its model, and lower TestExecStartRuns a tee on the host.
+	// seq-exempt: Running is law-exempt (its bytes come from a program, which a law cannot generate); TestRunningMatchesModel (runtime/v1/exec) holds the bytes of each stream as they come and at the end, a break and the stop of a reader against its model, and lower TestExecStartRuns a tee on the host.
 	Chunks() Seq[Chunk],
 	// Wait waits for the program's end and gives its status, 128 plus the
 	// signal's number for a program a signal ended. It drops the bytes not
@@ -182,11 +186,46 @@ type Running {
 	Wait() int,
 	// Stop takes ownership, ends the group by the command's Grace rule,
 	// reaps it and returns its actual status, as Wait does. Cleanup is
-	// masked even when the caller has been stopped. Start outside a
-	// timeout, Wait inside it, and Stop in its Expired catch to observe
-	// the status after termination. Close is the scope-release form.
-	Stop() int takes,
-	Close(),
+	// masked even when the caller has been stopped. WaitFor waits with a
+	// deadline; Stop in its Expired catch observes the status after
+	// termination. Close is the scope-release form.
+	own Stop() int,
+}
+
+// WaitFor waits at most d for p's end and gives its status, as Wait
+// does, or fails Expired when d passes first. The deadline is the
+// Scheduler's time. Expired leaves p running and its unread bytes for
+// Lines and Chunks: the caller still owns p, and Stop ends it and gives
+// its status. A program that has ended gives its status at once, whatever
+// d is. A program that ends as d passes may give Expired; Stop then gives
+// its status. A stop of the caller ends the wait, as Wait's.
+//
+//	let code = p.WaitFor(5s) catch {
+//	case timeout.Expired:
+//		p.Stop()
+//	}
+func WaitFor(p Running, d duration) int fails timeout.Expired needs Scheduler { try waitFor(p, d) }
+
+extern go ergo.local/prototype/runtime/v1/exec.ExecWaitFor func waitFor(p Running, d duration) int fails timeout.Expired needs Scheduler
+
+// WaitForEndedGivesStatus: a program that has ended gives the status Wait
+// gives, never Expired, whatever the deadline. A Script's Running has
+// ended when Start returns.
+law WaitForEndedGivesStatus(status int, d int64) {
+	let c = New("x", []string{})
+	let mut results = Map[string, Result]{}
+	results[Key(c)] = Result{Status: status, Stdout: "", Stderr: ""}
+	let p = Script{Results: results}.Start(c, Streams{Stdout: Discard, Stderr: Discard}) catch {
+	case NotFound, Denied, Failed:
+		return false
+	}
+	with context { Scheduler: time.NewManual(0) } {
+		let code = p.WaitFor(duration(d)) catch {
+		case timeout.Expired:
+			return false
+		}
+		code == status
+	}
 }
 
 // Runner runs a program to its end, or starts it. A stop of the calling
@@ -236,11 +275,107 @@ type Runner {
 	},
 }
 
+// Detached names a program started to outlive the code that started it
+// (Spawner.Spawn). It is plain data: it crosses, has no release, and is
+// stored in a pidfile or a state, so a later Alive or Kill, from this
+// process or another one, acts on it. Pid is the program's process id and
+// the id of its session and process group. Start is its start time as the
+// host reports it, so Alive and Kill never act on another process that
+// reused the pid. Name is the program's name.
+extern go ergo.local/prototype/runtime/v1/exec.ExecDetached type Detached { Pid int, Start int64, Name string }
+
+// Spawner starts programs that outlive the caller's scope, and finds and
+// ends them later. It is a capability apart from Runner, so a detached
+// start shows in the row of the code that does it; a Running stays owned
+// by its scope, and no Running becomes a Detached.
+type Spawner {
+	// Spawn starts c in a new session and process group, with its streams
+	// going to s, and returns once it has started. A sink of s that is
+	// ToCaller is Failed: no caller outlives the program to read it. A
+	// stop of the calling task does not end the program.
+	Spawn(c Command, s Streams) Detached fails NotFound | Denied | Failed,
+
+	// Alive reports that d's program is still running: the same process,
+	// by its pid and its start time.
+	Alive(d Detached) bool,
+
+	// Kill ends d's process group: SIGTERM, then SIGKILL when the group
+	// has not ended grace later (a grace of 0 sends SIGKILL at once), and
+	// returns once no process of the group is left. A d whose program is
+	// gone is no failure.
+	Kill(d Detached, grace duration),
+
+	// KilledIsNotAlive: a spawned program that Kill ended is not Alive.
+	law KilledIsNotAlive(name string) {
+		let d = Spawn(New(name, []string{}), Streams{Stdout: Discard, Stderr: Discard}) catch {
+		case NotFound, Denied, Failed:
+			return true
+		}
+		Kill(d, 0s)
+		!Alive(d)
+	},
+
+	// KillIsIdempotent: a second Kill of a program that is gone is no
+	// failure and leaves it gone.
+	law KillIsIdempotent(name string) {
+		let d = Spawn(New(name, []string{}), Streams{Stdout: Discard, Stderr: Discard}) catch {
+		case NotFound, Denied, Failed:
+			return true
+		}
+		Kill(d, 0s)
+		Kill(d, 0s)
+		!Alive(d)
+	},
+}
+
+// Processes is the memory Spawner, for laws and for the tests of code
+// that spawns: Spawn records a live entry for c and gives it the next
+// pid, Alive reads the entry, Kill removes it. It runs nothing. Spawn
+// fails NotFound when Programs does not list c.Name, and Failed for a
+// ToCaller sink, as the host's does. Its table is in a sync.Ref, so the
+// copies of one Processes share it, as handles of one host do.
+type Processes { Programs []string, live sync.Ref[Map[int, string]], next sync.Ref[int] } implements Spawner
+
+// NewProcesses is a memory Spawner whose Spawn knows the programs named.
+func NewProcesses(programs []string) Processes {
+	Processes{Programs: programs, live: sync.NewRef(Map[int, string]{}), next: sync.NewRef(0)}
+}
+
+// Spawn records c as a live program under the next pid. The pid is its
+// Start too: the memory host never reuses one.
+func Spawn(p Processes, c Command, s Streams) Detached fails NotFound | Denied | Failed {
+	if !slices.Contains(p.Programs, c.Name) {
+		return NotFound{Name: c.Name}
+	}
+	if toCaller(s.Stdout) || toCaller(s.Stderr) {
+		return Failed{Name: c.Name, Reason: "a detached program has no caller to read it (ToCaller)"}
+	}
+	let pid = p.next.Get() + 1
+	p.next.Set(pid)
+	let mut m = p.live.Get()
+	m[pid] = c.Name
+	p.live.Set(m)
+	Detached{Pid: pid, Start: int64(pid), Name: c.Name}
+}
+
+// Alive reports that d names a live entry: its pid holds d's Name and d's
+// Start is that pid's.
+func Alive(p Processes, d Detached) bool {
+	d.Start == int64(d.Pid) && p.live.Get().Get(d.Pid) == Some[string]{Value: d.Name}
+}
+
+// Kill removes d's entry, if it is there.
+func Kill(p Processes, d Detached, _ duration) {
+	if p.Alive(d) {
+		p.live.Set(p.live.Get().Delete(d.Pid))
+	}
+}
+
 // Script is a Runner for tests. It runs nothing: Run gives the Result that
 // Results holds at the command's Key, and fails NotFound when it holds
 // none. The environment, the directory and the standard input are not in
 // the Key.
-type Script { Results Map[string, Result] }
+type Script { Results Map[string, Result] } implements Runner
 
 // Run is the Result recorded for c, or NotFound.
 func Run(s Script, c Command) Result fails NotFound | Denied | Failed {
@@ -252,25 +387,37 @@ func Run(s Script, c Command) Result fails NotFound | Denied | Failed {
 	}
 }
 
-// Start is a Running that replays the Result recorded for c: Chunks gives
-// its Stdout, then its Stderr, each when its sink is ToCaller (so Lines
-// gives the lines of each), and Wait its Status. It writes nothing to a
-// file or a stream of this process. It fails NotFound when Results holds
-// no Result for c.
+// Start is the Running of the Result recorded for c (Ended). It fails
+// NotFound when Results holds no Result for c.
 func Start(s Script, c Command, st Streams) Running fails NotFound | Denied | Failed {
 	match s.Results.Get(Key(c)) {
 	case Some[Result] as hit:
-		let mut cs = []Chunk{}
-		if toCaller(st.Stdout) {
-			cs = whole(cs, hit.Value.Stdout, false)
-		}
-		if toCaller(st.Stderr) {
-			cs = whole(cs, hit.Value.Stderr, true)
-		}
-		return replay(cs, hit.Value.Status, toCaller(st.Stdout) || toCaller(st.Stderr))
+		return Ended(st, hit.Value)
 	case None:
 		return NotFound{Name: c.Name}
 	}
+}
+
+// Ended is the Running of a program that has already ended with r: Chunks
+// gives r's Stdout, then its Stderr, each when its sink in s is ToCaller
+// (so Lines gives the lines of each), and Wait gives r's Status. It starts
+// nothing and writes nothing to a file or a stream of this process. It is
+// how any Runner that runs no program, Script or a module's own fake, gives
+// the Running its Start returns: a Running is the runtime's value, so no
+// other package's type implements it.
+//
+// Its first parameter is the Streams, not the Result: a function of this
+// package on Result, a runtime type, would lower as a Go method that
+// v1.ExecResult does not have.
+func Ended(s Streams, r Result) Running {
+	let mut cs = []Chunk{}
+	if toCaller(s.Stdout) {
+		cs = whole(cs, r.Stdout, false)
+	}
+	if toCaller(s.Stderr) {
+		cs = whole(cs, r.Stderr, true)
+	}
+	replay(cs, r.Status, toCaller(s.Stdout) || toCaller(s.Stderr))
 }
 
 // whole is cs with the stream text as one Chunk, when it is not empty, and
@@ -292,7 +439,7 @@ func toCaller(s Sink) bool {
 	}
 }
 
-extern go ergo.local/prototype/runtime/v1.ExecReplay func replay(cs []Chunk, status int, caller bool) Running
+extern go ergo.local/prototype/runtime/v1/exec.ExecReplay func replay(cs []Chunk, status int, caller bool) Running
 
 // ScriptReplaysRecorded: a Script gives back the Result recorded for a
 // command, whatever its status, and two commands whose arguments differ
@@ -318,7 +465,7 @@ law ScriptReplaysRecorded(name string, arg string, status int, out string) {
 // Host is the host's Runner. Its field gives this package the construction
 // authority (types.md, Zero values 6): no other package writes exec.Host{},
 // its zero value or a record update of it.
-type Host { live hostOnly }
+type Host { live hostOnly } implements Runner, Spawner
 
 // hostOnly is the zero-size type of Host's field, so Host stays zero size.
 type hostOnly {}
@@ -335,7 +482,7 @@ func Run(_ Host, c Command) Result fails NotFound | Denied | Failed {
 	try hostRun(c.Name, c.Args, c.Env, c.Dir, c.Stdin, c.Grace)
 }
 
-extern go ergo.local/prototype/runtime/v1.ExecRun func hostRun(name string, args []string, env Map[string, string], dir string, stdin string, grace duration) Result fails NotFound | Denied | Failed
+extern go ergo.local/prototype/runtime/v1/exec.ExecRun func hostRun(name string, args []string, env Map[string, string], dir string, stdin string, grace duration) Result fails NotFound | Denied | Failed
 
 // Start starts c on the host, in a process group of its own, with its
 // standard output and standard error going to s's sinks. A file sink that
@@ -344,7 +491,7 @@ func Start(_ Host, c Command, s Streams) Running fails NotFound | Denied | Faile
 	try hostStart(c.Name, c.Args, c.Env, c.Dir, c.Stdin, c.Grace, sinkKind(s.Stdout), sinkPath(s.Stdout), sinkAppends(s.Stdout), sinkKind(s.Stderr), sinkPath(s.Stderr), sinkAppends(s.Stderr))
 }
 
-// sinkKind is the runtime's number of a sink (runtime/v1 exec_start.go).
+// sinkKind is the runtime's number of a sink (runtime/v1/exec exec_start.go).
 func sinkKind(s Sink) int {
 	match s {
 	case Inherit:
@@ -376,4 +523,26 @@ func sinkAppends(s Sink) bool {
 	}
 }
 
-extern go ergo.local/prototype/runtime/v1.ExecStart func hostStart(name string, args []string, env Map[string, string], dir string, stdin string, grace duration, outKind int, outPath string, outAppend bool, errKind int, errPath string, errAppend bool) Running fails NotFound | Denied | Failed
+// Spawn starts c on the host in a new session and process group, so it
+// outlives the calling task's scope and this process. Its streams go to
+// s's sinks; a file sink that cannot be opened, or a ToCaller sink, fails
+// Failed and starts nothing.
+func Spawn(_ Host, c Command, s Streams) Detached fails NotFound | Denied | Failed {
+	try hostSpawn(c.Name, c.Args, c.Env, c.Dir, c.Stdin, sinkKind(s.Stdout), sinkPath(s.Stdout), sinkAppends(s.Stdout), sinkKind(s.Stderr), sinkPath(s.Stderr), sinkAppends(s.Stderr))
+}
+
+// Alive reports that d's program is running on the host: its pid names a
+// process that has not ended and that started at d.Start.
+func Alive(_ Host, d Detached) bool { hostAlive(d.Pid, d.Start) }
+
+// Kill ends d's process group on the host (Spawner.Kill). A pid that
+// another process now has gets no signal.
+func Kill(_ Host, d Detached, grace duration) { hostKill(d.Pid, d.Start, grace) }
+
+extern go ergo.local/prototype/runtime/v1/exec.ExecSpawn func hostSpawn(name string, args []string, env Map[string, string], dir string, stdin string, outKind int, outPath string, outAppend bool, errKind int, errPath string, errAppend bool) Detached fails NotFound | Denied | Failed
+
+extern go ergo.local/prototype/runtime/v1/exec.ExecAlive func hostAlive(pid int, start int64) bool
+
+extern go ergo.local/prototype/runtime/v1/exec.ExecKill func hostKill(pid int, start int64, grace duration)
+
+extern go ergo.local/prototype/runtime/v1/exec.ExecStart func hostStart(name string, args []string, env Map[string, string], dir string, stdin string, grace duration, outKind int, outPath string, outAppend bool, errKind int, errPath string, errAppend bool) Running fails NotFound | Denied | Failed

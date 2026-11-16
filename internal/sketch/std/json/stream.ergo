@@ -1,0 +1,1110 @@
+// Stream reads JSON text from an io.Source as decode[T] asks for it
+// (docs/spec/stdlib.md, json; corpus-wave SJ1): a Reader provider written
+// in Ergo, with no Go body, so any module could write it. Its tokenizer
+// takes the next chunk only when the token it reads goes past the one it
+// holds, and keeps no chunk it has passed, so a Stream holds one chunk and
+// the token it is in, not the text.
+//
+// Open validates the whole text before decode[T] reads it (two phases);
+// a Stream cannot, since the end of the text has not arrived. It
+// validates each byte as it passes, by Open's rules, with Open's reasons
+// and offsets. When it meets a break it reads on as if the value ended
+// there (Peek is WireEnd, a read fails WireWrongKind), and Settle reports
+// it. So the guarantee is weaker than Decode's: code that acts on the
+// values it reads from a Stream before Settle may have acted on a text
+// that is not JSON. DecodeStream settles before it gives a value or a
+// failure, so its result is Decode's for the same text, and Decode stays
+// the two-phase default.
+//
+// The state is a record in a sync.Ref, as std codec's Replay keeps its
+// place, so every copy of a Stream reads on from one place.
+
+import io
+import math
+import strconv
+import strings
+import sync
+import utf8
+
+// Stream is a Reader over the text of an io.Source.
+type Stream { st sync.Ref[scan] } implements Reader
+
+// The kinds of token the tokenizer gives, in WireKind's order for values:
+// a closing bracket (kClose), a member's key (kKey), the end of the text
+// after the value (kDone) and a break of the rules (kBad).
+let kNull = 0
+let kBool = 1
+let kNumber = 2
+let kString = 3
+let kList = 4
+let kObject = 5
+let kClose = 6
+let kKey = 7
+let kDone = 8
+let kBad = 9
+
+// The tokenizer's states: what it expects next. sValue: a value; sFirst:
+// the first member or element, or the closing bracket; sAfter: a comma or
+// the closing bracket; sKey: a member's key; sRoot: the end of the text
+// after the value; sEnd: nothing, the text has ended.
+let sValue = 0
+let sFirst = 1
+let sAfter = 2
+let sKey = 3
+let sRoot = 4
+let sEnd = 5
+
+// tok is a token: a string's or a key's text with its escapes read (raw
+// when it had none), a number's spelling, a literal's word.
+type tok { kind int, text string, raw bool }
+
+// frame is a list or object decode[T] began, as runtime/v1's Cursor keeps
+// it: for a list, how many elements were read or begun; for an object,
+// the key More last took. has says the frame has a current element.
+type frame { list bool, n int, key string, has bool }
+
+// scan is a Stream's state, the part every token reads or writes. The
+// window buf holds the bytes from offset rare.base of the text on, read from
+// i, and from mark on (when it is not -1) the token being read, which a
+// refill keeps. ctx holds the tokenizer's open lists (true) and objects,
+// nc deep; the queue q holds nq tokens, those from qi produced and not yet
+// taken (Tag looks ahead); frames holds nf frames. Each keeps its own
+// length so a pop keeps the slice's room for the next push. bad records
+// the first break (its place and reason are rare's); frames and wrong are
+// the Reader's place, as Cursor's. The rest is in rare, which a refill,
+// a break and Settle change: every operation copies scan, so what tokens
+// do not touch stays out of it.
+type scan {
+	buf      string,
+	i        int,
+	mark     int,
+	maxDepth int,
+	ctx      []bool,
+	nc       int,
+	state    int,
+	q        []tok,
+	nq       int,
+	qi       int,
+	frames   []frame,
+	nf       int,
+	rare     sync.Ref[rare],
+	bad      bool,
+	wrong    bool,
+	seq      bool,
+}
+
+// rare is a Stream's state that a token does not touch: the source, the
+// window's offset (base), the bytes read (total) and their limit, its end, the first break's offset
+// and reason, a failed read, and the most bytes the window held (peak).
+type rare {
+	src      io.Source,
+	base     int,
+	total    int,
+	maxBytes int,
+	eof      bool,
+	badAt    int,
+	badWhy   string,
+	failed   bool,
+	failure  io.ReadFailed,
+	peak     int,
+}
+
+// NewStream reads src by Open's rules: no more than maxBytes bytes (no
+// limit when maxBytes <= 0) and nesting no deeper than maxDepth lists and
+// objects (10000 when maxDepth <= 0). It reads nothing until a read asks.
+func NewStream(src io.Source, maxBytes int, maxDepth int) Stream { newStream(src, maxBytes, maxDepth, false) }
+
+// NewSequenceStream reads src as a sequence of JSON values, each by
+// Open's rules, separated by white space (newline-delimited JSON is one):
+// no value, or one after another, where Open allows one. maxBytes limits
+// the whole text and maxDepth each value. Read its values with
+// NewElements.
+func NewSequenceStream(src io.Source, maxBytes int, maxDepth int) Stream { newStream(src, maxBytes, maxDepth, true) }
+
+// Window is the most bytes r has held at once: a chunk with the token
+// cut by its edge, never the text (ElementsHoldOneWindow).
+func Window(r Stream) int { r.st.Get().rare.Get().peak }
+
+// broke is whether r's text broke, and sequence whether r reads a
+// sequence: read with Modify, not Get, since a Get marks the state
+// shared and the next operation would copy it.
+func broke(r Stream) bool {
+	sync.Modify(r.st, func(v scan) (bool, scan) { (v.bad, v) })
+}
+
+func sequence(r Stream) bool {
+	sync.Modify(r.st, func(v scan) (bool, scan) { (v.seq, v) })
+}
+
+func newStream(src io.Source, maxBytes int, maxDepth int, seq bool) Stream {
+	let depth = if maxDepth > 0 { maxDepth } else { 10000 }
+	Stream{st: sync.NewRef[scan](scan{
+		buf:      "",
+		i:        0,
+		mark:     -1,
+		maxDepth: depth,
+		ctx:      []bool{},
+		nc:       0,
+		state:    sValue,
+		q:        []tok{},
+		nq:       0,
+		qi:       0,
+		frames:   []frame{},
+		nf:       0,
+		rare:     sync.NewRef[rare](rare{
+			src:      src,
+			base:     0,
+			total:    0,
+			maxBytes: maxBytes,
+			eof:      false,
+			badAt:    0,
+			badWhy:   "",
+			failed:   false,
+			failure:  io.ReadFailed{Reason: ""},
+			peak:     0,
+		}),
+		bad:   false,
+		wrong: false,
+		seq:   seq,
+	})}
+}
+
+// Settle reads the rest of r's text, checks it by Open's rules, and
+// fails with the first break of them: the text is longer than MaxBytes
+// (wherever the first other break was), or Open's Malformed, at the
+// offset Open gives. A failed read fails io.ReadFailed: the text is not
+// all there, so no other verdict holds.
+func Settle(r Stream) fails Malformed | io.ReadFailed {
+	let (bad, k) = sync.Modify(r.st, func(v scan) ((bool, rare), scan) {
+		let mut s = v
+		settle(&s)
+		((s.bad, s.rare.Get()), s)
+	})
+	if k.failed {
+		return k.failure
+	}
+	if bad {
+		return Malformed{Offset: k.badAt, Reason: k.badWhy}
+	}
+}
+
+// DecodeStream is the T that src's text writes, read as it arrives: the
+// result Decode gives for the same text (StreamAgreesWithDecode), since it
+// settles the text before it gives a value or a failure, and
+// io.ReadFailed when src fails.
+func DecodeStream[T wire](c Codec[T], src io.Source) T fails Malformed | io.ReadFailed | wired[T] needs wired[T] {
+	let r = NewStream(src, c.MaxBytes, c.MaxDepth)
+	// A failed decode settles first: a break of the text explains the
+	// failure better than the shape failure it caused.
+	let v = decode[T](r) catch {
+	case err:
+		try Settle(r)
+		return err
+	}
+	try Settle(r)
+	v
+}
+
+// settle runs the tokenizer to the end of the text, then, after a break,
+// counts the rest of the text against MaxBytes, which Open checks first.
+func settle(s *scan) {
+	s.nq = 0
+	s.qi = 0
+	for {
+		let t = produce(s)
+		if t.kind == kDone || t.kind == kBad {
+			break
+		}
+	}
+	let mut k = s.rare.Get()
+	if !s.bad || k.failed || k.maxBytes <= 0 {
+		return
+	}
+	for !k.eof && k.total <= k.maxBytes {
+		let got = k.src.Read() catch {
+		case io.ReadFailed as e:
+			k.failed = true
+			k.failure = e
+			s.rare.Set(k)
+			return
+		}
+		match got {
+		case Some[string] as c:
+			k.total = k.total + len(c.Value)
+		case None:
+			k.eof = true
+		}
+	}
+	if !k.failed && k.total > k.maxBytes {
+		k.badAt = k.maxBytes
+		k.badWhy = tooLong(k.maxBytes)
+	}
+	s.rare.Set(k)
+}
+
+func tooLong(max int) string { "the text is longer than MaxBytes " + strconv.Itoa(max) }
+
+// The tokenizer.
+
+func pos(s *scan) int { s.rare.Get().base + s.i }
+
+// fail records the first break: Open stops at it.
+func fail(s *scan, at int, why string) {
+	if !s.bad {
+		s.bad = true
+		let mut k = s.rare.Get()
+		k.badAt = at
+		k.badWhy = why
+		s.rare.Set(k)
+	}
+}
+
+// failedRead reports whether a read of the source failed.
+func failedRead(s *scan) bool { s.rare.Get().failed }
+
+// fill reads the next chunk into the window, keeping the bytes from i on
+// (from mark on, while a token is read); false at the end of the text,
+// after a break or a failed read. A chunk past MaxBytes is a break.
+func fill(s *scan) bool {
+	if s.bad {
+		return false
+	}
+	let mut k = s.rare.Get()
+	if k.eof {
+		return false
+	}
+	let got = k.src.Read() catch {
+	case io.ReadFailed as e:
+		k.failed = true
+		k.failure = e
+		k.eof = true
+		s.rare.Set(k)
+		return false
+	}
+	match got {
+	case Some[string] as c:
+		k.total = k.total + len(c.Value)
+		let keep = if s.mark >= 0 { s.mark } else { s.i }
+		s.buf = s.buf[keep:] + c.Value
+		k.base = k.base + keep
+		s.i = s.i - keep
+		if s.mark >= 0 {
+			s.mark = 0
+		}
+		if len(s.buf) > k.peak {
+			k.peak = len(s.buf)
+		}
+		s.rare.Set(k)
+		if k.maxBytes > 0 && k.total > k.maxBytes {
+			fail(s, k.maxBytes, tooLong(k.maxBytes))
+			return false
+		}
+		true
+	case None:
+		k.eof = true
+		s.rare.Set(k)
+		false
+	}
+}
+
+// need reads until the window holds n bytes from i; false when the text
+// ends first.
+func need(s *scan, n int) bool {
+	for len(s.buf)-s.i < n {
+		if !fill(s) {
+			return false
+		}
+	}
+	true
+}
+
+func ws(s *scan) {
+	for {
+		if s.i >= len(s.buf) && !fill(s) {
+			return
+		}
+		let c = s.buf[s.i]
+		if c != ' ' && c != '\t' && c != '\n' && c != '\r' {
+			return
+		}
+		s.i = s.i + 1
+	}
+}
+
+let badTok = tok{kind: kBad, text: "", raw: false}
+
+// produce is the next token of the text, checked by Open's rules: kBad
+// from the first break on, kDone at the end of a text that holds one value.
+func produce(s *scan) tok {
+	if s.bad {
+		return badTok
+	}
+	if s.state == sEnd {
+		return tok{kind: kDone, text: "", raw: false}
+	}
+	ws(s)
+	if s.seq && s.nc == 0 && (s.state == sRoot || s.state == sValue) {
+		// A sequence: another value, or the end, after any white space.
+		if need(s, 1) {
+			s.state = sValue
+			return value(s)
+		}
+		s.state = sRoot
+	}
+	if s.state == sRoot {
+		if need(s, 1) {
+			fail(s, pos(s), "text after the value")
+		}
+		if s.bad || failedRead(s) {
+			fail(s, pos(s), "the read failed")
+			return badTok
+		}
+		s.state = sEnd
+		return tok{kind: kDone, text: "", raw: false}
+	}
+	if s.state == sFirst || s.state == sAfter {
+		let list = s.ctx[s.nc-1]
+		if need(s, 1) {
+			let c = s.buf[s.i]
+			if (list && c == ']') || (!list && c == '}') {
+				s.i = s.i + 1
+				s.nc = s.nc - 1
+				s.state = if s.nc == 0 { sRoot } else { sAfter }
+				return tok{kind: kClose, text: "", raw: false}
+			}
+			if s.state == sAfter {
+				if c != ',' {
+					fail(s, pos(s), "no comma or closing bracket")
+					return badTok
+				}
+				s.i = s.i + 1
+				ws(s)
+			}
+		} else if s.state == sAfter {
+			fail(s, pos(s), "the text ends inside a list or object")
+			return badTok
+		}
+		s.state = if list { sValue } else { sKey }
+	}
+	if s.state == sKey {
+		if !need(s, 1) || s.buf[s.i] != '"' {
+			fail(s, pos(s), "an object key that is not a string")
+			return badTok
+		}
+		let k = str(s)
+		ws(s)
+		if s.bad {
+			return badTok
+		}
+		if !need(s, 1) || s.buf[s.i] != ':' {
+			fail(s, pos(s), "no colon after an object key")
+			return badTok
+		}
+		s.i = s.i + 1
+		s.state = sValue
+		return tok{kind: kKey, text: k.text, raw: k.raw}
+	}
+	ws(s)
+	value(s)
+}
+
+// value is the token of the value that starts at i: a scalar whole, or
+// the opening bracket of a list or object.
+func value(s *scan) tok {
+	if !need(s, 1) {
+		fail(s, pos(s), "the text ends before a value")
+		return badTok
+	}
+	let c = s.buf[s.i]
+	if c == '[' || c == '{' {
+		if s.nc >= s.maxDepth {
+			fail(s, pos(s), "nesting deeper than MaxDepth "+strconv.Itoa(s.maxDepth))
+			return badTok
+		}
+		s.i = s.i + 1
+		if s.nc < len(s.ctx) {
+			s.ctx[s.nc] = c == '['
+		} else {
+			s.ctx = s.ctx.Append(c == '[')
+		}
+		s.nc = s.nc + 1
+		s.state = sFirst
+		return tok{kind: if c == '[' { kList } else { kObject }, text: "", raw: false}
+	}
+	let mut t = badTok
+	if c == '"' {
+		t = str(s)
+	} else if c == 't' {
+		t = lit(s, "true", kBool)
+	} else if c == 'f' {
+		t = lit(s, "false", kBool)
+	} else if c == 'n' {
+		t = lit(s, "null", kNull)
+	} else if c == '-' || (c >= '0' && c <= '9') {
+		t = num(s)
+	} else {
+		let _ = need(s, 4)
+		let r = utf8.DecodeRuneInString(s.buf[s.i:])
+		fail(s, pos(s), "an unexpected "+strconv.Quote(s.buf[s.i:s.i+r.Size])+" where a value belongs")
+	}
+	if s.bad {
+		return badTok
+	}
+	s.state = if s.nc == 0 { sRoot } else { sAfter }
+	t
+}
+
+func lit(s *scan, word string, kind int) tok {
+	if !need(s, len(word)) || s.buf[s.i:s.i+len(word)] != word {
+		fail(s, pos(s), "an invalid literal")
+		return badTok
+	}
+	s.i = s.i + len(word)
+	tok{kind: kind, text: word, raw: true}
+}
+
+// digitRun passes the digits at i and counts them.
+func digitRun(s *scan) int {
+	let mut n = 0
+	for need(s, 1) && s.buf[s.i] >= '0' && s.buf[s.i] <= '9' {
+		s.i = s.i + 1
+		n = n + 1
+	}
+	n
+}
+
+// num is the number at i; its spelling is a slice of the window.
+func num(s *scan) tok {
+	s.mark = s.i
+	if s.buf[s.i] == '-' {
+		s.i = s.i + 1
+	}
+	if need(s, 1) && s.buf[s.i] == '0' {
+		s.i = s.i + 1
+	} else if digitRun(s) == 0 {
+		fail(s, pos(s), "a number with no digits")
+		return badTok
+	}
+	if need(s, 1) && s.buf[s.i] == '.' {
+		s.i = s.i + 1
+		if digitRun(s) == 0 {
+			fail(s, pos(s), "no digits after a decimal point")
+			return badTok
+		}
+	}
+	if need(s, 1) && (s.buf[s.i] == 'e' || s.buf[s.i] == 'E') {
+		s.i = s.i + 1
+		if need(s, 1) && (s.buf[s.i] == '+' || s.buf[s.i] == '-') {
+			s.i = s.i + 1
+		}
+		if digitRun(s) == 0 {
+			fail(s, pos(s), "no digits in an exponent")
+			return badTok
+		}
+	}
+	let text = s.buf[s.mark:s.i]
+	s.mark = -1
+	tok{kind: kNumber, text: text, raw: true}
+}
+
+func unhex(c byte) int {
+	if c >= '0' && c <= '9' {
+		return int(c - '0')
+	}
+	if c >= 'a' && c <= 'f' {
+		return int(c-'a') + 10
+	}
+	if c >= 'A' && c <= 'F' {
+		return int(c-'A') + 10
+	}
+	-1
+}
+
+// hex4 is the four hex digits from j, or -1 when one is not a digit.
+func hex4(s *scan, j int) int {
+	let mut r = 0
+	for k in 0..4 {
+		let d = unhex(s.buf[j+k])
+		if d < 0 {
+			return -1
+		}
+		r = r*16 + d
+	}
+	r
+}
+
+// str is the string at i, its escapes read as Cursor reads them: \udc80
+// to \udcff as the byte the encoder escaped, any other lone surrogate as
+// U+FFFD, a pair as its rune.
+func str(s *scan) tok {
+	s.i = s.i + 1
+	s.mark = s.i
+	for {
+		for s.i < len(s.buf) && s.buf[s.i] != '"' && s.buf[s.i] != '\\' && s.buf[s.i] >= 0x20 {
+			s.i = s.i + 1
+		}
+		if s.i < len(s.buf) {
+			break
+		}
+		if !fill(s) {
+			fail(s, pos(s), "the text ends inside a string")
+			return badTok
+		}
+	}
+	if s.buf[s.i] == '"' {
+		// No escape: the text is a slice of the window.
+		let text = s.buf[s.mark:s.i]
+		s.mark = -1
+		s.i = s.i + 1
+		return tok{kind: kString, text: text, raw: true}
+	}
+	// An escape or a control byte: the rest is built.
+	let mut b = strings.NewBuilder()
+	b.WriteString(s.buf[s.mark:s.i])
+	s.mark = -1
+	let mut raw = true
+	for {
+		let start = s.i
+		for s.i < len(s.buf) && s.buf[s.i] != '"' && s.buf[s.i] != '\\' && s.buf[s.i] >= 0x20 {
+			s.i = s.i + 1
+		}
+		b.WriteString(s.buf[start:s.i])
+		if s.i >= len(s.buf) {
+			if !fill(s) {
+				fail(s, pos(s), "the text ends inside a string")
+				return badTok
+			}
+			continue
+		}
+		let c = s.buf[s.i]
+		if c == '"' {
+			s.i = s.i + 1
+			return tok{kind: kString, text: b.String(), raw: raw}
+		}
+		if c < 0x20 {
+			fail(s, pos(s), "a control byte inside a string")
+			return badTok
+		}
+		raw = false
+		s.i = s.i + 1
+		if !need(s, 1) {
+			fail(s, pos(s), "the text ends inside a string")
+			return badTok
+		}
+		let e = s.buf[s.i]
+		if e == 'u' {
+			if !need(s, 5) {
+				fail(s, pos(s), "a short \\u escape")
+				return badTok
+			}
+			for k in 1..5 {
+				if unhex(s.buf[s.i+k]) < 0 {
+					fail(s, pos(s)+k, "a \\u escape that is not hexadecimal")
+					return badTok
+				}
+			}
+			let mut r = hex4(s, s.i+1)
+			s.i = s.i + 5
+			if r >= 0xD800 && r < 0xDC00 && need(s, 6) && s.buf[s.i] == '\\' && s.buf[s.i+1] == 'u' {
+				let low = hex4(s, s.i+2)
+				if low >= 0xDC00 && low < 0xE000 {
+					r = (r-0xD800)*1024 + (low - 0xDC00) + 0x10000
+					s.i = s.i + 6
+				}
+			}
+			if r >= 0xDC80 && r <= 0xDCFF {
+				b.WriteByte(byte(r - 0xDC00))
+			} else if r >= 0xD800 && r < 0xE000 {
+				b.WriteString(utf8.RuneText(0xFFFD))
+			} else {
+				b.WriteString(utf8.RuneText(rune(r)))
+			}
+		} else if e == '"' || e == '\\' || e == '/' {
+			b.WriteByte(e)
+			s.i = s.i + 1
+		} else if e == 'b' {
+			b.WriteByte(8)
+			s.i = s.i + 1
+		} else if e == 'f' {
+			b.WriteByte(12)
+			s.i = s.i + 1
+		} else if e == 'n' {
+			b.WriteByte(10)
+			s.i = s.i + 1
+		} else if e == 'r' {
+			b.WriteByte(13)
+			s.i = s.i + 1
+		} else if e == 't' {
+			b.WriteByte(9)
+			s.i = s.i + 1
+		} else {
+			fail(s, pos(s), "an invalid escape")
+			return badTok
+		}
+	}
+}
+
+// The Reader's place, over the tokens: Cursor's rules, token by token.
+
+// peekAt is the token k places after the next one, produced if need be.
+func peekAt(s *scan, k int) tok {
+	for s.nq-s.qi <= k {
+		let t = produce(s)
+		if s.nq < len(s.q) {
+			s.q[s.nq] = t
+		} else {
+			s.q = s.q.Append(t)
+		}
+		s.nq = s.nq + 1
+	}
+	s.q[s.qi+k]
+}
+
+func peek(s *scan) tok { peekAt(s, 0) }
+
+func advance(s *scan) {
+	s.qi = s.qi + 1
+	if s.qi >= s.nq {
+		s.nq = 0
+		s.qi = 0
+	}
+}
+
+// enter makes the next value the current element of the innermost frame.
+func enter(s *scan) {
+	let n = s.nf
+	if n > 0 {
+		let mut f = s.frames[n-1]
+		if f.list {
+			f.n = f.n + 1
+		}
+		f.has = true
+		s.frames[n-1] = f
+	}
+}
+
+func path(s *scan) string {
+	let mut b = strings.NewBuilder()
+	for k in 0..s.nf {
+		let f = s.frames[k]
+		if !f.has {
+			break
+		}
+		if f.list {
+			b.WriteString("[" + strconv.Itoa(f.n-1) + "]")
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteByte('.')
+		}
+		b.WriteString(f.key)
+	}
+	b.String()
+}
+
+// read takes the next value when it is of kind, else sets wrong and
+// leaves it; a number is taken even when it does not parse, as Cursor's.
+func read(s *scan, kind int) tok {
+	enter(s)
+	let t = peek(s)
+	s.wrong = t.kind != kind
+	if !s.wrong {
+		advance(s)
+	}
+	t
+}
+
+func readBool(s *scan) bool { read(s, kBool).text == "true" }
+
+func readNumber(s *scan) string {
+	let t = read(s, kNumber)
+	if s.wrong { "" } else { own(t.text) }
+}
+
+func readString(s *scan) string {
+	let t = read(s, kString)
+	if s.wrong { "" } else if t.raw { own(t.text) } else { t.text }
+}
+
+// own is a copy of a slice of the window, so a value the caller keeps
+// does not keep the window (a built string is its own already).
+func own(text string) string {
+	let mut b = strings.NewBuilder()
+	b.Grow(len(text))
+	b.WriteString(text)
+	b.String()
+}
+
+func readInt(s *scan) int64 {
+	let t = read(s, kNumber)
+	if s.wrong {
+		return 0
+	}
+	strconv.ParseInt(t.text, 10, 64) catch {
+	case _:
+		s.wrong = true
+		0
+	}
+}
+
+func readUint(s *scan) uint64 {
+	let t = read(s, kNumber)
+	if s.wrong {
+		return 0
+	}
+	let (n, ok) = parseUint(t.text)
+	s.wrong = !ok
+	n
+}
+
+// parseUint is strconv.ParseUint(text, 10, 64): digits only, no sign,
+// within uint64.
+func parseUint(text string) (uint64, bool) {
+	if len(text) == 0 {
+		return (0, false)
+	}
+	let max uint64 = 18446744073709551615
+	let mut n uint64 = 0
+	for i in 0..len(text) {
+		let c = text[i]
+		if c < '0' || c > '9' {
+			return (0, false)
+		}
+		let d = uint64(c - '0')
+		if n > (max-d)/10 {
+			return (0, false)
+		}
+		n = n*10 + d
+	}
+	(n, true)
+}
+
+// readFloat reads a number, or the strings "NaN", "Infinity" and
+// "-Infinity" the encoder writes, spelled with no escape.
+func readFloat(s *scan) float64 {
+	enter(s)
+	let t = peek(s)
+	if t.kind == kString && t.raw && (t.text == "NaN" || t.text == "Infinity" || t.text == "-Infinity") {
+		advance(s)
+		s.wrong = false
+		if t.text == "NaN" {
+			return math.NaN()
+		}
+		return if t.text == "Infinity" { math.Inf(1) } else { math.Inf(-1) }
+	}
+	s.wrong = t.kind != kNumber
+	if s.wrong {
+		return 0.0
+	}
+	advance(s)
+	strconv.ParseFloat(t.text) catch {
+	case _:
+		s.wrong = true
+		0.0
+	}
+}
+
+func begin(s *scan, list bool) bool {
+	enter(s)
+	let want = if list { kList } else { kObject }
+	if peek(s).kind != want {
+		return false
+	}
+	advance(s)
+	let f = frame{list: list, n: 0, key: "", has: false}
+	if s.nf < len(s.frames) {
+		s.frames[s.nf] = f
+	} else {
+		s.frames = s.frames.Append(f)
+	}
+	s.nf = s.nf + 1
+	true
+}
+
+func takeNull(s *scan) bool {
+	if peek(s).kind != kNull {
+		return false
+	}
+	enter(s)
+	advance(s)
+	true
+}
+
+func kind(s *scan) WireKind {
+	let k = peek(s).kind
+	if k == kNull { return WireNull }
+	if k == kBool { return WireBool }
+	if k == kNumber { return WireNumber }
+	if k == kString || k == kKey { return WireString }
+	if k == kList { return WireList }
+	if k == kObject { return WireObject }
+	WireEnd
+}
+
+func more(s *scan) bool {
+	let t = peek(s)
+	if t.kind == kClose || t.kind == kDone || t.kind == kBad {
+		return false
+	}
+	let n = s.nf
+	if n > 0 && !s.frames[n-1].list && t.kind == kKey {
+		advance(s)
+		let mut f = s.frames[n-1]
+		f.key = t.text
+		f.has = true
+		s.frames[n-1] = f
+	}
+	true
+}
+
+func key(s *scan) string {
+	let n = s.nf
+	if n > 0 { s.frames[n-1].key } else { "" }
+}
+
+// after is the place past the value that starts k tokens on.
+func after(s *scan, k int) int {
+	let t = peekAt(s, k)
+	if t.kind == kClose || t.kind == kDone || t.kind == kBad {
+		return k
+	}
+	if t.kind != kList && t.kind != kObject {
+		return k + 1
+	}
+	let mut j = k + 1
+	let mut depth = 1
+	for {
+		let u = peekAt(s, j)
+		if u.kind == kDone || u.kind == kBad {
+			return j
+		}
+		j = j + 1
+		if u.kind == kList || u.kind == kObject {
+			depth = depth + 1
+		} else if u.kind == kClose {
+			depth = depth - 1
+			if depth == 0 {
+				return j
+			}
+		}
+	}
+}
+
+// pass takes the value that starts at the next token.
+func pass(s *scan) {
+	let n = after(s, 0)
+	for _ in 0..n {
+		advance(s)
+	}
+}
+
+func skip(s *scan) {
+	enter(s)
+	pass(s)
+}
+
+func end(s *scan) {
+	for more(s) {
+		pass(s)
+	}
+	if peek(s).kind == kClose {
+		advance(s)
+	}
+	if s.nf > 0 {
+		s.nf = s.nf - 1
+	}
+}
+
+// tag is the string value of the member "_tag" of the object just begun,
+// wherever it stands among the members; the tokens it passed stay queued.
+func tag(s *scan) string {
+	let mut k = 0
+	for {
+		let t = peekAt(s, k)
+		if t.kind != kKey {
+			s.wrong = true
+			return ""
+		}
+		let v = peekAt(s, k+1)
+		if t.text == "_tag" && v.kind == kString {
+			s.wrong = false
+			return v.text
+		}
+		k = after(s, k+1)
+	}
+}
+// got is an operation's result with the state's wrong flag, and the
+// path when wrong: one change of the state gives all an operation needs,
+// so no operation reads the state again.
+type got[R] { v R, wrong bool, path string }
+
+func gave[R](s *scan, x R) got[R] {
+	if s.wrong {
+		return got[R]{v: x, wrong: true, path: path(s)}
+	}
+	got[R]{v: x, wrong: false, path: ""}
+}
+
+// The Reader's operations: each is one sync.Modify of the state that
+// calls the tokenizer directly.
+func Path(r Stream) string {
+	sync.Modify(r.st, func(v scan) (string, scan) {
+		let mut s = v
+		let x = path(&s)
+		(x, s)
+	})
+}
+
+func TakeNull(r Stream) bool {
+	sync.Modify(r.st, func(v scan) (bool, scan) {
+		let mut s = v
+		let x = takeNull(&s)
+		(x, s)
+	})
+}
+
+func Peek(r Stream) WireKind {
+	sync.Modify(r.st, func(v scan) (WireKind, scan) {
+		let mut s = v
+		let x = kind(&s)
+		(x, s)
+	})
+}
+
+func Number(r Stream) string fails WireWrongKind {
+	let o = sync.Modify(r.st, func(v scan) (got[string], scan) {
+		let mut s = v
+		let x = readNumber(&s)
+		(gave(&s, x), s)
+	})
+	if o.wrong {
+		return WireWrongKind{Path: o.path, Want: "a number"}
+	}
+	o.v
+}
+
+func Bool(r Stream) bool fails WireWrongKind {
+	let o = sync.Modify(r.st, func(v scan) (got[bool], scan) {
+		let mut s = v
+		let x = readBool(&s)
+		(gave(&s, x), s)
+	})
+	if o.wrong {
+		return WireWrongKind{Path: o.path, Want: "a boolean"}
+	}
+	o.v
+}
+
+func Int(r Stream) int64 fails WireWrongKind {
+	let o = sync.Modify(r.st, func(v scan) (got[int64], scan) {
+		let mut s = v
+		let x = readInt(&s)
+		(gave(&s, x), s)
+	})
+	if o.wrong {
+		return WireWrongKind{Path: o.path, Want: "an integer"}
+	}
+	o.v
+}
+
+func Uint(r Stream) uint64 fails WireWrongKind {
+	let o = sync.Modify(r.st, func(v scan) (got[uint64], scan) {
+		let mut s = v
+		let x = readUint(&s)
+		(gave(&s, x), s)
+	})
+	if o.wrong {
+		return WireWrongKind{Path: o.path, Want: "an unsigned integer"}
+	}
+	o.v
+}
+
+func Float(r Stream) float64 fails WireWrongKind {
+	let o = sync.Modify(r.st, func(v scan) (got[float64], scan) {
+		let mut s = v
+		let x = readFloat(&s)
+		(gave(&s, x), s)
+	})
+	if o.wrong {
+		return WireWrongKind{Path: o.path, Want: "a number"}
+	}
+	o.v
+}
+
+func String(r Stream) string fails WireWrongKind {
+	let o = sync.Modify(r.st, func(v scan) (got[string], scan) {
+		let mut s = v
+		let x = readString(&s)
+		(gave(&s, x), s)
+	})
+	if o.wrong {
+		return WireWrongKind{Path: o.path, Want: "a string"}
+	}
+	o.v
+}
+
+func BeginList(r Stream) fails WireWrongKind {
+	let o = sync.Modify(r.st, func(v scan) (got[bool], scan) {
+		let mut s = v
+		let ok = begin(&s, true)
+		(if ok { got[bool]{v: true, wrong: false, path: ""} } else { got[bool]{v: false, wrong: true, path: path(&s)} }, s)
+	})
+	if o.wrong {
+		return WireWrongKind{Path: o.path, Want: "an array"}
+	}
+}
+
+func BeginObject(r Stream) fails WireWrongKind {
+	let o = sync.Modify(r.st, func(v scan) (got[bool], scan) {
+		let mut s = v
+		let ok = begin(&s, false)
+		(if ok { got[bool]{v: true, wrong: false, path: ""} } else { got[bool]{v: false, wrong: true, path: path(&s)} }, s)
+	})
+	if o.wrong {
+		return WireWrongKind{Path: o.path, Want: "an object"}
+	}
+}
+
+func Tag(r Stream) string fails WireMissingField {
+	let o = sync.Modify(r.st, func(v scan) (got[string], scan) {
+		let mut s = v
+		let x = tag(&s)
+		(gave(&s, x), s)
+	})
+	if o.wrong {
+		return WireMissingField{Path: o.path, Field: "_tag"}
+	}
+	o.v
+}
+
+func More(r Stream) bool {
+	sync.Modify(r.st, func(v scan) (bool, scan) {
+		let mut s = v
+		let x = more(&s)
+		(x, s)
+	})
+}
+
+func Key(r Stream) string {
+	sync.Modify(r.st, func(v scan) (string, scan) {
+		let mut s = v
+		let x = key(&s)
+		(x, s)
+	})
+}
+
+func Skip(r Stream) {
+	let _ = sync.Modify(r.st, func(v scan) (bool, scan) {
+		let mut s = v
+		skip(&s)
+		(true, s)
+	})
+}
+
+func End(r Stream) {
+	let _ = sync.Modify(r.st, func(v scan) (bool, scan) {
+		let mut s = v
+		end(&s)
+		(true, s)
+	})
+}

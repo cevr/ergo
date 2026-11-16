@@ -15,8 +15,8 @@ import (
 // folder of the program's source map, and a second handle of one call
 // (a loop) as "(2)". The probe below carries line directives, as lowered
 // Go does, and a source map that puts two calls on the queue's line. It
-// runs in process with the ergoexplore tag (the gate's explored worker
-// step); no Go is built.
+// runs in process with the ergoexplore tag (the gate's explored
+// runtime/v1 step); no Go is built.
 func TestHandlesNamedBySource(t *testing.T) {
 	savedRegistered, savedDecls, savedCalls := registered, decls, calls
 	defer func() { registered, decls, calls = savedRegistered, savedDecls, savedCalls }()

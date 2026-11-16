@@ -1,0 +1,66 @@
+// ownwindow (TestHandoverGrowsLinearly): lane PA's DF1 (examples/flattree's
+// first parser), cut down. A scratch stack keeps one item per step, so it
+// grows to n, and each step closes a window of two items: kept in out
+// (close) and read (closeDig). At f622ee308 `slices.Slice(r.stack, mark,
+// r.top)` copied the whole stack, not the window, at both: n steps did
+// O(n²) work. Run: ownwindow N makes N steps.
+
+import os
+import slices
+import strconv
+
+type reader { stack []int, top int, out [][]int }
+
+func push(r *reader, x int) {
+	if r.top < len(r.stack) {
+		r.stack[r.top] = x
+	} else {
+		r.stack = r.stack.Append(x)
+	}
+	r.top += 1
+}
+
+func close(r *reader, mark int) {
+	r.out = r.out.Append(slices.Slice(r.stack, mark, r.top))
+	r.top = mark
+}
+
+func total(xs []int) int {
+	let mut s = 0
+	for x in xs {
+		s += x
+	}
+	s
+}
+
+func closeDig(r *reader, mark int) int {
+	let s = total(slices.Slice(r.stack, mark, r.top))
+	r.top = mark
+	s
+}
+
+func main() fails os.Exit needs Ambient {
+	let args = os.NewHost().Args()
+	if len(args) != 1 {
+		return os.Exit{Code: 2, Message: "usage: ownwindow N"}
+	}
+	let n = strconv.Atoi(args[0]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return os.Exit{Code: 2, Message: "N"}
+	}
+	let mut r = reader{stack: []int{}, top: 0, out: [][]int{}}
+	let mut t = 0
+	for i in 0..n {
+		push(&r, i)
+		let mark = r.top
+		push(&r, i)
+		push(&r, i)
+		close(&r, mark)
+		push(&r, i)
+		push(&r, i)
+		t += closeDig(&r, mark)
+	}
+	if len(r.out) != n || t != n * (n - 1) {
+		return os.Exit{Code: 1, Message: "lost windows"}
+	}
+}

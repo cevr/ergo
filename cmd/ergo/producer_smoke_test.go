@@ -286,8 +286,10 @@ func main(){bufio.NewReader(os.Stdin).ReadString('\n');json.NewEncoder(os.Stdout
 		for _, args := range [][]string{{"check", file}, {"diagnostics", file}, {"build", bad}} {
 			_, stderr, _ := runSmokeCLI(t, lazy, directory, "", args...)
 			callers := acquisitions(stderr)
-			if len(callers) != 2 || callers[0] != cacheKey || callers[1] == cacheKey {
-				t.Fatalf("ergo %v acquired %v; want one std-key acquire then the command's report identity", args, callers)
+			// The embedded std snapshot (CS1) needs no compiler identity, so
+			// the only acquire is the command's report identity.
+			if len(callers) != 1 || callers[0] == cacheKey {
+				t.Fatalf("ergo %v acquired %v; want the command's report identity alone", args, callers)
 			}
 		}
 	})

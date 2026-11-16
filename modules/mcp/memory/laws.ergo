@@ -1,0 +1,103 @@
+// The session's law and a scripted session, on the memory transport.
+
+import github.com/cevr/ergo/modules/mcp
+import json
+import strings
+
+// add is a tool that adds the integers a and b of its arguments, and
+// fails ToolError when one is missing.
+func add() mcp.Tool {
+	let schema = json.Decode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, "{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"integer\"},\"b\":{\"type\":\"integer\"}},\"required\":[\"a\",\"b\"]}") catch {
+	case _:
+		json.Null
+	}
+	mcp.Tool{Name: "add", Description: "adds a and b", Input: schema, Call: func(arguments json.Value) json.Value fails mcp.ToolError {
+		let a = try integer(arguments, "a")
+		let b = try integer(arguments, "b")
+		json.IntNumber(a + b)
+	}}
+}
+
+// integer is the integer key of arguments.
+func integer(arguments json.Value, key string) int64 fails mcp.ToolError {
+	match mcp.Field(arguments, key) {
+	case Some[json.Value] as v:
+		let n = json.Decode(json.Codec[int64]{MaxBytes: 0, MaxDepth: 0}, json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, v.Value)) catch {
+		case _:
+			return mcp.ToolError{Message: "\(key) is not an integer"}
+		}
+		n
+	case None:
+		mcp.ToolError{Message: "\(key) is missing"}
+	}
+}
+
+// calc is the server of the session.
+let calc = mcp.Server{Name: "calc", Version: "0.1.0", Tools: []mcp.Tool{add()}}
+
+// A client's session: initialize, the initialized notification, the
+// list, a call, a call whose tool fails, an unknown tool, an unknown
+// method, a message that is not JSON, and a ping. Each request gets one
+// answer, the notification none.
+test Session {
+	let t = New([]string{
+		"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},\"clientInfo\":{\"name\":\"t\",\"version\":\"1\"}}}",
+		"{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}",
+		"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}",
+		"{\"jsonrpc\":\"2.0\",\"id\":\"c3\",\"method\":\"tools/call\",\"params\":{\"name\":\"add\",\"arguments\":{\"a\":2,\"b\":40}}}",
+		"{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"add\",\"arguments\":{\"a\":2}}}",
+		"{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/call\",\"params\":{\"name\":\"sub\",\"arguments\":{}}}",
+		"{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"resources/list\"}",
+		"{\"jsonrpc\":\"2.0\",\"id\":7,",
+		"{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"ping\"}",
+	})
+	assert mcp.Serve(calc, t) == 9
+	assert strings.Join(t.Sent(), "\n") == strings.Join([]string{
+		"{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"calc\",\"version\":\"0.1.0\"}}}",
+		"{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"tools\":[{\"name\":\"add\",\"description\":\"adds a and b\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"integer\"},\"b\":{\"type\":\"integer\"}},\"required\":[\"a\",\"b\"]}}]}}",
+		"{\"jsonrpc\":\"2.0\",\"id\":\"c3\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"42\"}],\"isError\":false}}",
+		"{\"jsonrpc\":\"2.0\",\"id\":4,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"b is missing\"}],\"isError\":true}}",
+		"{\"jsonrpc\":\"2.0\",\"id\":5,\"error\":{\"code\":-32602,\"message\":\"unknown tool: sub\"}}",
+		"{\"jsonrpc\":\"2.0\",\"id\":6,\"error\":{\"code\":-32601,\"message\":\"method not found: resources/list\"}}",
+		"{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32700,\"message\":\"parse error: the message is not JSON\"}}",
+		"{\"jsonrpc\":\"2.0\",\"id\":8,\"result\":{}}",
+	}, "\n")
+}
+
+// CallAnswersOnce: in a session of requests and notifications, each
+// request gets exactly one answer, carrying its id, in the order of the
+// requests, and a notification gets none.
+law CallAnswersOnce(kinds []int) {
+	let mut input = []string{}
+	let mut ids = []string{}
+	for i, k in kinds {
+		let method = match ((k % 3) + 3) % 3 {
+		case 0:
+			"tools/call\",\"params\":{\"name\":\"add\",\"arguments\":{\"a\":\(i),\"b\":1}}"
+		case 1:
+			"tools/list\""
+		case _:
+			"ping\""
+		}
+		if k%2 == 0 {
+			input = input.Append("{\"jsonrpc\":\"2.0\",\"id\":\"r\(i)\",\"method\":\"" + method + "}")
+			ids = ids.Append("r\(i)")
+		} else {
+			input = input.Append("{\"jsonrpc\":\"2.0\",\"method\":\"" + method + "}")
+		}
+	}
+	let t = New(input)
+	if mcp.Serve(calc, t) != len(kinds) {
+		return false
+	}
+	let sent = t.Sent()
+	if len(sent) != len(ids) {
+		return false
+	}
+	for i, line in sent {
+		if !strings.HasPrefix(line, "{\"jsonrpc\":\"2.0\",\"id\":\"\(ids[i])\",\"result\":") {
+			return false
+		}
+	}
+	true
+}

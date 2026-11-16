@@ -6,16 +6,19 @@ The sections are:
 - **Language**: the Go-shaped language of `docs/spec/`.
 - **Constructs, contracts and laws**: how constructs are admitted, and the vocabulary of laws and evidence.
 - **Runtime and providers**: tasks, interruption, exits and lawful providers.
+- **Domain modeling**: aggregates, deciders, views, policies, sagas, stories and scenes, and the terms of infrastructure as code.
 - **Earlier `.ef` language**: terms of the retired language that [#205](https://github.com/cevr/ergo/issues/205) removed with its compiler. They stay as design reference.
 - **Tooling and testing**.
 
-A status in parentheses applies to the term's support: *checked* (the 2026 checker `internal/sketch/check`, [#196](https://github.com/cevr/ergo/issues/196), checks it; building may still need [#50](https://github.com/cevr/ergo/issues/50)), *implemented in prototype* (`prototypes/sketch9`), *designed* (decided, not implemented), or, in the earlier-language section, the earlier labels.
+An entry defines a term and carries no status; a construct's status is in [docs/spec/status.json](docs/spec/status.json).
 
 ## Language
 
 **Package**: One unit of checking: a folder, every `.ergo` file directly in it, in name order. The folder names the package (the last element of its import path); a file has no `package` clause. A program's packages are lowered into one Go package (196b Q5: one lowering path for std and user packages; a Go package per Ergo package waits for an edit-rebuild receipt).
 
-**Module**: The packages under one module root, named by the `module NAME` line of its `ergo.mod`. A local package's import path is the module name and its folder's path from the root, as in Go. A program imports std and its own module only.
+**Module**: The packages under one module root, named by the `module NAME` line of its `ergo.mod`. A local package's import path is the module name and its folder's path from the root, as in Go. A program imports std, its own module, and the Ergo modules its `go.mod` requires (MD1; [grammar](docs/spec/grammar.md#source-files), Required modules).
+
+**Trust line**: A `trust go MODULE` line of the root module's `ergo.mod`: the program admits the Go code (`import go`, `extern go`) of that required module, which Ergo does not check. Without it such a use is S108. Only the root's trust lines count (MD3; [grammar](docs/spec/grammar.md#source-files), Trusted Go).
 
 **Module root**: The folder that holds `ergo.mod`. The loader finds the nearest one at or above a program's folder; every diagnostic names its file relative to it.
 
@@ -27,7 +30,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Interface value**: A value of an interface type in a type position, such as a parameter `o Orders`. It holds a provider value. Calling its method runs that provider's method with the method's declared rows and charges no capability. A type is assignable to the interface by method-row compatibility ([types](docs/spec/types.md#interface-assignability)).
 
-**Provider**: A value whose type implements a capability's methods, bound to that capability by a `context`. A provider may fail less than its capability, never more.
+**Provider**: A value bound to a capability by a `context`, whose type implements the capability's operation type: its `implements` clause names it, directly or through an include (EXC1). A provider may fail less than its capability, never more.
 
 **Value provider**: A named record whose own value is its state, with operation functions on `P` or `*P`. A law run owns a fresh record and lends it to pointer operations; a conversion of `P` to an operation-type value moves it into a provider cell. A rewrite proof compares the entire keyed state after both sides, not a separately written model or only the provider's public reads. See [types, Laws 14](docs/spec/types.md#laws).
 
@@ -51,7 +54,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Row**: An error row or a capability row. Rows are checked and then erased from the emitted Go.
 
-**Inferred row**: A row the checker computes from a body because the row is not written: the rows of an unexported function with a body and of a function literal. A written row is declared and is an upper bound. Inference runs per strongly connected component of a package's reference graph. Under the tiebreak **Explicit local signatures** beat **inference** ([NORTH_STAR](NORTH_STAR.md#tiebreaks); [decision](docs/decisions.md#owner-direction-2026-11-12)), no row is inferred: an unwritten row is empty, as under the export guard. The checker still infers it until the explicit-signature units land.
+**Inferred row** (retired by decision, 2026-11-12; no longer checked since EXPLICIT EX2): A row the checker computed from a body because the row was not written, for an unexported function with a body, per strongly connected component of a package's reference graph. `ergo fix`'s clause writer still computes these least rows to write them. A function literal with no expected type has the rows its body charges (q139); it declares nothing. Under the tiebreak **Explicit local signatures** beat **inference** ([NORTH_STAR](NORTH_STAR.md#tiebreaks); [decision](docs/decisions.md#owner-direction-2026-11-12)), no row is inferred: an unwritten row is empty, as under the export guard.
 
 **Export guard**: The rule that a declaration spells its rows: exported functions, operations, `main`, laws, bodiless declarations and the step of an exported machine type. An unwritten row there is empty, never inferred. By the 2026-11-12 decision it is the signature rule for every named function, operation and method, exported or not, and for every clause: `fails`, `needs`, `takes`, `given`, `gives` and `keeps`. A body that exceeds its signature is a diagnostic that names the clause to add.
 
@@ -105,6 +108,8 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Union**: A closed set of record types, written `type T = A | B`. It has no zero value.
 
+**Never**: The prelude type with no value, a union of no variants (owner, 2026-11-13). A machine with no output is a `Decision[S, Never]`; a match leaves out the variants that hold a `Never` and needs no arm on one. It is no bottom type: `n.Absurd[T]()` converts it where a `T` is wanted. Not `Unreachable`, which is a defect raised on a path that should not run. *Prior art:* Elm's `Never`, Rust's `Infallible`. See [types](docs/spec/types.md#never).
+
 **Variant**: One struct type listed in a union. A variant value is assignable to every union that lists it.
 
 **Included record**: A record named by the member `..R` of another record declaration or variant, `type Visit { ..Owned, S Session }`. Its fields become the including record's own fields at that position, and each keeps its declaration, so a spread copies it between two records that include `R`. One name has one declaration: a duplicate, also through a diamond, is S108. See [types](docs/spec/types.md#structs) Structs 7.
@@ -137,15 +142,15 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Replayable parameter**: A function parameter that may run more than once, such as a transaction body. It may not assign captured locals, use channels or consume a resource, and its footprint holds only `sync.Tx`.
 
-**Borrow**: A `*T` parameter or receiver. It is never nil, stored, returned, sent or captured by `go`, and two mutable borrows of one value must not overlap. A value converted from it, to an operation type or a Go interface, keeps its lifetime ([types](docs/spec/types.md#borrows) Borrows 6), and it instantiates a type parameter only of a body that keeps no value of it (Borrows 7).
+**Borrow**: A `*T` parameter or receiver. It is never nil, stored, returned, sent or captured by `go`, and two mutable borrows of one value must not overlap. A value converted from it, to an operation type or a Go interface, keeps its lifetime ([types](docs/spec/types.md#borrows) Borrows 6), and it instantiates only a type parameter whose signature marks it `lent` (`[T lent]`), whose body is checked to keep no value of it (Borrows 7). A **mapped text**, `fs.Text`, is a borrow of its `fs.Mapped` with no `*` written: it is never stored, returned or converted, and every use of it is a use of its Mapped, so none follows `Close` (Borrows 8).
 
-**Resource**: A value whose type has a checked `Close()`, an operation type with a `Close()` operation or with an operation that takes a resource, or a record, union, tuple, slice, `Map` or `Option` that holds one (resources R1, R34). A task is owned by its frame; an actor handle is a shared handle, not a resource. Its owner scope releases it. See [resources](docs/spec/resources.md).
+**Resource**: A value whose type implements the prelude's `Closer` (its clause names it, or an operation type that includes it), an operation type that includes `Closer` or has an operation that takes a resource, or a record, union, tuple, slice, `Map` or `Option` that holds one (resources R1, R34). A task is owned by its frame; an actor handle is a shared handle, not a resource. Its owner scope releases it. See [resources](docs/spec/resources.md).
 
 **Copy site**: A place where a generic body copies a value of its type parameter `T` (uses it after a hand-off, or hands off a lent `T`). The package records it; a call that binds `T` to a resource is refused there, and plain data is admitted. See [resources](docs/spec/resources.md) R44.
 
 **Crossing type**: A type that holds no resource, so the ownership rules mean nothing for its values: they copy freely. Plain data and shared handles cross; a generic type crosses with its arguments (`Stack[int]` crosses, `Stack[File]` does not). The term is OxCaml's mode crossing. See [resources](docs/spec/resources.md) R1.
 
-**Takes clause**: `takes p` after a signature's rows: the call hands the parameter `p` off, and the caller cannot use it after the call. Written on exported signatures, inferred on unexported functions, and part of a function type. A bare `takes` on an operation names the value the operation is called on. See [grammar](docs/spec/grammar.md) Declarations 13.
+**Takes clause**: `takes p` after a signature's rows: the call hands the parameter `p` off, and the caller cannot use it after the call. Written on every function, exported or not (q137; `ergo fix` writes a missing one), and part of a function type. A bare `takes` on an operation names the value the operation is called on. See [grammar](docs/spec/grammar.md) Declarations 13.
 
 **Owner scope**: The block that owns a resource: the block that acquired it, or the scope it moved to. A loop body is its own owner scope for each iteration.
 
@@ -181,19 +186,25 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Machine**: A declaration `type X machine[S, E] { initial v; step f }` of a state machine over the unions `S` and `E`. Its meaning is a plan any lawful provider can run. In the earlier language (specified), a machine is a checked definition of state and event types, transition policies and state-owned behavior.
 
-**Decision**: The value a machine step returns: `Enter{next}`, `Stay{next}`, `Ignore{}`, `Reject{}` or `Done{output}`. Its type is the prelude `Decision[S, O]`.
+**Decision**: The value a machine step returns: `Enter{next}`, `Stay{next}`, `Emit{next, output}`, `Ignore{}`, `Reject{}`, `Done{output}` or `Tell{next, output}`. Its type is the prelude `Decision[S, O]`. Only the first state, an `Enter` and an `Emit` open an entry; `Stay` and `Tell` keep the entry's timer and work, and `Emit` and `Tell` give an output (runtime.md, Machines and actors 2).
 
 **Actor**: A machine run by `actor.Start` as one task with a bounded mailbox, behind a resource handle with `Send`, `Ask`, `State` and `Stop`. In the earlier language (specified), an actor is an owned, addressable instance of behavior with typed messages and replies and an explicit admission and concurrency policy; an effect without a message interface remains a fiber.
 
 **Duration literal**: An integer with a unit suffix (`ns`, `us`, `ms`, `s`, `m`, `h`), of type `duration`.
 
-**Codec**: The pair a type's wire form is found by: `ParseX` decodes and `x.Wire()` encodes. A derived codec's rows are the union of its fields' rows. In the earlier language (implemented for structural JSON), a codec is a checked witness relating a wire type and a domain type through separately contracted decoding and encoding operations.
+**Codec**: The pair a type's wire form is found by: `ParseX` decodes and `x.Wire()` encodes. A derived codec's rows are the union of its fields' rows. In the earlier language, a codec is a checked witness relating a wire type and a domain type through separately contracted decoding and encoding operations.
 
 **Go import**: `import go path`, which imports a Go package through its binding (an Ergo file of `extern go` declarations that `ergo bind go` generates; Go's standard library is embedded). The name it binds is the Go package name (`import go math/rand/v2` binds `rand`). A call into a package of the reviewed pure list charges nothing; any other Go call charges the predeclared `go.Foreign` capability, which only the entry provides. A Go pointer that is stored or returned is a `go.Ref[T]`; Ergo's `*T` stays a borrow.
 
 ## Constructs, contracts and laws
 
+**Dense id**: A std `dense.ID[K]`, the id of a row of a store of `K`: one `uint32`, four bytes and no pointer, made only by the store's `Put` or `Next`, so it is never forged and never of another row type. `dense.Opt[K]` is a dense id or none in the same four bytes. See [stdlib](docs/spec/stdlib.md#dense-stores).
+
+**Dense store**: A std `dense` store of rows addressed by dense ids. Rows are never removed from a `Table[T]` of whole rows, a `Count` with `Col`s (one column per field), a `Side` of data few rows have, a `Pool` of short lists; and the interning stores `Interner` and `Strings` (one id per distinct value), the `Counted` set (ids freed when no holder holds them) and the `Sparse` set of ids. A store of rows with no pointer field is pointer-free, so the collector does not scan it. Distinct from an arena, whose refs carry a generation because its values are removed. See [stdlib](docs/spec/stdlib.md#dense-stores).
+
 **Arena**: A std `arena.Of[T]`, a growable store of values of one type in one slice, addressed by `arena.Ref[T]` handles that only the store makes. A Ref carries its slot's generation, so a Ref kept after `Free` is stale and every operation on it fails with `arena.Stale`, also after the slot is reused. See [stdlib](docs/spec/stdlib.md#arenas).
+
+**Text span**: A std `text.Span`, two byte offsets that name a piece of a text and hold no pointer; the text is held once, by the value that owns the spans, and a read takes both. Not a trace **Span**. See [stdlib](docs/spec/stdlib.md#text-spans).
 
 **Atomic handle**: A shared `atomic.Int64` counter or `atomic.Bool` flag. Copies name the same cell. Each operation is one sequentially consistent Go atomic operation; a load followed by a store is not one operation. See [stdlib](docs/spec/stdlib.md#atomic-counters-and-flags).
 
@@ -215,7 +226,13 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Predeclared language identifier**: A name the language specification defines in every package without an import or library declaration, following Go's predeclared `len` and `error`, such as `with`, `duration` and the prelude types. Capability services are not predeclared language identifiers, even when the compiler declares them.
 
-**Special-cased library item** (rejected pattern): A bundled, prelude or library declaration that the compiler recognises by identity or name to produce a semantic fact about it (a diagnostic, checked type, row or ownership fact), also called a lang item. An item stops being one only by losing every such branch or by becoming syntax. Backend retention or emission keyed on the item does not by itself make it one.
+**Special-cased library item** (rejected pattern): A bundled, prelude or library declaration that the compiler recognises by identity or name to produce a semantic fact about it (a diagnostic, checked type, row or ownership fact), also called a lang item. An item stops being one only by losing every such branch or by becoming syntax. Backend emission, optimization or tooling keyed on the item makes it one too, unless the item is a predeclared name (owner, 2026-11-12).
+
+**Seam**: The files of the compiler that may know that the standard library exists, to find, ship, cache and name it; they change no meaning. The list is in [stdlib.md, Std is ordinary](docs/spec/stdlib.md#std-is-ordinary); every other read of std membership is a special-cased library item.
+
+**Predeclared name**: A name the language gives a meaning to with no import: a prelude declaration the compiler knows, or an operation name of a language protocol (`Close`, `Wire`). The readers of each are listed in [stdlib.md, Std is ordinary](docs/spec/stdlib.md#std-is-ordinary).
+
+**Body contract**: The written facts and the calling convention of a Go body that an `extern go` declaration binds: whether it is pure, moves or keeps its arguments, waits, releases, or reads the context, and which hidden arguments it takes. Any module's extern reads the same contract. Each fact and its home are listed in [stdlib.md, The body contract](docs/spec/stdlib.md#the-body-contract).
 
 **Library intrinsic**: A target implementation the compiler substitutes for an ordinary declared library signature. The signature, together with any declared contract written only in the inferred contract vocabulary, is the only source of diagnostics, checked types, rows and ownership, provided that the declared contract is consumed by the same path as an inferred one and no checker, emitter or reachability branch is keyed on the item's identity beyond backend selection (amended for [#130](https://github.com/cevr/ergo/issues/130)). The intrinsic may add backend facts such as retained runtime modules. The implementation of a syntax construct is part of that construct, not a library intrinsic.
 
@@ -231,7 +248,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Method argument** ([#141](https://github.com/cevr/ergo/issues/141)): The method value the compiler passes for a satisfied constraint in the lowered code. It is the same function value a caller could pass by hand, and Go generics carry it in their dictionaries.
 
-**Law**: A named behavioral obligation that types cannot state, written as `law X(…) { … }`, with a body that ends in a `bool` expression, and checked like a fuzz target. Its placement sets what it is quantified over: at top level, beside `test`, its parameters; in an operation type, its parameters and every provider of the type; in a machine (designed), the step graph. A type with laws and no operations is S108 (law-top). A refuted law refuses the build. Laws are one general construct with many clients: codecs, providers, schedules, machines and composition algebra ([#125](https://github.com/cevr/ergo/issues/125)).
+**Law**: A named behavioral obligation that types cannot state, written as `law X(…) { … }`, with a body that ends in a `bool` expression, and checked like a fuzz target. Its placement sets what it is quantified over: at top level, beside `test`, its parameters; in an operation type, its parameters and every provider of the type; in a machine, the step graph. A type with laws and no operations is S108 (law-top). A refuted law refuses the build. Laws are one general construct with many clients: codecs, providers, schedules, machines and composition algebra ([#125](https://github.com/cevr/ergo/issues/125)).
 
 **Invariant law**: A machine law `law L always p` or `law L sometimes p`, with `p` a pure function from the machine's state to `bool`. `always` holds when every reachable state satisfies `p`, the start included; `sometimes` holds when one does, shown by a shortest witness run. See [types](docs/spec/types.md#laws) Laws 13.
 
@@ -273,7 +290,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Record invariant**: A fact on every value of a record type with construction authority, `type T { … } where P(it)`. It is a fact at the entry of each boundary of the type's package, and each boundary that writes a `T` leaves it true at every exit. See [facts](docs/spec/facts.md#record-invariants).
 
-**Evidence label**: The ground on which a fact at one use rests: checked (a dominating compare, or the decidable fragment), proved, tested (laws that passed, with a current receipt) or none. Only checked, proved, or tested under the evidence rule lets a fact remove a bounds check through an unchecked load. See [facts](docs/spec/facts.md#evidence).
+**Evidence label**: The ground on which a fact at one use rests: checked (a dominating compare, or the decidable fragment), proved (a law that listed every value or state, with a current entry in the law ledger `ergo.laws`), tested (laws that passed their generated cases) or none. Only checked or proved lets a fact change emitted code (a direct form, or an unchecked load that removes a bounds check); a tested fact is reported and never acted on. See [facts](docs/spec/facts.md#evidence).
 
 **Zero-cost abstraction obligation**: A candidate abstraction must make the illegal states and invalid operations covered by its checked contract unrepresentable in checked source, while foreign and trusted behavior remains explicitly qualified, and then erase or directly lower without an abstraction-induced executable size or runtime penalty against a semantic equivalence baseline. Retained allocation, dispatch, module, byte and residual-check costs must be visible in matched receipts. Native output targets parity with or better performance than the optimized idiomatic Go member, and Go lowering pursues every material measured lowering or specialization opportunity while preserving the userland runtime contract. This obligation never removes a required guardrail and does not promise universally zero overhead or a fixed speedup multiplier.
 
@@ -323,6 +340,12 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Uninterruptible host wait**: A foreign Go call whose Go declaration takes no `context.Context`, so an interruption reaches the task only after Go returns. `ergo inspect` lists it for each function that reaches it (IG8; [tooling](docs/tooling.md#inspect)).
 
+**Source** (`io.Source`): An input given chunk by chunk to a reader that asks for the next chunk when it has used the one before, so the input is never held whole. A chunk is a string that is not empty and never changes; the chunks, in order, join to the input. See [stdlib, io 10](docs/spec/stdlib.md#io).
+
+**Stream** (`json.Stream`): A JSON `Reader` over a Source that checks the text as it reads it, so a value read from it before it is settled may come from a text that is not JSON; settling reads the rest and reports the first break as `Open` would. Not Effect's `Stream`, a sequence of values over time. See [stdlib, json 7](docs/spec/stdlib.md#json).
+
+**Elements** (`json.Elements`): The values of a JSON Stream read one at a time with a type's derived codec, the elements of a top-level array or the values of a sequence stream (newline-delimited JSON), by a pull call `Next` that gives the next value or none after the last. Only the value being read is held, never the text. See [stdlib, json 8](docs/spec/stdlib.md#json).
+
 **Exit accumulator**: The runtime record that combines a body's outcome with release defects and interruption into one exit cause, so a release never hides a failure.
 
 **Definition ID**: The stable name of one checked definition, derived by the checker from the declaration: `<package>.<Name>`, `<package>.<Type>.<Method>`, or `<enclosing ID>/<construct>#<n>` for a block such as a timeout. It is meaningful only with the source revision it was computed from. Runtime traces, defect chains and `ergo inspect` share this ID space ([traceability](docs/research/traceability.md)).
@@ -338,6 +361,36 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 **Point event**: A trace event that emitted code raises at its own source site: a capability `call` and its `call-exit` with the outcome (ok, a failure, a defect or interrupted), an `interrupt` at an interruption point, a context `construct` or a catch `handler`. The runtime raises the other kinds for a task, keyed by the task's definition ID.
 
 **Trace evidence**: The answer of a trace query (`sketchc trace`, later `ergo trace` and MCP `code.trace`): the `trace-evidence-1` envelope with the fields of the review evidence schema (#156), then the tasks, the capability calls with their spans, the resolved events and the cause trace. The query validates the trace before it answers and refuses a malformed one with the reason.
+
+## Domain modeling
+
+The building blocks of domain-driven design, as Ergo writes them. [docs/domain.md](docs/domain.md) states each as a rule and quotes it from `examples/pipeline`. *Pattern* means a shape of ordinary Ergo code, with no construct or std package of its own.
+
+**Aggregate** (pattern): A consistency boundary whose state is a union of modes, changed only by its commands: a `Decide` that gives the events of a command or its rejection, an `Evolve` that folds one event into the state, and a machine whose step is `Decide` then the fold. One actor runs the aggregates of a bounded context, by id (docs/domain.md, rule 4).
+
+**Decider** (pattern): The pair of an aggregate's pure functions, `Decide(s S, c C) []E fails R` and `Evolve(s S, e E) S`, with its initial state. `Decide` has no `needs` row and `Evolve` no row at all, so a replay of the same commands gives the same events and state. A rejection is a record in `Decide`'s error row.
+
+**Envelope** (pattern; module `domain`'s record planned, DK2): The record a command travels in, with its id and the context the domain reads (actor, tenant, time), so `Decide` takes the context as data and never as an ambient value.
+
+**Receipt** (pattern): The answer to a command the context took: the command's id and the position of its events in the context's log. A resend of the same id gets the first receipt and changes nothing.
+
+**View** (pattern): A read model: a fold over the events of a log, with a law that the fold equals the view computed from the states (`BoardIsFoldOfEvents`). Distinct from a UI view, which is a function that draws a screen.
+
+**Policy** (pattern): A pure function from an event to the commands or notices it causes, `React(e E) []C`, so a replayed log causes the same things. A **follower** of the log runs it: module `domain`'s `Follow` delivers each record after the follower's saved cursor, at least once, and names each command it sends by the follower, the stream, the record's position and the command's index, so a second delivery is a resend. Distinct from a retry policy, which is data a saga reads.
+
+**Saga** (pattern): A process over time as a machine of its own, run durably, whose signals are the events it reacts to and its timers (`after`), and whose `work` calls the world.
+
+**Story** (pattern): The pure reference of what a program should do for a list of acts: the domain's rules written again over its `Decide` and fold, with the world's answers read from a table.
+
+**Scene** (pattern): The same acts played on the real program, with each external system a `testing.Script`, a clock only the scene moves, and every held call released by the end. A law says the scene ends where the story does (`SceneAgreesWithStory`).
+
+**Stage**: `testing.Stage`, the one kernel that domain, UI and page scenes share: play an act, settle until no work runs, advance the clock, show; `testing.Play` plays a list of steps on one. `actor.NewStage` is an actor's (stdlib.md, Testing 14). Distinct from a stage of the worked example's pipeline, which is a step of a run.
+
+**Stack**: An ordinary function that asks kinds for the objects of a deployment, passing the value of one object to the next.
+
+**Kind**: An operation type a stack calls for one kind of cloud object, `Ensure(id, props) A`. Plan and apply are two providers of it.
+
+**Driver**: What a provider module implements for one kind: `Attrs`, `Apply`, `Read` and `Delete`, keyed by id, with the laws `AttrsIsApply`, `RetrySafe`, `ReadAfterApply` and `DeleteIsIdempotent`. Distinct from **Resource**, a value with a checked `Close`.
 
 ## Earlier `.ef` language
 
@@ -536,3 +589,35 @@ These terms describe the retired `.ef` language, with its `effect fn`, `run`, `r
 **Quiescence**: The scheduler state in which no managed fiber is running or runnable. A wake in flight is not idle: a fiber that has been signalled, fired or cancelled but has not run again is runnable. At quiescence, every pending timer that managed work can register without outside input is registered. `Scheduler.awaitRegistration()` returns at quiescence, and `Scheduler.advance` selects each deadline only at quiescence. When several fibers wait for quiescence at once, the order in which they are released is unspecified. Interrupting a waiter is an ordinary interruption. Unmanaged goroutines, host promises and foreign blocking calls are outside it.
 
 **Latch handoff**: What `Sync.signal` does to the fibers parked on a latch. It completes the latch, makes each waiter runnable and returns. Wherever execution is serialized into turns (Go under the managed test scheduler), the signaller keeps its turn and each waiter resumes later on a turn of its own, never inside the signaller's turn. Interrupting the signaller after `signal` returns cannot undo the signal or affect a waiter it does not own. A waiter interrupted after it is signalled but before it runs, directly or by its owner's close, ends interrupted, and the latch stays signalled. Live Go has no turns: a waiter runs on its own goroutine, possibly in parallel with the signaller, so an interrupt after `signal` races with it.
+
+### Bench
+
+The referee of `ergo bench` ([specs/bench.md](docs/specs/bench.md); std `bench`).
+
+**Bench**: A declaration that names a piece of work to measure, its bench sizes, the counter it is judged on and the claims it holds. Every build but a bench build erases it, as every build but a test build erases a `test`.
+
+**Bench case**: One `bench` declaration, run on every side the run names.
+
+**Bench size**: A value of a bench case's one `int` parameter. A case names two, a small and a large one.
+
+**Bench unit**: The piece of work one step of a bench size stands for (one lookup, one row). A bench block's value is the cost of one bench unit: the counter at the large size less the counter at the small one, over the difference of the sizes, so a fixed cost falls out.
+
+**Bench block**: One fresh process of one side at one bench size, with the counters it reports. Not the language's **Block**.
+
+**Bench side**: What one half of each pair runs: a commit, a compiler, a lowering, a hand Go control or a command. A run has two, base and head.
+
+**Bench control**: A side that is a hand-written Go package, named by the bench case with a no-worse claim, so Ergo is held to the hand Go it must match or beat.
+
+**Pair**: One bench block of each side, run back to back, base first and head first in turn. Its difference is `ln(head) - ln(base)` when every value of the series is above 0, else `head - base`.
+
+**Series**: The pairs of one bench case and one counter, judged together at the planned looks.
+
+**Verdict**: What the referee says of one series: `Better`, `Worse`, `Same`, `NoWorse`, `Unclear`, `Underpowered`, or `Refused` with its refusal. Every verdict but a refusal carries its interval and pairs.
+
+**Refusal**: Why a series has no value (`NoCounter`, `Multiplexed`, `RunIncomplete`, `NotEquivalent`, `CounterUnstable`, `NoMetric`, `FewPairs`, `TooManyPairs`, `NotFinite`, `SharedRunner`). A refusal carries no number; it is never read as 0.
+
+**Exact counter**: A counter that holds one value per side in every bench block (elements copied, checks left, allocations under one processor, a program's own count). Compared exactly, with no test; one that moves is refused. Only an exact counter may stand in a `hold` clause or a growth law.
+
+**Counted counter**: A hardware count (instructions, branches), tight on a loaded host but not exact. Judged over pairs, never held exactly.
+
+**Timed counter**: A time or a memory peak (CPU, wall, peak resident memory). Judged over pairs, never held exactly, and never by the gate.

@@ -132,7 +132,7 @@ func CounterText(c Counter) string {
 // of a commit the loop did not cause (a work's reply, the Slow signals
 // themselves) is not judged, so a slow warning is never judged on its own
 // account. The last OnSlow of a pass counts.
-func OnSlow[E](f *Frame[E], b Budget, on escaping func(s Slow) E) {
+func OnSlow[E](f *Frame[E], b Budget, on own func(s Slow) E) {
 	f.slow = Some{Value: slowWatch[E]{budget: b, on: on}}
 }
 

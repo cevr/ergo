@@ -56,6 +56,9 @@ type wireFault struct {
 // that part, or a nil fault. seen holds the named types on the way, so a
 // recursive type is wire when its other parts are.
 func (c *checker) wireWalk(t Type, seen map[Type]bool) (string, *wireFault) {
+	if why := c.wireFormReason(t); why != "" {
+		return "", &wireFault{t, why}
+	}
 	if tp, ok := t.(*TypeParam); ok {
 		if typeSet(tp) == SetWire {
 			return "", nil

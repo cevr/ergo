@@ -1734,11 +1734,11 @@ type capB { tagB() int }
 
 type capC { tagC() int }
 
-type aIs { v int }
+type aIs { v int } implements capA
 
-type bIs { v int }
+type bIs { v int } implements capB
 
-type cIs { v int }
+type cIs { v int } implements capC
 
 func tagA(p aIs) int { p.v }
 

@@ -179,7 +179,7 @@ func main() needs Console {
 
 type Num { Get() int }
 
-type One {}
+type One {} implements Num
 
 func Get(_ One) int { return 1 }
 
@@ -243,16 +243,16 @@ func main() fails Bad needs Console {
 		src: `type Store { Get() string }
 type Timer { Now() string }
 
-type Holder { V string }
+type Holder { V string } implements Store
 
 func Get(h Holder) string { return h.V }
 
-type Both { V string }
+type Both { V string } implements Store, Timer
 
 func Get(b Both) string { return "store " + b.V }
 func Now(b Both) string { return "clock " + b.V }
 
-type Div { N int }
+type Div { N int } implements Store
 
 func Get(d Div) string { return "div" }
 

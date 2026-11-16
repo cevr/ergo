@@ -1,0 +1,125 @@
+// Package workload writes the Markdown document the receipts read: n
+// sections, each with a heading, paragraphs whose spans mix emphasis,
+// code, links of each kind, references and escapes, lists that nest and
+// are tight or loose, a quote, code blocks of both kinds, raw HTML and a
+// rule, so the reader's every path runs. The seed draws the words and
+// the forms, so two seeds give two documents of one shape.
+
+import rand
+import strings
+
+let words = []string{"alpha", "beta", "gamma", "delta", "parse", "block", "inline", "Ergo", "Go", "snow ☃", "café", "naïve", "x_y_z", "2*3*4", "a&b", "<tag>"}
+
+// Document is the workload of n sections for seed.
+func Document(seed int, n int) string {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		let mut b = strings.NewBuilder()
+		for i in 0..n {
+			section(&b, i)
+		}
+		b.String()
+	}
+}
+
+func pick(xs []string) string needs Random { xs[Random.IntN(len(xs))] }
+
+func word() string needs Random { pick(words) }
+
+// span is one inline form around a word.
+func span(i int) string needs Random {
+	let w = word()
+	match Random.IntN(14) {
+	case 0:
+		"*\(w)*"
+	case 1:
+		"**\(w)**"
+	case 2:
+		"_\(w) \(word())_"
+	case 3:
+		"`\(w)`"
+	case 4:
+		"[\(w)](https://example.com/\(i)?q=\(Random.IntN(100)) \"title \(i)\")"
+	case 5:
+		"[\(w)][ref\(i % 7)]"
+	case 6:
+		"<https://example.com/auto/\(i)>"
+	case 7:
+		"&amp; &copy; &#\(65 + Random.IntN(26));"
+	case 8:
+		"\\*not\\* \\[it\\]"
+	case 9:
+		"***\(w) *\(word())* end***"
+	case 10:
+		"![\(w)](/img/\(i).png)"
+	case 11:
+		"<span class=\"s\">\(w)</span>"
+	case _:
+		w
+	}
+}
+
+// line is a line of words and spans.
+func line(i int) string needs Random {
+	let mut parts = []string{}
+	for _ in 0..3+Random.IntN(6) {
+		parts = parts.Append(if Random.IntN(3) == 0 { span(i) } else { word() })
+	}
+	strings.Join(parts, " ")
+}
+
+func paragraph(b *strings.Builder, i int) needs Random {
+	for k in 0..1+Random.IntN(3) {
+		b.WriteString(line(i))
+		b.WriteString(if k%2 == 1 { "  \n" } else { "\n" })
+	}
+	b.WriteString("\n")
+}
+
+func list(b *strings.Builder, i int) needs Random {
+	let numbered = Random.IntN(2) == 0
+	let loose = Random.IntN(3) == 0
+	for k in 0..2+Random.IntN(4) {
+		b.WriteString(if numbered { "\(k + 1). " } else { "- " })
+		b.WriteString(line(i))
+		b.WriteString("\n")
+		if Random.IntN(3) == 0 {
+			b.WriteString(if numbered { "   " } else { "  " })
+			b.WriteString("* \(line(i))\n")
+		}
+		if loose {
+			b.WriteString("\n")
+		}
+	}
+	b.WriteString("\n")
+}
+
+func section(b *strings.Builder, i int) needs Random {
+	if Random.IntN(2) == 0 {
+		b.WriteString("## Section \(i) *\(word())*\n\n")
+	} else {
+		b.WriteString("Section \(i) \(word())\n------\n\n")
+	}
+	paragraph(b, i)
+	list(b, i)
+	match Random.IntN(5) {
+	case 0:
+		b.WriteString("> \(line(i))\n> \(line(i))\nlazy \(word())\n\n")
+	case 1:
+		b.WriteString("```go\nfunc f\(i)() int {\n\treturn \(i) < \(Random.IntN(9))\n}\n```\n\n")
+	case 2:
+		// A rule first: after the list, four spaces would continue its
+		// last item.
+		b.WriteString("***\n\n    indented \(i)\n    code & <more>\n\n")
+	case 3:
+		b.WriteString("<div class=\"box\">\n\(line(i))\n</div>\n\n")
+	case _:
+		b.WriteString("***\n\n")
+	}
+	paragraph(b, i)
+	if i%7 == 6 {
+		for r in 0..7 {
+			b.WriteString("[ref\(r)]: https://example.com/ref/\(r) \"Ref \(r)\"\n")
+		}
+		b.WriteString("\n")
+	}
+}

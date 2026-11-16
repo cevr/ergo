@@ -479,3 +479,32 @@ func main() needs Console | go.Foreign {
 		t.Errorf("the recorder's and the request's headers: exit %d, stdout %q, stderr:\n%s", code, stdout, firstLines(stderr, 12))
 	}
 }
+
+// TestPureGoCallCopiesALiveLet is the smallest repro of fu-elide1 (case
+// elide_1 of TestHostCopyElisionAgrees, -importgo.seed=1, red since V7
+// d302050c8): sort.Ints is in the reviewed pure Go tier, so the value walk
+// filed its call as a pure std body (a V7 hand-over candidate) and never
+// as a Go call, and its live let went to Go uncopied: Go sorted Ergo's xs
+// in place. The one promised fact (interop.md Lowering, the value rule at
+// the Go boundary, q26): the operand is copied. Mutant
+// values-go-call-filed-as-pure (the pure std branch before the Go call
+// branch in valueWalk.walk) passes it uncopied.
+func TestPureGoCallCopiesALiveLet(t *testing.T) {
+	prog := mustLower(t, "pure_go_live", `import go sort
+
+func sorted() string needs go.Foreign {
+	let xs = []int{8, 2, 5}
+	sort.Ints(xs)
+	"\(xs[0]),\(xs[1]),\(xs[2])"
+}
+
+func main() needs Console | go.Foreign {
+	Console.Println(sorted())
+}
+`)
+	body := goFunc(t, prog.mainGo(), "sorted")
+	call := regexp.MustCompile(`sort\.Ints\(([^\n]*)\)`).FindStringSubmatch(body)
+	if call == nil || !strings.Contains(call[1], "Clone(") {
+		t.Errorf("sort.Ints takes the live let xs uncopied:\n%s", body)
+	}
+}

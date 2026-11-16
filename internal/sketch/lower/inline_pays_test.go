@@ -1,0 +1,365 @@
+package lower
+
+import (
+	"regexp"
+	"strings"
+	"testing"
+
+	"ergo.local/prototype/internal/sketch/syntax"
+)
+
+// paysSource calls each function once off a loop and once on a loop path.
+// classify is a Go leaf with a boxed result (Tok is past the register
+// bound in both flat forms, and held carries it, so it is an interface:
+// flatunion.go, U1, and carry.go, R3b) larger than goSizeBudget; tiny is one within it;
+// widest is generic (no Go leaf) and larger; first is generic and within
+// it; outer is small and calls widest, so widest's site in outer's
+// inlined body is on the loop path of outer's site; apply1 substitutes
+// its literal, whose body calls widest. step is a machine's step, a boxed
+// leaf larger than goSizeBudget, called through the field of its known
+// record by once (off a loop) and by std's From (in its loop). sumTo,
+// deeper, coldTo and down keep their Go functions (a loop or a
+// recursion) and call widest outside any loop of theirs: sumTo is called
+// in main's loop, deeper only by sumTo (declared before it, so it is
+// walked before it is found on a loop path), down is recursive, and
+// coldTo is called once.
+const paysSource = `import machines
+
+type Num { v int }
+type Word { s string }
+type Op { c string }
+type Sep { at int, line int }
+type Tok = Num | Word | Op | Sep
+
+func classify(x int) Tok {
+	if x < 0 {
+		return Sep{at: x, line: 1}
+	}
+	if x % 3 == 0 {
+		return Num{v: x * 2 + 1}
+	}
+	if x % 3 == 1 {
+		return Word{s: "w\(x)"}
+	}
+	Op{c: "o\(x)"}
+}
+
+func tiny(x int) Tok { Num{v: x} }
+
+func spread(x int) int {
+	if x < 0 {
+		return 0
+	}
+	if x % 3 == 0 {
+		return x * 2 + 1
+	}
+	if x % 3 == 1 {
+		return x * 5 - 2
+	}
+	x * x + 7
+}
+
+func huge[T number](xs []T) T {
+	let a = xs[0] + xs[1] + xs[2] + xs[0] * xs[1] * xs[2]
+	let c = a + xs[0] - xs[1] + xs[2] - a * a + xs[0] * a - xs[1] * a
+	let d = c + a * xs[0] - c * xs[1] + a * c * xs[2] - a - c + xs[0]
+	let e = d * d - c * c + a * a - xs[0] * d + xs[1] * c - xs[2] * a
+	a + c + d + e + a * c * d * e - xs[0] * xs[1] * xs[2] + a - c + d - e
+}
+
+func held(t Tok) Tok { t }
+
+func first[T](xs []T, d T) T {
+	if len(xs) == 0 {
+		return d
+	}
+	xs[0]
+}
+
+func widest[T](xs []T, d T, k int) T {
+	if len(xs) == 0 {
+		return d
+	}
+	if k < 0 {
+		return xs[0]
+	}
+	if k >= len(xs) {
+		return xs[len(xs) - 1]
+	}
+	xs[k]
+}
+
+func outer(xs []int, k int) int { widest(xs, 0, k) + 1 }
+
+func apply1(f func(x int) int, x int) int { f(x) }
+
+type Pick {
+	At(xs []int, k int) int,
+	Once(xs []int) int,
+}
+
+type Picker { base int } implements Pick
+
+func At(p Picker, xs []int, k int) int { widest(xs, 0, k) + p.base }
+
+func Once(p Picker, xs []int) int { widest(xs, 0, p.base) }
+
+func pickAt(xs []int, k int) int { widest(xs, 0, k) + spanOf(xs, k) }
+
+func spanOf(xs []int, n int) int {
+	let mut s = 0
+	for i in 0..n {
+		s = s + i
+	}
+	s + widest(xs, 0, n)
+}
+
+func viaFn(f func(xs []int, k int) int, xs []int, n int) int {
+	let mut s = 0
+	for i in 0..n {
+		s = s + f(xs, i)
+	}
+	s
+}
+
+func viaOp(xs []int, n int) int needs Pick {
+	let mut s = 0
+	for i in 0..n {
+		s = s + Pick.At(xs, i)
+	}
+	s
+}
+
+func weight(t Tok) int {
+	match t {
+	case Num as n:
+		n.v
+	case Word as w:
+		len(w.s)
+	case Op as o:
+		len(o.c) + 1
+	case Sep as s:
+		s.at
+	}
+}
+
+func viaHeld() int { weight(held(tiny(0))) }
+
+type Count { n int }
+type Halt {}
+type St = Count | Halt
+type Tick { d int }
+type Sig = Tick
+
+func step(s St, e Sig) Decision[St, int] {
+	match s {
+	case Halt:
+		Stay[St]{Next: s}
+	case Count as c:
+		if e.d < 0 {
+			return Done[int]{Output: c.n}
+		}
+		if e.d == 0 {
+			return Stay[St]{Next: Count{n: c.n}}
+		}
+		Stay[St]{Next: Count{n: c.n + e.d * 2 + 1}}
+	}
+}
+
+type M machine[St, Sig] {
+	initial: Count{n: 0},
+	step:    step,
+}
+
+func once[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], s S, e E) Decision[S, O] fails F needs R {
+	let d = try m.Step(s, e)
+	d
+}
+
+func deeper(xs []int, n int) int {
+	let mut s = 0
+	for i in 0..n {
+		s = s + i
+	}
+	s + widest(xs, 0, n)
+}
+
+func sumTo(xs []int, n int) int {
+	let mut s = 0
+	for i in 0..n {
+		s = s + i
+	}
+	s + widest(xs, 0, n) + deeper(xs, n)
+}
+
+func coldTo(xs []int, n int) int {
+	let mut s = 0
+	for i in 0..n {
+		s = s + i
+	}
+	s + widest(xs, 0, n)
+}
+
+func down(xs []int, n int) int {
+	if n <= 0 {
+		return 0
+	}
+	widest(xs, 0, n) + down(xs, n - 1)
+}
+
+func main() needs Console {
+	let xs = []int{4, 5, 6}
+	let mut sum = first(xs, 0) + widest(xs, 0, 1) + weight(classify(3)) + weight(tiny(1)) + outer(xs, 2)
+	sum = sum + apply1(func(x int) int { widest(xs, 0, x) }, 1)
+	sum = sum + coldTo(xs, 2) + down(xs, 2)
+	sum = sum + viaFn(pickAt, xs, 3)
+	with context { Pick: Picker{base: 1} } {
+		sum = sum + viaOp(xs, 3) + Pick.Once(xs)
+	}
+	for i in 0..3 {
+		sum = sum + first(xs, i) + widest(xs, 0, i) + weight(classify(i)) + weight(tiny(i)) + outer(xs, i)
+		sum = sum + apply1(func(x int) int { widest(xs, 0, x) }, i)
+		sum = sum + sumTo(xs, i)
+		sum = sum + spread(i) + huge(xs)
+	}
+	match once(M{}, Count{n: 1}, Tick{d: 2}) {
+	case Stay[St]:
+		sum = sum + 1
+	case _:
+	}
+	let o = machines.Run(M{}, []Sig{Tick{d: 1}, Tick{d: 0}, Tick{d: -1}}) catch {
+	case machines.Rejected:
+		return
+	}
+	match o {
+	case machines.Finished[St, int] as f:
+		sum = sum + f.Output
+	case machines.Running[St, int]:
+	}
+	Console.Println("\(sum)")
+}
+`
+
+// TestInlinePays holds the size test of the inline rule (inline.go, Size):
+// a body larger than Go's inline budget is inlined only on a loop path,
+// and a Go leaf with a boxed result only there and only when Go would
+// refuse it. It reads the one promised fact, how many Go calls of each
+// function the lowered program keeps, under the rule and under the
+// reference (inlineCostLowering "budget"), which inlines every site the
+// rule before OPT8 admitted. Tok's variants share flat payload slots
+// (U1), so its values are not boxed; the test lowers unions as interfaces
+// (unionLowering "interface"), where classify's and tiny's results are
+// the boxed results the rule is about.
+func TestInlinePays(t *testing.T) {
+	savedUnion := unionLowering
+	defer func() { unionLowering = savedUnion }()
+	unionLowering = "interface"
+	if n := inlineSizeOf(t, "classify"); n <= goSizeBudget {
+		t.Fatalf("classify has %d nodes, want more than goSizeBudget (%d)", n, goSizeBudget)
+	}
+	// spread is a Go leaf with an unboxed result larger than goSizeBudget,
+	// and huge a body over inlineBudget: both stay calls on the loop path
+	// too, where the size test would let them in (inlineRule decides).
+	if n := inlineSizeOf(t, "spread"); n <= goSizeBudget || n > inlineBudget {
+		t.Fatalf("spread has %d nodes, want more than goSizeBudget (%d) and at most inlineBudget (%d)", n, goSizeBudget, inlineBudget)
+	}
+	if n := inlineSizeOf(t, "huge"); n <= inlineBudget {
+		t.Fatalf("huge has %d nodes, want more than inlineBudget (%d)", n, inlineBudget)
+	}
+	calls := func(code, name string) int {
+		return len(regexp.MustCompile(`\b`+name+`(Known|Mono_i[0-9]+)?(_[0-9]+)?(\[[^\]]*\])?\(`).FindAllString(code, -1))
+	}
+	// pickAt and Picker.At run in a loop only through a function value
+	// (viaFn) and an operation (viaOp): the loop-path mark reaches them
+	// and spanOf, which only pickAt calls (OPT9, hot.go); its reference
+	// ("direct", hotLowering) does not. Picker.Once is an operation called
+	// off every loop, so it stays off the loop path.
+	for _, mode := range []struct {
+		rule string
+		want map[string]int
+	}{
+		{"direct", map[string]int{"pickAt:widest": 1, "Picker.At:widest": 1, "spanOf:widest": 1, "Picker.Once:widest": 1, "sumTo:widest": 0, "coldTo:widest": 1}},
+		// Off the loop: widest stays a call twice (main's site, and its
+		// site in outer's inlined body) and in the literal's body once;
+		// classify and tiny stay calls; on the loop path, only tiny does,
+		// since Go inlines it. once's copy calls step; From's inlines it.
+		// Of the functions with a Go body of their own, only coldTo is
+		// off every loop path.
+		{"", map[string]int{"first": 0, "widest": 3, "classify": 1, "tiny": 2, "outer": 0, "apply1": 0, "onceM:step": 1, "FromM:step": 0, "sumTo:widest": 0, "deeper:widest": 0, "down:widest": 0, "coldTo:widest": 1, "pickAt:widest": 0, "Picker.At:widest": 0, "spanOf:widest": 0, "Picker.Once:widest": 1, "spread": 1, "huge": 1}},
+		{"budget", map[string]int{"first": 0, "widest": 0, "classify": 0, "tiny": 0, "outer": 0, "apply1": 0, "onceM:step": 0, "FromM:step": 0, "sumTo:widest": 0, "deeper:widest": 0, "down:widest": 0, "coldTo:widest": 0, "pickAt:widest": 0, "Picker.At:widest": 0, "spanOf:widest": 0, "Picker.Once:widest": 0, "spread": 1, "huge": 1}},
+	} {
+		saved, savedHot := inlineCostLowering, hotLowering
+		if mode.rule == "direct" {
+			hotLowering = "direct"
+		} else {
+			inlineCostLowering = mode.rule
+		}
+		o := mustLower(t, "inlinepays"+mode.rule, paysSource)
+		inlineCostLowering, hotLowering = saved, savedHot
+		code := o.mainGo()
+		for key, want := range mode.want {
+			fn, name, ok := strings.Cut(key, ":")
+			if !ok {
+				fn, name = "main_1", key // Go's main is the entry; Ergo's main is main_1
+			}
+			var body string
+			if recv, method, isMethod := strings.Cut(fn, "."); isMethod {
+				// A function whose first parameter is a local type is a Go
+				// method (196m); the operations adapter has its name too.
+				body = goMethod(t, code, recv, method)
+			} else {
+				body = goFunc(t, code, fn)
+			}
+			if got := calls(body, name); got != want {
+				t.Errorf("rule %q: %s calls %s %d times, want %d\n%s", mode.rule, fn, name, got, want, body)
+			}
+		}
+	}
+	// A function value called off every loop puts no function taken as a
+	// value on the loop path (paysSource calls one in a loop, which marks
+	// them all): pickOnce keeps widest a call.
+	cold := paysSource[strings.Index(paysSource, "type Num "):strings.Index(paysSource, "func outer(")] + `
+func pickOnce(xs []int) int { widest(xs, 0, 1) }
+
+func callOnce(f func(xs []int) int, xs []int) int { f(xs) }
+
+func main() needs Console {
+	Console.Println("\(callOnce(pickOnce, []int{4, 5}))")
+}
+`
+	if body := goFunc(t, mustLower(t, "inlinepayscold", cold).mainGo(), "pickOnce"); calls(body, "widest") != 1 {
+		t.Errorf("a function value called off every loop put pickOnce on a loop path:\n%s", body)
+	}
+}
+
+// inlineSizeOf is the inlineSize of the body of paysSource's function name.
+func inlineSizeOf(t *testing.T, name string) int {
+	t.Helper()
+	f, err := syntax.Parse(paysSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range f.Decls {
+		if fd, ok := d.(*syntax.FuncDecl); ok && fd.Name.Name == name && fd.Body != nil {
+			return inlineSize(fd.Body)
+		}
+	}
+	t.Fatalf("no function %s", name)
+	return 0
+}
+
+// goMethod is the Go text of the lowered method name of the value
+// receiver type recv (func (x recv) name(…)), not an adapter's.
+func goMethod(t *testing.T, code, recv, name string) string {
+	t.Helper()
+	re := regexp.MustCompile(`(?m)^func \([a-z_0-9]+ ` + regexp.QuoteMeta(recv) + `\) ` + regexp.QuoteMeta(name) + `\(`)
+	loc := re.FindStringIndex(code)
+	if loc == nil {
+		t.Fatalf("no Go method %s.%s", recv, name)
+	}
+	end := regexp.MustCompile(`(?m)^(/\*line [^*]*\*/)?}$`).FindStringIndex(code[loc[0]:])
+	if end == nil {
+		t.Fatalf("Go method %s.%s has no end", recv, name)
+	}
+	return code[loc[0] : loc[0]+end[1]]
+}

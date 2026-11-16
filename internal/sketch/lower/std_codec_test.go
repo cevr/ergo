@@ -80,7 +80,7 @@ test CodecBasicReplay(s string, b bool, i int8, u uint8, f float64) {
 	assert s2 == s && b2 == b && i2 == i && u2 == u && f2 == f
 }
 
-func many[T wire](vs []T) ([]T, Option[T]) fails wired[Option[T]] {
+func many[T wire](vs []T) ([]T, Option[T]) fails wired[Option[T]] needs wired[T] {
 	let e = codec.NewEvents()
 	encode(vs, e)
 	let first Option[T] = if len(vs) > 0 { Some{Value: vs[0]} } else { None }
@@ -175,7 +175,7 @@ test CodecRefinedParses(n int64) {
 
 // replayed decodes a T from evs in a generic function, so a pair's codec
 // runs through the witness its caller's package builds.
-func replayed[T wire](evs []codec.Event) T fails wired[T] {
+func replayed[T wire](evs []codec.Event) T fails wired[T] needs wired[T] {
 	decode[T](codec.NewReplay(evs))
 }
 

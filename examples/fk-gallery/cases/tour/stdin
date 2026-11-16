@@ -1,0 +1,20 @@
+# a cold load home, then the gallery (the catalog takes 600 ms)
+@0 open http://localhost/
+@100 go /gallery
+# leave the gallery while the catalog loads, and come back: no second load
+@300 go /studio
+@400 go /gallery
+# a painting, then the next one (a stay with a new id), then the same one
+@1000 go /gallery/3
+@1200 go /gallery/4
+@1700 go /gallery/4
+# a draft in the studio, saved on leaving (300 ms)
+@1800 go /studio
+@1900 type half-finished thought
+@2000 back /gallery/9
+# leave the studio with an empty draft: nothing is saved
+@2500 go /studio
+@2600 type
+@2700 go /nowhere
+@2800 away https://example.com/
+@3000 end

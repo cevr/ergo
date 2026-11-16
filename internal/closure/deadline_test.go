@@ -105,7 +105,9 @@ func TestRunDeadlineStopsAStuckRun(t *testing.T) {
 		t.Setenv(runDeadlineVariable, "20m")
 	}
 	sb := sandbox{Root: f.root, Scratch: []string{scratchDir, logDir}}
-	env := testEnv(f.pkg, stuckVariable+"="+scratchDir, stuckWatchVariable+"="+strconv.Itoa(os.Getpid()))
+	// TMPDIR is scratch, as the sweep's (testinputs makes the run's private
+	// ergo cache there).
+	env := testEnv(f.pkg, "TMPDIR="+scratchDir, stuckVariable+"="+scratchDir, stuckWatchVariable+"="+strconv.Itoa(os.Getpid()))
 	output := filepath.Join(t.TempDir(), "stuck.out")
 	done := make(chan error, 1)
 	start := time.Now()

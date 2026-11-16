@@ -103,9 +103,18 @@ type term struct {
 	isLen bool
 }
 
-// uncheckedOK reports whether this build may write unchecked loads.
+// uncheckedOK reports whether this build may write unchecked loads: the
+// admission of the shortcut bounds-unchecked (shortcuts.go), which a test
+// build and factLowering "checked" do not take.
 func (fc *funcCtx) uncheckedOK() bool {
-	return factLowering != "checked" && fc.l.tests == nil
+	return fc.l.takes("bounds-unchecked")
+}
+
+// proving reports whether this build computes the bounds facts: for its
+// unchecked loads, or to export them (facts.go: fact-index, fact-cut), so
+// that the reference factLowering "checked" still exports the facts.
+func (fc *funcCtx) proving() bool {
+	return fc.uncheckedOK() || fc.l.admitFact(factIndex, evidenceChecked) || fc.l.admitFact(factCut, evidenceChecked)
 }
 
 // factMark is the length of the fact list, to reset to after a branch.
@@ -116,7 +125,7 @@ func (fc *funcCtx) factReset(n int) { fc.bounds = fc.bounds[:n] }
 
 // assume adds the facts cond gives where it holds.
 func (fc *funcCtx) assume(cond syntax.Expr) {
-	if !fc.uncheckedOK() {
+	if !fc.proving() {
 		return
 	}
 	cond = unparen(cond)
@@ -206,7 +215,7 @@ func (fc *funcCtx) assumeRange(x, y syntax.Expr, strict int64) {
 // force say of its value. The local holds that value until it is written,
 // which kills them.
 func (fc *funcCtx) assumeLet(v *check.Var, value syntax.Expr) {
-	if !fc.uncheckedOK() || !isInt(v.Type) || !fc.stable(v) {
+	if !fc.proving() || !isInt(v.Type) || !fc.stable(v) {
 		return
 	}
 	s, ok := fc.spanOf(value)
@@ -368,6 +377,16 @@ func (fc *funcCtx) intVar(x syntax.Expr) (*check.Var, bool) {
 	return v, true
 }
 
+// isGoString reports a type whose Go form is string: string, or std fs's
+// Text, a mapped text (types.md, Borrows 8), which lowers to string.
+func isGoString(t check.Type) bool {
+	if check.IsMappedText(t) {
+		return true
+	}
+	b, ok := t.(*check.Basic)
+	return ok && b.Kind == check.String
+}
+
 // isInt reports Go's int.
 func isInt(t check.Type) bool {
 	b, ok := t.(*check.Basic)
@@ -424,9 +443,10 @@ func (fc *funcCtx) subject(x syntax.Expr) (*check.Var, bool) {
 	if !ok || !fc.stable(v) {
 		return nil, false
 	}
-	switch t := v.Type.(type) {
-	case *check.Basic:
-		return v, t.Kind == check.String
+	if isGoString(v.Type) {
+		return v, true
+	}
+	switch v.Type.(type) {
 	case *check.Slice:
 		return v, true
 	}
@@ -671,10 +691,10 @@ func ordered(a, b span) bool {
 	return true
 }
 
-// uncheckedIndex reports whether x, a read of S[i] of a string or a slice,
+// provedIndex reports whether x, a read of S[i] of a string or a slice,
 // is proved in range.
-func (fc *funcCtx) uncheckedIndex(x *syntax.IndexExpr) bool {
-	if !fc.uncheckedOK() || len(fc.bounds) == 0 || len(x.Indices) != 1 {
+func (fc *funcCtx) provedIndex(x *syntax.IndexExpr) bool {
+	if !fc.proving() || len(fc.bounds) == 0 || len(x.Indices) != 1 {
 		return false
 	}
 	s, ok := fc.subject(x.X)
@@ -703,17 +723,16 @@ func (fc *funcCtx) sliceLen(x *syntax.SliceExpr) int64 {
 	return hi.k - lo.k
 }
 
-// uncheckedSlice reports whether x, s[a:b] of a string, is proved in
-// range.
-func (fc *funcCtx) uncheckedSlice(x *syntax.SliceExpr) bool {
-	if !fc.uncheckedOK() || len(fc.bounds) == 0 || x.Slice3 {
+// provedSlice reports whether x, s[a:b] of a string, is proved in range.
+func (fc *funcCtx) provedSlice(x *syntax.SliceExpr) bool {
+	if !fc.proving() || len(fc.bounds) == 0 || x.Slice3 {
 		return false
 	}
 	s, ok := fc.subject(x.X)
 	if !ok {
 		return false
 	}
-	if b, isBasic := s.Type.(*check.Basic); !isBasic || b.Kind != check.String {
+	if !isGoString(s.Type) {
 		return false
 	}
 	zero := span{lo: 0, hi: 0, hasLo: true, hasHi: true}

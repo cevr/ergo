@@ -13,8 +13,12 @@ import (
 // for one that does not run, else testCases cases, each of which copies
 // the runner's environment, builds the context into the copy with its
 // builder, as a with of it does, draws the law's parameters and calls the
-// law's function, the provider being the one the context bound. The report
-// names the context: `ok law T.L under Live (100 cases)`. task is the
+// law's function, the provider being the one the context bound, and, when
+// the build acquired a provider with a Close, releases the providers as the
+// with would at the end of its block. A rewrite law has no law function:
+// its run compares its two sides, each building the context into its own
+// copy (contextRewriteSource; check does not run one whose build acquires
+// a provider with a release). The report names the context: `ok law T.L under Live (100 cases)`. task is the
 // runner's task, which lawRuns reads (taskOf).
 func (l *lowerer) lawContextRuns(b *strings.Builder, lr check.LawRun, scope *namer, env, task, seed, failed string) {
 	law := lr.Law
@@ -27,10 +31,21 @@ func (l *lowerer) lawContextRuns(b *strings.Builder, lr check.LawRun, scope *nam
 			b.WriteString("\t" + l.helper("Record") + "(" + strconv.Quote(label) + ", nil, " + strconv.Quote(lc.Unrun) + ")\n")
 			continue
 		}
+		if law.Rewrite != nil {
+			// A rewrite law compares its two sides, each on a fresh
+			// provider the context's builder makes, as rewriteRuns does
+			// with a constructor; it has no law function to call.
+			b.WriteString("\tif !" + l.helper("CachedRun") + "(" + strconv.Quote(label) + ") {\n")
+			l.rewriteCompare(b, law, label, l.contextRewriteSource(law, lc), scope, env, seed, failed, at)
+			b.WriteString("\t}\n")
+			continue
+		}
 		inner := newNamer(scope)
 		r, ok, i := inner.alloc("r"), inner.alloc("ok"), inner.alloc("i")
 		e, held, err := inner.alloc("e"), inner.alloc("held"), inner.alloc("err")
-		b.WriteString("\t{\n")
+		// A run whose verdict ergo test found in its store (--cached;
+		// lawcache) prints it, marked, and does not run.
+		b.WriteString("\tif !" + l.helper("CachedRun") + "(" + strconv.Quote(label) + ") {\n")
 		b.WriteString("\t\t" + r + " := " + l.helper("NewRand") + "(" + seed + ", " + strconv.Quote(label) + ")\n")
 		b.WriteString("\t\t" + r + ".env = " + env + "\n")
 		b.WriteString("\t\t" + ok + " := true\n")
@@ -72,13 +87,51 @@ func (l *lowerer) lawContextRuns(b *strings.Builder, lr check.LawRun, scope *nam
 			sep = ", "
 		}
 		build := l.contextBuilder(lc.With, law.Decl)
-		body := e + " := *" + env + "; " + build + "(&" + e + "); " +
-			held + ", " + err + " := " + callee + "(" + strings.Join(args, ", ") + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
-		b.WriteString("\t\t\treturn func() string { return " + strings.Join(shown, " + ") + " }, func() error { " + body + " }\n\t\t\t})\n")
+		head, open := "func() error { ", e+" := *"+env+"; "+build+"(&"+e+"); "
+		if ownsResources(lc.With) {
+			head, open = l.lawCaseScope(inner, e, env, task, build)
+		}
+		body := open + held + ", " + err + " := " + callee + "(" + strings.Join(args, ", ") + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
+		b.WriteString("\t\t\treturn func() string { return " + strings.Join(shown, " + ") + " }, " + head + body + " }\n\t\t\t})\n")
 		b.WriteString("\t\t}\n")
 		b.WriteString("\t\tif " + ok + " {\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote(fmt.Sprintf("ok %s (%d cases)", label, testCases)) + ")\n")
 		b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n")
 		b.WriteString("\t\t\t" + l.replayLine(law, strconv.Quote("--seed ")+" + "+conv+".FormatUint("+seed+", 10)") + "\n\t\t}\n")
 		b.WriteString("\t\t" + l.helper("Record") + "(" + strconv.Quote(label) + ", " + r + ", \"\")\n\t}\n")
+	}
+}
+
+// lawCaseScope is the head and opening of a law case whose context build
+// acquires a provider with a Close. The case owns the providers it builds,
+// as a with does (resources.md, Context ownership): the owning builder
+// registers their releases in the with scope ws, which the case's frame
+// scope fs ends when the case ends, on every path, after the law's last
+// operation; last built first, each once. A release's defect is the
+// case's exit, so it fails the case ($Prop). e is the case's environment,
+// a copy of env; build is the context's owning builder.
+func (l *lowerer) lawCaseScope(inner *namer, e, env, task, build string) (head, open string) {
+	fs, ws, exit := inner.alloc("fs"), inner.alloc("ws"), inner.alloc("exit")
+	head = "func() (" + exit + " error) { "
+	open = e + " := *" + env + "; " + fs + " := " + l.rt() + ".NewScope(" + task + "); defer " + fs + ".End(&" + exit + "); " +
+		ws + " := " + fs + ".OpenWith(); " + build + "(&" + e + ", " + env + ", " + ws + "); "
+	return head, open
+}
+
+// contextRewriteSource is where the cases of the rewrite law law's run
+// under the named context lc take their providers (rewriteCompare): each
+// side builds lc's context into its copy of the environment, which binds
+// the owner's provider; a case draws nothing for it. A rewrite law of a
+// generic operation type does not run (check's laws.go), so the owner is
+// the capability the context binds.
+func (l *lowerer) contextRewriteSource(law *check.Law, lc check.LawContext) rewriteSource {
+	build := l.contextBuilder(lc.With, law.Decl)
+	return rewriteSource{
+		ops: lc.With.Discharged[0],
+		draw: func(func(string), *namer, string, string) []string {
+			return []string{strconv.Quote(": provider from context " + lc.Context.Name)}
+		},
+		bind: func(w func(string), _ *funcCtx, _ *namer, e, _ string) {
+			w("\t" + build + "(&" + e + ")")
+		},
 	}
 }

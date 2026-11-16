@@ -1,0 +1,2 @@
+cbor 58789 bytes, 1001 allocations per encode
+json 73904 bytes, 1001 allocations per encode

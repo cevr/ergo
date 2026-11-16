@@ -1,0 +1,298 @@
+// A canvas's paint list (ui.Canvas, H5c) replayed on the window. The
+// list's paths are flattened to straight lines under the transforms in
+// effect: a fill is one rectangle when its path is a rectangle on the
+// axes, else spans of one DIP's height under the nonzero rule; a stroke
+// is one Window.Line a segment, with round caps; a clip is the box around
+// its transformed rectangle. The window has no path of its own to fill,
+// so a fill's edges are not smoothed.
+
+import ui
+import ui/layout
+
+// pt is a point in the window's DIPs.
+type pt { X float64, Y float64 }
+
+// pushed is what a PopPaint undoes: the transform before it, and whether
+// it opened a clip.
+type pushed { was ui.Affine, clip bool }
+
+// curveSteps is how many lines a quadratic or cubic segment becomes.
+let curveSteps = 16
+
+// paintCanvas replays ops in the canvas's box b, inside clip.
+func paintCanvas[S, E, D, F](d *Driver[S, E, D, F], ops []ui.PaintOp, b layout.Box, clip layout.Box) needs go.Foreign {
+	let inner = cut(clip, b)
+	d.w.Clip(float64(inner.X), float64(inner.Y), float64(inner.W), float64(inner.H))
+	let mut m = ui.Translate(float64(b.X), float64(b.Y))
+	let mut stack = []pushed{}
+	for op in ops {
+		match op {
+		case ui.FillOp as x:
+			fillPath(d, flatten(x.Path, m), colorOf(x.Color), inner)
+		case ui.StrokeOp as x:
+			let width = x.Width * scaleOf(m)
+			for c in flatten(x.Path, m) {
+				for i in 1..len(c) {
+					d.w.Line(c[i-1].X, c[i-1].Y, c[i].X, c[i].Y, width, colorOf(x.Color))
+				}
+			}
+		case ui.PushTransform as x:
+			stack = stack.Append(pushed{was: m, clip: false})
+			m = compose(m, x.M)
+		case ui.PushClip as x:
+			stack = stack.Append(pushed{was: m, clip: true})
+			let c = flatten(ui.RectPath(x.X, x.Y, x.W, x.H), m)[0]
+			let (lo, hi) = bounds([][]pt{c})
+			d.w.Clip(lo.X, lo.Y, hi.X-lo.X, hi.Y-lo.Y)
+		case ui.PopPaint:
+			if len(stack) > 0 {
+				let top = stack[len(stack)-1]
+				stack = stack[:len(stack)-1]
+				m = top.was
+				if top.clip {
+					d.w.Unclip()
+				}
+			}
+		}
+	}
+	for p in stack {
+		if p.clip {
+			d.w.Unclip()
+		}
+	}
+	d.w.Unclip()
+}
+
+// colorOf is c as 0xRRGGBBAA.
+func colorOf(c ui.Color) uint32 {
+	uint32(c.R)<<24 | uint32(c.G)<<16 | uint32(c.B)<<8 | uint32(c.A)
+}
+
+// compose is outer after inner: a point goes through inner, then outer.
+func compose(o ui.Affine, i ui.Affine) ui.Affine {
+	ui.Affine{
+		A: o.A*i.A + o.C*i.B,
+		B: o.B*i.A + o.D*i.B,
+		C: o.A*i.C + o.C*i.D,
+		D: o.B*i.C + o.D*i.D,
+		E: o.A*i.E + o.C*i.F + o.E,
+		F: o.B*i.E + o.D*i.F + o.F,
+	}
+}
+
+func apply(m ui.Affine, x float64, y float64) pt { pt{X: m.A*x + m.C*y + m.E, Y: m.B*x + m.D*y + m.F} }
+
+// scaleOf is how much m scales a length: the square root of its
+// determinant's size.
+func scaleOf(m ui.Affine) float64 {
+	let mut det = m.A*m.D - m.B*m.C
+	if det < 0 {
+		det = -det
+	}
+	sqrt(det)
+}
+
+// sqrt is the square root of x >= 0 by Newton's method.
+func sqrt(x float64) float64 {
+	if x <= 0 {
+		return 0
+	}
+	let mut r = if x > 1 { x } else { 1.0 }
+	for _ in 0..60 {
+		let next = (r + x/r) / 2
+		if next >= r {
+			return r
+		}
+		r = next
+	}
+	r
+}
+
+// flatten is path's contours as lines under m, each from its MoveTo; a
+// ClosePath ends its contour at the contour's first point.
+func flatten(path ui.Path, m ui.Affine) [][]pt {
+	let mut out = [][]pt{}
+	let mut cur = []pt{}
+	let mut at = pt{X: 0, Y: 0}
+	let mut start = pt{X: 0, Y: 0}
+	for s in path.Segs {
+		match s {
+		case ui.MoveTo as x:
+			if len(cur) > 1 {
+				out = out.Append(cur)
+			}
+			at = pt{X: x.X, Y: x.Y}
+			start = at
+			cur = []pt{apply(m, at.X, at.Y)}
+		case ui.LineTo as x:
+			at = pt{X: x.X, Y: x.Y}
+			cur = cur.Append(apply(m, at.X, at.Y))
+		case ui.QuadTo as x:
+			for k in 1..curveSteps+1 {
+				let t = float64(k) / float64(curveSteps)
+				let u = 1 - t
+				cur = cur.Append(apply(m, u*u*at.X+2*u*t*x.CX+t*t*x.X, u*u*at.Y+2*u*t*x.CY+t*t*x.Y))
+			}
+			at = pt{X: x.X, Y: x.Y}
+		case ui.CubicTo as x:
+			for k in 1..curveSteps+1 {
+				let t = float64(k) / float64(curveSteps)
+				let u = 1 - t
+				let px = u*u*u*at.X + 3*u*u*t*x.C1X + 3*u*t*t*x.C2X + t*t*t*x.X
+				let py = u*u*u*at.Y + 3*u*u*t*x.C1Y + 3*u*t*t*x.C2Y + t*t*t*x.Y
+				cur = cur.Append(apply(m, px, py))
+			}
+			at = pt{X: x.X, Y: x.Y}
+		case ui.ClosePath:
+			cur = cur.Append(apply(m, start.X, start.Y))
+			if len(cur) > 1 {
+				out = out.Append(cur)
+			}
+			at = start
+			cur = []pt{apply(m, start.X, start.Y)}
+		}
+	}
+	if len(cur) > 1 {
+		out = out.Append(cur)
+	}
+	out
+}
+
+// bounds is the box around every point of cs.
+func bounds(cs [][]pt) (pt, pt) {
+	let mut lo = pt{X: 0, Y: 0}
+	let mut hi = pt{X: 0, Y: 0}
+	let mut first = true
+	for c in cs {
+		for p in c {
+			if first {
+				lo = p
+				hi = p
+				first = false
+			}
+			lo = pt{X: if p.X < lo.X { p.X } else { lo.X }, Y: if p.Y < lo.Y { p.Y } else { lo.Y }}
+			hi = pt{X: if p.X > hi.X { p.X } else { hi.X }, Y: if p.Y > hi.Y { p.Y } else { hi.Y }}
+		}
+	}
+	(lo, hi)
+}
+
+// axisRect is whether cs is one rectangle with sides on the axes.
+func axisRect(cs [][]pt) bool {
+	if len(cs) != 1 {
+		return false
+	}
+	let c = cs[0]
+	let n = if len(c) == 5 && c[4] == c[0] { 4 } else { len(c) }
+	if n != 4 {
+		return false
+	}
+	for i in 0..4 {
+		let p = c[i]
+		let q = c[(i+1)%4]
+		if p.X != q.X && p.Y != q.Y {
+			return false
+		}
+	}
+	true
+}
+
+// crossing is where a contour's edge crosses a scan line, and which way.
+type crossing { x float64, wind int }
+
+// fillPath fills the contours cs with color, inside clip.
+func fillPath[S, E, D, F](d *Driver[S, E, D, F], cs [][]pt, color uint32, clip layout.Box) needs go.Foreign {
+	if len(cs) == 0 {
+		return
+	}
+	let (lo, hi) = bounds(cs)
+	if axisRect(cs) {
+		d.w.Fill(lo.X, lo.Y, hi.X-lo.X, hi.Y-lo.Y, 0, color)
+		return
+	}
+	let top = floor(if lo.Y > float64(clip.Y) { lo.Y } else { float64(clip.Y) })
+	let bottom = ceil(if hi.Y < float64(clip.Y+clip.H) { hi.Y } else { float64(clip.Y + clip.H) })
+	for y in top..bottom {
+		let sy = float64(y) + 0.5
+		let mut xs = []crossing{}
+		for c in cs {
+			for i in 0..len(c) {
+				let p = c[i]
+				let q = c[(i+1)%len(c)]
+				if (p.Y <= sy && sy < q.Y) || (q.Y <= sy && sy < p.Y) {
+					let x = p.X + (sy-p.Y)*(q.X-p.X)/(q.Y-p.Y)
+					xs = insert(xs, crossing{x: x, wind: if p.Y < q.Y { 1 } else { -1 }})
+				}
+			}
+		}
+		let mut wind = 0
+		for i in 0..len(xs) {
+			wind = wind + xs[i].wind
+			if wind != 0 && i+1 < len(xs) && xs[i+1].x > xs[i].x {
+				d.w.Fill(xs[i].x, float64(y), xs[i+1].x-xs[i].x, 1, 0, color)
+			}
+		}
+	}
+}
+
+// insert puts c into xs, which is in order of x.
+func insert(xs []crossing, c crossing) []crossing {
+	let mut out = xs.Append(c)
+	let mut i = len(out) - 1
+	for i > 0 && out[i-1].x > out[i].x {
+		let t = out[i-1]
+		out[i-1] = out[i]
+		out[i] = t
+		i = i - 1
+	}
+	out
+}
+
+func floor(x float64) int {
+	let i = int(x)
+	if float64(i) > x { i - 1 } else { i }
+}
+
+func ceil(x float64) int {
+	let i = int(x)
+	if float64(i) < x { i + 1 } else { i }
+}
+
+// shown is a color at a place.
+type shown { at pt, color uint32 }
+
+// canvasProbe is where a canvas's last op shows its color: when the last
+// op that is not a PopPaint is an opaque fill, the centre of its path's
+// box (the agreement apps' fills are convex), in the window's DIPs.
+func canvasProbe(ops []ui.PaintOp, b layout.Box) Option[shown] {
+	let mut m = ui.Translate(float64(b.X), float64(b.Y))
+	let mut stack = []ui.Affine{}
+	let mut last Option[shown] = None
+	for op in ops {
+		match op {
+		case ui.FillOp as x:
+			last = None
+			if x.Color.A == 255 {
+				let cs = flatten(x.Path, m)
+				if len(cs) > 0 {
+					let (lo, hi) = bounds(cs)
+					last = Some{Value: shown{at: pt{X: (lo.X + hi.X) / 2, Y: (lo.Y + hi.Y) / 2}, color: colorOf(x.Color)}}
+				}
+			}
+		case ui.StrokeOp:
+			last = None
+		case ui.PushTransform as x:
+			stack = stack.Append(m)
+			m = compose(m, x.M)
+		case ui.PushClip:
+			last = None
+			stack = stack.Append(m)
+		case ui.PopPaint:
+			if len(stack) > 0 {
+				m = stack[len(stack)-1]
+				stack = stack[:len(stack)-1]
+			}
+		}
+	}
+	last
+}

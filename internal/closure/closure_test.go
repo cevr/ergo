@@ -94,6 +94,21 @@ func (g grant) String() string {
 // subtree only where the test walks the tree and the reads go deeper than
 // one level.
 var declared = map[string][]allowance{
+	"scripts/bootstrap": {
+		{"toolchain/seed.lock", file, "TestCapstoneRowsOfLandedStages: S0's row is that the seed lock parses"},
+		{"compiler/ergo.mod", file, "TestCapstoneRowsOfLandedStages: S1's row looks the compiler module up"},
+		{"compiler/cmd/ergo/main.ergo", file, "TestCapstoneRowsOfLandedStages: S5's row looks the Ergo main package up"},
+		{"cmd/ergo", subtree, "TestCapstoneRowsOfLandedStages walks each Go compiler package (filepath.WalkDir) to count its Go product files"},
+		{"internal/bindc", subtree, "TestCapstoneRowsOfLandedStages walks each Go compiler package to count its Go product files"},
+		{"internal/gobind", subtree, "TestCapstoneRowsOfLandedStages walks each Go compiler package to count its Go product files"},
+		{"internal/report", subtree, "TestCapstoneRowsOfLandedStages walks each Go compiler package to count its Go product files"},
+		{"internal/sketchfront", subtree, "TestCapstoneRowsOfLandedStages walks each Go compiler package to count its Go product files"},
+		{"internal/sketch/syntax", subtree, "TestCapstoneRowsOfLandedStages walks each Go compiler package to count its Go product files"},
+		{"internal/sketch/format", subtree, "TestCapstoneRowsOfLandedStages walks each Go compiler package to count its Go product files"},
+		{"internal/sketch/check", subtree, "TestCapstoneRowsOfLandedStages walks each Go compiler package to count its Go product files"},
+		{"internal/sketch/lower", subtree, "TestCapstoneRowsOfLandedStages walks each Go compiler package to count its Go product files"},
+		{"internal/sketch/machinegraph", subtree, "TestCapstoneRowsOfLandedStages walks each Go compiler package to count its Go product files"},
+	},
 	"internal/residue": {
 		{".", subtree, "the residue checks read every tracked file by design: git grep, git ls-files and Go's reads of each file"},
 	},
@@ -109,6 +124,13 @@ var declared = map[string][]allowance{
 		glob("docs/research/ef-migrate/*.ergo", "round19 checks the migrated examples"),
 		[]allowance{{"docs/spec/diagnostics.md", file, "TestRegistry: the spec's code rows and the code table agree"}},
 	),
+	"examples/lintpack/policy": exactly("the in-process fixture tests run the example pack over its fixtures under its configurations, as `ergo lint test` does; loading the manifest admits (stats) the program it names",
+		"examples/lintpack/policy.json", "examples/lintpack/provider.lint.json", "examples/lintpack/failure.lint.json", "examples/lintpack/bin/policy-lint",
+		"examples/lintpack/testdata/provider_boundary.ergo", "examples/lintpack/testdata/provider_boundary.lint.json",
+		"examples/lintpack/testdata/forbidden_failure.ergo", "examples/lintpack/testdata/forbidden_failure.lint.json"),
+	"internal/sketch/lint": {
+		{"examples", subtree, "TestLayoutPresetOnExamples lints every example module under the layout preset (DiscoverPackages walks each, the loader reads its sources)"},
+	},
 	"internal/sketch/lower": declare(
 		[]allowance{
 			{"cmd/ergo", program, "the tests drive the public CLI, built once per process"},
@@ -119,13 +141,39 @@ var declared = map[string][]allowance{
 			{"docs/spec/stdlib.md", file, "the std law runners pass their laws to lawledger.Run, which reads the Std laws ledger to hold each restatement to its row (fu-ledger-runner)"},
 		},
 	),
+	// The std tests import internal/sketch/lower (TestStdCopyAgrees lowers
+	// each std package and its copy), so lower's files, its test files
+	// among them, are in the package's closure: TestStdLawLedger's read of
+	// them (runnerPackages) needs no grant.
 	"internal/sketch/std": declare(
-		[]allowance{{"docs/spec/stdlib.md", file, "TestStdLawLedger and the host law runner read the Std laws ledger (std-align S1a, fu-ledger-runner)"}},
-		glob("internal/sketch/lower/*_test.go", "TestStdLawLedger reads the test files of the runner packages (runnerPackages) to find each ledger runner and whether it calls lawledger.Run"),
-		glob("internal/rpcgen/*_test.go", "TestStdStrengthsTable checks that the rpc row's benchmark (internal/rpcgen.BenchmarkRpcUnary) is declared in that directory's test files (benchmarkIndex)"),
+		[]allowance{
+			{"docs/spec/stdlib.md", file, "TestStdLawLedger and the host law runner read the Std laws ledger (std-align S1a, fu-ledger-runner)"},
+			// The CLI's compiled closure holds the directories of
+			// internal/sketch/lower and internal/rpcgen, so it covers the
+			// reads that were globs of their test files here:
+			// TestStdLawLedger reads the runner packages' test files
+			// (runnerPackages), and TestStdStrengthsTable reads
+			// internal/rpcgen's for the rpc row's benchmark (benchmarkIndex).
+			{"cmd/ergo", program, "TestDenseAgreesWithModel builds the ergo CLI once per process and builds its model program with it (DN1)"},
+		},
+		[]allowance{{"docs/receipts/std-count.md", file, "TestStdStrengthsTable holds the counted: cells of the strengths table to the std count receipt's packages (std-better SB0)"}},
+		glob("runtime/v1/csv/*_test.go", "TestStdStrengthsTable reads the test files of the leaf csv for the benchmark its table names"),
+		glob("runtime/v1/digest/*_test.go", "TestStdLawLedger reads the test files of the runner packages (runnerPackages): the leaf digest runs the hex, base64 and crc32 laws"),
+		glob("runtime/v1/exec/*_test.go", "TestStdLawLedger reads the test files of the runner packages (runnerPackages): the leaf exec runs the exec laws"),
+		glob("runtime/v1/http/*_test.go", "TestStdStrengthsTable reads the test files of the leaf http for the benchmark its table names"),
+		glob("runtime/v1/rand/*_test.go", "TestStdLawLedger reads the test files of the runner packages (runnerPackages): the leaf rand runs the rand laws"),
 	),
 	"runtime/v1": {
 		{"docs/spec/stdlib.md", file, "the std law runners of the Go bodies pass their laws to lawledger.Run, which reads the Std laws ledger (fu-ledger-runner)"},
+	},
+	"runtime/v1/digest": {
+		{"docs/spec/stdlib.md", file, "TestStdDigestLaws passes its laws to lawledger.Run, which reads the Std laws ledger"},
+	},
+	"runtime/v1/exec": {
+		{"docs/spec/stdlib.md", file, "the exec law runners pass their laws to lawledger.Run, which reads the Std laws ledger"},
+	},
+	"runtime/v1/rand": {
+		{"docs/spec/stdlib.md", file, "TestRandLaws passes its laws to lawledger.Run, which reads the Std laws ledger"},
 	},
 	"internal/sketch/syntax": declare(
 		glob("internal/sketch/testdata/*.ergo", "decidedInputs parses every source of the shared corpus"),
@@ -165,11 +213,22 @@ var declared = map[string][]allowance{
 		{"scripts/examples", program, "the package-folder test runs `go run ./scripts/examples` with the CLI under test (packages_test.go, tidewalk-replay)"},
 		{"examples", subtree, "the package-folder test runs scripts/examples, which loads every program folder of examples/ whatever the selection (loadExamples) and walks the selected one, so a changed example reruns it"},
 	},
+	"internal/experimental/irspike": {
+		{"examples", subtree, "TestIRCoverage and TestIRAgreesOnExamples walk every example program (ExampleTargets, filepath.WalkDir) and lower, build and run each, with its cases"},
+		{"internal/sketch/lower/testdata", subtree, "TestIRCoverage walks the lowering corpus (CorpusDirs)"},
+		{"internal/sketch/check/testdata/v1", subtree, "TestIRCoverage walks the lowering corpus (CorpusDirs)"},
+		{"internal/sketch/check/testdata/fixtures/positive", subtree, "TestIRCoverage walks the lowering corpus (CorpusDirs)"},
+		{"internal/sketch/check/testdata/fixtures/spec", subtree, "TestIRCoverage walks the lowering corpus (CorpusDirs)"},
+		{"internal/sketch/testdata/probes", subtree, "TestIRCoverage walks the lowering corpus (CorpusDirs)"},
+		{"benchmarks", subtree, "TestIRCoverage walks the lowering corpus (CorpusDirs)"},
+		{"ergo.mod", file, "loading a program folder looks up the module file in each folder above it, up to the repository root"},
+	},
 	"internal/sketchfront": {
 		{"examples/editions/sketch/main.ergo", file, "TestSketchBuildRunsProgram and the lease test build the 2026 example program"},
 		{"examples/editions/sketch/expected.out", file, "TestSketchBuildRunsProgram compares the run with the expected output"},
 		{"examples", subtree, "TestExamplesOutputIsAFunctionOfInput walks every example package folder (filepath.WalkDir) and checks and lowers each, in this process and in two children; TestDirectMatchesGoBuild walks the example programs and builds each by the direct path and by go build"},
 		{"ergo.mod", file, "CheckDir of a one-folder example looks for its module upward and stats the checkout root's ergo.mod (absent); adding one makes the example a package of it"},
+		{"internal/sketch/check/testdata/corpus", subtree, "TestStdSnapshotAgrees checks the checker's corpus with std from source and from each snapshot (stdCorpus globs its archives)"},
 	},
 	"internal/testinputs": declare(
 		[]allowance{
@@ -200,8 +259,12 @@ var declared = map[string][]allowance{
 		{".git", members, "the mapping asks git whether evidence is tracked (git ls-files reads .git, a file in a worktree and the repository's metadata directory in a clone, one level deep)"},
 		{"internal/sketch/lower/*_test.go", files, "the mapping parses each evidence test file to find the subtest of its case (fu-conf-pending); every evidence file is a test of the lowering today"},
 	},
+	"internal/sketch/facts": {
+		{"examples", subtree, "TestTablesAgreeWithScanOnExamples checks every example program (examples/*/cmd/*), and the loader reads each package it imports, so a changed example reruns it"},
+	},
 	"scripts/examples": {
 		{"examples", subtree, "TestRepoExamplesHoldTheirLaws loads every program folder of the repository's examples/ (loadExamples lists it and walks each program, packages and cmd/ included), so an added or changed example reruns it"},
+		{"docs/domain.md", file, "TestDomainDocQuotesResolve holds each code block of the domain modeling page to the examples/ declarations it quotes (DK1)"},
 	},
 	"scripts/gate": {
 		{".", subtree, "gate-speed2 owns scripts/gate (do not touch); its tests build in the module with VCS stamping and walk the tree (follow-up)"},
@@ -446,6 +509,9 @@ func TestClosureClassifiesInputs(t *testing.T) {
 		{"stat", "runtime/rt/x.go/go.mod"},
 		{"stat", "vendor"},
 		{"getenv", "HOME"},
+		// GNU ld's cwd lookup while the go command links a cgo
+		// dependency: the cmd/ergo sweep failed on it (c7486603b).
+		{"open", "-lc"},
 	}
 	out := []entry{
 		{"list", "."},                       // listing the root

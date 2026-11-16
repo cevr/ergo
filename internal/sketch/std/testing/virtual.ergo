@@ -22,7 +22,7 @@ import time
 // `context { time.Clock: c, Scheduler: c }`. Effect's TestClock moves
 // only on adjust; this clock follows Go's testing/synctest and Tokio's
 // paused time.
-type VirtualClock { line time.Timeline }
+type VirtualClock { line time.Timeline } implements Scheduler, time.Clock
 
 // NewVirtualClock is a VirtualClock whose time is sec seconds after
 // January 1, 1970 UTC. The calling task joins its domain, and leaves the
@@ -34,6 +34,9 @@ func Now(c VirtualClock) time.Time {
 	let r = c.line.Read()
 	time.Unix(r.Sec, r.Nsec)
 }
+
+// Elapsed is the time passed since t on the clock: c.Now().Sub(t).
+func Elapsed(c VirtualClock, t time.Time) duration { c.Now().Sub(t) }
 
 // Sleep suspends the calling task until the clock's time is d past now.
 // A d of zero or less returns at once; a stop of the task ends the sleep.

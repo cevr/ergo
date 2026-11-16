@@ -1,0 +1,49 @@
+@0 start
+  0 trail-map.png sending
+@100 start
+  0 trail-map.png sending
+  1 field-notes.txt sending
+@200 start
+  0 trail-map.png sending
+  1 field-notes.txt sending
+  2 harbor-sounds.ogg sending
+@1000 cancel 0
+  0 trail-map.png cancelled
+  1 field-notes.txt sending
+  2 harbor-sounds.ogg sending
+@1500 restart 0
+  0 trail-map.png sending
+  1 field-notes.txt sending
+  2 harbor-sounds.ogg sent
+@2000 cancel 2
+  0 trail-map.png sending
+  1 field-notes.txt sending
+  2 harbor-sounds.ogg sent
+@3000 cancelall
+  0 trail-map.png cancelled
+  1 field-notes.txt cancelled
+  2 harbor-sounds.ogg sent
+@3500 restart 1
+  0 trail-map.png cancelled
+  1 field-notes.txt sending
+  2 harbor-sounds.ogg sent
+@4000 start
+  0 trail-map.png cancelled
+  1 field-notes.txt sending
+  2 harbor-sounds.ogg sent
+  3 seed-catalog.csv sending
+@4100 restart 1
+  0 trail-map.png cancelled
+  1 field-notes.txt sending
+  2 harbor-sounds.ogg sent
+  3 seed-catalog.csv sending
+@4200 cancel 7
+  0 trail-map.png cancelled
+  1 field-notes.txt sending
+  2 harbor-sounds.ogg sent
+  3 seed-catalog.csv sending
+@13000 end
+  0 trail-map.png cancelled
+  1 field-notes.txt sent
+  2 harbor-sounds.ogg sent
+  3 seed-catalog.csv sent

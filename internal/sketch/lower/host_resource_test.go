@@ -146,11 +146,11 @@ func newHresImporter(t *testing.T) hresImporter {
 	return newHresImporterOf(t, false)
 }
 
-// staleClauses matches the clauses ESC1's ergo bind writes (a resource
-// argument's takes, a callback's escaping). Without them the binding is
+// staleClauses matches the mode word ergo bind writes (own on a kept
+// resource argument, receiver, operation or callback; ESC1, q168). Without it the binding is
 // the one an older ergo bind wrote, or an edited one: the checker must
 // hold it to the reviewed Go clauses itself (check/hostclauses.go).
-var staleClauses = regexp.MustCompile(` takes(?: [A-Za-z_][A-Za-z0-9_]*(?:, [A-Za-z_][A-Za-z0-9_]*)*)?|escaping `)
+var staleClauses = regexp.MustCompile(`\bown `)
 
 // newHresImporterOf is newHresImporter; stale strips staleClauses.
 func newHresImporterOf(t *testing.T, stale bool) hresImporter {
@@ -263,7 +263,7 @@ func hrSource(body []hrStmt, inject func(s *hrStmt) string) string {
 	}
 	w("import go " + hresPath)
 	w("")
-	w("func keep(h go.Ref[hostres.Handle]) needs go.Foreign takes h {")
+	w("func keep(h own go.Ref[hostres.Handle]) needs go.Foreign {")
 	w("\th.Use()")
 	w("}")
 	w("")
@@ -462,7 +462,9 @@ func hrSeeds(t *testing.T, n int) (int, int) {
 // and defect edges; the package variable is never closed; a Close error at
 // an automatic release is a defect whose report names the acquisition's
 // Ergo line. A failing seed prints the Ergo source, both outputs and the
-// replay command (ERGO_SEED=n).
+// replay command (ERGO_SEED=n). The first two bodies that match on a
+// nullable package variable run again with every union an interface
+// (BV1's mapping of the borrowed pointer; OPT9 r2).
 //
 // It builds Go because its subject is the release of a Go value by Go's
 // own Close on the emitted exit edges, with Go's error turned into a
@@ -514,11 +516,31 @@ func main() needs go.Foreign {
 		cases = append(cases, runCase{name, src, want, defects})
 		programs = append(programs, o)
 	}
+	// The first two bodies that match on a nullable package variable run
+	// again with every union an interface (unionLowering "interface"), where
+	// Option is no Go pointer: the borrowed variable must be mapped to Some
+	// or None, not cast (BV1; under the pointer niche the cast is the same
+	// Go value).
+	for i, n := 0, len(cases); i < n && len(cases) < n+2; i++ {
+		if !strings.Contains(cases[i].src, "match hostres.") {
+			continue
+		}
+		saved := unionLowering
+		unionLowering = "interface"
+		o := lowerSourceWith(cases[i].name+"_iface", cases[i].src, true, newHresImporter(t))
+		unionLowering = saved
+		if o.err != nil || len(o.diags) > 0 || o.panicked != nil || len(o.refused) > 0 {
+			t.Fatalf("%s with interface unions does not lower: %v %v %v %+v\n%s", cases[i].name, o.err, o.diags, o.panicked, o.refused, numbered(cases[i].src))
+		}
+		o.extra = hresFiles()
+		cases = append(cases, runCase{cases[i].name + "_iface", cases[i].src, cases[i].want, cases[i].defects})
+		programs = append(programs, o)
+	}
 	exes := buildAll(t, programs, true)
 	if exes == nil {
 		return
 	}
-	for i, c := range cases {
+	for _, c := range cases {
 		cmd := exec.Command(exes[c.name])
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -534,7 +556,7 @@ func main() needs go.Foreign {
 			}
 		}
 		if bad {
-			t.Errorf("seed %d (ERGO_SEED=%d replays)\n%s\ngot:\n%s\nwant:\n%s\nwant defects at lines %v\nstderr:\n%s", first+i, first+i, numbered(c.src), got, c.want, c.defects, stderr.String())
+			t.Errorf("%s (hostres_N: ERGO_SEED=N replays)\n%s\ngot:\n%s\nwant:\n%s\nwant defects at lines %v\nstderr:\n%s", c.name, numbered(c.src), got, c.want, c.defects, stderr.String())
 		}
 	}
 }

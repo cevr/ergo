@@ -294,6 +294,25 @@ var runesLaws = map[string]func(r *rand.Rand) (bool, any){
 		}
 		return MathAbs(MathTrunc(f)) <= MathAbs(f) && MathTrunc(MathTrunc(f)) == MathTrunc(f), f
 	},
+	// The two FMA laws round each product with float64(…), as Ergo's
+	// lowering does (types.md, Operators 5), so no host fuses the unfused
+	// side of the law.
+	"math FMAWithinTheUnfusedError": func(r *rand.Rand) (bool, any) {
+		a, b, c := int(r.Int64()), int(r.Int64()), int(r.Int64())
+		x := float64(a%1000003) / 3.0
+		y := float64(b%1000033) / 7.0
+		p := float64(x * y)
+		z := float64(c%1009)/11.0 - p
+		unfused := p + z
+		fused := MathFMA(x, y, z)
+		eps := 1.1102230246251565e-16
+		return MathAbs(fused-unfused) <= float64(float64(2.0*eps)*(MathAbs(p)+MathAbs(unfused)+MathAbs(fused))), []any{a, b, c}
+	},
+	"math FMARoundsOnce": func(r *rand.Rand) (bool, any) {
+		k := int(r.Int64())
+		d := float64(float64((k%1000+1000)%1000+1) * 9.313225746154785e-10)
+		return MathFMA(1.0+d, 1.0-d, -1.0) == -float64(d*d), k
+	},
 	"math AbsIsNonNegative": func(r *rand.Rand) (bool, any) {
 		f := anyFloat(r)
 		return MathIsNaN(f) || MathAbs(f) >= 0.0, f
@@ -325,6 +344,8 @@ var runesLawStatements = map[string]string{
 	"math FloorCeilBracket":             `FloorCeilBracket(f float64) { if IsNaN(f) || IsInf(f, 0) { return true } Floor(f) <= f && f <= Ceil(f) && Ceil(f)-Floor(f) <= 1.0 }`,
 	"math TruncTowardZero":              `TruncTowardZero(f float64) { if IsNaN(f) { return true } Abs(Trunc(f)) <= Abs(f) && Trunc(Trunc(f)) == Trunc(f) }`,
 	"math AbsIsNonNegative":             `AbsIsNonNegative(f float64) { IsNaN(f) || Abs(f) >= 0.0 }`,
+	"math FMAWithinTheUnfusedError":     `FMAWithinTheUnfusedError(a int, b int, c int) { let x = float64(a%1000003) / 3.0 let y = float64(b%1000033) / 7.0 let p = x * y let z = float64(c%1009)/11.0 - p let unfused = p + z let fused = FMA(x, y, z) let eps = 1.1102230246251565e-16 Abs(fused-unfused) <= 2.0*eps*(Abs(p)+Abs(unfused)+Abs(fused)) }`,
+	"math FMARoundsOnce":                `FMARoundsOnce(k int) { let d = float64((k%1000+1000)%1000+1) * 9.313225746154785e-10 FMA(1.0+d, 1.0-d, -1.0) == -(d * d) }`,
 	"bits RotateLeft64Inverts":          `RotateLeft64Inverts(x uint64, k int) { RotateLeft64(RotateLeft64(x, k), -k) == x }`,
 	"bits RotateLeft32Inverts":          `RotateLeft32Inverts(x uint32, k int) { RotateLeft32(RotateLeft32(x, k), -k) == x }`,
 	"bits RotateKeepsOnes":              `RotateKeepsOnes(x uint64, k int) { OnesCount64(RotateLeft64(x, k)) == OnesCount64(x) }`,

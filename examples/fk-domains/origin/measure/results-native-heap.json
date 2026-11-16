@@ -1,0 +1,111 @@
+{
+ "variant": "native-heap",
+ "base": "http://127.0.0.1:5391",
+ "viewport": {
+  "width": 1280,
+  "height": 720
+ },
+ "startedAt": "2026-11-13T01:10:20.674Z",
+ "loadavgStart": "41.18 46.67 47.56 30/2609 2498080",
+ "phases": {
+  "heap": {
+   "queries": 400,
+   "points": [
+    {
+     "queries": 0,
+     "heap": 9701740,
+     "heapTotal": 10555392,
+     "nodes": 1086,
+     "listeners": 44,
+     "rpc": 0,
+     "elements": 375
+    },
+    {
+     "queries": 50,
+     "heap": 16445028,
+     "heapTotal": 17178624,
+     "nodes": 1351,
+     "listeners": 103,
+     "rpc": 99,
+     "elements": 804
+    },
+    {
+     "queries": 100,
+     "heap": 18164268,
+     "heapTotal": 18624512,
+     "nodes": 1351,
+     "listeners": 103,
+     "rpc": 199,
+     "elements": 804
+    },
+    {
+     "queries": 150,
+     "heap": 19448408,
+     "heapTotal": 20459520,
+     "nodes": 1351,
+     "listeners": 103,
+     "rpc": 299,
+     "elements": 804
+    },
+    {
+     "queries": 200,
+     "heap": 20720696,
+     "heapTotal": 21508096,
+     "nodes": 1351,
+     "listeners": 103,
+     "rpc": 399,
+     "elements": 804
+    },
+    {
+     "queries": 250,
+     "heap": 21453792,
+     "heapTotal": 22032384,
+     "nodes": 1351,
+     "listeners": 103,
+     "rpc": 499,
+     "elements": 804
+    },
+    {
+     "queries": 300,
+     "heap": 22833048,
+     "heapTotal": 23867392,
+     "nodes": 1351,
+     "listeners": 103,
+     "rpc": 599,
+     "elements": 804
+    },
+    {
+     "queries": 350,
+     "heap": 23971104,
+     "heapTotal": 25051136,
+     "nodes": 1351,
+     "listeners": 103,
+     "rpc": 699,
+     "elements": 804
+    },
+    {
+     "queries": 400,
+     "heap": 25099840,
+     "heapTotal": 26099712,
+     "nodes": 1351,
+     "listeners": 103,
+     "rpc": 799,
+     "elements": 804
+    }
+   ],
+   "cpuMsPerQuery": {
+    "ScriptDuration": 166.854,
+    "TaskDuration": 232.273,
+    "LayoutDuration": 4.287,
+    "RecalcStyleDuration": 9.144,
+    "LayoutCount": 3.987,
+    "RecalcStyleCount": 10.918
+   },
+   "requestsPerQuery": 2,
+   "errors": []
+  }
+ },
+ "browser": "156.0.8078.4",
+ "loadavgEnd": "32.80 40.79 45.12 30/2639 2631582",
+ "endedAt": "2026-11-13T01:16:08.260Z"
+}

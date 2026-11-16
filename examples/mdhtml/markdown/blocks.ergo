@@ -1,171 +1,860 @@
-import machines
+// The block phase: lines into a tree of blocks, held in one slice and
+// linked by ids, as CommonMark 0.31.2 describes and commonmark.js does
+// it. Each line first continues the open blocks it can, then starts new
+// ones, then adds its text to the deepest open block.
+
 import slices
 import strings
 
-// Block is a block of the document.
-type Block =
-	| Head{Level int, Text string}
-	| Para{Text string}
-	| List{Ordered bool, Start int, Items []string}
-	| Code{Info string, Text string}
-	| HRule
+// Kind is what a block is.
+type Kind = Document | Quote | ListBlock | Item | Para | Heading | Rule | Code | RawHtml
 
-type HRule {}
+type Document {}
+type Quote {}
+type ListBlock {}
+type Item {}
+type Para {}
+type Heading {}
+type Rule {}
+type Code {}
+type RawHtml {}
 
-// Mode is what the reader is in the middle of: no block, or the lines of
-// the open block. A block is handed out by the step that closes it.
-type Mode =
-	| Idle{}
-	| InPara{Lines []string}
-	| InList{Ordered bool, Start int, Items []string}
-	| InCode{Info string, Lines []string}
-
-// Signal is what the reader reads: a line, or the end of the source.
-type Signal = Got{Raw string} | End{}
-
-// Blocks reads the lines of a document into its blocks: it starts Idle
-// and moves by Step, one line at a time. A step that closes blocks Emits
-// them, and the end is Done with the open block.
-type Blocks machine[Mode, Signal] {
-	initial: Idle,
-	step:    Step,
+// listData is a list's or an item's marker: its kind, its number, where
+// it stands and how far its content is indented.
+type listData {
+	ordered      bool,
+	bullet       byte,
+	start        int,
+	delim        byte,
+	padding      int,
+	markerOffset int,
+	tight        bool,
 }
 
-// Step is the reader's transition. In code every line but a bare fence
-// is kept as it is. Elsewhere a blank line closes the open block, a
-// plain line continues a paragraph or the last list item, an item of
-// the other kind of list closes the list, and a heading, a rule or a
-// fence closes the open block and is read as from Idle. Each closed
-// block is emitted. The end is Done with the open block closed: an
-// unclosed fence runs to the end, as in CommonMark.
-func Step(m Mode, s Signal) Decision[Mode, []Block] {
-	match s {
-	case End:
-		Done[[]Block]{Output: Open(m)}
-	case Got as g:
-		let line = Classify(g.Raw)
-		match m {
-		case Idle:
-			fromIdle(line)
-		case InCode as c:
-			match line {
-			case Fence as f:
-				if f.Info == "" {
-					return Emit[Mode, []Block]{Next: Idle, Output: Open(m)}
-				}
-				Stay[Mode]{Next: InCode{..c, Lines: c.Lines.Append(g.Raw)}}
-			case Blank, Heading, Bullet, Numbered, Rule, Plain:
-				Stay[Mode]{Next: InCode{..c, Lines: c.Lines.Append(g.Raw)}}
+// block is a block and its links: its parent, its first and last child
+// and its siblings, each an id or -1.
+type block {
+	kind        Kind,
+	parent      int,
+	first       int,
+	last        int,
+	prev        int,
+	next        int,
+	open        bool,
+	startLine   int,
+	endLine     int,
+	list        listData,
+	level       int,
+	fenced      bool,
+	fenceChar   byte,
+	fenceLen    int,
+	fenceOffset int,
+	ends        HtmlEnd,
+	lines       []string,
+	content     string,
+	info        string,
+	literal     string,
+	inlines     int,
+}
+
+// Ref is a link reference definition's destination and title.
+type Ref { Dest string, Title string }
+
+// parser is the blocks so far (block 0 is the document), the open block
+// lines go to, and where the reader is in the line.
+type parser {
+	blocks               []block,
+	tip                  int,
+	oldtip               int,
+	lastMatched          int,
+	line                 string,
+	lineNumber           int,
+	offset               int,
+	column               int,
+	nextNonspace         int,
+	nextNonspaceColumn   int,
+	indent               int,
+	indented             bool,
+	blank                bool,
+	partiallyConsumedTab bool,
+	allClosed            bool,
+	refs                 Map[string, Ref],
+}
+
+let noList = listData{ordered: false, bullet: 0, start: 0, delim: 0, padding: 0, markerOffset: 0, tight: true}
+
+func add(p *parser, k Kind, line int) int {
+	p.blocks = p.blocks.Append(block{
+		kind:      k, parent: -1, first: -1, last: -1, prev: -1, next: -1, open: true,
+		startLine: line, endLine: 0, list: noList, level: 0, fenced: false, fenceChar: 0,
+		fenceLen:  0, fenceOffset: 0, ends: TagBlock, lines: []string{}, content: "", info: "",
+		literal:   "", inlines: -1,
+	})
+	len(p.blocks) - 1
+}
+
+func appendChild(p *parser, parent int, child int) {
+	let prev = p.blocks[parent].last
+	p.blocks[child].parent = parent
+	p.blocks[child].prev = prev
+	if prev >= 0 {
+		p.blocks[prev].next = child
+	} else {
+		p.blocks[parent].first = child
+	}
+	p.blocks[parent].last = child
+}
+
+func unlink(p *parser, id int) {
+	let b = p.blocks[id]
+	if b.prev >= 0 {
+		p.blocks[b.prev].next = b.next
+	} else if b.parent >= 0 {
+		p.blocks[b.parent].first = b.next
+	}
+	if b.next >= 0 {
+		p.blocks[b.next].prev = b.prev
+	} else if b.parent >= 0 {
+		p.blocks[b.parent].last = b.prev
+	}
+	p.blocks[id].parent = -1
+	p.blocks[id].prev = -1
+	p.blocks[id].next = -1
+}
+
+// parseBlocks reads the document src into blocks.
+func parseBlocks(src string) parser {
+	let mut p = parser{
+		blocks:   []block{}, tip: 0, oldtip: 0, lastMatched: 0, line: "", lineNumber: 0,
+		offset:   0, column: 0, nextNonspace: 0, nextNonspaceColumn: 0, indent: 0,
+		indented: false, blank: false, partiallyConsumedTab: false, allClosed: true,
+		refs:     Map[string, Ref]{},
+	}
+	add(&p, Document, 1)
+	let lines = SplitLines(src)
+	for ln in lines {
+		incorporate(&p, ln)
+	}
+	for p.tip >= 0 {
+		finalize(&p, p.tip, len(lines))
+	}
+	p
+}
+
+// SplitLines is src's lines without their endings (\n, \r\n or \r); a
+// line ending at the end makes no last empty line. NUL is U+FFFD.
+func SplitLines(src string) []string {
+	let text = if strings.Contains(src, "\x00") { strings.ReplaceAll(src, "\x00", "\uFFFD") } else { src }
+	let mut lines = []string{}
+	let mut start = 0
+	let mut i = 0
+	for i < len(text) {
+		let c = text[i]
+		if c == '\n' || c == '\r' {
+			lines = lines.Append(strings.Slice(text, start, i))
+			if c == '\r' && i+1 < len(text) && text[i+1] == '\n' {
+				i += 1
 			}
-		case InPara as p:
-			match line {
-			case Plain as t:
-				Stay[Mode]{Next: InPara{Lines: p.Lines.Append(t.Text)}}
-			case Blank:
-				Emit[Mode, []Block]{Next: Idle, Output: Open(m)}
-			case Heading, Bullet, Numbered, Fence, Rule:
-				moved(Open(m), line)
-			}
-		case InList as l:
-			match line {
-			case Bullet as b:
-				if l.Ordered {
-					return moved(Open(m), line)
+			start = i + 1
+		}
+		i += 1
+	}
+	if start < len(text) {
+		lines = lines.Append(strings.Slice(text, start, len(text)))
+	}
+	lines
+}
+
+func findNextNonspace(p *parser) {
+	let mut i = p.offset
+	let mut cols = p.column
+	for i < len(p.line) {
+		let c = p.line[i]
+		if c == ' ' {
+			i += 1
+			cols += 1
+		} else if c == '\t' {
+			i += 1
+			cols += 4 - cols%4
+		} else {
+			break
+		}
+	}
+	p.blank = i >= len(p.line)
+	p.nextNonspace = i
+	p.nextNonspaceColumn = cols
+	p.indent = cols - p.column
+	p.indented = p.indent >= 4
+}
+
+func advanceNextNonspace(p *parser) {
+	p.offset = p.nextNonspace
+	p.column = p.nextNonspaceColumn
+	p.partiallyConsumedTab = false
+}
+
+// advanceOffset moves count bytes, or count columns when columns is set
+// (a tab may then be consumed in part).
+func advanceOffset(p *parser, count int, columns bool) {
+	let mut left = count
+	for left > 0 && p.offset < len(p.line) {
+		if p.line[p.offset] == '\t' {
+			let toTab = 4 - p.column%4
+			if columns {
+				p.partiallyConsumedTab = toTab > left
+				let n = if toTab < left { toTab } else { left }
+				p.column += n
+				if !p.partiallyConsumedTab {
+					p.offset += 1
 				}
-				Stay[Mode]{Next: InList{..l, Items: l.Items.Append(b.Text)}}
-			case Numbered as n:
-				if !l.Ordered {
-					return moved(Open(m), line)
-				}
-				Stay[Mode]{Next: InList{..l, Items: l.Items.Append(n.Text)}}
-			case Plain as t:
-				let mut items = l.Items
-				items[len(items)-1] = items[len(items)-1] + " " + t.Text
-				Stay[Mode]{Next: InList{..l, Items: items}}
-			case Blank:
-				Emit[Mode, []Block]{Next: Idle, Output: Open(m)}
-			case Heading, Fence, Rule:
-				moved(Open(m), line)
+				left -= n
+			} else {
+				p.partiallyConsumedTab = false
+				p.column += toTab
+				p.offset += 1
+				left -= 1
 			}
+		} else {
+			p.partiallyConsumedTab = false
+			p.offset += 1
+			p.column += 1
+			left -= 1
 		}
 	}
 }
 
-// fromIdle is the decision on line with no block open.
-func fromIdle(line Line) Decision[Mode, []Block] {
-	match line {
-	case Blank:
-		Ignore
-	case Heading as h:
-		Emit[Mode, []Block]{Next: Idle, Output: []Block{Head{Level: h.Level, Text: h.Text}}}
-	case Rule:
-		Emit[Mode, []Block]{Next: Idle, Output: []Block{HRule}}
-	case Plain as t:
-		Enter[Mode]{Next: InPara{Lines: []string{t.Text}}}
-	case Bullet as b:
-		Enter[Mode]{Next: InList{Ordered: false, Start: 1, Items: []string{b.Text}}}
-	case Numbered as n:
-		Enter[Mode]{Next: InList{Ordered: true, Start: n.N, Items: []string{n.Text}}}
-	case Fence as f:
-		Enter[Mode]{Next: InCode{Info: f.Info, Lines: []string{}}}
+// at is the byte at i of the line, or -1 past its end.
+func at(p *parser, i int) int {
+	if i < len(p.line) { int(p.line[i]) } else { -1 }
+}
+
+func spaceOrTab(c int) bool { c == 32 || c == 9 }
+
+func rest(p *parser) string { strings.Slice(p.line, p.nextNonspace, len(p.line)) }
+
+// addLine adds the rest of the line to the tip.
+func addLine(p *parser) {
+	let mut text = ""
+	if p.partiallyConsumedTab {
+		p.offset += 1
+		text = strings.Repeat(" ", 4-p.column%4)
+	}
+	if p.offset < len(p.line) {
+		text = text + strings.Slice(p.line, p.offset, len(p.line))
+	}
+	p.blocks[p.tip].lines = p.blocks[p.tip].lines.Append(text)
+}
+
+func canContain(k Kind, child Kind) bool {
+	match k {
+	case Document, Quote, Item:
+		child != Item
+	case ListBlock:
+		child == Item
+	case Para, Heading, Rule, Code, RawHtml:
+		false
 	}
 }
 
-// moved is fromIdle after the blocks closed closed: it emits them, and
-// then the blocks line closes itself (a heading or a rule).
-func moved(closed []Block, line Line) Decision[Mode, []Block] {
-	let d = fromIdle(line)
-	match d {
-	case Emit[Mode, []Block] as e:
-		Emit[Mode, []Block]{Next: e.Next, Output: slices.Concat(closed, e.Output)}
-	case Enter[Mode], Stay[Mode], Ignore, Reject, Done[[]Block]:
-		Emit[Mode, []Block]{Next: machines.Next(Idle, d), Output: closed}
+func acceptsLines(k Kind) bool { k == Para || k == Code || k == RawHtml }
+
+// addChild adds a block of kind k at the tip, closing the tips that
+// cannot hold it.
+func addChild(p *parser, k Kind) int {
+	for !canContain(p.blocks[p.tip].kind, k) {
+		finalize(p, p.tip, p.lineNumber-1)
 	}
+	let id = add(p, k, p.lineNumber)
+	appendChild(p, p.tip, id)
+	p.tip = id
+	id
 }
 
-// Open is the open block of m, closed: none when m is Idle.
-func Open(m Mode) []Block {
-	match m {
-	case Idle:
-		[]Block{}
-	case InPara as p:
-		[]Block{Para{Text: strings.Join(p.Lines, "\n")}}
-	case InList as l:
-		[]Block{List{Ordered: l.Ordered, Start: l.Start, Items: l.Items}}
-	case InCode as c:
-		[]Block{Code{Info: c.Info, Text: strings.Join(c.Lines, "\n")}}
-	}
-}
-
-// Read is the blocks of lines: the machine Blocks run to its end, each
-// emitted block in order and then the block open at the end.
-func Read(lines []string) []Block {
-	let mut signals = []Signal{}
-	for line in lines {
-		signals = signals.Append(Got{Raw: line})
-	}
-	let o = machines.Run(Blocks{}, signals.Append(End)) catch {
-	case machines.Rejected:
-		Unreachable("Step never rejects")
-	}
-	match o {
-	case machines.Finished[Mode, []Block] as f:
-		let mut doc = []Block{}
-		for closed in f.Emitted {
-			doc = slices.Concat(doc, closed)
+func closeUnmatched(p *parser) {
+	if !p.allClosed {
+		for p.oldtip != p.lastMatched {
+			let parent = p.blocks[p.oldtip].parent
+			finalize(p, p.oldtip, p.lineNumber-1)
+			p.oldtip = parent
 		}
-		slices.Concat(doc, f.Output)
-	case machines.Running[Mode, []Block]:
-		Unreachable("the last signal is End, and Step ends every End with Done")
+		p.allClosed = true
 	}
 }
 
-// Lines is the lines of text, without their line feeds; a final line
-// feed ends the last line and makes no empty one.
-func Lines(text string) []string {
-	let parts = strings.Split(text, "\n")
-	if len(parts) > 0 && parts[len(parts)-1] == "" {
-		return slices.Slice(parts, 0, len(parts)-1)
+// continues says whether the open block id goes on at this line: 0 it
+// does, 1 it does not, 2 the line is used up (a closing fence).
+func continues(p *parser, id int) int {
+	let b = p.blocks[id]
+	match b.kind {
+	case Document, ListBlock:
+		0
+	case Quote:
+		if !p.indented && at(p, p.nextNonspace) == '>' {
+			advanceNextNonspace(p)
+			advanceOffset(p, 1, false)
+			if spaceOrTab(at(p, p.offset)) {
+				advanceOffset(p, 1, true)
+			}
+			return 0
+		}
+		1
+	case Item:
+		if p.blank {
+			if b.first < 0 {
+				return 1
+			}
+			advanceNextNonspace(p)
+			return 0
+		}
+		if p.indent >= b.list.markerOffset+b.list.padding {
+			advanceOffset(p, b.list.markerOffset+b.list.padding, true)
+			return 0
+		}
+		1
+	case Heading, Rule:
+		1
+	case Code:
+		if b.fenced {
+			if p.indent <= 3 && at(p, p.nextNonspace) == int(b.fenceChar) && closingFence(rest(p), b.fenceChar) >= b.fenceLen {
+				finalize(p, id, p.lineNumber)
+				return 2
+			}
+			let mut i = b.fenceOffset
+			for i > 0 && spaceOrTab(at(p, p.offset)) {
+				advanceOffset(p, 1, true)
+				i -= 1
+			}
+			return 0
+		}
+		if p.indent >= 4 {
+			advanceOffset(p, 4, true)
+			return 0
+		}
+		if p.blank {
+			advanceNextNonspace(p)
+			return 0
+		}
+		1
+	case RawHtml:
+		if p.blank && EndsBefore(b.ends) {
+			return 1
+		}
+		0
+	case Para:
+		if p.blank { 1 } else { 0 }
 	}
-	parts
+}
+
+// closingFence is the length of the run of c that s starts with when
+// only spaces and tabs follow it and it is at least three long, else 0.
+func closingFence(s string, c byte) int {
+	let mut n = 0
+	for n < len(s) && s[n] == c {
+		n += 1
+	}
+	if n < 3 || !blankFrom(s, n) {
+		return 0
+	}
+	n
+}
+
+func incorporate(p *parser, ln string) {
+	let mut container = 0
+	p.oldtip = p.tip
+	p.offset = 0
+	p.column = 0
+	p.blank = false
+	p.partiallyConsumedTab = false
+	p.lineNumber += 1
+	p.line = ln
+	for {
+		let last = p.blocks[container].last
+		if last < 0 || !p.blocks[last].open {
+			break
+		}
+		container = last
+		findNextNonspace(p)
+		let r = continues(p, container)
+		if r == 2 {
+			return
+		}
+		if r == 1 {
+			container = p.blocks[container].parent
+			break
+		}
+	}
+	p.allClosed = container == p.oldtip
+	p.lastMatched = container
+	let mut matchedLeaf = p.blocks[container].kind != Para && acceptsLines(p.blocks[container].kind)
+	for !matchedLeaf {
+		findNextNonspace(p)
+		if !p.indented && !maybeSpecial(at(p, p.nextNonspace)) {
+			advanceNextNonspace(p)
+			break
+		}
+		let mut res = 0
+		let mut s = 0
+		for s < 8 && res == 0 {
+			res = start(p, s, container)
+			s += 1
+		}
+		if res == 0 {
+			advanceNextNonspace(p)
+			break
+		}
+		container = p.tip
+		if res == 2 {
+			matchedLeaf = true
+		}
+	}
+	if !p.allClosed && !p.blank && p.blocks[p.tip].kind == Para {
+		addLine(p)
+		return
+	}
+	closeUnmatched(p)
+	let k = p.blocks[container].kind
+	if acceptsLines(k) {
+		addLine(p)
+		if k == RawHtml {
+			let from = if p.offset < len(p.line) { p.offset } else { len(p.line) }
+			if EndsWith(p.blocks[container].ends, strings.Slice(p.line, from, len(p.line))) {
+				finalize(p, container, p.lineNumber)
+			}
+		}
+	} else if p.offset < len(ln) && !p.blank {
+		addChild(p, Para)
+		advanceNextNonspace(p)
+		addLine(p)
+	}
+}
+
+func maybeSpecial(c int) bool {
+	c == '#' || c == '`' || c == '~' || c == '*' || c == '+' || c == '_' || c == '=' || c == '<' || c == '>' || c == '-' || (c >= '0' && c <= '9')
+}
+
+// start tries block start s (0 to 7, in CommonMark's order) at the line:
+// 0 no start, 1 a container started, 2 a leaf started.
+func start(p *parser, s int, container int) int {
+	let r = rest(p)
+	if s == 0 {
+		if !p.indented && at(p, p.nextNonspace) == '>' {
+			advanceNextNonspace(p)
+			advanceOffset(p, 1, false)
+			if spaceOrTab(at(p, p.offset)) {
+				advanceOffset(p, 1, true)
+			}
+			closeUnmatched(p)
+			addChild(p, Quote)
+			return 1
+		}
+	} else if s == 1 {
+		let n = atxMarker(r)
+		if !p.indented && n > 0 {
+			advanceNextNonspace(p)
+			let mut level = 0
+			for level < len(r) && r[level] == '#' {
+				level += 1
+			}
+			advanceOffset(p, n, false)
+			closeUnmatched(p)
+			let id = addChild(p, Heading)
+			p.blocks[id].level = level
+			p.blocks[id].content = atxContent(strings.Slice(p.line, p.offset, len(p.line)))
+			advanceOffset(p, len(p.line)-p.offset, false)
+			return 2
+		}
+	} else if s == 2 {
+		let n = openingFence(r)
+		if !p.indented && n > 0 {
+			closeUnmatched(p)
+			let id = addChild(p, Code)
+			p.blocks[id].fenced = true
+			p.blocks[id].fenceLen = n
+			p.blocks[id].fenceChar = r[0]
+			p.blocks[id].fenceOffset = p.indent
+			advanceNextNonspace(p)
+			advanceOffset(p, n, false)
+			return 2
+		}
+	} else if s == 3 {
+		if !p.indented && at(p, p.nextNonspace) == '<' {
+			match HtmlStart(r) {
+			case Some as e:
+				let lazy = !p.allClosed && !p.blank && p.blocks[p.tip].kind == Para
+				if !Interrupts(e.Value) && (p.blocks[container].kind == Para || lazy) {
+					return 0
+				}
+				closeUnmatched(p)
+				let id = addChild(p, RawHtml)
+				p.blocks[id].ends = e.Value
+				return 2
+			case None:
+			}
+		}
+	} else if s == 4 {
+		let level = setextLevel(r)
+		if !p.indented && p.blocks[container].kind == Para && level > 0 {
+			closeUnmatched(p)
+			let content = readDefinitions(p, text(p, container)).Rest
+			if content != "" {
+				p.blocks[container].kind = Heading
+				p.blocks[container].level = level
+				p.blocks[container].content = content
+				p.blocks[container].lines = []string{}
+				p.tip = container
+				advanceOffset(p, len(p.line)-p.offset, false)
+				return 2
+			}
+		}
+	} else if s == 5 {
+		if !p.indented && thematicBreak(r) {
+			closeUnmatched(p)
+			addChild(p, Rule)
+			advanceOffset(p, len(p.line)-p.offset, false)
+			return 2
+		}
+	} else if s == 6 {
+		if !p.indented || p.blocks[container].kind == ListBlock {
+			match listMarker(p, container) {
+			case Some as d:
+				closeUnmatched(p)
+				let t = p.blocks[p.tip]
+				if t.kind != ListBlock || !listsMatch(t.list, d.Value) {
+					let l = addChild(p, ListBlock)
+					p.blocks[l].list = d.Value
+				}
+				let id = addChild(p, Item)
+				p.blocks[id].list = d.Value
+				return 1
+			case None:
+			}
+		}
+	} else {
+		if p.indented && p.blocks[p.tip].kind != Para && !p.blank {
+			advanceOffset(p, 4, true)
+			closeUnmatched(p)
+			addChild(p, Code)
+			return 2
+		}
+	}
+	0
+}
+
+// atxMarker is the length of an ATX heading's opening (one to six #s and
+// the spaces and tabs after them, or the end), or 0.
+func atxMarker(s string) int {
+	let mut n = 0
+	for n < len(s) && s[n] == '#' {
+		n += 1
+	}
+	if n == 0 || n > 6 {
+		return 0
+	}
+	if n == len(s) {
+		return n
+	}
+	if s[n] != ' ' && s[n] != '\t' {
+		return 0
+	}
+	for n < len(s) && (s[n] == ' ' || s[n] == '\t') {
+		n += 1
+	}
+	n
+}
+
+// atxContent is a heading's text without its closing sequence.
+func atxContent(s string) string {
+	let mut i = 0
+	for i < len(s) && (s[i] == ' ' || s[i] == '\t') {
+		i += 1
+	}
+	let mut j = i
+	for j < len(s) && s[j] == '#' {
+		j += 1
+	}
+	if j > i && blankFrom(s, j) {
+		return ""
+	}
+	let mut e = len(s)
+	for e > 0 && (s[e-1] == ' ' || s[e-1] == '\t') {
+		e -= 1
+	}
+	let mut h = e
+	for h > 0 && s[h-1] == '#' {
+		h -= 1
+	}
+	if h < e && h > 0 && (s[h-1] == ' ' || s[h-1] == '\t') {
+		for h > 0 && (s[h-1] == ' ' || s[h-1] == '\t') {
+			h -= 1
+		}
+		return strings.Slice(s, 0, h)
+	}
+	s
+}
+
+// openingFence is the length of a code fence that s starts with, or 0:
+// three or more backticks with no backtick after them, or tildes.
+func openingFence(s string) int {
+	if s == "" || (s[0] != '`' && s[0] != '~') {
+		return 0
+	}
+	let c = s[0]
+	let mut n = 0
+	for n < len(s) && s[n] == c {
+		n += 1
+	}
+	if n < 3 {
+		return 0
+	}
+	if c == '`' && strings.Contains(strings.Slice(s, n, len(s)), "`") {
+		return 0
+	}
+	n
+}
+
+// setextLevel is 1 for a line of =s, 2 for one of -s (with spaces or
+// tabs after), else 0.
+func setextLevel(s string) int {
+	if s == "" || (s[0] != '=' && s[0] != '-') {
+		return 0
+	}
+	let c = s[0]
+	let mut i = 0
+	for i < len(s) && s[i] == c {
+		i += 1
+	}
+	if !blankFrom(s, i) {
+		return 0
+	}
+	if c == '=' { 1 } else { 2 }
+}
+
+// thematicBreak says whether s is three or more *, - or _ (one of them)
+// with spaces or tabs between.
+func thematicBreak(s string) bool {
+	if s == "" || (s[0] != '*' && s[0] != '-' && s[0] != '_') {
+		return false
+	}
+	let c = s[0]
+	let mut n = 0
+	for i in 0..len(s) {
+		if s[i] == c {
+			n += 1
+		} else if s[i] != ' ' && s[i] != '\t' {
+			return false
+		}
+	}
+	n >= 3
+}
+
+func listsMatch(a listData, b listData) bool {
+	a.ordered == b.ordered && a.delim == b.delim && a.bullet == b.bullet
+}
+
+// listMarker reads a list item's marker at the line, and moves past it
+// and the spaces of its content's indent.
+func listMarker(p *parser, container int) Option[listData] {
+	if p.indent >= 4 {
+		return None
+	}
+	let r = rest(p)
+	let mut data = listData{ordered: false, bullet: 0, start: 0, delim: 0, padding: 0, markerOffset: p.indent, tight: true}
+	let mut n = 0
+	if r != "" && (r[0] == '*' || r[0] == '+' || r[0] == '-') {
+		data.bullet = r[0]
+		n = 1
+	} else {
+		let mut d = 0
+		for d < len(r) && d < 10 && r[d] >= '0' && r[d] <= '9' {
+			d += 1
+		}
+		if d == 0 || d > 9 || d >= len(r) || (r[d] != '.' && r[d] != ')') {
+			return None
+		}
+		let mut num = 0
+		for i in 0..d {
+			num = num*10 + int(r[i]-'0')
+		}
+		if p.blocks[container].kind == Para && num != 1 {
+			return None
+		}
+		data.ordered = true
+		data.start = num
+		data.delim = r[d]
+		n = d + 1
+	}
+	let next = at(p, p.nextNonspace+n)
+	if next != -1 && next != 9 && next != 32 {
+		return None
+	}
+	if p.blocks[container].kind == Para && isBlank(strings.Slice(p.line, p.nextNonspace+n, len(p.line))) {
+		return None
+	}
+	advanceNextNonspace(p)
+	advanceOffset(p, n, true)
+	let startCol = p.column
+	let startOffset = p.offset
+	for {
+		advanceOffset(p, 1, true)
+		if !(p.column-startCol < 5 && spaceOrTab(at(p, p.offset))) {
+			break
+		}
+	}
+	let blankItem = at(p, p.offset) == -1
+	let spaces = p.column - startCol
+	if spaces >= 5 || spaces < 1 || blankItem {
+		data.padding = n + 1
+		p.column = startCol
+		p.offset = startOffset
+		if spaceOrTab(at(p, p.offset)) {
+			advanceOffset(p, 1, true)
+		}
+	} else {
+		data.padding = n + spaces
+	}
+	Some[listData]{Value: data}
+}
+
+// blankFrom says whether s holds only spaces and tabs from i on.
+func blankFrom(s string, i int) bool {
+	for k in i..len(s) {
+		if s[k] != ' ' && s[k] != '\t' {
+			return false
+		}
+	}
+	true
+}
+
+// text is the block's lines, each ended by a line feed.
+func text(p *parser, id int) string {
+	let lines = p.blocks[id].lines
+	if len(lines) == 0 {
+		return ""
+	}
+	strings.Join(lines, "\n") + "\n"
+}
+
+func finalize(p *parser, id int, line int) {
+	let above = p.blocks[id].parent
+	p.blocks[id].open = false
+	p.blocks[id].endLine = line
+	let b = p.blocks[id]
+	match b.kind {
+	case Para:
+		let r = readDefinitions(p, text(p, id))
+		p.blocks[id].content = r.Rest
+		p.blocks[id].lines = []string{}
+		if r.Read && isBlank(r.Rest) {
+			unlink(p, id)
+		}
+	case Code:
+		if b.fenced {
+			let first = if len(b.lines) > 0 { b.lines[0] } else { "" }
+			p.blocks[id].info = UnescapeString(trimSpace(first))
+			if len(b.lines) > 1 {
+				p.blocks[id].literal = strings.Join(slices.Slice(b.lines, 1, len(b.lines)), "\n") + "\n"
+			}
+		} else {
+			let mut n = len(b.lines)
+			for n > 0 && blankFrom(b.lines[n-1], 0) {
+				n -= 1
+			}
+			p.blocks[id].literal = strings.Join(slices.Slice(b.lines, 0, n), "\n") + "\n"
+		}
+		p.blocks[id].lines = []string{}
+	case RawHtml:
+		let s = text(p, id)
+		let mut e = len(s)
+		for {
+			let mut i = e
+			for i > 0 && s[i-1] == ' ' {
+				i -= 1
+			}
+			if i > 0 && s[i-1] == '\n' {
+				e = i - 1
+				continue
+			}
+			break
+		}
+		p.blocks[id].literal = strings.Slice(s, 0, e)
+		p.blocks[id].lines = []string{}
+	case ListBlock:
+		let mut tight = true
+		let mut item = b.first
+		for item >= 0 && tight {
+			if p.blocks[item].next >= 0 && endsBlank(p, item) {
+				tight = false
+			}
+			let mut sub = p.blocks[item].first
+			for sub >= 0 && tight {
+				if p.blocks[sub].next >= 0 && endsBlank(p, sub) {
+					tight = false
+				}
+				sub = p.blocks[sub].next
+			}
+			item = p.blocks[item].next
+		}
+		p.blocks[id].list.tight = tight
+		p.blocks[id].endLine = p.blocks[b.last].endLine
+	case Item:
+		p.blocks[id].endLine = if b.last >= 0 { p.blocks[b.last].endLine } else { b.startLine }
+	case Document, Quote, Heading, Rule:
+	}
+	p.tip = above
+}
+
+// Definitions is what readDefinitions leaves of a text, and whether it
+// read a definition.
+type Definitions { Rest string, Read bool }
+
+// readDefinitions reads the link reference definitions that content
+// starts with; the first definition of a label wins.
+func readDefinitions(p *parser, content string) Definitions {
+	let mut s = content
+	let mut read = false
+	let mut more = true
+	for more && len(s) > 0 && s[0] == '[' {
+		match ParseReference(s) {
+		case Some as d:
+			if p.refs.Get(d.Value.Key) == None {
+				p.refs = p.refs.Put(d.Value.Key, d.Value.Ref)
+			}
+			s = strings.Slice(s, d.Value.Len, len(s))
+			read = true
+		case None:
+			more = false
+		}
+	}
+	Definitions{Rest: s, Read: read}
+}
+
+// endsBlank says whether a blank line follows the block before its next
+// sibling.
+func endsBlank(p *parser, id int) bool {
+	let b = p.blocks[id]
+	b.next >= 0 && b.endLine != p.blocks[b.next].startLine-1
+}
+
+func isSpace(c byte) bool { c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v' }
+
+func isBlank(s string) bool {
+	for i in 0..len(s) {
+		if !isSpace(s[i]) {
+			return false
+		}
+	}
+	true
+}
+
+// trimSpace is s without the ASCII whitespace at its ends.
+func trimSpace(s string) string {
+	let mut i = 0
+	let mut j = len(s)
+	for i < j && isSpace(s[i]) {
+		i += 1
+	}
+	for j > i && isSpace(s[j-1]) {
+		j -= 1
+	}
+	strings.Slice(s, i, j)
 }

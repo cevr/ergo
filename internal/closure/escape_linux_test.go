@@ -124,7 +124,7 @@ func TestRunCollectsADescendantThatLeftItsSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	marker := escapeVariable + "=" + scratchDir
-	env := testEnv(f.pkg, marker, escapeWatchVariable+"="+strconv.Itoa(os.Getpid()))
+	env := testEnv(f.pkg, "TMPDIR="+scratchDir, marker, escapeWatchVariable+"="+strconv.Itoa(os.Getpid()))
 	output := filepath.Join(t.TempDir(), "escape.out")
 	runErr := runProtected(sandbox{Root: f.root, Scratch: []string{scratchDir}}, "internal/escape", f.pkg, env, output, self, "-test.run=^TestEscapeRunTarget$", "-test.count=1")
 	var survivors []string

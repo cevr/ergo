@@ -1,0 +1,88 @@
+// Package policy is a rule pack written in Ergo over std lint: two project
+// policies that read resolved facts only, the provider each with binds and
+// a callable's checked failure row with the rows of its calls. Neither is a
+// language rule; the configuration names the boundaries. They are the
+// policies of the Go pack examples/lintpack, and `ergo lint` reports both
+// packs the same over the same program and configuration.
+
+import lint
+import strconv
+
+// Pack is the policy pack. Its manifest is lint.Manifest(Pack, path),
+// which cmd/lint-policy prints.
+let Pack = lint.Pack{
+	Namespace:    "policy",
+	Version:      "0.2.0",
+	Description:  "Example project policies over resolved Ergo facts.",
+	FactVersions: []int{lint.SchemaVersion},
+	Rules:        []lint.Rule{ProviderBoundary, ForbiddenFailure},
+	Presets:      []lint.Preset{
+		lint.Preset{
+			Name:        "strict",
+			Description: "Both policies as warnings.",
+			Rules:       Map[string, lint.RuleConfig]{
+				"provider-boundary": lint.RuleConfig{Severity: Some{Value: lint.Warning}, Options: None},
+				"forbidden-failure": lint.RuleConfig{Severity: Some{Value: lint.Warning}, Options: None},
+			},
+		},
+	},
+}
+
+// Unselected is a configured function name the program does not declare.
+// A name that selects nothing is a mistake in the configuration, never an
+// empty selection.
+type Unselected { Name string }
+
+// functions are the identities of the functions the configuration names
+// as "PKG.Name", in the order it names them.
+func functions(s lint.Snapshot, names []string) []string fails Unselected {
+	let mut out = []string{}
+	for name in names {
+		let found = lint.FunctionNamed(s, name)
+		if len(found) == 0 {
+			return Unselected{Name: name}
+		}
+		for f in found {
+			out = out.Append(f.Identity)
+		}
+	}
+	out
+}
+
+// selected reports whether identity is one of ids.
+func selected(ids []string, identity string) bool {
+	for id in ids {
+		if id == identity {
+			return true
+		}
+	}
+	false
+}
+
+// nameOf is the declared name of a callable identity.
+func nameOf(s lint.Snapshot, identity string) string {
+	match lint.CallableOf(s, identity) {
+	case None:
+		identity
+	case Some[lint.Callable] as c:
+		c.Value.Package + "." + c.Value.Name
+	}
+}
+
+// listed is names as the Go pack prints a list: "[a b]".
+func listed(names []string) string {
+	let mut out = ""
+	for i, name in names {
+		if i > 0 {
+			out = out + " "
+		}
+		out = out + name
+	}
+	"[" + out + "]"
+}
+
+// configured is the rule failure of a configured name that declares
+// nothing.
+func configured(what string, name string) lint.RuleFailed {
+	lint.RuleFailed{Reason: "configured \(what) \(strconv.Quote(name)) is not declared"}
+}

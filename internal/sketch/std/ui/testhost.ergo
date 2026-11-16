@@ -44,7 +44,7 @@ type Ambiguous { At string, Count int }
 // tasks sleep on (a test binds it as their Scheduler); only Advance moves
 // it. A fetch's result waits in a queue of room results until the host
 // takes it.
-func NewTestHost[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], view escaping func(f *Frame[E], s S) needs R, clock time.Manual, room int) TestHost[S, E, D, F] fails BadPatch needs R {
+func NewTestHost[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], view own func(f *Frame[E], s S) needs R, clock time.Manual, room int) TestHost[S, E, D, F] fails BadPatch needs R {
 	let posted = queue.New[Event[E]](room)
 	let (s, first) = Start(a, view, func(ev Event[E]) {
 		posted.Push(ev) catch {
@@ -55,7 +55,7 @@ func NewTestHost[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], view escap
 }
 
 // hostOf is the test host of session s, its first patch shown.
-func hostOf[E comparable, S, D, F](s Session[S, E, D, F], first []Op[E], posted queue.Queue[Event[E]], clock time.Manual) TestHost[S, E, D, F] fails BadPatch {
+func hostOf[E comparable, S, D, F](s own Session[S, E, D, F], first []Op[E], posted queue.Queue[Event[E]], clock time.Manual) TestHost[S, E, D, F] fails BadPatch {
 	let mut session = s
 	let mut m = NewMirror[E](Root(&session.frame))
 	try Apply(&m, first)

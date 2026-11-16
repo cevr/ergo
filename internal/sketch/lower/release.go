@@ -16,7 +16,7 @@ import (
 // next checkpoint. runtime/v1 holds the one mask and cause boundary
 // (release in task.go). Each lowered release reaches it through one
 // binding of runtimeBindings whose release route is not notRelease: those
-// bindings are the release catalog, and runtimeCall is their one emitter.
+// bindings are the release catalog (derived from the bodies' //ergo:release marks, bodycontract.go), and runtimeCall is their one emitter.
 // TestRuntime199MaskProperty derives its release axis from the catalog;
 // the owner scan fails a route that masks or releases on its own.
 type releaseRoute uint8
@@ -192,8 +192,11 @@ func (fc *funcCtx) providerCloser(a *check.Acquisition, outer, val string, site 
 	callback := fc.envClosure(capturedEnv, "", site, func(env string) ([]string, string, string) {
 		if a.Drop != nil {
 			// A provider whose parts hold resources: its generated
-			// release (B2), its own Close first.
-			return nil, "", strings.Repeat("\t", fc.depth+1) + fc.glue(a.Drop, val, "", env, site) + "\n"
+			// release (B2), its own Close first. It runs from the with's
+			// scope, after the builder's frame, so its Drop is on the
+			// releasing task, as a std result's release (resultRelease).
+			drop := fc.runtimeCall("NewDrop", fc.ownBinding("NewDrop", site), "", "", nil, env, nil, nil, site)
+			return nil, "", strings.Repeat("\t", fc.depth+1) + fc.glueOn(a.Drop, val, "", env, drop, site) + "\n"
 		}
 		return nil, "", strings.Repeat("\t", fc.depth+1) + fc.providerRelease(a, env, val, site) + "\n"
 	})
@@ -328,10 +331,10 @@ func (fc *funcCtx) closeBody(f *check.Func, recv string, site syntax.Node, emit 
 		ice(site, "a checked Close with a result or a failure row")
 	}
 	const name = "Release"
-	if runtimeBindings[name].release != callerRelease {
+	if runtimeBindings()[name].release != callerRelease {
 		ice(site, "the binding %s is not the caller release route", name)
 	}
-	body, err := v1.BodyOf(name)
+	body, err := runtimeBody(name)
 	if err != nil {
 		ice(site, "the release route %s has no runtime/v1 body: %v", name, err)
 	}
@@ -375,7 +378,7 @@ func (fc *funcCtx) closeBody(f *check.Func, recv string, site syntax.Node, emit 
 
 // ownBinding is the v1 body of an ownership binding.
 func (fc *funcCtx) ownBinding(name string, site syntax.Node) v1.Body {
-	body, err := v1.BodyOf(name)
+	body, err := runtimeBody(name)
 	if err != nil {
 		ice(site, "the ownership binding %s has no runtime/v1 body: %v", name, err)
 	}
@@ -507,16 +510,26 @@ func (g *glueGen) parts(d *check.Drop, x, taken string) string {
 		}
 	}
 	if d.Drain != nil {
-		// A std queue of resources (Q7, R13): Drain ends admission and
+		// An operation type that keeps values (Q7, R13; STD-NOPRIV NP3c):
+		// the drain of the prelude's Keeping it includes (check.DrainOp)
 		// gives the values left, oldest first; they are released last
-		// entered first.
+		// entered first. A queue's drain also ends admission. The value of
+		// an operation type that includes Keeping and is no runtime type
+		// holds one that is, and the drain is its operation call.
 		xs, i, e := g.fc.temp("left"), g.fc.temp("i"), g.fc.temp("e")
-		n, _ := d.Type.(*check.Named)
-		if n == nil {
-			ice(g.site, "a drain of %s, which is no named operation type", d.Type)
+		op := check.DrainOp(d.Type)
+		if op == nil {
+			ice(g.site, "a drain of %s, which declares no drain operation", d.Type)
 		}
-		name := n.Obj.Name + ".Drain"
-		drain := g.fc.runtimeCall(name, g.fc.ownBinding(name, g.site), "", x, nil, "", nil, nil, g.site)
+		var drain string
+		if n, ok := d.Type.(*check.Named); ok && g.fc.l.runtimeType(n, g.site) != "" {
+			// A runtime-backed type: its operations are the Go methods of
+			// the runtime's type, whose Go names are exported.
+			name := n.Obj.Name + "." + strings.ToUpper(op.Name[:1]) + op.Name[1:]
+			drain = g.fc.runtimeCall(name, g.fc.ownBinding(name, g.site), "", x, nil, "", nil, nil, g.site)
+		} else {
+			drain, _, _ = g.fc.opCall(d.Type, op, nil, []string{x}, g.env, nil, nil, g.site)
+		}
 		b.WriteString(xs + " := " + drain + "; for " + i + " := len(" + xs + ") - 1; " + i + " >= 0; " + i + "-- { " + e + " := " + xs + "[" + i + "]; " + g.release(d.Drain, e) + "}; ")
 	}
 	if len(d.Variants) > 0 {
@@ -764,6 +777,7 @@ func (fc *funcCtx) ownTemp(x syntax.Expr, o operand) operand {
 		o.val = fc.own(x, d, fc.typeOf(x), o.val, x)
 		return o
 	}
+	o = fc.joinFail(o) // the temporary is declared after the call (failJump)
 	val := fc.temp("t")
 	fc.line(val + " := " + o.val)
 	reg := fc.own(x, d, fc.typeOf(x), val, x)
@@ -851,8 +865,8 @@ func (fc *funcCtx) partsFrom(list []syntax.Expr) int {
 	return len(list)
 }
 
-// holdTaken finds the owned locals that x, a call of a bodiless std
-// operation that takes them (queue Push, D-C), hands off: their entries
+// holdTaken finds the owned locals that x, a call of a runtime Go body
+// that takes them (queue Push, D-C; check's holdsTaken), hands off: their entries
 // stay on the frame until the call returns (handoff skips them), so a
 // Push that fails releases its value and a stopped one leaves it to the
 // frame's End (Q7, plan 1.4). It returns their Go entries.
@@ -862,7 +876,7 @@ func (fc *funcCtx) holdTaken(x *syntax.CallExpr, c *check.Call) []string {
 	switch {
 	case c.Kind == check.CallOp && c.Op != nil && c.Op.Sig != nil && fc.stdOp(c):
 		takes = c.Op.Sig.Takes
-	case c.Kind == check.CallFunc && c.Func != nil && c.Func.Pkg != nil && c.Func.Pkg.Std() && c.Func.Decl != nil && c.Func.Decl.Extern != nil:
+	case c.Kind == check.CallFunc && c.Func != nil && c.Func.Sig != nil && check.BodyOf(c.Func).Runtime != "":
 		takes = c.Func.Sig.Takes
 		if c.Recv != nil {
 			args = append([]syntax.Expr{c.Recv}, args...)
@@ -892,14 +906,15 @@ func (fc *funcCtx) holdTaken(x *syntax.CallExpr, c *check.Call) []string {
 	return held
 }
 
-// stdOp reports a call of a std operation type's operation, whose body is
-// runtime/v1's.
+// stdOp reports a call of an operation whose body is a runtime/v1 method
+// (check.OpBodyOf: the type's package binds the runtime, and the runtime
+// has the method), for a type of any package.
 func (fc *funcCtx) stdOp(c *check.Call) bool {
-	if c.Recv == nil {
+	if c.Recv == nil || c.Op == nil {
 		return false
 	}
 	n, ok := fc.typeOf(c.Recv).(*check.Named)
-	return ok && n.Obj != nil && n.Obj.Pkg.Std()
+	return ok && n.Obj != nil && check.OpBodyOf(n, c.Op.Name).Runtime != ""
 }
 
 // settleTaken writes the call text and settles the held entries: on
@@ -955,6 +970,22 @@ func (fc *funcCtx) handoff(id *syntax.Ident, val string, returned bool) string {
 // ends inside the frame: last acquired first. A value whose entry left
 // the list (a hand-off on this path) is skipped by its entry (R21).
 func (fc *funcCtx) releaseAt(key syntax.Node) {
+	// The plan lists the values last declared first. An assignment that
+	// replaces an owned local's value registers the new value then (R41),
+	// so where the plan names such a local the scope's values are released
+	// in the order of the frame's list, last registered first (R5), which
+	// may differ from the plan's on each path (ReleaseLatestFirst).
+	var hs []string
+	latest := false
+	defer func() {
+		if latest && len(hs) > 1 {
+			fc.line(fc.runtimeCall("ReleaseLatestFirst", fc.ownBinding("ReleaseLatestFirst", key), "", "", hs, "", nil, nil, key))
+			return
+		}
+		for _, h := range hs {
+			fc.line(fc.runtimeCall("Owned.Release", fc.ownBinding("Owned.Release", key), "", h, nil, "", nil, nil, key))
+		}
+	}()
 	for _, r := range fc.l.info.Releases[key] {
 		var h string
 		if r.Var != nil {
@@ -980,8 +1011,34 @@ func (fc *funcCtx) releaseAt(key syntax.Node) {
 				continue
 			}
 		}
-		fc.line(fc.runtimeCall("Owned.Release", fc.ownBinding("Owned.Release", key), "", h, nil, "", nil, nil, key))
+		hs = append(hs, h)
+		latest = latest || r.Var != nil && fc.l.reassigned(r.Var)
 	}
+}
+
+// reassigned reports an owned local that an assignment of the package
+// replaces (R41; releaseAt).
+func (l *lowerer) reassigned(v *check.Var) bool {
+	if l.reassignedVars == nil {
+		l.reassignedVars = map[*check.Var]bool{}
+		for _, s := range l.srcs {
+			syntax.Inspect(s.file, func(n syntax.Node) bool {
+				a, ok := n.(*syntax.AssignStmt)
+				if !ok {
+					return true
+				}
+				for _, lhs := range a.Lhs {
+					if id, ok := unparen(lhs).(*syntax.Ident); ok {
+						if w, _ := l.info.Uses[id].(*check.Var); w != nil && l.info.OwnedVars[w] != nil {
+							l.reassignedVars[w] = true
+						}
+					}
+				}
+				return true
+			})
+		}
+	}
+	return l.reassignedVars[v]
 }
 
 // releaseName names a planned release for an internal compiler error.

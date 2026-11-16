@@ -24,9 +24,9 @@ type Store {
 	Get() string,
 }
 
-type Loud {}
-type Plain {}
-type Holder { v string }
+type Loud {} implements Greeter
+type Plain {} implements Greeter
+type Holder { v string } implements Store
 
 func Greet(_ Loud, name string) string {
 	"\(name)!"
@@ -57,8 +57,8 @@ type Greeter {
 	Greet(name string) string,
 }
 
-type Loud {}
-type Plain {}
+type Loud {} implements Greeter
+type Plain {} implements Greeter
 
 func Greet(_ Loud, name string) string {
 	"\(name)!"
@@ -163,7 +163,7 @@ func main() needs Console {
 	// A with of a local context inside a function literal that runs after
 	// the block that defines it has ended.
 	{"literal", e5Prelude + `
-func make(name string) escaping func() string {
+func make(name string) func() string {
 	let n = name + "!"
 	let w = context { Store: Holder{v: n} }
 	func() string {
@@ -181,7 +181,7 @@ func main() needs Console {
 `, "ada!\nbo!\nada!\n"},
 	// A provider with a Close: each with acquires and releases it.
 	{"close-twice", e5Prelude + `
-type Conn {}
+type Conn {} implements Closer, Store
 
 func Get(_ Conn) string {
 	"conn"
@@ -206,7 +206,7 @@ func main() needs Console {
 	// Store is built and released only when the with acquires it, as in
 	// the nesting: here when b's Greeter provider reads Store.
 	{"shadowed-unbuilt", e5Prelude + `
-type Conn { n string }
+type Conn { n string } implements Closer, Store, Greeter
 
 func Get(c Conn) string {
 	c.n

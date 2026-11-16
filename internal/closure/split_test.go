@@ -145,9 +145,17 @@ func readCPUCosts(root, module string) (map[string]map[string]float64, error) {
 
 // withDeadlineCosts sets each run's deadlineCost: the CPU seconds cpu
 // records for its tests, or its recorded wall (cost) when that is more,
-// as when the package has no CPU rows.
+// as when the package has no CPU rows. A run that holds a test with no
+// recorded time has no cost to scale (unmeasuredCost): the median it
+// weighs in the plan says nothing about a test that builds every example
+// (TestDirectMatchesGoBuild outran its run's 30 minute floor in the batch
+// 20 sweep, CS1), so only the step's own hang deadline bounds it.
 func withDeadlineCosts(plan []sweepRun, cpu map[string]float64) []sweepRun {
 	for i := range plan {
+		if len(plan[i].unmeasured) > 0 {
+			plan[i].deadlineCost = unmeasuredCost
+			continue
+		}
 		sum := 0.0
 		for _, name := range plan[i].tests {
 			sum += cpu[name]

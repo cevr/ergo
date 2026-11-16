@@ -35,7 +35,7 @@ var scalarSeed = flag.Uint64("scalar.seed", 0, "run TestScalarLocalsAgree on thi
 // scalarPaths are the generator's branches; the fixed seeds reach each.
 var scalarPaths = []string{"grow", "join", "join-try", "print", "later", "literal", "arm", "join-call", "deeper", "closure", "conv", "end-fail", "end-normal"}
 
-const scalarPrelude = `type Shape = Dot{} | Seg{N int, Tag string} | Poly{Xs []int, Name string, K int}
+const scalarPrelude = `type Shape = Dot{} | Seg{N int, Tag string} | Poly{Xs []int, Name string, K int} implements Sized
 
 type Bad { At int }
 

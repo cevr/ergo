@@ -38,7 +38,7 @@ type Node = File | Dir | Link
 
 // Tree is an fs.Root provider over nodes in memory, keyed by their path
 // below the root; "." is the root. NewTree is its one constructor.
-type Tree { nodes Map[string, Node] }
+type Tree { nodes Map[string, Node] } implements fs.Root
 
 // maxLinks is the number of links one resolution follows, os.Root's.
 func maxLinks() int { 8 }
