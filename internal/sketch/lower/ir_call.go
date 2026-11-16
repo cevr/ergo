@@ -23,7 +23,16 @@ func (b *irBuilder) poll(site syntax.Node) *irStmt {
 // ir_order.go).
 func (b *irBuilder) call(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr) {
 	if b.fallibleCall(x) != nil {
-		irNo("untried fallible call")
+		if b.tries == 0 {
+			irNo("untried fallible call")
+		}
+		// Inside a try: the call's failure leaves the frame (ir_fail.go
+		// try), as the emitter's value propagates it where the call is.
+		pre, v := b.try(x)
+		if v == nil && !stmt {
+			irNo("try without a value")
+		}
+		return pre, v
 	}
 	pre, e, effect := b.callParts(x, stmt)
 	if effect && !stmt {

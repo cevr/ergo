@@ -198,6 +198,12 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		pre, e := b.call(x, false)
 		b.runFirst(pre) // ir_order.go: before the expression that holds it
 		return e
+	case *syntax.TryExpr, *syntax.CatchExpr:
+		// A try or catch inside an expression: its statements run before
+		// the expression, in order, as a call's do (ir_fail.go, ir_order.go).
+		pre, e := b.failValue(x)
+		b.runFirst(pre)
+		return e
 	}
 	irNo("expression %T", x)
 	return nil

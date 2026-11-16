@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -78,14 +80,15 @@ func TestIRContinuePolls(t *testing.T) {
 // TestIROrderMatchesSource is the agreement property over GenerateOrder
 // (F7 GP): each program prints, exits and fails the same on both paths,
 // and the run gives IR bodies to functions with a continue in a polling
-// loop and with operation calls inside an expression, in a condition and
-// in a range. A failing seed prints the Ergo source, both outcomes and its
+// loop, with operation calls inside an expression, in a condition and in
+// a range, and with each try form (tryForms). A failing seed prints the Ergo source, both outcomes and its
 // replay command. It builds Go because the question is what the compiled
 // program does: the order of effects, polls and defects.
 func TestIROrderMatchesSource(t *testing.T) {
 	src, ir := needsBuild(t)
 	first, count := envInt("ERGO_IRSPIKE_SEED", 1), envInt("ERGO_IRSPIKE_SEEDS", 24)
 	continued, traced, spanned, looped := 0, 0, 0, 0
+	var tries [len(tryForms)]int
 	for seed := first; seed < first+count; seed++ {
 		u, text, dir := orderProgram(t, seed)
 		sb, ib, rep := both(t, u, src, ir, dir, BuildOptions{})
@@ -106,22 +109,41 @@ func TestIROrderMatchesSource(t *testing.T) {
 			if bodyHas(text, name, "< tr(") {
 				looped++
 			}
+			for i, re := range tryForms {
+				if re.MatchString(bodyOf(text, name)) {
+					tries[i]++
+				}
+			}
 		}
 	}
-	if count >= 12 && (continued == 0 || traced == 0 || spanned == 0 || looped == 0) {
-		t.Fatalf("the run did not reach IR bodies with: a continue %d, an operation call inside an expression %d, a for-in over a call %d, a loop condition with a call %d", continued, traced, spanned, looped)
+	if count >= 12 && (continued == 0 || traced == 0 || spanned == 0 || looped == 0 || slices.Contains(tries[:], 0)) {
+		t.Fatalf("the run did not reach IR bodies with: a continue %d, an operation call inside an expression %d, a for-in over a call %d, a loop condition with a call %d, the try forms (try of a non-call, try inside an expression, a catch arm that continues, a catch arm whose value is an if) %v", continued, traced, spanned, looped, tries)
 	}
+}
+
+// tryForms are GenerateOrder's try forms (tryStmt), as they read in a
+// body: a try over two calls, a try inside an expression, a catch arm
+// that continues, and a catch arm whose value is an if.
+var tryForms = [...]*regexp.Regexp{
+	regexp.MustCompile(`try f\d+\([^\n]*\) \* 2 \+ f\d+\(`),
+	regexp.MustCompile(`[(\[{-]\(?try f\d+\(`),
+	regexp.MustCompile(`case E\d:\n\s+continue\n`),
+	regexp.MustCompile(`case E\d as x:\n\s+if `),
+}
+
+// bodyOf is function name's body in text.
+func bodyOf(text, name string) string {
+	_, rest, ok := strings.Cut(text, "func "+name+"(")
+	if !ok {
+		return ""
+	}
+	body, _, _ := strings.Cut(rest, "\n}\n")
+	return body
 }
 
 // bodyHas reports that function name's body in text contains s.
 func bodyHas(text, name, s string) bool {
-	_, rest, ok := strings.Cut(text, "func "+name+"(")
-	if !ok {
-		return false
-	}
-	body, _, _ := strings.Cut(rest, "\n}\n")
-	_, _, has := strings.Cut(body, s)
-	return has
+	return strings.Contains(bodyOf(text, name), s)
 }
 
 // hasBackEdgePoll reports a loop in body whose last statement is a poll.

@@ -68,8 +68,6 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"for-in binding without a variable", "G1"},
 	// G2: the failure ABI, frames and operation calls.
 	{"fallible function", "G2"},
-	{"expression *syntax.CatchExpr", "G2"},
-	{"expression *syntax.TryExpr", "G2"},
 	{"loop in an impure frame", "G2"},
 	{"call of an impure, fallible or special function", "G2"},
 	{"operation call form", "G2"},
@@ -86,7 +84,6 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"fallible call with an empty row at its site", "G2"},
 	{"call of an impure function from a pure one", "G2"},
 	{"try without a value", "G2"},
-	{"try of a non-call", "G2"},
 	{"catch without its Matches entry", "G2"},
 	{"catch of a non-call", "G2"},
 	{"catch arm without a pattern", "G2"},

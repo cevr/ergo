@@ -19,7 +19,7 @@ func GenerateOrder(seed uint64) string {
 }
 
 // orderKinds is the number of statement kinds orderStmt adds.
-const orderKinds = 7
+const orderKinds = 10
 
 // orderDecls writes the declarations orderStmt's statements call: tr
 // prints its argument (the order of calls shows in the output) and span
@@ -63,6 +63,9 @@ func (g *fgen) orderExpr() string {
 // the current function cannot take it.
 func (g *fgen) orderStmt(in string, budget, k int) bool {
 	f := g.cur
+	if k >= 7 {
+		return g.tryStmt(in, budget, k)
+	}
 	if budget <= 0 || !f.impure() {
 		return false
 	}
@@ -97,6 +100,63 @@ func (g *fgen) orderStmt(in string, budget, k int) bool {
 			return false // tr needs Console
 		}
 		g.callsStmt(in, budget, k)
+	default:
+		return false
+	}
+	return true
+}
+
+// tryStmt writes statement kind k (7 to 9) of orderStmt, the try forms:
+// one try over an expression of two fallible calls (try of a non-call),
+// a try inside an expression, after an operand that may be a defect, and
+// catch arms that yield an if's value or continue a loop.
+func (g *fgen) tryStmt(in string, budget, k int) bool {
+	f := g.cur
+	tried := g.callable(func(c ffunc) bool { return !c.unit && len(c.row) > 0 && f.within(c.row) })
+	caught := g.callable(func(c ffunc) bool { return !c.unit && len(c.row) > 0 })
+	switch {
+	case k == 7 && len(tried) > 0 && len(f.row) > 0:
+		a, b := tried[g.n(len(tried))], tried[g.n(len(tried))]
+		g.let(in, fmt.Sprintf("try %s * 2 + %s", g.args(a), g.args(b)))
+	case k == 8 && len(tried) > 0 && len(f.row) > 0:
+		c := tried[g.n(len(tried))]
+		switch g.n(3) {
+		case 0:
+			g.let(in, fmt.Sprintf("%s + (try %s)", g.indexed(2), g.args(c)))
+		case 1:
+			g.let(in, fmt.Sprintf("-(try %s)", g.args(c)))
+		default:
+			g.let(in, fmt.Sprintf("([]int{try %s, %s})[0]", g.args(c), g.local()))
+		}
+	case k == 9 && len(caught) > 0:
+		c := caught[g.n(len(caught))]
+		if budget > 0 && g.n(2) == 0 {
+			// A catch arm that continues the loop: the catch has no
+			// value on that path.
+			v := fmt.Sprintf("x%d", len(g.locals))
+			fmt.Fprintf(&g.b, "%sfor %s in []int{%d, %d} {\n", in, v, g.n(9), g.n(9))
+			saved := len(g.locals)
+			g.locals = append(g.locals, v)
+			arms := fmt.Sprintf("%s\t\tcase %s:\n%s\t\t\tcontinue\n", in, c.row[0], in)
+			for _, e := range c.row[1:] {
+				arms += fmt.Sprintf("%s\t\tcase %s:\n%s\t\t\t%d\n", in, e, in, g.n(50))
+			}
+			g.let(in+"\t", fmt.Sprintf("%s catch {\n%s%s\t}", g.args(c), arms, in))
+			g.sinkFrom(in+"\t", saved)
+			g.locals = g.locals[:saved]
+			fmt.Fprintf(&g.b, "%s}\n", in)
+			return true
+		}
+		// Arms whose value is an if expression.
+		var arms string
+		for _, e := range c.row {
+			field := "x.Code"
+			if e == "E2" {
+				field = "len(x.Why)"
+			}
+			arms += fmt.Sprintf("%s\tcase %s as x:\n%s\t\tif %s > %d {\n%s\t\t\t%d\n%s\t\t} else {\n%s\t\t\t%s\n%s\t\t}\n", in, e, in, field, g.n(6), in, g.n(50), in, in, field, in)
+		}
+		g.let(in, fmt.Sprintf("%s catch {\n%s%s}", g.args(c), arms, in))
 	default:
 		return false
 	}

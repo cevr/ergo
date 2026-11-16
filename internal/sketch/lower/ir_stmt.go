@@ -96,8 +96,8 @@ func (b *irBuilder) yield(s syntax.Stmt, to *yieldTo) []*irStmt {
 			return append(pre, &irStmt{K: "set", Pos: p, Local: to.local, X: x})
 		}
 		return b.ret(s.X, p) // ir_fail.go
-	case *syntax.ReturnStmt:
-		return b.stmt(s)
+	case *syntax.ReturnStmt, *syntax.BranchStmt:
+		return b.stmt(s) // it leaves: no value to yield (a catch arm's continue)
 	case *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
 		return b.matchStmt(s, true, to) // ir_match.go
 	case *syntax.IfStmt:
@@ -183,6 +183,9 @@ func (b *irBuilder) discard(x syntax.Expr) []*irStmt {
 	if call, ok := x.(*syntax.CallExpr); ok {
 		if c := b.l.info.Calls[call]; c != nil && c.Kind != check.CallConversion && c.Kind != check.CallLen {
 			pre, e := b.call(call, true)
+			if e == nil {
+				return pre // a tried call with no value (call)
+			}
 			return append(pre, &irStmt{K: "expr", Pos: p, X: e})
 		}
 	}

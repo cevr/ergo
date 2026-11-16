@@ -193,11 +193,9 @@ func (b *irBuilder) failExpr(x syntax.Expr) ([]*irStmt, *irExpr) {
 		}
 		call := b.fallibleCall(x.X)
 		if call == nil {
-			// try covers the whole expression: its operands' fallible
-			// calls fail the frame (operand).
-			if _, isCall := unparen(x.X).(*syntax.CallExpr); !isCall {
-				irNo("try of a non-call")
-			}
+			// try covers the whole expression: each fallible call in it
+			// fails the frame where it runs (call, operand), as the
+			// emitter's try does.
 			return b.value(x.X)
 		}
 		return b.try(call)
@@ -352,28 +350,15 @@ func (b *irBuilder) armBody(a *syntax.CatchArm, result int, rt check.Type) []*ir
 		}
 		return nil
 	}
-	last, isExpr := list[len(list)-1].(*syntax.ExprStmt)
-	if !isExpr {
-		if result >= 0 {
-			if _, isRet := list[len(list)-1].(*syntax.ReturnStmt); !isRet {
-				irNo("catch arm form")
-			}
-		}
+	if result < 0 {
+		// No value: the statements, the last one's value dropped (the
+		// emitter's stmts, discard).
 		return b.tail(list, false)
 	}
-	out := b.tail(list[:len(list)-1], false)
-	if result < 0 {
-		if _, isCall := unparen(last.X).(*syntax.CallExpr); !isCall {
-			irNo("catch arm form")
-		}
-		return append(out, b.tail(list[len(list)-1:], false)...)
-	}
-	b.part(func() {
-		pre, v := b.value(last.X)
-		v = b.assignedTo(last.X, v, rt) // a variant joins the union (ir_union.go)
-		out = append(append(out, pre...), &irStmt{K: "set", Pos: b.pos(last.X, last.X.Pos()), Local: result, X: v})
-	})
-	return out
+	// The last statement yields the catch's value into result, as the
+	// emitter's yieldList with destAssign: an expression, an if or a
+	// match whose arms yield, a return, or a break or continue.
+	return b.tailTo(list, false, &yieldTo{local: result, t: rt})
 }
 
 // operand is one operand of a call: a try, a catch, a call, or an
