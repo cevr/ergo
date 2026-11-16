@@ -204,7 +204,8 @@ func (l licenceLaw) model() (string, string) {
 // Mutants: lf6-skipped-run-licenses, lf6-missed-class-licenses,
 // lf6-vacuous-case-counted, lf6-edges-after-draws-only-length,
 // lf6-edges-after-draws-only-content, lf6-edges-after-draws-only-float,
-// lf6-second-run-same-state, lf6-licence-float-by-go-equality (a float
+// lf6-second-run-same-state, lf6-corpus-unreplayed (a refuted case given
+// back is not the first case), lf6-licence-float-by-go-equality (a float
 // law whose sides are equal at a NaN is refuted by Go's ==).
 //
 // ERGO_LICENCE_SEED=N replays one seed.
@@ -288,10 +289,19 @@ func TestLicenceRunFindsEdgeFalsehoods(t *testing.T) {
 			case l.verdict == "validated" && len(got.Missed) > 0:
 				fail("a validated run missed classes")
 			}
+			if got.Verdict == "refuted" && got.Case != "" {
+				// The refuted case's corpus line, given back, is the
+				// next run's first case, and refutes it there.
+				again, err := LicenceRun(pkg, law, Budget{Steps: 4_000_000, Depth: 1024, Seed: 1}, []string{got.Case})
+				if err != nil || again.Verdict != "refuted" || again.Cases != 0 {
+					fail(fmt.Sprintf("the corpus line %s does not refute the law at the first case: %s, %v", got.Case, again.Line(), err))
+				}
+				reached["corpus replayed"] = true
+			}
 		}
 	}
 	if len(seeds) > 1 {
-		for _, v := range []string{"validated", "validated float sides", "tested", "skipped", "refuted: the law is false", "refuted: not a function of its arguments"} {
+		for _, v := range []string{"validated", "validated float sides", "corpus replayed", "tested", "skipped", "refuted: the law is false", "refuted: not a function of its arguments"} {
 			if !reached[v] {
 				t.Errorf("no seed reaches the model's %s", v)
 			}

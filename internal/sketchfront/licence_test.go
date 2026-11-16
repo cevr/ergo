@@ -129,7 +129,10 @@ func TestLicenceWriterKeepsCorpus(t *testing.T) {
 	if n, out = write("unchanged rerun", cutEdited+law); n != 0 || out != "" {
 		t.Errorf("unchanged rerun: %d changed, %q; want nothing run and nothing changed", n, out)
 	}
-	if n, _ = write("law removed", cutEdited); n == 0 || strings.Contains(read(ledger), "CutIsId") || strings.Contains(read(cases), "CutIsId") {
+	// The package keeps a law, a property, so a law of the same package
+	// is still declared and only the rewrite law's name tells.
+	const property = "\nlaw CutTwice(s string) { Cut(Cut(s)) == Cut(s) }\n"
+	if n, _ = write("law removed", cutEdited+property); n == 0 || strings.Contains(read(ledger), "CutIsId") || strings.Contains(read(cases), "CutIsId") {
 		t.Errorf("law removed: %d changed, ledger %q, ergo.cases %q; want both without the law", n, read(ledger), read(cases))
 	}
 }
