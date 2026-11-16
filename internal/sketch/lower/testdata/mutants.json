@@ -5814,6 +5814,8 @@
         "lower:TestFloatProductsRound"
       ]
     },
-    {"name":"i20-group-cut-kept","origin":"wf10 I20 (P-ui x H8a)","file":"internal/sketch/std/ui/group.ergo","from":"\tif len(f.groups) <= n {","to":"\tif true {","rule":"A cut (a boundary's body stopped, H8a) takes back the component groups written since its mark: a group whose specs the cut gave back is never kept.","killers":["lower:TestUISkipAgrees"]}
+    {"name":"i20-group-cut-kept","origin":"wf10 I20 (P-ui x H8a)","file":"internal/sketch/std/ui/group.ergo","from":"\tif len(f.groups) <= n {","to":"\tif true {","rule":"A cut (a boundary's body stopped, H8a) takes back the component groups written since its mark: a group whose specs the cut gave back is never kept.","killers":["lower:TestUISkipAgrees"]},
+    {"name":"cold-head-off","origin":"wf10 BUN5-cold","file":"internal/sketch/lower/coldhead.go","from":"if coldLowering == \"copy\" || f.Decl == nil","to":"if true || f.Decl == nil","rule":"Cold heads: an inlined function's growth guard is written as a call of the function out of line, so its growth is written once, not at every inlined site.","killers":["lower:TestColdHeadsWriteGrowthOnce"]},
+    {"name":"cold-head-no-jump","origin":"wf10 BUN5-cold","file":"internal/sketch/lower/coldhead.go","from":"\tic.at(s)\n\tic.line(\"goto \" + label)","to":"\tic.at(s)\n\t_ = label","rule":"Cold heads: the out-of-line call does the whole body, so the inlined site skips its rest.","killers":["lower:TestInlineAgrees"]}
   ]
 }

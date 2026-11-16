@@ -119,6 +119,9 @@ type knownStats struct {
 	// Substituted the literals written where an inlined body calls them.
 	Inlined     int
 	Substituted int
+	// ColdCalls is the inlined bodies whose growth guard calls the
+	// function out of line (coldhead.go).
+	ColdCalls int
 	// Specialized is the copies for known records made (record.go).
 	Specialized int
 	// Providers is the copies for known providers made (provider.go).
