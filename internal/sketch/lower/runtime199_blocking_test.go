@@ -38,6 +38,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"irBuilder.hidden":         "the experimental IR's hidden CallerTask of a std operation call, as funcCtx.hiddenArgs's for runtimeCall, whose checks the source path already ran on the same call (IRG4b r2)",
 			"irBuilder.closeMasked":    "the IR's checked Close: v1.Release's hidden CallerTask (its body's facts read through runtimeBody), as closeBody's runtimeCall writes it (FLIP F7 FORK unit 4)",
 			"irBuilder.releaseFuncs":   "the IR's static-frame release: StaticBegin's hidden CallerTask, as closeStatic's runtimeCall writes it (FLIP F7 FORK RELEASE-IR)",
+			"irBuilder.stdCloseCall":   "the IR's release of a std operation value: its runtime method with no hidden argument, as opCall's runtimeCall writes it (FLIP F7 FORK RELEASE-IR)",
 		}},
 		{"taskOf", map[string]string{
 			"funcCtx.hiddenArgs":      "runtimeCall's hidden CallerTask argument",
