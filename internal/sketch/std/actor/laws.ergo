@@ -636,21 +636,27 @@ func Left(l exitLog, s int) {
 	l.seen.Update(func(v []int) []int { v.Append(s) })
 }
 
+// exitCount is the counter's state and exitTick its signal.
+type exitCount { N int }
+type exitTick { K int }
+
 // exitStep reaches each Decision and a failure by the signal mod 7. A
 // Stay changes the state, so the state an entry ends with is not the one
 // it opened with.
-func exitStep(s int, e int) Decision[int, int] fails Boom {
+func exitStep(c exitCount, t exitTick) Decision[exitCount, int] fails Boom {
+	let s = c.N
+	let e = t.K
 	match ((e % 7) + 7) % 7 {
 	case 0:
-		Enter[int]{Next: s + 100}
+		Enter[exitCount]{Next: exitCount{N: s + 100}}
 	case 1:
-		Stay[int]{Next: s + 1}
+		Stay[exitCount]{Next: exitCount{N: s + 1}}
 	case 2:
 		Ignore
 	case 3:
 		Reject
 	case 4:
-		Emit[int, int]{Next: s + 1000, Output: s}
+		Emit[exitCount, int]{Next: exitCount{N: s + 1000}, Output: s}
 	case 5:
 		Done[int]{Output: s}
 	case _:
@@ -663,18 +669,24 @@ func exitStep(s int, e int) Decision[int, int] fails Boom {
 func hasExit(s int) bool { s%5 != 4 }
 
 // leave is the counter's exit: the action of a state writes that state.
-func leave(s int) Option[func() needs exitSeen] {
+func leave(c exitCount) Option[func() needs exitSeen] {
+	let s = c.N
 	if !hasExit(s) {
 		return None
 	}
 	Some{func() needs exitSeen { exitSeen.Left(s) }}
 }
 
-func exitUntimed(s int) Option[Timeout[int]] { None }
+func exitFirst(i int) exitCount { exitCount{N: i} }
 
-func exitUnworked(s int) Option[func(send func(e int)) needs exitSeen] { None }
-
-func exitFirst(i int) int { i }
+// exitCounter is the counter as a declared machine with an exit entry,
+// started from an input, so the conversion (Exit from exit:) and
+// machines.Start are under the laws.
+type exitCounter machine[exitCount, exitTick] {
+	initial: exitFirst,
+	step:    exitStep,
+	exit:    leave,
+}
 
 // noteExit is out with s, when s has an exit action.
 func noteExit(out []int, s int) []int {
@@ -694,19 +706,19 @@ func exitsLeft(signals []int) []int {
 	let mut s = 0
 	let mut out = []int{}
 	for e in signals {
-		let d = exitStep(s, e) catch {
+		let d = exitStep(exitCount{N: s}, exitTick{K: e}) catch {
 		case Boom:
 			return noteExit(out, s)
 		}
 		match d {
-		case Enter[int] as en:
+		case Enter[exitCount] as en:
 			out = noteExit(out, s)
-			s = en.Next
-		case Emit[int, int] as em:
+			s = en.Next.N
+		case Emit[exitCount, int] as em:
 			out = noteExit(out, s)
-			s = em.Next
-		case Stay[int] as st:
-			s = st.Next
+			s = em.Next.N
+		case Stay[exitCount] as st:
+			s = st.Next.N
 		case Done[int]:
 			return noteExit(out, s)
 		case _:
@@ -727,12 +739,12 @@ func exitsRan(signals []int, drain bool, durable bool) []int {
 	let log = exitLog{seen: sync.NewRef[[]int]([]int{})}
 	with context { Scheduler: time.NewManual(0), exitSeen: log } {
 		let a = if durable {
-			StartDurable(Machine{Initial: 0, Step: exitStep, After: exitUntimed, Work: exitUnworked, Exit: leave}, 1, func(o int) {}, func() Option[int] { None }, func(prev int, next int, sig int) {})
+			StartDurable(machines.Start(exitCounter{}, 0), 1, func(o int) {}, func() Option[exitCount] { None }, func(prev exitCount, next exitCount, sig exitTick) {})
 		} else {
-			StartMachine(machines.Start(InputMachine{Start: exitFirst, Step: exitStep, After: exitUntimed, Work: exitUnworked, Exit: leave}, 0), 1, func(o int) {})
+			StartMachine(machines.Start(exitCounter{}, 0), 1, func(o int) {})
 		}
 		for e in signals {
-			a.Send(e) catch {
+			a.Send(exitTick{K: e}) catch {
 			case Stopped:
 			}
 		}
