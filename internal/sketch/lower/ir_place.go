@@ -76,8 +76,11 @@ func (b *irBuilder) store(s *syntax.AssignStmt, op string) []*irStmt {
 	if op != "" {
 		b.operator(op, b.l.info.Types[lhs], s)
 	}
-	to := b.place(lhs)
+	to := b.storeTo(lhs) // ir_mapstore.go: a Map's entry, else a place
 	pre, x := b.value(s.Rhs[0])
+	if op == "" && to.K == "mapAt" {
+		return append(b.fixEntry(lhs, to, pre), &irStmt{K: "store", Pos: b.pos(s, s.Pos()), X: to, Y: x}) // ir_mapstore.go
+	}
 	if len(pre) > 0 && (op != "" || !b.fixed(lhs)) {
 		irNo("store to a place a value with statements may move")
 	}
