@@ -3,23 +3,24 @@ show
 # A press without a move is no drag.
 press card-6
 release
-# A pointer drag within To Do: card-1 to position 3, past the threshold.
+# A pointer drag within To Do: card-1 under card-4. A move of 3 pixels is
+# under the threshold; the next one drags.
 press card-1
-move 100 103 todo 3
-move 100 200 todo 3
+move 100 83
+move card-4 lower
 release
-# A pointer drag to another column.
-press card-2 300 100
-move 300 120 in-progress 0
+# A pointer drag to another column, over the top half of its first card.
+press card-2
+move card-7 upper
 release
-# A pointer drag given up: over nothing, then released.
+# A pointer drag given up: over a card, then over nothing, then released.
 press card-3
-move 100 200 todo 1
-move 400 200 off
+move card-5 upper
+move off
 release
-# A pointer drag given up with Escape.
+# A pointer drag over an empty spot of Done, given up with Escape.
 press card-4
-move 100 200 done 0
+move done
 escape
 show
 # A keyboard drag within To Do: down twice, then up past the top.
@@ -53,3 +54,6 @@ type
 submit
 type Count the moths
 cancel
+# Escape shuts the form too.
+add todo
+escape

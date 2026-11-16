@@ -144,6 +144,7 @@ Entries in this section and in the [2026-11-11](#owner-direction-2026-11-11) sec
   - q134: "mainly speed... compiling and checking ... as fast as possible": declarations go through IR if and only if that makes builds and checks faster, by measurement.
   - q135: "Extend the evaluator": the check-time evaluator grows to effects and is the reference oracle once source emission retires.
 
+
 ## Decided by principle, 2026-11-11
 
 - **A value provider converts by moving into a cell (owner q121, 2026-11-11).** A value of a provider whose operations take `*P` converts to its operation type only when that type is sealed in the provider's package, only in that package, and not as a `with`'s provider. The value moves into a cell; a source that stays live is copied, so a write through the cell is never seen through the source. The cell is task-confined: an escaping frame never captures a value that holds one, and no type argument, package `let` or other operation type holds one. Rejected: a lend of `&p` for one call (needs keep-tracking of operation-type parameters) and no conversion (a second, hand-written writer). Principles: one rule, value semantics, and no data race by construction. Prior art: Swift's non-Sendable values and Rust's `!Send` `Rc`/`RefCell` stay on their thread; Erlang processes own their state. See [types, Interface assignability 6](spec/types.md#interface-assignability).
