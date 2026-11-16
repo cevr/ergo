@@ -116,7 +116,7 @@ func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr
 		b.fc, b.env, b.result, b.loops, b.tries, b.switches, b.label, b.law, b.memos = fc, env, res, loops, tries, switches, label, law, memos
 	}()
 	// The literal's body is a frame of its own: no loop of the maker's
-	// memoizes a call of it (ir_hoist.go).
+	// memoizes a call of it (ir_memo.go).
 	b.memos = nil
 	envLocal := b.temp("env", "*"+l.env(), p)
 	lit := &irExpr{K: "func", Pos: p, T: typ, Params: []int{envLocal}}

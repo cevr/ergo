@@ -8,7 +8,7 @@ import (
 
 // GenerateHoist is a program whose loops call pure and impure functions
 // with operands that are or are not the same on every iteration (LAWFFI
-// LF3a, the loop-invariant pure call; lower/ir_hoist.go). The callees: sq,
+// LF3a, the loop-invariant pure call; lower/ir_memo.go). The callees: sq,
 // a pure Ergo function; inv, a pure one that divides by its operand (a
 // defect at 0); noisy, an impure one that prints; filepath.Clean, a
 // reviewed-pure Go function. The operands: a parameter or an outer `let`

@@ -35,7 +35,7 @@ type IRReport struct {
 	IR       []string       `json:"ir"`
 	Fallback map[string]int `json:"fallback"`
 	// Memo counts the loop-invariant pure calls the IR bodies compute
-	// once per entry of their loop (ir_hoist.go).
+	// once per entry of their loop (ir_memo.go).
 	Memo int    `json:"memo,omitempty"`
 	Hash string `json:"hash"`
 }
@@ -331,7 +331,7 @@ type irBuilder struct {
 	loops int
 	// memos are the loops around the statement being built whose
 	// pre-headers take memoized calls, innermost last; memoSites counts
-	// the body's memoized calls (ir_hoist.go).
+	// the body's memoized calls (ir_memo.go).
 	memos     []*irMemo
 	memoSites int
 	// tries counts the try expressions being built (ir_fail.go): inside

@@ -387,7 +387,7 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 			cond = b.cond(s.Cond)
 		}
 		st := &irStmt{K: "while", Pos: b.pos(s, s.Pos()), X: cond, End: b.pos(s.Body, s.Body.Rbrace)}
-		return b.memoLoop(s, func() []*irStmt { // ir_hoist.go
+		return b.memoLoop(s, func() []*irStmt { // ir_memo.go
 			b.loopBody(st, s, s.Body)
 			return []*irStmt{st}
 		})
@@ -415,7 +415,7 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 	case *syntax.RangeStmt:
 		lp := b.l.info.Loops[s]
 		if lp != nil && lp.Domain == check.LoopRange {
-			return b.memoLoop(s, func() []*irStmt { return b.countLoop(s, lp) }) // ir_pkg.go, ir_hoist.go
+			return b.memoLoop(s, func() []*irStmt { return b.countLoop(s, lp) }) // ir_pkg.go, ir_memo.go
 		}
 		if lp == nil || !goRange(lp.Domain) { // ir_pkg.go
 			b.gate("for-in over a non-slice")
@@ -451,7 +451,7 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		}
 		b.part(func() { st.Key = bind(s.Key) })
 		b.part(func() { st.Val = bind(s.Value) })
-		return b.memoLoop(s, func() []*irStmt { // ir_hoist.go
+		return b.memoLoop(s, func() []*irStmt { // ir_memo.go
 			b.loopBody(st, s, s.Body)
 			return []*irStmt{st}
 		})

@@ -36,7 +36,7 @@ func (b *irBuilder) value(x syntax.Expr) ([]*irStmt, *irExpr) {
 		}
 		pre, e = b.call(y, false)
 		// A whole value may run statements before it, so a loop-invariant
-		// pure call computes its value once there (ir_hoist.go).
+		// pure call computes its value once there (ir_memo.go).
 		if mpre, me, ok := b.memoCall(y, pre, e); ok {
 			pre, e = mpre, me
 		}
