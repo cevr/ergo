@@ -87,6 +87,49 @@ func Lookup(s Store, text string) Option[dense.ID[Decl]] {
 	}
 }
 
+// FindName is the id of text when the package's names hold it: it interns
+// nothing, so body tasks call it on the store frozen while they run.
+func FindName(s Store, text string) Option[dense.ID[dense.Str]] { dense.FindText(s.names, text) }
+
+// ScopeOf is the package-level declaration name n binds, if any.
+func ScopeOf(s Store, n dense.ID[dense.Str]) Option[dense.ID[Decl]] {
+	if !dense.In(s.scope, n) {
+		return None
+	}
+	dense.Unpack(dense.Of(s.scope, n))
+}
+
+// ImportIndex is the place of path in the store's import list, or -1.
+func ImportIndex(s Store, path string) int {
+	for i, p in s.imports {
+		if p == path {
+			return i
+		}
+	}
+	-1
+}
+
+// ImportPaths is the store's import list, sorted: an XRef's import is a
+// place in it plus one.
+func ImportPaths(s Store) []string { s.imports }
+
+// PathOf is the package's import path.
+func PathOf(s Store) string { s.path }
+
+// ImportOf is the import d declares (its place in the import list plus
+// one), or 0 when d is no import or a Go import.
+func ImportOf(s Store, d dense.ID[Decl]) int {
+	match View(s.objects, DeclOf(s, d).Obj) {
+	case PkgNameObj as p:
+		int(p.Row.Import)
+	case _:
+		0
+	}
+}
+
+// NumNames is the count of the package's distinct names.
+func NumNames(s Store) int { dense.Texts(s.names) }
+
 // DeclOf is the row of d.
 func DeclOf(s Store, d dense.ID[Decl]) Decl { dense.At(s.decls, d) }
 

@@ -1,0 +1,152 @@
+// Package task checks a program's packages as package tasks (capstone
+// S3c; C0/plan.md §3 and §4): a package task starts once every package it
+// imports has frozen its interface, collects and binds its package (its
+// bodies as body tasks, compiler/check/bind), and freezes its store, which
+// its importers then read with no lock. Packages whose imports are all
+// frozen run at once, at most threads at a time; the result is in the
+// program's package order, whatever order the tasks end in.
+
+import compiler/check/bind
+import compiler/check/store
+import tasks
+
+// Package is one package to check: its import path and its files.
+type Package { Path string, Files []bind.File }
+
+// Checked is a package after its task: its frozen interface, its parent
+// column and its Uses.
+type Checked { Path string, Store store.Frozen, Parents bind.Parents, Uses bind.Uses }
+
+// levels is the order in which the packages run: levels[i] is the wave of
+// package i, one more than the highest wave of the packages it imports
+// (an import the program does not hold counts as none). A package in an
+// import cycle gets -1 and is not checked.
+func levels(pkgs []Package) []int {
+	let mut level = []int{}
+	let mut imports = [][]int{}
+	for p in pkgs {
+		level = level.Append(-1)
+		let mut own = []int{}
+		for path in bind.Imports(p.Files) {
+			let i = indexOf(pkgs, path)
+			if i >= 0 {
+				own = own.Append(i)
+			}
+		}
+		imports = imports.Append(own)
+	}
+	// Each pass places the packages whose imports are all placed; a pass
+	// that places none leaves the cycles at -1.
+	let mut placed = true
+	for placed {
+		placed = false
+		for i in 0..len(pkgs) {
+			if level[i] >= 0 {
+				continue
+			}
+			let mut top = 0
+			let mut ready = true
+			for j in imports[i] {
+				if level[j] < 0 {
+					ready = false
+				} else if level[j]+1 > top {
+					top = level[j] + 1
+				}
+			}
+			if ready {
+				level[i] = top
+				placed = true
+			}
+		}
+	}
+	level
+}
+
+func indexOf(pkgs []Package, path string) int {
+	for i, p in pkgs {
+		if p.Path == path {
+			return i
+		}
+	}
+	-1
+}
+
+// checkOne is one package task: collect, the parent column, bind as body
+// tasks against deps (the frozen interfaces of its imports, in its import
+// list's order), then freeze.
+func checkOne(p Package, deps []store.Frozen, threads int) Checked {
+	let s = bind.Collect(p.Path, p.Files)
+	let ps = bind.BuildParents(p.Files)
+	let (bound, u) = bind.Bind(s, deps, ps, p.Files, threads)
+	Checked{Path: p.Path, Store: store.Freeze(bound), Parents: ps, Uses: u}
+}
+
+// depsOf is the frozen interfaces of p's imports in its import list's
+// order: a package the program does not hold, or has not checked, is an
+// empty interface, so its names resolve to nothing.
+func depsOf(p Package, pkgs []Package, done []Option[Checked]) []store.Frozen {
+	let mut out = []store.Frozen{}
+	for path in bind.Imports(p.Files) {
+		let i = indexOf(pkgs, path)
+		let found = if i >= 0 {
+			match done[i] {
+			case Some[Checked] as c:
+				Some[store.Frozen]{Value: c.Value.Store}
+			case None:
+				None
+			}
+		} else {
+			None
+		}
+		match found {
+		case Some[store.Frozen] as f:
+			out = out.Append(f.Value)
+		case None:
+			out = out.Append(store.Freeze(store.New(path, []string{})))
+		}
+	}
+	out
+}
+
+// Check checks the program's packages: wave by wave, each wave's packages
+// as tasks, at most threads at once; each package binds its bodies on up
+// to threads tasks too. The result has one Checked per package, in pkgs'
+// order. The packages of an import cycle run last, against empty
+// interfaces for the imports of the cycle.
+func Check(pkgs []Package, threads int) []Checked {
+	let level = levels(pkgs)
+	let mut done = []Option[Checked]{}
+	let mut top = 0
+	for i in 0..len(pkgs) {
+		done = done.Append(None)
+		if level[i] > top {
+			top = level[i]
+		}
+	}
+	for w in 0..top+2 {
+		let wave = if w <= top { w } else { -1 }
+		let mut members = []int{}
+		for i in 0..len(pkgs) {
+			if level[i] == wave {
+				members = members.Append(i)
+			}
+		}
+		if len(members) == 0 {
+			continue
+		}
+		let frozen = done
+		let out = tasks.Transform(members, threads, func(i int) Checked { checkOne(pkgs[i], depsOf(pkgs[i], pkgs, frozen), threads) })
+		for k, i in members {
+			done[i] = Some[Checked]{Value: out[k]}
+		}
+	}
+	let mut result = []Checked{}
+	for d in done {
+		match d {
+		case Some[Checked] as c:
+			result = result.Append(c.Value)
+		case None:
+		}
+	}
+	result
+}

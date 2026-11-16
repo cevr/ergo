@@ -71,9 +71,9 @@ func TestCompilerBindAgreesWithChecker(t *testing.T) {
 		checked++
 		files := ergoFiles(t, dir)
 		for _, mode := range []string{"collect", "uses", "locals"} {
-			args := files
+			args := append([]string{"-std", filepath.Join(repoRoot(), "internal", "sketch", "std")}, files...)
 			if mode != "collect" {
-				args = append([]string{"-" + mode}, files...)
+				args = append([]string{"-std", filepath.Join(repoRoot(), "internal", "sketch", "std"), "-" + mode}, files...)
 			}
 			cmd := exec.CommandContext(ctx, dump, args...)
 			cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
@@ -167,7 +167,7 @@ func goBind(t *testing.T, dir string) (map[string][]string, bool) {
 	info := root.Package.Info
 	fileOf := map[*syntax.Ident]string{}
 	written := map[*syntax.Ident]string{}
-	sel := map[*syntax.Ident]bool{}
+	sel := map[*syntax.Ident]syntax.Expr{}
 	for _, f := range root.Files {
 		if f.Syntax == nil {
 			continue
@@ -178,7 +178,7 @@ func goBind(t *testing.T, dir string) (map[string][]string, bool) {
 			case *syntax.Ident:
 				fileOf[x] = name
 			case *syntax.SelectorExpr:
-				sel[x.Sel] = true
+				sel[x.Sel] = x.X
 			}
 			return true
 		})
@@ -239,7 +239,10 @@ func goBind(t *testing.T, dir string) (map[string][]string, bool) {
 	var uses []string
 	for id, o := range info.Uses {
 		// A local's declaring identifier is also recorded as its use.
-		if sel[id] || written[id] == "" || info.Defs[id] == o {
+		if written[id] == "" || info.Defs[id] == o {
+			continue
+		}
+		if _, ok := sel[id]; ok {
 			continue
 		}
 		if _, ok := o.(*check.Field); ok {
@@ -256,11 +259,43 @@ func goBind(t *testing.T, dir string) (map[string][]string, bool) {
 		}
 		uses = append(uses, fmt.Sprintf("%s %d -> %s", fileOf[id], id.Pos(), to))
 	}
+	// A selector's name is a use of another package's declaration when the
+	// selector reads an Ergo import (S3c's XRef). The Go checker resolves
+	// it (expr.go qualified) with no Info.Uses entry, so this reads the
+	// import's scope as qualified does.
+	for id, x := range sel {
+		if written[id] == "" {
+			continue
+		}
+		if line, ok := importedUse(info, x, id.Name); ok {
+			uses = append(uses, fmt.Sprintf("%s %d -> %s", fileOf[id], id.Pos(), line))
+		}
+	}
 	return map[string][]string{
 		"collect": collect,
 		"uses":    uses,
 		"locals":  append(append([]string{}, collect...), locals...),
 	}, true
+}
+
+// importedUse is "import PATH NAME" when the selector's X names an Ergo
+// import (no Go import) whose scope holds the exported name, as the
+// checker's qualified resolves it; else false.
+func importedUse(info *check.Info, x syntax.Expr, name string) (string, bool) {
+	xi, ok := x.(*syntax.Ident)
+	if !ok {
+		return "", false
+	}
+	pn, ok := info.Uses[xi].(*check.PkgName)
+	// go is the predeclared package of go.Is and go.As, no import.
+	if !ok || pn.Pkg == nil || pn.Pkg.Host() || pn.Pkg.Path == "go" || pn.Pkg.Scope == nil || name == "" || name[0] < 'A' || name[0] > 'Z' {
+		return "", false
+	}
+	o := unexported(pn.Pkg.Scope, "names").MapIndex(reflect.ValueOf(name))
+	if !o.IsValid() || o.IsNil() {
+		return "", false
+	}
+	return fmt.Sprintf("import %s %s", pn.Pkg.Path, name), true
 }
 
 // canonical is the object a use names as bind sees it: a capability-row
