@@ -275,7 +275,7 @@
       "file": "internal/sketch/std/http/http.ergo",
       "from": "Response needs R) fails InvalidLimits needs R | Scheduler",
       "to": "Response needs R) fails InvalidLimits needs Scheduler",
-      "rule": "The function handler's capability row reaches the serving caller: the runtime binding serve lists the R its handle needs (rows.md, Capability rows 8; CK-EXTROW). Dropping R from Serve's own row is S102 at the handler call already.",
+      "rule": "The function handler's capability row reaches the serving caller: the runtime binding serve lists R, which its handle requires; rows.md, Capability rows 8 (CK-EXTROW). Dropping R from Serve's own row is S102 at the handler call already.",
       "killers": ["lower:TestHTTPHandlerRows"], "anchor": {"tests": ["lower:TestHTTPHandlerRows"]}
     },
     {
