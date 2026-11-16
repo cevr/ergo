@@ -95,6 +95,12 @@ func (b *irBuilder) retOf(x syntax.Expr, p irPos) []*irStmt {
 			pre, _ := b.try(call)
 			return append(pre, &irStmt{K: "ret", Pos: p})
 		}
+		if c := b.l.info.Calls[call]; c != nil && c.Kind == check.CallFuncValue && b.result == nil {
+			// A function value's pair: its failure leaves, then the
+			// frame returns with no value (ir_closure.go).
+			pre, _ := b.try(call)
+			return append(pre, &irStmt{K: "ret", Pos: p})
+		}
 		pre, e := b.rawCall(call)
 		return append(pre, &irStmt{K: "ret", Pos: p, X: e})
 	}
@@ -399,6 +405,9 @@ func (b *irBuilder) armBody(a *syntax.CatchArm, result int, rt check.Type) []*ir
 			out := b.tail(list[:len(list)-1], false)
 			return append(out, b.matchStmt(s, true, &yieldTo{local: result, t: rt})...)
 		}
+	}
+	if isExpr && b.unreachableCall(last.X) != nil {
+		return b.tail(list, false) // ir_defect.go: the defect leaves the arm (FLIP OPC-unreach)
 	}
 	if !isExpr {
 		if result >= 0 {

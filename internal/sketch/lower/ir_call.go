@@ -71,6 +71,9 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		irNo("call without a value")
 	}
 	p := b.pos(x, x.Pos())
+	if check.IsUnreachable(c) {
+		return b.unreachableValue(x) // ir_defect.go (FLIP OPC-unreach)
+	}
 	// The call keeps its Ergo identity in the call table, as the Go text's
 	// identify records it (calls.go, #230): the IR's position of the call
 	// is the Go frame's line that a defect's report looks up.
@@ -184,6 +187,8 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		return b.opCall(x, c, p) // ir_pkg.go
 	case check.CallConversion:
 		return b.conversion(x, c, p) // ir_pkg.go
+	case check.CallEncode, check.CallDecode:
+		return b.codecCall(x, c, p) // ir_codec.go
 	case check.CallProviderOp:
 		switch {
 		case b.env < 0 || c.Op == nil:

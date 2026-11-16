@@ -233,8 +233,20 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"law result of an untried fallible call", "G6"},
 	{"call kind 10", "G6"}, // CallEncode
 	{"call kind 11", "G6"}, // CallDecode
+	// The codec built-ins take the IR (FLIP OPC-codec), but for these:
+	{"codec of a type that holds type parameters", "G4"}, // codec witnesses, with witness parameters
+	{"codec *", "G6"},
+	{"encode on a direct writer", "G6"},
 	{"call kind 12", "G6"}, // CallEmbed
 	{"call kind 13", "G6"}, // CallPattern: a refinement's matches(it, `…`)
 	{"call kind 8", "G6"},  // CallLawOp
 	{"call kind 9", "G6"},  // CallGoError
+	// IRG6 r2's function values, ported to flip-f1 (flip-fnval): literals,
+	// trailing blocks of program calls, function types, calls of function
+	// values. These stay the emitter's.
+	{"function literal *", "G6"},
+	{"function type with several results", "G6"},
+	{"call of a function value *", "G6"},
+	{"call of a value of a named function type", "G6"},
+	{"call of a known callback", "G4"}, // known.go's plain variant
 }

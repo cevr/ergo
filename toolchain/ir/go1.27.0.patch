@@ -1714,12 +1714,50 @@ index 0000000..3d9db4a
 +	}
 +	c.labels, c.gotos = nil, nil
 +}
+diff --git a/src/cmd/compile/internal/noder/ergoir_opc.go b/src/cmd/compile/internal/noder/ergoir_opc.go
+new file mode 100644
+index 0000000..4d58d7f
+--- /dev/null
++++ b/src/cmd/compile/internal/noder/ergoir_opc.go
+@@ -0,0 +1,32 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package noder
++
++import (
++	"cmd/compile/internal/syntax"
++	"cmd/compile/internal/types2"
++)
++
++// ergoBareRange is the clause of a range with neither a key nor a value
++// bound (a std body's `for _ in xs`): `for range x`, with no left-hand
++// side, as hand-written Go and the IR's text view spell it.
++func ergoBareRange(x syntax.Expr) *syntax.RangeClause {
++	return &syntax.RangeClause{X: x}
++}
++
++// ergoIsDefect reports a panic value of a pointer to a struct: the defect
++// the prelude's Unreachable raises (runtime/v1 UnreachableAt), which a
++// hand-written Go program panics with as it is.
++func ergoIsDefect(t types2.Type) bool {
++	if t == nil {
++		return false
++	}
++	p, ok := t.Underlying().(*types2.Pointer)
++	if !ok {
++		return false
++	}
++	_, ok = p.Elem().Underlying().(*types2.Struct)
++	return ok
++}
 diff --git a/src/cmd/compile/internal/noder/ergoir_stmt.go b/src/cmd/compile/internal/noder/ergoir_stmt.go
 new file mode 100644
-index 0000000..8c974fc
+index 0000000..187bd29
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_stmt.go
-@@ -0,0 +1,350 @@
+@@ -0,0 +1,355 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1971,9 +2009,10 @@ index 0000000..8c974fc
 +	case "panic":
 +		// panic(x), x a string: a path a checked program never takes; or
 +		// x an error: a failure in a frame that cannot fail, or a total
-+		// catch's default (ergoir_fail.go).
++		// catch's default (ergoir_fail.go); or x a pointer to a struct: a
++		// defect value, the prelude's Unreachable (ergoir_opc.go).
 +		x, t := c.expr(s.X)
-+		if x == nil || !ergoIsString(t) && !ergoIsErrorValue(t) {
++		if x == nil || !ergoIsString(t) && !ergoIsErrorValue(t) && !ergoIsDefect(t) {
 +			c.errorf(s.Pos, "ergoir: panic of %v", t)
 +			return nil
 +		}
@@ -2021,6 +2060,10 @@ index 0000000..8c974fc
 +			lhs.ElemList = append(lhs.ElemList, c.name(s.Pos, v, true))
 +		}
 +		rc := &syntax.RangeClause{Lhs: lhs, Def: true, X: x}
++		if s.Key == nil && s.Val == nil {
++			// for range x, as the text view prints it (ergoir_opc.go).
++			rc = ergoBareRange(x)
++		}
 +		rc.SetPos(pos)
 +		st := &syntax.ForStmt{Init: rc}
 +		st.SetPos(pos)
