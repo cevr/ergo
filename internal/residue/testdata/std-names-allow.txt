@@ -11,7 +11,6 @@ internal/sketch/check/entry.go	tn.Pkg.Path == "machines"	machines.Every timer (F
 internal/sketch/check/export.go	s.pkgs[i].Path != segmentPackage(s.segs[i].path)	snapshot integrity: a decoded segment is the package its header names, not a std identity
 internal/sketch/check/export.go	segmentPackage(keys[i]) != pkg.Path	snapshot integrity: a module segment's key names its package, not a std identity
 internal/sketch/check/extern.go	f.Pkg.Path == std.PreludePath	predeclared function footprint
-internal/sketch/check/footprint.go	f.Pkg.Path != std.PreludePath	predeclared collection functions; follow-up declared contracts
 internal/sketch/check/implements.go	c.pkg.Path != std.PreludePath	a prelude type hidden by a package's own type of its name
 internal/sketch/check/implements.go	c.pkg.Path == std.PreludePath	the prelude's own check reads its contracts from its scope
 internal/sketch/check/implements.go	o.Obj.Pkg.Path == "io"	io.Closer, Go's release contract in a binding

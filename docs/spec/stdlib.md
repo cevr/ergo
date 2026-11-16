@@ -1663,7 +1663,6 @@ The standard library is an ordinary set of packages ([NORTH_STAR.md](../../NORTH
 | `internal/sketch/check/implements.go:checker.preludeContract` | `Closer`, `Keeping` |
 | `internal/sketch/check/implements.go:checker.recordLegacyReleases` | `Closer` |
 | `internal/sketch/check/implements.go:isGoCloser` | `io.Closer` |
-| `internal/sketch/check/footprint.go:preludeCollection` | `Append`, `Get`, `Delete`, `Put` |
 | `internal/sketch/check/hostres.go:checker.hostCloseFunc` | `Close` |
 | `internal/sketch/check/laws.go:lawClosures` | the prelude's providers in a law |
 | `internal/sketch/check/loops.go:checker.preludeOrigin` | `Range`, `Seq` |
@@ -1674,22 +1673,16 @@ The standard library is an ordinary set of packages ([NORTH_STAR.md](../../NORTH
 | `internal/sketch/check/takes.go:checker.takesPass` | `Close` |
 | `internal/sketch/derive/eval.go:evaluator.callee` | `Of`, the derive plan's constructor |
 | `internal/sketch/eval/arguments.go:interp.argumentType` | the prelude's types |
-| `internal/sketch/eval/expr.go:interp.collectionCall` | `Append`, `Get`, `Delete`, `Put` |
-| `internal/sketch/eval/expr.go:preludeCollection` | `Append`, `Get`, `Delete`, `Put` |
 | `internal/sketch/eval/machine.go:interp.machineStep` | `Enter`, `Stay`, `Emit`, `Tell`, `Done`, `Next` |
-| `internal/sketch/eval/stmt.go:interp.handover` | `Get` |
 | `internal/sketch/lower/builders.go:lowerer.builtText` | a prelude constructor, written unqualified |
 | `internal/sketch/lower/calls.go:funcCtx.callee` | a prelude function, written unqualified |
 | `internal/sketch/lower/decls.go:isPreludeType` | `Option`, `Some`, `None` |
 | `internal/sketch/lower/decls.go:lowerer.intrinsic` | `Append`, `Delete`, `Put`, `Take` |
 | `internal/sketch/lower/getmatch.go:getPattern` | `Some`'s `Value`, the comma-ok form of `Get` |
-| `internal/sketch/lower/getmatch.go:preludeGet` | `Get` |
 | `internal/sketch/lower/gocall.go:isOptionType` | `Option` |
 | `internal/sketch/lower/library.go:hostProvides` | `Console`, `Ambient` |
 | `internal/sketch/lower/literal.go:lowerer.ergoType` | a prelude type, written unqualified |
 | `internal/sketch/lower/module.go:lowerer.hostFields` | `Console`, `Ambient` |
-| `internal/sketch/lower/values.go:preludeAppend` | `Append` |
-| `internal/sketch/lower/values.go:preludeMapWrite` | `Delete`, `Put` |
 | `internal/tsproj/project.go:emitter.declare` | `Wire` |
 | `internal/tsproj/project.go:emitter.schema` | `Option` |
 
