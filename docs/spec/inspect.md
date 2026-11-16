@@ -44,9 +44,7 @@ code and changes no lowering or optimization path.
 
 ## Forms
 
-Status: **implemented** (IR-FORMS IRF-6, 2026-11-16) for the passes on the
-line today: the memo pass. Unlike the API view, this view lowers the
-program to the IR in process; it runs no Go tool.
+Status: **implemented** for the passes on the line today: the memo pass (IR-FORMS IRF-6). Unlike the API view, this view lowers the program to the IR in process; it runs no Go tool.
 
 ```
 ergo inspect forms FILE|DIR [--json]
