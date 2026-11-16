@@ -33,6 +33,9 @@ func (g *fgen) orderDecls() {
 	// whose row is empty at the site (E is no failure), whose Go error the
 	// caller drops.
 	g.b.WriteString("func app[E](n int, f func(int) int fails E) int fails E {\n\treturn (try f(n)) + 1\n}\n\n")
+	// gate has no value and ends in branches, two of whose tails are an
+	// error value: each fails the frame there.
+	g.b.WriteString("func gate(n int) fails E1 needs Console {\n\tConsole.Println(\"gate \\(n)\")\n\tif n % 3 == 0 {\n\t\tE1{Code: n}\n\t} else if n % 3 == 1 {\n\t\tConsole.Println(\"gate one\")\n\t} else {\n\t\tif n > 4 {\n\t\t\tConsole.Println(\"gate two\")\n\t\t\tE1{Code: n + 100}\n\t\t} else {\n\t\t\tConsole.Println(\"gate small\")\n\t\t}\n\t}\n}\n\n")
 }
 
 // traced is a call of tr: an operation call inside an expression.
@@ -133,6 +136,10 @@ func (g *fgen) tryStmt(in string, budget, k int) bool {
 	chk := func() string { return "chk(" + g.expr(1) + ")" }
 	switch {
 	case k == 7 && f.fails("E1"):
+		if slices.Contains(f.needs, "Console") && g.n(3) == 0 {
+			fmt.Fprintf(&g.b, "%stry gate(%s)\n", in, g.expr(1))
+			return true
+		}
 		g.shown(in, fmt.Sprintf("try %s * 2 + %s", chk(), chk()))
 	case k == 8 && f.fails("E1"):
 		switch g.n(3) {
