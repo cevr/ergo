@@ -309,6 +309,11 @@ func (l *lowerer) lowerAgain() ([]byte, error) {
 	next := lowererOf(l.canon, l.pkg, l.goModule, tests)
 	next.noEntry, next.matchTest = l.noEntry, l.matchTest
 	next.ir = l.ir.restart() // LowerIR and CensusIR (ir.go)
+	if l.rewrite != nil {
+		// The run build's laws rewrite the program again on the same
+		// evidence (rewrite-lost-on-bail: a bail dropped every rewrite).
+		next.rewrite = &rewriter{ev: l.rewrite.ev, rules: l.rewrite.rules}
+	}
 	next.flatOff = map[*check.TypeName]bool{}
 	for tn := range l.flatOff {
 		next.flatOff[tn] = true
@@ -333,6 +338,23 @@ func (l *lowerer) lowerAgain() ([]byte, error) {
 	return out, err
 }
 
+// unionPkgs are the packages whose unions the rule below decides: the
+// sourced packages and the reached std packages. A std union takes the
+// form a user package's union of the same shape takes, so a std package
+// lowers as its copy in a user module does (std-copy, flat-union-std).
+func (l *lowerer) unionPkgs() []*check.Package {
+	out := l.sourcedPkgs()
+	for _, p := range l.libraries() {
+		if p.Std() && !l.isSourced(p) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// unionSourced reports a package of unionPkgs.
+func (l *lowerer) unionSourced(p *check.Package) bool { return p != nil && (l.isSourced(p) || p.Std()) }
+
 // flatUnionSet decides, once, which unions of the program are flat.
 func (l *lowerer) flatUnionSet() map[*check.TypeName]*flatUnion {
 	if l.flatSet != nil {
@@ -350,7 +372,7 @@ func (l *lowerer) flatUnionSet() map[*check.TypeName]*flatUnion {
 	// machineStates are the program's machines' states, whatever the
 	// reference: a state past the register bound stays flat (MSB2, below).
 	machineStates := map[*check.TypeName]bool{}
-	for _, p := range l.sourcedPkgs() {
+	for _, p := range l.unionPkgs() {
 		for _, tn := range l.canon.types(p) {
 			if tn.Decl == nil {
 				continue
@@ -386,7 +408,7 @@ func (l *lowerer) flatUnionSet() map[*check.TypeName]*flatUnion {
 	}
 	// A union a Go extern's signature names keeps its Go view.
 	extern := map[*check.TypeName]bool{}
-	for _, p := range l.sourcedPkgs() {
+	for _, p := range l.unionPkgs() {
 		for _, f := range l.canon.funcs(p) {
 			if f.Decl == nil || f.Decl.Extern == nil || f.Sig == nil {
 				continue
@@ -403,7 +425,7 @@ func (l *lowerer) flatUnionSet() map[*check.TypeName]*flatUnion {
 	l.genericUnions(func(tn *check.TypeName) bool { return states[tn] || signals[tn] || extern[tn] || l.flatOff[tn] })
 	// Steps 1 and 2: the candidates.
 	var cands []*check.TypeName
-	for _, p := range l.sourcedPkgs() {
+	for _, p := range l.unionPkgs() {
 		for _, tn := range l.canon.types(p) {
 			n, ok := tn.Type.(*check.Named)
 			if !ok || states[tn] || extern[tn] || l.flatOff[tn] {
@@ -476,7 +498,7 @@ func (l *lowerer) flatUnionSet() map[*check.TypeName]*flatUnion {
 // the record an invalid recursive Go type, so the program keeps Option an
 // interface.
 func (l *lowerer) optionCycle(opt *check.TypeName) bool {
-	for _, p := range l.sourcedPkgs() {
+	for _, p := range l.unionPkgs() {
 		for _, tn := range l.canon.types(p) {
 			n, ok := tn.Type.(*check.Named)
 			if !ok {
@@ -624,7 +646,7 @@ func mentioned(t check.Type, out map[*check.TypeName]bool, seen map[check.Type]b
 // flatShape is the flat form of the union n by the rule's steps 1 and 2,
 // or nil when they keep it an interface (n not a union included).
 func (l *lowerer) flatShape(n *check.Named) *flatUnion {
-	if n.Orig != nil || len(n.TParams) > 0 || n.Obj.Decl == nil || !l.isSourced(n.Obj.Pkg) {
+	if n.Orig != nil || len(n.TParams) > 0 || n.Obj.Decl == nil || !l.unionSourced(n.Obj.Pkg) {
 		return nil
 	}
 	u, ok := n.Underlying().(*check.Union)
@@ -741,7 +763,7 @@ func (l *lowerer) layoutOf(t check.Type, path map[*check.TypeName]bool, depth in
 			return structLayout([]goLayout{{size: 1, align: 1, ssa: true}, s}), nil, true
 		case opt != nil && isOptionVariant(obj, opt.Obj):
 			// Some's record; None's is empty.
-		case !l.isSourced(obj.Pkg):
+		case !l.unionSourced(obj.Pkg):
 			return goLayout{}, nil, false
 		}
 		if d := u.Defined(); d != nil {
