@@ -1,8 +1,8 @@
 // kinddump solves the bracket parameter kinds of one package's generic
 // type declarations with compiler/check/types and prints them, one line
-// per declaration:
+// per declaration, and those of its generic functions:
 //
-//	kinddump EXT FILE...   "NAME KIND,KIND,…"
+//	kinddump EXT FILE...   "NAME KIND,KIND,…", "func NAME KIND,KIND,…"
 //
 // EXT is a file of the kinds of the generic types the package names that
 // are not its own, one line "HEAD KIND,KIND,…" (the Go side writes it; it
@@ -73,6 +73,16 @@ func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
 			ws = ws.Append(word(x))
 		}
 		b.WriteString("\(name) \(strings.Join(ws, ","))\n")
+	}
+	for f in types.SolveFuncKinds(s, parsed, ext, k) {
+		if len(f.Kinds) == 0 {
+			continue
+		}
+		let mut ws = []string{}
+		for x in f.Kinds {
+			ws = ws.Append(word(x))
+		}
+		b.WriteString("func \(f.Name) \(strings.Join(ws, ","))\n")
 	}
 	io.Stdout.Print(b.String())
 }

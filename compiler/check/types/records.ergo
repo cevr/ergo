@@ -1,5 +1,6 @@
 import compiler/syntax
 import dense
+import strings
 
 // Record is a record declaration of a file: a `type R[…] { fields }`, or
 // an inline variant of a union, whose parameters are the union's its
@@ -64,4 +65,81 @@ func Records(p syntax.Parsed, prelude bool) []Record {
 		}
 	}
 	out
+}
+
+// DefinedType is a defined type declaration of a file, `type N[…] T`:
+// its name, its parameters and its base expression.
+type DefinedType { Name string, Params []string, Base dense.ID[syntax.Node] }
+
+// Defined is the defined type declarations of p, in source order: a type
+// declaration whose body is no record, union, operation type or machine.
+func Defined(p syntax.Parsed) []DefinedType {
+	let mut out = []DefinedType{}
+	for d in topDecls(p) {
+		match syntax.ViewOf(p.Tree, d) {
+		case syntax.TypeDecl as td:
+			let params = match dense.Unpack(td.TypeParams) {
+			case Some[dense.ID[syntax.Node]] as tp:
+				let (names, _) = bracketNames(p, tp.Value)
+				names
+			case None:
+				[]string{}
+			}
+			match dense.Unpack(td.Spec) {
+			case Some[dense.ID[syntax.Node]] as sp:
+				match syntax.ViewOf(p.Tree, sp.Value) {
+				case syntax.StructType:
+				case syntax.InterfaceType:
+				case syntax.MachineType:
+				case _:
+					out = out.Append(DefinedType{Name: nameText(p, td.Name), Params: params, Base: sp.Value})
+				}
+			case None:
+			}
+		case _:
+		}
+	}
+	out
+}
+
+// RefinedType is a refined type declaration of a file, `type N B where
+// …`: its name, the name of the parse function it derives, and its base.
+type RefinedType { Name string, Parse string, Base dense.ID[syntax.Node] }
+
+// Refined is the refined type declarations of p, in source order. Each
+// derives func ParseN(it B) N fails Unsatisfied (parseN for a lower-case
+// N), which the Go parser writes into the file (syntax refine.go) and
+// this parser leaves to the checker.
+func Refined(p syntax.Parsed) []RefinedType {
+	let mut out = []RefinedType{}
+	for d in topDecls(p) {
+		match syntax.ViewOf(p.Tree, d) {
+		case syntax.TypeDecl as td:
+			match dense.Unpack(td.Where) {
+			case Some[dense.ID[syntax.Node]]:
+				match dense.Unpack(td.Spec) {
+				case Some[dense.ID[syntax.Node]] as sp:
+					let name = nameText(p, td.Name)
+					out = out.Append(RefinedType{Name: name, Parse: parseName(name), Base: sp.Value})
+				case None:
+				}
+			case None:
+			}
+		case _:
+		}
+	}
+	out
+}
+
+// parseName is the name of the parse function a refinement of the type
+// name derives: ParsePort for Port, parsePort for port.
+func parseName(name string) string {
+	if len(name) == 0 {
+		return "parse"
+	}
+	let first = name[0:1]
+	if strings.ToUpper(first) == first && strings.ToLower(first) != first {
+		return "Parse" + name
+	}
+	"parse" + strings.ToUpper(first) + name[1:len(name)]
 }

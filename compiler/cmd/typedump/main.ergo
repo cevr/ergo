@@ -1,8 +1,9 @@
 // typedump resolves the field types of one package's records with
 // compiler/check/types and prints them, one line per written field, and
-// one line "REC [P,…]" per record with its parameters:
+// one line "REC [P,…]" per record with its parameters; then the base of
+// each defined type and the signature of each function declaration:
 //
-//	typedump EXT FOREIGN FILE...   "REC.FIELD TYPE"
+//	typedump EXT FOREIGN FILE...   "REC.FIELD TYPE", "def NAME TYPE", "func NAME TYPE"
 //
 // EXT is the kinds of foreign generic types ("HEAD KIND,…", as kinddump
 // reads it); FOREIGN is the foreign types ("QUAL NAME ARITY PATH PRINT
@@ -102,7 +103,33 @@ func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
 		case _:
 			0
 		}
-		foreign = foreign.Append(types.Foreign{Qual: parts[0], Name: parts[1], Arity: n, Path: parts[3], Print: strings.ReplaceAll(parts[4], "^", " "), Key: parts[5]})
+		foreign = foreign.Append(types.Foreign{Qual: parts[0], Name: parts[1], Arity: n, Path: parts[3], Print: strings.ReplaceAll(parts[4], "^", " "), Key: parts[5], Variants: []int{}})
+	}
+	// "@union QUAL NAME VARIANT,…": a foreign union's variants, types of
+	// its package.
+	for line in strings.Split(try read(args[1]), "\n") {
+		let parts = strings.Fields(line)
+		if len(parts) != 4 || parts[0] != "@union" {
+			continue
+		}
+		// The variants keep their declared order (the row sorts them).
+		let mut vs = []int{}
+		let mut at = -1
+		for i, f in foreign {
+			if f.Qual == parts[1] && f.Name == parts[2] {
+				at = i
+			}
+		}
+		for v in strings.Split(parts[3], ",") {
+			for i, f in foreign {
+				if f.Qual == parts[1] && f.Name == v {
+					vs = vs.Append(i)
+				}
+			}
+		}
+		if at >= 0 {
+			foreign[at].Variants = vs
+		}
 	}
 	let mut files = []bind.File{}
 	let mut parsed = []syntax.Parsed{}
@@ -123,6 +150,46 @@ func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
 			let names = types.Names{Params: r.Params, Foreign: foreign, Pkg: pkgName}
 			out = out.Append("\(r.Name) [\(strings.Join(r.Params, ","))]")
 			fieldLines(&s, env, names, p, r.Name, r.Fields, &out)
+		}
+	}
+	for p in parsed {
+		if p.Failed {
+			continue
+		}
+		for d in types.Defined(p) {
+			let env = types.NewEnv(s, parsed, p, d.Params, kinds, ext, foreign)
+			let names = types.Names{Params: d.Params, Foreign: foreign, Pkg: pkgName}
+			// Resolve first: it adds to the pool Text reads.
+			let t = types.Resolve(&s, env, d.Base)
+			out = out.Append("def \(d.Name) \(types.Text(s, names, t))")
+		}
+	}
+	for p in parsed {
+		if p.Failed {
+			continue
+		}
+		for r in types.Refined(p) {
+			let env = types.NewEnv(s, parsed, p, []string{}, kinds, ext, foreign)
+			let names = types.Names{Params: []string{}, Foreign: foreign, Pkg: pkgName}
+			let t = types.RefinedParse(&s, env, r.Base, r.Name)
+			out = out.Append("func \(r.Parse) \(types.Text(s, names, t))")
+		}
+	}
+	for f in types.SolveFuncKinds(s, parsed, ext, kinds) {
+		let p = parsed[f.File]
+		match syntax.ViewOf(p.Tree, f.Decl) {
+		case syntax.FuncDecl as fd:
+			let env = types.NewEnv(s, parsed, p, f.Params, kinds, ext, foreign)
+			let names = types.Names{Params: f.Params, Foreign: foreign, Pkg: pkgName}
+			if types.WiredOfType(s, env, fd.Type) {
+				// Not resolved yet: the agreement test skips it, by the
+				// same rule on the Go side.
+				out = out.Append("func \(f.Name) ?")
+				continue
+			}
+			let t = types.Resolve(&s, env, fd.Type)
+			out = out.Append("func \(f.Name) \(types.Text(s, names, t))")
+		case _:
 		}
 	}
 	let mut b = strings.NewBuilder()

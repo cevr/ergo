@@ -84,8 +84,9 @@ func parentDecl(p syntax.Parsed, node int) dense.Opt[syntax.Node] {
 // the import's local name), with its arity and its package's path. It
 // stands in for the frozen interfaces of S3c.
 // A non-generic one also has its text and its sort key as the Go
-// checker prints them (an alias's are its target's).
-type Foreign { Qual string, Name string, Arity int, Path string, Print string, Key string }
+// checker prints them (an alias's are its target's), and, when it is a
+// union, its variants, as indices of the table.
+type Foreign { Qual string, Name string, Arity int, Path string, Print string, Key string, Variants []int }
 
 // Env is what resolving one declaration's type expressions reads: the
 // file, the declaration's bracket parameter names in order, the solved
@@ -247,10 +248,17 @@ func instance(s *store.Store, e Env, h head, indices []dense.ID[syntax.Node]) de
 	for i, x in indices {
 		let k = if i < len(kinds) { kinds[i] } else { kindType }
 		if k == kindErrors || k == kindUses {
-			args = args.Append(row(s, e, orLeaves(e.p, x)))
-		} else {
-			args = args.Append(Resolve(s, e, x))
+			args = args.Append(row(s, e, orLeaves(e.p, x), k == kindUses))
+			continue
 		}
+		let leaves = orLeaves(e.p, x)
+		if len(leaves) > 1 {
+			// A row written for a type parameter is the row's value type
+			// (decl.go instantiateExprs; Generics 1, q47).
+			args = args.Append(rowValue(s, e, leaves))
+			continue
+		}
+		args = args.Append(Resolve(s, e, x))
 	}
 	for _ in len(indices)..arity {
 		args = args.Append(store.TRow(s, []dense.ID[store.TKey]{}))
@@ -258,13 +266,267 @@ func instance(s *store.Store, e Env, h head, indices []dense.ID[syntax.Node]) de
 	store.TInstance(s, origin, args)
 }
 
-// row is the row of the types xs.
-func row(s *store.Store, e Env, xs []dense.ID[syntax.Node]) dense.ID[store.TKey] {
+// row is the row the types xs write, in a capability row when uses: a
+// union stands for its variants (rowMembers), and wired[P] is its own
+// element.
+func row(s *store.Store, e Env, xs []dense.ID[syntax.Node], uses bool) dense.ID[store.TKey] {
+	store.TRow(s, rowElems(s, e, xs, uses))
+}
+
+func rowElems(s *store.Store, e Env, xs []dense.ID[syntax.Node], uses bool) []dense.ID[store.TKey] {
 	let mut ts = []dense.ID[store.TKey]{}
 	for x in xs {
-		ts = ts.Append(Resolve(s, e, x))
+		match wiredParam(*s, e, x) {
+		case Some[int] as p:
+			// The row of decode[P] (wirecall.go wireRow): WireWrongKind
+			// for any value read, and wired[P]; needs wired[P] is wired[P].
+			if !uses {
+				let f = foreignIndex(e, "-", "WireWrongKind")
+				ts = ts.Append(if f >= 0 { store.TForeign(s, f) } else { invalidType(s) })
+			}
+			ts = ts.Append(store.TWired(s, store.TParam(s, p.Value), uses))
+			continue
+		case None:
+		}
+		for m in members(s, e, Resolve(s, e, x)) {
+			ts = ts.Append(m)
+		}
 	}
-	store.TRow(s, ts)
+	ts
+}
+
+// rowValue is the value type of the row xs write, its elements in the
+// written order with no repeats.
+func rowValue(s *store.Store, e Env, xs []dense.ID[syntax.Node]) dense.ID[store.TKey] {
+	let mut ts = []dense.ID[store.TKey]{}
+	for t in rowElems(s, e, xs, false) {
+		let mut seen = false
+		for u in ts {
+			seen = seen || u == t
+		}
+		if !seen {
+			ts = ts.Append(t)
+		}
+	}
+	store.TRowValue(s, ts)
+}
+
+// wiredParam is P's position when x is wired[P], P a parameter of the
+// declaration and wired not a name of the package (wirecall.go wiredElem).
+// wired[T] of a concrete T stands for the codec rows of T's wire pairs,
+// which read other functions' signatures: not resolved yet (invalid).
+func wiredParam(s store.Store, e Env, x dense.ID[syntax.Node]) Option[int] {
+	match syntax.ViewOf(e.p.Tree, unparen(e.p, x)) {
+	case syntax.IndexExpr as ix:
+		if nameText(e.p, ix.X) != "wired" {
+			return None
+		}
+		match store.Lookup(s, "wired") {
+		case Some[dense.ID[store.Decl]]:
+			return None
+		case None:
+		}
+		let is = listIDs(e.p, ix.Indices)
+		if len(is) != 1 {
+			return None
+		}
+		match headOf(s, e, is[0]) {
+		case HParam as p:
+			Some[int]{Value: p.At}
+		case _:
+			None
+		}
+	case _:
+		None
+	}
+}
+
+// WiredOfType reports whether the type expression x writes wired[T] of a
+// T that is not a bracket parameter of e's declaration: its row is the
+// codec rows of what T reaches (wirecall.go wireRow), not resolved yet.
+func WiredOfType(s store.Store, e Env, x dense.ID[syntax.Node]) bool {
+	match syntax.ViewOf(e.p.Tree, x) {
+	case syntax.IndexExpr as ix:
+		if nameText(e.p, ix.X) == "wired" {
+			match wiredParam(s, e, x) {
+			case Some[int]:
+				return false
+			case None:
+				return true
+			}
+		}
+		let mut any = WiredOfType(s, e, ix.X)
+		for i in listIDs(e.p, ix.Indices) {
+			any = any || WiredOfType(s, e, i)
+		}
+		any
+	case syntax.ParenExpr as pe:
+		WiredOfType(s, e, pe.X)
+	case syntax.BinaryExpr as b:
+		WiredOfType(s, e, b.X) || WiredOfType(s, e, b.Y)
+	case syntax.ArrayType as a:
+		WiredOfType(s, e, a.Elt)
+	case syntax.MapType as m:
+		WiredOfType(s, e, m.Key) || WiredOfType(s, e, m.Value)
+	case syntax.StarExpr as st:
+		WiredOfType(s, e, st.X)
+	case syntax.TupleExpr as t:
+		let mut any = false
+		for el in listIDs(e.p, t.Elts) {
+			any = any || WiredOfType(s, e, el)
+		}
+		any
+	case syntax.ErrorRow as er:
+		let mut any = false
+		for el in listIDs(e.p, er.Types) {
+			any = any || WiredOfType(s, e, el)
+		}
+		any
+	case syntax.FuncType as ft:
+		let mut any = wiredFields(s, e, ft.Params)
+		match dense.Unpack(ft.Results) {
+		case Some[dense.ID[syntax.Node]] as r:
+			any = any || wiredFields(s, e, r.Value)
+		case None:
+		}
+		match dense.Unpack(ft.Needs) {
+		case Some[dense.ID[syntax.Node]] as n:
+			match syntax.ViewOf(e.p.Tree, n.Value) {
+			case syntax.NeedsClause as nc:
+				for el in listIDs(e.p, nc.Names) {
+					any = any || WiredOfType(s, e, el)
+				}
+			case _:
+			}
+		case None:
+		}
+		any
+	case _:
+		false
+	}
+}
+
+func wiredFields(s store.Store, e Env, l dense.ID[syntax.Node]) bool {
+	match syntax.ViewOf(e.p.Tree, l) {
+	case syntax.FieldList as fl:
+		let mut any = false
+		for f in listIDs(e.p, fl.List) {
+			match syntax.ViewOf(e.p.Tree, f) {
+			case syntax.Field as fd:
+				match dense.Unpack(fd.Type) {
+				case Some[dense.ID[syntax.Node]] as t:
+					any = any || WiredOfType(s, e, t.Value)
+				case None:
+				}
+			case _:
+			}
+		}
+		any
+	case _:
+		false
+	}
+}
+
+// members is the row a resolved row element t means: the variants of a
+// union, else t alone (decl.go rowMembers). A generic union's instance is
+// not expanded yet.
+func members(s *store.Store, e Env, t dense.ID[store.TKey]) []dense.ID[store.TKey] {
+	let k = store.KindOfType(*s, t)
+	if k == store.KForeign {
+		let f = e.foreign[store.ArgOf(*s, t)]
+		if len(f.Variants) == 0 {
+			return []dense.ID[store.TKey]{t}
+		}
+		let mut out = []dense.ID[store.TKey]{}
+		for v in f.Variants {
+			out = out.Append(store.TForeign(s, v))
+		}
+		return out
+	}
+	if k != store.KNamed {
+		return []dense.ID[store.TKey]{t}
+	}
+	match store.Lookup(*s, store.TypeNameText(*s, store.ArgOf(*s, t))) {
+	case Some[dense.ID[store.Decl]] as d:
+		match unionVariants(*s, e, d.Value) {
+		case Some[UnionOf] as u:
+			let mut inner = e
+			inner.p = u.Value.p
+			inner.params = []string{}
+			let mut out = []dense.ID[store.TKey]{}
+			for m in u.Value.members {
+				match syntax.ViewOf(u.Value.p.Tree, m) {
+				case syntax.VariantSpec as vs:
+					match store.Lookup(*s, nameText(u.Value.p, vs.Name)) {
+					case Some[dense.ID[store.Decl]] as vd:
+						out = out.Append(store.TNamed(s, vd.Value))
+					case None:
+						out = out.Append(invalidType(s))
+					}
+				case _:
+					out = out.Append(Resolve(s, inner, m))
+				}
+			}
+			out
+		case None:
+			[]dense.ID[store.TKey]{t}
+		}
+	case None:
+		[]dense.ID[store.TKey]{t}
+	}
+}
+
+// UnionOf is a union declaration's members and its file.
+type UnionOf { p syntax.Parsed, members []dense.ID[syntax.Node] }
+
+// unionVariants is the members of the local type declaration d when it
+// is a union with no parameters: a declaration whose members are inline
+// variants or types (an alias, one type member, never reaches here).
+func unionVariants(s store.Store, e Env, d dense.ID[store.Decl]) Option[UnionOf] {
+	let row = store.DeclOf(s, d)
+	if int(row.File) >= len(e.files) {
+		return None
+	}
+	let p = e.files[int(row.File)]
+	match dense.Unpack(parentDecl(p, int(row.Node))) {
+	case Some[dense.ID[syntax.Node]] as dn:
+		match syntax.ViewOf(p.Tree, dn.Value) {
+		case syntax.TypeDecl as td:
+			match dense.Unpack(td.TypeParams) {
+			case Some[dense.ID[syntax.Node]]:
+				return None
+			case None:
+			}
+			match dense.Unpack(td.Spec) {
+			case Some[dense.ID[syntax.Node]] as sp:
+				match syntax.ViewOf(p.Tree, sp.Value) {
+				case syntax.InterfaceType as it:
+					let ms = listIDs(p, it.Members)
+					if len(ms) == 0 {
+						return None
+					}
+					for m in ms {
+						match syntax.ViewOf(p.Tree, m) {
+						case syntax.Field:
+							return None
+						case syntax.LawDecl:
+							return None
+						case _:
+						}
+					}
+					Some[UnionOf]{Value: UnionOf{p: p, members: ms}}
+				case _:
+					None
+				}
+			case None:
+				None
+			}
+		case _:
+			None
+		}
+	case None:
+		None
+	}
 }
 
 // Resolve is the type the type expression x writes.
@@ -350,8 +612,45 @@ func named(s *store.Store, e Env, h head) dense.ID[store.TKey] {
 	}
 }
 
-// signature is a written function type: its parameters (one per name, a
-// parameter written own marked), its result, its error row and its
+// RefinedParse is the signature of the parse function the refined type
+// name derives, base its base: func(it base) name fails Unsatisfied, the
+// prelude's (a package that declares its own Unsatisfied is not handled
+// yet).
+func RefinedParse(s *store.Store, e Env, base dense.ID[syntax.Node], name string) dense.ID[store.TKey] {
+	let param = Resolve(s, e, base)
+	let result = match store.Lookup(*s, name) {
+	case Some[dense.ID[store.Decl]] as d:
+		store.TNamed(s, d.Value)
+	case None:
+		invalidType(s)
+	}
+	let f = foreignIndex(e, "-", "Unsatisfied")
+	let failure = if f >= 0 { store.TForeign(s, f) } else { invalidType(s) }
+	store.TSig(s, []dense.ID[store.TKey]{param}, result, store.TRow(s, []dense.ID[store.TKey]{failure}), store.TRow(s, []dense.ID[store.TKey]{}))
+}
+
+// paramType is the type of a parameter field whose type is written as x
+// and resolves to r (writtenParamType): a function type written without
+// escaping or own is non-escaping, unmarked, or an entry's send when
+// written entry; any other function type, an alias's included, is marked
+// own. A named function type and a type that is no function type are
+// unmarked.
+func paramType(s *store.Store, e Env, fd syntax.Field, x dense.ID[syntax.Node], r dense.ID[store.TKey]) dense.ID[store.TKey] {
+	if store.KindOfType(*s, r) != store.KSig {
+		return r
+	}
+	match syntax.ViewOf(e.p.Tree, unparen(e.p, x)) {
+	case syntax.FuncType as pf:
+		if pf.Escaping < 0 && fd.Own < 0 {
+			return if pf.Entry >= 0 { store.TEntry(s, r) } else { r }
+		}
+	case _:
+	}
+	store.TOwn(s, r)
+}
+
+// signature is a written function type: its parameters (one per name,
+// marked as paramType marks them), its result, its error row and its
 // capability row.
 func signature(s *store.Store, e Env, ft syntax.FuncType) dense.ID[store.TKey] {
 	let mut params = []dense.ID[store.TKey]{}
@@ -362,15 +661,7 @@ func signature(s *store.Store, e Env, ft syntax.FuncType) dense.ID[store.TKey] {
 			case syntax.Field as fd:
 				let t = match dense.Unpack(fd.Type) {
 				case Some[dense.ID[syntax.Node]] as ty:
-					let r = Resolve(s, e, ty.Value)
-					let entry = match syntax.ViewOf(e.p.Tree, ty.Value) {
-					case syntax.FuncType as pf:
-						pf.Entry >= 0
-					case _:
-						false
-					}
-					let r2 = if entry { store.TEntry(s, r) } else { r }
-					if fd.Own >= 0 { store.TOwn(s, r2) } else { r2 }
+					paramType(s, e, fd, ty.Value, Resolve(s, e, ty.Value))
 				case None:
 					invalidType(s)
 				}
@@ -396,7 +687,7 @@ func signature(s *store.Store, e Env, ft syntax.FuncType) dense.ID[store.TKey] {
 					case Some[dense.ID[syntax.Node]] as ty:
 						match syntax.ViewOf(e.p.Tree, ty.Value) {
 						case syntax.ErrorRow as er:
-							errs = row(s, e, listIDs(e.p, er.Types))
+							errs = row(s, e, listIDs(e.p, er.Types), false)
 						case _:
 							result = Resolve(s, e, ty.Value)
 						}
@@ -414,7 +705,7 @@ func signature(s *store.Store, e Env, ft syntax.FuncType) dense.ID[store.TKey] {
 	case Some[dense.ID[syntax.Node]] as n:
 		match syntax.ViewOf(e.p.Tree, n.Value) {
 		case syntax.NeedsClause as nc:
-			uses = row(s, e, listIDs(e.p, nc.Names))
+			uses = row(s, e, listIDs(e.p, nc.Names), true)
 		case _:
 		}
 	case None:
@@ -471,6 +762,12 @@ func Text(s store.Store, n Names, t dense.ID[store.TKey]) string {
 	}
 	if k == store.KRow {
 		return rowText(s, n, ops, " | ")
+	}
+	if k == store.KRowValue {
+		return joined(s, n, ops, " | ")
+	}
+	if k == store.KWired || k == store.KWiredNeeds {
+		return "wired[" + Text(s, n, ops[0]) + "]"
 	}
 	if k == store.KInstance {
 		let o = store.OriginOfType(s, t)
@@ -592,5 +889,7 @@ func sortKey(s store.Store, n Names, t dense.ID[store.TKey]) string {
 	if k == store.KForeign {
 		return n.Foreign[store.ArgOf(s, t)].Key
 	}
+	// The other forms stand in no row a declaration writes; their text
+	// stands for their key.
 	Text(s, n, t)
 }

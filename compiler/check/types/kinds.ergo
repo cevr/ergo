@@ -62,8 +62,10 @@ func union(s *solver, a int, b int) {
 	s.seen[ra] = 0
 }
 
-// solve is the state of one package's solve.
-type solve { s store.Store, files []syntax.Parsed, gens []gen, ext []Ext, sv solver, ownMap bool }
+// solve is the state of one package's solve, or of one function's (fn):
+// a function's parameters link to no declaration's, they take the slot
+// kinds local holds (kindBracketParams).
+type solve { s store.Store, files []syntax.Parsed, gens []gen, ext []Ext, sv solver, ownMap bool, fn bool, local Kinds }
 
 // walker names the variables a walk observes: names[i] is variable
 // vars[i] in file p.
@@ -136,6 +138,16 @@ func slotKinds(st solve, p syntax.Parsed, x dense.ID[syntax.Node]) []int {
 		let t = syntax.TokText(p, n.Tok)
 		match store.Lookup(st.s, t) {
 		case Some[dense.ID[store.Decl]]:
+			// A function reads a local type's kinds as solved, before the
+			// constraints (slotKinds reads declKinds), a conflict as a
+			// type.
+			if st.fn {
+				let mut out = []int{}
+				for k in rawKinds(st.local, t) {
+					out = out.Append(if k == KindConflict { kindType } else { k })
+				}
+				return out
+			}
 			return []int{}
 		case None:
 			head = t
@@ -185,6 +197,7 @@ func orLeaves(p syntax.Parsed, x dense.ID[syntax.Node]) []dense.ID[syntax.Node] 
 // the head's parameter; a lone other argument is walked as a type. It
 // reports whether it took the expression.
 func linkHead(st *solve, w walker, head dense.ID[syntax.Node], indices []dense.ID[syntax.Node]) bool {
+	// A function's solve has no declarations: it takes no head.
 	let g = localGen(*st, w.p, head)
 	if g < 0 {
 		return false
@@ -225,6 +238,18 @@ func index(st *solve, w walker, head dense.ID[syntax.Node], indices []dense.ID[s
 	}
 	walk(st, w, head, kindType)
 	let kinds = slotKinds(*st, w.p, head)
+	if st.fn {
+		// A parameter passed to a local declaration's conflicted
+		// parameter takes no kind from it (the conflict is reported at
+		// the declaration): it resolves to nothing.
+		let raw = rawKinds(st.local, nameText(w.p, head))
+		for i, x in indices {
+			let v = self(w, x)
+			if i < len(raw) && raw[i] == KindConflict && v >= 0 {
+				observe(&st.sv, v, KindConflict)
+			}
+		}
+	}
 	for i, x in indices {
 		walk(st, w, x, if i < len(kinds) { kinds[i] } else { kindType })
 	}
@@ -358,13 +383,32 @@ func bracketNames(p syntax.Parsed, l dense.ID[syntax.Node]) ([]string, []bool) {
 
 // Kinds is the solved parameter kinds of each generic type declaration
 // of the package, in collect order, with its name: kindType, kindErrors,
-// kindUses or KindConflict per parameter.
-type Kinds { Names []string, Of [][]int, Steps int }
+// kindUses or KindConflict per parameter. Raw is the kinds the positions
+// give, before a constraint makes its parameter a type.
+type Kinds { Names []string, Of [][]int, Raw [][]int, Steps int }
+
+// rawKinds is the kinds the positions give the parameters of the local
+// generic type name.
+func rawKinds(k Kinds, name string) []int {
+	for i, n in k.Names {
+		if n == name {
+			return k.Raw[i]
+		}
+	}
+	[]int{}
+}
+
+// class is a parameter's kind from the positions seen.
+func class(seen int) int {
+	// An error row in a type position names its value type.
+	let s = if seen == kindType|kindErrors { kindErrors } else { seen }
+	if s == 0 { kindType } else if s == kindType || s == kindErrors || s == kindUses { s } else { KindConflict }
+}
 
 // SolveKinds solves the kinds of the generic type declarations of the
 // package whose store bind.Collect built from files.
 func SolveKinds(s store.Store, files []syntax.Parsed, ext []Ext) Kinds {
-	let mut st = solve{s: s, files: files, gens: []gen{}, ext: ext, sv: solver{parent: []int{}, seen: []int{}, steps: 0}, ownMap: false}
+	let mut st = solve{s: s, files: files, gens: []gen{}, ext: ext, sv: solver{parent: []int{}, seen: []int{}, steps: 0}, ownMap: false, fn: false, local: Kinds{Names: []string{}, Of: [][]int{}, Raw: [][]int{}, Steps: 0}}
 	match store.Lookup(s, "Map") {
 	case Some[dense.ID[store.Decl]] as d:
 		st.ownMap = store.KindName(int(store.DeclOf(s, d.Value).Kind)) == "type"
@@ -468,24 +512,20 @@ func SolveKinds(s store.Store, files []syntax.Parsed, ext []Ext) Kinds {
 			}
 		}
 	}
-	let mut out = Kinds{Names: []string{}, Of: [][]int{}, Steps: 0}
+	let mut out = Kinds{Names: []string{}, Of: [][]int{}, Raw: [][]int{}, Steps: 0}
 	for g in st.gens {
 		let mut ks = []int{}
+		let mut raw = []int{}
 		for i, _ in g.params {
-			let mut seen = st.sv.seen[find(&st.sv, g.base+i)]
-			if seen == kindType|kindErrors {
-				// An error row in a type position names its value type.
-				seen = kindErrors
-			}
+			let k = class(st.sv.seen[find(&st.sv, g.base+i)])
+			raw = raw.Append(k)
 			// A constrained parameter is a type, whatever its positions
 			// (decl.go resolveNamed: the constraint wins over the solve).
-			if g.typed[i] {
-				seen = kindType
-			}
-			ks = ks.Append(if seen == 0 { kindType } else if seen == kindType || seen == kindErrors || seen == kindUses { seen } else { KindConflict })
+			ks = ks.Append(if g.typed[i] { kindType } else { k })
 		}
 		out.Names = out.Names.Append(nameText(files[g.file], g.name))
 		out.Of = out.Of.Append(ks)
+		out.Raw = out.Raw.Append(raw)
 	}
 	out.Steps = st.sv.steps
 	out
@@ -680,4 +720,61 @@ func receiverKinds(st *solve, p syntax.Parsed, fd syntax.FuncDecl) {
 		vars = vars.Append(st.gens[g].base + i)
 	}
 	walk(st, walker{p: p, names: names, vars: vars}, fd.Type, kindType)
+}
+
+// FuncKinds is the kinds of one function declaration's bracket
+// parameters (none for a function with no brackets): its file, its
+// declaration row, its name, its parameter names and their kinds.
+type FuncKinds { File int, Decl dense.ID[syntax.Node], Name string, Params []string, Kinds []int }
+
+// SolveFuncKinds gives each bracket parameter of each package function
+// declaration the kind of its positions in the signature: after fails an
+// error row, after needs a capability row, elsewhere a type (decl.go
+// kindBracketParams); a constrained one is a type. A function's
+// parameters link to no other declaration's: a local generic type gives
+// them its solved kinds, decls.
+func SolveFuncKinds(s store.Store, files []syntax.Parsed, ext []Ext, decls Kinds) []FuncKinds {
+	let mut out = []FuncKinds{}
+	let mut ownMap = false
+	match store.Lookup(s, "Map") {
+	case Some[dense.ID[store.Decl]] as d:
+		ownMap = store.KindName(int(store.DeclOf(s, d.Value).Kind)) == "type"
+	case None:
+	}
+	for f, p in files {
+		if p.Failed {
+			continue
+		}
+		for d in topDecls(p) {
+			match syntax.ViewOf(p.Tree, d) {
+			case syntax.FuncDecl as fd:
+				match dense.Unpack(fd.Recv) {
+				case Some[dense.ID[syntax.Node]]:
+					continue
+				case None:
+				}
+				let (names, typed) = match dense.Unpack(fd.TypeParams) {
+				case Some[dense.ID[syntax.Node]] as tp:
+					bracketNames(p, tp.Value)
+				case None:
+					([]string{}, []bool{})
+				}
+				let mut st = solve{s: s, files: files, gens: []gen{}, ext: ext, sv: solver{parent: []int{}, seen: []int{}, steps: 0}, ownMap: ownMap, fn: true, local: decls}
+				let mut vars = []int{}
+				for i, _ in names {
+					st.sv.parent = st.sv.parent.Append(i)
+					st.sv.seen = st.sv.seen.Append(0)
+					vars = vars.Append(i)
+				}
+				walk(&st, walker{p: p, names: names, vars: vars}, fd.Type, kindType)
+				let mut ks = []int{}
+				for i, _ in names {
+					ks = ks.Append(if typed[i] { kindType } else { class(st.sv.seen[i]) })
+				}
+				out = out.Append(FuncKinds{File: f, Decl: d, Name: nameText(p, fd.Name), Params: names, Kinds: ks})
+			case _:
+			}
+		}
+	}
+	out
 }
