@@ -196,6 +196,7 @@ type valueFacts struct {
 	byName   map[*check.Func]bool          // functions the program names as a value (handover.go, passedByName)
 	field    map[*syntax.CallExpr]bool     // Appends in place on a dead field path (handover.go, own-field)
 	deep     map[syntax.Expr]bool          // copies that go to Go, which may write a Map's entries (V8, cloneDeep)
+	reads    map[syntax.Expr]readsGuard    // copies the test build compares after the Go call, where the run build passes the operand (LF1, gofacts.go)
 	// The entry move-out (V9, moveout.go): the Map types the program
 	// moves an entry out of (by their type strings) and the Gets it reads.
 	entryWrites map[string]bool
@@ -235,6 +236,7 @@ func (l *lowerer) valueFacts() *valueFacts {
 			lineage:  map[*syntax.CallExpr]bool{},
 			field:    map[*syntax.CallExpr]bool{},
 			deep:     map[syntax.Expr]bool{},
+			reads:    map[syntax.Expr]readsGuard{},
 			moveRead: map[*syntax.CallExpr]bool{},
 			copied:   map[*check.Var]bool{},
 		}
@@ -379,6 +381,7 @@ type valueWalk struct {
 	args     []syntax.Expr             // arguments of owned parameters (V5)
 	goArgs   []syntax.Expr             // operands of Go calls of import go that hold a Map or slice (gocall.go)
 	goOps    map[syntax.Expr]goOperand // each goArgs operand's call (gofacts.go)
+	factUse  map[syntax.Expr]string    // what the lowering did with a Go operand's reads fact (gofacts.go)
 	sites    []*refSite                // owned Ref sites (V6, refown.go)
 	handOver map[*syntax.FuncLit]bool  // their literals
 	cells    []syntax.Expr             // values that move into a provider cell (cells.go)
@@ -984,7 +987,18 @@ func (w *valueWalk) decide() {
 			vf.clone[a] = true
 			w.goOperandReport(a, "copy", "the reference lowering copies every Go operand")
 		default:
+			// A reads fact (LF1): Go neither writes, keeps nor returns a
+			// part of the operand, so the run build passes it as it is;
+			// the test build copies it and compares after the call.
+			take, guard := w.readsOK(a)
+			if take {
+				w.goOperandReport(a, "no copy", "Go only reads the operand")
+				continue
+			}
 			w.freshen(a)
+			if guard && vf.clone[a] {
+				w.readsGuardAt(a)
+			}
 			if vf.clone[a] {
 				w.goOperandReport(a, "copy", "Go may write or keep the operand, and another binding reads its value later")
 			} else {

@@ -33,6 +33,16 @@ test At {
 	assert at("ab", 1) == 98
 }
 `,
+	"host-reads": `import go sort
+
+func find(xs []int, n int) int needs go.Foreign {
+	sort.SearchInts(xs, n) + len(xs)
+}
+
+func main() needs Console | go.Foreign {
+	Console.Println("\(find([]int{1, 3, 5}, 3))")
+}
+`,
 	"mono-instance": `func count[T](xs []T) int {
 	let mut n = 0
 	for _ in xs {

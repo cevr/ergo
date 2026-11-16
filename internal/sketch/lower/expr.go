@@ -320,8 +320,12 @@ func (fc *funcCtx) covered(x syntax.Expr) operand {
 func (fc *funcCtx) expr1(x syntax.Expr) operand {
 	o := fc.exprOf(x)
 	if fc.l.vals != nil && fc.l.vals.clone[x] {
-		// The value rule's copy (values.go), deep for Go (V8).
-		if fc.l.vals.deep[x] {
+		// The value rule's copy (values.go), deep for Go (V8); the test
+		// build's copy of a reads operand, compared with the value after
+		// the Go call (gofacts.go).
+		if g, ok := fc.l.vals.reads[x]; ok {
+			o.val = fc.readsCopy(x, o.val, g)
+		} else if fc.l.vals.deep[x] {
 			o.val = fc.cloneDeep(fc.typeOf(x), o.val, x)
 		} else {
 			o.val = fc.cloneValue(fc.typeOf(x), o.val, x)
