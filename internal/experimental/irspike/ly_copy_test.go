@@ -94,6 +94,7 @@ func lyIRCalls(t *testing.T, file string) map[string]bool {
 			case "pcall":
 				pkg, _ := v["t"].(string)
 				out[pkg+"."+name] = true
+				out[name] = true // a runtime/v1 body, by its name alone
 			}
 			for _, x := range v {
 				walk(x)
