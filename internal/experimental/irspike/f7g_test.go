@@ -129,7 +129,7 @@ var tryForms = [...]*regexp.Regexp{
 	regexp.MustCompile(`[(\[{-]\(?try chk\(`),
 	regexp.MustCompile(`case E1:\n\s+continue\n`),
 	regexp.MustCompile(`case E\d as x:\n\s+if `),
-	regexp.MustCompile(`Pt\{[^:}]*\}`), // a positional record literal (orderExpr)
+	regexp.MustCompile(`Pt\{[^:}]*\}`),                      // a positional record literal (orderExpr)
 	regexp.MustCompile(`app\([^\n]*, func\(n int\) int \{`), // a fallible call whose row is empty at its site (callsStmt)
 }
 
