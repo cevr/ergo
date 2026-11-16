@@ -110,6 +110,9 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		}
 		irNo("name that is not a local")
 	case *syntax.BinaryExpr:
+		if e := b.binaryOther(x, p); e != nil { // ir_equal.go
+			return e
+		}
 		op := x.Op.String()
 		b.operator(op, b.l.info.Types[x.X], x)
 		return &irExpr{K: "bin", Pos: b.pos(x, x.OpPos), Op: op, X: b.expr(x.X), Y: b.expr(x.Y)}
