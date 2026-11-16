@@ -249,6 +249,39 @@
       "killers": [
         "internal/sketch/syntax:TestParseAgreesWithGo"
       ]
+    },
+    {
+      "name": "columns-token-end-short",
+      "origin": "wf10 selfhost S2d",
+      "file": "compiler/syntax/columns.ergo",
+      "from": "\t\tout = out.Append(uint32(tokEnd(t, j)))",
+      "to": "\t\tout = out.Append(uint32(tokEnd(t, j)) - uint32(1))",
+      "rule": "A token's column carries its end, the second scan's (End): a name's or a literal's text is its whole span.",
+      "killers": [
+        "internal/sketch/syntax:TestDecodeAgreesWithGo"
+      ]
+    },
+    {
+      "name": "columns-group-last-is-first",
+      "origin": "wf10 selfhost S2d",
+      "file": "compiler/syntax/columns.ergo",
+      "from": "\t\tout = out.Append(uint32(p.gLast[g]))",
+      "to": "\t\tout = out.Append(uint32(p.gFirst[g]))",
+      "rule": "A comment group carries its last comment: a doc of several lines is every line.",
+      "killers": [
+        "internal/sketch/syntax:TestDecodeAgreesWithGo"
+      ]
+    },
+    {
+      "name": "columns-failure-unflagged",
+      "origin": "wf10 selfhost S2d",
+      "file": "compiler/syntax/columns.ergo",
+      "from": "\tout = out.Append(if p.Failed { uint32(1) } else { uint32(0) })",
+      "to": "\tout = out.Append(uint32(0))",
+      "rule": "A failed parse says so in the header, so a host reports the failure, never an empty tree.",
+      "killers": [
+        "internal/sketch/syntax:TestDecodeAgreesWithGo"
+      ]
     }
   ]
 }

@@ -235,6 +235,9 @@ func (p *parser) pairLaw(wire *FuncDecl, x *Ident, b Expr, open, fails bool) *La
 // again parses the type expression t once more from its own tokens, so
 // each node stands once in the file.
 func (p *parser) again(t Expr) Expr {
+	if p.retype != nil {
+		return p.retype(t)
+	}
 	for k, tok := range p.toks {
 		if tok.pos == t.Pos() {
 			saved := p.i

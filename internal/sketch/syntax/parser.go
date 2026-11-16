@@ -78,6 +78,9 @@ type parser struct {
 	// derived holds the declarations derived from the refinement just
 	// parsed (refine.go), which parseFile places after its type.
 	derived []Decl
+	// retype, when set, gives again's fresh copy of a type: the decoder
+	// (decode.go) has tokens and rows, no parse to rewind.
+	retype func(Expr) Expr
 }
 
 // ---------------------------------------------------------------- tokens and errors
