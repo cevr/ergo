@@ -50,9 +50,8 @@ func (b *irBuilder) intoRow(want check.Type, x syntax.Expr, e *irExpr) *irExpr {
 }
 
 // value is x as an IR expression, after the statements that must run
-// before it (polls, an if expression's branches). Only a whole value takes
-// statements: an if expression inside an operand keeps its source body,
-// since hoisting it would move it before the operands to its left.
+// before it (polls, an if expression's branches). An if or a match inside an
+// operand runs first too, after the operands to its left (exprOf, ir_order.go).
 func (b *irBuilder) value(x syntax.Expr) ([]*irStmt, *irExpr) {
 	// The statements its operands run first come first (ir_order.go).
 	return b.collect(func() ([]*irStmt, *irExpr) { return b.valueOf(x) })
@@ -90,20 +89,6 @@ func (b *irBuilder) valueOf(x syntax.Expr) ([]*irStmt, *irExpr) {
 			return nil, b.expr(x)
 		}
 		pre, e = b.gather(sc, y, b.pos(y, y.Pos())) // ir_scalar.go
-	case *syntax.BinaryExpr:
-		// An if or a match as an operand of an operator that evaluates
-		// both: its statements run in operand order (the emitter's binary
-		// takes its operands).
-		op := y.Op.String()
-		if op == "&&" || op == "||" || op == ".." || !isBranch(y.X) && !isBranch(y.Y) {
-			return nil, b.expr(x)
-		}
-		b.plain(y)
-		b.goType(b.l.info.Types[y], y)
-		b.operator(op, b.l.info.Types[y.X], y)
-		var vals []*irExpr
-		pre, vals = b.operands([]syntax.Expr{y.X, y.Y}) // ir_fail.go
-		e = &irExpr{K: "bin", Pos: b.pos(y, y.OpPos), Op: op, X: vals[0], Y: vals[1]}
 	default:
 		return nil, b.expr(x) // expr converts
 	}
@@ -394,10 +379,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		if !ok || len(tt.Types) != len(x.Elts) || len(tt.Types) < 2 {
 			irNo("type *check.Tuple")
 		}
-		vals := make([]*irExpr, len(x.Elts))
-		for i, e := range x.Elts {
-			vals[i] = b.expr(e)
-		}
+		vals := b.inOrder(x.Elts)         // ir_order.go
 		return b.tupleLit(tt, vals, x, p) // ir_tuple.go
 	case *syntax.FuncLit:
 		return b.closureLit(x, nil) // ir_closure.go
@@ -409,6 +391,14 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		// A try or catch inside an expression: its statements run before
 		// the expression, in order, as a call's do (ir_fail.go, ir_order.go).
 		pre, e := b.failValue(x)
+		b.runFirst(pre)
+		return e
+	case *syntax.IfStmt, *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
+		// An if or a match inside an expression: its local, declared and
+		// yielded into by its arms, runs before the expression, in order,
+		// as a call's statements do (ir_order.go); an earlier operand an
+		// arm may assign is spilled first (ordered, isBranch).
+		pre, e := b.valueOf(x)
 		b.runFirst(pre)
 		return e
 	}
