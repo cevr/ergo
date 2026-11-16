@@ -51,7 +51,7 @@ func ArenaTake[T any](s *ArenaValue[T]) T {
 }
 
 // Let is a read of a package let that the lowering declares as a Go
-// constant (lower.constLet): x itself, as a value and not a constant
+// constant (lower.constValueLet): x itself, as a value and not a constant
 // expression, so Go evaluates an expression over it as it evaluates one
 // over a variable (an integer wraps, a division by zero panics at run
 // time). gc inlines it and still folds the constant into the code.

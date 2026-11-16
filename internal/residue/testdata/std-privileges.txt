@@ -31,6 +31,7 @@ language	internal/rpcgen/rpcgen.go:gen.importOf	a prelude name is written unqual
 language	internal/rpcgen/rpcgen.go:pairOf	Wire, the codec's conversion protocol	-
 language	internal/sketch/check/authority.go:authorityText	a prelude constructor is named unqualified in a diagnostic	-
 language	internal/sketch/check/authority.go:isAmbient	Ambient, the host authority	-
+language	internal/sketch/check/authority.go:isTestAmbient	TestAmbient, the test's host authority	-
 language	internal/sketch/check/call.go:checker.collFuncs	the prelude collection functions Append, Get, Delete and Put	-
 language	internal/sketch/check/call.go:checker.preludeOp	a prelude operation reached by the dot form	-
 language	internal/sketch/check/call.go:isUnreachable	Unreachable	-

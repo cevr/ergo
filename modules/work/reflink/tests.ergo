@@ -1,0 +1,9 @@
+// The work.Cloner laws on the host, in a folder of each case's own
+// (TestAmbient). On a file system without shared extents a clone is
+// Unsupported and the laws hold by their failure cases; on one with them
+// (btrfs, XFS) they run cp --reflink for real.
+
+import exec
+import github.com/cevr/ergo/modules/work/work
+
+let onHost = context needs TestAmbient { work.Cloner: New(exec.NewTestHost()) }

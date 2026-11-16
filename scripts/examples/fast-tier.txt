@@ -7,6 +7,7 @@
 adventure
 catalog
 cborpack
+cells
 chat
 counter-gui
 csvreport
@@ -36,6 +37,8 @@ jobq
 jobs
 jsonparse
 kmeans
+kvstore
+lease-sync
 logstat
 lookup
 lzpack
@@ -57,3 +60,4 @@ tui
 twig
 vt
 wire-config
+work

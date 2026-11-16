@@ -263,7 +263,7 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		"GoCallbackError": true, "GoUntunnel": true, "GoUntunnelEager": true,
 		// S-json: the fast path appends a string to a json Text; no wait.
 		"JSONAppendTextString": true,
-		// 1BRC: a read of a let lowered as a Go constant (constLet), an
+		// 1BRC: a read of a let lowered as a Go constant (constValueLet), an
 		// identity; no wait.
 		"Let": true,
 		// BCE1: unchecked loads under a bounds fact (bounds.go,
@@ -285,6 +285,10 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		// FKG1: a machines.Every After reads the task's firing mark, a
 		// field read; no wait.
 		"MachineFiringNow": true,
+		// TH1: the test runner's folder of one case (testhost.go), made
+		// before a context's build and removed by a defer; frame
+		// plumbing of the test harness, no wait and no release.
+		"TestFolderOpen": true, "TestFolderRemove": true,
 	}
 	// capabilityOps are the owners that call a capability operation on
 	// the Env's provider field outside callText, and the operation: FKG1's

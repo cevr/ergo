@@ -743,7 +743,7 @@ func TestTestLeg(t *testing.T) {
 	slices.Sort(tests)
 	var want []string
 	for _, p := range []string{"failing", "other", "passing", "pending", "untested"} {
-		want = append(want, "test "+filepath.Join(f.root, "examples", p, "main.ergo"))
+		want = append(want, "test "+filepath.Join(f.root, "examples", p, "main.ergo")+" -work")
 	}
 	// Programs run at once (runAll), so the calls are compared as a set.
 	slices.Sort(tests)

@@ -174,7 +174,7 @@ func (c *checker) checkTest(test *Test) {
 	tg := &target{name: name, errors: newRow(), declUses: newRow(), resultKnown: true, isFunc: true}
 	frame := newScope(c.pkg.Scope)
 	frame.frame = true
-	fc := &funcCtx{t: tg, scope: frame}
+	fc := &funcCtx{t: tg, scope: frame, test: true}
 	prev := c.fn
 	c.fn = fc
 	defer func() { c.fn = prev }()

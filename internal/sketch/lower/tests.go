@@ -141,6 +141,7 @@ var testHelpers = []struct{ key, base string }{
 	{"Goal", "ergoGoal"}, {"Witness", "ergoWitness"}, {"Broken", "ergoBroken"}, {"testgen", "testgen"},
 	{"Flag", "ergoFlag"}, {"Source", "ergoSource"}, {"Replay", "ergoReplay"},
 	{"Cached", "ergoCached"}, {"CachedRun", "ergoCachedRun"},
+	{"TestAmbient", "ergoTestAmbient"},
 }
 
 // helper is the Go name of the harness entity key.
@@ -1272,7 +1273,14 @@ func (l *lowerer) harness() string {
 	return strings.NewReplacer(pairs...).Replace(harnessGo + harnessReachGo)
 }
 
-const harnessGo = `// $Assertion is a failed assert, the panic that ends its case (196l).
+const harnessGo = `// $TestAmbient is the test runner's provider of TestAmbient (rows.md,
+// Test's ambient): the folder of one case, which the with or the law case that
+// builds the context made and removes when the case ends.
+type $TestAmbient struct{ dir string }
+
+func (a $TestAmbient) folder(_ *$Task.Task) string { return a.dir }
+
+// $Assertion is a failed assert, the panic that ends its case (196l).
 // A refuted law is one too: its what is "law refuted", not "assert failed".
 type $Assertion struct{ at, text, what, declaration string }
 

@@ -321,6 +321,10 @@
       "from": "\tobserve(\"prelude.ergo\")\n", "to": "",
       "rule": "Prelude observes the prelude it reads.",
       "killers": ["internal/sketch/std:TestObserveOpensTheCheckoutCopy"]
-    }
+    },
+    {"name":"th1b-ergo-run-host","origin":"wf10 TH1b","file":"internal/sketch/std/exec/confined.ergo","from":"try hostRunIn(h.root, c.Name,","to":"try hostRun(c.Name,","rule":"exec.NewTestHost's Run goes through the folder's sandbox (ExecRunIn).","killers":["examples:modules/work"]},
+    {"name":"th1-os-getwd","origin":"wf10 TH1","file":"internal/sketch/std/os/os.ergo","from":"\tif h.root != \"\" {\n\t\treturn h.root\n\t}","to":"","rule":"os.NewTestHost's Getwd is the folder.","killers":["examples:modules/work"]},
+    {"name":"th1-exec-home","origin":"wf10 TH1","file":"internal/sketch/std/exec/confined.ergo","from":"out[\"HOME\"] = root","to":"out[\"HOME_\"] = root","rule":"A command exec.NewTestHost runs has HOME in the folder.","killers":["examples:modules/work"]},
+    {"name":"th1-fs-unconfined","origin":"wf10 TH1","file":"internal/sketch/std/fs/confined.ergo","from":"\tif h.root == \"\" {\n\t\treturn path\n\t}","to":"\tif true {\n\t\treturn path\n\t}","rule":"fs.NewTestHost's Host refuses a path out of the folder.","killers":["examples:kvstore"]}
   ]
 }

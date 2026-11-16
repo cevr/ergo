@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestConstLetsStayValues holds the constant-let lowering (constLet, wf10
+// TestConstLetsStayValues holds the constant-let lowering (constValueLet, wf10
 // 1BRC) to its promise and its guard. The promise, the one fact the speed
 // lowering gives: a package let of an integer, bool or string type with a
 // constant initializer is a Go constant, and a float let stays a variable.
@@ -16,7 +16,7 @@ import (
 // type-check (typecheckGo), as they do over a variable.
 //
 // Mutants (lower ledger): const-let-bare-read (a read is the bare name)
-// fails the type check; const-let-never (constLet admits nothing) fails
+// fails the type check; const-let-never (constValueLet admits nothing) fails
 // the constant declarations; const-let-float (it admits a float64) fails
 // the variable Half.
 func TestConstLetsStayValues(t *testing.T) {

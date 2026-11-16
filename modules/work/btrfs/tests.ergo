@@ -1,0 +1,9 @@
+// The work.Cloner laws on the host, in a folder of each case's own
+// (TestAmbient). The case's folder is no subvolume on most hosts, so a
+// clone is Unsupported there and the laws hold by their failure cases; on
+// a btrfs TMPDIR they run the snapshots for real.
+
+import exec
+import github.com/cevr/ergo/modules/work/work
+
+let onHost = context needs TestAmbient { work.Cloner: New(exec.NewTestHost()) }

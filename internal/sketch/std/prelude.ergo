@@ -23,6 +23,30 @@ type Ambient {
 	ambient(),
 }
 
+// TestAmbient is the test's ambient (docs/spec/rows.md, Test's ambient;
+// runtime.md, Tests 11): the authority a test has to reach the host,
+// confined to a fresh temporary folder per case, which only the test
+// runner provides. It is never the host's Ambient, which a test never
+// holds. A named context whose header says `needs TestAmbient` may make
+// the confined host providers (fs.NewTestHost, exec.NewTestHost,
+// os.NewTestHost) while it is built:
+//
+//	let onHost = context needs TestAmbient { exec.Runner: exec.NewTestHost() }
+//
+// Each build of such a context, a with of it in a test or one case of a
+// law run under it, gets a fresh empty folder under the test's temporary
+// directory (TMPDIR), and the runner removes the folder and all it holds
+// when the case ends. Its one operation is unexported, so no program type
+// implements it and no context entry binds it.
+// law-exempt: its one operation is unexported, so no law can call it; the confinement it gives is stated by the laws of fstest.Confined, which run over fstest.NewFolder, the Host of fs.NewTestHost in the same folder.
+type TestAmbient {
+	folder() string,
+}
+
+// TestFolder is the absolute path of the case's folder, with its symbolic
+// links resolved. It exists and is empty when the case starts.
+func TestFolder() string needs TestAmbient { TestAmbient.folder() }
+
 // Scheduler suspends the calling task.
 // law-exempt: Sleep returns nothing, and a law over Scheduler alone sees no clock, so it cannot observe a sleep; the sleep laws are on time.Manual, which provides Scheduler and time.Clock together (TestManualClockModel).
 type Scheduler {

@@ -1518,7 +1518,7 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 	l.addInit(x, id, fc.out.String(), []string{name + " = " + val})
 }
 
-// constLet reports whether the package let v, of spec, lowers to a Go
+// constValueLet reports whether the package let v, of spec, lowers to a Go
 // constant (wf10 1BRC): a single name whose initializer the checker
 // evaluated to a constant, of type bool, string or an integer type. A Go
 // package variable is a load at every read, and Go folds no expression

@@ -59,6 +59,7 @@ var commands = []cliCommand{
 	{name: "lib", usage: "lib FILE|DIR -o DIR", help: libHelp, run: libCommand},
 	{name: "gen", usage: "gen rpc|cli [--check] DIR.OPTYPE", help: genHelp, run: genCommand},
 	{name: "dev", usage: "dev [DIR] [--idle DURATION]", help: devHelp, run: devCommand},
+	{name: "work", usage: "work COMMAND [ARGS...]", help: workHelp, run: workCommand},
 	{name: "version", usage: "version [--json]", help: versionHelp, run: versionCommand},
 	{name: "tsmap", usage: "tsmap [--emit-js FILE.ergo]", help: tsmapHelp, run: tsmapCommand},
 	{name: "edition", fate: removed, reason: "there is one language and no editions", ticket: ticketEditions},

@@ -1573,6 +1573,17 @@
       "to": "",
       "rule": "keyOrder's order is a function of the keys alone.",
       "killers": ["internal/sketch/eval:TestEvalReportIsDeterministic"]
+    },
+    {
+      "name": "incomplete-continues",
+      "origin": "wf10/l7-eval/EV1",
+      "file": "internal/sketch/eval/eval.go",
+      "from": "\t\t\tstopped = \"the evaluation budget ran out\"",
+      "to": "\t\t\tstopped = \"\"",
+      "rule": "The budget is per request: once it runs out, every later obligation is reported not run (L7 plan, section 5).",
+      "killers": [
+        "internal/sketch/eval:TestRunStopsTheRun"
+      ]
     }
   ]
 }

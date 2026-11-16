@@ -84,6 +84,10 @@ type config struct {
 	names   []string
 	// cache is the verdict cache's directory (cache.go), or "" for none.
 	cache string
+	// fullTier runs only the package folders the modules' full-tier
+	// files name (modules.go): the gate's full tier runs them, and every
+	// other run leaves them out.
+	fullTier bool
 	// memory is the limit of each built program a case runs: ERGO_PROGRAM_MEMORY,
 	// 2 GiB by default (internal/proclimit; docs/tooling.md, "Test memory").
 	// `ergo test` reads the same variable for the test binaries it runs.
@@ -111,6 +115,9 @@ type program struct {
 	// library marks a module of modules/ (MK0, modules.go): no binary,
 	// no cases; the fmt, gen and test legs run.
 	library bool
+	// heavy are the package folders of a library's full-tier file, which
+	// only a -full-tier run tests; tests holds none of them.
+	heavy []string
 }
 
 func (p *program) tagged(tag string) bool { return slices.Contains(p.tags, tag) }
@@ -155,6 +162,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	var selected []*program
+	if !cfg.modules && len(cfg.names) > 0 && !slices.ContainsFunc(cfg.names, func(n string) bool { return !strings.HasPrefix(n, modulesDir+"/") }) {
+		// Names that are all modules/NAME select those modules, as
+		// -modules does: a ledger's killer examples:modules/NAME runs here.
+		cfg.modules = true
+	}
+	if cfg.fullTier {
+		cfg.modules = true
+	}
 	if cfg.modules {
 		selected, err = selectModules(cfg.names, modules)
 	} else if selected, err = selectPrograms(cfg, programs, modules); err == nil && len(cfg.names) == 0 && !cfg.record {
@@ -297,6 +312,7 @@ func parseFlags(args []string, stderr io.Writer) (*config, error) {
 	flags.BoolVar(&cfg.lawless, "lawless", false, "report every operation type under examples/ with no law, run nothing, and exit 0")
 	flags.StringVar(&cfg.cache, "cache", os.Getenv(cacheVariable), "replay a program's recorded pass when every input it reads is unchanged, keyed and kept in `DIR` (default $"+cacheVariable+"; empty: no cache)")
 	flags.BoolVar(&cfg.modules, "modules", false, "run only the modules of modules/: every one, or the MODULE names given")
+	flags.BoolVar(&cfg.fullTier, "full-tier", false, "run only the module package folders each module's full-tier file names (the gate's full tier); other runs leave them out")
 	flags.IntVar(&cfg.jobs, "jobs", defaultJobs(), "programs run at once; the default is GOMAXPROCS when the environment sets it (the gate's CPU budget), else half the usable CPUs")
 	flags.Usage = func() {
 		fmt.Fprintln(stderr, "usage: go run ./scripts/examples [flags] [PROGRAM...]")
@@ -1081,7 +1097,25 @@ func splitPackages(stdout []byte) (map[string][]byte, []string) {
 
 func (r *runner) testTarget(p *program, target, leg string) {
 	evaluation := r.checkTarget(p, target, strings.Replace(leg, "test", "check", 1))
-	o, err := r.tool(r.cfg.testTimeout, "test", target)
+	// The run gets a TMPDIR of its own, which must be empty after it: a
+	// law case or a test under TestAmbient makes its folder there,
+	// and the runner removes each when its case ends (rows.md, Test's ambient).
+	tmp, err := os.MkdirTemp(r.scratch, "test-tmp-")
+	if err != nil {
+		fmt.Fprintf(r.out, "FAIL %s: %s: %v\n", p.name, leg, err)
+		r.fail(p.name + ": " + leg)
+		return
+	}
+	defer os.RemoveAll(tmp)
+	o, err := r.live.execute([]string{r.cfg.ergo, "test", target}, r.cfg.root, append(slices.Clip(r.toolEnv), "TMPDIR="+tmp), "", r.cfg.testTimeout, 0)
+	// Only a run that ended by itself is held to it: a hang or the output
+	// cap stops the group, and the stopped ergo removes nothing, so that
+	// run fails for its own reason below.
+	if left, _ := os.ReadDir(tmp); err == nil && o.passed() && len(left) > 0 {
+		fmt.Fprintf(r.out, "FAIL %s: %s: ergo test left %s in its TMPDIR; each case's folder is removed when the case ends (rows.md, Test's ambient)\n", p.name, leg, left[0].Name())
+		r.fail(p.name + ": " + leg)
+		return
+	}
 	if evaluation != nil && err == nil && o.overCap() == "" && !o.timedOut {
 		r.compareEvaluation(p, strings.Replace(leg, "test", "check", 1), evaluation, o.stdout)
 	}
@@ -1427,6 +1461,19 @@ const streamDelay = time.Second
 // A memory limit that is not 0 bounds the command and makes it the first
 // process the kernel's out-of-memory killer stops (proclimit.Start).
 func (l *live) execute(argv []string, dir string, env []string, stdin string, timeout time.Duration, memory uint64) (outcome, error) {
+	return l.executeArmed(argv, dir, env, stdin, timeout, memory, "")
+}
+
+// executeArmed is execute whose timeout starts at an event, not at the
+// start: when arm is not "", the deadline starts once the command's stderr
+// holds arm (ergo test -work prints "WORK=" when its build ends), and it
+// starts again at each output the command writes after that (a test or
+// law's line): so it measures silence, and stops only a run that stopped
+// making progress, whatever load does to a run that makes it. The
+// build before it has no deadline, as the runner's own builds have none
+// (r.tool(0, "build", ...)): a deadline only stops a hung program, and a
+// build that load makes slow is not one.
+func (l *live) executeArmed(argv []string, dir string, env []string, stdin string, timeout time.Duration, memory uint64, arm string) (outcome, error) {
 	input, err := os.Open(os.DevNull)
 	if stdin != "" {
 		input, err = os.Open(stdin)
@@ -1463,6 +1510,11 @@ func (l *live) execute(argv []string, dir string, env []string, stdin string, ti
 	// From here a panic on this goroutine stops the group as it unwinds.
 	defer l.release(command.Process)
 	stdout, stderr := newCapture(), newCapture()
+	if arm != "" {
+		stderr.mark, stderr.seen = []byte(arm), make(chan struct{})
+		progress := make(chan struct{}, 1)
+		stdout.progress, stderr.progress = progress, progress
+	}
 	overCap := func() { l.stop(command.Process) }
 	go stdout.fill(outRead, overCap)
 	go stderr.fill(errRead, overCap)
@@ -1473,17 +1525,43 @@ func (l *live) execute(argv []string, dir string, env []string, stdin string, ti
 	}
 	var o outcome
 	var expired <-chan time.Time
-	if timeout > 0 {
-		timer := time.NewTimer(timeout)
-		defer timer.Stop()
+	var timer *time.Timer
+	defer func() {
+		if timer != nil {
+			timer.Stop()
+		}
+	}()
+	startDeadline := func() {
+		timer = time.NewTimer(timeout)
 		expired = timer.C
 	}
-	select {
-	case <-done:
-	case <-expired:
-		o.timedOut = true
-		l.stop(command.Process)
-		<-done
+	var armed <-chan struct{}
+	if timeout > 0 {
+		if arm == "" {
+			startDeadline()
+		} else {
+			armed = stderr.seen
+		}
+	}
+run:
+	for {
+		select {
+		case <-done:
+			break run
+		case <-armed:
+			armed = nil
+			startDeadline()
+		case <-stdout.progress:
+			// Output after the build restarts the deadline (silence only).
+			if timer != nil {
+				timer.Reset(timeout)
+			}
+		case <-expired:
+			o.timedOut = true
+			l.stop(command.Process)
+			<-done
+			break run
+		}
 	}
 	o.elapsed = time.Since(started)
 	// The last stop: whatever the leader left running in its group goes with
