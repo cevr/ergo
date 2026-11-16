@@ -208,6 +208,8 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		}
 		xs := b.inOrder([]syntax.Expr{x.X, x.Indices[0]}) // ir_order.go
 		return &irExpr{K: "index", Pos: p, X: xs[0], Y: xs[1]}
+	case *syntax.SliceExpr:
+		return b.sliceOf(x, p) // ir_slice.go
 	case *syntax.CompositeLit:
 		if x.Base != nil || x.Type == nil {
 			return b.updateLit(x, t, p) // ir_update.go
