@@ -144,15 +144,17 @@ func (in *interp) machineLaw(law *check.Law, res Result) (out Result) {
 		out.Status, out.Reason = Skipped, why
 		return out
 	}
-	// An always or sometimes law (X2) reads each state through its
-	// predicate; check time searches only for named variants, so it
-	// leaves the law to ergo test.
-	if law.Decl.Reach.Pred != nil {
-		return skip("this " + law.Decl.Reach.Kind() + " law reads its states through a predicate, which check time does not search")
-	}
 	pre := preflight{in: in, seen: map[syntax.Node]bool{}}
 	if why := pre.function(fr, m.step); why != "" {
 		return skip(why)
+	}
+	// An always or sometimes law (X2) reads each state through its
+	// predicate, a pure Ergo function of the state the checker admitted
+	// (check/machinelaw.go); it runs where the step runs.
+	if law.Pred != nil {
+		if why := pre.function(fr, law.Pred); why != "" {
+			return skip(why)
+		}
 	}
 	std := ""
 	keyless := testplan.KeyWhy(m.state, func(n *check.Named) bool {
@@ -239,7 +241,27 @@ func (in *interp) machineLaw(law *check.Law, res Result) (out Result) {
 		names = append(names, t.Obj.Name)
 	}
 	kind := law.Decl.Reach.Kind()
-	l := &machineRun{in: in, fr: fr, m: m, g: g, targets: targets, names: names, ms: ms, res: &out}
+	broken := ""
+	if law.Pred != nil {
+		// As ergo test decides it (lower machinelaws.go): always p never
+		// reaches a state where p is false, and sometimes p reaches one
+		// where p holds. The predicate is called as the step is: a call
+		// that does not complete unwinds the search.
+		pred, holds := law.Pred, true
+		name := law.Decl.Reach.Pred.Name
+		if kind == "always" {
+			kind, holds = "never", false
+			names = append(names, "a state where "+name+" is false")
+			broken = ", where " + name + " is false"
+		} else {
+			kind = "reaches"
+			names = append(names, "a state where "+name+" holds")
+		}
+		targets = append(targets, func(s Value) bool {
+			return mustValue(in.call(fr, nil, pred, nil, []Value{s})).(bool) == holds
+		})
+	}
+	l := &machineRun{in: in, fr: fr, m: m, g: g, targets: targets, names: names, ms: ms, res: &out, broken: broken, invariant: law.Pred != nil}
 	note, bounded := "", false
 	if starts != nil && signals != nil {
 		if g.Key == nil {
@@ -278,6 +300,11 @@ type machineRun struct {
 	names   []string
 	ms      *MachineSearch
 	res     *Result
+	// broken is what a never law's counterexample breaks: ", where p is
+	// false" for an always law, else "". invariant marks an always or
+	// sometimes law (X2).
+	broken    string
+	invariant bool
 }
 
 func (l *machineRun) refute(why string) {
@@ -339,7 +366,7 @@ func (l *machineRun) all(kind string) (string, bool) {
 		}
 		l.ms.Run = text
 		_, idx := r.Run(r.Found)
-		l.refute("the run " + text + " reaches " + l.in.argument(l.fr, l.m.state, explore.Replay(l.g, start, idx)))
+		l.refute("the run " + text + " reaches " + l.in.argument(l.fr, l.m.state, explore.Replay(l.g, start, idx)) + l.broken)
 		return "", true
 	}
 	if r.Complete {
@@ -427,7 +454,7 @@ func (l *machineRun) runs(kind string, startTypes []check.Type, note string) str
 			case kind == "never" && l.targets[0](nodes[k].s):
 				text, _ := trace(nodes, k)
 				l.ms.Run = text
-				l.refute("the run " + text + " reaches " + in.argument(fr, l.m.state, nodes[k].s))
+				l.refute("the run " + text + " reaches " + in.argument(fr, l.m.state, nodes[k].s) + l.broken)
 				return ""
 			case kind == "reaches" && l.targets[0](nodes[k].s):
 				text, _ := trace(nodes, k)
@@ -452,6 +479,12 @@ func (l *machineRun) runs(kind string, startTypes []check.Type, note string) str
 	}
 	if kind == "path" {
 		l.refute("no generated run follows the path [" + strings.Join(l.names, ", ") + "]")
+		return ""
+	}
+	if l.invariant {
+		// A sometimes law with no witness in the runs is not found: the
+		// graph was not decided, so no witness is no proof either way.
+		l.refute("not found: no generated run reaches " + l.names[0])
 		return ""
 	}
 	l.refute("no generated run reaches " + l.names[0])
