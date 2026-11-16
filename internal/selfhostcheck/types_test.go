@@ -650,6 +650,9 @@ func genTypes(seed uint32) string {
 		"type Box[T] { v T }",
 		"type Job[T, F] { run func() T fails F }",
 		"type Cap[T, F, U] { run func() T fails F needs U }",
+		// A row whose order by package-qualified key ($zz, fs., main.)
+		// is not its order by text (fs., main., zz): Row.list sorts by key.
+		"type Rz[zz] { run func() int fails zz | "+pick(r, errs)+" | fs.Denied }",
 		"type Al = "+pick(r, []string{"Box[int]", "Job[string, E0]", "fs.NotFound", "Option[E1]"}))
 	if ownMap {
 		lines = append(lines, "type Map[K, V] { k K, v V }")
@@ -698,5 +701,6 @@ func typeForms() map[string]*regexp.Regexp {
 		"empty row":                regexp.MustCompile(`, \]`),
 		"variant":                  regexp.MustCompile(`^R\dV\d \[`),
 		"variant with a parameter": regexp.MustCompile(`^R\dV\d \[T\]`),
+		"row by key":               regexp.MustCompile(`fails zz \| fs\.Denied \| main\.E\d$`),
 	}
 }
