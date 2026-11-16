@@ -279,7 +279,8 @@ type irStmt struct {
 	// Label is a loop's or a block's label, or the one a break, continue
 	// or goto names (ir_tree.go).
 	Label string `json:"label,omitempty"`
-	// Y is a store's value: X = Y, X a field (ir_with.go).
+	// Y is a "count" loop's bound (ir_pkg.go countLoop), or a store's
+	// value: X = Y, X a field (ir_with.go).
 	Y *irExpr `json:"y,omitempty"`
 }
 
@@ -425,9 +426,6 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	// locations are its .ergo source's (G5).
 	for _, g := range gates {
 		b.gate(g)
-	}
-	if fd.ptr {
-		b.gate("pointer receiver")
 	}
 	if len(fc.witness) > 0 {
 		b.gate("witness parameter")

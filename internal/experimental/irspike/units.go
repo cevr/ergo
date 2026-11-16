@@ -143,7 +143,15 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"result statement *syntax.BranchStmt", "G1"},
 	// G4: generics, packages, tasks, references, function values.
 	{"generic or declared-elsewhere type", "G4"},
-	{"generic or task call", "G4"},
+	{"generic or task call", "G4"}, // a generic std body
+	{"task call", "G4"},
+	{"generic call kind *", "G4"},
+	{"generic call without its type arguments", "G4"},
+	{"Option's pointer niche", "G4"},
+	{"append form", "G4"},
+	{"append to a defined slice type", "G4"},
+	{"Map write form", "G4"},
+	{"Map write to a defined Map type", "G4"},
 	// IRG4 calls other packages' functions and std externs with a plain
 	// runtime/v1 body; these call forms remain.
 	{"call without a function", "G4"},
@@ -154,6 +162,17 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"dot call of a std function", "G4"},
 	{"std call *", "G4"}, // hidden arguments, adapted results, converted operands
 	{"type *check.Map", "G4"},
+	{"type *check.Union", "G4"}, // an anonymous union as a type argument (IRG4b instances)
+	// IRG4b r2: operation-type values and their calls, std operations.
+	{"operation call from a pure function", "G4"},
+	{"operation call into an owning literal", "G4"},
+	{"operation call on a *", "G4"},
+	{"std operation without its runtime method", "G4"},
+	{"std Close", "G4"},
+	{"call of a pointer-receiver method on a value", "G1"}, // &x of a place
+	{"for-in over a Range *", "G4"},
+	{"conversion *", "G4"},
+	{"type argument with no value", "G4"}, // a task's T bound by a block with no value
 	{"type *check.TypeParam", "G4"},
 	{"type *check.Pointer", "G4"},
 	{"pointer receiver", "G4"},

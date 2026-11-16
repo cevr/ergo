@@ -38,6 +38,21 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 	case *check.Slice:
 		b.admit(t.Elem, depth+1)
 		return
+	case *check.Map:
+		b.admitMap(t, depth) // ir_pkg.go
+		return
+	case *check.Pointer:
+		b.admit(t.Elem, depth+1) // a *T receiver (IRG4b r2)
+		return
+	case *check.TypeParam:
+		// A type parameter of the generic body (F1): the decoder resolves
+		// its Go name among the function's (and its receiver's) type
+		// parameters. Values of it are moved, never operated on: an
+		// operator admits only basic types (operator).
+		if _, ok := b.fc.params[t]; !ok {
+			irNo("type parameter outside its declaration")
+		}
+		return
 	case *check.Signature:
 		// A function value's type (ir_closure.go, sigType).
 		if len(t.Results) > 1 {
@@ -51,9 +66,10 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 		}
 		return
 	case *check.Named:
-		if len(t.TArgs) > 0 || len(t.TParams) > 0 || t.Obj.Decl == nil {
+		if len(t.TParams) > 0 || t.Obj.Decl == nil {
 			irNo("generic or declared-elsewhere type")
 		}
+		b.admitArgs(t, depth) // ir_pkg.go
 		if _, ok := t.Obj.Decl.Spec.(*syntax.StructType); !ok {
 			b.admitNamed(t, depth) // ir_union.go
 			return

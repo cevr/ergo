@@ -61,8 +61,11 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		}
 		irNo("trailing block")
 	}
-	if len(c.TypeArgs) > 0 || c.StartsTask {
-		irNo("generic or task call")
+	if c.StartsTask {
+		irNo("task call")
+	}
+	if len(c.TypeArgs) > 0 && c.Kind != check.CallFunc {
+		irNo("generic call kind %d", c.Kind)
 	}
 	if !stmt && b.l.info.Types[x] == nil {
 		irNo("call without a value")
@@ -83,7 +86,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 			irNo("len form")
 		}
 		switch t := b.l.info.Types[x.Args[0]].(type) {
-		case *check.Slice:
+		case *check.Slice, *check.Map:
 		case *check.Basic:
 			if t.Kind != check.String {
 				irNo("len of a non-slice")
@@ -112,15 +115,19 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		// function with an Ergo body, is a function of the one Go package
 		// the program lowers to, by its Go name; a std extern calls its
 		// runtime/v1 body (ir_pkg.go).
-		if f.Pkg.Std() && f.Decl != nil && f.Decl.Extern != nil {
+		// A prelude intrinsic (Append) is a Go function of main.go that
+		// the lowering writes (decls.go intrinsic): a call like a user
+		// function's.
+		intrinsic := b.l.intrinsic(f) != nil
+		if f.Pkg.Std() && f.Decl != nil && f.Decl.Extern != nil && !intrinsic {
 			return b.stdCall(x, c, f, p)
 		}
 		fd := b.l.useFunc(f, x)
 		switch {
-		case fd.extern != "":
+		case fd.extern != "" && !intrinsic:
 			irNo("call of an extern function")
-		case fd.ptr:
-			irNo("call of a pointer-receiver method")
+		case fd.ptr && !b.passesPointer(c, x): // ir_pkg.go
+			irNo("call of a pointer-receiver method on a value")
 		case len(b.l.ownedParams(f)) > 0:
 			irNo("call that passes owned values")
 		case len(witnessParams(f.Sig)) > 0:
@@ -141,6 +148,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 			args = append([]syntax.Expr{c.Recv}, args...)
 		}
 		pre, irArgs := b.operands(args)
+		b.valueSource(x, c, args, irArgs) // ir_pkg.go
 		if x.Trailing != nil {
 			irArgs = append(irArgs, b.closureLit(nil, x)) // ir_closure.go
 		}
@@ -157,7 +165,13 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		if fd.method != nil {
 			return pre, &irExpr{K: "mcall", Pos: p, Name: fd.name, X: irArgs[0], Args: irArgs[1:]}, !fd.pure
 		}
-		return pre, &irExpr{K: "call", Pos: p, Name: fd.name, Args: irArgs}, !fd.pure
+		// A generic function's call names its Go type arguments (the
+		// emitter's typeArgs), never left to Go's inference (ir_pkg.go).
+		return pre, &irExpr{K: "call", Pos: p, Name: fd.name, T: b.typeArgs(c, x), Args: irArgs}, !fd.pure
+	case check.CallOp:
+		return b.opCall(x, c, p) // ir_pkg.go
+	case check.CallConversion:
+		return b.conversion(x, c, p) // ir_pkg.go
 	case check.CallProviderOp:
 		switch {
 		case b.env < 0 || c.Op == nil:
