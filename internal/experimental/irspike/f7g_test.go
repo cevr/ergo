@@ -114,6 +114,15 @@ func TestIROrderMatchesSource(t *testing.T) {
 		}
 		// The seed's forced function is an IR body of its form.
 		want := OrderFormName(uint64(seed))
+		// settle's result holds the prelude's Never (orderDecls); a
+		// program that calls settled lowers both.
+		if strings.Contains(text, "settled(tr(") && (!slices.Contains(rep.IR, "settle") || !slices.Contains(rep.IR, "settled")) {
+			t.Fatalf("seed %d: settle and settled are not IR bodies (IR %v)\n%s\n%s", seed, rep.IR, replay, text)
+		}
+		// calm's body names a type whose argument is its error row.
+		if strings.Contains(text, "calm(tr(") && !slices.Contains(rep.IR, "calm") {
+			t.Fatalf("seed %d: calm is not an IR body (IR %v)\n%s\n%s", seed, rep.IR, replay, text)
+		}
 		if !slices.Contains(rep.IR, "forced") || !orderFormRes[want].MatchString(bodyOf(text, "forced")) {
 			t.Fatalf("seed %d: forced is not an IR body with %s (IR %v)\n%s\n%s", seed, want, rep.IR, replay, text)
 		}
@@ -146,6 +155,8 @@ var orderFormRes = map[string]*regexp.Regexp{
 	"continue":                                 regexp.MustCompile(`\n\s+continue\n`),
 	"call inside an expression":                regexp.MustCompile(`[ (-]tr\(`),
 	"short-circuit operand with a call":        regexp.MustCompile(` > 0 && tr\(`),
+	"step that gives no output":                regexp.MustCompile(`settled\(tr\(`),
+	"error row as a type argument":             regexp.MustCompile(`calm\(tr\(`),
 	"for-in over a call":                       regexp.MustCompile(`in span\(`),
 	"loop condition with a call":               regexp.MustCompile(`< tr\(`),
 	"try of a non-call":                        regexp.MustCompile(`try chk\([^\n]*\) \* 2 \+ chk\(`),

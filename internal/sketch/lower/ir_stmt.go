@@ -99,14 +99,14 @@ func (b *irBuilder) tailTo(list []syntax.Stmt, ret bool, to *yieldTo) []*irStmt 
 		// Only the tail's own branches stay in the tail (failureTail).
 		b.voidTail = voidTail && last && isBranchStmt(s)
 		b.part(func() {
+			exit := b.releasesAtExit(s, last && ret && to == nil) // ir_own.go
+			var ss []*irStmt
 			if es, ok := s.(*syntax.ExprStmt); ok && last && voidTail && b.isFailure(es.X) {
 				// A branch tail of an error value in a body with no
 				// value fails the frame (the emitter's ifYield).
 				out = append(out, b.ret(es.X, b.pos(es.X, es.X.Pos()))...) // ir_fail.go
 				return
 			}
-			exit := b.releasesAtExit(s, last && ret && to == nil) // ir_own.go
-			var ss []*irStmt
 			if last && (ret || to != nil) {
 				ss = b.yield(s, to)
 			} else {
