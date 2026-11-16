@@ -1035,12 +1035,17 @@ law HrefParses(seed int) {
 }
 
 // NavigationFollowsModel (H7): over drawn navigations of the user (to a
-// place the app knows, or to one it does not) and presses of back, on the
-// test host of a router app, the history is a model stack: its current
-// place and depth are the model's after each step, back at the first
-// entry does nothing, and the app shows the place of the last change it
-// knows ("/" for one it does not: its second OnURL takes what the first
-// leaves), which reached it as URLChanged.
+// place the app knows, or to one it does not), replacements of the
+// address (ReplaceOn, FK10-g1) and presses of back, on the test host of a
+// router app, the history is a model stack: the first navigation of the
+// fresh session replaces its "/", so its Back depth is 0 (FK9b), each later
+// one pushes, and a replacement changes the top; its current place and
+// depth are the model's after each step, back at the first entry does
+// nothing, and the app shows the place of the last change it knows ("/"
+// for one it does not: its second OnURL takes what the first leaves),
+// which reached it as URLChanged, a replacement's too. Each run opens
+// with a replacement (even steps) or a navigation (odd), then a
+// navigation, which pushes.
 law NavigationFollowsModel(seed int, steps int) {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
@@ -1056,16 +1061,53 @@ func navigationFollows(seed int, steps int, m time.Manual) bool needs Scheduler 
 		return false
 	}
 	let mut stack = []string{"/"}
+	let mut opened = false
 	let mut shown = 0
+	// A replacement (even steps) or a navigation (odd) opens the session
+	// in place of "/"; the navigation after it pushes.
+	if (steps%2+2)%2 == 0 {
+		ReplaceOn(&h, "/a") catch {
+		case _:
+			return false
+		}
+	} else {
+		Play(&h, []Act{NavigateTo{Href: "/a"}}) catch {
+		case _:
+			return false
+		}
+	}
+	Play(&h, []Act{NavigateTo{Href: "/b?x=1"}}) catch {
+	case _:
+		return false
+	}
+	stack = []string{"/a", "/b?x=1"}
+	opened = true
+	shown = 2
 	for _ in 0..(steps%16+16)%16+1 {
 		let mut act Act = GoBack
-		if draw(&r, 3) != 0 {
+		let kind = draw(&r, 4)
+		if kind != 0 {
 			let mut href = "/nowhere"
 			if draw(&r, 4) != 0 {
 				href = places[draw(&r, len(places))]
 			}
-			act = NavigateTo{Href: href}
-			stack = stack.Append(href)
+			if kind == 3 {
+				// A replacement is no Act: the host's address changes in place.
+				ReplaceOn(&h, href) catch {
+				case _:
+					return false
+				}
+				stack[len(stack)-1] = href
+				act = SettleAll
+			} else {
+				act = NavigateTo{Href: href}
+				if opened {
+					stack = stack.Append(href)
+				} else {
+					stack[len(stack)-1] = href
+				}
+			}
+			opened = true
 		} else if len(stack) > 1 {
 			let mut kept = []string{}
 			for i in 0..len(stack)-1 {

@@ -99,6 +99,12 @@ func Field[E](f *Frame[E], d Draft, placeholder string, at CallSite) {
 	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder, Label: "", Description: "", Invalid: false}, None, Some{Value: d.at}, at)
 }
 
+// LabelledField is a Field that says what it is (FieldLabel), as
+// LabelledInput is an Input that does.
+func LabelledField[E](f *Frame[E], label FieldLabel, d Draft, placeholder string, at CallSite) {
+	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid}, None, Some{Value: d.at}, at)
+}
+
 // Toggle shows a check box over fl: a press flips the flag and sends no
 // signal.
 func Toggle[E](f *Frame[E], fl Flag, label string, at CallSite) {

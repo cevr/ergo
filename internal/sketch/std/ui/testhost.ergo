@@ -30,6 +30,10 @@ type TestHost[S, E, D, F] {
 	said []string,
 	// step is the counts of the passes since the last input (NS3).
 	step StepCounts,
+	// opened is whether the user has gone to an address (Navigate,
+	// ReplaceOn): before it, the history's one entry is the host's "/",
+	// which the first navigation replaces (FK9b).
+	opened bool,
 }
 
 // NoNode is the failure of a script step whose label names no node on the
@@ -60,7 +64,7 @@ func hostOf[E comparable, S, D, F](s own Session[S, E, D, F], first []Op[E], pos
 	let mut session = s
 	let mut m = NewMirror[E](Root(&session.frame))
 	try Apply(&m, first)
-	TestHost[S, E, D, F]{clock: clock, start: clock.Now(), period: 16ms, owed: duration(int64(0)), frames: 0, posted: posted, mirror: m, session: session, history: NewMemoryHistory(URL{Path: "/", Query: "", Fragment: ""}), captured: None, said: []string{}, step: NoCounts()}
+	TestHost[S, E, D, F]{clock: clock, start: clock.Now(), period: 16ms, owed: duration(int64(0)), frames: 0, posted: posted, mirror: m, session: session, history: NewMemoryHistory(URL{Path: "/", Query: "", Fragment: ""}), captured: None, said: []string{}, step: NoCounts(), opened: false}
 }
 
 // apply steps one event and shows its patch. An input starts a step:
@@ -412,14 +416,31 @@ func labelOf[E](n Node[E]) Option[string] {
 
 // History is the test host's history, at "/" when the host starts: the
 // Location a test binds for the program (H7), and the one the user's
-// navigations (Navigate, GoBackOn) move.
+// navigations (Navigate, ReplaceOn, GoBackOn) move.
 func History[S, E, D, F](h *TestHost[S, E, D, F]) MemoryHistory { h.history }
 
 // Navigate is the user going to href, as a typed address or a link the
-// host follows: a Push of the history, then URLChanged.
+// host follows: a Push of the history, then URLChanged. The first one of a
+// fresh session (FK9b) replaces the host's "/" instead, as a browser tab
+// opened on an address has no entry before it: Back then does nothing.
 func Navigate[E comparable, S, D, F](h *TestHost[S, E, D, F], href string) fails actor.Stopped | BadPatch {
 	let u = ParseURL(href)
-	Push(h.history, u)
+	if h.opened {
+		Push(h.history, u)
+	} else {
+		Replace(h.history, u)
+		h.opened = true
+	}
+	try apply(h, URLChanged{URL: u})
+}
+
+// ReplaceOn is the address changing to href in place (FK10-g1), as a
+// redirect or history.replaceState does: a Replace of the history, then
+// URLChanged, so the program hears it through OnURL as it hears a push.
+func ReplaceOn[E comparable, S, D, F](h *TestHost[S, E, D, F], href string) fails actor.Stopped | BadPatch {
+	let u = ParseURL(href)
+	Replace(h.history, u)
+	h.opened = true
 	try apply(h, URLChanged{URL: u})
 }
 
@@ -1027,5 +1048,70 @@ law AmbiguousActFails(seed int) {
 		}
 		let firsts = Locate(&h, First{At: WithLabel{Label: "dup"}})
 		StateOf(&h) == 100 && len(firsts) == 1 && Find(&h, "dup") == (Some{Value: firsts[0]})
+	}
+}
+
+// typedLabel is the label of the i-th field of TypeIntoNamesTheField, as
+// seed draws it: none, or "lab<i>". (a law's helper)
+func typedLabel(seed int, i int) string {
+	if (seed/(i+1))%2 == 0 {
+		return ""
+	}
+	"lab\(i)"
+}
+
+// TypeIntoNamesTheField (FK3-g5): over screens of 2 to 5 text fields,
+// each labelled or not as drawn, a script's TypeInto names a field by its
+// accessible name, its label or, for a field with none, its placeholder,
+// and types into that field alone; the placeholder of a labelled field
+// names no node.
+law TypeIntoNamesTheField(seed int, count int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let n = (count%4+4)%4 + 2
+		let s = (seed%64 + 64) % 64
+		let view = func(f *Frame[int], st int) {
+			Column(f, Plain()) {
+				for i in 0..n {
+					LabelledInput(f, FieldLabel{Text: typedLabel(s, i), Description: "", Invalid: false}, "", "ph\(i)", func(t string) int { i*1000 + len(t) })
+				}
+			}
+		}
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: -1, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		for i in 0..n {
+			let label = typedLabel(s, i)
+			let mut name = label
+			if name == "" {
+				name = "ph\(i)"
+			}
+			let mut text = ""
+			for _ in 0..i+1 {
+				text = text + "x"
+			}
+			Play(&h, []Act{TypeInto{Label: name, Text: text}, SettleAll}) catch {
+			case _:
+				return false
+			}
+			if StateOf(&h) != i*1000+i+1 {
+				return false
+			}
+			if label != "" {
+				let mut missing = false
+				Play(&h, []Act{TypeInto{Label: "ph\(i)", Text: "y"}}) catch {
+				case NoNode:
+					missing = true
+				case _:
+					return false
+				}
+				if !missing || StateOf(&h) != i*1000+i+1 {
+					return false
+				}
+			}
+		}
+		true
 	}
 }
