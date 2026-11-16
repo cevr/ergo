@@ -70,7 +70,14 @@ func (b *irBuilder) spelling(s string) string {
 			continue
 		}
 		q := b.qualifiedName(s, s[i:j])
-		if strings.Contains(s[i:j], ".") {
+		switch {
+		case strings.HasPrefix(s[i:j], b.l.rt()+".") && j < len(s) && s[j] == '[':
+			// A generic runtime type: its arguments may be a generic
+			// body's type parameters (actor.WaitFor's Actor[S, E, D]),
+			// which no package-level declaration names; the runtime's
+			// Site is not generic (as stdCall keeps it).
+			b.keepImport("var _ " + b.l.rt() + ".Site")
+		case strings.Contains(s[i:j], "."):
 			// The whole Go type keeps the import used: a generic type
 			// (ergo.Ref) is no type without its arguments. A path that
 			// is its own name (time) needs it too.
