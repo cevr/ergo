@@ -41,3 +41,55 @@ keeps documentation/typespec metadata beside BEAM exports. Those languages
 copy values freely and do not expose an affine takes contract. This view
 uses Ergo's checker facts, not a second source analyzer. It adds no runtime
 code and changes no lowering or optimization path.
+
+## Forms
+
+Status: **implemented** (IR-FORMS IRF-6, 2026-11-16) for the passes on the
+line today: the memo pass. Unlike the API view, this view lowers the
+program to the IR in process; it runs no Go tool.
+
+```
+ergo inspect forms FILE|DIR [--json]
+```
+
+1. The view lists each decision a pass over the run build's IR made at a
+   source site, by position: the form the pass looked at, the pass,
+   `fired` or `not fired`, the Go name of the body, and in parentheses what
+   the pass did or why it did not, in the pass's own words. A site of a
+   body the IR path does not build (it falls back to the text emitter) is
+   not listed: no pass ran there. A site of a std body is std's, not the
+   program's, and is not listed either. With no site the view prints
+   `no form site`.
+2. Each pass gives its reasons from one table (`lower.FormReasons`); a pass
+   that names another is an internal error. The view, these docs and the
+   test read that table.
+3. The memo pass (form `call`; LAWFFI LF3a) computes a call once per entry
+   of its loop and reads the value after. It looks at each call of a
+   function that is the whole value of a let, an assignment or an argument
+   inside a loop. Its reasons:
+   - fired: `computed once per entry of its loop`;
+   - `the callee is not pure`: the callee is not an Ergo function lowered
+     pure, a pure std body or a reviewed-pure Go function;
+   - `a method, a task, a call with a block or a call site`;
+   - `an operand or the result is not a number, a bool or a string`;
+   - `an operand may change in the loop`: an operand is not a literal, a
+     constant or a name bound before the loop that no assignment reaches;
+   - `statements run before the call`: an operand runs statements of its
+     own (an effectful call, an if).
+
+   A call inside an operator's operand (`acc + sq(k)`) is not looked at
+   yet: the forms substrate's statement slot gives the pass those sites.
+4. `--json` lists the same sites with `file`, `line`, `column`, `func`,
+   `form`, `pass`, `fired` and `reason`. Exit 0 when the package checks, 1
+   when it does not, 2 on an invalid invocation.
+
+Evidence: `TestInspectFormsRows` (`cmd/ergo`) holds a program per reason
+of the table, its text line and its JSON site, and that this section names
+each reason.
+
+Prior art: Koka's `fip` and `fbip` make an optimization a checked promise
+the compiler reports on; GHC's `-ddump-rule-firings` and
+`-ddump-simpl-stats` name the rewrites that fired. Elixir, Gleam and
+ReScript report nothing of their host's optimizer: their speed is the
+host's. This view reports Ergo's own passes, decided before Go's compiler,
+so a user sees why a site did not get faster.

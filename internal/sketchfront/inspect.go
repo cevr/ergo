@@ -96,6 +96,33 @@ func InspectFacts(a Analysis, source string) ([]lower.Fact, error) {
 	return facts, err
 }
 
+// InspectForms are the form sites of the checked analysis's run build on
+// the IR path (lower/ir_forms_report.go; IR-FORMS IRF-6): at each site a
+// pass over the IR decided, the form, the pass, and whether it fired or
+// the reason it did not. It lowers the program in process and runs no Go
+// tool, so it needs no patched toolchain; source anchors a program of one
+// source text.
+func InspectForms(a Analysis, source string) ([]lower.FormSite, error) {
+	if len(a.Diagnostics) > 0 || (a.file == nil && a.program == nil) || a.pkg == nil {
+		return nil, &BuildError{Diagnostics: a.Diagnostics}
+	}
+	unit, err := analysisUnit(a, source)
+	if err != nil {
+		return nil, err
+	}
+	_, rep, err := lower.LowerIR(unit)
+	if err != nil {
+		return nil, err
+	}
+	if rep.Forms == nil {
+		return []lower.FormSite{}, nil
+	}
+	return rep.Forms, nil
+}
+
+// FormsText is sites as ergo inspect forms prints them, one line each.
+func FormsText(sites []lower.FormSite) string { return lower.FormsText(sites) }
+
 // FactsText is facts as ergo inspect facts prints them, one line each.
 func FactsText(facts []lower.Fact) string { return lower.FactsText(facts) }
 

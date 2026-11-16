@@ -22,7 +22,7 @@ graphs as JSON, each with its reachable pairs.
 
 Exit status: 0 when the package checks, 1 when it does not, 2 on an
 invalid invocation.
-` + "\n" + inspectAPIHelp + "\n" + inspectFactsHelp
+` + "\n" + inspectAPIHelp + "\n" + inspectFactsHelp + "\n" + inspectFormsHelp
 
 const inspectAPIHelp = `usage: ergo inspect api FILE|DIR [--json]
        ergo inspect api --diff OLD NEW [--json]
@@ -48,6 +48,19 @@ Exit status: 0 when the package checks, 1 when it does not, 2 on an
 invalid invocation.
 `
 
+const inspectFormsHelp = `usage: ergo inspect forms FILE|DIR [--json]
+
+Lists the decisions of the passes over the IR of the run build
+(inspect.md, Forms): at each site a pass looked at, the position, the form
+(call), the pass (memo: a loop-invariant pure call computed once per entry
+of its loop), whether it fired, the body, and what it did or the reason it
+did not, in the pass's own words. Only the sites of bodies the IR path
+builds are listed. --json prints them as JSON.
+
+Exit status: 0 when the package checks, 1 when it does not, 2 on an
+invalid invocation.
+`
+
 // inspectCommand dispatches checked machine, public API and Go reach queries.
 func inspectCommand(args []string) error {
 	if len(args) > 0 && args[0] == "api" {
@@ -66,6 +79,13 @@ func inspectCommand(args []string) error {
 			return err
 		}
 		return inspectFactsCommand(args[1:])
+	}
+	if len(args) > 0 && args[0] == "forms" {
+		if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
+			_, err := os.Stdout.WriteString(inspectFormsHelp)
+			return err
+		}
+		return inspectFormsCommand(args[1:])
 	}
 	if len(args) == 0 || args[0] != "machine" {
 		return inspectGoCommand(args)
@@ -170,6 +190,40 @@ func inspectFactsCommand(args []string) error {
 		return printJSON(facts)
 	}
 	_, err = os.Stdout.WriteString(sketchfront.FactsText(facts))
+	return err
+}
+
+// inspectFormsCommand prints the form sites of the root package's run
+// build (sketchfront.InspectForms).
+func inspectFormsCommand(args []string) error {
+	asJSON := false
+	var rest []string
+	for _, arg := range args {
+		if arg == "--json" {
+			asJSON = true
+			continue
+		}
+		rest = append(rest, arg)
+	}
+	opts, err := parseFileOptions("inspect forms", rest)
+	if err != nil {
+		return invalidInvocation(err)
+	}
+	l, err := loadForPlatform(opts.file, opts.target, opts.platform)
+	if err != nil {
+		return err
+	}
+	if !l.result.Checked || l.analysis.Checked() == nil {
+		return refuseUnchecked(l, opts)
+	}
+	sites, err := sketchfront.InspectForms(l.analysis, l.source.Admitted())
+	if err != nil {
+		return err
+	}
+	if asJSON {
+		return printJSON(sites)
+	}
+	_, err = os.Stdout.WriteString(sketchfront.FormsText(sites))
 	return err
 }
 
