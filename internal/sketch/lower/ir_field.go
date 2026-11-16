@@ -33,7 +33,7 @@ func (b *irBuilder) intoField(x syntax.Expr, e *irExpr, ft check.Type) *irExpr {
 	case gf == gt:
 		return e
 	case b.rowHolds(ft, gf, x):
-		return &irExpr{K: "toiface", Pos: e.Pos, T: gt, X: e}
+		return &irExpr{K: "toiface", Pos: e.Pos, T: gt, X: e} // into the row's error
 	}
 	irNo("record field of a converted value")
 	return nil
