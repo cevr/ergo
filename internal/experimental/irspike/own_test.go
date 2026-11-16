@@ -69,6 +69,17 @@ func TestIROwnedMatchSource(t *testing.T) {
 		if data, err := os.ReadFile(filepath.Join(dir, "ir", "ergoir.json")); err == nil && strings.Contains(string(data), `Free"`) {
 			inBody++
 		}
+		// The frames' release helpers are IR functions (RELEASE-IR): their
+		// Go text is a header with no body.
+		gofiles, _ := filepath.Glob(filepath.Join(dir, "ir", "*.go"))
+		var gotext strings.Builder
+		for _, f := range gofiles {
+			data, _ := os.ReadFile(f)
+			gotext.Write(data)
+		}
+		if g := gotext.String(); !strings.Contains(g, "its body is IR (FLIP F7, RELEASE-IR)") || strings.Contains(g, "static frame (IR, FLIP F7).") {
+			t.Fatalf("seed %d: a static frame's release helper is Go text, not IR\n%s\n%s", seed, replay, text)
+		}
 	}
 	if count >= 6 && inBody == 0 {
 		t.Fatalf("no seed of %d..%d releases a value inside a body", first, first+count-1)
@@ -103,6 +114,19 @@ func TestIROwnedParamsMatchSource(t *testing.T) {
 			want := fmt.Sprintf("bump%dOwned", i)
 			if !slices.ContainsFunc(rep.IR, func(n string) bool { return strings.HasPrefix(n, want) }) {
 				t.Fatalf("seed %d: no IR body %s (IR %v, fallback %v)\n%s\n%s", seed, want, rep.IR, rep.Fallback, replay, text)
+			}
+		}
+		// Each wrapper that copies is an IR function (OWNED-WRAP-IR): its
+		// Go text is a header with no body.
+		gofiles, _ := filepath.Glob(filepath.Join(dir, "ir", "*.go"))
+		var gotext strings.Builder
+		for _, f := range gofiles {
+			data, _ := os.ReadFile(f)
+			gotext.Write(data)
+		}
+		for i := 0; strings.Contains(text, fmt.Sprintf("func bump%d(", i)); i++ {
+			if want := fmt.Sprintf("// bump%d copies its owned arguments into bump%dOwned", i, i); !strings.Contains(gotext.String(), want) {
+				t.Fatalf("seed %d: the wrapper bump%d is not an IR function\n%s\n%s", seed, i, replay, text)
 			}
 		}
 	}
