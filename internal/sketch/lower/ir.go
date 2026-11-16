@@ -405,6 +405,7 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	if drop {
 		name = fd.dropped
 	}
+	name = b.ownedBodyName(fd, name, drop) // ir_own.go
 	if fd.method != nil {
 		name = fd.method.name + "." + name
 	}

@@ -357,6 +357,30 @@ func (b *irBuilder) returning(x syntax.Expr) func() {
 	return func() { o.returned = prev }
 }
 
+// ownedBodyName is the Go name of fd's IR body: for a function with owned
+// parameters (values.go V5), its owned body's, whose bind copies nothing;
+// f's own name is then the wrapper that copies each owned argument and
+// calls it (decls.go writes it, ownedWrapper: Go text, the OWNED-WRAP-IR
+// debt). name is the body's name otherwise.
+func (b *irBuilder) ownedBodyName(fd *funcDecl, name string, drop bool) string {
+	f := fd.fn
+	if drop || fd.extern != "" || len(b.l.ownedParams(f)) == 0 {
+		return name
+	}
+	return b.l.pkgName(ownedKey(f), f.Name+"Owned")
+}
+
+// ownedCallName is the Go name a call x of f names: the owned body when
+// the value analysis decided the call passes its owned arguments
+// unshared (vals.ownCall; an argument that must be copied is a value copy
+// the IR refuses, ir_expr.go), else name (the emitter's callText).
+func (b *irBuilder) ownedCallName(x *syntax.CallExpr, f *check.Func, name string) string {
+	if b.l.vals == nil || !b.l.vals.ownCall[x] {
+		return name
+	}
+	return b.l.pkgName(ownedKey(f), f.Name+"Owned")
+}
+
 // ownCall is the call of the generic runtime/v1 function name on one
 // value of the Go type typ.
 func (b *irBuilder) ownCall(name, typ string, p irPos, args ...*irExpr) *irExpr {
