@@ -153,6 +153,52 @@ test SqltestNestedCommitReleases(a string) {
 	assert slices.Equal(s.Log(), []string{"BEGIN", "SAVEPOINT ergo_savepoint", "SAVEPOINT ergo_savepoint_ergo_savepoint", a, "RELEASE SAVEPOINT ergo_savepoint_ergo_savepoint", "RELEASE SAVEPOINT ergo_savepoint", "COMMIT"})
 }
 
+func first(r sql.Row) int64 fails sql.Mismatch { try sql.IntAt(r, 0) }
+
+func noRows(stmt string) bool needs sql.DB {
+	let _ = sql.One(stmt, []sql.Value{}, first) catch {
+	case sql.NoRows as x:
+		return x.Statement == stmt
+	case _:
+		return false
+	}
+	false
+}
+
+func textRefused(r sql.Row, i int) bool {
+	let _ = sql.TextAt(r, i) catch {
+	case sql.Mismatch as m:
+		return m.Column == i && m.Want == "text"
+	}
+	false
+}
+
+func intRefused(r sql.Row, i int) bool {
+	let _ = sql.IntAt(r, i) catch {
+	case sql.Mismatch as m:
+		return m.Column == i && m.Want == "int"
+	}
+	false
+}
+
+test SqltestRowsReadEachRow(a string, n int64, s string) {
+	let rows = []sql.Row{sql.Row{Columns: []string{"id", "name"}, Values: []sql.Value{sql.Int{N: n}, sql.Text{S: s}}}, sql.Row{Columns: []string{"id", "name"}, Values: []sql.Value{sql.Int{N: n + 1}, sql.Null}}}
+	let s2 = script([]sqltest.Rule{sqltest.Answer{Statement: a, Rows: rows, Affected: 0}})
+	with context { sql.DB: s2 } {
+		let all = try sql.Rows(a, []sql.Value{}, first)
+		let one = try sql.One(a, []sql.Value{}, first)
+		let text = try sql.TextAt(rows[0], 1)
+		let null = try sql.IsNull(rows[1], 1)
+		assert slices.Equal(all, []int64{n, n + 1})
+		assert one == n
+		assert noRows(a + " ")
+		assert text == s
+		assert null
+		assert textRefused(rows[0], 0)
+		assert intRefused(rows[0], 2)
+	}
+}
+
 test SqlStandardReadsSQLState(constraint string, message string) {
 	let d = sql.Standard
 	assert d.Classify(sql.HostError{Code: "23505", Constraint: constraint, Message: message}) == sql.Unique{Constraint: constraint}
@@ -180,6 +226,7 @@ var sqlLawStatements = map[string]string{
 	"sqltest RollsBackOnInterrupt":       `RollsBackOnInterrupt(a string) { let s = NewScript([]Rule{}) let started = queue.New[bool](1) let t = with context { sql.DB: s, Scheduler: time.NewManual(0) } { task.Go() { sql.Transaction() { let _ = try sql.Tx.Exec(a, []sql.Value{}) try started.Push(true) Scheduler.Sleep(1h) } catch { case _: } } } let _ = started.Pop() catch { case queue.Closed: return false } t.Stop() slices.Equal(s.Log(), []string{"BEGIN", a, "ROLLBACK"}) }`,
 	"sqltest NestedFailureKeepsTheOuter": `NestedFailureKeepsTheOuter(a string, b string, c string) { let s = NewScript([]Rule{}) let ok = with context { sql.DB: s } { sql.Transaction() { let _ = try sql.Tx.Exec(a, []sql.Value{}) sql.Transaction() { let _ = try sql.Tx.Exec(b, []sql.Value{}) try stop() } catch { case _: } let _ = try sql.DB.Exec(c, []sql.Value{}) true } catch { case _: false } } ok && slices.Equal(s.Log(), []string{"BEGIN", a, "SAVEPOINT ergo_savepoint", b, "ROLLBACK TO SAVEPOINT ergo_savepoint", "RELEASE SAVEPOINT ergo_savepoint", c, "COMMIT"}) }`,
 	"sqltest NestedCommitReleases":       `NestedCommitReleases(a string) { let s = NewScript([]Rule{}) let ok = with context { sql.DB: s } { sql.Transaction() { try sql.Transaction() { try sql.Transaction() { let _ = try sql.Tx.Exec(a, []sql.Value{}) } } true } catch { case _: false } } ok && slices.Equal(s.Log(), []string{"BEGIN", "SAVEPOINT ergo_savepoint", "SAVEPOINT ergo_savepoint_ergo_savepoint", a, "RELEASE SAVEPOINT ergo_savepoint_ergo_savepoint", "RELEASE SAVEPOINT ergo_savepoint", "COMMIT"}) }`,
+	"sqltest RowsReadEachRow":            `RowsReadEachRow(a string, n int64, s string) { let rows = []sql.Row{sql.Row{Columns: []string{"id", "name"}, Values: []sql.Value{sql.Int{N: n}, sql.Text{S: s}}}, sql.Row{Columns: []string{"id", "name"}, Values: []sql.Value{sql.Int{N: n + 1}, sql.Null}}} let script = NewScript([]Rule{Answer{Statement: a, Rows: rows, Affected: 0}}) with context { sql.DB: script } { let all = sql.Rows(a, []sql.Value{}, first) catch { case _: return false } let one = sql.One(a, []sql.Value{}, first) catch { case _: return false } let text = sql.TextAt(rows[0], 1) catch { case sql.Mismatch: return false } let null = sql.IsNull(rows[1], 1) catch { case sql.Mismatch: return false } slices.Equal(all, []int64{n, n + 1}) && one == n && noRows(a + " ") && text == s && null && textRefused(rows[0], 0) && intRefused(rows[0], 2) } }`,
 }
 
 // TestSQLLaws runs the probe with --seed 1; lawledger.Run holds that it

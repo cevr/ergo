@@ -1,0 +1,64 @@
+// The laws of sql's row readers, over a Script's answer.
+
+import slices
+import sql
+
+// first is column 0 of r as an integer.
+func first(r sql.Row) int64 fails sql.Mismatch { try sql.IntAt(r, 0) }
+
+// noRows is whether One of stmt fails NoRows naming stmt.
+func noRows(stmt string) bool needs sql.DB {
+	let _ = sql.One(stmt, []sql.Value{}, first) catch {
+	case sql.NoRows as x:
+		return x.Statement == stmt
+	case _:
+		return false
+	}
+	false
+}
+
+// textRefused is whether TextAt of column i of r fails Mismatch naming i.
+func textRefused(r sql.Row, i int) bool {
+	let _ = sql.TextAt(r, i) catch {
+	case sql.Mismatch as m:
+		return m.Column == i && m.Want == "text"
+	}
+	false
+}
+
+// intRefused is whether IntAt of column i of r fails Mismatch naming i.
+func intRefused(r sql.Row, i int) bool {
+	let _ = sql.IntAt(r, i) catch {
+	case sql.Mismatch as m:
+		return m.Column == i && m.Want == "int"
+	}
+	false
+}
+
+// RowsReadEachRow: Rows parses every row in the order the database gives
+// them, One the first, and a query with no row is NoRows naming its
+// statement. Each At reads the kind it names and refuses another kind or
+// a column the row does not have.
+law RowsReadEachRow(a string, n int64, s string) {
+	let rows = []sql.Row{sql.Row{Columns: []string{"id", "name"}, Values: []sql.Value{sql.Int{N: n}, sql.Text{S: s}}}, sql.Row{Columns: []string{"id", "name"}, Values: []sql.Value{sql.Int{N: n + 1}, sql.Null}}}
+	let script = NewScript([]Rule{Answer{Statement: a, Rows: rows, Affected: 0}})
+	with context { sql.DB: script } {
+		let all = sql.Rows(a, []sql.Value{}, first) catch {
+		case _:
+			return false
+		}
+		let one = sql.One(a, []sql.Value{}, first) catch {
+		case _:
+			return false
+		}
+		let text = sql.TextAt(rows[0], 1) catch {
+		case sql.Mismatch:
+			return false
+		}
+		let null = sql.IsNull(rows[1], 1) catch {
+		case sql.Mismatch:
+			return false
+		}
+		slices.Equal(all, []int64{n, n + 1}) && one == n && noRows(a + " ") && text == s && null && textRefused(rows[0], 0) && intRefused(rows[0], 2)
+	}
+}
