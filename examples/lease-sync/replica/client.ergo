@@ -144,12 +144,12 @@ func Step[S wire, C, E, F, R](src Source[S, C, E, R], st State[S, C, F], sig Sig
 	}
 }
 
-func stay[S, C, F](st State[S, C, F]) Decision[State[S, C, F], None] { Stay[State[S, C, F]]{Next: st} }
+func stay[S, C, F](st own State[S, C, F]) Decision[State[S, C, F], None] { Stay[State[S, C, F]]{Next: st} }
 
 // delta is st after the records of d past its cursor: each Did event
 // moves the base, each Refused of a pending command of the client joins
 // Refused, and the commands the records confirm leave Pending.
-func delta[S wire, C, E, F, R](src Source[S, C, E, R], st State[S, C, F], d Delta[E, F]) State[S, C, F] {
+func delta[S wire, C, E, F, R](src Source[S, C, E, R], st own State[S, C, F], d Delta[E, F]) State[S, C, F] {
 	let mut base = st.base
 	let mut cursor = st.cursor
 	let mut known = 0
@@ -184,7 +184,7 @@ func delta[S wire, C, E, F, R](src Source[S, C, E, R], st State[S, C, F], d Delt
 // tell is refused with the refusal of the pending command id, when the
 // client still waits for it: a refusal the client was told, or dismissed,
 // is never told twice.
-func tell[C, F](pending []domain.Envelope[C], refused []Refusal[C, F], id domain.CommandID, why F) []Refusal[C, F] {
+func tell[C, F](pending []domain.Envelope[C], refused own []Refusal[C, F], id domain.CommandID, why own F) []Refusal[C, F] {
 	for m in pending {
 		if m.ID == id {
 			return refused.Append(Refusal[C, F]{Envelope: m, Why: why})
@@ -206,7 +206,7 @@ func above[C](pending []domain.Envelope[C], seq int, id ClientID) []domain.Envel
 
 // settle is st with its status: Ready with the view, the base plus a rerun
 // of Pending, once the cursor is at the floor; else Loading.
-func settle[S wire, C, E, F, R](src Source[S, C, E, R], st State[S, C, F]) State[S, C, F] {
+func settle[S wire, C, E, F, R](src Source[S, C, E, R], st own State[S, C, F]) State[S, C, F] {
 	if st.cursor < st.floor {
 		return State[S, C, F]{..st, Status: Loading}
 	}

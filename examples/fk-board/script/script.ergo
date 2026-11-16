@@ -51,7 +51,7 @@ type Host {
 	Y     float64,
 	said  string,
 	acted ui.Stats,
-}
+} implements Closer
 
 // Unread is a line the host cannot read or play.
 type Unread { Why string }

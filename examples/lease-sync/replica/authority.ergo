@@ -101,7 +101,7 @@ type Authority[S any, C comparable, E comparable, F comparable] {
 }
 
 // first is the first command c of the client origin, as a law sends it.
-func first[C](origin string, c C) domain.Envelope[C] {
+func first[C](origin string, c own C) domain.Envelope[C] {
 	domain.Envelope[C]{ID: IDOf(ClientID(origin), 1), By: "law", At: time.Unix(0, 0), Command: c}
 }
 

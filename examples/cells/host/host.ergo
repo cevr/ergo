@@ -156,7 +156,7 @@ func report[E comparable, S, D, F](h *Host[S, E, D, F]) fails actor.Stopped | ui
 }
 
 // place puts id among parent's children, in front of before or last.
-func place[S, E, D, F](h *Host[S, E, D, F], id ui.Id[E], parent ui.Id[E], before Option[ui.Id[E]]) {
+func place[S, E, D, F](h *Host[S, E, D, F], id own ui.Id[E], parent ui.Id[E], before Option[ui.Id[E]]) {
 	match h.nodes.Get(parent) {
 	case Some[held[E]] as p:
 		let mut kids = []ui.Id[E]{}
@@ -194,7 +194,7 @@ func unplace[S, E, D, F](h *Host[S, E, D, F], parent ui.Id[E], id ui.Id[E]) {
 }
 
 // dropNode forgets id and its subtree, and takes it out of its parent.
-func dropNode[S, E, D, F](h *Host[S, E, D, F], id ui.Id[E]) {
+func dropNode[S, E, D, F](h *Host[S, E, D, F], id own ui.Id[E]) {
 	for p, n in h.nodes {
 		for k in n.kids {
 			if k == id {
@@ -205,7 +205,7 @@ func dropNode[S, E, D, F](h *Host[S, E, D, F], id ui.Id[E]) {
 	forget(h, id)
 }
 
-func forget[S, E, D, F](h *Host[S, E, D, F], id ui.Id[E]) {
+func forget[S, E, D, F](h *Host[S, E, D, F], id own ui.Id[E]) {
 	match h.nodes.Get(id) {
 	case Some[held[E]] as n:
 		for k in n.Value.kids {
@@ -363,7 +363,7 @@ func roomForLists[S, E, D, F](h *Host[S, E, D, F], t *layout.Tree, ids Map[ui.Id
 
 // build adds id's children under into, and their subtrees. A list's row
 // is out of the flow, at its index's place below the list's top.
-func build[S, E, D, F](h *Host[S, E, D, F], t *layout.Tree, id ui.Id[E], into layout.Id, ids Map[ui.Id[E], layout.Id]) Map[ui.Id[E], layout.Id] {
+func build[S, E, D, F](h *Host[S, E, D, F], t *layout.Tree, id ui.Id[E], into layout.Id, ids own Map[ui.Id[E], layout.Id]) Map[ui.Id[E], layout.Id] {
 	let mut out = ids
 	let list = match h.nodes.Get(id) {
 	case Some[held[E]] as p:
@@ -437,7 +437,7 @@ func named(g *grid.Grid, name string, c int, r int, d drawnAt, pen grid.Pen) dra
 
 // drawNode draws id, lifted by dy rows (its Scrolls' offsets), within the
 // cells clip.
-func drawNode[S, E, D, F](h *Host[S, E, D, F], g *grid.Grid, t *layout.Tree, ids Map[ui.Id[E], layout.Id], id ui.Id[E], dy int, clip Rect) {
+func drawNode[S, E, D, F](h *Host[S, E, D, F], g *grid.Grid, t *layout.Tree, ids Map[ui.Id[E], layout.Id], id own ui.Id[E], dy int, clip Rect) {
 	let n = match h.nodes.Get(id) {
 	case Some[held[E]] as x:
 		x.Value.node

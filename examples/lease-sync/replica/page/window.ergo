@@ -92,7 +92,7 @@ func ExtendBack[K ordered, T](w Window[K, T], p Page[K, T]) Window[K, T] { merge
 // row between its bounds, and the window every row between its first and
 // last, so the union has no gap exactly when After is at most the last
 // key and Before at least the first.
-func merge[K ordered, T](w Window[K, T], p Page[K, T]) Window[K, T] {
+func merge[K ordered, T](w own Window[K, T], p Page[K, T]) Window[K, T] {
 	if len(w.rows) > 0 && !(atMost(p.After, w.rows[len(w.rows)-1].Key) && atLeast(p.Before, w.rows[0].Key)) {
 		return w
 	}
@@ -131,7 +131,7 @@ func atLeast[K ordered](b Option[K], k K) bool {
 
 // insert puts r into rows in key order, unless rows already hold its ID
 // or its key.
-func insert[K ordered, T](rows []Row[K, T], r Row[K, T]) []Row[K, T] {
+func insert[K ordered, T](rows own []Row[K, T], r own Row[K, T]) []Row[K, T] {
 	let mut out = []Row[K, T]{}
 	let mut put = false
 	for x in rows {
