@@ -102,6 +102,9 @@ func testLoadedPackage(opts fileOptions, l loaded, keep func(result []byte)) err
 	// initializers never run (empty.go); a schedule search still builds it.
 	if opts.search.mode == "" && nothingToTest(l.analysis.Root().Package) {
 		err := emptyTestRun(opts, l.result.Revision, os.Stdout, os.Stderr)
+		if err == nil && opts.law == "" && opts.skipLaw == "" && opts.run == "" && !opts.explore {
+			err = writeLedger(opts, l)
+		}
 		if err == nil {
 			keep(nil)
 		}
@@ -285,10 +288,24 @@ func runTestBinary(opts fileOptions, l loaded, binary string, prefix []string, s
 		}
 		return nil
 	}
-	// The passing run writes the law ledger (runtime.md, Tests 10): the
-	// laws and site instances the run build uses, checked alone. In a
-	// module's one test binary (sharedTestCommand) this runs once per
-	// package, as each package's own `ergo test` does.
+	if err := writeLedger(opts, l); err != nil {
+		return err
+	}
+	if store != nil {
+		store(result)
+	}
+	return nil
+}
+
+// writeLedger is a passing full run's write of the law ledger (runtime.md,
+// Tests 10): the laws and site instances the run build uses, checked
+// alone. In a module's one test binary (sharedTestCommand) this runs once
+// per package, as each package's own `ergo test` does. A binary with no
+// test of its own writes it too (testLoadedPackage): its sites may rest on
+// an imported provider's law (LFL: a foreign key change left catalog's
+// entries stale, and its ergo test, which tests nothing, never rewrote
+// them).
+func writeLedger(opts fileOptions, l loaded) error {
 	root, err := build.DefaultRoot()
 	if err != nil {
 		return err
@@ -301,7 +318,7 @@ func runTestBinary(opts fileOptions, l loaded, binary string, prefix []string, s
 		Mode:      build.ModeBuild,
 		Source:    l.source.Admitted(),
 		Cache:     build.Cache{Root: root},
-		Toolchain: tc, // no explore tag: an explored run returned above
+		Toolchain: tc, // no explore tag: an explored run returned before
 		Stderr:    os.Stderr,
 		Ledger:    ledgerPath(opts.file),
 		Laws:      lawStore(),
@@ -311,9 +328,6 @@ func runTestBinary(opts fileOptions, l loaded, binary string, prefix []string, s
 	}
 	if changed > 0 {
 		fmt.Fprintf(os.Stderr, "ergo.laws: %d entries changed\n", changed)
-	}
-	if store != nil {
-		store(result)
 	}
 	return nil
 }
