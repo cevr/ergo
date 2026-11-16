@@ -14,10 +14,10 @@ index c8f1b2d..dbdb46e 100644
  	ImportCfg          func(string) "help:\"read import configuration from `file`\""
 diff --git a/src/cmd/compile/internal/noder/ergoir.go b/src/cmd/compile/internal/noder/ergoir.go
 new file mode 100644
-index 0000000..e78b982
+index 0000000..8ce131d
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir.go
-@@ -0,0 +1,273 @@
+@@ -0,0 +1,288 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -64,6 +64,11 @@ index 0000000..e78b982
 +	End    ergoPos     `json:"end"`
 +	Locals []ergoLocal `json:"locals"`
 +	Body   []*ergoStmt `json:"body"`
++	// Results binds the signature's results, which the Go declaration
++	// names, as locals after the parameters (IR2-RESULTS): a frame's
++	// deferred end reads the named error result, as the emitter's
++	// `defer fs.End(&err)` does.
++	Results bool `json:"results,omitempty"`
 +}
 +
 +type ergoLocal struct {
@@ -251,6 +256,16 @@ index 0000000..e78b982
 +	}
 +	for i := 0; i < c.sig.Params().Len(); i++ {
 +		c.locals = append(c.locals, c.sig.Params().At(i))
++	}
++	if fn.Results {
++		for i := 0; i < c.sig.Results().Len(); i++ {
++			r := c.sig.Results().At(i)
++			if r.Name() == "" || r.Name() == "_" {
++				c.errorf(fn.Pos, "ergoir: %s: a result bound as a local needs a name in the Go declaration", fn.Name)
++				return
++			}
++			c.locals = append(c.locals, r)
++		}
 +	}
 +	if !ergoSigOK(c.sig) || c.sig.Variadic() {
 +		c.errorf(fn.Pos, "ergoir: %s: only plain signatures with at most one result take an IR body", fn.Name)
