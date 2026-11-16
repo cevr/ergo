@@ -219,8 +219,11 @@ type inlineRet struct {
 	res, err, label string
 	// fail is the label the failing returns jump to (failJump), "" when
 	// they jump to label.
-	fail  string
-	gotos int
+	fail string
+	// failsAlways: the block's last statement jumps to fail and no
+	// return jumps to label (closeInline).
+	failsAlways bool
+	gotos       int
 	// join is the join local the returns write instead of res (scalar.go).
 	join *scalarLocal
 	// known is the fold whose arms the returns jump to (knownmatch.go).
@@ -711,6 +714,9 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 	if fallible {
 		ret.err = fc.temp("err")
 		fc.line("var " + ret.err + " error")
+		// The use goes before the block: after a block whose every path
+		// fails by a jump it would be unreachable (go vet).
+		fc.line("_ = " + ret.err)
 		if jump && ret.join == nil {
 			// A join local's returns stay at the join: its writes are
 			// the scalar form's (scalar.go), not the result's.
@@ -803,7 +809,7 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 		ic.body(f.Decl.Body.List)
 	}()
 	fc.closeInline(ic.out.String(), ret, before)
-	o := operand{val: ret.res, err: ret.err, fail: ret.fail}
+	o := operand{val: ret.res, err: ret.err, fail: ret.fail, failsAlways: ret.failsAlways}
 	if ret.join != nil {
 		o.val = ret.join.name
 	} else {
@@ -893,9 +899,9 @@ func (fc *funcCtx) closeInline(body string, ret *inlineRet, before string) {
 	if ret.fail != "" && !strings.Contains(body, "goto "+ret.fail+"\n") {
 		ret.fail = "" // no return fails: the site has no label to place
 	}
-	if ret.err != "" {
-		fc.line("_ = " + ret.err)
-	}
+	failJump := "goto " + ret.fail + "\n"
+	ret.failsAlways = ret.fail != "" && !strings.Contains(body, jump) &&
+		strings.HasSuffix(body, "\t"+failJump) && !strings.HasSuffix(body, "\t\t"+failJump)
 	// Only a body with directives changed the current one. Code with
 	// directives names its own again; code with none (a std body, a copy
 	// for a known record, record.go) names no Ergo file again, so a
