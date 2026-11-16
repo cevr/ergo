@@ -83,12 +83,40 @@ package of this Go module and the Ergo half binds it.
   `ui.Type` with the field's whole text; else each rune to `OnKey`),
   scrolling and pointer capture. `desktop.Run` runs a program in a window;
   call it from `main`, whose task runs on the main thread.
+- The layout tree is kept across passes (`desktop/keep.ergo`, GPk): a
+  pass's ops add and remove boxes, and restyle and reorder the children of
+  each parent they touched, a style set only where it differs, so the
+  kernel lays out again only those boxes and the ones around them up to the
+  root (`desktop.LaidOut` counts them), and keeps what it measured. Only
+  the texts a pass adds or changes are measured, and `Metrics` keeps its
+  table in a `sync.Ref`, so binding it as the paint's `layout.Measure`
+  copies nothing. The tree built anew at every paint, as before, stays the
+  reference: `desktop.Reference` lays out only that one, and
+  `desktop.Check` builds it beside the kept one at every paint and keeps
+  the first box where they differ (`desktop.Differs`). hostagree always
+  checks, and `TestStarsGuiOnTheDesktop` runs the window binary with
+  `-check`. `TestDesktopKeepsItsLayout` is the growth guard: adding a row
+  to the shelf app lays out the same few boxes after 10 rows as after 40.
+- The paint is a damage paint (`desktop/paint.ergo`): a node no pass,
+  scroll or focus change touched, itself or below it, whose box, offset,
+  clip and line height are those of its last draw takes that draw again
+  from the window's last list (`Window.Again`: its ops, its lines of text
+  and its accessibility nodes, as `Mark` and `Seal` bounded them), with
+  the spots it added. Only the rest is drawn anew (`desktop.Drawn` counts
+  them). The full paint stays the reference: `desktop.Reference` draws
+  every node, and `desktop.Check` draws the full list first, puts it aside
+  (`Window.Hold`) and holds the damage paint's list and spots to it
+  (`Window.Differs`). `TestDesktopDrawsOnlyWhatChanged` is the growth
+  guard: adding a row to the shelf app draws the same few nodes after 10
+  rows as after 40.
 - A virtual list (`ui.Rows`, H5b) scrolls as a Scroll does, over its
   count of rows; each row it wrote is out of the flow at its index's place.
   A list with no height of its own takes the window below its top. After
   each paint the driver reports a list's viewport (its offset and its
   height) as `ui.Scrolled` when it moved, so the next pass writes the rows
-  the window shows; `desktop.Viewport` is the last one reported.
+  the window shows; `desktop.Viewport` is the last one reported. A pass
+  whose list offset is not the window's (`ui.RowsKeeping` brought its row
+  into view) scrolls the window there, and the next report says so.
   `ui.ScrollOn` in a script turns the wheel on the list to its offset; the
   height is the window's.
 - A canvas (`ui.Canvas`, H5c) replays its paint list (`desktop/canvas.ergo`):
@@ -108,9 +136,10 @@ scene scripts of seven apps on `ui.TestHost` and, through a headless window,
 on the driver: after every step both hold the same tree and app state, and
 each filled node shows its color in the rendered frame where the driver
 laid it out (a canvas's last opaque fill at its centre). In the `list`
-app TestHost takes the viewport the window reports, and each row the
-window wrote must show at the list's top plus its index's rows, less the
-offset. Taps are a press and a release at the node's centre, so they
+app TestHost takes the viewport the window reports, the window shows the
+list at the offset its pass wrote (a cursor the list keeps in view moves
+with Down and Up), and each row the window wrote must show at the list's
+top plus its index's rows, less the offset. Taps are a press and a release at the node's centre, so they
 pass the layout, the paint list and the hit test. `-agree.seed=N` replays
 one seed. `TestMyGoHostPrimitivesOnly` scans this module's Go with
 `go/types` and refuses any MyGo object but the drawing layer's and
@@ -160,6 +189,74 @@ table's window the frame does not show.
 scripts (`-stars.seed=N` replays one). The receipts per line, at 100,000
 rows, are in the run's `receipts/stars-gui-c/`.
 
+## The editor's window: `cmd/editor-gui` (GP2d)
+
+`examples/editor-gui` (module `ergo.local/prototype/examples/editorgui`)
+is required the same way. `cmd/editor-gui [-headless [-check]] FILE`
+shows its editor, app and view on the desktop driver, saving to the host's
+files with a clipboard in memory. Headless, it plays the example's script
+lines as a person gives them: a key after a click beside the toolbar (so
+a focused field or button does not take it), a shortcut as the key with
+Ctrl (`Window.Chord`; the window now gives a program a letter or digit
+pressed with Ctrl, Alt or the system key, which it dropped before), a
+click on each button, the text input and the replacement field typed
+after a click, a press on the page where the scene presses; after each
+line it settles the save or clipboard task the view asked for.
+
+`controls/editor-gui` is its MyGo-direct control: the hand-Go model of
+`cmd/ergo/testdata/editor-gui/control`, copied, with the window on
+MyGo's widgets and the page's lines in a `ui.TextArea`. Headless, a line
+goes to the model (a move of N as N moves, as a window's keys make it)
+and `ui.Tester` lays out and paints the window after it.
+
+`TestEditorGuiOnTheDesktop` holds both to the example's own
+`editor-gui scene` on 60 seeded documents and scripts, output and saved
+file (`-editor.seed=N` replays one).
+
+## The drawing app's window: `cmd/draw-gui` (GP3c)
+
+`examples/draw-gui` (module `ergo.local/prototype/examples/drawgui`) is
+required the same way. `cmd/draw-gui [-headless [-check]] FILE` shows its
+tool machine and view on the desktop driver, saving pictures to the
+host's files. Headless, it plays the example's script as a person gives
+it: the pointer pressed on the picture and moved and released anywhere,
+past the picture's edge too; the toolbar's buttons clicked; Escape
+pressed. A pressed pointer's moves go to the node it went down on, as its
+release does (pointer capture; before, a move over another node or none
+was lost, so a stroke dragged past the picture's edge missed points).
+
+`controls/draw-gui` is its MyGo-direct control: the hand-Go model of
+`cmd/ergo/testdata/draw-gui/control`, copied, with the window on MyGo's
+widgets and the picture a box whose `Draw` strokes the shapes with
+MyGo's `Painter`. `TestDrawGuiOnTheDesktop` holds both to the example's
+`draw-gui scene` on 40 seeded pictures and scripts, output and saved file
+(`-draw.seed=N` replays one).
+
+## The dashboard's window: `cmd/dash-gui` (GP4c)
+
+`examples/dash-gui` (module `ergo.local/prototype/examples/dashgui`) is
+required the same way. `cmd/dash-gui [-headless [-check] [-frames N]]
+[-seed S]` shows its app and view on the desktop driver over the seeded
+synthetic sensors. The view animates, so the window's display gives it a
+frame at each of its frames, each a tick of the session and a `Next` of
+the app. Headless, the display is the script's: `frames N` draws N
+frames of the window (`Window.Render`, one Frame input each), and the
+notes each frame makes are printed after it; `tap LABEL` clicks a
+panel's button; `show` prints the window's texts.
+
+`controls/dash-gui` is its MyGo-direct control: the hand-Go model of
+`cmd/ergo/testdata/dash-gui/control`, copied, with the window on MyGo's
+widgets and each panel's plot painted with MyGo's `Painter` and its chart
+package (`chart.MinMax`, `chart.LineInto`). `TestDashGuiOnTheDesktop`
+holds both to the example's `dash-gui scene` on 24 seeded sensors, frame
+counts and scene scripts (`-dash.seed=N` replays one).
+
+Headless, `Drain` takes what the session posted (`Pump`) after each frame,
+as the window's own loop does after every input and as `ui.Advance` does,
+so both hosts take a work's reply at the same frame (F-GP4c-1). The
+session's watcher reads `LatestChanges`, so a blocked watcher holds one
+state (std ui's `WatcherHoldsOneState`).
+
 ## Pins and checks
 
 - MyGo `github.com/egoist/mygo` at `afb7d5f` (`v0.8.4-0.20261109183017-afb7d5f170f7`), Go 1.27.3.
@@ -167,4 +264,14 @@ rows, are in the run's `receipts/stars-gui-c/`.
   and `go vet` for linux, darwin, windows and js/wasm. The batch gate runs
   it after `scripts/gate.sh --merge`, on Linux and on the Mac. It needs the
   pinned modules in the module cache (the network once).
+- `TestExamplesCrossBuild` builds the window binaries for darwin/arm64,
+  windows/amd64 and js/wasm (screen's binding states those platforms), and
+  runs the js/wasm ones headless under Node (Go's `wasm_exec_node.js`) on
+  three seeded scripts, each printing what `ui.TestHost` prints. Node runs
+  them without `GOMAXPROCS`: `wasm_exec_node.js` hands node's environment
+  to the program, and Go's runtime on js/wasm dies in its own start
+  ("newosproc: not implemented") when it is over 1, before any program
+  code runs, so no fix in the program can help
+  (`TestWasmRunsUnderAnInheritedGOMAXPROCS`). A browser passes no
+  environment. Run a js/wasm binary under node with `GOMAXPROCS` unset.
 - `testdata/mutants.json` is the module's mutant ledger.

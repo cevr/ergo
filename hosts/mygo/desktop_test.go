@@ -60,8 +60,9 @@ func genScript(r *rand.Rand, app string) string {
 			}
 		case "list":
 			// rows past the window's fold and past the overscan, which a
-			// tap reaches by scrolling first or finds no node for
-			step = pick(r, "tap more", "tap less", fmt.Sprintf("scroll list %d", r.IntN(3000)), fmt.Sprintf("tap row %d", r.IntN(90)), fmt.Sprintf("tap row %d", r.IntN(20)))
+			// tap reaches by scrolling first or finds no node for; down
+			// and up move the cursor the list keeps in view (RowsKeeping)
+			step = pick(r, "tap more", "tap less", "tap note", fmt.Sprintf("scroll list %d", r.IntN(3000)), fmt.Sprintf("tap row %d", r.IntN(90)), fmt.Sprintf("tap row %d", r.IntN(20)), "tap down", "tap down", "tap up")
 		case "sketch":
 			step = fmt.Sprintf("point sketch %s %d %d", pick(r, "down", "down", "up", "move"), r.IntN(200), r.IntN(150))
 		}

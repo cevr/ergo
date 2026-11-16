@@ -166,15 +166,7 @@
       "rule": "ergo gen rpc names the contract by its resolved import path, never by how the command spelled the folder; --check from any spelling finds current files current.",
       "killers": ["ergo:TestGenCheckReadsThePackage"]
     },
-    {
-      "name": "dist1-platform-unchecked",
-      "origin": "wf10 DIST1",
-      "file": "cmd/ergo/build.go",
-      "from": "if slices.Contains(gobind.Platforms, p) {",
-      "to": "if true || slices.Contains(gobind.Platforms, p) {",
-      "rule": "A platform outside the target list is the EF110 refusal, however it was named.",
-      "killers": ["cmd/ergo:TestFileCommandsRefuseOptionsTheyDoNotTake", "cmd/ergo:TestPlatformOfABuild"]
-    },
+    {"name":"dist1-platform-unchecked","origin":"wf10 DIST1","file":"cmd/ergo/build.go","from":"if slices.Contains(gobind.BuildPlatforms, p) {","to":"if true || slices.Contains(gobind.BuildPlatforms, p) {","rule":"A platform outside the target list is the EF110 refusal, however it was named.","killers":["cmd/ergo:TestFileCommandsRefuseOptionsTheyDoNotTake","cmd/ergo:TestPlatformOfABuild"]},
     {
       "name": "dist1-platform-flag-on-run",
       "origin": "wf10 DIST1",

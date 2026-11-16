@@ -1,1 +1,1 @@
-module editor
+module ergo.local/prototype/examples/editorgui

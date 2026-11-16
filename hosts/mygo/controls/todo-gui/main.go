@@ -146,6 +146,26 @@ func (l *list) view(c *ui.Context) {
 
 func newList() *list { return &list{next: 1, show: "all"} }
 
+// labelled is how many nodes of the view have label: the field, the
+// buttons and the list, and each shown item's check and delete button.
+func (l *list) labelled(label string) int {
+	k := 0
+	for _, fixed := range []string{"new item", "add", "items", "all", "open", "done", "clear"} {
+		if label == fixed {
+			k++
+		}
+	}
+	for _, it := range l.shown() {
+		if label == it.text {
+			k++
+		}
+		if label == "del "+it.text {
+			k++
+		}
+	}
+	return k
+}
+
 // headless plays the script on in through ui.Tester, clicking by label,
 // and writes the list after each step to out.
 func headless(in io.Reader, out io.Writer) error {
@@ -169,6 +189,13 @@ func headless(in io.Reader, out io.Writer) error {
 			continue
 		}
 		var err error
+		// A label more than one node has names none of them, as
+		// ui.TestHost's strict labels (NS7) refuse it.
+		target := strings.SplitN(rest, "\t", 2)[0]
+		if k := l.labelled(target); (verb == "tap" || verb == "type") && k > 1 {
+			fmt.Fprintf(out, "%d: label \"%s\" finds %d nodes\n", n, target, k)
+			continue
+		}
 		switch verb {
 		case "tap":
 			reveal(tt, l, rest)

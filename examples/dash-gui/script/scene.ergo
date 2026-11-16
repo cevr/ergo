@@ -4,8 +4,8 @@
 // frame the view's Animate sends the app a Next.
 
 import actor
-import dash/feed
-import dash/screen
+import ergo.local/prototype/examples/dashgui/feed
+import ergo.local/prototype/examples/dashgui/screen
 import io
 import machines
 import queue
@@ -70,13 +70,11 @@ func Scene(lines Seq[string], frames int, clock time.Manual) fails ui.BadPatch |
 				return s
 			case ui.BadPatch as b:
 				return b
-			case ui.Ambiguous as x:
-				io.Stdout.Println("? \(x.Count) nodes match " + x.At)
 			case ui.Mismatch as x:
 				io.Stdout.Println("? want " + x.Want + ", got " + x.Got)
 			}
 		case "show":
-			for t in texts(ui.Screen(&h)) {
+			for t in Texts(ui.Screen(&h)) {
 				io.Stdout.Println(t)
 			}
 		case "shot":
@@ -97,15 +95,15 @@ func advance(h *ui.TestHost[screen.Dash, screen.Signal, Decision[screen.Dash, []
 	for _ in 0..n {
 		try ui.Advance(h, Period)
 		for x in notes.Get() {
-			io.Stdout.Println(note(x))
+			io.Stdout.Println(Note(x))
 		}
 		notes.Set([]feed.Notice{})
 	}
 }
 
-// texts is the values of the screen's text nodes in tree order, leaving
+// Texts is the values of the screen's text nodes in tree order, leaving
 // out the captions inside buttons.
-func texts(shapes []ui.Shape[screen.Signal]) []string {
+func Texts(shapes []ui.Shape[screen.Signal]) []string {
 	let mut out = []string{}
 	for s in shapes {
 		match s.Node {
@@ -115,7 +113,7 @@ func texts(shapes []ui.Shape[screen.Signal]) []string {
 			continue
 		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.CheckNode, ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode:
 		}
-		for t in texts(s.Kids) {
+		for t in Texts(s.Kids) {
 			out = out.Append(t)
 		}
 	}

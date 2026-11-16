@@ -14,9 +14,9 @@
 // page's paint list.
 
 import actor
-import editor/edit
-import editor/piece
-import editor/screen
+import ergo.local/prototype/examples/editorgui/edit
+import ergo.local/prototype/examples/editorgui/piece
+import ergo.local/prototype/examples/editorgui/screen
 import io
 import machines
 import strings
@@ -56,7 +56,7 @@ func Scene(text string, name string, store edit.Store, clip ui.Clipboard, lines 
 		case Paste:
 			[]ui.Act{key("v", true)}
 		case Click as k:
-			[]ui.Act{click(ui.StateOf(&h).Ed, k.Row, k.Col)}
+			[]ui.Act{PressAt(ui.StateOf(&h).Ed, k.Row, k.Col)}
 		}
 		ui.Play(&h, acts.Append(ui.SettleAll)) catch {
 		case ui.NoNode as x:
@@ -67,8 +67,6 @@ func Scene(text string, name string, store edit.Store, clip ui.Clipboard, lines 
 			return s
 		case ui.BadPatch as b:
 			return b
-		case ui.Ambiguous as x:
-			io.Stdout.Println("? \(x.Count) nodes match " + x.At)
 		case ui.Mismatch as x:
 			io.Stdout.Println("? want " + x.Want + ", got " + x.Got)
 		}
@@ -80,10 +78,11 @@ func Scene(text string, name string, store edit.Store, clip ui.Clipboard, lines 
 	a.Stop()
 }
 
-// click is a press on the page where the caret of row and column of s's
+// PressAt is a press on the page where the caret of row and column of s's
 // window is drawn (edit.PointAt): the point a user aims at, which the
-// view's hit test (ui.OffsetAt) takes back to the offset.
-func click(s edit.State, row int, col int) ui.Act {
+// view's hit test (ui.OffsetAt) takes back to the offset. A desktop
+// window's scene presses the same point.
+func PressAt(s edit.State, row int, col int) ui.Act {
 	let d = edit.DocOf(s)
 	let (from, to) = screen.Shown(d)
 	let l = ui.LayoutText(screen.Mono, piece.Slice(d.Buf, from, to), screen.Font, screen.PageWidth)
