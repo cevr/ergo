@@ -233,6 +233,14 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 				if !ok {
 					irNo("record key")
 				}
+				for _, f := range s.Fields {
+					if f.Name == k.Name && b.fc.goType(b.l.info.Types[kv.Value]) != b.fc.goType(f.Type) {
+						// Go converts a variant to its row's error field;
+						// the decoder takes identical types only (I-FLIP:
+						// examples/jobs).
+						irNo("record field of a converted value")
+					}
+				}
 				lit.Keys = append(lit.Keys, td.fieldName[k.Name])
 				lit.Elems = append(lit.Elems, b.expr(kv.Value))
 			}

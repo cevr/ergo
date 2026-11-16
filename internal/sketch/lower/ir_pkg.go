@@ -77,13 +77,45 @@ func (b *irBuilder) spelling(s string) string {
 		if strings.Contains(s[i:j], ".") {
 			// The whole Go type keeps the import used: a generic type
 			// (ergo.Ref) is no type without its arguments. A path that
-			// is its own name (time) needs it too.
-			b.keepImport("var _ " + s)
+			// is its own name (time) needs it too. A spelling that names
+			// the generic body's type parameters (F1) is no package-level
+			// type: the runtime's import is kept by its Site type, which
+			// is not generic (I-FLIP: std/machines' generic bodies).
+			switch {
+			case !b.namesTypeParam(s):
+				b.keepImport("var _ " + s)
+			case strings.HasPrefix(s[i:j], b.l.rt()+"."):
+				b.keepImport("var _ " + b.l.rt() + ".Site")
+			default:
+				irNo("type parameter in another package's generic type %s", s)
+			}
 		}
 		out.WriteString(q)
 		i = j
 	}
 	return out.String()
+}
+
+// namesTypeParam reports whether the Go type spelling s names a type
+// parameter of the function the builder lowers.
+func (b *irBuilder) namesTypeParam(s string) bool {
+	for i := 0; i < len(s); {
+		j := i
+		for j < len(s) && isSpellingName(s[j]) {
+			j++
+		}
+		if j == i {
+			i++
+			continue
+		}
+		for _, name := range b.fc.params {
+			if s[i:j] == name {
+				return true
+			}
+		}
+		i = j
+	}
+	return false
 }
 
 func isSpellingName(c byte) bool {
@@ -162,7 +194,13 @@ func (b *irBuilder) valueSource(x *syntax.CallExpr, c *check.Call, args []syntax
 			// identical types only.
 			irNo("append to a defined slice type")
 		}
-		b.keepImport("var _ = " + b.l.goPkg("slices") + ".Clip[[]" + b.fc.goType(c.TypeArgs[0]) + "]")
+		if keep := b.fc.goType(c.TypeArgs[0]); b.namesTypeParam(keep) {
+			// A generic body's element type is no package-level type
+			// (I-FLIP: examples/counter-gui).
+			b.keepImport("var _ = " + b.l.goPkg("slices") + ".Clip[[]int]")
+		} else {
+			b.keepImport("var _ = " + b.l.goPkg("slices") + ".Clip[[]" + keep + "]")
+		}
 		src := irArgs[0]
 		irArgs[0] = &irExpr{K: "pcall", Pos: src.Pos, T: "slices", Name: "Clip", V: "[]" + elem + ", " + elem, Args: []*irExpr{src}}
 	case preludeMapWrite(c.Func):
@@ -516,6 +554,13 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	// leaf's import path, which rtRef imports.
 	pkg := v1.PackageOf(name)
 	switch {
+	case pkg != "" && pkg != runtimeImport && targs != "":
+		// A leaf's generic function is kept as an instance (I-FLIP:
+		// examples/pipeline's ergorpc.RPCDie).
+		if b.namesTypeParam(targs) {
+			irNo("runtime leaf's generic function in a generic body")
+		}
+		b.keepImport("var _ = " + b.l.rtRef(name) + "[" + targs + "]")
 	case pkg != "" && pkg != runtimeImport:
 		b.keepImport("var _ = " + b.l.rtRef(name))
 	case targs != "":
@@ -656,7 +701,7 @@ func (b *irBuilder) stdOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named,
 	if _, bound := runtimeBindings()[name]; !bound {
 		irNo("std call with no runtime binding")
 	}
-	body, err := v1.BodyOf(name)
+	body, err := runtimeBody(name) // bodycontract.go: the facts of the body the binding names
 	if err != nil || len(body.Params) != len(x.Args) {
 		irNo("std operation without its runtime method")
 	}
