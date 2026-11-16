@@ -191,6 +191,9 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		if !ok {
 			irNo("selector that is not a field")
 		}
+		if h := b.hoistField(x, field); h != nil { // ir_hoist.go
+			return h
+		}
 		return &irExpr{K: "field", Pos: b.pos(x.Sel, x.Sel.Pos()), Name: field, X: b.expr(x.X)}
 	case *syntax.IndexExpr:
 		if len(x.Indices) != 1 {

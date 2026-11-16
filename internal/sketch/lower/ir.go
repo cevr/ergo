@@ -355,6 +355,11 @@ type irBuilder struct {
 	// at, when set, is the position of every node built: a view's body
 	// built at its match site takes the site's (ir_view.go).
 	at *irPos
+	// params are the parameters' locals; hoisted and entry are the fields
+	// of record parameters read once at entry (ir_hoist.go).
+	params  map[int]bool
+	hoisted map[hoistKey]int
+	entry   []*irStmt
 }
 
 // gate stops the body for reason; a census records it and goes on.
@@ -480,10 +485,16 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	}
 	b.fn = &irFunc{Name: name, Pos: b.pos(f.Decl, f.Decl.Pos()), End: b.pos(f.Decl, f.Decl.Body.Rbrace)}
 	b.names = b.tempNames(f.Decl.Body) // ir_fail.go
+	b.params = map[int]bool{}
+	for _, l := range b.locals {
+		b.params[l] = true
+	}
 	if b.env >= 0 && frameFootprint(f.Pkg.Info, f.Decl).EntryPoll && !b.l.knownClosed(f) && fc.frame.polls {
 		b.fn.Body = append(b.fn.Body, b.poll(f.Decl))
 	}
+	n := len(b.fn.Body)
 	b.fn.Body = append(b.fn.Body, b.bodyStmts(f.Decl.Body.List)...) // ir_fail.go
+	b.fn.Body = b.withEntry(b.fn.Body, n)                           // ir_hoist.go
 	b.fn.Body = append(b.fn.Body, b.bodyEnd(b.fn.Body, b.fn.End)...)
 	b.fn.Body = irUseLocals(b.fn.Body) // ir_end.go
 	if st.census != nil {

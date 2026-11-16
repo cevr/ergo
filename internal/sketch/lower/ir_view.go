@@ -87,9 +87,13 @@ func (b *irBuilder) viewMatch(s *syntax.TypeSwitchStmt, ret bool, to *yieldTo) (
 	}
 	next, nLocals, at := b.next, len(b.fn.Locals), b.at
 	locals, admitted, switches := maps.Clone(b.locals), maps.Clone(b.admitted), b.switches
+	hoisted, entry := maps.Clone(b.hoisted), len(b.entry)
+	given, label, labels := maps.Clone(b.given), b.label, b.labels
 	restore := func() {
 		b.next, b.fn.Locals, b.at = next, b.fn.Locals[:nLocals], at
 		b.locals, b.admitted, b.switches = locals, admitted, switches
+		b.hoisted, b.entry = hoisted, b.entry[:entry]
+		b.given, b.label, b.labels = given, label, labels
 	}
 	defer func() {
 		if r := recover(); r != nil {
@@ -259,14 +263,29 @@ func (b *irBuilder) viewSwitch(s *syntax.TypeSwitchStmt, v *viewSite, ret bool, 
 	b.at = &p
 	var pre []*irStmt
 	for i, a := range v.args {
+		if l, ok := b.sameLocal(a); ok {
+			// An immutable local passed as is: the view reads it, with no
+			// copy (a record parameter's hoisted fields stay its own).
+			b.locals[v.params[i]] = l
+			continue
+		}
 		apre, e := b.value(a)
 		pre = append(pre, apre...)
 		l := b.temp(v.params[i].Name, b.goType(v.params[i].Type, a), p)
 		pre = append(pre, &irStmt{K: "def", Pos: p, Local: l, X: e})
 		b.locals[v.params[i]] = l
 	}
+	sunk := b.sinkable(v)
 	k := len(b.fn.Locals)
 	for _, st := range v.lets {
+		if d := sunk[st]; d != nil {
+			// A sunk let keeps its index checks here, in its place among
+			// the lets: a row out of range fails as in the two-step form.
+			for _, x := range d.checks {
+				pre = append(pre, &irStmt{K: "discard", Pos: p, X: b.expr(x)})
+			}
+			continue
+		}
 		pre = append(pre, b.stmt(st)...)
 	}
 	b.rename(k)
@@ -288,7 +307,16 @@ func (b *irBuilder) viewSwitch(s *syntax.TypeSwitchStmt, v *viewSite, ret bool, 
 		b.at = &cp
 		lit := cl.Body[0].(*syntax.ExprStmt).X
 		k := len(b.fn.Locals)
-		body, e := b.variant(lit)
+		// The sunk lets this case's literal reads, in their order.
+		var body []*irStmt
+		need := b.needs(lit, sunk)
+		for _, st := range v.lets {
+			if need[st] {
+				body = append(body, b.stmt(st)...)
+			}
+		}
+		lpre, e := b.variant(lit)
+		body = append(body, lpre...)
 		b.rename(k)
 		var as *check.Var
 		var asType check.Type
@@ -341,6 +369,175 @@ func (b *irBuilder) variant(x syntax.Expr) ([]*irStmt, *irExpr) {
 		defer func() { b.l.info.Implicit[x] = conv }()
 	}
 	return b.value(x)
+}
+
+// sameLocal is the local of a, when a is an immutable local of the caller
+// with no conversion: the view's parameter can be that local.
+func (b *irBuilder) sameLocal(a syntax.Expr) (int, bool) {
+	id, ok := unparen(a).(*syntax.Ident)
+	if !ok {
+		return 0, false
+	}
+	if _, conv := b.l.info.Implicit[a]; conv {
+		return 0, false
+	}
+	w, ok := b.l.info.Uses[id].(*check.Var)
+	if !ok || w.Mut() {
+		return 0, false
+	}
+	l, ok := b.locals[w]
+	return l, ok
+}
+
+// A sunk let (VW1b) is built in the cases whose literal reads it, not
+// before the switch: a row of a store reads, by its kind, only the columns
+// its variant holds. A let sinks when its value can neither fail nor have
+// an effect except by an index out of range: locals, constants, fields,
+// slice indexes, conversions of basic values, and operators that cannot
+// fail (no division, remainder or shift). Its index checks stay in its
+// place (sunkLet.checks, `_ = xs[i]`): Go checks the bound and loads
+// nothing, so a row out of range fails where and as it did. A let the
+// view's subject reads, or a let that stays reads, stays.
+type sunkLet struct {
+	v      *check.Var
+	value  syntax.Expr
+	checks []syntax.Expr
+}
+
+// sinkable is v's sunk lets; viewLowering "nosink" sinks none (the
+// reference of VW1b).
+func (b *irBuilder) sinkable(v *viewSite) map[syntax.Stmt]*sunkLet {
+	out := map[syntax.Stmt]*sunkLet{}
+	if viewLowering == "nosink" {
+		return out
+	}
+	byVar := map[*check.Var]syntax.Stmt{}
+	for _, st := range v.lets {
+		d := b.sunkLetOf(st)
+		if d == nil {
+			continue
+		}
+		out[st] = d
+		byVar[d.v] = st
+	}
+	// What stays reads what it needs before the switch.
+	stay := func(x syntax.Node) {
+		for w := range b.reads(x) {
+			delete(out, byVar[w])
+		}
+	}
+	stay(v.inner.Tag)
+	for i := len(v.lets) - 1; i >= 0; i-- {
+		if _, ok := out[v.lets[i]]; !ok {
+			stay(v.lets[i])
+		}
+	}
+	return out
+}
+
+// sunkLetOf is st as a let that may sink, or nil.
+func (b *irBuilder) sunkLetOf(st syntax.Stmt) *sunkLet {
+	ds, ok := st.(*syntax.DeclStmt)
+	if !ok || ds.Decl == nil || len(ds.Decl.Specs) != 1 {
+		return nil
+	}
+	sp := ds.Decl.Specs[0]
+	if len(sp.Names) != 1 || sp.Pattern != nil || len(sp.Values) != 1 {
+		return nil
+	}
+	w, ok := b.l.info.Defs[sp.Names[0]].(*check.Var)
+	if !ok || w.Mut() || len(b.l.info.Releases[st]) > 0 {
+		return nil
+	}
+	d := &sunkLet{v: w, value: sp.Values[0]}
+	if !b.cannotFail(sp.Values[0], &d.checks) {
+		return nil
+	}
+	return d
+}
+
+// cannotFail reports whether x can fail only by an index out of range,
+// with no effect; checks gets its indexes, innermost first.
+func (b *irBuilder) cannotFail(x syntax.Expr, checks *[]syntax.Expr) bool {
+	if _, conv := b.l.info.Implicit[x]; conv {
+		return false
+	}
+	switch y := x.(type) {
+	case *syntax.ParenExpr:
+		return b.cannotFail(y.X, checks)
+	case *syntax.BasicLit:
+		return true
+	case *syntax.Ident:
+		switch b.l.info.Uses[y].(type) {
+		case *check.Var, *check.Const:
+			return true
+		}
+	case *syntax.SelectorExpr:
+		if _, ok := b.l.info.Types[y.X].(*check.Named); ok {
+			return b.cannotFail(y.X, checks)
+		}
+	case *syntax.IndexExpr:
+		if _, ok := b.l.info.Types[y.X].(*check.Slice); !ok || len(y.Indices) != 1 {
+			return false
+		}
+		if !b.cannotFail(y.X, checks) || !b.cannotFail(y.Indices[0], checks) {
+			return false
+		}
+		*checks = append(*checks, y)
+		return true
+	case *syntax.UnaryExpr:
+		switch y.Op {
+		case syntax.ADD, syntax.SUB, syntax.XOR, syntax.NOT:
+			return b.cannotFail(y.X, checks)
+		}
+	case *syntax.BinaryExpr:
+		switch y.Op {
+		case syntax.ADD, syntax.SUB, syntax.MUL, syntax.AND, syntax.OR, syntax.XOR, syntax.AND_NOT,
+			syntax.LAND, syntax.LOR, syntax.EQL, syntax.NEQ, syntax.LSS, syntax.GTR, syntax.LEQ, syntax.GEQ:
+			return b.cannotFail(y.X, checks) && b.cannotFail(y.Y, checks)
+		}
+	case *syntax.CallExpr:
+		c := b.l.info.Calls[y]
+		if c == nil || c.Kind != check.CallConversion || len(y.Args) != 1 || y.Trailing != nil {
+			return false
+		}
+		return basicOf(b.l.info.Types[y.Args[0]]) != nil && basicOf(b.l.info.Types[y]) != nil && b.cannotFail(y.Args[0], checks)
+	}
+	return false
+}
+
+// reads are the variables x reads.
+func (b *irBuilder) reads(x syntax.Node) map[*check.Var]bool {
+	out := map[*check.Var]bool{}
+	syntax.Inspect(x, func(n syntax.Node) bool {
+		if id, ok := n.(*syntax.Ident); ok {
+			if w, ok := b.l.info.Uses[id].(*check.Var); ok {
+				out[w] = true
+			}
+		}
+		return true
+	})
+	return out
+}
+
+// needs are the sunk lets x reads, with the sunk lets they read.
+func (b *irBuilder) needs(x syntax.Expr, sunk map[syntax.Stmt]*sunkLet) map[syntax.Stmt]bool {
+	out := map[syntax.Stmt]bool{}
+	byVar := map[*check.Var]syntax.Stmt{}
+	for st, d := range sunk {
+		byVar[d.v] = st
+	}
+	var add func(syntax.Node)
+	add = func(n syntax.Node) {
+		for w := range b.reads(n) {
+			if st, ok := byVar[w]; ok && !out[st] {
+				out[st] = true
+				add(sunk[st].value)
+			}
+		}
+	}
+	add(x)
+	return out
 }
 
 // rename gives the locals the view's body declared from index k on the
