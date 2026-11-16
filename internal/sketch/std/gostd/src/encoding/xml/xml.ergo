@@ -45,16 +45,16 @@ extern go encoding/xml.Decoder type Decoder {
 // ergo:refused Decoder.DecodeElement: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*Decoder).InputOffset() int64
-extern go encoding/xml.Decoder.InputOffset func (d own *Decoder) InputOffset() int64 needs go.Foreign
+extern go encoding/xml.Decoder.InputOffset func (d *Decoder) InputOffset() int64 needs go.Foreign
 
 // ergo:go func (*Decoder).InputPos() (line int, column int)
-extern go encoding/xml.Decoder.InputPos func (d own *Decoder) InputPos() (int, int) needs go.Foreign
+extern go encoding/xml.Decoder.InputPos func (d *Decoder) InputPos() (int, int) needs go.Foreign
 
 // ergo:go func (*Decoder).RawToken() (Token, error)
 // ergo:refused Decoder.RawToken: result 1: type Token is refused: Ergo has no any; an empty interface hides the host type
 
 // ergo:go func (*Decoder).Skip() error
-extern go encoding/xml.Decoder.Skip func (d own *Decoder) Skip() fails go.Error needs go.Foreign
+extern go encoding/xml.Decoder.Skip func (d *Decoder) Skip() fails go.Error needs go.Foreign
 
 // ergo:go func (*Decoder).Token() (Token, error)
 // ergo:refused Decoder.Token: result 1: type Token is refused: Ergo has no any; an empty interface hides the host type
@@ -82,10 +82,10 @@ extern go encoding/xml.Encoder.Close func (enc own *Encoder) Close() fails go.Er
 // ergo:refused Encoder.EncodeToken: parameter 1: type Token is refused: Ergo has no any; an empty interface hides the host type
 
 // ergo:go func (*Encoder).Flush() error
-extern go encoding/xml.Encoder.Flush func (enc own *Encoder) Flush() fails go.Error needs go.Foreign
+extern go encoding/xml.Encoder.Flush func (enc *Encoder) Flush() fails go.Error needs go.Foreign
 
 // ergo:go func (*Encoder).Indent(prefix string, indent string)
-extern go encoding/xml.Encoder.Indent func (enc own *Encoder) Indent(prefix string, indent string) needs go.Foreign
+extern go encoding/xml.Encoder.Indent func (enc *Encoder) Indent(prefix string, indent string) needs go.Foreign
 
 // ergo:go type EndElement struct
 extern go encoding/xml.EndElement type EndElement {
@@ -120,7 +120,7 @@ extern go encoding/xml.Marshaler type Marshaler {
 
 // ergo:go type MarshalerAttr interface
 extern go encoding/xml.MarshalerAttr type MarshalerAttr {
-	own MarshalXMLAttr(name Name) Attr fails go.Error needs go.Foreign,
+	MarshalXMLAttr(name Name) Attr fails go.Error needs go.Foreign,
 }
 
 // ergo:go type Name struct
@@ -166,7 +166,7 @@ extern go encoding/xml.SyntaxError type SyntaxError {
 }
 
 // ergo:go func (*SyntaxError).Error() string
-extern go encoding/xml.SyntaxError.Error func (e own *SyntaxError) Error() string needs go.Foreign
+extern go encoding/xml.SyntaxError.Error func (e *SyntaxError) Error() string needs go.Foreign
 
 // ergo:go type TagPathError struct
 extern go encoding/xml.TagPathError type TagPathError {
@@ -178,7 +178,7 @@ extern go encoding/xml.TagPathError type TagPathError {
 }
 
 // ergo:go func (*TagPathError).Error() string
-extern go encoding/xml.TagPathError.Error func (e own *TagPathError) Error() string needs go.Foreign
+extern go encoding/xml.TagPathError.Error func (e *TagPathError) Error() string needs go.Foreign
 
 // ergo:go type Token interface
 // ergo:refused Token: Ergo has no any; an empty interface hides the host type
@@ -202,7 +202,7 @@ extern go encoding/xml.Unmarshaler type Unmarshaler {
 
 // ergo:go type UnmarshalerAttr interface
 extern go encoding/xml.UnmarshalerAttr type UnmarshalerAttr {
-	own UnmarshalXMLAttr(attr Attr) fails go.Error needs go.Foreign,
+	UnmarshalXMLAttr(attr Attr) fails go.Error needs go.Foreign,
 }
 
 // ergo:go type UnsupportedTypeError struct
@@ -211,4 +211,4 @@ extern go encoding/xml.UnsupportedTypeError type UnsupportedTypeError {
 }
 
 // ergo:go func (*UnsupportedTypeError).Error() string
-extern go encoding/xml.UnsupportedTypeError.Error func (e own *UnsupportedTypeError) Error() string needs go.Foreign
+extern go encoding/xml.UnsupportedTypeError.Error func (e *UnsupportedTypeError) Error() string needs go.Foreign

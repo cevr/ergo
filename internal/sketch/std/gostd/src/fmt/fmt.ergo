@@ -41,7 +41,7 @@ extern go fmt.Formatter type Formatter {
 
 // ergo:go type GoStringer interface
 extern go fmt.GoStringer type GoStringer {
-	own GoString() string needs go.Foreign,
+	GoString() string needs go.Foreign,
 }
 
 // ergo:go func Print(a ...any) (n int, err error)
@@ -58,12 +58,12 @@ extern go fmt.GoStringer type GoStringer {
 
 // ergo:go type ScanState interface
 extern go fmt.ScanState type ScanState {
-	own Read(buf []byte) int fails go.Error needs go.Foreign,
-	own ReadRune() (rune, int) fails go.Error needs go.Foreign,
-	own SkipSpace() needs go.Foreign,
-	own Token(skipSpace bool, f own func(rune) bool) []byte fails go.Error needs go.Foreign,
-	own UnreadRune() fails go.Error needs go.Foreign,
-	own Width() (int, bool) needs go.Foreign,
+	Read(buf []byte) int fails go.Error needs go.Foreign,
+	ReadRune() (rune, int) fails go.Error needs go.Foreign,
+	SkipSpace() needs go.Foreign,
+	Token(skipSpace bool, f own func(rune) bool) []byte fails go.Error needs go.Foreign,
+	UnreadRune() fails go.Error needs go.Foreign,
+	Width() (int, bool) needs go.Foreign,
 }
 
 // ergo:go func Scanf(format string, a ...any) (n int, err error)
@@ -97,13 +97,13 @@ extern go fmt.Scanner type Scanner {
 
 // ergo:go type State interface
 extern go fmt.State type State {
-	own Flag(c int) bool needs go.Foreign,
-	own Precision() (int, bool) needs go.Foreign,
-	own Width() (int, bool) needs go.Foreign,
-	own Write(b []byte) int fails go.Error needs go.Foreign,
+	Flag(c int) bool needs go.Foreign,
+	Precision() (int, bool) needs go.Foreign,
+	Width() (int, bool) needs go.Foreign,
+	Write(b []byte) int fails go.Error needs go.Foreign,
 }
 
 // ergo:go type Stringer interface
 extern go fmt.Stringer type Stringer {
-	own String() string needs go.Foreign,
+	String() string needs go.Foreign,
 }

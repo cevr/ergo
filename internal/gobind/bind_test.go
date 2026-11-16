@@ -497,8 +497,43 @@ func genPackage(name string, r *rand.Rand) (string, map[string]verdict) {
 	want := map[string]verdict{
 		"S": {ergo: "type S { X int, }"},
 		"D": {ergo: "type D int"},
-		"I": {ergo: "type I { own M() int needs go.Foreign, }"},
+		"I": {ergo: "type I { M() int needs go.Foreign, }"},
 	}
+	// GB1: a method of a resource lends its receiver, unless its result
+	// may hold the receiver itself (the type, a pointer to it, an
+	// interface, or a struct field that may): the caller would own one Go
+	// value twice. The same holds for an interface operation.
+	b.WriteString("type Conn struct{}\nfunc (c *Conn) Close() error { panic(0) }\nfunc (c *Conn) Read(p []byte) (int, error) { panic(0) }\ntype Box struct{ C *Conn; N int }\ntype Plain struct{ N int }\n")
+	b.WriteString("type Stream interface {\n\tClose() error\n\tRead() int\n\tDup() Stream\n}\n\n")
+	want["Conn"] = verdict{ergo: "type Conn {} implements io.Closer"}
+	want["Conn.Close"] = verdict{ergo: "func (c own *Conn) Close() fails go.Error needs go.Foreign"}
+	want["Conn.Read"] = verdict{ergo: "func (c *Conn) Read(p []byte) int fails go.Error needs go.Foreign"}
+	want["Box"] = verdict{ergo: "type Box { C Option[go.Ref[Conn]], N int, }"}
+	want["Plain"] = verdict{ergo: "type Plain { N int, }"}
+	// The members' rows end at their commas (two literals: the row
+	// residue reads one).
+	want["Stream"] = verdict{ergo: "type Stream { ..io.Closer, own Dup() Stream needs go.Foreign" + ", Read() int needs go.Foreign, }"}
+	for _, m := range []struct{ name, results, ergo string }{
+		{"Self", "*Conn", "Option[go.Ref[Conn]]"},
+		{"Value", "Conn", "Conn"},
+		{"Wrap", "Box", "Box"},
+		{"Reader", "io.Reader", "io.Reader"},
+		{"Writer", "io.Writer", "io.Writer"},
+		{"Peek", "int", "int"},
+		{"Copy", "Plain", "Plain"},
+		{"Sibling", "(*S, error)", "go.Ref[S] fails go.Error"},
+		{"All", "iter.Seq[Conn]", "Seq[Conn]"},
+		{"Ints", "iter.Seq[int]", "Seq[int]"},
+	} {
+		fmt.Fprintf(&b, "func (c *Conn) %s() %s { panic(0) }\n", m.name, m.results)
+		mode := ""
+		switch m.name {
+		case "Self", "Value", "Wrap", "Reader", "All":
+			mode = "own "
+		}
+		want["Conn."+m.name] = verdict{ergo: "func (c " + mode + "*Conn) " + m.name + "() " + m.ergo + " needs go.Foreign"}
+	}
+	b.WriteString("\n")
 	// BV1's smallest repro: os.Stdout was refused as ordinary host state.
 	b.WriteString("var Stdout = os.Stdout\n\n")
 	want["Stdout"] = verdict{ergo: "let Stdout Option[go.Ref[os.File]]"}
@@ -527,11 +562,10 @@ func genPackage(name string, r *rand.Rand) (string, map[string]verdict) {
 		case 4:
 			ergoSig = "() int fails go.Error"
 		}
-		// ESC1's lifetime policy: a resource-capable receiver (a pointer,
-		// or a type whose Close makes it a resource) is taken, since no
-		// review lists Close as a lend.
+		// GB1: a method lends its receiver; the release, Close() or
+		// Close() error, keeps it.
 		mode := ""
-		if pointer || i < 2 {
+		if i < 2 {
 			mode = "own "
 		}
 		want[name+".Close"] = verdict{ergo: "func (r " + mode + recv + ") Close" + ergoSig + " needs go.Foreign"}
@@ -601,10 +635,7 @@ func (g *gen) function(b *strings.Builder, want map[string]verdict, name, recv s
 	refused := false
 	var params []string // Go params
 	var ergoParams []string
-	ergoRecv := recv
-	if recv == "s *S" {
-		ergoRecv = "s own *S" // a pointer receiver is kept (q168)
-	}
+	ergoRecv := recv // a method lends its receiver (GB1); S has no Close
 	if recv == "" && r.IntN(4) == 0 {
 		switch r.IntN(7) {
 		case 0:

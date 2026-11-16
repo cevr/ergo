@@ -2495,7 +2495,7 @@ extern go syscall.Iovec type Iovec {
 // ergo:refused Iovec.Base: a pointer to an unnamed type byte
 
 // ergo:go func (*Iovec).SetLen(length int)
-extern go syscall.Iovec.SetLen func (iov own *Iovec) SetLen(length int) needs go.Foreign
+extern go syscall.Iovec.SetLen func (iov *Iovec) SetLen(length int) needs go.Foreign
 
 // ergo:go func Issetugid() (tainted bool)
 // ergo:refused Issetugid: platform-specific: Go does not declare it on linux/amd64, linux/arm64
@@ -5659,10 +5659,10 @@ extern go syscall.Timespec type Timespec {
 }
 
 // ergo:go func (*Timespec).Nano() int64
-extern go syscall.Timespec.Nano func (ts own *Timespec) Nano() int64 needs go.Foreign
+extern go syscall.Timespec.Nano func (ts *Timespec) Nano() int64 needs go.Foreign
 
 // ergo:go func (*Timespec).Unix() (sec int64, nsec int64)
-extern go syscall.Timespec.Unix func (ts own *Timespec) Unix() (int64, int64) needs go.Foreign
+extern go syscall.Timespec.Unix func (ts *Timespec) Unix() (int64, int64) needs go.Foreign
 
 // ergo:go func TimespecToNsec(ts Timespec) int64
 extern go syscall.TimespecToNsec func TimespecToNsec(ts Timespec) int64 needs go.Foreign

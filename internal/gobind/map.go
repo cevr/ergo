@@ -393,8 +393,13 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, bool,
 				name = fmt.Sprintf("r%d", i)
 			}
 		}
+		// A method lends its receiver for the call (GB1): only the release
+		// (Close) and a method whose result may be the receiver itself,
+		// which would give the caller a second owner of one Go value,
+		// keep it. Any other result that holds a handle keeps the
+		// receiver alive instead (the checker's keeps rule, lend.go).
 		mode := ""
-		if goResourceParam(sig.Recv().Type()) && !v1.GoArgLent(target, 0) {
+		if goResourceParam(sig.Recv().Type()) && !v1.GoArgLent(target, 0) && keepsReceiver(f, sig, recv) {
 			mode = "own "
 		}
 		fmt.Fprintf(&b, "(%s %s%s) ", name, mode, rt)
@@ -478,6 +483,91 @@ func goResourceParam(t types.Type) bool {
 		return goResourceParam(t.Elem())
 	case *types.Map:
 		return goResourceParam(t.Elem())
+	}
+	return false
+}
+
+// keepsReceiver reports a method of the named type recv that keeps its
+// receiver (GB1; interop.md, Resources 5): the release, Close() or Close()
+// error, and, on a resource, a method whose result may hold the receiver
+// itself (mayHold), since the caller would then own one Go value twice and
+// release it twice. Every other method lends its receiver for the call.
+func keepsReceiver(f *types.Func, sig *types.Signature, recv *types.Named) bool {
+	if f.Name() == "Close" && releaseShape(f) {
+		return true
+	}
+	if !resourceType(types.NewPointer(recv)) {
+		return false
+	}
+	return resultsMayHold(sig, recv)
+}
+
+// resultsMayHold reports a result of sig, other than a last error, that may
+// hold a value of recv (mayHold).
+func resultsMayHold(sig *types.Signature, recv *types.Named) bool {
+	for i := 0; i < sig.Results().Len(); i++ {
+		if t := sig.Results().At(i).Type(); !isError(t) && mayHold(t, recv, map[types.Type]bool{}) {
+			return true
+		}
+	}
+	return false
+}
+
+// mayHold reports a Go type whose value may hold a value of recv: recv
+// itself or a pointer to it, an interface whose methods *recv has by name,
+// a type parameter, or a struct field, element or key that may. The
+// checker's alias rule reads the same shape from the binding
+// (check/hostclauses.go, hostMayHold).
+func mayHold(t types.Type, recv *types.Named, seen map[types.Type]bool) bool {
+	t = types.Unalias(t)
+	if seen[t] {
+		return false
+	}
+	seen[t] = true
+	if n, ok := t.(*types.Named); ok && n.Obj() == recv.Obj() {
+		return true
+	}
+	if _, ok := t.(*types.TypeParam); ok {
+		return true
+	}
+	if n, ok := t.(*types.Named); ok {
+		// A generic type's arguments (iter.Seq[Value] yields Values): the
+		// checker reads a binding's Seq[Value] by its arguments too.
+		for i := 0; i < n.TypeArgs().Len(); i++ {
+			if mayHold(n.TypeArgs().At(i), recv, seen) {
+				return true
+			}
+		}
+	}
+	switch u := t.Underlying().(type) {
+	case *types.Pointer:
+		return mayHold(u.Elem(), recv, seen)
+	case *types.Interface:
+		// recv may stand in an interface whose methods its method set has
+		// by name (the checker reads names only: hostMayHold); an empty
+		// interface holds anything.
+		ms := types.NewMethodSet(types.NewPointer(recv))
+		if types.IsInterface(recv) {
+			ms = types.NewMethodSet(recv)
+		}
+		for i := 0; i < u.NumMethods(); i++ {
+			if ms.Lookup(u.Method(i).Pkg(), u.Method(i).Name()) == nil {
+				return false
+			}
+		}
+		return true
+	case *types.Slice:
+		return mayHold(u.Elem(), recv, seen)
+	case *types.Array:
+		return mayHold(u.Elem(), recv, seen)
+	case *types.Map:
+		return mayHold(u.Key(), recv, seen) || mayHold(u.Elem(), recv, seen)
+	case *types.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			if u.Field(i).Exported() && mayHold(u.Field(i).Type(), recv, seen) {
+				return true
+			}
+		}
 	}
 	return false
 }
@@ -993,13 +1083,14 @@ func (m *mapper) typeDecl(obj *types.TypeName) (string, []Member, []Line, error)
 			}
 			target := m.pkg.Path() + "." + obj.Name() + "." + f.Name()
 			fsig := f.Type().(*types.Signature)
-			kept := false
 			for j := range params {
 				params[j].own = goResourceParam(fsig.Params().At(j).Type()) && !v1.GoArgLent(target, j)
-				kept = kept || params[j].own
 			}
 			line := f.Name() + paramList(params)
-			if !kept && !v1.GoArgLent(target, -1) {
+			// An operation lends its receiver (GB1), as a method does: only
+			// the release and, on a resource, one whose result may hold
+			// the receiver keep it.
+			if !v1.GoArgLent(target, -1) && (f.Name() == "Close" && releaseShape(f) || resourceType(n) && resultsMayHold(fsig, n)) {
 				line = "own " + line // the operation keeps its receiver
 			}
 			if results != "" {

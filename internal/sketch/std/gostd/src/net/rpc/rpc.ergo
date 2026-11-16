@@ -112,10 +112,10 @@ extern go net/rpc.ServeRequest func ServeRequest(codec own ServerCodec) fails go
 extern go net/rpc.Server type Server {}
 
 // ergo:go func (*Server).Accept(lis net.Listener)
-extern go net/rpc.Server.Accept func (server own *Server) Accept(lis own net.Listener) needs go.Foreign
+extern go net/rpc.Server.Accept func (server *Server) Accept(lis own net.Listener) needs go.Foreign
 
 // ergo:go func (*Server).HandleHTTP(rpcPath string, debugPath string)
-extern go net/rpc.Server.HandleHTTP func (server own *Server) HandleHTTP(rpcPath string, debugPath string) needs go.Foreign
+extern go net/rpc.Server.HandleHTTP func (server *Server) HandleHTTP(rpcPath string, debugPath string) needs go.Foreign
 
 // ergo:go func (*Server).Register(rcvr any) error
 // ergo:refused Server.Register: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
@@ -124,16 +124,16 @@ extern go net/rpc.Server.HandleHTTP func (server own *Server) HandleHTTP(rpcPath
 // ergo:refused Server.RegisterName: parameter 2: Ergo has no any; an interface{} parameter or result hides the host type
 
 // ergo:go func (*Server).ServeCodec(codec ServerCodec)
-extern go net/rpc.Server.ServeCodec func (server own *Server) ServeCodec(codec own ServerCodec) needs go.Foreign
+extern go net/rpc.Server.ServeCodec func (server *Server) ServeCodec(codec own ServerCodec) needs go.Foreign
 
 // ergo:go func (*Server).ServeConn(conn io.ReadWriteCloser)
-extern go net/rpc.Server.ServeConn func (server own *Server) ServeConn(conn own io.ReadWriteCloser) needs go.Foreign
+extern go net/rpc.Server.ServeConn func (server *Server) ServeConn(conn own io.ReadWriteCloser) needs go.Foreign
 
 // ergo:go func (*Server).ServeHTTP(w http.ResponseWriter, req *http.Request)
-extern go net/rpc.Server.ServeHTTP func (server own *Server) ServeHTTP(w own http.ResponseWriter, req own *http.Request) needs go.Foreign
+extern go net/rpc.Server.ServeHTTP func (server *Server) ServeHTTP(w own http.ResponseWriter, req own *http.Request) needs go.Foreign
 
 // ergo:go func (*Server).ServeRequest(codec ServerCodec) error
-extern go net/rpc.Server.ServeRequest func (server own *Server) ServeRequest(codec own ServerCodec) fails go.Error needs go.Foreign
+extern go net/rpc.Server.ServeRequest func (server *Server) ServeRequest(codec own ServerCodec) fails go.Error needs go.Foreign
 
 // ergo:go type ServerCodec interface
 extern go net/rpc.ServerCodec type ServerCodec {

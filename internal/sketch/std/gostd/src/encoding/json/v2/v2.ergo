@@ -48,7 +48,7 @@ extern go encoding/json/v2.ErrUnknownName let ErrUnknownName go.Error
 
 // ergo:go type Marshaler interface
 extern go encoding/json/v2.Marshaler type Marshaler {
-	own MarshalJSON() []byte fails go.Error needs go.Foreign,
+	MarshalJSON() []byte fails go.Error needs go.Foreign,
 }
 
 // ergo:go type MarshalerTo interface
@@ -82,10 +82,10 @@ extern go encoding/json/v2.SemanticError type SemanticError {
 }
 
 // ergo:go func (*SemanticError).Error() string
-extern go encoding/json/v2.SemanticError.Error func (e own *SemanticError) Error() string needs go.Foreign
+extern go encoding/json/v2.SemanticError.Error func (e *SemanticError) Error() string needs go.Foreign
 
 // ergo:go func (*SemanticError).Unwrap() error
-extern go encoding/json/v2.SemanticError.Unwrap func (e own *SemanticError) Unwrap() fails go.Error needs go.Foreign
+extern go encoding/json/v2.SemanticError.Unwrap func (e *SemanticError) Unwrap() fails go.Error needs go.Foreign
 
 // ergo:go func StringifyNumbers(v bool) Options
 // ergo:refused StringifyNumbers: result 1: type Options is refused: it is declared in an internal or vendored package
@@ -107,7 +107,7 @@ extern go encoding/json/v2.SemanticError.Unwrap func (e own *SemanticError) Unwr
 
 // ergo:go type Unmarshaler interface
 extern go encoding/json/v2.Unmarshaler type Unmarshaler {
-	own UnmarshalJSON(p0 []byte) fails go.Error needs go.Foreign,
+	UnmarshalJSON(p0 []byte) fails go.Error needs go.Foreign,
 }
 
 // ergo:go type UnmarshalerFrom interface

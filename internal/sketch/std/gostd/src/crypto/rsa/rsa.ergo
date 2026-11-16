@@ -71,7 +71,7 @@ extern go crypto/rsa.PSSOptions type PSSOptions {
 }
 
 // ergo:go func (*PSSOptions).HashFunc() crypto.Hash
-extern go crypto/rsa.PSSOptions.HashFunc func (opts own *PSSOptions) HashFunc() crypto.Hash needs go.Foreign
+extern go crypto/rsa.PSSOptions.HashFunc func (opts *PSSOptions) HashFunc() crypto.Hash needs go.Foreign
 
 // ergo:go const PSSSaltLengthAuto untyped int
 extern go crypto/rsa.PSSSaltLengthAuto let PSSSaltLengthAuto int
@@ -104,19 +104,19 @@ extern go crypto/rsa.PrivateKey type PrivateKey {
 // ergo:refused PrivateKey.Equal: parameter 1: type PrivateKey is refused: Ergo has no any; an empty interface hides the host type
 
 // ergo:go func (*PrivateKey).Precompute()
-extern go crypto/rsa.PrivateKey.Precompute func (priv own *PrivateKey) Precompute() needs go.Foreign
+extern go crypto/rsa.PrivateKey.Precompute func (priv *PrivateKey) Precompute() needs go.Foreign
 
 // ergo:go func (*PrivateKey).Public() crypto.PublicKey
 // ergo:refused PrivateKey.Public: result 1: type PublicKey is refused: Ergo has no any; an empty interface hides the host type
 
 // ergo:go func (*PrivateKey).Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error)
-extern go crypto/rsa.PrivateKey.Sign func (priv own *PrivateKey) Sign(rand own io.Reader, digest []byte, opts own crypto.SignerOpts) []byte fails go.Error needs go.Foreign
+extern go crypto/rsa.PrivateKey.Sign func (priv *PrivateKey) Sign(rand own io.Reader, digest []byte, opts own crypto.SignerOpts) []byte fails go.Error needs go.Foreign
 
 // ergo:go func (*PublicKey).Size() int
-extern go crypto/rsa.PrivateKey.Size func (pub own *PrivateKey) Size() int needs go.Foreign
+extern go crypto/rsa.PrivateKey.Size func (pub *PrivateKey) Size() int needs go.Foreign
 
 // ergo:go func (*PrivateKey).Validate() error
-extern go crypto/rsa.PrivateKey.Validate func (priv own *PrivateKey) Validate() fails go.Error needs go.Foreign
+extern go crypto/rsa.PrivateKey.Validate func (priv *PrivateKey) Validate() fails go.Error needs go.Foreign
 
 // ergo:go type PublicKey struct
 extern go crypto/rsa.PublicKey type PublicKey {
@@ -128,7 +128,7 @@ extern go crypto/rsa.PublicKey type PublicKey {
 // ergo:refused PublicKey.Equal: parameter 1: type PublicKey is refused: Ergo has no any; an empty interface hides the host type
 
 // ergo:go func (*PublicKey).Size() int
-extern go crypto/rsa.PublicKey.Size func (pub own *PublicKey) Size() int needs go.Foreign
+extern go crypto/rsa.PublicKey.Size func (pub *PublicKey) Size() int needs go.Foreign
 
 // ergo:go func SignPKCS1v15(random io.Reader, priv *PrivateKey, hash crypto.Hash, hashed []byte) ([]byte, error)
 // ergo:reads hashed

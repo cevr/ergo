@@ -71,7 +71,7 @@ extern go time.LoadLocationFromTZData func LoadLocationFromTZData(name string, d
 extern go time.Location type Location {}
 
 // ergo:go func (*Location).String() string
-extern go time.Location.String func (l own *Location) String() string needs go.Foreign
+extern go time.Location.String func (l *Location) String() string needs go.Foreign
 
 // ergo:go const March Month
 extern go time.March let March Month
@@ -131,7 +131,7 @@ extern go time.ParseError type ParseError {
 }
 
 // ergo:go func (*ParseError).Error() string
-extern go time.ParseError.Error func (e own *ParseError) Error() string needs go.Foreign
+extern go time.ParseError.Error func (e *ParseError) Error() string needs go.Foreign
 
 // ergo:go func ParseInLocation(layout string, value string, loc *Location) (Time, error)
 extern go time.ParseInLocation func ParseInLocation(layout string, value string, loc own *Location) Time fails go.Error needs go.Foreign
@@ -203,10 +203,10 @@ extern go time.Ticker type Ticker {}
 // ergo:refused Ticker.C: Ergo has no channels (196c); wrap the Go channel in a Go function of your module, or use std queue
 
 // ergo:go func (*Ticker).Reset(d Duration)
-extern go time.Ticker.Reset func (t own *Ticker) Reset(d duration) needs go.Foreign
+extern go time.Ticker.Reset func (t *Ticker) Reset(d duration) needs go.Foreign
 
 // ergo:go func (*Ticker).Stop()
-extern go time.Ticker.Stop func (t own *Ticker) Stop() needs go.Foreign
+extern go time.Ticker.Stop func (t *Ticker) Stop() needs go.Foreign
 
 // ergo:go type Time struct
 extern go time.Time type Time {}
@@ -255,7 +255,7 @@ extern go time.Time.GoString func (t Time) GoString() string needs go.Foreign
 
 // ergo:go func (*Time).GobDecode(data []byte) error
 // ergo:reads data
-extern go time.Time.GobDecode func (t own *Time) GobDecode(data []byte) fails go.Error needs go.Foreign
+extern go time.Time.GobDecode func (t *Time) GobDecode(data []byte) fails go.Error needs go.Foreign
 
 // ergo:go func (Time).GobEncode() ([]byte, error)
 extern go time.Time.GobEncode func (t Time) GobEncode() []byte fails go.Error needs go.Foreign
@@ -331,15 +331,15 @@ extern go time.Time.UnixNano func (t Time) UnixNano() int64 needs go.Foreign
 
 // ergo:go func (*Time).UnmarshalBinary(data []byte) error
 // ergo:reads data
-extern go time.Time.UnmarshalBinary func (t own *Time) UnmarshalBinary(data []byte) fails go.Error needs go.Foreign
+extern go time.Time.UnmarshalBinary func (t *Time) UnmarshalBinary(data []byte) fails go.Error needs go.Foreign
 
 // ergo:go func (*Time).UnmarshalJSON(data []byte) error
 // ergo:reads data
-extern go time.Time.UnmarshalJSON func (t own *Time) UnmarshalJSON(data []byte) fails go.Error needs go.Foreign
+extern go time.Time.UnmarshalJSON func (t *Time) UnmarshalJSON(data []byte) fails go.Error needs go.Foreign
 
 // ergo:go func (*Time).UnmarshalText(data []byte) error
 // ergo:reads data
-extern go time.Time.UnmarshalText func (t own *Time) UnmarshalText(data []byte) fails go.Error needs go.Foreign
+extern go time.Time.UnmarshalText func (t *Time) UnmarshalText(data []byte) fails go.Error needs go.Foreign
 
 // ergo:go func (Time).Weekday() Weekday
 extern go time.Time.Weekday func (t Time) Weekday() Weekday needs go.Foreign
@@ -366,10 +366,10 @@ extern go time.Timer type Timer {}
 // ergo:refused Timer.C: Ergo has no channels (196c); wrap the Go channel in a Go function of your module, or use std queue
 
 // ergo:go func (*Timer).Reset(d Duration) bool
-extern go time.Timer.Reset func (t own *Timer) Reset(d duration) bool needs go.Foreign
+extern go time.Timer.Reset func (t *Timer) Reset(d duration) bool needs go.Foreign
 
 // ergo:go func (*Timer).Stop() bool
-extern go time.Timer.Stop func (t own *Timer) Stop() bool needs go.Foreign
+extern go time.Timer.Stop func (t *Timer) Stop() bool needs go.Foreign
 
 // ergo:go const Tuesday Weekday
 extern go time.Tuesday let Tuesday Weekday

@@ -55,9 +55,9 @@ extern go sort.IntSlice.Swap func (x IntSlice) Swap(i int, j int)
 
 // ergo:go type Interface interface
 extern go sort.Interface type Interface {
-	own Len() int,
-	own Less(i int, j int) bool,
-	own Swap(i int, j int),
+	Len() int,
+	Less(i int, j int) bool,
+	Swap(i int, j int),
 }
 
 // ergo:go func Ints(x []int)

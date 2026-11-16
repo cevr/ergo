@@ -9,9 +9,9 @@ extern go container/heap.Init func Init(h own Interface) needs go.Foreign
 
 // ergo:go type Interface interface
 extern go container/heap.Interface type Interface {
-	own Len() int needs go.Foreign,
-	own Less(i int, j int) bool needs go.Foreign,
-	own Swap(i int, j int) needs go.Foreign,
+	Len() int needs go.Foreign,
+	Less(i int, j int) bool needs go.Foreign,
+	Swap(i int, j int) needs go.Foreign,
 }
 
 // ergo:go func (heap.Interface).Pop() any

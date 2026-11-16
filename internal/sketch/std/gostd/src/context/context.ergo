@@ -23,8 +23,8 @@ extern go context.Cause func Cause(c own Context) fails go.Error needs go.Foreig
 
 // ergo:go type Context interface
 extern go context.Context type Context {
-	own Deadline() (time.Time, bool) needs go.Foreign,
-	own Err() fails go.Error needs go.Foreign,
+	Deadline() (time.Time, bool) needs go.Foreign,
+	Err() fails go.Error needs go.Foreign,
 }
 
 // ergo:go func (context.Context).Done() <-chan struct{}

@@ -50,12 +50,12 @@ extern go compress/flate.ReadError type ReadError {
 }
 
 // ergo:go func (*ReadError).Error() string
-extern go compress/flate.ReadError.Error func (e own *ReadError) Error() string needs go.Foreign
+extern go compress/flate.ReadError.Error func (e *ReadError) Error() string needs go.Foreign
 
 // ergo:go type Reader interface
 extern go compress/flate.Reader type Reader {
-	own Read(p []byte) int fails go.Error needs go.Foreign,
-	own ReadByte() byte fails go.Error needs go.Foreign,
+	Read(p []byte) int fails go.Error needs go.Foreign,
+	ReadByte() byte fails go.Error needs go.Foreign,
 }
 
 // ergo:go type Resetter interface
@@ -70,7 +70,7 @@ extern go compress/flate.WriteError type WriteError {
 }
 
 // ergo:go func (*WriteError).Error() string
-extern go compress/flate.WriteError.Error func (e own *WriteError) Error() string needs go.Foreign
+extern go compress/flate.WriteError.Error func (e *WriteError) Error() string needs go.Foreign
 
 // ergo:go type Writer struct
 extern go compress/flate.Writer type Writer {} implements Closer
@@ -79,10 +79,10 @@ extern go compress/flate.Writer type Writer {} implements Closer
 extern go compress/flate.Writer.Close func (w own *Writer) Close() fails go.Error needs go.Foreign
 
 // ergo:go func (*Writer).Flush() error
-extern go compress/flate.Writer.Flush func (w own *Writer) Flush() fails go.Error needs go.Foreign
+extern go compress/flate.Writer.Flush func (w *Writer) Flush() fails go.Error needs go.Foreign
 
 // ergo:go func (*Writer).Reset(dst io.Writer)
-extern go compress/flate.Writer.Reset func (w own *Writer) Reset(dst own io.Writer) needs go.Foreign
+extern go compress/flate.Writer.Reset func (w *Writer) Reset(dst own io.Writer) needs go.Foreign
 
 // ergo:go func (*Writer).Write(data []byte) (n int, err error)
-extern go compress/flate.Writer.Write func (w own *Writer) Write(data []byte) int fails go.Error needs go.Foreign
+extern go compress/flate.Writer.Write func (w *Writer) Write(data []byte) int fails go.Error needs go.Foreign

@@ -93,11 +93,11 @@ extern go net/netip.Addr.Unmap func (ip Addr) Unmap() Addr needs go.Foreign
 
 // ergo:go func (*Addr).UnmarshalBinary(b []byte) error
 // ergo:reads b
-extern go net/netip.Addr.UnmarshalBinary func (ip own *Addr) UnmarshalBinary(b []byte) fails go.Error needs go.Foreign
+extern go net/netip.Addr.UnmarshalBinary func (ip *Addr) UnmarshalBinary(b []byte) fails go.Error needs go.Foreign
 
 // ergo:go func (*Addr).UnmarshalText(text []byte) error
 // ergo:reads text
-extern go net/netip.Addr.UnmarshalText func (ip own *Addr) UnmarshalText(text []byte) fails go.Error needs go.Foreign
+extern go net/netip.Addr.UnmarshalText func (ip *Addr) UnmarshalText(text []byte) fails go.Error needs go.Foreign
 
 // ergo:go func (Addr).WithZone(zone string) Addr
 extern go net/netip.Addr.WithZone func (ip Addr) WithZone(zone string) Addr needs go.Foreign
@@ -150,11 +150,11 @@ extern go net/netip.AddrPort.String func (p AddrPort) String() string needs go.F
 
 // ergo:go func (*AddrPort).UnmarshalBinary(b []byte) error
 // ergo:reads b
-extern go net/netip.AddrPort.UnmarshalBinary func (p own *AddrPort) UnmarshalBinary(b []byte) fails go.Error needs go.Foreign
+extern go net/netip.AddrPort.UnmarshalBinary func (p *AddrPort) UnmarshalBinary(b []byte) fails go.Error needs go.Foreign
 
 // ergo:go func (*AddrPort).UnmarshalText(text []byte) error
 // ergo:reads text
-extern go net/netip.AddrPort.UnmarshalText func (p own *AddrPort) UnmarshalText(text []byte) fails go.Error needs go.Foreign
+extern go net/netip.AddrPort.UnmarshalText func (p *AddrPort) UnmarshalText(text []byte) fails go.Error needs go.Foreign
 
 // ergo:go func AddrPortFrom(ip Addr, port uint16) AddrPort
 extern go net/netip.AddrPortFrom func AddrPortFrom(ip Addr, port uint16) AddrPort needs go.Foreign
@@ -239,11 +239,11 @@ extern go net/netip.Prefix.String func (p Prefix) String() string needs go.Forei
 
 // ergo:go func (*Prefix).UnmarshalBinary(b []byte) error
 // ergo:reads b
-extern go net/netip.Prefix.UnmarshalBinary func (p own *Prefix) UnmarshalBinary(b []byte) fails go.Error needs go.Foreign
+extern go net/netip.Prefix.UnmarshalBinary func (p *Prefix) UnmarshalBinary(b []byte) fails go.Error needs go.Foreign
 
 // ergo:go func (*Prefix).UnmarshalText(text []byte) error
 // ergo:reads text
-extern go net/netip.Prefix.UnmarshalText func (p own *Prefix) UnmarshalText(text []byte) fails go.Error needs go.Foreign
+extern go net/netip.Prefix.UnmarshalText func (p *Prefix) UnmarshalText(text []byte) fails go.Error needs go.Foreign
 
 // ergo:go func PrefixFrom(ip Addr, bits int) Prefix
 extern go net/netip.PrefixFrom func PrefixFrom(ip Addr, bits int) Prefix needs go.Foreign

@@ -126,7 +126,7 @@ extern go go/constant.Unknown let Unknown Kind
 
 // ergo:go type Value interface
 extern go go/constant.Value type Value {
-	own ExactString() string needs go.Foreign,
-	own Kind() Kind needs go.Foreign,
-	own String() string needs go.Foreign,
+	ExactString() string needs go.Foreign,
+	Kind() Kind needs go.Foreign,
+	String() string needs go.Foreign,
 }
