@@ -20,7 +20,11 @@
 // user instructions per unit (and with GOGC=off), allocations and bytes
 // per unit, the GC share of instructions ((default - off) / default), GC
 // cycles, the runtime's GC CPU share, the live heap after a final
-// collection and the peak resident set (VmHWM) at the large size. With
+// collection and the peak resident set (VmHWM) at the large size, and the
+// parts of the instructions per unit (internal/opcount, share.go: the
+// program, Ergo's runtime, Go's collector, allocation, barriers,
+// scheduler, stacks and the rest of its runtime), with Go's runtime share
+// of them and the samples they rest on. With
 // -control the control must print what the program prints on the small
 // input, or every comparison is refused (NotEquivalent).
 //
@@ -30,7 +34,7 @@
 //
 // runs `BIN ARGS…` with {} in ARGS replaced by each target the glob
 // matches, the two binaries alternating, and writes user instructions, CPU
-// time and peak resident set per side and target. It replaces run-dir
+// time, peak resident set and the parts per side and target. It replaces run-dir
 // check-cpu.sh, which timed at 10 ms and read a failed `ergo check` as a
 // fast one (`|| true`): here a run that does not exit 0 is RunIncomplete.
 //
@@ -215,12 +219,15 @@ type result struct {
 	refused *opcount.Refused
 }
 
-// counters is the catalogue of program mode: name, kind, per unit.
-var counters = []struct {
+type counter struct {
 	name    string
 	kind    opcount.Kind
 	perUnit bool
-}{
+}
+
+// counters is the catalogue of program mode: name, kind, per unit. The
+// parts' counters (opcount.Parts) and RuntimeShare follow the hook's.
+var counters = append([]counter{
 	{"Instructions", opcount.Counted, true},
 	{"InstructionsGCOff", opcount.Counted, true},
 	{"GCShare", opcount.Counted, false},
@@ -230,6 +237,50 @@ var counters = []struct {
 	{"GCCPUShare", opcount.Timed, false},
 	{"LiveHeapBytes", opcount.Timed, false},
 	{"PeakRSSKiB", opcount.Timed, false},
+}, partCounters(true)...)
+
+// partCounters are the parts' instructions (per unit in program mode),
+// Go's runtime share of them, and the samples the large run took.
+func partCounters(perUnit bool) []counter {
+	var out []counter
+	for _, p := range opcount.Parts {
+		out = append(out, counter{p.Counter(), opcount.Sampled, perUnit})
+	}
+	return append(out, counter{"RuntimeShare", opcount.Sampled, false}, counter{"Samples", opcount.Exact, false})
+}
+
+// parts sets the parts' counters of out from the runs at the two sizes
+// (small is nil in command mode, where a part is the run's whole): each
+// part's instructions, per unit between the sizes; RuntimeShare, the five
+// runtime parts' sum over all parts'; and Samples, the large run's. A run
+// whose parts are refused refuses them all.
+func parts(out sample, small *opcount.Shares, large opcount.Shares, smallN, largeN int) {
+	runs := []opcount.Shares{large}
+	if small != nil {
+		runs = append(runs, *small)
+	}
+	for _, s := range runs {
+		if s.Refused != "" {
+			for _, k := range partCounters(false) {
+				out[k.name] = result{refused: &opcount.Refused{ID: s.Refused, Reason: s.Why}}
+			}
+			return
+		}
+	}
+	var all, rt float64
+	for _, p := range opcount.Parts {
+		v := large.Instructions(p)
+		if small != nil {
+			v = opcount.Slope(small.Instructions(p), v, smallN, largeN)
+		}
+		out[p.Counter()] = result{value: v}
+		all += v
+		if slices.Contains(opcount.RuntimeParts, p) {
+			rt += v
+		}
+	}
+	out["RuntimeShare"] = result{value: rt / all}
+	out["Samples"] = result{value: float64(large.Total())}
 }
 
 // programCase measures examples/NAME.
@@ -366,6 +417,7 @@ type measurer struct {
 // exit hook's lines.
 type one struct {
 	run     opcount.Run
+	shares  opcount.Shares
 	metrics map[string]float64
 }
 
@@ -402,15 +454,18 @@ func (m measurer) once(bin string, n int, gcOff bool) (one, error) {
 	} else {
 		cmd.Env = append(cmd.Env, opcount.HookVariable+"="+out)
 	}
-	r, err := opcount.Count(cmd, m.o.memory)
+	if gcOff {
+		r, err := opcount.Count(cmd, m.o.memory)
+		if err != nil {
+			return one{}, fmt.Errorf("%s: %w", bin, err)
+		}
+		return one{run: r}, nil
+	}
+	r, shares, err := opcount.CountShares(cmd, m.o.memory, bin)
 	if err != nil {
 		return one{}, fmt.Errorf("%s: %w", bin, err)
 	}
-	got := one{run: r}
-	if !gcOff {
-		got.metrics = readMetrics(out)
-	}
-	return got, nil
+	return one{run: r, shares: shares, metrics: readMetrics(out)}, nil
 }
 
 // readMetrics reads the hook's "NAME VALUE" lines; nil when it wrote none.
@@ -493,6 +548,7 @@ func (m measurer) round(s side) (sample, error) {
 	metric("GCCPUShare", "gc_cpu_share", false)
 	metric("LiveHeapBytes", "live_heap_bytes", false)
 	metric("PeakRSSKiB", "peak_rss_kib", false)
+	parts(out, &small.shares, large.shares, m.w.Small, m.w.Large)
 	return out, nil
 }
 
@@ -562,7 +618,12 @@ func commandCases(o options, args []string, log io.Writer) ([]opcount.Case, erro
 				}
 				cmd := exec.Command(s.bin, argv...)
 				cmd.Stdout, cmd.Stderr = null, null
-				got, err := opcount.Count(cmd, o.memory)
+				bin, err := exec.LookPath(s.bin)
+				if err != nil {
+					null.Close()
+					return nil, err
+				}
+				got, shares, err := opcount.CountShares(cmd, o.memory, bin)
 				null.Close()
 				if err != nil {
 					return nil, fmt.Errorf("%s: %w", s.bin, err)
@@ -578,6 +639,14 @@ func commandCases(o options, args []string, log io.Writer) ([]opcount.Case, erro
 				values[s.name]["Instructions"] = append(values[s.name]["Instructions"], float64(got.Instructions))
 				values[s.name]["CPUSeconds"] = append(values[s.name]["CPUSeconds"], (got.UserCPU + got.SysCPU).Seconds())
 				values[s.name]["MaxRSSKiB"] = append(values[s.name]["MaxRSSKiB"], float64(got.MaxRSSKiB))
+				ps := sample{}
+				parts(ps, nil, shares, 0, 0)
+				for k, v := range ps {
+					if v.refused != nil {
+						refused[s.name+"/"+k] = v.refused
+					}
+					values[s.name][k] = append(values[s.name][k], v.value)
+				}
 			}
 		}
 		name := t
@@ -586,10 +655,7 @@ func commandCases(o options, args []string, log io.Writer) ([]opcount.Case, erro
 		}
 		fmt.Fprintf(log, "measured %s\n", name)
 		c := opcount.Case{Case: name, Rounds: o.rounds}
-		kinds := []struct {
-			name string
-			kind opcount.Kind
-		}{{"Instructions", opcount.Counted}, {"CPUSeconds", opcount.Timed}, {"MaxRSSKiB", opcount.Timed}}
+		kinds := append([]counter{{"Instructions", opcount.Counted, false}, {"CPUSeconds", opcount.Timed, false}, {"MaxRSSKiB", opcount.Timed, false}}, partCounters(false)...)
 		for _, s := range sides {
 			for _, k := range kinds {
 				why := refused[s.name+"/*"]
@@ -885,7 +951,7 @@ func commit() string {
 }
 
 func host() opcount.Host {
-	h := opcount.Host{OS: runtime.GOOS, Arch: runtime.GOARCH, CPUs: runtime.NumCPU(), GoVersion: runtime.Version(), Counter: "user instructions"}
+	h := opcount.Host{OS: runtime.GOOS, Arch: runtime.GOARCH, CPUs: runtime.NumCPU(), GoVersion: runtime.Version(), Counter: "user instructions", SamplePeriod: opcount.Period()}
 	if out, err := exec.Command("go", "env", "GOVERSION").Output(); err == nil {
 		h.GoVersion = strings.TrimSpace(string(out))
 	}
