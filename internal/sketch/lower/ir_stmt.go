@@ -86,9 +86,6 @@ func (b *irBuilder) tailTo(list []syntax.Stmt, ret bool, to *yieldTo) []*irStmt 
 		last := i == len(list)-1
 		b.part(func() {
 			exit := b.releasesAtExit(s, last && ret && to == nil) // ir_own.go
-			if len(b.l.info.Releases[s]) > 0 && !exit && b.own == nil {
-				irNo("statement that releases owned values")
-			}
 			var ss []*irStmt
 			if last && (ret || to != nil) {
 				ss = b.yield(s, to)

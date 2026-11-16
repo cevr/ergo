@@ -199,10 +199,9 @@ func (b *irBuilder) ownable(v *check.Var) {
 func (b *irBuilder) releaseAt(key syntax.Node, p irPos) []*irStmt {
 	rs := b.l.info.Releases[key]
 	o := b.own
-	if o == nil {
-		return nil // only values with no owner: an owned local stops the body (ownable)
+	if o != nil {
+		delete(o.keys, key)
 	}
-	delete(o.keys, key)
 	var out []*irStmt
 	for _, r := range rs {
 		if r.Var == nil {
@@ -213,6 +212,9 @@ func (b *irBuilder) releaseAt(key syntax.Node, p irPos) []*irStmt {
 		}
 		if b.l.info.OwnedVars[r.Var] == nil {
 			continue
+		}
+		if o == nil {
+			irNo("statement that releases owned values") // a frame the IR does not build
 		}
 		k, ok := o.bit[r.Var]
 		if !ok {
@@ -228,14 +230,14 @@ func (b *irBuilder) releaseAt(key syntax.Node, p irPos) []*irStmt {
 // scope that leaves (a return, a break, a continue) has its values
 // released by the frame's exit or by the jump's own releases.
 func (b *irBuilder) scoped(key syntax.Node, list []*irStmt, p irPos) []*irStmt {
-	if b.own == nil || len(b.l.info.Releases[key]) == 0 {
+	if len(b.l.info.Releases[key]) == 0 {
 		return list
 	}
+	rel := b.releaseAt(key, p)
 	if irListEnds(list) {
-		delete(b.own.keys, key)
 		return list
 	}
-	return append(list, b.releaseAt(key, p)...)
+	return append(list, rel...)
 }
 
 // irListEnds reports a list after whose last statement nothing runs: a
