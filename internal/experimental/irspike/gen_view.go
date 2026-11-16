@@ -58,6 +58,7 @@ func (g *vgen) program() string {
 	// Cols has five fields: Go keeps it in memory, so walk's loop reads
 	// its columns from the fields its entry hoists (ir_hoist.go).
 	g.b.WriteString("type Cols { kinds []int, vals []int, extra []int, w int, tag string }\n\n")
+	g.b.WriteString("type Step { at int, n int }\n\n")
 	g.view(k)
 	g.walk(k)
 	g.main(k)
@@ -151,9 +152,24 @@ func (g *vgen) arms(k int, tail func(string) string) string {
 // walk writes walk (a statement in a loop), pick (a value) and code (the
 // result).
 func (g *vgen) walk(k int) {
-	g.b.WriteString("func walk(c Cols) int {\n\tlet mut s = 0\n\tlet mut i = 0\n\tfor i < len(c.kinds) {\n\t\tmatch view(c, i) {\n")
+	// Some seeds rebind the record in the loop, as std cache rebinds its
+	// table: a parameter cannot be assigned, so walk copies c into a let
+	// mut u, and the loop reads u's at as it changes. (Passing u to view
+	// copies it by the value rule, which has no IR body yet, so u is a
+	// record of its own.)
+	rebind := g.n(2) == 0
+	if rebind {
+		g.b.WriteString("func walk(c Cols) int {\n\tlet mut u = Step{at: c.w, n: 0}\n")
+	} else {
+		g.b.WriteString("func walk(c Cols) int {\n")
+	}
+	g.b.WriteString("\tlet mut s = 0\n\tlet mut i = 0\n\tfor i < len(c.kinds) {\n\t\tmatch view(c, i) {\n")
 	g.b.WriteString(g.arms(k, func(e string) string { return "\ts = s * 31 + " + e }))
-	g.b.WriteString("\t\t}\n\t\ti = i + 1\n\t}\n\ts\n}\n\n")
+	g.b.WriteString("\t\t}\n")
+	if rebind {
+		g.b.WriteString("\t\ts = s + u.at\n\t\tu = Step{at: u.at + 1, n: u.n + 1}\n")
+	}
+	g.b.WriteString("\t\ti = i + 1\n\t}\n\ts\n}\n\n")
 	g.b.WriteString("func pick(c Cols, i int) int {\n\tlet r = match view(c, i) {\n")
 	g.b.WriteString(g.arms(k, func(e string) string { return "\t" + e }))
 	g.b.WriteString("\t}\n\tr + 1\n}\n\n")

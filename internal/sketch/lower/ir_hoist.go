@@ -9,7 +9,12 @@ package lower
 // walk read five slice headers of its Tree so: 13 of its 39.6 instructions
 // per row over the hand Go control, which keeps the columns in registers.
 //
-// A parameter is immutable (only a `let mut` is assigned), so each field
+// A parameter is immutable: the checker refuses an assignment or a borrow
+// rooted at one ("the parameter p cannot be reassigned; copy it into a
+// local: let mut p_ = p"), so a body that rebinds it, in a loop or not,
+// rebinds a let mut copy, a variable of its own that is never hoisted. Only
+// a parameter's own local is hoisted (params), never a let, and never an
+// owned parameter (it may be taken over in place). So each field
 // read of it inside a loop reads the field's value at entry: the field is
 // read once, into a local, at the function's entry (entry), and the loop
 // reads the local. Only a field of a type Go holds in registers is hoisted
@@ -45,9 +50,12 @@ func (b *irBuilder) hoistField(x *syntax.SelectorExpr, field string) *irExpr {
 		return nil
 	}
 	w, ok := b.l.info.Uses[id].(*check.Var)
-	if !ok || w.Mut() {
+	if !ok {
 		return nil
 	}
+	// Only a parameter's own local: a let mut (std cache's `let mut u = t`,
+	// then u = f(u) in a loop) is rebound, and a function with an owned
+	// parameter has no IR body (ir_pkg.go).
 	l, ok := b.locals[w]
 	if !ok || !b.params[l] {
 		return nil

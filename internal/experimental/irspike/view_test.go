@@ -24,14 +24,16 @@ var viewSites = []string{"Cols.walk", "Cols.pick", "Cols.code"}
 // sink into the cases that read them (VW1b), and walk reads its record's
 // columns from fields hoisted to its entry. Over the run, some seed panics
 // in a view's literal, some fails at a row past a short column (a sunk
-// let's index check), some has a let that stays, and walk hoists a field.
+// let's index check), some has a let that stays, and walk hoists a field;
+// in some walk rebinds a let mut copy of its record in the loop, and reads
+// none of it at entry.
 // A failing seed prints the Ergo
 // source, both outcomes and its replay command. It builds Go for the
 // reason needsBuild gives.
 func TestIRViewsMatchSource(t *testing.T) {
 	src, ir := needsBuild(t)
 	first, count := envInt("ERGO_IRSPIKE_SEED", 1), envInt("ERGO_IRSPIKE_SEEDS", 16)
-	panics, short, stays, hoisted := 0, 0, 0, 0
+	panics, short, stays, hoisted, rebound := 0, 0, 0, 0, 0
 	for seed := first; seed < first+count; seed++ {
 		dir := t.TempDir()
 		text := GenerateView(seed)
@@ -69,29 +71,40 @@ func TestIRViewsMatchSource(t *testing.T) {
 		if strings.Contains(text, "let q = 1000 /") {
 			stays++
 		}
-		if hoistedFields(t, filepath.Join(dir, "ir", lower.IRFileName), "Cols.walk") > 0 {
+		ir := filepath.Join(dir, "ir", lower.IRFileName)
+		if hoistedFields(t, ir, "Cols.walk", "kinds", "vals", "extra", "w", "tag") > 0 {
 			hoisted++
+		}
+		if strings.Contains(text, "let mut u = Step{") {
+			// walk rebinds a let mut record in the loop: nothing of it is
+			// read at entry.
+			if h := hoistedFields(t, ir, "Cols.walk", "at", "n"); h > 0 {
+				t.Fatalf("seed %d: walk rebinds a record in the loop, yet reads %d of its fields at entry\n%s\n%s", seed, h, replay, text)
+			}
+			rebound++
 		}
 	}
 	if count < 16 {
 		return // a replay: the coverage needs the whole run
 	}
-	if panics == 0 || short == 0 || stays == 0 || hoisted == 0 {
-		t.Errorf("the run did not reach: a panic in a literal (%d seeds), a row past a short column (%d), a let that stays (%d), a hoisted field (%d)", panics, short, stays, hoisted)
+	if panics == 0 || short == 0 || stays == 0 || hoisted == 0 || rebound == 0 {
+		t.Errorf("the run did not reach: a panic in a literal (%d seeds), a row past a short column (%d), a let that stays (%d), a hoisted field (%d), a record rebound in the loop (%d)", panics, short, stays, hoisted, rebound)
 	}
 }
 
 // hoistedFields counts the statements of fn's body, at its top level, that
-// read a field of a local into a local (ir_hoist.go's entry reads).
-func hoistedFields(t *testing.T, file, fn string) int {
+// read a field named in fields of a local into a local (ir_hoist.go's entry
+// reads).
+func hoistedFields(t *testing.T, file, fn string, fields ...string) int {
 	t.Helper()
 	data, err := os.ReadFile(file)
 	if err != nil {
 		t.Fatal(err)
 	}
 	type expr struct {
-		K string `json:"k"`
-		X *expr  `json:"x"`
+		K    string `json:"k"`
+		Name string `json:"name"`
+		X    *expr  `json:"x"`
 	}
 	var v struct {
 		Funcs []struct {
@@ -111,7 +124,7 @@ func hoistedFields(t *testing.T, file, fn string) int {
 			continue
 		}
 		for _, s := range f.Body {
-			if s.K == "def" && s.X != nil && s.X.K == "field" && s.X.X != nil && s.X.X.K == "local" {
+			if s.K == "def" && s.X != nil && s.X.K == "field" && s.X.X != nil && s.X.X.K == "local" && slices.Contains(fields, s.X.Name) {
 				n++
 			}
 		}
