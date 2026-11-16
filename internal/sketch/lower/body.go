@@ -339,6 +339,10 @@ func (fc *funcCtx) stmt(s syntax.Stmt) bool {
 		return true
 	case *syntax.ExprStmt:
 		fc.exprStmt(s.X)
+		// Unreachable(reason) is a Go panic statement, which Go counts as
+		// terminating (defect.go): nothing after it is written (go vet:
+		// unreachable code).
+		return fc.unreachableCall(s.X) != nil
 	case *syntax.BlockStmt:
 		fc.line("{")
 		t := fc.scoped(s, func() bool { return fc.block(s.List) })
@@ -1287,10 +1291,10 @@ func (fc *funcCtx) typeMatchBody(s *syntax.TypeSwitchStmt, d dest) bool {
 		fc.l.stats.Folded++
 		if km.general {
 			fc.knownGeneral(km, subject, subjectType, all, s)
-		} else {
-			fc.line("_ = " + subject)
-			fc.noCase(s)
 		}
+		// With no general return, every return jumped to its arm: the
+		// inlined block terminates, and nothing is written after it (go
+		// vet: unreachable code).
 		terminates := true
 		end := fc.temp("kn")
 		ended := false
