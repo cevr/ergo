@@ -513,7 +513,8 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	b.part(b.ownVisited)                                            // ir_own.go
 	b.fn.Body = b.withEntry(b.fn.Body, n)                           // ir_hoist.go
 	b.fn.Body = append(b.fn.Body, b.bodyEnd(b.fn.Body, b.fn.End)...)
-	b.fn.Body = irScopesIncrease(irUseLocals(b.fn.Body)) // ir_end.go
+	b.part(func() { b.fn.Body = b.closeMasked(f, b.fn.Body) }) // ir_own.go
+	b.fn.Body = irScopesIncrease(irUseLocals(b.fn.Body))       // ir_end.go
 	if st.census != nil {
 		return false
 	}
