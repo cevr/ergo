@@ -19,7 +19,7 @@ import (
 // It builds Go because a copy left out shows only when the compiled
 // program's append or Put writes the caller's array or map.
 func TestIRCopiesMatchSource(t *testing.T) {
-	lyProperty(t, "TestIRCopiesMatchSource", GenerateCopy, []string{"slices.Clone", "maps.Clone", "ergoCloneSlice", "ergoCloneMap", "ergoCloneBox"},
+	lyProperty(t, "TestIRCopiesMatchSource", GenerateCopy, []string{"slices.Clone", "maps.Clone", "ergoCloneSlice", "ergoCloneBox"},
 		"copySlice", "copyMap", "copyBoxes", "copyLists", "Box.copyBox", "copyAny")
 }
 
@@ -94,6 +94,7 @@ func lyIRCalls(t *testing.T, file string) map[string]bool {
 			case "pcall":
 				pkg, _ := v["t"].(string)
 				out[pkg+"."+name] = true
+				out[name] = true // a runtime/v1 body, by its name alone
 			}
 			for _, x := range v {
 				walk(x)

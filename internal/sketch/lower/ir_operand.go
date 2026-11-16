@@ -5,8 +5,8 @@ package lower
 // conversion the checker records at it (Info.Implicit), which operands
 // applies: a variant passed where its union stands (Ref.Set of Some, an
 // actor's Send of one of its messages) reaches the body as the union. The
-// body's spelling of a runtime type inside a composite ([]HTTPField) reads
-// as main.go spells it (rtSpelling).
+// operand's type after that conversion is operandType (lane GP's one
+// definition, ir_fail.go).
 
 import (
 	"ergo.local/prototype/internal/sketch/syntax"

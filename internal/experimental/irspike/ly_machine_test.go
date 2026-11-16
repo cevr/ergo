@@ -11,6 +11,6 @@ import "testing"
 // It builds Go because a wrong Machine (its initial value, start or step)
 // shows only when the compiled program folds it over signals.
 func TestIRMachinesMatchSource(t *testing.T) {
-	lyProperty(t, "TestIRMachinesMatchSource", GenerateMachine, []string{"ergoMachineA", "ergoMachineB"},
-		"planA", "planB", "firstA")
+	lyProperty(t, "TestIRMachinesMatchSource", GenerateMachine, []string{"ergoMachineA", "ergoMachineB", "ergoMachineC", "MachineTimerPanic"},
+		"planA", "planB", "firstA", "planC", "ergoMachineA", "ergoMachineB", "ergoMachineC")
 }

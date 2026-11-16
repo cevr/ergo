@@ -37,6 +37,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"let of a default *", "G1"}, // F7 letpat (ir_letpat.go)
 	{"expression *syntax.SliceExpr", "G1"},
 	{"type *check.Array", "G1"},
+	{"literal of *check.Array", "G1"}, // lane B's wf10/f7b-conv builds it (ir_defined.go)
 	{"index of a non-slice", "G1"},
 	{"index form", "G1"},
 	{"len of a non-slice", "G1"},
@@ -55,7 +56,6 @@ var reasonUnits = []struct{ prefix, unit string }{
 	// F7 update (ir_update.go): the updates it leaves.
 	{"elided literal type", "G1"},
 	{"record update *", "G1"},
-	{"unkeyed record literal", "G1"},
 	{"record literal without every field", "G1"},
 	{"keyed slice literal", "G1"},
 	{"spread", "G1"},
@@ -85,16 +85,12 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"for-in binding without a variable", "G1"},
 	// G2: the failure ABI, frames and operation calls.
 	{"fallible function", "G2"},
-	{"expression *syntax.CatchExpr", "G2"},
-	{"expression *syntax.TryExpr", "G2"},
 	{"loop in an impure frame", "G2"},
 	{"call of an impure, fallible or special function", "G2"},
 	{"operation call form", "G2"},
 	{"operation call spelling", "G2"},
 	{"capability without a named type", "G2"},
 	{"call in an operation's argument", "G2"},
-	{"operation call in a range", "G2"},
-	{"operation call in a condition", "G2"},
 	{"operation call inside an expression", "G2"},
 	{"body that needs a frame", "G2"},
 	{"owned local", "G2"},
@@ -105,12 +101,10 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"fallible call with an empty row at its site", "G2"},
 	{"call of an impure function from a pure one", "G2"},
 	{"try without a value", "G2"},
-	{"try of a non-call", "G2"},
 	{"catch without its Matches entry", "G2"},
 	{"catch of a non-call", "G2"},
 	{"catch arm without a pattern", "G2"},
 	{"catch arm form", "G2"},
-	{"failure in a branch tail of a body with no value", "G2"},
 	{"operation call that enters a release", "G2"}, // a checked Close: frames, IRG2b
 	{"checked Close (closeBody masks it)", "G2"},   // the Close body itself, inside its mask
 	{"call of an extern function", "G4"},
@@ -147,6 +141,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"machine *", "G3b"}, // ir_machine.go's refusals (a literal with fields, a second Machine type)
 	{"row conversion", "G3b"},
 	{"type defined over a non-basic type", "G3b"},
+	{"record field of a converted value", "G3b"}, // B-CONVFIELD (ir_field.go): a difference neither a conversion nor a row explains
 	{"value of a type defined over a flat union", "G3b"},
 	{"value of another type", "G3b"},
 	{"match on a value that is no union", "G3b"},
@@ -203,9 +198,11 @@ var reasonUnits = []struct{ prefix, unit string }{
 	// reaches it through generic instances whose declared types name
 	// their own type parameters (F7 FORK merge of F2).
 	{"type parameter outside its declaration", "G4"},
+	// I-FLIP's f2e93090e: a runtime leaf generic in the body's own type
+	// parameters (ir_pkg.go), F1's generic bodies.
+	{"runtime leaf's generic function in a generic body", "G4"},
 	{"owned parameters", "G4"},
 	{"known-callback variant", "G4"},
-	{"copy for a known record", "G4"},
 	{"variant with no result", "G4"}, // drop.go's variant of a function whose result a call discards
 	{"call without a value", "G4"},
 	{"call without a Calls entry", "G4"},
@@ -239,8 +236,6 @@ var reasonUnits = []struct{ prefix, unit string }{
 	// IRG6 r4 lowers law bodies; these stay the emitter's.
 	{"law of a generic operation type", "G6"},
 	{"law result of an untried fallible call", "G6"},
-	{"call kind 10", "G6"}, // CallEncode
-	{"call kind 11", "G6"}, // CallDecode
 	// The codec built-ins take the IR (FLIP OPC-codec), but for these:
 	{"codec of a type that holds type parameters", "G4"}, // codec witnesses, with witness parameters
 	{"codec *", "G6"},

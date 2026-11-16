@@ -8,8 +8,9 @@ import (
 
 // ownFuncs are the functions GenerateOwn writes besides the owN: give
 // returns the value it owns (v1.ReturnStatic), keep owns its taken
-// parameter.
-var ownFuncs = []string{"give", "Res.keep"}
+// parameter, guarded owns two in a frame with an error row, and Res's
+// checked Close runs masked (v1.Release).
+var ownFuncs = []string{"give", "Res.keep", "guarded", "Res.Close"}
 
 // GenerateOwn is a program of owned values in static frames (FLIP F7
 // wave 2): a resource Res whose Close prints its id, and functions
@@ -30,7 +31,10 @@ type Res { id int, bad bool } implements Closer
 func Close(r Res) needs Console {
 	Console.Println("close \(r.id)")
 	if r.bad {
-		Unreachable("close \(r.id)")
+		// A defect in a checked Close (an index out of range).
+		let none = []int{}
+		let v = none[r.id]
+		Console.Println("never \(v)")
 	}
 }
 
@@ -71,6 +75,28 @@ func caught(k int) int needs Console {
 	Console.Println("caught \(x)")
 	let v = use(r)
 	x + v
+}
+
+// guarded is a static frame with an error row (unit 4): a failure
+// releases both values, a success returns r and releases t. With bad,
+// t's Close fails: on a failure the defect joins the frame's Oops
+// (StaticBegin and Static.End on the error result's address).
+func guarded(k int, bad bool) Res fails Oops needs Console {
+	let r = open(50 + k, false)
+	let t = open(60 + k, bad)
+	let u = use(t)
+	if k > 1 {
+		return Oops{code: u}
+	}
+	r
+}
+
+func guardedAt(k int, bad bool) int needs Console {
+	let x = guarded(k, bad) catch {
+	case Oops as o:
+		return o.code
+	}
+	use(x)
 }
 
 func give(id int, k int) Res needs Console {
@@ -136,6 +162,13 @@ func give(id int, k int) Res needs Console {
 	}
 	b.WriteString("\t}\n")
 	b.WriteString("\tConsole.Println(\"\\(caught(0)) \\(caught(1))\")\n")
-	fmt.Fprintf(&b, "\tConsole.Println(\"bad \\(ow%d(1, true))\")\n}\n", r.IntN(nf))
+	b.WriteString("\tfor k in 0..4 {\n\t\tConsole.Println(\"guarded \\(guardedAt(k, false))\")\n\t}\n")
+	last := r.IntN(nf)
+	if seed%2 == 0 {
+		// A failure whose release fails too.
+		b.WriteString("\tConsole.Println(\"bad \\(guardedAt(3, true))\")\n}\n")
+		return b.String()
+	}
+	fmt.Fprintf(&b, "\tConsole.Println(\"bad \\(ow%d(1, true))\")\n}\n", last)
 	return b.String()
 }

@@ -92,6 +92,12 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 			b.admitNamed(t, depth) // ir_union.go
 			return
 		}
+		if check.IsNever(t) {
+			// The prelude's Never, a union of no variants declared with
+			// a record's braces: Go's struct{}, as the emitter's (decls.go
+			// typeDecl), which no body builds.
+			return
+		}
 		s, ok := t.Underlying().(*check.Struct)
 		if !ok {
 			irNo("record without a struct")
@@ -109,8 +115,14 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 	case *check.Union:
 		// A row, the error of a fallible call (a catch's `case err:`): a
 		// Go error, its variants the error types (ir_tree.go).
-		if b.fc.goType(t) == "error" {
+		if failureRow(b.fc, t) { // ir_field.go
 			for _, v := range t.Variants {
+				if tp, ok := v.(*check.TypeParam); ok && tp.Kind == check.KindErrors {
+					// An error row parameter of the row: its errors are
+					// the Go error's values, whatever they are (the
+					// emitter's goType of a row), no Go type of their own.
+					continue
+				}
 				b.admit(v, depth+1)
 			}
 			return
