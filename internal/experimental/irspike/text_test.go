@@ -68,12 +68,15 @@ func textCheckOn(t *testing.T, target exampleTarget) {
 //     ir-local-raw-spelling);
 //   - pollend (IRG3b): a loop body ending in a return or a break was
 //     followed by its back-edge poll, unreachable code to go vet
-//     (mutant ir-loop-poll-after-terminating-body).
+//     (mutant ir-loop-poll-after-terminating-body);
+//   - negfloat (IRFIX-FLOAT): the decoder compiled -1e-12 rounded to
+//     float64, where Go keeps the exact -1/10^12 on the negation its
+//     text spells (derivative mutant M8, the ledger's about).
 //
 // It builds Go for the reason TestIRTextChecks does.
 func TestIRTextRepros(t *testing.T) {
 	src, ir := needsBuild(t)
-	for _, r := range []struct{ name, fn string }{{"duplocals", "two"}, {"shadow", "shadow"}, {"pollend", "firstOf"}} {
+	for _, r := range []struct{ name, fn string }{{"duplocals", "two"}, {"shadow", "shadow"}, {"pollend", "firstOf"}, {"negfloat", "near"}} {
 		t.Run(r.name, func(t *testing.T) {
 			u, err := Load(filepath.Join("testdata", r.name+".ergo"))
 			if err != nil {
