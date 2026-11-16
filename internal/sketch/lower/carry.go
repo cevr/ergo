@@ -200,7 +200,8 @@ func (l *lowerer) carryPayload(t check.Type, seen map[check.Type]bool) {
 // carryResults marks carried every union a parameter or a result of sig
 // is: a function value is called by a caller the lowering cannot see,
 // which passes its arguments and takes its result by value (a machine's
-// step, called by std's run with the signal).
+// step, called by std's run with the signal). A union inside a tuple
+// result is not (tupleCarry, below).
 func (l *lowerer) carryResults(sig *check.Signature) {
 	types := append([]check.Type{}, sig.Results...)
 	if paramCarry {
@@ -208,7 +209,12 @@ func (l *lowerer) carryResults(sig *check.Signature) {
 			types = append(types, p.Type)
 		}
 	}
-	for _, t := range types {
+	for i := 0; i < len(types); i++ {
+		t := types[i]
+		if tu, ok := t.(*check.Tuple); ok && tupleCarry {
+			types = append(types, tu.Types...)
+			continue
+		}
 		if u, ok := t.(*check.Named); ok {
 			if _, union := u.Underlying().(*check.Union); union {
 				l.carried[u.Obj] = true
@@ -216,6 +222,17 @@ func (l *lowerer) carryResults(sig *check.Signature) {
 		}
 	}
 }
+
+// tupleCarry is true only under the mutant msb3b-tuple-carried. A union in
+// a function value's tuple result is not carried (MSB3b): sync.Modify's
+// literal returns (R, T), and Go's RefModify hands R back once, so a flat
+// R is one copy where a boxed one is an allocation per call. Measured on
+// coord's shape (stores EX5a: memory/leases.ergo's stepped, an 88-byte
+// union, 10^6 turns): flat 330M instructions and no allocation per turn,
+// boxed 490M and 0.69. A union a function value returns alone stays
+// carried: through tasks.Transform, which collects each result, the flat
+// form ran 87 % more instructions (MSB3b probes, dod/msb3b).
+const tupleCarry = false
 
 // passCarries reports whether operand j of the call c is carried on by its
 // callee (above).
