@@ -1259,7 +1259,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		for _, g := range []struct {
 			on     bool
 			reason string
-		}{{known, "known-callback variant"}, {sp != nil, "copy for a known record"}, {drop, "variant with no result"}, {isClose(f), "checked Close (closeBody masks it)"}, {owned, "owned parameters"}, {needsFrame && !irStaticFrame(fc, fd.fallible), "body that needs a frame"}} {
+		}{{known, "known-callback variant"}, {sp != nil, "copy for a known record"}, {drop, "variant with no result"}, {isClose(f), "checked Close (closeBody masks it)"}, {needsFrame && !irStaticFrame(fc, fd.fallible), "body that needs a frame"}} {
 			if g.on {
 				gates = append(gates, g.reason)
 			}
@@ -1267,6 +1267,9 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		if l.ir.body(fc, fd, params, gates, drop) {
 			fd.lowered, fd.readsEnv = true, fc.env != ""
 			b.WriteString(directive + head.String() + "\n\n")
+			if owned { // the IR body is bodyName's (ir_own.go ownedBodyName); f's name copies into it
+				l.gen.WriteString(fc.ownedWrapper(f, wrapHead, wrapParams, results, bodyName, typeArgs, args, recvName, site))
+			}
 			return
 		}
 	}

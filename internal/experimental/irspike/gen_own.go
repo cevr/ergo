@@ -48,6 +48,31 @@ func keep(r own Res) needs Console {
 	Console.Println("keep \(r.id)")
 }
 
+type Oops { code int }
+
+func risky(k int) int fails Oops needs Console {
+	if k > 0 {
+		return Oops{code: k}
+	}
+	k
+}
+
+// caught owns a value in a catch arm, a scope the IR builder does not
+// release yet: the body must keep its source form (ownVisited), or the
+// arm's value is released only at the frame's exit, after "caught".
+func caught(k int) int needs Console {
+	let r = open(1, false)
+	let x = risky(k) catch {
+	case Oops as o:
+		let t = open(2, false)
+		let u = use(t)
+		u + o.code
+	}
+	Console.Println("caught \(x)")
+	let v = use(r)
+	x + v
+}
+
 func give(id int, k int) Res needs Console {
 	let r = open(id, false)
 	if k > 2 {
@@ -89,6 +114,15 @@ func give(id int, k int) Res needs Console {
 				}
 			case 2:
 				fmt.Fprintf(&b, "\tif k == %d {\n\t\treturn s + %d\n\t}\n", r.IntN(4), j)
+			case 3:
+				// A scope inside the frame (unit 2): its value is released
+				// at the scope's end, or before a break leaves the loop.
+				id := 100*(i+1) + j
+				if r.IntN(2) == 0 {
+					fmt.Fprintf(&b, "\tif k > %d {\n\t\tlet t%d = open(%d, false)\n\t\tlet v%d = use(t%d)\n\t\ts = s + v%d\n\t}\n", r.IntN(3), j, id, j, j, j)
+				} else {
+					fmt.Fprintf(&b, "\tfor q in 0..3 {\n\t\tlet t%d = open(%d + q, false)\n\t\tlet v%d = use(t%d)\n\t\ts = s + v%d\n\t\tif q == k {\n\t\t\tbreak\n\t\t}\n\t}\n", j, id, j, j, j)
+				}
 			}
 		}
 		if len(live) > 0 && r.IntN(2) == 0 {
@@ -101,6 +135,7 @@ func give(id int, k int) Res needs Console {
 		fmt.Fprintf(&b, "\t\tConsole.Println(\"ow%d \\(k) \\(ow%d(k, false))\")\n", i, i)
 	}
 	b.WriteString("\t}\n")
+	b.WriteString("\tConsole.Println(\"\\(caught(0)) \\(caught(1))\")\n")
 	fmt.Fprintf(&b, "\tConsole.Println(\"bad \\(ow%d(1, true))\")\n}\n", r.IntN(nf))
 	return b.String()
 }
