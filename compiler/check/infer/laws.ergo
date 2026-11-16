@@ -174,21 +174,29 @@ law InferRecoversBindings(picks []int) {
 	}
 }
 
-// InferRejectsMismatches: an argument of another shape than its
-// parameter's (a slice where the parameter is not one, a tuple of another
-// length, a closed type where it differs) infers nothing.
+// InferRejectsMismatches: a call infers nothing when an argument has
+// another shape than its parameter (a tuple of another length; a pointer
+// where the parameter is a slice), when an argument conflicts with what an
+// earlier one bound, or when a type parameter no argument names stays
+// unbound.
 law InferRejectsMismatches(picks []int) {
 	let mut s = store.New("p", []string{})
 	let mut f = NewFrame()
 	let k = caseOf(&s, &f, picks)
+	let none = []dense.ID[store.TKey]{}
 	let wrong = store.TTuple(&s, []dense.ID[store.TKey]{k.t, k.u, k.t})
-	let bad = Infer(&s, &f, k.callee, []dense.ID[store.TKey]{}, []Arg{k.args[0], Typed{T: wrong}})
-	let slice = store.TSlice(&s, store.TSlice(&s, store.TBasic(&s, 7)))
+	let bad = Infer(&s, &f, k.callee, none, []Arg{k.args[0], Typed{T: wrong}})
 	let c = Begin(&f, []bool{false, false, true}, k.callee.Base)
-	let p = store.TMap(&s, store.TBasic(&s, 2), Param(&s, c, 0))
+	let t = Param(&s, c, 0)
+	let slice = store.TSlice(&s, t)
+	let pair = store.TTuple(&s, []dense.ID[store.TKey]{t, Param(&s, c, 1)})
 	End(&f, c)
-	let bad2 = Infer(&s, &f, Callee{Params: []dense.ID[store.TKey]{p, k.callee.Params[1]}, Rows: k.callee.Rows, Base: k.callee.Base}, []dense.ID[store.TKey]{}, []Arg{Typed{T: slice}, k.args[1]})
-	isNone(bad) && isNone(bad2) && Depth(f) == 0
+	let b = store.TBasic(&s, 2+at(picks, 5)%14)
+	let other = store.TBasic(&s, 16)
+	let shape = Infer(&s, &f, Callee{Params: []dense.ID[store.TKey]{slice, pair}, Rows: k.callee.Rows, Base: k.callee.Base}, none, []Arg{Typed{T: store.TPointer(&s, b)}, Typed{T: store.TTuple(&s, []dense.ID[store.TKey]{b, b})}})
+	let conflict = Infer(&s, &f, Callee{Params: []dense.ID[store.TKey]{t, pair}, Rows: k.callee.Rows, Base: k.callee.Base}, none, []Arg{Typed{T: b}, Typed{T: store.TTuple(&s, []dense.ID[store.TKey]{other, b})}})
+	let unbound = Infer(&s, &f, Callee{Params: []dense.ID[store.TKey]{slice}, Rows: k.callee.Rows, Base: k.callee.Base}, none, []Arg{Typed{T: store.TSlice(&s, b)}})
+	isNone(bad) && isNone(shape) && isNone(conflict) && isNone(unbound) && Depth(f) == 0
 }
 
 // FramesNest: an inference begun inside another, as a call's argument's

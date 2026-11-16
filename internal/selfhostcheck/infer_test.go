@@ -258,8 +258,14 @@ func genInfer(seed uint32) string {
 				if noValue && pt == "func() T" {
 					at = "func()"
 				}
-				// The row parameter first: its binding names no T or U.
-				at = regexp.MustCompile(`\bF\b`).ReplaceAllString(at, bind["F"])
+				// The row parameter first: its binding names no T or U. An
+				// argument's own row may be another of the rows: a later
+				// one widens what an earlier one bound.
+				fArg := bind["F"]
+				if r.next() < 0.5 {
+					fArg = pick(r, rows)
+				}
+				at = regexp.MustCompile(`\bF\b`).ReplaceAllString(at, fArg)
 				at = regexp.MustCompile(`\bT\b`).ReplaceAllString(at, bind["T"])
 				at = regexp.MustCompile(`\bU\b`).ReplaceAllString(at, bind["U"])
 				name := fmt.Sprintf("p%d_%d", k, j)
