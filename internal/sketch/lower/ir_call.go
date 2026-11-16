@@ -140,7 +140,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		case f == nil:
 			irNo("call without a function")
 		case check.GoBuiltin(f) != "":
-			irNo("call of a Go builtin")
+			return b.goBuiltinCall(x, c, f, p, stmt) // ir_builtin.go
 		case userExtern(f):
 			irNo("call of a user extern")
 		case f.Pkg != nil && f.Pkg.Host():
