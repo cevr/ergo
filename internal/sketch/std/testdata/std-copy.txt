@@ -40,6 +40,7 @@ maps	same
 math	same
 os	same
 prompt	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
+pubsub	same
 queue	same
 rand	same
 rpc	differs	lower: a std package's declarations are emitted in another order than a sourced package's (the first differing line is another declaration)	follow-up emit-order-std
@@ -49,7 +50,7 @@ sha256	same
 slices	same
 strconv	same
 strings	same
-sync	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
+sync	same
 task	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
 tasks	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
 term	same

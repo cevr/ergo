@@ -266,6 +266,7 @@ func TestEachExternHasItsGoBody(t *testing.T) {
 // or in TestStdTypesBindRuntimeTypes fails.
 var errorValues = map[string]error{
 	"queue.Closed": v1.Closed{},
+	"queue.Full":   v1.Full{},
 }
 
 // TestStdTypesBindRuntimeTypes: a record type declared in a v1 package,
