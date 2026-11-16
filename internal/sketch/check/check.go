@@ -845,6 +845,9 @@ type stdImporter struct {
 	// (checked or decoded), so each follows its imports (ExportStd).
 	order []string
 	ready map[string]bool
+	// sources reads a package's files; nil reads the embedded std
+	// (std.Package). A test gives a library of its own.
+	sources func(path string) (map[string]string, bool)
 }
 
 // stdEntry is one std package, checked once.
@@ -949,7 +952,11 @@ func (s *stdImporter) count(files, packages int64) {
 
 // load checks the std package at path.
 func (s *stdImporter) load(path string) (*Package, error) {
-	sources, ok := std.Package(path)
+	read := s.sources
+	if read == nil {
+		read = std.Package
+	}
+	sources, ok := read(path)
 	if !ok {
 		return nil, fmt.Errorf("no package %q", path)
 	}
@@ -970,7 +977,15 @@ func (s *stdImporter) load(path string) (*Package, error) {
 	pkg := c.run(files)
 	var err error
 	if len(c.diags) > 0 {
-		err = fmt.Errorf("std package %q has diagnostics: %s", path, c.sorted()[0])
+		// The importer says why, with the first diagnostic and its file, so
+		// the import does not read as an unknown package (TM: actor's
+		// "unknown package tasks" hid tasks' S101).
+		d := c.sorted()[0]
+		at := ""
+		if d.File >= 0 && d.File < len(files) {
+			at = files[d.File].Name + ":"
+		}
+		err = &ImportError{Path: path, Reason: fmt.Sprintf("%s%s", at, d), Broken: true}
 	}
 	return pkg, err
 }
