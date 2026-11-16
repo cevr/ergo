@@ -181,8 +181,8 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"call without a value", "G4"},
 	{"call without a Calls entry", "G4"},
 	{"value copy", "G4"}, // the value rule's copy (values.go)
-	// G5: std bodies.
-	{"library body", "G5"},
+	// G5: std bodies. A library body takes the IR as a program's does
+	// (FLIP OPC-lib).
 	{"intrinsic body", "G5"},
 	{"std body not reachable alone", "G5"},
 	// G6: the rest (closures, codecs, test and law bodies).

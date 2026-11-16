@@ -341,9 +341,6 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 			ok = false
 		}
 	}()
-	if !fc.directives {
-		b.gate("library body")
-	}
 	for _, g := range gates {
 		b.gate(g)
 	}
@@ -420,16 +417,13 @@ func (st *irState) intrinsic(f *check.Func) {
 	st.census.Funcs = append(st.census.Funcs, IRCensusFunc{Pkg: pkg, Name: f.Name, Std: f.Pkg.Std(), Reasons: []string{"intrinsic body"}})
 }
 
-// pos is n's position as the IR spells it. A census also walks bodies
-// outside the program's sources (std); their positions are not needed.
+// pos is n's position as the IR spells it: its file, line and column, in
+// a source of the program or in a library's embedded file (locate: a std
+// body's std/flag/parse.ergo), each file a position base of its own. A
+// library file's frames name no Ergo frame in a defect report, which
+// reads only the files the source map registers (runtime/v1 ergoStack).
 func (b *irBuilder) pos(n syntax.Node, p syntax.Pos) irPos {
-	if _, ok := b.l.sourceOf(n); !ok {
-		if b.st.census != nil {
-			return irPos{}
-		}
-		irNo("node outside the program's sources")
-	}
-	_, path, line, col := b.l.at(n, p)
+	path, line, col := b.l.locate(n, p)
 	i, ok := b.st.files[path]
 	if !ok {
 		i = len(b.st.out.Files)
