@@ -5,6 +5,7 @@ package lower
 import (
 	"go/constant"
 	"strconv"
+	"strings"
 	"unicode/utf8"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -182,6 +183,11 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		field, ok := td.fieldName[x.Sel.Name]
 		if !ok {
 			irNo("selector that is not a field")
+		}
+		if m, ok := strings.CutSuffix(field, "()"); ok {
+			// A field the runtime's Go type reads by a method (go.Error's
+			// Text, decls.go): the method's call.
+			return &irExpr{K: "mcall", Pos: b.pos(x.Sel, x.Sel.Pos()), Name: m, X: b.expr(x.X)}
 		}
 		return &irExpr{K: "field", Pos: b.pos(x.Sel, x.Sel.Pos()), Name: field, X: b.expr(x.X)}
 	case *syntax.IndexExpr:
