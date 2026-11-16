@@ -52,6 +52,7 @@ starter
 sudoku
 tidewalk-replay
 todo-gui
+toktree
 tomlparse
 tui
 twig
