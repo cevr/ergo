@@ -9,7 +9,9 @@
 //   - step: Signals, the signals the loop sent the actor since the pass
 //     before (a session's; 0 for a bare Render);
 //   - view: Written, the nodes the view wrote, with those a stopped group
-//     dropped; Rows, the row functions Rows ran; Skipped, the Sames kept
+//     dropped: the nodes the pass wrote, not those a full write would have
+//     written, so a component group written again counts its own top
+//     nodes and none of the nodes it keeps under them (group.ergo); Rows, the row functions Rows ran; Skipped, the Sames kept
 //     without running, those inside a component group the pass wrote
 //     again among them (group.ergo); Stopped, the groups (Boundary) that stopped;
 //   - compose: Committed, the nodes the pass committed;
