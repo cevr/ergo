@@ -126,7 +126,7 @@ func applyOp[E](m *Mirror[E], op Op[E]) undo[E] fails BadPatch {
 		let pr = try held(m, o.Parent)
 		try checkBefore(m, o.Parent, o.Id, o.Before)
 		m.refs[o.Id] = arena.Put(&m.store, mirrored[E]{node: o.Node, parent: o.Parent, first: None, last: None, next: None, prev: None})
-		link(m, pr, o.Id, o.Before)
+		linkChild(m, pr, o.Id, o.Before)
 		undoInsert[E]{id: o.Id}
 	case Move[E] as o:
 		let r = try held(m, o.Id)
@@ -137,7 +137,7 @@ func applyOp[E](m *Mirror[E], op Op[E]) undo[E] fails BadPatch {
 		let pr = try held(m, o.Parent)
 		try checkBefore(m, o.Parent, o.Id, o.Before)
 		unlink(m, pr, r)
-		link(m, pr, o.Id, o.Before)
+		linkChild(m, pr, o.Id, o.Before)
 		undoMove[E]{id: o.Id, before: e.next}
 	case Remove[E] as o:
 		let r = try held(m, o.Id)
@@ -176,13 +176,13 @@ func rollBack[E](m *Mirror[E], done []undo[E]) {
 			let r = refOf(m, x.id)
 			let pr = refOf(m, entry(m, r).parent)
 			unlink(m, pr, r)
-			link(m, pr, x.id, x.before)
+			linkChild(m, pr, x.id, x.before)
 		case undoRemove[E] as x:
 			for d in x.dropped {
 				m.refs[d.id] = d.ref
 			}
 			let pr = refOf(m, entry(m, refOf(m, x.id)).parent)
-			link(m, pr, x.id, x.before)
+			linkChild(m, pr, x.id, x.before)
 		case undoSet[E] as x:
 			let node = x.node
 			edit(m, refOf(m, x.id), func(n *mirrored[E]) { n.node = node })
@@ -229,7 +229,7 @@ func checkBefore[E](m *Mirror[E], parent Id[E], id Id[E], before Option[Id[E]]) 
 
 // link puts id, which no list holds, in front of before in pr's children,
 // or last for None.
-func link[E](m *Mirror[E], pr arena.Ref[mirrored[E]], id Id[E], before Option[Id[E]]) {
+func linkChild[E](m *Mirror[E], pr arena.Ref[mirrored[E]], id Id[E], before Option[Id[E]]) {
 	let mut prev Option[Id[E]] = None
 	match before {
 	case Some[Id[E]] as b:
