@@ -2684,7 +2684,7 @@
       "killers": ["lower:TestTaskOwnershipRunModel"],
       "anchor": {"tests": ["lower:TestTaskOwnershipRunModel"]}
     },
-    {"name":"L8-B3t-take-panic-loses-input","origin":"L8 B3t R36","file":"internal/sketch/lower/release.go","from":"\tcase c.Kind == check.CallFunc && c.Func != nil && c.Func.Sig != nil && check.BodyOf(c.Func).Runtime != \"\":","to":"\tcase false && c.Kind == check.CallFunc && c.Func != nil && c.Func.Sig != nil && check.BodyOf(c.Func).Runtime != \"\":","rule":"A native taking removal retains the input's owner until it succeeds, so an index panic releases the intact input.","killers":["lower:TestTaskOwnershipRunModel"],"anchor":{"tests":["lower:TestTaskOwnershipRunModel"]}},
+    {"name":"L8-B3t-take-panic-loses-input","origin":"L8 B3t R36","file":"internal/sketch/lower/release.go","from":"\tcase c.Kind == check.CallFunc && c.Func != nil && c.Func.Sig != nil && check.HoldsTaken(c.Func):","to":"\tcase false && c.Kind == check.CallFunc && c.Func != nil && c.Func.Sig != nil && check.HoldsTaken(c.Func):","rule":"A native taking removal retains the input's owner until it succeeds, so an index panic releases the intact input.","killers":["lower:TestTaskOwnershipRunModel"],"anchor":{"tests":["lower:TestTaskOwnershipRunModel"]}},
     {
       "name": "L8-B3t-take-keeps-slice-element",
       "origin": "L8 B3t R36",

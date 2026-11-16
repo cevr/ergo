@@ -2652,7 +2652,7 @@ func (w *ownWalk) holdsTaken(call *Call) bool {
 	case call.Kind == CallOp && call.Op != nil && call.Op.Sig != nil && call.Recv != nil:
 		return len(call.Op.Sig.Takes) > 0 && OpBodyOf(w.info.Types[call.Recv], call.Op.Name).Runtime != ""
 	case call.Kind == CallFunc && call.Func != nil && call.Func.Sig != nil:
-		return len(call.Func.Sig.Takes) > 0 && BodyOf(call.Func).Runtime != ""
+		return HoldsTaken(call.Func) // a Go body, or a generic forwarder to one (B2)
 	}
 	return false
 }

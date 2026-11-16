@@ -73,6 +73,9 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 	text, result, fallible := fc.callText(x, c)
 	if op := fc.inlined; op != nil {
 		fc.inlined = nil
+		// A forwarder's taken values leave with the block (holdTaken,
+		// check.HoldsTaken): a defect inside it leaves them to the frame.
+		fc.handCaptures(held, x)
 		return *op // inline.go: its block is written
 	}
 	defer fc.identify(x, c)()
