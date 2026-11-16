@@ -164,8 +164,6 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 			irNo("call of an extern function")
 		case len(witnessParams(f.Sig)) > 0:
 			irNo("call that passes witnesses")
-		case c.Site != nil:
-			irNo("call with a call site")
 		case len(b.fc.captureOwners(x)) > 0:
 			irNo("call that captures owners")
 		case fd.ptr && !b.addrRecv(c) && !b.passesPointer(c, x): // ir_place.go, ir_pkg.go
@@ -192,6 +190,9 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		b.valueSource(x, c, args, irArgs) // ir_pkg.go
 		if x.Trailing != nil {
 			irArgs = append(irArgs, b.closureLit(nil, x)) // ir_closure.go
+		}
+		if c.Site != nil {
+			irArgs = append(irArgs, b.siteValue(x, c.Site, p))
 		}
 		if !fd.pure {
 			// The environment first, after a method's receiver
