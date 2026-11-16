@@ -41,10 +41,10 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 		// its Go name among the function's (and its receiver's) type
 		// parameters. Values of it are moved, never operated on: an
 		// operator admits only basic types (operator).
+		b.admitCopyParam(t, depth) // ir_known.go
 		if _, ok := b.fc.params[t]; !ok {
 			irNo("type parameter outside its declaration")
 		}
-		b.admitCopyParam(t, depth) // ir_known.go
 		return
 	case *check.Named:
 		if len(t.TParams) > 0 || t.Obj.Decl == nil {
