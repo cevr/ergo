@@ -213,7 +213,13 @@ func (w Workload) FromStdin() bool {
 // problems, the folders it names that do not exist included. A folder with
 // no workload file has none; a folder named workload is a package (the
 // DOD programs' document writers), not the file.
-func Check(root, dir string) (Workload, []Problem, bool) {
+func Check(root, dir string) (Workload, []Problem, bool) { return CheckIn(root, dir, dir) }
+
+// CheckIn is Check of the workload file in dir for the program folder
+// program, which holds cmd/NAME (a benchmark kind's folder in its
+// module, benchmarks/forms/step in benchmarks/forms; opcount's folder
+// argument).
+func CheckIn(root, dir, program string) (Workload, []Problem, bool) {
 	if st, err := os.Stat(filepath.Join(dir, WorkloadFile)); err == nil && st.IsDir() {
 		return Workload{}, nil, false
 	}
@@ -225,10 +231,10 @@ func Check(root, dir string) (Workload, []Problem, bool) {
 		return Workload{}, []Problem{{0, err.Error()}}, true
 	}
 	w, problems := ParseWorkload(string(data))
-	binaries, _ := filepath.Glob(filepath.Join(dir, "cmd", "*", "main.ergo"))
+	binaries, _ := filepath.Glob(filepath.Join(program, "cmd", "*", "main.ergo"))
 	switch {
 	case w.Binary != "":
-		if _, err := os.Stat(filepath.Join(dir, "cmd", w.Binary, "main.ergo")); err != nil {
+		if _, err := os.Stat(filepath.Join(program, "cmd", w.Binary, "main.ergo")); err != nil {
 			problems = append(problems, Problem{0, fmt.Sprintf("binary %s: no cmd/%s/main.ergo", w.Binary, w.Binary)})
 		}
 	case len(binaries) != 1:

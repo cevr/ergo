@@ -114,10 +114,10 @@ func InspectForms(a Analysis, source string) ([]lower.FormSite, error) {
 	if err != nil {
 		return nil, err
 	}
-	if rep.Forms == nil {
+	if rep.FormSites == nil {
 		return []lower.FormSite{}, nil
 	}
-	return rep.Forms, nil
+	return rep.FormSites, nil
 }
 
 // FormsText is sites as ergo inspect forms prints them, one line each.
