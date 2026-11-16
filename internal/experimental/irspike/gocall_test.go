@@ -15,8 +15,10 @@ import (
 // goN gets an IR body, so the Go call, its operands and the adapter that
 // passes an Ergo function value as Go's function (sort.Search,
 // strings.Map, strings.IndexFunc) all run from the IR. A failing seed
-// prints the Ergo source, both outcomes and its replay command. Mutant
-// f7g-callback-refused (the adapter refused) fails it.
+// prints the Ergo source, both outcomes and its replay command. hold, a
+// frame that owns a Go resource, gets an IR body and an IR release
+// helper (Go's Close). Mutants f7g-callback-refused (the adapter refused)
+// and f7g-host-close-text (a Go value's Close left to Go text) fail it.
 //
 // It builds Go for the reason needsBuild gives: the question is what the
 // built program's Go calls compute with the adapted callbacks, which only
@@ -41,9 +43,21 @@ func TestIRGoCallsMatchSource(t *testing.T) {
 		if a != b {
 			t.Fatalf("seed %d: the paths differ\nsource: %+v\nir:     %+v\n%s\n%s", seed, a, b, replay, text)
 		}
+		want := []string{"hold"}
 		for i := 0; strings.Contains(text, fmt.Sprintf("func go%d(", i)); i++ {
-			if want := fmt.Sprintf("go%d", i); !slices.Contains(rep.IR, want) {
-				t.Fatalf("seed %d: no IR body for %s (IR %v, fallback %v)\n%s\n%s", seed, want, rep.IR, rep.Fallback, replay, text)
+			want = append(want, fmt.Sprintf("go%d", i))
+		}
+		for _, f := range want {
+			if !slices.Contains(rep.IR, f) {
+				t.Fatalf("seed %d: no IR body for %s (IR %v, fallback %v)\n%s\n%s", seed, f, rep.IR, rep.Fallback, replay, text)
+			}
+		}
+		// hold's release helper, Go's Close of the *os.File, is an IR
+		// function (RELEASE-IR's host Close): its Go text is a header.
+		gofiles, _ := filepath.Glob(filepath.Join(dir, "ir", "*.go"))
+		for _, f := range gofiles {
+			if data, _ := os.ReadFile(f); strings.Contains(string(data), "static frame (IR, FLIP F7).") {
+				t.Fatalf("seed %d: hold's release helper is Go text, not IR\n%s\n%s", seed, replay, text)
 			}
 		}
 	}
