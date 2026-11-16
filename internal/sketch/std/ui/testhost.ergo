@@ -1,5 +1,6 @@
 import actor
 import queue
+import testing
 import time
 
 // TestHost runs a view over an actor in process, for a test or an agent:
@@ -194,6 +195,9 @@ func Settle[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped 
 		if fetchesAsleep(h) {
 			return
 		}
+		// Settle waits here for what a fetch posts (RT-HOOK: the point a law
+		// releases an off-clock answer at, OffClockAnswerIsWaitedFor).
+		testing.Point("ui.settle.waits")
 		let ev = h.posted.Pop() catch {
 		case queue.Closed:
 			return
@@ -492,14 +496,17 @@ func played[E comparable, S, D, F](h *TestHost[S, E, D, F], script []Act, lines 
 }
 
 // fetchesAsleep says whether each fetch in flight is asleep on the
-// host's clock, so only an Advance wakes it.
+// host's clock, so only an Advance wakes it. It looks at every fetch
+// rather than stop at the first awake one, so the steps it takes do not
+// hang on the Map's order.
 func fetchesAsleep[E comparable, S, D, F](h *TestHost[S, E, D, F]) bool {
+	let mut asleep = 0
 	for _, t in h.session.inflight {
-		if !time.Asleep(h.clock, t) {
-			return false
+		if time.Asleep(h.clock, t) {
+			asleep = asleep + 1
 		}
 	}
-	true
+	asleep == len(h.session.inflight)
 }
 
 // waitText is what a SettleAll left in flight, waiting on the clock:

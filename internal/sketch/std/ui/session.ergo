@@ -1,6 +1,7 @@
 import actor
 import sync
 import task
+import testing
 
 // Session is the loop of one view over one actor, whatever the host: the
 // frame, the actor whose state the view shows, the view, where the
@@ -97,10 +98,14 @@ func newer[E comparable, S, D, F](s *Session[S, E, D, F]) bool { s.actor.Version
 // waiting for the session's own signal makes the common case, so the
 // pass of a press is the press's only pass. A Version too low costs one
 // more pass; one too high would lose a commit, so it is never guessed.
+// The point "ui.versioned" lies between a state read and the version
+// read after it, where a commit makes them disagree (RT-HOOK;
+// VersionedNeverRunsAhead lands one there).
 func versioned[S, E, D, F](a actor.Actor[S, E, D, F]) (S, int) {
 	let mut v = a.Version()
 	for _ in 0..3 {
 		let st = a.State()
+		testing.Point("ui.versioned")
 		let w = a.Version()
 		if w == v {
 			return (st, v)
