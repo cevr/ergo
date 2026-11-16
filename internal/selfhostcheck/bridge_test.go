@@ -1,15 +1,23 @@
 package selfhostcheck
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"io/fs"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"reflect"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
 
+	"ergo.local/prototype/internal/hostsyntax"
+	linked "ergo.local/prototype/internal/linked/format"
 	"ergo.local/prototype/internal/sketch/sketchtest"
+	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // seedVariable selects the seed of the generated inputs; the default is
@@ -18,10 +26,11 @@ const seedVariable = "ERGO_SELFHOST_SEED"
 
 // TestSelfhostBridgeAgrees is SH0's acceptance: the Go parser's tree
 // crosses into Ergo and back intact. For every input, the Go adapter
-// (hostsyntax) writes the parser's facts as an encoding, the Ergo package tree
-// decodes it into its arena, and the Ergo library formatapi writes the
-// projection of what it decoded; the driver writes the same projection
-// straight from syntax.Parse's tree, by reflection. The two must be equal
+// (internal/hostsyntax) writes the parser's facts as an encoding, the Ergo
+// package compiler/tree decodes it into its arena, and compiler/api's
+// Project (linked as internal/linked/format) writes the projection of what
+// it decoded; project writes the same projection straight from
+// syntax.Parse's tree, by reflection, in the same process. The two must be equal
 // byte for byte: every node, field, string byte, list item, position (with
 // its line and column), absent position and syntax failure.
 //
@@ -33,11 +42,7 @@ const seedVariable = "ERGO_SELFHOST_SEED"
 // Mutants it alone catches (testdata/mutants.json): sh-tree-drops-child,
 // sh-tree-loses-absent-pos, sh-encoding-replaces-invalid-byte,
 // sh-tree-column-off-by-one, sh-encoding-drops-error-location.
-//
-// It builds Go because the property executes the Ergo decoder through its
-// exported Go ABI: only a built library shows what crosses the boundary.
 func TestSelfhostBridgeAgrees(t *testing.T) {
-	needsBuild(t)
 	seed := uint64(1)
 	if s := os.Getenv(seedVariable); s != "" {
 		n, err := strconv.ParseUint(s, 10, 64)
@@ -50,12 +55,11 @@ func TestSelfhostBridgeAgrees(t *testing.T) {
 	if len(inputs) == 0 {
 		t.Fatal("no inputs")
 	}
-	exe := buildDriver(t, "formatapi")
 	srcs := make([]string, len(inputs))
 	for i, in := range inputs {
 		srcs[i] = in.Src
 	}
-	answers := runDriver(t, exe, srcs)
+	answers := projections(t, srcs)
 	replay := "replay: " + seedVariable + "=" + strconv.FormatUint(seed, 10) + " go test -count=1 -run '^TestSelfhostBridgeAgrees$' ./internal/selfhostcheck"
 	failed := 0
 	for i, a := range answers {
@@ -80,7 +84,7 @@ func bridgeInputs(t *testing.T, seed uint64) []sketchtest.Input {
 	t.Helper()
 	var inputs []sketchtest.Input
 	root := repoRoot()
-	for _, dir := range []string{filepath.Join(root, "examples"), pilot()} {
+	for _, dir := range []string{filepath.Join(root, "examples"), filepath.Join(root, "compiler")} {
 		err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
@@ -176,4 +180,113 @@ func clip(s string) string {
 		return s[:4000] + "\n…\n"
 	}
 	return s
+}
+
+// repoRoot is the repository root, found from this file's location.
+func repoRoot() string {
+	_, file, _, _ := runtime.Caller(0)
+	return filepath.Join(filepath.Dir(file), "..", "..")
+}
+
+// pair is one source's two projections: the one Go builds from the
+// parser's tree, and the one the Ergo library builds from the encoding.
+type pair struct{ goSide, ergoSide string }
+
+// projections are both projections of every source, in process: the
+// encoding of internal/hostsyntax crosses into the linked Ergo package
+// (internal/linked/format, compiler/api Project).
+func projections(t *testing.T, srcs []string) []pair {
+	t.Helper()
+	out := make([]pair, len(srcs))
+	for i, src := range srcs {
+		e, err := linked.Project(context.Background(), hostsyntax.Parse(src))
+		out[i] = pair{project(src), ergoAnswer(e, err)}
+	}
+	return out
+}
+
+// ergoAnswer is the linked package's answer, or its Go error as text.
+func ergoAnswer(s string, err error) string {
+	if err != nil {
+		return "ergo error " + err.Error() + "\n"
+	}
+	return s
+}
+
+var posType = reflect.TypeFor[syntax.Pos]()
+
+// project is the Go side's projection of src: syntax.Parse's tree, every
+// exported field by reflection, each position with its line and column;
+// or the syntax failure and the source.
+func project(src string) string {
+	f, err := syntax.Parse(src)
+	var b strings.Builder
+	if err != nil {
+		var se *syntax.Error
+		if !errors.As(err, &se) {
+			return "go error " + err.Error() + "\n"
+		}
+		fmt.Fprintf(&b, "syntax %s %d:%s %d %d %d %d\nsource %d:%s\n", se.Code, len(se.Message), se.Message, se.Offset, se.Length, se.Line, se.Column, len(src), src)
+		return b.String()
+	}
+	p := projector{file: f, b: &b}
+	p.value(reflect.ValueOf(f), 0)
+	return b.String()
+}
+
+type projector struct {
+	file *syntax.File
+	b    *strings.Builder
+}
+
+// value writes the rest of the line that holds v, and v's lines below it.
+func (p projector) value(v reflect.Value, depth int) {
+	if v.Type() == posType {
+		pos := syntax.Pos(v.Int())
+		if pos == syntax.NoPos {
+			p.b.WriteString("-\n")
+			return
+		}
+		line, column := p.file.Position(pos)
+		fmt.Fprintf(p.b, "@%d %d:%d\n", pos, line, column)
+		return
+	}
+	switch v.Kind() {
+	case reflect.Bool:
+		fmt.Fprintf(p.b, "%t\n", v.Bool())
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		fmt.Fprintf(p.b, "%d\n", v.Int())
+	case reflect.String:
+		fmt.Fprintf(p.b, "%d:%s\n", v.Len(), v.String())
+	case reflect.Interface:
+		if v.IsNil() {
+			p.b.WriteString("-\n")
+			return
+		}
+		p.value(v.Elem(), depth)
+	case reflect.Pointer:
+		if v.IsNil() {
+			p.b.WriteString("-\n")
+			return
+		}
+		e := v.Elem()
+		t := e.Type()
+		p.b.WriteString("{" + t.Name() + "}\n")
+		for i := range t.NumField() {
+			f := t.Field(i)
+			if !f.IsExported() {
+				continue
+			}
+			p.b.WriteString(strings.Repeat("  ", depth+1) + f.Name + " ")
+			p.value(e.Field(i), depth+1)
+		}
+	case reflect.Slice:
+		fmt.Fprintf(p.b, "[%d]\n", v.Len())
+		for i := range v.Len() {
+			p.b.WriteString(strings.Repeat("  ", depth+1))
+			p.value(v.Index(i), depth+1)
+		}
+	default:
+		panic(fmt.Sprintf("projection: no rule for %s", v.Type()))
+	}
 }

@@ -1,0 +1,97 @@
+// The scanner's tables against the rules they stand for. Each law checks
+// every byte, from the one its case starts at.
+
+// classOK reports byte c's class mask as the rule it names: clsLetter
+// isLetter, clsDigit isDigit, clsBlank a space, tab or carriage return,
+// clsPath an ASCII byte pathRune takes, clsHigh 0x80 or above.
+func classOK(c byte) bool {
+	let k = classes[int(c)]
+	let path = c < 0x80 && pathRune(rune(c))
+	(k&clsLetter != 0) == isLetter(c) && (k&clsDigit != 0) == isDigit(c) && (k&clsBlank != 0) == (c == ' ' || c == '\t' || c == '\r') && (k&clsPath != 0) == path && (k&clsHigh != 0) == (c >= 0x80) && (k&clsOpNext != 0) == (c == '^' || c == '-' || c == '.' || c == '/' || c == '*')
+}
+
+// ClassesAreTheRule: the class mask of every byte is the rule it names.
+law ClassesAreTheRule(n int) {
+	let mut ok = true
+	for i in 0..256 {
+		ok = ok && classOK(byte((((n+i)%256)+256)%256))
+	}
+	ok
+}
+
+// SemiMasksAreTheRule: semiAfter's masks say what semiRule says, for every
+// kind a byte can hold.
+law SemiMasksAreTheRule(n int) {
+	let mut ok = true
+	for i in 0..256 {
+		let k = uint8((((n + i) % 256) + 256) % 256)
+		ok = ok && semiAfter(k) == semiRule(k)
+	}
+	ok
+}
+
+// PunctIsOperator: every byte punct names is the kind operator gives it
+// (opKind, or LParen and RParen) whatever follows, one byte long; every
+// byte it leaves 0 is not one of them.
+law PunctIsOperator(n int) {
+	let mut ok = true
+	let next = byte((((n % 256) + 256) % 256))
+	for i in 0..256 {
+		let c = byte(i)
+		let p = uint8(punct[i])
+		let k = if c == '(' { LParen } else if c == ')' { RParen } else { opKind(c, next, next) }
+		let alone = k == LParen || k == LBrack || k == LBrace || k == Comma || k == RParen || k == RBrack || k == RBrace || k == Semicolon
+		ok = ok && (if alone { p == k && opLen(k) == 1 } else { p == uint8(0) })
+	}
+	ok
+}
+
+// OpFastIsOpKind: where opFast names an operator for bytes c, c1, it is
+// the one opKind finds whatever byte follows, as long as its length says
+// (two bytes when c1 is `=`), and the bytes start no comment and no number.
+// Each case checks every first byte against every second byte, with the
+// third byte drawn from the case.
+law OpFastIsOpKind(n int) {
+	let c2 = byte((((n % 256) + 256) % 256))
+	let mut ok = true
+	for a in 0..256 {
+		let c = byte(a)
+		if op1[a] != byte(0) {
+			for b in 0..256 {
+				let c1 = byte(b)
+				let o = opFast(c, c1)
+				if o != uint8(0) {
+					let width = if c1 == '=' { 2 } else { 1 }
+					let comment = c == '/' && (c1 == '/' || c1 == '*')
+					let numeral = c == '.' && isDigit(c1)
+					ok = ok && o == opKind(c, c1, c2) && opLen(o) == width && !comment && !numeral
+				}
+			}
+		}
+	}
+	ok
+}
+
+// kwAgrees reports keyword and keywordRule giving one kind for word w.
+func kwAgrees(w string) bool { keyword(w, 0, len(w)) == keywordRule(w, 0, len(w)) }
+
+// KeywordTableIsTheRule: keyword says what keywordRule says for every
+// spelling of a kind, each with a letter more and a letter less, and for a
+// word of up to 12 letters drawn from the case.
+law KeywordTableIsTheRule(n int) {
+	let mut ok = true
+	for i in 0..len(tokenNames) {
+		let w = tokenNames[i]
+		ok = ok && kwAgrees(w) && kwAgrees(w+"s") && (len(w) == 0 || kwAgrees(w[:len(w)-1]))
+	}
+	let letters = "abcdefghijklmnopqrstuvwxyz_0"
+	let mut m = n
+	let mut w = ""
+	for j in 0..12 {
+		let d = ((m % 28) + 28) % 28
+		w = w + letters[d:d+1]
+		m = m/28 + j*7919
+		ok = ok && kwAgrees(w)
+	}
+	ok
+}

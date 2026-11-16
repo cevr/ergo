@@ -13,7 +13,8 @@ import (
 
 // The seeded property of Go builtin bindings (check/builtin.go; calls.go,
 // builtinCall). Each seed writes one program over a let mut []int that
-// calls externs binding append, len, cap, copy, clear, min and max, and
+// calls externs binding append (one element, and one bulk append of a
+// slice: append(xs, ys...), SL2), len, cap, copy, clear, min and max, and
 // the prelude's Append (which binds append too): appends kept and dropped,
 // an append whose source is read again (the value rule clips it: the new
 // element is not seen through the old slice's spare capacity), a copy into
@@ -28,9 +29,10 @@ import (
 
 var builtinSeed = flag.Uint64("builtin.seed", 0, "run TestBuiltinsAgree on this seed alone")
 
-var builtinPaths = []string{"push", "keep", "alias", "prelude", "size", "copy", "clear", "minmax", "put", "delete", "deleteKeep", "unset"}
+var builtinPaths = []string{"push", "keep", "alias", "prelude", "size", "copy", "clear", "minmax", "put", "delete", "deleteKeep", "unset", "pushAll", "pushAllKeep", "pushAllAlias", "pushAllSelf"}
 
 const builtinPrelude = `extern go append func push[T](xs []T, x T) []T
+extern go append func pushAll[T](xs []T, ys []T) []T
 extern go len func size[T](xs []T) int
 extern go cap func room[T](xs []T) int
 extern go copy func copyInto[T](dst *[]T, src []T) int
@@ -99,7 +101,32 @@ func (g *builtinGen) name(base string) string {
 
 func (g *builtinGen) stmt() {
 	k := g.r.IntN(50)
-	switch g.r.IntN(12) {
+	switch g.r.IntN(16) {
+	case 12:
+		g.line(fmt.Sprintf("xs = pushAll(xs, []int{%d, %d})", k, k+1))
+		g.xs = append(g.xs, k, k+1)
+		g.reached["pushAll"] = true
+	case 13:
+		// A bulk append whose source is read again: the value rule clips
+		// it, so xs does not see the new elements.
+		y := g.name("y")
+		g.line(fmt.Sprintf("let %s = pushAll(xs, []int{%d})", y, k))
+		g.line(fmt.Sprintf("Console.Println(show(%s) + show(xs))", y))
+		g.want.WriteString(g.show(append(slices.Clone(g.xs), k)) + g.show(g.xs) + "\n")
+		g.reached["pushAllKeep"] = true
+	case 14:
+		// Two bulk appends to one source: neither sees the other's.
+		y, z := g.name("y"), g.name("z")
+		g.line(fmt.Sprintf("let %s = pushAll(xs, []int{%d, %d})", y, k, k))
+		g.line(fmt.Sprintf("let %s = pushAll(xs, []int{%d})", z, k+100))
+		g.line(fmt.Sprintf("Console.Println(show(%s) + show(%s))", y, z))
+		g.want.WriteString(g.show(append(slices.Clone(g.xs), k, k)) + g.show(append(slices.Clone(g.xs), k+100)) + "\n")
+		g.reached["pushAllAlias"] = true
+	case 15:
+		// A bulk append of a part of its own source, in place.
+		g.line("xs = pushAll(xs, xs[0:1])")
+		g.xs = append(g.xs, g.xs[0])
+		g.reached["pushAllSelf"] = true
 	case 8:
 		g.line(fmt.Sprintf("m = m.Put(%d, %d)", k%8, k))
 		g.m[k%8] = k

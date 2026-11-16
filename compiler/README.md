@@ -9,12 +9,15 @@ The binary holds these packages through `internal/linked` (`docs/tooling.md`, Li
 - `tree/` (pure): `Item` is a closed union (`Number | Position{At Option[int]} | Bytes | Flag | Missing | Ref | List`), `Tree` an arena of `Node`s addressed by id. `Decode` reads `internal/hostsyntax`'s encoding (grammar in `parse.go`'s doc comment) and fails `SyntaxFailure | Unsupported | BadEncoding`; `Project` writes the tree as text, with each position's line and column computed in Ergo.
 - `format/` (pure but for the parser it is handed): the formatter rewritten from `internal/sketch/format`. `format.ergo` holds the contract (`Layouter` with its laws), the failures (`OutputLimit`, `InvalidTree`) and the entries `Source` (parse with the given parser, validate, print) and `Print`; `printer.ergo` and `nodes.ergo` print each node family; `span.ergo` gives each node's Pos/End and the token table; `layout.ergo` is the line/cell state and its pure transition over the closed `Command` union; `comments.ergo`, `align.ergo` (column sections, render, the size limit decided before any text is built) and `text.ergo` (byte and rune helpers); `laws.ergo` checks Idempotent, ShapeKept, CommentsKept and Bounded on an outcome.
 - `api/` (pure): the linked package's root, primitive in and out. `Project(encoding)` is the tree's projection; `FormatTree(encoding, limit)` the formatter's outcome; `Laws(src, srcTree, out, outTree)` the source laws over two trees Go parsed; `Steps(commands, limit)` the layout state's outcome.
+- `syntax/` (pure): the scanner and parser on SELFLAYOUT's layout (capstone S2a, S2b), moved here from their run dirs. The scanner writes token columns (`token.ergo`: a one-byte kind and a start, `End` by a second scan; `scan.ergo`: dispatch on the first byte, keywords by length and compare), `comments.ergo` and `lines.ergo`; the parser (`parse*.ergo`, `diag.ergo`) writes `Tree`, 13-byte rows with one `extra` pool (`tree.ergo`), and `view.ergo` reads a row as the closed unions `Expr`, `Stmt`, `Decl`, `Type` and writes one back (`View`, `Put`). `skip "reason"` is a statement only before a string literal: `skip` is no scanner keyword. The laws are in `scan_laws.ergo` and `tree_laws.ergo`. Not linked yet: the row `syntax` of `linked.Packages` and the agreement tests against the Go scanner and parser come with S2a's and S2b's landing.
+- `cmd/parsedump`, `cmd/scandump`: print the parser's tree and the scanner's tokens of the named files as the agreement tests' canonical dump.
 
 ## Run
 
 ```sh
 ergo check compiler/api
 ergo test compiler/format
+ergo test compiler/syntax
 ERGO_SELFHOST_SEED=1 go test -count=1 -run '^TestSelfhost(BridgeAgrees|FormatAgrees|LayoutModel)$' ./internal/selfhostcheck
 go run ./scripts/linked
 ```

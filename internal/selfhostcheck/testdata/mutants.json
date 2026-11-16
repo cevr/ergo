@@ -1,10 +1,10 @@
 {
-  "about": "The mutant ledger of internal/selfhostcheck and the self-hosting pilot it tests (testdata/selfhost): edits of the Go adapter and of the Ergo tree decoder that TestSelfhostBridgeAgrees, or the adapter's TestFamiliesCoverSyntax, must kill. scripts/mutants judges only check and lower today, and the pilot is a nested Go module; until it has a suite, a unit that changes these files applies each edit by hand and runs the killer (wf10 SH0).",
+  "about": "The mutant ledger of internal/selfhostcheck and what it tests: the compiler written in Ergo (compiler/, linked as internal/linked/format), the Go bridge internal/hostsyntax and the linked generator internal/linked. An edit of a compiler/ file is judged through the linked Go: regenerate it (go run ./scripts/linked) on the mutated copy, then run the killer (capstone S1a, CAP-mut).",
   "mutants": [
     {
       "name": "sh-tree-drops-child",
       "origin": "wf10/selfhost/SH0",
-      "file": "internal/selfhostcheck/testdata/selfhost/tree/decode.ergo",
+      "file": "compiler/tree/decode.ergo",
       "from": "\t\t\titems = items.Append(x)\n",
       "to": "\t\t\tif len(items) + 1 < count {\n\t\t\t\titems = items.Append(x)\n\t\t\t}\n",
       "rule": "Decode keeps every item of a list: a dropped child is a different tree.",
@@ -15,7 +15,7 @@
     {
       "name": "sh-tree-loses-absent-pos",
       "origin": "wf10/selfhost/SH0",
-      "file": "internal/selfhostcheck/testdata/selfhost/tree/decode.ergo",
+      "file": "compiler/tree/decode.ergo",
       "from": "(Position{At: None}, at + 1)",
       "to": "(Position{At: Some[int]{Value: 0}}, at + 1)",
       "rule": "An absent position (syntax.NoPos) is None, never offset 0.",
@@ -26,7 +26,7 @@
     {
       "name": "sh-encoding-replaces-invalid-byte",
       "origin": "wf10/selfhost/SH0",
-      "file": "internal/selfhostcheck/testdata/selfhost/hostsyntax/tree.go",
+      "file": "internal/hostsyntax/tree.go",
       "from": "func str(s string) string  { return",
       "to": "func str(s string) string  { s = strings.ToValidUTF8(s, \"\\uFFFD\"); return",
       "rule": "The encoding carries every string byte for byte, invalid UTF-8 included.",
@@ -37,7 +37,7 @@
     {
       "name": "sh-tree-column-off-by-one",
       "origin": "wf10/selfhost/SH0",
-      "file": "internal/selfhostcheck/testdata/selfhost/tree/tree.ergo",
+      "file": "compiler/tree/tree.ergo",
       "from": "Column: offset - t.Lines[line] + 1}",
       "to": "Column: offset - t.Lines[line]}",
       "rule": "Locate counts the line and the byte column from 1, as syntax.File.Position does.",
@@ -48,7 +48,7 @@
     {
       "name": "sh-encoding-drops-error-location",
       "origin": "wf10/selfhost/SH0",
-      "file": "internal/selfhostcheck/testdata/selfhost/hostsyntax/tree.go",
+      "file": "internal/hostsyntax/tree.go",
       "from": "integer(e.Line)",
       "to": "integer(0)",
       "rule": "A syntax failure crosses with its code, message, offset, length, line and column.",
@@ -59,18 +59,18 @@
     {
       "name": "sh-family-table-misses-node",
       "origin": "wf10/selfhost/SH0",
-      "file": "internal/selfhostcheck/testdata/selfhost/hostsyntax/tree.go",
+      "file": "internal/hostsyntax/tree.go",
       "from": "syntax.AssertStmt{}, ",
       "to": "",
       "rule": "The encoding carries every node type of the syntax package; the corpus may not yet write a new one.",
       "killers": [
-        "internal/selfhostcheck/testdata/selfhost/hostsyntax:TestFamiliesCoverSyntax"
+        "internal/hostsyntax:TestFamiliesCoverSyntax"
       ]
     },
     {
       "name": "sh-comment-crosses-token",
       "origin": "wf10/selfhost/SH1",
-      "file": "internal/selfhostcheck/testdata/selfhost/format/printer.ergo",
+      "file": "compiler/format/printer.ergo",
       "from": "let at = p.sourceToken(text)",
       "to": "let at = NoPos",
       "rule": "A synthesized token found next in the source prints at its source position, so a comment before it stays before it.",
@@ -81,7 +81,7 @@
     {
       "name": "sh-derive-printed-twice",
       "origin": "wf10/selfhost/SH1",
-      "file": "internal/selfhostcheck/testdata/selfhost/format/span.ergo",
+      "file": "compiler/format/span.ergo",
       "from": "\t\thas(t, id, \"Derived\")\n",
       "to": "\t\tfalse\n",
       "rule": "A declaration the parser derived from a refinement is not printed: the parser derives it again.",
@@ -92,7 +92,7 @@
     {
       "name": "sh-synth-merges-operator",
       "origin": "wf10/selfhost/SH1",
-      "file": "internal/selfhostcheck/testdata/selfhost/format/text.ergo",
+      "file": "compiler/format/text.ergo",
       "from": "\t\tb == '-' || b == '='\n",
       "to": "\t\tb == '='\n",
       "rule": "Two bytes that would lex as one token (- -) are written with a blank between them.",
@@ -103,7 +103,7 @@
     {
       "name": "sh-precedence-loses-parens",
       "origin": "wf10/selfhost/SH1",
-      "file": "internal/selfhostcheck/testdata/selfhost/format/span.ergo",
+      "file": "compiler/format/span.ergo",
       "from": "case \"*\", \"/\", \"%\", \"<<\", \">>\", \"&\", \"&^\":",
       "to": "case \"*\", \"/\", \"<<\", \">>\", \"&\", \"&^\":",
       "rule": "The precedence table is syntax.Token.Precedence: % binds at level 5, which decides the blanks around it (gofmt's cutoff).",
@@ -114,7 +114,7 @@
     {
       "name": "sh-align-counts-bytes",
       "origin": "wf10/selfhost/SH1",
-      "file": "internal/selfhostcheck/testdata/selfhost/format/align.ergo",
+      "file": "compiler/format/align.ergo",
       "from": "width = cmp.Max(width, utf8.RuneCount(lines[k].Cells[column]))",
       "to": "width = cmp.Max(width, len(lines[k].Cells[column]))",
       "rule": "A column's width counts runes, not bytes.",
@@ -125,7 +125,7 @@
     {
       "name": "sh-align-taper-overpads",
       "origin": "wf10/selfhost/SH1",
-      "file": "internal/selfhostcheck/testdata/selfhost/format/align.ergo",
+      "file": "compiler/format/align.ergo",
       "from": "if hi > alignSmall && float64(hi) >= alignRatio*float64(lo) {",
       "to": "if false && hi > alignSmall {",
       "rule": "The section bound: once a cell is wider than alignSmall, every cell of the section stays within alignRatio of the widest.",
@@ -136,7 +136,7 @@
     {
       "name": "sh-limit-allows-one-extra-byte",
       "origin": "wf10/selfhost/SH1",
-      "file": "internal/selfhostcheck/testdata/selfhost/format/align.ergo",
+      "file": "compiler/format/align.ergo",
       "from": "\t\tif size > limit {\n",
       "to": "\t\tif size > limit+1 {\n",
       "rule": "A positive limit one byte below the size is refused.",
@@ -147,7 +147,7 @@
     {
       "name": "sh-newline-duplicates-empty-line",
       "origin": "wf10/selfhost/SH1",
-      "file": "internal/selfhostcheck/testdata/selfhost/format/layout.ergo",
+      "file": "compiler/format/layout.ergo",
       "from": "if blank && !l.NoBlank {",
       "to": "if blank {",
       "rule": "A line break asked as never blank (after an opener) never keeps the source's blank line.",
@@ -158,7 +158,7 @@
     {
       "name": "sh-empty-column-adds-width",
       "origin": "wf10/selfhost/SH1",
-      "file": "internal/selfhostcheck/testdata/selfhost/format/align.ergo",
+      "file": "compiler/format/align.ergo",
       "from": "\t\tif width > 0 {\n\t\t\twidth += 1\n\t\t}\n",
       "to": "\t\twidth += 1\n",
       "rule": "A column block of empty cells takes no width.",
@@ -169,7 +169,7 @@
     {
       "name": "sh-finish-builds-before-limit",
       "origin": "wf10/selfhost/SH1",
-      "file": "internal/selfhostcheck/testdata/selfhost/format/align.ergo",
+      "file": "compiler/format/align.ergo",
       "from": "\tif limit > 0 && sizeOver(lines, w, first, limit) {\n\t\treturn OutputLimit{Limit: limit, Built: 0}\n\t}\n\tlet text = build(lines, w, first)\n",
       "to": "\tlet text = build(lines, w, first)\n\tif limit > 0 && len(text) > limit {\n\t\treturn OutputLimit{Limit: limit, Built: len(text)}\n\t}\n",
       "rule": "A refusal is decided from the computed size before any text is built (the refusal reports the bytes built: none).",
@@ -180,7 +180,7 @@
     {
       "name": "sh-trailing-comment-unaligned",
       "origin": "wf10/selfhost/SH1",
-      "file": "internal/selfhostcheck/testdata/selfhost/format/comments.ergo",
+      "file": "compiler/format/comments.ergo",
       "from": "\t\tp.emit(slash)\n\t\tp.L.step(Separator)\n",
       "to": "\t\tp.emit(slash)\n\t\tp.L.step(Put{Text: \" \"})\n",
       "rule": "A comment that ends a line is a cell of its own, aligned with the trailing comments of its neighbours.",
@@ -191,7 +191,7 @@
     {
       "name": "sh-clause-comment-joins-next",
       "origin": "wf10/selfhost/SH1",
-      "file": "internal/selfhostcheck/testdata/selfhost/format/comments.ergo",
+      "file": "compiler/format/comments.ergo",
       "from": "p.ln(p.CSlash[p.Ci])-p.ln(p.LastEnd) >= 2 {",
       "to": "p.ln(p.CSlash[p.Ci])-p.ln(p.LastEnd) >= 3 {",
       "rule": "A comment after a clause's last statement belongs to the next clause when a blank line separates it from the statement.",
@@ -202,7 +202,7 @@
     {
       "name": "sh-one-line-body-holds-two",
       "origin": "wf10/selfhost/SH1",
-      "file": "internal/selfhostcheck/testdata/selfhost/format/nodes.ergo",
+      "file": "compiler/format/nodes.ergo",
       "from": "len(contents) > 1 {",
       "to": "len(contents) > 2 {",
       "rule": "A braced body stays on one line with at most one element: an explicit ; becomes a line break.",
@@ -213,7 +213,7 @@
     {
       "name": "sh-forces-break-misses-catch",
       "origin": "wf10/selfhost/SH1",
-      "file": "internal/selfhostcheck/testdata/selfhost/format/span.ergo",
+      "file": "compiler/format/span.ergo",
       "from": "case \"SwitchStmt\", \"TypeSwitchStmt\", \"CatchExpr\":\n\t\treturn true",
       "to": "case \"SwitchStmt\", \"TypeSwitchStmt\":\n\t\treturn true",
       "rule": "A catch prints its clauses on lines of their own, so a body that holds one is never on one line.",
@@ -224,7 +224,7 @@
     {
       "name": "sh-blank-kept-before-comma",
       "origin": "wf10/selfhost/SH1",
-      "file": "internal/selfhostcheck/testdata/selfhost/format/printer.ergo",
+      "file": "compiler/format/printer.ergo",
       "from": "if text == \",\" ||",
       "to": "if text == \";\" ||",
       "rule": "After a block comment on the same line, no blank is written before a comma (go/printer).",
@@ -235,7 +235,7 @@
     {
       "name": "sh-number-selector-glues",
       "origin": "wf10/selfhost/SH1",
-      "file": "internal/selfhostcheck/testdata/selfhost/format/nodes.ergo",
+      "file": "compiler/format/nodes.ergo",
       "from": "if p.fam(base) == \"BasicLit\" && (p.n(base, \"Kind\") == tokenINT",
       "to": "if false && (p.n(base, \"Kind\") == tokenINT",
       "rule": "A selector on a number literal keeps a blank before the dot, or `0.A` would scan as the number `0.`.",
@@ -246,7 +246,7 @@
     {
       "name": "sh-slice-blanks-one-index",
       "origin": "wf10/selfhost/SH1",
-      "file": "internal/selfhostcheck/testdata/selfhost/format/nodes.ergo",
+      "file": "compiler/format/nodes.ergo",
       "from": "blanks = count > 1 && binary",
       "to": "blanks = count > 0 && binary",
       "rule": "A slice expression has blanks around its colons only when more than one index is present and one is binary.",
@@ -257,7 +257,7 @@
     {
       "name": "sh-union-ignores-variant-span",
       "origin": "wf10/selfhost/SH1",
-      "file": "internal/selfhostcheck/testdata/selfhost/format/nodes.ergo",
+      "file": "compiler/format/nodes.ergo",
       "from": " || p.ln(p.stop(v)) != p.ln(p.start(v))",
       "to": "",
       "rule": "A union prints one variant per line when a variant spans several source lines.",
@@ -268,7 +268,7 @@
     {
       "name": "sh-if-end-ignores-else",
       "origin": "wf10/selfhost/SH1",
-      "file": "internal/selfhostcheck/testdata/selfhost/format/span.ergo",
+      "file": "compiler/format/span.ergo",
       "from": "if has(t, id, \"Else\") { endOf(t, kid(t, id, \"Else\")) } else { endOf(t, kid(t, id, \"Body\")) }",
       "to": "endOf(t, kid(t, id, \"Body\"))",
       "rule": "An if ends where its else ends (syntax.IfStmt.End): an if on one line keeps its blocks on that line.",
@@ -279,7 +279,7 @@
     {
       "name": "sh-separator-loses-tail",
       "origin": "wf10/STD-sh",
-      "file": "internal/selfhostcheck/testdata/selfhost/format/layout.ergo",
+      "file": "compiler/format/layout.ergo",
       "from": "\tif cell != \"\" {\n\t\tl.CellsTail = cell[len(cell)-1]\n\t}\n",
       "to": "",
       "rule": "After a separator the line's last byte is the last byte of its last non-empty cell, so a blank keeps two tokens apart across a column (the tail the builder replaces a scan of the parts with).",
@@ -290,7 +290,7 @@
     {
       "name": "sh-separator-keeps-blank",
       "origin": "wf10/selfhost/SH1",
-      "file": "internal/selfhostcheck/testdata/selfhost/format/layout.ergo",
+      "file": "compiler/format/layout.ergo",
       "from": "strings.TrimRight(l.closeCell(), \" \")",
       "to": "l.closeCell()",
       "rule": "A cell ended by a separator drops its trailing blanks before it is padded.",
@@ -301,7 +301,7 @@
     {
       "name": "sh-steps-reads-emit-inverted",
       "origin": "wf10/selfhost/SH1",
-      "file": "internal/selfhostcheck/testdata/selfhost/formatapi/format.ergo",
+      "file": "compiler/api/format.ergo",
       "from": "format.Emit{Blank: w[at+1] == '1'}",
       "to": "format.Emit{Blank: w[at+1] == '0'}",
       "rule": "Steps reads the command list the model writes.",
@@ -312,19 +312,19 @@
     {
       "name": "b18-adapter-drops-law-rewrite",
       "origin": "batch-18 integration (SH0 x LR1)",
-      "file": "internal/selfhostcheck/testdata/selfhost/hostsyntax/tree.go",
-      "from": "\t\tsyntax.LawRewrite{},\n",
-      "to": "",
+      "file": "internal/hostsyntax/tree.go",
+      "from": "\t\tsyntax.LawRewrite{}, syntax.Word{},\n",
+      "to": "\t\tsyntax.Word{},\n",
       "rule": "A struct a family's field points to (LawDecl.Rewrite) is a family: else the encoding is a U document while the Go projection prints it.",
       "killers": [
-        "internal/selfhostcheck/testdata/selfhost/hostsyntax:TestFamiliesCoverSyntax",
+        "internal/hostsyntax:TestFamiliesCoverSyntax",
         "internal/selfhostcheck:TestSelfhostBridgeAgrees"
       ]
     },
     {
       "name": "b18-format-law-rewrite-as-body",
       "origin": "batch-18 integration (SH1 x LR1)",
-      "file": "internal/selfhostcheck/testdata/selfhost/format/nodes.ergo",
+      "file": "compiler/format/nodes.ergo",
       "from": "\tif p.hasK(l, \"Rewrite\") {\n",
       "to": "\tif false && p.hasK(l, \"Rewrite\") {\n",
       "rule": "A rewrite law prints as `{ lhs } == { rhs }`, as the Go formatter's memberLaw does, not its synthetic Body.",
@@ -335,13 +335,19 @@
     {
       "name": "b18-format-law-rewrite-drops-guard",
       "origin": "batch-18 integration (SH1 x LR1)",
-      "file": "internal/selfhostcheck/testdata/selfhost/format/nodes.ergo",
+      "file": "compiler/format/nodes.ergo",
       "from": "\t\tif p.at(r, \"When\") != NoPos {\n",
       "to": "\t\tif false {\n",
       "rule": "A rewrite law's `when R() == C` guard is printed (types.md Laws 14's SepAfterValue fence).",
       "killers": [
         "internal/selfhostcheck:TestSelfhostFormatAgrees"
       ]
-    }
+    },
+    {"name":"hostsyntax-format-limit-dropped","origin":"wf10/selfhost/S1a","file":"internal/hostsyntax/format.go","from":"format.FormatTree(context.Background(), encode(f), maxBytes)","to":"format.FormatTree(context.Background(), encode(f), 0)","rule":"The facade passes the limit: an output above a positive limit is refused, as format.FileBounded refuses it.","killers":["internal/selfhostcheck:TestSelfhostFormatAgrees"]},
+    {"name":"hostsyntax-format-partial-text","origin":"wf10/selfhost/S1a","file":"internal/hostsyntax/format.go","from":"\t\treturn \"\", &goformat.LimitError{Limit: limit}","to":"\t\treturn out, &goformat.LimitError{Limit: limit}","rule":"A failure returns no text, as format.FileBounded's does.","killers":["internal/selfhostcheck:TestSelfhostFormatAgrees"]},
+    {"name":"sh-implements-dropped","origin":"wf10/selfhost/S1a","file":"compiler/format/nodes.ergo","from":"\t\tif len(implements) > 0 {\n","to":"\t\tif false {\n","rule":"A type's implements clause is printed (types.md, Interface assignability 1).","killers":["internal/selfhostcheck:TestSelfhostFormatAgrees"]},
+    {"name":"sh-own-dropped","origin":"wf10/selfhost/S1a","file":"compiler/format/nodes.ergo","from":"\t\t\tp.token(p.at(p.k(f, \"Own\"), \"At\"), \"own\")\n","to":"","rule":"A parameter's mode word own is printed.","killers":["internal/selfhostcheck:TestSelfhostFormatAgrees"]},
+    {"name":"sh-written-ignored","origin":"wf10/selfhost/S1a","file":"compiler/format/nodes.ergo","from":"\tif len(w) > 0 { w } else { p.ks(arm, patterns) }","to":"\tp.ks(arm, patterns)","rule":"An arm prints its patterns as written: nested alternatives are not expanded.","killers":["internal/selfhostcheck:TestSelfhostFormatAgrees"]},
+    {"name":"sh-members-unsorted","origin":"wf10/selfhost/S1a","file":"compiler/format/nodes.ergo","from":"\t\t\tfor at > 0 && p.start(nodes[at-1]) > p.start(m) {","to":"\t\t\tfor false {","rule":"An operation type's includes, operations and laws print in source order.","killers":["internal/selfhostcheck:TestSelfhostFormatAgrees"]}
   ]
 }

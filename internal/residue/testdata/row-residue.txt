@@ -71,6 +71,7 @@ internal/sketch/std/actor/actor.ergo	step own func(s S, e E) D fails F needs R, 
 docs/spec/grammar.md	so `func(func() needs A, B)` takes two parameters
 docs/spec/grammar.md	A parenthesised row, `needs (A, B)` or
 docs/spec/diagnostics.md	(`needs A, B`, `needs (A | B)`; 196n)
+compiler/syntax/parse_type.ergo	`f func() needs A, B`: the entries
 internal/sketch/syntax/parser.go	`f func() needs A, B`: the entries
 internal/residue/row_residue_test.go	writes `needs A, B` or
 internal/residue/row_residue_test.go	// `provides A, B` is prose

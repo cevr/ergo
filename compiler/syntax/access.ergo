@@ -1,0 +1,64 @@
+import dense
+
+// The readers of a parse: its tokens, comment groups and node spans. A
+// token is its index; a position is a byte offset.
+
+func parsedToks(p Parsed) tokens {
+	let c0 = if NumComments(p.cmts) > 0 { CommentStart(p.cmts, CommentAt(p.cmts, 0)) } else { -1 }
+	tokens{src: p.src, kinds: p.kinds, starts: p.starts, nreal: p.nreal, vend: p.vend, cmt0: c0}
+}
+
+// TokPos is the offset of token j.
+func TokPos(p Parsed, j int) int { int(p.starts[j]) }
+
+// TokKind is the kind of token j.
+func TokKind(p Parsed, j int) uint8 { p.kinds[j] }
+
+// TokText is the source text of token j (a raw string without carriage
+// returns).
+func TokText(p Parsed, j int) string {
+	let s = p.src[int(p.starts[j]):tokEnd(parsedToks(p), j)]
+	if p.kinds[j] == String && len(s) > 0 && s[0] == '`' {
+		return dropCR(s)
+	}
+	s
+}
+
+// TokStartingAt is the token that starts at offset at and is no inserted
+// semicolon, or -1.
+func TokStartingAt(p Parsed, at int) int {
+	let mut lo = 0
+	let mut hi = len(p.starts)
+	for lo < hi {
+		let mid = (lo + hi) / 2
+		if int(p.starts[mid]) < at {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	for j in lo..len(p.starts) {
+		if int(p.starts[j]) != at {
+			return -1
+		}
+		if p.kinds[j] != Semicolon {
+			return j
+		}
+	}
+	-1
+}
+
+// NumGroups is the number of comment groups.
+func NumGroups(p Parsed) int { len(p.gFirst) }
+
+// GroupPos, GroupEnd and GroupLen are comment group g's span and count.
+func GroupPos(p Parsed, g int) int { CommentStart(p.cmts, CommentAt(p.cmts, p.gFirst[g])) }
+
+func GroupEnd(p Parsed, g int) int { CommentEnd(p.cmts, CommentAt(p.cmts, p.gLast[g])) }
+
+func GroupLen(p Parsed, g int) int { p.gLast[g] - p.gFirst[g] + 1 }
+
+// NodePos and NodeEnd are node id's span.
+func NodePos(p Parsed, id dense.ID[Node]) int { posOf(p.Tree, parsedToks(p), uint32(dense.Index(id))) }
+
+func NodeEnd(p Parsed, id dense.ID[Node]) int { endOf(p.Tree, parsedToks(p), uint32(dense.Index(id))) }

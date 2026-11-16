@@ -76,8 +76,8 @@ func TestPureBodiesKeepTheAllowlist(t *testing.T) {
 		}
 	}
 	// A body that is not marked is not pure, whatever its file imports.
-	if b, err := BodyOf("WithCapacity"); err != nil || b.Pure {
-		t.Errorf("BodyOf(WithCapacity) = %+v, %v; want not Pure", b, err)
+	if b, err := BodyOf("New"); err != nil || b.Pure {
+		t.Errorf("BodyOf(New) = %+v, %v; want not Pure", b, err)
 	}
 }
 

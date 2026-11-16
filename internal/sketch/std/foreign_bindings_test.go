@@ -30,7 +30,7 @@ type stdBinding struct {
 }
 
 // TestStdBindsNoForeignBody: no runtime/v1 body is bound by externs of two
-// std packages, and no std source states the stale import rule. The
+// std packages (a Go builtin is no such body), and no std source states the stale import rule. The
 // externs come from the checked packages (std.Packages() and the prelude),
 // never from a written list.
 func TestStdBindsNoForeignBody(t *testing.T) {
