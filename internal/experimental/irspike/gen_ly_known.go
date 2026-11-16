@@ -28,10 +28,12 @@ func GenerateKnownRecord(seed uint64) string {
 	fmt.Fprintf(&b, "type A machine[St, Sig] {\n\tinitial: Lo{n: %d},\n\tstep:    stepA,\n}\n\n", 1+g.n(9))
 	b.WriteString("func planA() Machine[St, Sig, int] { A{} }\n\n")
 	b.WriteString("func fold(m Machine[St, Sig, int], xs []Sig, i int, s St) int {\n\tif i == len(xs) {\n\t\treturn num(s)\n\t}\n\tlet d = m.Step(s, xs[i])\n\tfold(m, xs, i+1, machines.Next(s, d))\n}\n\n")
-	b.WriteString("func foldG[S, E](m Machine[S, E, int], xs []E, i int, s S) S {\n\tif i == len(xs) {\n\t\treturn s\n\t}\n\tlet d = m.Step(s, xs[i])\n\tfoldG[S, E](m, xs, i+1, machines.Next(s, d))\n}\n\n")
+	// foldG is generic in the signal only: a state type parameter could
+	// hold an owned value, whose release is FORK's family, not this one.
+	b.WriteString("func foldG[E](m Machine[St, E, int], xs []E, i int, s St) St {\n\tif i == len(xs) {\n\t\treturn s\n\t}\n\tlet d = m.Step(s, xs[i])\n\tfoldG[E](m, xs, i+1, machines.Next(s, d))\n}\n\n")
 	fmt.Fprintf(&b, "func outer(m Machine[St, Sig, int], xs []Sig, s St) int {\n\tlet r = fold(m, xs, 0, s)\n\tr + %d\n}\n\n", 1+g.n(9))
 	b.WriteString("func runA(xs []Sig) int { fold(A{}, xs, 0, machines.Initial(A{})) }\n\n")
-	b.WriteString("func runG(xs []Sig) int { num(foldG[St, Sig](A{}, xs, 0, machines.Initial(A{}))) }\n\n")
+	b.WriteString("func runG(xs []Sig) int { num(foldG[Sig](A{}, xs, 0, machines.Initial(A{}))) }\n\n")
 	b.WriteString("func runO(xs []Sig) int { outer(A{}, xs, machines.Initial(A{})) }\n\n")
 	b.WriteString("func main() needs Console {\n")
 	for i := 0; i < 3; i++ {
