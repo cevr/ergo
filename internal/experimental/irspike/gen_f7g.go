@@ -36,6 +36,7 @@ var orderForms = []orderForm{
 	{"continue", 0, nil},
 	{"call inside an expression", 2, map[string]int{"calls2": 3}},
 	{"short-circuit operand with a call", 2, map[string]int{"calls2": 3, "expr": 6}},
+	{"step that gives no output", 2, map[string]int{"calls2": 3, "expr": 9}},
 	{"for-in over a call", 5, nil},
 	{"loop condition with a call", 4, nil},
 	{"try of a non-call", 7, map[string]int{"try7": 1}},
@@ -105,6 +106,10 @@ func (g *fgen) orderDecls() {
 	// gate has no value and ends in branches, two of whose tails are an
 	// error value: each fails the frame there.
 	g.b.WriteString("func gate(n int) fails E1 needs Console {\n\tConsole.Println(\"gate \\(n)\")\n\tif n % 3 == 0 {\n\t\tE1{Code: n}\n\t} else if n % 3 == 1 {\n\t\tConsole.Println(\"gate one\")\n\t} else {\n\t\tif n > 4 {\n\t\t\tConsole.Println(\"gate two\")\n\t\t\tE1{Code: n + 100}\n\t\t} else {\n\t\t\tConsole.Println(\"gate small\")\n\t\t}\n\t}\n}\n\n")
+	// settle is a machine step that gives no output: its result type
+	// holds the prelude's Never, and settled matches on it.
+	g.b.WriteString("func settle(n int) Decision[Pt, Never] {\n\tif n > 2 {\n\t\tEnter[Pt]{Next: Pt{A: n, B: 1}}\n\t} else if n < -2 {\n\t\tStay[Pt]{Next: Pt{A: 1, B: n}}\n\t} else if n == 0 {\n\t\tIgnore\n\t} else {\n\t\tReject\n\t}\n}\n\n")
+	g.b.WriteString("func settled(n int) int {\n\tmatch settle(n) {\n\tcase Enter[Pt] as d:\n\t\td.Next.A * 3\n\tcase Stay[Pt] as d:\n\t\td.Next.B - 7\n\tcase Ignore:\n\t\t5\n\tcase Reject:\n\t\t11\n\t}\n}\n\n")
 }
 
 // traced is a call of tr: an operation call inside an expression.
@@ -115,7 +120,9 @@ func (g *fgen) traced() string { return "tr(" + g.expr(1) + ")" }
 // literal, a short-circuit operand; an earlier operand may be a defect
 // (indexed) that must come before a later call's effect.
 func (g *fgen) orderExpr() string {
-	switch g.sub("expr", 9) {
+	switch g.sub("expr", 10) {
+	case 9:
+		return "settled(" + g.traced() + ")"
 	case 0:
 		return g.indexed(2) + " + " + g.traced()
 	case 1:
