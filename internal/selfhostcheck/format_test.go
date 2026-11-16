@@ -1,7 +1,9 @@
 package selfhostcheck
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -14,22 +16,25 @@ import (
 	"strings"
 	"testing"
 
+	"ergo.local/prototype/internal/hostsyntax"
+	linked "ergo.local/prototype/internal/linked/format"
 	"ergo.local/prototype/internal/sketch/format"
 	"ergo.local/prototype/internal/sketch/sketchtest"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // TestSelfhostFormatAgrees is SH1's acceptance: the formatter rewritten in
-// Ergo (testdata/selfhost/format) gives what the Go formatter gives. For
-// every input and limit, the driver calls format.SourceBounded and the
-// Ergo library's Format and both outcomes must be equal: the same bytes,
-// or the same located syntax failure (code, message, offset, length, line,
-// column), or the same refused limit; neither returns partial text. For
-// every input the Go side formats, the formatter's laws, stated in Ergo
-// (format/laws.ergo), must hold: idempotence, the tree shape and the
-// comment order kept, and the limit refused exactly above the size.
+// Ergo (compiler/format, linked as internal/linked/format) gives what the
+// Go formatter gives. For every input and limit, in process,
+// format.SourceBounded and the facade hostsyntax.Source must give equal
+// outcomes: the same bytes, or the same located syntax failure (code,
+// message, offset, length, line, column), or the same refused limit;
+// neither returns partial text. For every input the Go side formats, the
+// formatter's laws, stated in Ergo (compiler/format/laws.ergo), must hold:
+// idempotence, the tree shape and the comment order kept, and the limit
+// refused exactly above the size.
 //
-// Inputs: every examples/**/*.ergo and pilot .ergo file, the positive and
+// Inputs: every examples/**/*.ergo and compiler/ .ergo file, the positive and
 // superseded corpus, the formatter's fuzz seeds, the string literals of the
 // formatter's own tests, tapered aligned columns, seeded generated grammar
 // inputs (generate_test.go), a whitespace perturbation of each and seeded
@@ -40,11 +45,7 @@ import (
 //
 // Mutants it alone catches: testdata/mutants.json, killer
 // selfhostcheck:TestSelfhostFormatAgrees.
-//
-// It builds Go because the property executes the Ergo formatter through
-// its exported Go ABI: only a built library runs the rewritten algorithm.
 func TestSelfhostFormatAgrees(t *testing.T) {
-	needsBuild(t)
 	seed := selfhostSeed(t)
 	inputs := formatInputs(t, seed)
 	if len(inputs) == 0 {
@@ -80,8 +81,7 @@ func TestSelfhostFormatAgrees(t *testing.T) {
 		cases[k] = []string{inputs[p.in].Src, strconv.Itoa(p.limit)}
 	}
 	t.Logf("seed %d: %d inputs, %d formatted by Go, %d probes", seed, len(inputs), len(lawCases), len(probes))
-	exe := buildDriver(t, "formatapi")
-	answers := runMode(t, exe, "format", cases, 2)
+	answers := runMode(t, "format", cases)
 	replay := "replay: " + seedVariable + "=" + strconv.FormatUint(seed, 10) + " go test -count=1 -run '^TestSelfhostFormatAgrees$' ./internal/selfhostcheck"
 	failed := 0
 	for k, a := range answers {
@@ -100,7 +100,7 @@ func TestSelfhostFormatAgrees(t *testing.T) {
 	if failed > 0 {
 		t.Errorf("%d of %d probes differ", failed, len(answers))
 	}
-	verdicts := runMode(t, exe, "laws", lawCases, 1)
+	verdicts := runMode(t, "laws", lawCases)
 	broken := 0
 	for k, v := range verdicts {
 		if v[0] == "ok\n" {
@@ -116,6 +116,72 @@ func TestSelfhostFormatAgrees(t *testing.T) {
 	if broken > 0 {
 		t.Errorf("laws fail on %d of %d inputs", broken, len(verdicts))
 	}
+}
+
+// runMode answers every case in process, as the pilot's driver did: in
+// mode "format" a case is a source and a limit, and its answers are the Go
+// formatter's outcome and the Ergo formatter's through the facade
+// hostsyntax.Source, read by the same outcome; in mode "laws" a source,
+// and its answer the verdict of compiler/api's Laws over the trees of the
+// source and of the Ergo formatter's text; in mode "steps" a command list
+// and a limit, and its answer compiler/api's Steps.
+func runMode(t *testing.T, mode string, cases [][]string) [][]string {
+	t.Helper()
+	ctx := context.Background()
+	out := make([][]string, len(cases))
+	for i, c := range cases {
+		switch mode {
+		case "format":
+			limit, err := strconv.Atoi(c[1])
+			if err != nil {
+				t.Fatal(err)
+			}
+			g, gerr := format.SourceBounded(c[0], limit)
+			e, eerr := hostsyntax.Source(c[0], limit)
+			out[i] = []string{outcome(g, gerr), outcome(e, eerr)}
+		case "laws":
+			src := c[0]
+			tree := hostsyntax.Parse(src)
+			text, outTree := "", ""
+			if r, err := linked.FormatTree(ctx, tree, 0); err == nil {
+				if s, ok := strings.CutPrefix(r, "ok\n"); ok {
+					text, outTree = s, hostsyntax.Parse(s)
+				}
+			}
+			v, err := linked.Laws(ctx, src, tree, text, outTree)
+			out[i] = []string{ergoAnswer(v, err)}
+		case "steps":
+			limit, err := strconv.Atoi(c[1])
+			if err != nil {
+				t.Fatal(err)
+			}
+			v, err := linked.Steps(ctx, c[0], limit)
+			out[i] = []string{ergoAnswer(v, err)}
+		default:
+			t.Fatalf("unknown mode %q", mode)
+		}
+	}
+	return out
+}
+
+// outcome is a formatter's result as text: "ok\n" and the text, the
+// located syntax failure, the refused limit, or another error.
+func outcome(text string, err error) string {
+	if err == nil {
+		return "ok\n" + text
+	}
+	if text != "" {
+		return "partial " + strconv.Itoa(len(text)) + " " + err.Error() + "\n"
+	}
+	var se *syntax.Error
+	if errors.As(err, &se) {
+		return fmt.Sprintf("syntax %s %d:%s %d %d %d %d\n", se.Code, len(se.Message), se.Message, se.Offset, se.Length, se.Line, se.Column)
+	}
+	var le *format.LimitError
+	if errors.As(err, &le) {
+		return fmt.Sprintf("limit %d\n", le.Limit)
+	}
+	return "go error " + err.Error() + "\n"
 }
 
 // selfhostSeed is the seed of the generated inputs; the default is
