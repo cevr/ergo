@@ -236,8 +236,20 @@ func (s *rpcRun) stopAll() {
 	for c := range s.live {
 		c.h.Task().Interrupt()
 	}
+	// The wait for their ends parks, uninterruptibly (no stop: t is
+	// stopped already), as the Stop of a task does: a call ends when it
+	// runs on, so under a clock or the explored scheduler the request must
+	// let it (wf10 RPC-STOP).
 	for len(s.live) > 0 {
-		s.end(<-s.ended)
+		var p rt.Parked
+		if s.t.InDomain() {
+			p = rt.Park(s.t, s, nil, func() bool { return len(s.ended) > 0 })
+		}
+		rt.Block(s.t)
+		c := <-s.ended
+		rt.Unblock(s.t)
+		p.Unpark()
+		s.end(c)
 	}
 }
 
@@ -283,6 +295,15 @@ func rpcCalls(span v1.Site, t *rt.Task, envs []RPCEnvelope, handle func(*rt.Task
 			rt.Unblock(t)
 			p.Unpark()
 			s.end(c)
+			// A stop wins over an end: a stop can end the calls, so their
+			// ends and the stop may be ready at once, and select takes
+			// either. An answer then would tell a stopped caller that its
+			// calls ran (TestRPCStopWinsOverAnEnd, wf10 RPC-STOP).
+			select {
+			case <-stop:
+				panic(rt.Interrupted)
+			default:
+			}
 			if err := each(c); err != nil {
 				return err // the deferred stopAll stops the calls left
 			}
