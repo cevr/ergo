@@ -400,6 +400,9 @@ func (b *irBuilder) armBody(a *syntax.CatchArm, result int, rt check.Type) []*ir
 			return append(out, b.matchStmt(s, true, &yieldTo{local: result, t: rt})...)
 		}
 	}
+	if isExpr && b.unreachableCall(last.X) != nil {
+		return b.tail(list, false) // ir_defect.go: the defect leaves the arm
+	}
 	if !isExpr {
 		if result >= 0 {
 			if _, isRet := list[len(list)-1].(*syntax.ReturnStmt); !isRet {

@@ -118,6 +118,9 @@ type yieldTo struct {
 func (b *irBuilder) yield(s syntax.Stmt, to *yieldTo) []*irStmt {
 	switch s := s.(type) {
 	case *syntax.ExprStmt:
+		if call := b.unreachableCall(s.X); call != nil {
+			return b.unreachableStmt(call) // ir_defect.go: a defect leaves the branch
+		}
 		p := b.pos(s.X, s.X.Pos())
 		_, conv := b.l.info.Implicit[s.X]
 		if m, ok := unparen(s.X).(syntax.Stmt); ok && !conv {
@@ -242,6 +245,9 @@ func (b *irBuilder) discard(x syntax.Expr) []*irStmt {
 	p := b.pos(x, x.Pos())
 	if w, ok := b.isWith(x); ok {
 		return b.withStmt(w, false, nil) // ir_with.go
+	}
+	if call := b.unreachableCall(x); call != nil {
+		return b.unreachableStmt(call) // ir_defect.go
 	}
 	if call, ok := x.(*syntax.CallExpr); ok {
 		if c := b.l.info.Calls[call]; c != nil && c.Kind != check.CallConversion && c.Kind != check.CallLen {

@@ -80,6 +80,9 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 			b.l.recordCall(x, b.fc.owner, b.fc.callee(x, c))
 		}
 	}
+	if check.IsUnreachable(c) {
+		return b.unreachableValue(x) // ir_defect.go
+	}
 	switch c.Kind {
 	case check.CallLen:
 		if len(x.Args) != 1 {
