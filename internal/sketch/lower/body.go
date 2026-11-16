@@ -582,24 +582,37 @@ func (fc *funcCtx) target(x syntax.Expr, later bool) string {
 
 // joinResult is val, the Go text of an assignment's value, as the call
 // itself when the value's only statement, written since mark, binds val to
-// that call: `v := f(x)` then `p.f = v` becomes `p.f = f(x)`. Only in a
-// body with no //line directives (a std body), where the call needs no
-// line of its own; the value is the same, and the body small enough for
-// Go to inline (an appender on a provider's buffer).
+// that call: `v := f(x)` then `p.f = v` becomes `p.f = f(x)`. The value is
+// the same, and the body small enough for Go to inline (an appender on a
+// provider's buffer). In a body with //line directives the call's line is
+// framed by its own directive and the one of the rest of the statement
+// (identify); the joined call keeps its position as an inline /*line*/
+// directive, and the statement's directive stays before the assignment,
+// so a std body and its copy in a user module lower alike
+// (join-under-directive).
 func (fc *funcCtx) joinResult(mark int, val string) string {
-	if fc.directives || !strings.HasPrefix(val, "v") {
+	if !strings.HasPrefix(val, "v") {
 		return val
 	}
 	all := fc.out.String()
 	emitted := all[mark:]
+	keep, at := "", ""
+	if fc.directives {
+		lines := strings.SplitAfter(emitted, "\n")
+		if len(lines) != 4 || lines[3] != "" || !strings.HasPrefix(lines[0], "//line ") || !strings.HasPrefix(lines[2], "//line ") {
+			return val
+		}
+		at = "/*line " + strings.TrimSuffix(strings.TrimPrefix(lines[0], "//line "), "\n") + "*/"
+		emitted, keep = lines[1], lines[2]
+	}
 	prefix := strings.Repeat("\t", fc.depth) + val + " := "
 	call, ok := strings.CutPrefix(emitted, prefix)
 	if !ok || !strings.HasSuffix(call, "\n") || strings.Count(call, "\n") != 1 {
 		return val
 	}
 	fc.out.Reset()
-	fc.out.WriteString(all[:mark])
-	return strings.TrimSuffix(call, "\n")
+	fc.out.WriteString(all[:mark] + keep)
+	return at + strings.TrimSuffix(call, "\n")
 }
 
 // fixedName reports a name no assignment can change (a parameter or a

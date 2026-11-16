@@ -8,12 +8,13 @@
 actor	same
 arena	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's), so a std body stays small enough for Go to inline	follow-up join-under-directive
 atomic	same
-base64	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
+base64	same
 bench	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
 bits	same
+cache	same
 cmp	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
-codec	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's), so a std body stays small enough for Go to inline	follow-up join-under-directive
-config	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
+codec	same
+config	same
 copyfixture	same
 crc32	same
 csv	same
@@ -26,8 +27,8 @@ flag	differs	lower: a union of a user package lowers to the flat form, a std uni
 fs	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
 fstest	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
 hex	same
-http	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
-io	differs	lower: the flat std program suffixes a name another std package declares too (io's Host is Host_1 beside fs's), the copy's names are unique	follow-up std-name-suffix
+http	same
+io	same
 journal	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
 journal/file	same
 journal/memory	same
@@ -40,21 +41,21 @@ math	same
 os	same
 prompt	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
 queue	same
-rand	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
+rand	same
 rpc	differs	lower: a std package's declarations are emitted in another order than a sourced package's (the first differing line is another declaration)	follow-up emit-order-std
-schedule	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
+schedule	same
 scope	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
 sha256	same
-slices	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
+slices	same
 strconv	same
-strings	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
+strings	same
 sync	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
 task	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
 tasks	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
-term	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
+term	same
 testing	same
-text	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
-time	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
+text	same
+time	same
 timeout	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
 toml	differs	lower: the flat std program suffixes a name another std package declares too (toml's DecodeMono_1 beside json's), the copy's names are unique	follow-up std-name-suffix
 trace	same
