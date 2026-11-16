@@ -16,6 +16,10 @@ import (
 //
 // Mutants: lf6c-shadow-float-by-go-equality (floats by Go's ==, so a NaN
 // side is a defect), lf6c-shadow-zero-sign (floats by value, so -0 is +0).
+// LF6d: the defect says the arguments ("for s = …"), and each refutation
+// writes its line, with the case in ergo.cases's text when enc says each
+// parameter has one. Mutants: lf6d-refutation-case-unencoded,
+// lf6d-shadow-for-dropped.
 func TestShadowComparesByKeyEquality(t *testing.T) {
 	type rec struct {
 		f  float64
@@ -83,7 +87,8 @@ func TestShadowComparesByKeyEquality(t *testing.T) {
 // tells the sides apart, and nothing when it holds (a NaN equal to a NaN).
 //
 // Mutants: lf6d-tick-shared (every site counts on one counter),
-// lf6d-canary-names-value (the defect prints a value).
+// lf6d-canary-by-deep-equal (Canary compares by reflect.DeepEqual, so a
+// NaN is a defect).
 func TestCanaryChecksEveryNthCall(t *testing.T) {
 	var a, b []int
 	for i := 1; i <= 7; i++ {

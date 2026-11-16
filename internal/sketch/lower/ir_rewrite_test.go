@@ -27,6 +27,13 @@ import (
 // lf6c-ir-off-ignored, lf6c-ir-aswritten-ignored, lf6c-ir-shadow-skipped
 // (the test build lowers the left side), lf6c-ir-operand-twice (the
 // operand is lowered again where the side reads it, not bound once).
+// LF6d: the shadow's enc argument (Q's bool has no corpus text), and the
+// canary: F's string site compares itself and calls CanaryFail, R's float
+// site calls Canary, each site ticks its own counter every N, an
+// unapplied site has none. Mutants: lf6d-canary-unlowered,
+// lf6d-site-index-shared, lf6d-canary-every-ignored,
+// lf6d-canary-go-equality-for-floats, lf6d-canary-default,
+// lf6d-enc-ignored.
 func TestRewriteAtTakesOneDecision(t *testing.T) {
 	const src = `func Enc(s string) string { s + "!" }
 
