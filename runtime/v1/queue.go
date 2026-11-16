@@ -198,6 +198,46 @@ func (q *Queue[T]) Poll() (T, bool) {
 	return v, ok
 }
 
+// Full is queue.Full, the typed failure of Offer on a queue that has no
+// room now. A full queue is an outcome a producer that must not wait
+// handles (it drops the value, or slides), so it is in Offer's row.
+type Full struct{}
+
+// Error is the failure's text, its Ergo name.
+func (Full) Error() string { return "queue.Full" }
+
+// Offer is q.Offer(v): v enters at the back now, or not at all. It fails
+// with Closed on a closed queue and with Full when the queue holds its
+// capacity, or when earlier Pushes still wait for room (they come first).
+// It never waits, so it takes no task and is no interruption point. On a
+// queue of capacity 0 it always fails Full: there is never room. Prior
+// art: Go's select with a send and a default case; Effect's Queue.offer
+// on a dropping queue, which answers false.
+//
+//ergo:wait none
+func (q *Queue[T]) Offer(v T) error {
+	rt.PointRunning(rt.Op{Kind: rt.OpPush, On: q})
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.closed {
+		return Closed{}
+	}
+	if len(q.senders) > 0 || len(q.buf) >= q.capacity {
+		return Full{}
+	}
+	q.buf = append(q.buf, v)
+	q.size.Store(int64(len(q.buf)))
+	q.signal()
+	return nil
+}
+
+// Cap is q.Cap(): the capacity New gave the queue. It never waits.
+//
+//ergo:wait none
+func (q *Queue[T]) Cap() int {
+	return q.capacity
+}
+
 // Len is q.Len(): how many values are in the queue that no Pop, Poll or
 // step of Values has taken yet. It is between 0 and the capacity; the
 // value of a Push still waiting for room is not counted, so a queue of
