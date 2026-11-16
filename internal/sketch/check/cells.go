@@ -3,6 +3,7 @@ package check
 import (
 	"fmt"
 
+	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -236,6 +237,11 @@ func (c *checker) cellParts(t Type, path map[int32]bool) (*Named, bool) {
 	}
 	switch t := t.(type) {
 	case *Named:
+		if goConfinedRef(t) {
+			// A go.Ref to a Go value that is not safe for concurrent use
+			// (goconfined.go).
+			return t, false
+		}
 		if t.foreign || t.Obj == nil || t.Obj.Pkg.Host() {
 			return nil, false
 		}
@@ -291,19 +297,29 @@ func (c *checker) cellParts(t Type, path map[int32]bool) (*Named, bool) {
 // cellSite is a type argument recorded at an instantiation, decided once
 // every declaration is known (checkCells).
 type cellSite struct {
-	file *fileInfo
-	at   syntax.Node
-	arg  Type
+	file   *fileInfo
+	at     syntax.Node
+	arg    Type
+	option bool // an argument of the prelude's Option or Some
 }
 
 // recordCellArgs records the type arguments of an instantiation.
-func (c *checker) recordCellArgs(targs []Type, at syntax.Node) {
+func (c *checker) recordCellArgs(tparams []*TypeParam, targs []Type, at syntax.Node) {
 	if c.silent > 0 || at == nil {
 		return
 	}
+	option := false
+	for _, name := range []string{"Option", "Some"} {
+		if c.pkg.Path == std.PreludePath {
+			break // the prelude's own checking: no go.Ref, and prelude() is not yet built
+		}
+		if p := preludeType(name); p != nil && len(p.TParams) == 1 && len(tparams) == 1 && tparams[0] == p.TParams[0] {
+			option = true
+		}
+	}
 	for _, a := range targs {
 		if a != nil {
-			c.cellSites = append(c.cellSites, cellSite{file: c.cur, at: at, arg: a})
+			c.cellSites = append(c.cellSites, cellSite{file: c.cur, at: at, arg: a, option: option})
 		}
 	}
 }
@@ -316,9 +332,15 @@ func (c *checker) checkCells() {
 			continue
 		}
 		if h := c.holdsCell(s.arg); h != nil {
+			if s.option && goConfinedRef(h) {
+				// An Option holds its value where the walk sees it, and its
+				// code sends nothing to a task: a Go function's *PCG result
+				// is an Option[go.Ref[PCG]] (goconfined.go).
+				continue
+			}
 			seen[s.at] = true
 			c.cur = s.file
-			c.errorf(s.at, CodeType, cellTypeArgText, s.arg, h)
+			c.errorf(s.at, CodeType, confinedText(h, cellTypeArgText, goConfinedTypeArgText), s.arg, h)
 		}
 	}
 	for _, f := range c.files {
@@ -335,7 +357,7 @@ func (c *checker) checkCells() {
 						continue
 					}
 					if h := c.holdsCell(v.Type); h != nil {
-						c.errorf(id, CodeType, cellLetText, id.Name, h)
+						c.errorf(id, CodeType, confinedText(h, cellLetText, goConfinedLetText), id.Name, h)
 					}
 				}
 			}
@@ -352,6 +374,6 @@ func (w *escWalk) cellCapture(id *syntax.Ident, v *Var) {
 		return
 	}
 	if h := w.c.holdsCell(v.Type); h != nil {
-		w.c.errorf(id, CodeType, cellCaptureText, id.Name, h)
+		w.c.errorf(id, CodeType, confinedText(h, cellCaptureText, goConfinedCaptureText), id.Name, h)
 	}
 }

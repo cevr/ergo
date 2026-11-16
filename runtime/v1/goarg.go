@@ -78,6 +78,16 @@ var GoReadOnlyVars = map[string]string{
 	"os.Args":                        "os/proc.go: set once by the runtime's init (runtime_args); the package never assigns it",
 }
 
+// GoConcurrentTypes are the reviewed Go types of Go's standard library
+// whose memory-only methods (gofacts.Effects) are safe for concurrent use,
+// each with its source reason (go1.27; GB-RACE, docs/spec/interop.md, Go
+// values by address 8). A go.Ref to a Go type with a memory-only method
+// and no entry here is confined to the task that holds it.
+var GoConcurrentTypes = map[string]string{
+	"sync/atomic.Bool":  "sync/atomic/type.go: each method is one atomic operation on the value's word",
+	"sync/atomic.Int64": "sync/atomic/type.go: each method is one atomic operation on the value's word",
+}
+
 // GoArgLent reports a reviewed, reasoned resource lend, never a default.
 func GoArgLent(target string, index int) bool {
 	c := GoArgClauses[target][index]
