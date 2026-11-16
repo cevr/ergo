@@ -82,6 +82,7 @@ var bodyTable = []bodyRow{
 	{"Console.Println", bodyFact{body: Body{Params: []Param{{Type: "string"}}, Host: true, Package: Path}}},
 	{"Context.End", bodyFact{body: Body{Wait: "none", Package: Path}}},
 	{"ContextBound", bodyFact{body: Body{Hidden: []Hidden{"task", "context-package"}, Params: []Param{{Type: "string"}}, Results: []string{"bool"}, Wait: "none", Package: Path}}},
+	{"ContextPairs", bodyFact{body: Body{Hidden: []Hidden{"task", "context-package"}, Results: []string{"[]string"}, Wait: "none", Package: Path}}},
 	{"ContextValue", bodyFact{body: Body{Hidden: []Hidden{"task", "context-package"}, Params: []Param{{Type: "string"}}, Results: []string{"string"}, Wait: "none", Package: Path}}},
 	{"Crc32Checksum", bodyFact{body: Body{Params: []Param{{Type: "string"}}, Results: []string{"uint32"}, Pure: true, Wait: "none", Package: Path + "/digest"}}},
 	{"Crc32Update", bodyFact{body: Body{Params: []Param{{Type: "uint32"}, {Type: "string"}}, Results: []string{"uint32"}, Pure: true, Wait: "none", Package: Path + "/digest"}}},
