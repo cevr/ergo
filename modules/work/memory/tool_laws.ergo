@@ -345,6 +345,50 @@ law ArchiveKeepsTheWork(text string, archive bool, side bool, stash bool) {
 	gone && out.Idle[0].Archived == ref && out.Idle[0].Removed && tree == files && keeps(prefix+"/heads/side", sideCommit) && keeps(prefix+"/stash/0", stashCommit)
 }
 
+// IdleKeepsAStaleBranch: a clean idle workspace whose side branch only
+// a remote-tracking ref holds (pushed, then deleted on the remote: the
+// ref is stale) is not held for gc -idle (the verifier's M2): without
+// -archive it stays NotHeld; with -archive it goes and the base keeps the
+// branch, still there after the trash is purged. A branch on the
+// remote's default branch (its HEAD, onDefault) is held, and it goes.
+law IdleKeepsAStaleBranch(text string, archive bool, onDefault bool) {
+	let w = world(true)
+	let a = w.tool.New("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let c = SideCommit(w.vcs, a.Path, "side", "side.txt", text)
+	let ref = if onDefault { ".git/refs/remotes/origin/HEAD" } else { ".git/refs/remotes/origin/side" }
+	if c == "" || !Write(w.trees, a.Path, ref, c) {
+		return false
+	}
+	w.clock.Advance(time.Times(1s, 7200))
+	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: archive}) catch {
+	case _:
+		return false
+	}
+	if len(out.Idle) != 1 {
+		return false
+	}
+	let gone = !w.trees.Has(a.Path)
+	if onDefault {
+		return gone && out.Idle[0].Removed && out.Idle[0].Archived == ""
+	}
+	if !archive {
+		return !gone && out.Idle[0].Why == "NotHeld"
+	}
+	w.clock.Advance(time.Times(1s, 2*int(work.IdleTrash)))
+	let purged = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false}) catch {
+	case _:
+		return false
+	}
+	let kept = w.vcs.Resolve(theBase, work.ArchivePrefix("a", a.Id)+"/heads/side") catch {
+	case _:
+		""
+	}
+	gone && out.Idle[0].Removed && len(purged.Purged) == 1 && kept == c
+}
+
 // RmKeepsEveryBranch: rm of a clean workspace whose head its parent
 // holds refuses (NotHeld) while a branch only it has (kind 0) or a stash
 // entry (kind 1) would go with it; a branch a remote-tracking ref holds

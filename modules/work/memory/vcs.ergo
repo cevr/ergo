@@ -192,10 +192,13 @@ func Exclude(v Vcs, root string, pattern string) fails work.VcsFailed {
 	}
 }
 
-func Remote(v Vcs, root string, commit string) bool fails work.VcsFailed {
+// Remote: the memory checkout keeps a remote's default branch as the
+// commit at .git/refs/remotes/R/HEAD itself (no symbolic ref).
+func Remote(v Vcs, root string, commit string, onDefault bool) bool fails work.VcsFailed {
 	let s = v.store.Get()
 	for path, value in try checkout(v, root) {
-		if strings.HasPrefix(path, ".git/refs/remotes/") && reaches(s, value, commit) {
+		let counts = !onDefault || strings.HasSuffix(path, "/HEAD")
+		if strings.HasPrefix(path, ".git/refs/remotes/") && counts && reaches(s, value, commit) {
 			return true
 		}
 	}

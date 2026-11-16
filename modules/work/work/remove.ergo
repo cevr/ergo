@@ -57,7 +57,7 @@ func Check(t Tool, c Config, name string, expect Option[string], abandon bool) [
 		match w.State {
 		case Active:
 			if !abandon {
-				let kept = with context { Vcs: t.vcs } { try Kept(w.Path, w.Parent, w.Latest, SnapshotRef(w.Name)) }
+				let kept = with context { Vcs: t.vcs } { try Kept(w.Path, w.Parent, w.Latest, SnapshotRef(w.Name), false) }
 				if !kept {
 					return NotHeld{Name: name, Path: w.Path}
 				}
@@ -357,6 +357,10 @@ func Idled(t Tool, idle duration, archive bool) []Idle fails NoWorkspace | BadCo
 	out
 }
 
+// IdleOnDefault: gc -idle counts a remote-tracking ref as holding a
+// commit only on a remote's default branch.
+let IdleOnDefault = true
+
 // idleRm removes one idle workspace as rm does, its trash kept until
 // the second until: why is "" when it is removed or the name of rm's
 // refusal when it stays. With archive, one whose work is not held has
@@ -364,16 +368,20 @@ func Idled(t Tool, idle duration, archive bool) []Idle fails NoWorkspace | BadCo
 // then removed with -abandon; when the base does not hold every commit
 // only the workspace had, it stays (NotKept, and the detail says why).
 func idleRm(t Tool, c Config, w Workspace, archive bool, until int64) (string, string, string) fails NoWorkspace | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed | Locked {
-	let why = try rmOnce(t, c, w, false, until)
+	// A remote-tracking ref other than a default branch may be stale (a
+	// branch pushed, then deleted on the remote): gc -idle does not trust
+	// it, as workrift prune does not (the verifier's M2).
+	let kept = with context { Vcs: t.vcs } { try Kept(w.Path, w.Parent, w.Latest, SnapshotRef(w.Name), IdleOnDefault) }
+	let why = if kept { try rmOnce(t, c, w, false, until) } else { "NotHeld" }
 	if why != "NotHeld" || !archive {
 		return (why, "", "")
 	}
-	let kept = keepWork(t, w) catch {
+	let ref = keepWork(t, w) catch {
 	case VcsFailed as e:
 		return ("NotKept", "", e.Reason)
 	}
 	let again = try rmOnce(t, c, w, true, until)
-	(again, if again == "" { kept } else { "" }, "")
+	(again, if again == "" { ref } else { "" }, "")
 }
 
 // keepWork keeps w's work in the base, under ArchivePrefix: a snapshot
@@ -396,7 +404,7 @@ func keepWork(t Tool, w Workspace) string fails VcsFailed {
 	let mut pushes = []Pushed{Pushed{From: LatestRef, To: ref, Force: false}}
 	let mut want = Map[string, string]{}
 	want[ref] = commit
-	for l in with context { Vcs: t.vcs } { try Unheld(w.Path, w.Parent) } {
+	for l in with context { Vcs: t.vcs } { try Unheld(w.Path, w.Parent, IdleOnDefault) } {
 		let to = ArchivePrefix(w.Name, w.Id) + "/" + strings.TrimPrefix(l.Ref, "refs/")
 		pushes = pushes.Append(Pushed{From: l.Commit, To: to, Force: false})
 		want[to] = l.Commit

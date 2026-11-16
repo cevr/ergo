@@ -80,8 +80,10 @@ type Vcs {
 	// (.git/info/exclude, never committed) unless it is there already.
 	Exclude(root string, pattern string) fails VcsFailed,
 	// Remote reports whether a remote-tracking ref of the checkout
-	// (refs/remotes/...) contains commit.
-	Remote(root string, commit string) bool fails VcsFailed,
+	// (refs/remotes/...) contains commit; with onDefault, only the ref a
+	// remote's HEAD names (its default branch): another may be stale, its
+	// branch deleted on the remote since the last fetch.
+	Remote(root string, commit string, onDefault bool) bool fails VcsFailed,
 	// Configure sets key to value in the checkout's own configuration.
 	Configure(root string, key string, value string) fails VcsFailed,
 	// StatDirty is the number of tracked files whose stat the index does
@@ -208,11 +210,12 @@ type Write { Writer int, Read bool, Value int }
 // with its head held, or its snapshot is the one ready last handed to the
 // parent (latest, which the parent's ref snapshotRef still names). A
 // workspace whose work is not kept is removed only when it is abandoned.
-func Kept(root string, parent string, latest string, snapshotRef string) bool fails VcsFailed needs Vcs {
-	if len(try Unheld(root, parent)) > 0 {
+// onDefault is Held's.
+func Kept(root string, parent string, latest string, snapshotRef string, onDefault bool) bool fails VcsFailed needs Vcs {
+	if len(try Unheld(root, parent, onDefault)) > 0 {
 		return false
 	}
-	if try Vcs.Clean(root) && try Held(root, parent, try Vcs.Head(root)) {
+	if try Vcs.Clean(root) && try Held(root, parent, try Vcs.Head(root), onDefault) {
 		return true
 	}
 	latest != "" && try Vcs.Snapshot(root) == latest && try Vcs.Ref(parent, snapshotRef) != ""
@@ -220,17 +223,18 @@ func Kept(root string, parent string, latest string, snapshotRef string) bool fa
 
 // Held reports whether commit of the checkout at root is safe without it:
 // a branch of parent contains it, or a remote-tracking ref of root does
-// (it is on a remote already).
-func Held(root string, parent string, commit string) bool fails VcsFailed needs Vcs {
-	try Vcs.Holds(parent, commit) || try Vcs.Remote(root, commit)
+// (it is on a remote already); with onDefault, only a remote's default
+// branch counts (gc -idle, as workrift prune: rm by hand trusts any).
+func Held(root string, parent string, commit string, onDefault bool) bool fails VcsFailed needs Vcs {
+	try Vcs.Holds(parent, commit) || try Vcs.Remote(root, commit, onDefault)
 }
 
 // Unheld is each local branch and stash entry of the checkout at root
 // whose commit is not Held: the work that only this checkout has.
-func Unheld(root string, parent string) []Local fails VcsFailed needs Vcs {
+func Unheld(root string, parent string, onDefault bool) []Local fails VcsFailed needs Vcs {
 	let mut out = []Local{}
 	for l in try Vcs.Locals(root) {
-		if !try Held(root, parent, l.Commit) {
+		if !try Held(root, parent, l.Commit, onDefault) {
 			out = out.Append(l)
 		}
 	}

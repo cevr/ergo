@@ -700,8 +700,8 @@
     {
       "name": "ws9a-idle-abandons", "origin": "wf10/semws WS9a",
       "file": "modules/work/work/remove.ergo",
-      "from": "\tlet why = try rmOnce(t, c, w, false, until)\n",
-      "to": "\tlet why = try rmOnce(t, c, w, true, until)\n",
+      "from": "\tlet why = if kept { try rmOnce(t, c, w, false, until) } else { \"NotHeld\" }\n",
+      "to": "\tlet why = if kept { try rmOnce(t, c, w, true, until) } else { try rmOnce(t, c, w, true, until) }\n",
       "rule": "gc -idle never abandons work: an idle workspace whose work is not held stays (memory's ToolAgreesWithTheReference: removed with no abandon).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
@@ -884,8 +884,8 @@
     {
       "name": "wg6-archive-not-kept", "origin": "wf10/semws WG6a",
       "file": "modules/work/work/remove.ergo",
-      "from": "\tlet kept = keepWork(t, w) catch {\n\tcase VcsFailed as e:\n\t\treturn (\"NotKept\", \"\", e.Reason)\n\t}\n",
-      "to": "\tlet kept = \"\"\n",
+      "from": "\tlet ref = keepWork(t, w) catch {\n\tcase VcsFailed as e:\n\t\treturn (\"NotKept\", \"\", e.Reason)\n\t}\n",
+      "to": "\tlet ref = \"\"\n",
       "rule": "gc -archive removes an unheld idle workspace only after its work is kept (memory's ArchiveKeepsTheWork).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
@@ -1342,7 +1342,7 @@
       "file": "modules/work/clonefile/clonefile.ergo",
       "from": "[]string{\"-c\", \"-pPR\", from, to}",
       "to": "[]string{\"-pPR\", from, to}",
-      "rule": "clonefile clones on APFS and is Unsupported elsewhere: a plain copy succeeds off APFS (clonefile's ClonesARealTree).",
+      "rule": "clonefile clones on APFS and is Unsupported elsewhere. Since r3's U1 clonefile answers Unsupported before cp runs off APFS, so on Linux this mutant survives: its killer is the Mac's JOB 1 APFS check (a df delta on a 512 MB clone), until that check is a darwin test (clonefile's ClonesARealTree).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
     {
@@ -1388,7 +1388,7 @@
     {
       "name": "b1-kept-skips-unheld", "origin": "wf10/semws verify r1 B1",
       "file": "modules/work/work/vcs.ergo",
-      "from": "\tif len(try Unheld(root, parent)) > 0 {\n",
+      "from": "\tif len(try Unheld(root, parent, onDefault)) > 0 {\n",
       "to": "\tif false {\n",
       "rule": "rm of a clean workspace refuses while another branch or a stash holds work only it has (memory's RmKeepsEveryBranch).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
@@ -1396,7 +1396,7 @@
     {
       "name": "g3-held-ignores-remote", "origin": "wf10/semws darwin JOB 1 G3",
       "file": "modules/work/work/vcs.ergo",
-      "from": "try Vcs.Holds(parent, commit) || try Vcs.Remote(root, commit)",
+      "from": "try Vcs.Holds(parent, commit) || try Vcs.Remote(root, commit, onDefault)",
       "to": "try Vcs.Holds(parent, commit)",
       "rule": "A commit a remote-tracking ref holds is not lost (git's LocalsRemotesAndGuards; memory's RmKeepsEveryBranch).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
@@ -1495,6 +1495,14 @@
       "from": "\tif fs != \"apfs\" {\n",
       "to": "\tif false {\n",
       "rule": "clonefile is Unsupported off APFS, where cp -c copies silently (row HFSIsNotCloned; the Mac's u1-mac.sh runs the whole new on HFS+).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "m2-stale-remote-trusted", "origin": "wf10/semws verify r2 M2",
+      "file": "modules/work/work/remove.ergo",
+      "from": "let IdleOnDefault = true\n",
+      "to": "let IdleOnDefault = false\n",
+      "rule": "gc -idle trusts a remote-tracking ref only on a remote's default branch: a branch a stale ref holds is archived, or the workspace stays (memory's IdleKeepsAStaleBranch).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     }
   ]

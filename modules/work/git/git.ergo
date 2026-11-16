@@ -336,8 +336,15 @@ func Exclude(v Vcs, root string, pattern string) fails work.VcsFailed {
 	}
 }
 
-func Remote(v Vcs, root string, commit string) bool fails work.VcsFailed {
-	try answer(v, root, []string{"for-each-ref", "--count=1", "--contains", commit, "--format=%(refname)", "refs/remotes"}) != ""
+// Remote reads the remote-tracking refs that contain commit, and with
+// onDefault the refs each refs/remotes/R/HEAD names (%(symref)).
+func Remote(v Vcs, root string, commit string, onDefault bool) bool fails work.VcsFailed {
+	let holding = exec.Split(try answer(v, root, []string{"for-each-ref", "--contains", commit, "--format=%(refname)", "refs/remotes"}))
+	if !onDefault {
+		return len(holding) > 0
+	}
+	let defaults = exec.Split(try answer(v, root, []string{"for-each-ref", "--format=%(symref)", "refs/remotes"}))
+	slices.IndexFunc(holding, func(r string) bool { r != "" && slices.Contains(defaults, r) }) >= 0
 }
 
 func Push(v Vcs, root string, parent string, refs []work.Pushed) fails work.NotFastForward | work.VcsFailed {

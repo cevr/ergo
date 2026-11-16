@@ -186,8 +186,14 @@ test LocalsRemotesAndGuards {
 		assert len(locals) == 4
 		assert locals[0] == work.Local{Ref: "refs/heads/main", Commit: main} && locals[1] == work.Local{Ref: "refs/heads/side", Commit: side}
 		assert locals[2].Ref == "refs/stash/0" && locals[2].Commit+"\n" == newest && locals[3].Ref == "refs/stash/1"
-		assert try work.Vcs.Remote(".", main)
-		assert !try work.Vcs.Remote(".", side)
+		assert try work.Vcs.Remote(".", main, false)
+		assert !try work.Vcs.Remote(".", side, false)
+		// origin/side is stale: no HEAD names it, so gc -idle does not
+		// trust it; origin/HEAD names origin/main (M2).
+		assert try exec.Runner.Run(exec.New("sh", []string{"-c", "git update-ref refs/remotes/origin/side side && git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main"})).Status == 0
+		assert try work.Vcs.Remote(".", side, false)
+		assert !try work.Vcs.Remote(".", side, true)
+		assert try work.Vcs.Remote(".", main, true)
 		let to = "refs/work/archive/a/1/heads/side"
 		try work.Vcs.Push(".", try os.Process.Getwd()+"/archive.git", []work.Pushed{work.Pushed{From: side, To: to, Force: false}})
 		assert try work.Vcs.Ref("archive.git", to) == side
