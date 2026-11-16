@@ -231,8 +231,10 @@ var reasonUnits = []struct{ prefix, unit string }{
 	// IRG6 r4 lowers law bodies; these stay the emitter's.
 	{"law of a generic operation type", "G6"},
 	{"law result of an untried fallible call", "G6"},
-	{"call kind 10", "G6"}, // CallEncode
-	{"call kind 11", "G6"}, // CallDecode
+	// The codec built-ins take the IR (FLIP OPC-codec), but for these:
+	{"codec of a type that holds type parameters", "G4"}, // codec witnesses, with witness parameters
+	{"codec *", "G6"},
+	{"encode on a direct writer", "G6"},
 	{"call kind 12", "G6"}, // CallEmbed
 	{"call kind 13", "G6"}, // CallPattern: a refinement's matches(it, `…`)
 	{"call kind 8", "G6"},  // CallLawOp
