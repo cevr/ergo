@@ -42,16 +42,6 @@ base64	decodeStd	library	NP4f-5
 base64	decodeURL	library	NP4f-5
 base64	encodeStd	library	NP4f-5
 base64	encodeURL	library	NP4f-5
-bits	LeadingZeros	library	NP4f-1
-bits	LeadingZeros64	library	NP4f-1
-bits	Len	library	NP4f-1
-bits	Len64	library	NP4f-1
-bits	OnesCount	library	NP4f-1
-bits	OnesCount64	library	NP4f-1
-bits	RotateLeft32	library	NP4f-1
-bits	RotateLeft64	library	NP4f-1
-bits	TrailingZeros	library	NP4f-1
-bits	TrailingZeros64	library	NP4f-1
 cmp	Compare	computation	NP4f-3
 cmp	Less	computation	NP4f-3
 cmp	Max	computation	NP4f-3
@@ -175,21 +165,7 @@ machines	firingOff	provider
 machines	firingOn	provider
 machines	notPositive	computation	NP4f-3
 maps	Clone	language	PRIM
-math	Abs	library	NP4f-1
-math	Ceil	library	NP4f-1
-math	Exp	library	NP4f-1
-math	FMA	library	NP4f-1
-math	Floor	library	NP4f-1
-math	Inf	library	NP4f-1
-math	IsInf	library	NP4f-1
-math	IsNaN	library	NP4f-1
-math	Log	library	NP4f-1
-math	Mod	library	NP4f-1
-math	NaN	library	NP4f-1
 math	OutOfRange	type
-math	Pow	library	NP4f-1
-math	Round	library	NP4f-1
-math	Sqrt	library	NP4f-1
 math	ToInt	computation	NP4f-3
 math	ToInt16	computation	NP4f-3
 math	ToInt32	computation	NP4f-3
@@ -201,7 +177,6 @@ math	ToUint32	computation	NP4f-3
 math	ToUint64	computation	NP4f-3
 math	ToUint8	computation	NP4f-3
 math	ToUintptr	computation	NP4f-3
-math	Trunc	library	NP4f-1
 os	Code	type
 os	Exit	type
 os	NoWorkdir	type
@@ -364,11 +339,4 @@ ui	argsPut	provider
 ui	argsSame	provider
 ui	argsSet	provider
 ui	newArgs	provider
-utf8	AppendRune	library	NP4f-1
-utf8	DecodeRuneInString	library	NP4f-1
-utf8	Decoded	type
-utf8	RuneCount	library	NP4f-1
-utf8	RuneLen	library	NP4f-1
 utf8	RuneText	language	PRIM
-utf8	ValidRune	library	NP4f-1
-utf8	ValidString	library	NP4f-1

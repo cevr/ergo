@@ -1,19 +1,25 @@
 // Package utf8 reads and writes the UTF-8 sequences of text (docs/spec/
-// stdlib.md, strings and strconv). It is Go's unicode/utf8; each extern
-// binds a pure runtime/v1 body (runtime/v1/text.go).
+// stdlib.md, strings and strconv). It is Go's unicode/utf8, bound through
+// import go as a user binds it (NP4f); RuneText is Go's string(r), a
+// runtime/v1 body until PRIM.
+
+import go unicode/utf8
 
 // RuneCount is the number of runes in s. Each byte of an invalid sequence
 // counts as one rune (U+FFFD), as in Go.
-extern go ergo.local/prototype/runtime/v1.UTF8RuneCount func RuneCount(s string) int
+func RuneCount(s string) int { utf8.RuneCountInString(s) }
 
 // Decoded is the first rune of a text and its size in bytes: Go's two
 // results of DecodeRuneInString as one record.
-extern go ergo.local/prototype/runtime/v1.Decoded type Decoded { Rune rune, Size int }
+type Decoded { Rune rune, Size int }
 
 // DecodeRuneInString is the first rune of s and its size in bytes. An
 // invalid byte is (U+FFFD, 1) and an empty s is (U+FFFD, 0), as in Go, so
 // a loop that moves on by Size always ends.
-extern go ergo.local/prototype/runtime/v1.UTF8DecodeRuneInString func DecodeRuneInString(s string) Decoded
+func DecodeRuneInString(s string) Decoded {
+	let r, n = utf8.DecodeRuneInString(s)
+	Decoded{Rune: r, Size: n}
+}
 
 // RuneText is the UTF-8 text of r, Go's string(r); a rune that is not
 // valid (a surrogate, a negative rune, one past U+10FFFF) is "\uFFFD".
@@ -21,18 +27,18 @@ extern go ergo.local/prototype/runtime/v1.UTF8RuneText func RuneText(r rune) str
 
 // AppendRune is p with the UTF-8 bytes of r added at the end, as Go's
 // utf8.AppendRune; a rune that is not valid adds those of U+FFFD.
-extern go ergo.local/prototype/runtime/v1.UTF8AppendRune func AppendRune(p []byte, r rune) []byte
+func AppendRune(p []byte, r rune) []byte { utf8.AppendRune(p, r) }
 
 // ValidString reports whether s is all valid UTF-8.
-extern go ergo.local/prototype/runtime/v1.UTF8ValidString func ValidString(s string) bool
+func ValidString(s string) bool { utf8.ValidString(s) }
 
 // ValidRune reports whether r can be written as UTF-8: not a surrogate,
 // not negative and at most U+10FFFF.
-extern go ergo.local/prototype/runtime/v1.UTF8ValidRune func ValidRune(r rune) bool
+func ValidRune(r rune) bool { utf8.ValidRune(r) }
 
 // RuneLen is the number of bytes of the UTF-8 text of r, or -1 when r is
 // not valid.
-extern go ergo.local/prototype/runtime/v1.UTF8RuneLen func RuneLen(r rune) int
+func RuneLen(r rune) int { utf8.RuneLen(r) }
 
 // RuneCountAtMostLen: a rune takes at least one byte.
 law RuneCountAtMostLen(s string) { RuneCount(s) <= len(s) && RuneCount(s) >= 0 }
