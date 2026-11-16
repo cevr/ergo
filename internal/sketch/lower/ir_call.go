@@ -59,6 +59,9 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		irNo("call without a value")
 	}
 	p := b.pos(x, x.Pos())
+	if check.IsUnreachable(c) {
+		return b.unreachableValue(x) // ir_defect.go
+	}
 	switch c.Kind {
 	case check.CallLen:
 		if len(x.Args) != 1 {
