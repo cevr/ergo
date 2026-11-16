@@ -997,6 +997,58 @@ index 0000000..8839dce
 +	}
 +	return bad()
 +}
+diff --git a/src/cmd/compile/internal/noder/ergoir_f7f.go b/src/cmd/compile/internal/noder/ergoir_f7f.go
+new file mode 100644
+index 0000000..bc1c180
+--- /dev/null
++++ b/src/cmd/compile/internal/noder/ergoir_f7f.go
+@@ -0,0 +1,46 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// Ergo IR decoder: deferred calls (FLIP F7, owned values). See ergoir.go.
++
++package noder
++
++import (
++	"cmd/compile/internal/syntax"
++)
++
++// deferStmt is defer X, X a call of a function of the package with no
++// result: a frame's release (the Ergo lowering's static frame, whose
++// deferred function releases the values the frame still owns and reads
++// the frame's panic with recover). Go runs it on every exit of the
++// function, a panic's included.
++func (c *ergoChecker) deferStmt(s *ergoStmt, pos syntax.Pos) syntax.Stmt {
++	if s.X == nil || s.X.K != "call" {
++		c.errorf(s.Pos, "ergoir: a deferred statement is a call of a function of the package")
++		return nil
++	}
++	if len(c.loops) > 0 {
++		// Go defers a call in a loop once per iteration; the lowering
++		// defers a frame's release once, at the frame's start.
++		c.errorf(s.Pos, "ergoir: defer inside a loop")
++		return nil
++	}
++	x, t := c.expr(s.X)
++	if x == nil {
++		return nil
++	}
++	if t != nil {
++		// A call with no result has no type (call).
++		c.errorf(s.Pos, "ergoir: a deferred call has a result of type %v", t)
++		return nil
++	}
++	call, ok := x.(*syntax.CallExpr)
++	if !ok {
++		c.errorf(s.Pos, "ergoir: a deferred statement is a call")
++		return nil
++	}
++	st := &syntax.CallStmt{Tok: syntax.Defer, Call: call}
++	st.SetPos(pos)
++	return st
++}
 diff --git a/src/cmd/compile/internal/noder/ergoir_fail.go b/src/cmd/compile/internal/noder/ergoir_fail.go
 new file mode 100644
 index 0000000..79650fa
@@ -1568,10 +1620,10 @@ index 0000000..3d9db4a
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_stmt.go b/src/cmd/compile/internal/noder/ergoir_stmt.go
 new file mode 100644
-index 0000000..a276d96
+index 0000000..c257472
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_stmt.go
-@@ -0,0 +1,347 @@
+@@ -0,0 +1,349 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1687,6 +1739,8 @@ index 0000000..a276d96
 +	}
 +	pos := c.pos(s.Pos)
 +	switch s.K {
++	case "defer":
++		return c.deferStmt(s, pos) // ergoir_f7f.go
 +	case "def", "set":
 +		v := c.local(s.Pos, s.Local)
 +		x, t := c.expr(s.X)
@@ -1921,10 +1975,10 @@ index 0000000..a276d96
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_text.go b/src/cmd/compile/internal/noder/ergoir_text.go
 new file mode 100644
-index 0000000..8724b4c
+index 0000000..7ea0112
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_text.go
-@@ -0,0 +1,638 @@
+@@ -0,0 +1,640 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2282,6 +2336,8 @@ index 0000000..8724b4c
 +			}
 +			p.unread(depth, defs...)
 +		}
++	case *syntax.CallStmt:
++		p.line(depth, "defer "+p.expr(s.Call)) // FLIP F7: a frame's release
 +	case *syntax.LabeledStmt:
 +		// IRG3b: a labeled loop or block, a goto's target; the statement
 +		// follows on its own line, at its own position.
@@ -2565,10 +2621,10 @@ index 0000000..8724b4c
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_text_shape.go b/src/cmd/compile/internal/noder/ergoir_text_shape.go
 new file mode 100644
-index 0000000..ddc9139
+index 0000000..58430ee
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_text_shape.go
-@@ -0,0 +1,475 @@
+@@ -0,0 +1,478 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2860,6 +2916,9 @@ index 0000000..ddc9139
 +			break
 +		}
 +		s.out(depth, "branch %v", st.Tok)
++	case *syntax.CallStmt:
++		s.out(depth, "call statement %v", st.Tok) // FLIP F7: defer
++		s.expr(st.Call, depth+1)
 +	case *syntax.LabeledStmt:
 +		// IRG3b: a labeled loop or block, a goto's target.
 +		s.out(depth, "label %s", st.Label.Value)
