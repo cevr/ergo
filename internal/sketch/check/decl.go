@@ -2475,6 +2475,14 @@ func (c *checker) collectSelfFuncs() {
 			if g.opOwner != nil {
 				key = g.opOwner
 			}
+			if g.file != nil && g.file.syntax == collFile && collFile != nil {
+				// Operations of one name on two receiver kinds,
+				// xs.Slice and s.Slice (collop.go, PRIM-4).
+				c.cur = g.file
+				if k, _, ok := c.collOwner(g); ok {
+					key = k
+				}
+			}
 			if name, args, _ := selfOwnerName(g.Decl); name != "" && c.dupNames[name] && g.Name != "main" {
 				// Defensive: selfArgsOK validates receiver arguments without reporting.
 				c.cur = g.file
@@ -2535,6 +2543,8 @@ func (c *checker) collectSelfFuncs() {
 				f.selfArgs = args
 				f.collOp = collOps[key] // collop.go
 				c.pkg.collFuncs[key] = f
+			} else {
+				f.collOp = collMakers[f.Name] // collop.go
 			}
 		}
 	}
@@ -2556,9 +2566,24 @@ func (c *checker) collOwner(f *Func) (collKey, []syntax.Expr, bool) {
 		if t.Len != "" {
 			return collKey{}, nil, false // the prelude's are on slices
 		}
+		if id, ok := t.Elt.(*syntax.Ident); ok && id.Name == "byte" {
+			key.on = onBytes // a concrete []byte (PRIM-4)
+			return key, nil, true
+		}
 		args = []syntax.Expr{t.Elt}
 	case *syntax.MapType:
-		args, key.isMap = []syntax.Expr{t.Key, t.Value}, true
+		args, key.on = []syntax.Expr{t.Key, t.Value}, onMap
+	case *syntax.Ident:
+		// The basic string and rune (PRIM-4).
+		switch t.Name {
+		case "string":
+			key.on = onString
+		case "rune":
+			key.on = onRune
+		default:
+			return collKey{}, nil, false
+		}
+		return key, nil, true
 	default:
 		return collKey{}, nil, false
 	}

@@ -1779,7 +1779,7 @@ func (e *encoder) encSyntax_Node(v syntax.Node) {
 
 func (e *encoder) encFieldscollKey(v *collKey) {
 	e.encT2(v.name)
-	e.encT12(v.isMap)
+	e.enccollOn(v.on)
 }
 
 func (e *encoder) enccollKey(v collKey) { e.encFieldscollKey(&v) }
@@ -3862,6 +3862,8 @@ func (e *encoder) encPtrSyntax_VarSpec(v *syntax.VarSpec) {
 	}
 	e.uint(e.nodes.ID(v))
 }
+
+func (e *encoder) enccollOn(v collOn) { e.uint(uint64(v)) }
 
 func (e *encoder) encFieldsBuiltin(v *Builtin) {
 	e.encT2(v.Name)
@@ -12146,7 +12148,7 @@ func (d *decoder) decSyntax_Node() syntax.Node {
 
 func (d *decoder) decFieldscollKey(v *collKey) {
 	v.name = d.decT2()
-	v.isMap = d.decT12()
+	v.on = d.deccollOn()
 }
 
 func (d *decoder) deccollKey() (v collKey) {
@@ -14394,6 +14396,8 @@ func (d *decoder) decPtrSyntax_VarSpec() *syntax.VarSpec {
 	}
 	return x.(*syntax.VarSpec)
 }
+
+func (d *decoder) deccollOn() collOn { return collOn(d.uint()) }
 
 func (d *decoder) decFieldsBuiltin(v *Builtin) {
 	v.Name = d.decT2()
