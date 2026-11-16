@@ -58,6 +58,7 @@ func (g *gen) values() {
 	fmt.Fprintf(&g.b, "\tlet mut %s = 0\n\tfor k, x in %s {\n\t\t%s = %s + x * len(k) + len(%s) * 10\n\t}\n", sum.name, put.name, sum.name, sum.name, del.name)
 	fmt.Fprintf(&g.b, "\tlet mut %s = 0\n\tfor i, r in %s {\n\t\tlet _ = r\n\t\t%s = %s + i\n\t}\n", runes.name, g.leaf(tStr), runes.name, runes.name)
 	fmt.Fprintf(&g.b, "\tlet %s int = %s * 1000 + len(%s) * 100 + %s\n", v2.name, sum.name, m.name, runes.name)
+	g.appendPlaces()
 	for _, v := range []gvar{a, b, c} {
 		g.used[v.name] = true
 	}
@@ -66,4 +67,25 @@ func (g *gen) values() {
 	}
 	g.used[sum.name], g.used[runes.name] = true, true
 	g.scope = append(g.scope, v1, v2)
+}
+
+// appendPlaces writes Appends to a place (FLIP F3, Go's builtin append):
+// a let mut from a literal, Appends assigned back to it (in place), then
+// an Append of it to another name while it stays live, then one more
+// Append back to it. Go's append leaves room past the length, so the
+// third write would land in the array the second one's result holds;
+// the value rule clips that source (valueSource), so it does not, and
+// an append that skips the clip prints another value (mutant
+// f3-append-unclipped).
+func (g *gen) appendPlaces() {
+	p, r, v := g.fresh(tInts, true), g.fresh(tInts, false), g.fresh(tInt, false)
+	fmt.Fprintf(&g.b, "\tlet mut %s []int = %s\n", p.name, g.leaf(tInts))
+	for i := 0; i < 1+g.n(3); i++ {
+		fmt.Fprintf(&g.b, "\t%s = %s.Append(%d)\n", p.name, p.name, 30+g.n(9))
+	}
+	fmt.Fprintf(&g.b, "\tlet %s []int = %s.Append(%d)\n", r.name, p.name, 40+g.n(9))
+	fmt.Fprintf(&g.b, "\t%s = %s.Append(%d)\n", p.name, p.name, 50+g.n(9))
+	fmt.Fprintf(&g.b, "\tlet %s int = %s[len(%s) - 1] * 100 + %s[len(%s) - 1] + len(%s) * 1000 + len(%s) * 10000\n", v.name, p.name, p.name, r.name, r.name, r.name, p.name)
+	g.used[p.name], g.used[r.name] = true, true
+	g.scope = append(g.scope, v)
 }

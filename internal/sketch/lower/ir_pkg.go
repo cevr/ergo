@@ -14,6 +14,7 @@ package lower
 
 import (
 	"fmt"
+	"go/ast"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -54,6 +55,9 @@ func (b *irBuilder) spelling(s string) string {
 			case strings.HasPrefix(s[i:], "[]"):
 				out.WriteString("[]")
 				i += 2
+			case arrayPrefix(s[i:]) != "": // ir_index.go
+				out.WriteString(arrayPrefix(s[i:]))
+				i += len(arrayPrefix(s[i:]))
 			case s[i] == '*':
 				// A runtime type is a pointer (*ergo.Ref[T]).
 				out.WriteByte('*')
@@ -73,20 +77,45 @@ func (b *irBuilder) spelling(s string) string {
 		if strings.Contains(s[i:j], ".") {
 			// The whole Go type keeps the import used: a generic type
 			// (ergo.Ref) is no type without its arguments. A path that
-			// is its own name (time) needs it too. A runtime instance
-			// keeps it by Site: its arguments may name a type parameter
-			// of a generic body (F1 × F2: arena's *Of[T].Get), which is
-			// no type at main.go's top level.
-			if strings.Contains(s, "[") && strings.HasPrefix(s[i:j], b.l.rt()+".") {
-				b.keepImport("var _ " + b.l.rt() + ".Site")
-			} else {
+			// is its own name (time) needs it too. A spelling that names
+			// the generic body's type parameters (F1) is no package-level
+			// type: the runtime's import is kept by its Site type, which
+			// is not generic (I-FLIP: std/machines' generic bodies).
+			switch {
+			case !b.namesTypeParam(s):
 				b.keepImport("var _ " + s)
+			case strings.HasPrefix(s[i:j], b.l.rt()+"."):
+				b.keepImport("var _ " + b.l.rt() + ".Site")
+			default:
+				irNo("type parameter in another package's generic type %s", s)
 			}
 		}
 		out.WriteString(q)
 		i = j
 	}
 	return out.String()
+}
+
+// namesTypeParam reports whether the Go type spelling s names a type
+// parameter of the function the builder lowers.
+func (b *irBuilder) namesTypeParam(s string) bool {
+	for i := 0; i < len(s); {
+		j := i
+		for j < len(s) && isSpellingName(s[j]) {
+			j++
+		}
+		if j == i {
+			i++
+			continue
+		}
+		for _, name := range b.fc.params {
+			if s[i:j] == name {
+				return true
+			}
+		}
+		i = j
+	}
+	return false
 }
 
 func isSpellingName(c byte) bool {
@@ -165,7 +194,13 @@ func (b *irBuilder) valueSource(x *syntax.CallExpr, c *check.Call, args []syntax
 			// identical types only.
 			irNo("append to a defined slice type")
 		}
-		b.keepImport("var _ = " + b.l.goPkg("slices") + ".Clip[[]" + b.fc.goType(c.TypeArgs[0]) + "]")
+		if keep := b.fc.goType(c.TypeArgs[0]); b.namesTypeParam(keep) {
+			// A generic body's element type is no package-level type
+			// (I-FLIP: examples/counter-gui).
+			b.keepImport("var _ = " + b.l.goPkg("slices") + ".Clip[[]int]")
+		} else {
+			b.keepImport("var _ = " + b.l.goPkg("slices") + ".Clip[[]" + keep + "]")
+		}
 		src := irArgs[0]
 		irArgs[0] = &irExpr{K: "pcall", Pos: src.Pos, T: "slices", Name: "Clip", V: "[]" + elem + ", " + elem, Args: []*irExpr{src}}
 	case preludeMapWrite(c.Func):
@@ -181,6 +216,55 @@ func (b *irBuilder) valueSource(x *syntax.CallExpr, c *check.Call, args []syntax
 		src := irArgs[0]
 		irArgs[0] = &irExpr{K: "pcall", Pos: src.Pos, T: "maps", Name: "Clone", V: m + ", " + k + ", " + v, Args: []*irExpr{src}}
 	}
+}
+
+// builtinAppend reports a call of an intrinsic that the IR writes as Go's
+// builtin append (FLIP F3), not as a call of the intrinsic's Go function:
+// one whose runtime/v1 body is `return append(xs, x)` of its two
+// parameters, in order (goBodyIsAppend), a fact of the body's shape, not
+// of its name. The two are one append, but Go sees the builtin at once,
+// and with it a place appended back to itself. The value rule has already
+// clipped the source of a call that may not write it in place
+// (valueSource), and the builtin takes that clipped source, so an append
+// to a place another value shares still copies.
+func (b *irBuilder) builtinAppend(f *check.Func) bool {
+	if f.Decl == nil || f.Decl.Extern == nil {
+		return false
+	}
+	path, name := f.Decl.Extern.Split()
+	return path == runtimeImport && goBodyIsAppend(name)
+}
+
+// goBodyIsAppend reports a runtime/v1 function whose body is one return
+// of Go's builtin append of its two parameters, in order, with no spread.
+func goBodyIsAppend(name string) bool {
+	fd := goBodies()[name]
+	if fd == nil || fd.Body == nil || len(fd.Body.List) != 1 || fd.Type.Params == nil {
+		return false
+	}
+	var params []string
+	for _, p := range fd.Type.Params.List {
+		for _, n := range p.Names {
+			params = append(params, n.Name)
+		}
+	}
+	ret, ok := fd.Body.List[0].(*ast.ReturnStmt)
+	if !ok || len(ret.Results) != 1 || len(params) != 2 {
+		return false
+	}
+	call, ok := ret.Results[0].(*ast.CallExpr)
+	if !ok || call.Ellipsis.IsValid() || len(call.Args) != 2 {
+		return false
+	}
+	if fun, ok := call.Fun.(*ast.Ident); !ok || fun.Name != "append" {
+		return false
+	}
+	for i, a := range call.Args {
+		if id, ok := a.(*ast.Ident); !ok || id.Name != params[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // admitMap admits a Map, Go's map[K]V: its key and its value. A Map is a
@@ -427,8 +511,18 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	if _, bound := runtimeBindings()[name]; !bound {
 		irNo("std call with no runtime binding")
 	}
-	if _, tuple := b.l.info.Types[x].(*check.Tuple); tuple {
-		irNo("std call with an adapted result")
+	tuple, isTuple := b.l.info.Types[x].(*check.Tuple)
+	if isTuple {
+		// A body with Go's several results, one per element, is bound by
+		// a tdef (ir_tuple.go, F4b: bits.Add64); any other is adapted.
+		if goFallible(body) || len(tuple.Types) < 2 || len(body.Results) != len(tuple.Types) {
+			irNo("std call with an adapted result")
+		}
+		for i, r := range body.Results {
+			if !b.sameGo(tuple.Types[i], r) {
+				irNo("std call with a converted result")
+			}
+		}
 	}
 	// A generic body's instance (F1): each Go type parameter takes the
 	// call's type argument for the Ergo type parameter of its name, as the
@@ -448,7 +542,7 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	if goFallible(body) != failsHere(c) {
 		irNo("fallible call with an empty row at its site")
 	}
-	if goValue(body) && !b.sameGo(b.l.info.Types[x], body.Results[0]) && !b.sameRT(b.l.info.Types[x], body.Results[0], subst) {
+	if !isTuple && goValue(body) && !b.sameGo(b.l.info.Types[x], body.Results[0]) && !b.sameRT(b.l.info.Types[x], body.Results[0], subst) {
 		irNo("std call with a converted result")
 	}
 	hidden := b.hidden(body, x, c, p)
@@ -460,6 +554,13 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	// leaf's import path, which rtRef imports.
 	pkg := v1.PackageOf(name)
 	switch {
+	case pkg != "" && pkg != runtimeImport && targs != "":
+		// A leaf's generic function is kept as an instance (I-FLIP:
+		// examples/pipeline's ergorpc.RPCDie).
+		if b.namesTypeParam(targs) {
+			irNo("runtime leaf's generic function in a generic body")
+		}
+		b.keepImport("var _ = " + b.l.rtRef(name) + "[" + targs + "]")
 	case pkg != "" && pkg != runtimeImport:
 		b.keepImport("var _ = " + b.l.rtRef(name))
 	case targs != "":
@@ -470,7 +571,12 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	if pkg == "" {
 		pkg = runtimeImport
 	}
-	return pre, &irExpr{K: "pcall", Pos: p, T: pkg, Name: name, V: targs, Args: append(hidden, args...)}, !body.Pure
+	call := &irExpr{K: "pcall", Pos: p, T: pkg, Name: name, V: targs, Args: append(hidden, args...)}
+	if isTuple {
+		tpre, e := b.tdef(call, tuple, x, p) // ir_tuple.go
+		return append(pre, tpre...), e, false
+	}
+	return pre, call, !body.Pure
 }
 
 // stdTypeArgs is the IR type argument list of the call x of a generic std

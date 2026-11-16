@@ -474,16 +474,22 @@ func (b *irBuilder) operands(list []syntax.Expr) ([]*irStmt, []*irExpr) {
 			p := vals[i].Pos
 			// The temporary has the operand's type after its implicit
 			// conversion, which operand applied.
-			at := b.l.info.Types[a]
-			if conv, ok := b.l.info.Implicit[a]; ok && conv.Kind != 0 && conv.To != nil {
-				at = conv.To
-			}
-			t := b.temp("arg", b.goType(at, a), p)
+			t := b.temp("arg", b.goType(b.operandType(a), a), p)
 			pre = append(pre, &irStmt{K: "def", Pos: p, Local: t, X: vals[i]})
 			vals[i] = &irExpr{K: "local", Pos: p, I: t}
 		}
 	}
 	return pre, vals
+}
+
+// operandType is the type of operand a's value: its implicit
+// conversion's target when it has one (value applies it), else its own.
+// A variant passed as its union spills into a local of the union.
+func (b *irBuilder) operandType(a syntax.Expr) check.Type {
+	if conv, ok := b.l.info.Implicit[a]; ok && conv.To != nil {
+		return conv.To
+	}
+	return b.l.info.Types[a]
 }
 
 // hoist binds an effectful call's value to a temporary, so it runs here,
@@ -499,32 +505,26 @@ func (b *irBuilder) hoist(pre []*irStmt, x *irExpr, call *syntax.CallExpr) ([]*i
 }
 
 // loopPoll is the back-edge poll that ends each iteration of a loop in a
-// polling frame (the emitter's loopBody). A continue would skip it.
-func (b *irBuilder) loopPoll(s syntax.Stmt, body *syntax.BlockStmt) []*irStmt {
-	if b.env < 0 || !b.fc.frame.polls {
+// polling frame (the emitter's loopBody). A continue polls before it
+// leaves the iteration (continueStmt), so it skips no poll.
+func (b *irBuilder) loopPoll(s syntax.Stmt) []*irStmt {
+	if !b.loopPolls() {
 		return nil
-	}
-	if b.fc.containsContinue(body) {
-		b.gate("continue in a polling loop")
 	}
 	return []*irStmt{b.poll(s)}
 }
 
-// containsContinue reports a continue in body, outside a function
-// literal: a nested loop's counts too (conservative: a labelled continue
-// may leave the nested loop).
-func (fc *funcCtx) containsContinue(body *syntax.BlockStmt) bool {
-	found := false
-	syntax.Inspect(body, func(n syntax.Node) bool {
-		switch n := n.(type) {
-		case *syntax.FuncLit:
-			return false
-		case *syntax.BranchStmt:
-			if n.Tok == syntax.CONTINUE {
-				found = true
-			}
-		}
-		return !found
-	})
-	return found
+// loopPolls reports a frame whose loops end each iteration in a poll.
+func (b *irBuilder) loopPolls() bool { return b.env >= 0 && b.fc.frame.polls }
+
+// continueStmt is continue: in a polling frame, the back-edge poll and
+// then Go's continue. The emitter's continue jumps to the poll that ends
+// the iteration (body.go branch); the poll then the next iteration is the
+// same path, and needs no label.
+func (b *irBuilder) continueStmt(s *syntax.BranchStmt) []*irStmt {
+	var out []*irStmt
+	if b.loopPolls() {
+		out = append(out, b.poll(s))
+	}
+	return append(out, &irStmt{K: "continue", Pos: b.pos(s, s.Pos())})
 }

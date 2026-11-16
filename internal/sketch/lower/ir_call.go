@@ -108,8 +108,9 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 			// A function of a Go package read from its binding (import
 			// go; gostd's runtime.NumCPU): the emitter calls its Go
 			// target, and useFunc would ask the naming pass for a name it
-			// never gave (examples/onebrc).
-			irNo("call of a Go package function")
+			// never gave (examples/onebrc). The IR calls the target by
+			// its import path, in the plain domain (ir_tuple.go).
+			return b.hostCall(x, c, f, p)
 		}
 		// A function of another Ergo package of the program, or a std
 		// function with an Ergo body, is a function of the one Go package
@@ -170,6 +171,11 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		}
 		if fd.method != nil {
 			return pre, &irExpr{K: "mcall", Pos: p, Name: fd.name, X: irArgs[0], Args: irArgs[1:]}, !fd.pure
+		}
+		// Append is Go's builtin append on the value rule's operands
+		// (FLIP F3): Go then sees a place appended back to itself.
+		if intrinsic && b.builtinAppend(f) { // ir_pkg.go
+			return pre, &irExpr{K: "append", Pos: p, Args: irArgs}, false
 		}
 		// A generic function's call names its Go type arguments (the
 		// emitter's typeArgs), never left to Go's inference (ir_pkg.go).

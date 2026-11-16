@@ -14,10 +14,10 @@ index c8f1b2d..dbdb46e 100644
  	ImportCfg          func(string) "help:\"read import configuration from `file`\""
 diff --git a/src/cmd/compile/internal/noder/ergoir.go b/src/cmd/compile/internal/noder/ergoir.go
 new file mode 100644
-index 0000000..c6df947
+index 0000000..e78b982
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir.go
-@@ -0,0 +1,270 @@
+@@ -0,0 +1,273 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -100,6 +100,9 @@ index 0000000..c6df947
 +	// Y is a store's value (store: X = Y, X a field; IRG6), or a "count"
 +	// loop's bound (ergoir_stmt.go).
 +	Y *ergoExpr `json:"y,omitempty"`
++	// Ls are a "tdef"'s locals, one per result, -1 for Go's blank
++	// (ergoir_tuple.go).
++	Ls []int `json:"ls,omitempty"`
 +}
 +
 +type ergoExpr struct {
@@ -290,10 +293,10 @@ index 0000000..c6df947
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_call.go b/src/cmd/compile/internal/noder/ergoir_call.go
 new file mode 100644
-index 0000000..29ad509
+index 0000000..b9d8d1c
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_call.go
-@@ -0,0 +1,59 @@
+@@ -0,0 +1,64 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -314,6 +317,8 @@ index 0000000..29ad509
 +	switch u := types2.CoreType(t).(type) {
 +	case *types2.Slice:
 +		return types2.Typ[types2.Int], u.Elem()
++	case *types2.Array:
++		return types2.Typ[types2.Int], u.Elem() // FLIP F7: Go's range over an array
 +	case *types2.Map:
 +		return u.Key(), u.Elem()
 +	}
@@ -325,7 +330,9 @@ index 0000000..29ad509
 +
 +// call checks the arguments of a call of fun, whose signature is sig.
 +func (c *ergoChecker) call(x *ergoExpr, fun syntax.Expr, sig *types2.Signature) (syntax.Expr, types2.Type) {
-+	if sig.Variadic() || sig.Params().Len() != len(x.Args) || !ergoSigOK(sig) {
++	// A package function may return several values, which only a tdef
++	// binds (ergoir_tuple.go).
++	if sig.Variadic() || sig.Params().Len() != len(x.Args) || !ergoSigOK(sig) && x.K != "pcall" {
 +		c.errorf(x.Pos, "ergoir: call of %s with %d arguments", x.Name, len(x.Args))
 +		return nil, nil
 +	}
@@ -349,16 +356,17 @@ index 0000000..29ad509
 +		t = sig.Results().At(0).Type()
 +	}
 +	// A fallible call's type is its (value, error) tuple, which only a
-+	// def2 or a return of the whole result list takes (ergoir_fail.go).
++	// def2 or a return of the whole result list takes (ergoir_fail.go); a
++	// package call's several results, which only a tdef takes.
 +	ergoValue(call, t, nil)
 +	return call, t
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_closure.go b/src/cmd/compile/internal/noder/ergoir_closure.go
 new file mode 100644
-index 0000000..296a8b0
+index 0000000..1a808a2
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_closure.go
-@@ -0,0 +1,219 @@
+@@ -0,0 +1,221 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -387,6 +395,8 @@ index 0000000..296a8b0
 +	switch {
 +	case s == "struct{}":
 +		return types2.NewStruct(nil, nil), true
++	case strings.HasPrefix(s, "struct{"):
++		return c.structType(p, s), true // ergoir_tuple.go
 +	case !strings.HasPrefix(s, "func("):
 +		return nil, false
 +	}
@@ -580,10 +590,10 @@ index 0000000..296a8b0
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_expr.go b/src/cmd/compile/internal/noder/ergoir_expr.go
 new file mode 100644
-index 0000000..8839dce
+index 0000000..b8520e5
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_expr.go
-@@ -0,0 +1,413 @@
+@@ -0,0 +1,462 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -593,6 +603,10 @@ index 0000000..8839dce
 +package noder
 +
 +import (
++	"go/constant"
++	"go/token"
++	"strings"
++
 +	"cmd/compile/internal/syntax"
 +	"cmd/compile/internal/types2"
 +)
@@ -621,6 +635,19 @@ index 0000000..8839dce
 +		if v == nil {
 +			c.errorf(x.Pos, "ergoir: constant %q of type %v", x.V, t)
 +			return nil, nil
++		}
++		if digits, neg := strings.CutPrefix(x.V, "-"); neg && t == types2.Typ[types2.Float64] {
++			// -1e-12: Go has no negative literal, so the same constant in
++			// Go is the negation of an untyped literal, exact until it is
++			// converted (types2 keeps -1/10^12 on the negation, the rounded
++			// float64 only where it is converted). Keep Go's exact value:
++			// the compiled float64 is the same, and the text view's
++			// (-1e-12) compiles to this tree (IRFIX-FLOAT). Only float64,
++			// the literal's default type: a constant of any other type is
++			// spelled as a conversion, whose value Go rounds.
++			if exact := constant.MakeFromLiteral(digits, token.FLOAT, 0); exact.Kind() != constant.Unknown {
++				v = constant.UnaryOp(token.SUB, exact, 0)
++			}
 +		}
 +		lit := &syntax.BasicLit{Value: x.V}
 +		lit.SetPos(pos)
@@ -832,15 +859,15 @@ index 0000000..8839dce
 +		if xs == nil || i == nil {
 +			return nil, nil
 +		}
-+		sl, ok := types2.CoreType(xt).(*types2.Slice)
-+		if !ok || !types2.Identical(it, types2.Typ[types2.Int]) {
++		elem := ergoIndexElem(xt) // ergoir_f7.go
++		if elem == nil || !types2.Identical(it, types2.Typ[types2.Int]) {
 +			c.errorf(x.Pos, "ergoir: index of %v by %v", xt, it)
 +			return nil, nil
 +		}
 +		e := &syntax.IndexExpr{X: xs, Index: i}
 +		e.SetPos(pos)
-+		ergoValue(e, sl.Elem(), nil)
-+		return e, sl.Elem()
++		ergoValue(e, elem, nil)
++		return e, elem
 +	case "len":
 +		xs, xt := c.expr(x.X)
 +		if xs == nil {
@@ -867,6 +894,38 @@ index 0000000..8839dce
 +		call.SetPos(pos)
 +		ergoValue(call, types2.Typ[types2.Int], nil)
 +		return call, types2.Typ[types2.Int]
++	case "append":
++		// append(xs, v): Go's builtin append of one element, as types2
++		// records it (builtins.go _Append: func(S, ...E) S, variadic).
++		if len(x.Args) != 2 {
++			c.errorf(x.Pos, "ergoir: append of %d operands", len(x.Args))
++			return nil, nil
++		}
++		xs, xt := c.expr(x.Args[0])
++		v, vt := c.expr(x.Args[1])
++		if xs == nil || v == nil {
++			return nil, nil
++		}
++		sl, ok := types2.CoreType(xt).(*types2.Slice)
++		if !ok {
++			c.errorf(x.Pos, "ergoir: append to %v, not a slice", xt)
++			return nil, nil
++		}
++		if !c.assignable(x.Pos, "append", vt, sl.Elem()) {
++			return nil, nil
++		}
++		b := types2.Universe.Lookup("append")
++		fun := syntax.NewName(pos, "append")
++		c.info.Uses[fun] = b
++		tv := syntax.TypeAndValue{Type: types2.NewSignatureType(nil, nil, nil,
++			types2.NewTuple(types2.NewParam(pos, nil, "", xt), types2.NewParam(pos, nil, "", types2.NewSlice(sl.Elem()))),
++			types2.NewTuple(types2.NewParam(pos, nil, "", xt)), true)}
++		tv.SetIsBuiltin()
++		fun.SetTypeInfo(tv)
++		call := &syntax.CallExpr{Fun: fun, ArgList: []syntax.Expr{xs, v}}
++		call.SetPos(pos)
++		ergoValue(call, xt, nil)
++		return call, xt
 +	case "lit":
 +		t := c.typ(x.Pos, x.T)
 +		if t == nil {
@@ -997,12 +1056,68 @@ index 0000000..8839dce
 +	}
 +	return bad()
 +}
+diff --git a/src/cmd/compile/internal/noder/ergoir_f7.go b/src/cmd/compile/internal/noder/ergoir_f7.go
+new file mode 100644
+index 0000000..64823a0
+--- /dev/null
++++ b/src/cmd/compile/internal/noder/ergoir_f7.go
+@@ -0,0 +1,50 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package noder
++
++import (
++	"strconv"
++	"strings"
++
++	"cmd/compile/internal/types2"
++)
++
++// arrayType resolves the spelling [N]T of an array type (FLIP F7): ok is
++// false for any other spelling, and the type is nil when T is no type.
++func (c *ergoChecker) arrayType(p ergoPos, s string) (types2.Type, bool) {
++	rest, ok := strings.CutPrefix(s, "[")
++	if !ok {
++		return nil, false
++	}
++	i := strings.IndexByte(rest, ']')
++	if i <= 0 {
++		return nil, false
++	}
++	n, err := strconv.ParseInt(rest[:i], 10, 64)
++	if err != nil || n < 0 {
++		return nil, false
++	}
++	e := c.typ(p, rest[i+1:])
++	if e == nil {
++		return nil, true
++	}
++	return types2.NewArray(e, n), true
++}
++
++// ergoIndexElem is the element type of an "index" of a value of type t
++// (FLIP F7): a slice's or an array's element, or a byte of a string; nil
++// for any other type.
++func ergoIndexElem(t types2.Type) types2.Type {
++	switch u := types2.CoreType(t).(type) {
++	case *types2.Slice:
++		return u.Elem()
++	case *types2.Array:
++		return u.Elem()
++	}
++	if ergoIsString(t) {
++		return types2.Typ[types2.Byte]
++	}
++	return nil
++}
 diff --git a/src/cmd/compile/internal/noder/ergoir_f7f.go b/src/cmd/compile/internal/noder/ergoir_f7f.go
 new file mode 100644
-index 0000000..e5b6481
+index 0000000..bc1c180
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_f7f.go
-@@ -0,0 +1,75 @@
+@@ -0,0 +1,46 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1013,36 +1128,7 @@ index 0000000..e5b6481
 +
 +import (
 +	"cmd/compile/internal/syntax"
-+	"cmd/compile/internal/types2"
 +)
-+
-+// ergoNewZero is *new(T), the zero value of the type parameter T as Go
-+// source spells it. A nil the writer encodes as T's zero (exprZero) would
-+// reach the reader as ir.NewZero of T's shape, which for a struct or an
-+// array is a composite literal that misses typecheck (a fallible generic
-+// body's failure: arena's Free on lru's node).
-+func ergoNewZero(pos syntax.Pos, tp *types2.TypeParam, info *types2.Info) syntax.Expr {
-+	tn := syntax.NewName(pos, tp.Obj().Name())
-+	info.Uses[tn] = tp.Obj()
-+	ttv := syntax.TypeAndValue{Type: tp}
-+	ttv.SetIsType()
-+	tn.SetTypeInfo(ttv)
-+	ptr := types2.NewPointer(tp)
-+	fn := syntax.NewName(pos, "new")
-+	info.Uses[fn] = types2.Universe.Lookup("new")
-+	ftv := syntax.TypeAndValue{Type: types2.NewSignatureType(nil, nil, nil,
-+		types2.NewTuple(types2.NewParam(pos, nil, "", tp)),
-+		types2.NewTuple(types2.NewParam(pos, nil, "", ptr)), false)}
-+	ftv.SetIsBuiltin()
-+	fn.SetTypeInfo(ftv)
-+	call := &syntax.CallExpr{Fun: fn, ArgList: []syntax.Expr{tn}}
-+	call.SetPos(pos)
-+	ergoValue(call, ptr, nil)
-+	x := &syntax.Operation{Op: syntax.Mul, X: call}
-+	x.SetPos(pos)
-+	ergoValue(x, tp, nil)
-+	return x
-+}
 +
 +// deferStmt is defer X, X a call of a function of the package with no
 +// result: a frame's release (the Ergo lowering's static frame, whose
@@ -1080,10 +1166,10 @@ index 0000000..e5b6481
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_fail.go b/src/cmd/compile/internal/noder/ergoir_fail.go
 new file mode 100644
-index 0000000..fce95d4
+index 0000000..cb40902
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_fail.go
-@@ -0,0 +1,308 @@
+@@ -0,0 +1,338 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1133,6 +1219,12 @@ index 0000000..fce95d4
 +// nilOf is the zero value of t, spelled as the untyped nil the writer
 +// encodes as a typed zero (exprZero).
 +func (c *ergoChecker) nilOf(p ergoPos, t types2.Type) syntax.Expr {
++	if tp, ok := t.(*types2.TypeParam); ok {
++		// A type parameter's zero (F1): the reader's zero of its shape
++		// is the untypechecked composite literal above, so spell *new(T)
++		// (I-FLIP: std/arena's generic Free).
++		return c.newZero(p, tp)
++	}
 +	switch t.Underlying().(type) {
 +	case *types2.Struct, *types2.Array:
 +		// The reader's zero of a struct or an array (ir.NewZero) is a
@@ -1145,9 +1237,6 @@ index 0000000..fce95d4
 +		l.SetTypeInfo(tv)
 +		return l
 +	}
-+	if tp, ok := t.(*types2.TypeParam); ok {
-+		return ergoNewZero(c.pos(p), tp, c.info) // ergoir_f7f.go
-+	}
 +	n := syntax.NewName(c.pos(p), "nil")
 +	c.info.Uses[n] = types2.Universe.Lookup("nil")
 +	tv := syntax.TypeAndValue{Type: t}
@@ -1155,6 +1244,33 @@ index 0000000..fce95d4
 +	tv.SetIsNil()
 +	n.SetTypeInfo(tv)
 +	return n
++}
++
++// newZero is *new(T), T a type parameter of the function.
++func (c *ergoChecker) newZero(p ergoPos, tp *types2.TypeParam) syntax.Expr {
++	pos := c.pos(p)
++	tn := syntax.NewName(pos, tp.Obj().Name())
++	c.info.Uses[tn] = tp.Obj()
++	ttv := syntax.TypeAndValue{Type: tp}
++	ttv.SetIsType()
++	tn.SetTypeInfo(ttv)
++	fn := syntax.NewName(pos, "new")
++	c.info.Uses[fn] = types2.Universe.Lookup("new")
++	ftv := syntax.TypeAndValue{Type: types2.NewSignatureType(nil, nil, nil, nil, types2.NewTuple(types2.NewParam(pos, nil, "", types2.NewPointer(tp))), false)}
++	ftv.SetIsBuiltin()
++	fn.SetTypeInfo(ftv)
++	call := &syntax.CallExpr{Fun: fn, ArgList: []syntax.Expr{tn}}
++	call.SetPos(pos)
++	ctv := syntax.TypeAndValue{Type: types2.NewPointer(tp)}
++	ctv.SetIsValue()
++	call.SetTypeInfo(ctv)
++	star := &syntax.Operation{Op: syntax.Mul, X: call}
++	star.SetPos(pos)
++	stv := syntax.TypeAndValue{Type: tp}
++	stv.SetIsValue()
++	stv.SetAddressable()
++	star.SetTypeInfo(stv)
++	return star
 +}
 +
 +// typeNameExpr is the type spelled s used as an expression (a case or an
@@ -1652,10 +1768,10 @@ index 0000000..3d9db4a
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_stmt.go b/src/cmd/compile/internal/noder/ergoir_stmt.go
 new file mode 100644
-index 0000000..c257472
+index 0000000..10a900c
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_stmt.go
-@@ -0,0 +1,349 @@
+@@ -0,0 +1,352 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1988,6 +2104,9 @@ index 0000000..c257472
 +		return st
 +	}
 +	if st, ok := c.labelStmt(s); ok { // ergoir_label.go
++		return st
++	}
++	if st, ok := c.tupleStmt(s); ok { // ergoir_tuple.go
 +		return st
 +	}
 +	c.errorf(s.Pos, "ergoir: unknown statement %q", s.K)
@@ -3135,12 +3254,129 @@ index 0000000..58430ee
 +	}
 +	s.out(depth, "zero %s", ergoShapeType(t))
 +}
+diff --git a/src/cmd/compile/internal/noder/ergoir_tuple.go b/src/cmd/compile/internal/noder/ergoir_tuple.go
+new file mode 100644
+index 0000000..07c7de5
+--- /dev/null
++++ b/src/cmd/compile/internal/noder/ergoir_tuple.go
+@@ -0,0 +1,111 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// Ergo IR decoder: tuples and multi-result calls (FLIP F4b). See ergoir.go.
++//
++// An Ergo tuple is an unnamed struct, spelled as Go spells it,
++// "struct{F0 T0; F1 T1}": "lit" builds one and "field" reads one, as for
++// a named record. "tdef" binds the results of a call of a package
++// function with several results to locals, in order: l0, l1, … := f(…);
++// a local of -1 is Go's blank.
++
++package noder
++
++import (
++	"strings"
++
++	"cmd/compile/internal/syntax"
++	"cmd/compile/internal/types2"
++)
++
++// structType is the unnamed struct s spells, "struct{F0 T0; F1 T1}", or
++// nil (an error).
++func (c *ergoChecker) structType(p ergoPos, s string) types2.Type {
++	body := strings.TrimSuffix(strings.TrimPrefix(s, "struct{"), "}")
++	if len(body) != len(s)-len("struct{}") {
++		c.errorf(p, "ergoir: struct type %q", s)
++		return nil
++	}
++	var fields []*types2.Var
++	seen := map[string]bool{}
++	depth, start := 0, 0
++	for i := 0; i <= len(body); i++ {
++		if i < len(body) {
++			switch body[i] {
++			case '(', '[', '{':
++				depth++
++				continue
++			case ')', ']', '}':
++				depth--
++				continue
++			case ';':
++				if depth != 0 {
++					continue
++				}
++			default:
++				continue
++			}
++		}
++		part := strings.TrimSpace(body[start:i])
++		start = i + 1
++		name, typ, ok := strings.Cut(part, " ")
++		if !ok || name == "" || name[0] < 'A' || name[0] > 'Z' || seen[name] {
++			c.errorf(p, "ergoir: struct type %q", s)
++			return nil
++		}
++		seen[name] = true
++		ft := c.typ(p, strings.TrimSpace(typ))
++		if ft == nil {
++			return nil
++		}
++		fields = append(fields, types2.NewField(c.pos(p), c.pkg, name, ft, false))
++	}
++	return types2.NewStruct(fields, nil)
++}
++
++// tupleStmt decodes a "tdef"; ok is false for any other kind.
++func (c *ergoChecker) tupleStmt(s *ergoStmt) (st syntax.Stmt, ok bool) {
++	if s.K != "tdef" {
++		return nil, false
++	}
++	if s.X == nil || s.X.K != "pcall" || len(s.Ls) < 2 {
++		c.errorf(s.Pos, "ergoir: tdef of a value that is not a package call")
++		return nil, true
++	}
++	x, t := c.expr(s.X)
++	if x == nil {
++		return nil, true
++	}
++	tup, isTuple := t.(*types2.Tuple)
++	if !isTuple || tup.Len() != len(s.Ls) {
++		c.errorf(s.Pos, "ergoir: tdef: %v does not bind %d locals", t, len(s.Ls))
++		return nil, true
++	}
++	pos := c.pos(s.Pos)
++	lhs := &syntax.ListExpr{}
++	lhs.SetPos(pos)
++	def := false
++	for i, l := range s.Ls {
++		if l == -1 {
++			lhs.ElemList = append(lhs.ElemList, syntax.NewName(pos, "_"))
++			continue
++		}
++		v := c.local(s.Pos, l)
++		if v == nil {
++			return nil, true
++		}
++		if !types2.Identical(tup.At(i).Type(), v.Type()) {
++			c.errorf(s.Pos, "ergoir: tdef: result %d is %v, not %v", i, tup.At(i).Type(), v.Type())
++			return nil, true
++		}
++		lhs.ElemList = append(lhs.ElemList, c.name(s.Pos, v, true))
++		def = true
++	}
++	a := &syntax.AssignStmt{Lhs: lhs, Rhs: x}
++	if def {
++		a.Op = syntax.Def
++	}
++	a.SetPos(pos)
++	return a, true
++}
 diff --git a/src/cmd/compile/internal/noder/ergoir_types.go b/src/cmd/compile/internal/noder/ergoir_types.go
 new file mode 100644
-index 0000000..baee6b7
+index 0000000..7529fd8
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_types.go
-@@ -0,0 +1,383 @@
+@@ -0,0 +1,394 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -3164,8 +3400,7 @@ index 0000000..baee6b7
 +// typ resolves a type spelling: NAME (a type parameter of the function,
 +// then package scope or universe),
 +// PATH.NAME (an exported type of the imported package PATH), []T, *T,
-+// map[K]V, a generic type's instance NAME[T1, T2] and a function
-+// literal's type (ergoir_closure.go).
++// map[K]V and a generic type's instance NAME[T1, T2].
 +func (c *ergoChecker) typ(p ergoPos, s string) types2.Type {
 +	if t, ok := c.literalType(p, s); ok { // ergoir_closure.go
 +		return t
@@ -3181,6 +3416,9 @@ index 0000000..baee6b7
 +			return types2.NewPointer(e)
 +		}
 +		return nil
++	}
++	if t, ok := c.arrayType(p, s); ok { // ergoir_f7.go
++		return t
 +	}
 +	if rest, ok := strings.CutPrefix(s, "map["); ok {
 +		// map[K]V: K ends at the bracket that closes map's.
@@ -3505,7 +3743,16 @@ index 0000000..baee6b7
 +	case *syntax.Operation:
 +		ok = e.Op == syntax.Mul && e.Y == nil
 +	case *syntax.IndexExpr:
-+		_, ok = types2.CoreType(e.X.GetTypeInfo().Type).(*types2.Slice)
++		// A slice's element, an element of an array place or of the
++		// array a pointer points at (FLIP F7 arrays x F2 places).
++		switch t := types2.CoreType(e.X.GetTypeInfo().Type).(type) {
++		case *types2.Slice:
++			ok = true
++		case *types2.Array:
++			ok = ergoPlace(e.X)
++		case *types2.Pointer:
++			_, ok = types2.CoreType(t.Elem()).(*types2.Array)
++		}
 +	case *syntax.SelectorExpr:
 +		_, ok = types2.CoreType(e.X.GetTypeInfo().Type).(*types2.Pointer)
 +		ok = ok || ergoPlace(e.X)

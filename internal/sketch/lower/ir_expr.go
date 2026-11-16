@@ -43,6 +43,9 @@ func (b *irBuilder) value(x syntax.Expr) ([]*irStmt, *irExpr) {
 		pre, e = b.matchValue(y) // ir_match.go
 	case *syntax.TryExpr, *syntax.CatchExpr:
 		pre, e = b.failValue(y) // ir_fail.go
+	case *syntax.TupleExpr:
+		b.plain(y)
+		pre, e = b.tupleValue(y) // ir_tuple.go
 	case *syntax.Ident:
 		sc := b.scalarIdent(y)
 		if sc == nil {
@@ -178,7 +181,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		// A field through a pointer (FLIP F2): Go's p.f.
 		n, ok := derefNamed(b.l.info.Types[x.X]) // ir_pkg.go
 		if !ok {
-			irNo("selector on a non-record")
+			return b.selectOther(x, p) // ir_select.go
 		}
 		b.goType(n, x)
 		// goType queued the declaration, unless the runtime's Go type
@@ -194,12 +197,12 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			irNo("index form")
 		}
 		if _, ok := b.l.info.Types[x.X].(*check.Slice); !ok {
-			irNo("index of a non-slice")
+			return b.indexOther(x, p) // ir_index.go
 		}
 		return &irExpr{K: "index", Pos: p, X: b.expr(x.X), Y: b.expr(x.Indices[0])}
 	case *syntax.CompositeLit:
 		if x.Base != nil || x.Type == nil {
-			irNo("record update or elided literal type")
+			return b.updateLit(x, t, p) // ir_update.go
 		}
 		if _, ok := b.l.info.Spreads[x]; ok {
 			irNo("spread")
@@ -230,6 +233,14 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 				if !ok {
 					irNo("record key")
 				}
+				for _, f := range s.Fields {
+					if f.Name == k.Name && b.fc.goType(b.l.info.Types[kv.Value]) != b.fc.goType(f.Type) {
+						// Go converts a variant to its row's error field;
+						// the decoder takes identical types only (I-FLIP:
+						// examples/jobs).
+						irNo("record field of a converted value")
+					}
+				}
 				lit.Keys = append(lit.Keys, td.fieldName[k.Name])
 				lit.Elems = append(lit.Elems, b.expr(kv.Value))
 			}
@@ -239,6 +250,16 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		return lit
 	case *syntax.InterpolatedString:
 		return b.text(x, p)
+	case *syntax.TupleExpr:
+		tt, ok := t.(*check.Tuple)
+		if !ok || len(tt.Types) != len(x.Elts) || len(tt.Types) < 2 {
+			irNo("type *check.Tuple")
+		}
+		vals := make([]*irExpr, len(x.Elts))
+		for i, e := range x.Elts {
+			vals[i] = b.expr(e)
+		}
+		return b.tupleLit(tt, vals, x, p) // ir_tuple.go
 	case *syntax.FuncLit:
 		return b.closureLit(x, nil) // ir_closure.go
 	case *syntax.CallExpr:
