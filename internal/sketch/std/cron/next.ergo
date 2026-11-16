@@ -201,7 +201,9 @@ law PreviousUndoesNext(seed uint64) {
 // 02:00 to 03:00, a job at 02:30 fires once, at 03:30 EDT, and the next
 // day at 02:30 again, also when asked at 03:10 EDT, after the change but
 // before 02:30's instant; a job every 30 minutes fires at 01:30 EST, then at
-// 03:00 EDT (for 02:00) and 03:30 EDT, never twice at one instant.
+// 03:00 EDT (for 02:00) and 03:30 EDT, never twice at one instant. On
+// 2026-10-04, when Lord Howe's clocks go from 02:00 to 02:30, a job at
+// 02:15 and 02:40 fires first at 02:40, before 02:15's instant, 02:45.
 law GapFiresOnce() {
 	let z = newYork()
 	let job = try Parse("30 2 * * *")
@@ -211,7 +213,9 @@ law GapFiresOnce() {
 	let three = time.Unix(1772953200, 0)
 	let once = Next(job, z, time.Unix(1772902800, 0)) == Some[time.Time]{Value: a} && Next(job, z, a) == Some[time.Time]{Value: b}
 	let within = Next(job, z, time.Unix(1772953800, 0)) == Some[time.Time]{Value: a}
-	once && within && Next(half, z, time.Unix(1772951400, 0)) == Some[time.Time]{Value: three} && Next(half, z, three) == Some[time.Time]{Value: a}
+	let pair = try Parse("15,40 2 * * *")
+	let earliest = Next(pair, lordHowe(), time.Unix(1791040800, 0)) == Some[time.Time]{Value: time.Unix(1791042000, 0)}
+	once && within && earliest && Next(half, z, time.Unix(1772951400, 0)) == Some[time.Time]{Value: three} && Next(half, z, three) == Some[time.Time]{Value: a}
 }
 
 // OverlapFiresOnce: on 2026-11-01, when New York's clocks go back from
