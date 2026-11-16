@@ -419,6 +419,9 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	if fd.method != nil {
 		name = fd.method.name + "." + name
 	}
+	if n := b.copyName(f); n != "" {
+		name = n // a copy for a known record (ir_known.go)
+	}
 	pkg := ""
 	if f.Pkg != nil {
 		pkg = f.Pkg.Path

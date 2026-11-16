@@ -384,7 +384,7 @@ const HostText = Path + "/gofmt"
 // write a value with rt.TypedText: a machine's state in the defect of a
 // timer that is not positive. TestHostTextUsersAreListed holds the list
 // against the call graph of runtime/v1.
-var hostTextUsers = []string{"MachineChild", "MachineStart", "MachineSupervise", "MachineTimerNotPositive"}
+var hostTextUsers = []string{"MachineChild", "MachineStart", "MachineSupervise", "MachineTimerNotPositive", "MachineTimerPanic"}
 
 // NeedsHostText reports whether a program that names the runtime/v1
 // declaration name imports the gofmt leaf (HostText).

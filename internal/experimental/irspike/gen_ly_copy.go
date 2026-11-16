@@ -11,8 +11,10 @@ import (
 // in place, so without the copy the write would reach the caller's value.
 // The forms cover each Go form of the copy (values.go, cloneValue): a
 // slice of ints and a Map of ints (slices.Clone, maps.Clone), a slice of
-// records that hold a slice, a Map of slices and a record that holds one
-// (the generated copy functions), and a generic slice (slices.Clone at a
+// records that hold a slice and a record that holds one (the generated
+// copy functions), a Map of slices (maps.Clone: under the entry rule, V9,
+// a Map whose entries no program writes in place is copied shallow), and
+// a generic slice (slices.Clone at a
 // type parameter). The caller's slices have spare capacity, so an append
 // of an uncopied slice writes the caller's array, and two appends of one
 // source show it; a Map written in place shows in the caller's length.

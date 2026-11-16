@@ -3416,10 +3416,10 @@ index 0000000..07c7de5
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_types.go b/src/cmd/compile/internal/noder/ergoir_types.go
 new file mode 100644
-index 0000000..7bb2494
+index 0000000..fb97b8e
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_types.go
-@@ -0,0 +1,395 @@
+@@ -0,0 +1,397 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -3553,10 +3553,12 @@ index 0000000..7bb2494
 +	for i := 0; i <= len(args); i++ {
 +		if i < len(args) {
 +			switch args[i] {
-+			case '[':
++			case '[', '(', '{':
++				// A function type argument's lists hold commas too
++				// (FLIP F7 LY: Option[func(*Env, E) (struct{}, error)]).
 +				depth++
 +				continue
-+			case ']':
++			case ']', ')', '}':
 +				depth--
 +				continue
 +			case ',':

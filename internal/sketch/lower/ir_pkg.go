@@ -46,6 +46,11 @@ func (b *irBuilder) admitOnce(tn *check.TypeName) bool {
 func (b *irBuilder) spelling(s string) string {
 	var out strings.Builder
 	for i := 0; i < len(s); {
+		if k := funcSpelling(s[i:]); k > 0 { // ir_machine.go
+			out.WriteString(s[i : i+k])
+			i += k
+			continue
+		}
 		j := i
 		for j < len(s) && isSpellingName(s[j]) {
 			j++

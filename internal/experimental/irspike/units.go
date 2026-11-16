@@ -198,7 +198,6 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"type parameter outside its declaration", "G4"},
 	{"owned parameters", "G4"},
 	{"known-callback variant", "G4"},
-	{"copy for a known record", "G4"},
 	{"variant with no result", "G4"}, // drop.go's variant of a function whose result a call discards
 	{"call without a value", "G4"},
 	{"call without a Calls entry", "G4"},
