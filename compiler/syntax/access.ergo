@@ -62,3 +62,32 @@ func GroupLen(p Parsed, g int) int { p.gLast[g] - p.gFirst[g] + 1 }
 func NodePos(p Parsed, id dense.ID[Node]) int { posOf(p.Tree, parsedToks(p), uint32(dense.Index(id))) }
 
 func NodeEnd(p Parsed, id dense.ID[Node]) int { endOf(p.Tree, parsedToks(p), uint32(dense.Index(id))) }
+
+// SourceOf is the source of the parse.
+func SourceOf(p Parsed) string { p.src }
+
+// TokEnd is the offset after token j.
+func TokEnd(p Parsed, j int) int { tokEnd(parsedToks(p), j) }
+
+// TokAtOrAfter is the first token that starts at or after offset at,
+// inserted semicolons included.
+func TokAtOrAfter(p Parsed, at int) int {
+	let mut lo = 0
+	let mut hi = len(p.starts)
+	for lo < hi {
+		let mid = (lo + hi) / 2
+		if int(p.starts[mid]) < at {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	lo
+}
+
+// CommentsOf is the comments of the parse, in source order.
+func CommentsOf(p Parsed) Comments { p.cmts }
+
+// Children appends the child rows of node id to out, by row index (NodeAt
+// reads one): its list items, then the node words of its record.
+func Children(t Tree, id dense.ID[Node], out []uint32) []uint32 { children(t, uint32(dense.Index(id)), out) }
