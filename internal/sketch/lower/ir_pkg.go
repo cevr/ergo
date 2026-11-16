@@ -687,8 +687,10 @@ func (b *irBuilder) hidden(body v1.Body, x *syntax.CallExpr, c *check.Call, p ir
 		case v1.CallSite:
 			src, line, column := b.l.locate(x, x.Pos())
 			site := fmt.Sprintf("%s calls %s at %s:%d:%d", b.fc.owner, b.fc.callee(x, c), src, line, column)
-			b.keepImport("var _ = " + b.l.rt() + ".Site")
-			out = append(out, &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "Site", Args: []*irExpr{{K: "const", Pos: p, T: "string", V: site}}})
+			// Site is the runtime's `type Site string`: a conversion, as
+			// the emitter's rt.Site("…"), never a call.
+			b.keepImport("var _ " + b.l.rt() + ".Site")
+			out = append(out, &irExpr{K: "conv", Pos: p, T: runtimeImport + ".Site", X: &irExpr{K: "const", Pos: p, T: "string", V: site}})
 		default:
 			irNo("std call with hidden argument %s", h)
 		}
