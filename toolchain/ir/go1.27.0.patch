@@ -590,10 +590,10 @@ index 0000000..1a808a2
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_expr.go b/src/cmd/compile/internal/noder/ergoir_expr.go
 new file mode 100644
-index 0000000..b8520e5
+index 0000000..807a9f8
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_expr.go
-@@ -0,0 +1,462 @@
+@@ -0,0 +1,464 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -926,6 +926,8 @@ index 0000000..b8520e5
 +		call.SetPos(pos)
 +		ergoValue(call, xt, nil)
 +		return call, xt
++	case "slice":
++		return c.slice(x) // ergoir_slice.go
 +	case "lit":
 +		t := c.typ(x.Pos, x.T)
 +		if t == nil {
@@ -1804,6 +1806,70 @@ index 0000000..4d58d7f
 +	_, ok = p.Elem().Underlying().(*types2.Struct)
 +	return ok
 +}
+diff --git a/src/cmd/compile/internal/noder/ergoir_slice.go b/src/cmd/compile/internal/noder/ergoir_slice.go
+new file mode 100644
+index 0000000..0ee02b7
+--- /dev/null
++++ b/src/cmd/compile/internal/noder/ergoir_slice.go
+@@ -0,0 +1,58 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// Ergo IR decoder: slice expressions (FLIP F7, kind "slice"). See ergoir.go.
++//
++// x[lo:hi] and x[lo:hi:max] of a slice, and x[lo:hi] of a string (or a
++// named type over one): X is the operand, Args the indices, two or three,
++// a missing low or high index null. Go's own slice expression, so gc
++// lowers it to OSLICE or OSLICESTR and checks its bounds at the
++// expression's position. An array is no operand: Go slices an
++// addressable array only.
++
++package noder
++
++import (
++	"cmd/compile/internal/syntax"
++	"cmd/compile/internal/types2"
++)
++
++// slice checks the slice expression x.
++func (c *ergoChecker) slice(x *ergoExpr) (syntax.Expr, types2.Type) {
++	xs, xt := c.expr(x.X)
++	if xs == nil {
++		return nil, nil
++	}
++	n := len(x.Args)
++	if n != 2 && n != 3 || n == 3 && (x.Args[1] == nil || x.Args[2] == nil) {
++		c.errorf(x.Pos, "ergoir: slice with %d indices", n)
++		return nil, nil
++	}
++	switch types2.CoreType(xt).(type) {
++	case *types2.Slice:
++	default:
++		if !ergoIsString(xt) || n == 3 {
++			c.errorf(x.Pos, "ergoir: slice of %v", xt)
++			return nil, nil
++		}
++	}
++	e := &syntax.SliceExpr{X: xs, Full: n == 3}
++	for i, a := range x.Args {
++		if a == nil {
++			continue
++		}
++		v, vt := c.expr(a)
++		if v == nil {
++			return nil, nil
++		}
++		if !types2.Identical(vt, types2.Typ[types2.Int]) {
++			c.errorf(a.Pos, "ergoir: slice index of type %v", vt)
++			return nil, nil
++		}
++		e.Index[i] = v
++	}
++	e.SetPos(c.pos(x.Pos))
++	ergoValue(e, xt, nil)
++	return e, xt
++}
 diff --git a/src/cmd/compile/internal/noder/ergoir_stmt.go b/src/cmd/compile/internal/noder/ergoir_stmt.go
 new file mode 100644
 index 0000000..5e63550
@@ -2169,10 +2235,10 @@ index 0000000..5e63550
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_text.go b/src/cmd/compile/internal/noder/ergoir_text.go
 new file mode 100644
-index 0000000..7ea0112
+index 0000000..cd86804
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_text.go
-@@ -0,0 +1,640 @@
+@@ -0,0 +1,643 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2679,6 +2745,9 @@ index 0000000..7ea0112
 +	case *syntax.SliceExpr:
 +		s := p.expr(x.X) + "["
 +		for i, e := range x.Index {
++			if i == 2 && !x.Full {
++				break // x[lo:hi], not x[lo:hi:]
++			}
 +			if i > 0 {
 +				s += ":"
 +			}
