@@ -9,8 +9,9 @@ import (
 
 // TestCollLaws runs the laws of the slice and Map operations (prelude.ergo;
 // the operations are the language's, check/collop.go) over their Go
-// reference bodies: Get, Put, Go's delete, MapTake and Append, each on
-// 2,000 seeded cases whose keys hit and miss. A Map the law reads again
+// reference bodies: Get, Put, Go's delete, MapTake, Append and MapsClone,
+// each on 2,000 seeded cases whose keys hit and miss, and SlicesTake and
+// SlicesSlice at every index and window of 300 seeded slices. A Map the law reads again
 // after an operation that would write it is passed as a copy, as the
 // lowering's value rule passes it.
 func TestCollLaws(t *testing.T) {
@@ -26,6 +27,14 @@ func TestCollLaws(t *testing.T) {
 			m[r.IntN(8)] = r.IntN(100) - 50
 		}
 		ms = append(ms, mcase{m, r.IntN(10), r.IntN(100) - 50})
+	}
+	var xss [][]int
+	for range 300 {
+		xs := make([]int, r.IntN(7))
+		for i := range xs {
+			xs[i] = r.IntN(100) - 50
+		}
+		xss = append(xss, xs)
 	}
 	clone := func(m map[int]int) map[int]int {
 		c := make(map[int]int, len(m))
@@ -61,6 +70,44 @@ func TestCollLaws(t *testing.T) {
 				v, found, rest := MapTake(m, c.k)
 				if (entry{v, found}) != get(m, c.k) || get(rest, c.k).ok || len(rest) != len(del(m, c.k)) {
 					t.Fatalf("case %d: MapTake(%v, %d) = %d, %v, %v", i, c.m, c.k, v, found, rest)
+				}
+			}
+		}},
+		"prelude TakeAtIsIndexAndRest": {Statement: `TakeAtIsIndexAndRest(xs []int, i int) { if i < 0 || i >= len(xs) { return true } let x, rest = xs.TakeAt(i) let mut ok = x == xs[i] && len(rest) == len(xs) - 1 for k, y in rest { ok = ok && (k < i && y == xs[k] || k >= i && y == xs[k + 1]) } ok }`, Check: func(t *testing.T) {
+			for n, xs := range xss {
+				for i := range xs {
+					x, rest := SlicesTake(xs, i)
+					ok := x == xs[i] && len(rest) == len(xs)-1
+					for k, y := range rest {
+						ok = ok && (k < i && y == xs[k] || k >= i && y == xs[k+1])
+					}
+					if !ok {
+						t.Fatalf("case %d: SlicesTake(%v, %d) = %d, %v", n, xs, i, x, rest)
+					}
+				}
+			}
+		}},
+		"prelude SliceIsWindow": {Statement: `SliceIsWindow(xs []int, i int, j int) { if i < 0 || j > len(xs) || i > j { return true } let w = xs.Slice(i, j) let mut ok = len(w) == j - i for k, y in w { ok = ok && y == xs[i + k] } ok }`, Check: func(t *testing.T) {
+			for n, xs := range xss {
+				for i := 0; i <= len(xs); i++ {
+					for j := i; j <= len(xs); j++ {
+						w := SlicesSlice(xs, i, j)
+						ok := len(w) == j-i
+						for k, y := range w {
+							ok = ok && y == xs[i+k]
+						}
+						if !ok {
+							t.Fatalf("case %d: SlicesSlice(%v, %d, %d) = %v", n, xs, i, j, w)
+						}
+					}
+				}
+			}
+		}},
+		"prelude CloneIsEqual": {Statement: `CloneIsEqual(m Map[int, int], k int) { let c = m.Clone() len(c) == len(m) && sameEntry(c.Get(k), m.Get(k)) }`, Check: func(t *testing.T) {
+			for i, c := range ms {
+				cl := MapsClone(c.m)
+				if len(cl) != len(c.m) || get(cl, c.k) != get(c.m, c.k) {
+					t.Fatalf("case %d: MapsClone(%v) = %v", i, c.m, cl)
 				}
 			}
 		}},

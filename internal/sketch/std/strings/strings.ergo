@@ -58,7 +58,7 @@ extern go ergo.local/prototype/runtime/v1.StringsContains func Contains(s string
 
 // Slice is the bytes of s from i up to j. An i or j outside 0..len(s), or
 // an i after j, is a defect, as an index out of range is.
-extern go ergo.local/prototype/runtime/v1.StringsSlice func Slice(s string, i int, j int) string
+func Slice(s string, i int, j int) string { s.Slice(i, j) }
 
 // ReplaceAll is s with each non-overlapping old, from the left, replaced
 // by repl. An empty old matches at the start of s and after each UTF-8

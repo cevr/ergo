@@ -16,18 +16,19 @@
 //     (stdlib.md, Slices and Maps 8; std-strengths SS5).
 // The externs bind runtime/v1 bodies (collections.go, data.go);
 // Transform, Filter, Fold, IndexFunc, Collect, Sorted, Values, Max, Min,
-// Ascend, Items, Len, At and BinarySearch are Ergo. laws.ergo states the algebra; the ledger in
+// Ascend, Items, Len, At and BinarySearch are Ergo, and Take and Slice
+// are the slice operations xs.TakeAt(i) and xs.Slice(i, j) (PRIM-4). laws.ergo states the algebra; the ledger in
 // stdlib.md names the Go test that runs each law until #162.
 
 // WithCapacity is an empty slice with room for n elements. It makes no
 // element; a negative n is a defect, as Go's make panics.
-extern go ergo.local/prototype/runtime/v1.WithCapacity func WithCapacity[T](n int) []T
+func WithCapacity[T](n int) []T { MakeSlice[T](n) }
 
 // Take gives up xs and returns its element at i and the remaining slice,
 // in order. With resource elements, the element and remainder have
 // separate owners. Plain-data xs is unchanged. An index outside
 // 0..len(xs) is a defect, as Go's index is.
-extern go ergo.local/prototype/runtime/v1.SlicesTake func Take[T](xs own []T, i int) (T, []T)
+func Take[T](xs own []T, i int) (T, []T) { xs.TakeAt(i) }
 
 // Sort is a copy of xs in ascending order. A float NaN sorts first, as in
 // Go.
@@ -118,26 +119,26 @@ func At[T ordered](a Ascending[T], i int) T { a.xs[i] }
 
 // Clone is a copy of xs in a new array: Go's slices.Clone (Effect's
 // Array.copy). A write to the copy, or an Append to it, never reaches xs.
-extern go ergo.local/prototype/runtime/v1.SlicesClone func Clone[T](xs []T) []T
+func Clone[T](xs []T) []T { xs.Clone() }
 
 // Concat is the elements of a, then those of b, in a new array of at least
 // len(a) + len(b): Go's slices.Concat(a, b) (Effect's Array.appendAll).
 // An Append to the result never writes a or b, and an Append to a never
 // writes the result. Ergo has no variadic parameter, so it takes two.
-extern go ergo.local/prototype/runtime/v1.SlicesConcat func Concat[T](a []T, b []T) []T
+func Concat[T](a []T, b []T) []T { a.Concat(b) }
 
 // Repeat is the elements of xs, n times over, in a new array: Go's
 // slices.Repeat. Effect's Array.replicate(x, n) is Repeat([]T{x}, n). A
 // negative n, or a length that overflows int, is a defect, as Go's
 // panics.
-extern go ergo.local/prototype/runtime/v1.SlicesRepeat func Repeat[T](xs []T, n int) []T
+func Repeat[T](xs []T, n int) []T { xs.Repeat(n) }
 
 // Slice is the elements of xs from index i up to j, j excluded: Go's full
 // slice expression xs[i:j:j] (Effect's Array.slice), which shares xs's
 // array but has no room after j, so an Append to it makes a new array and
 // never writes xs[j]. A bound outside 0..len(xs), or an i after j, is a
 // defect, as for strings.Slice.
-extern go ergo.local/prototype/runtime/v1.SlicesSlice func Slice[T](xs []T, i int, j int) []T
+func Slice[T](xs []T, i int, j int) []T { xs.Slice(i, j) }
 
 // BinarySearch is Some of the index of x in Items(a), or None when a has
 // no x. Of several x, the first. It takes an Ascending, not a []T, so an

@@ -263,6 +263,39 @@ law AppendIsLast(xs []int, x int) {
 	len(ys) == len(xs) + 1 && ys[len(xs)] == x
 }
 
+// TakeAtIsIndexAndRest: TakeAt is the element at i and xs without it, in
+// order (PRIM-4).
+law TakeAtIsIndexAndRest(xs []int, i int) {
+	if i < 0 || i >= len(xs) {
+		return true
+	}
+	let x, rest = xs.TakeAt(i)
+	let mut ok = x == xs[i] && len(rest) == len(xs) - 1
+	for k, y in rest {
+		ok = ok && (k < i && y == xs[k] || k >= i && y == xs[k + 1])
+	}
+	ok
+}
+
+// SliceIsWindow: Slice is the elements of xs from i up to j (PRIM-4).
+law SliceIsWindow(xs []int, i int, j int) {
+	if i < 0 || j > len(xs) || i > j {
+		return true
+	}
+	let w = xs.Slice(i, j)
+	let mut ok = len(w) == j - i
+	for k, y in w {
+		ok = ok && y == xs[i + k]
+	}
+	ok
+}
+
+// CloneIsEqual: a Clone has m's entries (PRIM-4).
+law CloneIsEqual(m Map[int, int], k int) {
+	let c = m.Clone()
+	len(c) == len(m) && sameEntry(c.Get(k), m.Get(k))
+}
+
 // sameEntry reports two reads of a Map entry as equal.
 func sameEntry(a Option[int], b Option[int]) bool {
 	match a {

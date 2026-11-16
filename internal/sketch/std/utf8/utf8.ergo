@@ -17,7 +17,7 @@ extern go ergo.local/prototype/runtime/v1.UTF8DecodeRuneInString func DecodeRune
 
 // RuneText is the UTF-8 text of r, Go's string(r); a rune that is not
 // valid (a surrogate, a negative rune, one past U+10FFFF) is "\uFFFD".
-extern go ergo.local/prototype/runtime/v1.UTF8RuneText func RuneText(r rune) string
+func RuneText(r rune) string { r.RuneText() }
 
 // AppendRune is p with the UTF-8 bytes of r added at the end, as Go's
 // utf8.AppendRune; a rune that is not valid adds those of U+FFFD.
