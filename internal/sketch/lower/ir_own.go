@@ -62,7 +62,8 @@ type irSlot struct {
 	local  int
 	t      check.Type
 	d      *check.Drop
-	helper string // the slot's release inside the body, once used
+	helper string      // the slot's release inside the body, once used
+	site   syntax.Node // where the slot first owns its value (staticOwn's site)
 }
 
 // irStaticFrame reports a body whose frame the IR builds: the static
@@ -101,7 +102,7 @@ func (b *irBuilder) openOwn(f *check.Func, params []*check.Var) []*irStmt {
 		if !ok {
 			irNo("owned parameters")
 		}
-		out = append(out, b.ownLet(v, i, f.Decl)...)
+		out = append(out, b.ownLet(v, i, f.Decl.Name)...) // the emitter's ownVar site
 	}
 	return out
 }
@@ -228,16 +229,18 @@ func (b *irBuilder) releaseFuncs(name, helper string, params []string) bool {
 // providerRelease of a program's Close): a method call or a function
 // call, the receiver taken by address or through a pointer as Close's
 // parameter needs, a generic one with the provider's type arguments; a
-// std operation type's Close is stdCloseCall's. ok is false for a Close
-// the IR does not call: Go's own (a host value's: no IR body owns one,
-// while a Go package's calls and types are not IR), a std or extern
-// function (the checker refuses it, C26).
+// std operation type's Close is stdCloseCall's, a Go value's
+// hostCloseCall's (ir_gocall.go). ok is false for a Close the IR does not
+// call: a std or extern function (the checker refuses it, C26).
 func (b *irBuilder) closeCall(s irSlot, env, slot int, p irPos) (*irExpr, bool) {
 	cl := s.d.Close
 	if cl != nil && cl.Func == nil && cl.Op != nil {
 		return b.stdCloseCall(cl, s, slot, p)
 	}
-	if cl == nil || cl.HostClose() || cl.Func == nil || !isClose(cl.Func) || len(cl.Func.Sig.Params) != 1 {
+	if cl != nil && cl.HostClose() {
+		return b.hostCloseCall(cl, s, env, slot, p) // ir_gocall.go
+	}
+	if cl == nil || cl.Func == nil || !isClose(cl.Func) || len(cl.Func.Sig.Params) != 1 {
 		return nil, false
 	}
 	if len(cl.Func.Sig.TParams) > 0 && len(witnessParams(cl.Func.Sig)) > 0 {
@@ -504,7 +507,7 @@ func (b *irBuilder) ownLet(v *check.Var, i int, site syntax.Node) []*irStmt {
 		}
 		o.bit[v] = k
 		typ := b.goType(v.Type, site)
-		o.slots = append(o.slots, irSlot{local: b.temp("slot", typ, p), t: v.Type, d: d})
+		o.slots = append(o.slots, irSlot{local: b.temp("slot", typ, p), t: v.Type, d: d, site: site})
 	}
 	typ := b.goType(v.Type, site)
 	call := b.ownCall("OwnStatic", typ, p, b.addrOf(o.live, p), b.bitConst(k, p), b.addrOf(o.slots[k].local, p), &irExpr{K: "local", Pos: p, I: i})
