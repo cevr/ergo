@@ -103,9 +103,14 @@ func genLicenceLaw(r *rand.Rand, name string) licenceLaw {
 		pool := []string{"Long", "Tail"}
 		l.fns, l.second = chain(pool), chain(pool)
 		l.src = fmt.Sprintf("law %s(a string, b string) { Cat(%s, %s) } == { a + b }", name, apply(l.fns, "a"), apply(l.second, "b"))
-	case l.typ == "float64":
+	case l.typ == "float64" && r.IntN(2) == 0:
 		l.fns = chain(pools[l.typ])
 		l.src = fmt.Sprintf("law %s(x float64) { Key(%s) } == { Key(x) }", name, apply(l.fns, "x"))
+	case l.typ == "float64":
+		// The sides are floats: the run compares them by key equality,
+		// so FId(x) at a NaN equals x (Go's == would refute it).
+		l.fns = chain(pools[l.typ])
+		l.src = fmt.Sprintf("law %s(x float64) { %s } == { x }", name, apply(l.fns, "x"))
 	default:
 		l.fns = chain(pools[l.typ])
 		l.src = fmt.Sprintf("law %s(x %s) { %s } == { x }", name, l.typ, apply(l.fns, "x"))
@@ -199,7 +204,8 @@ func (l licenceLaw) model() (string, string) {
 // Mutants: lf6-skipped-run-licenses, lf6-missed-class-licenses,
 // lf6-vacuous-case-counted, lf6-edges-after-draws-only-length,
 // lf6-edges-after-draws-only-content, lf6-edges-after-draws-only-float,
-// lf6-second-run-same-state.
+// lf6-second-run-same-state, lf6-licence-float-by-go-equality (a float
+// law whose sides are equal at a NaN is refuted by Go's ==).
 //
 // ERGO_LICENCE_SEED=N replays one seed.
 func TestLicenceRunFindsEdgeFalsehoods(t *testing.T) {
@@ -255,7 +261,7 @@ func TestLicenceRunFindsEdgeFalsehoods(t *testing.T) {
 			if law == nil || law.FuncRewrite == nil {
 				t.Fatalf("seed %d: %s is no rewrite in scope\n%s", seed, l.name, src)
 			}
-			got, err := LicenceRun(pkg, law, Budget{Steps: 4_000_000, Depth: 1024, Seed: 1})
+			got, err := LicenceRun(pkg, law, Budget{Steps: 4_000_000, Depth: 1024, Seed: 1}, nil)
 			if err != nil {
 				t.Fatalf("seed %d, %s: %v", seed, l.name, err)
 			}
@@ -264,6 +270,9 @@ func TestLicenceRunFindsEdgeFalsehoods(t *testing.T) {
 				key += ": " + l.why
 			}
 			reached[key] = true
+			if l.typ == "float64" && l.verdict == "validated" && !strings.Contains(l.src, "Key(") {
+				reached["validated float sides"] = true
+			}
 			fail := func(why string) {
 				t.Errorf("seed %d, %s: %s\nreplay: ERGO_LICENCE_SEED=%d go test -run '^TestLicenceRunFindsEdgeFalsehoods$' ./internal/sketch/eval\nlaw: %s\nmodel: %s (%s)\nrun:   %s\nmissed: %v\n--- source\n%s", seed, l.name, why, seed, l.src, l.verdict, l.why, got.Line(), got.Missed, src)
 			}
@@ -282,7 +291,7 @@ func TestLicenceRunFindsEdgeFalsehoods(t *testing.T) {
 		}
 	}
 	if len(seeds) > 1 {
-		for _, v := range []string{"validated", "tested", "skipped", "refuted: the law is false", "refuted: not a function of its arguments"} {
+		for _, v := range []string{"validated", "validated float sides", "tested", "skipped", "refuted: the law is false", "refuted: not a function of its arguments"} {
 			if !reached[v] {
 				t.Errorf("no seed reaches the model's %s", v)
 			}

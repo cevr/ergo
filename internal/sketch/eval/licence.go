@@ -18,6 +18,7 @@ import (
 // the only licence a rewrite over functions takes short of a proof. It
 // has three parts:
 //
+//  0. The corpus first: the cases of earlier refuted runs (licencecase.go).
 //  1. Edges first, then drawn cases. Each parameter takes one value of
 //     every named class of its type (testgen's class tables) before any
 //     draw; two parameters take each pair of their classes, the other
@@ -26,7 +27,9 @@ import (
 //  2. Each side is a function of its arguments. Each case evaluates each
 //     side twice, the second time under another ambient state (a working
 //     directory, an environment and a time zone); a different outcome is
-//     a refutation, "not a function of its arguments".
+//     a refutation, "not a function of its arguments". The two sides'
+//     outcomes compare by key equality (their texts), not by the law's
+//     ==, so a float law holds at a NaN where its sides agree.
 //  3. The verdict. validated only when every class and every pair was
 //     reached by a case that held, no case was skipped and none refuted.
 //     A run that ran out of budget is tested, with the classes it missed;
@@ -91,10 +94,15 @@ type Licence struct {
 	// run takes them; Missed the classes and pairs no held case reached.
 	Classes []ClassCount
 	Missed  []string
-	// Arguments are the refuted case's.
+	// Arguments are the refuted case's, and Case its corpus line
+	// (encodeCase), "" when a value's type has no encoding.
 	Arguments []Argument
-	Site      Site
-	Steps     int64
+	Case      string
+	// Replayed is the count of the corpus's cases the run took first,
+	// and held.
+	Replayed int
+	Site     Site
+	Steps    int64
 }
 
 // ClassCount is a class and the count of the held cases that took it.
@@ -118,6 +126,9 @@ func (l Licence) Line() string {
 		s += " at (" + strings.Join(args, ", ") + ")"
 	}
 	s += "; " + strconv.Itoa(l.Cases) + " cases"
+	if l.Replayed > 0 {
+		s += " (" + strconv.Itoa(l.Replayed) + " from the corpus first)"
+	}
 	if len(l.Classes) > 0 {
 		parts := make([]string, len(l.Classes))
 		for i, c := range l.Classes {
@@ -131,7 +142,7 @@ func (l Licence) Line() string {
 // LicenceRun runs the licence run of law, a top-level law of pkg in the
 // rewrite's scope, under b (its Steps and Bytes bound the whole run). An
 // error is an internal error of the evaluator.
-func LicenceRun(pkg *check.Package, law *check.Law, b Budget) (Licence, error) {
+func LicenceRun(pkg *check.Package, law *check.Law, b Budget, corpus []string) (Licence, error) {
 	if b.Steps <= 0 || b.Depth <= 0 || b.Bytes < 0 {
 		return Licence{}, ErrBudget
 	}
@@ -145,13 +156,13 @@ func LicenceRun(pkg *check.Package, law *check.Law, b Budget) (Licence, error) {
 		return Licence{}, fmt.Errorf("eval: law %v is no rewrite in scope", law)
 	}
 	defer raiseGC()()
-	l, ranged, err := licenceOrdered(pkg, law, b, mapAscending)
+	l, ranged, err := licenceOrdered(pkg, law, b, corpus, mapAscending)
 	if err != nil || !ranged {
 		return l, err
 	}
 	// A for over a Map ran: only an outcome the other order also gives
 	// is a verdict (maporder.go).
-	other, _, err := licenceOrdered(pkg, law, b, mapDescending)
+	other, _, err := licenceOrdered(pkg, law, b, corpus, mapDescending)
 	if err != nil {
 		return l, err
 	}
@@ -168,7 +179,7 @@ type licenceClass struct {
 	value func(in *interp, fr *frame) Value
 }
 
-func licenceOrdered(pkg *check.Package, law *check.Law, b Budget, order mapOrder) (l Licence, ranged bool, err error) {
+func licenceOrdered(pkg *check.Package, law *check.Law, b Budget, corpus []string, order mapOrder) (l Licence, ranged bool, err error) {
 	in := &interp{budget: b, root: pkg, files: map[syntax.Decl]*syntax.File{}, initials: map[*check.TypeName]Value{}, mapOrder: order}
 	l.Name = lawName(law)
 	defer func() {
@@ -188,13 +199,13 @@ func licenceOrdered(pkg *check.Package, law *check.Law, b Budget, order mapOrder
 		return l, false, nil
 	}
 	in.begin()
-	in.licence(law, &l)
+	in.licence(law, &l, corpus)
 	l.Steps = in.steps - in.stepsAt
 	return l, in.mapRanged, nil
 }
 
 // licence runs law's cases into l (LicenceRun).
-func (in *interp) licence(law *check.Law, l *Licence) {
+func (in *interp) licence(law *check.Law, l *Licence, corpus []string) {
 	rw := law.FuncRewrite
 	fr := in.newFrame(law.Pkg, law.Decl)
 	p := testplan.Law(law, nil)
@@ -297,10 +308,19 @@ func (in *interp) licence(law *check.Law, l *Licence) {
 	defer finish()
 	r := testgen.New(in.budget.Seed, l.Name)
 	r.Charge = func(k int64) { mustCharge(in, fr, k) }
-	// run is one case: the property under the first state, then each
-	// side under both; it reports whether the case held, having set the
-	// verdict when it did not.
-	run := func(at []int, k int) (held bool) {
+	// current is the case being run, for the corpus line of a refuted one.
+	var current []Value
+	defer func() {
+		if l.Verdict == "refuted" && current != nil {
+			l.Case = in.encodeCase(fr, law, current)
+		}
+	}()
+	// run is one case: each side under both states, compared by key
+	// equality (a value's text: floats by their bits' text, so a NaN is a
+	// NaN and -0 is not +0; a failure by its value; a defect by its text),
+	// with given as its values when it is not nil; it reports whether the
+	// case held, having set the verdict when it did not.
+	run := func(at []int, k int, given []Value) (held bool) {
 		defer func() {
 			if rec := recover(); rec != nil {
 				ab, ok := rec.(*abrupt)
@@ -315,8 +335,11 @@ func (in *interp) licence(law *check.Law, l *Licence) {
 		r.Start(k)
 		r.SetSize(min(k*licenceSizes/(licenceDraws+1), licenceSizes-1))
 		vals := make([]Value, n)
+		current = vals
 		for i, v := range law.Params {
-			if at != nil && at[i] >= 0 {
+			if given != nil {
+				vals[i] = given[i]
+			} else if at != nil && at[i] >= 0 {
 				vals[i] = tables[i][at[i]].value(in, fr)
 			} else {
 				vals[i] = in.generate(fr, r, v.Type, testplan.Depth, nil)
@@ -336,13 +359,8 @@ func (in *interp) licence(law *check.Law, l *Licence) {
 			}
 			return cf
 		}
-		in.ambient = ambients[0]
-		res := in.runBodyFrame(frameAt(), law.Decl.Body, true, Result{Name: l.Name})
-		if res.Status != Passed {
-			in.licenceStop(l, res.Status, res.Reason, res.Site, args())
-			return false
-		}
-		for _, side := range []syntax.Expr{rw.Lhs, rw.Rhs} {
+		var outcome [2]string
+		for i, side := range []syntax.Expr{rw.Lhs, rw.Rhs} {
 			var outs [2]string
 			for s := range ambients {
 				in.ambient = ambients[s]
@@ -357,13 +375,31 @@ func (in *interp) licence(law *check.Law, l *Licence) {
 				in.licenceStop(l, Refuted, fmt.Sprintf("not a function of its arguments: %s gave %s, and under another working directory, environment and time zone %s", in.exprText(law, side), outs[0], outs[1]), in.site(law.Pkg, law.Decl, side.Pos()), args())
 				return false
 			}
+			outcome[i] = outs[0]
 		}
 		in.ambient = ambients[0]
+		if outcome[0] != outcome[1] {
+			in.licenceStop(l, Refuted, fmt.Sprintf("the law is false: %s gave %s, and %s gives %s", in.exprText(law, rw.Lhs), outcome[0], in.exprText(law, rw.Rhs), outcome[1]), in.site(law.Pkg, law.Decl, law.Decl.Pos()), args())
+			return false
+		}
 		l.Cases++
 		return true
 	}
+	// The corpus's cases first (a refuted case of an earlier run, as Go's
+	// fuzzer keeps a crasher): a line whose values no longer fit the
+	// parameters is passed over.
+	for _, line := range corpus {
+		vals, ok := in.safeDecode(fr, law, line)
+		if !ok {
+			continue
+		}
+		if !run(nil, 0, vals) {
+			return
+		}
+		l.Replayed++
+	}
 	for k, e := range edges {
-		if !run(e.at, k+1) {
+		if !run(e.at, k+1, nil) {
 			return
 		}
 		for _, h := range e.hits {
@@ -371,12 +407,12 @@ func (in *interp) licence(law *check.Law, l *Licence) {
 		}
 	}
 	if n == 0 {
-		if !run(nil, 1) {
+		if !run(nil, 1, nil) {
 			return
 		}
 	} else {
 		for k := 1; k <= licenceDraws; k++ {
-			if !run(nil, k) {
+			if !run(nil, k, nil) {
 				return
 			}
 		}
