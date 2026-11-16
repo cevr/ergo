@@ -446,6 +446,10 @@ func unitInput(unit lower.Unit, dependencies []build.Dependency, req BuildReques
 	if req.IR {
 		emitter += "+ir"
 	}
+	if req.NoViews {
+		// -views=off lowers other Go (LF2b): its module is another key.
+		emitter += "+noviews"
+	}
 	input := build.Input{
 		Dependencies: dependencies,
 		Compiler:     compiler,
