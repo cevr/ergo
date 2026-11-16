@@ -211,6 +211,7 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 		"lowerer.envCopier":        "the copier interface and join of a held row: method headers copyEnv(d *Env, s Env), no closure (inforce.go)",
 		"lowerer.capsType":         "a capability set's copier type: a method header copyEnv(d *Env, s Env), no closure (inforce.go)",
 		"irBuilder.ownDone":        "an IR static frame's release helper: a declared header func xRelease(env *Env, live *uint64, ...) (ir_own.go, FLIP F7 FORK)",
+		"irBuilder.releaseFuncs":   "the IR release helpers' headers, func xRelease(env *Env, ...) and xFree(env *Env, slot *T), with no body: their bodies are IR (ir_own.go, RELEASE-IR)",
 	}
 	for _, owner := range sortedKeys(readers) {
 		if _, ok := classified[owner]; !ok {
