@@ -378,8 +378,18 @@ func (l *lowerer) nameStdLet(s stdLet) {
 // as flag's lawText, is neither declared nor initialized in a program
 // whose build runs no such law. The first read of each std let queues its
 // declaration; initOrder keeps Go's order whatever the order of reads.
+//
+// A sourced library's constant let (constantLet) is lowered the same way:
+// it has no initializer to run, so a let no lowered body reads is not
+// declared, in a std package and in its copy in a user module alike
+// (SM-CODECOPY).
 func (l *lowerer) reachStdLet(v *check.Var) {
 	s, ok := l.stdLetOf[v]
+	lib := false
+	if !ok {
+		s, ok = l.libLetOf[v]
+		lib = true
+	}
 	if !ok || l.stdLetQueued[s.decl] {
 		return
 	}
@@ -387,12 +397,55 @@ func (l *lowerer) reachStdLet(v *check.Var) {
 		l.stdLetQueued = map[*syntax.VarDecl]bool{}
 	}
 	l.stdLetQueued[s.decl] = true
+	if lib {
+		l.pending = append(l.pending, func() {
+			l.eachDecl(s.pkg, func(d syntax.Decl) {
+				if d == s.decl {
+					l.packageLet(s.decl)
+				}
+			})
+		})
+		return
+	}
 	l.pending = append(l.pending, func() {
 		l.inStdPkg(s.pkg, func() {
 			l.stdLetInits++
 			l.packageLet(s.decl)
 		})
 	})
+}
+
+// constantLet reports a let of p whose every name has a constant
+// initializer: lowered, it is a Go constant or variable with its value and
+// no code in initFunc.
+func (l *lowerer) constantLet(p *check.Package, d *syntax.VarDecl) bool {
+	for _, spec := range d.Specs {
+		if spec.Pattern != nil || len(spec.Values) == 0 || len(spec.Names) != len(spec.Values) {
+			return false
+		}
+		for i, x := range spec.Values {
+			if _, ok := p.Info.Values[x]; !ok {
+				return false
+			}
+			if _, ok := p.Info.Defs[spec.Names[i]].(*check.Var); !ok {
+				return false
+			}
+		}
+	}
+	return len(d.Specs) > 0
+}
+
+// noteLibLet records the constant let d of the sourced library p for
+// reachStdLet.
+func (l *lowerer) noteLibLet(p *check.Package, d *syntax.VarDecl) {
+	if l.libLetOf == nil {
+		l.libLetOf = map[*check.Var]stdLet{}
+	}
+	for _, spec := range d.Specs {
+		for _, id := range spec.Names {
+			l.libLetOf[p.Info.Defs[id].(*check.Var)] = stdLet{p, d}
+		}
+	}
 }
 
 // importOrder orders todo for initialization: each package after every

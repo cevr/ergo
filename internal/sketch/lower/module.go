@@ -411,6 +411,10 @@ type lowerer struct {
 	stdLetOf     map[*check.Var]stdLet
 	stdLetQueued map[*syntax.VarDecl]bool
 	stdLetInits  int
+	// libLetOf is the constant let of a sourced library and its package
+	// for each variable of one: lowered, as a std let is, where a body
+	// reads it (constantLet); stdLetQueued holds its declaration too.
+	libLetOf map[*check.Var]stdLet
 	// initEnvArg is the entry's environment variable, which its call of
 	// ergoInit passes (initSlot).
 	initEnvArg string
@@ -609,6 +613,11 @@ func (l *lowerer) program() ([]byte, error) {
 			}
 			switch d := d.(type) {
 			case *syntax.VarDecl:
+				if l.constantLet(p, d) {
+					// No initializer to run: declared where a body reads
+					// it, as a std package's let is (reachStdLet).
+					return
+				}
 				l.packageLet(d)
 			case *syntax.TypeDecl:
 				if _, ok := d.Spec.(*syntax.MachineType); ok {
