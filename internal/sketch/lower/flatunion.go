@@ -2,6 +2,7 @@ package lower
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -339,13 +340,15 @@ func (l *lowerer) lowerAgain() ([]byte, error) {
 }
 
 // unionPkgs are the packages whose unions the rule below decides: the
-// sourced packages and the reached std packages. A std union takes the
-// form a user package's union of the same shape takes, so a std package
-// lowers as its copy in a user module does (std-copy, flat-union-std).
+// sourced packages, then every other package the program reaches. A
+// union takes one form by its shape, whichever module declares it, so a
+// std package lowers as its copy in a user module does (std-copy,
+// flat-union-std); the rule reads no std membership
+// (TestCompilerReadsNoStdMembership).
 func (l *lowerer) unionPkgs() []*check.Package {
 	out := l.sourcedPkgs()
 	for _, p := range l.libraries() {
-		if p.Std() && !l.isSourced(p) {
+		if !l.isSourced(p) {
 			out = append(out, p)
 		}
 	}
@@ -353,7 +356,9 @@ func (l *lowerer) unionPkgs() []*check.Package {
 }
 
 // unionSourced reports a package of unionPkgs.
-func (l *lowerer) unionSourced(p *check.Package) bool { return p != nil && (l.isSourced(p) || p.Std()) }
+func (l *lowerer) unionSourced(p *check.Package) bool {
+	return p != nil && (p == l.pkg || l.isSourced(p) || slices.Contains(l.libraries(), p))
+}
 
 // flatUnionSet decides, once, which unions of the program are flat.
 func (l *lowerer) flatUnionSet() map[*check.TypeName]*flatUnion {
