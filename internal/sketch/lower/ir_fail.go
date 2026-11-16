@@ -395,7 +395,9 @@ func (b *irBuilder) operands(list []syntax.Expr) ([]*irStmt, []*irExpr) {
 
 // operandType is the type of operand a's value: its implicit
 // conversion's target when it has one (value applies it), else its own.
-// A variant passed as its union spills into a local of the union.
+// A variant passed as its union spills into a local of the union. The one
+// definition (owner: lane GP): OPC's operandFits (ir_operand.go) reads it
+// too, and a ConvVariant's target is the case OPC's own copy covered.
 func (b *irBuilder) operandType(a syntax.Expr) check.Type {
 	if conv, ok := b.l.info.Implicit[a]; ok && conv.To != nil {
 		return conv.To
