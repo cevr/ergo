@@ -12,7 +12,7 @@ import (
 // state's timer) and work (the state's work). The action has no error row:
 // a typed failure in it is handled inside it, as scope.OnExit's body's is.
 // R is charged to the machine's row W with the work's row (machineValue):
-// the runner needs it, a fold, which runs no exit action, does not.
+// the runner must provide it; a fold, which runs no exit action, does not.
 //
 // Prior art: XState's (and SCXML's) exit actions of a state, which read
 // the context at the transition; gen_statem's terminate and Akka Typed's
