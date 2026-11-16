@@ -282,6 +282,158 @@
       "killers": [
         "internal/sketch/syntax:TestDecodeAgreesWithGo"
       ]
+    },
+    {
+      "name": "entry-clause-not-parsed",
+      "origin": "wf10 STD-NOPRIV NP3b; moved to the Ergo parser at wf10 selfhost S2d",
+      "file": "compiler/syntax/parse_type.ergo",
+      "from": "\tif isWord(p, \"entry\") && peek(p, 1) == Func {",
+      "to": "\tif isWord(p, \"entry\") && peek(p, 1) == Func && p.i < 0 {",
+      "rule": "grammar.md Declarations 17: entry before func is the entry type's prefix.",
+      "killers": [
+        "internal/sketch/syntax:TestDecidedFixtures",
+        "internal/sketch/syntax:TestParseAgreesWithGo"
+      ]
+    },
+    {
+      "name": "pure-clause-not-parsed",
+      "origin": "wf10 STD-NOPRIV NP3a; moved to the Ergo parser at wf10 selfhost S2d",
+      "file": "compiler/syntax/parse_type.ergo",
+      "from": "\tif !isWord(p, \"pure\") {\n\t\treturn -1",
+      "to": "\tif !isWord(p, \"pure\") || p.i >= 0 {\n\t\treturn -1",
+      "rule": "grammar.md Declarations 16: pure between a parameter's name and its type is the clause.",
+      "killers": [
+        "internal/sketch/syntax:TestDecidedFixtures",
+        "internal/sketch/syntax:TestParseAgreesWithGo"
+      ]
+    },
+    {
+      "name": "builtin-target-any-name",
+      "origin": "wf10 OPT4b; moved to the Ergo parser at wf10 selfhost S2d",
+      "file": "compiler/syntax/parse_decl.ergo",
+      "from": "\tif (path == \"\" && !isGoBuiltin(name)) || !isIdentifier(name) {",
+      "to": "\tif (path == \"\" && !isGoBuiltin(name) && p.i < 0) || !isIdentifier(name) {",
+      "rule": "An extern target with no import path names a Go builtin.",
+      "killers": [
+        "check:TestBuiltinBindingShapes",
+        "internal/sketch/syntax:TestParseAgreesWithGo"
+      ]
+    },
+    {
+      "name": "ex3-lent-modifier-unparsed",
+      "origin": "wf10 EXPLICIT EX3 r2; moved to the Ergo parser at wf10 selfhost S2d",
+      "file": "compiler/syntax/parse_decl.ergo",
+      "from": "\t\t\tif identIs(p, ty, \"lent\") && p.tk != Comma && p.tk != RBrack {",
+      "to": "\t\t\tif identIs(p, ty, \"lent\") && p.tk != Comma && p.tk != RBrack && p.i < 0 {",
+      "rule": "`lent` before a constraint marks the parameter lent: [T lent Counter] (types.md, Borrows 7).",
+      "killers": [
+        "internal/sketch/syntax:TestDecidedFixtures",
+        "internal/sketch/syntax:TestParseAgreesWithGo"
+      ]
+    },
+    {
+      "name": "try1-groups-right",
+      "origin": "wf10 lang-2 TRY1; moved to the Ergo parser at wf10 selfhost S2d",
+      "file": "compiler/syntax/parse_expr.ergo",
+      "from": "\t\tlet x = parseUnary(p)\n\t\tleave(p)\n\t\tlet kind = if k == Mul",
+      "to": "\t\tlet x = if k == Try { parseBinary(p, 1) } else { parseUnary(p) }\n\t\tleave(p)\n\t\tlet kind = if k == Mul",
+      "rule": "grammar.md Expressions 1 (q105): a try in operand position wraps its operand only; it adds no grouping.",
+      "killers": [
+        "internal/sketch/syntax:TestTryAddsNoGrouping",
+        "internal/sketch/syntax:TestParseAgreesWithGo"
+      ]
+    },
+    {
+      "name": "exm1-own-name-read-as-mode",
+      "origin": "wf10 EXM1; moved to the Ergo parser at wf10 selfhost S2d",
+      "file": "compiler/syntax/parse_type.ergo",
+      "from": "\t\tlet own = if e.ambiguous { none } else { e.own }",
+      "to": "\t\tlet own = e.own",
+      "rule": "own is contextual: in a named list, own T is a parameter named own (q168).",
+      "killers": [
+        "internal/sketch/fix:TestOwnSpellsTheOldModes",
+        "internal/sketch/syntax:TestParseAgreesWithGo"
+      ]
+    },
+    {
+      "name": "orp-top-bar-text",
+      "origin": "wf10 FK7a; moved to the Ergo parser at wf10 selfhost S2d",
+      "file": "compiler/syntax/parse_expr.ergo",
+      "from": "\t\tif p.tk == Or {\n\t\t\terrorf(p, \"the alternatives of a case",
+      "to": "\t\tif p.tk == Or && p.i < 0 {\n\t\t\terrorf(p, \"the alternatives of a case",
+      "rule": "A | at the top of a case is S001 naming the comma form (FK7a).",
+      "killers": [
+        "check:TestOrPatternMessages"
+      ]
+    },
+    {
+      "name": "orp-let-admitted",
+      "origin": "wf10 FK7a; moved to the Ergo parser at wf10 selfhost S2d",
+      "file": "compiler/syntax/parse_expr.ergo",
+      "from": "\tif !p.orAllowed {\n",
+      "to": "\tif !p.orAllowed && p.i < 0 {\n",
+      "rule": "Alternatives stand only in a case's patterns: a let or for pattern is one shape (FK7a).",
+      "killers": [
+        "check:TestOrPatternMessages"
+      ]
+    },
+    {
+      "name": "orp-cap-missing",
+      "origin": "wf10 FK7a; moved to the Ergo parser at wf10 selfhost S2d",
+      "file": "compiler/syntax/parse_expr.ergo",
+      "from": "\t\tif has && total > maxAlternatives {",
+      "to": "\t\tif has && total > maxAlternatives*1000 {",
+      "rule": "A case expands to at most 64 patterns (FK7a).",
+      "killers": [
+        "check:TestOrPatternMessages"
+      ]
+    },
+    {
+      "name": "tskip-interpolated-reason",
+      "origin": "wf10 TSKIP; moved to the Ergo parser at wf10 selfhost S2d",
+      "file": "compiler/syntax/parse_expr.ergo",
+      "from": "\tif p.tk == StringHead {\n\t\terrorAt(p, pos(p), tokLen(p), \"skip takes",
+      "to": "\tif p.tk == StringHead && p.i < 0 {\n\t\terrorAt(p, pos(p), tokLen(p), \"skip takes",
+      "rule": "A skip's reason has no interpolation, and the message says so.",
+      "killers": [
+        "internal/sketch/check:TestSkipNamesItsReason",
+        "internal/sketch/syntax:TestParseAgreesWithGo"
+      ]
+    },
+    {
+      "name": "tskip-scanner-reserves",
+      "origin": "wf10 TSKIP; moved to the Ergo parser at wf10 selfhost S2d",
+      "file": "compiler/syntax/scan.ergo",
+      "from": "\t\treturn uint8(k)\n\t}\n\tIdent\n}\n\n// kwTable",
+      "to": "\t\treturn uint8(k)\n\t}\n\tif src[start:end] == \"skip\" {\n\t\treturn Assert\n\t}\n\tIdent\n}\n\n// kwTable",
+      "rule": "skip is a contextual keyword: the scanner reads it as a name, so no program loses the name.",
+      "killers": [
+        "internal/sketch/syntax:TestSkipIsAName",
+        "internal/sketch/syntax:TestParseAgreesWithGo"
+      ]
+    },
+    {
+      "name": "tskip-call-is-skip",
+      "origin": "wf10 TSKIP; moved to the Ergo parser at wf10 selfhost S2d",
+      "file": "compiler/syntax/parse_expr.ergo",
+      "from": "\tn == String || n == StringHead\n}",
+      "to": "\tn != Semicolon && n != EOF\n}",
+      "rule": "Only skip followed directly by a string literal is the statement; skip(x) is a call.",
+      "killers": [
+        "internal/sketch/syntax:TestSkipIsAName",
+        "internal/sketch/syntax:TestParseAgreesWithGo"
+      ]
+    },
+    {
+      "name": "gw-group",
+      "origin": "check ledger; moved to the Ergo parser at wf10 selfhost S2d",
+      "file": "compiler/syntax/parse_decl.ergo",
+      "from": "\t\tif mark(p.t)-fm != 1 {\n\t\t\terrorNode(p, k, \"a wire key names one field",
+      "to": "\t\tif mark(p.t)-fm != 1 && p.i < 0 {\n\t\t\terrorNode(p, k, \"a wire key names one field",
+      "rule": "One explicit key belongs to one field, never a field group.",
+      "killers": [
+        "check:TestWireKeyDiagnostics"
+      ]
     }
   ]
 }
