@@ -363,6 +363,14 @@ type irBuilder struct {
 	// statement ends the body: a tail of an error value fails the frame
 	// (ir_fail.go bodyStmts, ir_stmt.go tailTo).
 	voidTail bool
+	// at, when set, is the position of every node built: a view's body
+	// built at its match site takes the site's (ir_view.go).
+	at *irPos
+	// params are the parameters' locals; hoisted and entry are the fields
+	// of record parameters read once at entry (ir_hoist.go).
+	params  map[int]bool
+	hoisted map[hoistKey]int
+	entry   []*irStmt
 }
 
 // gate stops the body for reason; a census records it and goes on.
@@ -492,13 +500,18 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	}
 	b.fn = &irFunc{Name: name, Pos: b.pos(f.Decl, f.Decl.Pos()), End: b.pos(f.Decl, f.Decl.Body.Rbrace)}
 	b.names = b.tempNames(f.Decl.Body) // ir_fail.go
-
+	b.params = map[int]bool{}          // ir_hoist.go: the parameters' locals, before openOwn's
+	for _, l := range b.locals {
+		b.params[l] = true
+	}
 	b.part(func() { b.fn.Body = append(b.fn.Body, b.openOwn(f, params)...) }) // ir_own.go
 	if b.env >= 0 && frameFootprint(f.Pkg.Info, f.Decl).EntryPoll && !b.l.knownClosed(f) && fc.frame.polls {
 		b.fn.Body = append(b.fn.Body, b.poll(f.Decl))
 	}
+	n := len(b.fn.Body)
 	b.fn.Body = append(b.fn.Body, b.bodyStmts(f.Decl.Body.List)...) // ir_fail.go
 	b.part(b.ownVisited)                                            // ir_own.go
+	b.fn.Body = b.withEntry(b.fn.Body, n)                           // ir_hoist.go
 	b.fn.Body = append(b.fn.Body, b.bodyEnd(b.fn.Body, b.fn.End)...)
 	b.fn.Body = irScopesIncrease(irUseLocals(b.fn.Body)) // ir_end.go
 	if st.census != nil {
@@ -549,6 +562,9 @@ func (st *irState) intrinsic(f *check.Func) {
 // sources, or, in a std body, its embedded std file (std/<pkg>/<file>,
 // the path a std body's defect names; locate).
 func (b *irBuilder) pos(n syntax.Node, p syntax.Pos) irPos {
+	if b.at != nil {
+		return *b.at
+	}
 	if _, ok := b.l.sourceOf(n); !ok {
 		if _, ok := b.l.stdFileOf(n); !ok {
 			irNo("node outside the program's and std's sources")
