@@ -280,7 +280,11 @@ func execCommand(name string, args []string, env map[string]string, dir string, 
 			keys = append(keys, k)
 		}
 		slices.Sort(keys)
-		cmd.Env = os.Environ()
+		// cmd.Environ, not os.Environ: with a dir it sets PWD to the dir,
+		// as os/exec does for a command with no Env of its own, so a
+		// program that reads PWD (a shell's pwd) sees the dir it runs in,
+		// not this process's PWD.
+		cmd.Env = cmd.Environ()
 		for _, k := range keys {
 			cmd.Env = append(cmd.Env, k+"="+env[k])
 		}
