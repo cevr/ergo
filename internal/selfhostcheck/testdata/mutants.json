@@ -64,7 +64,7 @@
       "to": "",
       "rule": "The encoding carries every node type of the syntax package; the corpus may not yet write a new one.",
       "killers": [
-        "compiler/hostsyntax:TestFamiliesCoverSyntax"
+        "internal/hostsyntax:TestFamiliesCoverSyntax"
       ]
     },
     {
@@ -317,7 +317,7 @@
       "to": "",
       "rule": "A struct a family's field points to (LawDecl.Rewrite) is a family: else the encoding is a U document while the Go projection prints it.",
       "killers": [
-        "compiler/hostsyntax:TestFamiliesCoverSyntax",
+        "internal/hostsyntax:TestFamiliesCoverSyntax",
         "internal/selfhostcheck:TestSelfhostBridgeAgrees"
       ]
     },
