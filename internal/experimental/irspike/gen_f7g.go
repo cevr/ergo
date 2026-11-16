@@ -37,6 +37,7 @@ var orderForms = []orderForm{
 	{"call inside an expression", 2, map[string]int{"calls2": 3}},
 	{"short-circuit operand with a call", 2, map[string]int{"calls2": 3, "expr": 6}},
 	{"step that gives no output", 2, map[string]int{"calls2": 3, "expr": 9}},
+	{"error row as a type argument", 2, map[string]int{"calls2": 3, "expr": 10}},
 	{"for-in over a call", 5, nil},
 	{"loop condition with a call", 4, nil},
 	{"try of a non-call", 7, map[string]int{"try7": 1}},
@@ -109,6 +110,10 @@ func (g *fgen) orderDecls() {
 	// settle is a machine step that gives no output: its result type
 	// holds the prelude's Never, and settled matches on it.
 	g.b.WriteString("func settle(n int) Decision[Pt, Never] {\n\tif n > 2 {\n\t\tEnter[Pt]{Next: Pt{A: n, B: 1}}\n\t} else if n < -2 {\n\t\tStay[Pt]{Next: Pt{A: 1, B: n}}\n\t} else if n == 0 {\n\t\tIgnore\n\t} else {\n\t\tReject\n\t}\n}\n\n")
+	// calm's body names Crash[E], whose variant Failed[E] has a field of
+	// the error row E: the row's Go error, no Go type parameter.
+	g.b.WriteString("type Calm {}\n\ntype Failed[F] { Failure F }\n\ntype Crash[F] = Calm | Failed[F]\n\n")
+	g.b.WriteString("func calm[E](n int, f func(int) int fails E) int fails E {\n\tlet c Crash[E] = Calm\n\tmatch c {\n\tcase Calm:\n\t\t(try f(n)) + 4\n\tcase Failed[E]:\n\t\tn\n\t}\n}\n\n")
 	g.b.WriteString("func settled(n int) int {\n\tmatch settle(n) {\n\tcase Enter[Pt] as d:\n\t\td.Next.A * 3\n\tcase Stay[Pt] as d:\n\t\td.Next.B - 7\n\tcase Ignore:\n\t\t5\n\tcase Reject:\n\t\t11\n\t}\n}\n\n")
 }
 
@@ -120,9 +125,11 @@ func (g *fgen) traced() string { return "tr(" + g.expr(1) + ")" }
 // literal, a short-circuit operand; an earlier operand may be a defect
 // (indexed) that must come before a later call's effect.
 func (g *fgen) orderExpr() string {
-	switch g.sub("expr", 10) {
+	switch g.sub("expr", 11) {
 	case 9:
 		return "settled(" + g.traced() + ")"
+	case 10:
+		return fmt.Sprintf("calm(%s, func(n int) int { n * %d })", g.traced(), 2+g.n(3))
 	case 0:
 		return g.indexed(2) + " + " + g.traced()
 	case 1:
