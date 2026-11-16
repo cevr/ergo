@@ -1504,6 +1504,22 @@
       "to": "let IdleOnDefault = false\n",
       "rule": "gc -idle trusts a remote-tracking ref only on a remote's default branch: a branch a stale ref holds is archived, or the workspace stays (memory's IdleKeepsAStaleBranch).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wkm-clone-keeps-rift-marker", "origin": "wf10/semws WK-MARKER (the Mac)",
+      "file": "modules/work/work/new.ergo",
+      "from": "slices.Concat(m.Config.LeaveOut, []string{RiftMarker})",
+      "to": "slices.Concat(m.Config.LeaveOut, []string{})",
+      "rule": "A workspace never carries its parent's Rift marker .rift (memory's CloneLeavesTheRiftMarker).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wkm-host-has-folders-only", "origin": "wf10/semws WK-MARKER (the Mac)",
+      "file": "modules/work/system/trees.ergo",
+      "from": "func Has(t Trees, root string) bool { at(t, \"-e\", root) }",
+      "to": "func Has(t Trees, root string) bool { at(t, \"-d\", root) }",
+      "rule": "A host Cloner finds a file to leave out (Rift's marker .rift), not only a folder (the new-rift-marker case).",
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
     }
   ]
 }

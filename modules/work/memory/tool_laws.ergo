@@ -816,3 +816,27 @@ law RemovedAgainInOneSecond(name int, times int) {
 	}
 	len(listed) == k && len(trashes) == k && len(out.Purged) == k && len(after) == 0
 }
+
+// CloneLeavesTheRiftMarker: new of a base that holds Rift's marker
+// (.rift, the copy's id) clones every other file, and no workspace holds
+// the marker, made on the base or on another workspace (WK-MARKER).
+law CloneLeavesTheRiftMarker(id string, on bool) {
+	let w = world(true)
+	if !Write(w.trees, theBase, work.RiftMarker, id+"\n") || !Write(w.trees, theBase, "kept.txt", id) {
+		return false
+	}
+	let a = w.tool.New("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let made = if on {
+		(w.tool.New("b", work.NewOptions{Copy: false, From: None, Branch: None, On: Some[string]{Value: "a"}, Token: None}) catch {
+		case _:
+			return false
+		}).Path
+	} else {
+		a.Path
+	}
+	let files = Files(w.trees, made)
+	files.Get(work.RiftMarker) == None && files.Get("kept.txt") == Some[string]{Value: id} && Files(w.trees, theBase).Get(work.RiftMarker) != None
+}

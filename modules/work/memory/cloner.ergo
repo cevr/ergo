@@ -130,7 +130,7 @@ func Clone(c Cloner, from string, to string) fails work.NotSameVolume | work.Uns
 func Roots(c Cloner) []string { slices.Sorted(maps.Keys(c.disk.Get().trees)) }
 
 // Has: a tree is at root, or root is a folder inside a tree (a file
-// of the tree is under it), as leave_out finds one.
+// of the tree is under it) or a file of it, as leave_out finds one.
 func Has(c Cloner, root string) bool {
 	let d = c.disk.Get()
 	held(d, root) || inner(d, root) != None
@@ -149,7 +149,7 @@ func inner(d Disk, root string) Option[Inside] {
 		}
 		let folder = strings.TrimPrefix(root, at+"/")
 		for path, _ in tree {
-			if strings.HasPrefix(path, folder+"/") {
+			if path == folder || strings.HasPrefix(path, folder+"/") {
 				return Some[Inside]{Value: Inside{Root: at, Folder: folder}}
 			}
 		}
@@ -188,7 +188,7 @@ func Discard(c Cloner, root string) fails work.Missing | work.CloneFailed {
 	case Some[Inside] as hit:
 		let mut kept = Map[string, int]{}
 		for path, block in maps.GetOr(d.trees, hit.Value.Root, Map[string, int]{}) {
-			if !strings.HasPrefix(path, hit.Value.Folder+"/") {
+			if path != hit.Value.Folder && !strings.HasPrefix(path, hit.Value.Folder+"/") {
 				kept[path] = block
 			}
 		}
