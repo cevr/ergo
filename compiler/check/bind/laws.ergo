@@ -118,6 +118,38 @@ law UsesNameTheirDeclarations(picks []int) {
 	ok && resolved > 0
 }
 
+// JoinIsThreadFree: binding the package as one task and as up to 8 tasks
+// over up to 16 pieces gives the same Uses, Defs, local names and package
+// names (C0/plan.md §3 rule 4, equal bytes at 1 and 8 threads), and each
+// local's name is its row's text. Each assembly takes fragment 2 (F, with
+// locals), so the law is never vacuous.
+law JoinIsThreadFree(picks []int, t int, k int) {
+	let files = packageOf(picks.Append(2))
+	let s = Collect("p", files)
+	let ps = BuildParents(files)
+	let (s1, u1) = bindIn(s, ps, files, 1, 1)
+	let (sn, un) = bindIn(s, ps, files, 1+((t%8)+8)%8, 1+((k%16)+16)%16)
+	let mut ok = store.NumNames(s1) == store.NumNames(sn)
+	let mut locals = 0
+	for f, file in files {
+		let p = file.Parsed
+		for i in 0..syntax.NumNodes(p.Tree) {
+			let id = syntax.NodeAt(p.Tree, i)
+			let n = PNodeOf(ps, f, id)
+			ok = ok && dense.SideOf(u1.at, n) == dense.SideOf(un.at, n) && dense.SideOf(u1.defs, n) == dense.SideOf(un.defs, n)
+			match (LocalName(u1, n), LocalName(un, n)) {
+			case (Some[dense.ID[dense.Str]] as a, Some[dense.ID[dense.Str]] as b):
+				locals = locals + 1
+				ok = ok && a.Value == b.Value && store.Text(s1, a.Value) == text(p, id) && store.Text(sn, b.Value) == text(p, id)
+			case (None, None):
+			case _:
+				ok = false
+			}
+		}
+	}
+	ok && locals > 0
+}
+
 // relaid is src with other layout: a comment line ahead of it (every
 // position moves), a newline for each written semicolon (the scanner
 // inserts it back), a comment and a blank line after each line, and two

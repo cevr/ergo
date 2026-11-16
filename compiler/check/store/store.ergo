@@ -87,6 +87,21 @@ func Lookup(s Store, text string) Option[dense.ID[Decl]] {
 	}
 }
 
+// FindName is the id of text when the package's names hold it: it interns
+// nothing, so body tasks call it on the store frozen while they run.
+func FindName(s Store, text string) Option[dense.ID[dense.Str]] { dense.FindText(s.names, text) }
+
+// ScopeOf is the package-level declaration name n binds, if any.
+func ScopeOf(s Store, n dense.ID[dense.Str]) Option[dense.ID[Decl]] {
+	if !dense.In(s.scope, n) {
+		return None
+	}
+	dense.Unpack(dense.Of(s.scope, n))
+}
+
+// NumNames is the count of the package's distinct names.
+func NumNames(s Store) int { dense.Texts(s.names) }
+
 // DeclOf is the row of d.
 func DeclOf(s Store, d dense.ID[Decl]) Decl { dense.At(s.decls, d) }
 
