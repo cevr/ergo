@@ -1,0 +1,7 @@
+{
+  "about": "The mutant ledger of runtime/v1/shadow: edits of a test build's rewrite shadow (key equality, the defect's text) that a runtime/v1/shadow test must kill. Run it with go run ./scripts/mutants ./runtime/v1/shadow.",
+  "mutants": [
+    {"name":"lf6c-shadow-float-by-go-equality","origin":"wf10 LF6c-IR","file":"runtime/v1/shadow/shadow.go","from":"\t\treturn math.Float64bits(x) == math.Float64bits(y) || x != x && y != y\n","to":"\t\treturn x == y && !math.IsNaN(x)\n","rule":"Shadow compares floats by key equality: a NaN equals a NaN.","killers":["runtime/v1/shadow:TestShadowComparesByKeyEquality"]},
+    {"name":"lf6c-shadow-zero-sign","origin":"wf10 LF6c-IR","file":"runtime/v1/shadow/shadow.go","from":"\t\treturn math.Float64bits(x) == math.Float64bits(y) || x != x && y != y\n","to":"\t\treturn x == y || math.IsNaN(x) && math.IsNaN(y)\n","rule":"Shadow compares floats by their bits: -0 is not +0.","killers":["runtime/v1/shadow:TestShadowComparesByKeyEquality"]}
+  ]
+}
