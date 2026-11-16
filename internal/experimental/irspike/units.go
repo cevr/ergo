@@ -102,7 +102,6 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"catch of a non-call", "G2"},
 	{"catch arm without a pattern", "G2"},
 	{"catch arm form", "G2"},
-	{"continue in a polling loop", "G2"},
 	{"failure in a branch tail of a body with no value", "G2"},
 	{"operation call that enters a release", "G2"}, // a checked Close: frames, IRG2b
 	{"checked Close (closeBody masks it)", "G2"},   // the Close body itself, inside its mask

@@ -399,7 +399,7 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 			}
 			return []*irStmt{st}
 		case syntax.CONTINUE:
-			return []*irStmt{{K: "continue", Pos: b.pos(s, s.Pos())}}
+			return b.continueStmt(s) // ir_fail.go: the back-edge poll first
 		}
 		irNo("statement *syntax.BranchStmt %s", s.Tok)
 	case *syntax.RangeStmt:
@@ -457,7 +457,7 @@ func (b *irBuilder) loopBody(st *irStmt, s syntax.Stmt, body *syntax.BlockStmt) 
 	b.switches, b.label = 0, ""
 	defer func() { b.loops, b.switches, b.label = b.loops-1, switches, label }()
 	st.Body = b.tail(body.List, false)
-	poll := b.loopPoll(s, body) // its gates hold either way
+	poll := b.loopPoll(s)
 	// The back-edge poll follows a body that reaches its end: after a
 	// break or a terminating statement it never runs, and go vet calls it
 	// unreachable (ir_end.go).
