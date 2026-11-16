@@ -17,12 +17,11 @@ func (b *irBuilder) indexOther(x *syntax.IndexExpr, p irPos) *irExpr {
 	switch t := b.l.info.Types[x.X].(type) {
 	case *check.Array:
 		b.goType(t, x)
-	case *check.Basic:
-		if t.Kind != check.String {
+	default:
+		// A string, or a named type over one (std fs.Text): its byte.
+		if bt := b.scalarBasic(t); bt == nil || bt.Kind != check.String {
 			irNo("index of a non-slice")
 		}
-	default:
-		irNo("index of a non-slice")
 	}
 	return &irExpr{K: "index", Pos: p, X: b.expr(x.X), Y: b.expr(x.Indices[0])}
 }
