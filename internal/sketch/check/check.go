@@ -746,6 +746,8 @@ func universe() *Scope {
 		// go.Is and go.As read a go.Error's native chain (IG5, goerror.go).
 		goPkg.Scope.insert("Is", &Builtin{Name: "go.Is"})
 		goPkg.Scope.insert("As", &Builtin{Name: "go.As"})
+		// go.New[T]() is Go's new(T), held as a go.Ref[T] (GBX1, gonew.go).
+		goPkg.Scope.insert("New", &Builtin{Name: "go.New"})
 		// go.Ref[T] is a Go pointer that is stored, returned or held in a
 		// collection: an opaque handle, never nil (owner q32, q38;
 		// docs/spec/interop.md). Ergo's own *T stays a borrow.

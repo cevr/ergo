@@ -62,6 +62,28 @@ A declaration that does not map is listed in the binding with its reason, so the
 
 A Go pointer is never Ergo's `*T` outside a parameter: `*T` is a borrow everywhere, Go types included, and a stored or returned Go pointer is the distinct handle type `go.Ref[T]`, opaque and never nil (owner q32 and q38: "consistency is important").
 
+### Go values by address
+
+GBX1, 2026-11-16. `go.New[T]()` is Go's `new(T)`: a fresh zero `T`, held by its address as a `go.Ref[T]` (`check/gonew.go`). It is how Ergo source holds a Go value whose methods have pointer receivers and which Go forbids to copy once used:
+
+```
+import go sync
+import go sync/atomic
+
+type Counter { mu go.Ref[sync.Mutex], n go.Ref[atomic.Int64] }
+
+func NewCounter() Counter needs go.Foreign {
+	Counter{mu: go.New[sync.Mutex](), n: go.New[atomic.Int64]()}
+}
+```
+
+1. **T** is a Go type of import go that is no interface (Go has no value of one) and no resource (a zero file or connection is not open, and its release would run on nothing; take a resource from the Go function that opens it). An Ergo type, a basic type, `go.Any` and a `go.Ref` are refused, S108 "go.New[T]: …".
+2. **Sharing.** Copies of the `go.Ref` share the one Go value, as Go's pointers do: `c.n.Add(1)` through any copy writes the same `atomic.Int64`. A method with a pointer receiver is called on it as on any `go.Ref` (Checking 3), and lends it (Resources 5).
+3. **Rows.** The call charges `go.Foreign`: its value has identity, which a pure frame may not create, since a pure call may be evaluated once for two uses.
+4. **Lowering.** `new(T)`, nothing else. `TestGoNew` (lower) is the property: each target admitted or refused as the rule says, the admitted ones called through a copy and a record field and type-checked as Go.
+
+*Prior art:* Gleam and Elixir reach a mutable host cell only through the host (`:atomics.new`, an ETS table, a process), never as a language value; ReScript's `ref` and OCaml's `Atomic.make` are a heap cell with identity, as here. Effect's `Ref.make` is an effect for the same reason as the `go.Foreign` charge: allocation of identity is not pure. Each lowers to the host's own allocation.
+
 ## Purity and authority
 
 Each call's row comes from the reviewed tables of `runtime/v1`, never from the Go signature:

@@ -1486,10 +1486,10 @@ func (c *checker) index(x *syntax.IndexExpr, hint Type) operand {
 			}
 			return operand{mode: modeBuiltin, obj: b, typ: t}
 		}
-		if b, _ := base.obj.(*Builtin); b != nil && b.Name == "go.As" && unparen(x.X) == x.X {
-			// go.As[T]: T is checked at the call (goErrorCall).
+		if b, _ := base.obj.(*Builtin); b != nil && (b.Name == "go.As" || b.Name == "go.New") && unparen(x.X) == x.X {
+			// go.As[T], go.New[T]: T is checked at the call (goErrorCall).
 			if len(x.Indices) != 1 {
-				c.errorf(x, CodeType, "go.As takes one type argument, not %d", len(x.Indices))
+				c.errorf(x, CodeType, "%s takes one type argument, not %d", b.Name, len(x.Indices))
 				return bad(x)
 			}
 			return operand{mode: modeBuiltin, obj: b, typ: invalid, targ: c.typExpr(x.Indices[0], c.localTypeCtx())}
