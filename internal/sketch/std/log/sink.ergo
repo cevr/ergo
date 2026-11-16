@@ -1,7 +1,8 @@
 // Logging (Effect Logger, Go log/slog). A program logs through the Sink in
-// its context: `log.Info("started")` needs Sink, and the entry carries the
-// annotations in force (`with log.Annotate("region", "eu") { … }`), so a
-// task's log lines name the request it serves with no logger passed down.
+// its context: `log.Info("started")` writes to that Sink, and the entry
+// carries the annotations in force (`with log.Annotate("region", "eu")
+// { … }`), so a task's log lines name the request it serves with no
+// logger passed down.
 // The sink decides where an entry goes and which levels it writes:
 // NewJSONLines writes slog's JSON lines to standard error, NewRecorder
 // keeps the entries for a test. The entry point binds one:
