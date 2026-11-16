@@ -840,3 +840,59 @@ law CloneLeavesTheRiftMarker(id string, on bool) {
 	let files = Files(w.trees, made)
 	files.Get(work.RiftMarker) == None && files.Get("kept.txt") == Some[string]{Value: id} && Files(w.trees, theBase).Get(work.RiftMarker) != None
 }
+
+// BasesAreTheLiveOnes: of the bases init registered, bases lists those
+// whose folder is there, in order; prune-bases forgets exactly the gone
+// ones and leaves the list the live ones; forget-base drops one base, gone
+// or live, and nothing else (the Mac's WK-BASES: a scratch base a test
+// registered and deleted sent a caller into a missing folder).
+law BasesAreTheLiveOnes(live []bool, forget int) {
+	let w = world(true)
+	let mut lines = []string{theBase}
+	let mut want = []string{theBase}
+	let mut gone = []string{}
+	for i, here in live {
+		let b = "/elsewhere/b\(i)"
+		lines = lines.Append(b)
+		if here {
+			w.disk.MkdirAll(b) catch {
+			case _:
+				return false
+			}
+			want = want.Append(b)
+		} else {
+			gone = gone.Append(b)
+		}
+	}
+	w.disk.WriteFile(work.BasesFile("/data"), strings.Join(lines, "\n")+"\n") catch {
+	case _:
+		return false
+	}
+	let listed = w.tool.Bases() catch {
+	case _:
+		return false
+	}
+	let k = small(forget, len(lines))
+	let left = w.tool.ForgetBase(lines[k]) catch {
+	case _:
+		return false
+	}
+	let wantLeft = slices.Filter(lines, func(b string) bool { b != lines[k] })
+	let pruned = w.tool.PruneBases() catch {
+	case _:
+		return false
+	}
+	let after = w.tool.Bases() catch {
+	case _:
+		return false
+	}
+	let liveLeft = slices.Filter(want, func(b string) bool { b != lines[k] })
+	// The list itself no longer names a gone base: the next walker of the
+	// file (journal.BaseHolding, an older work) does not meet one either.
+	let file = w.disk.ReadFile(work.BasesFile("/data")) catch {
+	case _:
+		return false
+	}
+	let kept = if len(liveLeft) == 0 { "" } else { strings.Join(liveLeft, "\n") + "\n" }
+	listed == want && left == wantLeft && pruned == slices.Filter(gone, func(b string) bool { b != lines[k] }) && after == liveLeft && file == kept
+}

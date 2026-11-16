@@ -1520,6 +1520,30 @@
       "to": "func Has(t Trees, root string) bool { at(t, \"-d\", root) }",
       "rule": "A host Cloner finds a file to leave out (Rift's marker .rift), not only a folder (the new-rift-marker case).",
       "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
+    },
+    {
+      "name": "wkb-bases-lists-gone", "origin": "wf10/semws WK-BASES2 (the Mac)",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "func Bases(t Tool) []string fails Unkept { slices.Filter(try registered(t), func(b string) bool { exists(t, b) }) }",
+      "to": "func Bases(t Tool) []string fails Unkept { try registered(t) }",
+      "rule": "bases never lists a base whose folder is gone (memory's BasesAreTheLiveOnes).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wkb-prune-keeps-gone", "origin": "wf10/semws WK-BASES2 (the Mac)",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\t\ttry rewriteBases(t, slices.Filter(all, func(b string) bool { exists(t, b) }))\n",
+      "to": "\t\ttry rewriteBases(t, all)\n",
+      "rule": "prune-bases leaves the list the live bases (memory's BasesAreTheLiveOnes).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "wkb-forget-nothing", "origin": "wf10/semws WK-BASES2 (the Mac)",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\tlet left = slices.Filter(try registered(t), func(b string) bool { filepath.Clean(b) != gone })\n",
+      "to": "\tlet left = slices.Filter(try registered(t), func(b string) bool { filepath.Clean(b) != gone || true })\n",
+      "rule": "forget-base drops the base it names (memory's BasesAreTheLiveOnes).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     }
   ]
 }

@@ -261,8 +261,15 @@ type Api {
 	// Refresh refreshes the stat data of the base's Git index, so that a
 	// clone starts fresh; it is the number of stale entries it had.
 	Refresh() int fails NoBase | Unkept | VcsFailed,
-	// Bases is every base init registered on this host.
+	// Bases is every base init registered on this host whose folder is
+	// there.
 	Bases() []string fails Unkept,
+	// ForgetBase drops base from the list of bases; its folder and its
+	// workspaces stay. It is the bases still registered.
+	ForgetBase(base string) []string fails Unkept | fs.Denied | fs.Failed,
+	// PruneBases forgets every base whose folder is gone; it is the
+	// bases it forgot.
+	PruneBases() []string fails Unkept | fs.Denied | fs.Failed,
 	// ShellInit is a shell function for eval "$(work shell-init)": work
 	// new changes to the new workspace.
 	ShellInit() string,
@@ -609,7 +616,7 @@ func idOf(t Tool, name string, path string) string {
 
 // register adds the base to the user's list of bases, once.
 func register(t Tool) fails Unkept | fs.Denied | fs.Failed {
-	let all = try Bases(t)
+	let all = try registered(t)
 	for b in all {
 		if b == t.base {
 			return

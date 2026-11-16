@@ -2,6 +2,7 @@ import exec
 import filepath
 import fs
 import json
+import slices
 import strings
 import toml
 
@@ -153,8 +154,57 @@ func Refresh(t Tool) int fails NoBase | Unkept | VcsFailed {
 // the user's data folder.
 func BasesFile(data string) string { filepath.Join([]string{data, "bases"}) }
 
-// Bases is every base init registered on this host.
-func Bases(t Tool) []string fails Unkept {
+// Bases is every base init registered on this host whose folder is
+// there: one whose folder is gone (a test's scratch, a repository moved
+// or removed) is not listed, so no caller walks into it (the Mac's
+// WK-BASES); prune-bases forgets it.
+func Bases(t Tool) []string fails Unkept { slices.Filter(try registered(t), func(b string) bool { exists(t, b) }) }
+
+// ForgetBase drops base from the list (its folder, its storage and its
+// workspaces stay); it is the bases still registered.
+func ForgetBase(t Tool, base string) []string fails Unkept | fs.Denied | fs.Failed {
+	let gone = filepath.Clean(base)
+	let left = slices.Filter(try registered(t), func(b string) bool { filepath.Clean(b) != gone })
+	try rewriteBases(t, left)
+	left
+}
+
+// PruneBases forgets every registered base whose folder is gone; it is
+// the bases it forgot.
+func PruneBases(t Tool) []string fails Unkept | fs.Denied | fs.Failed {
+	let all = try registered(t)
+	let gone = slices.Filter(all, func(b string) bool { !exists(t, b) })
+	if len(gone) > 0 {
+		try rewriteBases(t, slices.Filter(all, func(b string) bool { exists(t, b) }))
+	}
+	gone
+}
+
+// rewriteBases writes the list whole, by a rename, so a reader sees the
+// old list or the new one.
+func rewriteBases(t Tool, bases []string) fails fs.Denied | fs.Failed {
+	let file = BasesFile(t.data)
+	let text = if len(bases) == 0 { "" } else { strings.Join(bases, "\n") + "\n" }
+	t.writes.WriteFile(file+".tmp", text) catch {
+	case fs.NotFound:
+		return fs.Failed{Path: file, Reason: "the data folder is not there"}
+	case fs.Denied as d:
+		return d
+	case fs.Failed as f:
+		return f
+	}
+	t.writes.Rename(file+".tmp", file) catch {
+	case fs.NotFound:
+		return fs.Failed{Path: file, Reason: "the data folder is not there"}
+	case fs.Denied as d:
+		return d
+	case fs.Failed as f:
+		return f
+	}
+}
+
+// registered is every line of the list, once each, in order.
+func registered(t Tool) []string fails Unkept {
 	let text = t.files.ReadFile(BasesFile(t.data)) catch {
 	case fs.NotFound:
 		return []string{}
