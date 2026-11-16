@@ -115,7 +115,7 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 	case *check.Union:
 		// A row, the error of a fallible call (a catch's `case err:`): a
 		// Go error, its variants the error types (ir_tree.go).
-		if b.fc.goType(t) == "error" {
+		if failureRow(b.fc, t) { // ir_field.go
 			for _, v := range t.Variants {
 				if tp, ok := v.(*check.TypeParam); ok && tp.Kind == check.KindErrors {
 					// An error row parameter of the row: its errors are

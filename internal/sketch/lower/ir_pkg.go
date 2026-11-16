@@ -46,6 +46,11 @@ func (b *irBuilder) admitOnce(tn *check.TypeName) bool {
 func (b *irBuilder) spelling(s string) string {
 	var out strings.Builder
 	for i := 0; i < len(s); {
+		if k := funcSpelling(s[i:]); k > 0 { // ir_machine.go
+			out.WriteString(s[i : i+k])
+			i += k
+			continue
+		}
 		j := i
 		for j < len(s) && isSpellingName(s[j]) {
 			j++
@@ -499,7 +504,9 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 		irNo("std call into an owning literal")
 	case defersCall(body) || commaOk(body):
 		irNo("std call with an adapted result")
-	case len(body.Params) != len(x.Args):
+	case len(body.Params) != len(x.Args)+trailing(x):
+		irNo("std call with another arity")
+	case x.Trailing != nil && !adapted(body.Params[len(x.Args)]):
 		irNo("std call with another arity")
 	case len(b.l.ownedParams(fd.fn)) > 0:
 		irNo("call that passes owned values")
@@ -547,12 +554,16 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	}
 	hidden := b.hidden(body, x, c, p)
 	pre, args := b.operands(x.Args)
-	pre = append(pre, b.adaptOperands(body.Params, x.Args, args, 0, p)...) // ir_adapt.go
+	if x.Trailing != nil {
+		args = append(args, b.closureLit(nil, x)) // the block, the last operand
+	}
+	pre = append(pre, b.adaptOperands(body.Params, x, args, 0, p)...) // ir_adapt.go
 	// A generic function stands in Go text only as an instance, whose type
 	// arguments may be the body's own type parameters: the import is
 	// kept by a variable of the runtime's Site type, which is not generic.
 	// A body of a runtime leaf (runtime/v1/rpc, BS8) is called by the
 	// leaf's import path, which rtRef imports.
+	name = b.consumedForm(x, body, name) // ir_own.go
 	pkg := v1.PackageOf(name)
 	switch {
 	case pkg != "" && pkg != runtimeImport && targs != "":
@@ -735,7 +746,7 @@ func (b *irBuilder) stdOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named,
 	}
 	hidden := b.hidden(body, x, c, p)
 	pre, vals := b.operands(append([]syntax.Expr{c.Recv}, x.Args...))
-	pre = append(pre, b.adaptOperands(body.Params, x.Args, vals, 1, p)...) // ir_adapt.go
+	pre = append(pre, b.adaptOperands(body.Params, x, vals, 1, p)...) // ir_adapt.go
 	e := &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: vals[0], Args: append(hidden, vals[1:]...)}
 	if goFallible(body) && !failsHere(c) {
 		e = b.dropErr(e) // ir_call.go: the row is empty here

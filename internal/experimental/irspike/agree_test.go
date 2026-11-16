@@ -179,6 +179,15 @@ func agreeOn(t *testing.T, target exampleTarget) {
 	}
 	work := t.TempDir()
 	sb, ib, rep := both(t, u, src, ir, work, BuildOptions{})
+	// A static frame's release helper is an IR function (RELEASE-IR): no
+	// example keeps one as Go text, a std operation type's Close
+	// (fs.Mapped) included.
+	gofiles, _ := filepath.Glob(filepath.Join(work, "ir", "*.go"))
+	for _, f := range gofiles {
+		if data, _ := os.ReadFile(f); strings.Contains(string(data), "static frame (IR, FLIP F7).") {
+			t.Errorf("%s: a static frame's release helper is Go text in %s, not IR", target.key(), filepath.Base(f))
+		}
+	}
 	// The program's cases run on its own binary: examples/P/main.ergo or
 	// examples/P/cmd/P/main.ergo.
 	prog := programOf(target.root, target.dir)

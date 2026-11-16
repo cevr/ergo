@@ -83,15 +83,16 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 	if c == nil {
 		irNo("call without a Calls entry")
 	}
+	c = b.knownField(x, c) // a known record's field in its copy (ir_known.go)
 	// A trailing block is a function literal, the call's last operand:
 	// a call of a function of the program takes it (ir_closure.go).
 	if x.Trailing != nil && (c.Kind != check.CallFunc || c.Func == nil || c.Func.Pkg.Std() || c.Func.Pkg.Host()) {
-		if c.Kind == check.CallFunc && c.Func != nil && c.Func.Pkg.Std() {
-			// timeout.After { … }: the literal is built, the generic std
-			// extern that takes it is not (stdCall).
-			irNo("std call that adapts a function")
+		stdExtern := c.Kind == check.CallFunc && c.Func != nil && c.Func.Pkg.Std() && c.Func.Decl != nil && c.Func.Decl.Extern != nil
+		if !stdExtern {
+			irNo("trailing block")
 		}
-		irNo("trailing block")
+		// timeout.After { … }: stdCall adapts the block, its last operand
+		// (ir_adapt.go).
 	}
 	if c.StartsTask {
 		irNo("task call")
@@ -115,6 +116,9 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 			b.l.recordCall(x, b.fc.owner, b.fc.callee(x, c))
 		}
 	}
+	if check.IsUnreachable(c) {
+		return b.unreachableValue(x) // ir_defect.go
+	}
 	switch c.Kind {
 	case check.CallLen:
 		if len(x.Args) != 1 {
@@ -136,7 +140,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		case f == nil:
 			irNo("call without a function")
 		case check.GoBuiltin(f) != "":
-			irNo("call of a Go builtin")
+			return b.goBuiltinCall(x, c, f, p, stmt) // ir_builtin.go
 		case userExtern(f):
 			irNo("call of a user extern")
 		case f.Pkg != nil && f.Pkg.Host():
@@ -214,6 +218,10 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		}
 		// A generic function's call names its Go type arguments (the
 		// emitter's typeArgs), never left to Go's inference (ir_pkg.go).
+		if sp := b.copyCall(x, c); sp != "" {
+			// The copy for the known record: one instance (ir_known.go).
+			return pre, mark(&irExpr{K: "call", Pos: p, Name: sp, Args: irArgs}), !fd.pure
+		}
 		return pre, mark(&irExpr{K: "call", Pos: p, Name: b.ownedCallName(x, f, fd.name), T: b.typeArgs(c, x), Args: irArgs}), !fd.pure
 	case check.CallOp:
 		return b.opCall(x, c, p) // ir_pkg.go

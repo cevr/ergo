@@ -25,11 +25,22 @@ func GenerateMachine(seed uint64) string {
 	fmt.Fprintf(&b, "type A machine[St, Sig] {\n\tinitial: St{n: %d},\n\tstep:    stepA,\n}\n\n", 1+g.n(9))
 	fmt.Fprintf(&b, "func startB(i int) St { St{n: i*%d + 1} }\n\n", 2+g.n(4))
 	b.WriteString("type B machine[St, Sig] {\n\tinitial: startB,\n\tstep:    stepA,\n}\n\n")
+	// C has an after entry (a timer on some states, one whose In is not
+	// positive on a seeded state) and a work entry (a work that sends one
+	// signal on some states): probe reads both through the Machine.
+	tick, zero := 2+g.n(3), 100+g.n(50)
+	fmt.Fprintf(&b, "func timerC(s St) Option[Timeout[Sig]] {\n\tif s.n == %d {\n\t\treturn Some[Timeout[Sig]]{Value: Timeout[Sig]{In: 0s, Signal: Sig{v: 0}}}\n\t}\n\tif s.n %% %d == 0 {\n\t\treturn Some[Timeout[Sig]]{Value: Timeout[Sig]{In: %dms, Signal: Sig{v: s.n}}}\n\t}\n\tNone\n}\n\n", zero, tick, 1+g.n(900))
+	fmt.Fprintf(&b, "func workC(s St) Option[machines.Work[Sig, Scheduler]] {\n\tif s.n %% %d == 1 {\n\t\treturn Some{machines.Work{Start: func(send entry func(e Sig)) needs Scheduler {\n\t\t\tsend(Sig{v: s.n * 3})\n\t\t}}}\n\t}\n\tNone\n}\n\n", tick)
+	fmt.Fprintf(&b, "type C machine[St, Sig] {\n\tinitial: St{n: %d},\n\tstep:    stepA,\n\tafter:   timerC,\n\twork:    workC,\n}\n\n", 1+g.n(9))
+	b.WriteString("func probe[F, R, W](m Machine[St, Sig, int, F, R, W], s St) string needs W {\n\tlet t = match m.After(s) {\n\tcase Some[Timeout[Sig]] as o:\n\t\t\"timer \\(o.Value.Signal.v)\"\n\tcase None:\n\t\t\"no timer\"\n\t}\n\tlet mut sent = 0\n\tmatch m.Work(s) {\n\tcase Some[func(send func(e Sig)) needs W] as w:\n\t\tw.Value(func(e Sig) { sent = e.v })\n\tcase None:\n\t}\n\t\"\\(t) work \\(sent)\"\n}\n\n")
+	b.WriteString("func planC() string needs Scheduler {\n\tlet mut out = \"\"\n\tfor n in 0..12 {\n\t\tlet p = probe(C{}, St{n: n})\n\t\tout = out + p + \"; \"\n\t}\n\tout\n}\n\n")
+	fmt.Fprintf(&b, "func zeroC() string needs Scheduler { probe(C{}, St{n: %d}) }\n\n", zero)
 	b.WriteString("func planA() Machine[St, Sig, int] { A{} }\n\n")
 	b.WriteString("func planB(i int) Machine[St, Sig, int] { machines.Start(B{}, i) }\n\n")
 	b.WriteString("func firstA() int { machines.Initial(A{}).n }\n\n")
 	b.WriteString("func show(m Machine[St, Sig, int], signals []Sig) string {\n\tlet o = machines.Run(m, signals) catch {\n\tcase machines.Rejected as r:\n\t\treturn \"rejected at \\(r.At)\"\n\t}\n\tmatch o {\n\tcase machines.Finished[St, int] as f:\n\t\t\"finished \\(f.State.n) \\(f.Output) \\(len(f.Emitted))\"\n\tcase machines.Running[St, int] as r:\n\t\t\"running \\(r.State.n) \\(len(r.Emitted))\"\n\t}\n}\n\n")
-	b.WriteString("func main() needs Console {\n")
+	b.WriteString("func main() needs Console | Ambient {\n")
+	b.WriteString("\twith context { Scheduler: NewLiveScheduler() } {\n\t\tConsole.Println(planC())\n\t}\n")
 	for i := 0; i < 3; i++ {
 		var sig []string
 		for j := 0; j < 3+g.n(6); j++ {
@@ -37,6 +48,11 @@ func GenerateMachine(seed uint64) string {
 		}
 		fmt.Fprintf(&b, "\tlet s%d = []Sig{%s}\n", i, strings.Join(sig, ", "))
 		fmt.Fprintf(&b, "\tConsole.Println(\"%d: \\(firstA()) \\(show(planA(), s%d)) \\(show(planB(%d), s%d))\")\n", i, i, g.n(20), i)
+	}
+	if seed%3 == 0 {
+		// The timer whose In is not positive: a defect that names C,
+		// the state and the duration, the same under both lowerings.
+		b.WriteString("\twith context { Scheduler: NewLiveScheduler() } {\n\t\tConsole.Println(zeroC())\n\t}\n")
 	}
 	b.WriteString("}\n")
 	return b.String()

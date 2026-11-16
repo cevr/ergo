@@ -37,6 +37,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"let of a default *", "G1"}, // F7 letpat (ir_letpat.go)
 	{"expression *syntax.SliceExpr", "G1"},
 	{"type *check.Array", "G1"},
+	{"literal of *check.Array", "G1"}, // lane B's wf10/f7b-conv builds it (ir_defined.go)
 	{"index of a non-slice", "G1"},
 	{"index form", "G1"},
 	{"len of a non-slice", "G1"},
@@ -140,6 +141,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"machine *", "G3b"}, // ir_machine.go's refusals (a literal with fields, a second Machine type)
 	{"row conversion", "G3b"},
 	{"type defined over a non-basic type", "G3b"},
+	{"record field of a converted value", "G3b"}, // B-CONVFIELD (ir_field.go): a difference neither a conversion nor a row explains
 	{"value of a type defined over a flat union", "G3b"},
 	{"value of another type", "G3b"},
 	{"match on a value that is no union", "G3b"},
@@ -196,9 +198,11 @@ var reasonUnits = []struct{ prefix, unit string }{
 	// reaches it through generic instances whose declared types name
 	// their own type parameters (F7 FORK merge of F2).
 	{"type parameter outside its declaration", "G4"},
+	// I-FLIP's f2e93090e: a runtime leaf generic in the body's own type
+	// parameters (ir_pkg.go), F1's generic bodies.
+	{"runtime leaf's generic function in a generic body", "G4"},
 	{"owned parameters", "G4"},
 	{"known-callback variant", "G4"},
-	{"copy for a known record", "G4"},
 	{"variant with no result", "G4"}, // drop.go's variant of a function whose result a call discards
 	{"call without a value", "G4"},
 	{"call without a Calls entry", "G4"},
@@ -232,8 +236,6 @@ var reasonUnits = []struct{ prefix, unit string }{
 	// IRG6 r4 lowers law bodies; these stay the emitter's.
 	{"law of a generic operation type", "G6"},
 	{"law result of an untried fallible call", "G6"},
-	{"call kind 10", "G6"}, // CallEncode
-	{"call kind 11", "G6"}, // CallDecode
 	// The codec built-ins take the IR (FLIP OPC-codec), but for these:
 	{"codec of a type that holds type parameters", "G4"}, // codec witnesses, with witness parameters
 	{"codec *", "G6"},
