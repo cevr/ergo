@@ -119,8 +119,6 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		switch {
 		case fd.extern != "":
 			irNo("call of an extern function")
-		case fd.ptr:
-			irNo("call of a pointer-receiver method")
 		case len(b.l.ownedParams(f)) > 0:
 			irNo("call that passes owned values")
 		case len(witnessParams(f.Sig)) > 0:
@@ -140,7 +138,13 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		if c.Recv != nil {
 			args = append([]syntax.Expr{c.Recv}, args...)
 		}
-		pre, irArgs := b.operands(args)
+		var pre []*irStmt
+		var irArgs []*irExpr
+		if b.addrRecv(c) { // ir_place.go
+			pre, irArgs = b.recvAddrCall(c, x.Args)
+		} else {
+			pre, irArgs = b.operands(args)
+		}
 		if x.Trailing != nil {
 			irArgs = append(irArgs, b.closureLit(nil, x)) // ir_closure.go
 		}

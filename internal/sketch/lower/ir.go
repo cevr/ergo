@@ -426,9 +426,6 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	for _, g := range gates {
 		b.gate(g)
 	}
-	if fd.ptr {
-		b.gate("pointer receiver")
-	}
 	if len(fc.witness) > 0 {
 		b.gate("witness parameter")
 	}

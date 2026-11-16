@@ -162,13 +162,24 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		op := x.Op.String()
 		switch op {
 		case "!", "-", "+", "^":
+		case "&":
+			b.goType(t, x)
+			return &irExpr{K: "addr", Pos: p, X: b.place(x.X)}
 		default:
 			irNo("unary %s", op)
 		}
 		b.goType(t, x)
 		return &irExpr{K: "un", Pos: p, Op: op, X: b.expr(x.X)}
+	case *syntax.StarExpr:
+		// *p: the value p points at (FLIP F2).
+		b.goType(t, x)
+		return &irExpr{K: "deref", Pos: p, X: b.expr(x.X)}
 	case *syntax.SelectorExpr:
-		n, ok := b.l.info.Types[x.X].(*check.Named)
+		xt := b.l.info.Types[x.X]
+		if p, ok := xt.(*check.Pointer); ok {
+			xt = p.Elem // a field through a pointer (FLIP F2): Go's p.f
+		}
+		n, ok := xt.(*check.Named)
 		if !ok {
 			irNo("selector on a non-record")
 		}

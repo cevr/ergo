@@ -38,6 +38,11 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 	case *check.Slice:
 		b.admit(t.Elem, depth+1)
 		return
+	case *check.Pointer:
+		// A pointer to an admitted type (FLIP F2): a *T parameter, a
+		// receiver, &p.
+		b.admit(t.Elem, depth+1)
+		return
 	case *check.Signature:
 		// A function value's type (ir_closure.go, sigType).
 		if len(t.Results) > 1 {
