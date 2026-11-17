@@ -7,28 +7,33 @@ import (
 	"regexp"
 	"testing"
 
+	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/lower"
 )
 
+// admitAll admits every law's rewrite.
+type admitAll struct{}
+
+func (admitAll) Admit(*check.Law, *check.Named, lower.RewriteInstance) (bool, string) {
+	return true, ""
+}
+
 // TestIRCellWritersMatchSource is the seeded property over the codec
 // writers the IR builds (WIRE-IR, lower's ir_wire.go; GenerateCellWire):
-// each program prints the same JSON under the IR path and the source
-// path, whose codec functions are the text emitter's (the reference), and
-// the IR file holds the cell codec functions' bodies (ergoWrite…), so
-// the IR path is the one under test. A failing seed prints the Ergo
-// source, both outcomes and its replay command.
+// each program prints the same on json's Text and on Tape under the IR
+// path and the source path, whose codec functions are the text emitter's
+// (the reference), every law admitted, and the IR file holds the cell
+// codec functions' bodies (ergoWrite…), so the IR path is the one under
+// test. A failing seed prints the Ergo source, both outcomes and its
+// replay command.
 //
-// Mutants (ir_wire.go): wire-ir-lead-kept (a run that starts in the
-// carried state writes the carried call again), wire-ir-tail-past-loop
-// (the state a loop's body ends in carried past the loop),
-// wire-ir-arm-tail (a switch's arm starts in the state the previous arm
-// ended in, not the switch's), wire-ir-variant-any-state (a call takes
-// the callee's entry variant in a state the variant was not made for),
-// wire-ir-passthrough-first (a law's pass-through argument read from the
-// run's first call).
+// Mutants (ir_wire.go; the ledger names the ones this kills):
+// wire-ir-lead-kept, wire-ir-tail-past-loop, wire-ir-arm-tail,
+// wire-ir-variant-any-state, wire-ir-passthrough-first,
+// wire-ir-tail-after-call, wire-ir-map-unordered.
 //
 // It builds Go because the codec functions' events run only in the
-// compiled program, on std json's provider.
+// compiled program, on the providers' functions.
 func TestIRCellWritersMatchSource(t *testing.T) {
 	src, ir := needsBuild(t)
 	first, count := envInt("ERGO_IRSPIKE_SEED", 1), envInt("ERGO_IRSPIKE_SEEDS", 4)
@@ -45,6 +50,9 @@ func TestIRCellWritersMatchSource(t *testing.T) {
 		if err != nil {
 			t.Fatalf("seed %d: the program does not check: %v\n%s", seed, err, text)
 		}
+		// Every law admitted, as lower's TestCellWriterAgrees admits
+		// them: Tape's are true by construction, json's proved.
+		u.Rewrite = admitAll{}
 		sb, ib, _ := both(t, u, src, ir, dir, BuildOptions{})
 		a, b := run(t, sb), run(t, ib)
 		if a != b || a.exit != 0 {
