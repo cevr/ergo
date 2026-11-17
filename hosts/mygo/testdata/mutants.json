@@ -484,6 +484,7 @@
       "to": "",
       "rule": "a draw taken again keeps each line of text at its place among the ops",
       "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
-    }
+    },
+    {"name":"coldcache3-own-cache","origin":"wf10 COLDCACHE3","file":"hosts/mygo/desktop_test.go","from":"\t\terr = os.Setenv(\"ERGO_CACHE\", cache)\n","to":"\t\terr = nil\n","rule":"hosts/mygo's tests give the ergo commands they start a cache of their own: under a Go test ergo refuses the user's cache, so with no ERGO_CACHE from the caller every ergo build fails. Judge it with ERGO_CACHE unset.","killers":["mygo:TestLayoutMatchesMyGo"]}
   ]
 }
