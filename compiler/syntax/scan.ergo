@@ -90,21 +90,10 @@ func scanAll(src string) scanner {
 		open:     0,
 	}
 	run(&s)
-	let mut n = NumToks(s.toks)
 	if s.failed {
 		failTail(&s)
-		n = n + 2
 	}
-	cutToks(&s, n)
 	s
-}
-
-// cutToks cuts the token columns to their n tokens, so a read past the
-// last one (EOF) is a bounds defect, never the zero kind of a spare slot.
-func cutToks(s *scanner, n int) {
-	s.toks.kind = s.toks.kind[:n]
-	s.toks.start = s.toks.start[:n]
-	s.toks.end = s.toks.end[:n]
 }
 
 // failTail puts the ILLEGAL and EOF of the Go scanner's fail past the
