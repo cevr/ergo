@@ -47,7 +47,7 @@ func renamed(sources []Source, base Report, r Rename, checker Checker) []Source 
 	}
 	let mut moved = Map[string, string]{}
 	for m in family {
-		let to = scopeOf(m.Handle) + "." + r.To
+		let to = handleTo(m.Handle, r.To)
 		if to != m.Handle {
 			match all.Get(to) {
 			case Some[Decl] as x:
@@ -132,6 +132,21 @@ func declsByHandle(report Report) Map[string, Decl] {
 func scopeOf(handle string) string {
 	let at = strings.LastIndex(handle, ".")
 	if at < 0 { "" } else { strings.Slice(handle, 0, at) }
+}
+
+// handleTo is handle with its name to: in its scope, and keeping the
+// "#test" or "#law" a test's or a law's handle ends with.
+func handleTo(handle string, to string) string {
+	let at = strings.LastIndex(handle, "#")
+	let suffix = if at < 0 { "" } else { strings.Slice(handle, at, len(handle)) }
+	scopeOf(handle) + "." + to + suffix
+}
+
+// exportedTo is whether d, renamed to, is exported: a parameter or a
+// local never is and a test always is, so they keep theirs; other
+// declarations are as their name is.
+func exportedTo(d Decl, to string) bool {
+	if d.Kind == "param" || d.Kind == "local" || d.Kind == "test" { d.Exported } else { exportedName(to) }
 }
 
 // familyOf is d and the declarations a rename of d renames with it: for
@@ -253,7 +268,7 @@ func rowsOf(report Report, moved Map[string, string], to string, shifts Map[stri
 		for d in p.Decls {
 			let renamedHere = moved.Get(d.Handle) != None
 			let name = if renamedHere { to } else { d.Name }
-			let exported = if renamedHere { exportedName(to) } else { d.Exported }
+			let exported = if renamedHere { exportedTo(d, to) } else { d.Exported }
 			out = out.Append("decl \(mapped(d.Handle)) \(d.Kind) \(name) \(d.Package) \(exported) \(d.File):\(d.Line):\(shifted(d.File, d.Line, d.Column))")
 		}
 		for s in p.Sites {

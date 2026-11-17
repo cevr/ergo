@@ -13449,89 +13449,103 @@ func renamed(env *Env, sources []Source, base Report, r Rename, checker Checker)
 	var moved map[string]string = map[string]string{}
 	for _, v_7 := range v_4 {
 		var m_1 Decl = v_7
-		v_8 := scopeOf(m_1.Handle)
-		var to string = ((v_8 + ".") + r.To)
-		if to != m_1.Handle {
-			v_9, ok := v_3[to]
+		var v_8 string
+		{
+			var handle_1 string = m_1.Handle
+			var to string = r.To
+			v_9 := ergo.StringsLastIndex(handle_1, "#")
+			var v_10 string
+			if v_9 < int(0) {
+				v_10 = ""
+			} else {
+				v_11 := ergo.StringsSlice(handle_1, v_9, len(handle_1))
+				v_10 = v_11
+			}
+			var suffix string = v_10
+			v_12 := scopeOf(handle_1)
+			v_8 = (((v_12 + ".") + to) + suffix)
+		}
+		if v_8 != m_1.Handle {
+			v_13, ok := v_3[v_8]
 			if ok {
-				x := Some[Decl]{Value: v_9}
+				x := Some[Decl]{Value: v_13}
 				return *new([]Source), NameTaken{Handle: m_1.Handle, To: r.To, By: x.Value.Handle}
 			} else {
 			}
 		}
-		moved[m_1.Handle] = to
+		moved[m_1.Handle] = v_8
 		env.task.Check()
 	}
 	var edits []Edit = []Edit{}
 	var shifts map[string][]int = map[string][]int{}
-	for _, v_10 := range base.Tables.Packages {
-		var p Package = v_10
-		for _, v_11 := range p.Sites {
-			var s Site = v_11
-			v_12, ok_1 := moved[s.Symbol]
-			_ = v_12
+	for _, v_14 := range base.Tables.Packages {
+		var p Package = v_14
+		for _, v_15 := range p.Sites {
+			var s Site = v_15
+			v_16, ok_1 := moved[s.Symbol]
+			_ = v_16
 			if ok_1 {
-				v_13 := has(base.Workspace, s.Package)
-				if !v_13 {
+				v_17 := has(base.Workspace, s.Package)
+				if !v_17 {
 					return *new([]Source), OutsideWorkspace{Handle: s.Symbol}
 				}
-				v_14, err_1 := offsetOf(env, sources, s.File, s.Line, s.Column)
+				v_18, err_1 := offsetOf(env, sources, s.File, s.Line, s.Column)
 				if err_1 != nil {
 					return *new([]Source), err_1
 				}
-				v_15 := textOf(sources, s.File)
-				b := ((v_14 + len(v.Name)) > len(v_15))
+				v_19 := textOf(sources, s.File)
+				b := ((v_18 + len(v.Name)) > len(v_19))
 				if !b {
-					v_16 := ergo.StringsSlice(v_15, v_14, (v_14 + len(v.Name)))
-					b = (v_16 != v.Name)
+					v_20 := ergo.StringsSlice(v_19, v_18, (v_18 + len(v.Name)))
+					b = (v_20 != v.Name)
 				}
 				if b {
 					return *new([]Source), BadChange{Reason: ("the site " + s.File + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(s.Line), 10)) + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(s.Column), 10)) + " does not hold " + v.Name)}
 				}
-				edits = Append[Edit](edits, Edit{File: s.File, Start: v_14, End: (v_14 + len(v.Name)), Text: r.To})
+				edits = Append[Edit](edits, Edit{File: s.File, Start: v_18, End: (v_18 + len(v.Name)), Text: r.To})
 				var key_1 string = (s.File + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(s.Line), 10)))
 				t := shifts
 				t_1 := key_1
-				var v_18 []int
+				var v_22 []int
 				{
 					var m_2 map[string][]int = shifts
 					var def []int = []int{}
-					v_19, ok_2 := m_2[key_1]
+					v_23, ok_2 := m_2[key_1]
 					if ok_2 {
-						v_20 := Some[[]int]{Value: v_19}
-						v_18 = v_20.Value
-						goto inl
+						v_24 := Some[[]int]{Value: v_23}
+						v_22 = v_24.Value
+						goto inl_1
 					} else {
-						v_18 = def
-						goto inl
+						v_22 = def
+						goto inl_1
 					}
 				}
-			inl:
+			inl_1:
 				;
-				v_21 := Append[int](slices.Clip(slices.Clone(v_18)), s.Column)
-				t[t_1] = v_21
+				v_25 := Append[int](slices.Clip(slices.Clone(v_22)), s.Column)
+				t[t_1] = v_25
 			} else {
 			}
 			env.task.Check()
 		}
 		env.task.Check()
 	}
-	v_22, err_2 := edited(env, sources, edits)
+	v_26, err_2 := edited(env, sources, edits)
 	if err_2 != nil {
 		return *new([]Source), err_2
 	}
-	v_23, err_3 := checkWith(env, checker, v_22)
+	v_27, err_3 := checkWith(env, checker, v_26)
 	if err_3 != nil {
 		return *new([]Source), err_3
 	}
-	v_24 := (base).rowsOf(env, moved, r.To, shifts, (len(r.To) - len(v.Name)))
-	t_2 := v_24
-	v_25 := (v_23).rowsOf(env, map[string]string{}, "", map[string][]int{}, int(0))
-	v_26 := differing(env, t_2, v_25)
-	if len(v_26) > int(0) {
-		return *new([]Source), Capture{Handle: v.Handle, To: r.To, Rows: v_26}
+	v_28 := (base).rowsOf(env, moved, r.To, shifts, (len(r.To) - len(v.Name)))
+	t_2 := v_28
+	v_29 := (v_27).rowsOf(env, map[string]string{}, "", map[string][]int{}, int(0))
+	v_30 := differing(env, t_2, v_29)
+	if len(v_30) > int(0) {
+		return *new([]Source), Capture{Handle: v.Handle, To: r.To, Rows: v_30}
 	}
-	return v_22, nil
+	return v_26, nil
 }
 
 func (t Tables) contractsIn(path_1 string) []Contract {
@@ -14154,65 +14168,77 @@ func (report Report) rowsOf(env *Env, moved map[string]string, to string, shifts
 			var name string = v_12
 			var v_13 bool
 			if renamedHere {
-				v_14 := exportedName(to)
+				var v_14 bool
+				{
+					if ((d.Kind == "param") || (d.Kind == "local")) || (d.Kind == "test") {
+						v_14 = d.Exported
+						goto inl_1
+					} else {
+						v_15 := exportedName(to)
+						v_14 = v_15
+						goto inl_1
+					}
+				}
+			inl_1:
+				;
 				v_13 = v_14
 			} else {
 				v_13 = d.Exported
 			}
 			var exported bool = v_13
 			t_1 := out
-			v_15, err := mapped(env, d.Handle)
+			v_16, err := mapped(env, d.Handle)
 			_ = err
-			t_2 := v_15
+			t_2 := v_16
 			t_3 := d.Kind
 			t_4 := name
 			t_5 := d.Package
 			t_6 := exported
 			t_7 := d.File
 			t_8 := d.Line
-			v_16, err_1 := shifted(env, d.File, d.Line, d.Column)
+			v_17, err_1 := shifted(env, d.File, d.Line, d.Column)
 			_ = err_1
-			v_17 := Append[string](t_1, ("decl " + t_2 + " " + t_3 + " " + t_4 + " " + t_5 + " " + strconv.FormatBool(t_6) + " " + t_7 + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(t_8), 10)) + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(v_16), 10))))
-			out = v_17
+			v_18 := Append[string](t_1, ("decl " + t_2 + " " + t_3 + " " + t_4 + " " + t_5 + " " + strconv.FormatBool(t_6) + " " + t_7 + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(t_8), 10)) + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(v_17), 10))))
+			out = v_18
 			env.task.Check()
 		}
 		out = ergo.Reserve(out, len(p.Sites))
-		for _, v_18 := range p.Sites {
-			var s Site = v_18
+		for _, v_19 := range p.Sites {
+			var s Site = v_19
 			t_9 := out
-			v_19, err_2 := mapped(env, s.Symbol)
+			v_20, err_2 := mapped(env, s.Symbol)
 			_ = err_2
-			t_10 := v_19
+			t_10 := v_20
 			t_11 := s.Kind
 			t_12 := s.Package
 			t_13 := s.File
 			t_14 := s.Line
-			v_20, err_3 := shifted(env, s.File, s.Line, s.Column)
+			v_21, err_3 := shifted(env, s.File, s.Line, s.Column)
 			_ = err_3
-			t_15 := v_20
-			v_21, err_4 := mapped(env, s.In)
+			t_15 := v_21
+			v_22, err_4 := mapped(env, s.In)
 			_ = err_4
-			v_22 := Append[string](t_9, ("site " + t_10 + " " + t_11 + " " + t_12 + " " + t_13 + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(t_14), 10)) + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(t_15), 10)) + " in " + v_21))
-			out = v_22
+			v_23 := Append[string](t_9, ("site " + t_10 + " " + t_11 + " " + t_12 + " " + t_13 + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(t_14), 10)) + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(t_15), 10)) + " in " + v_22))
+			out = v_23
 			env.task.Check()
 		}
 		env.task.Check()
 	}
 	out = ergo.Reserve(out, len(report.Binds))
-	for _, v_23 := range report.Binds {
-		var b Bind = v_23
+	for _, v_24 := range report.Binds {
+		var b Bind = v_24
 		t_16 := out
-		v_24, err_5 := mapped(env, b.Op)
+		v_25, err_5 := mapped(env, b.Op)
 		_ = err_5
-		t_17 := v_24
-		v_25, err_6 := mapped(env, b.By)
+		t_17 := v_25
+		v_26, err_6 := mapped(env, b.By)
 		_ = err_6
-		v_26 := Append[string](t_16, ("bind " + t_17 + " " + v_25))
-		out = v_26
+		v_27 := Append[string](t_16, ("bind " + t_17 + " " + v_26))
+		out = v_27
 		env.task.Check()
 	}
-	v_27 := ergo.SlicesSortOwned[string](out)
-	return v_27
+	v_28 := ergo.SlicesSortOwned[string](out)
+	return v_28
 }
 
 type Set struct {

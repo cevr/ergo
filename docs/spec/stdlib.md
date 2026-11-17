@@ -1502,6 +1502,7 @@ The exempt types and their reasons are in their doc comments: `Console`, `Ambien
 | `code` | `Checker.CheckIsDeterministic` | `CheckIsDeterministic(seed int) { checkIsDeterministic(seed) }` | `TestStdCodeLawsRun` | tested |
 | `code` | `Checker.FormatIsIdempotent` | `FormatIsIdempotent(text string) { formatIsIdempotent(text) }` | `TestStdCodeLawsRun` | tested |
 | `code` | `DescribeParsesBack` | `DescribeParsesBack(pick int, word int, text string) { describeParsesBack(pick, word, text) }` | `TestStdCodeLawsRun` | tested |
+| `code` | `EqualEditsOnce` | `EqualEditsOnce(text string, at int) { equalEditsOnce(text, at) }` | `TestStdCodeLawsRun` | tested |
 | `code` | `Files.ExchangeSwaps` | `ExchangeSwaps(x string, y string) { exchangeSwaps(x, y) }` | `TestStdCodeLawsRun` | tested |
 | `code` | `Files.WriteThenRead` | `WriteThenRead(x string) { writeThenRead(x) }` | `TestStdCodeLawsRun` | tested |
 | `code` | `ImpactIsTheChangedContracts` | `ImpactIsTheChangedContracts(seed int, pick int, word int) { impactIsTheChangedContracts(seed, pick, word) }` | `TestStdCodeLawsRun` | tested |

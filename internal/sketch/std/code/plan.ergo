@@ -808,6 +808,23 @@ func overlapIsRefused(seed int) bool {
 	!t.Ok
 }
 
+// EqualEditsOnce: of the edits of a round's fixes, equal ones are made
+// once, and insertions at one place go in the order the fixes list them
+// (two clause fixes that need one import; a fails clause before a needs
+// clause at one offset).
+law EqualEditsOnce(text string, at int) { equalEditsOnce(text, at) }
+
+func equalEditsOnce(text string, at int) bool {
+	let k = slot(at, len(text) + 1)
+	let x = Edit{File: "f.ergo", Start: k, End: k, Text: "x"}
+	let y = Edit{File: "f.ergo", Start: k, End: k, Text: "yy"}
+	let out = edited([]Source{Source{File: "f.ergo", Text: text}}, []Edit{x, y, x}) catch {
+	case BadChange:
+		return false
+	}
+	len(out) == 1 && out[0].Text == strings.Slice(text, 0, k) + "xyy" + strings.Slice(text, k, len(text))
+}
+
 // OverlayDiagnosticBlocks: a change whose overlay has a diagnostic the
 // base has not is Blocked by it, and Apply refuses it NotReady.
 law OverlayDiagnosticBlocks(seed int, pick int) { overlayDiagnosticBlocks(seed, pick) }
