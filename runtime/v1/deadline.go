@@ -161,7 +161,15 @@ func popBefore[T any](t *rt.Task, q *Queue[T], dl *Deadline) (T, error) {
 			dl.mu.Unlock()
 			return zero, Expired{}
 		}
-		if !q.waitBefore(t, stop, dl, ch) {
+		tk := q.enlistTaker()
+		woke := q.waitOr(t, stop, dl, ch)
+		if v, ok := q.delistTaker(tk); ok {
+			// A Push handed v over: it is taken, even when the deadline
+			// fired or a stop came at the same moment.
+			q.mu.Unlock()
+			return v, nil
+		}
+		if !woke {
 			q.mu.Unlock()
 			panic(rt.Interrupted)
 		}
@@ -207,38 +215,4 @@ func PopWithin[T any](t *rt.Task, s Sleeper, q *Queue[T], d time.Duration) (T, e
 	dl.Arm(d)
 	defer dl.Stop()
 	return popBefore(t, q, dl)
-}
-
-// waitBefore is wait with a deadline: it releases q.mu until the next
-// change, the fire of dl (ch closes) or a stop, then takes it again. It
-// reports false on a stop. In an auto clock's domain the waiter parks on
-// q and on dl, whose fire wakes it through rt.Waking (Deadline.fire);
-// ready keeps it from parking on a fire that has come. A nil ch (dl not
-// armed) never fires.
-func (q *Queue[T]) waitBefore(t *rt.Task, stop <-chan struct{}, dl *Deadline, ch chan rt.Instant) bool {
-	wake := q.enlist()
-	q.parked++
-	var p rt.Parked
-	if t.InDomain() {
-		p = rt.ParkEither(t, q, dl, stop, func() bool { return ch != nil && closedChan(ch) })
-		q.domain = append(q.domain, t)
-	}
-	q.mu.Unlock()
-	rt.Block(t)
-	woke := true
-	select {
-	case <-wake:
-	case <-ch:
-	case <-stop:
-		woke = false
-	}
-	rt.Unblock(t)
-	q.mu.Lock()
-	q.delist(wake)
-	q.parked--
-	if t.InDomain() {
-		p.Unpark()
-		q.dropDomain(t)
-	}
-	return woke
 }
