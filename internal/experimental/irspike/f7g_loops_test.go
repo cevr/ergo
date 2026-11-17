@@ -72,6 +72,12 @@ func TestIRCollectFoldsFuse(t *testing.T) {
 // around the collect counts as dead). In the property
 // (TestIRLoopIdiomsMatchSource), each of the last three writes the
 // source, and the output shows it.
+//
+// GP-RESLICE-FIELD's field sources run in it too:
+//   - f7g-reslice-field-dropped: no field source is taken;
+//   - f7g-reslice-field-any: every other use of the record counts as
+//     disjoint, so resliceFieldLive and resliceFieldWhole are taken, and
+//     the property's output shows the write.
 func TestIRCollectsReslice(t *testing.T) {
 	first, count := envInt("ERGO_IRSPIKE_SEED", 1), envInt("ERGO_IRSPIKE_SEEDS", 4)
 	for seed := first; seed < first+count; seed++ {
