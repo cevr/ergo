@@ -124,6 +124,26 @@ test Peek {
 	assert peek(&s) == 1
 }
 `,
+	"own-enter-field": `type Walk { rows []int, n []int }
+
+func tally(w *Walk, v int) {
+	w.n = w.n.Append(v)
+}
+
+func count(rows []int, v int) int {
+	let mut w = Walk{rows: rows, n: []int{}}
+	tally(&w, v)
+	len(w.rows) + len(w.n)
+}
+
+func main() needs Console {
+	Console.Println("\(count([]int{1, 2}, 3))")
+}
+
+test Count {
+	assert count([]int{1, 2}, 3) == 3
+}
+`,
 	"own-read": `type Block { Kind int, Lines []string }
 
 type Store { blocks []Block }

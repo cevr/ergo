@@ -203,6 +203,15 @@ var shortcuts = []shortcut{
 		referenced: func() bool { return !valueOwned() || !borrowPassOn() },
 	},
 	{
+		name:       "own-enter-field",
+		class:      valueClass,
+		admission:  "sharedField",
+		reference:  "valueLowering=copy",
+		agreement:  "TestHandoverAgrees",
+		mutant:     "own-enter-field-write-blind",
+		referenced: func() bool { return !valueOwned() },
+	},
+	{
 		name:       "own-reslice",
 		class:      valueClass,
 		admission:  "reslices",

@@ -200,8 +200,9 @@ type valueFacts struct {
 	// moves an entry out of (by their type strings) and the Gets it reads.
 	entryWrites map[string]bool
 	moveRead    map[*syntax.CallExpr]bool
-	copied      map[*check.Var]bool // the bindings of a matched Get whose entry is copied
-	borrows     *borrowWrites       // what a function writes through a borrow parameter (storeread.go, own-read-pass)
+	copied      map[*check.Var]bool      // the bindings of a matched Get whose entry is copied
+	borrows     *borrowWrites[borrowSum] // what a function writes through a borrow parameter (storeread.go, own-read-pass)
+	fieldWrites *borrowWrites[fieldSum]  // the fields it writes through one (storefield.go, own-enter-field)
 }
 
 // ownedParam is an owned parameter (V5): its index, counting a dot call's
@@ -923,6 +924,11 @@ func (w *valueWalk) decide() {
 				continue
 			}
 			if o.whole && w.slicesOf(o.value, o.root) || w.reslices(o.value, o.root) {
+				continue
+			}
+			if lit, ok := unparen(o.value).(*syntax.CompositeLit); ok && o.root.init != nil && unparen(o.root.init) == syntax.Expr(lit) {
+				// A let mut's literal: a field may enter shared (storefield.go).
+				w.freshenLit(lit, o.root)
 				continue
 			}
 			w.freshen(o.value)

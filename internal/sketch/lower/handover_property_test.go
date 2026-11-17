@@ -238,14 +238,29 @@ func (g *handoverGen) stmt() {
 			return
 		}
 		j := g.r.IntN(len(g.store))
-		kinds := []string{"Kind", "Item", "Push", "Pass", "Method", "Bump", "CycleA", "CycleB", "CallBump", "CallPoke", "Chain"}
-		// Two peeks of the element; seed s takes the kinds s-1, s+2,
-		// s+5, s+8: seeds 2, 3 and 4 alone reach all eleven (seed 1 adds
-		// no bag to the store), in two reads each.
-		for range 2 {
+		kinds := []string{"Kind", "Item", "Push", "Pass", "Method", "Bump", "CycleA", "CycleB", "CallBump", "CallPoke", "Chain", "EnterBump", "EnterPoke"}
+		// Three peeks of the element; seed s takes the kinds s-1, s+2,
+		// s+5, …: seeds 2, 3 and 4 alone reach all thirteen (seed 1
+		// adds no bag to the store), in two reads each.
+		for range 3 {
 			kind := kinds[(g.peeks*3+g.peekAt)%len(kinds)]
 			g.peeks++
 			g.reached["peek "+kind] = true
+			if kind == "EnterBump" || kind == "EnterPoke" {
+				// The store's bags enter a let mut of the callee (by
+				// value, unkept); the caller reads its element after.
+				g.line(fmt.Sprintf("out = out + %s(st.bags, %d, %d) + \"/\" + show(st.bags[%d]) + \" \"", strings.ToLower(kind[:1])+kind[1:], j, v, j))
+				b := g.store[j].copy()
+				items, n := b.items, 1
+				if kind == "EnterPoke" {
+					items, n = append([]int(nil), b.items...), 0
+					if len(items) > 0 {
+						items[0] = v
+					}
+				}
+				g.out.WriteString(hdig(items) + fmt.Sprintf(",%d/", n) + hdig(b.items) + fmt.Sprintf(",%d ", b.n))
+				continue
+			}
 			g.line(fmt.Sprintf("out = out + peek%s(&st, %d, %d) + \" \"", kind, j, v))
 			b := g.store[j].copy()
 			e := &g.store[j]
@@ -498,6 +513,35 @@ func peekChain(s *Store, i int, v int) string {
 	"\(dig(it)),\(b.N)"
 }
 
+// A let mut that holds its parameter's bags and writes only its own
+// counts through a borrow (storefield.go, own-enter-field): the bags enter
+// it shared.
+type Walk { bags []Bag, n []int }
+
+func tally(w *Walk, v int) {
+	w.n = w.n.Append(v)
+}
+
+func enterBump(bags []Bag, i int, v int) string {
+	let mut w = Walk{bags: bags, n: []int{}}
+	tally(&w, v)
+	"\(dig(w.bags[i].Items)),\(len(w.n))"
+}
+
+func scribble(w *Walk, i int, v int) {
+	if len(w.bags[i].Items) > 0 {
+		w.bags[i].Items[0] = v
+	}
+}
+
+// The borrow writes the bags' storage: they enter the let mut copied, and
+// the caller's store is unchanged.
+func enterPoke(bags []Bag, i int, v int) string {
+	let mut w = Walk{bags: bags, n: []int{}}
+	scribble(&w, i, v)
+	"\(dig(w.bags[i].Items)),\(len(w.n))"
+}
+
 // pokeA writes the element's slice; pokeB only passes the borrow back to
 // pokeA: through the recursion, both write it.
 func pokeA(s *Store, i int, v int, d int) {
@@ -679,7 +723,7 @@ func TestHandoverAgrees(t *testing.T) {
 		}
 		return src[i : i+end]
 	}
-	for name, copies := range map[string]bool{"peekKind": false, "peekItem": true, "peekPass": true, "peekBump": false, "peekCycleA": true, "peekCycleB": true, "peekCallBump": false, "peekCallPoke": true, "peekChain": false, "trim": false} {
+	for name, copies := range map[string]bool{"peekKind": false, "peekItem": true, "peekPass": true, "peekBump": false, "peekCycleA": true, "peekCycleB": true, "peekCallBump": false, "peekCallPoke": true, "peekChain": false, "enterBump": false, "enterPoke": true, "trim": false} {
 		b := body(programs[0].mainGo(), name)
 		if b == "" || strings.Contains(b, "Clone") != copies {
 			var named []string
@@ -708,7 +752,7 @@ func TestHandoverAgrees(t *testing.T) {
 		}
 	}
 	if *handoverSeed == 0 {
-		for _, s := range []string{"push", "branch", "ring on a live let", "root rings", "inline append on a live let", "grow", "cut", "root takes a push", "root pushes", "concat on a root", "concat on a live let", "concat on a dead local", "store add", "peek Kind", "peek Item", "peek Push", "peek Pass", "peek Method", "peek Bump", "peek CycleA", "peek CycleB", "peek CallBump", "peek CallPoke", "peek Chain", "root read then write", "root reslices", "root takes a let's cut", "let keeps the root", "trim through a borrow", "root threads arms", "arm on a live let", "root mk", "mk on a live let", "root both", "window kept", "window kept by a call", "window popped", "window read", "window read in flight"} {
+		for _, s := range []string{"push", "branch", "ring on a live let", "root rings", "inline append on a live let", "grow", "cut", "root takes a push", "root pushes", "concat on a root", "concat on a live let", "concat on a dead local", "store add", "peek Kind", "peek Item", "peek Push", "peek Pass", "peek Method", "peek Bump", "peek CycleA", "peek CycleB", "peek CallBump", "peek CallPoke", "peek Chain", "peek EnterBump", "peek EnterPoke", "root read then write", "root reslices", "root takes a let's cut", "let keeps the root", "trim through a borrow", "root threads arms", "arm on a live let", "root mk", "mk on a live let", "root both", "window kept", "window kept by a call", "window popped", "window read", "window read in flight"} {
 			if !reached[s] {
 				t.Errorf("seeds %v never write %q", seeds, s)
 			}

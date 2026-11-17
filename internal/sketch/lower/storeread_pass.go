@@ -48,29 +48,27 @@ type borrowKey struct {
 	j int
 }
 
-// borrowWrites holds the summaries: final ones, and the ones a recursion
-// is still deciding (active), with open set when a summary read an active
-// one, so it is not final until that one is.
-type borrowWrites struct {
-	final  map[borrowKey]borrowSum
-	active map[borrowKey]borrowSum
+// borrowWrites holds the summaries of one kind (S: borrowSum, fieldSum):
+// final ones, and the ones a recursion is still deciding (active), with
+// open set when a summary read an active one, so it is not final until
+// that one is.
+type borrowWrites[S any] struct {
+	final  map[borrowKey]S
+	active map[borrowKey]S
 	open   bool
+}
+
+func newBorrowWrites[S any]() *borrowWrites[S] {
+	return &borrowWrites[S]{final: map[borrowKey]S{}, active: map[borrowKey]S{}}
 }
 
 // borrowRounds bounds the fixpoint of one summary; past it the summary
 // writes everything.
 const borrowRounds = 64
 
-// borrowWritten is what f writes through its parameter j (counting a dot
-// call's receiver first): the least fixpoint of borrowBody, starting from
-// nothing for a summary its own recursion reads.
-func (l *lowerer) borrowWritten(f *check.Func, j int) borrowSum {
-	vf := l.valueFacts()
-	if vf.borrows == nil {
-		vf.borrows = &borrowWrites{final: map[borrowKey]borrowSum{}, active: map[borrowKey]borrowSum{}}
-	}
-	b := vf.borrows
-	k := borrowKey{f, j}
+// fix is the least fixpoint of body for the key k, starting from bottom
+// for a summary its own recursion reads; past borrowRounds it is top.
+func (b *borrowWrites[S]) fix(k borrowKey, bottom, top S, same func(S, S) bool, body func() S) S {
 	if s, ok := b.final[k]; ok {
 		return s
 	}
@@ -79,12 +77,12 @@ func (l *lowerer) borrowWritten(f *check.Func, j int) borrowSum {
 		return s
 	}
 	outer := b.open
-	b.active[k] = borrowSum{types: map[string]bool{}}
+	b.active[k] = bottom
 	for range borrowRounds {
 		b.open = false
-		s := l.borrowBody(f, j)
+		s := body()
 		open := b.open
-		if s.same(b.active[k]) {
+		if same(s, b.active[k]) {
 			delete(b.active, k)
 			if !open || len(b.active) == 0 {
 				b.final[k] = s
@@ -96,7 +94,19 @@ func (l *lowerer) borrowWritten(f *check.Func, j int) borrowSum {
 	}
 	delete(b.active, k)
 	b.open = outer
-	return borrowSum{types: map[string]bool{}, hidden: true}
+	return top
+}
+
+// borrowWritten is what f writes through its parameter j (counting a dot
+// call's receiver first): the least fixpoint of borrowBody.
+func (l *lowerer) borrowWritten(f *check.Func, j int) borrowSum {
+	vf := l.valueFacts()
+	if vf.borrows == nil {
+		vf.borrows = newBorrowWrites[borrowSum]()
+	}
+	return vf.borrows.fix(borrowKey{f, j}, borrowSum{types: map[string]bool{}}, borrowSum{types: map[string]bool{}, hidden: true}, borrowSum.same, func() borrowSum {
+		return l.borrowBody(f, j)
+	})
 }
 
 // borrowBody is one round of f's summary for parameter j: the storage each
