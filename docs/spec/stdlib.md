@@ -412,7 +412,17 @@ streamed (Rm, item 9). TLS and HTTP/2 configuration are outside this core.
    Every server protocol shares it: `rpc.Serve` takes the same `net.Listener`,
    std net's ([net](#net) 6). Serve serves any `net.Listener`: a
    `nettest.Pipe`'s gives the same answers to the same requests as a
-   loopback one (`TestHTTPServePipeMatchesLoopback`), with no socket.
+   loopback one (`TestHTTPServePipeMatchesLoopback`), with no socket. A
+   request over a budget ends its connection after the answer
+   (`TestHTTPServeOverLimitEndsConnection`, on a pipe, where no kernel
+   timing decides what arrives): a body over `MaxBodyBytes` reaches the
+   handler as `BodyTooLarge` and its answer arrives whole, a header over
+   `MaxHeaderBytes` gets net/http's 431, and a request written after either
+   gets no answer. When the client has sent more than the server read
+   ahead or drained (net/http drains up to 256 KiB of an unread body), the
+   close leaves bytes unread and the client's next read after the answer
+   fails with the reset; on loopback that reset may also drop the answer,
+   which is TCP's behaviour and Go's.
 2. `Serve[R](l, limits Limits, handle escaping func(Request) Response needs R | Streaming)`
    has `fails InvalidLimits needs R | Scheduler`. Serve binds the request's `Streaming`
    provider around each invocation, so a handler that does not stream is a
