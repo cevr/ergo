@@ -5,6 +5,7 @@ type tokens {
 	src    string,
 	kinds  []uint8,
 	starts []uint32,
+	ends   []uint32,
 	nreal  int,
 	vend   int,
 	cmt0   int,
@@ -16,7 +17,7 @@ func tokEnd(k tokens, j int) int {
 	if j >= k.nreal {
 		return k.vend
 	}
-	End(k.src, k.kinds[j], int(k.starts[j]))
+	int(k.ends[j])
 }
 
 // optPos is the offset of the optional token word w.

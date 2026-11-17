@@ -5,7 +5,7 @@ import dense
 
 func parsedToks(p Parsed) tokens {
 	let c0 = if NumComments(p.cmts) > 0 { CommentStart(p.cmts, CommentAt(p.cmts, 0)) } else { -1 }
-	tokens{src: p.src, kinds: p.kinds, starts: p.starts, nreal: p.nreal, vend: p.vend, cmt0: c0}
+	tokens{src: p.src, kinds: p.kinds, starts: p.starts, ends: p.ends, nreal: p.nreal, vend: p.vend, cmt0: c0}
 }
 
 // TokPos is the offset of token j.

@@ -23,6 +23,7 @@ type Parsed {
 	src     string,
 	kinds   []uint8,
 	starts  []uint32,
+	ends    []uint32,
 	nreal   int,
 	vend    int,
 	cmts    Comments,
@@ -39,6 +40,7 @@ type parser {
 	src         string,
 	kinds       []uint8,
 	starts      []uint32,
+	ends        []uint32,
 	nreal       int,
 	vend        int,
 	ntok        int,
@@ -83,6 +85,7 @@ func Parse(src string) Parsed {
 	// the two tokens a failed scan adds.
 	let mut kinds = s.Toks.kind
 	let mut starts = s.Toks.start
+	let mut ends = s.Toks.end
 	let mut ntok = n
 	let mut vend = 0
 	if s.Failed {
@@ -91,8 +94,7 @@ func Parse(src string) Parsed {
 		let mut at = s.Offset
 		let mut end = s.Offset + s.Length
 		if n > 0 {
-			let k = kinds[n-1]
-			let last = End(src, k, int(starts[n-1]))
+			let last = int(ends[n-1])
 			if last > at {
 				at = last
 				end = last
@@ -100,17 +102,21 @@ func Parse(src string) Parsed {
 		}
 		kinds[n] = Illegal
 		starts[n] = uint32(at)
+		ends[n] = uint32(end)
 		kinds[n+1] = EOF
 		starts[n+1] = uint32(end)
+		ends[n+1] = uint32(end)
 		vend = end
 		ntok = n + 2
 	}
 	kinds = kinds[:ntok]
 	starts = starts[:ntok]
+	ends = ends[:ntok]
 	let mut p = parser{
 		src:         src,
 		kinds:       kinds,
 		starts:      starts,
+		ends:        ends,
 		nreal:       n,
 		vend:        vend,
 		ntok:        ntok,
@@ -166,6 +172,7 @@ func Parse(src string) Parsed {
 		src:     src,
 		kinds:   p.kinds,
 		starts:  p.starts,
+		ends:    p.ends,
 		nreal:   p.nreal,
 		vend:    p.vend,
 		cmts:    p.cmts,
@@ -294,7 +301,7 @@ func tend(p *parser, j int) int {
 	if j >= p.nreal {
 		return p.vend
 	}
-	End(p.src, p.kinds[j], int(p.starts[j]))
+	int(p.ends[j])
 }
 
 // pos and end are the current token's.
@@ -699,7 +706,7 @@ func nodeEnd(p *parser, x uint32) int { endOf(p.t, toks(p), x) }
 // toks is the parser's tokens, to read spans from.
 func toks(p *parser) tokens {
 	let c0 = if NumComments(p.cmts) > 0 { cmtStart(p, 0) } else { -1 }
-	tokens{src: p.src, kinds: p.kinds, starts: p.starts, nreal: p.nreal, vend: p.vend, cmt0: c0}
+	tokens{src: p.src, kinds: p.kinds, starts: p.starts, ends: p.ends, nreal: p.nreal, vend: p.vend, cmt0: c0}
 }
 
 // errorNode reports message at the span of row x.

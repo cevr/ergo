@@ -129,6 +129,7 @@ type Toks {
 	ids   dense.Count[Tok],
 	kind  []uint8,
 	start []uint32,
+	end   []uint32,
 }
 
 // NumToks is the number of tokens.
@@ -142,6 +143,10 @@ func Kind(t Toks, id dense.ID[Tok]) uint8 { t.kind[dense.Index(id)] }
 
 // Start is the offset of token id's first byte.
 func Start(t Toks, id dense.ID[Tok]) int { int(t.start[dense.Index(id)]) }
+
+// TokEndOf is the offset after token id's last byte, as the scan stored it
+// (End, which scans the token again, gives the same: law EndsAreStored).
+func TokEndOf(t Toks, id dense.ID[Tok]) int { int(t.end[dense.Index(id)]) }
 
 // opLen is the length of an operator or punctuation kind: the three-byte
 // operators, the two-byte ones, else one byte.
@@ -266,6 +271,18 @@ law StartsAdvance(src string) {
 // EndRescans: a token of a kind that depends on no context (an
 // identifier, a keyword, a number, an operator, a whole string or rune)
 // scans alone, from its start to its End, to itself and EOF.
+// EndsAreStored: the end the scan stores for each token is End's, the
+// token scanned again.
+law EndsAreStored(src string) {
+	let t = Scan(src).Toks
+	let mut ok = true
+	for i in 0..NumToks(t) {
+		let id = TokAt(t, i)
+		ok = ok && TokEndOf(t, id) == End(src, Kind(t, id), Start(t, id))
+	}
+	ok
+}
+
 law EndRescans(src string) {
 	let s = Scan(src)
 	let t = s.Toks
