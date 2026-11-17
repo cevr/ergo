@@ -409,8 +409,8 @@ func mustLower(t *testing.T, name, src string) *lowered {
 // value when the value is a constant outside 0..31 and the length is in a
 // register. cmd/compile's LoweredPanicBoundsCR moves the constant into a
 // register but does not set xIsReg, so the runtime prints that register's
-// number, [0] where amd64 prints [-3]. The repro is probes/arm64negconst in
-// the I19 run, and the upstream report is drafted there. One lowering folds
+// number, [0] where amd64 prints [-3]: golang/go#83150
+// (https://github.com/golang/go/issues/83150). One lowering folds
 // the index into a constant and the other does not, so only that value
 // differs. The panic's kind and length, its source line and the exit code
 // still have to agree.
