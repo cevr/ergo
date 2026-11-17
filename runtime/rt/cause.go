@@ -71,6 +71,10 @@ func (c *Cause) AddFailure(err error) {
 // AddDefect records a panic value raised in task t.
 func (c *Cause) AddDefect(t *Task, value any) { c.defect(t, value, false, 0) }
 
+// AddReleaseDefect records a panic value raised in a release of task t, as
+// Release records one on a task that is not traced (runtime/v1 Exits).
+func (c *Cause) AddReleaseDefect(t *Task, value any) { c.defect(t, value, true, 0) }
+
 // AddInterruption records an interruption, once.
 func (c *Cause) AddInterruption() {
 	for _, r := range c.Reasons {
