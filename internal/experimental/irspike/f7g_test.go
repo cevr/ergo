@@ -240,9 +240,21 @@ func walkLists(v any, f func([]any)) {
 	}
 }
 
-// isPoll reports the poll statement: the task's Check.
+// isPoll reports the poll statement: the task's Check, or a quiet loop's
+// amortized poll (POLL-AMORT, lower/ir_poll.go), a block that counts the
+// back edge down and checks when the count ends.
 func isPoll(s any) bool {
 	m, _ := s.(map[string]any)
 	x, _ := m["x"].(map[string]any)
+	if m["k"] == "block" {
+		body, _ := m["body"].([]any)
+		if len(body) != 2 {
+			return false
+		}
+		dec, _ := body[0].(map[string]any)
+		at, _ := body[1].(map[string]any)
+		then, _ := at["then"].([]any)
+		return dec["k"] == "set" && dec["op"] == "-" && at["k"] == "if" && len(then) == 2 && isPoll(then[1])
+	}
 	return m["k"] == "expr" && x["k"] == "mcall" && x["name"] == "Check"
 }
