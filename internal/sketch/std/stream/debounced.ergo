@@ -8,15 +8,17 @@ import timeout
 // Debounce over a Seq, it has a timer: a value leaves d after it arrived
 // when no newer value arrived by then, even while src stays open and
 // silent. Run it as a task of its own (`task.Go() { stream.Debounced(src,
-// d, out) }`). It waits for a value of src, then waits up to d on the
-// Scheduler for the next one (timeout.PopWithin). A newer value
-// replaces the held one and starts a new wait. When d passes first, it
-// pushes the held value to out. When src ends, it pushes the held value at
-// once and ends out. A value that arrives at the deadline's own instant
-// may either replace the held one or follow it; it is never lost. Values
-// already queued are taken with no timer, so a backlog costs none. A d of zero or less keeps every value. It fails Closed
-// when out is closed before it ends.
-func Debounced[T](src queue.Queue[T], d duration, out queue.Queue[T]) fails queue.Closed needs Scheduler {
+// d, out) }`). It holds the last value and the time it arrived, and waits
+// on one timeout.Deadline, armed for d at the first value of a burst and
+// kept while values come (lodash's debounce): a value only replaces the
+// held one and reads the clock, so a burst arms no alarm per value. When
+// the deadline fires, a held value that arrived d or more ago leaves for
+// out; a newer one re-arms the deadline for the rest of its d. When src
+// ends, it pushes the held value at once and ends out. A value that
+// arrives at the deadline's own instant may either replace the held one or
+// follow it; it is never lost. A d of zero or less keeps every value. It
+// fails Closed when out is closed before it ends.
+func Debounced[T](src queue.Queue[T], d duration, out queue.Queue[T]) fails queue.Closed needs Scheduler | time.Clock {
 	if d <= 0ns {
 		for v in src.Values() {
 			try out.Push(v)
@@ -24,22 +26,34 @@ func Debounced[T](src queue.Queue[T], d duration, out queue.Queue[T]) fails queu
 		out.End()
 		return
 	}
+	let dl = timeout.NewDeadline()
 	let mut pending Option[T] = None
+	let mut last = time.Clock.Now()
 	let mut open = true
 	for open {
 		let e = match pending {
 		case Some[T]:
-			nextWithin(src, d)
+			nextBefore(src, dl)
 		case None:
 			nextOf(src)
 		}
 		match e {
 		case arrival[T] as a:
 			pending = Some[T]{Value: a.Value}
+			last = time.Clock.Now()
+			if !dl.Armed() {
+				dl.Arm(d)
+			}
 		case quiet:
-			try pushHeld(out, pending)
-			pending = None
+			let rest = d - time.Clock.Elapsed(last)
+			if rest > 0ns {
+				dl.Arm(rest)
+			} else {
+				try pushHeld(out, pending)
+				pending = None
+			}
 		case ended:
+			dl.Stop()
 			try pushHeld(out, pending)
 			out.End()
 			open = false
@@ -58,7 +72,7 @@ law DebouncedMatchesModel(gaps []int, xs []int, w int) {
 	let d = 2*(window(w)%30) + 1
 	let n = len(xs)
 	let start = m.Now()
-	with context { Scheduler: m } {
+	with context { Scheduler: m, time.Clock: m } {
 		let src = queue.New[int](n + 1)
 		let out = queue.New[int](n + 1)
 		let seen = queue.New[int](2*n + 1)
@@ -157,11 +171,11 @@ func nextOf[T](src queue.Queue[T]) event[T] {
 	arrival[T]{Value: v}
 }
 
-// nextWithin waits up to d for the next value of src. A value already in
-// src is taken with no timer; a value that enters at the deadline's
-// instant is taken or stays in src, never lost.
-func nextWithin[T](src queue.Queue[T], d duration) event[T] needs Scheduler {
-	let v = timeout.PopWithin(src, d) catch {
+// nextBefore waits for the next value of src until dl fires. A value
+// already in src is taken first; a value that enters at the fire's instant
+// is taken or stays in src, never lost.
+func nextBefore[T](src queue.Queue[T], dl timeout.Deadline) event[T] {
+	let v = timeout.PopBefore(src, dl) catch {
 	case timeout.Expired:
 		return quiet
 	case queue.Closed:
