@@ -170,7 +170,7 @@ func run(args []string, log io.Writer) (int, error) {
 		return func(n int) []string { return []string{self, s, strconv.Itoa(n), m} }
 	}
 	modes := []mode{
-		{"ergo", "gen", ergoMode("gen")}, {"ergo", "parse", ergoMode("parse")}, {"ergo", "setup", ergoMode("setup")}, {"ergo", "check", ergoMode("check")},
+		{"ergo", "gen", ergoMode("gen")}, {"ergo", "parse", ergoMode("parse")}, {"ergo", "setup", ergoMode("setup")}, {"ergo", "check", ergoMode("check")}, {"ergo", "check-fused", ergoMode("check-fused")},
 		{"go", "gen", goMode("go", "gen")}, {"go", "parse", goMode("go", "parse")}, {"go", "check", goMode("go", "check")},
 		{"floor", "gen", goMode("floor", "gen")}, {"floor", "check", goMode("floor", "check")},
 	}
@@ -186,6 +186,9 @@ func run(args []string, log io.Writer) (int, error) {
 	}
 	if outs["ergo gen"] != outs["go gen"] || outs["go gen"] != outs["floor gen"] {
 		return 1, fmt.Errorf("the sides read different sources: %q %q %q", outs["ergo gen"], outs["go gen"], outs["floor gen"])
+	}
+	if outs["ergo check"] != outs["ergo check-fused"] {
+		return 1, fmt.Errorf("the fused walk typed another count: %q %q", outs["ergo check"], outs["ergo check-fused"])
 	}
 	for _, bad := range [][]string{ergoMode("check-bad")(small), goMode("go", "check-bad")(small), goMode("floor", "check-bad")(small)} {
 		o, code, _ := once(work, bad)
@@ -355,6 +358,8 @@ func report(modes []mode, counts [][][]float64, ns []int, rounds int, gc, metric
 		{"ergo", "bind and load", "setup", "parse"},
 		{"ergo", "typing", "check", "setup"},
 		{"ergo", "checker (parse to types)", "check", "gen"},
+		{"ergo", "typing, fused (no Entries)", "check-fused", "setup"},
+		{"ergo", "checker, fused", "check-fused", "gen"},
 		{"go", "parse", "parse", "gen"},
 		{"go", "check", "check", "parse"},
 		{"go", "checker (parse to types)", "check", "gen"},
@@ -391,7 +396,10 @@ func report(modes []mode, counts [][][]float64, ns []int, rounds int, gc, metric
 	fmt.Fprintf(&b, "- self-hosted / Go checker: %s\n", ratio("ergo checker (parse to types)", "go checker (parse to types)"))
 	fmt.Fprintf(&b, "- self-hosted / floor: %s\n", ratio("ergo checker (parse to types)", "floor checker (bytes to types)"))
 	fmt.Fprintf(&b, "- Go checker / floor: %s\n", ratio("go checker (parse to types)", "floor checker (bytes to types)"))
+	fmt.Fprintf(&b, "- self-hosted, fused / Go checker: %s\n", ratio("ergo checker, fused", "go checker (parse to types)"))
+	fmt.Fprintf(&b, "- self-hosted, fused / floor: %s\n", ratio("ergo checker, fused", "floor checker (bytes to types)"))
 	fmt.Fprintf(&b, "- self-hosted typing alone / floor: %s\n", ratio("ergo typing", "floor checker (bytes to types)"))
+	fmt.Fprintf(&b, "- self-hosted typing, fused / floor: %s\n", ratio("ergo typing, fused (no Entries)", "floor checker (bytes to types)"))
 	return b.String()
 }
 
