@@ -35,6 +35,23 @@ func benchExit(n int) int {
 	return s + cell.v
 }
 
+// plain is unit's work with no deferred closure (the update workload).
+func plain(i int, cell *ref) int {
+	cell.mu.Lock()
+	cell.v += i
+	cell.mu.Unlock()
+	return i & 7
+}
+
+func benchUpdate(n int) int {
+	cell := &ref{}
+	s := 0
+	for i := 0; i < n; i++ {
+		s += plain(i, cell)
+	}
+	return s + cell.v
+}
+
 func main() {
 	if len(os.Args) != 4 {
 		fmt.Fprintln(os.Stderr, "usage: control bench KIND N")
@@ -48,6 +65,8 @@ func main() {
 	switch os.Args[2] {
 	case "exit":
 		out = benchExit(n)
+	case "update":
+		out = benchUpdate(n)
 	}
 	fmt.Println(out)
 }
