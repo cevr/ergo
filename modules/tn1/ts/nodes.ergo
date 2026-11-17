@@ -192,9 +192,11 @@ func catches(code []Token, from int, to int) []Catch {
 
 type Catch { At int, Open int, Close int, Bound string }
 
-// index is the first index of code whose token starts at or after p.
-func index(code []Token, p int) int {
-	let mut i = 0
+// index is the first index of code, from at, whose token starts at or
+// after p. Statements come in order, so each search starts where the
+// last ended and the walk is linear in the file.
+func index(code []Token, at int, p int) int {
+	let mut i = at
 	for i < len(code) && code[i].From < p {
 		i += 1
 	}
@@ -254,9 +256,11 @@ func nodes(src string, starts []int, code []Token, imp Imports) []tn1.Node {
 	out[0].Length = len(src)
 	out[0].Line = 1
 	out[0].Column = 1
+	let mut cursor = 0
 	for s in Statements(src) {
-		let from = index(code, s.From)
-		let to = index(code, s.To)
+		let from = index(code, cursor, s.From)
+		let to = index(code, from, s.To)
+		cursor = to
 		let kind = nodeKind(code, from, to)
 		let mut name = nameOf(code, from, to)
 		if member(imp.Names, name) {

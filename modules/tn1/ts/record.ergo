@@ -271,33 +271,39 @@ func FromSource(src string) tn1.Features {
 	tn1.Features{Language: "ts", Lines: lines, Nodes: nodes(src, starts, code, imp)}
 }
 
-// CommentSpan is the bytes of the comments on line (1-based) of src,
-// from the first comment byte on it to the last; From == To when it has
-// none. A finding of a local network points at it.
-func CommentSpan(src string, line int) Span {
+// CommentSpans is, for each line of src, the bytes of the comments on
+// it, from the first comment byte on the line to the last; From == To at
+// the line's start when it has none. A finding of a local network points
+// at its line's span.
+func CommentSpans(src string) []Span {
 	let starts = lineStarts(src)
-	if line < 1 || line > len(starts) {
-		return Span{From: 0, To: 0}
+	let mut out = []Span{}
+	let mut seen = []bool{}
+	for s in starts {
+		out = out.Append(Span{From: s, To: s})
+		seen = seen.Append(false)
 	}
-	let from = starts[line-1]
-	let to = if line < len(starts) { starts[line] - 1 } else { len(src) }
-	let mut a = -1
-	let mut b = -1
 	for t in Scan(src) {
-		if IsComment(t) && t.From < to && t.To > from {
-			if a < 0 {
-				a = if t.From > from { t.From } else { from }
+		if !IsComment(t) {
+			continue
+		}
+		let first = lineOf(starts, t.From)
+		let last = lineOf(starts, lo(t.To, len(src))-if t.To > t.From { 1 } else { 0 })
+		for l in first..last+1 {
+			let from = starts[l]
+			let to = if l+1 < len(starts) { starts[l+1] - 1 } else { len(src) }
+			if !seen[l] {
+				seen[l] = true
+				out[l].From = if t.From > from { t.From } else { from }
 			}
-			b = if t.To < to { t.To } else { to }
+			let mut b = if t.To < to { t.To } else { to }
+			if b > out[l].From && src[b-1] == '\r' {
+				b -= 1
+			}
+			out[l].To = b
 		}
 	}
-	if a < 0 {
-		return Span{From: from, To: from}
-	}
-	if b > a && src[b-1] == '\r' {
-		b -= 1
-	}
-	Span{From: a, To: b}
+	out
 }
 
 // signature reports whether the parenthesised list at code[open] is a

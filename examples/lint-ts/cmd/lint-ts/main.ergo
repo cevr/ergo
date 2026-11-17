@@ -76,9 +76,10 @@ func thousandths(n int) string { "0." + strings.PadLeft(strconv.Itoa(n), 3, '0')
 // src.
 func Findings(rule string, net tn1.Net, path string, src string) []Diagnostic {
 	let model = strings.Slice(tn1.ID(net), 0, 12)
+	let spans = ts.CommentSpans(src)
 	let mut out = []Diagnostic{}
 	for f in tn1.Run(net, ts.FromSource(src)) {
-		let s = ts.CommentSpan(src, f.Line)
+		let s = spans[f.Line-1]
 		let lineStart = s.From - lastNewline(src, s.From)
 		out = out.Append(Diagnostic{
 			Message:  "\(rule): flagged by a local network (p=\(thousandths(f.Permille)), model \(model))",

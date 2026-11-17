@@ -24,4 +24,4 @@ Cases (the `ts` leg: Bun and the pinned `typescript` package of `tools/ts`):
 - `lint` is the oxlint report of the narration control on the vectors' TypeScript source.
 - `usage` is a bad command line.
 
-What it shows: closed unions for the token kinds and the commands, exhaustive `match` over them, typed failures (`os.Exit`, `tn1.Malformed`) and a wire record (`Report`) whose field keys are oxlint's.
+What it shows: closed unions for the token kinds and the commands, exhaustive `match` over them, typed failures (`os.Exit`, `tn1.Malformed`) and a record (`Report`) whose field keys are oxlint's names.
