@@ -287,13 +287,16 @@ func (in *interp) call(fr *frame, at *syntax.CallExpr, fn *check.Func, targs []c
 	if len(fn.Sig.TParams) == 0 {
 		return in.callResolved(fr, at, fn, nil, args)
 	}
-	if at != nil && fr.info.Instances[at] != nil && len(fr.info.Instances[at].Witnesses) > 0 {
-		return nil, fr.unsupported(at, "a generic call whose type parameter an operation type constrains (%s) yet", fn.Name)
-	}
-	// Each type argument is read in the caller's substitution.
+	// Each type argument is read in the caller's substitution, and so is
+	// each operation witness (witness.go).
 	var rt []rtype
 	for _, t := range targs {
 		rt = append(rt, fr.rt(t))
+	}
+	if at != nil {
+		if wits := witnessesOf(fr.info.Instances[at], fr.env); wits != nil {
+			return in.callWitnessed(fr, at, fn, rt, wits, args)
+		}
 	}
 	return in.callResolved(fr, at, fn, rt, args)
 }
@@ -303,6 +306,12 @@ func (in *interp) call(fr *frame, at *syntax.CallExpr, fn *check.Func, targs []c
 // one (natives.go); any other Go function is skipped. The callee sees
 // the caller's capabilities.
 func (in *interp) callResolved(fr *frame, at *syntax.CallExpr, fn *check.Func, targs []rtype, args []Value) (Value, *abrupt) {
+	return in.callWitnessed(fr, at, fn, targs, nil, args)
+}
+
+// callWitnessed is callResolved with the operation witnesses of the
+// callee's constrained type parameters (witness.go).
+func (in *interp) callWitnessed(fr *frame, at *syntax.CallExpr, fn *check.Func, targs []rtype, wits map[*check.TypeParam]*witnessV, args []Value) (Value, *abrupt) {
 	switch {
 	case check.AppendsString(fn):
 		if ab := in.charge(fr, at, 1); ab != nil {
@@ -348,7 +357,7 @@ func (in *interp) callResolved(fr *frame, at *syntax.CallExpr, fn *check.Func, t
 			ice("the generic call of %s has %d type arguments for %d parameters", fn.Name, len(targs), len(fn.Sig.TParams))
 		}
 		n := len(targs)
-		callee.env = &tenv{tps: fn.Sig.TParams[:n:n], args: targs[:n:n]} // full slices: a bind appends to neither
+		callee.env = &tenv{tps: fn.Sig.TParams[:n:n], args: targs[:n:n], wits: wits} // full slices: a bind appends to neither
 	}
 	params := in.paramsOf(fn)
 	if len(params) != len(args) {
