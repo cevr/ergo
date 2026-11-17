@@ -487,6 +487,7 @@
       "rule": "ergo build -report copies prints the form of each Append and Concat site (tooling.md; types.md, Bindings 2).",
       "killers": ["cmd/ergo:TestHandoverGrowsLinearly"]
     },
-    {"name":"opc-hooked-build-host-goroot","origin":"wf10 std-spike c1b22 r3 (opcount program mode)","file":"internal/opcount/hooked/hooked.go","from":"tc.Go, tc.Root = patched.Go, patched.Root","to":"tc.Go, tc.Root = patched.Go, \"\"","rule":"A measured build of an emitted module compiles with the GOROOT of ergo's patched release, whose compile reads the IR bodies (-ergoir); the host GOROOT's compile refuses the flag.","killers":["cmd/ergo:TestEventsStreamCounts"],"anchor":{"tests":["cmd/ergo:TestEventsStreamCounts"]}}
+    {"name":"opc-hooked-build-host-goroot","origin":"wf10 std-spike c1b22 r3 (opcount program mode)","file":"internal/opcount/hooked/hooked.go","from":"tc.Go, tc.Root = patched.Go, patched.Root","to":"tc.Go, tc.Root = patched.Go, \"\"","rule":"A measured build of an emitted module compiles with the GOROOT of ergo's patched release, whose compile reads the IR bodies (-ergoir); the host GOROOT's compile refuses the flag.","killers":["cmd/ergo:TestEventsStreamCounts"],"anchor":{"tests":["cmd/ergo:TestEventsStreamCounts"]}},
+    {"name":"dev-socket-under-root","origin":"wf10 I19 full r4","file":"cmd/ergo/dev.go","from":"\tif len(socket) > devSocketMax {\n","to":"\tif false && len(socket) > devSocketMax {\n","rule":"A dev socket's path fits a unix socket's sun_path under any cache root, so a deep root does not fail bind.","killers":["cmd/ergo:TestDevSocketFitsUnderDeepRoot"]}
   ]
 }

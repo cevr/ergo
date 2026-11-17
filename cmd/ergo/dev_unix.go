@@ -4,6 +4,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"syscall"
 )
@@ -26,4 +27,24 @@ func lockDev(path string) (unlock func(), err error) {
 		return nil, err
 	}
 	return func() { file.Close() }, nil
+}
+
+// ownDir refuses a folder that is not a real directory of this user's
+// that only this user can write: another user's folder could hold a
+// socket of theirs at a daemon's path.
+func ownDir(dir string) error {
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	st, ok := info.Sys().(*syscall.Stat_t)
+	switch {
+	case !info.IsDir():
+		return errors.New("not a directory")
+	case !ok || int(st.Uid) != os.Getuid():
+		return errors.New("owned by another user")
+	case info.Mode().Perm()&0o022 != 0:
+		return fmt.Errorf("writable by others (%v)", info.Mode().Perm())
+	}
+	return nil
 }

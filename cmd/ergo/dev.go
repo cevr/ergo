@@ -88,11 +88,31 @@ func devRelease() string {
 
 // devPaths are the socket and the lock file of a workspace and a
 // release, under the cache root: two releases serve one workspace with
-// two daemons.
+// two daemons. A unix socket's path is at most devSocketMax bytes
+// (sun_path: 108 on Linux, 104 on darwin, with its NUL), and a deep cache
+// root passes it, where bind fails with EINVAL; then the socket is in
+// devShortDir instead, named by the root too, so two cache roots still
+// get two sockets. Daemon and client both ask devPaths, so they agree.
 func devPaths(root, release, workspace string) (socket, lock string) {
 	sum := sha256.Sum256([]byte(release + "\x00" + workspace))
 	base := filepath.Join(root, "dev", hex.EncodeToString(sum[:8]))
-	return base + ".sock", base + ".lock"
+	socket = base + ".sock"
+	if len(socket) > devSocketMax {
+		long := sha256.Sum256([]byte(root + "\x00" + release + "\x00" + workspace))
+		socket = filepath.Join(devShortDir(), hex.EncodeToString(long[:12])+".sock")
+	}
+	return socket, base + ".lock"
+}
+
+// devSocketMax is the longest socket path every unix host binds: darwin's
+// sun_path of 104 bytes less its NUL.
+const devSocketMax = 103
+
+// devShortDir is the folder of the sockets whose path under the cache
+// root is too long: /tmp/ergo-dev-UID, a path of fixed short length (not
+// TMPDIR, which may be as deep as the root).
+func devShortDir() string {
+	return fmt.Sprintf("/tmp/ergo-dev-%d", os.Getuid())
 }
 
 // devEnvironment is env without the variables a shell sets for itself
@@ -188,8 +208,17 @@ type daemon struct {
 // the lock is given back, so a client that connects late finds no
 // listener and answers in process.
 func (d *daemon) serve(idle time.Duration, ready func(), stop <-chan os.Signal) error {
-	if err := os.MkdirAll(filepath.Dir(d.socket), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(d.lock), 0o755); err != nil {
 		return err
+	}
+	if dir := filepath.Dir(d.socket); dir == devShortDir() {
+		// A shared folder: this user's own, and no one else's to write.
+		if err := os.Mkdir(dir, 0o700); err != nil && !os.IsExist(err) {
+			return err
+		}
+		if err := ownDir(dir); err != nil {
+			return fmt.Errorf("ergo dev: %s: %w", dir, err)
+		}
 	}
 	unlock, err := lockDev(d.lock)
 	if err != nil {
