@@ -142,6 +142,9 @@ func (b *irBuilder) invariantPureCall(x *syntax.CallExpr, loop syntax.Stmt) *For
 			return memoNotBasic
 		}
 	}
+	if b.foldable(c.Func, x) { // ir_fold.go
+		return memoFolds
+	}
 	for _, a := range x.Args {
 		if !b.loopInvariant(a, loop) {
 			return memoVariant

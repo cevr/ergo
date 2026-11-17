@@ -28,7 +28,9 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/eval"
+	"ergo.local/prototype/internal/sketch/syntax"
 	"ergo.local/prototype/internal/toolchain"
 )
 
@@ -67,6 +69,24 @@ var (
 	foldOtherGo  = &FormReason{"call", "fold", false, "the compiler does not run on the pinned Go release"}
 	foldNotConst = &FormReason{"call", "fold", false, "an operand is not a constant of a basic type"}
 )
+
+// memoFolds is the memo pass's reason for a call this pass computes: a
+// constant needs no cache (ir_memo.go).
+var memoFolds = &FormReason{"call", "memo", false, "the call folds to a constant"}
+
+// foldable reports a call x of f, its operands constants of basic types,
+// that this pass will compute.
+func (b *irBuilder) foldable(f *check.Func, x *syntax.CallExpr) bool {
+	if pureFold == "off" || compilerGo != toolchain.Version || f == nil || !f.Pkg.Host() || !eval.HasGoFold(f.Pkg.Path, f.Name) {
+		return false
+	}
+	for _, a := range x.Args {
+		if _, ok := b.l.info.Values[a]; !ok {
+			return false
+		}
+	}
+	return true
+}
 
 // foldCalls is body with each pure Go call on constants that has a
 // check-time native replaced by its value.

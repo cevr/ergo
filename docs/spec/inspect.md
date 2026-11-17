@@ -73,7 +73,9 @@ ergo inspect forms FILE|DIR [--json]
    - `an operand may change in the loop`: an operand is not a literal, a
      constant or a name bound before the loop that no assignment reaches;
    - `statements run before the call`: an operand runs statements of its
-     own (an effectful call, an if).
+     own (an effectful call, an if);
+   - `the call folds to a constant`: the fold pass computes it at compile
+     time, so it needs no cache.
 
    A call inside an operator's operand (`acc + sq(k)`) is not looked at
    yet: the forms substrate's statement slot gives the pass those sites.

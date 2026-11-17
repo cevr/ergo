@@ -66,6 +66,7 @@ var formsRows = []struct {
 	{"computed at compile time by the same Go function", "let s = strconv.Quote(\"lit\")\n\t\tacc = acc + len(s)", ":29:11  call  fold  fired  f  (computed at compile time by the same Go function)", ""},
 	{"an operand is not a constant of a basic type", "let s = strconv.Quote(\"\\(k)\")\n\t\tacc = acc + len(s)", ":29:11  call  fold  not fired  f  (an operand is not a constant of a basic type)", ""},
 	{"the compiler does not run on the pinned Go release", "let s = strconv.Quote(\"lit\")\n\t\tacc = acc + len(s)", ":29:11  call  fold  not fired  f  (the compiler does not run on the pinned Go release)", "go1.26.0"},
+	{"the call folds to a constant", "let s = strconv.Quote(\"lit\")\n\t\tacc = acc + len(s)", ":29:11  call  memo  not fired  f  (the call folds to a constant)", ""},
 }
 
 // TestInspectFormsRows holds ergo inspect forms: for each reason a pass
