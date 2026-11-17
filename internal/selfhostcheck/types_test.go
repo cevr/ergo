@@ -541,11 +541,16 @@ func genKinds(seed uint32) string {
 		k := 1 + r.n(3)
 		decls = append(decls, decl{fmt.Sprintf("G%d", i), []string{"A", "B", "C"}[:k], pick(r, []string{"record", "record", "union", "ops"})})
 	}
-	if r.next() < 0.3 {
+	ownMap := r.next() < 0.3
+	if ownMap {
 		// The package's own Map: Map[K, V] is its instance.
 		decls = append(decls, decl{"Map", []string{"A", "B"}, "record"})
 	}
 	inMap := false
+	// cur is the declaration whose body is generated: its own instances
+	// grow more often, so a cycle meets a plain edge it makes heavier and
+	// a component holds more than one growing edge.
+	cur := ""
 	var ty func(ps []string, d int) string
 	ty = func(ps []string, d int) string {
 		leaf := func() string {
@@ -577,17 +582,26 @@ func genKinds(seed uint32) string {
 			return "Map[string, " + ty(ps, d-1) + "]"
 		case 7, 8:
 			g := pick(r, decls)
+			plain, grow := 0.75, 0.85
+			if g.name == cur {
+				plain, grow = 0.5, 0.9
+			}
 			args := make([]string, len(g.params))
 			for i := range args {
 				switch x := r.next(); {
 				case x < 0.2:
 					args[i] = pick(r, ps) + " | " + pick(r, ps)
-				case x < 0.75:
+				case x < plain:
 					args[i] = pick(r, ps)
-				case x < 0.85:
+				case x < grow:
 					// A larger type: on a cycle of the parameter graph
-					// the instances grow (S108).
-					args[i] = "[]" + pick(r, ps)
+					// the instances grow (S108). A builtin Map's key
+					// names a local type the cycle's text prints.
+					if !ownMap && r.next() < 0.5 {
+						args[i] = "Map[Fate, " + pick(r, ps) + "]"
+					} else {
+						args[i] = "[]" + pick(r, ps)
+					}
 				default:
 					args[i] = pick(r, []string{"int", "Fate"})
 				}
@@ -617,11 +631,18 @@ func genKinds(seed uint32) string {
 			// form, CK-MAPGROW, is S108). Growing instances of the other
 			// declarations come from their []P arguments.
 			inMap = g.name == "Map"
+			cur = g.name
 			fs := make([]string, len(g.params))
 			for i := range fs {
 				fs[i] = fmt.Sprintf("f%d %s", i, ty(g.params, 2))
 			}
+			if r.next() < 0.3 {
+				// A plain instance of itself first: a later growing one
+				// makes its edges heavier.
+				fs = append([]string{"s " + g.name + "[" + strings.Join(g.params, ", ") + "]"}, fs...)
+			}
 			inMap = false
+			cur = ""
 			lines = append(lines, "type "+g.name+"["+bracket+"] { "+strings.Join(fs, ", ")+" }", "")
 		case "ops":
 			var ms []string
