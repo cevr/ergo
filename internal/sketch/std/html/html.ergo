@@ -10,6 +10,7 @@
 // them when it is written, so no intermediate string per node is built
 // (templ's render functions; Lustre's string tree).
 
+import build
 import strconv
 import strings
 
@@ -18,7 +19,9 @@ import strings
 // late None, it is text, written as it is (markup) or escaped (esc);
 // otherwise late writes it, reading the children it holds. A node a
 // build-time fold computes from constants is markup: its whole markup,
-// one string the program holds as a constant (CF1, inFold).
+// one string the program holds as a constant (CF1, build.InFold). html
+// calls build.InFold itself: a function of its own that returned its
+// answer would break std build's rule, and a fold would compute it.
 type Node { text string, esc bool, late Option[Writer] }
 
 // Writer writes a node's markup at the end of a buffer.
@@ -40,14 +43,6 @@ type Trusted { s string }
 // call of Trust is a place where a string becomes markup.
 func Trust(s string) Trusted { Trusted{s: s} }
 
-// inFold is whether this code runs in a build-time fold (CF1): false in a
-// built program, true in the check-time evaluator that computes a fold.
-// A node is built as its markup only then, so a subtree of constants
-// becomes one constant string, and a render with data builds no markup
-// before it writes. The laws hold the markup equal either way
-// (StaticIsItsTree).
-extern go ergo.local/prototype/runtime/v1.HTMLInFold func inFold() bool
-
 // markup is the node of markup m.
 func markup(m string) Node { Node{text: m, esc: false, late: None} }
 
@@ -57,7 +52,7 @@ func freeze(n Node) Node { markup(Render(n)) }
 // later is the node that w writes; in a fold, its markup.
 func later(w own func(b *strings.Builder)) Node {
 	let n = Node{text: "", esc: false, late: Some[Writer]{Value: Writer{write: w}}}
-	if inFold() {
+	if build.InFold() {
 		return freeze(n)
 	}
 	n
@@ -65,7 +60,7 @@ func later(w own func(b *strings.Builder)) Node {
 
 // Text is s as an element's text, escaped when it is written (TextIsInert).
 func Text(s string) Node {
-	if inFold() {
+	if build.InFold() {
 		return markup(Escape(s))
 	}
 	Node{text: s, esc: true, late: None}

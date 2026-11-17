@@ -11,6 +11,7 @@ atomic	same
 base64	same
 bench	same
 bits	same
+build	same
 cache	same
 civil	same
 code	same
