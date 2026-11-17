@@ -344,6 +344,8 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Text measure (ui)**: std `ui.Measure`, the operation type through which text layout asks the host how wide text is and how high its lines are (`Width`, `LineHeight`). `ui.LayoutText` breaks text into lines with it, and `ui.CaretAt`, `ui.OffsetAt` and `ui.SelectionRects` give the caret and selection geometry. `ui.Monospace` is the measure of cell grids and tests. See [stdlib](docs/spec/stdlib.md#ui).
 
+**Pacing**: std `pace.Pacing`, the operation type `{ Edge() }` through which a loop marks the end of one unit of its work (a frame, a turn) for Go's collector; the provider `cmd` main binds decides what an edge does (`Default`, `Percent`, `AtEdges`; `Counting` in tests). Not the runtime's heap floor (`rt.Pace`), which every program has. See [stdlib](docs/spec/stdlib.md#pacing).
+
 **UI host**: std `ui.Host[E]`, the operation type of a screen that shows patches and reports events (`Show`, `Next`, `Post`, through which a fetch's task hands its result to the loop, and `Frames`, through which `Run` asks for a `Tick` per frame only while the view animates); a value `ui.Run` drives. `ui.TestHost` is the in-process host of tests and agents: it steps the same `ui.Session` as `Run`. Not a host package's `Host` and not an **Actor host**. See [stdlib](docs/spec/stdlib.md#ui).
 
 **Uninterruptible host wait**: A foreign Go call whose Go declaration takes no `context.Context`, so an interruption reaches the task only after Go returns. `ergo inspect` lists it for each function that reaches it (IG8; [tooling](docs/tooling.md#inspect)).

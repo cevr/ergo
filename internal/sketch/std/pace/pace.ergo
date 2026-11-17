@@ -1,0 +1,232 @@
+// Package pace is the collector's pacing (RT-SPIKE PACE1, the one visible
+// runtime lever of rt-spike/levers.md, L3). A loop that knows where one
+// unit of its work ends (a frame, a turn, a batch) calls Pacing.Edge()
+// there; the provider in the context decides what an edge does with Go's
+// collector. Only a binary's cmd/<name>/main.ergo chooses the provider,
+// as it chooses every other host provider: Default (today's pace, an edge
+// does nothing), Percent (Go's GOGC=n, set once) or AtEdges (no collection
+// inside a unit of work, one at an edge once the heap has grown). A test
+// binds Counting and counts the edges a loop marks.
+//
+// Every provider is plain Ergo over Go's public API (runtime and
+// runtime/debug through import go, as a user binds them): std ui's loop
+// calls Edge as a user's loop does, and a user may write a provider of
+// their own (STD HAS NO PRIVILEGES). Go's collector never changes what a
+// program computes, so no provider changes a program's output (law
+// EdgeKeepsValues; the seeded property of cmd/ergo
+// TestDashGuiAgreesWithControl runs dash-gui under all three).
+//
+// Prior art: Go has the knobs (GOGC, GOMEMLIMIT, runtime.GC) and no
+// notion of a unit of work; Erlang frees a process's heap when it ends
+// and Unity and game engines collect between frames; Effect has no
+// collector policy. Ergo puts the edge in the program and the policy in
+// main.
+
+import atomic
+import go runtime
+import go runtime/debug
+
+// Pacing is what a loop tells the collector: Edge marks the end of one
+// unit of the loop's work, where little of what the unit made is still
+// live. A provider may collect there, or do nothing; it never changes a
+// value the program holds.
+type Pacing {
+	Edge(),
+
+	// EdgeKeepsValues: what a program built before an Edge reads the same
+	// after it; a collection moves no value and frees nothing reachable.
+	law EdgeKeepsValues(xs []int, s string) {
+		let kept = xs.Append(len(s))
+		let text = s + "."
+		Edge()
+		let mut same = len(kept) == len(xs) + 1 && kept[len(xs)] == len(s) && text == s + "."
+		for i, x in xs {
+			same = same && kept[i] == x
+		}
+		same
+	},
+}
+
+// within is n moved into lo..hi, so a law covers every n.
+func within(n int, lo int, hi int) int {
+	let span = hi - lo + 1
+	let r = n % span
+	if r < 0 {
+		lo + (r + span)
+	} else {
+		lo + r
+	}
+}
+
+// Default is today's pacing: an edge does nothing, and Go's collector
+// keeps its own pace (with the runtime's heap floor, rt.Pace).
+type Default {} implements Pacing
+
+// Edge does nothing.
+func Edge(_ Default) {}
+
+// DefaultReachesNothing: Default needs no capability, so a law, which
+// has none, binds it, and its edges change nothing a program holds.
+law DefaultReachesNothing(xs []int, n int) {
+	let kept = xs.Append(n)
+	with context { Pacing: Default } {
+		for _ in 0..within(n, 0, 64) {
+			Pacing.Edge()
+		}
+	}
+	len(kept) == len(xs) + 1 && kept[len(xs)] == n
+}
+
+// Percent is Go's GOGC=n: the collector starts a cycle when the heap has
+// grown n percent over what the last cycle left live. NewPercent sets it
+// once; an edge does nothing. A negative n turns the collector off, as
+// GOGC=off does, with no limit beside it.
+type Percent { percent int } implements Pacing
+
+// NewPercent sets the collector's percent to n, as GOGC=n, and is the
+// provider that keeps it. The runtime's heap floor (rt.Pace) stops at the
+// next cycle, since the program chose its own percent.
+func NewPercent(n int) Percent needs go.Foreign {
+	let _ = debug.SetGCPercent(n)
+	Percent{percent: n}
+}
+
+// Edge does nothing: Go's own pace runs at the percent set.
+func Edge(_ Percent) {}
+
+// AtEdges collects only at edges: the collector's percent is off, the
+// memory limit is the net (Go collects by itself as the heap nears it),
+// and an edge collects (runtime.GC, which waits for the cycle) once the
+// heap has grown by a quarter of the limit since the last collection. A
+// cycle at an edge marks only what outlives the unit of work; one inside
+// a unit also marks the unit's own data (levers.md §3.1: 0.44 of today's
+// collector cost on the frame model). An edge reads the heap only now and
+// then (NextRead), so most edges are a counter's step.
+type AtEdges {
+	grow int64,
+	stats go.Ref[runtime.MemStats],
+	base atomic.Int64,
+	last atomic.Int64,
+	span atomic.Int64,
+	wait atomic.Int64,
+} implements Pacing
+
+// NewAtEdges turns the collector's percent off, sets the memory limit to
+// limit bytes, and is the provider that collects at edges. limit should
+// be well above the heap that outlives a unit of work: Go collects by
+// itself, inside a unit, as the heap nears it.
+func NewAtEdges(limit int64) AtEdges needs go.Foreign {
+	let _ = debug.SetGCPercent(-1)
+	let _ = debug.SetMemoryLimit(limit)
+	let stats = go.New[runtime.MemStats]()
+	runtime.ReadMemStats(stats)
+	let heap = int64(stats.HeapAlloc)
+	AtEdges{grow: limit / 4, stats: stats, base: atomic.NewInt64(heap), last: atomic.NewInt64(heap), span: atomic.NewInt64(1), wait: atomic.NewInt64(1)}
+}
+
+// Edge counts down to the next read of the heap. At a read, it collects
+// when the heap has grown by a quarter of the limit since the last
+// collection, and else sets the next read by NextRead. Only the edge that
+// brings the count to zero reads, so edges on several tasks never read
+// the heap at once.
+func Edge(p AtEdges) needs go.Foreign {
+	if p.wait.Add(-1) != 0 {
+		return
+	}
+	runtime.ReadMemStats(p.stats)
+	let heap = int64(p.stats.HeapAlloc)
+	let grown = heap - p.base.Load()
+	if grown >= p.grow {
+		runtime.GC()
+		runtime.ReadMemStats(p.stats)
+		let after = int64(p.stats.HeapAlloc)
+		p.base.Store(after)
+		p.last.Store(after)
+		p.span.Store(1)
+		p.wait.Store(1)
+		return
+	}
+	let next = NextRead(heap - p.last.Load(), p.span.Load(), p.grow - grown)
+	p.last.Store(heap)
+	p.span.Store(next)
+	p.wait.Store(next)
+}
+
+// MaxSpan is the most edges AtEdges lets pass between two reads of the
+// heap.
+let MaxSpan = int64(256)
+
+// NextRead is how many edges to let pass before the next read of the
+// heap, when the heap grew by grown bytes over the last edges edges and
+// room bytes are left before a collection is due: half of room at the
+// rate seen, so a read comes before the room fills while the rate holds,
+// at least 1 and at most MaxSpan. A heap that did not grow doubles the
+// span. Reading Go's heap stops the world (runtime.ReadMemStats, about
+// 17,000 instructions at GOMAXPROCS=4, measured), so the span keeps reads
+// rare while the room is large.
+func NextRead(grown int64, edges int64, room int64) int64 {
+	if room <= 0 {
+		return 1
+	}
+	if grown <= 0 {
+		return spanOf(edges * 2)
+	}
+	spanOf(room / rateOf(grown, edges) / 2)
+}
+
+// rateOf is the heap's growth per edge, at least one byte.
+func rateOf(grown int64, edges int64) int64 {
+	let per = if edges > 1 { grown / edges } else { grown }
+	if per < 1 { 1 } else { per }
+}
+
+// spanOf is n kept in 1..MaxSpan.
+func spanOf(n int64) int64 {
+	if n < 1 {
+		1
+	} else if n > MaxSpan {
+		MaxSpan
+	} else {
+		n
+	}
+}
+
+// NextReadLeavesRoom: the next read comes after 1 to MaxSpan edges, and,
+// while the heap grows at the rate seen, before it has grown by more
+// than half of the room left (or at the very next edge).
+law NextReadLeavesRoom(grown int64, edges int64, room int64) {
+	let g = int64(within(int(grown % 1000000000), 0, 999999999))
+	let e = int64(within(int(edges % 1000), 1, 1000))
+	let r = int64(within(int(room % 1000000000000), -1000, 999999999999))
+	let next = NextRead(g, e, r)
+	let perEdge = if g / e < 1 { int64(1) } else { g / e }
+	1 <= next && next <= MaxSpan && (next == 1 || g == 0 || next * perEdge <= r / 2)
+}
+
+// Counting is the test provider: an edge does nothing to the collector
+// and adds one to a count that every copy shares, so a test asserts that
+// a loop paces. NewCounting makes one at zero.
+type Counting { edges atomic.Int64 } implements Pacing
+
+// NewCounting is a Counting at zero edges.
+func NewCounting() Counting { Counting{edges: atomic.NewInt64(0)} }
+
+// Edge adds one to the count.
+func Edge(c Counting) { let _ = c.edges.Add(1) }
+
+// Edges is the number of edges marked so far, on any copy of c.
+func Edges(c Counting) int64 { c.edges.Load() }
+
+// CountingCountsEachEdge: n edges under a Counting add n to its count,
+// seen on the copy the test kept.
+law CountingCountsEachEdge(n int) {
+	let k = within(n, 0, 64)
+	let c = NewCounting()
+	let before = c.Edges()
+	with context { Pacing: c } {
+		for _ in 0..k {
+			Pacing.Edge()
+		}
+	}
+	before == 0 && c.Edges() == int64(k)
+}
