@@ -2683,10 +2683,10 @@ index 0000000..a54bb61
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_text.go b/src/cmd/compile/internal/ergoir/ergoir_text.go
 new file mode 100644
-index 0000000..6646456
+index 0000000..451a019
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_text.go
-@@ -0,0 +1,713 @@
+@@ -0,0 +1,735 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2787,6 +2787,7 @@ index 0000000..6646456
 +	}
 +	lines := strings.Split(src, "\n")
 +	bodies := map[int]string{} // line index -> the body to append
++	skip := map[int]bool{}     // the lines of a placeholder gofmt split
 +	for _, fd := range decls {
 +		end := syntax.EndPos(fd.Type)
 +		if end.FileBase() != file.Pos().FileBase() || end.Line() == 0 || int(end.Line()) > len(lines) {
@@ -2804,10 +2805,20 @@ index 0000000..6646456
 +		p.block(fd.Body.List, 1)
 +		// The lines after the body keep their positions.
 +		p.b.WriteString(fmt.Sprintf("}\n//line %s:%d", end.RelFilename(), int(end.RelLine())+last-(int(end.Line())-1)+1))
++		if h, ok := ergoPlaceholderLines(lines, last); ok {
++			// gofmt split the placeholder after a long signature: the
++			// IR body replaces its three lines (red #24, lru).
++			lines[h] = strings.TrimSuffix(strings.TrimRight(lines[h], " \t"), " {")
++			skip[h+1], skip[h+2] = true, true
++			last = h
++		}
 +		bodies[last] = p.b.String()
 +	}
 +	var out strings.Builder
 +	for i, l := range lines {
++		if skip[i] {
++			continue
++		}
 +		body, ok := bodies[i]
 +		if !ok {
 +			out.WriteString(l)
@@ -2826,6 +2837,17 @@ index 0000000..6646456
 +		}
 +	}
 +	return out.String(), nil
++}
++
++// ergoPlaceholderLines reports the placeholder written over the three
++// lines that end at last, as gofmt writes it after a signature too long
++// for one line: "… {", the panic, "}". h is the signature's last line.
++func ergoPlaceholderLines(lines []string, last int) (h int, ok bool) {
++	h = last - 2
++	if h < 0 || strings.TrimSpace(lines[last]) != "}" || "{ "+strings.TrimSpace(lines[h+1])+" }" != ergoPlaceholderText {
++		return 0, false
++	}
++	return h, strings.HasSuffix(strings.TrimRight(lines[h], " \t"), " {")
 +}
 +
 +// ergoSignatureEnd is the index of the line where a bodiless function's
