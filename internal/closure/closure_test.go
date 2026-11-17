@@ -124,6 +124,7 @@ var declared = map[string][]allowance{
 		glob("internal/sketch/syntax/testdata/corpus/*/*.ergo", "the corpus globs check every sketch-eval source"),
 		glob("internal/sketch/syntax/testdata/corpus/*/*/*.ergo", "the corpus globs check every sketch-eval source one directory down"),
 		glob("examples/*/*/*.ergo", "round19 checks every example program"),
+		glob("examples/*/*/*/*.ergo", "TestCheckOnePass checks every example source one directory down (cmd/<name>/main.ergo)"),
 		glob("docs/research/ef-migrate/*.ergo", "round19 checks the migrated examples"),
 		[]allowance{{"docs/spec/diagnostics.md", file, "TestRegistry: the spec's code rows and the code table agree"}},
 	),
