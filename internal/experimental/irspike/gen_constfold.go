@@ -1,0 +1,102 @@
+package irspike
+
+import (
+	"fmt"
+	"math/rand/v2"
+	"strconv"
+	"strings"
+)
+
+// GenerateConstFold is a program of build-time folds (CF1): std html pages
+// whose static parts are calls of constants (a zero-operand function whose
+// body is one page tree of constants, and the same trees passed to Render
+// in main), pages with dynamic parts (a parameter, Each over a list), and
+// calls of the program's own pure functions on constants whose values are
+// records, lists, a union's variants, floats, strings and bools. Some seeds
+// end in a call of constants that raises a defect (an index out of range),
+// which stays a call; every seed has a call of constants that runs past
+// the fold's budget (spin), which stays as written. main prints each
+// value. The second result reports a seed that ends in a defect.
+func GenerateConstFold(seed uint64) (string, bool) {
+	r := rand.New(rand.NewPCG(seed, seed^0x51ed270b2f3a9c4d))
+	g := &cfGen{r: r}
+	var b strings.Builder
+	b.WriteString("import html\n\n")
+	b.WriteString("type Circle { R int }\n\ntype Square { S int }\n\ntype Shape = Circle | Square\n\n")
+	b.WriteString("type Pt { X int, Y float64, Name string, Tags []string, On bool, Shape Shape }\n\n")
+	k := 1 + r.IntN(9)
+	fmt.Fprintf(&b, "func mk(k int) Shape {\n\tif k %% 2 == 0 {\n\t\treturn Circle{R: k}\n\t}\n\tSquare{S: k * %d}\n}\n\n", k)
+	b.WriteString("func area(s Shape) int {\n\tmatch s {\n\tcase Circle as c:\n\t\tc.R * c.R * 3\n\tcase Square as q:\n\t\tq.S * q.S\n\t}\n}\n\n")
+	fmt.Fprintf(&b, "func pt(k int, name string) Pt {\n\tlet mut tags = []string{name}\n\tfor i in 0..k %% 4 {\n\t\ttags = tags.Append(\"t\\(i)\")\n\t}\n\tPt{X: k * %d, Y: float64(k) / 4.0, Name: name + \"!\", Tags: tags, On: k > 3, Shape: mk(k)}\n}\n\n", k)
+	b.WriteString("func show(p Pt) string {\n\tlet mut s = \"\\(p.X) \\(p.Y) \\(p.Name) \\(p.On) \\(area(p.Shape))\"\n\tfor t in p.Tags {\n\t\ts = s + \",\" + t\n\t}\n\ts\n}\n\n")
+	b.WriteString("func pick(xs []int, i int) int { xs[i] }\n\n")
+	b.WriteString("func spin(n int) int {\n\tlet mut s = 0\n\tfor i in 0..n {\n\t\ts = s + i % 7\n\t}\n\ts\n}\n\n")
+	pages := 2 + r.IntN(3)
+	for i := 0; i < pages; i++ {
+		fmt.Fprintf(&b, "func static%d() html.Node {\n\t%s\n}\n\n", i, g.tree(3, false))
+		fmt.Fprintf(&b, "func dyn%d(s string, xs []string) html.Node {\n\t%s\n}\n\n", i, g.tree(3, true))
+	}
+	b.WriteString("func main() needs Console {\n")
+	for i := 0; i < pages; i++ {
+		fmt.Fprintf(&b, "\tConsole.Println(html.Render(static%d()))\n", i)
+		fmt.Fprintf(&b, "\tConsole.Println(html.Render(%s))\n", g.tree(2, false))
+		fmt.Fprintf(&b, "\tConsole.Println(html.Render(dyn%d(%s, []string{%s, %s})))\n", i, g.text(), g.text(), g.text())
+	}
+	for i := 0; i < 3; i++ {
+		fmt.Fprintf(&b, "\tConsole.Println(show(pt(%d, %s)))\n", r.IntN(12), g.text())
+		fmt.Fprintf(&b, "\tConsole.Println(\"\\(area(mk(%d)))\")\n", r.IntN(20))
+	}
+	fmt.Fprintf(&b, "\tConsole.Println(\"\\(spin(%d))\")\n", 2_000_000+r.IntN(1000))
+	defect := seed%2 == 0
+	idx := r.IntN(3)
+	if defect {
+		idx = 3 + r.IntN(4)
+	}
+	fmt.Fprintf(&b, "\tConsole.Println(\"\\(pick([]int{4, 5, 6}, %d))\")\n", idx)
+	b.WriteString("}\n")
+	return b.String(), defect
+}
+
+// cfGen writes GenerateConstFold's page trees.
+type cfGen struct{ r *rand.Rand }
+
+// cfTexts are the texts of the trees: markup's special characters, quotes,
+// a tab, non-ASCII.
+var cfTexts = []string{"plain", "a <b> & c", "\"quoted\" 'single'", "tab\there", "é ß Σ", "", "x&amp;y", "</p>"}
+
+func (g *cfGen) text() string { return strconv.Quote(cfTexts[g.r.IntN(len(cfTexts))]) }
+
+// tree is a node expression of depth at most d; dyn lets it read s and xs.
+func (g *cfGen) tree(d int, dyn bool) string {
+	leaf := []string{
+		"html.Text(" + g.text() + ")",
+		"html.Int(" + strconv.Itoa(g.r.IntN(2000)-1000) + ")",
+		"html.Raw(html.Trust(" + g.text() + "))",
+		"html.Br([]html.Attr{})",
+		"html.Img([]html.Attr{html.Alt(" + g.text() + "), html.Src(html.LocalURL(" + g.text() + "))})",
+	}
+	if dyn {
+		leaf = append(leaf, "html.Text(s)", "html.Each(xs, html.Text)", "html.Int(len(xs))")
+	}
+	if d == 0 || g.r.IntN(4) == 0 {
+		return leaf[g.r.IntN(len(leaf))]
+	}
+	if g.r.IntN(6) == 0 {
+		return fmt.Sprintf("html.When(%v, %s)", g.r.IntN(2) == 0, g.tree(d-1, dyn))
+	}
+	tags := []string{"Div", "P", "Li", "Ul", "Section", "Span", "Strong", "A"}
+	attrs := []string{
+		"html.Class(" + g.text() + ")",
+		"html.Aria(\"label\", " + g.text() + ")",
+		"html.Href(html.LocalURL(" + g.text() + "))",
+		"html.Datetime(\"2026-11-17\")",
+	}
+	var kids []string
+	for n := g.r.IntN(3); n > 0; n-- {
+		kids = append(kids, attrs[g.r.IntN(len(attrs))])
+	}
+	for n := g.r.IntN(4); n > 0; n-- {
+		kids = append(kids, g.tree(d-1, dyn))
+	}
+	return "html." + tags[g.r.IntN(len(tags))] + "([]html.Child{" + strings.Join(kids, ", ") + "})"
+}
