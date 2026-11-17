@@ -41,6 +41,9 @@ func Stream(src string, limit int) string fails SyntaxFailure | OutputLimit {
 	s.stStructure()
 	s.stAnalyze(0, s.n, 1, true)
 	s.stFormat()
+	if s.punt {
+		return try Source(src, limit)
+	}
 	let r = try s.l.Finish(limit)
 	r.Text
 }
@@ -150,11 +153,18 @@ type streamer {
 	findent []int,
 	fflags  []int,
 	l       Layout,
+	// punt reports a shape the stream leaves to the tree printer: a frame
+	// that spans lines before a line break after a binary operator of its
+	// segment (the tree indents the rest of the expression once, the
+	// frame's inside with it), or a parameter list that spans lines inside
+	// another (go/printer indents a list only at a break before an item).
+	punt bool,
 }
 
-// stTokens is the stream of p's tokens and comments in source order: no
-// inserted semicolon, an interpolated string as one literal from its head
-// to its tail.
+// stTokens is the stream of p's tokens and comments in source order, with
+// no inserted semicolon. An interpolated string is its pieces: the head
+// (text to the first `\(`), the middles and the tail, with the
+// expressions' tokens between them.
 func stTokens(p syntax.Parsed, src string) streamer {
 	let n = syntax.NumTokens(p)
 	let cs = syntax.CommentsOf(p)
@@ -188,6 +198,7 @@ func stTokens(p syntax.Parsed, src string) streamer {
 		findent:  slices.Repeat([]int{0}, stMaxFrames),
 		fflags:   slices.Repeat([]int{0}, stMaxFrames),
 		l:        NewLayoutFor(len(src)),
+		punt:     false,
 	}
 	let mut last = 0
 	let mut ci = 0
@@ -196,7 +207,7 @@ func stTokens(p syntax.Parsed, src string) streamer {
 	for j < n-1 {
 		let k = syntax.TokKind(p, j)
 		let a = syntax.TokPos(p, j)
-		let mut b = syntax.TokEnd(p, j)
+		let b = syntax.TokEnd(p, j)
 		for ci < nc && syntax.CommentStart(cs, syntax.CommentAt(cs, ci)) < a {
 			let c = syntax.CommentAt(cs, ci)
 			let ca = syntax.CommentStart(cs, c)
@@ -211,25 +222,7 @@ func stTokens(p syntax.Parsed, src string) streamer {
 			j += 1
 			continue
 		}
-		let mut kk = k
-		if k == syntax.StringHead {
-			// An interpolated string, to its tail, is one literal.
-			let mut depth = 1
-			let mut m = j + 1
-			for m < n-1 && depth > 0 {
-				let km = syntax.TokKind(p, m)
-				if km == syntax.StringHead {
-					depth += 1
-				} else if km == syntax.StringTail {
-					depth -= 1
-				}
-				m += 1
-			}
-			b = syntax.TokEnd(p, m-1)
-			kk = syntax.String
-			j = m - 1
-		}
-		s.stPush(kk, a, b, last)
+		s.stPush(k, a, b, last)
 		last = b
 		j += 1
 	}
@@ -285,10 +278,18 @@ func stIs(s *streamer, i int, c byte) bool { s.ch[i] == c }
 
 func stIsKind(s *streamer, i int, k uint8) bool { s.kind[i] == k }
 
-// stCloser reports a closing bracket.
+// stCloser reports a closing bracket, or the tail of an interpolated
+// string.
 func stCloser(s *streamer, i int) bool {
 	let k = s.kind[i]
-	k == syntax.RParen || k == syntax.RBrack || k == syntax.RBrace
+	k == syntax.RParen || k == syntax.RBrack || k == syntax.RBrace || k == syntax.StringTail
+}
+
+// stOpener reports an opening bracket, or the head of an interpolated
+// string.
+func stOpener(s *streamer, i int) bool {
+	let k = s.kind[i]
+	k == syntax.LParen || k == syntax.LBrack || k == syntax.LBrace || k == syntax.StringHead
 }
 
 func stIsAssign(s *streamer, i int) bool {
@@ -423,6 +424,13 @@ func stStructure(s *streamer) {
 				s.stSet(i, sfCaseColon)
 			}
 		}
+		if s.kind[i] == syntax.StringHead {
+			s.stack = s.stack.Append(i)
+			if d < stLevels-1 {
+				d += 1
+			}
+			s.stLevel(d)
+		}
 		if s.stIsOp(i) && !closer {
 			let c = s.src[s.s[i]]
 			let one = s.e[i]-s.s[i] == 1
@@ -472,7 +480,7 @@ func stStructure(s *streamer) {
 				let typeCtx = len(s.stack) > 0 && s.stHasFlag(s.stTop(), sfTypeCtx)
 				if c == '!' && one {
 					s.stSet(i, sfUnary)
-				} else if pr > 0 && hasP && s.stOperandEnd(prev) && !s.stWhere(prev) && (s.nl[i] == 0 || c == '|') && !(typeCtx && (c == '*' || c == '&') && s.stIsIdent(prev)) && !(c == '*' && one && s.stIs(prev, ']') && s.mate[prev] >= 0 && s.mate[prev] == prev-1) {
+				} else if pr > 0 && hasP && s.stOperandEnd(prev) && !s.stWhere(prev) && (s.nl[i] == 0 || c == '|') && !(typeCtx && (c == '*' || c == '&') && s.stIsIdent(prev)) && !(c == '*' && one && s.stIsIdent(prev) && prev > 0 && (s.kind[prev-1] == syntax.Let || s.kind[prev-1] == syntax.Mut)) && !(c == '*' && one && s.stIs(prev, ']') && s.mate[prev] >= 0 && s.mate[prev] == prev-1) {
 					s.stSet(i, sfBin)
 					s.prec[i] = pr
 					s.bin[d] = true
@@ -515,7 +523,7 @@ func stParamsOpen(s *streamer, p int) bool {
 
 // stBoundary reports a token that ends a segment at its frame's level.
 func stBoundary(s *streamer, i int) bool {
-	if s.stIsKw(i) {
+	if s.stIsKw(i) || s.kind[i] == syntax.StringMid {
 		return true
 	}
 	if !s.stIsOp(i) {
@@ -544,10 +552,17 @@ func stAnalyze(s *streamer, lo int, hi int, depth int, block bool) {
 		let mut atomOpen = false
 		let mut prevSig = -1
 		let mut binBroke = false
+		let mut opBroke = false
 		for j < hi {
 			if s.stIsCmt(j) {
 				j += 1
 				continue
+			}
+			if !opBroke && s.nl[j] > 0 && prevSig >= 0 && s.stHasFlag(prevSig, sfBin) {
+				opBroke = true
+				if s.stSpans(segStart, j) {
+					s.punt = true
+				}
 			}
 			if j > segStart && s.stBoundary(j) {
 				break
@@ -608,12 +623,32 @@ func stAnalyze(s *streamer, lo int, hi int, depth int, block bool) {
 	}
 }
 
+// stSpans reports a frame opened among the tokens [a, b) at their level
+// that closes on a later line than it opens.
+func stSpans(s *streamer, a int, b int) bool {
+	let mut k = a
+	for k < b {
+		let m = s.mate[k]
+		if s.stOpener(k) && m > k {
+			for x in k+1..m+1 {
+				if s.nl[x] > 0 {
+					return true
+				}
+			}
+			k = m + 1
+			continue
+		}
+		k += 1
+	}
+	false
+}
+
 // stFrames analyzes the frames opened among the tokens [lo, hi) of an atom
 // at depth d.
 func stFrames(s *streamer, lo int, hi int, d int) {
 	let mut k = lo
 	for k < hi {
-		if !s.stIsOp(k) || s.mate[k] <= k {
+		if !s.stOpener(k) || s.mate[k] <= k {
 			k += 1
 			continue
 		}
@@ -621,7 +656,7 @@ func stFrames(s *streamer, lo int, hi int, d int) {
 		let end = s.mate[k]
 		let mut pd = d
 		let opBefore = k > lo && s.stOperandEnd(k-1)
-		if c == '{' {
+		if c == '{' || s.kind[k] == syntax.StringHead {
 			pd = 1
 		} else if c == '(' && opBefore {
 			if s.stHasFlag(k, sfMulti) {
@@ -757,12 +792,14 @@ func stContinues(s *streamer, p int, i int) bool {
 	s.stHasFlag(p, sfBin) || s.stHasFlag(i, sfBin) || s.stIs(i, '.') || s.stIs(p, '.') || s.stIsOp(p) && s.stIsAssign(p)
 }
 
-func stNextIsCase(s *streamer, i int) bool {
+// stNextIsCase reports that the next token after i is a case, or end, the
+// clause block's `}`.
+func stNextIsCase(s *streamer, i int, end int) bool {
 	for j in i+1..s.n {
 		if s.stIsCmt(j) {
 			continue
 		}
-		return s.kind[j] == syntax.Case || s.kind[j] == syntax.Default
+		return s.kind[j] == syntax.Case || s.kind[j] == syntax.Default || j == end
 	}
 	false
 }
@@ -827,8 +864,8 @@ func stFormat(s *streamer) {
 			continue
 		}
 		let cmt = s.stIsCmt(i)
-		let closer = s.stIsOp(i) && s.mate[i] >= 0 && s.mate[i] < i
-		if prev >= 0 && s.nl[i] == 0 && (s.stHasFlag(prev, sfCaseColon|sfClause) && s.mate[prev] > prev || s.stHasFlag(prev, sfCaseColon) || closer && s.stHasFlag(s.mate[i], sfClause)) {
+		let closer = s.stCloser(i) && s.mate[i] >= 0 && s.mate[i] < i
+		if prev >= 0 && s.nl[i] == 0 && s.kind[i] != stLineCmt && (s.stHasFlag(prev, sfCaseColon|sfClause) && s.mate[prev] > prev || s.stHasFlag(prev, sfCaseColon) || closer && s.stHasFlag(s.mate[i], sfClause)) {
 			s.nl[i] = 1
 		}
 		if !started || s.nl[i] > 0 {
@@ -848,7 +885,7 @@ func stFormat(s *streamer) {
 				if !cmt && prev >= 0 && s.mate[prev] != top && prev != top && s.stContinues(prev, i) {
 					ind += 1
 				}
-				if cmt && s.stHasFlag(top, sfClause) && (s.nl[i] >= 2 || prev == top) && s.stNextIsCase(i) {
+				if cmt && s.stHasFlag(top, sfClause) && (s.nl[i] >= 2 || prev == top) && s.stNextIsCase(i, s.mate[top]) {
 					ind = s.findent[sd-1]
 				}
 			}
@@ -862,8 +899,8 @@ func stFormat(s *streamer) {
 			kvState = 0
 			started = true
 		} else if prevAny >= 0 {
-			if cmt {
-				if s.stEndsLine(i) {
+			if cmt && kvState != 2 {
+				if s.stEndsLine(i) && i+1 < n {
 					s.l.sep()
 				} else {
 					s.l.put(" ")
@@ -881,6 +918,9 @@ func stFormat(s *streamer) {
 			} else if kvState == 2 {
 				s.l.sep()
 				kvState = 3
+				if cmt {
+					s.l.put(" ")
+				}
 			} else if s.stHasFlag(i, sfTopFunc) && s.stOneLine(i) {
 				s.l.sep()
 			} else if s.stSpace(prevAny, i, sd) {
@@ -900,7 +940,7 @@ func stFormat(s *streamer) {
 					}
 				}
 			}
-		} else if kvState == 1 && !(s.stIsIdent(i) || s.stIs(i, '.') || s.stIs(i, ':')) {
+		} else if kvState == 1 && !(s.stIsIdent(i) || s.stIs(i, '.') || s.stIs(i, ':') || s.stIs(i, ',') && s.stContextBody(sd)) {
 			kvState = 0
 		}
 		if cmt {
@@ -924,7 +964,10 @@ func stFormat(s *streamer) {
 					fieldState = 0
 				}
 			}
-			if s.stIsOp(i) && s.mate[i] > i {
+			if s.stOpener(i) && s.mate[i] > i {
+				if sd > 0 && s.stIs(i, '(') && s.stHasFlag(i, sfTypeCtx) && s.stIs(s.ftok[sd-1], '(') && s.stHasFlag(s.ftok[sd-1], sfTypeCtx) && !s.stOneLine(i) && !s.stOneLine(s.ftok[sd-1]) {
+					s.punt = true
+				}
 				if sd < stMaxFrames {
 					s.ftok[sd] = i
 					s.findent[sd] = curIndent
@@ -942,14 +985,40 @@ func stFormat(s *streamer) {
 
 // stContextBody reports that the innermost frame is a context's body.
 func stContextBody(s *streamer, sd int) bool {
-	let o = s.ftok[sd-1]
-	o > 0 && s.kind[o-1] == syntax.KwContext
+	if sd == 0 {
+		return false
+	}
+	let mut k = s.ftok[sd-1] - 1
+	for k >= 0 {
+		let kk = s.kind[k]
+		if kk == syntax.KwContext {
+			return true
+		}
+		if !(s.stIsCmt(k) || s.stIsIdent(k) || kk == syntax.Needs || kk == syntax.Provides || s.stIs(k, '|') || s.stIs(k, '.') || s.stIs(k, ',')) {
+			return false
+		}
+		k -= 1
+	}
+	false
 }
 
 // stSpace reports whether a blank goes between items p and t on one line.
 func stSpace(s *streamer, p int, t int, sd int) bool {
+	let pk = s.kind[p]
+	let tk = s.kind[t]
+	if pk == syntax.StringHead || pk == syntax.StringMid || tk == syntax.StringMid || tk == syntax.StringTail {
+		// The pieces of an interpolated string hold their expressions
+		// with no blank.
+		return false
+	}
 	if s.stIsCmt(p) {
+		if p > 0 && (s.stIs(t, ')') && s.stIs(p-1, '(') || s.stIs(t, ']') && s.stIs(p-1, '[')) {
+			return true
+		}
 		return !(s.stIs(t, ',') || s.stIs(t, ')') || s.stIs(t, ']'))
+	}
+	if (pk == syntax.Int || pk == syntax.Float) && s.stIs(t, '.') {
+		return true
 	}
 	let top = if sd > 0 { s.ftok[sd-1] } else { -1 }
 	if s.stIsOp(t) {
@@ -981,7 +1050,7 @@ func stSpace(s *streamer, p int, t int, sd int) bool {
 			return false
 		}
 		if s.stHasFlag(p, sfUnary) {
-			return false
+			return one && (c == '-' || c == '+') && s.stIs(t, c)
 		}
 		if s.stHasFlag(p, sfBin) {
 			return s.stHasFlag(p, sfBlank) || s.stRowBar(p)
@@ -1022,7 +1091,7 @@ func stSpace(s *streamer, p int, t int, sd int) bool {
 			if s.stIsIdent(p) && top >= 0 && s.stHasFlag(top, sfTypeCtx) && s.src[s.s[top]] == '(' && p > 0 && (s.stIs(p-1, '(') || s.stIs(p-1, ',')) {
 				return true
 			}
-			if s.stIsIdent(p) && p > 0 && (s.kind[p-1] == syntax.Let || s.kind[p-1] == syntax.Mut) {
+			if s.stIsIdent(p) && p > 0 && (s.kind[p-1] == syntax.Let || s.kind[p-1] == syntax.Mut || s.kind[p-1] == syntax.Type) {
 				return true
 			}
 			return !(s.stOperandEnd(p) || s.kind[p] == syntax.Func)
@@ -1031,7 +1100,13 @@ func stSpace(s *streamer, p int, t int, sd int) bool {
 			if s.stIsIdent(p) && p >= 2 && s.kind[p-2] == syntax.Law {
 				return true
 			}
+			if s.stIsIdent(p) && p > 0 && (s.kind[p-1] == syntax.Let || s.kind[p-1] == syntax.Mut) {
+				return true
+			}
 			let m = s.mate[t]
+			if m == t+2 && s.stIsLit(t+1) && m+1 < s.n && s.stIs(m+1, '[') && s.stIsIdent(p) && top >= 0 && s.stHasFlag(top, sfTypeCtx) && s.src[s.s[top]] == '(' && p > 0 && (s.stIs(p-1, '(') || s.stIs(p-1, ',')) {
+				return true
+			}
 			if m == t+2 && s.stIsLit(t+1) && m+1 < s.n && s.nl[m+1] == 0 && (s.stIsIdent(m+1) || s.stIs(m+1, '*')) {
 				return true
 			}
