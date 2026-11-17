@@ -8,15 +8,22 @@ import time
 // node under a pointer (it has the boxes); the composer finds the
 // function.
 
-// Phase is what a pointer did: pressed, moved, released, or a wheel turned
-// by DX and DY.
-type Phase = Down | Moved | Up | Wheel{DX float64, DY float64}
+// Phase is what a pointer did: pressed, moved with no button held, moved
+// with it held (dragged), released, or a wheel turned by DX and DY.
+type Phase = Down | Moved | Drag | Up | Wheel{DX float64, DY float64}
 
 // Down is a pointer pressed.
 type Down {}
 
-// Moved is a pointer moved, pressed or not.
+// Moved is a pointer moved with no button held over this node: a hover.
 type Moved {}
+
+// Drag is a pointer moved with its button held, after a Down on this node
+// (FK12-g1). The composer decides it, not the host: a move a host sends
+// (Moved or Drag) is a Drag exactly when it goes to the node the last Down
+// went to, with no Up since (gripped), so a move without a press is never
+// a drag.
+type Drag {}
 
 // Up is a pointer released.
 type Up {}
@@ -131,6 +138,25 @@ func pointed[E](f *Frame[E], id Id[E], p PointerEvent) Option[E] {
 		on.Value(p)
 	case None:
 		None
+	}
+}
+
+// gripped is the phase a pointer event on id reaches the program with
+// (FK12-g1): a Down makes id the node the pointer holds and an Up lets go;
+// a move, as the host sent it, is a Drag when it goes to that node and a
+// Moved otherwise; a wheel is as sent.
+func gripped[E](f *Frame[E], id Id[E], ph Phase) Phase {
+	match ph {
+	case Down:
+		f.down = id.ref
+		ph
+	case Up:
+		f.down = arena.Null[node[E]]()
+		ph
+	case Moved, Drag:
+		if f.down == id.ref { Drag } else { Moved }
+	case Wheel:
+		ph
 	}
 }
 

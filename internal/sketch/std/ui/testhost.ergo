@@ -136,8 +136,10 @@ func isInput[E](ev Event[E]) bool {
 // it ran.
 func Counts[S, E, D, F](h *TestHost[S, E, D, F]) StepCounts { h.step }
 
-// Tap presses the node id.
+// Tap presses the node id. A tap is a pointer's press and release on it,
+// so it ends any capture (FK12-g1), as a window's click on a button does.
 func Tap[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E]) fails actor.Stopped | BadPatch {
+	h.captured = None
 	try apply(h, Press[E]{Id: id})
 }
 

@@ -1349,7 +1349,7 @@ func onPad(s pad, p ui.PointerEvent) Option[int] {
 		Some{Value: 2000 + int(p.Y)}
 	case ui.Wheel as w:
 		Some{Value: 3000 + int(w.DY)}
-	case ui.Moved:
+	case ui.Moved, ui.Drag:
 		None
 	}
 }
@@ -3082,14 +3082,17 @@ func phaseCode(p ui.Phase) int {
 		3
 	case ui.Wheel:
 		4
+	case ui.Drag:
+		5
 	}
 }
 
 func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let mut r = seeded(seed)
 	let view = func(f *ui.Frame[int], s int) {
-		ui.Pressable(f, "hide", 99) {
-			ui.Text(f, "hide")
+		ui.OnKey(f, func(k ui.KeyPress) Option[int] { if k.Name == "h" { Some{Value: 99} } else { None } })
+		ui.Pressable(f, "tap", 98) {
+			ui.Text(f, "tap")
 		}
 		ui.Text(f, "top")
 		if s != 99 {
@@ -3110,10 +3113,17 @@ func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 	// actor's state.
 	let mut held = 0
 	let mut state = 0
-	for _ in 0..(steps%24+24)%24+1 {
+	let mut last = 0
+	// The first nine events are fixed: on b a ui.Down, ui.Drag, ui.Up, ui.Moved, ui.Down, a
+	// tap and ui.Moved, then a ui.Down on the ui.Text and a ui.Moved on b; the rest are
+	// drawn.
+	let opening = []ui.Phase{ui.Down, ui.Drag, ui.Up, ui.Moved, ui.Down, ui.Down, ui.Moved, ui.Down, ui.Moved}
+	for i in 0..(steps%24+24)%24+16 {
 		let shownA = state != 99
-		if draw(&r, 8) == 0 {
-			ui.Play(&h, []ui.Act{ui.TapOn{Label: "hide"}}) catch {
+		let other = if i < 9 { if i == 5 { 1 } else { 2 } } else { draw(&r, 8) }
+		if other == 0 {
+			// The key h hides a; a key holds no pointer, so b keeps it.
+			ui.PressKey(&h, ui.KeyPress{Name: "h", Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch {
 			case _:
 				return false
 			}
@@ -3121,11 +3131,22 @@ func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 			if held == 10 {
 				held = 0
 			}
+		} else if other == 1 {
+			// A tap is a press and a release: it lets go of the pointer.
+			ui.Play(&h, []ui.Act{ui.TapOn{Label: "tap"}}) catch {
+			case _:
+				return false
+			}
+			state = 98
+			held = 0
 		} else {
-			let phases = []ui.Phase{ui.Down, ui.Moved, ui.Up, ui.Wheel{DX: 0.0, DY: 1.0}}
-			let phase = phases[draw(&r, 4)]
-			// The node under the pointer: a (when shown), b or the ui.Text.
-			let mut at = []int{10, 20, 0}[draw(&r, 3)]
+			let phases = []ui.Phase{ui.Down, ui.Moved, ui.Up, ui.Wheel{DX: 0.0, DY: 1.0}, ui.Drag}
+			let phase = if i < 9 { opening[i] } else { phases[draw(&r, 5)] }
+			// The node under the pointer: a (when shown), b or the ui.Text; half
+			// the time the one the last event went to (the ui.Area holding the
+			// pointer, if one did), as a pointer stays over a node for a
+			// press, its drag, its release and the hover after.
+			let mut at = if i < 9 { if i == 7 { 0 } else { 20 } } else if draw(&r, 2) == 0 { last } else { []int{10, 20, 0}[draw(&r, 3)] }
 			if at == 10 && !shownA {
 				at = 0
 			}
@@ -3136,6 +3157,7 @@ func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 				return false
 			}
 			let to = if held != 0 { held } else { at }
+			last = if to != 0 { to } else { at }
 			match phase {
 			case ui.Down:
 				if to != 0 {
@@ -3145,8 +3167,14 @@ func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 				held = 0
 			case _:
 			}
+			let seen = match phase {
+			case ui.Moved, ui.Drag:
+				if held != 0 { ui.Drag } else { ui.Moved }
+			case _:
+				phase
+			}
 			if to != 0 {
-				state = to + phaseCode(phase)
+				state = to + phaseCode(seen)
 			}
 		}
 		if ui.StateOf(&h) != state {

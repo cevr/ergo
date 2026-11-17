@@ -571,7 +571,7 @@ func onPad(s pad, p PointerEvent) Option[int] {
 		Some{Value: 2000 + int(p.Y)}
 	case Wheel as w:
 		Some{Value: 3000 + int(w.DY)}
-	case Moved:
+	case Moved, Drag:
 		None
 	}
 }
@@ -2506,12 +2506,15 @@ func zoneFollows(seed int, n int, m time.Manual) bool needs Scheduler {
 }
 
 // CaptureKeepsThePointer (H5g): over drawn pointer events on two Areas, a
-// Text outside them, and a press that removes the first Area, each event
+// Text outside them, a key that removes the first Area and a tap on a
+// Pressable (a press and a release, which lets go: FK12-g1), each event
 // goes where a model of capture says: to the Area that took the last Down
 // with no Up since, while the tree still holds it, else to the node
 // named. Each Area's signal names it and the phase, so the actor's state
 // is the model's after each event, and the host's Captured is the
-// model's.
+// model's. A move, sent as a Moved or as a Drag, reaches the Area as a
+// Drag exactly when an Area holds the pointer: a move without a press is
+// never a drag (FK12-g1).
 law CaptureKeepsThePointer(seed int, steps int) {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
@@ -2529,14 +2532,17 @@ func phaseCode(p Phase) int {
 		3
 	case Wheel:
 		4
+	case Drag:
+		5
 	}
 }
 
 func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let mut r = seeded(seed)
 	let view = func(f *Frame[int], s int) {
-		Pressable(f, "hide", 99) {
-			Text(f, "hide")
+		OnKey(f, func(k KeyPress) Option[int] { if k.Name == "h" { Some{Value: 99} } else { None } })
+		Pressable(f, "tap", 98) {
+			Text(f, "tap")
 		}
 		Text(f, "top")
 		if s != 99 {
@@ -2557,10 +2563,17 @@ func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 	// actor's state.
 	let mut held = 0
 	let mut state = 0
-	for _ in 0..(steps%24+24)%24+1 {
+	let mut last = 0
+	// The first nine events are fixed: on b a Down, Drag, Up, Moved, Down, a
+	// tap and Moved, then a Down on the Text and a Moved on b; the rest are
+	// drawn.
+	let opening = []Phase{Down, Drag, Up, Moved, Down, Down, Moved, Down, Moved}
+	for i in 0..(steps%24+24)%24+16 {
 		let shownA = state != 99
-		if draw(&r, 8) == 0 {
-			Play(&h, []Act{TapOn{Label: "hide"}}) catch {
+		let other = if i < 9 { if i == 5 { 1 } else { 2 } } else { draw(&r, 8) }
+		if other == 0 {
+			// The key h hides a; a key holds no pointer, so b keeps it.
+			PressKey(&h, KeyPress{Name: "h", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch {
 			case _:
 				return false
 			}
@@ -2568,11 +2581,22 @@ func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 			if held == 10 {
 				held = 0
 			}
+		} else if other == 1 {
+			// A tap is a press and a release: it lets go of the pointer.
+			Play(&h, []Act{TapOn{Label: "tap"}}) catch {
+			case _:
+				return false
+			}
+			state = 98
+			held = 0
 		} else {
-			let phases = []Phase{Down, Moved, Up, Wheel{DX: 0.0, DY: 1.0}}
-			let phase = phases[draw(&r, 4)]
-			// The node under the pointer: a (when shown), b or the Text.
-			let mut at = []int{10, 20, 0}[draw(&r, 3)]
+			let phases = []Phase{Down, Moved, Up, Wheel{DX: 0.0, DY: 1.0}, Drag}
+			let phase = if i < 9 { opening[i] } else { phases[draw(&r, 5)] }
+			// The node under the pointer: a (when shown), b or the Text; half
+			// the time the one the last event went to (the Area holding the
+			// pointer, if one did), as a pointer stays over a node for a
+			// press, its drag, its release and the hover after.
+			let mut at = if i < 9 { if i == 7 { 0 } else { 20 } } else if draw(&r, 2) == 0 { last } else { []int{10, 20, 0}[draw(&r, 3)] }
 			if at == 10 && !shownA {
 				at = 0
 			}
@@ -2583,6 +2607,7 @@ func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 				return false
 			}
 			let to = if held != 0 { held } else { at }
+			last = if to != 0 { to } else { at }
 			match phase {
 			case Down:
 				if to != 0 {
@@ -2592,8 +2617,14 @@ func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 				held = 0
 			case _:
 			}
+			let seen = match phase {
+			case Moved, Drag:
+				if held != 0 { Drag } else { Moved }
+			case _:
+				phase
+			}
 			if to != 0 {
-				state = to + phaseCode(phase)
+				state = to + phaseCode(seen)
 			}
 		}
 		if StateOf(&h) != state {

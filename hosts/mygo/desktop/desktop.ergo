@@ -293,10 +293,18 @@ func Feed[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fail
 			}
 		}
 	} else if input.Kind == screen.Move {
-		match hitAt(d, x, y) {
+		// While an Area holds the pointer (a Down went to it, no Up yet), a
+		// move goes to it wherever the pointer is, as the test host's
+		// capture does; std makes it a Drag (FK12-g1).
+		match holder(d) {
 		case Some[spot[E]] as s:
 			try pointed(d, s.Value, ui.Moved, x, y)
 		case None:
+			match hitAt(d, x, y) {
+			case Some[spot[E]] as s:
+				try pointed(d, s.Value, ui.Moved, x, y)
+			case None:
+			}
 		}
 	} else if input.Kind == screen.Scroll {
 		try scroll(d, x, y, float32(input.DX), float32(input.DY))
@@ -433,6 +441,25 @@ func spotOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) Option[spot[E]] {
 		if s.id == id {
 			return Some{Value: s}
 		}
+	}
+	None
+}
+
+// holder is the Area spot that holds the pointer: the one pressed, if it
+// is an Area and still shown.
+func holder[S, E, D, F](d *Driver[S, E, D, F]) Option[spot[E]] {
+	match d.pressed {
+	case Some[ui.Id[E]] as p:
+		match spotOf(d, p.Value) {
+		case Some[spot[E]] as s:
+			match s.Value.node {
+			case ui.AreaNode:
+				return Some{Value: s.Value}
+			case _:
+			}
+		case None:
+		}
+	case None:
 	}
 	None
 }
