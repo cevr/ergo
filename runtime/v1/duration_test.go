@@ -82,7 +82,8 @@ func intAny(r *rand.Rand) int {
 }
 
 // saturated is d * n over the integers, clamped to the range of a
-// duration: the reference for TimeTimes.
+// duration: Times' meaning, which the duration laws run on (std's Times
+// is an Ergo body, held to the same reference by lower's TestStdMatchesGo).
 func saturated(d time.Duration, n int) time.Duration {
 	p := new(big.Int).Mul(big.NewInt(int64(d)), big.NewInt(int64(n)))
 	switch {
@@ -97,8 +98,7 @@ func saturated(d time.Duration, n int) time.Duration {
 // TestStdDurationMatchesGo (std-duration): ParseDuration gives Go's
 // time.ParseDuration's duration, or its message in a ParseError with the
 // text as Value, on 10,000 seeded texts, valid and not; DurationText is
-// Go's Duration.String; Times is the exact product clamped to the range
-// of a duration (Go's wraps); Divide and Count are Go's quotients except
+// Go's Duration.String; Divide and Count are Go's quotients except
 // the one that overflows, which saturates.
 func TestStdDurationMatchesGo(t *testing.T) {
 	r := rand.New(rand.NewPCG(7, 11))
@@ -121,9 +121,6 @@ func TestStdDurationMatchesGo(t *testing.T) {
 			t.Fatalf("case %d: DurationText(%d) = %q", i, d, TimeDurationText(d))
 		}
 		n := intAny(r)
-		if got, want := TimeTimes(d, n), saturated(d, n); got != want {
-			t.Fatalf("case %d: Times(%d, %d) = %d; want %d", i, d, n, got, want)
-		}
 		if n != 0 {
 			want := d / time.Duration(n)
 			if d == math.MinInt64 && n == -1 {
@@ -178,11 +175,11 @@ var durationLaws = map[string]func(r *rand.Rand) (bool, any){
 		d, n := durationAny(r), intAny(r)
 		small := TimeDivide(d, 1000000)
 		k := n % 1000
-		return k == 0 || TimeDivide(TimeTimes(small, k), k) == small, []any{d, n}
+		return k == 0 || TimeDivide(saturated(small, k), k) == small, []any{d, n}
 	},
 	"time TimesKeepsTheSign": func(r *rand.Rand) (bool, any) {
 		d, n := durationAny(r), intAny(r)
-		p := TimeTimes(d, n)
+		p := saturated(d, n)
 		if d == 0 || n == 0 {
 			return p == 0, []any{d, n}
 		}
@@ -194,7 +191,7 @@ var durationLaws = map[string]func(r *rand.Rand) (bool, any){
 			return true, []any{d, unit}
 		}
 		c := TimeCount(d, unit)
-		return TimeTimes(unit, c) <= d && d-TimeTimes(unit, c) < unit, []any{d, unit}
+		return saturated(unit, c) <= d && d-saturated(unit, c) < unit, []any{d, unit}
 	},
 }
 
@@ -233,7 +230,6 @@ func BenchmarkDuration(b *testing.B) {
 	}{
 		{"ParseDuration", func() { sink, _ = TimeParseDuration("1h30m1.5s") }, func() { sink, _ = time.ParseDuration("1h30m1.5s") }},
 		{"DurationText", func() { sink = TimeDurationText(d) }, func() { sink = d.String() }},
-		{"Times", func() { sink = TimeTimes(d, 7) }, func() { sink = d * 7 }},
 		{"Divide", func() { sink = TimeDivide(d, 7) }, func() { sink = d / 7 }},
 		{"Count", func() { sink = TimeCount(d, time.Millisecond) }, func() { sink = d.Milliseconds() }},
 	} {

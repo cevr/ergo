@@ -4,8 +4,6 @@ import (
 	"cmp"
 	"encoding/hex"
 	"fmt"
-	"math"
-	"math/bits"
 	"math/rand/v2"
 	"path/filepath"
 	"slices"
@@ -230,7 +228,6 @@ func registerNatives() {
 	goPure("path/filepath.IsAbs", func(a []Value) Value { return filepath.IsAbs(str(a[0])) })
 	pure("hex.Encode", func(a []Value) Value { return hex.EncodeToString([]byte(str(a[0]))) })
 	pure("time.DurationText", func(a []Value) Value { return time.Duration(a[0].(int64)).String() })
-	pure("time.Times", func(a []Value) Value { return times(a[0].(int64), a[1].(int64)) })
 
 	// The slices and maps functions copy: an Ergo collection is a value,
 	// so a result never shares a store a caller can write (coll.go).
@@ -484,37 +481,6 @@ func sortAs[T cmp.Ordered](xs []Value) Value {
 		out[i] = t
 	}
 	return newSlice(out)
-}
-
-// times is d*n, saturating at the bounds of duration on overflow
-// (stdlib.md, time: Times never wraps).
-func times(d, n int64) int64 {
-	if d == 0 || n == 0 {
-		return 0
-	}
-	neg := (d < 0) != (n < 0)
-	hi, lo := bits.Mul64(abs64(d), abs64(n))
-	limit := uint64(math.MaxInt64)
-	if neg {
-		limit++
-	}
-	if hi != 0 || lo > limit {
-		if neg {
-			return math.MinInt64
-		}
-		return math.MaxInt64
-	}
-	if neg {
-		return int64(-lo)
-	}
-	return int64(lo)
-}
-
-func abs64(x int64) uint64 {
-	if x < 0 {
-		return uint64(-x)
-	}
-	return uint64(x)
 }
 
 // stdRecord is a value of the record type name of fn's std package.
