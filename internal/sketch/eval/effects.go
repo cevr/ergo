@@ -354,6 +354,9 @@ func (in *interp) callValue(fr *frame, at syntax.Node, f Value, args []Value) (V
 		return f.call(in, fr, at, args)
 	case seqSource:
 		// A Seq a native made, called with its yield (seq.go).
+		if d, ok := f.(seqDone); ok {
+			defer d.done()
+		}
 		for {
 			v, more, ab := f.next(in, fr, at)
 			if ab != nil || !more {

@@ -169,6 +169,9 @@ func (in *interp) rangeStmt(fr *frame, s *syntax.RangeStmt) *abrupt {
 		if !ok {
 			return in.seqLoop(fr, s, dom) // seq.go
 		}
+		if d, ok := q.(seqDone); ok {
+			defer d.done()
+		}
 		for {
 			v, more, ab := q.next(in, fr, s)
 			if ab != nil {
