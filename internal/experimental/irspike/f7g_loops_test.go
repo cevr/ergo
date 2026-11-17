@@ -27,6 +27,7 @@ import (
 // fold ranges over the empty slice, not the source's part.
 func TestIRLoopIdiomsMatchSource(t *testing.T) {
 	funcs := append(append(append([]string{}, loopFuncs...), foldFuncs.fused...), foldFuncs.kept...)
+	funcs = append(append(funcs, resliceFuncs.taken...), resliceFuncs.kept...)
 	f7Property(t, "TestIRLoopIdiomsMatchSource", GenerateLoops, funcs...)
 }
 
@@ -44,40 +45,7 @@ func TestIRLoopIdiomsMatchSource(t *testing.T) {
 func TestIRCollectFoldsFuse(t *testing.T) {
 	first, count := envInt("ERGO_IRSPIKE_SEED", 1), envInt("ERGO_IRSPIKE_SEEDS", 4)
 	for seed := first; seed < first+count; seed++ {
-		text := GenerateLoops(seed)
-		file := filepath.Join(t.TempDir(), "p.ergo")
-		if err := os.WriteFile(file, []byte(text), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		u, err := Load(file)
-		if err != nil {
-			t.Fatalf("seed %d: the program does not check: %v\n%s", seed, err, text)
-		}
-		files, _, err := lower.LowerIR(u)
-		if err != nil {
-			t.Fatalf("seed %d: %v\n%s", seed, err, text)
-		}
-		var ir struct {
-			Funcs []struct {
-				Name string `json:"name"`
-				Body any    `json:"body"`
-			} `json:"funcs"`
-		}
-		for _, f := range files {
-			if f.Path == lower.IRFileName {
-				if err := json.Unmarshal(f.Data, &ir); err != nil {
-					t.Fatal(err)
-				}
-			}
-		}
-		grows := map[string]bool{}
-		for _, fn := range ir.Funcs {
-			kinds := map[string]bool{}
-			nodeKinds(fn.Body, kinds)
-			// The collect's growth (GP-COLLECT); the element loop of the
-			// else branch appends in both.
-			grows[fn.Name] = kinds["pcall Grow"]
-		}
+		grows, text := collectGrowth(t, seed)
 		for _, f := range foldFuncs.fused {
 			if g, ok := grows[f]; !ok || g {
 				t.Errorf("seed %d: %s builds its slice (IR body %v), want its fold over the source's part\n%s", seed, f, ok, text)
@@ -89,6 +57,77 @@ func TestIRCollectFoldsFuse(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestIRCollectsReslice checks the fact GP-RESLICE promises, in process on
+// LowerIR's IR: a collect into an empty slice whose source is dead after
+// the loop and unshared takes the source's part (no growth, no copy),
+// and one whose source is read after, shares another value's array, or is
+// read again by a loop around the collect still copies (slices.Grow).
+//
+// Mutants: f7g-reslice-dropped (no collect takes its part),
+// f7g-reslice-live (a source read after the loop counts as dead),
+// f7g-reslice-shared (a source sharing another value's array counts as
+// unshared), f7g-reslice-outer (a source read in each pass of a loop
+// around the collect counts as dead). In the property
+// (TestIRLoopIdiomsMatchSource), each of the last three writes the
+// source, and the output shows it.
+func TestIRCollectsReslice(t *testing.T) {
+	first, count := envInt("ERGO_IRSPIKE_SEED", 1), envInt("ERGO_IRSPIKE_SEEDS", 4)
+	for seed := first; seed < first+count; seed++ {
+		grows, text := collectGrowth(t, seed)
+		for _, f := range resliceFuncs.taken {
+			if g, ok := grows[f]; !ok || g {
+				t.Errorf("seed %d: %s copies its part (IR body %v), want the source's part taken\n%s", seed, f, ok, text)
+			}
+		}
+		for _, f := range resliceFuncs.kept {
+			if !grows[f] {
+				t.Errorf("seed %d: %s takes its source's part, want it copied\n%s", seed, f, text)
+			}
+		}
+	}
+}
+
+// collectGrowth is, for each function of GenerateLoops(seed) with an IR
+// body, whether the body grows a slice with slices.Grow (GP-COLLECT's
+// copy; the element loop of an else branch appends in every form), and
+// the program.
+func collectGrowth(t *testing.T, seed uint64) (map[string]bool, string) {
+	t.Helper()
+	text := GenerateLoops(seed)
+	file := filepath.Join(t.TempDir(), "p.ergo")
+	if err := os.WriteFile(file, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	u, err := Load(file)
+	if err != nil {
+		t.Fatalf("seed %d: the program does not check: %v\n%s", seed, err, text)
+	}
+	files, _, err := lower.LowerIR(u)
+	if err != nil {
+		t.Fatalf("seed %d: %v\n%s", seed, err, text)
+	}
+	var ir struct {
+		Funcs []struct {
+			Name string `json:"name"`
+			Body any    `json:"body"`
+		} `json:"funcs"`
+	}
+	for _, f := range files {
+		if f.Path == lower.IRFileName {
+			if err := json.Unmarshal(f.Data, &ir); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	grows := map[string]bool{}
+	for _, fn := range ir.Funcs {
+		kinds := map[string]bool{}
+		nodeKinds(fn.Body, kinds)
+		grows[fn.Name] = kinds["pcall Grow"]
+	}
+	return grows, text
 }
 
 // nodeKinds adds to into the kind of every node under v, and "pcall NAME"

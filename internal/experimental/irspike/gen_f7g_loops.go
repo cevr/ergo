@@ -18,6 +18,14 @@ var foldFuncs = struct{ fused, kept []string }{
 	kept:  []string{"foldUsed", "foldWrites", "foldPrefix"},
 }
 
+// resliceFuncs are GenerateLoops' reslices (GP-RESLICE): taken grows no
+// slice (it takes the source's part); kept copies, each for its own
+// reason.
+var resliceFuncs = struct{ taken, kept []string }{
+	taken: []string{"resliceSum"},
+	kept:  []string{"resliceLive", "resliceShared", "resliceOuter"},
+}
+
 // GenerateLoops is a program of the count loops loops.go's DT4 writes as
 // calls (fill and move), with offsets of every form (i, i + c, c + i,
 // i - c), forward and backward overlaps, empty ranges, zero and non-zero
@@ -56,13 +64,23 @@ func GenerateLoops(seed uint64) string {
 	}
 	// The folds (GP-FOLD): a collect into an empty slice that the next loop
 	// only folds. foldSum and foldBreak fuse; foldUsed reads the slice
-	// after, foldWrites writes the source in its body, and foldPrefix
+	// after (and its source, so it is no reslice either), foldWrites
+	// writes the source in its body, and foldPrefix
 	// starts the slice with elements: those three keep the slice.
 	b.WriteString("func foldSum(n int, lo int, hi int, s int) int {\n\tlet src = seqBy(n, 3)\n\tlet mut h = 7\n\tlet mut ys = []int{}\n\tfor i in lo..hi {\n\t\tys = ys.Append(src[i + s])\n\t}\n\tfor k, y in ys {\n\t\th = h * 31 + y * (k + 1)\n\t}\n\th\n}\n\n")
 	b.WriteString("func foldBreak(n int, lo int, hi int, s int, limit int) int {\n\tlet src = seqBy(n, 3)\n\tlet mut h = 0\n\tlet mut ys = []int{}\n\tfor i in lo..hi {\n\t\tys = ys.Append(src[s + i])\n\t}\n\tfor y in ys {\n\t\tif y > limit {\n\t\t\tbreak\n\t\t}\n\t\th = h * 31 + y\n\t}\n\th\n}\n\n")
-	b.WriteString("func foldUsed(n int, lo int, hi int, s int) int {\n\tlet src = seqBy(n, 3)\n\tlet mut h = 0\n\tlet mut ys = []int{}\n\tfor i in lo..hi {\n\t\tys = ys.Append(src[i + s])\n\t}\n\tfor y in ys {\n\t\th = h * 31 + y\n\t}\n\th * 100 + hash(ys)\n}\n\n")
+	b.WriteString("func foldUsed(n int, lo int, hi int, s int) int {\n\tlet src = seqBy(n, 3)\n\tlet mut h = 0\n\tlet mut ys = []int{}\n\tfor i in lo..hi {\n\t\tys = ys.Append(src[i + s])\n\t}\n\tfor y in ys {\n\t\th = h * 31 + y\n\t}\n\th * 100 + hash(ys) + len(src)\n}\n\n")
 	b.WriteString("func foldWrites(n int, lo int, hi int, s int) int {\n\tlet mut src = seqBy(n, 3)\n\tlet mut h = 0\n\tlet mut ys = []int{}\n\tfor i in lo..hi {\n\t\tys = ys.Append(src[i + s])\n\t}\n\tfor k, y in ys {\n\t\th = h * 31 + y\n\t\tlet j = lo + s + k + 1\n\t\tif j < n {\n\t\t\tsrc[j] = 0\n\t\t}\n\t}\n\th\n}\n\n")
 	b.WriteString("func foldPrefix(n int, lo int, hi int, s int) int {\n\tlet src = seqBy(n, 3)\n\tlet mut h = 0\n\tlet mut ys = seq(2)\n\tfor i in lo..hi {\n\t\tys = ys.Append(src[i + s])\n\t}\n\tfor y in ys {\n\t\th = h * 31 + y\n\t}\n\th\n}\n\n")
+	// The reslices (GP-RESLICE): a collect into an empty slice that is read
+	// after, then grown. resliceSum's source is dead after the collect, so
+	// the slice takes the part itself; resliceLive reads the source after,
+	// resliceShared's source shares base's array, and resliceOuter
+	// collects from one source in each pass of a loop: those keep the copy.
+	b.WriteString("func resliceSum(n int, lo int, hi int, s int, extra int) int {\n\tlet src = seqBy(n, 3)\n\tlet mut ys = []int{}\n\tfor i in lo..hi {\n\t\tys = ys.Append(src[i + s])\n\t}\n\tys = ys.Append(extra)\n\thash(ys)\n}\n\n")
+	b.WriteString("func resliceLive(n int, lo int, hi int, s int, extra int) int {\n\tlet src = seqBy(n, 3)\n\tlet mut ys = []int{}\n\tfor i in lo..hi {\n\t\tys = ys.Append(src[i + s])\n\t}\n\tys = ys.Append(extra)\n\thash(ys) * 7 + hash(src)\n}\n\n")
+	b.WriteString("func resliceShared(n int, lo int, hi int, s int, extra int) int {\n\tlet base = seqBy(n, 3)\n\tlet src = base\n\tlet mut ys = []int{}\n\tfor i in lo..hi {\n\t\tys = ys.Append(src[i + s])\n\t}\n\tys = ys.Append(extra)\n\thash(ys) * 7 + hash(base)\n}\n\n")
+	b.WriteString("func resliceOuter(n int, lo int, hi int, s int, extra int) int {\n\tlet src = seqBy(n, 3)\n\tlet mut h = extra\n\tfor r in 0..2 {\n\t\tlet mut ys = []int{}\n\t\tfor i in lo..hi {\n\t\t\tys = ys.Append(src[i + s])\n\t\t}\n\t\tys = ys.Append(r)\n\t\th = h * 31 + hash(ys)\n\t}\n\th\n}\n\n")
 	b.WriteString("func seqBy(n int, m int) []int {\n\tlet mut xs = []int{}\n\tfor i in 0..n {\n\t\txs = xs.Append(i * m + 2)\n\t}\n\txs\n}\n\n")
 	b.WriteString("func main() needs Console {\n")
 	for k := 0; k < 3; k++ {
@@ -104,6 +122,13 @@ func GenerateLoops(seed uint64) string {
 			fmt.Fprintf(&b, "\tConsole.Println(\"\\(%s(%d, %d, %d, %d))\")\n", f, n, lo, hi, s)
 		}
 		fmt.Fprintf(&b, "\tConsole.Println(\"\\(foldBreak(%d, %d, %d, %d, %d))\")\n", n, lo, hi, s, 3*g.n(n+1)+2)
+		// Reslices: the part [lo+s, hi+s) inside [0, n), often short of n,
+		// so a slice grown in place past it would write the source.
+		lo, hi = g.span(n)
+		s = g.n(n - hi + 1)
+		for _, f := range []string{"resliceSum", "resliceLive", "resliceShared", "resliceOuter"} {
+			fmt.Fprintf(&b, "\tConsole.Println(\"\\(%s(%d, %d, %d, %d, %d))\")\n", f, n, lo, hi, s, 900+g.n(50))
+		}
 	}
 	b.WriteString("}\n")
 	return b.String()
