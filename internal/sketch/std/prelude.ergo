@@ -23,10 +23,24 @@ type Ambient {
 	ambient(),
 }
 
-// Scheduler suspends the calling task.
-// law-exempt: Sleep returns nothing, and a law over Scheduler alone sees no clock, so it cannot observe a sleep; the sleep laws are on time.Manual, which provides Scheduler and time.Clock together (TestManualClockModel).
+// Scheduler suspends the calling task. Alarms is the same time as the
+// runtime's own waits use it: an AlarmClock, on which a wait that runs no
+// Ergo code (http.Serve's bound on each read phase) arms a deadline with
+// no task and no sleep. A provider gives the AlarmClock of the time it
+// sleeps on.
+// law-exempt: Sleep returns nothing, and a law over Scheduler alone sees no clock, so it cannot observe a sleep; the sleep laws are on time.Manual, which provides Scheduler and time.Clock together (TestManualClockModel). An AlarmClock has no operation an Ergo law can call: only the runtime arms an alarm.
 type Scheduler {
 	Sleep(d duration),
+	Alarms() AlarmClock,
+}
+
+// AlarmClock is a Scheduler's time as the runtime's waits use it
+// (Scheduler.Alarms). Only the runtime makes one: LiveScheduler's is the
+// host's timers, and a time.Manual's or a testing.VirtualClock's is its
+// timeline.
+// law-exempt: its one operation is the unexported runtimeOnly, so no law can call it; the runtime's After is held against NewTimer by TestVirtualAfterFuncIsTimer (runtime/rt).
+extern go ergo.local/prototype/runtime/v1.AlarmClock type AlarmClock {
+	runtimeOnly(),
 }
 
 // LiveScheduler is the host's Scheduler provider: Sleep below is its
@@ -46,6 +60,11 @@ func NewLiveScheduler() LiveScheduler needs Ambient { LiveScheduler{live: liveOn
 
 // Sleep suspends the calling task for d on the host's clock.
 extern go ergo.local/prototype/runtime/rt.Sleep func Sleep(s LiveScheduler, d duration)
+
+// Alarms is the host's timers, as the runtime arms them.
+func Alarms(s LiveScheduler) AlarmClock { hostAlarms() }
+
+extern go ergo.local/prototype/runtime/v1.HostAlarms func hostAlarms() AlarmClock
 
 // Random draws random numbers, with the names and meaning of Go's
 // math/rand/v2 (Effect Random). Uint64 is 64 random bits; IntN(n) is in

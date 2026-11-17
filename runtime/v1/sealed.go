@@ -16,4 +16,5 @@ func (*Host[A]) runtimeOnly()        {}
 func (*Set) runtimeOnly()            {}
 func (*Op[A, F]) runtimeOnly()       {}
 func (*Timeline) runtimeOnly()       {}
+func (*AlarmClock) runtimeOnly()     {}
 func (*Mapped) runtimeOnly()         {}

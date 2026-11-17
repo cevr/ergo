@@ -187,6 +187,12 @@ type httpServer struct {
 	sleeper   v1.Sleeper
 	timerSite string
 	stopping  chan struct{}
+
+	// alarms is the Scheduler's AlarmClock (v1.Alarmer): with it, each
+	// bounded phase arms one alarm, which the next phase stops, and no
+	// timer goroutine, task or sleep runs. nil for a Go Sleeper with no
+	// Alarms: the reference path above.
+	alarms *v1.AlarmClock
 }
 
 // phase is the read phase of one connection. Header, body and idle are
@@ -251,6 +257,7 @@ type httpConn struct {
 	epoch   uint64   // counts phase changes; a sleep expires only its own
 	expired phase    // the phase that expired, or phaseFree
 	sleep   *rt.Task // the phase sleep in flight, cut by the next change
+	alarm   v1.Alarm // the phase's alarm (alarms), stopped by the next change
 	request *rt.Task // the request task that a disconnect stops
 	gone    bool     // a read failed other than by a deadline: the peer left
 }
@@ -271,6 +278,22 @@ func (c *httpConn) enterLocked(p phase) {
 	c.phase = p
 	c.at.Store(uint32(p))
 	c.epoch++
+	if a := c.s.alarms; a != nil {
+		// The alarm path: the old phase's alarm stops, and a bounded
+		// phase arms its own, which expires only its epoch. The close
+		// stops the last: net/http closes every connection when Serve
+		// stops, so no alarm outlives its connection. One whose function
+		// has started finds its epoch gone.
+		if c.alarm != nil {
+			c.alarm.Stop()
+			c.alarm = nil
+		}
+		if d := c.s.limits.timeout(p); d > 0 {
+			epoch := c.epoch
+			c.alarm = a.After(d, func() { c.expire(epoch) })
+		}
+		return
+	}
 	if c.sleep != nil {
 		c.sleep.Interrupt()
 		c.sleep = nil
@@ -430,8 +453,12 @@ func (s *httpServer) timeouts(c *httpConn) {
 	}
 }
 
-// watch starts c's timer goroutine, unless the server is stopping.
+// watch starts c's timer goroutine, unless the server is stopping. The
+// alarm path needs none: c's phases arm their alarms.
 func (s *httpServer) watch(c *httpConn) {
+	if s.alarms != nil {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closing {
@@ -452,7 +479,11 @@ func (l httpListener) Accept() (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &httpConn{Conn: nc, s: l.s, kick: make(chan struct{}, 1)}, nil
+	c := &httpConn{Conn: nc, s: l.s}
+	if l.s.alarms == nil {
+		c.kick = make(chan struct{}, 1)
+	}
+	return c, nil
 }
 
 // connKey finds a request's connection in its context.
@@ -493,12 +524,17 @@ func connState(nc net.Conn, st http.ConnState) {
 //
 // Each connection's read phases are bounded by the Limits timeouts: the
 // header (from the accept, or from the first byte after idle, to the
-// whole header), the body, and the idle wait between requests. Each
-// connection has one phase timer, a goroutine whose sleeps are tasks under
-// t that sleep on sleeper, the program's Scheduler, so a test Scheduler
-// decides when a phase expires, as for timeout.After; Serve arms no host
-// timer of its own. A phase that ends first cuts its sleep, and the next
-// bounded phase sleeps its own bound on the same goroutine. An expired idle or header phase closes the connection; an
+// whole header), the body, and the idle wait between requests, on
+// sleeper, the program's Scheduler, so a test Scheduler decides when a
+// phase expires, as for timeout.After; Serve arms no host timer of its
+// own. A program's Scheduler has Alarms (v1.Alarmer), which Serve calls
+// once on t: each bounded phase arms one alarm on that AlarmClock, and
+// the next phase stops it, with no task, goroutine or sleep per phase.
+// A Go Sleeper with no Alarms (a test's) takes the reference path: each
+// connection has one phase timer, a goroutine whose sleeps are tasks
+// under t; a phase that ends first cuts its sleep, and the next bounded
+// phase sleeps its own bound on the same goroutine. Both expire the same
+// phases (TestHTTPPhasesExpireOnTheScheduler runs each). An expired idle or header phase closes the connection; an
 // expired body phase reaches the handler as a failed read, and its answer
 // is the connection's last. A stop drains the timers with the requests.
 //
@@ -512,6 +548,11 @@ func HTTPServe(site v1.Site, t *rt.Task, sleeper v1.Sleeper, l *ergonet.Listener
 	t.Check()
 	s := &httpServer{limits: limits, site: string(site), handle: handle, requests: rt.NewGroup(t, string(site)+" (requests)"), failed: make(chan struct{}, 1),
 		timers: rt.NewGroup(t, string(site)+" (timeouts)"), sleeper: sleeper, timerSite: string(site) + " (timeout)", stopping: make(chan struct{})}
+	if a, ok := sleeper.(v1.Alarmer); ok {
+		// The Scheduler's Alarms runs here, on the serving task, once:
+		// a provider's Ergo code never runs on a connection's goroutine.
+		s.alarms = a.Alarms(t)
+	}
 	srv := &http.Server{
 		Handler:        s,
 		MaxHeaderBytes: limits.MaxHeaderBytes,

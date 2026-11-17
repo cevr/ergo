@@ -95,7 +95,8 @@ type virtualTimer struct {
 	when Instant
 	seq  uint64
 	c    chan Instant
-	task *Task // the sleeper of an auto clock's Sleep, nil otherwise
+	task *Task  // the sleeper of an auto clock's Sleep, nil otherwise
+	f    func() // an AfterFunc's function, which its fire starts; c is nil
 }
 
 // NewVirtual returns a virtual clock that reads start.
@@ -121,6 +122,30 @@ func (v *Virtual) NewTimer(d Span) Timer {
 	t := &virtualTimer{v: v, when: v.now + Instant(d), seq: v.seq, c: make(chan Instant, 1)}
 	if d <= 0 {
 		t.c <- v.now
+		return t
+	}
+	i := sort.Search(len(v.timers), func(i int) bool { return t.before(v.timers[i]) })
+	v.timers = append(v.timers, nil)
+	copy(v.timers[i+1:], v.timers[i:])
+	v.timers[i] = t
+	v.armed.Broadcast()
+	return t
+}
+
+// AfterFunc arms f to run on its own goroutine once the virtual time is d
+// past now, as time.AfterFunc does on the host's clock; a d of zero or
+// less starts it at once. The result's Stop disarms it and reports
+// whether it was still armed. Its deadline is armed like a Sleep's, so an
+// auto clock moves to it when its domain is idle, and Pending counts it.
+// f runs on a goroutine of its own, never under the clock's lock: it may
+// arm and stop timers of the clock.
+func (v *Virtual) AfterFunc(d Span, f func()) Timer {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.seq++
+	t := &virtualTimer{v: v, when: v.now + Instant(d), seq: v.seq, f: f}
+	if d <= 0 {
+		go f()
 		return t
 	}
 	i := sort.Search(len(v.timers), func(i int) bool { return t.before(v.timers[i]) })
