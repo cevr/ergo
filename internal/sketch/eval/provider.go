@@ -108,7 +108,9 @@ func (p providerOps) opCall(in *interp, fr *frame, at syntax.Node, name string, 
 	if ab != nil {
 		return nil, ab
 	}
-	if some, ok := o.(*record); ok && some.t.Obj.Name == "Some" {
+	// Call's result is Option[G] (check/provider.go): of its two variants,
+	// the one with a field holds the answer.
+	if some, ok := o.(*record); ok && len(some.fields) == 1 {
 		return in.callValue(fr, at, some.fields[0], args)
 	}
 	if len(sig.Results) == 0 && sig.Errors.Empty() {
