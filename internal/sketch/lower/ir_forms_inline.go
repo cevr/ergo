@@ -979,6 +979,8 @@ func (in *irInliner) cloneExpr(e *irExpr, cp *irCopy) *irExpr {
 	}
 	if e.K != "pcall" {
 		n.T = irSubstTypes(e.T, cp.tps, cp.tsub)
+	} else {
+		n.V = irSubstTypes(e.V, cp.tps, cp.tsub) // a package call's type arguments (T is its import path)
 	}
 	return &n
 }
