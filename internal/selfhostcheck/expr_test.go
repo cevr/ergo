@@ -3,6 +3,7 @@ package selfhostcheck
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -61,7 +62,7 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 		_, foreign := goTypes(pkg)
 		writeLines(t, e, ext)
 		writeLines(t, f, foreign)
-		files := ergoFiles(t, dir)
+		files := append(ergoFiles(t, dir), depArgs(t, tmp, dir, pkg)...)
 		want = dropChargedTypes(want)
 		got := dropChargedTypes(runDump(t, ctx, bin, append([]string{e, f}, files...)...))
 		if d := subsetDiff(want, got, 3); d != "" {
@@ -214,7 +215,7 @@ func goExprTypes(pkg *check.Package, unnamed string) ([]string, map[string]strin
 				}
 				key := fmt.Sprintf("%s %d %d", name, x.Pos(), x.End())
 				out = append(out, key+" "+ty.String())
-				forms[key] = strings.TrimPrefix(fmt.Sprintf("%T", x), "*syntax.")
+				forms[key] = formOf(pkg, x)
 				return true
 			})
 			return false
@@ -234,14 +235,22 @@ func goCallArgs(pkg *check.Package, unnamed string) []string {
 				return true
 			}
 			c := pkg.Info.Calls[x]
-			if c == nil || c.Func == nil || len(c.TypeArgs) == 0 || c.Func.Pkg != pkg {
+			if c == nil || c.Func == nil || len(c.TypeArgs) == 0 {
 				return true
 			}
 			fun := unparenX(x.Fun)
 			if ix, ok := fun.(*syntax.IndexExpr); ok {
 				fun = unparenX(ix.X)
 			}
+			// A function of the package by its name, or of an import
+			// by pkg.F's name (S3d2).
 			id, ok := fun.(*syntax.Ident)
+			if ok && c.Func.Pkg != pkg {
+				return true
+			}
+			if se, isSel := fun.(*syntax.SelectorExpr); isSel && selectorKind(pkg, se) == "pkg" {
+				id, ok = se.Sel, true
+			}
 			if !ok {
 				return true
 			}
@@ -254,4 +263,121 @@ func goCallArgs(pkg *check.Package, unnamed string) []string {
 		})
 	}
 	return out
+}
+
+// formOf is x's syntax form for the reach log; a selector and a call say
+// what they name, so the log shows which gap each miss is in: "pkg" a
+// member of an import, "field" or "method" one of a value, and a call's
+// callee "own" (a function of the package), "pkg", "method", "builtin",
+// "value" (a function value) or "conv" (a conversion).
+func formOf(pkg *check.Package, x syntax.Expr) string {
+	form := strings.TrimPrefix(fmt.Sprintf("%T", x), "*syntax.")
+	switch e := x.(type) {
+	case *syntax.SelectorExpr:
+		return form + " " + selectorKind(pkg, e)
+	case *syntax.CallExpr:
+		fun := unparenX(e.Fun)
+		if ix, ok := fun.(*syntax.IndexExpr); ok {
+			fun = unparenX(ix.X)
+		}
+		switch f := fun.(type) {
+		case *syntax.SelectorExpr:
+			return form + " " + selectorKind(pkg, f)
+		case *syntax.Ident:
+			switch o := pkg.Info.Uses[f].(type) {
+			case *check.Func:
+				if o.Pkg == pkg {
+					return form + " own"
+				}
+				return form + " pkg"
+			case *check.Builtin:
+				return form + " builtin"
+			case *check.TypeName:
+				return form + " conv"
+			}
+			return form + " value"
+		}
+		return form + " value"
+	}
+	return form
+}
+
+// selectorKind is what the selector e names: "pkg", "field", "method" or
+// "other".
+func selectorKind(pkg *check.Package, e *syntax.SelectorExpr) string {
+	if id, ok := unparenX(e.X).(*syntax.Ident); ok {
+		if _, ok := pkg.Info.Uses[id].(*check.PkgName); ok {
+			return "pkg"
+		}
+	}
+	switch pkg.Info.Uses[e.Sel].(type) {
+	case *check.Var:
+		return "field"
+	case *check.Func:
+		return "method"
+	}
+	return "other"
+}
+
+// depArgs is exprdump's groups for pkg's imports, each
+// "-- EXT FOREIGN FILE...", the tables written under tmp: every package
+// pkg names through an import whose folder is in the repository (std, or
+// the module of dir).
+func depArgs(t *testing.T, tmp, dir string, pkg *check.Package) []string {
+	var deps []*check.Package
+	seen := map[*check.Package]bool{}
+	for _, o := range pkg.Info.Uses {
+		pn, ok := o.(*check.PkgName)
+		if !ok || pn.Pkg == nil || pn.Pkg == pkg || seen[pn.Pkg] {
+			continue
+		}
+		seen[pn.Pkg] = true
+		deps = append(deps, pn.Pkg)
+	}
+	sort.Slice(deps, func(i, j int) bool { return deps[i].Path < deps[j].Path })
+	var out []string
+	for i, d := range deps {
+		ddir := depDir(dir, d.Path)
+		if ddir == "" {
+			continue
+		}
+		files := ergoFiles(t, ddir)
+		if len(files) == 0 {
+			continue
+		}
+		_, ext := goKinds(d)
+		_, foreign := goTypes(d)
+		e, f := filepath.Join(tmp, fmt.Sprintf("ext%d", i)), filepath.Join(tmp, fmt.Sprintf("foreign%d", i))
+		writeLines(t, e, ext)
+		writeLines(t, f, foreign)
+		out = append(append(out, "--", e, f), files...)
+	}
+	return out
+}
+
+// depDir is the folder of the package at import path path, imported from
+// dir: a package of dir's module (the nearest ergo.mod above it), or of
+// std; "" when neither holds it.
+func depDir(dir, path string) string {
+	for root := dir; root != filepath.Dir(root); root = filepath.Dir(root) {
+		mod, err := os.ReadFile(filepath.Join(root, "ergo.mod"))
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(string(mod), "\n") {
+			if name, ok := strings.CutPrefix(strings.TrimSpace(line), "module "); ok {
+				if rest, ok := strings.CutPrefix(path, strings.TrimSpace(name)+"/"); ok {
+					if st, err := os.Stat(filepath.Join(root, rest)); err == nil && st.IsDir() {
+						return filepath.Join(root, rest)
+					}
+				}
+			}
+		}
+		break
+	}
+	std := filepath.Join(repoRoot(), "internal", "sketch", "std", filepath.FromSlash(path))
+	if st, err := os.Stat(std); err == nil && st.IsDir() {
+		return std
+	}
+	return ""
 }

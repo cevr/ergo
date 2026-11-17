@@ -52,6 +52,7 @@ type Pkg {
 	Foreign []types.Foreign,
 	Fns     []Fn,
 	Recs    []Rec,
+	Deps    []Dep,
 	fnBy    dense.Side[store.PNode, int],
 	recBy   dense.Side[store.Decl, int],
 }
@@ -227,7 +228,7 @@ func Load(s *store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ext [
 		case None:
 		}
 	}
-	Pkg{Files: files, Parsed: parsed, U: u, Ps: ps, Kinds: kinds, Ext: ext, Foreign: foreign, Fns: fns, Recs: recs, fnBy: fnBy, recBy: recBy}
+	Pkg{Files: files, Parsed: parsed, U: u, Ps: ps, Kinds: kinds, Ext: ext, Foreign: foreign, Fns: fns, Recs: recs, Deps: []Dep{}, fnBy: fnBy, recBy: recBy}
 }
 
 // FnAt is the index in k.Fns of the function whose name node is the

@@ -1,0 +1,225 @@
+// Members of the package's imports (S3d2): a function or a record field
+// another package of the program declares, typed from that package's own
+// store and signatures, then ported into this package's pool.
+
+import compiler/check/bind
+import compiler/check/store
+import compiler/syntax
+import dense
+import strings
+
+// Dep is an imported package as typing reads it: its import path, its
+// bound store (whose interface the importer's binding read, frozen) and
+// what Load made of it, its functions' signatures and its records' fields
+// in its own pool.
+type Dep { Path string, S store.Store, K Pkg }
+
+// WithDeps is k reading deps, the program's imported packages, by path:
+// an import the list does not hold has no members to type.
+func WithDeps(k Pkg, deps []Dep) Pkg {
+	let mut out = k
+	out.Deps = deps
+	out
+}
+
+// depOf is the index in k.Deps of the package at path, -1 when none is.
+func depOf(k Pkg, path string) int {
+	for i, d in k.Deps {
+		if d.Path == path {
+			return i
+		}
+	}
+	-1
+}
+
+// foreignAt is the index in k's foreign table of the type name declares
+// in the package at path, -1 when the table does not hold it.
+func foreignAt(k Pkg, path string, name string) int {
+	for i, f in k.Foreign {
+		if f.Path == path && f.Name == name {
+			return i
+		}
+	}
+	-1
+}
+
+// genericAt is foreignAt for a generic type's origin, but only an entry
+// whose qualifier is the package's own name (its path's last element): an
+// instance prints by its entry's qualifier (types.Text), where the Go
+// checker prints the package's name, so an origin known only under an
+// import alias is left unported. A prelude type has no qualifier ("-")
+// and prints by its name, as the Go checker prints it.
+func genericAt(k Pkg, path string, name string) int {
+	let i = strings.LastIndex(path, "/")
+	let own = if i < 0 { path } else { path[i+1 : len(path)] }
+	for j, f in k.Foreign {
+		if f.Path == path && f.Name == name && (f.Qual == own || f.Qual == "-") {
+			return j
+		}
+	}
+	-1
+}
+
+// port is the type dt of the dependency d's pool as a type of s's pool:
+// a type d declares or reads from its foreign table is the foreign type of
+// k's table of the same package and name. It is none when k's table does
+// not hold such a type, or dt holds a form a signature of k's own cannot
+// (a wired or row value): the member is then left untyped.
+func port(s *store.Store, k Pkg, d Dep, dt dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
+	let ds = d.S
+	let kind = store.KindOfType(ds, dt)
+	if kind == store.KBasic {
+		return some(store.TBasic(s, store.ArgOf(ds, dt)))
+	}
+	if kind == store.KParam {
+		return some(store.TParam(s, store.ArgOf(ds, dt)))
+	}
+	if kind == store.KNamed {
+		let f = foreignAt(k, d.Path, store.TypeNameText(ds, store.ArgOf(ds, dt)))
+		return if f >= 0 { some(store.TForeign(s, f)) } else { None }
+	}
+	if kind == store.KForeign {
+		let df = d.K.Foreign[store.ArgOf(ds, dt)]
+		let f = foreignAt(k, df.Path, df.Name)
+		return if f >= 0 && df.Path != "-" { some(store.TForeign(s, f)) } else { None }
+	}
+	if kind == store.KArray {
+		let ops = store.OperandsOf(ds, dt)
+		return match port(s, k, d, ops[1]) {
+		case Some[dense.ID[store.TKey]] as e:
+			some(store.TArray(s, store.ArrayLen(ds, dt), e.Value))
+		case None:
+			None
+		}
+	}
+	let mut ops = []dense.ID[store.TKey]{}
+	for o in store.OperandsOf(ds, dt) {
+		match port(s, k, d, o) {
+		case Some[dense.ID[store.TKey]] as p:
+			ops = ops.Append(p.Value)
+		case None:
+			return None
+		}
+	}
+	if kind == store.KSlice {
+		return some(store.TSlice(s, ops[0]))
+	}
+	if kind == store.KMap {
+		return some(store.TMap(s, ops[0], ops[1]))
+	}
+	if kind == store.KPointer {
+		return some(store.TPointer(s, ops[0]))
+	}
+	if kind == store.KTuple {
+		return some(store.TTuple(s, ops))
+	}
+	if kind == store.KRow {
+		return some(store.TRow(s, ops))
+	}
+	if kind == store.KOwn {
+		return some(store.TOwn(s, ops[0]))
+	}
+	if kind == store.KEntry {
+		return some(store.TEntry(s, ops[0]))
+	}
+	if kind == store.KSig {
+		let n = len(ops)
+		return some(store.TSig(s, ops[0:n-3], ops[n-3], ops[n-2], ops[n-1]))
+	}
+	if kind == store.KInstance {
+		let o = store.OriginOfType(ds, dt)
+		let f = if int(o.Import) == 0 {
+			genericAt(k, d.Path, store.DeclText(ds, int(o.Decl)))
+		} else if int(o.Import) == store.ForeignBit {
+			let df = d.K.Foreign[int(o.Decl)]
+			if df.Path == "-" { -1 } else { genericAt(k, df.Path, df.Name) }
+		} else {
+			-1
+		}
+		return if f >= 0 { some(store.TInstance(s, store.XRef{Import: uint32(store.ForeignBit), Decl: uint32(f)}, ops)) } else { None }
+	}
+	None
+}
+
+// importedFn is the function the selector's name sel names in an import,
+// its signature ported into s's pool; none when sel names no function of
+// a package k.Deps holds, or its signature does not port.
+func importedFn(s *store.Store, k Pkg, t *Typer, name dense.Opt[syntax.Node]) Option[Fn] {
+	let sel = match dense.Unpack(name) {
+	case Some[dense.ID[syntax.Node]] as n:
+		n.Value
+	case None:
+		return None
+	}
+	if len(k.Deps) == 0 {
+		return None
+	}
+	match bind.ResolutionOf(k.U, k.Ps, pnode(k, *t, sel)) {
+	case bind.Imported as im:
+		let i = int(im.Ref.Import) - 1
+		let paths = store.ImportPaths(*s)
+		if i < 0 || i >= len(paths) {
+			return None
+		}
+		let di = depOf(k, paths[i])
+		if di < 0 {
+			return None
+		}
+		let d = k.Deps[di]
+		let decl = store.DeclOf(d.S, store.DeclAt(d.S, int(im.Ref.Decl)))
+		t.steps = t.steps + 1
+		let f = FnAt(d.K, bind.PNodeOf(d.K.Ps, int(decl.File), syntax.NodeAt(d.K.Parsed[int(decl.File)].Tree, int(decl.Node))))
+		if f < 0 {
+			return None
+		}
+		let fn = d.K.Fns[f]
+		match port(s, k, d, fn.Sig) {
+		case Some[dense.ID[store.TKey]] as sig:
+			let mut out = fn
+			out.Sig = sig.Value
+			Some[Fn]{Value: out}
+		case None:
+			None
+		}
+	case _:
+		None
+	}
+}
+
+// importedField is the type of field name of the foreign record type ty
+// (an import's record, generic or not) ported into s's pool with ty's type
+// arguments in place; none when no package of k.Deps declares it.
+func importedField(s *store.Store, k Pkg, ty dense.ID[store.TKey], name string) Option[dense.ID[store.TKey]] {
+	let kind = store.KindOfType(*s, ty)
+	let (f, targs) = if kind == store.KForeign {
+		(store.ArgOf(*s, ty), []dense.ID[store.TKey]{})
+	} else if kind == store.KInstance && int(store.OriginOfType(*s, ty).Import) == store.ForeignBit {
+		(int(store.OriginOfType(*s, ty).Decl), store.OperandsOf(*s, ty))
+	} else {
+		(-1, []dense.ID[store.TKey]{})
+	}
+	if f < 0 || f >= len(k.Foreign) {
+		return None
+	}
+	let di = depOf(k, k.Foreign[f].Path)
+	if di < 0 {
+		return None
+	}
+	let d = k.Deps[di]
+	let r = recOf(d.S, d.K, k.Foreign[f].Name)
+	if r < 0 || len(targs) != len(d.K.Recs[r].Params) {
+		return None
+	}
+	for fd in d.K.Recs[r].Fields {
+		if fd.Name == name {
+			return match port(s, k, d, fd.T) {
+			case Some[dense.ID[store.TKey]] as p:
+				let u = store.TSubst(s, p.Value, targs)
+				some(u)
+			case None:
+				None
+			}
+		}
+	}
+	None
+}

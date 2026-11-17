@@ -2,8 +2,13 @@
 // prints one line per typed expression, or with -calls one per inferred
 // generic call, unsorted:
 //
-//	exprdump EXT FOREIGN FILE...          "FILE START END TYPE"
-//	exprdump -calls EXT FOREIGN FILE...   "FILE OFFSET T1 ; T2 …"
+//	exprdump EXT FOREIGN FILE... [-- EXT FOREIGN FILE...]...          "FILE START END TYPE"
+//	exprdump -calls EXT FOREIGN FILE... [-- EXT FOREIGN FILE...]...   "FILE OFFSET T1 ; T2 …"
+//
+// Each group after a "--" is an imported package (its path is its
+// FOREIGN's @pkg line): it is bound and loaded on its own, and the package
+// binds against its frozen store and types the import's functions and
+// record fields from its signatures (S3d2).
 //
 // START and END are the expression's byte offsets (END the byte after
 // it); OFFSET is the callee name's. Types print as the Go checker's
@@ -108,22 +113,60 @@ func tables(extText string, foreignText string) Tables {
 	Tables{ext: ext, foreign: foreign, pkgName: pkgName, pkgPath: pkgPath}
 }
 
+func parseAll(paths []string) []bind.File fails os.Exit needs fs.Files {
+	let mut files = []bind.File{}
+	for path in paths {
+		files = files.Append(bind.File{Name: base(path), Parsed: syntax.Parse(try read(path))})
+	}
+	files
+}
+
 func run(argv []string) fails os.Exit needs fs.Files | io.Stdout {
 	let calls = len(argv) > 0 && argv[0] == "-calls"
 	let args = if calls { argv[1:len(argv)] } else { argv }
 	if len(args) < 2 {
 		return os.Exit{Code: 2, Message: "usage: exprdump [-calls] EXT FOREIGN FILE..."}
 	}
-	let tab = tables(try read(args[0]), try read(args[1]))
-	let mut files = []bind.File{}
-	for path in args[2:len(args)] {
-		files = files.Append(bind.File{Name: base(path), Parsed: syntax.Parse(try read(path))})
+	let mut groups = [][]string{[]string{}}
+	for a in args {
+		if a == "--" {
+			groups = groups.Append([]string{})
+		} else {
+			groups[len(groups)-1] = groups[len(groups)-1].Append(a)
+		}
 	}
+	let mut deps = []expr.Dep{}
+	for g in groups[1:len(groups)] {
+		if len(g) < 2 {
+			return os.Exit{Code: 2, Message: "exprdump: an import needs EXT FOREIGN FILE..."}
+		}
+		let dt = tables(try read(g[0]), try read(g[1]))
+		let dfiles = try parseAll(g[2:len(g)])
+		let dps = bind.BuildParents(dfiles)
+		let (dbound, du) = bind.Bind(bind.Collect(dt.pkgPath, dfiles), []store.Frozen{}, dps, dfiles, 1)
+		let mut ds = dbound
+		let dk = expr.Load(&ds, dfiles, du, dps, dt.ext, dt.foreign, dt.pkgName == "")
+		deps = deps.Append(expr.Dep{Path: dt.pkgPath, S: ds, K: dk})
+	}
+	let tab = tables(try read(args[0]), try read(args[1]))
+	let files = try parseAll(groups[0][2:len(groups[0])])
 	let collected = bind.Collect(tab.pkgPath, files)
+	// The imports' frozen interfaces, in the sorted import list's order
+	// (an import with no group is an empty interface).
+	let mut frozen = []store.Frozen{}
+	for path in store.ImportPaths(collected) {
+		let mut f = store.Freeze(store.New(path, []string{}))
+		for d in deps {
+			if d.Path == path {
+				f = store.Freeze(d.S)
+			}
+		}
+		frozen = frozen.Append(f)
+	}
 	let ps = bind.BuildParents(files)
-	let (bound, u) = bind.Bind(collected, []store.Frozen{}, ps, files, 1)
+	let (bound, u) = bind.Bind(collected, frozen, ps, files, 1)
 	let mut s = bound
-	let k = expr.Load(&s, files, u, ps, tab.ext, tab.foreign, tab.pkgName == "")
+	let k = expr.WithDeps(expr.Load(&s, files, u, ps, tab.ext, tab.foreign, tab.pkgName == ""), deps)
 	let t = expr.Check(&s, k)
 	let none = infer.NoValue(&s)
 	let text = func(ty dense.ID[store.TKey], fn int) string {

@@ -125,7 +125,7 @@ func call(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], c syntax.Cal
 	let mut indexed = false
 	match syntax.ViewOf(tr, fun) {
 	case syntax.IndexExpr as ix:
-		if syntax.KindOf(tr, unparen(tr, ix.X)) == syntax.KIdent {
+		if syntax.KindOf(tr, unparen(tr, ix.X)) == syntax.KIdent || isSome(importedFn(s, k, t, selOf(tr, unparen(tr, ix.X)))) {
 			fun = unparen(tr, ix.X)
 			indexed = true
 			for j in 0..syntax.Len(ix.Indices) {
@@ -134,21 +134,23 @@ func call(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], c syntax.Cal
 		}
 	case _:
 	}
+	// The callee: a function of the package, or of an import (pkg.F).
 	let callee = if syntax.KindOf(tr, fun) == syntax.KIdent {
 		match bind.ResolutionOf(k.U, k.Ps, pnode(k, *t, fun)) {
 		case bind.Declared as d:
 			if isSome(dense.Unpack(dense.Of(t.defs, d.At))) {
-				-1
+				None
 			} else {
-				fnOf(k, t, d.At)
+				let i = fnOf(k, t, d.At)
+				if i >= 0 { Some[Fn]{Value: k.Fns[i]} } else { None }
 			}
 		case _:
-			-1
+			None
 		}
 	} else {
-		-1
+		importedFn(s, k, t, selOf(tr, fun))
 	}
-	if c.Trailing != dense.NoID[syntax.Node]() || callee < 0 {
+	if c.Trailing != dense.NoID[syntax.Node]() || !isSome(callee) {
 		if c.Trailing == dense.NoID[syntax.Node]() && !indexed {
 			match expr(s, k, t, c.Fun, Free) {
 			case Some[dense.ID[store.TKey]] as ft:
@@ -170,7 +172,12 @@ func call(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], c syntax.Cal
 		}
 		return None
 	}
-	let f = k.Fns[callee]
+	let f = match callee {
+	case Some[Fn] as cf:
+		cf.Value
+	case None:
+		return None
+	}
 	if len(f.Params) == 0 {
 		if indexed {
 			args(s, k, t, c, []dense.ID[store.TKey]{})
@@ -228,7 +235,14 @@ func generic(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], c syntax.
 	}
 	match infer.Infer(s, &t.frame, infer.Callee{Params: renamed, Rows: f.Rows, Base: base}, explicit, ins) {
 	case Some[[]dense.ID[store.TKey]] as targs:
-		t.Insts = t.Insts.Append(Inst{At: pnode(k, *t, fun), Args: targs.Value, Fn: t.fn})
+		// An import's function is named by its selector's name.
+		let named = match syntax.ViewOf(tr, fun) {
+		case syntax.SelectorExpr as se:
+			se.Sel
+		case _:
+			fun
+		}
+		t.Insts = t.Insts.Append(Inst{At: pnode(k, *t, named), Args: targs.Value, Fn: t.fn})
 		let inst = store.TSubst(s, f.Sig, targs.Value)
 		// The callee records the instance: the name when inferred, the
 		// index expression when written.
@@ -275,7 +289,10 @@ func recordOf(s store.Store, k Pkg, ty dense.ID[store.TKey]) (int, []dense.ID[st
 
 func fieldType(s *store.Store, k Pkg, ty dense.ID[store.TKey], name string) Option[dense.ID[store.TKey]] {
 	let (r, targs) = recordOf(*s, k, ty)
-	if r < 0 || len(targs) != len(k.Recs[r].Params) {
+	if r < 0 {
+		return importedField(s, k, ty, name)
+	}
+	if len(targs) != len(k.Recs[r].Params) {
 		return None
 	}
 	for fd in k.Recs[r].Fields {
@@ -345,8 +362,24 @@ func composite(s *store.Store, k Pkg, t *Typer, cl syntax.CompositeLit) Option[d
 	ty
 }
 
-// selector types x.F, a field of a local record.
+// selOf is the name of the selector x, or none when x is no selector.
+func selOf(tr syntax.Tree, x dense.ID[syntax.Node]) dense.Opt[syntax.Node] {
+	match syntax.ViewOf(tr, x) {
+	case syntax.SelectorExpr as se:
+		dense.OptOf(se.Sel)
+	case _:
+		dense.NoID[syntax.Node]()
+	}
+}
+
+// selector types x.F: a function of an import, or a field of a record of
+// the package or of an import.
 func selector(s *store.Store, k Pkg, t *Typer, se syntax.SelectorExpr) Option[dense.ID[store.TKey]] {
+	match importedFn(s, k, t, dense.OptOf(se.Sel)) {
+	case Some[Fn] as f:
+		return if len(f.Value.Params) == 0 { some(f.Value.Sig) } else { None }
+	case None:
+	}
 	match expr(s, k, t, se.X, Free) {
 	case Some[dense.ID[store.TKey]] as xt:
 		fieldType(s, k, xt.Value, types.NameText(k.Parsed[t.file], se.Sel))
