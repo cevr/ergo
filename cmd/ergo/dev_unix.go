@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"syscall"
 )
 
@@ -29,22 +30,19 @@ func lockDev(path string) (unlock func(), err error) {
 	return func() { file.Close() }, nil
 }
 
-// ownDir refuses a folder that is not a real directory of this user's
-// that only this user can write: another user's folder could hold a
-// socket of theirs at a daemon's path.
-func ownDir(dir string) error {
-	info, err := os.Lstat(dir)
+// viaShortPath calls use with path, or, when path is longer than a socket
+// may be, with /proc/self/fd/N/NAME: N an open descriptor of path's folder
+// and NAME its last element, which bind and connect resolve to the same
+// file (Linux; on a host without /proc the call fails with the error
+// use returns, never on another path).
+func viaShortPath(path string, use func(string) error) error {
+	if len(path) <= devSocketPathMax {
+		return use(path)
+	}
+	dir, err := os.Open(filepath.Dir(path))
 	if err != nil {
 		return err
 	}
-	st, ok := info.Sys().(*syscall.Stat_t)
-	switch {
-	case !info.IsDir():
-		return errors.New("not a directory")
-	case !ok || int(st.Uid) != os.Getuid():
-		return errors.New("owned by another user")
-	case info.Mode().Perm()&0o022 != 0:
-		return fmt.Errorf("writable by others (%v)", info.Mode().Perm())
-	}
-	return nil
+	defer dir.Close()
+	return use(fmt.Sprintf("/proc/self/fd/%d/%s", dir.Fd(), filepath.Base(path)))
 }

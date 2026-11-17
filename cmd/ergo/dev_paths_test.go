@@ -1,36 +1,56 @@
+//go:build linux
+
 package main
 
 import (
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// TestDevSocketFitsUnderDeepRoot is the repro of the bind failure under a
+// TestDevSocketUnderDeepRoot is the repro of the bind failure under a
 // deep cache root (I19 full r4: TestDevAnswersAWarmCheck under
-// TestPackageNeverWritesUnderHome's nested temp directories, "bind:
-// invalid argument"): every socket path devPaths gives fits a unix
-// socket's sun_path, two cache roots get two sockets, and the lock stays
-// under the root.
+// TestPackageNeverWritesUnderHome's nested temporary directories, "bind:
+// invalid argument", and the test hung): a daemon listens, and a client
+// connects, on a socket whose path is longer than a unix socket's
+// sun_path, and the socket is a file at that path, under the root.
 //
-// Mutant: dev-socket-under-root (the socket always under the root).
-func TestDevSocketFitsUnderDeepRoot(t *testing.T) {
-	short := "/tmp/x"
-	deep := "/tmp/deep" + strings.Repeat("/deep", 30)
-	for _, root := range []string{short, deep, deep + "/other"} {
-		socket, lock := devPaths(root, "release", "/work/space")
-		if len(socket) > devSocketMax {
-			t.Errorf("root %s: socket %s is %d bytes, more than %d", root, socket, len(socket), devSocketMax)
-		}
-		if !strings.HasPrefix(lock, root+"/") {
-			t.Errorf("root %s: lock %s is not under the root", root, lock)
-		}
+// Mutant: dev-socket-path-unshortened (viaShortPath always uses the path
+// as it is).
+func TestDevSocketUnderDeepRoot(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), strings.Repeat("deep/", 24))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	if s, _ := devPaths(short, "release", "/work/space"); !strings.HasPrefix(s, short+"/") {
-		t.Errorf("a short root's socket %s is not under it", s)
+	socket := filepath.Join(dir, "0123456789abcdef.sock")
+	if len(socket) <= 108 {
+		t.Fatalf("socket path %s is %d bytes, not past sun_path", socket, len(socket))
 	}
-	a, _ := devPaths(deep, "release", "/work/space")
-	b, _ := devPaths(deep+"/other", "release", "/work/space")
-	if a == b {
-		t.Errorf("two deep roots share the socket %s", a)
+	listener, err := devListen(socket)
+	if err != nil {
+		t.Fatalf("listen on a %d-byte path: %v", len(socket), err)
+	}
+	defer listener.Close()
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		_, _ = io.WriteString(conn, "served")
+	}()
+	conn, err := devDial(socket)
+	if err != nil {
+		t.Fatalf("dial a %d-byte path: %v", len(socket), err)
+	}
+	defer conn.Close()
+	got, err := io.ReadAll(conn)
+	if err != nil || string(got) != "served" {
+		t.Fatalf("read %q, %v; want %q", got, err, "served")
+	}
+	if info, err := os.Lstat(socket); err != nil || info.Mode()&os.ModeSocket == 0 {
+		t.Fatalf("no socket at %s: %v", socket, err)
 	}
 }
