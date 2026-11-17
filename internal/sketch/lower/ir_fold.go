@@ -142,7 +142,8 @@ func (b *irBuilder) foldable(f *check.Func, x *syntax.CallExpr) bool {
 
 // foldableIn is foldable for a call x checked in info.
 func (b *irBuilder) foldableIn(info *check.Info, f *check.Func, x *syntax.CallExpr) bool {
-	if pureFold == "off" || !foldGoAgrees() || f == nil || !f.Pkg.Host() || !eval.HasGoFold(f.Pkg.Path, f.Name) {
+	// The release check comes last: it may ask a go command (buildGo).
+	if pureFold == "off" || f == nil || !f.Pkg.Host() || !eval.HasGoFold(f.Pkg.Path, f.Name) || !foldGoAgrees() {
 		return false
 	}
 	for _, a := range x.Args {
