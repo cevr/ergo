@@ -17,10 +17,10 @@ package lower
 //     carried into the next run, into a branch's arms, and into a call of
 //     another codec function (its entry variant, cellVariant). The rules
 //     are cellEventsFrom's, step for step, so both forms make one decision.
-//     A rewritten constant the IR file cannot carry (a string that is not
-//     UTF-8: CBOR's bytes, irString) refuses the function here; the
-//     rewriter's counters are restored, and the text form runs the same
-//     windows, whose evidence records each site once by its key.
+//     A form the walk refuses (irNo) restores the rewriter's counters,
+//     and the text form runs the same windows, whose evidence records
+//     each site once by its key. A rewritten constant that is not UTF-8
+//     (CBOR's bytes) is carried quoted (irStringConst).
 //
 // The text form stays selectable: wireIRLowering "text" keeps every codec
 // function's text body on the IR path.
@@ -28,8 +28,7 @@ package lower
 // Not taken (the function keeps its text): a type that holds type
 // parameters (witnesses), an omittable or nullable field or value, a
 // bare, number-text or members form, a by-name pair, a refined type, a
-// tuple, a Map (the IR reader indexes no map), a flat union by its
-// pointer niche.
+// tuple, a flat union by its pointer niche.
 
 import (
 	"go/constant"
@@ -159,9 +158,15 @@ func (g *wireGen) plan(t check.Type, v *irExpr) []wireStep {
 		out = append(out, wireStep{loop: loop, body: g.value(u.Elem, g.local(e))})
 		return append(out, g.event("EndList"))
 	case *check.Map:
-		// The text reads each entry as v[k] in WireKeys' order; the IR
-		// reader indexes no map (ergoIndexElem), so a Map keeps its text.
-		irNo("codec writer of a Map")
+		// Each entry as v[k], in WireKeys' order, as the text reads it.
+		kt := b.goType(u.Key, g.site)
+		k := b.temp("k", kt, g.p)
+		keys := &irExpr{K: "pcall", Pos: g.p, T: runtimeImport, Name: "WireKeys", V: kt + ", " + b.goType(u.Elem, g.site), Args: []*irExpr{v}}
+		out := []wireStep{g.event("BeginObject", &irExpr{K: "len", Pos: g.p, X: v})}
+		body := []wireStep{g.event("Key", &irExpr{K: "conv", Pos: g.p, T: "string", X: g.local(k)})}
+		body = append(body, g.value(u.Elem, &irExpr{K: "index", Pos: g.p, X: v, Y: g.local(k)})...)
+		out = append(out, wireStep{loop: &irStmt{K: "range", Pos: g.p, End: g.p, X: keys, Val: &k}, body: body})
+		return append(out, g.event("EndObject"))
 	case *check.Struct:
 		n, ok := t.(*check.Named)
 		if !ok {

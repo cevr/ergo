@@ -593,7 +593,7 @@ new file mode 100644
 index 0000000..c3c34df
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_expr.go
-@@ -0,0 +1,466 @@
+@@ -0,0 +1,490 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -605,6 +605,7 @@ index 0000000..c3c34df
 +import (
 +	"go/constant"
 +	"go/token"
++	"strconv"
 +	"strings"
 +
 +	"cmd/compile/internal/syntax"
@@ -635,7 +636,18 @@ index 0000000..c3c34df
 +		if t == nil {
 +			return nil, nil
 +		}
-+		v := ergoConstant(t, x.V)
++		val := x.V
++		if x.Op == "quoted" {
++			// A string constant that is not UTF-8, which the JSON file
++			// cannot carry: its Go quoted form (WIRE-IR, CBOR's bytes).
++			s, err := strconv.Unquote(x.V)
++			if err != nil || !ergoIsString(t) {
++				c.errorf(x.Pos, "ergoir: quoted constant %s of type %v", x.V, t)
++				return nil, nil
++			}
++			val = s
++		}
++		v := ergoConstant(t, val)
 +		if v == nil {
 +			c.errorf(x.Pos, "ergoir: constant %q of type %v", x.V, t)
 +			return nil, nil
@@ -862,6 +874,18 @@ index 0000000..c3c34df
 +		i, it := c.expr(x.Y)
 +		if xs == nil || i == nil {
 +			return nil, nil
++		}
++		if m, ok := types2.CoreType(xt).(*types2.Map); ok {
++			// A Map's value by its key, read only (WIRE-IR: a codec
++			// writer reads each entry by a key of WireKeys).
++			if !types2.Identical(it, m.Key()) {
++				c.errorf(x.Pos, "ergoir: index of %v by %v", xt, it)
++				return nil, nil
++			}
++			e := &syntax.IndexExpr{X: xs, Index: i}
++			e.SetPos(pos)
++			ergoValue(e, m.Elem(), nil)
++			return e, m.Elem()
 +		}
 +		elem := ergoIndexElem(xt) // ergoir_f7.go
 +		if elem == nil || !types2.Identical(it, types2.Typ[types2.Int]) {

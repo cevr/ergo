@@ -211,7 +211,7 @@ func (b *irBuilder) match(m *rwMatch, p, e *irExpr, typed bool) bool {
 // local or constant.
 func (b *irBuilder) hole(m *rwMatch, p, e *irExpr, typed bool) bool {
 	if prev := m.vals[p.I]; prev != nil {
-		return prev.K == e.K && (e.K == "local" && prev.I == e.I || e.K == "const" && prev.T == e.T && prev.V == e.V)
+		return prev.K == e.K && (e.K == "local" && prev.I == e.I || e.K == "const" && prev.T == e.T && prev.V == e.V && prev.Op == e.Op)
 	}
 	known := typed || e.K == "const" && e.T == p.T || e.K == "local" && b.localTypes[e.I] == p.T
 	if !known {

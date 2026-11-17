@@ -11,14 +11,16 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// irString is the string constant s as the IR file holds it: JSON text,
-// which carries only UTF-8 (encoding/json writes U+FFFD for any other
-// byte), so a constant that is not stays the emitter's.
-func irString(s string) string {
-	if !utf8.ValidString(s) {
-		irNo("string constant that is not UTF-8")
+// irStringConst is the string constant s of the Go type t as the IR file
+// holds it: JSON text, which carries only UTF-8 (encoding/json writes
+// U+FFFD for any other byte), so a constant that is not (CBOR's bytes) is
+// its Go quoted form, op "quoted", which the reader unquotes
+// (ergoir_expr.go).
+func irStringConst(p irPos, t, s string) *irExpr {
+	if utf8.ValidString(s) {
+		return &irExpr{K: "const", Pos: p, T: t, V: s}
 	}
-	return s
+	return &irExpr{K: "const", Pos: p, T: t, V: strconv.Quote(s), Op: "quoted"}
 }
 
 // value is x as an IR expression, after the statements that must run
@@ -325,7 +327,7 @@ func (b *irBuilder) constant(t check.Type, v constant.Value, x syntax.Expr, p ir
 	case constant.Bool:
 		return &irExpr{K: "const", Pos: p, T: gt, V: strconv.FormatBool(constant.BoolVal(v))}
 	case constant.String:
-		return &irExpr{K: "const", Pos: p, T: gt, V: irString(constant.StringVal(v))}
+		return irStringConst(p, gt, constant.StringVal(v))
 	case constant.Int, constant.Float:
 		switch {
 		case isInteger(t) || bt.Kind == check.Duration:

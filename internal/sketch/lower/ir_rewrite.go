@@ -258,7 +258,7 @@ func (b *irBuilder) canary(x *syntax.CallExpr, m rwMatch, at, key string, vals m
 	rt := b.temp("right", gt, p)
 	pre := []*irStmt{{K: "def", Pos: p, Local: rt, X: right}}
 	lpre, left := b.lawSide(m.law, m.law.FuncRewrite.Lhs, vals, true)
-	str := func(s string) *irExpr { return &irExpr{K: "const", Pos: p, T: "string", V: irString(s)} }
+	str := func(s string) *irExpr { return irStringConst(p, "string", s) }
 	b.keepImport("var _ = " + b.l.rtRef("Tick"))
 	var check *irStmt
 	if goEqualIsKey(t) {
@@ -430,7 +430,7 @@ func (b *irBuilder) shadow(x *syntax.CallExpr, m rwMatch, at string, place *rwAt
 			key = e.names.funcLaw(m.law)
 		}
 	}
-	str := func(s string) *irExpr { return &irExpr{K: "const", Pos: p, T: "string", V: irString(s)} }
+	str := func(s string) *irExpr { return irStringConst(p, "string", s) }
 	// Shadow is the runtime leaf runtime/v1/shadow's (it links fmt and
 	// reflect, which no run build needs), kept as an instance (stdCall).
 	if b.namesTypeParam(gt) {
