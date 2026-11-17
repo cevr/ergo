@@ -146,12 +146,13 @@ func measure(rootSpelled, keep string) ([]sizes.Receipt, error) {
 	return receipts, nil
 }
 
-// keepBinaries copies work/name and work/name.stripped into dir.
+// keepBinaries copies work/name, work/name.stripped and work/name.deps,
+// the module's `go list -deps`, into dir.
 func keepBinaries(work, dir, name string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	for _, n := range []string{name, name + ".stripped"} {
+	for _, n := range []string{name, name + ".stripped", name + ".deps"} {
 		data, err := os.ReadFile(filepath.Join(work, n))
 		if err != nil {
 			return err
@@ -176,7 +177,7 @@ func measureErgo(dir, work, name string, cache build.Cache) (sizes.Binary, error
 	if err != nil {
 		return sizes.Binary{}, err
 	}
-	b.GoPackages, err = goPackages(module.Dir)
+	b.GoPackages, err = goPackages(module.Dir, filepath.Join(work, name+".deps"))
 	return b, err
 }
 
@@ -283,18 +284,22 @@ func measureGo(dir, work string) (sizes.Binary, error) {
 	if err != nil {
 		return sizes.Binary{}, err
 	}
-	b.GoPackages, err = goPackages(dir)
+	b.GoPackages, err = goPackages(dir, filepath.Join(work, "gohello.deps"))
 	return b, err
 }
 
-// goPackages counts the packages the main package in dir links.
-func goPackages(dir string) (int, error) {
+// goPackages counts the packages the main package in dir links, and
+// writes their list to save, for -keep.
+func goPackages(dir, save string) (int, error) {
 	list := exec.Command("go", "list", "-mod=readonly", "-deps", ".")
 	list.Dir = dir
 	list.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=")
 	out, err := list.Output()
 	if err != nil {
 		return 0, fmt.Errorf("go list -deps in %s: %w", dir, err)
+	}
+	if err := os.WriteFile(save, out, 0o644); err != nil {
+		return 0, err
 	}
 	return len(strings.Fields(string(out))), nil
 }
