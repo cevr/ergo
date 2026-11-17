@@ -50,6 +50,9 @@ type IRReport struct {
 	// FormSites are the decisions of the passes over the IR bodies, by
 	// position (ir_forms_report.go): ergo inspect forms.
 	FormSites []FormSite `json:"formSites,omitempty"`
+	// ConstFolds counts the operations of constants folded into one
+	// (ir_constfold.go).
+	ConstFolds int `json:"-"`
 }
 
 // LowerIR is Lower with the IR bodies. The report's Hash names the IR
@@ -469,6 +472,7 @@ type irBuilder struct {
 	exitsFC    *funcCtx
 	exitRegs   []irExitReg
 	exitsSlots bool
+	consts     irConsts // each IR constant's value (ir_constfold.go)
 }
 
 // gate stops the body for reason; a census records it and goes on.
