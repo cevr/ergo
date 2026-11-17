@@ -329,14 +329,19 @@ type stepWait struct {
 }
 
 // stepAlarms is stepSleeper with Alarms, as every program's Scheduler
-// has: Serve takes its alarm path on the same time. Each alarm reports
-// its duration on armed, as a Sleep does; Advance starts the function of
+// has: Serve takes its alarm path on the same time. Each deadline read
+// reports its span on armed, as a Sleep does; Advance starts the function of
 // each alarm it reaches. alarms counts the armed ones, and peak the most
 // armed at once.
 type stepAlarms struct{ *stepSleeper }
 
 func (s stepAlarms) Alarms(*rt.Task) *v1.AlarmClock {
-	return v1.NewAlarmClock(func(d time.Duration, f func()) v1.Alarm {
+	now := func() time.Duration {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.now
+	}
+	arm := func(d time.Duration, f func()) v1.Alarm {
 		w := &stepWait{f: f}
 		s.mu.Lock()
 		w.at = s.now + d
@@ -344,9 +349,11 @@ func (s stepAlarms) Alarms(*rt.Task) *v1.AlarmClock {
 		s.alarms++
 		s.peak = max(s.peak, s.alarms)
 		s.mu.Unlock()
-		s.armed <- d
 		return stepAlarm{s.stepSleeper, w}
-	})
+	}
+	// A bounded phase arms an alarm only when its deadline comes first:
+	// its Began, after any arm, is the report.
+	return v1.NewAlarmClock(now, arm).Reporting(func(d time.Duration) { s.armed <- d })
 }
 
 type stepAlarm struct {
@@ -394,8 +401,16 @@ func (s *stepSleeper) Sleep(t *rt.Task, d time.Duration) {
 	}
 }
 
-// Advance moves the time by d and ends every sleep it reaches.
+// Advance moves the time by d and ends every sleep it reaches. It runs
+// the function of each alarm it reaches before it returns, outside its
+// lock, so a step that follows sees what the alarms did.
 func (s *stepSleeper) Advance(d time.Duration) {
+	var fired []func()
+	defer func() {
+		for _, f := range fired {
+			f()
+		}
+	}()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.now += d
@@ -404,7 +419,7 @@ func (s *stepSleeper) Advance(d time.Duration) {
 			delete(s.waiters, w)
 			if w.f != nil {
 				s.alarms--
-				go w.f()
+				fired = append(fired, w.f)
 				continue
 			}
 			close(w.done)
@@ -457,14 +472,19 @@ func (c *httpTimerCount) Event(e rt.Event) {
 //
 // It runs each seed on both of Serve's paths, on one test time: "tasks",
 // the reference (a Scheduler with no Alarms: a timer goroutine whose
-// sleeps are tasks), and "alarms", the path of every program (one alarm
-// per bounded phase). On the alarm path its alarm count kills
-// http-alarm-overlap (the next phase's alarm armed with the old one left
-// armed), and its task count http-alarm-path-never (a program's Scheduler
-// served on the reference path).
+// sleeps are tasks), and "alarms", the path of every program (one
+// deadline per connection, and an alarm armed only when the deadline
+// comes before the armed one). On the alarm path its alarm count kills
+// http-alarm-overlap (an earlier alarm armed with the old one left
+// armed), and its task count http-alarm-path-never (a program's
+// Scheduler served on the reference path). Its early seeds (a body bound
+// shorter than the idle bound before it) kill lazy-arm-never-earlier,
+// and every seed's later phases, whose deadlines come after the armed
+// alarm, kill lazy-wake-no-rearm (an early alarm that does not arm
+// again for the deadline).
 func TestHTTPPhasesExpireOnTheScheduler(t *testing.T) {
 	for _, path := range []string{"tasks", "alarms"} {
-		for seed := uint64(1); seed <= 6; seed++ {
+		for seed := uint64(1); seed <= 12; seed++ {
 			t.Run(path+"/"+strconv.FormatUint(seed, 10), func(t *testing.T) {
 				phasesExpire(t, path, seed)
 			})
@@ -476,6 +496,13 @@ func phasesExpire(t *testing.T, path string, seed uint64) {
 	rng := rand.New(rand.NewPCG(seed, 7))
 	budget := func() time.Duration { return time.Duration(1+rng.IntN(1000)) * time.Millisecond }
 	limits := HTTPLimits{16, 4096, budget(), budget(), budget()}
+	// early: the first request is sent whole at once, its body bound
+	// shorter than the header bound, so the body's deadline comes before
+	// the header's alarm, and the body expires (lazy-arm-never-earlier).
+	early := seed%3 == 2 && (seed/3)%2 == 1
+	if early {
+		limits.ReadHeaderTimeout = limits.ReadBodyTimeout + budget()
+	}
 	sl := newStepSleeper()
 	var sched v1.Sleeper = sl
 	if path == "alarms" {
@@ -540,6 +567,39 @@ func phasesExpire(t *testing.T, path string, seed uint64) {
 		return resp.StatusCode, string(b)
 	}
 	armed(limits.ReadHeaderTimeout, "the first header")
+	if early {
+		send("POST /a HTTP/1.1\r\nHost: local\r\nContent-Length: 4\r\n\r\nab")
+		armed(limits.ReadBodyTimeout, "the first body")
+		sl.Advance(limits.ReadBodyTimeout)
+		if status, body := answer("the expired first body"); status != 408 || !strings.Contains(body, "ReadBodyTimeout") {
+			t.Fatalf("the expired first body: %d %q; %s", status, body, replay)
+		}
+	} else {
+		phasesThroughIdle(t, seed, limits, sl, armed, send, answer, replay)
+	}
+	// The server closes the connection: the next read ends at EOF.
+	if b, err := r.ReadByte(); err != io.EOF {
+		t.Fatalf("after the expiry: read %q, %v, want EOF; %s", b, err, replay)
+	}
+	server.Stop()
+	count.mu.Lock()
+	defer count.mu.Unlock()
+	if count.peak > 1 || len(count.live) != 0 {
+		t.Fatalf("timer tasks: %d starts, peak %d live, %d left after stop; want peak <= 1 and none left; %s", count.starts, count.peak, len(count.live), replay)
+	}
+	if _, peak := sl.armedAlarms(); peak > 1 {
+		t.Fatalf("alarms: peak %d armed at once, want at most 1; %s", peak, replay)
+	}
+	if path == "alarms" && count.starts != 0 {
+		t.Fatalf("the alarm path started %d timer tasks, want none; %s", count.starts, replay)
+	}
+}
+
+// phasesThroughIdle is phasesExpire's flow for a seed that is not early:
+// a request in parts, each phase ended 1ns inside its bound, then the
+// idle phase, and the expiry the seed picks.
+func phasesThroughIdle(t *testing.T, seed uint64, limits HTTPLimits, sl *stepSleeper, armed func(time.Duration, string, ...time.Duration), send func(string), answer func(string) (int, string), replay string) {
+	t.Helper()
 	send("POST /a HTTP/1.1\r\nHost: local\r\n")
 	sl.Advance(limits.ReadHeaderTimeout - 1)
 	send("Content-Length: 4\r\n\r\nab")
@@ -561,26 +621,14 @@ func phasesExpire(t *testing.T, path string, seed uint64) {
 	case 2:
 		send("POST /c HTTP/1.1\r\nHost: local\r\nContent-Length: 4\r\n\r\na")
 		armed(limits.ReadBodyTimeout, "the second body", limits.ReadHeaderTimeout)
-		sl.Advance(limits.ReadBodyTimeout)
+		// In two steps: the first reaches the idle phase's alarm, which
+		// comes before the body's deadline and must arm again for it
+		// (lazy-wake-no-rearm); the second reaches the deadline.
+		sl.Advance(1)
+		sl.Advance(limits.ReadBodyTimeout - 1)
 		if status, body := answer("the expired body"); status != 408 || !strings.Contains(body, "ReadBodyTimeout") {
 			t.Fatalf("the expired body: %d %q; %s", status, body, replay)
 		}
-	}
-	// The server closes the connection: the next read ends at EOF.
-	if b, err := r.ReadByte(); err != io.EOF {
-		t.Fatalf("after the expiry: read %q, %v, want EOF; %s", b, err, replay)
-	}
-	server.Stop()
-	count.mu.Lock()
-	defer count.mu.Unlock()
-	if count.peak > 1 || len(count.live) != 0 {
-		t.Fatalf("timer tasks: %d starts, peak %d live, %d left after stop; want peak <= 1 and none left; %s", count.starts, count.peak, len(count.live), replay)
-	}
-	if _, peak := sl.armedAlarms(); peak > 1 {
-		t.Fatalf("alarms: peak %d armed at once, want at most 1; %s", peak, replay)
-	}
-	if path == "alarms" && count.starts != 0 {
-		t.Fatalf("the alarm path started %d timer tasks, want none; %s", count.starts, replay)
 	}
 }
 

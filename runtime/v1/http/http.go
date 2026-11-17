@@ -189,8 +189,8 @@ type httpServer struct {
 	stopping  chan struct{}
 
 	// alarms is the Scheduler's AlarmClock (v1.Alarmer): with it, each
-	// bounded phase arms one alarm, which the next phase stops, and no
-	// timer goroutine, task or sleep runs. nil for a Go Sleeper with no
+	// connection keeps one deadline and at most one alarm (enterLocked),
+	// and no timer goroutine, task or sleep runs. nil for a Go Sleeper with no
 	// Alarms: the reference path above.
 	alarms *v1.AlarmClock
 }
@@ -257,9 +257,16 @@ type httpConn struct {
 	epoch   uint64   // counts phase changes; a sleep expires only its own
 	expired phase    // the phase that expired, or phaseFree
 	sleep   *rt.Task // the phase sleep in flight, cut by the next change
-	alarm   v1.Alarm // the phase's alarm (alarms), stopped by the next change
 	request *rt.Task // the request task that a disconnect stops
-	gone    bool     // a read failed other than by a deadline: the peer left
+
+	// The alarm path (alarms): the current bounded phase's deadline on
+	// the AlarmClock (bounded), the armed alarm and the time it is armed
+	// for, and wake, made once, which every alarm runs.
+	deadline, armedAt time.Duration
+	bounded           bool
+	alarm             v1.Alarm
+	wakeFn            func()
+	gone              bool // a read failed other than by a deadline: the peer left
 }
 
 // enter moves c to phase p: it cuts the sleep of the old phase and wakes
@@ -279,19 +286,37 @@ func (c *httpConn) enterLocked(p phase) {
 	c.at.Store(uint32(p))
 	c.epoch++
 	if a := c.s.alarms; a != nil {
-		// The alarm path: the old phase's alarm stops, and a bounded
-		// phase arms its own, which expires only its epoch. The close
-		// stops the last: net/http closes every connection when Serve
-		// stops, so no alarm outlives its connection. One whose function
-		// has started finds its epoch gone.
-		if c.alarm != nil {
-			c.alarm.Stop()
-			c.alarm = nil
+		// The alarm path (HTTP-FAST-b2): a bounded phase sets c's one
+		// deadline, and arms an alarm only when none is armed or the
+		// armed one comes after the deadline; an unbounded phase clears
+		// the deadline and leaves the alarm armed. An alarm that comes
+		// early re-arms itself for the deadline (wake). So a phase change
+		// is one clock read, and a kept-alive request whose phases end
+		// before their bounds arms nothing. The close stops the alarm:
+		// net/http closes every connection when Serve stops, so no alarm
+		// outlives its connection.
+		if p == phaseClosed {
+			c.bounded = false
+			if c.alarm != nil {
+				c.alarm.Stop()
+				c.alarm = nil
+			}
+			return
 		}
-		if d := c.s.limits.timeout(p); d > 0 {
-			epoch := c.epoch
-			c.alarm = a.After(d, func() { c.expire(epoch) })
+		d := c.s.limits.timeout(p)
+		if d <= 0 {
+			c.bounded = false
+			return
 		}
+		c.deadline, c.bounded = a.Deadline(d), true
+		if c.alarm == nil || c.armedAt > c.deadline {
+			if c.alarm != nil {
+				c.alarm.Stop()
+			}
+			c.armedAt = c.deadline
+			c.alarm = a.After(d, c.wakeFn)
+		}
+		a.Began(d)
 		return
 	}
 	if c.sleep != nil {
@@ -387,11 +412,47 @@ func (c *httpConn) CloseWrite() error {
 func (c *httpConn) expire(epoch uint64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.epoch != epoch || c.expired != phaseFree || c.phase == phaseClosed {
+	if c.epoch != epoch {
+		return
+	}
+	c.expireLocked()
+}
+
+func (c *httpConn) expireLocked() {
+	if c.expired != phaseFree || c.phase == phaseClosed {
 		return
 	}
 	c.expired = c.phase
 	_ = c.Conn.SetReadDeadline(aLongTimeAgo)
+}
+
+// wake is the function of each of c's alarms. The armed alarm is done
+// once the clock reaches its time (an alarm stopped too late to keep its
+// function from running may wake c early, and changes nothing). The
+// current bounded phase expires when the clock has reached its deadline;
+// an earlier wake arms the alarm again for the deadline.
+func (c *httpConn) wake() {
+	a := c.s.alarms
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.phase == phaseClosed {
+		return
+	}
+	now := a.Now()
+	if c.alarm != nil && now >= c.armedAt {
+		c.alarm = nil
+	}
+	if !c.bounded {
+		return
+	}
+	if now >= c.deadline {
+		c.expireLocked()
+		return
+	}
+	if c.alarm == nil {
+		c.armedAt = c.deadline
+		c.alarm = a.After(c.deadline-now, c.wakeFn)
+	}
 }
 
 // timeouts bounds c's read phases, on a goroutine of c's own from the
@@ -482,6 +543,8 @@ func (l httpListener) Accept() (net.Conn, error) {
 	c := &httpConn{Conn: nc, s: l.s}
 	if l.s.alarms == nil {
 		c.kick = make(chan struct{}, 1)
+	} else {
+		c.wakeFn = c.wake
 	}
 	return c, nil
 }
@@ -528,8 +591,9 @@ func connState(nc net.Conn, st http.ConnState) {
 // sleeper, the program's Scheduler, so a test Scheduler decides when a
 // phase expires, as for timeout.After; Serve arms no host timer of its
 // own. A program's Scheduler has Alarms (v1.Alarmer), which Serve calls
-// once on t: each bounded phase arms one alarm on that AlarmClock, and
-// the next phase stops it, with no task, goroutine or sleep per phase.
+// once on t: each connection keeps one deadline on that AlarmClock, which
+// a bounded phase moves, and one alarm, armed only when the deadline
+// comes first (enterLocked, wake): no task, goroutine or sleep per phase.
 // A Go Sleeper with no Alarms (a test's) takes the reference path: each
 // connection has one phase timer, a goroutine whose sleeps are tasks
 // under t; a phase that ends first cuts its sleep, and the next bounded

@@ -446,11 +446,15 @@ streamed (Rm, item 9). TLS and HTTP/2 configuration are outside this core.
    the program's `Scheduler`, as the deadline of `timeout.After` is: a
    test `Scheduler` (`time.Manual`) decides when a phase expires, and
    Serve arms no host timer of its own. Serve calls the Scheduler's
-   `Alarms()` once, on the serving task, and each bounded phase arms one
-   alarm on that `AlarmClock`, which the next phase stops (HTTP-FAST-b):
-   no task, goroutine, sleep or interruption per phase, and no provider
-   code on a connection's goroutine. A connection has at most one armed
-   alarm, and its close stops it. A Go Sleeper of a runtime test with no
+   `Alarms()` once, on the serving task. A connection keeps one deadline
+   on that `AlarmClock`: a bounded phase sets it from one clock read, and
+   arms an alarm only when none is armed or the armed one comes later
+   (HTTP-FAST-b2); an alarm that comes before the deadline arms again
+   for it, and an unbounded phase leaves it armed. So no phase starts a
+   task, goroutine, sleep or interruption, a kept-alive request whose
+   phases end in time arms nothing, and no provider code runs on a
+   connection's goroutine. A connection has at most one armed alarm, and
+   its close stops it. A Go Sleeper of a runtime test with no
    `Alarms` keeps the reference path: a timer goroutine per connection
    whose sleeps are sequential child tasks of the serving task, each
    joined before the next phase's starts; a serving stop drains them with
