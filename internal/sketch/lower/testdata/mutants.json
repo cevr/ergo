@@ -5844,6 +5844,16 @@
     {"name":"gb2-any-gotype","origin":"wf10 GB2","file":"internal/sketch/lower/types.go","from":"\t\t\treturn \"any\" // GB2: Go's empty interface","to":"\t\t\treturn \"interface{ M() }\"","rule":"go.Any is Go's empty interface.","killers":["lower:TestValuesIntoGoAny"]},
     {"name":"gb2-clone-callback-sig","origin":"wf10 GB2","file":"internal/sketch/lower/values.go","from":"\t\tif s, ok := t.(*check.Signature); ok && !walked[t] {","to":"\t\tif s, ok := t.(*check.Signature); false && ok && !walked[t] {","rule":"The naming pass reserves the copy functions a callback's Go operands and result need (testing/slogtest.TestHandler).","killers":["lower:TestEveryGoBoundFunctionLowers"]},
     {"name":"gb2-as-assert","origin":"wf10 GB2","file":"internal/sketch/lower/gocall.go","from":"\tif check.IsGoAny(fc.typeOf(x.Args[0])) {","to":"\tif false && check.IsGoAny(fc.typeOf(x.Args[0])) {","rule":"go.As[T] on a go.Any is Go's type assertion, not errors.As.","killers":["lower:TestValuesIntoGoAny"]},
-    {"name":"gb1-ref-pattern-ice","origin":"wf10 GB1","file":"internal/sketch/lower/body.go","from":"\tif !ok || isGoRef(n) || fc.l.runtimeNamed(n, fc.site) {","to":"\tif !ok || fc.l.runtimeNamed(n, fc.site) {","rule":"A record pattern Some{Value: h} over a fresh Option[go.Ref[T]] lowers: go.Ref[T] is Go's *T, no interface.","killers":["lower:TestOptionRefPatternLowers"]}
+    {"name":"gb1-ref-pattern-ice","origin":"wf10 GB1","file":"internal/sketch/lower/body.go","from":"\tif !ok || isGoRef(n) || fc.l.runtimeNamed(n, fc.site) {","to":"\tif !ok || fc.l.runtimeNamed(n, fc.site) {","rule":"A record pattern Some{Value: h} over a fresh Option[go.Ref[T]] lowers: go.Ref[T] is Go's *T, no interface.","killers":["lower:TestOptionRefPatternLowers"]},
+    {
+      "name": "red18-view-plain-calls-only",
+      "origin": "wf10 red #18 (NP4f x PRIM-4)",
+      "file": "internal/sketch/lower/view.go",
+      "from": "\tops := callOperands(call, c)\n\tif len(ops) != 1 {\n\t\treturn \"\"\n\t}\n\targ, ok := unparen(ops[0])",
+      "to": "\tops := call.Args\n\tif len(ops) != 1 {\n\t\treturn \"\"\n\t}\n\targ, ok := unparen(ops[0])",
+      "rule": "A one-call body reaches a view form through a dot call on its parameter (std strings.Bytes is s.Bytes(), PRIM-4), as through a plain one, so the Go operand it copies takes the view (LF2b).",
+      "anchor": {"tests":["lower:TestHostViewAgrees"]},
+      "killers": ["lower:TestHostViewAgrees"]
+    }
   ]
 }
