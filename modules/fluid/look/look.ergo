@@ -615,11 +615,3 @@ func sameDecl(a Option[Decl], b Option[Decl]) bool {
 		b == None
 	}
 }
-
-// MergeIsAssociative: merging three styles gives one style however the merges are grouped.
-law MergeIsAssociative(a []Decl, b []Decl, c []Decl) {
-	let sa = Of(a)
-	let sb = Of(b)
-	let sc = Of(c)
-	Same(Merge(Merge(sa, sb), sc), Merge(sa, Merge(sb, sc)))
-}

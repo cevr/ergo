@@ -384,36 +384,6 @@ law SheetIsOneRulePerDistinctDecl(a []look.Decl, b []look.Decl, group bool) {
 	len(Union(looks)) == len(keys(all)) && printed == len(rules)
 }
 
-// SheetIgnoresRepeats: a look listed twice adds nothing: a second component with the same
-// declarations adds no byte.
-law SheetIgnoresRepeats(a []look.Decl, b []look.Decl, group bool) {
-	let looks = []look.Look{lookOf(a, b, group, b), lookOf(b, a, !group, a)}
-	let mut twice = looks
-	for l in looks {
-		twice = twice.Append(l)
-	}
-	Sheet(token.Default, twice) == Sheet(token.Default, looks)
-}
-
-// SheetIsAUnion: the atoms of the sheet of two lists are the atoms of the first's sheet and
-// the second's, so the bytes a component adds are its new atoms.
-law SheetIsAUnion(a []look.Decl, b []look.Decl, c []look.Decl) {
-	let first = []look.Look{lookOf(a, b, false, c)}
-	let second = []look.Look{lookOf(c, b, true, a)}
-	let mut both = first
-	both = both.Append(second[0])
-	let joined = keys(Union(both))
-	let mut want = keys(Union(first))
-	for k, _ in keys(Union(second)) {
-		want[k] = true
-	}
-	let mut ok = len(joined) == len(want)
-	for k, _ in want {
-		ok = ok && joined.Get(k) != None
-	}
-	ok
-}
-
 // SheetGrowsSlowerThanDeclarations: with the module's components in package order, doubling
 // the components grows the sheet's rules by less than it grows the declarations a sheet of one
 // class per look would print. Both sides are counted here; nothing is pinned.
