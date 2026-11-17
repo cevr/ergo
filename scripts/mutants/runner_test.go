@@ -650,6 +650,9 @@ func (p pass) check(t *testing.T, log io.Writer) []Result {
 			t.Setenv("PATH", strings.Join(kept, string(os.PathListSeparator)))
 		}
 	}
+	// An inherited GOROOT of no toolchain: the runner drops it for every
+	// go it starts, or each fails "cannot find GOROOT" (gtb-goroot-stale).
+	t.Setenv("GOROOT", "/nonexistent/loop-probe-x")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	cfg := Config{

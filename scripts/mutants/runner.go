@@ -316,7 +316,7 @@ func newEngine(cfg Config) (*engine, error) {
 		e.goRoot = root
 	} else {
 		cmd := exec.Command("go", "env", "GOROOT")
-		cmd.Dir = cfg.Root
+		cmd.Dir, cmd.Env = cfg.Root, goEnviron()
 		if out, err := cmd.Output(); err == nil && strings.TrimSpace(string(out)) != "" {
 			e.goRoot = strings.TrimSpace(string(out))
 		}
@@ -542,6 +542,14 @@ func goCommand() string {
 		return filepath.Join(root, "bin", "go")
 	}
 	return "go"
+}
+
+// goEnviron is this process's environment without GOROOT, for the go
+// commands the runner starts itself: goCommand finds its own root, and an
+// inherited GOROOT of another toolchain would make it refuse to run (as
+// env drops it for every child).
+func goEnviron() []string {
+	return slices.DeleteFunc(os.Environ(), func(kv string) bool { return strings.HasPrefix(kv, "GOROOT=") })
 }
 
 // lookPathIn finds a bare command name on the PATH of env, the child's,
