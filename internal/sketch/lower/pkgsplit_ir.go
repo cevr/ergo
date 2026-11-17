@@ -371,52 +371,38 @@ func irHash(files []File) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// splitTypeArgs is a type argument list's top-level arguments, as Go
-// writes them (comma and space between them).
-func splitTypeArgs(args string) []string {
-	var out []string
-	depth, start := 0, 0
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case '[', '(', '{':
-			depth++
-		case ']', ')', '}':
-			depth--
-		case ',':
-			if depth == 0 {
-				out = append(out, strings.TrimSpace(args[start:i]))
-				start = i + 1
-			}
-		}
-	}
-	return append(out, strings.TrimSpace(args[start:]))
-}
-
 // walk calls name on every package-scope name fn's body spells (a called
 // function, a package variable, the named part of a type) and member on
 // every field and method name; each may respell it.
 func (fn *irFunc) walk(name, member func(*string)) {
-	var typ func(t *string)
-	typ = func(t *string) {
-		if *t == "" {
-			return
-		}
-		rest := strings.TrimLeft(*t, "[]*")
-		prefix := (*t)[:len(*t)-len(rest)]
-		// A generic instance, Decision[Phase, string], names its generic
-		// type and each argument (MSB2 x CS10: a flat generic union's IR
-		// spells its instance).
-		if at := strings.IndexByte(rest, '['); at > 0 && strings.HasSuffix(rest, "]") {
-			base, args := rest[:at], splitTypeArgs(rest[at+1:len(rest)-1])
-			name(&base)
-			for i := range args {
-				typ(&args[i])
+	// typ respells each package-scope name of a type spelling: a generic
+	// instance's own name and its type arguments (Decision[Phase, string],
+	// MSB2 x CS10), and a slice's, a pointer's, a map's or a function's
+	// element (map[int]Placed, func(int) Option[ended]: Q13, the I-FLIP
+	// form of 59b5a95fa).
+	typ := func(t *string) {
+		s := *t
+		var out strings.Builder
+		for i := 0; i < len(s); {
+			j := i
+			// An import path (a pcall's package, a runtime type's
+			// qualifier) is one name: its slashes do not split it.
+			for j < len(s) && (isSpellingName(s[j]) || s[j] == '/') {
+				j++
 			}
-			*t = prefix + base + "[" + strings.Join(args, ", ") + "]"
-			return
+			if j == i {
+				out.WriteByte(s[i])
+				i++
+				continue
+			}
+			// A dotted name (path.Name, a path alone) is another
+			// package's: the respellers keep it, and importPaths reads it.
+			n := s[i:j]
+			name(&n)
+			out.WriteString(n)
+			i = j
 		}
-		name(&rest)
-		*t = prefix + rest
+		*t = out.String()
 	}
 	var expr func(x *irExpr)
 	var stmts func(list []*irStmt)
