@@ -67,17 +67,38 @@ func reslicePart(r int) int {
 	ys[r & 63] + len(ys)
 }
 
-func resliceBench(n int) int {
+// Parsed is a parsed line: its fields and its number.
+type Parsed { items []int, n int }
+
+// resliceFieldPart is reslicePart with the line in a record's field, and
+// the record's number read after the collect (GP-RESLICE-FIELD).
+func resliceFieldPart(r int) int {
+	let rec = Parsed{items: line(r), n: r}
+	let mut ys = []int{}
+	for i in 8..72 {
+		ys = ys.Append(rec.items[i])
+	}
+	ys = ys.Append(r)
+	ys[r & 63] + len(ys) + rec.n
+}
+
+func resliceBench(field bool, n int) int {
 	let mut t = 0
 	for r in 0..n / part {
-		t = t + reslicePart(r)
+		if field {
+			t = t + resliceFieldPart(r)
+		} else {
+			t = t + reslicePart(r)
+		}
 	}
 	t
 }
 
 func bench(kind string, n int) int {
 	if kind == "reslice" || kind == "reslicefloor" {
-		resliceBench(n)
+		resliceBench(false, n)
+	} else if kind == "reslicefield" || kind == "reslicefieldfloor" {
+		resliceBench(true, n)
 	} else {
 		partsBench(kind, n)
 	}

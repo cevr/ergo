@@ -6,7 +6,8 @@
 // (hand Go collects before it folds: it allocates); foldfloor folds each
 // part in place, with no slice (the floor); reslice copies a part of a
 // fresh line into its own slice and grows it; reslicefloor takes the
-// part itself (the floor).
+// part itself (the floor); reslicefield and reslicefieldfloor do the same
+// with the line in a record's field.
 package main
 
 import (
@@ -77,14 +78,43 @@ func resliceFloor(r int) int {
 	return ys[r&63] + len(ys)
 }
 
+// parsed is a parsed line: its fields and its number.
+type parsed struct {
+	items []int
+	n     int
+}
+
+// resliceFieldPart is reslicePart with the line in a record's field.
+func resliceFieldPart(r int) int {
+	rec := parsed{items: line(r), n: r}
+	ys := make([]int, 0, 65)
+	ys = append(ys, rec.items[8:72]...)
+	ys = append(ys, r)
+	return ys[r&63] + len(ys) + rec.n
+}
+
+// resliceFieldFloor takes the field's part itself.
+func resliceFieldFloor(r int) int {
+	rec := parsed{items: line(r), n: r}
+	ys := rec.items[8:72]
+	ys = append(ys, r)
+	return ys[r&63] + len(ys) + rec.n
+}
+
 func bench(kind string, n int) int {
-	if kind == "reslice" || kind == "reslicefloor" {
+	switch kind {
+	case "reslice", "reslicefloor", "reslicefield", "reslicefieldfloor":
 		t := 0
 		for r := 0; r < n/part; r++ {
-			if kind == "reslice" {
+			switch kind {
+			case "reslice":
 				t += reslicePart(r)
-			} else {
+			case "reslicefloor":
 				t += resliceFloor(r)
+			case "reslicefield":
+				t += resliceFieldPart(r)
+			default:
+				t += resliceFieldFloor(r)
 			}
 		}
 		return t
