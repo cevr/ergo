@@ -431,7 +431,7 @@
       "origin": "wf10/selfhost/S2e",
       "file": "compiler/syntax/parse.ergo",
       "from": "\t\t\tout = out.Append(Parse(srcs[i]))\n",
-      "to": "\t\t\tout = out.Append(Parse(srcs[c.From]))\n",
+      "to": "\t\t\tout = out.Append(Parse(srcs[i-c.From]))\n",
       "rule": "Each file of a run is parsed: the join is each file's own parse, in file order.",
       "killers": [],
       "gap": "killed by law ParseAllIsEachParse (ergo test compiler/syntax), not by a Go suite; no Go suite runs compiler/'s laws until scripts/mutants has a compiler scope (GT7)"
@@ -441,7 +441,7 @@
       "origin": "wf10/selfhost/S2e",
       "file": "compiler/syntax/dump/columns.ergo",
       "from": "\t\t\tout = out.Append(syntax.Columns(syntax.Parse(srcs[i])))\n",
-      "to": "\t\t\tout = out.Append(syntax.Columns(syntax.Parse(srcs[c.From])))\n",
+      "to": "\t\t\tout = out.Append(syntax.Columns(syntax.Parse(srcs[i-c.From])))\n",
       "rule": "The columns of a package's files are each file's own, in file order.",
       "killers": [
         "internal/sketchfront:TestLoaderOrderIsTheNames"
