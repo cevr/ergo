@@ -35,10 +35,12 @@ type hostViewSite struct {
 }
 
 // viewForm is the view form of the body f's call reaches: an extern, of
-// any package, of a body whose contract names one (bodyView), or a
-// function whose body is one call of such an extern on its one parameter
-// (`func Bytes(s string) []byte { stringsBytes(s) }`); else "". It reads
-// declarations, never std membership.
+// any package, of a body whose contract names one (bodyView; the
+// language's s.Bytes() is the extern of StringsBytes, collop.go), or a
+// function whose body is one call of such an extern on its one parameter,
+// by name or as a dot call (`func Bytes(s string) []byte { s.Bytes() }`,
+// PRIM-4's strings.Bytes; I-FLIP red #22); else "". It reads declarations,
+// never std membership.
 func (l *lowerer) viewForm(f *check.Func) string {
 	if f == nil || f.Decl == nil {
 		return ""
@@ -55,7 +57,19 @@ func (l *lowerer) viewForm(f *check.Func) string {
 		return ""
 	}
 	call, ok := unparen(s.X).(*syntax.CallExpr)
-	if !ok || call.Trailing != nil || len(call.Args) != 1 {
+	if !ok || call.Trailing != nil {
+		return ""
+	}
+	if sel, ok := unparen(call.Fun).(*syntax.SelectorExpr); ok && len(call.Args) == 0 && f.Pkg.Info != nil {
+		// A dot call on the one parameter, `func Bytes(s string) []byte
+		// { s.Bytes() }`: the view form of the operation it calls.
+		recv, ok := unparen(sel.X).(*syntax.Ident)
+		if c := f.Pkg.Info.Calls[call]; ok && c != nil && c.Recv != nil && recv.Name == d.Type.Params.List[0].Names[0].Name {
+			return l.viewForm(c.Func)
+		}
+		return ""
+	}
+	if len(call.Args) != 1 {
 		return ""
 	}
 	fun, ok := unparen(call.Fun).(*syntax.Ident)
