@@ -492,6 +492,33 @@
       "to": "\tif false && n > 0 && int(s.toks.end[n-1]) > at {\n",
       "rule": "A failed scan's ILLEGAL and EOF sit at the end of the last token when that is past the failure (the Go scanner's fail).",
       "killers": []
+    },
+    {
+      "origin": "wf10 selfhost S2f",
+      "killers": [],
+      "name": "scan-word-stops-at-wide-rune",
+      "file": "compiler/syntax/scan.ergo",
+      "from": "\t\t\tif end < n && src[end] >= 0x80 {\n\t\t\t\tend = identRestWide(src, end)\n",
+      "to": "\t\t\tif false {\n\t\t\t\tend = identRestWide(src, end)\n",
+      "rule": "A word that starts with an ASCII letter goes on through the letters and digits past 0x7F that follow (identRest's rule, written out in run)."
+    },
+    {
+      "origin": "wf10 selfhost S2f",
+      "killers": [],
+      "name": "scan-op-alone-doubled",
+      "file": "compiler/syntax/scan.ergo",
+      "from": "\tif c1 == c || k1&clsOpNext != 0 || (c == '.' && k1&clsDigit != 0) {\n",
+      "to": "\tif k1&clsOpNext != 0 || (c == '.' && k1&clsDigit != 0) {\n",
+      "rule": "An operator byte that repeats (`++`, `&&`, `..`) is not decided by its first byte alone."
+    },
+    {
+      "origin": "wf10 selfhost S2f",
+      "killers": [],
+      "name": "parse-next-past-eof",
+      "file": "compiler/syntax/parse.ergo",
+      "from": "\tif p.tk > EOF {\n",
+      "to": "\tif p.tk >= EOF {\n",
+      "rule": "The parser stops at EOF: next never moves past the last token."
     }
   ]
 }
