@@ -2942,6 +2942,104 @@ test UiRunPacesEachEvent(n int) {
 	assert !stopped && c.Edges() == int64(k)
 }
 
+type dragHost { target sync.Ref[Option[ui.Id[int]]], codes sync.Ref[[]int] } implements ui.Host[int]
+
+func Show(h dragHost, ops []ui.Op[int]) {
+	if len(ops) > 0 {
+		let id = dragOpId(ops[0])
+		h.target.Update(func(t Option[ui.Id[int]]) Option[ui.Id[int]] {
+			match t {
+			case Some[ui.Id[int]]:
+				t
+			case None:
+				Some{Value: id}
+			}
+		})
+	}
+}
+
+func dragOpId(op ui.Op[int]) ui.Id[int] {
+	match op {
+	case ui.Insert[int] as i:
+		i.Id
+	case ui.Move[int] as m:
+		m.Id
+	case ui.Remove[int] as r:
+		r.Id
+	case ui.Set[int] as s:
+		s.Id
+	}
+}
+
+func Next(h dragHost) ui.Event[int] fails ui.Closed {
+	let code = sync.Modify(h.codes, func(cs []int) (int, []int) {
+		if len(cs) == 0 {
+			(-1, cs)
+		} else {
+			(cs[0], cs[1:])
+		}
+	})
+	if code < 0 {
+		return ui.Closed
+	}
+	if code == 0 {
+		return ui.Committed
+	}
+	let id = match h.target.Get() {
+	case Some[ui.Id[int]] as s:
+		s.Value
+	case None:
+		return ui.Closed
+	}
+	ui.Point{Id: id, Pointer: ui.PointerEvent{Phase: dragPhase(code), X: 0.0, Y: 0.0, Zone: None}, Over: None}
+}
+
+func dragPhase(code int) ui.Phase {
+	if code == 1 {
+		return ui.Down
+	}
+	if code == 2 {
+		return ui.Moved
+	}
+	ui.Up
+}
+
+func Post(_ dragHost, ev ui.Event[int]) {}
+
+func Frames(_ dragHost, on bool) {}
+
+test UiRunHoldsADrag(b int, m int, t int, ends bool) {
+	let before = (b%4 + 4) % 4
+	let moves = (m%6 + 6) % 6
+	let mut codes = []int{}
+	for _ in 0..before {
+		codes = codes.Append(0)
+	}
+	codes = codes.Append(1)
+	for _ in 0..moves {
+		codes = codes.Append(2)
+	}
+	if !ends {
+		codes = codes.Append(3)
+		for _ in 0..(t%4+4)%4 {
+			codes = codes.Append(0)
+		}
+	}
+	let c = pace.NewCounting()
+	let h = dragHost{target: sync.NewRef[Option[ui.Id[int]]](None), codes: sync.NewRef(codes)}
+	let stopped = with context { Scheduler: time.NewManual(0), pace.Pacing: c } {
+		let a = actor.StartMachine(shelfMachine(), 1, func(o int) {})
+		let mut seen = false
+		ui.Run(h, a, shelfView) catch {
+		case ui.Closed:
+		case actor.Stopped:
+			seen = true
+		}
+		seen
+	}
+	assert !stopped && c.Edges() == int64(len(codes)) && c.HeldEdges() == int64(moves+1) && c.Deferred() == 1
+}
+
 test UiCancelledFetchStops(steps int) {
 	assert lawCancelledFetchStops(steps)
 }
@@ -3072,6 +3170,7 @@ test UiLocationBackStopsAtTheStart(n int, path string) {
 // by ledger key.
 var stdUIHostStatements = map[string]string{
 	"ui RunPacesEachEvent":             `RunPacesEachEvent(n int) { let k = (n%16 + 16) % 16 let c = pace.NewCounting() let h = scriptedHost{left: sync.NewRef(k)} with context { Scheduler: time.NewManual(0), pace.Pacing: c } { let a = actor.StartMachine(shelfMachine(), 1, func(o int) {}) Run(h, a, shelfView) catch { case Closed: case actor.Stopped: return false } } c.Edges() == int64(k) }`,
+	"ui RunHoldsADrag":                 `RunHoldsADrag(b int, m int, t int, ends bool) { let before = (b%4 + 4) % 4 let moves = (m%6 + 6) % 6 let mut codes = []int{} for _ in 0..before { codes = codes.Append(0) } codes = codes.Append(1) for _ in 0..moves { codes = codes.Append(2) } if !ends { codes = codes.Append(3) for _ in 0..(t%4+4)%4 { codes = codes.Append(0) } } let c = pace.NewCounting() let h = dragHost{target: sync.NewRef[Option[Id[int]]](None), codes: sync.NewRef(codes)} with context { Scheduler: time.NewManual(0), pace.Pacing: c } { let a = actor.StartMachine(shelfMachine(), 1, func(o int) {}) Run(h, a, shelfView) catch { case Closed: case actor.Stopped: return false } } c.Edges() == int64(len(codes)) && c.HeldEdges() == int64(moves+1) && c.Deferred() == 1 }`,
 	"ui ScriptShowsTheView":            `ScriptShowsTheView(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { scriptShows(seed, steps, m) } }`,
 	"ui CancelledFetchStops":           `CancelledFetchStops(steps int) { let m = time.NewManual(0) with context { Scheduler: m } { cancelStops(steps, m) } }`,
 	"ui NoTickWhenSettled":             `NoTickWhenSettled(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { ticksFollow(seed, steps, m) } }`,

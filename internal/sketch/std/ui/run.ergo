@@ -1,5 +1,6 @@
 import actor
 import pace
+import scope
 import sync
 import time
 
@@ -53,13 +54,23 @@ type Host[E] {
 // a fetch whose load ended is stopped. Run fails with h's Closed, or with
 // Stopped when a has ended. Each event handled is one unit of the loop's
 // work: Run marks its end with pace.Pacing.Edge(), as a user's loop does,
-// so the pacing main binds (pace.NewAtEdges, say) may collect there.
+// so the pacing main binds (pace.NewAtEdges, say) may collect there. A
+// drag is one stretch: from a pointer's Down to its Up (the host's
+// capture) Run holds the pacing, so no collection lands mid-gesture, and
+// the Up's release runs the one the gesture's edges were due; a Run that
+// ends mid-drag releases as it returns.
 func Run[E comparable, S, D, F, R](h Host[E], a actor.Actor[S, E, D, F], view own func(f *Frame[E], s S) needs R) fails Closed | actor.Stopped needs R | pace.Pacing {
 	let (s, first) = Start(a, view, func(ev Event[E]) { h.Post(ev) })
 	let mut session = s
 	h.Show(first)
 	let mut frames = Animating(&session.frame)
 	h.Frames(frames)
+	let mut held = false
+	scope.OnExit() {
+		if held {
+			pace.Pacing.Release()
+		}
+	}
 	for {
 		let ev = try h.Next()
 		let ops = try Step(&session, ev)
@@ -70,7 +81,33 @@ func Run[E comparable, S, D, F, R](h Host[E], a actor.Actor[S, E, D, F], view ow
 			frames = !frames
 			h.Frames(frames)
 		}
+		if gripped(held, ev) != held {
+			held = !held
+			if held {
+				pace.Pacing.Hold()
+			} else {
+				pace.Pacing.Release()
+			}
+		}
 		pace.Pacing.Edge()
+	}
+}
+
+// gripped is whether a pointer is down after ev, when held says whether
+// one was before: a Down grips, an Up lets go, any other event keeps it.
+func gripped[E](held bool, ev Event[E]) bool {
+	match ev {
+	case Point[E] as p:
+		match p.Pointer.Phase {
+		case Down:
+			true
+		case Up:
+			false
+		case _:
+			held
+		}
+	case _:
+		held
 	}
 }
 
@@ -107,3 +144,108 @@ func Next(h scriptedHost) Event[int] fails Closed {
 func Post(_ scriptedHost, ev Event[int]) {}
 
 func Frames(_ scriptedHost, on bool) {}
+
+// RunHoldsADrag: from a pointer's Down to its Up, Run's edges are held,
+// and the one collection they owed runs once, at the Up or, when the host
+// closes mid-drag, as Run returns; the edges before and after are not
+// held.
+law RunHoldsADrag(b int, m int, t int, ends bool) {
+	let before = (b%4 + 4) % 4
+	let moves = (m%6 + 6) % 6
+	let mut codes = []int{}
+	for _ in 0..before {
+		codes = codes.Append(0)
+	}
+	codes = codes.Append(1)
+	for _ in 0..moves {
+		codes = codes.Append(2)
+	}
+	if !ends {
+		codes = codes.Append(3)
+		for _ in 0..(t%4+4)%4 {
+			codes = codes.Append(0)
+		}
+	}
+	let c = pace.NewCounting()
+	let h = dragHost{target: sync.NewRef[Option[Id[int]]](None), codes: sync.NewRef(codes)}
+	with context { Scheduler: time.NewManual(0), pace.Pacing: c } {
+		let a = actor.StartMachine(shelfMachine(), 1, func(o int) {})
+		Run(h, a, shelfView) catch {
+		case Closed:
+		case actor.Stopped:
+			return false
+		}
+	}
+	c.Edges() == int64(len(codes)) && c.HeldEdges() == int64(moves+1) && c.Deferred() == 1
+}
+
+// dragHost is the Host of RunHoldsADrag: it plays codes (0 a Committed,
+// 1 a Down, 2 a Moved, 3 an Up, each on the first node it was shown),
+// then Closed.
+type dragHost { target sync.Ref[Option[Id[int]]], codes sync.Ref[[]int] } implements Host[int]
+
+func Show(h dragHost, ops []Op[int]) {
+	if len(ops) > 0 {
+		let id = opId(ops[0])
+		h.target.Update(func(t Option[Id[int]]) Option[Id[int]] {
+			match t {
+			case Some[Id[int]]:
+				t
+			case None:
+				Some{Value: id}
+			}
+		})
+	}
+}
+
+// opId is the node an op changes.
+func opId(op Op[int]) Id[int] {
+	match op {
+	case Insert[int] as i:
+		i.Id
+	case Move[int] as m:
+		m.Id
+	case Remove[int] as r:
+		r.Id
+	case Set[int] as s:
+		s.Id
+	}
+}
+
+func Next(h dragHost) Event[int] fails Closed {
+	let code = sync.Modify(h.codes, func(cs []int) (int, []int) {
+		if len(cs) == 0 {
+			(-1, cs)
+		} else {
+			(cs[0], cs[1:])
+		}
+	})
+	if code < 0 {
+		return Closed
+	}
+	if code == 0 {
+		return Committed
+	}
+	let id = match h.target.Get() {
+	case Some[Id[int]] as s:
+		s.Value
+	case None:
+		return Closed
+	}
+	Point{Id: id, Pointer: PointerEvent{Phase: phaseOf(code), X: 0.0, Y: 0.0, Zone: None}, Over: None}
+}
+
+// phaseOf is the pointer phase of a dragHost code.
+func phaseOf(code int) Phase {
+	if code == 1 {
+		return Down
+	}
+	if code == 2 {
+		return Moved
+	}
+	Up
+}
+
+func Post(_ dragHost, ev Event[int]) {}
+
+func Frames(_ dragHost, on bool) {}
