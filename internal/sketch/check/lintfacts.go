@@ -58,10 +58,11 @@ func ProgramType(t Type) bool {
 	return !pkg.Std() && !pkg.Host() && pkg != universeOnce.goPkg
 }
 
-// IsMethod reports whether f is a method of its first parameter's type
-// (#196): a function the type's operations reach, so it can provide an
-// operation of an operation type with no call that names it.
-func (f *Func) IsMethod() bool {
+// ProvidesOperation reports whether f is a method of its first
+// parameter's type (#196) that provides an operation of an operation type
+// the type declares it implements: a call of the operation reaches f with
+// no call that names it.
+func (f *Func) ProvidesOperation() bool {
 	if f == nil || f.Sig == nil || len(f.Sig.Params) == 0 {
 		return false
 	}
@@ -70,7 +71,19 @@ func (f *Func) IsMethod() bool {
 		t = p.Elem
 	}
 	n, ok := t.(*Named)
-	return ok && n.method(f.Name) == f
+	if !ok || n.method(f.Name) != f {
+		return false
+	}
+	for _, impl := range n.origin().impls {
+		if it, ok := impl.underlying().(*Interface); ok {
+			for _, m := range it.Methods {
+				if m.Name == f.Name {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // Entry is the package's entry function, main, or nil: a package with one
