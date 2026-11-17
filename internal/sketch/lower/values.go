@@ -201,6 +201,8 @@ type valueFacts struct {
 	entryWrites map[string]bool
 	moveRead    map[*syntax.CallExpr]bool
 	copied      map[*check.Var]bool // the bindings of a matched Get whose entry is copied
+	// A collect's source whose read in the loop is its last, unshared (lastread.go).
+	lastRead map[*syntax.Ident]bool
 }
 
 // ownedParam is an owned parameter (V5): its index, counting a dot call's
@@ -237,6 +239,7 @@ func (l *lowerer) valueFacts() *valueFacts {
 			deep:     map[syntax.Expr]bool{},
 			moveRead: map[*syntax.CallExpr]bool{},
 			copied:   map[*check.Var]bool{},
+			lastRead: map[*syntax.Ident]bool{},
 		}
 	}
 	return l.vals
@@ -990,6 +993,7 @@ func (w *valueWalk) decide() {
 	// Consumed operands of owned runtime/v1 forms, likewise.
 	w.consumes()
 	w.settleLineage()
+	w.lastReads() // lastread.go: once every copy is decided
 }
 
 // writeCall reports x, unparenthesized, as a call of the prelude's Append,

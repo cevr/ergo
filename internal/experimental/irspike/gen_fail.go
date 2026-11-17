@@ -380,7 +380,13 @@ func (g *fgen) tail() {
 
 func (g *fgen) main() {
 	g.b.WriteString("func main() needs Console {\n\twith context { Log: Prov } {\n")
-	for _, f := range g.funcs {
+	funcs := g.funcs
+	if g.order {
+		// GenerateOrder's forced function runs first: an earlier
+		// function's defect would end the run before its form runs.
+		funcs = append([]ffunc{funcs[len(funcs)-1]}, funcs[:len(funcs)-1]...)
+	}
+	for _, f := range funcs {
 		var as []string
 		for j := 0; j < f.params; j++ {
 			as = append(as, fmt.Sprint(g.n(21)-10))

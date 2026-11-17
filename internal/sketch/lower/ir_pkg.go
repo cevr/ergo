@@ -404,6 +404,10 @@ func (b *irBuilder) countLoop(s *syntax.RangeStmt, lp *check.Loop) []*irStmt {
 	b.loopBody(loop, s, s.Body) // ir_stmt.go
 	// The Range's statements run first, once (rangeStmt).
 	loop.Pos = past(loop.Pos, pre) // ir_match.go
+	if st := b.loopIdiomIR(s, lp, loop, field); st != nil {
+		// A fill, a move or a collect: the call, guarded, before the loop (ir_loops.go).
+		return append(append(pre, &irStmt{K: "def", Pos: p, Local: r, X: x}), st...)
+	}
 	return append(pre, &irStmt{K: "def", Pos: p, Local: r, X: x}, loop)
 }
 

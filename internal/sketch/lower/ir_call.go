@@ -127,12 +127,12 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		}
 		switch t := b.l.info.Types[x.Args[0]].(type) {
 		case *check.Slice, *check.Map:
-		case *check.Basic:
-			if t.Kind != check.String {
+		default:
+			// A string, or a named type over one (std fs.Text, the
+			// runtime's `type Text string`): Go's len of its bytes.
+			if bt := b.scalarBasic(t); bt == nil || bt.Kind != check.String {
 				irNo("len of a non-slice")
 			}
-		default:
-			irNo("len of a non-slice")
 		}
 		return nil, &irExpr{K: "len", Pos: p, X: b.expr(x.Args[0])}, false
 	case check.CallFunc:
@@ -169,8 +169,6 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 			irNo("call of an extern function")
 		case len(witnessParams(f.Sig)) > 0:
 			irNo("call that passes witnesses")
-		case c.Site != nil:
-			irNo("call with a call site")
 		case len(b.fc.captureOwners(x)) > 0:
 			irNo("call that captures owners")
 		case fd.ptr && !b.addrRecv(c) && !b.passesPointer(c, x): // ir_place.go, ir_pkg.go
@@ -199,6 +197,9 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		b.valueSource(x, c, args, irArgs) // ir_pkg.go
 		if x.Trailing != nil {
 			irArgs = append(irArgs, b.closureLit(nil, x)) // ir_closure.go
+		}
+		if c.Site != nil {
+			irArgs = append(irArgs, b.siteValue(x, c.Site, p))
 		}
 		if !fd.pure {
 			// The environment first, after a method's receiver
