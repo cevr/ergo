@@ -239,6 +239,7 @@ type hostPkg struct {
 	reads    map[*Func][]string       // the binders a function's `// ergo:reads` line names (gofacts.go)
 	vouched  map[*Func][]vouch        // its vouched `// ergo:reads p (vouched: …)` lines (gofacts.go)
 	effect   map[*Func]bool           // a memory-only function, `// ergo:effect none (vouched: …)` (GBX6)
+	host     map[*Func]bool           // a host function, `// ergo:effect ambient (vouched: …)` (HOST-ROW)
 }
 
 func hostOf(p *Package) *hostPkg {
@@ -498,6 +499,14 @@ func (h *hostPkg) load() {
 			for _, m := range tn.Type.(*Named).mlist {
 				mark(m)
 			}
+		}
+	}
+	for _, fn := range c.pkg.Funcs {
+		h.ambientUnvouched(fn)
+	}
+	for _, tn := range c.pkg.Types {
+		for _, m := range tn.Type.(*Named).mlist {
+			h.ambientUnvouched(m)
 		}
 	}
 }

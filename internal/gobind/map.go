@@ -62,7 +62,12 @@ type Decl struct {
 	// (gofacts.Effects; np4f-plan GBX6), acting on its guard line: the
 	// binding writes no needs row and an `// ergo:effect none (vouched:
 	// <reason>)` line.
-	Effect  string
+	Effect string
+	// Host is the reason of the function's host row (gofacts.Hosts;
+	// HOST-ROW), acting on its guard line: the binding writes needs
+	// Ambient, not go.Foreign, and an `// ergo:effect ambient (vouched:
+	// <reason>)` line.
+	Host    string
 	Refused string
 	// Members are the refusals of a struct's fields and an interface's
 	// methods, by member name, for a type that maps.
@@ -131,6 +136,9 @@ type mapper struct {
 	// effect is the reason of the memory-only row the last funcDecl
 	// bound by (GBX6), or "".
 	effect string
+	// host is the reason of the host row the last funcDecl wrote
+	// (HOST-ROW), or "".
+	host string
 }
 
 // readable is a parameter, or a method's receiver, that may carry a
@@ -251,7 +259,7 @@ func (m *mapper) decl(obj types.Object, recv *types.Named) Decl {
 			d.Refused = err.Error()
 			return d
 		}
-		d.Ergo, d.Variadic, d.Context, d.Effect = text, variadic, ctx, m.effect
+		d.Ergo, d.Variadic, d.Context, d.Effect, d.Host = text, variadic, ctx, m.effect, m.host
 	case *types.TypeName:
 		d.Kind = Type
 		text, members, lines, err := m.typeDecl(o)
@@ -456,7 +464,12 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, bool,
 		// does not have).
 		needs = " needs go.Foreign"
 	}
-	m.effect = ""
+	m.effect, m.host = "", ""
+	if e, ok := gofacts.HostOf(target); ok && needs == " needs go.Foreign" && !sm.ctx && hostActs(target) {
+		// A host call charges Ambient, the authority to choose the host,
+		// not go.Foreign (HOST-ROW); the binding says why.
+		needs, m.host = " needs Ambient", e.Reason
+	}
 	if e, ok := gofacts.EffectOf(target); ok && needs != "" && !sm.ctx && effectActs(target) {
 		// A memory-only call needs no capability (GBX6): its row is
 		// what is left, and the binding says why.
@@ -1227,6 +1240,13 @@ func (m *mapper) constType(c *types.Const) (string, error) {
 // (check.SyncActs; LAWFFI LF2d).
 func syncActs(target string) bool {
 	ok, _, _ := check.SyncActs(target)
+	return ok
+}
+
+// hostActs reports a function whose host row acts (check.HostActs;
+// HOST-ROW).
+func hostActs(target string) bool {
+	ok, _, _ := check.HostActs(target)
 	return ok
 }
 
