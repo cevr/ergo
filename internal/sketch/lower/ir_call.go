@@ -35,12 +35,15 @@ func (b *irBuilder) call(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr) {
 		return pre, v
 	}
 	pre, e, effect := b.callParts(x, stmt)
-	if e != nil && (e.K == "vcall" && !b.plainCallee(x) || b.dropsErr[e] && !stmt) {
+	if e != nil && (e.K == "vcall" && !b.plainCallee(x) || b.dropsErr[e] && (!stmt || b.hasValue(x))) {
 		// A function value returns its (value, error) pair (ir_closure.go;
 		// a known callback's is plain, ir_kcb.go),
 		// as a fallible function does where its row is empty (dropErr): the
-		// value is bound and the error, nil, dropped. A statement keeps the
-		// Go call, whose results Go drops.
+		// value is bound and the error, nil, dropped. A statement binds
+		// both to blanks, as the emitter's `_, _ = f(…)` does: Go reads
+		// no call statement of a pair (I-FLIP red #14, lru's
+		// `let _ = m.Get(k, Square)`). A fallible call with no value
+		// returns the error alone, which a call statement drops.
 		vpre, v := b.valueResult(x, e, stmt)
 		return append(pre, vpre...), v
 	}
@@ -48,6 +51,13 @@ func (b *irBuilder) call(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr) {
 		return b.hoist(pre, e, x)
 	}
 	return pre, e
+}
+
+// hasValue reports a call x with a value, whose Go form returns it beside
+// the error.
+func (b *irBuilder) hasValue(x *syntax.CallExpr) bool {
+	t := b.l.info.Types[x]
+	return t != nil && !isNoValue(t) && !b.fc.noValue(x)
 }
 
 // dropErr marks e, a call whose Go form returns an error where the row at
