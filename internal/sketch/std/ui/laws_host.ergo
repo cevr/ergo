@@ -43,7 +43,7 @@ func shelfMachine() Machine[shelf, int, int] {
 // shelfView shows the count, an add button, and each row with a delete
 // button: every row's button has the label "del", so a press by label
 // takes the first row on the screen.
-func shelfView(f *Frame[int], s shelf) {
+func shelfView(f mut Frame[int], s shelf) {
 	Column(f, Plain()) {
 		Text(f, "\(len(s.rows)) rows")
 		Pressable(f, "add", 0) {
@@ -61,7 +61,7 @@ func shelfView(f *Frame[int], s shelf) {
 }
 
 // freshShape is what view means at s: one pass of a new frame.
-func freshShape[S](view func(f *Frame[int], s S), s S) []Shape[int] {
+func freshShape[S](view func(f mut Frame[int], s S), s S) []Shape[int] {
 	let mut g = NewFrame[int]()
 	let _ = Render(&g, view, s)
 	FrameShape(&g)
@@ -165,7 +165,7 @@ law CancelledFetchStops(steps int) {
 func cancelStops(steps int, m time.Manual) bool needs Scheduler {
 	let started = queue.New[int](64)
 	let ended = queue.New[int](64)
-	let view = func(f *Frame[int], s chosen) {
+	let view = func(f mut Frame[int], s chosen) {
 		let k = s.key
 		Text(f, "key \(k) ready \(s.ready)")
 		Pressable(f, "next", k+1+k%3) {
@@ -246,7 +246,7 @@ func spinMachine() Machine[spin, int, int] {
 
 // spinView animates while frames are left; "go0" to "go3" ask for that
 // many.
-func spinView(f *Frame[int], s spin) {
+func spinView(f mut Frame[int], s spin) {
 	Text(f, "left \(s.left) at \(s.at)")
 	for n in 0..4 {
 		Pressable(f, "go\(n)", n) {
@@ -375,7 +375,7 @@ func onPad(s pad, p PointerEvent) Option[int] {
 // padView: while the dialog is open, its OnKey comes first and takes
 // Escape (closing it); the page's OnKey takes any key with Ctrl (opening
 // the dialog) and gives the pad a 4000 plus the name's length for Enter.
-func padView(f *Frame[int], s pad) {
+func padView(f mut Frame[int], s pad) {
 	Text(f, "last \(s.last) of \(s.n)")
 	if s.open {
 		OnKey(f, func(k KeyPress) Option[int] {
@@ -482,7 +482,7 @@ func inputFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 // paints reads the state, so a new state repaints.
 type pp = ppFill{k int} | ppStroke{k int} | ppRect{k int} | ppMove{k int, kids []pp} | ppClip{k int, kids []pp}
 
-func genPaint(r *rng, depth int) []pp {
+func genPaint(r mut rng, depth int) []pp {
 	let mut out = []pp{}
 	for _ in 0..draw(r, 4) {
 		let k = draw(r, 50)
@@ -517,7 +517,7 @@ func tri(s int, k int) Path {
 }
 
 // paintProg paints prog at s through the package's painting functions.
-func paintProg(p *Paint, prog []pp, s int) {
+func paintProg(p mut Paint, prog []pp, s int) {
 	for op in prog {
 		match op {
 		case ppFill as x:
@@ -612,12 +612,12 @@ law PaintMatchesList(seed int, steps int) {
 func paintFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let mut r = seeded(seed)
 	let prog = genPaint(&r, 2)
-	let view = func(f *Frame[int], s int) {
+	let view = func(f mut Frame[int], s int) {
 		Text(f, "at \(s)")
 		Pressable(f, "next", (s*5+3)%11) {
 			Text(f, "next")
 		}
-		Canvas(f, "board", 120, 80) func(p *Paint) {
+		Canvas(f, "board", 120, 80) func(p mut Paint) {
 			paintProg(p, prog, s)
 		}
 	}
@@ -710,7 +710,7 @@ func rowsFollow(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let sizes = []int{0, 3, 50, 1000}
 	let n = sizes[draw(&r, len(sizes))]
 	let rh = float64(draw(&r, 40) + 10)
-	let view = func(f *Frame[int], s roster) {
+	let view = func(f mut Frame[int], s roster) {
 		Pressable(f, "add", 0) {
 			Text(f, "+")
 		}
@@ -815,7 +815,7 @@ func routeMachine() Machine[int, int, int] {
 func home(u URL) Option[int] { Some{Value: 0} }
 
 // routeView shows the place at s.
-func routeView(f *Frame[int], s int) {
+func routeView(f mut Frame[int], s int) {
 	OnURL(f, placeOf)
 	OnURL(f, home)
 	Text(f, "at \(places[s])")
@@ -941,7 +941,7 @@ func fetchABC() int needs capA | capB | capC { capA.tagA() + 10*capB.tagB() + 10
 
 // loadFor writes load i with the fetch of its set; its signal is
 // 1000*(i+1) plus the fetch's tags.
-func loadFor(f *Frame[int], i int, set int) needs capA | capB | capC {
+func loadFor(f mut Frame[int], i int, set int) needs capA | capB | capC {
 	let base = 1000 * (i + 1)
 	match set {
 	case 1:
@@ -965,7 +965,7 @@ func loadFor(f *Frame[int], i int, set int) needs capA | capB | capC {
 
 // boundView writes each load under a Box of its own, in an inner with of
 // the other provider of each pair when it is drawn so.
-func boundView(f *Frame[int], plan []boundLoad, outer []int) needs capA | capB | capC {
+func boundView(f mut Frame[int], plan []boundLoad, outer []int) needs capA | capB | capC {
 	for i, l in plan {
 		Box(f, Plain()) {
 			if l.inner {
@@ -1028,7 +1028,7 @@ func loadsBound(seed int, m time.Manual) bool needs Scheduler {
 	}
 	with context { capA: aIs{v: outer[0]}, capB: bIs{v: outer[1]}, capC: cIs{v: outer[2]} } {
 		let a = actor.StartMachine(logMachine(), 4, func(o int) {})
-		let mut h = NewTestHost(a, func(f *Frame[int], s []int) needs capA | capB | capC { boundView(f, plan, outer) }, m, 8) catch {
+		let mut h = NewTestHost(a, func(f mut Frame[int], s []int) needs capA | capB | capC { boundView(f, plan, outer) }, m, 8) catch {
 		case BadPatch:
 			return false
 		}
@@ -1103,7 +1103,7 @@ func cursorKept(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let sizes = []int{0, 3, 50, 1000}
 	let n = sizes[draw(&r, len(sizes))]
 	let rh = float64(draw(&r, 40) + 10)
-	let view = func(f *Frame[int], s int) {
+	let view = func(f mut Frame[int], s int) {
 		OnKey(f, func(k KeyPress) Option[int] {
 			for i in 0..n+1 {
 				if k.Name == "\(i)" {
@@ -1292,7 +1292,7 @@ func replyMachine(gate queue.Queue[int], last int) Machine[int, int, int] {
 }
 
 // replyView shows the reply app's state.
-func replyView(f *Frame[int], s int) { Text(f, "at \(s)") }
+func replyView(f mut Frame[int], s int) { Text(f, "at \(s)") }
 
 // WorkReplyIsShown (DOMAIN PX3a): a reply that reaches the actor through
 // its machine's work, not through an event of the loop, is on the test
@@ -1443,7 +1443,7 @@ func crashMachine() Machine[int, int, int, Boom] {
 
 // crashAppView shows the count, a button per signal, and a check box whose
 // flag is view-local state.
-func crashAppView(f *Frame[int], s int) {
+func crashAppView(f mut Frame[int], s int) {
 	Text(f, "count \(s)")
 	Pressable(f, "add", 0) {
 		Text(f, "+")
@@ -1472,7 +1472,7 @@ func crashText(c Crash[Boom]) string {
 }
 
 // crashOwnView is the crash app's crash view: what crashed, and a reload.
-func crashOwnView(f *Frame[int], c Crash[Boom]) {
+func crashOwnView(f mut Frame[int], c Crash[Boom]) {
 	Text(f, crashText(c))
 	Pressable(f, "reload", 3) {
 		Text(f, "reload")
@@ -1621,7 +1621,7 @@ func workCrashWork(gate queue.Queue[int]) func(s int) Option[func(send func(e in
 
 // keyView is the session law's view: its key presses are its signals, by
 // the key's name ("1", "5"), and it shows the state.
-func keyView(f *Frame[int], s int) {
+func keyView(f mut Frame[int], s int) {
 	OnKey(f, func(k KeyPress) Option[int] {
 		if k.Name == "1" {
 			return Some{Value: 1}
@@ -1635,7 +1635,7 @@ func keyView(f *Frame[int], s int) {
 }
 
 // keyCrashView is its crash view: any key reloads.
-func keyCrashView(f *Frame[int], c Crash[Boom]) {
+func keyCrashView(f mut Frame[int], c Crash[Boom]) {
 	OnKey(f, func(k KeyPress) Option[int] { Some{Value: 0} })
 	Text(f, "crashed")
 }
@@ -1646,7 +1646,7 @@ func key(name string) Event[int] {
 
 // endedOf takes the posted events up to the Ended of run, stepping the
 // others, and is that Ended's patch.
-func endedOf(session *Session[int, int, Decision[int, int], Boom], posted queue.Queue[Event[int]], run int) Option[[]Op[int]] {
+func endedOf(session mut Session[int, int, Decision[int, int], Boom], posted queue.Queue[Event[int]], run int) Option[[]Op[int]] {
 	for {
 		let ev = posted.Pop() catch {
 		case queue.Closed:
@@ -1743,7 +1743,7 @@ func crashFollows() bool needs Scheduler {
 
 // endsQuiet is whether the Ended of run, when the loop takes it, changes
 // nothing on the screen.
-func endsQuiet(session *Session[int, int, Decision[int, int], Boom], posted queue.Queue[Event[int]], run int) bool {
+func endsQuiet(session mut Session[int, int, Decision[int, int], Boom], posted queue.Queue[Event[int]], run int) bool {
 	match endedOf(session, posted, run) {
 	case Some[[]Op[int]] as ops:
 		len(ops.Value) == 0
@@ -1774,8 +1774,8 @@ func statsMachine() Machine[int, int, int] {
 }
 
 // statsView shows the app of apps[s]; the key "i" signals i.
-func statsView(apps []statsApp) func(f *Frame[int], s int) {
-	func(f *Frame[int], s int) {
+func statsView(apps []statsApp) func(f mut Frame[int], s int) {
+	func(f mut Frame[int], s int) {
 		let st = apps[s]
 		OnKey(f, func(k KeyPress) Option[int] {
 			for i in 0..len(apps) {
@@ -1790,7 +1790,7 @@ func statsView(apps []statsApp) func(f *Frame[int], s int) {
 				Text(f, "t\(j)")
 			}
 			if st.canvas {
-				Canvas(f, "c", 40, 40) func(p *Paint) {
+				Canvas(f, "c", 40, 40) func(p mut Paint) {
 					for j in 0..st.paints {
 						Fill(p, RectPath(float64(j), 0.0, 1.0, 1.0), tone(j, j))
 					}
@@ -1940,7 +1940,7 @@ law SlowAboveTheBudget(seed int, bound int) {
 
 func slowFollow(seed int, bound int) bool needs Scheduler {
 	let mut r = seeded(seed)
-	let view = func(f *Frame[slowSignal], s slowLog) {
+	let view = func(f mut Frame[slowSignal], s slowLog) {
 		// Every third pass asks for nothing: an OnSlow holds for its pass.
 		if s.texts%3 != 0 {
 			OnSlow(f, Budget{Signals: 0, Written: bound, Committed: 0, Ops: 0, Painted: 0, Fetches: 0}, func(x Slow) slowSignal { WasSlow{S: x} })
@@ -2039,7 +2039,7 @@ func sameHit(a Option[ZoneHit], b Option[ZoneHit]) bool {
 }
 
 // foundId is the node label finds; the laws name only nodes on the screen.
-func foundId[S, D, F](h *TestHost[S, int, D, F], label string) Id[int] {
+func foundId[S, D, F](h mut TestHost[S, int, D, F], label string) Id[int] {
 	match Find(h, label) {
 	case Some[Id[int]] as id:
 		id.Value
@@ -2081,7 +2081,7 @@ func zoneFollows(seed int, n int, m time.Manual) bool needs Scheduler {
 		cards = cards.Append(draw(&r, 3) + 1)
 	}
 	let got = sync.NewRef[Option[ZoneHit]](None)
-	let view = func(f *Frame[int], s int) {
+	let view = func(f mut Frame[int], s int) {
 		Pressable(f, "drop", 1) {
 			Text(f, "drop")
 		}
@@ -2202,7 +2202,7 @@ func phaseCode(p Phase) int {
 
 func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let mut r = seeded(seed)
-	let view = func(f *Frame[int], s int) {
+	let view = func(f mut Frame[int], s int) {
 		Pressable(f, "hide", 99) {
 			Text(f, "hide")
 		}
@@ -2294,7 +2294,7 @@ func announceFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 	for _ in 0..6 {
 		texts = texts.Append(words[draw(&r, 4)])
 	}
-	let view = func(f *Frame[int], s int) {
+	let view = func(f mut Frame[int], s int) {
 		OnKey(f, func(k KeyPress) Option[int] {
 			for i in 0..6 {
 				if k.Name == "\(i)" {

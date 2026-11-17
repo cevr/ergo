@@ -36,7 +36,7 @@ type KeyPress { Name string, Mods Mods }
 // of each, None for an event the program ignores (a move with no button
 // down). label names it to a test host and to assistive technology; body
 // is what it shows.
-func Area[E, F, R](f *Frame[E], label string, style Style, on own func(p PointerEvent) Option[E], body func() fails F needs R, at CallSite) fails F needs R {
+func Area[E, F, R](f mut Frame[E], label string, style Style, on own func(p PointerEvent) Option[E], body func() fails F needs R, at CallSite) fails F needs R {
 	let m = markOf(f)
 	let i = put(f, AreaNode{Label: label, Style: style}, None, None, at)
 	f.specs[i].onPoint = Some{Value: on}
@@ -53,7 +53,7 @@ func Area[E, F, R](f *Frame[E], label string, style Style, on own func(p Pointer
 // calls in the order the pass made them, and the first that gives a signal
 // takes it, so a dialog written before the page it covers takes its keys
 // first.
-func OnKey[E](f *Frame[E], on own func(k KeyPress) Option[E]) {
+func OnKey[E](f mut Frame[E], on own func(k KeyPress) Option[E]) {
 	if f.nkeys < len(f.keys) {
 		f.keys[f.nkeys] = on
 	} else {
@@ -66,7 +66,7 @@ func OnKey[E](f *Frame[E], on own func(k KeyPress) Option[E]) {
 // frame, and on makes the signal of each from the frame's time (since the
 // host started). A pass that makes no Animate asks for no frame, so a
 // settled screen costs nothing.
-func Animate[E](f *Frame[E], on own func(at duration) E) {
+func Animate[E](f mut Frame[E], on own func(at duration) E) {
 	if f.nanims < len(f.anims) {
 		f.anims[f.nanims] = on
 	} else {
@@ -77,11 +77,11 @@ func Animate[E](f *Frame[E], on own func(at duration) E) {
 
 // Animating is whether the last pass made an Animate: whether the host
 // should send frames.
-func Animating[E](f *Frame[E]) bool { f.nanims > 0 }
+func Animating[E](f mut Frame[E]) bool { f.nanims > 0 }
 
 // ticked is the signals of a frame at time at: one per Animate of the last
 // pass, in pass order.
-func ticked[E](f *Frame[E], at duration) []E {
+func ticked[E](f mut Frame[E], at duration) []E {
 	let mut out = []E{}
 	for i in 0..f.nanims {
 		out = out.Append(f.anims[i](at))
@@ -92,7 +92,7 @@ func ticked[E](f *Frame[E], at duration) []E {
 // pointed is the signal of a pointer event on the node id: None for a
 // node with no Area function, one the tree no longer holds, or an event
 // the function ignores.
-func pointed[E](f *Frame[E], id Id[E], p PointerEvent) Option[E] {
+func pointed[E](f mut Frame[E], id Id[E], p PointerEvent) Option[E] {
 	let n = f.nodes.Get(id.ref) catch {
 	case arena.Stale:
 		return None
@@ -107,7 +107,7 @@ func pointed[E](f *Frame[E], id Id[E], p PointerEvent) Option[E] {
 
 // keyed is the signal of a key press: the first OnKey of the last pass
 // that gives one.
-func keyed[E](f *Frame[E], k KeyPress) Option[E] {
+func keyed[E](f mut Frame[E], k KeyPress) Option[E] {
 	for i in 0..f.nkeys {
 		match f.keys[i](k) {
 		case Some[E] as e:

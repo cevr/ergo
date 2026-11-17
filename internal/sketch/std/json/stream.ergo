@@ -207,7 +207,7 @@ func DecodeStream[T wire](c Codec[T], src io.Source) T fails Malformed | io.Read
 
 // settle runs the tokenizer to the end of the text, then, after a break,
 // counts the rest of the text against MaxBytes, which Open checks first.
-func settle(s *scan) {
+func settle(s mut scan) {
 	s.nq = 0
 	s.qi = 0
 	for {
@@ -246,10 +246,10 @@ func tooLong(max int) string { "the text is longer than MaxBytes " + strconv.Ito
 
 // The tokenizer.
 
-func pos(s *scan) int { s.rare.Get().base + s.i }
+func pos(s mut scan) int { s.rare.Get().base + s.i }
 
 // fail records the first break: Open stops at it.
-func fail(s *scan, at int, why string) {
+func fail(s mut scan, at int, why string) {
 	if !s.bad {
 		s.bad = true
 		let mut k = s.rare.Get()
@@ -260,12 +260,12 @@ func fail(s *scan, at int, why string) {
 }
 
 // failedRead reports whether a read of the source failed.
-func failedRead(s *scan) bool { s.rare.Get().failed }
+func failedRead(s mut scan) bool { s.rare.Get().failed }
 
 // fill reads the next chunk into the window, keeping the bytes from i on
 // (from mark on, while a token is read); false at the end of the text,
 // after a break or a failed read. A chunk past MaxBytes is a break.
-func fill(s *scan) bool {
+func fill(s mut scan) bool {
 	if s.bad {
 		return false
 	}
@@ -309,7 +309,7 @@ func fill(s *scan) bool {
 
 // need reads until the window holds n bytes from i; false when the text
 // ends first.
-func need(s *scan, n int) bool {
+func need(s mut scan, n int) bool {
 	for len(s.buf)-s.i < n {
 		if !fill(s) {
 			return false
@@ -318,7 +318,7 @@ func need(s *scan, n int) bool {
 	true
 }
 
-func ws(s *scan) {
+func ws(s mut scan) {
 	for {
 		if s.i >= len(s.buf) && !fill(s) {
 			return
@@ -335,7 +335,7 @@ let badTok = tok{kind: kBad, text: "", raw: false}
 
 // produce is the next token of the text, checked by Open's rules: kBad
 // from the first break on, kDone at the end of a text that holds one value.
-func produce(s *scan) tok {
+func produce(s mut scan) tok {
 	if s.bad {
 		return badTok
 	}
@@ -410,7 +410,7 @@ func produce(s *scan) tok {
 
 // value is the token of the value that starts at i: a scalar whole, or
 // the opening bracket of a list or object.
-func value(s *scan) tok {
+func value(s mut scan) tok {
 	if !need(s, 1) {
 		fail(s, pos(s), "the text ends before a value")
 		return badTok
@@ -454,7 +454,7 @@ func value(s *scan) tok {
 	t
 }
 
-func lit(s *scan, word string, kind int) tok {
+func lit(s mut scan, word string, kind int) tok {
 	if !need(s, len(word)) || s.buf[s.i:s.i+len(word)] != word {
 		fail(s, pos(s), "an invalid literal")
 		return badTok
@@ -464,7 +464,7 @@ func lit(s *scan, word string, kind int) tok {
 }
 
 // digitRun passes the digits at i and counts them.
-func digitRun(s *scan) int {
+func digitRun(s mut scan) int {
 	let mut n = 0
 	for need(s, 1) && s.buf[s.i] >= '0' && s.buf[s.i] <= '9' {
 		s.i = s.i + 1
@@ -474,7 +474,7 @@ func digitRun(s *scan) int {
 }
 
 // num is the number at i; its spelling is a slice of the window.
-func num(s *scan) tok {
+func num(s mut scan) tok {
 	s.mark = s.i
 	if s.buf[s.i] == '-' {
 		s.i = s.i + 1
@@ -521,7 +521,7 @@ func unhex(c byte) int {
 }
 
 // hex4 is the four hex digits from j, or -1 when one is not a digit.
-func hex4(s *scan, j int) int {
+func hex4(s mut scan, j int) int {
 	let mut r = 0
 	for k in 0..4 {
 		let d = unhex(s.buf[j+k])
@@ -536,7 +536,7 @@ func hex4(s *scan, j int) int {
 // str is the string at i, its escapes read as Cursor reads them: \udc80
 // to \udcff as the byte the encoder escaped, any other lone surrogate as
 // U+FFFD, a pair as its rune.
-func str(s *scan) tok {
+func str(s mut scan) tok {
 	s.i = s.i + 1
 	s.mark = s.i
 	for {
@@ -647,7 +647,7 @@ func str(s *scan) tok {
 // The Reader's place, over the tokens: Cursor's rules, token by token.
 
 // peekAt is the token k places after the next one, produced if need be.
-func peekAt(s *scan, k int) tok {
+func peekAt(s mut scan, k int) tok {
 	for s.nq-s.qi <= k {
 		let t = produce(s)
 		if s.nq < len(s.q) {
@@ -660,9 +660,9 @@ func peekAt(s *scan, k int) tok {
 	s.q[s.qi+k]
 }
 
-func peek(s *scan) tok { peekAt(s, 0) }
+func peek(s mut scan) tok { peekAt(s, 0) }
 
-func advance(s *scan) {
+func advance(s mut scan) {
 	s.qi = s.qi + 1
 	if s.qi >= s.nq {
 		s.nq = 0
@@ -671,7 +671,7 @@ func advance(s *scan) {
 }
 
 // enter makes the next value the current element of the innermost frame.
-func enter(s *scan) {
+func enter(s mut scan) {
 	let n = s.nf
 	if n > 0 {
 		let mut f = s.frames[n-1]
@@ -683,7 +683,7 @@ func enter(s *scan) {
 	}
 }
 
-func path(s *scan) string {
+func path(s mut scan) string {
 	let mut b = strings.NewBuilder()
 	for k in 0..s.nf {
 		let f = s.frames[k]
@@ -704,7 +704,7 @@ func path(s *scan) string {
 
 // read takes the next value when it is of kind, else sets wrong and
 // leaves it; a number is taken even when it does not parse, as Cursor's.
-func read(s *scan, kind int) tok {
+func read(s mut scan, kind int) tok {
 	enter(s)
 	let t = peek(s)
 	s.wrong = t.kind != kind
@@ -714,14 +714,14 @@ func read(s *scan, kind int) tok {
 	t
 }
 
-func readBool(s *scan) bool { read(s, kBool).text == "true" }
+func readBool(s mut scan) bool { read(s, kBool).text == "true" }
 
-func readNumber(s *scan) string {
+func readNumber(s mut scan) string {
 	let t = read(s, kNumber)
 	if s.wrong { "" } else { own(t.text) }
 }
 
-func readString(s *scan) string {
+func readString(s mut scan) string {
 	let t = read(s, kString)
 	if s.wrong { "" } else if t.raw { own(t.text) } else { t.text }
 }
@@ -735,7 +735,7 @@ func own(text string) string {
 	b.String()
 }
 
-func readInt(s *scan) int64 {
+func readInt(s mut scan) int64 {
 	let t = read(s, kNumber)
 	if s.wrong {
 		return 0
@@ -747,7 +747,7 @@ func readInt(s *scan) int64 {
 	}
 }
 
-func readUint(s *scan) uint64 {
+func readUint(s mut scan) uint64 {
 	let t = read(s, kNumber)
 	if s.wrong {
 		return 0
@@ -781,7 +781,7 @@ func parseUint(text string) (uint64, bool) {
 
 // readFloat reads a number, or the strings "NaN", "Infinity" and
 // "-Infinity" the encoder writes, spelled with no escape.
-func readFloat(s *scan) float64 {
+func readFloat(s mut scan) float64 {
 	enter(s)
 	let t = peek(s)
 	if t.kind == kString && t.raw && (t.text == "NaN" || t.text == "Infinity" || t.text == "-Infinity") {
@@ -804,7 +804,7 @@ func readFloat(s *scan) float64 {
 	}
 }
 
-func begin(s *scan, list bool) bool {
+func begin(s mut scan, list bool) bool {
 	enter(s)
 	let want = if list { kList } else { kObject }
 	if peek(s).kind != want {
@@ -821,7 +821,7 @@ func begin(s *scan, list bool) bool {
 	true
 }
 
-func takeNull(s *scan) bool {
+func takeNull(s mut scan) bool {
 	if peek(s).kind != kNull {
 		return false
 	}
@@ -830,7 +830,7 @@ func takeNull(s *scan) bool {
 	true
 }
 
-func kind(s *scan) WireKind {
+func kind(s mut scan) WireKind {
 	let k = peek(s).kind
 	if k == kNull { return WireNull }
 	if k == kBool { return WireBool }
@@ -841,7 +841,7 @@ func kind(s *scan) WireKind {
 	WireEnd
 }
 
-func more(s *scan) bool {
+func more(s mut scan) bool {
 	let t = peek(s)
 	if t.kind == kClose || t.kind == kDone || t.kind == kBad {
 		return false
@@ -857,13 +857,13 @@ func more(s *scan) bool {
 	true
 }
 
-func key(s *scan) string {
+func key(s mut scan) string {
 	let n = s.nf
 	if n > 0 { s.frames[n-1].key } else { "" }
 }
 
 // after is the place past the value that starts k tokens on.
-func after(s *scan, k int) int {
+func after(s mut scan, k int) int {
 	let t = peekAt(s, k)
 	if t.kind == kClose || t.kind == kDone || t.kind == kBad {
 		return k
@@ -891,19 +891,19 @@ func after(s *scan, k int) int {
 }
 
 // pass takes the value that starts at the next token.
-func pass(s *scan) {
+func pass(s mut scan) {
 	let n = after(s, 0)
 	for _ in 0..n {
 		advance(s)
 	}
 }
 
-func skip(s *scan) {
+func skip(s mut scan) {
 	enter(s)
 	pass(s)
 }
 
-func end(s *scan) {
+func end(s mut scan) {
 	for more(s) {
 		pass(s)
 	}
@@ -917,7 +917,7 @@ func end(s *scan) {
 
 // tag is the string value of the member "_tag" of the object just begun,
 // wherever it stands among the members; the tokens it passed stay queued.
-func tag(s *scan) string {
+func tag(s mut scan) string {
 	let mut k = 0
 	for {
 		let t = peekAt(s, k)
@@ -938,7 +938,7 @@ func tag(s *scan) string {
 // so no operation reads the state again.
 type got[R] { v R, wrong bool, path string }
 
-func gave[R](s *scan, x R) got[R] {
+func gave[R](s mut scan, x R) got[R] {
 	if s.wrong {
 		return got[R]{v: x, wrong: true, path: path(s)}
 	}

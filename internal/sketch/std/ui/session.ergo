@@ -14,7 +14,7 @@ import task
 type Session[S, E, D, F] {
 	frame       Frame[E],
 	actor       actor.Actor[S, E, D, F],
-	view        func(f *Frame[E], s S),
+	view        func(f mut Frame[E], s S),
 	post        func(ev Event[E]),
 	inflight    Map[int, Task[bool]],
 	stale       sync.Ref[bool],
@@ -22,7 +22,7 @@ type Session[S, E, D, F] {
 	exit        func(a actor.Actor[S, E, D, F]) Option[Crash[F]],
 	alive       func(a actor.Actor[S, E, D, F], e E) bool,
 	fresh       Option[func() actor.Actor[S, E, D, F]],
-	crashView   func(f *Frame[E], c Crash[F]),
+	crashView   func(f mut Frame[E], c Crash[F]),
 	report      func(c Crash[F]),
 	crash       Option[Crash[F]],
 	run         int,
@@ -42,9 +42,9 @@ type Session[S, E, D, F] {
 // InForce, so a Step needs none of its own. An actor that ends under
 // Start's session ends the loop (Step fails Stopped); StartApp's shows
 // its crash view instead.
-func Start[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], view own func(f *Frame[E], s S) needs R, post own func(ev Event[E])) (Session[S, E, D, F], []Op[E]) needs R {
+func Start[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], view own func(f mut Frame[E], s S) needs R, post own func(ev Event[E])) (Session[S, E, D, F], []Op[E]) needs R {
 	let ctx = InForce[R]()
-	let shown = func(f *Frame[E], st S) {
+	let shown = func(f mut Frame[E], st S) {
 		with ctx {
 			view(f, st)
 		}
@@ -66,7 +66,7 @@ func noReport[F](c Crash[F]) {}
 // while it is not; a pass clears it. The first state Changes gives is the
 // state when its loop began, which may be after the first pass, so it
 // posts too. When the actor ends, it posts Ended with the actor's run.
-func watchActor[E comparable, S, D, F](s *Session[S, E, D, F]) {
+func watchActor[E comparable, S, D, F](s mut Session[S, E, D, F]) {
 	let a = s.actor
 	let post = s.post
 	let stale = s.stale
@@ -85,7 +85,7 @@ func watchActor[E comparable, S, D, F](s *Session[S, E, D, F]) {
 // runPass renders the actor's state (the crash view of the crash, once
 // the actor crashed), then starts each Fetch of the commit as a task and
 // stops the task of each Cancel.
-func runPass[E comparable, S, D, F](s *Session[S, E, D, F]) []Op[E] {
+func runPass[E comparable, S, D, F](s mut Session[S, E, D, F]) []Op[E] {
 	s.stale.Set(false)
 	let ops = match s.crash {
 	case Some[Crash[F]] as c:
@@ -116,7 +116,7 @@ func runPass[E comparable, S, D, F](s *Session[S, E, D, F]) []Op[E] {
 // finish stops the task of epoch, if one is in flight, and waits until it
 // has ended: a cancelled fetch stops; a fetch that posted its result has
 // ended or is ending.
-func finish[S, E, D, F](s *Session[S, E, D, F], epoch int) {
+func finish[S, E, D, F](s mut Session[S, E, D, F], epoch int) {
 	let found, rest = s.inflight.Take(epoch)
 	s.inflight = rest
 	match found {
@@ -139,7 +139,7 @@ func finish[S, E, D, F](s *Session[S, E, D, F], epoch int) {
 // shows the crash view from then on, and a signal of the crash view
 // starts a fresh actor (a reload). Step fails Stopped when the actor
 // ended and it is not a crash.
-func Step[E comparable, S, D, F](s *Session[S, E, D, F], ev Event[E]) []Op[E] fails actor.Stopped {
+func Step[E comparable, S, D, F](s mut Session[S, E, D, F], ev Event[E]) []Op[E] fails actor.Stopped {
 	match ev {
 	case Arrived[E] as x:
 		finish(s, x.Epoch)
@@ -189,7 +189,7 @@ func Step[E comparable, S, D, F](s *Session[S, E, D, F], ev Event[E]) []Op[E] fa
 // of a commit the loop did not cause (Committed: a work's reply, and the
 // Slow signals themselves) is not judged, so a slow warning is never
 // judged on its own account.
-func judgedPass[E comparable, S, D, F](s *Session[S, E, D, F]) []Op[E] {
+func judgedPass[E comparable, S, D, F](s mut Session[S, E, D, F]) []Op[E] {
 	let ops = runPass(s)
 	judge(s)
 	ops
@@ -199,7 +199,7 @@ func judgedPass[E comparable, S, D, F](s *Session[S, E, D, F]) []Op[E] {
 // it (the session then shows the crash). While the crash view shows, e is
 // its signal: a reload when the session can start a fresh actor, else
 // nothing.
-func signal[E comparable, S, D, F](s *Session[S, E, D, F], e E) bool fails actor.Stopped {
+func signal[E comparable, S, D, F](s mut Session[S, E, D, F], e E) bool fails actor.Stopped {
 	match s.crash {
 	case Some[Crash[F]]:
 		match s.fresh {
@@ -234,7 +234,7 @@ func signal[E comparable, S, D, F](s *Session[S, E, D, F], e E) bool fails actor
 
 // judge sends the Slow signals of the pass just rendered, when the view
 // asked for them (OnSlow).
-func judge[E comparable, S, D, F](s *Session[S, E, D, F]) {
+func judge[E comparable, S, D, F](s mut Session[S, E, D, F]) {
 	match s.frame.slow {
 	case Some[slowWatch[E]] as w:
 		let over = slows(SessionStats(s), w.Value.budget)
@@ -249,20 +249,20 @@ func judge[E comparable, S, D, F](s *Session[S, E, D, F]) {
 }
 
 // crashed takes the crash c and renders the crash view.
-func crashed[E comparable, S, D, F](s *Session[S, E, D, F], c Crash[F]) []Op[E] {
+func crashed[E comparable, S, D, F](s mut Session[S, E, D, F], c Crash[F]) []Op[E] {
 	takeCrash(s, c)
 	runPass(s)
 }
 
 // takeCrash makes c the session's crash and reports it: each caller takes
 // a crash only while the session shows none, so a crash is reported once.
-func takeCrash[S, E, D, F](s *Session[S, E, D, F], c Crash[F]) {
+func takeCrash[S, E, D, F](s mut Session[S, E, D, F], c Crash[F]) {
 	s.crash = Some{Value: c}
 	s.report(c)
 }
 
 // crashing is whether the session shows a crash.
-func crashing[S, E, D, F](s *Session[S, E, D, F]) bool {
+func crashing[S, E, D, F](s mut Session[S, E, D, F]) bool {
 	match s.crash {
 	case Some[Crash[F]]:
 		true
@@ -272,12 +272,12 @@ func crashing[S, E, D, F](s *Session[S, E, D, F]) bool {
 }
 
 // InFlight is the number of fetches started and not yet taken or stopped.
-func InFlight[S, E, D, F](s *Session[S, E, D, F]) int { len(s.inflight) }
+func InFlight[S, E, D, F](s mut Session[S, E, D, F]) int { len(s.inflight) }
 
 // SessionRoot is the Id of the root of s's tree, the parent of the first
 // patch's top nodes: a host's mirror starts from it.
-func SessionRoot[S, E, D, F](s *Session[S, E, D, F]) Id[E] { Root(&s.frame) }
+func SessionRoot[S, E, D, F](s mut Session[S, E, D, F]) Id[E] { Root(&s.frame) }
 
 // SessionAnimates is whether s's last pass made an Animate: whether its
 // host should send frames (Run's Host.Frames).
-func SessionAnimates[S, E, D, F](s *Session[S, E, D, F]) bool { Animating(&s.frame) }
+func SessionAnimates[S, E, D, F](s mut Session[S, E, D, F]) bool { Animating(&s.frame) }

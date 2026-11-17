@@ -7,9 +7,9 @@ type Shape[E] { Node Node[E], Kids []Shape[E] }
 
 // FrameShape is what f's last pass wrote, the children of the root; a
 // Same the pass skipped (UC-4) wrote the subtree it kept.
-func FrameShape[E](f *Frame[E]) []Shape[E] { frameShapes(f, -1) }
+func FrameShape[E](f mut Frame[E]) []Shape[E] { frameShapes(f, -1) }
 
-func frameShapes[E](f *Frame[E], p int) []Shape[E] {
+func frameShapes[E](f mut Frame[E], p int) []Shape[E] {
 	let mut out = []Shape[E]{}
 	for s in childrenOf(f, p) {
 		let sp = f.specs[s]
@@ -23,9 +23,9 @@ func frameShapes[E](f *Frame[E], p int) []Shape[E] {
 }
 
 // TreeShape is what f's retained tree holds, the children of the root.
-func TreeShape[E](f *Frame[E]) []Shape[E] { treeShapes(f, nodeAt(f, f.root).kids) }
+func TreeShape[E](f mut Frame[E]) []Shape[E] { treeShapes(f, nodeAt(f, f.root).kids) }
 
-func treeShapes[E](f *Frame[E], refs []arena.Ref[node[E]]) []Shape[E] {
+func treeShapes[E](f mut Frame[E], refs []arena.Ref[node[E]]) []Shape[E] {
 	let mut out = []Shape[E]{}
 	for r in refs {
 		let n = nodeAt(f, r)
@@ -68,7 +68,7 @@ func NewMirror[E](root Id[E]) Mirror[E] {
 }
 
 // Apply applies ops in order.
-func Apply[E](m *Mirror[E], ops []Op[E]) fails BadPatch {
+func Apply[E](m mut Mirror[E], ops []Op[E]) fails BadPatch {
 	for op in ops {
 		match op {
 		case Insert[E] as o:
@@ -103,7 +103,7 @@ func Apply[E](m *Mirror[E], ops []Op[E]) fails BadPatch {
 	}
 }
 
-func holds[E](m *Mirror[E], id Id[E]) bool {
+func holds[E](m mut Mirror[E], id Id[E]) bool {
 	match m.nodes.Get(id) {
 	case Some[mirrored[E]]:
 		true
@@ -112,7 +112,7 @@ func holds[E](m *Mirror[E], id Id[E]) bool {
 	}
 }
 
-func held[E](m *Mirror[E], id Id[E]) mirrored[E] fails BadPatch {
+func held[E](m mut Mirror[E], id Id[E]) mirrored[E] fails BadPatch {
 	match m.nodes.Get(id) {
 	case Some[mirrored[E]] as n:
 		n.Value
@@ -153,7 +153,7 @@ func without[E](kids []Id[E], id Id[E]) []Id[E] {
 	out
 }
 
-func forget[E](m *Mirror[E], id Id[E]) {
+func forget[E](m mut Mirror[E], id Id[E]) {
 	match m.nodes.Get(id) {
 	case Some[mirrored[E]] as n:
 		for k in n.Value.kids {
@@ -165,7 +165,7 @@ func forget[E](m *Mirror[E], id Id[E]) {
 }
 
 // MirrorShape is what m shows, the children of the root.
-func MirrorShape[E](m *Mirror[E]) []Shape[E] {
+func MirrorShape[E](m mut Mirror[E]) []Shape[E] {
 	match m.nodes.Get(m.root) {
 	case Some[mirrored[E]] as r:
 		mirrorShapes(m, r.Value.kids)
@@ -174,7 +174,7 @@ func MirrorShape[E](m *Mirror[E]) []Shape[E] {
 	}
 }
 
-func mirrorShapes[E](m *Mirror[E], ids []Id[E]) []Shape[E] {
+func mirrorShapes[E](m mut Mirror[E], ids []Id[E]) []Shape[E] {
 	let mut out = []Shape[E]{}
 	for id in ids {
 		match m.nodes.Get(id) {
@@ -187,4 +187,4 @@ func mirrorShapes[E](m *Mirror[E], ids []Id[E]) []Shape[E] {
 }
 
 // Held is the number of nodes m holds, its root included.
-func Held[E](m *Mirror[E]) int { len(m.nodes) }
+func Held[E](m mut Mirror[E]) int { len(m.nodes) }
