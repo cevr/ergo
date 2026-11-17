@@ -54,7 +54,11 @@ type Pkg {
 	Recs    []Rec,
 	Deps    []Dep,
 	fnBy    dense.Side[store.PNode, int],
-	recBy   dense.Side[store.Decl, int],
+	// named is the last function of each name; sameName[i] the one
+	// before function i of its name, -1 for none (methods.ergo).
+	named    dense.Side[dense.Str, int],
+	sameName []int,
+	recBy    dense.Side[store.Decl, int],
 }
 
 // paramNames is the name node of each parameter of the function type ft,
@@ -220,6 +224,17 @@ func Load(s *store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ext [
 	for i, f in fns {
 		dense.SideSet(&fnBy, bind.PNodeOf(ps, f.File, f.Name), i)
 	}
+	let mut named = dense.NewSide[dense.Str, int](-1)
+	let mut sameName = []int{}
+	for i, f in fns {
+		sameName = sameName.Append(-1)
+		match store.FindName(*s, types.NameText(parsed[f.File], f.Name)) {
+		case Some[dense.ID[dense.Str]] as n:
+			sameName[i] = dense.SideOf(named, n.Value)
+			dense.SideSet(&named, n.Value, i)
+		case None:
+		}
+	}
 	let mut recBy = dense.NewSide[store.Decl, int](-1)
 	for i, r in recs {
 		match store.Lookup(*s, r.Name) {
@@ -228,7 +243,7 @@ func Load(s *store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ext [
 		case None:
 		}
 	}
-	Pkg{Files: files, Parsed: parsed, U: u, Ps: ps, Kinds: kinds, Ext: ext, Foreign: foreign, Fns: fns, Recs: recs, Deps: []Dep{}, fnBy: fnBy, recBy: recBy}
+	Pkg{Files: files, Parsed: parsed, U: u, Ps: ps, Kinds: kinds, Ext: ext, Foreign: foreign, Fns: fns, Recs: recs, Deps: []Dep{}, fnBy: fnBy, named: named, sameName: sameName, recBy: recBy}
 }
 
 // FnAt is the index in k.Fns of the function whose name node is the

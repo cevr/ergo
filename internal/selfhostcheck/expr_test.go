@@ -305,13 +305,13 @@ func goCallArgs(pkg *check.Package, unnamed string) []string {
 			if ix, ok := fun.(*syntax.IndexExpr); ok {
 				fun = unparenX(ix.X)
 			}
-			// A function of the package by its name, or of an import
-			// by pkg.F's name (S3d2).
+			// A function of the package by its name, of an import by
+			// pkg.F's name (S3d2), or on x's type by x.f's (S3d3).
 			id, ok := fun.(*syntax.Ident)
 			if ok && c.Func.Pkg != pkg {
 				return true
 			}
-			if se, isSel := fun.(*syntax.SelectorExpr); isSel && selectorKind(pkg, se) == "pkg" {
+			if se, isSel := fun.(*syntax.SelectorExpr); isSel {
 				id, ok = se.Sel, true
 			}
 			if !ok {

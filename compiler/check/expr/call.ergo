@@ -55,6 +55,19 @@ func dropsSite(s store.Store, k Pkg, sig dense.ID[store.TKey], n int) bool {
 	np > 0 && n == np-1 && isCallSite(s, k, ops[np-1])
 }
 
+// funcArg is whether a type argument is a function type: a parameter
+// written own T keeps its own mark in the Go checker's instance when T is
+// a function type, which the pool's signature, resolved with T a
+// parameter, no longer holds, so such an instance is not recorded.
+func funcArg(s store.Store, targs []dense.ID[store.TKey]) bool {
+	for a in targs {
+		if store.KindOfType(s, infer.Unmarked(s, a)) == store.KSig {
+			return true
+		}
+	}
+	false
+}
+
 // hasWired is whether t holds wired[P]: an instance's wired[T] of a
 // concrete T is the codec rows of what T reaches (wirecall.go wireRow),
 // which this pass does not expand, so such a type is not recorded.
@@ -150,6 +163,9 @@ func call(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], c syntax.Cal
 	} else {
 		importedFn(s, k, t, selOf(tr, fun))
 	}
+	if c.Trailing == dense.NoID[syntax.Node]() && !indexed && !isSome(callee) && syntax.KindOf(tr, fun) == syntax.KSelectorExpr {
+		return valueCall(s, k, t, x, c, fun)
+	}
 	if c.Trailing != dense.NoID[syntax.Node]() || !isSome(callee) {
 		if c.Trailing == dense.NoID[syntax.Node]() && !indexed {
 			match expr(s, k, t, c.Fun, Free) {
@@ -190,15 +206,69 @@ func call(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], c syntax.Cal
 		args(s, k, t, c, params)
 		return resultOf(*s, r)
 	}
-	generic(s, k, t, x, c, fun, written, f)
+	generic(s, k, t, x, c, fun, written, f, None)
+}
+
+// valueCall types x.f(…) on a value x: a call of the field f when x's
+// type has one, else of the function f on x's type (methods.ergo).
+func valueCall(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], c syntax.CallExpr, fun dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
+	let tr = tree(k, *t)
+	let n = syntax.Len(c.Args)
+	let se = match syntax.ViewOf(tr, fun) {
+	case syntax.SelectorExpr as v:
+		v
+	case _:
+		return None
+	}
+	let name = types.NameText(k.Parsed[t.file], se.Sel)
+	let xt = match expr(s, k, t, se.X, Free) {
+	case Some[dense.ID[store.TKey]] as v:
+		v.Value
+	case None:
+		args(s, k, t, c, []dense.ID[store.TKey]{})
+		return None
+	}
+	match fieldType(s, k, xt, name) {
+	case Some[dense.ID[store.TKey]] as ft:
+		note(k, t, fun, ft.Value)
+		let f = infer.Unmarked(*s, ft.Value)
+		if store.KindOfType(*s, f) == store.KSig {
+			let (params, r) = sigParts(*s, k, f, n)
+			args(s, k, t, c, params)
+			return resultOf(*s, r)
+		}
+		args(s, k, t, c, []dense.ID[store.TKey]{})
+		return None
+	case None:
+	}
+	match methodOf(s, k, t, xt, name) {
+	case Some[Fn] as mf:
+		let f = mf.Value
+		if len(f.Params) > 0 {
+			return generic(s, k, t, x, c, fun, []dense.ID[syntax.Node]{}, f, some(xt))
+		}
+		if !dropsSite(*s, k, f.Sig, n+1) {
+			note(k, t, fun, withoutFirst(s, f.Sig))
+		}
+		let (params, r) = sigParts(*s, k, f.Sig, n+1)
+		args(s, k, t, c, params[1:len(params)])
+		resultOf(*s, r)
+	case None:
+		args(s, k, t, c, []dense.ID[store.TKey]{})
+		None
+	}
 }
 
 // generic infers a call's type arguments from its typed arguments, then
-// types its constant arguments with the instantiated parameters.
-func generic(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], c syntax.CallExpr, fun dense.ID[syntax.Node], written []dense.ID[syntax.Node], f Fn) Option[dense.ID[store.TKey]] {
+// types its constant arguments with the instantiated parameters. A call
+// x.f(…) of a function on x's type passes recv, x's type, as the first
+// argument; the selector's type is then the instance without its first
+// parameter.
+func generic(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], c syntax.CallExpr, fun dense.ID[syntax.Node], written []dense.ID[syntax.Node], f Fn, recv Option[dense.ID[store.TKey]]) Option[dense.ID[store.TKey]] {
 	let tr = tree(k, *t)
 	let n = syntax.Len(c.Args)
-	let (params, r) = sigParts(*s, k, f.Sig, n)
+	let m = if isSome(recv) { 1 } else { 0 }
+	let (params, r) = sigParts(*s, k, f.Sig, n+m)
 	let me = k.Fns[t.fn]
 	let base = len(me.Params)
 	let mut rename = []dense.ID[store.TKey]{}
@@ -210,6 +280,11 @@ func generic(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], c syntax.
 		renamed = renamed.Append(store.TSubst(s, p, rename))
 	}
 	let mut ins = []infer.Arg{}
+	match recv {
+	case Some[dense.ID[store.TKey]] as rt:
+		ins = ins.Append(infer.Typed{T: rt.Value})
+	case None:
+	}
 	for i in 0..n {
 		let a = syntax.Item(tr, c.Args, i)
 		if isConst(k, *t, a) {
@@ -246,15 +321,16 @@ func generic(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], c syntax.
 		let inst = store.TSubst(s, f.Sig, targs.Value)
 		// The callee records the instance: the name when inferred, the
 		// index expression when written.
-		if !dropsSite(*s, k, f.Sig, n) && !hasWired(*s, inst) && !emptiedFails(*s, f.Sig, targs.Value) {
-			note(k, t, if len(written) > 0 { unparen(tr, c.Fun) } else { fun }, inst)
+		if !dropsSite(*s, k, f.Sig, n+m) && !hasWired(*s, inst) && !emptiedFails(*s, f.Sig, targs.Value) && !funcArg(*s, targs.Value) {
+			let shown = if m == 1 { withoutFirst(s, inst) } else { inst }
+			note(k, t, if len(written) > 0 { unparen(tr, c.Fun) } else { fun }, shown)
 		}
 		for i in 0..n {
 			let a = syntax.Item(tr, c.Args, i)
-			if isConst(k, *t, a) && i < len(params) {
+			if isConst(k, *t, a) && i+m < len(params) {
 				// The substitution writes the pool, so it runs before the
 				// store is read: read after, the store is not copied.
-				let p = store.TSubst(s, params[i], targs.Value)
+				let p = store.TSubst(s, params[i+m], targs.Value)
 				expr(s, k, t, a, Exactly{T: infer.Unmarked(*s, p)})
 			}
 		}
@@ -288,6 +364,10 @@ func recordOf(s store.Store, k Pkg, ty dense.ID[store.TKey]) (int, []dense.ID[st
 }
 
 func fieldType(s *store.Store, k Pkg, ty dense.ID[store.TKey], name string) Option[dense.ID[store.TKey]] {
+	// A field of *T is T's (Go's selector dereferences).
+	if store.KindOfType(*s, ty) == store.KPointer {
+		return fieldType(s, k, store.OperandsOf(*s, ty)[0], name)
+	}
 	let (r, targs) = recordOf(*s, k, ty)
 	if r < 0 {
 		return importedField(s, k, ty, name)

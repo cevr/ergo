@@ -157,7 +157,15 @@ func typeAll(units []Unit) []Typed {
 	}
 	let mut out = []Typed{}
 	for d in loaded {
+		// The prelude is every package's: its Append, Get, Put and Delete
+		// are functions on slices and Maps (types.md, Methods 7).
 		let mut deps = []expr.Dep{}
+		for e in loaded {
+			if e.Path == "prelude" && d.Path != "prelude" {
+				deps = deps.Append(e)
+				break
+			}
+		}
 		for path in store.ImportPaths(d.S) {
 			for e in loaded {
 				if e.Path == path {
