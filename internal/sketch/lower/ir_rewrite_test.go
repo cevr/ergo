@@ -33,7 +33,8 @@ import (
 // unapplied site has none. Mutants: lf6d-canary-unlowered,
 // lf6d-site-index-shared, lf6d-canary-every-ignored,
 // lf6d-canary-go-equality-for-floats, lf6d-canary-default,
-// lf6d-enc-ignored.
+// lf6d-enc-ignored. LF6w: St's statement call is no site; mutant
+// lf6w-stmt-site.
 func TestRewriteAtTakesOneDecision(t *testing.T) {
 	const src = `func Enc(s string) string { s + "!" }
 
@@ -91,8 +92,14 @@ func Loop(t string) int {
 	n
 }
 
+func St(t string) int {
+	Dec(Enc(t))
+	1
+}
+
 func main() {
 	let _ = F("a")
+	let _ = St("k")
 	let _ = G("b")
 	let _ = H("c")
 	let _ = P("d")
@@ -187,6 +194,12 @@ func main() {
 		if count(on[fn], "Enc") != 0 {
 			t.Errorf("run build: %s calls %v; want no Enc", fn, on[fn])
 		}
+	}
+	// A call in statement position is no site (LF6w): the IR reader takes
+	// only a call as an expression statement (toolchain/ir, "an
+	// expression statement is a call"), and St's right side is the local t.
+	if count(on["St"], "Enc") != 1 || count(on["St"], "Dec") != 1 {
+		t.Errorf("run build: St calls %v; want Dec(Enc(t)) as written: a statement's call is no site", on["St"])
 	}
 	saved := rewriteLowering
 	rewriteLowering = "reference"

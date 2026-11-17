@@ -43,8 +43,10 @@ type irCallFacts struct {
 	// AsWritten, keepCheck in a side a canary or a shadow compares.
 	Keep string
 	// Stmt is set for a call in statement position: a window's call
-	// (ir_window.go), never a site of a law over functions, whose right
-	// side is a value.
+	// (ir_window.go), never a site of a law over functions: its right side
+	// is a value, often no call, and the IR reader takes only a call as an
+	// expression statement (toolchain/ir: "an expression statement is a
+	// call").
 	Stmt bool
 }
 
