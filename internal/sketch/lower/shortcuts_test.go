@@ -271,6 +271,34 @@ test Fill {
 	assert fill(3) == 4
 }
 `,
+	"own-catch": `type Full { Cap int }
+
+type Set { xs []int }
+
+func InsertCapped(s Set, x int, cap int) Set fails Full {
+	if len(s.xs) >= cap {
+		return Full{Cap: cap}
+	}
+	let mut t = s
+	t.xs = t.xs.Append(x)
+	t
+}
+
+func fill(n int) int {
+	let mut a = Set{xs: []int{}}
+	for i in 0..n {
+		a = InsertCapped(a, i, 3) catch {
+		case Full:
+			a
+		}
+	}
+	len(a.xs)
+}
+
+func main() needs Console {
+	Console.Println("\(fill(5))")
+}
+`,
 	"own-update-self": `type Pos { x int, y int, path []int }
 
 func walk(n int) int {

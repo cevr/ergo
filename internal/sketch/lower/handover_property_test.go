@@ -36,7 +36,14 @@ import (
 //     bind (late), a path consumed under a field the update keeps (side),
 //     each on the root and on a let that stays live; and the root's
 //     update stored back into it (own-update-self), whose values read the
-//     old fields.
+//     old fields;
+//   - a hand-over across a handled failure (REUSE RU2): m = capped(m, v,
+//     cap) catch { … }, whose callee fails before it writes its owned
+//     parameter, with an arm that yields a fresh value, yields m itself,
+//     or keeps m in another binding first, or yields a let mut that
+//     stays live (so the join copies it); and a callee that fails after
+//     it writes through a nested owning call (cappedLate, which does not
+//     own b, so the arm's m is the old value).
 //
 // The generator is also the model: it runs each statement on Go values
 // with value semantics (every bind copies) and computes the line the
@@ -80,6 +87,7 @@ type handoverGen struct {
 	reached map[string]bool
 	rturn   int // the parts functions rebinding the root so far, which pick the next (no draw)
 	lturn   int // the parts functions on a live let so far
+	keeps   int // the let muts kc<n> the catch arms keep m in
 }
 
 func (g *handoverGen) line(s string) { g.b.WriteString("\t" + s + "\n") }
@@ -171,7 +179,7 @@ func (g *handoverGen) stmt() {
 		},
 	}
 	partNames := []string{"lit", "upd", "updRaw", "after", "before", "two", "keepWhole", "side", "late"}
-	switch k := g.r.IntN(41); k {
+	switch k := g.r.IntN(45); k {
 	case 28, 29:
 		// A parts function rebinding the root, then a write through it.
 		f := partNames[g.rturn%len(partNames)]
@@ -234,6 +242,69 @@ func (g *handoverGen) stmt() {
 		}
 		g.m.items = append(append([]int(nil), g.m.items[:k]...), v)
 		g.line(fmt.Sprintf("m.Items = m.Items.Append(%d)", v))
+	case 41, 42, 43:
+		// A hand-over across a handled failure: the arm yields a fresh
+		// value (41), m itself (42), m after keeping it in kc<n>, or the
+		// let mut kc<n>, which stays live (43).
+		cap := g.r.IntN(len(g.m.items) + 2)
+		fails := len(g.m.items) >= cap
+		arm := fmt.Sprintf("Bag{Items: []int{%d}, N: 0}", v)
+		name := map[int]string{41: "root catch fresh", 42: "root catch yields itself", 43: "root catch arm keeps it"}[k]
+		other := k == 43 && g.keeps%2 == 1
+		if other {
+			name = "root catch yields another binding"
+		}
+		g.reached[name] = true
+		kc := ""
+		var kept hbag
+		switch k {
+		case 42:
+			arm = "m"
+		case 43:
+			kc = fmt.Sprintf("kc%d", g.keeps)
+			g.keeps++
+			if other {
+				g.line(fmt.Sprintf("let %s = Bag{Items: []int{%d, %d}, N: 0}", kc, v+1, v+2))
+				kept = hbag{items: []int{v + 1, v + 2}}
+				arm = kc
+			} else {
+				g.line(fmt.Sprintf("let mut %s = Bag{Items: []int{}, N: 0}", kc))
+				arm = kc + " = m\n\t\tm"
+			}
+		}
+		g.line(fmt.Sprintf("m = capped(m, %d, %d) catch {\n\tcase Full:\n\t\t%s\n\t}", v, cap, arm))
+		switch {
+		case !fails:
+			g.m = hbag{items: ow(g.m.items, v), n: g.m.n}
+		case k == 41:
+			g.m = hbag{items: []int{v}}
+		case other:
+			g.m = kept.copy()
+		case k == 43:
+			kept = g.m.copy()
+		}
+		if len(g.m.items) > 0 {
+			g.line(fmt.Sprintf("m.Items[0] = %d", v+5))
+			g.m.items[0] = v + 5
+		}
+		if kc != "" {
+			g.print(kc+".Items", kept.items)
+		}
+	case 44:
+		// cappedLate fails after it writes through ow, a nested owning
+		// call: it does not own b, so the arm yields m as it was, which
+		// the next line prints.
+		g.reached["root catch late failure"] = true
+		cap := g.r.IntN(len(g.m.items) + 2)
+		g.line(fmt.Sprintf("m = cappedLate(m, %d, %d) catch {\n\tcase Full:\n\t\tm\n\t}", v, cap))
+		if t := ow(g.m.items, v); len(t) <= cap {
+			g.m = hbag{items: t, n: g.m.n}
+		}
+		g.print("m.Items", g.m.items)
+		if len(g.m.items) > 0 {
+			g.line(fmt.Sprintf("m.Items[0] = %d", v+6))
+			g.m.items[0] = v + 6
+		}
 	case 39:
 		// A cut of the root handed to an owned parameter whose result
 		// rebinds the root (consumable, LWR-INLINE-OWNED), then a write.
@@ -489,7 +560,7 @@ func (g *handoverGen) stmt() {
 
 // handoverProgram is seed's program and the line it must print.
 func handoverProgram(seed uint64, reached map[string]bool) (string, string) {
-	g := &handoverGen{r: rand.New(rand.NewPCG(seed, 0x6f776e31)), reached: reached, rturn: int(seed) * 4, lturn: int(seed) * 7}
+	g := &handoverGen{r: rand.New(rand.NewPCG(seed, 0x6f776e31)), reached: reached, rturn: int(seed) * 4, lturn: int(seed) * 7, reads: int(seed)}
 	g.b.WriteString(`import slices
 
 type Bag { Items []int, N int }
@@ -725,6 +796,28 @@ func fillv(xs []int, ys []int, v int) []int {
 	t.Append(ys[k])
 }
 
+type Full { Cap int }
+
+// capped fails before it writes its owned b (RU2).
+func capped(b Bag, v int, cap int) Bag fails Full {
+	if len(b.Items) >= cap {
+		return Full{Cap: cap}
+	}
+	let mut t = b
+	t.Items = ow(t.Items, v)
+	t
+}
+
+// cappedLate writes, then may fail: it does not own b.
+func cappedLate(b Bag, v int, cap int) Bag fails Full {
+	let mut t = b
+	t.Items = ow(t.Items, v)
+	if len(t.Items) > cap {
+		return Full{Cap: cap}
+	}
+	t
+}
+
 // trim reslices a borrowed field into itself: no copy (own-reslice).
 func trim(b *Bag) {
 	if len(b.Items) > 0 {
@@ -850,7 +943,7 @@ func TestHandoverAgrees(t *testing.T) {
 		}
 	}
 	if *handoverSeed == 0 {
-		for _, s := range []string{"push", "branch", "ring on a live let", "root rings", "inline append on a live let", "grow", "cut", "root takes a push", "root pushes", "concat on a root", "concat on a live let", "concat on a dead local", "store add", "peek Kind", "peek Item", "peek Push", "peek Pass", "peek Method", "root read then write", "root reslices", "root takes a let's cut", "let keeps the root", "trim through a borrow", "root threads arms", "arm on a live let", "root mk", "mk on a live let", "root both", "let keeps a window of the root", "local shrinks and grows", "root lit", "root upd", "root updRaw", "root after", "root before", "root two", "root keepWhole", "lit on a live let", "upd on a live let", "updRaw on a live let", "after on a live let", "before on a live let", "two on a live let", "keepWhole on a live let", "root side", "side on a live let", "root late", "late on a live let", "root updates itself", "root updates itself, mirror", "window kept", "window kept by a call", "window popped", "window read", "window read in flight", "root fills a cut", "root fills a cut it reads"} {
+		for _, s := range []string{"push", "branch", "ring on a live let", "root rings", "inline append on a live let", "grow", "cut", "root takes a push", "root pushes", "concat on a root", "concat on a live let", "concat on a dead local", "store add", "peek Kind", "peek Item", "peek Push", "peek Pass", "peek Method", "root read then write", "root reslices", "root takes a let's cut", "let keeps the root", "trim through a borrow", "root threads arms", "arm on a live let", "root mk", "mk on a live let", "root both", "let keeps a window of the root", "local shrinks and grows", "root lit", "root upd", "root updRaw", "root after", "root before", "root two", "root keepWhole", "lit on a live let", "upd on a live let", "updRaw on a live let", "after on a live let", "before on a live let", "two on a live let", "keepWhole on a live let", "root side", "side on a live let", "root late", "late on a live let", "root updates itself", "root updates itself, mirror", "window kept", "window kept by a call", "window popped", "window read", "window read in flight", "root fills a cut", "root fills a cut it reads", "root catch fresh", "root catch yields itself", "root catch arm keeps it", "root catch yields another binding", "root catch late failure"} {
 			if !reached[s] {
 				t.Errorf("seeds %v never write %q", seeds, s)
 			}

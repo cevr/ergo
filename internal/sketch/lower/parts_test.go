@@ -88,8 +88,41 @@ func refill(n int) int {
 	len(buf)
 }
 
+type Full { Cap int }
+
+func InsertCapped(s Set, x int, cap int) Set fails Full {
+	if len(s.xs) >= cap {
+		return Full{Cap: cap}
+	}
+	let mut t = s
+	t.xs = t.xs.Append(x)
+	t
+}
+
+func f2(n int) int {
+	let mut a = Set{xs: []int{}}
+	for i in 0..n {
+		a = InsertCapped(a, i, 2) catch {
+		case Full:
+			Set{xs: []int{}}
+		}
+	}
+	len(a.xs)
+}
+
+func f3(n int) int {
+	let mut a = Set{xs: []int{}}
+	for i in 0..n {
+		a = InsertCapped(a, i, 2) catch {
+		case Full:
+			a
+		}
+	}
+	len(a.xs)
+}
+
 func main() needs Console {
-	Console.Println("\(g4(3)) \(r1(3)) \(r2(3)) \(r3(3)) \(arms(3)) \(refill(3))")
+	Console.Println("\(g4(3)) \(r1(3)) \(r2(3)) \(r3(3)) \(arms(3)) \(refill(3)) \(f2(3)) \(f3(3))")
 }
 `
 
@@ -98,7 +131,9 @@ func main() needs Console {
 // one-extender site, in the bodies and at their callers, nor do arms (a
 // parameter passed on once in each arm of a match, GP2b's apply: RU1b,
 // consumedUse) and refill (buf = fill(buf[:0], i): a reslice of the
-// rebound place handed over, LWR-INLINE-OWNED, consumable). The one copy
+// rebound place handed over, LWR-INLINE-OWNED, consumable), nor f2 and f3
+// (a = InsertCapped(a, …) catch { … }, whose arm yields a fresh value or
+// a itself: RU2, own-catch). The one copy
 // left is each owned function's wrapper, which only a caller that cannot
 // hand its argument over reaches (V5). The counted rows in
 // cmd/ergo/own_growth_linux_test.go show the same at n and 2n; this check
@@ -107,7 +142,8 @@ func main() needs Console {
 // Mutants it alone catches in process: reuse-return-off (g4's whole
 // return refuses the bind), reuse-move-off (r2's update copies its base's
 // part), reuse-consume-one-arm (apply copies s at each call),
-// reuse-consume-reslice-off (refill copies buf[:0]).
+// reuse-consume-reslice-off (refill copies buf[:0]), reuse-catch-off (f2
+// and f3 copy a at the call and at the join).
 func TestPartsCopyNothing(t *testing.T) {
 	mainGo, _, sites, _ := copiesOf(t, partsSource)
 	var bad []string
