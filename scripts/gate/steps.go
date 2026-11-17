@@ -298,8 +298,10 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	// where int is 32 bits: a constant that overflows it fails here
 	// (batch-14 apply 5, runtime/v1/timetext.go). Its Weight is the step's
 	// measured cold-cache seconds (16.1 s at 4 CPUs, 1-minute load 18,
-	// 2026-11-10).
-	add(&Step{Name: "go vet ./cmd/ergo (GOARCH=386)", Argv: []string{"go", "vet", "./cmd/ergo"}, Env: []string{"GOARCH=386"}, Weight: 16.1, Class: classHeavy})
+	// 2026-11-10). The target is linux/386 on every host: darwin has no
+	// 386 port, and darwin/386 asks for a cgo-linked PIE (I19 macOS check
+	// at e08f49831).
+	add(&Step{Name: "go vet ./cmd/ergo (GOARCH=386)", Argv: []string{"go", "vet", "./cmd/ergo"}, Env: []string{"GOOS=linux", "GOARCH=386"}, Weight: 16.1, Class: classHeavy})
 	// Every GOOS the toolchain lists vets, or names why it cannot
 	// (scripts/vetgoos; FU-freebsd). Full tier: it compiles std for 18
 	// systems, 600 s cold at 4 CPUs and 20 s for six warm (load 44 to 55,
