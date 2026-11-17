@@ -7,6 +7,12 @@
     "url": "git+https://github.com/cevr/ergo.git",
     "directory": "tools/npm/tn1-lint"
   },
+  "main": "lint.js",
+  "exports": {
+    ".": "./lint.js",
+    "./lint": "./lint.js",
+    "./package.json": "./package.json"
+  },
   "bin": {
     "tn1-lint": "bin/tn1-lint"
   },
@@ -16,6 +22,8 @@
   "files": [
     "bin/tn1-lint",
     "install.js",
+    "lint.js",
+    "worker.js",
     "README.md"
   ],
   "optionalDependencies": {
