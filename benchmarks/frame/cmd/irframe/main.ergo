@@ -29,9 +29,28 @@ func benchExit(n int) int {
 	s + cell.Get()
 }
 
+// plain is unit's work with no exit action: the update in the body
+// (STATIC-EXIT2's update workload, the share of exit's cost that is the
+// cell's and not the frame's).
+func plain(i int, cell sync.Ref[int]) int {
+	cell.Update(func(v int) int { v + i })
+	i & 7
+}
+
+func benchUpdate(n int) int {
+	let cell = sync.NewRef[int](0)
+	let mut s = 0
+	for i in 0..n {
+		s = s + plain(i, cell)
+	}
+	s + cell.Get()
+}
+
 func run(kind string, n int) int {
 	if kind == "exit" {
 		benchExit(n)
+	} else if kind == "update" {
+		benchUpdate(n)
 	} else {
 		-1
 	}

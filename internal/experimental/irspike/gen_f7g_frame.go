@@ -11,7 +11,16 @@ import (
 // nested is not one: its action registers an action of its own, a frame
 // of a function literal, which the IR does not build yet; the source
 // build runs it beside them.
-var frameFuncs = []string{"step", "steps", "guard", "early", "crash", "badExit"}
+var frameFuncs = []string{"step", "steps", "guard", "early", "crash", "badExit", "tally", "pureBad"}
+
+// exitForms is the form each frameFunc's actions take on the IR
+// (STATIC-EXIT2): steps registers in a loop, so its frame keeps the slots
+// (ExitsOnExit); the others are deferred, with Run for an action that
+// prints and Quiet for one whose block has an empty footprint.
+var exitForms = map[string][]string{
+	"step": {"Run"}, "steps": {"ExitsOnExit"}, "guard": {"Run"}, "early": {"Run"},
+	"crash": {"Run"}, "badExit": {"Run"}, "tally": {"Quiet"}, "pureBad": {"Run", "Quiet"},
+}
 
 // GenerateFrame is a program of bodies that open a frame scope (GP-FRAME):
 // scope.OnExit registers exit actions, which the frame's deferred End runs
@@ -40,6 +49,14 @@ func GenerateFrame(seed uint64) string {
 	b.WriteString("func badExit(k int) int needs Console {\n\tscope.OnExit() {\n\t\tlet ys = []int{1}\n\t\tConsole.Println(\"bad \\(ys[k])\")\n\t}\n\tscope.OnExit() {\n\t\tConsole.Println(\"after bad\")\n\t}\n\tk\n}\n\n")
 	// nested (the general frame scope): an action that registers one.
 	b.WriteString("func nested(k int) int needs Console {\n\tscope.OnExit() {\n\t\tConsole.Println(\"nested outer\")\n\t\tscope.OnExit() {\n\t\t\tConsole.Println(\"nested inner\")\n\t\t}\n\t}\n\tscope.OnExit() {\n\t\tConsole.Println(\"nested last\")\n\t}\n\tk\n}\n\n")
+	// The quiet actions (STATIC-EXIT2): blocks with an empty footprint. A
+	// pure block shows only its defects, so each indexes a slice of its
+	// own length at a seeded k: the defect report lists the indexes and
+	// lengths in the order the actions ran. tally registers one under a
+	// seeded condition; pureBad's quiet action raises at k > 0, and the
+	// printing action registered before it still runs.
+	fmt.Fprintf(&b, "func tally(k int) int {\n\tscope.OnExit() {\n\t\tlet ys = []int{1}\n\t\tlet _ = ys[k %% 3]\n\t}\n\tif k > %d {\n\t\tscope.OnExit() {\n\t\t\tlet ys = []int{1, 2}\n\t\t\tlet _ = ys[k %% 4]\n\t\t}\n\t}\n\tscope.OnExit() {\n\t\tlet ys = []int{1, 2, 3}\n\t\tlet _ = ys[k %% 5]\n\t}\n\tk\n}\n\n", g.n(6))
+	b.WriteString("func pureBad(k int) int needs Console {\n\tscope.OnExit() {\n\t\tConsole.Println(\"pureBad after\")\n\t}\n\tscope.OnExit() {\n\t\tlet ys = []int{1}\n\t\tlet _ = ys[k]\n\t}\n\tk\n}\n\n")
 	b.WriteString("func main() needs Console {\n")
 	fmt.Fprintf(&b, "\tConsole.Println(\"nested \\(nested(%d))\")\n", g.n(9))
 	for i, k := 0, 2+g.n(3); i < k; i++ {
@@ -47,16 +64,25 @@ func GenerateFrame(seed uint64) string {
 		fmt.Fprintf(&b, "\tConsole.Println(\"steps \\(steps(%d))\")\n", g.n(5))
 		fmt.Fprintf(&b, "\tlet g%d = guard(%d) catch {\n\tcase Bad as x:\n\t\t-x.N\n\t}\n\tConsole.Println(\"guard \\(g%d)\")\n", i, g.n(9), i)
 		fmt.Fprintf(&b, "\tConsole.Println(\"early \\(early(%d))\")\n", g.n(8))
+		fmt.Fprintf(&b, "\tConsole.Println(\"tally \\(tally(0))\")\n")
 	}
-	// The last calls: crash and badExit, each at an index in bounds or
-	// out of them (a defect), crash first or second.
+	// The last calls: crash, badExit, pureBad and tally, in a seeded
+	// order. One raises a defect, which ends the program: the seed's
+	// residue mod 4 picks which, so four seeds in a row reach each.
+	bad := int(seed % 4)
+	at := func(i int, ok, defect int) int {
+		if i == bad {
+			return defect
+		}
+		return ok
+	}
 	calls := []string{
-		fmt.Sprintf("\tConsole.Println(\"crash \\(crash(%d))\")\n", []int{1, 5}[g.n(2)]),
-		fmt.Sprintf("\tConsole.Println(\"badExit \\(badExit(%d))\")\n", []int{0, 3}[g.n(2)]),
+		fmt.Sprintf("\tConsole.Println(\"crash \\(crash(%d))\")\n", at(0, 1, 5)),
+		fmt.Sprintf("\tConsole.Println(\"badExit \\(badExit(%d))\")\n", at(1, 0, 3)),
+		fmt.Sprintf("\tConsole.Println(\"pureBad \\(pureBad(%d))\")\n", at(2, 0, 1+g.n(3))),
+		fmt.Sprintf("\tConsole.Println(\"tally \\(tally(%d))\")\n", at(3, 0, 1+g.n(11))),
 	}
-	if g.n(2) == 1 {
-		calls[0], calls[1] = calls[1], calls[0]
-	}
-	b.WriteString(calls[0] + calls[1] + "}\n")
+	g.r.Shuffle(len(calls), func(i, j int) { calls[i], calls[j] = calls[j], calls[i] })
+	b.WriteString(strings.Join(calls, "") + "}\n")
 	return b.String()
 }

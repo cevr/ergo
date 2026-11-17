@@ -108,6 +108,10 @@ func (x *Exits) end(e error) error {
 // release boundary, in a frame of its own that holds nothing, whose end
 // (actionEnd) lets a stop win.
 func (x *Exits) run(body func()) {
+	if !x.t.Traced() {
+		x.Run(body)
+		return
+	}
 	// The action's frame is made before the boundary, as OnExit's entry
 	// makes it (a traced tree records its depth there).
 	action := rt.NewScope(x.t)
@@ -133,4 +137,84 @@ func (x *Exits) run(body func()) {
 func actionEnd(s *rt.Scope, e error) error {
 	s.End(&e)
 	return e
+}
+
+// The defer form (FLIP F7 STATIC-EXIT2). A frame in the static exit form
+// whose every action is registered in the frame's own Go function, outside
+// a loop, registers each with a Go defer of Run (or Quiet) in place of
+// ExitsOnExit:
+//
+//	var x v1.Exits
+//	x.Begin(t)
+//	defer x.End(&err)
+//	…
+//	defer x.Run(func() { … }) // scope.OnExit() { … }
+//
+// Go runs the defers last registered first, before End, which then finds
+// no action of its own: the same order, and End recovers the body's panic
+// and joins it before the actions' defects as it does with the slots. The
+// action's closure does not escape, and Go open-codes the defers: no
+// allocation.
+//
+// Run and run (the slots') are the action of the general form, step for
+// step, on a task that is not traced: masked, its defect recovered and
+// kept as a defect in release, the rest of the frame going on. The
+// general form's action frame ends inside the mask, where a stop is not
+// observed, so its end adds nothing and is left out; a traced task takes
+// the general path (release, rt.Release), which raises the release events.
+
+// Run runs body, an exit action of the frame of x, now: deferred at its
+// registration (the defer form), or from end (the slots).
+//
+//ergo:wait none
+func (x *Exits) Run(body func()) {
+	if x.t.Traced() {
+		x.run(body)
+		return
+	}
+	m := x.t.Mask()
+	x.call(body)
+	m.Unmask()
+}
+
+// Quiet is Run for an action whose block the checker gives an empty
+// footprint (no capability, task or unknown code, so no interruption
+// point and nothing that reads the mask): the mask is left out.
+//
+//ergo:wait none
+func (x *Exits) Quiet(body func()) {
+	if x.t.Traced() {
+		x.run(body)
+		return
+	}
+	x.call(body)
+}
+
+// call runs body, keeping its defect on the frame's exits.
+func (x *Exits) call(body func()) {
+	defer x.caught()
+	body()
+}
+
+// caught records the panic of the action that call runs, as rt.Release
+// records one: through capture, the defect owner, a fresh defect as a
+// defect in release, a carried exit as its reasons.
+func (x *Exits) caught() {
+	p := recover()
+	if p == nil {
+		return
+	}
+	e := capture(x.t, p)
+	switch p := p.(type) {
+	case *exit:
+		x.exits.Add(e)
+	case error:
+		if p == rt.Interrupted {
+			x.exits.Add(e)
+			return
+		}
+		x.exits.AddReleased(e)
+	default:
+		x.exits.AddReleased(e)
+	}
 }

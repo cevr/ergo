@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/lower"
@@ -33,15 +34,18 @@ func TestIRFramesMatchSource(t *testing.T) {
 	f7Property(t, "TestIRFramesMatchSource", GenerateFrame, frameFuncs...)
 }
 
-// TestIRStaticExits checks the fact STATIC-EXIT promises, in process on
-// LowerIR's IR: each body of GenerateFrame registers its actions on a
-// v1.Exits (ExitsOnExit), not on a frame scope. That the two forms run the
-// same actions in the same order, on a return, a typed failure and a
-// defect, is TestIRFramesMatchSource: its source build is the general
-// form.
+// TestIRStaticExits checks the facts STATIC-EXIT and STATIC-EXIT2
+// promise, in process on LowerIR's IR: each body of GenerateFrame
+// registers its actions on a v1.Exits, not on a frame scope, in the form
+// exitForms gives (the slots for a loop's registrations, else a Go defer
+// of Run, or of Quiet for a block with an empty footprint). That the forms
+// run the same actions in the same order, on a return, a typed failure
+// and a defect, is TestIRFramesMatchSource: its source build is the
+// general form.
 //
-// Mutant f7g-exits-never: staticExits holds no frame, so every frame
-// keeps the general scope.
+// Mutants: f7g-exits-never (staticExits holds no frame, so every frame
+// keeps the general scope), f7g-exits-no-defer (deferExits keeps the
+// slots), f7g-exits-never-quiet (no block is quiet).
 func TestIRStaticExits(t *testing.T) {
 	first, count := envInt("ERGO_IRSPIKE_SEED", 1), envInt("ERGO_IRSPIKE_SEEDS", 4)
 	for seed := first; seed < first+count; seed++ {
@@ -71,36 +75,24 @@ func TestIRStaticExits(t *testing.T) {
 				}
 			}
 		}
-		static := map[string]bool{}
+		forms := map[string][]string{}
 		for _, fn := range ir.Funcs {
 			kinds := map[string]bool{}
 			callKinds(fn.Body, kinds)
-			static[fn.Name] = kinds["pcall ExitsOnExit"] && !kinds["pcall OnExit"]
+			if kinds["pcall OnExit"] {
+				forms[fn.Name] = []string{"OnExit"}
+				continue
+			}
+			for _, k := range []string{"ExitsOnExit", "Run", "Quiet"} {
+				if kinds["pcall "+k] || kinds["defer "+k] {
+					forms[fn.Name] = append(forms[fn.Name], k)
+				}
+			}
 		}
 		for _, f := range frameFuncs {
-			if !static[f] {
-				t.Errorf("seed %d: %s does not register its actions on an Exits\n%s", seed, f, text)
+			if got, want := strings.Join(forms[f], " "), strings.Join(exitForms[f], " "); got != want {
+				t.Errorf("seed %d: %s registers its actions with %q, want %q\n%s", seed, f, got, want, text)
 			}
-		}
-	}
-}
-
-// callKinds adds to into "pcall NAME" for each package call under v, the
-// IR's JSON.
-func callKinds(v any, into map[string]bool) {
-	switch x := v.(type) {
-	case map[string]any:
-		if k, _ := x["k"].(string); k == "pcall" {
-			if n, ok := x["name"].(string); ok {
-				into["pcall "+n] = true
-			}
-		}
-		for _, e := range x {
-			callKinds(e, into)
-		}
-	case []any:
-		for _, e := range x {
-			callKinds(e, into)
 		}
 	}
 }

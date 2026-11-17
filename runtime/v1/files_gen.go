@@ -118,6 +118,8 @@ var bodyTable = []bodyRow{
 	{"Exit.Error", bodyFact{body: Body{Results: []string{"string"}, Package: Path}}},
 	{"Exits.Begin", bodyFact{body: Body{Hidden: []Hidden{"task"}, Wait: "none", Package: Path}}},
 	{"Exits.End", bodyFact{body: Body{Params: []Param{{Type: "*error"}}, Package: Path}}},
+	{"Exits.Quiet", bodyFact{body: Body{Params: []Param{{Type: "func()", Func: &Body{}}}, Wait: "none", Package: Path}}},
+	{"Exits.Run", bodyFact{body: Body{Params: []Param{{Type: "func()", Func: &Body{}}}, Wait: "none", Package: Path}}},
 	{"ExitsOnExit", bodyFact{body: Body{Params: []Param{{Type: "*Exits"}, {Type: "func()", Func: &Body{}}}, Wait: "none", Release: "frame", Package: Path}}},
 	{"Expired.Error", bodyFact{body: Body{Results: []string{"string"}, Package: Path}}},
 	{"ExploreReplay", bodyFact{body: Body{Params: []Param{{Type: "[]string"}}, Wait: "none", Package: Path}}},
