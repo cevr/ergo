@@ -33,6 +33,12 @@ func GenerateOwnLit(seed uint64) string {
 	b.WriteString("func take(r sync.Ref[Map[string, int]], k string) int {\n\tsync.Modify(r) func(m Map[string, int]) (int, Map[string, int]) {\n\t\t(at(m, k), m.Delete(k))\n\t}\n}\n\n")
 	b.WriteString("func alias(r sync.Ref[Map[string, int]]) Map[string, int] {\n\tsync.Modify(r) func(m Map[string, int]) (Map[string, int], Map[string, int]) { (m, m) }\n}\n\n")
 	fmt.Fprintf(&b, "func grow(r sync.Ref[S], k int) {\n\tr.Update() func(s S) S { S{..s, Items: s.Items.Append(k), N: s.N + %d} }\n}\n\n", 1+g.n(3))
+	// The in-place form (FORK-INPLACE): a literal that binds the held
+	// value to one let mut first and returns it last writes the cell's
+	// value through a pointer.
+	fmt.Fprintf(&b, "func push(r sync.Ref[S], k int) {\n\tr.Update() func(v S) S {\n\t\tlet mut s = v\n\t\ts.Items = s.Items.Append(k)\n\t\ts.N = s.N + %d\n\t\ts\n\t}\n}\n\n", 1+g.n(4))
+	b.WriteString("func bump(s *S, k int) int {\n\ts.N = s.N * 2 + k\n\ts.N\n}\n\n")
+	b.WriteString("func bumpn(r sync.Ref[S], k int) int {\n\tsync.Modify(r, func(v S) (int, S) {\n\t\tlet mut s = v\n\t\tlet x = bump(&s, k)\n\t\t(x + len(s.Items), s)\n\t})\n}\n\n")
 	b.WriteString("func at(m Map[string, int], k string) int {\n\tmatch m.Get(k) {\n\tcase Some[int] as v:\n\t\tv.Value\n\tcase None:\n\t\t-1\n\t}\n}\n\n")
 	b.WriteString("func mtext(m Map[string, int]) string {\n\t\"a=\\(at(m, \"a\")) b=\\(at(m, \"b\")) c=\\(at(m, \"c\"))\"\n}\n\n")
 	b.WriteString("func stext(s S) string {\n\tlet mut out = \"\\(s.N):\"\n\tfor x in s.Items {\n\t\tout = out + \" \\(x)\"\n\t}\n\tout\n}\n\n")
@@ -41,8 +47,9 @@ func GenerateOwnLit(seed uint64) string {
 	fmt.Fprintf(&b, "\tlet s = sync.NewRef[S](S{Items: []int{%d}, N: 0})\n", g.n(9))
 	// Each site runs at least once, so each function is lowered.
 	fmt.Fprintf(&b, "\tput(m, \"b\", %d)\n\tgrow(s, %d)\n", 10+g.n(90), g.n(99))
+	fmt.Fprintf(&b, "\tlet k0s = s.Get()\n\tpush(s, %d)\n\tConsole.Println(\"bump \\(bumpn(s, %d))\")\n", g.n(99), g.n(9))
 	fmt.Fprintf(&b, "\tlet k = alias(m)\n\tConsole.Println(\"take \\(take(m, %q))\")\n", keys[g.n(3)])
-	kept := []string{"mtext(k)"}
+	kept := []string{"mtext(k)", "stext(k0s)"}
 	for i := 0; i < 8+g.n(5); i++ {
 		switch g.n(6) {
 		case 0, 1:
@@ -60,7 +67,14 @@ func GenerateOwnLit(seed uint64) string {
 				fmt.Fprintf(&b, "\tlet k%d = s.Get()\n", i)
 				kept = append(kept, fmt.Sprintf("stext(k%d)", i))
 			}
-			fmt.Fprintf(&b, "\tgrow(s, %d)\n", g.n(99))
+			switch g.n(3) {
+			case 0:
+				fmt.Fprintf(&b, "\tgrow(s, %d)\n", g.n(99))
+			case 1:
+				fmt.Fprintf(&b, "\tpush(s, %d)\n", g.n(99))
+			default:
+				fmt.Fprintf(&b, "\tConsole.Println(\"bump \\(bumpn(s, %d))\")\n", g.n(9))
+			}
 		}
 	}
 	for i, k := range kept {
