@@ -86,7 +86,7 @@ language	internal/sketch/check/releaseneeds.go:checker.releaseWider	Close, the r
 language	internal/sketch/check/stmt.go:checker.isErrorValue	go.Error of the Go boundary	-
 language	internal/sketch/derive/eval.go:evaluator.callee	Of, the derive plan's constructor	-
 language	internal/sketch/eval/arguments.go:interp.argumentType	prelude types are the program's	-
-language	internal/sketch/eval/expr.go:interp.collectionCall	the prelude collection functions	-
+language	internal/sketch/eval/expr.go:interp.collectionCallAt	the prelude collection functions	-
 language	internal/sketch/eval/expr.go:preludeCollection	the prelude collection functions	-
 language	internal/sketch/eval/machine.go:interp.machineStep	Enter, Stay, Emit, Done and Next of a machine	-
 language	internal/sketch/eval/stmt.go:interp.handover	the prelude Get	-

@@ -347,8 +347,8 @@
       "name": "generic-substitution-unbound",
       "origin": "wf10/l7-eval/EV2",
       "file": "internal/sketch/eval/interp.go",
-      "from": "args: targs[:n:n]}",
-      "to": "args: make([]rtype, n)}",
+      "from": "args: targs[:n:n], wits: wits}",
+      "to": "args: make([]rtype, n), wits: wits}",
       "rule": "A generic call's checked arguments bind the callee's type parameters, including nominal patterns (Generics).",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
     },
