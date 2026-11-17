@@ -1448,7 +1448,7 @@ func Run(f Fake, c exec.Command) exec.Result fails exec.NotFound | exec.Denied |
 }
 
 func Start(f Fake, c exec.Command, s exec.Streams) exec.Running fails exec.NotFound | exec.Denied | exec.Failed {
-	exec.Ended(s, try f.Run(c))
+	exec.Ended(try f.Run(c), s)
 }
 
 func run() needs exec.Runner { _ = exec.Runner.Run(exec.New("true", []string{})) catch { case exec.NotFound, exec.Denied, exec.Failed: exec.Result{Status: 1, Stdout: "", Stderr: ""} } }
