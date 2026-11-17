@@ -22,8 +22,94 @@ import (
 // whose target starts inside its source is a copy too), f7g-loops-zero-
 // always (every fill is a clear), f7g-collect-offset-dropped (a collect
 // reads its part at the loop's bounds, not shifted by its offset).
+//
+// GP-FOLD's folds run in it too. Mutant f7g-fold-source-empty: a fused
+// fold ranges over the empty slice, not the source's part.
 func TestIRLoopIdiomsMatchSource(t *testing.T) {
-	f7Property(t, "TestIRLoopIdiomsMatchSource", GenerateLoops, loopFuncs...)
+	funcs := append(append(append([]string{}, loopFuncs...), foldFuncs.fused...), foldFuncs.kept...)
+	f7Property(t, "TestIRLoopIdiomsMatchSource", GenerateLoops, funcs...)
+}
+
+// TestIRCollectFoldsFuse checks the fact GP-FOLD promises, in process on
+// LowerIR's IR: a collect whose slice the next loop only folds builds no
+// slice when its guard holds (no growth: the fold ranges over the source's
+// part),
+// and one whose slice is read after, whose fold writes the source, or
+// whose slice starts with elements still builds it (slices.Grow).
+//
+// Mutants: f7g-fold-dropped (no collect is fused), f7g-fold-used-after
+// (a slice read after the fold is fused), f7g-fold-body-unchecked (a fold
+// that writes the source is fused), f7g-fold-prefix (a slice that starts
+// with elements is fused).
+func TestIRCollectFoldsFuse(t *testing.T) {
+	first, count := envInt("ERGO_IRSPIKE_SEED", 1), envInt("ERGO_IRSPIKE_SEEDS", 4)
+	for seed := first; seed < first+count; seed++ {
+		text := GenerateLoops(seed)
+		file := filepath.Join(t.TempDir(), "p.ergo")
+		if err := os.WriteFile(file, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		u, err := Load(file)
+		if err != nil {
+			t.Fatalf("seed %d: the program does not check: %v\n%s", seed, err, text)
+		}
+		files, _, err := lower.LowerIR(u)
+		if err != nil {
+			t.Fatalf("seed %d: %v\n%s", seed, err, text)
+		}
+		var ir struct {
+			Funcs []struct {
+				Name string `json:"name"`
+				Body any    `json:"body"`
+			} `json:"funcs"`
+		}
+		for _, f := range files {
+			if f.Path == lower.IRFileName {
+				if err := json.Unmarshal(f.Data, &ir); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		grows := map[string]bool{}
+		for _, fn := range ir.Funcs {
+			kinds := map[string]bool{}
+			nodeKinds(fn.Body, kinds)
+			// The collect's growth (GP-COLLECT); the element loop of the
+			// else branch appends in both.
+			grows[fn.Name] = kinds["pcall Grow"]
+		}
+		for _, f := range foldFuncs.fused {
+			if g, ok := grows[f]; !ok || g {
+				t.Errorf("seed %d: %s builds its slice (IR body %v), want its fold over the source's part\n%s", seed, f, ok, text)
+			}
+		}
+		for _, f := range foldFuncs.kept {
+			if !grows[f] {
+				t.Errorf("seed %d: %s builds no slice, want it kept\n%s", seed, f, text)
+			}
+		}
+	}
+}
+
+// nodeKinds adds to into the kind of every node under v, and "pcall NAME"
+// for a package call.
+func nodeKinds(v any, into map[string]bool) {
+	switch x := v.(type) {
+	case map[string]any:
+		if k, ok := x["k"].(string); ok {
+			into[k] = true
+			if n, ok := x["name"].(string); ok && k == "pcall" {
+				into["pcall "+n] = true
+			}
+		}
+		for _, e := range x {
+			nodeKinds(e, into)
+		}
+	case []any:
+		for _, e := range x {
+			nodeKinds(e, into)
+		}
+	}
 }
 
 // TestIRLoopIdiomsAreCalls checks the fact GP-LOOPS promises, in process on

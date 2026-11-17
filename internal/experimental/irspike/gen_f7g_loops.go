@@ -11,6 +11,13 @@ import (
 var loopFuncs = []string{"fillInts", "fillWords", "fillMarks", "moveInts", "Grid.shift", // shift takes a *Grid first: a method of Grid's
 	"collectAt", "collectAdd", "collectAddL", "collectSub"} // GP-COLLECT
 
+// foldFuncs are GenerateLoops' folds (GP-FOLD): fused builds no slice;
+// kept builds it, each for its own reason.
+var foldFuncs = struct{ fused, kept []string }{
+	fused: []string{"foldSum", "foldBreak"},
+	kept:  []string{"foldUsed", "foldWrites", "foldPrefix"},
+}
+
 // GenerateLoops is a program of the count loops loops.go's DT4 writes as
 // calls (fill and move), with offsets of every form (i, i + c, c + i,
 // i - c), forward and backward overlaps, empty ranges, zero and non-zero
@@ -47,6 +54,15 @@ func GenerateLoops(seed uint64) string {
 	for _, c := range []struct{ name, at string }{{"collectAt", "i"}, {"collectAdd", "i + s"}, {"collectAddL", "s + i"}, {"collectSub", "i - s"}} {
 		fmt.Fprintf(&b, "func %s(n int, lo int, hi int, s int, k int) int {\n\tlet src = seqBy(n, 3)\n\tlet mut ys = seq(k)\n\tfor i in lo..hi {\n\t\tys = ys.Append(src[%s])\n\t}\n\thash(ys)\n}\n\n", c.name, c.at)
 	}
+	// The folds (GP-FOLD): a collect into an empty slice that the next loop
+	// only folds. foldSum and foldBreak fuse; foldUsed reads the slice
+	// after, foldWrites writes the source in its body, and foldPrefix
+	// starts the slice with elements: those three keep the slice.
+	b.WriteString("func foldSum(n int, lo int, hi int, s int) int {\n\tlet src = seqBy(n, 3)\n\tlet mut h = 7\n\tlet mut ys = []int{}\n\tfor i in lo..hi {\n\t\tys = ys.Append(src[i + s])\n\t}\n\tfor k, y in ys {\n\t\th = h * 31 + y * (k + 1)\n\t}\n\th\n}\n\n")
+	b.WriteString("func foldBreak(n int, lo int, hi int, s int, limit int) int {\n\tlet src = seqBy(n, 3)\n\tlet mut h = 0\n\tlet mut ys = []int{}\n\tfor i in lo..hi {\n\t\tys = ys.Append(src[s + i])\n\t}\n\tfor y in ys {\n\t\tif y > limit {\n\t\t\tbreak\n\t\t}\n\t\th = h * 31 + y\n\t}\n\th\n}\n\n")
+	b.WriteString("func foldUsed(n int, lo int, hi int, s int) int {\n\tlet src = seqBy(n, 3)\n\tlet mut h = 0\n\tlet mut ys = []int{}\n\tfor i in lo..hi {\n\t\tys = ys.Append(src[i + s])\n\t}\n\tfor y in ys {\n\t\th = h * 31 + y\n\t}\n\th * 100 + hash(ys)\n}\n\n")
+	b.WriteString("func foldWrites(n int, lo int, hi int, s int) int {\n\tlet mut src = seqBy(n, 3)\n\tlet mut h = 0\n\tlet mut ys = []int{}\n\tfor i in lo..hi {\n\t\tys = ys.Append(src[i + s])\n\t}\n\tfor k, y in ys {\n\t\th = h * 31 + y\n\t\tlet j = lo + s + k + 1\n\t\tif j < n {\n\t\t\tsrc[j] = 0\n\t\t}\n\t}\n\th\n}\n\n")
+	b.WriteString("func foldPrefix(n int, lo int, hi int, s int) int {\n\tlet src = seqBy(n, 3)\n\tlet mut h = 0\n\tlet mut ys = seq(2)\n\tfor i in lo..hi {\n\t\tys = ys.Append(src[i + s])\n\t}\n\tfor y in ys {\n\t\th = h * 31 + y\n\t}\n\th\n}\n\n")
 	b.WriteString("func seqBy(n int, m int) []int {\n\tlet mut xs = []int{}\n\tfor i in 0..n {\n\t\txs = xs.Append(i * m + 2)\n\t}\n\txs\n}\n\n")
 	b.WriteString("func main() needs Console {\n")
 	for k := 0; k < 3; k++ {
@@ -81,6 +97,13 @@ func GenerateLoops(seed uint64) string {
 		lo, hi = g.span(n)
 		s = g.n(lo + 1)
 		fmt.Fprintf(&b, "\tConsole.Println(\"\\(collectSub(%d, %d, %d, %d, %d))\")\n", n, lo, hi, s, g.n(6))
+		// Folds: the part [lo+s, hi+s) inside [0, n).
+		lo, hi = g.span(n)
+		s = g.n(n - hi + 1)
+		for _, f := range []string{"foldSum", "foldUsed", "foldWrites", "foldPrefix"} {
+			fmt.Fprintf(&b, "\tConsole.Println(\"\\(%s(%d, %d, %d, %d))\")\n", f, n, lo, hi, s)
+		}
+		fmt.Fprintf(&b, "\tConsole.Println(\"\\(foldBreak(%d, %d, %d, %d, %d))\")\n", n, lo, hi, s, 3*g.n(n+1)+2)
 	}
 	b.WriteString("}\n")
 	return b.String()
