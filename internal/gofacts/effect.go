@@ -54,6 +54,49 @@ func EffectOf(target string) (Effect, bool) {
 	return Effect{}, false
 }
 
+// The host effect (HOST-ROW, from std-priv NP4f-6; interop.md, Purity and
+// authority and Foreign facts 7). A Go function of a Hosts row reads or
+// changes the host process's own state (its environment, its working
+// directory, its clock) and nothing else: no memory its arguments reach, no
+// goroutine it leaves behind, no callback. Ambient is the authority to
+// choose the host (stdlib.md, Host packages), so `ergo bind go` writes it
+// with `needs Ambient`, not go.Foreign, and a `// ergo:effect ambient
+// (vouched: <reason>)` line; the checker admits that row only on its guard
+// line current and validated (check.HostActs), and a provider whose
+// operations call it captures Ambient where it is built, as one that calls
+// unreviewed Go captures go.Foreign. The row is Go's function's, not std's:
+// every binding of it, std's or a user's, gets the same row. Its guard
+// (internal/gofacts/hostguard, host.go) runs the call under the
+// determinism guard's two host states: it must follow each state and keep
+// nothing of the caller's.
+
+// Hosts is the table of host Go functions.
+var Hosts = []Effect{
+	{Target: "os.Getenv", Reason: "it reads one variable of the process's environment", Source: "9bd559b80670"},
+	{Target: "os.LookupEnv", Reason: "it reads one variable of the process's environment", Source: "5949a9958c29"},
+	{Target: "os.Environ", Reason: "it copies the process's environment into a new slice", Source: "a26f3fa0bdc1"},
+	{Target: "os.Getwd", Reason: "it reads the process's working directory", Source: "e751aa1d3b9f"},
+	{Target: "time.Now", Reason: "it reads the host's clock and the process's local zone", Source: "c9ea77d5e6b9"},
+}
+
+// HostOf is the host row of target, if it has one.
+func HostOf(target string) (Effect, bool) {
+	for _, e := range Hosts {
+		if e.Target == target {
+			return e, true
+		}
+	}
+	return Effect{}, false
+}
+
+// HostKey is the ledger key of target's host row.
+func HostKey(target string) string { return "go " + target + " effect ambient" }
+
+// HostDigest is the digest of the host row's guard line at toolchain.
+func (e Effect) HostDigest(toolchain string) string {
+	return lineDigest("fact " + HostKey(e.Target) + "\nsource " + e.Source + "\nreason " + e.Reason + "\ngo " + toolchain + "\n")
+}
+
 // EffectKey is the ledger key of target's memory-only row.
 func EffectKey(target string) string { return "go " + target + " effect none" }
 

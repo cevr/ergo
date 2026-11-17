@@ -87,7 +87,7 @@ func parseGuardLines(ledger string) map[string]Entry {
 	for _, line := range strings.Split(ledger, "\n") {
 		words := strings.Fields(line)
 		// fact go <target> <fact> <param> <verdict> … <digest>
-		if len(words) < 7 || words[0] != "fact" || !(words[3] == "sync" && words[4] == "callbacks" || words[3] == "pure" && words[4] == "members" || words[3] == "effect" && words[4] == "none") {
+		if len(words) < 7 || words[0] != "fact" || !(words[3] == "sync" && words[4] == "callbacks" || words[3] == "pure" && words[4] == "members" || words[3] == "effect" && (words[4] == "none" || words[4] == "ambient")) {
 			continue
 		}
 		e := Entry{Key: strings.Join(words[1:5], " "), Verdict: words[5], Digest: words[len(words)-1]}

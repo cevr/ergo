@@ -80,6 +80,15 @@ func Entries(toolchain string) []gofacts.Entry {
 		}
 		out = append(out, gofacts.Entry{Key: gofacts.EffectKey(e.Target), Verdict: verdict(err), By: "guard", With: toolchain, Digest: e.Digest(toolchain)})
 	}
+	// The host rows (HOST-ROW).
+	var targets []string
+	for _, e := range gofacts.Hosts {
+		targets = append(targets, e.Target)
+	}
+	hosts := Hosts(targets)
+	for _, e := range gofacts.Hosts {
+		out = append(out, gofacts.Entry{Key: gofacts.HostKey(e.Target), Verdict: verdict(hosts[e.Target]), By: "guard", With: toolchain, Digest: e.HostDigest(toolchain)})
+	}
 	diffs := Pure(members)
 	for _, path := range v1.PureImports {
 		var err error
