@@ -65,8 +65,11 @@ func TestDashGuiAgreesWithControl(t *testing.T) {
 		args := []string{"play", "-seed", strconv.Itoa(bank)}
 		// The Ergo program plays each script under every pacing provider
 		// (std pace, PACE1): when Go collects never changes what it prints.
+		// Under edges, a seed in three also holds the pacing over each run
+		// of at most 100 or 200 frames (-hold, PACE2): a held stretch
+		// changes nothing either.
 		runs := [][]string{
-			{ergoBin, "-pace", "edges"},
+			{ergoBin, "-pace", "edges", "-hold", strconv.Itoa(int(seed%3) * 100)},
 			{ergoBin, "-pace", "percent"},
 			{ergoBin, "-pace", "default"},
 			{control},
@@ -101,9 +104,13 @@ func TestDashGuiAgreesWithControl(t *testing.T) {
 // live while each frame allocates about 90 KB: under -pace edges every
 // cycle is an edge's runtime.GC ("(forced)") and there is at least one;
 // under -pace default no cycle is forced and Go's pacer runs at least
-// one. It kills the mutants no output can see: an AtEdges that never
-// collects, a NewAtEdges that leaves the percent on, and a main that
-// binds Default for every -pace.
+// one. With -hold 4000 the whole run is one held stretch (PACE2): no
+// edge inside it collects, and its release collects once, so exactly one
+// cycle is forced (Go's memory limit may still run its own). It kills the
+// mutants no output can see: an AtEdges that never collects, a
+// NewAtEdges that leaves the percent on, a main that binds Default for
+// every -pace, an AtEdges whose edges ignore a hold, and a release that
+// drops the owed collection.
 func dashPacesTheCollector(t *testing.T, bin string) {
 	t.Helper()
 	var env []string
@@ -114,10 +121,10 @@ func dashPacesTheCollector(t *testing.T, bin string) {
 	}
 	env = append(env, "GODEBUG=gctrace=1")
 	for _, c := range []struct {
-		pace          string
+		pace, hold    string
 		forced, paced bool
-	}{{"edges", true, false}, {"default", false, true}} {
-		command := exec.Command(bin, "play", "-seed", "3", "-pace", c.pace)
+	}{{"edges", "0", true, false}, {"default", "0", false, true}, {"edges", "4000", true, true}} {
+		command := exec.Command(bin, "play", "-seed", "3", "-pace", c.pace, "-hold", c.hold)
 		command.Dir, command.Env = t.TempDir(), env
 		command.Stdin = strings.NewReader("run 4000\nshow\n")
 		var stderr bytes.Buffer
@@ -135,7 +142,11 @@ func dashPacesTheCollector(t *testing.T, bin string) {
 				paced++
 			}
 		}
-		if (forced > 0) != c.forced || (paced > 0) != c.paced {
+		held := c.hold != "0"
+		switch {
+		case held && forced != 1:
+			t.Errorf("dash-gui play -pace %s -hold %s: %d forced collections; want the release's one\n%s", c.pace, c.hold, forced, stderr.Bytes())
+		case !held && ((forced > 0) != c.forced || (paced > 0) != c.paced):
 			t.Errorf("dash-gui play -pace %s: %d forced and %d paced collections; want forced %v, paced %v\n%s", c.pace, forced, paced, c.forced, c.paced, stderr.Bytes())
 		}
 	}
