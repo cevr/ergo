@@ -29,7 +29,9 @@ func Times(d duration, n int) duration {
 		return duration(int64(0))
 	}
 	let p = x * m
-	if !(m == -1 && x == minDuration) && p / m == x && (p < 0) == ((x < 0) != (m < 0)) {
+	// The quotient check misses only the smallest duration by -1, whose
+	// product wraps to itself; the sign check catches it.
+	if p / m == x && (p < 0) == ((x < 0) != (m < 0)) {
 		duration(p)
 	} else if (x < 0) != (m < 0) {
 		duration(minDuration)
