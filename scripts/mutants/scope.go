@@ -187,7 +187,7 @@ func (e *engine) deps(test bool, pkg string) ([]string, error) {
 	if test {
 		args = append(args, "-test")
 	}
-	cmd := exec.Command("go", append(args, pkg)...)
+	cmd := exec.Command(goCommand(), append(args, pkg)...)
 	cmd.Dir, cmd.Env = e.cfg.Root, e.env()
 	out, err := cmd.Output()
 	if err != nil {

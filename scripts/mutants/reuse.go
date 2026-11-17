@@ -268,8 +268,8 @@ func gatherReuse(root string, jobs []Job) (*reuseInputs, error) {
 
 // toolchainOf names the runner's executable and the go command's settings.
 func toolchainOf(root string) (string, error) {
-	query := exec.Command("go", "env", "GOVERSION", "GOROOT", "GOFLAGS", "GOOS", "GOARCH", "GOAMD64", "GOARM64", "GOEXPERIMENT", "CGO_ENABLED", "CC")
-	query.Dir = root
+	query := exec.Command(goCommand(), "env", "GOVERSION", "GOROOT", "GOFLAGS", "GOOS", "GOARCH", "GOAMD64", "GOARM64", "GOEXPERIMENT", "CGO_ENABLED", "CC")
+	query.Dir, query.Env = root, goEnviron()
 	out, err := query.Output()
 	if err != nil {
 		return "", fmt.Errorf("go env: %w", err)
@@ -301,7 +301,7 @@ func fileDigest(name string) (string, error) {
 // listFiles is git ls-files with args, as slash paths.
 func listFiles(root string, args ...string) ([]string, error) {
 	list := exec.Command("git", append([]string{"--no-optional-locks", "ls-files", "-z"}, args...)...)
-	list.Dir = root
+	list.Dir, list.Env = root, goEnviron()
 	out, err := list.Output()
 	if err != nil {
 		return nil, fmt.Errorf("git ls-files: %w", err)
@@ -356,8 +356,8 @@ type listedPkg struct {
 }
 
 func listModule(root string) (*listedModule, error) {
-	list := exec.Command("go", "list", "-e", "-deps", "-test", "-json=ImportPath,Dir,ForTest,Deps,TestGoFiles,XTestGoFiles,EmbedFiles,TestEmbedFiles,XTestEmbedFiles", "./...")
-	list.Dir = root
+	list := exec.Command(goCommand(), "list", "-e", "-deps", "-test", "-json=ImportPath,Dir,ForTest,Deps,TestGoFiles,XTestGoFiles,EmbedFiles,TestEmbedFiles,XTestEmbedFiles", "./...")
+	list.Dir, list.Env = root, goEnviron()
 	out, err := list.Output()
 	if err != nil {
 		return nil, fmt.Errorf("go list -deps -test ./...: %w", err)

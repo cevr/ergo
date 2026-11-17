@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -311,11 +312,18 @@ func newEngine(cfg Config) (*engine, error) {
 	if e.module == "" {
 		return nil, errors.New("go.mod names no module")
 	}
-	// The toolchain go test would put first on PATH (env).
-	cmd := exec.Command("go", "env", "GOROOT")
-	cmd.Dir = cfg.Root
-	if out, err := cmd.Output(); err == nil && strings.TrimSpace(string(out)) != "" {
-		e.goRoot = strings.TrimSpace(string(out))
+	// The toolchain go test would put first on PATH (env): the one that
+	// built this runner (go run and go test build it with the module's).
+	// The go first on PATH may be another, which GOTOOLCHAIN=local keeps
+	// from switching (the host's go1.26.5 refused the module's go 1.27).
+	if root := toolchainRoot(); root != "" {
+		e.goRoot = root
+	} else {
+		cmd := exec.Command("go", "env", "GOROOT")
+		cmd.Dir, cmd.Env = cfg.Root, goEnviron()
+		if out, err := cmd.Output(); err == nil && strings.TrimSpace(string(out)) != "" {
+			e.goRoot = strings.TrimSpace(string(out))
+		}
 	}
 	return e, os.MkdirAll(cfg.Work, 0o755)
 }
@@ -524,6 +532,57 @@ type outcome struct {
 // out (testing.(*M).startAlarm).
 const timeoutPanic = "panic: test timed out after "
 
+// toolchainRoot is the root of the toolchain that built this runner (go
+// run and go test build it with the module's), or "" when its go is gone.
+func toolchainRoot() string {
+	//lint:ignore SA1019 the build-time root is the toolchain wanted here
+	root := runtime.GOROOT()
+	if _, err := os.Stat(filepath.Join(root, "bin", "go")); root == "" || err != nil {
+		return ""
+	}
+	return root
+}
+
+// goCommand is the go of toolchainRoot, else the go first on PATH.
+func goCommand() string {
+	if root := toolchainRoot(); root != "" {
+		return filepath.Join(root, "bin", "go")
+	}
+	return "go"
+}
+
+// goEnviron is this process's environment without GOROOT, for the go
+// commands the runner starts itself: goCommand finds its own root, and an
+// inherited GOROOT of another toolchain would make it refuse to run (as
+// env drops it for every child).
+func goEnviron() []string {
+	return slices.DeleteFunc(os.Environ(), func(kv string) bool { return strings.HasPrefix(kv, "GOROOT=") })
+}
+
+// lookPathIn finds a bare command name on the PATH of env, the child's,
+// where exec.Command looks on this process's: the toolchain the runner puts
+// first on a child's PATH (env) runs its go, not the host's go, which
+// GOTOOLCHAIN=local keeps from switching (go1.26.5 refused the module's go
+// 1.27). A name with a separator, or one not found there, is left as is.
+func lookPathIn(name string, env []string) string {
+	if strings.ContainsRune(name, filepath.Separator) {
+		return name
+	}
+	for _, kv := range env {
+		value, ok := strings.CutPrefix(kv, "PATH=")
+		if !ok {
+			continue
+		}
+		for _, dir := range filepath.SplitList(value) {
+			path := filepath.Join(dir, name)
+			if info, err := os.Stat(path); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+				return path
+			}
+		}
+	}
+	return name
+}
+
 // exec runs argv in dir as the leader of its own process group, under the
 // memory limit and the deadline, and stops the whole group when it ends.
 func (e *engine) exec(ctx context.Context, dir string, argv, env []string, deadline time.Duration) outcome {
@@ -535,7 +594,7 @@ func (e *engine) exec(ctx context.Context, dir string, argv, env []string, deadl
 func (e *engine) execStarted(ctx context.Context, dir string, argv, env []string, deadline time.Duration, startLine string) outcome {
 	start := time.Now()
 	out := &tail{needles: []string{timeoutPanic, startLine}}
-	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd := exec.Command(lookPathIn(argv[0], env), argv[1:]...)
 	cmd.Dir = dir
 	cmd.Env = env
 	cmd.Stdout = out
