@@ -38,8 +38,10 @@ type Fn {
 // parameters are the pool's Param(0), Param(1), …).
 type Field { Name string, T dense.ID[store.TKey] }
 
-// Rec is a record of the package: its name, bracket parameters and fields.
-type Rec { Name string, Params []string, Fields []Field }
+// Rec is a record of the package: its name, bracket parameters and fields;
+// or, Op set, an operation type with its operations as fields, each of
+// its signature's type (S3d3).
+type Rec { Name string, Params []string, Fields []Field, Op bool }
 
 // Pkg is what typing a package reads.
 type Pkg {
@@ -130,6 +132,54 @@ func declared(s *store.Store, env types.Env, p syntax.Parsed, file int, decl den
 	Fn{File: file, Decl: decl, Name: name, Params: []string{}, Rows: []bool{}, Names: names, Sig: store.TSig(s, ts, result, none, none), Body: b}
 }
 
+// opTypes is recs with p's operation types that have no bracket
+// parameters: each operation a field of its signature's type.
+func opTypes(s *store.Store, p syntax.Parsed, parsed []syntax.Parsed, kinds types.Kinds, ext []types.Ext, foreign []types.Foreign, recs []Rec) []Rec {
+	let mut out = recs
+	let env = types.NewEnv(*s, parsed, p, []string{}, kinds, ext, foreign)
+	match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+	case syntax.File as root:
+		for i in 0..syntax.Len(root.Decls) {
+			match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, root.Decls, i)) {
+			case syntax.TypeDecl as td:
+				if isSome(dense.Unpack(td.TypeParams)) {
+					continue
+				}
+				match dense.Unpack(td.Spec) {
+				case Some[dense.ID[syntax.Node]] as sp:
+					match syntax.ViewOf(p.Tree, sp.Value) {
+					case syntax.InterfaceType as it:
+						let mut ops = []Field{}
+						let mut any = false
+						for j in 0..syntax.Len(it.Members) {
+							match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, it.Members, j)) {
+							case syntax.Field as fd:
+								match dense.Unpack(fd.Type) {
+								case Some[dense.ID[syntax.Node]] as ft:
+									if syntax.KindOf(p.Tree, ft.Value) == syntax.KFuncType && syntax.Len(fd.Names) == 1 {
+										any = true
+										ops = ops.Append(Field{Name: types.NameText(p, syntax.Item(p.Tree, fd.Names, 0)), T: types.Resolve(s, env, ft.Value)})
+									}
+								case None:
+								}
+							case _:
+							}
+						}
+						if any {
+							out = out.Append(Rec{Name: types.NameText(p, td.Name), Params: []string{}, Fields: ops, Op: true})
+						}
+					case _:
+					}
+				case None:
+				}
+			case _:
+			}
+		}
+	case _:
+	}
+	out
+}
+
 // fieldsOf is the written fields of the field list l, resolved in env.
 func fieldsOf(s *store.Store, env types.Env, p syntax.Parsed, l dense.ID[syntax.Node]) []Field {
 	let mut out = []Field{}
@@ -214,8 +264,9 @@ func Load(s *store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ext [
 		}
 		for r in types.Records(p, prelude) {
 			let env = types.NewEnv(*s, parsed, p, r.Params, kinds, ext, foreign)
-			recs = recs.Append(Rec{Name: r.Name, Params: r.Params, Fields: fieldsOf(s, env, p, r.Fields)})
+			recs = recs.Append(Rec{Name: r.Name, Params: r.Params, Fields: fieldsOf(s, env, p, r.Fields), Op: false})
 		}
+		recs = opTypes(s, p, parsed, kinds, ext, foreign, recs)
 	}
 	// The functions by their name's node and the records by their
 	// declaration: a lookup per expression reads one slot, so typing a

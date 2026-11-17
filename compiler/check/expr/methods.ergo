@@ -6,8 +6,11 @@
 // without its first parameter; a generic f is inferred with x as its
 // first argument (S3d3).
 
+import compiler/check/bind
 import compiler/check/infer
 import compiler/check/store
+import compiler/check/types
+import compiler/syntax
 import dense
 
 // ownerOf is the package that declares base's type, base a receiver's
@@ -117,6 +120,77 @@ func methodOf(s *store.Store, k Pkg, t *Typer, xt dense.ID[store.TKey], name str
 		i = d.K.sameName[i]
 	}
 	None
+}
+
+// opTypeAt is the type of the name x, declared at the package node at,
+// when it names an operation type of the package: a capability the
+// function needs, used as the value its operations are called on
+// (Console.Println(s)).
+func opTypeAt(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], at dense.ID[store.PNode]) Option[dense.ID[store.TKey]] {
+	let text = types.NameText(k.Parsed[t.file], x)
+	let r = recOf(*s, k, text)
+	if r < 0 || !k.Recs[r].Op {
+		return None
+	}
+	match store.Lookup(*s, text) {
+	case Some[dense.ID[store.Decl]] as d:
+		let decl = store.DeclOf(*s, d.Value)
+		let here = bind.PNodeOf(k.Ps, int(decl.File), syntax.NodeAt(k.Parsed[int(decl.File)].Tree, int(decl.Node)))
+		if here == at { some(store.TNamed(s, d.Value)) } else { None }
+	case None:
+		None
+	}
+}
+
+// opReceiver is the type of x when x names an operation type, of the
+// package or of an import.
+func opReceiver(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
+	let tr = k.Parsed[t.file].Tree
+	match syntax.ViewOf(tr, x) {
+	case syntax.SelectorExpr as se:
+		importedOp(s, k, t, se.Sel)
+	case _:
+		if syntax.KindOf(tr, x) != syntax.KIdent {
+			return None
+		}
+		match bind.ResolutionOf(k.U, k.Ps, pnode(k, *t, x)) {
+		case bind.Declared as d:
+			if isSome(dense.Unpack(dense.Of(t.defs, d.At))) { None } else { opTypeAt(s, k, t, x, d.At) }
+		case _:
+			None
+		}
+	}
+}
+
+// importedOp is the type of the selector name sel when it names an
+// operation type of an import (io.Stdout): the importer's foreign type of
+// it.
+func importedOp(s *store.Store, k Pkg, t *Typer, sel dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
+	if len(k.Deps) == 0 {
+		return None
+	}
+	match bind.ResolutionOf(k.U, k.Ps, pnode(k, *t, sel)) {
+	case bind.Imported as im:
+		let i = int(im.Ref.Import) - 1
+		let paths = store.ImportPaths(*s)
+		if i < 0 || i >= len(paths) {
+			return None
+		}
+		let di = depOf(k, paths[i])
+		if di < 0 {
+			return None
+		}
+		let d = k.Deps[di]
+		let text = store.DeclText(d.S, int(im.Ref.Decl))
+		let r = recOf(d.S, d.K, text)
+		if r < 0 || !d.K.Recs[r].Op {
+			return None
+		}
+		let f = foreignAt(k, d.Path, text)
+		if f >= 0 { some(store.TForeign(s, f)) } else { None }
+	case _:
+		None
+	}
 }
 
 // fnNamed is the index in k.Fns of the last function named name (the
