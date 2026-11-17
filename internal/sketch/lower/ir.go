@@ -434,6 +434,11 @@ type irBuilder struct {
 	// held maps the held local of an in-place owning literal to its
 	// pointer parameter's local: the local is *p (ir_ownlit.go).
 	held map[*check.Var]int
+	// frame is 1 + the local of the body's frame scope (ir_own.go
+	// openScope), or 0; frameArg reads it (GP-FRAME; OPC-TASK's hook).
+	frame int
+	// exits marks a frame in the static exit form (ir_exits.go).
+	exits bool
 }
 
 // gate stops the body for reason; a census records it and goes on.

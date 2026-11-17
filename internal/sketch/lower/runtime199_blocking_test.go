@@ -41,6 +41,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"irBuilder.releaseFuncs":   "the IR's static-frame release: StaticBegin's hidden CallerTask, as closeStatic's runtimeCall writes it (FLIP F7 FORK RELEASE-IR)",
 			"irBuilder.hostCloseCall":  "the IR's release of a Go value: v1.Release's hidden CallerTask, as hostRelease's runtimeCall writes it (FLIP F7 FORK-GOCALL)",
 			"irBuilder.goTarget":       "the IR's rt.GoContext, the task as the hidden context.Context of a Go call, as funcCtx.goContext's; it neither waits nor releases (FLIP F7 FORK-GOLIB)",
+			"irBuilder.openScope":      "the IR's frame scope: NewScope of the frame's task, as openFrame writes it (FLIP F7 GP-FRAME)",
 		}},
 		{"taskOf", map[string]string{
 			"funcCtx.hiddenArgs":      "runtimeCall's hidden CallerTask argument",

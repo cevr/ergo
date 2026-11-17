@@ -565,6 +565,7 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	// A body of a runtime leaf (runtime/v1/rpc, BS8) is called by the
 	// leaf's import path, which rtRef imports.
 	name = b.consumedForm(x, body, name) // ir_own.go
+	name = b.exitsForm(body, name)       // ir_exits.go: OnExit on a static exit form
 	pkg := v1.PackageOf(name)
 	switch {
 	case pkg != "" && pkg != runtimeImport && targs != "":
@@ -703,6 +704,8 @@ func (b *irBuilder) hidden(body v1.Body, x *syntax.CallExpr, c *check.Call, p ir
 			// rt.Site is a defined string type: Site("…") is a conversion
 			// of the constant (spelling keeps the import).
 			out = append(out, &irExpr{K: "conv", Pos: p, T: b.spelling(b.l.rt() + ".Site"), X: &irExpr{K: "const", Pos: p, T: "string", V: site}})
+		case v1.Frame:
+			out = append(out, b.frameArg(p)) // ir_own.go (GP-FRAME)
 		default:
 			irNo("std call with hidden argument %s", h)
 		}

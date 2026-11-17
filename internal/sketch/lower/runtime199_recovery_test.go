@@ -99,6 +99,11 @@ func TestRuntime199DefectRecovery(t *testing.T) {
 		"Go -> Go":               "guarded",
 		"Scope.end -> Scope.End": "",
 		"release -> Release":     "classify",
+		// The static exit form (STATIC-EXIT, exits.go): the frame's end and
+		// each action's frame end, as Scope.end ends a frame that holds no
+		// entry; their recovery is Exits.End's and release's.
+		"Exits.end -> Scope.End": "",
+		"actionEnd -> Scope.End": "",
 		// timeout.After's body child and its deadline child.
 		"After -> AfterSpan":       "guarded",
 		"deadlines.NewTimer -> Go": "guarded",
