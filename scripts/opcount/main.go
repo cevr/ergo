@@ -6,7 +6,9 @@
 //
 //	go run ./scripts/opcount [-control] [-rounds N] [-o FILE] [-ergo BIN] NAME
 //
-// reads examples/NAME/workload, builds the program with the exit hook
+// reads examples/NAME/workload (or FOLDER/workload for a NAME with a slash,
+// such as benchmarks/forms/step, whose program is the nearest folder from
+// it up that holds ergo.mod), builds the program with the exit hook
 // (ergo build -work, then go build -overlay of the emitted module in a
 // scratch folder) and its hand Go control with -control, and runs each at
 // the workload's two sizes, with the default collector and with GOGC=off,
@@ -117,7 +119,7 @@ func run(args []string, stdout, stderr io.Writer) (int, error) {
 		receipt.Cases = cases
 	} else {
 		if flags.NArg() != 1 {
-			return 2, errors.New("usage: opcount [-control] [-rounds N] [-o FILE] NAME (an examples/ folder), or opcount -cmd …")
+			return 2, errors.New("usage: opcount [-control] [-rounds N] [-o FILE] NAME (an examples/ folder) or FOLDER, or opcount -cmd …")
 		}
 		c, err := programCase(o, flags.Arg(0), stderr)
 		if err != nil {
@@ -210,29 +212,46 @@ var counters = []struct {
 	{"PeakRSSKiB", opcount.Timed, false},
 }
 
-// programCase measures examples/NAME.
+// programCase measures examples/NAME, or the folder NAME when it holds a
+// slash (benchmarks/forms/step): its workload file, and the program of
+// the nearest folder from it up that holds ergo.mod (one module, a
+// workload per kind).
 func programCase(o options, name string, log io.Writer) (opcount.Case, error) {
 	root, err := os.Getwd()
 	if err != nil {
 		return opcount.Case{}, err
 	}
-	dir := filepath.Join(root, "examples", name)
-	w, problems, ok := opcount.Check(root, dir)
+	rel := "examples/" + name
+	if strings.Contains(name, "/") {
+		rel = filepath.ToSlash(filepath.Clean(name))
+	}
+	dir := filepath.Join(root, filepath.FromSlash(rel))
+	module := dir
+	for module != root {
+		if _, err := os.Stat(filepath.Join(module, "ergo.mod")); err == nil {
+			break
+		}
+		module = filepath.Dir(module)
+	}
+	if module == root {
+		module = dir
+	}
+	w, problems, ok := opcount.CheckIn(root, dir, module)
 	if !ok {
-		return opcount.Case{}, fmt.Errorf("examples/%s has no %s file (run from the repository root)", name, opcount.WorkloadFile)
+		return opcount.Case{}, fmt.Errorf("%s has no %s file (run from the repository root)", rel, opcount.WorkloadFile)
 	}
 	if len(problems) > 0 {
 		var lines []string
 		for _, p := range problems {
-			lines = append(lines, fmt.Sprintf("examples/%s/%s: %s", name, opcount.WorkloadFile, p))
+			lines = append(lines, fmt.Sprintf("%s/%s: %s", rel, opcount.WorkloadFile, p))
 		}
 		return opcount.Case{}, errors.New(strings.Join(lines, "\n"))
 	}
 	if o.control && w.Control == "" {
-		return opcount.Case{}, fmt.Errorf("examples/%s/%s names no control", name, opcount.WorkloadFile)
+		return opcount.Case{}, fmt.Errorf("%s/%s names no control", rel, opcount.WorkloadFile)
 	}
 	b := builder{o: o, root: root, log: log}
-	program, goLine, err := b.program(filepath.Join(dir, "cmd", w.Binary), w.Binary)
+	program, goLine, err := b.program(filepath.Join(module, "cmd", w.Binary), w.Binary)
 	if err != nil {
 		return opcount.Case{}, err
 	}
@@ -634,10 +653,25 @@ func (b builder) program(cmdDir, name string) (string, string, error) {
 		return "", "", err
 	}
 	bin := filepath.Join(b.o.work, name)
-	if err := b.exec(work, "go", "build", "-trimpath", "-mod=readonly", "-buildvcs=false", "-ldflags=-checklinkname=0", "-overlay", overlayFile, "-o", bin, "."); err != nil {
+	link, err := opcount.HookedBuild(work, overlayFile, bin)
+	if err != nil {
+		return "", "", err
+	}
+	if err := b.run(link); err != nil {
 		return "", "", err
 	}
 	return bin, goLine, nil
+}
+
+// run runs cmd under the memory limit, logging its words.
+func (b builder) run(cmd *exec.Cmd) error {
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	fmt.Fprintf(b.log, "%s\n", strings.Join(cmd.Args, " "))
+	if err := proclimit.Run(cmd, b.o.memory); err != nil {
+		return fmt.Errorf("%s: %v\n%s", strings.Join(cmd.Args, " "), err, out.Bytes())
+	}
+	return nil
 }
 
 // goPackage builds the main package rel (from the repository root) as a

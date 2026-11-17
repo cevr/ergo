@@ -35,6 +35,9 @@ type IRReport struct {
 	IR       []string       `json:"ir"`
 	Fallback map[string]int `json:"fallback"`
 	Hash     string         `json:"hash"`
+	// Forms counts the IR forms the bodies held before erasure, by
+	// kind and layout ("match/flat"; ir_forms.go): in memory only.
+	Forms map[string]int `json:"-"`
 }
 
 // LowerIR is Lower with the IR bodies. The report's Hash names the IR
@@ -116,7 +119,21 @@ func (st *irState) reachAll(l *lowerer) {
 }
 
 func lowerIR(u Unit, tests *testLowering) ([]File, IRReport, error) {
-	files, _, report, _, err := lowerIRModule(u, tests)
+	return lowerIRForms(u, tests, false)
+}
+
+// LowerIRReference is LowerIR with no IR form built (irFormLowering "off",
+// ir_forms.go): the reference TestFormsEraseToTheReference compares with.
+func LowerIRReference(u Unit, tests bool) ([]File, IRReport, error) {
+	var tl *testLowering
+	if tests {
+		tl = &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}
+	}
+	return lowerIRForms(u, tl, true)
+}
+
+func lowerIRForms(u Unit, tests *testLowering, formsOff bool) ([]File, IRReport, error) {
+	files, _, report, _, err := lowerIRModule(u, tests, formsOff)
 	if err != nil {
 		return nil, IRReport{}, err
 	}
@@ -144,7 +161,7 @@ func lowerIRSplit(u Unit, tests bool, base string) ([]File, IRReport, SplitRepor
 	if tests {
 		tl = &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}}
 	}
-	files, origins, report, l, err := lowerIRModule(u, tl)
+	files, origins, report, l, err := lowerIRModule(u, tl, false)
 	if err != nil {
 		return nil, IRReport{}, SplitReport{}, err
 	}
@@ -180,14 +197,17 @@ type irModule struct {
 
 // lowerIRModule lowers u with IR bodies: the module's files without an IR
 // file, the std origins of its names (the split's), and the IR.
-func lowerIRModule(u Unit, tests *testLowering) ([]File, map[string]*check.Package, irModule, *lowerer, error) {
+func lowerIRModule(u Unit, tests *testLowering, formsOff bool) ([]File, map[string]*check.Package, irModule, *lowerer, error) {
 	if err := u.Validate(); err != nil {
 		return nil, nil, irModule{}, nil, err
 	}
 	l := newBuildLowerer(u, tests)
-	l.ir = &irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}}
+	l.ir = &irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, formsOff: formsOff}
 	code, err := l.program()
 	if err != nil {
+		return nil, nil, irModule{}, nil, err
+	}
+	if err := irNoForms(&l.ir.out); err != nil { // ir_forms_erase.go
 		return nil, nil, irModule{}, nil, err
 	}
 	sort.Slice(l.ir.out.Funcs, func(i, j int) bool { return l.ir.out.Funcs[i].Name < l.ir.out.Funcs[j].Name })
@@ -218,6 +238,8 @@ type irState struct {
 	// funcApplied counts the rewrites over functions the IR bodies
 	// applied, by level (ir_rewrite.go).
 	funcApplied map[string]int
+	// formsOff builds no IR form (LowerIRReference; ir_forms.go).
+	formsOff bool
 }
 
 // restart empties st for a lowering that runs again from the start
@@ -229,11 +251,11 @@ func (st *irState) restart() *irState {
 		return nil
 	}
 	reach := append(st.reached, st.reach...)
-	census := st.census
+	census, formsOff := st.census, st.formsOff
 	if census != nil {
 		census = &IRCensus{}
 	}
-	*st = irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, census: census, reach: reach}
+	*st = irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, census: census, reach: reach, formsOff: formsOff}
 	return st
 }
 
@@ -288,6 +310,8 @@ type irStmt struct {
 	// Ls are a "tdef"'s locals, one per result of its Go call, in order:
 	// l0, l1, … := X (ir_tuple.go).
 	Ls []int `json:"ls,omitempty"`
+	// F is a "match" form's facts, in memory only (ir_forms.go).
+	F *irMatch `json:"-"`
 }
 
 type irExpr struct {
@@ -308,6 +332,8 @@ type irExpr struct {
 	Params []int     `json:"params,omitempty"`
 	Body   []*irStmt `json:"body,omitempty"`
 	End    *irPos    `json:"end,omitempty"`
+	// F is a "variant" form's facts, in memory only (ir_forms.go).
+	F *irVariant `json:"-"`
 }
 
 // irUnsupported stops an IR body: the function keeps its source body.
@@ -356,14 +382,33 @@ type irBuilder struct {
 	// checked where it is returned.
 	law *check.Law
 	// keep is the depth of call trees kept as written (ir_rewrite.go): an
-	// AsWritten argument, a law side being lowered. params are a law's
+	// AsWritten argument, a law side being lowered. lawArgs are a law's
 	// parameters bound to the site's operands while a side is lowered.
-	keep   int
-	params map[*check.Var]*irExpr
+	keep    int
+	lawArgs map[*check.Var]*irExpr
 	// rwRows are the rewrite sites this body applied (their report rows),
 	// rwLevels the rewrites applied by level (ir_rewrite.go).
 	rwRows   []string
 	rwLevels map[string]int
+	own      *irOwn // the static frame of owned values (ir_own.go), or nil
+	// pending collects the statements an operand inside an expression
+	// runs first (ir_order.go); nil where no value collects them.
+	pending *[]*irStmt
+	// dropsErr marks the calls whose Go error the site drops: a row
+	// empty there (ir_call.go, dropErr).
+	dropsErr map[*irExpr]bool
+	// voidTail marks the branches of a body with no value whose last
+	// statement ends the body: a tail of an error value fails the frame
+	// (ir_fail.go bodyStmts, ir_stmt.go tailTo).
+	voidTail bool
+	// at, when set, is the position of every node built: a view's body
+	// built at its match site takes the site's (ir_view.go).
+	at *irPos
+	// params are the parameters' locals; hoisted and entry are the fields
+	// of record parameters read once at entry (ir_hoist.go).
+	params  map[int]bool
+	hoisted map[hoistKey]int
+	entry   []*irStmt
 }
 
 // gate stops the body for reason; a census records it and goes on.
@@ -416,8 +461,12 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	if drop {
 		name = fd.dropped
 	}
+	name = b.ownedBodyName(fd, name, drop) // ir_own.go
 	if fd.method != nil {
 		name = fd.method.name + "." + name
+	}
+	if n := b.copyName(f); n != "" {
+		name = n // a copy for a known record (ir_known.go)
 	}
 	pkg := ""
 	if f.Pkg != nil {
@@ -489,15 +538,26 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	}
 	b.fn = &irFunc{Name: name, Pos: b.pos(f.Decl, f.Decl.Pos()), End: b.pos(f.Decl, f.Decl.Body.Rbrace)}
 	b.names = b.tempNames(f.Decl.Body) // ir_fail.go
+	b.params = map[int]bool{}          // ir_hoist.go: the parameters' locals, before openOwn's
+	for _, l := range b.locals {
+		b.params[l] = true
+	}
+	b.part(func() { b.fn.Body = append(b.fn.Body, b.openOwn(f, params)...) }) // ir_own.go
 	if b.env >= 0 && frameFootprint(f.Pkg.Info, f.Decl).EntryPoll && !b.l.knownClosed(f) && fc.frame.polls {
 		b.fn.Body = append(b.fn.Body, b.poll(f.Decl))
 	}
+	n := len(b.fn.Body)
 	b.fn.Body = append(b.fn.Body, b.bodyStmts(f.Decl.Body.List)...) // ir_fail.go
+	b.fn.Body = eraseForms(b.fn.Body, b.st.sawForm)                 // ir_forms_erase.go
+	b.part(b.ownVisited)                                            // ir_own.go
+	b.fn.Body = b.withEntry(b.fn.Body, n)                           // ir_hoist.go
 	b.fn.Body = append(b.fn.Body, b.bodyEnd(b.fn.Body, b.fn.End)...)
-	b.fn.Body = irUseLocals(b.fn.Body) // ir_end.go
+	b.part(func() { b.fn.Body = b.closeMasked(f, b.fn.Body) }) // ir_own.go
+	b.fn.Body = irScopesIncrease(irUseLocals(b.fn.Body))       // ir_end.go
 	if st.census != nil {
 		return false
 	}
+	b.ownDone(name) // ir_own.go
 	st.out.Funcs = append(st.out.Funcs, *b.fn)
 	st.report.IR = append(st.report.IR, name)
 	return true
@@ -545,6 +605,9 @@ func (st *irState) intrinsic(f *check.Func) {
 // sources, or, in a std body, its embedded std file (std/<pkg>/<file>,
 // the path a std body's defect names; locate).
 func (b *irBuilder) pos(n syntax.Node, p syntax.Pos) irPos {
+	if b.at != nil {
+		return *b.at
+	}
 	if _, ok := b.l.sourceOf(n); !ok {
 		if _, ok := b.l.stdFileOf(n); !ok {
 			irNo("node outside the program's and std's sources")

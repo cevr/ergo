@@ -80,6 +80,9 @@ func (b *irBuilder) typeMatch(s *syntax.TypeSwitchStmt, ret bool, to *yieldTo) [
 	if len(b.l.info.Releases[s.Subjects[0]]) > 0 || len(b.l.info.Releases[x]) > 0 {
 		irNo("match subject that releases owned values")
 	}
+	if out, ok := b.viewMatch(s, ret, to); ok { // ir_view.go
+		return out
+	}
 	st := b.l.info.Types[x]
 	if st == nil {
 		irNo("expression without a type")
@@ -114,9 +117,11 @@ func (b *irBuilder) typeMatch(s *syntax.TypeSwitchStmt, ret bool, to *yieldTo) [
 		sw.X = &irExpr{K: "local", Pos: p, I: subj}
 	}
 	hasDefault := false
+	var arms []irArm // the match form's (ir_forms.go)
 	for _, cl := range s.Clauses {
 		cp := b.pos(cl, cl.Case)
 		c := &irCase{Pos: cp}
+		var arm irArm
 		def := len(cl.List) == 0
 		var as *check.Var
 		var asType check.Type
@@ -145,10 +150,12 @@ func (b *irBuilder) typeMatch(s *syntax.TypeSwitchStmt, ret bool, to *yieldTo) [
 				if k < 0 {
 					irNo("case of another type")
 				}
+				arm.Tags = append(arm.Tags, k)
 				c.Vals = append(c.Vals, &irExpr{K: "const", Pos: cp, T: "uint8", V: strconv.Itoa(k)})
 				continue
 			}
 			if fu == nil {
+				arm.Tags = append(arm.Tags, unionTag(st, t))
 				c.Types = append(c.Types, g)
 				continue
 			}
@@ -156,6 +163,7 @@ func (b *irBuilder) typeMatch(s *syntax.TypeSwitchStmt, ret bool, to *yieldTo) [
 			if k < 0 {
 				irNo("case of another type")
 			}
+			arm.Tags = append(arm.Tags, k)
 			c.Vals = append(c.Vals, &irExpr{K: "const", Pos: cp, T: "uint8", V: strconv.Itoa(k)})
 		}
 		if as != nil {
@@ -172,20 +180,29 @@ func (b *irBuilder) typeMatch(s *syntax.TypeSwitchStmt, ret bool, to *yieldTo) [
 			} else {
 				val = &irExpr{K: "assert", Pos: cp, T: b.goType(asType, cl), X: &irExpr{K: "local", Pos: cp, I: subj}}
 			}
-			c.Body = append(c.Body, &irStmt{K: "def", Pos: cp, Local: name, X: val})
+			arm.Bind = &irStmt{K: "def", Pos: cp, Local: name, X: val}
+			c.Body = append(c.Body, arm.Bind)
 		}
-		c.Body = append(c.Body, b.arm(cl.Body, ret, to)...)
+		c.Body = append(c.Body, b.scoped(cl, b.arm(cl.Body, ret, to), cp)...) // ir_own.go
 		if def {
 			// The emitter writes default: for the whole case.
 			if hasDefault {
 				irNo("two defaults")
 			}
 			hasDefault = true
-			c.Def, c.Types, c.Vals = true, nil, nil
+			c.Def, c.Types, c.Vals, arm.Tags = true, nil, nil, nil
 		}
 		sw.Cases = append(sw.Cases, c)
+		arms = append(arms, arm)
 	}
-	return append(pre, b.closeMatch(s, sw, hasDefault, ret, to))
+	layout := layoutIface
+	switch {
+	case sc != nil:
+		layout = layoutScalar
+	case fu != nil:
+		layout = layoutFlat
+	}
+	return append(pre, b.closeMatch(s, b.matchForm(sw, layout, subj, arms), hasDefault, ret, to))
 }
 
 // past is p, or the last end of pre's statements when it comes after p: a
@@ -210,6 +227,13 @@ func (b *irBuilder) tagOf(s int, p irPos) *irExpr {
 
 // valueMatch is the match s on a literal subject: an expression switch.
 func (b *irBuilder) valueMatch(s *syntax.SwitchStmt, ret bool, to *yieldTo) []*irStmt {
+	pre, sw, hasDefault := b.valueArms(s, func(cl *syntax.CaseClause) []*irStmt { return b.arm(cl.Body, ret, to) })
+	return append(pre, b.closeMatch(s, sw, hasDefault, ret, to))
+}
+
+// valueArms is valueMatch's subject and switch, each case's body built by
+// arm; a view's match at its site builds its cases so (ir_view.go).
+func (b *irBuilder) valueArms(s *syntax.SwitchStmt, arm func(*syntax.CaseClause) []*irStmt) ([]*irStmt, *irStmt, bool) {
 	if s.Tag == nil {
 		irNo("match without a subject")
 	}
@@ -252,7 +276,7 @@ func (b *irBuilder) valueMatch(s *syntax.SwitchStmt, ret bool, to *yieldTo) []*i
 				irNo("value case that is not a literal")
 			}
 		}
-		c.Body = b.arm(cl.Body, ret, to)
+		c.Body = b.scoped(cl, arm(cl), b.pos(cl, cl.Pos())) // ir_own.go
 		if def {
 			// The emitter writes default: for the whole case.
 			if hasDefault {
@@ -263,7 +287,7 @@ func (b *irBuilder) valueMatch(s *syntax.SwitchStmt, ret bool, to *yieldTo) []*i
 		}
 		sw.Cases = append(sw.Cases, c)
 	}
-	return append(pre, b.closeMatch(s, sw, hasDefault, ret, to))
+	return pre, sw, hasDefault
 }
 
 // arm is a case's body: it yields as an if's branch does.

@@ -37,6 +37,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"let of a default *", "G1"}, // F7 letpat (ir_letpat.go)
 	{"expression *syntax.SliceExpr", "G1"},
 	{"type *check.Array", "G1"},
+	{"literal of *check.Array", "G1"}, // lane B's wf10/f7b-conv builds it (ir_defined.go)
 	{"index of a non-slice", "G1"},
 	{"index form", "G1"},
 	{"len of a non-slice", "G1"},
@@ -55,7 +56,6 @@ var reasonUnits = []struct{ prefix, unit string }{
 	// F7 update (ir_update.go): the updates it leaves.
 	{"elided literal type", "G1"},
 	{"record update *", "G1"},
-	{"unkeyed record literal", "G1"},
 	{"record literal without every field", "G1"},
 	{"keyed slice literal", "G1"},
 	{"spread", "G1"},
@@ -85,16 +85,12 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"for-in binding without a variable", "G1"},
 	// G2: the failure ABI, frames and operation calls.
 	{"fallible function", "G2"},
-	{"expression *syntax.CatchExpr", "G2"},
-	{"expression *syntax.TryExpr", "G2"},
 	{"loop in an impure frame", "G2"},
 	{"call of an impure, fallible or special function", "G2"},
 	{"operation call form", "G2"},
 	{"operation call spelling", "G2"},
 	{"capability without a named type", "G2"},
 	{"call in an operation's argument", "G2"},
-	{"operation call in a range", "G2"},
-	{"operation call in a condition", "G2"},
 	{"operation call inside an expression", "G2"},
 	{"body that needs a frame", "G2"},
 	{"owned local", "G2"},
@@ -105,12 +101,10 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"fallible call with an empty row at its site", "G2"},
 	{"call of an impure function from a pure one", "G2"},
 	{"try without a value", "G2"},
-	{"try of a non-call", "G2"},
 	{"catch without its Matches entry", "G2"},
 	{"catch of a non-call", "G2"},
 	{"catch arm without a pattern", "G2"},
 	{"catch arm form", "G2"},
-	{"failure in a branch tail of a body with no value", "G2"},
 	{"operation call that enters a release", "G2"}, // a checked Close: frames, IRG2b
 	{"checked Close (closeBody masks it)", "G2"},   // the Close body itself, inside its mask
 	{"call of an extern function", "G4"},
@@ -144,11 +138,10 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"record pattern of an unnamed type", "G3b"},
 	{"interpolated value of type *", "G3b"},
 	{"interpolated named duration", "G3b"},
-	// A machine's value is ergo.Machine, a generic std record: its bodies
-	// stop at G4's generic types first (no census body reaches these).
-	{"machine conversion", "G4"},
-	{"machine value", "G4"},
+	{"machine *", "G3b"}, // ir_machine.go's refusals (a literal with fields, a second Machine type)
+	{"row conversion", "G3b"},
 	{"type defined over a non-basic type", "G3b"},
+	{"record field of a converted value", "G3b"}, // B-CONVFIELD (ir_field.go): a difference neither a conversion nor a row explains
 	{"value of a type defined over a flat union", "G3b"},
 	{"value of another type", "G3b"},
 	{"match on a value that is no union", "G3b"},
@@ -176,6 +169,11 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"call of a std intrinsic", "G4"},
 	{"dot call of a std function", "G4"},
 	{"std call *", "G4"}, // hidden arguments, adapted results, converted operands
+	// I-FLIP's integration refusals: a value Go converts implicitly, and a
+	// leaf's generic function named by a generic body's type parameters.
+	{"record field of a converted value", "G4"},
+	{"runtime leaf's generic function in a generic body", "G4"},
+	{"literal of *check.Array", "G1"}, // as "type *check.Array": F7's arrays have no literal yet
 	{"type *check.Map", "G4"},
 	{"type *check.Union", "G4"}, // an anonymous union as a type argument (IRG4b instances)
 	// IRG4b r2: operation-type values and their calls, std operations.
@@ -195,13 +193,20 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"Go type spelling *", "G4"},
 	{"witness parameter", "G4"},
 	{"generic body", "G4"},
+	// F1's admit of a type parameter the body does not declare: the
+	// merged head's newer std (ui's TestHost functions, machines.Attempt)
+	// reaches it through generic instances whose declared types name
+	// their own type parameters (F7 FORK merge of F2).
+	{"type parameter outside its declaration", "G4"},
+	// I-FLIP's f2e93090e: a runtime leaf generic in the body's own type
+	// parameters (ir_pkg.go), F1's generic bodies.
+	{"runtime leaf's generic function in a generic body", "G4"},
 	{"owned parameters", "G4"},
 	{"known-callback variant", "G4"},
-	{"copy for a known record", "G4"},
 	{"variant with no result", "G4"}, // drop.go's variant of a function whose result a call discards
 	{"call without a value", "G4"},
 	{"call without a Calls entry", "G4"},
-	{"value copy", "G4"}, // the value rule's copy (values.go)
+	{"value copy of a *", "G4"}, // a value rule copy at a defined slice or Map type (ir_copy.go)
 	// G5: std bodies.
 	// A library body takes an IR body as a sourced one does (IRG5).
 	// An extern's body is the lowerer's Go text (Append, Get, Put,
@@ -231,10 +236,20 @@ var reasonUnits = []struct{ prefix, unit string }{
 	// IRG6 r4 lowers law bodies; these stay the emitter's.
 	{"law of a generic operation type", "G6"},
 	{"law result of an untried fallible call", "G6"},
-	{"call kind 10", "G6"}, // CallEncode
-	{"call kind 11", "G6"}, // CallDecode
+	// The codec built-ins take the IR (FLIP OPC-codec), but for these:
+	{"codec of a type that holds type parameters", "G4"}, // codec witnesses, with witness parameters
+	{"codec *", "G6"},
+	{"encode on a direct writer", "G6"},
 	{"call kind 12", "G6"}, // CallEmbed
 	{"call kind 13", "G6"}, // CallPattern: a refinement's matches(it, `…`)
 	{"call kind 8", "G6"},  // CallLawOp
 	{"call kind 9", "G6"},  // CallGoError
+	// IRG6 r2's function values, ported to flip-f1 (flip-fnval): literals,
+	// trailing blocks of program calls, function types, calls of function
+	// values. These stay the emitter's.
+	{"function literal *", "G6"},
+	{"function type with several results", "G6"},
+	{"call of a function value *", "G6"},
+	{"call of a value of a named function type", "G6"},
+	{"call of a known callback", "G4"}, // known.go's plain variant
 }

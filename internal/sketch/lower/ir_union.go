@@ -77,7 +77,8 @@ func (b *irBuilder) admitNamed(t *check.Named, depth int) {
 		b.admitOps(t)
 		return
 	case kindMachine:
-		irNo("machine value")
+		b.admitMachine(t) // ir_machine.go
+		return
 	}
 	irNo("named type that is not a record")
 }
@@ -116,13 +117,19 @@ func (b *irBuilder) implicit(x syntax.Expr, e *irExpr) *irExpr {
 	if !ok || e == nil {
 		return e
 	}
+	return b.convert(conv, e, x)
+}
+
+// convert is e after the conversion conv, made at x (the emitter's
+// convert): x's implicit one, or an element's (Info.ImplicitElems).
+func (b *irBuilder) convert(conv check.Conversion, e *irExpr, x syntax.Expr) *irExpr {
 	switch conv.Kind {
 	case 0:
 		return e
 	case check.ConvVariant:
 		return b.variantInto(conv.From, conv.To, e, x)
 	case check.ConvMachine:
-		irNo("machine conversion")
+		return b.machineValue(conv, e, x) // ir_machine.go
 	case check.ConvRow:
 		// The row value (a Go error) holds one of the union's error
 		// variants, which implement its sealed interface (the emitter's
@@ -164,12 +171,12 @@ func (b *irBuilder) variantInto(from, to check.Type, e *irExpr, site syntax.Node
 		if k < 0 {
 			irNo("value of another type")
 		}
-		return &irExpr{K: "mcall", Pos: e.Pos, Name: ofName(k), X: &irExpr{K: "zero", Pos: e.Pos, T: gt}, Args: []*irExpr{e}}
+		return b.variantForm(e, gt, k, layoutFlat, ofName(k)) // ir_forms.go
 	}
 	if n, ok := to.(*check.Named); !ok || b.l.typeDecl(n.Obj, site).kind != kindUnion {
 		irNo("value of another type")
 	}
-	return &irExpr{K: "toiface", Pos: e.Pos, T: gt, X: e}
+	return b.variantForm(e, gt, unionTag(to, from), layoutIface, "")
 }
 
 // bareRecord is the value of a record with no fields written bare, `A`,

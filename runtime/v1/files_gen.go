@@ -264,6 +264,7 @@ var bodyTable = []bodyRow{
 	{"MachineTimerDefect.String", bodyFact{body: Body{Results: []string{"string"}, Package: Path}}},
 	{"MachineTimerNotPositive", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "S", Constraint: "any"}}, Params: []Param{{Type: "string"}, {Type: "S"}, {Type: "time.Duration"}}, Results: []string{"*MachineTimerDefect"}, Package: Path}}},
 	{"MachineTimerNotPositiveAt", bodyFact{body: Body{Params: []Param{{Type: "time.Duration"}, {Type: "time.Duration"}}, Pure: true, Wait: "none", Package: Path}}},
+	{"MachineTimerPanic", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "S", Constraint: "any"}}, Params: []Param{{Type: "string"}, {Type: "S"}, {Type: "time.Duration"}}, Package: Path}}},
 	{"Main", bodyFact{body: Body{Params: []Param{{Type: "func(*rt.Task) error", Func: &Body{Hidden: []Hidden{"task"}, Results: []string{"error"}}}}, Host: true, Package: Path}}},
 	{"Malformed.Error", bodyFact{body: Body{Results: []string{"string"}, Package: Path}}},
 	{"MapTake", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "K", Constraint: "comparable"}, {Name: "V", Constraint: "any"}}, Params: []Param{{Type: "map[K]V"}, {Type: "K"}}, Results: []string{"V", "bool", "map[K]V"}, Pure: true, Wait: "none", Package: Path}}},

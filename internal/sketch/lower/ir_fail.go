@@ -67,6 +67,7 @@ func (b *irBuilder) fallibleCall(x syntax.Expr) *syntax.CallExpr {
 // retExpr: a value of an error type is a failure; an untried fallible
 // call returns its value and error as they are.
 func (b *irBuilder) ret(x syntax.Expr, p irPos) []*irStmt {
+	defer b.returning(x)() // ir_own.go
 	out := b.retOf(x, p)
 	if b.law != nil {
 		out = b.lawResult(x, out) // ir_assert.go
@@ -88,6 +89,12 @@ func (b *irBuilder) retOf(x syntax.Expr, p irPos) []*irStmt {
 			// the call's failure leaves first, then the value returns.
 			pre, v := b.try(call)
 			return append(pre, &irStmt{K: "ret", Pos: p, X: b.implicit(x, v)})
+		}
+		if c := b.l.info.Calls[call]; c != nil && c.Kind == check.CallFuncValue && b.result == nil {
+			// A function value's pair: its failure leaves, then the
+			// frame returns with no value (ir_closure.go).
+			pre, _ := b.try(call)
+			return append(pre, &irStmt{K: "ret", Pos: p})
 		}
 		if c := b.l.info.Calls[call]; c != nil && c.Kind == check.CallFuncValue && b.result == nil {
 			// A function value's pair: its failure leaves, then the
@@ -130,6 +137,10 @@ func (b *irBuilder) isFailure(x syntax.Expr) bool {
 // one that cannot fail).
 func (b *irBuilder) bodyStmts(list []syntax.Stmt) []*irStmt {
 	n := len(list)
+	// A body of its own (a function literal's too) starts out of any
+	// enclosing tail.
+	defer func(saved bool) { b.voidTail = saved }(b.voidTail)
+	b.voidTail = false
 	if b.result != nil || n == 0 {
 		return b.tail(list, b.result != nil)
 	}
@@ -139,17 +150,18 @@ func (b *irBuilder) bodyStmts(list []syntax.Stmt) []*irStmt {
 			out = append(out, b.ret(es.X, b.pos(es.X, es.X.Pos()))...)
 			return
 		}
-		if b.failureTail(list[n-1], false) {
-			irNo("failure in a branch tail of a body with no value")
-		}
+		// A branch whose tail is an error value fails the frame there
+		// (tailTo, voidTail).
+		b.voidTail = b.failureTail(list[n-1], false)
 		out = append(out, b.stmt(list[n-1])...)
+		b.voidTail = false
 	})
 	return out
 }
 
 // failureTail reports a branch of s whose tail is an error value: in a
-// body with no value it fails the frame (the emitter's ifYield), which
-// the builder does not spell yet. nested is s inside a branch.
+// body with no value it fails the frame (the emitter's ifYield; tailTo
+// returns it under voidTail). nested is s inside a branch.
 func (b *irBuilder) failureTail(s syntax.Stmt, nested bool) bool {
 	last := func(list []syntax.Stmt) bool {
 		return len(list) > 0 && b.failureTail(list[len(list)-1], true)
@@ -203,11 +215,9 @@ func (b *irBuilder) failExpr(x syntax.Expr) ([]*irStmt, *irExpr) {
 		}
 		call := b.fallibleCall(x.X)
 		if call == nil {
-			// try covers the whole expression: its operands' fallible
-			// calls fail the frame (operand).
-			if _, isCall := unparen(x.X).(*syntax.CallExpr); !isCall {
-				irNo("try of a non-call")
-			}
+			// try covers the whole expression: each fallible call in it
+			// fails the frame where it runs (call, operand), as the
+			// emitter's try does.
 			return b.value(x.X)
 		}
 		return b.try(call)
@@ -252,6 +262,24 @@ func (b *irBuilder) bind(call *syntax.CallExpr) (pre []*irStmt, v, e int) {
 	return append(pre, &irStmt{K: "def2", Pos: p, Local: v, Val: &e, X: x}), v, e
 }
 
+// bindMatch evaluates x, the match m whose arms' tails are fallible calls,
+// into a value local (-1: none) and an error local, nil unless an arm's
+// call fails: each arm's tail puts its call's value and error in them, as
+// a fallible with's block does (failYield, ir_with.go), the emitter's
+// catch of an expression (asked).
+func (b *irBuilder) bindMatch(x syntax.Expr, m syntax.Stmt) (pre []*irStmt, v, e int) {
+	p := b.pos(x, x.Pos())
+	e = b.temp("err", "error", p)
+	pre = []*irStmt{{K: "var", Pos: p, Local: e}}
+	v = -1
+	t := b.l.info.Types[x]
+	if t != nil && !isNoValue(t) {
+		v = b.temp("v", b.goType(t, x), p)
+		pre = append(pre, &irStmt{K: "var", Pos: p, Local: v})
+	}
+	return append(pre, b.matchStmt(m, true, &yieldTo{local: v, t: t, fails: true, err: e})...), v, e // ir_match.go
+}
+
 // isNoValue reports the type of a call with no value.
 func isNoValue(t check.Type) bool {
 	if tu, ok := t.(*check.Tuple); ok && len(tu.Types) == 0 {
@@ -281,9 +309,23 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 	if m == nil || m.Partial != partial {
 		irNo("catch without its Matches entry")
 	}
+	// The caught value: a fallible call, or a match whose arms' tails
+	// fail (bindMatch).
 	call := b.fallibleCall(x.X)
+	var src syntax.Expr = call
+	bindSrc := func() ([]*irStmt, int, int) { return b.bind(call) }
 	if call == nil {
-		irNo("catch of a non-call")
+		m, ok := unparen(x.X).(syntax.Stmt)
+		switch m.(type) {
+		case *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
+		default:
+			ok = false
+		}
+		if _, conv := b.l.info.Implicit[x.X]; !ok || conv {
+			irNo("catch of a non-call")
+		}
+		src = x.X
+		bindSrc = func() ([]*irStmt, int, int) { return b.bindMatch(x.X, m) }
 	}
 	type arm struct {
 		types []string
@@ -320,13 +362,13 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 		arms = append(arms, ar)
 		alts = append(alts, as)
 	}
-	pre, v, e := b.bind(call)
+	pre, v, e := bindSrc()
 	p := b.pos(x, x.Catch)
 	result := -1
 	var rt string
 	if m.Result != nil {
 		rt = b.goType(m.Result, x)
-		if v >= 0 && b.l.info.Types[call] == nil {
+		if v >= 0 && b.l.info.Types[src] == nil {
 			irNo("catch value of another type")
 		}
 		result = b.temp("caught", rt, p)
@@ -369,7 +411,7 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 	if result >= 0 && v >= 0 {
 		ifs.ElsePos, ifs.ElseEnd = sw.End, sw.End
 		// The call's value joins the union of the arms' (ir_union.go).
-		val := b.variantInto(b.l.info.Types[call], m.Result, &irExpr{K: "local", Pos: sw.End, I: v}, call)
+		val := b.variantInto(b.l.info.Types[src], m.Result, &irExpr{K: "local", Pos: sw.End, I: v}, src)
 		ifs.Else = []*irStmt{{K: "set", Pos: sw.End, Local: result, X: val}}
 	}
 	pre = append(pre, ifs)
@@ -391,36 +433,15 @@ func (b *irBuilder) armBody(a *syntax.CatchArm, result int, rt check.Type) []*ir
 		}
 		return nil
 	}
-	last, isExpr := list[len(list)-1].(*syntax.ExprStmt)
-	switch s := list[len(list)-1].(type) {
-	case *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
-		if result >= 0 {
-			// A match yields the catch's value (ir_match.go).
-			out := b.tail(list[:len(list)-1], false)
-			return append(out, b.matchStmt(s, true, &yieldTo{local: result, t: rt})...)
-		}
-	}
-	if !isExpr {
-		if result >= 0 {
-			if _, isRet := list[len(list)-1].(*syntax.ReturnStmt); !isRet {
-				irNo("catch arm form")
-			}
-		}
+	if result < 0 {
+		// No value: the statements, the last one's value dropped (the
+		// emitter's stmts, discard).
 		return b.tail(list, false)
 	}
-	out := b.tail(list[:len(list)-1], false)
-	if result < 0 {
-		if _, isCall := unparen(last.X).(*syntax.CallExpr); !isCall {
-			irNo("catch arm form")
-		}
-		return append(out, b.tail(list[len(list)-1:], false)...)
-	}
-	b.part(func() {
-		pre, v := b.value(last.X)
-		v = b.assignedTo(last.X, v, rt) // a variant joins the union (ir_union.go)
-		out = append(append(out, pre...), &irStmt{K: "set", Pos: b.pos(last.X, last.X.Pos()), Local: result, X: v})
-	})
-	return out
+	// The last statement yields the catch's value into result, as the
+	// emitter's yieldList with destAssign: an expression, an if or a
+	// match whose arms yield, a return, or a break or continue.
+	return b.tailTo(list, false, &yieldTo{local: result, t: rt})
 }
 
 // operand is one operand of a call: a try, a catch, a call, or an
@@ -461,29 +482,14 @@ func (b *irBuilder) operands(list []syntax.Expr) ([]*irStmt, []*irExpr) {
 	for i, a := range list {
 		pres[i], vals[i] = b.operand(a)
 	}
-	var pre []*irStmt
-	for i, a := range list {
-		pre = append(pre, pres[i]...)
-		later, branch := false, false
-		for k, p := range pres[i+1:] {
-			later = later || len(p) > 0
-			branch = branch || isBranch(list[i+1+k])
-		}
-		if later && vals[i].K != "const" && (vals[i].K != "local" || branch) {
-			p := vals[i].Pos
-			// The temporary has the operand's type after its implicit
-			// conversion, which operand applied.
-			t := b.temp("arg", b.goType(b.operandType(a), a), p)
-			pre = append(pre, &irStmt{K: "def", Pos: p, Local: t, X: vals[i]})
-			vals[i] = &irExpr{K: "local", Pos: p, I: t}
-		}
-	}
-	return pre, vals
+	return b.ordered(list, pres, vals), vals // ir_order.go
 }
 
 // operandType is the type of operand a's value: its implicit
 // conversion's target when it has one (value applies it), else its own.
-// A variant passed as its union spills into a local of the union.
+// A variant passed as its union spills into a local of the union. The one
+// definition (owner: lane GP): OPC's operandFits (ir_operand.go) reads it
+// too, and a ConvVariant's target is the case OPC's own copy covered.
 func (b *irBuilder) operandType(a syntax.Expr) check.Type {
 	if conv, ok := b.l.info.Implicit[a]; ok && conv.To != nil {
 		return conv.To

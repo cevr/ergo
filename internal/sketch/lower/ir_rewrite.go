@@ -512,11 +512,11 @@ func (b *irBuilder) bindOperands(m rwMatch) ([]*irStmt, map[*check.Var]*irExpr) 
 // no source of the program).
 func (b *irBuilder) lawSide(law *check.Law, side syntax.Expr, vals map[*check.Var]*irExpr) ([]*irStmt, *irExpr) {
 	savedInfo, savedDirectives := b.l.info, b.fc.directives
-	if b.params == nil {
-		b.params = map[*check.Var]*irExpr{}
+	if b.lawArgs == nil {
+		b.lawArgs = map[*check.Var]*irExpr{}
 	}
 	for v, e := range vals {
-		b.params[v] = e
+		b.lawArgs[v] = e
 	}
 	b.l.info, b.fc.directives = law.Pkg.Info, false
 	b.keep++
@@ -524,7 +524,7 @@ func (b *irBuilder) lawSide(law *check.Law, side syntax.Expr, vals map[*check.Va
 		b.l.info, b.fc.directives = savedInfo, savedDirectives
 		b.keep--
 		for v := range vals {
-			delete(b.params, v)
+			delete(b.lawArgs, v)
 		}
 	}()
 	return b.value(side)
