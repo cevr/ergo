@@ -162,6 +162,14 @@ var transforms = []transform{
 					edits = append(edits, edit{int(a.Pos()), int(b.End()), f.Src[b.Pos():b.End()] + ", " + f.Src[a.Pos():a.End()]})
 					return false
 				}
+			case *syntax.BinaryExpr:
+				// a && b || c is (a && b) || c, since && binds tighter, and
+				// a || b || c is (a || b) || c, since both group left.
+				if x, ok := n.X.(*syntax.BinaryExpr); ok && (n.Op == syntax.LOR || n.Op == syntax.LAND) &&
+					(x.Op == n.Op || x.Op == syntax.LAND && n.Op == syntax.LOR) && r.IntN(2) == 0 {
+					edits = append(edits, edit{int(x.Pos()), int(x.End()), "(" + f.Src[x.Pos():x.End()] + ")"})
+					return false
+				}
 			case *syntax.IfStmt:
 				if n.Cond != nil && r.IntN(2) == 0 {
 					c := n.Cond
@@ -386,6 +394,9 @@ func show(l Light, p bool, q bool) int {
 	case Green as g:
 		if p && q || !p {
 			return g.N
+		}
+		if p || q || !q {
+			return g.M + 1
 		}
 		g.M
 	case Red as r:
