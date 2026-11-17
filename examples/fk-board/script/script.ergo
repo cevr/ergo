@@ -64,7 +64,7 @@ func noWork(b kanban.Board) Option[func(send func(s kanban.Signal))] { None }
 // output goes to a queue the host answers from (Answer).
 func Open(columns []board.Column, clock time.Manual) Host fails Unread needs Scheduler {
 	let asked = queue.New[[]kanban.Command](256)
-	let m = Machine[kanban.Board, kanban.Signal, []kanban.Command]{Initial: kanban.Start(columns), Step: kanban.Step, After: noTimer, Work: noWork}
+	let m = Machine[kanban.Board, kanban.Signal, []kanban.Command]{Initial: kanban.Start(columns), Step: kanban.Step, After: noTimer, Work: noWork, Exit: func(s kanban.Board) Option[func()] { None }}
 	let app = actor.StartMachine(m, 16, func(o []kanban.Command) {
 		asked.Push(o) catch {
 		case queue.Closed:

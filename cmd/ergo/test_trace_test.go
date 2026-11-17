@@ -63,7 +63,7 @@ func script(seed int) []ui.Act {
 func lines(seed int, traced bool) []string fails ui.NoNode | ui.Ambiguous | ui.Mismatch | actor.Stopped | ui.BadPatch {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
-		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: step, After: timer, Work: work}, 1, func(o int) {})
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: step, After: timer, Work: work, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = try ui.NewTestHost(a, view, m, 4)
 		if traced {
 			return try ui.PlayTrace(&h, script(seed))

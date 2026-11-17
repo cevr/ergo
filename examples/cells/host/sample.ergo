@@ -88,7 +88,7 @@ func sampleWork(s Sample) Option[func(send func(e int))] { None }
 
 // SampleMachine is the generated app from seed.
 func SampleMachine(seed int) Machine[Sample, int, int] {
-	Machine[Sample, int, int]{Initial: Sample{Seed: seed, Rows: 0, Taps: 0}, Step: sampleStep, After: sampleTimer, Work: sampleWork}
+	Machine[Sample, int, int]{Initial: Sample{Seed: seed, Rows: 0, Taps: 0}, Step: sampleStep, After: sampleTimer, Work: sampleWork, Exit: func(s Sample) Option[func()] { None }}
 }
 
 // SampleView shows a count, a "more" button that adds a row of a text
