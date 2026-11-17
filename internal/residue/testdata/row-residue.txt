@@ -20,6 +20,8 @@
 # prose that only reads like a row: a verb or a noun before a comma, not a list of capabilities
 # Exact diagnostic sentence: "and" starts prose, not a comma-separated capability row.
 internal/sketch/lower/entry_scheduler_test.go	main needs Scheduler, and the host provides only Console and Ambient
+# The Go team's golang.org/x/sync, copied unchanged (examples/admit's Go module): Go prose.
+examples/admit/testdata/sync/errgroup/errgroup.go	provides synchronization, error propagation
 CHANGELOG.md	a module function that provides it, or
 NORTH_STAR.md	A build needs Node, Effect
 README.md	error and needs rows, contexts

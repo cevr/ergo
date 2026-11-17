@@ -105,6 +105,9 @@ func (b *irBuilder) retOf(x syntax.Expr, p irPos) []*irStmt {
 			}
 			return append(pre, &irStmt{K: "ret", Pos: p, X: v})
 		}
+		if out, ok := b.hostRet(call, p); ok { // ir_golib.go: a fallible Go call
+			return out
+		}
 		pre, e := b.rawCall(call)
 		return append(pre, &irStmt{K: "ret", Pos: p, X: e})
 	}
@@ -247,6 +250,9 @@ func (b *irBuilder) try(call *syntax.CallExpr) ([]*irStmt, *irExpr) {
 func (b *irBuilder) bind(call *syntax.CallExpr) (pre []*irStmt, v, e int) {
 	if w, ok := b.isWith(call); ok {
 		return b.failWith(w) // ir_with.go
+	}
+	if pre, v, e, ok := b.hostBind(call); ok { // ir_golib.go: a fallible Go call
+		return pre, v, e
 	}
 	pre, x := b.rawCall(call)
 	p := b.pos(call, call.Pos())

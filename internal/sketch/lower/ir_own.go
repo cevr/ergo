@@ -230,9 +230,8 @@ func (b *irBuilder) releaseFuncs(name, helper string, params []string) bool {
 // call, the receiver taken by address or through a pointer as Close's
 // parameter needs, a generic one with the provider's type arguments; a
 // std operation type's Close is stdCloseCall's, a Go value's
-// hostCloseCall's (ir_gocall.go, FORK-GOCALL). ok is false for a Close
-// the IR does not call: a std or extern function (the checker refuses
-// it, C26).
+// hostCloseCall's (ir_gocall.go). ok is false for a Close the IR does not
+// call: a std or extern function (the checker refuses it, C26).
 func (b *irBuilder) closeCall(s irSlot, env, slot int, p irPos) (*irExpr, bool) {
 	cl := s.d.Close
 	if cl != nil && cl.Func == nil && cl.Op != nil {

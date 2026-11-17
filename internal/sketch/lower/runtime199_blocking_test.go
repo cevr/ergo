@@ -40,6 +40,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"irBuilder.closeMasked":    "the IR's checked Close: v1.Release's hidden CallerTask (its body's facts read through runtimeBody), as closeBody's runtimeCall writes it (FLIP F7 FORK unit 4)",
 			"irBuilder.releaseFuncs":   "the IR's static-frame release: StaticBegin's hidden CallerTask, as closeStatic's runtimeCall writes it (FLIP F7 FORK RELEASE-IR)",
 			"irBuilder.hostCloseCall":  "the IR's release of a Go value: v1.Release's hidden CallerTask, as hostRelease's runtimeCall writes it (FLIP F7 FORK-GOCALL)",
+			"irBuilder.goTarget":       "the IR's rt.GoContext, the task as the hidden context.Context of a Go call, as funcCtx.goContext's; it neither waits nor releases (FLIP F7 FORK-GOLIB)",
 		}},
 		{"taskOf", map[string]string{
 			"funcCtx.hiddenArgs":      "runtimeCall's hidden CallerTask argument",
@@ -98,6 +99,9 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"irBuilder.opCall":          "the experimental IR's program operation method, as funcCtx.programOpCall's (IRG4b r2)",
 			"irBuilder.stdOpCall":       "the experimental IR's std operation method on a runtime type, as runtimeCall's method head (IRG4b r2)",
 			"irBuilder.getArm":          "the experimental IR's Value field of Some, bound in a comma-ok match on Get, as funcCtx.getArmsLower's (FLIP F7 lane B)",
+			"irBuilder.hostResult":      "the Value field of Some, for an Option of a Go pointer result, as funcCtx.optionSome's (FLIP F7 FORK-GOLIB)",
+			"irBuilder.nicheNarrow":     "the Value field of Some, written from an Option of a go.Ref in the pointer niche, as flatUnion.flatNarrow's (FLIP F7 FORK-GOLIB)",
+			"irBuilder.nicheValue":      "the Value field of Some, read into an Option of a go.Ref in the pointer niche, as flatUnion.flatValue's (FLIP F7 FORK-GOLIB)",
 		}},
 	} {
 		obj := scope.Lookup(c.obj)
