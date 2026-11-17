@@ -1,10 +1,11 @@
 import ergo.dev/fluid/look
+import ergo.dev/fluid/part
 import ergo.dev/fluid/token
 import ergo.dev/fluid/web
 import html
 
-// ChipParts is a chip's classes.
-type ChipParts { Root string, Dot string, Label string }
+// ChipParts is a chip's skins.
+type ChipParts { Root part.Skin, Dot part.Skin, Label part.Skin }
 
 // chipIndex is a chip's place in the table: hue, then outlined.
 func chipIndex(h token.Hue, outline bool) int {
@@ -23,7 +24,7 @@ func chipTable() []ChipParts {
 	for h in token.Hues() {
 		for outline in []bool{false, true} {
 			let c = look.ChipLook(h, outline, token.Comfortable)
-			out = out.Append(ChipParts{Root: web.Classes(c.Root), Dot: web.Classes(c.Dot), Label: web.Classes(c.Label)})
+			out = out.Append(ChipParts{Root: web.SkinIn(names, c.Root), Dot: web.SkinIn(names, c.Dot), Label: web.SkinIn(names, c.Label)})
 		}
 	}
 	out
@@ -45,16 +46,19 @@ func badgeLooks() []look.Look {
 	out
 }
 
-// chipOf draws a chip.
-func chipOf(h token.Hue, outline bool, label string) html.Node {
+// chipNode is a chip as a part: an inline box, its dot when outlined, and its label.
+func chipNode(h token.Hue, outline bool, label string) part.Node[int] {
 	let c = chipParts[chipIndex(h, outline)]
-	let mut kids = []html.Child{html.Class(c.Root)}
+	let mut kids = []part.Node[int]{}
 	if outline {
-		kids = kids.Append(html.Span([]html.Child{html.Class(c.Dot), html.Aria("hidden", "true")}))
+		kids = kids.Append(part.Box{Sem: part.Hidden(), Skin: c.Dot, Inline: true, Keys: []part.Binding[int]{}, Kids: []part.Node[int]{}})
 	}
-	kids = kids.Append(html.Span([]html.Child{html.Class(c.Label), html.Text(label)}))
-	html.Span(kids)
+	kids = kids.Append(part.Text{Value: label, Skin: c.Label})
+	part.Box{Sem: part.Plain(), Skin: c.Root, Inline: true, Keys: []part.Binding[int]{}, Kids: kids}
 }
+
+// chipOf is a chip's HTML.
+func chipOf(h token.Hue, outline bool, label string) html.Node { web.Node(chipNode(h, outline, label), func(_ int) web.Act { web.Inert }) }
 
 // Tagged is a chip of a specimen: its hue and label.
 type Tagged { Hue token.Hue, Label string }

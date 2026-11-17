@@ -48,6 +48,9 @@ func Looks() []look.Look {
 	out
 }
 
+// names is the short class names of every atom the gallery draws, made once.
+let names = web.NamesOf(Looks())
+
 // fontFace is the face the sheet's Inter names: the variable font under /fonts/.
 let fontFace = "@font-face{font-family:Inter;font-style:normal;font-weight:100 900;font-display:block;src:url(/fonts/InterVariable.ttf) format(\"truetype\")}"
 
@@ -57,14 +60,20 @@ let head = html.Head([]html.Child{
 	html.Meta([]html.Attr{html.Name("viewport"), html.Content("width=device-width, initial-scale=1")}),
 	html.Title([]html.Child{html.Text("Fluid · Ergo")}),
 	html.Style([]html.Attr{}, html.Trust(fontFace)),
-	web.Style(token.Default, Looks()),
+	html.Style([]html.Attr{}, html.Trust(web.SheetNamed(token.Default, names, Looks()))),
 })
 
 // View is a page of the gallery.
-func View(r Route) html.Node {
+func View(r Route) html.Node { viewWith(r, buttonOf) }
+
+// Written is View with the buttons written straight to HTML, not projected from part trees: the
+// receipt's writer form.
+func Written(r Route) html.Node { viewWith(r, buttonWriter) }
+
+func viewWith(r Route, draw func(p Press) html.Node) html.Node {
 	let doc = match r {
 	case ButtonDocs:
-		buttonPage()
+		buttonPage(draw)
 	case BadgeDocs:
 		badgePage()
 	}
