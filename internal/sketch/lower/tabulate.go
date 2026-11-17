@@ -187,41 +187,14 @@ func refFree(t check.Type, seen map[check.Type]bool) bool {
 // of the inliner's budget), so the table would cost a call more than the
 // function. Each argument is evaluated once, in order, into a temporary.
 func (fc *funcCtx) tabAt(c *check.Call, vals []string) (string, bool) {
-	if c.Kind != check.CallFunc || c.Func == nil || c.Recv != nil || c.StartsTask || fc.out == nil {
+	if fc.out == nil {
 		return "", false
 	}
-	l := fc.l
-	ti := l.tabulable(c.Func)
-	if ti == nil || len(vals) != len(ti.params) {
+	tab := fc.tabTable(c, len(vals))
+	if tab == nil {
 		return "", false
 	}
-	for _, p := range ti.params {
-		if p.kind != "enum" {
-			continue
-		}
-		fu := l.flatUnionOf(p.t)
-		if fu == nil || fu.generic || fu.niche {
-			return "", false
-		}
-		for _, s := range fu.slot {
-			if s {
-				return "", false
-			}
-		}
-	}
-	flags, ok := l.pkgNames[pkgKey{"tabK", c.Func}]
-	if !ok {
-		return "", false
-	}
-	vs, fill := l.pkgNames[pkgKey{"tabV", c.Func}], l.pkgNames[pkgKey{"tabFill", c.Func}]
-	if l.tabEmitted == nil {
-		l.tabEmitted = map[*check.Func]bool{}
-	}
-	if !l.tabEmitted[c.Func] {
-		l.tabEmitted[c.Func] = true
-		l.stats.Tabulated++
-		l.gen.WriteString(fc.tabDecl(flags, vs, fill, l.funcDecl(c.Func).name, c.Func, ti))
-	}
+	flags, vs, fill, ti := tab.flags, tab.vals, tab.fill, tab.info
 	args := make([]string, len(vals))
 	for k, v := range vals {
 		args[k] = fc.temp("a")
@@ -251,6 +224,55 @@ func (fc *funcCtx) tabAt(c *check.Call, vals []string) (string, bool) {
 	fc.line("\t" + v + " = " + fill + "(" + i + ", " + strings.Join(args, ", ") + ")")
 	fc.line("}")
 	return v, true
+}
+
+// tabRead is a tabulated call's table: the Go names of its flags, its
+// values and its fill function, and the function's domain.
+type tabRead struct {
+	flags, vals, fill string
+	info              *tabInfo
+}
+
+// tabTable is the table the call c of n arguments reads, writing the
+// table's declaration at its first read; nil when c takes the function
+// itself. The text (tabAt) and the IR (ir_tab.go) read it alike.
+func (fc *funcCtx) tabTable(c *check.Call, n int) *tabRead {
+	if c.Kind != check.CallFunc || c.Func == nil || c.Recv != nil || c.StartsTask {
+		return nil
+	}
+	l := fc.l
+	ti := l.tabulable(c.Func)
+	if ti == nil || n != len(ti.params) {
+		return nil
+	}
+	for _, p := range ti.params {
+		if p.kind != "enum" {
+			continue
+		}
+		fu := l.flatUnionOf(p.t)
+		if fu == nil || fu.generic || fu.niche {
+			return nil
+		}
+		for _, s := range fu.slot {
+			if s {
+				return nil
+			}
+		}
+	}
+	flags, ok := l.pkgNames[pkgKey{"tabK", c.Func}]
+	if !ok {
+		return nil
+	}
+	vs, fill := l.pkgNames[pkgKey{"tabV", c.Func}], l.pkgNames[pkgKey{"tabFill", c.Func}]
+	if l.tabEmitted == nil {
+		l.tabEmitted = map[*check.Func]bool{}
+	}
+	if !l.tabEmitted[c.Func] {
+		l.tabEmitted[c.Func] = true
+		l.stats.Tabulated++
+		l.gen.WriteString(fc.tabDecl(flags, vs, fill, l.funcDecl(c.Func).name, c.Func, ti))
+	}
+	return &tabRead{flags: flags, vals: vs, fill: fill, info: ti}
 }
 
 // tabDecl is the table of f (Go name fname): its flags, its values and
