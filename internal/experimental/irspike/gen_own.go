@@ -16,7 +16,8 @@ var ownFuncs = []string{"give", "Res.keep", "guarded", "Res.Close"}
 // wave 2): a resource Res whose Close prints its id, and functions
 // owN(k int) int that open several (each let owns its value), lend them
 // (use), hand some to a taking function (keep, which releases it) or
-// take one back from give, and leave early on some k. main runs each owN
+// take one back from give, own a generic Box (its Close generic), and
+// leave early on some k. main runs each owN
 // at several k, and at the last one a Close that fails (bad) shows a
 // defect's release order. Each release prints, so a value released twice,
 // never, out of order (last acquired first), or after a hand-off changes
@@ -99,6 +100,24 @@ func guardedAt(k int, bad bool) int needs Console {
 	use(x)
 }
 
+// Box is a generic resource: its Close is generic, which a frame's
+// release helper calls on each instance (RELEASE-IR).
+type Box[T] { id int, v T } implements Closer
+
+func Close[T](b Box[T]) needs Console {
+	Console.Println("close box \(b.id)")
+}
+
+func boxed[T](id int, v T) Box[T] needs Console {
+	Console.Println("open box \(id)")
+	Box[T]{id: id, v: v}
+}
+
+func peek[T](b Box[T]) int needs Console {
+	Console.Println("peek \(b.id)")
+	b.id
+}
+
 func give(id int, k int) Res needs Console {
 	let r = open(id, false)
 	if k > 2 {
@@ -150,6 +169,14 @@ func give(id int, k int) Res needs Console {
 					fmt.Fprintf(&b, "\tfor q in 0..3 {\n\t\tlet t%d = open(%d + q, false)\n\t\tlet v%d = use(t%d)\n\t\ts = s + v%d\n\t\tif q == k {\n\t\t\tbreak\n\t\t}\n\t}\n", j, id, j, j, j)
 				}
 			}
+		}
+		if r.IntN(2) == 0 {
+			// A generic resource in the frame, released at its exit.
+			v := `"x"`
+			if r.IntN(2) == 0 {
+				v = "k"
+			}
+			fmt.Fprintf(&b, "\tlet bx = boxed(%d, %s)\n\tlet px = peek(bx)\n\ts = s + px\n", 200*(i+1), v)
 		}
 		if len(live) > 0 && r.IntN(2) == 0 {
 			fmt.Fprintf(&b, "\tlet un = use(%s)\n\ts = s + un\n", live[r.IntN(len(live))])
