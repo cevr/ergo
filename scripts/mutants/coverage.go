@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -63,14 +64,22 @@ func (c *coverage) test(id string) *covTest {
 }
 
 // covering returns the tests that run a block of file between lines lo and
-// hi, and the extra tests that exist, without the tests that fail on the
-// unmutated tree. A header line (headerLine: a case or an else if) that is
+// hi, the tests that read the file (reads.go), and the extra tests that
+// exist, the tests that fail on the unmutated tree included (judge refuses
+// a mutant one of them covers). A header line (headerLine: a case or an else if) that is
 // in no block takes the tests of the block that ends last before it.
 func (c *coverage) covering(file string, lo, hi int, header bool, extra []string) map[string]bool {
 	out := map[string]bool{}
 	var before *covBlock
 	inBlock := false
 	for k, b := range c.Files[file] {
+		if b.Start == readBlock {
+			// The tests that read the file (reads.go) cover every line.
+			for _, i := range b.Tests {
+				out[c.Tests[i].ID] = true
+			}
+			continue
+		}
 		if b.Start <= hi && b.End >= lo {
 			inBlock = true
 			for _, i := range b.Tests {
@@ -93,23 +102,6 @@ func (c *coverage) covering(file string, lo, hi int, header bool, extra []string
 	}
 	for _, id := range extra {
 		if c.test(id) != nil {
-			out[id] = true
-		}
-	}
-	for id := range out {
-		if c.test(id).Failed {
-			delete(out, id)
-		}
-	}
-	return out
-}
-
-// named returns the tests of ids that the coverage pass ran (a test of a
-// suite in this run) and that pass on the unmutated tree.
-func (c *coverage) named(ids []string) map[string]bool {
-	out := map[string]bool{}
-	for _, id := range ids {
-		if t := c.test(id); t != nil && !t.Failed {
 			out[id] = true
 		}
 	}
@@ -153,6 +145,9 @@ type blockKey struct {
 type collector struct {
 	module string
 	blocks map[blockKey][]int
+	// ergo maps the blocks of lowered programs' coverage builds to .ergo
+	// lines; nil maps none.
+	ergo *ergoMapper
 }
 
 // add reads one test's profile (go tool covdata textfmt) and records the
@@ -169,16 +164,28 @@ func (k *collector) add(test int, profile io.Reader) error {
 		if err != nil {
 			return err
 		}
+		if count == 0 {
+			continue
+		}
 		rel, ok := strings.CutPrefix(key.file, k.module+"/")
-		if !ok || count == 0 {
+		if !ok {
+			// A block of a lowered program's coverage build stands for
+			// the .ergo lines it came from (ergolines.go).
+			for _, b := range k.ergo.blocks(key.file, key.start, key.end) {
+				k.record(b, test)
+			}
 			continue
 		}
 		key.file = rel
-		if tests := k.blocks[key]; len(tests) == 0 || tests[len(tests)-1] != test {
-			k.blocks[key] = append(tests, test)
-		}
+		k.record(key, test)
 	}
 	return scanner.Err()
+}
+
+func (k *collector) record(key blockKey, test int) {
+	if tests := k.blocks[key]; len(tests) == 0 || tests[len(tests)-1] != test {
+		k.blocks[key] = append(tests, test)
+	}
 }
 
 // parseBlock reads "FILE:L.C,L.C STATEMENTS COUNT".
@@ -233,8 +240,13 @@ func (k *collector) files() map[string][]covBlock {
 	return out
 }
 
+// saveCoverage writes c to path: a new file, renamed into place, so two
+// runs filling the coverage store at once never interleave.
 func saveCoverage(path string, c *coverage) error {
-	f, err := os.Create(path + ".partial")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.partial")
 	if err != nil {
 		return err
 	}
@@ -246,10 +258,13 @@ func saveCoverage(path string, c *coverage) error {
 	if closeErr := f.Close(); err == nil {
 		err = closeErr
 	}
-	if err != nil {
-		return err
+	if err == nil {
+		err = os.Rename(f.Name(), path)
 	}
-	return os.Rename(path+".partial", path)
+	if err != nil {
+		os.Remove(f.Name())
+	}
+	return err
 }
 
 func loadCoverage(path string) (*coverage, error) {

@@ -166,16 +166,25 @@ type stdFile struct {
 // call's site) goes through it. A node that no file holds, of the program
 // or of std, is a compiler defect (G1, batch 11).
 func (l *lowerer) locate(n syntax.Node, pos syntax.Pos) (path string, line, column int) {
+	path, line, column, ok := l.find(n, pos)
+	if !ok {
+		ice(n, "a location of a node that no source file holds")
+	}
+	return path, line, column
+}
+
+// find is locate's location, or false for a node no file holds.
+func (l *lowerer) find(n syntax.Node, pos syntax.Pos) (path string, line, column int, ok bool) {
 	if _, ok := l.sourceOf(n); ok {
 		_, path, line, column = l.at(n, pos)
-		return path, line, column
+		return path, line, column, true
 	}
 	sf, ok := l.stdFileOf(n)
 	if !ok || n == nil {
-		ice(n, "a location of a node that no source file holds")
+		return "", 0, 0, false
 	}
 	line, column = sf.file.Position(pos)
-	return sf.path, line, column
+	return sf.path, line, column, true
 }
 
 // stdFileOf is the embedded file of a reached std package that holds n.

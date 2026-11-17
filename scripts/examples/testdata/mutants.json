@@ -549,5 +549,6 @@
       "rule": "A package folder named workload is a package, not opcount's workload file (examples/vt).",
       "killers": ["scripts/examples:TestModuleProgramWorkloadPackage"]
     }
+
   ]
 }

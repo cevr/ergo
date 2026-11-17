@@ -198,5 +198,6 @@
       "killers": ["internal/closure:TestStdStoreHoldsOnlyStdCompiles"],
       "anchor": {"tests": ["internal/closure:TestStdStoreHoldsOnlyStdCompiles"]}
     }
+
   ]
 }

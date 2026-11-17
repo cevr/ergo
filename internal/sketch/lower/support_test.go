@@ -268,7 +268,11 @@ func buildDispatch(t testing.TB, programs []*lowered) map[string]string {
 	}
 	m.write("cmd/dispatch/main.go", []byte(dispatcherMain(names)))
 	dispatcher := dispatchRoot(m.root)
-	if out, ok := m.goCommand("build", "-trimpath", "-o", dispatcher, "./cmd/dispatch"); !ok {
+	if coverGo != "" {
+		if !coverDispatch(m, dispatcher) {
+			return nil
+		}
+	} else if out, ok := m.goCommand("build", "-trimpath", "-o", dispatcher, "./cmd/dispatch"); !ok {
 		m.report("build", out)
 		return nil
 	}

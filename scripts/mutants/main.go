@@ -8,14 +8,14 @@
 // PACKAGE is check, lower, a package directory, or a ledger file. The
 // runner works on copies of the checkout under -work and never writes the
 // checkout, except the ledgers with -write. It first measures per-test
-// coverage (once per tree and scope: the result is kept under -work, by
-// default a private directory removed at the end): every
+// coverage (once per tree: the result is kept under -work, by default a
+// private directory removed at the end): every
 // top-level test of the check, lower and std packages and every default
-// example program whose binary, or the tool it runs, compiles a package of
-// a selected mutant (scope.go), each in its own process, logging each test
-// as it ends and a receipt of the work, with coverage of check and
+// example program, each in its own process, with coverage of check and
 // lower (the ergo CLI and the examples runner built with coverage, their
-// main packages included). Then, for each mutant, it applies the edit,
+// main packages included); a suite whose segment the coverage store holds
+// at its unchanged key is not measured again (coverstore.go). Then, for
+// each mutant, it applies the edit,
 // builds what the covering tests need, and runs only the tests that cover
 // the mutated lines, the ledger's known killers first and then the
 // cheapest, until the first one fails. Each child runs as the leader of its
@@ -70,8 +70,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 	flags.SetOutput(stderr)
 	cfg := Config{Log: stderr}
 	var selectRE, memory, jsonOut string
-	var write bool
+	var write, fresh, measureOnly, compileOnly bool
+	flags.BoolVar(&compileOnly, "compiles", false, "apply each selected row and compile it, and run no test: list the rows that do not compile (invalid)")
 	flags.StringVar(&cfg.Root, "root", ".", "the checkout")
+	flags.BoolVar(&fresh, "fresh", false, "judge every selected row, also one whose killed verdict is stored at its unchanged key, and measure every suite's coverage (the reference)")
+	flags.BoolVar(&measureOnly, "measure", false, "measure the coverage of the ledgers' suites into the coverage store and judge nothing (run on main's head after a landing)")
 	flags.StringVar(&cfg.Work, "work", "", "scratch `DIR`: the copies, the binaries and the kept coverage (default: a private directory, removed at the end)")
 	flags.StringVar(&selectRE, "run", "", "judge only the mutants whose name matches `REGEXP`")
 	flags.BoolVar(&cfg.All, "all", false, "run every covering test of each mutant, to name every killer")
@@ -127,19 +130,88 @@ func run(args []string, stdout, stderr io.Writer) int {
 		jobs = append(jobs, Job{Path: path, Ledger: l, Select: sel})
 		addScope(&cfg, scopeOf(cfg.Root, path))
 	}
+	// Every .ergo row is formatted and checked before and after its edit,
+	// in the run and in -compiles (FK7a, FK12a; source.go).
+	cfg.Sources = ergoSources
+	if compileOnly {
+		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+		defer cancel()
+		start := time.Now()
+		results, err := CompileRows(ctx, cfg, jobs)
+		if results == nil {
+			fmt.Fprintf(stderr, "mutants: %v\n", err)
+			return 2
+		}
+		code := report(stdout, jobs, results, &coverage{})
+		fmt.Fprintf(stdout, "time: %s\n", time.Since(start).Round(time.Second))
+		if jsonOut != "" {
+			if werr := writeResults(jsonOut, results); werr != nil {
+				fmt.Fprintf(stderr, "mutants: %v\n", werr)
+				return 2
+			}
+		}
+		if err != nil {
+			fmt.Fprintf(stderr, "mutants: %v\n", err)
+			return 2
+		}
+		return code
+	}
 	if cfg.Cover, cfg.Tools, cfg.Suites, err = suitesFor(cfg.Root, jobs); err != nil {
 		fmt.Fprintf(stderr, "mutants: %v\n", err)
 		return 2
 	}
-	cfg.Sources = ergoSources
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
-	defer cancel()
-	start := time.Now()
-	results, cov, runErr := Run(ctx, cfg, jobs)
-	if results == nil {
-		fmt.Fprintf(stderr, "mutants: %v\n", runErr)
-		return 2
+	if !fresh {
+		if store, err := openCoverStore(); err != nil {
+			fmt.Fprintf(stderr, "mutants: no coverage segment reused: %v\n", err)
+		} else {
+			cfg.CoverStore = store.dir
+		}
 	}
+	if measureOnly {
+		if cfg.CoverStore == "" {
+			fmt.Fprintln(stderr, "mutants: -measure fills the coverage store, which -fresh turns off")
+			return 2
+		}
+		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+		defer cancel()
+		c, err := Measure(ctx, cfg, jobs)
+		if err != nil {
+			fmt.Fprintf(stderr, "mutants: %v\n", err)
+			return 2
+		}
+		fmt.Fprintf(stdout, "coverage: %d tests of %d suites, stored at %s\n", len(c.Tests), len(cfg.Suites), cfg.CoverStore)
+		return 0
+	}
+	start := time.Now()
+	// The rows whose killed verdict the store holds at their key are not
+	// judged again (reuse.go); -fresh and -all judge every row.
+	judge, reused := jobs, []Result(nil)
+	pass := &reusePass{root: cfg.Root, log: stderr}
+	if !fresh && !cfg.All {
+		if pass.store, err = openReuseStore(); err != nil {
+			fmt.Fprintf(stderr, "mutants: no verdict reused: %v\n", err)
+		} else {
+			reused, judge = pass.begin(jobs)
+		}
+	}
+	results, cov, runErr := []Result(nil), &coverage{}, error(nil)
+	if len(judge) > 0 {
+		if cfg.Cover, cfg.Tools, cfg.Suites, err = suitesFor(cfg.Root, judge); err != nil {
+			fmt.Fprintf(stderr, "mutants: %v\n", err)
+			return 2
+		}
+		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+		defer cancel()
+		results, cov, runErr = Run(ctx, cfg, judge)
+		if results == nil {
+			fmt.Fprintf(stderr, "mutants: %v\n", runErr)
+			return 2
+		}
+		if runErr == nil {
+			pass.end(judge, results)
+		}
+	}
+	results = inLedgerOrder(jobs, append(reused, results...))
 	code := report(stdout, jobs, results, cov)
 	fmt.Fprintf(stdout, "time: %s\n", time.Since(start).Round(time.Second))
 	if jsonOut != "" {
@@ -321,9 +393,8 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 			}
 		}
 		if goFiles(absRoot, rel, true) {
-			// The ledger's env reaches every run of its own suite (the
-			// coverage pass and the mutant pass), and enters the tree key
-			// with it.
+			// The ledger's env reaches every run of its own suite (the coverage
+			// pass and the mutant pass), and enters the tree key with it.
 			suites = append(suites, Suite{Name: rel, Package: "./" + rel, Env: slices.Clone(j.Ledger.Env)})
 		}
 	}
@@ -333,7 +404,9 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 	// hang without the explored worker). No row is left to run by hand.
 	// An id whose suite or test does not exist is an error, not a killer
 	// left out: before, v1:, sched: and rt-explore: killers were skipped
-	// and their rows judged without them (MUT-names). Only the selected rows bring suites: a run of one row builds and runs the killers that row names.
+	// and their rows judged without them (MUT-names). Only the selected
+	// rows bring suites: a run of one row builds and runs the killers that
+	// row names, not every killer of its ledger.
 	var unresolved []error
 	for _, j := range jobs {
 		for _, m := range j.Ledger.Mutants {
@@ -441,6 +514,7 @@ func nestedModule(root, dir string) string {
 func hasTest(root string, s *Suite, test string) bool {
 	switch {
 	case s.Package != "":
+		// A nested module's suite names its package in its module.
 		files, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(s.Module), filepath.FromSlash(s.Package), "*_test.go"))
 		for _, f := range files {
 			data, err := os.ReadFile(f)
@@ -486,7 +560,8 @@ func report(w io.Writer, jobs []Job, results []Result, cov *coverage) int {
 		}
 	}
 	counts := map[string]int{}
-	var newSurvivors, gaps, closed, moved, only, owners []string
+	var newSurvivors, gaps, closed, moved, only, owners, unjudged []string
+	invalid := 0
 	for _, r := range results {
 		if r.Status == "" {
 			continue // not judged: the run was interrupted
@@ -518,6 +593,11 @@ func report(w io.Writer, jobs []Job, results []Result, cov *coverage) int {
 			}
 		case Stale, Invalid:
 			owners = append(owners, fmt.Sprintf("%s (%s, origin %s): %s", r.Name, r.Status, m.Origin, firstLine(r.Detail)))
+			if r.Status == Invalid {
+				invalid++
+			}
+		case Unjudged:
+			unjudged = append(unjudged, fmt.Sprintf("%s (%s): %s", r.Name, where, r.Detail))
 		}
 	}
 	var keys []string
@@ -531,7 +611,7 @@ func report(w io.Writer, jobs []Job, results []Result, cov *coverage) int {
 	section(w, "gaps closed (now killed: clear the gap)", closed)
 	section(w, "killer moved", moved)
 	section(w, "killed only by", only)
-	section(w, "report to the origin (stale: the edit no longer applies; invalid: the mutated tree does not build)", owners)
+	section(w, "report to the origin (stale: the edit no longer applies; invalid: the mutated tree does not build, or the mutated file does not compile; an invalid row fails the run)", owners)
 	var broken []string
 	for _, t := range cov.Tests {
 		if t.Failed {
@@ -539,7 +619,8 @@ func report(w io.Writer, jobs []Job, results []Result, cov *coverage) int {
 		}
 	}
 	section(w, "tests that fail on the unmutated tree (they kill nothing)", broken)
-	if len(newSurvivors) > 0 {
+	section(w, "NOT JUDGED (a test that covers them fails on the unmutated tree: fix it, then run again)", unjudged)
+	if len(newSurvivors) > 0 || len(unjudged) > 0 || invalid > 0 {
 		return 1
 	}
 	return 0

@@ -247,6 +247,8 @@ type lowerer struct {
 	copyScopes  map[*namer]bool
 	inlineSites []inlineSite
 	lastDir     string
+	// coverMarks is Unit.CoverMarks: std bodies write cover marks.
+	coverMarks bool
 	// fresh holds the fresh temporaries (forms.go).
 	fresh map[freshKey]bool
 	// letUses counts each package let's uses and its uses where a Go
@@ -470,6 +472,7 @@ func newLowerer(u Unit) *lowerer { return newBuildLowerer(u, nil) }
 // test build, which decides the facts it reads (owners.go).
 func newBuildLowerer(u Unit, tests *testLowering) *lowerer {
 	l := lowererOf(canonicalize(u), u.Package, u.Go, tests)
+	l.coverMarks = u.CoverMarks || coverMarksAll
 	if tests == nil && u.Rewrite != nil {
 		l.rewrite = newRewriter(u.Package, u.Rewrite)
 	}

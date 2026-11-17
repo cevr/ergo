@@ -47,6 +47,11 @@ type Config struct {
 	All bool
 	// Coverage, when set, is a coverage file to read instead of measuring.
 	Coverage string
+	// CoverStore, when set, is the directory of the coverage store
+	// (coverstore.go): each suite's segment is taken from it where the
+	// suite's key holds, and the measured ones are stored. Empty: every
+	// suite is measured.
+	CoverStore string
 	// CoverDeadline bounds each child of the coverage pass, which has no
 	// earlier run to derive a deadline from.
 	CoverDeadline time.Duration
@@ -127,7 +132,9 @@ const (
 	Survived  = "survived"
 	Uncovered = "uncovered" // no test runs its lines, and the ledger names none
 	Stale     = "stale"     // its edit does not apply: report it to its origin
-	Invalid   = "invalid"   // the mutated tree does not build: report it to its origin
+	Invalid   = "invalid"   // the mutated tree does not build or the mutated file does not compile: report it to its origin
+	Unjudged  = "unjudged"  // a test that covers it or the ledger names fails on the unmutated tree
+	Compiles  = "compiles"  // -compiles only: the mutated file compiles, and no test ran
 )
 
 // Result is the verdict on one mutant.
@@ -156,31 +163,51 @@ type Job struct {
 // ledger order, the coverage it used, and an error when the run itself
 // failed (a build of the unmutated tree, a copy left mutated).
 func Run(ctx context.Context, cfg Config, jobs []Job) ([]Result, *coverage, error) {
-	e, err := newEngine(cfg)
+	e, err := covered(ctx, cfg, jobs)
 	if err != nil {
-		return nil, nil, err
-	}
-	var ledgers []string
-	for _, j := range jobs {
-		ledgers = append(ledgers, j.Path)
-	}
-	if err := e.load(ledgers); err != nil {
-		return nil, nil, err
-	}
-	if err := e.prepareCoverage(ctx, jobs); err != nil {
 		return nil, nil, err
 	}
 	results, err := e.judgeAll(ctx, jobs)
 	return results, e.cov, err
 }
 
+// Measure prepares the coverage of the jobs' suites as Run does (taking
+// and filling the coverage store, Config.CoverStore) and judges nothing.
+func Measure(ctx context.Context, cfg Config, jobs []Job) (*coverage, error) {
+	e, err := covered(ctx, cfg, jobs)
+	if err != nil {
+		return nil, err
+	}
+	return e.cov, nil
+}
+
+// covered is the engine of the jobs with its coverage prepared.
+func covered(ctx context.Context, cfg Config, jobs []Job) (*engine, error) {
+	e, err := newEngine(cfg)
+	if err != nil {
+		return nil, err
+	}
+	var ledgers []string
+	for _, j := range jobs {
+		ledgers = append(ledgers, j.Path)
+	}
+	if err := e.load(ledgers); err != nil {
+		return nil, err
+	}
+	if err := e.prepareCoverage(ctx); err != nil {
+		return nil, err
+	}
+	return e, nil
+}
+
 type engine struct {
-	cfg    Config
-	module string
-	files  []treeFile
-	key    string
-	cov    *coverage
-	logMu  sync.Mutex
+	cfg         Config
+	compileOnly bool // CompileRows: each row is applied and compiled, no test runs
+	module      string
+	files       []treeFile
+	key         string
+	cov         *coverage
+	logMu       sync.Mutex
 	// plain are the coverage pass's test binaries built without coverage,
 	// by suite name, built the first time one is needed (plainBinary).
 	plainMu sync.Mutex
@@ -391,19 +418,22 @@ func (e *engine) verifyCopy(dst string, touched map[string]bool) error {
 }
 
 // env is the environment of every child: the runner's own, with the
-// thread share, and extra.
+// thread share, and extra. GOFLAGS is empty: a go command's default -p is
+// GOMAXPROCS, and a set GOFLAGS makes ergo build refuse its direct path,
+// which failed the cmd/ergo tests that require it on the unmutated tree
+// (FT11b: TestDirectBuildStartsNoGoCommand, TestBuildGoesThroughIR).
 func (e *engine) env(extra ...string) []string {
 	var out []string
 	for _, kv := range os.Environ() {
 		name, _, _ := strings.Cut(kv, "=")
 		switch name {
-		case "GOCOVERDIR", "GOMAXPROCS", "GOFLAGS", "GOWORK", MutantVariable:
+		case "GOCOVERDIR", "GOMAXPROCS", "GOFLAGS", "GOWORK", MutantVariable, coverGoVariable, embedObserveVariable:
 			continue
 		}
 		out = append(out, kv)
 	}
 	procs := strconv.Itoa(e.cfg.Procs)
-	out = append(out, "GOMAXPROCS="+procs, "GOFLAGS=-p="+procs, "GOWORK=off")
+	out = append(out, "GOMAXPROCS="+procs, "GOWORK=off")
 	return append(out, extra...)
 }
 
@@ -566,6 +596,15 @@ func (e *engine) tool(name string) *Tool {
 	return nil
 }
 
+// coverMode is the counter mode of every coverage build of the coverage
+// pass: the test binaries, the tools, and the programs a test builds
+// (internal/sketch/build's coverage build, lower's dispatcher), whose
+// counters share the test's GOCOVERDIR, and go tool covdata refuses two
+// modes in one directory. It is atomic because a coverage build writes its
+// counters itself when a signal ends it (runtime/coverage.WriteCountersDir
+// needs atomic counters; GATE2 GT7b).
+const coverMode = "atomic"
+
 // buildTool builds a tool into bin; with cover, with coverage of the
 // covered packages and of the tool's own package (a binary whose main
 // package is not covered writes no counters).
@@ -576,7 +615,7 @@ func (e *engine) buildTool(ctx context.Context, root, bin, name string, cover bo
 	}
 	argv := []string{"go", "build"}
 	if cover {
-		argv = append(argv, "-cover", "-covermode=set", "-coverpkg="+strings.Join(append(slices.Clone(e.cfg.Cover), t.Package), ","))
+		argv = append(argv, "-cover", "-covermode="+coverMode, "-coverpkg="+strings.Join(append(slices.Clone(e.cfg.Cover), t.Package), ","))
 	}
 	argv = append(append(argv, t.Flags...), "-o", filepath.Join(bin, name), t.Package)
 	return e.exec(ctx, root, argv, e.env(), deadline), nil
@@ -585,7 +624,7 @@ func (e *engine) buildTool(ctx context.Context, root, bin, name string, cover bo
 func (e *engine) buildSuite(ctx context.Context, root, bin string, s *Suite, cover bool, deadline time.Duration) outcome {
 	argv := []string{"go", "test", "-c"}
 	if cover && len(e.cfg.Cover) > 0 && s.Module == "" {
-		argv = append(argv, "-cover", "-covermode=set", "-coverpkg="+strings.Join(e.cfg.Cover, ","))
+		argv = append(argv, "-cover", "-covermode="+coverMode, "-coverpkg="+strings.Join(e.cfg.Cover, ","))
 	}
 	if s.Tags != "" {
 		argv = append(argv, "-tags="+s.Tags)
@@ -638,30 +677,21 @@ func killerIDs(m *Mutant) []string {
 	return out
 }
 
-// prepareCoverage reads the coverage file, the cached one of this tree and
-// of the scope the selected mutants of jobs need (coverScope), or measures
-// it. It logs a receipt of the coverage work either way.
-func (e *engine) prepareCoverage(ctx context.Context, jobs []Job) error {
+// prepareCoverage reads the coverage file, the cached one of this tree, or
+// measures it.
+func (e *engine) prepareCoverage(ctx context.Context) error {
 	path := e.cfg.Coverage
-	if path != "" {
-		e.logf("coverage receipt: read %s, no test run", path)
-	} else {
-		scope, err := e.scope(jobs)
-		if err != nil {
-			return err
-		}
-		path = filepath.Join(e.cfg.Work, "coverage-"+e.key+"-"+scope.key()+".json.gz")
+	if path == "" {
+		path = filepath.Join(e.cfg.Work, "coverage-"+e.key+".json.gz")
 		if _, err := os.Stat(path); err != nil {
-			e.logf("coverage: measuring (tree %s) into %s", e.key, path)
-			c, err := e.measure(ctx, scope)
+			e.logf("coverage: tree %s into %s", e.key, path)
+			c, err := e.coverageOfTree(ctx)
 			if err != nil {
 				return err
 			}
 			if err := saveCoverage(path, c); err != nil {
 				return err
 			}
-		} else {
-			e.logf("coverage receipt: reused %s, no test run", path)
 		}
 	}
 	c, err := loadCoverage(path)
@@ -676,12 +706,10 @@ func (e *engine) prepareCoverage(ctx context.Context, jobs []Job) error {
 	return nil
 }
 
-// measure runs every test the scope measures once, each in its own process
-// with its own coverage directory, in a fresh copy of the checkout. It
-// builds only the suites and tools those tests run, logs each test as it
-// ends (a stall shows as the missing next line), and ends with a receipt
-// of the work: tests and suites measured of all, builds, child seconds.
-func (e *engine) measure(ctx context.Context, scope coverScope) (*coverage, error) {
+// measure runs every test of suites once, each in its own process with its
+// own coverage directory, in a fresh copy of the checkout. It builds the
+// tools those suites run.
+func (e *engine) measure(ctx context.Context, suites []Suite) (*coverage, error) {
 	root := filepath.Join(e.cfg.Work, "cover", "src")
 	bin := filepath.Join(e.cfg.Work, "cover", "bin")
 	if err := e.copyTree(root); err != nil {
@@ -690,28 +718,17 @@ func (e *engine) measure(ctx context.Context, scope coverScope) (*coverage, erro
 	if err := os.MkdirAll(bin, 0o755); err != nil {
 		return nil, err
 	}
+	need := map[string]bool{}
+	for i := range suites {
+		for _, name := range toolsOf(&suites[i]) {
+			need[name] = true
+		}
+	}
 	c := &coverage{Key: e.key, Builds: map[string]float64{}}
-	// The anchor tests of a suite the scope does not measure whole.
-	alone := map[string][]string{}
-	for id := range scope.anchors {
-		suite, name := splitID(id)
-		if !scope.suites[suite] {
-			alone[suite] = append(alone[suite], name)
-		}
-	}
-	measured := func(s *Suite) bool { return scope.suites[s.Name] || len(alone[s.Name]) > 0 }
-	var needed []string
-	for i := range e.cfg.Suites {
-		if measured(&e.cfg.Suites[i]) {
-			needed = append(needed, toolsOf(&e.cfg.Suites[i])...)
-		}
-	}
-	builds := 0
 	for _, t := range e.cfg.Tools {
-		if !slices.Contains(needed, t.Name) {
+		if !need[t.Name] {
 			continue
 		}
-		builds++
 		o, err := e.buildTool(ctx, root, bin, t.Name, true, e.cfg.CoverDeadline)
 		if err == nil && o.reason != "" {
 			err = fmt.Errorf("build %s with coverage: %s\n%s", t.Name, o.reason, o.tail)
@@ -721,15 +738,10 @@ func (e *engine) measure(ctx context.Context, scope coverScope) (*coverage, erro
 		}
 		c.Builds[t.Name] = o.seconds
 	}
-	all := 0
-	for i := range e.cfg.Suites {
-		s := &e.cfg.Suites[i]
-		if !measured(s) {
-			continue
-		}
+	for i := range suites {
+		s := &suites[i]
 		var names []string
 		if s.Package != "" {
-			builds++
 			o := e.buildSuite(ctx, root, bin, s, true, e.cfg.CoverDeadline)
 			if o.reason != "" {
 				return nil, fmt.Errorf("build suite %s with coverage: %s\n%s", s.Name, o.reason, o.tail)
@@ -770,18 +782,13 @@ func (e *engine) measure(ctx context.Context, scope coverScope) (*coverage, erro
 				}
 			}
 		}
-		all += len(names)
 		for _, n := range names {
-			if scope.suites[s.Name] || slices.Contains(alone[s.Name], n) {
-				c.Tests = append(c.Tests, &covTest{ID: s.Name + ":" + n})
-			}
+			c.Tests = append(c.Tests, &covTest{ID: s.Name + ":" + n})
 		}
 	}
-	e.logf("coverage: %d tests to measure; not measured: the suites %v, whose binaries compile no package of the selected mutants", len(c.Tests), scope.skipped)
-	k := &collector{module: e.module, blocks: map[blockKey][]int{}}
+	k := &collector{module: e.module, blocks: map[blockKey][]int{}, ergo: newErgoMapper(filepath.Join(e.cfg.Work, "cover", "ergo-go"), root)}
 	var mu sync.Mutex
 	var firstErr error
-	done, seconds := 0, 0.0
 	next := make(chan int)
 	var wg sync.WaitGroup
 	for w := 0; w < e.cfg.Workers; w++ {
@@ -790,14 +797,13 @@ func (e *engine) measure(ctx context.Context, scope coverScope) (*coverage, erro
 			defer wg.Done()
 			for i := range next {
 				err := e.measureOne(ctx, root, bin, c.Tests[i], i, k, &mu)
-				mu.Lock()
-				if err != nil && firstErr == nil {
-					firstErr = err
+				if err != nil {
+					mu.Lock()
+					if firstErr == nil {
+						firstErr = err
+					}
+					mu.Unlock()
 				}
-				done++
-				seconds += c.Tests[i].Seconds
-				e.logf("coverage: %d/%d %s %.1fs", done, len(c.Tests), c.Tests[i].ID, c.Tests[i].Seconds)
-				mu.Unlock()
 			}
 		}()
 	}
@@ -809,7 +815,6 @@ func (e *engine) measure(ctx context.Context, scope coverScope) (*coverage, erro
 	}
 	close(next)
 	wg.Wait()
-	e.logf("coverage receipt: %d tests measured, of %d in the suites it listed; %d of %d suites; %d builds; %.0f s of tests", done, all, len(e.cfg.Suites)-len(scope.skipped), len(e.cfg.Suites), builds, seconds)
 	if firstErr == nil {
 		firstErr = ctx.Err()
 	}
@@ -829,13 +834,33 @@ func (e *engine) measureOne(ctx context.Context, root, bin string, t *covTest, i
 	suiteName, name := splitID(t.ID)
 	s := e.suite(suiteName)
 	argv, cwd, env := e.argv(s, root, bin, name, e.cfg.CoverDeadline)
-	if s.Package != "" && s.Module == "" {
-		// A nested module's suite is built without coverage (Suite.Module).
+	if s.Package != "" && s.Module == "" && len(e.cfg.Cover) > 0 {
+		// A nested module's suite is built without coverage (Suite.Module),
+		// and so is every suite when no package is covered (a ledger of
+		// .ergo rows only: its tests are selected by what they read).
 		argv = append(argv, "-test.gocoverdir="+dir)
 	}
-	o := e.exec(ctx, cwd, argv, e.env(append(env, "GOCOVERDIR="+dir)...), e.cfg.CoverDeadline)
+	testLog := ""
+	if s.Package != "" {
+		// The files the test opens (reads.go).
+		testLog = testLogName(dir)
+		argv = append(argv, "-test.testlogfile="+testLog)
+		defer os.Remove(testLog)
+	}
+	o := e.exec(ctx, cwd, argv, e.env(append(env, "GOCOVERDIR="+dir, coverGoVariable+"="+k.ergo.dir, embedObserveVariable+"="+root)...), e.cfg.CoverDeadline)
+	if testLog != "" {
+		if f, err := os.Open(testLog); err == nil {
+			mu.Lock()
+			err = k.reads(i, f, cwd, root)
+			mu.Unlock()
+			f.Close()
+			if err != nil {
+				return err
+			}
+		}
+	}
 	t.Seconds = o.seconds
-	if o.reason != "" && s.Package != "" && s.Module == "" {
+	if o.reason != "" && s.Package != "" {
 		// A test may fail only because its binary is built with coverage:
 		// internal/closure's tests run their own binary in a sandbox where
 		// all but fresh scratch is read-only, and a coverage-built binary
@@ -1008,6 +1033,19 @@ func (w *worker) judge(ctx context.Context, m *Mutant) (r Result) {
 	}
 	at := strings.Index(string(original), m.From)
 	r.Line = 1 + strings.Count(string(original[:at]), "\n")
+	if w.e.compileOnly {
+		restore, detail := w.apply(m, path, original)
+		if restore == nil {
+			r.Status, r.Detail = Invalid, detail
+			return r
+		}
+		defer restore()
+		r.Status = Compiles
+		if detail := w.compiles(ctx, m, path, original); detail != "" {
+			r.Status, r.Detail = Invalid, detail
+		}
+		return r
+	}
 	file, lo, hi := m.File, r.Line, r.Line+strings.Count(m.From, "\n")
 	header := headerLine(string(original), at)
 	// The tests the ledger names, its killers and its anchor's tests, run
@@ -1036,58 +1074,37 @@ func (w *worker) judge(ctx context.Context, m *Mutant) (r Result) {
 			hi = lo + strings.Count(a.Text, "\n")
 		}
 	}
-	var covering map[string]bool
-	if strings.HasSuffix(m.File, ".go") {
-		covering = w.e.cov.covering(file, lo, hi, header && m.Anchor == nil, extra)
-	} else {
-		// The cover tool sees Go blocks only, so no block holds a line of
-		// another file (std's .ergo sources, a ledger): such a mutant is
-		// judged by the tests its row names, with no coverage filter.
-		covering = w.e.cov.named(append(slices.Clone(m.Killers), extra...))
-	}
+	covering := w.e.cov.covering(file, lo, hi, header && m.Anchor == nil, extra)
 	r.Covering = len(covering)
 	if len(covering) == 0 {
 		r.Status = Uncovered
 		return r
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		w.err = errors.Join(w.err, err)
-		r.Status, r.Detail = Invalid, err.Error()
+	// A test that would judge the mutant and fails on the unmutated tree
+	// kills nothing, so a survivor or a kill by another test would rest on
+	// a red baseline: no verdict until it passes (FT11b's cmd/ergo run).
+	var red []string
+	for id := range covering {
+		if w.e.cov.test(id).Failed {
+			red = append(red, id)
+		}
+	}
+	if len(red) > 0 {
+		slices.Sort(red)
+		r.Status, r.Detail = Unjudged, strings.Join(red, " ")+" fails on the unmutated tree"
 		return r
 	}
-	source := w.e.sourceCheck(m.File)
-	if m.Refused != "" {
-		source = nil
-	}
-	var before sourceState
-	if source != nil {
-		if before, err = w.source(ctx, source, path, false); err != nil {
-			r.Status, r.Detail = Invalid, err.Error()
-			return r
-		}
-	}
-	w.touched[m.File] = true
-	if err := os.WriteFile(path, []byte(strings.Replace(string(original), m.From, m.To, 1)), info.Mode().Perm()); err != nil {
-		w.err = errors.Join(w.err, err)
-		r.Status, r.Detail = Invalid, err.Error()
+	restore, detail := w.apply(m, path, original)
+	if restore == nil {
+		r.Status, r.Detail = Invalid, detail
 		return r
 	}
-	defer func() {
-		if err := os.WriteFile(path, original, info.Mode().Perm()); err != nil {
-			w.err = errors.Join(w.err, fmt.Errorf("restore %s: %w", m.File, err))
-		}
-	}()
-	if source != nil {
-		after, err := w.source(ctx, source, path, true)
-		if err != nil {
-			r.Status, r.Detail = Invalid, err.Error()
-			return r
-		}
-		if why := before.refusal(after); why != "" {
-			r.Status, r.Detail = Invalid, why
-			return r
-		}
+	defer restore()
+	// A test that fails because the mutated file does not compile kills
+	// nothing the ledger can trust (compiles.go, GT-COMPILE).
+	if detail := w.compiles(ctx, m, path, original); detail != "" {
+		r.Status, r.Detail = Invalid, detail
+		return r
 	}
 	built := map[string]bool{}
 	for _, id := range w.e.cov.order(covering, killerIDs(m)) {

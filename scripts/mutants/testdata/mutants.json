@@ -12,11 +12,7 @@
     },
     { "name": "fk7a-format-ignored", "origin": "wf10 FK7a", "file": "scripts/mutants/source.go", "from": "\tif before.formatted && !after.formatted {\n", "to": "\tif false && before.formatted && !after.formatted {\n", "rule": "A mutated source the formatter would rewrite is invalid, never killed: the runner's format check fails it whatever its edit means.", "killers": ["scripts/mutants:TestRunnerMatchesModel"] },
     { "name": "fk12a-refusal-ignored", "origin": "wf10 FK12a", "file": "scripts/mutants/source.go", "from": "\t\tif after.codes[code] > before.codes[code] {\n", "to": "\t\tif false && after.codes[code] > before.codes[code] {\n", "rule": "A mutated source the compiler refuses with a new diagnostic is invalid, never killed.", "killers": ["scripts/mutants:TestRunnerMatchesModel"] },
-    { "name": "fk12a-declared-ignored", "origin": "wf10 FK12a", "file": "scripts/mutants/runner.go", "from": "\tif m.Refused != \"\" {\n\t\tsource = nil\n", "to": "\tif false {\n\t\tsource = nil\n", "rule": "A row that declares the refusal its point (refused) is judged by its tests: the refusal may kill it.", "killers": ["scripts/mutants:TestRunnerMatchesModel"] },
-    { "name": "scope-select-ignored", "origin": "wf10 GS17", "file": "scripts/mutants/scope.go", "from": "\t\t\tif j.Select != nil && !j.Select.MatchString(m.Name) {\n", "to": "\t\t\tif false {\n", "rule": "The coverage pass measures what the selected mutants need, not what -run leaves out.", "killers": ["scripts/mutants:TestCoverageScopeIsWhatCompilesTheMutants"] },
-    { "name": "scope-tools-ignored", "origin": "wf10 GS17", "file": "scripts/mutants/scope.go", "from": "\t\t\tok = ok || reaches(toolDeps[tool])\n", "to": "\t\t\t_ = tool\n", "rule": "A suite whose tool (the ergo CLI, the examples runner) compiles a mutated package is measured.", "killers": ["scripts/mutants:TestCoverageScopeIsWhatCompilesTheMutants"] },
-    { "name": "scope-anchor-dropped", "origin": "wf10 GS17", "file": "scripts/mutants/scope.go", "from": "\treturn s.suites[suite] || s.anchors[id]\n", "to": "\treturn s.suites[suite]\n", "rule": "An anchor's test is measured even when its suite is not.", "killers": ["scripts/mutants:TestCoverageScopeIsWhatCompilesTheMutants"] },
-    { "name": "scope-deps-unread", "origin": "wf10 GS17", "file": "scripts/mutants/scope.go", "from": "\t\tif p, _, _ := strings.Cut(line, \"\\x00\"); !slices.Contains(deps, p) {\n", "to": "\t\tif p, _, _ := strings.Cut(line, \"\\x00\"); false && !slices.Contains(deps, p) {\n", "rule": "The scope reads what each test binary and tool compiles: a suite misread as compiling nothing would leave its mutants uncovered.", "killers": ["scripts/mutants:TestRunnerMatchesModel"] },
+    { "name": "fk12a-declared-ignored", "origin": "wf10 FK12a", "file": "scripts/mutants/compiles.go", "from": "\tif m.Refused != \"\" {\n\t\treturn \"\"\n", "to": "\tif false {\n\t\treturn \"\"\n", "rule": "A row that declares the refusal its point (refused) is judged by its tests: the refusal may kill it.", "killers": ["scripts/mutants:TestRunnerMatchesModel"] },
     {
       "name": "mutclean-copy-without-git",
       "origin": "wf10 MUT-clean",
@@ -147,8 +143,8 @@
       "name": "b18-nested-coverdir",
       "origin": "wf10 batch-18 r4 M2",
       "file": "scripts/mutants/runner.go",
-      "from": "\tif s.Package != \"\" && s.Module == \"\" {",
-      "to": "\tif s.Package != \"\" {",
+      "from": "\tif s.Package != \"\" && s.Module == \"\" && len(e.cfg.Cover) > 0 {",
+      "to": "\tif s.Package != \"\" && len(e.cfg.Cover) > 0 {",
       "rule": "A nested module's suite is built without coverage, so its test binary takes no -test.gocoverdir; with it the killer fails on the unmutated tree and kills nothing.",
       "gap": "No runner test builds a nested module's suite; the affected run of internal/selfhostcheck's ledger (r4-m2.log: hostsyntax:TestFamiliesCoverSyntax failed on the unmutated tree) exercises it."
     },
@@ -206,7 +202,397 @@
       "rule": "A Go test binary runs with a -test.timeout, as under go test, so a test that bounds its children by t.Deadline judges mutants.",
       "killers": ["scripts/mutants:TestRunnerMatchesModel"]
     },
-    {"name":"ex2-data-coverage-filter","origin":"wf10 EX2 r2","file":"scripts/mutants/runner.go","from":"\tif strings.HasSuffix(m.File, \".go\") {","to":"\tif true {","rule":"A mutant of a file the cover tool cannot see (std's .ergo) is judged by the tests its row names, not left uncovered.","killers":["scripts/mutants:TestRunnerMatchesModel"]},
-    {"name":"ex2-data-failing-killer","origin":"wf10 EX2 r2","file":"scripts/mutants/coverage.go","from":"\t\tif t := c.test(id); t != nil && !t.Failed {","to":"\t\tif t := c.test(id); t != nil {","rule":"A named test that fails on the unmutated tree judges no data-file mutant.","killers":["scripts/mutants:TestRunnerMatchesModel"]}
+    {
+      "name": "gt2-edit-unkeyed",
+      "origin": "wf10 GATE2 GT2",
+      "file": "scripts/mutants/reuse.go",
+      "from": "put(\"row\", m.Name, m.File, m.From, m.To)",
+      "to": "put(\"row\", m.Name, m.File, m.From)",
+      "rule": "A row's key holds its edit: an edited row is judged again.",
+      "killers": ["scripts/mutants:TestReusedVerdictsAgreeWithAFreshPass"]
+    },
+    {
+      "name": "gt2-closure-unkeyed",
+      "origin": "wf10 GATE2 GT2",
+      "file": "scripts/mutants/reuse.go",
+      "from": "if whole || covered(p) {",
+      "to": "if whole || p == m.File {",
+      "rule": "A row's key holds every file its Go killers read.",
+      "killers": ["scripts/mutants:TestReusedVerdictsAgreeWithAFreshPass"]
+    },
+    {
+      "name": "gt2-whole-dropped",
+      "origin": "wf10 GATE2 GT2",
+      "file": "scripts/mutants/reuse.go",
+      "from": "\t\t\twhole = true",
+      "to": "\t\t\twhole = false",
+      "rule": "A killer that is no Go package of the module keys the row on every source.",
+      "killers": ["scripts/mutants:TestReusedVerdictsAgreeWithAFreshPass"]
+    },
+    {
+      "name": "gt2-ignored-unkeyed",
+      "origin": "wf10 GATE2 GT2",
+      "file": "scripts/mutants/reuse.go",
+      "from": "put(\"ignored\", p, digest)",
+      "to": "_ = digest",
+      "rule": "A row's key holds the ignored files its Go killers read.",
+      "killers": ["scripts/mutants:TestReusedVerdictsAgreeWithAFreshPass"]
+    },
+    {
+      "name": "gt2-relative-root",
+      "origin": "wf10 GATE2 GT2 receipt",
+      "file": "scripts/mutants/reuse.go",
+      "from": "absolute, err := filepath.Abs(root)",
+      "to": "absolute, err := root, error(nil)",
+      "rule": "A relative -root still finds its packages' closures; else every row is keyed on every file.",
+      "killers": ["scripts/mutants:TestKeysListARelativeRoot"]
+    },
+    {
+      "name": "gt2-no-reuse",
+      "origin": "wf10 GATE2 GT2",
+      "file": "scripts/mutants/reuse.go",
+      "from": "if r, ok := lookup(key); ok && storable(m, r) {",
+      "to": "if r, ok := lookup(key); false && ok && storable(m, r) {",
+      "rule": "A row whose key is unchanged reuses its stored killed verdict.",
+      "killers": ["scripts/mutants:TestReusedVerdictsAgreeWithAFreshPass"]
+    },
+    {
+      "name": "gt2-ledger-order",
+      "origin": "wf10 GATE2 GT2",
+      "file": "scripts/mutants/reuse.go",
+      "from": "return at[a.Ledger+\"\\x00\"+a.Name] - at[b.Ledger+\"\\x00\"+b.Name]",
+      "to": "return 0",
+      "rule": "Reused and judged verdicts are reported in ledger order.",
+      "killers": ["scripts/mutants:TestReusedVerdictsAgreeWithAFreshPass"]
+    },
+    {
+      "name": "gt6-key-closure-dropped",
+      "origin": "wf10 GATE2 GT6",
+      "file": "scripts/mutants/coverstore.go",
+      "from": "if closure == nil || closure.Covers(p) {\n\t\t\tput(\"file\", p, in.files[p])",
+      "to": "if closure == nil {\n\t\t\tput(\"file\", p, in.files[p])",
+      "rule": "A suite's segment key holds the content of every file in its closure.",
+      "killers": ["scripts/mutants:TestStoredCoverageAgreesWithAFreshMeasure"]
+    },
+    {
+      "name": "gt6-key-ignored-dropped",
+      "origin": "wf10 GATE2 GT6",
+      "file": "scripts/mutants/coverstore.go",
+      "from": "put(\"ignored\", p, digest)",
+      "to": "_ = digest",
+      "rule": "A Go suite's segment key holds the ignored files its closure reads (generated testdata).",
+      "killers": ["scripts/mutants:TestStoredCoverageAgreesWithAFreshMeasure"]
+    },
+    {
+      "name": "gt6-store-failed",
+      "origin": "wf10 GATE2 GT6",
+      "file": "scripts/mutants/coverstore.go",
+      "from": "if endErr == nil && !failed && end[s.Name] == keys[s.Name] {",
+      "to": "if endErr == nil && (failed || !failed) && end[s.Name] == keys[s.Name] {",
+      "rule": "A segment with a test that failed on the unmutated tree is not stored.",
+      "killers": ["scripts/mutants:TestStoredCoverageAgreesWithAFreshMeasure"]
+    },
+    {
+      "name": "gt6-ends-unchecked",
+      "origin": "wf10 GATE2 GT6",
+      "file": "scripts/mutants/coverstore.go",
+      "from": "if endErr == nil && !failed && end[s.Name] == keys[s.Name] {",
+      "to": "if endErr == nil && !failed && (true || end[s.Name] == keys[s.Name]) {",
+      "rule": "A segment whose suite's key changed during the measure is not stored.",
+      "killers": ["scripts/mutants:TestStoredCoverageAgreesWithAFreshMeasure"]
+    },
+    {
+      "name": "gt6-merge-offset",
+      "origin": "wf10 GATE2 GT6",
+      "file": "scripts/mutants/coverstore.go",
+      "from": "tests[k] = i + offset",
+      "to": "tests[k] = i + 0*offset",
+      "rule": "Merged segments keep each block's tests: indexes move by the tests before the segment.",
+      "killers": ["scripts/mutants:TestStoredCoverageAgreesWithAFreshMeasure"]
+    },
+    {
+      "name": "gt6-segment-tools",
+      "origin": "wf10 GATE2 GT6",
+      "file": "scripts/mutants/coverstore.go",
+      "from": "for _, name := range append([]string{suite}, tools...) {",
+      "to": "for _, name := range []string{suite} {",
+      "rule": "A suite's segment keeps the build times of the tools it runs (the mutant pass's build deadlines).",
+      "killers": ["scripts/mutants:TestStoredCoverageAgreesWithAFreshMeasure"]
+    },
+    {
+      "name": "gt6-no-reuse",
+      "origin": "wf10 GATE2 GT6",
+      "file": "scripts/mutants/coverstore.go",
+      "from": "if c, ok := load(keys[s.Name]); ok {",
+      "to": "if c, ok := load(keys[s.Name]); false && ok {",
+      "rule": "A suite whose key is unchanged takes its stored segment and is not measured.",
+      "killers": ["scripts/mutants:TestStoredCoverageAgreesWithAFreshMeasure"]
+    },
+    {
+      "name": "gt6-tree-no-store",
+      "origin": "wf10 GATE2 GT6",
+      "file": "scripts/mutants/coverstore.go",
+      "from": "if e.cfg.CoverStore == \"\" {",
+      "to": "if true || e.cfg.CoverStore == \"\" {",
+      "rule": "The runner's coverage pass takes the stored segments when a store is named.",
+      "killers": ["scripts/mutants:TestRunnerMatchesModel"]
+    },
+    {
+      "name": "gt7-no-increment",
+      "origin": "wf10 GATE2 GT7",
+      "file": "scripts/mutants/ergolines.go",
+      "from": "\t\tcase cur != nil:\n\t\t\tnext := ergoPos{cur.file, cur.line + 1}",
+      "to": "\t\tcase cur != nil:\n\t\t\tnext := ergoPos{cur.file, cur.line}",
+      "rule": "Each Go line after a //line directive is one .ergo line on.",
+      "killers": ["scripts/mutants:TestErgoLinesFollowTheDirectives"]
+    },
+    {
+      "name": "gt7-func-keeps-position",
+      "origin": "wf10 GATE2 GT7",
+      "file": "scripts/mutants/ergolines.go",
+      "from": "\t\tif strings.HasPrefix(line, \"func \") {\n\t\t\tcur = nil",
+      "to": "\t\tif false && strings.HasPrefix(line, \"func \") {\n\t\t\tcur = nil",
+      "rule": "A top-level func starts with no position: a std body, written without directives, maps to no .ergo line of the program.",
+      "killers": ["scripts/mutants:TestErgoLinesFollowTheDirectives"]
+    },
+    {
+      "name": "gt7-inline-not-carried",
+      "origin": "wf10 GATE2 GT7",
+      "file": "scripts/mutants/ergolines.go",
+      "from": "\t\tcase last != nil:\n\t\t\tnext := ergoPos{last.file, last.line + 1}\n\t\t\tcur = &next\n",
+      "to": "\t\tcase last != nil && false:\n",
+      "rule": "The lines after an inline /*line*/ directive go on from its position.",
+      "killers": ["scripts/mutants:TestErgoLinesFollowTheDirectives"]
+    },
+    {
+      "name": "gt7-tag-kept",
+      "origin": "wf10 GATE2 GT7",
+      "file": "scripts/mutants/ergolines.go",
+      "from": "\treturn ergoPos{untag(file), num}, true",
+      "to": "\treturn ergoPos{file, num}, true",
+      "rule": "An inlined body's directive (FILE#ergo-inline-N) names FILE.",
+      "killers": ["scripts/mutants:TestErgoLinesFollowTheDirectives"]
+    },
+    {
+      "name": "gt7-any-base",
+      "origin": "wf10 GATE2 GT7",
+      "file": "scripts/mutants/ergolines.go",
+      "from": "if base != goFile && !slices.Contains(lines[lo-1].names, base) {",
+      "to": "if false && base != goFile && !slices.Contains(lines[lo-1].names, base) {",
+      "rule": "A block the cover tool names by a directive's base name maps only to lines of files with that name.",
+      "killers": ["scripts/mutants:TestErgoLinesFollowTheDirectives"]
+    },
+    {
+      "name": "gt7-outside-root",
+      "origin": "wf10 GATE2 GT7",
+      "file": "scripts/mutants/ergolines.go",
+      "from": "\tif err != nil || rel == \"..\" || strings.HasPrefix(rel, \"../\") || filepath.IsAbs(rel) {",
+      "to": "\tif err != nil || filepath.IsAbs(rel) {",
+      "rule": "A directive to a file outside the checkout copy maps to no checkout file.",
+      "killers": ["scripts/mutants:TestErgoLinesFollowTheDirectives"]
+    },
+    {
+      "name": "gt7-column-as-line",
+      "origin": "wf10 GATE2 GT7",
+      "file": "scripts/mutants/ergolines.go",
+      "from": "\tif f, n, ok := cutLastNumber(file); ok {\n\t\tfile, num = f, n\n\t}",
+      "to": "\tif f, _, ok := cutLastNumber(file); ok {\n\t\tfile = f\n\t}",
+      "rule": "A directive FILE:LINE:COL names LINE, not COL.",
+      "killers": ["scripts/mutants:TestErgoLinesFollowTheDirectives"]
+    },
+    {
+      "name": "gt7-env-dropped",
+      "origin": "wf10 GATE2 GT7",
+      "file": "scripts/mutants/runner.go",
+      "from": "e.env(append(env, \"GOCOVERDIR=\"+dir, coverGoVariable+\"=\"+k.ergo.dir, embedObserveVariable+\"=\"+root)...)",
+      "to": "e.env(append(env, \"GOCOVERDIR=\"+dir, embedObserveVariable+\"=\"+root)...)",
+      "rule": "The coverage pass's children build the programs they lower as coverage builds, so .ergo lines are covered.",
+      "gap": "Only an end-to-end coverage pass that builds the ergo CLI with coverage and runs a lowered example sees it (GT7 acceptance, gate2/GT7/accept.ts); no test of the package builds the CLI.",
+      "killers": []
+    },
+    {
+      "name": "gt7b-mark-ignored",
+      "origin": "wf10 GATE2 GT7b",
+      "file": "scripts/mutants/ergolines.go",
+      "from": "\t\tif rest, ok := strings.CutPrefix(strings.TrimLeft(line, \"\\t \"), coverMark); ok {",
+      "to": "\t\tif rest, ok := strings.CutPrefix(strings.TrimLeft(line, \"\\t \"), coverMark); false && ok {",
+      "rule": "A cover mark gives the next Go line its std .ergo position.",
+      "killers": [
+        "scripts/mutants:TestErgoLinesFollowTheDirectives"
+      ]
+    },
+    {
+      "name": "gt7b-mark-moves-go",
+      "origin": "wf10 GATE2 GT7b",
+      "file": "scripts/mutants/ergolines.go",
+      "from": "\t\t\tif p, ok := parseDirective(rest); ok {\n\t\t\t\tcur = &p\n\t\t\t} else {\n\t\t\t\tcur = nil\n\t\t\t}\n\t\t\tcontinue\n\t\t}\n\t\tif strings.HasPrefix(line, \"func \") {",
+      "to": "\t\t\tif p, ok := parseDirective(rest); ok {\n\t\t\t\tcur = &p\n\t\t\t\tgoName = path.Base(p.file)\n\t\t\t} else {\n\t\t\t\tcur = nil\n\t\t\t}\n\t\t\tcontinue\n\t\t}\n\t\tif strings.HasPrefix(line, \"func \") {",
+      "rule": "A cover mark is a comment: it moves no Go position, so the cover tool's name of a block after it is still the Go file's or the last directive's.",
+      "killers": [
+        "scripts/mutants:TestErgoLinesFollowTheDirectives"
+      ]
+    },
+    {
+      "name": "gt7b-std-tree",
+      "origin": "wf10 GATE2 GT7b",
+      "file": "scripts/mutants/ergolines.go",
+      "from": "\t\treturn stdTree + rest, true",
+      "to": "\t\treturn \"std/\" + rest, true",
+      "rule": "A cover mark's std/… path is the checkout's internal/sketch/std/….",
+      "killers": [
+        "scripts/mutants:TestErgoLinesFollowTheDirectives"
+      ]
+    },
+    {
+      "name": "gt7b-sub-dir",
+      "origin": "wf10 GATE2 GT7b",
+      "file": "scripts/mutants/ergolines.go",
+      "from": "\tat := strings.LastIndexByte(rest, '/')",
+      "to": "\tat := strings.IndexByte(rest, '/')",
+      "rule": "A block of a package below the copy's root (KEY/p/NAME) is read from that package's Go files.",
+      "killers": [
+        "scripts/mutants:TestErgoLinesFollowTheDirectives"
+      ]
+    },
+    {
+      "name": "gt7b-e2e-mode-set",
+      "origin": "wf10 GATE2 GT7b",
+      "file": "scripts/mutants/runner.go",
+      "from": "const coverMode = \"atomic\"",
+      "to": "const coverMode = \"set\"",
+      "rule": "The tests of the coverage pass count in the mode the programs they build count in: go tool covdata refuses two modes in one directory.",
+      "gap": "Only an end-to-end coverage pass sees it (GT7b acceptance, gate2/GT7b/accept.ts: rpc-mount-exact covered by the rpcgen loopback, cu6-into-hops-lost by lower:TestHTTPNetworkRuns); no test of the package runs the coverage pass.",
+      "killers": []
+    },
+    {
+      "name": "gt8-no-testlog",
+      "origin": "wf10 GATE2 GT8",
+      "file": "scripts/mutants/runner.go",
+      "from": "\t\targv = append(argv, \"-test.testlogfile=\"+testLog)\n",
+      "to": "\t\targv = append(argv, \"-test.count=1\")\n",
+      "rule": "Each Go test of the coverage pass writes the go command's test log, so the files it opens are known.",
+      "killers": [
+        "scripts/mutants:TestRunnerMatchesModel"
+      ]
+    },
+    {
+      "name": "gt8-reads-ignored",
+      "origin": "wf10 GATE2 GT8",
+      "file": "scripts/mutants/runner.go",
+      "from": "\t\t\terr = k.reads(i, f, cwd, root)\n",
+      "to": "\t\t\terr = nil\n",
+      "rule": "A test that opens a file of the checkout covers that file's mutants.",
+      "killers": [
+        "scripts/mutants:TestRunnerMatchesModel"
+      ]
+    },
+    {
+      "name": "gt8-relative-root",
+      "origin": "wf10 GATE2 GT8",
+      "file": "scripts/mutants/reads.go",
+      "from": "\t\t\tname = filepath.Join(cwd, name)\n",
+      "to": "\t\t\tname = filepath.Join(root, name)\n",
+      "rule": "A relative name in the test log is relative to the test's working directory (its package directory), not the checkout root.",
+      "killers": [
+        "scripts/mutants:TestRunnerMatchesModel"
+      ]
+    },
+    {
+      "name": "gt8-readers-skipped",
+      "origin": "wf10 GATE2 GT8",
+      "file": "scripts/mutants/coverage.go",
+      "from": "\t\tif b.Start == readBlock {\n\t\t\t// The tests that read the file (reads.go) cover every line.\n\t\t\tfor _, i := range b.Tests {\n\t\t\t\tout[c.Tests[i].ID] = true\n\t\t\t}\n",
+      "to": "\t\tif b.Start == readBlock {\n",
+      "rule": "The readers of a file cover every line of it.",
+      "killers": [
+        "scripts/mutants:TestRunnerMatchesModel"
+      ]
+    },
+    {
+      "name": "gt8b-var-unset",
+      "origin": "wf10 GATE2 GT8b",
+      "file": "scripts/mutants/runner.go",
+      "from": ", embedObserveVariable+\"=\"+root)...)",
+      "to": ")...)",
+      "rule": "The coverage pass's tests note their embedded reads.",
+      "gap": "Only a real coverage pass sees it (GT8b acceptance, gate2/GT8b/accept.ts: check's seal-callback-params on std/http/http.ergo, unnamed, is killed by check:TestSealingIsTheVisibilityRule); TestRunnerMatchesModel's fake module embeds nothing and always covers a package.",
+      "killers": []
+    },
+    {
+      "name": "gt8b-gocoverdir-uncovered",
+      "origin": "wf10 GATE2 GT8b",
+      "file": "scripts/mutants/runner.go",
+      "from": "\tif s.Package != \"\" && s.Module == \"\" && len(e.cfg.Cover) > 0 {",
+      "to": "\tif s.Package != \"\" && s.Module == \"\" {",
+      "rule": "A suite built without coverage (a ledger of .ergo rows only) runs without -test.gocoverdir, which would fail every test on the unmutated tree.",
+      "gap": "Only a real coverage pass sees it (GT8b acceptance, gate2/GT8b/accept.ts: check's seal-callback-params on std/http/http.ergo, unnamed, is killed by check:TestSealingIsTheVisibilityRule); TestRunnerMatchesModel's fake module embeds nothing and always covers a package.",
+      "killers": []
+    },
+    {
+      "name": "gt8b-goflags-p",
+      "origin": "wf10 GATE2 GT8b (FT11b)",
+      "file": "scripts/mutants/runner.go",
+      "from": "\tout = append(out, \"GOMAXPROCS=\"+procs, \"GOWORK=off\")",
+      "to": "\tout = append(out, \"GOMAXPROCS=\"+procs, \"GOFLAGS=-p=\"+procs, \"GOWORK=off\")",
+      "rule": "A child of the runner sees no GOFLAGS: a set GOFLAGS makes ergo build refuse its direct path, so cmd/ergo's direct-path tests fail on the unmutated tree.",
+      "killers": [
+        "scripts/mutants:TestRunnerMatchesModel"
+      ]
+    },
+    {
+      "name": "gt8b-red-judged",
+      "origin": "wf10 GATE2 GT8b (FT11b)",
+      "file": "scripts/mutants/runner.go",
+      "from": "\tif len(red) > 0 {\n\t\tslices.Sort(red)",
+      "to": "\tif false {\n\t\tslices.Sort(red)",
+      "rule": "A row that a test failing on the unmutated tree covers or names gets no verdict.",
+      "killers": [
+        "scripts/mutants:TestRunnerMatchesModel"
+      ]
+    },
+    {
+      "name": "gt8b-unjudged-exit",
+      "origin": "wf10 GATE2 GT8b (FT11b)",
+      "file": "scripts/mutants/main.go",
+      "from": "\tif len(newSurvivors) > 0 || len(unjudged) > 0 || invalid > 0 {",
+      "to": "\tif len(newSurvivors) > 0 || invalid > 0 {",
+      "rule": "An unjudged row fails the run.",
+      "killers": [
+        "scripts/mutants:TestUnjudgedFailsTheRun"
+      ]
+    },
+    {
+      "name": "gtc-compile-counted",
+      "origin": "wf10 GATE2 GT-COMPILE",
+      "file": "scripts/mutants/runner.go",
+      "from": "\tif detail := w.compiles(ctx, m, path, original); detail != \"\" {\n\t\tr.Status, r.Detail = Invalid, detail\n\t\treturn r\n\t}\n\tbuilt := map[string]bool{}",
+      "to": "\tbuilt := map[string]bool{}",
+      "rule": "A mutant whose file does not compile is invalid, never killed by a test that fails on the compile error.",
+      "killers": [
+        "scripts/mutants:TestRunnerMatchesModel"
+      ]
+    },
+    {
+      "name": "gtc-invalid-exit",
+      "origin": "wf10 GATE2 GT-COMPILE",
+      "file": "scripts/mutants/main.go",
+      "from": "\tif len(newSurvivors) > 0 || len(unjudged) > 0 || invalid > 0 {",
+      "to": "\tif len(newSurvivors) > 0 || len(unjudged) > 0 {",
+      "rule": "An invalid row fails the run.",
+      "killers": [
+        "scripts/mutants:TestUnjudgedFailsTheRun"
+      ]
+    },
+    {
+      "name": "gtc-baseline-ignored",
+      "origin": "wf10 GATE2 GT-COMPILE",
+      "file": "scripts/mutants/compiles.go",
+      "from": "\tif base != \"\" {\n",
+      "to": "\tif base != \"\" && false {\n",
+      "rule": "A file that fails to compile unmutated (a fixture) makes no row of it invalid.",
+      "gap": "No fixture of the fake module fails to compile unmutated; the sweep over every ledger would list such rows invalid.",
+      "killers": []
+    }
+
   ]
 }

@@ -13,6 +13,28 @@ import (
 
 func TestMain(m *testing.M) { os.Exit(testinputs.Main(m)) }
 
+// TestUnjudgedFailsTheRun is the smallest repro of FT11b's cmd/ergo run,
+// where 7 tests failed on the unmutated tree and the run judged their rows
+// uncovered: a row a red test would judge gets no verdict, and the run
+// fails and lists it. So does an invalid row (GT-COMPILE: rows "killed"
+// only by a compile error). Mutants: gt8b-unjudged-exit, gtc-invalid-exit.
+func TestUnjudgedFailsTheRun(t *testing.T) {
+	for _, c := range []struct{ status, detail, list string }{
+		{Unjudged, "s:TestRed fails on the unmutated tree", "NOT JUDGED"},
+		{Invalid, "does not compile: f.go:3:1: x", "row (invalid, origin o): does not compile"},
+	} {
+		m := &Mutant{Name: "row", Origin: "o", File: "f.go", Killers: []string{"s:TestRed"}}
+		jobs := []Job{{Path: "l.json", Ledger: &Ledger{Mutants: []*Mutant{m}}}}
+		results := []Result{{Ledger: "l.json", Name: "row", Status: c.status, Detail: c.detail}}
+		cov := &coverage{Tests: []*covTest{{ID: "s:TestRed", Failed: c.status == Unjudged, Detail: "fail"}}}
+		cov.reindex()
+		var out strings.Builder
+		if code := report(&out, jobs, results, cov); code != 1 || !strings.Contains(out.String(), c.list) {
+			t.Errorf("a row %s: exit %d, want 1, and %q listed:\n%s", c.status, code, c.list, out.String())
+		}
+	}
+}
+
 // TestHeaderLineIsCoveredByWhatReachesIt is the smallest repro of M1's
 // uncovered runtime/v1 mutant: the cover tool gives a case line of a
 // tagless switch no block (measured: blocks 180 and 182 around the case at
@@ -108,10 +130,7 @@ func TestScopeIsTheLedgersPackage(t *testing.T) {
 // (Named), a note after the test is dropped, and only the selected rows
 // bring suites: the run's work is the suites it builds, counted here.
 // Before, the x7 rows were judged by the untagged binary, where their
-// killers do not exist, and the other rows were run by hand. An id that
-// names no suite, or no test of its suite, is an error: the runner skipped
-// it before, and rows whose killers were v1:, sched: or rt-explore: ran
-// without them (MUT-names).
+// killers do not exist, and the other rows were run by hand.
 func TestKillerInAnotherSuiteIsRun(t *testing.T) {
 	root := t.TempDir()
 	for _, dir := range []string{"runtime/v1", "internal/sketchfront", "examples/demo/memory"} {
@@ -119,17 +138,23 @@ func TestKillerInAnotherSuiteIsRun(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for f, text := range map[string]string{
-		"runtime/v1/v1.go":                "",
+	for _, f := range []string{"runtime/v1/v1.go", "examples/demo/memory/demo.ergo"} {
+		if err := os.WriteFile(filepath.Join(root, f), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Every named test exists: an id that names no test of its suite is an
+	// error (hasTest).
+	for file, tests := range map[string]string{
 		"runtime/v1/v1_test.go":           "func TestA(t *testing.T) {}\nfunc TestB(t *testing.T) {}\nfunc TestC(t *testing.T) {}\nfunc TestOwn(t *testing.T) {}\n",
 		"internal/sketchfront/f_test.go":  "func TestF(t *testing.T) {}\n",
 		"internal/sketch/lower/l_test.go": "func TestL(t *testing.T) {}\n",
-		"examples/demo/memory/demo.ergo":  "",
 	} {
-		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, f)), 0o755); err != nil {
+		path := filepath.Join(root, filepath.FromSlash(file))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(root, f), []byte(text), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte(tests), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -161,16 +186,10 @@ func TestKillerInAnotherSuiteIsRun(t *testing.T) {
 		{Name: "b", Killers: []string{"lower:TestL", "runtime/v1:TestOwn (a note)"}, Anchor: &Anchor{Tests: []string{"runtime/v1[ergoexplore]:TestC"}}},
 		{Name: "c", Killers: []string{"internal/closure:TestOther"}},
 	}}
-	at := ledgerPath(root, filepath.Join(root, "runtime", "v1"))
-	_, tools, suites, err := suitesFor(root, []Job{{Path: at, Ledger: ledger, Select: regexp.MustCompile("^[ab]$")}})
+	path := ledgerPath(root, filepath.Join(root, "runtime", "v1"))
+	_, tools, suites, err := suitesFor(root, []Job{{Path: path, Ledger: ledger, Select: regexp.MustCompile("^[ab]$")}})
 	if err != nil {
 		t.Fatal(err)
-	}
-	for _, id := range []string{"v1:TestA", "runtime/v1:TestNone", "lower:TestNone", "examples:nowhere", "runtime/v1[ergoexplore:TestA"} {
-		bad := &Ledger{Mutants: []*Mutant{{Name: "c", Killers: []string{"runtime/v1:TestB", id}}}}
-		if _, _, _, err := suitesFor(root, []Job{{Path: at, Ledger: bad}}); err == nil || !strings.Contains(err.Error(), id) {
-			t.Errorf("killer %q: error %v, want one that names it", id, err)
-		}
 	}
 	type got struct {
 		name, pkg, tags string
@@ -196,9 +215,11 @@ func TestKillerInAnotherSuiteIsRun(t *testing.T) {
 	if len(tools) != 1 || tools[0].Name != "ergo" {
 		t.Errorf("tools %+v, want the ergo CLI that lower runs", tools)
 	}
-	ledger.Mutants = append(ledger.Mutants, &Mutant{Name: "d", Killers: []string{"v1:TestNone"}})
-	if _, _, _, err := suitesFor(root, []Job{{Path: at, Ledger: ledger}}); err == nil || !strings.Contains(err.Error(), "v1:TestNone") {
-		t.Errorf("a killer in no suite: err %v, want it named", err)
+	for _, id := range []string{"v1:TestA", "runtime/v1:TestNone", "lower:TestNone", "examples:nowhere", "runtime/v1[ergoexplore:TestA"} {
+		bad := &Ledger{Mutants: []*Mutant{{Name: "d", Killers: []string{"runtime/v1:TestB", id}}}}
+		if _, _, _, err := suitesFor(root, []Job{{Path: path, Ledger: bad}}); err == nil || !strings.Contains(err.Error(), id) {
+			t.Errorf("killer %q: error %v, want one that names it", id, err)
+		}
 	}
 }
 
@@ -210,15 +231,12 @@ func TestKillerInAnotherSuiteIsRun(t *testing.T) {
 // env in their ledgers is refused rather than leaking into every suite.
 func TestLedgerEnvReachesItsOwnSuite(t *testing.T) {
 	root := t.TempDir()
-	// Only a package with tests is a suite (suitesFor), so tsproj has one.
-	for _, f := range []string{"internal/sketch/lower/l_test.go", "internal/tsproj/p_test.go"} {
-		path := filepath.Join(root, filepath.FromSlash(f))
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte("func TestL(t *testing.T) {}\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
+	path := filepath.Join(root, "internal", "sketch", "lower", "l_test.go")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("func TestL(t *testing.T) {}\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 	env := []string{"ERGO_TS_TEST=1"}
 	own := &Ledger{Env: env, Mutants: []*Mutant{{Name: "a", Killers: []string{"lower:TestL"}}}}
