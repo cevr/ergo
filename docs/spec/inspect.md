@@ -103,14 +103,18 @@ ergo inspect forms FILE|DIR [--json]
    `filepath.Clean`) on constants becomes the constant the compiler
    computes with the same Go function. A let bound once to a constant,
    or to a folded call, is a constant operand. Some of these functions read
-   Go's Unicode tables, so the pass folds only when the compiler runs on
-   the pinned Go release (`ergo version`), the one that builds the
-   program. It looks at each such call. Its reasons:
+   Go's Unicode tables, so the pass folds only when the Go that builds the
+   program is the pinned release (`ergo version`) and the compiler runs on
+   that release. The Go that builds it is `ERGO_GO`'s choice: the managed
+   release, or for `system` or a path the release that go command reports
+   (`go env GOVERSION`); a go command that does not say folds nothing. It
+   looks at each such call.
+   Its reasons:
    - fired: `computed at compile time by the same Go function`;
    - `an operand is not a constant of a basic type`: a parameter, a
      `let mut`, an interpolation or any other value the IR does not hold
      as a constant;
-   - `the compiler does not run on the pinned Go release`.
+   - `the Go that builds the program is not the Go the compiler runs on`.
 4. `--json` lists the same sites with `file`, `line`, `column`, `func`,
    `form`, `pass`, `fired` and `reason`. Exit 0 when the package checks, 1
    when it does not, 2 on an invalid invocation.

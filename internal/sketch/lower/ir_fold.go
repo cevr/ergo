@@ -11,10 +11,14 @@ package lower
 //	q := strconv.Quote("lit")    ⇒    q := "\"lit\""
 //
 // The native's value is the compiler's Go's, and some of them read Go's
-// tables (strconv.Quote and the case mappings read the Unicode tables). So
-// the pass folds only when the compiler runs on the pinned release
-// (toolchain.Version), the one that builds the program; on any other Go it
-// leaves the call and says why. A reviewed-pure Go function calls back no
+// tables (strconv.Quote and the case mappings read the Unicode tables),
+// while the call's value at run time is the Go's that builds the program.
+// So the pass folds only when the two are one release (foldGoAgrees): the
+// Go that builds the program (ERGO_GO, as internal/toolchain's Select
+// chooses it: the pinned release, or the release the system or given go
+// command reports) is the pinned release, and the compiler runs on it. On
+// any disagreement, or a go command that does not say, the pass leaves the
+// call and says why. A reviewed-pure Go function calls back no
 // Ergo code, raises no defect on a basic operand and has no effect, so the
 // call and its constant are the same value at the same place.
 //
@@ -24,8 +28,11 @@ package lower
 import (
 	"go/constant"
 	"go/token"
+	"os"
+	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -62,11 +69,64 @@ func SetCompilerGo(v string) (restore func()) {
 	return func() { compilerGo = saved }
 }
 
+// buildGoSet, when not nil, is the Go release a test sees building the
+// program (SetBuildGo).
+var buildGoSet *string
+
+// SetBuildGo makes the lowerings that follow see the program built by the
+// Go release v ("" for one the lowering does not know), and returns what
+// restores the choice before it: a test of the build toolchain's guard.
+func SetBuildGo(v string) (restore func()) {
+	saved := buildGoSet
+	buildGoSet = &v
+	return func() { buildGoSet = saved }
+}
+
+// buildGo is the Go release that builds the program, as toolchain.Select
+// chooses it from ERGO_GO: the pinned release when ergo manages Go (unset
+// or "managed"), else the release the chosen go command reports (`go env
+// GOVERSION` of the go on PATH for "system", of the path given otherwise),
+// asked once per choice; "" when it cannot say.
+func buildGo() string {
+	if buildGoSet != nil {
+		return *buildGoSet
+	}
+	choice := os.Getenv("ERGO_GO")
+	switch choice {
+	case "", "managed":
+		return toolchain.Version
+	}
+	if v, ok := buildGoAsked.Load(choice); ok {
+		return v.(string)
+	}
+	goCmd := choice
+	if choice == "system" {
+		goCmd = "go"
+	}
+	v := ""
+	if out, err := exec.Command(goCmd, "env", "GOVERSION").Output(); err == nil {
+		if f := strings.Fields(string(out)); len(f) > 0 {
+			v = f[0]
+		}
+	}
+	buildGoAsked.Store(choice, v)
+	return v
+}
+
+// buildGoAsked is the release each ERGO_GO choice's go command reported.
+var buildGoAsked sync.Map
+
+// foldGoAgrees reports that the Go that builds the program is the pinned
+// release and the compiler runs on it, so a native's value is the run's.
+func foldGoAgrees() bool {
+	return buildGo() == toolchain.Version && compilerGo == toolchain.Version
+}
+
 // The fold pass's reasons (ir_forms_report.go). Only a pure Go call that
 // has a check-time native gets a site.
 var (
 	foldFired    = &FormReason{"call", "fold", true, "computed at compile time by the same Go function"}
-	foldOtherGo  = &FormReason{"call", "fold", false, "the compiler does not run on the pinned Go release"}
+	foldOtherGo  = &FormReason{"call", "fold", false, "the Go that builds the program is not the Go the compiler runs on"}
 	foldNotConst = &FormReason{"call", "fold", false, "an operand is not a constant of a basic type"}
 )
 
@@ -82,7 +142,7 @@ func (b *irBuilder) foldable(f *check.Func, x *syntax.CallExpr) bool {
 
 // foldableIn is foldable for a call x checked in info.
 func (b *irBuilder) foldableIn(info *check.Info, f *check.Func, x *syntax.CallExpr) bool {
-	if pureFold == "off" || compilerGo != toolchain.Version || f == nil || !f.Pkg.Host() || !eval.HasGoFold(f.Pkg.Path, f.Name) {
+	if pureFold == "off" || !foldGoAgrees() || f == nil || !f.Pkg.Host() || !eval.HasGoFold(f.Pkg.Path, f.Name) {
 		return false
 	}
 	for _, a := range x.Args {
@@ -187,7 +247,7 @@ func (b *irBuilder) foldCall(x *irExpr, consts map[int]*irExpr) *irExpr {
 			return nil
 		}
 	}
-	if compilerGo != toolchain.Version {
+	if !foldGoAgrees() {
 		b.formSite(x.C.site, foldOtherGo)
 		return nil
 	}

@@ -39,24 +39,29 @@ func emitFold(t *testing.T, u lower.Unit, on bool, goVersion, dir string) lower.
 
 // TestPureFoldCounts: the IR of the fold programs computes some Go calls
 // at compile time when the compiler runs on the pinned Go release, and
-// none with the pass off or on another release (LAWFFI LF3c). In
-// process: the IR report counts them.
+// none with the pass off, with the compiler on another release, or with
+// the program built by another Go (ERGO_GO naming a go that reports another release;
+// LAWFFI LF3c). In process: the IR report counts them.
 //
 // Mutants it alone catches: ffi-fold-other-toolchain (the pass folds on a
 // Go release other than the pinned one; the values agree on this host, so
-// the agreement property cannot see it), ffi-fold-never (no call folds),
+// the agreement property cannot see it), ffi-fold-other-build-toolchain
+// (the pass folds whatever Go builds the program), ffi-fold-never (no call folds),
 // ffi-fold-off-ignored (the switch off still folds).
 func TestPureFoldCounts(t *testing.T) {
-	pinned, other, off := 0, 0, 0
+	pinned, other, build, off := 0, 0, 0, 0
 	for seed := uint64(1); seed <= 4; seed++ {
 		dir := t.TempDir()
 		u, _ := foldProgram(t, seed, dir)
 		pinned += emitFold(t, u, true, toolchain.Version, filepath.Join(dir, "pinned")).Fold
 		other += emitFold(t, u, true, "go1.26.0", filepath.Join(dir, "other")).Fold
 		off += emitFold(t, u, false, toolchain.Version, filepath.Join(dir, "off")).Fold
+		restore := lower.SetBuildGo("go1.26.0")
+		build += emitFold(t, u, true, toolchain.Version, filepath.Join(dir, "build")).Fold
+		restore()
 	}
-	if pinned == 0 || other != 0 || off != 0 {
-		t.Errorf("folded calls: %d on the pinned Go, %d on go1.26.0, %d with the pass off; want some, then none, then none", pinned, other, off)
+	if pinned == 0 || other != 0 || build != 0 || off != 0 {
+		t.Errorf("folded calls: %d on the pinned Go, %d with the compiler on go1.26.0, %d built by go1.26.0, %d with the pass off; want some, then none", pinned, other, build, off)
 	}
 }
 
