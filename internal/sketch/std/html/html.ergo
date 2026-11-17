@@ -158,6 +158,21 @@ func allFixed(kids []Child) bool {
 	true
 }
 
+// sizeOf is the length of the element tag around kids when no attribute
+// value needs escaping: the room a static element's builder takes at once.
+func sizeOf(tag string, kids []Child) int {
+	let mut n = 2*len(tag) + 5
+	for k in kids {
+		match k {
+		case Attr as a:
+			n = n + len(a.name) + len(a.value) + 4
+		case Node as c:
+			n = n + len(c.text)
+		}
+	}
+	n
+}
+
 // writeElement writes the element tag around kids: its attributes in
 // the start tag, then its child nodes, then the end tag.
 func writeElement(b *strings.Builder, tag string, kids []Child) {
@@ -182,6 +197,7 @@ func writeElement(b *strings.Builder, tag string, kids []Child) {
 func element(tag string, kids []Child) Node {
 	if allFixed(kids) {
 		let mut b = strings.NewBuilder()
+		b.Grow(sizeOf(tag, kids))
 		writeElement(&b, tag, kids)
 		return fixed(b.String())
 	}
