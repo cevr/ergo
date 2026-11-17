@@ -5,7 +5,8 @@ An Ergo module of this repository (`modules/`, MK0): a web framework for server-
 | Package | What |
 | --- | --- |
 | `web` | `Routes[R]` with law `HrefParses`; `To` (a route's link, for `html.Href`); `Site[R, P, F, N]`; `Reply`; `Fetch`; `Request` |
-| `web/webtest` | `Get`, `Head` and `Post` on a site with no server |
+| `web/webtest` | `Get`, `Head` and `Post` on a site with no server; `Links` (the hrefs of a page's `<a>` elements) and `Unresolved` (each link to the site that does not answer 200) |
+| `web/static` | the prerender host: `PathOf` (a place's file), `Pages`, `Build` (writes them under a folder, `needs fs.Writes`), `Differences` (what a build writes that `Fetch` would not serve) |
 
 ## A site
 
@@ -27,6 +28,10 @@ An Ergo module of this repository (`modules/`, MK0): a web framework for server-
 Each answer is `Content-Type: text/html; charset=utf-8` but the 405. The request's path is read as written, escaped: `Fetch` does not unescape it before `Parse` (`ui.Segments` unescapes each segment).
 
 Laws (`app.ergo`, over a site of their own whose loader fails): `HeadIsGetWithoutBody`, `UnknownPathIsNotFound`, `OtherMethodIsNotAllowed`, `KnownPathIsLoadThenView`. `webtest`'s test `FixtureSiteAnswers` drives a three-route site whose loader reads a capability.
+
+## The static host
+
+`static.Build(site, routes, dir)` writes a file for each listed route (`/` is `index.html`, `/entries/a` is `entries/a/index.html`, a last segment with a `.` is that file) and the 404 page as `404.html`. A route whose loader fails stops the build with its failure; a place with a `.` or `..` segment, or a `/` inside one, has no file (`BadPath`). Laws: `StaticEqualsServed` (each file is the body `Fetch` answers for a GET of its route, and nothing else is written) and `ListedRoutesLoad`. `examples/fieldnotes` runs both over its own site.
 
 ## Decided
 
