@@ -167,6 +167,7 @@ var declared = map[string][]allowance{
 	),
 	"internal/sketch/eval": {
 		{"cmd/ergo", program, "TestEvalAgreesWithLowering builds the ergo CLI and builds each generated program with it"},
+		{"runtime/v1/testdata/toml-test/corpus.json", file, "the toml native's tests hold the evaluator to the public toml-test corpus that runtime/v1's tests use (nativestoml_test.go)"},
 		{"examples", subtree, "TestEvalAgreesOnExamples walks every example program and its cases (filepath.WalkDir) and runs each case in the evaluator"},
 		{"modules", subtree, "TestEvalAgreesOnExamples: examples import the bundled modules (ergo.dev/domain, mcp, xml), which their ergo.mod replaces with modules/, and the loader reads each module's sources"},
 	},
