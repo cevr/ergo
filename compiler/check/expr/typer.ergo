@@ -54,6 +54,10 @@ type Typer {
 	fn      int,
 	res     Option[dense.ID[store.TKey]],
 	steps   int,
+	// typed counts the expressions typed; record is whether each is also
+	// kept in Entries (Check) or only counted (CheckFused).
+	typed  int,
+	record bool,
 	// reserved is the room the package-sized tables were given: entries
 	// and locals (one per row each), and instances (one per call).
 	reserved int,
@@ -62,6 +66,10 @@ type Typer {
 // Steps is the typer's work: one step per expression typed and per
 // declaration looked up (the counted guard's counter).
 func Steps(t Typer) int { t.steps }
+
+// Typed is the count of expressions typed: Entries' length when Check
+// keeps them.
+func Typed(t Typer) int { t.typed }
 
 // Reserved is the count of slots Check gives its package-sized tables
 // (Entries and the locals one per row, Insts one per call): the byte
@@ -93,15 +101,26 @@ func tree(k Pkg, t Typer) syntax.Tree { k.Parsed[t.file].Tree }
 func pnode(k Pkg, t Typer, x dense.ID[syntax.Node]) dense.ID[store.PNode] { bind.PNodeOf(k.Ps, t.file, x) }
 
 func note(k Pkg, t *Typer, x dense.ID[syntax.Node], ty dense.ID[store.TKey]) {
-	t.Entries = t.Entries.Append(Entry{At: pnode(k, *t, x), T: ty, Fn: t.fn})
+	t.typed = t.typed + 1
+	if t.record {
+		t.Entries = t.Entries.Append(Entry{At: pnode(k, *t, x), T: ty, Fn: t.fn})
+	}
 }
 
 func basic(s store.Store, ty dense.ID[store.TKey]) int {
 	if store.KindOfType(s, ty) == store.KBasic { store.ArgOf(s, ty) } else { -1 }
 }
 
-// Check types every function body of k.
-func Check(s *store.Store, k Pkg) Typer {
+// Check types every function body of k, keeping each typed expression in
+// Entries.
+func Check(s *store.Store, k Pkg) Typer { checkAll(s, k, true) }
+
+// CheckFused types every function body of k as Check does, with no Entries
+// table: the walk counts what it types (Typed) and reports its type errors
+// and instances, as a checker that only accepts or rejects does (S3d5).
+func CheckFused(s *store.Store, k Pkg) Typer { checkAll(s, k, false) }
+
+func checkAll(s *store.Store, k Pkg, record bool) Typer {
 	// Each table is sized once from the package's rows, so typing a
 	// function allocates the same bytes however large the package is: a
 	// row holds at most one entry and one local, a call at most one
@@ -111,7 +130,8 @@ func Check(s *store.Store, k Pkg) Typer {
 	for _ in 0..rows {
 		dense.Push(&defs, dense.NoID[store.TKey]())
 	}
-	let mut t = Typer{Entries: slices.WithCapacity[Entry](rows), Diags: []Diag{}, Insts: slices.WithCapacity[Inst](calls), defs: defs, frame: infer.NewFrame(), file: 0, fn: 0, res: None, steps: 0, reserved: 2*rows + calls}
+	let entries = if record { rows } else { 0 }
+	let mut t = Typer{Entries: slices.WithCapacity[Entry](entries), Diags: []Diag{}, Insts: slices.WithCapacity[Inst](calls), defs: defs, frame: infer.NewFrame(), file: 0, fn: 0, res: None, steps: 0, typed: 0, record: record, reserved: entries + rows + calls}
 	for i, f in k.Fns {
 		match dense.Unpack(f.Body) {
 		case Some[dense.ID[syntax.Node]] as b:
