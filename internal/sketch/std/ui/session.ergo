@@ -12,12 +12,15 @@ import task
 // shows, and run counts the actors it has run, so the end of an earlier
 // one is told apart.
 type Session[S, E, D, F] {
-	frame       Frame[E],
-	actor       actor.Actor[S, E, D, F],
-	view        func(f *Frame[E], s S),
-	post        func(ev Event[E]),
-	inflight    Map[int, Task[bool]],
-	stale       sync.Ref[bool],
+	frame    Frame[E],
+	actor    actor.Actor[S, E, D, F],
+	view     func(f *Frame[E], s S),
+	post     func(ev Event[E]),
+	inflight Map[int, Task[bool]],
+	stale    sync.Ref[bool],
+	// shown is the actor's Version when the last pass read its state: a
+	// commit raises it, so the session draws each state once (FK2-g2).
+	shown       sync.Ref[int],
 	watch       Task[bool],
 	exit        func(a actor.Actor[S, E, D, F]) Option[CrashCause[F]],
 	alive       func(a actor.Actor[S, E, D, F], e E) bool,
@@ -49,7 +52,7 @@ func Start[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], view own func(f 
 			view(f, st)
 		}
 	}
-	let mut s = Session[S, E, D, F]{frame: NewFrame[E](), actor: a, view: shown, post: post, inflight: Map[int, Task[bool]]{}, stale: sync.NewRef(false), watch: task.Go() { true }, exit: noExit[S, E, D, F], alive: running[S, E, D, F], fresh: None, crashView: PlainCrash[S, E, F], report: noReport[S, E, F], crash: None, run: 0, signals: 0, passSignals: 0}
+	let mut s = Session[S, E, D, F]{frame: NewFrame[E](), actor: a, view: shown, post: post, inflight: Map[int, Task[bool]]{}, stale: sync.NewRef(false), shown: sync.NewRef(-1), watch: task.Go() { true }, exit: noExit[S, E, D, F], alive: running[S, E, D, F], fresh: None, crashView: PlainCrash[S, E, F], report: noReport[S, E, F], crash: None, run: 0, signals: 0, passSignals: 0}
 	watchActor(&s)
 	let ops = runPass(&s)
 	(s, ops)
@@ -85,6 +88,28 @@ func watchActor[E comparable, S, D, F](s *Session[S, E, D, F]) {
 	}
 }
 
+// newer is whether the actor committed a state after the one the last
+// pass read.
+func newer[E comparable, S, D, F](s *Session[S, E, D, F]) bool { s.actor.Version() > s.shown.Get() }
+
+// versioned is the actor's state and a Version no later than it: exact
+// when no commit came between the reads around it, which a State read
+// waiting for the session's own signal makes the common case, so the
+// pass of a press is the press's only pass. A Version too low costs one
+// more pass; one too high would lose a commit, so it is never guessed.
+func versioned[S, E, D, F](a actor.Actor[S, E, D, F]) (S, int) {
+	let mut v = a.Version()
+	for _ in 0..3 {
+		let st = a.State()
+		let w = a.Version()
+		if w == v {
+			return (st, v)
+		}
+		v = w
+	}
+	(a.State(), v)
+}
+
 // runPass renders the actor's state (the crash view of the crash, once
 // the actor crashed), then starts each Fetch of the commit as a task and
 // stops the task of each Cancel.
@@ -92,9 +117,12 @@ func runPass[E comparable, S, D, F](s *Session[S, E, D, F]) []Op[E] {
 	s.stale.Set(false)
 	let ops = match s.crash {
 	case Some[Crash[S, E, F]] as c:
+		s.shown.Set(s.actor.Version())
 		Render(&s.frame, s.crashView, c.Value)
 	case None:
-		Render(&s.frame, s.view, s.actor.State())
+		let (st, v) = versioned(s.actor)
+		s.shown.Set(v)
+		Render(&s.frame, s.view, st)
 	}
 	s.passSignals = s.signals
 	s.signals = 0
@@ -147,7 +175,8 @@ func Step[E comparable, S, D, F](s *Session[S, E, D, F], ev Event[E]) []Op[E] fa
 	case Arrived[E] as x:
 		finish(s, x.Epoch)
 	case Committed:
-		if sync.Modify(s.stale, func(b bool) (bool, bool) { (b, false) }) {
+		s.stale.Set(false)
+		if newer(s) {
 			return runPass(s)
 		}
 		return []Op[E]{}

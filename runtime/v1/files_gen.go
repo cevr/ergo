@@ -566,6 +566,7 @@ var bodyTable = []bodyRow{
 	{"TextList", bodyFact{body: Body{Params: []Param{{Type: "[]string"}}, Results: []string{"string"}, Package: Path}}},
 	{"TextUint", bodyFact{body: Body{Params: []Param{{Type: "uint64"}}, Results: []string{"string"}, Package: Path}}},
 	{"TimeAppendUTC", bodyFact{body: Body{Params: []Param{{Type: "[]byte"}, {Type: "int64"}, {Type: "int64"}, {Type: "string"}}, Results: []string{"[]byte"}, Pure: true, Wait: "none", Package: Path}}},
+	{"TimeAsleep", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "*Timeline"}, {Type: "*Task[T]"}}, Results: []string{"bool"}, Wait: "none", Package: Path}}},
 	{"TimeCount", bodyFact{body: Body{Params: []Param{{Type: "time.Duration"}, {Type: "time.Duration"}}, Results: []string{"int"}, Pure: true, Wait: "none", Package: Path}}},
 	{"TimeDivide", bodyFact{body: Body{Params: []Param{{Type: "time.Duration"}, {Type: "int"}}, Results: []string{"time.Duration"}, Pure: true, Wait: "none", Package: Path}}},
 	{"TimeDurationISO", bodyFact{body: Body{Params: []Param{{Type: "time.Duration"}}, Results: []string{"string"}, Pure: true, Wait: "none", Package: Path}}},

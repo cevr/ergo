@@ -130,3 +130,14 @@ func (l *Timeline) Advance(t *rt.Task, d time.Duration) {
 //
 //ergo:wait none
 func (l *Timeline) Sleepers() int { return l.v.Pending() }
+
+// TimeAsleep is time.Asleep: whether the task of tk, or a task started
+// below it, sleeps on l. A task that ended sleeps on nothing (FK4-g2).
+//
+//ergo:wait none
+func TimeAsleep[T any](l *Timeline, tk *Task[T]) bool {
+	if tk == nil || tk.h == nil {
+		return false
+	}
+	return l.v.Asleep(tk.h.Task())
+}

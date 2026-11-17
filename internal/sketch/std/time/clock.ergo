@@ -131,4 +131,11 @@ func Advance(m Manual, d duration) { m.line.Advance(d) }
 // Sleepers is the number of tasks asleep on m.
 func Sleepers(m Manual) int { m.line.Sleepers() }
 
+// Asleep says whether t, or a task started below it, is asleep on m, so
+// only m's Advance wakes it. A task that ended is asleep on nothing
+// (FK4-g2: the ui test host's Settle returns when each fetch left is).
+func Asleep[T, E](m Manual, t Task[T, E]) bool { timeAsleep(m.line, t) }
+
+extern go ergo.local/prototype/runtime/v1.TimeAsleep func timeAsleep[T, E](l Timeline, t Task[T, E]) bool
+
 extern go ergo.local/prototype/runtime/v1.NewTimeline func newTimeline(sec int64, nsec int64) Timeline

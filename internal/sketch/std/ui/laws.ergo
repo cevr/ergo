@@ -663,6 +663,69 @@ func rowIds(f *Frame[int], xs []int) Map[int, (Id[int], Id[int])] {
 	out
 }
 
+// keyedLines is keyed rows of one node each, so two rows that swap are
+// two neighbours whose old positions differ by one.
+func keyedLines(f *Frame[int], xs []int) {
+	Column(f, Plain()) {
+		Each(f, xs, func(x int) Key { ByInt(x) }) func(x int) {
+			Text(f, "line \(x)")
+		}
+	}
+}
+
+// longestRise is the length of the longest strictly increasing
+// subsequence of xs, by the quadratic reference.
+func longestRise(xs []int) int {
+	let mut best = []int{}
+	let mut most = 0
+	for i, x in xs {
+		let mut b = 1
+		for j in 0..i {
+			if xs[j] < x && best[j]+1 > b {
+				b = best[j] + 1
+			}
+		}
+		best = best.Append(b)
+		if b > most {
+			most = b
+		}
+	}
+	most
+}
+
+// KeyedMovesFewest: a permutation of one-node keyed rows shows the new
+// order with the fewest Moves: every row but a longest run whose old
+// positions strictly increase (the patience sort's kept run).
+law KeyedMovesFewest(seed int, count int) {
+	let mut r = seeded(seed)
+	let mut xs = []int{}
+	for i in 0..(count%12+12)%12+1 {
+		xs = xs.Append(i)
+	}
+	let ys = shuffled(xs, &r)
+	let mut f = NewFrame[int]()
+	let mut m = NewMirror[int](Root(&f))
+	Apply(&m, Render(&f, keyedLines, xs)) catch {
+	case BadPatch:
+		return false
+	}
+	let ops = Render(&f, keyedLines, ys)
+	Apply(&m, ops) catch {
+	case BadPatch:
+		return false
+	}
+	let mut moves = 0
+	for op in ops {
+		match op {
+		case Move[int]:
+			moves = moves + 1
+		case _:
+			return false
+		}
+	}
+	SameShapes(MirrorShape(&m), FrameShape(&f)) && moves == len(ys)-longestRise(ys)
+}
+
 // KeyedIdentity: a permutation of keyed rows keeps each row's nodes, and
 // the node after the Each, with their Ids, and the patch only moves them;
 // so does a second permutation after it, which finds the children the

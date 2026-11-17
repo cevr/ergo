@@ -160,36 +160,55 @@ func Posted[S, E, D, F](h *TestHost[S, E, D, F]) int { h.posted.Len() }
 // Settle waits until nothing is left to run at this instant: no fetch in
 // flight, every posted result taken, and every task of the clock's domain
 // waiting again, so each work a signal started has run to its end or its
-// next wait on the clock (SettleRunsTheWork); then it runs a pass: the screen then shows the actor's latest state,
-// also one its work or timer committed, with each live
+// next wait on the clock (SettleRunsTheWork): the screen then shows the
+// actor's latest state, also one its work or timer committed (drawn by
+// its Committed, once: FK2-g2), with each live
 // load's result (models/uiloop SettledShowsLatest). A fetch that waits on
-// the clock waits until an Advance; Settle does not move the clock, so a
-// script advances first.
+// the clock waits until an Advance: Settle does not move the clock, and
+// returns with it still in flight (Fetching; the trace's "waiting on the
+// clock: N"), so a script advances and settles again (FK4-g2). A fetch
+// that waits on an answer from outside the clock (a server of the
+// test's, on a task of its own) is waited for, also while a timer sleeps
+// on the clock (FK4-g2-g1; law OffClockAnswerIsWaitedFor).
 func Settle[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
 	for {
-		for InFlight(&h.session) > 0 {
-			let ev = h.posted.Pop() catch {
-			case queue.Closed:
-				return
-			}
-			try apply(h, ev)
-		}
-		// A machine's work runs on a task of its own: advancing the clock by
-		// nothing returns once every task of its domain waits again, so each
-		// work a signal started has run to its end or its next wait, and the
-		// signals it sent are taken (FK1-g6).
+		// A machine's work and a fetch run on tasks of their own: advancing
+		// the clock by nothing returns once every task of its domain waits
+		// again, so each has run to its end or its next wait, and what it
+		// posted is taken (FK1-g6). The watcher is a task of the domain too,
+		// so by then it has posted the Committed of each state the work
+		// committed: its pass draws a state no pass read (actor.Version),
+		// and a press whose pass showed its state costs no second pass
+		// (FK2-g2).
 		h.clock.Advance(duration(int64(0)))
 		try Pump(h)
-		// A state the actor committed by its own work or timer reaches the
-		// loop as Committed, on the watcher's task, at no time a test can
-		// wait for; so Settle ends with a pass, which shows nothing new when
-		// nothing changed, and settles the loads that pass started.
-		try show(h, runPass(&h.session))
-		h.step = AddCounts(h.step, PassCounts(&h.session.frame))
 		if InFlight(&h.session) == 0 {
 			return
 		}
+		// Fetches are left, and every task of the domain waits with nothing
+		// more posted. A fetch asleep on the clock waits for the script's
+		// Advance, which Settle never makes; so when each fetch left is, it
+		// returns rather than wait for ever (FK4-g2). A fetch whose answer
+		// comes from outside the clock (a server's task) is waited for, even
+		// while a timer sleeps on the clock (FK4-g2-g1).
+		if fetchesAsleep(h) {
+			return
+		}
+		let ev = h.posted.Pop() catch {
+		case queue.Closed:
+			return
+		}
+		try apply(h, ev)
 	}
+}
+
+// Redraw runs a pass of the view and shows it, for a view that reads
+// state outside the actor (a cell, a sync.Ref), whose change no event and
+// no commit announces: Settle draws only a state the actor committed and
+// no pass read (FK2-g2).
+func Redraw[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails BadPatch {
+	try show(h, runPass(&h.session))
+	h.step = AddCounts(h.step, PassCounts(&h.session.frame))
 }
 
 // Advance moves the clock by d. While the view animates, it moves it a
@@ -460,7 +479,7 @@ func played[E comparable, S, D, F](h *TestHost[S, E, D, F], script []Act, lines 
 	for i, act in script {
 		try playOne(h, act)
 		if lines || on {
-			let line = "step \(i + 1) \(actText(act)): \(CountsLine(h.step))"
+			let line = "step \(i + 1) \(actText(act)): \(CountsLine(h.step))\(waitText(h, act))"
 			if on {
 				traceStep(line)
 			}
@@ -470,6 +489,30 @@ func played[E comparable, S, D, F](h *TestHost[S, E, D, F], script []Act, lines 
 		}
 	}
 	out
+}
+
+// fetchesAsleep says whether each fetch in flight is asleep on the
+// host's clock, so only an Advance wakes it.
+func fetchesAsleep[E comparable, S, D, F](h *TestHost[S, E, D, F]) bool {
+	for _, t in h.session.inflight {
+		if !time.Asleep(h.clock, t) {
+			return false
+		}
+	}
+	true
+}
+
+// waitText is what a SettleAll left in flight, waiting on the clock:
+// "; waiting on the clock: N", or nothing (FK4-g2).
+func waitText[E comparable, S, D, F](h *TestHost[S, E, D, F], act Act) string {
+	match act {
+	case SettleAll:
+		if InFlight(&h.session) > 0 {
+			return "; waiting on the clock: \(InFlight(&h.session))"
+		}
+	case _:
+	}
+	""
 }
 
 // playOne runs one act of a script.
@@ -732,11 +775,108 @@ law SettleRunsTheWork(n int) {
 	}
 }
 
+// tallyStep adds one to the row e. (a law's helper)
+func tallyStep(s []int, e int) Decision[[]int, int] {
+	let mut next = []int{}
+	for i, c in s {
+		next = next.Append(if i == e { c + 1 } else { c })
+	}
+	Enter[[]int]{Next: next}
+}
+
+// tallyTimer is the machine's timer: none. (a law's helper)
+func tallyTimer(s []int) Option[Timeout[int]] {
+	None
+}
+
+// tallyWork is the machine's work: none. (a law's helper)
+func tallyWork(s []int) Option[func(send func(e int))] {
+	None
+}
+
+// tallyView is a row per count, each in a Same of its count, with a
+// button that adds one. (a law's helper)
+func tallyView(f *Frame[int], s []int) {
+	Column(f, Plain()) {
+		let mut idx = []int{}
+		for i in 0..len(s) {
+			idx = idx.Append(i)
+		}
+		Each(f, idx, func(i int) Key { ByInt(i) }) func(i int) {
+			Same(f, ByInt(s[i])) {
+				Text(f, "row \(i): \(s[i])")
+				Pressable(f, "plus \(i)", i) {
+					Text(f, "+")
+				}
+			}
+		}
+	}
+}
+
+// pressCounts is the counts of a press on row at of a tally of n rows,
+// then a Settle, and of the step with a Redraw after it. (a law's helper)
+func pressCounts(n int, at int, m time.Manual) Option[(StepCounts, StepCounts)] needs Scheduler {
+	let mut rows = []int{}
+	for _ in 0..n {
+		rows = rows.Append(0)
+	}
+	let a = actor.StartMachine(Machine[[]int, int, int]{Initial: rows, Step: tallyStep, After: tallyTimer, Work: tallyWork}, 1, func(o int) {})
+	let mut h = NewTestHost(a, tallyView, m, 4) catch {
+	case BadPatch:
+		return None
+	}
+	let id = match Find(&h, "plus \(at)") {
+	case Some[Id[int]] as x:
+		x.Value
+	case None:
+		return None
+	}
+	Tap(&h, id) catch {
+	case _:
+		return None
+	}
+	Settle(&h) catch {
+	case _:
+		return None
+	}
+	let pressed = Counts(&h)
+	Redraw(&h) catch {
+	case _:
+		return None
+	}
+	let redrawn = Counts(&h)
+	a.Stop()
+	Some{Value: (pressed, redrawn)}
+}
+
+// PressIsOnePass (FK2-g2): a press on one row of a tally, and the Settle
+// after it, is one pass: from n rows to 4n, the nodes it writes grow as
+// one pass of the view grows (one Same per row, which a Redraw writes),
+// not as three, and it runs one row's body. The pass of the press read
+// the state the press committed (actor.Version), so neither the watcher's
+// Committed nor Settle draws it again.
+law PressIsOnePass(n int, at int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let small = (n%8+8)%8 + 2
+		let row = (at%small + small) % small
+		match (pressCounts(small, row, m), pressCounts(4*small, row, m)) {
+		case (Some[(StepCounts, StepCounts)] as x, Some[(StepCounts, StepCounts)] as y):
+			let (p1, r1) = x.Value
+			let (p4, r4) = y.Value
+			p1.GroupsRan == 1 && p4.GroupsRan == 1 && p4.Ran-p1.Ran == (r4.Ran-p4.Ran)-(r1.Ran-p1.Ran) && p4.Ran > p1.Ran
+		case _:
+			false
+		}
+	}
+}
+
 // CountsAreTheStep (NS3): Counts is the passes since the last input,
-// summed. A press that changes the text is one pass with one Set; each
-// Settle after it adds its own pass to that step; and a key that sends
-// nothing starts a step with no pass, so its counts are none, and its
-// PlayTrace line says so.
+// summed. A press that changes the text is one pass with one Set; a
+// Settle after it adds no pass, since the press's pass showed the state
+// it committed (FK2-g2: a press is one pass); each Redraw adds its own;
+// and a key that sends nothing starts a step with no pass, so its counts
+// are none, and its PlayTrace line says so.
 law CountsAreTheStep(n int) {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
@@ -755,10 +895,14 @@ law CountsAreTheStep(n int) {
 		case _:
 			return false
 		}
-		// Each Settle after the first, with nothing posted, adds its one
-		// pass of one node.
+		let settled = Counts(&h)
+		// Each Redraw adds its one pass of one node; a Settle, none.
 		for _ in 0..(n%3+3)%3+1 {
 			let ran = Counts(&h).Ran
+			Redraw(&h) catch {
+			case _:
+				return false
+			}
 			Settle(&h) catch {
 			case _:
 				return false
@@ -767,7 +911,6 @@ law CountsAreTheStep(n int) {
 				return false
 			}
 		}
-		let settled = Counts(&h)
 		PressKey(&h, KeyPress{Name: "noop", Mods: mods}) catch {
 		case _:
 			return false
@@ -781,7 +924,7 @@ law CountsAreTheStep(n int) {
 			return false
 		}
 		let line = "step 1 KeyIn \"noop\": no ops; ran 0 nodes, kept 0; groups ran 0, kept 0; visits 0"
-		pressed.Set == 1 && pressed.Ran == 1 && settled.Set == 1 && settled.Ran > pressed.Ran && trace == []string{line}
+		pressed.Set == 1 && pressed.Ran == 1 && settled == pressed && trace == []string{line}
 	}
 }
 

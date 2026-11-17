@@ -284,6 +284,21 @@ func (v *Virtual) Pending() int {
 	return len(v.timers)
 }
 
+// Asleep reports whether t, or a task started below it, sleeps on v: a
+// timer of a domain clock's Sleep holds its sleeper (FK4-g2).
+func (v *Virtual) Asleep(t *Task) bool {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	for _, tm := range v.timers {
+		for s := tm.task; s != nil; s = s.parent.Load() {
+			if s == t {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // AwaitTimers blocks until exactly n timers are armed.
 func (v *Virtual) AwaitTimers(n int) {
 	v.mu.Lock()
