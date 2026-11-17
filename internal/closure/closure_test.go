@@ -240,6 +240,7 @@ var declared = map[string][]allowance{
 		{"examples/editions/sketch/expected.out", file, "TestSketchBuildRunsProgram compares the run with the expected output"},
 		{"examples", subtree, "TestExamplesOutputIsAFunctionOfInput walks every example package folder (filepath.WalkDir) and checks and lowers each, in this process and in two children; TestDirectMatchesGoBuild walks the example programs and builds each by the direct path and by go build"},
 		{"ergo.mod", file, "CheckDir of a one-folder example looks for its module upward and stats the checkout root's ergo.mod (absent); adding one makes the example a package of it"},
+		{"modules", subtree, "TestPathsRoundTrip checks every example program, and since B7e every one exports, so the examples that import the bundled modules (ergo.dev/domain, mcp, xml; their ergo.mod replaces them with modules/) are checked through, and the loader reads each module's sources"},
 		{"internal/sketch/check/testdata/corpus", subtree, "TestStdSnapshotAgrees checks the checker's corpus with std from source and from each snapshot (stdCorpus globs its archives)"},
 	},
 	"internal/testinputs": declare(
