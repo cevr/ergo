@@ -405,16 +405,12 @@ func class(seen int) int {
 	if s == 0 { kindType } else if s == kindType || s == kindErrors || s == kindUses { s } else { KindConflict }
 }
 
-// SolveKinds solves the kinds of the generic type declarations of the
-// package whose store bind.Collect built from files.
-func SolveKinds(s store.Store, files []syntax.Parsed, ext []Ext) Kinds {
-	let mut st = solve{s: s, files: files, gens: []gen{}, ext: ext, sv: solver{parent: []int{}, seen: []int{}, steps: 0}, ownMap: false, fn: false, local: Kinds{Names: []string{}, Of: [][]int{}, Raw: [][]int{}, Steps: 0}}
-	match store.Lookup(s, "Map") {
-	case Some[dense.ID[store.Decl]] as d:
-		st.ownMap = store.KindName(int(store.DeclOf(s, d.Value).Kind)) == "type"
-	case None:
-	}
-	// The variables: one per bracket parameter, in collect order.
+// gensOf is the package's generic type declarations in collect order,
+// each inline variant of a generic union after its union, with the place
+// of its first parameter among all of them (gen.base).
+func gensOf(files []syntax.Parsed) []gen {
+	let mut gens = []gen{}
+	let mut next = 0
 	for f, p in files {
 		if p.Failed {
 			continue
@@ -425,11 +421,8 @@ func SolveKinds(s store.Store, files []syntax.Parsed, ext []Ext) Kinds {
 				match dense.Unpack(td.TypeParams) {
 				case Some[dense.ID[syntax.Node]] as tp:
 					let (names, typed) = bracketNames(p, tp.Value)
-					let base = len(st.sv.parent)
-					for i, _ in names {
-						st.sv.parent = st.sv.parent.Append(base + i)
-						st.sv.seen = st.sv.seen.Append(if typed[i] { kindType } else { 0 })
-					}
+					let base = next
+					next = next + len(names)
 					let mut ops = false
 					match dense.Unpack(td.Spec) {
 					case Some[dense.ID[syntax.Node]] as sp:
@@ -446,7 +439,7 @@ func SolveKinds(s store.Store, files []syntax.Parsed, ext []Ext) Kinds {
 					case None:
 						continue
 					}
-					st.gens = st.gens.Append(gen{file: f, name: td.Name, body: spec, params: names, typed: typed, ops: ops, base: base})
+					gens = gens.Append(gen{file: f, name: td.Name, body: spec, params: names, typed: typed, ops: ops, base: base})
 					// An inline variant of a union is a record with the
 					// union's parameters its fields mention, in the union's
 					// order (shapes.go variantParams).
@@ -456,19 +449,18 @@ func SolveKinds(s store.Store, files []syntax.Parsed, ext []Ext) Kinds {
 							match syntax.ViewOf(p.Tree, m) {
 							case syntax.VariantSpec as vs:
 								let used = mentioned(p, vs.Fields)
-								let vbase = len(st.sv.parent)
+								let vbase = next
 								let mut vnames = []string{}
 								let mut vtyped = []bool{}
 								for i, n in names {
 									if contains(used, n) {
-										st.sv.parent = st.sv.parent.Append(vbase + len(vnames))
-										st.sv.seen = st.sv.seen.Append(if typed[i] { kindType } else { 0 })
 										vnames = vnames.Append(n)
 										vtyped = vtyped.Append(typed[i])
 									}
 								}
+								next = next + len(vnames)
 								if len(vnames) > 0 {
-									st.gens = st.gens.Append(gen{file: f, name: vs.Name, body: vs.Fields, params: vnames, typed: vtyped, ops: false, base: vbase})
+									gens = gens.Append(gen{file: f, name: vs.Name, body: vs.Fields, params: vnames, typed: vtyped, ops: false, base: vbase})
 								}
 							case _:
 							}
@@ -479,6 +471,26 @@ func SolveKinds(s store.Store, files []syntax.Parsed, ext []Ext) Kinds {
 				}
 			case _:
 			}
+		}
+	}
+	gens
+}
+
+// SolveKinds solves the kinds of the generic type declarations of the
+// package whose store bind.Collect built from files.
+func SolveKinds(s store.Store, files []syntax.Parsed, ext []Ext) Kinds {
+	let mut st = solve{s: s, files: files, gens: []gen{}, ext: ext, sv: solver{parent: []int{}, seen: []int{}, steps: 0}, ownMap: false, fn: false, local: Kinds{Names: []string{}, Of: [][]int{}, Raw: [][]int{}, Steps: 0}}
+	match store.Lookup(s, "Map") {
+	case Some[dense.ID[store.Decl]] as d:
+		st.ownMap = store.KindName(int(store.DeclOf(s, d.Value).Kind)) == "type"
+	case None:
+	}
+	// The variables: one per bracket parameter, in collect order.
+	st.gens = gensOf(files)
+	for g in st.gens {
+		for i, _ in g.params {
+			st.sv.parent = st.sv.parent.Append(g.base + i)
+			st.sv.seen = st.sv.seen.Append(if g.typed[i] { kindType } else { 0 })
 		}
 	}
 	// Each declaration's body.

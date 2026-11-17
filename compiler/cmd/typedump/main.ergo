@@ -5,7 +5,7 @@
 // of its generic types and functions instead:
 //
 //	typedump [-std DIR] EXT FOREIGN FILE...          "REC.FIELD TYPE", "def NAME TYPE", "func NAME TYPE"
-//	typedump [-std DIR] -kinds EXT FOREIGN FILE...   "NAME KIND,…", "func NAME KIND,…"
+//	typedump [-std DIR] -kinds EXT FOREIGN FILE...   "NAME KIND,…", "func NAME KIND,…", "cycle LINE:COL INST ARG"
 //
 // -std DIR loads the Ergo packages the files import, transitively, as
 // binddump does (the module's folders, its go.mod's local replaces, then
@@ -364,10 +364,13 @@ func run(args0 []string) fails os.Exit needs fs.Files | io.Stdout {
 	}
 	let mut files = []bind.File{}
 	let mut parsed = []syntax.Parsed{}
+	let mut srcs = []string{}
 	for path in args[2:len(args)] {
-		let p = syntax.Parse(try read(path))
+		let src = try read(path)
+		let p = syntax.Parse(src)
 		files = files.Append(bind.File{Name: base(path), Parsed: p})
 		parsed = parsed.Append(p)
+		srcs = srcs.Append(src)
 	}
 	let paths = args[2:len(args)]
 	let m = if len(paths) > 0 { moduleOf(dir(paths[0])) } else { None }
@@ -387,7 +390,13 @@ func run(args0 []string) fails os.Exit needs fs.Files | io.Stdout {
 			}
 			out = out.Append("\(name) \(strings.Join(ws, ","))")
 		}
-		for fk in types.SolveFuncKinds(s, parsed, ext2, kinds) {
+		let fks = types.SolveFuncKinds(s, parsed, ext2, kinds)
+		// "cycle LINE:COL INST ARG": an instantiation cycle (S108).
+		for cy in types.Cycles(s, parsed, kinds, fks, ext2, table, deps) {
+			let pos = syntax.PositionOf(syntax.LinesOf(srcs[cy.File]), cy.Offset)
+			out = out.Append("cycle \(pos.Line):\(pos.Column) \(cy.Inst) \(cy.Arg)")
+		}
+		for fk in fks {
 			if len(fk.Kinds) == 0 {
 				continue
 			}
