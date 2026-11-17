@@ -181,6 +181,13 @@ func (w *valueWalk) ptrRecv(u *vocc) bool {
 func (w *valueWalk) storageWritten(u *vocc, set map[string]bool) bool {
 	t := w.typeOf(u.path)
 	if p, ok := t.(*check.Pointer); ok {
+		if f, j := w.passedBorrow(u); f != nil && borrowPassOn() {
+			s := w.l.borrowWritten(f, j)
+			for k := range s.types {
+				set[k] = true
+			}
+			return s.hidden
+		}
 		return w.l.reaches(p.Elem, set, map[check.Type]bool{})
 	}
 	if w.containers(u.path, set) {

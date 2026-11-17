@@ -201,6 +201,7 @@ type valueFacts struct {
 	entryWrites map[string]bool
 	moveRead    map[*syntax.CallExpr]bool
 	copied      map[*check.Var]bool // the bindings of a matched Get whose entry is copied
+	borrows     *borrowWrites       // what a function writes through a borrow parameter (storeread.go, own-read-pass)
 }
 
 // ownedParam is an owned parameter (V5): its index, counting a dot call's
