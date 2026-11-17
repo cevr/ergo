@@ -4,8 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"ergo.local/prototype/internal/producer"
@@ -14,9 +17,15 @@ import (
 	sourcefile "ergo.local/prototype/internal/source"
 )
 
-const lintHelp = "usage: ergo lint FILE|DIR [--preset P]... [--lint-config FILE] [--rules MANIFEST]... [--strict] [--json] [--target go]\n" +
+const lintHelp = "usage: ergo lint FILE|DIR [--preset P]... [--lint-config FILE] [--rules MANIFEST]... [--gate P] [--diff[=REV]] [--strict] [--json] [--target go]\n" +
 	"Runs the lint rules over checked source: the recommended preset, then the module's ergo.lint.json\n" +
-	"(beside ergo.mod: version, extends, rules), then each --preset in order.\n" +
+	"(beside ergo.mod: version, extends, rules), then each --preset in order. Presets: recommended (the rules\n" +
+	"with a published precision of at least 0.80), justifiers, strict, layout.\n" +
+	"Each finding prints its rule's published precision (p0.NN), when the rule has one; ergo lint rules lists them.\n" +
+	"--gate P fails the run (exit 1) when a finding comes from a rule whose precision is at least P (0 to 1);\n" +
+	"the severity policy still applies, and either can fail the run.\n" +
+	"--diff reports only the findings whose span meets a line added since HEAD (git diff -U0; an untracked\n" +
+	"file is all added); --diff=REV compares with REV.\n" +
 	"--lint-config FILE reads that document instead of the module's; only it may select rule packs (packs).\n" +
 	"--rules MANIFEST selects one more rule pack. A pack is a separate program; nothing else starts one.\n" +
 	"Suppress one finding with // " + lint.DirectiveWord + " RULE -- REASON on the line above; the reason is required.\n" +
@@ -42,6 +51,7 @@ const lintTestHelp = "usage: ergo lint test PATH... [--update] (--lint-config FI
 type lintReport struct {
 	report.DiagnosticReport
 	Rules []lint.RuleStatus `json:"rules"`
+	Gate  *lintGate         `json:"gate,omitempty"`
 }
 
 // packSelection is the explicit pack selection of a lint command:
@@ -88,8 +98,68 @@ func lintFlags(args []string) (presets []string, sel packSelection, rest []strin
 	return presets, sel, rest, nil
 }
 
+// lintGate is the gate part of `ergo lint --json`: the precision asked
+// for and whether the findings in scope passed it.
+type lintGate struct {
+	Precision float64 `json:"precision"`
+	Passed    bool    `json:"passed"`
+}
+
+// lintScope is --gate P and --diff[=REV] of ergo lint.
+type lintScope struct {
+	gate    float64
+	gateSet bool
+	diff    string
+	diffSet bool
+}
+
+// lintScopeFlags takes --gate and --diff out of args. --gate needs a
+// precision from 0 to 1; --diff takes its revision only as --diff=REV
+// (git's form for an optional value), so a FILE after it stays the FILE.
+func lintScopeFlags(args []string) (scope lintScope, rest []string, err error) {
+	for i := 0; i < len(args); i++ {
+		name, value, inline := strings.Cut(args[i], "=")
+		switch name {
+		case "--gate":
+			if scope.gateSet {
+				return scope, nil, fmt.Errorf("--gate is given twice")
+			}
+			if !inline {
+				if i+1 == len(args) {
+					return scope, nil, fmt.Errorf("--gate requires a precision")
+				}
+				value = args[i+1]
+				i++
+			}
+			p, perr := strconv.ParseFloat(value, 64)
+			if perr != nil || p < 0 || p > 1 {
+				return scope, nil, fmt.Errorf("--gate needs a precision from 0 to 1, not %q", value)
+			}
+			scope.gate, scope.gateSet = p, true
+		case "--diff":
+			if scope.diffSet {
+				return scope, nil, fmt.Errorf("--diff is given twice")
+			}
+			if inline && value == "" {
+				return scope, nil, fmt.Errorf("--diff= needs a revision")
+			}
+			scope.diff, scope.diffSet = "HEAD", true
+			if inline {
+				scope.diff = value
+			}
+		default:
+			rest = append(rest, args[i])
+		}
+	}
+	return scope, rest, nil
+}
+
 // lintCommand lints one source or package folder.
 func lintCommand(args []string) error {
+	scope, args, err := lintScopeFlags(args)
+	if err != nil {
+		return invalidInvocation(err)
+	}
 	presets, sel, rest, err := lintFlags(args)
 	if err != nil {
 		return invalidInvocation(err)
@@ -102,21 +172,38 @@ func lintCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	run, err := lintLoaded(l, presets, sel)
+	conf, err := lintConfiguration(l.source.Admitted(), presets, sel)
 	if err != nil {
 		return invalidInvocation(err)
+	}
+	in := lintInput(l)
+	run := conf.Run(in)
+	if scope.diffSet {
+		added, err := addedLines(l.source.Admitted(), scope.diff)
+		if err != nil {
+			return err
+		}
+		run = run.InDiff(in, added)
 	}
 	if err := l.result.Qualify(producer.Current()); err != nil {
 		return err
 	}
 	findings := l.result.ReportWithLint(l.snapshot, opts.strict, run.Advice())
+	var gate *lintGate
+	if scope.gateSet {
+		gate = &lintGate{Precision: scope.gate, Passed: !lint.GateFails(run.Findings, scope.gate)}
+		findings.PolicyPassed = findings.PolicyPassed && gate.Passed
+	}
 	if opts.json {
-		err = printJSON(lintReport{DiagnosticReport: findings, Rules: run.Rules})
+		err = printJSON(lintReport{DiagnosticReport: findings, Rules: run.Rules, Gate: gate})
 	} else {
 		err = findings.WriteText(os.Stdout, l.source.String())
 	}
 	if err != nil {
 		return err
+	}
+	if gate != nil && !gate.Passed {
+		return fmt.Errorf("lint failed the gate: a finding's rule has a precision of at least %g", scope.gate)
 	}
 	if !findings.PolicyPassed {
 		return fmt.Errorf("lint failed policy")
@@ -131,6 +218,64 @@ func lintLoaded(l loaded, presets []string, sel packSelection) (lint.Result, err
 		return lint.Result{}, err
 	}
 	return conf.Run(lintInput(l)), nil
+}
+
+// addedLines is what the change from rev to the working tree added under
+// the program at path, keyed as lint names files: relative to the module
+// root (the directory of ergo.mod above path, else path's directory), or
+// "" for a program of one source file. An untracked file is all added.
+func addedLines(path, rev string) (lint.Added, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	single := !info.IsDir()
+	dir := path
+	if single {
+		dir = filepath.Dir(path)
+	}
+	root := dir
+	for probe := dir; ; probe = filepath.Dir(probe) {
+		if _, err := os.Stat(filepath.Join(probe, "ergo.mod")); err == nil {
+			root = probe
+			break
+		}
+		if filepath.Dir(probe) == probe {
+			break
+		}
+	}
+	if single {
+		root = dir
+	}
+	git := func(args ...string) (string, error) {
+		cmd := exec.Command("git", append([]string{"-c", "core.quotePath=false"}, args...)...)
+		cmd.Dir = root
+		var stderr strings.Builder
+		cmd.Stderr = &stderr
+		out, err := cmd.Output()
+		if err != nil {
+			return "", fmt.Errorf("git %s: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+		}
+		return string(out), nil
+	}
+	diff, err := git("diff", "-U0", "--no-color", "--no-ext-diff", "--no-prefix", "--relative", rev, "--", ".")
+	if err != nil {
+		return nil, err
+	}
+	added := lint.ParseDiff(diff)
+	untracked, err := git("ls-files", "--others", "--exclude-standard", "--", ".")
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range strings.Split(untracked, "\n") {
+		if f != "" {
+			added[f] = []lint.LineRange{{From: 1, To: math.MaxInt}}
+		}
+	}
+	if single {
+		return lint.Added{"": added[filepath.Base(path)]}, nil
+	}
+	return added, nil
 }
 
 // lintConfiguration reads the configuration (the --lint-config document,
