@@ -1,4 +1,4 @@
-package format
+package hostsyntax
 
 import (
 	"errors"
@@ -110,7 +110,7 @@ func TestFormatIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, dir := range []string{"decided", "edge"} {
-		paths, _ := filepath.Glob(filepath.Join("..", "syntax", "testdata", dir, "*.ergo"))
+		paths, _ := filepath.Glob(filepath.Join("..", "sketch", "syntax", "testdata", dir, "*.ergo"))
 		if len(paths) == 0 {
 			t.Fatalf("no syntax/testdata/%s fixtures", dir)
 		}

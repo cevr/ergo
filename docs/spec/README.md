@@ -49,7 +49,7 @@ The [support table](support.md) lists the exact support of the build, one family
 | Construct | Status | Section |
 | --- | --- | --- |
 | Parsing every production of grammar.md and Go's productions where it is silent; S001 | Implemented ([#195](https://github.com/cevr/ergo/issues/195), `internal/sketch/syntax`); a parsed form that the checker does not check yet is S109 naming its owner | [grammar](grammar.md#parser) |
-| Formatting, `ergo-2026/formatter-2` | Implemented ([#195](https://github.com/cevr/ergo/issues/195), `internal/sketch/format`) | [formatting](../specs/formatting.md#2026-edition) |
+| Formatting, `ergo-2026/formatter-2` | Implemented ([#195](https://github.com/cevr/ergo/issues/195), `compiler/format`) | [formatting](../specs/formatting.md#2026-edition) |
 | Name resolution, Go's types where the spec is silent, S101 to S113 | Implemented ([#196](https://github.com/cevr/ergo/issues/196), `internal/sketch/check`) for one package; packages and imports of module packages follow in #196's second part | [types](types.md), [rows](rows.md), [diagnostics](diagnostics.md) |
 | One `import` path per line; the directory names the package; an alias only for a name clash | Checked; runs (the standard-library package `timeout`; the alias rule, check-v1 stage D3a, D-D7) | [grammar](grammar.md#declarations) |
 | Identifiers by decoded code point (round-7 rule) | Checked; runs | [grammar](grammar.md#identifiers) |

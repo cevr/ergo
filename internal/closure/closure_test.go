@@ -186,7 +186,7 @@ var declared = map[string][]allowance{
 			{"docs/previews/2026-10-28-without-go-syntax.md", file, "the decided syntax matches the preview it was decided from"},
 		},
 	),
-	"internal/sketch/format": declare(
+	"internal/hostsyntax": declare(
 		[]allowance{{"internal/sketch/syntax/testdata/corpus", subtree, "the formatter round-trips the parser's corpus: sketchtest.Corpus walks it (filepath.WalkDir)"}},
 		glob("internal/sketch/syntax/testdata/decided/*.ergo", "the formatter round-trips the decided-syntax fixtures"),
 		glob("internal/sketch/syntax/testdata/edge/*.ergo", "the formatter round-trips the edge fixtures"),
@@ -196,9 +196,9 @@ var declared = map[string][]allowance{
 	),
 	"internal/selfhostcheck": declare(
 		[]allowance{
-			{"examples", subtree, "TestSelfhostFormatAgrees formats every examples/**/*.ergo on both sides (sourceInputs walks it with filepath.WalkDir)"},
+			{"examples", subtree, "TestSelfhostFormatLaws formats every examples/**/*.ergo on both sides (sourceInputs walks it with filepath.WalkDir)"},
 			{"internal/sketch/syntax/testdata/corpus", subtree, "the format property's inputs include sketchtest.Positive, whose Corpus walks the parser's corpus (filepath.WalkDir)"},
-			{"internal/sketch/format/testdata/fuzz/FuzzFormat", subtree, "TestSelfhostFormatAgrees's inputs include the formatter's checked-in fuzz seeds (fuzzSeeds reads the folder)"},
+			{"internal/hostsyntax/testdata/fuzz/FuzzFormat", subtree, "TestSelfhostFormatLaws's inputs include the formatter's checked-in fuzz seeds (fuzzSeeds reads the folder)"},
 		},
 		glob("docs/spec/*.md", "the format property's inputs include every go fence of the language spec (sketchtest.SpecFences)"),
 		glob("docs/research/ef-migrate/*.ergo", "the format property's inputs include the migrated examples (sketchtest.Repository)"),

@@ -34,7 +34,7 @@ internal/sketch/lower/checked_lowered_test.go	a needs row, both
 
 # a comma that ends a list element after a one-name row (grammar.md, Declarations rule 9:
 # parameters and type arguments keep their commas)
-internal/sketch/format/rows_test.go	needs ROW, Put()
+internal/hostsyntax/rows_test.go	needs ROW, Put()
 internal/sketch/lower/generic_test.go	func apply[A, E, R](f func(A) A fails E needs R, x A) A fails E needs R {
 # std ui's view, block and fetch parameters carry the view's row (H8b, stdlib.md UI 19),
 # and the lower mutant ledger quotes them

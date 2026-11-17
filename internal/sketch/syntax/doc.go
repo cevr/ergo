@@ -16,7 +16,7 @@
 // parser never builds them (TestDecidedOnly).
 //
 // The package resolves no names; the checker (internal/sketch/check), the LSP (#38) and the
-// formatter (internal/sketch/format) consume its AST. Every syntax error is
+// formatter (compiler/format, through internal/hostsyntax) consume its AST. Every syntax error is
 // S001 (docs/spec/diagnostics.md), or S108 for a type that mixes fields and
 // operations, with a byte span, line and byte column; Parse reports the
 // first error and returns no file.
@@ -31,6 +31,6 @@
 //   - ReScript's parser maps a new surface onto the tree the old front end
 //     produced, so the checker stays unchanged; rustc names other
 //     languages' habits ("Rust has no postfix increment operator").
-//   - The printer lives apart (internal/sketch/format), as go/printer does,
+//   - The printer lives apart (compiler/format), as go/printer does,
 //     so no checker or lowering code depends on layout.
 package syntax

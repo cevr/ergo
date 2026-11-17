@@ -1,6 +1,6 @@
 # compiler: the Ergo compiler written in Ergo
 
-`compiler/` is the top-level Ergo module (`module compiler`) of the self-hosted compiler (capstone S1 to S6). Its first packages are the formatter of the self-hosting pilot (SH0, SH1), moved here at S1a. The Go formatter (`internal/sketch/format`) stays the product and the oracle until S1c, and it is frozen: a fix goes to both sides, and `internal/selfhostcheck`'s agreement properties are the lock.
+`compiler/` is the top-level Ergo module (`module compiler`) of the self-hosted compiler (capstone S1 to S6). Its first packages are the formatter of the self-hosting pilot (SH0, SH1), moved here at S1a. Since S1c the formatter is the product: the Go formatter (`internal/sketch/format`) is deleted, `internal/hostsyntax` is its Go facade, and the seed's `ergo fmt` is the oracle (`TestFormatAgreesWithSeed`; a change since the seed is a row of `CHANGES-since-seed.md`).
 
 The binary holds these packages through `internal/linked` (`docs/tooling.md`, Linked Ergo packages): the row `format` of `linked.Packages` lowers `compiler/api` through the IR into `internal/linked/format/format.go`, and Go calls it. The row `syntax` lowers `compiler/syntax/dump` the same way, and since S2d every Go caller of `syntax.Parse` parses with it: `internal/sketch/syntax` decodes the rows into its AST. Since S2c the formatter parses in Ergo and reads the rows itself: `internal/hostsyntax.Source` hands it the source and reads back the text.
 
@@ -19,6 +19,6 @@ ergo check compiler/api
 ergo test compiler/format
 ergo test compiler/syntax
 go test -count=1 -run '^Test(DecodeAgreesWithView|FormatParseRoundTrip|FormatIsTheCorpusFixpoint)$' ./internal/sketch/syntax
-ERGO_SELFHOST_SEED=1 go test -count=1 -run '^TestSelfhost(FormatAgrees|LayoutModel)$' ./internal/selfhostcheck
+ERGO_SELFHOST_SEED=1 go test -count=1 -run '^Test(SelfhostFormatLaws|FormatAgreesWithSeed|SelfhostLayoutModel)$' ./internal/selfhostcheck
 go run ./scripts/linked
 ```

@@ -1,4 +1,4 @@
-package format
+package hostsyntax
 
 import (
 	"flag"
@@ -29,7 +29,7 @@ import (
 //     body, the trailing spelling is refused and the argument spelling
 //     parses.
 //
-// Replay: go test -run '^TestTrailingFuncAgrees$' ./internal/sketch/format -args -tb.seed=N
+// Replay: go test -run '^TestTrailingFuncAgrees$' ./internal/hostsyntax -args -tb.seed=N
 
 var tbSeed = flag.Uint64("tb.seed", 0, "run TestTrailingFuncAgrees on this seed alone")
 
@@ -120,7 +120,7 @@ func TestTrailingFuncAgrees(t *testing.T) {
 	reached := map[string]bool{}
 	for seed := first; seed < first+n; seed++ {
 		c := tbProgram(seed)
-		replay := fmt.Sprintf("Replay: go test -run '^TestTrailingFuncAgrees$' ./internal/sketch/format -args -tb.seed=%d", seed)
+		replay := fmt.Sprintf("Replay: go test -run '^TestTrailingFuncAgrees$' ./internal/hostsyntax -args -tb.seed=%d", seed)
 		inl, err := syntax.Parse(c.inline)
 		if err != nil {
 			t.Fatalf("seed %d: the argument spelling does not parse: %v\n%s\n%s", seed, err, replay, c.inline)

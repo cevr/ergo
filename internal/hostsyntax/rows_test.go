@@ -1,4 +1,4 @@
-package format
+package hostsyntax
 
 import (
 	"errors"
@@ -148,7 +148,7 @@ func isName(x syntax.Expr, name string) bool {
 // that holds a row clause (needs or provides), and asserts that rowPositions
 // exercises each one and names no other.
 func TestCapabilityRowPositionsDerived(t *testing.T) {
-	files, err := filepath.Glob(filepath.Join("..", "syntax", "ast*.go"))
+	files, err := filepath.Glob(filepath.Join("..", "sketch", "syntax", "ast*.go"))
 	if err != nil || len(files) == 0 {
 		t.Fatalf("no syntax sources: %v", err)
 	}

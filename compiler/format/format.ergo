@@ -1,8 +1,8 @@
 // Package format is Ergo's formatter written in Ergo: one canonical layout
 // with no options, printed from compiler/syntax's parse, read through its
-// rows (the self-hosting capstone, S2c). It translates the Go formatter
-// (internal/sketch/format) rule for rule, and a property holds the two to
-// the same bytes and the same failures.
+// rows (the self-hosting capstone, S2c). It translated the Go formatter
+// (internal/sketch/format, deleted at S1c) rule for rule; the seed's
+// formatter is its oracle since (TestFormatAgreesWithSeed).
 //
 // The layout is gofmt's for every construct Go has: tabs indent, spaces
 // align (struct fields, trailing comments, the keys of multi-line

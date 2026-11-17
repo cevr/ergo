@@ -2,9 +2,9 @@ package syntax_test
 
 // The parse laws of capstone S2e. Parse has no other parser to agree with
 // since the Go parser was deleted; these laws hold it to the formatter,
-// which prints every token the tree keeps (internal/sketch/format until
-// S1c moves its callers to internal/hostsyntax): what the formatter prints parses back to the same tree, and
-// the repository's formatted files are what their trees print.
+// which prints every token the tree keeps (compiler/format, through
+// internal/hostsyntax): what the formatter prints parses back to the same
+// tree, and the repository's formatted files are what their trees print.
 
 import (
 	"path/filepath"
@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"ergo.local/prototype/internal/sketch/format"
+	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
