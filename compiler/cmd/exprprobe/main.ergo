@@ -4,9 +4,10 @@
 // byte), then by MODE stops after writing it (gen), parsing it (parse),
 // binding and loading it (setup), or typing every body (check, keeping
 // each typed expression; check-fused, only counting them, S3d5). It prints
-// `fns=F typed=E` (check), or what it reached. `check-bad` checks the
-// package with a type error in its last function (q != 1, checkfloor's
-// bad package): a package with a type error prints its count and exits 1.
+// `fns=F typed=E` (check), or what it reached. `check-bad-RULE` checks
+// the package with one error in its last function, checkfloor's bad
+// package for RULE (badEdit): a rejected package prints its count of
+// errors and exits 1.
 
 import compiler/check/bind
 import compiler/check/expr
@@ -17,21 +18,41 @@ import io
 import os
 import strings
 
-// source is the package of n shaped functions; bad, the last one compares
-// its string parameter with an int.
-func source(n int, bad bool) string {
+// badEdit is the edit of the last function that breaks rule: a type
+// error (type), a name nothing declares (name), an assignment to a
+// parameter (mut), a call of two arguments to one parameter (arity);
+// ("", "") for none. checkfloor's badEdit, byte for byte.
+func badEdit(rule string) (string, string) {
+	match rule {
+	case "type":
+		("q != \"x\"", "q != 1")
+	case "name":
+		("acc + a + c\n", "acc + a + zz\n")
+	case "mut":
+		("\t\tacc = acc + len(q)", "\t\tp = acc + len(q)")
+	case "arity":
+		("id(p)", "id(p, p)")
+	case _:
+		("", "")
+	}
+}
+
+// source is the package of n shaped functions, the last one edited to
+// break rule (badEdit).
+func source(n int, rule string) string {
 	let mut b = strings.NewBuilder()
 	b.WriteString("func id[T](x T) T { x }\n")
+	let (from, to) = badEdit(rule)
 	for i in 0..n {
-		let cmp = if bad && i == n-1 { "1" } else { "\"x\"" }
-		b.WriteString("\nfunc f\(i)(p int, q string, xs []int) int {\n\tlet mut acc = p + 1\n\tlet a = id(p)\n\tlet c = xs[0] * 2\n\tfor j, e in xs {\n\t\tacc = acc + e - j\n\t}\n\tif acc > 3 && q != \(cmp) {\n\t\tacc = acc + len(q)\n\t}\n\tacc + a + c\n}\n")
+		let f = "\nfunc f\(i)(p int, q string, xs []int) int {\n\tlet mut acc = p + 1\n\tlet a = id(p)\n\tlet c = xs[0] * 2\n\tfor j, e in xs {\n\t\tacc = acc + e - j\n\t}\n\tif acc > 3 && q != \"x\" {\n\t\tacc = acc + len(q)\n\t}\n\tacc + a + c\n}\n"
+		b.WriteString(if i == n-1 && from != "" { strings.ReplaceAll(f, from, to) } else { f })
 	}
 	b.String()
 }
 
 func run(args []string) fails os.Exit needs io.Stdout {
 	if len(args) != 2 {
-		return os.Exit{Code: 2, Message: "usage: exprprobe N gen|parse|setup|check|check-fused|check-bad"}
+		return os.Exit{Code: 2, Message: "usage: exprprobe N gen|parse|setup|check|check-fused|check-bad-RULE"}
 	}
 	let mut n = 0
 	let w = args[0]
@@ -39,7 +60,8 @@ func run(args []string) fails os.Exit needs io.Stdout {
 		n = n*10 + int(w[i]) - 48
 	}
 	let mode = args[1]
-	let src = source(n, mode == "check-bad")
+	let rule = if strings.HasPrefix(mode, "check-bad-") { mode[10:len(mode)] } else { "" }
+	let src = source(n, rule)
 	if mode == "gen" {
 		io.Stdout.Println("bytes=\(len(src))")
 		return

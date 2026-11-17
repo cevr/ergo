@@ -15,8 +15,8 @@
 //	go run ./scripts/checkfloor [-rounds N] [-sizes A,B,C] [-ergo BIN] [-o FILE]
 //
 // builds exprprobe as scripts/opcount builds a program (build.go), checks
-// that the three agree (each accepts the package and rejects one with a
-// type error, and every side reads the same source bytes), then counts
+// that the three agree (each accepts the package and rejects each bad one,
+// badEdits, and every side reads the same source bytes), then counts
 // each side's modes at each size for N rounds, the sides alternating, with
 // the default collector and with GOGC=off (the collector's work is the
 // noise of a count): instructions, allocations and bytes. It writes a
@@ -27,8 +27,8 @@
 //
 // The two Go sides are this command's own modes:
 //
-//	checkfloor go N gen|parse|check|check-bad
-//	checkfloor floor N gen|check|check-bad
+//	checkfloor go N gen|parse|check|check-bad-RULE
+//	checkfloor floor N gen|check|check-bad-RULE
 package main
 
 import (
@@ -36,6 +36,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -50,17 +51,29 @@ import (
 
 // source is exprprobe's package of n shaped functions, byte for byte; bad
 // makes the last function compare its string parameter with an int.
-func source(n int, bad bool) string {
+func source(n int, rule string) string {
 	var b strings.Builder
 	b.WriteString("func id[T](x T) T { x }\n")
+	e, bad := badEdits[rule]
 	for i := range n {
-		cmp := `"x"`
+		f := fmt.Sprintf("\nfunc f%d(p int, q string, xs []int) int {\n\tlet mut acc = p + 1\n\tlet a = id(p)\n\tlet c = xs[0] * 2\n\tfor j, e in xs {\n\t\tacc = acc + e - j\n\t}\n\tif acc > 3 && q != \"x\" {\n\t\tacc = acc + len(q)\n\t}\n\tacc + a + c\n}\n", i)
 		if bad && i == n-1 {
-			cmp = "1"
+			f = strings.ReplaceAll(f, e[0], e[1])
 		}
-		fmt.Fprintf(&b, "\nfunc f%d(p int, q string, xs []int) int {\n\tlet mut acc = p + 1\n\tlet a = id(p)\n\tlet c = xs[0] * 2\n\tfor j, e in xs {\n\t\tacc = acc + e - j\n\t}\n\tif acc > 3 && q != %s {\n\t\tacc = acc + len(q)\n\t}\n\tacc + a + c\n}\n", i, cmp)
+		b.WriteString(f)
 	}
 	return b.String()
+}
+
+// badEdits are the bad packages' edits of the last function, by the rule
+// each breaks (exprprobe's badEdit, byte for byte): a type error, a name
+// nothing declares, an assignment to a parameter, and a call of two
+// arguments to one parameter. Every side must reject each.
+var badEdits = map[string][2]string{
+	"type":  {`q != "x"`, "q != 1"},
+	"name":  {"acc + a + c\n", "acc + a + zz\n"},
+	"mut":   {"\t\tacc = acc + len(q)", "\t\tp = acc + len(q)"},
+	"arity": {"id(p)", "id(p, p)"},
 }
 
 func main() {
@@ -83,7 +96,7 @@ func side(which, size, mode string, out io.Writer) int {
 		return 2
 	}
 	defer writeMemStats()
-	src := source(n, mode == "check-bad")
+	src := source(n, strings.TrimPrefix(mode, "check-bad-"))
 	if mode == "gen" {
 		fmt.Fprintf(out, "bytes=%d\n", len(src))
 		return 0
@@ -190,10 +203,13 @@ func run(args []string, log io.Writer) (int, error) {
 	if outs["ergo check"] != outs["ergo check-fused"] {
 		return 1, fmt.Errorf("the fused walk typed another count: %q %q", outs["ergo check"], outs["ergo check-fused"])
 	}
-	for _, bad := range [][]string{ergoMode("check-bad")(small), goMode("go", "check-bad")(small), goMode("floor", "check-bad")(small)} {
-		o, code, _ := once(work, bad)
-		if code != 1 {
-			return 1, fmt.Errorf("%s accepted the package with a type error: %s", strings.Join(bad, " "), o)
+	for _, rule := range slices.Sorted(maps.Keys(badEdits)) {
+		m := "check-bad-" + rule
+		for _, bad := range [][]string{ergoMode(m)(small), goMode("go", m)(small), goMode("floor", m)(small)} {
+			o, code, _ := once(work, bad)
+			if code != 1 {
+				return 1, fmt.Errorf("%s accepted the package that breaks %s: %s", strings.Join(bad, " "), rule, o)
+			}
 		}
 	}
 	var b strings.Builder
@@ -311,7 +327,7 @@ func header(small int, outs map[string]string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Checker floor probe (scripts/checkfloor)\n\n")
 	fmt.Fprintf(&b, "Per function: the slope between sizes, the median of the rounds (spread: (max - min) / median). Instructions are user instructions of the process tree, counted; allocations and bytes are the runtime's MemStats at exit (Mallocs, TotalAlloc), exact.\n\n")
-	fmt.Fprintf(&b, "Agreement at %d: ergo `%s`; go `%s`; floor `%s`; each side rejects the package with a type error.\n", small, outs["ergo check"], outs["go check"], outs["floor check"])
+	fmt.Fprintf(&b, "Agreement at %d: ergo `%s`; go `%s`; floor `%s`; each side rejects each bad package (a type error, a name nothing declares, an assignment to a parameter, a call of two arguments to one parameter).\n", small, outs["ergo check"], outs["go check"], outs["floor check"])
 	return b.String()
 }
 
