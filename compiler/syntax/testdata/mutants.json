@@ -512,12 +512,14 @@
     },
     {
       "origin": "wf10 selfhost S2f, kept in S1e",
-      "killers": [],
+      "killers": [
+        "internal/sketch/syntax:TestDecodeAgreesWithView"
+      ],
       "name": "parse-next-past-eof",
       "file": "compiler/syntax/parse.ergo",
       "from": "\tif p.tk > EOF {\n",
       "to": "\tif p.tk >= EOF {\n",
-      "rule": "The parser stops at EOF: next never moves past the last token (the scan's columns end there, so a move past it is a bounds defect, not a loop on a spare slot)."
+      "rule": "The parser stops at EOF: next never moves past it, so a failed parse unwinds (the mutant parses on forever, growing its rows: under the runner's memory bound, RLIMIT_DATA, the test dies out of memory, which counts as killed)."
     }
   ]
 }
