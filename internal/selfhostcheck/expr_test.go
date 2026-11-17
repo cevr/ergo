@@ -99,6 +99,12 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 	if all[0] == 0 || calls[0] == 0 {
 		t.Fatal("the Ergo side typed no expression or inferred no call")
 	}
+	// The imports' members are typed from their packages' stores (S3d2):
+	// a run that types none has lost them, which the subset check alone
+	// would not see.
+	if reach["SelectorExpr pkg"][0] == 0 || reach["CallExpr pkg"][0] == 0 {
+		t.Fatal("the Ergo side typed no member of an import")
+	}
 }
 
 // exprDump builds compiler/cmd/exprdump.
