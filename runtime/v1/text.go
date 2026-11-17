@@ -299,18 +299,6 @@ func StrconvParseFloat(s string) (float64, error) {
 	return f, nil
 }
 
-// StrconvParseBool is strconv.ParseBool.
-//
-//ergo:pure
-//ergo:wait none
-func StrconvParseBool(s string) (bool, error) {
-	b, err := strconv.ParseBool(s)
-	if err != nil {
-		return false, Malformed{Text: s}
-	}
-	return b, nil
-}
-
 // StrconvAppendInt is strconv.AppendInt: b with n in base appended. An
 // appender (lower, goBodyAppends): the call writes into b's spare
 // capacity, so a buffer the caller holds is appended in place, not copied.

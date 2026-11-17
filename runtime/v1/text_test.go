@@ -164,7 +164,7 @@ var textLaws = map[string]func(r *rand.Rand) (bool, any){
 	},
 	"strconv ParseBoolInvertsFormat": func(r *rand.Rand) (bool, any) {
 		b := r.IntN(2) == 0
-		got, err := StrconvParseBool(strconv.FormatBool(b))
+		got, err := strconv.ParseBool(strconv.FormatBool(b))
 		return err == nil && got == b, b
 	},
 	"strconv FormatFloatRoundTrips": func(r *rand.Rand) (bool, any) {
@@ -315,7 +315,6 @@ func textBenches() []textBench {
 		{"ParseIntFails", "StrconvParseInt", func() { _, textSink = StrconvParseInt("12x", 10, 64) }, func() { _, textSink = strconv.ParseInt("12x", 10, 64) }},
 		{"ParseIntHex", "StrconvParseInt", func() { textSink, _ = StrconvParseInt("0x1f2e3d", 0, 64) }, func() { textSink, _ = strconv.ParseInt("0x1f2e3d", 0, 64) }},
 		{"ParseFloat", "StrconvParseFloat", func() { textSink, _ = StrconvParseFloat("3.14159e10") }, func() { textSink, _ = strconv.ParseFloat("3.14159e10", 64) }},
-		{"ParseBool", "StrconvParseBool", func() { textSink, _ = StrconvParseBool("false") }, func() { textSink, _ = strconv.ParseBool("false") }},
 		{"AppendInt", "StrconvAppendInt", func() { buf = StrconvAppendInt(buf[:0], -1234567890, 10) }, func() { buf = strconv.AppendInt(buf[:0], -1234567890, 10) }},
 		{"AppendUint", "StrconvAppendUint", func() { buf = StrconvAppendUint(buf[:0], 1234567890, 16) }, func() { buf = strconv.AppendUint(buf[:0], 1234567890, 16) }},
 		{"AppendFloat", "StrconvAppendFloat", func() { buf = StrconvAppendFloat(buf[:0], 3.14159e10, 'g', -1) }, func() { buf = strconv.AppendFloat(buf[:0], 3.14159e10, 'g', -1, 64) }},
@@ -498,9 +497,6 @@ func TestStrconvFailures(t *testing.T) {
 	}
 	if _, err := StrconvParseFloat("1.2.3"); !malformed(err, "1.2.3") {
 		t.Errorf("ParseFloat(1.2.3): %v", err)
-	}
-	if _, err := StrconvParseBool("maybe"); !malformed(err, "maybe") {
-		t.Errorf("ParseBool(maybe): %v", err)
 	}
 	if _, err := StrconvUnquote(`"a`); !malformed(err, `"a`) {
 		t.Errorf("Unquote: %v", err)

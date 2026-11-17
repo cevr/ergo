@@ -198,7 +198,7 @@ func registerNatives() {
 			switch {
 			case ok && ne.Err == strconv.ErrRange:
 				return nil, fr.abrupt(ctlFail, at, stdRecord(fn, "OutOfRange", map[string]Value{"Text": s}), "")
-			case ok && ne.Err == strconv.ErrSyntax, name == "strconv.ParseBool", name == "strconv.Unquote",
+			case ok && ne.Err == strconv.ErrSyntax, name == "strconv.Unquote",
 				name == "strconv.ParseFloat":
 				return nil, fr.abrupt(ctlFail, at, stdRecord(fn, "Malformed", map[string]Value{"Text": s}), "")
 			}
@@ -216,10 +216,6 @@ func registerNatives() {
 	parse("strconv.ParseFloat", func(s string, _ []Value) (Value, error) {
 		f, err := strconv.ParseFloat(s, 64)
 		return f, err
-	})
-	parse("strconv.ParseBool", func(s string, _ []Value) (Value, error) {
-		b, err := strconv.ParseBool(s)
-		return b, err
 	})
 	parse("strconv.Unquote", func(s string, _ []Value) (Value, error) {
 		u, err := strconv.Unquote(s)

@@ -296,7 +296,6 @@ func nativeCases(g nativeGen) []nativeCase {
 		{name: "strconv.Atoi", args: []Value{num}, v1: func() any { return result(v1.StrconvAtoi(num)) }},
 		{name: "strconv.ParseInt", args: []Value{num, int64(base), int64(bits)}, v1: func() any { return result(v1.StrconvParseInt(num, base, bits)) }},
 		{name: "strconv.ParseFloat", args: []Value{num}, v1: func() any { return result(v1.StrconvParseFloat(num)) }},
-		{name: "strconv.ParseBool", args: []Value{num}, v1: func() any { return result(v1.StrconvParseBool(num)) }},
 		{name: "strconv.Unquote", args: []Value{num}, v1: func() any { return result(v1.StrconvUnquote(num)) }},
 		{name: "filepath.Join", args: []Value{ls(xs)}, v1: func() any { return v1.FilepathJoin(xs) }},
 		{name: "path/filepath.Base", args: []Value{s}, v1: func() any { return filepath.Base(s) }},

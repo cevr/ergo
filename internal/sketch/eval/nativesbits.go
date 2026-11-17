@@ -1,7 +1,6 @@
 package eval
 
 import (
-	"crypto/sha256"
 	"math/bits"
 	"slices"
 
@@ -9,11 +8,10 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// The pure std functions of sha256 and slices.Repeat (ORACLE O12), from
-// Go's own packages as each std doc comment names them: sha256.Sum the
-// bytes of Go's sha256.Sum256 as a string, slices.Repeat Go's
-// slices.Repeat, whose panic is the defect; and Go's math/bits, which std
-// bits binds through import go (goNatives).
+// slices.Repeat (ORACLE O12), Go's slices.Repeat, whose panic is the
+// defect; and Go's math/bits, which std bits binds through import go
+// (goNatives). std sha256 calls Go's Sum256 through import go (NP4f-5;
+// nativesgo.go).
 func registerNativesbits() {
 	pureIn := func(into map[string]native, name string, f func(args []Value) Value) {
 		into[name] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
@@ -30,7 +28,6 @@ func registerNativesbits() {
 			return out, nil
 		}
 	}
-	pure := func(name string, f func(args []Value) Value) { pureIn(natives, name, f) }
 	goPure := func(name string, f func(args []Value) Value) { pureIn(goNatives, "math/bits."+name, f) }
 	u := func(v Value) uint64 { return v.(uint64) }
 	goPure("OnesCount", func(a []Value) Value { return int64(bits.OnesCount(uint(u(a[0])))) })
@@ -43,10 +40,6 @@ func registerNativesbits() {
 	goPure("Len64", func(a []Value) Value { return int64(bits.Len64(u(a[0]))) })
 	goPure("RotateLeft32", func(a []Value) Value { return bits.RotateLeft32(a[0].(uint32), int(a[1].(int64))) })
 	goPure("RotateLeft64", func(a []Value) Value { return bits.RotateLeft64(u(a[0]), int(a[1].(int64))) })
-	pure("sha256.Sum", func(a []Value) Value {
-		d := sha256.Sum256([]byte(a[0].(string)))
-		return string(d[:])
-	})
 	natives["slices.Repeat"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		xs, n := args[0].(sliceV), args[1].(int64)
 		// The work and the bytes are paid before the copy; a count Go
