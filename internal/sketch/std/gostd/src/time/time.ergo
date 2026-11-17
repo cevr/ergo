@@ -110,7 +110,8 @@ extern go time.NewTimer func NewTimer(d duration) Option[go.Ref[Timer]] needs go
 extern go time.November let November Month
 
 // ergo:go func Now() Time
-extern go time.Now func Now() Time needs go.Foreign
+// ergo:effect ambient (vouched: it reads the host's clock and the process's local zone)
+extern go time.Now func Now() Time needs Ambient
 
 // ergo:go const October Month
 extern go time.October let October Month

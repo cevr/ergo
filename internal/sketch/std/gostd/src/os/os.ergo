@@ -42,7 +42,8 @@ extern go os.DevNull let DevNull string
 extern go os.DirFS func DirFS(dir string) fs.FS needs go.Foreign
 
 // ergo:go func Environ() []string
-extern go os.Environ func Environ() []string needs go.Foreign
+// ergo:effect ambient (vouched: it copies the process's environment into a new slice)
+extern go os.Environ func Environ() []string needs Ambient
 
 // ergo:go var ErrClosed error
 extern go os.ErrClosed let ErrClosed go.Error
@@ -171,7 +172,8 @@ extern go os.FindProcess func FindProcess(pid int) go.Ref[Process] fails go.Erro
 extern go os.Getegid func Getegid() int needs go.Foreign
 
 // ergo:go func Getenv(key string) string
-extern go os.Getenv func Getenv(key string) string needs go.Foreign
+// ergo:effect ambient (vouched: it reads one variable of the process's environment)
+extern go os.Getenv func Getenv(key string) string needs Ambient
 
 // ergo:go func Geteuid() int
 extern go os.Geteuid func Geteuid() int needs go.Foreign
@@ -195,7 +197,8 @@ extern go os.Getppid func Getppid() int needs go.Foreign
 extern go os.Getuid func Getuid() int needs go.Foreign
 
 // ergo:go func Getwd() (dir string, err error)
-extern go os.Getwd func Getwd() string fails go.Error needs go.Foreign
+// ergo:effect ambient (vouched: it reads the process's working directory)
+extern go os.Getwd func Getwd() string fails go.Error needs Ambient
 
 // ergo:go func Hostname() (name string, err error)
 extern go os.Hostname func Hostname() string fails go.Error needs go.Foreign
@@ -242,7 +245,8 @@ extern go os.LinkError.Error func (e *LinkError) Error() string needs go.Foreign
 extern go os.LinkError.Unwrap func (e *LinkError) Unwrap() fails go.Error needs go.Foreign
 
 // ergo:go func LookupEnv(key string) (string, bool)
-extern go os.LookupEnv func LookupEnv(key string) (string, bool) needs go.Foreign
+// ergo:effect ambient (vouched: it reads one variable of the process's environment)
+extern go os.LookupEnv func LookupEnv(key string) (string, bool) needs Ambient
 
 // ergo:go func Lstat(name string) (FileInfo, error)
 extern go os.Lstat func Lstat(name string) fs.FileInfo fails go.Error needs go.Foreign
