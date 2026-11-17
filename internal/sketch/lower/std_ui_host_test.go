@@ -3301,6 +3301,89 @@ func lawEdgeScrollStaysInRange(o int, hh int, c int, yy int, e int, st int) bool
 	next == at
 }
 
+func orderStep(s int, e int) Decision[int, int] {
+	if e == 3 {
+		return Ignore
+	}
+	Enter[int]{Next: e}
+}
+
+func lawPostedOrderKeepsTheCounts(seed int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		postedOrder(seed, m)
+	}
+}
+
+func postedOrder(seed int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let n = draw(&r, 4) + 3
+	let view = func(f *ui.Frame[int], s int) {
+		ui.OnSlow(f, ui.Budget{Signals: 0, Written: 0, Committed: 0, Ops: 0, Painted: 0, Fetches: 2}, func(x ui.Slow) int { 2 })
+		ui.OnKey(f, func(k ui.KeyPress) Option[int] { if s == 0 { Some{Value: 1} } else { None } })
+		ui.Text(f, "s\(s)")
+		if s == 1 {
+			for i in 0..n {
+				ui.Load(f, ui.ByInt(i), func() int { 3 })
+			}
+		}
+	}
+	let posted = queue.New[ui.Event[int]](64)
+	let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: orderStep, After: semTimer, Work: semWork}, 1, func(o int) {})
+	let (s, _) = ui.Start(a, view, func(ev ui.Event[int]) {
+		posted.Push(ev) catch {
+		case queue.Closed:
+		}
+	})
+	let mut session = s
+	let _ = ui.Step(&session, ui.KeyDown{Press: ui.KeyPress{Name: "k", Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}) catch {
+	case actor.Stopped:
+		return false
+	}
+	// Every task runs to its end: n results and the ui.Slow's ui.Committed wait.
+	m.Advance(duration(int64(0)))
+	let mut evs = []ui.Event[int]{}
+	let mut more = true
+	for more {
+		match posted.Poll() {
+		case Some[ui.Event[int]] as ev:
+			evs = evs.Append(ev.Value)
+		case None:
+			more = false
+		}
+	}
+	// Take them in a drawn order (a shuffle), then whatever they posted.
+	for i in 0..len(evs) {
+		let j = i + draw(&r, len(evs)-i)
+		let x = evs[i]
+		evs[i] = evs[j]
+		evs[j] = x
+	}
+	for ev in evs {
+		let _ = ui.Step(&session, ev) catch {
+		case actor.Stopped:
+			return false
+		}
+	}
+	m.Advance(duration(int64(0)))
+	let mut rest = true
+	for rest {
+		match posted.Poll() {
+		case Some[ui.Event[int]] as ev:
+			let _ = ui.Step(&session, ev.Value) catch {
+			case actor.Stopped:
+				return false
+			}
+		case None:
+			rest = false
+		}
+	}
+	let st = ui.SessionStats(&session)
+	let ok = a.State() == 2 && st.Signals == 1 && st.Fetches == 0
+	a.Stop()
+	ok
+}
+
 func lawTransitionEndsAtLayout(seed int, steps int) bool {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
@@ -4705,6 +4788,10 @@ test UiEdgeScrollStaysInRange(o int, hh int, c int, yy int, e int, st int) {
 	assert lawEdgeScrollStaysInRange(o, hh, c, yy, e, st)
 }
 
+test UiPostedOrderKeepsTheCounts(seed int) {
+	assert lawPostedOrderKeepsTheCounts(seed)
+}
+
 test UiTransitionEndsAtLayout(seed int, steps int) {
 	assert lawTransitionEndsAtLayout(seed, steps)
 }
@@ -4827,6 +4914,7 @@ var stdUIHostStatements = map[string]string{
 	"ui CaptureKeepsThePointer":        `CaptureKeepsThePointer(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { captureFollows(seed, steps, m) } }`,
 	"ui AnnounceSaysEachNewText":       `AnnounceSaysEachNewText(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { announceFollows(seed, steps, m) } }`,
 	"ui EdgeScrollStaysInRange":        `EdgeScrollStaysInRange(o int, hh int, c int, yy int, e int, st int) { let height = Length(float64(posMod(hh, 500) + 1)) let content = Length(float64(posMod(c, 2000))) let offset = Length(float64(posMod(o, 2500))) let y = Length(float64(posMod(yy, 700) - 100)) let edge = Length(float64(posMod(e, 60))) let step = Length(float64(posMod(st, 40) + 1)) let most = if content > height { content - height } else { Length(0.0) } let at = if offset > most { most } else { offset } let next = EdgeScroll(offset, height, content, y, edge, step) if next < Length(0.0) || next > most { return false } if edge > Length(0.0) && y < edge { return next < at || at == Length(0.0) } if edge > Length(0.0) && y > height-edge { return next > at || at == most } next == at }`,
+	"ui PostedOrderKeepsTheCounts":     `PostedOrderKeepsTheCounts(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { postedOrder(seed, m) } }`,
 	"ui TransitionEndsAtLayout":        `TransitionEndsAtLayout(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { let lists = presenceLists(seed) let view = func(f *Frame[int], s int) { OnKey(f, func(k KeyPress) Option[int] { for i in 0..8 { if k.Name == "\(i)" { return Some{Value: i} } } None }) Column(f, Plain()) { Presence(f, lists[s], func(r int) Key { ByInt(r) }, 100ms) func(r int, p Progress) { Text(f, "row \(r)") } } } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: presenceListStep, After: presenceTimer, Work: presenceWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } FrameEvery(&h, 10ms) let mut x = seed for _ in 0..(steps%10+10)%10+1 { x = (x*1103515245 + 12345) % 2147483648 if x < 0 { x = -x } PressKey(&h, KeyPress{Name: "\(x % 8)", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch { case _: return false } Advance(&h, duration(int64(x%15)*int64(10ms))) catch { case _: return false } } Advance(&h, 2s) catch { case _: return false } let s = StateOf(&h) for k in presenceKeys(Screen(&h)) { let (_, motion, t) = k if motion != Present || t != 1.0 { return false } } let mut g = NewFrame[int]() let want = Render(&g, func(f *Frame[int], xs []int) { Column(f, Plain()) { Each(f, xs, func(r int) Key { ByInt(r) }) func(r int) { Box(f, Plain()) { Text(f, "row \(r)") } } } }, lists[s]) let _ = want !WantsFrames(&h) && SameShapes(presenceStripped(Screen(&h)), FrameShape(&g)) } }`,
 	"ui PresenceKeepsTheList":          `PresenceKeepsTheList(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { let lists = presenceLists(seed) let view = func(f *Frame[int], s int) { OnKey(f, func(k KeyPress) Option[int] { for i in 0..8 { if k.Name == "\(i)" { return Some{Value: i} } } None }) Presence(f, lists[s], func(r int) Key { ByInt(r) }, 50ms) func(r int, p Progress) { Text(f, "row \(r)") } } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: presenceListStep, After: presenceTimer, Work: presenceWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } FrameEvery(&h, 10ms) let mut x = seed + 7 for _ in 0..(steps%14+14)%14+1 { let before = presenceKeys(Screen(&h)) x = (x*1103515245 + 12345) % 2147483648 if x < 0 { x = -x } let i = x % 8 PressKey(&h, KeyPress{Name: "\(i)", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch { case _: return false } let after = presenceKeys(Screen(&h)) let list = lists[StateOf(&h)] // The rows not exiting are the list. let mut staying = []int{} let mut moving = false for k in after { let (key, motion, t) = k if t < 0.0 || t > 1.0 || (motion == Present && t != 1.0) { return false } if motion != Exiting { staying = staying.Append(key) } if motion != Present { moving = true } let mut shown = false for b in before { let (bk, _, _) = b shown = shown || bk == key } let mut listed = false for y in list { listed = listed || y == key } if !shown && (motion != Entering || t != 0.0) { return false } if !listed && motion != Exiting { return false } } if staying != list || WantsFrames(&h) != moving { return false } // A lost row comes right after the row before it, or first. for j, b in before { let (bk, _, _) = b let mut listed = false for y in list { listed = listed || y == bk } if listed { continue } let mut at = -1 for q, k in after { let (key, _, _) = k if key == bk { at = q } } if at < 0 { // gone at once only when it was exiting already, or // had not come in at all (T 0) let (_, bm, bt) = b if bm != Exiting && bt != 0.0 { return false } continue } if j > 0 && at > 0 { let (prev, _, _) = before[j-1] let (got, _, _) = after[at-1] let mut prevListed = false for y in list { prevListed = prevListed || y == prev } if prevListed && got != prev { return false } } } if x%2 == 0 { Advance(&h, 10ms) catch { case _: return false } } } true } }`,
 	"ui ExitTakesItsDuration":          `ExitTakesItsDuration(n int) { let m = time.NewManual(0) with context { Scheduler: m } { let k = (n%10+10)%10 + 1 let lists = [][]int{[]int{0}, []int{0, 1}, []int{0}} let view = func(f *Frame[int], s int) { OnKey(f, func(kp KeyPress) Option[int] { for i in 0..3 { if kp.Name == "\(i)" { return Some{Value: i} } } None }) Presence(f, lists[s], func(r int) Key { ByInt(r) }, 100ms) func(r int, p Progress) { Text(f, "row \(r)") } } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: presenceListStep, After: presenceTimer, Work: presenceWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } FrameEvery(&h, 10ms) let first = presenceKeys(Screen(&h)) if len(first) != 1 || !near(first[0], rowAt(0, Present, 1.0)) { return false } PressKey(&h, KeyPress{Name: "1", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch { case _: return false } // The entry starts at the first frame after the press: k+1 frames // bring it k tenths in. for _ in 0..k+1 { Advance(&h, 10ms) catch { case _: return false } } let reached = presenceKeys(Screen(&h)) let mut t = 1.0 if k < 10 { t = float64(k) / 10.0 } let mut want = rowAt(1, Present, 1.0) if k < 10 { want = rowAt(1, Entering, t) } if len(reached) != 2 || !near(reached[1], want) { return false } PressKey(&h, KeyPress{Name: "2", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch { case _: return false } let removed = presenceKeys(Screen(&h)) if len(removed) != 2 || !near(removed[1], rowAt(1, Exiting, t)) { return false } // The exit starts at the next frame and loses a tenth per frame. for j in 1..k+2 { Advance(&h, 10ms) catch { case _: return false } let shown = presenceKeys(Screen(&h)) let left = t - float64(j-1)/10.0 if left <= 0.000001 { if len(shown) != 1 { return false } } else if len(shown) != 2 || !near(shown[1], rowAt(1, Exiting, left)) { return false } } len(presenceKeys(Screen(&h))) == 1 && !WantsFrames(&h) } }`,

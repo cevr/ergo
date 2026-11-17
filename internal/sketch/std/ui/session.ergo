@@ -175,7 +175,37 @@ func finish[S, E, D, F](s *Session[S, E, D, F], epoch int) {
 // shows the crash view from then on, and a signal of the crash view
 // starts a fresh actor (a reload). Step fails Stopped when the actor
 // ended and it is not a crash.
+//
+// The Slow signals a pass sent (judge) are drawn before any other event
+// is taken (UC-SIGNALS-FLAKE): their Committed and a fetch's result are
+// posted by tasks of their own, in an order the scheduler picks, and a
+// result taken first would fold its signal into the pass that shows the
+// warning. So an event that finds the session's own signals not yet
+// drawn runs their pass first, and the result is both passes' patches,
+// in order; their Committed then finds the state drawn.
 func Step[E comparable, S, D, F](s *Session[S, E, D, F], ev Event[E]) []Op[E] fails actor.Stopped {
+	let mut first = []Op[E]{}
+	match ev {
+	case Committed, Ended:
+	case _:
+		if s.signals > 0 {
+			first = runPass(s)
+		}
+	}
+	let ops = try stepEvent(s, ev)
+	if len(first) == 0 {
+		return ops
+	}
+	let mut all = first
+	for o in ops {
+		all = all.Append(o)
+	}
+	all
+}
+
+// stepEvent is Step's handling of ev, once the session's own signals are
+// drawn.
+func stepEvent[E comparable, S, D, F](s *Session[S, E, D, F], ev Event[E]) []Op[E] fails actor.Stopped {
 	match ev {
 	case Arrived[E] as x:
 		finish(s, x.Epoch)

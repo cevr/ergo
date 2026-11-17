@@ -2765,3 +2765,96 @@ law EdgeScrollStaysInRange(o int, hh int, c int, yy int, e int, st int) {
 	}
 	next == at
 }
+
+// orderStep is the law's machine: the key starts the loads (1), a Slow
+// stops them (2), and a load's result changes nothing (3). (a law's
+// helper)
+func orderStep(s int, e int) Decision[int, int] {
+	if e == 3 {
+		return Ignore
+	}
+	Enter[int]{Next: e}
+}
+
+// PostedOrderKeepsTheCounts (UC-SIGNALS-FLAKE): a key whose pass starts
+// more loads than the view's budget of fetches (OnSlow) makes the session
+// send a Slow, which stops the loads. The loads' results and the Slow's
+// Committed are posted by tasks of their own; the law takes them in a
+// drawn order, as a scheduler may post them. In every order the last
+// pass shows the warning, and it counts one signal (the Slow), no fetch
+// and no result: the counts of a pass never depend on scheduling.
+law PostedOrderKeepsTheCounts(seed int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		postedOrder(seed, m)
+	}
+}
+
+func postedOrder(seed int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let n = draw(&r, 4) + 3
+	let view = func(f *Frame[int], s int) {
+		OnSlow(f, Budget{Signals: 0, Written: 0, Committed: 0, Ops: 0, Painted: 0, Fetches: 2}, func(x Slow) int { 2 })
+		OnKey(f, func(k KeyPress) Option[int] { if s == 0 { Some{Value: 1} } else { None } })
+		Text(f, "s\(s)")
+		if s == 1 {
+			for i in 0..n {
+				Load(f, ByInt(i), func() int { 3 })
+			}
+		}
+	}
+	let posted = queue.New[Event[int]](64)
+	let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: orderStep, After: semTimer, Work: semWork}, 1, func(o int) {})
+	let (s, _) = Start(a, view, func(ev Event[int]) {
+		posted.Push(ev) catch {
+		case queue.Closed:
+		}
+	})
+	let mut session = s
+	let _ = Step(&session, KeyDown{Press: KeyPress{Name: "k", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}) catch {
+	case actor.Stopped:
+		return false
+	}
+	// Every task runs to its end: n results and the Slow's Committed wait.
+	m.Advance(duration(int64(0)))
+	let mut evs = []Event[int]{}
+	let mut more = true
+	for more {
+		match posted.Poll() {
+		case Some[Event[int]] as ev:
+			evs = evs.Append(ev.Value)
+		case None:
+			more = false
+		}
+	}
+	// Take them in a drawn order (a shuffle), then whatever they posted.
+	for i in 0..len(evs) {
+		let j = i + draw(&r, len(evs)-i)
+		let x = evs[i]
+		evs[i] = evs[j]
+		evs[j] = x
+	}
+	for ev in evs {
+		let _ = Step(&session, ev) catch {
+		case actor.Stopped:
+			return false
+		}
+	}
+	m.Advance(duration(int64(0)))
+	let mut rest = true
+	for rest {
+		match posted.Poll() {
+		case Some[Event[int]] as ev:
+			let _ = Step(&session, ev.Value) catch {
+			case actor.Stopped:
+				return false
+			}
+		case None:
+			rest = false
+		}
+	}
+	let st = SessionStats(&session)
+	let ok = a.State() == 2 && st.Signals == 1 && st.Fetches == 0
+	a.Stop()
+	ok
+}
