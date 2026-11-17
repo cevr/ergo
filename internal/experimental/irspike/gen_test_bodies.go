@@ -55,7 +55,11 @@ func GenerateTests(seed uint64) string {
 	z := r.IntN(7)
 	b.WriteString("type Won { Moves int }\n\ntype Lost { At string }\n\ntype End = Won | Lost\n\ntype Pt { X int, Y int }\n\n")
 	b.WriteString("func ending(n int) End {\n\tif n > 3 {\n\t\treturn Won{Moves: n}\n\t}\n\tLost{At: \"gate\"}\n}\n\n")
-	fmt.Fprintf(&b, "test Records {\n\tassert ending(%d) == Won{Moves: %s}\n\tassert Pt{X: %d, Y: 1} == Pt{X: %d, Y: %s}\n\tassert []int{%d, 1} != []int{%d, %s}\n}\n\n", z, pick(fmt.Sprint(z), fmt.Sprint(z+1)), z, z, pick("1", "2"), z, z, pick("2", "1"))
+	// A dropped call of a generic function whose row is empty here: its
+	// Go form returns the value and a nil error, both bound and dropped
+	// (lru's memo test).
+	b.WriteString("func first[E](f func() int fails E) int fails E {\n\ttry f()\n}\n\n")
+	fmt.Fprintf(&b, "test Records {\n\tlet _ = first(func() int { 1 })\n\tassert ending(%d) == Won{Moves: %s}\n\tassert Pt{X: %d, Y: 1} == Pt{X: %d, Y: %s}\n\tassert []int{%d, 1} != []int{%d, %s}\n}\n\n", z, pick(fmt.Sprint(z), fmt.Sprint(z+1)), z, z, pick("1", "2"), z, z, pick("2", "1"))
 	b.WriteString("func main() needs Console {\n\tConsole.Println(\"\\(scale(2))\")\n}\n")
 	return b.String()
 }
