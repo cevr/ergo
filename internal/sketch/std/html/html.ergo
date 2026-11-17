@@ -1,0 +1,287 @@
+// Package html writes HTML documents from ordinary functions (#212; owner,
+// 2026-10-26: "Functions", not markup syntax). An element is a function
+// of one []Child, where Child is Attr | Node; a void element takes only
+// []Attr, so it cannot get children. Escaping is decided by type: Text
+// escapes its string when it is written, an attribute's value is escaped,
+// Href, Src and Action take a URL (never a string), and Raw takes a
+// Trusted, which only Trust builds, so a search for Trust finds every
+// place markup comes from a string. A Node is a function that writes into
+// one strings.Builder: no intermediate string per node (templ's render
+// functions; Lustre's string tree).
+
+import strconv
+import strings
+
+// Node is a part of a document: an element, text, a list of nodes, or
+// trusted markup. Render or Write writes it.
+type Node { write func(b *strings.Builder) }
+
+// Attr is an attribute of an element: its name, its value (escaped when
+// it is written), or a name alone (a boolean attribute such as hidden).
+type Attr { name string, value string, bare bool }
+
+// Child is what an element holds: its attributes and its children, in
+// one slice. The attributes are written in their order, whatever nodes
+// come between them.
+type Child = Attr | Node
+
+// Trusted is markup a program vouches for: only Trust builds one.
+type Trusted { s string }
+
+// Trust is s as markup, written as it is by Raw, Script and Style. Every
+// call of Trust is a place where a string becomes markup.
+func Trust(s string) Trusted { Trusted{s: s} }
+
+// Text is s as an element's text, escaped (TextIsInert).
+func Text(s string) Node { Node{write: func(b *strings.Builder) { escape(b, s) }} }
+
+// Int is n in decimal, as text.
+func Int(n int) Node { Node{write: func(b *strings.Builder) { b.WriteString(strconv.Itoa(n)) }} }
+
+// Raw is t's markup, written as it is.
+func Raw(t Trusted) Node { Node{write: func(b *strings.Builder) { b.WriteString(t.s) }} }
+
+// Each is the node f makes of each item, in order. f runs when the node
+// is written, so no list of nodes is built.
+func Each[T](items []T, f own func(item T) Node) Node {
+	Node{write: func(b *strings.Builder) {
+		for x in items {
+			let n = f(x)
+			n.write(b)
+		}
+	}}
+}
+
+// When is n when show holds, and nothing otherwise.
+func When(show bool, n Node) Node {
+	if show {
+		return n
+	}
+	Node{write: func(b *strings.Builder) {}}
+}
+
+// Doc is a document: the doctype, then root (Html).
+func Doc(root Node) Node {
+	Node{write: func(b *strings.Builder) {
+		b.WriteString("<!DOCTYPE html>")
+		root.write(b)
+	}}
+}
+
+// Render is n's markup.
+func Render(n Node) string {
+	let mut b = strings.NewBuilder()
+	n.write(&b)
+	b.String()
+}
+
+// Write writes n's markup at the end of b.
+func Write(b *strings.Builder, n Node) { n.write(b) }
+
+// attrs writes the attributes among kids, in order, each with a space
+// before it.
+func attrs(b *strings.Builder, kids []Child) {
+	for k in kids {
+		match k {
+		case Attr as a:
+			attr(b, a)
+		case Node:
+		}
+	}
+}
+
+func attr(b *strings.Builder, a Attr) {
+	b.WriteString(" ")
+	b.WriteString(a.name)
+	if !a.bare {
+		b.WriteString("=\"")
+		escape(b, a.value)
+		b.WriteString("\"")
+	}
+}
+
+// element is the element tag around kids: its attributes in the start
+// tag, then its child nodes, then the end tag.
+func element(tag string, kids []Child) Node {
+	Node{write: func(b *strings.Builder) {
+		b.WriteString("<")
+		b.WriteString(tag)
+		attrs(b, kids)
+		b.WriteString(">")
+		for k in kids {
+			match k {
+			case Node as n:
+				n.write(b)
+			case Attr:
+			}
+		}
+		b.WriteString("</")
+		b.WriteString(tag)
+		b.WriteString(">")
+	}}
+}
+
+// void is the void element tag: a start tag closed by />, with no
+// children and no end tag.
+func void(tag string, attrList []Attr) Node {
+	Node{write: func(b *strings.Builder) {
+		b.WriteString("<")
+		b.WriteString(tag)
+		for a in attrList {
+			attr(b, a)
+		}
+		b.WriteString("/>")
+	}}
+}
+
+// rawText is a script or style element: its body is not text to a
+// parser, so it is markup a program trusts.
+func rawText(tag string, attrList []Attr, body Trusted) Node {
+	Node{write: func(b *strings.Builder) {
+		b.WriteString("<")
+		b.WriteString(tag)
+		for a in attrList {
+			attr(b, a)
+		}
+		b.WriteString(">")
+		b.WriteString(body.s)
+		b.WriteString("</")
+		b.WriteString(tag)
+		b.WriteString(">")
+	}}
+}
+
+// The elements. Each is the HTML element of its name, lower case.
+func Html(kids []Child) Node       { element("html", kids) }
+func Head(kids []Child) Node       { element("head", kids) }
+func Body(kids []Child) Node       { element("body", kids) }
+func Title(kids []Child) Node      { element("title", kids) }
+func Main(kids []Child) Node       { element("main", kids) }
+func Header(kids []Child) Node     { element("header", kids) }
+func Footer(kids []Child) Node     { element("footer", kids) }
+func Nav(kids []Child) Node        { element("nav", kids) }
+func Section(kids []Child) Node    { element("section", kids) }
+func Article(kids []Child) Node    { element("article", kids) }
+func Aside(kids []Child) Node      { element("aside", kids) }
+func Div(kids []Child) Node        { element("div", kids) }
+func Span(kids []Child) Node       { element("span", kids) }
+func P(kids []Child) Node          { element("p", kids) }
+func A(kids []Child) Node          { element("a", kids) }
+func H1(kids []Child) Node         { element("h1", kids) }
+func H2(kids []Child) Node         { element("h2", kids) }
+func H3(kids []Child) Node         { element("h3", kids) }
+func H4(kids []Child) Node         { element("h4", kids) }
+func H5(kids []Child) Node         { element("h5", kids) }
+func H6(kids []Child) Node         { element("h6", kids) }
+func Ul(kids []Child) Node         { element("ul", kids) }
+func Ol(kids []Child) Node         { element("ol", kids) }
+func Li(kids []Child) Node         { element("li", kids) }
+func Dl(kids []Child) Node         { element("dl", kids) }
+func Dt(kids []Child) Node         { element("dt", kids) }
+func Dd(kids []Child) Node         { element("dd", kids) }
+func Time(kids []Child) Node       { element("time", kids) }
+func Strong(kids []Child) Node     { element("strong", kids) }
+func Em(kids []Child) Node         { element("em", kids) }
+func Small(kids []Child) Node      { element("small", kids) }
+func Code(kids []Child) Node       { element("code", kids) }
+func Pre(kids []Child) Node        { element("pre", kids) }
+func Blockquote(kids []Child) Node { element("blockquote", kids) }
+func Figure(kids []Child) Node     { element("figure", kids) }
+func Figcaption(kids []Child) Node { element("figcaption", kids) }
+func Picture(kids []Child) Node    { element("picture", kids) }
+func Table(kids []Child) Node      { element("table", kids) }
+func Thead(kids []Child) Node      { element("thead", kids) }
+func Tbody(kids []Child) Node      { element("tbody", kids) }
+func Tr(kids []Child) Node         { element("tr", kids) }
+func Th(kids []Child) Node         { element("th", kids) }
+func Td(kids []Child) Node         { element("td", kids) }
+func Form(kids []Child) Node       { element("form", kids) }
+func Label(kids []Child) Node      { element("label", kids) }
+func Button(kids []Child) Node     { element("button", kids) }
+func Textarea(kids []Child) Node   { element("textarea", kids) }
+func Details(kids []Child) Node    { element("details", kids) }
+func Summary(kids []Child) Node    { element("summary", kids) }
+
+// The void elements: attributes only.
+func Meta(attrList []Attr) Node   { void("meta", attrList) }
+func Link(attrList []Attr) Node   { void("link", attrList) }
+func Br(attrList []Attr) Node     { void("br", attrList) }
+func Hr(attrList []Attr) Node     { void("hr", attrList) }
+func Img(attrList []Attr) Node    { void("img", attrList) }
+func Input(attrList []Attr) Node  { void("input", attrList) }
+func Source(attrList []Attr) Node { void("source", attrList) }
+func Wbr(attrList []Attr) Node    { void("wbr", attrList) }
+
+// Script and Style hold a body a parser does not read as text, so it is
+// Trusted markup: a script's JSON-LD or a stylesheet.
+func Script(attrList []Attr, body Trusted) Node { rawText("script", attrList, body) }
+func Style(attrList []Attr, body Trusted) Node  { rawText("style", attrList, body) }
+
+// name is s as an attribute name: each byte other than a letter, a digit,
+// -, _, . or : is written as -, and an empty name is data-, so a name a
+// program reads from data is one attribute and never ends the tag.
+func name(s string) string {
+	if s == "" {
+		return "data-"
+	}
+	let mut b = strings.NewBuilder()
+	for i in 0..len(s) {
+		let c = s[i]
+		let ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == ':'
+		b.WriteByte(if ok { c } else { '-' })
+	}
+	b.String()
+}
+
+// Attribute is the attribute name (as name writes it) with value.
+func Attribute(n string, value string) Attr { Attr{name: name(n), value: value, bare: false} }
+
+// Flag is the boolean attribute n (as name writes it): a name alone.
+func Flag(n string) Attr { Attr{name: name(n), value: "", bare: true} }
+
+// Data is the attribute data-key; Aria is aria-key.
+func Data(key string, value string) Attr { Attr{name: name("data-" + key), value: value, bare: false} }
+func Aria(key string, value string) Attr { Attr{name: name("aria-" + key), value: value, bare: false} }
+
+// The attributes of a string value.
+func Class(v string) Attr       { Attr{name: "class", value: v, bare: false} }
+func Id(v string) Attr          { Attr{name: "id", value: v, bare: false} }
+func Lang(v string) Attr        { Attr{name: "lang", value: v, bare: false} }
+func Charset(v string) Attr     { Attr{name: "charset", value: v, bare: false} }
+func Name(v string) Attr        { Attr{name: "name", value: v, bare: false} }
+func Content(v string) Attr     { Attr{name: "content", value: v, bare: false} }
+func Rel(v string) Attr         { Attr{name: "rel", value: v, bare: false} }
+func Type(v string) Attr        { Attr{name: "type", value: v, bare: false} }
+func Value(v string) Attr       { Attr{name: "value", value: v, bare: false} }
+func For(v string) Attr         { Attr{name: "for", value: v, bare: false} }
+func Alt(v string) Attr         { Attr{name: "alt", value: v, bare: false} }
+func Method(v string) Attr      { Attr{name: "method", value: v, bare: false} }
+func Placeholder(v string) Attr { Attr{name: "placeholder", value: v, bare: false} }
+func Datetime(v string) Attr    { Attr{name: "datetime", value: v, bare: false} }
+func Role(v string) Attr        { Attr{name: "role", value: v, bare: false} }
+
+// TitleAttr and StyleAttr are the title and style attributes (Title and
+// Style are elements).
+func TitleAttr(v string) Attr { Attr{name: "title", value: v, bare: false} }
+func StyleAttr(v string) Attr { Attr{name: "style", value: v, bare: false} }
+
+// Href, Src and Action are the attributes of a link target: a URL, never
+// a string (ParseURL, LocalURL).
+func Href(u URL) Attr   { Attr{name: "href", value: u.s, bare: false} }
+func Src(u URL) Attr    { Attr{name: "src", value: u.s, bare: false} }
+func Action(u URL) Attr { Attr{name: "action", value: u.s, bare: false} }
+
+// RenderIsAppend (WEB0): a node's markup is its parts' markup in order:
+// a list of texts is their texts joined, an element is its start tag
+// with its attributes in order, its children's markup joined, then its
+// end tag, and a void element has no end tag.
+law RenderIsAppend(a string, c string, k string) {
+	let ta = Render(Text(a))
+	let tc = Render(Text(c))
+	let ek = Escape(k)
+	let list = Render(Each([]string{a, c}, Text))
+	let div = Render(Div([]Child{Text(a), Class(k), Text(c), Id(k)}))
+	let br = Render(Br([]Attr{Class(k)}))
+	let doc = Render(Doc(P([]Child{When(a == c, Text(a)), Int(len(a))})))
+	list == ta+tc && div == "<div class=\""+ek+"\" id=\""+ek+"\">"+ta+tc+"</div>" && br == "<br class=\""+ek+"\"/>" && doc == "<!DOCTYPE html><p>"+(if a == c { ta } else { "" })+"\(len(a))</p>"
+}
