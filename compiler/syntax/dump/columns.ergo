@@ -1,7 +1,6 @@
 import compiler/syntax
 import slices
 import strconv
-import tasks
 
 // Columns is the parse of src as syntax.Columns packs it: the token
 // columns, the rows, the extra pool, the comments and their groups, for
@@ -9,22 +8,9 @@ import tasks
 func Columns(src string) []uint32 { syntax.Columns(syntax.Parse(src)) }
 
 // ColumnsAll is Columns of each source, in the order of srcs, on at most
-// workers tasks, each a run of adjacent files (syntax.Chunks), as
+// workers tasks, each a run of adjacent files (syntax.EachRun), as
 // syntax.ParseAll parses: a package's files, for the Go loader.
-func ColumnsAll(srcs []string, workers int) [][]uint32 {
-	let parts = tasks.Transform(syntax.Chunks(len(srcs), workers), workers, func(c syntax.Chunk) [][]uint32 {
-		let mut out = slices.WithCapacity[[]uint32](c.To - c.From)
-		for i in c.From..c.To {
-			out = out.Append(syntax.Columns(syntax.Parse(srcs[i])))
-		}
-		out
-	})
-	let mut all = slices.WithCapacity[[]uint32](len(srcs))
-	for part in parts {
-		all = slices.AppendAll(all, part)
-	}
-	all
-}
+func ColumnsAll(srcs []string, workers int) [][]uint32 { syntax.EachRun(srcs, workers, syntax.RunLeast, Columns) }
 
 // Tokens is the scan of src alone, for a host that reads tokens and no
 // tree (syntax.TokenText, WhereText): kind, start and end per token. A

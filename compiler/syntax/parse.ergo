@@ -188,15 +188,42 @@ func Parse(src string) Parsed {
 // file order and no parse writes a table of another (there is no
 // interner: names stay offsets into the source). A workers below 1 is a
 // defect, as Transform's limit.
-func ParseAll(srcs []string, workers int) []Parsed {
-	let parts = tasks.Transform(Chunks(len(srcs), workers), workers, func(c Chunk) []Parsed {
-		let mut out = slices.WithCapacity[Parsed](c.To - c.From)
+func ParseAll(srcs []string, workers int) []Parsed { EachRun(srcs, workers, RunLeast, Parse) }
+
+// RunLeast is the source bytes a run must reach before a task of its own
+// pays for itself: a task starts on a small stack that the recursive
+// descent grows again, and that growth was a third of the instructions of
+// a corpus's ColumnsAll at four workers (capstone S2f), where most
+// packages are a few kilobytes.
+let RunLeast = 32768
+
+// EachRun is f of each source, in the order of srcs: on the caller's
+// stack, which has grown already, when the sources do not fill two runs of
+// least bytes; else on at most workers tasks at once, each a run of
+// adjacent files (Chunks), no more runs than the sources fill. A workers
+// below 1 is a defect, as Transform's limit.
+func EachRun[T](srcs []string, workers int, least int, f own func(src string) T) []T {
+	let mut total = 0
+	for s in srcs {
+		total = total + len(s)
+	}
+	let fill = if least < 1 { total } else { total / least }
+	let runs = if fill < workers { fill } else { workers }
+	if workers >= 1 && runs < 2 {
+		let mut out = slices.WithCapacity[T](len(srcs))
+		for s in srcs {
+			out = out.Append(f(s))
+		}
+		return out
+	}
+	let parts = tasks.Transform(Chunks(len(srcs), runs), workers, func(c Chunk) []T {
+		let mut out = slices.WithCapacity[T](c.To - c.From)
 		for i in c.From..c.To {
-			out = out.Append(Parse(srcs[i]))
+			out = out.Append(f(srcs[i]))
 		}
 		out
 	})
-	let mut all = slices.WithCapacity[Parsed](len(srcs))
+	let mut all = slices.WithCapacity[T](len(srcs))
 	for part in parts {
 		all = slices.AppendAll(all, part)
 	}
@@ -239,13 +266,14 @@ law ChunksTile(n int, workers int) {
 	ok && at == m
 }
 
-// ParseAllIsEachParse: the parses on tasks are each file's own parse, in
-// file order, at one task and at several: the rows, the extra words, the
-// tokens, the comments and the failure are the same bytes.
+// ParseAllIsEachParse: the parses are each file's own parse, in file
+// order, on the caller's stack and on tasks (a run of one byte splits the
+// sources into as many runs as the workers): the rows, the extra words,
+// the tokens, the comments and the failure are the same bytes.
 law ParseAllIsEachParse(picks []int) {
 	let srcs = sourcesOf(picks)
 	let one = ParseAll(srcs, 1)
-	let many = ParseAll(srcs, 8)
+	let many = EachRun(srcs, 8, 1, Parse)
 	let mut ok = len(one) == len(srcs) && len(many) == len(srcs)
 	for i in 0..len(srcs) {
 		let own = Columns(Parse(srcs[i]))
