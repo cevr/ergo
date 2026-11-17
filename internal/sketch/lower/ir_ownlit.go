@@ -14,8 +14,9 @@ package lower
 // holds is shared, and the value walk's proof that the literal's result is
 // unshared. The literal's parameter is a fresh local of the value walk
 // (handParams), so its body's copies are the facts the IR reads already
-// (valueCopy). The in-place form (inPlaceOf: the literal's parameter lowers
-// to *p) keeps the source body.
+// (valueCopy). The in-place form (inPlaceOf; FORK-INPLACE) calls
+// RefUpdateInPlace or RefModifyInPlace with the literal built in the
+// callback's shape, func(p *T) R, whose held local is *p (inPlaceLit).
 //
 // Prior art: Swift's Array and Dictionary copy on write after a uniqueness
 // test of their storage (isKnownUniquelyReferenced), the cell's shared flag
@@ -37,12 +38,14 @@ func (b *irBuilder) ownedSiteCall(x *syntax.CallExpr, c *check.Call, s *refSite,
 	if s.lit == nil {
 		irNo("owning site of a function value") // the mutant hand-nonliteral
 	}
-	if ip, _, _ := b.fc.inPlaceOf(s); ip != nil {
-		irNo("owning literal in place")
-	}
-	owned, err := runtimeBody(s.form.name)
+	name := s.form.name
+	owned, err := runtimeBody(name)
 	if err != nil {
 		irNo("owning site without its owned body")
+	}
+	ip, ipName, ipBody := b.fc.inPlaceOf(s)
+	if ip != nil {
+		name, owned = ipName, ipBody // the in-place form (inPlaceLit)
 	}
 	list := x.Args
 	var targs string
@@ -80,21 +83,77 @@ func (b *irBuilder) ownedSiteCall(x *syntax.CallExpr, c *check.Call, s *refSite,
 	if goValue(owned) && !b.sameGo(b.l.info.Types[x], owned.Results[0]) && !b.sameRT(b.l.info.Types[x], owned.Results[0], subst) {
 		irNo("std call with a converted result")
 	}
-	pre, args := b.operands(list)
-	t := b.l.info.Types[list[cb]]
-	if n, ok := t.(*check.Named); ok {
-		t = n.Underlying()
+	var pre []*irStmt
+	var args []*irExpr
+	if ip != nil {
+		// The literal is built in the callback's own shape, func(p *T) R:
+		// it has no statements of its own, so the other operands keep
+		// their order around it.
+		rest := append(append([]syntax.Expr{}, list[:cb]...), list[cb+1:]...)
+		pre, args = b.operands(rest)
+		args = append(args[:cb:cb], append([]*irExpr{b.inPlaceLit(s, ip, p)}, args[cb:]...)...)
+	} else {
+		pre, args = b.operands(list)
+		t := b.l.info.Types[list[cb]]
+		if n, ok := t.(*check.Named); ok {
+			t = n.Underlying()
+		}
+		sig, _ := t.(*check.Signature)
+		bind, fn := b.adaptOperand(sig, list[cb], args[cb], owned.Params[cb], p) // ir_adapt.go
+		pre, args[cb] = append(pre, bind...), fn
 	}
-	sig, _ := t.(*check.Signature)
-	bind, fn := b.adaptOperand(sig, list[cb], args[cb], owned.Params[cb], p) // ir_adapt.go
-	pre, args[cb] = append(pre, bind...), fn
 	args = append(args, b.cellCopy(s, p), &irExpr{K: "const", Pos: p, T: "bool", V: strconv.FormatBool(s.fresh)})
 	if targs != "" {
 		b.keepImport("var _ " + b.l.rt() + ".Site") // the instance's types may name the body's type parameters
 	} else {
-		b.keepImport("var _ = " + b.l.rtRef(s.form.name))
+		b.keepImport("var _ = " + b.l.rtRef(name))
 	}
-	return pre, &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: s.form.name, V: targs, Args: args}, !owned.Pure
+	return pre, &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: name, V: targs, Args: args}, !owned.Pure
+}
+
+// inPlaceLit is the in-place literal of the owned site s (refown.go,
+// inPlaceLit), as the emitter's funcLitClosure with fc.l.inPlace set and
+// adaptInPlace write it, in the callback's shape func(p *T) R directly:
+// the held local s is *p (b.held), the `let mut s = v` that binds it is
+// not built, and the last value (s, or (x, s)) returns x alone, or
+// nothing. The literal runs on the caller's environment, as the emitter's
+// captured-environment adapter does.
+func (b *irBuilder) inPlaceLit(s *refSite, ip *inPlaceLit, p irPos) *irExpr {
+	if b.env < 0 {
+		irNo("owning literal in place in a pure function")
+	}
+	l, lit := b.l, s.lit
+	list := lit.Body.List
+	gt := b.goType(ip.elem, lit)
+	inner := b.fc.innerFuncCtx()
+	inner.env = "env"
+	inner.frame = newFrame(ip.result, true, framePolls(l.info, lit))
+	inner.frame.unit = ip.result == nil
+	fc, res, loops, tries, switches, label, law := b.fc, b.result, b.loops, b.tries, b.switches, b.label, b.law
+	defer func() {
+		b.fc, b.result, b.loops, b.tries, b.switches, b.label, b.law = fc, res, loops, tries, switches, label, law
+	}()
+	ptr := b.temp("p", "*"+gt, p)
+	if b.held == nil {
+		b.held = map[*check.Var]int{}
+	}
+	b.held[ip.held] = ptr
+	defer delete(b.held, ip.held)
+	b.fc, b.result, b.loops, b.tries, b.switches, b.label, b.law = inner, nil, 0, 0, 0, "", nil
+	out := &irExpr{K: "func", Pos: p, T: "func(*" + gt + ")", Params: []int{ptr}}
+	if frameFootprint(l.info, lit).EntryPoll && inner.frame.polls {
+		out.Body = append(out.Body, b.poll(lit))
+	}
+	out.Body = append(out.Body, b.tail(list[1:len(list)-1], false)...) // ir_stmt.go
+	e := b.pos(lit.Body, lit.Body.Rbrace)
+	out.End = &e
+	if ip.result != nil {
+		x := unparen(ip.tail).(*syntax.TupleExpr).Elts[0]
+		pre, v := b.value(x)
+		out.Body = append(append(out.Body, pre...), &irStmt{K: "ret", Pos: b.pos(x, x.Pos()), X: v})
+		out.T += " " + b.goType(ip.result, lit)
+	}
+	return out
 }
 
 // cellCopy is the copy function the owned body calls on a shared held

@@ -371,6 +371,9 @@ type irBuilder struct {
 	params  map[int]bool
 	hoisted map[hoistKey]int
 	entry   []*irStmt
+	// held maps the held local of an in-place owning literal to its
+	// pointer parameter's local: the local is *p (ir_ownlit.go).
+	held map[*check.Var]int
 }
 
 // gate stops the body for reason; a census records it and goes on.
