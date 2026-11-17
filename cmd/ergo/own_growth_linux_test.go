@@ -19,12 +19,11 @@ import (
 // value step by step does work linear in its size, as hand Go's append
 // does, never quadratic. Three programs, each at sizes n, 2n and 4n:
 //
-//   - examples/mdhtml on a document of n paragraphs: Read folds the
-//     emitted blocks into doc with doc = slices.Concat(doc, closed)
-//     (own-consume);
-//   - examples/router on n messages: each Told step appends to the Idle
-//     entry's log, Idle{..i, Log: i.Log.Append(d)} (own-lineage), and the
-//     memory journal appends each signal (Ref.Update, own-lineage);
+//   - examples/mdhtml on a document of n paragraphs: the block parser
+//     appends each block, p.blocks = p.blocks.Append(block{…}) (in place,
+//     V3);
+//   - examples/router on n messages: each answer is appended to the
+//     board, Board{..b, Answers: b.Answers.Append(…)} (one extender);
 //   - testdata/ownring, GP's ring-copy repro (wf10 corpus GP) with n
 //     slots and 20n pushes: r = push(r, i), whose push takes its
 //     parameter over through its fields (fieldOwned) and writes one slot;
@@ -114,7 +113,8 @@ func TestHandoverGrowsLinearly(t *testing.T) {
 		name string
 		path string
 		base int
-		// site is a line the copy report must print: the growing site.
+		// site is the growing site the copy report must print, as
+		// FILE:«SOURCE TEXT» FORM (siteReported).
 		site string
 		// run is the command and the stdin of the program at size n.
 		run func(bin string, n int) (*exec.Cmd, string)
@@ -128,14 +128,14 @@ func TestHandoverGrowsLinearly(t *testing.T) {
 		}
 	}
 	programs := []program{
-		{"mdhtml", filepath.Join(ws, "examples", "mdhtml", "cmd", "mdhtml"), 4000, "markdown/blocks.ergo:155:10 in place", func(bin string, n int) (*exec.Cmd, string) {
+		{"mdhtml", filepath.Join(ws, "examples", "mdhtml", "cmd", "mdhtml"), 4000, "markdown/blocks.ergo:«p.blocks = p.blocks.Append(block{» in place", func(bin string, n int) (*exec.Cmd, string) {
 			var b strings.Builder
 			for i := range n {
 				fmt.Fprintf(&b, "Paragraph %d with *em* and `code`.\n\n", i)
 			}
 			return exec.Command(bin), b.String()
 		}, ""},
-		{"router", filepath.Join(ws, "examples", "router", "cmd", "router"), 2000, "route/machine.ergo:289:38 one extender", func(bin string, n int) (*exec.Cmd, string) {
+		{"router", filepath.Join(ws, "examples", "router", "cmd", "router"), 2000, "route/machine.ergo:«Board{..b, Answers: b.Answers.Append(» one extender", func(bin string, n int) (*exec.Cmd, string) {
 			lines := []string{"route 1 logs disk", "route 2 metrics socket", "route 3 alerts stdout"}
 			topics := []string{"logs", "metrics", "alerts"}
 			for i := range n {
@@ -158,7 +158,7 @@ func TestHandoverGrowsLinearly(t *testing.T) {
 		{"ownwindow", filepath.Join(ws, "cmd", "ergo", "testdata", "ownwindow", "window.ergo"), 20000, "", func(bin string, n int) (*exec.Cmd, string) {
 			return exec.Command(bin, strconv.Itoa(n)), ""
 		}, ""},
-		{"reuse-g1", reuse, 20000, "reuse.ergo:81:22 owned call: calls Insert's owned body: s handed over", shape("g1"), ""},
+		{"reuse-g1", reuse, 20000, "reuse.ergo:«for i in 0..n { a = Insert(a, i) }» owned call: calls Insert's owned body: s handed over", shape("g1"), ""},
 		{"reuse-g4", reuse, 200000, "", shape("g4"), ""},
 		{"reuse-f2", reuse, 200000, "", shape("f2"), ""},
 		{"reuse-f3", reuse, 200000, "", shape("f3"), ""},
@@ -167,9 +167,9 @@ func TestHandoverGrowsLinearly(t *testing.T) {
 		{"reuse-r3", reuse, 200000, "", shape("r3"), ""},
 		{"reuse-u1", reuse, 2000, "", shape("u1"), "RU3"},
 		{"reuse-fv", reuse, 2000, "", shape("fv"), "RU4 (a known callback takes the owning form; plan §2, Indirect calls)"},
-		{"reuse-st", reuse, 20000, "reuse.ergo:161:16 copy slice: ", shape("st"), ""},
+		{"reuse-st", reuse, 20000, "reuse.ergo:«let mut all = Store.All()» copy slice: ", shape("st"), ""},
 		{"reuse-uc", reuse, 5000, "", shape("uc"), ""},
-		{"reuse-x1", reuse, 5000, "reuse.ergo:207:16 copy deep: ", shape("x1"), ""},
+		{"reuse-x1", reuse, 5000, "reuse.ergo:«let mut k = v.Value» copy deep: ", shape("x1"), ""},
 		{"reuse-kc", reuse, 200000, "", shape("kc"), ""},
 		{"reuse-gm", reuse, 200000, "", shape("gm"), ""},
 		{"reuse-gs", reuse, 200000, "", shape("gs"), ""},
@@ -192,8 +192,8 @@ func TestHandoverGrowsLinearly(t *testing.T) {
 		out := bytes.NewBufferString(reports[p.path])
 		// The copy report names the growing site's form (a report that
 		// lists no site, or the wrong form, fails here).
-		if p.site != "" && !strings.Contains(out.String(), p.site) {
-			t.Errorf("ergo build -report copies %s: no line with %q in\n%s", p.name, p.site, out.Bytes())
+		if p.site != "" && !siteReported(t, p.path, p.site, out.String()) {
+			t.Errorf("ergo build -report copies %s: no line for %q in\n%s", p.name, p.site, out.Bytes())
 		}
 		if p.red != "" && !knownRed {
 			t.Logf("%s: known red until %s (OWN_GROWTH_KNOWN_RED=1 counts it)", p.name, p.red)
@@ -236,4 +236,64 @@ func ownCount(t *testing.T, cmd *exec.Cmd, stdin string) uint64 {
 		t.Fatalf("%v: %s: %s\n%.2000s", cmd.Args, refusal, why, out.Bytes())
 	}
 	return r.Instructions
+}
+
+// siteReported says whether report, an ergo build -report copies of the
+// program at path, has a line for site, written FILE:«TEXT» FORM: FILE is
+// the source file as the report names it (relative to the program's
+// module, or to the file's folder for a one-file program), TEXT the one
+// line of it that holds the site, and FORM the report's words after the
+// position. The site is found by its text, not pinned by its line, so an
+// edit elsewhere in the file does not fail the guard (I22 Q10: mdhtml's
+// rewrite moved the pinned line); a report that names no line of TEXT in
+// FORM fails it (own-copy-report-silent).
+func siteReported(t *testing.T, path, site, report string) bool {
+	t.Helper()
+	file, rest, ok := strings.Cut(site, ":«")
+	text, form, ok2 := strings.Cut(rest, "»")
+	if !ok || !ok2 {
+		t.Fatalf("site %q is not FILE:«TEXT» FORM", site)
+	}
+	root := path
+	if strings.HasSuffix(path, ".ergo") {
+		root = filepath.Dir(path)
+	} else {
+		for {
+			if _, err := os.Stat(filepath.Join(root, "ergo.mod")); err == nil {
+				break
+			}
+			parent := filepath.Dir(root)
+			if parent == root {
+				t.Fatalf("no ergo.mod above %s", path)
+			}
+			root = parent
+		}
+	}
+	source, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(file)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := 0
+	for i, l := range strings.Split(string(source), "\n") {
+		if strings.Contains(l, text) {
+			if line != 0 {
+				t.Fatalf("%s: %q is on lines %d and %d; name the site by text on one line", file, text, line, i+1)
+			}
+			line = i + 1
+		}
+	}
+	if line == 0 {
+		t.Fatalf("%s: no line holds %q", file, text)
+	}
+	prefix := fmt.Sprintf("%s:%d:", file, line)
+	for _, l := range strings.Split(report, "\n") {
+		_, after, found := strings.Cut(l, prefix)
+		if !found {
+			continue
+		}
+		if _, words, ok := strings.Cut(after, " "); ok && strings.HasPrefix(" "+words, form) {
+			return true
+		}
+	}
+	return false
 }
