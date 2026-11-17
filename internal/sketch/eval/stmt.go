@@ -457,7 +457,7 @@ func (in *interp) assign(fr *frame, s *syntax.AssignStmt) *abrupt {
 	}
 	var val Value
 	if call, own := in.handover(fr, root, steps, s); call != nil {
-		val, ab = in.collectionCallAt(fr, call, fr.info.Calls[call], own, steps)
+		val, ab = in.collectionCall(fr, call, fr.info.Calls[call], own, steps)
 	} else {
 		val, ab = in.expr(fr, s.Rhs[0])
 	}

@@ -908,7 +908,7 @@ func (in *interp) callOf(fr *frame, x *syntax.CallExpr, xf *facts) (Value, *abru
 			return nil, fr.unsupported(x, "a trailing block yet")
 		}
 		if preludeCollection(c.Func) {
-			return in.collectionCall(fr, x, c, nil)
+			return in.collectionCall(fr, x, c, nil, nil)
 		}
 		// A bodiless std function that takes an owned local holds its
 		// entry until it returns (own.go, holdTaken).
@@ -1115,15 +1115,11 @@ func preludeCollection(f *check.Func) bool {
 }
 
 // collectionCall runs xs.Append(x), m.Get(k), m.Delete(k) or m.Put(k, v).
-// own is the token of the slot an assignment hands the receiver over from
-// (x = x.Append(e)); the receiver is then read without a lend.
-func (in *interp) collectionCall(fr *frame, x *syntax.CallExpr, c *check.Call, own *slot) (Value, *abrupt) {
-	return in.collectionCallAt(fr, x, c, own, nil)
-}
-
-// collectionCallAt is collectionCall whose handed-over receiver is the
-// place at the path at from own's value (stmt.go, handover).
-func (in *interp) collectionCallAt(fr *frame, x *syntax.CallExpr, c *check.Call, own *slot, at []step) (Value, *abrupt) {
+// own is the slot an assignment hands the receiver over from (x =
+// x.Append(e), x.f = x.f.Append(e)), and at the path from own's value to
+// the receiver (stmt.go, handover); the receiver is then read without a
+// lend.
+func (in *interp) collectionCall(fr *frame, x *syntax.CallExpr, c *check.Call, own *slot, at []step) (Value, *abrupt) {
 	var recv Value
 	var ab *abrupt
 	if own != nil {
