@@ -113,6 +113,16 @@ func StringsBuilderGrow(buf []byte, n int) []byte {
 //ergo:wait none
 func StringsBuilderText(buf []byte) string { return string(buf) }
 
+// HTMLInFold is std html's inFold: whether the code runs in a build-time
+// fold (CF1). A built program never does, so it is false here; the
+// check-time evaluator, which computes a fold, answers true (eval natives,
+// html.inFold). std html builds a node's markup only then, and its laws
+// hold its markup equal either way.
+//
+//ergo:pure
+//ergo:wait none
+func HTMLInFold() bool { return false }
+
 // StringsBuilderAppendBytes is buf with the bytes of bs added, as Go's
 // append(buf, bs...).
 //

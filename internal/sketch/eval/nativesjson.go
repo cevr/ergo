@@ -45,6 +45,13 @@ func registerNativesjson() {
 		return args[0], in.charge(fr, at, 1)
 	}
 	natives["strings.builderText"] = bytesText
+	// std html's inFold (CF1): the evaluator is what computes a build-time
+	// fold, so here it is true, where runtime/v1.HTMLInFold, the built
+	// program's, is false. It is no parity row: the two differ by design,
+	// and std html's laws hold its markup equal either way.
+	natives["html.inFold"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		return true, in.charge(fr, at, 1)
+	}
 	// std strings' Builder writes (SSR WEB3: std hmac builds its blocks
 	// with them): WriteString and WriteByte append as Go's append grows
 	// the buffer; Grow keeps no room here, so it is the buffer unchanged,

@@ -198,6 +198,7 @@ var bodyTable = []bodyRow{
 	{"GoUntunnel", bodyFact{body: Body{Params: []Param{{Type: "error"}}, Results: []string{"error"}, Package: Path}}},
 	{"GoUntunnelEager", bodyFact{body: Body{Params: []Param{{Type: "error"}}, Results: []string{"error"}, Package: Path}}},
 	{"Guarded", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Hidden: []Hidden{"task"}, Params: []Param{{Type: "func(*rt.Task) (T, error)", Func: &Body{Hidden: []Hidden{"task"}, Results: []string{"T", "error"}}}}, Results: []string{"T", "error"}, Package: Path}}},
+	{"HTMLInFold", bodyFact{body: Body{Results: []string{"bool"}, Pure: true, Wait: "none", Package: Path}}},
 	{"HTTPCheckNetwork", bodyFact{body: Body{Params: []Param{{Type: "[]string"}, {Type: "HTTPLimits"}}, Results: []string{"[]string", "error"}, Wait: "none", Package: Path + "/http"}}},
 	{"HTTPCheckOrigin", bodyFact{body: Body{Params: []Param{{Type: "string"}, {Type: "HTTPLimits"}}, Results: []string{"error"}, Wait: "none", Package: Path + "/http"}}},
 	{"HTTPDo", bodyFact{body: Body{Hidden: []Hidden{"task"}, Params: []Param{{Type: "string"}, {Type: "HTTPLimits"}, {Type: "string"}, {Type: "string"}, {Type: "[]HTTPField"}, {Type: "[]HTTPField"}, {Type: "string"}}, Results: []string{"HTTPResponse", "error"}, Host: true, Wait: "caller", Package: Path + "/http"}}},

@@ -50,12 +50,13 @@ func foldIRText(files []lower.File) string {
 
 // TestConstFoldCounts is the fold's guard and budget, in process (CF1).
 // On a build whose Go and whose compiler's Go are the pinned release, a
-// generated program folds its
-// static pages (each staticN body takes IR, the call folded into it), and
-// spin(2000000), over the fold's budget, stays a call in the IR. A build
-// by another Go release or an unknown one, a compiler on another release,
-// and the reference (the fold off) fold nothing. With a budget of a few steps, every candidate that needs
-// more stays as written: fewer folds, more over the budget.
+// generated program folds its static pages (each staticN body takes IR,
+// the call folded into it), and spin(2000000), over the fold's budget,
+// stays a call in the IR. A build by another Go release or an unknown one,
+// a compiler on another release, and the reference (the fold off) fold
+// nothing. With a budget of a few steps, every candidate that needs more
+// stays as written: fewer folds, more over the budget. lits and recs, whose
+// list and record literals hold impure calls, take IR bodies (the spill).
 func TestConstFoldCounts(t *testing.T) {
 	defer lower.SetConstFoldBuildGoForTest(toolchain.Version)()
 	defer lower.SetConstFoldCompilerGoForTest(toolchain.Version)()
@@ -64,8 +65,15 @@ func TestConstFoldCounts(t *testing.T) {
 	if rep.Folds.Folded == 0 || rep.Folds.OverBudget == 0 {
 		t.Errorf("folds %+v: want folded calls and spin over the budget\n%s", rep.Folds, text)
 	}
-	if !slices.Contains(rep.IR, "static0") {
-		t.Errorf("static0 takes no IR body (fallback %v)", rep.Fallback)
+	for _, fn := range []string{"static0", "lits", "recs"} {
+		if !slices.Contains(rep.IR, fn) {
+			t.Errorf("%s takes no IR body (fallback %v)", fn, rep.Fallback)
+		}
+	}
+	// A folded html subtree is its markup: the IR holds an end tag or a
+	// void element's close as a string (JSON writes < as \u003c).
+	if ir := foldIRText(files); !strings.Contains(ir, `\u003c/`) && !strings.Contains(ir, `/\u003e`) {
+		t.Errorf("no folded html markup in the IR: a folded element is not its markup")
 	}
 	// main takes IR once its html calls fold, and calls spin there.
 	if !slices.Contains(rep.IR, "main_1") || !strings.Contains(foldIRText(files), `"name":"spin"`) {
@@ -102,11 +110,13 @@ func TestConstFoldCounts(t *testing.T) {
 // message, for generated std html pages and the program's own pure
 // functions of records, lists, union variants, floats and strings; even
 // seeds end in a defect a call of constants raises, which stays a call.
-// Every seed folds. A failing seed prints the Ergo source, both outcomes
+// Both print what the source path (the Go text) prints, so the impure
+// calls inside list and record literals run in the source's order. Every
+// seed folds. A failing seed prints the Ergo source, both outcomes
 // and its replay command. It builds Go for the reason needsBuild gives:
 // the question is what the built program prints.
 func TestConstFoldAgrees(t *testing.T) {
-	_, ir := needsBuild(t)
+	src, ir := needsBuild(t)
 	release, err := os.ReadFile(filepath.Join(ir.GOROOT, "VERSION"))
 	if err != nil {
 		t.Fatal(err)
@@ -135,8 +145,16 @@ func TestConstFoldAgrees(t *testing.T) {
 			}
 			outs[i] = run(t, bin)
 		}
-		if outs[0] != outs[1] || (outs[0].exit != 0) != defect {
-			t.Fatalf("seed %d: the fold and the reference differ, or the program did not end as written\nfold:      %+v\nreference: %+v\n%s\n%s", seed, outs[0], outs[1], replay, text)
+		if _, err := Emit(u, Source, filepath.Join(dir, "source")); err != nil {
+			t.Fatal(err)
+		}
+		sbin := filepath.Join(dir, "source.bin")
+		if _, err := Build(src, Source, filepath.Join(dir, "source"), sbin, BuildOptions{}); err != nil {
+			t.Fatalf("seed %d: %v\n%s", seed, err, text)
+		}
+		source := run(t, sbin)
+		if outs[0] != outs[1] || outs[1] != source || (outs[0].exit != 0) != defect {
+			t.Fatalf("seed %d: the fold, the reference and the source path differ, or the program did not end as written\nfold:      %+v\nreference: %+v\nsource:    %+v\n%s\n%s", seed, outs[0], outs[1], source, replay, text)
 		}
 	}
 }
