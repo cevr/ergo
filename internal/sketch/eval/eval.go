@@ -48,8 +48,10 @@ type Budget struct {
 	// Bytes bounds the bytes the evaluation allocates for values (ergo
 	// check --eval-bytes); 0 is its default, 64 MiB. It is a conservative
 	// allocation count, charged before each allocation: every string byte
-	// and valueBytes per collection slot it builds, never freed. It is
-	// not a measure of the process's memory.
+	// and, per collection slot it builds, its element type's size in the
+	// Go target (slotsize.go; valueBytes when the store's type is not
+	// known), never freed. It measures what the built program would
+	// allocate, not the process's memory.
 	Bytes int64
 	// Verdicts, when set, is the store of law verdicts (lawcache): a law
 	// run whose verdict it holds is not run, and a run that held is
@@ -90,8 +92,10 @@ const defaultStates = 1_000_000
 // defaultBytes is the default byte budget, 64 MiB.
 const defaultBytes = 64 << 20
 
-// valueBytes is what one collection slot costs of the byte budget: a Go
-// interface value, two words.
+// valueBytes is what one collection slot costs of the byte budget when
+// its store's element type is not known (a native's result), and the size
+// of a value whose layout the evaluator does not read: a Go interface
+// value, two words.
 const valueBytes = 16
 
 // Status is one obligation's verdict.
