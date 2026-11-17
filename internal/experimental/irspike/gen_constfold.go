@@ -12,7 +12,8 @@ import (
 // body is one page tree of constants, and the same trees passed to Render
 // in main), pages with dynamic parts (a parameter, Each over a list), and
 // calls of the program's own pure functions on constants whose values are
-// records, lists, a union's variants, floats, strings and bools. Some seeds
+// records, lists, a union's variants, floats, strings and bools, some
+// bound to a let and read at run time. Some seeds
 // end in a call of constants that raises a defect (an index out of range),
 // which stays a call; every seed has a call of constants that runs past
 // the fold's budget (spin), which stays as written. main prints each
@@ -44,6 +45,9 @@ func GenerateConstFold(seed uint64) (string, bool) {
 	}
 	for i := 0; i < 3; i++ {
 		fmt.Fprintf(&b, "\tConsole.Println(show(pt(%d, %s)))\n", r.IntN(12), g.text())
+		// A let of a folded record (its list, its variant) read at run time.
+		fmt.Fprintf(&b, "\tlet p%d = pt(%d, %s)\n\tConsole.Println(show(p%d))\n\tConsole.Println(\"\\(len(p%d.Tags)) \\(area(p%d.Shape))\")\n", i, r.IntN(12), g.text(), i, i, i)
+		fmt.Fprintf(&b, "\tlet s%d = pt(%d, %s).Tags\n\tfor t in s%d {\n\t\tConsole.Println(t)\n\t}\n", i, r.IntN(12), g.text(), i)
 		fmt.Fprintf(&b, "\tConsole.Println(\"\\(area(mk(%d)))\")\n", r.IntN(20))
 	}
 	fmt.Fprintf(&b, "\tConsole.Println(\"\\(spin(%d))\")\n", 2_000_000+r.IntN(1000))
