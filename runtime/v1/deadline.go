@@ -2,6 +2,7 @@ package v1
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"ergo.local/prototype/runtime/rt"
@@ -30,6 +31,9 @@ type Deadline struct {
 	// fired is the channel the current arm's fire closes: nil when the
 	// deadline is not armed, or its fire was taken by PopBefore.
 	fired chan rt.Instant
+	// armed is fired != nil, stored under mu at each change of fired, so
+	// Armed reads it with no lock (Debounced asks it per value).
+	armed atomic.Bool
 	// waiter is the task in PopBefore, which the fire wakes in a clock's
 	// domain (rt.Waking).
 	waiter *rt.Task
@@ -64,6 +68,7 @@ func (dl *Deadline) Arm(d time.Duration) {
 	gen := dl.gen
 	ch := make(chan rt.Instant)
 	dl.fired = ch
+	dl.armed.Store(true)
 	dl.alarm = dl.clock.After(d, func() { dl.fire(gen, ch) })
 }
 
@@ -87,9 +92,7 @@ func (dl *Deadline) fire(gen uint64, ch chan rt.Instant) {
 //
 //ergo:wait none
 func (dl *Deadline) Armed() bool {
-	dl.mu.Lock()
-	defer dl.mu.Unlock()
-	return dl.fired != nil
+	return dl.armed.Load()
 }
 
 // Stop disarms dl. It does nothing on a deadline that is not armed.
@@ -104,6 +107,7 @@ func (dl *Deadline) Stop() {
 	}
 	dl.gen++
 	dl.fired = nil
+	dl.armed.Store(false)
 }
 
 // PopBefore is timeout.PopBefore(q, dl) on the caller's task t: the front
@@ -157,6 +161,7 @@ func popBefore[T any](t *rt.Task, q *Queue[T], dl *Deadline) (T, error) {
 			dl.mu.Lock()
 			if dl.fired == ch {
 				dl.fired = nil
+				dl.armed.Store(false)
 			}
 			dl.mu.Unlock()
 			return zero, Expired{}

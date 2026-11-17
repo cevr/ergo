@@ -164,10 +164,10 @@ law PopWithinTakesWhatIsThere(v int) {
 
 // PopBeforeKeepsTheDeadline: one Deadline, armed once for an odd D ms,
 // bounds a loop of PopBefore while a producer pushes 0, 1, ... with even
-// gaps: the loop takes, in order, each value that arrives before D, then
-// fails Expired at D with the deadline no longer armed, and the values
-// that arrive later stay in the queue. A value taken does not move or
-// disarm the deadline. The producer ends the queue long after D, so a
+// gaps: Armed reports it armed once Arm returns, the loop takes, in order,
+// each value that arrives before D, then fails Expired at D with the
+// deadline no longer armed, and the values that arrive later stay in the
+// queue. A value taken does not move or disarm the deadline. The producer ends the queue long after D, so a
 // deadline that never fires ends the loop by Closed, and the law is false.
 law PopBeforeKeepsTheDeadline(gaps []int, w int) {
 	let m = time.NewManual(0)
@@ -176,7 +176,7 @@ law PopBeforeKeepsTheDeadline(gaps []int, w int) {
 	let start = m.Now()
 	with context { Scheduler: m } {
 		let q = queue.New[int](n + 1)
-		let got = queue.New[int](n + 3)
+		let got = queue.New[int](n + 4)
 		let producer = task.Go() {
 			for i, g in gaps {
 				Scheduler.Sleep(time.Times(1ms, 2*(((g%10)+10)%10)))
@@ -190,6 +190,9 @@ law PopBeforeKeepsTheDeadline(gaps []int, w int) {
 		let consumer = task.Go() {
 			let dl = NewDeadline()
 			dl.Arm(time.Times(1ms, big))
+			got.Push(if dl.Armed() { 1 } else { 0 }) catch {
+			case queue.Closed:
+			}
 			let mut open = true
 			for open {
 				let v = PopBefore(q, dl) catch {
@@ -220,7 +223,7 @@ law PopBeforeKeepsTheDeadline(gaps []int, w int) {
 		m.Advance(time.Times(1ms, 20*n+4*big+2))
 		producer.Wait()
 		consumer.Wait()
-		let mut want = []int{}
+		let mut want = []int{1}
 		let mut at = 0
 		for i, g in gaps {
 			at = at + 2*(((g%10)+10)%10)
@@ -228,7 +231,7 @@ law PopBeforeKeepsTheDeadline(gaps []int, w int) {
 				want = want.Append(i)
 			}
 		}
-		let left = n - len(want)
+		let left = n - (len(want) - 1)
 		want = want.Append(-1).Append(big).Append(0)
 		let mut same = true
 		let mut k = 0
