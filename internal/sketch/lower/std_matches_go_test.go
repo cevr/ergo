@@ -17,7 +17,7 @@ import (
 // answers what Go's own function answers, on edges and seeded values. The
 // table grows with each NP4f unit; a function NP4f moved into an Ergo body
 // (cmp, slices, strings.PadLeft) is held to Go's function too. Mutants
-// np4f1-*, np4f2-*, np4f3-*, stdsh-log,
+// np4f1-*, np4f2-*, np4f3-*, np4f5-*, stdsh-log,
 // stdsh-exp and math-fma-* (a moved function with its Go call changed) are
 // killed here.
 //
@@ -30,6 +30,7 @@ func TestStdMatchesGo(t *testing.T) {
 	const n = 24
 	cases := append(stdGoNumberCases(r, n), stdGoTextCases(r, n)...)
 	cases = append(cases, stdGo3Cases(r, n)...)
+	cases = append(cases, stdGo5Cases(r, n)...)
 	compareBodies(t, "TestStdMatchesGo", seed, cases)
 }
 

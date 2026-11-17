@@ -507,6 +507,76 @@
       "rule": "slices.BinarySearch searches in cmp.Less's order, which sorts a NaN first.",
       "anchor": {"tests":["lower:TestStdMatchesGo"]},
       "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f5-sum-is-sha224",
+      "origin": "wf10 NP4f-5",
+      "file": "internal/sketch/std/sha256/sha256.ergo",
+      "from": "\tlet d = sha256.Sum256(strings.Bytes(s))",
+      "to": "\tlet d = sha256.Sum224(strings.Bytes(s))",
+      "rule": "sha256.Sum is Go's sha256.Sum256 of the string's bytes: 32 bytes of SHA-256, not another digest.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f5-sum-short",
+      "origin": "wf10 NP4f-5",
+      "file": "internal/sketch/std/sha256/sha256.ergo",
+      "from": "\tstrings.FromBytes(d[:])",
+      "to": "\tstrings.FromBytes(d[1:])",
+      "rule": "sha256.Sum gives every byte of the digest, in Go's order.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f5-checksum-no-final-xor",
+      "origin": "wf10 NP4f-5",
+      "file": "internal/sketch/std/crc32/crc32.ergo",
+      "from": "func Checksum(s string) uint32 { crc32.ChecksumIEEE(strings.Bytes(s)) }",
+      "to": "func Checksum(s string) uint32 { crc32.ChecksumIEEE(strings.Bytes(s)) ^ 0xffffffff }",
+      "rule": "crc32.Checksum is Go's ChecksumIEEE of the string's bytes, with its final inversion.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f5-parsebool-folds-case",
+      "origin": "wf10 NP4f-5",
+      "file": "internal/sketch/std/strconv/strconv.ergo",
+      "from": "\tstrconv.ParseBool(s) catch {",
+      "to": "\tstrconv.ParseBool(strings.ToLower(s)) catch {",
+      "rule": "strconv.ParseBool takes Go's twelve spellings only: tRUE is Malformed.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f5-parsebool-malformed-text",
+      "origin": "wf10 NP4f-5",
+      "file": "internal/sketch/std/strconv/strconv.ergo",
+      "from": "\tstrconv.ParseBool(s) catch {\n\tcase go.Error:\n\t\treturn Malformed{Text: s}",
+      "to": "\tstrconv.ParseBool(s) catch {\n\tcase go.Error:\n\t\treturn Malformed{Text: \"\"}",
+      "rule": "strconv.ParseBool's Malformed names the text it could not read.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f5-unquote-malformed-text",
+      "origin": "wf10 NP4f-5",
+      "file": "internal/sketch/std/strconv/strconv.ergo",
+      "from": "\tstrconv.Unquote(s) catch {\n\tcase go.Error:\n\t\treturn Malformed{Text: s}",
+      "to": "\tstrconv.Unquote(s) catch {\n\tcase go.Error:\n\t\treturn Malformed{Text: \"\"}",
+      "rule": "strconv.Unquote's Malformed names the text it could not read.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f5-unquote-trims",
+      "origin": "wf10 NP4f-5",
+      "file": "internal/sketch/std/strconv/strconv.ergo",
+      "from": "\tstrconv.Unquote(s) catch {",
+      "to": "\tstrconv.Unquote(strings.TrimSpace(s)) catch {",
+      "rule": "strconv.Unquote reads s as one literal, as Go's: text around the quotes is Malformed.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
     }
   ]
 }
