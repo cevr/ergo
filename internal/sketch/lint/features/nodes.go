@@ -190,11 +190,10 @@ func armShape(a *syntax.CatchArm) int {
 	case *syntax.BasicLit, *syntax.CompositeLit:
 		return YieldsLiteral
 	case *syntax.Ident:
+		// A name is a literal only by its type (None, a constant), which the
+		// parser does not know; only the bound failure is read here.
 		if bound != "" && v.Name == bound {
 			return Rethrows
-		}
-		if v.Name == "None" || v.Name == "true" || v.Name == "false" {
-			return YieldsLiteral
 		}
 	}
 	for _, s := range a.Body[:len(a.Body)-1] {
