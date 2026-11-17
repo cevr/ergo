@@ -33,11 +33,13 @@ func (b *irBuilder) updateLit(x *syntax.CompositeLit, t check.Type, p irPos) *ir
 	}
 	// The emitter's update also hands the base over when it is a part
 	// (handBase) and owns the fields it replaces (ownReplaced): those keep
-	// the emitter's body.
+	// the emitter's body. A replaced field of a type parameter's type has
+	// no owner entry (B2: ownReplaced skips it), so nothing is released and
+	// the update is a plain literal (FORK-RELUPD; domain.Sourced's Ledger).
 	if b.l.info.PartHands[x.Base] {
 		irNo("record update that hands its base over")
 	}
-	if len(b.l.info.Replaced[x]) > 0 {
+	if ownsReplaced(b.l.info, x) { // release.go
 		irNo("record update that releases the fields it replaces")
 	}
 	gt := b.goType(t, x)

@@ -140,6 +140,9 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 	case *syntax.Ident:
 		switch o := b.l.info.Uses[x].(type) {
 		case *check.Var:
+			if i, held := b.held[o]; held {
+				return &irExpr{K: "deref", Pos: p, X: &irExpr{K: "local", Pos: p, I: i}} // ir_ownlit.go
+			}
 			if i, known := b.locals[o]; known {
 				return b.handoff(x, &irExpr{K: "local", Pos: p, I: i}) // ir_own.go
 			}

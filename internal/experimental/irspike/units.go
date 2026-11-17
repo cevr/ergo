@@ -198,6 +198,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"owned site *", "G4"}, // the Ref's owned site's refusals (ir_refown.go, IR-OWN)
 	{"fallible owned site", "G4"},
 	{"owned operation whose form *", "G4"},
+	{"owning *", "G4"}, // an owned Ref site's in-place form and its other shapes (ir_ownlit.go)
 	{"operation call on a *", "G4"},
 	{"std operation without its runtime method", "G4"},
 	{"std Close", "G4"},
