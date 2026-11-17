@@ -35,7 +35,7 @@ func irTerminates(s *irStmt) bool {
 		return true
 	case "if":
 		return len(s.Else) > 0 && irListTerminates(s.Then) && irListTerminates(s.Else)
-	case "switch", "tswitch":
+	case "switch", "tswitch", "match": // match: an IR form (ir_forms.go)
 		def := len(s.Else) > 0
 		if def && !irListTerminates(s.Else) {
 			return false
@@ -68,7 +68,7 @@ func irBreaks(list []*irStmt, label string) bool {
 		if s.K == "break" && s.Label == label {
 			return true
 		}
-		nested := label == "" && (s.K == "while" || s.K == "range" || s.K == "switch" || s.K == "tswitch")
+		nested := label == "" && (s.K == "while" || s.K == "range" || s.K == "switch" || s.K == "tswitch" || s.K == "match")
 		if nested {
 			continue
 		}
@@ -85,8 +85,10 @@ func irBreaks(list []*irStmt, label string) bool {
 }
 
 // irUseLocals puts `_ = x` after the declaration of each local x of body
-// that no expression reads.
+// that no expression reads. Every body's end passes here: an IR form still
+// in it is erased first (ir_forms_erase.go).
 func irUseLocals(body []*irStmt) []*irStmt {
+	body = eraseForms(body, nil)
 	read := map[int]bool{}
 	var stmts func(list []*irStmt)
 	var expr func(e *irExpr)
