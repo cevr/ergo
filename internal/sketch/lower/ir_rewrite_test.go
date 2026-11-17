@@ -69,6 +69,28 @@ law HalfDbl(x float64) { Half(Dbl(x)) } == { x }
 
 func R(x float64) float64 { Half(Dbl(x)) }
 
+func Id(s string) string { s }
+
+law IdId(s string) { Id(Id(Id(s))) } == { Dec(Enc(s)) }
+
+func M(t string) string { Id(Id(Id(t))) }
+
+func Div(n int, d int, t string) int { n / d + len(Dec(Enc(Read(t)))) }
+
+func Sum(n int, d int, t string) int { n + d + len(Dec(Enc(Read(t)))) }
+
+func And(b bool, t string) bool { b && Dec(Enc(Read(t))) == "" }
+
+func AndLocal(b bool, t string) bool { b && Dec(Enc(t)) == "" }
+
+func Loop(t string) int {
+	let mut n = 0
+	for Dec(Enc(Read(t))) != "" && n < 3 {
+		n = n + 1
+	}
+	n
+}
+
 func main() {
 	let _ = F("a")
 	let _ = G("b")
@@ -76,6 +98,12 @@ func main() {
 	let _ = P("d")
 	let _ = Q(true)
 	let _ = R(1.5)
+	let _ = M("e")
+	let _ = Div(1, 1, "f")
+	let _ = Sum(1, 1, "g")
+	let _ = And(true, "h")
+	let _ = AndLocal(true, "i")
+	let _ = Loop("j")
 }
 `
 	keys := func(string) ForeignKey { return ForeignKey{} }
@@ -137,6 +165,28 @@ func main() {
 	}
 	if count(on["G"], "Enc") != 1 || len(on["row not applied: AsWritten"]) != 1 {
 		t.Errorf("run build: G calls %v, rows %v; want Enc, kept by AsWritten", on["G"], on)
+	}
+	// The pass (LF6p): a right side another law matches is rewritten too
+	// (IdId's Dec(Enc(t)) by DecEnc); a site whose operand would move
+	// before code that may fail (Div's division), into a loop's condition
+	// (Loop) or out of the right operand of && (And) keeps its left side;
+	// with a local operand it needs no statement and rewrites (AndLocal),
+	// as with nothing that may fail before it (Sum).
+	if len(on["M"]) != 0 {
+		t.Errorf("run build: M calls %v; want none: IdId, then DecEnc on its right side", on["M"])
+	}
+	for _, fn := range []string{"Div", "And", "Loop"} {
+		if count(on[fn], "Enc") != 1 || count(on[fn], "Read") != 1 {
+			t.Errorf("run build: %s calls %v; want the left side, Enc and Read once", fn, on[fn])
+		}
+	}
+	if n := len(on["row "+rwNoSlot]); n != 3 {
+		t.Errorf("run build: %d rows say %q; want 3 (Div, And, Loop)", n, rwNoSlot)
+	}
+	for _, fn := range []string{"Sum", "AndLocal"} {
+		if count(on[fn], "Enc") != 0 {
+			t.Errorf("run build: %s calls %v; want no Enc", fn, on[fn])
+		}
 	}
 	saved := rewriteLowering
 	rewriteLowering = "reference"

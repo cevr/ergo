@@ -38,12 +38,11 @@ func (b *irBuilder) call(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr) {
 		// A call tree inside AsWritten is kept as written (ir_rewrite.go).
 		b.keep++
 		defer func() { b.keep-- }()
-	} else if !stmt {
-		if pre, e, ok := b.rewriteAt(x); ok { // ir_rewrite.go
-			return pre, e
-		}
 	}
 	pre, e, effect := b.callParts(x, stmt)
+	if e != nil && !stmt {
+		b.callFacts(x, e) // ir_rewrite_pass.go: the rewrite pass reads them
+	}
 	if e != nil && (e.K == "vcall" || b.dropsErr[e] && !stmt) {
 		// A function value returns its (value, error) pair (ir_closure.go),
 		// as a fallible function does where its row is empty (dropErr): the

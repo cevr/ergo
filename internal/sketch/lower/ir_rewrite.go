@@ -1,13 +1,15 @@
 package lower
 
-// IR builder: rewrites over functions (types.md, Laws 14; LAWFFI r2 §3.6,
-// LF6c). See ir.go.
+// IR pass: rewrites over functions (types.md, Laws 14; LAWFFI r2 §3.6,
+// LF6c; on IRF-0's forms, LF6p). See ir.go.
 //
 // A top-level rewrite law `law L(params) { lhs } == { rhs }` in the
-// rewrite's scope (check.FuncRewrite) matches a call tree of the program
-// that has the left side's shape: the same functions, conversions and
-// len, the same constants, and, at each parameter, any operand of the
-// parameter's type (a parameter that occurs twice, the same local). One
+// rewrite's scope (check.FuncRewrite) matches a call tree of the body's IR
+// that is its left side's IR: the same Go calls, conversions and len, the
+// same constants, and, at each parameter, any operand of the parameter's
+// Go type (a parameter that occurs twice, the same local or constant).
+// The builder lowers every call as written; the pass (rewritePass,
+// ir_rewrite_pass.go) runs on the body before its forms are erased. One
 // decision, rewriteAt, takes three forms:
 //
 //   - the run build, under -rewrites=on (the default) or proved, lowers
@@ -26,19 +28,20 @@ package lower
 // Each matched operand is evaluated once, in source order, into a
 // temporary (a local or a constant is read as it is), before either side:
 // a rewrite never drops, repeats or reorders the evaluation of a user
-// expression. A call tree inside a call of a body marked //ergo:aswritten
-// (the prelude's AsWritten) is never the root or a part of a match; its
-// matched sites keep their left side, and the report says why.
+// expression. The temporaries go into the statement slot before the
+// statement that holds the site, only where nothing the statement
+// evaluates before the site can fail (rwAt). A call tree inside a call of
+// a body marked //ergo:aswritten (the prelude's AsWritten) is never the
+// root or a part of a match; its matched sites keep their left side, and
+// the report says why.
 //
-// The matcher reads checked law facts only: the law's sides and their
-// call table, never a function's or a package's name. Only the IR path
+// The matcher reads the law's sides as the builder lowers them, never a
+// function's or a package's name. Only the IR path
 // rewrites; a body that keeps its source body keeps its left sides (the
 // text emitter is frozen, IR-ONLY), and its sites say so.
 
 import (
 	"fmt"
-	"go/constant"
-	"go/token"
 	"strconv"
 	"strings"
 
@@ -56,9 +59,9 @@ type funcRewrites struct {
 	every uint32
 	test  bool
 	ev    RewriteEvidence
-	// laws are the laws in the rewrite's scope by root function, read
-	// once; shipped the shipped ledger's evidence by package.
-	laws    map[*check.Func][]*check.Law
+	// laws are the laws in the rewrite's scope, read once; shipped the
+	// shipped ledger's evidence by package.
+	laws    []*check.Law
 	shipped map[*check.Package]*shippedEvidence
 	// canarySites are the canary's site indexes by position: a lowering
 	// that runs again from the start (lowerAgain) meets a site again.
@@ -95,15 +98,16 @@ func ParseRewrites(s string) (string, uint32, error) {
 	return "", 0, fmt.Errorf("-rewrites takes on, proved, off or canary[=N] (N from 1 to 2147483648), not %q", s)
 }
 
-// funcLaws are the laws in the rewrite's scope whose root is f: of the
-// root package and every package the program reaches.
-func (l *lowerer) funcLaws(f *check.Func) []*check.Law {
+// scopeLaws are the laws in the rewrite's scope: of the root package and
+// every package the program reaches, each package's in the order it
+// declares them.
+func (l *lowerer) scopeLaws() []*check.Law {
 	r := l.canon.funcRw
 	if r == nil {
 		return nil
 	}
 	if r.laws == nil {
-		r.laws = map[*check.Func][]*check.Law{}
+		r.laws = []*check.Law{}
 		seen := map[*check.Package]bool{}
 		for _, p := range append([]*check.Package{l.pkg}, l.libraries()...) {
 			if seen[p] {
@@ -112,12 +116,12 @@ func (l *lowerer) funcLaws(f *check.Func) []*check.Law {
 			seen[p] = true
 			for _, law := range p.Laws {
 				if rw := law.FuncRewrite; rw != nil && !lawFallible(law) {
-					r.laws[rw.Root] = append(r.laws[rw.Root], law)
+					r.laws = append(r.laws, law)
 				}
 			}
 		}
 	}
-	return r.laws[f]
+	return r.laws
 }
 
 // lawFallible reports a law with a try in a side: the IR rewrites a call
@@ -171,38 +175,28 @@ func (b *irBuilder) asWrittenCall(x *syntax.CallExpr) bool {
 	return err == nil && body.AsWritten
 }
 
-// rwMatch is a match of a law's left side at a site: each parameter's
-// operand, and the parameters in the order their operands are evaluated.
-type rwMatch struct {
-	law   *check.Law
-	bind  map[*check.Var]syntax.Expr
-	order []*check.Var
-}
-
-// rewriteAt is the call x where a law's left side matches it: its right
-// side (run build), its shadow (test build), or ok false to lower x as
-// written.
-func (b *irBuilder) rewriteAt(x *syntax.CallExpr) (pre []*irStmt, e *irExpr, ok bool) {
+// rewriteAt is the site m, a call tree of the body's IR that a law's left
+// side matches, at the place at: its right side (run build), its shadow
+// (test build), or ok false to keep it as written. pre goes into the
+// statement slot before the statement that holds the site.
+func (b *irBuilder) rewriteAt(m rwMatch, at *rwAt) (pre []*irStmt, e *irExpr, ok bool) {
 	r := b.l.canon.funcRw
-	if r == nil || b.st.census != nil || b.law != nil {
+	x := m.site
+	if x == nil {
 		return nil, nil, false
 	}
-	m, found := b.matchAt(x)
-	if !found {
-		return nil, nil, false
-	}
-	at := b.siteText(x)
+	site := b.siteText(x)
 	off := rewriteLowering == "reference" || r.mode == "off" && !r.test
 	if r.test {
-		if off || b.keep > 0 {
+		if off || m.keep {
 			return nil, nil, false
 		}
-		return b.shadow(x, m, at)
+		return b.shadow(x, m, site, at)
 	}
 	v := b.l.funcVerdictOf(m.law)
 	why := ""
 	switch {
-	case b.keep > 0:
+	case m.keep:
 		why = "not applied: AsWritten"
 	case off:
 		why = "not applied: -rewrites=off"
@@ -211,23 +205,33 @@ func (b *irBuilder) rewriteAt(x *syntax.CallExpr) (pre []*irStmt, e *irExpr, ok 
 	case r.mode == "proved" && v.Verdict != "proved":
 		why = "not applied: -rewrites=proved, and law " + v.Key + " is " + v.Verdict
 	}
+	var rv *irExpr
+	if why == "" {
+		mark := b.mark()
+		var temps map[*check.Var]*irExpr
+		pre, temps = b.bindOperands(m)
+		rpre, right := b.lawSide(m.law, m.law.FuncRewrite.Rhs, temps, false)
+		pre, rv = append(pre, rpre...), right
+		if r.every > 0 {
+			cpre, cv := b.canary(x, m, site, v.Key, temps, rv)
+			pre, rv = append(pre, cpre...), cv
+		}
+		if len(pre) > 0 && !at.placed() {
+			b.unmark(mark)
+			why = rwNoSlot
+		}
+	}
 	b.siteRow(x, v, why == "", why)
 	if why != "" {
 		return nil, nil, false
 	}
-	pre, temps := b.bindOperands(m)
-	rpre, rv := b.lawSide(m.law, m.law.FuncRewrite.Rhs, temps)
-	pre = append(pre, rpre...)
-	if r.every > 0 {
-		cpre, cv, ok := b.canary(x, m, at, v.Key, temps, rv)
-		if !ok {
-			return nil, nil, false
-		}
-		pre, rv = append(pre, cpre...), cv
-	}
 	b.rwLevel(v.Verdict)
 	return pre, rv, true
 }
+
+// rwNoSlot is a site's row where its operands or its right side need
+// statements that no place before the site keeps in order.
+const rwNoSlot = "not applied: the site's statements would run before code that may fail, or the site is evaluated more than once"
 
 // canary is a run build's rewritten site x under -rewrites=canary=N
 // (LAWFFI r2 §3.7): right, the right side's value, is the site's, held in
@@ -235,12 +239,9 @@ func (b *irBuilder) rewriteAt(x *syntax.CallExpr) (pre []*irStmt, e *irExpr, ok 
 // site) the left side is evaluated too, at the same operands, and
 // shadow.Canary compares the two, a defect that names the law and the
 // site when key equality tells them apart.
-func (b *irBuilder) canary(x *syntax.CallExpr, m rwMatch, at, key string, vals map[*check.Var]*irExpr, right *irExpr) ([]*irStmt, *irExpr, bool) {
+func (b *irBuilder) canary(x *syntax.CallExpr, m rwMatch, at, key string, vals map[*check.Var]*irExpr, right *irExpr) ([]*irStmt, *irExpr) {
 	p := b.pos(x, x.Pos())
-	t := b.l.info.Types[x]
-	if t == nil {
-		return nil, nil, false
-	}
+	t := b.lawType(m.law)
 	gt := b.goType(t, x)
 	if b.namesTypeParam(gt) {
 		irNo("rewrite canary in a generic body")
@@ -256,7 +257,7 @@ func (b *irBuilder) canary(x *syntax.CallExpr, m rwMatch, at, key string, vals m
 	}
 	rt := b.temp("right", gt, p)
 	pre := []*irStmt{{K: "def", Pos: p, Local: rt, X: right}}
-	lpre, left := b.lawSide(m.law, m.law.FuncRewrite.Lhs, vals)
+	lpre, left := b.lawSide(m.law, m.law.FuncRewrite.Lhs, vals, true)
 	str := func(s string) *irExpr { return &irExpr{K: "const", Pos: p, T: "string", V: irString(s)} }
 	b.keepImport("var _ = " + b.l.rtRef("Tick"))
 	var check *irStmt
@@ -279,7 +280,7 @@ func (b *irBuilder) canary(x *syntax.CallExpr, m rwMatch, at, key string, vals m
 		{K: "const", Pos: p, T: "uint32", V: strconv.FormatUint(uint64(r.every), 10)},
 	}}
 	pre = append(pre, &irStmt{K: "if", Pos: p, End: p, X: tick, Then: append(lpre, check)})
-	return pre, &irExpr{K: "local", Pos: p, I: rt}, true
+	return pre, &irExpr{K: "local", Pos: p, I: rt}
 }
 
 // goEqualIsKey reports a type whose Go == is key equality: a bool, an
@@ -348,169 +349,32 @@ func (st *irState) rewritesDone(b *irBuilder, ok bool, reason string) {
 	}
 }
 
-// matchAt is the first law whose left side matches x, in the order the
-// root's package declares its laws.
-func (b *irBuilder) matchAt(x *syntax.CallExpr) (rwMatch, bool) {
-	root := b.firstFunc(x)
-	if root == nil {
-		return rwMatch{}, false
-	}
-	for _, law := range b.l.funcLaws(root) {
-		m := rwMatch{law: law, bind: map[*check.Var]syntax.Expr{}}
-		if b.match(&m, law.FuncRewrite.Lhs, x) {
-			return m, true
-		}
-	}
-	return rwMatch{}, false
-}
-
-// firstFunc is the first declared function x calls, outermost first and
-// in source order: a law's root (check.FuncRewrite.Root) is its left
-// side's, so a site its left side matches has the same one.
-func (b *irBuilder) firstFunc(x syntax.Expr) *check.Func {
-	var f *check.Func
-	syntax.Inspect(x, func(n syntax.Node) bool {
-		if f != nil {
-			return false
-		}
-		if call, ok := n.(*syntax.CallExpr); ok {
-			if c := b.l.info.Calls[call]; c != nil && c.Kind == check.CallFunc && c.Func != nil {
-				f = c.Func
-				return false
-			}
-		}
-		return true
-	})
-	return f
-}
-
-// match matches the law's side node ln against the site's node sn.
-func (b *irBuilder) match(m *rwMatch, ln, sn syntax.Expr) bool {
-	li, si := m.law.Pkg.Info, b.l.info
-	ln, sn = unparen(ln), unparen(sn)
-	if id, ok := ln.(*syntax.Ident); ok {
-		if v, isVar := li.Uses[id].(*check.Var); isVar && lawParam(m.law, v) {
-			return b.bindParam(m, v, sn)
-		}
-	}
-	if _, conv := li.Implicit[ln]; conv {
-		return false
-	}
-	if _, conv := si.Implicit[sn]; conv {
-		return false
-	}
-	if lv, isConst := li.Values[ln]; isConst {
-		sv, ok := si.Values[sn]
-		return ok && lv.Kind() == sv.Kind() && constant.Compare(lv, token.EQL, sv) && b.sameGoType(li.Types[ln], si.Types[sn], sn)
-	}
-	lc, ok := ln.(*syntax.CallExpr)
-	if !ok {
-		return false
-	}
-	sc, ok := sn.(*syntax.CallExpr)
-	if !ok || sc.Trailing != nil || lc.Trailing != nil {
-		return false
-	}
-	lk, sk := li.Calls[lc], si.Calls[sc]
-	if lk == nil || sk == nil || lk.Kind != sk.Kind || len(lk.TypeArgs) > 0 || len(sk.TypeArgs) > 0 || failsHere(sk) {
-		return false
-	}
-	switch lk.Kind {
-	case check.CallFunc:
-		if lk.Func == nil || lk.Func != sk.Func || b.asWrittenCall(sc) {
-			return false
-		}
-	case check.CallConversion:
-		if !b.sameGoType(li.Types[lc], si.Types[sc], sc) {
-			return false
-		}
-	case check.CallLen:
-	default:
-		return false
-	}
-	if (lk.Recv == nil) != (sk.Recv == nil) || len(lc.Args) != len(sc.Args) {
-		return false
-	}
-	if lk.Recv != nil && !b.match(m, lk.Recv, sk.Recv) {
-		return false
-	}
-	for i := range lc.Args {
-		if !b.match(m, lc.Args[i], sc.Args[i]) {
-			return false
-		}
-	}
-	return true
-}
-
-// bindParam binds the parameter v to the site's operand sn: an operand of
-// v's type, after its implicit conversion; a second occurrence of v takes
-// only the same local.
-func (b *irBuilder) bindParam(m *rwMatch, v *check.Var, sn syntax.Expr) bool {
-	si := b.l.info
-	if prev, bound := m.bind[v]; bound {
-		pi, ok1 := unparen(prev).(*syntax.Ident)
-		ni, ok2 := sn.(*syntax.Ident)
-		if !ok1 || !ok2 {
-			return false
-		}
-		pv, isVar := si.Uses[pi].(*check.Var)
-		_, local := b.locals[pv]
-		return isVar && local && si.Uses[ni] == pv
-	}
-	t := si.Types[sn]
-	if conv, ok := si.Implicit[sn]; ok && conv.To != nil {
-		t = conv.To
-	}
-	if t == nil || !b.sameGoType(v.Type, t, sn) {
-		return false
-	}
-	m.bind[v] = sn
-	m.order = append(m.order, v)
-	return true
-}
-
-// sameGoType reports two types the program spells as one Go type: the
-// law's package and the site's check intern their types apart.
-func (b *irBuilder) sameGoType(a, c check.Type, site syntax.Node) bool {
-	return a != nil && c != nil && b.goType(a, site) == b.goType(c, site)
-}
-
-// lawParam reports v, a parameter of law.
-func lawParam(law *check.Law, v *check.Var) bool {
-	for _, p := range law.Params {
-		if p == v {
-			return true
-		}
-	}
-	return false
-}
-
 // bindOperands evaluates each matched operand once, in source order: a
 // local or a constant is read where the side reads it, any other operand
 // into a temporary. It returns the statements and each parameter's
-// local.
+// local. Each temporary has the parameter's Go type, the matched
+// operand's (rwMatch.bind).
 func (b *irBuilder) bindOperands(m rwMatch) ([]*irStmt, map[*check.Var]*irExpr) {
 	var pre []*irStmt
 	vals := map[*check.Var]*irExpr{}
-	for _, v := range m.order {
-		sn := m.bind[v]
-		vpre, e := b.operand(sn)
-		pre = append(pre, vpre...)
+	for _, i := range m.order {
+		e, h := m.vals[i], m.holes[i]
 		if e.K != "const" && e.K != "local" {
-			t := b.temp("arg", b.goType(v.Type, sn), e.Pos)
+			t := b.temp("arg", h.T, e.Pos)
 			pre = append(pre, &irStmt{K: "def", Pos: e.Pos, Local: t, X: e})
 			e = &irExpr{K: "local", Pos: e.Pos, I: t}
 		}
-		vals[v] = e
+		vals[m.law.Params[i]] = e
 	}
 	return pre, vals
 }
 
 // lawSide lowers a side of law with its parameters bound to vals: in the
-// law's package's facts, with no rewrite inside it (it is the law's own
-// text), and with no entry in the call tables (a std law's nodes are in
-// no source of the program).
-func (b *irBuilder) lawSide(law *check.Law, side syntax.Expr, vals map[*check.Var]*irExpr) ([]*irStmt, *irExpr) {
+// law's package's facts and with no entry in the call tables (a std law's
+// nodes are in no source of the program). A side a check reads (keep: a
+// canary's or a shadow's left side) is never rewritten: the pass leaves
+// its calls as they are.
+func (b *irBuilder) lawSide(law *check.Law, side syntax.Expr, vals map[*check.Var]*irExpr, keep bool) ([]*irStmt, *irExpr) {
 	savedInfo, savedDirectives := b.l.info, b.fc.directives
 	if b.lawArgs == nil {
 		b.lawArgs = map[*check.Var]*irExpr{}
@@ -519,10 +383,16 @@ func (b *irBuilder) lawSide(law *check.Law, side syntax.Expr, vals map[*check.Va
 		b.lawArgs[v] = e
 	}
 	b.l.info, b.fc.directives = law.Pkg.Info, false
-	b.keep++
+	b.lawDepth++
+	if keep {
+		b.lawKeep++
+	}
 	defer func() {
 		b.l.info, b.fc.directives = savedInfo, savedDirectives
-		b.keep--
+		b.lawDepth--
+		if keep {
+			b.lawKeep--
+		}
 		for v := range vals {
 			delete(b.lawArgs, v)
 		}
@@ -530,21 +400,29 @@ func (b *irBuilder) lawSide(law *check.Law, side syntax.Expr, vals map[*check.Va
 	return b.value(side)
 }
 
+// lawType is the type of law's sides.
+func (b *irBuilder) lawType(law *check.Law) check.Type {
+	t := law.Pkg.Info.Types[law.FuncRewrite.Lhs]
+	if t == nil {
+		irNo("rewrite law side without a type")
+	}
+	return t
+}
+
 // shadow is the test build's site x: both sides at the matched operands,
 // the left first, compared by v1.Shadow.
-func (b *irBuilder) shadow(x *syntax.CallExpr, m rwMatch, at string) ([]*irStmt, *irExpr, bool) {
-	p := b.pos(x, x.Pos())
-	t := b.l.info.Types[x]
-	if t == nil {
+func (b *irBuilder) shadow(x *syntax.CallExpr, m rwMatch, at string, place *rwAt) ([]*irStmt, *irExpr, bool) {
+	if !place.placed() {
 		return nil, nil, false
 	}
-	gt := b.goType(t, x)
+	p := b.pos(x, x.Pos())
+	gt := b.goType(b.lawType(m.law), x)
 	pre, vals := b.bindOperands(m)
-	lpre, left := b.lawSide(m.law, m.law.FuncRewrite.Lhs, vals)
+	lpre, left := b.lawSide(m.law, m.law.FuncRewrite.Lhs, vals, true)
 	pre = append(pre, lpre...)
 	lt := b.temp("left", gt, p)
 	pre = append(pre, &irStmt{K: "def", Pos: p, Local: lt, X: left})
-	rpre, right := b.lawSide(m.law, m.law.FuncRewrite.Rhs, vals)
+	rpre, right := b.lawSide(m.law, m.law.FuncRewrite.Rhs, vals, true)
 	pre = append(pre, rpre...)
 	key := LedgerNames(nil).funcLaw(m.law)
 	if b.l.isSourced(m.law.Pkg) {

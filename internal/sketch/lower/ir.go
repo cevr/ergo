@@ -334,6 +334,9 @@ type irExpr struct {
 	End    *irPos    `json:"end,omitempty"`
 	// F is a "variant" form's facts, in memory only (ir_forms.go).
 	F *irVariant `json:"-"`
+	// C are a call's facts, in memory only (ir_rewrite_pass.go): the
+	// source call it lowers and whether it is kept as written.
+	C *irCallFacts `json:"-"`
 }
 
 // irUnsupported stops an IR body: the function keeps its source body.
@@ -381,11 +384,20 @@ type irBuilder struct {
 	// other body and inside a function literal: each value it returns is
 	// checked where it is returned.
 	law *check.Law
-	// keep is the depth of call trees kept as written (ir_rewrite.go): an
-	// AsWritten argument, a law side being lowered. lawArgs are a law's
-	// parameters bound to the site's operands while a side is lowered.
-	keep    int
-	lawArgs map[*check.Var]*irExpr
+	// keep is the depth of AsWritten call trees, kept as written
+	// (ir_rewrite.go). lawArgs are a law's parameters bound to the site's
+	// operands while a side is lowered; lawDepth counts the sides being
+	// lowered, lawKeep those a check reads (a canary's or a shadow's),
+	// which the rewrite pass leaves as they are (ir_rewrite_pass.go).
+	keep     int
+	lawArgs  map[*check.Var]*irExpr
+	lawDepth int
+	lawKeep  int
+	// rwPatterns are the left sides of the laws in the rewrite's scope as
+	// IR patterns, built once per body; localTypes the Go type of each
+	// local declared (ir_rewrite_pass.go).
+	rwPatterns map[string][]*rwPattern
+	localTypes map[int]string
 	// rwRows are the rewrite sites this body applied (their report rows),
 	// rwLevels the rewrites applied by level (ir_rewrite.go).
 	rwRows   []string
@@ -548,6 +560,7 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	}
 	n := len(b.fn.Body)
 	b.fn.Body = append(b.fn.Body, b.bodyStmts(f.Decl.Body.List)...) // ir_fail.go
+	b.fn.Body = b.rewritePass(b.fn.Body)                            // ir_rewrite_pass.go
 	b.fn.Body = eraseForms(b.fn.Body, b.st.sawForm)                 // ir_forms_erase.go
 	b.part(b.ownVisited)                                            // ir_own.go
 	b.fn.Body = b.withEntry(b.fn.Body, n)                           // ir_hoist.go
