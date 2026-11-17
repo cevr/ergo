@@ -35,7 +35,7 @@ type IRReport struct {
 	IR       []string       `json:"ir"`
 	Fallback map[string]int `json:"fallback"`
 	Hash     string         `json:"hash"`
-	// Folds counts the build-time folds of the IR bodies (ir_fold.go).
+	// Folds counts the build-time folds of the IR bodies (ir_constfold.go).
 	Folds FoldCounts `json:"folds"`
 }
 
@@ -354,7 +354,7 @@ type irBuilder struct {
 	// has it (ir_stmt.go, localName).
 	given map[string]bool
 	// decl and pkg are the declaration whose body is built and its
-	// package, which a build-time fold evaluates in (ir_fold.go); nil in a
+	// package, which a build-time fold evaluates in (ir_constfold.go); nil in a
 	// law's or a test's body, which never folds.
 	decl syntax.Decl
 	pkg  *check.Package
