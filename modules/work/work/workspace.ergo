@@ -148,8 +148,11 @@ func States() []State { []State{Creating, Active, Landing, Landed, Abandoned, Tr
 // handed to the parent, "" before the first ready), and the digest of
 // the lock file of its last install ("" before one), the token of the new
 // that made it ("" for none: a retry of new with the token answers this
-// workspace), and, for a trashed one whose move is not confirmed, the
-// folder it moves from (an intent: "" once the folder is in the trash).
+// workspace), for a trashed one whose move is not confirmed, the
+// folder it moves from (an intent: "" once the folder is in the trash),
+// whether it is pinned (work pin: gc -idle never takes it), and, for a
+// trashed one, the Unix second before which gc does not purge it (0 for
+// none: gc -idle's trash is kept a day).
 type Workspace {
 	Name   string,
 	Id     string,
@@ -164,6 +167,8 @@ type Workspace {
 	Deps   string,
 	Token  string,
 	Moving string,
+	Pinned bool,
+	Until  int64,
 }
 
 // Tomb is the record of a purged workspace: its id and the Unix second

@@ -125,8 +125,9 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 			if made.Path != "" && !carries(w, made.Path) {
 				return false
 			}
-			if !named(want, name) && (sharing || o.Copy) {
-				want = want.Append(Expected{Name: name, State: "active", Parent: theBase, Kept: true, Sure: true, Since: at, Path: work.Home(theBase, "") + "/" + work.FolderOf(name)})
+			if !holds(want, name) {
+				let e = Expected{Name: name, State: "active", Parent: theBase, Kept: true, Sure: true, Since: at, Path: work.Home(theBase, "") + "/" + work.FolderOf(name)}
+				want = freed(want, name, if sharing || o.Copy { Some[Expected]{Value: e} } else { None })
 			}
 		case OnOp as o:
 			let name = pick(o.Name)
@@ -137,12 +138,13 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 			}).Path
 			match find(want, on) {
 			case Some[Expected] as parent:
-				let can = !named(want, name) && parent.Value.State == "active"
+				let can = !holds(want, name) && parent.Value.State == "active"
 				if made != "" && !can {
 					return false
 				}
-				if made != "" {
-					want = want.Append(Expected{Name: name, State: "active", Parent: parent.Value.Path, Kept: false, Sure: false, Since: at, Path: made})
+				if can {
+					let e = Expected{Name: name, State: "active", Parent: parent.Value.Path, Kept: false, Sure: false, Since: at, Path: made}
+					want = freed(want, name, if made != "" { Some[Expected]{Value: e} } else { None })
 				}
 			case None:
 				if made != "" {
@@ -155,7 +157,7 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 			case _:
 				[]work.Removed{}
 			}
-			want = removed(want, name, o.Abandon, at, len(out) == 1 && out[0].Name == name)
+			want = removed(want, name, o.Abandon, at, len(out) == 1 && out[0].Name == name, if len(out) == 1 { out[0].Id } else { "" })
 		case EditOp as o:
 			let name = pick(o.Name)
 			match find(want, name) {
@@ -221,7 +223,7 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 			let name = pick(o.Name)
 			if !named(want, name) {
 				let path = work.Home(theBase, "") + "/" + work.FolderOf(name)
-				w.registry.Put(work.Workspace{Name: name, Path: path, Parent: theBase, Branch: "", Cloner: "", State: work.Creating, Since: at, Base: "", Latest: "", Deps: "", Id: "crash-" + name, Token: "", Moving: ""}) catch {
+				w.registry.Put(work.Workspace{Name: name, Path: path, Parent: theBase, Branch: "", Cloner: "", State: work.Creating, Since: at, Base: "", Latest: "", Deps: "", Id: "crash-" + name, Token: "", Moving: "", Pinned: false, Until: 0}) catch {
 				case work.Unkept:
 				}
 				Plant(w.trees, path, Map[string, string]{"half": "a clone cut short"})
@@ -244,8 +246,8 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 					return false
 				}
 				for name in found {
-					let trashed = slices.IndexFunc(out.Idle, func(i work.Idle) bool { i.Name == name && i.Removed }) >= 0
-					want = removed(want, name, false, at, trashed)
+					let i = slices.IndexFunc(out.Idle, func(i work.Idle) bool { i.Name == name && i.Removed })
+					want = removed(want, name, false, at, i >= 0, if i >= 0 { out.Idle[i].Id } else { "" })
 				}
 			}
 			let (kept, dropped) = collected(want, int64(older), at)
@@ -296,8 +298,9 @@ law UseKeepsAWorkspace(sync bool) {
 // work its parent does not hold (b, made on a, with a file of its own)
 // and its parent after it, and the base, not the parent that goes too,
 // keeps b's work at ArchiveRef: the ref resolves there, and its tree is
-// b's files as they were. Without -archive both stay.
-law ArchiveKeepsTheWork(text string, archive bool) {
+// b's files as they were; a branch only b had (side) and a stash entry of
+// b's are kept beside it, each at its commit. Without -archive both stay.
+law ArchiveKeepsTheWork(text string, archive bool, side bool, stash bool) {
 	let w = world(true)
 	let _ = w.tool.New("a", fresh(false)) catch {
 	case _:
@@ -307,6 +310,11 @@ law ArchiveKeepsTheWork(text string, archive bool) {
 	case _:
 		return false
 	}
+	let sideCommit = if side { SideCommit(w.vcs, b.Path, "side", "side.txt", text) } else { "" }
+	if stash && !(Write(w.trees, b.Path, "stashed.txt", text) && Stash(w.vcs, b.Path)) {
+		return false
+	}
+	let stashCommit = if stash { maps.GetOr(Files(w.trees, b.Path), ".git/refs/stash/0", "") } else { "" }
 	let _ = Write(w.trees, b.Path, "draft.txt", text)
 	let files = Working(Files(w.trees, b.Path))
 	w.clock.Advance(time.Times(1s, 7200))
@@ -327,7 +335,118 @@ law ArchiveKeepsTheWork(text string, archive bool) {
 	case _:
 		return false
 	}
-	gone && out.Idle[0].Archived == ref && out.Idle[0].Removed && tree == files
+	let prefix = work.ArchivePrefix("b", b.Id)
+	let keeps = func(to string, c string) bool {
+		c == "" || (w.vcs.Resolve(theBase, to) catch {
+		case _:
+			""
+		}) == c
+	}
+	gone && out.Idle[0].Archived == ref && out.Idle[0].Removed && tree == files && keeps(prefix+"/heads/side", sideCommit) && keeps(prefix+"/stash/0", stashCommit)
+}
+
+// RmKeepsEveryBranch: rm of a clean workspace whose head its parent
+// holds refuses (NotHeld) while a branch only it has (kind 0) or a stash
+// entry (kind 1) would go with it; a branch a remote-tracking ref holds
+// is on the remote already (kind 2), and the workspace goes.
+law RmKeepsEveryBranch(kind int, text string) {
+	let w = world(true)
+	let a = w.tool.New("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let k = small(kind, 3)
+	if k == 1 {
+		if !(Write(w.trees, a.Path, "stashed.txt", text) && Stash(w.vcs, a.Path)) {
+			return false
+		}
+	} else {
+		let c = SideCommit(w.vcs, a.Path, "side", "side.txt", text)
+		if c == "" || (k == 2 && !Write(w.trees, a.Path, ".git/refs/remotes/origin/side", c)) {
+			return false
+		}
+	}
+	let mut refused = false
+	let _ = w.tool.Rm("a", work.RmOptions{Abandon: false, Expect: None, Tree: false}) catch {
+	case work.NotHeld:
+		refused = true
+		[]work.Removed{}
+	case _:
+		return false
+	}
+	refused == (k != 2)
+}
+
+// PinKeepsAWorkspace: gc -idle never takes a pinned workspace (it reports
+// it Pinned) and takes it again once unpinned; another idle one goes.
+law PinKeepsAWorkspace(unpin bool) {
+	let w = world(true)
+	for name in []string{"a", "b"} {
+		let _ = w.tool.New(name, fresh(false)) catch {
+		case _:
+			return false
+		}
+	}
+	let pinned = w.tool.Pin("a") catch {
+	case _:
+		return false
+	}
+	if unpin {
+		let _ = w.tool.Unpin("a") catch {
+		case _:
+			return false
+		}
+	}
+	w.clock.Advance(time.Times(1s, 7200))
+	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: false}) catch {
+	case _:
+		return false
+	}
+	let a = slices.IndexFunc(out.Idle, func(i work.Idle) bool { i.Name == "a" && i.Removed == unpin && (unpin || i.Why == "Pinned") }) >= 0
+	let b = slices.IndexFunc(out.Idle, func(i work.Idle) bool { i.Name == "b" && i.Removed }) >= 0
+	pinned.Pinned && a && b
+}
+
+// InUseKeepsAWorkspace: gc -idle does not take a workspace the host says
+// is in use (a file changed in the window, a process in it), and reports
+// why; one it says nothing of goes.
+law InUseKeepsAWorkspace(why string) {
+	let w = world(true)
+	let a = w.tool.New("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	w.runner.Use(a.Path, why)
+	w.clock.Advance(time.Times(1s, 7200))
+	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: false}) catch {
+	case _:
+		return false
+	}
+	let used = strings.TrimSpace(why)
+	len(out.Idle) == 1 && out.Idle[0].Removed == (used == "") && (used == "" || (out.Idle[0].Why == "InUse" && out.Idle[0].Detail == used))
+}
+
+// IdleTrashWaitsADay: the trash of a workspace gc -idle removed is not
+// purged by that gc nor by any gc within IdleTrash seconds; after them,
+// gc purges it.
+law IdleTrashWaitsADay(wait int) {
+	let w = world(true)
+	let _ = w.tool.New("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	w.clock.Advance(time.Times(1s, 7200))
+	let first = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: false}) catch {
+	case _:
+		return false
+	}
+	let s = small(wait, 2*work.IdleTrash)
+	w.clock.Advance(time.Times(1s, s))
+	let later = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false}) catch {
+	case _:
+		return false
+	}
+	len(first.Idle) == 1 && first.Idle[0].Removed && len(first.Purged) == 0 && (len(later.Purged) == 1) == (s >= work.IdleTrash)
 }
 
 // StackRecordsItsParent: a workspace made -on another records that
@@ -393,17 +512,23 @@ func synced(w World, name string, theirs string) bool {
 	false
 }
 
-// agrees reports whether the Tool's list and trees are the reference's.
+// agrees reports whether the Tool's list and trees are the reference's:
+// the records in order, and the trashed ones whose name a new took again
+// (work.TrashedName; the reference's name~) by their folders.
 func agrees(w World, want []Expected, gone []string) bool {
-	let got = w.tool.List() catch {
+	let all = w.tool.List() catch {
 	case work.NoBase, work.Unkept:
 		return false
 	}
-	if len(got) != len(want) {
+	let got = slices.Filter(all, func(g work.Workspace) bool { !strings.Contains(g.Name, "~") })
+	let wanted = slices.Filter(want, func(e Expected) bool { !strings.HasSuffix(e.Name, "~") })
+	let freedGot = freedOf(all)
+	let freedWant = freedIn(want)
+	if len(got) != len(wanted) || freedGot != freedWant || len(all) != len(want) {
 		return false
 	}
 	for i, g in got {
-		let e = want[i]
+		let e = wanted[i]
 		if g.Name != e.Name || work.StateName(g.State) != e.State || g.Parent != e.Parent {
 			return false
 		}
@@ -429,7 +554,7 @@ func agrees(w World, want []Expected, gone []string) bool {
 // kept or abandoned, goes to the trash; any other stays. Where the
 // reference is not sure of the kept flag, trashed (the Tool's answer)
 // decides.
-func removed(want []Expected, name string, abandon bool, at int64, trashed bool) []Expected {
+func removed(want []Expected, name string, abandon bool, at int64, trashed bool, id string) []Expected {
 	match find(want, name) {
 	case Some[Expected] as e:
 		if slices.IndexFunc(want, func(c Expected) bool { c.Parent == e.Value.Path && c.State != "trashed" }) >= 0 {
@@ -438,7 +563,7 @@ func removed(want []Expected, name string, abandon bool, at int64, trashed bool)
 		let keptNow = if e.Value.Sure && parentLive(want, e.Value) { e.Value.Kept } else { trashed }
 		let goes = e.Value.State == "creating" || (e.Value.State == "active" && (keptNow || abandon))
 		if goes {
-			return replaced(want, Expected{..e.Value, State: "trashed", Since: at, Path: work.TrashOf(e.Value.Path, at)})
+			return replaced(want, Expected{..e.Value, State: "trashed", Since: at, Path: work.TrashOf(e.Value.Path, at, id)})
 		}
 		want
 	case None:
@@ -484,6 +609,37 @@ func parentLive(want []Expected, e Expected) bool {
 
 func named(want []Expected, name string) bool { find(want, name) != None }
 
+// holds reports whether a record of name that is not trashed holds it.
+func holds(want []Expected, name string) bool {
+	match find(want, name) {
+	case Some[Expected] as e:
+		e.Value.State != "trashed"
+	case None:
+		false
+	}
+}
+
+// freed is the reference after a new of name reserved it: a trashed
+// record of name is renamed name~ (work.TrashedName) to the end, and the
+// new record made, when it was, comes after it.
+func freed(want []Expected, name string, made Option[Expected]) []Expected {
+	let mut out = []Expected{}
+	let mut tail = []Expected{}
+	for x in want {
+		if x.Name == name && x.State == "trashed" {
+			tail = tail.Append(Expected{..x, Name: name + "~"})
+		} else {
+			out = out.Append(x)
+		}
+	}
+	match made {
+	case Some[Expected] as e:
+		tail = tail.Append(e.Value)
+	case None:
+	}
+	slices.Concat(out, tail)
+}
+
 func find(want []Expected, name string) Option[Expected] {
 	for e in want {
 		if e.Name == name {
@@ -503,4 +659,116 @@ func replaced(want []Expected, e Expected) []Expected {
 		}
 	}
 	out
+}
+
+// InitExcludesAnUntrackedConfig: init keeps a work.toml the base does
+// not track out of its status (and so of every clone's) by the base's
+// own .git/info/exclude; a committed one it leaves to Git.
+law InitExcludesAnUntrackedConfig(committed bool) {
+	let tree = if committed { Map[string, string]{work.ConfigFile: "[work]\n"} } else { Map[string, string]{} }
+	let w = worldWith(true, tree, "", "")
+	let exclude = maps.GetOr(Files(w.trees, theBase), ".git/info/exclude", "")
+	strings.Contains(exclude, "/"+work.ConfigFile+"\n") != committed
+}
+
+// RmThenNewTakesTheName: a trashed workspace does not hold its name: new
+// of the name rm just trashed succeeds with a fresh id, before any gc;
+// the trash stays listed under TrashedName with its id, and gc purges it
+// and leaves the new one.
+law RmThenNewTakesTheName(name int) {
+	let w = world(true)
+	let n = pick(name)
+	let first = w.tool.New(n, fresh(false)) catch {
+	case _:
+		return false
+	}
+	let _ = w.tool.Rm(n, work.RmOptions{Abandon: false, Expect: None, Tree: false}) catch {
+	case _:
+		return false
+	}
+	let second = w.tool.New(n, fresh(false)) catch {
+	case _:
+		return false
+	}
+	let listed = w.tool.List() catch {
+	case _:
+		return false
+	}
+	let trash = slices.IndexFunc(listed, func(r work.Workspace) bool { r.Name == work.TrashedName(n, first.Id) && r.Id == first.Id && work.StateName(r.State) == "trashed" }) >= 0
+	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false}) catch {
+	case _:
+		return false
+	}
+	let after = w.tool.List() catch {
+	case _:
+		return false
+	}
+	second.Id != first.Id && trash && out.Purged == []string{work.TrashedName(n, first.Id)} && len(after) == 1 && after[0].Id == second.Id
+}
+
+// freedOf is each trashed record of the Tool's whose name a new took
+// again, as its old name, a tilde and its folder, sorted.
+func freedOf(all []work.Workspace) []string {
+	let mut out = []string{}
+	for g in all {
+		if strings.Contains(g.Name, "~") && work.StateName(g.State) == "trashed" {
+			out = out.Append(strings.Split(g.Name, "~")[0] + "~" + g.Path)
+		}
+	}
+	slices.Sort(out)
+}
+
+// freedIn is freedOf of the reference.
+func freedIn(want []Expected) []string {
+	let mut out = []string{}
+	for e in want {
+		if strings.HasSuffix(e.Name, "~") {
+			out = out.Append(e.Name + e.Path)
+		}
+	}
+	slices.Sort(out)
+}
+
+// RemovedAgainInOneSecond: new, rm, new, rm of one name in the same
+// second each trash their own folder: every rm succeeds, every trash is
+// listed with its id, and gc purges them all (the Mac's T3).
+law RemovedAgainInOneSecond(name int, times int) {
+	let w = world(true)
+	let n = pick(name)
+	let k = 2 + small(times, 3)
+	let mut ids = []string{}
+	for _ in 0..k {
+		let made = w.tool.New(n, fresh(false)) catch {
+		case _:
+			return false
+		}
+		let out = w.tool.Rm(n, work.RmOptions{Abandon: false, Expect: None, Tree: false}) catch {
+		case _:
+			return false
+		}
+		if len(out) != 1 || out[0].Id != made.Id || out[0].Already {
+			return false
+		}
+		ids = ids.Append(made.Id)
+	}
+	let listed = w.tool.List() catch {
+	case _:
+		return false
+	}
+	let mut trashes = []string{}
+	for r in listed {
+		if work.StateName(r.State) != "trashed" || r.Moving != "" || !w.trees.Has(r.Path) || slices.Contains(trashes, r.Path) {
+			return false
+		}
+		trashes = trashes.Append(r.Path)
+	}
+	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false}) catch {
+	case _:
+		return false
+	}
+	let after = w.tool.List() catch {
+	case _:
+		return false
+	}
+	len(listed) == k && len(trashes) == k && len(out.Purged) == k && len(after) == 0
 }

@@ -14,19 +14,20 @@ func Rm(t Tool, name string, o RmOptions) []Removed fails NoBase | BadConfig | N
 	let mut out = []Removed{}
 	if o.Tree {
 		for w in try descendants(t, name) {
-			out = out.Append(try removeLeaf(t, c, w.Name, Some[string]{Value: w.Id}, o.Abandon))
+			out = out.Append(try removeLeaf(t, c, w.Name, Some[string]{Value: w.Id}, o.Abandon, 0))
 		}
 	}
-	out.Append(try removeLeaf(t, c, name, o.Expect, o.Abandon))
+	out.Append(try removeLeaf(t, c, name, o.Expect, o.Abandon, 0))
 }
 
 // removeLeaf removes one workspace: it checks that its work is held and
 // runs the preremove hooks with no lock; then, under one hold of the
 // lock, it writes the intent, moves the folder to the trash and writes
-// that it is there; then it runs the postremove hooks.
-func removeLeaf(t Tool, c Config, name string, expect Option[string], abandon bool) Removed fails NoWorkspace | NotHeld | Busy | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed | Locked | IdMismatch | HasDescendants {
+// that it is there; then it runs the postremove hooks. The trash is not
+// purged before the second until (0: at any time).
+func removeLeaf(t Tool, c Config, name string, expect Option[string], abandon bool, until int64) Removed fails NoWorkspace | NotHeld | Busy | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed | Locked | IdMismatch | HasDescendants {
 	let env = try t.Check(c, name, expect, abandon)
-	match try Intend(t, name, expect, abandon) {
+	match try Intend(t, name, expect, abandon, until) {
 	case Removed as r:
 		r
 	case Workspace as intent:
@@ -78,10 +79,11 @@ func Check(t Tool, c Config, name string, expect Option[string], abandon bool) [
 // Intend takes the lock and decides, from the registry as it is under
 // the lock: the expected id, the marker, the children, the state. A leaf
 // to remove gets its intent written, and the lock stays held for MoveOut
-// and Settle; any other answer gives the lock back.
-func Intend(t Tool, name string, expect Option[string], abandon bool) Removal fails NoWorkspace | IdMismatch | HasDescendants | Busy | Unkept | Locked {
+// and Settle; any other answer gives the lock back. The intent's trash
+// is not purged before the second until.
+func Intend(t Tool, name string, expect Option[string], abandon bool, until int64) Removal fails NoWorkspace | IdMismatch | HasDescendants | Busy | Unkept | Locked {
 	try hold(t)
-	let r = intend(t, name, expect, abandon) catch {
+	let r = intend(t, name, expect, abandon, until) catch {
 	case NoWorkspace as e:
 		t.lock.Release("")
 		return e
@@ -106,7 +108,7 @@ func Intend(t Tool, name string, expect Option[string], abandon bool) Removal fa
 	r
 }
 
-func intend(t Tool, name string, expect Option[string], abandon bool) Removal fails NoWorkspace | IdMismatch | HasDescendants | Busy | Unkept {
+func intend(t Tool, name string, expect Option[string], abandon bool, until int64) Removal fails NoWorkspace | IdMismatch | HasDescendants | Busy | Unkept {
 	let all = try t.registry.All()
 	let row = liveIn(all, name)
 	match expect {
@@ -155,7 +157,7 @@ func intend(t Tool, name string, expect Option[string], abandon bool) Removal fa
 	case Landing, Trashed:
 		return Busy{Name: name, State: StateName(w.State)}
 	}
-	let gone = try moved(Workspace{..ready, Path: TrashOf(w.Path, at), Moving: w.Path}, Remove, at)
+	let gone = try moved(Workspace{..ready, Path: TrashOf(w.Path, at, w.Id), Moving: w.Path, Until: until}, Remove, at)
 	try t.registry.Put(gone)
 	gone
 }
@@ -310,13 +312,23 @@ func age(text Option[string]) duration fails BadAge {
 	}
 }
 
+// IdleTrash is how long the trash of a workspace gc -idle removed is
+// kept before a gc purges it: a day, so no gc purges it in the run that
+// removed it, and a person who still needed it can take it back.
+let IdleTrash = 86400
+
 // Idled removes, as rm does with no -abandon, each active workspace of
 // the base unused for idle, the ones made on another before it (the
-// list's last first), and is each one found. One rm refuses stays, with
-// the refusal's name; a failure of the host ends gc.
+// list's last first), and is each one found. Unused is all of: no new,
+// ready or sync of it for idle (its Since), no file under its folder
+// (.git included) changed for idle, and no process working in it now;
+// a pinned one is never removed. One that stays has why (Pinned, InUse,
+// or the name of rm's refusal) and the detail; a failure of the host
+// ends gc. Its trash is kept IdleTrash seconds.
 func Idled(t Tool, idle duration, archive bool) []Idle fails NoWorkspace | BadConfig | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed | Locked {
 	let c = try config(t)
 	let at = now(t)
+	let window = time.Unix(0, 0).Add(idle).UnixSeconds()
 	let all = try t.registry.All()
 	let mut out = []Idle{}
 	for i in 0..len(all) {
@@ -329,30 +341,48 @@ func Idled(t Tool, idle duration, archive bool) []Idle fails NoWorkspace | BadCo
 		if time.Times(1s, int(at-w.Since)) < idle {
 			continue
 		}
-		let (why, kept) = try idleRm(t, c, w, archive)
-		out = out.Append(Idle{Name: w.Name, Id: w.Id, Since: w.Since, Removed: why == "", Why: why, Archived: kept})
+		let found = Idle{Name: w.Name, Id: w.Id, Since: w.Since, Removed: false, Why: "", Archived: "", Detail: ""}
+		if w.Pinned {
+			out = out.Append(Idle{..found, Why: "Pinned", Detail: "work unpin \(w.Name) lets gc -idle take it"})
+			continue
+		}
+		let use = inUse(t, w.Path, at-window)
+		if use != "" {
+			out = out.Append(Idle{..found, Why: "InUse", Detail: use})
+			continue
+		}
+		let (why, kept, detail) = try idleRm(t, c, w, archive, at+int64(IdleTrash))
+		out = out.Append(Idle{..found, Removed: why == "", Why: why, Archived: kept, Detail: detail})
 	}
 	out
 }
 
-// idleRm removes one idle workspace as rm does: why is "" when it is
-// removed or the name of rm's refusal when it stays. With archive, one
-// whose work its parent does not hold has that work kept in the base
-// (kept, its ref) and is then removed with -abandon.
-func idleRm(t Tool, c Config, w Workspace, archive bool) (string, string) fails NoWorkspace | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed | Locked {
-	let why = try rmOnce(t, c, w, false)
+// idleRm removes one idle workspace as rm does, its trash kept until
+// the second until: why is "" when it is removed or the name of rm's
+// refusal when it stays. With archive, one whose work is not held has
+// that work kept in the base (kept, the ref of its working files) and is
+// then removed with -abandon; when the base does not hold every commit
+// only the workspace had, it stays (NotKept, and the detail says why).
+func idleRm(t Tool, c Config, w Workspace, archive bool, until int64) (string, string, string) fails NoWorkspace | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed | Locked {
+	let why = try rmOnce(t, c, w, false, until)
 	if why != "NotHeld" || !archive {
-		return (why, "")
+		return (why, "", "")
 	}
-	let kept = try keepWork(t, w)
-	let again = try rmOnce(t, c, w, true)
-	(again, if again == "" { kept } else { "" })
+	let kept = keepWork(t, w) catch {
+	case VcsFailed as e:
+		return ("NotKept", "", e.Reason)
+	}
+	let again = try rmOnce(t, c, w, true, until)
+	(again, if again == "" { kept } else { "" }, "")
 }
 
-// keepWork keeps a snapshot of w's working files, as a commit on its
-// HEAD, in the base at ArchiveRef: the ref gc -archive names. The base,
-// not the parent: a parent workspace that gc removes next would take the
-// archive with it.
+// keepWork keeps w's work in the base, under ArchivePrefix: a snapshot
+// of its working files, as a commit on its HEAD, at ArchiveRef (the ref
+// gc -archive names), and each local branch and stash entry no branch of
+// its parent and no remote holds (Unheld) at the prefix and its ref
+// (heads/B, stash/N). The base, not the parent: a parent workspace that
+// gc removes next would take the archive with it. It then reads each ref
+// back in the base; one that does not hold its commit is VcsFailed.
 func keepWork(t Tool, w Workspace) string fails VcsFailed {
 	let tree = try t.vcs.Snapshot(w.Path)
 	let commit = try t.vcs.Keep(w.Path, tree)
@@ -363,18 +393,38 @@ func keepWork(t Tool, w Workspace) string fails VcsFailed {
 		return e
 	}
 	let ref = ArchiveRef(w.Name, w.Id)
-	t.vcs.Push(w.Path, t.base, []Pushed{Pushed{From: LatestRef, To: ref, Force: false}}) catch {
-	case NotFastForward:
-		return VcsFailed{Reason: "\(t.base) has \(ref) already"}
+	let mut pushes = []Pushed{Pushed{From: LatestRef, To: ref, Force: false}}
+	let mut want = Map[string, string]{}
+	want[ref] = commit
+	for l in with context { Vcs: t.vcs } { try Unheld(w.Path, w.Parent) } {
+		let to = ArchivePrefix(w.Name, w.Id) + "/" + strings.TrimPrefix(l.Ref, "refs/")
+		pushes = pushes.Append(Pushed{From: l.Commit, To: to, Force: false})
+		want[to] = l.Commit
+	}
+	t.vcs.Push(w.Path, t.base, pushes) catch {
+	case NotFastForward as n:
+		return VcsFailed{Reason: "\(t.base) has \(n.Ref) already"}
 	case VcsFailed as e:
 		return e
+	}
+	for to, c in want {
+		let have = t.vcs.Resolve(t.base, to) catch {
+		case NoRevision:
+			""
+		case VcsFailed as e:
+			return e
+		}
+		if have != c {
+			return VcsFailed{Reason: "\(t.base): \(to) does not hold \(c) after the push"}
+		}
 	}
 	ref
 }
 
-// rmOnce is rm of the idle w, "" when removed, else the refusal's name.
-func rmOnce(t Tool, c Config, w Workspace, abandon bool) string fails NoWorkspace | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed | Locked {
-	let _ = removeLeaf(t, c, w.Name, Some[string]{Value: w.Id}, abandon) catch {
+// rmOnce is rm of the idle w, its trash kept until the second until, ""
+// when removed, else the refusal's name.
+func rmOnce(t Tool, c Config, w Workspace, abandon bool, until int64) string fails NoWorkspace | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed | Locked {
+	let _ = removeLeaf(t, c, w.Name, Some[string]{Value: w.Id}, abandon, until) catch {
 	case NotHeld:
 		return "NotHeld"
 	case HasDescendants:
@@ -428,7 +478,7 @@ func Collect(t Tool, id Option[string], older duration) []Workspace fails Unkept
 		match w.State {
 		case Trashed:
 			let old = id != None || time.Times(1s, int(at-w.Since)) >= older
-			if old && w.Moving == "" && InTrash(w.Path) {
+			if old && at >= w.Until && w.Moving == "" && InTrash(w.Path) {
 				due = due.Append(w)
 			}
 		case Creating:

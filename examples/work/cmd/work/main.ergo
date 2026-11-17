@@ -2,9 +2,9 @@
 // modules/work). `ergo work ARGS` runs it from PATH; it needs no Ergo
 // module. Its commands are the generated command line of work.Api
 // (work/workcli): init, new, adopt, adopt-rift, list, rm, gc, du,
-// plugin-test, ready, sync, env, merge-file, derive, deps, trust, doctor,
-// refresh, bases, shell-init and import-rift; --json prints every answer
-// as JSON.
+// plugin-test, ready, sync, env, merge-file, merge-folders, derive, deps,
+// trust, doctor, refresh, bases, shell-init and import-rift; --json,
+// before the command or after it, prints every answer as JSON.
 //
 // This binary is the only place that chooses the providers: the Cloners
 // that share blocks in the order the file system is tried (a btrfs
@@ -17,7 +17,8 @@
 // The base is WORK_BASE when it is set; else, from the working folder
 // up, the base of the workspace it is in (its folder in a .work/REPO/
 // beside the base, the default storage), or the first
-// folder with a .git; else the working folder. A relative WORK_BASE
+// folder with a .git (or the base whose registry holds that folder: an
+// adopted copy); else the working folder. A relative WORK_BASE
 // stays relative, so every path the tool prints is relative to the
 // working folder (the cases print the same lines on every host), and "."
 // is the working folder itself. WORK_NOW, a Unix second, fixes the clock
@@ -37,12 +38,16 @@ import github.com/cevr/ergo/modules/work/sh
 import github.com/cevr/ergo/modules/work/work
 import github.com/cevr/ergo/modules/work/work/workcli
 import os
+import slices
 import strconv
 import strings
 import time
 
-// baseOf is the base of the working folder cwd, as the head says.
-func baseOf(files fs.Files, cwd string) string {
+// baseOf is the base of the working folder cwd, as the head says; a
+// folder with a .git that a registered base's registry holds as a
+// workspace (an adopted copy) has that base (journal.BaseHolding over
+// the list of bases in data, "" for none).
+func baseOf(files fs.Files, cwd string, data string) string {
 	let mut dir = filepath.Clean(cwd)
 	for {
 		let home = filepath.Dir(dir)
@@ -54,13 +59,30 @@ func baseOf(files fs.Files, cwd string) string {
 			fs.Info{Name: "", Size: 0, Dir: false, Perm: 0}
 		}
 		if found.Name != "" {
-			return dir
+			let held = if data == "" { "" } else { journal.BaseHolding(files, data, dir) }
+			return if held != "" { held } else { dir }
 		}
 		if home == dir {
 			return filepath.Clean(cwd)
 		}
 		dir = home
 	}
+}
+
+// jsonFirst is args with a --json written after the command moved before
+// it, where the command line reads it (workcli.Run takes [--json] COMMAND
+// ARGS...), so `work list --json` is `work --json list`. An argument
+// after "--" is an operand and stays.
+func jsonFirst(args []string) []string {
+	for i, a in args {
+		if a == "--" {
+			return args
+		}
+		if i > 0 && (a == "--json" || a == "-json") {
+			return slices.Concat([]string{a}, slices.Concat(args[0:i], args[i+1:]))
+		}
+	}
+	args
 }
 
 // clockOf is the clock: the host's, or a clock fixed at the Unix second
@@ -85,16 +107,7 @@ func main() fails os.Exit needs Ambient | Console {
 		return os.Exit{Code: 1, Message: "work: \(n.Message)"}
 	}
 	let files = fs.NewHost()
-	let base = match process.Getenv("WORK_BASE") {
-	case Some[string] as b:
-		// "." is the working folder: its storage beside it must not be
-		// inside it.
-		if filepath.Clean(b.Value) == "." { filepath.Clean(cwd) } else { filepath.Clean(b.Value) }
-	case None:
-		baseOf(files, cwd)
-	}
-	let home = work.Home(base, work.StorageOf(files, base))
-	let data = match process.Getenv("XDG_DATA_HOME") {
+	let shared = match process.Getenv("XDG_DATA_HOME") {
 	case Some[string] as x:
 		filepath.Join([]string{x.Value, "work"})
 	case None:
@@ -102,9 +115,19 @@ func main() fails os.Exit needs Ambient | Console {
 		case Some[string] as h:
 			filepath.Join([]string{h.Value, ".local", "share", "work"})
 		case None:
-			filepath.Join([]string{home, ".data"})
+			""
 		}
 	}
+	let base = match process.Getenv("WORK_BASE") {
+	case Some[string] as b:
+		// "." is the working folder: its storage beside it must not be
+		// inside it.
+		if filepath.Clean(b.Value) == "." { filepath.Clean(cwd) } else { filepath.Clean(b.Value) }
+	case None:
+		baseOf(files, cwd, shared)
+	}
+	let home = work.Home(base, work.StorageOf(files, base))
+	let data = if shared != "" { shared } else { filepath.Join([]string{home, ".data"}) }
 	let run = exec.NewHost()
 	let p = work.Providers{
 		Cloners:  []work.Cloner{btrfs.New(run), reflink.New(run), clonefile.New(run)},
@@ -119,7 +142,7 @@ func main() fails os.Exit needs Ambient | Console {
 		Clock:    try clockOf(process.Getenv("WORK_NOW")),
 	}
 	let tool = work.NewTool(base, home, data, p, cwd)
-	let o = with context { work.Api: tool } { workcli.Run(process.Args()) }
+	let o = with context { work.Api: tool } { workcli.Run(jsonFirst(process.Args())) }
 	if o.Out != "" {
 		Console.Println(strings.TrimSuffix(o.Out, "\n"))
 	}

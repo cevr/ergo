@@ -6,6 +6,7 @@ import exec
 import fs
 import fstest
 import json
+import maps
 import slices
 import strings
 import time
@@ -73,8 +74,9 @@ func riftWorldOf(parents []int, bad []int) riftWorld {
 // AdoptRiftKeepsTheTree: adopt-rift registers each Rift copy of the base
 // whose marker names it and whose parent it adopted, with the folder of
 // the copy it was made from (the base for the root's) as its parent and
-// each parent first, and never a copy of another root; it writes and
-// moves no file of any copy; a second run adopts nothing; and doctor
+// each parent first, and never a copy of another root; it moves no file
+// of any copy and writes one only of each it adopts, the push guard of
+// its remote (push = "refuse", the default); a second run adopts nothing; and doctor
 // -rift's list is then exactly the copies it left.
 law AdoptRiftKeepsTheTree(parents []int, bad []int) {
 	let w = riftWorldOf(parents, bad)
@@ -109,7 +111,14 @@ law AdoptRiftKeepsTheTree(parents []int, bad []int) {
 		paths = paths.Append(a.Path)
 	}
 	for c in w.copies {
-		if before.Get(c.Path) != (Some[Map[string, string]]{Value: Files(w.trees, c.Path)}) {
+		let mut after = Map[string, string]{}
+		for p, text in maps.GetOr(before, c.Path, Map[string, string]{}) {
+			after[p] = text
+		}
+		if slices.Contains(paths, c.Path) {
+			after[".git/config/remote.origin.pushurl"] = Guard
+		}
+		if Files(w.trees, c.Path) != after {
 			return false
 		}
 		let names = w.disk.ReadDir(c.Path) catch {
@@ -129,4 +138,25 @@ law AdoptRiftKeepsTheTree(parents []int, bad []int) {
 		return false
 	}
 	slices.Sort(paths) == slices.Sort(want) && len(again.Adopted) == 0 && slices.Sort(report.Rift) == slices.Sort(left)
+}
+
+// RiftRegistryOnAMac: the smallest repro of adopt-rift missing Rift's
+// registry on a Mac (G5): with the default data folder, the registry is
+// Rift's own beside it when that is there, else the macOS one.
+test RiftRegistryOnAMac {
+	let disk = fstest.NewMemory()
+	let trees = NewCloner()
+	let lock = NewLock()
+	let p = work.Providers{Cloners: []work.Cloner{trees}, Copier: Beside(trees, false), Registry: NewRegistry(), Lock: lock, Hooks: Recording(lock, ""), Vcs: VcsOver(trees), Files: disk, Writes: disk, Runner: NewRunner(), Clock: time.NewManual(1000)}
+	let tool = work.NewTool(theBase, work.Home(theBase, ""), "/u/.local/share/work", p, "/")
+	let none = work.RiftOptions{Registry: None}
+	let mac = "/u/Library/Application Support/rift/rift.sqlite"
+	let linux = "/u/.local/share/rift/rift.sqlite"
+	assert work.RiftRegistry(tool, none) == linux
+	try disk.MkdirAll("/u/Library/Application Support/rift")
+	try disk.WriteFile(mac, "SQLite format 3")
+	assert work.RiftRegistry(tool, none) == mac
+	try disk.MkdirAll("/u/.local/share/rift")
+	try disk.WriteFile(linux, "SQLite format 3")
+	assert work.RiftRegistry(tool, none) == linux
 }

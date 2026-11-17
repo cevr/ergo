@@ -53,6 +53,10 @@ func Deps(w Workspaces, o work.DepsOptions) work.DepsDone fails work.NoBase | wo
 
 func Trust(w Workspaces) work.Trusted fails work.NoBase | work.BadConfig | work.Unkept | fs.NotFound | fs.Denied | fs.Failed { try w.tool.Trust() }
 
+func Pin(w Workspaces, name string) work.Workspace fails work.NoBase | work.NoWorkspace | work.Unkept | work.Locked { try w.tool.Pin(name) }
+
+func Unpin(w Workspaces, name string) work.Workspace fails work.NoBase | work.NoWorkspace | work.Unkept | work.Locked { try w.tool.Unpin(name) }
+
 func Doctor(w Workspaces, o work.DoctorOptions) work.Report fails work.NoBase | work.BadConfig | work.Unkept | work.VcsFailed | work.RiftUnread { try w.tool.Doctor(o) }
 
 func PluginTest(w Workspaces, command string, o work.PluginTestOptions) work.PluginAdmitted fails work.NoBase | work.BadConfig | work.Untrusted | work.VcsFailed | work.PluginRefused { try w.tool.PluginTest(command, o) }
