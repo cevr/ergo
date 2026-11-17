@@ -87,7 +87,7 @@
       "from": "rebuild:   false,",
       "to": "rebuild:   true,",
       "rule": "the driver keeps its layout tree across paints: a pass lays out what it changed, not the tree",
-      "killers": ["mygo:TestDesktopKeepsItsLayout"]
+      "killers": ["hosts/mygo:TestDesktopKeepsItsLayout"]
     },
     {
       "name": "GPk-every-style-set",
@@ -96,7 +96,7 @@
       "from": "if now != s {",
       "to": "if now != s || true {",
       "rule": "a box's style is set only where it differs, so its siblings keep what the kernel computed",
-      "killers": ["mygo:TestDesktopKeepsItsLayout"]
+      "killers": ["hosts/mygo:TestDesktopKeepsItsLayout"]
     },
     {
       "name": "GPk-kids-not-reordered",
@@ -105,7 +105,7 @@
       "from": "if i >= from {",
       "to": "if i >= len(old) {",
       "rule": "a parent's boxes follow its children's order from the first that moved",
-      "killers": ["mygo:TestMyGoHostAgreesWithTestHost", "mygo:TestStarsGuiOnTheDesktop"]
+      "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost", "hosts/mygo:TestStarsGuiOnTheDesktop"]
     },
     {
       "name": "GPk-set-not-learned",
@@ -114,7 +114,7 @@
       "from": "\t\t\tlearn(&d.metrics, d.w, textOf(x.Node), textSize)\n\t\t\tmatch d.lparent.Get(x.Id) {",
       "to": "\t\t\tmatch d.lparent.Get(x.Id) {",
       "rule": "a node's new text is measured before the kept tree lays it out",
-      "killers": ["mygo:TestMyGoHostAgreesWithTestHost", "mygo:TestStarsGuiOnTheDesktop"]
+      "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost", "hosts/mygo:TestStarsGuiOnTheDesktop"]
     },
     {
       "name": "GPk-set-parent-untouched",
@@ -123,7 +123,7 @@
       "from": "\t\t\tcase Some[ui.Id[E]] as p:\n\t\t\t\ttouched[p.Value] = true\n",
       "to": "\t\t\tcase Some[ui.Id[E]]:\n",
       "rule": "a Set restyles its node (through its parent, which places it)",
-      "killers": ["mygo:TestMyGoHostAgreesWithTestHost", "mygo:TestStarsGuiOnTheDesktop"]
+      "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost", "hosts/mygo:TestStarsGuiOnTheDesktop"]
     },
     {
       "name": "GPk-removed-box-stays",
@@ -132,7 +132,7 @@
       "from": "\tif !d.rebuild {\n\t\tmatch d.lids.Get(id) {",
       "to": "\tif false {\n\t\tmatch d.lids.Get(id) {",
       "rule": "a removed node's box leaves the kept tree",
-      "killers": ["mygo:TestMyGoHostAgreesWithTestHost", "mygo:TestStarsGuiOnTheDesktop"]
+      "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost", "hosts/mygo:TestStarsGuiOnTheDesktop"]
     },
     {
       "name": "GPk-room-kept",
@@ -141,7 +141,7 @@
       "from": "\t\tcase Some[layout.Id] as l:\n\t\t\trestyle(d, l.Value, s)\n",
       "to": "\t\tcase Some[layout.Id] as l:\n\t\t\trestyle(d, l.Value, layout.StyleOf(&d.tree, l.Value) catch {\n\t\t\tcase arena.Stale:\n\t\t\t\ts\n\t\t\t})\n",
       "rule": "a list given room at a paint goes back to its own style before the next layout, as the rebuilt tree has it (hostagree's list app moves the list with its note)",
-      "killers": ["mygo:TestMyGoHostAgreesWithTestHost", "mygo:TestStarsGuiOnTheDesktop"]
+      "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost", "hosts/mygo:TestStarsGuiOnTheDesktop"]
     },
     {
       "name": "GPk-metrics-learn-skipped",
@@ -150,7 +150,7 @@
       "from": "if !line && len(missing) == 0 {",
       "to": "if !line {",
       "rule": "learn measures each run of a text the table lacks, after the first text",
-      "killers": ["mygo:TestMyGoHostAgreesWithTestHost", "mygo:TestStarsGuiOnTheDesktop"]
+      "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost", "hosts/mygo:TestStarsGuiOnTheDesktop"]
     },
     {
       "name": "GP2d-shortcut-without-ctrl",
@@ -159,7 +159,7 @@
       "from": "d.w.Chord(x.Press.Name, m.Shift, m.Ctrl, m.Alt, m.Meta)",
       "to": "d.w.Chord(x.Press.Name, m.Shift, false, m.Alt, m.Meta)",
       "rule": "a script's shortcut is the key pressed with its Ctrl",
-      "killers": ["mygo:TestEditorGuiOnTheDesktop"]
+      "killers": ["hosts/mygo:TestEditorGuiOnTheDesktop"]
     },
     {
       "name": "GP2d-shortcut-letters-unnamed",
@@ -168,7 +168,7 @@
       "from": "\t\t\tname = chordName(ev.Key)\n",
       "to": "\t\t\tname = \"\"\n",
       "rule": "the window gives a program a letter pressed with Ctrl, Alt or the system key (a shortcut types nothing)",
-      "killers": ["mygo:TestEditorGuiOnTheDesktop"]
+      "killers": ["hosts/mygo:TestEditorGuiOnTheDesktop"]
     },
     {
       "name": "GP2d-keys-to-the-focused-field",
@@ -177,7 +177,7 @@
       "from": "if desktop.FocusId(d) == None {",
       "to": "if true {",
       "rule": "a key of the editor's goes to the editor, after a click beside the toolbar drops a field's or a button's focus",
-      "killers": ["mygo:TestEditorGuiOnTheDesktop"]
+      "killers": ["hosts/mygo:TestEditorGuiOnTheDesktop"]
     },
     {
       "name": "GP2d-tasks-not-settled",
@@ -186,7 +186,7 @@
       "from": "play(&d, w, acts.Append(ui.SettleAll))",
       "to": "play(&d, w, acts)",
       "rule": "after each line the window settles the save or clipboard task the view asked for",
-      "killers": ["mygo:TestEditorGuiOnTheDesktop"]
+      "killers": ["hosts/mygo:TestEditorGuiOnTheDesktop"]
     },
     {
       "name": "GP2d-control-status-hidden",
@@ -195,7 +195,7 @@
       "from": "\t\tui.Text(c, w.status)\n",
       "to": "",
       "rule": "the control's window shows the status line its frame measures",
-      "killers": ["mygo:TestEditorGuiOnTheDesktop"]
+      "killers": ["hosts/mygo:TestEditorGuiOnTheDesktop"]
     },
     {
       "name": "GP2d-control-moves-whole",
@@ -204,7 +204,7 @@
       "from": "if (word == \"left\" || word == \"right\"",
       "to": "if false && (word == \"left\" || word == \"right\"",
       "rule": "the control plays a move of N as N keys, as a window does (up and down keep the column of each line they leave)",
-      "killers": ["mygo:TestEditorGuiOnTheDesktop"]
+      "killers": ["hosts/mygo:TestEditorGuiOnTheDesktop"]
     },
     {
       "name": "GP3c-moves-not-captured",
@@ -213,7 +213,7 @@
       "from": "\t\t\tspotOf(d, p.Value)\n\t\tcase None:\n\t\t\tNone",
       "to": "\t\t\tif p.Value == p.Value { hitAt(d, x, y) } else { spotOf(d, p.Value) }\n\t\tcase None:\n\t\t\tNone",
       "rule": "a pressed pointer's moves go to the node it went down on, over any other node or none (pointer capture)",
-      "killers": ["mygo:TestDrawGuiOnTheDesktop"]
+      "killers": ["hosts/mygo:TestDrawGuiOnTheDesktop"]
     },
     {
       "name": "GP3c-outputs-unreported",
@@ -222,7 +222,7 @@
       "from": "outputs.Set([]canvas.Output{})\n",
       "to": "\n",
       "rule": "the window binary reports each of the tool's outputs once, after the line that made it",
-      "killers": ["mygo:TestDrawGuiOnTheDesktop"]
+      "killers": ["hosts/mygo:TestDrawGuiOnTheDesktop"]
     },
     {
       "name": "GP3c-control-buttons-everywhere",
@@ -231,7 +231,7 @@
       "from": "\tif label == \"\" {\n\t\treturn false\n\t}",
       "to": "\tif true {\n\t\treturn false\n\t}",
       "rule": "the control's toolbar has no button for a layer, zoom or pan the Ergo view has none for, and says so as the scene does",
-      "killers": ["mygo:TestDrawGuiOnTheDesktop"]
+      "killers": ["hosts/mygo:TestDrawGuiOnTheDesktop"]
     },
     {
       "name": "GP4c-no-frames-asked",
@@ -240,7 +240,7 @@
       "from": "d.w.Frames(animates)",
       "to": "d.w.Frames(false)",
       "rule": "a view that animates asks the window for its display's frames, and each frame is a tick of the session",
-      "killers": ["mygo:TestDashGuiOnTheDesktop"]
+      "killers": ["hosts/mygo:TestDashGuiOnTheDesktop"]
     },
     {
       "name": "GP4c-frames-not-drawn",
@@ -249,7 +249,7 @@
       "from": "\t\tlet _ = w.Render()\n",
       "to": "",
       "rule": "the headless window's display draws a frame for each frame the script moves",
-      "killers": ["mygo:TestDashGuiOnTheDesktop"]
+      "killers": ["hosts/mygo:TestDashGuiOnTheDesktop"]
     },
     {
       "name": "GP4c-notes-repeated",
@@ -258,7 +258,7 @@
       "from": "\t\tnotes.Set([]feed.Notice{})\n",
       "to": "",
       "rule": "each panel's note is printed once, after the frame that made it",
-      "killers": ["mygo:TestDashGuiOnTheDesktop"]
+      "killers": ["hosts/mygo:TestDashGuiOnTheDesktop"]
     },
     {
       "name": "GP4c-control-resume-ignored",
@@ -267,7 +267,7 @@
       "from": "w.b.panels[i].mode = live",
       "to": "w.b.panels[i].mode = paused",
       "rule": "the control's pause button resumes a paused panel, as the Ergo view's does",
-      "killers": ["mygo:TestDashGuiOnTheDesktop"]
+      "killers": ["hosts/mygo:TestDashGuiOnTheDesktop"]
     },
     {
       "name": "GPs-mask-every-frame",
@@ -276,7 +276,7 @@
       "from": "binary.LittleEndian.PutUint32(buf[4:], uint32(n))",
       "to": "binary.LittleEndian.PutUint32(buf[4:], uint32(n+w.painted))",
       "rule": "a stroke's mask is keyed by its points and width alone, so the atlas keeps it while they do not change",
-      "killers": ["mygo/screen:TestStrokeMaskIsKept"]
+      "killers": ["hosts/mygo/screen:TestStrokeMaskIsKept"]
     },
     {
       "name": "GPs-no-discs",
@@ -285,7 +285,7 @@
       "from": "\t\tpoly(disc)\n",
       "to": "\t\tdisc[0] = disc[0]\n",
       "rule": "a stroke's mask has a disc at each point, as each Line's rounded ends: caps and the outer side of turns",
-      "killers": ["mygo/screen:TestStrokePaintsWhatLinesPaint"]
+      "killers": ["hosts/mygo/screen:TestStrokePaintsWhatLinesPaint"]
     },
     {
       "name": "GPs-no-room",
@@ -294,7 +294,7 @@
       "from": "for try := 0; try < 2 && w.sys.Full(); try++ {",
       "to": "for try := 0; try < 0 && w.sys.Full(); try++ {",
       "rule": "when an atlas fills during a frame, draw makes room (MakeRoom) and builds the scene again, so a stroke's mask is not left out",
-      "killers": ["mygo/screen:TestStrokesOutlastAFullAtlas"]
+      "killers": ["hosts/mygo/screen:TestStrokesOutlastAFullAtlas"]
     },
     {
       "name": "GPm-present-headless",
@@ -303,7 +303,7 @@
       "from": "\tif w.fake == nil {\n\t\tw.conn.Surface.PresentPixels(",
       "to": "\tif true {\n\t\tw.conn.Surface.PresentPixels(",
       "rule": "a Headless window's frame stays in the renderer's image, which Pixel reads; it is not copied into a new buffer of the fake surface each frame",
-      "killers": ["mygo/screen:TestHeadlessFrameKeepsOneBuffer"]
+      "killers": ["hosts/mygo/screen:TestHeadlessFrameKeepsOneBuffer"]
     },
     {
       "name": "GPl-no-tiles",
@@ -312,7 +312,7 @@
       "from": "\tif mw > maskTile || mh > maskTile {",
       "to": "\tif false {",
       "rule": "a stroke's mask wider or taller than a tile draws as tiles, which the atlas holds, not one mask it leaves out",
-      "killers": ["mygo/screen:TestWideStrokeIsTiled"]
+      "killers": ["hosts/mygo/screen:TestWideStrokeIsTiled"]
     },
     {
       "name": "GPl-tile-not-moved",
@@ -321,7 +321,7 @@
       "from": "X: x0 + float32(ox), Y: y0 + float32(oy)",
       "to": "X: x0, Y: y0",
       "rule": "each tile of a stroke's mask is drawn at its place in the mask",
-      "killers": ["mygo/screen:TestStrokeTilesMeetAsOneMask"]
+      "killers": ["hosts/mygo/screen:TestStrokeTilesMeetAsOneMask"]
     },
     {
       "name": "GPl-tile-all",
@@ -330,7 +330,7 @@
       "from": "\t\t\tif !reached[(r-r0)*vc+c-c0] {\n\t\t\t\tcontinue\n\t\t\t}\n",
       "to": "\t\t\t_ = reached\n",
       "rule": "a stroke rasterizes only the tiles its segments come near",
-      "killers": ["mygo/screen:TestStrokeTilesMeetAsOneMask"]
+      "killers": ["hosts/mygo/screen:TestStrokeTilesMeetAsOneMask"]
     },
     {
       "name": "GPa-lists-new",
@@ -339,7 +339,7 @@
       "from": "w.pending[:0], w.glyphs[:0], 0, w.access[:0]",
       "to": "w.pending[:0], nil, 0, nil",
       "rule": "a list's text and accessibility nodes reuse the buffers of the list shown two frames before",
-      "killers": ["mygo/screen:TestBusyFrameAllocatesLittle"]
+      "killers": ["hosts/mygo/screen:TestBusyFrameAllocatesLittle"]
     },
     {
       "name": "GPa-points-new",
@@ -348,7 +348,7 @@
       "from": "w.strokes, w.pts, w.inStroke = w.strokes[:0], w.pts[:0], false",
       "to": "w.strokes, w.pts, w.inStroke = nil, nil, false",
       "rule": "a list's strokes and their points reuse the buffers of the list shown two frames before",
-      "killers": ["mygo/screen:TestBusyFrameAllocatesLittle"]
+      "killers": ["hosts/mygo/screen:TestBusyFrameAllocatesLittle"]
     },
     {
       "name": "GPa-access-always",
@@ -357,7 +357,7 @@
       "from": "\tw.publishAccess(false)",
       "to": "\tw.publishAccess(true)",
       "rule": "an accessibility tree that did not change is not published again",
-      "killers": ["mygo/screen:TestBusyFrameAllocatesLittle"]
+      "killers": ["hosts/mygo/screen:TestBusyFrameAllocatesLittle"]
     },
     {
       "name": "GPa-pix-new",
@@ -366,7 +366,7 @@
       "from": "\tpix := w.pix[:tw*th]",
       "to": "\tpix := make([]byte, tw*th)",
       "rule": "a stroke's mask is rasterized into one buffer, which the text system copies into its atlas",
-      "killers": ["mygo/screen:TestBusyFrameAllocatesLittle"]
+      "killers": ["hosts/mygo/screen:TestBusyFrameAllocatesLittle"]
     },
     {
       "name": "GPa-layout-not-kept",
@@ -375,7 +375,7 @@
       "from": "\tw.laid[k] = l\n",
       "to": "\t_ = l\n",
       "rule": "a layout the window shaped is kept for the lists that use it",
-      "killers": ["mygo/screen:TestTextIsLaidOutOnce"]
+      "killers": ["hosts/mygo/screen:TestTextIsLaidOutOnce"]
     },
     {
       "name": "GPa-layouts-forgotten",
@@ -384,7 +384,7 @@
       "from": "\tw.laid, w.lastLaid = w.lastLaid, w.laid\n",
       "to": "\tclear(w.laid)\n",
       "rule": "the layouts of the list made stay for the next one",
-      "killers": ["mygo/screen:TestTextIsLaidOutOnce"]
+      "killers": ["hosts/mygo/screen:TestTextIsLaidOutOnce"]
     },
     {
       "name": "GPa-layouts-kept-forever",
@@ -393,7 +393,7 @@
       "from": "\tclear(w.lastLaid)\n\tw.laid, w.lastLaid",
       "to": "\tw.laid, w.lastLaid",
       "rule": "the window keeps the layouts of its last two lists only",
-      "killers": ["mygo/screen:TestLayoutsOfOldListsGo"]
+      "killers": ["hosts/mygo/screen:TestLayoutsOfOldListsGo"]
     },
     {
       "name": "GPa-count-no-break",
@@ -402,7 +402,7 @@
       "from": "\t\t\t\tn = n + 1\n\t\t\t\tat = r\n",
       "to": "\t\t\t\tat = r\n",
       "rule": "Height counts the lines Lines breaks, a wrapped run starting one",
-      "killers": ["hosts/mygo/desktop:law CountIsLines"]
+      "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost"]
     },
     {
       "name": "GPo-pass-offset-ignored",
@@ -411,7 +411,7 @@
       "from": "\t\tif off != scrolledBy(d, id) {",
       "to": "\t\tif off != scrolledBy(d, id) && off != off {",
       "rule": "the window scrolls a list to the offset its pass wrote when that is not its own, so a RowsKeeping list shows the row it keeps",
-      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+      "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost"]
     },
     {
       "name": "GPd-draws-every-node",
@@ -420,7 +420,7 @@
       "from": "was.line == line && d.w.Again(key) {",
       "to": "was.line == line && d.w.Again(key) && was.dy != was.dy {",
       "rule": "a paint draws anew only the nodes whose inputs changed; the rest take their last draw again",
-      "killers": ["mygo:TestDesktopDrawsOnlyWhatChanged"]
+      "killers": ["hosts/mygo:TestDesktopDrawsOnlyWhatChanged"]
     },
     {
       "name": "GPd-box-not-compared",
@@ -429,7 +429,7 @@
       "from": "if was.box == b && was.dy == dy",
       "to": "if was.dy == dy",
       "rule": "a node whose box moved is drawn anew",
-      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+      "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost"]
     },
     {
       "name": "GPd-old-focus-kept",
@@ -438,7 +438,7 @@
       "from": "{d.focus, d.shownFoc}",
       "to": "{d.focus, d.focus}",
       "rule": "the node that lost the focus is drawn anew, without its ring",
-      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+      "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost"]
     },
     {
       "name": "GPd-set-not-soiled",
@@ -447,7 +447,7 @@
       "from": "\t\t\td.soiled[x.Id] = true\n",
       "to": "",
       "rule": "a node a pass set is drawn anew",
-      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+      "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost"]
     },
     {
       "name": "GPd-insert-parent-not-soiled",
@@ -456,7 +456,7 @@
       "from": "\t\t\tplace(d, x.Id, x.Parent, x.Before)\n\t\t\td.soiled[x.Parent] = true\n\t\t\tscrollTo(d, x.Id, x.Node)\n\t\tcase ui.Move[E] as x:",
       "to": "\t\t\tplace(d, x.Id, x.Parent, x.Before)\n\t\t\tscrollTo(d, x.Id, x.Node)\n\t\tcase ui.Move[E] as x:",
       "rule": "a parent a node was inserted under is drawn anew, with the new node",
-      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+      "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost"]
     },
     {
       "name": "GPd-scroll-not-soiled",
@@ -465,7 +465,7 @@
       "from": "\t\t\td.soiled[s.Value.id] = true\n",
       "to": "",
       "rule": "a Scroll that moved is drawn anew at its offset",
-      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+      "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost"]
     },
     {
       "name": "GPd-spots-not-kept",
@@ -474,7 +474,7 @@
       "from": "for i in was.s0..was.s1 {",
       "to": "for i in was.s0..was.s0 {",
       "rule": "a node that takes its last draw again keeps the spots it added, so hit tests find its nodes",
-      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+      "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost"]
     },
     {
       "name": "GPd-text-not-moved",
@@ -483,8 +483,8 @@
       "from": "\t\tg.at += t.op0 - s.op0\n",
       "to": "",
       "rule": "a draw taken again keeps each line of text at its place among the ops",
-      "killers": ["mygo:TestMyGoHostAgreesWithTestHost"]
+      "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost"]
     },
-    {"name":"coldcache3-own-cache","origin":"wf10 COLDCACHE3","file":"hosts/mygo/desktop_test.go","from":"\t\terr = os.Setenv(\"ERGO_CACHE\", cache)\n","to":"\t\terr = nil\n","rule":"hosts/mygo's tests give the ergo commands they start a cache of their own: under a Go test ergo refuses the user's cache, so with no ERGO_CACHE from the caller every ergo build fails. Judge it with ERGO_CACHE unset.","killers":["mygo:TestLayoutMatchesMyGo"]}
+    {"name":"coldcache3-own-cache","origin":"wf10 COLDCACHE3","file":"hosts/mygo/desktop_test.go","from":"\t\terr = os.Setenv(\"ERGO_CACHE\", cache)\n","to":"\t\terr = nil\n","rule":"hosts/mygo's tests give the ergo commands they start a cache of their own: under a Go test ergo refuses the user's cache, so with no ERGO_CACHE from the caller every ergo build fails. Judge it with ERGO_CACHE unset.","killers":["hosts/mygo:TestLayoutMatchesMyGo"]}
   ]
 }

@@ -7,7 +7,7 @@
       "from": "\t\tfolds[e.Row] = FoldOf(rows[e.Row])\n",
       "to": "\t\tfolds[e.Row] = folds[e.Row]\n",
       "rule": "An edit refreshes its row's fold, so a filter matches the edited name.",
-      "killers": ["examples/stars-gui/catalog:law Table.WholeIsOrder"]
+      "killers": ["examples:stars-gui law catalog.Table.WholeIsOrder"]
     },
     {
       "name": "stars-fold-skips-constellation", "origin": "wf10 GP stars gap 11",
@@ -15,7 +15,7 @@
       "from": "if strings.Contains(k.Name, f) || strings.Contains(k.Constellation, f) {",
       "to": "if strings.Contains(k.Name, f) || strings.Contains(k.Name, f+f) {",
       "rule": "A filter matches the constellation too, as Matches does.",
-      "killers": ["examples/stars-gui/catalog:law Table.ViewIsOrder"]
+      "killers": ["examples:stars-gui law catalog.Table.ViewIsOrder"]
     },
     {
       "name": "stars-fold-not-lowered", "origin": "wf10 GP stars gap 11",
@@ -23,7 +23,7 @@
       "from": "Fold{Name: strings.ToLower(s.Name),",
       "to": "Fold{Name: s.Name,",
       "rule": "A row's kept fold is its name case folded, as the filter is.",
-      "killers": ["scripts/examples:stars-gui", "cmd/ergo:TestStarsGuiAgreesWithControl"]
+      "killers": ["examples:stars-gui", "cmd/ergo:TestStarsGuiAgreesWithControl"]
     },
     {
       "name": "stars-sort-keeps-the-whole", "origin": "wf10 GP1x",
