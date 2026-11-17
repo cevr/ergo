@@ -104,7 +104,7 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 	}
 	m := filepath.Join(tmp, "manifest")
 	writeLines(t, m, manifest)
-	gotTypes, gotCalls := make([][]string, len(folders)), make([][]string, len(folders))
+	gotTypes, gotCalls, gotDiags := make([][]string, len(folders)), make([][]string, len(folders)), make([][]string, len(folders))
 	at := -1
 	for _, l := range runDump(t, ctx, bin, "-corpus", m) {
 		switch {
@@ -114,6 +114,8 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 			gotTypes[at] = append(gotTypes[at], l[2:])
 		case at >= 0 && at < len(folders) && strings.HasPrefix(l, "C "):
 			gotCalls[at] = append(gotCalls[at], l[2:])
+		case at >= 0 && at < len(folders) && strings.HasPrefix(l, "D "):
+			gotDiags[at] = append(gotDiags[at], l[2:])
 		}
 	}
 	if at != len(folders)-1 {
@@ -137,6 +139,11 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 				r[0]++
 			}
 			reach[form] = r
+		}
+		// The Go checker accepts every folder it types, so a diagnostic
+		// of the Ergo side is a false one (S3d5).
+		if len(gotDiags[i]) > 0 {
+			t.Errorf("%s: the Go checker accepts the package, the Ergo side reports %d type errors: %s", rel(fo.dir), len(gotDiags[i]), strings.Join(gotDiags[i][:min(3, len(gotDiags[i]))], "; "))
 		}
 		if d := subsetDiff(fo.wantCalls, gotCalls[i], 2); d != "" {
 			t.Errorf("%s: inferred type arguments differ (go -, ergo +):\n%s", rel(fo.dir), d)
@@ -163,9 +170,10 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 		t.Fatal("the Ergo side typed no member of an import")
 	}
 	// Functions on a value's type, the prelude's on slices and Maps,
-	// operations, and fields through a pointer (S3d3): each kind typed
+	// operations, and fields through a pointer (S3d3), and the builtin
+	// len (S3d5): each kind typed
 	// somewhere, since the subset check alone would not see one lost.
-	for _, kind := range []string{"CallExpr method", "CallExpr prelude", "CallExpr op", "CallExpr capability", "SelectorExpr ptrfield"} {
+	for _, kind := range []string{"CallExpr method", "CallExpr prelude", "CallExpr op", "CallExpr capability", "SelectorExpr ptrfield", "CallExpr builtin"} {
 		if reach[kind][0] == 0 {
 			t.Errorf("the Ergo side typed no %s", kind)
 		}

@@ -21,8 +21,11 @@ import (
 // interpolation, and generic calls on locals and literals). Each
 // expression exprdump types has the Go checker's type, each call it
 // infers the Go checker's type arguments, and the run fails unless every
-// form in exprForms is typed somewhere. A failing seed prints the source,
-// both outputs and the replay command.
+// form in exprForms is typed somewhere. exprdump reports no type error in
+// a case the Go checker accepts; and in the case's bad twin (one statement
+// of badStmts added, which the Go checker rejects) it reports one, each
+// statement of the pool somewhere (S3d5). A failing seed prints the
+// source, both outputs and the replay command.
 //
 // It builds Go because exprdump is the Ergo program under test: only its
 // lowered, built form runs over the generated cases.
@@ -46,6 +49,7 @@ func TestCompilerExprProperty(t *testing.T) {
 	file := filepath.Join(tmp, "p.ergo")
 	e, f := filepath.Join(tmp, "ext"), filepath.Join(tmp, "foreign")
 	reached := map[string]int{}
+	caught := map[int]int{}
 	ran, failed, refused := 0, 0, ""
 	for seed := base; seed < base+200; seed++ {
 		src := genExpr(seed)
@@ -64,8 +68,29 @@ func TestCompilerExprProperty(t *testing.T) {
 		writeLines(t, e, ext)
 		writeLines(t, f, foreign)
 		writeLines(t, file, []string{src})
-		got := runDump(t, ctx, bin, e, f, file)
+		got, diags := splitDiags(runDump(t, ctx, bin, e, f, file))
 		gotCalls := runDump(t, ctx, bin, "-calls", e, f, file)
+		if len(diags) > 0 {
+			failed++
+			if failed <= 3 {
+				t.Errorf("seed %d: the Go checker accepts the case, exprdump reports type errors %v:\n--- source\n%s\n%s", seed, diags, src, replay(seed))
+			}
+		}
+		// The bad twin, with the case's tables: its declarations are the
+		// case's.
+		bad, which := genBad(seed)
+		if _, bds := check.CheckSource(bad); len(bds) > 0 {
+			writeLines(t, file, []string{bad})
+			_, badDiags := splitDiags(runDump(t, ctx, bin, e, f, file))
+			if len(badDiags) == 0 {
+				failed++
+				if failed <= 3 {
+					t.Errorf("seed %d: the Go checker rejects the bad twin (%v), exprdump reports no type error:\n--- source\n%s\n%s", seed, bds[0], bad, replay(seed))
+				}
+			} else {
+				caught[which]++
+			}
+		}
 		d := subsetDiff(want, got, 3) + subsetDiff(wantCalls, gotCalls, 2)
 		if d != "" {
 			failed++
@@ -91,6 +116,51 @@ func TestCompilerExprProperty(t *testing.T) {
 			t.Errorf("no case typed a %s; the generator or the typer lost a form (%s)", form, replay(base))
 		}
 	}
+	for i, st := range badStmts {
+		if caught[i] == 0 {
+			t.Errorf("no bad twin with %q was caught by both checkers; the generator or the typer lost a diagnostic (%s)", st, replay(base))
+		}
+	}
+}
+
+// splitDiags separates exprdump's "D …" lines (type errors) from its
+// expression lines.
+func splitDiags(lines []string) ([]string, []string) {
+	var types, diags []string
+	for _, l := range lines {
+		if d, ok := strings.CutPrefix(l, "D "); ok {
+			diags = append(diags, d)
+		} else {
+			types = append(types, l)
+		}
+	}
+	return types, diags
+}
+
+// badStmts are statements with one type error between basic types, each
+// one the typer reports: an operand, an assignment, a condition, an
+// argument, a written let type, an index and a constant of another kind.
+var badStmts = []string{
+	"\tacc = acc + q",
+	"\tacc = acc + \"s\"",
+	"\tacc = q",
+	"\tif q {\n\t\tacc = acc + 1\n\t}",
+	"\tacc = acc + twice(q)",
+	"\tlet bad int = q\n\tacc = acc + bad",
+	"\tacc = acc + xs[q]",
+	"\tacc = acc + xs[1.5]",
+	"\tacc = acc + r.f",
+	"\tif p > 1.5 {\n\t\tacc = acc + 1\n\t}",
+}
+
+// genBad is the case seed with one statement of badStmts, drawn by the
+// seed, before the first function's final value; and the statement's
+// index.
+func genBad(seed uint32) (string, int) {
+	src := genExpr(seed)
+	which := int(seed % uint32(len(badStmts)))
+	at := strings.Index(src, "\n\tacc + ")
+	return src[:at] + "\n" + badStmts[which] + src[at:], which
 }
 
 // exprForms are the syntax forms (and inferred generic calls) the cases
