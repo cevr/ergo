@@ -22,7 +22,8 @@ package lower
 // slice would hold, in its order and at its positions (a for with an index
 // counts from 0 in both), when:
 //
-//  1. ys starts empty (its let is the statement before, an empty literal),
+//  1. ys starts empty (its let is an earlier statement of the block, an
+//     empty literal, and no statement between names ys: emptyBefore),
 //     and nothing reads ys after the fold or in its body: the slice is
 //     only folded, so ys staying empty is never seen.
 //  2. Q's elements do not change while the fold runs. The body names no
@@ -112,7 +113,7 @@ func (b *irBuilder) planFold(list []syntax.Stmt, i int) {
 		return
 	}
 	v, ok := b.l.info.Uses[idiom.xs].(*check.Var)
-	if !ok || !b.startsEmpty(list[i-1], v) {
+	if !ok || !b.emptyBefore(list, i, v) {
 		return
 	}
 	f, ok := list[i+1].(*syntax.RangeStmt)
@@ -143,6 +144,21 @@ func (b *irBuilder) planFold(list []syntax.Stmt, i int) {
 	}
 	plan := &foldPlan{fold: f, src: -1}
 	b.folds[s], b.folds[f] = plan, plan
+}
+
+// emptyBefore reports that v is empty when list[i] starts: its let
+// `let mut ys = []T{}` is an earlier statement of list, and no statement
+// between names v (GP-RESLICE-EMPTY), so none reads or writes it there.
+func (b *irBuilder) emptyBefore(list []syntax.Stmt, i int, v *check.Var) bool {
+	for j := i - 1; j >= 0; j-- {
+		if b.startsEmpty(list[j], v) {
+			return true
+		}
+		if b.namesVar(list[j], v) {
+			return false
+		}
+	}
+	return false
 }
 
 // startsEmpty reports that s is `let mut ys = []T{}`, ys the variable v.
