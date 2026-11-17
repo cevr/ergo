@@ -376,7 +376,7 @@ func PureGoPackages() []string {
 // The empty path is Go's universe: an extern of a Go builtin (builtin.go),
 // which calls no Ergo code and no host.
 func PureGoPackage(path string) bool {
-	return path == "" || slices.Contains(v1.PureImports, path)
+	return path == "" || PureActs(path)
 }
 
 // ---------------------------------------------------------------- Level 2 adapters (IG4)

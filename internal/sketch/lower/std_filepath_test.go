@@ -5,8 +5,8 @@ import (
 )
 
 // TestFilepathRuns: each function of std filepath (stdlib.md, filepath)
-// calls its runtime/v1 body (Split's returns v1.Parts) and prints one
-// line. Rel fails filepath.NotRelative: a catch arm takes it with both
+// runs (Go's path/filepath through import go, or for Join, Ext and Rel a
+// runtime/v1 body) and prints one line. Rel fails filepath.NotRelative: a catch arm takes it with both
 // paths, and main's uncaught NotRelative is written with its text and
 // status 1. A package-level let may call it. Its subtest
 // effect.path.join-posix is the evidence of that conformance case

@@ -6,10 +6,12 @@ import (
 	"math"
 	"math/rand/v2"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -65,6 +67,9 @@ func TestNativesAgreeWithRuntime(t *testing.T) {
 			in.steps, in.bytes = 0, 0
 			nat := natives[c.name]
 			if nat == nil {
+				nat = goNatives[c.name]
+			}
+			if nat == nil {
 				t.Fatalf("no native %s", c.name)
 			}
 			fn := funcs[c.name]
@@ -119,7 +124,11 @@ func TestNativeWorkIsWhatGoReads(t *testing.T) {
 			args = []Value{s, int64(1), int64(5)}
 		}
 		in.steps, in.bytes = 0, 0
-		if _, ab := natives[name](in, fr, fr.decl, nil, args); ab != nil {
+		nat := natives[name]
+		if nat == nil {
+			nat = goNatives[name] // reached through std's import go strings
+		}
+		if _, ab := nat(in, fr, fr.decl, nil, args); ab != nil {
 			t.Fatalf("%s: %s", name, ab.msg)
 		}
 		return in.steps, in.bytes
@@ -201,12 +210,7 @@ func nativeCases(g nativeGen) []nativeCase {
 	num := []string{"12", "-0", "+7", "9223372036854775807", "9223372036854775808", "-9223372036854775809", "0x1f", "1e3", "1_000", "", "-", "abc", "1.5", "1e400", "true", "F", "\"a\\tb\"", "`x`", "'c'"}[g.r.IntN(19)]
 	ints, ints2 := g.ints(), g.ints()
 	fl := g.floats()
-	fa, fb := 0.0, 0.0
-	if f2 := g.floats(); len(f2) > 1 {
-		fa, fb = f2[0], f2[1]
-	}
 	x := int64(g.r.IntN(5) - 2)
-	half := []float64{0.5, 2.5, -2.5, -0.5, 3, 4.75, 0, math.Copysign(0, -1), math.Inf(1)}[g.r.IntN(9)]
 	key := []string{"apiToken", "server.port", "HTTPStatus", "v2Path", "aÉb", "a\xffB", "", "a..B"}[g.r.IntN(8)] + g.text()
 	dur := []string{"1h2m3.5s", "-1.5ms", "0", "", "1", "3µs", "9223372036854775807ns", "9223372036854775808ns", "1e3s", "1.h", ".5s", "+2us", "1d", "-0"}[g.r.IntN(14)]
 	ls := func(ss []string) Value {
@@ -246,13 +250,6 @@ func nativeCases(g nativeGen) []nativeCase {
 	if g.r.IntN(4) == 0 {
 		text = text[:g.r.IntN(len(text)+1)]
 	}
-	// slices.largest takes a list with an element; a float list mixes
-	// both zeros, which Go's max orders.
-	nonEmpty := append([]int64{x}, ints...)
-	zeros := append([]float64{math.Copysign(0, -1)}, fl...)
-	if g.r.IntN(2) == 0 {
-		zeros = append(zeros, 0)
-	}
 	// SortStableFunc by the remainder mod 3, so equal keys keep their
 	// order only when the sort is stable.
 	byMod3 := &nativeFunc{name: "byMod3", call: func(in *interp, fr *frame, at syntax.Node, args []Value) (Value, *abrupt) {
@@ -261,62 +258,51 @@ func nativeCases(g nativeGen) []nativeCase {
 	return []nativeCase{
 		{name: "time.format", args: []Value{sec, nsec, lay}, v1: func() any { return v1.TimeFormat(sec, nsec, lay) }},
 		{name: "time.parse", args: []Value{lay, text}, v1: func() any { return result(v1.TimeParse(lay, text)) }},
-		{name: "math.Round", args: []Value{half}, v1: func() any { return v1.MathRound(half) }},
-		{name: "math.Sqrt", args: []Value{half}, v1: func() any { return v1.MathSqrt(half) }},
-		{name: "math.Pow", args: []Value{half, f}, v1: func() any { return v1.MathPow(half, f) }},
-		{name: "math.Mod", args: []Value{f, half}, v1: func() any { return v1.MathMod(f, half) }},
-		{name: "math.IsInf", args: []Value{f, x}, v1: func() any { return v1.MathIsInf(f, int(x)) }},
 		{name: "config.flagName", args: []Value{key}, v1: func() any { return v1.ConfigFlagName(key) }},
 		{name: "config.envName", args: []Value{w, key}, v1: func() any { return v1.ConfigEnvName(w, key) }},
 		{name: "config.flagKey", args: []Value{s}, v1: func() any { return v1.ConfigFlagKey(s) }},
 		{name: "config.envKey", args: []Value{u}, v1: func() any { return v1.ConfigEnvKey(u) }},
-		{name: "strings.Compare", args: []Value{s, u}, v1: func() any { return int64(v1.StringsCompare(s, u)) }},
-		{name: "strings.PadLeft", args: []Value{s, int64(i), rn}, v1: func() any { return v1.StringsPadLeft(s, i, rn) }},
-		{name: "strings.PadRight", args: []Value{s, int64(j), rn}, v1: func() any { return v1.StringsPadRight(s, j, rn) }},
-		{name: "strings.Split", args: []Value{s, u}, v1: func() any { return v1.StringsSplit(s, u) }},
+		{name: "strings.Compare", args: []Value{s, u}, v1: func() any { return int64(strings.Compare(s, u)) }},
+		{name: "strings.Split", args: []Value{s, u}, v1: func() any { return strings.Split(s, u) }},
 		{name: "strings.Join", args: []Value{ls(xs), u}, v1: func() any { return v1.StringsJoin(xs, u) }},
-		{name: "strings.HasPrefix", args: []Value{s, u}, v1: func() any { return v1.StringsHasPrefix(s, u) }},
-		{name: "strings.HasSuffix", args: []Value{s, u}, v1: func() any { return v1.StringsHasSuffix(s, u) }},
-		{name: "strings.TrimSpace", args: []Value{s}, v1: func() any { return v1.StringsTrimSpace(s) }},
-		{name: "strings.TrimPrefix", args: []Value{s, u}, v1: func() any { return v1.StringsTrimPrefix(s, u) }},
-		{name: "strings.TrimSuffix", args: []Value{s, u}, v1: func() any { return v1.StringsTrimSuffix(s, u) }},
-		{name: "strings.Fields", args: []Value{s}, v1: func() any { return v1.StringsFields(s) }},
-		{name: "strings.Repeat", args: []Value{s, int64(i)}, v1: func() any { return v1.StringsRepeat(s, i) }},
-		{name: "strings.ToLower", args: []Value{s}, v1: func() any { return v1.StringsToLower(s) }},
-		{name: "strings.ToUpper", args: []Value{s}, v1: func() any { return v1.StringsToUpper(s) }},
-		{name: "strings.Index", args: []Value{s, u}, v1: func() any { return int64(v1.StringsIndex(s, u)) }},
-		{name: "strings.Contains", args: []Value{s, u}, v1: func() any { return v1.StringsContains(s, u) }},
+		{name: "strings.HasPrefix", args: []Value{s, u}, v1: func() any { return strings.HasPrefix(s, u) }},
+		{name: "strings.HasSuffix", args: []Value{s, u}, v1: func() any { return strings.HasSuffix(s, u) }},
+		{name: "strings.TrimSpace", args: []Value{s}, v1: func() any { return strings.TrimSpace(s) }},
+		{name: "strings.TrimPrefix", args: []Value{s, u}, v1: func() any { return strings.TrimPrefix(s, u) }},
+		{name: "strings.TrimSuffix", args: []Value{s, u}, v1: func() any { return strings.TrimSuffix(s, u) }},
+		{name: "strings.Fields", args: []Value{s}, v1: func() any { return strings.Fields(s) }},
+		{name: "strings.Repeat", args: []Value{s, int64(i)}, v1: func() any { return strings.Repeat(s, i) }},
+		{name: "strings.ToLower", args: []Value{s}, v1: func() any { return strings.ToLower(s) }},
+		{name: "strings.ToUpper", args: []Value{s}, v1: func() any { return strings.ToUpper(s) }},
+		{name: "strings.Index", args: []Value{s, u}, v1: func() any { return int64(strings.Index(s, u)) }},
+		{name: "strings.Contains", args: []Value{s, u}, v1: func() any { return strings.Contains(s, u) }},
 		{name: "strings.Slice", args: []Value{s, int64(i), int64(j)}, v1: func() any { return v1.StringsSlice(s, i, j) }},
-		{name: "strings.ReplaceAll", args: []Value{s, u, w}, v1: func() any { return v1.StringsReplaceAll(s, u, w) }},
-		{name: "strings.LastIndex", args: []Value{s, u}, v1: func() any { return int64(v1.StringsLastIndex(s, u)) }},
-		{name: "strings.Count", args: []Value{s, u}, v1: func() any { return int64(v1.StringsCount(s, u)) }},
-		{name: "strings.SplitN", args: []Value{s, u, int64(i)}, v1: func() any { return v1.StringsSplitN(s, u, i) }},
-		{name: "strings.EqualFold", args: []Value{s, u}, v1: func() any { return v1.StringsEqualFold(s, u) }},
-		{name: "strings.ContainsRune", args: []Value{s, rn}, v1: func() any { return v1.StringsContainsRune(s, rn) }},
-		{name: "strings.ToValidUTF8", args: []Value{s, u}, v1: func() any { return v1.StringsToValidUTF8(s, u) }},
-		{name: "utf8.RuneCount", args: []Value{s}, v1: func() any { return int64(v1.UTF8RuneCount(s)) }},
+		{name: "strings.ReplaceAll", args: []Value{s, u, w}, v1: func() any { return strings.ReplaceAll(s, u, w) }},
+		{name: "strings.LastIndex", args: []Value{s, u}, v1: func() any { return int64(strings.LastIndex(s, u)) }},
+		{name: "strings.Count", args: []Value{s, u}, v1: func() any { return int64(strings.Count(s, u)) }},
+		{name: "strings.SplitN", args: []Value{s, u, int64(i)}, v1: func() any { return strings.SplitN(s, u, i) }},
+		{name: "strings.EqualFold", args: []Value{s, u}, v1: func() any { return strings.EqualFold(s, u) }},
+		{name: "strings.ContainsRune", args: []Value{s, rn}, v1: func() any { return strings.ContainsRune(s, rn) }},
+		{name: "strings.ToValidUTF8", args: []Value{s, u}, v1: func() any { return strings.ToValidUTF8(s, u) }},
 		{name: "utf8.RuneText", args: []Value{rn}, v1: func() any { return v1.UTF8RuneText(rn) }},
-		{name: "utf8.ValidString", args: []Value{s}, v1: func() any { return v1.UTF8ValidString(s) }},
-		{name: "utf8.ValidRune", args: []Value{rn}, v1: func() any { return v1.UTF8ValidRune(rn) }},
-		{name: "utf8.RuneLen", args: []Value{rn}, v1: func() any { return int64(v1.UTF8RuneLen(rn)) }},
+		{name: "unicode/utf8.RuneLen", args: []Value{rn}, v1: func() any { return int64(utf8.RuneLen(rn)) }},
 		{name: "utf8.DecodeRuneInString", args: []Value{s}, v1: func() any { return v1.UTF8DecodeRuneInString(s) }},
 		{name: "utf8.AppendRune", args: []Value{bytesValue(s), rn}, v1: func() any { return v1.UTF8AppendRune([]byte(s), rn) }},
-		{name: "strconv.Itoa", args: []Value{d}, v1: func() any { return v1.StrconvItoa(int(d)) }},
-		{name: "strconv.FormatInt", args: []Value{d, int64(base)}, v1: func() any { return v1.StrconvFormatInt(d, base) }},
-		{name: "strconv.FormatBool", args: []Value{i > 4}, v1: func() any { return v1.StrconvFormatBool(i > 4) }},
-		{name: "strconv.FormatFloat", args: []Value{f, fmtc, int64(i)}, v1: func() any { return v1.StrconvFormatFloat(f, fmtc, i) }},
-		{name: "strconv.Quote", args: []Value{s}, v1: func() any { return v1.StrconvQuote(s) }},
+		{name: "strconv.Itoa", args: []Value{d}, v1: func() any { return strconv.Itoa(int(d)) }},
+		{name: "strconv.FormatInt", args: []Value{d, int64(base)}, v1: func() any { return strconv.FormatInt(d, base) }},
+		{name: "strconv.FormatBool", args: []Value{i > 4}, v1: func() any { return strconv.FormatBool(i > 4) }},
+		{name: "strconv.FormatFloat", args: []Value{f, fmtc, int64(i), int64(64)}, v1: func() any { return strconv.FormatFloat(f, fmtc, i, 64) }},
+		{name: "strconv.Quote", args: []Value{s}, v1: func() any { return strconv.Quote(s) }},
 		{name: "strconv.Atoi", args: []Value{num}, v1: func() any { return result(v1.StrconvAtoi(num)) }},
 		{name: "strconv.ParseInt", args: []Value{num, int64(base), int64(bits)}, v1: func() any { return result(v1.StrconvParseInt(num, base, bits)) }},
 		{name: "strconv.ParseFloat", args: []Value{num}, v1: func() any { return result(v1.StrconvParseFloat(num)) }},
-		{name: "strconv.ParseBool", args: []Value{num}, v1: func() any { return result(v1.StrconvParseBool(num)) }},
 		{name: "strconv.Unquote", args: []Value{num}, v1: func() any { return result(v1.StrconvUnquote(num)) }},
 		{name: "filepath.Join", args: []Value{ls(xs)}, v1: func() any { return v1.FilepathJoin(xs) }},
-		{name: "filepath.Base", args: []Value{s}, v1: func() any { return v1.FilepathBase(s) }},
-		{name: "filepath.Dir", args: []Value{s}, v1: func() any { return v1.FilepathDir(s) }},
+		{name: "path/filepath.Base", args: []Value{s}, v1: func() any { return filepath.Base(s) }},
+		{name: "path/filepath.Dir", args: []Value{s}, v1: func() any { return filepath.Dir(s) }},
 		{name: "filepath.Ext", args: []Value{s}, v1: func() any { return v1.FilepathExt(s) }},
-		{name: "filepath.Clean", args: []Value{s}, v1: func() any { return v1.FilepathClean(s) }},
-		{name: "filepath.IsAbs", args: []Value{s}, v1: func() any { return v1.FilepathIsAbs(s) }},
+		{name: "path/filepath.Clean", args: []Value{s}, v1: func() any { return filepath.Clean(s) }},
+		{name: "path/filepath.IsAbs", args: []Value{s}, v1: func() any { return filepath.IsAbs(s) }},
 		{name: "hex.Encode", args: []Value{s}, v1: func() any { return v1digest.HexEncode(s) }},
 		{name: "time.DurationText", args: []Value{d}, v1: func() any { return v1.TimeDurationText(durationOf(d)) }},
 		{name: "time.Times", args: []Value{d, m}, v1: func() any { return int64(v1.TimeTimes(durationOf(d), int(m))) }},
@@ -332,19 +318,11 @@ func nativeCases(g nativeGen) []nativeCase {
 		{name: "slices.Sort", args: []Value{li(ints)}, v1: func() any { return v1.SlicesSort(ints) }},
 		{name: "slices.Sort", args: []Value{lf(fl)}, v1: func() any { return v1.SlicesSort(fl) }},
 		{name: "slices.Sort", args: []Value{ls(xs)}, v1: func() any { return v1.SlicesSort(xs) }},
-		{name: "slices.Contains", args: []Value{li(ints), x}, v1: func() any { return v1.SlicesContains(ints, x) }},
-		{name: "slices.Index", args: []Value{li(ints), x}, v1: func() any { return int64(v1.SlicesIndex(ints, x)) }},
-		{name: "slices.Equal", args: []Value{li(ints), li(ints2)}, v1: func() any { return v1.SlicesEqual(ints, ints2) }},
 		{name: "slices.Slice", args: []Value{li(ints), si, sj}, anyDefect: true, v1: func() any { return v1.SlicesSlice(ints, int(si), int(sj)) }},
-		{name: "slices.largest", args: []Value{li(nonEmpty)}, v1: func() any { return v1.SlicesMax(nonEmpty) }},
-		{name: "slices.largest", args: []Value{lf(zeros)}, v1: func() any { return v1.SlicesMax(zeros) }},
 		{name: "slices.SortStableFunc", args: []Value{li(ints), byMod3}, v1: func() any {
 			return v1.SlicesSortStableFunc(ints, func(a, b int64) int { return cmp.Compare(mod3(a), mod3(b)) })
 		}},
-		{name: "math.Trunc", args: []Value{f}, v1: func() any { return v1.MathTrunc(f) }},
 		{name: "machines.notPositive", args: []Value{d, m}, v1: func() any { v1.MachineTimerNotPositiveAt(durationOf(d), durationOf(m)); return nil }},
-		{name: "cmp.Compare", args: []Value{fa, fb}, v1: func() any { return int64(v1.CmpCompare(fa, fb)) }},
-		{name: "cmp.Compare", args: []Value{s, u}, v1: func() any { return int64(v1.CmpCompare(s, u)) }},
 	}
 }
 

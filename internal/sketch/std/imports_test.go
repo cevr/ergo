@@ -80,11 +80,13 @@ func TestStdImportConcurrent(t *testing.T) {
 	}
 }
 
-// importPaths are the paths of an import declaration.
+// importPaths are the paths of an import declaration's Ergo imports.
 func importPaths(d *syntax.ImportDecl) []string {
 	var out []string
 	for _, s := range d.Specs {
-		if s.Path != nil {
+		// An import go names a Go package, not a std one, even where the
+		// paths agree (std math imports Go's math).
+		if s.Path != nil && s.Kind != syntax.ImportGo {
 			out = append(out, strings.Trim(s.Path.Value, `"`))
 		}
 	}

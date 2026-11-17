@@ -986,15 +986,6 @@
       "killers": ["internal/sketch/eval:TestEvalEffectsAgreeWithModel"]
     },
     {
-      "name": "oracle-o1-native-pad-bytes",
-      "origin": "wf10 ORACLE O1",
-      "file": "internal/sketch/eval/natives.go",
-      "from": "\tn := utf8.RuneCountInString(s)\n\tif n >= width {",
-      "to": "\tn := len(s)\n\tif n >= width {",
-      "rule": "strings.PadLeft and PadRight count the runes of s as fmt's %*s does, an invalid byte as one rune.",
-      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
-    },
-    {
       "name": "oracle-o1-native-parse-range",
       "origin": "wf10 ORACLE O1",
       "file": "internal/sketch/eval/natives.go",
@@ -1052,8 +1043,8 @@
       "name": "oracle-o1-native-split-empty-sep",
       "origin": "wf10 ORACLE O1",
       "file": "internal/sketch/eval/natives.go",
-      "from": "\tpure(\"strings.Split\", func(a []Value) Value { return list(strings.Split(str(a[0]), str(a[1]))) })",
-      "to": "\tpure(\"strings.Split\", func(a []Value) Value {\n\t\tif str(a[1]) == \"\" {\n\t\t\treturn list([]string{str(a[0])})\n\t\t}\n\t\treturn list(strings.Split(str(a[0]), str(a[1])))\n\t})",
+      "from": "\tgoPure(\"strings.Split\", func(a []Value) Value { return list(strings.Split(str(a[0]), str(a[1]))) })",
+      "to": "\tgoPure(\"strings.Split\", func(a []Value) Value {\n\t\tif str(a[1]) == \"\" {\n\t\t\treturn list([]string{str(a[0])})\n\t\t}\n\t\treturn list(strings.Split(str(a[0]), str(a[1])))\n\t})",
       "rule": "strings.Split with an empty separator splits after each UTF-8 sequence, as Go's does.",
       "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
     },
@@ -1338,20 +1329,11 @@
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     },
     {
-      "name": "oracle-o16-max-by-less",
-      "origin": "wf10 ORACLE O16",
-      "file": "internal/sketch/eval/nativesmore.go",
-      "from": "\t\t\tcase float64:\n\t\t\t\tbest = max(b, x.(float64))\n",
-      "to": "",
-      "rule": "std slices.Max is Go's slices.Max: Go's max over the list, NaN anywhere giving NaN and +0 beating -0 (std slices).",
-      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
-    },
-    {
       "name": "oracle-o16-stable-sort-reversed",
       "origin": "wf10 ORACLE O16",
       "file": "internal/sketch/eval/nativesmore.go",
-      "from": "\t\t\treturn cmp.Compare(v.(int64), 0)\n\t\t})\n\t\tif stop != nil {\n\t\t\treturn nil, stop\n\t\t}\n\t\treturn newSlice(out), nil\n\t}\n\tnatives[\"slices.largest\"]",
-      "to": "\t\t\treturn cmp.Compare(0, v.(int64))\n\t\t})\n\t\tif stop != nil {\n\t\t\treturn nil, stop\n\t\t}\n\t\treturn newSlice(out), nil\n\t}\n\tnatives[\"slices.largest\"]",
+      "from": "\t\t\treturn cmp.Compare(v.(int64), 0)\n\t\t})\n\t\tif stop != nil {\n\t\t\treturn nil, stop\n\t\t}\n\t\treturn newSlice(out), nil\n\t}\n\tnatives[\"arena.grow\"]",
+      "to": "\t\t\treturn cmp.Compare(0, v.(int64))\n\t\t})\n\t\tif stop != nil {\n\t\t\treturn nil, stop\n\t\t}\n\t\treturn newSlice(out), nil\n\t}\n\tnatives[\"arena.grow\"]",
       "rule": "std slices.SortStableFunc sorts a copy by compare, as Go's slices.SortStableFunc (std slices).",
       "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
     },
@@ -1467,9 +1449,9 @@
       "name": "oracle-o12-ones-count-is-len",
       "origin": "wf10 ORACLE O12",
       "file": "internal/sketch/eval/nativesbits.go",
-      "from": "\tpure(\"bits.OnesCount64\", func(a []Value) Value { return int64(bits.OnesCount64(u(a[0]))) })\n",
-      "to": "\tpure(\"bits.OnesCount64\", func(a []Value) Value { return int64(bits.Len64(u(a[0]))) })\n",
-      "rule": "std bits.OnesCount64 is Go's math/bits.OnesCount64 (stdlib.md; std bits).",
+      "from": "\tgoPure(\"OnesCount64\", func(a []Value) Value { return int64(bits.OnesCount64(u(a[0]))) })\n",
+      "to": "\tgoPure(\"OnesCount64\", func(a []Value) Value { return int64(bits.Len64(u(a[0]))) })\n",
+      "rule": "std bits.OnesCount64 is Go's math/bits.OnesCount64, bound through import go (stdlib.md; std bits).",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     },
     {
@@ -1573,6 +1555,15 @@
       "to": "",
       "rule": "keyOrder's order is a function of the keys alone.",
       "killers": ["internal/sketch/eval:TestEvalReportIsDeterministic"]
+    },
+    {
+      "name": "np4f1-eval-skips-import-go",
+      "origin": "wf10 NP4f-1",
+      "file": "internal/sketch/eval/nativesgo.go",
+      "from": "fn.Pkg == nil || fn.Pkg.Std() {",
+      "to": "fn.Pkg == nil || fn.Pkg.Std() || fn.Pkg.Host() {",
+      "rule": "The evaluator runs a listed Go function a package reaches through import go, as std's bodies now do (NP4f).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     }
   ]
 }

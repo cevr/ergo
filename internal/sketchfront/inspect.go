@@ -66,7 +66,7 @@ func InspectRewrites(a Analysis, source, ledger string) ([]lower.RewriteSite, er
 	if err != nil {
 		return nil, err
 	}
-	ev, err := ledgerEvidence(a, unit, text)
+	ev, err := ledgerEvidence(a, unit, text, nil)
 	if err != nil || !lower.HasRewriteLaws(unit) {
 		return []lower.RewriteSite{}, err
 	}
@@ -202,7 +202,8 @@ type GoSymbol struct {
 	Go string `json:"go"`
 	// Ergo is its Ergo signature (Level 1).
 	Ergo string `json:"ergo"`
-	// Tier is "pure" or "foreign".
+	// Tier is "pure", "memory" (a memory-only Go call, GBX6: no row, not
+	// pure) or "foreign".
 	Tier       string `json:"tier"`
 	Provenance string `json:"provenance"`
 	Wait       string `json:"wait"`
@@ -402,6 +403,9 @@ func (w *reachWalker) symbol(g *check.Func) string {
 		s.Ergo = g.Sig.String()
 	}
 	s.Tier, s.Wait = goTier(check.GoForeign(g.Sig), check.GoContext(g))
+	if check.GoEffect(g) {
+		s.Tier = "memory" // it never waits: WaitNone
+	}
 	w.symbols[target] = s
 	return target
 }

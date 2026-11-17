@@ -16,9 +16,12 @@
 //     (stdlib.md, Slices and Maps 8; std-strengths SS5).
 // The externs bind runtime/v1 bodies (collections.go, data.go);
 // Transform, Filter, Fold, IndexFunc, Collect, Sorted, Values, Max, Min,
-// Ascend, Items, Len, At and BinarySearch are Ergo, and Take and Slice
-// are the slice operations xs.TakeAt(i) and xs.Slice(i, j) (PRIM-4). laws.ergo states the algebra; the ledger in
+// Ascend, Items, Len, At, BinarySearch, Contains, Index and Equal are Ergo
+// (NP4f), and Take and Slice are the slice operations xs.TakeAt(i) and
+// xs.Slice(i, j) (PRIM-4). laws.ergo states the algebra; the ledger in
 // stdlib.md names the Go test that runs each law until #162.
+
+import cmp
 
 // WithCapacity is an empty slice with room for n elements. It makes no
 // element; a negative n is a defect, as Go's make panics.
@@ -46,10 +49,24 @@ extern go ergo.local/prototype/runtime/v1.SlicesSortFunc func SortFunc[T](xs []T
 extern go ergo.local/prototype/runtime/v1.SlicesSortStableFunc func SortStableFunc[T](xs []T, compare func(a T, b T) int) []T
 
 // Contains reports whether x is in xs.
-extern go ergo.local/prototype/runtime/v1.SlicesContains func Contains[T comparable](xs []T, x T) bool
+func Contains[T comparable](xs []T, x T) bool {
+	for y in xs {
+		if y == x {
+			return true
+		}
+	}
+	false
+}
 
 // Index is the index of the first x in xs, or -1.
-extern go ergo.local/prototype/runtime/v1.SlicesIndex func Index[T comparable](xs []T, x T) int
+func Index[T comparable](xs []T, x T) int {
+	for i, y in xs {
+		if y == x {
+			return i
+		}
+	}
+	-1
+}
 
 // IndexFunc is the index of the first element of xs that f accepts, or -1.
 func IndexFunc[T, E, R](xs []T, f func(x T) bool fails E needs R) int fails E needs R {
@@ -155,7 +172,17 @@ func BinarySearch[T ordered](a Ascending[T], x T) Option[int] {
 
 // Equal reports whether a and b have the same length and equal elements in
 // order.
-extern go ergo.local/prototype/runtime/v1.SlicesEqual func Equal[T comparable](a []T, b []T) bool
+func Equal[T comparable](a []T, b []T) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, x in a {
+		if x != b[i] {
+			return false
+		}
+	}
+	true
+}
 
 // Collect is the values of s, in order, in a new slice.
 func Collect[T](s Seq[T]) []T {
@@ -218,6 +245,41 @@ func Fold[T, A, E, R](xs []T, init A, f func(acc A, x T) A fails E needs R) A fa
 	acc
 }
 
-extern go ergo.local/prototype/runtime/v1.SlicesMax func largest[T ordered](xs []T) T
-extern go ergo.local/prototype/runtime/v1.SlicesMin func smallest[T ordered](xs []T) T
-extern go ergo.local/prototype/runtime/v1.SlicesBinarySearch func search[T ordered](xs []T, x T) int
+// largest is Go's slices.Max of a non-empty xs: cmp.Max of each element
+// in turn, so a NaN makes it NaN.
+func largest[T ordered](xs []T) T {
+	let mut m = xs[0]
+	for i in 1..len(xs) {
+		m = cmp.Max(m, xs[i])
+	}
+	m
+}
+
+// smallest is Go's slices.Min of a non-empty xs, as largest.
+func smallest[T ordered](xs []T) T {
+	let mut m = xs[0]
+	for i in 1..len(xs) {
+		m = cmp.Min(m, xs[i])
+	}
+	m
+}
+
+// search is the index of x in the sorted xs that Go's slices.BinarySearch
+// finds, or -1 when xs has no x: the first index whose element is not
+// cmp.Less than x, where a NaN matches a NaN.
+func search[T ordered](xs []T, x T) int {
+	let mut i = 0
+	let mut j = len(xs)
+	for i < j {
+		let h = (i + j) / 2
+		if cmp.Less(xs[h], x) {
+			i = h + 1
+		} else {
+			j = h
+		}
+	}
+	if i < len(xs) && (xs[i] == x || xs[i] != xs[i] && x != x) {
+		return i
+	}
+	-1
+}

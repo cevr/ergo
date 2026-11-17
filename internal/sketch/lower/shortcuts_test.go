@@ -33,6 +33,31 @@ test At {
 	assert at("ab", 1) == 98
 }
 `,
+	"host-reads": `import go sort
+
+func find(xs []int, n int) int needs go.Foreign {
+	sort.SearchInts(xs, n) + len(xs)
+}
+
+func main() needs Console | go.Foreign {
+	Console.Println("\(find([]int{1, 3, 5}, 3))")
+}
+`,
+	"host-view": `import go hash/crc32
+import strings
+
+func sum(s string) uint32 {
+	crc32.ChecksumIEEE(strings.Bytes(s))
+}
+
+func main() needs Console {
+	Console.Println("\(sum("abc"))")
+}
+
+test Sum {
+	assert sum("abc") == crc32.ChecksumIEEE(strings.Bytes("abc"))
+}
+`,
 	"mono-instance": `func count[T](xs []T) int {
 	let mut n = 0
 	for _ in xs {

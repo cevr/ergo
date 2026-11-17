@@ -64,10 +64,7 @@ func TestPureBodiesKeepTheAllowlist(t *testing.T) {
 		}
 	}
 	for _, name := range []string{
-		"StringsSplit", "StringsJoin", "StringsHasPrefix", "StringsHasSuffix",
-		"StringsTrimSpace", "StringsTrimPrefix", "StringsTrimSuffix", "StringsFields",
-		"StringsRepeat", "StringsToLower", "StringsToUpper", "StringsIndex",
-		"StringsContains", "StringsSlice", "StrconvItoa", "StrconvAtoi", "StrconvQuote",
+		"StringsJoin", "StringsSlice", "StrconvAtoi",
 		"TimeFormat", "TimeParse", "TimeSub", "TimeSubMono",
 		"Append", "Get", "Put", // the prelude's collection intrinsics (lw-pure-prelude; Delete binds Go's delete, OPT7)
 	} {

@@ -49,8 +49,8 @@ func TestHTTPHasNoTestProviderDependency(t *testing.T) {
 	seen := map[*check.Package]bool{}
 	var visit func(*check.Package)
 	visit = func(p *check.Package) {
-		if seen[p] {
-			return
+		if seen[p] || p.Host() {
+			return // a Go package of import go has no Ergo imports
 		}
 		seen[p] = true
 		if p.Path == "fstest" {
