@@ -154,6 +154,13 @@ func shapeName(s HandlerShape) string {
 // EncodeRecord is the record's text form, as ParseRecord reads it.
 func EncodeRecord(f Features) string {
 	let mut b = strings.NewBuilder()
+	// A line is about 50 bytes and its comment, a node about 80: one
+	// growth for most records.
+	let mut size = 64 + 80*len(f.Nodes)
+	for l in f.Lines {
+		size += 50 + len(l.CommentText)
+	}
+	b.Grow(size)
 	b.WriteString(RecordHeader + f.Language + "\n")
 	for l in f.Lines {
 		// Piece by piece into the one builder: an interpolated line

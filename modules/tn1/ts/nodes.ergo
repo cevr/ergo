@@ -6,6 +6,7 @@
 // TypeScript host's own reading of "the body's kinds, names erased".
 
 import ergo.dev/tn1
+import slices
 
 // declarer reports a word that makes a statement a type.
 func declarer(s string) bool {
@@ -118,7 +119,7 @@ func trigrams(code []Token) []uint64 {
 	for t in code {
 		words = words.Append(shapeWord(t))
 	}
-	let mut out = []uint64{}
+	let mut out = slices.WithCapacity[uint64](len(code))
 	for i in 0..len(code)-2 {
 		let mut h uint64 = 14695981039346656037
 		for k in i..i+3 {
