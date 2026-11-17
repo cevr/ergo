@@ -33,10 +33,6 @@ actor	shown	provider
 actor	start	provider
 arena	stored	type
 arena	takeValue	language	PRIM
-atomic	Bool	type
-atomic	Int64	type
-atomic	NewBool	library	GBX1b: go.New[atomic.Bool]() charges go.Foreign (interop.md, Go values by address 3), which no test or law holds; Bool's methods are memory-only (GBX6), its constructor is not
-atomic	NewInt64	library	GBX1b: go.New[atomic.Int64]() charges go.Foreign (interop.md, Go values by address 3), which no test or law holds; Int64's methods are memory-only (GBX6), its constructor is not
 base64	Malformed	type
 base64	decodeStd	library	GBX3: Go's base64.StdEncoding is a package variable, which import go does not bind
 base64	decodeURL	library	GBX3: Go's base64.URLEncoding is a package variable, which import go does not bind

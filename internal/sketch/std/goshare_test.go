@@ -43,10 +43,10 @@ func TestStdGoShareOnlyFalls(t *testing.T) {
 var stdGoShareCeiling = map[string]int{
 	"provider":    54,
 	"host":        19,
-	"library":     66,
+	"library":     64,
 	"language":    21,
 	"computation": 48,
-	"type":        75,
+	"type":        73,
 }
 
 // stdGoShareClasses are the classes a row may name; the true ones need a

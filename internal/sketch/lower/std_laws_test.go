@@ -83,7 +83,7 @@ test AtomicInitialValues(value int64, flag bool) {
 	assert atomic.NewInt64(value).Load() == value && atomic.NewBool(flag).Load() == flag
 }
 
-test AtomicInt64StoresAndAdds(a int64, b int64) {
+test AtomicStoresAndAdds(a int64, b int64) {
 	let c = atomic.NewInt64(0)
 	let alias = c
 	alias.Store(a)
@@ -95,7 +95,7 @@ test AtomicInt64StoresAndAdds(a int64, b int64) {
 	assert sum == a + b && seen == sum && previous == sum && changed && unchanged && alias.Load() == b
 }
 
-test AtomicBoolExchanges(a bool, b bool) {
+test AtomicExchanges(a bool, b bool) {
 	let f = atomic.NewBool(false)
 	f.Store(a)
 	let previous = f.Swap(b)
@@ -461,8 +461,8 @@ func stdLawsTestName(pkg, law string) string {
 var stdLawsStatements = map[string]string{
 	"os CodeWhere":                         `CodeWhere(v Code) { let it = int(v) (1 <= it && it <= 125) && try ParseCode(it) == v }`,
 	"atomic InitialValues":                 `InitialValues(value int64, flag bool) { NewInt64(value).Load() == value && NewBool(flag).Load() == flag }`,
-	"atomic Int64.StoresAndAdds":           `StoresAndAdds(a int64, b int64) { Store(a) let sum = Add(b) let seen = Load() let previous = Swap(a) let changed = CompareAndSwap(a, b) let unchanged = !CompareAndSwap(b+1, a) sum == a+b && seen == sum && previous == sum && changed && unchanged && Load() == b }`,
-	"atomic Bool.Exchanges":                `Exchanges(a bool, b bool) { Store(a) let previous = Swap(b) let seen = Load() let changed = CompareAndSwap(b, a) let unchanged = !CompareAndSwap(!a, b) previous == a && seen == b && changed && unchanged && Load() == a }`,
+	"atomic StoresAndAdds":                 `StoresAndAdds(a int64, b int64) { let c = NewInt64(0) c.Store(a) let sum = c.Add(b) let seen = c.Load() let previous = c.Swap(a) let changed = c.CompareAndSwap(a, b) let unchanged = !c.CompareAndSwap(b+1, a) sum == a+b && seen == sum && previous == sum && changed && unchanged && c.Load() == b }`,
+	"atomic Exchanges":                     `Exchanges(a bool, b bool) { let f = NewBool(false) f.Store(a) let previous = f.Swap(b) let seen = f.Load() let changed = f.CompareAndSwap(b, a) let unchanged = !f.CompareAndSwap(!a, b) previous == a && seen == b && changed && unchanged && f.Load() == a }`,
 	"atomic IncrementsCount":               `IncrementsCount(n int) { let k = 1 + (n%8+8)%8 let c = NewInt64(0) let s = tasks.NewSet(tasks.FailFast) for _ in 0..k { try tasks.Go(s, func() { _ = c.Add(1) }) } s.Wait() c.Load() == int64(k) }`,
 	"embed EmptyHasNoFiles":                `EmptyHasNoFiles(path string) { let _ = NewEmpty().ReadFile(path) catch { case fs.NotFound: return true case fs.Denied, fs.Failed: return false } false }`,
 	"embed FS.ReadIsRepeatable":            `ReadIsRepeatable(path string) { let first = ReadFile(path) catch { case fs.NotFound: return true case fs.Denied, fs.Failed: return false } try ReadFile(path) == first }`,
