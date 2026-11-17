@@ -150,7 +150,7 @@ func (in *interp) exprFacts(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt)
 		if ab != nil {
 			return nil, ab
 		}
-		if root != nil && !basicValue(v) {
+		if root != nil && !holdsNoStore(v) {
 			// A part that holds a store leaves the slot: the slot lends.
 			root.lend()
 		}
@@ -874,7 +874,19 @@ func (in *interp) callOf(fr *frame, x *syntax.CallExpr, xf *facts) (Value, *abru
 		mustCharge(in, fr, int64(len(s)))
 		return c.Pattern.Match(s), nil
 	case check.CallLen:
-		v, ab := in.expr(fr, x.Args[0])
+		// len reads a length, not the elements: a part it reads leaves
+		// no share behind, so its slot does not lend (MX-EVWITNESS: vt's
+		// push read len(s.flags), and the next write copied the screen).
+		var v Value
+		var ab *abrupt
+		switch a := unparen(x.Args[0]).(type) {
+		case *syntax.SelectorExpr, *syntax.IndexExpr:
+			if ab = in.charge(fr, a, 1); ab == nil {
+				v, _, ab = in.peek(fr, a)
+			}
+		default:
+			v, ab = in.expr(fr, x.Args[0])
+		}
 		if ab != nil {
 			return nil, ab
 		}
@@ -1106,13 +1118,21 @@ func preludeCollection(f *check.Func) bool {
 // own is the token of the slot an assignment hands the receiver over from
 // (x = x.Append(e)); the receiver is then read without a lend.
 func (in *interp) collectionCall(fr *frame, x *syntax.CallExpr, c *check.Call, own *slot) (Value, *abrupt) {
+	return in.collectionCallAt(fr, x, c, own, nil)
+}
+
+// collectionCallAt is collectionCall whose handed-over receiver is the
+// place at the path at from own's value (stmt.go, handover).
+func (in *interp) collectionCallAt(fr *frame, x *syntax.CallExpr, c *check.Call, own *slot, at []step) (Value, *abrupt) {
 	var recv Value
 	var ab *abrupt
 	if own != nil {
 		if ab := in.charge(fr, c.Recv, 1); ab != nil {
 			return nil, ab
 		}
-		recv = own.v
+		if recv, ab = in.read(fr, own.v, at); ab != nil {
+			return nil, ab
+		}
 	} else if recv, ab = in.expr(fr, c.Recv); ab != nil {
 		return nil, ab
 	}
