@@ -34,7 +34,8 @@ import (
 // lf6d-site-index-shared, lf6d-canary-every-ignored,
 // lf6d-canary-go-equality-for-floats, lf6d-canary-default,
 // lf6d-enc-ignored. LF6w: St's statement call is no site; mutant
-// lf6w-stmt-site.
+// lf6w-stmt-site. Loop's operand reads s, which the loop writes, so LF3's
+// loop memo does not hoist Read out of the condition (I-FLIP).
 func TestRewriteAtTakesOneDecision(t *testing.T) {
 	const src = `func Enc(s string) string { s + "!" }
 
@@ -86,8 +87,10 @@ func AndLocal(b bool, t string) bool { b && Dec(Enc(t)) == "" }
 
 func Loop(t string) int {
 	let mut n = 0
-	for Dec(Enc(Read(t))) != "" && n < 3 {
+	let mut s = t
+	for Dec(Enc(Read(s))) != "" && n < 3 {
 		n = n + 1
+		s = s + "x"
 	}
 	n
 }
