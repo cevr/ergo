@@ -149,6 +149,13 @@ func (b *irBuilder) fold(x *syntax.CallExpr) (out *irExpr) {
 	if c.Func.Pkg == nil || c.Func.Pkg.Host() || !eval.Rowless(c.Func) {
 		return nil
 	}
+	// A call of an extern stays: the built program runs its Go body, which
+	// may answer otherwise than the evaluator's native by design (std
+	// html's inFold is false there and true in a fold). A fold of an Ergo
+	// function still runs the externs it calls.
+	if d := c.Func.Decl; d == nil || d.Body == nil || d.Extern != nil {
+		return nil
+	}
 	t := b.l.info.Types[x]
 	if t == nil || !b.closed(x) {
 		return nil

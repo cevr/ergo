@@ -57,6 +57,9 @@ func GenerateConstFold(seed uint64) (string, bool) {
 		fmt.Fprintf(&b, "\tConsole.Println(\"\\(area(mk(%d)))\")\n", r.IntN(20))
 	}
 	fmt.Fprintf(&b, "\tlet ls = lits(%d)\n\tfor v in ls {\n\t\tConsole.Println(\"\\(v)\")\n\t}\n\tConsole.Println(show(recs(%d)))\n", r.IntN(9), r.IntN(9))
+	// A node of run-time data is no markup in a built program: html's
+	// inFold is false there, whatever the fold's evaluator answers.
+	fmt.Fprintf(&b, "\tlet nw = noisy(%d)\n\tlet w = \"w\\(nw)\"\n\tlet pw = html.P([]html.Child{html.Text(w)})\n\tlet sw = html.Static(pw)\n\tConsole.Println(\"\\(sw)\")\n", r.IntN(9))
 	fmt.Fprintf(&b, "\tConsole.Println(\"\\(spin(%d))\")\n", 2_000_000+r.IntN(1000))
 	defect := seed%2 == 0
 	idx := r.IntN(3)

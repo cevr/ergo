@@ -111,8 +111,10 @@ func TestConstFoldCounts(t *testing.T) {
 // functions of records, lists, union variants, floats and strings; even
 // seeds end in a defect a call of constants raises, which stays a call.
 // Both print what the source path (the Go text) prints, so the impure
-// calls inside list and record literals run in the source's order. Every
-// seed folds. A failing seed prints the Ergo source, both outcomes
+// calls inside list and record literals run in the source's order, and a
+// node built from run-time data is not static (no call of an extern, such
+// as html's inFold, is folded to the evaluator's answer). Every seed
+// folds. A failing seed prints the Ergo source, both outcomes
 // and its replay command. It builds Go for the reason needsBuild gives:
 // the question is what the built program prints.
 func TestConstFoldAgrees(t *testing.T) {
