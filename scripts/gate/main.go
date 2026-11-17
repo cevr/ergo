@@ -1257,9 +1257,9 @@ var (
 // keyedEnvironment is the environment the whole-gate key holds
 // (declaredEnvironment): the caller's variables that testenv names, and no
 // other, as Bazel's strict action environment passes only declared
-// variables, with gitOptionalLocks at 0, ERGO_GO at the go command of the
-// toolchain go.mod selects unless the caller sets it (moduleGo), with the
-// gate's collector target
+// variables, with gitOptionalLocks at 0, ERGO_GO at system with the go
+// command of the toolchain go.mod selects first on PATH unless the caller
+// sets ERGO_GO (moduleGo), with the gate's collector target
 // and the soft memory limit below the step budget (stepSoftLimit) unless
 // the caller sets them, and
 // GOMAXPROCS and the go command's -p at most the CPU budget
@@ -1289,8 +1289,15 @@ func keyedEnvironment() []string {
 	// go.mod selects (moduleGo), the release the IR patch is ported to,
 	// and never downloads ergo's managed release (internal/toolchain): no
 	// step reads the network. ERGO_GO in the caller's environment wins.
+	// The go command comes first on PATH and ERGO_GO is system, not its
+	// path, so a test that puts a go stub before it on PATH (a call
+	// logger, a wrapper) still has its stub run (I19 full r3).
 	if _, set := os.LookupEnv(ergoGo); !set {
-		environment = append(environment, ergoGo+"="+moduleGo())
+		environment = append(environment, ergoGo+"=system")
+		if goCommand := moduleGo(); goCommand != "system" {
+			path, _ := environmentVariable(environment, "PATH")
+			environment = setEnvironmentVariable(environment, "PATH", filepath.Dir(goCommand)+string(os.PathListSeparator)+path)
+		}
 	}
 	cpus := stepCPUs()
 	environment = setEnvironmentVariable(environment, "GOFLAGS", stepGOFLAGS(os.Getenv("GOFLAGS"), cpus))
