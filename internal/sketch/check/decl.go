@@ -144,6 +144,8 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		// After the footprints: the argument of a pure parameter runs a
 		// pure function (Footprints 6), a durable machine's step (MU9).
 		c.checkPureArgs,
+		// After the footprints: a dropped result of a pure call (discard.go).
+		c.checkDroppedResults,
 		// After the footprints: an invariant law's predicate is pure (X2).
 		c.checkLawPreds,
 		// After the footprints: a top-level rewrite law's functions are
