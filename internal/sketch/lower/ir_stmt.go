@@ -400,7 +400,7 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 	case *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
 		return b.matchStmt(s, false, nil) // ir_match.go
 	case *syntax.ForStmt:
-		return b.whileStmt(s) // ir_order.go
+		return b.whileStmt(s) // ir_order.go; its body under memoLoop (ir_memo.go)
 	case *syntax.BranchStmt:
 		if b.loops == 0 {
 			irNo("break or continue outside a loop")
@@ -425,7 +425,7 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 	case *syntax.RangeStmt:
 		lp := b.l.info.Loops[s]
 		if lp != nil && lp.Domain == check.LoopRange {
-			return b.countLoop(s, lp) // ir_pkg.go
+			return b.memoLoop(s, func() []*irStmt { return b.countLoop(s, lp) }) // ir_pkg.go, ir_memo.go
 		}
 		if lp == nil || !goRange(lp.Domain) { // ir_pkg.go
 			b.gate("for-in over a non-slice")
@@ -454,9 +454,11 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		}
 		b.part(func() { st.Key = bind(s.Key) })
 		b.part(func() { st.Val = bind(s.Value) })
-		b.loopBody(st, s, s.Body)
-		st.Pos = past(st.Pos, pre) // ir_match.go
-		return append(pre, st)
+		st.Pos = past(st.Pos, pre)                          // ir_match.go
+		return append(pre, b.memoLoop(s, func() []*irStmt { // ir_memo.go
+			b.loopBody(st, s, s.Body)
+			return []*irStmt{st}
+		})...)
 	}
 	irNo("statement %T", s)
 	return nil
