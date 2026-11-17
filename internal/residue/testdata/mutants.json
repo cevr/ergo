@@ -75,8 +75,8 @@
       "name": "residue-debt-grows",
       "origin": "wf10 STD-NOPRIV NP1",
       "file": "internal/residue/testdata/std-privileges.txt",
-      "from": "language\tinternal/sketch/lower/values.go:preludeAppend\tthe prelude Append\t-\n",
-      "to": "debt\tinternal/sketch/lower/values.go:preludeAppend\tthe prelude Append\tNP6\n",
+      "from": "language\tinternal/sketch/lower/gocall.go:isOptionType\tOption at the Go boundary\t-\n",
+      "to": "debt\tinternal/sketch/lower/gocall.go:isOptionType\tOption at the Go boundary\tNP6\n",
       "rule": "The debt list only shrinks: a row may not join it.",
       "killers": ["internal/residue:TestCompilerReadsNoStdMembership"],
       "anchor": {"tests": ["internal/residue:TestCompilerReadsNoStdMembership"]}

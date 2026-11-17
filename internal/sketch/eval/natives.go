@@ -383,12 +383,32 @@ func registerNatives() {
 // (stdlib.md, rand: Seeded(seed) is rand.NewPCG(seed, "ErgoRand")).
 const randSeedHi = 0x45_72_67_6f_52_61_6e_64
 
+// collNatives are the natives of the operations of the built-in types
+// (check.CollOpOf, PRIM-4), by operation, never by a declaration's name:
+// each runs as the std function it was before it became an operation.
+// The builder operations have none, as their std helpers had none.
+var collNatives = map[check.CollOp]string{
+	check.CollTakeAt:     "slices.Take",
+	check.CollSlice:      "slices.Slice",
+	check.CollClone:      "maps.Clone",
+	check.CollSliceClone: "slices.Clone",
+	check.CollConcat:     "slices.Concat",
+	check.CollRepeat:     "slices.Repeat",
+	check.CollSubstring:  "strings.Slice",
+	check.CollText:       "strings.builderText",
+	check.CollRuneText:   "utf8.RuneText",
+	check.CollMakeSlice:  "slices.WithCapacity",
+}
+
 // nativeOf is fn's native, nil when the evaluator has none.
 func nativeOf(fn *check.Func) native {
 	if fn.Pkg == nil || !fn.Pkg.Std() {
 		return nil
 	}
 	loadNatives()
+	if key, ok := collNatives[check.CollOpOf(fn)]; ok {
+		return natives[key]
+	}
 	return natives[fn.Pkg.Path+"."+fn.Name]
 }
 

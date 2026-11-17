@@ -1228,6 +1228,37 @@ func (g *valueGen) keepSlice(b *vbind, v int) {
 	g.reached["keep flush"] = true
 }
 
+// takes writes a Take (PRIM-3) from each Map binding, after the drawn
+// statements, so it draws nothing and the seeds keep their paths: from a
+// let mut, the rest rebound to it, which takes the key in place; from a
+// let, the rest with the source live, which keeps the key. Each prints the
+// rest and the source as the model has them.
+func (g *valueGen) takes() {
+	for _, b := range g.binds {
+		if b.kind != kMap {
+			continue
+		}
+		key := 0 // no draw: the smallest key, or one m does not have
+		if len(b.val.m) > 0 {
+			key = slices.Min(slices.Collect(maps.Keys(b.val.m)))
+		}
+		rest := g.fresh()
+		g.line(fmt.Sprintf("let _, %s = %s.Take(%d)", rest, b.name, key))
+		out := maps.Clone(b.val.m)
+		delete(out, key)
+		if b.mut {
+			g.line(fmt.Sprintf("%s = %s", b.name, rest))
+			b.val.m = out
+			b.written = true
+			g.reached["take in place"] = true
+		} else {
+			g.reached["take live"] = true
+		}
+		g.line(fmt.Sprintf("Console.Println(\"\\(dm(%s)) \\(dm(%s))\")", rest, b.name))
+		fmt.Fprintf(&g.want, "%d %d\n", dmModel(out), dmModel(b.val.m))
+	}
+}
+
 // valueProgram writes the program of seed, shared or not, and the lines
 // it must print.
 func valueProgram(seed uint64, shared bool, reached map[string]bool) (src, want string) {
@@ -1246,6 +1277,7 @@ func valueProgram(seed uint64, shared bool, reached map[string]bool) (src, want 
 	for _, f := range g.pending {
 		f()
 	}
+	g.takes()
 	if shared {
 		g.line("let mut two = Two{A: []int{}, B: []int{1, 2, 3}}")
 		g.line("Console.Println(\"\\(crossS(&two))\")")
@@ -1410,7 +1442,7 @@ var valuePaths = []string{
 	"bind", "reassign", "source literal", "source binding", "source field", "source element", "source result", "source fresh result",
 	"source append live", "source delete live", "source put live", "source append element", "source update",
 	"argument", "pure", "closure", "task", "loop kept", "literal write",
-	"write map", "delete in place", "put in place", "write loop", "write slice", "append in place",
+	"write map", "delete in place", "take live", "take in place", "put in place", "write loop", "write slice", "append in place",
 	"write field map", "write field slice", "append field", "write element",
 	"own rebind", "own loop", "own capture", "own slice", "own field", "own live",
 	"update rebind", "update rebind option", "update field", "update live",

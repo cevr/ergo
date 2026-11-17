@@ -1335,8 +1335,15 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `os` | `CodeWhere` | `CodeWhere(v Code) { let it = int(v) (1 <= it && it <= 125) && try ParseCode(it) == v }` | `TestStdLawsRun` | tested |
 | `os` | `Process.GetwdIsAbsolute` | `GetwdIsAbsolute() { let dir = Getwd() catch { case NoWorkdir: return true } filepath.IsAbs(dir) }` | `TestStdHostLawsHold` | tested |
 | `os` | `Process.GetwdIsStable` | `GetwdIsStable() { let first = Getwd() catch { case NoWorkdir: let _ = Getwd() catch { case NoWorkdir: return true } return false } let second = Getwd() catch { case NoWorkdir: return false } first == second }` | `TestStdHostLawsHold` | tested |
+| `prelude` | `AppendIsLast` | `AppendIsLast(xs []int, x int) { let ys = xs.Append(x) len(ys) == len(xs) + 1 && ys[len(xs)] == x }` | `TestCollLaws` | tested |
+| `prelude` | `CloneIsEqual` | `CloneIsEqual(m Map[int, int], k int) { let c = m.Clone() len(c) == len(m) && sameEntry(c.Get(k), m.Get(k)) }` | `TestCollLaws` | tested |
+| `prelude` | `GetAfterDelete` | `GetAfterDelete(m Map[int, int], k int) { match m.Delete(k).Get(k) { case Some[int]: false case None: true } }` | `TestCollLaws` | tested |
+| `prelude` | `GetAfterPut` | `GetAfterPut(m Map[int, int], k int, v int) { match m.Put(k, v).Get(k) { case Some[int] as x: x.Value == v case None: false } }` | `TestCollLaws` | tested |
 | `prelude` | `Random.Float64InUnit` | `Float64InUnit() { let f = Float64() f >= 0.0 && f < 1.0 }` | `TestRandLaws` | tested |
 | `prelude` | `Random.IntNInRange` | `IntNInRange(n int) { if n <= 0 { return true } let x = IntN(n) x >= 0 && x < n }` | `TestRandLaws` | tested |
+| `prelude` | `SliceIsWindow` | `SliceIsWindow(xs []int, i int, j int) { if i < 0 \|\| j > len(xs) \|\| i > j { return true } let w = xs.Slice(i, j) let mut ok = len(w) == j - i for k, y in w { ok = ok && y == xs[i + k] } ok }` | `TestCollLaws` | tested |
+| `prelude` | `TakeIsGetAndDelete` | `TakeIsGetAndDelete(m Map[int, int], k int) { let v, rest = m.Take(k) sameEntry(v, m.Get(k)) && sameEntry(rest.Get(k), None) && len(rest) == len(m.Delete(k)) }` | `TestCollLaws` | tested |
+| `prelude` | `TakeAtIsIndexAndRest` | `TakeAtIsIndexAndRest(xs []int, i int) { if i < 0 \|\| i >= len(xs) { return true } let x, rest = xs.TakeAt(i) let mut ok = x == xs[i] && len(rest) == len(xs) - 1 for k, y in rest { ok = ok && (k < i && y == xs[k] \|\| k >= i && y == xs[k + 1]) } ok }` | `TestCollLaws` | tested |
 | `prelude` | `Task.StopIsIdempotent` | `StopIsIdempotent() { Stop() Stop() true }` | `TestStdLawsRun` | tested |
 | `queue` | `EndKeepsValues` | `EndKeepsValues(v int) { let q = New[int](1) try q.Push(v) q.End() try q.Pop() == v }` | `TestStdLawsRun` | tested |
 | `queue` | `FirstInFirstOut` | `FirstInFirstOut(a int, b int) { let q = New[int](2) try q.Push(a) try q.Push(b) let first = try q.Pop() let second = try q.Pop() first == a && second == b }` | `TestStdLawsRun` | tested |
@@ -1418,7 +1425,7 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `strconv` | `ParseIntInvertsFormat` | `ParseIntInvertsFormat(n int) { try ParseInt(Itoa(n), 10, 64) == int64(n) }` | `TestStdTextLaws` | tested |
 | `strconv` | `ParseIntInvertsFormatInt` | `ParseIntInvertsFormatInt(n int64, b int) { let base = 2 + (b%35+35)%35 try ParseInt(FormatInt(n, base), base, 64) == n }` | `TestStdRunesLaws` | tested |
 | `strconv` | `UnquoteInvertsQuote` | `UnquoteInvertsQuote(s string) { try Unquote(Quote(s)) == s }` | `TestStdTextLaws` | tested |
-| `strings` | `BuilderConcatenates` | `BuilderConcatenates(a string, c byte, d string) { let mut b = NewBuilder() b.WriteString(a) b.Grow(len(d)) b.WriteByte(c) let mut copy = b copy.WriteString(d) let want = a + builderText([]byte{c}) b.String() == want && b.Len() == len(want) && copy.String() == want+d && copy.Len() == len(want)+len(d) }` | `TestStdTextRuns2` | tested |
+| `strings` | `BuilderConcatenates` | `BuilderConcatenates(a string, c byte, d string) { let mut b = NewBuilder() b.WriteString(a) b.Grow(len(d)) b.WriteByte(c) let mut copy = b copy.WriteString(d) let want = a + []byte{c}.Text() b.String() == want && b.Len() == len(want) && copy.String() == want+d && copy.Len() == len(want)+len(d) }` | `TestStdTextRuns2` | tested |
 | `strings` | `BytesRoundTrip` | `BytesRoundTrip(s string, c byte) { let text = s + "x" let mut a = Bytes(text) let shared = a let t = FromBytes(shared) let u = FromBytes(a) a[0] = c let mut b = NewBuilder() b.WriteString(s) b.WriteBytes(a) let mut w = NewBuilder() w.WriteString(s) w.WriteByte(c) w.WriteString(Slice(text, 1, len(text))) t == text && u == text && FromBytes(Bytes(s)) == s && b.String() == w.String() && b.Len() == len(s)+len(text) }` | `TestStdTextRuns2` | tested |
 | `strings` | `CompareIsAntisymmetric` | `CompareIsAntisymmetric(a string, b string) { Compare(a, b) == -Compare(b, a) && (Compare(a, b) == 0) == (a == b) }` | `TestStdPadLaws` | tested |
 | `strings` | `CountMatchesSplit` | `CountMatchesSplit(s string, sep string) { if sep == "" { return true } Count(s, sep) == len(Split(s, sep))-1 }` | `TestStdTextLaws` | tested |
@@ -1647,13 +1654,11 @@ The standard library is an ordinary set of packages ([NORTH_STAR.md](../../NORTH
 | `internal/rpcgen/rpcgen.go:pairOf` | `Wire`, the codec's conversion protocol |
 | `internal/sketch/check/authority.go:authorityText` | a prelude constructor, named unqualified |
 | `internal/sketch/check/authority.go:isAmbient` | `Ambient` |
-| `internal/sketch/check/call.go:checker.collFuncs` | `Append`, `Get`, `Delete`, `Put` |
 | `internal/sketch/check/call.go:checker.preludeOp` | a prelude operation, reached by the dot form |
 | `internal/sketch/check/call.go:isUnreachable` | `Unreachable` |
 | `internal/sketch/check/close.go:checker.closeFacts` | `Close`, the release operation |
 | `internal/sketch/check/close.go:checker.closeTakes` | `Close` |
 | `internal/sketch/check/contextvalues.go:contextRow` | `Context` |
-| `internal/sketch/check/decl.go:checker.collectSelfFuncs` | the prelude's ownership declarations |
 | `internal/sketch/check/durable.go:pureSeer.step` | `Machine`, a machine literal whose Step a pure parameter sees |
 | `internal/sketch/check/durable.go:pureSeer.stepValue` | `Machine`'s `Step` |
 | `internal/sketch/check/entry.go:checker.checkErrorMethods` | `Error`, the method of a failure |
@@ -1663,7 +1668,6 @@ The standard library is an ordinary set of packages ([NORTH_STAR.md](../../NORTH
 | `internal/sketch/check/implements.go:checker.preludeContract` | `Closer`, `Keeping` |
 | `internal/sketch/check/implements.go:checker.recordLegacyReleases` | `Closer` |
 | `internal/sketch/check/implements.go:isGoCloser` | `io.Closer` |
-| `internal/sketch/check/footprint.go:preludeCollection` | `Append`, `Get`, `Delete`, `Put` |
 | `internal/sketch/check/hostres.go:checker.hostCloseFunc` | `Close` |
 | `internal/sketch/check/laws.go:lawClosures` | the prelude's providers in a law |
 | `internal/sketch/check/loops.go:checker.preludeOrigin` | `Range`, `Seq` |
@@ -1674,22 +1678,16 @@ The standard library is an ordinary set of packages ([NORTH_STAR.md](../../NORTH
 | `internal/sketch/check/takes.go:checker.takesPass` | `Close` |
 | `internal/sketch/derive/eval.go:evaluator.callee` | `Of`, the derive plan's constructor |
 | `internal/sketch/eval/arguments.go:interp.argumentType` | the prelude's types |
-| `internal/sketch/eval/expr.go:interp.collectionCall` | `Append`, `Get`, `Delete`, `Put` |
-| `internal/sketch/eval/expr.go:preludeCollection` | `Append`, `Get`, `Delete`, `Put` |
 | `internal/sketch/eval/machine.go:interp.machineStep` | `Enter`, `Stay`, `Emit`, `Tell`, `Done`, `Next` |
-| `internal/sketch/eval/stmt.go:interp.handover` | `Get` |
 | `internal/sketch/lower/builders.go:lowerer.builtText` | a prelude constructor, written unqualified |
 | `internal/sketch/lower/calls.go:funcCtx.callee` | a prelude function, written unqualified |
 | `internal/sketch/lower/decls.go:isPreludeType` | `Option`, `Some`, `None` |
 | `internal/sketch/lower/decls.go:lowerer.intrinsic` | `Append`, `Delete`, `Put`, `Take` |
 | `internal/sketch/lower/getmatch.go:getPattern` | `Some`'s `Value`, the comma-ok form of `Get` |
-| `internal/sketch/lower/getmatch.go:preludeGet` | `Get` |
 | `internal/sketch/lower/gocall.go:isOptionType` | `Option` |
 | `internal/sketch/lower/library.go:hostProvides` | `Console`, `Ambient` |
 | `internal/sketch/lower/literal.go:lowerer.ergoType` | a prelude type, written unqualified |
 | `internal/sketch/lower/module.go:lowerer.hostFields` | `Console`, `Ambient` |
-| `internal/sketch/lower/values.go:preludeAppend` | `Append` |
-| `internal/sketch/lower/values.go:preludeMapWrite` | `Delete`, `Put` |
 | `internal/tsproj/project.go:emitter.declare` | `Wire` |
 | `internal/tsproj/project.go:emitter.schema` | `Option` |
 

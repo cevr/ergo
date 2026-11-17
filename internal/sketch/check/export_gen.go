@@ -553,6 +553,7 @@ func (e *encoder) encFieldsFunc(v *Func) {
 	e.encPtrNamed(v.owner)
 	e.encT24(v.selfArgs)
 	e.encPtrNamed(v.opOwner)
+	e.encCollOp(v.collOp)
 	e.encT5(v.same)
 	e.encT12(v.overloaded)
 	e.encT1(v.size)
@@ -1778,7 +1779,7 @@ func (e *encoder) encSyntax_Node(v syntax.Node) {
 
 func (e *encoder) encFieldscollKey(v *collKey) {
 	e.encT2(v.name)
-	e.encT12(v.isMap)
+	e.enccollOn(v.on)
 }
 
 func (e *encoder) enccollKey(v collKey) { e.encFieldscollKey(&v) }
@@ -2113,6 +2114,8 @@ func (e *encoder) encPtrSyntax_FuncDecl(v *syntax.FuncDecl) {
 	}
 	e.uint(e.nodes.ID(v))
 }
+
+func (e *encoder) encCollOp(v CollOp) { e.uint(uint64(v)) }
 
 func (e *encoder) encFieldsGoExtern(v *GoExtern) {
 	e.encGoAdapter(v.Adapter)
@@ -3859,6 +3862,8 @@ func (e *encoder) encPtrSyntax_VarSpec(v *syntax.VarSpec) {
 	}
 	e.uint(e.nodes.ID(v))
 }
+
+func (e *encoder) enccollOn(v collOn) { e.uint(uint64(v)) }
 
 func (e *encoder) encFieldsBuiltin(v *Builtin) {
 	e.encT2(v.Name)
@@ -11062,6 +11067,7 @@ func (d *decoder) decFieldsFunc(v *Func) {
 	v.owner = d.decPtrNamed()
 	v.selfArgs = d.decT24()
 	v.opOwner = d.decPtrNamed()
+	v.collOp = d.decCollOp()
 	v.same = d.decT5()
 	v.overloaded = d.decT12()
 	v.size = d.decT1()
@@ -12142,7 +12148,7 @@ func (d *decoder) decSyntax_Node() syntax.Node {
 
 func (d *decoder) decFieldscollKey(v *collKey) {
 	v.name = d.decT2()
-	v.isMap = d.decT12()
+	v.on = d.deccollOn()
 }
 
 func (d *decoder) deccollKey() (v collKey) {
@@ -12622,6 +12628,8 @@ func (d *decoder) decPtrSyntax_FuncDecl() *syntax.FuncDecl {
 	}
 	return x.(*syntax.FuncDecl)
 }
+
+func (d *decoder) decCollOp() CollOp { return CollOp(d.uint()) }
 
 func (d *decoder) decFieldsGoExtern(v *GoExtern) {
 	v.Adapter = d.decGoAdapter()
@@ -14388,6 +14396,8 @@ func (d *decoder) decPtrSyntax_VarSpec() *syntax.VarSpec {
 	}
 	return x.(*syntax.VarSpec)
 }
+
+func (d *decoder) deccollOn() collOn { return collOn(d.uint()) }
 
 func (d *decoder) decFieldsBuiltin(v *Builtin) {
 	v.Name = d.decT2()
