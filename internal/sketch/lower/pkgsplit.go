@@ -2,7 +2,6 @@ package lower
 
 import (
 	"bytes"
-	"cmp"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -715,8 +714,7 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 	if irs != nil && instShared {
 		finder = newSplitInsts(f, groups, groupOf)
 		var names map[string]bool
-		found := append(finder.collect(f, declGroup), irs.forwardedInsts(defOf, finder)...)
-		insts, names = finder.shared(found, plan, base, minUsers(shards))
+		insts, names = finder.shared(finder.collect(f, declGroup), plan, base, minUsers(shards))
 		if len(insts) > 0 {
 			instPkg = len(plan.pkgs)
 			plan.pkgs = append(plan.pkgs, splitPkg{dir: instDir, name: instName, sees: map[int]bool{}})
@@ -828,14 +826,7 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 			}
 			return plan.pkgs[to].alias + "." + name
 		}
-		// goPath is a name of another package as an IR body of k spells
-		// it, by the other package's import path (foreignDecls' generic
-		// names); k imports that package blank, below.
-		goPath := func(k int, name string) string {
-			to := groups[groupOf[name]].pkg
-			return base + "/" + plan.pkgs[to].dir + "." + cmp.Or(rename[name], name)
-		}
-		if reason := irs.foreignDecls(defOf, taken, text, qualified, goPath, extra); reason != "" {
+		if reason := irs.foreignDecls(defOf, taken, text, qualified, extra); reason != "" {
 			return nil, SplitReport{Reason: reason}
 		}
 		// A Go package an IR body names (strconv, the runtime) is imported
@@ -850,14 +841,6 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 			local[p] = name
 		}
 		irImports = irs.importPaths(func(i int) int { return groups[irs.owner[i]].pkg }, local)
-		for k, names := range irs.qual {
-			for _, q := range names {
-				if irImports[k] == nil {
-					irImports[k] = map[string]bool{}
-				}
-				irImports[k][q[:strings.LastIndex(q, ".")]] = true
-			}
-		}
 	}
 	var shared map[int][]string
 	instances := 0
