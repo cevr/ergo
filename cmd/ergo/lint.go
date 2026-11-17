@@ -258,9 +258,12 @@ func addedLines(path, rev string) (lint.Added, error) {
 		}
 		return string(out), nil
 	}
-	diff, err := git("diff", "-U0", "--no-color", "--no-ext-diff", "--no-prefix", "--relative", rev, "--", ".")
-	if err != nil {
-		return nil, err
+	diff := ""
+	// A repository with no commit yet has no HEAD: every file is untracked.
+	if _, headErr := git("rev-parse", "--verify", "--quiet", "HEAD^{commit}"); headErr == nil || rev != "HEAD" {
+		if diff, err = git("diff", "-U0", "--no-color", "--no-ext-diff", "--no-prefix", "--relative", rev, "--", "."); err != nil {
+			return nil, err
+		}
 	}
 	added := lint.ParseDiff(diff)
 	untracked, err := git("ls-files", "--others", "--exclude-standard", "--", ".")
