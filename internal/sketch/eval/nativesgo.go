@@ -12,11 +12,18 @@ import (
 // O20; grammar.md, extern go): the evaluator calls the same Go function,
 // which is the host language's library, not the lowering's or runtime/v1's
 // code. Only the functions listed here run; any other extern stays a
-// skip. Each takes and gives basic values only.
+// skip. Each takes and gives basic values only. A function of an `import
+// go` package is the binding's extern of the same target (gostd), so the
+// one table, keyed by Go path and name, serves both.
 var goNatives = map[string]native{
 	"math.Log":          goFloat(math.Log),
 	"math.Exp":          goFloat(math.Exp),
 	"strings.TrimRight": goStrings(strings.TrimRight),
+	// The bit conversions reinterpret, as Go's do (cborpack, MX-EVMATHBITS).
+	"math.Float64bits":     goBits(math.Float64bits),
+	"math.Float64frombits": goBits(math.Float64frombits),
+	"math.Float32bits":     goBits(math.Float32bits),
+	"math.Float32frombits": goBits(math.Float32frombits),
 }
 
 // std math is Go's math for float64 (std/math/math.ergo): the same Go
@@ -47,13 +54,24 @@ func registerNativesgo() {
 }
 
 // goNativeOf is the native of fn when it is a program's extern of a listed
-// Go function.
+// Go function, or that function read through `import go`: either way the
+// key is the Go path and name.
 func goNativeOf(fn *check.Func) native {
-	if fn.Decl == nil || fn.Decl.Extern == nil || fn.Pkg == nil || fn.Pkg.Std() || fn.Pkg.Host() {
+	if fn.Decl == nil || fn.Decl.Extern == nil || fn.Decl.Extern.Target == nil || fn.Pkg == nil || fn.Pkg.Std() {
 		return nil
 	}
 	path, name := fn.Decl.Extern.Split()
 	return goNatives[path+"."+name]
+}
+
+// goBits is a one-argument conversion of basic values, one step.
+func goBits[A, R Value](f func(A) R) native {
+	return func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		if ab := in.charge(fr, at, 1); ab != nil {
+			return nil, ab
+		}
+		return f(args[0].(A)), nil
+	}
 }
 
 func goFloat(f func(float64) float64) native {

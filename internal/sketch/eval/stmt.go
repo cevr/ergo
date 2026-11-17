@@ -457,7 +457,7 @@ func (in *interp) assign(fr *frame, s *syntax.AssignStmt) *abrupt {
 	}
 	var val Value
 	if call, own := in.handover(fr, root, steps, s); call != nil {
-		val, ab = in.collectionCall(fr, call, fr.info.Calls[call], own)
+		val, ab = in.collectionCall(fr, call, fr.info.Calls[call], own, steps)
 	} else {
 		val, ab = in.expr(fr, s.Rhs[0])
 	}
@@ -487,10 +487,16 @@ func (in *interp) assign(fr *frame, s *syntax.AssignStmt) *abrupt {
 }
 
 // handover is the prelude call of x = x.Append(e), x = x.Put(k, v) or
-// x = x.Delete(k) whose receiver is the local x itself, and x's slot: the
-// assignment replaces x, so the call may take x's own store.
+// x = x.Delete(k) whose receiver is the assigned place itself, and the
+// place's root slot: the assignment replaces the place, so the call may
+// take its own store. The place is the local x, or a field path from it
+// (x.f.g, or s.f through the borrow s), written the same on both sides:
+// a field path evaluates nothing, so reading it as a place is reading it
+// as a value (MX-EVWITNESS: vt's grow appended a row to s.cells one cell
+// at a time, and each Append copied the whole screen, where Go's append
+// extends the slice in place).
 func (in *interp) handover(fr *frame, root *slot, steps []step, s *syntax.AssignStmt) (*syntax.CallExpr, *slot) {
-	if s.Tok != syntax.ASSIGN || len(steps) != 0 {
+	if s.Tok != syntax.ASSIGN {
 		return nil, nil
 	}
 	call, ok := unparen(s.Rhs[0]).(*syntax.CallExpr)
@@ -501,6 +507,15 @@ func (in *interp) handover(fr *frame, root *slot, steps []step, s *syntax.Assign
 	if c == nil || c.Kind != check.CallFunc || !preludeCollection(c.Func) || c.Recv == nil || c.Func.Name == "Get" {
 		return nil, nil
 	}
+	if _, conv := fr.info.Implicit[c.Recv]; conv {
+		return nil, nil
+	}
+	if len(steps) > 0 {
+		if !samePlace(s.Lhs[0], c.Recv) {
+			return nil, nil
+		}
+		return call, root
+	}
 	id, ok := unparen(c.Recv).(*syntax.Ident)
 	if !ok {
 		return nil, nil
@@ -509,10 +524,22 @@ func (in *interp) handover(fr *frame, root *slot, steps []step, s *syntax.Assign
 	if s, _ := fr.vars.get(v); !ok || s != root {
 		return nil, nil
 	}
-	if _, conv := fr.info.Implicit[c.Recv]; conv {
-		return nil, nil
-	}
 	return call, root
+}
+
+// samePlace reports two field paths written the same: the same name,
+// then the same fields (x.f.g). Each side's root resolves to one slot,
+// since both name the same variable in one scope.
+func samePlace(a, b syntax.Expr) bool {
+	switch a := unparen(a).(type) {
+	case *syntax.Ident:
+		bi, ok := unparen(b).(*syntax.Ident)
+		return ok && a.Name == bi.Name
+	case *syntax.SelectorExpr:
+		bs, ok := unparen(b).(*syntax.SelectorExpr)
+		return ok && a.Sel.Name == bs.Sel.Name && samePlace(a.X, bs.X)
+	}
+	return false
 }
 
 // place resolves an assigned place: its root local's slot and the path

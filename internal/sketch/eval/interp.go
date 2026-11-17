@@ -287,13 +287,16 @@ func (in *interp) call(fr *frame, at *syntax.CallExpr, fn *check.Func, targs []c
 	if len(fn.Sig.TParams) == 0 {
 		return in.callResolved(fr, at, fn, nil, args)
 	}
-	if at != nil && fr.info.Instances[at] != nil && len(fr.info.Instances[at].Witnesses) > 0 {
-		return nil, fr.unsupported(at, "a generic call whose type parameter an operation type constrains (%s) yet", fn.Name)
-	}
-	// Each type argument is read in the caller's substitution.
+	// Each type argument is read in the caller's substitution, and so is
+	// each operation witness (witness.go).
 	var rt []rtype
 	for _, t := range targs {
 		rt = append(rt, fr.rt(t))
+	}
+	if at != nil {
+		if wits := witnessesOf(fr.info.Instances[at], fr.env); wits != nil {
+			return in.callWitnessed(fr, at, fn, rt, wits, args)
+		}
 	}
 	return in.callResolved(fr, at, fn, rt, args)
 }
@@ -303,12 +306,50 @@ func (in *interp) call(fr *frame, at *syntax.CallExpr, fn *check.Func, targs []c
 // one (natives.go); any other Go function is skipped. The callee sees
 // the caller's capabilities.
 func (in *interp) callResolved(fr *frame, at *syntax.CallExpr, fn *check.Func, targs []rtype, args []Value) (Value, *abrupt) {
+	return in.callWitnessed(fr, at, fn, targs, nil, args)
+}
+
+// callWitnessed is callResolved with the operation witnesses of the
+// callee's constrained type parameters (witness.go).
+func (in *interp) callWitnessed(fr *frame, at *syntax.CallExpr, fn *check.Func, targs []rtype, wits map[*check.TypeParam]*witnessV, args []Value) (Value, *abrupt) {
 	switch {
 	case check.AppendsString(fn):
 		if ab := in.charge(fr, at, 1); ab != nil {
 			return nil, ab
 		}
-		return appendString(fn, args[0], args[1]), nil
+		xs, isSlice := args[0].(sliceV)
+		s, isText := args[1].(string)
+		if in.sym != nil || !isSlice || !isText {
+			return appendString(fn, args[0], args[1]), nil
+		}
+		// A run appends each byte as Go's append does, growing the
+		// store in place (MX-EVBUILDER: a copy per call made civil's
+		// formats quadratic, at one step a call).
+		var site syntax.Node = fr.decl
+		if at != nil {
+			site = at
+		}
+		var v Value = xs
+		for i := 0; i < len(s); i++ {
+			var ab *abrupt
+			if v, ab = in.appendTo(fr, site, v.(sliceV), s[i], nil); ab != nil {
+				return nil, ab
+			}
+		}
+		return v, nil
+	case in.sym == nil && check.GoBuiltin(fn) == "append":
+		// An extern of Go's append at its first shape, [T](xs []T, x T)
+		// []T (check/builtin.go): the prelude's xs.Append(x), which the
+		// lowering also writes as Go's append (MX-EVAPPEND).
+		xs, ok := args[0].(sliceV)
+		if !ok {
+			ice("append's first argument is %T", args[0])
+		}
+		var site syntax.Node = fr.decl
+		if at != nil {
+			site = at
+		}
+		return in.appendTo(fr, site, xs, args[1], nil)
 	case fn.Decl == nil || fn.Decl.Body == nil || fn.Decl.Extern != nil || fn.Pkg.Host():
 		if in.sym != nil {
 			v, why := externTerm(fn, args)
@@ -348,7 +389,7 @@ func (in *interp) callResolved(fr *frame, at *syntax.CallExpr, fn *check.Func, t
 			ice("the generic call of %s has %d type arguments for %d parameters", fn.Name, len(targs), len(fn.Sig.TParams))
 		}
 		n := len(targs)
-		callee.env = &tenv{tps: fn.Sig.TParams[:n:n], args: targs[:n:n]} // full slices: a bind appends to neither
+		callee.env = &tenv{tps: fn.Sig.TParams[:n:n], args: targs[:n:n], wits: wits} // full slices: a bind appends to neither
 	}
 	params := in.paramsOf(fn)
 	if len(params) != len(args) {

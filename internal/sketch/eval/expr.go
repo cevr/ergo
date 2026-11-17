@@ -150,7 +150,7 @@ func (in *interp) exprFacts(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt)
 		if ab != nil {
 			return nil, ab
 		}
-		if root != nil && !basicValue(v) {
+		if root != nil && !holdsNoStore(v) {
 			// A part that holds a store leaves the slot: the slot lends.
 			root.lend()
 		}
@@ -342,7 +342,7 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 			t = rtype{t: p.Elem, env: t.env} // a field through a borrow
 		}
 		n, ok := t.t.(*check.Named)
-		if !ok || check.ScriptOf(n) != nil || structOf(n) == nil {
+		if !ok || (check.ScriptOf(n) != nil && !ergoProvider(n)) || structOf(n) == nil {
 			return nil, nil, fr.unsupported(x, "a member of %s yet", t.t)
 		}
 		base, root, ab := in.peekBase(fr, x.X, path)
@@ -587,6 +587,9 @@ func (in *interp) composite(fr *frame, x *syntax.CompositeLit) (Value, *abrupt) 
 	n, ok := t.t.(*check.Named)
 	if _, machine := t.under().t.(*check.MachineType); ok && machine && len(x.Elts) == 0 {
 		return &machinePlan{tn: n.Obj}, nil // machinevalue.go
+	}
+	if ok && len(x.Elts) == 0 && x.Base == nil && ergoProvider(n) {
+		return in.providerLit(fr, x, n, t) // provider.go
 	}
 	if !ok || structOf(n) == nil || check.ScriptOf(n) != nil || check.IsGoError(n) {
 		return nil, fr.unsupported(x, "a literal of %s yet", t.t)
@@ -871,7 +874,19 @@ func (in *interp) callOf(fr *frame, x *syntax.CallExpr, xf *facts) (Value, *abru
 		mustCharge(in, fr, int64(len(s)))
 		return c.Pattern.Match(s), nil
 	case check.CallLen:
-		v, ab := in.expr(fr, x.Args[0])
+		// len reads a length, not the elements: a part it reads leaves
+		// no share behind, so its slot does not lend (MX-EVWITNESS: vt's
+		// push read len(s.flags), and the next write copied the screen).
+		var v Value
+		var ab *abrupt
+		switch a := unparen(x.Args[0]).(type) {
+		case *syntax.SelectorExpr, *syntax.IndexExpr:
+			if ab = in.charge(fr, a, 1); ab == nil {
+				v, _, ab = in.peek(fr, a)
+			}
+		default:
+			v, ab = in.expr(fr, x.Args[0])
+		}
 		if ab != nil {
 			return nil, ab
 		}
@@ -893,7 +908,7 @@ func (in *interp) callOf(fr *frame, x *syntax.CallExpr, xf *facts) (Value, *abru
 			return nil, fr.unsupported(x, "a trailing block yet")
 		}
 		if preludeCollection(c.Func) {
-			return in.collectionCall(fr, x, c, nil)
+			return in.collectionCall(fr, x, c, nil, nil)
 		}
 		// A bodiless std function that takes an owned local holds its
 		// entry until it returns (own.go, holdTaken).
@@ -1100,16 +1115,20 @@ func preludeCollection(f *check.Func) bool {
 }
 
 // collectionCall runs xs.Append(x), m.Get(k), m.Delete(k) or m.Put(k, v).
-// own is the token of the slot an assignment hands the receiver over from
-// (x = x.Append(e)); the receiver is then read without a lend.
-func (in *interp) collectionCall(fr *frame, x *syntax.CallExpr, c *check.Call, own *slot) (Value, *abrupt) {
+// own is the slot an assignment hands the receiver over from (x =
+// x.Append(e), x.f = x.f.Append(e)), and at the path from own's value to
+// the receiver (stmt.go, handover); the receiver is then read without a
+// lend.
+func (in *interp) collectionCall(fr *frame, x *syntax.CallExpr, c *check.Call, own *slot, at []step) (Value, *abrupt) {
 	var recv Value
 	var ab *abrupt
 	if own != nil {
 		if ab := in.charge(fr, c.Recv, 1); ab != nil {
 			return nil, ab
 		}
-		recv = own.v
+		if recv, ab = in.read(fr, own.v, at); ab != nil {
+			return nil, ab
+		}
 	} else if recv, ab = in.expr(fr, c.Recv); ab != nil {
 		return nil, ab
 	}

@@ -18,6 +18,9 @@ type tenv struct {
 	// generic declaration has few, so a scan finds one (ORACLE O33).
 	tps  []*check.TypeParam
 	args []rtype
+	// wits are the operation witnesses of the call's constrained type
+	// parameters (witness.go), nil for most calls.
+	wits map[*check.TypeParam]*witnessV
 }
 
 // bind makes tp stand for r.
