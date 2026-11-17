@@ -57,6 +57,29 @@ func registerNativesjson() {
 		}
 		return args[0], in.charge(fr, at, 1)
 	}
+	// MX-EVBUILDER: the rest of the Builder's writes, and std civil's
+	// buffer, on the same appends.
+	natives["strings.builderAppendBytes"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		out, ok := args[0].(sliceV)
+		if !ok {
+			return nil, fr.unsupported(at, "%s on bytes the evaluator does not hold", fn.Name)
+		}
+		var v Value = out
+		for _, c := range args[1].(sliceV).elems() {
+			var ab *abrupt
+			if v, ab = in.appendTo(fr, at, v.(sliceV), c, nil); ab != nil {
+				return nil, ab
+			}
+		}
+		return v, nil
+	}
+	natives["strings.builderAppendFrom"] = builderAppendFrom
+	natives["civil.buffer"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		// Go's make([]byte, 0, n) for civil's constant n: the room is
+		// the Go target's, so an empty buffer, as strings.Borrow's.
+		return newSlice(nil), in.charge(fr, at, 1)
+	}
+	natives["civil.bytesText"] = bytesText
 	natives["json.open"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		if ab := in.charge(fr, at, 1+argWork(args)); ab != nil {
 			return nil, ab

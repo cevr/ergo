@@ -317,7 +317,26 @@ func (in *interp) callWitnessed(fr *frame, at *syntax.CallExpr, fn *check.Func, 
 		if ab := in.charge(fr, at, 1); ab != nil {
 			return nil, ab
 		}
-		return appendString(fn, args[0], args[1]), nil
+		xs, isSlice := args[0].(sliceV)
+		s, isText := args[1].(string)
+		if in.sym != nil || !isSlice || !isText {
+			return appendString(fn, args[0], args[1]), nil
+		}
+		// A run appends each byte as Go's append does, growing the
+		// store in place (MX-EVBUILDER: a copy per call made civil's
+		// formats quadratic, at one step a call).
+		var site syntax.Node = fr.decl
+		if at != nil {
+			site = at
+		}
+		var v Value = xs
+		for i := 0; i < len(s); i++ {
+			var ab *abrupt
+			if v, ab = in.appendTo(fr, site, v.(sliceV), s[i], nil); ab != nil {
+				return nil, ab
+			}
+		}
+		return v, nil
 	case in.sym == nil && check.GoBuiltin(fn) == "append":
 		// An extern of Go's append at its first shape, [T](xs []T, x T)
 		// []T (check/builtin.go): the prelude's xs.Append(x), which the
