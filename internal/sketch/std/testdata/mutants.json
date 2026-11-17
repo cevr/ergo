@@ -567,6 +567,46 @@
       "rule": "strconv.ParseBool's Malformed names the text it could not read.",
       "anchor": {"tests":["lower:TestStdMatchesGo"]},
       "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f7-times-wraps",
+      "origin": "wf10 NP4f-7",
+      "file": "internal/sketch/std/time/duration.ergo",
+      "from": "\tif p / m == x && (p < 0) == ((x < 0) != (m < 0)) {",
+      "to": "\tif true {",
+      "rule": "time.Times saturates a product past a duration's range at the end of its sign, where Go's d * time.Duration(n) wraps.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f7-times-no-quotient-check",
+      "origin": "wf10 NP4f-7",
+      "file": "internal/sketch/std/time/duration.ergo",
+      "from": "\tif p / m == x && (p < 0) == ((x < 0) != (m < 0)) {",
+      "to": "\tif (p < 0) == ((x < 0) != (m < 0)) {",
+      "rule": "time.Times checks the quotient: a product that wraps to the right sign, 2^62 by 4, saturates.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f7-times-sign-check",
+      "origin": "wf10 NP4f-7",
+      "file": "internal/sketch/std/time/duration.ergo",
+      "from": "\tif p / m == x && (p < 0) == ((x < 0) != (m < 0)) {",
+      "to": "\tif p / m == x {",
+      "rule": "time.Times checks the product's sign: the smallest duration by -1 wraps to itself and passes the quotient check.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f7-times-saturates-wrong-end",
+      "origin": "wf10 NP4f-7",
+      "file": "internal/sketch/std/time/duration.ergo",
+      "from": "\t} else if (x < 0) != (m < 0) {\n\t\tduration(minDuration)",
+      "to": "\t} else if (x < 0) == (m < 0) {\n\t\tduration(minDuration)",
+      "rule": "time.Times saturates a negative product at the smallest duration and a positive one at the largest.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
     }
   ]
 }
