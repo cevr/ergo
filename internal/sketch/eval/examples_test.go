@@ -225,7 +225,12 @@ func setupFiles(t *testing.T, caseDir string) (files []eval.File, why string) {
 	work := t.TempDir()
 	cmd := exec.Command("sh", filepath.Join(caseDir, "setup.sh"), caseDir)
 	cmd.Dir = work
-	cmd.Env = []string{"HOME=" + work}
+	// git commit starts a detached `git maintenance run --auto` (git 2.47
+	// on), which outlives setup.sh and takes and drops
+	// .git/objects/maintenance.lock while the walk below reads the tree:
+	// a race that failed the walk's lstat now and then (MX-EVSLOT). The
+	// setup's git runs no maintenance.
+	cmd.Env = []string{"HOME=" + work, "GIT_CONFIG_COUNT=2", "GIT_CONFIG_KEY_0=maintenance.auto", "GIT_CONFIG_VALUE_0=false", "GIT_CONFIG_KEY_1=gc.auto", "GIT_CONFIG_VALUE_1=0"}
 	if p, ok := os.LookupEnv("PATH"); ok {
 		cmd.Env = append(cmd.Env, "PATH="+p)
 	}
