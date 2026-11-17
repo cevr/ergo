@@ -74,7 +74,10 @@ func TestCompilerExprProperty(t *testing.T) {
 			}
 		}
 		for _, l := range got {
-			reached[forms[keyOf(l, 3)]]++
+			// The syntax form alone (formOf adds what a selector or a
+			// call names).
+			form, _, _ := strings.Cut(forms[keyOf(l, 3)], " ")
+			reached[form]++
 		}
 		if len(gotCalls) > 0 {
 			reached["generic call"]++
