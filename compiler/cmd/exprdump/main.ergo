@@ -23,6 +23,7 @@ import compiler/check/bind
 import compiler/check/expr
 import compiler/check/infer
 import compiler/check/store
+import compiler/check/task
 import compiler/check/types
 import compiler/syntax
 import dense
@@ -121,11 +122,117 @@ func parseAll(paths []string) []bind.File fails os.Exit needs fs.Files {
 	files
 }
 
+// Unit is one package of the run: its tables and files.
+type Unit { tab Tables, files []bind.File, path string }
+
+func unitOf(g []string) Unit fails os.Exit needs fs.Files {
+	if len(g) < 2 {
+		return os.Exit{Code: 2, Message: "exprdump: a package needs EXT FOREIGN FILE..."}
+	}
+	let tab = tables(try read(g[0]), try read(g[1]))
+	Unit{tab: tab, files: try parseAll(g[2:len(g)]), path: tab.pkgPath}
+}
+
+// Typed is one package typed: its store, what Load made of it and the
+// typer's result.
+type Typed { s store.Store, k expr.Pkg, t expr.Typer }
+
+// typeAll binds the units as package tasks in import waves (check/task:
+// each binds against its imports' frozen stores), loads each once, then
+// types each with its imports' loaded packages as its deps (S3d3).
+func typeAll(units []Unit) []Typed {
+	let mut pkgs = []task.Package{}
+	for u in units {
+		pkgs = pkgs.Append(task.Package{Path: u.path, Files: u.files})
+	}
+	let checked = task.Check(pkgs, 4)
+	let mut loaded = []expr.Dep{}
+	for i, c in checked {
+		// Its importers reach it by its path; its own types are named
+		// by the path its tables give (main for a checked root).
+		let mut s = store.Of(c.Store)
+		store.SetPath(&s, units[i].tab.pkgPath)
+		let k = expr.Load(&s, units[i].files, c.Uses, c.Parents, units[i].tab.ext, units[i].tab.foreign, units[i].tab.pkgName == "")
+		loaded = loaded.Append(expr.Dep{Path: c.Path, S: s, K: k})
+	}
+	let mut out = []Typed{}
+	for d in loaded {
+		let mut deps = []expr.Dep{}
+		for path in store.ImportPaths(d.S) {
+			for e in loaded {
+				if e.Path == path {
+					deps = deps.Append(e)
+					break
+				}
+			}
+		}
+		let mut s = d.S
+		let k = expr.WithDeps(d.K, deps)
+		let t = expr.Check(&s, k)
+		out = out.Append(Typed{s: s, k: k, t: t})
+	}
+	out
+}
+
+// write prints one typed package's lines: its expressions' types, or
+// with calls its inferred calls; each line after prefix.
+func write(b *strings.Builder, u Unit, d Typed, calls bool, prefix string) {
+	let mut s0 = d.s
+	let none = infer.NoValue(&s0)
+	let s = s0
+	let k = d.k
+	let text = func(ty dense.ID[store.TKey], fn int) string {
+		if ty == none { "no value" } else { types.Text(s, types.Names{Params: k.Fns[fn].Params, Foreign: u.tab.foreign, Pkg: u.tab.pkgName}, ty) }
+	}
+	if calls {
+		for c in d.t.Insts {
+			let (f, row) = bind.RowOf(k.Ps, c.At)
+			let p = u.files[f].Parsed
+			let mut ts = []string{}
+			for a in c.Args {
+				ts = ts.Append(text(a, c.Fn))
+			}
+			b.WriteString("\(prefix)\(u.files[f].Name) \(syntax.NodePos(p, syntax.NodeAt(p.Tree, row))) \(strings.Join(ts, " ; "))\n")
+		}
+	} else {
+		for e in d.t.Entries {
+			let (f, row) = bind.RowOf(k.Ps, e.At)
+			let p = u.files[f].Parsed
+			let id = syntax.NodeAt(p.Tree, row)
+			b.WriteString("\(prefix)\(u.files[f].Name) \(syntax.NodePos(p, id)) \(syntax.NodeEnd(p, id)) \(text(e.T, e.Fn))\n")
+		}
+	}
+}
+
 func run(argv []string) fails os.Exit needs fs.Files | io.Stdout {
+	let mut b = strings.NewBuilder()
+	if len(argv) == 2 && argv[0] == "-corpus" {
+		// One package per line of the manifest, "PATH EXT FOREIGN
+		// FILE...": its import path (a checked root's @pkg path is main),
+		// its tables and files. Each package's lines are "E …" (types) and
+		// "C …" (calls) after its "@pkg I" line.
+		let mut units = []Unit{}
+		for line in strings.Split(try read(argv[1]), "\n") {
+			let g = strings.Fields(line)
+			if len(g) > 0 {
+				let mut u = try unitOf(g[1:len(g)])
+				u.path = g[0]
+				units = units.Append(u)
+			}
+		}
+		let typed = typeAll(units)
+		for i, d in typed {
+			b.WriteString("@pkg \(i)\n")
+			write(&b, units[i], d, false, "E ")
+			write(&b, units[i], d, true, "C ")
+		}
+		io.Stdout.Print(b.String())
+		return
+	}
 	let calls = len(argv) > 0 && argv[0] == "-calls"
 	let args = if calls { argv[1:len(argv)] } else { argv }
 	if len(args) < 2 {
-		return os.Exit{Code: 2, Message: "usage: exprdump [-calls] EXT FOREIGN FILE..."}
+		return os.Exit{Code: 2, Message: "usage: exprdump [-calls] EXT FOREIGN FILE... [-- EXT FOREIGN FILE...]... | exprdump -corpus MANIFEST"}
 	}
 	let mut groups = [][]string{[]string{}}
 	for a in args {
@@ -135,62 +242,12 @@ func run(argv []string) fails os.Exit needs fs.Files | io.Stdout {
 			groups[len(groups)-1] = groups[len(groups)-1].Append(a)
 		}
 	}
-	let mut deps = []expr.Dep{}
-	for g in groups[1:len(groups)] {
-		if len(g) < 2 {
-			return os.Exit{Code: 2, Message: "exprdump: an import needs EXT FOREIGN FILE..."}
-		}
-		let dt = tables(try read(g[0]), try read(g[1]))
-		let dfiles = try parseAll(g[2:len(g)])
-		let dps = bind.BuildParents(dfiles)
-		let (dbound, du) = bind.Bind(bind.Collect(dt.pkgPath, dfiles), []store.Frozen{}, dps, dfiles, 1)
-		let mut ds = dbound
-		let dk = expr.Load(&ds, dfiles, du, dps, dt.ext, dt.foreign, dt.pkgName == "")
-		deps = deps.Append(expr.Dep{Path: dt.pkgPath, S: ds, K: dk})
+	let mut units = []Unit{}
+	for g in groups {
+		units = units.Append(try unitOf(g))
 	}
-	let tab = tables(try read(args[0]), try read(args[1]))
-	let files = try parseAll(groups[0][2:len(groups[0])])
-	let collected = bind.Collect(tab.pkgPath, files)
-	// The imports' frozen interfaces, in the sorted import list's order
-	// (an import with no group is an empty interface).
-	let mut frozen = []store.Frozen{}
-	for path in store.ImportPaths(collected) {
-		let mut f = store.Freeze(store.New(path, []string{}))
-		for d in deps {
-			if d.Path == path {
-				f = store.Freeze(d.S)
-			}
-		}
-		frozen = frozen.Append(f)
-	}
-	let ps = bind.BuildParents(files)
-	let (bound, u) = bind.Bind(collected, frozen, ps, files, 1)
-	let mut s = bound
-	let k = expr.WithDeps(expr.Load(&s, files, u, ps, tab.ext, tab.foreign, tab.pkgName == ""), deps)
-	let t = expr.Check(&s, k)
-	let none = infer.NoValue(&s)
-	let text = func(ty dense.ID[store.TKey], fn int) string {
-		if ty == none { "no value" } else { types.Text(s, types.Names{Params: k.Fns[fn].Params, Foreign: tab.foreign, Pkg: tab.pkgName}, ty) }
-	}
-	let mut b = strings.NewBuilder()
-	if calls {
-		for c in t.Insts {
-			let (f, row) = bind.RowOf(ps, c.At)
-			let p = files[f].Parsed
-			let mut ts = []string{}
-			for a in c.Args {
-				ts = ts.Append(text(a, c.Fn))
-			}
-			b.WriteString("\(files[f].Name) \(syntax.NodePos(p, syntax.NodeAt(p.Tree, row))) \(strings.Join(ts, " ; "))\n")
-		}
-	} else {
-		for e in t.Entries {
-			let (f, row) = bind.RowOf(ps, e.At)
-			let p = files[f].Parsed
-			let id = syntax.NodeAt(p.Tree, row)
-			b.WriteString("\(files[f].Name) \(syntax.NodePos(p, id)) \(syntax.NodeEnd(p, id)) \(text(e.T, e.Fn))\n")
-		}
-	}
+	let typed = typeAll(units)
+	write(&b, units[0], typed[0], calls, "")
 	io.Stdout.Print(b.String())
 }
 

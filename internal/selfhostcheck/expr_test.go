@@ -6,8 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -46,33 +48,89 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 	defer cancel()
 	bin := exprDump(t, ctx)
 	tmp := t.TempDir()
-	e, f := filepath.Join(tmp, "ext"), filepath.Join(tmp, "foreign")
-	reach := map[string][2]int{}
-	calls := [2]int{}
-	folders := 0
-	for _, dir := range corpusDirs(t) {
-		pkg := typesPackage(dir)
-		if pkg == nil {
+	// One manifest line per folder, and one exprdump run over them all:
+	// the Ergo side binds the packages in import waves and loads each once,
+	// so a folder's imports are the corpus's own packages (S3d3).
+	type folder struct {
+		dir             string
+		want, wantCalls []string
+		forms           map[string]string
+	}
+	// The Go checker's side of each folder, the folders on GOMAXPROCS
+	// workers (the checker and its std importer are safe for concurrent
+	// use); the files are written after, in corpus order.
+	type goSide struct {
+		ok              bool
+		path            string
+		want, wantCalls []string
+		forms           map[string]string
+		ext, foreign    []string
+	}
+	dirs := corpusDirs(t)
+	sides := make([]goSide, len(dirs))
+	next := make(chan int)
+	var wg sync.WaitGroup
+	for range runtime.GOMAXPROCS(0) {
+		wg.Go(func() {
+			for i := range next {
+				pkg := typesPackage(dirs[i])
+				if pkg == nil {
+					continue
+				}
+				want, forms := goExprTypes(pkg, "")
+				_, ext := goKinds(pkg)
+				_, foreign := goTypes(pkg)
+				sides[i] = goSide{ok: true, path: importPath(dirs[i], pkg), want: dropChargedTypes(want), wantCalls: goCallArgs(pkg, ""), forms: forms, ext: ext, foreign: foreign}
+			}
+		})
+	}
+	for i := range dirs {
+		next <- i
+	}
+	close(next)
+	wg.Wait()
+	var folders []folder
+	var manifest []string
+	for i, g := range sides {
+		if !g.ok {
 			continue
 		}
-		folders++
-		want, forms := goExprTypes(pkg, "")
-		wantCalls := goCallArgs(pkg, "")
-		_, ext := goKinds(pkg)
-		_, foreign := goTypes(pkg)
-		writeLines(t, e, ext)
-		writeLines(t, f, foreign)
-		files := append(ergoFiles(t, dir), depArgs(t, tmp, dir, pkg)...)
-		want = dropChargedTypes(want)
-		got := dropChargedTypes(runDump(t, ctx, bin, append([]string{e, f}, files...)...))
-		if d := subsetDiff(want, got, 3); d != "" {
-			t.Errorf("%s: expression types differ (go -, ergo +):\n%s", rel(dir), d)
+		n := len(folders)
+		e, f := filepath.Join(tmp, fmt.Sprintf("ext%d", n)), filepath.Join(tmp, fmt.Sprintf("foreign%d", n))
+		writeLines(t, e, g.ext)
+		writeLines(t, f, g.foreign)
+		manifest = append(manifest, strings.Join(append([]string{g.path, e, f}, ergoFiles(t, dirs[i])...), " "))
+		folders = append(folders, folder{dir: dirs[i], want: g.want, wantCalls: g.wantCalls, forms: g.forms})
+	}
+	m := filepath.Join(tmp, "manifest")
+	writeLines(t, m, manifest)
+	gotTypes, gotCalls := make([][]string, len(folders)), make([][]string, len(folders))
+	at := -1
+	for _, l := range runDump(t, ctx, bin, "-corpus", m) {
+		switch {
+		case strings.HasPrefix(l, "@pkg "):
+			at++
+		case at >= 0 && at < len(folders) && strings.HasPrefix(l, "E "):
+			gotTypes[at] = append(gotTypes[at], l[2:])
+		case at >= 0 && at < len(folders) && strings.HasPrefix(l, "C "):
+			gotCalls[at] = append(gotCalls[at], l[2:])
+		}
+	}
+	if at != len(folders)-1 {
+		t.Fatalf("exprdump -corpus wrote %d packages, want %d", at+1, len(folders))
+	}
+	reach := map[string][2]int{}
+	calls := [2]int{}
+	for i, fo := range folders {
+		got := dropChargedTypes(gotTypes[i])
+		if d := subsetDiff(fo.want, got, 3); d != "" {
+			t.Errorf("%s: expression types differ (go -, ergo +):\n%s", rel(fo.dir), d)
 		}
 		have := map[string]bool{}
 		for _, l := range got {
 			have[keyOf(l, 3)] = true
 		}
-		for key, form := range forms {
+		for key, form := range fo.forms {
 			r := reach[form]
 			r[1]++
 			if have[key] {
@@ -80,12 +138,11 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 			}
 			reach[form] = r
 		}
-		gotCalls := runDump(t, ctx, bin, append([]string{"-calls", e, f}, files...)...)
-		if d := subsetDiff(wantCalls, gotCalls, 2); d != "" {
-			t.Errorf("%s: inferred type arguments differ (go -, ergo +):\n%s", rel(dir), d)
+		if d := subsetDiff(fo.wantCalls, gotCalls[i], 2); d != "" {
+			t.Errorf("%s: inferred type arguments differ (go -, ergo +):\n%s", rel(fo.dir), d)
 		}
-		calls[0] += len(gotCalls)
-		calls[1] += len(wantCalls)
+		calls[0] += len(gotCalls[i])
+		calls[1] += len(fo.wantCalls)
 	}
 	var lines []string
 	all := [2]int{}
@@ -95,7 +152,7 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 		lines = append(lines, fmt.Sprintf("%-28s %7d of %7d", form, r[0], r[1]))
 	}
 	sort.Strings(lines)
-	t.Logf("typed %d of %d expressions in %d folders; inferred %d of %d generic calls:\n%s", all[0], all[1], folders, calls[0], calls[1], strings.Join(lines, "\n"))
+	t.Logf("typed %d of %d expressions in %d folders; inferred %d of %d generic calls:\n%s", all[0], all[1], len(folders), calls[0], calls[1], strings.Join(lines, "\n"))
 	if all[0] == 0 || calls[0] == 0 {
 		t.Fatal("the Ergo side typed no expression or inferred no call")
 	}
@@ -325,46 +382,11 @@ func selectorKind(pkg *check.Package, e *syntax.SelectorExpr) string {
 	return "other"
 }
 
-// depArgs is exprdump's groups for pkg's imports, each
-// "-- EXT FOREIGN FILE...", the tables written under tmp: every package
-// pkg names through an import whose folder is in the repository (std, or
-// the module of dir).
-func depArgs(t *testing.T, tmp, dir string, pkg *check.Package) []string {
-	var deps []*check.Package
-	seen := map[*check.Package]bool{}
-	for _, o := range pkg.Info.Uses {
-		pn, ok := o.(*check.PkgName)
-		if !ok || pn.Pkg == nil || pn.Pkg == pkg || seen[pn.Pkg] {
-			continue
-		}
-		seen[pn.Pkg] = true
-		deps = append(deps, pn.Pkg)
-	}
-	sort.Slice(deps, func(i, j int) bool { return deps[i].Path < deps[j].Path })
-	var out []string
-	for i, d := range deps {
-		ddir := depDir(dir, d.Path)
-		if ddir == "" {
-			continue
-		}
-		files := ergoFiles(t, ddir)
-		if len(files) == 0 {
-			continue
-		}
-		_, ext := goKinds(d)
-		_, foreign := goTypes(d)
-		e, f := filepath.Join(tmp, fmt.Sprintf("ext%d", i)), filepath.Join(tmp, fmt.Sprintf("foreign%d", i))
-		writeLines(t, e, ext)
-		writeLines(t, f, foreign)
-		out = append(append(out, "--", e, f), files...)
-	}
-	return out
-}
-
-// depDir is the folder of the package at import path path, imported from
-// dir: a package of dir's module (the nearest ergo.mod above it), or of
-// std; "" when neither holds it.
-func depDir(dir, path string) string {
+// importPath is the path the folder dir's package is imported by: its
+// module's name and its folder in the module (the nearest ergo.mod above
+// dir), or the package's own path (std, or a folder with no module). A
+// package checked as a root has the path main, which no import names.
+func importPath(dir string, pkg *check.Package) string {
 	for root := dir; root != filepath.Dir(root); root = filepath.Dir(root) {
 		mod, err := os.ReadFile(filepath.Join(root, "ergo.mod"))
 		if err != nil {
@@ -372,18 +394,17 @@ func depDir(dir, path string) string {
 		}
 		for _, line := range strings.Split(string(mod), "\n") {
 			if name, ok := strings.CutPrefix(strings.TrimSpace(line), "module "); ok {
-				if rest, ok := strings.CutPrefix(path, strings.TrimSpace(name)+"/"); ok {
-					if st, err := os.Stat(filepath.Join(root, rest)); err == nil && st.IsDir() {
-						return filepath.Join(root, rest)
-					}
+				r, err := filepath.Rel(root, dir)
+				if err != nil {
+					return pkg.Path
 				}
+				if r == "." {
+					return strings.TrimSpace(name)
+				}
+				return strings.TrimSpace(name) + "/" + filepath.ToSlash(r)
 			}
 		}
 		break
 	}
-	std := filepath.Join(repoRoot(), "internal", "sketch", "std", filepath.FromSlash(path))
-	if st, err := os.Stat(std); err == nil && st.IsDir() {
-		return std
-	}
-	return ""
+	return pkg.Path
 }
