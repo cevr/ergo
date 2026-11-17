@@ -155,16 +155,26 @@ func sigResult(s store.Store, sig dense.ID[store.TKey]) Option[dense.ID[store.TK
 // params declares a function's parameters, named by names, with the
 // types of the signature sig.
 func params(s *store.Store, k Pkg, t *Typer, names []dense.Opt[syntax.Node], sig dense.ID[store.TKey]) {
-	let ops = store.OperandsOf(*s, sig)
-	for i, n in names {
-		match dense.Unpack(n) {
+	let n = len(store.OperandsOf(*s, sig))
+	for i, name in names {
+		match dense.Unpack(name) {
 		case Some[dense.ID[syntax.Node]] as x:
-			if i < len(ops)-3 {
-				def(k, t, x.Value, infer.Unmarked(*s, ops[i]))
+			if i < n-3 {
+				def(k, t, x.Value, infer.Unmarked(*s, operand(*s, sig, i)))
 			}
 		case None:
 		}
 	}
+}
+
+// operand is t's i-th type operand, read from a store the caller holds
+// by value, so no write of the store can come between.
+func operand(s store.Store, t dense.ID[store.TKey], i int) dense.ID[store.TKey] { store.OperandsOf(s, t)[i] }
+
+// lastOperand is t's last type operand: a slice's or an array's element.
+func lastOperand(s store.Store, t dense.ID[store.TKey]) dense.ID[store.TKey] {
+	let ops = store.OperandsOf(s, t)
+	ops[len(ops)-1]
 }
 
 // result is the result type of the function in hand.
@@ -520,9 +530,8 @@ func rangeStmt(s *store.Store, k Pkg, t *Typer, r syntax.RangeStmt) {
 		case Some[dense.ID[store.TKey]] as xt:
 			let kind = store.KindOfType(*s, xt.Value)
 			if kind == store.KSlice || kind == store.KArray {
-				let ops = store.OperandsOf(*s, xt.Value)
+				val = some(lastOperand(*s, xt.Value))
 				key = some(store.TBasic(s, bInt))
-				val = some(ops[len(ops)-1])
 			}
 		case None:
 		}
@@ -734,8 +743,7 @@ func exprType(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], w Want) 
 			let kind = store.KindOfType(*s, a.Value)
 			if (kind == store.KSlice || kind == store.KArray) && syntax.Len(ie.Indices) == 1 {
 				index(s, k, t, syntax.Item(tr, ie.Indices, 0))
-				let ops = store.OperandsOf(*s, a.Value)
-				out = some(ops[len(ops)-1])
+				out = some(lastOperand(*s, a.Value))
 			}
 		case None:
 		}
