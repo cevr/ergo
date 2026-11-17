@@ -26,8 +26,8 @@ import (
 // print alike. A failing seed prints the input, both outcomes and the
 // replay command.
 //
-// Mutants it alone catches: compiler/format/testdata/mutants.json, killer
-// selfhostcheck:TestStreamAgreesWithTree.
+// Mutants it alone catches: the st-* rows of
+// internal/selfhostcheck/testdata/mutants.json.
 func TestStreamAgreesWithTree(t *testing.T) {
 	seed := selfhostSeed(t)
 	inputs := formatInputs(t, seed)

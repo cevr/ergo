@@ -363,6 +363,116 @@
       "killers": [
         "internal/selfhostcheck:TestFormatAgreesWithSeed"
       ]
+    },
+    {
+      "name": "st-number-selector-glues",
+      "origin": "wf10/selfhost/S1e",
+      "file": "compiler/format/stream.ergo",
+      "from": "\tif (pk == syntax.Int || pk == syntax.Float) && s.stIs(t, '.') {\n",
+      "to": "\tif false && (pk == syntax.Int || pk == syntax.Float) && s.stIs(t, '.') {\n",
+      "rule": "A number before a selector keeps its blank: `2.5 .x` written `2.5.x` scans as another number (go/printer's mayCombine).",
+      "killers": [
+        "internal/selfhostcheck:TestStreamAgreesWithTree"
+      ]
+    },
+    {
+      "name": "st-unary-signs-glue",
+      "origin": "wf10/selfhost/S1e",
+      "file": "compiler/format/stream.ergo",
+      "from": "\t\t\treturn one && (c == '-' || c == '+') && s.stIs(t, c)\n",
+      "to": "\t\t\treturn false\n",
+      "rule": "Two unary signs keep a blank: `- -y` written `--y` scans as a decrement.",
+      "killers": [
+        "internal/selfhostcheck:TestStreamAgreesWithTree"
+      ]
+    },
+    {
+      "name": "st-context-key-list-unaligned",
+      "origin": "wf10/selfhost/S1e",
+      "file": "compiler/format/stream.ergo",
+      "from": " || s.stIs(i, ',') && s.stContextBody(sd)) {",
+      "to": ") {",
+      "rule": "A context entry with several keys (`Clock, Scheduler:`) aligns its value with the other entries' values.",
+      "killers": [
+        "internal/selfhostcheck:TestStreamAgreesWithTree"
+      ]
+    },
+    {
+      "name": "st-binary-frame-not-punted",
+      "origin": "wf10/selfhost/S1e",
+      "file": "compiler/format/stream.ergo",
+      "from": "\t\t\t\tif s.stSpans(segStart, j) {\n",
+      "to": "\t\t\t\tif false && s.stSpans(segStart, j) {\n",
+      "rule": "A frame that spans lines before a line break after a binary operator is left to the tree printer, which indents the rest of the expression and the frame's inside once.",
+      "killers": [
+        "internal/selfhostcheck:TestStreamAgreesWithTree"
+      ]
+    },
+    {
+      "name": "st-interpolation-tail-not-closer",
+      "origin": "wf10/selfhost/S1e",
+      "file": "compiler/format/stream.ergo",
+      "from": "k == syntax.RBrace || k == syntax.StringTail\n",
+      "to": "k == syntax.RBrace\n",
+      "rule": "An interpolated string's tail closes the frame its head opens, so the expressions inside it are spaced as the tree printer spaces each part.",
+      "killers": [
+        "internal/selfhostcheck:TestStreamAgreesWithTree"
+      ]
+    },
+    {
+      "name": "st-opener-comment-moves-down",
+      "origin": "wf10/selfhost/S1e",
+      "file": "compiler/format/stream.ergo",
+      "from": "s.nl[i] == 0 && s.kind[i] != stLineCmt && (",
+      "to": "s.nl[i] == 0 && (",
+      "rule": "A line comment on a clause opener's line (`match x { // c`) stays on that line.",
+      "killers": [
+        "internal/selfhostcheck:TestStreamAgreesWithTree"
+      ]
+    },
+    {
+      "name": "st-clause-end-comment-indented",
+      "origin": "wf10/selfhost/S1e",
+      "file": "compiler/format/stream.ergo",
+      "from": "|| s.kind[j] == syntax.Default || j == end\n",
+      "to": "|| s.kind[j] == syntax.Default\n",
+      "rule": "A comment after a blank line before a clause block's `}` takes the cases' indentation.",
+      "killers": [
+        "internal/selfhostcheck:TestStreamAgreesWithTree"
+      ]
+    },
+    {
+      "name": "st-empty-paren-comment-glued",
+      "origin": "wf10/selfhost/S1e",
+      "file": "compiler/format/stream.ergo",
+      "from": "\t\tif p > 0 && (s.stIs(t, ')') && s.stIs(p-1, '(') || s.stIs(t, ']') && s.stIs(p-1, '[')) {\n",
+      "to": "\t\tif false && p > 0 {\n",
+      "rule": "A block comment alone in brackets keeps a blank on each side: `f( /* c */ )`.",
+      "killers": [
+        "internal/selfhostcheck:TestStreamAgreesWithTree"
+      ]
+    },
+    {
+      "name": "st-type-tuple-glued",
+      "origin": "wf10/selfhost/S1e",
+      "file": "compiler/format/stream.ergo",
+      "from": "s.kind[p-1] == syntax.Mut || s.kind[p-1] == syntax.Type) {",
+      "to": "s.kind[p-1] == syntax.Mut) {",
+      "rule": "A tuple type's name and its `(` keep a blank: `type Span (int, int)`.",
+      "killers": [
+        "internal/selfhostcheck:TestStreamAgreesWithTree"
+      ]
+    },
+    {
+      "name": "st-stmt-indent-dropped",
+      "origin": "wf10/selfhost/S1e",
+      "file": "compiler/format/stream.ergo",
+      "from": "\t\t\tif s.stHasFlag(i, sfStmtIndent) {\n\t\t\t\tind += 1\n",
+      "to": "\t\t\tif s.stHasFlag(i, sfStmtIndent) {\n\t\t\t\tind += 0\n",
+      "rule": "A statement whose binary expression breaks a line is indented whole, its first line too (the tree printer's indent before a broken binary).",
+      "killers": [
+        "internal/selfhostcheck:TestStreamAgreesWithTree"
+      ]
     }
   ]
 }
