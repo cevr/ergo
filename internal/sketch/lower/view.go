@@ -34,20 +34,28 @@ type hostViewSite struct {
 	guard         bool // the test build's guarded copy
 }
 
-// viewForm is the view form of the body f's call reaches: an extern, of
-// any package, of a body whose contract names one (bodyView), or a
-// function whose body is one call of such an extern on its one parameter
-// (`func Bytes(s string) []byte { stringsBytes(s) }`); else "". It reads
-// declarations, never std membership.
+// viewForm is the view form of the body f's call reaches: the language's
+// operation s.Bytes() (check.CollBytes, PRIM-4), which copies the bytes
+// of s as runtime/v1's StringsBytes did and so has its view form
+// BytesView; an extern, of any package, of a body whose contract names one
+// (bodyView); or a function whose body is one call of either on its one
+// parameter (`func Bytes(s string) []byte { s.Bytes() }`); else "". It
+// reads declarations and operations, never std membership.
 func (l *lowerer) viewForm(f *check.Func) string {
-	if f == nil || f.Decl == nil {
+	if f == nil {
+		return ""
+	}
+	if check.CollOpOf(f) == check.CollBytes {
+		return bytesViewForm
+	}
+	if f.Decl == nil {
 		return ""
 	}
 	if f.Decl.Extern != nil {
 		return bodyView(f)
 	}
 	d := f.Decl
-	if d.Body == nil || len(d.Body.List) != 1 || f.Pkg == nil || d.Type == nil || d.Type.Params == nil || len(d.Type.Params.List) != 1 || len(d.Type.Params.List[0].Names) != 1 {
+	if d.Body == nil || len(d.Body.List) != 1 || f.Pkg == nil || f.Pkg.Info == nil || d.Type == nil || d.Type.Params == nil || len(d.Type.Params.List) != 1 || len(d.Type.Params.List[0].Names) != 1 {
 		return ""
 	}
 	s, ok := d.Body.List[0].(*syntax.ExprStmt)
@@ -55,21 +63,27 @@ func (l *lowerer) viewForm(f *check.Func) string {
 		return ""
 	}
 	call, ok := unparen(s.X).(*syntax.CallExpr)
-	if !ok || call.Trailing != nil || len(call.Args) != 1 {
+	if !ok || call.Trailing != nil {
 		return ""
 	}
-	fun, ok := unparen(call.Fun).(*syntax.Ident)
-	arg, ok2 := unparen(call.Args[0]).(*syntax.Ident)
-	if !ok || !ok2 || arg.Name != d.Type.Params.List[0].Names[0].Name {
+	c := f.Pkg.Info.Calls[call]
+	if c == nil || c.Kind != check.CallFunc || c.Func == f {
 		return ""
 	}
-	for _, g := range f.Pkg.Funcs {
-		if g.Name == fun.Name && g.Decl != nil && g.Decl.Extern != nil {
-			return l.viewForm(g)
-		}
+	ops := callOperands(call, c)
+	if len(ops) != 1 {
+		return ""
 	}
-	return ""
+	arg, ok := unparen(ops[0]).(*syntax.Ident)
+	if !ok || arg.Name != d.Type.Params.List[0].Names[0].Name {
+		return ""
+	}
+	return l.viewForm(c.Func)
 }
+
+// bytesViewForm is the view form of a copy of a string's bytes: the
+// runtime's BytesView (v1.Body.View of StringsBytes).
+const bytesViewForm = "BytesView"
 
 // viewWhy is the view site of the Go operand a, or why it is none.
 func (w *valueWalk) viewWhy(a syntax.Expr) (hostViewSite, string) {
