@@ -135,10 +135,7 @@ func (b *irBuilder) openScope(f *check.Func, params []*check.Var) []*irStmt {
 		irNo("body that needs a frame") // the checker gives a frame a task
 	}
 	p := b.pos(f.Decl, f.Decl.Pos())
-	fs := b.temp("fs", b.spelling(b.l.rt()+".Scope"), p)
-	b.frame = fs + 1
 	task := &irExpr{K: "field", Pos: p, Name: envTask, X: &irExpr{K: "local", Pos: p, I: b.env}}
-	b.keepImport("var _ = " + b.l.rt() + ".NewScope")
 	errArg := &irExpr{K: "zero", Pos: p, T: "*error"}
 	if b.fc.frame.fallible {
 		// The frame's named error result, last (namedResults).
@@ -148,6 +145,12 @@ func (b *irBuilder) openScope(f *check.Func, params []*check.Var) []*irStmt {
 		}
 		errArg = &irExpr{K: "addr", Pos: p, X: &irExpr{K: "result", Pos: p, I: last}}
 	}
+	if b.l.staticExits(f.Decl.Body.List) {
+		return b.openExits(p, task, errArg) // ir_exits.go (STATIC-EXIT)
+	}
+	fs := b.temp("fs", b.spelling(b.l.rt()+".Scope"), p)
+	b.frame = fs + 1
+	b.keepImport("var _ = " + b.l.rt() + ".NewScope")
 	return []*irStmt{
 		{K: "var", Pos: p, Local: fs},
 		{K: "set", Pos: p, Local: fs, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "NewScope", Args: []*irExpr{task}}},

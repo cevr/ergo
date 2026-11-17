@@ -400,6 +400,8 @@ type irBuilder struct {
 	// frame is 1 + the local of the body's frame scope (ir_own.go
 	// openScope), or 0; frameArg reads it (GP-FRAME; OPC-TASK's hook).
 	frame int
+	// exits marks a frame in the static exit form (ir_exits.go).
+	exits bool
 }
 
 // gate stops the body for reason; a census records it and goes on.
