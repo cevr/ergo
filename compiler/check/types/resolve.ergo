@@ -811,8 +811,11 @@ func Text(s store.Store, n Names, t dense.ID[store.TKey]) string {
 		let o = store.OriginOfType(s, t)
 		let mut name = ""
 		if int(o.Import) == store.ForeignBit {
+			// A Go import's generic type prints as its package names it
+			// (Print, the Go checker's text), not by the import's local
+			// name.
 			let f = n.Foreign[int(o.Decl)]
-			name = if f.Qual == "-" { f.Name } else { f.Qual + "." + f.Name }
+			name = if f.Qual == "-" || f.Print == "" { f.Name } else { f.Print }
 		} else if o.Import != uint32(0) {
 			// Another package's type prints with that package's name.
 			name = n.Deps[int(o.Import)-1].Name + "." + importDecl(n.Deps, o).Name
