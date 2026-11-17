@@ -23,7 +23,7 @@ import (
 
 // httpHandler is the trusted transport callback; the std wrapper makes
 // its seven scalar arguments into a public Request with a closed Body.
-type httpHandler = func(*rt.Task, *Exchange, string, string, []HTTPField, []HTTPField, string, bool, string) HTTPResponse
+type httpHandler = func(*rt.Task, *Exchange, string, string, string, []HTTPField, []HTTPField, string, bool, string) HTTPResponse
 
 func startHTTP(t *testing.T, handle httpHandler) (*ergonet.Listener, *serverTask) {
 	t.Helper()
@@ -162,7 +162,7 @@ func TestHTTPServerMatchesModel(t *testing.T) {
 		if _, err := HTTPCheckNetwork(nil, limits); err != HTTPInvalidLimits(limits) {
 			t.Fatalf("network limits %+v: %v", limits, err)
 		}
-		err = HTTPServe("invalid", rt.Root("invalid"), liveSleeper{}, l, limits, func(_ *rt.Task, _ *Exchange, _, _ string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
+		err = HTTPServe("invalid", rt.Root("invalid"), liveSleeper{}, l, limits, func(_ *rt.Task, _ *Exchange, _, _, _ string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
 			t.Error("invalid limits called handler")
 			return HTTPResponse{Status: 200}
 		})
@@ -180,7 +180,7 @@ func TestHTTPServerMatchesModel(t *testing.T) {
 		t.Run(strconv.FormatUint(seed, 10), func(t *testing.T) {
 			var mu sync.Mutex
 			store := map[string]string{}
-			l, server := startHTTP(t, func(_ *rt.Task, _ *Exchange, method, path string, query, header []HTTPField, body string, tooLarge bool, readError string) (response HTTPResponse) {
+			l, server := startHTTP(t, func(_ *rt.Task, _ *Exchange, method, path, _ string, query, header []HTTPField, body string, tooLarge bool, readError string) (response HTTPResponse) {
 				defer func() {
 					var queryText, echo string
 					for _, field := range query {
@@ -406,7 +406,7 @@ func TestHTTPPhasesExpireOnTheScheduler(t *testing.T) {
 			limits := HTTPLimits{16, 4096, budget(), budget(), budget()}
 			sl := newStepSleeper()
 			count := &httpTimerCount{}
-			l, server := startHTTPRoot(t, rt.TracedRoot(t.Name(), count), sl, limits, func(_ *rt.Task, _ *Exchange, _, _ string, _, _ []HTTPField, body string, _ bool, readError string) HTTPResponse {
+			l, server := startHTTPRoot(t, rt.TracedRoot(t.Name(), count), sl, limits, func(_ *rt.Task, _ *Exchange, _, _, _ string, _, _ []HTTPField, body string, _ bool, readError string) HTTPResponse {
 				if readError != "" {
 					return HTTPResponse{Status: 408, Body: readError}
 				}
@@ -512,7 +512,7 @@ func TestHTTPConcurrentRequestsAndStop(t *testing.T) {
 	var count, releaseCount atomic.Int64
 	started, released := make(chan struct{}, n), make(chan struct{}, n)
 	cleanup := make(chan struct{})
-	l, server := startHTTP(t, func(ct *rt.Task, _ *Exchange, method, path string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
+	l, server := startHTTP(t, func(ct *rt.Task, _ *Exchange, method, path, _ string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
 		if path == "/count" {
 			return HTTPResponse{Status: 200, Body: strconv.FormatInt(count.Add(1), 10)}
 		}
@@ -581,7 +581,7 @@ func TestHTTPConcurrentRequestsAndStop(t *testing.T) {
 func TestHTTPDisconnectAndDefects(t *testing.T) {
 	started, ended, refused := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	sl := newStepSleeper()
-	l, server := startHTTPOn(t, sl, serveLimits(16, 4096), func(ct *rt.Task, _ *Exchange, _, path string, _, _ []HTTPField, _ string, _ bool, readError string) HTTPResponse {
+	l, server := startHTTPOn(t, sl, serveLimits(16, 4096), func(ct *rt.Task, _ *Exchange, _, path, _ string, _, _ []HTTPField, _ string, _ bool, readError string) HTTPResponse {
 		s := v1.NewScope(ct)
 		defer s.End(nil)
 		if path == "/refused" && readError != "" {

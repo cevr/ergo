@@ -54,11 +54,11 @@ func (l HTTPLimits) valid() bool {
 
 type HTTPField struct{ Name, Value string }
 type httpIncoming struct {
-	Method, Path  string
-	Query, Header []HTTPField
-	Body          string
-	TooLarge      bool
-	ReadError     string
+	Method, Path, RawPath string
+	Query, Header         []HTTPField
+	Body                  string
+	TooLarge              bool
+	ReadError             string
 }
 type HTTPResponse struct {
 	Status int
@@ -166,7 +166,7 @@ func HTTPListen(addr string) (*ergonet.Listener, error) {
 type httpServer struct {
 	limits HTTPLimits
 	site   string
-	handle func(*rt.Task, *Exchange, string, string, []HTTPField, []HTTPField, string, bool, string) HTTPResponse
+	handle func(*rt.Task, *Exchange, string, string, string, []HTTPField, []HTTPField, string, bool, string) HTTPResponse
 	// requests is the parent of every request task (rt.Group): each runs
 	// on the net/http goroutine that read its request.
 	requests *rt.Group
@@ -504,7 +504,7 @@ func connState(nc net.Conn, st http.ConnState) {
 //
 //ergo:host
 //ergo:wait child
-func HTTPServe(site v1.Site, t *rt.Task, sleeper v1.Sleeper, l *ergonet.Listener, limits HTTPLimits, handle func(*rt.Task, *Exchange, string, string, []HTTPField, []HTTPField, string, bool, string) HTTPResponse) error {
+func HTTPServe(site v1.Site, t *rt.Task, sleeper v1.Sleeper, l *ergonet.Listener, limits HTTPLimits, handle func(*rt.Task, *Exchange, string, string, string, []HTTPField, []HTTPField, string, bool, string) HTTPResponse) error {
 	if !limits.valid() {
 		return HTTPInvalidLimits(limits)
 	}
@@ -573,7 +573,7 @@ func (s *httpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.workers.Add(1)
 	s.mu.Unlock()
 	defer s.workers.Done()
-	in := httpIncoming{Method: r.Method, Path: r.URL.Path, Header: httpFields(r.Header)}
+	in := httpIncoming{Method: r.Method, Path: r.URL.Path, RawPath: r.URL.EscapedPath(), Header: httpFields(r.Header)}
 	if r.URL.RawQuery != "" {
 		in.Query = HTTPParseQuery(r.URL.RawQuery)
 	}
@@ -618,7 +618,7 @@ func (s *httpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		return v1.Guarded(ct, func(ct *rt.Task) (HTTPResponse, error) {
 			ct.Check()
-			return s.handle(ct, x, in.Method, in.Path, in.Query, in.Header, in.Body, in.TooLarge, in.ReadError), nil
+			return s.handle(ct, x, in.Method, in.Path, in.RawPath, in.Query, in.Header, in.Body, in.TooLarge, in.ReadError), nil
 		})
 	})
 	// The request task has ended: a writer it kept now fails, and a
@@ -695,6 +695,25 @@ func (s *httpServer) fail(err error) {
 func HTTPParseQuery(raw string) []HTTPField {
 	values, _ := url.ParseQuery(raw)
 	return httpFields(values)
+}
+
+// HTTPBadEscape is http.BadEscape: a raw path with a "%" that two hex
+// digits do not follow.
+type HTTPBadEscape struct{ Raw string }
+
+func (e HTTPBadEscape) Error() string { return "http.BadEscape: " + e.Raw }
+
+// HTTPDecodePath is std http.DecodePath: the path raw escapes, decoded
+// as Serve decodes a request's Path (url.PathUnescape: "%XX" is the byte,
+// "+" stays "+").
+//
+//ergo:wait none
+func HTTPDecodePath(raw string) (string, error) {
+	p, err := url.PathUnescape(raw)
+	if err != nil {
+		return "", HTTPBadEscape{Raw: raw}
+	}
+	return p, nil
 }
 
 // httpFields keeps repeated values in their host order; sorting names

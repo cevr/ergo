@@ -184,11 +184,11 @@ func SendURLInto(n Local, r URLRequest, accept Accept, put func(part string) fai
 
 // answerer is n's handle as the runtime calls it: the request's parts made a
 // Request, answered under a Recorder.
-func answerer(n Local) func(origin string, method string, path string, query []Field, header []Field, body string) Response {
+func answerer(n Local) func(origin string, method string, path string, rawPath string, query []Field, header []Field, body string) Response {
 	let handle = n.handle
-	func(origin string, method string, path string, query []Field, header []Field, body string) Response {
+	func(origin string, method string, path string, rawPath string, query []Field, header []Field, body string) Response {
 		with context { Streaming: NewRecorder() } {
-			handle(origin, Request{Method: method, Path: path, Query: query, Header: header, Body: Buffered{Text: body}})
+			handle(origin, Request{Method: method, Path: path, RawPath: rawPath, Query: query, Header: header, Body: Buffered{Text: body}})
 		}
 	}
 }
@@ -211,8 +211,8 @@ func credentials(r URLRequest) []Field {
 	out
 }
 
-extern go ergo.local/prototype/runtime/v1/http.HTTPFetchLocal func fetchLocal[R](origins []string, anyOrigin bool, limits Limits, hops int, method string, url string, header []Field, owners []string, credentials []Field, body string, handle func(origin string, method string, path string, query []Field, header []Field, body string) Response needs R) Response fails SendFailed | OriginRefused | RedirectLimit needs R
+extern go ergo.local/prototype/runtime/v1/http.HTTPFetchLocal func fetchLocal[R](origins []string, anyOrigin bool, limits Limits, hops int, method string, url string, header []Field, owners []string, credentials []Field, body string, handle func(origin string, method string, path string, rawPath string, query []Field, header []Field, body string) Response needs R) Response fails SendFailed | OriginRefused | RedirectLimit needs R
 
-extern go ergo.local/prototype/runtime/v1/http.HTTPFetchLocalInto func fetchLocalInto[R](origins []string, anyOrigin bool, limits Limits, hops int, method string, url string, header []Field, owners []string, credentials []Field, body string, accepts func(status int) bool, put func(part string) fails SinkFailed, handle func(origin string, method string, path string, query []Field, header []Field, body string) Response needs R) Response fails SendFailed | OriginRefused | RedirectLimit | StatusRefused | SinkFailed needs R
+extern go ergo.local/prototype/runtime/v1/http.HTTPFetchLocalInto func fetchLocalInto[R](origins []string, anyOrigin bool, limits Limits, hops int, method string, url string, header []Field, owners []string, credentials []Field, body string, accepts func(status int) bool, put func(part string) fails SinkFailed, handle func(origin string, method string, path string, rawPath string, query []Field, header []Field, body string) Response needs R) Response fails SendFailed | OriginRefused | RedirectLimit | StatusRefused | SinkFailed needs R
 
 extern go ergo.local/prototype/runtime/v1/http.HTTPFetch func fetch(origins []string, anyOrigin bool, limits Limits, hops int, method string, url string, header []Field, owners []string, credentials []Field, body string) Response fails SendFailed | OriginRefused | RedirectLimit

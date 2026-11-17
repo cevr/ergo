@@ -135,7 +135,7 @@ func replay(clock time.Manual) fails os.Exit needs io.Stdout | io.Stdin | http.N
 			return os.Exit{Code: 2, Message: "jobs: not a request: " + line}
 		}
 		let body = if len(parts) == 3 { parts[2] } else { "" }
-		let r = http.Do(http.Request{Method: parts[0], Path: parts[1], Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: body}}) catch {
+		let r = http.Do(http.Request{Method: parts[0], Path: parts[1], RawPath: parts[1], Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: body}}) catch {
 		case http.RequestFailed as f:
 			return os.Exit{Code: 1, Message: "jobs: " + line + ": " + failure(f.Cause)}
 		}

@@ -147,7 +147,7 @@ var clauseTemplates = []clauseTemplate{
 	{keys: []string{"http.Net.SendInto.put"}, imports: []string{"http"}, resource: true, body: `
 	R
 	let h = http.InMemory(func(q http.Request) http.Response needs http.Streaming { http.Response{Status: 200, Header: []http.Field{}, Body: "ab"} })
-	let req = http.Request{Method: "GET", Path: "/", Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: ""}}
+	let req = http.Request{Method: "GET", Path: "/", RawPath: "/", Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: ""}}
 	let status = with context { http.Net: h } {
 		let resp = http.Net.SendInto(req, http.AnySuccess, func(part string) fails http.SinkFailed {
 			CB

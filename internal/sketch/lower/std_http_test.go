@@ -28,7 +28,7 @@ func serve(l net.Listener) fails http.InvalidLimits needs time.Clock | Scheduler
 func direct() http.Response {
 	let clock = time.NewManual(0)
 	with context { time.Clock: clock } {
-		handle(http.Request{Method: "GET", Path: "/", Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: ""}})
+		handle(http.Request{Method: "GET", Path: "/", RawPath: "/", Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: ""}})
 	}
 }
 `
@@ -99,7 +99,7 @@ test HttpFilesAsksBeneath(steps []int, prefixed bool) {
 		fstest.Link{Path: "out", Target: "../outside"},
 		fstest.Link{Path: "in", Target: "sub"},
 	}))
-	let response = http.Files(root, "/static/", http.Request{Method: method, Path: path, Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: ""}})
+	let response = http.Files(root, "/static/", http.Request{Method: method, Path: path, RawPath: path, Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: ""}})
 	let asked = root.Paths()
 	assert len(asked) <= 1
 	if dotdot || !prefixed { assert len(asked) == 0 }
@@ -157,12 +157,12 @@ test FilesAnswersByTheRule(steps []int, prefixed bool, verb int) {
 		fstest.Link{Path: "in", Target: "sub"},
 		fstest.Link{Path: "loop", Target: "loop"},
 	})
-	let got = http.Files(root, "/files/", http.Request{Method: method, Path: path, Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: ""}})
+	let got = http.Files(root, "/files/", http.Request{Method: method, Path: path, RawPath: path, Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: ""}})
 	assert got == expected(root, method, path)
 	// Each name alone, with the case's method, so every file is reached.
 	for name in names {
 		let one = "/files/" + name
-		assert http.Files(root, "/files/", http.Request{Method: method, Path: one, Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: ""}}) == expected(root, method, one)
+		assert http.Files(root, "/files/", http.Request{Method: method, Path: one, RawPath: one, Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: ""}}) == expected(root, method, one)
 	}
 }
 
@@ -224,7 +224,7 @@ test HttpInMemorySendIntoIsSend(status int, body string, long bool, explicit boo
 	}
 	let h = http.InMemory(func(r http.Request) http.Response needs http.Streaming { http.Response{Status: status, Header: []http.Field{}, Body: text} })
 	let got = sync.NewRef[string]("")
-	let r = http.Request{Method: "GET", Path: "/", Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: ""}}
+	let r = http.Request{Method: "GET", Path: "/", RawPath: "/", Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: ""}}
 	let response = h.SendInto(r, accept, func(part string) fails http.SinkFailed { got.Update(func(s string) string { s + part }) }) catch {
 	case http.StatusRefused as s:
 		let want = if len(text) > 1024 { text[0:1024] } else { text }
@@ -334,7 +334,7 @@ test HandlerUnderManual(sec int64, value string) {
 	let second = sec % 10000
 	let manual = time.NewManual(second)
 	let response = with context { time.Clock: manual } {
-		clockHandler(http.Request{Method: "GET", Path: "/", Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: ""}})
+		clockHandler(http.Request{Method: "GET", Path: "/", RawPath: "/", Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: ""}})
 	}
 	assert response.Body == strconv.FormatInt(second, 10)
 	let fields = []http.Field{http.Field{Name: "cOnTeNt-TyPe", Value: value}, http.Field{Name: "empty", Value: ""}}
@@ -454,6 +454,35 @@ test HttpQueryDecodesByTheRule(counts []int, numbers []int, texts []string) {
 	}
 	assert want == "ok" && got == record
 }
+
+test HttpRawPathDecodesToPath(segments []string, upper bool) {
+	let mut raw = ""
+	for i, s in segments {
+		let seg = if s == "" { "-" } else { s }
+		raw = raw + "/" + queryEscape(seg, i%2 == 0, upper)
+	}
+	if raw == "" {
+		raw = "/"
+	}
+	let n = http.InMemoryNetwork(http.AnyOrigin, http.Limits{MaxBodyBytes: 1 << 16, MaxHeaderBytes: 1 << 16, IdleTimeout: 30s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 10s}, http.NoRedirects, func(origin string, r http.Request) http.Response needs http.Streaming {
+		http.Response{Status: 200, Header: []http.Field{}, Body: r.RawPath + "\n" + r.Path}
+	}) catch {
+	case http.InvalidClient, http.InvalidLimits:
+		assert false
+		return
+	}
+	let got = n.SendURL(http.URLRequest{URL: "http://raw.test" + raw, Method: "GET", Header: []http.Field{}, Credentials: []http.Credential{}, Body: ""}) catch {
+	case http.RequestFailed, http.OriginRefused, http.RedirectLimit:
+		assert false
+		return
+	}
+	let decoded = http.DecodePath(raw) catch {
+	case http.BadEscape:
+		assert false
+		return
+	}
+	assert got.Body == raw + "\n" + decoded
+}
 `
 
 const httpQueryStatement = `QueryDecodesByTheRule(counts []int, numbers []int, texts []string) { let keys = []string{"load", "name", "note", "on", "other key", "page", "size", "tags"} let mut pairs = []Field{} let mut raw = "" let mut i = 0 for j, key in keys { let k = if j < len(counts) { ((counts[j] % 6) + 6) % 6 } else { 5 } let times = if k == 0 { 0 } else if k == 1 { 2 } else if k == 2 { 3 } else { 1 } for _ in 0..times { let n = if len(numbers) == 0 { i } else { numbers[i%len(numbers)] } let m = if n < 0 { -(n % 1000) } else { n % 1000 } let text = if len(texts) == 0 { "" } else { texts[i%len(texts)] } let typed = key == "load" || key == "on" || key == "page" || key == "size" let value = if !typed { text } else if m%7 == 6 { text + "x" } else if key == "on" { if m%2 == 0 { "true" } else { "false" } } else { strconv.Itoa(1000 + 13*m) } pairs = pairs.Append(Field{Name: key, Value: value}) let part = queryEscape(key, m%2 == 0, m%3 == 0) + "=" + queryEscape(value, m%5 != 0, m%3 == 1) raw = if i == 0 { part } else { raw + "&" + part } if m%11 == 0 { raw = raw + "&bad=%zz" } i = i + 1 } } let (want, record) = queryExpected(pairs) let got = DecodeQuery[queryProbe](ParseQuery(raw)) catch { case QueryRepeated as q: return want == "repeated "+q.Key case WireWrongKind as w: return want == "wrong "+w.Path case WireMissingField as f: return want == "missing "+f.Field case WireUnknownTag: return false } want == "ok" && got == record }`
@@ -477,18 +506,21 @@ func TestStdHTTPLawsRun(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("HTTP laws: exit %d\n%s\n%s", code, stdout, stderr)
 	}
-	statements := map[string]string{"http FailureUsesTable": httpFailureStatement, "http SuccessUsesRoute": httpSuccessStatement, "http BuiltPathMatches": httpBuiltPathStatement, "http AllowIsWhatMatches": httpAllowStatement, "http FilesAsksBeneath": httpFilesStatement, "http StreamIsItsWrites": httpStreamStatement, "http WriteAfterStreamFails": httpLateWriteStatement, "http InMemorySendIntoIsSend": httpInMemoryIntoStatement, "http QueryDecodesByTheRule": httpQueryStatement, "http MatchIsSplitMatch": httpSegmentsStatement}
+	statements := map[string]string{"http FailureUsesTable": httpFailureStatement, "http SuccessUsesRoute": httpSuccessStatement, "http BuiltPathMatches": httpBuiltPathStatement, "http AllowIsWhatMatches": httpAllowStatement, "http FilesAsksBeneath": httpFilesStatement, "http StreamIsItsWrites": httpStreamStatement, "http WriteAfterStreamFails": httpLateWriteStatement, "http InMemorySendIntoIsSend": httpInMemoryIntoStatement, "http QueryDecodesByTheRule": httpQueryStatement, "http MatchIsSplitMatch": httpSegmentsStatement, "http RawPathDecodesToPath": httpRawPathStatement}
 	lawLabel := func(key string) string { return "Http" + strings.TrimPrefix(key, "http ") }
 	lawledger.Run(t, lawsPassed(t, statements, lawLabel, stdHTTPLawsProbe, stdout, "RouterRefusalsAndHead", "HandlerUnderManual", "FilesAnswersByTheRule"))
 }
 
+// httpRawPathStatement is RawPathDecodesToPath.
+const httpRawPathStatement = `RawPathDecodesToPath(segments []string, upper bool) { let mut raw = "" for i, s in segments { let seg = if s == "" { "-" } else { s } raw = raw + "/" + queryEscape(seg, i%2 == 0, upper) } if raw == "" { raw = "/" } let n = InMemoryNetwork(AnyOrigin, Limits{MaxBodyBytes: 1 << 16, MaxHeaderBytes: 1 << 16, IdleTimeout: 30s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 10s}, NoRedirects, func(origin string, r Request) Response needs Streaming { Response{Status: 200, Header: []Field{}, Body: r.RawPath + "\n" + r.Path} }) catch { case InvalidClient, InvalidLimits: return false } let got = n.SendURL(URLRequest{URL: "http://raw.test" + raw, Method: "GET", Header: []Field{}, Credentials: []Credential{}, Body: ""}) catch { case RequestFailed, OriginRefused, RedirectLimit: return false } let decoded = DecodePath(raw) catch { case BadEscape: return false } got.Body == raw + "\n" + decoded }`
+
 // httpSegmentsStatement is MatchIsSplitMatch (GX8).
 const httpSegmentsStatement = `MatchIsSplitMatch(pattern []int, path []int) { let parts = []string{"", "a", "b", ":x", ":"} let pick = func(xs []int) string { let mut text = "" for i, p in xs { let part = parts[if p < 0 { -(p % len(parts)) } else { p % len(parts) }] text = if i == 0 { part } else { text + "/" + part } } text } let want = strings.Split(pick(pattern), "/") let got = strings.Split(pick(path), "/") let mut split = len(want) == len(got) for i, part in want { if split && strings.HasPrefix(part, ":") && len(part) > 1 { split = got[i] != "" } else if split { split = part == got[i] } } let found = match Match([]Route[int]{Route{Value: 1, Method: "GET", Path: pick(pattern), Status: 200}}, "GET", pick(path)) { case Found: true case NotFound, MethodNotAllowed: false } found == split }`
 
-const httpFilesStatement = `FilesAsksBeneath(steps []int, prefixed bool) { let mut rest = "" let mut dotdot = false for i, s in steps { let e = fileSegment(s) dotdot = dotdot || e == ".." rest = if i == 0 { e } else { rest + "/" + e } } let path = if prefixed { "/static/" + rest } else { "/" + rest } let method = if len(steps)%2 == 0 { "GET" } else { "HEAD" } let root = filesProbe{paths: sync.NewRef[[]string]([]string{})} let response = Files(root, "/static/", Request{Method: method, Path: path, Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}}) let asked = root.paths.Get() if len(asked) > 1 || (dotdot || !prefixed) && len(asked) != 0 { return false } for p in asked { if strings.HasPrefix(p, "/") { return false } for e in strings.Split(p, "/") { if e == "" || e == "." || e == ".." { return false } } } response.Status == 200 || response.Status == 403 || response.Status == 404 }`
+const httpFilesStatement = `FilesAsksBeneath(steps []int, prefixed bool) { let mut rest = "" let mut dotdot = false for i, s in steps { let e = fileSegment(s) dotdot = dotdot || e == ".." rest = if i == 0 { e } else { rest + "/" + e } } let path = if prefixed { "/static/" + rest } else { "/" + rest } let method = if len(steps)%2 == 0 { "GET" } else { "HEAD" } let root = filesProbe{paths: sync.NewRef[[]string]([]string{})} let response = Files(root, "/static/", Request{Method: method, Path: path, RawPath: path, Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}}) let asked = root.paths.Get() if len(asked) > 1 || (dotdot || !prefixed) && len(asked) != 0 { return false } for p in asked { if strings.HasPrefix(p, "/") { return false } for e in strings.Split(p, "/") { if e == "" || e == "." || e == ".." { return false } } } response.Status == 200 || response.Status == 403 || response.Status == 404 }`
 
 const httpStreamStatement = `StreamIsItsWrites(status int, parts []string) { let header = []Field{Field{Name: "Content-Type", Value: "text/plain"}} let response = with context { Streaming: NewRecorder() } { Stream(status, header, func(w BodyWriter) fails WriteFailed { for p in parts { try w.Write(p) } }) } let mut want = "" for p in parts { want = want + p } response == Response{Status: status, Header: header, Body: want} }`
 
 const httpLateWriteStatement = `WriteAfterStreamFails(text string) { let kept = sync.NewRef[[]BodyWriter]([]BodyWriter{}) let response = with context { Streaming: NewRecorder() } { Stream(200, []Field{}, func(w BodyWriter) fails WriteFailed { kept.Set([]BodyWriter{w}) }) } for w in kept.Get() { w.Write(text) catch { case WriteFailed: return response.Body == "" } } false }`
 
-const httpInMemoryIntoStatement = `InMemorySendIntoIsSend(status int, body string, long bool, explicit bool, listed int, values []int) { let text = if long { strings.Repeat(body+"x", 1100) } else { body } let set = if listed%2 == 0 { values } else { values.Append(status) } let accept Accept = if explicit { Statuses{Values: set} } else { AnySuccess } let mut taken = !explicit && status >= 200 && status < 300 for v in set { taken = taken || explicit && v == status } let h = InMemory(func(r Request) Response needs Streaming { Response{Status: status, Header: []Field{}, Body: text} }) let got = sync.NewRef[string]("") let r = Request{Method: "GET", Path: "/", Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}} let response = h.SendInto(r, accept, func(part string) fails SinkFailed { got.Update(func(s string) string { s + part }) }) catch { case StatusRefused as s: let want = if len(text) > 1024 { text[0:1024] } else { text } return !taken && s.Status == status && s.Prefix == want && got.Get() == "" case RequestFailed, SinkFailed: return false } taken && got.Get() == text && response.Status == status && response.Body == "" }`
+const httpInMemoryIntoStatement = `InMemorySendIntoIsSend(status int, body string, long bool, explicit bool, listed int, values []int) { let text = if long { strings.Repeat(body+"x", 1100) } else { body } let set = if listed%2 == 0 { values } else { values.Append(status) } let accept Accept = if explicit { Statuses{Values: set} } else { AnySuccess } let mut taken = !explicit && status >= 200 && status < 300 for v in set { taken = taken || explicit && v == status } let h = InMemory(func(r Request) Response needs Streaming { Response{Status: status, Header: []Field{}, Body: text} }) let got = sync.NewRef[string]("") let r = Request{Method: "GET", Path: "/", RawPath: "/", Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}} let response = h.SendInto(r, accept, func(part string) fails SinkFailed { got.Update(func(s string) string { s + part }) }) catch { case StatusRefused as s: let want = if len(text) > 1024 { text[0:1024] } else { text } return !taken && s.Status == status && s.Prefix == want && got.Get() == "" case RequestFailed, SinkFailed: return false } taken && got.Get() == text && response.Status == status && response.Body == "" }`

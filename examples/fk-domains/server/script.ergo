@@ -24,5 +24,5 @@ func ScriptBody(i int) string {
 
 // ScriptRequest is request i as http.Serve hands it to Answer.
 func ScriptRequest(i int) http.Request {
-	http.Request{Method: "POST", Path: Mount(), Query: []http.Field{}, Header: []http.Field{http.Field{Name: "Content-Type", Value: "application/json"}}, Body: http.Buffered{Text: ScriptBody(i)}}
+	http.Request{Method: "POST", Path: Mount(), RawPath: Mount(), Query: []http.Field{}, Header: []http.Field{http.Field{Name: "Content-Type", Value: "application/json"}}, Body: http.Buffered{Text: ScriptBody(i)}}
 }

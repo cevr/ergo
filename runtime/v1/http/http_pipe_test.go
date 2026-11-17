@@ -21,7 +21,7 @@ import (
 // (ERGO_HTTP_PIPE_SEED=N).
 func TestHTTPServePipeMatchesLoopback(t *testing.T) {
 	limits := serveLimits(4096, 4096)
-	handle := func(_ *rt.Task, _ *Exchange, method, path string, query, header []HTTPField, body string, tooLarge bool, readError string) HTTPResponse {
+	handle := func(_ *rt.Task, _ *Exchange, method, path, rawPath string, query, header []HTTPField, body string, tooLarge bool, readError string) HTTPResponse {
 		status := 200
 		var echoed []HTTPField
 		for _, f := range header {
@@ -32,7 +32,7 @@ func TestHTTPServePipeMatchesLoopback(t *testing.T) {
 				echoed = append(echoed, HTTPField{Name: "Echo-" + f.Name, Value: f.Value})
 			}
 		}
-		return HTTPResponse{Status: status, Header: echoed, Body: fmt.Sprintf("%s %s %v %v %q %v %q", method, path, query, header, body, tooLarge, readError)}
+		return HTTPResponse{Status: status, Header: echoed, Body: fmt.Sprintf("%s %s %s %v %v %q %v %q", method, path, rawPath, query, header, body, tooLarge, readError)}
 	}
 	root := rt.Root(t.Name())
 	host, err := HTTPListen("127.0.0.1:0")

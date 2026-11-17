@@ -35,7 +35,11 @@ type Buffered { Text string }
 type BodyTooLarge { Limit int }
 type BodyReadFailed { Reason string }
 type Body = Buffered | BodyTooLarge | BodyReadFailed
-type Request { Method string, Path string, Query []Field, Header []Field, Body Body }
+// Request is one HTTP request. Path is the decoded path and RawPath the
+// escaped one, as it came ("/a%2Fb" for the Path "/a/b"), so a route may
+// split RawPath on "/" and decode each segment with DecodePath. A client
+// sends RawPath when it is an encoding of Path, and Path escaped otherwise.
+type Request { Method string, Path string, RawPath string, Query []Field, Header []Field, Body Body }
 extern go ergo.local/prototype/runtime/v1/http.HTTPResponse type Response { Status int, Header []Field, Body string }
 
 // Header returns the first value of name, ignoring ASCII case. A missing
@@ -56,6 +60,14 @@ func Query(fields []Field, name string) Option[string] {
 	None
 }
 
+// DecodePath is the path raw escapes, decoded as Serve decodes a
+// request's Path from its RawPath: "%XX" is the byte, and "+" stays "+".
+// A "%" that two hex digits do not follow is BadEscape.
+extern go ergo.local/prototype/runtime/v1/http.HTTPDecodePath func DecodePath(raw string) string fails BadEscape
+
+// BadEscape is a path DecodePath cannot decode.
+extern go ergo.local/prototype/runtime/v1/http.HTTPBadEscape type BadEscape { Raw string }
+
 // Serve owns l until the calling task stops. Every handle invocation runs
 // on a child task; a disconnect after a buffered read stops that child.
 // A failed read still reaches the handler (a peer may have half-closed).
@@ -72,7 +84,7 @@ func Query(fields []Field, name string) Option[string] {
 // expires reaches handle as BodyReadFailed, and its answer is the
 // connection's last.
 func Serve[R](l net.Listener, limits Limits, handle own func(Request) Response needs R | Streaming) fails InvalidLimits needs R | Scheduler {
-	return serve(l, limits, func(x Exchange, method string, path string, query []Field, header []Field, text string, tooLarge bool, readError string) Response needs R {
+	return serve(l, limits, func(x Exchange, method string, path string, rawPath string, query []Field, header []Field, text string, tooLarge bool, readError string) Response needs R {
 		let body Body = if tooLarge {
 			BodyTooLarge{Limit: limits.MaxBodyBytes}
 		} else if readError != "" {
@@ -81,13 +93,13 @@ func Serve[R](l net.Listener, limits Limits, handle own func(Request) Response n
 			Buffered{Text: text}
 		}
 		with context { Streaming: live{x: x} } {
-			handle(Request{Method: method, Path: path, Query: query, Header: header, Body: body})
+			handle(Request{Method: method, Path: path, RawPath: rawPath, Query: query, Header: header, Body: body})
 		}
 	})
 }
 
 // The transport's scalar arguments become a closed body value above.
-extern go ergo.local/prototype/runtime/v1/http.HTTPServe func serve[R](l net.Listener, limits Limits, handle own func(Exchange, string, string, []Field, []Field, string, bool, string) Response needs R) fails InvalidLimits needs R | Scheduler
+extern go ergo.local/prototype/runtime/v1/http.HTTPServe func serve[R](l net.Listener, limits Limits, handle own func(Exchange, string, string, string, []Field, []Field, string, bool, string) Response needs R) fails InvalidLimits needs R | Scheduler
 
 // WriteFailed is a streamed write that did not reach the client: the
 // connection refused it (the client went away), or its stream had ended.

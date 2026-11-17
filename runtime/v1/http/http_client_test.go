@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -18,6 +19,7 @@ import (
 // the response the server answers with and the client's body budget.
 type clientCase struct {
 	method, path  string
+	rawPath       string // sent as the escaped path when it is an encoding of path, else ignored
 	query, header []HTTPField
 	body          string
 	answer        HTTPResponse
@@ -50,6 +52,13 @@ func newClientCase(r *rand.Rand) clientCase {
 		header: clientFields(r, []string{"X-A", "X-Bee", "X-C"}, "az 0,;=é"),
 		answer: HTTPResponse{Status: statuses[r.IntN(len(statuses))], Header: clientFields(r, []string{"X-R", "X-Ess"}, "az 0,;=")},
 		budget: 1 + r.IntN(24),
+	}
+	switch r.IntN(3) {
+	case 0: // an escaped path with a "/" inside a segment ("%2F"), which only RawPath keeps
+		a, b := clientText(r, "ab/ %?é", 4), clientText(r, "ab/ %?é", 4)
+		c.path, c.rawPath = "/"+a+"/"+b, "/"+url.PathEscape(a)+"/"+url.PathEscape(b)
+	case 1: // a raw path that does not encode path, which Go ignores
+		c.rawPath = "/elsewhere%2F"
 	}
 	if c.method != "GET" && c.method != "OPTIONS" {
 		c.body = clientText(r, "ab\n{}é", 16)
@@ -107,10 +116,10 @@ func TestHTTPClientMatchesServer(t *testing.T) {
 	var mu sync.Mutex
 	var next HTTPResponse
 	var arrived clientCase
-	l, _ := startHTTPLimits(t, serveLimits(1<<16, 1<<16), func(_ *rt.Task, _ *Exchange, method, path string, query, header []HTTPField, body string, _ bool, _ string) HTTPResponse {
+	l, _ := startHTTPLimits(t, serveLimits(1<<16, 1<<16), func(_ *rt.Task, _ *Exchange, method, path, rawPath string, query, header []HTTPField, body string, _ bool, _ string) HTTPResponse {
 		mu.Lock()
 		defer mu.Unlock()
-		arrived = clientCase{method: method, path: path, query: query, header: header, body: body}
+		arrived = clientCase{method: method, path: path, rawPath: rawPath, query: query, header: header, body: body}
 		return next
 	})
 	origin := "http://" + l.Addr()
@@ -120,7 +129,7 @@ func TestHTTPClientMatchesServer(t *testing.T) {
 		mu.Lock()
 		next = c.answer
 		mu.Unlock()
-		res, err := HTTPDo(caller, origin, serveLimits(c.budget, 1<<16), c.method, c.path, c.query, c.header, c.body)
+		res, err := HTTPDo(caller, origin, serveLimits(c.budget, 1<<16), c.method, c.path, c.rawPath, c.query, c.header, c.body)
 		mu.Lock()
 		in := arrived
 		mu.Unlock()
@@ -129,6 +138,15 @@ func TestHTTPClientMatchesServer(t *testing.T) {
 		}
 		if in.method != c.method || in.path != c.path || in.body != c.body {
 			fail("the request did not arrive as sent")
+		}
+		// The escaped path is c.rawPath when that encodes c.path, and Go's
+		// escape of c.path otherwise (url.URL.EscapedPath).
+		wantRaw := (&url.URL{Path: c.path}).EscapedPath()
+		if p, err := url.PathUnescape(c.rawPath); err == nil && p == c.path {
+			wantRaw = c.rawPath
+		}
+		if in.rawPath != wantRaw {
+			fail("the escaped path did not arrive as sent: want " + wantRaw)
 		}
 		if !maps2Equal(clientValues(in.query, false), clientValues(c.query, false)) || !clientSubset(c.header, in.header) {
 			fail("the request's query or header did not arrive as sent")
@@ -169,14 +187,14 @@ func TestHTTPClientRefusedAndStopped(t *testing.T) {
 	}
 	addr := closed.Addr()
 	closed.Close()
-	_, err = HTTPDo(rt.Root("refused"), "http://"+addr, serveLimits(16, 4096), "GET", "/", nil, nil, "")
+	_, err = HTTPDo(rt.Root("refused"), "http://"+addr, serveLimits(16, 4096), "GET", "/", "", nil, nil, "")
 	var f HTTPSendFailed
 	if !errors.As(err, &f) || f.Kind != httpRefused {
 		t.Fatalf("a refused connection failed %v, want Refused", err)
 	}
 
 	entered, hungUp := make(chan struct{}), make(chan struct{})
-	l, _ := startHTTP(t, func(ct *rt.Task, _ *Exchange, _, _ string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
+	l, _ := startHTTP(t, func(ct *rt.Task, _ *Exchange, _, _, _ string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
 		close(entered)
 		<-ct.Done()
 		close(hungUp)
@@ -186,7 +204,7 @@ func TestHTTPClientRefusedAndStopped(t *testing.T) {
 	ended := make(chan any, 1)
 	go func() {
 		defer func() { ended <- recover() }()
-		_, err := HTTPDo(caller, "http://"+l.Addr(), serveLimits(16, 4096), "GET", "/hold", nil, nil, "")
+		_, err := HTTPDo(caller, "http://"+l.Addr(), serveLimits(16, 4096), "GET", "/hold", "", nil, nil, "")
 		ended <- fmt.Sprintf("returned %v", err)
 	}()
 	select {

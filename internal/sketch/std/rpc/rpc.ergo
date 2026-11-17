@@ -155,7 +155,7 @@ func Dial(url string) Conn needs Ambient {
 func Loopback(handle own func(tag string, payload string) string fails Failed) Conn {
 	Conn{post: func(tag string, payload string) string fails Failed | Unrepresentable | Transport {
 		let id = nextID()
-		let r = http.Request{Method: "POST", Path: "/rpc/", Query: []http.Field{}, Header: []http.Field{http.Field{Name: "Content-Type", Value: "application/json"}}, Body: http.Buffered{Text: request(id, tag, payload)}}
+		let r = http.Request{Method: "POST", Path: "/rpc/", RawPath: "/rpc/", Query: []http.Field{}, Header: []http.Field{http.Field{Name: "Content-Type", Value: "application/json"}}, Body: http.Buffered{Text: request(id, tag, payload)}}
 		let answer = with context { http.Streaming: http.NewRecorder() } {
 			Answer(r, "/rpc", handle)
 		}

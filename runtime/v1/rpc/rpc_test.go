@@ -14,6 +14,7 @@ import (
 	"ergo.local/prototype/runtime/rt"
 	v1 "ergo.local/prototype/runtime/v1"
 	ergohttp "ergo.local/prototype/runtime/v1/http"
+	ergonet "ergo.local/prototype/runtime/v1/net"
 )
 
 // liveSleeper is the host Scheduler, as a program binds NewLiveScheduler.
@@ -24,7 +25,7 @@ func (liveSleeper) Sleep(t *rt.Task, d time.Duration) { v1.Sleep(t, d) }
 // startHTTP serves handle on a loopback listener with the std http server
 // (the http leaf's HTTPServe), as std rpc's Answer is served, until the
 // test ends.
-func startHTTP(t *testing.T, handle func(*rt.Task, *ergohttp.Exchange, string, string, []ergohttp.HTTPField, []ergohttp.HTTPField, string, bool, string) ergohttp.HTTPResponse) *ergohttp.Listener {
+func startHTTP(t *testing.T, handle func(*rt.Task, *ergohttp.Exchange, string, string, string, []ergohttp.HTTPField, []ergohttp.HTTPField, string, bool, string) ergohttp.HTTPResponse) *ergonet.Listener {
 	t.Helper()
 	l, err := ergohttp.HTTPListen("127.0.0.1:0")
 	if err != nil {
@@ -77,7 +78,7 @@ func startRPC(t *testing.T) *rpcHarness {
 	t.Helper()
 	h := &rpcHarness{started: make(chan struct{}, 1), release: make(chan struct{})}
 	handle := rpcHandle(h)
-	l := startHTTP(t, func(ct *rt.Task, x *ergohttp.Exchange, _, _ string, _, header []ergohttp.HTTPField, body string, _ bool, _ string) ergohttp.HTTPResponse {
+	l := startHTTP(t, func(ct *rt.Task, x *ergohttp.Exchange, _, _, _ string, _, header []ergohttp.HTTPField, body string, _ bool, _ string) ergohttp.HTTPResponse {
 		framed := false
 		for _, f := range header {
 			if strings.EqualFold(f.Name, "Content-Type") && strings.HasPrefix(f.Value, rpcNDJSON) {

@@ -127,13 +127,13 @@ func TestHTTPLocalMatchesLoopback(t *testing.T) {
 		}
 		return HTTPResponse{Status: c.status, Header: c.answerHeader, Body: c.answer}
 	}
-	l, _ := startHTTPLimits(t, serveLimits(1<<20, 1<<16), func(_ *rt.Task, _ *Exchange, method, path string, query, header []HTTPField, body string, _ bool, _ string) HTTPResponse {
+	l, _ := startHTTPLimits(t, serveLimits(1<<20, 1<<16), func(_ *rt.Task, _ *Exchange, method, path, _ string, query, header []HTTPField, body string, _ bool, _ string) HTTPResponse {
 		return answer(method, path, query, header, body)
 	})
 	origin := "http://" + l.Addr()
 	// The local handler is given the target's origin, which the loopback
 	// handler reads from its listener.
-	local := func(_ *rt.Task, at string, method, path string, query, header []HTTPField, body string) HTTPResponse {
+	local := func(_ *rt.Task, at string, method, path, _ string, query, header []HTTPField, body string) HTTPResponse {
 		if at != origin {
 			t.Errorf("the local handler was given the origin %q for %q", at, origin)
 		}
