@@ -242,6 +242,7 @@ func runRule(rule *Rule, options any, in Input) (found []Finding, err error) {
 			found, err = nil, fmt.Errorf("panic: %v", r)
 		}
 	}()
+	run := &ruleRun{in: in}
 	for _, unit := range in.Units {
 		if unit.Package == nil || unit.Package.Info == nil {
 			continue
@@ -250,7 +251,7 @@ func runRule(rule *Rule, options any, in Input) (found []Finding, err error) {
 			if file.Syntax == nil {
 				continue
 			}
-			pass := &Pass{Package: unit.Package, Info: unit.Package.Info, File: file.Syntax, Options: options, rel: file.Rel}
+			pass := &Pass{Package: unit.Package, Info: unit.Package.Info, File: file.Syntax, Options: options, rel: file.Rel, run: run}
 			rule.Check(pass)
 			if pass.bad != nil {
 				return nil, pass.bad

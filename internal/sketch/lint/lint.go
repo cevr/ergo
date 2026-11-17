@@ -103,11 +103,49 @@ type Pass struct {
 	rel     string
 	found   []Finding
 	bad     error
+	run     *ruleRun
+}
+
+// ruleRun is what the passes of one rule over one program share: the
+// program and the rule's memo.
+type ruleRun struct {
+	in   Input
+	memo any
 }
 
 // Rel is the file's path relative to the module root, "" for a program of
 // one source text.
 func (p *Pass) Rel() string { return p.rel }
+
+// Program is the checked packages of the program's own (not std's, not a
+// host binding's) in the run, dependencies first: the rest of the world a
+// rule that compares declarations across packages can see.
+func (p *Pass) Program() []Unit {
+	var out []Unit
+	for _, u := range p.run.in.Units {
+		if programUnit(u) {
+			out = append(out, u)
+		}
+	}
+	return out
+}
+
+// Closed reports whether the run sees every user of the program's code:
+// its root package has an entry (main), so no package outside the run
+// imports any package in it.
+func (p *Pass) Closed() bool {
+	units := p.run.in.Units
+	return len(units) > 0 && units[len(units)-1].Package.Entry() != nil
+}
+
+// Memo is the value make computes once per rule and run, for a fact over
+// the whole program that every pass of the rule reads.
+func (p *Pass) Memo(make func() any) any {
+	if p.run.memo == nil {
+		p.run.memo = make()
+	}
+	return p.run.memo
+}
 
 // Report records a finding of the rule from from to to (byte offsets in
 // the pass's file).

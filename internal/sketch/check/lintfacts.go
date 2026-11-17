@@ -58,6 +58,25 @@ func ProgramType(t Type) bool {
 	return !pkg.Std() && !pkg.Host() && pkg != universeOnce.goPkg
 }
 
+// Entry is the package's entry function, main, or nil: a package with one
+// is a program's root, whose code no other package imports.
+func (p *Package) Entry() *Func {
+	if p == nil || p.Scope == nil {
+		return nil
+	}
+	f, _ := p.Scope.names["main"].(*Func)
+	return f
+}
+
+// MentionsParam reports whether the type t names the type parameter tp
+// anywhere in it. The checker resolves a type parameter's name to the
+// type, not to a use (Info.Uses), so a reader finds it through types.
+func MentionsParam(t Type, tp *TypeParam) bool {
+	found := false
+	eachTypeParam(t, func(p *TypeParam) { found = found || p == tp })
+	return found
+}
+
 // Import is one import of a file: its spec, the name the file binds, and
 // the package it resolved to (a std, program or host package).
 type Import struct {

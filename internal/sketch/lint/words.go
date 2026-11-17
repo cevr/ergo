@@ -5,8 +5,10 @@ import (
 	"slices"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // The naming and layout rules' readers. A naming rule is about spelling by
@@ -88,4 +90,11 @@ func entryFile(rel string) bool {
 // name it).
 func listedFunction(rel string, f *check.Func, list []string) bool {
 	return f != nil && slices.Contains(list, path.Dir(rel)+"."+f.Name)
+}
+
+// exportedName reports a declared name other packages can use: it starts
+// with an upper-case letter (grammar.md, Visibility).
+func exportedName(id *syntax.Ident) bool {
+	r, _ := utf8.DecodeRuneInString(id.Name)
+	return unicode.IsUpper(r)
 }
