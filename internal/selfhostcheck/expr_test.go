@@ -162,9 +162,13 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 	if reach["SelectorExpr pkg"][0] == 0 || reach["CallExpr pkg"][0] == 0 {
 		t.Fatal("the Ergo side typed no member of an import")
 	}
-	// Calls of functions on a value's type and of operations (S3d3).
-	if reach["CallExpr method"][0] == 0 || reach["SelectorExpr method"][0] == 0 {
-		t.Fatal("the Ergo side typed no call of a function on a value's type")
+	// Functions on a value's type, the prelude's on slices and Maps,
+	// operations, and fields through a pointer (S3d3): each kind typed
+	// somewhere, since the subset check alone would not see one lost.
+	for _, kind := range []string{"CallExpr method", "CallExpr prelude", "CallExpr op", "SelectorExpr ptrfield"} {
+		if reach[kind][0] == 0 {
+			t.Errorf("the Ergo side typed no %s", kind)
+		}
 	}
 }
 
@@ -369,8 +373,10 @@ func formOf(pkg *check.Package, x syntax.Expr) string {
 	return form
 }
 
-// selectorKind is what the selector e names: "pkg", "field", "method" or
-// "other".
+// selectorKind is what the selector e names: "pkg", "field", a field
+// through a pointer ("ptrfield"), an operation ("op"), the prelude's
+// function on a slice or Map ("prelude"), another function on the value's
+// type ("method"), or "other".
 func selectorKind(pkg *check.Package, e *syntax.SelectorExpr) string {
 	if id, ok := unparenX(e.X).(*syntax.Ident); ok {
 		if _, ok := pkg.Info.Uses[id].(*check.PkgName); ok {
@@ -386,7 +392,24 @@ func selectorKind(pkg *check.Package, e *syntax.SelectorExpr) string {
 	// The checker records no use of a field's or method's name: a
 	// selector of a function type on a value with no field of the name
 	// calls a function on the value's type or an operation (S3d3).
-	if _, isSig := pkg.Info.Types[e].(*check.Signature); isSig && !hasField(pkg.Info.Types[e.X], e.Sel.Name) {
+	xt := pkg.Info.Types[e.X]
+	if hasField(xt, e.Sel.Name) {
+		if _, ok := xt.(*check.Pointer); ok {
+			return "ptrfield"
+		}
+		return "other"
+	}
+	if _, isSig := pkg.Info.Types[e].(*check.Signature); isSig {
+		u := xt
+		if n, ok := u.(*check.Named); ok {
+			u = n.Underlying()
+		}
+		switch u.(type) {
+		case *check.Interface:
+			return "op"
+		case *check.Slice, *check.Map:
+			return "prelude"
+		}
 		return "method"
 	}
 	return "other"
