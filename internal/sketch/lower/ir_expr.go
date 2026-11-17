@@ -121,7 +121,7 @@ func (b *irBuilder) operator(op string, t check.Type, site syntax.Node) {
 
 // expr is x after its implicit conversion (implicit, ir_union.go).
 func (b *irBuilder) expr(x syntax.Expr) *irExpr {
-	return b.implicit(x, b.valueCopy(x, b.exprOf(x))) // ir_copy.go
+	return b.implicit(x, b.valueCopy(x, b.foldConst(x, b.exprOf(x)))) // ir_constfold.go // ir_copy.go
 }
 
 func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
@@ -334,10 +334,12 @@ func (b *irBuilder) constant(t check.Type, v constant.Value, x syntax.Expr, p ir
 	}
 	t = bt
 	switch v.Kind() {
+	// Each constant keeps its value as Go reads its spelling, for the
+	// fold of an operation over it (ir_constfold.go).
 	case constant.Bool:
-		return &irExpr{K: "const", Pos: p, T: gt, V: strconv.FormatBool(constant.BoolVal(v))}
+		return b.constValue(&irExpr{K: "const", Pos: p, T: gt, V: strconv.FormatBool(constant.BoolVal(v))}, v)
 	case constant.String:
-		return &irExpr{K: "const", Pos: p, T: gt, V: irString(constant.StringVal(v))}
+		return b.constValue(&irExpr{K: "const", Pos: p, T: gt, V: irString(constant.StringVal(v))}, v)
 	case constant.Int, constant.Float:
 		switch {
 		case isInteger(t) || bt.Kind == check.Duration:
@@ -345,13 +347,13 @@ func (b *irBuilder) constant(t check.Type, v constant.Value, x syntax.Expr, p ir
 			if i.Kind() != constant.Int {
 				irNo("constant kind %s", v.Kind())
 			}
-			return &irExpr{K: "const", Pos: p, T: gt, V: i.ExactString()}
+			return b.constValue(&irExpr{K: "const", Pos: p, T: gt, V: i.ExactString()}, i)
 		case bt.Kind == check.Float64:
 			f, _ := constant.Float64Val(constant.ToFloat(v))
-			return &irExpr{K: "const", Pos: p, T: gt, V: strconv.FormatFloat(f, 'g', -1, 64)}
+			return b.constValue(&irExpr{K: "const", Pos: p, T: gt, V: strconv.FormatFloat(f, 'g', -1, 64)}, constant.MakeFloat64(f))
 		case bt.Kind == check.Float32:
 			f, _ := constant.Float32Val(constant.ToFloat(v))
-			return &irExpr{K: "const", Pos: p, T: gt, V: strconv.FormatFloat(float64(f), 'g', -1, 32)}
+			return b.constValue(&irExpr{K: "const", Pos: p, T: gt, V: strconv.FormatFloat(float64(f), 'g', -1, 32)}, constant.MakeFloat64(float64(f)))
 		}
 	}
 	irNo("constant kind %s", v.Kind())
