@@ -28,9 +28,8 @@ type Scanned {
 type scanner {
 	src    string,
 	offset int,
-	// toks is the token columns; n counts the tokens.
+	// toks is the token columns; its ids count the tokens.
 	toks     Toks,
-	n        int,
 	comments Comments,
 	semi     bool,
 	failed   bool,
@@ -74,7 +73,6 @@ func scanAll(src string) scanner {
 		src:    src,
 		offset: 0,
 		toks:   Toks{ids: dense.NewCount[Tok](), kind: zeros32(room), start: zeros32(room), end: zeros32(room)},
-		n:      0,
 		// Room for a comment per 64 bytes: the corpus has one per 132.
 		comments: newComments(len(src)/64 + 4),
 		semi:     false,
@@ -102,7 +100,7 @@ func scanAll(src string) scanner {
 // tokens, where Toks keeps room for them and Parse reads them: at the
 // failure, or at the end of the last token when that is past it.
 func failTail(s *scanner) {
-	let n = s.n
+	let n = NumToks(s.toks)
 	let mut at = s.at
 	let mut end = s.at + s.length
 	if n > 0 && int(s.toks.end[n-1]) > at {
@@ -126,14 +124,13 @@ func growToks(s *scanner) {
 
 // push appends a token with no change of context.
 func push(s *scanner, kind uint8, start int, end int) {
-	let i = s.n
+	let i = NumToks(s.toks)
 	if i+2 >= len(s.toks.kind) {
 		growToks(s)
 	}
 	s.toks.kind[i] = uint32(kind)
 	s.toks.start[i] = uint32(start)
 	s.toks.end[i] = uint32(end)
-	s.n = i + 1
 	let _ = dense.Next(&s.toks.ids)
 }
 

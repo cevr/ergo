@@ -80,7 +80,7 @@ type parser {
 // tree as written).
 func Parse(src string) Parsed {
 	let s = scanAll(src)
-	let n = s.n
+	let n = NumToks(s.toks)
 	// The parser reads the scan's columns in place, a failed scan's
 	// ILLEGAL and EOF past its tokens (Scan), and takes them whole as the
 	// last use of s, so they are not copied (scanAll).
@@ -276,9 +276,11 @@ func sourcesOf(picks []int) []string {
 // ---------------------------------------------------------------- tokens
 
 // next advances to the next token. It stops at EOF and at the ILLEGAL
-// token of a lexical error, and after a failure.
+// token of a lexical error, and after a failure: Illegal and EOF are the
+// two kinds below every other, so one comparison stops at both (capstone
+// S2f).
 func next(p *parser) {
-	if p.tk != EOF && p.tk != Illegal {
+	if p.tk > EOF {
 		p.i = p.i + 1
 		p.tk = uint8(p.toks.kind[p.i])
 	}

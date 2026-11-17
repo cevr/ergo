@@ -160,11 +160,15 @@ func growRows(t *Tree) {
 // push puts w on the scratch stack.
 func pushW(t *Tree, w uint32) {
 	if t.top >= len(t.stack) {
-		t.stack = slices.AppendAll(t.stack, zeros32(len(t.stack)))
+		growStack(t)
 	}
 	t.stack[t.top] = w
 	t.top = t.top + 1
 }
+
+// growStack doubles the scratch stack, out of pushW so Go inlines pushW
+// (capstone S2f).
+func growStack(t *Tree) { t.stack = slices.AppendAll(t.stack, zeros32(len(t.stack))) }
 
 // mark is the stack's height, where a list starts.
 func mark(t Tree) int { t.top }
