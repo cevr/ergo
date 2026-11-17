@@ -41,7 +41,7 @@ import (
 //go:embed explore/sched/dfs.go explore/sched/pct.go explore/sched/sched.go explore/sched/token.go explore/sched/worker.go
 //go:embed rt/mapfault.go rt/pace.go rt/gcknobs.go
 //go:embed v1/lineage.go v1/mapfile_unix.go v1/mapped.go v1/stdout.go v1/ui_args.go
-//go:embed v1/exec/exec_unix.go
+//go:embed v1/exec/exec_unix.go v1/net/net.go
 //go:embed rt/group.go v1/buffer.go v1/heap.go v1/term_bsd.go v1/unsupported_os.go v1/exec/exec_spawn.go v1/exec/exec_spawn_darwin.go v1/exec/exec_spawn_linux.go v1/exec/exec_spawn_other.go v1/http/http_local.go v1/http/http_query.go
 var sources embed.FS
 
@@ -101,10 +101,16 @@ var packages = map[string]pkg{
 	"runtime/v1/rand": {
 		files: []string{"rand.go"},
 	},
+	// Go's net: std net's sockets and memory pipe, and the Listener std
+	// http serves.
+	"runtime/v1/net": {
+		files:   []string{"net.go"},
+		imports: []string{"runtime/rt"},
+	},
 	// net/http links fmt, reflect, crypto/tls and encoding/* (binsize BS8).
 	"runtime/v1/http": {
 		files:   []string{"http.go", "http_client.go", "http_local.go", "http_network.go", "http_query.go"},
-		imports: []string{"runtime/rt", "runtime/v1"},
+		imports: []string{"runtime/rt", "runtime/v1", "runtime/v1/net"},
 	},
 	// fmt and log/slog: Redacted's Format and LogValue (binsize BS8).
 	"runtime/v1/redacted": {

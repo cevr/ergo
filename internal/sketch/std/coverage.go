@@ -28,6 +28,7 @@ var coverage = map[string][]string{
 	"json":     {"encoding/json"},
 	"log":      {"log", "log/slog"},
 	"maps":     {"maps"},
+	"net":      {"net"},
 	"math":     {"math"},
 	"os":       {"os"},
 	"rand":     {"math/rand", "math/rand/v2"},
@@ -46,7 +47,7 @@ var coverage = map[string][]string{
 // counterpart outside the standard library (errgroup, x/term).
 var coversNone = []string{
 	"actor", "arena", "bench", "codec", "config", "dense", "explore", "io", "journal", "journal/file",
-	"journal/memory", "lint", "machines", "prompt", "queue", "rpc", "schedule", "scope",
+	"journal/memory", "lint", "machines", "nettest", "prompt", "queue", "rpc", "schedule", "scope",
 	"task", "tasks", "term", "text", "timeout", "toml", "trace", "ui", "ui/layout",
 }
 

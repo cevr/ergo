@@ -265,6 +265,7 @@ func TestStdExternCallersHoldAuthority(t *testing.T) {
 		"fs.hostReadDir", "fs.hostReadFile", "fs.hostRemove", "fs.hostRename", "fs.hostStat", "fs.hostWriteFile", "fs.hostWriteFileMode",
 		"http.IntoFile", "http.Listen", "http.fetch", "http.fetchInto", "http.send", "http.sendInto", "http.serve",
 		"io.hostEprint", "io.hostIsTerminal", "io.hostLines", "io.hostPrint", "io.hostRead", "io.hostReadAll", "io.hostStderrIsTerminal", "io.hostStdinIsTerminal",
+		"net.hostDial", "net.hostListen",
 		"os.hostArgs", "os.hostGetenv", "os.hostGetwd", "os.hostHasEnv", "prelude.Sleep",
 		"rand.hostFloat64", "rand.hostIntN", "rand.hostUint64", "rpc.call",
 		"term.hostEnterNoEcho", "term.hostEnterRaw", "term.hostLeave", "term.hostReadKey", "term.hostSize", "time.hostMono", "time.hostNow"}

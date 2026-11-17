@@ -18,13 +18,14 @@ import (
 	"ergo.local/prototype/internal/testwait"
 	"ergo.local/prototype/runtime/rt"
 	v1 "ergo.local/prototype/runtime/v1"
+	ergonet "ergo.local/prototype/runtime/v1/net"
 )
 
 // httpHandler is the trusted transport callback; the std wrapper makes
 // its seven scalar arguments into a public Request with a closed Body.
 type httpHandler = func(*rt.Task, *Exchange, string, string, []HTTPField, []HTTPField, string, bool, string) HTTPResponse
 
-func startHTTP(t *testing.T, handle httpHandler) (*Listener, *serverTask) {
+func startHTTP(t *testing.T, handle httpHandler) (*ergonet.Listener, *serverTask) {
 	t.Helper()
 	return startHTTPLimits(t, serveLimits(16, 4096), handle)
 }
@@ -40,17 +41,17 @@ type liveSleeper struct{}
 
 func (liveSleeper) Sleep(t *rt.Task, d time.Duration) { v1.Sleep(t, d) }
 
-func startHTTPLimits(t *testing.T, limits HTTPLimits, handle httpHandler) (*Listener, *serverTask) {
+func startHTTPLimits(t *testing.T, limits HTTPLimits, handle httpHandler) (*ergonet.Listener, *serverTask) {
 	t.Helper()
 	return startHTTPOn(t, liveSleeper{}, limits, handle)
 }
 
-func startHTTPOn(t *testing.T, sleeper v1.Sleeper, limits HTTPLimits, handle httpHandler) (*Listener, *serverTask) {
+func startHTTPOn(t *testing.T, sleeper v1.Sleeper, limits HTTPLimits, handle httpHandler) (*ergonet.Listener, *serverTask) {
 	t.Helper()
 	return startHTTPRoot(t, rt.Root(t.Name()), sleeper, limits, handle)
 }
 
-func startHTTPRoot(t *testing.T, root *rt.Task, sleeper v1.Sleeper, limits HTTPLimits, handle httpHandler) (*Listener, *serverTask) {
+func startHTTPRoot(t *testing.T, root *rt.Task, sleeper v1.Sleeper, limits HTTPLimits, handle httpHandler) (*ergonet.Listener, *serverTask) {
 	t.Helper()
 	l, err := HTTPListen("127.0.0.1:0")
 	if err != nil {

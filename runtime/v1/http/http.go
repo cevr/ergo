@@ -16,21 +16,13 @@ import (
 
 	"ergo.local/prototype/runtime/rt"
 	v1 "ergo.local/prototype/runtime/v1"
+	ergonet "ergo.local/prototype/runtime/v1/net"
 )
 
-// Listener is the transport shared by server protocols. HTTP adds no
-// policy to it; Limits belongs to the serving call, not to the transport.
-type Listener struct {
-	ln net.Listener
-}
-
-func (l *Listener) bound() {}
-
-//ergo:wait none
-func (l *Listener) Addr() string { return l.ln.Addr().String() }
-
-//ergo:wait none
-func (l *Listener) Close() { _ = l.ln.Close() }
+// The listener is the net leaf's Listener, the transport shared by server
+// protocols (std http's Listener and std net's name one Go type). HTTP
+// adds no policy to it; Limits belongs to the serving call, not to the
+// transport.
 
 type HTTPListenFailed struct{ Addr, Reason string }
 
@@ -158,21 +150,17 @@ func (x *Exchange) finish() bool {
 	return x.started
 }
 
-// ListenerOn is a Listener over ln, which Go code makes: an in-process
-// transport for a benchmark of Serve. Ergo source has only Listen.
-func ListenerOn(ln net.Listener) *Listener { return &Listener{ln: ln} }
-
 // HTTPListen binds TCP. Port zero selects an available port, reported by
 // Addr. The caller either hands the transport to Serve or closes it.
 //
 //ergo:host
 //ergo:wait none
-func HTTPListen(addr string) (*Listener, error) {
+func HTTPListen(addr string) (*ergonet.Listener, error) {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, HTTPListenFailed{Addr: addr, Reason: err.Error()}
 	}
-	return &Listener{ln: ln}, nil
+	return ergonet.ListenerOn(ln), nil
 }
 
 type httpServer struct {
@@ -516,11 +504,14 @@ func connState(nc net.Conn, st http.ConnState) {
 //
 //ergo:host
 //ergo:wait child
-func HTTPServe(site v1.Site, t *rt.Task, sleeper v1.Sleeper, l *Listener, limits HTTPLimits, handle func(*rt.Task, *Exchange, string, string, []HTTPField, []HTTPField, string, bool, string) HTTPResponse) error {
+func HTTPServe(site v1.Site, t *rt.Task, sleeper v1.Sleeper, l *ergonet.Listener, limits HTTPLimits, handle func(*rt.Task, *Exchange, string, string, []HTTPField, []HTTPField, string, bool, string) HTTPResponse) error {
 	if !limits.valid() {
 		return HTTPInvalidLimits(limits)
 	}
 	defer l.Close()
+	if l.Host() == nil {
+		v1.Unreachable("http.Serve: the listener is a nettest.Pipe's; Serve serves a host listener (http.Listen, net.Host)")
+	}
 	t.Check()
 	s := &httpServer{limits: limits, site: string(site), handle: handle, requests: rt.NewGroup(t, string(site)+" (requests)"), failed: make(chan struct{}, 1),
 		timers: rt.NewGroup(t, string(site)+" (timeouts)"), sleeper: sleeper, timerSite: string(site) + " (timeout)", stopping: make(chan struct{})}
@@ -531,7 +522,7 @@ func HTTPServe(site v1.Site, t *rt.Task, sleeper v1.Sleeper, l *Listener, limits
 		ConnContext:    func(ctx context.Context, nc net.Conn) context.Context { return context.WithValue(ctx, connKey{}, nc) },
 	}
 	served := make(chan error, 1)
-	go func() { served <- srv.Serve(httpListener{l.ln, s}) }()
+	go func() { served <- srv.Serve(httpListener{l.Host(), s}) }()
 	// shutdown stops the requests and the timers and joins them: every
 	// request task and every sleep has returned once its goroutine has
 	// (workers). It returns the defects of the requests and of the timers.

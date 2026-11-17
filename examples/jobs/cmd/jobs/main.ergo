@@ -10,6 +10,7 @@
 import flag
 import fs
 import http
+import net
 import io
 import jobs/api
 import jobs/memory
@@ -100,14 +101,14 @@ func run(v flag.Values, handle own func(http.Request) http.Response needs api.Jo
 	}
 }
 
-func listen(addr string) http.Listener fails os.Exit needs Ambient {
+func listen(addr string) net.Listener fails os.Exit needs Ambient {
 	http.Listen(addr) catch {
 	case http.ListenFailed as f:
 		return os.Exit{Code: 1, Message: "jobs: cannot listen on " + f.Addr + ": " + f.Reason}
 	}
 }
 
-func serve(l http.Listener, handle own func(http.Request) http.Response needs api.Jobs) fails os.Exit needs api.Jobs | Scheduler {
+func serve(l net.Listener, handle own func(http.Request) http.Response needs api.Jobs) fails os.Exit needs api.Jobs | Scheduler {
 	http.Serve(l, limits, handle) catch {
 	case http.InvalidLimits:
 		return os.Exit{Code: 2, Message: "jobs: the server's limits are not positive"}

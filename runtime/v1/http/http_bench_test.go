@@ -13,6 +13,7 @@ import (
 
 	"ergo.local/prototype/runtime/rt"
 	v1 "ergo.local/prototype/runtime/v1"
+	ergonet "ergo.local/prototype/runtime/v1/net"
 )
 
 // BenchmarkHTTPServer interleaves the buffered child-task server and an
@@ -36,7 +37,7 @@ func BenchmarkHTTPServer(b *testing.B) {
 				if mode == "ergo" {
 					s := v1.NewScope(rt.Root("HTTP benchmark"))
 					h := v1.Go(&s, "Serve", func(ct *rt.Task) (struct{}, error) {
-						return struct{}{}, HTTPServe("request", ct, liveSleeper{}, &Listener{ln: ln}, serveLimits(4096, 4096), func(_ *rt.Task, _ *Exchange, _, _ string, _, _ []HTTPField, body string, tooLarge bool, readError string) HTTPResponse {
+						return struct{}{}, HTTPServe("request", ct, liveSleeper{}, ergonet.ListenerOn(ln), serveLimits(4096, 4096), func(_ *rt.Task, _ *Exchange, _, _ string, _, _ []HTTPField, body string, tooLarge bool, readError string) HTTPResponse {
 							if tooLarge || readError != "" {
 								return HTTPResponse{Status: 400}
 							}

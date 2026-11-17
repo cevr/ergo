@@ -16,12 +16,13 @@ func TestHTTPHandlerRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	const src = `import http
+import net
 import time
 func handle(r http.Request) http.Response needs time.Clock {
 	let now = time.Clock.Now()
 	http.Response{Status: 200, Header: []http.Field{}, Body: now.Format(time.DateOnly)}
 }
-func serve(l http.Listener) fails http.InvalidLimits needs time.Clock | Scheduler {
+func serve(l net.Listener) fails http.InvalidLimits needs time.Clock | Scheduler {
 	return http.Serve(l, http.Limits{MaxBodyBytes: 1024, MaxHeaderBytes: 4096, IdleTimeout: 5s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 30s}, handle)
 }
 func direct() http.Response {
