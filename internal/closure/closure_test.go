@@ -223,6 +223,8 @@ var declared = map[string][]allowance{
 		{"examples/editions/sketch/*", files, "smokeWorkspace copies each file of the 2026 example; it has no subdirectory, so the copy reads one level"},
 		{"scripts/examples", program, "the package-folder test runs `go run ./scripts/examples` with the CLI under test (packages_test.go, tidewalk-replay)"},
 		{"examples", subtree, "the package-folder test runs scripts/examples, which loads every program folder of examples/ whatever the selection (loadExamples) and walks the selected one, so a changed example reruns it"},
+		{"modules", subtree, "the package-folder test's scripts/examples run loads examples that import the bundled modules (ergo.dev/domain, infra, mcp, xml), which their ergo.mod replaces with modules/, and the loader reads each module's sources"},
+		{"conformance/upstream", subtree, "the package-folder test's scripts/examples run walks each vendored upstream folder that an example's origin/source names (checkOrigin, FKsrc)"},
 	},
 	"internal/experimental/irspike": {
 		{"examples", subtree, "TestIRCoverage and TestIRAgreesOnExamples walk every example program (ExampleTargets, filepath.WalkDir) and lower, build and run each, with its cases"},
