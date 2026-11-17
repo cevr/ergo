@@ -4418,6 +4418,64 @@ func lawPaintTableGrowsWithDistinctPaints(seed int, count int) bool {
 	ok
 }
 
+func lookRejected(m *ui.Mirror[int], patch []ui.Op[int], shown []ui.Shape[int]) bool {
+	ui.Apply(m, patch) catch {
+	case ui.BadPatch:
+		return ui.SameShapes(ui.MirrorShape(m), shown) && ui.MirrorLookCount(m) == len(lookDefaults())
+	}
+	false
+}
+
+func lawMirrorRejectsUnheldLooks(seed int) bool {
+	let mut r = seeded(seed)
+	let mut l = lookDraw(&r)
+	l.Border = ui.Border{Width: 1, Color: ui.Rgb(0x000000)}
+	let view = func(f *ui.Frame[int], s int) {
+		let mut st = ui.Plain()
+		if s == 1 {
+			st.Look = ui.LookFor(f, ui.Steady(l))
+		}
+		ui.Column(f, ui.Plain()) {
+			ui.Box(f, st) {
+				ui.Text(f, "x")
+			}
+		}
+	}
+	let mut f = ui.NewFrame[int]()
+	let mut m = ui.NewMirror[int](ui.Root(&f))
+	ui.Apply(&m, ui.Render(&f, view, 0)) catch {
+	case ui.BadPatch:
+		return false
+	}
+	let shown = ui.MirrorShape(&m)
+	let mut defines = []ui.Op[int]{}
+	let mut uses = []ui.Op[int]{}
+	for op in ui.Render(&f, view, 1) {
+		match op {
+		case ui.Define:
+			defines = defines.Append(op)
+		case _:
+			uses = uses.Append(op)
+		}
+	}
+	if len(defines) != 1 || len(uses) == 0 {
+		return false
+	}
+	let twice = []ui.Op[int]{defines[0], defines[0]}
+	let mut fits = []ui.Op[int]{defines[0]}
+	for op in uses {
+		fits = fits.Append(op)
+	}
+	if !lookRejected(&m, uses, shown) || !lookRejected(&m, twice, shown) {
+		return false
+	}
+	ui.Apply(&m, fits) catch {
+	case ui.BadPatch:
+		return false
+	}
+	ui.MirrorLookCount(&m) == len(lookDefaults())+1
+}
+
 func lawAccessIsWhatWasDeclared(seed int, count int) bool {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
@@ -5130,6 +5188,10 @@ test UiPaintIsWhatWasGiven(seed int, state int, part int) {
 	assert lawPaintIsWhatWasGiven(seed, state, part)
 }
 
+test UiMirrorRejectsUnheldLooks(seed int) {
+	assert lawMirrorRejectsUnheldLooks(seed)
+}
+
 test UiPaintIsNotInherited(seed int) {
 	assert lawPaintIsNotInherited(seed)
 }
@@ -5232,6 +5294,7 @@ var stdUIHostStatements = map[string]string{
 	"ui TypeIntoNamesTheField":             `TypeIntoNamesTheField(seed int, count int) { let m = time.NewManual(0) with context { Scheduler: m } { let n = (count%4+4)%4 + 2 let s = (seed%64 + 64) % 64 let view = func(f *Frame[int], st int) { Column(f, Plain()) { for i in 0..n { LabelledInput(f, FieldLabel{Text: typedLabel(s, i), Description: "", Invalid: false}, "", "ph\(i)", func(t string) int { i*1000 + len(t) }) } } } let a = actor.StartMachine(Machine[int, int, int]{Initial: -1, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } for i in 0..n { let label = typedLabel(s, i) let mut name = label if name == "" { name = "ph\(i)" } let mut text = "" for _ in 0..i+1 { text = text + "x" } Play(&h, []Act{TypeInto{Label: name, Text: text}, SettleAll}) catch { case _: return false } if StateOf(&h) != i*1000+i+1 { return false } if label != "" { let mut missing = false Play(&h, []Act{TypeInto{Label: "ph\(i)", Text: "y"}}) catch { case NoNode: missing = true case _: return false } if !missing || StateOf(&h) != i*1000+i+1 { return false } } } true } }`,
 	"ui AccessIsWhatWasDeclared":           `AccessIsWhatWasDeclared(seed int, count int) { let m = time.NewManual(0) with context { Scheduler: m } { let n = (count%6+6)%6 + 2 let view = func(f *Frame[int], s int) { let ds = semDecls(seed+s*7919, n) Column(f, Plain()) { for i, d in ds { if i%2 == 0 { Semantic(f, d, Some{Value: i + 1}, Plain()) { Text(f, "t\(i)") } } else { Fieldset(f, true, "fs") { Semantic(f, d, Some{Value: i + 1}, Plain()) { Text(f, "t\(i)") } } } } } } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } for s in 0..2 { let ds = semDecls(seed+StateOf(&h)*7919, n) for i, d in ds { let ids = Locate(&h, WithLabel{Label: d.Name}) if len(ids) != 1 { return false } let mut want = d if i%2 == 1 { want.Disabled = true if d.Description == "" { want.Description = "fs" } } if AccessAt(&h, ids[0]) != want { return false } // The matchers of the new states read the same record. if semHolds(&h, d.Name, ToBeSelected) != (want.Selected == (Some{Value: true})) || semHolds(&h, d.Name, ToBeExpanded) != (want.Expanded == (Some{Value: true})) || semHolds(&h, d.Name, ToBeCollapsed) != (want.Expanded == (Some{Value: false})) || semHolds(&h, d.Name, ToBeInvalid) != want.Invalid { return false } } if s == 0 { // A press on the first: the signal when it is enabled. let first = Locate(&h, WithLabel{Label: "n0"}) Tap(&h, first[0]) catch { case _: return false } Settle(&h) catch { case _: return false } if ds[0].Disabled != (StateOf(&h) == 0) { return false } } } true } }`,
 	"ui PaintIsWhatWasGiven":               `PaintIsWhatWasGiven(seed int, state int, part int) { let m = time.NewManual(0) with context { Scheduler: m } { let mut r = seeded(seed) let mut before = []Looks{} for _ in 0..8 { before = before.Append(drawLooks(&r)) } let k = draw(&r, 8) let changed = changeLooks(before[k], state, part) let mut after = []Looks{} for i, ls in before { after = after.Append(if i == k { changed } else { ls }) } let view = func(f *Frame[int], s int) { if s == 0 { lookedView(f, before) } else { lookedView(f, after) } } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } let shot = Screenshot(&h) for step in 0..2 { let want = if step == 0 { before } else { after } let screen = Screen(&h) if len(screen) != 1 || len(screen[0].Kids) != 9 { return false } for i, ls in want { if LooksOf(&h, screen[0].Kids[i].Node) != ls { return false } } if LooksOf(&h, screen[0].Kids[8].Node) != Steady(PressLook()) { return false } if step == 0 { let ids = Locate(&h, WithLabel{Label: "go"}) if len(ids) != 1 { return false } Tap(&h, ids[0]) catch { case _: return false } Settle(&h) catch { case _: return false } } } Screenshot(&h) != shot } }`,
+	"ui MirrorRejectsUnheldLooks":          `MirrorRejectsUnheldLooks(seed int) { let mut r = seeded(seed) let mut l = drawLook(&r) l.Border = Border{Width: 1, Color: Rgb(0x000000)} let view = func(f *Frame[int], s int) { let mut st = Plain() if s == 1 { st.Look = LookFor(f, Steady(l)) } Column(f, Plain()) { Box(f, st) { Text(f, "x") } } } let mut f = NewFrame[int]() let mut m = NewMirror[int](Root(&f)) Apply(&m, Render(&f, view, 0)) catch { case BadPatch: return false } let shown = MirrorShape(&m) let mut defines = []Op[int]{} let mut uses = []Op[int]{} for op in Render(&f, view, 1) { match op { case Define: defines = defines.Append(op) case _: uses = uses.Append(op) } } if len(defines) != 1 || len(uses) == 0 { return false } let twice = []Op[int]{defines[0], defines[0]} let mut fits = []Op[int]{defines[0]} for op in uses { fits = fits.Append(op) } if !lookRejected(&m, uses, shown) || !lookRejected(&m, twice, shown) { return false } Apply(&m, fits) catch { case BadPatch: return false } MirrorLookCount(&m) == len(defaultTable())+1 }`,
 	"ui PaintIsNotInherited":               `PaintIsNotInherited(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { let mut r = seeded(seed) let ls = drawLooks(&r) let mut kinds = []int{} for _ in 0..draw(&r, 4)+1 { kinds = kinds.Append(draw(&r, 4)) } let view = func(f *Frame[int], s int) { nested(f, ls, kinds, 0) } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } let screen = Screen(&h) len(screen) == 1 && LooksOf(&h, screen[0].Node) == ls && unpainted(&h, screen, false) } }`,
 	"ui PaintTableGrowsWithDistinctPaints": `PaintTableGrowsWithDistinctPaints(seed int, count int) { let mut r = seeded(seed) let k = draw(&r, 5) + 1 let n = (count%20+20)%20 + k let mut pool = []Looks{} for i in 0..k { let mut l = drawLook(&r) l.Border = Border{Width: Length(float64(i + 1)), Color: Rgb(0x000000)} pool = pool.Append(Steady(l)) } let mut ok = true for size in []int{n, 2 * n} { let mut picks = []int{} for i in 0..size { picks = picks.Append(if i < k { i } else { draw(&r, k) }) } let view = func(f *Frame[int], xs []int) { Column(f, Plain()) { for x in xs { let mut s = Plain() s.Look = LookFor(f, pool[x]) Box(f, s) { Text(f, "x") } } } } let mut f = NewFrame[int]() let mut m = NewMirror[int](Root(&f)) Apply(&m, Render(&f, view, picks)) catch { case BadPatch: return false } Apply(&m, Render(&f, view, picks)) catch { case BadPatch: return false } ok = ok && LookCount(&f) == len(defaultTable())+k && MirrorLookCount(&m) == LookCount(&f) } ok }`,
 	"ui WithinFindsUnder":                  `WithinFindsUnder(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { let mut r = seeded(seed) let mut board = [][]int{} for _ in 0..draw(&r, 4)+1 { let mut col = []int{} for _ in 0..draw(&r, 5) { col = col.Append(draw(&r, 8)) } board = board.Append(col) } let none Option[int] = None let decl = func(role Role, name string, level Option[int]) Access { Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: level} } let view = func(f *Frame[int], s int) { Column(f, Plain()) { for i, col in board { Semantic(f, decl(Region, "col \(i)", None), none, Plain()) { Semantic(f, decl(Heading, "col \(i)", Some{Value: 2}), none, Plain()) { Text(f, "col \(i)") } for j, c in col { if c%2 == 0 { Pressable(f, withinLabel(c/2), 100*i+j) { Text(f, "x") } } else { Box(f, Plain()) { Pressable(f, withinLabel(c/2), 100*i+j) { Text(f, "x") } } } } } } } } let a = actor.StartMachine(Machine[int, int, int]{Initial: -1, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } for i, col in board { let column = WithRole{Role: Region, Name: "col \(i)"} let found = Locate(&h, Within{In: column, At: WithRole{Role: Button, Name: ""}}) if len(found) != len(col) { return false } for j, c in col { if AccessAt(&h, found[j]).Name != withinLabel(c/2) { return false } } let nested = Locate(&h, Within{In: WithRole{Role: Region, Name: ""}, At: Within{In: column, At: WithRole{Role: Button, Name: ""}}}) if nested != found { return false } for j, c in col { let label = withinLabel(c / 2) let mut first = j for k in 0..j { if withinLabel(col[k]/2) == label && first == j { first = k } } if first == j { Play(&h, []Act{ClickOn{At: First{At: Within{In: column, At: WithLabel{Label: label}}}}, SettleAll}) catch { case _: return false } if StateOf(&h) != 100*i+j { return false } } } } // A column is not within itself, nor within another: none nests. let regions = WithRole{Role: Region, Name: ""} len(Locate(&h, Within{In: WithRole{Role: Region, Name: "col 9"}, At: WithRole{Role: Button, Name: ""}})) == 0 && len(Locate(&h, Within{In: regions, At: regions})) == 0 } }`,

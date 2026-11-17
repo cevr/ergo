@@ -575,3 +575,67 @@ law PaintTableGrowsWithDistinctPaints(seed int, count int) {
 	}
 	ok
 }
+
+// lookRejected is whether patch fails with BadPatch on m and leaves its
+// screen as shown and its table at the defaults. (a law's helper)
+func lookRejected(m *Mirror[int], patch []Op[int], shown []Shape[int]) bool {
+	Apply(m, patch) catch {
+	case BadPatch:
+		return SameShapes(MirrorShape(m), shown) && MirrorLookCount(m) == len(defaultTable())
+	}
+	false
+}
+
+// MirrorRejectsUnheldLooks (UG1): a mirror fails with BadPatch, and keeps
+// its screen and its table, on a patch whose node names a look no Define
+// gave it, and on a Define of a LookId that is not the next; the same
+// patch with its Define first fits.
+law MirrorRejectsUnheldLooks(seed int) {
+	let mut r = seeded(seed)
+	let mut l = drawLook(&r)
+	l.Border = Border{Width: 1, Color: Rgb(0x000000)}
+	let view = func(f *Frame[int], s int) {
+		let mut st = Plain()
+		if s == 1 {
+			st.Look = LookFor(f, Steady(l))
+		}
+		Column(f, Plain()) {
+			Box(f, st) {
+				Text(f, "x")
+			}
+		}
+	}
+	let mut f = NewFrame[int]()
+	let mut m = NewMirror[int](Root(&f))
+	Apply(&m, Render(&f, view, 0)) catch {
+	case BadPatch:
+		return false
+	}
+	let shown = MirrorShape(&m)
+	let mut defines = []Op[int]{}
+	let mut uses = []Op[int]{}
+	for op in Render(&f, view, 1) {
+		match op {
+		case Define:
+			defines = defines.Append(op)
+		case _:
+			uses = uses.Append(op)
+		}
+	}
+	if len(defines) != 1 || len(uses) == 0 {
+		return false
+	}
+	let twice = []Op[int]{defines[0], defines[0]}
+	let mut fits = []Op[int]{defines[0]}
+	for op in uses {
+		fits = fits.Append(op)
+	}
+	if !lookRejected(&m, uses, shown) || !lookRejected(&m, twice, shown) {
+		return false
+	}
+	Apply(&m, fits) catch {
+	case BadPatch:
+		return false
+	}
+	MirrorLookCount(&m) == len(defaultTable())+1
+}
