@@ -10,8 +10,10 @@ import "fmt"
 // against the source, with the seed and the commit, every miss kept). It
 // is capped at 0.95: a rule with no observed false finding is
 // under-measured, not perfect. A rule is on by default only at Bar or
-// above; below it, or with no read sample, it is opt-in. Misses stay in
-// the count after the rule is fixed; a later sample adds to it.
+// above; below it, or with no read sample, it is opt-in. A fix of a rule
+// re-reads its sample; the findings the fix removed stay on record in the
+// earlier reading, and the rule's next sample must be held out from the
+// fix.
 
 // Bar is the precision, in hundredths, a rule needs to be on by default
 // (in the base preset).
@@ -97,12 +99,21 @@ func (m Measure) Precision() Precision {
 // still check. Every finding was read.
 const firstVersions = "first committed version of each examples/ program (77 of 100 check)"
 
-const reading1117 = "read-2026-11-17.tsv"
+// reading1117 is the 2026-11-17 sample re-read after LHP2 fixed the two
+// families of false findings it found (silent-catch missed Unreachable,
+// assert and an outer write as traces; the complexity metrics counted
+// each arm of a match over a union): the same 103 findings at 64d838f6d,
+// linted again at the fixed rules (1f3454ed9). A finding still reported
+// keeps its first label; none was new; the 29 no longer reported are
+// read-2026-11-17.tsv's rows the fix removed (5 of them true). The fix
+// was written against this sample, so it is no longer held out for
+// silent-catch and the complexity rules: their next sample must be.
+const reading1117 = "read-2026-11-17-lhp2.tsv"
 
 // measure1117 is a row of the 2026-11-17 sample.
 func measure1117(rule string, truth, read int, misses ...Miss) Measure {
 	return Measure{Rule: rule, Language: "ergo", Decider: "exact", True: truth, Read: read,
-		Seed: "all", Commit: "64d838f6d", Source: firstVersions, Reading: reading1117, Misses: misses}
+		Seed: "all", Commit: "1f3454ed9", Source: firstVersions, Reading: reading1117, Misses: misses}
 }
 
 var (
@@ -120,14 +131,13 @@ var (
 // race-for-timeout, with-at-entry.
 var precisionTable = []Measure{
 	measure1117("banned-words", 2, 6, Miss{"domain", "Shape is the domain's geometric primitive, not a filler word", 4}),
-	measure1117("cognitive-complexity", 12, 24, missOneMatch(6), missHotPath(3), Miss{"just over", "one job just over the cap", 3}),
-	measure1117("cyclomatic-complexity", 3, 11, missOneMatch(6), missHotPath(2)),
+	measure1117("cognitive-complexity", 9, 14, missHotPath(3), Miss{"just over", "one job just over the cap", 2}),
+	measure1117("cyclomatic-complexity", 1, 4, missHotPath(2), Miss{"one match", "a match on byte literals: one classifier", 1}),
 	measure1117("halstead-difficulty", 0, 1, missOneMatch(1)),
 	measure1117("known-value-widening", 5, 5),
-	measure1117("silent-catch", 7, 55,
-		Miss{"designed", "the fallback is the designed meaning: retry on Stale, a refused command yields no events, U+FFFD, a default answer", 24},
+	measure1117("silent-catch", 7, 43,
+		Miss{"designed", "the fallback is the designed meaning: retry on Stale, a refused command yields no events, U+FFFD, a default answer", 22},
 		Miss{"generator", "a law's or a test's generator skips an input the code refuses", 12},
-		Miss{"rule miss", "the arm leaves a trace the rule does not see: Unreachable, assert, a write of a local", 10},
 		Miss{"observation", "the test reads the sentinel the arm yields", 2}),
 	measure1117("unbounded-collect", 0, 1, Miss{"rule miss", "the Seq's source is ended before the loop", 1}),
 }
