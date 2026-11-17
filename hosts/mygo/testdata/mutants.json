@@ -402,7 +402,8 @@
       "from": "\t\t\t\tn = n + 1\n\t\t\t\tat = r\n",
       "to": "\t\t\t\tat = r\n",
       "rule": "Height counts the lines Lines breaks, a wrapped run starting one",
-      "killers": ["hosts/mygo:TestMyGoHostAgreesWithTestHost"]
+      "killers": [],
+      "gap": "Killed by law CountIsLines (metrics.ergo), run as `ergo test ./desktop --law CountIsLines` in hosts/mygo (GP-KILLERS, 2026-11-17: refuted at case 17, seed 1); the runner has no suite for a host module's laws, and no Go test of hosts/mygo kills it (TestMyGoHostAgreesWithTestHost survives)."
     },
     {
       "name": "GPo-pass-offset-ignored",
