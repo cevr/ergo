@@ -27,6 +27,17 @@ import (
 // type is known to be a primitive. Here the type is always known, so the
 // call is the per-type function, as Rust's derive(PartialEq) is.
 func (b *irBuilder) binaryOther(x *syntax.BinaryExpr, p irPos) *irExpr {
+	// Both operands in order, each with its implicit conversion: a later
+	// one that runs statements (a call, an if) runs after the earlier
+	// (ir_order.go inOrder).
+	return b.equalOn(x, func() []*irExpr { return b.inOrder([]syntax.Expr{x.X, x.Y}) })
+}
+
+// equalOn is binaryOther's comparison of the operands that build gives,
+// built once x is known to be one: an assert's operands (ir_assert.go) are
+// its spilled locals, which its failure text reads too (the emitter's
+// assertCompare, binaryOf on the spilled parts).
+func (b *irBuilder) equalOn(x *syntax.BinaryExpr, build func() []*irExpr) *irExpr {
 	op := x.Op.String()
 	if op != "==" && op != "!=" {
 		return nil
@@ -37,10 +48,7 @@ func (b *irBuilder) binaryOther(x *syntax.BinaryExpr, p irPos) *irExpr {
 	}
 	t := b.fc.equalType(x)
 	gt := b.goType(t, x)
-	// Both operands in order, each with its implicit conversion: a later
-	// one that runs statements (a call, an if) runs after the earlier
-	// (ir_order.go inOrder).
-	vals := b.inOrder([]syntax.Expr{x.X, x.Y})
+	vals := build()
 	operand := func(k int, e syntax.Expr, et check.Type) *irExpr {
 		v := vals[k]
 		if conv, ok := b.l.info.Implicit[e]; ok && conv.Kind == check.ConvVariant {
