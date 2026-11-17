@@ -42,6 +42,10 @@ type irCallFacts struct {
 	// Keep says why the node is kept as written: keepAsWritten inside
 	// AsWritten, keepCheck in a side a canary or a shadow compares.
 	Keep string
+	// Stmt is set for a call in statement position: a window's call
+	// (ir_window.go), never a site of a law over functions, whose right
+	// side is a value.
+	Stmt bool
 }
 
 const (
@@ -49,12 +53,13 @@ const (
 	keepCheck     = "check"
 )
 
-// callFacts gives e, the call x as the builder lowered it, its facts.
-func (b *irBuilder) callFacts(x *syntax.CallExpr, e *irExpr) {
-	if b.l.canon.funcRw == nil || len(b.l.scopeLaws()) == 0 {
+// callFacts gives e, the call x as the builder lowered it, its facts;
+// stmt reports a call in statement position.
+func (b *irBuilder) callFacts(x *syntax.CallExpr, e *irExpr, stmt bool) {
+	if !b.rwFuncs() && !b.rwWindowsOn() {
 		return
 	}
-	f := &irCallFacts{}
+	f := &irCallFacts{Stmt: stmt}
 	if b.lawDepth == 0 {
 		f.Site = x
 	}
@@ -218,7 +223,7 @@ func (b *irBuilder) hole(m *rwMatch, p, e *irExpr, typed bool) bool {
 // matchAt is the first law whose left side matches the call node e, in
 // the order its package declares them.
 func (b *irBuilder) matchAt(e *irExpr, site *syntax.CallExpr) (rwMatch, bool) {
-	if e.C == nil {
+	if e.C == nil || e.C.Stmt {
 		return rwMatch{}, false
 	}
 	for _, p := range b.patterns()[rwHead(e)] {
@@ -257,9 +262,21 @@ var rwSlotted = map[string]bool{
 	"discard": true, "panic": true, "if": true, "switch": true, "tswitch": true, "match": true, "range": true,
 }
 
-// rewritePass rewrites the body's sites (see the file comment).
+// rwFuncs reports a lowering with laws over functions in its scope.
+func (b *irBuilder) rwFuncs() bool {
+	return b.l.canon.funcRw != nil && len(b.l.scopeLaws()) > 0
+}
+
+// rewritePass rewrites the body's windows (ir_window.go), then its sites
+// (see the file comment).
 func (b *irBuilder) rewritePass(body []*irStmt) []*irStmt {
-	if b.l.canon.funcRw == nil || b.st.census != nil || b.law != nil || len(b.l.scopeLaws()) == 0 {
+	if b.st.census != nil || b.law != nil {
+		return body
+	}
+	if b.rwWindowsOn() {
+		body = b.windows(body)
+	}
+	if !b.rwFuncs() {
 		return body
 	}
 	return b.rwList(body)

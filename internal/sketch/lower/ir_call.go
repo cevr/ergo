@@ -40,8 +40,8 @@ func (b *irBuilder) call(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr) {
 		defer func() { b.keep-- }()
 	}
 	pre, e, effect := b.callParts(x, stmt)
-	if e != nil && !stmt {
-		b.callFacts(x, e) // ir_rewrite_pass.go: the rewrite pass reads them
+	if e != nil {
+		b.callFacts(x, e, stmt) // ir_rewrite_pass.go: the rewrite passes read them
 	}
 	if e != nil && (e.K == "vcall" || b.dropsErr[e] && !stmt) {
 		// A function value returns its (value, error) pair (ir_closure.go),
