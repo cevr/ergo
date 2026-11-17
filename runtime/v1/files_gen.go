@@ -353,6 +353,7 @@ var bodyTable = []bodyRow{
 	{"OwningPartsAt", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "*Owned"}, {Type: "*T"}, {Type: "func(T, uint64)", Func: &Body{Params: []Param{{Type: "T"}, {Type: "uint64"}}}}}, Wait: "none", Package: Path}}},
 	{"Panic.String", bodyFact{body: Body{Results: []string{"string"}, Package: Path}}},
 	{"ParseError.Error", bodyFact{body: Body{Results: []string{"string"}, Package: Path}}},
+	{"PopWithin", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Hidden: []Hidden{"site", "task", "scheduler"}, Params: []Param{{Type: "*Queue[T]"}, {Type: "time.Duration"}}, Results: []string{"T", "error"}, Wait: "child", Package: Path}}},
 	{"Put", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "K", Constraint: "comparable"}, {Name: "V", Constraint: "any"}}, Params: []Param{{Type: "map[K]V"}, {Type: "K"}, {Type: "V"}}, Results: []string{"map[K]V"}, Pure: true, Package: Path}}},
 	{"Queue.Cap", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Results: []string{"int"}, Wait: "none", Package: Path}}},
 	{"Queue.Drain", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Results: []string{"[]T"}, Wait: "none", Package: Path}}},

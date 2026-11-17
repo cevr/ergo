@@ -1,3 +1,5 @@
+import queue
+import task
 import time
 
 // Expired is the failure of a body that did not finish before its deadline.
@@ -41,5 +43,89 @@ law DeadlineFirstExpires() {
 		case Expired:
 			true
 		}
+	}
+}
+
+// PopWithin takes the value at the front of q, waiting up to d for one on
+// the Scheduler (Go's select over a channel and a timer; Effect's
+// Queue.take with a timeout). It fails Expired when d passes first, having
+// taken nothing, and Closed when q is closed and empty. A value that is
+// there now is taken with no deadline, so a burst arms no timer; a wait
+// arms one, as After does, and stops it before PopWithin returns. A value
+// that enters at the deadline's instant is either taken or left in q,
+// never lost. A d of zero or less never waits.
+extern go ergo.local/prototype/runtime/v1.PopWithin func PopWithin[T](q queue.Queue[T], d duration) T fails queue.Closed | Expired needs Scheduler
+
+// PopWithinWaitsUpToD: a value pushed gap ms after the call is taken at
+// gap when gap is less than d, and no deadline sleeps on after it; when d
+// is less, PopWithin fails Expired at d and the value stays in the queue;
+// at a tie, one of the two. A producer task and a consumer task run on a
+// time.Manual, and the consumer records what PopWithin gave, when, and
+// how many tasks sleep on the Manual then.
+law PopWithinWaitsUpToD(g int, w int) {
+	let m = time.NewManual(0)
+	let gap = ((g % 60) + 60) % 60
+	let d = ((w % 59) + 59) % 59 + 1
+	let start = m.Now()
+	with context { Scheduler: m } {
+		let q = queue.New[int](1)
+		let got = queue.New[int](3)
+		let producer = task.Go() {
+			Scheduler.Sleep(time.Times(1ms, gap))
+			q.Push(7) catch {
+			case queue.Closed:
+			}
+		}
+		let consumer = task.Go() {
+			let v = PopWithin(q, time.Times(1ms, d)) catch {
+			case Expired:
+				-1
+			case queue.Closed:
+				-2
+			}
+			got.Push(v) catch {
+			case queue.Closed:
+			}
+			got.Push(time.Count(m.Elapsed(start), 1ms)) catch {
+			case queue.Closed:
+			}
+			got.Push(m.Sleepers()) catch {
+			case queue.Closed:
+			}
+		}
+		m.Advance(120ms)
+		producer.Wait()
+		consumer.Wait()
+		let v = got.Poll()
+		let at = got.Poll()
+		let asleep = got.Poll()
+		let took = v == Some[int]{Value: 7} && at == Some[int]{Value: gap} && q.Len() == 0 && asleep == Some[int]{Value: 0}
+		let expired = v == Some[int]{Value: -1} && at == Some[int]{Value: d} && q.Len() == 1
+		if gap < d {
+			took
+		} else if gap > d {
+			expired
+		} else {
+			took || expired
+		}
+	}
+}
+
+// PopWithinTakesWhatIsThere: a value in the queue is taken at once, with
+// no deadline, even for a d of zero; then the closed, empty queue fails
+// Closed, not Expired.
+law PopWithinTakesWhatIsThere(v int) {
+	with context { Scheduler: time.NewManual(0) } {
+		let q = queue.New[int](1)
+		try q.Push(v)
+		q.End()
+		let first = try PopWithin(q, 0ns)
+		let then = PopWithin(q, 0ns) catch {
+		case queue.Closed:
+			-1
+		case Expired:
+			-2
+		}
+		first == v && then == -1 && q.Len() == 0
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"ergo.local/prototype/runtime/rt"
 )
@@ -161,6 +162,128 @@ func (q *Queue[T]) Pop(t *rt.Task) (T, error) {
 		return v, Closed{}
 	}
 	return v, nil
+}
+
+// PopWithin is timeout.PopWithin(q, d) on the caller's task t: the front
+// value of q, waiting up to d on the program's Scheduler s for one. It
+// fails Expired when d passes first, and Closed on a closed, empty queue.
+// span is the hidden call site, which names the deadline's task.
+//
+// A value that can be taken now is taken with no deadline: a burst costs
+// no timer. Only a wait arms one, a child of t that sleeps d on s (the
+// deadline of timeout.After), and stops and drains it before PopWithin
+// returns, so no child outlives the call. The queue's change, the
+// deadline's fire and t's stop end the wait; after a fire the queue is
+// looked at once more, so a value that entered at the deadline's instant
+// is taken, not left for Expired (RT-AFTERDROP), and an Expired call has
+// taken nothing: the value stays for the next Pop. A d of zero or less
+// arms nothing and fails Expired on an empty, open queue. A stop of t
+// raises rt.Interrupted, having taken nothing, as Pop does. Prior art:
+// Go's select over a channel and a time.Timer's C; Effect's
+// Queue.take piped to Effect.timeout.
+//
+//ergo:wait child
+func PopWithin[T any](span Site, t *rt.Task, s Sleeper, q *Queue[T], d time.Duration) (T, error) {
+	rt.Point(t, rt.Op{Kind: rt.OpPop, On: q})
+	t.Check()
+	var zero T
+	q.mu.Lock()
+	if v, ok := q.front(); ok {
+		q.mu.Unlock()
+		return v, nil
+	}
+	if q.closed {
+		q.mu.Unlock()
+		return zero, Closed{}
+	}
+	q.mu.Unlock()
+	if d <= 0 {
+		return zero, Expired{}
+	}
+	dl := deadlines{t: t, s: s, span: string(span) + " (deadline)"}.NewTimer(rt.Span(d))
+	defer stopDeadline(t, dl)
+	stop := t.Done()
+	fired := false
+	q.mu.Lock()
+	for {
+		if v, ok := q.front(); ok {
+			q.mu.Unlock()
+			return v, nil
+		}
+		if q.closed {
+			q.mu.Unlock()
+			return zero, Closed{}
+		}
+		if fired {
+			q.mu.Unlock()
+			return zero, Expired{}
+		}
+		woke := false
+		woke, fired = q.waitWithin(t, stop, dl)
+		if !woke && !fired {
+			q.mu.Unlock()
+			panic(rt.Interrupted)
+		}
+	}
+}
+
+// stopDeadline stops and drains PopWithin's deadline child, masked, on
+// every exit. A defect of the child is raised in the caller unless the
+// call already ends by a panic, which goes on.
+func stopDeadline(t *rt.Task, dl rt.Timer) {
+	p := recover()
+	m := t.Mask()
+	err := dl.(*deadline).h.Stop()
+	m.Unmask()
+	if p != nil {
+		panic(p)
+	}
+	if err != nil {
+		raise(err)
+	}
+}
+
+// waitWithin is wait with a deadline: it releases q.mu until the next
+// change, the deadline's fire or a stop, then takes it again. woke reports
+// a change, fired a fire; both false is a stop. In an auto clock's domain
+// the waiter parks on q and on the deadline, whose fire wakes it through
+// rt.Waking (deadlines.NewTimer); ready keeps it from parking on a
+// deadline that has fired.
+func (q *Queue[T]) waitWithin(t *rt.Task, stop <-chan struct{}, timer rt.Timer) (woke, fired bool) {
+	if q.wake == nil {
+		q.wake = make(chan struct{})
+	}
+	ch := q.wake
+	q.parked++
+	var p rt.Parked
+	if t.InDomain() {
+		p = rt.ParkEither(t, q, timer, stop, func() bool {
+			select {
+			case <-timer.C():
+				return true
+			default:
+				return false
+			}
+		})
+		q.domain = append(q.domain, t)
+	}
+	q.mu.Unlock()
+	rt.Block(t)
+	select {
+	case <-ch:
+		woke = true
+	case <-timer.C():
+		fired = true
+	case <-stop:
+	}
+	rt.Unblock(t)
+	q.mu.Lock()
+	q.parked--
+	if t.InDomain() {
+		p.Unpark()
+		q.dropDomain(t)
+	}
+	return woke, fired
 }
 
 // Values is q.Values() on the caller's task t. Each step is a Pop on t,

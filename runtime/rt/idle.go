@@ -212,6 +212,16 @@ func Park(t *Task, src any, stop <-chan struct{}, ready func() bool) Parked {
 	return Parked{park(t, src, nil, stop, ready)}
 }
 
+// ParkEither is Park on two sources: the wait ends on an event of src or
+// of other (a timer whose fire wakes through Wake with itself as src), or
+// on t's stop. timeout.PopWithin parks on its queue and its deadline.
+func ParkEither(t *Task, src, other any, stop <-chan struct{}, ready func() bool) Parked {
+	if t.member.Load() == nil {
+		return Parked{}
+	}
+	return Parked{park(t, src, other, stop, ready)}
+}
+
 // Parked is a parked wait (Park).
 type Parked struct{ m *member }
 
