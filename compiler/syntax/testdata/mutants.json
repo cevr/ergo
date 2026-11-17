@@ -443,7 +443,9 @@
       "from": "\t\t\tout = out.Append(f(s))\n",
       "to": "\t\t\tout = slices.AppendAll([]T{f(s)}, out)\n",
       "rule": "The columns of a package's files are each file's own, in file order, also when the package is parsed on the caller's stack.",
-      "killers": []
+      "killers": [
+        "internal/sketchfront:TestLoaderOrderIsTheNames"
+      ]
     },
     {
       "name": "chunks-drop-the-last-file",
@@ -462,7 +464,9 @@
       "from": "\t\t\temit(s, Rune, start, i+1)\n",
       "to": "\t\t\temit(s, Rune, start, i)\n",
       "rule": "The end the scan stores for a token is the token's whole span (law EndsAreStored).",
-      "killers": []
+      "killers": [
+        "internal/sketch/syntax:TestGrammarFixtures"
+      ]
     },
     {
       "name": "parse-extra-not-cut-on-rewind",
@@ -482,7 +486,9 @@
       "from": "\ts.toks.end[n] = uint32(end)\n",
       "to": "",
       "rule": "A failed scan's ILLEGAL carries its end in the ends column, which Columns copies whole.",
-      "killers": []
+      "killers": [
+        "internal/sketch/syntax:TestDecodeAgreesWithView"
+      ]
     },
     {
       "origin": "wf10 selfhost S2f",
