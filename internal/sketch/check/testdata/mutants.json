@@ -3389,6 +3389,13 @@
       "killers": [
         "internal/sketchfront:TestStdSnapshotIsCurrent"
       ]
-    }
+    },
+    {"name":"c1-tilde-as-bare","origin":"wf10 CONSTRAINTS C1","file":"internal/sketch/check/typeset.go","from":"\t\treturn RefinementOf(t) == nil && c.identical(under(t), term.Type)","to":"\t\treturn RefinementOf(t) == nil && c.identical(t, term.Type)","rule":"types.md Generics 2: a term ~T admits every type defined over T.","killers":["check:TestTypeSetsAgree"]},
+    {"name":"c1-bare-as-tilde","origin":"wf10 CONSTRAINTS C1","file":"internal/sketch/check/typeset.go","from":"\t}\n\treturn c.identical(t, term.Type)\n}","to":"\t}\n\treturn RefinementOf(t) == nil && c.identical(under(t), term.Type)\n}","rule":"types.md Generics 2: a bare term T admits T alone.","killers":["check:TestTypeSetsAgree"]},
+    {"name":"c1-op-from-one-term","origin":"wf10 CONSTRAINTS C1","file":"internal/sketch/check/typeset.go","from":"\t\tif term.isComparableTerm() || !has(term.Type) {","to":"\t\tif term.isComparableTerm() {","rule":"types.md Generics 2: an operator applies to a type parameter when every type of its set has it (+ is refused under a set with bool).","killers":["check:TestTypeSetsAgree"]},
+    {"name":"c1-refined-through-tilde","origin":"wf10 CONSTRAINTS C1","file":"internal/sketch/check/typeset.go","from":"\t\treturn RefinementOf(t) == nil && c.identical(under(t), term.Type)","to":"\t\treturn c.identical(under(t), term.Type)","rule":"types.md Refinements 7: a refined type enters through no ~T term, since + could leave its where.","killers":["check:TestTypeSetsAgree"]},
+    {"name":"c1-typeset-as-value","origin":"wf10 CONSTRAINTS C1","file":"internal/sketch/check/decl.go","from":"\tif c.inConstraint == 0 && typeSetOnly(t) {","to":"\tif false && typeSetOnly(t) {","rule":"types.md Generics 2: an operation type with a type set is a constraint only; no value has it as its type.","killers":["check:TestTypeSetsAgree"]},
+    {"name":"c1-prelude-ordered-drifts","origin":"wf10 CONSTRAINTS C1","file":"internal/sketch/std/prelude.ergo","from":"~float32 | ~float64 | ~string | ~duration,","to":"~float32 | ~float64 | ~duration,","rule":"types.md Generics 2: the prelude's ordered gives the verdicts the deleted built-in gave, string included.","killers":["check:TestTypeSetsAgree"]},
+    {"name":"c1-comparable-term-ignored","origin":"wf10 CONSTRAINTS C1","file":"internal/sketch/check/typeset.go","from":"\tcase term.isComparableTerm():\n\t\treturn comparable(t)","to":"\tcase term.isComparableTerm():\n\t\treturn false","rule":"types.md Generics 2: the term comparable admits the comparable types.","killers":["check:TestTypeSetsAgree"]}
   ]
 }

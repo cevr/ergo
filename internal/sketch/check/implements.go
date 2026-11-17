@@ -57,7 +57,9 @@ func (c *checker) implementsClause(n *Named, d *syntax.TypeDecl, ctx *typeCtx) {
 			}
 		}
 		if t == nil {
+			c.inConstraint++
 			t = c.typExpr(x, ctx)
+			c.inConstraint--
 		}
 		if isInvalid(t) {
 			continue
@@ -67,7 +69,7 @@ func (c *checker) implementsClause(n *Named, d *syntax.TypeDecl, ctx *typeCtx) {
 			c.errorf(x, CodeType, "implements names operation types; %s is %s (types.md, Interface assignability 1)", t, typeNoun(t))
 			continue
 		}
-		if it := asInterface(op); it.Set != SetAll {
+		if it := asInterface(op); it.Set != SetAll || it.Terms != nil && len(it.Methods) == 0 {
 			c.errorf(x, CodeType, "implements names operation types; %s is a constraint (types.md, Interface assignability 1)", t)
 			continue
 		}
@@ -125,7 +127,9 @@ func syntaxText(x syntax.Expr) string {
 // lists is S108, as a twice-declared operation is.
 func (c *checker) interfaceIncludes(spec *syntax.InterfaceType, ctx *typeCtx, it *Interface, seen map[string]bool) {
 	for _, f := range spec.Includes {
+		c.inConstraint++
 		t := c.typExpr(f.Type, ctx)
+		c.inConstraint--
 		if isInvalid(t) {
 			continue
 		}
@@ -143,6 +147,15 @@ func (c *checker) interfaceIncludes(spec *syntax.InterfaceType, ctx *typeCtx, it
 			continue
 		}
 		it.includes = append(it.includes, n)
+		if inc.Terms != nil {
+			// ..Count gives the including type Count's type set; two
+			// sets would need their intersection, which no rule names.
+			if it.Terms != nil {
+				c.errorf(f.Type, CodeType, "an operation type has one type set; ..%s gives it a second (types.md, Generics 2)", t)
+			} else {
+				it.Terms = inc.Terms
+			}
+		}
 		for _, m := range inc.Methods {
 			if seen[m.Name] {
 				c.errorf(f.Type, CodeType, "method %s is declared twice: ..%s includes it", m.Name, t)

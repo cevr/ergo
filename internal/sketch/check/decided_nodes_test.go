@@ -206,6 +206,11 @@ func Tag(p P) int { 1 }
 func f() Named { P{n: "x"} }
 func main() {}
 `, nil},
+	{"operation type", "a type set constrains a generic function (CONSTRAINTS C1)", `
+type Count { ~int | int64 }
+func Sum[T Count](a T, b T) T { a + b }
+func main() { _ = Sum(1, 2) }
+`, nil},
 	{"law", "a law in an operation type", `
 type Monoid {
 	Combine(a int, b int) int,

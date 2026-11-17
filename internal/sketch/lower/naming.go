@@ -91,9 +91,8 @@ func (l *lowerer) nameAll() {
 	l.pkgName(pkgKey{"init", nil}, "ergoInit")
 	l.pkgName(pkgKey{"machine graphs", nil}, "ergoMachineGraph") // machine.go, graphAccessor
 	l.pkgName(pkgKey{"machine pair", nil}, "ergoMachinePair")
-	l.pkgName(pkgKey{"constraint", check.SetOrdered}, "ergoOrdered")
-	l.pkgName(pkgKey{"constraint", check.SetNumber}, "ergoNumber")
 	libs := l.libraries()
+	l.reserveTypeSets(append([]*check.Package{l.pkg}, libs...)) // ir_typeset.go
 	l.hostImportNames(append([]*check.Package{l.pkg}, libs...))
 	for _, p := range libs {
 		for _, tn := range l.canon.types(p) {

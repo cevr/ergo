@@ -338,6 +338,19 @@ func shape(t Type) (kind byte, ref any, n int64, s string, kids []Type) {
 			names[i], kids[i] = m.Name, m.Sig
 		}
 		cmp := int64(t.Set)
+		for _, term := range t.Terms {
+			// The type set is part of the identity: its terms in order,
+			// each marked ~ or bare.
+			if term.Tilde {
+				names = append(names, "~")
+			} else {
+				names = append(names, "=")
+			}
+			kids = append(kids, term.Type)
+		}
+		if t.Terms != nil {
+			cmp |= 1 << 8
+		}
 		return vIface, nil, cmp, strings.Join(names, ","), kids
 	}
 	if u, ok := t.(*Union); ok && u.Row != nil {

@@ -535,11 +535,11 @@ func (l *lowerer) constraint(tp *check.TypeParam, site syntax.Node) string {
 	if it == nil {
 		ice(site, "the constraint %s of %s is not an interface", tp.Constraint, tp.Name)
 	}
-	switch it.Set {
-	case check.SetComparable:
+	if it.Set == check.SetComparable {
 		return "comparable"
-	case check.SetOrdered, check.SetNumber:
-		return l.typeSetDecl(it.Set)
+	}
+	if tn := typeSetOrigin(tp); tn != nil {
+		return l.typeSetConstraint(tn, site) // ir_typeset.go (CONSTRAINTS C1)
 	}
 	return "any"
 }
@@ -557,31 +557,9 @@ func sameGoConstraint(a, b *check.TypeParam) bool {
 	}
 	as, am := setOf(a)
 	bs, bm := setOf(b)
-	// wire takes its codec as a witness (wire.go).
-	return as == bs && !am && !bm && as != check.SetWire
-}
-
-// typeSetDecl is the Go name of the interface that lowers the predeclared
-// constraint s, ordered or number, emitted once. Its terms are the Go
-// types Ergo's set holds and the types defined over them (types.md,
-// Generics 2): duration is time.Duration, an int64 underneath. A Go type
-// set, never any, so Go admits the operators the checker admitted (<, +,
-// -, * and /) and stencils by GC shape as it does for cmp.Ordered.
-func (l *lowerer) typeSetDecl(s check.TypeSet) string {
-	if name, ok := l.sets[s]; ok {
-		return name
-	}
-	name := l.pkgName(pkgKey{"constraint", s}, "ergo"+strings.ToUpper(s.String()[:1])+s.String()[1:])
-	l.sets[s] = name
-	terms := "~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr | ~float32 | ~float64"
-	what := "the integer and float types"
-	if s == check.SetOrdered {
-		terms += " | ~string"
-		what = "the integer, float, string and duration types"
-	}
-	l.gen.WriteString("// " + name + " is Ergo's " + s.String() + ": " + what + " and the types defined over them.\n")
-	l.gen.WriteString("type " + name + " interface {\n\t" + terms + "\n}\n\n")
-	return name
+	// wire takes its codec as a witness (wire.go). A type set is the same
+	// Go constraint only when it is the same declaration (ir_typeset.go).
+	return as == bs && !am && !bm && as != check.SetWire && typeSetOrigin(a) == typeSetOrigin(b)
 }
 
 // useType returns td after queueing a library declaration's emission: the

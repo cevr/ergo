@@ -89,6 +89,7 @@ var contextPlaceRows = map[string]externPlaceRow{
 	"FuncDecl.Type":        {guardType, "func f(x @w) {}\n"},
 	"FuncLit.Type":         {guardType, "func main() {\n\t$W\n\t_ = func(x @w) {}\n}\n"},
 	"InterfaceType.Union":  {guardType, "type A {}\ntype U = A | @w\n"},
+	"TypeTerm.Type":        {guardType, "type S { int | @w }\n"},
 	"MachineType.State":    {guardType, "type E = Ping\ntype Ping {}\ntype M machine[@w, E] { initial: 1, step: step }\nfunc step(s int, e E) Decision[int, int] { return Ignore }\n"},
 	"MachineType.Signal":   {guardType, "type S = Idle\ntype Idle {}\ntype M machine[S, @w] { initial: Idle, step: step }\nfunc step(s S, e int) Decision[S, int] { return Ignore }\n"},
 	"MapType.Key":          {guardType, "func f(m Map[@w, int]) {}\n"},

@@ -45,7 +45,7 @@ func TestDiagnosticMessagesSayWhatHappened(t *testing.T) {
 		{"prelude-name", "func f() int {\n\tlet Task = 1\n\tTask\n}\n",
 			"Task is a prelude name (the prelude type Task[T, E]), which cannot be redeclared"},
 		{"prelude-constraint", "func f() int {\n\tlet number = 1\n\tnumber\n}\n",
-			"number is a prelude name (the predeclared constraint number)"},
+			"number is a prelude name (the prelude constraint number)"},
 		{"duration-times-int", "func late(d duration) duration { d / 4 }\n",
 			"a duration is not multiplied or divided by an integer (#175); write duration(int64(d) / 4)"},
 		{"duration-times-local", "func late(d duration, n int) duration { d * n }\n",

@@ -108,6 +108,7 @@ var externPlaceRows = map[string]externPlaceRow{
 	"FuncDecl.Type":        {guardType, "func f(x @Upper) {}\n"},
 	"FuncLit.Type":         {guardType, "func main() {\n\t_ = func(x @Upper) {}\n}\n"},
 	"InterfaceType.Union":  {guardType, "type A {}\ntype U = A | @Upper\n"},
+	"TypeTerm.Type":        {guardType, "type S { int | @Upper }\n"},
 	"MachineType.State":    {guardType, "type E = Ping\ntype Ping {}\ntype M machine[@Upper, E] { initial: 1, step: step }\nfunc step(s int, e E) Decision[int, int] { return Ignore }\n"},
 	"MachineType.Signal":   {guardType, "type S = Idle\ntype Idle {}\ntype M machine[S, @Upper] { initial: Idle, step: step }\nfunc step(s S, e int) Decision[S, int] { return Ignore }\n"},
 	"LawReach.Targets":     {guardType, machineGuard("initial: Idle,\n\tstep: step,\n\tlaw L reaches @Upper,")},

@@ -152,8 +152,12 @@ func CheckSource(src string) (*Package, []Diagnostic) {
 }
 
 type checker struct {
-	opts   Options
-	derive *derive.Package // the package's derive record (derive.go)
+	opts Options
+	// inConstraint counts the constraint positions being resolved (a
+	// bracket constraint, an implements clause, an include, a type-set
+	// term): only there may a type with a type set be written (typExpr).
+	inConstraint int
+	derive       *derive.Package // the package's derive record (derive.go)
 	// neverOrigins caches, per union origin, whether a variant holds a
 	// Never (switchUnion.mayHoldNever; types.md, Never).
 	neverOrigins map[*Union]bool
@@ -722,7 +726,7 @@ type universeState struct {
 var universeOnce universeState
 
 // universe is the predeclared block: the basic types, the constraints
-// comparable, ordered and number, true,
+// lent, wire and comparable, true,
 // false and len, the one built-in function (#196, fourth round, item 2;
 // removedBuiltins names the Ergo form of each Go built-in it drops), and
 // with, the construct (grammar.md, Reserved names 2).
@@ -740,7 +744,8 @@ func universe() *Scope {
 		basic("byte", Uint8)
 		basic("rune", Int32)
 		// The predeclared constraints (D-E1): each names a type set.
-		for _, set := range []TypeSet{SetLent, SetWire, SetComparable, SetOrdered, SetNumber} {
+		// ordered and number are the prelude's type sets (prelude.ergo).
+		for _, set := range []TypeSet{SetLent, SetWire, SetComparable} {
 			s.insert(set.String(), &TypeName{Name: set.String(), Pkg: u, Type: &Interface{Set: set}, id: newID()})
 		}
 		errName := &TypeName{Name: "error", Pkg: u, id: newID()}
@@ -846,7 +851,11 @@ func prelude() preludeResult {
 		}
 		ops := map[string]*Func{}
 		for name, o := range pkg.Scope.names {
-			if !isExported(name) {
+			if tn, isType := o.(*TypeName); !isExported(name) && (!isType || !typeSetOnly(tn.Type)) {
+				// The prelude's type sets, ordered and number, are in
+				// scope with their lowercase names, as comparable is: a
+				// constraint is spelled like the universe's names. The
+				// rule reads the declaration's shape, never its name.
 				continue
 			}
 			// An operation is reached by x.f(…), not a name in scope: a

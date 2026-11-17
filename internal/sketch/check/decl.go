@@ -1086,6 +1086,13 @@ func (c *checker) interfaceType(spec *syntax.InterfaceType, ctx *typeCtx, owner 
 	it := &Interface{}
 	seen := map[string]bool{}
 	c.interfaceIncludes(spec, ctx, it, seen)
+	if spec.Terms != nil {
+		if it.Terms != nil {
+			c.errorf(spec.Terms[0], CodeType, "an operation type has one type set, and an included type gives it one already (types.md, Generics 2)")
+		} else {
+			it.Terms = c.typeTerms(spec.Terms, ctx)
+		}
+	}
 	for _, m := range spec.Methods {
 		ft, ok := m.Type.(*syntax.FuncType)
 		if !ok || len(m.Names) == 0 {
@@ -1331,6 +1338,12 @@ func (c *checker) typExpr(x syntax.Expr, ctx *typeCtx) Type {
 	}
 	if tp, ok := t.(*TypeParam); ok && tp.Kind != KindType {
 		c.errorf(x, CodeType, "%s is %s parameter, not a type", tp.Name, tp.Kind)
+		return invalid
+	}
+	if c.inConstraint == 0 && typeSetOnly(t) {
+		// Go draws the same line: an interface with type terms is a
+		// constraint only (types.md, Generics 2).
+		c.errorf(x, CodeType, "%s has a type set, so it is a constraint only and no value has it as its type; write a type parameter: [T %s] (types.md, Generics 2)", t, t)
 		return invalid
 	}
 	return t
@@ -1638,7 +1651,9 @@ func (c *checker) recordUse(id *syntax.Ident, o Object) {
 // constraint resolves a bracket constraint: comparable, ordered, number or
 // an interface with methods (types.md, Generics 2).
 func (c *checker) constraint(x syntax.Expr, ctx *typeCtx) Type {
+	c.inConstraint++
 	t := c.typExpr(x, ctx)
+	c.inConstraint--
 	if isInvalid(t) {
 		return nil
 	}
@@ -1647,7 +1662,7 @@ func (c *checker) constraint(x syntax.Expr, ctx *typeCtx) Type {
 		c.errorf(x, CodeType, "a constraint is an interface, not %s", t)
 		return nil
 	}
-	if it.Set == SetAll && len(it.Methods) == 0 {
+	if it.Set == SetAll && len(it.Methods) == 0 && it.Terms == nil {
 		return nil
 	}
 	return t

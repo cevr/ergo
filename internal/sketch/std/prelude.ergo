@@ -247,6 +247,20 @@ func wireWrongKind(e WireWrongKind) fails WireWrongKind { e }
 func wireMissingField(e WireMissingField) fails WireMissingField { e }
 func wireUnknownTag(e WireUnknownTag) fails WireUnknownTag { e }
 
+// ordered is the types that <, <=, > and >= order: the integer, float,
+// string and duration types and every type defined over one (types.md,
+// Generics 2). It is an ordinary type set: a body under it gets the
+// operators every term has, < and +, by the rule that serves a user's set.
+type ordered {
+	~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr | ~float32 | ~float64 | ~string | ~duration,
+}
+
+// number is the integer and float types and every type defined over one:
+// a body under it adds -, *, / and unary - to ordered's operators.
+type number {
+	~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr | ~float32 | ~float64,
+}
+
 // Range is the integers from Start up to End, End excluded: `a..b` builds
 // one, and `for i in r` counts through it (#196, one for). A for and `..`
 // take an integer T only; the type itself takes any ordered T.

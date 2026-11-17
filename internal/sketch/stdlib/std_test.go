@@ -387,14 +387,20 @@ func goConstraint(c check.Type) (string, bool) {
 	if c == nil {
 		return "any", true
 	}
+	if n, ok := c.(*check.Named); ok {
+		// The prelude's type set ordered (prelude.ergo) is runtime/v1's
+		// ordered, the terms of Go's cmp.Ordered.
+		if i, ok := n.Underlying().(*check.Interface); ok && i.Terms != nil && len(i.Methods) == 0 && n.Obj.Name == "ordered" && n.Obj.Pkg.Prelude() {
+			return "ordered", true
+		}
+		return "", false
+	}
 	i, ok := c.(*check.Interface)
 	switch {
 	case !ok || len(i.Methods) > 0:
 		return "", false
 	case i.Set == check.SetComparable:
 		return "comparable", true
-	case i.Set == check.SetOrdered:
-		return "ordered", true
 	case i.Set == check.SetAll:
 		return "any", true
 	}

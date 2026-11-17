@@ -91,6 +91,12 @@ func (c *checker) subst(t Type, m map[*TypeParam]Type) Type {
 		return s
 	case *Interface:
 		it := &Interface{Set: t.Set, Methods: make([]*Method, len(t.Methods)), obj: t.obj}
+		if t.Terms != nil {
+			it.Terms = make([]*Term, len(t.Terms))
+			for i, term := range t.Terms {
+				it.Terms[i] = &Term{Tilde: term.Tilde, Type: c.subst(term.Type, m)}
+			}
+		}
 		newOf := make(map[*Method]*Method, len(t.Methods))
 		for i, mt := range t.Methods {
 			it.Methods[i] = &Method{Name: mt.Name, Sig: c.subst(mt.Sig, m).(*Signature), Pos: mt.Pos, pkg: mt.pkg}
@@ -362,6 +368,9 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 		}
 		if it.Set != SetAll {
 			return assignment{}, fmt.Sprintf("%s is a constraint only", it.Set)
+		}
+		if it.Terms != nil {
+			return assignment{}, fmt.Sprintf("%s has a type set, so it is a constraint only", t)
 		}
 		if why := c.undeclared(v, t, "conversion"); why != "" {
 			return assignment{}, why
@@ -1020,7 +1029,18 @@ func comparableSeen(t Type, seen map[Type]bool) bool {
 	case *Pointer:
 		return true
 	case *TypeParam:
-		return typeSet(u) >= SetComparable
+		// A type parameter compares when its set holds comparable types
+		// only (the predeclared comparable, or terms that all compare).
+		terms := paramTerms(u)
+		if terms == nil {
+			return false
+		}
+		for _, term := range terms {
+			if !term.isComparableTerm() && !comparable(term.Type) {
+				return false
+			}
+		}
+		return true
 	}
 	return false
 }
@@ -1082,8 +1102,8 @@ func equatableSeen(t Type, seen map[Type]bool) bool {
 	return comparable(t)
 }
 
-// typeSet is the predeclared type set a type parameter's constraint names
-// (comparable, ordered or number), SetAll for any other type or
+// typeSet is the predeclared constraint a type parameter's constraint
+// names (lent, wire or comparable), SetAll for any other type or
 // constraint.
 func typeSet(t Type) TypeSet {
 	tp, ok := t.(*TypeParam)
@@ -1096,28 +1116,13 @@ func typeSet(t Type) TypeSet {
 	return SetAll
 }
 
-// inSet reports whether t lies in the type set s (types.md, Generics 2):
-// a type parameter by its own constraint's set, any other type by its
-// underlying type.
+// inSet reports whether t lies in the predeclared constraint s (types.md,
+// Generics 2). A type-set member is read by inTypeSet (typeset.go).
 func inSet(t Type, s TypeSet) bool {
-	switch s {
-	case SetAll, SetLent:
-		return true
-	case SetComparable:
+	if s == SetComparable {
 		return comparable(t)
 	}
-	if _, ok := t.(*TypeParam); ok {
-		return typeSet(t) >= s
-	}
-	if RefinementOf(t) != nil {
-		// ordered and number give + to a generic body, which could leave
-		// the where (Refinements 7).
-		return false
-	}
-	if s == SetOrdered && (isString(t) || isDuration(under(t))) {
-		return true
-	}
-	return isInteger(t) || isFloat(t)
+	return true
 }
 
 // satisfies checks a type argument against its constraint.
@@ -1146,6 +1151,16 @@ func (c *checker) satisfies(t Type, constraint Type) string {
 			return fmt.Sprintf("%s is not %s", t, it.Set)
 		}
 		return ""
+	}
+	if it.Terms != nil {
+		// A type set is satisfied by membership, with no clause; a
+		// constraint with operations too needs both (types.md, Generics 2).
+		if !c.inTypeSet(t, it.Terms) {
+			return notInSetText(t, constraint, it)
+		}
+		if len(it.Methods) == 0 {
+			return ""
+		}
 	}
 	if why := c.undeclared(t, constraint, "constraint"); why != "" {
 		return why

@@ -182,6 +182,9 @@ func (c *checker) preludeDeclText(name string) string {
 					}
 					text += "[" + strings.Join(tps, ", ") + "]"
 				}
+				if typeSetOnly(t) {
+					return " (the prelude constraint " + text + ")"
+				}
 				return " (the prelude type " + text + ")"
 			case *Interface:
 				return " (the predeclared constraint " + name + ")"
