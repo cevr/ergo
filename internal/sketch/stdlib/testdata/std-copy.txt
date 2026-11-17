@@ -29,6 +29,7 @@ flag	differs	lower: a union of a user package lowers to the flat form, a std uni
 fs	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
 fstest	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
 hex	same
+html	same
 http	same
 io	same
 journal	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
