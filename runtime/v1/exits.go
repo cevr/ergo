@@ -197,16 +197,24 @@ func (x *Exits) call(body func()) {
 }
 
 // caught records the panic of the action that call runs, as rt.Release
-// records one: a fresh defect as a defect in release, a carried exit as
-// its reasons.
+// records one: through capture, the defect owner, a fresh defect as a
+// defect in release, a carried exit as its reasons.
 func (x *Exits) caught() {
 	p := recover()
 	if p == nil {
 		return
 	}
-	defect, carried := classify(x.t, p)
-	if defect != nil {
-		x.exits.AddReleaseDefect(x.t, defect)
+	e := capture(x.t, p)
+	switch p := p.(type) {
+	case *exit:
+		x.exits.Add(e)
+	case error:
+		if p == rt.Interrupted {
+			x.exits.Add(e)
+			return
+		}
+		x.exits.AddReleased(e)
+	default:
+		x.exits.AddReleased(e)
 	}
-	x.exits.Add(carried)
 }
