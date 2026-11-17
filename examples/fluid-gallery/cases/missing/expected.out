@@ -1,0 +1,4 @@
+GET /docs/nope -> 404
+<p>no page at /docs/nope</p>
+GET /docs -> 404
+<p>no page at /docs</p>
