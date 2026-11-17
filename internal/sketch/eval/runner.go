@@ -205,6 +205,13 @@ func registerRunner() {
 		}
 		return r.s, nil
 	}
+	natives["actor.changesOf"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		room, ok := args[1].(int64)
+		if !ok {
+			ice("changesOf's room is %T", args[1])
+		}
+		return &changesSeq{a: actorOf(args[0]), room: int(max(room, 1)), changed: args[2], overflowed: args[3]}, nil
+	}
 	natives["actor.feed"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		a := actorOf(args[0])
 		if ab := in.charge(fr, at, 1); ab != nil {
@@ -753,7 +760,7 @@ func (a *actorV) halt(in *interp, fr *frame) *abrupt {
 func (a *actorV) publish(s Value) {
 	a.state = s
 	for _, c := range a.subs {
-		c.buf = append(c.buf, s)
+		c.add(s)
 	}
 }
 
@@ -969,29 +976,66 @@ func (a *actorV) opCall(in *interp, fr *frame, at syntax.Node, name string, args
 		return unit{}, nil
 	case "Dropped":
 		return a.dropped, nil
-	case "Changes":
-		return &changesSeq{a: a}, nil
+	case "LatestChanges":
+		return &changesSeq{a: a, room: 1}, nil
+	case "Held":
+		n := 0
+		for _, c := range a.subs {
+			n += len(c.buf)
+		}
+		return int64(n), nil
 	}
 	ice("the Actor operation %s", name)
 	return nil, nil
 }
 
-// changesSeq is a.Changes(): a for over it subscribes at its first step.
+// changesSeq is a loop over an actor's committed states: LatestChanges
+// (room 1, the states themselves), or std actor's changesOf(a, room,
+// changed, overflowed), the loop of Changes(a, room), which gives
+// changed(s) for each state and, before a state an overflow dropped
+// others for, overflowed(n) with their number (runtime/v1 ActorChanges).
+// A for over it subscribes at its first step and unsubscribes when it
+// ends, a break or a return included (done).
 type changesSeq struct {
-	a   *actorV
-	sub *changeSub
+	a                   *actorV
+	room                int
+	changed, overflowed Value // nil for LatestChanges
+	sub                 *changeSub
+	// held marks pending, the state changesOf gives after the
+	// overflowed(n) it gave first.
+	pending Value
+	held    bool
 }
 
-// changeSub is one subscription: the states it has not given yet.
+// changeSub is one subscription: the states it has not given yet, at most
+// room, and how many an overflow dropped since the reader last took one.
 type changeSub struct {
-	buf   []Value
-	ended bool
+	buf    []Value
+	room   int
+	missed int
+}
+
+// add is a commit of s on the subscription, as runtime/v1's
+// publishLocked: full, it drops the unread states, counts them, and holds
+// s alone.
+func (c *changeSub) add(s Value) {
+	if len(c.buf) >= c.room {
+		c.missed += len(c.buf)
+		c.buf = append(c.buf[:0:0], s)
+		return
+	}
+	c.buf = append(c.buf, s)
 }
 
 func (c *changesSeq) next(in *interp, fr *frame, at syntax.Node) (Value, bool, *abrupt) {
+	if c.held {
+		s := c.pending
+		c.pending, c.held = nil, false
+		return c.give(in, fr, at, s)
+	}
 	a := c.a
 	if c.sub == nil {
-		c.sub = &changeSub{buf: []Value{a.state}}
+		c.sub = &changeSub{buf: []Value{a.state}, room: max(c.room, 1)}
 		if !a.ended {
 			a.subs = append(a.subs, c.sub)
 		}
@@ -1006,7 +1050,37 @@ func (c *changesSeq) next(in *interp, fr *frame, at syntax.Node) (Value, bool, *
 	}
 	v := sub.buf[0]
 	sub.buf = sub.buf[1:]
+	missed := sub.missed
+	sub.missed = 0
+	if c.changed == nil {
+		return v, true, nil
+	}
+	if missed > 0 {
+		o, ab := in.callValue(fr, at, c.overflowed, []Value{int64(missed)})
+		if ab != nil {
+			return nil, false, ab
+		}
+		c.pending, c.held = v, true
+		return o, true, nil
+	}
+	return c.give(in, fr, at, v)
+}
+
+// give is changed(s), changesOf's value for the state s.
+func (c *changesSeq) give(in *interp, fr *frame, at syntax.Node, s Value) (Value, bool, *abrupt) {
+	v, ab := in.callValue(fr, at, c.changed, []Value{s})
+	if ab != nil {
+		return nil, false, ab
+	}
 	return v, true, nil
+}
+
+// done ends the subscription of a loop that left early, as the runtime's
+// subscription ends when its range function returns.
+func (c *changesSeq) done() {
+	if c.sub != nil {
+		c.a.unsubscribe(c.sub)
+	}
 }
 
 func (a *actorV) unsubscribe(sub *changeSub) {

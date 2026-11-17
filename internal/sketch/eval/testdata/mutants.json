@@ -1611,6 +1611,9 @@
       "to": "",
       "rule": "An Enter or an Emit ends the entry with its exit action, before the next entry opens (fk-gallery's tour: the save on leaving the studio).",
       "killers": ["examples:fk-gallery"]
-    }
+    },
+    {"name":"q14-changesof-unrun","origin":"wf10 I22 Q14 (GP)","file":"internal/sketch/eval/runner.go","from":"\tnatives[\"actor.changesOf\"] = ","to":"\tnatives[\"actor.changesOfUnrun\"] = ","rule":"The check-time runner runs std actor's changesOf, so WaitFor, SendAndWait and Changes run at check time.","killers":["internal/sketch/eval:TestEvalAgreesWithLowering"]},
+    {"name":"q14-changes-no-overflow","origin":"wf10 I22 Q14 (GP)","file":"internal/sketch/eval/runner.go","from":"\tif len(c.buf) >= c.room {\n","to":"\tif false && len(c.buf) >= c.room {\n","rule":"A Changes loop holds at most room states: a commit that finds it full drops them and the loop reads an Overflowed with their number (runtime/v1 publishLocked).","killers":["internal/sketch/eval:TestEvalAgreesWithLowering"]},
+    {"name":"q14-changes-subscription-kept","origin":"wf10 I22 Q14 (GP)","file":"internal/sketch/eval/stmt.go","from":"\t\tif d, ok := q.(seqDone); ok {\n\t\t\tdefer d.done()\n\t\t}\n","to":"","rule":"A loop over an actor's changes that leaves early (WaitFor's return) ends its subscription, so Held does not count it.","killers":["internal/sketch/eval:TestEvalAgreesWithLowering"]}
   ]
 }

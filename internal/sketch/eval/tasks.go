@@ -500,6 +500,10 @@ type seqSource interface {
 	next(in *interp, fr *frame, at syntax.Node) (v Value, more bool, ab *abrupt)
 }
 
+// seqDone is a seqSource that holds something while a loop runs it (an
+// actor's subscription): done releases it when the loop ends, however.
+type seqDone interface{ done() }
+
 func (s *queueValues) next(in *interp, fr *frame, at syntax.Node) (Value, bool, *abrupt) {
 	return in.queuePop(fr, at, s.q)
 }
