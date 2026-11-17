@@ -17,7 +17,9 @@ import (
 // call itself, others, or take a declared type) and checks that
 // unused-declaration fires on exactly the unexported declarations no
 // other declaration uses: a self-call, an exported name and main are no
-// finding's reason. Mutant: lh2a-self-use-counts.
+// finding's reason; a dot call is a use, and a method that provides an
+// operation is out of scope. Mutants: lh2a-self-use-counts,
+// lh2a-dot-call-unread, lh2a-method-reported.
 func TestUnusedDeclarationAgreesWithReference(t *testing.T) {
 	for _, seed := range propertySeeds(40) {
 		r := rand.New(rand.NewPCG(seed, 0xd1))
@@ -58,37 +60,44 @@ func TestUnusedDeclarationAgreesWithReference(t *testing.T) {
 			used[j] = true
 		}
 		p := newPlanted()
+		// val is a method box provides Valued with: no call names it
+		p.write("type Valued {\n\tval() int,\n}\n\ntype box { N int } implements Valued\n\nfunc val(b box) int { b.N }\n\nfunc read(v Valued) int { v.val() }\n", false, 0)
 		for k := range types {
 			p.write(fmt.Sprintf("type t%d { N int }", k), !typeUsed[k], 0)
 		}
 		for i, f := range fns {
 			param := "n int"
 			if f.takes >= 0 {
-				param = fmt.Sprintf("n int, v t%d", f.takes)
+				param = fmt.Sprintf("v t%d, n int", f.takes)
 			}
 			p.write(fmt.Sprintf("\nfunc %s(%s) int {", f.name, param), !f.exported && !used[i], 1)
 			for _, j := range f.calls {
-				p.write("\tlet _ = "+call(fns[j].name, fns[j].takes), false, 0)
+				p.write("\tlet _ = "+call(fns[j].name, fns[j].takes, r.IntN(2) == 0), false, 0)
 			}
 			if f.self {
-				p.write("\tif n > 3 {\n\t\treturn "+call(f.name, f.takes)+"\n\t}", false, 0)
+				p.write("\tif n > 3 {\n\t\treturn "+call(f.name, f.takes, r.IntN(2) == 0)+"\n\t}", false, 0)
 			}
 			p.write("\tn\n}", false, 0)
 		}
-		p.write("\nfunc main() {", false, 0)
+		p.write("\nfunc main() {\n\tlet _ = read(box{N: 1})", false, 0)
 		for _, j := range fromMain {
-			p.write("\tlet _ = "+call(fns[j].name, fns[j].takes), false, 0)
+			p.write("\tlet _ = "+call(fns[j].name, fns[j].takes, r.IntN(2) == 0), false, 0)
 		}
 		p.write("}", false, 0)
 		p.check(t, "unused-declaration", "TestUnusedDeclarationAgreesWithReference", seed)
 	}
 }
 
-func call(name string, takes int) string {
-	if takes < 0 {
+// call is a call of name, in dot form (a use only Info.Calls records)
+// when its first parameter is a type and dot is set.
+func call(name string, takes int, dot bool) string {
+	switch {
+	case takes < 0:
 		return name + "(1)"
+	case dot:
+		return fmt.Sprintf("t%d{N: 1}.%s(1)", takes, name)
 	}
-	return fmt.Sprintf("%s(1, t%d{N: 1})", name, takes)
+	return fmt.Sprintf("%s(t%d{N: 1}, 1)", name, takes)
 }
 
 // TestUnusedTypeParameterAgreesWithReference declares generic functions
@@ -204,11 +213,10 @@ func TestDuplicateTestAgreesWithReference(t *testing.T) {
 }
 
 // TestDuplicateShapeAgreesWithReference declares unions over a few
-// variants and records over a few fields, members in random order, and
-// checks that duplicate-shape fires on each union or record but the first
-// by name of its member set: a record with one field, a field of the same
-// name and another type, and a variant whose fields equal a record's are
-// no copy. Mutant: lh2a-shape-variant-records-compared.
+// variants, members in random order, and records over a few fields, and
+// checks that duplicate-shape fires on each union but the first by name of
+// its variant set, and on no record: records with the same fields are
+// nominal on purpose. Mutants: lh2a-shape-union-order, lh2a-shape-records-compared.
 func TestDuplicateShapeAgreesWithReference(t *testing.T) {
 	fields := []string{"A int", "B string", "C bool", "A string"}
 	for _, seed := range propertySeeds(40) {
@@ -244,7 +252,7 @@ func TestDuplicateShapeAgreesWithReference(t *testing.T) {
 			}
 			text := "type " + name + " { " + strings.Join(picked, ", ") + " }"
 			slices.Sort(picked)
-			decls = append(decls, decl{name, text, "r" + strings.Join(picked, ","), len(picked) >= 2})
+			decls = append(decls, decl{name, text, "r" + strings.Join(picked, ","), false})
 		}
 		first := map[string]string{}
 		for _, d := range decls {
@@ -327,7 +335,11 @@ func TestIdenticalArmsAgreesWithReference(t *testing.T) {
 // in functions or tests, and checks that unbuilt-variant fires on exactly
 // the unbuilt variants the run sees every builder of: all of them in a
 // program with main, the unexported ones without. A record in no union is
-// no variant. Mutant: lh2a-variant-closed-ignored.
+// no variant; a field-less variant is built by its bare name, not by a
+// pattern; a property's parameter builds what it reaches. Mutants:
+// lh2a-variant-closed-ignored, lh2a-bare-variant-unbuilt,
+// lh2a-pattern-builds, lh2a-generator-builds-nothing,
+// lh2a-type-argument-builds-nothing.
 func TestUnbuiltVariantAgreesWithReference(t *testing.T) {
 	for _, seed := range propertySeeds(40) {
 		r := rand.New(rand.NewPCG(seed, 0xd6))
@@ -342,7 +354,31 @@ func TestUnbuiltVariantAgreesWithReference(t *testing.T) {
 			p.write(fmt.Sprintf("type %s { N int }\n", name), !built[i] && (closed || i%2 == 1), 0)
 		}
 		p.write("type Lone { N int }\n", false, 0)
-		p.write("type State = Open | shut | Held | gone | Inline{N int}", !built[len(names)] && closed, 0)
+		// Idle has no fields: its bare name builds it; a pattern does not
+		idleBuilt := r.IntN(2) == 0
+		stateLine := p.line
+		p.write("type State = Open | shut | Held | gone | Inline{N int} | Idle{}", !built[len(names)] && closed, 0)
+		if !idleBuilt && closed {
+			p.want = append(p.want, stateLine)
+		}
+		// Op's variants are built only by a property's generator, if any
+		by := r.IntN(3) // 0 nothing, 1 a property, 2 a generic call
+		generated := by != 0
+		opLine := p.line + 1
+		p.write("\ntype Op = Push{N int} | Pop{N int}", false, 0)
+		if !generated && closed {
+			p.want = append(p.want, opLine, opLine)
+		}
+		switch by {
+		case 1:
+			p.write("\ntest ops(o Op) {\n\tlet _ = o\n}", false, 0)
+		case 2:
+			p.write("\nfunc none[T]() []T { []T{} }\n\nfunc decoded() []Op { none[Op]() }", false, 0)
+		}
+		p.write("\nfunc isIdle(s State) bool {\n\tmatch s {\n\tcase Idle:\n\t\ttrue\n\tcase _:\n\t\tfalse\n\t}\n}", false, 0)
+		if idleBuilt {
+			p.write("\nfunc idle() State {\n\tlet s = Idle\n\ts\n}", false, 0)
+		}
 		all := append(slices.Clone(names), "Inline")
 		for i, name := range all {
 			if !built[i] {

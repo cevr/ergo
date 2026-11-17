@@ -58,6 +58,21 @@ func ProgramType(t Type) bool {
 	return !pkg.Std() && !pkg.Host() && pkg != universeOnce.goPkg
 }
 
+// IsMethod reports whether f is a method of its first parameter's type
+// (#196): a function the type's operations reach, so it can provide an
+// operation of an operation type with no call that names it.
+func (f *Func) IsMethod() bool {
+	if f == nil || f.Sig == nil || len(f.Sig.Params) == 0 {
+		return false
+	}
+	t := f.Sig.Params[0].Type
+	if p, ok := t.(*Pointer); ok {
+		t = p.Elem
+	}
+	n, ok := t.(*Named)
+	return ok && n.method(f.Name) == f
+}
+
 // Entry is the package's entry function, main, or nil: a package with one
 // is a program's root, whose code no other package imports.
 func (p *Package) Entry() *Func {

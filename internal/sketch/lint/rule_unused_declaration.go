@@ -10,8 +10,9 @@ import (
 // declaration of its package uses. The checker reports an unused local
 // or import (S110); a package-level declaration only its own body names
 // is dead the same way. A use from a test or a law counts. The entry
-// function, methods, bindings of Go (extern) and the declarations the
-// parser derives are out of scope.
+// function, methods (a function its first parameter's type reaches, which
+// may provide an operation no call names), bindings of Go (extern) and the
+// declarations the parser derives are out of scope.
 var unusedDeclaration = &Rule{
 	Name:    "unused-declaration",
 	Code:    "L114",
@@ -31,7 +32,7 @@ func checkUnusedDeclaration(p *Pass) {
 		if o == nil || exportedName(id) || used[p.Package][o] {
 			return
 		}
-		if f, ok := o.(*check.Func); ok && f == entry {
+		if f, ok := o.(*check.Func); ok && (f == entry || f.IsMethod()) {
 			return
 		}
 		p.Report(id.Pos(), id.End(), id.Name+" is declared and never used in its package; delete it")
@@ -79,10 +80,19 @@ func usedElsewhere(p *Pass) map[check.Object]bool {
 					return true
 				})
 				syntax.Inspect(d, func(n syntax.Node) bool {
-					if id, ok := n.(*syntax.Ident); ok {
-						if o := p.Info.Uses[id]; o != nil && !own[o] {
-							used[o] = true
+					var o check.Object
+					switch x := n.(type) {
+					case *syntax.Ident:
+						o = p.Info.Uses[x]
+					case *syntax.CallExpr:
+						// a dot call, p.f(…), reaches f through the
+						// call, not through a use of its name
+						if c := p.Info.Calls[x]; c != nil && c.Func != nil {
+							o = c.Func
 						}
+					}
+					if o != nil && !own[o] {
+						used[o] = true
 					}
 					return true
 				})

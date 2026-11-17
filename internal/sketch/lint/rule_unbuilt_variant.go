@@ -11,7 +11,9 @@ import (
 // match over the union still handles it, so the dead case costs every
 // reader. The run must see every builder: when the run's root has an
 // entry (Pass.Closed), it sees the whole program; otherwise only an
-// unexported variant's builders are certain to be in it.
+// unexported variant's builders are certain to be in it. A property's or
+// a law's generator builds every type its parameters reach, and a
+// generic call (a decoder) every type its type arguments reach.
 var unbuiltVariant = &Rule{
 	Name:    "unbuilt-variant",
 	Code:    "L120",
@@ -57,6 +59,71 @@ func checkUnbuiltVariant(p *Pass) {
 	})
 }
 
+// builtNames marks the types that n names as values: a variant with no
+// fields is built by its bare name (`to(Ground, …)`). A name in a type
+// position (a field, parameter or let's type, a case or catch pattern, a
+// literal's type) builds nothing, so those subtrees are skipped.
+func builtNames(info *check.Info, n syntax.Node, built map[*check.TypeName]bool) {
+	syntax.Inspect(n, func(n syntax.Node) bool {
+		switch x := n.(type) {
+		case *syntax.Field, *syntax.FuncType, *syntax.TypeDecl:
+			return false
+		case *syntax.VarSpec:
+			for _, v := range x.Values {
+				builtNames(info, v, built)
+			}
+			return false
+		case *syntax.CaseClause:
+			for _, s := range x.Body {
+				builtNames(info, s, built)
+			}
+			return false
+		case *syntax.CatchArm:
+			for _, s := range x.Body {
+				builtNames(info, s, built)
+			}
+			return false
+		case *syntax.CompositeLit:
+			for _, e := range x.Elts {
+				builtNames(info, e, built)
+			}
+			return false
+		case *syntax.Ident:
+			if tn, ok := info.Uses[x].(*check.TypeName); ok {
+				built[tn] = true
+			}
+		case *syntax.SelectorExpr:
+			// pkg.Variant: a value of another package's variant
+			if id, ok := x.X.(*syntax.Ident); ok {
+				if _, pkg := info.Uses[id].(*check.PkgName); pkg {
+					if n, ok := info.Types[x].(*check.Named); ok {
+						built[origin(n).Obj] = true
+					}
+					return false
+				}
+			}
+		}
+		return true
+	})
+}
+
+// generated marks every type reachable from a property's or a law's
+// parameters: the generator builds values of each (tests.go rule 3).
+func generated(info *check.Info, params *syntax.FieldList, built map[*check.TypeName]bool) {
+	if params == nil {
+		return
+	}
+	for _, f := range params.List {
+		for _, id := range f.Names {
+			if v, ok := info.Defs[id].(*check.Var); ok && v.Type != nil {
+				for _, tn := range check.Mentions(v.Type, nil) {
+					built[tn] = true
+				}
+			}
+		}
+	}
+}
+
 // variantsOf reads the program's union variants and built types.
 func variantsOf(p *Pass) variantFacts {
 	facts := variantFacts{variants: map[*check.TypeName]bool{}, built: map[*check.TypeName]bool{}}
@@ -81,6 +148,34 @@ func variantsOf(p *Pass) variantFacts {
 				case *syntax.CompositeLit:
 					if n, ok := info.Types[x].(*check.Named); ok {
 						facts.built[origin(n).Obj] = true
+					}
+				case *syntax.CallExpr:
+					// a generic call given a type, such as a decoder, can
+					// build every type that type reaches
+					if c := info.Calls[x]; c != nil {
+						for _, a := range c.TypeArgs {
+							for _, tn := range check.Mentions(a, nil) {
+								facts.built[tn] = true
+							}
+						}
+					}
+				case *syntax.FuncDecl:
+					if x.Body != nil {
+						builtNames(info, x.Body, facts.built)
+					}
+				case *syntax.TestDecl:
+					builtNames(info, x.Body, facts.built)
+					generated(info, x.Params, facts.built)
+				case *syntax.LawDecl:
+					if x.Body != nil {
+						builtNames(info, x.Body, facts.built)
+					}
+					generated(info, x.Params, facts.built)
+				case *syntax.VarDecl:
+					for _, s := range x.Specs {
+						for _, v := range s.Values {
+							builtNames(info, v, facts.built)
+						}
 					}
 				}
 				return true

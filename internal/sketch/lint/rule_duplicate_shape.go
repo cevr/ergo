@@ -11,20 +11,20 @@ import (
 
 // duplicateShape is the rule of the strict preset for one shape written
 // twice (catalog CR7, CR11): two unions of the program with the same set
-// of variants, or two records with the same fields (name and type), when
-// neither record is a variant of a union (a variant's fields are its
-// case's, and two cases may carry the same ones). Records need two fields
-// or more. Generic types are out of scope. Of each group the one first by
-// file and name is kept and each other is reported, naming it.
+// of variants. Records are out of scope: a record is nominal on purpose
+// (two typed failures with the same fields are two failures), as the
+// examples' read showed. Generic unions are out of scope too. Of each
+// group the one first by file and name is kept and each other is
+// reported, naming it.
 var duplicateShape = &Rule{
 	Name:    "duplicate-shape",
 	Code:    "L118",
-	Doc:     "Two unions with the same variants, or two records with the same fields, are one type written twice; keep one.",
+	Doc:     "Two unions with the same variants are one type written twice; keep one.",
 	Default: Warning,
 	Check:   checkDuplicateShape,
 }
 
-// shapeDecl is one declared union or record: its file, name and key.
+// shapeDecl is one declared union: its file, name and key.
 type shapeDecl struct {
 	rel  string
 	name *syntax.Ident
@@ -36,22 +36,20 @@ func checkDuplicateShape(p *Pass) {
 	for _, d := range p.File.Decls {
 		if t, ok := d.(*syntax.TypeDecl); ok {
 			if kept, dup := copies[t.Name]; dup {
-				p.Report(t.Name.Pos(), t.Name.End(), fmt.Sprintf("%s has the shape of %s (%s); keep one", t.Name.Name, kept.name.Name, kept.rel))
+				where := ""
+				if kept.rel != p.Rel() {
+					where = " in " + kept.rel
+				}
+				p.Report(t.Name.Pos(), t.Name.End(), fmt.Sprintf("%s has the variants of %s%s; keep one", t.Name.Name, kept.name.Name, where))
 			}
 		}
 	}
 }
 
-// duplicateShapes maps each union or record of the program that repeats
-// another's shape to the one kept.
+// duplicateShapes maps each union of the program that repeats another's
+// variants to the one kept.
 func duplicateShapes(p *Pass) map[*syntax.Ident]shapeDecl {
-	type decl struct {
-		rel  string
-		name *syntax.Ident
-		tn   *check.TypeName
-	}
-	var decls []decl
-	variants := map[*check.TypeName]bool{}
+	var all []shapeDecl
 	for _, u := range p.Program() {
 		for _, f := range u.Files {
 			if f.Syntax == nil {
@@ -66,37 +64,17 @@ func duplicateShapes(p *Pass) map[*syntax.Ident]shapeDecl {
 				if !ok {
 					continue
 				}
-				decls = append(decls, decl{f.Rel, t.Name, tn})
-				if union, ok := underlying(tn).(*check.Union); ok {
-					for _, v := range union.Variants {
-						if n, ok := v.(*check.Named); ok {
-							variants[origin(n).Obj] = true
-						}
-					}
+				union, ok := underlying(tn).(*check.Union)
+				if !ok || union.Row != nil {
+					continue
 				}
+				var keys []string
+				for _, v := range union.Variants {
+					keys = append(keys, typeKey(v))
+				}
+				slices.Sort(keys)
+				all = append(all, shapeDecl{f.Rel, t.Name, fmt.Sprint(keys)})
 			}
-		}
-	}
-	var all []shapeDecl
-	for _, d := range decls {
-		switch t := underlying(d.tn).(type) {
-		case *check.Union:
-			var keys []string
-			for _, v := range t.Variants {
-				keys = append(keys, typeKey(v))
-			}
-			slices.Sort(keys)
-			all = append(all, shapeDecl{d.rel, d.name, fmt.Sprint("union ", keys)})
-		case *check.Struct:
-			if variants[d.tn] || len(t.Fields) < 2 {
-				continue
-			}
-			var keys []string
-			for _, f := range t.Fields {
-				keys = append(keys, fmt.Sprintf("%q %s", f.Name, typeKey(f.Type)))
-			}
-			slices.Sort(keys)
-			all = append(all, shapeDecl{d.rel, d.name, fmt.Sprint("record ", keys)})
 		}
 	}
 	slices.SortStableFunc(all, func(a, b shapeDecl) int {
