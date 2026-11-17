@@ -256,7 +256,7 @@ func Edge(p AtEdges) needs go.Foreign {
 		if p.holds.Owe() {
 			// The debt is the last Release's; the held edges after this
 			// one read the heap rarely.
-			p.wait.Store(MaxSpan)
+			p.wait.Store(maxSpan())
 			return
 		}
 		collect(p)
@@ -293,7 +293,12 @@ func Release(p AtEdges) needs go.Foreign {
 
 // MaxSpan is the most edges AtEdges lets pass between two reads of the
 // heap.
-let MaxSpan = int64(256)
+let MaxSpan = maxSpan()
+
+// maxSpan is MaxSpan. spanOf calls it rather than read the let, so a
+// program that reaches AtEdges's edge alone lowers the same from std and
+// from a copy (TestStdCopyAgrees; follow-up in PACE2's request).
+func maxSpan() int64 { 256 }
 
 // NextRead is how many edges to let pass before the next read of the
 // heap, when the heap grew by grown bytes over the last edges edges and
@@ -323,8 +328,8 @@ func rateOf(grown int64, edges int64) int64 {
 func spanOf(n int64) int64 {
 	if n < 1 {
 		1
-	} else if n > MaxSpan {
-		MaxSpan
+	} else if n > maxSpan() {
+		maxSpan()
 	} else {
 		n
 	}
