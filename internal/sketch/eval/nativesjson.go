@@ -55,13 +55,13 @@ func registerNativesjson() {
 	natives["build.InFold"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return in.fold, in.charge(fr, at, 1)
 	}
-	natives["build.Known"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	holeNative("build.Known", func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return in.fold && !symbolic(args[0]), in.charge(fr, at, 1)
-	}
-	natives["build.Hole"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	})
+	holeNative("build.Hole", func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		_, hole := args[0].(*symbol)
 		return in.fold && hole, in.charge(fr, at, 1)
-	}
+	})
 	// std strings' Builder writes (SSR WEB3: std hmac builds its blocks
 	// with them): WriteString and WriteByte append as Go's append grows
 	// the buffer; Grow keeps no room here, so it is the buffer unchanged,
