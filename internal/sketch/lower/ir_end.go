@@ -163,9 +163,23 @@ func irUseLocals(body []*irStmt) []*irStmt {
 // closes at End; a loop or a block runs Pos..End. A position before the
 // last one met, in the same file, becomes that one. A function literal's
 // body is a function of its own (its own scope marks).
-func irScopesIncrease(body []*irStmt) []*irStmt {
+func irScopesIncrease(body []*irStmt) []*irStmt { return irScopesIncreaseTagged(body, nil, irPos{}) }
+
+// irScopesIncreaseTagged is irScopesIncrease where the files tagged are an
+// inlined body's (ir_forms_inline.go): Go orders positions of two files by
+// their names, and a tagged name sorts after its caller's, so each scope
+// position in a tagged file takes the last one before it (start before
+// any, or a literal's own position in its body).
+func irScopesIncreaseTagged(body []*irStmt, tagged map[int]bool, start irPos) []*irStmt {
 	var last irPos
 	at := func(p *irPos) {
+		if tagged[p[0]] {
+			if last == (irPos{}) {
+				*p = start
+			} else {
+				*p = last
+			}
+		}
 		if p[0] == last[0] && (p[1] < last[1] || p[1] == last[1] && p[2] < last[2]) {
 			*p = last
 		}
@@ -175,10 +189,10 @@ func irScopesIncrease(body []*irStmt) []*irStmt {
 	stmts = func(list []*irStmt) {
 		for _, s := range list {
 			irLiterals(s, func(e *irExpr) {
-				saved := last
-				last = irPos{}
+				saved, savedStart := last, start
+				last, start = irPos{}, e.Pos
 				stmts(e.Body)
-				last = saved
+				last, start = saved, savedStart
 			})
 			switch s.K {
 			case "if":

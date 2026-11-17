@@ -392,7 +392,7 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 	}
 	pre, v, e := bindSrc()
 	p := b.pos(x, x.Catch)
-	result := -1
+	result, caught := -1, -1
 	var rt string
 	if m.Result != nil {
 		rt = b.goType(m.Result, x)
@@ -400,6 +400,7 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 			irNo("catch value of another type")
 		}
 		result = b.temp("caught", rt, p)
+		caught = len(pre)
 		pre = append(pre, &irStmt{K: "def", Pos: p, Local: result, X: &irExpr{K: "zero", Pos: p, T: rt}})
 	}
 	k := "panic"
@@ -441,6 +442,13 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 		// The call's value joins the union of the arms' (ir_union.go).
 		val := b.variantInto(b.l.info.Types[src], m.Result, &irExpr{K: "local", Pos: sw.End, I: v}, src)
 		ifs.Else = []*irStmt{{K: "set", Pos: sw.End, Local: result, X: val}}
+		if !patterned && val.K == "local" && val.I == v && b.localType(v) == rt && irArmsLeave(sw, result) {
+			// Every arm leaves (the emitter's catch, whose arms all
+			// panic or return, yields the call's value in place): the
+			// value is the call's own local, with no caught copy (RED17).
+			pre = append(pre[:caught], pre[caught+1:]...)
+			return append(pre, &irStmt{K: "if", Pos: p, End: sw.End, X: ifs.X, Then: then}), &irExpr{K: "local", Pos: p, I: v}
+		}
 	}
 	pre = append(pre, ifs)
 	if result < 0 {

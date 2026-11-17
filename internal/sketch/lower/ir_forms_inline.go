@@ -1,0 +1,1077 @@
+package lower
+
+// IR builder: Ergo-side inlining on the IR (RED17). See inline.go.
+//
+// The text path writes a small Ergo body at its call site itself (OPT4a,
+// inline.go): Go's inliner refuses a body past 80 of its cost units, and
+// a generic shape body pays for its dictionary at every call it makes.
+// lru's Cache.Get calls nodeAt (Go cost 102), touch (261) and, through
+// touch, unlink (274); the text path writes all three into Get, and the
+// IR, which called them, ran lru at 1.26x the text path (RED17,
+// IR2-FLIP/RED17/inline-ir1.md).
+//
+// The IR does the same with the same decision, after every body is built:
+//   - the builder marks a call (inlineMark) that inline.go's rule admits
+//     (inlineBody, pays, the same budgets), of a function with an Ergo
+//     body whose own IR body is built: one result at most, no callback
+//     parameter (IRF-3b places a known function argument), the site in
+//     the program's sources (its call is in the call table); a callee
+//     with a failure row only where its call binds a value and an error
+//     (def2);
+//   - the pass (inlineBodies) replaces each marked call that is a whole
+//     statement (`x := f(…)`, `x = f(…)`, `x, err := f(…)`, `f(…)`) with
+//     a copy of the callee's IR body in a block: each parameter bound to
+//     its operand (a local the body only reads, or a pointer it stores
+//     through, stands for itself), the callee's locals and labels renamed
+//     apart, its type parameters replaced by the call's type arguments,
+//     each return an assignment and a goto past the block (the block's
+//     last return falls through), each failure an assignment of the
+//     site's error and the same goto. The copy's own marked calls are
+//     inlined in it, at most inlineDepth deep and inlineGrowth body nodes
+//     per function, as the text path's growth rule allows;
+//   - a value lands in place, as the text path yields a call's value to
+//     its destination (a record of five words or more is a memory copy
+//     in Go): at `x := f(…)` the local f returns is x itself
+//     (irRenames), and a copy `a := b` or `a = b` of a body the pass
+//     changed, b read nowhere after, is dropped for b written as a
+//     (coalesce). The builder's catch whose arms all leave yields the
+//     call's own local, with no caught copy (ir_fail.go).
+//
+// Defects stay exact (runtime.md, Exit causes 6): the copy's positions
+// name the callee's file with the inline site's tag (path#ergo-inline-N),
+// and the site joins the program's inline table (v1.RegisterInlines), as
+// the text path's //line directives tag them, so the report writes the
+// frames the calls would have had. A scope's open and close in the copy
+// take the site's position (irScopesIncrease: Go's DWARF scope marks
+// order positions by file name, and a tagged name sorts after the
+// caller's).
+//
+// The reference is irInlineLowering "off"
+// (-ldflags=-X=ergo.local/prototype/internal/sketch/lower.irInlineLowering=off):
+// every call stays a call.
+//
+// Prior art: OCaml's flambda and GHC inline by size on their own IR before
+// the backend; ReScript inlines small functions across modules before it
+// writes JavaScript. Gleam and Elixir leave inlining to the host (the BEAM
+// JIT, a JavaScript engine), as the IR did before this pass.
+
+import (
+	"strconv"
+	"strings"
+
+	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/syntax"
+)
+
+var irInlineLowering string
+
+// IRInlineOn reports that the IR inlines (the property's reach check).
+func IRInlineOn() bool { return irInlineLowering != "off" }
+
+// irInline is the pass's state: the marked calls and every built body's
+// parameters.
+type irInline struct {
+	sites  map[*irExpr]*irInlSite
+	bodies map[string]*irInlBody
+}
+
+// irInlSite is a marked call.
+type irInlSite struct {
+	f           *check.Func
+	key         string // the callee's IR function name
+	src, offset int    // the call's identity in the call table
+	tsub        map[*check.TypeParam]string
+	size        int
+	loop        bool // on a loop path at its site
+	leaf        bool // a Go leaf with a boxed result (pays)
+	// sourced is a callee in the program's sources; a std body's copy
+	// takes the site's position, as the text path writes it with no line
+	// directive of its own (inline.go closeInline).
+	sourced bool
+	// fallible is a callee with a failure row that fails at the site: its
+	// call binds a value and an error (def2).
+	fallible bool
+}
+
+// irInlBody is a built body's frame: its parameter slots, each with its
+// Go type ("" when unknown: the slot is only ever passed a local), and
+// its type parameters' spellings.
+type irInlBody struct {
+	f      *check.Func
+	params []string
+	tps    map[*check.TypeParam]string
+	env    int // the environment's slot, or -1: a pointer no body writes
+}
+
+// inlState makes st's inliner state once.
+func (st *irState) inlState() {
+	if st.inl == nil {
+		st.inl = &irInline{sites: map[*irExpr]*irInlSite{}, bodies: map[string]*irInlBody{}}
+	}
+}
+
+// inlineCallee records the frame of b's body, built for fd (ir.go body).
+func (st *irState) inlineCallee(b *irBuilder, fd *funcDecl, params []*check.Var) {
+	if st.census != nil || irInlineLowering == "off" {
+		return
+	}
+	st.inlState()
+	n := len(params)
+	if !fd.pure {
+		n++
+	}
+	body := &irInlBody{f: fd.fn, params: make([]string, n), tps: map[*check.TypeParam]string{}, env: b.env}
+	for tp, name := range b.fc.params {
+		body.tps[tp] = b.spelling(name)
+	}
+	for i, v := range params {
+		l, ok := b.locals[v]
+		if v == nil || !ok || l >= n {
+			continue
+		}
+		body.params[l] = irTypeOrNone(func() string {
+			t := b.goType(v.Type, fd.fn.Decl)
+			if i == 0 && fd.method != nil && fd.ptr && !strings.HasPrefix(t, "*") {
+				t = "*" + t
+			}
+			return t
+		})
+	}
+	st.inl.bodies[b.fn.Name] = body
+}
+
+// irTypeOrNone is f's type, or "" where the builder refuses it.
+func irTypeOrNone(f func() string) (t string) {
+	defer func() {
+		if r := recover(); r != nil {
+			if _, no := r.(irUnsupported); !no {
+				panic(r)
+			}
+			t = ""
+		}
+	}()
+	return f()
+}
+
+// inlineMark marks e, the call x of f (fd), for the pass when the rule
+// admits it; it returns e.
+func (b *irBuilder) inlineMark(x *syntax.CallExpr, c *check.Call, fd *funcDecl, e *irExpr) *irExpr {
+	st := b.st
+	if st.census != nil || irInlineLowering == "off" || e == nil || inlineLowering == "call" {
+		return e
+	}
+	st.inlState()
+	f := c.Func
+	if f == nil || x.Trailing != nil || c.StartsTask || fd.fallible && (b.dropsErr[e] || len(f.Sig.Results) != 1) || len(f.Sig.Results) > 1 || len(callbackParams(f)) > 0 {
+		return e
+	}
+	if !b.fc.directives || !x.Pos().IsValid() || f.Pkg == nil {
+		return e
+	}
+	if !b.l.inlineBody(f) {
+		return e
+	}
+	if fp := f.Pkg.Info.Footprints[f.Decl]; !fp.Empty() && !b.l.knownClosed(f) {
+		return e
+	}
+	tsub := map[*check.TypeParam]string{}
+	for i, tp := range f.Sig.TParams {
+		if !b.l.goParam(tp) {
+			continue
+		}
+		if tp.Kind != check.KindType || i >= len(c.TypeArgs) {
+			return e
+		}
+		tsub[tp] = b.goArg(tp, c.TypeArgs[i], x)
+	}
+	key := e.Name
+	if fd.method != nil {
+		key = fd.method.name + "." + e.Name
+	}
+	src, _, _, _ := b.l.at(x, x.Pos())
+	st.inl.sites[e] = &irInlSite{
+		f: f, key: key, src: src, offset: int(x.Pos()), tsub: tsub,
+		size: inlineSize(f.Decl.Body), loop: b.loops > 0 || b.fc.hot,
+		leaf: goLeaf(f), sourced: b.l.isSourced(f.Pkg), fallible: fd.fallible,
+	}
+	return e
+}
+
+// pays is inline.go's pays for a site, on a loop path or not.
+func (s *irInlSite) pays(loop bool) bool {
+	if inlineCostLowering == "budget" {
+		return true
+	}
+	big := s.size > goSizeBudget
+	if s.leaf {
+		return big && loop
+	}
+	return !big || loop
+}
+
+// inlineBodies inlines the marked calls of every IR body (program, before
+// the call table, which writes the inline table).
+func (st *irState) inlineBodies(l *lowerer) {
+	if st.inl == nil || st.census != nil || len(st.inl.sites) == 0 {
+		return
+	}
+	orig := map[string]*irFunc{}
+	for i := range st.out.Funcs {
+		orig[st.out.Funcs[i].Name] = &irFunc{Name: st.out.Funcs[i].Name, Pos: st.out.Funcs[i].Pos, End: st.out.Funcs[i].End, Locals: st.out.Funcs[i].Locals, Body: st.out.Funcs[i].Body}
+	}
+	for i := range st.out.Funcs {
+		fn := &st.out.Funcs[i]
+		frame := st.inl.bodies[fn.Name]
+		if frame == nil {
+			continue
+		}
+		in := &irInliner{st: st, l: l, orig: orig, fn: fn, np: len(frame.params), names: map[string]bool{}, tagged: map[int]bool{}}
+		for _, lc := range fn.Locals {
+			in.names[lc.Name] = true
+		}
+		body := in.stmts(in.clone(fn.Body, nil), irPath{})
+		if in.count == 0 {
+			continue
+		}
+		body = in.coalesce(body)
+		fn.Locals = in.locals(fn.Locals)
+		fn.Body = irScopesIncreaseTagged(irUseLocals(body), in.tagged, fn.Pos)
+		st.report.Inlined += in.count
+	}
+}
+
+// irInliner inlines the marked calls of one body, fn.
+type irInliner struct {
+	st     *irState
+	l      *lowerer
+	orig   map[string]*irFunc
+	fn     *irFunc
+	np     int // fn's parameter slots
+	extra  []irLocal
+	names  map[string]bool
+	tagged map[int]bool
+	count  int
+}
+
+func (in *irInliner) locals(base []irLocal) []irLocal {
+	return append(append([]irLocal(nil), base...), in.extra...)
+}
+
+// newLocal adds a local to fn and returns its index.
+func (in *irInliner) newLocal(name, t string, p irPos) int {
+	for in.names[name] {
+		name += "_"
+	}
+	in.names[name] = true
+	in.extra = append(in.extra, irLocal{Name: name, Type: t, Pos: p})
+	return in.np + len(in.fn.Locals) + len(in.extra) - 1
+}
+
+// irPath is where a statement list is (growth.go's rule on the IR): the
+// inline site (plus one) it is in and that site's depth, whether a loop
+// runs it, the growth its path has taken, and whether it is cold.
+type irPath struct {
+	parent, depth int
+	loop, cold    bool
+	spent         int
+}
+
+// stmts inlines the marked whole-statement calls of list, on the path p
+// opens for it: a list that ends in a defect or a failure is cold, and a
+// site there is left to Go, as growth.go leaves it.
+func (in *irInliner) stmts(list []*irStmt, p irPath) []*irStmt {
+	if n := len(list); n > 0 && (list[n-1].K == "panic" || list[n-1].K == "fail") {
+		p.cold = true
+	}
+	var out []*irStmt
+	for _, s := range list {
+		in.nested(s, p)
+		if spliced := in.splice(s, &p); spliced != nil {
+			out = append(out, spliced...)
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// nested inlines inside s's own statement lists and literals.
+func (in *irInliner) nested(s *irStmt, p irPath) {
+	inner := p
+	inner.loop = p.loop || s.K == "while" || s.K == "count" || s.K == "range"
+	s.Then = in.stmts(s.Then, p)
+	s.Else = in.stmts(s.Else, p)
+	s.Body = in.stmts(s.Body, inner)
+	for _, c := range s.Cases {
+		c.Body = in.stmts(c.Body, p)
+	}
+	irLiterals(s, func(e *irExpr) {
+		e.Body = in.stmts(e.Body, p)
+	})
+}
+
+// splice is s with its marked call inlined, or nil; it spends the body's
+// size on p.
+func (in *irInliner) splice(s *irStmt, p *irPath) []*irStmt {
+	if s.X == nil || s.Op != "" || p.depth >= inlineDepth || p.cold {
+		return nil
+	}
+	mode := s.K
+	if mode != "def" && mode != "set" && mode != "expr" && (mode != "def2" || s.Val == nil) {
+		return nil
+	}
+	site := in.st.inl.sites[s.X]
+	if site != nil && site.fallible != (mode == "def2") {
+		return nil
+	}
+	if site == nil || !site.pays(site.loop || p.loop) || p.spent+site.size > inlineGrowth {
+		return nil
+	}
+	callee, frame := in.orig[site.key], in.st.inl.bodies[site.key]
+	if callee == nil || frame == nil || frame.f != site.f {
+		return nil
+	}
+	args := s.X.Args
+	if s.X.K == "mcall" {
+		args = append([]*irExpr{s.X.X}, args...)
+	} else if s.X.K != "call" {
+		return nil
+	}
+	if len(args) != len(frame.params) || !irInlinable(callee.Body, len(site.f.Sig.Results) == 1, site.fallible) {
+		return nil
+	}
+	if mode != "expr" && len(site.f.Sig.Results) != 1 {
+		return nil
+	}
+	n := len(in.l.inlineSites)
+	tag := inlineTag + strconv.Itoa(n)
+	files := map[int]int{}
+	file := func(k int) int {
+		if j, ok := files[k]; ok {
+			return j
+		}
+		path := in.st.out.Files[k] + tag
+		j, ok := in.st.files[path]
+		if !ok {
+			j = len(in.st.out.Files)
+			in.st.files[path] = j
+			in.st.out.Files = append(in.st.out.Files, path)
+		}
+		files[k] = j
+		in.tagged[j] = true
+		return j
+	}
+	at := s.Pos
+	// The parameters: a local the body only reads stands for itself.
+	np := len(frame.params)
+	subst := map[int]*irExpr{}
+	var binds []*irStmt
+	for i, a := range args {
+		t := frame.params[i]
+		if i == frame.env {
+			t = "*"
+		}
+		if a.K == "local" && irReadOnly(callee.Body, i, t) {
+			subst[i] = a
+			continue
+		}
+		if frame.params[i] == "" {
+			return nil
+		}
+		subst[i] = nil // bound below, once the copy's locals are known
+	}
+	in.l.inlineSites = append(in.l.inlineSites, inlineSite{src: site.src, offset: site.offset, parent: p.parent})
+	p.spent += site.size
+	in.count++
+	ren := map[int]int{}
+	for i, a := range args {
+		if subst[i] != nil {
+			continue
+		}
+		l := in.newLocal("p"+strconv.Itoa(i)+"_inl"+strconv.Itoa(n), irSubstTypes(frame.params[i], frame.tps, site.tsub), at)
+		ren[i] = l
+		binds = append(binds, &irStmt{K: "def", Pos: a.Pos, Local: l, X: a})
+	}
+	// The result: a local of the callee's that its returns name becomes
+	// the site's own, so its value lands in place (the text path's
+	// yield to its destination; a record of five words or more is a
+	// copy in Go).
+	into := -1
+	if mode == "def" { // a def2 site may read its value after a failure: zero
+		into = irResultLocal(callee.Body, np, np+len(callee.Locals), subst, s.Local)
+		if into >= 0 && irSubstTypes(callee.Locals[into-np].Type, frame.tps, site.tsub) != in.localType(s.Local) {
+			into = -1
+		}
+	}
+	for j, lc := range callee.Locals {
+		ren[np+j] = in.newLocal(lc.Name+"_inl"+strconv.Itoa(n), irSubstTypes(lc.Type, frame.tps, site.tsub), at)
+	}
+	cp := &irCopy{in: in, n: n, ren: ren, subst: subst, file: file, tps: frame.tps, tsub: site.tsub}
+	if !site.sourced {
+		call := s.X.Pos
+		cp.at = &call
+	}
+	body := in.clone(callee.Body, cp)
+	body = in.stmts(body, irPath{parent: n + 1, depth: p.depth + 1, loop: p.loop || site.loop, spent: p.spent})
+	end := "inl" + strconv.Itoa(n)
+	r := &irRets{mode: mode, local: s.Local, label: end}
+	if s.Val != nil {
+		r.err = *s.Val
+	}
+	if into >= 0 {
+		body, r.into = in.irRenames(body, ren[into], s.Local)
+	}
+	body = r.stmts(body, true)
+	var out []*irStmt
+	switch mode {
+	case "def":
+		out = append(out, &irStmt{K: "var", Pos: s.Pos, Local: s.Local})
+	case "def2":
+		out = append(out, &irStmt{K: "var", Pos: s.Pos, Local: s.Local}, &irStmt{K: "var", Pos: s.Pos, Local: *s.Val})
+	}
+	out = append(out, &irStmt{K: "block", Pos: at, End: at, Body: append(binds, body...)})
+	if r.gotos > 0 {
+		out = append(out, &irStmt{K: "block", Pos: at, End: at, Label: end})
+	}
+	return out
+}
+
+// irFailValue is a failure's value x as an error, for the error local of
+// the site's def2 (the decoder assigns only identical types): a variant
+// built in place (a literal or a zero value) converted to error, or one
+// converted already; nil for any other, whose type the IR does not spell.
+func irFailValue(x *irExpr) *irExpr {
+	switch {
+	case x == nil:
+		return nil
+	case x.K == "zero" || x.K == "lit":
+		return &irExpr{K: "toiface", Pos: x.Pos, T: "error", X: x}
+	case x.K == "toiface" && x.T == "error":
+		return x
+	}
+	return nil
+}
+
+// irResultLocal is the local in [lo, hi) of the callee's own that its
+// last top-level return names, when no parameter stands for the site's
+// local dest; else -1.
+func irResultLocal(body []*irStmt, lo, hi int, subst map[int]*irExpr, dest int) int {
+	n := len(body)
+	if n == 0 || body[n-1].K != "ret" || body[n-1].X == nil || body[n-1].X.K != "local" {
+		return -1
+	}
+	x := body[n-1].X.I
+	if x < lo || x >= hi {
+		return -1
+	}
+	for _, a := range subst {
+		if a != nil && a.K == "local" && a.I == dest {
+			return -1
+		}
+	}
+	return x
+}
+
+// irRenames writes the copy's result local x as the site's local dest,
+// declared before the copy, when only def, var and set outside a literal
+// name it, and no literal reads it (its own calls inlined by now, a
+// def2 of x spliced into var and sets): a def of x becomes a set of
+// dest, a var its zero value, and a var at the copy's top level, run once
+// with dest still zero from the site's var, nothing. It reports whether it
+// did, and the body.
+func (in *irInliner) irRenames(body []*irStmt, x, dest int) ([]*irStmt, bool) {
+	ok := true
+	irWalk(body, false, func(s *irStmt, lit bool) {
+		switch {
+		case s.Key != nil && *s.Key == x, s.Val != nil && *s.Val == x:
+			ok = false
+		case s.K == "mapget" || s.K == "count" || s.K == "def2" || lit && (s.K == "def" || s.K == "set" || s.K == "var"):
+			ok = ok && s.Local != x
+		}
+		for _, l := range s.Ls {
+			ok = ok && l != x
+		}
+	}, func(e *irExpr, lit bool) {
+		ok = ok && !(lit && e.K == "local" && e.I == x)
+	})
+	if !ok {
+		return body, false
+	}
+	var kept []*irStmt
+	for _, s := range body {
+		if s.K != "var" || s.Local != x {
+			kept = append(kept, s)
+		}
+	}
+	body = kept
+	t := in.localType(dest)
+	irWalk(body, false, func(s *irStmt, lit bool) {
+		if lit || s.Local != x {
+			return
+		}
+		switch s.K {
+		case "var":
+			*s = irStmt{K: "set", Pos: s.Pos, Local: dest, X: &irExpr{K: "zero", Pos: s.Pos, T: t}}
+		case "def":
+			s.K, s.Local = "set", dest
+		case "set":
+			s.Local = dest
+		}
+	}, func(e *irExpr, lit bool) {
+		if e.K == "local" && e.I == x {
+			e.I = dest
+		}
+	})
+	return body, true
+}
+
+// coalesce drops the copies `def a = b` and `set a = b` of a body the
+// inliner changed, where b is a local of the same type declared earlier in
+// the same list and read nowhere after the copy nor in a literal: b's
+// declaration declares (or for a set, assigns) a instead, so a record of
+// five words or more is not copied in Go (the text path yields a call's
+// value to its destination), and a is unread from b's declaration to the
+// copy.
+func (in *irInliner) coalesce(list []*irStmt) []*irStmt {
+	for _, s := range list {
+		s.Then, s.Else, s.Body = in.coalesce(s.Then), in.coalesce(s.Else), in.coalesce(s.Body)
+		for _, c := range s.Cases {
+			c.Body = in.coalesce(c.Body)
+		}
+	}
+	for i := 0; i < len(list); i++ {
+		s := list[i]
+		if (s.K != "def" && s.K != "set") || s.Op != "" || s.X == nil || s.X.K != "local" {
+			continue
+		}
+		a, b := s.Local, s.X.I
+		if a == b || a < in.np || b < in.np || in.localType(a) == "" || in.localType(a) != in.localType(b) {
+			continue
+		}
+		j := -1
+		for k := i - 1; k >= 0; k-- {
+			if d := list[k]; d.Local == b && (d.K == "var" || d.K == "def" || s.K == "def" && (d.K == "def2" || d.K == "mapget")) {
+				j = k
+				break
+			}
+		}
+		if j < 0 || irNames(list[i+1:], b, true) || irNamesInLiteral(list, b) || irDeclares(list[j+1:i], b) || irNames(list[j:i], a, true) {
+			continue
+		}
+		d := list[j]
+		switch {
+		case s.K == "def":
+			d.Local = a
+		case d.K == "var":
+			*d = irStmt{K: "set", Pos: d.Pos, Local: a, X: &irExpr{K: "zero", Pos: d.Pos, T: in.localType(a)}}
+		default:
+			d.K, d.Local = "set", a
+		}
+		irRename(list[j:i], b, a)
+		list = append(list[:i], list[i+1:]...)
+		i--
+	}
+	return list
+}
+
+// irNames reports a reference to local x in list: an expression, or a
+// statement's local, key, value or locals (lit: in literals too).
+func irNames(list []*irStmt, x int, lit bool) bool {
+	found := false
+	irWalk(list, false, func(s *irStmt, inLit bool) {
+		if inLit && !lit {
+			return
+		}
+		switch s.K {
+		case "def", "set", "var", "def2", "mapget", "count":
+			found = found || s.Local == x
+		}
+		found = found || s.Key != nil && *s.Key == x || s.Val != nil && *s.Val == x
+		for _, l := range s.Ls {
+			found = found || l == x
+		}
+	}, func(e *irExpr, inLit bool) {
+		found = found || (lit || !inLit) && e.K == "local" && e.I == x
+	})
+	return found
+}
+
+// irNamesInLiteral reports a reference to x inside a literal of list.
+func irNamesInLiteral(list []*irStmt, x int) bool {
+	found := false
+	for _, s := range list {
+		irWalk([]*irStmt{s}, false, func(*irStmt, bool) {}, func(e *irExpr, _ bool) {
+			if e.K == "func" && irNames(e.Body, x, true) {
+				found = true
+			}
+		})
+	}
+	return found
+}
+
+// irDeclares reports a declaration of x in list, or x as a key, value or
+// local of a loop or lookup: anything a rename to a set cannot keep.
+func irDeclares(list []*irStmt, x int) bool {
+	found := false
+	irWalk(list, false, func(s *irStmt, _ bool) {
+		switch s.K {
+		case "def", "var", "def2", "mapget", "count":
+			found = found || s.Local == x
+		}
+		found = found || s.Key != nil && *s.Key == x || s.Val != nil && *s.Val == x
+		for _, l := range s.Ls {
+			found = found || l == x
+		}
+	}, func(*irExpr, bool) {})
+	return found
+}
+
+// irRename writes local b as a in list, outside literals (coalesce
+// checked that none names b).
+func irRename(list []*irStmt, b, a int) {
+	irWalk(list, false, func(s *irStmt, lit bool) {
+		if !lit && s.K == "set" && s.Local == b {
+			s.Local = a
+		}
+	}, func(e *irExpr, lit bool) {
+		if !lit && e.K == "local" && e.I == b {
+			e.I = a
+		}
+	})
+}
+
+// localType is the IR type of the inliner's function's local i, "" for a
+// parameter slot.
+func (in *irInliner) localType(i int) string {
+	j := i - in.np
+	switch {
+	case j < 0:
+		return ""
+	case j < len(in.fn.Locals):
+		return in.fn.Locals[j].Type
+	case j-len(in.fn.Locals) < len(in.extra):
+		return in.extra[j-len(in.fn.Locals)].Type
+	}
+	return ""
+}
+
+// localType is the IR type of b's local i.
+func (b *irBuilder) localType(i int) string {
+	if j := i - (b.next - len(b.fn.Locals)); j >= 0 && j < len(b.fn.Locals) {
+		return b.fn.Locals[j].Type
+	}
+	return ""
+}
+
+// irArmsLeave reports a catch's type switch sw whose arms and default all
+// leave (return, fail, panic or jump) and never name result, the local a
+// yielding arm would set (ir_fail.go, catch).
+func irArmsLeave(sw *irStmt, result int) bool {
+	if !irListTerminates(sw.Else) {
+		return false
+	}
+	for _, c := range sw.Cases {
+		if !irListTerminates(c.Body) || irBreaks(c.Body, "") {
+			return false
+		}
+	}
+	named := false
+	irWalk([]*irStmt{sw}, false, func(s *irStmt, _ bool) {
+		named = named || (s.Local == result && (s.K == "def" || s.K == "set" || s.K == "var" || s.K == "def2"))
+	}, func(e *irExpr, _ bool) {
+		named = named || (e.K == "local" && e.I == result)
+	})
+	return !named
+}
+
+// irInlinable reports a callee body the pass may copy: no statement that
+// belongs to its own frame (a deferred call, a named result, a failure,
+// a recover), and, with a result, a return that gives it.
+func irInlinable(body []*irStmt, result, fallible bool) bool {
+	ok, ret := true, false
+	irWalk(body, false, func(s *irStmt, lit bool) {
+		switch {
+		case s.K == "defer", s.K == "fail" && !lit && !fallible:
+			ok = false
+		case s.K == "fail" && !lit && irFailValue(s.X) == nil:
+			ok = false // a failure of a type the IR does not spell
+		case s.K == "ret" && !lit:
+			ret = true
+			if fallible && s.X != nil && (s.X.K == "call" || s.X.K == "mcall" || s.X.K == "pcall" || s.X.K == "vcall") {
+				ok = false // return f(…): a pair or an error, by a type the IR does not spell
+			}
+		}
+	}, func(e *irExpr, _ bool) {
+		switch e.K {
+		case "result", "recover":
+			ok = false
+		}
+	})
+	return ok && (ret || !result)
+}
+
+// irReadOnly reports whether the body only reads its parameter slot i: no
+// statement writes it, no address of it or of a part of it is taken, no
+// store's place starts at it, and no method is called on it unless it is
+// a pointer (Go would take its address).
+func irReadOnly(body []*irStmt, i int, t string) bool {
+	ok := true
+	// A pointer is the same pointer in the caller: a store or an address
+	// through it changes what it points to, as the call would; only the
+	// pointer variable itself must stay unwritten.
+	ptr := strings.HasPrefix(t, "*")
+	uses := func(e *irExpr) bool {
+		found := false
+		irExprWalk(e, false, func(x *irExpr, _ bool) {
+			found = found || x.K == "local" && x.I == i
+		})
+		return found
+	}
+	irWalk(body, false, func(s *irStmt, _ bool) {
+		switch s.K {
+		case "def", "set", "var", "def2", "mapget", "count":
+			if s.Local == i {
+				ok = false
+			}
+		case "store":
+			if !ptr && uses(s.X) {
+				ok = false
+			}
+		}
+		if s.Key != nil && *s.Key == i || s.Val != nil && *s.Val == i {
+			ok = false
+		}
+		for _, l := range s.Ls {
+			ok = ok && l != i
+		}
+	}, func(e *irExpr, _ bool) {
+		switch e.K {
+		case "addr":
+			if ptr && e.X != nil && e.X.K == "local" && e.X.I == i || !ptr && uses(e.X) {
+				ok = false
+			}
+		case "mcall":
+			if !strings.HasPrefix(t, "*") && uses(e.X) {
+				ok = false
+			}
+		case "func":
+			for _, p := range e.Params {
+				ok = ok && p != i
+			}
+		}
+	})
+	return ok
+}
+
+// irWalk calls fs on every statement of list and fe on every expression,
+// lit set inside a function literal.
+func irWalk(list []*irStmt, lit bool, fs func(*irStmt, bool), fe func(*irExpr, bool)) {
+	for _, s := range list {
+		fs(s, lit)
+		for _, e := range []*irExpr{s.X, s.Y} {
+			irExprWalkStmts(e, lit, fs, fe)
+		}
+		for _, c := range s.Cases {
+			for _, v := range c.Vals {
+				irExprWalkStmts(v, lit, fs, fe)
+			}
+			irWalk(c.Body, lit, fs, fe)
+		}
+		irWalk(s.Then, lit, fs, fe)
+		irWalk(s.Else, lit, fs, fe)
+		irWalk(s.Body, lit, fs, fe)
+	}
+}
+
+func irExprWalkStmts(e *irExpr, lit bool, fs func(*irStmt, bool), fe func(*irExpr, bool)) {
+	if e == nil {
+		return
+	}
+	fe(e, lit)
+	irExprWalkStmts(e.X, lit, fs, fe)
+	irExprWalkStmts(e.Y, lit, fs, fe)
+	for _, a := range e.Args {
+		irExprWalkStmts(a, lit, fs, fe)
+	}
+	for _, a := range e.Elems {
+		irExprWalkStmts(a, lit, fs, fe)
+	}
+	if e.K == "func" {
+		irWalk(e.Body, true, fs, fe)
+	}
+}
+
+// irExprWalk calls f on e and every expression inside it, statements of a
+// literal's body included.
+func irExprWalk(e *irExpr, lit bool, f func(*irExpr, bool)) {
+	irExprWalkStmts(e, lit, func(*irStmt, bool) {}, f)
+}
+
+// irCopy is how the pass copies a callee's body to a site: its locals
+// renamed (ren) or replaced by the operand (subst), its labels tagged with
+// the site, its files tagged, its type parameters replaced.
+type irCopy struct {
+	in    *irInliner
+	n     int
+	ren   map[int]int
+	subst map[int]*irExpr
+	file  func(int) int
+	tps   map[*check.TypeParam]string
+	tsub  map[*check.TypeParam]string
+	at    *irPos // every position of a std body's copy
+}
+
+func (c *irCopy) local(i int) int {
+	if j, ok := c.ren[i]; ok {
+		return j
+	}
+	panic(irUnsupported{"inlined local out of range"})
+}
+
+func (c *irCopy) pos(p irPos) irPos {
+	if p == (irPos{}) {
+		return p
+	}
+	if c.at != nil {
+		return *c.at
+	}
+	return irPos{c.file(p[0]), p[1], p[2]}
+}
+
+func (c *irCopy) label(l string) string {
+	if l == "" {
+		return ""
+	}
+	return l + "_inl" + strconv.Itoa(c.n)
+}
+
+// clone is a deep copy of list, through cp when it is a callee's copy; a
+// marked call's copy stays marked.
+func (in *irInliner) clone(list []*irStmt, cp *irCopy) []*irStmt {
+	if list == nil {
+		return nil
+	}
+	out := make([]*irStmt, len(list))
+	for i, s := range list {
+		out[i] = in.cloneStmt(s, cp)
+	}
+	return out
+}
+
+func (in *irInliner) cloneStmt(s *irStmt, cp *irCopy) *irStmt {
+	n := *s
+	n.X, n.Y = in.cloneExpr(s.X, cp), in.cloneExpr(s.Y, cp)
+	n.Then, n.Else, n.Body = in.clone(s.Then, cp), in.clone(s.Else, cp), in.clone(s.Body, cp)
+	if s.Cases != nil {
+		n.Cases = make([]*irCase, len(s.Cases))
+		for i, c := range s.Cases {
+			nc := *c
+			nc.Body = in.clone(c.Body, cp)
+			if c.Vals != nil {
+				nc.Vals = make([]*irExpr, len(c.Vals))
+				for j, v := range c.Vals {
+					nc.Vals[j] = in.cloneExpr(v, cp)
+				}
+			}
+			if cp != nil {
+				nc.Pos = cp.pos(c.Pos)
+				nc.Types = make([]string, len(c.Types))
+				for j, t := range c.Types {
+					nc.Types[j] = irSubstTypes(t, cp.tps, cp.tsub)
+				}
+			}
+			n.Cases[i] = &nc
+		}
+	}
+	if s.Ls != nil {
+		n.Ls = append([]int(nil), s.Ls...)
+	}
+	if s.Key != nil {
+		k := *s.Key
+		n.Key = &k
+	}
+	if s.Val != nil {
+		v := *s.Val
+		n.Val = &v
+	}
+	if cp == nil {
+		return &n
+	}
+	n.Pos, n.End, n.ElsePos, n.ElseEnd = cp.pos(s.Pos), cp.pos(s.End), cp.pos(s.ElsePos), cp.pos(s.ElseEnd)
+	n.Label = cp.label(s.Label)
+	switch s.K {
+	case "def", "set", "var", "def2", "mapget", "count":
+		n.Local = cp.local(s.Local)
+	}
+	if n.Key != nil {
+		*n.Key = cp.local(*n.Key)
+	}
+	if n.Val != nil {
+		*n.Val = cp.local(*n.Val)
+	}
+	for i, l := range n.Ls {
+		n.Ls[i] = cp.local(l)
+	}
+	return &n
+}
+
+func (in *irInliner) cloneExpr(e *irExpr, cp *irCopy) *irExpr {
+	if e == nil {
+		return nil
+	}
+	if cp != nil && e.K == "local" {
+		if a := cp.subst[e.I]; a != nil {
+			n := *a
+			n.Pos = cp.pos(e.Pos)
+			return &n
+		}
+	}
+	n := *e
+	n.X, n.Y = in.cloneExpr(e.X, cp), in.cloneExpr(e.Y, cp)
+	if e.Args != nil {
+		n.Args = make([]*irExpr, len(e.Args))
+		for i, a := range e.Args {
+			n.Args[i] = in.cloneExpr(a, cp)
+		}
+	}
+	if e.Elems != nil {
+		n.Elems = make([]*irExpr, len(e.Elems))
+		for i, a := range e.Elems {
+			n.Elems[i] = in.cloneExpr(a, cp)
+		}
+	}
+	n.Body = in.clone(e.Body, cp)
+	if e.Keys != nil {
+		n.Keys = append([]string(nil), e.Keys...)
+	}
+	if e.Params != nil {
+		n.Params = append([]int(nil), e.Params...)
+	}
+	if e.End != nil {
+		p := *e.End
+		n.End = &p
+	}
+	if site := in.st.inl.sites[e]; site != nil {
+		if cp != nil {
+			// A call inside the copy: its type arguments, spelled in the
+			// callee's type parameters, become the site's.
+			s := *site
+			s.tsub = map[*check.TypeParam]string{}
+			for tp, a := range site.tsub {
+				s.tsub[tp] = irSubstTypes(a, cp.tps, cp.tsub)
+			}
+			site = &s
+		}
+		in.st.inl.sites[&n] = site
+	}
+	if cp == nil {
+		return &n
+	}
+	n.Pos = cp.pos(e.Pos)
+	if n.End != nil {
+		*n.End = cp.pos(*n.End)
+	}
+	if e.K == "local" {
+		n.I = cp.local(e.I)
+	}
+	for i, p := range n.Params {
+		n.Params[i] = cp.local(p)
+	}
+	if e.K != "pcall" {
+		n.T = irSubstTypes(e.T, cp.tps, cp.tsub)
+	}
+	return &n
+}
+
+// irSubstTypes is the Go type text t with each type parameter's spelling
+// (tps) replaced by its type argument (tsub): a whole identifier, not one
+// a dot qualifies.
+func irSubstTypes(t string, tps, tsub map[*check.TypeParam]string) string {
+	if t == "" || len(tsub) == 0 {
+		return t
+	}
+	to := map[string]string{}
+	for tp, name := range tps {
+		if a, ok := tsub[tp]; ok && a != name {
+			to[name] = a
+		}
+	}
+	if len(to) == 0 {
+		return t
+	}
+	var b strings.Builder
+	for i := 0; i < len(t); {
+		c := t[i]
+		if !irIdentStart(c) {
+			b.WriteByte(c)
+			i++
+			continue
+		}
+		j := i
+		for j < len(t) && (irIdentStart(t[j]) || t[j] >= '0' && t[j] <= '9') {
+			j++
+		}
+		id := t[i:j]
+		if a, ok := to[id]; ok && (i == 0 || t[i-1] != '.') {
+			b.WriteString(a)
+		} else {
+			b.WriteString(id)
+		}
+		i = j
+	}
+	return b.String()
+}
+
+func irIdentStart(c byte) bool {
+	return c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= 0x80
+}
+
+// irRets rewrites a copy's returns: a result into the site's local (def,
+// set) or dropped (expr), then a goto past the block; the copy's last
+// top-level return falls through.
+type irRets struct {
+	mode  string
+	local int
+	err   int // the error local of a def2
+	label string
+	gotos int
+	into  bool // the copy's result local is local: a return of it sets nothing
+}
+
+func (r *irRets) stmts(list []*irStmt, top bool) []*irStmt {
+	var out []*irStmt
+	for i, s := range list {
+		if s.K == "fail" && r.mode == "def2" {
+			out = append(out, &irStmt{K: "set", Pos: s.Pos, Local: r.err, X: irFailValue(s.X)})
+			if !top || i != len(list)-1 {
+				r.gotos++
+				out = append(out, &irStmt{K: "goto", Pos: s.Pos, Label: r.label})
+			}
+			continue
+		}
+		if s.K != "ret" {
+			s.Then = r.stmts(s.Then, false)
+			s.Else = r.stmts(s.Else, false)
+			s.Body = r.stmts(s.Body, false)
+			for _, c := range s.Cases {
+				c.Body = r.stmts(c.Body, false)
+			}
+			out = append(out, s)
+			continue
+		}
+		if s.X != nil && !(r.into && s.X.K == "local" && s.X.I == r.local) {
+			switch r.mode {
+			case "def", "set", "def2":
+				out = append(out, &irStmt{K: "set", Pos: s.Pos, Local: r.local, X: s.X})
+			default:
+				out = append(out, &irStmt{K: "discard", Pos: s.Pos, X: s.X})
+			}
+		}
+		if top && i == len(list)-1 {
+			continue
+		}
+		r.gotos++
+		out = append(out, &irStmt{K: "goto", Pos: s.Pos, Label: r.label})
+	}
+	return out
+}
