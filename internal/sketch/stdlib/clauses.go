@@ -49,6 +49,8 @@ var ArgClauses = []ArgClause{
 	{"actor.child", "kind", "escaping", "MachineChild keeps it and calls it on the child's task, after child returned"},
 	{"actor.child", "next", "escaping", "MachineChild keeps it and calls it on the child's task, after child returned"},
 	{"actor.child", "out", "escaping", "MachineChild keeps it and calls it on the child's task, after child returned"},
+	{"actor.changesOf", "changed", "escaping", "ActorChanges keeps it in the Seq it returns and calls it on the iterating task for each state, after changesOf returned"},
+	{"actor.changesOf", "overflowed", "escaping", "ActorChanges keeps it in the Seq it returns and calls it on the iterating task before a state an overflow dropped others for, after changesOf returned"},
 	{"actor.feed", "run", "escaping", "ActorFeed admits it as a source that the actor's runner starts on a task of its own, after feed returned"},
 	{"csv.scan", "each", "non-escaping", "CSVScan calls each in a loop over Go's csv.Reader on the caller's goroutine, one record at a time, and keeps nothing"},
 	{"exec.waitFor", "p", "lent", "ExecWaitFor calls p's Wait on the caller's task, or through After on a child that After stops and joins on every exit before it returns; Wait waits on channels and finish runs once, so the child's Wait is sound while the caller owns p; it keeps nothing and never releases p"},

@@ -73,6 +73,7 @@ type Frame[E] {
 	keptList  []keptGroup[E],
 	free      []int,
 	nfree     int,
+	passes    int,
 	keptPasses int,
 	// nheld is how many entries of keptList are held, swept how many
 	// entries the last keepGroups walked (Swept).
@@ -94,11 +95,10 @@ type Frame[E] {
 	// visits is the nodes Commit visited (NS3).
 	visits int,
 	// now is the time of the last frame (Tick), tickAt that time while
-	// the pass a Tick caused runs, passes the passes so far, and moving
+	// the pass a Tick caused runs, the passes so far (passes, above, which keepGroups also counts), and moving
 	// whether a Presence of this pass moves (H5e).
 	now    duration,
 	tickAt Option[duration],
-	passes int,
 	moving bool,
 }
 

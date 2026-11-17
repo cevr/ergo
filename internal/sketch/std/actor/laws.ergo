@@ -134,6 +134,64 @@ law SendsStepInOrder(signals []int) {
 	}
 }
 
+// dropped: a Changes loop of room 1 to 4 that reads its first state,
+// then lags while the actor commits 1 to 10 states, reads its start, then
+// an Overflowed of the states its room dropped, then the ones it kept, in
+// order.
+func dropped(room int, n int) bool needs Scheduler {
+	let r = (room%4+4)%4 + 1
+	let k = (n%10+10)%10 + 1
+	let a = StartMachine(tally(), 1, func(o int) {})
+	let mut got = []Change[int]{}
+	for c in Changes(a, r) {
+		if len(got) == 0 {
+			for _ in 0..k {
+				a.Send(1) catch {
+				case Stopped:
+				}
+			}
+			let _ = a.State()
+			a.Stop()
+		}
+		got = got.Append(c)
+	}
+	let mut kept = []int{}
+	let mut missed = 0
+	for i in 1..k+1 {
+		if len(kept) >= r {
+			missed = missed + len(kept)
+			kept = []int{}
+		}
+		kept = kept.Append(i)
+	}
+	let mut want = []Change[int]{Changed[int]{State: 0}}
+	if missed > 0 {
+		want = want.Append(Overflowed{Missed: missed})
+	}
+	for s in kept {
+		want = want.Append(Changed[int]{State: s})
+	}
+	if len(got) != len(want) {
+		return false
+	}
+	for i in 0..len(got) {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	true
+}
+
+// ChangesCountsWhatItDrops: a Changes loop that falls more than its room
+// behind the actor reads an Overflowed with the number of states it
+// dropped, then the states it kept: it holds room states, never one per
+// commit (F-GP4c-1; owner, 2026-11-15).
+law ChangesCountsWhatItDrops(room int, n int) {
+	with context { Scheduler: time.NewManual(0) } {
+		dropped(room, n)
+	}
+}
+
 // RejectKeepsState: an Ask that the step rejects answers Reject and keeps
 // the state.
 law RejectKeepsState(signals []int, n int) {
@@ -408,6 +466,31 @@ func selectStops(s Seq[int]) bool {
 		}
 	}
 	true
+}
+
+// changesStop: on a stopped actor, Changes gives one value, its last
+// state, so a yield that returns false at its k-th call (k of 1 or more)
+// is called once.
+func changesStop(k int) bool needs Scheduler {
+	if k < 1 {
+		return true
+	}
+	let a = StartMachine(tally(), 1, func(o int) {})
+	a.Stop()
+	let mut calls = 0
+	let s = Changes(a, 2)
+	s(func(c Change[int]) bool {
+		calls = calls + 1
+		calls < k
+	})
+	calls == 1
+}
+
+// ActorChangesStops: Changes is a Seq that stops (stdlib.md, Std laws 5).
+law ActorChangesStops(k int) {
+	with context { Scheduler: time.NewManual(0) } {
+		changesStop(k)
+	}
 }
 
 // SelectStops: Select is a Seq that stops.

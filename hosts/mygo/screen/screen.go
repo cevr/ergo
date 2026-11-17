@@ -13,8 +13,13 @@ package screen
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
+	"fmt"
+	"hash/maphash"
 	"math"
+	"reflect"
+	"slices"
 	"sync"
 	"time"
 
@@ -25,6 +30,7 @@ import (
 	"github.com/egoist/mygo/drawing/scene"
 	"github.com/egoist/mygo/drawing/surface"
 	"github.com/egoist/mygo/drawing/text"
+	"github.com/egoist/mygo/drawing/vec"
 )
 
 // The kinds of an Input.
@@ -86,16 +92,54 @@ type Window struct {
 	access  []platform.AccessNode
 	focus   uint64
 	field   platform.TextInputState
+
+	// The strokes of the list being made and of the shown one (a stroke's
+	// op is a placeholder that draw turns into its mask) and their points
+	// (each list's arena, which its strokes index), the one StrokeBegin
+	// opened (inStroke), how many masks draw rasterized, and how many
+	// strokes it drew as Lines since the atlas left their mask out.
+	strokes, shownStrokes, refStrokes []stroke
+	pts, shownPts, refPts             []float32
+	drawing                           stroke
+	inStroke                          bool
+	// published is the accessibility tree last given the surface, and
+	// publishedFocus its focus; pix, q and disc rasterize's buffers.
+	published      []platform.AccessNode
+	publishedFocus uint64
+	pix            []byte
+	q              []float32
+	disc           [][2]float32
+	masks, lined   int
+	// vw and vh are the frame being built's size in device pixels.
+	vw, vh  float32
+	z       vec.Rasterizer
 	frames  bool
 	start   time.Time
 	width   float64
 	height  float64
 	painted int
 
+	// The damage paint (Mark, Seal, Again): the parts of the list being
+	// made and of the shown one each key drew, the parts still open, and
+	// the shown list's accessibility nodes. ref is the list Hold put
+	// aside, which Differs holds the list made since to.
+	segs, prev  map[int]seg
+	open        []seg
+	shownAccess []platform.AccessNode
+	refOps      []scene.Op
+	refGlyphs   []glyphText
+	refAccess   []platform.AccessNode
+
 	conn *surface.Conn
 	r    raster.Renderer
 	sc   scene.Scene
 	sys  *text.System
+
+	// laid and lastLaid are the layouts of text the list being made and
+	// the one before used, by text and size, under tmu: a text the next
+	// list uses too is not shaped again, and one it does not use goes.
+	tmu            sync.Mutex
+	laid, lastLaid map[textKey]*text.Layout
 
 	// fake is the surface of a Headless window.
 	fake *fake.Surface
@@ -114,8 +158,29 @@ type glyphText struct {
 	transformed bool
 }
 
+// seg is the part of a list one key drew: its ops, its lines of text and
+// its accessibility nodes, each from the first index to the one past the
+// last.
+type seg struct {
+	key                int
+	op0, op1, gl0, gl1 int
+	ac0, ac1, st0, st1 int
+}
+
+// stroke is a polyline Present draws as one mask, at op index at of the
+// list (its placeholder): its points in DIPs, x then y, at [p0, p1) of
+// its list's arena, its width and its color.
+type stroke struct {
+	at, p0, p1 int
+	width      float32
+	color      scene.Color
+}
+
+// maskSeed keys the masks of strokes: one process, one seed.
+var maskSeed = maphash.MakeSeed()
+
 func newWindow(width, height float64) *Window {
-	return &Window{wake: make(chan struct{}, 1), start: time.Now(), width: width, height: height, sys: text.Shared()}
+	return &Window{wake: make(chan struct{}, 1), start: time.Now(), width: width, height: height, sys: text.Shared(), segs: map[int]seg{}, prev: map[int]seg{}}
 }
 
 // Open opens a desktop window of the size, titled title, once MyGo's app
@@ -213,6 +278,11 @@ func (w *Window) event(ev platform.SurfaceEvent) bool {
 		w.push(withMods(Input{Kind: Scroll, X: ev.X, Y: ev.Y, DX: ev.DX, DY: ev.DY}, ev.Mods))
 	case platform.KeyPressed:
 		name := keyName(ev.Key)
+		if name == "" && ev.Mods&(platform.ModCtrl|platform.ModAlt|platform.ModSuper) != 0 {
+			// A letter or a digit with Ctrl, Alt or the system key is a
+			// shortcut, which types nothing: the program gets the key.
+			name = chordName(ev.Key)
+		}
 		if name == "" {
 			return false
 		}
@@ -226,7 +296,7 @@ func (w *Window) event(ev platform.SurfaceEvent) bool {
 		return true
 	case platform.AccessibilityOn:
 		w.mu.Lock()
-		w.publishAccess()
+		w.publishAccess(true)
 		w.mu.Unlock()
 	}
 	return false
@@ -281,6 +351,18 @@ func keyName(k platform.Key) string {
 		return "ArrowUp"
 	case platform.KeyDown:
 		return "ArrowDown"
+	}
+	return ""
+}
+
+// chordName is the name of a letter or digit key in a shortcut, its
+// character in lower case ("z", "5"); "" for the other keys.
+func chordName(k platform.Key) string {
+	switch {
+	case k >= platform.KeyA && k <= platform.KeyZ:
+		return string(rune('a' + int(k-platform.KeyA)))
+	case k >= platform.Key0 && k <= platform.Key9:
+		return string(rune('0' + int(k-platform.Key0)))
 	}
 	return ""
 }
@@ -365,9 +447,122 @@ func rect(x, y, width, height float64) scene.Rect {
 // Begin starts the next display list; Present shows it.
 func (w *Window) Begin() {
 	w.mu.Lock()
-	w.pending, w.glyphs, w.clips, w.access = w.pending[:0], nil, 0, nil
-	w.focus, w.field = 0, platform.TextInputState{}
+	w.begin()
 	w.mu.Unlock()
+}
+
+// begin is Begin with w.mu held.
+func (w *Window) begin() {
+	w.pending, w.glyphs, w.clips, w.access = w.pending[:0], w.glyphs[:0], 0, w.access[:0]
+	w.strokes, w.pts, w.inStroke = w.strokes[:0], w.pts[:0], false
+	w.focus, w.field = 0, platform.TextInputState{}
+	clear(w.segs)
+	w.open = w.open[:0]
+}
+
+// Mark starts the part of the list that key draws; Seal ends it. Marks
+// nest as the tree does. The next list may take the part again (Again).
+func (w *Window) Mark(key int) {
+	w.mu.Lock()
+	w.open = append(w.open, seg{key: key, op0: len(w.pending), gl0: len(w.glyphs), ac0: len(w.access), st0: len(w.strokes)})
+	w.mu.Unlock()
+}
+
+// Seal ends the part of the list key's Mark started.
+func (w *Window) Seal(key int) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	n := len(w.open) - 1
+	if n < 0 || w.open[n].key != key {
+		return
+	}
+	s := w.open[n]
+	w.open = w.open[:n]
+	s.op1, s.gl1, s.ac1, s.st1 = len(w.pending), len(w.glyphs), len(w.access), len(w.strokes)
+	w.segs[key] = s
+}
+
+// Again draws again what key drew in the list shown now, as it was, and
+// reports whether there was such a part: the damage paint's way to leave a
+// box whose inputs did not change as it is.
+func (w *Window) Again(key int) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	s, ok := w.prev[key]
+	if !ok {
+		return false
+	}
+	t := seg{key: key, op0: len(w.pending), gl0: len(w.glyphs), ac0: len(w.access), st0: len(w.strokes)}
+	w.pending = append(w.pending, w.shown[s.op0:s.op1]...)
+	for _, g := range w.texts[s.gl0:s.gl1] {
+		g.at += t.op0 - s.op0
+		w.glyphs = append(w.glyphs, g)
+	}
+	for _, k := range w.shownStrokes[s.st0:s.st1] {
+		k.at += t.op0 - s.op0
+		p0 := len(w.pts)
+		w.pts = append(w.pts, w.shownPts[k.p0:k.p1]...)
+		k.p0, k.p1 = p0, len(w.pts)
+		w.strokes = append(w.strokes, k)
+	}
+	w.access = append(w.access, w.shownAccess[s.ac0:s.ac1]...)
+	t.op1, t.gl1, t.ac1, t.st1 = len(w.pending), len(w.glyphs), len(w.access), len(w.strokes)
+	w.segs[key] = t
+	return true
+}
+
+// Hold puts the list made since Begin aside as the reference and begins
+// another; Differs then compares the two.
+func (w *Window) Hold() {
+	w.mu.Lock()
+	w.refOps = append(w.refOps[:0], w.pending...)
+	w.refGlyphs = append(w.refGlyphs[:0], w.glyphs...)
+	w.refAccess = append(w.refAccess[:0], w.access...)
+	w.refStrokes = append(w.refStrokes[:0], w.strokes...)
+	w.refPts = append(w.refPts[:0], w.pts...)
+	w.begin()
+	w.mu.Unlock()
+}
+
+// Differs is where the list made since Hold differs from the one Hold put
+// aside, "" when they are the same.
+func (w *Window) Differs() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if len(w.pending) != len(w.refOps) {
+		return fmt.Sprintf("%d ops, the reference %d", len(w.pending), len(w.refOps))
+	}
+	for i := range w.pending {
+		if w.pending[i] != w.refOps[i] {
+			return fmt.Sprintf("op %d is %+v, the reference's %+v", i, w.pending[i], w.refOps[i])
+		}
+	}
+	if len(w.glyphs) != len(w.refGlyphs) {
+		return fmt.Sprintf("%d lines of text, the reference %d", len(w.glyphs), len(w.refGlyphs))
+	}
+	for i := range w.glyphs {
+		if w.glyphs[i] != w.refGlyphs[i] {
+			return fmt.Sprintf("text %d is %+v, the reference's %+v", i, w.glyphs[i], w.refGlyphs[i])
+		}
+	}
+	if len(w.strokes) != len(w.refStrokes) {
+		return fmt.Sprintf("%d strokes, the reference %d", len(w.strokes), len(w.refStrokes))
+	}
+	for i, k := range w.strokes {
+		r := w.refStrokes[i]
+		if k.at != r.at || k.width != r.width || k.color != r.color || !slices.Equal(w.pts[k.p0:k.p1], w.refPts[r.p0:r.p1]) {
+			return fmt.Sprintf("stroke %d is %+v %v, the reference's %+v %v", i, k, w.pts[k.p0:k.p1], r, w.refPts[r.p0:r.p1])
+		}
+	}
+	if len(w.access) != len(w.refAccess) {
+		return fmt.Sprintf("%d accessibility nodes, the reference %d", len(w.access), len(w.refAccess))
+	}
+	for i := range w.access {
+		if !reflect.DeepEqual(w.access[i], w.refAccess[i]) {
+			return fmt.Sprintf("accessibility node %d is %+v, the reference's %+v", i, w.access[i], w.refAccess[i])
+		}
+	}
+	return ""
 }
 
 // Fill paints a rectangle of color 0xRRGGBBAA with corners of radius.
@@ -397,15 +592,73 @@ func (w *Window) Line(x0, y0, x1, y1, width float64, color uint32) {
 	if math.IsNaN(length) || math.IsInf(length, 0) {
 		return
 	}
+	w.mu.Lock()
+	w.pending = append(w.pending, lineOp(x0, y0, x1, y1, width, rgba(color)))
+	w.mu.Unlock()
+}
+
+// lineOp is Line's op: the segment's rounded rectangle, turned onto it.
+func lineOp(x0, y0, x1, y1, width float64, color scene.Color) scene.Op {
+	dx, dy := x1-x0, y1-y0
+	length := math.Hypot(dx, dy)
 	m := scene.Translation(float32(x0), float32(y0))
 	if length > 0 {
 		dx, dy = dx/length, dy/length
 		m = scene.Matrix(float32(dx), float32(dy), float32(-dy), float32(dx), float32(x0), float32(y0))
 	}
 	hw := width / 2
+	return scene.Op{Kind: scene.OpFill, Rect: rect(-hw, -hw, length+width, width), Transform: m, Radii: scene.Uniform(float32(hw)), Color: color}
+}
+
+// StrokeBegin opens a polyline width wide, with round caps and joins, in
+// color 0xRRGGBBAA; StrokeTo adds its points and StrokeEnd draws it. It
+// paints what a Line a segment paints, but the frame rasterizes the whole
+// polyline once into a mask the text system's atlas keeps, keyed by its
+// points relative to the pixel grid, so a stroke whose points do not
+// change is not rasterized again (MasksDrawn), as MyGo's
+// Painter.StrokePath draws.
+func (w *Window) StrokeBegin(width float64, color uint32) {
 	w.mu.Lock()
-	w.pending = append(w.pending, scene.Op{Kind: scene.OpFill, Rect: rect(-hw, -hw, length+width, width), Transform: m, Radii: scene.Uniform(float32(hw)), Color: rgba(color)})
+	w.drawing, w.inStroke = stroke{width: float32(width), color: rgba(color), p0: len(w.pts)}, true
 	w.mu.Unlock()
+}
+
+// StrokeTo adds the point x, y to the polyline StrokeBegin opened.
+func (w *Window) StrokeTo(x, y float64) {
+	w.mu.Lock()
+	if w.inStroke {
+		w.pts = append(w.pts, float32(x), float32(y))
+	}
+	w.mu.Unlock()
+}
+
+// StrokeEnd ends the polyline and puts it in the list, where an empty
+// fill holds its place; one of no point, or of no width, draws nothing.
+func (w *Window) StrokeEnd() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if !w.inStroke {
+		return
+	}
+	k := w.drawing
+	w.inStroke = false
+	k.p1 = len(w.pts)
+	if k.p1 == k.p0 || !(k.width > 0) {
+		w.pts = w.pts[:k.p0]
+		return
+	}
+	k.at = len(w.pending)
+	w.pending = append(w.pending, scene.Op{Kind: scene.OpFill, Transform: scene.Translation(0, 0)})
+	w.strokes = append(w.strokes, k)
+}
+
+// MasksDrawn is how many stroke masks the frames drawn so far
+// rasterized: a stroke drawn again with the same points takes its mask
+// from the atlas.
+func (w *Window) MasksDrawn() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.masks
 }
 
 // Clip clips what follows to a rectangle, within the clip in effect,
@@ -474,10 +727,18 @@ func (w *Window) Present() {
 		w.pending = append(w.pending, scene.Op{Kind: scene.OpPopClip})
 	}
 	w.shown = append(w.shown[:0], w.pending...)
-	w.texts = w.glyphs
+	// The shown list's buffers become the next list's (begin empties
+	// them): two of each, not a new one a frame.
+	w.texts, w.glyphs = w.glyphs, w.texts
+	w.shownStrokes, w.strokes = w.strokes, w.shownStrokes
+	w.shownPts, w.pts = w.pts, w.shownPts
+	w.shownAccess, w.access = w.access, w.shownAccess
+	w.segs, w.prev = w.prev, w.segs
+	clear(w.segs)
 	w.painted++
+	w.turnLayouts()
 	field := w.field
-	w.publishAccess()
+	w.publishAccess(false)
 	w.mu.Unlock()
 	if w.conn != nil {
 		post := func() { w.conn.Surface.SetTextInput(field) }
@@ -488,21 +749,70 @@ func (w *Window) Present() {
 	w.invalidate()
 }
 
-// publishAccess gives the surface the accessibility tree; w.mu is held.
-func (w *Window) publishAccess() {
+// sameNode reports whether two accessibility nodes Access made are the
+// same: the fields it sets (reflect.DeepEqual would allocate a frame).
+func sameNode(a, b platform.AccessNode) bool {
+	return a.ID == b.ID && a.Parent == b.Parent && a.Role == b.Role && a.Label == b.Label && a.Value == b.Value && a.Bounds == b.Bounds && a.States == b.States
+}
+
+// publishAccess gives the surface the shown list's accessibility tree,
+// when it differs from the one last given or force; w.mu is held.
+func (w *Window) publishAccess(force bool) {
 	if w.conn == nil {
 		return
 	}
-	tree := &platform.AccessTree{Nodes: append([]platform.AccessNode(nil), w.access...), Focus: w.focus}
+	if !force && w.focus == w.publishedFocus && slices.EqualFunc(w.shownAccess, w.published, sameNode) {
+		return
+	}
+	w.published, w.publishedFocus = append(w.published[:0], w.shownAccess...), w.focus
+	tree := &platform.AccessTree{Nodes: append([]platform.AccessNode(nil), w.shownAccess...), Focus: w.focus}
 	if w.conn.Post != nil {
 		w.conn.Post(func() { w.conn.Surface.UpdateAccessibility(tree) })
 	}
 }
 
-// TextWidth is the width of s set on one line at font size size.
+// TextWidth is the width of s set on one line at font size size. Its
+// layout, as glyphLine's, comes from the text system's cache (Layout, as
+// MyGo's ui lays text out), which keeps what recent frames used, not
+// shaped anew (Shape) each call.
 func (w *Window) TextWidth(s string, size float64) float64 {
-	l := w.sys.Shape(text.Params{Text: s, Style: text.Style{Size: float32(size)}, NoWrap: true, KeepSpaces: true})
+	l := w.layout(s, float32(size))
 	return float64(l.Width)
+}
+
+// textKey is a text set on one line at a size.
+type textKey struct {
+	s    string
+	size float32
+}
+
+// layout is s set on one line at size: from the layouts of the last two
+// lists, else shaped, as MyGo's text system shapes it.
+func (w *Window) layout(s string, size float32) *text.Layout {
+	k := textKey{s, size}
+	w.tmu.Lock()
+	defer w.tmu.Unlock()
+	if l, ok := w.laid[k]; ok {
+		return l
+	}
+	l, ok := w.lastLaid[k]
+	if !ok {
+		l = w.sys.Shape(text.Params{Text: s, Style: text.Style{Size: size}, NoWrap: true, KeepSpaces: true})
+	}
+	if w.laid == nil {
+		w.laid = map[textKey]*text.Layout{}
+	}
+	w.laid[k] = l
+	return l
+}
+
+// turnLayouts starts the next list's layouts: the list made's are the
+// last, and those of the list before go.
+func (w *Window) turnLayouts() {
+	w.tmu.Lock()
+	clear(w.lastLaid)
+	w.laid, w.lastLaid = w.lastLaid, w.laid
+	w.tmu.Unlock()
 }
 
 // LineHeight is the distance between lines at font size size.
@@ -520,28 +830,297 @@ func (w *Window) draw() {
 	if scale <= 0 {
 		scale = 1
 	}
+	w.sys.BeginFrame()
+	w.mu.Lock()
+	lined := w.lined
+	w.build(width, height, scale)
+	for try := 0; try < 2 && w.sys.Full(); try++ {
+		w.sys.MakeRoom()
+		w.lined = lined
+		w.build(width, height, scale)
+	}
+	w.mu.Unlock()
+	w.r.Render(&w.sc)
+	// A Headless window's frame stays in the renderer's image, which Pixel
+	// reads: the fake surface would copy it into a new buffer a frame.
+	if w.fake == nil {
+		w.conn.Surface.PresentPixels(w.r.Image.Pix, w.r.Image.Stride, w.r.Image.W, w.r.Image.H)
+	}
+	w.sys.EndFrame()
+}
+
+// build makes the scene of the shown list in w.sc; w.mu is held. The text
+// system's frame has begun (BeginFrame): a mask or glyph an atlas leaves
+// out, it makes room for (MakeRoom), and draw builds the scene again,
+// since what the atlas kept moved.
+func (w *Window) build(width, height, scale float64) {
 	s := &w.sc
 	s.Reset(int(width*scale), int(height*scale), scene.Color{R: 255, G: 255, B: 255, A: 255})
 	s.Scale, s.Zoom = float32(scale), 1
 	s.MaskAtlas, s.ColorAtlas = w.sys.MaskAtlas, w.sys.ColorAtlas
 	s.Text = w.sys.TextParams()
-	w.mu.Lock()
+	w.vw, w.vh = float32(width*scale), float32(height*scale)
 	ops := w.shown
 	texts := w.texts
-	k := 0
+	strokes := w.shownStrokes
+	k, j := 0, 0
 	for i, op := range ops {
 		for ; k < len(texts) && texts[k].at == i; k++ {
 			w.glyphLine(s, texts[k], float32(scale))
+		}
+		if j < len(strokes) && strokes[j].at == i {
+			w.strokeMask(s, strokes[j], w.shownPts[strokes[j].p0:strokes[j].p1], float32(scale))
+			j++
+			continue
 		}
 		s.Ops = append(s.Ops, op)
 	}
 	for ; k < len(texts); k++ {
 		w.glyphLine(s, texts[k], float32(scale))
 	}
-	w.mu.Unlock()
-	w.r.Render(s)
-	w.conn.Surface.PresentPixels(w.r.Image.Pix, w.r.Image.Stride, w.r.Image.W, w.r.Image.H)
-	w.sys.EndFrame()
+}
+
+// strokeMask adds stroke t to s as one glyph of the mask atlas, as MyGo's
+// Painter.StrokePath does (ui/path.go): its points, in device pixels, are
+// moved to quarters of a pixel from the mask's corner, and the mask is
+// keyed by them and the width, so the atlas keeps it while they do not
+// change. The mask covers each segment's rectangle and a disc at each
+// point, as Line's rounded rectangles do. A mask wider or taller than
+// maskTile pixels draws as tiles (strokeTiles). When the atlas cannot hold
+// it, the stroke is a Line a segment.
+func (w *Window) strokeMask(s *scene.Scene, t stroke, pts []float32, scale float32) {
+	hw := t.width * scale / 2
+	n := len(pts) / 2
+	minX, minY := float32(math.MaxFloat32), float32(math.MaxFloat32)
+	maxX, maxY := float32(-math.MaxFloat32), float32(-math.MaxFloat32)
+	for i := 0; i < n; i++ {
+		x, y := pts[2*i]*scale, pts[2*i+1]*scale
+		minX, maxX = min(minX, x), max(maxX, x)
+		minY, maxY = min(minY, y), max(maxY, y)
+	}
+	x0 := float32(math.Floor(float64(minX-hw))) - 1
+	y0 := float32(math.Floor(float64(minY-hw))) - 1
+	mw := int(math.Ceil(float64(maxX+hw-x0))) + 2
+	mh := int(math.Ceil(float64(maxY+hw-y0))) + 2
+	if mw <= 0 || mh <= 0 || mw > maskSpanMax || mh > maskSpanMax || math.IsNaN(float64(x0+y0)) {
+		w.strokeLines(s, t, pts)
+		return
+	}
+	if cap(w.q) < 2*n {
+		w.q = make([]float32, 2*n)
+	}
+	q := w.q[:2*n]
+	var hs maphash.Hash
+	hs.SetSeed(maskSeed)
+	var buf [8]byte
+	binary.LittleEndian.PutUint32(buf[:4], math.Float32bits(hw))
+	binary.LittleEndian.PutUint32(buf[4:], uint32(n))
+	hs.Write(buf[:])
+	for i := 0; i < n; i++ {
+		q[2*i] = float32(math.Round(float64((pts[2*i]*scale-x0)*4))) / 4
+		q[2*i+1] = float32(math.Round(float64((pts[2*i+1]*scale-y0)*4))) / 4
+		binary.LittleEndian.PutUint32(buf[:4], math.Float32bits(q[2*i]))
+		binary.LittleEndian.PutUint32(buf[4:], math.Float32bits(q[2*i+1]))
+		hs.Write(buf[:])
+	}
+	key := hs.Sum64()
+	start := int32(len(s.Glyphs))
+	if mw > maskTile || mh > maskTile {
+		if !w.strokeTiles(s, t, key, q, hw, x0, y0, mw, mh) {
+			s.Glyphs = s.Glyphs[:start]
+			w.strokeLines(s, t, pts)
+			return
+		}
+	} else if !w.maskGlyph(s, key, q, hw, x0, y0, 0, 0, mw, mh, t.color) {
+		w.strokeLines(s, t, pts)
+		return
+	}
+	if end := int32(len(s.Glyphs)); end > start {
+		s.Ops = append(s.Ops, scene.Op{Kind: scene.OpGlyphs, Start: start, End: end, Transform: scene.Translation(0, 0)})
+	}
+}
+
+// maskGlyph adds to s the glyph of the tw×th part at (ox, oy) of the mask
+// of polyline q, whose corner is at (x0, y0), cached under key; false when
+// the atlas left it out.
+func (w *Window) maskGlyph(s *scene.Scene, key uint64, q []float32, hw, x0, y0 float32, ox, oy, tw, th int, color scene.Color) bool {
+	gi := w.sys.Mask(key, func() (int, int, []byte) {
+		w.masks++
+		return tw, th, w.rasterize(q, hw, ox, oy, tw, th)
+	})
+	if !gi.OK {
+		return false
+	}
+	s.Glyphs = append(s.Glyphs, scene.Glyph{X: x0 + float32(ox), Y: y0 + float32(oy), W: float32(gi.W), H: float32(gi.H), U: gi.X, V: gi.Y, UW: gi.W, VH: gi.H, Color: color})
+	return true
+}
+
+// strokeTiles adds to s the mw×mh mask of polyline q at (x0, y0), too
+// large for one, as tiles of maskTile pixels a side from its corner, as
+// MyGo's Painter.pathTiles does: each a mask of its own, of the whole
+// polyline clipped to it, cached under the stroke's key and its place, so
+// that tiles meet as the pixels of one mask do. It draws the tiles that
+// show, within a pixel, and that a segment comes within the half width
+// and two pixels of (a pixel of antialiasing and one of rounding). It reports false when more than maskTilesMax
+// tiles show or the atlas left one out.
+func (w *Window) strokeTiles(s *scene.Scene, t stroke, key uint64, q []float32, hw, x0, y0 float32, mw, mh int) bool {
+	tile := maskTile
+	cols, rows := (mw+tile-1)/tile, (mh+tile-1)/tile
+	span := func(from, to, origin float32, n int) (int, int) {
+		a := math.Floor(float64((from - origin - 1) / float32(tile)))
+		b := math.Ceil(float64((to - origin + 1) / float32(tile)))
+		return int(max(a, 0)), int(min(b, float64(n)))
+	}
+	c0, c1 := span(0, w.vw, x0, cols)
+	r0, r1 := span(0, w.vh, y0, rows)
+	vc, vr := c1-c0, r1-r0
+	if vc <= 0 || vr <= 0 {
+		return true
+	}
+	if vc*vr > maskTilesMax {
+		return false
+	}
+	reached := make([]bool, vc*vr)
+	m := hw + 2
+	n := len(q) / 2
+	for i := 0; i < n; i++ {
+		ax, ay := q[2*i], q[2*i+1]
+		bx, by := ax, ay
+		if i > 0 {
+			ax, ay = q[2*i-2], q[2*i-1]
+		}
+		size := float32(tile)
+		rl := max(int(math.Floor(float64((min(ay, by)-m)/size))), r0)
+		rh := min(int(math.Floor(float64((max(ay, by)+m)/size))), r1-1)
+		for r := rl; r <= rh; r++ {
+			// The part of the segment within m of the row, as pathTiles
+			// takes it.
+			xl, xh := min(ax, bx), max(ax, bx)
+			if ay != by {
+				k0 := (float32(r*tile) - m - ay) / (by - ay)
+				k1 := (float32((r+1)*tile) + m - ay) / (by - ay)
+				k0, k1 = max(min(k0, k1), 0), min(max(k0, k1), 1)
+				xa, xb := ax+(bx-ax)*k0, ax+(bx-ax)*k1
+				xl, xh = min(xa, xb), max(xa, xb)
+			}
+			cl := max(int(math.Floor(float64((xl-m)/size))), c0)
+			ch := min(int(math.Floor(float64((xh+m)/size))), c1-1)
+			for c := cl; c <= ch; c++ {
+				reached[(r-r0)*vc+c-c0] = true
+			}
+		}
+	}
+	for r := r0; r < r1; r++ {
+		for c := c0; c < c1; c++ {
+			if !reached[(r-r0)*vc+c-c0] {
+				continue
+			}
+			ox, oy := c*tile, r*tile
+			tw, th := min(tile, mw-ox), min(tile, mh-oy)
+			if !w.maskGlyph(s, tileKey(key, ox, oy, tw, th), q, hw, x0, y0, ox, oy, tw, th, t.color) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// tileKey is the key of the tw×th tile at (ox, oy) of the mask of key.
+func tileKey(key uint64, ox, oy, tw, th int) uint64 {
+	var buf [24]byte
+	binary.LittleEndian.PutUint64(buf[:], key)
+	binary.LittleEndian.PutUint32(buf[8:], uint32(ox))
+	binary.LittleEndian.PutUint32(buf[12:], uint32(oy))
+	binary.LittleEndian.PutUint32(buf[16:], uint32(tw))
+	binary.LittleEndian.PutUint32(buf[20:], uint32(th))
+	return maphash.Bytes(maskSeed, buf[:])
+}
+
+// maskTile is the side of a stroke's mask tile, in pixels: 512 with the
+// atlas's padding, as MyGo's pathTile. A variable, so that tests can tile
+// small strokes.
+var maskTile = 511
+
+// maskTilesMax is how many tiles of a stroke that show strokeTiles draws
+// at most; maskSpanMax the widest and tallest mask, beyond which float32
+// no longer holds the quarter pixels its points move to (MyGo's
+// pathSpanMax).
+const (
+	maskTilesMax = 64 * 64
+	maskSpanMax  = 1 << 22
+)
+
+// strokeLines adds t to s as a Line a segment (a point, a dot).
+func (w *Window) strokeLines(s *scene.Scene, t stroke, pts []float32) {
+	w.lined++
+	n := len(pts) / 2
+	if n == 1 {
+		s.Ops = append(s.Ops, lineOp(float64(pts[0]), float64(pts[1]), float64(pts[0]), float64(pts[1]), float64(t.width), t.color))
+	}
+	for i := 1; i < n; i++ {
+		s.Ops = append(s.Ops, lineOp(float64(pts[2*i-2]), float64(pts[2*i-1]), float64(pts[2*i]), float64(pts[2*i+1]), float64(t.width), t.color))
+	}
+}
+
+// rasterize is the coverage, tw by th from (ox, oy) of the mask, of the
+// polyline q (pixels from the mask's corner) hw to each side: each
+// segment's rectangle and a disc at each point, all wound one way, so
+// where they overlap they cover once.
+func (w *Window) rasterize(q []float32, hw float32, ox, oy, tw, th int) []byte {
+	z := &w.z
+	z.Reset(tw, th)
+	offX, offY := float32(ox), float32(oy)
+	poly := func(p [][2]float32) {
+		area := float32(0)
+		for i := range p {
+			a, b := p[i], p[(i+1)%len(p)]
+			area += a[0]*b[1] - b[0]*a[1]
+		}
+		if area < 0 {
+			for i, j := 0, len(p)-1; i < j; i, j = i+1, j-1 {
+				p[i], p[j] = p[j], p[i]
+			}
+		}
+		z.MoveTo(p[0][0]-offX, p[0][1]-offY)
+		for _, v := range p[1:] {
+			z.LineTo(v[0]-offX, v[1]-offY)
+		}
+		z.ClosePath()
+	}
+	sides := max(8, int(math.Ceil(float64(2*math.Pi*hw/1.5))))
+	if cap(w.disc) < sides {
+		w.disc = make([][2]float32, sides)
+	}
+	disc := w.disc[:sides]
+	n := len(q) / 2
+	for i := 0; i < n; i++ {
+		cx, cy := q[2*i], q[2*i+1]
+		for k := range disc {
+			a := 2 * math.Pi * float64(k) / float64(sides)
+			disc[k] = [2]float32{cx + hw*float32(math.Cos(a)), cy + hw*float32(math.Sin(a))}
+		}
+		poly(disc)
+		if i == 0 {
+			continue
+		}
+		ax, ay := q[2*i-2], q[2*i-1]
+		dx, dy := cx-ax, cy-ay
+		l := float32(math.Hypot(float64(dx), float64(dy)))
+		if l == 0 {
+			continue
+		}
+		nx, ny := -dy/l*hw, dx/l*hw
+		poly([][2]float32{{ax + nx, ay + ny}, {cx + nx, cy + ny}, {cx - nx, cy - ny}, {ax - nx, ay - ny}})
+	}
+	// The text system copies the mask into its atlas (Mask), so the
+	// buffer is the next mask's, as MyGo's rasterizePath reuses one.
+	if cap(w.pix) < tw*th {
+		w.pix = make([]byte, tw*th)
+	}
+	pix := w.pix[:tw*th]
+	clear(pix)
+	z.Mask(pix, tw)
+	return pix
 }
 
 // glyphLine adds the glyphs of one line of text to s, as MyGo's own
@@ -549,7 +1128,7 @@ func (w *Window) draw() {
 func (w *Window) glyphLine(s *scene.Scene, t glyphText, scale float32) {
 	style := text.Style{Size: t.size}
 	ascent, _, lineHeight := w.sys.Metrics(style)
-	l := w.sys.Shape(text.Params{Text: t.s, Style: style, NoWrap: true, KeepSpaces: true})
+	l := w.layout(t.s, t.size)
 	shade := text.ShadeOf(t.color.R, t.color.G, t.color.B)
 	top := t.y + (float32(math.Ceil(float64(lineHeight)))-lineHeight)/2
 	baseline := w.sys.Baseline((top + ascent) * scale)
@@ -611,12 +1190,23 @@ func (w *Window) Type(s string) { w.send(platform.SurfaceEvent{Kind: platform.Te
 // PressKey presses the key named name ("Enter", "Tab", "Backspace",
 // "ArrowUp", " " and the others Input names), with Shift when shift.
 func (w *Window) PressKey(name string, shift bool) {
+	w.Chord(name, shift, false, false, false)
+}
+
+// Chord presses the key named name with the modifiers given: a key
+// PressKey names, or a letter or digit ("z", "5") as a shortcut takes it.
+func (w *Window) Chord(name string, shift, ctrl, alt, meta bool) {
+	var m platform.Modifiers
+	for _, on := range []struct {
+		set bool
+		mod platform.Modifiers
+	}{{shift, platform.ModShift}, {ctrl, platform.ModCtrl}, {alt, platform.ModAlt}, {meta, platform.ModSuper}} {
+		if on.set {
+			m |= on.mod
+		}
+	}
 	for k := platform.KeyUnknown; k <= platform.KeyForward; k++ {
-		if keyName(k) == name {
-			var m platform.Modifiers
-			if shift {
-				m = platform.ModShift
-			}
+		if keyName(k) == name || chordName(k) == name {
 			w.send(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: k, Mods: m})
 			return
 		}
@@ -644,7 +1234,11 @@ func (w *Window) Pixel(x, y int) uint32 {
 	if w.fake == nil {
 		return 0
 	}
-	p := w.fake.Pixel(x, y) // BGRA
+	m := &w.r.Image
+	if x < 0 || y < 0 || x >= m.W || y >= m.H {
+		return 0
+	}
+	p := m.Pix[y*m.Stride+x*4:] // BGRA
 	return uint32(p[2])<<24 | uint32(p[1])<<16 | uint32(p[0])<<8 | uint32(p[3])
 }
 

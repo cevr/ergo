@@ -796,6 +796,9 @@ func wants(loc ui.Locator, x seen) bool {
 	case ui.First as l:
 		// ui.LocateIn takes the first of what l.At finds.
 		wants(l.At, x)
+	case ui.Within:
+		// The generated programs write no ui.Within.
+		false
 	}
 }
 
@@ -1254,6 +1257,61 @@ func lawCountsSumToPatch(seed int, steps int) bool {
 	kept > 0
 }
 
+func lawSlowNamesItsCounter(seed int) bool {
+	let mut r = seeded(seed)
+	let n = func() int { draw(&r, 9) }
+	let s = ui.Stats{Signals: n(), Written: n(), Rows: n(), Skipped: n(), Stopped: n(), Committed: n(), Inserted: n(), Moved: n(), Removed: n(), Set: n(), Painted: n(), Fetches: n(), Cancels: n()}
+	let b = ui.Budget{Signals: n(), Written: n(), Committed: n(), Ops: n() * 3, Painted: n(), Fetches: n()}
+	let all = []ui.Counter{ui.SignalsCounter, ui.WrittenCounter, ui.CommittedCounter, ui.OpsCounter, ui.PaintedCounter, ui.FetchesCounter}
+	let names = []string{"Signals", "Written", "Committed", "Ops", "Painted", "Fetches"}
+	let mut want = []ui.Slow{}
+	for i, c in all {
+		if ui.CounterText(c) != names[i] {
+			return false
+		}
+		let bound = slowBound(c, b)
+		let count = slowCount(c, s)
+		if bound > 0 && count > bound {
+			want = want.Append(ui.Slow{Counter: c, Count: count, Bound: bound})
+		}
+	}
+	ui.SlowsOf(s, b) == want
+}
+
+func slowBound(c ui.Counter, b ui.Budget) int {
+	match c {
+	case ui.SignalsCounter:
+		b.Signals
+	case ui.WrittenCounter:
+		b.Written
+	case ui.CommittedCounter:
+		b.Committed
+	case ui.OpsCounter:
+		b.Ops
+	case ui.PaintedCounter:
+		b.Painted
+	case ui.FetchesCounter:
+		b.Fetches
+	}
+}
+
+func slowCount(c ui.Counter, s ui.Stats) int {
+	match c {
+	case ui.SignalsCounter:
+		s.Signals
+	case ui.WrittenCounter:
+		s.Written
+	case ui.CommittedCounter:
+		s.Committed
+	case ui.OpsCounter:
+		s.Inserted + s.Moved + s.Removed + s.Set
+	case ui.PaintedCounter:
+		s.Painted
+	case ui.FetchesCounter:
+		s.Fetches
+	}
+}
+
 test UiIncrementalEqualsFresh(seed int, steps int) {
 	assert lawIncrementalEqualsFresh(seed, steps)
 }
@@ -1355,6 +1413,10 @@ func lawGroupByKeepsAfterCheapEqual(seed int, steps int) bool {
 test UiGroupByKeepsAfterCheapEqual(seed int, steps int) {
 	assert lawGroupByKeepsAfterCheapEqual(seed, steps)
 }
+
+test UiSlowNamesItsCounter(seed int) {
+	assert lawSlowNamesItsCounter(seed)
+}
 `
 
 // stdUITreeStatements is the statement of each ui law, as the ledger writes it,
@@ -1369,6 +1431,7 @@ var stdUITreeStatements = map[string]string{
 	"ui MirrorWorkIsLinear":          `MirrorWorkIsLinear(n int, seed int) { let k = (n%40+40)%40 + 1 let mut reads = []int{} for size in []int{k, 2 * k, 4 * k} { let mut xs = []int{} for i in 0..size { xs = xs.Append(i) } let view = func(f *Frame[int], rows []int) { Column(f, Plain()) { Each(f, rows, func(x int) Key { ByInt(x) }) func(x int) { Text(f, "row \(x)") } } } let mut f = NewFrame[int]() let mut m = NewMirror[int](Root(&f)) Apply(&m, Render(&f, view, xs)) catch { case BadPatch: return false } reads = reads.Append(MirrorReads(&m)) let before = MirrorReads(&m) let found = LocateIn(&m, WithText{Text: "row \((seed%size + size) % size)"}) if len(found) != 1 || MirrorReads(&m)-before != Held(&m) { return false } } reads[2]-reads[1] == 2*(reads[1]-reads[0]) }`,
 	"ui MirrorRejectsBadPatches":     `MirrorRejectsBadPatches(a int, b int) { let na = (a%5+5)%5 + 1 let nb = (b%5+5)%5 + 1 let mut xs = []int{} let mut ys = []int{} let mut more = []int{} for i in 0..na { xs = xs.Append(i) more = more.Append(i) } for i in 0..nb { ys = ys.Append(100 + i) } xs = xs.Append(99) more = more.Append(50) more = more.Append(51) let zs = []int{200, 201} let mut f = NewFrame[int]() let root = Root(&f) let first = Render(&f, badPatchView, [][]int{xs, ys, zs}) let second = Render(&f, badPatchView, [][]int{more, ys, zs}) let rows = insertsOf(first, "row 0") let others = insertsOf(first, "row 100") let gones = insertsOf(first, "row 99") let zrows = insertsOf(first, "row 200") let freshes = insertsOf(second, "row 50") let adds = insertsOf(second, "row 51") if len(rows) != 1 || len(others) != 1 || len(gones) != 1 || len(zrows) != 1 || len(freshes) != 1 || len(adds) != 1 { return false } let row = rows[0] let other = others[0] let fresh = freshes[0] let lc = row.Parent let rc = other.Parent if len(insertsUnder(first, lc)) != na+1 || len(insertsUnder(first, rc)) != nb || len(insertsUnder(first, root)) != 3 { return false } let text = TextNode{Value: "x", Style: Plain()} let box = BoxNode{Style: Plain()} // The valid ops before each bad one: a Set, a Move, an Insert, and a // Remove of a row and of a whole column. let good = []Op[int]{ Set[int]{Id: other.Id, Node: TextNode{Value: "changed", Style: Plain()}}, Move[int]{Id: other.Id, Parent: rc, Before: None}, Insert[int]{Id: adds[0].Id, Parent: lc, Before: Some{Value: row.Id}, Node: adds[0].Node}, Remove[int]{Id: gones[0].Id}, Remove[int]{Id: zrows[0].Parent}, } let bad = []Op[int]{ row, Insert[int]{Id: fresh.Id, Parent: fresh.Id, Before: None, Node: text}, Insert[int]{Id: fresh.Id, Parent: lc, Before: Some{Value: fresh.Id}, Node: text}, Insert[int]{Id: fresh.Id, Parent: lc, Before: Some{Value: other.Id}, Node: text}, Move[int]{Id: row.Id, Parent: rc, Before: None}, Move[int]{Id: row.Id, Parent: lc, Before: Some{Value: row.Id}}, Move[int]{Id: row.Id, Parent: lc, Before: Some{Value: other.Id}}, Move[int]{Id: fresh.Id, Parent: lc, Before: None}, Remove[int]{Id: root}, Remove[int]{Id: fresh.Id}, Remove[int]{Id: gones[0].Id}, Set[int]{Id: fresh.Id, Node: text}, Set[int]{Id: row.Id, Node: box}, } for op in bad { if !badPatchRejected(root, first, good, op) { return false } } // The second pass fits. let mut m = NewMirror[int](root) Apply(&m, first) catch { case BadPatch: return false } Apply(&m, second) catch { case BadPatch: return false } true }`,
 	"ui CountsSumToPatch":            `CountsSumToPatch(seed int, steps int) { let mut r = seeded(seed) let ps = genRoot(&r).Append(pBox{slot: 1, kids: []prog{pSame{kids: []prog{pText{slot: 2}, pText{slot: 3}}, memo: true}}}) let mut f = NewFrame[int]() let mut kept = 0 let mut s = []int{} for i in 0..(steps%8+8)%8+2 { // The kept Same reads slots 2 and 3, which stay; a repeated state keeps each component group. if i%2 == 0 { s = genState(&r) s[2] = 7 s[3] = 9 } let ops = pass(&f, ps, s) let c = PassCounts(&f) let mut ins = 0 let mut mov = 0 let mut rem = 0 let mut set = 0 for op in ops { match op { case Insert[int]: ins = ins + 1 case Move[int]: mov = mov + 1 case Remove[int]: rem = rem + 1 case Set[int]: set = set + 1 } } if c.Inserted != ins || c.Moved != mov || c.Removed != rem || c.Set != set || ins+mov+rem+set != len(ops) { return false } if c.Ran+c.Kept != Len(&f)-1 || c.Visits != Len(&f)-c.Kept-Skips(&f) || c.GroupsKept < Skips(&f) { return false } kept = kept + c.Kept } kept > 0 }`,
+	"ui SlowNamesItsCounter":         `SlowNamesItsCounter(seed int) { let mut r = seeded(seed) let n = func() int { draw(&r, 9) } let s = Stats{Signals: n(), Written: n(), Rows: n(), Skipped: n(), Stopped: n(), Committed: n(), Inserted: n(), Moved: n(), Removed: n(), Set: n(), Painted: n(), Fetches: n(), Cancels: n()} let b = Budget{Signals: n(), Written: n(), Committed: n(), Ops: n() * 3, Painted: n(), Fetches: n()} let all = []Counter{SignalsCounter, WrittenCounter, CommittedCounter, OpsCounter, PaintedCounter, FetchesCounter} let names = []string{"Signals", "Written", "Committed", "Ops", "Painted", "Fetches"} let mut want = []Slow{} for i, c in all { if CounterText(c) != names[i] { return false } let bound = slowBound(c, b) let count = slowCount(c, s) if bound > 0 && count > bound { want = want.Append(Slow{Counter: c, Count: count, Bound: bound}) } } SlowsOf(s, b) == want }`,
 	"ui GroupByKeepsAfterCheapEqual": `GroupByKeepsAfterCheapEqual(seed int, steps int) { let mut r = seeded(seed) let mut f = NewFrame[int]() let mut g = NewFrame[int]() let mut prev = gbArgs{n: 0, xs: []int{}} let mut deep = true for i in 0..(steps%10+10)%10+2 { let pick = draw(&r, 4) let a = if i == 0 || pick == 3 { gbArgs{n: prev.n + draw(&r, 2), xs: []int{draw(&r, 3), draw(&r, 3)}} } else if pick == 0 { prev } else if pick == 1 { gbArgs{n: prev.n + 1, xs: prev.xs} } else { gbArgs{n: prev.n, xs: prev.xs.Append(draw(&r, 3))} } if !opsEqual(Render(&f, gbGrouped, a), Render(&g, gbBody, a)) { return false } let ran = i == 0 || !deep || !gbSame(prev, a) if (GroupRuns(&f) == 1) != ran { return false } if ran { deep = i == 0 || gbCheap(prev, a) } prev = a } true }`,
 }
 

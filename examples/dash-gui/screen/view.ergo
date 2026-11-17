@@ -2,8 +2,8 @@
 // its buttons, its canvas), and the queues' drop counts. The panel lines
 // are panel.Describe's, so the screen's text is the headless driver's.
 
-import dash/feed
-import dash/panel
+import ergo.local/prototype/examples/dashgui/feed
+import ergo.local/prototype/examples/dashgui/panel
 import slices
 import strings
 import ui

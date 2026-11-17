@@ -856,6 +856,9 @@ func wants(loc Locator, x seen) bool {
 	case First as l:
 		// LocateIn takes the first of what l.At finds.
 		wants(l.At, x)
+	case Within:
+		// The generated programs write no Within.
+		false
 	}
 }
 

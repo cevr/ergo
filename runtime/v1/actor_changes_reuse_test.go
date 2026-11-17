@@ -40,7 +40,7 @@ func TestActorChangesReuse(t *testing.T) {
 			if err := a.Send(root, 1); err != nil {
 				t.Fatal(err)
 			}
-			for s := range a.Changes(root) {
+			for s := range a.Changes(root, everyState) {
 				if s >= want {
 					break
 				}
@@ -60,7 +60,7 @@ func TestActorChangesReuse(t *testing.T) {
 				if err := a.Send(root, 1); err != nil {
 					t.Fatal(err)
 				}
-				for s := range a.Changes(root) {
+				for s := range a.Changes(root, everyState) {
 					if s >= last {
 						break
 					}

@@ -78,7 +78,7 @@ effect-machine writes this search with a `Context.Service` class for the index, 
 | a result after the state's exit | a plain `self.send` from the task fiber; a result queued before a re-entry can reach the new entry (inferred, em-parity §4.2) | the runner drops it by the entry's id | runner (MU4 model and property) |
 | required services | `R` in the machine's type, provided with `Effect.provideService` | `Work[Signal, Index \| Scheduler]`: the work's row, written as `R` is, a union; only `main` binds it | compiler (equal) |
 | debounce | a `.timeout` or a hand timer with a generation counter | `after: Timer`; `Enter` restarts it | runner + law `DebounceCoalesces` |
-| observing | `actor.subscribe` callbacks on the actor's fiber | `for s in a.Changes()`: a loop, no callback, every committed state once | runner (MU12) |
+| observing | `actor.subscribe` callbacks on the actor's fiber | `for c in actor.Changes(a, 64)`: a loop, no callback, every committed state once, holding 64 at most and reading a typed `Overflowed` after a gap | runner (MU12) |
 
 Where Ergo could not improve:
 

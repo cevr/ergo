@@ -57,14 +57,14 @@ func Scene(rows []catalog.Star, height int, lines Seq[string], clock time.Manual
 			ui.Play(&h, Acts(m.Signal, field(ui.Screen(&h)))) catch {
 			case ui.NoNode as x:
 				io.Stdout.Println("? no node " + x.Label)
-			case ui.Ambiguous as x:
-				io.Stdout.Println("? \(x.Count) nodes at " + x.At)
+			case ui.Mismatch as miss:
+				io.Stdout.Println("? want " + miss.Want + ", got " + miss.Got)
+			case ui.Ambiguous as amb:
+				io.Stdout.Println("? " + amb.At + " finds \(amb.Count) nodes")
 			case actor.Stopped as s:
 				return s
 			case ui.BadPatch as b:
 				return b
-			case ui.Mismatch as x:
-				io.Stdout.Println("? want " + x.Want + ", got " + x.Got)
 			}
 			shown = try follow(&h, shown)
 			for r in refused.Get() {

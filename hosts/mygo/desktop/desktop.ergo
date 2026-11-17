@@ -47,7 +47,39 @@ type Driver[S, E, D, F] {
 	height    float32,
 	frames    bool,
 	painted   int,
-	history   ui.MemoryHistory,
+	// The kept layout (keep.ergo): the tree, the window's box, each
+	// node's box, the children each parent's box was last given, each
+	// node's parent, the lists, and the style each list given room at
+	// the last paint had of its own.
+	tree    layout.Tree,
+	top     layout.Id,
+	lids    Map[ui.Id[E], layout.Id],
+	lkids   Map[ui.Id[E], []ui.Id[E]],
+	lparent Map[ui.Id[E], ui.Id[E]],
+	lists   Map[ui.Id[E], bool],
+	roomed  Map[ui.Id[E], layout.Style],
+	// rebuild lays out a tree built anew at every paint (Reference);
+	// check builds it beside the kept one (Check), differ is the first
+	// box where they differed; work is what the last paint's layouts
+	// computed (LaidOut).
+	rebuild bool,
+	check   bool,
+	differ  Option[string],
+	work    int,
+	history ui.MemoryHistory,
+	// The damage paint (paint.ergo): the nodes a pass, a scroll or the
+	// focus changed since the last paint, what each node's last draw was
+	// given and gave, each node's key in the window's list, the spots of
+	// the last paint, the focus it showed, and how many nodes it drew
+	// anew (Drawn).
+	soiled   Map[ui.Id[E], bool],
+	drew     Map[ui.Id[E], drawn],
+	keys     Map[ui.Id[E], int],
+	keyed    int,
+	lastSpot []spot[E],
+	lastCanv []spot[E],
+	shownFoc Option[ui.Id[E]],
+	drawn    int,
 }
 
 // held is a node of the window's tree and its children, in order.
@@ -75,6 +107,8 @@ func start[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D
 	let mut session = s
 	let root = ui.SessionRoot(&session)
 	let (width, height) = w.Size()
+	let mut tree = layout.New()
+	let top = layout.Add(&tree, plainStyle())
 	let mut d = Driver[S, E, D, F]{
 		w:         w,
 		actor:     a,
@@ -98,8 +132,28 @@ func start[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D
 		height:    float32(height),
 		frames:    false,
 		painted:   0,
+		tree:      tree,
+		top:       top,
+		lids:      Map[ui.Id[E], layout.Id]{},
+		lkids:     Map[ui.Id[E], []ui.Id[E]]{},
+		lparent:   Map[ui.Id[E], ui.Id[E]]{},
+		lists:     Map[ui.Id[E], bool]{},
+		roomed:    Map[ui.Id[E], layout.Style]{},
+		rebuild:   false,
+		check:     false,
+		differ:    None,
+		work:      0,
 		history:   ui.NewMemoryHistory(ui.URL{Path: "/", Query: "", Fragment: ""}),
+		soiled:    Map[ui.Id[E], bool]{},
+		drew:      Map[ui.Id[E], drawn]{},
+		keys:      Map[ui.Id[E], int]{},
+		keyed:     0,
+		lastSpot:  []spot[E]{},
+		lastCanv:  []spot[E]{},
+		shownFoc:  None,
+		drawn:     0,
 	}
+	learn(&d.metrics, w, "", textSize)
 	d.nodes[root] = held[E]{node: ui.BoxNode{Style: ui.Plain()}, kids: []ui.Id[E]{}}
 	try show(&d, first)
 	d
@@ -113,18 +167,31 @@ func show[E comparable, S, D, F](d *Driver[S, E, D, F], ops []ui.Op[E]) fails ui
 		case ui.Insert[E] as x:
 			d.nodes[x.Id] = held[E]{node: x.Node, kids: []ui.Id[E]{}}
 			place(d, x.Id, x.Parent, x.Before)
+			d.soiled[x.Parent] = true
+			scrollTo(d, x.Id, x.Node)
 		case ui.Move[E] as x:
 			unplace(d, x.Parent, x.Id)
 			place(d, x.Id, x.Parent, x.Before)
+			d.soiled[x.Parent] = true
 		case ui.Remove[E] as x:
+			match d.lparent.Get(x.Id) {
+			case Some[ui.Id[E]] as p:
+				d.soiled[p.Value] = true
+			case None:
+			}
 			drop(d, x.Id)
 		case ui.Set[E] as x:
+			d.soiled[x.Id] = true
+			scrollTo(d, x.Id, x.Node)
 			match d.nodes.Get(x.Id) {
 			case Some[held[E]] as h:
 				d.nodes[x.Id] = held[E]{node: x.Node, kids: h.Value.kids}
 			case None:
 			}
 		}
+	}
+	if !d.rebuild {
+		keep(d, ops)
 	}
 	let animates = ui.SessionAnimates(&d.session)
 	if animates != d.frames {
@@ -138,6 +205,22 @@ func show[E comparable, S, D, F](d *Driver[S, E, D, F], ops []ui.Op[E]) fails ui
 	case actor.Stopped:
 	case ui.BadPatch as b:
 		return b
+	}
+}
+
+// scrollTo scrolls the list id to the offset its pass wrote (RowsNode's
+// Offset) when that is not the window's: a RowsKeeping list brought its
+// row into view. The paint keeps it inside the content, and report tells
+// the session where it went.
+func scrollTo[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], node ui.Node[E]) {
+	match node {
+	case ui.RowsNode as x:
+		let off = fmax(float32(float64(x.Offset)), 0)
+		if off != scrolledBy(d, id) {
+			d.scrolled[id] = off
+			d.soiled[id] = true
+		}
+	case _:
 	}
 }
 
@@ -211,6 +294,15 @@ func unplace[S, E, D, F](d *Driver[S, E, D, F], parent ui.Id[E], id ui.Id[E]) {
 
 // drop forgets id and its subtree, and takes it out of its parent.
 func drop[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) {
+	if !d.rebuild {
+		match d.lids.Get(id) {
+		case Some[layout.Id] as l:
+			layout.Remove(&d.tree, l.Value) catch {
+			case arena.Stale:
+			}
+		case None:
+		}
+	}
 	for p, h in d.nodes {
 		for k in h.kids {
 			if k == id {
@@ -233,6 +325,16 @@ func forget[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) {
 	d.scrolled = d.scrolled.Delete(id)
 	d.viewports = d.viewports.Delete(id)
 	d.names = d.names.Delete(id)
+	d.lids = d.lids.Delete(id)
+	d.lkids = d.lkids.Delete(id)
+	d.lparent = d.lparent.Delete(id)
+	d.lists = d.lists.Delete(id)
+	d.roomed = d.roomed.Delete(id)
+	d.boxes = d.boxes.Delete(id)
+	d.extents = d.extents.Delete(id)
+	d.drew = d.drew.Delete(id)
+	d.keys = d.keys.Delete(id)
+	d.soiled = d.soiled.Delete(id)
 	if d.focus == (Some{Value: id}) {
 		d.focus = None
 	}
@@ -252,9 +354,9 @@ func kidsOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) []ui.Id[E] {
 }
 
 // Feed takes one input of the window. A press and a release on the same
-// node press it; the node a press went down on takes its release (an
-// Area's pointer is captured), and a release with no press goes to the
-// node under it; Tab moves the focus, Enter and space press the focused
+// node press it; the node a press went down on takes the pointer's moves
+// and its release (an Area's pointer is captured), and a move or a
+// release with no press goes to the node under it; Tab moves the focus, Enter and space press the focused
 // node; typing goes to the focused Input; other keys go to the view's
 // OnKey. It fails ui.Closed when the window closed.
 func Feed[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fails ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
@@ -300,10 +402,23 @@ func Feed[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fail
 			}
 		}
 	} else if input.Kind == screen.Move {
-		match hitAt(d, x, y) {
+		// A pressed pointer's moves go to the node it went down on, over
+		// any other node or none; a free pointer's to the node under it.
+		let held = match d.pressed {
+		case Some[ui.Id[E]] as p:
+			spotOf(d, p.Value)
+		case None:
+			None
+		}
+		match held {
 		case Some[spot[E]] as s:
 			try pointed(d, s.Value, ui.Moved, x, y)
 		case None:
+			match hitAt(d, x, y) {
+			case Some[spot[E]] as s:
+				try pointed(d, s.Value, ui.Moved, x, y)
+			case None:
+			}
 		}
 	} else if input.Kind == screen.Scroll {
 		try scroll(d, x, y, float32(input.DX), float32(input.DY))
@@ -366,6 +481,7 @@ func scroll[E comparable, S, D, F](d *Driver[S, E, D, F], x float32, y float32, 
 		let next = fmin(fmax(at+dy, 0), most)
 		if next != at {
 			d.scrolled[s.Value.id] = next
+			d.soiled[s.Value.id] = true
 			paint(d)
 			try report(d)
 		}
@@ -553,8 +669,44 @@ func Screen[S, E, D, F](d *Driver[S, E, D, F]) []ui.Shape[E] { ui.MirrorShape(&d
 // StateOf is the actor's state.
 func StateOf[S, E, D, F](d *Driver[S, E, D, F]) S { d.actor.State() }
 
+// Reference makes d lay out a tree built anew from its nodes at every
+// paint, as the driver did before it kept one: the reference the kept
+// tree is held to. It repaints at once.
+func Reference[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
+	d.rebuild = true
+	paint(d)
+}
+
+// Check makes d build the reference tree beside the kept one at every
+// paint and compare every node's box, and draw every node beside the
+// damage paint and compare the two lists and their spots (Differs).
+func Check[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
+	d.check = true
+	paint(d)
+}
+
+// Differs is the first box where the kept tree and the reference differed
+// at a paint since Check, None while they agree.
+func Differs[S, E, D, F](d *Driver[S, E, D, F]) Option[string] { d.differ }
+
+// LaidOut is how many boxes the last paint's layouts computed
+// (layout.Work): the boxes whose style or children changed since the
+// paint before and those around them, not the tree, unless it rebuilds.
+func LaidOut[S, E, D, F](d *Driver[S, E, D, F]) int {
+	if d.rebuild {
+		return len(d.lids)
+	}
+	d.work
+}
+
 // Painted is how many paint lists the driver has given the window.
 func Painted[S, E, D, F](d *Driver[S, E, D, F]) int { d.painted }
+
+// Drawn is how many nodes the last paint drew anew: the nodes a pass, a
+// scroll or the focus changed, those around them whose boxes moved, and
+// their ancestors; every node takes its last draw again otherwise. It is
+// every node under Reference, which draws the whole tree each paint.
+func Drawn[S, E, D, F](d *Driver[S, E, D, F]) int { d.drawn }
 
 // FocusId is the focused node, None for none.
 func FocusId[S, E, D, F](d *Driver[S, E, D, F]) Option[ui.Id[E]] { d.focus }
