@@ -117,14 +117,15 @@ func TestCompilerTypesProperty(t *testing.T) {
 			t.Errorf("seed %d: the dump differs from the Go checker (go -, ergo +):\n%s--- source\n%s\n%s", seed, setDiff(want, got), src, replay(seed))
 		}
 	}
-	reachKinds := map[string]int{"type": 0, "errors": 0, "uses": 0, "conflict": 0}
+	reachKinds := map[string]int{"type": 0, "errors": 0, "uses": 0, "conflict": 0, "cycle": 0}
 	for seed := base; seed < base+300; seed++ {
 		src := genKinds(seed)
-		pkg, _ := check.CheckSource(src)
+		pkg, ds := check.CheckSource(src)
 		if pkg == nil {
 			continue
 		}
 		want, ext := goKinds(pkg)
+		want = append(want, cycleLines(ds)...)
 		for _, l := range want {
 			for _, w := range strings.FieldsFunc(l, func(r rune) bool { return r == ' ' || r == ',' }) {
 				if _, ok := reachKinds[w]; ok {
@@ -180,6 +181,21 @@ func TestCompilerTypesProperty(t *testing.T) {
 			t.Errorf("the types cases reached no %s; the generator lost a form (%s)", name, replay(base))
 		}
 	}
+}
+
+// cycleRE reads an instantiation-cycle diagnostic (mono.go).
+var cycleRE = regexp.MustCompile(`^(\d+:\d+): S108 instantiation cycle: (\S+) is instantiated with (.+), which grows on every round`)
+
+// cycleLines is the Go checker's instantiation cycles in typedump -kinds'
+// form, "cycle LINE:COL INST ARG".
+func cycleLines(ds []check.Diagnostic) []string {
+	var out []string
+	for _, d := range ds {
+		if m := cycleRE.FindStringSubmatch(fmt.Sprint(d)); m != nil {
+			out = append(out, "cycle "+m[1]+" "+m[2]+" "+m[3])
+		}
+	}
+	return out
 }
 
 // typesDump builds compiler/cmd/typedump.
@@ -561,16 +577,17 @@ func genKinds(seed uint32) string {
 			return "Map[string, " + ty(ps, d-1) + "]"
 		case 7, 8:
 			g := pick(r, decls)
-			if inMap && g.name == "Map" {
-				return leaf()
-			}
 			args := make([]string, len(g.params))
 			for i := range args {
 				switch x := r.next(); {
 				case x < 0.2:
 					args[i] = pick(r, ps) + " | " + pick(r, ps)
-				case x < 0.8:
+				case x < 0.75:
 					args[i] = pick(r, ps)
+				case x < 0.85:
+					// A larger type: on a cycle of the parameter graph
+					// the instances grow (S108).
+					args[i] = "[]" + pick(r, ps)
 				default:
 					args[i] = pick(r, []string{"int", "Fate"})
 				}
@@ -593,10 +610,12 @@ func genKinds(seed uint32) string {
 		bracket := strings.Join(bs, ", ")
 		switch g.shape {
 		case "record":
-			// The package's own Map names no instance of itself: the Go
-			// checker does not end on Map[A comparable, B] { f0
-			// Option[Map[B, B]], f1 Map[string, Map[int, A]] } (S3t
-			// follow-up CK-MAPGROW).
+			// The package's own Map nests no instance of itself: the Go
+			// checker does not end on Map[A, B] { f0 func() int fails B,
+			// f1 Map[string, Map[string, B]] }, which grows through the
+			// error row B (S3t follow-up CK-ROWGROW; the type-parameter
+			// form, CK-MAPGROW, is S108). Growing instances of the other
+			// declarations come from their []P arguments.
 			inMap = g.name == "Map"
 			fs := make([]string, len(g.params))
 			for i := range fs {
