@@ -63,13 +63,15 @@ func Debounced[T](src queue.Queue[T], d duration, out queue.Queue[T]) fails queu
 
 // DebouncedMatchesModel: Debounced emits the last value of each burst d
 // after it arrived, never while the burst goes on, and the last value of
-// src when src ends (debouncedModel). A producer task pushes xs with
-// even gaps of 0 to 98 ms on a time.Manual, the window d is odd (1 to 59
-// ms), so no arrival falls on a deadline's instant, and a reader task
-// records each value of out with the time it arrived.
+// src when src ends, unless it left already (debouncedModel). A producer
+// task pushes xs with even gaps of 0 to 98 ms on a time.Manual and ends
+// src an even tail of 0 to 98 ms after the last; the window d is odd (1
+// to 59 ms), so no arrival or end falls on a deadline's instant, and a
+// reader task records each value of out with the time it arrived.
 law DebouncedMatchesModel(gaps []int, xs []int, w int) {
 	let m = time.NewManual(0)
 	let d = 2*(window(w)%30) + 1
+	let tail = 2*(((w/7)%50 + 50)%50)
 	let n = len(xs)
 	let start = m.Now()
 	with context { Scheduler: m, time.Clock: m } {
@@ -83,6 +85,7 @@ law DebouncedMatchesModel(gaps []int, xs []int, w int) {
 				case queue.Closed:
 				}
 			}
+			Scheduler.Sleep(millis(tail))
 			src.End()
 		}
 		let debouncer = task.Go() {
@@ -102,22 +105,23 @@ law DebouncedMatchesModel(gaps []int, xs []int, w int) {
 			seen.End()
 		}
 		let at = evenArrivals(gaps, n)
-		m.Advance(millis(lastOf(at) + d + 1))
+		m.Advance(millis(lastOf(at) + tail + d + 1))
 		producer.Wait()
 		debouncer.Wait()
 		reader.Wait()
-		sameInts(collect(seen.Values()), debouncedModel(at, xs, d))
+		sameInts(collect(seen.Values()), debouncedModel(at, xs, d, lastOf(at) + tail))
 	}
 }
 
 // debouncedModel is what Debounced emits for values xs arriving at at
-// (ms) with window d, as value, time pairs: each xs[i] whose next value
-// arrives more than d later, at at[i]+d, and the last at its arrival.
-func debouncedModel(at []int, xs []int, d int) []int {
+// (ms) with window d and src ending at end, as value, time pairs: each
+// xs[i] whose next value arrives more than d later, at at[i]+d, and the
+// last at at[i]+d when src ends more than d after it, else at end.
+func debouncedModel(at []int, xs []int, d int, end int) []int {
 	let mut out = []int{}
 	for i, x in xs {
 		if i == len(xs)-1 {
-			out = out.Append(x).Append(at[i])
+			out = out.Append(x).Append(if end-at[i] > d { at[i] + d } else { end })
 		} else if at[i+1]-at[i] > d {
 			out = out.Append(x).Append(at[i] + d)
 		}
