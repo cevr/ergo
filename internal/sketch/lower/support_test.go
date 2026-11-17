@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -401,3 +402,30 @@ func mustLower(t *testing.T, name, src string) *lowered {
 	}
 	return o
 }
+
+// sameReport reports two programs' standard error as the same defect. On the
+// targets in boundsValueMisreported, the bracketed value of a bounds panic is
+// left out of the comparison. There Go (go1.27.4 and master) reports a wrong
+// value when the value is a constant outside 0..31 and the length is in a
+// register. cmd/compile's LoweredPanicBoundsCR moves the constant into a
+// register but does not set xIsReg, so the runtime prints that register's
+// number, [0] where amd64 prints [-3]. The repro is probes/arm64negconst in
+// the I19 run, and the upstream report is drafted there. One lowering folds
+// the index into a constant and the other does not, so only that value
+// differs. The panic's kind and length, its source line and the exit code
+// still have to agree.
+func sameReport(a, b string) bool {
+	if !boundsValueMisreported[runtime.GOARCH] {
+		return a == b
+	}
+	return boundsValue.ReplaceAllString(a, "out of range [?]") == boundsValue.ReplaceAllString(b, "out of range [?]")
+}
+
+// boundsValueMisreported is the set of targets whose LoweredPanicBoundsCR
+// omits xIsReg.
+var boundsValueMisreported = map[string]bool{"arm64": true, "ppc64": true, "ppc64le": true, "riscv64": true, "s390x": true}
+
+// boundsValue is the bracketed value of a bounds panic's message: the
+// "[-3]" of "index out of range [-3] with length 8", the "[2:1]" of
+// "slice bounds out of range [2:1]".
+var boundsValue = regexp.MustCompile(`out of range \[[^\]]*\]`)
