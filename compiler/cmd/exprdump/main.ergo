@@ -212,13 +212,24 @@ func write(b *strings.Builder, u Unit, d Typed, calls bool, prefix string) {
 	}
 }
 
+// writeDiags prints the typer's diagnostics, "D FILE START END" after
+// prefix, one per line (S3d5).
+func writeDiags(b *strings.Builder, u Unit, d Typed, prefix string) {
+	for g in expr.Diags(d.t) {
+		let (f, row) = bind.RowOf(d.k.Ps, g.At)
+		let p = u.files[f].Parsed
+		let id = syntax.NodeAt(p.Tree, row)
+		b.WriteString("\(prefix)\(u.files[f].Name) \(syntax.NodePos(p, id)) \(syntax.NodeEnd(p, id))\n")
+	}
+}
+
 func run(argv []string) fails os.Exit needs fs.Files | io.Stdout {
 	let mut b = strings.NewBuilder()
 	if len(argv) == 2 && argv[0] == "-corpus" {
 		// One package per line of the manifest, "PATH EXT FOREIGN
 		// FILE...": its import path (a checked root's @pkg path is main),
-		// its tables and files. Each package's lines are "E …" (types) and
-		// "C …" (calls) after its "@pkg I" line.
+		// its tables and files. Each package's lines are "E …" (types),
+		// "C …" (calls) and "D …" (diagnostics) after its "@pkg I" line.
 		let mut units = []Unit{}
 		for line in strings.Split(try read(argv[1]), "\n") {
 			let g = strings.Fields(line)
@@ -233,6 +244,7 @@ func run(argv []string) fails os.Exit needs fs.Files | io.Stdout {
 			b.WriteString("@pkg \(i)\n")
 			write(&b, units[i], d, false, "E ")
 			write(&b, units[i], d, true, "C ")
+			writeDiags(&b, units[i], d, "D ")
 		}
 		io.Stdout.Print(b.String())
 		return
@@ -256,6 +268,9 @@ func run(argv []string) fails os.Exit needs fs.Files | io.Stdout {
 	}
 	let typed = typeAll(units)
 	write(&b, units[0], typed[0], calls, "")
+	if !calls {
+		writeDiags(&b, units[0], typed[0], "D ")
+	}
 	io.Stdout.Print(b.String())
 }
 
