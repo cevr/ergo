@@ -244,7 +244,7 @@ Std `math` and `bits` (std-text-runes) are Go's `math` for `float64` and Go's `m
 
 ## Encodings and digests
 
-Std `hex`, `base64`, `sha256` and `crc32` (G3 std-digest) are Go's `encoding/hex`, `encoding/base64`, `crypto/sha256` and `hash/crc32` over Ergo's `string`, which holds bytes ([types.md, Strings](types.md) 1), so they need no byte-slice type. They match Effect's `Encoding` module (`encodeHex`, `decodeHex`, `encodeBase64`, `encodeBase64Url` and their decoders) for behaviour; Effect has no hash module. Each extern binds a pure `runtime/v1` body in `digest.go` of the `runtime/v1/digest` leaf, each marked `//ergo:wait none`, with no release route.
+Std `hex`, `base64`, `sha256` and `crc32` (G3 std-digest) are Go's `encoding/hex`, `encoding/base64`, `crypto/sha256` and `hash/crc32` over Ergo's `string`, which holds bytes ([types.md, Strings](types.md) 1), so they need no byte-slice type. They match Effect's `Encoding` module (`encodeHex`, `decodeHex`, `encodeBase64`, `encodeBase64Url` and their decoders) for behaviour; Effect has no hash module. `sha256.Sum` and `crc32.Checksum` call Go's `Sum256` and `ChecksumIEEE` through `import go`, as a user binds them (NP4f), on a view of the string's bytes with no copy ([interop.md, Foreign facts](interop.md) 8). Every other extern binds a pure `runtime/v1` body in `digest.go` of the `runtime/v1/digest` leaf, each marked `//ergo:wait none`, with no release route.
 
 | Package | Signatures |
 | --- | --- |
