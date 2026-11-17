@@ -145,6 +145,11 @@ func (s *never) Sleep(t *rt.Task, d time.Duration) {
 	panic(rt.Interrupted)
 }
 
+// Alarms completes the Scheduler interface (HTTP-FAST-b); After never
+// arms an alarm, so neither fake is asked for one.
+func (*instant) Alarms(*rt.Task) *ergo.AlarmClock { return ergo.HostAlarms() }
+func (*never) Alarms(*rt.Task) *ergo.AlarmClock   { return ergo.HostAlarms() }
+
 // within runs f and waits for its end, an event: an After whose deadline
 // is not the program's Scheduler sleeps an hour, and go test's -timeout
 // panic names TestDeadline (fu-time-limits: no fixed bound).
