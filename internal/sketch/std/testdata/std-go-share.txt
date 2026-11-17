@@ -40,8 +40,6 @@ atomic	NewInt64	library	POLL: the Ergo form (a record over go.New[atomic.Int64](
 base64	Malformed	type
 base64	decodeStd	library	GBX3: Go's base64.StdEncoding is a package variable, which import go does not bind
 base64	decodeURL	library	GBX3: Go's base64.URLEncoding is a package variable, which import go does not bind
-base64	encodeStd	library	GBX3: Go's base64.StdEncoding is a package variable, which import go does not bind
-base64	encodeURL	library	GBX3: Go's base64.URLEncoding is a package variable, which import go does not bind
 cmp	Max	computation	PRIM: Go's builtin max over every ordered type (a float's sign of zero); goBuiltins bind min and max for basic types only
 cmp	Min	computation	PRIM: Go's builtin min over every ordered type (a float's sign of zero); goBuiltins bind min and max for basic types only
 config	NewRedacted	computation	NP4f-7
@@ -51,7 +49,6 @@ config	envName	computation	LF2 and IR1: as an Ergo body it counted 1.225x the ru
 config	flagKey	computation	LF2 and IR1: as an Ergo body it counted 1.197x the runtime/v1 body (NP4f-7 receipt-2): std strings.Join clones its slice argument (LF2's appender and reads facts), and the per-part slices and Builder writes go through runtime/v1 calls the IR does not inline
 config	flagName	computation	LF2 and IR1: as an Ergo body it counted 1.281x the runtime/v1 body (NP4f-7 receipt-2): std strings.Join clones its slice argument (LF2's appender and reads facts), and the per-part slices and Builder writes go through runtime/v1 calls the IR does not inline
 config	hostEnviron	library	HOST-ROW: os.Environ through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead
-crc32	Update	library	GBX3: Go's crc32.IEEETable is a package variable; MakeTable(IEEE) returns Option[go.Ref[Table]], a match per call
 csv	Format	library	not tried in NP4f-5: Go's csv.Writer writes to an io.Writer (strings.Builder through import go), a GB2 binding not probed
 csv	ParseError	type
 csv	Position	type
@@ -215,9 +212,9 @@ slices	Concat	language	PRIM
 slices	Repeat	language	PRIM
 slices	Reverse	computation	OWN1: the owned in-place form (//ergo:owned SlicesReverseOwned) must come from OWN1's rules on an Ergo body
 slices	Slice	language	PRIM
-slices	Sort	library	GBX2: Go's slices.Sort writes its argument, and import go lowers it to a sort of a clone that is dropped
-slices	SortFunc	library	GBX2: Go's slices.SortFunc writes its argument, and import go lowers it to a sort of a clone that is dropped
-slices	SortStableFunc	library	GBX2: Go's slices.SortStableFunc writes its argument, and import go lowers it to a sort of a clone that is dropped
+slices	Sort	library	GBX2-OWN: through import go, Sort is slices.Clone then Go's Sort, and a caller whose argument is dead still pays the clone, where this body's owned form SlicesSortOwned sorts in place: 1.119x on a dead argument (0.990x on a kept one; NP4f-9 receipt-1)
+slices	SortFunc	library	GB-CALLBACK: the Ergo compare crosses to Go as an adapter closure around func(*Env, T, T) (int, error), one more indirect call per comparison: 1.350x (NP4f-9 receipt-1)
+slices	SortStableFunc	library	GB-CALLBACK: the Ergo compare crosses to Go as an adapter closure around func(*Env, T, T) (int, error), one more indirect call per comparison: 1.277x (NP4f-9 receipt-1)
 slices	Take	language	PRIM
 slices	WithCapacity	language	PRIM
 strconv	AppendFloat	library	FK2 appender fact: a []byte argument to import go's appender is cloned in and its result cloned out (strconv.AppendInt(slices.Clone(out), …), probe NP4f-5); the body appends in place
