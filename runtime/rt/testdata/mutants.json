@@ -345,6 +345,24 @@
       "to": "\tstatus := report(",
       "rule": "Emitted main paces the program's heap",
       "killers": ["runtime/v1:TestMainPacesTheHeap"]
+    },
+    {
+      "name": "rt-afterdrop-returned-ignored",
+      "origin": "wf10 std-spike RT-AFTERDROP",
+      "file": "runtime/rt/timeout.go",
+      "from": "\t\tif returned {\n",
+      "to": "\t\tif false {\n",
+      "rule": "runtime.md Timeouts 4: a body that returned its value before the deadline's stop ended it gives that value, not Expired",
+      "killers": ["lower:TestStdLawsRun"]
+    },
+    {
+      "name": "rt-afterdrop-kept-not-set",
+      "origin": "wf10 std-spike RT-AFTERDROP",
+      "file": "runtime/rt/timeout.go",
+      "from": "kept, returned = v, true",
+      "to": "returned = true",
+      "rule": "runtime.md Timeouts 4: the value After gives is the one the body returned",
+      "killers": ["lower:TestStdLawsRun"]
     }
   ]
 }
