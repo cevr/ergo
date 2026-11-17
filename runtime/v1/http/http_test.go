@@ -70,6 +70,9 @@ func serveOn(t *testing.T, root *rt.Task, sleeper v1.Sleeper, l *ergonet.Listene
 	holder := rt.NewScope(root)
 	h := &serverTask{h: rt.Go(&holder, "http test server", func(ct *rt.Task) (struct{}, error) {
 		return v1.Guarded(ct, func(ct *rt.Task) (struct{}, error) {
+			if !*engineFlag {
+				return struct{}{}, httpServe("http test request", ct, sleeper, l, limits, handle, false)
+			}
 			return struct{}{}, HTTPServe("http test request", ct, sleeper, l, limits, handle)
 		})
 	})}
@@ -202,7 +205,7 @@ func TestHTTPServerMatchesModel(t *testing.T) {
 					return HTTPResponse{Status: 413, Body: "budget"}
 				}
 				if readError != "" {
-					return HTTPResponse{Status: 400, Body: "read"}
+					return HTTPResponse{Status: 400, Body: readError}
 				}
 				switch method {
 				case "POST":
@@ -257,7 +260,7 @@ func TestHTTPServerMatchesModel(t *testing.T) {
 			}
 			brokenText := httpText(t, broken)
 			conn.Close()
-			if broken.StatusCode != 400 || brokenText != "read" {
+			if broken.StatusCode != 400 || brokenText != "unexpected EOF" {
 				t.Fatalf("truncated body: %d %q", broken.StatusCode, brokenText)
 			}
 			model := map[string]string{}

@@ -21,7 +21,11 @@ func TestHTTPHandlerRunsOnTheConnection(t *testing.T) {
 	l, _ := startHTTP(t, func(_ *rt.Task, _ *Exchange, _, _, _ string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
 		buf := make([]byte, 64<<10)
 		stack := string(buf[:runtime.Stack(buf, false)])
-		if !strings.Contains(stack, "net/http.(*conn).serve") {
+		reader := "net/http.(*conn).serve"
+		if *engineFlag {
+			reader = "(*httpServer).serveConn"
+		}
+		if !strings.Contains(stack, reader) {
 			return HTTPResponse{Status: 500, Body: stack}
 		}
 		return HTTPResponse{Status: 200}

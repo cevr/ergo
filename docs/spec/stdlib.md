@@ -405,6 +405,13 @@ A std extern whose `runtime/v1` Go body is marked pure is transparent in footpri
 
 G1's buffered HTTP server uses Go `net/http`; a response body may also be
 streamed (Rm, item 9). TLS and HTTP/2 configuration are outside this core.
+Since HTTP-FAST-c1, Serve reads the common request itself: an HTTP/1.1
+head of at most 4 KiB, CRLF lines, one Host, an origin-form target and a
+declared body within `MaxBodyBytes`. It writes the answer with a port of
+net/http's writer. Every other head goes to net/http with the bytes already
+read put back. `TestHTTPEngineMatchesNetHTTP` holds the two paths to the
+same bytes on seeded requests and answers, and net/http for every
+connection stays selectable as the reference (`-args -http.engine=false`).
 
 1. `Listen(addr) net.Listener fails ListenFailed needs Ambient` binds TCP;
    port zero is valid, and `l.Addr()` reports the bound address. The
