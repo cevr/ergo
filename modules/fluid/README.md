@@ -9,8 +9,9 @@ The plan is the run's FLUID-UI spec. `origin/README.md` names the original, the 
 | Package | What | Unit |
 | --- | --- | --- |
 | `fluid` (this folder) | `Component` (the 34 components) and `Foundation` (the 5 foundation pages), each with its docs slug; laws `SlugParses`, `FoundationSlugParses`, `ListedOnce` | FL0 |
+| `motion` | The one timing model: `Tier`, `Spring`, `Entrance`, `Exit`, `Curve` (`Sprung`, `Ease`, `Linear`), `Clip`, `At`, `Ended`, `Ticks`, `Progress`, `CSS`; laws `ExitIsQuicker`, `EndsAtTarget`, `ReducedIsStill`, `NoTickWhenSettled`, `SheetCurveMatchesSpring`, `SettlesByItsDuration`, `SpringSolvesItsEquation` (a fourth-order Runge-Kutta reference) | FL3 |
 
-The packages the spec plans are added by their units: `motion` (FL3), `token` and `look` (FL1), `part`, `a11y` and `web` (FL2), `gui` (FL4), `roving`, `overlay`, `hover`, `scroll` and `icon` (FL5), and one package per component (C1 to C22).
+The packages the spec plans are added by their units: `token` and `look` (FL1), `part`, `a11y` and `web` (FL2), `gui` (FL4), `roving`, `overlay`, `hover`, `scroll` and `icon` (FL5), and one package per component (C1 to C22).
 
 ## Rules
 

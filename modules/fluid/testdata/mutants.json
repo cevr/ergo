@@ -2,36 +2,180 @@
   "about": "module fluid's mutants; each is judged by the module's tests and laws (scripts/examples -modules fluid), not by a compiler test. The law that kills each is named in its rule.",
   "mutants": [
     {
-      "name": "fl0-slug-collides", "origin": "wf10/fl0 FL0",
+      "name": "fl0-slug-collides",
+      "origin": "wf10/fl0 FL0",
       "file": "modules/fluid/page.ergo",
       "from": "\tcase CheckboxGroup:\n\t\t\"checkbox-group\"\n",
       "to": "\tcase CheckboxGroup:\n\t\t\"checkbox\"\n",
       "rule": "Two components share a slug, so one has no page of its own: SlugParses (ParseComponent finds checkbox for checkbox-group's slug).",
-      "anchor": {"tests": ["examples:modules/fluid"]}, "killers": ["examples:modules/fluid"]
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
     },
     {
-      "name": "fl0-component-listed-twice", "origin": "wf10/fl0 FL0",
+      "name": "fl0-component-listed-twice",
+      "origin": "wf10/fl0 FL0",
       "file": "modules/fluid/page.ergo",
       "from": "Button, Calendar, Card,\n",
       "to": "Button, Calendar, Button,\n",
       "rule": "The list names a component twice and drops another, so a page per entry renders one component twice and misses one: ListedOnce (and SlugParses for the dropped Card).",
-      "anchor": {"tests": ["examples:modules/fluid"]}, "killers": ["examples:modules/fluid"]
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
     },
     {
-      "name": "fl0-component-duplicated", "origin": "wf10/fl0 FL0",
+      "name": "fl0-component-duplicated",
+      "origin": "wf10/fl0 FL0",
       "file": "modules/fluid/page.ergo",
       "from": "ThinkingSteps, Tooltip}\n",
       "to": "ThinkingSteps, Tooltip, Badge}\n",
       "rule": "The list names a component twice and drops none: ListedOnce alone (SlugParses still finds every component).",
-      "anchor": {"tests": ["examples:modules/fluid"]}, "killers": ["examples:modules/fluid"]
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
     },
     {
-      "name": "fl0-foundation-slug-collides", "origin": "wf10/fl0 FL0",
+      "name": "fl0-foundation-slug-collides",
+      "origin": "wf10/fl0 FL0",
       "file": "modules/fluid/page.ergo",
       "from": "\tcase FluidHover:\n\t\t\"fluid-hover\"\n",
       "to": "\tcase FluidHover:\n\t\t\"motion\"\n",
       "rule": "Two foundation pages share a slug: FoundationSlugParses.",
-      "anchor": {"tests": ["examples:modules/fluid"]}, "killers": ["examples:modules/fluid"]
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl3-clip-ends-short",
+      "origin": "wf10/fl3 FL3",
+      "file": "modules/fluid/motion/motion.ergo",
+      "from": "\tif c.Over <= 0ns || (!c.Repeat && ran >= c.Over) {\n\t\treturn c.To\n",
+      "to": "\tif c.Over <= 0ns || (!c.Repeat && ran > c.Over) {\n\t\treturn c.To\n",
+      "rule": "A clip at its end time is eased, not at its target (a spring is 0.001 short there): EndsAtTarget (the spec's mutant: a clip that ends short of its target).",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl3-reduced-moves-repeating",
+      "origin": "wf10/fl3 FL3",
+      "file": "modules/fluid/motion/motion.ergo",
+      "from": "\tif reduced {\n\t\treturn c.To\n\t}\n",
+      "to": "\tif reduced && !c.Repeat {\n\t\treturn c.To\n\t}\n",
+      "rule": "Reduced motion still moves a repeating clip (the spec's mutant): ReducedIsStill.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl3-ended-ignores-reduced",
+      "origin": "wf10/fl3 FL3",
+      "file": "modules/fluid/motion/motion.ergo",
+      "from": "\treduced || (!c.Repeat && t >= c.Delay+c.Over)\n",
+      "to": "\t!c.Repeat && t >= c.Delay+c.Over\n",
+      "rule": "A host keeps ticking for clips reduced motion holds still: ReducedIsStill and NoTickWhenSettled.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl3-curve-off-by-one-stop",
+      "origin": "wf10/fl3 FL3",
+      "file": "modules/fluid/motion/motion.ergo",
+      "from": "\t\tfor i in 0..stops+1 {\n",
+      "to": "\t\tfor i in 0..stops {\n",
+      "rule": "The printed linear() drops its last stop, so the browser's curve runs one step off (the spec's mutant): SheetCurveMatchesSpring.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl3-too-few-stops",
+      "origin": "wf10/fl3 FL3",
+      "file": "modules/fluid/motion/motion.ergo",
+      "from": "let stops = 100\n",
+      "to": "let stops = 50\n",
+      "rule": "Fewer stops put the browser's straight lines more than 0.002 off the spring: SheetCurveMatchesSpring (FL0's probe: 0.0026 at 60).",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl3-exit-slower",
+      "origin": "wf10/fl3 FL3",
+      "file": "modules/fluid/motion/motion.ergo",
+      "from": "\tcase Slow:\n\t\t160ms\n",
+      "to": "\tcase Slow:\n\t\t260ms\n",
+      "rule": "An exit slower than its entrance: ExitIsQuicker.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl3-spring-wrong-damping",
+      "origin": "wf10/fl3 FL3",
+      "file": "modules/fluid/motion/motion.ergo",
+      "from": "\t\t1.0 - math.Exp(-z*w*p)*(cos(wd*p)+(z*w/wd)*sin(wd*p))\n",
+      "to": "\t\t1.0 - math.Exp(-w*p)*(cos(wd*p)+(z*w/wd)*sin(wd*p))\n",
+      "rule": "The closed form's decay drops the damping ratio, so it no longer solves the spring's equation: SpringSolvesItsEquation (and SettlesByItsDuration).",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
     }
   ]
 }
