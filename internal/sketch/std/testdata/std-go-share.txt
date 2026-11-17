@@ -38,8 +38,8 @@ atomic	Int64	type
 atomic	NewBool	library	POLL: the Ergo form (a record over go.New[atomic.Bool](), GBX1b) counts 1.44 to 4.38x this body (NP4f-8 receipt-1): each std function polls at entry (env.task.Check()), which keeps Go from inlining it, though its one call is a memory-only Go method that cannot wait
 atomic	NewInt64	library	POLL: the Ergo form (a record over go.New[atomic.Int64](), GBX1b) counts 1.44 to 4.38x this body (NP4f-8 receipt-1): each std function polls at entry (env.task.Check()), which keeps Go from inlining it, though its one call is a memory-only Go method that cannot wait
 base64	Malformed	type
-base64	decodeStd	library	GBX3: Go's base64.StdEncoding is a package variable, which import go does not bind
-base64	decodeURL	library	GBX3: Go's base64.URLEncoding is a package variable, which import go does not bind
+base64	decodeStd	library	GOERR-BOX: GBX3 landed, so base64.StdEncoding.DecodeString binds, but a failure crosses as Go's error in a go.Error box per failure, as Unquote's did at 1.18 to 1.32x (NP4f-5; not counted here, inferred from that shape)
+base64	decodeURL	library	GOERR-BOX: GBX3 landed, so base64.URLEncoding.DecodeString binds, but a failure crosses as Go's error in a go.Error box per failure, as Unquote's did at 1.18 to 1.32x (NP4f-5; not counted here, inferred from that shape)
 cmp	Max	computation	PRIM: Go's builtin max over every ordered type (a float's sign of zero); goBuiltins bind min and max for basic types only
 cmp	Min	computation	PRIM: Go's builtin min over every ordered type (a float's sign of zero); goBuiltins bind min and max for basic types only
 config	NewRedacted	computation	NP4f-7
@@ -168,7 +168,7 @@ math	ToUintptr	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Er
 os	Code	type
 os	Exit	type
 os	NoWorkdir	type
-os	hostArgs	library	GBX3: os.Args is a Go variable (gostd os: "ergo:refused Args: a Go variable is host state; call a function")
+os	hostArgs	library	HOST-ROW: GBX3 landed, but os.Args is host state, refused by gostd os, and a Go-backed provider's host call charges go.Foreign (as os's other host rows)
 os	hostGetenv	library	HOST-ROW: os.Getenv through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead
 os	hostGetwd	library	HOST-ROW: os.Getwd through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead
 os	hostHasEnv	library	HOST-ROW: os.LookupEnv through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead
@@ -223,8 +223,8 @@ strconv	AppendUint	library	FK2 appender fact: a []byte argument to import go's a
 strconv	Atoi	computation	NP4f-7
 strconv	Malformed	type
 strconv	OutOfRange	type
-strconv	ParseFloat	library	GBX3: OutOfRange is Go's ErrRange, a package variable go.Is cannot name until import go binds it
-strconv	ParseInt	library	GBX3: OutOfRange is Go's ErrRange, a package variable go.Is cannot name until import go binds it
+strconv	ParseFloat	library	GOERR-BOX: GBX3 landed, so strconv.ParseFloat with ErrRange binds, but a failure crosses as Go's error in a go.Error box per failure, as Unquote's did at 1.18 to 1.32x (NP4f-5; not counted here, inferred from that shape)
+strconv	ParseInt	library	GOERR-BOX: GBX3 landed, so strconv.ParseInt with ErrRange binds, but a failure crosses as Go's error in a go.Error box per failure, as Unquote's did at 1.18 to 1.32x (NP4f-5; not counted here, inferred from that shape)
 strconv	Unquote	library	GOERR-BOX: Go's Unquote fails with an error that a catch of go.Error boxes into go.Error (runtime.convT per failure), counted 1.182x the body (NP4f-5 receipt-1); an Ergo body is Go's unquote and UnquoteChar, not tried
 strings	Borrow	provider
 strings	Give	provider
@@ -261,8 +261,8 @@ testing	newLine	provider
 testing	newOp	provider
 time	Count	computation	IR1 inline: as an Ergo body it counted 1.200x the runtime/v1 body (NP4f-7 receipt-2): the same instructions, but an IR-compiled body is not inlined into its caller, and Go inlines the runtime/v1 body
 time	Divide	computation	IR1 inline: as an Ergo body it counted 2.000x the runtime/v1 body (NP4f-7 receipt-2): the same instructions, but an IR-compiled body is not inlined into its caller, and Go inlines the runtime/v1 body
-time	DurationText	library	GBX4: time.Duration is Ergo's duration, so gostd refuses Duration.String
-time	ParseDuration	library	GBX4: time.Duration is Ergo's duration, so gostd refuses ParseDuration's result
+time	DurationText	library	GBX6 rows for time: GBX4 landed (time.DurationString binds), but Go's time is not in the pure tier, so the call charges go.Foreign and DurationText's callers would need it
+time	ParseDuration	library	GBX6 rows for time and GOERR-BOX: GBX4 landed (Go's ParseDuration binds), but time's calls charge go.Foreign, and its failure crosses as Go's error in a box
 time	ParseError	type
 time	Reading	type
 time	Timeline	type
