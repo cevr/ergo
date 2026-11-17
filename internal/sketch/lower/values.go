@@ -307,6 +307,9 @@ type vvar struct {
 	ptr    bool // a borrow, *T
 	handed bool // the parameter of an owned Ref site's literal (V6): unshared, as a let mut is
 	init   syntax.Expr
+	// whole is the value of the let pattern that binds a part of it to
+	// this local (a name of `let (l, w) = f(…)`), or nil.
+	whole  syntax.Expr
 	frame  *vframe
 	loops  []syntax.Node
 	occs   []*vocc
@@ -436,6 +439,21 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 		}
 	case *syntax.DeclStmt:
 		for _, spec := range n.Decl.Specs {
+			if spec.Pattern != nil && !n.Decl.Mut.IsValid() && len(spec.Values) == 1 && sharingLowering != "params" {
+				// A let pattern, `let (l, w) = startLoad(k, u)`
+				// (LWR-REF-GENERIC, std cache's begin): each name is a
+				// local whose value is a part of the one value; it is
+				// unshared when that value is (freshPath, whole).
+				syntax.Inspect(spec.Pattern, func(p syntax.Node) bool {
+					if id, ok := p.(*syntax.Ident); ok {
+						if v, ok := w.info.Defs[id].(*check.Var); ok {
+							vv := w.varOf(v)
+							vv.local, vv.frame, vv.loops, vv.whole = true, frame, loops, spec.Values[0]
+						}
+					}
+					return true
+				})
+			}
 			for i, id := range spec.Names {
 				v, ok := w.info.Defs[id].(*check.Var)
 				if !ok {
@@ -1156,11 +1174,37 @@ func (w *valueWalk) consumable(call *syntax.CallExpr, arg syntax.Expr) bool {
 			}
 			return false
 		}
-		if o.id != lid && o.id != aid && o.pre > w.pre[s] && o.pre < w.post[s] {
+		if o.id != lid && o.id != aid && o.pre > w.pre[s] && o.pre < w.post[s] && !w.plainReadIn(vv, o, call) {
 			return false
 		}
 	}
 	return true
+}
+
+// plainReadIn reports whether the use o of vv is an operand read inside
+// call of a part that holds no Map or slice (u.next in
+// u = touch(k, ready{stamp: u.next}, u); LWR-REF-GENERIC, std cache's
+// begin and keep): Go evaluates it before the call runs, and its value,
+// a copy, shares no storage with the value the call takes over, so the
+// old value is still dead from the call to the store-back. A write (an
+// assignment, a borrow, a method that takes the part by borrow) is no
+// plain read.
+func (w *valueWalk) plainReadIn(vv *vvar, o *vocc, call *syntax.CallExpr) bool {
+	if sharingLowering == "params" || o.pre <= w.pre[call] || o.pre >= w.post[call] {
+		return false
+	}
+	saved := *o
+	w.classify(vv, o)
+	path, kind := o.path, o.kind
+	*o = saved
+	if kind == occWrite || path == nil {
+		return false
+	}
+	t := w.typeOf(path)
+	if _, ptr := t.(*check.Pointer); ptr || t == nil {
+		return false
+	}
+	return !w.l.holdsValue(t)
 }
 
 // handedArg is the argument that the rebinding p = f(…, p, …) hands over
@@ -2572,6 +2616,9 @@ func (w *valueWalk) freshPath(vv *vvar, id *syntax.Ident, path syntax.Expr) bool
 	}
 	if unshared {
 		return true
+	}
+	if vv.whole != nil {
+		return w.fresh(vv.whole)
 	}
 	return vv.init != nil && w.fresh(vv.init)
 }

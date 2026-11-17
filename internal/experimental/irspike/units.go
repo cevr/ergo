@@ -195,7 +195,9 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"type *check.Union", "G4"}, // an anonymous union as a type argument (IRG4b instances)
 	// IRG4b r2: operation-type values and their calls, std operations.
 	{"operation call from a pure function", "G4"},
-	{"operation call into an owning literal", "G4"},
+	{"owned site *", "G4"}, // the Ref's owned site's refusals (ir_refown.go, IR-OWN)
+	{"fallible owned site", "G4"},
+	{"owned operation whose form *", "G4"},
 	{"operation call on a *", "G4"},
 	{"std operation without its runtime method", "G4"},
 	{"std Close", "G4"},
