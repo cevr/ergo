@@ -21,7 +21,9 @@ import (
 // BenchmarkHTTPServeRaw counts the server's work per request: one
 // kept-alive loopback connection, a raw POST of 256 bytes written and its
 // echoed answer read whole per op, with no HTTP client, so what both modes
-// add is the server's. ergo is Serve with a handler that echoes the body;
+// add is the server's. ergo is Serve with a handler that echoes the body,
+// reading with its engine; ergo-nethttp is the same Serve on its
+// reference reader, net/http;
 // go is hand net/http with the same guarantees (bounded header and body,
 // the phase timeouts, cancelled in-flight work, a joined shutdown), as
 // BenchmarkHTTPServer's control; floor is the least work the Go runtime
@@ -29,21 +31,21 @@ import (
 // pattern, -bench 'BenchmarkHTTPServeRaw/^go$': an unanchored "go$" also
 // matches "ergo".
 func BenchmarkHTTPServeRaw(b *testing.B) {
-	for _, mode := range []string{"ergo", "go", "floor"} {
+	for _, mode := range []string{"ergo", "ergo-nethttp", "go", "floor"} {
 		b.Run(mode, func(b *testing.B) {
 			ln, err := net.Listen("tcp", "127.0.0.1:0")
 			if err != nil {
 				b.Fatal(err)
 			}
-			if mode == "ergo" {
+			if mode == "ergo" || mode == "ergo-nethttp" {
 				s := v1.NewScope(rt.Root("HTTP raw benchmark"))
 				h := v1.Go(&s, "Serve", func(ct *rt.Task) (struct{}, error) {
-					return struct{}{}, HTTPServe("request", ct, liveSleeper{}, ergonet.ListenerOn(ln), serveLimits(4096, 4096), func(_ *rt.Task, _ *Exchange, _, _, _ string, _, _ []HTTPField, body string, tooLarge bool, readError string) HTTPResponse {
+					return struct{}{}, httpServe("request", ct, liveSleeper{}, ergonet.ListenerOn(ln), serveLimits(4096, 4096), func(_ *rt.Task, _ *Exchange, _, _, _ string, _, _ []HTTPField, body string, tooLarge bool, readError string) HTTPResponse {
 						if tooLarge || readError != "" {
 							return HTTPResponse{Status: 400}
 						}
 						return HTTPResponse{Status: 200, Body: body}
-					})
+					}, mode == "ergo")
 				})
 				b.Cleanup(h.Stop)
 			} else if mode == "go" {
