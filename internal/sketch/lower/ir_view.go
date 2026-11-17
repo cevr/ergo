@@ -82,7 +82,7 @@ type viewSite struct {
 // viewMatch is the match s on a view call as one switch, and true; or
 // false, with the builder as it was, for the two-step form.
 func (b *irBuilder) viewMatch(s *syntax.TypeSwitchStmt, ret bool, to *yieldTo) (out []*irStmt, ok bool) {
-	if viewLowering == "off" || b.st.census != nil || len(s.Subjects) != 1 {
+	if viewLowering == "off" || b.st.census != nil || b.fuse != nil || len(s.Subjects) != 1 {
 		return nil, false
 	}
 	next, nLocals, at := b.next, len(b.fn.Locals), b.at

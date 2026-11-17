@@ -397,6 +397,9 @@ type irBuilder struct {
 	params  map[int]bool
 	hoisted map[hoistKey]int
 	entry   []*irStmt
+	// fuse is the fused match whose callee body is being built: its
+	// results jump to the match's arms (ir_forms_match.go).
+	fuse *fuseSite
 }
 
 // gate stops the body for reason; a census records it and goes on.

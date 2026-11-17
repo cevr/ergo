@@ -83,6 +83,9 @@ func (b *irBuilder) typeMatch(s *syntax.TypeSwitchStmt, ret bool, to *yieldTo) [
 	if out, ok := b.viewMatch(s, ret, to); ok { // ir_view.go
 		return out
 	}
+	if out, ok := b.fuseMatch(s, ret, to); ok { // ir_forms_match.go
+		return out
+	}
 	st := b.l.info.Types[x]
 	if st == nil {
 		irNo("expression without a type")
