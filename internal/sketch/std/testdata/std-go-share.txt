@@ -148,14 +148,12 @@ json	appendFloat	computation	NP4f-7
 json	appendInt	library	FK2 appender fact: a []byte argument to import go's appender is cloned in and its result cloned out (strconv.AppendInt(slices.Clone(out), …), probe NP4f-5); the body appends in place
 json	appendQuoted	computation	NP4f-7
 json	appendUint	library	FK2 appender fact: a []byte argument to import go's appender is cloned in and its result cloned out (strconv.AppendInt(slices.Clone(out), …), probe NP4f-5); the body appends in place
-json	bytesText	language	PRIM
 json	open	computation	NP4f-8
 log	contextBound	provider
 log	contextValue	provider
 machines	firingOff	provider
 machines	firingOn	provider
 machines	notPositive	computation	RTF3: the defect is the runtime's MachineTimerDefect value, which the scheduler reads; an Ergo body raises no runtime type
-maps	Clone	language	PRIM
 math	OutOfRange	type
 math	ToInt	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Ergo body's guarded int32(f) lowers to the saturating ergo.FloatTo… with its own range tests, which the guard already proved, and the failing body takes env; NP4f-3 count 1.05 to 1.23x the body
 math	ToInt16	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Ergo body's guarded int32(f) lowers to the saturating ergo.FloatTo… with its own range tests, which the guard already proved, and the failing body takes env; NP4f-3 count 1.05 to 1.23x the body
@@ -175,12 +173,8 @@ os	hostArgs	library	GBX3: os.Args is a Go variable (gostd os: "ergo:refused Args
 os	hostGetenv	library	HOST-ROW: os.Getenv through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead
 os	hostGetwd	library	HOST-ROW: os.Getwd through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead
 os	hostHasEnv	library	HOST-ROW: os.LookupEnv through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead
-prelude	Append	language	PRIM
-prelude	Get	language	PRIM
 prelude	InForce	provider
-prelude	Put	language	PRIM
 prelude	Sleep	provider
-prelude	Take	language	PRIM
 prelude	Task	type
 prelude	Unreachable	provider
 queue	Closed	type
@@ -210,16 +204,10 @@ rpc	parse	computation	NP4f-7
 rpc	readExit	computation	NP4f-7
 rpc	request	computation	NP4f-7
 scope	OnExit	provider
-slices	Clone	language	PRIM
-slices	Concat	language	PRIM
-slices	Repeat	language	PRIM
 slices	Reverse	computation	OWN1: the owned in-place form (//ergo:owned SlicesReverseOwned) must come from OWN1's rules on an Ergo body
-slices	Slice	language	PRIM
 slices	Sort	library	GBX2: Go's slices.Sort writes its argument, and import go lowers it to a sort of a clone that is dropped
 slices	SortFunc	library	GBX2: Go's slices.SortFunc writes its argument, and import go lowers it to a sort of a clone that is dropped
 slices	SortStableFunc	library	GBX2: Go's slices.SortStableFunc writes its argument, and import go lowers it to a sort of a clone that is dropped
-slices	Take	language	PRIM
-slices	WithCapacity	language	PRIM
 strconv	AppendFloat	library	FK2 appender fact: a []byte argument to import go's appender is cloned in and its result cloned out (strconv.AppendInt(slices.Clone(out), …), probe NP4f-5); the body appends in place
 strconv	AppendInt	library	FK2 appender fact: a []byte argument to import go's appender is cloned in and its result cloned out (strconv.AppendInt(slices.Clone(out), …), probe NP4f-5); the body appends in place
 strconv	AppendUint	library	FK2 appender fact: a []byte argument to import go's appender is cloned in and its result cloned out (strconv.AppendInt(slices.Clone(out), …), probe NP4f-5); the body appends in place
@@ -233,14 +221,6 @@ strings	Borrow	provider
 strings	Give	provider
 strings	Hint	provider
 strings	Join	library	LF2 (FK2): a []string argument to import go is cloned before the call, 1.659x the body
-strings	Slice	language	PRIM
-strings	builderAppend	language	PRIM
-strings	builderAppendByte	language	PRIM
-strings	builderAppendBytes	language	PRIM
-strings	builderAppendFrom	language	PRIM
-strings	builderGrow	language	PRIM
-strings	builderText	provider
-strings	stringsBytes	language	PRIM
 sync	Modify	provider
 sync	NewRef	provider
 sync	Ref	type
@@ -294,4 +274,3 @@ ui	newArgs	provider
 utf8	AppendRune	library	LF2 (FK2): a []byte argument to import go is copied in and out (slices.Clone twice), 1.993x the body; the appender fact removes the copies
 utf8	DecodeRuneInString	library	IR2: the IR lays the record Decoded out as {Size, Rune}, so returning Go's (r, n) swaps registers, 1.093x the body
 utf8	Decoded	type
-utf8	RuneText	language	PRIM

@@ -8,8 +8,13 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/opcount"
+	"ergo.local/prototype/internal/testinputs"
 	"ergo.local/prototype/internal/toolchain"
 )
+
+// TestMain runs the tests under observation, so the files and variables
+// any process they start reads are inputs of Go's test cache.
+func TestMain(m *testing.M) { os.Exit(testinputs.Main(m)) }
 
 // write puts each file (path relative to dir) into dir.
 func write(t *testing.T, dir string, files map[string]string) {

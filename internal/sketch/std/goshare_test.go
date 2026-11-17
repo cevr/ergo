@@ -41,10 +41,10 @@ func TestStdGoShareOnlyFalls(t *testing.T) {
 // may hold. It only falls: a move lowers its class's ceiling to the count
 // it leaves.
 var stdGoShareCeiling = map[string]int{
-	"provider":    54,
+	"provider":    53,
 	"host":        19,
 	"library":     66,
-	"language":    21,
+	"language":    1,
 	"computation": 48,
 	"type":        75,
 }
