@@ -1764,7 +1764,7 @@ func crashOwnView(f *Frame[int], c Crash[int, int, Boom]) {
 }
 
 func pressShape(label string, on int, text string) Shape[int] {
-	Shape[int]{Node: PressableNode{Label: label, On: on, Style: Plain()}, Kids: []Shape[int]{leaf(TextNode{Value: text, Style: Plain()})}}
+	Shape[int]{Node: PressableNode{Label: label, On: on, Style: PressStyle()}, Kids: []Shape[int]{leaf(TextNode{Value: text, Style: Plain()})}}
 }
 
 // crashAppShapes is the model of the app's screen at count n with the
@@ -2165,6 +2165,7 @@ func opCounts(ops []Op[int]) (int, int, int, int, int) {
 		case Set[int] as x:
 			set = set + 1
 			node = Some{Value: x.Node}
+		case Define:
 		}
 		match node {
 		case Some[Node[int]] as n:

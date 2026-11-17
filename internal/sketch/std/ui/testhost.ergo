@@ -360,6 +360,10 @@ func FocusOf[S, E, D, F](h *TestHost[S, E, D, F]) Option[Id[E]] { SessionFocus(&
 // Screen is what the host shows, built only from the patches.
 func Screen[S, E, D, F](h *TestHost[S, E, D, F]) []Shape[E] { MirrorShape(&h.mirror) }
 
+// LooksOf is the Looks the host holds for a node of its screen: its
+// LookId's in the host's table (look.ergo).
+func LooksOf[S, E, D, F](h *TestHost[S, E, D, F], n Node[E]) Looks { LooksIn(MirrorLooks(&h.mirror), LookIdOf(n)) }
+
 // StateOf is the actor's state.
 func StateOf[S, E, D, F](h *TestHost[S, E, D, F]) S { h.session.actor.State() }
 
@@ -659,22 +663,24 @@ func withLabel[E](m *Mirror[E], id Id[E], label string, acc []Id[E]) []Id[E] {
 
 // Screenshot is the screen as text, one node a line, indented by depth:
 // what an agent reads. A canvas's paint list follows it, one op a line.
+// A node whose looks are not its kind's default shows them after it, in
+// braces (look.ergo).
 func Screenshot[S, E, D, F](h *TestHost[S, E, D, F]) string {
 	let mut out = ""
-	for line in shotLines(Screen(h), "") {
+	for line in shotLines(Screen(h), MirrorLooks(&h.mirror), "") {
 		out = out + line + "\n"
 	}
 	out
 }
 
-func shotLines[E](shapes []Shape[E], indent string) []string {
+func shotLines[E](shapes []Shape[E], looks []Looks, indent string) []string {
 	let mut out = []string{}
 	for s in shapes {
-		out = out.Append(indent + nodeText(s.Node))
+		out = out.Append(indent + nodeText(s.Node) + looksText(s.Node, looks))
 		for l in paintLines(PaintOf(s.Node), indent+"  ") {
 			out = out.Append(l)
 		}
-		for l in shotLines[E](s.Kids, indent+"  ") {
+		for l in shotLines[E](s.Kids, looks, indent+"  ") {
 			out = out.Append(l)
 		}
 	}

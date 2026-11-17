@@ -115,7 +115,7 @@ func Toggle[E](f *Frame[E], fl Flag, label string, at CallSite) {
 // (made from d's value by the view) and the draft is "" at the next pass.
 func Submit[E, F, R](f *Frame[E], d Draft, label string, on E, body func() fails F needs R, at CallSite) fails F needs R {
 	let m = markOf(f)
-	f.parent = put(f, PressableNode{Label: label, On: on, Style: Plain()}, None, Some{Value: d.at}, at)
+	f.parent = put(f, PressableNode{Label: label, On: on, Style: PressStyle()}, None, Some{Value: d.at}, at)
 	body() catch {
 	case err:
 		cut(f, m)

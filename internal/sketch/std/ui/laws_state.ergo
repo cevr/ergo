@@ -41,7 +41,7 @@ func cellShape(keys []int, rows Map[int, row]) []Shape[int] {
 		kids = kids.Append(leaf(TextNode{Value: r.a, Style: Plain()}))
 		kids = kids.Append(Shape[int]{Node: RowNode{Style: Plain()}, Kids: []Shape[int]{leaf(InputNode{Value: r.b, Placeholder: "b", Label: "", Description: "", Invalid: false})}})
 		kids = kids.Append(leaf(ToggleNode{Label: "t", On: r.on}))
-		kids = kids.Append(Shape[int]{Node: PressableNode{Label: "send", On: k, Style: Plain()}, Kids: []Shape[int]{leaf(TextNode{Value: "send", Style: Plain()})}})
+		kids = kids.Append(Shape[int]{Node: PressableNode{Label: "send", On: k, Style: PressStyle()}, Kids: []Shape[int]{leaf(TextNode{Value: "send", Style: Plain()})}})
 	}
 	[]Shape[int]{Shape[int]{Node: ColumnNode{Style: Plain()}, Kids: kids}}
 }

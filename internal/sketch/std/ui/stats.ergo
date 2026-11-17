@@ -47,6 +47,7 @@ func PassStats[E](f *Frame[E]) Stats {
 		case Set[E] as x:
 			s.Set = s.Set + 1
 			s.Painted = s.Painted + painted(x.Node)
+		case Define:
 		}
 	}
 	for j in f.jobs {
@@ -192,6 +193,7 @@ func PassCounts[E](f *Frame[E]) StepCounts {
 			c.Removed = c.Removed + 1
 		case Set[E]:
 			c.Set = c.Set + 1
+		case Define:
 		}
 	}
 	c.Ran = f.nspecs
@@ -271,6 +273,7 @@ law CountsSumToPatch(seed int, steps int) {
 				rem = rem + 1
 			case Set[int]:
 				set = set + 1
+			case Define:
 			}
 		}
 		if c.Inserted != ins || c.Moved != mov || c.Removed != rem || c.Set != set || ins+mov+rem+set != len(ops) {
