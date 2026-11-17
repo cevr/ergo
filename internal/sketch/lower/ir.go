@@ -528,6 +528,8 @@ type irBuilder struct {
 	// forms are the body's form sites (ir_forms_report.go), kept with its
 	// IR body.
 	forms []FormSite
+	// fills are the fill form's facts (ir_fill.go).
+	fills fillState
 	// tries counts the try expressions being built (ir_fail.go): inside
 	// one, a fallible call fails the frame too.
 	tries int
