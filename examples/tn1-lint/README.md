@@ -9,7 +9,7 @@ tn1-lint lint --rule narration narration.tn1 src/*.ts > tn1.json
 
 ```sh
 tn1-lint lint --rule NAME WEIGHTS FILE...   # findings, oxlint JSON; always exit 0 (advisory)
-tn1-lint record FILE                        # the feature record of FILE
+tn1-lint record FILE                        # the feature record of FILE (a FILE of - is the standard input)
 tn1-lint chunks FILE                        # each top-level statement: FROM TO (bytes)
 tn1-lint --help                             # the usage; exit 0
 ```
@@ -24,6 +24,7 @@ Cases (the `ts` leg: Bun and the pinned `typescript` package of `tools/ts`):
 - `records` holds the host to the conformance vectors (`modules/tn1/testdata/vectors`): `tn1-lint record` of each `src/*.ts.txt` is its `records/*.record`, byte for byte. oxlint-plugin-effect's ESTree extractor is held to the same records, and its JavaScript engine to `expected.tsv`.
 - `lint` is the oxlint report of the narration control on the vectors' TypeScript source.
 - `usage` is a bad command line; `help` is `--help`.
+- `stdin` is `lint` of the standard input (`-`), the way the effect-oxlint rule `tn1Lint` passes a buffer.
 
 The npm package `@cevr/tn1-lint` (`tools/npm/tn1-lint`) ships this program's static binary per platform: `sh scripts/npm.sh tn1-lint` builds and dry-packs it, `sh scripts/npm-check.sh tn1-lint DIR` installs the packs with bun and npm and runs `tn1-lint --help`. The `workload` file gives `scripts/opcount` the record of N bytes of TypeScript against the hand Go control in `cmd/ergo/testdata/tn1lint/control`; `cmd/ergo/testdata/tn1lint/floor` is its floor.
 

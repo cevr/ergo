@@ -10,6 +10,10 @@
 //	tn1-lint chunks FILE                        each top-level statement: FROM TO (bytes)
 //	tn1-lint --help                             this usage, exit 0
 //
+// A FILE of - is the standard input: a caller with an unsaved buffer (an
+// oxlint rule) passes it there. /dev/stdin is not a way round it, since a
+// pipe a Node or Bun parent makes is a socket, which cannot be opened.
+//
 // A finding's span is its line's comment. Its probability and the
 // model's id are in its message; an advisory finding never changes the
 // exit code.
@@ -67,7 +71,13 @@ type Report {
 	Rules       int "number_of_rules",
 }
 
-func read(path string) string fails os.Exit needs fs.Files {
+func read(path string) string fails os.Exit needs fs.Files | io.Stdin {
+	if path == "-" {
+		return io.Stdin.ReadAll() catch {
+		case io.ReadFailed as r:
+			return os.Exit{Code: 1, Message: "tn1-lint: cannot read the standard input: \(r.Reason)"}
+		}
+	}
 	fs.Files.ReadFile(path) catch {
 	case fs.NotFound, fs.Denied, fs.Failed:
 		return os.Exit{Code: 1, Message: "tn1-lint: cannot read \(path)"}
@@ -108,7 +118,7 @@ func lastNewline(src string, p int) int {
 }
 
 // Run is what the command writes.
-func Run(c Command) string fails os.Exit needs fs.Files {
+func Run(c Command) string fails os.Exit needs fs.Files | io.Stdin {
 	match c {
 	case Help:
 		Usage + "\n"
@@ -137,6 +147,6 @@ func Run(c Command) string fails os.Exit needs fs.Files {
 
 func main() fails os.Exit needs Ambient {
 	let c = try Parse(os.NewHost().Args())
-	let out = try with context { fs.Files: fs.NewHost() } { Run(c) }
+	let out = try with context { fs.Files: fs.NewHost(), io.Stdin: io.NewStdin() } { Run(c) }
 	with context { io.Stdout: io.NewHost() } { io.Stdout.Print(out) }
 }
