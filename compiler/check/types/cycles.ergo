@@ -36,19 +36,16 @@ func addEdge(m *mono, e monoEdge) {
 	m.edges = m.edges.Append(e)
 }
 
-// occursIn reports whether the parameter q occurs in t; a capability row
-// is not looked into (mono.go occurs).
+// occursIn reports whether the parameter q occurs in t (mono.go occurs).
+// The Go walk skips a signature's capability row; a type parameter there
+// is a conflicted one, whose instantiation validArgs refuses, so walking
+// every operand finds the same.
 func occursIn(s *store.Store, t dense.ID[store.TKey], q dense.ID[store.TKey]) bool {
 	if t == q {
 		return true
 	}
-	let ops = store.OperandsOf(*s, t)
-	let mut n = len(ops)
-	if store.KindOfType(*s, t) == store.KSig && n > 0 {
-		n = n - 1
-	}
-	for i in 0..n {
-		if occursIn(s, ops[i], q) {
+	for x in store.OperandsOf(*s, t) {
+		if occursIn(s, x, q) {
 			return true
 		}
 	}
@@ -60,11 +57,11 @@ func occursIn(s *store.Store, t dense.ID[store.TKey], q dense.ID[store.TKey]) bo
 // kinds.
 type owner { names []string, verts []int, typed []bool, kinds []int }
 
-type cyc { s store.Store, files []syntax.Parsed, gens []gen, kinds Kinds, ext []Ext, foreign []Foreign, deps []Iface, ownMap bool, m mono }
+type cyc { s store.Store, files []syntax.Parsed, gens []gen, kinds Kinds, ext []Ext, foreign []Foreign, deps []Iface, ownMap bool, m mono, heads solve }
 
-func genIndex(c cyc, p syntax.Parsed, x dense.ID[syntax.Node]) int {
-	localGen(solve{s: c.s, files: c.files, gens: c.gens, ext: c.ext, sv: solver{parent: []int{}, seen: []int{}, steps: 0}, ownMap: c.ownMap, fn: false, local: c.kinds}, p, x)
-}
+// genIndex is the index in gens of the local generic type the head x
+// names, or -1 (localGen, on the solve Cycles set up once).
+func genIndex(c cyc, p syntax.Parsed, x dense.ID[syntax.Node]) int { localGen(c.heads, p, x) }
 
 // record adds the edges of the instantiation head[indices] at.
 func record(c *cyc, o owner, f int, head dense.ID[syntax.Node], indices []dense.ID[syntax.Node], at dense.ID[syntax.Node]) {
@@ -81,6 +78,9 @@ func record(c *cyc, o owner, f int, head dense.ID[syntax.Node], indices []dense.
 		return
 	}
 	for i, a in indices {
+		// A row parameter's argument adds no edge (mono.go: type
+		// parameters only). Its growth is CK-ROWGROW, which the Go
+		// checker does not end on, so no test reaches this yet.
 		if i >= len(c.gens[g].params) || (i < len(ks) && (ks[i] == kindErrors || ks[i] == kindUses)) {
 			continue
 		}
@@ -449,7 +449,7 @@ func Cycles(s store.Store, files []syntax.Parsed, kinds Kinds, funcs []FuncKinds
 	case None:
 	}
 	let gens = gensOf(files)
-	let mut c = cyc{s: s, files: files, gens: gens, kinds: kinds, ext: ext, foreign: foreign, deps: deps, ownMap: ownMap, m: mono{edges: []monoEdge{}, steps: 0}}
+	let mut c = cyc{s: s, files: files, gens: gens, kinds: kinds, ext: ext, foreign: foreign, deps: deps, ownMap: ownMap, m: mono{edges: []monoEdge{}, steps: 0}, heads: solve{s: s, gens: gens, ext: ext, sv: solver{parent: []int{}, seen: []int{}, steps: 0}, ownMap: ownMap, fn: false, local: kinds}}
 	let mut next = 0
 	for i, g in gens {
 		let mut verts = []int{}

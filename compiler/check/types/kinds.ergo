@@ -65,7 +65,7 @@ func union(s *solver, a int, b int) {
 // solve is the state of one package's solve, or of one function's (fn):
 // a function's parameters link to no declaration's, they take the slot
 // kinds local holds (kindBracketParams).
-type solve { s store.Store, files []syntax.Parsed, gens []gen, ext []Ext, sv solver, ownMap bool, fn bool, local Kinds }
+type solve { s store.Store, gens []gen, ext []Ext, sv solver, ownMap bool, fn bool, local Kinds }
 
 // walker names the variables a walk observes: names[i] is variable
 // vars[i] in file p.
@@ -479,7 +479,7 @@ func gensOf(files []syntax.Parsed) []gen {
 // SolveKinds solves the kinds of the generic type declarations of the
 // package whose store bind.Collect built from files.
 func SolveKinds(s store.Store, files []syntax.Parsed, ext []Ext) Kinds {
-	let mut st = solve{s: s, files: files, gens: []gen{}, ext: ext, sv: solver{parent: []int{}, seen: []int{}, steps: 0}, ownMap: false, fn: false, local: Kinds{Names: []string{}, Of: [][]int{}, Raw: [][]int{}, Steps: 0}}
+	let mut st = solve{s: s, gens: []gen{}, ext: ext, sv: solver{parent: []int{}, seen: []int{}, steps: 0}, ownMap: false, fn: false, local: Kinds{Names: []string{}, Of: [][]int{}, Raw: [][]int{}, Steps: 0}}
 	match store.Lookup(s, "Map") {
 	case Some[dense.ID[store.Decl]] as d:
 		st.ownMap = store.KindName(int(store.DeclOf(s, d.Value).Kind)) == "type"
@@ -746,6 +746,14 @@ type FuncKinds { File int, Decl dense.ID[syntax.Node], Name string, Params []str
 // parameters link to no other declaration's: a local generic type gives
 // them its solved kinds, decls.
 func SolveFuncKinds(s store.Store, files []syntax.Parsed, ext []Ext, decls Kinds) []FuncKinds {
+	let (out, _) = solveFuncs(s, files, ext, decls)
+	out
+}
+
+// solveFuncs is SolveFuncKinds and the number of solves it set up: one,
+// shared by every function, which resets only its variables, so its
+// setup does not copy the package once per function.
+func solveFuncs(s store.Store, files []syntax.Parsed, ext []Ext, decls Kinds) ([]FuncKinds, int) {
 	let mut out = []FuncKinds{}
 	let mut ownMap = false
 	match store.Lookup(s, "Map") {
@@ -753,6 +761,9 @@ func SolveFuncKinds(s store.Store, files []syntax.Parsed, ext []Ext, decls Kinds
 		ownMap = store.KindName(int(store.DeclOf(s, d.Value).Kind)) == "type"
 	case None:
 	}
+	let mut st = solve{s: s, gens: []gen{}, ext: ext, sv: solver{parent: []int{}, seen: []int{}, steps: 0}, ownMap: ownMap, fn: true, local: decls}
+	let mut setups = 0
+	setups = setups + 1
 	for f, p in files {
 		if p.Failed {
 			continue
@@ -771,7 +782,8 @@ func SolveFuncKinds(s store.Store, files []syntax.Parsed, ext []Ext, decls Kinds
 				case None:
 					([]string{}, []bool{})
 				}
-				let mut st = solve{s: s, files: files, gens: []gen{}, ext: ext, sv: solver{parent: []int{}, seen: []int{}, steps: 0}, ownMap: ownMap, fn: true, local: decls}
+				// A function's solve: the shared one, its variables reset.
+				st.sv = solver{parent: []int{}, seen: []int{}, steps: 0}
 				let mut vars = []int{}
 				for i, _ in names {
 					st.sv.parent = st.sv.parent.Append(i)
@@ -788,5 +800,5 @@ func SolveFuncKinds(s store.Store, files []syntax.Parsed, ext []Ext, decls Kinds
 			}
 		}
 	}
-	out
+	(out, setups)
 }
