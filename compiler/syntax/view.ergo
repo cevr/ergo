@@ -193,7 +193,7 @@ func pushList(t *Tree, l List) {
 
 // View is node id's row read by its kind.
 func ViewOf(t Tree, id dense.ID[Node]) View {
-	let k = t.kind[dense.Index(id)]
+	let k = uint8(t.kind[dense.Index(id)])
 	if k == KIdent {
 		return NameOf(t, id)
 	}

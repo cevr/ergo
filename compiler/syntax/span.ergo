@@ -3,7 +3,7 @@
 // the start of the first comment, -1 for none.
 type tokens {
 	src    string,
-	kinds  []uint8,
+	kinds  []uint32,
 	starts []uint32,
 	ends   []uint32,
 	nreal  int,
@@ -32,7 +32,7 @@ func posOf(t Tree, k tokens, x uint32) int {
 		return 0
 	}
 	let i = int(x)
-	let kd = t.kind[i]
+	let kd = uint8(t.kind[i])
 	let tok = int(t.tok[i])
 	let a = t.a[i]
 	if kd == KIdent || kd == KBasicLit || kd == KParenExpr || kd == KStarExpr || kd == KUnaryExpr || kd == KTryExpr || kd == KReturnStmt || kd == KBranchStmt || kd == KBlockStmt || kd == KIfStmt || kd == KSwitchStmt || kd == KTypeSwitchStmt || kd == KForStmt || kd == KRangeStmt || kd == KAssertStmt || kd == KSkipStmt || kd == KArrayType || kd == KContextLit || kd == KErrorRow || kd == KMachineType || kd == KImportDecl || kd == KContextDecl || kd == KTestDecl || kd == KLawDecl || kd == KExternSpec || kd == KContextBody || kd == KNeedsClause || kd == KTakesClause || kd == KProvidesClause || kd == KMachineEntry || kd == KCatchArm || kd == KCaseClause {
@@ -138,7 +138,7 @@ func endOf(t Tree, k tokens, x uint32) int {
 		return 0
 	}
 	let i = int(x)
-	let kd = t.kind[i]
+	let kd = uint8(t.kind[i])
 	let tok = int(t.tok[i])
 	let a = t.a[i]
 	let b = t.b[i]

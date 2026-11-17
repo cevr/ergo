@@ -30,7 +30,7 @@ type scanner {
 	offset   int,
 	ids      dense.Count[Tok],
 	n        int,
-	kind     []uint8,
+	kind     []uint32,
 	start    []uint32,
 	end      []uint32,
 	comments Comments,
@@ -62,7 +62,7 @@ func Scan(src string) Scanned {
 		offset: 0,
 		ids:    dense.NewCount[Tok](),
 		n:      0,
-		kind:   zeros8(room),
+		kind:   zeros32(room),
 		start:  zeros32(room),
 		end:    zeros32(room),
 		// Room for a comment per 64 bytes: the corpus has one per 132.
@@ -94,7 +94,7 @@ func Scan(src string) Scanned {
 
 // growToks doubles the token columns.
 func growToks(s *scanner) {
-	s.kind = slices.AppendAll(s.kind, zeros8(len(s.kind)))
+	s.kind = slices.AppendAll(s.kind, zeros32(len(s.kind)))
 	s.start = slices.AppendAll(s.start, zeros32(len(s.start)))
 	s.end = slices.AppendAll(s.end, zeros32(len(s.end)))
 }
@@ -105,7 +105,7 @@ func push(s *scanner, kind uint8, start int, end int) {
 	if i+2 >= len(s.kind) {
 		growToks(s)
 	}
-	s.kind[i] = kind
+	s.kind[i] = uint32(kind)
 	s.start[i] = uint32(start)
 	s.end[i] = uint32(end)
 	s.n = i + 1

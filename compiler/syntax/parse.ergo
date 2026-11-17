@@ -21,7 +21,7 @@ type Parsed {
 	Line    int,
 	Column  int,
 	src     string,
-	kinds   []uint8,
+	kinds   []uint32,
 	starts  []uint32,
 	ends    []uint32,
 	nreal   int,
@@ -38,7 +38,7 @@ type Parsed {
 // returns along its normal paths (the Go parser's bailout panic).
 type parser {
 	src         string,
-	kinds       []uint8,
+	kinds       []uint32,
 	starts      []uint32,
 	ends        []uint32,
 	nreal       int,
@@ -100,10 +100,10 @@ func Parse(src string) Parsed {
 				end = last
 			}
 		}
-		kinds[n] = Illegal
+		kinds[n] = uint32(Illegal)
 		starts[n] = uint32(at)
 		ends[n] = uint32(end)
-		kinds[n+1] = EOF
+		kinds[n+1] = uint32(EOF)
 		starts[n+1] = uint32(end)
 		ends[n+1] = uint32(end)
 		vend = end
@@ -126,7 +126,7 @@ func Parse(src string) Parsed {
 		scanLength:  s.Length,
 		scanMessage: s.Message,
 		i:           0,
-		tk:          kinds[0],
+		tk:          uint8(kinds[0]),
 		exprLev:     0,
 		orAllowed:   false,
 		nest:        0,
@@ -307,7 +307,7 @@ func sourcesOf(picks []int) []string {
 func next(p *parser) {
 	if p.tk != EOF && p.tk != Illegal {
 		p.i = p.i + 1
-		p.tk = p.kinds[p.i]
+		p.tk = uint8(p.kinds[p.i])
 	}
 }
 
@@ -316,9 +316,9 @@ func next(p *parser) {
 func peek(p *parser, n int) uint8 {
 	let j = p.i + n
 	if j < p.ntok {
-		return p.kinds[j]
+		return uint8(p.kinds[j])
 	}
-	p.kinds[p.ntok-1]
+	uint8(p.kinds[p.ntok-1])
 }
 
 // tpos is the offset of token j.
@@ -341,7 +341,7 @@ func tokLen(p *parser) int { tend(p, p.i) - int(p.starts[p.i]) }
 // returns, as the Go scanner's literal).
 func lit(p *parser, j int) string {
 	let s = p.src[tpos(p, j):tend(p, j)]
-	if p.kinds[j] == String && len(s) > 0 && s[0] == '`' {
+	if uint8(p.kinds[j]) == String && len(s) > 0 && s[0] == '`' {
 		return dropCR(s)
 	}
 	s
@@ -370,7 +370,7 @@ func isWord(p *parser, w string) bool {
 
 // wordAt reports token j an identifier spelled w.
 func wordAt(p *parser, j int, w string) bool {
-	if j >= p.ntok || p.kinds[j] != Ident {
+	if j >= p.ntok || uint8(p.kinds[j]) != Ident {
 		return false
 	}
 	let at = int(p.starts[j])
@@ -379,7 +379,7 @@ func wordAt(p *parser, j int, w string) bool {
 
 // inserted reports an inserted semicolon (a newline's).
 func inserted(p *parser, j int) bool {
-	p.kinds[j] == Semicolon && !(int(p.starts[j]) < len(p.src) && p.src[int(p.starts[j])] == ';')
+	uint8(p.kinds[j]) == Semicolon && !(int(p.starts[j]) < len(p.src) && p.src[int(p.starts[j])] == ';')
 }
 
 // atLineEnd reports whether the current token is an inserted semicolon.
@@ -387,7 +387,7 @@ func atLineEnd(p *parser) bool { p.tk == Semicolon && inserted(p, p.i) }
 
 func backtrack(p *parser, j int) {
 	p.i = j
-	p.tk = p.kinds[j]
+	p.tk = uint8(p.kinds[j])
 }
 
 // want consumes a token of kind k and returns its index.
@@ -636,7 +636,7 @@ func groupComments(p *parser) {
 			}
 		}
 		let mut j = ti - 1
-		for j >= from && (inserted(p, j) || p.kinds[j] == EOF) {
+		for j >= from && (inserted(p, j) || uint8(p.kinds[j]) == EOF) {
 			j = j - 1
 		}
 		if j >= from {
@@ -710,7 +710,7 @@ func kindAt(p *parser, x uint32) uint8 {
 	if x >= uint32(p.t.n) {
 		return uint8(0)
 	}
-	p.t.kind[int(x)]
+	uint8(p.t.kind[int(x)])
 }
 
 // ident appends the Ident row of token j.

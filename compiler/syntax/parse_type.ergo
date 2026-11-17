@@ -576,7 +576,7 @@ func isMapForm(p *parser, x uint32) bool {
 // their record.
 func mapType(p *parser, x uint32) uint32 {
 	if isMapForm(p, x) {
-		p.t.kind[int(x)] = KMapType
+		p.t.kind[int(x)] = uint32(KMapType)
 	}
 	x
 }

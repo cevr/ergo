@@ -12,13 +12,13 @@ func parsedToks(p Parsed) tokens {
 func TokPos(p Parsed, j int) int { int(p.starts[j]) }
 
 // TokKind is the kind of token j.
-func TokKind(p Parsed, j int) uint8 { p.kinds[j] }
+func TokKind(p Parsed, j int) uint8 { uint8(p.kinds[j]) }
 
 // TokText is the source text of token j (a raw string without carriage
 // returns).
 func TokText(p Parsed, j int) string {
 	let s = p.src[int(p.starts[j]):tokEnd(parsedToks(p), j)]
-	if p.kinds[j] == String && len(s) > 0 && s[0] == '`' {
+	if uint8(p.kinds[j]) == String && len(s) > 0 && s[0] == '`' {
 		return dropCR(s)
 	}
 	s
@@ -41,7 +41,7 @@ func TokStartingAt(p Parsed, at int) int {
 		if int(p.starts[j]) != at {
 			return -1
 		}
-		if p.kinds[j] != Semicolon {
+		if uint8(p.kinds[j]) != Semicolon {
 			return j
 		}
 	}
