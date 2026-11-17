@@ -155,6 +155,8 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			}
 		case *check.Const:
 			return &irExpr{K: "const", Pos: p, T: "bool", V: strconv.FormatBool(o.Val)}
+		case *check.Func:
+			return b.funcName(o, t, x, p) // ir_fnname.go
 		case *check.TypeName:
 			if e := b.bareRecord(o, t, x, p); e != nil { // ir_union.go
 				return e

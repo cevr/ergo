@@ -47,7 +47,18 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"expression *syntax.StarExpr", "G1"},
 	{"selector on a non-record", "G1"},
 	// F7 select (ir_select.go): the qualified names it leaves.
-	{"package function as a value", "G6"},
+	// F7-cs-fnname (ir_fnname.go): the function values funcValue writes
+	// another way than a closure that calls the function.
+	{"function value without a function type", "G6"},
+	{"Go function as a value", "G6"},
+	{"user extern as a value", "G6"},
+	{"method as a value", "G6"},
+	{"function that takes witnesses as a value", "G4"},
+	{"function value of another arity", "G6"},
+	{"std extern as a value", "G6"},
+	{"extern as a value", "G6"},
+	{"generic function as a value", "G4"},
+	{"function value whose result differs from its function's", "G6"},
 	{"Go package variable", "G4"},
 	{"package let without a Go name", "G1"},
 	{"package type name as a value", "G1"},
