@@ -537,8 +537,186 @@ func SampleChange(pick int, word int) Change {
 	}
 }
 
-// quoted is text in double quotes, its newlines written \n.
-func quoted(text string) string { "\"" + strings.ReplaceAll(strings.ReplaceAll(text, "\\", "\\\\"), "\n", "\\n") + "\"" }
+// quoted is text in double quotes, its backslashes, quotes and newlines
+// escaped, so ParseChange reads it back.
+func quoted(text string) string {
+	"\"" + strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(text, "\\", "\\\\"), "\"", "\\\""), "\n", "\\n") + "\""
+}
+
+// ParseChange is the change whose text describe gives (Planned.Change),
+// so a command line takes a change as that text:
+//
+//	replace ADDRESS "TEXT"
+//	insert after ADDRESS "TEXT"
+//	delete ADDRESS
+//	fixes [RULE RULE …]
+//	script (CHANGE; CHANGE; …)
+//	rename ADDRESS to "NAME"
+//
+// A quoted text writes a backslash, a quote and a newline as \\, \" and
+// \n.
+func ParseChange(text string) Change fails BadChange {
+	let (c, rest) = try changeAt(text)
+	if rest != "" {
+		return BadChange{Reason: "the change has text after its end: " + quoted(rest)}
+	}
+	c
+}
+
+// changeAt is the change at the start of s and the text after it.
+func changeAt(s string) (Change, string) fails BadChange {
+	if strings.HasPrefix(s, "replace ") {
+		let (of, rest) = try wordAt(strings.TrimPrefix(s, "replace "))
+		let (text, more) = try quotedAt(rest)
+		return (Replace{Of: of, Text: text}, more)
+	}
+	if strings.HasPrefix(s, "insert after ") {
+		let (after, rest) = try wordAt(strings.TrimPrefix(s, "insert after "))
+		let (text, more) = try quotedAt(rest)
+		return (Insert{After: after, Text: text}, more)
+	}
+	if strings.HasPrefix(s, "delete ") {
+		let (of, rest) = try wordAt(strings.TrimPrefix(s, "delete "))
+		return (Delete{Of: of}, rest)
+	}
+	if strings.HasPrefix(s, "rename ") {
+		let (of, rest) = try wordAt(strings.TrimPrefix(s, "rename "))
+		if !strings.HasPrefix(rest, "to ") {
+			return BadChange{Reason: "a rename is written rename ADDRESS to \"NAME\""}
+		}
+		let (to, more) = try quotedAt(strings.TrimPrefix(rest, "to "))
+		return (Rename{Of: of, To: to}, more)
+	}
+	if strings.HasPrefix(s, "fixes [") {
+		let rest = strings.TrimPrefix(s, "fixes [")
+		let end = strings.Index(rest, "]")
+		if end < 0 {
+			return BadChange{Reason: "a fixes list has no ]"}
+		}
+		let inner = strings.Slice(rest, 0, end)
+		let rules = if inner == "" { []string{} } else { strings.Split(inner, " ") }
+		return (Fixes{Rules: rules}, strings.Slice(rest, end + 1, len(rest)))
+	}
+	if strings.HasPrefix(s, "script (") {
+		let mut rest = strings.TrimPrefix(s, "script (")
+		let mut steps = []Change{}
+		if strings.HasPrefix(rest, ")") {
+			return (Script{Steps: steps}, strings.TrimPrefix(rest, ")"))
+		}
+		for {
+			let (step, more) = try changeAt(rest)
+			steps = steps.Append(step)
+			if strings.HasPrefix(more, "; ") {
+				rest = strings.TrimPrefix(more, "; ")
+			} else if strings.HasPrefix(more, ")") {
+				return (Script{Steps: steps}, strings.TrimPrefix(more, ")"))
+			} else {
+				return BadChange{Reason: "a script's steps are separated by ; and end with )"}
+			}
+		}
+	}
+	BadChange{Reason: "a change starts with replace, insert after, delete, fixes, script or rename: " + quoted(s)}
+}
+
+// wordAt is the address at the start of s, which ends at a space, a ;,
+// a ) or the end, and the text after it and its one space.
+func wordAt(s string) (string, string) fails BadChange {
+	let mut i = 0
+	for i < len(s) {
+		let c = strings.Slice(s, i, i + 1)
+		if c == " " || c == ";" || c == ")" {
+			break
+		}
+		i = i + 1
+	}
+	if i == 0 {
+		return BadChange{Reason: "an address is missing"}
+	}
+	let rest = strings.Slice(s, i, len(s))
+	(strings.Slice(s, 0, i), strings.TrimPrefix(rest, " "))
+}
+
+// quotedAt is the quoted text at the start of s, unescaped, and the text
+// after its closing quote.
+func quotedAt(s string) (string, string) fails BadChange {
+	if !strings.HasPrefix(s, "\"") {
+		return BadChange{Reason: "a text is written in double quotes"}
+	}
+	let mut out = ""
+	let mut i = 1
+	for i < len(s) {
+		let c = strings.Slice(s, i, i + 1)
+		if c == "\"" {
+			return (out, strings.Slice(s, i + 1, len(s)))
+		}
+		if c == "\\" && i + 1 < len(s) {
+			let e = strings.Slice(s, i + 1, i + 2)
+			out = out + if e == "n" { "\n" } else { e }
+			i = i + 2
+			continue
+		}
+		out = out + c
+		i = i + 1
+	}
+	BadChange{Reason: "a quoted text has no closing quote"}
+}
+
+// DescribeParsesBack: the text of a change parses back to the change,
+// for a drawn change, a replace of any text, and a script of both.
+law DescribeParsesBack(pick int, word int, text string) { describeParsesBack(pick, word, text) }
+
+func describeParsesBack(pick int, word int, text string) bool {
+	let drawn = SampleChange(pick, word)
+	let mut ok = true
+	for c in []Change{drawn, Replace{Of: "p.F", Text: text}, Script{Steps: []Change{drawn, Insert{After: "p.F", Text: text}}}} {
+		let back = ParseChange(describe(c)) catch {
+		case BadChange:
+			return false
+		}
+		ok = ok && back == c
+	}
+	ok
+}
+
+// StoreOf is a store that holds plans, the latest MaxPlans: the store of
+// a writer that reads plans kept elsewhere (`ergo code apply` reads them
+// from the workspace's plan folder).
+func StoreOf(plans []Planned) Store {
+	let s = NewStore()
+	for p in plans {
+		keep(s, p)
+	}
+	s
+}
+
+// PlanText is a plan as text: its id, its change, its verdict (with the
+// diagnostics that block it), its contract impact, and its patch.
+func PlanText(p Planned) string {
+	let mut b = "plan \(p.ID)\nchange \(p.Change)\n"
+	match p.Verdict {
+	case Ready as r:
+		b = b + "verdict ready, proof " + match r.Proof {
+		case Alpha:
+			"alpha"
+		case SameCode:
+			"same code"
+		case Checked:
+			"checked"
+		} + "\n"
+	case Blocked as x:
+		b = b + "verdict blocked\n"
+		for d in x.Diagnostics {
+			b = b + "  \(d.File):\(d.Line):\(d.Column): \(d.Code) \(d.Message)\n"
+		}
+	}
+	if len(p.Impact) > 0 {
+		b = b + "impact\n" + ApiDiffText(p.Impact)
+	}
+	if len(p.Files) == 0 {
+		b = b + "no file changes\n"
+	}
+	b + p.Patch
+}
 
 // Trial is a plan of a drawn change over Sample(seed), with the store it
 // was kept in; Ok is false when the change was refused.
