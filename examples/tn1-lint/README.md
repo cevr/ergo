@@ -25,4 +25,6 @@ Cases (the `ts` leg: Bun and the pinned `typescript` package of `tools/ts`):
 - `lint` is the oxlint report of the narration control on the vectors' TypeScript source.
 - `usage` is a bad command line; `help` is `--help`.
 
+The npm package `@cevr/tn1-lint` (`tools/npm/tn1-lint`) ships this program's static binary per platform: `sh scripts/npm.sh tn1-lint` builds and dry-packs it, `sh scripts/npm-check.sh tn1-lint DIR` installs the packs with bun and npm and runs `tn1-lint --help`. The `workload` file gives `scripts/opcount` the record of N bytes of TypeScript against the hand Go control in `cmd/ergo/testdata/tn1lint/control`; `cmd/ergo/testdata/tn1lint/floor` is its floor.
+
 What it shows: closed unions for the token kinds and the commands, exhaustive `match` over them, typed failures (`os.Exit`, `tn1.Malformed`) and a record (`Report`) whose field keys are oxlint's names.
