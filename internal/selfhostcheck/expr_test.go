@@ -162,6 +162,10 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 	if reach["SelectorExpr pkg"][0] == 0 || reach["CallExpr pkg"][0] == 0 {
 		t.Fatal("the Ergo side typed no member of an import")
 	}
+	// Calls of functions on a value's type and of operations (S3d3).
+	if reach["CallExpr method"][0] == 0 || reach["SelectorExpr method"][0] == 0 {
+		t.Fatal("the Ergo side typed no call of a function on a value's type")
+	}
 }
 
 // exprDump builds compiler/cmd/exprdump.
@@ -379,7 +383,34 @@ func selectorKind(pkg *check.Package, e *syntax.SelectorExpr) string {
 	case *check.Func:
 		return "method"
 	}
+	// The checker records no use of a field's or method's name: a
+	// selector of a function type on a value with no field of the name
+	// calls a function on the value's type or an operation (S3d3).
+	if _, isSig := pkg.Info.Types[e].(*check.Signature); isSig && !hasField(pkg.Info.Types[e.X], e.Sel.Name) {
+		return "method"
+	}
 	return "other"
+}
+
+// hasField is whether a value of type t, or of the type a pointer t
+// points to, has the field name.
+func hasField(t check.Type, name string) bool {
+	if p, ok := t.(*check.Pointer); ok {
+		t = p.Elem
+	}
+	if n, ok := t.(*check.Named); ok {
+		t = n.Underlying()
+	}
+	st, ok := t.(*check.Struct)
+	if !ok {
+		return false
+	}
+	for _, f := range st.Fields {
+		if f.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // importPath is the path the folder dir's package is imported by: its
