@@ -372,3 +372,91 @@ func looksView(f *ui.Frame[int], s looksApp) {
 		}
 	}
 }
+
+// roles (UG2): a Semantic node of every role, keyed, whose states,
+// level, range, current item, popup and relations (to the next nodes'
+// keys, and to a key no node has) change with each tap of "next", some
+// of them under a disabled Fieldset, so the window's accessibility tree
+// carries what ui reads of each.
+func rolesStep(s int, e int) Decision[int, int] {
+	Enter[int]{Next: s + 1}
+}
+
+func rolesMachine() Machine[int, int, int] {
+	Machine[int, int, int]{Initial: 0, Step: rolesStep, After: none[int, int], Work: idle[int, int]}
+}
+
+func allRoles() []ui.Role {
+	[]ui.Role{ui.Button, ui.Checkbox, ui.Switch, ui.TextBox, ui.Static, ui.Group, ui.Region, ui.Image, ui.List, ui.Status, ui.Generic, ui.Tab, ui.TabList, ui.TabPanel, ui.Dialog, ui.Menu, ui.MenuItem, ui.Tree, ui.TreeItem, ui.Heading, ui.Alert, ui.Link, ui.Table, ui.TableRow, ui.TableCell, ui.RadioGroup, ui.Radio, ui.ListBox, ui.ListOption, ui.Slider, ui.SpinButton, ui.SearchBox, ui.MenuItemCheckbox, ui.ComboBox, ui.Grid, ui.GridCell, ui.ColumnHeader, ui.RowHeader, ui.Navigation, ui.ListItem, ui.Separator, ui.Tooltip}
+}
+
+// roleDecl is node i's Access on screen t.
+func roleDecl(r ui.Role, i int, t int, n int) ui.Access {
+	let mut a = ui.Named(r, "s\(i)")
+	let v = i + t
+	a.Key = ui.ByInt(i)
+	a.Checked = if v%3 == 0 { Some{Value: true} } else { None }
+	a.Mixed = v%7 == 1
+	a.Selected = if v%2 == 0 { Some{Value: true} } else { Some{Value: false} }
+	a.Expanded = if v%4 == 1 { Some{Value: true} } else { None }
+	a.Busy = v%5 == 2
+	a.Invalid = v%6 == 3
+	a.MultiSelectable = v%5 == 4
+	a.Level = if v%3 == 1 { Some{Value: v%4 + 1} } else { None }
+	if v%4 == 2 {
+		a.Range = Some{Value: ui.Range{Now: float64(v % 10), Min: 0, Max: 10}}
+	}
+	if v%5 == 0 {
+		a.Current = Some{Value: "page"}
+	}
+	a.HasPopup = v%6 == 0
+	if v%4 == 3 {
+		a.Description = "d\(v % 3)"
+	}
+	let mut rels = []ui.Rel{ui.Controls{To: ui.ByInt((i + 1 + t) % n)}}
+	if v%2 == 1 {
+		rels = rels.Append(ui.DescribedBy{To: ui.ByInt((i + 2) % n)})
+	}
+	if v%3 == 2 {
+		rels = rels.Append(ui.Controls{To: ui.ByInt(n + 5)})
+	}
+	if v%5 == 3 {
+		rels = rels.Append(ui.OpensPopup{Role: ui.ListBox})
+	}
+	a.Rels = rels
+	a
+}
+
+func rolesView(f *ui.Frame[int], t int) {
+	let roles = allRoles()
+	let n = len(roles)
+	let mut col = ui.Plain()
+	col.Gap = 2
+	ui.Column(f, col) {
+		ui.Pressable(f, "next", 0) {
+			ui.Text(f, "Next \(t)")
+		}
+		for row in 0..(n+5)/6 {
+			let mut line = ui.Plain()
+			line.Gap = 4
+			ui.Row(f, line) {
+				for j in 0..6 {
+					let i = row*6 + j
+					if i < n {
+						if (i+t)%9 == 4 {
+							ui.Fieldset(f, true, "off") {
+								ui.Semantic(f, roleDecl(roles[i], i, t, n), None, ui.Plain()) {
+									ui.Text(f, "r\(i)")
+								}
+							}
+						} else {
+							ui.Semantic(f, roleDecl(roles[i], i, t, n), if i%3 == 0 { Some{Value: 0} } else { None }, ui.Plain()) {
+								ui.Text(f, "r\(i)")
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}

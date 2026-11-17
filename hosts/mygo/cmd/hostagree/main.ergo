@@ -5,7 +5,7 @@
 // WithTestHost writes the scripts.
 //
 // Standard input: the app's name on the first line (counter, shelf, form,
-// load, pad, list, sketch or looks), then one step a line:
+// load, pad, list, sketch, looks or roles), then one step a line:
 //
 //	tap LABEL         press and release the node labelled LABEL
 //	type LABEL TEXT   set the field's text (TAB between LABEL and TEXT)
@@ -51,6 +51,8 @@ func main() needs Console | Ambient | go.Foreign {
 			agree(sketchMachine(), sketchView, func(a sketch, b sketch) bool { a == b }, steps)
 		case "looks":
 			agree(looksMachine(), looksView, func(a looksApp, b looksApp) bool { a == b }, steps)
+		case "roles":
+			agree(rolesMachine(), rolesView, func(a int, b int) bool { a == b }, steps)
 		case _:
 			Console.Println("differ 0: no app \(lines[0])")
 		}

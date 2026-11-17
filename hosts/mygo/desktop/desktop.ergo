@@ -52,6 +52,9 @@ type Driver[S, E, D, F] {
 	looked   []lookProbe,
 	under    Option[uint32],
 	shadowed bool,
+	// semantics is the Semantic nodes the last paint put in the
+	// accessibility tree (semantics.ergo).
+	semantics []ui.Id[E],
 }
 
 // held is a node of the window's tree and its children, in order.
@@ -104,6 +107,7 @@ func start[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D
 		looked:    []lookProbe{},
 		under:     None,
 		shadowed:  false,
+		semantics: []ui.Id[E]{},
 	}
 	d.nodes[root] = held[E]{node: ui.BoxNode{Style: ui.Plain()}, kids: []ui.Id[E]{}}
 	try show(&d, first)

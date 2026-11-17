@@ -268,6 +268,7 @@ func paint[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
 	d.canvases = []spot[E]{}
 	d.boxes = Map[ui.Id[E], layout.Box]{}
 	d.looked = []lookProbe{}
+	d.semantics = []ui.Id[E]{}
 	d.under = Some{Value: paper}
 	d.shadowed = false
 	let full = layout.Box{X: 0, Y: 0, W: d.width, H: d.height}
@@ -368,7 +369,7 @@ func draw[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, ids Map[ui.Id[E], l
 	match n {
 	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.FieldsetNode, ui.ZoneNode, ui.TransitionNode:
 		drawKids(d, t, ids, id, dy, clip, line)
-	case ui.SemanticNode[E] as x:
+	case ui.SemanticNode[E]:
 		// A Semantic a press sends from (a radio, an option, a link) takes
 		// the pointer and the focus, and shows the focus ring (UC-TAB).
 		if focusable(n) {
@@ -376,8 +377,8 @@ func draw[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, ids Map[ui.Id[E], l
 			if focus {
 				ring(d, b, 6)
 			}
-			access(d, id, screen.RoleButton, x.Access.Name, "", b, false, focus)
 		}
+		semantic(d, id, n, b, focus)
 		drawKids(d, t, ids, id, dy, clip, line)
 	case ui.LiveNode:
 	case ui.ScrollNode:
@@ -525,7 +526,13 @@ func cut(clip layout.Box, b layout.Box) layout.Box {
 // access adds a node of the window's accessibility tree, named by an
 // id that stays the node's while it shows.
 func access[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], role int, label string, value string, b layout.Box, checked bool, focus bool) needs go.Foreign {
-	let name = match d.names.Get(id) {
+	d.w.Access(nameOf(d, id), -1, role, label, value, float64(b.X), float64(b.Y), float64(b.W), float64(b.H), checked, focus)
+}
+
+// nameOf is id's node's id in the accessibility tree, given the first
+// time it is asked for.
+func nameOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) int {
+	match d.names.Get(id) {
 	case Some[int] as n:
 		n.Value
 	case None:
@@ -533,7 +540,6 @@ func access[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], role int, label stri
 		d.names[id] = n
 		n
 	}
-	d.w.Access(name, -1, role, label, value, float64(b.X), float64(b.Y), float64(b.W), float64(b.H), checked, focus)
 }
 
 // nextName is a name no node has had.
