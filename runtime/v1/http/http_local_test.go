@@ -163,15 +163,20 @@ func TestHTTPLocalMatchesLoopback(t *testing.T) {
 			mu.Unlock()
 			// Which connection an exchange takes decides whether Go retries
 			// one the server closed: each case starts with none kept, or
-			// with one a warm exchange left.
-			tr, fetch := httpTransportFor(c.limits.MaxHeaderBytes), HTTPFetch
+			// with one a warm exchange left. Each run gets new transports
+			// (localFreshTransports), not only an empty pool: a dial of an
+			// earlier case that lost its race to an idle connection joins
+			// its transport's pool when it completes, which under load can
+			// be after this case began, and the request it found there was
+			// retried once more (seed 557: three arrivals on loopback, two
+			// in memory).
+			localFreshTransports(c.limits.MaxHeaderBytes)
+			fetch := HTTPFetch
 			if !remote {
-				tr = httpLocalTransportFor(c.limits.MaxHeaderBytes)
 				fetch = func(t *rt.Task, origins []string, anyOrigin bool, limits HTTPLimits, hops int, method, rawURL string, header []HTTPField, owners []string, credentials []HTTPField, body string) (HTTPResponse, error) {
 					return HTTPFetchLocal(t, origins, anyOrigin, limits, hops, method, rawURL, header, owners, credentials, body, local)
 				}
 			}
-			tr.CloseIdleConnections()
 			if c.warm {
 				if _, err := fetch(task, nil, true, serveLimits(1<<16, c.limits.MaxHeaderBytes), -1, "GET", origin+"/warm", nil, nil, nil, ""); err != nil {
 					t.Fatalf("seed %d: warm exchange: %v", seed, err)
@@ -323,6 +328,18 @@ func localCaseOf(r *rand.Rand) localCase {
 	c.failPut = c.into && r.IntN(6) == 0
 	c.warm = r.IntN(2) == 0
 	return c
+}
+
+// localFreshTransports drops the cached loopback and local transports of
+// maxHeader, closing their idle connections, so the next fetch makes new
+// ones whose pools hold nothing an earlier case left. A late dial of a
+// dropped transport lands in that transport's pool, which no fetch reads.
+func localFreshTransports(maxHeader int) {
+	for _, m := range []*sync.Map{&httpTransports, &httpLocalTransports} {
+		if old, ok := m.LoadAndDelete(maxHeader); ok {
+			old.(*http.Transport).CloseIdleConnections()
+		}
+	}
 }
 
 // localSameArrival reports whether two arrivals are the same request.
