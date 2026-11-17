@@ -17,6 +17,7 @@ draw-gui
 editor-gui
 events
 fetchpool
+fieldnotes
 fk-board
 fk-chat
 fk-counters
