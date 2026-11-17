@@ -203,7 +203,7 @@ func genExpr(seed uint32) string {
 			case 0:
 				add("\tlet "+x+" = p + "+k(), "\tacc = acc + "+x)
 			case 1:
-				add("\tlet "+x+" int64 = "+k(), "\tif "+x+" > "+k()+" {", "\t\tacc = acc + 1", "\t}")
+				add("\tlet "+x+" int64 = "+k(), "\tif "+x+" > "+k()+" {", "\t\tacc = acc + xs["+x+"]", "\t}")
 			case 2:
 				add("\tlet "+x+" = r.n * "+k(), "\tacc = acc + "+x)
 			case 3:
