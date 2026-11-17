@@ -137,9 +137,10 @@ func splitDiags(lines []string) ([]string, []string) {
 	return types, diags
 }
 
-// badStmts are statements with one type error between basic types, each
-// one the typer reports: an operand, an assignment, a condition, an
-// argument, a written let type, an index and a constant of another kind.
+// badStmts are statements with one error, each one the typer reports: a
+// type error between basic types (an operand, an assignment, a condition,
+// an argument, a written let type, an index, a constant of another kind),
+// and a binding or call rule's.
 var badStmts = []string{
 	"\tacc = acc + q",
 	"\tacc = acc + \"s\"",
@@ -151,6 +152,17 @@ var badStmts = []string{
 	"\tacc = acc + xs[1.5]",
 	"\tacc = acc + r.f",
 	"\tif p > 1.5 {\n\t\tacc = acc + 1\n\t}",
+	// A name nothing declares, an assignment rooted at a binder no let mut
+	// declares, and a call of another count of arguments (S3d6).
+	"\tacc = acc + nope",
+	"\tp = acc",
+	"\tlet fixed = acc\n\tfixed = fixed + 1\n\tacc = acc + fixed",
+	"\tr.n = acc",
+	"\txs[0] = acc",
+	"\tfor e in xs {\n\t\te = 1\n\t}",
+	"\tacc = acc + twice(acc, 1)",
+	"\tacc = acc + id(acc, 1)",
+	"\tacc = acc + twice()",
 }
 
 // genBad is the case seed with one statement of badStmts, drawn by the
@@ -216,7 +228,7 @@ func genExpr(seed uint32) string {
 			case 6:
 				add("\tif p > "+k()+" && q != \"x\" || !(acc < "+k()+") {", "\t\tacc = acc + 1", "\t}")
 			case 7:
-				add("\tlet mut "+x+"c = r", "\t"+x+"c.n = "+x+"c.n + 1", "\tlet "+x+" = &"+x+"c", "\tacc = acc + "+x+".n")
+				add("\tlet mut "+x+"c = r", "\t"+x+"c.n = "+x+"c.n + 1", "\tlet "+x+" = &"+x+"c", "\t"+x+".n = acc", "\tacc = acc + "+x+".n")
 			case 8:
 				add("\tlet "+x+" = "+pick(r, []string{"id(p)", "id(acc)", "id(" + k() + ")", "first(xs, " + k() + ")", "first(xs, p)", "boxed(p).v", "id[int](" + k() + ")"}), "\tacc = acc + "+x)
 			case 9:
