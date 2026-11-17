@@ -555,12 +555,12 @@ func (in *interp) composite(fr *frame, x *syntax.CompositeLit) (Value, *abrupt) 
 	}
 	switch u := t.under().t.(type) {
 	case *check.Slice:
-		return in.listLit(fr, x, 0, false)
+		return in.listLit(fr, x, 0, false, goBytes(rtype{u.Elem, t.under().env}))
 	case *check.Array:
 		if len(x.Elts) == 0 {
 			return in.zero(fr, x, t)
 		}
-		return in.listLit(fr, x, int(u.Len), true)
+		return in.listLit(fr, x, int(u.Len), true, goBytes(rtype{u.Elem, t.under().env}))
 	case *check.Map:
 		m := newMap()
 		if ab := in.build(fr, x, int64(len(x.Elts)), 2*int64(len(x.Elts)), 0); ab != nil {
@@ -664,9 +664,9 @@ func (in *interp) composite(fr *frame, x *syntax.CompositeLit) (Value, *abrupt) 
 }
 
 // listLit builds a slice literal, or an array literal that lists all its
-// elements.
-func (in *interp) listLit(fr *frame, x *syntax.CompositeLit, n int, array bool) (Value, *abrupt) {
-	if ab := in.build(fr, x, int64(len(x.Elts)), int64(len(x.Elts)), 0); ab != nil {
+// elements, each slot elem bytes (goBytes).
+func (in *interp) listLit(fr *frame, x *syntax.CompositeLit, n int, array bool, elem int64) (Value, *abrupt) {
+	if ab := in.buildSlots(fr, x, int64(len(x.Elts)), int64(len(x.Elts)), elem); ab != nil {
 		return nil, ab
 	}
 	elems := make([]Value, 0, len(x.Elts))
@@ -686,6 +686,7 @@ func (in *interp) listLit(fr *frame, x *syntax.CompositeLit, n int, array bool) 
 	}
 	s := newSlice(elems)
 	s.array = array
+	s.b.elem = elem
 	return s, nil
 }
 
@@ -696,7 +697,8 @@ func (in *interp) zero(fr *frame, at syntax.Node, t rtype) (Value, *abrupt) {
 	if !ok {
 		return nil, fr.unsupported(at, "the default value of %s yet", t.t)
 	}
-	if ab := in.build(fr, at, size, size, 0); ab != nil {
+	// The steps build each value; the bytes are the Go value's size.
+	if ab := in.build(fr, at, size, 0, goBytes(t)); ab != nil {
 		return nil, ab
 	}
 	z, ok := zeroOf(t)

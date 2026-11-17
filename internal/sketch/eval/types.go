@@ -266,7 +266,9 @@ func zeroOf(r rtype) (Value, bool) {
 	u := r.under()
 	switch t := u.t.(type) {
 	case *check.Slice:
-		return newSlice(nil), true
+		s := newSlice(nil)
+		s.b.elem = goBytes(rtype{t.Elem, u.env})
+		return s, true
 	case *check.Map:
 		return newMap(), true
 	case *check.Array:
@@ -280,6 +282,7 @@ func zeroOf(r rtype) (Value, bool) {
 		}
 		s := newSlice(elems)
 		s.array = true
+		s.b.elem = goBytes(rtype{t.Elem, u.env})
 		return s, true
 	case *check.Struct:
 		n, ok := r.t.(*check.Named)
