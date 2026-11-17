@@ -143,6 +143,12 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			if i, held := b.held[o]; held {
 				return &irExpr{K: "deref", Pos: p, X: &irExpr{K: "local", Pos: p, I: i}} // ir_ownlit.go
 			}
+			if e, bound := b.lawArgs[o]; bound {
+				// A law's parameter, bound to a site's operand while a
+				// side of the law is lowered (ir_rewrite.go).
+				c := *e
+				return &c
+			}
 			if i, known := b.locals[o]; known {
 				return b.handoff(x, &irExpr{K: "local", Pos: p, I: i}) // ir_own.go
 			}

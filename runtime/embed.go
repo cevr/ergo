@@ -28,6 +28,7 @@ import (
 //go:embed v1/http/http.go v1/http/http_client.go v1/http/http_network.go v1/rpc/rpc.go
 //go:embed v1/embed.go v1/leaves.go
 //go:embed v1/atomic.go
+//go:embed v1/shadow/shadow.go
 //go:embed v1/collections.go
 //go:embed v1/time.go v1/timetext.go v1/wire.go v1/json.go v1/json_append.go v1/toml.go
 //go:embed v1/sync.go v1/set.go v1/script.go v1/shrink.go
@@ -83,6 +84,11 @@ var packages = map[string]pkg{
 	// package), so only a program that calls one imports it (binsize BS1).
 	"runtime/v1/csv": {
 		files: []string{"csv.go"},
+	},
+	// fmt and reflect: a test build's rewrite shadow (LF6c), which no run
+	// build imports.
+	"runtime/v1/shadow": {
+		files: []string{"shadow.go"},
 	},
 	"runtime/v1/digest": {
 		files: []string{"digest.go"},

@@ -29,7 +29,9 @@
 package sketchfront
 
 import (
+	"fmt"
 	"sort"
+	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/lower"
@@ -67,14 +69,51 @@ func InspectRewrites(a Analysis, source, ledger string) ([]lower.RewriteSite, er
 		return nil, err
 	}
 	ev, err := ledgerEvidence(a, unit, text, nil)
-	if err != nil || !lower.HasRewriteLaws(unit) {
+	if err != nil {
 		return []lower.RewriteSite{}, err
 	}
+	// Every program: a site of a std law over functions needs no law of
+	// the program's own.
 	unit.Rewrite = ev
-	// A form the lowering refuses ends the list there; ergo build
-	// names the refusal.
-	_, _ = lower.Lower(unit)
+	// The IR path, which ergo build takes: its bodies hold the rewrites
+	// over functions, and its source bodies the windows. A form the
+	// lowering refuses ends the list there; ergo build names the refusal.
+	_, _, _ = lower.LowerIR(unit)
 	return ev.Sites(), nil
+}
+
+// RewritesText is ergo inspect rewrites' table: one line per site, its
+// position, its law (and provider), its entry's level, run and foreign
+// keys, the entry's state, and whether the build applies it, or why not.
+func RewritesText(sites []lower.RewriteSite) string {
+	var b strings.Builder
+	for _, s := range sites {
+		law := s.Law
+		if s.Provider != "" {
+			law += " for " + s.Provider
+		}
+		level := s.Verdict
+		if level == "" {
+			level = "none"
+		}
+		if s.By != "" {
+			level += " by " + s.By
+		}
+		if s.With != "" {
+			level += "  with " + s.With
+		}
+		applied := "applied"
+		if !s.Applied {
+			applied = "not applied"
+			if s.Why != "" && !strings.HasPrefix(s.Why, "not applied") {
+				applied += ": " + s.Why
+			} else if s.Why != "" {
+				applied = s.Why
+			}
+		}
+		fmt.Fprintf(&b, "%s:%d:%d  %s  %s  %s  %s\n", s.File, s.Line, s.Column, law, level, s.State, applied)
+	}
+	return b.String()
 }
 
 // InspectFacts is the fact section of the checked analysis's run build

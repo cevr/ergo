@@ -65,6 +65,7 @@ func (b *irBuilder) declare(name, typ string, p irPos) int {
 	i := b.next
 	b.next++
 	b.fn.Locals = append(b.fn.Locals, irLocal{Name: name, Type: typ, Pos: p})
+	b.localType(i, typ) // ir_rewrite_pass.go
 	if b.given == nil {
 		b.given = map[string]bool{}
 	}

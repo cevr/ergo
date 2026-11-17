@@ -227,7 +227,7 @@ func lowerIRModule(u Unit, tests *testLowering, formsOff bool) ([]File, map[stri
 	for _, decl := range slices.Sorted(maps.Keys(l.ir.keep)) {
 		code = append(code, []byte("\n"+decl+" // an import an IR body names\n")...)
 	}
-	files := append(moduleFiles(u.Go, code), l.assetFiles()...)
+	files := l.withRecord(u, append(moduleFiles(u.Go, code), l.assetFiles()...))
 	sort.Strings(l.ir.report.IR)
 	sortFormSites(l.ir.report.FormSites) // ir_forms_report.go
 	return files, l.stdOrigins(), irModule{IRReport: l.ir.report, out: &l.ir.out}, l, nil
@@ -248,6 +248,9 @@ type irState struct {
 	// reached are the census bodies reachAll has queued: a restart
 	// queues them again.
 	reached []*check.Func
+	// funcApplied counts the rewrites over functions the IR bodies
+	// applied, by level (ir_rewrite.go).
+	funcApplied map[string]int
 	// formsOff builds no IR form (LowerIRReference; ir_forms.go).
 	formsOff bool
 	ops      *opFacts // the capability bindings (ir_forms_op.go)
@@ -347,6 +350,10 @@ type irExpr struct {
 	F *irVariant `json:"-"`
 	// C is a pure call's facts, in memory only (ir_merge.go).
 	C *irCall `json:"-"`
+	// CF are a call's facts for the rewrite passes, in memory only
+	// (ir_rewrite_pass.go): the source call it lowers and whether it is
+	// kept as written. (I-FLIP: LF6w's C, renamed beside LF3's C.)
+	CF *irCallFacts `json:"-"`
 }
 
 // irUnsupported stops an IR body: the function keeps its source body.
@@ -408,7 +415,25 @@ type irBuilder struct {
 	// other body and inside a function literal: each value it returns is
 	// checked where it is returned.
 	law *check.Law
-	own *irOwn // the static frame of owned values (ir_own.go), or nil
+	// keep is the depth of AsWritten call trees, kept as written
+	// (ir_rewrite.go). lawArgs are a law's parameters bound to the site's
+	// operands while a side is lowered; lawDepth counts the sides being
+	// lowered, lawKeep those a check reads (a canary's or a shadow's),
+	// which the rewrite pass leaves as they are (ir_rewrite_pass.go).
+	keep     int
+	lawArgs  map[*check.Var]*irExpr
+	lawDepth int
+	lawKeep  int
+	// rwPatterns are the left sides of the laws in the rewrite's scope as
+	// IR patterns, built once per body; localTypes the Go type of each
+	// local declared (ir_rewrite_pass.go).
+	rwPatterns map[string][]*rwPattern
+	localTypes map[int]string
+	// rwRows are the rewrite sites this body applied (their report rows),
+	// rwLevels the rewrites applied by level (ir_rewrite.go).
+	rwRows   []string
+	rwLevels map[string]int
+	own      *irOwn // the static frame of owned values (ir_own.go), or nil
 	// pending collects the statements an operand inside an expression
 	// runs first (ir_order.go); nil where no value collects them.
 	pending *[]*irStmt
@@ -589,8 +614,9 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	}
 	n := len(b.fn.Body)
 	b.fn.Body = append(b.fn.Body, b.bodyStmts(f.Decl.Body.List)...) // ir_fail.go
-	b.fn.Body = b.foldCalls(b.fn.Body)                              // ir_fold.go
-	b.fn.Body = b.mergeCalls(b.fn.Body)                             // ir_merge.go
+	b.fn.Body = b.rewritePass(b.fn.Body)                            // ir_rewrite_pass.go (LF6w)
+	b.fn.Body = b.foldCalls(b.fn.Body)                              // ir_fold.go (LF3)
+	b.fn.Body = b.mergeCalls(b.fn.Body)                             // ir_merge.go (LF3)
 	b.fn.Body = eraseForms(b.fn.Body, b.st.sawForm)                 // ir_forms_erase.go
 	b.part(b.ownVisited)                                            // ir_own.go
 	b.fn.Body = b.withEntry(b.fn.Body, n)                           // ir_hoist.go
@@ -621,6 +647,9 @@ func (st *irState) finish(b *irBuilder, pkg, name string, decl syntax.Node, std 
 		st.report.Fallback[u.reason]++
 		b.note(u.reason)
 		*ok = false
+		st.rewritesDone(b, false, u.reason) // ir_rewrite.go
+	} else if *ok {
+		st.rewritesDone(b, true, "")
 	}
 	if st.census != nil {
 		file := ""
