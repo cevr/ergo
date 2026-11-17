@@ -578,7 +578,17 @@ func (b *irBuilder) loopPoll(s syntax.Stmt, body *syntax.BlockStmt) []*irStmt {
 	if b.env < 0 || !b.fc.frame.polls || b.fc.iterationPolls(body) { // pollplace.go
 		return nil
 	}
-	return []*irStmt{b.poll(s)}
+	return []*irStmt{b.sitePoll(s)}
+}
+
+// sitePoll is a poll of the innermost loop's iteration, recorded as one
+// of its sites (ir_poll.go), which amortize may rewrite.
+func (b *irBuilder) sitePoll(s syntax.Node) *irStmt {
+	p := b.poll(s)
+	if n := len(b.pollSites); n > 0 {
+		b.pollSites[n-1] = append(b.pollSites[n-1], p)
+	}
+	return p
 }
 
 // loopPolls reports a frame whose loops end each iteration in a poll.
@@ -591,7 +601,7 @@ func (b *irBuilder) loopPolls() bool { return b.env >= 0 && b.fc.frame.polls }
 func (b *irBuilder) continueStmt(s *syntax.BranchStmt) []*irStmt {
 	var out []*irStmt
 	if b.loopPolls() {
-		out = append(out, b.poll(s))
+		out = append(out, b.sitePoll(s))
 	}
 	return append(out, &irStmt{K: "continue", Pos: b.pos(s, s.Pos())})
 }

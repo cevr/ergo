@@ -504,8 +504,10 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		b.part(func() { st.Key = bind(s.Key) })
 		b.part(func() { st.Val = bind(s.Value) })
 		loop := b.memoLoop(first, func() []*irStmt { // ir_memo.go
-			b.loopBody(st, s, s.Body)
-			return []*irStmt{st}
+			// The nest's counter goes before the loop, after the
+			// pre-header's memoized calls (ir_poll.go).
+			ctr := b.loopBody(st, s, s.Body)
+			return append(ctr, st)
 		})
 		st.Pos = past(st.Pos, pre) // ir_match.go
 		return append(pre, loop...)
@@ -516,12 +518,26 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 
 // loopBody gives st, loop s, its body, where break and continue stand,
 // then its back-edge poll in a polling frame (loopPoll, ir_fail.go), and
-// the label a break inside a switch names.
-func (b *irBuilder) loopBody(st *irStmt, s syntax.Stmt, body *syntax.BlockStmt) {
+// the label a break inside a switch names. A quiet loop polls amortized
+// (ir_poll.go); the outermost loop of a quiet nest returns its counter's
+// definition, which the caller puts before the loop.
+func (b *irBuilder) loopBody(st *irStmt, s syntax.Stmt, body *syntax.BlockStmt) []*irStmt {
+	quiet := pollLowering == "amortized" && b.loopPolls() && b.quietLoop(body) // ir_poll.go
+	var own *pollAmort
+	outer := b.amort
+	if quiet && b.amort == nil {
+		own = &pollAmort{ctr: -1, pos: st.Pos}
+		b.amort = own
+	}
 	b.loops++
+	b.pollSites = append(b.pollSites, nil)
 	switches, label := b.switches, b.label
 	b.switches, b.label = 0, ""
-	defer func() { b.loops, b.switches, b.label = b.loops-1, switches, label }()
+	defer func() {
+		b.loops, b.switches, b.label = b.loops-1, switches, label
+		b.pollSites = b.pollSites[:len(b.pollSites)-1]
+		b.amort = outer
+	}()
 	st.Body = b.scoped(body, b.tail(body.List, false), b.pos(body, body.Rbrace)) // ir_own.go: the iteration's scope (R6)
 	poll := b.loopPoll(s, body)
 	// The back-edge poll follows a body that reaches its end: after a
@@ -531,6 +547,13 @@ func (b *irBuilder) loopBody(st *irStmt, s syntax.Stmt, body *syntax.BlockStmt) 
 		st.Body = append(st.Body, poll...)
 	}
 	st.Label = b.label
+	if quiet {
+		b.amortize(b.pollSites[len(b.pollSites)-1])
+	}
+	if own != nil && own.ctr >= 0 {
+		return []*irStmt{{K: "def", Pos: st.Pos, Local: own.ctr, X: pollEveryConst(st.Pos)}}
+	}
+	return nil
 }
 
 // bodyEnd is what follows the IR body of a function with a result whose

@@ -133,14 +133,14 @@ func (b *irBuilder) whileStmt(s *syntax.ForStmt) []*irStmt {
 		pre, cond = b.condOf(s.Cond)
 	}
 	loop := &irStmt{K: "while", Pos: b.pos(s, s.Pos()), X: cond, End: b.pos(s.Body, s.Body.Rbrace)}
-	b.loopBody(loop, s, s.Body) // ir_stmt.go
+	ctr := b.loopBody(loop, s, s.Body) // ir_stmt.go
 	if len(pre) > 0 {
 		p := past(b.pos(s.Cond, s.Cond.Pos()), pre)
 		loop.X = nil
 		exit := &irStmt{K: "if", Pos: p, End: p, X: &irExpr{K: "un", Pos: p, Op: "!", X: cond}, Then: []*irStmt{{K: "break", Pos: p}}}
 		loop.Body = append(append(pre, exit), loop.Body...)
 	}
-	return []*irStmt{loop}
+	return append(ctr, loop)
 }
 
 // rangeValue is a range's domain and the statements it runs first, before
