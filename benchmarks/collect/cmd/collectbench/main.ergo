@@ -1,0 +1,74 @@
+// collectbench holds GP-COLLECT's and GP-FOLD's probes: a count loop
+// that collects a part of a slice (DT4's collect), and one whose slice
+// the next loop only folds, each with a hand Go twin in
+// ../../testdata/control; a workload per kind in ../../KIND (go run
+// ./scripts/opcount -control -rounds 5 benchmarks/collect/KIND).
+//
+//	collectbench bench KIND N
+//
+// One unit is one element collected: N elements, in parts of 64 of a
+// source of 4096.
+
+import os
+import strconv
+
+let part = 64
+
+func source(m int) []int {
+	let mut xs = []int{}
+	for i in 0..m {
+		xs = xs.Append(i * 7 + 1)
+	}
+	xs
+}
+
+// collectPart collects src[lo..hi] and reads one element of it: the slice
+// is kept, so it is built (GP-COLLECT: one growth and one copy).
+func collectPart(src []int, lo int, hi int) int {
+	let mut ys = []int{}
+	for i in lo..hi {
+		ys = ys.Append(src[i])
+	}
+	ys[(hi - lo) / 2]
+}
+
+// foldPart collects src[lo..hi] and only folds it (GP-FOLD: no slice).
+func foldPart(src []int, lo int, hi int) int {
+	let mut h = 0
+	let mut ys = []int{}
+	for i in lo..hi {
+		ys = ys.Append(src[i])
+	}
+	for y in ys {
+		h = h + y
+	}
+	h
+}
+
+func bench(kind string, n int) int {
+	let src = source(4096)
+	let mut s = 0
+	for r in 0..n / part {
+		let lo = (r & 63) * part
+		if kind == "collect" {
+			s = s + collectPart(src, lo, lo + part)
+		} else {
+			s = s + foldPart(src, lo, lo + part)
+		}
+	}
+	s
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	with context { os.Process: os.NewHost() } {
+		let args = os.Process.Args()
+		if len(args) != 3 {
+			return os.Exit{Code: 2, Message: "usage: collectbench bench KIND N"}
+		}
+		let n = strconv.Atoi(args[2]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return os.Exit{Code: 2, Message: "collectbench: N is not a count"}
+		}
+		Console.Println("\(bench(args[1], n))")
+	}
+}
