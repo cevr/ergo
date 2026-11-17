@@ -353,7 +353,11 @@ func OnExit(s *Scope, body func()) {
 // a return, into a field, a container or a queue, and released by Close at
 // its owner's end when no Wait took it.
 type Task[T any] struct {
-	h    *rt.Handle[T]
+	// h is the task's handle, held in the Task (rt.Start), so the Task and
+	// its handle are one allocation (PARK1).
+	h rt.Handle[T]
+	// body is the block the task runs, until it starts (taskBody.Run).
+	body func(*rt.Task) (T, error)
 	task *rt.Task // the task that started it
 	used bool     // Wait, Stop or Close ran
 	// out is the value the body returned, kept past rt's stop-wins, which
@@ -392,18 +396,26 @@ func Go[T any](s *Scope, span Site, body func(*rt.Task) (T, error)) *Task[T] {
 	if s.ended {
 		panic("task.Go: the frame that would own this task has returned (law R9)")
 	}
-	// rt registers the handle on the scope it is given. That scope is a
-	// throwaway: the Task's owner releases it through its own entry.
-	holder := rt.NewScope(s.s.Task())
-	t := &Task[T]{task: s.s.Task()}
-	t.h = rt.Go(&holder, string(span), func(ct *rt.Task) (T, error) {
-		v, err := guarded(ct, body)
-		if err == nil {
-			t.out, t.ended = v, true
-		}
-		return v, err
-	})
+	// The Task's owner releases it through its own entry, so rt registers
+	// the handle on no scope (rt.Start), and the Task itself is the body,
+	// so no closure carries it.
+	t := &Task[T]{task: s.s.Task(), body: body}
+	rt.Start(&t.h, t.task, string(span), (*taskBody[T])(t))
 	return t
+}
+
+// taskBody is a Task as the body rt runs: the block, under the defect
+// guard, keeping the value it returns past stop-wins (out, ended).
+type taskBody[T any] Task[T]
+
+func (b *taskBody[T]) Run(ct *rt.Task) (T, error) {
+	body := b.body
+	b.body = nil // the block runs once; the Task keeps nothing it captured
+	v, err := guarded(ct, body)
+	if err == nil {
+		b.out, b.ended = v, true
+	}
+	return v, err
 }
 
 // Wait waits for the task to end and consumes it. It returns the task's

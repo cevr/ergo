@@ -57,24 +57,49 @@ func GoMasked[T any](s *Scope, span string, body func(t *Task, restore Mask) (T,
 	return h
 }
 
+// A Body is a task body that carries its own state: Start calls its Run
+// once, on the task's goroutine, as Go calls a body function.
+type Body[T any] interface{ Run(*Task) (T, error) }
+
+// Start is Go for a handle that its caller holds inside a value of its own
+// (a field) and owns itself: it starts b as a child of parent, on its own
+// goroutine, in h, which must be a zero Handle, and registers it on no
+// scope, so the caller stops and drains it (Stop) when it releases the
+// value. runtime/v1's Task holds its handle so (PARK1): one allocation
+// for the task and its handle, and none for the body.
+func Start[T any](h *Handle[T], parent *Task, span string, b Body[T]) {
+	start(h, parent, span, false, false, b)
+}
+
 // spawn starts body as a child of parent. selects makes the handle's done
 // channel, for a waiter that selects on the end (After).
 func spawn[T any](parent *Task, span string, masked, shield, selects bool, body func(*Task) (T, error)) *Handle[T] {
-	Point(parent, Op{OpSpawn, parent})
-	h := &Handle[T]{owner: parent}
+	h := &Handle[T]{}
 	if selects {
 		h.done = make(chan struct{})
 	}
-	h.task.init(parent, span, masked, shield)
-	schedSpawn(parent, &h.task)
-	go h.run(body)
+	start(h, parent, span, masked, shield, funcBody[T](body))
 	return h
 }
 
-func (h *Handle[T]) run(body func(*Task) (T, error)) {
+func start[T any](h *Handle[T], parent *Task, span string, masked, shield bool, b Body[T]) {
+	Point(parent, Op{OpSpawn, parent})
+	h.owner = parent
+	h.task.init(parent, span, masked, shield)
+	schedSpawn(parent, &h.task)
+	go h.run(b)
+}
+
+// funcBody is a body function as a Body; a func value is one word, so the
+// conversion allocates nothing.
+type funcBody[T any] func(*Task) (T, error)
+
+func (f funcBody[T]) Run(t *Task) (T, error) { return f(t) }
+
+func (h *Handle[T]) run(b Body[T]) {
 	schedStart(&h.task)
 	defer h.finish()
-	h.value, h.err = Run(&h.task, body)
+	h.value, h.err = Run(&h.task, b.Run)
 }
 
 // finish detaches the task and publishes the exit that Run settled. In an

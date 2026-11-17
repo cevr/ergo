@@ -523,6 +523,7 @@ var bodyTable = []bodyRow{
 	{"rpcDefect.Error", bodyFact{refusal: "runtime/v1: rpcDefect.Error: the receiver type rpcDefect is not declared"}},
 	{"stderrSink.Write", bodyFact{refusal: "runtime/v1: stderrSink.Write: the receiver type stderrSink is not declared"}},
 	{"strategy.Pick", bodyFact{refusal: "runtime/v1: strategy.Pick: the receiver type strategy is not declared"}},
+	{"taskBody.Run", bodyFact{refusal: "runtime/v1: taskBody.Run: the receiver type taskBody is not declared"}},
 	{"textError.Error", bodyFact{refusal: "runtime/v1: textError.Error: the receiver type textError is not declared"}},
 	{"webURL.String", bodyFact{refusal: "runtime/v1: webURL.String: the receiver type webURL is not declared"}},
 }
@@ -632,7 +633,7 @@ var typeTable = []typeRow{
 	{"Stream", GoType{Struct: true, Fields: []string{"mu", "pcg", "r"}, Package: Path + "/rand"}},
 	{"TOMLMalformed", GoType{Struct: true, Fields: []string{"Line", "Key", "Reason"}, Package: Path}},
 	{"TOMLUnrepresentable", GoType{Struct: true, Fields: []string{"Key", "Reason"}, Package: Path}},
-	{"Task", GoType{Arity: 1, Struct: true, Fields: []string{"h", "task", "used", "out", "ended"}, Package: Path}},
+	{"Task", GoType{Arity: 1, Struct: true, Fields: []string{"h", "body", "task", "used", "out", "ended"}, Package: Path}},
 	{"TasksClosed", GoType{Struct: true, Package: Path}},
 	{"TermNotTerminal", GoType{Struct: true, Package: Path}},
 	{"TermWindow", GoType{Struct: true, Fields: []string{"Cols", "Rows"}, Package: Path}},
