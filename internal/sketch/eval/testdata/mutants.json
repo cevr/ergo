@@ -663,8 +663,8 @@
       "name": "oracle-o23-preflight-go-extern",
       "origin": "wf10 ORACLE O23",
       "file": "internal/sketch/eval/preflight.go",
-      "from": "\t\tif !fn.Pkg.Host() && nativeOf(fn) != nil || goNativeOf(fn) != nil {",
-      "to": "\t\tif !fn.Pkg.Host() && nativeOf(fn) != nil || false && goNativeOf(fn) != nil {",
+      "from": "\t\tif !fn.Pkg.Host() && nativeOf(fn) != nil || goNativeOf(fn) != nil || check.GoBuiltin(fn) == \"append\" {",
+      "to": "\t\tif !fn.Pkg.Host() && nativeOf(fn) != nil || false && goNativeOf(fn) != nil || check.GoBuiltin(fn) == \"append\" {",
       "rule": "An obligation that calls a program extern the evaluator runs (nativesgo.go) is not skipped.",
       "killers": ["internal/sketch/eval:TestPreflightAdmitsWhatRuns"]
     },
