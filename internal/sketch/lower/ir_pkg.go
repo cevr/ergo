@@ -566,8 +566,8 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	// kept by a variable of the runtime's Site type, which is not generic.
 	// A body of a runtime leaf (runtime/v1/rpc, BS8) is called by the
 	// leaf's import path, which rtRef imports.
-	name = b.consumedForm(x, body, name) // ir_own.go
-	name = b.exitsForm(body, name)       // ir_exits.go: OnExit on a static exit form
+	name = b.consumedForm(x, body, name)    // ir_own.go
+	name, isExit := b.exitsForm(body, name) // ir_exits.go: OnExit on a static exit form
 	pkg := v1.PackageOf(name)
 	switch {
 	case pkg != "" && pkg != runtimeImport && targs != "":
@@ -589,6 +589,9 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 		pkg = runtimeImport
 	}
 	call := &irExpr{K: "pcall", Pos: p, T: pkg, Name: name, V: targs, Args: append(hidden, args...)}
+	if isExit {
+		b.noteExit(call, x) // ir_exits.go: the defer form, if the frame keeps it
+	}
 	if isTuple {
 		tpre, e := b.tdef(call, tuple, x, p) // ir_tuple.go
 		return append(pre, tpre...), e, false

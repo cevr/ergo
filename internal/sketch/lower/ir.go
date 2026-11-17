@@ -400,8 +400,13 @@ type irBuilder struct {
 	// frame is 1 + the local of the body's frame scope (ir_own.go
 	// openScope), or 0; frameArg reads it (GP-FRAME; OPC-TASK's hook).
 	frame int
-	// exits marks a frame in the static exit form (ir_exits.go).
-	exits bool
+	// exits marks a frame in the static exit form (ir_exits.go); exitsFC
+	// is its own function's context, exitRegs its registrations, and
+	// exitsSlots marks one made off that function or in a loop.
+	exits      bool
+	exitsFC    *funcCtx
+	exitRegs   []irExitReg
+	exitsSlots bool
 }
 
 // gate stops the body for reason; a census records it and goes on.
@@ -553,6 +558,7 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	b.fn.Body = b.withEntry(b.fn.Body, n)                           // ir_hoist.go
 	b.fn.Body = append(b.fn.Body, b.bodyEnd(b.fn.Body, b.fn.End)...)
 	b.part(func() { b.fn.Body = b.closeMasked(f, b.fn.Body) }) // ir_own.go
+	b.fn.Body = b.deferExits(b.fn.Body)                        // ir_exits.go (STATIC-EXIT2)
 	b.fn.Body = irScopesIncrease(irUseLocals(b.fn.Body))       // ir_end.go
 	if st.census != nil {
 		return false

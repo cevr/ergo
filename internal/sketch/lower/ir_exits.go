@@ -30,7 +30,9 @@ import (
 )
 
 // exitLowering selects the static exit form: "" builds it where it
-// applies, "scope" keeps the general frame scope. Set with
+// applies, in the defer form where that applies (deferExits); "slots"
+// keeps the static form's slots (STATIC-EXIT's form); "scope" keeps the
+// general frame scope. Set with
 // -ldflags=-X=ergo.local/prototype/internal/sketch/lower.exitLowering=scope.
 var exitLowering string
 
@@ -123,7 +125,7 @@ func (l *lowerer) exitBlockNeedsFrame(x *syntax.CallExpr) bool {
 // the Exits local x, its Begin on the frame's task and its deferred End.
 func (b *irBuilder) openExits(p irPos, task, errArg *irExpr) []*irStmt {
 	x := b.temp("exits", b.spelling(b.l.rt()+".Exits"), p)
-	b.frame, b.exits = x+1, true
+	b.frame, b.exits, b.exitsFC = x+1, true, b.fc
 	b.keepImport("var _ " + b.l.rt() + ".Exits")
 	return []*irStmt{
 		{K: "var", Pos: p, Local: x},
@@ -136,9 +138,85 @@ func (b *irBuilder) openExits(p irPos, task, errArg *irExpr) []*irStmt {
 // form calls in place of name: a body that registers an exit action on
 // the frame (OnExit) registers it on the Exits (ExitsOnExit), whose first
 // operand is the Exits where the general body's hidden frame is.
-func (b *irBuilder) exitsForm(body v1.Body, name string) string {
+func (b *irBuilder) exitsForm(body v1.Body, name string) (string, bool) {
 	if b.exits && body.Release == "frame" {
-		return "Exits" + name
+		return "Exits" + name, true
 	}
-	return name
+	return name, false
+}
+
+// irExitReg is one registration of a frame in the static exit form: its
+// call (ExitsOnExit(&x, block)) and whether its block is quiet.
+type irExitReg struct {
+	call  *irExpr
+	quiet bool
+}
+
+// noteExit records call, the registration x of an exit action on the
+// frame's Exits, for deferExits. A registration off the frame's own Go
+// function (inside a literal) or in a loop keeps the frame's slots.
+// The block is quiet when the checker gives it an empty footprint.
+func (b *irBuilder) noteExit(call *irExpr, x *syntax.CallExpr) {
+	if b.fc != b.exitsFC || b.loops > 0 {
+		b.exitsSlots = true
+	}
+	var key syntax.Node
+	switch {
+	case x.Trailing != nil:
+		key = x.Trailing
+	case len(x.Args) == 1:
+		if lit, ok := unparen(x.Args[0]).(*syntax.FuncLit); ok {
+			key = lit
+		}
+	}
+	quiet := false
+	if key != nil {
+		if fp, ok := b.l.info.Footprints[key]; ok {
+			quiet = fp.Empty()
+		}
+	}
+	b.exitRegs = append(b.exitRegs, irExitReg{call: call, quiet: quiet})
+}
+
+// deferExits writes the defer form of a frame in the static exit form
+// (runtime/v1 exits.go): each registration, a statement of the frame's
+// own function outside a loop, becomes a Go defer of the Exits' Run, or
+// Quiet for a quiet block. exitLowering "slots" keeps the slots.
+func (b *irBuilder) deferExits(body []*irStmt) []*irStmt {
+	if !b.exits || b.exitsSlots || exitLowering == "slots" || len(b.exitRegs) == 0 {
+		return body
+	}
+	regs := map[*irExpr]irExitReg{}
+	for _, r := range b.exitRegs {
+		regs[r.call] = r
+	}
+	found := 0
+	var walk func(list []*irStmt)
+	walk = func(list []*irStmt) {
+		for _, s := range list {
+			if r, ok := regs[s.X]; ok {
+				if s.K != "expr" || len(r.call.Args) != 2 {
+					irNo("exit action registered off a statement")
+				}
+				name := "Run"
+				if r.quiet {
+					name = "Quiet"
+				}
+				s.K = "defer"
+				s.X = &irExpr{K: "mcall", Pos: r.call.Pos, Name: name, X: r.call.Args[0], Args: r.call.Args[1:]}
+				found++
+			}
+			walk(s.Then)
+			walk(s.Else)
+			walk(s.Body)
+			for _, c := range s.Cases {
+				walk(c.Body)
+			}
+		}
+	}
+	walk(body)
+	if found != len(regs) {
+		irNo("exit action registered off the frame's statements")
+	}
+	return body
 }
