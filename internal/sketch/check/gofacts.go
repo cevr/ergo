@@ -157,7 +157,7 @@ func (h *hostPkg) ambientUnvouched(fn *Func) {
 	if _, lined := h.host[fn]; lined || fn.Decl == nil || fn.Decl.Extern == nil || !slices.Contains(needsNames(fn), "Ambient") {
 		return
 	}
-	h.c.errorf(fn.Decl.Name, CodeType, "%s needs Ambient, which only a host row of internal/gofacts charges for a Go call (`// ergo:effect ambient (vouched: <reason>)`); bind it with needs go.Foreign", fn.Decl.Extern.Target.Value)
+	h.c.errorf(fn.Decl.Name, CodeType, "%s is bound with needs Ambient and no host line: only a host row of internal/gofacts charges Ambient for a Go call (`// ergo:effect ambient (vouched: <reason>)`); bind it with needs go.Foreign", fn.Decl.Extern.Target.Value)
 }
 
 // needsNames is the names of fn's written needs row.

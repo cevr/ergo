@@ -31,7 +31,7 @@ func show(e Env) string { e.Get("HOME") }
 // operation calls it captures Ambient where it is built, as std's own
 // would: main checks with Console and Ambient alone, and without Ambient
 // the build site says what it needs. Red at base: Get's call of os.Getenv
-// needs go.Foreign, and the provider's extra Ambient is refused (#37).
+// needs go.Foreign there, and the provider's extra Ambient is refused (#37).
 //
 // Mutants it alone catches: ffi-host-row-not-written (ergo bind go writes
 // go.Foreign for a host row), ffi-capture-ambient-refused (a provider's
@@ -61,9 +61,9 @@ func TestHostRowChargesAmbient(t *testing.T) {
 }
 
 // TestHostRowsActOnlyValidated is HOST-ROW's admission of a host row: the
-// binding of os, whose Getenv is bound with needs Ambient, checks clean
-// exactly when the std ledger holds the row's guard line current and
-// validated; a missing line and a refuted one are diagnostics at the
+// binding of os, whose Getenv is bound with needs Ambient and its line,
+// checks clean exactly when the std ledger holds the row's guard line
+// current and validated; a missing line and a refuted one are diagnostics at the
 // binding that say which; and a binding that writes needs Ambient for a Go
 // function with no host line (a hand edit) is refused.
 //
@@ -99,7 +99,7 @@ func TestHostRowsActOnlyValidated(t *testing.T) {
 		{"validated", std.Ledger(), binding, target, ""},
 		{"missing", withLine(key, ""), binding, target, target + " is bound as a host call without a reviewed row that acts (the std ledger has no guard line for " + key},
 		{"refuted", withLine(key, refuted.Line()), binding, target, target + " is bound as a host call, and its reviewed row does not hold: its guard refuted it"},
-		{"unvouched", std.Ledger(), edited, "os.Unsetenv", "os.Unsetenv needs Ambient, which only a host row of internal/gofacts charges for a Go call"},
+		{"unvouched", std.Ledger(), edited, "os.Unsetenv", "os.Unsetenv is bound with needs Ambient and no host line: only a host row of internal/gofacts charges Ambient for a Go call"},
 	} {
 		ledger, src := c.ledger, c.binding
 		check.FactLedger = func() string { return ledger }
