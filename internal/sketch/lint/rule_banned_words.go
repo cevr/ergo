@@ -10,6 +10,7 @@ var bannedWords = &Rule{
 	Name:    "banned-words",
 	Code:    "L111",
 	Doc:     "A declared name holds a word the configuration bans (words, default shape); name what the thing is.",
+	Instead: "name what the thing is",
 	Default: Warning,
 	Check:   checkBannedWords,
 	Options: options(func() wordOptions { return wordOptions{Words: []string{"shape"}} }, nil),
@@ -26,7 +27,7 @@ func checkBannedWords(p *Pass) {
 			return true
 		}
 		if word, banned := bannedWord(id.Name, words); banned {
-			p.Report(id.Pos(), id.End(), "the name "+id.Name+" holds the banned word "+word+"; name what the thing is")
+			p.Report(id.Pos(), id.End(), "the name "+id.Name+" holds the banned word "+word)
 		}
 		return true
 	})

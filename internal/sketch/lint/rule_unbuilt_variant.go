@@ -18,6 +18,7 @@ var unbuiltVariant = &Rule{
 	Name:    "unbuilt-variant",
 	Code:    "L120",
 	Doc:     "A record variant of a union that no code builds is a state the domain does not have; delete it or build it.",
+	Instead: "delete it, or build it where the domain reaches that state",
 	Default: Warning,
 	Check:   checkUnbuiltVariant,
 }
@@ -40,7 +41,7 @@ func checkUnbuiltVariant(p *Pass) {
 		if _, record := underlying(tn).(*check.Struct); !record {
 			return
 		}
-		p.Report(id.Pos(), id.End(), "no code builds "+id.Name+", a variant of a union; delete it, or build it where the domain reaches that state")
+		p.Report(id.Pos(), id.End(), "no code builds "+id.Name+", a variant of a union")
 	}
 	syntax.Inspect(p.File, func(n syntax.Node) bool {
 		switch x := n.(type) {

@@ -401,14 +401,17 @@ func (c *Configuration) Identity() string {
 // metadata only; no pack code runs. Builtin and Code describe a built-in
 // rule, which the host lists beside the pack rules.
 type RuleInfo struct {
-	Rule            string       `json:"rule"`
-	Builtin         bool         `json:"builtin,omitempty"`
-	Code            string       `json:"code,omitempty"`
-	Pack            string       `json:"pack,omitempty"`
-	PackVersion     string       `json:"packVersion,omitempty"`
-	PackIdentity    string       `json:"packIdentity,omitempty"`
-	Version         string       `json:"version,omitempty"`
-	Description     string       `json:"description"`
+	Rule         string `json:"rule"`
+	Builtin      bool   `json:"builtin,omitempty"`
+	Code         string `json:"code,omitempty"`
+	Pack         string `json:"pack,omitempty"`
+	PackVersion  string `json:"packVersion,omitempty"`
+	PackIdentity string `json:"packIdentity,omitempty"`
+	Version      string `json:"version,omitempty"`
+	Description  string `json:"description"`
+	// Instead is a built-in rule's remedy, what to write in place of
+	// what it reports; omitted for a pack rule.
+	Instead         string       `json:"instead,omitempty"`
 	DefaultSeverity Severity     `json:"defaultSeverity"`
 	Severity        Severity     `json:"severity"`
 	Requires        []Family     `json:"requires,omitempty"`

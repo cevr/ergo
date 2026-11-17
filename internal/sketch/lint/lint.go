@@ -59,10 +59,17 @@ const (
 // SafeFix marks a rule whose fixes keep the program's behaviour, so
 // `ergo fix --lint` applies them. Options decodes the rule's options (nil
 // raw for none set: the defaults); a rule with no Options takes none.
+//
+// Instead is the rule's remedy, an imperative ("delete it"): what to
+// write in place of what a finding reports. Every rule has one
+// (NewRegistry); a finding carries it unless the rule reports one of its
+// own (Pass.ReportInstead), and a finding renders as its message, "; "
+// and its remedy (anti-slop AS1).
 type Rule struct {
 	Name    string
 	Code    string
 	Doc     string
+	Instead string
 	Default Severity
 	Check   func(*Pass)
 	SafeFix bool
@@ -151,12 +158,22 @@ func (p *Pass) Memo(make func() any) any {
 }
 
 // Report records a finding of the rule from from to to (byte offsets in
-// the pass's file).
-func (p *Pass) Report(from, to syntax.Pos, message string) { p.ReportFix(from, to, message, nil) }
+// the pass's file): message says what is wrong; the rule's Instead says
+// what to write.
+func (p *Pass) Report(from, to syntax.Pos, message string) {
+	p.ReportInstead(from, to, message, "", nil)
+}
 
 // ReportFix is Report with the edit that fixes the finding (EX1's shape;
 // its offsets are in the pass's file). The runner names the rule on it.
 func (p *Pass) ReportFix(from, to syntax.Pos, message string, fix *report.Fix) {
+	p.ReportInstead(from, to, message, "", fix)
+}
+
+// ReportInstead is ReportFix with the finding's own remedy, for a rule
+// whose remedy names what it found (the std package to import); an empty
+// instead is the rule's.
+func (p *Pass) ReportInstead(from, to syntax.Pos, message, instead string, fix *report.Fix) {
 	if fix != nil && (fix.InsertAt < 0 || fix.Replace < 0 || fix.InsertAt+fix.Replace > len(p.File.Src)) {
 		if p.bad == nil {
 			p.bad = fmt.Errorf("a fix edits %d..%d outside its file of %d bytes", fix.InsertAt, fix.InsertAt+fix.Replace, len(p.File.Src))
@@ -170,7 +187,7 @@ func (p *Pass) ReportFix(from, to syntax.Pos, message string, fix *report.Fix) {
 		return
 	}
 	line, column := p.File.Position(from)
-	p.found = append(p.found, Finding{File: p.rel, Offset: int(from), Length: int(to - from), Line: line, Column: column, Message: message, Fix: fix})
+	p.found = append(p.found, Finding{File: p.rel, Offset: int(from), Length: int(to - from), Line: line, Column: column, Message: message, Instead: instead, Fix: fix})
 }
 
 // Finding is one lint finding. Rule is empty for the runner's own codes.
@@ -179,11 +196,14 @@ type Finding struct {
 	Rule     string
 	Severity Severity
 	Message  string
-	File     string
-	Offset   int
-	Length   int
-	Line     int
-	Column   int
+	// Instead is the finding's remedy; empty for the runner's codes and a
+	// pack's findings.
+	Instead string
+	File    string
+	Offset  int
+	Length  int
+	Line    int
+	Column  int
 	// Fix is the finding's edit, nil when the rule offers none.
 	Fix *report.Fix
 	// Related and Suggestions are a pack finding's related places and

@@ -18,6 +18,7 @@ var identicalArms = &Rule{
 	Name:    "identical-arms",
 	Code:    "L119",
 	Doc:     "Two arms of one match or catch with the same body are one case written twice; list both patterns in one arm.",
+	Instead: "list their patterns in one arm",
 	Default: Warning,
 	Check:   checkIdenticalArms,
 }
@@ -69,7 +70,7 @@ func checkIdenticalArms(p *Pass) {
 			for _, n := range names[1:] {
 				list += " and " + n
 			}
-			p.Report(g[1].at, g[1].colon+1, fmt.Sprintf("the arms for %s do the same; list their patterns in one arm", list))
+			p.Report(g[1].at, g[1].colon+1, fmt.Sprintf("the arms for %s do the same", list))
 		}
 		return true
 	})
