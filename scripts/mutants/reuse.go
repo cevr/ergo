@@ -268,7 +268,7 @@ func gatherReuse(root string, jobs []Job) (*reuseInputs, error) {
 
 // toolchainOf names the runner's executable and the go command's settings.
 func toolchainOf(root string) (string, error) {
-	query := exec.Command("go", "env", "GOVERSION", "GOROOT", "GOFLAGS", "GOOS", "GOARCH", "GOAMD64", "GOARM64", "GOEXPERIMENT", "CGO_ENABLED", "CC")
+	query := exec.Command(goCommand(), "env", "GOVERSION", "GOROOT", "GOFLAGS", "GOOS", "GOARCH", "GOAMD64", "GOARM64", "GOEXPERIMENT", "CGO_ENABLED", "CC")
 	query.Dir = root
 	out, err := query.Output()
 	if err != nil {
@@ -356,7 +356,7 @@ type listedPkg struct {
 }
 
 func listModule(root string) (*listedModule, error) {
-	list := exec.Command("go", "list", "-e", "-deps", "-test", "-json=ImportPath,Dir,ForTest,Deps,TestGoFiles,XTestGoFiles,EmbedFiles,TestEmbedFiles,XTestEmbedFiles", "./...")
+	list := exec.Command(goCommand(), "list", "-e", "-deps", "-test", "-json=ImportPath,Dir,ForTest,Deps,TestGoFiles,XTestGoFiles,EmbedFiles,TestEmbedFiles,XTestEmbedFiles", "./...")
 	list.Dir = root
 	out, err := list.Output()
 	if err != nil {
