@@ -79,10 +79,14 @@ func TestStreamValuesKeepNoWindow(t *testing.T) {
 		w.CloseWithError(err)
 	}()
 	run := exec.Command(bin)
-	// GOGC set turns the program's heap pacing off (rt.Pace floors the
-	// heap goal at 64 MiB): the bound measures what the kept values hold,
-	// not the pacer's floor.
-	run.Env = append(os.Environ(), "GOMAXPROCS=1", "GOGC=100")
+	// The collector runs by the memory limit alone (GOGC=off, which also
+	// turns rt.Pace's 64 MiB floor off): the heap stays near the limit
+	// whatever its pace, so the peak is what the kept values hold, not how
+	// far a collector starved of CPU lags behind the allocation. At
+	// GOGC=100 a loaded host saw peaks of 58 and 174 MB with every value
+	// its own (I19 full r3). Kept windows (about 40 MiB) outgrow the limit
+	// and the bound.
+	run.Env = append(os.Environ(), "GOMAXPROCS=1", "GOGC=off", "GOMEMLIMIT=16MiB")
 	run.Stdin = in
 	out.Reset()
 	run.Stdout, run.Stderr = &out, &out
