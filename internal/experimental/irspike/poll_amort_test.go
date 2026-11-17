@@ -31,8 +31,8 @@ import (
 //
 // Mutants: poll-amort-reset-doubled (the count restarts at 2*PollEvery),
 // poll-amort-counter-per-loop (each loop counts apart), poll-amort-loud
-// (a loop with an impure call amortized), poll-amort-off (no loop
-// amortized) and poll-amort-continue-each (a continue checks every time).
+// (a loop with an impure call amortized) and poll-amort-off (no loop
+// amortized).
 // A failing seed prints the Ergo source, the function, n, the counts and
 // the replay command.
 func TestIRPollAmortBound(t *testing.T) {

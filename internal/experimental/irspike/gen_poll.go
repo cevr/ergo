@@ -7,7 +7,7 @@ import (
 )
 
 // GeneratePoll is a program of loop nests for POLL-AMORT's counted law
-// (TestIRPollAmortBound): functions nestN(n int) int needs Console, each
+// (TestIRPollAmortBound): functions nestN, which need Console; each is
 // a nest of count and while loops, up to three deep, whose bodies fold
 // into acc through mix, a pure function, and may continue or break. A
 // nest is quiet (every call pure) unless the generator gave one of its
