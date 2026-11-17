@@ -1,7 +1,9 @@
 // Package strconv converts between text and numbers (docs/spec/stdlib.md,
 // strings and strconv). The formatters call Go's strconv through import go,
-// as a user binds it (NP4f); the readers and appenders bind runtime/v1
-// bodies (runtime/v1/text.go) until NP4f-5 and NP4f-7. Go's one error,
+// as a user binds it (NP4f); ParseBool is an Ergo match, and the other
+// readers and the appenders bind runtime/v1 bodies (runtime/v1/text.go)
+// until import go reads Go's ErrRange (GBX3), a catch of go.Error stops
+// boxing Go's error (Unquote) and the appender fact lands (FK2). Go's one error,
 // a *NumError with ErrSyntax or ErrRange, is two failures here, so a
 // caller tells "not a number" from "too big" with a match.
 
@@ -39,10 +41,16 @@ extern go ergo.local/prototype/runtime/v1.StrconvParseInt func ParseInt(s string
 extern go ergo.local/prototype/runtime/v1.StrconvParseFloat func ParseFloat(s string) float64 fails Malformed | OutOfRange
 
 // ParseBool is the bool in s: 1, t, T, TRUE, true, True, 0, f, F, FALSE,
-// false or False. Any other text fails Malformed.
+// false or False. Any other text fails Malformed. It is Go's ParseBool
+// as an Ergo match: Go's failure is a *NumError it allocates, which a
+// catch of go.Error would box again (NP4f-5 counts).
 func ParseBool(s string) bool fails Malformed {
-	strconv.ParseBool(s) catch {
-	case go.Error:
+	match s {
+	case "1", "t", "T", "TRUE", "true", "True":
+		true
+	case "0", "f", "F", "FALSE", "false", "False":
+		false
+	case _:
 		return Malformed{Text: s}
 	}
 }
@@ -73,12 +81,7 @@ func Quote(s string) string { strconv.Quote(s) }
 
 // Unquote is the value of the Go string, rune or raw string literal s.
 // Text that is not one fails Malformed.
-func Unquote(s string) string fails Malformed {
-	strconv.Unquote(s) catch {
-	case go.Error:
-		return Malformed{Text: s}
-	}
-}
+extern go ergo.local/prototype/runtime/v1.StrconvUnquote func Unquote(s string) string fails Malformed
 
 // The round trips of strconv (docs/spec/stdlib.md, Std laws).
 

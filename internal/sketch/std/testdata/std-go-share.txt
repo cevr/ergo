@@ -228,6 +228,7 @@ strconv	Malformed	type
 strconv	OutOfRange	type
 strconv	ParseFloat	library	GBX3: OutOfRange is Go's ErrRange, a package variable go.Is cannot name until import go binds it
 strconv	ParseInt	library	GBX3: OutOfRange is Go's ErrRange, a package variable go.Is cannot name until import go binds it
+strconv	Unquote	library	GOERR-BOX: Go's Unquote fails with an error that a catch of go.Error boxes into go.Error (runtime.convT per failure), counted 1.182x the body (NP4f-5 receipt-1); an Ergo body is Go's unquote and UnquoteChar, not tried
 strings	Borrow	provider
 strings	Give	provider
 strings	Hint	provider
