@@ -131,6 +131,14 @@ func BuildInFold() bool { return false }
 //ergo:wait none
 func BuildKnown[T any](x T) bool { return false }
 
+// BuildHole is std build's Hole: whether x is a template's hole. A built
+// program holds none; in a fold the evaluator answers (eval natives,
+// build.Hole).
+//
+//ergo:pure
+//ergo:wait none
+func BuildHole[T any](x T) bool { return false }
+
 // StringsBuilderAppendBytes is buf with the bytes of bs added, as Go's
 // append(buf, bs...).
 //

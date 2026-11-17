@@ -25,6 +25,12 @@ extern go ergo.local/prototype/runtime/v1.BuildInFold func InFold() bool
 // the run knows (a hole).
 extern go ergo.local/prototype/runtime/v1.BuildKnown func Known[T](x T) bool
 
+// Hole is whether x, as a whole, is a template's hole: a value only the
+// run knows, where Known is false when any part of x is one. It is false
+// in a built program. A function asks it to place a hole in its result
+// as it is, where it would read a value it holds.
+extern go ergo.local/prototype/runtime/v1.BuildHole func Hole[T](x T) bool
+
 // twice is s twice, by + in a fold and through a builder in a built
 // program: the shape the rule asks for, and BranchesAgree its law.
 func twice(s string) string {
@@ -43,6 +49,6 @@ func foldTwice(s string) string { s + s }
 // BranchesAgree: twice's two branches give the same string.
 law BranchesAgree(s string) { twice(s) == foldTwice(s) }
 
-// BuiltKnowsNoFold: a built program runs in no fold and knows no value
-// at build time.
-law BuiltKnowsNoFold(x int, s string) { !InFold() && !Known(x) && !Known(s) }
+// BuiltKnowsNoFold: a built program runs in no fold, knows no value at
+// build time and holds no hole.
+law BuiltKnowsNoFold(x int, s string) { !InFold() && !Known(x) && !Known(s) && !Hole(x) && !Hole(s) }

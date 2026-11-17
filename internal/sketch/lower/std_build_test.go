@@ -28,7 +28,7 @@ func foldTwice(s string) string { s + s }
 
 func lawBranchesAgree(s string) bool { twice(s) == foldTwice(s) }
 
-func lawBuiltKnowsNoFold(x int, s string) bool { !build.InFold() && !build.Known(x) && !build.Known(s) }
+func lawBuiltKnowsNoFold(x int, s string) bool { !build.InFold() && !build.Known(x) && !build.Known(s) && !build.Hole(x) && !build.Hole(s) }
 
 test BuildBranchesAgree(s string) {
 	assert lawBranchesAgree(s)
@@ -43,7 +43,7 @@ test BuildBuiltKnowsNoFold(x int, s string) {
 // ledger writes it, by ledger key.
 var stdBuildLawStatements = map[string]string{
 	"build BranchesAgree":    `BranchesAgree(s string) { twice(s) == foldTwice(s) }`,
-	"build BuiltKnowsNoFold": `BuiltKnowsNoFold(x int, s string) { !InFold() && !Known(x) && !Known(s) }`,
+	"build BuiltKnowsNoFold": `BuiltKnowsNoFold(x int, s string) { !InFold() && !Known(x) && !Known(s) && !Hole(x) && !Hole(s) }`,
 }
 
 // TestStdBuildLawsRun runs the probe's tests with --seed 1; lawledger.Run

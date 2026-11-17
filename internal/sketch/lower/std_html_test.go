@@ -439,6 +439,15 @@ func lawStaticIsItsTree(a string, c string, k string) bool {
 	html.Static(frozen) && !html.Static(deferred) && html.Render(frozen) == html.Render(tree) && html.Render(tree) == html.Render(deferred) && html.Render(html.Doc(frozen)) == html.Render(html.Doc(deferred)) && html.Render(html.Doc(tree)) == html.Render(html.Doc(deferred))
 }
 
+func lawTemplateIsItsTree(a string, c string, k string) bool {
+	let kids = []html.Child{html.Text(a), html.Class(k), html.P([]html.Child{html.Text(c), html.Int(len(c))}), html.Flag(c), html.Br([]html.Attr{html.Id(k), html.Flag(a)}), html.Raw(html.Trust(c)), html.When(a == c, html.Text(k))}
+	let inner = html.Template(html.Trust("<p"), []html.Child{html.Text(c), html.Id(a)}, html.Trust(">"), html.Trust("</p>"))
+	let t = html.Template(html.Trust("<div"), kids.Append(inner), html.Trust(">"), html.Trust("</div>"))
+	let tree = html.Div(kids.Append(html.P([]html.Child{html.Text(c), html.Id(a)})))
+	let br = html.Template(html.Trust("<br"), []html.Child{html.Id(k), html.Flag(a)}, html.Trust("/>"), html.Trust(""))
+	!html.Static(t) && html.Render(t) == html.Render(tree) && html.Render(br) == html.Render(html.Br([]html.Attr{html.Id(k), html.Flag(a)})) && html.Render(html.Doc(t)) == html.Render(html.Doc(tree)) && html.Render(html.Template(html.Trust("<!DOCTYPE html>"), []html.Child{tree}, html.Trust(""), html.Trust(""))) == html.Render(html.Doc(tree))
+}
+
 func lawLinksRefuseScripts(pick int, s string) bool {
 	let k = ((pick % 6) + 6) % 6
 	let bad = []string{"javascript:", "JaVaScRiPt:", " \t java\tscript:", "jav\nascript:", "data:text/html,", "VBScript:"}[k]
@@ -489,6 +498,10 @@ test HtmlStaticIsItsTree(a string, c string, k string) {
 	assert lawStaticIsItsTree(a, c, k)
 }
 
+test HtmlTemplateIsItsTree(a string, c string, k string) {
+	assert lawTemplateIsItsTree(a, c, k)
+}
+
 test HtmlLinksRefuseScripts(pick int, s string) {
 	assert lawLinksRefuseScripts(pick, s)
 }
@@ -504,6 +517,7 @@ var stdHTMLLawStatements = map[string]string{
 	"html TextIsInert":        `TextIsInert(s string, t string) { let x = s + "<a href=\"x\" title='y'>&amp;</a>" + t let e = Escape(x) let text = Render(Text(x)) let attr = Render(Span([]Child{Class(x)})) inert(e) && unescape(e) == x && text == e && attr == "<span class=\""+e+"\"></span>" }`,
 	"html RenderIsAppend":     `RenderIsAppend(a string, c string, k string) { let ta = Render(Text(a)) let tc = Render(Text(c)) let ek = Escape(k) let list = Render(Each([]string{a, c}, Text)) let div = Render(Div([]Child{Text(a), Class(k), Text(c), Id(k)})) let br = Render(Br([]Attr{Class(k)})) let doc = Render(Doc(P([]Child{When(a == c, Text(a)), Int(len(a))}))) list == ta+tc && div == "<div class=\""+ek+"\" id=\""+ek+"\">"+ta+tc+"</div>" && br == "<br class=\""+ek+"\"/>" && doc == "<!DOCTYPE html><p>"+(if a == c { ta } else { "" })+"\(len(a))</p>" }`,
 	"html StaticIsItsTree":    `StaticIsItsTree(a string, c string, k string) { let kids = []Child{Text(a), Class(k), P([]Child{Text(c), Int(len(c))}), Br([]Attr{Id(k)}), Raw(Trust(c)), When(a == c, Text(k)), Script([]Attr{Type(k)}, Trust(c))} let mut late = []Child{} for x in kids { match x { case Attr as at: late = late.Append(at) case Node as n: late = late.Append(Each([]int{0}, func(i int) Node { n })) } } let tree = Div(kids) let deferred = Div(late) let frozen = Raw(Trust(Render(tree))) Static(frozen) && !Static(deferred) && Render(frozen) == Render(tree) && Render(tree) == Render(deferred) && Render(Doc(frozen)) == Render(Doc(deferred)) && Render(Doc(tree)) == Render(Doc(deferred)) }`,
+	"html TemplateIsItsTree":  `TemplateIsItsTree(a string, c string, k string) { let kids = []Child{Text(a), Class(k), P([]Child{Text(c), Int(len(c))}), Flag(c), Br([]Attr{Id(k), Flag(a)}), Raw(Trust(c)), When(a == c, Text(k))} let inner = Template(Trust("<p"), []Child{Text(c), Id(a)}, Trust(">"), Trust("</p>")) let t = Template(Trust("<div"), kids.Append(inner), Trust(">"), Trust("</div>")) let tree = Div(kids.Append(P([]Child{Text(c), Id(a)}))) let br = Template(Trust("<br"), []Child{Id(k), Flag(a)}, Trust("/>"), Trust("")) !Static(t) && Render(t) == Render(tree) && Render(br) == Render(Br([]Attr{Id(k), Flag(a)})) && Render(Doc(t)) == Render(Doc(tree)) && Render(Template(Trust("<!DOCTYPE html>"), []Child{tree}, Trust(""), Trust(""))) == Render(Doc(tree)) }`,
 	"html LinksRefuseScripts": `LinksRefuseScripts(pick int, s string) { let k = ((pick % 6) + 6) % 6 let bad = []string{"javascript:", "JaVaScRiPt:", " \t java\tscript:", "jav\nascript:", "data:text/html,", "VBScript:"}[k] let good = []string{"/", "https://", "http://", "mailto:", "tel:", "#"}[k] let kept = ParseURL(good + "x" + s) catch { case UnsafeURL: return false } let local = URLText(LocalURL(s)) let near = URLText(LocalURL(strings.Slice("\t//\\/", k%3, 5) + s)) refused(bad+s) && URLText(kept) == good+"x"+s && Scheme(local) == "" && strings.HasPrefix(local, "/") && !strings.HasPrefix(local, "//") && !strings.HasPrefix(local, "/\\") && !strings.HasPrefix(near, "//") && !strings.HasPrefix(near, "/\\") }`,
 	"html RenderParsesBack":   `RenderParsesBack(seed int) { let mut r = trng{x: (seed%2147483648 + 2147483648) % 2147483648} let mut unsafe = 0 let b = tkids(&r, 0, &unsafe) let markup = Render(Div(b.kids)) let doc = Render(Doc(Body(b.kids))) let want = []tnode{tel{tag: "div", attrs: []tattr{}, kids: b.model}} let wantDoc = []tnode{tel{tag: "body", attrs: []tattr{}, kids: b.model}} let got = tparse(markup) let gotDoc = tparse(strings.TrimPrefix(doc, "<!DOCTYPE html>")) let back = match got { case Some[[]tnode] as t: sameNodes(t.Value, want) case None: false } let backDoc = match gotDoc { case Some[[]tnode] as t: sameNodes(t.Value, wantDoc) case None: false } back && backDoc && strings.HasPrefix(doc, "<!DOCTYPE html>") && unsafe == 0 }`,
 }

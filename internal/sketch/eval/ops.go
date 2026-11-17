@@ -46,6 +46,7 @@ func (in *interp) binop(fr *frame, at syntax.Node, op syntax.Token, a, b Value) 
 		_, sa := a.(string)
 		_, sb := b.(string)
 		if op != syntax.ADD || !(sa || stringTerm(a)) || !(sb || stringTerm(b)) {
+			in.sym.blame(a, b)
 			return nil, fr.abrupt(ctlUnsupported, at, nil, frameName(fr)+" computes with a symbol at "+in.siteText(fr, at.Pos()))
 		}
 		if ab := in.charge(fr, at, 1); ab != nil {

@@ -60,6 +60,7 @@ var bodyTable = []bodyRow{
 	{"Bool.Load", bodyFact{body: Body{Hidden: []Hidden{"task"}, Results: []string{"bool"}, Wait: "none", Package: Path}}},
 	{"Bool.Store", bodyFact{body: Body{Hidden: []Hidden{"task"}, Params: []Param{{Type: "bool"}}, Wait: "none", Package: Path}}},
 	{"Bool.Swap", bodyFact{body: Body{Hidden: []Hidden{"task"}, Params: []Param{{Type: "bool"}}, Results: []string{"bool"}, Wait: "none", Package: Path}}},
+	{"BuildHole", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "T"}}, Results: []string{"bool"}, Pure: true, Wait: "none", Package: Path}}},
 	{"BuildInFold", bodyFact{body: Body{Results: []string{"bool"}, Pure: true, Wait: "none", Package: Path}}},
 	{"BuildKnown", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "T"}}, Results: []string{"bool"}, Pure: true, Wait: "none", Package: Path}}},
 	{"ByteAt", bodyFact{body: Body{Params: []Param{{Type: "string"}, {Type: "int"}}, Results: []string{"byte"}, Package: Path}}},
