@@ -27,6 +27,8 @@ type Parsed {
 	cmts    Comments,
 	gFirst  []int,
 	gLast   []int,
+	// cmt0 is the start of the first comment, -1 for none.
+	cmt0 int,
 }
 
 // parser is the state of one parse: the token columns, the position in
@@ -126,6 +128,7 @@ func Parse(src string) Parsed {
 	// A failure reports its line and column, from a line table built for it
 	// alone; a parse that succeeds builds none.
 	let pos = if p.failed { PositionOf(LinesOf(src), p.eoff) } else { Position{Line: 0, Column: 0} }
+	let c0 = if NumComments(p.cmts) > 0 { cmtStart(&p, 0) } else { -1 }
 	Parsed{
 		Tree:    p.t,
 		Failed:  p.failed,
@@ -142,6 +145,7 @@ func Parse(src string) Parsed {
 		cmts:    p.cmts,
 		gFirst:  p.gFirst,
 		gLast:   p.gLast,
+		cmt0:    c0,
 	}
 }
 

@@ -3,10 +3,7 @@ import dense
 // The readers of a parse: its tokens, comment groups and node spans. A
 // token is its index; a position is a byte offset.
 
-func parsedToks(p Parsed) tokens {
-	let c0 = if NumComments(p.cmts) > 0 { CommentStart(p.cmts, CommentAt(p.cmts, 0)) } else { -1 }
-	tokens{src: p.src, kinds: p.kinds, starts: p.starts, ends: p.ends, cmt0: c0}
-}
+func parsedToks(p Parsed) tokens { tokens{src: p.src, kinds: p.kinds, starts: p.starts, ends: p.ends, cmt0: p.cmt0} }
 
 // TokPos is the offset of token j.
 func TokPos(p Parsed, j int) int { int(p.starts[j]) }
@@ -17,7 +14,7 @@ func TokKind(p Parsed, j int) uint8 { uint8(p.kinds[j]) }
 // TokText is the source text of token j (a raw string without carriage
 // returns).
 func TokText(p Parsed, j int) string {
-	let s = p.src[int(p.starts[j]):tokEnd(parsedToks(p), j)]
+	let s = p.src[int(p.starts[j]):int(p.ends[j])]
 	if uint8(p.kinds[j]) == String && len(s) > 0 && s[0] == '`' {
 		return dropCR(s)
 	}
@@ -67,7 +64,7 @@ func NodeEnd(p Parsed, id dense.ID[Node]) int { endOf(p.Tree, parsedToks(p), uin
 func SourceOf(p Parsed) string { p.src }
 
 // TokEnd is the offset after token j.
-func TokEnd(p Parsed, j int) int { tokEnd(parsedToks(p), j) }
+func TokEnd(p Parsed, j int) int { int(p.ends[j]) }
 
 // TokAtOrAfter is the first token that starts at or after offset at,
 // inserted semicolons included.
