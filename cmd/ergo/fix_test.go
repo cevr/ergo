@@ -43,6 +43,54 @@ func TestFixCheckWritesNothing(t *testing.T) {
 	}
 }
 
+// TestFixLeavesTheFolderAsItWas runs ergo fix on a program in a folder of
+// its own, its file private (0o600): the fix writes the clause, the file
+// keeps its mode, and the folder holds the same names as before: the
+// apply lock and journal are in the user's cache folder (SEM4c round 2).
+// Mutants (cmd/ergo ledger): sem4c-fix-state-in-folder (the lock in the
+// folder's .ergo), sem4c-exchange-drops-mode (Exchange without keepMode).
+func TestFixLeavesTheFolderAsItWas(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.ergo")
+	const src = "type Bad {}\n\nfunc leaf() int fails Bad {\n\t1\n}\n\nfunc helper() int {\n\ttry leaf()\n}\n\nfunc main() {}\n"
+	if err := os.WriteFile(path, []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	names := func() []string {
+		var out []string
+		err := filepath.WalkDir(dir, func(p string, _ os.DirEntry, err error) error {
+			out = append(out, p)
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	was := names()
+	if err := command([]string{"fix", path, "--json"}); err != nil {
+		t.Fatalf("fix: %v", err)
+	}
+	if got, _ := os.ReadFile(path); !strings.Contains(string(got), "func helper() int fails Bad {") {
+		t.Fatalf("fix wrote:\n%s", got)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("after fix the file's mode is %v, want 0600", info.Mode().Perm())
+	}
+	if now := names(); strings.Join(now, "\n") != strings.Join(was, "\n") {
+		t.Errorf("after fix the folder holds\n%s\nwant\n%s", strings.Join(now, "\n"), strings.Join(was, "\n"))
+	}
+}
+
 // TestFixWriteRefusesAChangedFile calls ergo fix's write (code.Rewrite,
 // SEM4c) with the text a fix read, after another writer changed one of
 // the two files: the write is refused stale and neither file changes.

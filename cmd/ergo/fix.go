@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -246,8 +248,9 @@ func displayPath(path string) string {
 // (code.Rewrite, SEMTOOLS SEM4c): each is exchanged with its new text in
 // one host call, under the workspace's lock, after a check that every
 // file still holds the text the fix read; a file changed meanwhile is
-// refused Stale and no file is written. The workspace folder is the
-// folder that holds every path.
+// refused Stale and no file is written. Each file keeps its mode. The
+// workspace folder is the folder that holds every path; the lock and the
+// journal are in fixState's folder, so the user's folder gains nothing.
 func writeFixed(before, after map[string]string) error {
 	var paths []string
 	for p, text := range after {
@@ -282,7 +285,11 @@ func writeFixed(before, after map[string]string) error {
 	if err != nil {
 		return err
 	}
-	out, err := code.Rewrite(context.Background(), root, string(b), string(a))
+	state, err := fixState(root)
+	if err != nil {
+		return err
+	}
+	out, err := code.Rewrite(context.Background(), root, state, string(b), string(a))
 	if err != nil {
 		return fmt.Errorf("fix: %w", err)
 	}
@@ -290,4 +297,21 @@ func writeFixed(before, after map[string]string) error {
 		return fmt.Errorf("%s", strings.TrimSpace(strings.Join(out[min(len(out), 2):], "")))
 	}
 	return nil
+}
+
+// fixState is the folder of ergo fix's lock and journal for the workspace
+// folder root: in the user's cache folder, named by root's path, so two
+// fixes of one folder take one lock, a fix that died is undone by the
+// next one, and root gains no file.
+func fixState(root string) (string, error) {
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return "", fmt.Errorf("fix: no cache folder for the apply lock: %w", err)
+	}
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256([]byte(abs))
+	return filepath.Join(cache, "ergo", "fix", hex.EncodeToString(sum[:8])), nil
 }

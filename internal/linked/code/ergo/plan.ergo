@@ -139,7 +139,7 @@ func Apply(root string, plan string) []string needs Ambient {
 	case _:
 		return []string{"1", "", "ergo code apply: the kept plan does not decode\n"}
 	}
-	applied("ergo code apply", root, p)
+	applied("ergo code apply", code.HostFilesOf(fs.NewHost(), root), p)
 }
 
 // Rewrite is `ergo fix`'s write (SEMTOOLS SEM4c): the files of the
@@ -147,7 +147,10 @@ func Apply(root string, plan string) []string needs Ambient {
 // JSON []code.Source, paths relative to root, in one order), written as
 // one plan (code.Rewritten) by std code's apply protocol, so a file that
 // changed since the fix read it is refused Stale and nothing is written.
-func Rewrite(root string, before string, after string) []string needs Ambient {
+// The lock and the journal are in the folder state, outside root
+// (code.HostFilesIn), so the user's folder holds what it held, but for
+// the fixed files; each keeps its mode.
+func Rewrite(root string, state string, before string, after string) []string needs Ambient {
 	let codec = json.Codec[[]code.Source]{MaxBytes: 1 << 40, MaxDepth: 16}
 	let b = json.Decode(codec, before) catch {
 	case _:
@@ -161,13 +164,12 @@ func Rewrite(root string, before string, after string) []string needs Ambient {
 	case code.BadChange as x:
 		return []string{"1", "", "ergo fix: \(x.Reason)\n"}
 	}
-	applied("ergo fix", root, p)
+	applied("ergo fix", code.HostFilesIn(fs.NewHost(), root, state), p)
 }
 
-// applied is p written into root: the exit status, standard output and
-// standard error of the command named by.
-func applied(by string, root string, p code.Planned) []string needs Ambient {
-	let files code.Files = code.HostFilesOf(fs.NewHost(), root)
+// applied is p written through files: the exit status, standard output
+// and standard error of the command named by.
+func applied(by string, files code.Files, p code.Planned) []string {
 	let r = code.ApplierOf(files, code.StoreOf([]code.Planned{p})).Apply(p.ID) catch {
 	case code.NoPlan as n:
 		return []string{"1", "", "\(by): no plan \(n.ID)\n"}

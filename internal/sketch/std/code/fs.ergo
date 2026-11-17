@@ -8,30 +8,50 @@ import sync
 // Apply's exchange-and-verify protocol holds on the disk as on Disk; a
 // host with no atomic exchange fails it IOFailed and Apply refuses, never
 // falling back to renames. Write is fs.WriteFile, a synced new file
-// renamed over the path, and makes the path's missing folders. The lock
-// is an exclusive kernel lock (fs.LockFile, flock) on .ergo/apply.lock,
-// which the host lets go when the process ends, however it ends.
+// renamed over the path, and makes the path's missing folders. Exchange
+// first gives a the permission bits of the file at b, so the file that
+// takes b's place keeps b's mode (SEM4c). The lock is an exclusive kernel
+// lock (fs.LockFile, flock) on LockPath, which the host lets go when the
+// process ends, however it ends.
 //
 // A path is relative to the workspace's folder, "/"-separated, as the
-// plan's files are.
+// plan's files are. A path under ".ergo/" (StateDir: the lock and Apply's
+// journal) is in the state folder instead: the workspace's own .ergo for
+// `ergo code` (HostFilesOf), a folder outside the workspace for `ergo
+// fix` (HostFilesIn), so a fix leaves the user's folder as it found it,
+// but for the fixed files.
 type HostFiles {
-	host fs.Host,
-	root string,
-	lock sync.Ref[Option[fs.FileLock]],
+	host  fs.Host,
+	root  string,
+	state string,
+	lock  sync.Ref[Option[fs.FileLock]],
 } implements Files
 
 // HostFilesOf is the Files of the workspace in the folder root, through
-// host; root "" is the working directory.
+// host, its state in root's .ergo folder; root "" is the working
+// directory.
 func HostFilesOf(host fs.Host, root string) HostFiles {
-	HostFiles{host: host, root: root, lock: sync.NewRef[Option[fs.FileLock]](None)}
+	HostFilesIn(host, root, if root == "" { ".ergo" } else { root + "/.ergo" })
 }
+
+// HostFilesIn is the Files of the workspace in the folder root, through
+// host, with its lock and journal in the folder state.
+func HostFilesIn(host fs.Host, root string, state string) HostFiles {
+	HostFiles{host: host, root: root, state: state, lock: sync.NewRef[Option[fs.FileLock]](None)}
+}
+
+// StateDir is the folder of the paths that are in the state folder.
+let StateDir = ".ergo/"
 
 // LockPath is the file the apply lock is taken on, from the workspace
 // root.
 let LockPath = ".ergo/apply.lock"
 
-// onHost is path in h's folder.
+// onHost is path in h's folder, or in its state folder.
 func onHost(h HostFiles, path string) string {
+	if strings.HasPrefix(path, StateDir) {
+		return h.state + "/" + strings.TrimPrefix(path, StateDir)
+	}
 	if h.root == "" {
 		return path
 	}
@@ -66,11 +86,12 @@ func Write(h HostFiles, path string, text string) fails IOFailed {
 
 // folderOf makes the folders of path that are missing.
 func folderOf(h HostFiles, path string) fails IOFailed {
-	let i = strings.LastIndex(path, "/")
+	let full = onHost(h, path)
+	let i = strings.LastIndex(full, "/")
 	if i <= 0 {
 		return
 	}
-	fs.MkdirAll(h.host, onHost(h, strings.Slice(path, 0, i))) catch {
+	fs.MkdirAll(h.host, strings.Slice(full, 0, i)) catch {
 	case fs.Denied:
 		return ioFailed(path, "permission denied")
 	case fs.Failed as e:
@@ -79,6 +100,7 @@ func folderOf(h HostFiles, path string) fails IOFailed {
 }
 
 func Exchange(h HostFiles, a string, b string) fails Missing | IOFailed {
+	try keepMode(h, a, b)
 	fs.Exchange(h.host, onHost(h, a), onHost(h, b)) catch {
 	case fs.NotFound as m:
 		return Missing{Path: if m.Path == onHost(h, a) { a } else { b }}
@@ -86,6 +108,60 @@ func Exchange(h HostFiles, a string, b string) fails Missing | IOFailed {
 		return ioFailed(a, "permission denied")
 	case fs.Failed as e:
 		return ioFailed(a, e.Reason)
+	}
+}
+
+// keepMode gives the file at a the permission bits of the file at b,
+// when both are there (a missing one is Exchange's to report). Bits that
+// fs.Mode cannot write (write without read for a class) are IOFailed:
+// the mode is kept or nothing is written.
+func keepMode(h HostFiles, a string, b string) fails IOFailed {
+	let info = fs.Stat(h.host, onHost(h, b)) catch {
+	case fs.NotFound:
+		return
+	case fs.Denied:
+		return ioFailed(b, "permission denied")
+	case fs.Failed as e:
+		return ioFailed(b, e.Reason)
+	}
+	let mode = modeOf(info.Perm) catch {
+	case BadMode:
+		return ioFailed(b, "its mode \(info.Perm) is not one fs.Mode writes")
+	}
+	fs.Chmod(h.host, onHost(h, a), mode) catch {
+	case fs.NotFound:
+	case fs.Denied:
+		return ioFailed(a, "permission denied")
+	case fs.Failed as e:
+		return ioFailed(a, e.Reason)
+	}
+}
+
+// BadMode is permission bits that fs.Mode cannot write.
+type BadMode {}
+
+// modeOf is the fs.Mode of the permission bits perm.
+func modeOf(perm int) fs.Mode fails BadMode {
+	fs.Mode{Owner: try accessOf(perm / 64 % 8), Group: try accessOf(perm / 8 % 8), Other: try accessOf(perm % 8)}
+}
+
+// accessOf is the fs.Access of three permission bits.
+func accessOf(bits int) fs.Access fails BadMode {
+	match bits {
+	case 0:
+		fs.NoAccess
+	case 1:
+		fs.Execute
+	case 4:
+		fs.ReadOnly
+	case 5:
+		fs.ReadExecute
+	case 6:
+		fs.ReadWrite
+	case 7:
+		fs.ReadWriteExecute
+	case _:
+		BadMode
 	}
 }
 
