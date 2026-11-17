@@ -91,6 +91,9 @@ type Window struct {
 	width   float64
 	height  float64
 	painted int
+	// opacity multiplies the alpha of what is painted from now on
+	// (SetOpacity); 1 at Begin.
+	opacity float64
 
 	conn *surface.Conn
 	r    raster.Renderer
@@ -115,7 +118,7 @@ type glyphText struct {
 }
 
 func newWindow(width, height float64) *Window {
-	return &Window{wake: make(chan struct{}, 1), start: time.Now(), width: width, height: height, sys: text.Shared()}
+	return &Window{wake: make(chan struct{}, 1), start: time.Now(), width: width, height: height, sys: text.Shared(), opacity: 1}
 }
 
 // Open opens a desktop window of the size, titled title, once MyGo's app
@@ -367,20 +370,21 @@ func (w *Window) Begin() {
 	w.mu.Lock()
 	w.pending, w.glyphs, w.clips, w.access = w.pending[:0], nil, 0, nil
 	w.focus, w.field = 0, platform.TextInputState{}
+	w.opacity = 1
 	w.mu.Unlock()
 }
 
 // Fill paints a rectangle of color 0xRRGGBBAA with corners of radius.
 func (w *Window) Fill(x, y, width, height, radius float64, color uint32) {
 	w.mu.Lock()
-	w.pending = append(w.pending, scene.Op{Kind: scene.OpFill, Rect: rect(x, y, width, height), Transform: scene.Translation(0, 0), Radii: scene.Uniform(float32(radius)), Color: rgba(color)})
+	w.add(scene.Op{Kind: scene.OpFill, Rect: rect(x, y, width, height), Transform: scene.Translation(0, 0), Radii: scene.Uniform(float32(radius)), Color: rgba(color)})
 	w.mu.Unlock()
 }
 
 // Border paints a border of width line inside a rectangle.
 func (w *Window) Border(x, y, width, height, radius, line float64, color uint32) {
 	w.mu.Lock()
-	w.pending = append(w.pending, scene.Op{Kind: scene.OpFill, Rect: rect(x, y, width, height), Transform: scene.Translation(0, 0), Radii: scene.Uniform(float32(radius)), Border: scene.Uniform(float32(line)), BorderColor: rgba(color)})
+	w.add(scene.Op{Kind: scene.OpFill, Rect: rect(x, y, width, height), Transform: scene.Translation(0, 0), Radii: scene.Uniform(float32(radius)), Border: scene.Uniform(float32(line)), BorderColor: rgba(color)})
 	w.mu.Unlock()
 }
 
@@ -404,8 +408,78 @@ func (w *Window) Line(x0, y0, x1, y1, width float64, color uint32) {
 	}
 	hw := width / 2
 	w.mu.Lock()
-	w.pending = append(w.pending, scene.Op{Kind: scene.OpFill, Rect: rect(-hw, -hw, length+width, width), Transform: m, Radii: scene.Uniform(float32(hw)), Color: rgba(color)})
+	w.add(scene.Op{Kind: scene.OpFill, Rect: rect(-hw, -hw, length+width, width), Transform: m, Radii: scene.Uniform(float32(hw)), Color: rgba(color)})
 	w.mu.Unlock()
+}
+
+// add appends a painting op under the opacity in effect; w.mu is held.
+func (w *Window) add(o scene.Op) {
+	if w.opacity < 1 {
+		o.Opacity = float32(max(w.opacity, 1e-6))
+	}
+	w.pending = append(w.pending, o)
+}
+
+// faded is c under the opacity in effect; w.mu is held.
+func (w *Window) faded(c scene.Color) scene.Color {
+	if w.opacity < 1 {
+		c.A = uint8(math.Round(float64(c.A) * w.opacity))
+	}
+	return c
+}
+
+// SetOpacity sets the opacity, from 0 to 1, that multiplies the alpha of
+// what is painted until the next SetOpacity or Begin.
+func (w *Window) SetOpacity(o float64) {
+	w.mu.Lock()
+	w.opacity = min(max(o, 0), 1)
+	w.mu.Unlock()
+}
+
+// Opacity is the opacity in effect.
+func (w *Window) Opacity() float64 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.opacity
+}
+
+// Box paints a rectangle with corners of the radii tl, tr, br and bl (top
+// left, top right, bottom right, bottom left), filled with fill and, when
+// line is positive, a border of width line in lineColor inside its edges,
+// colors 0xRRGGBBAA.
+func (w *Window) Box(x, y, width, height, tl, tr, br, bl float64, fill uint32, line float64, lineColor uint32) {
+	o := scene.Op{Kind: scene.OpFill, Rect: rect(x, y, width, height), Transform: scene.Translation(0, 0), Radii: radii(tl, tr, br, bl), Color: rgba(fill)}
+	if line > 0 {
+		o.Border, o.BorderColor = scene.Uniform(float32(line)), rgba(lineColor)
+	}
+	w.mu.Lock()
+	w.add(o)
+	w.mu.Unlock()
+}
+
+// Shadow paints the shadow of the box at x, y with corner radii tl, tr,
+// br and bl, as CSS's box-shadow does: the box offset by dx, dy, grown by
+// spread, blurred by blur (CSS's blur radius), in color; outside the box,
+// or, inset, inside it.
+func (w *Window) Shadow(x, y, width, height, tl, tr, br, bl, dx, dy, blur, spread float64, color uint32, inset bool) {
+	grow := spread
+	if inset {
+		grow = -spread
+	}
+	r := func(v float64) float64 { return max(v+grow, 0) }
+	o := scene.Op{
+		Kind: scene.OpShadow, Transform: scene.Translation(0, 0),
+		Rect:  rect(x+dx-grow, y+dy-grow, max(width+2*grow, 0), max(height+2*grow, 0)),
+		Radii: radii(r(tl), r(tr), r(br), r(bl)), Blur: float32(blur), Color: rgba(color), Inset: inset,
+		Cast: rect(x, y, width, height), CastRadii: radii(tl, tr, br, bl),
+	}
+	w.mu.Lock()
+	w.add(o)
+	w.mu.Unlock()
+}
+
+func radii(tl, tr, br, bl float64) [4]float32 {
+	return [4]float32{float32(tl), float32(tr), float32(br), float32(bl)}
 }
 
 // Clip clips what follows to a rectangle, within the clip in effect,
@@ -431,7 +505,7 @@ func (w *Window) Unclip() {
 // corner at x, y.
 func (w *Window) Text(x, y float64, s string, size float64, color uint32) {
 	w.mu.Lock()
-	w.glyphs = append(w.glyphs, glyphText{at: len(w.pending), x: float32(x), y: float32(y), s: s, size: float32(size), color: rgba(color)})
+	w.glyphs = append(w.glyphs, glyphText{at: len(w.pending), x: float32(x), y: float32(y), s: s, size: float32(size), color: w.faded(rgba(color))})
 	w.mu.Unlock()
 }
 

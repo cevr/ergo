@@ -104,10 +104,12 @@ need `go.Foreign` (README Gap 17), so `Run` drives the session itself, as
 state `needs MainThread` (H1, not built).
 
 `TestMyGoHostAgreesWithTestHost` builds `cmd/hostagree` and plays seeded
-scene scripts of seven apps on `ui.TestHost` and, through a headless window,
+scene scripts of eight apps on `ui.TestHost` and, through a headless window,
 on the driver: after every step both hold the same tree and app state, and
 each filled node shows its color in the rendered frame where the driver
-laid it out (a canvas's last opaque fill at its centre). In the `list`
+laid it out (a canvas's last opaque fill at its centre; a look's fill
+below its top edge, and the colour under it outside a top-left corner of
+9 or more: `desktop/look.ergo`). In the `list`
 app TestHost takes the viewport the window reports, and each row the
 window wrote must show at the list's top plus its index's rows, less the
 offset. Taps are a press and a release at the node's centre, so they

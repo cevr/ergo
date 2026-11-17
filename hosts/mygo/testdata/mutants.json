@@ -80,6 +80,8 @@
       "to": "}).Grow(1)",
       "rule": "the control's list is a viewport that scrolls (a growing list in a column of no height is as tall as its rows, and never scrolls)",
       "killers": ["hosts/mygo:TestStarsGuiOnTheDesktop"]
-    }
+    },
+    {"name":"UG1-look-fill-dropped","origin":"wf10 UG1","file":"hosts/mygo/desktop/look.ergo","from":"\tif l.Fill.A != 0 || line > 0 {","to":"\tif false {","rule":"the window paints each node's look: its fill shows inside its box","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]},
+    {"name":"UG1-look-corners-square","origin":"wf10 UG1","file":"hosts/mygo/desktop/look.ergo","from":"\t\td.w.Box(x, y, w, h, tl, tr, br, bl,","to":"\t\td.w.Box(x, y, w, h, 0, 0, 0, 0,","rule":"the window rounds a look's box by its corners: outside a round corner the colour under the node shows","killers":["hosts/mygo:TestMyGoHostAgreesWithTestHost"]}
   ]
 }

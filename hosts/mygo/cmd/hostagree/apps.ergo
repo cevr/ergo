@@ -299,3 +299,76 @@ func sketchView(f *ui.Frame[int], s sketch) {
 		}
 	}
 }
+
+// looks (UG1): boxes and buttons with looks of their own, a theme that a
+// tap changes, a shadow in one theme and a dimmed group a tap turns on, so
+// the window paints each look from the tree's table (fills, a border,
+// corners, a shadow, opacity) where both hosts hold the same Looks.
+type looksApp { theme int, dim bool }
+
+func looksStep(s looksApp, e int) Decision[looksApp, int] {
+	if e == 0 {
+		return Enter[looksApp]{Next: looksApp{theme: (s.theme + 1) % 3, dim: s.dim}}
+	}
+	Enter[looksApp]{Next: looksApp{theme: s.theme, dim: !s.dim}}
+}
+
+func looksMachine() Machine[looksApp, int, int] {
+	Machine[looksApp, int, int]{Initial: looksApp{theme: 0, dim: false}, Step: looksStep, After: none[looksApp, int], Work: idle[looksApp, int]}
+}
+
+// looked is a Style of the look l.
+func looked(f *ui.Frame[int], l ui.Look, pad ui.Length) ui.Style {
+	let mut s = ui.Plain()
+	s.Padding = ui.All(pad)
+	s.Look = ui.LookFor(f, ui.Steady(l))
+	s
+}
+
+func looksView(f *ui.Frame[int], s looksApp) {
+	let cards = []uint32{0xdde7f5, 0xf5e6d8, 0xe2f2e2}
+	let accents = []uint32{0x3366cc, 0xcc6633, 0x339944}
+	let mut col = ui.Plain()
+	col.Gap = 12
+	col.Padding = ui.All(16)
+	ui.Column(f, col) {
+		ui.Text(f, "theme \(s.theme)")
+		ui.Pressable(f, "next", 0) {
+			ui.Text(f, "Next")
+		}
+		let mut card = ui.Bare()
+		card.Fill = ui.Rgb(cards[s.theme])
+		card.Corners = ui.Round(12)
+		ui.Box(f, looked(f, card, 12)) {
+			let mut a = ui.Bare()
+			a.Fill = ui.Rgb(accents[s.theme])
+			a.Corners = ui.Round(10)
+			ui.PressableStyled(f, "a", 0, looked(f, a, 0)) {
+				ui.Text(f, "A")
+			}
+		}
+		let mut framed = ui.Bare()
+		framed.Fill = ui.Rgb(0xfafafa)
+		framed.Border = ui.Border{Width: 2, Color: ui.Rgb(accents[s.theme])}
+		framed.Corners = ui.Corners{TopLeft: 4, TopRight: 4, BottomRight: 12, BottomLeft: 12}
+		ui.Box(f, looked(f, framed, 8)) {
+			ui.Text(f, "framed")
+		}
+		let mut b = ui.Bare()
+		b.Fill = ui.Rgb(0xffffff)
+		b.Corners = ui.Round(8)
+		if s.theme == 2 {
+			b.Shadows[0] = ui.Shadow{X: 0, Y: 2, Blur: 6, Spread: 0, Color: ui.Color{R: 0, G: 0, B: 0, A: 64}, Inset: false}
+		}
+		ui.PressableStyled(f, "b", 0, looked(f, b, 0)) {
+			ui.Text(f, "B")
+		}
+		let mut group = ui.Bare()
+		group.Opacity = if s.dim { 0.5 } else { 1.0 }
+		ui.Box(f, looked(f, group, 0)) {
+			ui.Pressable(f, "c", 1) {
+				ui.Text(f, "C")
+			}
+		}
+	}
+}

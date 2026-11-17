@@ -46,6 +46,12 @@ type Driver[S, E, D, F] {
 	height    float32,
 	frames    bool,
 	painted   int,
+	// looked is the looks the last paint painted, under the colour
+	// under the node painting now (None: unknown), shadowed whether it
+	// painted a shadow (look.ergo).
+	looked   []lookProbe,
+	under    Option[uint32],
+	shadowed bool,
 }
 
 // held is a node of the window's tree and its children, in order.
@@ -95,6 +101,9 @@ func start[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D
 		height:    float32(height),
 		frames:    false,
 		painted:   0,
+		looked:    []lookProbe{},
+		under:     None,
+		shadowed:  false,
 	}
 	d.nodes[root] = held[E]{node: ui.BoxNode{Style: ui.Plain()}, kids: []ui.Id[E]{}}
 	try show(&d, first)
@@ -120,6 +129,7 @@ func show[E comparable, S, D, F](d *Driver[S, E, D, F], ops []ui.Op[E]) fails ui
 				d.nodes[x.Id] = held[E]{node: x.Node, kids: h.Value.kids}
 			case None:
 			}
+		case ui.Define:
 		}
 	}
 	let animates = ui.SessionAnimates(&d.session)
@@ -559,23 +569,22 @@ func FocusNode[S, E, D, F](d *Driver[S, E, D, F]) Option[ui.Node[E]] {
 }
 
 // Probe is a place where a node's fill shows, and the fill's color
-// (0xRRGGBBAA): a Pressable's background below its top edge, a checked
-// Check's box, a Toggle's track, a canvas's last opaque fill (canvasProbe).
+// (0xRRGGBBAA): a look's fill below its top edge and the colour under it
+// outside its top-left corner (lookProbes), a checked Check's box, a
+// Toggle's track, a canvas's last opaque fill (canvasProbe).
 type Probe { Label string, X int, Y int, Color uint32 }
 
 // Probes are the probes of the nodes on screen whose probe point no clip
 // cuts, in paint order.
 func Probes[S, E, D, F](d *Driver[S, E, D, F]) []Probe {
-	let mut out = []Probe{}
+	let mut out = lookProbes(d)
 	for s in d.spots {
 		let b = s.box
 		let mut x = b.X + b.W/2
 		let mut y = b.Y + 3
-		let mut color = button
+		let mut color = accent
 		let mut label = ""
 		match s.node {
-		case ui.PressableNode[E] as p:
-			label = p.Label
 		case ui.CheckNode[E] as c:
 			if !c.Checked {
 				continue
