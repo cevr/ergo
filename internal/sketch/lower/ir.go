@@ -371,6 +371,9 @@ type irBuilder struct {
 	params  map[int]bool
 	hoisted map[hoistKey]int
 	entry   []*irStmt
+	// folds are the collects whose slice is only folded, by their collect
+	// loop and their fold loop (ir_collectfold.go).
+	folds map[*syntax.RangeStmt]*foldPlan
 }
 
 // gate stops the body for reason; a census records it and goes on.

@@ -40,16 +40,22 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// loopIdiomIR is the count loop s, built as loop over the Range in the
-// local r (field reads its Start and End), written as its idiom, or nil
-// when s is no fill, move or collect.
-func (b *irBuilder) loopIdiomIR(s *syntax.RangeStmt, lp *check.Loop, loop *irStmt, field func(string) *irExpr) *irStmt {
-	// loops.go: the one decision; a collect appends to a local of the
-	// IR's own, not one in the scalar form.
-	idiom := b.fc.loopIdiomWith(s, lp, func(v *check.Var, _ *syntax.Ident) bool {
+// loopIdiom is the idiom the count loop s is on the IR (loops.go: the one
+// decision), or nil: a collect appends to a local of the IR's own, not
+// one in the scalar form.
+func (b *irBuilder) loopIdiom(s *syntax.RangeStmt, lp *check.Loop) *loopIdiom {
+	return b.fc.loopIdiomWith(s, lp, func(v *check.Var, _ *syntax.Ident) bool {
 		_, known := b.locals[v]
 		return known && b.scalars[v] == nil
 	})
+}
+
+// loopIdiomIR is the count loop s, built as loop over the Range in the
+// local r (field reads its Start and End), written as its idiom, or nil
+// when s is no fill, move or collect. A collect whose slice is only
+// folded (ir_collectfold.go) sets the fold's source instead of the slice.
+func (b *irBuilder) loopIdiomIR(s *syntax.RangeStmt, lp *check.Loop, loop *irStmt, field func(string) *irExpr) []*irStmt {
+	idiom := b.loopIdiom(s, lp)
 	if idiom == nil {
 		return nil
 	}
@@ -100,7 +106,7 @@ func (b *irBuilder) loopIdiomIR(s *syntax.RangeStmt, lp *check.Loop, loop *irStm
 		return &irStmt{K: "expr", Pos: p, X: &irExpr{K: "builtin", Pos: p, Name: name, Args: args}}
 	}
 	var cond *irExpr
-	var then []*irStmt
+	var head, then, els []*irStmt
 	switch idiom.kind {
 	case "fill":
 		a, z := at("Start", idiom.dst, idiom.dstNeg), at("End", idiom.dst, idiom.dstNeg)
@@ -141,7 +147,13 @@ func (b *irBuilder) loopIdiomIR(s *syntax.RangeStmt, lp *check.Loop, loop *irStm
 		cond = bin("&&", bin("&&", bin("&&", guard, in(da, db, idiom.dst)), in(sa, sb, idiom.src)), forward)
 		then = []*irStmt{builtin("copy", part(da, db), part(sa, sb))}
 	case "collect":
-		then = b.collectIR(idiom, elem, p, val, part(at("Start", idiom.src, idiom.srcNeg), at("End", idiom.src, idiom.srcNeg)))
+		q := part(at("Start", idiom.src, idiom.srcNeg), at("End", idiom.src, idiom.srcNeg))
+		if fold := b.folds[s]; fold != nil {
+			head, then, els = b.foldCollect(fold, idiom, elem, p, q, loop) // ir_collectfold.go
+		}
+		if then == nil {
+			then = b.collectIR(idiom, elem, p, val, q)
+		}
 		if then == nil {
 			return nil
 		}
@@ -153,7 +165,10 @@ func (b *irBuilder) loopIdiomIR(s *syntax.RangeStmt, lp *check.Loop, loop *irStm
 	if !clean {
 		return nil
 	}
-	return &irStmt{K: "if", Pos: loop.Pos, End: loop.Pos, X: cond, Then: then, Else: []*irStmt{loop}, ElsePos: loop.Pos, ElseEnd: loop.End}
+	if fold := b.folds[s]; fold != nil && head != nil {
+		fold.done = true // the fold ranges over the source it set
+	}
+	return append(head, &irStmt{K: "if", Pos: loop.Pos, End: loop.Pos, X: cond, Then: then, Else: append([]*irStmt{loop}, els...), ElsePos: loop.Pos, ElseEnd: loop.End})
 }
 
 // collectIR is the collect's call, q (the part Q[a:b]) appended to the

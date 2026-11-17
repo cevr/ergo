@@ -96,6 +96,7 @@ func (b *irBuilder) tailTo(list []syntax.Stmt, ret bool, to *yieldTo) []*irStmt 
 	defer func(saved bool) { b.voidTail = saved }(b.voidTail)
 	for i, s := range list {
 		last := i == len(list)-1
+		b.planFold(list, i) // ir_collectfold.go: a collect only folded next
 		// Only the tail's own branches stay in the tail (failureTail).
 		b.voidTail = voidTail && last && isBranchStmt(s)
 		b.part(func() {
@@ -429,7 +430,7 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		if lp == nil || !goRange(lp.Domain) { // ir_pkg.go
 			b.gate("for-in over a non-slice")
 		}
-		pre, x := b.rangeValue(s.X) // ir_order.go: run once, before the loop
+		pre, x := b.foldRangeValue(s) // ir_collectfold.go: rangeValue (ir_order.go), run once before the loop, unless fused
 		st := &irStmt{K: "range", Pos: b.pos(s, s.Pos()), X: x, End: b.pos(s.Body, s.Body.Rbrace)}
 		bind := func(e syntax.Expr) *int {
 			if !bound(e) {
