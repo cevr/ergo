@@ -382,6 +382,13 @@ func (b *irBuilder) fuseBuild(s *syntax.TypeSwitchStmt, call *syntax.CallExpr, c
 			b.l.info = f.Pkg.Info
 			defer func() { b.l.info = saved }()
 		}
+		if !b.l.isSourced(f.Pkg) {
+			// A std body has no source file: its calls go in no call
+			// table (the text inliner's rule, inline.go).
+			saved := b.fc.directives
+			b.fc.directives = false
+			defer func() { b.fc.directives = saved }()
+		}
 		if b.fc.params == nil {
 			b.fc.params = map[*check.TypeParam]string{}
 		}
