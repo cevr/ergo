@@ -6,6 +6,7 @@
 // the same record; the conformance vectors hold the two equal. JSX is not
 // scanned: a .tsx file's markup reads as code.
 
+import slices
 import strings
 
 // A token's kind. Ident holds names and keywords alike; Literal holds
@@ -147,7 +148,9 @@ func regexEnd(src string, i int) int {
 
 // Scan is the tokens of src, comments included, in order.
 func Scan(src string) []Token {
-	let mut toks = []Token{}
+	// About one token in four bytes: room for that many, so the array
+	// grows once or not at all, as hand Go's make([]T, 0, n).
+	let mut toks = slices.WithCapacity[Token](len(src) / 4)
 	// stack holds one entry per open brace: false for a block or an
 	// object, true for a template substitution.
 	let mut stack = []bool{}
@@ -254,7 +257,7 @@ func IsComment(t Token) bool {
 // a comment, or in it, or after a // comment, is a line break before the
 // next token.
 func Code(src string, toks []Token) []Token {
-	let mut out = []Token{}
+	let mut out = slices.WithCapacity[Token](len(toks))
 	let mut pending = false
 	for t in toks {
 		if IsComment(t) {

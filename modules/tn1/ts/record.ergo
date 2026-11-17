@@ -21,6 +21,7 @@
 //     function, a type, a test or the module's own; each catch block.
 
 import ergo.dev/tn1
+import slices
 import strings
 
 // directives are the openings of a tool's directive comment.
@@ -242,7 +243,7 @@ func FromSource(src string) tn1.Features {
 		}
 	}
 
-	let mut lines = []tn1.Line{}
+	let mut lines = slices.WithCapacity[tn1.Line](n)
 	for l in 0..n {
 		let from = starts[l]
 		let to = if l+1 < n { starts[l+1] - 1 } else { len(src) }
