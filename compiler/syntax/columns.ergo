@@ -20,7 +20,6 @@ import slices
 // A failed parse has no rows, no extra words and no groups; its failure is
 // Parsed's Code, Message, Offset, Length, Line and Column.
 func Columns(p Parsed) []uint32 {
-	let t = parsedToks(p)
 	let ntok = len(p.kinds)
 	let nrows = if p.Failed { 0 } else { p.Tree.n }
 	let nextra = if p.Failed { 0 } else { p.Tree.ne }
@@ -38,9 +37,9 @@ func Columns(p Parsed) []uint32 {
 		out = out.Append(uint32(p.kinds[j]))
 	}
 	out = slices.AppendAll(out, slices.Slice(p.starts, 0, ntok))
-	for j in 0..ntok {
-		out = out.Append(uint32(tokEnd(t, j)))
-	}
+	// The parse stores a failed scan's ILLEGAL and EOF ends too, so the
+	// ends column is tokEnd's.
+	out = slices.AppendAll(out, slices.Slice(p.ends, 0, ntok))
 	for i in 0..nrows {
 		out = out.Append(uint32(p.Tree.kind[i]))
 	}

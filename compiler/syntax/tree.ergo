@@ -79,7 +79,8 @@ let KSkipStmt = uint8(64)
 // the last row. What a and b mean is fixed by the kind; only View and Put
 // read and write them.
 //
-// The columns keep their length apart from their slices (n, ne), so a
+// The row columns keep their length apart from their slices (n), extra is
+// as long as its words (ne), so a record moves to it in one append; a
 // checkpoint is three lengths and a rewind cuts them with no copy; stack
 // is the scratch stack a list is built on (push its items, then move them
 // to extra at once), and Put encodes on it too.
@@ -105,7 +106,7 @@ func NewTree(rows int, words int) Tree {
 		tok:   zeros32(rows + 1),
 		a:     zeros32(rows + 1),
 		b:     zeros32(rows + 1),
-		extra: zeros32(words + 1),
+		extra: slices.WithCapacity[uint32](words + 1),
 		ne:    0,
 		stack: zeros32(256),
 		top:   0,
@@ -144,7 +145,7 @@ func row(t *Tree, kind uint8, tok uint32, a uint32, b uint32) uint32 {
 	uint32(i)
 }
 
-// The columns are as long as their room, so a write is a store: a row
+// The row columns are as long as their room, so a write is a store: a row
 // past the room doubles it (the tree keeps its lengths in n, ne and top).
 func zeros8(n int) []uint8 { slices.Repeat([]uint8{uint8(0)}, n) }
 
@@ -176,22 +177,14 @@ func mark(t Tree) int { t.top }
 func rec(t *Tree, kind uint8, tok uint32, m int) uint32 {
 	let start = t.ne
 	let count = t.top - m
-	for start+count > len(t.extra) {
-		t.extra = slices.AppendAll(t.extra, zeros32(len(t.extra)))
-	}
-	for j in 0..count {
-		t.extra[start+j] = t.stack[m+j]
-	}
+	t.extra = slices.AppendAll(t.extra, t.stack[m:t.top])
 	t.ne = start + count
 	t.top = m
 	row(t, kind, tok, uint32(start), uint32(count))
 }
 
 func putExtra(t *Tree, w uint32) {
-	if t.ne >= len(t.extra) {
-		t.extra = slices.AppendAll(t.extra, zeros32(len(t.extra)))
-	}
-	t.extra[t.ne] = w
+	t.extra = t.extra.Append(w)
 	t.ne = t.ne + 1
 }
 
@@ -207,6 +200,7 @@ func checkpoint(t Tree) Checkpoint { Checkpoint{n: t.n, ne: t.ne, top: t.top} }
 func rewind(t *Tree, c Checkpoint) {
 	t.n = c.n
 	t.ne = c.ne
+	t.extra = t.extra[:c.ne]
 	t.top = c.top
 }
 
@@ -216,6 +210,7 @@ func dropLast(t *Tree) {
 	let i = t.n - 1
 	if t.b[i] > uint32(0) && int(t.a[i])+int(t.b[i]) == t.ne && recorded(t.kind[i]) {
 		t.ne = int(t.a[i])
+		t.extra = t.extra[:t.ne]
 	}
 	t.n = i
 }
