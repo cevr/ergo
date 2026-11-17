@@ -45,11 +45,20 @@ type Typer {
 	fn      int,
 	res     Option[dense.ID[store.TKey]],
 	steps   int,
+	// reserved is the room the package-sized tables were given: entries
+	// and locals (one per row each), and instances (one per call).
+	reserved int,
 }
 
 // Steps is the typer's work: one step per expression typed and per
 // declaration looked up (the counted guard's counter).
 func Steps(t Typer) int { t.steps }
+
+// Reserved is the count of slots Check gives its package-sized tables
+// (Entries and the locals one per row, Insts one per call): the byte
+// guard counts it apart, since its bytes are the package's, not a
+// function's (S3d3).
+func Reserved(t Typer) int { t.reserved }
 
 // fnOf is the index in k.Fns of the function declared at the package node
 // at, -1 when none is.
@@ -93,7 +102,7 @@ func Check(s *store.Store, k Pkg) Typer {
 	for _ in 0..rows {
 		dense.Push(&defs, dense.NoID[store.TKey]())
 	}
-	let mut t = Typer{Entries: slices.WithCapacity[Entry](rows), Insts: slices.WithCapacity[Inst](calls), defs: defs, frame: infer.NewFrame(), file: 0, fn: 0, res: None, steps: 0}
+	let mut t = Typer{Entries: slices.WithCapacity[Entry](rows), Insts: slices.WithCapacity[Inst](calls), defs: defs, frame: infer.NewFrame(), file: 0, fn: 0, res: None, steps: 0, reserved: 2*rows + calls}
 	for i, f in k.Fns {
 		match dense.Unpack(f.Body) {
 		case Some[dense.ID[syntax.Node]] as b:

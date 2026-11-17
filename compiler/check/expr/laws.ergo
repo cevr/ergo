@@ -19,25 +19,26 @@ func shaped(m int) string {
 	b.String()
 }
 
-// typedShape types the package of m shaped functions: the typer's steps
-// and its count of typed expressions.
-func typedShape(m int) (int, int) {
+// typedShape types the package of m shaped functions: the typer's steps,
+// its count of typed expressions and the slots it reserved.
+func typedShape(m int) (int, int, int) {
 	let files = []bind.File{bind.File{Name: "p.ergo", Parsed: syntax.Parse(shaped(m))}}
 	let ps = bind.BuildParents(files)
 	let (bound, u) = bind.Bind(bind.Collect("p", files), []store.Frozen{}, ps, files, 1)
 	let mut s = bound
 	let k = Load(&s, files, u, ps, []types.Ext{}, []types.Foreign{}, false)
 	let t = Check(&s, k)
-	(Steps(t), len(t.Entries))
+	(Steps(t), len(t.Entries), Reserved(t))
 }
 
 // TyperWorkPerFunctionIsConstant: each further function of one shape adds
-// the same steps and the same typed expressions, whatever the package's
-// size, so no expression's typing reads the whole package.
+// the same steps, the same typed expressions and the same reserved slots,
+// whatever the package's size, so no expression's typing reads the whole
+// package and the package-sized tables grow by the function, not faster.
 law TyperWorkPerFunctionIsConstant(n int) {
 	let m = 1 + ((n%3)+3)%3
-	let (s1, e1) = typedShape(m)
-	let (s2, e2) = typedShape(2 * m)
-	let (s3, e3) = typedShape(3 * m)
-	e2 > e1 && s2-s1 == s3-s2 && e2-e1 == e3-e2
+	let (s1, e1, r1) = typedShape(m)
+	let (s2, e2, r2) = typedShape(2 * m)
+	let (s3, e3, r3) = typedShape(3 * m)
+	e2 > e1 && s2-s1 == s3-s2 && e2-e1 == e3-e2 && r2 > r1 && r2-r1 == r3-r2
 }
