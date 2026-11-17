@@ -322,9 +322,9 @@ test PaceDefaultReachesNothing(xs []int, n int) {
 test PaceNextReadLeavesRoom(grown int64, edges int64, room int64) {
 	let g = int64(paceWithin(int(grown % 1000000000), 0, 999999999))
 	let e = int64(paceWithin(int(edges % 1000), 1, 1000))
-	let r = int64(paceWithin(int(room % 1000000000000), -1000, 999999999999))
-	let next = pace.NextRead(g, e, r)
 	let perEdge = if g / e < 1 { int64(1) } else { g / e }
+	let r = perEdge*int64(paceWithin(int(room%1000), -2, 600)) + int64(paceWithin(int(room%7), 0, 6))
+	let next = pace.NextRead(g, e, r)
 	assert 1 <= next && next <= pace.MaxSpan && (next == 1 || g == 0 || next * perEdge <= r / 2)
 }
 
@@ -542,7 +542,7 @@ var stdLawsStatements = map[string]string{
 	"timeout QuickBodyWins":                `QuickBodyWins(n int) { with context { Scheduler: time.NewManual(0) } { try After(1h) { n } == n } }`,
 	"pace Pacing.EdgeKeepsValues":          `EdgeKeepsValues(xs []int, s string) { let kept = xs.Append(len(s)) let text = s + "." Edge() let mut same = len(kept) == len(xs)+1 && kept[len(xs)] == len(s) && text == s+"." for i, x in xs { same = same && kept[i] == x } same }`,
 	"pace DefaultReachesNothing":           `DefaultReachesNothing(xs []int, n int) { let kept = xs.Append(n) with context { Pacing: Default } { for _ in 0..within(n, 0, 64) { Pacing.Edge() } } len(kept) == len(xs)+1 && kept[len(xs)] == n }`,
-	"pace NextReadLeavesRoom":              `NextReadLeavesRoom(grown int64, edges int64, room int64) { let g = int64(within(int(grown%1000000000), 0, 999999999)) let e = int64(within(int(edges%1000), 1, 1000)) let r = int64(within(int(room%1000000000000), -1000, 999999999999)) let next = NextRead(g, e, r) let perEdge = if g/e < 1 { int64(1) } else { g / e } 1 <= next && next <= MaxSpan && (next == 1 || g == 0 || next*perEdge <= r/2) }`,
+	"pace NextReadLeavesRoom":              `NextReadLeavesRoom(grown int64, edges int64, room int64) { let g = int64(within(int(grown%1000000000), 0, 999999999)) let e = int64(within(int(edges%1000), 1, 1000)) let perEdge = if g/e < 1 { int64(1) } else { g / e } let r = perEdge*int64(within(int(room%1000), -2, 600)) + int64(within(int(room%7), 0, 6)) let next = NextRead(g, e, r) 1 <= next && next <= MaxSpan && (next == 1 || g == 0 || next*perEdge <= r/2) }`,
 	"pace CountingCountsEachEdge":          `CountingCountsEachEdge(n int) { let k = within(n, 0, 64) let c = NewCounting() let before = c.Edges() with context { Pacing: c } { for _ in 0..k { Pacing.Edge() } } before == 0 && c.Edges() == int64(k) }`,
 	"trace InnerSpanShadows":               `InnerSpanShadows(outer string, inner string) { with Span(outer) { with Span(inner) { Current() == Some[string]{Value: inner} } } }`,
 	"trace SpanEndRestores":                `SpanEndRestores(name string) { let before = Current() with Span(name) { Current() } Current() == before }`,

@@ -193,13 +193,15 @@ func spanOf(n int64) int64 {
 
 // NextReadLeavesRoom: the next read comes after 1 to MaxSpan edges, and,
 // while the heap grows at the rate seen, before it has grown by more
-// than half of the room left (or at the very next edge).
+// than half of the room left (or at the very next edge). The room is drawn
+// in units of the rate seen, up to past twice MaxSpan, where the span is
+// decided.
 law NextReadLeavesRoom(grown int64, edges int64, room int64) {
 	let g = int64(within(int(grown%1000000000), 0, 999999999))
 	let e = int64(within(int(edges%1000), 1, 1000))
-	let r = int64(within(int(room%1000000000000), -1000, 999999999999))
-	let next = NextRead(g, e, r)
 	let perEdge = if g/e < 1 { int64(1) } else { g / e }
+	let r = perEdge*int64(within(int(room%1000), -2, 600)) + int64(within(int(room%7), 0, 6))
+	let next = NextRead(g, e, r)
 	1 <= next && next <= MaxSpan && (next == 1 || g == 0 || next*perEdge <= r/2)
 }
 
