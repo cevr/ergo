@@ -165,7 +165,7 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 	// Functions on a value's type, the prelude's on slices and Maps,
 	// operations, and fields through a pointer (S3d3): each kind typed
 	// somewhere, since the subset check alone would not see one lost.
-	for _, kind := range []string{"CallExpr method", "CallExpr prelude", "CallExpr op", "SelectorExpr ptrfield"} {
+	for _, kind := range []string{"CallExpr method", "CallExpr prelude", "CallExpr op", "CallExpr capability", "SelectorExpr ptrfield"} {
 		if reach[kind][0] == 0 {
 			t.Errorf("the Ergo side typed no %s", kind)
 		}
@@ -374,7 +374,8 @@ func formOf(pkg *check.Package, x syntax.Expr) string {
 }
 
 // selectorKind is what the selector e names: "pkg", "field", a field
-// through a pointer ("ptrfield"), an operation ("op"), the prelude's
+// through a pointer ("ptrfield"), an operation on a value ("op") or on
+// the capability named ("capability"), the prelude's
 // function on a slice or Map ("prelude"), another function on the value's
 // type ("method"), or "other".
 func selectorKind(pkg *check.Package, e *syntax.SelectorExpr) string {
@@ -406,6 +407,21 @@ func selectorKind(pkg *check.Package, e *syntax.SelectorExpr) string {
 		}
 		switch u.(type) {
 		case *check.Interface:
+			// The capability itself named as the receiver
+			// (Console.Println, io.Stdout.Print), or a value of the
+			// operation type. The checker binds a needed capability's
+			// name to its unexported capBinding, and records no use of
+			// an import's capability (pkg.C).
+			switch x := unparenX(e.X).(type) {
+			case *syntax.Ident:
+				if fmt.Sprintf("%T", pkg.Info.Uses[x]) == "*check.capBinding" {
+					return "capability"
+				}
+			case *syntax.SelectorExpr:
+				if selectorKind(pkg, x) == "pkg" {
+					return "capability"
+				}
+			}
 			return "op"
 		case *check.Slice, *check.Map:
 			return "prelude"
