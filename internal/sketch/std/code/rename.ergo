@@ -139,14 +139,13 @@ func scopeOf(handle string) string {
 // operation and the function of each type that provides its type.
 func familyOf(report Report, d Decl) []Decl {
 	let all = declsByHandle(report)
-	let owner = scopeOf(d.Handle)
 	let mut ops = []string{}
 	if d.Kind == "operation" {
 		ops = []string{d.Handle}
-	} else if d.Kind == "func" && owner != d.Package {
+	} else if d.Kind == "func" {
 		for b in report.Binds {
 			let op = b.Op + "." + d.Name
-			if b.By == owner && maps.GetOr(all, op, d).Kind == "operation" && !has(ops, op) {
+			if providerOf(all, b.By, d.Name) == d.Handle && maps.GetOr(all, op, d).Kind == "operation" && !has(ops, op) {
 				ops = ops.Append(op)
 			}
 		}
@@ -156,7 +155,7 @@ func familyOf(report Report, d Decl) []Decl {
 		let mut members = []string{op}
 		for b in report.Binds {
 			if b.Op == scopeOf(op) {
-				members = members.Append(b.By + "." + d.Name)
+				members = members.Append(providerOf(all, b.By, d.Name))
 			}
 		}
 		for h in members {
@@ -170,6 +169,28 @@ func familyOf(report Report, d Decl) []Decl {
 		}
 	}
 	out
+}
+
+// providerOf is the handle of the function of the type by named name: by
+// and the name when a declaration has that handle (a function whose name
+// its package declares more than once takes its first parameter's type
+// in its handle, as the model's members do), else the package's function
+// of that name, which is by's then, since by provides an operation of
+// that name; "" when there is neither.
+func providerOf(all Map[string, Decl], by string, name string) string {
+	let member = by + "." + name
+	match all.Get(member) {
+	case Some[Decl]:
+		return member
+	case None:
+	}
+	let top = scopeOf(by) + "." + name
+	match all.Get(top) {
+	case Some[Decl] as x:
+		if x.Value.Kind == "func" { top } else { "" }
+	case None:
+		""
+	}
 }
 
 // offsetOf is the offset in file of a 1-based line and column.

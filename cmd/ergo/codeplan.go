@@ -17,6 +17,7 @@ import (
 	"ergo.local/prototype/internal/linked/code"
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/fix"
 	"ergo.local/prototype/internal/sketch/format"
 	"ergo.local/prototype/internal/sketch/syntax"
 	"ergo.local/prototype/internal/sketchfront"
@@ -258,7 +259,7 @@ type (
 		File    string     `json:"file"`
 		Line    int        `json:"line"`
 		Column  int        `json:"column"`
-		Fix     codeFixOpt `json:"fix"`
+		Fix     []codeEdit `json:"fix"`
 	}
 	codeEdit struct {
 		File  string `json:"file"`
@@ -272,24 +273,9 @@ type (
 	}
 )
 
-// codeFixOpt is Option[Edit]'s JSON.
-type codeFixOpt struct{ edit *codeEdit }
-
-func (o codeFixOpt) MarshalJSON() ([]byte, error) {
-	if o.edit == nil {
-		return []byte(`{"_tag":"None"}`), nil
-	}
-	return json.Marshal(struct {
-		Tag   string   `json:"_tag"`
-		Value codeEdit `json:"value"`
-	}{"Some", *o.edit})
-}
-
 // codeReportOf checks sources (module-relative paths and texts) over the
 // workspace w: its fact tables, the extent of each top-level declaration,
-// the diagnostics (each function's clause fixes merged into one edit,
-// and the imports they need into one edit per file, so no two fixes of
-// one check overlap), Code (the root's implementation fingerprint: the
+// the diagnostics with their fixes' edits, Code (the root's implementation fingerprint: the
 // token text of the program, positions and comments left out), the
 // Provides edges, and the workspace's packages.
 func codeReportOf(w codeWorkspace, sources []codeSource) (codeReport, error) {
@@ -408,155 +394,24 @@ func bindsOf(p sketchfront.CheckedPackage, f *syntax.File) []codeBind {
 	return out
 }
 
-// codeDiagnosticsOf is ds as code.Diagnostics. A clause fix (q137) is
-// several insertions: its clause, an own mark per further parameter, a
-// pair of parentheses round a lone function result, and imports at the
-// head of its file. Std code's plan applies one edit per diagnostic and
-// refuses overlaps, so the fixes of one function become one edit (on its
-// first diagnostic), and the imports of one file one edit, on an
-// "imports" diagnostic of their own.
+// codeDiagnosticsOf is ds as code.Diagnostics, each with the edits of
+// its fix, in the order the fixes apply (fix.FixEdits).
 func codeDiagnosticsOf(ds []report.Diagnostic, texts map[string]string) []codeDiagnostic {
-	type fn struct{ file, name string }
-	out := []codeDiagnostic{}
-	fixes := map[fn][]*report.Fix{}
-	first := map[fn]int{}
-	imports := map[string][]string{}
+	var keyed []fix.Diagnostic
 	for _, d := range ds {
-		cd := codeDiagnostic{Code: d.Code, Message: d.Message, File: d.File, Line: d.Span.Line, Column: d.Span.Column}
-		if f := d.Fix; f != nil && f.Text != "" {
-			if f.Clause != "" {
-				k := fn{d.File, f.Function}
-				if _, ok := first[k]; !ok {
-					first[k] = len(out)
-				}
-				fixes[k] = append(fixes[k], f)
-				for _, p := range f.Imports {
-					if !slices.Contains(imports[d.File], p) {
-						imports[d.File] = append(imports[d.File], p)
-					}
-				}
-			} else {
-				cd.Fix.edit = &codeEdit{File: d.File, Start: f.InsertAt, End: f.InsertAt + f.Replace, Text: f.Text}
-			}
+		keyed = append(keyed, fix.Diagnostic{File: d.File, Diagnostic: d})
+	}
+	ordered, edits, err := fix.FixEdits(texts, keyed)
+	if err != nil {
+		ordered, edits = keyed, make([][]fix.Edit, len(keyed))
+	}
+	out := []codeDiagnostic{}
+	for i, d := range ordered {
+		cd := codeDiagnostic{Code: d.Code, Message: d.Message, File: d.File, Line: d.Span.Line, Column: d.Span.Column, Fix: []codeEdit{}}
+		for _, e := range edits[i] {
+			cd.Fix = append(cd.Fix, codeEdit(e))
 		}
 		out = append(out, cd)
 	}
-	for k, fs := range fixes {
-		if e, ok := clauseEdit(k.file, texts[k.file], fs); ok {
-			out[first[k]].Fix.edit = &e
-		}
-	}
-	files := make([]string, 0, len(imports))
-	for f := range imports {
-		files = append(files, f)
-	}
-	slices.Sort(files)
-	for _, file := range files {
-		if e, ok := importEdit(file, texts[file], imports[file]); ok {
-			out = append(out, codeDiagnostic{Code: "imports", Message: "the clause fixes need " + strings.Join(imports[file], ", "), File: file, Line: 1, Column: 1, Fix: codeFixOpt{&e}})
-		}
-	}
 	return out
-}
-
-// clauseInsert is one insertion of a clause fix.
-type clauseInsert struct {
-	at     int
-	text   string
-	clause string
-}
-
-// clauseEdit is the one edit that makes every insertion of fs (the clause
-// fixes of one function of src): the bytes from the first insertion to
-// the last, with each inserted; at one offset a closing parenthesis goes
-// first, then the clauses fails, needs, takes, as ergo fix wrote them.
-func clauseEdit(file, src string, fs []*report.Fix) (codeEdit, bool) {
-	var ins []clauseInsert
-	seen := map[string]bool{}
-	add := func(at int, text, clause string) {
-		k := fmt.Sprintf("%d\x00%s\x00%s", at, clause, text)
-		if !seen[k] {
-			seen[k] = true
-			ins = append(ins, clauseInsert{at, text, clause})
-		}
-	}
-	for _, f := range fs {
-		add(f.InsertAt, f.Text, f.Clause)
-		for _, at := range f.Owns {
-			add(at, f.Text, f.Clause)
-		}
-		if f.Open > 0 {
-			add(f.Open, "(", "open")
-			add(f.InsertAt, ")", "close")
-		}
-	}
-	if len(ins) == 0 {
-		return codeEdit{}, false
-	}
-	rank := func(c string) int {
-		switch c {
-		case "close":
-			return 0
-		case "fails":
-			return 1
-		case "needs":
-			return 2
-		case "takes", "own":
-			return 3
-		}
-		return 4
-	}
-	slices.SortStableFunc(ins, func(a, b clauseInsert) int {
-		return cmp.Or(cmp.Compare(a.at, b.at), cmp.Compare(rank(a.clause), rank(b.clause)))
-	})
-	lo, hi := ins[0].at, ins[len(ins)-1].at
-	if lo < 0 || hi > len(src) {
-		return codeEdit{}, false
-	}
-	var b strings.Builder
-	at := lo
-	for _, x := range ins {
-		b.WriteString(src[at:x.at])
-		b.WriteString(x.text)
-		at = x.at
-	}
-	b.WriteString(src[at:hi])
-	return codeEdit{File: file, Start: lo, End: hi, Text: b.String()}, true
-}
-
-// importEdit is the edit that imports each of paths src does not import
-// yet: after its last import, or before its first declaration.
-func importEdit(file, src string, paths []string) (codeEdit, bool) {
-	f, err := syntax.Parse(src)
-	if err != nil {
-		return codeEdit{}, false
-	}
-	have := map[string]bool{}
-	var last *syntax.ImportDecl
-	for _, d := range f.Decls {
-		if im, ok := d.(*syntax.ImportDecl); ok {
-			last = im
-			for _, s := range im.Specs {
-				have[strings.Trim(s.Path.Value, `"`)] = true
-			}
-		}
-	}
-	var lines []string
-	for _, p := range paths {
-		if !have[p] {
-			lines = append(lines, "import "+p)
-		}
-	}
-	if len(lines) == 0 {
-		return codeEdit{}, false
-	}
-	if last != nil {
-		at := int(last.End())
-		return codeEdit{File: file, Start: at, End: at, Text: "\n" + strings.Join(lines, "\n")}, true
-	}
-	at := min(int(f.Pos()), len(src))
-	if at == len(src) {
-		return codeEdit{File: file, Start: at, End: at, Text: strings.Join(lines, "\n") + "\n"}, true
-	}
-	return codeEdit{File: file, Start: at, End: at, Text: strings.Join(lines, "\n") + "\n\n"}, true
 }

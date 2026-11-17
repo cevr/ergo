@@ -11,15 +11,17 @@ type Source { File string, Text string }
 // Edit replaces the bytes Start..End of File with Text.
 type Edit { File string, Start int, End int, Text string }
 
-// Diagnostic is one finding of a check, with the edit that fixes it when
-// it has one.
+// Diagnostic is one finding of a check, with the edits that fix it (none
+// when it has no fix). A fix may be several edits: ergo fix's clause fix
+// inserts its clause, an own mark per parameter, parentheses round a lone
+// function result, and imports at the head of its file.
 type Diagnostic {
 	Code    string,
 	Message string,
 	File    string,
 	Line    int,
 	Column  int,
-	Fix     Option[Edit],
+	Fix     []Edit,
 }
 
 // Extent is the bytes Start..End of File that the declaration Handle
@@ -96,7 +98,10 @@ func checkIsDeterministic(seed int) bool needs Checker {
 //     names it.
 //   - Fixes: the fixes of the diagnostics whose code is in Rules (every
 //     code when Rules is empty), applied and checked again until none is
-//     left (at most 8 rounds); fixes that overlap are refused.
+//     left; fixes that overlap are refused, and so are fixes that come
+//     back to sources an earlier round had, or that run MaxFixRounds
+//     rounds. A fix that only adds (ergo fix's clauses: rows only grow)
+//     ends by itself.
 //   - Script: Steps in order, each on the sources the one before made.
 //   - Rename: the declaration at Of, and every site that names it, takes
 //     the name To (rename.ergo).
@@ -106,6 +111,9 @@ type Change = Replace{Of string, Text string}
 	| Fixes{Rules []string}
 	| Script{Steps []Change}
 	| Rename{Of string, To string}
+
+// MaxFixRounds is the most rounds of checks a Fixes plan takes.
+let MaxFixRounds = 1024
 
 // Proof is what a plan claims about behaviour: Alpha, a rename whose
 // tables equal the first under the name map;
@@ -361,15 +369,19 @@ func changed(sources []Source, report Report, c Change, checker Checker) []Sourc
 		try edited(sources, []Edit{deletion(sources, e)})
 	case Fixes as f:
 		let mut cur = sources
-		for round in 0..8 {
+		let mut seen = []string{}
+		for round in 0..MaxFixRounds {
 			let r = if round == 0 { report } else { try checkWith(checker, cur) }
+			let at = revisionOf(cur)
+			if has(seen, at) {
+				return BadChange{Reason: "the fixes reach no fixed point: round \(round) gives the sources of an earlier one"}
+			}
+			seen = seen.Append(at)
 			let mut edits = []Edit{}
 			for d in r.Diagnostics {
 				if len(f.Rules) == 0 || has(f.Rules, d.Code) {
-					match d.Fix {
-					case Some[Edit] as x:
-						edits = edits.Append(x.Value)
-					case None:
+					for e in d.Fix {
+						edits = edits.Append(e)
 					}
 				}
 			}
@@ -378,7 +390,7 @@ func changed(sources []Source, report Report, c Change, checker Checker) []Sourc
 			}
 			cur = try edited(cur, edits)
 		}
-		BadChange{Reason: "the fixes reach no fixed point in 8 rounds"}
+		BadChange{Reason: "the fixes reach no fixed point in \(MaxFixRounds) rounds"}
 	case Script as s:
 		let mut cur = sources
 		for i, step in s.Steps {
@@ -420,8 +432,11 @@ func extentAt(report Report, a string) Extent fails BadChange {
 	BadChange{Reason: "\(d.Handle) has no extent the check gave"}
 }
 
-// edited is sources with edits applied. Two edits of one file that
-// overlap, or that insert at one place, are refused, never merged.
+// edited is sources with edits applied. Edits that are equal are one
+// edit (two fixes that need one import, or one closing parenthesis,
+// make it once). Insertions at one place go in the order of edits. Two
+// other edits of one file that overlap, or an insertion at the start of
+// a replaced range, are refused, never merged.
 func edited(sources []Source, edits []Edit) []Source fails BadChange {
 	let mut out = []Source{}
 	let mut done = 0
@@ -437,11 +452,18 @@ func edited(sources []Source, edits []Edit) []Source fails BadChange {
 			out = out.Append(s)
 			continue
 		}
-		let sorted = slices.SortFunc(mine, func(a Edit, b Edit) int { a.Start - b.Start })
+		let mut unique = []Edit{}
+		for e in mine {
+			if !slices.Contains(unique, e) {
+				unique = unique.Append(e)
+			}
+		}
+		let sorted = slices.SortStableFunc(unique, func(a Edit, b Edit) int { a.Start - b.Start })
 		for i in 1..len(sorted) {
 			let a = sorted[i - 1]
 			let b = sorted[i]
-			if b.Start < a.End || b.Start == a.Start {
+			let inserts = a.Start == a.End && b.Start == b.End
+			if b.Start < a.End || b.Start == a.Start && !inserts {
 				return BadChange{Reason: "edits overlap in \(s.File): \(a.Start)..\(a.End) and \(b.Start)..\(b.End)"}
 			}
 		}
