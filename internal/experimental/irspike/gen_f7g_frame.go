@@ -8,7 +8,10 @@ import (
 
 // frameFuncs are GenerateFrame's functions: each opens a frame scope and
 // has an IR body (FLIP F7 GP-FRAME).
-var frameFuncs = []string{"step", "steps", "guard", "early"}
+// nested is not one: its action registers an action of its own, a frame
+// of a function literal, which the IR does not build yet; the source
+// build runs it beside them.
+var frameFuncs = []string{"step", "steps", "guard", "early", "crash", "badExit"}
 
 // GenerateFrame is a program of bodies that open a frame scope (GP-FRAME):
 // scope.OnExit registers exit actions, which the frame's deferred End runs
@@ -30,13 +33,30 @@ func GenerateFrame(seed uint64) string {
 	b.WriteString("func steps(n int) int needs Console {\n\tlet mut s = 0\n\tfor i in 0..n {\n\t\tscope.OnExit() {\n\t\t\tConsole.Println(\"steps exit \\(i)\")\n\t\t}\n\t\ts = s + i\n\t}\n\ts\n}\n\n")
 	fmt.Fprintf(&b, "func guard(k int) int fails Bad needs Console {\n\tscope.OnExit() {\n\t\tConsole.Println(\"guard exit \\(k)\")\n\t}\n\tif k > %d {\n\t\treturn Bad{N: k}\n\t}\n\tk + 1\n}\n\n", 2+g.n(5))
 	fmt.Fprintf(&b, "func early(n int) int needs Console {\n\tscope.OnExit() {\n\t\tConsole.Println(\"early exit \\(n)\")\n\t}\n\tfor i in 0..n {\n\t\tif i * i > %d {\n\t\t\treturn i\n\t\t}\n\t}\n\t-1\n}\n\n", g.n(30))
+	// The defects (STATIC-EXIT): crash's body raises one after two actions
+	// are registered, badExit's first action raises one; the actions all
+	// run, the defect ends the program, and its report is the same.
+	b.WriteString("func crash(k int) int needs Console {\n\tscope.OnExit() {\n\t\tConsole.Println(\"crash exit a\")\n\t}\n\tscope.OnExit() {\n\t\tConsole.Println(\"crash exit b\")\n\t}\n\tlet xs = []int{1, 2}\n\txs[k]\n}\n\n")
+	b.WriteString("func badExit(k int) int needs Console {\n\tscope.OnExit() {\n\t\tlet ys = []int{1}\n\t\tConsole.Println(\"bad \\(ys[k])\")\n\t}\n\tscope.OnExit() {\n\t\tConsole.Println(\"after bad\")\n\t}\n\tk\n}\n\n")
+	// nested (the general frame scope): an action that registers one.
+	b.WriteString("func nested(k int) int needs Console {\n\tscope.OnExit() {\n\t\tConsole.Println(\"nested outer\")\n\t\tscope.OnExit() {\n\t\t\tConsole.Println(\"nested inner\")\n\t\t}\n\t}\n\tscope.OnExit() {\n\t\tConsole.Println(\"nested last\")\n\t}\n\tk\n}\n\n")
 	b.WriteString("func main() needs Console {\n")
+	fmt.Fprintf(&b, "\tConsole.Println(\"nested \\(nested(%d))\")\n", g.n(9))
 	for i, k := 0, 2+g.n(3); i < k; i++ {
 		fmt.Fprintf(&b, "\tConsole.Println(\"step \\(step(%d))\")\n", g.n(9))
 		fmt.Fprintf(&b, "\tConsole.Println(\"steps \\(steps(%d))\")\n", g.n(5))
 		fmt.Fprintf(&b, "\tlet g%d = guard(%d) catch {\n\tcase Bad as x:\n\t\t-x.N\n\t}\n\tConsole.Println(\"guard \\(g%d)\")\n", i, g.n(9), i)
 		fmt.Fprintf(&b, "\tConsole.Println(\"early \\(early(%d))\")\n", g.n(8))
 	}
-	b.WriteString("}\n")
+	// The last calls: crash and badExit, each at an index in bounds or
+	// out of them (a defect), crash first or second.
+	calls := []string{
+		fmt.Sprintf("\tConsole.Println(\"crash \\(crash(%d))\")\n", []int{1, 5}[g.n(2)]),
+		fmt.Sprintf("\tConsole.Println(\"badExit \\(badExit(%d))\")\n", []int{0, 3}[g.n(2)]),
+	}
+	if g.n(2) == 1 {
+		calls[0], calls[1] = calls[1], calls[0]
+	}
+	b.WriteString(calls[0] + calls[1] + "}\n")
 	return b.String()
 }
