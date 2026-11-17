@@ -18,6 +18,7 @@ import (
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/std/gostd"
 	"ergo.local/prototype/internal/sketch/syntax"
+	"ergo.local/prototype/internal/toolchain"
 	v1 "ergo.local/prototype/runtime/v1"
 )
 
@@ -25,16 +26,23 @@ import (
 // named type it holds.
 type shapeField struct {
 	form   string // "T", "*T", "[]T", "[2]T", "map[string]T", "embed", "*embed"
-	target string // T0…, M or A
+	target string // T0…, M, A or I (a Go interface; forms T, []T and map[string]T)
 }
 
 // shapeModel is a generated Go package of structs T0…Tn-1, M and A. M and
-// A have a memory-only method (a planted gofacts.Effects row); A is listed
-// in v1.GoConcurrentTypes; some Ti have a memory-only method of their own.
+// A have a memory-only method (a planted gofacts.Effects row with a
+// validated guard line); A is listed in v1.GoConcurrentTypes; some Ti have
+// a memory-only method of their own, some a foreign one (no row), and the
+// rest none. I is a Go interface, which some fields hold.
 type shapeModel struct {
 	n       int
 	fields  [][]shapeField
 	planted []bool // Ti has a memory-only row
+	plain   []bool // Ti has a method with no row: it touches the host
+	// promoted is the Ti whose method set has a method promoted from an
+	// embedded field, by Go's rules (go/types): its binding is a method of
+	// Ti with no row of its own, so it touches the host.
+	promoted map[string]bool
 }
 
 var shapeForms = []string{"T", "*T", "[]T", "[2]T", "map[string]T", "embed", "*embed"}
@@ -43,8 +51,10 @@ func newShapeModel(r *rand.Rand) *shapeModel {
 	m := &shapeModel{n: 3 + r.IntN(4)}
 	m.fields = make([][]shapeField, m.n)
 	m.planted = make([]bool, m.n)
+	m.plain = make([]bool, m.n)
 	for i := range m.n {
 		m.planted[i] = r.IntN(6) == 0
+		m.plain[i] = !m.planted[i] && r.IntN(4) == 0
 		embedded := map[string]bool{}
 		for range r.IntN(4) {
 			form := shapeForms[r.IntN(len(shapeForms))]
@@ -59,6 +69,9 @@ func newShapeModel(r *rand.Rand) *shapeModel {
 			}
 			targets = append(targets, "M", "A")
 			target := targets[r.IntN(len(targets))]
+			if (form == "T" || form == "[]T" || form == "map[string]T") && r.IntN(5) == 0 {
+				target = "I" // a Go interface: its methods are foreign
+			}
 			if strings.HasSuffix(form, "embed") {
 				if embedded[target] {
 					continue
@@ -82,7 +95,7 @@ func (m *shapeModel) confined(t string, seen map[string]bool) bool {
 	switch t {
 	case "M":
 		return true
-	case "A":
+	case "A", "I":
 		return false
 	}
 	i, _ := strconv.Atoi(t[1:])
@@ -97,9 +110,33 @@ func (m *shapeModel) confined(t string, seen map[string]bool) bool {
 	return false
 }
 
+// touches is GBX1b's reference: the type named t reaches, through any
+// field of any form, a type with a method that has no memory-only row: its
+// own, one promoted from an embedded field, or a Go interface's. M and A
+// have only memory-only methods, and A's listing stops nothing here.
+func (m *shapeModel) touches(t string, seen map[string]bool) bool {
+	if seen[t] || t == "M" || t == "A" {
+		return false
+	}
+	if t == "I" {
+		return true
+	}
+	seen[t] = true
+	i, _ := strconv.Atoi(t[1:])
+	if m.plain[i] || m.promoted[t] {
+		return true
+	}
+	for _, f := range m.fields[i] {
+		if m.touches(f.target, seen) {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *shapeModel) goSource() string {
 	var b strings.Builder
-	b.WriteString("package shapes\n\ntype M struct{ s uint64 }\n\nfunc (m *M) Step() uint64 { m.s++; return m.s }\n\ntype A struct{ s uint64 }\n\nfunc (a *A) Step() uint64 { return a.s }\n")
+	b.WriteString("package shapes\n\ntype M struct{ s uint64 }\n\nfunc (m *M) Step() uint64 { m.s++; return m.s }\n\ntype A struct{ s uint64 }\n\nfunc (a *A) Step() uint64 { return a.s }\n\ntype I interface{ Step() int }\n")
 	for i, fs := range m.fields {
 		fmt.Fprintf(&b, "\ntype T%d struct {\n\tN int\n", i)
 		for k, f := range fs {
@@ -112,9 +149,27 @@ func (m *shapeModel) goSource() string {
 				fmt.Fprintf(&b, "\tF%d %s\n", k, strings.Replace(f.form, "T", f.target, 1))
 			}
 		}
-		fmt.Fprintf(&b, "}\n\nfunc (t *T%d) Step() int { return t.N }\n", i)
+		b.WriteString("}\n")
+		if m.planted[i] || m.plain[i] {
+			fmt.Fprintf(&b, "\nfunc (t *T%d) Step() int { return t.N }\n", i)
+		}
 	}
 	return b.String()
+}
+
+// newSource makes each Ti with go.New in a function with no row; want is
+// the lines the reference charges go.Foreign at.
+func (m *shapeModel) newSource() (string, map[int]string) {
+	var b strings.Builder
+	b.WriteString("import go shapes\n\n")
+	want := map[int]string{}
+	for i := range m.n {
+		fmt.Fprintf(&b, "func new%d() go.Ref[shapes.T%d] {\n\tgo.New[shapes.T%d]()\n}\n\n", i, i, i)
+		if m.touches("T"+strconv.Itoa(i), map[string]bool{}) {
+			want[4+4*i] = "requires go.Foreign"
+		}
+	}
+	return b.String(), want
 }
 
 // ergoSource captures a go.Ref to each Ti in a task body and makes a
@@ -152,6 +207,27 @@ func (m *shapeModel) ergoSource() (string, map[int]string) {
 // each; the refused lines must be the reference reachability model's.
 // ERGO_SHAPE_SEED=N replays one seed.
 func TestGoConfinementReachesThroughShapes(t *testing.T) {
+	checkShapes(t, "TestGoConfinementReachesThroughShapes", "S108", (*shapeModel).ergoSource, (*shapeModel).confined)
+}
+
+// TestGoNewChargesOnlyHostTouching (GBX1b): go.New of a Go type charges
+// go.Foreign exactly when the type, through the structure GB-RACE2's walk
+// follows, reaches a method with no memory-only row; a type whose
+// reachable methods are all memory-only, or that has none, is made in a
+// frame with no row. Each seed binds the same generated shapes and makes
+// each struct with go.New in a function with no row; the S102 lines must
+// be the reference model's. ERGO_SHAPE_SEED=N replays one seed.
+func TestGoNewChargesOnlyHostTouching(t *testing.T) {
+	checkShapes(t, "TestGoNewChargesOnlyHostTouching", "S102", (*shapeModel).newSource, (*shapeModel).touches)
+}
+
+// checkShapes runs the seeded shape property: for each seed it plants the
+// memory-only rows (gofacts.Effects, each with a validated guard line in
+// the ledger the checker reads) and A's listing, binds the generated Go
+// package, checks program's Ergo source and compares the lines with a
+// diagnostic of code with program's want. It fails when the seeds reach
+// one answer of model only.
+func checkShapes(t *testing.T, name, code string, program func(*shapeModel) (string, map[int]string), model func(*shapeModel, string, map[string]bool) bool) {
 	seeds := []uint64{}
 	if s := os.Getenv("ERGO_SHAPE_SEED"); s != "" {
 		n, err := strconv.ParseUint(s, 10, 64)
@@ -166,28 +242,36 @@ func TestGoConfinementReachesThroughShapes(t *testing.T) {
 	}
 	savedEffects := gofacts.Effects
 	savedConcurrent := v1.GoConcurrentTypes
-	t.Cleanup(func() { gofacts.Effects, v1.GoConcurrentTypes = savedEffects, savedConcurrent })
+	savedLedger := check.FactLedger
+	t.Cleanup(func() {
+		gofacts.Effects, v1.GoConcurrentTypes, check.FactLedger = savedEffects, savedConcurrent, savedLedger
+	})
 	v1.GoConcurrentTypes = map[string]string{"shapes.A": "planted: safe for concurrent use"}
 	for k, v := range savedConcurrent {
 		v1.GoConcurrentTypes[k] = v
 	}
-	confinedSeen, freeSeen := 0, 0
+	yes, no := 0, 0
 	for _, seed := range seeds {
 		m := newShapeModel(rand.New(rand.NewPCG(seed, 0x6b2ace)))
-		gofacts.Effects = append(slices.Clone(savedEffects),
-			gofacts.Effect{Target: "shapes.M.Step", Reason: "planted"},
-			gofacts.Effect{Target: "shapes.A.Step", Reason: "planted"})
+		planted := []gofacts.Effect{{Target: "shapes.M.Step", Reason: "planted"}, {Target: "shapes.A.Step", Reason: "planted"}}
 		for i, p := range m.planted {
 			if p {
-				gofacts.Effects = append(gofacts.Effects, gofacts.Effect{Target: fmt.Sprintf("shapes.T%d.Step", i), Reason: "planted"})
+				planted = append(planted, gofacts.Effect{Target: fmt.Sprintf("shapes.T%d.Step", i), Reason: "planted"})
 			}
 		}
+		gofacts.Effects = append(slices.Clone(savedEffects), planted...)
+		ledger := savedLedger()
+		for _, e := range planted {
+			ledger += "\n" + gofacts.Entry{Key: gofacts.EffectKey(e.Target), Verdict: "validated", By: "planted", With: toolchain.Version, Digest: e.Digest(toolchain.Version)}.Line() + "\n"
+		}
+		check.FactLedger = func() string { return ledger }
 		goSrc := m.goSource()
 		binding := bindShapes(t, goSrc)
 		if strings.Contains(binding, "ergo:refused") {
 			t.Fatalf("seed %d: the binding refuses a generated member; the generator must make only shapes ergo bind maps:\n%s", seed, binding)
 		}
-		src, want := m.ergoSource()
+		m.promoted = promotedMethods(t, goSrc)
+		src, want := program(m)
 		f, err := syntax.Parse(src)
 		if err != nil {
 			t.Fatalf("seed %d: parse: %v\n%s", seed, err, src)
@@ -202,24 +286,24 @@ func TestGoConfinementReachesThroughShapes(t *testing.T) {
 		bad := false
 		for _, d := range ds {
 			w, ok := want[d.Line]
-			if d.Code != "S108" || !ok || !strings.Contains(d.Message, w) {
+			if d.Code != code || !ok || !strings.Contains(d.Message, w) {
 				bad = true
 			}
 			got[d.Line] = d.Message
 		}
 		if bad || len(got) != len(want) {
-			t.Fatalf("seed %d: refused lines %v, want %v\ndiagnostics: %v\nreplay: ERGO_SHAPE_SEED=%d go test -run TestGoConfinementReachesThroughShapes ./internal/sketch/check\n--- shapes.go\n%s\n--- main.ergo\n%s", seed, keysOf(got), keysOf(want), ds, seed, goSrc, src)
+			t.Fatalf("seed %d: %s lines %v, want %v\ndiagnostics: %v\nreplay: ERGO_SHAPE_SEED=%d go test -run '^%s$' ./internal/sketch/check\n--- shapes.go\n%s\n--- main.ergo\n%s", seed, code, keysOf(got), keysOf(want), ds, seed, name, goSrc, src)
 		}
 		for i := range m.n {
-			if m.confined("T"+strconv.Itoa(i), map[string]bool{}) {
-				confinedSeen++
+			if model(m, "T"+strconv.Itoa(i), map[string]bool{}) {
+				yes++
 			} else {
-				freeSeen++
+				no++
 			}
 		}
 	}
-	if len(seeds) > 1 && (confinedSeen == 0 || freeSeen == 0) {
-		t.Fatalf("the seeds reach one answer only: %d confined, %d free", confinedSeen, freeSeen)
+	if len(seeds) > 1 && (yes == 0 || no == 0) {
+		t.Fatalf("the seeds reach one answer only: %d yes, %d no", yes, no)
 	}
 }
 
@@ -229,6 +313,31 @@ func keysOf(m map[int]string) []int {
 		out = append(out, k)
 	}
 	slices.Sort(out)
+	return out
+}
+
+// promotedMethods is the generated types whose pointer's method set has a
+// method promoted from an embedded field, by go/types.
+func promotedMethods(t *testing.T, src string) map[string]bool {
+	t.Helper()
+	fs := token.NewFileSet()
+	f, err := parser.ParseFile(fs, "shapes.go", src, 0)
+	if err != nil {
+		t.Fatalf("parse: %v\n%s", err, src)
+	}
+	pkg, err := (&types.Config{IgnoreFuncBodies: true}).Check("shapes", fs, []*ast.File{f}, nil)
+	if err != nil {
+		t.Fatalf("types: %v\n%s", err, src)
+	}
+	out := map[string]bool{}
+	for _, name := range pkg.Scope().Names() {
+		ms := types.NewMethodSet(types.NewPointer(pkg.Scope().Lookup(name).Type()))
+		for i := range ms.Len() {
+			if len(ms.At(i).Index()) > 1 {
+				out[name] = true
+			}
+		}
+	}
 	return out
 }
 

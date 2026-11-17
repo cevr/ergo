@@ -42,56 +42,89 @@ func goConfinedRef(t *Named) bool {
 	return t.Obj != nil && t.Obj.Pkg.Host() && goReaches(t, map[Type]bool{})
 }
 
-// goReaches reports whether t, through the fields (an embedded one is a
-// field too), elements, Map keys, go.Refs and Options its Ergo form shows,
-// reaches a Go type with a memory-only method that v1.GoConcurrentTypes
-// does not list. A listed type stops the walk: its methods are safe for
-// concurrent use. A field the binding refuses is not reached: no Ergo
-// source can name it, and a Go method that reaches it is foreign or is
+// goReaches reports whether t, through goWalk's structure, reaches a Go
+// type with a memory-only method that v1.GoConcurrentTypes does not list.
+// A listed type stops the walk: its methods are safe for concurrent use.
+// A Go interface has no memory-only method: its methods are foreign. A Go
+// method that reaches a field the binding refuses is foreign or is
 // memory-only itself.
 func goReaches(t Type, seen map[Type]bool) bool {
+	return goWalk(t, seen, func(n *Named) (hit, stop bool) {
+		name := n.Obj.Pkg.Path + "." + n.Obj.Name
+		if v1.GoConcurrentTypes[name] != "" {
+			return false, true
+		}
+		return goMemoryOnly(name), false
+	})
+}
+
+// goTouchesHost reports whether t, through goWalk's structure, reaches a
+// Go type with a host-touching method: one whose binding charges a
+// capability (go.Foreign), or any method of a Go interface, which is
+// foreign (GBX1b). A Go type whose reachable methods are all memory-only
+// rows (atomic.Int64, Bool) or that has none touches no host.
+func (c *checker) goTouchesHost(t Type) bool {
+	return goWalk(t, map[Type]bool{}, func(n *Named) (hit, stop bool) {
+		if asInterface(n) != nil {
+			return true, false
+		}
+		for _, m := range n.origin().mlist {
+			if sig := c.funcSig(m); sig == nil || !sig.Uses.Empty() {
+				return true, false
+			}
+		}
+		return false, false
+	})
+}
+
+// goWalk reports whether t, through the fields (an embedded one is a field
+// too), elements, Map keys, go.Refs and Options its Ergo form shows,
+// reaches a Go type of import go that at reports hit; a Go type at reports
+// stop ends the walk there, and a Go interface's structure is never walked.
+// A field the binding refuses is not reached: no Ergo source can name it.
+func goWalk(t Type, seen map[Type]bool, at func(n *Named) (hit, stop bool)) bool {
 	if t == nil || seen[t] {
 		return false
 	}
 	seen[t] = true
 	switch t := t.(type) {
 	case *Named:
-		if t.Obj != nil && t.Obj.Pkg.Host() && asInterface(t) == nil {
-			name := t.Obj.Pkg.Path + "." + t.Obj.Name
-			if v1.GoConcurrentTypes[name] != "" {
-				return false
-			}
-			if goMemoryOnly(name) {
+		if t.Obj != nil && t.Obj.Pkg.Host() {
+			hit, stop := at(t)
+			if hit {
 				return true
+			}
+			if stop {
+				return false
 			}
 		}
 		for _, a := range t.TArgs {
-			if goReaches(a, seen) {
+			if goWalk(a, seen, at) {
 				return true
 			}
 		}
 		if asInterface(t) != nil {
-			return false // a Go interface's methods are foreign
+			return false
 		}
-		return goReaches(t.underlying(), seen)
+		return goWalk(t.underlying(), seen, at)
 	case *Struct:
 		for _, f := range t.Fields {
-			if goReaches(f.Type, seen) {
+			if goWalk(f.Type, seen, at) {
 				return true
 			}
 		}
 	case *Union:
 		for _, v := range t.Variants {
-			if goReaches(v, seen) {
+			if goWalk(v, seen, at) {
 				return true
 			}
 		}
 	case *Slice:
-		return goReaches(t.Elem, seen)
+		return goWalk(t.Elem, seen, at)
 	case *Array:
-		return goReaches(t.Elem, seen)
+		return goWalk(t.Elem, seen, at)
 	case *Map:
-		return goReaches(t.Key, seen) || goReaches(t.Elem, seen)
+		return goWalk(t.Key, seen, at) || goWalk(t.Elem, seen, at)
 	}
 	return false
 }
