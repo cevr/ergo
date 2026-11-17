@@ -274,6 +274,13 @@ func (b *irBuilder) fuseBuild(s *syntax.TypeSwitchStmt, call *syntax.CallExpr, c
 	var body []*irStmt
 	func() {
 		defer b.l.leave(b.l.enter(f.Decl.Name, f.Pkg))
+		if f.Pkg.Info != b.l.info {
+			// enter keeps the info of a package with no source of its own
+			// (std): the callee's facts are its package's (inline.go).
+			saved := b.l.info
+			b.l.info = f.Pkg.Info
+			defer func() { b.l.info = saved }()
+		}
 		if b.fc.params == nil {
 			b.fc.params = map[*check.TypeParam]string{}
 		}
