@@ -35,9 +35,18 @@ type Entry { At dense.ID[store.PNode], T dense.ID[store.TKey], Fn int }
 // node, its type arguments and the calling function.
 type Inst { At dense.ID[store.PNode], Args []dense.ID[store.TKey], Fn int }
 
+// Diag is a type error the typer found: the expression at At, in the
+// function Fn, has a basic type, or is a constant of a basic kind, that is
+// not the basic type its context assigns it to (types.md, Assignability;
+// the Go checker's S108). The typer reports only what it is sure of: an
+// expression it leaves untyped, or a context of another type, is no
+// diagnostic (S3d5).
+type Diag { At dense.ID[store.PNode], Fn int }
+
 // Typer is the walk's state and result.
 type Typer {
 	Entries []Entry,
+	Diags   []Diag,
 	Insts   []Inst,
 	defs    dense.Col[store.PNode, dense.Opt[store.TKey]],
 	frame   infer.Frame,
@@ -102,7 +111,7 @@ func Check(s *store.Store, k Pkg) Typer {
 	for _ in 0..rows {
 		dense.Push(&defs, dense.NoID[store.TKey]())
 	}
-	let mut t = Typer{Entries: slices.WithCapacity[Entry](rows), Insts: slices.WithCapacity[Inst](calls), defs: defs, frame: infer.NewFrame(), file: 0, fn: 0, res: None, steps: 0, reserved: 2*rows + calls}
+	let mut t = Typer{Entries: slices.WithCapacity[Entry](rows), Diags: []Diag{}, Insts: slices.WithCapacity[Inst](calls), defs: defs, frame: infer.NewFrame(), file: 0, fn: 0, res: None, steps: 0, reserved: 2*rows + calls}
 	for i, f in k.Fns {
 		match dense.Unpack(f.Body) {
 		case Some[dense.ID[syntax.Node]] as b:
@@ -614,8 +623,36 @@ func expr(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], w Want) Opti
 		note(k, t, x, r.Value)
 	case None:
 	}
+	match w {
+	case Exactly as e:
+		if misfits(*s, k, *t, x, e.T, ty) {
+			t.Diags = t.Diags.Append(Diag{At: pnode(k, *t, x), Fn: t.fn})
+		}
+	case _:
+	}
 	ty
 }
+
+// misfits is whether x, typed ty, cannot be assigned to the basic type
+// want: a constant of a kind want does not take (constType gave none), or
+// a typed expression of another basic type. A want that is no basic type,
+// or an x the typer left untyped, is not judged.
+func misfits(s store.Store, k Pkg, t Typer, x dense.ID[syntax.Node], want dense.ID[store.TKey], ty Option[dense.ID[store.TKey]]) bool {
+	let b = basic(s, want)
+	if b <= 0 {
+		return false
+	}
+	match ty {
+	case Some[dense.ID[store.TKey]] as got:
+		let g = basic(s, got.Value)
+		g > 0 && g != b
+	case None:
+		isConst(k, t, x) && constKind(k, t, x) >= 0
+	}
+}
+
+// Diags is the type errors the typer found, in the order it found them.
+func Diags(t Typer) []Diag { t.Diags }
 
 func exprType(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], w Want) Option[dense.ID[store.TKey]] {
 	let p = k.Parsed[t.file]
@@ -683,7 +720,7 @@ func exprType(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], w Want) 
 		case Some[dense.ID[store.TKey]] as a:
 			let kind = store.KindOfType(*s, a.Value)
 			if (kind == store.KSlice || kind == store.KArray) && syntax.Len(ie.Indices) == 1 {
-				expr(s, k, t, syntax.Item(tr, ie.Indices, 0), Exactly{T: store.TBasic(s, bInt)})
+				index(s, k, t, syntax.Item(tr, ie.Indices, 0))
 				let ops = store.OperandsOf(*s, a.Value)
 				out = some(ops[len(ops)-1])
 			}
@@ -703,6 +740,23 @@ func exprType(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], w Want) 
 	case _:
 		walk(s, k, t, x)
 		None
+	}
+}
+
+// index types a slice's index: a constant takes int; a typed index is of
+// any integer type, and one of another basic type is a diagnostic.
+func index(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node]) {
+	if isConst(k, *t, x) {
+		expr(s, k, t, x, Exactly{T: store.TBasic(s, bInt)})
+		return
+	}
+	match expr(s, k, t, x, Free) {
+	case Some[dense.ID[store.TKey]] as it:
+		let b = basic(*s, it.Value)
+		if b > 0 && (b < bInt || b > bUintptr) {
+			t.Diags = t.Diags.Append(Diag{At: pnode(k, *t, x), Fn: t.fn})
+		}
+	case None:
 	}
 }
 
