@@ -3706,10 +3706,10 @@ index 0000000..07c7de5
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_types.go b/src/cmd/compile/internal/noder/ergoir_types.go
 new file mode 100644
-index 0000000..fb97b8e
+index 0000000..5c13196
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_types.go
-@@ -0,0 +1,397 @@
+@@ -0,0 +1,399 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -3940,6 +3940,8 @@ index 0000000..fb97b8e
 +		obj, _ = types2.Universe.Lookup(t.Name()).(*types2.TypeName)
 +	case *types2.Named:
 +		obj = t.Obj()
++	case *types2.TypeParam:
++		obj = t.Obj() // a Slot row's parameter (F error), asserted to (OPC-ADAPT2)
 +	case *types2.Alias:
 +		if t.TypeArgs().Len() == 0 {
 +			obj = t.Obj() // a shared type's alias (ergo_ergoshared)

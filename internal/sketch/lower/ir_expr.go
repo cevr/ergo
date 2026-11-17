@@ -240,6 +240,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			}
 			var values []syntax.Expr
 			var fts []check.Type
+			var names []string
 			for i, e := range x.Elts {
 				name := ""
 				kv, keyed := e.(*syntax.KeyValueExpr)
@@ -266,11 +267,13 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 					}
 				}
 				fts = append(fts, ft)
+				names = append(names, name)
 				lit.Keys = append(lit.Keys, td.fieldName[name])
 			}
 			lit.Elems = b.inOrder(values) // ir_order.go
 			for i, e := range lit.Elems {
-				lit.Elems[i] = b.intoField(values[i], e, fts[i]) // ir_field.go (B-CONVFIELD)
+				lit.Elems[i] = b.intoField(values[i], e, fts[i])                    // ir_field.go (B-CONVFIELD)
+				lit.Elems[i] = b.intoSlot(td, t, names[i], values[i], lit.Elems[i]) // ir_field.go (OPC-ADAPT2)
 			}
 		default:
 			irNo("literal of %T", t)
