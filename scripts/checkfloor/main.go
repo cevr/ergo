@@ -137,8 +137,8 @@ type mode struct {
 
 func run(args []string, log io.Writer) (int, error) {
 	flags := flag.NewFlagSet("checkfloor", flag.ContinueOnError)
-	rounds := flags.Int("rounds", 5, "rounds per program and size")
-	sizes := flags.String("sizes", "200,400,800", "three package sizes, in functions")
+	rounds := flags.Int("rounds", 3, "rounds per program and size (the counted receipt: 5)")
+	sizes := flags.String("sizes", "50,100,200", "three package sizes, in functions (the counted receipt: 200,400,800)")
 	ergo := flags.String("ergo", "bin/ergo", "the ergo command that builds exprprobe")
 	outPath := flags.String("o", "", "the receipt (default: stdout)")
 	memory := flags.Uint64("memory", 4<<30, "each run's memory bound, in bytes")
