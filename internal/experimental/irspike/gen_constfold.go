@@ -17,7 +17,8 @@ import (
 // end in a call of constants that raises a defect (an index out of range),
 // which stays a call; every seed has a call of constants that runs past
 // the fold's budget (spin), which stays as written. main prints each
-// value. The second result reports a seed that ends in a defect.
+// value. lits and recs call an impure function inside list and record
+// literals, so the order their elements run in prints. The second result reports a seed that ends in a defect.
 func GenerateConstFold(seed uint64) (string, bool) {
 	r := rand.New(rand.NewPCG(seed, seed^0x51ed270b2f3a9c4d))
 	g := &cfGen{r: r}
@@ -31,6 +32,11 @@ func GenerateConstFold(seed uint64) (string, bool) {
 	fmt.Fprintf(&b, "func pt(k int, name string) Pt {\n\tlet mut tags = []string{name}\n\tfor i in 0..k %% 4 {\n\t\ttags = tags.Append(\"t\\(i)\")\n\t}\n\tPt{X: k * %d, Y: float64(k) / 4.0, Name: name + \"!\", Tags: tags, On: k > 3, Shape: mk(k)}\n}\n\n", k)
 	b.WriteString("func show(p Pt) string {\n\tlet mut s = \"\\(p.X) \\(p.Y) \\(p.Name) \\(p.On) \\(area(p.Shape))\"\n\tfor t in p.Tags {\n\t\ts = s + \",\" + t\n\t}\n\ts\n}\n\n")
 	b.WriteString("func pick(xs []int, i int) int { xs[i] }\n\n")
+	// Impure calls inside list and record literals (the IR's spill):
+	// noisy prints, so the order of the elements' calls is in the output.
+	b.WriteString("func noisy(n int) int needs Console {\n\tConsole.Println(\"noisy \\(n)\")\n\tn\n}\n\n")
+	fmt.Fprintf(&b, "func lits(n int) []int needs Console {\n\t[]int{noisy(n), n * %d, noisy(n + 1)}\n}\n\n", k)
+	b.WriteString("func recs(n int) Pt needs Console {\n\tlet name = \"r\\(n)\"\n\tPt{X: noisy(n), Y: 0.5, Name: name, Tags: []string{name, name + \"!\"}, On: true, Shape: Circle{R: noisy(n + 1)}}\n}\n\n")
 	b.WriteString("func spin(n int) int {\n\tlet mut s = 0\n\tfor i in 0..n {\n\t\ts = s + i % 7\n\t}\n\ts\n}\n\n")
 	pages := 2 + r.IntN(3)
 	for i := 0; i < pages; i++ {
@@ -50,6 +56,7 @@ func GenerateConstFold(seed uint64) (string, bool) {
 		fmt.Fprintf(&b, "\tlet s%d = pt(%d, %s).Tags\n\tfor t in s%d {\n\t\tConsole.Println(t)\n\t}\n", i, r.IntN(12), g.text(), i)
 		fmt.Fprintf(&b, "\tConsole.Println(\"\\(area(mk(%d)))\")\n", r.IntN(20))
 	}
+	fmt.Fprintf(&b, "\tlet ls = lits(%d)\n\tfor v in ls {\n\t\tConsole.Println(\"\\(v)\")\n\t}\n\tConsole.Println(show(recs(%d)))\n", r.IntN(9), r.IntN(9))
 	fmt.Fprintf(&b, "\tConsole.Println(\"\\(spin(%d))\")\n", 2_000_000+r.IntN(1000))
 	defect := seed%2 == 0
 	idx := r.IntN(3)

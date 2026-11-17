@@ -78,6 +78,9 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"call in an operation's argument", "G2"},
 	{"operation call in a range", "G2"},
 	{"operation call in a condition", "G2"},
+	// A list or record literal's elements spill as a call's operands do
+	// (CF1: compositeLit, ir_expr.go; gen_constfold's lits and recs), so
+	// this reason is left to an impure call below an operator.
 	{"operation call inside an expression", "G2"},
 	{"body that needs a frame", "G2"},
 	{"owned local", "G2"},
