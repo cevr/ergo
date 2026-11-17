@@ -1254,7 +1254,8 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	fc.scalarSet = l.scalarVars(f)
 	if l.ir != nil {
 		// LowerIR and CensusIR only (ir.go): a body in the IR builder's
-		// subset leaves its Go declaration without a body.
+		// subset leaves its Go declaration without a body, or with the
+		// placeholder a generic one needs (ir_placeholder.go).
 		var gates []string
 		for _, g := range []struct {
 			on     bool
@@ -1266,7 +1267,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		}
 		if l.ir.body(fc, fd, params, gates, drop) {
 			fd.lowered, fd.readsEnv = true, fc.env != ""
-			b.WriteString(directive + head.String() + "\n\n")
+			b.WriteString(directive + head.String() + irHeadEnd(fc.goGeneric) + "\n\n") // ir_placeholder.go
 			if owned && !l.ir.ownedWrapper(fc, fd, wrapHead, wrapParams, results, bodyName, typeArgs, args, recvName, site) { // the IR body is bodyName's (ir_own.go ownedBodyName); f's name copies into it
 				l.gen.WriteString(fc.ownedWrapper(f, wrapHead, wrapParams, results, bodyName, typeArgs, args, recvName, site))
 			}

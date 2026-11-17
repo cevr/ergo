@@ -639,7 +639,7 @@ func (st *irState) ownedWrapper(fc *funcCtx, fd *funcDecl, head, params, results
 		name = fd.method.name + "." + name
 	}
 	st.out.Funcs = append(st.out.Funcs, irFunc{Name: name, Pos: p, End: p, Body: []*irStmt{stmt}})
-	fc.l.gen.WriteString("// " + fd.name + " copies its owned arguments into " + bodyName + "; its body is IR (FLIP F7, OWNED-WRAP-IR).\n" + head + params + results + "\n\n")
+	fc.l.gen.WriteString("// " + fd.name + " copies its owned arguments into " + bodyName + "; its body is IR (FLIP F7, OWNED-WRAP-IR).\n" + head + params + results + irHeadEnd(fc.goGeneric) + "\n\n") // ir_placeholder.go (PATCH-MIN M3)
 	return true
 }
 
