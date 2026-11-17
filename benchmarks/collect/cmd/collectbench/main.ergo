@@ -82,6 +82,19 @@ func resliceFieldPart(r int) int {
 	ys[r & 63] + len(ys) + rec.n
 }
 
+// resliceGapPart is reslicePart with a statement between the empty let
+// and the collect (GP-RESLICE-EMPTY).
+func resliceGapPart(r int) int {
+	let src = line(r)
+	let mut ys = []int{}
+	let k = r & 63
+	for i in 8..72 {
+		ys = ys.Append(src[i])
+	}
+	ys = ys.Append(r)
+	ys[k] + len(ys)
+}
+
 func resliceBench(field bool, n int) int {
 	let mut t = 0
 	for r in 0..n / part {
@@ -99,6 +112,12 @@ func bench(kind string, n int) int {
 		resliceBench(false, n)
 	} else if kind == "reslicefield" || kind == "reslicefieldfloor" {
 		resliceBench(true, n)
+	} else if kind == "reslicegap" {
+		let mut t = 0
+		for r in 0..n / part {
+			t = t + resliceGapPart(r)
+		}
+		t
 	} else {
 		partsBench(kind, n)
 	}

@@ -103,11 +103,12 @@ func resliceFieldFloor(r int) int {
 
 func bench(kind string, n int) int {
 	switch kind {
-	case "reslice", "reslicefloor", "reslicefield", "reslicefieldfloor":
+	case "reslice", "reslicefloor", "reslicefield", "reslicefieldfloor", "reslicegap":
 		t := 0
 		for r := 0; r < n/part; r++ {
 			switch kind {
-			case "reslice":
+			case "reslice", "reslicegap":
+				// reslicegap's statement between is the same work in Go.
 				t += reslicePart(r)
 			case "reslicefloor":
 				t += resliceFloor(r)

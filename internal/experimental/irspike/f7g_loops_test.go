@@ -78,6 +78,11 @@ func TestIRCollectFoldsFuse(t *testing.T) {
 //   - f7g-reslice-field-any: every other use of the record counts as
 //     disjoint, so resliceFieldLive and resliceFieldWhole are taken, and
 //     the property's output shows the write.
+//
+// GP-RESLICE-EMPTY's gaps too: f7g-reslice-empty-adjacent (the empty let
+// must be the statement just before; resliceGap copies) and
+// f7g-reslice-empty-written (a write between does not count; resliceGapWritten
+// is taken and drops the element it appended, which the property shows).
 func TestIRCollectsReslice(t *testing.T) {
 	first, count := envInt("ERGO_IRSPIKE_SEED", 1), envInt("ERGO_IRSPIKE_SEEDS", 4)
 	for seed := first; seed < first+count; seed++ {
