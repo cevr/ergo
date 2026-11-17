@@ -203,7 +203,7 @@ func padView(f *ui.Frame[int], s pad) {
 			Some{Value: 3000 + int(w.DY)}
 		case ui.Drag:
 			Some{Value: 4000 + int(p.X)}
-		case ui.Moved:
+		case ui.Moved, ui.PointerEnter, ui.PointerLeave:
 			None
 		}
 	}) {

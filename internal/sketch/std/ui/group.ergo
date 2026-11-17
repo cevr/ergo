@@ -131,7 +131,7 @@ func writeAgain[E](f *Frame[E], i int) bool {
 		if s.parent >= 0 {
 			parent = first + s.parent
 		}
-		let _ = link(f, spec[E]{node: s.node, id: s.id, parent: parent, prev: s.ref, ref: arena.Null[node[E]](), onText: s.onText, onPoint: s.onPoint, onKey: s.onKey, binds: s.binds, off: false, memo: 0, same: None, skip: false, live: false, first: -1, last: -1, next: -1, before: -1})
+		let _ = link(f, spec[E]{node: s.node, id: s.id, parent: parent, prev: s.ref, ref: arena.Null[node[E]](), onText: s.onText, onPoint: s.onPoint, onKey: s.onKey, binds: s.binds, off: false, memo: 0, same: None, skip: false, live: false, first: -1, last: -1, next: -1, before: -1, focusAs: s.focusAs})
 	}
 	true
 }

@@ -364,6 +364,26 @@ func Screen[S, E, D, F](h *TestHost[S, E, D, F]) []Shape[E] { MirrorShape(&h.mir
 // LookId's in the host's table (look.ergo).
 func LooksOf[S, E, D, F](h *TestHost[S, E, D, F], n Node[E]) Looks { LooksIn(MirrorLooks(&h.mirror), LookIdOf(n)) }
 
+// PointNowhere moves the pointer off every node, as a pointer that
+// leaves the window does: a Moved to the root (UG3).
+func PointNowhere[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
+	try point(h, SessionRoot(&h.session), None, PointerEvent{Phase: Moved, X: 0, Y: 0, Zone: None})
+}
+
+// LookStateAt is the state whose look the node id shows (UG3).
+func LookStateAt[S, E, D, F](h *TestHost[S, E, D, F], id Id[E]) LookState { SessionLookState(&h.session, id) }
+
+// LookShownAt is the look the node id shows now: its Looks' look of its
+// LookStateAt, from the mirror's table (UG3).
+func LookShownAt[S, E, D, F](h *TestHost[S, E, D, F], id Id[E]) Look {
+	match entryOf(&h.mirror, id) {
+	case Some[mirrored[E]] as e:
+		LookNow(LooksOf(h, e.Value.node), LookStateAt(h, id))
+	case None:
+		Bare()
+	}
+}
+
 // StateOf is the actor's state.
 func StateOf[S, E, D, F](h *TestHost[S, E, D, F]) S { h.session.actor.State() }
 

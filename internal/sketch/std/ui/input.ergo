@@ -10,7 +10,7 @@ import time
 
 // Phase is what a pointer did: pressed, moved with no button held, moved
 // with it held (dragged), released, or a wheel turned by DX and DY.
-type Phase = Down | Moved | Drag | Up | Wheel{DX float64, DY float64}
+type Phase = Down | Moved | Drag | Up | Wheel{DX float64, DY float64} | PointerEnter | PointerLeave
 
 // Down is a pointer pressed.
 type Down {}
@@ -27,6 +27,16 @@ type Drag {}
 
 // Up is a pointer released.
 type Up {}
+
+// PointerEnter is the pointer come over this node from another, or from none
+// (UG3): the composer decides it, as it decides a Drag, from the node
+// each pointer event a host sends goes to (a host sends an event to the
+// root for a pointer over no node). Its position is the event's.
+type PointerEnter {}
+
+// PointerLeave is the pointer gone from this node to another, or to none (UG3).
+// Its position is (0, 0): the pointer is not in the node's box.
+type PointerLeave {}
 
 // PointerEvent is a pointer's phase and its position in the node's box,
 // in device-independent pixels from the box's top left corner, and the
@@ -155,7 +165,7 @@ func gripped[E](f *Frame[E], id Id[E], ph Phase) Phase {
 		ph
 	case Moved, Drag:
 		if f.down == id.ref { Drag } else { Moved }
-	case Wheel:
+	case Wheel, PointerEnter, PointerLeave:
 		ph
 	}
 }
@@ -256,12 +266,13 @@ func focusables[E](f *Frame[E], r arena.Ref[node[E]], out []arena.Ref[node[E]]) 
 	all
 }
 
-// nextFocus is the focusable node after the focus in tree order, or the
-// one before it when back, round from the last to the first; from no
-// focus (or one that is not focusable), the first or the last; Null when
-// nothing is focusable.
+// nextFocus is the tab stop after the focus in tree order, or the one
+// before it when back, round from the last to the first; from no focus
+// (or one that is not a tab stop), the first or the last; Null when
+// there is no tab stop. Inside a focus scope it goes round the scope's
+// tab stops; a roving group is one stop (UG3).
 func nextFocus[E](f *Frame[E], back bool) arena.Ref[node[E]] {
-	let order = focusables(f, f.root, []arena.Ref[node[E]]{})
+	let order = tabStops(f, tabRoot(f), []arena.Ref[node[E]]{})
 	let n = len(order)
 	if n == 0 {
 		return arena.Null[node[E]]()
@@ -283,9 +294,9 @@ func nextFocus[E](f *Frame[E], back bool) arena.Ref[node[E]] {
 func FocusOn[E](f *Frame[E], id Option[Id[E]]) {
 	match id {
 	case Some[Id[E]] as x:
-		f.focus = x.Value.ref
+		focusTo(f, x.Value.ref, false)
 	case None:
-		f.focus = arena.Null[node[E]]()
+		focusTo(f, arena.Null[node[E]](), false)
 	}
 }
 

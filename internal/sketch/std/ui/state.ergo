@@ -439,6 +439,9 @@ type Handled[E] { Signal Option[E], Changed bool }
 // on a node f no longer holds (it raced a commit) does nothing.
 func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 	let mut out = Handled[E]{Signal: None, Changed: false}
+	if len(f.crossed) > 0 {
+		f.crossed = []E{}
+	}
 	match event {
 	case Press[E] as p:
 		// A press is a pointer's (or a key's) press and release: no move
@@ -451,7 +454,7 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 		if n.off {
 			return out
 		}
-		f.focus = p.Id.ref
+		focusTo(f, p.Id.ref, false)
 		match n.node {
 		case PressableNode[E] as x:
 			out.Signal = Some{Value: x.On}
@@ -482,7 +485,7 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 		if n.off {
 			return out
 		}
-		f.focus = x.Id.ref
+		focusTo(f, x.Id.ref, false)
 		match n.onText {
 		case Some[func(t string) E] as g:
 			out.Signal = Some{Value: g.Value(x.Text)}
@@ -504,6 +507,7 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 			out.Signal = Some{Value: a.Signal}
 		}
 	case Point[E] as p:
+		hovered(f, p.Id, p.Pointer)
 		let mut pe = p.Pointer
 		pe.Phase = gripped(f, p.Id, p.Pointer.Phase)
 		pe.Zone = None
@@ -522,7 +526,10 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 		match out.Signal {
 		case None:
 			if k.Press.Name == "Tab" && !m.Ctrl && !m.Alt && !m.Meta {
-				f.focus = nextFocus(f, m.Shift)
+				focusTo(f, nextFocus(f, m.Shift), true)
+			} else {
+				// A roving group's arrows, Home and End (UG3).
+				let _ = rove(f, k.Press)
 			}
 		case Some[E]:
 		}

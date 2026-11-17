@@ -1349,7 +1349,7 @@ func onPad(s pad, p ui.PointerEvent) Option[int] {
 		Some{Value: 2000 + int(p.Y)}
 	case ui.Wheel as w:
 		Some{Value: 3000 + int(w.DY)}
-	case ui.Moved, ui.Drag:
+	case ui.Moved, ui.Drag, ui.PointerEnter, ui.PointerLeave:
 		None
 	}
 }
@@ -3073,6 +3073,17 @@ func lawCaptureKeepsThePointer(seed int, steps int) bool {
 	}
 }
 
+// pointerOnly is base plus the phase's code, and nothing on the
+// pointer's enter or leave (UG3). (a law's helper)
+func pointerOnly(base int, p ui.PointerEvent) Option[int] {
+	match p.Phase {
+	case ui.PointerEnter, ui.PointerLeave:
+		None
+	case _:
+		Some{Value: base + phaseCode(p.Phase)}
+	}
+}
+
 func phaseCode(p ui.Phase) int {
 	match p {
 	case ui.Down:
@@ -3085,6 +3096,10 @@ func phaseCode(p ui.Phase) int {
 		4
 	case ui.Drag:
 		5
+	case ui.PointerEnter:
+		6
+	case ui.PointerLeave:
+		7
 	}
 }
 
@@ -3097,11 +3112,11 @@ func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 		}
 		ui.Text(f, "top")
 		if s != 99 {
-			ui.Area(f, "a", ui.Plain(), func(p ui.PointerEvent) Option[int] { Some{Value: 10 + phaseCode(p.Phase)} }) {
+			ui.Area(f, "a", ui.Plain(), func(p ui.PointerEvent) Option[int] { pointerOnly(10, p) }) {
 				ui.Text(f, "in a")
 			}
 		}
-		ui.Area(f, "b", ui.Plain(), func(p ui.PointerEvent) Option[int] { Some{Value: 20 + phaseCode(p.Phase)} }) {
+		ui.Area(f, "b", ui.Plain(), func(p ui.PointerEvent) Option[int] { pointerOnly(20, p) }) {
 			ui.Text(f, "in b")
 		}
 	}
@@ -4593,6 +4608,548 @@ func lawRelationsNameHeldNodes(seed int) bool {
 	}
 }
 
+// UG3: laws_focus.ergo restated.
+// tinted is a look filled with the colour c. (a law's helper)
+func tinted(c uint32) ui.Look {
+	let mut l = ui.Bare()
+	l.Fill = ui.Rgb(c)
+	l
+}
+
+// stateLooks is node i's Looks, a fill per state. (a law's helper)
+func stateLooks(i int) ui.Looks {
+	let c = uint32(i)
+	ui.Looks{Rest: tinted(0x100000 + c), Hover: tinted(0x200000 + c), Focus: tinted(0x300000 + c), Active: tinted(0x400000 + c), Disabled: tinted(0x500000 + c)}
+}
+
+// hoverScreen is n Pressables "h0" to "h<n-1>", each with its
+// stateLooks. (a law's helper)
+func hoverScreen(f *ui.Frame[int], s int, n int) {
+	ui.Column(f, ui.Plain()) {
+		for i in 0..n {
+			let mut st = ui.PressStyle()
+			st.Look = ui.LookFor(f, stateLooks(i))
+			ui.PressableStyled(f, "h\(i)", s+i, st) {
+				ui.Text(f, "t\(i)")
+			}
+		}
+	}
+}
+
+// HoverCostsNoPass (UG3, a counted guard): over screens of 2 to 7
+// Pressables, each with its own look per state, drawn pointer moves onto
+// them and off every node run no pass (the step's counts are none), and
+// after each the node the pointer is over shows its Hover look and every
+// other node its Rest look.
+func lawHoverCostsNoPass(seed int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut r = seeded(seed)
+		let n = draw(&r, 6) + 2
+		let view = func(f *ui.Frame[int], s int) { hoverScreen(f, s, n) }
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {})
+		let mut h = ui.NewTestHost(a, view, m, 4) catch {
+		case ui.BadPatch:
+			return false
+		}
+		let mut at = -1
+		for _ in 0..draw(&r, 8)+4 {
+			let j = draw(&r, n+1)
+			if j == n {
+				ui.PointNowhere(&h) catch {
+				case _:
+					return false
+				}
+				at = -1
+			} else {
+				ui.Play(&h, []ui.Act{ui.PointOn{Label: "h\(j)", Pointer: ui.PointerEvent{Phase: ui.Moved, X: 1, Y: 1, Zone: None}}}) catch {
+				case _:
+					return false
+				}
+				at = j
+			}
+			if ui.Counts(&h) != ui.NoCounts() {
+				return false
+			}
+			for i in 0..n {
+				let ids = ui.Locate(&h, ui.WithLabel{Label: "h\(i)"})
+				if len(ids) != 1 {
+					return false
+				}
+				let want ui.LookState = if i == at { ui.Hover } else { ui.Rest }
+				if ui.LookStateAt(&h, ids[0]) != want || ui.LookShownAt(&h, ids[0]) != ui.LookNow(stateLooks(i), want) {
+					return false
+				}
+			}
+		}
+		true
+	}
+}
+
+// crossStep logs each signal. (a law's helper)
+func crossStep(s string, e int) Decision[string, int] {
+	Enter[string]{Next: s + "\(e),"}
+}
+
+func crossTimer(s string) Option[Timeout[int]] {
+	None
+}
+
+func crossWork(s string) Option[func(send func(e int))] {
+	None
+}
+
+// crossScreen is n Areas "a0" to "a<n-1>"; Area i gives 10i+1 on the
+// pointer's enter, 10i+2 on its leave, and nothing else. (a law's helper)
+func crossScreen(f *ui.Frame[int], n int) {
+	ui.Column(f, ui.Plain()) {
+		for i in 0..n {
+			ui.Area(f, "a\(i)", ui.Plain(), func(p ui.PointerEvent) Option[int] {
+				match p.Phase {
+				case ui.PointerEnter:
+					Some{Value: 10*i + 1}
+				case ui.PointerLeave:
+					Some{Value: 10*i + 2}
+				case _:
+					None
+				}
+			}) {
+				ui.Text(f, "t\(i)")
+			}
+		}
+	}
+}
+
+// PointerCrossesOnce (UG3): over screens of 2 to 5 Areas, drawn pointer
+// moves onto them and off every node give, each time the node under the
+// pointer changes, the Leave of the node it left and then the Enter of
+// the node it came to, and nothing while it stays, so the program's log
+// is the model's.
+func lawPointerCrossesOnce(seed int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut r = seeded(seed)
+		let n = draw(&r, 4) + 2
+		let view = func(f *ui.Frame[int], s string) { crossScreen(f, n) }
+		let a = actor.StartMachine(Machine[string, int, int]{Initial: "", Step: crossStep, After: crossTimer, Work: crossWork}, 1, func(o int) {})
+		let mut h = ui.NewTestHost(a, view, m, 4) catch {
+		case ui.BadPatch:
+			return false
+		}
+		let mut at = -1
+		let mut log = ""
+		for _ in 0..draw(&r, 10)+4 {
+			let j = draw(&r, n+1)
+			if j == n {
+				ui.PointNowhere(&h) catch {
+				case _:
+					return false
+				}
+			} else {
+				ui.Play(&h, []ui.Act{ui.PointOn{Label: "a\(j)", Pointer: ui.PointerEvent{Phase: ui.Moved, X: 2, Y: 2, Zone: None}}}) catch {
+				case _:
+					return false
+				}
+			}
+			let to = if j == n { -1 } else { j }
+			if to != at {
+				if at >= 0 {
+					log = log + "\(10*at+2),"
+				}
+				if to >= 0 {
+					log = log + "\(10*to+1),"
+				}
+				at = to
+			}
+			if ui.StateOf(&h) != log {
+				return false
+			}
+		}
+		true
+	}
+}
+
+// ringScreen writes the drawn items in a Column: 0 a Text "n<i>", 1 a
+// Pressable "p<i>", 2 a Pressable "d<i>" under a disabled Fieldset, 3 a
+// Roving group of sizes[i] Pressables "g<i>m<j>". (a law's helper)
+func ringScreen(f *ui.Frame[int], s int, kinds []int, sizes []int) {
+	ui.Column(f, ui.Plain()) {
+		for i, k in kinds {
+			if k == 0 {
+				ui.Text(f, "n\(i)")
+			} else if k == 1 {
+				ui.Pressable(f, "p\(i)", s) {
+					ui.Text(f, "x")
+				}
+			} else if k == 2 {
+				ui.Fieldset(f, true, "") {
+					ui.Pressable(f, "d\(i)", s) {
+						ui.Text(f, "x")
+					}
+				}
+			} else {
+				ui.Roving(f) {
+					for j in 0..sizes[i] {
+						ui.Pressable(f, "g\(i)m\(j)", s) {
+							ui.Text(f, "x")
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// keyIn presses the key name, with Shift when shift. (a law's helper)
+func keyIn(name string, shift bool) ui.Act {
+	ui.KeyIn{Press: ui.KeyPress{Name: name, Mods: ui.Mods{Shift: shift, Ctrl: false, Alt: false, Meta: false}}}
+}
+
+// focusName is the name of the node the focus is on, "" for none. (a
+// law's helper)
+func focusName[S, D, F](h *ui.TestHost[S, int, D, F]) string {
+	match ui.FocusOf(h) {
+	case Some[ui.Id[int]] as id:
+		ui.AccessAt(h, id.Value).Name
+	case None:
+		""
+	}
+}
+
+// ringName is the name of item i's member j in ringScreen. (a law's
+// helper)
+func ringName(kinds []int, i int, j int) string {
+	if kinds[i] == 3 { "g\(i)m\(j)" } else { "p\(i)" }
+}
+
+// FocusFollowsTheRing (UG3): over drawn screens of texts, Pressables,
+// disabled Pressables and roving groups of 1 to 3 Pressables, and drawn
+// Tabs, Shift+Tabs, arrows, Home, End and clicks, the focus is the
+// reference ring's: Tab and Shift+Tab walk the tab stops in tree order,
+// round at the ends, a roving group being one stop, its member the focus
+// was last on (its first before any); an arrow, Home or End moves inside
+// the roving group the focus is in, round at the ends, and does nothing
+// elsewhere; a click puts the focus on what it pressed. The focused node
+// shows its focus look after a key moved the focus there, and not after
+// a click.
+func lawFocusFollowsTheRing(seed int, steps int) bool {
+	let mut r = seeded(seed)
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut kinds = []int{}
+		let mut sizes = []int{}
+		let mut mem = []int{}
+		let mut labels = []string{}
+		for _ in 0..draw(&r, 6)+2 {
+			let k = draw(&r, 4)
+			kinds = kinds.Append(k)
+			sizes = sizes.Append(draw(&r, 3) + 1)
+			mem = mem.Append(0)
+		}
+		for i, k in kinds {
+			if k == 1 {
+				labels = labels.Append("p\(i)")
+			} else if k == 3 {
+				for j in 0..sizes[i] {
+					labels = labels.Append("g\(i)m\(j)")
+				}
+			}
+		}
+		let ks = kinds
+		let ss = sizes
+		let view = func(f *ui.Frame[int], s int) { ringScreen(f, s, ks, ss) }
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {})
+		let mut h = ui.NewTestHost(a, view, m, 4) catch {
+		case ui.BadPatch:
+			return false
+		}
+		let mut fi = -1
+		let mut fm = 0
+		let mut visible = false
+		for _ in 0..(steps%16+16)%16+4 {
+			let act = draw(&r, 7)
+			if act == 6 && len(labels) == 0 {
+				// nothing to click
+			} else if act == 6 {
+				let l = labels[draw(&r, len(labels))]
+				ui.Play(&h, []ui.Act{ui.ClickOn{At: ui.WithLabel{Label: l}}}) catch {
+				case _:
+					return false
+				}
+				for i, k in kinds {
+					if k == 1 && l == "p\(i)" {
+						fi = i
+						fm = 0
+					} else if k == 3 {
+						for j in 0..sizes[i] {
+							if l == "g\(i)m\(j)" {
+								fi = i
+								fm = j
+								mem[i] = j
+							}
+						}
+					}
+				}
+				visible = false
+			} else if act < 2 {
+				let back = act == 1
+				ui.Play(&h, []ui.Act{keyIn("Tab", back)}) catch {
+				case _:
+					return false
+				}
+				let mut ring = []int{}
+				for i, k in kinds {
+					if k == 1 || k == 3 {
+						ring = ring.Append(i)
+					}
+				}
+				let n = len(ring)
+				if n == 0 {
+					fi = -1
+				} else {
+					let mut pos = -1
+					for p, i in ring {
+						if i == fi {
+							pos = p
+						}
+					}
+					pos = if pos < 0 { if back { n - 1 } else { 0 } } else if back { (pos + n - 1) % n } else { (pos + 1) % n }
+					fi = ring[pos]
+					fm = if kinds[fi] == 3 { mem[fi] } else { 0 }
+				}
+				visible = true
+			} else {
+				let names = []string{"ArrowRight", "ArrowLeft", "Home", "End"}
+				let key = names[act-2]
+				ui.Play(&h, []ui.Act{keyIn(key, false)}) catch {
+				case _:
+					return false
+				}
+				if fi >= 0 && kinds[fi] == 3 {
+					let k = sizes[fi]
+					fm = if key == "ArrowRight" { (fm + 1) % k } else if key == "ArrowLeft" { (fm + k - 1) % k } else if key == "Home" { 0 } else { k - 1 }
+					mem[fi] = fm
+					visible = true
+				}
+			}
+			let want = if fi < 0 { "" } else { ringName(kinds, fi, fm) }
+			if focusName(&h) != want {
+				return false
+			}
+			match ui.FocusOf(&h) {
+			case Some[ui.Id[int]] as id:
+				let shown ui.LookState = if visible { ui.FocusVisible } else { ui.Rest }
+				if ui.LookStateAt(&h, id.Value) != shown {
+					return false
+				}
+			case None:
+			}
+		}
+		true
+	}
+}
+
+// scopeScreen is outside Pressables "o0" to "o<outs-1>", each sending 1,
+// and while s is 1 a FocusScope of Pressables "s0" to "s<ins-1>", each
+// sending 1, and "close", sending 0, the last; Escape sends 0 from
+// anywhere. (a law's helper)
+func scopeScreen(f *ui.Frame[int], s int, outs int, ins int) {
+	ui.OnKey(f, func(k ui.KeyPress) Option[int] {
+		if k.Name == "Escape" { Some{Value: 0} } else { None }
+	})
+	ui.Column(f, ui.Plain()) {
+		for i in 0..outs {
+			ui.Pressable(f, "o\(i)", 1) {
+				ui.Text(f, "x")
+			}
+		}
+		if s == 1 {
+			ui.FocusScope(f) {
+				for j in 0..ins {
+					ui.Pressable(f, "s\(j)", 1) {
+						ui.Text(f, "x")
+					}
+				}
+				ui.Pressable(f, "close", 0) {
+					ui.Text(f, "x")
+				}
+			}
+		}
+	}
+}
+
+// FocusStaysInScope (UG3): over drawn screens with 1 to 4 Pressables
+// outside a focus scope and 1 to 4 (and "close") inside it, a click
+// outside opens the scope and the focus moves to its first Pressable;
+// then drawn Tabs, Shift+Tabs and arrows keep the focus inside it, Tab
+// going round the scope's own stops.
+func lawFocusStaysInScope(seed int, steps int) bool {
+	let mut r = seeded(seed)
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let outs = draw(&r, 4) + 1
+		let ins = draw(&r, 4) + 1
+		let view = func(f *ui.Frame[int], s int) { scopeScreen(f, s, outs, ins) }
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {})
+		let mut h = ui.NewTestHost(a, view, m, 4) catch {
+		case ui.BadPatch:
+			return false
+		}
+		ui.Play(&h, []ui.Act{ui.ClickOn{At: ui.WithLabel{Label: "o\(draw(&r, outs))"}}}) catch {
+		case _:
+			return false
+		}
+		if focusName(&h) != "s0" {
+			return false
+		}
+		let n = ins + 1
+		let mut at = 0
+		for _ in 0..(steps%12+12)%12+4 {
+			let act = draw(&r, 3)
+			if act == 2 {
+				ui.Play(&h, []ui.Act{keyIn("ArrowDown", false)}) catch {
+				case _:
+					return false
+				}
+			} else {
+				ui.Play(&h, []ui.Act{keyIn("Tab", act == 1)}) catch {
+				case _:
+					return false
+				}
+				at = if act == 1 { (at + n - 1) % n } else { (at + 1) % n }
+			}
+			let want = if at == ins { "close" } else { "s\(at)" }
+			if focusName(&h) != want {
+				return false
+			}
+		}
+		true
+	}
+}
+
+// FocusReturnsOnEnd (UG3): drawn rounds over a screen with 1 to 4
+// Pressables outside a focus scope: a click on one opens the scope (the
+// focus moves in), drawn Tabs move inside it, a drawn click outside moves
+// the focus out, and the scope closes by "close" or by Escape; then the
+// focus is on the Pressable that opened it, or, when a click had moved
+// the focus out and Escape closed it, stays where the click put it.
+func lawFocusReturnsOnEnd(seed int) bool {
+	let mut r = seeded(seed)
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let outs = draw(&r, 4) + 1
+		let ins = draw(&r, 3) + 1
+		let view = func(f *ui.Frame[int], s int) { scopeScreen(f, s, outs, ins) }
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {})
+		let mut h = ui.NewTestHost(a, view, m, 4) catch {
+		case ui.BadPatch:
+			return false
+		}
+		for _ in 0..draw(&r, 3)+1 {
+			let opener = draw(&r, outs)
+			let mut want = "o\(opener)"
+			ui.Play(&h, []ui.Act{ui.ClickOn{At: ui.WithLabel{Label: want}}}) catch {
+			case _:
+				return false
+			}
+			for _ in 0..draw(&r, 4) {
+				ui.Play(&h, []ui.Act{keyIn("Tab", false)}) catch {
+				case _:
+					return false
+				}
+			}
+			let out = draw(&r, 2) == 0
+			if out {
+				want = "o\(draw(&r, outs))"
+				ui.Play(&h, []ui.Act{ui.ClickOn{At: ui.WithLabel{Label: want}}}) catch {
+				case _:
+					return false
+				}
+			}
+			let escape = out || draw(&r, 2) == 0
+			let close = if escape { keyIn("Escape", false) } else { ui.ClickOn{At: ui.WithLabel{Label: "close"}} }
+			ui.Play(&h, []ui.Act{close}) catch {
+			case _:
+				return false
+			}
+			if focusName(&h) != want {
+				return false
+			}
+		}
+		true
+	}
+}
+
+// askScreen is "next", sending s+1, and n Semantic groups keyed 0 to
+// n-1, group i holding a Pressable "t<i>"; the pass asks for the focus
+// on key (s/2)%n. (a law's helper)
+func askScreen(f *ui.Frame[int], s int, n int) {
+	ui.Focus(f, ui.ByInt((s/2)%n))
+	ui.Column(f, ui.Plain()) {
+		ui.Pressable(f, "next", s+1) {
+			ui.Text(f, "x")
+		}
+		for i in 0..n {
+			let mut a = ui.Named(ui.Group, "z\(i)")
+			a.Key = ui.ByInt(i)
+			ui.Semantic(f, a, None, ui.Plain()) {
+				ui.Pressable(f, "t\(i)", s) {
+					ui.Text(f, "x")
+				}
+			}
+		}
+	}
+}
+
+// FocusGoesWhereAsked (UG3): a view that asks for the focus on the key
+// (s/2)%n: the first pass puts the focus on t0; a click on "next" moves
+// the focus to the group the new request names when the request changed,
+// shown, and leaves it on "next" when the request is the last pass's;
+// drawn Tabs between move it, and a pass asking again for the same key
+// does not take it back.
+func lawFocusGoesWhereAsked(seed int) bool {
+	let mut r = seeded(seed)
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let n = draw(&r, 4) + 2
+		let view = func(f *ui.Frame[int], s int) { askScreen(f, s, n) }
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {})
+		let mut h = ui.NewTestHost(a, view, m, 4) catch {
+		case ui.BadPatch:
+			return false
+		}
+		if focusName(&h) != "t0" {
+			return false
+		}
+		let mut s = 0
+		let mut at = 1
+		for _ in 0..draw(&r, 10)+4 {
+			if draw(&r, 2) == 0 {
+				ui.Play(&h, []ui.Act{ui.ClickOn{At: ui.WithLabel{Label: "next"}}}) catch {
+				case _:
+					return false
+				}
+				let was = (s / 2) % n
+				s = s + 1
+				let now = (s / 2) % n
+				at = if now != was { now + 1 } else { 0 }
+			} else {
+				let back = draw(&r, 2) == 0
+				ui.Play(&h, []ui.Act{keyIn("Tab", back)}) catch {
+				case _:
+					return false
+				}
+				at = if back { (at + n) % (n + 1) } else { (at + 1) % (n + 1) }
+			}
+			let want = if at == 0 { "next" } else { "t\(at-1)" }
+			if focusName(&h) != want {
+				return false
+			}
+		}
+		true
+	}
+}
+
 func lawAccessIsWhatWasDeclared(seed int, count int) bool {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
@@ -5334,6 +5891,30 @@ test UiAccessIsWhatWasDeclared(seed int, count int) {
 	assert lawAccessIsWhatWasDeclared(seed, count)
 }
 
+test UiHoverCostsNoPass(seed int) {
+	assert lawHoverCostsNoPass(seed)
+}
+
+test UiPointerCrossesOnce(seed int) {
+	assert lawPointerCrossesOnce(seed)
+}
+
+test UiFocusFollowsTheRing(seed int, steps int) {
+	assert lawFocusFollowsTheRing(seed, steps)
+}
+
+test UiFocusStaysInScope(seed int, steps int) {
+	assert lawFocusStaysInScope(seed, steps)
+}
+
+test UiFocusReturnsOnEnd(seed int) {
+	assert lawFocusReturnsOnEnd(seed)
+}
+
+test UiFocusGoesWhereAsked(seed int) {
+	assert lawFocusGoesWhereAsked(seed)
+}
+
 test UiRelationsNameHeldNodes(seed int) {
 	assert lawRelationsNameHeldNodes(seed)
 }
@@ -5447,6 +6028,12 @@ var stdUIHostStatements = map[string]string{
 	"ui AmbiguousActFails":                 `AmbiguousActFails(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { let k = (seed%4+4)%4 + 2 let view = func(f *Frame[int], s int) { Column(f, Plain()) { Text(f, "at \(s)") for i in 0..k { Pressable(f, "dup", i+1) { Text(f, "x") } Pressable(f, "one\(i)", 50+i) { Text(f, "y") } Input(f, "", "dupi", func(t string) int { 100 + i }) } } } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: lastStep, After: lastTimer, Work: lastWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } let acts = []Act{TapOn{Label: "dup"}, ClickOn{At: WithRole{Role: Button, Name: "dup"}}, ClickOn{At: WithLabel{Label: "dup"}}, TypeInto{Label: "dupi", Text: "t"}, FillIn{At: WithPlaceholder{Text: "dupi"}, Text: "t"}} for act in acts { let mut count = -1 Play(&h, []Act{act}) catch { case Ambiguous as e: count = e.Count case _: return false } Settle(&h) catch { case _: return false } if count != k || StateOf(&h) != 0 { return false } } // A unique label acts, and First names the first match. Play(&h, []Act{TapOn{Label: "one1"}, SettleAll}) catch { case _: return false } if StateOf(&h) != 51 { return false } Play(&h, []Act{ClickOn{At: First{At: WithRole{Role: Button, Name: "dup"}}}, SettleAll}) catch { case _: return false } if StateOf(&h) != 1 { return false } Play(&h, []Act{FillIn{At: First{At: WithPlaceholder{Text: "dupi"}}, Text: "t"}, SettleAll}) catch { case _: return false } let firsts = Locate(&h, First{At: WithLabel{Label: "dup"}}) StateOf(&h) == 100 && len(firsts) == 1 && Find(&h, "dup") == (Some{Value: firsts[0]}) } }`,
 	"ui TypeIntoNamesTheField":             `TypeIntoNamesTheField(seed int, count int) { let m = time.NewManual(0) with context { Scheduler: m } { let n = (count%4+4)%4 + 2 let s = (seed%64 + 64) % 64 let view = func(f *Frame[int], st int) { Column(f, Plain()) { for i in 0..n { LabelledInput(f, FieldLabel{Text: typedLabel(s, i), Description: "", Invalid: false}, "", "ph\(i)", func(t string) int { i*1000 + len(t) }) } } } let a = actor.StartMachine(Machine[int, int, int]{Initial: -1, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } for i in 0..n { let label = typedLabel(s, i) let mut name = label if name == "" { name = "ph\(i)" } let mut text = "" for _ in 0..i+1 { text = text + "x" } Play(&h, []Act{TypeInto{Label: name, Text: text}, SettleAll}) catch { case _: return false } if StateOf(&h) != i*1000+i+1 { return false } if label != "" { let mut missing = false Play(&h, []Act{TypeInto{Label: "ph\(i)", Text: "y"}}) catch { case NoNode: missing = true case _: return false } if !missing || StateOf(&h) != i*1000+i+1 { return false } } } true } }`,
 	"ui AccessIsWhatWasDeclared":           `AccessIsWhatWasDeclared(seed int, count int) { let m = time.NewManual(0) with context { Scheduler: m } { let n = (count%6+6)%6 + 2 let view = func(f *Frame[int], s int) { let ds = semDecls(seed+s*7919, n) Column(f, Plain()) { for i, d in ds { if i%2 == 0 { Semantic(f, d, Some{Value: i + 1}, Plain()) { Text(f, "t\(i)") } } else { Fieldset(f, true, "fs") { Semantic(f, d, Some{Value: i + 1}, Plain()) { Text(f, "t\(i)") } } } } } } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } for s in 0..2 { let ds = semDecls(seed+StateOf(&h)*7919, n) for i, d in ds { let ids = Locate(&h, WithLabel{Label: d.Name}) if len(ids) != 1 { return false } let mut want = d if i%2 == 1 { want.Disabled = true if d.Description == "" { want.Description = "fs" } } if AccessAt(&h, ids[0]) != want { return false } // The matchers of the new states read the same record. if semHolds(&h, d.Name, ToBeSelected) != (want.Selected == (Some{Value: true})) || semHolds(&h, d.Name, ToBeExpanded) != (want.Expanded == (Some{Value: true})) || semHolds(&h, d.Name, ToBeCollapsed) != (want.Expanded == (Some{Value: false})) || semHolds(&h, d.Name, ToBeInvalid) != want.Invalid { return false } } if s == 0 { // A press on the first: the signal when it is enabled. let first = Locate(&h, WithLabel{Label: "n0"}) Tap(&h, first[0]) catch { case _: return false } Settle(&h) catch { case _: return false } if ds[0].Disabled != (StateOf(&h) == 0) { return false } } } true } }`,
+	"ui HoverCostsNoPass":                  `HoverCostsNoPass(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { let mut r = seeded(seed) let n = draw(&r, 6) + 2 let view = func(f *Frame[int], s int) { hoverScreen(f, s, n) } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } let mut at = -1 for _ in 0..draw(&r, 8)+4 { let j = draw(&r, n+1) if j == n { PointNowhere(&h) catch { case _: return false } at = -1 } else { Play(&h, []Act{PointOn{Label: "h\(j)", Pointer: PointerEvent{Phase: Moved, X: 1, Y: 1, Zone: None}}}) catch { case _: return false } at = j } if Counts(&h) != NoCounts() { return false } for i in 0..n { let ids = Locate(&h, WithLabel{Label: "h\(i)"}) if len(ids) != 1 { return false } let want LookState = if i == at { Hover } else { Rest } if LookStateAt(&h, ids[0]) != want || LookShownAt(&h, ids[0]) != LookNow(stateLooks(i), want) { return false } } } true } }`,
+	"ui PointerCrossesOnce":                `PointerCrossesOnce(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { let mut r = seeded(seed) let n = draw(&r, 4) + 2 let view = func(f *Frame[int], s string) { crossScreen(f, n) } let a = actor.StartMachine(Machine[string, int, int]{Initial: "", Step: crossStep, After: crossTimer, Work: crossWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } let mut at = -1 let mut log = "" for _ in 0..draw(&r, 10)+4 { let j = draw(&r, n+1) if j == n { PointNowhere(&h) catch { case _: return false } } else { Play(&h, []Act{PointOn{Label: "a\(j)", Pointer: PointerEvent{Phase: Moved, X: 2, Y: 2, Zone: None}}}) catch { case _: return false } } let to = if j == n { -1 } else { j } if to != at { if at >= 0 { log = log + "\(10*at + 2)," } if to >= 0 { log = log + "\(10*to + 1)," } at = to } if StateOf(&h) != log { return false } } true } }`,
+	"ui FocusFollowsTheRing":               `FocusFollowsTheRing(seed int, steps int) { let mut r = seeded(seed) let m = time.NewManual(0) with context { Scheduler: m } { let mut kinds = []int{} let mut sizes = []int{} let mut mem = []int{} let mut labels = []string{} for _ in 0..draw(&r, 6)+2 { let k = draw(&r, 4) kinds = kinds.Append(k) sizes = sizes.Append(draw(&r, 3) + 1) mem = mem.Append(0) } for i, k in kinds { if k == 1 { labels = labels.Append("p\(i)") } else if k == 3 { for j in 0..sizes[i] { labels = labels.Append("g\(i)m\(j)") } } } let ks = kinds let ss = sizes let view = func(f *Frame[int], s int) { ringScreen(f, s, ks, ss) } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } let mut fi = -1 let mut fm = 0 let mut visible = false for _ in 0..(steps%16+16)%16+4 { let act = draw(&r, 7) if act == 6 && len(labels) == 0 { // nothing to click } else if act == 6 { let l = labels[draw(&r, len(labels))] Play(&h, []Act{ClickOn{At: WithLabel{Label: l}}}) catch { case _: return false } for i, k in kinds { if k == 1 && l == "p\(i)" { fi = i fm = 0 } else if k == 3 { for j in 0..sizes[i] { if l == "g\(i)m\(j)" { fi = i fm = j mem[i] = j } } } } visible = false } else if act < 2 { let back = act == 1 Play(&h, []Act{keyIn("Tab", back)}) catch { case _: return false } let mut ring = []int{} for i, k in kinds { if k == 1 || k == 3 { ring = ring.Append(i) } } let n = len(ring) if n == 0 { fi = -1 } else { let mut pos = -1 for p, i in ring { if i == fi { pos = p } } pos = if pos < 0 { if back { n - 1 } else { 0 } } else if back { (pos + n - 1) % n } else { (pos + 1) % n } fi = ring[pos] fm = if kinds[fi] == 3 { mem[fi] } else { 0 } } visible = true } else { let names = []string{"ArrowRight", "ArrowLeft", "Home", "End"} let key = names[act-2] Play(&h, []Act{keyIn(key, false)}) catch { case _: return false } if fi >= 0 && kinds[fi] == 3 { let k = sizes[fi] fm = if key == "ArrowRight" { (fm + 1) % k } else if key == "ArrowLeft" { (fm + k - 1) % k } else if key == "Home" { 0 } else { k - 1 } mem[fi] = fm visible = true } } let want = if fi < 0 { "" } else { ringName(kinds, fi, fm) } if focusName(&h) != want { return false } match FocusOf(&h) { case Some[Id[int]] as id: let shown LookState = if visible { FocusVisible } else { Rest } if LookStateAt(&h, id.Value) != shown { return false } case None: } } true } }`,
+	"ui FocusStaysInScope":                 `FocusStaysInScope(seed int, steps int) { let mut r = seeded(seed) let m = time.NewManual(0) with context { Scheduler: m } { let outs = draw(&r, 4) + 1 let ins = draw(&r, 4) + 1 let view = func(f *Frame[int], s int) { scopeScreen(f, s, outs, ins) } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } Play(&h, []Act{ClickOn{At: WithLabel{Label: "o\(draw(&r, outs))"}}}) catch { case _: return false } if focusName(&h) != "s0" { return false } let n = ins + 1 let mut at = 0 for _ in 0..(steps%12+12)%12+4 { let act = draw(&r, 3) if act == 2 { Play(&h, []Act{keyIn("ArrowDown", false)}) catch { case _: return false } } else { Play(&h, []Act{keyIn("Tab", act == 1)}) catch { case _: return false } at = if act == 1 { (at + n - 1) % n } else { (at + 1) % n } } let want = if at == ins { "close" } else { "s\(at)" } if focusName(&h) != want { return false } } true } }`,
+	"ui FocusReturnsOnEnd":                 `FocusReturnsOnEnd(seed int) { let mut r = seeded(seed) let m = time.NewManual(0) with context { Scheduler: m } { let outs = draw(&r, 4) + 1 let ins = draw(&r, 3) + 1 let view = func(f *Frame[int], s int) { scopeScreen(f, s, outs, ins) } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } for _ in 0..draw(&r, 3)+1 { let opener = draw(&r, outs) let mut want = "o\(opener)" Play(&h, []Act{ClickOn{At: WithLabel{Label: want}}}) catch { case _: return false } for _ in 0..draw(&r, 4) { Play(&h, []Act{keyIn("Tab", false)}) catch { case _: return false } } let out = draw(&r, 2) == 0 if out { want = "o\(draw(&r, outs))" Play(&h, []Act{ClickOn{At: WithLabel{Label: want}}}) catch { case _: return false } } let escape = out || draw(&r, 2) == 0 let close = if escape { keyIn("Escape", false) } else { ClickOn{At: WithLabel{Label: "close"}} } Play(&h, []Act{close}) catch { case _: return false } if focusName(&h) != want { return false } } true } }`,
+	"ui FocusGoesWhereAsked":               `FocusGoesWhereAsked(seed int) { let mut r = seeded(seed) let m = time.NewManual(0) with context { Scheduler: m } { let n = draw(&r, 4) + 2 let view = func(f *Frame[int], s int) { askScreen(f, s, n) } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } if focusName(&h) != "t0" { return false } let mut s = 0 let mut at = 1 for _ in 0..draw(&r, 10)+4 { if draw(&r, 2) == 0 { Play(&h, []Act{ClickOn{At: WithLabel{Label: "next"}}}) catch { case _: return false } let was = (s / 2) % n s = s + 1 let now = (s / 2) % n at = if now != was { now + 1 } else { 0 } } else { let back = draw(&r, 2) == 0 Play(&h, []Act{keyIn("Tab", back)}) catch { case _: return false } at = if back { (at + n) % (n + 1) } else { (at + 1) % (n + 1) } } let want = if at == 0 { "next" } else { "t\(at - 1)" } if focusName(&h) != want { return false } } true } }`,
 	"ui RelationsNameHeldNodes":            `RelationsNameHeldNodes(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { let mut r = seeded(seed) let n = draw(&r, 6) + 2 let mut keyed = []bool{} let mut rels = [][]Rel{} let mut gone = []bool{} let mut none = []bool{} for _ in 0..n { keyed = keyed.Append(draw(&r, 4) != 0) gone = gone.Append(draw(&r, 3) == 0) none = none.Append(false) let mut rs = []Rel{} for _ in 0..draw(&r, 4) { rs = rs.Append(drawRel(&r, n+2)) } rels = rels.Append(rs) } let view = func(f *Frame[int], s int) { relScreen(f, keyed, rels, if s == 0 { none } else { gone }) } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } for s in 0..2 { let left = if s == 0 { none } else { gone } for i in 0..n { let ids = Locate(&h, WithLabel{Label: "r\(i)"}) if len(ids) != (if left[i] { 0 } else { 1 }) { return false } if len(ids) == 1 { let got = RelationsAt(&h, ids[0]) if len(got) != len(rels[i]) { return false } for j, rel in rels[i] { let k = relKey(rel) let mut want = "none" match k { case IntKey as x: if x.Value < n && keyed[x.Value] && !left[x.Value] { want = "r\(x.Value)" } case _: } let mut named = "none" match got[j].To { case Some[Id[int]] as t: named = AccessAt(&h, t.Value).Name case None: } if got[j].Rel != rel || named != want { return false } } } } if s == 0 { let next = Locate(&h, WithLabel{Label: "next"}) if len(next) != 1 { return false } Tap(&h, next[0]) catch { case _: return false } Settle(&h) catch { case _: return false } } } true } }`,
 	"ui PaintIsWhatWasGiven":               `PaintIsWhatWasGiven(seed int, state int, part int) { let m = time.NewManual(0) with context { Scheduler: m } { let mut r = seeded(seed) let mut before = []Looks{} for _ in 0..8 { before = before.Append(drawLooks(&r)) } let k = draw(&r, 8) let changed = changeLooks(before[k], state, part) let mut after = []Looks{} for i, ls in before { after = after.Append(if i == k { changed } else { ls }) } let view = func(f *Frame[int], s int) { if s == 0 { lookedView(f, before) } else { lookedView(f, after) } } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } let shot = Screenshot(&h) for step in 0..2 { let want = if step == 0 { before } else { after } let screen = Screen(&h) if len(screen) != 1 || len(screen[0].Kids) != 9 { return false } for i, ls in want { if LooksOf(&h, screen[0].Kids[i].Node) != ls { return false } } if LooksOf(&h, screen[0].Kids[8].Node) != Steady(PressLook()) { return false } if step == 0 { let ids = Locate(&h, WithLabel{Label: "go"}) if len(ids) != 1 { return false } Tap(&h, ids[0]) catch { case _: return false } Settle(&h) catch { case _: return false } } } Screenshot(&h) != shot } }`,
 	"ui MirrorRejectsUnheldLooks":          `MirrorRejectsUnheldLooks(seed int) { let mut r = seeded(seed) let mut l = drawLook(&r) l.Border = Border{Width: 1, Color: Rgb(0x000000)} let view = func(f *Frame[int], s int) { let mut st = Plain() if s == 1 { st.Look = LookFor(f, Steady(l)) } Column(f, Plain()) { Box(f, st) { Text(f, "x") } } } let mut f = NewFrame[int]() let mut m = NewMirror[int](Root(&f)) Apply(&m, Render(&f, view, 0)) catch { case BadPatch: return false } let shown = MirrorShape(&m) let mut defines = []Op[int]{} let mut uses = []Op[int]{} for op in Render(&f, view, 1) { match op { case Define: defines = defines.Append(op) case _: uses = uses.Append(op) } } if len(defines) != 1 || len(uses) == 0 { return false } let twice = []Op[int]{defines[0], defines[0]} let mut fits = []Op[int]{defines[0]} for op in uses { fits = fits.Append(op) } if !lookRejected(&m, uses, shown) || !lookRejected(&m, twice, shown) { return false } Apply(&m, fits) catch { case BadPatch: return false } MirrorLookCount(&m) == len(defaultTable())+1 }`,

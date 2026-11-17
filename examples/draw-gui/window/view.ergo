@@ -94,7 +94,7 @@ func Pointed(p ui.PointerEvent) Option[canvas.Signal] {
 		None
 	case ui.Up:
 		Some{Value: canvas.Up{At: at}}
-	case ui.Wheel:
+	case ui.Wheel, ui.PointerEnter, ui.PointerLeave:
 		None
 	}
 }

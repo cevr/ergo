@@ -212,7 +212,7 @@ func Play[E comparable, S, D, F](d *Driver[S, E, D, F], script []ui.Act) fails u
 			match x.Pointer.Phase {
 			case ui.Down:
 				d.w.Press(px, py)
-			case ui.Moved, ui.Drag:
+			case ui.Moved, ui.Drag, ui.PointerEnter, ui.PointerLeave:
 				d.w.Hover(px, py)
 			case ui.Up:
 				d.w.Release(px, py)

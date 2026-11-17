@@ -571,7 +571,7 @@ func onPad(s pad, p PointerEvent) Option[int] {
 		Some{Value: 2000 + int(p.Y)}
 	case Wheel as w:
 		Some{Value: 3000 + int(w.DY)}
-	case Moved, Drag:
+	case Moved, Drag, PointerEnter, PointerLeave:
 		None
 	}
 }
@@ -2523,6 +2523,17 @@ law CaptureKeepsThePointer(seed int, steps int) {
 	}
 }
 
+// pointerOnly is base plus the phase's code, and nothing on the
+// pointer's enter or leave (UG3). (a law's helper)
+func pointerOnly(base int, p PointerEvent) Option[int] {
+	match p.Phase {
+	case PointerEnter, PointerLeave:
+		None
+	case _:
+		Some{Value: base + phaseCode(p.Phase)}
+	}
+}
+
 func phaseCode(p Phase) int {
 	match p {
 	case Down:
@@ -2535,6 +2546,10 @@ func phaseCode(p Phase) int {
 		4
 	case Drag:
 		5
+	case PointerEnter:
+		6
+	case PointerLeave:
+		7
 	}
 }
 
@@ -2547,11 +2562,11 @@ func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 		}
 		Text(f, "top")
 		if s != 99 {
-			Area(f, "a", Plain(), func(p PointerEvent) Option[int] { Some{Value: 10 + phaseCode(p.Phase)} }) {
+			Area(f, "a", Plain(), func(p PointerEvent) Option[int] { pointerOnly(10, p) }) {
 				Text(f, "in a")
 			}
 		}
-		Area(f, "b", Plain(), func(p PointerEvent) Option[int] { Some{Value: 20 + phaseCode(p.Phase)} }) {
+		Area(f, "b", Plain(), func(p PointerEvent) Option[int] { pointerOnly(20, p) }) {
 			Text(f, "in b")
 		}
 	}

@@ -83,6 +83,18 @@ type Frame[E] {
 	lookList []Looks,
 	lookIds  Map[Looks, int],
 	lookSent int,
+	// UG3 (focus.ergo): hover is the node the pointer is over (Null:
+	// none), crossed the Leave and Enter signals the last event made,
+	// visible whether the focus came from a key, want this pass's Focus
+	// request and wanted the last one applied, openers the focus scopes
+	// the tree holds, roved each roving group's stop.
+	hover   arena.Ref[node[E]],
+	crossed []E,
+	visible bool,
+	want    Option[Key],
+	wanted  Option[Key],
+	openers []opener[E],
+	roved   Map[arena.Ref[node[E]], arena.Ref[node[E]]],
 }
 
 // Id names one node of a Frame's tree, from the pass that made it until
@@ -132,6 +144,8 @@ type node[E] {
 	dirty   bool,
 	memo    arena.Ref[node[E]],
 	up      arena.Ref[node[E]],
+	// focusAs is how the node takes part in the focus (focus.ergo).
+	focusAs int,
 }
 
 // bound is the cell an event on a node writes: the cell id of node owner.
@@ -163,6 +177,7 @@ type spec[E] {
 	last    int,
 	next    int,
 	before  int,
+	focusAs int,
 }
 
 let nowhere = CallSite{File: "", Line: 0, Column: 0}
@@ -176,11 +191,11 @@ type Op[E] = Insert{Id Id[E], Parent Id[E], Before Option[Id[E]], Node Node[E]} 
 func NewFrame[E]() Frame[E] {
 	let mut nodes = arena.New[node[E]]()
 	let root = nodes.Put(fresh[E](BoxNode{Style: Plain()}, ident{site: nowhere, each: nowhere, key: NoKey, n: 0}, None, None, None, false))
-	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, nspecs: 0, first: -1, last: -1, cells: []cellSpec{}, ncells: 0, loads: []loadSpec[E]{}, nloads: 0, seen: Map[slotOf, int]{}, seenLog: []slotOf{}, nseen: 0, index: Map[kid[E], arena.Ref[node[E]]]{}, indexed: Map[arena.Ref[node[E]], bool]{}, held: Map[arena.Ref[node[E]], bool]{}, stopped: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, nkeys: 0, urls: []func(u URL) Option[E]{}, nurls: 0, anims: []func(at duration) E{}, nanims: 0, rowRuns: 0, skips: 0, written: 0, stops: []CallSite{}, nstops: 0, slow: None, args: newArgs(), kept: Map[groupKey[E], int]{}, keptList: []keptGroup[E]{}, groups: []groupRec[E]{}, group: -1, groupSeen: Map[slotOf, int]{}, groupLog: []slotOf{}, ngroupLog: 0, cuts: 0, groupRuns: 0, visits: 0, now: duration(int64(0)), tickAt: None, passes: 0, moving: false, focus: arena.Null[node[E]](), down: arena.Null[node[E]](), lookList: defaultTable(), lookIds: defaultIds(), lookSent: len(defaultTable())}
+	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, nspecs: 0, first: -1, last: -1, cells: []cellSpec{}, ncells: 0, loads: []loadSpec[E]{}, nloads: 0, seen: Map[slotOf, int]{}, seenLog: []slotOf{}, nseen: 0, index: Map[kid[E], arena.Ref[node[E]]]{}, indexed: Map[arena.Ref[node[E]], bool]{}, held: Map[arena.Ref[node[E]], bool]{}, stopped: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, nkeys: 0, urls: []func(u URL) Option[E]{}, nurls: 0, anims: []func(at duration) E{}, nanims: 0, rowRuns: 0, skips: 0, written: 0, stops: []CallSite{}, nstops: 0, slow: None, args: newArgs(), kept: Map[groupKey[E], int]{}, keptList: []keptGroup[E]{}, groups: []groupRec[E]{}, group: -1, groupSeen: Map[slotOf, int]{}, groupLog: []slotOf{}, ngroupLog: 0, cuts: 0, groupRuns: 0, visits: 0, now: duration(int64(0)), tickAt: None, passes: 0, moving: false, focus: arena.Null[node[E]](), down: arena.Null[node[E]](), lookList: defaultTable(), lookIds: defaultIds(), lookSent: len(defaultTable()), hover: arena.Null[node[E]](), crossed: []E{}, visible: false, want: None, wanted: None, openers: []opener[E]{}, roved: Map[arena.Ref[node[E]], arena.Ref[node[E]]]{}}
 }
 
 func fresh[E](n Node[E], id ident, onText Option[func(t string) E], onPoint Option[func(p PointerEvent) Option[E]], onKey Option[func(k KeyPress) Option[E]], off bool) node[E] {
-	node[E]{node: n, id: id, kids: []arena.Ref[node[E]]{}, parked: []arena.Ref[node[E]]{}, off: off, onText: onText, onPoint: onPoint, onKey: onKey, binds: None, cells: Map[ident, Cell]{}, loads: Map[ident, slot]{}, run: None, dirty: false, memo: arena.Null[node[E]](), up: arena.Null[node[E]]()}
+	node[E]{node: n, id: id, kids: []arena.Ref[node[E]]{}, parked: []arena.Ref[node[E]]{}, off: off, onText: onText, onPoint: onPoint, onKey: onKey, binds: None, cells: Map[ident, Cell]{}, loads: Map[ident, slot]{}, run: None, dirty: false, memo: arena.Null[node[E]](), up: arena.Null[node[E]](), focusAs: focusPlain}
 }
 
 // Render writes view(s) as one pass of f and commits it: f's tree then
@@ -234,6 +249,7 @@ func begin[E](f *Frame[E]) {
 	f.slow = None
 	f.passes = f.passes + 1
 	f.moving = false
+	f.want = None
 }
 
 // identify is the identity of the next entry at site under the current
@@ -311,7 +327,7 @@ func put[E](f *Frame[E], n Node[E], onText Option[func(t string) E], binds Optio
 	if arena.Has(f.nodes, prev) && kindAt(f, prev) != kindOf(n) {
 		prev = arena.Null[node[E]]()
 	}
-	link(f, spec[E]{node: n, id: id, parent: f.parent, prev: prev, ref: arena.Null[node[E]](), onText: onText, onPoint: None, onKey: None, binds: binds, off: false, memo: 0, same: None, skip: false, live: false, first: -1, last: -1, next: -1, before: -1})
+	link(f, spec[E]{node: n, id: id, parent: f.parent, prev: prev, ref: arena.Null[node[E]](), onText: onText, onPoint: None, onKey: None, binds: binds, off: false, memo: 0, same: None, skip: false, live: false, first: -1, last: -1, next: -1, before: -1, focusAs: focusPlain})
 }
 
 // link writes sp as the next spec of the pass, the last child of its
@@ -521,6 +537,7 @@ func Commit[E comparable](f *Frame[E]) []Op[E] {
 	f.visits = 0
 	reconcile(f, -1, f.root)
 	settle(f)
+	focusCommit(f)
 	keepGroups(f)
 	f.ops
 }
@@ -687,7 +704,9 @@ func reconcile[E comparable](f *Frame[E], p int, pr arena.Ref[node[E]]) {
 			refs = refs.Append(sp.prev)
 			unpark(f, sp.prev)
 		} else {
-			refs = refs.Append(f.nodes.Put(fresh(sp.node, sp.id, sp.onText, sp.onPoint, sp.onKey, sp.off)))
+			let mut made = fresh(sp.node, sp.id, sp.onText, sp.onPoint, sp.onKey, sp.off)
+			made.focusAs = sp.focusAs
+			refs = refs.Append(f.nodes.Put(made))
 		}
 		f.specs[s].ref = refs[j]
 	}
@@ -713,6 +732,7 @@ func reconcile[E comparable](f *Frame[E], p int, pr arena.Ref[node[E]]) {
 					n.onPoint = sp.onPoint
 					n.onKey = sp.onKey
 					n.off = sp.off
+					n.focusAs = sp.focusAs
 				})
 			}
 		} else {
@@ -775,6 +795,7 @@ func update[E comparable](f *Frame[E], s int, r arena.Ref[node[E]]) {
 		n.onPoint = sp.onPoint
 		n.onKey = sp.onKey
 		n.off = sp.off
+		n.focusAs = sp.focusAs
 	})
 }
 
