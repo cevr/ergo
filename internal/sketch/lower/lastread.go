@@ -19,6 +19,11 @@ package lower
 // around Q's let), and Q's value is unshared (a let mut, or a let of a
 // fresh value).
 //
+// Q may be a field path of a local record, `r.items` (GP-RESLICE-FIELD):
+// the same rule holds for r, except that a use of r reading a field
+// disjoint from the path, one whose value can share no Map or slice
+// with it (r.n), does not count, as in freshPath.
+//
 // Prior art: Koka's Perceus and Lean 4's reset/reuse reuse a cell whose
 // reference count is one at its last use; Swift's copy-on-write checks
 // uniqueness at run time. Here the uniqueness is the value rule's
@@ -61,20 +66,29 @@ func (w *valueWalk) lastReads() {
 		if !ok {
 			continue
 		}
+		// Q is a name, or a field path of a local record (r.items).
+		var path syntax.Expr
 		id, ok := unparen(ix.X).(*syntax.Ident)
 		if !ok {
-			continue
+			if id = w.fieldPath(ix.X); id == nil || !valueOwned() {
+				continue
+			}
+			path = ix.X
 		}
 		v, ok := w.info.Uses[id].(*check.Var)
-		if ok && w.freshAfter(w.varOf(v), id, loop) {
+		if ok && w.freshAfter(w.varOf(v), id, loop, path) {
 			w.vf.lastRead[id] = true
 		}
 	}
 }
 
 // freshAfter reports that the use id of vv inside the loop is vv's last
-// and its value unshared (see the file comment).
-func (w *valueWalk) freshAfter(vv *vvar, id *syntax.Ident, loop syntax.Node) bool {
+// and its value unshared (see the file comment). With a field path path
+// (nil: id itself), a use of vv that reads a field disjoint from path
+// whose value holds no Map or slice (r.n beside r.items) does not count,
+// as in freshPath (handover.go, disjointRead): it keeps none of path's
+// storage and cannot see the slice that grows into it.
+func (w *valueWalk) freshAfter(vv *vvar, id *syntax.Ident, loop syntax.Node, path syntax.Expr) bool {
 	if !vv.local || vv.ptr {
 		return false
 	}
@@ -93,7 +107,7 @@ func (w *valueWalk) freshAfter(vv *vvar, id *syntax.Ident, loop syntax.Node) boo
 		}
 	}
 	for _, o := range vv.occs {
-		if o == use {
+		if o == use || path != nil && w.disjointRead(o.id, path) {
 			continue
 		}
 		if o.frame != vv.frame || o.pre >= w.pre[loop] {

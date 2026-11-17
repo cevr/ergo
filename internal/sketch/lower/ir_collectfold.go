@@ -74,7 +74,16 @@ type foldPlan struct {
 // (valueFacts.lastRead): xs = Q[a:b], with no growth and no copy. xs may
 // then grow in place past b, into Q's array, which nothing reads again.
 func (b *irBuilder) planReslice(s *syntax.RangeStmt, idiom *loopIdiom) {
-	q, ok := unparen(idiom.place).(*syntax.Ident)
+	// Q is a name or a field path (r.items) headed by the name q.
+	x := unparen(idiom.place)
+	for {
+		sel, ok := x.(*syntax.SelectorExpr)
+		if !ok {
+			break
+		}
+		x = unparen(sel.X)
+	}
+	q, ok := x.(*syntax.Ident)
 	if !ok || !b.l.valueFacts().lastRead[q] {
 		return
 	}
