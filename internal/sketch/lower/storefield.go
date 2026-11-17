@@ -23,10 +23,16 @@ import (
 //   - the root is a local let mut whose initializer is the literal, and
 //     the value is a by-value parameter of the function that nothing else
 //     takes over (not owned, not read as an unshared local: freshFrom's or
-//     freshAll's), so no root of the body but this one shares its storage
-//     (every other value entering a root is copied, Bindings 1);
+//     freshAll's), or a path of one by fields and call-free indices
+//     (stableSource; S3c's bind.bodyOf, binder{p: files[0].Parsed, …}, one
+//     syntax tree copied per body task), so no root of the body but this
+//     one shares its storage (every other value entering a root is copied,
+//     Bindings 1);
 //   - each use of the root in its own frame, through that field, is a
-//     read that keeps nothing; a use through another field is anything,
+//     read that keeps nothing or an assignment of the whole field, whose
+//     value enters copied unless it is such a source too (b.p =
+//     files[t.file].Parsed enters shared); a use through another field is
+//     anything,
 //     since that field holds storage of its own; and a use of the whole
 //     root is a read that keeps nothing or a borrow (&st, a pointer
 //     method's receiver) handed to a function with an Ergo body whose
@@ -218,6 +224,51 @@ func (w *valueWalk) stableParam(src *check.Var) bool {
 	return false
 }
 
+// stableSource reports whether val is a stable parameter (stableParam) or
+// a path of one: field selections and index reads whose index makes no
+// call (bodyOf's files[t.file].Parsed), so it names storage only the
+// caller holds, and holds a Map or slice.
+func (w *valueWalk) stableSource(val syntax.Expr) bool {
+	if val == nil || !w.l.holdsValue(w.typeOf(val)) {
+		return false
+	}
+	for x := val; ; {
+		switch e := x.(type) {
+		case *syntax.ParenExpr:
+			x = e.X
+		case *syntax.SelectorExpr:
+			if w.dotCall(e.X) != nil {
+				return false
+			}
+			x = e.X
+		case *syntax.IndexExpr:
+			if len(e.Indices) != 1 || !w.callFree(e.Indices[0]) {
+				return false
+			}
+			x = e.X
+		case *syntax.Ident:
+			src, ok := w.info.Uses[e].(*check.Var)
+			return ok && w.stableParam(src)
+		default:
+			return false
+		}
+	}
+}
+
+// fieldAssigned is the value u, a use of a root through one field,
+// assigns to that whole field (x.f = e), or nil.
+func (w *valueWalk) fieldAssigned(u *vocc) syntax.Expr {
+	sel, ok := w.parent[u.id].(*syntax.SelectorExpr)
+	if !ok || syntax.Node(sel.X) != syntax.Node(u.id) {
+		return nil
+	}
+	s, ok := w.parent[sel].(*syntax.AssignStmt)
+	if !ok || s.Tok != syntax.ASSIGN || len(s.Lhs) != 1 || len(s.Rhs) != 1 || s.Lhs[0] != syntax.Expr(sel) {
+		return nil
+	}
+	return s.Rhs[0]
+}
+
 // freshenLit freshens the literal lit that initializes the let mut root
 // vv, field by field, leaving shared each field sharedField admits.
 func (w *valueWalk) freshenLit(lit *syntax.CompositeLit, vv *vvar) {
@@ -246,12 +297,7 @@ func (w *valueWalk) sharedField(vv *vvar, name string, val syntax.Expr) bool {
 	if !valueOwned() || !vv.local || !vv.mut || vv.ptr || vv.handed {
 		return false
 	}
-	id, ok := unparen(val).(*syntax.Ident)
-	if !ok {
-		return false
-	}
-	src, ok := w.info.Uses[id].(*check.Var)
-	if !ok || !w.stableParam(src) || !w.l.holdsValue(src.Type) {
+	if !w.stableSource(val) {
 		return false
 	}
 	for _, u := range vv.occs {
@@ -259,7 +305,9 @@ func (w *valueWalk) sharedField(vv *vvar, name string, val syntax.Expr) bool {
 			return false
 		}
 		if f := w.firstField(u.id); f != "" {
-			if f == name && u.kind != occRead {
+			// A whole-field assignment replaces the storage: its value is
+			// copied in the owns loop unless it is a stable source too.
+			if f == name && u.kind != occRead && w.fieldAssigned(u) == nil {
 				return false
 			}
 			continue

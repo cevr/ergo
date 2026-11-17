@@ -354,7 +354,8 @@ type vocc struct {
 type owning struct {
 	value syntax.Expr
 	root  *vvar
-	whole bool // the target is the root itself, x = e
+	whole bool   // the target is the root itself, x = e
+	field string // the target is a field of the root, x.f = e (storefield.go)
 }
 
 type valueWalk struct {
@@ -455,7 +456,11 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 		if n.Tok == syntax.ASSIGN && len(n.Lhs) == 1 && len(n.Rhs) == 1 {
 			if id := pathRoot(n.Lhs[0]); id != nil {
 				if v, ok := w.info.Uses[id].(*check.Var); ok {
-					w.owns = append(w.owns, owning{value: n.Rhs[0], root: w.varOf(v), whole: unparen(n.Lhs[0]) == syntax.Expr(id)})
+					o := owning{value: n.Rhs[0], root: w.varOf(v), whole: unparen(n.Lhs[0]) == syntax.Expr(id)}
+					if sel, ok := unparen(n.Lhs[0]).(*syntax.SelectorExpr); ok && unparen(sel.X) == syntax.Expr(id) {
+						o.field = sel.Sel.Name
+					}
+					w.owns = append(w.owns, o)
 				}
 			}
 		}
@@ -935,6 +940,11 @@ func (w *valueWalk) decide() {
 			if lit, ok := unparen(o.value).(*syntax.CompositeLit); ok && o.root.init != nil && unparen(o.root.init) == syntax.Expr(lit) {
 				// A let mut's literal: a field may enter shared (storefield.go).
 				w.freshenLit(lit, o.root)
+				continue
+			}
+			if o.field != "" && w.sharedField(o.root, o.field, o.value) {
+				// A path of a parameter assigned to a field nothing
+				// writes (storefield.go).
 				continue
 			}
 			w.freshen(o.value)
