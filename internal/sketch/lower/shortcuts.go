@@ -212,6 +212,15 @@ var shortcuts = []shortcut{
 		referenced: func() bool { return !valueOwned() },
 	},
 	{
+		name:       "own-borrow-return",
+		class:      valueClass,
+		admission:  "borrowRetSites",
+		reference:  "valueLowering=copy",
+		agreement:  "TestHandoverAgrees",
+		mutant:     "own-borrow-return-caller-blind",
+		referenced: func() bool { return !valueOwned() },
+	},
+	{
 		name:       "own-reslice",
 		class:      valueClass,
 		admission:  "reslices",

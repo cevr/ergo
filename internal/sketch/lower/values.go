@@ -200,9 +200,10 @@ type valueFacts struct {
 	// moves an entry out of (by their type strings) and the Gets it reads.
 	entryWrites map[string]bool
 	moveRead    map[*syntax.CallExpr]bool
-	copied      map[*check.Var]bool      // the bindings of a matched Get whose entry is copied
-	borrows     *borrowWrites[borrowSum] // what a function writes through a borrow parameter (storeread.go, own-read-pass)
-	fieldWrites *borrowWrites[fieldSum]  // the fields it writes through one (storefield.go, own-enter-field)
+	copied      map[*check.Var]bool                  // the bindings of a matched Get whose entry is copied
+	borrows     *borrowWrites[borrowSum]             // what a function writes through a borrow parameter (storeread.go, own-read-pass)
+	fieldWrites *borrowWrites[fieldSum]              // the fields it writes through one (storefield.go, own-enter-field)
+	borrowRet   map[*check.Func]map[syntax.Expr]bool // the parts of borrows a function returns shared (borrowret.go)
 }
 
 // ownedParam is an owned parameter (V5): its index, counting a dot call's
@@ -824,6 +825,10 @@ func (w *valueWalk) decide() {
 					if vf.handed[o.path] || w.reslices(o.path, vv) || !w.needsCopy(vv, o) {
 						break
 					}
+					if w.sharedReturn(vv, o) {
+						// Its callers copy it (borrowret.go).
+						break
+					}
 					if o.entry && !w.inFlight(vv, o) {
 						// The entry the matched Get gives (V9), which
 						// its arm's bindings then hold unshared.
@@ -846,10 +851,11 @@ func (w *valueWalk) decide() {
 			}
 		}
 	}
-	// A generic result through a borrow (alias.go, borrowResult).
+	// A generic result through a borrow (alias.go, borrowResult), or a
+	// part of a borrow returned shared (borrowret.go), when kept.
 	if valueMutant != "never-copy" && valueMutant != "borrow-blind" {
 		for _, call := range w.ergo {
-			if w.borrowResult(call) && !w.readOnlyUse(call) {
+			if w.borrowResult(call) && !w.readOnlyUse(call) && !w.keptCall(call) {
 				vf.clone[call] = true
 				w.l.stats.BorrowCopies++
 			}
