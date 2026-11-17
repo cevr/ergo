@@ -26,6 +26,7 @@ package lower
 import (
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // exitLowering selects the static exit form: "" builds it where it
@@ -60,7 +61,7 @@ func (l *lowerer) staticExits(list []syntax.Stmt) bool {
 			return false
 		case *syntax.CallExpr:
 			if l.needsFrame(n) {
-				ok = l.isOnExit(n) && !l.exitBlockNeedsFrame(n)
+				ok = l.registersExit(n) && !l.exitBlockNeedsFrame(n)
 				return false
 			}
 			for w := l.info.Withs[n]; w != nil; w = w.Next {
@@ -85,10 +86,16 @@ func (l *lowerer) staticExits(list []syntax.Stmt) bool {
 	return ok
 }
 
-// isOnExit reports a call of the std scope.OnExit.
-func (l *lowerer) isOnExit(x *syntax.CallExpr) bool {
+// registersExit reports a call x, one that needs the frame, whose runtime
+// body registers an exit action on it: its release route is the frame's
+// (//ergo:release frame, scope.OnExit's body).
+func (l *lowerer) registersExit(x *syntax.CallExpr) bool {
 	c := l.info.Calls[x]
-	return c != nil && c.Func != nil && c.Func.Name == "OnExit" && c.Func.Pkg != nil && c.Func.Pkg.Std() && c.Func.Pkg.Path == "scope"
+	if c == nil || c.Func == nil {
+		return false
+	}
+	body, _, ok := l.stdBody(l.funcDecl(c.Func))
+	return ok && body.Release == "frame"
 }
 
 // exitBlockNeedsFrame reports an OnExit call x whose block (trailing, or a
@@ -126,10 +133,12 @@ func (b *irBuilder) openExits(p irPos, task, errArg *irExpr) []*irStmt {
 }
 
 // exitsForm is the runtime body a std call at a frame in the static exit
-// form calls in place of name: OnExit registers on the Exits.
-func (b *irBuilder) exitsForm(name string) string {
-	if b.exits && name == "OnExit" {
-		return "ExitsOnExit"
+// form calls in place of name: a body that registers an exit action on
+// the frame (OnExit) registers it on the Exits (ExitsOnExit), whose first
+// operand is the Exits where the general body's hidden frame is.
+func (b *irBuilder) exitsForm(body v1.Body, name string) string {
+	if b.exits && body.Release == "frame" {
+		return "Exits" + name
 	}
 	return name
 }
