@@ -172,15 +172,42 @@ func (b *irBuilder) admitArgs(t *check.Named, depth int) {
 func (b *irBuilder) typeArgs(c *check.Call, site syntax.Node) string {
 	var out []string
 	for i, tp := range c.Func.Sig.TParams {
-		if tp.Kind != check.KindType {
+		if !b.l.goParam(tp) {
 			continue
 		}
 		if i >= len(c.TypeArgs) {
 			irNo("generic call without its type arguments")
 		}
-		out = append(out, b.goType(c.TypeArgs[i], site))
+		out = append(out, b.goArg(tp, c.TypeArgs[i], site))
 	}
 	return strings.Join(out, ", ")
+}
+
+// goArg is the Go type argument a of the Go type parameter tp, as the
+// emitter's goArg writes it (rowslot.go): a type-kinded parameter's Go
+// type; a Slot row's (`F error`) single named error type, or error for a
+// row of none or several. A row that names a type parameter of the caller,
+// and a held row, keep the source body.
+func (b *irBuilder) goArg(tp *check.TypeParam, a check.Type, site syntax.Node) string {
+	if tp.Kind == check.KindType {
+		return b.goType(a, site)
+	}
+	if tp.Kind == check.KindUses || check.SlotRow(a) != nil {
+		irNo("generic call with a row type argument of the caller")
+	}
+	ra, ok := a.(*check.RowArg)
+	if !ok {
+		irNo("generic call with a row type argument of the caller")
+	}
+	es := rowElems(ra.Row)
+	if len(es) == 1 {
+		e, named := es[0].(*check.Named)
+		if !named {
+			irNo("generic call with a row type argument of the caller")
+		}
+		return b.goType(e, site)
+	}
+	return "error"
 }
 
 // valueSource applies the value rule to the operands of the call x, args

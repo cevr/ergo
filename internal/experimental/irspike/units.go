@@ -155,6 +155,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"task call", "G4"},
 	{"generic call kind *", "G4"},
 	{"generic call without its type arguments", "G4"},
+	{"generic call with a row type argument of the caller", "G4"},
 	{"Option's pointer niche", "G4"},
 	{"append form", "G4"},
 	{"append to a defined slice type", "G4"},
