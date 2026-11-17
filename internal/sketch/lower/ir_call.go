@@ -35,6 +35,7 @@ func (b *irBuilder) call(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr) {
 		return pre, v
 	}
 	pre, e, effect := b.callParts(x, stmt)
+	b.markPure(x, e) // ir_merge.go
 	if e != nil && (e.K == "vcall" && !b.plainCallee(x) || b.dropsErr[e] && !stmt) {
 		// A function value returns its (value, error) pair (ir_closure.go;
 		// a known callback's is plain, ir_kcb.go),

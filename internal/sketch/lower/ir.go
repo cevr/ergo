@@ -36,11 +36,20 @@ type IRReport struct {
 	Fallback map[string]int `json:"fallback"`
 	// Memo counts the loop-invariant pure calls the IR bodies compute
 	// once per entry of their loop (ir_memo.go).
-	Memo int    `json:"memo,omitempty"`
+	Memo int `json:"memo,omitempty"`
+	// Merge counts the pure calls that read an equal call's value
+	// (ir_merge.go).
+	Merge int `json:"merge,omitempty"`
+	// Fold counts the pure Go calls on constants computed at compile
+	// time (ir_fold.go).
+	Fold int    `json:"fold,omitempty"`
 	Hash string `json:"hash"`
 	// Forms counts the IR forms the bodies held before erasure, by
 	// kind and layout ("match/flat"; ir_forms.go): in memory only.
 	Forms map[string]int `json:"-"`
+	// FormSites are the decisions of the passes over the IR bodies, by
+	// position (ir_forms_report.go): ergo inspect forms.
+	FormSites []FormSite `json:"formSites,omitempty"`
 }
 
 // LowerIR is Lower with the IR bodies. The report's Hash names the IR
@@ -220,6 +229,7 @@ func lowerIRModule(u Unit, tests *testLowering, formsOff bool) ([]File, map[stri
 	}
 	files := append(moduleFiles(u.Go, code), l.assetFiles()...)
 	sort.Strings(l.ir.report.IR)
+	sortFormSites(l.ir.report.FormSites) // ir_forms_report.go
 	return files, l.stdOrigins(), irModule{IRReport: l.ir.report, out: &l.ir.out}, l, nil
 }
 
@@ -335,6 +345,8 @@ type irExpr struct {
 	End    *irPos    `json:"end,omitempty"`
 	// F is a "variant" form's facts, in memory only (ir_forms.go).
 	F *irVariant `json:"-"`
+	// C is a pure call's facts, in memory only (ir_merge.go).
+	C *irCall `json:"-"`
 }
 
 // irUnsupported stops an IR body: the function keeps its source body.
@@ -361,6 +373,15 @@ type irBuilder struct {
 	// the body's memoized calls (ir_memo.go).
 	memos     []*irMemo
 	memoSites int
+	// mergeSites counts the body's calls the merge pass replaced
+	// (ir_merge.go).
+	mergeSites int
+	// foldSites counts the body's calls the fold pass replaced
+	// (ir_fold.go).
+	foldSites int
+	// forms are the body's form sites (ir_forms_report.go), kept with its
+	// IR body.
+	forms []FormSite
 	// tries counts the try expressions being built (ir_fail.go): inside
 	// one, a fallible call fails the frame too.
 	tries int
@@ -557,6 +578,8 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	}
 	n := len(b.fn.Body)
 	b.fn.Body = append(b.fn.Body, b.bodyStmts(f.Decl.Body.List)...) // ir_fail.go
+	b.fn.Body = b.foldCalls(b.fn.Body)                              // ir_fold.go
+	b.fn.Body = b.mergeCalls(b.fn.Body)                             // ir_merge.go
 	b.fn.Body = eraseForms(b.fn.Body, b.st.sawForm)                 // ir_forms_erase.go
 	b.part(b.ownVisited)                                            // ir_own.go
 	b.fn.Body = b.withEntry(b.fn.Body, n)                           // ir_hoist.go
@@ -570,6 +593,9 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	st.out.Funcs = append(st.out.Funcs, *b.fn)
 	st.report.IR = append(st.report.IR, name)
 	st.report.Memo += b.memoSites
+	st.report.Merge += b.mergeSites
+	st.report.Fold += b.foldSites
+	st.report.FormSites = append(st.report.FormSites, b.forms...) // ir_forms_report.go
 	return true
 }
 

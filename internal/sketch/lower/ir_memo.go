@@ -94,13 +94,22 @@ func (b *irBuilder) memoCall(x *syntax.CallExpr, pre []*irStmt, e *irExpr) ([]*i
 	if len(pre) == 1 && pre[0].K == "def" && e.K == "local" && e.I == pre[0].Local {
 		e, pre = pre[0].X, nil
 	}
+	c := b.l.info.Calls[x]
+	if c == nil || c.Kind != check.CallFunc || c.Func == nil {
+		// A conversion, a builtin, an operation: not a call the pass
+		// reads.
+		return nil, nil, false
+	}
 	if len(pre) > 0 {
+		b.formSite(x, memoStatements) // ir_forms_report.go
 		return nil, nil, false
 	}
 	m := b.memos[len(b.memos)-1]
-	if !b.invariantPureCall(x, m.loop) {
+	if r := b.invariantPureCall(x, m.loop); r != nil {
+		b.formSite(x, r)
 		return nil, nil, false
 	}
+	b.formSite(x, memoFired)
 	p := e.Pos
 	t := b.goType(b.l.info.Types[x], x)
 	v, done := b.temp("memo", t, p), b.temp("memoDone", "bool", p)
@@ -113,24 +122,35 @@ func (b *irBuilder) memoCall(x *syntax.CallExpr, pre []*irStmt, e *irExpr) ([]*i
 	return []*irStmt{first}, &irExpr{K: "local", Pos: p, I: v}, true
 }
 
-// invariantPureCall reports a call x, in loop's body, of a pure callee
+// invariantPureCall is nil for a call x, in loop's body, of a pure callee
 // with operands that are the same on every iteration of loop, all of
-// basic types, as its result is.
-func (b *irBuilder) invariantPureCall(x *syntax.CallExpr, loop syntax.Stmt) bool {
+// basic types, as its result is; otherwise the reason it is not.
+func (b *irBuilder) invariantPureCall(x *syntax.CallExpr, loop syntax.Stmt) *FormReason {
 	info := b.l.info
 	c := info.Calls[x]
-	if c == nil || c.Kind != check.CallFunc || c.Func == nil || c.Recv != nil || x.Trailing != nil || c.StartsTask || c.Site != nil {
-		return false
+	if c.Recv != nil || x.Trailing != nil || c.StartsTask || c.Site != nil {
+		return memoKind
 	}
-	if !irMemoBasic(info.Types[x]) || !b.pureCallee(c.Func) {
-		return false
+	if !b.pureCallee(c.Func) {
+		return memoImpure
+	}
+	if !irMemoBasic(info.Types[x]) {
+		return memoNotBasic
 	}
 	for _, a := range x.Args {
-		if !irMemoBasic(info.Types[a]) || !b.loopInvariant(a, loop) {
-			return false
+		if !irMemoBasic(info.Types[a]) {
+			return memoNotBasic
 		}
 	}
-	return true
+	if b.foldable(c.Func, x) { // ir_fold.go
+		return memoFolds
+	}
+	for _, a := range x.Args {
+		if !b.loopInvariant(a, loop) {
+			return memoVariant
+		}
+	}
+	return nil
 }
 
 // pureCallee reports a callee whose call is a function of its operands: a

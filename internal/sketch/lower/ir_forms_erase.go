@@ -63,6 +63,7 @@ func (e eraser) expr(x *irExpr) *irExpr {
 		x.Elems[i] = e.expr(el)
 	}
 	e.stmts(x.Body)
+	x.C = nil // a call's facts (ir_merge.go)
 	if x.K == "variant" {
 		if e.seen != nil && x.F != nil {
 			e.seen("variant", x.F.Layout)
