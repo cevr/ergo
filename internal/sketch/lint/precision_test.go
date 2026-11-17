@@ -15,8 +15,7 @@ import (
 // TestDefaultRulesMeetTheBar is the residue rule of the precision table
 // (LINT-HYGIENE §[R2] 1): a rule of the base preset, on by default, has a
 // published precision of at least 0.80. A rule with no row or a row under
-// the bar is opt-in. Mutant: lhp-justifier-back-in-base (silent-catch, at
-// 0.12, back in recommended).
+// the bar is opt-in. Mutant: lhp-justifier-back-in-base.
 func TestDefaultRulesMeetTheBar(t *testing.T) {
 	base := lint.Builtin().BasePreset()
 	for name := range base.Rules {
@@ -31,7 +30,7 @@ func TestDefaultRulesMeetTheBar(t *testing.T) {
 // the read sample it cites: its true and read counts and its misses by
 // class are the reading's, and every rule the reading names has a row. The
 // reading is the evidence; the table is what the linter prints. Mutant:
-// lhp-table-count-edited (silent-catch's 7 true edited to 45).
+// lhp-table-count-edited.
 func TestPrecisionTableIsItsReading(t *testing.T) {
 	type tally struct {
 		truth, read int

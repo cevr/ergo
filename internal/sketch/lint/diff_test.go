@@ -171,7 +171,7 @@ func gitDiff(t *testing.T, old, new string) string {
 	if err := os.WriteFile(filepath.Join(dir, "main.ergo"), []byte(new), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("git", "-c", "core.quotePath=false", "diff", "--no-index", "-U0", "--no-color", "--no-ext-diff", "--no-prefix", "old/main.ergo", "main.ergo")
+	cmd := exec.Command("git", "--no-optional-locks", "-c", "core.quotePath=false", "diff", "--no-index", "-U0", "--no-color", "--no-ext-diff", "--no-prefix", "old/main.ergo", "main.ergo")
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if exit, ok := err.(*exec.ExitError); err != nil && (!ok || exit.ExitCode() != 1) {

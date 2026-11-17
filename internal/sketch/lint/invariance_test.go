@@ -429,9 +429,7 @@ func main() {
 // formatted text, else that case is skipped; each transform must apply at
 // least once. Targets are generated programs (the complexity generator's)
 // and a seeded draw of the examples' packages. Mutants:
-// lhp-halstead-counts-parens (a redundant pair of parentheses as an
-// operator), lhp-complexity-counts-blank (complexity read from the line
-// span).
+// lhp-halstead-counts-parens, lhp-paren-breaks-run.
 func TestFindingsSurviveTransforms(t *testing.T) {
 	conf := allRules(t)
 	var targets []target
@@ -526,7 +524,7 @@ func TestFindingsSurviveTransforms(t *testing.T) {
 // TestWordReadersListed is the residue check of the invariance table: the
 // rules declared sensitive to renaming are exactly the rules whose file
 // calls a word helper (nameWords, bannedWord) on names. Mutant:
-// lhp-word-reader-unlisted (banned-words dropped from wordReaders).
+// lhp-word-reader-unlisted.
 func TestWordReadersListed(t *testing.T) {
 	files, err := filepath.Glob("rule_*.go")
 	if err != nil || len(files) == 0 {

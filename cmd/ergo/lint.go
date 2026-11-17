@@ -248,7 +248,7 @@ func addedLines(path, rev string) (lint.Added, error) {
 		root = dir
 	}
 	git := func(args ...string) (string, error) {
-		cmd := exec.Command("git", append([]string{"-c", "core.quotePath=false"}, args...)...)
+		cmd := exec.Command("git", append([]string{"--no-optional-locks", "-c", "core.quotePath=false"}, args...)...)
 		cmd.Dir = root
 		var stderr strings.Builder
 		cmd.Stderr = &stderr
