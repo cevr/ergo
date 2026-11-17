@@ -9,10 +9,9 @@ import (
 
 // stdGo5Cases are NP4f-5's moved functions, each against Go's own:
 // sha256.Sum and crc32.Checksum, which bind Go's digests on a view of the
-// string's bytes, and strconv's ParseBool and Unquote, whose Go error is
-// std's Malformed. Edges are the empty text, invalid bytes, every spelling
-// ParseBool takes and near misses of them, and the three quote forms with
-// escapes, bad escapes, newlines and unterminated literals.
+// string's bytes, and strconv.ParseBool, an Ergo match whose Malformed is
+// Go's error. Edges are the empty text, invalid bytes, every spelling
+// ParseBool takes and near misses of them.
 func stdGo5Cases(r *rand.Rand, n int) []bodyCase {
 	with := func(c bodyCase) bodyCase {
 		c.decls = stdGo5Decls
@@ -26,23 +25,6 @@ func stdGo5Cases(r *rand.Rand, n int) []bodyCase {
 			return bools[r.IntN(len(bools))]
 		}
 		return stdGo2Text(r)
-	}
-	genQuoted := func(r *rand.Rand) string {
-		s := stdGo2Text(r)
-		switch r.IntN(6) {
-		case 0:
-			return strconv.Quote(s)
-		case 1:
-			return strconv.QuoteToASCII(s)
-		case 2:
-			return "`" + s + "`"
-		case 3:
-			return strconv.QuoteRune(rune(r.IntN(0x110000 + 2)))
-		case 4:
-			q := strconv.Quote(s)
-			return q[:r.IntN(len(q))]
-		}
-		return s
 	}
 	return []bodyCase{
 		with(bodyRows("sha256.Sum", []string{"sha256", "strconv"}, "s string", `bs(sha256.Sum(s))`,
@@ -62,20 +44,10 @@ func stdGo5Cases(r *rand.Rand, n int) []bodyCase {
 				}
 				return strconv.FormatBool(b)
 			})),
-		with(bodyRows("strconv.Unquote", []string{"strconv"}, "s string", `np5Unquote(s)`,
-			[]string{"", `""`, `"`, "``", "`a\nb`", "`a`b`", "'x'", "'ab'", "''", `'\''`, `"\x41\u00e9\U0001F642"`,
-				`"\q"`, "\"a\nb\"", "\"\xff\"", "'\xff'", `"\377"`, `'\400'`, `"a`, `x"a"`, ` "a" `, `"\ud800"`}, n, r, genQuoted, text,
-			func(s string) string {
-				u, err := strconv.Unquote(s)
-				if err != nil {
-					return "malformed " + stdGo2Bytes(s)
-				}
-				return stdGo2Bytes(u)
-			})),
 	}
 }
 
-// stdGo5Decls are stdGo2Decls with printers of a parse that tells
+// stdGo5Decls are stdGo2Decls with a printer of a parse that tells
 // Malformed, with the text it names, from a value.
 const stdGo5Decls = stdGo2Decls + `
 
@@ -85,12 +57,4 @@ func np5Bool(s string) string {
 		return "malformed " + bs(m.Text)
 	}
 	"\(b)"
-}
-
-func np5Unquote(s string) string {
-	let u = strconv.Unquote(s) catch {
-	case strconv.Malformed as m:
-		return "malformed " + bs(m.Text)
-	}
-	bs(u)
 }`

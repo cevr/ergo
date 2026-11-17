@@ -539,12 +539,22 @@
       "killers": ["lower:TestStdMatchesGo"]
     },
     {
-      "name": "np4f5-parsebool-folds-case",
+      "name": "np4f5-parsebool-takes-tRUE",
       "origin": "wf10 NP4f-5",
       "file": "internal/sketch/std/strconv/strconv.ergo",
-      "from": "\tstrconv.ParseBool(s) catch {",
-      "to": "\tstrconv.ParseBool(strings.ToLower(s)) catch {",
+      "from": "\tcase \"1\", \"t\", \"T\", \"TRUE\", \"true\", \"True\":",
+      "to": "\tcase \"1\", \"t\", \"T\", \"TRUE\", \"tRUE\", \"true\", \"True\":",
       "rule": "strconv.ParseBool takes Go's twelve spellings only: tRUE is Malformed.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f5-parsebool-drops-False",
+      "origin": "wf10 NP4f-5",
+      "file": "internal/sketch/std/strconv/strconv.ergo",
+      "from": "\tcase \"0\", \"f\", \"F\", \"FALSE\", \"false\", \"False\":",
+      "to": "\tcase \"0\", \"f\", \"F\", \"FALSE\", \"false\":",
+      "rule": "strconv.ParseBool reads False as false, as Go's.",
       "anchor": {"tests":["lower:TestStdMatchesGo"]},
       "killers": ["lower:TestStdMatchesGo"]
     },
@@ -552,29 +562,9 @@
       "name": "np4f5-parsebool-malformed-text",
       "origin": "wf10 NP4f-5",
       "file": "internal/sketch/std/strconv/strconv.ergo",
-      "from": "\tstrconv.ParseBool(s) catch {\n\tcase go.Error:\n\t\treturn Malformed{Text: s}",
-      "to": "\tstrconv.ParseBool(s) catch {\n\tcase go.Error:\n\t\treturn Malformed{Text: \"\"}",
+      "from": "\tcase _:\n\t\treturn Malformed{Text: s}\n\t}\n}\n\n// FormatBool",
+      "to": "\tcase _:\n\t\treturn Malformed{Text: \"\"}\n\t}\n}\n\n// FormatBool",
       "rule": "strconv.ParseBool's Malformed names the text it could not read.",
-      "anchor": {"tests":["lower:TestStdMatchesGo"]},
-      "killers": ["lower:TestStdMatchesGo"]
-    },
-    {
-      "name": "np4f5-unquote-malformed-text",
-      "origin": "wf10 NP4f-5",
-      "file": "internal/sketch/std/strconv/strconv.ergo",
-      "from": "\tstrconv.Unquote(s) catch {\n\tcase go.Error:\n\t\treturn Malformed{Text: s}",
-      "to": "\tstrconv.Unquote(s) catch {\n\tcase go.Error:\n\t\treturn Malformed{Text: \"\"}",
-      "rule": "strconv.Unquote's Malformed names the text it could not read.",
-      "anchor": {"tests":["lower:TestStdMatchesGo"]},
-      "killers": ["lower:TestStdMatchesGo"]
-    },
-    {
-      "name": "np4f5-unquote-trims",
-      "origin": "wf10 NP4f-5",
-      "file": "internal/sketch/std/strconv/strconv.ergo",
-      "from": "\tstrconv.Unquote(s) catch {",
-      "to": "\tstrconv.Unquote(strings.TrimSpace(s)) catch {",
-      "rule": "strconv.Unquote reads s as one literal, as Go's: text around the quotes is Malformed.",
       "anchor": {"tests":["lower:TestStdMatchesGo"]},
       "killers": ["lower:TestStdMatchesGo"]
     }
