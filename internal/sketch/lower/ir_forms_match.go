@@ -323,7 +323,7 @@ func (b *irBuilder) fuseBuild(s *syntax.TypeSwitchStmt, call *syntax.CallExpr, c
 	for k, cl := range reached {
 		cp := b.pos(cl, cl.Case)
 		arm := b.arm(cl.Body, ret, to)
-		if k < len(reached)-1 && !(len(arm) > 0 && irTerminates(arm[len(arm)-1])) && !ret {
+		if k < len(reached)-1 && !(len(arm) > 0 && irTerminates(arm[len(arm)-1])) && !(ret && to == nil) {
 			arm = append(arm, &irStmt{K: "goto", Pos: end, Label: exit})
 			jumps++
 		}
