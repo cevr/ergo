@@ -39,6 +39,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"irBuilder.adaptOperand":   "the IR's task block adapter: the Env copy's task is the body's task parameter, as childEnv's (ir_adapt.go, FLIP OPC-adapt)",
 			"irBuilder.closeMasked":    "the IR's checked Close: v1.Release's hidden CallerTask (its body's facts read through runtimeBody), as closeBody's runtimeCall writes it (FLIP F7 FORK unit 4)",
 			"irBuilder.releaseFuncs":   "the IR's static-frame release: StaticBegin's hidden CallerTask, as closeStatic's runtimeCall writes it (FLIP F7 FORK RELEASE-IR)",
+			"irBuilder.hostCloseCall":  "the IR's release of a Go value: v1.Release's hidden CallerTask, as hostRelease's runtimeCall writes it (FLIP F7 FORK-GOCALL)",
 		}},
 		{"taskOf", map[string]string{
 			"funcCtx.hiddenArgs":      "runtimeCall's hidden CallerTask argument",
