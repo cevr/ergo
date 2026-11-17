@@ -1,20 +1,26 @@
 package lint
 
 import (
+	"slices"
+
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // testWaitsOnTime is the rule for tests that wait by letting time pass
 // (owner, 2026-11-17, WAIT ON EVENTS; common.md): in a test or a law, a
-// sleep in the test's own frame (the Scheduler's Sleep, or a Manual's)
-// or an advance of a manual clock (std time.Manual, testing.VirtualClock)
-// by more than zero, when nothing else the test runs reads or waits on
-// time. Then the time passed is no input of the code under
+// sleep in the test's own frame (the Scheduler's Sleep, or a clock's)
+// or an advance of a manual clock by more than zero, when nothing else the
+// test runs reads or waits on time. A manual clock is a type whose
+// implements clause names the Scheduler (std time.Manual,
+// testing.VirtualClock, or a module's own); its advance is a method no
+// operation type of that clause declares that gives no result. Then the time passed is no input of the code under
 // test: it only gives other tasks a chance to finish, which a slower run
 // does not. Time is the input when the test runs other time-driven code
-// (a function whose row needs the Scheduler or std time's Clock, an
-// operation of either, a Manual's Now, Elapsed, Sleep or Sleepers, a
+// (a function whose row needs the Scheduler or an operation type a clock
+// of the test implements, such as std time's Clock; an operation of
+// one; a clock's operation or a method that gives a result, as Now,
+// Elapsed, Sleep or Sleepers; a
 // sleep in a task the test starts): a law of a timeout or a debounce that
 // advances to d and asserts what the code did at d is no finding. An
 // advance by a constant zero is a settle, a wait on the scheduler's idle
@@ -47,6 +53,7 @@ func checkTestWaitsOnTime(p *Pass) {
 		if body == nil {
 			return false
 		}
+		caps := check.ClockCaps(clocksIn(p.Info, body))
 		var waits []*syntax.CallExpr
 		timed := false
 		// own reports whether the walk is in the test's own frame, not in
@@ -72,7 +79,7 @@ func checkTestWaitsOnTime(p *Pass) {
 							timed = true
 						}
 					default:
-						if check.TimeDriven(p.Info, x) {
+						if check.TimeDriven(p.Info, x, caps) {
 							timed = true
 						}
 					}
@@ -99,6 +106,31 @@ func checkTestWaitsOnTime(p *Pass) {
 		}
 		return false
 	})
+}
+
+// clocksIn is the manual clocks the test names: the types of its
+// variables that check.IsManualClock holds.
+func clocksIn(info *check.Info, body *syntax.BlockStmt) []*check.Named {
+	var clocks []*check.Named
+	syntax.Inspect(body, func(n syntax.Node) bool {
+		if id, ok := n.(*syntax.Ident); ok {
+			o := info.Uses[id]
+			if o == nil {
+				o = info.Defs[id]
+			}
+			if v, ok := o.(*check.Var); ok && check.IsManualClock(v.Type) {
+				t := v.Type
+				if ptr, ok := t.(*check.Pointer); ok {
+					t = ptr.Elem
+				}
+				if n, ok := t.(*check.Named); ok && !slices.Contains(clocks, n) {
+					clocks = append(clocks, n)
+				}
+			}
+		}
+		return true
+	})
+	return clocks
 }
 
 // sharedClock reports whether code the test runs may read a manual clock

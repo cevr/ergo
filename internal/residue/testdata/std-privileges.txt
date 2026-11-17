@@ -78,6 +78,7 @@ language	internal/sketch/check/entry.go:checker.checkErrorMethods	Error, the met
 language	internal/sketch/check/extern.go:IsGoError	go.Error of the Go boundary	-
 language	internal/sketch/check/extern.go:predeclaredExtern	the prelude's externs are intrinsics the lowering writes	-
 language	internal/sketch/check/footprint.go:preludeCollection	the prelude collection functions	-
+language	internal/sketch/check/lintfacts.go:IsScheduler	Scheduler, the predeclared capability a manual clock implements (test-waits-on-time)	-
 language	internal/sketch/check/laws.go:lawClosures	the prelude's providers in a law	-
 language	internal/sketch/check/loops.go:checker.preludeOrigin	Range and Seq, the iteration forms	-
 language	internal/sketch/check/match.go:reusableBinderName	Decision, the machine result	-
@@ -124,7 +125,6 @@ debt	internal/sketch/lower/gobody.go:viewExtern	decides by std membership or a s
 debt	internal/sketch/lower/ir_assert.go:irState.lawBody	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
 debt	internal/sketch/lower/pkgsplit.go:lowerer.stdOrigins	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
 debt	internal/sketch/lower/pkgsplit.go:stdImports	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
-debt	internal/sketch/check/lintfacts.go:IsSchedulerSleep	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
 debt	internal/sketch/check/lintfacts.go:IsTimeoutPackage	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
 debt	internal/sketch/check/lintfacts.go:ProgramType	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
 debt	internal/sketch/check/lintfacts.go:RoleOf	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP

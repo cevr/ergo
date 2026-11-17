@@ -2029,6 +2029,7 @@ The standard library is an ordinary set of packages ([NORTH_STAR.md](../../NORTH
 | `internal/sketch/check/implements.go:isGoCloser` | `io.Closer` |
 | `internal/sketch/check/footprint.go:preludeCollection` | `Append`, `Get`, `Delete`, `Put` |
 | `internal/sketch/check/laws.go:lawClosures` | the prelude's providers in a law |
+| `internal/sketch/check/lintfacts.go:IsScheduler` | `Scheduler`, and its `Sleep` |
 | `internal/sketch/check/loops.go:checker.preludeOrigin` | `Range`, `Seq` |
 | `internal/sketch/check/match.go:reusableBinderName` | `Decision` |
 | `internal/sketch/check/ownership.go:checker.checkOwnership` | `Close` |

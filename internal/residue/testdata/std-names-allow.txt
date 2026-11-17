@@ -19,6 +19,7 @@ internal/sketch/check/laws.go	pkg.Path != stdlib.PreludePath	prelude provider se
 internal/sketch/check/lintfacts.go	f.Pkg.Path == r.path	lint std roles (LINT1 justifier rules); follow-up declared contracts
 internal/sketch/check/lintfacts.go	p.Path == "timeout"	lint timeout package (LINT1); follow-up declared contracts
 internal/sketch/check/lintfacts.go	o.Pkg.Path == path	lint std objects (LINT1); follow-up declared contracts
+internal/sketch/check/lintfacts.go	o.Pkg.Path == stdlib.PreludePath	Scheduler, the predeclared capability a manual clock implements (LH-WAIT test-waits-on-time)
 internal/sketch/check/loops.go	tn.Pkg.Path != stdlib.PreludePath	Range predeclared iteration form
 internal/sketch/check/mappedtext.go	n.Obj.Pkg.Path == "fs"	fs.Text and fs.Mapped, the mapped text borrow (types.md, Borrows 8); follow-up a declared borrow contract
 internal/sketch/check/mappedtext.go	c.pkg.Path == "fs"	std fs declares Mapped.Text's fs.Text result (Borrows 8)

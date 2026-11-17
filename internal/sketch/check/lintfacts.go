@@ -2,6 +2,7 @@ package check
 
 import (
 	"go/constant"
+	"slices"
 
 	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -277,7 +278,7 @@ func IsSchedulerSleep(info *Info, x *syntax.CallExpr) bool {
 		return false
 	}
 	n, ok := info.Types[sel.X].(*Named)
-	return ok && isStdObj(n.origin().Obj, stdlib.PreludePath, "Scheduler") && call.Op.Name == "Sleep"
+	return ok && isSchedulerSleep(call.Op.Name, n)
 }
 
 // IsTimeoutExpired reports std timeout.Expired, the failure of a deadline.
@@ -345,12 +346,63 @@ func isStdObj(o *TypeName, path, name string) bool {
 	return o != nil && o.Pkg.Std() && o.Pkg.Path == path && o.Name == name
 }
 
+// IsScheduler reports the prelude's Scheduler capability, a predeclared
+// name (docs/spec/stdlib.md, Std is ordinary 2).
+func IsScheduler(t Type) bool {
+	n, ok := t.(*Named)
+	if !ok {
+		return false
+	}
+	o := n.origin().Obj
+	return o != nil && o.Name == "Scheduler" && o.Pkg != nil && o.Pkg.Path == stdlib.PreludePath
+}
+
+// isSchedulerSleep reports the Scheduler's operation Sleep, by its name in
+// an operation type IsScheduler holds (docs/spec/stdlib.md, Std is
+// ordinary 2).
+func isSchedulerSleep(name string, scheduler *Named) bool {
+	return IsScheduler(scheduler) && name == "Sleep"
+}
+
+// IsManualClock reports a clock a test drives: a type whose implements
+// clause names the Scheduler, so a with can make it the tasks' scheduler
+// (std time's Manual and testing's VirtualClock; LiveScheduler too, whose
+// Sleep is a real one). Any module can declare one.
+func IsManualClock(t Type) bool {
+	if p, ok := t.(*Pointer); ok {
+		t = p.Elem
+	}
+	n, ok := t.(*Named)
+	return ok && slices.ContainsFunc(n.Implements(), func(i *Named) bool { return IsScheduler(i) })
+}
+
+// ClockCaps reports the capabilities a clock of the test serves: the
+// Scheduler, and each operation type the implements clause of one of the
+// clocks names (std time's Clock, for time.Manual).
+func ClockCaps(clocks []*Named) func(*Named) bool {
+	return func(n *Named) bool {
+		if IsScheduler(n) {
+			return true
+		}
+		for _, c := range clocks {
+			for _, i := range c.Implements() {
+				if i.origin() == n.origin() {
+					return true
+				}
+			}
+		}
+		return false
+	}
+}
+
 // TimeWait is how a call lets time pass: WaitNone, a manual clock's
-// Advance by more than zero, or a sleep (the Scheduler's Sleep through a
-// with, or a manual clock's Sleep). A manual clock is std time's Manual or
-// std testing's VirtualClock. An Advance by a constant zero passes no
-// time: it returns once every task it woke waits again, which is a wait
-// on the scheduler's idle (testing.Stage's Settle), not on time.
+// advance by more than zero, or a sleep (the Scheduler's Sleep through a
+// with, or a clock's Sleep). A clock's method that no operation type of
+// its implements clause declares and that gives no result is an advance
+// (time.Manual's Advance): the test moves time. An advance by a constant
+// zero passes no time: time.Manual's Advance returns once every task it
+// woke waits again, which is a wait on the scheduler's idle (testing.Stage's
+// Settle), not on time.
 type TimeWait int
 
 // Time waits.
@@ -365,18 +417,23 @@ func TimeWaitOf(info *Info, x *syntax.CallExpr) TimeWait {
 	if IsSchedulerSleep(info, x) {
 		return WaitSleep
 	}
-	if f := manualMethod(info, x); f != nil {
-		switch f.Name {
-		case "Advance":
-			if d := advanceBy(info, x); d != nil && constant.Sign(d) == 0 {
-				return WaitNone
-			}
-			return WaitAdvance
-		case "Sleep":
+	f, clock := clockMethod(info, x)
+	if f == nil {
+		return WaitNone
+	}
+	if op := clockOp(clock, f); op != nil {
+		if isSchedulerSleep(f.Name, op) {
 			return WaitSleep
 		}
+		return WaitNone
 	}
-	return WaitNone
+	if len(f.Sig.Results) > 0 {
+		return WaitNone
+	}
+	if d := advanceBy(info, x); d != nil && constant.Sign(d) == 0 {
+		return WaitNone
+	}
+	return WaitAdvance
 }
 
 // advanceBy is the constant duration an Advance call moves by, or nil.
@@ -387,28 +444,29 @@ func advanceBy(info *Info, x *syntax.CallExpr) constant.Value {
 	return info.Values[x.Args[len(x.Args)-1]]
 }
 
-// TimeDriven reports whether the call x reads or waits on time: a
-// function whose capability row holds the Scheduler or std time's Clock,
-// an operation of either, or an operation of a manual clock other than
-// Advance (Now, Elapsed, Sleep, Sleepers).
-func TimeDriven(info *Info, x *syntax.CallExpr) bool {
+// TimeDriven reports whether the call x reads or waits on time, caps
+// holding the capabilities of time (ClockCaps): a function whose
+// capability row holds one, an operation of one, or a method of a clock
+// other than an advance: an operation (Now, Sleep) or one that gives a
+// result (Elapsed, Sleepers).
+func TimeDriven(info *Info, x *syntax.CallExpr, caps func(*Named) bool) bool {
 	call := info.Calls[x]
 	if call == nil {
 		return false
 	}
-	if f := manualMethod(info, x); f != nil {
-		return f.Name != "Advance"
+	if f, clock := clockMethod(info, x); f != nil {
+		return clockOp(clock, f) != nil || len(f.Sig.Results) > 0
 	}
 	if call.Kind == CallProviderOp {
 		if sel, ok := unparen(x.Fun).(*syntax.SelectorExpr); ok {
-			if n, ok := info.Types[sel.X].(*Named); ok && timeCapability(n) {
+			if n, ok := info.Types[sel.X].(*Named); ok && caps(n) {
 				return true
 			}
 		}
 	}
 	if call.Func != nil && call.Func.Sig != nil && call.Func.Sig.Uses != nil {
 		for _, t := range call.Func.Sig.Uses.Elems() {
-			if n, ok := t.(*Named); ok && timeCapability(n) {
+			if n, ok := t.(*Named); ok && caps(n) {
 				return true
 			}
 		}
@@ -416,17 +474,10 @@ func TimeDriven(info *Info, x *syntax.CallExpr) bool {
 	return false
 }
 
-// timeCapability reports the prelude's Scheduler and std time's Clock.
-func timeCapability(n *Named) bool {
-	o := n.origin().Obj
-	return isStdObj(o, stdlib.PreludePath, "Scheduler") || isStdObj(o, "time", "Clock")
-}
-
-// ManualClockCall reports whether x calls a method of a manual clock
-// (std time.Manual, std testing.VirtualClock), and the clock it calls it
-// on: a dot call's receiver or the first argument.
+// ManualClockCall reports whether x calls a method of a manual clock, and
+// the clock it calls it on: a dot call's receiver or the first argument.
 func ManualClockCall(info *Info, x *syntax.CallExpr) (syntax.Expr, bool) {
-	if manualMethod(info, x) == nil {
+	if f, _ := clockMethod(info, x); f == nil {
 		return nil, false
 	}
 	if c := info.Calls[x]; c.Recv != nil {
@@ -441,25 +492,28 @@ func ManualClockCall(info *Info, x *syntax.CallExpr) (syntax.Expr, bool) {
 	return x.Args[0], true
 }
 
-// IsManualClock reports std time.Manual and std testing.VirtualClock.
-func IsManualClock(t Type) bool {
-	if p, ok := t.(*Pointer); ok {
-		t = p.Elem
-	}
-	n, ok := t.(*Named)
-	return ok && (isStdObj(n.origin().Obj, "time", "Manual") || isStdObj(n.origin().Obj, "testing", "VirtualClock"))
-}
-
-// manualMethod is the method of a manual clock (std time.Manual, std
-// testing.VirtualClock) that x calls, or nil.
-func manualMethod(info *Info, x *syntax.CallExpr) *Func {
+// clockMethod is the method of a manual clock that x calls, and the
+// clock's type, or nil.
+func clockMethod(info *Info, x *syntax.CallExpr) (*Func, *Named) {
 	call := info.Calls[x]
 	if call == nil || call.Kind != CallFunc || call.Func == nil || call.Func.Sig == nil || len(call.Func.Sig.Params) == 0 {
-		return nil
+		return nil, nil
 	}
 	n, ok := call.Func.Sig.Params[0].Type.(*Named)
 	if !ok || !IsManualClock(n) || n.method(call.Func.Name) != call.Func {
-		return nil
+		return nil, nil
 	}
-	return call.Func
+	return call.Func, n
+}
+
+// clockOp is the operation type of the clock's implements clause that
+// declares the method f, or nil: f is then the clock's own (an advance, a
+// count of sleepers).
+func clockOp(clock *Named, f *Func) *Named {
+	for _, i := range clock.Implements() {
+		if it, ok := i.underlying().(*Interface); ok && it.method(f.Name) != nil {
+			return i
+		}
+	}
+	return nil
 }

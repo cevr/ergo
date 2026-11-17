@@ -31,6 +31,8 @@ var (
 		{"tick()", true},
 		{"let _ = q.Len()", false},
 		{"let _ = held(m)", true},
+		{"stamp()", true},
+		{"let _ = m.Sleepers()", true},
 	}
 )
 
@@ -40,15 +42,17 @@ var (
 // test-waits-on-time fires on exactly the waits that pass time (an
 // advance by more than zero, a sleep in the law's own frame) in laws that
 // run nothing else that reads or waits on time: a clock read, a function
-// whose row needs the Scheduler, a sleep in the task, the clock passed to
-// other code. Mutants: lhw-zero-advance-waits, lhw-task-sleep-waits,
-// lhw-row-unread, lhw-virtual-clock-unread,
-// lhw-shared-clock-ignored.
+// whose row needs the Scheduler or std time's Clock (an operation type
+// the clock implements), a clock method that gives a result, a sleep in
+// the task, the clock passed to other code. Mutants:
+// lhw-zero-advance-waits, lhw-task-sleep-waits, lhw-row-unread,
+// lhw-implemented-caps-unread, lhw-result-method-advances,
+// lhw-clock-sleep-unread, lhw-shared-clock-ignored.
 func TestTestWaitsOnTimeAgreesWithReference(t *testing.T) {
 	for _, seed := range propertySeeds(40) {
 		r := rand.New(rand.NewPCG(seed, 0xf1))
 		p := newPlanted()
-		p.write("import queue\nimport task\nimport testing\nimport time\n\nfunc work(q queue.Queue[int]) {\n\tq.Push(1) catch {\n\tcase queue.Closed:\n\t}\n}\n\nfunc tick() needs Scheduler {\n\tScheduler.Sleep(1ms)\n}\n\nfunc held[C](c C) int { 0 }\n\nfunc virtual() testing.VirtualClock { testing.NewVirtualClock(0) }", false, 0)
+		p.write("import queue\nimport task\nimport testing\nimport time\n\nfunc work(q queue.Queue[int]) {\n\tq.Push(1) catch {\n\tcase queue.Closed:\n\t}\n}\n\nfunc tick() needs Scheduler {\n\tScheduler.Sleep(1ms)\n}\n\nfunc stamp() needs time.Clock {\n\tlet _ = time.Clock.Now()\n}\n\nfunc held[C](c C) int { 0 }\n\nfunc virtual() testing.VirtualClock { testing.NewVirtualClock(0) }", false, 0)
 		for i := range 1 + r.IntN(4) {
 			clock := r.IntN(len(clockKinds))
 			wait := ownWaits[r.IntN(len(ownWaits))]
@@ -57,6 +61,10 @@ func TestTestWaitsOnTimeAgreesWithReference(t *testing.T) {
 				wait = ownWaits[r.IntN(len(ownWaits))]
 			}
 			use := timedUses[r.IntN(len(timedUses))]
+			for clock == 1 && use.text == "let _ = m.Sleepers()" {
+				// a VirtualClock counts no sleepers
+				use = timedUses[r.IntN(len(timedUses))]
+			}
 			taskSleeps := r.IntN(3) == 0
 			body := "work(q)"
 			if taskSleeps {
