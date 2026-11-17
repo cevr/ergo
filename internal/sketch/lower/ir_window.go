@@ -114,7 +114,8 @@ func (b *irBuilder) windows(list []*irStmt) []*irStmt {
 		win := []irWindowCall{first}
 		for _, s := range list[i+1:] {
 			w, ok := b.windowAt(s)
-			if !ok || w.recv != first.recv || w.prov != first.prov {
+			// One local has one type, so one provider.
+			if !ok || w.recv != first.recv {
 				break
 			}
 			win = append(win, w)
