@@ -313,8 +313,8 @@ func rowElems(s *store.Store, e Env, xs []dense.ID[syntax.Node], uses bool) []de
 	ts
 }
 
-// rowValue is the value type of the row xs write, its elements in the
-// written order with no repeats.
+// rowValue is the value type of the row xs write: its elements with no
+// repeats, kept in written order (Text prints them sorted, as a row).
 func rowValue(s *store.Store, e Env, xs []dense.ID[syntax.Node]) dense.ID[store.TKey] {
 	let mut ts = []dense.ID[store.TKey]{}
 	for t in rowElems(s, e, xs, false) {
@@ -800,7 +800,9 @@ func Text(s store.Store, n Names, t dense.ID[store.TKey]) string {
 		return rowText(s, n, ops, " | ")
 	}
 	if k == store.KRowValue {
-		return joined(s, n, ops, " | ")
+		// A row value is a set (rows.md): its elements print as a row's
+		// do, by their sort keys (Row.list).
+		return rowText(s, n, ops, " | ")
 	}
 	if k == store.KWired || k == store.KWiredNeeds {
 		return "wired[" + Text(s, n, ops[0]) + "]"
