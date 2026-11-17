@@ -818,8 +818,8 @@ func (c *checker) implements(v Type, it *Interface, checkReceiver bool) string {
 // 17; #37 for every other capability). go.Foreign has no provider value
 // (rows.md, Entry 4), so the operation's Go call needs nothing at run time
 // that the build site did not have.
-func (c *checker) implementsCapturing(v Type, it *Interface, checkReceiver bool, capture *bool) string {
-	foreign := false
+func (c *checker) implementsCapturing(v Type, it *Interface, checkReceiver bool, capture *captured) string {
+	var held captured
 	// The method set of *T holds the *T-receiver methods too, as in Go
 	// (N1); T's holds only the value-receiver ones.
 	ptr := false
@@ -879,10 +879,9 @@ func (c *checker) implementsCapturing(v Type, it *Interface, checkReceiver bool,
 		}
 		if gu := got.Uses.known(c.types); !gu.subsetOf(c.types, m.Sig.Uses) {
 			extra := gu.minus(c.types, m.Sig.Uses)
-			if capture == nil || !goForeignRow(extra) {
-				return fmt.Sprintf("%s.%s requires %s, which the interface's method does not (README Gap 17: a provider's build holds go.Foreign for it; any other capability stays with #37)", v, m.Name, rowText(extra))
+			if capture == nil || !held.add(extra) {
+				return fmt.Sprintf("%s.%s requires %s, which the interface's method does not (README Gap 17: a provider's build holds go.Foreign or Ambient for it; any other capability stays with #37)", v, m.Name, rowText(extra))
 			}
-			foreign = true
 		}
 		if why := c.releaseWider(v, m); why != "" {
 			return why
@@ -902,8 +901,8 @@ func (c *checker) implementsCapturing(v Type, it *Interface, checkReceiver bool,
 			return fmt.Sprintf("%s.%s %s, but the interface's method %s (resources R19, Gap 39)", v, m.Name, takesText(got), takesText(m.Sig))
 		}
 	}
-	if foreign {
-		*capture = true
+	if held.foreign || held.ambient != nil {
+		*capture = held
 	}
 	return ""
 }
