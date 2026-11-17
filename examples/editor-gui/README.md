@@ -1,6 +1,6 @@
 # editor-gui
 
-A text editor with undo: a piece table over an append-only added buffer, a line index, a caret, a selection, find and replace, and undo and redo as a log of edits. Stage a (corpus wave GP2a) is the model and a headless driver; stage b (GP2b) is the window's view on `ui.TestHost`. The desktop window (stage c) comes with the MyGo host.
+A text editor with undo: a piece table over an append-only added buffer, a line index, a caret, a selection, find and replace, and undo and redo as a log of edits. Stage a (corpus wave GP2a) is the model and a headless driver; stage b (GP2b) is the window's view on `ui.TestHost`. Stage c (GP2d) is the desktop window: `hosts/mygo/cmd/editor-gui` runs the same view on the MyGo host, held to `editor-gui scene` by `TestEditorGuiOnTheDesktop` there, beside a MyGo-direct control. The module is `ergo.local/prototype/examples/editorgui`, so the host can require it.
 
 ```sh
 editor-gui gen [-seed S] [-n N]   # write a text of N lines of words, some beyond ASCII
