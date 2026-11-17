@@ -15,8 +15,8 @@ import (
 
 // Machine laws at check time (L7 EV4; types.md, Laws 13). A reachability
 // law (`reaches V`, `never reaches V`, `path [V1, …]`) runs on the same
-// explorer the test build runs (runtime/explore: Search, Path, Moves and
-// the replay that rebuilds a frontier state from its run), with the
+// explorer the test build runs (runtime/explore: Search, Path and Moves),
+// with the
 // machine's step interpreted: Enter, Stay and Emit go to their Next;
 // Ignore, Reject and a step's typed failure keep the state; Done ends the
 // run, so it is no edge. States are keyed by the encoding the test build's
@@ -26,10 +26,13 @@ import (
 // build draws ($ExploreRuns, lower/machinelaws.go), from the same stream
 // and in the same order, so the two find the same run.
 //
-// Work is metered as everywhere in the evaluator: each call of the step
-// (a replay's too: the explorer rebuilds each state it expands by stepping
-// its run again, so its work is more than its edges), each target test and
-// each key component and byte costs steps. A search the step budget stops
+// Work is metered as everywhere in the evaluator: each call of the step,
+// each target test and each key component and byte costs steps. The search
+// holds its frontier's states (SearchHeld), so a whole search steps each
+// edge once; the test build's Search rebuilds each state it expands by
+// stepping its run again, to keep node indexes only, but check time has
+// paid for every state in its byte budget already (MX-VTLAWS: the replays
+// were 31,981 of vt's 75,651 step calls). A search the step budget stops
 // is incomplete, never proved; the budget of states (Budget.States, the
 // test build's --states) is the explorer's own bound, and past it a law is
 // not proved, as the test build says.
@@ -356,7 +359,7 @@ func (l *machineRun) all(kind string) (string, bool) {
 		}
 		return "no run follows the path in " + itoa(r.States) + " states", false
 	}
-	r := explore.Search(l.g, l.targets[0], budget)
+	r := explore.SearchHeld(l.g, l.targets[0], budget)
 	l.counters(r)
 	if r.Found >= 0 {
 		start, _, text := run(r)
