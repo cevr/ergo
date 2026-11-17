@@ -5,6 +5,7 @@
 // slope of their instructions between two sizes is the cost of one call of
 // the old body and of the new one (README.md).
 
+import atomic
 import bits
 import cmp
 import config
@@ -532,6 +533,39 @@ func run(kind string, n int) string fails os.Exit {
 	case "time.Divide":
 		for i in 0..n {
 			acc += int(int64(time.Divide(durs[i & 7], (i & 15) + 1)) & 1023)
+		}
+	case "atomic.Add":
+		let c = atomic.NewInt64(0)
+		for i in 0..n {
+			acc += int(c.Add(int64(i & 7)) & 1023)
+		}
+	case "atomic.CompareAndSwap":
+		let c = atomic.NewInt64(0)
+		for i in 0..n {
+			if c.CompareAndSwap(int64(i & 1), int64((i + 1) & 1)) {
+				acc += 1
+			}
+		}
+	case "atomic.Load":
+		let c = atomic.NewInt64(5)
+		for i in 0..n {
+			acc += int(c.Load()) + (i & 1)
+		}
+	case "atomic.Swap":
+		let c = atomic.NewInt64(0)
+		for i in 0..n {
+			acc += int(c.Swap(int64(i & 7)))
+		}
+	case "atomic.NewInt64":
+		for i in 0..n {
+			acc += int(atomic.NewInt64(int64(i & 7)).Load())
+		}
+	case "atomic.BoolSwap":
+		let flag = atomic.NewBool(false)
+		for i in 0..n {
+			if flag.Swap((i & 1) == 0) {
+				acc += 1
+			}
 		}
 	case "time.Count":
 		for i in 0..n {
