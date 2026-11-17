@@ -8,11 +8,22 @@ import tasks
 // the Go decoder (internal/sketch/syntax/decode.go).
 func Columns(src string) []uint32 { syntax.Columns(syntax.Parse(src)) }
 
-// ColumnsAll is Columns of each source, in the order of srcs: each file
-// parses and packs on a task of its own, at most workers at once, as
-// syntax.ParseAll parses (a package's files, for the Go loader).
+// ColumnsAll is Columns of each source, in the order of srcs, on at most
+// workers tasks, each a run of adjacent files (syntax.Chunks), as
+// syntax.ParseAll parses: a package's files, for the Go loader.
 func ColumnsAll(srcs []string, workers int) [][]uint32 {
-	tasks.Transform(srcs, workers, func(src string) []uint32 { syntax.Columns(syntax.Parse(src)) })
+	let parts = tasks.Transform(syntax.Chunks(len(srcs), workers), workers, func(c syntax.Chunk) [][]uint32 {
+		let mut out = slices.WithCapacity[[]uint32](c.To - c.From)
+		for i in c.From..c.To {
+			out = out.Append(syntax.Columns(syntax.Parse(srcs[i])))
+		}
+		out
+	})
+	let mut all = slices.WithCapacity[[]uint32](len(srcs))
+	for part in parts {
+		all = slices.AppendAll(all, part)
+	}
+	all
 }
 
 // Tokens is the scan of src alone, for a host that reads tokens and no

@@ -174,15 +174,62 @@ func Parse(src string) Parsed {
 	}
 }
 
-// ParseAll is the parse of each source, in the order of srcs: each file
-// parses on a task of its own, at most workers at once (capstone S2e,
-// CAP-par). A parse shares nothing with another: it reads its own source
-// and builds its own columns and tree, and its task hands them back whole,
-// so the join is the results in file order and no parse writes a table of
-// another (there is no interner: names stay offsets into the source). A
-// workers below 1 is a defect, as Transform's limit.
+// ParseAll is the parse of each source, in the order of srcs, on at most
+// workers tasks at once (capstone S2e, CAP-par). A parse shares nothing
+// with another: it reads its own source and builds its own columns and
+// tree, and its task hands them back whole, so the join is the results in
+// file order and no parse writes a table of another (there is no
+// interner: names stay offsets into the source). A workers below 1 is a
+// defect, as Transform's limit.
 func ParseAll(srcs []string, workers int) []Parsed {
-	tasks.Transform(srcs, workers, func(src string) Parsed { Parse(src) })
+	let parts = tasks.Transform(Chunks(len(srcs), workers), workers, func(c Chunk) []Parsed {
+		let mut out = slices.WithCapacity[Parsed](c.To - c.From)
+		for i in c.From..c.To {
+			out = out.Append(Parse(srcs[i]))
+		}
+		out
+	})
+	let mut all = slices.WithCapacity[Parsed](len(srcs))
+	for part in parts {
+		all = slices.AppendAll(all, part)
+	}
+	all
+}
+
+// Chunk is the files [From, To) one task parses, in order.
+type Chunk { From int, To int }
+
+// Chunks splits n files into at most workers runs of adjacent files, in
+// order, as even in count as they can be. A task parses a run, not one
+// file: a parse's task starts with a small stack and the recursive descent
+// grows it, so a task per file pays the growth once per file (about a
+// third of the parse's instructions, measured in S2e), and a task per run
+// once per worker.
+func Chunks(n int, workers int) []Chunk {
+	let k = if workers < 1 { 1 } else if workers > n { n } else { workers }
+	let mut out = slices.WithCapacity[Chunk](k)
+	let mut from = 0
+	for j in 0..k {
+		let to = from + (n-from)/(k-j)
+		out = out.Append(Chunk{From: from, To: to})
+		from = to
+	}
+	out
+}
+
+// ChunksTile: the runs cover 0..n in order with no gap and no overlap, no
+// run is empty, and there are at most workers of them.
+law ChunksTile(n int, workers int) {
+	let m = (n%500 + 500) % 500
+	let w = (workers%20+20)%20 + 1
+	let cs = Chunks(m, w)
+	let mut ok = len(cs) <= w
+	let mut at = 0
+	for c in cs {
+		ok = ok && c.From == at && c.To > c.From
+		at = c.To
+	}
+	ok && at == m
 }
 
 // ParseAllIsEachParse: the parses on tasks are each file's own parse, in
