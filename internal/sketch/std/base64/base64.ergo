@@ -3,10 +3,15 @@
 // padding, over Ergo's strings, which hold bytes (types.md, Strings 1);
 // Effect's Encoding.encodeBase64 and encodeBase64Url. The alphabet is a
 // union, so a function over it matches each one, where Go has two
-// *Encoding values and Effect two function names. Each extern binds a
-// pure runtime/v1 body (runtime/v1/digest.go).
+// *Encoding values and Effect two function names. The encoders call Go's
+// StdEncoding and URLEncoding, package variables, through import go
+// (GBX3); the decoders bind pure runtime/v1 bodies (runtime/v1/digest.go)
+// until a Go error crosses without a box (GOERR-BOX).
 
 // StdEncoding is the standard alphabet of RFC 4648, with + and /.
+import go encoding/base64
+import strings
+
 type StdEncoding {}
 
 // URLEncoding is the URL- and file-name-safe alphabet of RFC 4648, with -
@@ -44,9 +49,9 @@ func Decode(e Encoding, s string) string fails Malformed {
 	}
 }
 
-extern go ergo.local/prototype/runtime/v1/digest.Base64StdEncode func encodeStd(s string) string
+func encodeStd(s string) string { base64.StdEncoding.EncodeToString(strings.Bytes(s)) }
 
-extern go ergo.local/prototype/runtime/v1/digest.Base64URLEncode func encodeURL(s string) string
+func encodeURL(s string) string { base64.URLEncoding.EncodeToString(strings.Bytes(s)) }
 
 extern go ergo.local/prototype/runtime/v1/digest.Base64StdDecode func decodeStd(s string) string fails Malformed
 

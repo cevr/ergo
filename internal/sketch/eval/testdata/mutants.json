@@ -995,15 +995,6 @@
       "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
     },
     {
-      "name": "oracle-o1-native-times-wraps",
-      "origin": "wf10 ORACLE O1",
-      "file": "internal/sketch/eval/natives.go",
-      "from": "\tif hi != 0 || lo > limit {",
-      "to": "\tif false && (hi != 0 || lo > limit) {",
-      "rule": "time.Times saturates at the bounds of duration; it never wraps.",
-      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
-    },
-    {
       "name": "oracle-o1-native-intn-modulo",
       "origin": "wf10 ORACLE O1",
       "file": "internal/sketch/eval/natives.go",

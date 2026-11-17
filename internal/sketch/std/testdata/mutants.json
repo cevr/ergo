@@ -607,6 +607,46 @@
       "rule": "time.Times saturates a negative product at the smallest duration and a positive one at the largest.",
       "anchor": {"tests":["lower:TestStdMatchesGo"]},
       "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f9-encode-std-alphabet",
+      "origin": "wf10 NP4f-9",
+      "file": "internal/sketch/std/base64/base64.ergo",
+      "from": "{ base64.StdEncoding.EncodeToString(strings.Bytes(s)) }",
+      "to": "{ base64.URLEncoding.EncodeToString(strings.Bytes(s)) }",
+      "rule": "base64.Encode(StdEncoding, s) writes + and /, Go's StdEncoding.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f9-encode-std-unpadded",
+      "origin": "wf10 NP4f-9",
+      "file": "internal/sketch/std/base64/base64.ergo",
+      "from": "{ base64.StdEncoding.EncodeToString(strings.Bytes(s)) }",
+      "to": "{ base64.RawStdEncoding.EncodeToString(strings.Bytes(s)) }",
+      "rule": "base64.Encode pads to a multiple of four with =.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f9-encode-url-unpadded",
+      "origin": "wf10 NP4f-9",
+      "file": "internal/sketch/std/base64/base64.ergo",
+      "from": "{ base64.URLEncoding.EncodeToString(strings.Bytes(s)) }",
+      "to": "{ base64.RawURLEncoding.EncodeToString(strings.Bytes(s)) }",
+      "rule": "base64.Encode(URLEncoding, s) pads with =, Go's URLEncoding.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f9-update-drops-crc",
+      "origin": "wf10 NP4f-9",
+      "file": "internal/sketch/std/crc32/crc32.ergo",
+      "from": "{ crc32.Update(crc, crc32.IEEETable, strings.Bytes(s)) }",
+      "to": "{ crc32.Update(0, crc32.IEEETable, strings.Bytes(s)) }",
+      "rule": "crc32.Update carries the checksum crc over s.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
     }
   ]
 }

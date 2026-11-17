@@ -23,7 +23,7 @@ import (
 // gonew.go): the functions of the go qualifier, which take a written
 // type argument and record a CallGoError.
 func goErrorBuiltin(b *Builtin) bool {
-	return b.Name == "go.Is" || b.Name == "go.As" || b.Name == "go.New"
+	return b.Name == "go.Is" || b.Name == "go.As" || b.Name == "go.New" || b.Name == "go.Zero"
 }
 
 // goErrorType is the predeclared go.Error.
@@ -37,6 +37,9 @@ func goErrorType() Type {
 func (c *checker) goErrorCall(x *syntax.CallExpr, b *Builtin, targ Type) operand {
 	if b.Name == "go.New" {
 		return c.goNewCall(x, targ)
+	}
+	if b.Name == "go.Zero" {
+		return c.goZeroCall(x, targ)
 	}
 	if x.Trailing != nil {
 		c.errorf(x.Trailing, CodeType, "%s takes no block", b.Name)

@@ -31,6 +31,36 @@ extern go time.December let December Month
 // ergo:go type Duration int64
 // ergo:refused Duration: time.Duration is Ergo's duration
 
+// ergo:go func (Duration).Abs() Duration
+extern go time.Duration.Abs func DurationAbs(d duration) duration needs go.Foreign
+
+// ergo:go func (Duration).Hours() float64
+extern go time.Duration.Hours func DurationHours(d duration) float64 needs go.Foreign
+
+// ergo:go func (Duration).Microseconds() int64
+extern go time.Duration.Microseconds func DurationMicroseconds(d duration) int64 needs go.Foreign
+
+// ergo:go func (Duration).Milliseconds() int64
+extern go time.Duration.Milliseconds func DurationMilliseconds(d duration) int64 needs go.Foreign
+
+// ergo:go func (Duration).Minutes() float64
+extern go time.Duration.Minutes func DurationMinutes(d duration) float64 needs go.Foreign
+
+// ergo:go func (Duration).Nanoseconds() int64
+extern go time.Duration.Nanoseconds func DurationNanoseconds(d duration) int64 needs go.Foreign
+
+// ergo:go func (Duration).Round(m Duration) Duration
+extern go time.Duration.Round func DurationRound(d duration, m duration) duration needs go.Foreign
+
+// ergo:go func (Duration).Seconds() float64
+extern go time.Duration.Seconds func DurationSeconds(d duration) float64 needs go.Foreign
+
+// ergo:go func (Duration).String() string
+extern go time.Duration.String func DurationString(d duration) string needs go.Foreign
+
+// ergo:go func (Duration).Truncate(m Duration) Duration
+extern go time.Duration.Truncate func DurationTruncate(d duration, m duration) duration needs go.Foreign
+
 // ergo:go const February Month
 extern go time.February let February Month
 
@@ -65,7 +95,7 @@ extern go time.LoadLocation func LoadLocation(name string) go.Ref[Location] fail
 extern go time.LoadLocationFromTZData func LoadLocationFromTZData(name string, data []byte) go.Ref[Location] fails go.Error needs go.Foreign
 
 // ergo:go var Local *Location
-// ergo:refused Local: a Go variable is host state; call a function
+extern go time.Local let Local go.Ref[Location]
 
 // ergo:go type Location struct
 extern go time.Location type Location {}
@@ -375,7 +405,7 @@ extern go time.Timer.Stop func (t *Timer) Stop() bool needs go.Foreign
 extern go time.Tuesday let Tuesday Weekday
 
 // ergo:go var UTC *Location
-// ergo:refused UTC: a Go variable is host state; call a function
+extern go time.UTC let UTC go.Ref[Location]
 
 // ergo:go func Unix(sec int64, nsec int64) Time
 extern go time.Unix func Unix(sec int64, nsec int64) Time needs go.Foreign
