@@ -302,8 +302,8 @@ type irStmt struct {
 	// Label is a loop's or a block's label, or the one a break, continue
 	// or goto names (ir_tree.go).
 	Label string `json:"label,omitempty"`
-	// Y is a "count" loop's bound (ir_pkg.go countLoop), or a store's
-	// value: X = Y, X a field (ir_with.go).
+	// Y is a "count" loop's bound (ir_pkg.go countLoop), a store's
+	// value: X = Y, X a field (ir_with.go), or a "mapget"'s key (ir_get.go).
 	Y *irExpr `json:"y,omitempty"`
 	// Ls are a "tdef"'s locals, one per result of its Go call, in order:
 	// l0, l1, … := X (ir_tuple.go).

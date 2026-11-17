@@ -59,6 +59,9 @@ func (b *irBuilder) matchValue(s syntax.Expr) ([]*irStmt, *irExpr) {
 
 // typeMatch is the match s on one subject of a union.
 func (b *irBuilder) typeMatch(s *syntax.TypeSwitchStmt, ret bool, to *yieldTo) []*irStmt {
+	if out, ok := b.getMatch(s, ret, to); ok { // ir_get.go (lane B)
+		return out
+	}
 	x := s.Subjects[0].X
 	if call, ok := unparen(x).(*syntax.CallExpr); ok {
 		if c := b.l.info.Calls[call]; c != nil && c.Kind == check.CallFunc && preludeGet(c.Func) {

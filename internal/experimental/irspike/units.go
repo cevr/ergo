@@ -159,6 +159,11 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"match on a value of type *", "G3b"},
 	{"match subject that releases owned values", "G2"},
 	{"match on Get", "G4"}, // a Map read: the comma-ok form (getmatch.go)
+	{"match on Get with patterns", "G3b"}, // the emitter's type switch on the Option (ir_get.go)
+	{"call of Get with *", "G3b"},
+	{"Get of a value that is no Map", "G3b"},
+	{"operation-type value", "G4"}, // a value of an operation type: an interface of functions
+	{"operations conversion", "G4"},
 	{"result statement *syntax.BranchStmt", "G1"},
 	// G4: generics, packages, tasks, references, function values.
 	{"generic or declared-elsewhere type", "G4"},
