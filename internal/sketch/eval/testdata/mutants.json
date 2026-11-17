@@ -1572,8 +1572,8 @@
       "from": "\tcheck.CollBytes:      \"strings.stringsBytes\",\n",
       "to": "",
       "rule": "The evaluator runs the operation s.Bytes(), so check-time evaluation of std's digests (sha256.Sum) agrees with the build.",
-      "anchor": {"tests":["eval:TestEvalAgreesWithLowering"]},
-      "killers": ["eval:TestEvalAgreesWithLowering"]
+      "anchor": {"tests":["internal/sketch/eval:TestEvalAgreesWithLowering"]},
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     }
   ]
 }
