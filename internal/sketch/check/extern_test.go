@@ -548,6 +548,20 @@ func main() {
 	use(Mine)
 }
 `,
+	// std rand (std-spike D3): Secure is open, as Random is; a program
+	// provides its own (a fixed source for a test, a hardware one).
+	"rand.Secure": `import rand
+
+type Mine {} implements rand.Secure
+
+func Bytes(_ Mine, n int) string { "" }
+
+func use(s rand.Secure) { _ = s.Bytes(0) }
+
+func main() {
+	use(Mine)
+}
+`,
 	"prelude.Closer": `type Mine {} implements Closer
 
 func Close(_ Mine) {}
@@ -1298,6 +1312,7 @@ var openStd = map[string]bool{
 	"time.Clock":        true,
 	"testing.Stage":     true,
 	"prelude.Random":    true,
+	"rand.Secure":       true,
 	"prelude.Writer":    true,
 	"prelude.Reader":    true,
 	"os.Process":        true,
