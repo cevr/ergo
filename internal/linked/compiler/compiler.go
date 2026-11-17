@@ -1003,49 +1003,49 @@ var ergoDecls = [...]ergoDecl{
 	{Name: "semiHi", File: "syntax/scan.ergo", Line: 151, End: 151},
 	{Name: "scanner.moveContext", File: "syntax/scan.ergo", Line: 171, End: 203},
 	{Name: "scanner.fail", File: "syntax/scan.ergo", Line: 223, End: 237},
-	{Name: "scanner.run", File: "syntax/scan.ergo", Line: 239, End: 324},
-	{Name: "classes", File: "syntax/scan.ergo", Line: 332, End: 332},
-	{Name: "clsLetter", File: "syntax/scan.ergo", Line: 334, End: 334},
-	{Name: "clsDigit", File: "syntax/scan.ergo", Line: 336, End: 336},
-	{Name: "clsBlank", File: "syntax/scan.ergo", Line: 338, End: 338},
-	{Name: "clsPath", File: "syntax/scan.ergo", Line: 340, End: 340},
-	{Name: "clsOpNext", File: "syntax/scan.ergo", Line: 344, End: 344},
-	{Name: "op1", File: "syntax/scan.ergo", Line: 349, End: 349},
-	{Name: "opEq", File: "syntax/scan.ergo", Line: 351, End: 351},
-	{Name: "opFast", File: "syntax/scan.ergo", Line: 357, End: 370},
-	{Name: "punct", File: "syntax/scan.ergo", Line: 375, End: 375},
-	{Name: "isLetter", File: "syntax/scan.ergo", Line: 378, End: 378},
-	{Name: "isDigit", File: "syntax/scan.ergo", Line: 381, End: 381},
-	{Name: "isBase", File: "syntax/scan.ergo", Line: 384, End: 384},
-	{Name: "identRune", File: "syntax/scan.ergo", Line: 388, End: 390},
-	{Name: "identRest", File: "syntax/scan.ergo", Line: 395, End: 405},
-	{Name: "identRestWide", File: "syntax/scan.ergo", Line: 408, End: 427},
-	{Name: "identEnd", File: "syntax/scan.ergo", Line: 430, End: 435},
-	{Name: "scanner.identifier", File: "syntax/scan.ergo", Line: 437, End: 456},
-	{Name: "keyword", File: "syntax/scan.ergo", Line: 462, End: 475},
-	{Name: "kwTable", File: "syntax/scan.ergo", Line: 479, End: 479},
-	{Name: "scanner.comment", File: "syntax/scan.ergo", Line: 646, End: 674},
-	{Name: "pathRune", File: "syntax/scan.ergo", Line: 688, End: 690},
-	{Name: "pathEnd", File: "syntax/scan.ergo", Line: 694, End: 717},
-	{Name: "scanner.pathWord", File: "syntax/scan.ergo", Line: 722, End: 798},
-	{Name: "digits", File: "syntax/scan.ergo", Line: 801, End: 808},
-	{Name: "digitValue", File: "syntax/scan.ergo", Line: 811, End: 822},
-	{Name: "badSeparator", File: "syntax/scan.ergo", Line: 829, End: 836},
-	{Name: "baseOf", File: "syntax/scan.ergo", Line: 839, End: 847},
-	{Name: "scanner.prefixed", File: "syntax/scan.ergo", Line: 850, End: 880},
-	{Name: "isDurationUnit", File: "syntax/scan.ergo", Line: 883, End: 885},
-	{Name: "scanner.numberLit", File: "syntax/scan.ergo", Line: 889, End: 930},
-	{Name: "scanner.interpreted", File: "syntax/scan.ergo", Line: 948, End: 977},
-	{Name: "scanner.openInterpolation", File: "syntax/scan.ergo", Line: 980, End: 989},
-	{Name: "scanner.runeLit", File: "syntax/scan.ergo", Line: 992, End: 1019},
-	{Name: "oneRune", File: "syntax/scan.ergo", Line: 1027, End: 1065},
-	{Name: "hexDigits", File: "syntax/scan.ergo", Line: 1069, End: 1079},
-	{Name: "validRune", File: "syntax/scan.ergo", Line: 1082, End: 1082},
-	{Name: "opKind", File: "syntax/scan.ergo", Line: 1088, End: 1177},
-	{Name: "scanner.operator", File: "syntax/scan.ergo", Line: 1182, End: 1208},
-	{Name: "hexByte", File: "syntax/scan.ergo", Line: 1211, End: 1211},
-	{Name: "uPlus", File: "syntax/scan.ergo", Line: 1215, End: 1221},
-	{Name: "baseName", File: "syntax/scan.ergo", Line: 1224, End: 1232},
+	{Name: "scanner.run", File: "syntax/scan.ergo", Line: 239, End: 334},
+	{Name: "classes", File: "syntax/scan.ergo", Line: 342, End: 342},
+	{Name: "clsLetter", File: "syntax/scan.ergo", Line: 344, End: 344},
+	{Name: "clsDigit", File: "syntax/scan.ergo", Line: 346, End: 346},
+	{Name: "clsBlank", File: "syntax/scan.ergo", Line: 348, End: 348},
+	{Name: "clsPath", File: "syntax/scan.ergo", Line: 350, End: 350},
+	{Name: "clsOpNext", File: "syntax/scan.ergo", Line: 354, End: 354},
+	{Name: "op1", File: "syntax/scan.ergo", Line: 359, End: 359},
+	{Name: "opEq", File: "syntax/scan.ergo", Line: 361, End: 361},
+	{Name: "opAlone", File: "syntax/scan.ergo", Line: 379, End: 385},
+	{Name: "punct", File: "syntax/scan.ergo", Line: 390, End: 390},
+	{Name: "isLetter", File: "syntax/scan.ergo", Line: 393, End: 393},
+	{Name: "isDigit", File: "syntax/scan.ergo", Line: 396, End: 396},
+	{Name: "isBase", File: "syntax/scan.ergo", Line: 399, End: 399},
+	{Name: "identRune", File: "syntax/scan.ergo", Line: 403, End: 405},
+	{Name: "identRest", File: "syntax/scan.ergo", Line: 410, End: 420},
+	{Name: "identRestWide", File: "syntax/scan.ergo", Line: 423, End: 442},
+	{Name: "identEnd", File: "syntax/scan.ergo", Line: 445, End: 450},
+	{Name: "scanner.identifier", File: "syntax/scan.ergo", Line: 452, End: 471},
+	{Name: "keyword", File: "syntax/scan.ergo", Line: 477, End: 490},
+	{Name: "kwTable", File: "syntax/scan.ergo", Line: 494, End: 494},
+	{Name: "scanner.comment", File: "syntax/scan.ergo", Line: 661, End: 689},
+	{Name: "pathRune", File: "syntax/scan.ergo", Line: 703, End: 705},
+	{Name: "pathEnd", File: "syntax/scan.ergo", Line: 709, End: 732},
+	{Name: "scanner.pathWord", File: "syntax/scan.ergo", Line: 737, End: 813},
+	{Name: "digits", File: "syntax/scan.ergo", Line: 816, End: 823},
+	{Name: "digitValue", File: "syntax/scan.ergo", Line: 826, End: 837},
+	{Name: "badSeparator", File: "syntax/scan.ergo", Line: 844, End: 851},
+	{Name: "baseOf", File: "syntax/scan.ergo", Line: 854, End: 862},
+	{Name: "scanner.prefixed", File: "syntax/scan.ergo", Line: 865, End: 895},
+	{Name: "isDurationUnit", File: "syntax/scan.ergo", Line: 898, End: 900},
+	{Name: "scanner.numberLit", File: "syntax/scan.ergo", Line: 904, End: 945},
+	{Name: "scanner.interpreted", File: "syntax/scan.ergo", Line: 963, End: 992},
+	{Name: "scanner.openInterpolation", File: "syntax/scan.ergo", Line: 995, End: 1004},
+	{Name: "scanner.runeLit", File: "syntax/scan.ergo", Line: 1007, End: 1034},
+	{Name: "oneRune", File: "syntax/scan.ergo", Line: 1042, End: 1080},
+	{Name: "hexDigits", File: "syntax/scan.ergo", Line: 1084, End: 1094},
+	{Name: "validRune", File: "syntax/scan.ergo", Line: 1097, End: 1097},
+	{Name: "opKind", File: "syntax/scan.ergo", Line: 1103, End: 1192},
+	{Name: "scanner.operator", File: "syntax/scan.ergo", Line: 1197, End: 1223},
+	{Name: "hexByte", File: "syntax/scan.ergo", Line: 1226, End: 1226},
+	{Name: "uPlus", File: "syntax/scan.ergo", Line: 1230, End: 1236},
+	{Name: "baseName", File: "syntax/scan.ergo", Line: 1239, End: 1247},
 	{Name: "Parsed.Shape", File: "syntax/shape.ergo", Line: 10, End: 16},
 	{Name: "Parsed.shapeOf", File: "syntax/shape.ergo", Line: 18, End: 57},
 	{Name: "hasDoc", File: "syntax/shape.ergo", Line: 68, End: 70},
@@ -11607,138 +11607,138 @@ var ergoCalls = [...]ergoCall{
 	{Func: 781, Callee: 777, File: 767, Line: 253, Column: 4},
 	{Func: 781, Callee: 782, File: 767, Line: 268, Column: 5},
 	{Func: 781, Callee: 783, File: 767, Line: 271, Column: 4},
-	{Func: 781, Callee: 424, File: 767, Line: 278, Column: 14},
-	{Func: 781, Callee: 784, File: 767, Line: 279, Column: 4},
-	{Func: 781, Callee: 425, File: 767, Line: 279, Column: 12},
-	{Func: 781, Callee: 784, File: 767, Line: 286, Column: 4},
-	{Func: 781, Callee: 785, File: 767, Line: 293, Column: 12},
-	{Func: 781, Callee: 784, File: 767, Line: 296, Column: 5},
-	{Func: 781, Callee: 786, File: 767, Line: 303, Column: 4},
-	{Func: 781, Callee: 787, File: 767, Line: 304, Column: 28},
-	{Func: 781, Callee: 788, File: 767, Line: 305, Column: 4},
-	{Func: 781, Callee: 789, File: 767, Line: 306, Column: 60},
-	{Func: 781, Callee: 790, File: 767, Line: 307, Column: 4},
-	{Func: 781, Callee: 791, File: 767, Line: 309, Column: 4},
-	{Func: 781, Callee: 792, File: 767, Line: 311, Column: 4},
-	{Func: 781, Callee: 793, File: 767, Line: 313, Column: 4},
-	{Func: 781, Callee: 794, File: 767, Line: 315, Column: 4},
-	{Func: 781, Callee: 795, File: 767, Line: 317, Column: 4},
-	{Func: 796, Callee: 797, File: 767, Line: 389, Column: 14},
-	{Func: 796, Callee: 798, File: 767, Line: 389, Column: 48},
-	{Func: 799, Callee: 800, File: 767, Line: 402, Column: 10},
-	{Func: 801, Callee: 422, File: 767, Line: 419, Column: 12},
-	{Func: 801, Callee: 423, File: 767, Line: 420, Column: 8},
-	{Func: 802, Callee: 424, File: 767, Line: 432, Column: 10},
-	{Func: 802, Callee: 424, File: 767, Line: 434, Column: 2},
-	{Func: 802, Callee: 422, File: 767, Line: 434, Column: 23},
-	{Func: 803, Callee: 422, File: 767, Line: 442, Column: 11},
-	{Func: 803, Callee: 782, File: 767, Line: 444, Column: 4},
-	{Func: 803, Callee: 804, File: 767, Line: 444, Column: 44},
-	{Func: 803, Callee: 423, File: 767, Line: 447, Column: 7},
-	{Func: 803, Callee: 782, File: 767, Line: 448, Column: 4},
-	{Func: 803, Callee: 805, File: 767, Line: 448, Column: 51},
-	{Func: 803, Callee: 806, File: 767, Line: 448, Column: 69},
-	{Func: 803, Callee: 424, File: 767, Line: 453, Column: 12},
-	{Func: 803, Callee: 784, File: 767, Line: 454, Column: 2},
-	{Func: 803, Callee: 425, File: 767, Line: 454, Column: 10},
-	{Func: 807, Callee: 279, File: 767, Line: 650, Column: 25},
-	{Func: 807, Callee: 783, File: 767, Line: 654, Column: 3},
-	{Func: 807, Callee: 808, File: 767, Line: 659, Column: 3},
-	{Func: 807, Callee: 809, File: 767, Line: 663, Column: 14},
-	{Func: 807, Callee: 782, File: 767, Line: 665, Column: 3},
-	{Func: 807, Callee: 279, File: 767, Line: 669, Column: 5},
-	{Func: 807, Callee: 783, File: 767, Line: 670, Column: 3},
-	{Func: 807, Callee: 808, File: 767, Line: 672, Column: 2},
-	{Func: 810, Callee: 811, File: 767, Line: 681, Column: 10},
-	{Func: 810, Callee: 789, File: 767, Line: 681, Column: 25},
-	{Func: 810, Callee: 422, File: 767, Line: 683, Column: 10},
-	{Func: 810, Callee: 797, File: 767, Line: 684, Column: 2},
-	{Func: 810, Callee: 798, File: 767, Line: 684, Column: 25},
-	{Func: 812, Callee: 797, File: 767, Line: 689, Column: 74},
-	{Func: 812, Callee: 798, File: 767, Line: 689, Column: 97},
-	{Func: 813, Callee: 422, File: 767, Line: 710, Column: 11},
-	{Func: 813, Callee: 814, File: 767, Line: 711, Column: 7},
-	{Func: 815, Callee: 782, File: 767, Line: 746, Column: 6},
-	{Func: 815, Callee: 782, File: 767, Line: 752, Column: 6},
-	{Func: 815, Callee: 806, File: 767, Line: 752, Column: 43},
-	{Func: 815, Callee: 422, File: 767, Line: 760, Column: 11},
-	{Func: 815, Callee: 782, File: 767, Line: 762, Column: 4},
-	{Func: 815, Callee: 804, File: 767, Line: 762, Column: 42},
-	{Func: 815, Callee: 814, File: 767, Line: 765, Column: 7},
-	{Func: 815, Callee: 782, File: 767, Line: 775, Column: 5},
-	{Func: 815, Callee: 423, File: 767, Line: 780, Column: 8},
-	{Func: 815, Callee: 782, File: 767, Line: 781, Column: 5},
-	{Func: 815, Callee: 806, File: 767, Line: 781, Column: 47},
-	{Func: 815, Callee: 782, File: 767, Line: 789, Column: 3},
-	{Func: 815, Callee: 784, File: 767, Line: 794, Column: 3},
-	{Func: 815, Callee: 784, File: 767, Line: 797, Column: 2},
-	{Func: 816, Callee: 789, File: 767, Line: 804, Column: 16},
-	{Func: 817, Callee: 818, File: 767, Line: 825, Column: 78},
-	{Func: 819, Callee: 820, File: 767, Line: 831, Column: 26},
-	{Func: 819, Callee: 820, File: 767, Line: 831, Column: 81},
-	{Func: 821, Callee: 822, File: 767, Line: 853, Column: 13},
-	{Func: 821, Callee: 424, File: 767, Line: 854, Column: 12},
-	{Func: 821, Callee: 823, File: 767, Line: 856, Column: 20},
-	{Func: 821, Callee: 823, File: 767, Line: 856, Column: 58},
-	{Func: 821, Callee: 50, File: 767, Line: 856, Column: 128},
-	{Func: 821, Callee: 782, File: 767, Line: 857, Column: 3},
-	{Func: 821, Callee: 818, File: 767, Line: 863, Column: 7},
-	{Func: 821, Callee: 782, File: 767, Line: 864, Column: 5},
-	{Func: 821, Callee: 806, File: 767, Line: 864, Column: 48},
-	{Func: 821, Callee: 422, File: 767, Line: 864, Column: 66},
-	{Func: 821, Callee: 824, File: 767, Line: 864, Column: 116},
-	{Func: 821, Callee: 782, File: 767, Line: 871, Column: 3},
-	{Func: 821, Callee: 824, File: 767, Line: 871, Column: 36},
-	{Func: 821, Callee: 825, File: 767, Line: 874, Column: 5},
-	{Func: 821, Callee: 782, File: 767, Line: 875, Column: 3},
-	{Func: 821, Callee: 784, File: 767, Line: 878, Column: 2},
-	{Func: 826, Callee: 827, File: 767, Line: 892, Column: 41},
-	{Func: 826, Callee: 828, File: 767, Line: 893, Column: 3},
-	{Func: 826, Callee: 829, File: 767, Line: 896, Column: 16},
-	{Func: 826, Callee: 829, File: 767, Line: 900, Column: 9},
-	{Func: 826, Callee: 829, File: 767, Line: 907, Column: 15},
-	{Func: 826, Callee: 825, File: 767, Line: 913, Column: 5},
-	{Func: 826, Callee: 782, File: 767, Line: 914, Column: 3},
-	{Func: 826, Callee: 424, File: 767, Line: 917, Column: 18},
-	{Func: 826, Callee: 784, File: 767, Line: 919, Column: 3},
-	{Func: 826, Callee: 830, File: 767, Line: 923, Column: 15},
-	{Func: 826, Callee: 784, File: 767, Line: 924, Column: 3},
-	{Func: 826, Callee: 782, File: 767, Line: 929, Column: 2},
-	{Func: 826, Callee: 316, File: 767, Line: 929, Column: 139},
-	{Func: 831, Callee: 279, File: 767, Line: 934, Column: 14},
-	{Func: 831, Callee: 782, File: 767, Line: 936, Column: 3},
-	{Func: 831, Callee: 784, File: 767, Line: 939, Column: 2},
-	{Func: 832, Callee: 784, File: 767, Line: 956, Column: 5},
-	{Func: 832, Callee: 833, File: 767, Line: 957, Column: 5},
-	{Func: 832, Callee: 782, File: 767, Line: 963, Column: 5},
-	{Func: 832, Callee: 782, File: 767, Line: 967, Column: 4},
-	{Func: 832, Callee: 784, File: 767, Line: 970, Column: 4},
-	{Func: 832, Callee: 782, File: 767, Line: 976, Column: 2},
-	{Func: 834, Callee: 99, File: 767, Line: 985, Column: 14},
-	{Func: 834, Callee: 99, File: 767, Line: 986, Column: 14},
-	{Func: 835, Callee: 782, File: 767, Line: 1001, Column: 5},
-	{Func: 835, Callee: 782, File: 767, Line: 1005, Column: 4},
-	{Func: 835, Callee: 836, File: 767, Line: 1008, Column: 8},
-	{Func: 835, Callee: 782, File: 767, Line: 1009, Column: 5},
-	{Func: 835, Callee: 784, File: 767, Line: 1012, Column: 4},
-	{Func: 835, Callee: 782, File: 767, Line: 1018, Column: 2},
-	{Func: 837, Callee: 838, File: 767, Line: 1042, Column: 21},
-	{Func: 837, Callee: 839, File: 767, Line: 1045, Column: 21},
-	{Func: 837, Callee: 838, File: 767, Line: 1045, Column: 31},
-	{Func: 837, Callee: 839, File: 767, Line: 1048, Column: 22},
-	{Func: 837, Callee: 838, File: 767, Line: 1048, Column: 32},
-	{Func: 837, Callee: 422, File: 767, Line: 1064, Column: 9},
-	{Func: 840, Callee: 818, File: 767, Line: 1072, Column: 11},
-	{Func: 841, Callee: 791, File: 767, Line: 1193, Column: 5},
-	{Func: 841, Callee: 842, File: 767, Line: 1201, Column: 68},
-	{Func: 841, Callee: 782, File: 767, Line: 1203, Column: 3},
-	{Func: 841, Callee: 806, File: 767, Line: 1203, Column: 45},
-	{Func: 841, Callee: 784, File: 767, Line: 1206, Column: 2},
-	{Func: 841, Callee: 843, File: 767, Line: 1206, Column: 26},
-	{Func: 841, Callee: 843, File: 767, Line: 1207, Column: 21},
-	{Func: 844, Callee: 845, File: 767, Line: 1211, Column: 38},
-	{Func: 846, Callee: 847, File: 767, Line: 1216, Column: 14},
-	{Func: 846, Callee: 845, File: 767, Line: 1216, Column: 30},
+	{Func: 781, Callee: 784, File: 767, Line: 285, Column: 11},
+	{Func: 781, Callee: 785, File: 767, Line: 287, Column: 4},
+	{Func: 781, Callee: 425, File: 767, Line: 287, Column: 12},
+	{Func: 781, Callee: 785, File: 767, Line: 294, Column: 4},
+	{Func: 781, Callee: 786, File: 767, Line: 303, Column: 56},
+	{Func: 781, Callee: 785, File: 767, Line: 306, Column: 5},
+	{Func: 781, Callee: 787, File: 767, Line: 313, Column: 4},
+	{Func: 781, Callee: 788, File: 767, Line: 314, Column: 28},
+	{Func: 781, Callee: 789, File: 767, Line: 315, Column: 4},
+	{Func: 781, Callee: 790, File: 767, Line: 316, Column: 60},
+	{Func: 781, Callee: 791, File: 767, Line: 317, Column: 4},
+	{Func: 781, Callee: 792, File: 767, Line: 319, Column: 4},
+	{Func: 781, Callee: 793, File: 767, Line: 321, Column: 4},
+	{Func: 781, Callee: 794, File: 767, Line: 323, Column: 4},
+	{Func: 781, Callee: 795, File: 767, Line: 325, Column: 4},
+	{Func: 781, Callee: 796, File: 767, Line: 327, Column: 4},
+	{Func: 797, Callee: 798, File: 767, Line: 404, Column: 14},
+	{Func: 797, Callee: 799, File: 767, Line: 404, Column: 48},
+	{Func: 800, Callee: 784, File: 767, Line: 417, Column: 10},
+	{Func: 801, Callee: 422, File: 767, Line: 434, Column: 12},
+	{Func: 801, Callee: 423, File: 767, Line: 435, Column: 8},
+	{Func: 802, Callee: 424, File: 767, Line: 447, Column: 10},
+	{Func: 802, Callee: 424, File: 767, Line: 449, Column: 2},
+	{Func: 802, Callee: 422, File: 767, Line: 449, Column: 23},
+	{Func: 803, Callee: 422, File: 767, Line: 457, Column: 11},
+	{Func: 803, Callee: 782, File: 767, Line: 459, Column: 4},
+	{Func: 803, Callee: 804, File: 767, Line: 459, Column: 44},
+	{Func: 803, Callee: 423, File: 767, Line: 462, Column: 7},
+	{Func: 803, Callee: 782, File: 767, Line: 463, Column: 4},
+	{Func: 803, Callee: 805, File: 767, Line: 463, Column: 51},
+	{Func: 803, Callee: 806, File: 767, Line: 463, Column: 69},
+	{Func: 803, Callee: 424, File: 767, Line: 468, Column: 12},
+	{Func: 803, Callee: 785, File: 767, Line: 469, Column: 2},
+	{Func: 803, Callee: 425, File: 767, Line: 469, Column: 10},
+	{Func: 807, Callee: 279, File: 767, Line: 665, Column: 25},
+	{Func: 807, Callee: 783, File: 767, Line: 669, Column: 3},
+	{Func: 807, Callee: 808, File: 767, Line: 674, Column: 3},
+	{Func: 807, Callee: 809, File: 767, Line: 678, Column: 14},
+	{Func: 807, Callee: 782, File: 767, Line: 680, Column: 3},
+	{Func: 807, Callee: 279, File: 767, Line: 684, Column: 5},
+	{Func: 807, Callee: 783, File: 767, Line: 685, Column: 3},
+	{Func: 807, Callee: 808, File: 767, Line: 687, Column: 2},
+	{Func: 810, Callee: 811, File: 767, Line: 696, Column: 10},
+	{Func: 810, Callee: 790, File: 767, Line: 696, Column: 25},
+	{Func: 810, Callee: 422, File: 767, Line: 698, Column: 10},
+	{Func: 810, Callee: 798, File: 767, Line: 699, Column: 2},
+	{Func: 810, Callee: 799, File: 767, Line: 699, Column: 25},
+	{Func: 812, Callee: 798, File: 767, Line: 704, Column: 74},
+	{Func: 812, Callee: 799, File: 767, Line: 704, Column: 97},
+	{Func: 813, Callee: 422, File: 767, Line: 725, Column: 11},
+	{Func: 813, Callee: 814, File: 767, Line: 726, Column: 7},
+	{Func: 815, Callee: 782, File: 767, Line: 761, Column: 6},
+	{Func: 815, Callee: 782, File: 767, Line: 767, Column: 6},
+	{Func: 815, Callee: 806, File: 767, Line: 767, Column: 43},
+	{Func: 815, Callee: 422, File: 767, Line: 775, Column: 11},
+	{Func: 815, Callee: 782, File: 767, Line: 777, Column: 4},
+	{Func: 815, Callee: 804, File: 767, Line: 777, Column: 42},
+	{Func: 815, Callee: 814, File: 767, Line: 780, Column: 7},
+	{Func: 815, Callee: 782, File: 767, Line: 790, Column: 5},
+	{Func: 815, Callee: 423, File: 767, Line: 795, Column: 8},
+	{Func: 815, Callee: 782, File: 767, Line: 796, Column: 5},
+	{Func: 815, Callee: 806, File: 767, Line: 796, Column: 47},
+	{Func: 815, Callee: 782, File: 767, Line: 804, Column: 3},
+	{Func: 815, Callee: 785, File: 767, Line: 809, Column: 3},
+	{Func: 815, Callee: 785, File: 767, Line: 812, Column: 2},
+	{Func: 816, Callee: 790, File: 767, Line: 819, Column: 16},
+	{Func: 817, Callee: 818, File: 767, Line: 840, Column: 78},
+	{Func: 819, Callee: 820, File: 767, Line: 846, Column: 26},
+	{Func: 819, Callee: 820, File: 767, Line: 846, Column: 81},
+	{Func: 821, Callee: 822, File: 767, Line: 868, Column: 13},
+	{Func: 821, Callee: 424, File: 767, Line: 869, Column: 12},
+	{Func: 821, Callee: 823, File: 767, Line: 871, Column: 20},
+	{Func: 821, Callee: 823, File: 767, Line: 871, Column: 58},
+	{Func: 821, Callee: 50, File: 767, Line: 871, Column: 128},
+	{Func: 821, Callee: 782, File: 767, Line: 872, Column: 3},
+	{Func: 821, Callee: 818, File: 767, Line: 878, Column: 7},
+	{Func: 821, Callee: 782, File: 767, Line: 879, Column: 5},
+	{Func: 821, Callee: 806, File: 767, Line: 879, Column: 48},
+	{Func: 821, Callee: 422, File: 767, Line: 879, Column: 66},
+	{Func: 821, Callee: 824, File: 767, Line: 879, Column: 116},
+	{Func: 821, Callee: 782, File: 767, Line: 886, Column: 3},
+	{Func: 821, Callee: 824, File: 767, Line: 886, Column: 36},
+	{Func: 821, Callee: 825, File: 767, Line: 889, Column: 5},
+	{Func: 821, Callee: 782, File: 767, Line: 890, Column: 3},
+	{Func: 821, Callee: 785, File: 767, Line: 893, Column: 2},
+	{Func: 826, Callee: 827, File: 767, Line: 907, Column: 41},
+	{Func: 826, Callee: 828, File: 767, Line: 908, Column: 3},
+	{Func: 826, Callee: 829, File: 767, Line: 911, Column: 16},
+	{Func: 826, Callee: 829, File: 767, Line: 915, Column: 9},
+	{Func: 826, Callee: 829, File: 767, Line: 922, Column: 15},
+	{Func: 826, Callee: 825, File: 767, Line: 928, Column: 5},
+	{Func: 826, Callee: 782, File: 767, Line: 929, Column: 3},
+	{Func: 826, Callee: 424, File: 767, Line: 932, Column: 18},
+	{Func: 826, Callee: 785, File: 767, Line: 934, Column: 3},
+	{Func: 826, Callee: 830, File: 767, Line: 938, Column: 15},
+	{Func: 826, Callee: 785, File: 767, Line: 939, Column: 3},
+	{Func: 826, Callee: 782, File: 767, Line: 944, Column: 2},
+	{Func: 826, Callee: 316, File: 767, Line: 944, Column: 139},
+	{Func: 831, Callee: 279, File: 767, Line: 949, Column: 14},
+	{Func: 831, Callee: 782, File: 767, Line: 951, Column: 3},
+	{Func: 831, Callee: 785, File: 767, Line: 954, Column: 2},
+	{Func: 832, Callee: 785, File: 767, Line: 971, Column: 5},
+	{Func: 832, Callee: 833, File: 767, Line: 972, Column: 5},
+	{Func: 832, Callee: 782, File: 767, Line: 978, Column: 5},
+	{Func: 832, Callee: 782, File: 767, Line: 982, Column: 4},
+	{Func: 832, Callee: 785, File: 767, Line: 985, Column: 4},
+	{Func: 832, Callee: 782, File: 767, Line: 991, Column: 2},
+	{Func: 834, Callee: 99, File: 767, Line: 1000, Column: 14},
+	{Func: 834, Callee: 99, File: 767, Line: 1001, Column: 14},
+	{Func: 835, Callee: 782, File: 767, Line: 1016, Column: 5},
+	{Func: 835, Callee: 782, File: 767, Line: 1020, Column: 4},
+	{Func: 835, Callee: 836, File: 767, Line: 1023, Column: 8},
+	{Func: 835, Callee: 782, File: 767, Line: 1024, Column: 5},
+	{Func: 835, Callee: 785, File: 767, Line: 1027, Column: 4},
+	{Func: 835, Callee: 782, File: 767, Line: 1033, Column: 2},
+	{Func: 837, Callee: 838, File: 767, Line: 1057, Column: 21},
+	{Func: 837, Callee: 839, File: 767, Line: 1060, Column: 21},
+	{Func: 837, Callee: 838, File: 767, Line: 1060, Column: 31},
+	{Func: 837, Callee: 839, File: 767, Line: 1063, Column: 22},
+	{Func: 837, Callee: 838, File: 767, Line: 1063, Column: 32},
+	{Func: 837, Callee: 422, File: 767, Line: 1079, Column: 9},
+	{Func: 840, Callee: 818, File: 767, Line: 1087, Column: 11},
+	{Func: 841, Callee: 792, File: 767, Line: 1208, Column: 5},
+	{Func: 841, Callee: 842, File: 767, Line: 1216, Column: 68},
+	{Func: 841, Callee: 782, File: 767, Line: 1218, Column: 3},
+	{Func: 841, Callee: 806, File: 767, Line: 1218, Column: 45},
+	{Func: 841, Callee: 785, File: 767, Line: 1221, Column: 2},
+	{Func: 841, Callee: 843, File: 767, Line: 1221, Column: 26},
+	{Func: 841, Callee: 843, File: 767, Line: 1222, Column: 21},
+	{Func: 844, Callee: 845, File: 767, Line: 1226, Column: 38},
+	{Func: 846, Callee: 847, File: 767, Line: 1231, Column: 14},
+	{Func: 846, Callee: 845, File: 767, Line: 1231, Column: 30},
 	{Func: 848, Callee: 36, File: 849, Line: 11, Column: 14},
 	{Func: 848, Callee: 850, File: 849, Line: 13, Column: 3},
 	{Func: 848, Callee: 27, File: 849, Line: 15, Column: 2},
@@ -13567,8 +13567,9 @@ var ergoCallNames = [...]string{
 	"scanner.run",
 	"compiler/syntax.fail",
 	"compiler/syntax.insertSemi",
+	"compiler/syntax.identRestWide",
 	"compiler/syntax.emit",
-	"compiler/syntax.opFast",
+	"compiler/syntax.opAlone",
 	"compiler/syntax.comment",
 	"compiler/syntax.pathStart",
 	"compiler/syntax.pathWord",
@@ -13583,7 +13584,6 @@ var ergoCallNames = [...]string{
 	"unicode.IsLetter",
 	"unicode.IsDigit",
 	"identRest",
-	"compiler/syntax.identRestWide",
 	"identRestWide",
 	"identEnd",
 	"scanner.identifier",
@@ -14256,34 +14256,34 @@ const semiLo uint64 = uint64(5116090001326609400)
 //line syntax/scan.ergo:151:5
 const semiHi uint64 = uint64(33554497)
 
-//line syntax/scan.ergo:332:5
+//line syntax/scan.ergo:342:5
 const classes string = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x04\x00\x00\x00\x04\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x04\x00\x00\x00\x00\x00\x00\x00\x00\x00 \b\x00(((\n\n\n\n\n\n\n\n\n\n\x00\x00\x00\x00\x00\x00\x00\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\x00\x00\x00 \t\x00\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\x00\x00\x00\b\x00\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10"
 
-//line syntax/scan.ergo:334:5
+//line syntax/scan.ergo:344:5
 const clsLetter uint8 = uint8(1)
 
-//line syntax/scan.ergo:336:5
+//line syntax/scan.ergo:346:5
 const clsDigit uint8 = uint8(2)
 
-//line syntax/scan.ergo:338:5
+//line syntax/scan.ergo:348:5
 const clsBlank uint8 = uint8(4)
 
-//line syntax/scan.ergo:340:5
+//line syntax/scan.ergo:350:5
 const clsPath uint8 = uint8(8)
 
-//line syntax/scan.ergo:344:5
+//line syntax/scan.ergo:354:5
 const clsOpNext uint8 = uint8(32)
 
-//line syntax/scan.ergo:349:5
+//line syntax/scan.ergo:359:5
 const op1 string = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00-\x00\x00\x00\x11\x12\x00\x00\x00\x0f\r\x00\x0e7\x10\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00<\x00*,+\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x14\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x13\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
 
-//line syntax/scan.ergo:351:5
+//line syntax/scan.ergo:361:5
 const opEq string = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00.\x00\x00\x00\x1c\x1d\x00\x00\x00\x1a\x18\x00\x19\x00\x1b\x00\x00\x00\x00\x00\x00\x00\x00\x00\x001\x00/)0\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x1f\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x1e\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
 
-//line syntax/scan.ergo:375:5
+//line syntax/scan.ergo:390:5
 const punct string = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x0038\x00\x006\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00;\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x004\x009\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x005\x00:\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
 
-//line syntax/scan.ergo:479:5
+//line syntax/scan.ergo:494:5
 const kwTable string = "\x00e\x00Q\x00M\x00\x00\x00\x00\x00\x00E\x00f\x00j\x00g\x00\x00\x00\x00\x00Y\x00\x00\x00k\x00\x00P\x00\x00\x00\x00\x00\x00d^\x00L@\x00\x00\x00B\x00b\x00c\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00G\x00\x00\x00\x00`\x00_\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00N\x00\x00\x00\x00\x00\x00\x00J\x00\x00\x00\x00D\x00>\x00\x00\x00\x00\x00F\x00\x00hT\x00\x00\x00\x00\x00\x00Z\x00\x00\x00V\x00\x00\x00\x00\x00\x00]\x00\x00\x00\x00\x00\x00R\x00\x00\x00\x00\x00\x00\x00\x00\x00K\x00\x00\x00\x00\x00\x00H\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00C\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00i\x00O\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00X\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00?I\x00A\x00\x00\x00\x00\x00\x00S\x00\x00\x00\x00\x00a\x00\x00\x00\x00\x00\x00\x00\x00WU\x00"
 
 //line syntax/token.ergo:11:5
@@ -15950,27 +15950,27 @@ func End(src string, kind_1 uint8, start_1 int) int {
 //line syntax/token.ergo:175:10
 		var v_1 int
 		/*line syntax/token.ergo:175:10*/ {
-//line syntax/scan.ergo#ergo-inline-45:431:2
-			if /*line syntax/scan.ergo#ergo-inline-45:431:5*/ src[start_1] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-45:432:3
-//line syntax/scan.ergo#ergo-inline-45:432:10
+//line syntax/scan.ergo#ergo-inline-45:446:2
+			if /*line syntax/scan.ergo#ergo-inline-45:446:5*/ src[start_1] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-45:447:3
+//line syntax/scan.ergo#ergo-inline-45:447:10
 				v_2 := identRest(src, (start_1 + int(1)))
-//line syntax/scan.ergo#ergo-inline-45:432:3
+//line syntax/scan.ergo#ergo-inline-45:447:3
 				v_1 = v_2
-				/*line syntax/scan.ergo#ergo-inline-45:432:3*/ goto inl
-				/*line syntax/scan.ergo#ergo-inline-45:432:3*/
+				/*line syntax/scan.ergo#ergo-inline-45:447:3*/ goto inl
+				/*line syntax/scan.ergo#ergo-inline-45:447:3*/
 			}
-//line syntax/scan.ergo#ergo-inline-45:434:2
+//line syntax/scan.ergo#ergo-inline-45:449:2
 			t := src
-			/*line syntax/scan.ergo#ergo-inline-45:434:2*/ t_1 := start_1
-//line syntax/scan.ergo#ergo-inline-45:434:23
-			v_3 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-45:434:47*/ src[start_1:])
-//line syntax/scan.ergo#ergo-inline-45:434:2
+			/*line syntax/scan.ergo#ergo-inline-45:449:2*/ t_1 := start_1
+//line syntax/scan.ergo#ergo-inline-45:449:23
+			v_3 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-45:449:47*/ src[start_1:])
+//line syntax/scan.ergo#ergo-inline-45:449:2
 			v_1 = identRest(t, (t_1 + v_3.Size))
 
-			/*line syntax/scan.ergo#ergo-inline-45:434:2*/
+			/*line syntax/scan.ergo#ergo-inline-45:449:2*/
 		}
-		/*line syntax/scan.ergo#ergo-inline-45:434:2*/ inl:
+		/*line syntax/scan.ergo#ergo-inline-45:449:2*/ inl:
 		;
 //line syntax/token.ergo:175:10
 		return v_1
@@ -24020,30 +24020,30 @@ func scanAll(src string) scanner {
 	/*line syntax/scan.ergo:98:2*/
 }
 
-//line syntax/scan.ergo:395:1
+//line syntax/scan.ergo:410:1
 func identRest(src string, i int) int {
-//line syntax/scan.ergo:396:2
+//line syntax/scan.ergo:411:2
 	var n int = len(src)
-//line syntax/scan.ergo:397:2
+//line syntax/scan.ergo:412:2
 	var end int = i
-//line syntax/scan.ergo:398:2
-	for (end < n) && (( /*line syntax/scan.ergo:398:17*/ ergo.Let(classes)[int( /*line syntax/scan.ergo:398:29*/ src[end])] & (ergo.Let(clsLetter) | ergo.Let(clsDigit))) != uint8(0)) {
-//line syntax/scan.ergo:399:3
+//line syntax/scan.ergo:413:2
+	for (end < n) && (( /*line syntax/scan.ergo:413:17*/ ergo.Let(classes)[int( /*line syntax/scan.ergo:413:29*/ src[end])] & (ergo.Let(clsLetter) | ergo.Let(clsDigit))) != uint8(0)) {
+//line syntax/scan.ergo:414:3
 		end = (end + int(1))
-		/*line syntax/scan.ergo:399:3*/
+		/*line syntax/scan.ergo:414:3*/
 	}
-//line syntax/scan.ergo:401:2
-	if (end < n) && ( /*line syntax/scan.ergo:401:16*/ src[end] >= uint8(128)) {
-//line syntax/scan.ergo:402:3
-//line syntax/scan.ergo:402:10
+//line syntax/scan.ergo:416:2
+	if (end < n) && ( /*line syntax/scan.ergo:416:16*/ src[end] >= uint8(128)) {
+//line syntax/scan.ergo:417:3
+//line syntax/scan.ergo:417:10
 		v := identRestWide(src, end)
-//line syntax/scan.ergo:402:3
+//line syntax/scan.ergo:417:3
 		return v
-		/*line syntax/scan.ergo:402:3*/
+		/*line syntax/scan.ergo:417:3*/
 	}
-//line syntax/scan.ergo:404:2
+//line syntax/scan.ergo:419:2
 	return end
-	/*line syntax/scan.ergo:404:2*/
+	/*line syntax/scan.ergo:419:2*/
 }
 
 //line syntax/token.ergo:229:1
@@ -24145,56 +24145,56 @@ func segmentEnd(src string, start_1 int) int {
 	/*line syntax/token.ergo:221:3*/
 }
 
-//line syntax/scan.ergo:694:1
+//line syntax/scan.ergo:709:1
 func pathEnd(src string, start_1 int) int {
-//line syntax/scan.ergo:695:2
+//line syntax/scan.ergo:710:2
 	var n int = len(src)
-//line syntax/scan.ergo:696:2
+//line syntax/scan.ergo:711:2
 	var end int = start_1
-//line syntax/scan.ergo:697:2
+//line syntax/scan.ergo:712:2
 	for end < n {
-//line syntax/scan.ergo:698:3
-		var c uint8 = /*line syntax/scan.ergo:698:11*/ src[end]
-//line syntax/scan.ergo:699:3
-		if ((c == uint8(47)) && ((end + int(1)) < n)) && (( /*line syntax/scan.ergo:699:32*/ src[(end+int(1))] == uint8(47)) || ( /*line syntax/scan.ergo:699:53*/ src[(end+int(1))] == uint8(42))) {
-//line syntax/scan.ergo:700:4
-			return end
-			/*line syntax/scan.ergo:700:4*/
-		}
-//line syntax/scan.ergo:702:3
-		if c < uint8(128) {
-//line syntax/scan.ergo:704:4
-			if ( /*line syntax/scan.ergo:704:7*/ ergo.Let(classes)[int(c)] & ergo.Let(clsPath)) == uint8(0) {
-//line syntax/scan.ergo:705:5
-				return end
-				/*line syntax/scan.ergo:705:5*/
-			}
-//line syntax/scan.ergo:707:4
-			end = (end + int(1))
-//line syntax/scan.ergo:708:4
-			continue
-			/*line syntax/scan.ergo:708:4*/
-		}
-//line syntax/scan.ergo:710:3
-//line syntax/scan.ergo:710:11
-		v := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo:710:35*/ src[end:])
-//line syntax/scan.ergo:710:3
-//line syntax/scan.ergo:711:3
-//line syntax/scan.ergo:711:7
-		v_1 := pathRune(v.Rune)
-//line syntax/scan.ergo:711:3
-		if !v_1 {
-//line syntax/scan.ergo:712:4
-			return end
-			/*line syntax/scan.ergo:712:4*/
-		}
+//line syntax/scan.ergo:713:3
+		var c uint8 = /*line syntax/scan.ergo:713:11*/ src[end]
 //line syntax/scan.ergo:714:3
+		if ((c == uint8(47)) && ((end + int(1)) < n)) && (( /*line syntax/scan.ergo:714:32*/ src[(end+int(1))] == uint8(47)) || ( /*line syntax/scan.ergo:714:53*/ src[(end+int(1))] == uint8(42))) {
+//line syntax/scan.ergo:715:4
+			return end
+			/*line syntax/scan.ergo:715:4*/
+		}
+//line syntax/scan.ergo:717:3
+		if c < uint8(128) {
+//line syntax/scan.ergo:719:4
+			if ( /*line syntax/scan.ergo:719:7*/ ergo.Let(classes)[int(c)] & ergo.Let(clsPath)) == uint8(0) {
+//line syntax/scan.ergo:720:5
+				return end
+				/*line syntax/scan.ergo:720:5*/
+			}
+//line syntax/scan.ergo:722:4
+			end = (end + int(1))
+//line syntax/scan.ergo:723:4
+			continue
+			/*line syntax/scan.ergo:723:4*/
+		}
+//line syntax/scan.ergo:725:3
+//line syntax/scan.ergo:725:11
+		v := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo:725:35*/ src[end:])
+//line syntax/scan.ergo:725:3
+//line syntax/scan.ergo:726:3
+//line syntax/scan.ergo:726:7
+		v_1 := pathRune(v.Rune)
+//line syntax/scan.ergo:726:3
+		if !v_1 {
+//line syntax/scan.ergo:727:4
+			return end
+			/*line syntax/scan.ergo:727:4*/
+		}
+//line syntax/scan.ergo:729:3
 		end = (end + v.Size)
-		/*line syntax/scan.ergo:714:3*/
+		/*line syntax/scan.ergo:729:3*/
 	}
-//line syntax/scan.ergo:716:2
+//line syntax/scan.ergo:731:2
 	return end
-	/*line syntax/scan.ergo:716:2*/
+	/*line syntax/scan.ergo:731:2*/
 }
 
 //line syntax/token.ergo:153:1
@@ -41565,18 +41565,32 @@ func (s *scanner) run() {
 		}
 //line syntax/scan.ergo:275:3
 		if ((k & ergo.Let(clsLetter)) != uint8(0)) && (s.paths == int(0)) {
-//line syntax/scan.ergo:278:4
-//line syntax/scan.ergo:278:14
-			v_24 := identRest(src, (start_1 + int(1)))
-//line syntax/scan.ergo:278:4
-//line syntax/scan.ergo:279:4
+//line syntax/scan.ergo:280:4
+			var end int = (start_1 + int(1))
+//line syntax/scan.ergo:281:4
+			for (end < n) && (( /*line syntax/scan.ergo:281:19*/ ergo.Let(classes)[int( /*line syntax/scan.ergo:281:31*/ src[end])] & (ergo.Let(clsLetter) | ergo.Let(clsDigit))) != uint8(0)) {
+//line syntax/scan.ergo:282:5
+				end = (end + int(1))
+				/*line syntax/scan.ergo:282:5*/
+			}
+//line syntax/scan.ergo:284:4
+			if (end < n) && ( /*line syntax/scan.ergo:284:18*/ src[end] >= uint8(128)) {
+//line syntax/scan.ergo:285:5
+//line syntax/scan.ergo:285:11
+				v_24 := identRestWide(src, end)
+//line syntax/scan.ergo:285:5
+				end = v_24
+				/*line syntax/scan.ergo:285:5*/
+			}
+//line syntax/scan.ergo:287:4
 			t_9 := s
-//line syntax/scan.ergo:279:12
-			v_25 := keyword(src, start_1, v_24)
-//line syntax/scan.ergo:279:4
-//line syntax/scan.ergo:279:4
+//line syntax/scan.ergo:287:12
+			v_25 := keyword(src, start_1, end)
+//line syntax/scan.ergo:287:4
+//line syntax/scan.ergo:287:4
 			{
-				/*line syntax/scan.ergo:279:4*/ var kind_2 uint8 = v_25
+				/*line syntax/scan.ergo:287:4*/ var kind_2 uint8 = v_25
+				/*line syntax/scan.ergo:287:4*/ var end_1 int = end
 //line syntax/scan.ergo#ergo-inline-1222:162:2
 //line syntax/scan.ergo#ergo-inline-1222:162:2
 				{
@@ -41623,7 +41637,7 @@ func (s *scanner) run() {
 //line syntax/scan.ergo#ergo-inline-1223:134:2
 					t_9.toks.start[i_4] = uint32(start_1)
 //line syntax/scan.ergo#ergo-inline-1223:135:2
-					t_9.toks.end[i_4] = uint32(v_24)
+					t_9.toks.end[i_4] = uint32(end_1)
 //line syntax/scan.ergo#ergo-inline-1223:136:2
 					t_9.n = (i_4 + int(1))
 //line syntax/scan.ergo#ergo-inline-1223:137:2
@@ -41677,20 +41691,20 @@ func (s *scanner) run() {
 			}
 			/*line syntax/scan.ergo#ergo-inline-1222:165:3*/ inl_14:
 			;
-//line syntax/scan.ergo:279:4
-//line syntax/scan.ergo:280:4
-			i = v_24
-//line syntax/scan.ergo:281:4
+//line syntax/scan.ergo:287:4
+//line syntax/scan.ergo:288:4
+			i = end
+//line syntax/scan.ergo:289:4
 			continue
-			/*line syntax/scan.ergo:281:4*/
+			/*line syntax/scan.ergo:289:4*/
 		}
-//line syntax/scan.ergo:283:3
-		if ( /*line syntax/scan.ergo:283:6*/ ergo.Let(punct)[int(c_2)] != uint8(0)) && (s.open == int(0)) {
-//line syntax/scan.ergo:286:4
-//line syntax/scan.ergo:286:4
+//line syntax/scan.ergo:291:3
+		if ( /*line syntax/scan.ergo:291:6*/ ergo.Let(punct)[int(c_2)] != uint8(0)) && (s.open == int(0)) {
+//line syntax/scan.ergo:294:4
+//line syntax/scan.ergo:294:4
 			{
-				/*line syntax/scan.ergo:286:4*/ var kind_3 uint8 = uint8( /*line syntax/scan.ergo:286:18*/ ergo.Let(punct)[int(c_2)])
-				/*line syntax/scan.ergo:286:4*/ var end int = (start_1 + int(1))
+				/*line syntax/scan.ergo:294:4*/ var kind_3 uint8 = uint8( /*line syntax/scan.ergo:294:18*/ ergo.Let(punct)[int(c_2)])
+				/*line syntax/scan.ergo:294:4*/ var end_2 int = (start_1 + int(1))
 //line syntax/scan.ergo#ergo-inline-1226:162:2
 //line syntax/scan.ergo#ergo-inline-1226:162:2
 				{
@@ -41737,7 +41751,7 @@ func (s *scanner) run() {
 //line syntax/scan.ergo#ergo-inline-1227:134:2
 					s.toks.start[i_6] = uint32(start_1)
 //line syntax/scan.ergo#ergo-inline-1227:135:2
-					s.toks.end[i_6] = uint32(end)
+					s.toks.end[i_6] = uint32(end_2)
 //line syntax/scan.ergo#ergo-inline-1227:136:2
 					s.n = (i_6 + int(1))
 //line syntax/scan.ergo#ergo-inline-1227:137:2
@@ -41791,49 +41805,59 @@ func (s *scanner) run() {
 			}
 			/*line syntax/scan.ergo#ergo-inline-1226:165:3*/ inl_19:
 			;
-//line syntax/scan.ergo:286:4
-//line syntax/scan.ergo:287:4
-			i = (start_1 + int(1))
-//line syntax/scan.ergo:288:4
-			continue
-			/*line syntax/scan.ergo:288:4*/
-		}
-//line syntax/scan.ergo:290:3
-		if s.open == int(0) {
-//line syntax/scan.ergo:292:4
-			var v_46 uint8
-//line syntax/scan.ergo:292:13
-			if (start_1 + int(1)) < n {
-//line syntax/scan.ergo:292:30
-				v_46 = /*line syntax/scan.ergo:292:30*/ src[(start_1 + int(1))]
-				/*line syntax/scan.ergo:292:30*/
-			} else {
-//line syntax/scan.ergo:292:52
-				v_46 = uint8(0)
-				/*line syntax/scan.ergo:292:52*/
-			}
-			/*line syntax/scan.ergo:292:52*/ var c1 uint8 = v_46
-//line syntax/scan.ergo:293:4
-//line syntax/scan.ergo:293:12
-			v_47 := opFast(c_2, c1)
-//line syntax/scan.ergo:293:4
 //line syntax/scan.ergo:294:4
-			if v_47 != uint8(0) {
-//line syntax/scan.ergo:295:5
-				var v_48 int
-//line syntax/scan.ergo:295:15
+//line syntax/scan.ergo:295:4
+			i = (start_1 + int(1))
+//line syntax/scan.ergo:296:4
+			continue
+			/*line syntax/scan.ergo:296:4*/
+		}
+//line syntax/scan.ergo:298:3
+		if (s.open == int(0)) && ( /*line syntax/scan.ergo:298:21*/ ergo.Let(op1)[int(c_2)] != uint8(0)) {
+//line syntax/scan.ergo:302:4
+			var v_46 uint8
+//line syntax/scan.ergo:302:13
+			if (start_1 + int(1)) < n {
+//line syntax/scan.ergo:302:30
+				v_46 = /*line syntax/scan.ergo:302:30*/ src[(start_1 + int(1))]
+				/*line syntax/scan.ergo:302:30*/
+			} else {
+//line syntax/scan.ergo:302:52
+				v_46 = uint8(0)
+				/*line syntax/scan.ergo:302:52*/
+			}
+			/*line syntax/scan.ergo:302:52*/ var c1 uint8 = v_46
+//line syntax/scan.ergo:303:4
+			var v_47 uint8
+//line syntax/scan.ergo:303:12
+			if c1 == uint8(61) {
+//line syntax/scan.ergo:303:27
+				v_47 = uint8( /*line syntax/scan.ergo:303:33*/ ergo.Let(opEq)[int(c_2)])
+				/*line syntax/scan.ergo:303:27*/
+			} else {
+//line syntax/scan.ergo:303:56
+				v_48 := opAlone(c_2, c1)
+				/*line syntax/scan.ergo:303:56*/ v_47 = v_48
+				/*line syntax/scan.ergo:303:56*/
+			}
+			/*line syntax/scan.ergo:303:56*/ var o uint8 = v_47
+//line syntax/scan.ergo:304:4
+			if o != uint8(0) {
+//line syntax/scan.ergo:305:5
+				var v_49 int
+//line syntax/scan.ergo:305:15
 				if c1 == uint8(61) {
-//line syntax/scan.ergo:295:30
-					v_48 = (start_1 + int(2))
-					/*line syntax/scan.ergo:295:30*/
+//line syntax/scan.ergo:305:30
+					v_49 = (start_1 + int(2))
+					/*line syntax/scan.ergo:305:30*/
 				} else {
-//line syntax/scan.ergo:295:49
-					v_48 = (start_1 + int(1))
-					/*line syntax/scan.ergo:295:49*/
+//line syntax/scan.ergo:305:49
+					v_49 = (start_1 + int(1))
+					/*line syntax/scan.ergo:305:49*/
 				}
-				/*line syntax/scan.ergo:295:49*/ var end_1 int = v_48
-//line syntax/scan.ergo:296:5
-//line syntax/scan.ergo:296:5
+				/*line syntax/scan.ergo:305:49*/ var end_3 int = v_49
+//line syntax/scan.ergo:306:5
+//line syntax/scan.ergo:306:5
 				{
 //line syntax/scan.ergo#ergo-inline-1230:162:2
 //line syntax/scan.ergo#ergo-inline-1230:162:2
@@ -41848,45 +41872,45 @@ func (s *scanner) run() {
 //line syntax/scan.ergo#ergo-inline-1232:122:2
 								t_16 := s.toks.kind
 //line syntax/scan.ergo#ergo-inline-1232:122:46
-								v_49 := zeros32(len(s.toks.kind))
+								v_50 := zeros32(len(s.toks.kind))
 //line syntax/scan.ergo#ergo-inline-1232:122:2
 //line syntax/scan.ergo#ergo-inline-1232:122:16
-								v_50 := append(t_16, v_49...)
+								v_51 := append(t_16, v_50...)
 //line syntax/scan.ergo#ergo-inline-1232:122:2
-								s.toks.kind = v_50
+								s.toks.kind = v_51
 //line syntax/scan.ergo#ergo-inline-1232:123:2
 								t_17 := s.toks.start
 //line syntax/scan.ergo#ergo-inline-1232:123:48
-								v_51 := zeros32(len(s.toks.start))
+								v_52 := zeros32(len(s.toks.start))
 //line syntax/scan.ergo#ergo-inline-1232:123:2
 //line syntax/scan.ergo#ergo-inline-1232:123:17
-								v_52 := append(t_17, v_51...)
+								v_53 := append(t_17, v_52...)
 //line syntax/scan.ergo#ergo-inline-1232:123:2
-								s.toks.start = v_52
+								s.toks.start = v_53
 //line syntax/scan.ergo#ergo-inline-1232:124:2
 								t_18 := s.toks.end
 //line syntax/scan.ergo#ergo-inline-1232:124:44
-								v_53 := zeros32(len(s.toks.end))
+								v_54 := zeros32(len(s.toks.end))
 //line syntax/scan.ergo#ergo-inline-1232:124:2
 //line syntax/scan.ergo#ergo-inline-1232:124:15
-								v_54 := append(t_18, v_53...)
+								v_55 := append(t_18, v_54...)
 //line syntax/scan.ergo#ergo-inline-1232:124:2
-								s.toks.end = v_54
+								s.toks.end = v_55
 								/*line syntax/scan.ergo#ergo-inline-1232:124:2*/
 							}
 //line syntax/scan.ergo#ergo-inline-1231:131:3
 						}
 //line syntax/scan.ergo#ergo-inline-1231:133:2
-						s.toks.kind[i_8] = uint32(v_47)
+						s.toks.kind[i_8] = uint32(o)
 //line syntax/scan.ergo#ergo-inline-1231:134:2
 						s.toks.start[i_8] = uint32(start_1)
 //line syntax/scan.ergo#ergo-inline-1231:135:2
-						s.toks.end[i_8] = uint32(end_1)
+						s.toks.end[i_8] = uint32(end_3)
 //line syntax/scan.ergo#ergo-inline-1231:136:2
 						s.n = (i_8 + int(1))
 //line syntax/scan.ergo#ergo-inline-1231:137:2
 //line syntax/scan.ergo#ergo-inline-1231:137:10
-						var v_55 ID[Tok]
+						var v_56 ID[Tok]
 						/*line syntax/scan.ergo#ergo-inline-1231:137:10*/ {
 							/*line syntax/scan.ergo#ergo-inline-1231:137:10*/ var c_6 *Count[Tok] = (&s.toks.ids)
 
@@ -41897,37 +41921,37 @@ func (s *scanner) run() {
 									/*line syntax/scan.ergo#ergo-inline-1231:137:10*/ panic(ergo.UnreachableAt(full, "std/dense/dense.ergo:71:3"))
 									/*line syntax/scan.ergo#ergo-inline-1231:137:10*/
 								}
-								/*line syntax/scan.ergo#ergo-inline-1231:137:10*/ v_55 = ID[Tok]{n: uint32(n_6)}
+								/*line syntax/scan.ergo#ergo-inline-1231:137:10*/ v_56 = ID[Tok]{n: uint32(n_6)}
 								/*line syntax/scan.ergo#ergo-inline-1231:137:10*/
 							}
 							/*line syntax/scan.ergo#ergo-inline-1231:137:10*/ c_6.n = (c_6.n + uint32(1))
 
 							/*line syntax/scan.ergo#ergo-inline-1231:137:10*/
 						}
-						/*line syntax/scan.ergo#ergo-inline-1231:137:10*/ _ = v_55
+						/*line syntax/scan.ergo#ergo-inline-1231:137:10*/ _ = v_56
 						/*line syntax/scan.ergo#ergo-inline-1231:137:10*/
 					}
 //line syntax/scan.ergo#ergo-inline-1230:162:2
 //line syntax/scan.ergo#ergo-inline-1230:163:2
-					a_2 := v_47
+					a_2 := o
 					/*line syntax/scan.ergo#ergo-inline-1230:163:2*/ i_9 := 0
 					/*line syntax/scan.ergo#ergo-inline-1230:163:2*/ i_9 = i_9*256 + int(a_2)
-					/*line syntax/scan.ergo#ergo-inline-1230:163:2*/ var v_57 bool
+					/*line syntax/scan.ergo#ergo-inline-1230:163:2*/ var v_58 bool
 					/*line syntax/scan.ergo#ergo-inline-1230:163:2*/ if tabsemiAfterK[i_9].Ready() {
-						/*line syntax/scan.ergo#ergo-inline-1230:163:2*/ v_57 = tabsemiAfterV[i_9]
+						/*line syntax/scan.ergo#ergo-inline-1230:163:2*/ v_58 = tabsemiAfterV[i_9]
 						/*line syntax/scan.ergo#ergo-inline-1230:163:2*/
 					} else {
-						/*line syntax/scan.ergo#ergo-inline-1230:163:2*/ v_57 = tabsemiAfterFill(i_9, a_2)
+						/*line syntax/scan.ergo#ergo-inline-1230:163:2*/ v_58 = tabsemiAfterFill(i_9, a_2)
 						/*line syntax/scan.ergo#ergo-inline-1230:163:2*/
 					}
 //line syntax/scan.ergo#ergo-inline-1230:163:11
-					v_58 := v_57
+					v_59 := v_58
 //line syntax/scan.ergo#ergo-inline-1230:163:2
-					s.semi = v_58
+					s.semi = v_59
 //line syntax/scan.ergo#ergo-inline-1230:164:2
-					if (s.ctx || (v_47 == Import)) || (v_47 == Extern) {
+					if (s.ctx || (o == Import)) || (o == Extern) {
 //line syntax/scan.ergo#ergo-inline-1230:165:3
-						(s).moveContext(v_47)
+						(s).moveContext(o)
 						/*line syntax/scan.ergo#ergo-inline-1230:165:3*/ goto inl_24
 						/*line syntax/scan.ergo#ergo-inline-1230:165:3*/
 					}
@@ -41935,124 +41959,124 @@ func (s *scanner) run() {
 				}
 				/*line syntax/scan.ergo#ergo-inline-1230:165:3*/ inl_24:
 				;
-//line syntax/scan.ergo:296:5
-//line syntax/scan.ergo:297:5
-				i = end_1
-//line syntax/scan.ergo:298:5
+//line syntax/scan.ergo:306:5
+//line syntax/scan.ergo:307:5
+				i = end_3
+//line syntax/scan.ergo:308:5
 				continue
-				/*line syntax/scan.ergo:298:5*/
+				/*line syntax/scan.ergo:308:5*/
 			}
-			/*line syntax/scan.ergo:298:5*/
+			/*line syntax/scan.ergo:308:5*/
 		}
-//line syntax/scan.ergo:301:3
+//line syntax/scan.ergo:311:3
 		s.offset = start_1
-//line syntax/scan.ergo:302:3
-		if ((c_2 == uint8(47)) && ((start_1 + int(1)) < n)) && (( /*line syntax/scan.ergo:302:34*/ src[(start_1+int(1))] == uint8(47)) || ( /*line syntax/scan.ergo:302:57*/ src[(start_1+int(1))] == uint8(42))) {
-//line syntax/scan.ergo:303:4
+//line syntax/scan.ergo:312:3
+		if ((c_2 == uint8(47)) && ((start_1 + int(1)) < n)) && (( /*line syntax/scan.ergo:312:34*/ src[(start_1+int(1))] == uint8(47)) || ( /*line syntax/scan.ergo:312:57*/ src[(start_1+int(1))] == uint8(42))) {
+//line syntax/scan.ergo:313:4
 			(s).comment(start_1)
-			/*line syntax/scan.ergo:303:4*/
+			/*line syntax/scan.ergo:313:4*/
 		} else {
-//line syntax/scan.ergo:304:10
+//line syntax/scan.ergo:314:10
 			b := (s.paths > int(0))
-			/*line syntax/scan.ergo:304:10*/ if b {
-//line syntax/scan.ergo:304:28
-				var v_59 bool
-				/*line syntax/scan.ergo:304:28*/ {
-//line syntax/scan.ergo#ergo-inline-1234:679:2
-					var c_7 uint8 = /*line syntax/scan.ergo#ergo-inline-1234:679:10*/ src[start_1]
-//line syntax/scan.ergo#ergo-inline-1234:680:2
+			/*line syntax/scan.ergo:314:10*/ if b {
+//line syntax/scan.ergo:314:28
+				var v_60 bool
+				/*line syntax/scan.ergo:314:28*/ {
+//line syntax/scan.ergo#ergo-inline-1234:694:2
+					var c_7 uint8 = /*line syntax/scan.ergo#ergo-inline-1234:694:10*/ src[start_1]
+//line syntax/scan.ergo#ergo-inline-1234:695:2
 					if c_7 < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-1234:681:3
-//line syntax/scan.ergo#ergo-inline-1234:681:10
-						v_60 := isLetter(c_7)
-//line syntax/scan.ergo#ergo-inline-1234:681:3
-						b_1 := v_60
-						/*line syntax/scan.ergo#ergo-inline-1234:681:3*/ if !b_1 {
-//line syntax/scan.ergo#ergo-inline-1234:681:25
-							v_61 := isDigit(c_7)
-//line syntax/scan.ergo#ergo-inline-1234:681:3
-							b_1 = v_61
-							/*line syntax/scan.ergo#ergo-inline-1234:681:3*/
+//line syntax/scan.ergo#ergo-inline-1234:696:3
+//line syntax/scan.ergo#ergo-inline-1234:696:10
+						v_61 := isLetter(c_7)
+//line syntax/scan.ergo#ergo-inline-1234:696:3
+						b_1 := v_61
+						/*line syntax/scan.ergo#ergo-inline-1234:696:3*/ if !b_1 {
+//line syntax/scan.ergo#ergo-inline-1234:696:25
+							v_62 := isDigit(c_7)
+//line syntax/scan.ergo#ergo-inline-1234:696:3
+							b_1 = v_62
+							/*line syntax/scan.ergo#ergo-inline-1234:696:3*/
 						}
-						/*line syntax/scan.ergo#ergo-inline-1234:681:3*/ v_59 = b_1
-						/*line syntax/scan.ergo#ergo-inline-1234:681:3*/ goto inl_29
-						/*line syntax/scan.ergo#ergo-inline-1234:681:3*/
+						/*line syntax/scan.ergo#ergo-inline-1234:696:3*/ v_60 = b_1
+						/*line syntax/scan.ergo#ergo-inline-1234:696:3*/ goto inl_29
+						/*line syntax/scan.ergo#ergo-inline-1234:696:3*/
 					}
-//line syntax/scan.ergo#ergo-inline-1234:683:2
-//line syntax/scan.ergo#ergo-inline-1234:683:10
-					v_62 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-1234:683:34*/ src[start_1:])
-//line syntax/scan.ergo#ergo-inline-1234:683:2
-					var r int32 = v_62.Rune
-//line syntax/scan.ergo#ergo-inline-1234:684:2
+//line syntax/scan.ergo#ergo-inline-1234:698:2
+//line syntax/scan.ergo#ergo-inline-1234:698:10
+					v_63 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-1234:698:34*/ src[start_1:])
+//line syntax/scan.ergo#ergo-inline-1234:698:2
+					var r int32 = v_63.Rune
+//line syntax/scan.ergo#ergo-inline-1234:699:2
 					r_1 := unicode.IsLetter(r)
-					/*line syntax/scan.ergo#ergo-inline-1234:684:2*/ v_59 = r_1
-					/*line syntax/scan.ergo#ergo-inline-1234:684:2*/ if !v_59 {
-//line syntax/scan.ergo#ergo-inline-1234:684:25
+					/*line syntax/scan.ergo#ergo-inline-1234:699:2*/ v_60 = r_1
+					/*line syntax/scan.ergo#ergo-inline-1234:699:2*/ if !v_60 {
+//line syntax/scan.ergo#ergo-inline-1234:699:25
 						r_2 := unicode.IsDigit(r)
-//line syntax/scan.ergo#ergo-inline-1234:684:2
-						v_59 = r_2
-						/*line syntax/scan.ergo#ergo-inline-1234:684:2*/
+//line syntax/scan.ergo#ergo-inline-1234:699:2
+						v_60 = r_2
+						/*line syntax/scan.ergo#ergo-inline-1234:699:2*/
 					}
 
-					/*line syntax/scan.ergo#ergo-inline-1234:684:2*/
+					/*line syntax/scan.ergo#ergo-inline-1234:699:2*/
 				}
-				/*line syntax/scan.ergo#ergo-inline-1234:684:2*/ inl_29:
+				/*line syntax/scan.ergo#ergo-inline-1234:699:2*/ inl_29:
 				;
-//line syntax/scan.ergo:304:28
-				b = v_59
-				/*line syntax/scan.ergo:304:28*/
+//line syntax/scan.ergo:314:28
+				b = v_60
+				/*line syntax/scan.ergo:314:28*/
 			}
-			/*line syntax/scan.ergo:304:28*/ if b {
-//line syntax/scan.ergo:305:4
+			/*line syntax/scan.ergo:314:28*/ if b {
+//line syntax/scan.ergo:315:4
 				(s).pathWord(start_1)
-				/*line syntax/scan.ergo:305:4*/
+				/*line syntax/scan.ergo:315:4*/
 			} else {
-//line syntax/scan.ergo:306:10
+//line syntax/scan.ergo:316:10
 				b_3 := ((k & ergo.Let(clsDigit)) != uint8(0))
-				/*line syntax/scan.ergo:306:10*/ if !b_3 {
-					/*line syntax/scan.ergo:306:10*/ b_4 := ((c_2 == uint8(46)) && ((start_1 + int(1)) < n))
-					/*line syntax/scan.ergo:306:10*/ if b_4 {
-//line syntax/scan.ergo:306:60
-						v_63 := isDigit( /*line syntax/scan.ergo:306:68*/ src[(start_1 + int(1))])
-//line syntax/scan.ergo:306:10
-						b_4 = v_63
-						/*line syntax/scan.ergo:306:10*/
+				/*line syntax/scan.ergo:316:10*/ if !b_3 {
+					/*line syntax/scan.ergo:316:10*/ b_4 := ((c_2 == uint8(46)) && ((start_1 + int(1)) < n))
+					/*line syntax/scan.ergo:316:10*/ if b_4 {
+//line syntax/scan.ergo:316:60
+						v_64 := isDigit( /*line syntax/scan.ergo:316:68*/ src[(start_1 + int(1))])
+//line syntax/scan.ergo:316:10
+						b_4 = v_64
+						/*line syntax/scan.ergo:316:10*/
 					}
-					/*line syntax/scan.ergo:306:10*/ b_3 = b_4
-					/*line syntax/scan.ergo:306:10*/
+					/*line syntax/scan.ergo:316:10*/ b_3 = b_4
+					/*line syntax/scan.ergo:316:10*/
 				}
-				/*line syntax/scan.ergo:306:10*/ if b_3 {
-//line syntax/scan.ergo:307:4
+				/*line syntax/scan.ergo:316:10*/ if b_3 {
+//line syntax/scan.ergo:317:4
 					(s).numberLit(start_1)
-					/*line syntax/scan.ergo:307:4*/
+					/*line syntax/scan.ergo:317:4*/
 				} else {
-//line syntax/scan.ergo:308:10
+//line syntax/scan.ergo:318:10
 					if c_2 == uint8(34) {
-//line syntax/scan.ergo:309:4
+//line syntax/scan.ergo:319:4
 						(s).interpreted(start_1, start_1, String_1)
-						/*line syntax/scan.ergo:309:4*/
+						/*line syntax/scan.ergo:319:4*/
 					} else {
-//line syntax/scan.ergo:310:10
+//line syntax/scan.ergo:320:10
 						if c_2 == uint8(96) {
-//line syntax/scan.ergo:311:4
-//line syntax/scan.ergo:311:4
+//line syntax/scan.ergo:321:4
+//line syntax/scan.ergo:321:4
 							{
-//line syntax/scan.ergo#ergo-inline-1235:934:2
-//line syntax/scan.ergo#ergo-inline-1235:934:14
-								v_64 := ergo.StringsIndexByte( /*line syntax/scan.ergo#ergo-inline-1235:934:32*/ s.src[(start_1+int(1)):], uint8(96))
-//line syntax/scan.ergo#ergo-inline-1235:934:2
-//line syntax/scan.ergo#ergo-inline-1235:935:2
-								if v_64 < int(0) {
-//line syntax/scan.ergo#ergo-inline-1235:936:3
+//line syntax/scan.ergo#ergo-inline-1235:949:2
+//line syntax/scan.ergo#ergo-inline-1235:949:14
+								v_65 := ergo.StringsIndexByte( /*line syntax/scan.ergo#ergo-inline-1235:949:32*/ s.src[(start_1+int(1)):], uint8(96))
+//line syntax/scan.ergo#ergo-inline-1235:949:2
+//line syntax/scan.ergo#ergo-inline-1235:950:2
+								if v_65 < int(0) {
+//line syntax/scan.ergo#ergo-inline-1235:951:3
 									(s).fail(start_1, int(1), "raw string literal not terminated")
-//line syntax/scan.ergo#ergo-inline-1235:937:3
+//line syntax/scan.ergo#ergo-inline-1235:952:3
 									goto inl_30
-									/*line syntax/scan.ergo#ergo-inline-1235:937:3*/
+									/*line syntax/scan.ergo#ergo-inline-1235:952:3*/
 								}
-//line syntax/scan.ergo#ergo-inline-1235:939:2
-//line syntax/scan.ergo#ergo-inline-1235:939:2
+//line syntax/scan.ergo#ergo-inline-1235:954:2
+//line syntax/scan.ergo#ergo-inline-1235:954:2
 								{
-									/*line syntax/scan.ergo#ergo-inline-1235:939:2*/ var end_2 int = ((start_1 + v_64) + int(2))
+									/*line syntax/scan.ergo#ergo-inline-1235:954:2*/ var end_4 int = ((start_1 + v_65) + int(2))
 //line syntax/scan.ergo#ergo-inline-1236:162:2
 //line syntax/scan.ergo#ergo-inline-1236:162:2
 									{
@@ -42066,30 +42090,30 @@ func (s *scanner) run() {
 //line syntax/scan.ergo#ergo-inline-1238:122:2
 												t_19 := s.toks.kind
 //line syntax/scan.ergo#ergo-inline-1238:122:46
-												v_65 := zeros32(len(s.toks.kind))
+												v_66 := zeros32(len(s.toks.kind))
 //line syntax/scan.ergo#ergo-inline-1238:122:2
 //line syntax/scan.ergo#ergo-inline-1238:122:16
-												v_66 := append(t_19, v_65...)
+												v_67 := append(t_19, v_66...)
 //line syntax/scan.ergo#ergo-inline-1238:122:2
-												s.toks.kind = v_66
+												s.toks.kind = v_67
 //line syntax/scan.ergo#ergo-inline-1238:123:2
 												t_20 := s.toks.start
 //line syntax/scan.ergo#ergo-inline-1238:123:48
-												v_67 := zeros32(len(s.toks.start))
+												v_68 := zeros32(len(s.toks.start))
 //line syntax/scan.ergo#ergo-inline-1238:123:2
 //line syntax/scan.ergo#ergo-inline-1238:123:17
-												v_68 := append(t_20, v_67...)
+												v_69 := append(t_20, v_68...)
 //line syntax/scan.ergo#ergo-inline-1238:123:2
-												s.toks.start = v_68
+												s.toks.start = v_69
 //line syntax/scan.ergo#ergo-inline-1238:124:2
 												t_21 := s.toks.end
 //line syntax/scan.ergo#ergo-inline-1238:124:44
-												v_69 := zeros32(len(s.toks.end))
+												v_70 := zeros32(len(s.toks.end))
 //line syntax/scan.ergo#ergo-inline-1238:124:2
 //line syntax/scan.ergo#ergo-inline-1238:124:15
-												v_70 := append(t_21, v_69...)
+												v_71 := append(t_21, v_70...)
 //line syntax/scan.ergo#ergo-inline-1238:124:2
-												s.toks.end = v_70
+												s.toks.end = v_71
 												/*line syntax/scan.ergo#ergo-inline-1238:124:2*/
 											}
 //line syntax/scan.ergo#ergo-inline-1237:131:3
@@ -42099,20 +42123,20 @@ func (s *scanner) run() {
 //line syntax/scan.ergo#ergo-inline-1237:134:2
 										s.toks.start[i_10] = uint32(start_1)
 //line syntax/scan.ergo#ergo-inline-1237:135:2
-										s.toks.end[i_10] = uint32(end_2)
+										s.toks.end[i_10] = uint32(end_4)
 //line syntax/scan.ergo#ergo-inline-1237:136:2
 										s.n = (i_10 + int(1))
 //line syntax/scan.ergo#ergo-inline-1237:137:2
 //line syntax/scan.ergo#ergo-inline-1237:137:10
-										var v_71 ID[Tok]
+										var v_72 ID[Tok]
 										/*line syntax/scan.ergo#ergo-inline-1237:137:10*/ {
 											/*line syntax/scan.ergo#ergo-inline-1237:137:10*/ var c_8 *Count[Tok] = (&s.toks.ids)
-											/*line syntax/scan.ergo#ergo-inline-1237:137:10*/ v_71 = next_1[Tok](int(c_8.n))
+											/*line syntax/scan.ergo#ergo-inline-1237:137:10*/ v_72 = next_1[Tok](int(c_8.n))
 											/*line syntax/scan.ergo#ergo-inline-1237:137:10*/ c_8.n = (c_8.n + uint32(1))
 
 											/*line syntax/scan.ergo#ergo-inline-1237:137:10*/
 										}
-										/*line syntax/scan.ergo#ergo-inline-1237:137:10*/ _ = v_71
+										/*line syntax/scan.ergo#ergo-inline-1237:137:10*/ _ = v_72
 										/*line syntax/scan.ergo#ergo-inline-1237:137:10*/
 									}
 //line syntax/scan.ergo#ergo-inline-1236:162:2
@@ -42120,18 +42144,18 @@ func (s *scanner) run() {
 									a_3 := String_1
 									/*line syntax/scan.ergo#ergo-inline-1236:163:2*/ i_11 := 0
 									/*line syntax/scan.ergo#ergo-inline-1236:163:2*/ i_11 = i_11*256 + int(a_3)
-									/*line syntax/scan.ergo#ergo-inline-1236:163:2*/ var v_73 bool
+									/*line syntax/scan.ergo#ergo-inline-1236:163:2*/ var v_74 bool
 									/*line syntax/scan.ergo#ergo-inline-1236:163:2*/ if tabsemiAfterK[i_11].Ready() {
-										/*line syntax/scan.ergo#ergo-inline-1236:163:2*/ v_73 = tabsemiAfterV[i_11]
+										/*line syntax/scan.ergo#ergo-inline-1236:163:2*/ v_74 = tabsemiAfterV[i_11]
 										/*line syntax/scan.ergo#ergo-inline-1236:163:2*/
 									} else {
-										/*line syntax/scan.ergo#ergo-inline-1236:163:2*/ v_73 = tabsemiAfterFill(i_11, a_3)
+										/*line syntax/scan.ergo#ergo-inline-1236:163:2*/ v_74 = tabsemiAfterFill(i_11, a_3)
 										/*line syntax/scan.ergo#ergo-inline-1236:163:2*/
 									}
 //line syntax/scan.ergo#ergo-inline-1236:163:11
-									v_74 := v_73
+									v_75 := v_74
 //line syntax/scan.ergo#ergo-inline-1236:163:2
-									s.semi = v_74
+									s.semi = v_75
 //line syntax/scan.ergo#ergo-inline-1236:164:2
 									if (s.ctx || (String_1 == Import)) || (String_1 == Extern) {
 //line syntax/scan.ergo#ergo-inline-1236:165:3
@@ -42143,53 +42167,53 @@ func (s *scanner) run() {
 								}
 								/*line syntax/scan.ergo#ergo-inline-1236:165:3*/ inl_31:
 								;
-//line syntax/scan.ergo#ergo-inline-1235:939:2
-//line syntax/scan.ergo#ergo-inline-1235:940:2
-								s.offset = ((start_1 + v_64) + int(2))
-								/*line syntax/scan.ergo#ergo-inline-1235:940:2*/
+//line syntax/scan.ergo#ergo-inline-1235:954:2
+//line syntax/scan.ergo#ergo-inline-1235:955:2
+								s.offset = ((start_1 + v_65) + int(2))
+								/*line syntax/scan.ergo#ergo-inline-1235:955:2*/
 							}
-							/*line syntax/scan.ergo#ergo-inline-1235:940:2*/ inl_30:
-//line syntax/scan.ergo:311:4
+							/*line syntax/scan.ergo#ergo-inline-1235:955:2*/ inl_30:
+//line syntax/scan.ergo:321:4
 						} else {
-//line syntax/scan.ergo:312:10
+//line syntax/scan.ergo:322:10
 							if c_2 == uint8(39) {
-//line syntax/scan.ergo:313:4
+//line syntax/scan.ergo:323:4
 								(s).runeLit(start_1)
-								/*line syntax/scan.ergo:313:4*/
+								/*line syntax/scan.ergo:323:4*/
 							} else {
-//line syntax/scan.ergo:314:10
+//line syntax/scan.ergo:324:10
 								if c_2 >= uint8(128) {
-//line syntax/scan.ergo:315:4
+//line syntax/scan.ergo:325:4
 									(s).identifier(start_1)
-									/*line syntax/scan.ergo:315:4*/
+									/*line syntax/scan.ergo:325:4*/
 								} else {
-//line syntax/scan.ergo:317:4
+//line syntax/scan.ergo:327:4
 									(s).operator(start_1)
-									/*line syntax/scan.ergo:317:4*/
+									/*line syntax/scan.ergo:327:4*/
 								}
-								/*line syntax/scan.ergo:317:4*/
+								/*line syntax/scan.ergo:327:4*/
 							}
-							/*line syntax/scan.ergo:317:4*/
+							/*line syntax/scan.ergo:327:4*/
 						}
-						/*line syntax/scan.ergo:317:4*/
+						/*line syntax/scan.ergo:327:4*/
 					}
-					/*line syntax/scan.ergo:317:4*/
+					/*line syntax/scan.ergo:327:4*/
 				}
-				/*line syntax/scan.ergo:317:4*/
+				/*line syntax/scan.ergo:327:4*/
 			}
-			/*line syntax/scan.ergo:317:4*/
+			/*line syntax/scan.ergo:327:4*/
 		}
-//line syntax/scan.ergo:319:3
+//line syntax/scan.ergo:329:3
 		if s.failed {
-//line syntax/scan.ergo:320:4
+//line syntax/scan.ergo:330:4
 			return
-			/*line syntax/scan.ergo:320:4*/
+			/*line syntax/scan.ergo:330:4*/
 		}
-//line syntax/scan.ergo:322:3
+//line syntax/scan.ergo:332:3
 		i = s.offset
-		/*line syntax/scan.ergo:322:3*/
+		/*line syntax/scan.ergo:332:3*/
 	}
-	/*line syntax/scan.ergo:322:3*/
+	/*line syntax/scan.ergo:332:3*/
 }
 
 //line syntax/scan.ergo:104:1
@@ -42223,109 +42247,109 @@ func (s *scanner) failTail() {
 	/*line syntax/scan.ergo:117:2*/
 }
 
-//line syntax/scan.ergo:408:1
+//line syntax/scan.ergo:423:1
 func identRestWide(src string, i int) int {
-//line syntax/scan.ergo:409:2
+//line syntax/scan.ergo:424:2
 	var n int = len(src)
-//line syntax/scan.ergo:410:2
+//line syntax/scan.ergo:425:2
 	var end int = i
-//line syntax/scan.ergo:411:2
-	for end < n {
-//line syntax/scan.ergo:412:3
-		var c uint8 = /*line syntax/scan.ergo:412:11*/ src[end]
-//line syntax/scan.ergo:413:3
-		if c < uint8(128) {
-//line syntax/scan.ergo:414:4
-			if ( /*line syntax/scan.ergo:414:7*/ ergo.Let(classes)[int(c)] & (ergo.Let(clsLetter) | ergo.Let(clsDigit))) == uint8(0) {
-//line syntax/scan.ergo:415:5
-				return end
-				/*line syntax/scan.ergo:415:5*/
-			}
-//line syntax/scan.ergo:417:4
-			end = (end + int(1))
-			/*line syntax/scan.ergo:417:4*/
-		} else {
-//line syntax/scan.ergo:419:4
-//line syntax/scan.ergo:419:12
-			v := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo:419:36*/ src[end:])
-//line syntax/scan.ergo:419:4
-//line syntax/scan.ergo:420:4
-//line syntax/scan.ergo:420:8
-			v_1 := identRune(v.Rune, false)
-//line syntax/scan.ergo:420:4
-			if !v_1 {
-//line syntax/scan.ergo:421:5
-				return end
-				/*line syntax/scan.ergo:421:5*/
-			}
-//line syntax/scan.ergo:423:4
-			end = (end + v.Size)
-			/*line syntax/scan.ergo:423:4*/
-		}
-		/*line syntax/scan.ergo:423:4*/
-	}
 //line syntax/scan.ergo:426:2
+	for end < n {
+//line syntax/scan.ergo:427:3
+		var c uint8 = /*line syntax/scan.ergo:427:11*/ src[end]
+//line syntax/scan.ergo:428:3
+		if c < uint8(128) {
+//line syntax/scan.ergo:429:4
+			if ( /*line syntax/scan.ergo:429:7*/ ergo.Let(classes)[int(c)] & (ergo.Let(clsLetter) | ergo.Let(clsDigit))) == uint8(0) {
+//line syntax/scan.ergo:430:5
+				return end
+				/*line syntax/scan.ergo:430:5*/
+			}
+//line syntax/scan.ergo:432:4
+			end = (end + int(1))
+			/*line syntax/scan.ergo:432:4*/
+		} else {
+//line syntax/scan.ergo:434:4
+//line syntax/scan.ergo:434:12
+			v := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo:434:36*/ src[end:])
+//line syntax/scan.ergo:434:4
+//line syntax/scan.ergo:435:4
+//line syntax/scan.ergo:435:8
+			v_1 := identRune(v.Rune, false)
+//line syntax/scan.ergo:435:4
+			if !v_1 {
+//line syntax/scan.ergo:436:5
+				return end
+				/*line syntax/scan.ergo:436:5*/
+			}
+//line syntax/scan.ergo:438:4
+			end = (end + v.Size)
+			/*line syntax/scan.ergo:438:4*/
+		}
+		/*line syntax/scan.ergo:438:4*/
+	}
+//line syntax/scan.ergo:441:2
 	return end
-	/*line syntax/scan.ergo:426:2*/
+	/*line syntax/scan.ergo:441:2*/
 }
 
-//line syntax/scan.ergo:384:1
+//line syntax/scan.ergo:399:1
 func isBase(c uint8) bool {
-	/*line syntax/scan.ergo:384:28*/ return ((((((c == uint8(120)) || (c == uint8(88))) || (c == uint8(111))) || (c == uint8(79))) || (c == uint8(98))) || (c == uint8(66)))
+	/*line syntax/scan.ergo:399:28*/ return ((((((c == uint8(120)) || (c == uint8(88))) || (c == uint8(111))) || (c == uint8(79))) || (c == uint8(98))) || (c == uint8(66)))
 }
 
-//line syntax/scan.ergo:385
+//line syntax/scan.ergo:400
 
-//line syntax/scan.ergo:801:1
+//line syntax/scan.ergo:816:1
 func digits(src string, i int) int {
-//line syntax/scan.ergo:802:2
+//line syntax/scan.ergo:817:2
 	var n int = len(src)
-//line syntax/scan.ergo:803:2
+//line syntax/scan.ergo:818:2
 	var j int = i
-//line syntax/scan.ergo:804:2
+//line syntax/scan.ergo:819:2
 	for {
-		/*line syntax/scan.ergo:804:2*/ b := (j < n)
-		/*line syntax/scan.ergo:804:2*/ if b {
-//line syntax/scan.ergo:804:16
-			v := isDigit( /*line syntax/scan.ergo:804:24*/ src[j])
-//line syntax/scan.ergo:804:2
-			b = (v || ( /*line syntax/scan.ergo:804:35*/ src[j] == uint8(95)))
-			/*line syntax/scan.ergo:804:2*/
+		/*line syntax/scan.ergo:819:2*/ b := (j < n)
+		/*line syntax/scan.ergo:819:2*/ if b {
+//line syntax/scan.ergo:819:16
+			v := isDigit( /*line syntax/scan.ergo:819:24*/ src[j])
+//line syntax/scan.ergo:819:2
+			b = (v || ( /*line syntax/scan.ergo:819:35*/ src[j] == uint8(95)))
+			/*line syntax/scan.ergo:819:2*/
 		}
-		/*line syntax/scan.ergo:804:2*/ if !(b) {
-			/*line syntax/scan.ergo:804:2*/ break
-			/*line syntax/scan.ergo:804:2*/
+		/*line syntax/scan.ergo:819:2*/ if !(b) {
+			/*line syntax/scan.ergo:819:2*/ break
+			/*line syntax/scan.ergo:819:2*/
 		}
-//line syntax/scan.ergo:805:3
+//line syntax/scan.ergo:820:3
 		j = (j + int(1))
-		/*line syntax/scan.ergo:805:3*/
+		/*line syntax/scan.ergo:820:3*/
 	}
-//line syntax/scan.ergo:807:2
+//line syntax/scan.ergo:822:2
 	return j
-	/*line syntax/scan.ergo:807:2*/
+	/*line syntax/scan.ergo:822:2*/
 }
 
-//line syntax/scan.ergo:688:1
+//line syntax/scan.ergo:703:1
 func pathRune(r int32) bool {
-//line syntax/scan.ergo:689:2
+//line syntax/scan.ergo:704:2
 	b_1 := ((((((r == int32(95)) || (r == int32(46))) || (r == int32(47))) || (r == int32(45))) || (r == int32(126))) || (r == int32(43)))
-	/*line syntax/scan.ergo:689:2*/ if !b_1 {
-//line syntax/scan.ergo:689:74
+	/*line syntax/scan.ergo:704:2*/ if !b_1 {
+//line syntax/scan.ergo:704:74
 		r_1 := unicode.IsLetter(r)
-//line syntax/scan.ergo:689:2
+//line syntax/scan.ergo:704:2
 		b_1 = r_1
-		/*line syntax/scan.ergo:689:2*/
+		/*line syntax/scan.ergo:704:2*/
 	}
-	/*line syntax/scan.ergo:689:2*/ b := b_1
-	/*line syntax/scan.ergo:689:2*/ if !b {
-//line syntax/scan.ergo:689:97
+	/*line syntax/scan.ergo:704:2*/ b := b_1
+	/*line syntax/scan.ergo:704:2*/ if !b {
+//line syntax/scan.ergo:704:97
 		r_2 := unicode.IsDigit(r)
-//line syntax/scan.ergo:689:2
+//line syntax/scan.ergo:704:2
 		b = r_2
-		/*line syntax/scan.ergo:689:2*/
+		/*line syntax/scan.ergo:704:2*/
 	}
-	/*line syntax/scan.ergo:689:2*/ return b
-	/*line syntax/scan.ergo:689:2*/
+	/*line syntax/scan.ergo:704:2*/ return b
+	/*line syntax/scan.ergo:704:2*/
 }
 
 //line syntax/parse.ergo:354:1
@@ -45119,27 +45143,27 @@ func (p *parser) parseTypeDecl(doc uint32) uint32 {
 				var v_89 int
 				/*line syntax/parse.ergo#ergo-inline-1366:341:57*/ {
 					/*line syntax/parse.ergo#ergo-inline-1366:341:57*/ var src string = p.src
-//line syntax/scan.ergo#ergo-inline-1367:431:2
-					if /*line syntax/scan.ergo#ergo-inline-1367:431:5*/ src[at_11] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-1367:432:3
-//line syntax/scan.ergo#ergo-inline-1367:432:10
+//line syntax/scan.ergo#ergo-inline-1367:446:2
+					if /*line syntax/scan.ergo#ergo-inline-1367:446:5*/ src[at_11] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-1367:447:3
+//line syntax/scan.ergo#ergo-inline-1367:447:10
 						v_90 := identRest(src, (at_11 + int(1)))
-//line syntax/scan.ergo#ergo-inline-1367:432:3
+//line syntax/scan.ergo#ergo-inline-1367:447:3
 						v_89 = v_90
-						/*line syntax/scan.ergo#ergo-inline-1367:432:3*/ goto inl_42
-						/*line syntax/scan.ergo#ergo-inline-1367:432:3*/
+						/*line syntax/scan.ergo#ergo-inline-1367:447:3*/ goto inl_42
+						/*line syntax/scan.ergo#ergo-inline-1367:447:3*/
 					}
-//line syntax/scan.ergo#ergo-inline-1367:434:2
+//line syntax/scan.ergo#ergo-inline-1367:449:2
 					t_35 := src
-					/*line syntax/scan.ergo#ergo-inline-1367:434:2*/ t_36 := at_11
-//line syntax/scan.ergo#ergo-inline-1367:434:23
-					v_91 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-1367:434:47*/ src[at_11:])
-//line syntax/scan.ergo#ergo-inline-1367:434:2
+					/*line syntax/scan.ergo#ergo-inline-1367:449:2*/ t_36 := at_11
+//line syntax/scan.ergo#ergo-inline-1367:449:23
+					v_91 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-1367:449:47*/ src[at_11:])
+//line syntax/scan.ergo#ergo-inline-1367:449:2
 					v_89 = identRest(t_35, (t_36 + v_91.Size))
 
-					/*line syntax/scan.ergo#ergo-inline-1367:434:2*/
+					/*line syntax/scan.ergo#ergo-inline-1367:449:2*/
 				}
-				/*line syntax/scan.ergo#ergo-inline-1367:434:2*/ inl_42:
+				/*line syntax/scan.ergo#ergo-inline-1367:449:2*/ inl_42:
 				;
 //line syntax/parse.ergo#ergo-inline-1366:341:57
 				v_88 = (v_89 == (at_11 + len(w)))
@@ -45658,27 +45682,27 @@ func (p *parser) parseTypeDecl(doc uint32) uint32 {
 							var v_143 int
 							/*line syntax/parse.ergo#ergo-inline-1385:341:57*/ {
 								/*line syntax/parse.ergo#ergo-inline-1385:341:57*/ var src_1 string = p.src
-//line syntax/scan.ergo#ergo-inline-1386:431:2
-								if /*line syntax/scan.ergo#ergo-inline-1386:431:5*/ src_1[at_12] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-1386:432:3
-//line syntax/scan.ergo#ergo-inline-1386:432:10
+//line syntax/scan.ergo#ergo-inline-1386:446:2
+								if /*line syntax/scan.ergo#ergo-inline-1386:446:5*/ src_1[at_12] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-1386:447:3
+//line syntax/scan.ergo#ergo-inline-1386:447:10
 									v_144 := identRest(src_1, (at_12 + int(1)))
-//line syntax/scan.ergo#ergo-inline-1386:432:3
+//line syntax/scan.ergo#ergo-inline-1386:447:3
 									v_143 = v_144
-									/*line syntax/scan.ergo#ergo-inline-1386:432:3*/ goto inl_61
-									/*line syntax/scan.ergo#ergo-inline-1386:432:3*/
+									/*line syntax/scan.ergo#ergo-inline-1386:447:3*/ goto inl_61
+									/*line syntax/scan.ergo#ergo-inline-1386:447:3*/
 								}
-//line syntax/scan.ergo#ergo-inline-1386:434:2
+//line syntax/scan.ergo#ergo-inline-1386:449:2
 								t_64 := src_1
-								/*line syntax/scan.ergo#ergo-inline-1386:434:2*/ t_65 := at_12
-//line syntax/scan.ergo#ergo-inline-1386:434:23
-								v_145 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-1386:434:47*/ src_1[at_12:])
-//line syntax/scan.ergo#ergo-inline-1386:434:2
+								/*line syntax/scan.ergo#ergo-inline-1386:449:2*/ t_65 := at_12
+//line syntax/scan.ergo#ergo-inline-1386:449:23
+								v_145 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-1386:449:47*/ src_1[at_12:])
+//line syntax/scan.ergo#ergo-inline-1386:449:2
 								v_143 = identRest(t_64, (t_65 + v_145.Size))
 
-								/*line syntax/scan.ergo#ergo-inline-1386:434:2*/
+								/*line syntax/scan.ergo#ergo-inline-1386:449:2*/
 							}
-							/*line syntax/scan.ergo#ergo-inline-1386:434:2*/ inl_61:
+							/*line syntax/scan.ergo#ergo-inline-1386:449:2*/ inl_61:
 							;
 //line syntax/parse.ergo#ergo-inline-1385:341:57
 							v_141 = (v_143 == (at_12 + len(w_1)))
@@ -45745,27 +45769,27 @@ func (p *parser) parseTypeDecl(doc uint32) uint32 {
 				var v_152 int
 				/*line syntax/parse.ergo#ergo-inline-1388:341:57*/ {
 					/*line syntax/parse.ergo#ergo-inline-1388:341:57*/ var src_2 string = p.src
-//line syntax/scan.ergo#ergo-inline-1389:431:2
-					if /*line syntax/scan.ergo#ergo-inline-1389:431:5*/ src_2[at_13] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-1389:432:3
-//line syntax/scan.ergo#ergo-inline-1389:432:10
+//line syntax/scan.ergo#ergo-inline-1389:446:2
+					if /*line syntax/scan.ergo#ergo-inline-1389:446:5*/ src_2[at_13] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-1389:447:3
+//line syntax/scan.ergo#ergo-inline-1389:447:10
 						v_153 := identRest(src_2, (at_13 + int(1)))
-//line syntax/scan.ergo#ergo-inline-1389:432:3
+//line syntax/scan.ergo#ergo-inline-1389:447:3
 						v_152 = v_153
-						/*line syntax/scan.ergo#ergo-inline-1389:432:3*/ goto inl_64
-						/*line syntax/scan.ergo#ergo-inline-1389:432:3*/
+						/*line syntax/scan.ergo#ergo-inline-1389:447:3*/ goto inl_64
+						/*line syntax/scan.ergo#ergo-inline-1389:447:3*/
 					}
-//line syntax/scan.ergo#ergo-inline-1389:434:2
+//line syntax/scan.ergo#ergo-inline-1389:449:2
 					t_66 := src_2
-					/*line syntax/scan.ergo#ergo-inline-1389:434:2*/ t_67 := at_13
-//line syntax/scan.ergo#ergo-inline-1389:434:23
-					v_154 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-1389:434:47*/ src_2[at_13:])
-//line syntax/scan.ergo#ergo-inline-1389:434:2
+					/*line syntax/scan.ergo#ergo-inline-1389:449:2*/ t_67 := at_13
+//line syntax/scan.ergo#ergo-inline-1389:449:23
+					v_154 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-1389:449:47*/ src_2[at_13:])
+//line syntax/scan.ergo#ergo-inline-1389:449:2
 					v_152 = identRest(t_66, (t_67 + v_154.Size))
 
-					/*line syntax/scan.ergo#ergo-inline-1389:434:2*/
+					/*line syntax/scan.ergo#ergo-inline-1389:449:2*/
 				}
-				/*line syntax/scan.ergo#ergo-inline-1389:434:2*/ inl_64:
+				/*line syntax/scan.ergo#ergo-inline-1389:449:2*/ inl_64:
 				;
 //line syntax/parse.ergo#ergo-inline-1388:341:57
 				v_150 = (v_152 == (at_13 + len(w_2)))
@@ -46955,27 +46979,27 @@ func (p *parser) parseTypeParams() uint32 {
 							var v_87 int
 							/*line syntax/parse.ergo#ergo-inline-1440:350:57*/ {
 								/*line syntax/parse.ergo#ergo-inline-1440:350:57*/ var src string = p.src
-//line syntax/scan.ergo#ergo-inline-1441:431:2
-								if /*line syntax/scan.ergo#ergo-inline-1441:431:5*/ src[at_11] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-1441:432:3
-//line syntax/scan.ergo#ergo-inline-1441:432:10
+//line syntax/scan.ergo#ergo-inline-1441:446:2
+								if /*line syntax/scan.ergo#ergo-inline-1441:446:5*/ src[at_11] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-1441:447:3
+//line syntax/scan.ergo#ergo-inline-1441:447:10
 									v_88 := identRest(src, (at_11 + int(1)))
-//line syntax/scan.ergo#ergo-inline-1441:432:3
+//line syntax/scan.ergo#ergo-inline-1441:447:3
 									v_87 = v_88
-									/*line syntax/scan.ergo#ergo-inline-1441:432:3*/ goto inl_42
-									/*line syntax/scan.ergo#ergo-inline-1441:432:3*/
+									/*line syntax/scan.ergo#ergo-inline-1441:447:3*/ goto inl_42
+									/*line syntax/scan.ergo#ergo-inline-1441:447:3*/
 								}
-//line syntax/scan.ergo#ergo-inline-1441:434:2
+//line syntax/scan.ergo#ergo-inline-1441:449:2
 								t_38 := src
-								/*line syntax/scan.ergo#ergo-inline-1441:434:2*/ t_39 := at_11
-//line syntax/scan.ergo#ergo-inline-1441:434:23
-								v_89 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-1441:434:47*/ src[at_11:])
-//line syntax/scan.ergo#ergo-inline-1441:434:2
+								/*line syntax/scan.ergo#ergo-inline-1441:449:2*/ t_39 := at_11
+//line syntax/scan.ergo#ergo-inline-1441:449:23
+								v_89 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-1441:449:47*/ src[at_11:])
+//line syntax/scan.ergo#ergo-inline-1441:449:2
 								v_87 = identRest(t_38, (t_39 + v_89.Size))
 
-								/*line syntax/scan.ergo#ergo-inline-1441:434:2*/
+								/*line syntax/scan.ergo#ergo-inline-1441:449:2*/
 							}
-							/*line syntax/scan.ergo#ergo-inline-1441:434:2*/ inl_42:
+							/*line syntax/scan.ergo#ergo-inline-1441:449:2*/ inl_42:
 							;
 //line syntax/parse.ergo#ergo-inline-1440:350:57
 							v_86 = (v_87 == (at_11 + len(w_1)))
@@ -47477,27 +47501,27 @@ func (p *parser) parseTypeParams() uint32 {
 							var v_136 int
 							/*line syntax/parse.ergo#ergo-inline-1460:350:57*/ {
 								/*line syntax/parse.ergo#ergo-inline-1460:350:57*/ var src_1 string = p.src
-//line syntax/scan.ergo#ergo-inline-1461:431:2
-								if /*line syntax/scan.ergo#ergo-inline-1461:431:5*/ src_1[at_12] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-1461:432:3
-//line syntax/scan.ergo#ergo-inline-1461:432:10
+//line syntax/scan.ergo#ergo-inline-1461:446:2
+								if /*line syntax/scan.ergo#ergo-inline-1461:446:5*/ src_1[at_12] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-1461:447:3
+//line syntax/scan.ergo#ergo-inline-1461:447:10
 									v_137 := identRest(src_1, (at_12 + int(1)))
-//line syntax/scan.ergo#ergo-inline-1461:432:3
+//line syntax/scan.ergo#ergo-inline-1461:447:3
 									v_136 = v_137
-									/*line syntax/scan.ergo#ergo-inline-1461:432:3*/ goto inl_62
-									/*line syntax/scan.ergo#ergo-inline-1461:432:3*/
+									/*line syntax/scan.ergo#ergo-inline-1461:447:3*/ goto inl_62
+									/*line syntax/scan.ergo#ergo-inline-1461:447:3*/
 								}
-//line syntax/scan.ergo#ergo-inline-1461:434:2
+//line syntax/scan.ergo#ergo-inline-1461:449:2
 								t_63 := src_1
-								/*line syntax/scan.ergo#ergo-inline-1461:434:2*/ t_64 := at_12
-//line syntax/scan.ergo#ergo-inline-1461:434:23
-								v_138 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-1461:434:47*/ src_1[at_12:])
-//line syntax/scan.ergo#ergo-inline-1461:434:2
+								/*line syntax/scan.ergo#ergo-inline-1461:449:2*/ t_64 := at_12
+//line syntax/scan.ergo#ergo-inline-1461:449:23
+								v_138 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-1461:449:47*/ src_1[at_12:])
+//line syntax/scan.ergo#ergo-inline-1461:449:2
 								v_136 = identRest(t_63, (t_64 + v_138.Size))
 
-								/*line syntax/scan.ergo#ergo-inline-1461:434:2*/
+								/*line syntax/scan.ergo#ergo-inline-1461:449:2*/
 							}
-							/*line syntax/scan.ergo#ergo-inline-1461:434:2*/ inl_62:
+							/*line syntax/scan.ergo#ergo-inline-1461:449:2*/ inl_62:
 							;
 //line syntax/parse.ergo#ergo-inline-1460:350:57
 							v_135 = (v_136 == (at_12 + len(w_2)))
@@ -47550,27 +47574,27 @@ func (p *parser) parseTypeParams() uint32 {
 							var v_143 int
 							/*line syntax/parse.ergo#ergo-inline-1463:350:57*/ {
 								/*line syntax/parse.ergo#ergo-inline-1463:350:57*/ var src_2 string = p.src
-//line syntax/scan.ergo#ergo-inline-1464:431:2
-								if /*line syntax/scan.ergo#ergo-inline-1464:431:5*/ src_2[at_13] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-1464:432:3
-//line syntax/scan.ergo#ergo-inline-1464:432:10
+//line syntax/scan.ergo#ergo-inline-1464:446:2
+								if /*line syntax/scan.ergo#ergo-inline-1464:446:5*/ src_2[at_13] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-1464:447:3
+//line syntax/scan.ergo#ergo-inline-1464:447:10
 									v_144 := identRest(src_2, (at_13 + int(1)))
-//line syntax/scan.ergo#ergo-inline-1464:432:3
+//line syntax/scan.ergo#ergo-inline-1464:447:3
 									v_143 = v_144
-									/*line syntax/scan.ergo#ergo-inline-1464:432:3*/ goto inl_65
-									/*line syntax/scan.ergo#ergo-inline-1464:432:3*/
+									/*line syntax/scan.ergo#ergo-inline-1464:447:3*/ goto inl_65
+									/*line syntax/scan.ergo#ergo-inline-1464:447:3*/
 								}
-//line syntax/scan.ergo#ergo-inline-1464:434:2
+//line syntax/scan.ergo#ergo-inline-1464:449:2
 								t_65 := src_2
-								/*line syntax/scan.ergo#ergo-inline-1464:434:2*/ t_66 := at_13
-//line syntax/scan.ergo#ergo-inline-1464:434:23
-								v_145 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-1464:434:47*/ src_2[at_13:])
-//line syntax/scan.ergo#ergo-inline-1464:434:2
+								/*line syntax/scan.ergo#ergo-inline-1464:449:2*/ t_66 := at_13
+//line syntax/scan.ergo#ergo-inline-1464:449:23
+								v_145 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-1464:449:47*/ src_2[at_13:])
+//line syntax/scan.ergo#ergo-inline-1464:449:2
 								v_143 = identRest(t_65, (t_66 + v_145.Size))
 
-								/*line syntax/scan.ergo#ergo-inline-1464:434:2*/
+								/*line syntax/scan.ergo#ergo-inline-1464:449:2*/
 							}
-							/*line syntax/scan.ergo#ergo-inline-1464:434:2*/ inl_65:
+							/*line syntax/scan.ergo#ergo-inline-1464:449:2*/ inl_65:
 							;
 //line syntax/parse.ergo#ergo-inline-1463:350:57
 							v_142 = (v_143 == (at_13 + len(w_3)))
@@ -52639,27 +52663,27 @@ func (p *parser) parseParameters(decl_1 bool, lit_1 bool) uint32 {
 						var v_42 int
 						/*line syntax/parse.ergo#ergo-inline-1692:341:57*/ {
 							/*line syntax/parse.ergo#ergo-inline-1692:341:57*/ var src string = p.src
-//line syntax/scan.ergo#ergo-inline-1693:431:2
-							if /*line syntax/scan.ergo#ergo-inline-1693:431:5*/ src[at_7] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-1693:432:3
-//line syntax/scan.ergo#ergo-inline-1693:432:10
+//line syntax/scan.ergo#ergo-inline-1693:446:2
+							if /*line syntax/scan.ergo#ergo-inline-1693:446:5*/ src[at_7] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-1693:447:3
+//line syntax/scan.ergo#ergo-inline-1693:447:10
 								v_43 := identRest(src, (at_7 + int(1)))
-//line syntax/scan.ergo#ergo-inline-1693:432:3
+//line syntax/scan.ergo#ergo-inline-1693:447:3
 								v_42 = v_43
-								/*line syntax/scan.ergo#ergo-inline-1693:432:3*/ goto inl_22
-								/*line syntax/scan.ergo#ergo-inline-1693:432:3*/
+								/*line syntax/scan.ergo#ergo-inline-1693:447:3*/ goto inl_22
+								/*line syntax/scan.ergo#ergo-inline-1693:447:3*/
 							}
-//line syntax/scan.ergo#ergo-inline-1693:434:2
+//line syntax/scan.ergo#ergo-inline-1693:449:2
 							t_17 := src
-							/*line syntax/scan.ergo#ergo-inline-1693:434:2*/ t_18 := at_7
-//line syntax/scan.ergo#ergo-inline-1693:434:23
-							v_44 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-1693:434:47*/ src[at_7:])
-//line syntax/scan.ergo#ergo-inline-1693:434:2
+							/*line syntax/scan.ergo#ergo-inline-1693:449:2*/ t_18 := at_7
+//line syntax/scan.ergo#ergo-inline-1693:449:23
+							v_44 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-1693:449:47*/ src[at_7:])
+//line syntax/scan.ergo#ergo-inline-1693:449:2
 							v_42 = identRest(t_17, (t_18 + v_44.Size))
 
-							/*line syntax/scan.ergo#ergo-inline-1693:434:2*/
+							/*line syntax/scan.ergo#ergo-inline-1693:449:2*/
 						}
-						/*line syntax/scan.ergo#ergo-inline-1693:434:2*/ inl_22:
+						/*line syntax/scan.ergo#ergo-inline-1693:449:2*/ inl_22:
 						;
 //line syntax/parse.ergo#ergo-inline-1692:341:57
 						v_40 = (v_42 == (at_7 + len(w)))
@@ -55890,27 +55914,27 @@ func (p *parser) parseLawDecl(doc uint32, top bool) uint32 {
 			var v_83 int
 			/*line syntax/parse.ergo#ergo-inline-1845:341:57*/ {
 				/*line syntax/parse.ergo#ergo-inline-1845:341:57*/ var src string = p.src
-//line syntax/scan.ergo#ergo-inline-1846:431:2
-				if /*line syntax/scan.ergo#ergo-inline-1846:431:5*/ src[at_12] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-1846:432:3
-//line syntax/scan.ergo#ergo-inline-1846:432:10
+//line syntax/scan.ergo#ergo-inline-1846:446:2
+				if /*line syntax/scan.ergo#ergo-inline-1846:446:5*/ src[at_12] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-1846:447:3
+//line syntax/scan.ergo#ergo-inline-1846:447:10
 					v_84 := identRest(src, (at_12 + int(1)))
-//line syntax/scan.ergo#ergo-inline-1846:432:3
+//line syntax/scan.ergo#ergo-inline-1846:447:3
 					v_83 = v_84
-					/*line syntax/scan.ergo#ergo-inline-1846:432:3*/ goto inl_41
-					/*line syntax/scan.ergo#ergo-inline-1846:432:3*/
+					/*line syntax/scan.ergo#ergo-inline-1846:447:3*/ goto inl_41
+					/*line syntax/scan.ergo#ergo-inline-1846:447:3*/
 				}
-//line syntax/scan.ergo#ergo-inline-1846:434:2
+//line syntax/scan.ergo#ergo-inline-1846:449:2
 				t_36 := src
-				/*line syntax/scan.ergo#ergo-inline-1846:434:2*/ t_37 := at_12
-//line syntax/scan.ergo#ergo-inline-1846:434:23
-				v_85 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-1846:434:47*/ src[at_12:])
-//line syntax/scan.ergo#ergo-inline-1846:434:2
+				/*line syntax/scan.ergo#ergo-inline-1846:449:2*/ t_37 := at_12
+//line syntax/scan.ergo#ergo-inline-1846:449:23
+				v_85 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-1846:449:47*/ src[at_12:])
+//line syntax/scan.ergo#ergo-inline-1846:449:2
 				v_83 = identRest(t_36, (t_37 + v_85.Size))
 
-				/*line syntax/scan.ergo#ergo-inline-1846:434:2*/
+				/*line syntax/scan.ergo#ergo-inline-1846:449:2*/
 			}
-			/*line syntax/scan.ergo#ergo-inline-1846:434:2*/ inl_41:
+			/*line syntax/scan.ergo#ergo-inline-1846:449:2*/ inl_41:
 			;
 //line syntax/parse.ergo#ergo-inline-1845:341:57
 			v_82 = (v_83 == (at_12 + len(w)))
@@ -72133,29 +72157,29 @@ func (s *scanner) fail(pos_1 int, length int, message string) {
 	/*line syntax/scan.ergo:236:2*/
 }
 
-//line syntax/scan.ergo:462:1
+//line syntax/scan.ergo:477:1
 func keyword(src string, start_1 int, end int) uint8 {
-//line syntax/scan.ergo:463:2
+//line syntax/scan.ergo:478:2
 	var n int = (end - start_1)
-//line syntax/scan.ergo:464:2
+//line syntax/scan.ergo:479:2
 	if (n < int(2)) || (n > int(11)) {
-//line syntax/scan.ergo:465:3
+//line syntax/scan.ergo:480:3
 		return Ident
-		/*line syntax/scan.ergo:465:3*/
+		/*line syntax/scan.ergo:480:3*/
 	}
-//line syntax/scan.ergo:469:2
-	var h int = (((n + (int(3) * int( /*line syntax/scan.ergo:469:21*/ src[start_1]))) + (int(23) * int( /*line syntax/scan.ergo:469:42*/ src[(start_1+int(1))]))) & int(255))
-//line syntax/scan.ergo:470:2
-	var k uint8 = /*line syntax/scan.ergo:470:10*/ ergo.Let(kwTable)[h]
-//line syntax/scan.ergo:471:2
-	if (k != uint8(0)) && ( /*line syntax/scan.ergo:471:21*/ src[start_1:end] == /*line syntax/scan.ergo:471:39*/ tokenNames[int(k)]) {
-//line syntax/scan.ergo:472:3
+//line syntax/scan.ergo:484:2
+	var h int = (((n + (int(3) * int( /*line syntax/scan.ergo:484:21*/ src[start_1]))) + (int(23) * int( /*line syntax/scan.ergo:484:42*/ src[(start_1+int(1))]))) & int(255))
+//line syntax/scan.ergo:485:2
+	var k uint8 = /*line syntax/scan.ergo:485:10*/ ergo.Let(kwTable)[h]
+//line syntax/scan.ergo:486:2
+	if (k != uint8(0)) && ( /*line syntax/scan.ergo:486:21*/ src[start_1:end] == /*line syntax/scan.ergo:486:39*/ tokenNames[int(k)]) {
+//line syntax/scan.ergo:487:3
 		return uint8(k)
-		/*line syntax/scan.ergo:472:3*/
+		/*line syntax/scan.ergo:487:3*/
 	}
-//line syntax/scan.ergo:474:2
+//line syntax/scan.ergo:489:2
 	return Ident
-	/*line syntax/scan.ergo:474:2*/
+	/*line syntax/scan.ergo:489:2*/
 }
 
 //line syntax/scan.ergo:142:1
@@ -72251,57 +72275,43 @@ func (s *scanner) moveContext(kind_1 uint8) {
 	/*line syntax/scan.ergo:201:3*/
 }
 
-//line syntax/scan.ergo:357:1
-func opFast(c uint8, c1 uint8) uint8 {
-//line syntax/scan.ergo:358:2
-	var k uint8 = /*line syntax/scan.ergo:358:10*/ ergo.Let(op1)[int(c)]
-//line syntax/scan.ergo:359:2
-	if k == uint8(0) {
-//line syntax/scan.ergo:360:3
-		return uint8(0)
-		/*line syntax/scan.ergo:360:3*/
-	}
-//line syntax/scan.ergo:362:2
-	if c1 == uint8(61) {
-//line syntax/scan.ergo:363:3
-		return uint8( /*line syntax/scan.ergo:363:16*/ ergo.Let(opEq)[int(c)])
-		/*line syntax/scan.ergo:363:3*/
-	}
-//line syntax/scan.ergo:365:2
-	var k1 uint8 = /*line syntax/scan.ergo:365:11*/ ergo.Let(classes)[int(c1)]
-//line syntax/scan.ergo:366:2
+//line syntax/scan.ergo:379:1
+func opAlone(c uint8, c1 uint8) uint8 {
+//line syntax/scan.ergo:380:2
+	var k1 uint8 = /*line syntax/scan.ergo:380:11*/ ergo.Let(classes)[int(c1)]
+//line syntax/scan.ergo:381:2
 	if ((c1 == c) || ((k1 & ergo.Let(clsOpNext)) != uint8(0))) || ((c == uint8(46)) && ((k1 & ergo.Let(clsDigit)) != uint8(0))) {
-//line syntax/scan.ergo:367:3
+//line syntax/scan.ergo:382:3
 		return uint8(0)
-		/*line syntax/scan.ergo:367:3*/
+		/*line syntax/scan.ergo:382:3*/
 	}
-//line syntax/scan.ergo:369:2
-	return uint8(k)
-	/*line syntax/scan.ergo:369:2*/
+//line syntax/scan.ergo:384:2
+	return uint8( /*line syntax/scan.ergo:384:8*/ ergo.Let(op1)[int(c)])
+	/*line syntax/scan.ergo:384:2*/
 }
 
-//line syntax/scan.ergo:646:1
+//line syntax/scan.ergo:661:1
 func (s *scanner) comment(start_1 int) {
-//line syntax/scan.ergo:647:2
+//line syntax/scan.ergo:662:2
 	var src string = s.src
-//line syntax/scan.ergo:648:2
+//line syntax/scan.ergo:663:2
 	var n int = len(src)
-//line syntax/scan.ergo:649:2
-	if /*line syntax/scan.ergo:649:5*/ src[(start_1+int(1))] == uint8(47) {
-//line syntax/scan.ergo:650:3
+//line syntax/scan.ergo:664:2
+	if /*line syntax/scan.ergo:664:5*/ src[(start_1+int(1))] == uint8(47) {
+//line syntax/scan.ergo:665:3
 		t := start_1
-//line syntax/scan.ergo:650:25
-		v := ergo.StringsIndexByte( /*line syntax/scan.ergo:650:43*/ src[start_1:], uint8(10))
-//line syntax/scan.ergo:650:3
+//line syntax/scan.ergo:665:25
+		v := ergo.StringsIndexByte( /*line syntax/scan.ergo:665:43*/ src[start_1:], uint8(10))
+//line syntax/scan.ergo:665:3
 		var end int = (t + v)
-//line syntax/scan.ergo:651:3
+//line syntax/scan.ergo:666:3
 		if end < start_1 {
-//line syntax/scan.ergo:652:4
+//line syntax/scan.ergo:667:4
 			end = n
-			/*line syntax/scan.ergo:652:4*/
+			/*line syntax/scan.ergo:667:4*/
 		}
-//line syntax/scan.ergo:654:3
-//line syntax/scan.ergo:654:3
+//line syntax/scan.ergo:669:3
+//line syntax/scan.ergo:669:3
 		{
 //line syntax/scan.ergo#ergo-inline-2677:207:2
 			if s.ctx {
@@ -72398,20 +72408,20 @@ func (s *scanner) comment(start_1 int) {
 			}
 			/*line syntax/scan.ergo#ergo-inline-2677:216:3*/
 		}
-//line syntax/scan.ergo:654:3
-//line syntax/scan.ergo:655:3
+//line syntax/scan.ergo:669:3
+//line syntax/scan.ergo:670:3
 		var text_1 int = end
-//line syntax/scan.ergo:656:3
-		for (text_1 > start_1) && ( /*line syntax/scan.ergo:656:23*/ src[(text_1-int(1))] == uint8(13)) {
-//line syntax/scan.ergo:657:4
+//line syntax/scan.ergo:671:3
+		for (text_1 > start_1) && ( /*line syntax/scan.ergo:671:23*/ src[(text_1-int(1))] == uint8(13)) {
+//line syntax/scan.ergo:672:4
 			text_1 = (text_1 - int(1))
-			/*line syntax/scan.ergo:657:4*/
+			/*line syntax/scan.ergo:672:4*/
 		}
-//line syntax/scan.ergo:659:3
-//line syntax/scan.ergo:659:3
+//line syntax/scan.ergo:674:3
+//line syntax/scan.ergo:674:3
 		{
-			/*line syntax/scan.ergo:659:3*/ var c_1 *Comments_1 = (&s.comments)
-			/*line syntax/scan.ergo:659:3*/ var end_1 int = text_1
+			/*line syntax/scan.ergo:674:3*/ var c_1 *Comments_1 = (&s.comments)
+			/*line syntax/scan.ergo:674:3*/ var end_1 int = text_1
 //line syntax/comments.ergo#ergo-inline-2681:23:2
 //line syntax/comments.ergo#ergo-inline-2681:23:10
 			var v_9 ID[Cmt]
@@ -72451,34 +72461,34 @@ func (s *scanner) comment(start_1 int) {
 			}
 			/*line syntax/comments.ergo#ergo-inline-2681:25:2*/
 		}
-//line syntax/scan.ergo:659:3
-//line syntax/scan.ergo:660:3
+//line syntax/scan.ergo:674:3
+//line syntax/scan.ergo:675:3
 		s.offset = end
-//line syntax/scan.ergo:661:3
+//line syntax/scan.ergo:676:3
 		return
-		/*line syntax/scan.ergo:661:3*/
+		/*line syntax/scan.ergo:676:3*/
 	}
-//line syntax/scan.ergo:663:2
-//line syntax/scan.ergo:663:14
-	v_15 := ergo.StringsIndex( /*line syntax/scan.ergo:663:28*/ src[(start_1+int(2)):], "*/")
-//line syntax/scan.ergo:663:2
-//line syntax/scan.ergo:664:2
+//line syntax/scan.ergo:678:2
+//line syntax/scan.ergo:678:14
+	v_15 := ergo.StringsIndex( /*line syntax/scan.ergo:678:28*/ src[(start_1+int(2)):], "*/")
+//line syntax/scan.ergo:678:2
+//line syntax/scan.ergo:679:2
 	if v_15 < int(0) {
-//line syntax/scan.ergo:665:3
+//line syntax/scan.ergo:680:3
 		(s).fail(start_1, int(2), "block comment not terminated")
-//line syntax/scan.ergo:666:3
+//line syntax/scan.ergo:681:3
 		return
-		/*line syntax/scan.ergo:666:3*/
+		/*line syntax/scan.ergo:681:3*/
 	}
-//line syntax/scan.ergo:668:2
+//line syntax/scan.ergo:683:2
 	var end_2 int = ((start_1 + v_15) + int(4))
-//line syntax/scan.ergo:669:2
-//line syntax/scan.ergo:669:5
-	v_16 := ergo.StringsIndexByte( /*line syntax/scan.ergo:669:23*/ src[start_1:end_2], uint8(10))
-//line syntax/scan.ergo:669:2
+//line syntax/scan.ergo:684:2
+//line syntax/scan.ergo:684:5
+	v_16 := ergo.StringsIndexByte( /*line syntax/scan.ergo:684:23*/ src[start_1:end_2], uint8(10))
+//line syntax/scan.ergo:684:2
 	if v_16 >= int(0) {
-//line syntax/scan.ergo:670:3
-//line syntax/scan.ergo:670:3
+//line syntax/scan.ergo:685:3
+//line syntax/scan.ergo:685:3
 		{
 //line syntax/scan.ergo#ergo-inline-2685:207:2
 			if s.ctx {
@@ -72575,12 +72585,12 @@ func (s *scanner) comment(start_1 int) {
 			}
 			/*line syntax/scan.ergo#ergo-inline-2685:216:3*/
 		}
-//line syntax/scan.ergo:670:3
+//line syntax/scan.ergo:685:3
 	}
-//line syntax/scan.ergo:672:2
-//line syntax/scan.ergo:672:2
+//line syntax/scan.ergo:687:2
+//line syntax/scan.ergo:687:2
 	{
-		/*line syntax/scan.ergo:672:2*/ var c_6 *Comments_1 = (&s.comments)
+		/*line syntax/scan.ergo:687:2*/ var c_6 *Comments_1 = (&s.comments)
 //line syntax/comments.ergo#ergo-inline-2689:23:2
 //line syntax/comments.ergo#ergo-inline-2689:23:10
 		var v_25 ID[Cmt]
@@ -72620,194 +72630,194 @@ func (s *scanner) comment(start_1 int) {
 		}
 		/*line syntax/comments.ergo#ergo-inline-2689:25:2*/
 	}
-//line syntax/scan.ergo:672:2
-//line syntax/scan.ergo:673:2
+//line syntax/scan.ergo:687:2
+//line syntax/scan.ergo:688:2
 	s.offset = end_2
-	/*line syntax/scan.ergo:673:2*/
+	/*line syntax/scan.ergo:688:2*/
 }
 
-//line syntax/scan.ergo:378:1
+//line syntax/scan.ergo:393:1
 func isLetter(c uint8) bool {
-	/*line syntax/scan.ergo:378:30*/ return ((((c >= uint8(97)) && (c <= uint8(122))) || ((c >= uint8(65)) && (c <= uint8(90)))) || (c == uint8(95)))
+	/*line syntax/scan.ergo:393:30*/ return ((((c >= uint8(97)) && (c <= uint8(122))) || ((c >= uint8(65)) && (c <= uint8(90)))) || (c == uint8(95)))
 }
 
-//line syntax/scan.ergo:379
+//line syntax/scan.ergo:394
 
-//line syntax/scan.ergo:381:1
+//line syntax/scan.ergo:396:1
 func isDigit(c uint8) bool {
-	/*line syntax/scan.ergo:381:29*/ return ((c >= uint8(48)) && (c <= uint8(57)))
+	/*line syntax/scan.ergo:396:29*/ return ((c >= uint8(48)) && (c <= uint8(57)))
 }
 
-//line syntax/scan.ergo:382
+//line syntax/scan.ergo:397
 
-//line syntax/scan.ergo:722:1
+//line syntax/scan.ergo:737:1
 func (s *scanner) pathWord(start_1 int) {
-//line syntax/scan.ergo:723:2
+//line syntax/scan.ergo:738:2
 	var src string = s.src
-//line syntax/scan.ergo:724:2
+//line syntax/scan.ergo:739:2
 	var n int = len(src)
-//line syntax/scan.ergo:725:2
+//line syntax/scan.ergo:740:2
 	var end int = start_1
-//line syntax/scan.ergo:726:2
+//line syntax/scan.ergo:741:2
 	var elementStart bool = true
-//line syntax/scan.ergo:727:2
+//line syntax/scan.ergo:742:2
 	for end < n {
-//line syntax/scan.ergo:728:3
-		if (( /*line syntax/scan.ergo:728:6*/ src[end] == uint8(47)) && ((end + int(1)) < n)) && (( /*line syntax/scan.ergo:728:39*/ src[(end+int(1))] == uint8(47)) || ( /*line syntax/scan.ergo:728:60*/ src[(end+int(1))] == uint8(42))) {
-//line syntax/scan.ergo:729:4
-			break
-			/*line syntax/scan.ergo:729:4*/
-		}
-//line syntax/scan.ergo:731:3
-		var c uint8 = /*line syntax/scan.ergo:731:11*/ src[end]
-//line syntax/scan.ergo:732:3
-		if c < uint8(128) {
-//line syntax/scan.ergo:735:4
-			var k uint8 = /*line syntax/scan.ergo:735:12*/ ergo.Let(classes)[int(c)]
-//line syntax/scan.ergo:736:4
-			if (k & ergo.Let(clsPath)) == uint8(0) {
-//line syntax/scan.ergo:737:5
-				break
-				/*line syntax/scan.ergo:737:5*/
-			}
-//line syntax/scan.ergo:739:4
-			if s.goPath {
-//line syntax/scan.ergo:740:5
-				end = (end + int(1))
-//line syntax/scan.ergo:741:5
-				elementStart = false
-//line syntax/scan.ergo:742:5
-				continue
-				/*line syntax/scan.ergo:742:5*/
-			}
+//line syntax/scan.ergo:743:3
+		if (( /*line syntax/scan.ergo:743:6*/ src[end] == uint8(47)) && ((end + int(1)) < n)) && (( /*line syntax/scan.ergo:743:39*/ src[(end+int(1))] == uint8(47)) || ( /*line syntax/scan.ergo:743:60*/ src[(end+int(1))] == uint8(42))) {
 //line syntax/scan.ergo:744:4
-			if (c == uint8(47)) || (c == uint8(46)) {
-//line syntax/scan.ergo:745:5
-				if elementStart {
-//line syntax/scan.ergo:746:6
-					(s).fail(end, int(1), "an import path must have nonempty elements")
-//line syntax/scan.ergo:747:6
-					return
-					/*line syntax/scan.ergo:747:6*/
-				}
-//line syntax/scan.ergo:749:5
-				elementStart = true
-				/*line syntax/scan.ergo:749:5*/
-			} else {
-//line syntax/scan.ergo:751:5
-				if (elementStart && ((k & ergo.Let(clsLetter)) == uint8(0))) || (((!elementStart) && ((k & (ergo.Let(clsLetter) | ergo.Let(clsDigit))) == uint8(0))) && (c != uint8(45))) {
-//line syntax/scan.ergo:752:6
-					t := s
-					/*line syntax/scan.ergo:752:6*/ t_1 := end
-//line syntax/scan.ergo:752:43
-					r := strconv.QuoteRune(int32(c))
-//line syntax/scan.ergo:752:6
-					(t).fail(t_1, int(1), (("invalid character " + r) + " in import path element"))
-//line syntax/scan.ergo:753:6
-					return
-					/*line syntax/scan.ergo:753:6*/
-				}
-//line syntax/scan.ergo:755:5
-				elementStart = false
-				/*line syntax/scan.ergo:755:5*/
-			}
-//line syntax/scan.ergo:757:4
-			end = (end + int(1))
-//line syntax/scan.ergo:758:4
-			continue
-			/*line syntax/scan.ergo:758:4*/
-		}
-//line syntax/scan.ergo:760:3
-//line syntax/scan.ergo:760:11
-		v := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo:760:35*/ src[end:])
-//line syntax/scan.ergo:760:3
-//line syntax/scan.ergo:761:3
-		if (v.Rune == int32(65533)) && (v.Size == int(1)) {
-//line syntax/scan.ergo:762:4
-			t_2 := s
-			/*line syntax/scan.ergo:762:4*/ t_3 := end
-//line syntax/scan.ergo:762:42
-			v_1 := hexByte( /*line syntax/scan.ergo:762:50*/ src[end])
-//line syntax/scan.ergo:762:4
-			(t_2).fail(t_3, int(1), ("invalid UTF-8 byte " + v_1))
-//line syntax/scan.ergo:763:4
-			return
-			/*line syntax/scan.ergo:763:4*/
-		}
-//line syntax/scan.ergo:765:3
-//line syntax/scan.ergo:765:7
-		v_2 := pathRune(v.Rune)
-//line syntax/scan.ergo:765:3
-		if !v_2 {
-//line syntax/scan.ergo:766:4
 			break
-			/*line syntax/scan.ergo:766:4*/
+			/*line syntax/scan.ergo:744:4*/
 		}
-//line syntax/scan.ergo:768:3
-		if s.goPath {
-//line syntax/scan.ergo:769:4
-			end = (end + v.Size)
-//line syntax/scan.ergo:770:4
-			elementStart = false
-//line syntax/scan.ergo:771:4
+//line syntax/scan.ergo:746:3
+		var c uint8 = /*line syntax/scan.ergo:746:11*/ src[end]
+//line syntax/scan.ergo:747:3
+		if c < uint8(128) {
+//line syntax/scan.ergo:750:4
+			var k uint8 = /*line syntax/scan.ergo:750:12*/ ergo.Let(classes)[int(c)]
+//line syntax/scan.ergo:751:4
+			if (k & ergo.Let(clsPath)) == uint8(0) {
+//line syntax/scan.ergo:752:5
+				break
+				/*line syntax/scan.ergo:752:5*/
+			}
+//line syntax/scan.ergo:754:4
+			if s.goPath {
+//line syntax/scan.ergo:755:5
+				end = (end + int(1))
+//line syntax/scan.ergo:756:5
+				elementStart = false
+//line syntax/scan.ergo:757:5
+				continue
+				/*line syntax/scan.ergo:757:5*/
+			}
+//line syntax/scan.ergo:759:4
+			if (c == uint8(47)) || (c == uint8(46)) {
+//line syntax/scan.ergo:760:5
+				if elementStart {
+//line syntax/scan.ergo:761:6
+					(s).fail(end, int(1), "an import path must have nonempty elements")
+//line syntax/scan.ergo:762:6
+					return
+					/*line syntax/scan.ergo:762:6*/
+				}
+//line syntax/scan.ergo:764:5
+				elementStart = true
+				/*line syntax/scan.ergo:764:5*/
+			} else {
+//line syntax/scan.ergo:766:5
+				if (elementStart && ((k & ergo.Let(clsLetter)) == uint8(0))) || (((!elementStart) && ((k & (ergo.Let(clsLetter) | ergo.Let(clsDigit))) == uint8(0))) && (c != uint8(45))) {
+//line syntax/scan.ergo:767:6
+					t := s
+					/*line syntax/scan.ergo:767:6*/ t_1 := end
+//line syntax/scan.ergo:767:43
+					r := strconv.QuoteRune(int32(c))
+//line syntax/scan.ergo:767:6
+					(t).fail(t_1, int(1), (("invalid character " + r) + " in import path element"))
+//line syntax/scan.ergo:768:6
+					return
+					/*line syntax/scan.ergo:768:6*/
+				}
+//line syntax/scan.ergo:770:5
+				elementStart = false
+				/*line syntax/scan.ergo:770:5*/
+			}
+//line syntax/scan.ergo:772:4
+			end = (end + int(1))
+//line syntax/scan.ergo:773:4
 			continue
-			/*line syntax/scan.ergo:771:4*/
+			/*line syntax/scan.ergo:773:4*/
 		}
-//line syntax/scan.ergo:773:3
-		if (v.Rune == int32(47)) || (v.Rune == int32(46)) {
-//line syntax/scan.ergo:774:4
-			if elementStart {
-//line syntax/scan.ergo:775:5
-				(s).fail(end, v.Size, "an import path must have nonempty elements")
-//line syntax/scan.ergo:776:5
-				return
-				/*line syntax/scan.ergo:776:5*/
-			}
+//line syntax/scan.ergo:775:3
+//line syntax/scan.ergo:775:11
+		v := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo:775:35*/ src[end:])
+//line syntax/scan.ergo:775:3
+//line syntax/scan.ergo:776:3
+		if (v.Rune == int32(65533)) && (v.Size == int(1)) {
+//line syntax/scan.ergo:777:4
+			t_2 := s
+			/*line syntax/scan.ergo:777:4*/ t_3 := end
+//line syntax/scan.ergo:777:42
+			v_1 := hexByte( /*line syntax/scan.ergo:777:50*/ src[end])
+//line syntax/scan.ergo:777:4
+			(t_2).fail(t_3, int(1), ("invalid UTF-8 byte " + v_1))
 //line syntax/scan.ergo:778:4
-			elementStart = true
+			return
 			/*line syntax/scan.ergo:778:4*/
-		} else {
-//line syntax/scan.ergo:780:4
-//line syntax/scan.ergo:780:8
-			v_3 := identRune(v.Rune, elementStart)
-//line syntax/scan.ergo:780:4
-			if (!v_3) && (elementStart || (v.Rune != int32(45))) {
-//line syntax/scan.ergo:781:5
-				t_4 := s
-				/*line syntax/scan.ergo:781:5*/ t_5 := end
-				/*line syntax/scan.ergo:781:5*/ t_6 := v.Size
-//line syntax/scan.ergo:781:47
-				r_1 := strconv.QuoteRune(v.Rune)
-//line syntax/scan.ergo:781:5
-				(t_4).fail(t_5, t_6, (("invalid character " + r_1) + " in import path element"))
-//line syntax/scan.ergo:782:5
-				return
-				/*line syntax/scan.ergo:782:5*/
-			}
-//line syntax/scan.ergo:784:4
-			elementStart = false
-			/*line syntax/scan.ergo:784:4*/
 		}
-//line syntax/scan.ergo:786:3
+//line syntax/scan.ergo:780:3
+//line syntax/scan.ergo:780:7
+		v_2 := pathRune(v.Rune)
+//line syntax/scan.ergo:780:3
+		if !v_2 {
+//line syntax/scan.ergo:781:4
+			break
+			/*line syntax/scan.ergo:781:4*/
+		}
+//line syntax/scan.ergo:783:3
+		if s.goPath {
+//line syntax/scan.ergo:784:4
+			end = (end + v.Size)
+//line syntax/scan.ergo:785:4
+			elementStart = false
+//line syntax/scan.ergo:786:4
+			continue
+			/*line syntax/scan.ergo:786:4*/
+		}
+//line syntax/scan.ergo:788:3
+		if (v.Rune == int32(47)) || (v.Rune == int32(46)) {
+//line syntax/scan.ergo:789:4
+			if elementStart {
+//line syntax/scan.ergo:790:5
+				(s).fail(end, v.Size, "an import path must have nonempty elements")
+//line syntax/scan.ergo:791:5
+				return
+				/*line syntax/scan.ergo:791:5*/
+			}
+//line syntax/scan.ergo:793:4
+			elementStart = true
+			/*line syntax/scan.ergo:793:4*/
+		} else {
+//line syntax/scan.ergo:795:4
+//line syntax/scan.ergo:795:8
+			v_3 := identRune(v.Rune, elementStart)
+//line syntax/scan.ergo:795:4
+			if (!v_3) && (elementStart || (v.Rune != int32(45))) {
+//line syntax/scan.ergo:796:5
+				t_4 := s
+				/*line syntax/scan.ergo:796:5*/ t_5 := end
+				/*line syntax/scan.ergo:796:5*/ t_6 := v.Size
+//line syntax/scan.ergo:796:47
+				r_1 := strconv.QuoteRune(v.Rune)
+//line syntax/scan.ergo:796:5
+				(t_4).fail(t_5, t_6, (("invalid character " + r_1) + " in import path element"))
+//line syntax/scan.ergo:797:5
+				return
+				/*line syntax/scan.ergo:797:5*/
+			}
+//line syntax/scan.ergo:799:4
+			elementStart = false
+			/*line syntax/scan.ergo:799:4*/
+		}
+//line syntax/scan.ergo:801:3
 		end = (end + v.Size)
-		/*line syntax/scan.ergo:786:3*/
+		/*line syntax/scan.ergo:801:3*/
 	}
-//line syntax/scan.ergo:788:2
+//line syntax/scan.ergo:803:2
 	if elementStart {
-//line syntax/scan.ergo:789:3
+//line syntax/scan.ergo:804:3
 		(s).fail((end - int(1)), int(1), "an import path must not end with '/' or '.'")
-//line syntax/scan.ergo:790:3
+//line syntax/scan.ergo:805:3
 		return
-		/*line syntax/scan.ergo:790:3*/
+		/*line syntax/scan.ergo:805:3*/
 	}
-//line syntax/scan.ergo:792:2
+//line syntax/scan.ergo:807:2
 	s.offset = end
-//line syntax/scan.ergo:793:2
-	if (s.pathGo && ((end - start_1) == int(2))) && ( /*line syntax/scan.ergo:793:35*/ src[start_1:end] == "go") {
-//line syntax/scan.ergo:794:3
-//line syntax/scan.ergo:794:3
+//line syntax/scan.ergo:808:2
+	if (s.pathGo && ((end - start_1) == int(2))) && ( /*line syntax/scan.ergo:808:35*/ src[start_1:end] == "go") {
+//line syntax/scan.ergo:809:3
+//line syntax/scan.ergo:809:3
 		{
-			/*line syntax/scan.ergo:794:3*/ var end_1 int = end
+			/*line syntax/scan.ergo:809:3*/ var end_1 int = end
 //line syntax/scan.ergo#ergo-inline-2693:162:2
 //line syntax/scan.ergo#ergo-inline-2693:162:2
 			{
@@ -72908,15 +72918,15 @@ func (s *scanner) pathWord(start_1 int) {
 		}
 		/*line syntax/scan.ergo#ergo-inline-2693:165:3*/ inl:
 		;
-//line syntax/scan.ergo:794:3
-//line syntax/scan.ergo:795:3
+//line syntax/scan.ergo:809:3
+//line syntax/scan.ergo:810:3
 		return
-		/*line syntax/scan.ergo:795:3*/
+		/*line syntax/scan.ergo:810:3*/
 	}
-//line syntax/scan.ergo:797:2
-//line syntax/scan.ergo:797:2
+//line syntax/scan.ergo:812:2
+//line syntax/scan.ergo:812:2
 	{
-		/*line syntax/scan.ergo:797:2*/ var end_2 int = end
+		/*line syntax/scan.ergo:812:2*/ var end_2 int = end
 //line syntax/scan.ergo#ergo-inline-2697:162:2
 //line syntax/scan.ergo#ergo-inline-2697:162:2
 		{
@@ -73017,108 +73027,108 @@ func (s *scanner) pathWord(start_1 int) {
 	}
 	/*line syntax/scan.ergo#ergo-inline-2697:165:3*/ inl_5:
 	;
-//line syntax/scan.ergo:797:2
+//line syntax/scan.ergo:812:2
 	return
-	/*line syntax/scan.ergo:797:2*/
+	/*line syntax/scan.ergo:812:2*/
 }
 
-//line syntax/scan.ergo:889:1
+//line syntax/scan.ergo:904:1
 func (s *scanner) numberLit(start_1 int) {
-//line syntax/scan.ergo:890:2
+//line syntax/scan.ergo:905:2
 	var src string = s.src
-//line syntax/scan.ergo:891:2
+//line syntax/scan.ergo:906:2
 	var n int = len(src)
-//line syntax/scan.ergo:892:2
-	b := (( /*line syntax/scan.ergo:892:5*/ src[start_1] == uint8(48)) && ((start_1 + int(1)) < n))
-	/*line syntax/scan.ergo:892:2*/ if b {
-//line syntax/scan.ergo:892:41
-		v := isBase( /*line syntax/scan.ergo:892:48*/ src[(start_1 + int(1))])
-//line syntax/scan.ergo:892:2
+//line syntax/scan.ergo:907:2
+	b := (( /*line syntax/scan.ergo:907:5*/ src[start_1] == uint8(48)) && ((start_1 + int(1)) < n))
+	/*line syntax/scan.ergo:907:2*/ if b {
+//line syntax/scan.ergo:907:41
+		v := isBase( /*line syntax/scan.ergo:907:48*/ src[(start_1 + int(1))])
+//line syntax/scan.ergo:907:2
 		b = v
-		/*line syntax/scan.ergo:892:2*/
+		/*line syntax/scan.ergo:907:2*/
 	}
-	/*line syntax/scan.ergo:892:2*/ if b {
-//line syntax/scan.ergo:893:3
-		(s).prefixed(start_1)
-//line syntax/scan.ergo:894:3
-		return
-		/*line syntax/scan.ergo:894:3*/
-	}
-//line syntax/scan.ergo:896:2
-//line syntax/scan.ergo:896:16
-	v_1 := digits(src, start_1)
-//line syntax/scan.ergo:896:2
-//line syntax/scan.ergo:897:2
-	var float bool = false
-//line syntax/scan.ergo:898:2
-	if ((v_1 < n) && ( /*line syntax/scan.ergo:898:16*/ src[v_1] == uint8(46))) && (!(((v_1 + int(1)) < n) && ( /*line syntax/scan.ergo:898:50*/ src[(v_1+int(1))] == uint8(46)))) {
-//line syntax/scan.ergo:899:3
-		float = true
-//line syntax/scan.ergo:900:3
-//line syntax/scan.ergo:900:9
-		v_2 := digits(src, (v_1 + int(1)))
-//line syntax/scan.ergo:900:3
-		v_1 = v_2
-		/*line syntax/scan.ergo:900:3*/
-	}
-//line syntax/scan.ergo:902:2
-	if ((v_1 > start_1) && (v_1 < n)) && (( /*line syntax/scan.ergo:902:32*/ src[v_1] == uint8(101)) || ( /*line syntax/scan.ergo:902:51*/ src[v_1] == uint8(69))) {
-//line syntax/scan.ergo:903:3
-		var exp int = (v_1 + int(1))
-//line syntax/scan.ergo:904:3
-		if (exp < n) && (( /*line syntax/scan.ergo:904:18*/ src[exp] == uint8(43)) || ( /*line syntax/scan.ergo:904:37*/ src[exp] == uint8(45))) {
-//line syntax/scan.ergo:905:4
-			exp = (exp + int(1))
-			/*line syntax/scan.ergo:905:4*/
-		}
-//line syntax/scan.ergo:907:3
-//line syntax/scan.ergo:907:15
-		v_3 := digits(src, exp)
-//line syntax/scan.ergo:907:3
+	/*line syntax/scan.ergo:907:2*/ if b {
 //line syntax/scan.ergo:908:3
-		if v_3 > exp {
-//line syntax/scan.ergo:909:4
-			float = true
-//line syntax/scan.ergo:910:4
-			v_1 = v_3
-			/*line syntax/scan.ergo:910:4*/
-		}
-		/*line syntax/scan.ergo:910:4*/
-	}
-//line syntax/scan.ergo:913:2
-//line syntax/scan.ergo:913:5
-	v_4 := badSeparator( /*line syntax/scan.ergo:913:18*/ src[start_1:v_1], int(10), false)
-//line syntax/scan.ergo:913:2
-	if v_4 {
-//line syntax/scan.ergo:914:3
-		(s).fail(start_1, (v_1 - start_1), ("'_' must separate successive digits in " + /*line syntax/scan.ergo:914:71*/ src[start_1:v_1]))
-//line syntax/scan.ergo:915:3
+		(s).prefixed(start_1)
+//line syntax/scan.ergo:909:3
 		return
+		/*line syntax/scan.ergo:909:3*/
+	}
+//line syntax/scan.ergo:911:2
+//line syntax/scan.ergo:911:16
+	v_1 := digits(src, start_1)
+//line syntax/scan.ergo:911:2
+//line syntax/scan.ergo:912:2
+	var float bool = false
+//line syntax/scan.ergo:913:2
+	if ((v_1 < n) && ( /*line syntax/scan.ergo:913:16*/ src[v_1] == uint8(46))) && (!(((v_1 + int(1)) < n) && ( /*line syntax/scan.ergo:913:50*/ src[(v_1+int(1))] == uint8(46)))) {
+//line syntax/scan.ergo:914:3
+		float = true
+//line syntax/scan.ergo:915:3
+//line syntax/scan.ergo:915:9
+		v_2 := digits(src, (v_1 + int(1)))
+//line syntax/scan.ergo:915:3
+		v_1 = v_2
 		/*line syntax/scan.ergo:915:3*/
 	}
 //line syntax/scan.ergo:917:2
-//line syntax/scan.ergo:917:18
-	v_5 := identRest(src, v_1)
-//line syntax/scan.ergo:917:2
-//line syntax/scan.ergo:918:2
-	if v_5 == v_1 {
+	if ((v_1 > start_1) && (v_1 < n)) && (( /*line syntax/scan.ergo:917:32*/ src[v_1] == uint8(101)) || ( /*line syntax/scan.ergo:917:51*/ src[v_1] == uint8(69))) {
+//line syntax/scan.ergo:918:3
+		var exp int = (v_1 + int(1))
 //line syntax/scan.ergo:919:3
-		t := s
-		/*line syntax/scan.ergo:919:3*/ var v_6 uint8
-//line syntax/scan.ergo:919:11
-		if float {
-//line syntax/scan.ergo:919:22
-			v_6 = Float
-			/*line syntax/scan.ergo:919:22*/
-		} else {
-//line syntax/scan.ergo:919:37
-			v_6 = Int
-			/*line syntax/scan.ergo:919:37*/
+		if (exp < n) && (( /*line syntax/scan.ergo:919:18*/ src[exp] == uint8(43)) || ( /*line syntax/scan.ergo:919:37*/ src[exp] == uint8(45))) {
+//line syntax/scan.ergo:920:4
+			exp = (exp + int(1))
+			/*line syntax/scan.ergo:920:4*/
 		}
-//line syntax/scan.ergo:919:3
+//line syntax/scan.ergo:922:3
+//line syntax/scan.ergo:922:15
+		v_3 := digits(src, exp)
+//line syntax/scan.ergo:922:3
+//line syntax/scan.ergo:923:3
+		if v_3 > exp {
+//line syntax/scan.ergo:924:4
+			float = true
+//line syntax/scan.ergo:925:4
+			v_1 = v_3
+			/*line syntax/scan.ergo:925:4*/
+		}
+		/*line syntax/scan.ergo:925:4*/
+	}
+//line syntax/scan.ergo:928:2
+//line syntax/scan.ergo:928:5
+	v_4 := badSeparator( /*line syntax/scan.ergo:928:18*/ src[start_1:v_1], int(10), false)
+//line syntax/scan.ergo:928:2
+	if v_4 {
+//line syntax/scan.ergo:929:3
+		(s).fail(start_1, (v_1 - start_1), ("'_' must separate successive digits in " + /*line syntax/scan.ergo:929:71*/ src[start_1:v_1]))
+//line syntax/scan.ergo:930:3
+		return
+		/*line syntax/scan.ergo:930:3*/
+	}
+//line syntax/scan.ergo:932:2
+//line syntax/scan.ergo:932:18
+	v_5 := identRest(src, v_1)
+//line syntax/scan.ergo:932:2
+//line syntax/scan.ergo:933:2
+	if v_5 == v_1 {
+//line syntax/scan.ergo:934:3
+		t := s
+		/*line syntax/scan.ergo:934:3*/ var v_6 uint8
+//line syntax/scan.ergo:934:11
+		if float {
+//line syntax/scan.ergo:934:22
+			v_6 = Float
+			/*line syntax/scan.ergo:934:22*/
+		} else {
+//line syntax/scan.ergo:934:37
+			v_6 = Int
+			/*line syntax/scan.ergo:934:37*/
+		}
+//line syntax/scan.ergo:934:3
 		{
-			/*line syntax/scan.ergo:919:3*/ var kind_1 uint8 = v_6
-			/*line syntax/scan.ergo:919:3*/ var end int = v_1
+			/*line syntax/scan.ergo:934:3*/ var kind_1 uint8 = v_6
+			/*line syntax/scan.ergo:934:3*/ var end int = v_1
 //line syntax/scan.ergo#ergo-inline-2701:162:2
 //line syntax/scan.ergo#ergo-inline-2701:162:2
 			{
@@ -73219,25 +73229,25 @@ func (s *scanner) numberLit(start_1 int) {
 		}
 		/*line syntax/scan.ergo#ergo-inline-2701:165:3*/ inl:
 		;
-//line syntax/scan.ergo:919:3
-//line syntax/scan.ergo:920:3
+//line syntax/scan.ergo:934:3
+//line syntax/scan.ergo:935:3
 		s.offset = v_1
-//line syntax/scan.ergo:921:3
+//line syntax/scan.ergo:936:3
 		return
-		/*line syntax/scan.ergo:921:3*/
+		/*line syntax/scan.ergo:936:3*/
 	}
-//line syntax/scan.ergo:923:2
+//line syntax/scan.ergo:938:2
 	b_1 := (!float)
-	/*line syntax/scan.ergo:923:2*/ if b_1 {
-//line syntax/scan.ergo:923:15
-		v_17 := isDurationUnit( /*line syntax/scan.ergo:923:30*/ src[v_1:v_5])
-//line syntax/scan.ergo:923:2
+	/*line syntax/scan.ergo:938:2*/ if b_1 {
+//line syntax/scan.ergo:938:15
+		v_17 := isDurationUnit( /*line syntax/scan.ergo:938:30*/ src[v_1:v_5])
+//line syntax/scan.ergo:938:2
 		b_1 = v_17
-		/*line syntax/scan.ergo:923:2*/
+		/*line syntax/scan.ergo:938:2*/
 	}
-	/*line syntax/scan.ergo:923:2*/ if b_1 {
-//line syntax/scan.ergo:924:3
-//line syntax/scan.ergo:924:3
+	/*line syntax/scan.ergo:938:2*/ if b_1 {
+//line syntax/scan.ergo:939:3
+//line syntax/scan.ergo:939:3
 		{
 //line syntax/scan.ergo#ergo-inline-2705:162:2
 //line syntax/scan.ergo#ergo-inline-2705:162:2
@@ -73339,72 +73349,72 @@ func (s *scanner) numberLit(start_1 int) {
 		}
 		/*line syntax/scan.ergo#ergo-inline-2705:165:3*/ inl_5:
 		;
-//line syntax/scan.ergo:924:3
-//line syntax/scan.ergo:925:3
+//line syntax/scan.ergo:939:3
+//line syntax/scan.ergo:940:3
 		s.offset = v_5
-//line syntax/scan.ergo:926:3
+//line syntax/scan.ergo:941:3
 		return
-		/*line syntax/scan.ergo:926:3*/
+		/*line syntax/scan.ergo:941:3*/
 	}
-//line syntax/scan.ergo:928:2
-	var suffix string = /*line syntax/scan.ergo:928:15*/ src[v_1:v_5]
-//line syntax/scan.ergo:929:2
+//line syntax/scan.ergo:943:2
+	var suffix string = /*line syntax/scan.ergo:943:15*/ src[v_1:v_5]
+//line syntax/scan.ergo:944:2
 	t_7 := s
-	/*line syntax/scan.ergo:929:2*/ t_8 := start_1
-	/*line syntax/scan.ergo:929:2*/ t_9 := (v_5 - start_1)
-	/*line syntax/scan.ergo:929:2*/ var v_28 string
-//line syntax/scan.ergo:929:34
+	/*line syntax/scan.ergo:944:2*/ t_8 := start_1
+	/*line syntax/scan.ergo:944:2*/ t_9 := (v_5 - start_1)
+	/*line syntax/scan.ergo:944:2*/ var v_28 string
+//line syntax/scan.ergo:944:34
 	if suffix == "i" {
-//line syntax/scan.ergo:929:53
+//line syntax/scan.ergo:944:53
 		v_28 = "imaginary literals are not part of the language"
-		/*line syntax/scan.ergo:929:53*/
+		/*line syntax/scan.ergo:944:53*/
 	} else {
-//line syntax/scan.ergo:929:112
-//line syntax/scan.ergo:929:139
+//line syntax/scan.ergo:944:112
+//line syntax/scan.ergo:944:139
 		r := strconv.Quote(suffix)
-//line syntax/scan.ergo:929:112
+//line syntax/scan.ergo:944:112
 		v_28 = ("unknown number suffix " + r)
-		/*line syntax/scan.ergo:929:112*/
+		/*line syntax/scan.ergo:944:112*/
 	}
-//line syntax/scan.ergo:929:2
+//line syntax/scan.ergo:944:2
 	(t_7).fail(t_8, t_9, v_28)
-	/*line syntax/scan.ergo:929:2*/ return
-	/*line syntax/scan.ergo:929:2*/
+	/*line syntax/scan.ergo:944:2*/ return
+	/*line syntax/scan.ergo:944:2*/
 }
 
-//line syntax/scan.ergo:948:1
+//line syntax/scan.ergo:963:1
 func (s *scanner) interpreted(quote_1 int, segStart int, kind_1 uint8) {
-//line syntax/scan.ergo:949:2
+//line syntax/scan.ergo:964:2
 	var src string = s.src
-//line syntax/scan.ergo:950:2
+//line syntax/scan.ergo:965:2
 	var n int = len(src)
-//line syntax/scan.ergo:951:2
+//line syntax/scan.ergo:966:2
 	var i int = (segStart + int(1))
-//line syntax/scan.ergo:952:2
+//line syntax/scan.ergo:967:2
 	for i < n {
-//line syntax/scan.ergo:953:3
-		var c uint8 = /*line syntax/scan.ergo:953:11*/ src[i]
-//line syntax/scan.ergo:954:3
+//line syntax/scan.ergo:968:3
+		var c uint8 = /*line syntax/scan.ergo:968:11*/ src[i]
+//line syntax/scan.ergo:969:3
 		if c == uint8(92) {
-//line syntax/scan.ergo:955:4
-			if ((i + int(1)) < n) && ( /*line syntax/scan.ergo:955:18*/ src[(i+int(1))] == uint8(40)) {
-//line syntax/scan.ergo:956:5
+//line syntax/scan.ergo:970:4
+			if ((i + int(1)) < n) && ( /*line syntax/scan.ergo:970:18*/ src[(i+int(1))] == uint8(40)) {
+//line syntax/scan.ergo:971:5
 				t := s
-				/*line syntax/scan.ergo:956:5*/ var v uint8
-//line syntax/scan.ergo:956:13
+				/*line syntax/scan.ergo:971:5*/ var v uint8
+//line syntax/scan.ergo:971:13
 				if kind_1 == String_1 {
-//line syntax/scan.ergo:956:33
+//line syntax/scan.ergo:971:33
 					v = StringHead
-					/*line syntax/scan.ergo:956:33*/
+					/*line syntax/scan.ergo:971:33*/
 				} else {
-//line syntax/scan.ergo:956:53
+//line syntax/scan.ergo:971:53
 					v = StringMid
-					/*line syntax/scan.ergo:956:53*/
+					/*line syntax/scan.ergo:971:53*/
 				}
-//line syntax/scan.ergo:956:5
+//line syntax/scan.ergo:971:5
 				{
-					/*line syntax/scan.ergo:956:5*/ var kind_2 uint8 = v
-					/*line syntax/scan.ergo:956:5*/ var end int = (i + int(2))
+					/*line syntax/scan.ergo:971:5*/ var kind_2 uint8 = v
+					/*line syntax/scan.ergo:971:5*/ var end int = (i + int(2))
 //line syntax/scan.ergo#ergo-inline-2709:162:2
 //line syntax/scan.ergo#ergo-inline-2709:162:2
 					{
@@ -73505,54 +73515,54 @@ func (s *scanner) interpreted(quote_1 int, segStart int, kind_1 uint8) {
 				}
 				/*line syntax/scan.ergo#ergo-inline-2709:165:3*/ inl:
 				;
-//line syntax/scan.ergo:956:5
-//line syntax/scan.ergo:957:5
+//line syntax/scan.ergo:971:5
+//line syntax/scan.ergo:972:5
 				(s).openInterpolation(quote_1)
-//line syntax/scan.ergo:958:5
+//line syntax/scan.ergo:973:5
 				s.offset = (i + int(2))
-//line syntax/scan.ergo:959:5
+//line syntax/scan.ergo:974:5
 				return
-				/*line syntax/scan.ergo:959:5*/
+				/*line syntax/scan.ergo:974:5*/
 			}
-//line syntax/scan.ergo:961:4
+//line syntax/scan.ergo:976:4
 			i = (i + int(1))
-//line syntax/scan.ergo:962:4
-			if (i < n) && ( /*line syntax/scan.ergo:962:16*/ src[i] == uint8(10)) {
-//line syntax/scan.ergo:963:5
+//line syntax/scan.ergo:977:4
+			if (i < n) && ( /*line syntax/scan.ergo:977:16*/ src[i] == uint8(10)) {
+//line syntax/scan.ergo:978:5
 				(s).fail(quote_1, int(1), "newline in string")
-//line syntax/scan.ergo:964:5
+//line syntax/scan.ergo:979:5
 				return
-				/*line syntax/scan.ergo:964:5*/
+				/*line syntax/scan.ergo:979:5*/
 			}
-			/*line syntax/scan.ergo:964:5*/
+			/*line syntax/scan.ergo:979:5*/
 		} else {
-//line syntax/scan.ergo:966:10
+//line syntax/scan.ergo:981:10
 			if c == uint8(10) {
-//line syntax/scan.ergo:967:4
+//line syntax/scan.ergo:982:4
 				(s).fail(quote_1, int(1), "newline in string")
-//line syntax/scan.ergo:968:4
+//line syntax/scan.ergo:983:4
 				return
-				/*line syntax/scan.ergo:968:4*/
+				/*line syntax/scan.ergo:983:4*/
 			} else {
-//line syntax/scan.ergo:969:10
+//line syntax/scan.ergo:984:10
 				if c == uint8(34) {
-//line syntax/scan.ergo:970:4
+//line syntax/scan.ergo:985:4
 					t_4 := s
-					/*line syntax/scan.ergo:970:4*/ var v_11 uint8
-//line syntax/scan.ergo:970:12
+					/*line syntax/scan.ergo:985:4*/ var v_11 uint8
+//line syntax/scan.ergo:985:12
 					if kind_1 == String_1 {
-//line syntax/scan.ergo:970:32
+//line syntax/scan.ergo:985:32
 						v_11 = String_1
-						/*line syntax/scan.ergo:970:32*/
+						/*line syntax/scan.ergo:985:32*/
 					} else {
-//line syntax/scan.ergo:970:48
+//line syntax/scan.ergo:985:48
 						v_11 = StringTail
-						/*line syntax/scan.ergo:970:48*/
+						/*line syntax/scan.ergo:985:48*/
 					}
-//line syntax/scan.ergo:970:4
+//line syntax/scan.ergo:985:4
 					{
-						/*line syntax/scan.ergo:970:4*/ var kind_3 uint8 = v_11
-						/*line syntax/scan.ergo:970:4*/ var end_1 int = (i + int(1))
+						/*line syntax/scan.ergo:985:4*/ var kind_3 uint8 = v_11
+						/*line syntax/scan.ergo:985:4*/ var end_1 int = (i + int(1))
 //line syntax/scan.ergo#ergo-inline-2713:162:2
 //line syntax/scan.ergo#ergo-inline-2713:162:2
 						{
@@ -73653,78 +73663,78 @@ func (s *scanner) interpreted(quote_1 int, segStart int, kind_1 uint8) {
 					}
 					/*line syntax/scan.ergo#ergo-inline-2713:165:3*/ inl_5:
 					;
-//line syntax/scan.ergo:970:4
-//line syntax/scan.ergo:971:4
+//line syntax/scan.ergo:985:4
+//line syntax/scan.ergo:986:4
 					s.offset = (i + int(1))
-//line syntax/scan.ergo:972:4
+//line syntax/scan.ergo:987:4
 					return
-					/*line syntax/scan.ergo:972:4*/
+					/*line syntax/scan.ergo:987:4*/
 				}
-				/*line syntax/scan.ergo:972:4*/
+				/*line syntax/scan.ergo:987:4*/
 			}
-			/*line syntax/scan.ergo:972:4*/
+			/*line syntax/scan.ergo:987:4*/
 		}
-//line syntax/scan.ergo:974:3
+//line syntax/scan.ergo:989:3
 		i = (i + int(1))
-		/*line syntax/scan.ergo:974:3*/
+		/*line syntax/scan.ergo:989:3*/
 	}
-//line syntax/scan.ergo:976:2
+//line syntax/scan.ergo:991:2
 	(s).fail(quote_1, int(1), "string literal not terminated")
-	/*line syntax/scan.ergo:976:2*/ return
-	/*line syntax/scan.ergo:976:2*/
+	/*line syntax/scan.ergo:991:2*/ return
+	/*line syntax/scan.ergo:991:2*/
 }
 
-//line syntax/scan.ergo:992:1
+//line syntax/scan.ergo:1007:1
 func (s *scanner) runeLit(start_1 int) {
-//line syntax/scan.ergo:993:2
+//line syntax/scan.ergo:1008:2
 	var src string = s.src
-//line syntax/scan.ergo:994:2
+//line syntax/scan.ergo:1009:2
 	var n int = len(src)
-//line syntax/scan.ergo:995:2
+//line syntax/scan.ergo:1010:2
 	var i int = (start_1 + int(1))
-//line syntax/scan.ergo:996:2
+//line syntax/scan.ergo:1011:2
 	for i < n {
-//line syntax/scan.ergo:997:3
-		var c uint8 = /*line syntax/scan.ergo:997:11*/ src[i]
-//line syntax/scan.ergo:998:3
+//line syntax/scan.ergo:1012:3
+		var c uint8 = /*line syntax/scan.ergo:1012:11*/ src[i]
+//line syntax/scan.ergo:1013:3
 		if c == uint8(92) {
-//line syntax/scan.ergo:999:4
+//line syntax/scan.ergo:1014:4
 			i = (i + int(1))
-//line syntax/scan.ergo:1000:4
-			if (i < n) && ( /*line syntax/scan.ergo:1000:16*/ src[i] == uint8(10)) {
-//line syntax/scan.ergo:1001:5
+//line syntax/scan.ergo:1015:4
+			if (i < n) && ( /*line syntax/scan.ergo:1015:16*/ src[i] == uint8(10)) {
+//line syntax/scan.ergo:1016:5
 				(s).fail(start_1, int(1), "rune literal not terminated")
-//line syntax/scan.ergo:1002:5
+//line syntax/scan.ergo:1017:5
 				return
-				/*line syntax/scan.ergo:1002:5*/
+				/*line syntax/scan.ergo:1017:5*/
 			}
-			/*line syntax/scan.ergo:1002:5*/
+			/*line syntax/scan.ergo:1017:5*/
 		} else {
-//line syntax/scan.ergo:1004:10
+//line syntax/scan.ergo:1019:10
 			if c == uint8(10) {
-//line syntax/scan.ergo:1005:4
+//line syntax/scan.ergo:1020:4
 				(s).fail(start_1, int(1), "rune literal not terminated")
-//line syntax/scan.ergo:1006:4
+//line syntax/scan.ergo:1021:4
 				return
-				/*line syntax/scan.ergo:1006:4*/
+				/*line syntax/scan.ergo:1021:4*/
 			} else {
-//line syntax/scan.ergo:1007:10
+//line syntax/scan.ergo:1022:10
 				if c == uint8(39) {
-//line syntax/scan.ergo:1008:4
-//line syntax/scan.ergo:1008:8
-					v := oneRune( /*line syntax/scan.ergo:1008:16*/ src[start_1:(i + int(1))])
-//line syntax/scan.ergo:1008:4
+//line syntax/scan.ergo:1023:4
+//line syntax/scan.ergo:1023:8
+					v := oneRune( /*line syntax/scan.ergo:1023:16*/ src[start_1:(i + int(1))])
+//line syntax/scan.ergo:1023:4
 					if !v {
-//line syntax/scan.ergo:1009:5
-						(s).fail(start_1, ((i + int(1)) - start_1), ("invalid rune literal " + /*line syntax/scan.ergo:1009:55*/ src[start_1:(i+int(1))]))
-//line syntax/scan.ergo:1010:5
+//line syntax/scan.ergo:1024:5
+						(s).fail(start_1, ((i + int(1)) - start_1), ("invalid rune literal " + /*line syntax/scan.ergo:1024:55*/ src[start_1:(i+int(1))]))
+//line syntax/scan.ergo:1025:5
 						return
-						/*line syntax/scan.ergo:1010:5*/
+						/*line syntax/scan.ergo:1025:5*/
 					}
-//line syntax/scan.ergo:1012:4
-//line syntax/scan.ergo:1012:4
+//line syntax/scan.ergo:1027:4
+//line syntax/scan.ergo:1027:4
 					{
-						/*line syntax/scan.ergo:1012:4*/ var end int = (i + int(1))
+						/*line syntax/scan.ergo:1027:4*/ var end int = (i + int(1))
 //line syntax/scan.ergo#ergo-inline-2717:162:2
 //line syntax/scan.ergo#ergo-inline-2717:162:2
 						{
@@ -73825,91 +73835,91 @@ func (s *scanner) runeLit(start_1 int) {
 					}
 					/*line syntax/scan.ergo#ergo-inline-2717:165:3*/ inl:
 					;
-//line syntax/scan.ergo:1012:4
-//line syntax/scan.ergo:1013:4
+//line syntax/scan.ergo:1027:4
+//line syntax/scan.ergo:1028:4
 					s.offset = (i + int(1))
-//line syntax/scan.ergo:1014:4
+//line syntax/scan.ergo:1029:4
 					return
-					/*line syntax/scan.ergo:1014:4*/
+					/*line syntax/scan.ergo:1029:4*/
 				}
-				/*line syntax/scan.ergo:1014:4*/
+				/*line syntax/scan.ergo:1029:4*/
 			}
-			/*line syntax/scan.ergo:1014:4*/
+			/*line syntax/scan.ergo:1029:4*/
 		}
-//line syntax/scan.ergo:1016:3
+//line syntax/scan.ergo:1031:3
 		i = (i + int(1))
-		/*line syntax/scan.ergo:1016:3*/
+		/*line syntax/scan.ergo:1031:3*/
 	}
-//line syntax/scan.ergo:1018:2
+//line syntax/scan.ergo:1033:2
 	(s).fail(start_1, int(1), "rune literal not terminated")
-	/*line syntax/scan.ergo:1018:2*/ return
-	/*line syntax/scan.ergo:1018:2*/
+	/*line syntax/scan.ergo:1033:2*/ return
+	/*line syntax/scan.ergo:1033:2*/
 }
 
-//line syntax/scan.ergo:437:1
+//line syntax/scan.ergo:452:1
 func (s *scanner) identifier(start_1 int) {
-//line syntax/scan.ergo:438:2
+//line syntax/scan.ergo:453:2
 	var src string = s.src
-//line syntax/scan.ergo:439:2
-	var c uint8 = /*line syntax/scan.ergo:439:10*/ src[start_1]
-//line syntax/scan.ergo:440:2
+//line syntax/scan.ergo:454:2
+	var c uint8 = /*line syntax/scan.ergo:454:10*/ src[start_1]
+//line syntax/scan.ergo:455:2
 	var first int = int(1)
-//line syntax/scan.ergo:441:2
+//line syntax/scan.ergo:456:2
 	if c >= uint8(128) {
-//line syntax/scan.ergo:442:3
-//line syntax/scan.ergo:442:11
-		v := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo:442:35*/ src[start_1:])
-//line syntax/scan.ergo:442:3
-//line syntax/scan.ergo:443:3
+//line syntax/scan.ergo:457:3
+//line syntax/scan.ergo:457:11
+		v := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo:457:35*/ src[start_1:])
+//line syntax/scan.ergo:457:3
+//line syntax/scan.ergo:458:3
 		if (v.Rune == int32(65533)) && (v.Size == int(1)) {
-//line syntax/scan.ergo:444:4
+//line syntax/scan.ergo:459:4
 			t := s
-			/*line syntax/scan.ergo:444:4*/ t_1 := start_1
-//line syntax/scan.ergo:444:44
-			v_1 := hexByte( /*line syntax/scan.ergo:444:52*/ src[start_1])
-//line syntax/scan.ergo:444:4
+			/*line syntax/scan.ergo:459:4*/ t_1 := start_1
+//line syntax/scan.ergo:459:44
+			v_1 := hexByte( /*line syntax/scan.ergo:459:52*/ src[start_1])
+//line syntax/scan.ergo:459:4
 			(t).fail(t_1, int(1), ("invalid UTF-8 byte " + v_1))
-//line syntax/scan.ergo:445:4
+//line syntax/scan.ergo:460:4
 			return
-			/*line syntax/scan.ergo:445:4*/
+			/*line syntax/scan.ergo:460:4*/
 		}
-//line syntax/scan.ergo:447:3
-//line syntax/scan.ergo:447:7
+//line syntax/scan.ergo:462:3
+//line syntax/scan.ergo:462:7
 		v_2 := identRune(v.Rune, true)
-//line syntax/scan.ergo:447:3
+//line syntax/scan.ergo:462:3
 		if !v_2 {
-//line syntax/scan.ergo:448:4
+//line syntax/scan.ergo:463:4
 			t_2 := s
-			/*line syntax/scan.ergo:448:4*/ t_3 := start_1
-			/*line syntax/scan.ergo:448:4*/ t_4 := v.Size
-//line syntax/scan.ergo:448:51
+			/*line syntax/scan.ergo:463:4*/ t_3 := start_1
+			/*line syntax/scan.ergo:463:4*/ t_4 := v.Size
+//line syntax/scan.ergo:463:51
 			v_3 := uPlus(v.Rune)
-//line syntax/scan.ergo:448:4
+//line syntax/scan.ergo:463:4
 			t_5 := (("unexpected character " + v_3) + " ")
-//line syntax/scan.ergo:448:69
+//line syntax/scan.ergo:463:69
 			r := strconv.QuoteRune(v.Rune)
-//line syntax/scan.ergo:448:4
+//line syntax/scan.ergo:463:4
 			(t_2).fail(t_3, t_4, (t_5 + r))
-//line syntax/scan.ergo:449:4
+//line syntax/scan.ergo:464:4
 			return
-			/*line syntax/scan.ergo:449:4*/
+			/*line syntax/scan.ergo:464:4*/
 		}
-//line syntax/scan.ergo:451:3
+//line syntax/scan.ergo:466:3
 		first = v.Size
-		/*line syntax/scan.ergo:451:3*/
+		/*line syntax/scan.ergo:466:3*/
 	}
-//line syntax/scan.ergo:453:2
-//line syntax/scan.ergo:453:12
+//line syntax/scan.ergo:468:2
+//line syntax/scan.ergo:468:12
 	v_4 := identRest(src, (start_1 + first))
-//line syntax/scan.ergo:453:2
-//line syntax/scan.ergo:454:2
+//line syntax/scan.ergo:468:2
+//line syntax/scan.ergo:469:2
 	t_6 := s
-//line syntax/scan.ergo:454:10
+//line syntax/scan.ergo:469:10
 	v_5 := keyword(src, start_1, v_4)
-//line syntax/scan.ergo:454:2
-//line syntax/scan.ergo:454:2
+//line syntax/scan.ergo:469:2
+//line syntax/scan.ergo:469:2
 	{
-		/*line syntax/scan.ergo:454:2*/ var kind_1 uint8 = v_5
+		/*line syntax/scan.ergo:469:2*/ var kind_1 uint8 = v_5
 //line syntax/scan.ergo#ergo-inline-2721:162:2
 //line syntax/scan.ergo#ergo-inline-2721:162:2
 		{
@@ -74010,131 +74020,131 @@ func (s *scanner) identifier(start_1 int) {
 	}
 	/*line syntax/scan.ergo#ergo-inline-2721:165:3*/ inl:
 	;
-//line syntax/scan.ergo:454:2
-//line syntax/scan.ergo:455:2
+//line syntax/scan.ergo:469:2
+//line syntax/scan.ergo:470:2
 	s.offset = v_4
-	/*line syntax/scan.ergo:455:2*/
+	/*line syntax/scan.ergo:470:2*/
 }
 
-//line syntax/scan.ergo:1182:1
+//line syntax/scan.ergo:1197:1
 func (s *scanner) operator(start_1 int) {
-//line syntax/scan.ergo:1183:2
+//line syntax/scan.ergo:1198:2
 	var src string = s.src
-//line syntax/scan.ergo:1184:2
-	var n int = len(src)
-//line syntax/scan.ergo:1185:2
-	var c uint8 = /*line syntax/scan.ergo:1185:10*/ src[start_1]
-//line syntax/scan.ergo:1186:2
-	if s.open > int(0) {
-//line syntax/scan.ergo:1187:3
-		if c == uint8(40) {
-//line syntax/scan.ergo:1188:4
-			s.depths[(s.open - int(1))] = ( /*line syntax/scan.ergo:1188:25*/ s.depths[(s.open-int(1))] + int(1))
-			/*line syntax/scan.ergo:1188:4*/
-		} else {
-//line syntax/scan.ergo:1189:10
-			if c == uint8(41) {
-//line syntax/scan.ergo:1190:4
-				if /*line syntax/scan.ergo:1190:7*/ s.depths[(s.open-int(1))] == int(0) {
-//line syntax/scan.ergo:1192:5
-					s.open = (s.open - int(1))
-//line syntax/scan.ergo:1193:5
-					(s).interpreted( /*line syntax/scan.ergo:1193:20*/ s.quotes[s.open], start_1, StringMid)
-//line syntax/scan.ergo:1194:5
-					return
-					/*line syntax/scan.ergo:1194:5*/
-				}
-//line syntax/scan.ergo:1196:4
-				s.depths[(s.open - int(1))] = ( /*line syntax/scan.ergo:1196:25*/ s.depths[(s.open-int(1))] - int(1))
-				/*line syntax/scan.ergo:1196:4*/
-			}
-			/*line syntax/scan.ergo:1196:4*/
-		}
-		/*line syntax/scan.ergo:1196:4*/
-	}
 //line syntax/scan.ergo:1199:2
-	var v uint8
-//line syntax/scan.ergo:1199:11
-	if (start_1 + int(1)) < n {
-//line syntax/scan.ergo:1199:28
-		v = /*line syntax/scan.ergo:1199:28*/ src[(start_1 + int(1))]
-		/*line syntax/scan.ergo:1199:28*/
-	} else {
-//line syntax/scan.ergo:1199:50
-		v = uint8(0)
-		/*line syntax/scan.ergo:1199:50*/
-	}
-	/*line syntax/scan.ergo:1199:50*/ var c1 uint8 = v
+	var n int = len(src)
 //line syntax/scan.ergo:1200:2
-	var v_1 uint8
-//line syntax/scan.ergo:1200:11
-	if (start_1 + int(2)) < n {
-//line syntax/scan.ergo:1200:28
-		v_1 = /*line syntax/scan.ergo:1200:28*/ src[(start_1 + int(2))]
-		/*line syntax/scan.ergo:1200:28*/
-	} else {
-//line syntax/scan.ergo:1200:50
-		v_1 = uint8(0)
-		/*line syntax/scan.ergo:1200:50*/
-	}
-	/*line syntax/scan.ergo:1200:50*/ var c2 uint8 = v_1
+	var c uint8 = /*line syntax/scan.ergo:1200:10*/ src[start_1]
 //line syntax/scan.ergo:1201:2
-	var v_2 uint8
-//line syntax/scan.ergo:1201:10
-	if c == uint8(40) {
-//line syntax/scan.ergo:1201:24
-		v_2 = LParen
-		/*line syntax/scan.ergo:1201:24*/
-	} else {
-//line syntax/scan.ergo:1201:38
-		if c == uint8(41) {
-//line syntax/scan.ergo:1201:52
-			v_2 = RParen
-			/*line syntax/scan.ergo:1201:52*/
+	if s.open > int(0) {
+//line syntax/scan.ergo:1202:3
+		if c == uint8(40) {
+//line syntax/scan.ergo:1203:4
+			s.depths[(s.open - int(1))] = ( /*line syntax/scan.ergo:1203:25*/ s.depths[(s.open-int(1))] + int(1))
+			/*line syntax/scan.ergo:1203:4*/
 		} else {
-//line syntax/scan.ergo:1201:68
-			v_3 := opKind(c, c1, c2)
-			/*line syntax/scan.ergo:1201:68*/ v_2 = v_3
-			/*line syntax/scan.ergo:1201:68*/
+//line syntax/scan.ergo:1204:10
+			if c == uint8(41) {
+//line syntax/scan.ergo:1205:4
+				if /*line syntax/scan.ergo:1205:7*/ s.depths[(s.open-int(1))] == int(0) {
+//line syntax/scan.ergo:1207:5
+					s.open = (s.open - int(1))
+//line syntax/scan.ergo:1208:5
+					(s).interpreted( /*line syntax/scan.ergo:1208:20*/ s.quotes[s.open], start_1, StringMid)
+//line syntax/scan.ergo:1209:5
+					return
+					/*line syntax/scan.ergo:1209:5*/
+				}
+//line syntax/scan.ergo:1211:4
+				s.depths[(s.open - int(1))] = ( /*line syntax/scan.ergo:1211:25*/ s.depths[(s.open-int(1))] - int(1))
+				/*line syntax/scan.ergo:1211:4*/
+			}
+			/*line syntax/scan.ergo:1211:4*/
 		}
-		/*line syntax/scan.ergo:1201:68*/
+		/*line syntax/scan.ergo:1211:4*/
 	}
-	/*line syntax/scan.ergo:1201:68*/ var k uint8 = v_2
-//line syntax/scan.ergo:1202:2
-	if k == ergo.Let(Illegal) {
-//line syntax/scan.ergo:1203:3
-		t := s
-		/*line syntax/scan.ergo:1203:3*/ t_1 := start_1
-//line syntax/scan.ergo:1203:45
-		r := strconv.QuoteRune(int32(c))
-//line syntax/scan.ergo:1203:3
-		(t).fail(t_1, int(1), ("unexpected character " + r))
-//line syntax/scan.ergo:1204:3
-		return
-		/*line syntax/scan.ergo:1204:3*/
-	}
-//line syntax/scan.ergo:1206:2
-	t_2 := s
-	/*line syntax/scan.ergo:1206:2*/ t_3 := k
-	/*line syntax/scan.ergo:1206:2*/ t_4 := start_1
-	/*line syntax/scan.ergo:1206:2*/ t_5 := start_1
-	/*line syntax/scan.ergo:1206:2*/ a := k
-	/*line syntax/scan.ergo:1206:2*/ i := 0
-	/*line syntax/scan.ergo:1206:2*/ i = i*256 + int(a)
-	/*line syntax/scan.ergo:1206:2*/ var v_4 int
-	/*line syntax/scan.ergo:1206:2*/ if tabopLenK[i].Ready() {
-		/*line syntax/scan.ergo:1206:2*/ v_4 = tabopLenV[i]
-		/*line syntax/scan.ergo:1206:2*/
+//line syntax/scan.ergo:1214:2
+	var v uint8
+//line syntax/scan.ergo:1214:11
+	if (start_1 + int(1)) < n {
+//line syntax/scan.ergo:1214:28
+		v = /*line syntax/scan.ergo:1214:28*/ src[(start_1 + int(1))]
+		/*line syntax/scan.ergo:1214:28*/
 	} else {
-		/*line syntax/scan.ergo:1206:2*/ v_4 = tabopLenFill(i, a)
-		/*line syntax/scan.ergo:1206:2*/
+//line syntax/scan.ergo:1214:50
+		v = uint8(0)
+		/*line syntax/scan.ergo:1214:50*/
 	}
-//line syntax/scan.ergo:1206:26
+	/*line syntax/scan.ergo:1214:50*/ var c1 uint8 = v
+//line syntax/scan.ergo:1215:2
+	var v_1 uint8
+//line syntax/scan.ergo:1215:11
+	if (start_1 + int(2)) < n {
+//line syntax/scan.ergo:1215:28
+		v_1 = /*line syntax/scan.ergo:1215:28*/ src[(start_1 + int(2))]
+		/*line syntax/scan.ergo:1215:28*/
+	} else {
+//line syntax/scan.ergo:1215:50
+		v_1 = uint8(0)
+		/*line syntax/scan.ergo:1215:50*/
+	}
+	/*line syntax/scan.ergo:1215:50*/ var c2 uint8 = v_1
+//line syntax/scan.ergo:1216:2
+	var v_2 uint8
+//line syntax/scan.ergo:1216:10
+	if c == uint8(40) {
+//line syntax/scan.ergo:1216:24
+		v_2 = LParen
+		/*line syntax/scan.ergo:1216:24*/
+	} else {
+//line syntax/scan.ergo:1216:38
+		if c == uint8(41) {
+//line syntax/scan.ergo:1216:52
+			v_2 = RParen
+			/*line syntax/scan.ergo:1216:52*/
+		} else {
+//line syntax/scan.ergo:1216:68
+			v_3 := opKind(c, c1, c2)
+			/*line syntax/scan.ergo:1216:68*/ v_2 = v_3
+			/*line syntax/scan.ergo:1216:68*/
+		}
+		/*line syntax/scan.ergo:1216:68*/
+	}
+	/*line syntax/scan.ergo:1216:68*/ var k uint8 = v_2
+//line syntax/scan.ergo:1217:2
+	if k == ergo.Let(Illegal) {
+//line syntax/scan.ergo:1218:3
+		t := s
+		/*line syntax/scan.ergo:1218:3*/ t_1 := start_1
+//line syntax/scan.ergo:1218:45
+		r := strconv.QuoteRune(int32(c))
+//line syntax/scan.ergo:1218:3
+		(t).fail(t_1, int(1), ("unexpected character " + r))
+//line syntax/scan.ergo:1219:3
+		return
+		/*line syntax/scan.ergo:1219:3*/
+	}
+//line syntax/scan.ergo:1221:2
+	t_2 := s
+	/*line syntax/scan.ergo:1221:2*/ t_3 := k
+	/*line syntax/scan.ergo:1221:2*/ t_4 := start_1
+	/*line syntax/scan.ergo:1221:2*/ t_5 := start_1
+	/*line syntax/scan.ergo:1221:2*/ a := k
+	/*line syntax/scan.ergo:1221:2*/ i := 0
+	/*line syntax/scan.ergo:1221:2*/ i = i*256 + int(a)
+	/*line syntax/scan.ergo:1221:2*/ var v_4 int
+	/*line syntax/scan.ergo:1221:2*/ if tabopLenK[i].Ready() {
+		/*line syntax/scan.ergo:1221:2*/ v_4 = tabopLenV[i]
+		/*line syntax/scan.ergo:1221:2*/
+	} else {
+		/*line syntax/scan.ergo:1221:2*/ v_4 = tabopLenFill(i, a)
+		/*line syntax/scan.ergo:1221:2*/
+	}
+//line syntax/scan.ergo:1221:26
 	v_5 := v_4
-//line syntax/scan.ergo:1206:2
-//line syntax/scan.ergo:1206:2
+//line syntax/scan.ergo:1221:2
+//line syntax/scan.ergo:1221:2
 	{
-		/*line syntax/scan.ergo:1206:2*/ var end int = (t_5 + v_5)
+		/*line syntax/scan.ergo:1221:2*/ var end int = (t_5 + v_5)
 //line syntax/scan.ergo#ergo-inline-2725:162:2
 //line syntax/scan.ergo#ergo-inline-2725:162:2
 		{
@@ -74235,53 +74245,53 @@ func (s *scanner) operator(start_1 int) {
 	}
 	/*line syntax/scan.ergo#ergo-inline-2725:165:3*/ inl:
 	;
-//line syntax/scan.ergo:1206:2
-//line syntax/scan.ergo:1207:2
+//line syntax/scan.ergo:1221:2
+//line syntax/scan.ergo:1222:2
 	t_9 := start_1
-	/*line syntax/scan.ergo:1207:2*/ a_2 := k
-	/*line syntax/scan.ergo:1207:2*/ i_3 := 0
-	/*line syntax/scan.ergo:1207:2*/ i_3 = i_3*256 + int(a_2)
-	/*line syntax/scan.ergo:1207:2*/ var v_16 int
-	/*line syntax/scan.ergo:1207:2*/ if tabopLenK[i_3].Ready() {
-		/*line syntax/scan.ergo:1207:2*/ v_16 = tabopLenV[i_3]
-		/*line syntax/scan.ergo:1207:2*/
+	/*line syntax/scan.ergo:1222:2*/ a_2 := k
+	/*line syntax/scan.ergo:1222:2*/ i_3 := 0
+	/*line syntax/scan.ergo:1222:2*/ i_3 = i_3*256 + int(a_2)
+	/*line syntax/scan.ergo:1222:2*/ var v_16 int
+	/*line syntax/scan.ergo:1222:2*/ if tabopLenK[i_3].Ready() {
+		/*line syntax/scan.ergo:1222:2*/ v_16 = tabopLenV[i_3]
+		/*line syntax/scan.ergo:1222:2*/
 	} else {
-		/*line syntax/scan.ergo:1207:2*/ v_16 = tabopLenFill(i_3, a_2)
-		/*line syntax/scan.ergo:1207:2*/
+		/*line syntax/scan.ergo:1222:2*/ v_16 = tabopLenFill(i_3, a_2)
+		/*line syntax/scan.ergo:1222:2*/
 	}
-//line syntax/scan.ergo:1207:21
+//line syntax/scan.ergo:1222:21
 	v_17 := v_16
-//line syntax/scan.ergo:1207:2
+//line syntax/scan.ergo:1222:2
 	s.offset = (t_9 + v_17)
-	/*line syntax/scan.ergo:1207:2*/
+	/*line syntax/scan.ergo:1222:2*/
 }
 
-//line syntax/scan.ergo:388:1
+//line syntax/scan.ergo:403:1
 func identRune(r int32, first bool) bool {
-//line syntax/scan.ergo:389:2
+//line syntax/scan.ergo:404:2
 	b_1 := (r == int32(95))
-	/*line syntax/scan.ergo:389:2*/ if !b_1 {
-//line syntax/scan.ergo:389:14
+	/*line syntax/scan.ergo:404:2*/ if !b_1 {
+//line syntax/scan.ergo:404:14
 		r_1 := unicode.IsLetter(r)
-//line syntax/scan.ergo:389:2
+//line syntax/scan.ergo:404:2
 		b_1 = r_1
-		/*line syntax/scan.ergo:389:2*/
+		/*line syntax/scan.ergo:404:2*/
 	}
-	/*line syntax/scan.ergo:389:2*/ b := b_1
-	/*line syntax/scan.ergo:389:2*/ if !b {
-		/*line syntax/scan.ergo:389:2*/ b_2 := (!first)
-		/*line syntax/scan.ergo:389:2*/ if b_2 {
-//line syntax/scan.ergo:389:48
+	/*line syntax/scan.ergo:404:2*/ b := b_1
+	/*line syntax/scan.ergo:404:2*/ if !b {
+		/*line syntax/scan.ergo:404:2*/ b_2 := (!first)
+		/*line syntax/scan.ergo:404:2*/ if b_2 {
+//line syntax/scan.ergo:404:48
 			r_2 := unicode.IsDigit(r)
-//line syntax/scan.ergo:389:2
+//line syntax/scan.ergo:404:2
 			b_2 = r_2
-			/*line syntax/scan.ergo:389:2*/
+			/*line syntax/scan.ergo:404:2*/
 		}
-		/*line syntax/scan.ergo:389:2*/ b = b_2
-		/*line syntax/scan.ergo:389:2*/
+		/*line syntax/scan.ergo:404:2*/ b = b_2
+		/*line syntax/scan.ergo:404:2*/
 	}
-	/*line syntax/scan.ergo:389:2*/ return b
-	/*line syntax/scan.ergo:389:2*/
+	/*line syntax/scan.ergo:404:2*/ return b
+	/*line syntax/scan.ergo:404:2*/
 }
 
 //line syntax/parse.ergo:698:1
@@ -74378,27 +74388,27 @@ func (p *parser) parseDerive(m int, doc uint32, typ_1 int, name uint32, tparams 
 							var v_7 int
 							/*line syntax/parse.ergo#ergo-inline-2731:350:57*/ {
 								/*line syntax/parse.ergo#ergo-inline-2731:350:57*/ var src string = t.src
-//line syntax/scan.ergo#ergo-inline-2732:431:2
-								if /*line syntax/scan.ergo#ergo-inline-2732:431:5*/ src[at_2] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-2732:432:3
-//line syntax/scan.ergo#ergo-inline-2732:432:10
+//line syntax/scan.ergo#ergo-inline-2732:446:2
+								if /*line syntax/scan.ergo#ergo-inline-2732:446:5*/ src[at_2] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-2732:447:3
+//line syntax/scan.ergo#ergo-inline-2732:447:10
 									v_8 := identRest(src, (at_2 + int(1)))
-//line syntax/scan.ergo#ergo-inline-2732:432:3
+//line syntax/scan.ergo#ergo-inline-2732:447:3
 									v_7 = v_8
-									/*line syntax/scan.ergo#ergo-inline-2732:432:3*/ goto inl_3
-									/*line syntax/scan.ergo#ergo-inline-2732:432:3*/
+									/*line syntax/scan.ergo#ergo-inline-2732:447:3*/ goto inl_3
+									/*line syntax/scan.ergo#ergo-inline-2732:447:3*/
 								}
-//line syntax/scan.ergo#ergo-inline-2732:434:2
+//line syntax/scan.ergo#ergo-inline-2732:449:2
 								t_1 := src
-								/*line syntax/scan.ergo#ergo-inline-2732:434:2*/ t_2 := at_2
-//line syntax/scan.ergo#ergo-inline-2732:434:23
-								v_9 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-2732:434:47*/ src[at_2:])
-//line syntax/scan.ergo#ergo-inline-2732:434:2
+								/*line syntax/scan.ergo#ergo-inline-2732:449:2*/ t_2 := at_2
+//line syntax/scan.ergo#ergo-inline-2732:449:23
+								v_9 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-2732:449:47*/ src[at_2:])
+//line syntax/scan.ergo#ergo-inline-2732:449:2
 								v_7 = identRest(t_1, (t_2 + v_9.Size))
 
-								/*line syntax/scan.ergo#ergo-inline-2732:434:2*/
+								/*line syntax/scan.ergo#ergo-inline-2732:449:2*/
 							}
-							/*line syntax/scan.ergo#ergo-inline-2732:434:2*/ inl_3:
+							/*line syntax/scan.ergo#ergo-inline-2732:449:2*/ inl_3:
 							;
 //line syntax/parse.ergo#ergo-inline-2731:350:57
 							v_6 = (v_7 == (at_2 + len(w)))
@@ -74781,27 +74791,27 @@ func (p *parser) parseDerive(m int, doc uint32, typ_1 int, name uint32, tparams 
 				var v_50 int
 				/*line syntax/parse.ergo#ergo-inline-2748:341:57*/ {
 					/*line syntax/parse.ergo#ergo-inline-2748:341:57*/ var src_1 string = p.src
-//line syntax/scan.ergo#ergo-inline-2749:431:2
-					if /*line syntax/scan.ergo#ergo-inline-2749:431:5*/ src_1[at_5] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-2749:432:3
-//line syntax/scan.ergo#ergo-inline-2749:432:10
+//line syntax/scan.ergo#ergo-inline-2749:446:2
+					if /*line syntax/scan.ergo#ergo-inline-2749:446:5*/ src_1[at_5] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-2749:447:3
+//line syntax/scan.ergo#ergo-inline-2749:447:10
 						v_51 := identRest(src_1, (at_5 + int(1)))
-//line syntax/scan.ergo#ergo-inline-2749:432:3
+//line syntax/scan.ergo#ergo-inline-2749:447:3
 						v_50 = v_51
-						/*line syntax/scan.ergo#ergo-inline-2749:432:3*/ goto inl_21
-						/*line syntax/scan.ergo#ergo-inline-2749:432:3*/
+						/*line syntax/scan.ergo#ergo-inline-2749:447:3*/ goto inl_21
+						/*line syntax/scan.ergo#ergo-inline-2749:447:3*/
 					}
-//line syntax/scan.ergo#ergo-inline-2749:434:2
+//line syntax/scan.ergo#ergo-inline-2749:449:2
 					t_19 := src_1
-					/*line syntax/scan.ergo#ergo-inline-2749:434:2*/ t_20 := at_5
-//line syntax/scan.ergo#ergo-inline-2749:434:23
-					v_52 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-2749:434:47*/ src_1[at_5:])
-//line syntax/scan.ergo#ergo-inline-2749:434:2
+					/*line syntax/scan.ergo#ergo-inline-2749:449:2*/ t_20 := at_5
+//line syntax/scan.ergo#ergo-inline-2749:449:23
+					v_52 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-2749:449:47*/ src_1[at_5:])
+//line syntax/scan.ergo#ergo-inline-2749:449:2
 					v_50 = identRest(t_19, (t_20 + v_52.Size))
 
-					/*line syntax/scan.ergo#ergo-inline-2749:434:2*/
+					/*line syntax/scan.ergo#ergo-inline-2749:449:2*/
 				}
-				/*line syntax/scan.ergo#ergo-inline-2749:434:2*/ inl_21:
+				/*line syntax/scan.ergo#ergo-inline-2749:449:2*/ inl_21:
 				;
 //line syntax/parse.ergo#ergo-inline-2748:341:57
 				v_48 = (v_50 == (at_5 + len(w_1)))
@@ -75394,27 +75404,27 @@ func (p *parser) memberList(lbrace int) members_1 {
 							var v_9 int
 							/*line syntax/parse.ergo#ergo-inline-2769:341:57*/ {
 								/*line syntax/parse.ergo#ergo-inline-2769:341:57*/ var src string = p.src
-//line syntax/scan.ergo#ergo-inline-2770:431:2
-								if /*line syntax/scan.ergo#ergo-inline-2770:431:5*/ src[at_2] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-2770:432:3
-//line syntax/scan.ergo#ergo-inline-2770:432:10
+//line syntax/scan.ergo#ergo-inline-2770:446:2
+								if /*line syntax/scan.ergo#ergo-inline-2770:446:5*/ src[at_2] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-2770:447:3
+//line syntax/scan.ergo#ergo-inline-2770:447:10
 									v_10 := identRest(src, (at_2 + int(1)))
-//line syntax/scan.ergo#ergo-inline-2770:432:3
+//line syntax/scan.ergo#ergo-inline-2770:447:3
 									v_9 = v_10
-									/*line syntax/scan.ergo#ergo-inline-2770:432:3*/ goto inl_3
-									/*line syntax/scan.ergo#ergo-inline-2770:432:3*/
+									/*line syntax/scan.ergo#ergo-inline-2770:447:3*/ goto inl_3
+									/*line syntax/scan.ergo#ergo-inline-2770:447:3*/
 								}
-//line syntax/scan.ergo#ergo-inline-2770:434:2
+//line syntax/scan.ergo#ergo-inline-2770:449:2
 								t_3 := src
-								/*line syntax/scan.ergo#ergo-inline-2770:434:2*/ t_4 := at_2
-//line syntax/scan.ergo#ergo-inline-2770:434:23
-								v_11 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-2770:434:47*/ src[at_2:])
-//line syntax/scan.ergo#ergo-inline-2770:434:2
+								/*line syntax/scan.ergo#ergo-inline-2770:449:2*/ t_4 := at_2
+//line syntax/scan.ergo#ergo-inline-2770:449:23
+								v_11 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-2770:449:47*/ src[at_2:])
+//line syntax/scan.ergo#ergo-inline-2770:449:2
 								v_9 = identRest(t_3, (t_4 + v_11.Size))
 
-								/*line syntax/scan.ergo#ergo-inline-2770:434:2*/
+								/*line syntax/scan.ergo#ergo-inline-2770:449:2*/
 							}
-							/*line syntax/scan.ergo#ergo-inline-2770:434:2*/ inl_3:
+							/*line syntax/scan.ergo#ergo-inline-2770:449:2*/ inl_3:
 							;
 //line syntax/parse.ergo#ergo-inline-2769:341:57
 							v_8 = (v_9 == (at_2 + len(w)))
@@ -78947,27 +78957,27 @@ func (p *parser) parseMachineType() uint32 {
 				var v_212 int
 				/*line syntax/parse.ergo#ergo-inline-2934:341:57*/ {
 					/*line syntax/parse.ergo#ergo-inline-2934:341:57*/ var src string = p.src
-//line syntax/scan.ergo#ergo-inline-2935:431:2
-					if /*line syntax/scan.ergo#ergo-inline-2935:431:5*/ src[at_34] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-2935:432:3
-//line syntax/scan.ergo#ergo-inline-2935:432:10
+//line syntax/scan.ergo#ergo-inline-2935:446:2
+					if /*line syntax/scan.ergo#ergo-inline-2935:446:5*/ src[at_34] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-2935:447:3
+//line syntax/scan.ergo#ergo-inline-2935:447:10
 						v_213 := identRest(src, (at_34 + int(1)))
-//line syntax/scan.ergo#ergo-inline-2935:432:3
+//line syntax/scan.ergo#ergo-inline-2935:447:3
 						v_212 = v_213
-						/*line syntax/scan.ergo#ergo-inline-2935:432:3*/ goto inl_109
-						/*line syntax/scan.ergo#ergo-inline-2935:432:3*/
+						/*line syntax/scan.ergo#ergo-inline-2935:447:3*/ goto inl_109
+						/*line syntax/scan.ergo#ergo-inline-2935:447:3*/
 					}
-//line syntax/scan.ergo#ergo-inline-2935:434:2
+//line syntax/scan.ergo#ergo-inline-2935:449:2
 					t_92 := src
-					/*line syntax/scan.ergo#ergo-inline-2935:434:2*/ t_93 := at_34
-//line syntax/scan.ergo#ergo-inline-2935:434:23
-					v_214 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-2935:434:47*/ src[at_34:])
-//line syntax/scan.ergo#ergo-inline-2935:434:2
+					/*line syntax/scan.ergo#ergo-inline-2935:449:2*/ t_93 := at_34
+//line syntax/scan.ergo#ergo-inline-2935:449:23
+					v_214 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-2935:449:47*/ src[at_34:])
+//line syntax/scan.ergo#ergo-inline-2935:449:2
 					v_212 = identRest(t_92, (t_93 + v_214.Size))
 
-					/*line syntax/scan.ergo#ergo-inline-2935:434:2*/
+					/*line syntax/scan.ergo#ergo-inline-2935:449:2*/
 				}
-				/*line syntax/scan.ergo#ergo-inline-2935:434:2*/ inl_109:
+				/*line syntax/scan.ergo#ergo-inline-2935:449:2*/ inl_109:
 				;
 //line syntax/parse.ergo#ergo-inline-2934:341:57
 				v_211 = (v_212 == (at_34 + len(w_1)))
@@ -79000,27 +79010,27 @@ func (p *parser) parseMachineType() uint32 {
 				var v_217 int
 				/*line syntax/parse.ergo#ergo-inline-2936:341:57*/ {
 					/*line syntax/parse.ergo#ergo-inline-2936:341:57*/ var src_1 string = p.src
-//line syntax/scan.ergo#ergo-inline-2937:431:2
-					if /*line syntax/scan.ergo#ergo-inline-2937:431:5*/ src_1[at_35] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-2937:432:3
-//line syntax/scan.ergo#ergo-inline-2937:432:10
+//line syntax/scan.ergo#ergo-inline-2937:446:2
+					if /*line syntax/scan.ergo#ergo-inline-2937:446:5*/ src_1[at_35] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-2937:447:3
+//line syntax/scan.ergo#ergo-inline-2937:447:10
 						v_218 := identRest(src_1, (at_35 + int(1)))
-//line syntax/scan.ergo#ergo-inline-2937:432:3
+//line syntax/scan.ergo#ergo-inline-2937:447:3
 						v_217 = v_218
-						/*line syntax/scan.ergo#ergo-inline-2937:432:3*/ goto inl_111
-						/*line syntax/scan.ergo#ergo-inline-2937:432:3*/
+						/*line syntax/scan.ergo#ergo-inline-2937:447:3*/ goto inl_111
+						/*line syntax/scan.ergo#ergo-inline-2937:447:3*/
 					}
-//line syntax/scan.ergo#ergo-inline-2937:434:2
+//line syntax/scan.ergo#ergo-inline-2937:449:2
 					t_94 := src_1
-					/*line syntax/scan.ergo#ergo-inline-2937:434:2*/ t_95 := at_35
-//line syntax/scan.ergo#ergo-inline-2937:434:23
-					v_219 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-2937:434:47*/ src_1[at_35:])
-//line syntax/scan.ergo#ergo-inline-2937:434:2
+					/*line syntax/scan.ergo#ergo-inline-2937:449:2*/ t_95 := at_35
+//line syntax/scan.ergo#ergo-inline-2937:449:23
+					v_219 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-2937:449:47*/ src_1[at_35:])
+//line syntax/scan.ergo#ergo-inline-2937:449:2
 					v_217 = identRest(t_94, (t_95 + v_219.Size))
 
-					/*line syntax/scan.ergo#ergo-inline-2937:434:2*/
+					/*line syntax/scan.ergo#ergo-inline-2937:449:2*/
 				}
-				/*line syntax/scan.ergo#ergo-inline-2937:434:2*/ inl_111:
+				/*line syntax/scan.ergo#ergo-inline-2937:449:2*/ inl_111:
 				;
 //line syntax/parse.ergo#ergo-inline-2936:341:57
 				v_216 = (v_217 == (at_35 + len(w_2)))
@@ -79053,27 +79063,27 @@ func (p *parser) parseMachineType() uint32 {
 				var v_222 int
 				/*line syntax/parse.ergo#ergo-inline-2938:341:57*/ {
 					/*line syntax/parse.ergo#ergo-inline-2938:341:57*/ var src_2 string = p.src
-//line syntax/scan.ergo#ergo-inline-2939:431:2
-					if /*line syntax/scan.ergo#ergo-inline-2939:431:5*/ src_2[at_36] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-2939:432:3
-//line syntax/scan.ergo#ergo-inline-2939:432:10
+//line syntax/scan.ergo#ergo-inline-2939:446:2
+					if /*line syntax/scan.ergo#ergo-inline-2939:446:5*/ src_2[at_36] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-2939:447:3
+//line syntax/scan.ergo#ergo-inline-2939:447:10
 						v_223 := identRest(src_2, (at_36 + int(1)))
-//line syntax/scan.ergo#ergo-inline-2939:432:3
+//line syntax/scan.ergo#ergo-inline-2939:447:3
 						v_222 = v_223
-						/*line syntax/scan.ergo#ergo-inline-2939:432:3*/ goto inl_113
-						/*line syntax/scan.ergo#ergo-inline-2939:432:3*/
+						/*line syntax/scan.ergo#ergo-inline-2939:447:3*/ goto inl_113
+						/*line syntax/scan.ergo#ergo-inline-2939:447:3*/
 					}
-//line syntax/scan.ergo#ergo-inline-2939:434:2
+//line syntax/scan.ergo#ergo-inline-2939:449:2
 					t_96 := src_2
-					/*line syntax/scan.ergo#ergo-inline-2939:434:2*/ t_97 := at_36
-//line syntax/scan.ergo#ergo-inline-2939:434:23
-					v_224 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-2939:434:47*/ src_2[at_36:])
-//line syntax/scan.ergo#ergo-inline-2939:434:2
+					/*line syntax/scan.ergo#ergo-inline-2939:449:2*/ t_97 := at_36
+//line syntax/scan.ergo#ergo-inline-2939:449:23
+					v_224 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-2939:449:47*/ src_2[at_36:])
+//line syntax/scan.ergo#ergo-inline-2939:449:2
 					v_222 = identRest(t_96, (t_97 + v_224.Size))
 
-					/*line syntax/scan.ergo#ergo-inline-2939:434:2*/
+					/*line syntax/scan.ergo#ergo-inline-2939:449:2*/
 				}
-				/*line syntax/scan.ergo#ergo-inline-2939:434:2*/ inl_113:
+				/*line syntax/scan.ergo#ergo-inline-2939:449:2*/ inl_113:
 				;
 //line syntax/parse.ergo#ergo-inline-2938:341:57
 				v_221 = (v_222 == (at_36 + len(w_3)))
@@ -80745,27 +80755,27 @@ func (p *parser) parseTypeName(what string) uint32 {
 			var v_43 int
 			/*line syntax/parse.ergo#ergo-inline-3019:341:57*/ {
 				/*line syntax/parse.ergo#ergo-inline-3019:341:57*/ var src string = p.src
-//line syntax/scan.ergo#ergo-inline-3020:431:2
-				if /*line syntax/scan.ergo#ergo-inline-3020:431:5*/ src[at_8] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-3020:432:3
-//line syntax/scan.ergo#ergo-inline-3020:432:10
+//line syntax/scan.ergo#ergo-inline-3020:446:2
+				if /*line syntax/scan.ergo#ergo-inline-3020:446:5*/ src[at_8] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-3020:447:3
+//line syntax/scan.ergo#ergo-inline-3020:447:10
 					v_44 := identRest(src, (at_8 + int(1)))
-//line syntax/scan.ergo#ergo-inline-3020:432:3
+//line syntax/scan.ergo#ergo-inline-3020:447:3
 					v_43 = v_44
-					/*line syntax/scan.ergo#ergo-inline-3020:432:3*/ goto inl_27
-					/*line syntax/scan.ergo#ergo-inline-3020:432:3*/
+					/*line syntax/scan.ergo#ergo-inline-3020:447:3*/ goto inl_27
+					/*line syntax/scan.ergo#ergo-inline-3020:447:3*/
 				}
-//line syntax/scan.ergo#ergo-inline-3020:434:2
+//line syntax/scan.ergo#ergo-inline-3020:449:2
 				t_19 := src
-				/*line syntax/scan.ergo#ergo-inline-3020:434:2*/ t_20 := at_8
-//line syntax/scan.ergo#ergo-inline-3020:434:23
-				v_45 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-3020:434:47*/ src[at_8:])
-//line syntax/scan.ergo#ergo-inline-3020:434:2
+				/*line syntax/scan.ergo#ergo-inline-3020:449:2*/ t_20 := at_8
+//line syntax/scan.ergo#ergo-inline-3020:449:23
+				v_45 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-3020:449:47*/ src[at_8:])
+//line syntax/scan.ergo#ergo-inline-3020:449:2
 				v_43 = identRest(t_19, (t_20 + v_45.Size))
 
-				/*line syntax/scan.ergo#ergo-inline-3020:434:2*/
+				/*line syntax/scan.ergo#ergo-inline-3020:449:2*/
 			}
-			/*line syntax/scan.ergo#ergo-inline-3020:434:2*/ inl_27:
+			/*line syntax/scan.ergo#ergo-inline-3020:449:2*/ inl_27:
 			;
 //line syntax/parse.ergo#ergo-inline-3019:341:57
 			v_42 = (v_43 == (at_8 + len(w)))
@@ -81762,27 +81772,27 @@ func (p *parser) parseResultType(ctx int) uint32 {
 						var v_6 int
 						/*line syntax/parse.ergo#ergo-inline-3052:350:57*/ {
 							/*line syntax/parse.ergo#ergo-inline-3052:350:57*/ var src string = p.src
-//line syntax/scan.ergo#ergo-inline-3053:431:2
-							if /*line syntax/scan.ergo#ergo-inline-3053:431:5*/ src[at_1] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-3053:432:3
-//line syntax/scan.ergo#ergo-inline-3053:432:10
+//line syntax/scan.ergo#ergo-inline-3053:446:2
+							if /*line syntax/scan.ergo#ergo-inline-3053:446:5*/ src[at_1] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-3053:447:3
+//line syntax/scan.ergo#ergo-inline-3053:447:10
 								v_7 := identRest(src, (at_1 + int(1)))
-//line syntax/scan.ergo#ergo-inline-3053:432:3
+//line syntax/scan.ergo#ergo-inline-3053:447:3
 								v_6 = v_7
-								/*line syntax/scan.ergo#ergo-inline-3053:432:3*/ goto inl_2
-								/*line syntax/scan.ergo#ergo-inline-3053:432:3*/
+								/*line syntax/scan.ergo#ergo-inline-3053:447:3*/ goto inl_2
+								/*line syntax/scan.ergo#ergo-inline-3053:447:3*/
 							}
-//line syntax/scan.ergo#ergo-inline-3053:434:2
+//line syntax/scan.ergo#ergo-inline-3053:449:2
 							t := src
-							/*line syntax/scan.ergo#ergo-inline-3053:434:2*/ t_1 := at_1
-//line syntax/scan.ergo#ergo-inline-3053:434:23
-							v_8 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-3053:434:47*/ src[at_1:])
-//line syntax/scan.ergo#ergo-inline-3053:434:2
+							/*line syntax/scan.ergo#ergo-inline-3053:449:2*/ t_1 := at_1
+//line syntax/scan.ergo#ergo-inline-3053:449:23
+							v_8 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-3053:449:47*/ src[at_1:])
+//line syntax/scan.ergo#ergo-inline-3053:449:2
 							v_6 = identRest(t, (t_1 + v_8.Size))
 
-							/*line syntax/scan.ergo#ergo-inline-3053:434:2*/
+							/*line syntax/scan.ergo#ergo-inline-3053:449:2*/
 						}
-						/*line syntax/scan.ergo#ergo-inline-3053:434:2*/ inl_2:
+						/*line syntax/scan.ergo#ergo-inline-3053:449:2*/ inl_2:
 						;
 //line syntax/parse.ergo#ergo-inline-3052:350:57
 						v_5 = (v_6 == (at_1 + len(w)))
@@ -85788,27 +85798,27 @@ func (p *parser) parseParamEntry() entry {
 				var v_2 int
 				/*line syntax/parse.ergo#ergo-inline-3233:341:57*/ {
 					/*line syntax/parse.ergo#ergo-inline-3233:341:57*/ var src string = p.src
-//line syntax/scan.ergo#ergo-inline-3234:431:2
-					if /*line syntax/scan.ergo#ergo-inline-3234:431:5*/ src[at_1] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-3234:432:3
-//line syntax/scan.ergo#ergo-inline-3234:432:10
+//line syntax/scan.ergo#ergo-inline-3234:446:2
+					if /*line syntax/scan.ergo#ergo-inline-3234:446:5*/ src[at_1] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-3234:447:3
+//line syntax/scan.ergo#ergo-inline-3234:447:10
 						v_3 := identRest(src, (at_1 + int(1)))
-//line syntax/scan.ergo#ergo-inline-3234:432:3
+//line syntax/scan.ergo#ergo-inline-3234:447:3
 						v_2 = v_3
-						/*line syntax/scan.ergo#ergo-inline-3234:432:3*/ goto inl_2
-						/*line syntax/scan.ergo#ergo-inline-3234:432:3*/
+						/*line syntax/scan.ergo#ergo-inline-3234:447:3*/ goto inl_2
+						/*line syntax/scan.ergo#ergo-inline-3234:447:3*/
 					}
-//line syntax/scan.ergo#ergo-inline-3234:434:2
+//line syntax/scan.ergo#ergo-inline-3234:449:2
 					t := src
-					/*line syntax/scan.ergo#ergo-inline-3234:434:2*/ t_1 := at_1
-//line syntax/scan.ergo#ergo-inline-3234:434:23
-					v_4 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-3234:434:47*/ src[at_1:])
-//line syntax/scan.ergo#ergo-inline-3234:434:2
+					/*line syntax/scan.ergo#ergo-inline-3234:449:2*/ t_1 := at_1
+//line syntax/scan.ergo#ergo-inline-3234:449:23
+					v_4 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-3234:449:47*/ src[at_1:])
+//line syntax/scan.ergo#ergo-inline-3234:449:2
 					v_2 = identRest(t, (t_1 + v_4.Size))
 
-					/*line syntax/scan.ergo#ergo-inline-3234:434:2*/
+					/*line syntax/scan.ergo#ergo-inline-3234:449:2*/
 				}
-				/*line syntax/scan.ergo#ergo-inline-3234:434:2*/ inl_2:
+				/*line syntax/scan.ergo#ergo-inline-3234:449:2*/ inl_2:
 				;
 //line syntax/parse.ergo#ergo-inline-3233:341:57
 				v_1 = (v_2 == (at_1 + len(w)))
@@ -86323,27 +86333,27 @@ func (p *parser) parseParamEntry() entry {
 				var v_57 int
 				/*line syntax/parse.ergo#ergo-inline-3256:341:57*/ {
 					/*line syntax/parse.ergo#ergo-inline-3256:341:57*/ var src_1 string = p.src
-//line syntax/scan.ergo#ergo-inline-3257:431:2
-					if /*line syntax/scan.ergo#ergo-inline-3257:431:5*/ src_1[at_6] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-3257:432:3
-//line syntax/scan.ergo#ergo-inline-3257:432:10
+//line syntax/scan.ergo#ergo-inline-3257:446:2
+					if /*line syntax/scan.ergo#ergo-inline-3257:446:5*/ src_1[at_6] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-3257:447:3
+//line syntax/scan.ergo#ergo-inline-3257:447:10
 						v_58 := identRest(src_1, (at_6 + int(1)))
-//line syntax/scan.ergo#ergo-inline-3257:432:3
+//line syntax/scan.ergo#ergo-inline-3257:447:3
 						v_57 = v_58
-						/*line syntax/scan.ergo#ergo-inline-3257:432:3*/ goto inl_25
-						/*line syntax/scan.ergo#ergo-inline-3257:432:3*/
+						/*line syntax/scan.ergo#ergo-inline-3257:447:3*/ goto inl_25
+						/*line syntax/scan.ergo#ergo-inline-3257:447:3*/
 					}
-//line syntax/scan.ergo#ergo-inline-3257:434:2
+//line syntax/scan.ergo#ergo-inline-3257:449:2
 					t_27 := src_1
-					/*line syntax/scan.ergo#ergo-inline-3257:434:2*/ t_28 := at_6
-//line syntax/scan.ergo#ergo-inline-3257:434:23
-					v_59 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-3257:434:47*/ src_1[at_6:])
-//line syntax/scan.ergo#ergo-inline-3257:434:2
+					/*line syntax/scan.ergo#ergo-inline-3257:449:2*/ t_28 := at_6
+//line syntax/scan.ergo#ergo-inline-3257:449:23
+					v_59 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-3257:449:47*/ src_1[at_6:])
+//line syntax/scan.ergo#ergo-inline-3257:449:2
 					v_57 = identRest(t_27, (t_28 + v_59.Size))
 
-					/*line syntax/scan.ergo#ergo-inline-3257:434:2*/
+					/*line syntax/scan.ergo#ergo-inline-3257:449:2*/
 				}
-				/*line syntax/scan.ergo#ergo-inline-3257:434:2*/ inl_25:
+				/*line syntax/scan.ergo#ergo-inline-3257:449:2*/ inl_25:
 				;
 //line syntax/parse.ergo#ergo-inline-3256:341:57
 				v_56 = (v_57 == (at_6 + len(w_2)))
@@ -86867,27 +86877,27 @@ func (p *parser) parseParamEntry() entry {
 				var v_106 int
 				/*line syntax/parse.ergo#ergo-inline-3279:341:57*/ {
 					/*line syntax/parse.ergo#ergo-inline-3279:341:57*/ var src_2 string = p.src
-//line syntax/scan.ergo#ergo-inline-3280:431:2
-					if /*line syntax/scan.ergo#ergo-inline-3280:431:5*/ src_2[at_11] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-3280:432:3
-//line syntax/scan.ergo#ergo-inline-3280:432:10
+//line syntax/scan.ergo#ergo-inline-3280:446:2
+					if /*line syntax/scan.ergo#ergo-inline-3280:446:5*/ src_2[at_11] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-3280:447:3
+//line syntax/scan.ergo#ergo-inline-3280:447:10
 						v_107 := identRest(src_2, (at_11 + int(1)))
-//line syntax/scan.ergo#ergo-inline-3280:432:3
+//line syntax/scan.ergo#ergo-inline-3280:447:3
 						v_106 = v_107
-						/*line syntax/scan.ergo#ergo-inline-3280:432:3*/ goto inl_48
-						/*line syntax/scan.ergo#ergo-inline-3280:432:3*/
+						/*line syntax/scan.ergo#ergo-inline-3280:447:3*/ goto inl_48
+						/*line syntax/scan.ergo#ergo-inline-3280:447:3*/
 					}
-//line syntax/scan.ergo#ergo-inline-3280:434:2
+//line syntax/scan.ergo#ergo-inline-3280:449:2
 					t_44 := src_2
-					/*line syntax/scan.ergo#ergo-inline-3280:434:2*/ t_45 := at_11
-//line syntax/scan.ergo#ergo-inline-3280:434:23
-					v_108 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-3280:434:47*/ src_2[at_11:])
-//line syntax/scan.ergo#ergo-inline-3280:434:2
+					/*line syntax/scan.ergo#ergo-inline-3280:449:2*/ t_45 := at_11
+//line syntax/scan.ergo#ergo-inline-3280:449:23
+					v_108 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-3280:449:47*/ src_2[at_11:])
+//line syntax/scan.ergo#ergo-inline-3280:449:2
 					v_106 = identRest(t_44, (t_45 + v_108.Size))
 
-					/*line syntax/scan.ergo#ergo-inline-3280:434:2*/
+					/*line syntax/scan.ergo#ergo-inline-3280:449:2*/
 				}
-				/*line syntax/scan.ergo#ergo-inline-3280:434:2*/ inl_48:
+				/*line syntax/scan.ergo#ergo-inline-3280:449:2*/ inl_48:
 				;
 //line syntax/parse.ergo#ergo-inline-3279:341:57
 				v_105 = (v_106 == (at_11 + len(w_3)))
@@ -86969,27 +86979,27 @@ func (p *parser) parseParamEntry() entry {
 					var v_114 int
 					/*line syntax/parse.ergo#ergo-inline-3282:341:57*/ {
 						/*line syntax/parse.ergo#ergo-inline-3282:341:57*/ var src_3 string = p.src
-//line syntax/scan.ergo#ergo-inline-3283:431:2
-						if /*line syntax/scan.ergo#ergo-inline-3283:431:5*/ src_3[at_13] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-3283:432:3
-//line syntax/scan.ergo#ergo-inline-3283:432:10
+//line syntax/scan.ergo#ergo-inline-3283:446:2
+						if /*line syntax/scan.ergo#ergo-inline-3283:446:5*/ src_3[at_13] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-3283:447:3
+//line syntax/scan.ergo#ergo-inline-3283:447:10
 							v_115 := identRest(src_3, (at_13 + int(1)))
-//line syntax/scan.ergo#ergo-inline-3283:432:3
+//line syntax/scan.ergo#ergo-inline-3283:447:3
 							v_114 = v_115
-							/*line syntax/scan.ergo#ergo-inline-3283:432:3*/ goto inl_51
-							/*line syntax/scan.ergo#ergo-inline-3283:432:3*/
+							/*line syntax/scan.ergo#ergo-inline-3283:447:3*/ goto inl_51
+							/*line syntax/scan.ergo#ergo-inline-3283:447:3*/
 						}
-//line syntax/scan.ergo#ergo-inline-3283:434:2
+//line syntax/scan.ergo#ergo-inline-3283:449:2
 						t_46 := src_3
-						/*line syntax/scan.ergo#ergo-inline-3283:434:2*/ t_47 := at_13
-//line syntax/scan.ergo#ergo-inline-3283:434:23
-						v_116 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-3283:434:47*/ src_3[at_13:])
-//line syntax/scan.ergo#ergo-inline-3283:434:2
+						/*line syntax/scan.ergo#ergo-inline-3283:449:2*/ t_47 := at_13
+//line syntax/scan.ergo#ergo-inline-3283:449:23
+						v_116 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-3283:449:47*/ src_3[at_13:])
+//line syntax/scan.ergo#ergo-inline-3283:449:2
 						v_114 = identRest(t_46, (t_47 + v_116.Size))
 
-						/*line syntax/scan.ergo#ergo-inline-3283:434:2*/
+						/*line syntax/scan.ergo#ergo-inline-3283:449:2*/
 					}
-					/*line syntax/scan.ergo#ergo-inline-3283:434:2*/ inl_51:
+					/*line syntax/scan.ergo#ergo-inline-3283:449:2*/ inl_51:
 					;
 //line syntax/parse.ergo#ergo-inline-3282:341:57
 					v_113 = (v_114 == (at_13 + len(w_4)))
@@ -101004,156 +101014,156 @@ func (t Tree) childrenOwned(x uint32, out []uint32) []uint32 {
 	/*line syntax/tree_laws.ergo:86:2*/
 }
 
-//line syntax/scan.ergo:1211:1
+//line syntax/scan.ergo:1226:1
 func hexByte(c uint8) string {
-//line syntax/scan.ergo:1211:31
-//line syntax/scan.ergo:1211:38
+//line syntax/scan.ergo:1226:31
+//line syntax/scan.ergo:1226:38
 	r := strconv.FormatInt(int64(c), int(16))
-//line syntax/scan.ergo:1211:31
+//line syntax/scan.ergo:1226:31
 	return ("0x" + r)
-	/*line syntax/scan.ergo:1211:31*/
+	/*line syntax/scan.ergo:1226:31*/
 }
 
-//line syntax/scan.ergo:850:1
+//line syntax/scan.ergo:865:1
 func (s *scanner) prefixed(start_1 int) {
-//line syntax/scan.ergo:851:2
+//line syntax/scan.ergo:866:2
 	var src string = s.src
-//line syntax/scan.ergo:852:2
+//line syntax/scan.ergo:867:2
 	var n int = len(src)
-//line syntax/scan.ergo:853:2
-	a := /*line syntax/scan.ergo:853:20*/ src[(start_1 + int(1))]
-	/*line syntax/scan.ergo:853:2*/ i := 0
-	/*line syntax/scan.ergo:853:2*/ i = i*256 + int(a)
-	/*line syntax/scan.ergo:853:2*/ var v int
-	/*line syntax/scan.ergo:853:2*/ if tabbaseOfK[i].Ready() {
-		/*line syntax/scan.ergo:853:2*/ v = tabbaseOfV[i]
-		/*line syntax/scan.ergo:853:2*/
+//line syntax/scan.ergo:868:2
+	a := /*line syntax/scan.ergo:868:20*/ src[(start_1 + int(1))]
+	/*line syntax/scan.ergo:868:2*/ i := 0
+	/*line syntax/scan.ergo:868:2*/ i = i*256 + int(a)
+	/*line syntax/scan.ergo:868:2*/ var v int
+	/*line syntax/scan.ergo:868:2*/ if tabbaseOfK[i].Ready() {
+		/*line syntax/scan.ergo:868:2*/ v = tabbaseOfV[i]
+		/*line syntax/scan.ergo:868:2*/
 	} else {
-		/*line syntax/scan.ergo:853:2*/ v = tabbaseOfFill(i, a)
-		/*line syntax/scan.ergo:853:2*/
+		/*line syntax/scan.ergo:868:2*/ v = tabbaseOfFill(i, a)
+		/*line syntax/scan.ergo:868:2*/
 	}
-//line syntax/scan.ergo:853:13
+//line syntax/scan.ergo:868:13
 	v_1 := v
-//line syntax/scan.ergo:853:2
-//line syntax/scan.ergo:854:2
-//line syntax/scan.ergo:854:12
+//line syntax/scan.ergo:868:2
+//line syntax/scan.ergo:869:2
+//line syntax/scan.ergo:869:12
 	v_2 := identRest(src, (start_1 + int(2)))
-//line syntax/scan.ergo:854:2
-//line syntax/scan.ergo:855:2
-	var lit_1 string = /*line syntax/scan.ergo:855:12*/ src[start_1:v_2]
-//line syntax/scan.ergo:856:2
-	b := (v_1 == int(16))
-	/*line syntax/scan.ergo:856:2*/ if b {
-//line syntax/scan.ergo:856:20
-		v_3 := ergo.StringsContainsRune( /*line syntax/scan.ergo:856:41*/ lit_1[int(2):], int32(112))
-//line syntax/scan.ergo:856:2
-		b_2 := v_3
-		/*line syntax/scan.ergo:856:2*/ if !b_2 {
-//line syntax/scan.ergo:856:58
-			v_4 := ergo.StringsContainsRune( /*line syntax/scan.ergo:856:79*/ lit_1[int(2):], int32(80))
-//line syntax/scan.ergo:856:2
-			b_2 = v_4
-			/*line syntax/scan.ergo:856:2*/
-		}
-		/*line syntax/scan.ergo:856:2*/ b_1 := b_2
-		/*line syntax/scan.ergo:856:2*/ if !b_1 {
-			/*line syntax/scan.ergo:856:2*/ b_3 := ((v_2 < n) && ( /*line syntax/scan.ergo:856:108*/ src[v_2] == uint8(46)))
-			/*line syntax/scan.ergo:856:2*/ if b_3 {
-//line syntax/scan.ergo:856:128
-				v_5 := ergo.StringsHasPrefix( /*line syntax/scan.ergo:856:146*/ src[v_2:], "..")
-//line syntax/scan.ergo:856:2
-				b_3 = (!v_5)
-				/*line syntax/scan.ergo:856:2*/
-			}
-			/*line syntax/scan.ergo:856:2*/ b_1 = b_3
-			/*line syntax/scan.ergo:856:2*/
-		}
-		/*line syntax/scan.ergo:856:2*/ b = b_1
-		/*line syntax/scan.ergo:856:2*/
-	}
-	/*line syntax/scan.ergo:856:2*/ if b {
-//line syntax/scan.ergo:857:3
-		(s).fail(start_1, (v_2 - start_1), "hexadecimal float literals are not part of the language; write a decimal float")
-//line syntax/scan.ergo:858:3
-		return
-		/*line syntax/scan.ergo:858:3*/
-	}
-//line syntax/scan.ergo:860:2
-	var seen bool = false
-//line syntax/scan.ergo:861:2
-	t := (Range[int]{Start: int(2), End: len(lit_1)})
-	/*line syntax/scan.ergo:861:2*/ for i_1 := t.Start; i_1 < t.End; i_1++ {
-		/*line syntax/scan.ergo:861:2*/ var i_2 int = i_1
-//line syntax/scan.ergo:862:3
-		if /*line syntax/scan.ergo:862:6*/ lit_1[i_2] != uint8(95) {
-//line syntax/scan.ergo:863:4
-			a_1 := /*line syntax/scan.ergo:863:18*/ lit_1[i_2]
-			/*line syntax/scan.ergo:863:4*/ i_3 := 0
-			/*line syntax/scan.ergo:863:4*/ i_3 = i_3*256 + int(a_1)
-			/*line syntax/scan.ergo:863:4*/ var v_7 int
-			/*line syntax/scan.ergo:863:4*/ if tabdigitValueK[i_3].Ready() {
-				/*line syntax/scan.ergo:863:4*/ v_7 = tabdigitValueV[i_3]
-				/*line syntax/scan.ergo:863:4*/
-			} else {
-				/*line syntax/scan.ergo:863:4*/ v_7 = tabdigitValueFill(i_3, a_1)
-				/*line syntax/scan.ergo:863:4*/
-			}
-//line syntax/scan.ergo:863:7
-			v_8 := v_7
-//line syntax/scan.ergo:863:4
-			if v_8 >= v_1 {
-//line syntax/scan.ergo:864:5
-				t_1 := s
-				/*line syntax/scan.ergo:864:5*/ t_2 := start_1
-				/*line syntax/scan.ergo:864:5*/ t_3 := (v_2 - start_1)
-//line syntax/scan.ergo:864:66
-				v_9 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo:864:90*/ lit_1[i_2:])
-//line syntax/scan.ergo:864:5
-//line syntax/scan.ergo:864:48
-				r := strconv.QuoteRune(v_9.Rune)
-//line syntax/scan.ergo:864:5
-				t_4 := (("invalid digit " + r) + " in the ")
-//line syntax/scan.ergo:864:116
-				v_10 := baseName(v_1)
-//line syntax/scan.ergo:864:5
-				(t_1).fail(t_2, t_3, (((t_4 + v_10) + " literal ") + lit_1))
-//line syntax/scan.ergo:865:5
-				return
-				/*line syntax/scan.ergo:865:5*/
-			}
-//line syntax/scan.ergo:867:4
-			seen = true
-			/*line syntax/scan.ergo:867:4*/
-		}
-		/*line syntax/scan.ergo:867:4*/
-	}
+//line syntax/scan.ergo:869:2
 //line syntax/scan.ergo:870:2
-	if !seen {
-//line syntax/scan.ergo:871:3
-		t_5 := s
-		/*line syntax/scan.ergo:871:3*/ t_6 := start_1
-		/*line syntax/scan.ergo:871:3*/ t_7 := (v_2 - start_1)
-//line syntax/scan.ergo:871:36
-		v_11 := baseName(v_1)
-//line syntax/scan.ergo:871:3
-		(t_5).fail(t_6, t_7, (((("the " + v_11) + " literal ") + lit_1) + " has no digits"))
+	var lit_1 string = /*line syntax/scan.ergo:870:12*/ src[start_1:v_2]
+//line syntax/scan.ergo:871:2
+	b := (v_1 == int(16))
+	/*line syntax/scan.ergo:871:2*/ if b {
+//line syntax/scan.ergo:871:20
+		v_3 := ergo.StringsContainsRune( /*line syntax/scan.ergo:871:41*/ lit_1[int(2):], int32(112))
+//line syntax/scan.ergo:871:2
+		b_2 := v_3
+		/*line syntax/scan.ergo:871:2*/ if !b_2 {
+//line syntax/scan.ergo:871:58
+			v_4 := ergo.StringsContainsRune( /*line syntax/scan.ergo:871:79*/ lit_1[int(2):], int32(80))
+//line syntax/scan.ergo:871:2
+			b_2 = v_4
+			/*line syntax/scan.ergo:871:2*/
+		}
+		/*line syntax/scan.ergo:871:2*/ b_1 := b_2
+		/*line syntax/scan.ergo:871:2*/ if !b_1 {
+			/*line syntax/scan.ergo:871:2*/ b_3 := ((v_2 < n) && ( /*line syntax/scan.ergo:871:108*/ src[v_2] == uint8(46)))
+			/*line syntax/scan.ergo:871:2*/ if b_3 {
+//line syntax/scan.ergo:871:128
+				v_5 := ergo.StringsHasPrefix( /*line syntax/scan.ergo:871:146*/ src[v_2:], "..")
+//line syntax/scan.ergo:871:2
+				b_3 = (!v_5)
+				/*line syntax/scan.ergo:871:2*/
+			}
+			/*line syntax/scan.ergo:871:2*/ b_1 = b_3
+			/*line syntax/scan.ergo:871:2*/
+		}
+		/*line syntax/scan.ergo:871:2*/ b = b_1
+		/*line syntax/scan.ergo:871:2*/
+	}
+	/*line syntax/scan.ergo:871:2*/ if b {
 //line syntax/scan.ergo:872:3
+		(s).fail(start_1, (v_2 - start_1), "hexadecimal float literals are not part of the language; write a decimal float")
+//line syntax/scan.ergo:873:3
 		return
-		/*line syntax/scan.ergo:872:3*/
+		/*line syntax/scan.ergo:873:3*/
 	}
-//line syntax/scan.ergo:874:2
-//line syntax/scan.ergo:874:5
+//line syntax/scan.ergo:875:2
+	var seen bool = false
+//line syntax/scan.ergo:876:2
+	t := (Range[int]{Start: int(2), End: len(lit_1)})
+	/*line syntax/scan.ergo:876:2*/ for i_1 := t.Start; i_1 < t.End; i_1++ {
+		/*line syntax/scan.ergo:876:2*/ var i_2 int = i_1
+//line syntax/scan.ergo:877:3
+		if /*line syntax/scan.ergo:877:6*/ lit_1[i_2] != uint8(95) {
+//line syntax/scan.ergo:878:4
+			a_1 := /*line syntax/scan.ergo:878:18*/ lit_1[i_2]
+			/*line syntax/scan.ergo:878:4*/ i_3 := 0
+			/*line syntax/scan.ergo:878:4*/ i_3 = i_3*256 + int(a_1)
+			/*line syntax/scan.ergo:878:4*/ var v_7 int
+			/*line syntax/scan.ergo:878:4*/ if tabdigitValueK[i_3].Ready() {
+				/*line syntax/scan.ergo:878:4*/ v_7 = tabdigitValueV[i_3]
+				/*line syntax/scan.ergo:878:4*/
+			} else {
+				/*line syntax/scan.ergo:878:4*/ v_7 = tabdigitValueFill(i_3, a_1)
+				/*line syntax/scan.ergo:878:4*/
+			}
+//line syntax/scan.ergo:878:7
+			v_8 := v_7
+//line syntax/scan.ergo:878:4
+			if v_8 >= v_1 {
+//line syntax/scan.ergo:879:5
+				t_1 := s
+				/*line syntax/scan.ergo:879:5*/ t_2 := start_1
+				/*line syntax/scan.ergo:879:5*/ t_3 := (v_2 - start_1)
+//line syntax/scan.ergo:879:66
+				v_9 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo:879:90*/ lit_1[i_2:])
+//line syntax/scan.ergo:879:5
+//line syntax/scan.ergo:879:48
+				r := strconv.QuoteRune(v_9.Rune)
+//line syntax/scan.ergo:879:5
+				t_4 := (("invalid digit " + r) + " in the ")
+//line syntax/scan.ergo:879:116
+				v_10 := baseName(v_1)
+//line syntax/scan.ergo:879:5
+				(t_1).fail(t_2, t_3, (((t_4 + v_10) + " literal ") + lit_1))
+//line syntax/scan.ergo:880:5
+				return
+				/*line syntax/scan.ergo:880:5*/
+			}
+//line syntax/scan.ergo:882:4
+			seen = true
+			/*line syntax/scan.ergo:882:4*/
+		}
+		/*line syntax/scan.ergo:882:4*/
+	}
+//line syntax/scan.ergo:885:2
+	if !seen {
+//line syntax/scan.ergo:886:3
+		t_5 := s
+		/*line syntax/scan.ergo:886:3*/ t_6 := start_1
+		/*line syntax/scan.ergo:886:3*/ t_7 := (v_2 - start_1)
+//line syntax/scan.ergo:886:36
+		v_11 := baseName(v_1)
+//line syntax/scan.ergo:886:3
+		(t_5).fail(t_6, t_7, (((("the " + v_11) + " literal ") + lit_1) + " has no digits"))
+//line syntax/scan.ergo:887:3
+		return
+		/*line syntax/scan.ergo:887:3*/
+	}
+//line syntax/scan.ergo:889:2
+//line syntax/scan.ergo:889:5
 	v_12 := badSeparator(lit_1, v_1, true)
-//line syntax/scan.ergo:874:2
+//line syntax/scan.ergo:889:2
 	if v_12 {
-//line syntax/scan.ergo:875:3
+//line syntax/scan.ergo:890:3
 		(s).fail(start_1, (v_2 - start_1), ("'_' must separate successive digits in " + lit_1))
-//line syntax/scan.ergo:876:3
+//line syntax/scan.ergo:891:3
 		return
-		/*line syntax/scan.ergo:876:3*/
+		/*line syntax/scan.ergo:891:3*/
 	}
-//line syntax/scan.ergo:878:2
-//line syntax/scan.ergo:878:2
+//line syntax/scan.ergo:893:2
+//line syntax/scan.ergo:893:2
 	{
 //line syntax/scan.ergo#ergo-inline-3959:162:2
 //line syntax/scan.ergo#ergo-inline-3959:162:2
@@ -101255,459 +101265,459 @@ func (s *scanner) prefixed(start_1 int) {
 	}
 	/*line syntax/scan.ergo#ergo-inline-3959:165:3*/ inl:
 	;
-//line syntax/scan.ergo:878:2
-//line syntax/scan.ergo:879:2
+//line syntax/scan.ergo:893:2
+//line syntax/scan.ergo:894:2
 	s.offset = v_2
-	/*line syntax/scan.ergo:879:2*/
+	/*line syntax/scan.ergo:894:2*/
 }
 
-//line syntax/scan.ergo:829:1
+//line syntax/scan.ergo:844:1
 func badSeparator(lit_1 string, base int, prefixed_1 bool) bool {
-//line syntax/scan.ergo:830:2
+//line syntax/scan.ergo:845:2
 	t := (Range[int]{Start: int(0), End: len(lit_1)})
-	/*line syntax/scan.ergo:830:2*/ for i := t.Start; i < t.End; i++ {
-		/*line syntax/scan.ergo:830:2*/ var i_1 int = i
-//line syntax/scan.ergo:831:3
-		b := ( /*line syntax/scan.ergo:831:6*/ lit_1[i_1] == uint8(95))
-		/*line syntax/scan.ergo:831:3*/ if b {
-//line syntax/scan.ergo:831:26
+	/*line syntax/scan.ergo:845:2*/ for i := t.Start; i < t.End; i++ {
+		/*line syntax/scan.ergo:845:2*/ var i_1 int = i
+//line syntax/scan.ergo:846:3
+		b := ( /*line syntax/scan.ergo:846:6*/ lit_1[i_1] == uint8(95))
+		/*line syntax/scan.ergo:846:3*/ if b {
+//line syntax/scan.ergo:846:26
 			var v_1 bool
-			/*line syntax/scan.ergo:831:26*/ {
-				/*line syntax/scan.ergo:831:26*/ var i_2 int = (i_1 - int(1))
-//line syntax/scan.ergo#ergo-inline-3963:825:52
+			/*line syntax/scan.ergo:846:26*/ {
+				/*line syntax/scan.ergo:846:26*/ var i_2 int = (i_1 - int(1))
+//line syntax/scan.ergo#ergo-inline-3963:840:52
 				v_1 = ((i_2 >= int(0)) && (i_2 < len(lit_1)))
-				/*line syntax/scan.ergo#ergo-inline-3963:825:52*/ if v_1 {
-					/*line syntax/scan.ergo#ergo-inline-3963:825:52*/ a := /*line syntax/scan.ergo#ergo-inline-3963:825:89*/ lit_1[i_2]
-					/*line syntax/scan.ergo#ergo-inline-3963:825:52*/ i_3 := 0
-					/*line syntax/scan.ergo#ergo-inline-3963:825:52*/ i_3 = i_3*256 + int(a)
-					/*line syntax/scan.ergo#ergo-inline-3963:825:52*/ var v_2 int
-					/*line syntax/scan.ergo#ergo-inline-3963:825:52*/ if tabdigitValueK[i_3].Ready() {
-						/*line syntax/scan.ergo#ergo-inline-3963:825:52*/ v_2 = tabdigitValueV[i_3]
-						/*line syntax/scan.ergo#ergo-inline-3963:825:52*/
+				/*line syntax/scan.ergo#ergo-inline-3963:840:52*/ if v_1 {
+					/*line syntax/scan.ergo#ergo-inline-3963:840:52*/ a := /*line syntax/scan.ergo#ergo-inline-3963:840:89*/ lit_1[i_2]
+					/*line syntax/scan.ergo#ergo-inline-3963:840:52*/ i_3 := 0
+					/*line syntax/scan.ergo#ergo-inline-3963:840:52*/ i_3 = i_3*256 + int(a)
+					/*line syntax/scan.ergo#ergo-inline-3963:840:52*/ var v_2 int
+					/*line syntax/scan.ergo#ergo-inline-3963:840:52*/ if tabdigitValueK[i_3].Ready() {
+						/*line syntax/scan.ergo#ergo-inline-3963:840:52*/ v_2 = tabdigitValueV[i_3]
+						/*line syntax/scan.ergo#ergo-inline-3963:840:52*/
 					} else {
-						/*line syntax/scan.ergo#ergo-inline-3963:825:52*/ v_2 = tabdigitValueFill(i_3, a)
-						/*line syntax/scan.ergo#ergo-inline-3963:825:52*/
+						/*line syntax/scan.ergo#ergo-inline-3963:840:52*/ v_2 = tabdigitValueFill(i_3, a)
+						/*line syntax/scan.ergo#ergo-inline-3963:840:52*/
 					}
-//line syntax/scan.ergo#ergo-inline-3963:825:78
+//line syntax/scan.ergo#ergo-inline-3963:840:78
 					v_3 := v_2
-//line syntax/scan.ergo#ergo-inline-3963:825:52
+//line syntax/scan.ergo#ergo-inline-3963:840:52
 					v_1 = (v_3 < base)
-					/*line syntax/scan.ergo#ergo-inline-3963:825:52*/
+					/*line syntax/scan.ergo#ergo-inline-3963:840:52*/
 				}
 
-				/*line syntax/scan.ergo#ergo-inline-3963:825:52*/
+				/*line syntax/scan.ergo#ergo-inline-3963:840:52*/
 			}
-//line syntax/scan.ergo:831:26
+//line syntax/scan.ergo:846:26
 			b_1 := (!(v_1 || (prefixed_1 && (i_1 == int(2)))))
-			/*line syntax/scan.ergo:831:26*/ if !b_1 {
-//line syntax/scan.ergo:831:81
+			/*line syntax/scan.ergo:846:26*/ if !b_1 {
+//line syntax/scan.ergo:846:81
 				var v_4 bool
-				/*line syntax/scan.ergo:831:81*/ {
-					/*line syntax/scan.ergo:831:81*/ var i_4 int = (i_1 + int(1))
-//line syntax/scan.ergo#ergo-inline-3964:825:52
+				/*line syntax/scan.ergo:846:81*/ {
+					/*line syntax/scan.ergo:846:81*/ var i_4 int = (i_1 + int(1))
+//line syntax/scan.ergo#ergo-inline-3964:840:52
 					v_4 = ((i_4 >= int(0)) && (i_4 < len(lit_1)))
-					/*line syntax/scan.ergo#ergo-inline-3964:825:52*/ if v_4 {
-						/*line syntax/scan.ergo#ergo-inline-3964:825:52*/ a_1 := /*line syntax/scan.ergo#ergo-inline-3964:825:89*/ lit_1[i_4]
-						/*line syntax/scan.ergo#ergo-inline-3964:825:52*/ i_5 := 0
-						/*line syntax/scan.ergo#ergo-inline-3964:825:52*/ i_5 = i_5*256 + int(a_1)
-						/*line syntax/scan.ergo#ergo-inline-3964:825:52*/ var v_5 int
-						/*line syntax/scan.ergo#ergo-inline-3964:825:52*/ if tabdigitValueK[i_5].Ready() {
-							/*line syntax/scan.ergo#ergo-inline-3964:825:52*/ v_5 = tabdigitValueV[i_5]
-							/*line syntax/scan.ergo#ergo-inline-3964:825:52*/
+					/*line syntax/scan.ergo#ergo-inline-3964:840:52*/ if v_4 {
+						/*line syntax/scan.ergo#ergo-inline-3964:840:52*/ a_1 := /*line syntax/scan.ergo#ergo-inline-3964:840:89*/ lit_1[i_4]
+						/*line syntax/scan.ergo#ergo-inline-3964:840:52*/ i_5 := 0
+						/*line syntax/scan.ergo#ergo-inline-3964:840:52*/ i_5 = i_5*256 + int(a_1)
+						/*line syntax/scan.ergo#ergo-inline-3964:840:52*/ var v_5 int
+						/*line syntax/scan.ergo#ergo-inline-3964:840:52*/ if tabdigitValueK[i_5].Ready() {
+							/*line syntax/scan.ergo#ergo-inline-3964:840:52*/ v_5 = tabdigitValueV[i_5]
+							/*line syntax/scan.ergo#ergo-inline-3964:840:52*/
 						} else {
-							/*line syntax/scan.ergo#ergo-inline-3964:825:52*/ v_5 = tabdigitValueFill(i_5, a_1)
-							/*line syntax/scan.ergo#ergo-inline-3964:825:52*/
+							/*line syntax/scan.ergo#ergo-inline-3964:840:52*/ v_5 = tabdigitValueFill(i_5, a_1)
+							/*line syntax/scan.ergo#ergo-inline-3964:840:52*/
 						}
-//line syntax/scan.ergo#ergo-inline-3964:825:78
+//line syntax/scan.ergo#ergo-inline-3964:840:78
 						v_6 := v_5
-//line syntax/scan.ergo#ergo-inline-3964:825:52
+//line syntax/scan.ergo#ergo-inline-3964:840:52
 						v_4 = (v_6 < base)
-						/*line syntax/scan.ergo#ergo-inline-3964:825:52*/
+						/*line syntax/scan.ergo#ergo-inline-3964:840:52*/
 					}
 
-					/*line syntax/scan.ergo#ergo-inline-3964:825:52*/
+					/*line syntax/scan.ergo#ergo-inline-3964:840:52*/
 				}
-//line syntax/scan.ergo:831:81
+//line syntax/scan.ergo:846:81
 				b_1 = (!v_4)
-				/*line syntax/scan.ergo:831:81*/
+				/*line syntax/scan.ergo:846:81*/
 			}
-			/*line syntax/scan.ergo:831:81*/ b = b_1
-			/*line syntax/scan.ergo:831:81*/
+			/*line syntax/scan.ergo:846:81*/ b = b_1
+			/*line syntax/scan.ergo:846:81*/
 		}
-		/*line syntax/scan.ergo:831:81*/ if b {
-//line syntax/scan.ergo:832:4
+		/*line syntax/scan.ergo:846:81*/ if b {
+//line syntax/scan.ergo:847:4
 			return true
-			/*line syntax/scan.ergo:832:4*/
+			/*line syntax/scan.ergo:847:4*/
 		}
-		/*line syntax/scan.ergo:832:4*/
+		/*line syntax/scan.ergo:847:4*/
 	}
-//line syntax/scan.ergo:835:2
+//line syntax/scan.ergo:850:2
 	return false
-	/*line syntax/scan.ergo:835:2*/
+	/*line syntax/scan.ergo:850:2*/
 }
 
-//line syntax/scan.ergo:883:1
+//line syntax/scan.ergo:898:1
 func isDurationUnit(u string) bool {
-	/*line syntax/scan.ergo:884:2*/ return ((((((u == "ns") || (u == "us")) || (u == "ms")) || (u == "s")) || (u == "m")) || (u == "h"))
+	/*line syntax/scan.ergo:899:2*/ return ((((((u == "ns") || (u == "us")) || (u == "ms")) || (u == "s")) || (u == "m")) || (u == "h"))
 }
 
-//line syntax/scan.ergo:884
+//line syntax/scan.ergo:899
 
-//line syntax/scan.ergo:980:1
+//line syntax/scan.ergo:995:1
 func (s *scanner) openInterpolation(quote_1 int) {
-//line syntax/scan.ergo:981:2
+//line syntax/scan.ergo:996:2
 	if s.open < len(s.quotes) {
-//line syntax/scan.ergo:982:3
+//line syntax/scan.ergo:997:3
 		s.quotes[s.open] = quote_1
-//line syntax/scan.ergo:983:3
+//line syntax/scan.ergo:998:3
 		s.depths[s.open] = int(0)
-		/*line syntax/scan.ergo:983:3*/
+		/*line syntax/scan.ergo:998:3*/
 	} else {
-//line syntax/scan.ergo:985:3
-//line syntax/scan.ergo:985:14
+//line syntax/scan.ergo:1000:3
+//line syntax/scan.ergo:1000:14
 		v := Append[int](s.quotes, quote_1)
-//line syntax/scan.ergo:985:3
+//line syntax/scan.ergo:1000:3
 		s.quotes = v
-//line syntax/scan.ergo:986:3
-//line syntax/scan.ergo:986:14
+//line syntax/scan.ergo:1001:3
+//line syntax/scan.ergo:1001:14
 		v_1 := Append[int](s.depths, int(0))
-//line syntax/scan.ergo:986:3
+//line syntax/scan.ergo:1001:3
 		s.depths = v_1
-		/*line syntax/scan.ergo:986:3*/
+		/*line syntax/scan.ergo:1001:3*/
 	}
-//line syntax/scan.ergo:988:2
+//line syntax/scan.ergo:1003:2
 	s.open = (s.open + int(1))
-	/*line syntax/scan.ergo:988:2*/
+	/*line syntax/scan.ergo:1003:2*/
 }
 
-//line syntax/scan.ergo:1027:1
+//line syntax/scan.ergo:1042:1
 func oneRune(lit_1 string) bool {
-//line syntax/scan.ergo:1028:2
+//line syntax/scan.ergo:1043:2
 	var n int = len(lit_1)
-//line syntax/scan.ergo:1029:2
+//line syntax/scan.ergo:1044:2
 	if n < int(3) {
-//line syntax/scan.ergo:1030:3
+//line syntax/scan.ergo:1045:3
 		return false
-		/*line syntax/scan.ergo:1030:3*/
+		/*line syntax/scan.ergo:1045:3*/
 	}
-//line syntax/scan.ergo:1032:2
-	var c uint8 = /*line syntax/scan.ergo:1032:10*/ lit_1[int(1)]
-//line syntax/scan.ergo:1033:2
+//line syntax/scan.ergo:1047:2
+	var c uint8 = /*line syntax/scan.ergo:1047:10*/ lit_1[int(1)]
+//line syntax/scan.ergo:1048:2
 	if c == uint8(92) {
-//line syntax/scan.ergo:1034:3
+//line syntax/scan.ergo:1049:3
 		if n < int(4) {
-//line syntax/scan.ergo:1035:4
+//line syntax/scan.ergo:1050:4
 			return false
-			/*line syntax/scan.ergo:1035:4*/
+			/*line syntax/scan.ergo:1050:4*/
 		}
-//line syntax/scan.ergo:1037:3
-		var e uint8 = /*line syntax/scan.ergo:1037:11*/ lit_1[int(2)]
-//line syntax/scan.ergo:1038:3
+//line syntax/scan.ergo:1052:3
+		var e uint8 = /*line syntax/scan.ergo:1052:11*/ lit_1[int(2)]
+//line syntax/scan.ergo:1053:3
 		if ((((((((e == uint8(97)) || (e == uint8(98))) || (e == uint8(102))) || (e == uint8(110))) || (e == uint8(114))) || (e == uint8(116))) || (e == uint8(118))) || (e == uint8(92))) || (e == uint8(39)) {
-//line syntax/scan.ergo:1039:4
-			return (n == int(4))
-			/*line syntax/scan.ergo:1039:4*/
-		}
-//line syntax/scan.ergo:1041:3
-		if e == uint8(120) {
-//line syntax/scan.ergo:1042:4
-			b := (n == int(6))
-			/*line syntax/scan.ergo:1042:4*/ if b {
-//line syntax/scan.ergo:1042:21
-				v := hexDigits(lit_1, int(3), int(2))
-//line syntax/scan.ergo:1042:4
-				b = (v >= int(0))
-				/*line syntax/scan.ergo:1042:4*/
-			}
-			/*line syntax/scan.ergo:1042:4*/ return b
-			/*line syntax/scan.ergo:1042:4*/
-		}
-//line syntax/scan.ergo:1044:3
-		if e == uint8(117) {
-//line syntax/scan.ergo:1045:4
-			b_1 := (n == int(8))
-			/*line syntax/scan.ergo:1045:4*/ if b_1 {
-//line syntax/scan.ergo:1045:31
-				v_1 := hexDigits(lit_1, int(3), int(4))
-//line syntax/scan.ergo:1045:4
-//line syntax/scan.ergo:1045:21
-				v_2 := validRune(v_1)
-//line syntax/scan.ergo:1045:4
-				b_1 = v_2
-				/*line syntax/scan.ergo:1045:4*/
-			}
-			/*line syntax/scan.ergo:1045:4*/ return b_1
-			/*line syntax/scan.ergo:1045:4*/
-		}
-//line syntax/scan.ergo:1047:3
-		if e == uint8(85) {
-//line syntax/scan.ergo:1048:4
-			b_2 := (n == int(12))
-			/*line syntax/scan.ergo:1048:4*/ if b_2 {
-//line syntax/scan.ergo:1048:32
-				v_3 := hexDigits(lit_1, int(3), int(8))
-//line syntax/scan.ergo:1048:4
-//line syntax/scan.ergo:1048:22
-				v_4 := validRune(v_3)
-//line syntax/scan.ergo:1048:4
-				b_2 = v_4
-				/*line syntax/scan.ergo:1048:4*/
-			}
-			/*line syntax/scan.ergo:1048:4*/ return b_2
-			/*line syntax/scan.ergo:1048:4*/
-		}
-//line syntax/scan.ergo:1050:3
-		if (e >= uint8(48)) && (e <= uint8(55)) {
-//line syntax/scan.ergo:1051:4
-			if ((((n != int(6)) || ( /*line syntax/scan.ergo:1051:17*/ lit_1[int(3)] < uint8(48))) || ( /*line syntax/scan.ergo:1051:33*/ lit_1[int(3)] > uint8(55))) || ( /*line syntax/scan.ergo:1051:49*/ lit_1[int(4)] < uint8(48))) || ( /*line syntax/scan.ergo:1051:65*/ lit_1[int(4)] > uint8(55)) {
-//line syntax/scan.ergo:1052:5
-				return false
-				/*line syntax/scan.ergo:1052:5*/
-			}
 //line syntax/scan.ergo:1054:4
-			return ((((int((e - uint8(48))) * int(64)) + (int(( /*line syntax/scan.ergo:1054:29*/ lit_1[int(3)] - uint8(48))) * int(8))) + int(( /*line syntax/scan.ergo:1054:47*/ lit_1[int(4)] - uint8(48)))) <= int(255))
+			return (n == int(4))
 			/*line syntax/scan.ergo:1054:4*/
 		}
 //line syntax/scan.ergo:1056:3
-		return false
-		/*line syntax/scan.ergo:1056:3*/
-	}
-//line syntax/scan.ergo:1058:2
-	if (c == uint8(39)) || (c == uint8(10)) {
+		if e == uint8(120) {
+//line syntax/scan.ergo:1057:4
+			b := (n == int(6))
+			/*line syntax/scan.ergo:1057:4*/ if b {
+//line syntax/scan.ergo:1057:21
+				v := hexDigits(lit_1, int(3), int(2))
+//line syntax/scan.ergo:1057:4
+				b = (v >= int(0))
+				/*line syntax/scan.ergo:1057:4*/
+			}
+			/*line syntax/scan.ergo:1057:4*/ return b
+			/*line syntax/scan.ergo:1057:4*/
+		}
 //line syntax/scan.ergo:1059:3
-		return false
-		/*line syntax/scan.ergo:1059:3*/
-	}
-//line syntax/scan.ergo:1061:2
-	if c < uint8(128) {
+		if e == uint8(117) {
+//line syntax/scan.ergo:1060:4
+			b_1 := (n == int(8))
+			/*line syntax/scan.ergo:1060:4*/ if b_1 {
+//line syntax/scan.ergo:1060:31
+				v_1 := hexDigits(lit_1, int(3), int(4))
+//line syntax/scan.ergo:1060:4
+//line syntax/scan.ergo:1060:21
+				v_2 := validRune(v_1)
+//line syntax/scan.ergo:1060:4
+				b_1 = v_2
+				/*line syntax/scan.ergo:1060:4*/
+			}
+			/*line syntax/scan.ergo:1060:4*/ return b_1
+			/*line syntax/scan.ergo:1060:4*/
+		}
 //line syntax/scan.ergo:1062:3
+		if e == uint8(85) {
+//line syntax/scan.ergo:1063:4
+			b_2 := (n == int(12))
+			/*line syntax/scan.ergo:1063:4*/ if b_2 {
+//line syntax/scan.ergo:1063:32
+				v_3 := hexDigits(lit_1, int(3), int(8))
+//line syntax/scan.ergo:1063:4
+//line syntax/scan.ergo:1063:22
+				v_4 := validRune(v_3)
+//line syntax/scan.ergo:1063:4
+				b_2 = v_4
+				/*line syntax/scan.ergo:1063:4*/
+			}
+			/*line syntax/scan.ergo:1063:4*/ return b_2
+			/*line syntax/scan.ergo:1063:4*/
+		}
+//line syntax/scan.ergo:1065:3
+		if (e >= uint8(48)) && (e <= uint8(55)) {
+//line syntax/scan.ergo:1066:4
+			if ((((n != int(6)) || ( /*line syntax/scan.ergo:1066:17*/ lit_1[int(3)] < uint8(48))) || ( /*line syntax/scan.ergo:1066:33*/ lit_1[int(3)] > uint8(55))) || ( /*line syntax/scan.ergo:1066:49*/ lit_1[int(4)] < uint8(48))) || ( /*line syntax/scan.ergo:1066:65*/ lit_1[int(4)] > uint8(55)) {
+//line syntax/scan.ergo:1067:5
+				return false
+				/*line syntax/scan.ergo:1067:5*/
+			}
+//line syntax/scan.ergo:1069:4
+			return ((((int((e - uint8(48))) * int(64)) + (int(( /*line syntax/scan.ergo:1069:29*/ lit_1[int(3)] - uint8(48))) * int(8))) + int(( /*line syntax/scan.ergo:1069:47*/ lit_1[int(4)] - uint8(48)))) <= int(255))
+			/*line syntax/scan.ergo:1069:4*/
+		}
+//line syntax/scan.ergo:1071:3
+		return false
+		/*line syntax/scan.ergo:1071:3*/
+	}
+//line syntax/scan.ergo:1073:2
+	if (c == uint8(39)) || (c == uint8(10)) {
+//line syntax/scan.ergo:1074:3
+		return false
+		/*line syntax/scan.ergo:1074:3*/
+	}
+//line syntax/scan.ergo:1076:2
+	if c < uint8(128) {
+//line syntax/scan.ergo:1077:3
 		return (n == int(3))
-		/*line syntax/scan.ergo:1062:3*/
+		/*line syntax/scan.ergo:1077:3*/
 	}
-//line syntax/scan.ergo:1064:2
+//line syntax/scan.ergo:1079:2
 	t := n
-//line syntax/scan.ergo:1064:9
-	v_5 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo:1064:33*/ lit_1[int(1):])
-//line syntax/scan.ergo:1064:2
+//line syntax/scan.ergo:1079:9
+	v_5 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo:1079:33*/ lit_1[int(1):])
+//line syntax/scan.ergo:1079:2
 	return (t == (int(2) + v_5.Size))
-	/*line syntax/scan.ergo:1064:2*/
+	/*line syntax/scan.ergo:1079:2*/
 }
 
-//line syntax/scan.ergo:1215:1
+//line syntax/scan.ergo:1230:1
 func uPlus(r int32) string {
-//line syntax/scan.ergo:1216:2
-//line syntax/scan.ergo:1216:30
+//line syntax/scan.ergo:1231:2
+//line syntax/scan.ergo:1231:30
 	r_1 := strconv.FormatInt(int64(r), int(16))
-//line syntax/scan.ergo:1216:2
-//line syntax/scan.ergo:1216:14
+//line syntax/scan.ergo:1231:2
+//line syntax/scan.ergo:1231:14
 	v := ergo.StringsToUpper(r_1)
-//line syntax/scan.ergo:1216:2
-//line syntax/scan.ergo:1217:2
+//line syntax/scan.ergo:1231:2
+//line syntax/scan.ergo:1232:2
 	for len(v) < int(4) {
-//line syntax/scan.ergo:1218:3
+//line syntax/scan.ergo:1233:3
 		v = ("0" + v)
-		/*line syntax/scan.ergo:1218:3*/
+		/*line syntax/scan.ergo:1233:3*/
 	}
-//line syntax/scan.ergo:1220:2
+//line syntax/scan.ergo:1235:2
 	return ("U+" + v)
-	/*line syntax/scan.ergo:1220:2*/
+	/*line syntax/scan.ergo:1235:2*/
 }
 
-//line syntax/scan.ergo:1088:1
+//line syntax/scan.ergo:1103:1
 func opKind(c uint8, c1 uint8, c2 uint8) uint8 {
-	/*line syntax/scan.ergo:1089:2*/ if c == uint8(46) {
-		/*line syntax/scan.ergo:1090:3*/ if c1 == uint8(46) {
-			/*line syntax/scan.ergo:1091:11*/ var if3 uint8
-			/*line syntax/scan.ergo:1091:11*/ if c2 == uint8(46) {
-				/*line syntax/scan.ergo:1091:26*/ if3 = uint8(50)
+	/*line syntax/scan.ergo:1104:2*/ if c == uint8(46) {
+		/*line syntax/scan.ergo:1105:3*/ if c1 == uint8(46) {
+			/*line syntax/scan.ergo:1106:11*/ var if3 uint8
+			/*line syntax/scan.ergo:1106:11*/ if c2 == uint8(46) {
+				/*line syntax/scan.ergo:1106:26*/ if3 = uint8(50)
 			} else {
-				/*line syntax/scan.ergo:1091:44*/ if3 = uint8(40)
+				/*line syntax/scan.ergo:1106:44*/ if3 = uint8(40)
 			}
-			/*line syntax/scan.ergo:1091:4*/ return if3
+			/*line syntax/scan.ergo:1106:4*/ return if3
 		}
-		/*line syntax/scan.ergo:1093:3*/ return uint8(55)
+		/*line syntax/scan.ergo:1108:3*/ return uint8(55)
 	}
-	/*line syntax/scan.ergo:1095:2*/ if c == uint8(44) {
-		/*line syntax/scan.ergo:1096:3*/ return uint8(54)
+	/*line syntax/scan.ergo:1110:2*/ if c == uint8(44) {
+		/*line syntax/scan.ergo:1111:3*/ return uint8(54)
 	}
-	/*line syntax/scan.ergo:1098:2*/ if c == uint8(123) {
-		/*line syntax/scan.ergo:1099:3*/ return uint8(53)
+	/*line syntax/scan.ergo:1113:2*/ if c == uint8(123) {
+		/*line syntax/scan.ergo:1114:3*/ return uint8(53)
 	}
-	/*line syntax/scan.ergo:1101:2*/ if c == uint8(125) {
-		/*line syntax/scan.ergo:1102:3*/ return uint8(58)
+	/*line syntax/scan.ergo:1116:2*/ if c == uint8(125) {
+		/*line syntax/scan.ergo:1117:3*/ return uint8(58)
 	}
-	/*line syntax/scan.ergo:1104:2*/ if c == uint8(91) {
-		/*line syntax/scan.ergo:1105:3*/ return uint8(52)
+	/*line syntax/scan.ergo:1119:2*/ if c == uint8(91) {
+		/*line syntax/scan.ergo:1120:3*/ return uint8(52)
 	}
-	/*line syntax/scan.ergo:1107:2*/ if c == uint8(93) {
-		/*line syntax/scan.ergo:1108:3*/ return uint8(57)
+	/*line syntax/scan.ergo:1122:2*/ if c == uint8(93) {
+		/*line syntax/scan.ergo:1123:3*/ return uint8(57)
 	}
-	/*line syntax/scan.ergo:1110:2*/ if c == uint8(58) {
-		/*line syntax/scan.ergo:1111:10*/ var if4 uint8
-		/*line syntax/scan.ergo:1111:10*/ if c1 == uint8(61) {
-			/*line syntax/scan.ergo:1111:25*/ if4 = uint8(49)
+	/*line syntax/scan.ergo:1125:2*/ if c == uint8(58) {
+		/*line syntax/scan.ergo:1126:10*/ var if4 uint8
+		/*line syntax/scan.ergo:1126:10*/ if c1 == uint8(61) {
+			/*line syntax/scan.ergo:1126:25*/ if4 = uint8(49)
 		} else {
-			/*line syntax/scan.ergo:1111:41*/ if4 = uint8(60)
+			/*line syntax/scan.ergo:1126:41*/ if4 = uint8(60)
 		}
-		/*line syntax/scan.ergo:1111:3*/ return if4
+		/*line syntax/scan.ergo:1126:3*/ return if4
 	}
-	/*line syntax/scan.ergo:1113:2*/ if c == uint8(59) {
-		/*line syntax/scan.ergo:1114:3*/ return uint8(59)
+	/*line syntax/scan.ergo:1128:2*/ if c == uint8(59) {
+		/*line syntax/scan.ergo:1129:3*/ return uint8(59)
 	}
-	/*line syntax/scan.ergo:1116:2*/ if c == uint8(61) {
-		/*line syntax/scan.ergo:1117:10*/ var if5 uint8
-		/*line syntax/scan.ergo:1117:10*/ if c1 == uint8(61) {
-			/*line syntax/scan.ergo:1117:25*/ if5 = uint8(41)
+	/*line syntax/scan.ergo:1131:2*/ if c == uint8(61) {
+		/*line syntax/scan.ergo:1132:10*/ var if5 uint8
+		/*line syntax/scan.ergo:1132:10*/ if c1 == uint8(61) {
+			/*line syntax/scan.ergo:1132:25*/ if5 = uint8(41)
 		} else {
-			/*line syntax/scan.ergo:1117:38*/ if5 = uint8(44)
+			/*line syntax/scan.ergo:1132:38*/ if5 = uint8(44)
 		}
-		/*line syntax/scan.ergo:1117:3*/ return if5
+		/*line syntax/scan.ergo:1132:3*/ return if5
 	}
-	/*line syntax/scan.ergo:1119:2*/ if c == uint8(33) {
-		/*line syntax/scan.ergo:1120:10*/ var if6 uint8
-		/*line syntax/scan.ergo:1120:10*/ if c1 == uint8(61) {
-			/*line syntax/scan.ergo:1120:25*/ if6 = uint8(46)
-		} else {
-			/*line syntax/scan.ergo:1120:38*/ if6 = uint8(45)
-		}
-		/*line syntax/scan.ergo:1120:3*/ return if6
-	}
-	/*line syntax/scan.ergo:1122:2*/ if c == uint8(60) {
-		/*line syntax/scan.ergo:1123:3*/ if c1 == uint8(60) {
-			/*line syntax/scan.ergo:1124:11*/ var if7 uint8
-			/*line syntax/scan.ergo:1124:11*/ if c2 == uint8(61) {
-				/*line syntax/scan.ergo:1124:26*/ if7 = uint8(32)
-			} else {
-				/*line syntax/scan.ergo:1124:45*/ if7 = uint8(21)
-			}
-			/*line syntax/scan.ergo:1124:4*/ return if7
-		}
-		/*line syntax/scan.ergo:1126:3*/ if c1 == uint8(45) {
-			/*line syntax/scan.ergo:1127:4*/ return uint8(37)
-		}
-		/*line syntax/scan.ergo:1129:10*/ var if8 uint8
-		/*line syntax/scan.ergo:1129:10*/ if c1 == uint8(61) {
-			/*line syntax/scan.ergo:1129:25*/ if8 = uint8(47)
-		} else {
-			/*line syntax/scan.ergo:1129:38*/ if8 = uint8(42)
-		}
-		/*line syntax/scan.ergo:1129:3*/ return if8
-	}
-	/*line syntax/scan.ergo:1131:2*/ if c == uint8(62) {
-		/*line syntax/scan.ergo:1132:3*/ if c1 == uint8(62) {
-			/*line syntax/scan.ergo:1133:11*/ var if9 uint8
-			/*line syntax/scan.ergo:1133:11*/ if c2 == uint8(61) {
-				/*line syntax/scan.ergo:1133:26*/ if9 = uint8(33)
-			} else {
-				/*line syntax/scan.ergo:1133:45*/ if9 = uint8(22)
-			}
-			/*line syntax/scan.ergo:1133:4*/ return if9
-		}
-		/*line syntax/scan.ergo:1135:10*/ var if10 uint8
+	/*line syntax/scan.ergo:1134:2*/ if c == uint8(33) {
+		/*line syntax/scan.ergo:1135:10*/ var if6 uint8
 		/*line syntax/scan.ergo:1135:10*/ if c1 == uint8(61) {
-			/*line syntax/scan.ergo:1135:25*/ if10 = uint8(48)
+			/*line syntax/scan.ergo:1135:25*/ if6 = uint8(46)
 		} else {
-			/*line syntax/scan.ergo:1135:38*/ if10 = uint8(43)
+			/*line syntax/scan.ergo:1135:38*/ if6 = uint8(45)
 		}
-		/*line syntax/scan.ergo:1135:3*/ return if10
+		/*line syntax/scan.ergo:1135:3*/ return if6
 	}
-	/*line syntax/scan.ergo:1137:2*/ if c == uint8(38) {
-		/*line syntax/scan.ergo:1138:3*/ if c1 == uint8(94) {
-			/*line syntax/scan.ergo:1139:11*/ var if11 uint8
+	/*line syntax/scan.ergo:1137:2*/ if c == uint8(60) {
+		/*line syntax/scan.ergo:1138:3*/ if c1 == uint8(60) {
+			/*line syntax/scan.ergo:1139:11*/ var if7 uint8
 			/*line syntax/scan.ergo:1139:11*/ if c2 == uint8(61) {
-				/*line syntax/scan.ergo:1139:26*/ if11 = uint8(34)
+				/*line syntax/scan.ergo:1139:26*/ if7 = uint8(32)
 			} else {
-				/*line syntax/scan.ergo:1139:48*/ if11 = uint8(23)
+				/*line syntax/scan.ergo:1139:45*/ if7 = uint8(21)
 			}
-			/*line syntax/scan.ergo:1139:4*/ return if11
+			/*line syntax/scan.ergo:1139:4*/ return if7
 		}
-		/*line syntax/scan.ergo:1141:3*/ if c1 == uint8(38) {
-			/*line syntax/scan.ergo:1142:4*/ return uint8(35)
+		/*line syntax/scan.ergo:1141:3*/ if c1 == uint8(45) {
+			/*line syntax/scan.ergo:1142:4*/ return uint8(37)
 		}
-		/*line syntax/scan.ergo:1144:10*/ var if12 uint8
+		/*line syntax/scan.ergo:1144:10*/ var if8 uint8
 		/*line syntax/scan.ergo:1144:10*/ if c1 == uint8(61) {
-			/*line syntax/scan.ergo:1144:25*/ if12 = uint8(29)
+			/*line syntax/scan.ergo:1144:25*/ if8 = uint8(47)
 		} else {
-			/*line syntax/scan.ergo:1144:44*/ if12 = uint8(18)
+			/*line syntax/scan.ergo:1144:38*/ if8 = uint8(42)
 		}
-		/*line syntax/scan.ergo:1144:3*/ return if12
+		/*line syntax/scan.ergo:1144:3*/ return if8
 	}
-	/*line syntax/scan.ergo:1146:2*/ if c == uint8(124) {
-		/*line syntax/scan.ergo:1147:3*/ if c1 == uint8(124) {
-			/*line syntax/scan.ergo:1148:4*/ return uint8(36)
+	/*line syntax/scan.ergo:1146:2*/ if c == uint8(62) {
+		/*line syntax/scan.ergo:1147:3*/ if c1 == uint8(62) {
+			/*line syntax/scan.ergo:1148:11*/ var if9 uint8
+			/*line syntax/scan.ergo:1148:11*/ if c2 == uint8(61) {
+				/*line syntax/scan.ergo:1148:26*/ if9 = uint8(33)
+			} else {
+				/*line syntax/scan.ergo:1148:45*/ if9 = uint8(22)
+			}
+			/*line syntax/scan.ergo:1148:4*/ return if9
 		}
-		/*line syntax/scan.ergo:1150:10*/ var if13 uint8
+		/*line syntax/scan.ergo:1150:10*/ var if10 uint8
 		/*line syntax/scan.ergo:1150:10*/ if c1 == uint8(61) {
-			/*line syntax/scan.ergo:1150:25*/ if13 = uint8(30)
+			/*line syntax/scan.ergo:1150:25*/ if10 = uint8(48)
 		} else {
-			/*line syntax/scan.ergo:1150:43*/ if13 = uint8(19)
+			/*line syntax/scan.ergo:1150:38*/ if10 = uint8(43)
 		}
-		/*line syntax/scan.ergo:1150:3*/ return if13
+		/*line syntax/scan.ergo:1150:3*/ return if10
 	}
-	/*line syntax/scan.ergo:1152:2*/ if c == uint8(43) {
-		/*line syntax/scan.ergo:1153:3*/ if c1 == uint8(43) {
-			/*line syntax/scan.ergo:1154:4*/ return uint8(38)
+	/*line syntax/scan.ergo:1152:2*/ if c == uint8(38) {
+		/*line syntax/scan.ergo:1153:3*/ if c1 == uint8(94) {
+			/*line syntax/scan.ergo:1154:11*/ var if11 uint8
+			/*line syntax/scan.ergo:1154:11*/ if c2 == uint8(61) {
+				/*line syntax/scan.ergo:1154:26*/ if11 = uint8(34)
+			} else {
+				/*line syntax/scan.ergo:1154:48*/ if11 = uint8(23)
+			}
+			/*line syntax/scan.ergo:1154:4*/ return if11
 		}
-		/*line syntax/scan.ergo:1156:10*/ var if14 uint8
-		/*line syntax/scan.ergo:1156:10*/ if c1 == uint8(61) {
-			/*line syntax/scan.ergo:1156:25*/ if14 = uint8(24)
+		/*line syntax/scan.ergo:1156:3*/ if c1 == uint8(38) {
+			/*line syntax/scan.ergo:1157:4*/ return uint8(35)
+		}
+		/*line syntax/scan.ergo:1159:10*/ var if12 uint8
+		/*line syntax/scan.ergo:1159:10*/ if c1 == uint8(61) {
+			/*line syntax/scan.ergo:1159:25*/ if12 = uint8(29)
 		} else {
-			/*line syntax/scan.ergo:1156:44*/ if14 = uint8(13)
+			/*line syntax/scan.ergo:1159:44*/ if12 = uint8(18)
 		}
-		/*line syntax/scan.ergo:1156:3*/ return if14
+		/*line syntax/scan.ergo:1159:3*/ return if12
 	}
-	/*line syntax/scan.ergo:1158:2*/ if c == uint8(45) {
-		/*line syntax/scan.ergo:1159:3*/ if c1 == uint8(45) {
-			/*line syntax/scan.ergo:1160:4*/ return uint8(39)
+	/*line syntax/scan.ergo:1161:2*/ if c == uint8(124) {
+		/*line syntax/scan.ergo:1162:3*/ if c1 == uint8(124) {
+			/*line syntax/scan.ergo:1163:4*/ return uint8(36)
 		}
-		/*line syntax/scan.ergo:1162:10*/ var if15 uint8
-		/*line syntax/scan.ergo:1162:10*/ if c1 == uint8(61) {
-			/*line syntax/scan.ergo:1162:25*/ if15 = uint8(25)
-		} else {
-			/*line syntax/scan.ergo:1162:44*/ if15 = uint8(14)
-		}
-		/*line syntax/scan.ergo:1162:3*/ return if15
-	}
-	/*line syntax/scan.ergo:1164:2*/ if c == uint8(42) {
-		/*line syntax/scan.ergo:1165:10*/ var if16 uint8
+		/*line syntax/scan.ergo:1165:10*/ var if13 uint8
 		/*line syntax/scan.ergo:1165:10*/ if c1 == uint8(61) {
-			/*line syntax/scan.ergo:1165:25*/ if16 = uint8(26)
+			/*line syntax/scan.ergo:1165:25*/ if13 = uint8(30)
 		} else {
-			/*line syntax/scan.ergo:1165:44*/ if16 = uint8(15)
+			/*line syntax/scan.ergo:1165:43*/ if13 = uint8(19)
 		}
-		/*line syntax/scan.ergo:1165:3*/ return if16
+		/*line syntax/scan.ergo:1165:3*/ return if13
 	}
-	/*line syntax/scan.ergo:1167:2*/ if c == uint8(47) {
-		/*line syntax/scan.ergo:1168:10*/ var if17 uint8
-		/*line syntax/scan.ergo:1168:10*/ if c1 == uint8(61) {
-			/*line syntax/scan.ergo:1168:25*/ if17 = uint8(27)
-		} else {
-			/*line syntax/scan.ergo:1168:44*/ if17 = uint8(16)
+	/*line syntax/scan.ergo:1167:2*/ if c == uint8(43) {
+		/*line syntax/scan.ergo:1168:3*/ if c1 == uint8(43) {
+			/*line syntax/scan.ergo:1169:4*/ return uint8(38)
 		}
-		/*line syntax/scan.ergo:1168:3*/ return if17
-	}
-	/*line syntax/scan.ergo:1170:2*/ if c == uint8(37) {
-		/*line syntax/scan.ergo:1171:10*/ var if18 uint8
+		/*line syntax/scan.ergo:1171:10*/ var if14 uint8
 		/*line syntax/scan.ergo:1171:10*/ if c1 == uint8(61) {
-			/*line syntax/scan.ergo:1171:25*/ if18 = uint8(28)
+			/*line syntax/scan.ergo:1171:25*/ if14 = uint8(24)
 		} else {
-			/*line syntax/scan.ergo:1171:44*/ if18 = uint8(17)
+			/*line syntax/scan.ergo:1171:44*/ if14 = uint8(13)
 		}
-		/*line syntax/scan.ergo:1171:3*/ return if18
+		/*line syntax/scan.ergo:1171:3*/ return if14
 	}
-	/*line syntax/scan.ergo:1173:2*/ if c == uint8(94) {
-		/*line syntax/scan.ergo:1174:10*/ var if19 uint8
-		/*line syntax/scan.ergo:1174:10*/ if c1 == uint8(61) {
-			/*line syntax/scan.ergo:1174:25*/ if19 = uint8(31)
+	/*line syntax/scan.ergo:1173:2*/ if c == uint8(45) {
+		/*line syntax/scan.ergo:1174:3*/ if c1 == uint8(45) {
+			/*line syntax/scan.ergo:1175:4*/ return uint8(39)
+		}
+		/*line syntax/scan.ergo:1177:10*/ var if15 uint8
+		/*line syntax/scan.ergo:1177:10*/ if c1 == uint8(61) {
+			/*line syntax/scan.ergo:1177:25*/ if15 = uint8(25)
 		} else {
-			/*line syntax/scan.ergo:1174:44*/ if19 = uint8(20)
+			/*line syntax/scan.ergo:1177:44*/ if15 = uint8(14)
 		}
-		/*line syntax/scan.ergo:1174:3*/ return if19
+		/*line syntax/scan.ergo:1177:3*/ return if15
 	}
-	/*line syntax/scan.ergo:1176:2*/ return uint8(0)
+	/*line syntax/scan.ergo:1179:2*/ if c == uint8(42) {
+		/*line syntax/scan.ergo:1180:10*/ var if16 uint8
+		/*line syntax/scan.ergo:1180:10*/ if c1 == uint8(61) {
+			/*line syntax/scan.ergo:1180:25*/ if16 = uint8(26)
+		} else {
+			/*line syntax/scan.ergo:1180:44*/ if16 = uint8(15)
+		}
+		/*line syntax/scan.ergo:1180:3*/ return if16
+	}
+	/*line syntax/scan.ergo:1182:2*/ if c == uint8(47) {
+		/*line syntax/scan.ergo:1183:10*/ var if17 uint8
+		/*line syntax/scan.ergo:1183:10*/ if c1 == uint8(61) {
+			/*line syntax/scan.ergo:1183:25*/ if17 = uint8(27)
+		} else {
+			/*line syntax/scan.ergo:1183:44*/ if17 = uint8(16)
+		}
+		/*line syntax/scan.ergo:1183:3*/ return if17
+	}
+	/*line syntax/scan.ergo:1185:2*/ if c == uint8(37) {
+		/*line syntax/scan.ergo:1186:10*/ var if18 uint8
+		/*line syntax/scan.ergo:1186:10*/ if c1 == uint8(61) {
+			/*line syntax/scan.ergo:1186:25*/ if18 = uint8(28)
+		} else {
+			/*line syntax/scan.ergo:1186:44*/ if18 = uint8(17)
+		}
+		/*line syntax/scan.ergo:1186:3*/ return if18
+	}
+	/*line syntax/scan.ergo:1188:2*/ if c == uint8(94) {
+		/*line syntax/scan.ergo:1189:10*/ var if19 uint8
+		/*line syntax/scan.ergo:1189:10*/ if c1 == uint8(61) {
+			/*line syntax/scan.ergo:1189:25*/ if19 = uint8(31)
+		} else {
+			/*line syntax/scan.ergo:1189:44*/ if19 = uint8(20)
+		}
+		/*line syntax/scan.ergo:1189:3*/ return if19
+	}
+	/*line syntax/scan.ergo:1191:2*/ return uint8(0)
 }
 
-//line syntax/scan.ergo:1089
+//line syntax/scan.ergo:1104
 
 //line syntax/parse_decl.ergo:194:1
 func (p *parser) providerPlanWhy(c uint32, tparams uint32, name uint32) string {
@@ -101800,27 +101810,27 @@ func (p *parser) providerPlanWhy(c uint32, tparams uint32, name uint32) string {
 							var v_12 int
 							/*line syntax/parse.ergo#ergo-inline-3966:350:57*/ {
 								/*line syntax/parse.ergo#ergo-inline-3966:350:57*/ var src string = t_1.src
-//line syntax/scan.ergo#ergo-inline-3967:431:2
-								if /*line syntax/scan.ergo#ergo-inline-3967:431:5*/ src[at_1] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-3967:432:3
-//line syntax/scan.ergo#ergo-inline-3967:432:10
+//line syntax/scan.ergo#ergo-inline-3967:446:2
+								if /*line syntax/scan.ergo#ergo-inline-3967:446:5*/ src[at_1] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-3967:447:3
+//line syntax/scan.ergo#ergo-inline-3967:447:10
 									v_13 := identRest(src, (at_1 + int(1)))
-//line syntax/scan.ergo#ergo-inline-3967:432:3
+//line syntax/scan.ergo#ergo-inline-3967:447:3
 									v_12 = v_13
-									/*line syntax/scan.ergo#ergo-inline-3967:432:3*/ goto inl_2
-									/*line syntax/scan.ergo#ergo-inline-3967:432:3*/
+									/*line syntax/scan.ergo#ergo-inline-3967:447:3*/ goto inl_2
+									/*line syntax/scan.ergo#ergo-inline-3967:447:3*/
 								}
-//line syntax/scan.ergo#ergo-inline-3967:434:2
+//line syntax/scan.ergo#ergo-inline-3967:449:2
 								t_2 := src
-								/*line syntax/scan.ergo#ergo-inline-3967:434:2*/ t_3 := at_1
-//line syntax/scan.ergo#ergo-inline-3967:434:23
-								v_14 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-3967:434:47*/ src[at_1:])
-//line syntax/scan.ergo#ergo-inline-3967:434:2
+								/*line syntax/scan.ergo#ergo-inline-3967:449:2*/ t_3 := at_1
+//line syntax/scan.ergo#ergo-inline-3967:449:23
+								v_14 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-3967:449:47*/ src[at_1:])
+//line syntax/scan.ergo#ergo-inline-3967:449:2
 								v_12 = identRest(t_2, (t_3 + v_14.Size))
 
-								/*line syntax/scan.ergo#ergo-inline-3967:434:2*/
+								/*line syntax/scan.ergo#ergo-inline-3967:449:2*/
 							}
-							/*line syntax/scan.ergo#ergo-inline-3967:434:2*/ inl_2:
+							/*line syntax/scan.ergo#ergo-inline-3967:449:2*/ inl_2:
 							;
 //line syntax/parse.ergo#ergo-inline-3966:350:57
 							v_11 = (v_12 == (at_1 + len(w)))
@@ -105687,27 +105697,27 @@ func (p *parser) parseMachineLaw(doc uint32) uint32 {
 			var v_85 int
 			/*line syntax/parse.ergo#ergo-inline-4133:341:57*/ {
 				/*line syntax/parse.ergo#ergo-inline-4133:341:57*/ var src string = p.src
-//line syntax/scan.ergo#ergo-inline-4134:431:2
-				if /*line syntax/scan.ergo#ergo-inline-4134:431:5*/ src[at_11] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-4134:432:3
-//line syntax/scan.ergo#ergo-inline-4134:432:10
+//line syntax/scan.ergo#ergo-inline-4134:446:2
+				if /*line syntax/scan.ergo#ergo-inline-4134:446:5*/ src[at_11] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-4134:447:3
+//line syntax/scan.ergo#ergo-inline-4134:447:10
 					v_86 := identRest(src, (at_11 + int(1)))
-//line syntax/scan.ergo#ergo-inline-4134:432:3
+//line syntax/scan.ergo#ergo-inline-4134:447:3
 					v_85 = v_86
-					/*line syntax/scan.ergo#ergo-inline-4134:432:3*/ goto inl_40
-					/*line syntax/scan.ergo#ergo-inline-4134:432:3*/
+					/*line syntax/scan.ergo#ergo-inline-4134:447:3*/ goto inl_40
+					/*line syntax/scan.ergo#ergo-inline-4134:447:3*/
 				}
-//line syntax/scan.ergo#ergo-inline-4134:434:2
+//line syntax/scan.ergo#ergo-inline-4134:449:2
 				t_35 := src
-				/*line syntax/scan.ergo#ergo-inline-4134:434:2*/ t_36 := at_11
-//line syntax/scan.ergo#ergo-inline-4134:434:23
-				v_87 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-4134:434:47*/ src[at_11:])
-//line syntax/scan.ergo#ergo-inline-4134:434:2
+				/*line syntax/scan.ergo#ergo-inline-4134:449:2*/ t_36 := at_11
+//line syntax/scan.ergo#ergo-inline-4134:449:23
+				v_87 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-4134:449:47*/ src[at_11:])
+//line syntax/scan.ergo#ergo-inline-4134:449:2
 				v_85 = identRest(t_35, (t_36 + v_87.Size))
 
-				/*line syntax/scan.ergo#ergo-inline-4134:434:2*/
+				/*line syntax/scan.ergo#ergo-inline-4134:449:2*/
 			}
-			/*line syntax/scan.ergo#ergo-inline-4134:434:2*/ inl_40:
+			/*line syntax/scan.ergo#ergo-inline-4134:449:2*/ inl_40:
 			;
 //line syntax/parse.ergo#ergo-inline-4133:341:57
 			v_84 = (v_85 == (at_11 + len(w)))
@@ -105748,27 +105758,27 @@ func (p *parser) parseMachineLaw(doc uint32) uint32 {
 				var v_91 int
 				/*line syntax/parse.ergo#ergo-inline-4135:341:57*/ {
 					/*line syntax/parse.ergo#ergo-inline-4135:341:57*/ var src_1 string = p.src
-//line syntax/scan.ergo#ergo-inline-4136:431:2
-					if /*line syntax/scan.ergo#ergo-inline-4136:431:5*/ src_1[at_12] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-4136:432:3
-//line syntax/scan.ergo#ergo-inline-4136:432:10
+//line syntax/scan.ergo#ergo-inline-4136:446:2
+					if /*line syntax/scan.ergo#ergo-inline-4136:446:5*/ src_1[at_12] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-4136:447:3
+//line syntax/scan.ergo#ergo-inline-4136:447:10
 						v_92 := identRest(src_1, (at_12 + int(1)))
-//line syntax/scan.ergo#ergo-inline-4136:432:3
+//line syntax/scan.ergo#ergo-inline-4136:447:3
 						v_91 = v_92
-						/*line syntax/scan.ergo#ergo-inline-4136:432:3*/ goto inl_42
-						/*line syntax/scan.ergo#ergo-inline-4136:432:3*/
+						/*line syntax/scan.ergo#ergo-inline-4136:447:3*/ goto inl_42
+						/*line syntax/scan.ergo#ergo-inline-4136:447:3*/
 					}
-//line syntax/scan.ergo#ergo-inline-4136:434:2
+//line syntax/scan.ergo#ergo-inline-4136:449:2
 					t_37 := src_1
-					/*line syntax/scan.ergo#ergo-inline-4136:434:2*/ t_38 := at_12
-//line syntax/scan.ergo#ergo-inline-4136:434:23
-					v_93 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-4136:434:47*/ src_1[at_12:])
-//line syntax/scan.ergo#ergo-inline-4136:434:2
+					/*line syntax/scan.ergo#ergo-inline-4136:449:2*/ t_38 := at_12
+//line syntax/scan.ergo#ergo-inline-4136:449:23
+					v_93 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-4136:449:47*/ src_1[at_12:])
+//line syntax/scan.ergo#ergo-inline-4136:449:2
 					v_91 = identRest(t_37, (t_38 + v_93.Size))
 
-					/*line syntax/scan.ergo#ergo-inline-4136:434:2*/
+					/*line syntax/scan.ergo#ergo-inline-4136:449:2*/
 				}
-				/*line syntax/scan.ergo#ergo-inline-4136:434:2*/ inl_42:
+				/*line syntax/scan.ergo#ergo-inline-4136:449:2*/ inl_42:
 				;
 //line syntax/parse.ergo#ergo-inline-4135:341:57
 				v_90 = (v_91 == (at_12 + len(w_1)))
@@ -106101,27 +106111,27 @@ func (p *parser) parseMachineLaw(doc uint32) uint32 {
 			var v_123 int
 			/*line syntax/parse.ergo#ergo-inline-4152:341:57*/ {
 				/*line syntax/parse.ergo#ergo-inline-4152:341:57*/ var src_2 string = p.src
-//line syntax/scan.ergo#ergo-inline-4153:431:2
-				if /*line syntax/scan.ergo#ergo-inline-4153:431:5*/ src_2[at_17] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-4153:432:3
-//line syntax/scan.ergo#ergo-inline-4153:432:10
+//line syntax/scan.ergo#ergo-inline-4153:446:2
+				if /*line syntax/scan.ergo#ergo-inline-4153:446:5*/ src_2[at_17] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-4153:447:3
+//line syntax/scan.ergo#ergo-inline-4153:447:10
 					v_124 := identRest(src_2, (at_17 + int(1)))
-//line syntax/scan.ergo#ergo-inline-4153:432:3
+//line syntax/scan.ergo#ergo-inline-4153:447:3
 					v_123 = v_124
-					/*line syntax/scan.ergo#ergo-inline-4153:432:3*/ goto inl_59
-					/*line syntax/scan.ergo#ergo-inline-4153:432:3*/
+					/*line syntax/scan.ergo#ergo-inline-4153:447:3*/ goto inl_59
+					/*line syntax/scan.ergo#ergo-inline-4153:447:3*/
 				}
-//line syntax/scan.ergo#ergo-inline-4153:434:2
+//line syntax/scan.ergo#ergo-inline-4153:449:2
 				t_51 := src_2
-				/*line syntax/scan.ergo#ergo-inline-4153:434:2*/ t_52 := at_17
-//line syntax/scan.ergo#ergo-inline-4153:434:23
-				v_125 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-4153:434:47*/ src_2[at_17:])
-//line syntax/scan.ergo#ergo-inline-4153:434:2
+				/*line syntax/scan.ergo#ergo-inline-4153:449:2*/ t_52 := at_17
+//line syntax/scan.ergo#ergo-inline-4153:449:23
+				v_125 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-4153:449:47*/ src_2[at_17:])
+//line syntax/scan.ergo#ergo-inline-4153:449:2
 				v_123 = identRest(t_51, (t_52 + v_125.Size))
 
-				/*line syntax/scan.ergo#ergo-inline-4153:434:2*/
+				/*line syntax/scan.ergo#ergo-inline-4153:449:2*/
 			}
-			/*line syntax/scan.ergo#ergo-inline-4153:434:2*/ inl_59:
+			/*line syntax/scan.ergo#ergo-inline-4153:449:2*/ inl_59:
 			;
 //line syntax/parse.ergo#ergo-inline-4152:341:57
 			v_122 = (v_123 == (at_17 + len(w_2)))
@@ -106582,27 +106592,27 @@ func (p *parser) parseMachineLaw(doc uint32) uint32 {
 				var v_171 int
 				/*line syntax/parse.ergo#ergo-inline-4174:341:57*/ {
 					/*line syntax/parse.ergo#ergo-inline-4174:341:57*/ var src_3 string = p.src
-//line syntax/scan.ergo#ergo-inline-4175:431:2
-					if /*line syntax/scan.ergo#ergo-inline-4175:431:5*/ src_3[at_22] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-4175:432:3
-//line syntax/scan.ergo#ergo-inline-4175:432:10
+//line syntax/scan.ergo#ergo-inline-4175:446:2
+					if /*line syntax/scan.ergo#ergo-inline-4175:446:5*/ src_3[at_22] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-4175:447:3
+//line syntax/scan.ergo#ergo-inline-4175:447:10
 						v_172 := identRest(src_3, (at_22 + int(1)))
-//line syntax/scan.ergo#ergo-inline-4175:432:3
+//line syntax/scan.ergo#ergo-inline-4175:447:3
 						v_171 = v_172
-						/*line syntax/scan.ergo#ergo-inline-4175:432:3*/ goto inl_81
-						/*line syntax/scan.ergo#ergo-inline-4175:432:3*/
+						/*line syntax/scan.ergo#ergo-inline-4175:447:3*/ goto inl_81
+						/*line syntax/scan.ergo#ergo-inline-4175:447:3*/
 					}
-//line syntax/scan.ergo#ergo-inline-4175:434:2
+//line syntax/scan.ergo#ergo-inline-4175:449:2
 					t_74 := src_3
-					/*line syntax/scan.ergo#ergo-inline-4175:434:2*/ t_75 := at_22
-//line syntax/scan.ergo#ergo-inline-4175:434:23
-					v_173 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-4175:434:47*/ src_3[at_22:])
-//line syntax/scan.ergo#ergo-inline-4175:434:2
+					/*line syntax/scan.ergo#ergo-inline-4175:449:2*/ t_75 := at_22
+//line syntax/scan.ergo#ergo-inline-4175:449:23
+					v_173 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-4175:449:47*/ src_3[at_22:])
+//line syntax/scan.ergo#ergo-inline-4175:449:2
 					v_171 = identRest(t_74, (t_75 + v_173.Size))
 
-					/*line syntax/scan.ergo#ergo-inline-4175:434:2*/
+					/*line syntax/scan.ergo#ergo-inline-4175:449:2*/
 				}
-				/*line syntax/scan.ergo#ergo-inline-4175:434:2*/ inl_81:
+				/*line syntax/scan.ergo#ergo-inline-4175:449:2*/ inl_81:
 				;
 //line syntax/parse.ergo#ergo-inline-4174:341:57
 				v_170 = (v_171 == (at_22 + len(w_4)))
@@ -106636,27 +106646,27 @@ func (p *parser) parseMachineLaw(doc uint32) uint32 {
 					var v_176 int
 					/*line syntax/parse.ergo#ergo-inline-4176:341:57*/ {
 						/*line syntax/parse.ergo#ergo-inline-4176:341:57*/ var src_4 string = p.src
-//line syntax/scan.ergo#ergo-inline-4177:431:2
-						if /*line syntax/scan.ergo#ergo-inline-4177:431:5*/ src_4[at_23] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-4177:432:3
-//line syntax/scan.ergo#ergo-inline-4177:432:10
+//line syntax/scan.ergo#ergo-inline-4177:446:2
+						if /*line syntax/scan.ergo#ergo-inline-4177:446:5*/ src_4[at_23] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-4177:447:3
+//line syntax/scan.ergo#ergo-inline-4177:447:10
 							v_177 := identRest(src_4, (at_23 + int(1)))
-//line syntax/scan.ergo#ergo-inline-4177:432:3
+//line syntax/scan.ergo#ergo-inline-4177:447:3
 							v_176 = v_177
-							/*line syntax/scan.ergo#ergo-inline-4177:432:3*/ goto inl_83
-							/*line syntax/scan.ergo#ergo-inline-4177:432:3*/
+							/*line syntax/scan.ergo#ergo-inline-4177:447:3*/ goto inl_83
+							/*line syntax/scan.ergo#ergo-inline-4177:447:3*/
 						}
-//line syntax/scan.ergo#ergo-inline-4177:434:2
+//line syntax/scan.ergo#ergo-inline-4177:449:2
 						t_76 := src_4
-						/*line syntax/scan.ergo#ergo-inline-4177:434:2*/ t_77 := at_23
-//line syntax/scan.ergo#ergo-inline-4177:434:23
-						v_178 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-4177:434:47*/ src_4[at_23:])
-//line syntax/scan.ergo#ergo-inline-4177:434:2
+						/*line syntax/scan.ergo#ergo-inline-4177:449:2*/ t_77 := at_23
+//line syntax/scan.ergo#ergo-inline-4177:449:23
+						v_178 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-4177:449:47*/ src_4[at_23:])
+//line syntax/scan.ergo#ergo-inline-4177:449:2
 						v_176 = identRest(t_76, (t_77 + v_178.Size))
 
-						/*line syntax/scan.ergo#ergo-inline-4177:434:2*/
+						/*line syntax/scan.ergo#ergo-inline-4177:449:2*/
 					}
-					/*line syntax/scan.ergo#ergo-inline-4177:434:2*/ inl_83:
+					/*line syntax/scan.ergo#ergo-inline-4177:449:2*/ inl_83:
 					;
 //line syntax/parse.ergo#ergo-inline-4176:341:57
 					v_175 = (v_176 == (at_23 + len(w_5)))
@@ -107197,27 +107207,27 @@ func (p *parser) parseMachineLaw(doc uint32) uint32 {
 					var v_226 int
 					/*line syntax/parse.ergo#ergo-inline-4202:341:57*/ {
 						/*line syntax/parse.ergo#ergo-inline-4202:341:57*/ var src_5 string = p.src
-//line syntax/scan.ergo#ergo-inline-4203:431:2
-						if /*line syntax/scan.ergo#ergo-inline-4203:431:5*/ src_5[at_30] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-4203:432:3
-//line syntax/scan.ergo#ergo-inline-4203:432:10
+//line syntax/scan.ergo#ergo-inline-4203:446:2
+						if /*line syntax/scan.ergo#ergo-inline-4203:446:5*/ src_5[at_30] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-4203:447:3
+//line syntax/scan.ergo#ergo-inline-4203:447:10
 							v_227 := identRest(src_5, (at_30 + int(1)))
-//line syntax/scan.ergo#ergo-inline-4203:432:3
+//line syntax/scan.ergo#ergo-inline-4203:447:3
 							v_226 = v_227
-							/*line syntax/scan.ergo#ergo-inline-4203:432:3*/ goto inl_109
-							/*line syntax/scan.ergo#ergo-inline-4203:432:3*/
+							/*line syntax/scan.ergo#ergo-inline-4203:447:3*/ goto inl_109
+							/*line syntax/scan.ergo#ergo-inline-4203:447:3*/
 						}
-//line syntax/scan.ergo#ergo-inline-4203:434:2
+//line syntax/scan.ergo#ergo-inline-4203:449:2
 						t_100 := src_5
-						/*line syntax/scan.ergo#ergo-inline-4203:434:2*/ t_101 := at_30
-//line syntax/scan.ergo#ergo-inline-4203:434:23
-						v_228 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-4203:434:47*/ src_5[at_30:])
-//line syntax/scan.ergo#ergo-inline-4203:434:2
+						/*line syntax/scan.ergo#ergo-inline-4203:449:2*/ t_101 := at_30
+//line syntax/scan.ergo#ergo-inline-4203:449:23
+						v_228 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-4203:449:47*/ src_5[at_30:])
+//line syntax/scan.ergo#ergo-inline-4203:449:2
 						v_226 = identRest(t_100, (t_101 + v_228.Size))
 
-						/*line syntax/scan.ergo#ergo-inline-4203:434:2*/
+						/*line syntax/scan.ergo#ergo-inline-4203:449:2*/
 					}
-					/*line syntax/scan.ergo#ergo-inline-4203:434:2*/ inl_109:
+					/*line syntax/scan.ergo#ergo-inline-4203:449:2*/ inl_109:
 					;
 //line syntax/parse.ergo#ergo-inline-4202:341:57
 					v_225 = (v_226 == (at_30 + len(w_6)))
@@ -107854,26 +107864,26 @@ func (p *parser) parseMachineLaw(doc uint32) uint32 {
 	/*line syntax/parse_decl.ergo:733:2*/
 }
 
-//line syntax/scan.ergo:430:1
+//line syntax/scan.ergo:445:1
 func identEnd(src string, start_1 int) int {
-//line syntax/scan.ergo:431:2
-	if /*line syntax/scan.ergo:431:5*/ src[start_1] < uint8(128) {
-//line syntax/scan.ergo:432:3
-//line syntax/scan.ergo:432:10
+//line syntax/scan.ergo:446:2
+	if /*line syntax/scan.ergo:446:5*/ src[start_1] < uint8(128) {
+//line syntax/scan.ergo:447:3
+//line syntax/scan.ergo:447:10
 		v := identRest(src, (start_1 + int(1)))
-//line syntax/scan.ergo:432:3
+//line syntax/scan.ergo:447:3
 		return v
-		/*line syntax/scan.ergo:432:3*/
+		/*line syntax/scan.ergo:447:3*/
 	}
-//line syntax/scan.ergo:434:2
+//line syntax/scan.ergo:449:2
 	t := src
-	/*line syntax/scan.ergo:434:2*/ t_1 := start_1
-//line syntax/scan.ergo:434:23
-	v_1 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo:434:47*/ src[start_1:])
-//line syntax/scan.ergo:434:2
+	/*line syntax/scan.ergo:449:2*/ t_1 := start_1
+//line syntax/scan.ergo:449:23
+	v_1 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo:449:47*/ src[start_1:])
+//line syntax/scan.ergo:449:2
 	v_2 := identRest(t, (t_1 + v_1.Size))
-	/*line syntax/scan.ergo:434:2*/ return v_2
-	/*line syntax/scan.ergo:434:2*/
+	/*line syntax/scan.ergo:449:2*/ return v_2
+	/*line syntax/scan.ergo:449:2*/
 }
 
 //line syntax/parse.ergo:367:1
@@ -111528,27 +111538,27 @@ func (p *parser) parseType1(ctx int) uint32 {
 			var v_1 int
 			/*line syntax/parse.ergo#ergo-inline-4385:341:57*/ {
 				/*line syntax/parse.ergo#ergo-inline-4385:341:57*/ var src string = p.src
-//line syntax/scan.ergo#ergo-inline-4386:431:2
-				if /*line syntax/scan.ergo#ergo-inline-4386:431:5*/ src[at_1] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-4386:432:3
-//line syntax/scan.ergo#ergo-inline-4386:432:10
+//line syntax/scan.ergo#ergo-inline-4386:446:2
+				if /*line syntax/scan.ergo#ergo-inline-4386:446:5*/ src[at_1] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-4386:447:3
+//line syntax/scan.ergo#ergo-inline-4386:447:10
 					v_2 := identRest(src, (at_1 + int(1)))
-//line syntax/scan.ergo#ergo-inline-4386:432:3
+//line syntax/scan.ergo#ergo-inline-4386:447:3
 					v_1 = v_2
-					/*line syntax/scan.ergo#ergo-inline-4386:432:3*/ goto inl_1
-					/*line syntax/scan.ergo#ergo-inline-4386:432:3*/
+					/*line syntax/scan.ergo#ergo-inline-4386:447:3*/ goto inl_1
+					/*line syntax/scan.ergo#ergo-inline-4386:447:3*/
 				}
-//line syntax/scan.ergo#ergo-inline-4386:434:2
+//line syntax/scan.ergo#ergo-inline-4386:449:2
 				t := src
-				/*line syntax/scan.ergo#ergo-inline-4386:434:2*/ t_1 := at_1
-//line syntax/scan.ergo#ergo-inline-4386:434:23
-				v_3 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-4386:434:47*/ src[at_1:])
-//line syntax/scan.ergo#ergo-inline-4386:434:2
+				/*line syntax/scan.ergo#ergo-inline-4386:449:2*/ t_1 := at_1
+//line syntax/scan.ergo#ergo-inline-4386:449:23
+				v_3 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-4386:449:47*/ src[at_1:])
+//line syntax/scan.ergo#ergo-inline-4386:449:2
 				v_1 = identRest(t, (t_1 + v_3.Size))
 
-				/*line syntax/scan.ergo#ergo-inline-4386:434:2*/
+				/*line syntax/scan.ergo#ergo-inline-4386:449:2*/
 			}
-			/*line syntax/scan.ergo#ergo-inline-4386:434:2*/ inl_1:
+			/*line syntax/scan.ergo#ergo-inline-4386:449:2*/ inl_1:
 			;
 //line syntax/parse.ergo#ergo-inline-4385:341:57
 			v = (v_1 == (at_1 + len(w)))
@@ -111916,27 +111926,27 @@ func (p *parser) parseType1(ctx int) uint32 {
 				var v_37 int
 				/*line syntax/parse.ergo#ergo-inline-4402:341:57*/ {
 					/*line syntax/parse.ergo#ergo-inline-4402:341:57*/ var src_1 string = p.src
-//line syntax/scan.ergo#ergo-inline-4403:431:2
-					if /*line syntax/scan.ergo#ergo-inline-4403:431:5*/ src_1[at_7] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-4403:432:3
-//line syntax/scan.ergo#ergo-inline-4403:432:10
+//line syntax/scan.ergo#ergo-inline-4403:446:2
+					if /*line syntax/scan.ergo#ergo-inline-4403:446:5*/ src_1[at_7] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-4403:447:3
+//line syntax/scan.ergo#ergo-inline-4403:447:10
 						v_38 := identRest(src_1, (at_7 + int(1)))
-//line syntax/scan.ergo#ergo-inline-4403:432:3
+//line syntax/scan.ergo#ergo-inline-4403:447:3
 						v_37 = v_38
-						/*line syntax/scan.ergo#ergo-inline-4403:432:3*/ goto inl_18
-						/*line syntax/scan.ergo#ergo-inline-4403:432:3*/
+						/*line syntax/scan.ergo#ergo-inline-4403:447:3*/ goto inl_18
+						/*line syntax/scan.ergo#ergo-inline-4403:447:3*/
 					}
-//line syntax/scan.ergo#ergo-inline-4403:434:2
+//line syntax/scan.ergo#ergo-inline-4403:449:2
 					t_16 := src_1
-					/*line syntax/scan.ergo#ergo-inline-4403:434:2*/ t_17 := at_7
-//line syntax/scan.ergo#ergo-inline-4403:434:23
-					v_39 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-4403:434:47*/ src_1[at_7:])
-//line syntax/scan.ergo#ergo-inline-4403:434:2
+					/*line syntax/scan.ergo#ergo-inline-4403:449:2*/ t_17 := at_7
+//line syntax/scan.ergo#ergo-inline-4403:449:23
+					v_39 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-4403:449:47*/ src_1[at_7:])
+//line syntax/scan.ergo#ergo-inline-4403:449:2
 					v_37 = identRest(t_16, (t_17 + v_39.Size))
 
-					/*line syntax/scan.ergo#ergo-inline-4403:434:2*/
+					/*line syntax/scan.ergo#ergo-inline-4403:449:2*/
 				}
-				/*line syntax/scan.ergo#ergo-inline-4403:434:2*/ inl_18:
+				/*line syntax/scan.ergo#ergo-inline-4403:449:2*/ inl_18:
 				;
 //line syntax/parse.ergo#ergo-inline-4402:341:57
 				v_36 = (v_37 == (at_7 + len(w_1)))
@@ -118706,27 +118716,27 @@ func (p *parser) parseContextBody() uint32 {
 				var v_42 int
 				/*line syntax/parse.ergo#ergo-inline-4713:341:57*/ {
 					/*line syntax/parse.ergo#ergo-inline-4713:341:57*/ var src string = p.src
-//line syntax/scan.ergo#ergo-inline-4714:431:2
-					if /*line syntax/scan.ergo#ergo-inline-4714:431:5*/ src[at_7] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-4714:432:3
-//line syntax/scan.ergo#ergo-inline-4714:432:10
+//line syntax/scan.ergo#ergo-inline-4714:446:2
+					if /*line syntax/scan.ergo#ergo-inline-4714:446:5*/ src[at_7] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-4714:447:3
+//line syntax/scan.ergo#ergo-inline-4714:447:10
 						v_43 := identRest(src, (at_7 + int(1)))
-//line syntax/scan.ergo#ergo-inline-4714:432:3
+//line syntax/scan.ergo#ergo-inline-4714:447:3
 						v_42 = v_43
-						/*line syntax/scan.ergo#ergo-inline-4714:432:3*/ goto inl_21
-						/*line syntax/scan.ergo#ergo-inline-4714:432:3*/
+						/*line syntax/scan.ergo#ergo-inline-4714:447:3*/ goto inl_21
+						/*line syntax/scan.ergo#ergo-inline-4714:447:3*/
 					}
-//line syntax/scan.ergo#ergo-inline-4714:434:2
+//line syntax/scan.ergo#ergo-inline-4714:449:2
 					t_17 := src
-					/*line syntax/scan.ergo#ergo-inline-4714:434:2*/ t_18 := at_7
-//line syntax/scan.ergo#ergo-inline-4714:434:23
-					v_44 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-4714:434:47*/ src[at_7:])
-//line syntax/scan.ergo#ergo-inline-4714:434:2
+					/*line syntax/scan.ergo#ergo-inline-4714:449:2*/ t_18 := at_7
+//line syntax/scan.ergo#ergo-inline-4714:449:23
+					v_44 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-4714:449:47*/ src[at_7:])
+//line syntax/scan.ergo#ergo-inline-4714:449:2
 					v_42 = identRest(t_17, (t_18 + v_44.Size))
 
-					/*line syntax/scan.ergo#ergo-inline-4714:434:2*/
+					/*line syntax/scan.ergo#ergo-inline-4714:449:2*/
 				}
-				/*line syntax/scan.ergo#ergo-inline-4714:434:2*/ inl_21:
+				/*line syntax/scan.ergo#ergo-inline-4714:449:2*/ inl_21:
 				;
 //line syntax/parse.ergo#ergo-inline-4713:341:57
 				v_41 = (v_42 == (at_7 + len(w)))
@@ -129400,101 +129410,101 @@ func (p *Printer) clauses(env *Env, lbrace int, arms []ID[Node], rbrace int) {
 	/*line format/nodes.ergo:990:2*/
 }
 
-//line syntax/scan.ergo:839:1
+//line syntax/scan.ergo:854:1
 func baseOf(c uint8) int {
-	/*line syntax/scan.ergo:840:2*/ if (c == uint8(120)) || (c == uint8(88)) {
-		/*line syntax/scan.ergo:841:3*/ return 16
+	/*line syntax/scan.ergo:855:2*/ if (c == uint8(120)) || (c == uint8(88)) {
+		/*line syntax/scan.ergo:856:3*/ return 16
 	}
-	/*line syntax/scan.ergo:843:2*/ if (c == uint8(111)) || (c == uint8(79)) {
-		/*line syntax/scan.ergo:844:3*/ return 8
+	/*line syntax/scan.ergo:858:2*/ if (c == uint8(111)) || (c == uint8(79)) {
+		/*line syntax/scan.ergo:859:3*/ return 8
 	}
-	/*line syntax/scan.ergo:846:2*/ return 2
+	/*line syntax/scan.ergo:861:2*/ return 2
 }
 
-//line syntax/scan.ergo:840
+//line syntax/scan.ergo:855
 
-//line syntax/scan.ergo:811:1
+//line syntax/scan.ergo:826:1
 func digitValue(c uint8) int {
-//line syntax/scan.ergo:812:2
+//line syntax/scan.ergo:827:2
 	if (c >= uint8(48)) && (c <= uint8(57)) {
-//line syntax/scan.ergo:813:3
+//line syntax/scan.ergo:828:3
 		return int((c - uint8(48)))
-		/*line syntax/scan.ergo:813:3*/
+		/*line syntax/scan.ergo:828:3*/
 	}
-//line syntax/scan.ergo:815:2
+//line syntax/scan.ergo:830:2
 	if (c >= uint8(97)) && (c <= uint8(102)) {
-//line syntax/scan.ergo:816:3
+//line syntax/scan.ergo:831:3
 		return (int((c - uint8(97))) + int(10))
-		/*line syntax/scan.ergo:816:3*/
+		/*line syntax/scan.ergo:831:3*/
 	}
-//line syntax/scan.ergo:818:2
+//line syntax/scan.ergo:833:2
 	if (c >= uint8(65)) && (c <= uint8(70)) {
-//line syntax/scan.ergo:819:3
+//line syntax/scan.ergo:834:3
 		return (int((c - uint8(65))) + int(10))
-		/*line syntax/scan.ergo:819:3*/
+		/*line syntax/scan.ergo:834:3*/
 	}
-//line syntax/scan.ergo:821:2
+//line syntax/scan.ergo:836:2
 	return int(99)
-	/*line syntax/scan.ergo:821:2*/
+	/*line syntax/scan.ergo:836:2*/
 }
 
-//line syntax/scan.ergo:1224:1
+//line syntax/scan.ergo:1239:1
 func baseName(base int) string {
-	/*line syntax/scan.ergo:1225:2*/ if base == 16 {
-		/*line syntax/scan.ergo:1226:3*/ return "hexadecimal"
+	/*line syntax/scan.ergo:1240:2*/ if base == 16 {
+		/*line syntax/scan.ergo:1241:3*/ return "hexadecimal"
 	}
-	/*line syntax/scan.ergo:1228:2*/ if base == 8 {
-		/*line syntax/scan.ergo:1229:3*/ return "octal"
+	/*line syntax/scan.ergo:1243:2*/ if base == 8 {
+		/*line syntax/scan.ergo:1244:3*/ return "octal"
 	}
-	/*line syntax/scan.ergo:1231:2*/ return "binary"
+	/*line syntax/scan.ergo:1246:2*/ return "binary"
 }
 
-//line syntax/scan.ergo:1225
+//line syntax/scan.ergo:1240
 
-//line syntax/scan.ergo:1069:1
+//line syntax/scan.ergo:1084:1
 func hexDigits(s string, i int, k int) int {
-//line syntax/scan.ergo:1070:2
+//line syntax/scan.ergo:1085:2
 	var v int = int(0)
-//line syntax/scan.ergo:1071:2
+//line syntax/scan.ergo:1086:2
 	t := (Range[int]{Start: i, End: (i + k)})
-	/*line syntax/scan.ergo:1071:2*/ for i_1 := t.Start; i_1 < t.End; i_1++ {
-		/*line syntax/scan.ergo:1071:2*/ var j int = i_1
-//line syntax/scan.ergo:1072:3
-		a := /*line syntax/scan.ergo:1072:22*/ s[j]
-		/*line syntax/scan.ergo:1072:3*/ i_2 := 0
-		/*line syntax/scan.ergo:1072:3*/ i_2 = i_2*256 + int(a)
-		/*line syntax/scan.ergo:1072:3*/ var v_2 int
-		/*line syntax/scan.ergo:1072:3*/ if tabdigitValueK[i_2].Ready() {
-			/*line syntax/scan.ergo:1072:3*/ v_2 = tabdigitValueV[i_2]
-			/*line syntax/scan.ergo:1072:3*/
+	/*line syntax/scan.ergo:1086:2*/ for i_1 := t.Start; i_1 < t.End; i_1++ {
+		/*line syntax/scan.ergo:1086:2*/ var j int = i_1
+//line syntax/scan.ergo:1087:3
+		a := /*line syntax/scan.ergo:1087:22*/ s[j]
+		/*line syntax/scan.ergo:1087:3*/ i_2 := 0
+		/*line syntax/scan.ergo:1087:3*/ i_2 = i_2*256 + int(a)
+		/*line syntax/scan.ergo:1087:3*/ var v_2 int
+		/*line syntax/scan.ergo:1087:3*/ if tabdigitValueK[i_2].Ready() {
+			/*line syntax/scan.ergo:1087:3*/ v_2 = tabdigitValueV[i_2]
+			/*line syntax/scan.ergo:1087:3*/
 		} else {
-			/*line syntax/scan.ergo:1072:3*/ v_2 = tabdigitValueFill(i_2, a)
-			/*line syntax/scan.ergo:1072:3*/
+			/*line syntax/scan.ergo:1087:3*/ v_2 = tabdigitValueFill(i_2, a)
+			/*line syntax/scan.ergo:1087:3*/
 		}
-//line syntax/scan.ergo:1072:11
+//line syntax/scan.ergo:1087:11
 		v_3 := v_2
-//line syntax/scan.ergo:1072:3
-//line syntax/scan.ergo:1073:3
+//line syntax/scan.ergo:1087:3
+//line syntax/scan.ergo:1088:3
 		if v_3 >= int(16) {
-//line syntax/scan.ergo:1074:4
+//line syntax/scan.ergo:1089:4
 			return int(-1)
-			/*line syntax/scan.ergo:1074:4*/
+			/*line syntax/scan.ergo:1089:4*/
 		}
-//line syntax/scan.ergo:1076:3
+//line syntax/scan.ergo:1091:3
 		v = ((v * int(16)) + v_3)
-		/*line syntax/scan.ergo:1076:3*/
+		/*line syntax/scan.ergo:1091:3*/
 	}
-//line syntax/scan.ergo:1078:2
+//line syntax/scan.ergo:1093:2
 	return v
-	/*line syntax/scan.ergo:1078:2*/
+	/*line syntax/scan.ergo:1093:2*/
 }
 
-//line syntax/scan.ergo:1082:1
+//line syntax/scan.ergo:1097:1
 func validRune(v int) bool {
-	/*line syntax/scan.ergo:1082:30*/ return (((v >= 0) && (v < 55296)) || ((v > 57343) && (v <= 1114111)))
+	/*line syntax/scan.ergo:1097:30*/ return (((v >= 0) && (v < 55296)) || ((v > 57343) && (v <= 1114111)))
 }
 
-//line syntax/scan.ergo:1083
+//line syntax/scan.ergo:1098
 
 //line syntax/parse_decl.ergo:520:1
 func groupsName(k uint8) bool {
@@ -133897,27 +133907,27 @@ func (p *parser) parseStmt1() uint32 {
 				var v_2 int
 				/*line syntax/parse.ergo#ergo-inline-5476:341:57*/ {
 					/*line syntax/parse.ergo#ergo-inline-5476:341:57*/ var src string = p.src
-//line syntax/scan.ergo#ergo-inline-5477:431:2
-					if /*line syntax/scan.ergo#ergo-inline-5477:431:5*/ src[at_1] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-5477:432:3
-//line syntax/scan.ergo#ergo-inline-5477:432:10
+//line syntax/scan.ergo#ergo-inline-5477:446:2
+					if /*line syntax/scan.ergo#ergo-inline-5477:446:5*/ src[at_1] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-5477:447:3
+//line syntax/scan.ergo#ergo-inline-5477:447:10
 						v_3 := identRest(src, (at_1 + int(1)))
-//line syntax/scan.ergo#ergo-inline-5477:432:3
+//line syntax/scan.ergo#ergo-inline-5477:447:3
 						v_2 = v_3
-						/*line syntax/scan.ergo#ergo-inline-5477:432:3*/ goto inl_2
-						/*line syntax/scan.ergo#ergo-inline-5477:432:3*/
+						/*line syntax/scan.ergo#ergo-inline-5477:447:3*/ goto inl_2
+						/*line syntax/scan.ergo#ergo-inline-5477:447:3*/
 					}
-//line syntax/scan.ergo#ergo-inline-5477:434:2
+//line syntax/scan.ergo#ergo-inline-5477:449:2
 					t := src
-					/*line syntax/scan.ergo#ergo-inline-5477:434:2*/ t_1 := at_1
-//line syntax/scan.ergo#ergo-inline-5477:434:23
-					v_4 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-5477:434:47*/ src[at_1:])
-//line syntax/scan.ergo#ergo-inline-5477:434:2
+					/*line syntax/scan.ergo#ergo-inline-5477:449:2*/ t_1 := at_1
+//line syntax/scan.ergo#ergo-inline-5477:449:23
+					v_4 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-5477:449:47*/ src[at_1:])
+//line syntax/scan.ergo#ergo-inline-5477:449:2
 					v_2 = identRest(t, (t_1 + v_4.Size))
 
-					/*line syntax/scan.ergo#ergo-inline-5477:434:2*/
+					/*line syntax/scan.ergo#ergo-inline-5477:449:2*/
 				}
-				/*line syntax/scan.ergo#ergo-inline-5477:434:2*/ inl_2:
+				/*line syntax/scan.ergo#ergo-inline-5477:449:2*/ inl_2:
 				;
 //line syntax/parse.ergo#ergo-inline-5476:341:57
 				v_1 = (v_2 == (at_1 + len(w)))
@@ -147891,27 +147901,27 @@ func (p *parser) parseMatch() uint32 {
 							var v_78 int
 							/*line syntax/parse.ergo#ergo-inline-6152:350:57*/ {
 								/*line syntax/parse.ergo#ergo-inline-6152:350:57*/ var src string = p.src
-//line syntax/scan.ergo#ergo-inline-6153:431:2
-								if /*line syntax/scan.ergo#ergo-inline-6153:431:5*/ src[at_12] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-6153:432:3
-//line syntax/scan.ergo#ergo-inline-6153:432:10
+//line syntax/scan.ergo#ergo-inline-6153:446:2
+								if /*line syntax/scan.ergo#ergo-inline-6153:446:5*/ src[at_12] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-6153:447:3
+//line syntax/scan.ergo#ergo-inline-6153:447:10
 									v_79 := identRest(src, (at_12 + int(1)))
-//line syntax/scan.ergo#ergo-inline-6153:432:3
+//line syntax/scan.ergo#ergo-inline-6153:447:3
 									v_78 = v_79
-									/*line syntax/scan.ergo#ergo-inline-6153:432:3*/ goto inl_41
-									/*line syntax/scan.ergo#ergo-inline-6153:432:3*/
+									/*line syntax/scan.ergo#ergo-inline-6153:447:3*/ goto inl_41
+									/*line syntax/scan.ergo#ergo-inline-6153:447:3*/
 								}
-//line syntax/scan.ergo#ergo-inline-6153:434:2
+//line syntax/scan.ergo#ergo-inline-6153:449:2
 								t_32 := src
-								/*line syntax/scan.ergo#ergo-inline-6153:434:2*/ t_33 := at_12
-//line syntax/scan.ergo#ergo-inline-6153:434:23
-								v_80 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-6153:434:47*/ src[at_12:])
-//line syntax/scan.ergo#ergo-inline-6153:434:2
+								/*line syntax/scan.ergo#ergo-inline-6153:449:2*/ t_33 := at_12
+//line syntax/scan.ergo#ergo-inline-6153:449:23
+								v_80 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-6153:449:47*/ src[at_12:])
+//line syntax/scan.ergo#ergo-inline-6153:449:2
 								v_78 = identRest(t_32, (t_33 + v_80.Size))
 
-								/*line syntax/scan.ergo#ergo-inline-6153:434:2*/
+								/*line syntax/scan.ergo#ergo-inline-6153:449:2*/
 							}
-							/*line syntax/scan.ergo#ergo-inline-6153:434:2*/ inl_41:
+							/*line syntax/scan.ergo#ergo-inline-6153:449:2*/ inl_41:
 							;
 //line syntax/parse.ergo#ergo-inline-6152:350:57
 							v_77 = (v_78 == (at_12 + len(w)))
@@ -159594,27 +159604,27 @@ func (p *parser) parsePrimaryExpr() uint32 {
 										var v_148 int
 										/*line syntax/parse.ergo#ergo-inline-6715:350:57*/ {
 											/*line syntax/parse.ergo#ergo-inline-6715:350:57*/ var src string = t_57.src
-//line syntax/scan.ergo#ergo-inline-6716:431:2
-											if /*line syntax/scan.ergo#ergo-inline-6716:431:5*/ src[at_13] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-6716:432:3
-//line syntax/scan.ergo#ergo-inline-6716:432:10
+//line syntax/scan.ergo#ergo-inline-6716:446:2
+											if /*line syntax/scan.ergo#ergo-inline-6716:446:5*/ src[at_13] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-6716:447:3
+//line syntax/scan.ergo#ergo-inline-6716:447:10
 												v_149 := identRest(src, (at_13 + int(1)))
-//line syntax/scan.ergo#ergo-inline-6716:432:3
+//line syntax/scan.ergo#ergo-inline-6716:447:3
 												v_148 = v_149
-												/*line syntax/scan.ergo#ergo-inline-6716:432:3*/ goto inl_70
-												/*line syntax/scan.ergo#ergo-inline-6716:432:3*/
+												/*line syntax/scan.ergo#ergo-inline-6716:447:3*/ goto inl_70
+												/*line syntax/scan.ergo#ergo-inline-6716:447:3*/
 											}
-//line syntax/scan.ergo#ergo-inline-6716:434:2
+//line syntax/scan.ergo#ergo-inline-6716:449:2
 											t_58 := src
-											/*line syntax/scan.ergo#ergo-inline-6716:434:2*/ t_59 := at_13
-//line syntax/scan.ergo#ergo-inline-6716:434:23
-											v_150 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-6716:434:47*/ src[at_13:])
-//line syntax/scan.ergo#ergo-inline-6716:434:2
+											/*line syntax/scan.ergo#ergo-inline-6716:449:2*/ t_59 := at_13
+//line syntax/scan.ergo#ergo-inline-6716:449:23
+											v_150 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-6716:449:47*/ src[at_13:])
+//line syntax/scan.ergo#ergo-inline-6716:449:2
 											v_148 = identRest(t_58, (t_59 + v_150.Size))
 
-											/*line syntax/scan.ergo#ergo-inline-6716:434:2*/
+											/*line syntax/scan.ergo#ergo-inline-6716:449:2*/
 										}
-										/*line syntax/scan.ergo#ergo-inline-6716:434:2*/ inl_70:
+										/*line syntax/scan.ergo#ergo-inline-6716:449:2*/ inl_70:
 										;
 //line syntax/parse.ergo#ergo-inline-6715:350:57
 										v_147 = (v_148 == (at_13 + len(w)))
@@ -169934,27 +169944,27 @@ func (p *parser) parseIndexValue() uint32 {
 				var v_1 int
 				/*line syntax/parse.ergo#ergo-inline-7204:341:57*/ {
 					/*line syntax/parse.ergo#ergo-inline-7204:341:57*/ var src string = p.src
-//line syntax/scan.ergo#ergo-inline-7205:431:2
-					if /*line syntax/scan.ergo#ergo-inline-7205:431:5*/ src[at_1] < uint8(128) {
-//line syntax/scan.ergo#ergo-inline-7205:432:3
-//line syntax/scan.ergo#ergo-inline-7205:432:10
+//line syntax/scan.ergo#ergo-inline-7205:446:2
+					if /*line syntax/scan.ergo#ergo-inline-7205:446:5*/ src[at_1] < uint8(128) {
+//line syntax/scan.ergo#ergo-inline-7205:447:3
+//line syntax/scan.ergo#ergo-inline-7205:447:10
 						v_2 := identRest(src, (at_1 + int(1)))
-//line syntax/scan.ergo#ergo-inline-7205:432:3
+//line syntax/scan.ergo#ergo-inline-7205:447:3
 						v_1 = v_2
-						/*line syntax/scan.ergo#ergo-inline-7205:432:3*/ goto inl_1
-						/*line syntax/scan.ergo#ergo-inline-7205:432:3*/
+						/*line syntax/scan.ergo#ergo-inline-7205:447:3*/ goto inl_1
+						/*line syntax/scan.ergo#ergo-inline-7205:447:3*/
 					}
-//line syntax/scan.ergo#ergo-inline-7205:434:2
+//line syntax/scan.ergo#ergo-inline-7205:449:2
 					t := src
-					/*line syntax/scan.ergo#ergo-inline-7205:434:2*/ t_1 := at_1
-//line syntax/scan.ergo#ergo-inline-7205:434:23
-					v_3 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-7205:434:47*/ src[at_1:])
-//line syntax/scan.ergo#ergo-inline-7205:434:2
+					/*line syntax/scan.ergo#ergo-inline-7205:449:2*/ t_1 := at_1
+//line syntax/scan.ergo#ergo-inline-7205:449:23
+					v_3 := ergo.UTF8DecodeRuneInString( /*line syntax/scan.ergo#ergo-inline-7205:449:47*/ src[at_1:])
+//line syntax/scan.ergo#ergo-inline-7205:449:2
 					v_1 = identRest(t, (t_1 + v_3.Size))
 
-					/*line syntax/scan.ergo#ergo-inline-7205:434:2*/
+					/*line syntax/scan.ergo#ergo-inline-7205:449:2*/
 				}
-				/*line syntax/scan.ergo#ergo-inline-7205:434:2*/ inl_1:
+				/*line syntax/scan.ergo#ergo-inline-7205:449:2*/ inl_1:
 				;
 //line syntax/parse.ergo#ergo-inline-7204:341:57
 				v = (v_1 == (at_1 + len(w)))

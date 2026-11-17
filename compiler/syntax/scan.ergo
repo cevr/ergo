@@ -274,8 +274,16 @@ func run(s *scanner) {
 		}
 		if k&clsLetter != 0 && s.paths == 0 {
 			// An identifier or keyword that starts with an ASCII letter
-			// cannot fail: identifier's ASCII path, with the offset kept here.
-			let end = identRest(src, start+1)
+			// cannot fail: identifier's ASCII path, with the offset kept here,
+			// and identRest's ASCII loop written out (a call per word cost
+			// more than its loop, capstone S2f).
+			let mut end = start + 1
+			for end < n && classes[int(src[end])]&(clsLetter|clsDigit) != 0 {
+				end = end + 1
+			}
+			if end < n && src[end] >= 0x80 {
+				end = identRestWide(src, end)
+			}
 			emit(s, keyword(src, start, end), start, end)
 			i = end
 			continue
@@ -287,10 +295,12 @@ func run(s *scanner) {
 			i = start + 1
 			continue
 		}
-		if s.open == 0 {
-			// An operator its first two bytes decide, kept in this arm.
+		if s.open == 0 && op1[int(c)] != byte(0) {
+			// An operator its first two bytes decide, kept in this arm:
+			// opFast written out (a call per operator cost more than its
+			// body, capstone S2f).
 			let c1 = if start+1 < n { src[start+1] } else { byte(0) }
-			let o = opFast(c, c1)
+			let o = if c1 == '=' { uint8(opEq[int(c)]) } else { opAlone(c, c1) }
 			if o != uint8(0) {
 				let end = if c1 == '=' { start + 2 } else { start + 1 }
 				emit(s, o, start, end)
@@ -355,18 +365,23 @@ let opEq = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00
 // comment, or a number after `.`): then run asks operator, opKind and the
 // rest. The token is two bytes long when c1 is `=`, else one.
 func opFast(c byte, c1 byte) uint8 {
-	let k = op1[int(c)]
-	if k == byte(0) {
+	if op1[int(c)] == byte(0) {
 		return 0
 	}
 	if c1 == '=' {
 		return uint8(opEq[int(c)])
 	}
+	opAlone(c, c1)
+}
+
+// opAlone is opFast's kind of an operator byte c followed by c1, which is
+// not `=`; small enough for Go to inline into run.
+func opAlone(c byte, c1 byte) uint8 {
 	let k1 = classes[int(c1)]
 	if c1 == c || k1&clsOpNext != 0 || (c == '.' && k1&clsDigit != 0) {
 		return 0
 	}
-	uint8(k)
+	uint8(op1[int(c)])
 }
 
 // punct is the kind of each punctuation byte that is a token alone (`(`,
