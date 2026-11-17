@@ -6,8 +6,11 @@
 
 import ergo.local/prototype/examples/dashgui/feed
 import ergo.local/prototype/examples/dashgui/panel
+import ergo.local/prototype/examples/dashgui/synth
 import io
+import pace
 import queue
+import slices
 import strconv
 import strings
 import tasks
@@ -132,8 +135,10 @@ func fits(c Command) bool {
 }
 
 // Play runs the script lines on a new board, with a source task for each
-// panel, and ends the tasks when the script ends.
-func Play(lines Seq[string]) fails queue.Closed | tasks.Closed needs feed.Sensors | io.Stdout {
+// panel, and ends the tasks when the script ends. Each frame is one unit
+// of work: Play marks its end with pace.Pacing.Edge(), so the pacing main
+// binds may collect between frames, never inside one.
+func Play(lines Seq[string]) fails queue.Closed | tasks.Closed needs feed.Sensors | io.Stdout | pace.Pacing {
 	let crew = tasks.NewSet[queue.Closed](tasks.FailFast)
 	let w = try feed.Start(len(feed.Kinds()), crew)
 	let mut b = feed.NewBoard()
@@ -154,6 +159,7 @@ func Play(lines Seq[string]) fails queue.Closed | tasks.Closed needs feed.Sensor
 				for n in s.Notes {
 					io.Stdout.Println(Note(n))
 				}
+				pace.Pacing.Edge()
 			}
 		case Pause as p:
 			b = sent(b, p.Panel, panel.Pause, line)
@@ -180,6 +186,22 @@ func Play(lines Seq[string]) fails queue.Closed | tasks.Closed needs feed.Sensor
 	}
 	feed.Stop(w)
 	try crew.Wait()
+}
+
+// PlayPacesEachFrame: Play marks one pacing edge per frame it runs, and
+// none for a line that runs no frame.
+law PlayPacesEachFrame(seed int, a int, b int) {
+	let x = (a%40 + 40) % 40
+	let y = (b%40 + 40) % 40
+	let c = pace.NewCounting()
+	let lines = []string{"run \(x)", "show", "pause 1", "run \(y)", "drops"}
+	with context { feed.Sensors: synth.Bank{Seed: seed}, io.Stdout: io.NewRecorder(), pace.Pacing: c } {
+		Play(slices.Values(lines)) catch {
+		case queue.Closed, tasks.Closed:
+			return false
+		}
+	}
+	c.Edges() == int64(x + y)
 }
 
 // sent is b with e given to panel i, writing a refusal.
