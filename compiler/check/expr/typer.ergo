@@ -592,21 +592,23 @@ func rangeStmt(s *store.Store, k Pkg, t *Typer, r syntax.RangeStmt) {
 
 // isConst is whether x is a constant the typer reads: a basic literal, a
 // signed one, or an operation on constants; its type is its context's.
-func isConst(k Pkg, t Typer, x dense.ID[syntax.Node]) bool {
-	let p = k.Parsed[t.file]
+func isConst(k Pkg, t Typer, x dense.ID[syntax.Node]) bool { constIn(k.Parsed[t.file], x) }
+
+// constIn is isConst in the file p.
+func constIn(p syntax.Parsed, x dense.ID[syntax.Node]) bool {
 	let kd = syntax.KindOf(p.Tree, x)
 	if kd == syntax.KBasicLit {
 		true
 	} else if kd == syntax.KParenExpr {
-		isConst(k, t, syntax.ParenExprOf(p.Tree, x).X)
+		constIn(p, syntax.ParenExprOf(p.Tree, x).X)
 	} else if kd == syntax.KUnaryExpr {
 		let u = syntax.UnaryExprOf(p.Tree, x)
 		let op = syntax.TokKind(p, u.Op)
-		(op == syntax.Sub || op == syntax.Add) && isConst(k, t, u.X)
+		(op == syntax.Sub || op == syntax.Add) && constIn(p, u.X)
 	} else if kd == syntax.KBinaryExpr {
 		let b = syntax.BinaryExprOf(p.Tree, x)
 		let op = syntax.TokKind(p, b.Op)
-		(op == syntax.Add || op == syntax.Sub || op == syntax.Mul || op == syntax.Quo) && isConst(k, t, b.X) && isConst(k, t, b.Y)
+		(op == syntax.Add || op == syntax.Sub || op == syntax.Mul || op == syntax.Quo) && constIn(p, b.X) && constIn(p, b.Y)
 	} else {
 		false
 	}
@@ -614,20 +616,22 @@ func isConst(k Pkg, t Typer, x dense.ID[syntax.Node]) bool {
 
 // constKind is the default kind of the constant x: 0 int, 1 rune, 2
 // float, 3 string, 4 duration, -1 another.
-func constKind(k Pkg, t Typer, x dense.ID[syntax.Node]) int {
-	let p = k.Parsed[t.file]
+func constKind(k Pkg, t Typer, x dense.ID[syntax.Node]) int { kindIn(k.Parsed[t.file], x) }
+
+// kindIn is constKind in the file p.
+func kindIn(p syntax.Parsed, x dense.ID[syntax.Node]) int {
 	let kd = syntax.KindOf(p.Tree, x)
 	if kd == syntax.KBasicLit {
 		let tk = syntax.TokKind(p, syntax.BasicLitOf(p.Tree, x).Tok)
 		if tk == syntax.Int { 0 } else if tk == syntax.Rune { 1 } else if tk == syntax.Float { 2 } else if tk == syntax.String { 3 } else if tk == syntax.Duration { 4 } else { -1 }
 	} else if kd == syntax.KParenExpr {
-		constKind(k, t, syntax.ParenExprOf(p.Tree, x).X)
+		kindIn(p, syntax.ParenExprOf(p.Tree, x).X)
 	} else if kd == syntax.KUnaryExpr {
-		constKind(k, t, syntax.UnaryExprOf(p.Tree, x).X)
+		kindIn(p, syntax.UnaryExprOf(p.Tree, x).X)
 	} else if kd == syntax.KBinaryExpr {
 		let b = syntax.BinaryExprOf(p.Tree, x)
-		let a = constKind(k, t, b.X)
-		let c = constKind(k, t, b.Y)
+		let a = kindIn(p, b.X)
+		let c = kindIn(p, b.Y)
 		if a < 0 || c < 0 || (a == 3) != (c == 3) || (a == 4) != (c == 4) { -1 } else if a > c { a } else { c }
 	} else {
 		-1
@@ -697,7 +701,18 @@ func Diags(t Typer) []Diag { t.Diags }
 func exprType(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], w Want) Option[dense.ID[store.TKey]] {
 	let p = k.Parsed[t.file]
 	let tr = p.Tree
-	if isConst(k, *t, x) {
+	// The common kinds first: a name, a call or a selector is no constant.
+	let kd = syntax.KindOf(tr, x)
+	if kd == syntax.KIdent {
+		return ident(s, k, t, x)
+	}
+	if kd == syntax.KCallExpr {
+		return call(s, k, t, x, syntax.CallExprOf(tr, x))
+	}
+	if kd == syntax.KSelectorExpr {
+		return selector(s, k, t, syntax.SelectorExprOf(tr, x))
+	}
+	if constIn(p, x) {
 		let ty = constType(s, k, *t, x, w)
 		// The parts of a constant operation take its type; a signed
 		// literal is one constant, its literal not recorded (the Go
@@ -712,18 +727,8 @@ func exprType(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], w Want) 
 		}
 		return ty
 	}
-	let kd = syntax.KindOf(tr, x)
-	if kd == syntax.KIdent {
-		return ident(s, k, t, x)
-	}
 	if kd == syntax.KBinaryExpr {
 		return binary(s, k, t, syntax.BinaryExprOf(tr, x), w)
-	}
-	if kd == syntax.KCallExpr {
-		return call(s, k, t, x, syntax.CallExprOf(tr, x))
-	}
-	if kd == syntax.KSelectorExpr {
-		return selector(s, k, t, syntax.SelectorExprOf(tr, x))
 	}
 	match syntax.ViewOf(tr, x) {
 	case syntax.ParenExpr as pe:
