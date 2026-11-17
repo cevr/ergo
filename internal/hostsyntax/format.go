@@ -1,7 +1,7 @@
 // Package hostsyntax is Ergo's formatter (`ergo fmt`) for Go callers: one
 // canonical layout with no options (docs/specs/formatting.md). The
 // formatter is written in Ergo (compiler/format, linked as
-// internal/linked/format); this package is its facade. Only the source and
+// internal/linked/compiler); this package is its facade. Only the source and
 // the text cross: compiler/syntax parses in Ergo and the formatter reads its
 // rows. The facade makes no layout decision.
 //
@@ -45,7 +45,7 @@ import (
 	"strconv"
 	"strings"
 
-	"ergo.local/prototype/internal/linked/format"
+	format "ergo.local/prototype/internal/linked/compiler"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 

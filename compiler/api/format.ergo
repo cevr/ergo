@@ -1,5 +1,5 @@
 // Package api is the root of the compiler's linked package
-// (internal/linked/format): Go calls its exported functions. Every entry
+// (internal/linked/compiler): Go calls its exported functions. Every entry
 // is pure. An entry parses with compiler/syntax, runs the formatter and
 // turns its typed outcome into text a Go caller reads. It makes no layout
 // decision. Only the source and the text cross to Go.

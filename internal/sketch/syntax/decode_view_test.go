@@ -3,7 +3,7 @@ package syntax
 // The decoder property (capstone S2e): compiler/syntax's rows read two
 // ways print the same canonical dump. One reading is the view
 // (compiler/syntax/dump.Parse, linked through the IR as
-// internal/linked/syntax and run in process); the other is this package's
+// internal/linked/compiler and run in process); the other is this package's
 // decoder (decode.go), whose Go tree the dumper below prints: one line per
 // node in field order, with its Pos and End, its positions and its scalars.
 // The declarations the decoder derives (refine.go, pair.go) and the
@@ -18,7 +18,7 @@ import (
 	"strings"
 	"testing"
 
-	linked "ergo.local/prototype/internal/linked/syntax"
+	linked "ergo.local/prototype/internal/linked/compiler"
 )
 
 type dumper struct {

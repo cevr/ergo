@@ -1,5 +1,5 @@
 {
-  "about": "The mutant ledger of internal/selfhostcheck and what it tests: the compiler written in Ergo (compiler/, linked as internal/linked/format), the Go facade internal/hostsyntax and the linked generator internal/linked. An edit of a compiler/ file is judged through the linked Go: regenerate it (go run ./scripts/linked) on the mutated copy, then run the killer (capstone S1a, CAP-mut).",
+  "about": "The mutant ledger of internal/selfhostcheck and what it tests: the compiler written in Ergo (compiler/, linked as internal/linked/compiler), the Go facade internal/hostsyntax and the linked generator internal/linked. An edit of a compiler/ file is judged through the linked Go: regenerate it (go run ./scripts/linked) on the mutated copy, then run the killer (capstone S1a, CAP-mut).",
   "mutants": [
     {
       "name": "sh-comment-crosses-token",

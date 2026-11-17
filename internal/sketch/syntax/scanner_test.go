@@ -10,7 +10,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	linked "ergo.local/prototype/internal/linked/syntax"
+	linked "ergo.local/prototype/internal/linked/compiler"
 	"ergo.local/prototype/internal/sketch/sketchtest"
 )
 

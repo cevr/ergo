@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	linked "ergo.local/prototype/internal/linked/syntax"
+	linked "ergo.local/prototype/internal/linked/compiler"
 )
 
 // The seam of capstone S2d: the tree of a source as compiler/syntax's

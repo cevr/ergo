@@ -1,7 +1,7 @@
 // Package syntax is the AST of Ergo and its Go door to the parser: the
 // decided grammar of #196 (docs/spec/grammar.md is normative). Since
 // capstone S2d the scanner and parser are compiler/syntax's, in Ergo,
-// linked into the binary (internal/linked/syntax); Parse decodes their
+// linked into the binary (internal/linked/compiler); Parse decodes their
 // rows into this AST (decode.go). Since S2e no Go parser is left: the
 // parse laws (roundtrip_test.go) and the decoder property
 // (decode_view_test.go) hold Parse to the formatter and to the view. The

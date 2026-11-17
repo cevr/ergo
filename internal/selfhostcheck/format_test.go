@@ -17,14 +17,14 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/hostsyntax"
-	linked "ergo.local/prototype/internal/linked/format"
+	linked "ergo.local/prototype/internal/linked/compiler"
 
 	"ergo.local/prototype/internal/sketch/sketchtest"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // TestSelfhostFormatLaws holds the formatter written in Ergo
-// (compiler/format, linked as internal/linked/format, called through
+// (compiler/format, linked as internal/linked/compiler, called through
 // hostsyntax) to its laws on every input, in process. Since the Go
 // formatter is gone (capstone S1c), TestFormatAgreesWithSeed compares the
 // text with the seed's. For an input it formats, the laws stated in Ergo

@@ -1,6 +1,6 @@
 // Package selfhostcheck holds the properties of the compiler written in
 // Ergo (capstone S1, S2): the formatter of compiler/format, linked into the
-// Go module as internal/linked/format and called through
+// Go module as internal/linked/compiler and called through
 // internal/hostsyntax, holds its laws in process (TestSelfhostFormatLaws)
 // and prints what the seed's Go formatter printed (TestFormatAgreesWithSeed);
 // the layout state agrees with a model (TestSelfhostLayoutModel). The

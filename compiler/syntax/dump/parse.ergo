@@ -2,7 +2,7 @@
 // parse of one source: the text the agreement tests compare with the Go
 // scanner's and parser's (internal/sketch/syntax), and the output of
 // cmd/scandump and cmd/parsedump. It is the root of the linked package
-// internal/linked/syntax: Go calls Parse and Scan. Every function is pure.
+// internal/linked/compiler, through compiler/api: Go calls Parse and Scan. Every function is pure.
 
 import compiler/syntax
 import dense

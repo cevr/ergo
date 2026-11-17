@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	linked "ergo.local/prototype/internal/linked/syntax"
+	linked "ergo.local/prototype/internal/linked/compiler"
 )
 
 // TokenText is src as its tokens: each token's kind and literal, one per

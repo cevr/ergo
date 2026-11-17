@@ -56,14 +56,13 @@ type CLI struct {
 
 // Packages are the Ergo packages the ergo binary links.
 var Packages = []Package{
-	// The formatter of the compiler written in Ergo (capstone S1a), which
-	// internal/hostsyntax calls.
-	{Name: "format", Source: "compiler", Exports: "api"},
-	// The scanner and parser of the compiler written in Ergo (capstone
-	// S2a, S2b), which syntax.Parse decodes since S2d: the columns, the
-	// tokens, the failure and the canonical dumps the decoder property
-	// compares.
-	{Name: "syntax", Source: "compiler", Exports: "syntax/dump"},
+	// The compiler written in Ergo, one package so the binary links
+	// compiler/syntax once (capstone S1d): the formatter (S1a, S2c), which
+	// internal/hostsyntax calls, and compiler/syntax/dump's entries passed
+	// through compiler/api (S2a, S2b), which syntax.Parse decodes since
+	// S2d: the columns, the tokens, the failure and the canonical dumps the
+	// decoder property compares.
+	{Name: "compiler", Source: "compiler", Exports: "api"},
 }
 
 // Module is the Go module path of the repository.
