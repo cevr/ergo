@@ -63,6 +63,8 @@ type handoverGen struct {
 	doc     []int           // the root doc
 	store   []hbag          // the root st's bags
 	reads   int             // the lets r1, r2, … of the store's reads
+	peeks   int             // the store's peeks so far
+	peekAt  int             // the seed's first peek kind
 	reached map[string]bool
 }
 
@@ -237,23 +239,27 @@ func (g *handoverGen) stmt() {
 		}
 		j := g.r.IntN(len(g.store))
 		kinds := []string{"Kind", "Item", "Push", "Pass", "Method", "Bump", "CycleA", "CycleB", "CallBump", "CallPoke"}
-		kind := kinds[g.reads%len(kinds)]
-		g.reads++
-		g.reached["peek "+kind] = true
-		g.line(fmt.Sprintf("out = out + peek%s(&st, %d, %d) + \" \"", kind, j, v))
-		b := g.store[j].copy()
-		e := &g.store[j]
-		switch kind {
-		case "Kind", "Bump", "CallBump":
-			e.n += v
-		case "Push":
-			e.items = append(append([]int(nil), e.items...), v)
-		default:
-			if len(e.items) > 0 {
-				e.items[0] = v
+		// Two peeks of the element; seed s takes the kinds s-1, s+3,
+		// s+7, …, so four seeds reach them all in few reads.
+		for range 2 {
+			kind := kinds[(g.peeks*4+g.peekAt)%len(kinds)]
+			g.peeks++
+			g.reached["peek "+kind] = true
+			g.line(fmt.Sprintf("out = out + peek%s(&st, %d, %d) + \" \"", kind, j, v))
+			b := g.store[j].copy()
+			e := &g.store[j]
+			switch kind {
+			case "Kind", "Bump", "CallBump":
+				e.n += v
+			case "Push":
+				e.items = append(append([]int(nil), e.items...), v)
+			default:
+				if len(e.items) > 0 {
+					e.items[0] = v
+				}
 			}
+			g.out.WriteString(hdig(b.items) + fmt.Sprintf(",%d ", b.n))
 		}
-		g.out.WriteString(hdig(b.items) + fmt.Sprintf(",%d ", b.n))
 	case 16:
 		// The same through the let mut root st itself.
 		if len(g.store) == 0 {
@@ -344,7 +350,7 @@ func (g *handoverGen) stmt() {
 
 // handoverProgram is seed's program and the line it must print.
 func handoverProgram(seed uint64, reached map[string]bool) (string, string) {
-	g := &handoverGen{r: rand.New(rand.NewPCG(seed, 0x6f776e31)), reached: reached}
+	g := &handoverGen{r: rand.New(rand.NewPCG(seed, 0x6f776e31)), peekAt: int((seed + 3) % 4), reached: reached}
 	g.b.WriteString(`import slices
 
 type Bag { Items []int, N int }

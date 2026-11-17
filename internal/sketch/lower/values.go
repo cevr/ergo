@@ -2046,11 +2046,13 @@ func (w *valueWalk) inFlight(vv *vvar, o *vocc) bool {
 	// written through by that call (V8: a Get's receiver is read, not
 	// copied, so this case must copy it; a scalar entry's Get and a pure
 	// call's operand under the reference too).
+	// Such a call that writes no storage o's value reaches is apart
+	// (keeps.go, own-call-pass).
 	if vv.ptr {
 		for _, oc := range vv.occs {
 			if oc != o && oc.pre > o.pre && oc.pre < end && oc.path == syntax.Expr(oc.id) {
 				if _, isCall := w.parent[oc.id].(*syntax.CallExpr); isCall || w.dotCall(oc.id) != nil {
-					return true
+					return !w.passedApart(vv, o, o.pre+1, end)
 				}
 			}
 		}
