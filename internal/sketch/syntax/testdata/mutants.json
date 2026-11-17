@@ -300,7 +300,9 @@
       "from": "\tfor i, cols := range all {\n",
       "to": "\tfor i, cols := range all {\n\t\tcols = all[0]\n",
       "rule": "ParseFiles decodes each file from its own columns.",
-      "killers": []
+      "killers": [
+        "internal/sketchfront:TestLoaderOrderIsTheNames"
+      ]
     }
   ]
 }
