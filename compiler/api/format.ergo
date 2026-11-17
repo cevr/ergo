@@ -11,8 +11,13 @@ import strings
 // <len>:<message> <offset> <length> <line> <column>\n" for a source that
 // does not parse, or "limit <n>\n" for a positive limit below the text's
 // size.
-func FormatSource(src string, limit int) string {
-	let text = format.Source(src, limit) catch {
+func FormatSource(src string, limit int) string { formatWith(src, limit, format.TreePrinter) }
+
+// FormatStream is FormatSource with the streaming printer (capstone S1e).
+func FormatStream(src string, limit int) string { formatWith(src, limit, format.StreamPrinter) }
+
+func formatWith(src string, limit int, printer format.Printers) string {
+	let text = format.SourceWith(src, limit, printer) catch {
 	case format.SyntaxFailure as f:
 		return "syntax \(f.Code) \(len(f.Message)):" + f.Message + " \(f.Offset) \(f.Length) \(f.Line) \(f.Column)\n"
 	case format.OutputLimit as o:

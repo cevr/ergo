@@ -1,0 +1,1041 @@
+// The streaming printer (capstone S1e): the layout straight from the token
+// stream, with no walk of the tree. It reads the parse's tokens and
+// comments in source order, decides each token's whitespace from a small
+// stack of open brackets and gofmt's binary cutoff (a precedence climb
+// over each segment's operators), and writes cells into the same Layout
+// the tree printer writes, so alignment and rendering are shared
+// (align.ergo). It still parses first: a source that does not parse is
+// refused as Source refuses it. The tree printer stays the reference
+// (Printers), and the two are compared on the corpus and on seeded
+// variations of it.
+//
+// It is the design of r7's floor (a hand-written Go formatter, S1d's
+// lower bound), written in Ergo over compiler/syntax's tokens.
+
+import compiler/syntax
+import slices
+
+// Printers names the printer a format uses: the tree printer (the
+// reference) or the streaming printer.
+type Printers =
+	| TreePrinter{}
+	| StreamPrinter{}
+
+// SourceWith formats src with the printer named.
+func SourceWith(src string, limit int, printer Printers) string fails SyntaxFailure | OutputLimit {
+	match printer {
+	case TreePrinter:
+		return try Source(src, limit)
+	case StreamPrinter:
+		return try Stream(src, limit)
+	}
+}
+
+// Stream formats src as Source does, with the streaming printer.
+func Stream(src string, limit int) string fails SyntaxFailure | OutputLimit {
+	let p = syntax.Parse(src)
+	if p.Failed {
+		return SyntaxFailure{Code: p.Code, Message: p.Message, Offset: p.Offset, Length: p.Length, Line: p.Line, Column: p.Column}
+	}
+	let mut s = stTokens(p, src)
+	s.stStructure()
+	s.stAnalyze(0, len(s.kind), 1, true)
+	s.stFormat()
+	let r = try s.l.Finish(limit)
+	r.Text
+}
+
+// The kinds of a comment in the stream, past every token kind.
+let stLineCmt = uint8(250)
+
+let stBlockCmt = uint8(251)
+
+// The flags of a token.
+let sfBin = 1
+
+// a binary operator printed with blanks
+let sfBlank = 2
+
+let sfUnary = 4
+
+// an opener `{` of a block or body: blanks inside
+let sfBlock = 8
+
+// a block of clauses (match, switch, select, catch)
+let sfClause = 16
+
+// a type body: name and type cells
+let sfFields = 32
+
+// a `(` holding a comma at its level
+let sfMulti = 64
+
+// an opener whose items are `name Type` (parameters, fields)
+let sfTypeCtx = 128
+
+// a comma before a closer on the same line
+let sfDropComma = 256
+
+// a slice `[` whose colons take blanks
+let sfSliceSpace = 512
+
+// the body `{` of a top-level function
+let sfTopFunc = 1024
+
+// a slice `[` with two indices, one of them binary
+let sfSliceCand = 2048
+
+// the `:` that ends a clause's case list
+let sfCaseColon = 4096
+
+// a statement whose binary expression breaks a line: indented whole, its
+// first line too (the tree printer's indent before a broken binary)
+let sfStmtIndent = 8192
+
+// What a header keyword waits for: the kind of the `{` that ends it.
+let spBlock = 1
+
+let spClause = 2
+
+let spFields = 3
+
+let spCtx = 4
+
+let spTopFunc = 5
+
+// The levels of open brackets the structure pass tracks, and the headers
+// one level holds.
+let stLevels = 64
+
+let stPends = 6
+
+// The frames of open brackets the format pass tracks.
+let stMaxFrames = 128
+
+// streamer is the state of one streaming print: the tokens and comments as
+// columns (kind, span, line breaks before, flags, the matching bracket,
+// the binary precedence), the scratch of the analysis, and the layout.
+type streamer {
+	src   string,
+	kind  []uint8,
+	s     []int,
+	e     []int,
+	nl    []int,
+	flags []int,
+	mate  []int,
+	prec  []int,
+	stack []int,
+	// The operators and atoms of the segments being climbed, and each
+	// atom's depth: a segment uses them from where it starts.
+	ops   []int,
+	atoms []int,
+	adep  []int,
+	// The structure pass's levels: stLevels of each, stPends headers per
+	// level.
+	pend     []int,
+	np       []int,
+	typ      []bool,
+	lit      []bool,
+	parts    []int,
+	partOpen []bool,
+	bin      []bool,
+	colon    []bool,
+	caseOpen []bool,
+	// The format pass's frames: the opener, the indentation of its line,
+	// its flags.
+	ftok    []int,
+	findent []int,
+	fflags  []int,
+	l       Layout,
+}
+
+// stTokens is the stream of p's tokens and comments in source order: no
+// inserted semicolon, an interpolated string as one literal from its head
+// to its tail.
+func stTokens(p syntax.Parsed, src string) streamer {
+	let n = syntax.NumTokens(p)
+	let cs = syntax.CommentsOf(p)
+	let nc = syntax.NumComments(cs)
+	let room = n + nc + 8
+	let mut s = streamer{
+		src:      src,
+		kind:     slices.WithCapacity[uint8](room),
+		s:        slices.WithCapacity[int](room),
+		e:        slices.WithCapacity[int](room),
+		nl:       slices.WithCapacity[int](room),
+		flags:    slices.WithCapacity[int](room),
+		mate:     slices.WithCapacity[int](room),
+		prec:     slices.WithCapacity[int](room),
+		stack:    slices.WithCapacity[int](64),
+		ops:      slices.WithCapacity[int](64),
+		atoms:    slices.WithCapacity[int](64),
+		adep:     slices.WithCapacity[int](64),
+		pend:     slices.Repeat([]int{0}, stLevels*stPends),
+		np:       slices.Repeat([]int{0}, stLevels),
+		typ:      slices.Repeat([]bool{false}, stLevels),
+		lit:      slices.Repeat([]bool{false}, stLevels),
+		parts:    slices.Repeat([]int{0}, stLevels),
+		partOpen: slices.Repeat([]bool{false}, stLevels),
+		bin:      slices.Repeat([]bool{false}, stLevels),
+		colon:    slices.Repeat([]bool{false}, stLevels),
+		caseOpen: slices.Repeat([]bool{false}, stLevels),
+		ftok:     slices.Repeat([]int{0}, stMaxFrames),
+		findent:  slices.Repeat([]int{0}, stMaxFrames),
+		fflags:   slices.Repeat([]int{0}, stMaxFrames),
+		l:        NewLayoutFor(len(src)),
+	}
+	let mut last = 0
+	let mut ci = 0
+	let mut j = 0
+	// The last token is the EOF.
+	for j < n-1 {
+		let k = syntax.TokKind(p, j)
+		let a = syntax.TokPos(p, j)
+		let mut b = syntax.TokEnd(p, j)
+		for ci < nc && syntax.CommentStart(cs, syntax.CommentAt(cs, ci)) < a {
+			let c = syntax.CommentAt(cs, ci)
+			let ca = syntax.CommentStart(cs, c)
+			let cb = syntax.CommentEnd(cs, c)
+			let ck = if src[ca+1] == '/' { stLineCmt } else { stBlockCmt }
+			s.stPush(ck, ca, cb, last)
+			last = cb
+			ci += 1
+		}
+		if k == syntax.Semicolon && b == a {
+			// An inserted semicolon: no text of the source.
+			j += 1
+			continue
+		}
+		let mut kk = k
+		if k == syntax.StringHead {
+			// An interpolated string, to its tail, is one literal.
+			let mut depth = 1
+			let mut m = j + 1
+			for m < n-1 && depth > 0 {
+				let km = syntax.TokKind(p, m)
+				if km == syntax.StringHead {
+					depth += 1
+				} else if km == syntax.StringTail {
+					depth -= 1
+				}
+				m += 1
+			}
+			b = syntax.TokEnd(p, m-1)
+			kk = syntax.String
+			j = m - 1
+		}
+		s.stPush(kk, a, b, last)
+		last = b
+		j += 1
+	}
+	for ci < nc {
+		let c = syntax.CommentAt(cs, ci)
+		let ca = syntax.CommentStart(cs, c)
+		let cb = syntax.CommentEnd(cs, c)
+		let ck = if src[ca+1] == '/' { stLineCmt } else { stBlockCmt }
+		s.stPush(ck, ca, cb, last)
+		last = cb
+		ci += 1
+	}
+	s
+}
+
+// stPush appends an item of kind k at [a, b); last is the end of the item
+// before it, so the line breaks between them are counted (two or more is
+// a blank line).
+func stPush(s *streamer, k uint8, a int, b int, last int) {
+	let mut nl = 0
+	for x in last..a {
+		if s.src[x] == '\n' {
+			nl += 1
+		}
+	}
+	s.kind = s.kind.Append(k)
+	s.s = s.s.Append(a)
+	s.e = s.e.Append(b)
+	s.nl = s.nl.Append(if nl > 2 { 2 } else { nl })
+	s.flags = s.flags.Append(0)
+	s.mate = s.mate.Append(-1)
+	s.prec = s.prec.Append(0)
+}
+
+// ---------------------------------------------------------------- token classes
+
+func stIsCmt(s *streamer, i int) bool { s.kind[i] >= stLineCmt }
+
+// stIsOp reports an operator or punctuation token.
+func stIsOp(s *streamer, i int) bool { s.kind[i] >= syntax.Add && s.kind[i] <= syntax.Colon }
+
+// stIsKw reports a keyword (`go` reads as a name, as an extern's language).
+func stIsKw(s *streamer, i int) bool { s.kind[i] >= syntax.Break && s.kind[i] <= syntax.Var && s.kind[i] != syntax.Go }
+
+func stIsIdent(s *streamer, i int) bool { s.kind[i] == syntax.Ident || s.kind[i] == syntax.Go }
+
+func stIsLit(s *streamer, i int) bool { s.kind[i] >= syntax.Int && s.kind[i] <= syntax.Path }
+
+// stIs reports the one-byte operator c.
+func stIs(s *streamer, i int, c byte) bool { s.stIsOp(i) && s.e[i]-s.s[i] == 1 && s.src[s.s[i]] == c }
+
+func stIsKind(s *streamer, i int, k uint8) bool { s.kind[i] == k }
+
+// stCloser reports a closing bracket.
+func stCloser(s *streamer, i int) bool {
+	let k = s.kind[i]
+	k == syntax.RParen || k == syntax.RBrack || k == syntax.RBrace
+}
+
+func stIsAssign(s *streamer, i int) bool {
+	let k = s.kind[i]
+	k == syntax.Assign || k == syntax.Define || k >= syntax.AddAssign && k <= syntax.AndNotAssign
+}
+
+// stOperandEnd reports a token that ends an operand, so an operator after
+// it is binary.
+func stOperandEnd(s *streamer, i int) bool { s.stIsIdent(i) || s.stIsLit(i) || s.stCloser(i) }
+
+// stPrecOf is the binary precedence of an operator kind, 0 for none.
+func stPrecOf(k uint8) int {
+	if k == syntax.Lor {
+		return 1
+	}
+	if k == syntax.Land {
+		return 2
+	}
+	if k == syntax.Eql || k == syntax.Neq || k == syntax.Lss || k == syntax.Leq || k == syntax.Gtr || k == syntax.Geq {
+		return 3
+	}
+	if k == syntax.Add || k == syntax.Sub || k == syntax.Or || k == syntax.Xor {
+		return 4
+	}
+	if k == syntax.Mul || k == syntax.Quo || k == syntax.Rem || k == syntax.Shl || k == syntax.Shr || k == syntax.And || k == syntax.AndNot {
+		return 5
+	}
+	0
+}
+
+// stHasFlag reports flag f on token i.
+func stHasFlag(s *streamer, i int, f int) bool { s.flags[i]&f != 0 }
+
+func stSet(s *streamer, i int, f int) { s.flags[i] = s.flags[i] | f }
+
+// ---------------------------------------------------------------- structure
+
+// stLevel resets level d.
+func stLevel(s *streamer, d int) {
+	s.np[d] = 0
+	s.typ[d] = false
+	s.lit[d] = false
+	s.parts[d] = 0
+	s.partOpen[d] = false
+	s.bin[d] = false
+	s.colon[d] = false
+	s.caseOpen[d] = false
+}
+
+// stWait records that level d waits for a body of kind k.
+func stWait(s *streamer, d int, k int) {
+	if s.np[d] < stPends {
+		s.pend[d*stPends+s.np[d]] = k
+		s.np[d] = s.np[d] + 1
+	}
+}
+
+func stTop(s *streamer) int { s.stack[len(s.stack)-1] }
+
+// stStructure matches the brackets and classifies the openers and the
+// unary and binary operators.
+func stStructure(s *streamer) {
+	let n = len(s.kind)
+	let mut d = 0
+	s.stLevel(0)
+	// The last token that is not a comment.
+	let mut prev = -1
+	for i in 0..n {
+		if s.stIsCmt(i) {
+			continue
+		}
+		let hasP = prev >= 0
+		let closer = s.stCloser(i)
+		if closer && len(s.stack) > 0 {
+			let o = s.stTop()
+			s.stack = slices.Slice(s.stack, 0, len(s.stack)-1)
+			s.mate[i] = o
+			s.mate[o] = i
+			let pieces = s.parts[d] + if s.partOpen[d] { 1 } else { 0 }
+			if s.kind[i] == syntax.RBrack && s.bin[d] && s.colon[d] && pieces >= 2 {
+				s.stSet(o, sfSliceCand)
+			}
+			if d > 0 {
+				d -= 1
+			}
+			if hasP && s.stIs(prev, ',') && s.nl[i] == 0 {
+				s.stSet(prev, sfDropComma)
+			}
+		}
+		if s.nl[i] > 0 && hasP && (s.stIs(prev, '}') || d == 0 && s.stIsKw(i)) {
+			s.np[d] = 0
+		}
+		let litType = s.kind[i] == syntax.Func || s.kind[i] == syntax.Needs || s.kind[i] == syntax.Fails || s.stIs(i, '(') && hasP && s.kind[prev] == syntax.Func
+		if s.lit[d] && !(s.stIsIdent(i) || closer || litType || s.stIs(i, '.') || s.stIs(i, '[') || s.stIs(i, '*') || s.stIs(i, '{') || s.stIs(i, '(') && hasP && s.stIs(prev, ']')) {
+			s.lit[d] = false
+		}
+		if s.stIsKw(i) {
+			let k = s.kind[i]
+			if k == syntax.If || k == syntax.For || k == syntax.Else || k == syntax.Test || k == syntax.Law || k == syntax.With {
+				s.stWait(d, spBlock)
+				s.typ[d] = false
+			} else if k == syntax.KwContext {
+				s.stWait(d, spCtx)
+			} else if k == syntax.Func && !s.lit[d] {
+				s.stWait(d, if d == 0 { spTopFunc } else { spBlock })
+				s.typ[d] = false
+			} else if k == syntax.Type {
+				s.stWait(d, spFields)
+				s.typ[d] = true
+			} else if k == syntax.Match || k == syntax.Switch || k == syntax.Select || k == syntax.Catch {
+				s.stWait(d, spClause)
+				s.typ[d] = false
+			} else if k == syntax.Case || k == syntax.Default {
+				s.caseOpen[d] = true
+			} else if k == syntax.Let || k == syntax.Import || k == syntax.Extern {
+				s.typ[d] = false
+			}
+		}
+		if s.stIs(i, ':') && d > 0 {
+			if s.partOpen[d] {
+				s.parts[d] = s.parts[d] + 1
+			}
+			s.partOpen[d] = false
+			s.colon[d] = true
+		} else if !closer && d > 0 {
+			s.partOpen[d] = true
+		}
+		if s.stIs(i, ':') && s.caseOpen[d] {
+			s.caseOpen[d] = false
+			if d > 0 && s.stHasFlag(s.stTop(), sfClause) {
+				s.stSet(i, sfCaseColon)
+			}
+		}
+		if s.stIsOp(i) && !closer {
+			let c = s.src[s.s[i]]
+			let one = s.e[i]-s.s[i] == 1
+			if one && (c == '(' || c == '[' || c == '{') {
+				if c == '{' {
+					if s.lit[d] {
+						s.lit[d] = false
+					} else if s.np[d] > 0 {
+						s.np[d] = s.np[d] - 1
+						let w = s.pend[d*stPends+s.np[d]]
+						if w == spBlock || w == spCtx {
+							s.stSet(i, sfBlock)
+						} else if w == spTopFunc {
+							s.stSet(i, sfBlock|sfTopFunc)
+						} else if w == spClause {
+							s.stSet(i, sfBlock|sfClause)
+						} else if w == spFields {
+							s.stSet(i, sfBlock|sfFields|sfTypeCtx)
+						}
+					} else if hasP && (s.stIs(prev, ')') || s.stIs(prev, '}') || s.kind[prev] == syntax.Eql) {
+						s.stSet(i, sfBlock)
+					} else if s.typ[d] {
+						// A variant body of a union.
+						s.stSet(i, sfFields|sfTypeCtx)
+					}
+				}
+				if c == '[' && i+1 < n && s.stIs(i+1, ']') && !(hasP && s.stOperandEnd(prev)) {
+					s.lit[d] = true
+				}
+				if c == '(' && hasP && s.stParamsOpen(prev) {
+					s.stSet(i, sfTypeCtx)
+				}
+				s.stack = s.stack.Append(i)
+				if d < stLevels-1 {
+					d += 1
+				}
+				s.stLevel(d)
+			} else if one && c == ',' {
+				if len(s.stack) > 0 {
+					s.stSet(s.stTop(), sfMulti)
+				}
+			} else if one && c == '=' {
+				s.np[d] = 0
+			} else {
+				let pr = stPrecOf(s.kind[i])
+				let unaryCapable = one && (c == '-' || c == '+' || c == '*' || c == '&' || c == '^' || c == '!') || s.kind[i] == syntax.Arrow
+				let typeCtx = len(s.stack) > 0 && s.stHasFlag(s.stTop(), sfTypeCtx)
+				if c == '!' && one {
+					s.stSet(i, sfUnary)
+				} else if pr > 0 && hasP && s.stOperandEnd(prev) && !s.stWhere(prev) && (s.nl[i] == 0 || c == '|') && !(typeCtx && (c == '*' || c == '&') && s.stIsIdent(prev)) && !(c == '*' && one && s.stIs(prev, ']') && s.mate[prev] >= 0 && s.mate[prev] == prev-1) {
+					s.stSet(i, sfBin)
+					s.prec[i] = pr
+					s.bin[d] = true
+				} else if unaryCapable {
+					s.stSet(i, sfUnary)
+				}
+			}
+		}
+		prev = i
+	}
+}
+
+// stWhere reports the word `where` after a type: a refinement's start.
+func stWhere(s *streamer, p int) bool {
+	s.stIsIdent(p) && s.e[p]-s.s[p] == 5 && s.src[s.s[p]:s.e[p]] == "where" && p >= 1 && s.stOperandEnd(p-1)
+}
+
+// stParamsOpen reports that a `(` after token p opens items that are
+// `name Type`: a function's parameters or results, or a field's.
+func stParamsOpen(s *streamer, p int) bool {
+	if s.kind[p] == syntax.Func {
+		return true
+	}
+	if s.stIsIdent(p) && p >= 1 && s.kind[p-1] == syntax.Func {
+		return true
+	}
+	if s.stIs(p, ']') && s.mate[p] >= 2 && s.stIsIdent(s.mate[p]-1) && s.kind[s.mate[p]-2] == syntax.Func {
+		return true
+	}
+	if s.stIs(p, ')') && s.mate[p] >= 0 && s.stHasFlag(s.mate[p], sfTypeCtx) {
+		return true
+	}
+	if s.stIsIdent(p) && p >= 1 && s.stIs(p-1, ')') && s.mate[p-1] >= 0 && s.stHasFlag(s.mate[p-1], sfTypeCtx) {
+		return true
+	}
+	s.stIsIdent(p) && len(s.stack) > 0 && s.stHasFlag(s.stTop(), sfFields)
+}
+
+// ---------------------------------------------------------------- binary spacing
+
+// stBoundary reports a token that ends a segment at its frame's level.
+func stBoundary(s *streamer, i int) bool {
+	if s.stIsKw(i) {
+		return true
+	}
+	if !s.stIsOp(i) {
+		return false
+	}
+	if s.stIs(i, ',') || s.stIs(i, ';') || s.stIs(i, ':') || s.kind[i] == syntax.DotDot {
+		return true
+	}
+	if !s.stHasFlag(i, sfBin) && s.stIsAssign(i) {
+		return true
+	}
+	s.stHasFlag(i, sfBlock)
+}
+
+// stAnalyze climbs the segments of the tokens [lo, hi) at one frame level
+// with the frame's depth, and goes into the frames nested in each atom.
+func stAnalyze(s *streamer, lo int, hi int, depth int, block bool) {
+	let mut i = lo
+	for i < hi {
+		// One segment: [i, j). Its operators and atoms go on the scratch
+		// from base, and are cut back when it is done.
+		let ob = len(s.ops)
+		let ab = len(s.atoms)
+		let segStart = i
+		let mut j = i
+		let mut atomOpen = false
+		let mut prevSig = -1
+		let mut binBroke = false
+		for j < hi {
+			if s.stIsCmt(j) {
+				j += 1
+				continue
+			}
+			if j > segStart && s.stBoundary(j) {
+				break
+			}
+			if block && j > segStart && s.nl[j] > 0 && prevSig >= 0 {
+				let p = prevSig
+				let cont = s.stHasFlag(p, sfBin) || s.stIsOp(p) && (s.stIsAssign(p) || s.stIs(p, ',') || s.stIs(p, '.')) || s.stHasFlag(j, sfBin) || s.stIs(j, '.')
+				if !cont {
+					break
+				}
+				if s.stHasFlag(p, sfBin) || s.stHasFlag(j, sfBin) {
+					binBroke = true
+				}
+			}
+			if s.stHasFlag(j, sfBin) {
+				s.ops = s.ops.Append(j)
+				atomOpen = false
+			} else if !atomOpen {
+				s.atoms = s.atoms.Append(j)
+				atomOpen = true
+			}
+			prevSig = j
+			if s.mate[j] > j {
+				j = s.mate[j] + 1
+				continue
+			}
+			j += 1
+		}
+		if j == segStart {
+			j += 1
+		}
+		if binBroke && s.nl[segStart] > 0 && !s.stIsKw(segStart) && !s.stIsCmt(segStart) {
+			s.stSet(segStart, sfStmtIndent)
+		}
+		let nops = len(s.ops) - ob
+		for len(s.atoms)-ab < nops+1 {
+			s.atoms = s.atoms.Append(j)
+		}
+		let na = len(s.atoms) - ab
+		for len(s.adep) < len(s.atoms) {
+			s.adep = s.adep.Append(0)
+		}
+		let mut sdep = depth
+		if s.kind[segStart] == syntax.DotDot || j < hi && s.kind[j] == syntax.DotDot {
+			sdep += 1
+		}
+		s.stClimb(ob, ab, 0, nops, sdep)
+		// The frames nested in each atom: an atom ends at the operator
+		// after it, the last at the segment's end.
+		for k in 0..na {
+			let a = s.atoms[ab+k]
+			let b = if k < nops { s.ops[ob+k] } else { j }
+			s.stFrames(a, b, s.adep[ab+k])
+		}
+		s.ops = slices.Slice(s.ops, 0, ob)
+		s.atoms = slices.Slice(s.atoms, 0, ab)
+		i = j
+	}
+}
+
+// stFrames analyzes the frames opened among the tokens [lo, hi) of an atom
+// at depth d.
+func stFrames(s *streamer, lo int, hi int, d int) {
+	let mut k = lo
+	for k < hi {
+		if !s.stIsOp(k) || s.mate[k] <= k {
+			k += 1
+			continue
+		}
+		let c = s.src[s.s[k]]
+		let end = s.mate[k]
+		let mut pd = d
+		let opBefore = k > lo && s.stOperandEnd(k-1)
+		if c == '{' {
+			pd = 1
+		} else if c == '(' && opBefore {
+			if s.stHasFlag(k, sfMulti) {
+				pd = d + 1
+			}
+		} else if c == '(' && s.stHasFlag(k, sfMulti) {
+			pd = 1
+		} else if c == '(' {
+			pd = if d-1 < 1 { 1 } else { d - 1 }
+		} else if c == '[' && opBefore {
+			pd = d + 1
+			if s.stHasFlag(k, sfSliceCand) && d <= 1 {
+				s.stSet(k, sfSliceSpace)
+			}
+		} else if c == '[' {
+			pd = 1
+		}
+		s.stAnalyze(k+1, end, pd, s.stHasFlag(k, sfBlock))
+		k = end + 1
+	}
+}
+
+// stOp is the token of operator x of the segment whose operators start at
+// ob.
+func stOpPrec(s *streamer, ob int, x int) int { s.prec[s.ops[ob+x]] }
+
+// stClimb is go/printer's binary cutoff over the operators [a, b) of the
+// segment whose operators start at ob and atoms at ab: the lowest
+// precedence operator splits it, takes blanks below the cutoff, and each
+// side is climbed one level deeper.
+func stClimb(s *streamer, ob int, ab int, a int, b int, d int) {
+	if a == b {
+		s.adep[ab+a] = d
+		return
+	}
+	let mut k = a
+	for x in a..b {
+		if s.stOpPrec(ob, x) <= s.stOpPrec(ob, k) {
+			k = x
+		}
+	}
+	let top = s.stOpPrec(ob, k)
+	let mut has4 = false
+	let mut has5 = false
+	let mut maxProblem = 0
+	for x in a..b {
+		let pr = s.stOpPrec(ob, x)
+		has4 = has4 || pr == 4
+		has5 = has5 || pr == 5
+		if x+1 == b || s.stOpPrec(ob, x+1) <= pr {
+			let r = s.atoms[ab+x+1]
+			let o = s.ops[ob+x]
+			if r < len(s.kind) && s.stHasFlag(r, sfUnary) && s.e[o]-s.s[o] == 1 && s.e[r]-s.s[r] == 1 {
+				let oc = s.src[s.s[o]]
+				let uc = s.src[s.s[r]]
+				if oc == '/' && uc == '*' || oc == '&' && uc == '&' || oc == '&' && uc == '^' {
+					maxProblem = 5
+				} else if oc == '+' && uc == '+' || oc == '-' && uc == '-' {
+					if maxProblem < 4 {
+						maxProblem = 4
+					}
+				}
+			}
+		}
+	}
+	let mut cutoff = 0
+	if maxProblem > 0 {
+		cutoff = maxProblem + 1
+	} else if has4 && has5 {
+		cutoff = if d == 1 { 5 } else { 4 }
+	} else {
+		cutoff = if d == 1 { 6 } else { 4 }
+	}
+	if top < cutoff {
+		s.stSet(s.ops[ob+k], sfBlank)
+	}
+	if a == k {
+		s.adep[ab+a] = d + 1
+	} else {
+		let mut lp = s.stOpPrec(ob, a)
+		for x in a..k {
+			if s.stOpPrec(ob, x) < lp {
+				lp = s.stOpPrec(ob, x)
+			}
+		}
+		s.stClimb(ob, ab, a, k, if lp != top { d + 1 } else { d })
+	}
+	s.stClimb(ob, ab, k+1, b, d+1)
+}
+
+// ---------------------------------------------------------------- output
+
+// stLine starts an output line at indentation ind, after a blank line
+// when blank.
+func stLine(s *streamer, ind int, blank bool) {
+	if s.l.Started {
+		s.l.endLine()
+	}
+	if blank && len(s.l.LineIndent) > 0 {
+		s.l.addLine(0)
+	}
+	s.l.Started = true
+	s.l.addLine(ind)
+}
+
+// stWrite writes the text [a, b) of the source; a text with line breaks (a
+// raw string or a block comment) goes on lines that are never re-indented.
+func stWrite(s *streamer, a int, b int) {
+	let c = s.src[a]
+	if c != '"' && c != '`' && c != '/' {
+		s.l.put(s.src[a:b])
+		return
+	}
+	let mut x = a
+	for y in a..b {
+		if s.src[y] == '\n' {
+			s.l.put(s.src[x:y])
+			s.l.endLine()
+			s.l.Started = true
+			s.l.addLine(-1)
+			x = y + 1
+		}
+	}
+	s.l.put(s.src[x:b])
+}
+
+// stEndsLine reports whether the item after i is on a later line.
+func stEndsLine(s *streamer, i int) bool { i+1 >= len(s.kind) || s.nl[i+1] > 0 }
+
+// stContinues reports whether the line starting at token i continues the
+// expression of the line that ended with token p.
+func stContinues(s *streamer, p int, i int) bool {
+	s.stHasFlag(p, sfBin) || s.stHasFlag(i, sfBin) || s.stIs(i, '.') || s.stIs(p, '.') || s.stIsOp(p) && s.stIsAssign(p)
+}
+
+func stNextIsCase(s *streamer, i int) bool {
+	for j in i+1..len(s.kind) {
+		if s.stIsCmt(j) {
+			continue
+		}
+		return s.kind[j] == syntax.Case || s.kind[j] == syntax.Default
+	}
+	false
+}
+
+// stOneLine reports whether the frame opened at i closes on its line.
+func stOneLine(s *streamer, i int) bool {
+	let m = s.mate[i]
+	if m < 0 {
+		return false
+	}
+	for k in i+1..m+1 {
+		if s.nl[k] > 0 {
+			return false
+		}
+	}
+	true
+}
+
+// stRowBar reports a `|` next to a capitalised name: a row or a union,
+// which always takes blanks.
+func stRowBar(s *streamer, i int) bool {
+	if !s.stIs(i, '|') {
+		return false
+	}
+	s.stUpper(i-1) || s.stUpper(i+1) || s.stInRow(i)
+}
+
+// stInRow reports a `|` of a row after needs, fails, provides or takes:
+// the names and `|` before it lead back to that keyword.
+func stInRow(s *streamer, i int) bool {
+	let mut k = i - 1
+	for k >= 0 && (s.stIsIdent(k) || s.stIs(k, '.') || s.stIs(k, '|')) {
+		k -= 1
+	}
+	k >= 0 && (s.kind[k] == syntax.Needs || s.kind[k] == syntax.Fails || s.kind[k] == syntax.Provides || s.kind[k] == syntax.Takes)
+}
+
+func stUpper(s *streamer, k int) bool {
+	k >= 0 && k < len(s.kind) && s.stIsIdent(k) && s.src[s.s[k]] >= 'A' && s.src[s.s[k]] <= 'Z'
+}
+
+// stFormat writes the stream into the layout.
+func stFormat(s *streamer) {
+	let n = len(s.kind)
+	let mut sd = 0
+	// The last printed token that is not a comment, and the last item.
+	let mut prev = -1
+	let mut prevAny = -1
+	let mut curIndent = 0
+	let mut lineFirst = true
+	// fieldState: 1 in the names of a field line, 2 done, 3 after a comma
+	// of the names. kvState: 1 a key at the line's start, 2 after its `:`,
+	// 3 done.
+	let mut fieldState = 0
+	let mut kvState = 0
+	let mut started = false
+	for i in 0..n {
+		if s.stIs(i, ';') && (s.stEndsLine(i) || i+1 < n && s.mate[i+1] >= 0 && s.mate[i+1] < i+1) {
+			continue
+		}
+		if s.stHasFlag(i, sfDropComma) {
+			continue
+		}
+		let cmt = s.stIsCmt(i)
+		let closer = s.stIsOp(i) && s.mate[i] >= 0 && s.mate[i] < i
+		if prev >= 0 && s.nl[i] == 0 && (s.stHasFlag(prev, sfCaseColon|sfClause) && s.mate[prev] > prev || s.stHasFlag(prev, sfCaseColon) || closer && s.stHasFlag(s.mate[i], sfClause)) {
+			s.nl[i] = 1
+		}
+		if !started || s.nl[i] > 0 {
+			let blank = started && s.nl[i] >= 2 && !closer && !(prevAny >= 0 && s.stIsOp(prevAny) && s.mate[prevAny] > prevAny)
+			let mut ind = 0
+			if sd == 0 {
+				if prev >= 0 && !cmt && s.stContinues(prev, i) {
+					ind = 1
+				}
+			} else if closer {
+				ind = s.findent[sd-1]
+			} else if s.stHasFlag(s.ftok[sd-1], sfClause) && (s.kind[i] == syntax.Case || s.kind[i] == syntax.Default) {
+				ind = s.findent[sd-1]
+			} else {
+				let top = s.ftok[sd-1]
+				ind = s.findent[sd-1] + 1
+				if !cmt && prev >= 0 && s.mate[prev] != top && prev != top && s.stContinues(prev, i) {
+					ind += 1
+				}
+				if cmt && s.stHasFlag(top, sfClause) && (s.nl[i] >= 2 || prev == top) && s.stNextIsCase(i) {
+					ind = s.findent[sd-1]
+				}
+			}
+			if s.stHasFlag(i, sfStmtIndent) {
+				ind += 1
+			}
+			s.stLine(ind, blank)
+			curIndent = ind
+			lineFirst = true
+			fieldState = 0
+			kvState = 0
+			started = true
+		} else if prevAny >= 0 {
+			if cmt {
+				if s.stEndsLine(i) {
+					s.l.sep()
+				} else {
+					s.l.put(" ")
+				}
+			} else if fieldState == 1 && s.stIs(i, ',') {
+				fieldState = 3
+			} else if fieldState == 3 && s.stIsIdent(i) {
+				fieldState = 1
+				s.l.put(" ")
+			} else if fieldState == 1 && s.stIs(i, '(') {
+				fieldState = 2
+			} else if fieldState == 1 && !s.stIs(i, ':') {
+				s.l.sep()
+				fieldState = 2
+			} else if kvState == 2 {
+				s.l.sep()
+				kvState = 3
+			} else if s.stHasFlag(i, sfTopFunc) && s.stOneLine(i) {
+				s.l.sep()
+			} else if s.stSpace(prevAny, i, sd) {
+				s.l.put(" ")
+			}
+		}
+		if lineFirst {
+			lineFirst = false
+			if sd > 0 && !cmt {
+				let fl = s.fflags[sd-1]
+				if fl&sfFields != 0 && s.stIsIdent(i) {
+					fieldState = 1
+				}
+				if fl&sfBlock == 0 || fl&sfFields != 0 || fl&sfClause == 0 && s.stContextBody(sd) {
+					if s.stIsIdent(i) || s.stIsLit(i) {
+						kvState = 1
+					}
+				}
+			}
+		} else if kvState == 1 && !(s.stIsIdent(i) || s.stIs(i, '.') || s.stIs(i, ':')) {
+			kvState = 0
+		}
+		if cmt {
+			let a = s.s[i]
+			let mut b = s.e[i]
+			if s.kind[i] == stLineCmt {
+				for b > a && (s.src[b-1] == ' ' || s.src[b-1] == '\t' || s.src[b-1] == '\r') {
+					b -= 1
+				}
+				s.l.put(s.src[a:b])
+			} else {
+				s.stWrite(a, b)
+			}
+		} else {
+			s.stWrite(s.s[i], s.e[i])
+			if kvState == 1 && s.stIs(i, ':') {
+				if s.stEndsLine(i) {
+					kvState = 0
+				} else {
+					kvState = 2
+					fieldState = 0
+				}
+			}
+			if s.stIsOp(i) && s.mate[i] > i {
+				if sd < stMaxFrames {
+					s.ftok[sd] = i
+					s.findent[sd] = curIndent
+					s.fflags[sd] = s.flags[i]
+					sd += 1
+				}
+			} else if closer && sd > 0 {
+				sd -= 1
+			}
+			prev = i
+		}
+		prevAny = i
+	}
+}
+
+// stContextBody reports that the innermost frame is a context's body.
+func stContextBody(s *streamer, sd int) bool {
+	let o = s.ftok[sd-1]
+	o > 0 && s.kind[o-1] == syntax.KwContext
+}
+
+// stSpace reports whether a blank goes between items p and t on one line.
+func stSpace(s *streamer, p int, t int, sd int) bool {
+	if s.stIsCmt(p) {
+		return !(s.stIs(t, ',') || s.stIs(t, ')') || s.stIs(t, ']'))
+	}
+	let top = if sd > 0 { s.ftok[sd-1] } else { -1 }
+	if s.stIsOp(t) {
+		let c = s.src[s.s[t]]
+		let one = s.e[t]-s.s[t] == 1
+		if one && c == ':' && top >= 0 && s.stHasFlag(top, sfSliceSpace) {
+			return true
+		}
+		if one && (c == ',' || c == ';' || c == ':' || c == ')' || c == ']') {
+			return false
+		}
+		if one && c == '}' {
+			return s.mate[t] >= 0 && s.stHasFlag(s.mate[t], sfBlock) && s.mate[t] != p
+		}
+		if one && c == '.' || s.kind[t] == syntax.DotDot || s.kind[t] == syntax.Ellipsis {
+			return false
+		}
+	}
+	if s.stIsOp(p) {
+		let c = s.src[s.s[p]]
+		let one = s.e[p]-s.s[p] == 1
+		if one && (c == '(' || c == '[') {
+			return false
+		}
+		if one && c == '{' {
+			return s.stHasFlag(p, sfBlock) && !s.stIs(t, '}')
+		}
+		if one && c == '.' || s.kind[p] == syntax.DotDot || s.kind[p] == syntax.Ellipsis {
+			return false
+		}
+		if s.stHasFlag(p, sfUnary) {
+			return false
+		}
+		if s.stHasFlag(p, sfBin) {
+			return s.stHasFlag(p, sfBlank) || s.stRowBar(p)
+		}
+		if one && c == ':' {
+			if top >= 0 && s.src[s.s[top]] == '[' {
+				return s.stHasFlag(top, sfSliceSpace)
+			}
+			return true
+		}
+		let m = s.mate[p]
+		if one && c == ']' && m >= 2 && s.kind[m-2] == syntax.Type && !s.stIsOp(t) && p != m+1 && !(p == m+2 && s.stIsLit(p-1)) {
+			return true
+		}
+		if one && c == ']' {
+			if s.stIsLit(t) {
+				return true
+			}
+			if s.stIsOp(t) && (s.stHasFlag(t, sfBin) || s.stIsAssign(t) || s.stHasFlag(t, sfBlock)) {
+				return !s.stHasFlag(t, sfBin) || s.stHasFlag(t, sfBlank)
+			}
+			return s.stIsKw(t) && s.kind[t] != syntax.Func
+		}
+	}
+	if s.stHasFlag(t, sfBin) {
+		return s.stHasFlag(t, sfBlank) || s.stRowBar(t)
+	}
+	if s.stIsOp(t) {
+		let c = s.src[s.s[t]]
+		let one = s.e[t]-s.s[t] == 1
+		if one && c == '(' {
+			if s.stIs(p, ')') && s.stHasFlag(t, sfTypeCtx) {
+				return true
+			}
+			if s.kind[p] == syntax.Func && p > 0 && s.stIsLit(p-1) {
+				return true
+			}
+			if s.stIsIdent(p) && top >= 0 && s.stHasFlag(top, sfTypeCtx) && s.src[s.s[top]] == '(' && p > 0 && (s.stIs(p-1, '(') || s.stIs(p-1, ',')) {
+				return true
+			}
+			if s.stIsIdent(p) && p > 0 && (s.kind[p-1] == syntax.Let || s.kind[p-1] == syntax.Mut) {
+				return true
+			}
+			return !(s.stOperandEnd(p) || s.kind[p] == syntax.Func)
+		}
+		if one && c == '[' {
+			if s.stIsIdent(p) && p >= 2 && s.kind[p-2] == syntax.Law {
+				return true
+			}
+			let m = s.mate[t]
+			if m == t+2 && s.stIsLit(t+1) && m+1 < len(s.kind) && s.nl[m+1] == 0 && (s.stIsIdent(m+1) || s.stIs(m+1, '*')) {
+				return true
+			}
+			if s.stOperandEnd(p) && m != t+1 {
+				return false
+			}
+			return !(s.kind[p] == syntax.Func || s.kind[p] == syntax.KwMachine || s.kind[p] == syntax.KwMap)
+		}
+		if one && c == '{' {
+			return s.stHasFlag(t, sfBlock) || !s.stOperandEnd(p) && !s.stIsKw(p)
+		}
+	}
+	true
+}
