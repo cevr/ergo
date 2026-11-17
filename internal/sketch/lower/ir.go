@@ -397,6 +397,9 @@ type irBuilder struct {
 	params  map[int]bool
 	hoisted map[hoistKey]int
 	entry   []*irStmt
+	// frame is 1 + the local of the body's frame scope (ir_own.go
+	// openScope), or 0; frameArg reads it (GP-FRAME; OPC-TASK's hook).
+	frame int
 }
 
 // gate stops the body for reason; a census records it and goes on.
