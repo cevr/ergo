@@ -250,7 +250,14 @@ func (b *irBuilder) valueSource(x *syntax.CallExpr, c *check.Call, args []syntax
 		if b.goType(b.l.info.Types[args[0]], x) != m {
 			irNo("Map write to a defined Map type")
 		}
-		b.keepImport("var _ = " + b.l.goPkg("maps") + ".Clone[map[" + b.fc.goType(c.TypeArgs[0]) + "]" + b.fc.goType(c.TypeArgs[1]) + "]")
+		if keep := "map[" + b.fc.goType(c.TypeArgs[0]) + "]" + b.fc.goType(c.TypeArgs[1]); b.namesTypeParam(keep) {
+			// A generic body's Map type is no package-level type, as
+			// Append's element above (I-FLIP reds #15: pipeline's
+			// Book[E] Streams.Put).
+			b.keepImport("var _ = " + b.l.goPkg("maps") + ".Clone[map[string]bool]")
+		} else {
+			b.keepImport("var _ = " + b.l.goPkg("maps") + ".Clone[" + keep + "]")
+		}
 		src := irArgs[0]
 		irArgs[0] = &irExpr{K: "pcall", Pos: src.Pos, T: "maps", Name: "Clone", V: m + ", " + k + ", " + v, Args: []*irExpr{src}}
 	}
