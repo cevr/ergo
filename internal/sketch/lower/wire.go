@@ -561,6 +561,25 @@ func (l *lowerer) wireFunc(dir string, t check.Type, site syntax.Node) string {
 			// The state passes by value and comes back (cellFuncs).
 			param, result = scope.alloc("wv"), " "+writer
 			raw := text
+			if l.ir != nil && l.ir.wireCell(l, name, t, em, cw, nil, scope, site) {
+				// The IR builds the body (ir_wire.go): the Go
+				// declaration has none. A variant the IR refuses keeps
+				// its text.
+				bodyless := func(n string) string { return strings.TrimSuffix(head(n), " {\n") + "\n\n" }
+				cf.emit = func(n string, start rwCall) {
+					if l.ir.wireCell(l, n, t, em, cw, &start, scope, site) {
+						l.gen.WriteString(bodyless(n))
+						return
+					}
+					l.gen.WriteString(head(n) + w + " := &" + param + "\n" + l.cellEventsFrom(cw, env, w, raw, &start, site) + "\nreturn " + param + "\n}\n\n")
+				}
+				l.gen.WriteString(bodyless(name))
+				if cf.pending {
+					cf.pending = false
+					cf.emit(l.pkgNames[cf.key], *cf.start)
+				}
+				return name
+			}
 			text = w + " := &" + param + "\n" + l.cellEvents(cw, env, w, raw, site) + "\nreturn " + param + "\n"
 			cf.emit = func(n string, start rwCall) {
 				l.gen.WriteString(head(n) + w + " := &" + param + "\n" + l.cellEventsFrom(cw, env, w, raw, &start, site) + "\nreturn " + param + "\n}\n\n")
