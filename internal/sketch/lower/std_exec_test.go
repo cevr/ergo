@@ -260,11 +260,17 @@ func main() needs Console | Ambient {
 		// refuses the old timeout.After { p.Wait() } borrow; stdlib.md,
 		// exec, WaitFor): the program waits on its fifo, so the deadline
 		// passes first, Expired leaves it running, and Stop ends it.
+		// The shell waits in `wait`, not `read`: dash runs a trap that
+		// comes while `read` is about to block only once read returns, so
+		// a TERM in that window waited out the 15 s grace and the SIGKILL
+		// gave 137 (measured: 3 of 4,800 shells at load 40; `wait` blocks
+		// with the signal masked, 0 of 3,200). Stop's group SIGKILL ends
+		// the cat. Mutant: cu4-host-grace-lost (lower ledger).
 		{name: "postStopStatus", src: strings.NewReplacer("STOPFIFO", filepath.Join(dir, "stop.fifo")).Replace(`import exec
 import timeout
 
 func stoppedStatus() int fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner | Scheduler {
-	let p = try exec.Runner.Start(exec.New("/bin/sh", []string{"-c", "mkfifo 'STOPFIFO'; exec 3<> 'STOPFIFO'; trap 'exit 37' TERM; echo ready; read x <&3"}).WithGrace(15s), exec.Streams{Stdout: exec.ToCaller, Stderr: exec.Discard})
+	let p = try exec.Runner.Start(exec.New("/bin/sh", []string{"-c", "mkfifo 'STOPFIFO'; exec 3<> 'STOPFIFO'; trap 'exit 37' TERM; cat <&3 >/dev/null & echo ready; wait $!"}).WithGrace(15s), exec.Streams{Stdout: exec.ToCaller, Stderr: exec.Discard})
 	for line in p.Lines() {
 		if line.Text == "ready" { break }
 	}
