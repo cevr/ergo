@@ -33,6 +33,13 @@ package lower
 //     the collect, and the value rule may let a later write reuse a dead
 //     Q's array; a body of scalars writes no array at all.
 //
+// A collect into an empty slice that no next loop only folds, from a
+// source Q whose read in the loop is Q's last and whose array no other
+// value shares (valueFacts.lastRead, lastread.go; GP-RESLICE), takes the
+// part itself when the guard holds: `ys = Q[a:b]`, no growth and no copy.
+// ys may then grow in place past b, into Q's array, which nothing reads
+// again.
+//
 // The reference is collectFoldLowering "off" (a test, or a build with
 // -ldflags=-X=ergo.local/prototype/internal/sketch/lower.collectFoldLowering=off):
 // the collect builds the slice and the fold ranges over it.
@@ -56,6 +63,25 @@ type foldPlan struct {
 	fold *syntax.RangeStmt
 	src  int
 	done bool
+	// reslice is a collect into an empty slice from a source whose read
+	// in the loop is its last, unshared (lastread.go): the slice takes the
+	// part itself (GP-RESLICE). It has no fold.
+	reslice bool
+}
+
+// planReslice notes the collect s into an empty slice, which no next loop
+// only folds, when its source Q's read is Q's last and Q's array unshared
+// (valueFacts.lastRead): xs = Q[a:b], with no growth and no copy. xs may
+// then grow in place past b, into Q's array, which nothing reads again.
+func (b *irBuilder) planReslice(s *syntax.RangeStmt, idiom *loopIdiom) {
+	q, ok := unparen(idiom.place).(*syntax.Ident)
+	if !ok || !b.l.valueFacts().lastRead[q] {
+		return
+	}
+	if b.folds == nil {
+		b.folds = map[*syntax.RangeStmt]*foldPlan{}
+	}
+	b.folds[s] = &foldPlan{src: -1, reslice: true}
 }
 
 // planFold notes the collect list[i] whose slice only list[i+1] folds
@@ -82,20 +108,25 @@ func (b *irBuilder) planFold(list []syntax.Stmt, i int) {
 	}
 	f, ok := list[i+1].(*syntax.RangeStmt)
 	if !ok {
+		b.planReslice(s, idiom)
 		return
 	}
 	if fl := b.l.info.Loops[f]; fl == nil || fl.Domain != check.LoopSlice {
+		b.planReslice(s, idiom)
 		return
 	}
 	if id, ok := unparen(f.X).(*syntax.Ident); !ok || b.l.info.Uses[id] != v {
+		b.planReslice(s, idiom)
 		return
 	}
 	for _, n := range append([]syntax.Node{f.Body}, nodes(list[i+2:])...) {
 		if b.namesVar(n, v) {
+			b.planReslice(s, idiom)
 			return
 		}
 	}
 	if !b.scalarBody(f) {
+		b.planReslice(s, idiom)
 		return
 	}
 	if b.folds == nil {
@@ -189,6 +220,10 @@ func (b *irBuilder) foldCollect(plan *foldPlan, idiom *loopIdiom, elem check.Typ
 		return nil, nil, nil
 	}
 	xs := b.locals[b.l.info.Uses[idiom.xs].(*check.Var)]
+	if plan.reslice {
+		// The slice takes the part itself (planReslice): xs = Q[a:b].
+		return nil, []*irStmt{{K: "set", Pos: p, Local: xs, X: q}}, nil
+	}
 	plan.src = b.temp("fold", st, p)
 	head = []*irStmt{{K: "var", Pos: p, Local: plan.src}}
 	then = []*irStmt{{K: "set", Pos: p, Local: plan.src, X: q}}
