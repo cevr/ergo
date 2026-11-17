@@ -1,6 +1,8 @@
 package irspike
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -39,6 +41,25 @@ func lowerFold(t *testing.T, u lower.Unit, mode string) ([]lower.File, lower.IRR
 }
 
 // foldIRText is the IR file's text among files.
+// foldIRBody is the JSON of the IR body of the function name, if any.
+func foldIRBody(t *testing.T, files []lower.File, name string) (string, bool) {
+	var ir struct {
+		Funcs []struct {
+			Name string          `json:"name"`
+			Body json.RawMessage `json:"body"`
+		} `json:"funcs"`
+	}
+	if err := json.Unmarshal([]byte(foldIRText(files)), &ir); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range ir.Funcs {
+		if f.Name == name {
+			return string(f.Body), true
+		}
+	}
+	return "", false
+}
+
 func foldIRText(files []lower.File) string {
 	for _, f := range files {
 		if filepath.Base(f.Path) == lower.IRFileName {
@@ -70,10 +91,21 @@ func TestConstFoldCounts(t *testing.T) {
 			t.Errorf("%s takes no IR body (fallback %v)", fn, rep.Fallback)
 		}
 	}
-	// A folded html subtree is its markup: the IR holds an end tag or a
-	// void element's close as a string (JSON writes < as \u003c).
-	if ir := foldIRText(files); !strings.Contains(ir, `\u003c/`) && !strings.Contains(ir, `/\u003e`) {
-		t.Errorf("no folded html markup in the IR: a folded element is not its markup")
+	// A folded html subtree is its markup: each staticN body calls no
+	// function, and one holds a tag as a string (JSON writes < as \u003c).
+	tags := false
+	for i := 0; ; i++ {
+		body, ok := foldIRBody(t, files, fmt.Sprintf("static%d", i))
+		if !ok {
+			break
+		}
+		if strings.Contains(body, `"k":"call"`) {
+			t.Errorf("static%d is not one constant of markup: a folded element is not its markup\n%s", i, body)
+		}
+		tags = tags || strings.Contains(body, `\u003c`)
+	}
+	if !tags {
+		t.Errorf("no static page holds a tag: a folded element is not its markup")
 	}
 	// main takes IR once its html calls fold, and calls spin there.
 	if !slices.Contains(rep.IR, "main_1") || !strings.Contains(foldIRText(files), `"name":"spin"`) {
