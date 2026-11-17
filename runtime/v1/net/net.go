@@ -26,6 +26,7 @@ import (
 	"errors"
 	"io"
 	gonet "net"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -70,6 +71,7 @@ type Conn struct {
 	pipe          *PipeNet
 	in, out       *half
 	local, remote string
+	shut          bool // this end closed, under pipe.mu
 }
 
 // runtimeOnly implements net.Conn's private operation (runtime/v1/sealed.go).
@@ -229,9 +231,15 @@ func (l *Listener) Close() {
 // and an in-process transport for a benchmark of http's Serve.
 func ListenerOn(ln gonet.Listener) *Listener { return &Listener{host: ln} }
 
-// Host is the host listener l holds, nil for a pipe's: http's Serve
-// serves it.
-func (l *Listener) Host() gonet.Listener { return l.host }
+// GoListener is l as a Go net.Listener, which http's Serve serves: the
+// host listener l holds, or for a pipe's an adapter whose connections are
+// Go net.Conns over the pipe, with deadlines (pipeConn).
+func (l *Listener) GoListener() gonet.Listener {
+	if l.host != nil {
+		return l.host
+	}
+	return pipeListener{l}
+}
 
 // NetListen binds the host's TCP address addr ("host:port"); port 0 has
 // the host choose one, which Addr gives.
@@ -361,16 +369,6 @@ func (p *PipeNet) signal() {
 	p.changed = make(chan struct{})
 }
 
-// wait waits on t for the next change of p after ch was taken, or for a
-// stop of t, which raises the interruption.
-func wait(t *rt.Task, ch chan struct{}) {
-	select {
-	case <-ch:
-	case <-t.Done():
-		t.Check()
-	}
-}
-
 // Listen binds addr in p ("host:port"); port 0 gives the next free port
 // from 1. An address in use fails, as on the host.
 //
@@ -422,7 +420,39 @@ func (p *PipeNet) Dial(addr string) (*Conn, error) {
 	return client, nil
 }
 
+// errStopped is what a pipe wait returns when its stop channel closed: the
+// task's stop for an Ergo call, the deadline for a Go one (pipeConn).
+var errStopped = errors.New("stopped")
+
+// errClosed is a pipe call on a listener or a connection its own side
+// closed.
+var errClosed = NetFailed{Reason: "use of closed network connection"}
+
+// errListenerClosed is an Accept on a closed pipe listener.
+var errListenerClosed = NetFailed{Reason: "use of closed listener"}
+
+// waitOn waits for the next change of the pipe after ch was taken, or for
+// stop to close (errStopped).
+func waitOn(ch, stop <-chan struct{}) error {
+	select {
+	case <-ch:
+		return nil
+	case <-stop:
+		return errStopped
+	}
+}
+
 func (l *Listener) pipeAccept(t *rt.Task) (*Conn, error) {
+	c, err := l.pipeAcceptOn(t.Done())
+	if err == errStopped {
+		t.Check()
+	}
+	return c, err
+}
+
+// pipeAcceptOn takes the oldest dialed connection, waiting until there is
+// one, l closes, or stop closes.
+func (l *Listener) pipeAcceptOn(stop <-chan struct{}) (*Conn, error) {
 	p := l.pipe
 	for {
 		p.mu.Lock()
@@ -434,11 +464,13 @@ func (l *Listener) pipeAccept(t *rt.Task) (*Conn, error) {
 		}
 		if l.closed {
 			p.mu.Unlock()
-			return nil, NetFailed{Reason: "use of closed listener"}
+			return nil, errListenerClosed
 		}
 		ch := p.changed
 		p.mu.Unlock()
-		wait(t, ch)
+		if err := waitOn(ch, stop); err != nil {
+			return nil, err
+		}
 	}
 }
 
@@ -459,62 +491,110 @@ func (l *Listener) pipeClose() {
 }
 
 func (c *Conn) pipeRead(t *rt.Task) (string, error) {
+	var s string
+	_, err := c.pipeReadOn(t.Done(), func(b []byte) int {
+		n := min(len(b), readMax)
+		s = string(b[:n])
+		return n
+	})
+	switch err {
+	case io.EOF:
+		return "", nil
+	case errStopped:
+		t.Check()
+	}
+	return s, err
+}
+
+// pipeReadOn waits until c has bytes to read, then gives them to take,
+// which returns how many it took; or until the peer's end (io.EOF), a
+// reset, c's own close, or a close of stop.
+func (c *Conn) pipeReadOn(stop <-chan struct{}, take func([]byte) int) (int, error) {
 	p := c.pipe
 	for {
 		p.mu.Lock()
 		in := c.in
+		if c.shut {
+			p.mu.Unlock()
+			return 0, errClosed
+		}
 		if len(in.buf) > 0 {
-			n := min(len(in.buf), readMax)
-			s := string(in.buf[:n])
+			n := take(in.buf)
 			in.buf = in.buf[n:]
 			p.signal()
 			p.mu.Unlock()
-			return s, nil
+			return n, nil
 		}
 		if in.reset {
 			p.mu.Unlock()
-			return "", NetFailed{Reason: "connection reset by peer"}
+			return 0, NetFailed{Reason: "connection reset by peer"}
 		}
 		if in.closed {
 			p.mu.Unlock()
-			return "", nil
+			return 0, io.EOF
 		}
 		ch := p.changed
 		p.mu.Unlock()
-		wait(t, ch)
+		if err := waitOn(ch, stop); err != nil {
+			return 0, err
+		}
 	}
 }
 
 func (c *Conn) pipeWrite(t *rt.Task, data string) error {
+	_, err := c.pipeWriteOn(t.Done(), data)
+	if err == errStopped {
+		t.Check()
+	}
+	return err
+}
+
+// pipeWriteOn writes data, waiting while the peer's buffer is full, and
+// returns how many bytes it wrote: all of data, or fewer with the failure
+// (the peer gone, c's own close) or errStopped.
+func (c *Conn) pipeWriteOn(stop <-chan struct{}, data string) (int, error) {
 	p := c.pipe
+	wrote := 0
 	for {
 		p.mu.Lock()
 		out := c.out
+		if c.shut {
+			p.mu.Unlock()
+			return wrote, errClosed
+		}
 		if out.gone {
 			p.mu.Unlock()
-			return NetFailed{Reason: "broken pipe"}
+			return wrote, NetFailed{Reason: "broken pipe"}
 		}
 		if n := min(readMax-len(out.buf), len(data)); n > 0 {
 			out.buf = append(out.buf, data[:n]...)
 			data = data[n:]
+			wrote += n
 			p.signal()
 		}
 		if data == "" {
 			p.mu.Unlock()
-			return nil
+			return wrote, nil
 		}
 		ch := p.changed
 		p.mu.Unlock()
-		wait(t, ch)
+		if err := waitOn(ch, stop); err != nil {
+			return wrote, err
+		}
 	}
 }
 
 // pipeClose closes both directions of c: the peer reads to the end, or
 // fails when c left bytes unread (a TCP close with unread bytes resets).
+// c's own waits end with errClosed. A second close does nothing.
 func (c *Conn) pipeClose() {
 	p := c.pipe
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if c.shut {
+		return
+	}
+	c.shut = true
 	if len(c.in.buf) > 0 {
 		c.reset()
 	} else {
@@ -531,4 +611,140 @@ func (c *Conn) reset() {
 	c.out.reset = true
 	c.in.gone = true
 	c.in.buf = nil
+}
+
+// pipeListener is a pipe's Listener as a Go net.Listener (GoListener), so
+// net/http serves it as it serves a socket.
+type pipeListener struct{ l *Listener }
+
+func (pl pipeListener) Accept() (gonet.Conn, error) {
+	c, err := pl.l.pipeAcceptOn(nil) // Close ends the wait
+	if err != nil {
+		return nil, goErr(err)
+	}
+	return &pipeConn{c: c, rd: makeDeadline(), wd: makeDeadline()}, nil
+}
+
+// GoDial is p.Dial(addr) as a Go net.Conn, for a Go client of a server
+// that serves a pipe listener (http's benchmark).
+func (p *PipeNet) GoDial(addr string) (gonet.Conn, error) {
+	c, err := p.Dial(addr)
+	if err != nil {
+		return nil, err
+	}
+	return &pipeConn{c: c, rd: makeDeadline(), wd: makeDeadline()}, nil
+}
+
+func (pl pipeListener) Close() error     { pl.l.pipeClose(); return nil }
+func (pl pipeListener) Addr() gonet.Addr { return pipeAddr(pl.l.addr) }
+
+// pipeConn is one end of a pipe connection as a Go net.Conn. Its reads
+// and writes wait on the pipe as the Ergo ones do, and a deadline ends a
+// wait as a stop does, with os.ErrDeadlineExceeded (net/http moves a read
+// deadline into the past to end a read it no longer wants).
+type pipeConn struct {
+	c      *Conn
+	rd, wd deadline
+}
+
+func (pc *pipeConn) Read(b []byte) (int, error) {
+	stop := pc.rd.wait()
+	if closed(stop) {
+		return 0, os.ErrDeadlineExceeded
+	}
+	n, err := pc.c.pipeReadOn(stop, func(in []byte) int { return copy(b, in) })
+	return n, goErr(err)
+}
+
+func (pc *pipeConn) Write(b []byte) (int, error) {
+	stop := pc.wd.wait()
+	if closed(stop) {
+		return 0, os.ErrDeadlineExceeded
+	}
+	n, err := pc.c.pipeWriteOn(stop, string(b))
+	return n, goErr(err)
+}
+
+func (pc *pipeConn) Close() error                       { pc.c.pipeClose(); return nil }
+func (pc *pipeConn) LocalAddr() gonet.Addr              { return pipeAddr(pc.c.local) }
+func (pc *pipeConn) RemoteAddr() gonet.Addr             { return pipeAddr(pc.c.remote) }
+func (pc *pipeConn) SetReadDeadline(t time.Time) error  { pc.rd.set(t); return nil }
+func (pc *pipeConn) SetWriteDeadline(t time.Time) error { pc.wd.set(t); return nil }
+func (pc *pipeConn) SetDeadline(t time.Time) error {
+	pc.rd.set(t)
+	pc.wd.set(t)
+	return nil
+}
+
+// goErr is a pipe failure as Go's net gives it: the end of the stream
+// io.EOF, a call after the own close net.ErrClosed, a deadline
+// os.ErrDeadlineExceeded, and any other the NetFailed itself.
+func goErr(err error) error {
+	switch err {
+	case errStopped:
+		return os.ErrDeadlineExceeded
+	case errClosed, errListenerClosed:
+		return gonet.ErrClosed
+	}
+	return err
+}
+
+// pipeAddr is a pipe address as a Go net.Addr.
+type pipeAddr string
+
+func (pipeAddr) Network() string  { return "pipe" }
+func (a pipeAddr) String() string { return string(a) }
+
+// deadline is a read or write deadline of a pipeConn, as Go's net.Pipe
+// keeps one (net/pipe.go pipeDeadline): wait's channel closes once the
+// deadline passes, and a later set to a time ahead, or to zero, gives a new
+// open one.
+type deadline struct {
+	mu     sync.Mutex // guards timer and cancel
+	timer  *time.Timer
+	cancel chan struct{}
+}
+
+func makeDeadline() deadline { return deadline{cancel: make(chan struct{})} }
+
+func (d *deadline) set(t time.Time) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.timer != nil && !d.timer.Stop() {
+		<-d.cancel // the timer fired: wait for its close of cancel
+	}
+	d.timer = nil
+	was := closed(d.cancel)
+	if t.IsZero() {
+		if was {
+			d.cancel = make(chan struct{})
+		}
+		return
+	}
+	if dur := time.Until(t); dur > 0 {
+		if was {
+			d.cancel = make(chan struct{})
+		}
+		cancel := d.cancel
+		d.timer = time.AfterFunc(dur, func() { close(cancel) })
+		return
+	}
+	if !was {
+		close(d.cancel)
+	}
+}
+
+func (d *deadline) wait() chan struct{} {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.cancel
+}
+
+func closed(ch <-chan struct{}) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
 }

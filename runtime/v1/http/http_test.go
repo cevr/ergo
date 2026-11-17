@@ -57,6 +57,13 @@ func startHTTPRoot(t *testing.T, root *rt.Task, sleeper v1.Sleeper, limits HTTPL
 	if err != nil {
 		t.Fatal(err)
 	}
+	return l, serveOn(t, root, sleeper, l, limits, handle)
+}
+
+// serveOn serves l (a host listener or a pipe's) under root until the test
+// ends.
+func serveOn(t *testing.T, root *rt.Task, sleeper v1.Sleeper, l *ergonet.Listener, limits HTTPLimits, handle httpHandler) *serverTask {
+	t.Helper()
 	holder := rt.NewScope(root)
 	h := &serverTask{h: rt.Go(&holder, "http test server", func(ct *rt.Task) (struct{}, error) {
 		return v1.Guarded(ct, func(ct *rt.Task) (struct{}, error) {
@@ -64,7 +71,7 @@ func startHTTPRoot(t *testing.T, root *rt.Task, sleeper v1.Sleeper, limits HTTPL
 		})
 	})}
 	t.Cleanup(func() { h.Stop(); l.Close() })
-	return l, h
+	return h
 }
 
 // serverTask is the test server's task, started as v1.Go starts one, with

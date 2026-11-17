@@ -410,8 +410,9 @@ streamed (Rm, item 9). TLS and HTTP/2 configuration are outside this core.
    port zero is valid, and `l.Addr()` reports the bound address. The
    transport has no HTTP policy. `l.Close()` releases an unused listener.
    Every server protocol shares it: `rpc.Serve` takes the same `net.Listener`,
-   std net's ([net](#net) 6). Serve needs a host listener: one of a
-   `nettest.Pipe` is a defect.
+   std net's ([net](#net) 6). Serve serves any `net.Listener`: a
+   `nettest.Pipe`'s gives the same answers to the same requests as a
+   loopback one (`TestHTTPServePipeMatchesLoopback`), with no socket.
 2. `Serve[R](l, limits Limits, handle escaping func(Request) Response needs R | Streaming)`
    has `fails InvalidLimits needs R | Scheduler`. Serve binds the request's `Streaming`
    provider around each invocation, so a handler that does not stream is a
@@ -2526,7 +2527,7 @@ func echo(l net.Listener) fails net.Failed {
 3. **Order.** A listener accepts its connections in the order of the dials. A dial needs no accept to return: the connection waits in the listener's backlog, and the dialer may write at once.
 4. **Interruption.** A blocked `Accept`, `Read`, `Write` or `Dial` is an interruption point: a stop of the caller's task ends the wait (runtime.md, I1). On the host the wait is a system call: the stop moves the call's deadline into the past, as Go's `net/http` ends a blocked read, and the deadline is cleared again, so the connection stays usable by whoever releases it. Inside a mask the wait is uninterruptible (I2). The cost is one goroutine per blocking host call.
 5. **Laws.** `Network`'s laws `WriteThenReadRoundTrips`, `CloseEndsReads`, `DialAfterCloseFails`, `AcceptsInDialOrder` and `ListenTakenFails` run against `nettest.Pipe` (lower `TestNetLaws`). `TestNetHostAgrees` (runtime/v1/net) holds the host on loopback equal to the pipe: for seeded scenarios of dials, accepts, writes of random bytes, reads and closes, both observe the same bytes, ends, failures and accept order. `TestNetStopEndsWaits` holds rule 4 for both.
-6. **The runtime.** The bodies are the leaf `runtime/v1/net` (binsize BS1): only a program that names one links Go's `net`. Its `Listener` is also std `http`'s: `http.Listen` binds one and `http.Serve` serves it, so the two packages share one transport type.
+6. **The runtime.** The bodies are the leaf `runtime/v1/net` (binsize BS1): only a program that names one links Go's `net`. Its `Listener` is also std `http`'s: `http.Listen` binds one and `http.Serve` serves it, so the two packages share one transport type. `http.Serve`, and so `rpc.Serve`, serves a `nettest.Pipe`'s listener as it serves the host's (NET1b): the leaf gives Go's `net/http` the pipe's connections as Go `net.Conn`s whose deadlines end a wait as a stop does (Go's own `net.Pipe` keeps them the same way), so a test serves and dials a server with no socket. `TestHTTPServePipeMatchesLoopback` (runtime/v1/http) sends the same seeded raw requests (one to three on a connection, sometimes a malformed one last) to a loopback server and a pipe server and holds the response bytes equal, Date aside.
 
 ### Explored schedules
 

@@ -509,9 +509,6 @@ func HTTPServe(site v1.Site, t *rt.Task, sleeper v1.Sleeper, l *ergonet.Listener
 		return HTTPInvalidLimits(limits)
 	}
 	defer l.Close()
-	if l.Host() == nil {
-		v1.Unreachable("http.Serve: the listener is a nettest.Pipe's; Serve serves a host listener (http.Listen, net.Host)")
-	}
 	t.Check()
 	s := &httpServer{limits: limits, site: string(site), handle: handle, requests: rt.NewGroup(t, string(site)+" (requests)"), failed: make(chan struct{}, 1),
 		timers: rt.NewGroup(t, string(site)+" (timeouts)"), sleeper: sleeper, timerSite: string(site) + " (timeout)", stopping: make(chan struct{})}
@@ -522,7 +519,7 @@ func HTTPServe(site v1.Site, t *rt.Task, sleeper v1.Sleeper, l *ergonet.Listener
 		ConnContext:    func(ctx context.Context, nc net.Conn) context.Context { return context.WithValue(ctx, connKey{}, nc) },
 	}
 	served := make(chan error, 1)
-	go func() { served <- srv.Serve(httpListener{l.Host(), s}) }()
+	go func() { served <- srv.Serve(httpListener{l.GoListener(), s}) }()
 	// shutdown stops the requests and the timers and joins them: every
 	// request task and every sleep has returned once its goroutine has
 	// (workers). It returns the defects of the requests and of the timers.
