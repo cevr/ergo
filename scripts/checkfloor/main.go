@@ -14,12 +14,13 @@
 //
 //	go run ./scripts/checkfloor [-rounds N] [-sizes A,B,C] [-ergo BIN] [-o FILE]
 //
-// builds exprprobe, checks that the three agree (each accepts the package,
-// the Go checker and the floor reject one with a type error, and every
-// side reads the same source bytes), then counts each side's modes at each
-// size for N rounds, the sides alternating, with the default collector and
-// with GOGC=off (the collector's work is the noise of a count), and writes
-// a Markdown receipt.
+// builds exprprobe as scripts/opcount builds a program (build.go), checks
+// that the three agree (each accepts the package and rejects one with a
+// type error, and every side reads the same source bytes), then counts
+// each side's modes at each size for N rounds, the sides alternating, with
+// the default collector and with GOGC=off (the collector's work is the
+// noise of a count): instructions, allocations and bytes. It writes a
+// Markdown receipt.
 // Each mode stops at a phase, so a phase's cost is one mode's slope less
 // the one before it, and writing the source cancels. It pins no count. Every
 // run is a fresh process under a memory bound (internal/opcount.Count).
@@ -81,6 +82,7 @@ func side(which, size, mode string, out io.Writer) int {
 		fmt.Fprintln(os.Stderr, "checkfloor: bad size", size)
 		return 2
 	}
+	defer writeMemStats()
 	src := source(n, mode == "check-bad")
 	if mode == "gen" {
 		fmt.Fprintf(out, "bytes=%d\n", len(src))
@@ -157,12 +159,9 @@ func run(args []string, log io.Writer) (int, error) {
 	if err != nil {
 		return 2, err
 	}
-	probe := filepath.Join(work, "exprprobe")
-	build := exec.Command(ergoBin, "build", "-o", probe, "./cmd/exprprobe")
-	build.Dir = "compiler"
-	build.Stdout, build.Stderr = log, log
-	if err := build.Run(); err != nil {
-		return 2, fmt.Errorf("ergo build ./cmd/exprprobe: %w", err)
+	probe, err := buildProbe(ergoBin, work, *memory, log)
+	if err != nil {
+		return 2, err
 	}
 	ergoMode := func(m string) func(int) []string {
 		return func(n int) []string { return []string{probe, strconv.Itoa(n), m} }
@@ -175,8 +174,7 @@ func run(args []string, log io.Writer) (int, error) {
 		{"go", "gen", goMode("go", "gen")}, {"go", "parse", goMode("go", "parse")}, {"go", "check", goMode("go", "check")},
 		{"floor", "gen", goMode("floor", "gen")}, {"floor", "check", goMode("floor", "check")},
 	}
-	// Agreement: one source, every side accepts it, the two that report
-	// errors reject the bad one.
+	// Agreement: one source, every side accepts it and rejects the bad one.
 	small := ns[0]
 	outs := map[string]string{}
 	for _, m := range modes {
@@ -189,10 +187,10 @@ func run(args []string, log io.Writer) (int, error) {
 	if outs["ergo gen"] != outs["go gen"] || outs["go gen"] != outs["floor gen"] {
 		return 1, fmt.Errorf("the sides read different sources: %q %q %q", outs["ergo gen"], outs["go gen"], outs["floor gen"])
 	}
-	for _, s := range []string{"go", "floor"} {
-		o, code, _ := once(work, goMode(s, "check-bad")(small))
+	for _, bad := range [][]string{ergoMode("check-bad")(small), goMode("go", "check-bad")(small), goMode("floor", "check-bad")(small)} {
+		o, code, _ := once(work, bad)
 		if code != 1 {
-			return 1, fmt.Errorf("%s accepted the package with a type error: %s", s, o)
+			return 1, fmt.Errorf("%s accepted the package with a type error: %s", strings.Join(bad, " "), o)
 		}
 	}
 	var b strings.Builder
@@ -201,7 +199,14 @@ func run(args []string, log io.Writer) (int, error) {
 		if err != nil {
 			return 1, err
 		}
-		b.WriteString(report(modes, counts, ns, *rounds, gc))
+		metrics := []string{"instructions"}
+		if gc != "" {
+			// Allocations do not depend on the collector: once.
+			metrics = append(metrics, "allocations", "bytes")
+		}
+		for _, metric := range metrics {
+			b.WriteString(report(modes, counts[metric], ns, *rounds, gc, metric))
+		}
 	}
 	receipt := header(ns[0], outs) + b.String()
 	if *outPath == "" {
@@ -212,14 +217,19 @@ func run(args []string, log io.Writer) (int, error) {
 }
 
 // countAll counts every mode at every size for the rounds, with GOGC=gc
-// ("" for the default collector): counts[mode][size] holds one count per
-// round.
-func countAll(modes []mode, ns []int, rounds int, memory uint64, gc, work string, log io.Writer) ([][][]float64, error) {
-	counts := make([][][]float64, len(modes))
-	for i := range counts {
-		counts[i] = make([][]float64, len(ns))
+// ("" for the default collector): counts[metric][mode][size] holds one
+// count per round, of instructions, allocations and bytes.
+func countAll(modes []mode, ns []int, rounds int, memory uint64, gc, work string, log io.Writer) (map[string][][][]float64, error) {
+	counts := map[string][][][]float64{}
+	for _, metric := range []string{"instructions", "allocations", "bytes"} {
+		c := make([][][]float64, len(modes))
+		for i := range c {
+			c[i] = make([][]float64, len(ns))
+		}
+		counts[metric] = c
 	}
-	env := os.Environ()
+	stats := filepath.Join(work, "stats")
+	env := append(os.Environ(), opcount.HookVariable+"="+stats)
 	if gc != "" {
 		env = append(env, "GOGC="+gc)
 	}
@@ -247,7 +257,13 @@ func countAll(modes []mode, ns []int, rounds int, memory uint64, gc, work string
 				if why, text := got.Refusal(); why != "" {
 					return nil, fmt.Errorf("%s %s at %d (GOGC=%s): %s: %s", m.side, m.name, n, gc, why, text)
 				}
-				counts[i][j] = append(counts[i][j], float64(got.Instructions))
+				allocs, bytes, err := readStats(stats)
+				if err != nil {
+					return nil, fmt.Errorf("%s %s at %d: %v", m.side, m.name, n, err)
+				}
+				counts["instructions"][i][j] = append(counts["instructions"][i][j], float64(got.Instructions))
+				counts["allocations"][i][j] = append(counts["allocations"][i][j], allocs)
+				counts["bytes"][i][j] = append(counts["bytes"][i][j], bytes)
 			}
 			fmt.Fprintf(log, "round %d (GOGC=%s): %s %s\n", r+1, gc, m.side, m.name)
 		}
@@ -255,12 +271,44 @@ func countAll(modes []mode, ns []int, rounds int, memory uint64, gc, work string
 	return counts, nil
 }
 
+// readStats reads the allocations and bytes a run wrote at its exit (the
+// hook's lines), and removes the file so the next run writes its own.
+func readStats(path string) (float64, float64, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, 0, fmt.Errorf("the run wrote no allocation counts: %v", err)
+	}
+	os.Remove(path)
+	var allocs, bytes float64
+	seen := 0
+	for _, line := range strings.Split(string(data), "\n") {
+		name, v, ok := strings.Cut(line, " ")
+		if !ok {
+			continue
+		}
+		x, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			continue
+		}
+		switch name {
+		case "allocs":
+			allocs, seen = x, seen+1
+		case "alloc_bytes":
+			bytes, seen = x, seen+1
+		}
+	}
+	if seen != 2 {
+		return 0, 0, fmt.Errorf("allocation counts missing in %q", data)
+	}
+	return allocs, bytes, nil
+}
+
 // header is the receipt's title and the agreement it checked.
 func header(small int, outs map[string]string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Checker floor probe (scripts/checkfloor)\n\n")
-	fmt.Fprintf(&b, "User instructions per function: the slope between sizes, the median of the rounds (spread: (max - min) / median), counted.\n\n")
-	fmt.Fprintf(&b, "Agreement at %d: ergo `%s`; go `%s`; floor `%s`; the Go checker and the floor reject the package with a type error.\n", small, outs["ergo check"], outs["go check"], outs["floor check"])
+	fmt.Fprintf(&b, "Per function: the slope between sizes, the median of the rounds (spread: (max - min) / median). Instructions are user instructions of the process tree, counted; allocations and bytes are the runtime's MemStats at exit (Mallocs, TotalAlloc), exact.\n\n")
+	fmt.Fprintf(&b, "Agreement at %d: ergo `%s`; go `%s`; floor `%s`; each side rejects the package with a type error.\n", small, outs["ergo check"], outs["go check"], outs["floor check"])
 	return b.String()
 }
 
@@ -282,7 +330,7 @@ type phase struct {
 	hi, lo     string
 }
 
-func report(modes []mode, counts [][][]float64, ns []int, rounds int, gc string) string {
+func report(modes []mode, counts [][][]float64, ns []int, rounds int, gc, metric string) string {
 	at := func(side, name string) int {
 		return slices.IndexFunc(modes, func(m mode) bool { return m.side == side && m.name == name })
 	}
@@ -317,7 +365,7 @@ func report(modes []mode, counts [][][]float64, ns []int, rounds int, gc string)
 	if gc != "" {
 		title = "GOGC=" + gc
 	}
-	fmt.Fprintf(&b, "\n## %s, %d rounds\n\n", title, rounds)
+	fmt.Fprintf(&b, "\n## %s per function, %s, %d rounds\n\n", metric, title, rounds)
 	fmt.Fprintf(&b, "| side | phase | %d→%d | %d→%d |\n| --- | --- | --- | --- |\n", ns[0], ns[1], ns[1], ns[2])
 	med := map[string][2]float64{}
 	for _, p := range phases {
@@ -326,6 +374,9 @@ func report(modes []mode, counts [][][]float64, ns []int, rounds int, gc string)
 			xs := cost(p, k)
 			m := opcount.Median(xs)
 			cells[k] = fmt.Sprintf("%.0f (spread %.1f%%)", m, 100*spread(xs, m))
+			if metric == "allocations" {
+				cells[k] = fmt.Sprintf("%.2f (spread %.1f%%)", m, 100*spread(xs, m))
+			}
 			v := med[p.side+" "+p.name]
 			v[k] = m
 			med[p.side+" "+p.name] = v

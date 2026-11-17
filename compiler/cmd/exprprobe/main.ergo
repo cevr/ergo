@@ -3,8 +3,9 @@
 // package of N functions of one shape (checkfloor's shape, byte for
 // byte), then by MODE stops after writing it (gen), parsing it (parse),
 // binding and loading it (setup), or typing every body (check). It prints
-// `fns=F typed=E` (check), or what it reached. compiler/check/expr types
-// expressions and reports no diagnostic yet, so it has no bad mode.
+// `fns=F typed=E` (check), or what it reached. `check-bad` checks the
+// package with a type error in its last function (q != 1, checkfloor's
+// bad package): a package with a type error prints its count and exits 1.
 
 import compiler/check/bind
 import compiler/check/expr
@@ -15,19 +16,21 @@ import io
 import os
 import strings
 
-// source is the package of n shaped functions.
-func source(n int) string {
+// source is the package of n shaped functions; bad, the last one compares
+// its string parameter with an int.
+func source(n int, bad bool) string {
 	let mut b = strings.NewBuilder()
 	b.WriteString("func id[T](x T) T { x }\n")
 	for i in 0..n {
-		b.WriteString("\nfunc f\(i)(p int, q string, xs []int) int {\n\tlet mut acc = p + 1\n\tlet a = id(p)\n\tlet c = xs[0] * 2\n\tfor j, e in xs {\n\t\tacc = acc + e - j\n\t}\n\tif acc > 3 && q != \"x\" {\n\t\tacc = acc + len(q)\n\t}\n\tacc + a + c\n}\n")
+		let cmp = if bad && i == n-1 { "1" } else { "\"x\"" }
+		b.WriteString("\nfunc f\(i)(p int, q string, xs []int) int {\n\tlet mut acc = p + 1\n\tlet a = id(p)\n\tlet c = xs[0] * 2\n\tfor j, e in xs {\n\t\tacc = acc + e - j\n\t}\n\tif acc > 3 && q != \(cmp) {\n\t\tacc = acc + len(q)\n\t}\n\tacc + a + c\n}\n")
 	}
 	b.String()
 }
 
 func run(args []string) fails os.Exit needs io.Stdout {
 	if len(args) != 2 {
-		return os.Exit{Code: 2, Message: "usage: exprprobe N gen|parse|setup|check"}
+		return os.Exit{Code: 2, Message: "usage: exprprobe N gen|parse|setup|check|check-bad"}
 	}
 	let mut n = 0
 	let w = args[0]
@@ -35,7 +38,7 @@ func run(args []string) fails os.Exit needs io.Stdout {
 		n = n*10 + int(w[i]) - 48
 	}
 	let mode = args[1]
-	let src = source(n)
+	let src = source(n, mode == "check-bad")
 	if mode == "gen" {
 		io.Stdout.Println("bytes=\(len(src))")
 		return
@@ -55,6 +58,10 @@ func run(args []string) fails os.Exit needs io.Stdout {
 		return
 	}
 	let t = expr.Check(&s, k)
+	let bad = len(expr.Diags(t))
+	if bad > 0 {
+		return os.Exit{Code: 1, Message: "rejected: \(bad) type errors"}
+	}
 	io.Stdout.Println("fns=\(len(k.Fns)) typed=\(len(t.Entries))")
 }
 
