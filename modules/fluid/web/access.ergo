@@ -1,6 +1,7 @@
 import ergo.dev/fluid/a11y
 import ergo.dev/fluid/part
 import html
+import ui
 
 // AccessOfWebIsAccessOfPart: the access tree read back from the HTML of a part tree is the
 // tree's own (a11y.Of), for trees drawn from a seed: every node kind, roles, names, keys,
@@ -100,7 +101,8 @@ func drawNode(g *Gen, depth int) part.Node[int] {
 	case 2:
 		part.Live{Text: pick(g, words), Assertive: draw(g, 2) == 0}
 	case 3:
-		part.Host{Web: "<b>host &amp; " + html.Escape(pick(g, words)) + "</b>"}
+		let w = pick(g, words)
+		part.Host{Web: "<b>host &amp; " + html.Escape(w) + "</b>", Gui: func(f *ui.Frame[int]) { ui.Text(f, "host & "+w) }}
 	case 4:
 		part.Box{Sem: part.Plain(), Skin: pick(g, skins), Inline: draw(g, 2) == 0, Keys: []part.Binding[int]{}, Kids: drawKids(g, depth)}
 	case 5, 6:
