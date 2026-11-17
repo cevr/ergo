@@ -593,10 +593,13 @@ type (
 		TrailingFunc bool
 	}
 
-	// StarExpr is `*x`: a pointer type or an indirection.
+	// StarExpr is `*x`: a pointer type or an indirection. With Mut it
+	// is the mode word `mut x`, the borrow spelled as a mode (audit CSX
+	// §4.3, q169; SIMPLIFY U2): the same borrow type, Star at `mut`.
 	StarExpr struct {
 		Star Pos
 		X    Expr
+		Mut  bool
 	}
 
 	// UnaryExpr is `op x` for + - ! ^ & <-.

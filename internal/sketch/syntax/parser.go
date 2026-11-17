@@ -1293,7 +1293,7 @@ func (p *parser) parseFails() *ErrorRow {
 // startsType reports whether the current token can start a type.
 func (p *parser) startsType() bool {
 	switch p.tok.tok {
-	case IDENT, LBRACK, MUL, FUNC, ESCAPING, LPAREN:
+	case IDENT, LBRACK, MUL, MUT, FUNC, ESCAPING, LPAREN:
 		return true
 	case GO:
 		return p.peek(1).tok == PERIOD
@@ -1519,7 +1519,7 @@ func (p *parser) atOwn() bool {
 		return false
 	}
 	switch p.peek(1).tok {
-	case IDENT, LBRACK, MUL, FUNC, ESCAPING, LPAREN:
+	case IDENT, LBRACK, MUL, MUT, FUNC, ESCAPING, LPAREN:
 		return true
 	case GO:
 		return p.peek(2).tok == PERIOD
@@ -1674,6 +1674,13 @@ func (p *parser) parseType(ctx typeCtx) Expr {
 		star := p.tok.pos
 		p.next()
 		return &StarExpr{Star: star, X: p.parseType(ctx)}
+	case MUT:
+		// `mut T`: the write-in-place mode, the borrow `*T` spelled as a
+		// word before the type (q169). The checker reads one borrow type
+		// for both spellings.
+		at := p.tok.pos
+		p.next()
+		return &StarExpr{Star: at, X: p.parseType(ctx), Mut: true}
 	case ESCAPING:
 		pos := p.tok.pos
 		p.next()

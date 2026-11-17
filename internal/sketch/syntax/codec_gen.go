@@ -894,6 +894,7 @@ func (e *encoder) encPtrSliceExpr(v *SliceExpr) {
 func (e *encoder) encFieldsStarExpr(v *StarExpr) {
 	e.encPos(v.Star)
 	e.encExpr(v.X)
+	e.encT4(v.Mut)
 }
 
 func (e *encoder) encStarExpr(v StarExpr) { e.encFieldsStarExpr(&v) }
@@ -2718,6 +2719,7 @@ func (d *decoder) decPtrSliceExpr() *SliceExpr {
 func (d *decoder) decFieldsStarExpr(v *StarExpr) {
 	v.Star = d.decPos()
 	v.X = d.decExpr()
+	v.Mut = d.decT4()
 }
 
 func (d *decoder) decStarExpr() (v StarExpr) {
