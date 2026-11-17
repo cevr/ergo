@@ -267,6 +267,10 @@ func (v *Virtual) idle() {
 
 // fire wakes the sleeper of t, if any, and delivers t's time. v.mu is held.
 func (v *Virtual) fire(t *virtualTimer) {
+	if t.f != nil {
+		go t.f()
+		return
+	}
 	if t.task != nil {
 		if m := t.task.member.Load(); m != nil && m.v == v && m.parked && m.on[0] == any(t) {
 			m.release()

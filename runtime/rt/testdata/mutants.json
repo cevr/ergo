@@ -363,6 +363,40 @@
       "to": "returned = true",
       "rule": "runtime.md Timeouts 4: the value After gives is the one the body returned",
       "killers": ["lower:TestStdLawsRun"]
+
+    },
+    {
+      "name": "virtual-alarm-never-runs",
+      "origin": "wf10 HTTP-FAST-b",
+      "file": "runtime/rt/idle.go",
+      "from": "\tif t.f != nil {\n\t\tgo t.f()\n\t\treturn\n\t}",
+      "to": "\tif t.f != nil {\n\t\treturn\n\t}",
+      "rule": "A virtual AfterFunc runs its function when the clock reaches its deadline, as NewTimer's channel delivers.",
+      "killers": [
+        "runtime/rt:TestVirtualAfterFuncIsTimer"
+      ]
+    },
+    {
+      "name": "virtual-alarm-now-never-runs",
+      "origin": "wf10 HTTP-FAST-b",
+      "file": "runtime/rt/clock.go",
+      "from": "\tif d <= 0 {\n\t\tgo f()\n\t\treturn t\n\t}",
+      "to": "\tif false {\n\t\tgo f()\n\t\treturn t\n\t}",
+      "rule": "A virtual AfterFunc of a span of zero or less starts its function at once.",
+      "killers": [
+        "runtime/rt:TestVirtualAfterFuncIsTimer"
+      ]
+    },
+    {
+      "name": "virtual-alarm-stop-keeps",
+      "origin": "wf10 HTTP-FAST-b",
+      "file": "runtime/rt/clock.go",
+      "from": "\t\tif u == t {\n\t\t\tv.timers = append(v.timers[:i], v.timers[i+1:]...)",
+      "to": "\t\tif u == t && t.f == nil {\n\t\t\tv.timers = append(v.timers[:i], v.timers[i+1:]...)",
+      "rule": "Stop disarms a virtual AfterFunc as it disarms a timer.",
+      "killers": [
+        "runtime/rt:TestVirtualAfterFuncIsTimer"
+      ]
     }
   ]
 }
