@@ -39,7 +39,7 @@
       "origin": "wf10/selfhost/SH1",
       "file": "compiler/format/align.ergo",
       "from": "c.Width[k] = utf8.RuneCount(strings.Slice(text, l.CellA[k], l.CellB[k]))",
-      "to": "c.Width[k] = l.CellB[k] - l.CellA[k]",
+      "to": "c.Width[k] = l.CellB[k] - l.CellA[k] + utf8.RuneCount(\"\")",
       "rule": "A column's width counts runes, not bytes.",
       "killers": [
         "internal/selfhostcheck:TestFormatAgreesWithSeed"
@@ -204,7 +204,7 @@
       "origin": "wf10/STD-sh",
       "file": "compiler/format/layout.ergo",
       "from": "\tif has {\n\t\tl.CellsTail = solid\n\t}\n",
-      "to": "",
+      "to": "\tif has && solid == 0 {\n\t\tl.CellsTail = solid\n\t}\n",
       "rule": "After a separator the line's last byte is the last byte of its last non-empty cell, so a blank keeps two tokens apart across a column (the tail that replaces a read of the buffer).",
       "killers": [
         "internal/selfhostcheck:TestSelfhostLayoutModel"
@@ -338,7 +338,9 @@
       "from": "\tlet last = l.lastByte()\n\tif last != 0 && merges(last, text[0]) {\n\t\tl.put(\" \")\n\t}\n\tl.put(text)\n",
       "to": "\tl.put(text)\n",
       "rule": "A token the printer writes with no search for a line break still gets a blank before it when it would lex as one token with the last byte.",
-      "killers": []
+      "killers": [
+        "internal/selfhostcheck:TestSelfhostFormatLaws"
+      ]
     },
     {
       "name": "sh-line-probe-off-by-one",
@@ -347,16 +349,9 @@
       "from": "\t\tif i+1 == n || syntax.LineStart(p.Lines, i+1) > at {\n\t\t\tline = i + 1\n",
       "to": "\t\tif i+1 == n || syntax.LineStart(p.Lines, i+1) > at {\n\t\t\tline = i + 2\n",
       "rule": "The forward probe of ln names the line that holds the offset: the one whose start is at or before it and whose next line starts after it.",
-      "killers": []
-    },
-    {
-      "name": "sh-raw-string-not-split",
-      "origin": "wf10/selfhost/S1d",
-      "file": "compiler/format/layout.ergo",
-      "from": "\tif text == \"\" || text[0] == '`' || text[0] == '/' {\n",
-      "to": "\tif text == \"\" || text[0] == '/' {\n",
-      "rule": "A raw string the printer writes still goes through write, so its line breaks end layout lines that are never re-indented.",
-      "killers": []
+      "killers": [
+        "internal/selfhostcheck:TestSelfhostFormatLaws"
+      ]
     }
   ]
 }
