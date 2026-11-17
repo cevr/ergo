@@ -97,6 +97,33 @@ test Grow {
 	assert grow(3) == 6
 }
 `,
+	"own-call-pass": `type Bag { Items []int, N int }
+
+type Store { bags []Bag }
+
+func view(b Bag, w int) int {
+	len(b.Items) + b.N + w
+}
+
+func bump(s *Store, i int) int {
+	s.bags[i].N = s.bags[i].N + 1
+	0
+}
+
+func peek(s *Store) int {
+	view(s.bags[0], bump(s, 0))
+}
+
+func main() needs Console {
+	let mut s = Store{bags: []Bag{Bag{Items: []int{1}, N: 0}}}
+	Console.Println("\(peek(&s))")
+}
+
+test Peek {
+	let mut s = Store{bags: []Bag{Bag{Items: []int{1}, N: 0}}}
+	assert peek(&s) == 1
+}
+`,
 	"own-read": `type Block { Kind int, Lines []string }
 
 type Store { blocks []Block }

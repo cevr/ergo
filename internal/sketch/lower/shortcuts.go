@@ -194,6 +194,15 @@ var shortcuts = []shortcut{
 		referenced: func() bool { return !valueOwned() },
 	},
 	{
+		name:       "own-call-pass",
+		class:      valueClass,
+		admission:  "passedApart",
+		reference:  "borrowPassLowering=off",
+		agreement:  "TestHandoverAgrees",
+		mutant:     "own-call-pass-write-blind",
+		referenced: func() bool { return !valueOwned() || !borrowPassOn() },
+	},
+	{
 		name:       "own-reslice",
 		class:      valueClass,
 		admission:  "reslices",

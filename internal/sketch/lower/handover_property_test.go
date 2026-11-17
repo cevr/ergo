@@ -236,7 +236,7 @@ func (g *handoverGen) stmt() {
 			return
 		}
 		j := g.r.IntN(len(g.store))
-		kinds := []string{"Kind", "Item", "Push", "Pass", "Method", "Bump", "CycleA", "CycleB"}
+		kinds := []string{"Kind", "Item", "Push", "Pass", "Method", "Bump", "CycleA", "CycleB", "CallBump", "CallPoke"}
 		kind := kinds[g.reads%len(kinds)]
 		g.reads++
 		g.reached["peek "+kind] = true
@@ -244,7 +244,7 @@ func (g *handoverGen) stmt() {
 		b := g.store[j].copy()
 		e := &g.store[j]
 		switch kind {
-		case "Kind", "Bump":
+		case "Kind", "Bump", "CallBump":
 			e.n += v
 		case "Push":
 			e.items = append(append([]int(nil), e.items...), v)
@@ -449,6 +449,38 @@ func peekBump(s *Store, i int, v int) string {
 	show(b)
 }
 
+// view keeps nothing of b (keeps.go): an argument read from a root is
+// unkept.
+func view(b Bag, w int) string {
+	if w != 0 {
+		return ""
+	}
+	show(b)
+}
+
+func bumpN(s *Store, i int, v int) int {
+	s.bags[i].N = s.bags[i].N + v
+	0
+}
+
+func pokeN(s *Store, i int, v int) int {
+	if len(s.bags[i].Items) > 0 {
+		s.bags[i].Items[0] = v
+	}
+	0
+}
+
+// The read operand is unkept; the next operand passes the borrow on and
+// writes only a scalar field (keeps.go, own-call-pass): no copy.
+func peekCallBump(s *Store, i int, v int) string {
+	view(s.bags[i], bumpN(s, i, v))
+}
+
+// The next operand writes the element's slice: the read copies.
+func peekCallPoke(s *Store, i int, v int) string {
+	view(s.bags[i], pokeN(s, i, v))
+}
+
 // pokeA writes the element's slice; pokeB only passes the borrow back to
 // pokeA: through the recursion, both write it.
 func pokeA(s *Store, i int, v int, d int) {
@@ -630,7 +662,7 @@ func TestHandoverAgrees(t *testing.T) {
 		}
 		return src[i : i+end]
 	}
-	for name, copies := range map[string]bool{"peekKind": false, "peekItem": true, "peekPass": true, "peekBump": false, "peekCycleA": true, "peekCycleB": true, "trim": false} {
+	for name, copies := range map[string]bool{"peekKind": false, "peekItem": true, "peekPass": true, "peekBump": false, "peekCycleA": true, "peekCycleB": true, "peekCallBump": false, "peekCallPoke": true, "trim": false} {
 		b := body(programs[0].mainGo(), name)
 		if b == "" || strings.Contains(b, "Clone") != copies {
 			var named []string
@@ -659,7 +691,7 @@ func TestHandoverAgrees(t *testing.T) {
 		}
 	}
 	if *handoverSeed == 0 {
-		for _, s := range []string{"push", "branch", "ring on a live let", "root rings", "inline append on a live let", "grow", "cut", "root takes a push", "root pushes", "concat on a root", "concat on a live let", "concat on a dead local", "store add", "peek Kind", "peek Item", "peek Push", "peek Pass", "peek Method", "peek Bump", "peek CycleA", "peek CycleB", "root read then write", "root reslices", "root takes a let's cut", "let keeps the root", "trim through a borrow", "root threads arms", "arm on a live let", "root mk", "mk on a live let", "root both", "window kept", "window kept by a call", "window popped", "window read", "window read in flight"} {
+		for _, s := range []string{"push", "branch", "ring on a live let", "root rings", "inline append on a live let", "grow", "cut", "root takes a push", "root pushes", "concat on a root", "concat on a live let", "concat on a dead local", "store add", "peek Kind", "peek Item", "peek Push", "peek Pass", "peek Method", "peek Bump", "peek CycleA", "peek CycleB", "peek CallBump", "peek CallPoke", "root read then write", "root reslices", "root takes a let's cut", "let keeps the root", "trim through a borrow", "root threads arms", "arm on a live let", "root mk", "mk on a live let", "root both", "window kept", "window kept by a call", "window popped", "window read", "window read in flight"} {
 			if !reached[s] {
 				t.Errorf("seeds %v never write %q", seeds, s)
 			}

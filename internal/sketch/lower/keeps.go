@@ -194,15 +194,73 @@ func (w *valueWalk) callWrites(vv *vvar, o *vocc) bool {
 		return true
 	}
 	c := w.info.Calls[o.call]
-	for _, a := range callOperands(o.call, c) {
+	ops := callOperands(o.call, c)
+	named := false
+	for _, a := range ops {
 		if _, fn := underlyingOf(w.typeOf(a)).(*check.Signature); fn {
 			return true
 		}
 		if w.names(a, vv.v, o.id) {
-			return true // another operand names the root: a borrow passed on
+			named = true // another operand names the root: a borrow passed on
 		}
 	}
-	return false
+	return named && !w.passedApart(vv, o, ops)
+}
+
+// A borrow passed on in another operand (OWN1, own-call-pass; lane C's
+// S3d6 typer: `bind.ResolutionOf(k.U, k.Ps, pnode(k, t, x))` copied k.U
+// and k.Ps at every identifier, so passing the package by pointer made
+// typing 200 times slower). An operand that names the root again was
+// counted as a write of everything the root reaches. It is now judged as
+// own-read judges a let (storeread.go, keptRead): each use of the root in
+// the call's operands writes the storage storageWritten counts, a borrow
+// handed to a function with an Ergo body only what that function writes
+// through it (storeread_pass.go); when none of it is a slice or Map type
+// the read's value reaches, the callee cannot see a write through its
+// argument, and the read is not copied.
+//
+// Only shared storage matters: when a later operand writes statements
+// (a call does), every earlier operand is bound to a temporary first,
+// left to right (expr.go, spec D4; the IR orders operands the same way),
+// so a write of a scalar field after the read never reaches the callee.
+// A write in another frame, a function value operand and a trailing
+// block still copy (callWrites, above). The reference is
+// borrowPassLowering "off", or valueLowering "copy".
+
+// passedApart reports whether no use of vv in the operands ops of o.call,
+// but o, can write the storage the value o reads reaches.
+func (w *valueWalk) passedApart(vv *vvar, o *vocc, ops []syntax.Expr) bool {
+	if !valueOwned() || !borrowPassOn() {
+		return false
+	}
+	written := map[string]bool{}
+	for _, a := range ops {
+		if _, ok := w.post[a]; a == nil || !ok {
+			return false
+		}
+		for _, u := range vv.occs {
+			if u == o || u.pre < w.pre[a] || u.pre >= w.post[a] {
+				continue
+			}
+			if !w.writesNothing(u) && w.storageWritten(u, written) {
+				return false
+			}
+		}
+	}
+	read := map[string]bool{}
+	if w.l.reaches(w.typeOf(o.path), read, map[check.Type]bool{}) {
+		return false
+	}
+	for k := range read {
+		if written[k] {
+			return false
+		}
+	}
+	if !w.l.takes("own-call-pass") {
+		return false
+	}
+	w.l.took("own-call-pass")
+	return true
 }
 
 // names reports whether x names v anywhere but at the use except.
