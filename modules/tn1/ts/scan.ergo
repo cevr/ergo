@@ -43,17 +43,15 @@ let puncts = []string{
 	"=>", "==", "!=", "<=", "&&", "||", "??", "?.", "++", "--", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "**", "<<",
 }
 
-// regexAfter are the words after which a slash starts a regular
+// regexAfter reports a word after which a slash starts a regular
 // expression.
-let regexAfter = []string{"return", "typeof", "instanceof", "in", "of", "new", "delete", "void", "throw", "case", "do", "else", "yield", "await"}
-
-func member(xs []string, s string) bool {
-	for x in xs {
-		if x == s {
-			return true
-		}
+func regexAfter(s string) bool {
+	match s {
+	case "return", "typeof", "instanceof", "in", "of", "new", "delete", "void", "throw", "case", "do", "else", "yield", "await":
+		true
+	case _:
+		false
 	}
-	false
 }
 
 // regexAllowed reports whether a slash after prev starts a regular
@@ -68,7 +66,7 @@ func regexAllowed(toks []Token) bool {
 	case Punct:
 		p.Text != ")" && p.Text != "]"
 	case Ident:
-		member(regexAfter, p.Text)
+		regexAfter(p.Text)
 	case Literal, LineComment, BlockComment:
 		false
 	}

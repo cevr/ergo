@@ -2,6 +2,7 @@
 // (ergo.dev/tn1/ts). internal/sketch/lint/features states the same in
 // Go for Ergo's own parser; the vectors' records hold the two equal.
 
+import strconv
 import strings
 
 func letter(c byte) bool { c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' }
@@ -38,6 +39,30 @@ func Words(dst []string, s string) []string {
 	out
 }
 
+// SketchOf is Sketch(Words([]string{}, s)), hashing each word's bytes as
+// it reads them: no word is made.
+func SketchOf(s string) uint64 {
+	let mut sk = uint64(0)
+	let mut start = -1
+	for i in 0..len(s)+1 {
+		let end = i == len(s) || !letter(s[i]) || start >= 0 && s[i] <= 'Z' && s[i-1] >= 'a'
+		if end && start >= 0 {
+			if i-start >= 3 {
+				let mut h = uint32(2166136261)
+				for k in start..i {
+					h = (h ^ uint32(lowerByte(s[k]))) * 16777619
+				}
+				sk = sk | uint64(1)<<uint64(h%64)
+			}
+			start = -1
+		}
+		if i < len(s) && letter(s[i]) && start < 0 {
+			start = i
+		}
+	}
+	sk
+}
+
 // WordBit is a word's bit in a sketch: FNV-1a, 32 bits, modulo 64.
 func WordBit(w string) uint64 {
 	let mut h = uint32(2166136261)
@@ -60,17 +85,25 @@ let digits = "0123456789abcdef"
 
 // hexOf is v in lower-case hexadecimal, at least width digits.
 func hexOf(v uint64, width int) string {
-	let mut b = []byte{}
-	let mut x = v
-	for x != 0 || len(b) < width || len(b) == 0 {
-		b = b.Append(digits[int(x&15)])
+	// n is the digits: v's own, at least width, at least one.
+	let mut n = 1
+	let mut x = v >> 4
+	for x != 0 {
+		n += 1
 		x = x >> 4
 	}
-	let mut out = []byte{}
-	for i in 0..len(b) {
-		out = out.Append(b[len(b)-1-i])
+	if n < width {
+		n = width
 	}
-	strings.FromBytes(out)
+	let mut b = strings.Bytes(strings.Repeat("0", n))
+	x = v
+	let mut i = n - 1
+	for x != 0 {
+		b[i] = digits[int(x&15)]
+		x = x >> 4
+		i -= 1
+	}
+	strings.FromBytes(b)
 }
 
 func lineKindName(k LineKind) string {
@@ -123,7 +156,21 @@ func EncodeRecord(f Features) string {
 	let mut b = strings.NewBuilder()
 	b.WriteString(RecordHeader + f.Language + "\n")
 	for l in f.Lines {
-		b.WriteString("L \(lineKindName(l.Kind)) \(l.Depth) \(hexOf(uint64(l.Starts), 1)) \(hexOf(l.CommentWords, 16)) \(hexOf(l.CodeWords, 16)) \(l.CommentText)\n")
+		// Piece by piece into the one builder: an interpolated line
+		// would be a string of its own per line.
+		b.WriteString("L ")
+		b.WriteString(lineKindName(l.Kind))
+		b.WriteByte(' ')
+		b.WriteString(strconv.Itoa(l.Depth))
+		b.WriteByte(' ')
+		b.WriteString(hexOf(uint64(l.Starts), 1))
+		b.WriteByte(' ')
+		b.WriteString(hexOf(l.CommentWords, 16))
+		b.WriteByte(' ')
+		b.WriteString(hexOf(l.CodeWords, 16))
+		b.WriteByte(' ')
+		b.WriteString(l.CommentText)
+		b.WriteByte('\n')
 	}
 	for n in f.Nodes {
 		let mut shapes = "-"

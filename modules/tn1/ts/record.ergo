@@ -26,10 +26,25 @@ import strings
 // directives are the openings of a tool's directive comment.
 let directives = []string{"// @ts-", "//@ts-", "/// <", "// eslint-", "/* eslint-", "/* eslint ", "// oxlint-", "/* oxlint-", "// prettier-ignore", "// biome-ignore", "// ergo-lint-", "// traits-ignore", "/* istanbul ", "// istanbul ", "/* @vite-ignore", "#!"}
 
-// controls are the words before "(" that are not calls.
-let controls = []string{"if", "for", "while", "switch", "catch", "function", "return", "typeof", "void", "delete", "await", "yield", "in", "of", "instanceof", "as", "satisfies", "keyof"}
+// control reports a word before "(" that is not a call.
+func control(s string) bool {
+	match s {
+	case "if", "for", "while", "switch", "catch", "function", "return", "typeof", "void", "delete", "await", "yield", "in", "of", "instanceof", "as", "satisfies", "keyof":
+		true
+	case _:
+		false
+	}
+}
 
-let assigns = []string{"=", "+=", "-=", "*=", "/=", "%=", "**=", "<<=", ">>=", ">>>=", "&=", "|=", "^=", "&&=", "||=", "??="}
+// assign reports an assignment operator.
+func assign(s string) bool {
+	match s {
+	case "=", "+=", "-=", "*=", "/=", "%=", "**=", "<<=", ">>=", ">>>=", "&=", "|=", "^=", "&&=", "||=", "??=":
+		true
+	case _:
+		false
+	}
+}
 
 // neutral are the start bits' words, in StartNames' order; "" for a
 // start with no word.
@@ -75,10 +90,20 @@ func lineOf(starts []int, p int) int {
 
 // imported is the names the file's import statements bind, and the
 // tokens that are in an import clause.
-type Imports { Names []string, Clause []bool }
+type Imports { Names Map[string, bool], Clause []bool }
+
+// binds reports whether an import binds name.
+func binds(imp Imports, name string) bool {
+	match imp.Names.Get(name) {
+	case Some:
+		true
+	case None:
+		false
+	}
+}
 
 func imports(code []Token) Imports {
-	let mut names = []string{}
+	let mut names = Map[string, bool]{}
 	let mut clause = []bool{}
 	for _ in code {
 		clause = clause.Append(false)
@@ -92,13 +117,13 @@ func imports(code []Token) Imports {
 					clause[j] = true
 					let after = if j+1 < len(code) { code[j+1].Text } else { "" }
 					if code[j].Text != "type" && code[j].Text != "as" && after != "as" {
-						names = names.Append(code[j].Text)
+						names[code[j].Text] = true
 					}
 				}
 				j += 1
 			}
 			if j < len(code) && code[j].Text == "=" && j > i+1 {
-				names = names.Append(code[j-1].Text)
+				names[code[j-1].Text] = true
 			}
 			i = j
 		}
@@ -134,7 +159,7 @@ func FromSource(src string) tn1.Features {
 	}
 	for j in 0..len(code) {
 		let t = code[j]
-		if isIdent(t) && (imp.Clause[j] || member(imp.Names, t.Text)) {
+		if isIdent(t) && (imp.Clause[j] || binds(imp, t.Text)) {
 			for p in t.From..t.To {
 				kind[p] = '"'
 			}
@@ -200,7 +225,7 @@ func FromSource(src string) tn1.Features {
 			if w == "catch" || strings.HasPrefix(w, "catch") && len(w) > 5 && w[5] >= 'A' && w[5] <= 'Z' && next == "(" {
 				bits = bits | 16
 			}
-			if next == "(" && !member(controls, w) && prev != "function" && !signature(code, j+1) {
+			if next == "(" && !control(w) && prev != "function" && !signature(code, j+1) {
 				bits = bits | 64
 				if (w == "test" || w == "it" || w == "describe") && prev != "." {
 					bits = bits | 256
@@ -208,7 +233,7 @@ func FromSource(src string) tn1.Features {
 			}
 		} else if w == "=>" {
 			bits = 1
-		} else if member(assigns, w) {
+		} else if assign(w) {
 			bits = 128
 		}
 		if bits != 0 {
@@ -222,7 +247,6 @@ func FromSource(src string) tn1.Features {
 		let from = starts[l]
 		let to = if l+1 < n { starts[l+1] - 1 } else { len(src) }
 		let mut comment = strings.NewBuilder()
-		let mut codeText = strings.NewBuilder()
 		let mut hasCode = false
 		for p in from..to {
 			let c = src[p]
@@ -230,19 +254,11 @@ func FromSource(src string) tn1.Features {
 				if c != '\r' {
 					comment.WriteByte(c)
 				}
-				codeText.WriteByte(' ')
-			} else {
-				if c != ' ' && c != '\t' && c != '\r' {
-					hasCode = true
-				}
-				if kind[p] == 'c' {
-					codeText.WriteByte(c)
-				} else {
-					codeText.WriteByte(' ')
-				}
+			} else if c != ' ' && c != '\t' && c != '\r' {
+				hasCode = true
 			}
 		}
-		let text = strings.TrimLeft(strings.TrimRight(comment.String(), " \t"), " \t")
+		let text = trimBlank(comment.String())
 		let mut k tn1.LineKind = tn1.CommentOnly
 		if hasCode {
 			k = tn1.Code
@@ -253,18 +269,18 @@ func FromSource(src string) tn1.Features {
 		} else if dir[l] {
 			k = tn1.Directive
 		}
-		let mut words = tn1.Words([]string{}, codeText.String())
+		let mut codeWords = codeSketch(src, kind, from, to)
 		for b in 0..9 {
 			if (startBits[l]>>b)&1 == 1 && neutral[b] != "" {
-				words = words.Append(neutral[b])
+				codeWords = codeWords | tn1.WordBit(neutral[b])
 			}
 		}
 		lines = lines.Append(tn1.Line{
 			Kind:         k,
 			Depth:        depth[l],
 			Starts:       startBits[l],
-			CommentWords: tn1.Sketch(tn1.Words([]string{}, text)),
-			CodeWords:    tn1.Sketch(words),
+			CommentWords: tn1.SketchOf(text),
+			CodeWords:    codeWords,
 			CommentText:  text,
 		})
 	}
@@ -304,6 +320,50 @@ func CommentSpans(src string) []Span {
 		}
 	}
 	out
+}
+
+// codeSketch is tn1.SketchOf of src[from:to] with every byte outside
+// code (kind not c: a comment, a literal, an imported name) read as a
+// space, without making that text.
+func codeSketch(src string, kind []byte, from int, to int) uint64 {
+	let mut sk = uint64(0)
+	let mut start = -1
+	let mut prev = byte(' ')
+	for p in from..to+1 {
+		let c = if p < to && kind[p] == 'c' { src[p] } else { byte(' ') }
+		let isLetter = c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
+		let end = !isLetter || start >= 0 && c <= 'Z' && prev >= 'a'
+		if end && start >= 0 {
+			if p-start >= 3 {
+				let mut h = uint32(2166136261)
+				for k in start..p {
+					let b = src[k]
+					let low = if b >= 'A' && b <= 'Z' { b + 32 } else { b }
+					h = (h ^ uint32(low)) * 16777619
+				}
+				sk = sk | uint64(1)<<uint64(h%64)
+			}
+			start = -1
+		}
+		if isLetter && start < 0 {
+			start = p
+		}
+		prev = c
+	}
+	sk
+}
+
+// trimBlank is s without the spaces and tabs at either end.
+func trimBlank(s string) string {
+	let mut a = 0
+	let mut b = len(s)
+	for a < b && (s[a] == ' ' || s[a] == '\t') {
+		a += 1
+	}
+	for b > a && (s[b-1] == ' ' || s[b-1] == '\t') {
+		b -= 1
+	}
+	strings.Slice(s, a, b)
 }
 
 // signature reports whether the parenthesised list at code[open] is a
