@@ -531,7 +531,8 @@ func unitInput(unit lower.Unit, dependencies []build.Dependency, req BuildReques
 // ledger at req.Ledger and the std ledger (rewrite.go), and prints one
 // line on req.Stderr for each entry a site needs that is stale or
 // missing; such a site keeps the reference lowering. A locked request
-// refuses instead (*LedgerError). A package with no rewrite law that a
+// refuses instead (*LedgerError), and every request refuses a current
+// refuted entry a site met. A package with no rewrite law that a
 // provider's run checks reads no ledger: ev and files are nil, and the
 // caller lowers it as before.
 func lowerWithLedger(a Analysis, unit lower.Unit, req BuildRequest, split bool) (*lower.LedgerEvidence, []lower.File, error) {
@@ -539,7 +540,7 @@ func lowerWithLedger(a Analysis, unit lower.Unit, req BuildRequest, split bool) 
 	if err != nil {
 		return nil, nil, err
 	}
-	ev, err := ledgerEvidence(a, unit, text)
+	ev, err := ledgerEvidence(a, unit, text, req.Inputs)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -561,6 +562,9 @@ func lowerWithLedger(a Analysis, unit lower.Unit, req BuildRequest, split bool) 
 		return nil, nil, err
 	}
 	countLowered(files)
+	if refused := ev.Refusals(); len(refused) > 0 {
+		return nil, nil, &LedgerError{Lines: refused, Refuted: true}
+	}
 	notes := ev.Notes()
 	if req.Locked && len(notes) > 0 {
 		return nil, nil, &LedgerError{Lines: notes}
