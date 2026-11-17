@@ -41,7 +41,7 @@ var goNewTargets = []goNewTarget{
 func TestGoNew(t *testing.T) {
 	type ncase struct {
 		name, src, code, want string // code, want: the refusal ("" when admitted)
-		new                         string // a fact of the lowered Go when admitted
+		new                   string // a fact of the lowered Go when admitted
 	}
 	var cases []ncase
 	for _, g := range goNewTargets {
@@ -62,7 +62,7 @@ func TestGoNew(t *testing.T) {
 	}
 	cases = append(cases,
 		ncase{name: "pure-frame", src: "import go hostres\n\nfunc f() go.Ref[hostres.Counter] {\n\tgo.New[hostres.Counter]()\n}\n\nfunc main() needs go.Foreign {\n\tlet _ = f().Add(1)\n}\n", code: "S102", want: "go.Foreign"},
-		ncase{name: "argument", src: "import go hostres\n\nfunc main() needs go.Foreign {\n\tlet p = go.New[hostres.Counter](1)\n\tlet _ = p\n}\n", code: "S108", want: "takes no argument"},
+		ncase{name: "arguments", src: "import go hostres\n\nfunc main() needs go.Foreign {\n\tlet p = go.New[hostres.Counter](go.Zero[hostres.Counter](), go.Zero[hostres.Counter]())\n\tlet _ = p\n}\n", code: "S108", want: "takes no argument (Go's zero T) or one"},
 		ncase{name: "no-type", src: "import go hostres\n\nfunc main() needs go.Foreign {\n\tlet p = go.New()\n\tlet _ = p\n}\n", code: "S108", want: "needs the Go type"},
 	)
 	only := os.Getenv("ERGO_GONEW_CASE")

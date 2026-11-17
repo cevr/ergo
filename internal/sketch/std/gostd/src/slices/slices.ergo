@@ -101,16 +101,20 @@ extern go slices.Repeat func Repeat[E](x own []E, count int) []E
 extern go slices.Replace func Replace[E](s own []E, i int, j int, v own []E) []E
 
 // ergo:go func Reverse[S ~[]E, E any](s S)
-extern go slices.Reverse func Reverse[E](s own []E)
+// ergo:writes s
+extern go slices.Reverse func Reverse[E](s own []E) []E
 
 // ergo:go func Sort[S ~[]E, E cmp.Ordered](x S)
-extern go slices.Sort func Sort[E ordered](x own []E)
+// ergo:writes x
+extern go slices.Sort func Sort[E ordered](x own []E) []E
 
 // ergo:go func SortFunc[S ~[]E, E any](x S, cmp func(a E, b E) int)
-extern go slices.SortFunc func SortFunc[E, CR](x own []E, cmp func(E, E) int needs CR) needs CR
+// ergo:writes x
+extern go slices.SortFunc func SortFunc[E, CR](x own []E, cmp func(E, E) int needs CR) []E needs CR
 
 // ergo:go func SortStableFunc[S ~[]E, E any](x S, cmp func(a E, b E) int)
-extern go slices.SortStableFunc func SortStableFunc[E, CR](x own []E, cmp func(E, E) int needs CR) needs CR
+// ergo:writes x
+extern go slices.SortStableFunc func SortStableFunc[E, CR](x own []E, cmp func(E, E) int needs CR) []E needs CR
 
 // ergo:go func Sorted[E cmp.Ordered](seq iter.Seq[E]) []E
 extern go slices.Sorted func Sorted[E ordered](seq Seq[E]) []E

@@ -13,8 +13,8 @@ import (
 // reads as itself, no resource, no Ergo type).
 type goAnyKind struct {
 	name, decls, expr string
-	in               bool
-	borrow           bool // a borrow: only a call argument takes it
+	in                bool
+	borrow            bool // a borrow: only a call argument takes it
 }
 
 var goAnyKinds = []goAnyKind{
