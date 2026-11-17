@@ -8,7 +8,8 @@ import (
 
 // loopFuncs are GenerateLoops' functions: each has an IR body in every
 // seed (FLIP F7 GP-LOOPS).
-var loopFuncs = []string{"fillInts", "fillWords", "fillMarks", "moveInts", "Grid.shift"} // shift takes a *Grid first: a method of Grid's
+var loopFuncs = []string{"fillInts", "fillWords", "fillMarks", "moveInts", "Grid.shift", // shift takes a *Grid first: a method of Grid's
+	"collectAt", "collectAdd", "collectAddL", "collectSub"} // GP-COLLECT
 
 // GenerateLoops is a program of the count loops loops.go's DT4 writes as
 // calls (fill and move), with offsets of every form (i, i + c, c + i,
@@ -18,6 +19,10 @@ var loopFuncs = []string{"fillInts", "fillWords", "fillMarks", "moveInts", "Grid
 // bounds, so each loop runs to its end on both paths; main prints a hash
 // of each result, so a guard that lets a smearing overlap through, a clear
 // of a non-zero value, or an offset written wrong changes the output.
+//
+// The collects (GP-COLLECT) append a part of a slice at every offset form
+// to an empty slice or to one with room, so a part read at the wrong
+// offset changes the output.
 func GenerateLoops(seed uint64) string {
 	g := &ggen{r: rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15))}
 	var b strings.Builder
@@ -37,6 +42,12 @@ func GenerateLoops(seed uint64) string {
 	// moveCells: vt's row move, through a pointer's field.
 	b.WriteString("func shift(g *Grid, a int, b int) {\n\tfor j in 0..g.w {\n\t\tg.cells[b + j] = g.cells[a + j]\n\t}\n}\n\n")
 	b.WriteString("func moveCells(rows int, w int, a int, b int) int {\n\tlet mut g = Grid{cells: seq(rows * w), w: w}\n\tshift(&g, a * w, b * w)\n\thash(g.cells)\n}\n\n")
+	// The collects (GP-COLLECT): ys = ys.Append(src[x]) at every offset
+	// form; the caller keeps every index of src in [0, n).
+	for _, c := range []struct{ name, at string }{{"collectAt", "i"}, {"collectAdd", "i + s"}, {"collectAddL", "s + i"}, {"collectSub", "i - s"}} {
+		fmt.Fprintf(&b, "func %s(n int, lo int, hi int, s int, k int) int {\n\tlet src = seqBy(n, 3)\n\tlet mut ys = seq(k)\n\tfor i in lo..hi {\n\t\tys = ys.Append(src[%s])\n\t}\n\thash(ys)\n}\n\n", c.name, c.at)
+	}
+	b.WriteString("func seqBy(n int, m int) []int {\n\tlet mut xs = []int{}\n\tfor i in 0..n {\n\t\txs = xs.Append(i * m + 2)\n\t}\n\txs\n}\n\n")
 	b.WriteString("func main() needs Console {\n")
 	for k := 0; k < 3; k++ {
 		n := 4 + g.n(8)
@@ -60,6 +71,16 @@ func GenerateLoops(seed uint64) string {
 		fmt.Fprintf(&b, "\tConsole.Println(\"\\(moveInts(%d, %d, %d, %d, %d))\")\n", n, lo, hi, g.n(room+1), g.n(room+1))
 		rows, w := 2+g.n(4), 1+g.n(5)
 		fmt.Fprintf(&b, "\tConsole.Println(\"\\(moveCells(%d, %d, %d, %d))\")\n", rows, w, g.n(rows), g.n(rows))
+		// Collects: the source part [lo+s, hi+s) inside [0, n), appended
+		// to a slice of k elements (k = 0 is the empty slice).
+		lo, hi = g.span(n)
+		s := g.n(n - hi + 1)
+		fmt.Fprintf(&b, "\tConsole.Println(\"\\(collectAt(%d, %d, %d, %d, %d))\")\n", n, lo, hi, 0, g.n(6))
+		fmt.Fprintf(&b, "\tConsole.Println(\"\\(collectAdd(%d, %d, %d, %d, %d))\")\n", n, lo, hi, s, g.n(6))
+		fmt.Fprintf(&b, "\tConsole.Println(\"\\(collectAddL(%d, %d, %d, %d, %d))\")\n", n, lo, hi, s, g.n(6))
+		lo, hi = g.span(n)
+		s = g.n(lo + 1)
+		fmt.Fprintf(&b, "\tConsole.Println(\"\\(collectSub(%d, %d, %d, %d, %d))\")\n", n, lo, hi, s, g.n(6))
 	}
 	b.WriteString("}\n")
 	return b.String()

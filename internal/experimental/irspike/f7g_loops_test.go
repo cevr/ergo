@@ -20,7 +20,8 @@ import (
 //
 // Mutants (testdata/mutants.json): f7g-loops-forward-unguarded (a move
 // whose target starts inside its source is a copy too), f7g-loops-zero-
-// always (every fill is a clear).
+// always (every fill is a clear), f7g-collect-offset-dropped (a collect
+// reads its part at the loop's bounds, not shifted by its offset).
 func TestIRLoopIdiomsMatchSource(t *testing.T) {
 	f7Property(t, "TestIRLoopIdiomsMatchSource", GenerateLoops, loopFuncs...)
 }
@@ -30,7 +31,8 @@ func TestIRLoopIdiomsMatchSource(t *testing.T) {
 // Go's copy (and a zero fill with clear), as the text path's loopIdiomHead
 // writes it, not as the element loop alone.
 //
-// Mutant f7g-loops-idiom-dropped: the IR builder keeps every element loop.
+// Mutants: f7g-loops-idiom-dropped (the IR builder keeps every element
+// loop), f7g-collect-dropped (it keeps every collect's loop).
 func TestIRLoopIdiomsAreCalls(t *testing.T) {
 	first, count := envInt("ERGO_IRSPIKE_SEED", 1), envInt("ERGO_IRSPIKE_SEEDS", 4)
 	for seed := first; seed < first+count; seed++ {
