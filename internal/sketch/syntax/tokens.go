@@ -69,10 +69,21 @@ func scanTokens(src string) []token {
 // each with its source text, a raw string's without carriage returns, an
 // inserted semicolon's "\n", and none for ILLEGAL and EOF.
 func tokensOf(src string, words []uint32) []token {
-	toks := make([]token, len(words)/3)
+	n := len(words) / 3
+	kinds, starts, ends := make([]uint32, n), make([]uint32, n), make([]uint32, n)
+	for j := range n {
+		kinds[j], starts[j], ends[j] = words[3*j], words[3*j+1], words[3*j+2]
+	}
+	return tokensOfColumns(src, kinds, starts, ends)
+}
+
+// tokensOfColumns is the tokens of src from their kind, start and end
+// columns (syntax.Columns' layout).
+func tokensOfColumns(src string, kinds, starts, ends []uint32) []token {
+	toks := make([]token, len(kinds))
 	for j := range toks {
-		k := Token(words[3*j])
-		pos, end := Pos(words[3*j+1]), Pos(words[3*j+2])
+		k := Token(kinds[j])
+		pos, end := Pos(starts[j]), Pos(ends[j])
 		var lit string
 		switch {
 		case k == ILLEGAL || k == EOF:

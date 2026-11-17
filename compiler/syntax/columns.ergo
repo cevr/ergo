@@ -3,13 +3,16 @@ import slices
 // Columns is a parse as one run of words, for a host that reads the rows
 // (the Go decoder of capstone S2d, internal/sketch/syntax/decode.go): only
 // basic types and slices cross a linked package, so the columns go across
-// packed. The layout, every entry one word:
+// packed. The layout is by column, so a column the parse holds as words
+// goes across in one copy (capstone S2f; version 1 interleaved the words
+// of a token and of a row, a word at a time):
 //
 //	header   7 words: ColumnsVersion, tokens, rows, extra words, comments,
 //	         comment groups, failed (1 or 0)
-//	tokens   kind, start, end per token, the ILLEGAL and EOF of a failed
-//	         scan included
-//	rows     kind, tok, a, b per row; the file is the last
+//	tokens   the kinds, then the starts, then the ends, a word per token,
+//	         the ILLEGAL and EOF of a failed scan included
+//	rows     the kinds, then the tokens, then the a words, then the b
+//	         words, a word per row; the file is the last row
 //	extra    the extra pool
 //	comments start, end per comment
 //	groups   first and last comment of each comment group
@@ -33,18 +36,18 @@ func Columns(p Parsed) []uint32 {
 	out = out.Append(if p.Failed { uint32(1) } else { uint32(0) })
 	for j in 0..ntok {
 		out = out.Append(uint32(p.kinds[j]))
-		out = out.Append(p.starts[j])
+	}
+	out = slices.AppendAll(out, slices.Slice(p.starts, 0, ntok))
+	for j in 0..ntok {
 		out = out.Append(uint32(tokEnd(t, j)))
 	}
 	for i in 0..nrows {
 		out = out.Append(uint32(p.Tree.kind[i]))
-		out = out.Append(p.Tree.tok[i])
-		out = out.Append(p.Tree.a[i])
-		out = out.Append(p.Tree.b[i])
 	}
-	for i in 0..nextra {
-		out = out.Append(p.Tree.extra[i])
-	}
+	out = slices.AppendAll(out, slices.Slice(p.Tree.tok, 0, nrows))
+	out = slices.AppendAll(out, slices.Slice(p.Tree.a, 0, nrows))
+	out = slices.AppendAll(out, slices.Slice(p.Tree.b, 0, nrows))
+	out = slices.AppendAll(out, slices.Slice(p.Tree.extra, 0, nextra))
 	for c in 0..ncmt {
 		let id = CommentAt(p.cmts, c)
 		out = out.Append(uint32(CommentStart(p.cmts, id)))
@@ -59,4 +62,4 @@ func Columns(p Parsed) []uint32 {
 
 // ColumnsVersion is the first word of Columns: a host that reads another
 // layout refuses it.
-let ColumnsVersion = uint32(1)
+let ColumnsVersion = uint32(2)

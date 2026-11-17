@@ -89,7 +89,7 @@ func ParseFiles(srcs []string) (files []*File, errs []error) {
 }
 
 // columnsVersion is the layout of syntax.Columns this decoder reads.
-const columnsVersion = 1
+const columnsVersion = 2
 
 // colHeader is the words of the header: version, tokens, rows, extra
 // words, comments, comment groups, failed.
@@ -108,12 +108,12 @@ func failureOf(text string) error {
 
 // rowDecoder reads the columns of one parse.
 type rowDecoder struct {
-	src    string
-	cols   []uint32
-	rows   int // the first word of the rows
-	extra  []uint32
-	toks   []token
-	groups []*CommentGroup
+	src string
+	// The row columns: kind, token, a and b of each row.
+	rowKind, rowTok, rowA, rowB []uint32
+	extra                       []uint32
+	toks                        []token
+	groups                      []*CommentGroup
 	// typeRow is the row of each Field's type, which a codec pair's law
 	// decodes again (again).
 	typeRow map[Expr]uint32
@@ -123,12 +123,12 @@ type rowDecoder struct {
 // for a parse that did not fail.
 func Decode(src string, cols []uint32) *File {
 	ntok, nrows, nextra, ncmt, ngroups := int(cols[1]), int(cols[2]), int(cols[3]), int(cols[4]), int(cols[5])
-	d := &rowDecoder{src: src, cols: cols, typeRow: map[Expr]uint32{}}
+	d := &rowDecoder{src: src, typeRow: map[Expr]uint32{}}
 	w := colHeader
-	d.toks = tokensOf(src, cols[w:w+3*ntok])
+	d.toks = tokensOfColumns(src, cols[w:w+ntok], cols[w+ntok:w+2*ntok], cols[w+2*ntok:w+3*ntok])
 	w += 3 * ntok
-	d.rows = w
-	w += 4 * nrows
+	col := func() []uint32 { c := cols[w : w+nrows : w+nrows]; w += nrows; return c }
+	d.rowKind, d.rowTok, d.rowA, d.rowB = col(), col(), col(), col()
 	d.extra = cols[w : w+nextra]
 	w += nextra
 	comments := make([]*Comment, ncmt)
@@ -169,10 +169,10 @@ func lineStarts(src string) []int {
 	return lines
 }
 
-func (d *rowDecoder) kind(r uint32) uint8 { return uint8(d.cols[d.rows+4*int(r)]) }
-func (d *rowDecoder) tok(r uint32) uint32 { return d.cols[d.rows+4*int(r)+1] }
-func (d *rowDecoder) a(r uint32) uint32   { return d.cols[d.rows+4*int(r)+2] }
-func (d *rowDecoder) b(r uint32) uint32   { return d.cols[d.rows+4*int(r)+3] }
+func (d *rowDecoder) kind(r uint32) uint8 { return uint8(d.rowKind[r]) }
+func (d *rowDecoder) tok(r uint32) uint32 { return d.rowTok[r] }
+func (d *rowDecoder) a(r uint32) uint32   { return d.rowA[r] }
+func (d *rowDecoder) b(r uint32) uint32   { return d.rowB[r] }
 
 // fixed is word k of the f fixed words that end row r's record.
 func (d *rowDecoder) fixed(r uint32, f, k int) uint32 {
@@ -653,3 +653,4 @@ const (
 	kAssertStmt         = 63
 	kSkipStmt           = 64
 )
+
