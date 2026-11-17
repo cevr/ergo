@@ -49,6 +49,7 @@ func checkLoneProvider(p *Pass) {
 // provider and no law to that provider.
 func loneProviders(p *Pass) map[*check.TypeName]lone {
 	providers := map[*check.TypeName][]*check.TypeName{}
+	// a law's slots name its owner first, so a member law counts too
 	lawful := map[*check.TypeName]bool{}
 	var ops []*check.TypeName
 	for _, u := range p.Program() {
@@ -89,7 +90,7 @@ func loneProviders(p *Pass) map[*check.TypeName]lone {
 	}
 	out := map[*check.TypeName]lone{}
 	for _, op := range ops {
-		if len(providers[op]) == 1 && len(op.Laws) == 0 && !lawful[op] {
+		if len(providers[op]) == 1 && !lawful[op] {
 			out[op] = lone{providers[op][0]}
 		}
 	}

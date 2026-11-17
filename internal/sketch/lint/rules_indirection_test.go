@@ -78,8 +78,8 @@ func TestForwardingFuncAgreesWithReference(t *testing.T) {
 // TestLoneProviderAgreesWithReference declares operation types with zero,
 // one or two providers and a member law, a top-level law over them, or
 // none, and checks that lone-provider fires on exactly the ones with one
-// provider and no law. Mutants: lh2b-lone-member-law-ignored,
-// lh2b-lone-top-law-ignored, lh2b-lone-count-ignored.
+// provider and no law. Mutants: lh2b-lone-law-ignored,
+// lh2b-lone-count-ignored.
 func TestLoneProviderAgreesWithReference(t *testing.T) {
 	for _, seed := range propertySeeds(40) {
 		r := rand.New(rand.NewPCG(seed, 0xe2))
@@ -204,7 +204,7 @@ func TestStringlyStateAgreesWithReference(t *testing.T) {
 		seen := map[string]map[string]bool{"r.S": {}, "r.T": {}, "s": {}}
 		first := map[string]int{}
 		var order []string
-		for i := range 2 + r.IntN(6) {
+		for i := range 3 + r.IntN(10) {
 			subject := []string{"r.S", "r.T", "s"}[r.IntN(3)]
 			v := values[r.IntN(len(values))]
 			line := p.line + 4
