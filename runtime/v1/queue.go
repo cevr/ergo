@@ -66,10 +66,19 @@ type Queue[T any] struct {
 	size    atomic.Int64
 	senders []*sender[T] // the Pushes waiting for room, oldest first
 	closed  bool
-	// wake is closed, and cleared, at each change a waiter may wait for;
-	// a waiter makes it. It is nil when nobody waits, so an uncontended
-	// Push or Pop allocates nothing for it.
-	wake chan struct{}
+	// waiters holds the wake channel of each waiting Push and Pop; a
+	// change a waiter may wait for sends one token to each and empties
+	// the list (signal). Each channel has room for one token, and a
+	// waiter's channel is in the list at most once and empty when it
+	// enters, so the send never blocks. spare keeps the channels of ended
+	// waits for the next ones, so a wait allocates nothing once the queue
+	// has seen as many waiters at once (Go's channel makes a sudog per
+	// blocked receive, from a per-P cache, with no allocation either).
+	waiters []chan struct{}
+	spare   []chan struct{}
+	// spareSender is the sender of the last Push that waited, kept for
+	// the next one, so a rendezvous (capacity 0) allocates no sender.
+	spareSender *sender[T]
 	// parked counts the Pushes and Pops parked in wait, which a change
 	// wakes.
 	parked int
@@ -128,7 +137,13 @@ func (q *Queue[T]) Push(t *rt.Task, v T) error {
 		q.mu.Unlock()
 		return nil
 	}
-	s := &sender[T]{v: v}
+	s := q.spareSender
+	if s != nil {
+		q.spareSender = nil
+		s.v = v
+	} else {
+		s = &sender[T]{v: v}
+	}
 	q.senders = append(q.senders, s)
 	q.signal() // with capacity 0, a waiting Pop takes v straight away
 	stop := t.Done()
@@ -141,6 +156,10 @@ func (q *Queue[T]) Push(t *rt.Task, v T) error {
 		}
 	}
 	rejected := s.rejected
+	// s has left the line (front or End took it out), so nothing else
+	// holds it: it is kept, emptied, for the next Push that waits.
+	*s = sender[T]{}
+	q.spareSender = s
 	q.mu.Unlock()
 	if rejected {
 		return Closed{}
@@ -364,11 +383,17 @@ func (q *Queue[T]) dropSender(s *sender[T]) {
 	}
 }
 
-// popSender removes the oldest waiting Push. q.mu is held.
+// popSender removes the oldest waiting Push. q.mu is held. The line's
+// last Push leaves it empty on the same array, so a Push that waits next
+// appends with no allocation.
 func (q *Queue[T]) popSender() *sender[T] {
 	s := q.senders[0]
 	q.senders[0] = nil
-	q.senders = q.senders[1:]
+	if len(q.senders) == 1 {
+		q.senders = q.senders[:0]
+	} else {
+		q.senders = q.senders[1:]
+	}
 	return s
 }
 
@@ -377,10 +402,7 @@ func (q *Queue[T]) popSender() *sender[T] {
 // I2) never does. A Push whose value entered at the same moment keeps its
 // success; a Pop that stopped takes nothing, and the values stay queued.
 func (q *Queue[T]) wait(t *rt.Task, stop <-chan struct{}) bool {
-	if q.wake == nil {
-		q.wake = make(chan struct{})
-	}
-	ch := q.wake
+	ch := q.enlist()
 	q.parked++
 	// In an auto clock's domain the waiter parks under q.mu, so the next
 	// signal, which also runs under q.mu, unparks it before it wakes it
@@ -401,6 +423,7 @@ func (q *Queue[T]) wait(t *rt.Task, stop <-chan struct{}) bool {
 	}
 	rt.Unblock(t)
 	q.mu.Lock()
+	q.delist(ch)
 	q.parked--
 	if t.InDomain() {
 		p.Unpark()
@@ -409,16 +432,54 @@ func (q *Queue[T]) wait(t *rt.Task, stop <-chan struct{}) bool {
 	return woke
 }
 
+// enlist is a wait's wake channel, from spare or new, in the waiters that
+// the next signal wakes. q.mu is held.
+func (q *Queue[T]) enlist() chan struct{} {
+	var ch chan struct{}
+	if n := len(q.spare); n > 0 {
+		ch = q.spare[n-1]
+		q.spare[n-1] = nil
+		q.spare = q.spare[:n-1]
+	} else {
+		ch = make(chan struct{}, 1)
+	}
+	q.waiters = append(q.waiters, ch)
+	return ch
+}
+
+// delist ends the wait on ch: it leaves the waiters if no signal took it
+// out (a stop or a deadline ended the wait), its token is taken if a
+// signal left one, and it is kept in spare, empty. q.mu is held.
+func (q *Queue[T]) delist(ch chan struct{}) {
+	for i, w := range q.waiters {
+		if w == ch {
+			last := len(q.waiters) - 1
+			copy(q.waiters[i:], q.waiters[i+1:])
+			q.waiters[last] = nil
+			q.waiters = q.waiters[:last]
+			break
+		}
+	}
+	select {
+	case <-ch:
+	default:
+	}
+	q.spare = append(q.spare, ch)
+}
+
 // signal wakes every waiter, which looks again. q.mu is held. A waiter of
 // an auto clock's domain is unparked first (rt.Waking), so no window shows
 // it parked while it can run.
 func (q *Queue[T]) signal() {
-	if q.wake != nil {
+	if len(q.waiters) > 0 {
 		for _, w := range q.domain {
 			rt.Waking(w, q).Done()
 		}
-		close(q.wake)
-		q.wake = nil
+		for i, ch := range q.waiters {
+			ch <- struct{}{}
+			q.waiters[i] = nil
+		}
+		q.waiters = q.waiters[:0]
 	}
 }
 

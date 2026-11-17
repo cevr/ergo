@@ -713,7 +713,7 @@ var typeTable = []typeRow{
 	{"Panic", GoType{Struct: true, Fields: []string{"Value", "Stack", "Context"}, Package: Path}},
 	{"ParseError", GoType{Struct: true, Fields: []string{"Layout", "Value", "Message"}, Package: Path}},
 	{"Parts", GoType{Struct: true, Fields: []string{"Dir", "File"}, Package: Path}},
-	{"Queue", GoType{Arity: 1, Struct: true, Fields: []string{"mu", "capacity", "buf", "size", "senders", "closed", "wake", "parked", "domain"}, Package: Path}},
+	{"Queue", GoType{Arity: 1, Struct: true, Fields: []string{"mu", "capacity", "buf", "size", "senders", "closed", "waiters", "spare", "spareSender", "parked", "domain"}, Package: Path}},
 	{"RPCEnvelope", GoType{Struct: true, Fields: []string{"Tag", "ID", "RPC", "Payload"}, Package: Path + "/rpc"}},
 	{"RPCFailed", GoType{Struct: true, Fields: []string{"Text"}, Package: Path + "/rpc"}},
 	{"RPCMalformed", GoType{Struct: true, Fields: []string{"Name", "Reason"}, Package: Path + "/rpc"}},

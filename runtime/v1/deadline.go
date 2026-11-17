@@ -216,10 +216,7 @@ func PopWithin[T any](t *rt.Task, s Sleeper, q *Queue[T], d time.Duration) (T, e
 // ready keeps it from parking on a fire that has come. A nil ch (dl not
 // armed) never fires.
 func (q *Queue[T]) waitBefore(t *rt.Task, stop <-chan struct{}, dl *Deadline, ch chan rt.Instant) bool {
-	if q.wake == nil {
-		q.wake = make(chan struct{})
-	}
-	wake := q.wake
+	wake := q.enlist()
 	q.parked++
 	var p rt.Parked
 	if t.InDomain() {
@@ -237,6 +234,7 @@ func (q *Queue[T]) waitBefore(t *rt.Task, stop <-chan struct{}, dl *Deadline, ch
 	}
 	rt.Unblock(t)
 	q.mu.Lock()
+	q.delist(wake)
 	q.parked--
 	if t.InDomain() {
 		p.Unpark()
