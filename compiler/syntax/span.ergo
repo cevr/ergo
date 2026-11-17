@@ -1,24 +1,17 @@
 // tokens is what a node's span is read from: the source, the token columns
-// (with the virtual ILLEGAL and EOF of a failed scan, which end at vend) and
-// the start of the first comment, -1 for none.
+// (with the ILLEGAL and EOF of a failed scan) and the start of the first
+// comment, -1 for none.
 type tokens {
 	src    string,
 	kinds  []uint32,
 	starts []uint32,
 	ends   []uint32,
-	nreal  int,
-	vend   int,
 	cmt0   int,
 }
 
 func tokPos(k tokens, j int) int { int(k.starts[j]) }
 
-func tokEnd(k tokens, j int) int {
-	if j >= k.nreal {
-		return k.vend
-	}
-	int(k.ends[j])
-}
+func tokEnd(k tokens, j int) int { int(k.ends[j]) }
 
 // optPos is the offset of the optional token word w.
 func optPos(k tokens, w uint32) int { int(k.starts[int(w)-1]) }

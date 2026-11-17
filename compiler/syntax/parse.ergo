@@ -24,8 +24,6 @@ type Parsed {
 	kinds   []uint32,
 	starts  []uint32,
 	ends    []uint32,
-	nreal   int,
-	vend    int,
 	cmts    Comments,
 	gFirst  []int,
 	gLast   []int,
@@ -41,8 +39,6 @@ type parser {
 	// toks is the scan's columns, whole: ntok of them are the parse's
 	// tokens.
 	toks        Toks,
-	nreal       int,
-	vend        int,
 	ntok        int,
 	cmts        Comments,
 	scanFailed  bool,
@@ -85,12 +81,9 @@ func Parse(src string) Parsed {
 	// ILLEGAL and EOF past its tokens (Scan), and takes them whole as the
 	// last use of s, so they are not copied (scanAll).
 	let ntok = if s.failed { n + 2 } else { n }
-	let vend = if s.failed { int(s.toks.start[n+1]) } else { 0 }
 	let tk = uint8(s.toks.kind[0])
 	let mut p = parser{
 		src:         src,
-		nreal:       n,
-		vend:        vend,
 		ntok:        ntok,
 		cmts:        s.comments,
 		scanFailed:  s.failed,
@@ -146,8 +139,6 @@ func Parse(src string) Parsed {
 		kinds:   p.toks.kind[:p.ntok],
 		starts:  p.toks.start[:p.ntok],
 		ends:    p.toks.end[:p.ntok],
-		nreal:   p.nreal,
-		vend:    p.vend,
 		cmts:    p.cmts,
 		gFirst:  p.gFirst,
 		gLast:   p.gLast,
@@ -300,12 +291,7 @@ func peek(p *parser, n int) uint8 {
 func tpos(p *parser, j int) int { int(p.toks.start[j]) }
 
 // tend is the end of token j.
-func tend(p *parser, j int) int {
-	if j >= p.nreal {
-		return p.vend
-	}
-	int(p.toks.end[j])
-}
+func tend(p *parser, j int) int { int(p.toks.end[j]) }
 
 // pos and end are the current token's.
 func pos(p *parser) int { int(p.toks.start[p.i]) }
@@ -709,7 +695,7 @@ func nodeEnd(p *parser, x uint32) int { endOf(p.t, toks(p), x) }
 // toks is the parser's tokens, to read spans from.
 func toks(p *parser) tokens {
 	let c0 = if NumComments(p.cmts) > 0 { cmtStart(p, 0) } else { -1 }
-	tokens{src: p.src, kinds: p.toks.kind, starts: p.toks.start, ends: p.toks.end, nreal: p.nreal, vend: p.vend, cmt0: c0}
+	tokens{src: p.src, kinds: p.toks.kind, starts: p.toks.start, ends: p.toks.end, cmt0: c0}
 }
 
 // errorNode reports message at the span of row x.
