@@ -171,6 +171,9 @@ func (b *irBuilder) admitArgs(t *check.Named, depth int) {
 // is not generic.
 func (b *irBuilder) typeArgs(c *check.Call, site syntax.Node) string {
 	var out []string
+	if b.l.hasGoRow(c.Func.Sig) {
+		irNo("call of a function with a Go row") // its row is a Go type argument too (rowslot.go; LY-FIX)
+	}
 	for i, tp := range c.Func.Sig.TParams {
 		if tp.Kind != check.KindType {
 			continue
@@ -577,6 +580,7 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 		b.keepImport("var _ = " + b.l.rtRef(name))
 	case targs != "":
 		b.keepImport("var _ " + b.l.rt() + ".Site")
+		_ = b.l.rtRef(name) // the leaf it needs linked (NewHost: hostwalk; LY-FIX)
 	default:
 		b.keepImport("var _ = " + b.l.rtRef(name))
 	}

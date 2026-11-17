@@ -437,7 +437,7 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	census := name
 	for _, g := range gates {
 		switch g {
-		case "known-callback variant", "variant with no result", "copy for a known record":
+		case "known-callback variant", "variant with no result", "copy for a known record", "copy for an instance":
 			// A variant is a body of its own beside the function's: the
 			// census names it apart, so the function's IR body and the
 			// variant's fallback are two records, not one function with
@@ -455,6 +455,9 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	}
 	if len(fc.witness) > 0 {
 		b.gate("witness parameter")
+	}
+	if b.l.hasGoRow(f.Sig) {
+		b.gate("Go row parameter") // rowslot.go: F is a Go type parameter the IR spells error (LY-FIX)
 	}
 	if f.Decl.Body == nil {
 		irNo("no body")
