@@ -86,14 +86,12 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 	}
 	c = b.knownField(x, c) // a known record's field in its copy (ir_known.go)
 	// A trailing block is a function literal, the call's last operand:
-	// a call of a function of the program takes it (ir_closure.go).
-	if x.Trailing != nil && (c.Kind != check.CallFunc || c.Func == nil || c.Func.Pkg.Std() || c.Func.Pkg.Host()) {
-		stdExtern := c.Kind == check.CallFunc && c.Func != nil && c.Func.Pkg.Std() && c.Func.Decl != nil && c.Func.Decl.Extern != nil
-		if !stdExtern {
-			irNo("trailing block")
-		}
-		// timeout.After { … }: stdCall adapts the block, its last operand
-		// (ir_adapt.go).
+	// a call of a function with an Ergo body, the program's or std's
+	// (ui.Column(f, s) { … }), takes it as any function value
+	// (ir_closure.go); a std extern's adapts it (stdCall, ir_adapt.go:
+	// timeout.After { … }).
+	if x.Trailing != nil && (c.Kind != check.CallFunc || c.Func == nil || c.Func.Pkg.Host()) {
+		irNo("trailing block")
 	}
 	if c.StartsTask {
 		irNo("task call")
