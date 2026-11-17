@@ -1,0 +1,271 @@
+// The record's nodes for TypeScript: the module, each top-level
+// statement, each catch block. Statements counts the node's lines that
+// hold a token; MaxDepth is the most braces open in it past its own
+// depth; Shape is a SimHash of the node's token kinds in runs of three
+// (a name is "n", a literal "l", a punctuator or a word itself) — the
+// TypeScript host's own reading of "the body's kinds, names erased".
+
+import ergo.dev/tn1
+
+// declarers are the words that make a statement a type.
+let declarers = []string{"class", "interface", "enum", "type", "namespace", "module", "declare", "global"}
+
+// keywords are the words that are themselves in a shape.
+let keywords = []string{
+	"if", "else", "for", "while", "do", "switch", "case", "default", "break", "continue", "return", "throw", "try", "catch", "finally",
+	"function", "class", "interface", "enum", "type", "const", "let", "var", "new", "await", "yield", "async", "import", "export", "from",
+	"extends", "implements", "typeof", "keyof", "in", "of", "instanceof", "as", "satisfies", "true", "false", "null", "undefined", "this",
+}
+
+func nodeKind(code []Token, from int, to int) tn1.NodeKind {
+	let h = head(code, from, to)
+	if h == "function" {
+		return tn1.Function
+	}
+	if member(declarers, h) {
+		return tn1.Declared
+	}
+	if (h == "test" || h == "it" || h == "describe") && from+1 < to && code[from+1].Text == "(" {
+		return tn1.Test
+	}
+	if h == "const" || h == "let" || h == "var" {
+		for j in from..to {
+			if code[j].Text == "=>" || code[j].Text == "function" && isIdent(code[j]) {
+				return tn1.Function
+			}
+		}
+		return tn1.Declared
+	}
+	tn1.Module
+}
+
+// nameOf is the statement's declared name: the word after its head;
+// an import or an export list declares none.
+func nameOf(code []Token, from int, to int) string {
+	let h = head(code, from, to)
+	if h == "import" || h == "{" || h == "*" {
+		return ""
+	}
+	for j in from..to-1 {
+		if code[j].Text == h && isIdent(code[j+1]) {
+			return code[j+1].Text
+		}
+	}
+	""
+}
+
+// params is the number of parameters of the first parenthesised list.
+func params(code []Token, from int, to int) int {
+	for j in from..to {
+		if code[j].Text == "(" {
+			let end = closing(code, j, to)
+			if end == j+1 {
+				return 0
+			}
+			let mut n = 1
+			let mut nest = 0
+			for k in j+1..end {
+				let x = code[k].Text
+				if x == "(" || x == "[" || x == "{" || x == "<" {
+					nest += 1
+				} else if x == ")" || x == "]" || x == "}" || x == ">" {
+					nest -= 1
+				} else if x == "," && nest == 0 && k+1 < end {
+					n += 1
+				}
+			}
+			return n
+		}
+	}
+	0
+}
+
+// shapeWord is a token's word in a shape.
+func shapeWord(t Token) string {
+	match t.Kind {
+	case Ident:
+		if member(keywords, t.Text) {
+			t.Text
+		} else {
+			"n"
+		}
+	case Literal:
+		"l"
+	case Punct:
+		t.Text
+	case LineComment, BlockComment:
+		""
+	}
+}
+
+// shape is the SimHash of the kinds of code[from:to] in runs of three:
+// each run's FNV-1a 64-bit hash votes on each bit.
+func shape(code []Token, from int, to int) uint64 {
+	let mut votes = []int{}
+	for _ in 0..64 {
+		votes = votes.Append(0)
+	}
+	for i in from..to-2 {
+		let mut h uint64 = 14695981039346656037
+		for k in i..i+3 {
+			let w = shapeWord(code[k])
+			for c in 0..len(w) {
+				h = (h ^ uint64(w[c])) * 1099511628211
+			}
+			h = (h ^ uint64('/')) * 1099511628211
+		}
+		for b in 0..64 {
+			if (h>>uint64(b))&1 == 1 {
+				votes[b] += 1
+			} else {
+				votes[b] -= 1
+			}
+		}
+	}
+	let mut s = uint64(0)
+	for b in 0..64 {
+		if votes[b] > 0 {
+			s = s | uint64(1)<<uint64(b)
+		}
+	}
+	s
+}
+
+// handlerShape is what the catch block code[open..close] does: Empty with
+// no token, Rethrows when it throws the name it bound, YieldsLiteral when
+// its last statement returns a literal, Records when it calls something
+// and then returns, else Translates.
+func handlerShape(code []Token, bound string, open int, close int) tn1.HandlerShape {
+	if close == open+1 {
+		return tn1.Empty
+	}
+	for j in open+1..close-1 {
+		if code[j].Text == "throw" && bound != "" && code[j+1].Text == bound {
+			return tn1.Rethrows
+		}
+	}
+	let mut last = open + 1
+	for j in open+1..close {
+		if code[j].Text == "return" {
+			last = j
+		}
+	}
+	if code[last].Text == "return" && last+1 < close {
+		match code[last+1].Kind {
+		case Literal:
+			return tn1.YieldsLiteral
+		case Ident, Punct, LineComment, BlockComment:
+		}
+		let x = code[last+1].Text
+		if x == "[" && code[last+2].Text == "]" || x == "{" && code[last+2].Text == "}" || x == "null" || x == "undefined" || x == "true" || x == "false" {
+			return tn1.YieldsLiteral
+		}
+	}
+	for j in open+1..close {
+		if code[j].Text == "(" && j > open+1 && isIdent(code[j-1]) && !member(controls, code[j-1].Text) {
+			return tn1.Records
+		}
+	}
+	tn1.Translates
+}
+
+// catches is the handler nodes of code[from:to]: each catch's block.
+func catches(code []Token, from int, to int) []Catch {
+	let mut out = []Catch{}
+	for j in from..to {
+		if code[j].Text == "catch" && isIdent(code[j]) && (j == 0 || code[j-1].Text != ".") {
+			let mut k = j + 1
+			let mut bound = ""
+			if k < to && code[k].Text == "(" {
+				if k+1 < to && isIdent(code[k+1]) {
+					bound = code[k+1].Text
+				}
+				k = closing(code, k, to) + 1
+			}
+			if k < to && code[k].Text == "{" {
+				out = out.Append(Catch{At: j, Open: k, Close: closing(code, k, to), Bound: bound})
+			}
+		}
+	}
+	out
+}
+
+type Catch { At int, Open int, Close int, Bound string }
+
+// index is the first index of code whose token starts at or after p.
+func index(code []Token, p int) int {
+	let mut i = 0
+	for i < len(code) && code[i].From < p {
+		i += 1
+	}
+	i
+}
+
+func node(src string, starts []int, code []Token, kind tn1.NodeKind, from int, to int, name string) tn1.Node {
+	let line = lineOf(starts, code[from].From)
+	let mut lines = 0
+	let mut lastLine = -1
+	let mut deepest = 0
+	for j in from..to {
+		let l = lineOf(starts, code[j].From)
+		if l != lastLine {
+			lines += 1
+			lastLine = l
+		}
+		if code[j].Depth-code[from].Depth > deepest {
+			deepest = code[j].Depth - code[from].Depth
+		}
+	}
+	let mut shapes = []tn1.HandlerShape{}
+	for c in catches(code, from, to) {
+		shapes = shapes.Append(handlerShape(code, c.Bound, c.Open, c.Close))
+	}
+	let mut nameWords = uint64(0)
+	if name != "" {
+		nameWords = tn1.Sketch(tn1.Words([]string{}, name))
+	}
+	let mut ps = 0
+	match kind {
+	case tn1.Function, tn1.Test:
+		ps = params(code, from, to)
+	case tn1.Declared, tn1.Handler, tn1.Module:
+	}
+	tn1.Node{
+		Kind:       kind,
+		Offset:     code[from].From,
+		Length:     code[to-1].To - code[from].From,
+		Line:       line + 1,
+		Column:     code[from].From - starts[line] + 1,
+		NameWords:  nameWords,
+		Params:     ps,
+		Statements: lines,
+		MaxDepth:   deepest,
+		Handlers:   shapes,
+		Shape:      shape(code, from, to),
+	}
+}
+
+func nodes(src string, starts []int, code []Token, imp Imports) []tn1.Node {
+	if len(code) == 0 {
+		return []tn1.Node{}
+	}
+	let mut out = []tn1.Node{node(src, starts, code, tn1.Module, 0, len(code), "")}
+	out[0].Offset = 0
+	out[0].Length = len(src)
+	out[0].Line = 1
+	out[0].Column = 1
+	for s in Statements(src) {
+		let from = index(code, s.From)
+		let to = index(code, s.To)
+		let kind = nodeKind(code, from, to)
+		let mut name = nameOf(code, from, to)
+		if member(imp.Names, name) {
+			name = ""
+		}
+		out = out.Append(node(src, starts, code, kind, from, to, name))
+	}
+	for c in catches(code, 0, len(code)) {
+		out = out.Append(node(src, starts, code, tn1.Handler, c.At, c.Close+1, ""))
+	}
+	out
+}

@@ -1,0 +1,321 @@
+// FromSource: the feature record of a TypeScript file, by the record's
+// rules (modules/tn1/record.ergo) stated over tokens:
+//
+//   - A line's kind: Code when it holds a byte outside comments that is
+//     not a space; else Blank with no comment byte; else DocComment when a
+//     /** comment on it is followed by a token that is not ), ] or }
+//     (TypeScript attaches it to what follows); else Directive when a
+//     comment on it is a tool's (directives); else CommentOnly.
+//   - Depth: the braces open at the line's first byte (a template's ${
+//     counts), as the brace before it is closed.
+//   - Starts: function (function, =>), type (class, interface, enum, and
+//     type before a name), branch (if, switch), loop (for, while, do),
+//     handler (catch, or a call of a name catchX), return, call (a name
+//     before "(" that is not a control word, nor a declared name: one
+//     after function, or one whose list a { or a : follows), assignment (const, let,
+//     var, an assignment operator), test (a call of test, it or describe).
+//   - Code words: the words of the bytes outside comments and literals,
+//     with every name an import binds blanked (Effect, Layer and Schema
+//     would fill the sketch on most lines), and each start's neutral word.
+//   - Nodes: the module; each top-level statement (Statements) as a
+//     function, a type, a test or the module's own; each catch block.
+
+import ergo.dev/tn1
+import strings
+
+// directives are the openings of a tool's directive comment.
+let directives = []string{"// @ts-", "//@ts-", "/// <", "// eslint-", "/* eslint-", "/* eslint ", "// oxlint-", "/* oxlint-", "// prettier-ignore", "// biome-ignore", "// ergo-lint-", "// traits-ignore", "/* istanbul ", "// istanbul ", "/* @vite-ignore", "#!"}
+
+// controls are the words before "(" that are not calls.
+let controls = []string{"if", "for", "while", "switch", "catch", "function", "return", "typeof", "void", "delete", "await", "yield", "in", "of", "instanceof", "as", "satisfies", "keyof"}
+
+let assigns = []string{"=", "+=", "-=", "*=", "/=", "%=", "**=", "<<=", ">>=", ">>>=", "&=", "|=", "^=", "&&=", "||=", "??="}
+
+// neutral are the start bits' words, in StartNames' order; "" for a
+// start with no word.
+let neutral = []string{"function", "type", "branch", "loop", "handler", "return", "", "", "test"}
+
+func directive(text string) bool {
+	for d in directives {
+		if strings.HasPrefix(text, d) {
+			return true
+		}
+	}
+	false
+}
+
+// lineStarts is the offset of each line's first byte.
+func lineStarts(src string) []int {
+	let mut out = []int{0}
+	for i in 0..len(src) {
+		if src[i] == '\n' && i+1 < len(src) {
+			out = out.Append(i + 1)
+		}
+	}
+	if len(src) == 0 {
+		return []int{}
+	}
+	out
+}
+
+// lineOf is the 0-based line of offset p.
+func lineOf(starts []int, p int) int {
+	let mut lo = 0
+	let mut hi = len(starts) - 1
+	for lo < hi {
+		let mid = (lo + hi + 1) / 2
+		if starts[mid] <= p {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	lo
+}
+
+// imported is the names the file's import statements bind, and the
+// tokens that are in an import clause.
+type Imports { Names []string, Clause []bool }
+
+func imports(code []Token) Imports {
+	let mut names = []string{}
+	let mut clause = []bool{}
+	for _ in code {
+		clause = clause.Append(false)
+	}
+	let mut i = 0
+	for i < len(code) {
+		if code[i].Text == "import" && code[i].Depth == 0 && isIdent(code[i]) && (i == 0 || code[i-1].Text != ".") {
+			let mut j = i + 1
+			for j < len(code) && code[j].Text != "from" && code[j].Text != ";" && code[j].Text != "=" && !(j > i+1 && code[j].NewLine && !isPunctOrWord(code[j-1])) {
+				if isIdent(code[j]) {
+					clause[j] = true
+					let after = if j+1 < len(code) { code[j+1].Text } else { "" }
+					if code[j].Text != "type" && code[j].Text != "as" && after != "as" {
+						names = names.Append(code[j].Text)
+					}
+				}
+				j += 1
+			}
+			if j < len(code) && code[j].Text == "=" && j > i+1 {
+				names = names.Append(code[j-1].Text)
+			}
+			i = j
+		}
+		i += 1
+	}
+	Imports{Names: names, Clause: clause}
+}
+
+// FromSource is the record of TypeScript source src.
+func FromSource(src string) tn1.Features {
+	let starts = lineStarts(src)
+	let n = len(starts)
+	let toks = Scan(src)
+	let code = Code(src, toks)
+	let imp = imports(code)
+
+	// Per byte: in a comment, in a literal, blanked as an imported name.
+	let mut kind = strings.Bytes(strings.Repeat("c", len(src)))
+	for t in toks {
+		let mut mark = byte('c')
+		match t.Kind {
+		case LineComment, BlockComment:
+			mark = '/'
+		case Literal:
+			mark = '"'
+		case Ident, Punct:
+		}
+		if mark != 'c' {
+			for p in t.From..t.To {
+				kind[p] = mark
+			}
+		}
+	}
+	for j in 0..len(code) {
+		let t = code[j]
+		if isIdent(t) && (imp.Clause[j] || member(imp.Names, t.Text)) {
+			for p in t.From..t.To {
+				kind[p] = '"'
+			}
+		}
+	}
+
+	// Doc and directive comments, by line; depth at each line's first
+	// token.
+	let mut doc = []bool{}
+	let mut dir = []bool{}
+	let mut depth = []int{}
+	let mut deep = []bool{}
+	let mut startBits = []int{}
+	for _ in 0..n {
+		doc = doc.Append(false)
+		dir = dir.Append(false)
+		depth = depth.Append(0)
+		deep = deep.Append(false)
+		startBits = startBits.Append(0)
+	}
+	for ti in 0..len(toks) {
+		let t = toks[ti]
+		let first = lineOf(starts, t.From)
+		let last = lineOf(starts, lo(t.To, len(src))-if t.To > t.From { 1 } else { 0 })
+		for l in first..last+1 {
+			if !deep[l] {
+				deep[l] = true
+				depth[l] = t.Depth
+			}
+		}
+		if IsComment(t) {
+			let text = strings.Slice(src, t.From, t.To)
+			let isDoc = strings.HasPrefix(text, "/**") && text != "/**/" && attached(toks, ti)
+			let isDir = directive(text)
+			for l in first..last+1 {
+				doc[l] = doc[l] || isDoc
+				dir[l] = dir[l] || isDir
+			}
+		}
+	}
+
+	// Starts.
+	for j in 0..len(code) {
+		let t = code[j]
+		let next = if j+1 < len(code) { code[j+1].Text } else { "" }
+		let prev = if j > 0 { code[j-1].Text } else { "" }
+		let w = t.Text
+		let mut bits = 0
+		if isIdent(t) {
+			if w == "function" {
+				bits = 1
+			} else if w == "class" || w == "interface" || w == "enum" || w == "type" && j+1 < len(code) && isIdent(code[j+1]) && prev != "." {
+				bits = 2
+			} else if w == "if" || w == "switch" {
+				bits = 4
+			} else if w == "for" || w == "while" || w == "do" {
+				bits = 8
+			} else if w == "return" {
+				bits = 32
+			} else if w == "const" || w == "let" || w == "var" {
+				bits = 128
+			}
+			if w == "catch" || strings.HasPrefix(w, "catch") && len(w) > 5 && w[5] >= 'A' && w[5] <= 'Z' && next == "(" {
+				bits = bits | 16
+			}
+			if next == "(" && !member(controls, w) && prev != "function" && !signature(code, j+1) {
+				bits = bits | 64
+				if (w == "test" || w == "it" || w == "describe") && prev != "." {
+					bits = bits | 256
+				}
+			}
+		} else if w == "=>" {
+			bits = 1
+		} else if member(assigns, w) {
+			bits = 128
+		}
+		if bits != 0 {
+			let l = lineOf(starts, t.From)
+			startBits[l] = startBits[l] | bits
+		}
+	}
+
+	let mut lines = []tn1.Line{}
+	for l in 0..n {
+		let from = starts[l]
+		let to = if l+1 < n { starts[l+1] - 1 } else { len(src) }
+		let mut comment = strings.NewBuilder()
+		let mut codeText = strings.NewBuilder()
+		let mut hasCode = false
+		for p in from..to {
+			let c = src[p]
+			if kind[p] == '/' {
+				if c != '\r' {
+					comment.WriteByte(c)
+				}
+				codeText.WriteByte(' ')
+			} else {
+				if c != ' ' && c != '\t' && c != '\r' {
+					hasCode = true
+				}
+				if kind[p] == 'c' {
+					codeText.WriteByte(c)
+				} else {
+					codeText.WriteByte(' ')
+				}
+			}
+		}
+		let text = strings.TrimLeft(strings.TrimRight(comment.String(), " \t"), " \t")
+		let mut k tn1.LineKind = tn1.CommentOnly
+		if hasCode {
+			k = tn1.Code
+		} else if comment.Len() == 0 {
+			k = tn1.Blank
+		} else if doc[l] {
+			k = tn1.DocComment
+		} else if dir[l] {
+			k = tn1.Directive
+		}
+		let mut words = tn1.Words([]string{}, codeText.String())
+		for b in 0..9 {
+			if (startBits[l]>>b)&1 == 1 && neutral[b] != "" {
+				words = words.Append(neutral[b])
+			}
+		}
+		lines = lines.Append(tn1.Line{
+			Kind:         k,
+			Depth:        depth[l],
+			Starts:       startBits[l],
+			CommentWords: tn1.Sketch(tn1.Words([]string{}, text)),
+			CodeWords:    tn1.Sketch(words),
+			CommentText:  text,
+		})
+	}
+	tn1.Features{Language: "ts", Lines: lines, Nodes: nodes(src, starts, code, imp)}
+}
+
+// CommentSpan is the bytes of the comments on line (1-based) of src,
+// from the first comment byte on it to the last; From == To when it has
+// none. A finding of a local network points at it.
+func CommentSpan(src string, line int) Span {
+	let starts = lineStarts(src)
+	if line < 1 || line > len(starts) {
+		return Span{From: 0, To: 0}
+	}
+	let from = starts[line-1]
+	let to = if line < len(starts) { starts[line] - 1 } else { len(src) }
+	let mut a = -1
+	let mut b = -1
+	for t in Scan(src) {
+		if IsComment(t) && t.From < to && t.To > from {
+			if a < 0 {
+				a = if t.From > from { t.From } else { from }
+			}
+			b = if t.To < to { t.To } else { to }
+		}
+	}
+	if a < 0 {
+		return Span{From: from, To: from}
+	}
+	if b > a && src[b-1] == '\r' {
+		b -= 1
+	}
+	Span{From: a, To: b}
+}
+
+// signature reports whether the parenthesised list at code[open] is a
+// declaration's (a function's or a method's), not a call's: a { or a :
+// follows it.
+func signature(code []Token, open int) bool {
+	let close = closing(code, open, len(code))
+	close+1 < len(code) && (code[close+1].Text == "{" || code[close+1].Text == ":") && isPunctOrWord(code[close+1])
+}
+
+// attached reports whether the token after the comment toks[i] (comments
+// skipped) exists and is not ), ] or }.
+func attached(toks []Token, i int) bool {
+	for j in i+1..len(toks) {
+		if !IsComment(toks[j]) {
+			let x = toks[j].Text
+			return !(isPunctOrWord(toks[j]) && (x == ")" || x == "]" || x == "}"))
+		}
+	}
+	false
+}
