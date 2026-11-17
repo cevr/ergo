@@ -1,4 +1,7 @@
 import actor
+import pace
+import sync
+import time
 
 // Event is what reaches the loop: a press of a node, a text typed into an
 // Input node, the result of a load's fetch (Arrived), which a fetch's task
@@ -48,8 +51,10 @@ type Host[E] {
 // one Session: its signal goes to a, and the pass after it is shown. A
 // load's fetch runs as a task of Run's caller and posts its result to h;
 // a fetch whose load ended is stopped. Run fails with h's Closed, or with
-// Stopped when a has ended.
-func Run[E comparable, S, D, F, R](h Host[E], a actor.Actor[S, E, D, F], view own func(f *Frame[E], s S) needs R) fails Closed | actor.Stopped needs R {
+// Stopped when a has ended. Each event handled is one unit of the loop's
+// work: Run marks its end with pace.Pacing.Edge(), as a user's loop does,
+// so the pacing main binds (pace.NewAtEdges, say) may collect there.
+func Run[E comparable, S, D, F, R](h Host[E], a actor.Actor[S, E, D, F], view own func(f *Frame[E], s S) needs R) fails Closed | actor.Stopped needs R | pace.Pacing {
 	let (s, first) = Start(a, view, func(ev Event[E]) { h.Post(ev) })
 	let mut session = s
 	h.Show(first)
@@ -65,5 +70,40 @@ func Run[E comparable, S, D, F, R](h Host[E], a actor.Actor[S, E, D, F], view ow
 			frames = !frames
 			h.Frames(frames)
 		}
+		pace.Pacing.Edge()
 	}
 }
+
+// RunPacesEachEvent: Run marks one edge of the pacing in force for each
+// event it handles, and none before the first.
+law RunPacesEachEvent(n int) {
+	let k = (n%16 + 16) % 16
+	let c = pace.NewCounting()
+	let h = scriptedHost{left: sync.NewRef(k)}
+	with context { Scheduler: time.NewManual(0), pace.Pacing: c } {
+		let a = actor.StartMachine(shelfMachine(), 1, func(o int) {})
+		Run(h, a, shelfView) catch {
+		case Closed:
+		case actor.Stopped:
+			return false
+		}
+	}
+	c.Edges() == int64(k)
+}
+
+// scriptedHost is the Host of RunPacesEachEvent: left more Committed
+// events, then Closed. It shows nothing and drops what is posted.
+type scriptedHost { left sync.Ref[int] } implements Host[int]
+
+func Show(_ scriptedHost, ops []Op[int]) {}
+
+func Next(h scriptedHost) Event[int] fails Closed {
+	if sync.Modify(h.left, func(n int) (int, int) { (n, n - 1) }) <= 0 {
+		return Closed
+	}
+	Committed
+}
+
+func Post(_ scriptedHost, ev Event[int]) {}
+
+func Frames(_ scriptedHost, on bool) {}

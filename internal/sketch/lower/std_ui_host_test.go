@@ -16,6 +16,7 @@ import actor
 import hex
 import json
 import machines
+import pace
 import queue
 import scope
 import strings
@@ -1073,7 +1074,7 @@ func ticksFollow(seed int, steps int, m time.Manual) bool needs Scheduler {
 			return false
 		}
 		let s = ui.StateOf(&h)
-		if s != model.app || ui.Frames(&h) != model.frames || ui.Now(&h).Sub(start) != model.since || ui.WantsFrames(&h) != (model.app.left > 0) || !ui.SameShapes(ui.Screen(&h), freshShape(spinView, s)) {
+		if s != model.app || h.Frames() != model.frames || ui.Now(&h).Sub(start) != model.since || ui.WantsFrames(&h) != (model.app.left > 0) || !ui.SameShapes(ui.Screen(&h), freshShape(spinView, s)) {
 			return false
 		}
 	}
@@ -2909,6 +2910,38 @@ test UiScriptShowsTheView(seed int, steps int) {
 	assert lawScriptShowsTheView(seed, steps)
 }
 
+type scriptedHost { left sync.Ref[int] } implements ui.Host[int]
+
+func Show(_ scriptedHost, ops []ui.Op[int]) {}
+
+func Next(h scriptedHost) ui.Event[int] fails ui.Closed {
+	if sync.Modify(h.left, func(n int) (int, int) { (n, n - 1) }) <= 0 {
+		return ui.Closed
+	}
+	ui.Committed
+}
+
+func Post(_ scriptedHost, ev ui.Event[int]) {}
+
+func Frames(_ scriptedHost, on bool) {}
+
+test UiRunPacesEachEvent(n int) {
+	let k = (n%16 + 16) % 16
+	let c = pace.NewCounting()
+	let h = scriptedHost{left: sync.NewRef(k)}
+	let stopped = with context { Scheduler: time.NewManual(0), pace.Pacing: c } {
+		let a = actor.StartMachine(shelfMachine(), 1, func(o int) {})
+		let mut seen = false
+		ui.Run(h, a, shelfView) catch {
+		case ui.Closed:
+		case actor.Stopped:
+			seen = true
+		}
+		seen
+	}
+	assert !stopped && c.Edges() == int64(k)
+}
+
 test UiCancelledFetchStops(steps int) {
 	assert lawCancelledFetchStops(steps)
 }
@@ -3038,6 +3071,7 @@ test UiLocationBackStopsAtTheStart(n int, path string) {
 // stdUIHostStatements is the statement of each ui law, as the ledger writes it,
 // by ledger key.
 var stdUIHostStatements = map[string]string{
+	"ui RunPacesEachEvent":             `RunPacesEachEvent(n int) { let k = (n%16 + 16) % 16 let c = pace.NewCounting() let h = scriptedHost{left: sync.NewRef(k)} with context { Scheduler: time.NewManual(0), pace.Pacing: c } { let a = actor.StartMachine(shelfMachine(), 1, func(o int) {}) Run(h, a, shelfView) catch { case Closed: case actor.Stopped: return false } } c.Edges() == int64(k) }`,
 	"ui ScriptShowsTheView":            `ScriptShowsTheView(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { scriptShows(seed, steps, m) } }`,
 	"ui CancelledFetchStops":           `CancelledFetchStops(steps int) { let m = time.NewManual(0) with context { Scheduler: m } { cancelStops(steps, m) } }`,
 	"ui NoTickWhenSettled":             `NoTickWhenSettled(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { ticksFollow(seed, steps, m) } }`,
