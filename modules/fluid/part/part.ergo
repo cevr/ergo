@@ -292,15 +292,16 @@ func nameless[E](n Node[E], f func(k string)) {
 	}
 }
 
-// KeysAreUnique: two different paths of names give two different keys, and Repeated finds a
-// key a tree states twice and no other.
+// KeysAreUnique: two different paths of names give two different keys (a name that holds the
+// separator or the escape is not the path it spells), and Repeated finds a key a tree states
+// twice and no other.
 law KeysAreUnique(a []string, b []string, n int) {
 	let ka = path(a)
 	let kb = path(b)
 	let same = len(a) == len(b) && sameNames(a, b)
 	let tree Node[int] = Box{Sem: Plain(), Skin: Bare(), Inline: false, Keys: []Binding[int]{}, Kids: []Node[int]{keyed(ka), keyed(kb), keyed(Join(ka, "x"))}}
 	let rep = Repeated(tree)
-	(ka == kb) == same && (len(rep) == 1) == same && (!same || rep[0] == ka) && (n < 0 || len(Repeated(keyedRow(n%8))) == 0)
+	(ka == kb) == same && (len(rep) == 1) == same && (!same || rep[0] == ka) && (n < 0 || len(Repeated(keyedRow(n%8))) == 0) && path([]string{"a.b"}) != path([]string{"a", "b"}) && path([]string{"a%2Eb"}) != path([]string{"a.b"})
 }
 
 // path is the key of the names under a root "n" (the empty path is no key). (a law's helper)
