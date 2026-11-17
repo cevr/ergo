@@ -53,7 +53,7 @@ func seedsFrom(t *testing.T, env string, n uint64) (first, count uint64) {
 // (ERGO_PARK_SEED=n).
 //
 // Mutants (testdata/mutants.json): park-misses-early-wake,
-// park-commit-drops-wake, unpark-drops-pending, unpark-skips-sleeper,
+// unpark-drops-pending, unpark-skips-sleeper,
 // stock-park-misses-early-wake, stock-unpark-drops-pending.
 func TestParkWordLaws(t *testing.T) {
 	first, n := seedsFrom(t, "ERGO_PARK_SEED", 300)
@@ -149,6 +149,57 @@ func runParkProgram(p lawParker, prog string) string {
 		<-returned
 	}
 	return ""
+}
+
+// TestParkWordRaceKeepsWake races each wake with its park: the waiter
+// parks while the test's goroutine wakes it after a seeded spin, so some
+// wakes land between the park's first look and its commit. The law: once
+// the wake returned, the waiter never sleeps, it returns. TestParkWordLaws
+// orders every step, so it never reaches that window.
+//
+// Mutant (testdata/mutants.json): park-commit-drops-wake. The stock
+// body's window between its two looks is a few instructions wide, which
+// this race does not reach: an explorer model of the word is a follow-up.
+func TestParkWordRaceKeepsWake(t *testing.T) {
+	if runtime.GOMAXPROCS(0) < 2 {
+		t.Skip("the race needs two threads")
+	}
+	for name, mk := range parkBodies {
+		t.Run(name, func(t *testing.T) {
+			p := mk()
+			// The waiter spins on go for its next round, so it runs on its
+			// own thread and parks at once, while the test spins a seeded
+			// count and wakes it.
+			const rounds = 20000
+			var started, returned atomic.Int64
+			go func() {
+				for i := int64(1); i <= rounds; i++ {
+					for started.Load() < i {
+						runtime.Gosched()
+					}
+					p.park()
+					returned.Store(i)
+				}
+			}()
+			r := rand.New(rand.NewPCG(1, 0x7ace))
+			sink := 0
+			for i := int64(1); i <= rounds; i++ {
+				started.Store(i)
+				for j := r.IntN(2000); j > 0; j-- {
+					sink += j
+				}
+				p.unpark()
+				for returned.Load() < i {
+					if p.parkedNow() {
+						p.unpark()
+						t.Fatalf("round %d: the waiter sleeps after its wake returned: a wake that came while it parked was lost", i)
+					}
+					runtime.Gosched()
+				}
+			}
+			_ = sink
+		})
+	}
 }
 
 // TestJoinLaws runs seeded joins against their model on the body this
