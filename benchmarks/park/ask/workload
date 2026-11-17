@@ -5,4 +5,4 @@ unit ask
 sizes 100000 1100000
 args bench ask {n}
 control benchmarks/park/testdata/control
-park
+binary park
