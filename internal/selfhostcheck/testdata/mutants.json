@@ -9,7 +9,7 @@
       "to": "let at = NoPos",
       "rule": "A synthesized token found next in the source prints at its source position, so a comment before it stays before it.",
       "killers": [
-        "internal/selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestSelfhostFormatLaws"
       ]
     },
     {
@@ -20,7 +20,7 @@
       "to": "\t\tb == '='\n",
       "rule": "Two bytes that would lex as one token (- -) are written with a blank between them.",
       "killers": [
-        "internal/selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestSelfhostFormatLaws"
       ]
     },
     {
@@ -31,7 +31,7 @@
       "to": "",
       "rule": "The precedence table is syntax.Token.Precedence: % binds at level 5, which decides the blanks around it (gofmt's cutoff).",
       "killers": [
-        "internal/selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestFormatAgreesWithSeed"
       ]
     },
     {
@@ -42,7 +42,7 @@
       "to": "width = cmp.Max(width, len(lines[k].Cells[column]))",
       "rule": "A column's width counts runes, not bytes.",
       "killers": [
-        "internal/selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestFormatAgreesWithSeed"
       ]
     },
     {
@@ -53,7 +53,7 @@
       "to": "if false && hi > alignSmall {",
       "rule": "The section bound: once a cell is wider than alignSmall, every cell of the section stays within alignRatio of the widest.",
       "killers": [
-        "internal/selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestFormatAgreesWithSeed"
       ]
     },
     {
@@ -64,7 +64,7 @@
       "to": "\t\tif size > limit+1 {\n",
       "rule": "A positive limit one byte below the size is refused.",
       "killers": [
-        "internal/selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestSelfhostFormatLaws"
       ]
     },
     {
@@ -108,7 +108,7 @@
       "to": "\t\tp.emit(slash)\n\t\tp.L.step(Put{Text: \" \"})\n",
       "rule": "A comment that ends a line is a cell of its own, aligned with the trailing comments of its neighbours.",
       "killers": [
-        "internal/selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestFormatAgreesWithSeed"
       ]
     },
     {
@@ -119,7 +119,7 @@
       "to": "p.ln(p.CSlash[p.Ci])-p.LastEndLine >= 3 {",
       "rule": "A comment after a clause's last statement belongs to the next clause when a blank line separates it from the statement.",
       "killers": [
-        "internal/selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestFormatAgreesWithSeed"
       ]
     },
     {
@@ -130,7 +130,7 @@
       "to": "len(contents) > 2 {",
       "rule": "A braced body stays on one line with at most one element: an explicit ; becomes a line break.",
       "killers": [
-        "internal/selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestSelfhostFormatLaws"
       ]
     },
     {
@@ -141,7 +141,7 @@
       "to": "k == syntax.KTypeSwitchStmt {",
       "rule": "A catch prints its clauses on lines of their own, so a body that holds one is never on one line.",
       "killers": [
-        "internal/selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestSelfhostFormatLaws"
       ]
     },
     {
@@ -152,7 +152,7 @@
       "to": "if text == \";\" ||",
       "rule": "After a block comment on the same line, no blank is written before a comma (go/printer).",
       "killers": [
-        "internal/selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestFormatAgreesWithSeed"
       ]
     },
     {
@@ -163,7 +163,7 @@
       "to": "if false && lk == syntax.Int {",
       "rule": "A selector on a number literal keeps a blank before the dot, or `0.A` would scan as the number `0.`.",
       "killers": [
-        "internal/selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestSelfhostFormatLaws"
       ]
     },
     {
@@ -174,7 +174,7 @@
       "to": "blanks = count > 0 && binary",
       "rule": "A slice expression has blanks around its colons only when more than one index is present and one is binary.",
       "killers": [
-        "internal/selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestFormatAgreesWithSeed"
       ]
     },
     {
@@ -185,7 +185,7 @@
       "to": "",
       "rule": "A union prints one variant per line when a variant spans several source lines.",
       "killers": [
-        "internal/selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestFormatAgreesWithSeed"
       ]
     },
     {
@@ -196,7 +196,7 @@
       "to": "return if els != uint32(0) { endOf(t, k, fixed(t, x, 4, 1)) } else { endOf(t, k, fixed(t, x, 4, 1)) }",
       "rule": "An if ends where its else ends (syntax.IfStmt.End): an if on one line keeps its blocks on that line.",
       "killers": [
-        "internal/selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestFormatAgreesWithSeed"
       ]
     },
     {
@@ -240,7 +240,7 @@
       "to": "\tif false {\n",
       "rule": "A rewrite law prints as `{ lhs } == { rhs }`, as the Go formatter's memberLaw does, not its synthetic Body.",
       "killers": [
-        "internal/selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestSelfhostFormatLaws"
       ]
     },
     {
@@ -251,13 +251,15 @@
       "to": "\t\tif false {\n",
       "rule": "A rewrite law's `when R() == C` guard is printed (types.md Laws 14's SepAfterValue fence).",
       "killers": [
-        "internal/selfhostcheck:TestSelfhostFormatAgrees"
+        "internal/selfhostcheck:TestSelfhostFormatLaws"
       ]
     },
-    {"name":"hostsyntax-format-limit-dropped","origin":"wf10/selfhost/S1a","file":"internal/hostsyntax/format.go","from":"format.FormatSource(context.Background(), src, maxBytes)","to":"format.FormatSource(context.Background(), src, 0)","rule":"The facade passes the limit: an output above a positive limit is refused, as format.FileBounded refuses it.","killers":["internal/selfhostcheck:TestSelfhostFormatAgrees"]},
-    {"name":"hostsyntax-format-partial-text","origin":"wf10/selfhost/S1a","file":"internal/hostsyntax/format.go","from":"\t\treturn \"\", &LimitError{Limit: limit}","to":"\t\treturn out, &LimitError{Limit: limit}","rule":"A failure returns no text, as format.FileBounded's does.","killers":["internal/selfhostcheck:TestSelfhostFormatAgrees"]},
-    {"name":"sh-implements-dropped","origin":"wf10/selfhost/S1a","file":"compiler/format/nodes.ergo","from":"\tif len(implements) > 0 {\n","to":"\tif false {\n","rule":"A type's implements clause is printed (types.md, Interface assignability 1).","killers":["internal/selfhostcheck:TestSelfhostFormatAgrees"]},
-    {"name":"sh-own-dropped","origin":"wf10/selfhost/S1a","file":"compiler/format/nodes.ergo","from":"\t\tif f.Own >= 0 {\n\t\t\tp.token(p.tp(f.Own), \"own\")\n\t\t\tp.space()\n\t\t}\n","to":"","rule":"A parameter's mode word own is printed.","killers":["internal/selfhostcheck:TestSelfhostFormatAgrees"]},
-    {"name":"sh-derive-reads-spec","origin":"wf10/selfhost/S2c","file":"compiler/format/nodes.ergo","from":"\tif some(x.Derive) {\n\t\t// As written","to":"\tif false {\n\t\t// As written","rule":"A derived type prints as written, `derive Bundle(…)`: it has no spec to read.","killers":["internal/selfhostcheck:TestSelfhostFormatAgrees"]}
+    {"name":"hostsyntax-format-limit-dropped","origin":"wf10/selfhost/S1a","file":"internal/hostsyntax/format.go","from":"format.FormatSource(context.Background(), src, maxBytes)","to":"format.FormatSource(context.Background(), src, 0)","rule":"The facade passes the limit: an output above a positive limit is refused, as format.FileBounded refuses it.","killers":["internal/selfhostcheck:TestSelfhostFormatLaws"]},
+    {"name":"hostsyntax-format-partial-text","origin":"wf10/selfhost/S1a","file":"internal/hostsyntax/format.go","from":"\t\treturn \"\", &LimitError{Limit: limit}","to":"\t\treturn out, &LimitError{Limit: limit}","rule":"A failure returns no text, as format.FileBounded's does.","killers":["internal/selfhostcheck:TestSelfhostFormatLaws"]},
+    {"name":"sh-implements-dropped","origin":"wf10/selfhost/S1a","file":"compiler/format/nodes.ergo","from":"\tif len(implements) > 0 {\n","to":"\tif false {\n","rule":"A type's implements clause is printed (types.md, Interface assignability 1).","killers":["internal/selfhostcheck:TestSelfhostFormatLaws"]},
+    {"name":"sh-own-dropped","origin":"wf10/selfhost/S1a","file":"compiler/format/nodes.ergo","from":"\t\tif f.Own >= 0 {\n\t\t\tp.token(p.tp(f.Own), \"own\")\n\t\t\tp.space()\n\t\t}\n","to":"","rule":"A parameter's mode word own is printed.","killers":["internal/selfhostcheck:TestSelfhostFormatLaws"]},
+    {"name":"sh-derive-reads-spec","origin":"wf10/selfhost/S2c","file":"compiler/format/nodes.ergo","from":"\tif some(x.Derive) {\n\t\t// As written","to":"\tif false {\n\t\t// As written","rule":"A derived type prints as written, `derive Bundle(…)`: it has no spec to read.","killers":["internal/selfhostcheck:TestSelfhostFormatLaws"]},
+    {"name":"fmt-seed-oracle-is-self","origin":"wf10/selfhost/S1c","file":"internal/selfhostcheck/seed_test.go","from":"func seedFormat(bin, src string) (string, error) {\n","to":"func seedFormat(bin, src string) (string, error) {\n\treturn treeOutcome(hostsyntax.Source(src)), nil\n","rule":"The oracle is the seed binary, not the tree's formatter: the planted source the seed refuses tells them apart.","killers":["internal/selfhostcheck:TestFormatAgreesWithSeed"]},
+    {"name":"hostsyntax-syntax-failure-swallowed","origin":"wf10/selfhost/S1c","file":"internal/hostsyntax/format.go","from":"\t\tif e := syntaxError(strings.TrimSuffix(s, \"\\n\")); e != nil {\n\t\t\treturn \"\", e\n","to":"\t\tif e := syntaxError(strings.TrimSuffix(s, \"\\n\")); e != nil {\n\t\t\treturn \"\", nil\n","rule":"A source that does not parse is a located *syntax.Error, never an empty text.","killers":["internal/selfhostcheck:TestSelfhostFormatLaws"]}
   ]
 }

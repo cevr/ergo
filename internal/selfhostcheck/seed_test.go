@@ -45,6 +45,16 @@ func TestFormatAgreesWithSeed(t *testing.T) {
 		t.Skip("full tier: runs the seed binary")
 	}
 	seedBin := seedBinary(t)
+	// The planted difference: `own` before an operation came after the
+	// seed, so an oracle that is not the seed (one that formats with the
+	// tree) fails here (fmt-seed-oracle-is-self).
+	planted, err := seedFormat(seedBin, plantedNewer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(planted, "syntax ") || !strings.HasPrefix(treeOutcome(hostsyntax.Source(plantedNewer)), "ok\n") {
+		t.Fatalf("the planted source %q: the seed gives %q, want a syntax failure, and the tree must format it: the oracle is not the seed", plantedNewer, planted)
+	}
 	seed := selfhostSeed(t)
 	inputs := formatInputs(t, seed)
 	allowed := changesSinceSeed(t)
@@ -109,6 +119,9 @@ func TestFormatAgreesWithSeed(t *testing.T) {
 		t.Error("no input formats the same on both sides: the comparison ran nothing")
 	}
 }
+
+// plantedNewer is syntax the seed refuses and the tree formats.
+const plantedNewer = "type S {\n\town Put(k string),\n}\n"
 
 // seedBinary is the path of the lock's seed for this host.
 func seedBinary(t *testing.T) string {

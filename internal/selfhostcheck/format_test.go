@@ -75,6 +75,12 @@ func TestSelfhostFormatLaws(t *testing.T) {
 			}
 			continue
 		}
+		// A source the formatter formats parses (a swallowed syntax failure
+		// would read as an empty text).
+		if _, perr := syntax.Parse(in.Src); perr != nil {
+			fail(in, 0, base, outcome("", perr))
+			continue
+		}
 		n := len(out)
 		limits := map[int]string{-1 - i%3: base, n: base, n + 1: base}
 		if n > 1 {
