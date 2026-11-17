@@ -153,7 +153,7 @@ func opReceiver(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node]) Option
 		if syntax.KindOf(tr, x) != syntax.KIdent {
 			return None
 		}
-		match bind.ResolutionOf(k.U, k.Ps, pnode(k, *t, x)) {
+		match bind.ResolutionOf(k.U, k.Ps, pnode(k, t.file, x)) {
 		case bind.Declared as d:
 			if isSome(dense.Unpack(dense.Of(t.defs, d.At))) { None } else { opTypeAt(s, k, t, x, d.At) }
 		case _:
@@ -169,7 +169,7 @@ func importedOp(s *store.Store, k Pkg, t *Typer, sel dense.ID[syntax.Node]) Opti
 	if len(k.Deps) == 0 {
 		return None
 	}
-	match bind.ResolutionOf(k.U, k.Ps, pnode(k, *t, sel)) {
+	match bind.ResolutionOf(k.U, k.Ps, pnode(k, t.file, sel)) {
 	case bind.Imported as im:
 		let i = int(im.Ref.Import) - 1
 		let paths = store.ImportPaths(*s)

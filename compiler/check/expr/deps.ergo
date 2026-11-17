@@ -154,7 +154,7 @@ func importedFn(s *store.Store, k Pkg, t *Typer, name dense.Opt[syntax.Node]) Op
 	if len(k.Deps) == 0 {
 		return None
 	}
-	match bind.ResolutionOf(k.U, k.Ps, pnode(k, *t, sel)) {
+	match bind.ResolutionOf(k.U, k.Ps, pnode(k, t.file, sel)) {
 	case bind.Imported as im:
 		let i = int(im.Ref.Import) - 1
 		let paths = store.ImportPaths(*s)

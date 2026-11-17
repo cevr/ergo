@@ -14,7 +14,7 @@ import dense
 
 // report records a diagnostic at x, in the function in hand.
 func report(k Pkg, t *Typer, x dense.ID[syntax.Node]) {
-	t.Diags = t.Diags.Append(Diag{At: pnode(k, *t, x), Fn: t.fn})
+	t.Diags = t.Diags.Append(Diag{At: pnode(k, t.file, x), Fn: t.fn})
 }
 
 // predeclared is whether text, a name bind resolved outside the package's
@@ -85,14 +85,14 @@ func preludeName(text string) bool {
 // a pattern's or a loop's binding (D-D1). A deeper target, one through a
 // pointer, or a root that is no local is not judged.
 func assignsImmutable(s store.Store, k Pkg, t Typer, x dense.ID[syntax.Node]) bool {
-	let tr = tree(k, t)
+	let tr = tree(k, t.file)
 	let y = unparen(tr, x)
 	let kd = syntax.KindOf(tr, y)
 	let root = if kd == syntax.KSelectorExpr { unparen(tr, syntax.SelectorExprOf(tr, y).X) } else if kd == syntax.KIndexExpr { unparen(tr, syntax.IndexExprOf(tr, y).X) } else { y }
 	if syntax.KindOf(tr, root) != syntax.KIdent {
 		return false
 	}
-	match bind.ResolutionOf(k.U, k.Ps, pnode(k, t, root)) {
+	match bind.ResolutionOf(k.U, k.Ps, pnode(k, t.file, root)) {
 	case bind.Declared as d:
 		match bind.DefOf(k.U, d.At) {
 		case bind.Local:

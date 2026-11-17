@@ -53,7 +53,9 @@ type Typer {
 	file    int,
 	fn      int,
 	res     Option[dense.ID[store.TKey]],
-	steps   int,
+	// boolT is bool, interned once per check.
+	boolT dense.ID[store.TKey],
+	steps int,
 	// typed counts the expressions typed; record is whether each is also
 	// kept in Entries (Check) or only counted (CheckFused).
 	typed  int,
@@ -96,20 +98,22 @@ let bDuration = 18
 
 func some(t dense.ID[store.TKey]) Option[dense.ID[store.TKey]] { Some[dense.ID[store.TKey]]{Value: t} }
 
-func tree(k Pkg, t Typer) syntax.Tree { k.Parsed[t.file].Tree }
+func tree(k Pkg, file int) syntax.Tree { k.Parsed[file].Tree }
 
-func pnode(k Pkg, t Typer, x dense.ID[syntax.Node]) dense.ID[store.PNode] { bind.PNodeOf(k.Ps, t.file, x) }
+// pnode is the package row of node x of file (a file index, not the
+// Typer, so a read copies no Typer).
+func pnode(k Pkg, file int, x dense.ID[syntax.Node]) dense.ID[store.PNode] { bind.PNodeOf(k.Ps, file, x) }
 
 func note(k Pkg, t *Typer, x dense.ID[syntax.Node], ty dense.ID[store.TKey]) {
 	t.typed = t.typed + 1
 	if t.record {
-		t.Entries = t.Entries.Append(Entry{At: pnode(k, *t, x), T: ty, Fn: t.fn})
+		t.Entries = t.Entries.Append(Entry{At: pnode(k, t.file, x), T: ty, Fn: t.fn})
 	}
 }
 
-func basic(s store.Store, ty dense.ID[store.TKey]) int {
-	if store.KindOfType(s, ty) == store.KBasic { store.ArgOf(s, ty) } else { -1 }
-}
+// basic is ty's basic ordinal, -1 for a type that is no basic (read
+// through the pointer: the store is not copied).
+func basic(s *store.Store, ty dense.ID[store.TKey]) int { store.BasicOrdinal(s, ty) }
 
 // Check types every function body of k, keeping each typed expression in
 // Entries.
@@ -131,7 +135,7 @@ func checkAll(s *store.Store, k Pkg, record bool) Typer {
 		dense.Push(&defs, dense.NoID[store.TKey]())
 	}
 	let entries = if record { rows } else { 0 }
-	let mut t = Typer{Entries: slices.WithCapacity[Entry](entries), Diags: []Diag{}, Insts: slices.WithCapacity[Inst](calls), defs: defs, frame: infer.NewFrame(), file: 0, fn: 0, res: None, steps: 0, typed: 0, record: record, reserved: entries + rows + calls}
+	let mut t = Typer{Entries: slices.WithCapacity[Entry](entries), Diags: []Diag{}, Insts: slices.WithCapacity[Inst](calls), defs: defs, frame: infer.NewFrame(), boolT: store.TBasic(s, bBool), file: 0, fn: 0, res: None, steps: 0, typed: 0, record: record, reserved: entries + rows + calls}
 	for i, f in k.Fns {
 		match dense.Unpack(f.Body) {
 		case Some[dense.ID[syntax.Node]] as b:
@@ -232,7 +236,7 @@ func valid(s store.Store, t dense.ID[store.TKey]) bool {
 // patterns declares the names of a case's or a catch arm's as-patterns
 // whose type is written: `case T as x` gives x the type T.
 func patterns(s *store.Store, k Pkg, t *Typer, l syntax.List) {
-	let tr = tree(k, *t)
+	let tr = tree(k, t.file)
 	for i in 0..syntax.Len(l) {
 		match syntax.ViewOf(tr, syntax.Item(tr, l, i)) {
 		case syntax.AsPattern as ap:
@@ -347,13 +351,13 @@ func closed(s store.Store, t dense.ID[store.TKey]) bool {
 // body walks a function's block; its final expression statement is the
 // function's result.
 func body(s *store.Store, k Pkg, t *Typer, b dense.ID[syntax.Node]) {
-	if syntax.KindOf(tree(k, *t), b) == syntax.KBlockStmt {
-		let bs = syntax.BlockStmtOf(tree(k, *t), b)
+	if syntax.KindOf(tree(k, t.file), b) == syntax.KBlockStmt {
+		let bs = syntax.BlockStmtOf(tree(k, t.file), b)
 		let n = syntax.Len(bs.List)
 		for i in 0..n {
-			let st = syntax.Item(tree(k, *t), bs.List, i)
-			if i == n-1 && syntax.KindOf(tree(k, *t), st) == syntax.KExprStmt {
-				let x = syntax.ExprStmtOf(tree(k, *t), st).X
+			let st = syntax.Item(tree(k, t.file), bs.List, i)
+			if i == n-1 && syntax.KindOf(tree(k, t.file), st) == syntax.KExprStmt {
+				let x = syntax.ExprStmtOf(tree(k, t.file), st).X
 				match result(*s, k, *t) {
 				case Some[dense.ID[store.TKey]] as r:
 					expr(s, k, t, x, Exactly{T: r.Value})
@@ -371,7 +375,7 @@ func body(s *store.Store, k Pkg, t *Typer, b dense.ID[syntax.Node]) {
 
 // block walks a block whose value nothing reads the typer knows.
 func block(s *store.Store, k Pkg, t *Typer, b dense.ID[syntax.Node]) {
-	let tr = tree(k, *t)
+	let tr = tree(k, t.file)
 	if syntax.KindOf(tr, b) == syntax.KBlockStmt {
 		stmts(s, k, t, syntax.BlockStmtOf(tr, b).List)
 	} else {
@@ -383,7 +387,7 @@ func block(s *store.Store, k Pkg, t *Typer, b dense.ID[syntax.Node]) {
 // list's value (an if or match used as an expression), whose context the
 // typer does not read.
 func stmts(s *store.Store, k Pkg, t *Typer, l syntax.List) {
-	let tr = tree(k, *t)
+	let tr = tree(k, t.file)
 	let n = syntax.Len(l)
 	for i in 0..n {
 		let st = syntax.Item(tr, l, i)
@@ -397,9 +401,9 @@ func stmts(s *store.Store, k Pkg, t *Typer, l syntax.List) {
 
 // walk visits x's children in a context the typer does not read.
 func walk(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node]) {
-	for c in syntax.Children(tree(k, *t), x, []uint32{}) {
-		let id = syntax.NodeAt(tree(k, *t), int(c))
-		let kind = syntax.KindOf(tree(k, *t), id)
+	for c in syntax.Children(tree(k, t.file), x, []uint32{}) {
+		let id = syntax.NodeAt(tree(k, t.file), int(c))
+		let kind = syntax.KindOf(tree(k, t.file), id)
 		// An expression's kinds run from Ident to CatchExpr, a function
 		// literal and a key-value pair aside; a tuple and an interpolated
 		// string are expressions too.
@@ -413,7 +417,7 @@ func walk(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node]) {
 }
 
 func stmt(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node]) {
-	let tr = tree(k, *t)
+	let tr = tree(k, t.file)
 	let kd = syntax.KindOf(tr, x)
 	if kd == syntax.KExprStmt {
 		expr(s, k, t, syntax.ExprStmtOf(tr, x).X, Free)
@@ -488,12 +492,12 @@ func stmt(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node]) {
 
 // def gives the local declared at the name node x the type ty.
 func def(k Pkg, t *Typer, x dense.ID[syntax.Node], ty dense.ID[store.TKey]) {
-	dense.SetOf(&t.defs, pnode(k, *t, x), dense.OptOf(ty))
+	dense.SetOf(&t.defs, pnode(k, t.file, x), dense.OptOf(ty))
 }
 
 // letSpec types a let: its written type, or its value's.
 func letSpec(s *store.Store, k Pkg, t *Typer, spec dense.ID[syntax.Node]) {
-	let tr = tree(k, *t)
+	let tr = tree(k, t.file)
 	if syntax.KindOf(tr, spec) == syntax.KVarSpec {
 		let v = syntax.VarSpecOf(tr, spec)
 		let written = match dense.Unpack(v.Type) {
@@ -530,7 +534,7 @@ func letSpec(s *store.Store, k Pkg, t *Typer, spec dense.ID[syntax.Node]) {
 // rangeStmt types `for k, v in x`: a range a..b gives its bound's type, a
 // slice its index (int) and element.
 func rangeStmt(s *store.Store, k Pkg, t *Typer, r syntax.RangeStmt) {
-	let tr = tree(k, *t)
+	let tr = tree(k, t.file)
 	let p = k.Parsed[t.file]
 	let mut key Option[dense.ID[store.TKey]] = None
 	let mut val Option[dense.ID[store.TKey]] = None
@@ -592,7 +596,7 @@ func rangeStmt(s *store.Store, k Pkg, t *Typer, r syntax.RangeStmt) {
 
 // isConst is whether x is a constant the typer reads: a basic literal, a
 // signed one, or an operation on constants; its type is its context's.
-func isConst(k Pkg, t Typer, x dense.ID[syntax.Node]) bool { constIn(k.Parsed[t.file], x) }
+func isConst(k Pkg, file int, x dense.ID[syntax.Node]) bool { constIn(k.Parsed[file], x) }
 
 // constIn is isConst in the file p.
 func constIn(p syntax.Parsed, x dense.ID[syntax.Node]) bool {
@@ -616,7 +620,7 @@ func constIn(p syntax.Parsed, x dense.ID[syntax.Node]) bool {
 
 // constKind is the default kind of the constant x: 0 int, 1 rune, 2
 // float, 3 string, 4 duration, -1 another.
-func constKind(k Pkg, t Typer, x dense.ID[syntax.Node]) int { kindIn(k.Parsed[t.file], x) }
+func constKind(k Pkg, file int, x dense.ID[syntax.Node]) int { kindIn(k.Parsed[file], x) }
 
 // kindIn is constKind in the file p.
 func kindIn(p syntax.Parsed, x dense.ID[syntax.Node]) int {
@@ -641,7 +645,7 @@ func kindIn(p syntax.Parsed, x dense.ID[syntax.Node]) int {
 // constType is the type the constant x takes in want, none when the typer
 // cannot tell.
 func constType(s *store.Store, k Pkg, t Typer, x dense.ID[syntax.Node], w Want) Option[dense.ID[store.TKey]] {
-	let ck = constKind(k, t, x)
+	let ck = constKind(k, t.file, x)
 	if ck < 0 {
 		return None
 	}
@@ -652,7 +656,7 @@ func constType(s *store.Store, k Pkg, t Typer, x dense.ID[syntax.Node], w Want) 
 		let b = if ck == 0 { bInt } else if ck == 1 { bInt32 } else if ck == 2 { bFloat64 } else if ck == 3 { bString } else { bDuration }
 		some(store.TBasic(s, b))
 	case Exactly as e:
-		let b = basic(*s, e.T)
+		let b = basic(s, e.T)
 		let fits = if ck == 0 || ck == 1 { b >= bInt && b <= bFloat64 } else if ck == 2 { b == bFloat32 || b == bFloat64 } else if ck == 3 { b == bString } else { b == bDuration }
 		if fits { some(e.T) } else { None }
 	}
@@ -669,8 +673,8 @@ func expr(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], w Want) Opti
 	}
 	match w {
 	case Exactly as e:
-		if misfits(*s, k, *t, x, e.T, ty) {
-			t.Diags = t.Diags.Append(Diag{At: pnode(k, *t, x), Fn: t.fn})
+		if misfits(s, k, t.file, x, e.T, ty) {
+			t.Diags = t.Diags.Append(Diag{At: pnode(k, t.file, x), Fn: t.fn})
 		}
 	case _:
 	}
@@ -681,7 +685,7 @@ func expr(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], w Want) Opti
 // want: a constant of a kind want does not take (constType gave none), or
 // a typed expression of another basic type. A want that is no basic type,
 // or an x the typer left untyped, is not judged.
-func misfits(s store.Store, k Pkg, t Typer, x dense.ID[syntax.Node], want dense.ID[store.TKey], ty Option[dense.ID[store.TKey]]) bool {
+func misfits(s *store.Store, k Pkg, file int, x dense.ID[syntax.Node], want dense.ID[store.TKey], ty Option[dense.ID[store.TKey]]) bool {
 	let b = basic(s, want)
 	if b <= 0 {
 		return false
@@ -691,7 +695,7 @@ func misfits(s store.Store, k Pkg, t Typer, x dense.ID[syntax.Node], want dense.
 		let g = basic(s, got.Value)
 		g > 0 && g != b
 	case None:
-		isConst(k, t, x) && constKind(k, t, x) >= 0
+		isConst(k, file, x) && constKind(k, file, x) >= 0
 	}
 }
 
@@ -699,8 +703,7 @@ func misfits(s store.Store, k Pkg, t Typer, x dense.ID[syntax.Node], want dense.
 func Diags(t Typer) []Diag { t.Diags }
 
 func exprType(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], w Want) Option[dense.ID[store.TKey]] {
-	let p = k.Parsed[t.file]
-	let tr = p.Tree
+	let tr = k.Parsed[t.file].Tree
 	// The common kinds first: a name, a call or a selector is no constant.
 	let kd = syntax.KindOf(tr, x)
 	if kd == syntax.KIdent {
@@ -712,7 +715,8 @@ func exprType(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], w Want) 
 	if kd == syntax.KSelectorExpr {
 		return selector(s, k, t, syntax.SelectorExprOf(tr, x))
 	}
-	if constIn(p, x) {
+	let p = k.Parsed[t.file]
+	if (kd == syntax.KBasicLit || kd == syntax.KParenExpr || kd == syntax.KUnaryExpr || kd == syntax.KBinaryExpr) && constIn(p, x) {
 		let ty = constType(s, k, *t, x, w)
 		// The parts of a constant operation take its type; a signed
 		// literal is one constant, its literal not recorded (the Go
@@ -795,15 +799,15 @@ func exprType(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], w Want) 
 // index types a slice's index: a constant takes int; a typed index is of
 // any integer type, and one of another basic type is a diagnostic.
 func index(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node]) {
-	if isConst(k, *t, x) {
+	if isConst(k, t.file, x) {
 		expr(s, k, t, x, Exactly{T: store.TBasic(s, bInt)})
 		return
 	}
 	match expr(s, k, t, x, Free) {
 	case Some[dense.ID[store.TKey]] as it:
-		let b = basic(*s, it.Value)
+		let b = basic(s, it.Value)
 		if b > 0 && (b < bInt || b > bUintptr) {
-			t.Diags = t.Diags.Append(Diag{At: pnode(k, *t, x), Fn: t.fn})
+			t.Diags = t.Diags.Append(Diag{At: pnode(k, t.file, x), Fn: t.fn})
 		}
 	case None:
 	}
@@ -814,7 +818,7 @@ func constParts(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], ty Opt
 	match ty {
 	case Some[dense.ID[store.TKey]] as r:
 		note(k, t, x, r.Value)
-		let tr = tree(k, *t)
+		let tr = tree(k, t.file)
 		let kd = syntax.KindOf(tr, x)
 		if kd == syntax.KParenExpr {
 			constParts(s, k, t, syntax.ParenExprOf(tr, x).X, ty)
@@ -831,9 +835,8 @@ func constParts(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], ty Opt
 // arithmetic one has its operands' type; a constant operand takes the
 // other's type.
 func binary(s *store.Store, k Pkg, t *Typer, b syntax.BinaryExpr, w Want) Option[dense.ID[store.TKey]] {
-	let p = k.Parsed[t.file]
-	let op = syntax.TokKind(p, b.Op)
-	let boolT = store.TBasic(s, bBool)
+	let op = syntax.TokKind(k.Parsed[t.file], b.Op)
+	let boolT = t.boolT
 	if op == syntax.Land || op == syntax.Lor {
 		expr(s, k, t, b.X, Exactly{T: boolT})
 		expr(s, k, t, b.Y, Exactly{T: boolT})
@@ -847,14 +850,14 @@ func binary(s *store.Store, k Pkg, t *Typer, b syntax.BinaryExpr, w Want) Option
 		return None
 	}
 	// The operand that is no constant first: the constant takes its type.
-	let xc = isConst(k, *t, b.X)
+	let xc = isConst(k, t.file, b.X)
 	let first = if xc { b.Y } else { b.X }
 	let second = if xc { b.X } else { b.Y }
 	let ft = expr(s, k, t, first, if cmp { Free } else { w })
 	match ft {
 	case Some[dense.ID[store.TKey]] as f:
-		let bt = basic(*s, f.Value)
-		if bt > 0 && bt != bBool || !isConst(k, *t, second) {
+		let bt = basic(s, f.Value)
+		if bt > 0 && bt != bBool || !isConst(k, t.file, second) {
 			expr(s, k, t, second, Exactly{T: f.Value})
 		} else {
 			expr(s, k, t, second, Unsure)
@@ -869,7 +872,7 @@ func binary(s *store.Store, k Pkg, t *Typer, b syntax.BinaryExpr, w Want) Option
 // ident is the type of the name x: a parameter's, a local's, a function's
 // (not a generic one's: its instance is the call's), true or false.
 func ident(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
-	match bind.ResolutionOf(k.U, k.Ps, pnode(k, *t, x)) {
+	match bind.ResolutionOf(k.U, k.Ps, pnode(k, t.file, x)) {
 	case bind.Declared as d:
 		match dense.Unpack(dense.Of(t.defs, d.At)) {
 		case Some[dense.ID[store.TKey]] as ty:

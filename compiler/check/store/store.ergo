@@ -251,3 +251,10 @@ law InstanceIdentityIsKey(xs []int, ys []int) {
 	}
 	ok
 }
+
+// BasicOrdinal is t's basic ordinal, -1 for a type that is no basic: a
+// read through the pointer, so no Store is copied (S3d8).
+func BasicOrdinal(s *Store, t dense.ID[TKey]) int {
+	let key = dense.Value(s.pool.keys, t)
+	if int(key.k) == tBasic { int(key.a) } else { -1 }
+}
