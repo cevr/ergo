@@ -117,7 +117,7 @@
       "name": "b14-settle-nested-advance",
       "origin": "wf10/batch-14 integration apply 6 (verdicts-2 follow-up)",
       "file": "runtime/rt/handle.go",
-      "from": "\t\tm := h.park(owner, stop)\n",
+      "from": "\t\tm := h.park(owner, !owner.Masked())\n",
       "to": "\t\tm := (*member)(nil)\n",
       "rule": "runtime.md 11.16: a task's Wait for another task is parked, so the task it waits for may Advance the clock.",
       "killers": [
@@ -868,6 +868,9 @@
     {"name":"view-ring-unbounded","origin":"wf10 LAWFFI LF2b","file":"runtime/v1/guard.go","from":"for len(guardRing) > guardRingLen || guardBytes > guardRingBytes {","to":"for false {","rule":"interop.md Foreign facts 8: the ring of finished copies is bounded in count and bytes.","killers":["runtime/v1:TestGuardedCopyCatches"]},
     {"name":"view-empty-not-nil","origin":"wf10 LAWFFI LF2b","file":"runtime/v1/view.go","from":"\t\treturn nil\n","to":"\t\treturn []byte{}\n","rule":"interop.md Foreign facts 8: the view of the empty string is nil, as the guarded copy gives.","killers":["runtime/v1:TestBytesViewShape"]},
     {"name":"view-capacity-past-length","origin":"wf10 LAWFFI LF2b","file":"runtime/v1/view.go","from":"return unsafe.Slice(unsafe.StringData(s), len(s))","to":"return unsafe.Slice(unsafe.StringData(s), len(s)+1)[:len(s)]","rule":"interop.md Foreign facts 8: the view's capacity is its length, so an append by the callee copies.","killers":["runtime/v1:TestBytesViewShape"]},
-    {"name":"view-copies","origin":"wf10 LAWFFI LF2b","file":"runtime/v1/view.go","from":"return unsafe.Slice(unsafe.StringData(s), len(s))","to":"return unsafe.Slice(unsafe.StringData(string([]byte(s))), len(s))","rule":"interop.md Foreign facts 8: the view is the string's own bytes: no copy.","killers":["runtime/v1:TestBytesViewShape"]}
+    {"name":"view-copies","origin":"wf10 LAWFFI LF2b","file":"runtime/v1/view.go","from":"return unsafe.Slice(unsafe.StringData(s), len(s))","to":"return unsafe.Slice(unsafe.StringData(string([]byte(s))), len(s))","rule":"interop.md Foreign facts 8: the view is the string's own bytes: no copy.","killers":["runtime/v1:TestBytesViewShape"]},
+    {"name": "ask-reply-skips-resume", "origin": "wf10/rt-spike/PARK1", "file": "runtime/v1/actor.go", "from": "\tk.Done()\n\tasker.Resume()\n", "to": "\tk.Done()\n", "rule": "An answer wakes its asker from its park word", "killers": ["runtime/v1:TestActorModelAgreesWithTimedFold"]},
+    {"name": "ask-ignores-stop", "origin": "wf10/rt-spike/PARK1", "file": "runtime/v1/actor.go", "from": "\tfor !reply.full.Load() && !t.Stopped() {", "to": "\tfor !reply.full.Load() {", "rule": "An Ask or State read that waits for its answer ends on a stop of the asker", "killers": ["runtime/v1:TestActorWaitsAreInterruptible"]},
+    {"name": "ask-ignores-answer", "origin": "wf10/rt-spike/PARK1", "file": "runtime/v1/actor.go", "from": "\tfor !reply.full.Load() && !t.Stopped() {", "to": "\tfor !t.Stopped() {", "rule": "An Ask returns once its answer is in", "killers": ["runtime/v1:TestActorModelAgreesWithTimedFold"]}
   ]
 }
