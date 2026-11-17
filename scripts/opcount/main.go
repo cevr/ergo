@@ -49,6 +49,7 @@ import (
 	"strings"
 
 	"ergo.local/prototype/internal/opcount"
+	"ergo.local/prototype/internal/opcount/hooked"
 	"ergo.local/prototype/internal/proclimit"
 )
 
@@ -634,7 +635,7 @@ func (b builder) program(cmdDir, name string) (string, string, error) {
 		return "", "", err
 	}
 	bin := filepath.Join(b.o.work, name)
-	link, err := opcount.HookedBuild(work, overlayFile, bin)
+	link, err := hooked.Build(work, overlayFile, bin)
 	if err != nil {
 		return "", "", err
 	}
