@@ -36,7 +36,7 @@ func comment(p *Printer, limit int) {
 	// A line comment ends at a newline; trailing blanks, and a carriage
 	// return the scanner kept because a blank followed it, are dropped, so
 	// the output reads back as the same comment.
-	let text = if isLine { strings.TrimRight(p.CText[ci], " \t\r") } else { p.CText[ci] }
+	let text = if isLine { trimLineEnd(p.CText[ci]) } else { p.CText[ci] }
 	let trailing = p.LastEnd >= 0 && p.ln(slash) == p.LastEndLine
 	if trailing && p.L.PendingNL > 0 {
 		// A comment that ends a line aligns with its neighbours.
@@ -45,14 +45,14 @@ func comment(p *Printer, limit int) {
 		p.L.PendingNL = 0
 		p.L.PendingSpace = false
 		p.emit(slash)
-		p.L.step(Separator)
-		p.L.step(Put{Text: text})
+		p.L.sep()
+		p.L.put(text)
 		p.L.PendingNL = nl
 		p.L.NoBlank = noBlank
 	} else if trailing {
 		p.space()
 		p.emit(slash)
-		p.L.step(Put{Text: text})
+		p.L.put(text)
 		if isLine {
 			p.newline()
 		} else {

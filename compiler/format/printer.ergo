@@ -63,7 +63,7 @@ func load(p *Printer) {
 		// A block comment's text has no carriage returns, a line comment's
 		// none at its end (the Go tree's Comment.Text).
 		let raw = src[a:b]
-		p.CText = p.CText.Append(if strings.HasPrefix(raw, "//") { strings.TrimRight(raw, "\r") } else { strings.ReplaceAll(raw, "\r", "") })
+		p.CText = p.CText.Append(if strings.HasPrefix(raw, "//") { trimCR(raw) } else { strings.ReplaceAll(raw, "\r", "") })
 	}
 	p.EOF = syntax.TokPos(p.P, syntax.FileOf(p.P.Tree, syntax.Root(p.P.Tree)).EOF)
 }
@@ -77,7 +77,22 @@ func ln(p *Printer, at int) int {
 	if at >= p.BLo && at < p.BHi {
 		return p.BLine
 	}
-	let line = syntax.PositionOf(p.Lines, at).Line
+	// The printer reads the source mostly forward: a few lines past the
+	// last line asked are looked at before a search of the whole table.
+	let n = syntax.NumLines(p.Lines)
+	let mut i = p.ALine
+	let mut line = 0
+	if at >= p.AHi && i < n {
+		for i+1 < n && i < p.ALine+4 && syntax.LineStart(p.Lines, i+1) <= at {
+			i += 1
+		}
+		if i+1 == n || syntax.LineStart(p.Lines, i+1) > at {
+			line = i + 1
+		}
+	}
+	if line == 0 {
+		line = syntax.PositionOf(p.Lines, at).Line
+	}
 	p.BLine = p.ALine
 	p.BLo = p.ALo
 	p.BHi = p.AHi
@@ -95,18 +110,18 @@ func breakBefore(p *Printer, at int) bool {
 
 // ---------------------------------------------------------------- whitespace requests
 
-func space(p *Printer) { p.L.step(Space) }
+func space(p *Printer) { p.L.PendingSpace = true }
 
-func newline(p *Printer) { p.L.step(Newline) }
+func newline(p *Printer) { p.L.newline() }
 
 // newlineNoBlank asks for a line break that is never a blank line (after
 // an opening brace, before a closing one).
 func newlineNoBlank(p *Printer) {
-	p.L.step(Newline)
-	p.L.step(NoBlank)
+	p.L.newline()
+	p.L.NoBlank = true
 }
 
-func indent(p *Printer, by int) { p.L.step(Indent{By: by}) }
+func indent(p *Printer, by int) { p.L.Indent += by }
 
 // gap is the whitespace before the token at at in a gap whose line break
 // the source decides: a line break if the source has one, else a blank
@@ -129,10 +144,10 @@ func gap(p *Printer, at int, blank bool) bool {
 // source has one between the last item and this one.
 func emit(p *Printer, at int) {
 	let blank = at >= 0 && p.LastEnd >= 0 && p.ln(at)-p.LastEndLine >= 2
-	p.L.step(Emit{Blank: blank})
+	p.L.emit(blank)
 }
 
-func write(p *Printer, text string) { p.L.step(Write{Text: text}) }
+func write(p *Printer, text string) { p.L.writeToken(text) }
 
 // token prints a source token at at after the comments before it.
 func token(p *Printer, at int, text string) { p.tokenEnd(at, text, at+len(text)) }

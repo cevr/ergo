@@ -38,8 +38,8 @@
       "name": "sh-align-counts-bytes",
       "origin": "wf10/selfhost/SH1",
       "file": "compiler/format/align.ergo",
-      "from": "width = cmp.Max(width, utf8.RuneCount(lines[k].Cells[column]))",
-      "to": "width = cmp.Max(width, len(lines[k].Cells[column]))",
+      "from": "c.Width[k] = utf8.RuneCount(strings.Slice(text, l.CellA[k], l.CellB[k]))",
+      "to": "c.Width[k] = l.CellB[k] - l.CellA[k]",
       "rule": "A column's width counts runes, not bytes.",
       "killers": [
         "internal/selfhostcheck:TestFormatAgreesWithSeed"
@@ -93,8 +93,8 @@
       "name": "sh-finish-builds-before-limit",
       "origin": "wf10/selfhost/SH1",
       "file": "compiler/format/align.ergo",
-      "from": "\tif limit > 0 && sizeOver(lines, w, first, limit) {\n\t\treturn OutputLimit{Limit: limit, Built: 0}\n\t}\n\tlet text = build(lines, w, first)\n",
-      "to": "\tlet text = build(lines, w, first)\n\tif limit > 0 && len(text) > limit {\n\t\treturn OutputLimit{Limit: limit, Built: len(text)}\n\t}\n",
+      "from": "\tif limit > 0 && sizeOver(l, c, first, limit) {\n\t\treturn OutputLimit{Limit: limit, Built: 0}\n\t}\n\tlet out = build(l, c, first)\n",
+      "to": "\tlet out = build(l, c, first)\n\tif limit > 0 && len(out) > limit {\n\t\treturn OutputLimit{Limit: limit, Built: len(out)}\n\t}\n",
       "rule": "A refusal is decided from the computed size before any text is built (the refusal reports the bytes built: none).",
       "killers": [
         "internal/selfhostcheck:TestSelfhostLayoutModel"
@@ -104,8 +104,8 @@
       "name": "sh-trailing-comment-unaligned",
       "origin": "wf10/selfhost/SH1",
       "file": "compiler/format/comments.ergo",
-      "from": "\t\tp.emit(slash)\n\t\tp.L.step(Separator)\n",
-      "to": "\t\tp.emit(slash)\n\t\tp.L.step(Put{Text: \" \"})\n",
+      "from": "\t\tp.emit(slash)\n\t\tp.L.sep()\n",
+      "to": "\t\tp.emit(slash)\n\t\tp.L.put(\" \")\n",
       "rule": "A comment that ends a line is a cell of its own, aligned with the trailing comments of its neighbours.",
       "killers": [
         "internal/selfhostcheck:TestFormatAgreesWithSeed"
@@ -203,9 +203,9 @@
       "name": "sh-separator-loses-tail",
       "origin": "wf10/STD-sh",
       "file": "compiler/format/layout.ergo",
-      "from": "\tif cell != \"\" {\n\t\tl.CellsTail = cell[len(cell)-1]\n\t}\n",
+      "from": "\tif has {\n\t\tl.CellsTail = solid\n\t}\n",
       "to": "",
-      "rule": "After a separator the line's last byte is the last byte of its last non-empty cell, so a blank keeps two tokens apart across a column (the tail the builder replaces a scan of the parts with).",
+      "rule": "After a separator the line's last byte is the last byte of its last non-empty cell, so a blank keeps two tokens apart across a column (the tail that replaces a read of the buffer).",
       "killers": [
         "internal/selfhostcheck:TestSelfhostLayoutModel"
       ]
@@ -214,8 +214,8 @@
       "name": "sh-separator-keeps-blank",
       "origin": "wf10/selfhost/SH1",
       "file": "compiler/format/layout.ergo",
-      "from": "strings.TrimRight(l.closeCell(), \" \")",
-      "to": "l.closeCell()",
+      "from": "\tl.closeCell(true)\n\tif has {",
+      "to": "\tl.closeCell(false)\n\tif has {",
       "rule": "A cell ended by a separator drops its trailing blanks before it is padded.",
       "killers": [
         "internal/selfhostcheck:TestSelfhostLayoutModel"
@@ -254,12 +254,109 @@
         "internal/selfhostcheck:TestSelfhostFormatLaws"
       ]
     },
-    {"name":"hostsyntax-format-limit-dropped","origin":"wf10/selfhost/S1a","file":"internal/hostsyntax/format.go","from":"format.FormatSource(context.Background(), src, maxBytes)","to":"format.FormatSource(context.Background(), src, 0)","rule":"The facade passes the limit: an output above a positive limit is refused, as format.FileBounded refuses it.","killers":["internal/selfhostcheck:TestSelfhostFormatLaws"]},
-    {"name":"hostsyntax-format-partial-text","origin":"wf10/selfhost/S1a","file":"internal/hostsyntax/format.go","from":"\t\treturn \"\", &LimitError{Limit: limit}","to":"\t\treturn out, &LimitError{Limit: limit}","rule":"A failure returns no text, as format.FileBounded's does.","killers":["internal/selfhostcheck:TestSelfhostFormatLaws"]},
-    {"name":"sh-implements-dropped","origin":"wf10/selfhost/S1a","file":"compiler/format/nodes.ergo","from":"\tif len(implements) > 0 {\n","to":"\tif false {\n","rule":"A type's implements clause is printed (types.md, Interface assignability 1).","killers":["internal/selfhostcheck:TestSelfhostFormatLaws"]},
-    {"name":"sh-own-dropped","origin":"wf10/selfhost/S1a","file":"compiler/format/nodes.ergo","from":"\t\tif f.Own >= 0 {\n\t\t\tp.token(p.tp(f.Own), \"own\")\n\t\t\tp.space()\n\t\t}\n","to":"","rule":"A parameter's mode word own is printed.","killers":["internal/selfhostcheck:TestSelfhostFormatLaws"]},
-    {"name":"sh-derive-reads-spec","origin":"wf10/selfhost/S2c","file":"compiler/format/nodes.ergo","from":"\tif some(x.Derive) {\n\t\t// As written","to":"\tif false {\n\t\t// As written","rule":"A derived type prints as written, `derive Bundle(…)`: it has no spec to read.","killers":["internal/selfhostcheck:TestSelfhostFormatLaws"]},
-    {"name":"fmt-seed-oracle-is-self","origin":"wf10/selfhost/S1c","file":"internal/selfhostcheck/seed_test.go","from":"func seedFormat(bin, src string) (string, error) {\n","to":"func seedFormat(bin, src string) (string, error) {\n\treturn treeOutcome(hostsyntax.Source(src)), nil\n","rule":"The oracle is the seed binary, not the tree's formatter: the planted source the seed refuses tells them apart.","killers":["internal/selfhostcheck:TestFormatAgreesWithSeed"]},
-    {"name":"hostsyntax-syntax-failure-swallowed","origin":"wf10/selfhost/S1c","file":"internal/hostsyntax/format.go","from":"\t\tif e := syntaxError(strings.TrimSuffix(s, \"\\n\")); e != nil {\n\t\t\treturn \"\", e\n","to":"\t\tif e := syntaxError(strings.TrimSuffix(s, \"\\n\")); e != nil {\n\t\t\treturn \"\", nil\n","rule":"A source that does not parse is a located *syntax.Error, never an empty text.","killers":["internal/selfhostcheck:TestSelfhostFormatLaws"]}
+    {
+      "name": "hostsyntax-format-limit-dropped",
+      "origin": "wf10/selfhost/S1a",
+      "file": "internal/hostsyntax/format.go",
+      "from": "format.FormatSource(context.Background(), src, maxBytes)",
+      "to": "format.FormatSource(context.Background(), src, 0)",
+      "rule": "The facade passes the limit: an output above a positive limit is refused, as format.FileBounded refuses it.",
+      "killers": [
+        "internal/selfhostcheck:TestSelfhostFormatLaws"
+      ]
+    },
+    {
+      "name": "hostsyntax-format-partial-text",
+      "origin": "wf10/selfhost/S1a",
+      "file": "internal/hostsyntax/format.go",
+      "from": "\t\treturn \"\", &LimitError{Limit: limit}",
+      "to": "\t\treturn out, &LimitError{Limit: limit}",
+      "rule": "A failure returns no text, as format.FileBounded's does.",
+      "killers": [
+        "internal/selfhostcheck:TestSelfhostFormatLaws"
+      ]
+    },
+    {
+      "name": "sh-implements-dropped",
+      "origin": "wf10/selfhost/S1a",
+      "file": "compiler/format/nodes.ergo",
+      "from": "\tif len(implements) > 0 {\n",
+      "to": "\tif false {\n",
+      "rule": "A type's implements clause is printed (types.md, Interface assignability 1).",
+      "killers": [
+        "internal/selfhostcheck:TestSelfhostFormatLaws"
+      ]
+    },
+    {
+      "name": "sh-own-dropped",
+      "origin": "wf10/selfhost/S1a",
+      "file": "compiler/format/nodes.ergo",
+      "from": "\t\tif f.Own >= 0 {\n\t\t\tp.token(p.tp(f.Own), \"own\")\n\t\t\tp.space()\n\t\t}\n",
+      "to": "",
+      "rule": "A parameter's mode word own is printed.",
+      "killers": [
+        "internal/selfhostcheck:TestSelfhostFormatLaws"
+      ]
+    },
+    {
+      "name": "sh-derive-reads-spec",
+      "origin": "wf10/selfhost/S2c",
+      "file": "compiler/format/nodes.ergo",
+      "from": "\tif some(x.Derive) {\n\t\t// As written",
+      "to": "\tif false {\n\t\t// As written",
+      "rule": "A derived type prints as written, `derive Bundle(…)`: it has no spec to read.",
+      "killers": [
+        "internal/selfhostcheck:TestSelfhostFormatLaws"
+      ]
+    },
+    {
+      "name": "fmt-seed-oracle-is-self",
+      "origin": "wf10/selfhost/S1c",
+      "file": "internal/selfhostcheck/seed_test.go",
+      "from": "func seedFormat(bin, src string) (string, error) {\n",
+      "to": "func seedFormat(bin, src string) (string, error) {\n\treturn treeOutcome(hostsyntax.Source(src)), nil\n",
+      "rule": "The oracle is the seed binary, not the tree's formatter: the planted source the seed refuses tells them apart.",
+      "killers": [
+        "internal/selfhostcheck:TestFormatAgreesWithSeed"
+      ]
+    },
+    {
+      "name": "hostsyntax-syntax-failure-swallowed",
+      "origin": "wf10/selfhost/S1c",
+      "file": "internal/hostsyntax/format.go",
+      "from": "\t\tif e := syntaxError(strings.TrimSuffix(s, \"\\n\")); e != nil {\n\t\t\treturn \"\", e\n",
+      "to": "\t\tif e := syntaxError(strings.TrimSuffix(s, \"\\n\")); e != nil {\n\t\t\treturn \"\", nil\n",
+      "rule": "A source that does not parse is a located *syntax.Error, never an empty text.",
+      "killers": [
+        "internal/selfhostcheck:TestSelfhostFormatLaws"
+      ]
+    },
+    {
+      "name": "sh-token-skips-merge",
+      "origin": "wf10/selfhost/S1d",
+      "file": "compiler/format/layout.ergo",
+      "from": "\tlet last = l.lastByte()\n\tif last != 0 && merges(last, text[0]) {\n\t\tl.put(\" \")\n\t}\n\tl.put(text)\n",
+      "to": "\tl.put(text)\n",
+      "rule": "A token the printer writes with no search for a line break still gets a blank before it when it would lex as one token with the last byte.",
+      "killers": []
+    },
+    {
+      "name": "sh-line-probe-off-by-one",
+      "origin": "wf10/selfhost/S1d",
+      "file": "compiler/format/printer.ergo",
+      "from": "\t\tif i+1 == n || syntax.LineStart(p.Lines, i+1) > at {\n\t\t\tline = i + 1\n",
+      "to": "\t\tif i+1 == n || syntax.LineStart(p.Lines, i+1) > at {\n\t\t\tline = i + 2\n",
+      "rule": "The forward probe of ln names the line that holds the offset: the one whose start is at or before it and whose next line starts after it.",
+      "killers": []
+    },
+    {
+      "name": "sh-raw-string-not-split",
+      "origin": "wf10/selfhost/S1d",
+      "file": "compiler/format/layout.ergo",
+      "from": "\tif text == \"\" || text[0] == '`' || text[0] == '/' {\n",
+      "to": "\tif text == \"\" || text[0] == '/' {\n",
+      "rule": "A raw string the printer writes still goes through write, so its line breaks end layout lines that are never re-indented.",
+      "killers": []
+    }
   ]
 }

@@ -103,7 +103,7 @@ func decl(p *Printer, d dense.ID[syntax.Node]) {
 		if some(x.Body) {
 			let body = the(x.Body)
 			if p.blockOneLine(body) {
-				p.L.step(Separator) // consecutive one-line functions align their bodies (gofmt)
+				p.L.sep() // consecutive one-line functions align their bodies (gofmt)
 			} else {
 				p.space()
 			}
@@ -308,7 +308,7 @@ func list(p *Printer, openPos int, open string, itemStarts []int, item func(i in
 	for i in 0..len(itemStarts) {
 		if i == 0 {
 			if p.gap(itemStarts[0], false) {
-				p.L.step(NoBlank)
+				p.L.NoBlank = true
 				p.indent(1)
 				indented = true
 			}
@@ -494,7 +494,7 @@ func fieldMember(p *Printer, id dense.ID[syntax.Node], aligned bool) {
 	}
 	p.identList(p.ids(f.Names), false)
 	if aligned {
-		p.L.step(Separator)
+		p.L.sep()
 	} else {
 		p.space()
 	}
@@ -640,7 +640,7 @@ func machineType(p *Printer, t dense.ID[syntax.Node]) {
 		p.token(p.tp(e.Name), p.text(e.Name))
 		p.tok(p.tp(e.Name+1), ":")
 		if aligned {
-			p.L.step(Separator)
+			p.L.sep()
 		} else {
 			p.space()
 		}
@@ -745,7 +745,7 @@ func printContext(p *Printer, contextPos int, prov dense.Opt[syntax.Node], need 
 		}
 		p.tok(p.tp(e.Assign), ":")
 		if aligned {
-			p.L.step(Separator)
+			p.L.sep()
 		} else {
 			p.space()
 		}
@@ -772,7 +772,7 @@ func oneLine(p *Printer, lbrace int, rbrace int, contents []dense.ID[syntax.Node
 func openBody(p *Printer, lbrace int) {
 	p.token(lbrace, "{")
 	p.indent(1)
-	p.L.step(NoBlank)
+	p.L.NoBlank = true
 }
 
 func bodyLine(p *Printer, i int) {
@@ -963,27 +963,27 @@ func armOf(p *Printer, x dense.ID[syntax.Node]) arm {
 func clauses(p *Printer, lbrace int, arms []dense.ID[syntax.Node], rbrace int) {
 	let base = p.L.Indent
 	p.token(lbrace, "{")
-	p.L.step(NoBlank)
+	p.L.NoBlank = true
 	for i, x in arms {
 		let a = p.armOf(x)
 		let casePos = p.tp(a.Case)
 		if i > 0 {
 			p.newline()
 			p.flushClauseComments(casePos)
-			p.L.step(SetIndent{To: base})
+			p.L.Indent = base
 			p.newline()
 		} else {
 			p.newlineNoBlank()
 		}
 		p.caseHead(casePos, p.ids(a.Patterns), p.tp(a.Colon))
-		p.L.step(SetIndent{To: base + 1})
+		p.L.Indent = base + 1
 		p.stmtList(p.ids(a.Body))
 	}
 	if len(arms) > 0 {
 		p.newline()
 		p.flushClauseComments(rbrace)
 	}
-	p.L.step(SetIndent{To: base})
+	p.L.Indent = base
 	p.newline()
 	p.flushComments(rbrace)
 	p.newlineNoBlank()
@@ -1060,7 +1060,7 @@ func expr1(p *Printer, x dense.ID[syntax.Node], depth int) {
 		p.token(p.tp(e.Lparen), "(")
 		let broken = p.gap(p.start(e.X), false)
 		if broken {
-			p.L.step(NoBlank)
+			p.L.NoBlank = true
 			p.indent(1)
 		}
 		p.expr1(e.X, cmp.Max(depth-1, 1))
@@ -1278,7 +1278,7 @@ func element(p *Printer, x dense.ID[syntax.Node]) {
 		return
 	}
 	if startsLine {
-		p.L.step(Separator)
+		p.L.sep()
 	} else {
 		p.space()
 	}

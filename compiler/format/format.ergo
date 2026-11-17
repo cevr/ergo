@@ -23,7 +23,9 @@ type SyntaxFailure { Code string, Message string, Offset int, Length int, Line i
 // Source formats src: its parse, laid out. A positive limit bounds the
 // output as in Finish.
 func Source(src string, limit int) string fails SyntaxFailure | OutputLimit {
-	// The printer owns the parse it makes (a literal, so nothing is copied).
+	// The printer owns the parse it makes. The value rule still copies it
+	// here: it does not prove Parse's result fresh (a follow-up of the
+	// lowering, capstone S1d).
 	let mut p = Printer{
 		P:            syntax.Parse(src),
 		Src:          src,
@@ -39,7 +41,7 @@ func Source(src string, limit int) string fails SyntaxFailure | OutputLimit {
 		CEnd:         []int{},
 		CText:        []string{},
 		Ci:           0,
-		L:            NewLayout(),
+		L:            NewLayoutFor(len(src)),
 		LastEnd:      NoPos,
 		LastTok:      NoPos,
 		LastEndLine:  0,
