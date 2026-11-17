@@ -352,6 +352,17 @@
       "killers": [
         "internal/selfhostcheck:TestSelfhostFormatLaws"
       ]
+    },
+    {
+      "name": "sh-raw-string-not-split",
+      "origin": "wf10/selfhost/S1d",
+      "file": "compiler/format/layout.ergo",
+      "from": "\tif text == \"\" || text[0] == '`' || text[0] == '/' {\n",
+      "to": "\tif text == \"\" || text[0] == '/' {\n",
+      "rule": "A raw string the printer writes still goes through write, so its line breaks end layout lines that are never re-indented or aligned.",
+      "killers": [
+        "internal/selfhostcheck:TestFormatAgreesWithSeed"
+      ]
     }
   ]
 }

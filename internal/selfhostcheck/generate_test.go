@@ -43,6 +43,12 @@ func alignInputs() []sketchtest.Input {
 		{"record types", "type T {\n", "}\n", func(i, size int) string { return "f" + strconv.Itoa(i) + " " + cell("T", i, size) + ",\n" }},
 		{"record types before comments", "type T {\n", "}\n", func(i, size int) string { return "f" + strconv.Itoa(i) + " " + cell("T", i, size) + ", // c\n" }},
 		{"let values before comments", "", "", func(i, size int) string { return "let v" + strconv.Itoa(i) + " = " + cell("x", i, size) + " // c\n" }},
+		// A comment after a multi-line raw string sits on a line that
+		// continues the string and is never aligned with its neighbours
+		// (mutant sh-raw-string-not-split).
+		{"raw strings before comments", "", "", func(i, size int) string {
+			return "let v" + strconv.Itoa(i) + " = `a\n" + cell("x", i, size) + "` // c\n"
+		}},
 		{"map keys", "let m = Map[string, int]{\n", "}\n", func(i, size int) string { return strconv.Quote(cell("k", i, max(1, size-2))) + ": 1,\n" }},
 		{"context entry keys", "let W = context {\n", "}\n", func(i, size int) string { return cell("K", i, size) + ": T{},\n" }},
 	}
