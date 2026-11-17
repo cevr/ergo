@@ -225,6 +225,9 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 			}
 			irArgs = append(irArgs[:at:at], append([]*irExpr{env}, irArgs[at:]...)...)
 		}
+		if wc := b.witnessCopy(x, c); wc != "" && known == "" { // ir_witness.go
+			return pre, mark(&irExpr{K: "call", Pos: p, Name: wc, Args: irArgs}), !fd.pure
+		}
 		if wits := b.witnessArgs(f, x, p); len(wits) > 0 { // ir_witness.go
 			// After the environment, before the operands (witnessArgs).
 			at := 0
