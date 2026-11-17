@@ -50,17 +50,24 @@ func (b *irBuilder) place(x syntax.Expr) *irExpr {
 	return nil
 }
 
-// fixed reports a place no statement can move: a local, or a field of a
-// fixed place that is not reached through a pointer.
+// fixed reports a place no statement can move: a local, a field of a
+// fixed place that is not reached through a pointer, or *p and a field
+// through p where p is a local no assignment changes (a parameter or a
+// plain let: check.Var.Mut false, the emitter's fixedName). Statements may
+// write *p, never p, so the place's address is the same before them and
+// after, and a nil p fails at the store, after them, on both paths (the
+// emitter binds p to a temporary first, of the same value).
 func (b *irBuilder) fixed(x syntax.Expr) bool {
 	switch x := unparen(x).(type) {
 	case *syntax.Ident:
 		v, ok := b.l.info.Uses[x].(*check.Var)
 		_, local := b.locals[v]
 		return ok && local
+	case *syntax.StarExpr:
+		return b.fixed(x.X) && b.fc.fixedName(x.X)
 	case *syntax.SelectorExpr:
 		if _, isPtr := b.l.info.Types[x.X].(*check.Pointer); isPtr {
-			return false
+			return b.fixed(x.X) && b.fc.fixedName(x.X)
 		}
 		return b.fixed(x.X)
 	}
