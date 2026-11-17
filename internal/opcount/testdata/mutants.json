@@ -119,6 +119,15 @@
       "killers": ["internal/opcount:TestReceiptNumbers"]
     },
     {
+      "name": "workload-package-unread",
+      "origin": "wf10 TOK-BISECT",
+      "file": "internal/opcount/workload.go",
+      "from": "if st, err := os.Stat(p); err == nil && st.IsDir() {",
+      "to": "if st, err := os.Stat(p); false && err == nil && st.IsDir() {",
+      "rule": "A program whose workload is a package folder keeps its workload file in it (workload/workload), and opcount reads it there.",
+      "killers": ["scripts/examples:TestModuleProgramWorkload", "scripts/examples:TestRepoExamplesHoldTheirLaws"]
+    },
+    {
       "name": "hook-allocs-unreported",
       "origin": "wf10 STROBE OPC",
       "file": "internal/opcount/hook.go",

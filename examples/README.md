@@ -35,7 +35,7 @@ A program of packages (196b; the Go layout of `AGENTS.md`) holds `ergo.mod` in p
 - package folders: any other folder except `cases/` and `testdata/`. A package folder holds `.ergo` files and package folders only.
 - top-level `.ergo` files, if any: the module root's package.
 - `README.md`, `tags`, `cases/`, and optionally `origin` with `record.sh` (or the folder `origin/`), `expected-skips`, `explored`, `testdata/` and `ergo.laws`, as above.
-- `workload`, optional: how `scripts/opcount` runs the program at two sizes for its counted receipt (see "Workload"). The runner reads it and does not run it; a line that does not read is a layout error, `examples/<name>: workload: line N: …`.
+- `workload`, optional: how `scripts/opcount` runs the program at two sizes for its counted receipt (see "Workload"). The runner reads it and does not run it; a line that does not read is a layout error, `examples/<name>: workload: line N: …`. When `workload` is a package folder (the program's `gen` documents), the file is `workload/workload` in it, and a workload package without it is a layout error, so `scripts/opcount` counts every program that has a workload.
 
 `ergo fmt --check` checks every `.ergo` file of its packages, and `ergo fix --check <package folder>` checks every package folder's clauses. A file that `ergo gen rpc` or `ergo gen cli` wrote (its first line says so, its second names the contract) is checked by `ergo gen KIND --check <package folder>.<OpType>`, once per contract, before the build: a stale file fails the program (`FAIL <program>: gen rpc <folder>.<OpType>`). The test leg runs `ergo test <package folder>` for every package folder, printing `ok <program>: test <folder>`. A package's test build runs the laws of every operation type it sees against every provider it sees, wherever each is declared, in the least package that sees them all (law-xpkg): the laws `kv.Store` declares run in package `memory` against `memory.Table`, and the std `fs.Writes` laws run there against `memory.Full`. A provider is built by its `New<P>` constructor when its package declares one, else generated.
 
@@ -73,7 +73,7 @@ A program's `workload` file tells `scripts/opcount` (docs/tooling.md, "Counted r
 - `input self WORD…`: the input is what the program prints with these arguments (a `gen` subcommand); `input go DIR WORD…`: what the Go main package `DIR` (from the repository root) prints. With an input and no `{input}` in `args`, the input is the program's stdin.
 - `control DIR`: the hand Go control, a Go main package `DIR` from the repository root, run with the same arguments and input; `opcount -control` measures it beside the program and requires the same output.
 
-`{n}` must appear in `args` or in the input's arguments. `lru`, `stackvm`, `onebrc`, `vt` and `toktree` hold one. A package folder named `workload` (the DOD programs' document writers, as `twig`'s) is a package, not this file.
+`{n}` must appear in `args` or in the input's arguments. `lru`, `stackvm`, `onebrc`, `vt` and `toktree` hold one; `flattree`, `jsonparse`, `mdhtml`, `tomlparse` and `twig` keep theirs in their `workload` package, as `workload/workload`. A package folder named `workload` (the DOD programs' document writers, as `twig`'s) is a package, not this file.
 
 ## TypeScript leg
 
