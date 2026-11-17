@@ -50,7 +50,7 @@ config	envKey	computation	NP4f-7
 config	envName	computation	NP4f-7
 config	flagKey	computation	NP4f-7
 config	flagName	computation	NP4f-7
-config	hostEnviron	library	NP4f-6
+config	hostEnviron	library	HOST-ROW: os.Environ through import go needs go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead
 crc32	Update	library	GBX3: Go's crc32.IEEETable is a package variable; MakeTable(IEEE) returns Option[go.Ref[Table]], a match per call
 csv	Format	library	not tried in NP4f-5: Go's csv.Writer writes to an io.Writer (strings.Builder through import go), a GB2 binding not probed
 csv	ParseError	type
@@ -88,19 +88,19 @@ fs	Info	type
 fs	MapText	provider
 fs	Mapped	type
 fs	NotFound	type
-fs	OpenRoot	library	NP4f-6
-fs	hostAppendFile	library	NP4f-6
-fs	hostChmod	library	NP4f-6
+fs	OpenRoot	library	a scoped resource: the body acquires Go's *os.Root into the caller's Scope with its release route (rt.AcquireInto), the runtime's provider boundary, plus HOST-ROW for os.OpenRoot
+fs	hostAppendFile	library	HOST-ROW: os.OpenFile through import go needs go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead; its flags (os.O_APPEND) are constants, its errors need GBX3
+fs	hostChmod	library	HOST-ROW: os.Chmod through import go needs go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead; its errors need GBX3
 fs	hostMapFile	provider
-fs	hostMkdirAll	library	NP4f-6
-fs	hostMkdirAllMode	library	NP4f-6
-fs	hostReadDir	library	NP4f-6
-fs	hostReadFile	library	NP4f-6
-fs	hostRemove	library	NP4f-6
-fs	hostRename	library	NP4f-6
-fs	hostStat	library	NP4f-6
-fs	hostWriteFile	library	NP4f-6
-fs	hostWriteFileMode	library	NP4f-6
+fs	hostMkdirAll	library	HOST-ROW: os.MkdirAll through import go needs go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead; its errors need GBX3
+fs	hostMkdirAllMode	library	HOST-ROW: os.MkdirAll through import go needs go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead; its errors need GBX3
+fs	hostReadDir	library	HOST-ROW: os.ReadDir through import go needs go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead; its errors need GBX3
+fs	hostReadFile	library	HOST-ROW: os.ReadFile through import go needs go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead; NotFound and Denied read fs.ErrNotExist and fs.ErrPermission, Go variables (GBX3)
+fs	hostRemove	library	HOST-ROW: os.Remove through import go needs go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead; its errors need GBX3
+fs	hostRename	library	HOST-ROW: os.Rename through import go needs go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead; its errors need GBX3
+fs	hostStat	library	HOST-ROW: os.Stat through import go needs go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead; Info from fs.FileInfo, an interface value (GB2), and its errors need GBX3
+fs	hostWriteFile	library	HOST-ROW: os.WriteFile through import go needs go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead; its errors need GBX3
+fs	hostWriteFileMode	library	HOST-ROW: os.WriteFile through import go needs go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead; its errors need GBX3
 hex	Decode	library	LF2b (FK2): the string is copied for DecodeString and the result copied back (strings.FromBytes), 1.495x the body
 hex	Encode	library	LF2b (FK2): the string's bytes are copied for EncodeToString (strings.Bytes), 1.038x the body; a view of a string as []byte removes the copy
 hex	Malformed	type
@@ -108,11 +108,11 @@ http	BodyFile	type
 http	EncodeQuery	computation	NP4f-7
 http	Exchange	type
 http	Field	type
-http	IntoFile	library	NP4f-6
+http	IntoFile	library	GB3, GB4 and HOST-ROW, as fetch; it writes through fs.HostRoot (GBX1b)
 http	InvalidClient	type
 http	InvalidLimits	type
 http	Limits	type
-http	Listen	library	NP4f-6
+http	Listen	library	HOST-ROW: net.Listen through import go needs go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead; Listener holds a Go net.Listener (GB2, GBX1b)
 http	ListenFailed	type
 http	Listener	type
 http	OriginRefused	type
@@ -125,12 +125,12 @@ http	StatusRefused	type
 http	WriteFailed	type
 http	checkNetwork	computation	NP4f-7
 http	checkOrigin	computation	NP4f-7
-http	fetch	library	NP4f-6
-http	fetchInto	library	NP4f-6
-http	fetchLocal	library	NP4f-6
-http	fetchLocalInto	library	NP4f-6
-http	send	library	NP4f-6
-http	sendInto	library	NP4f-6
+http	fetch	library	GB3, GB4 (stores, not on this base) and HOST-ROW, as send; plus the origin and redirect policy over http.Client.CheckRedirect, a Go callback field
+http	fetchInto	library	GB3, GB4 (stores, not on this base) and HOST-ROW, as fetch
+http	fetchLocal	library	GB3, GB4 (stores, not on this base) and HOST-ROW, as fetch
+http	fetchLocalInto	library	GB3, GB4 (stores, not on this base) and HOST-ROW, as fetch
+http	send	library	GB3, GB4 (stores, not on this base) and HOST-ROW: net/http's client needs go.Foreign, its Request a struct literal with omitted fields (GB3c), and gostd net/http refuses 38 bindings, Go variables among them (GBX3)
+http	sendInto	library	GB3, GB4 (stores, not on this base) and HOST-ROW, as send
 http	serve	host
 io	ReadFailed	type
 io	hostEprint	host
@@ -171,10 +171,10 @@ math	ToUintptr	computation	PRIM range fact (B, BCE1's facts) and ENV-PURE: an Er
 os	Code	type
 os	Exit	type
 os	NoWorkdir	type
-os	hostArgs	library	NP4f-6
-os	hostGetenv	library	NP4f-6
-os	hostGetwd	library	NP4f-6
-os	hostHasEnv	library	NP4f-6
+os	hostArgs	library	GBX3: os.Args is a Go variable (gostd os: "ergo:refused Args: a Go variable is host state; call a function")
+os	hostGetenv	library	HOST-ROW: os.Getenv through import go needs go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead
+os	hostGetwd	library	HOST-ROW: os.Getwd through import go needs go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead
+os	hostHasEnv	library	HOST-ROW: os.LookupEnv through import go needs go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead
 prelude	Append	language	PRIM
 prelude	Get	language	PRIM
 prelude	InForce	provider
@@ -202,7 +202,7 @@ rpc	TagOf	computation	NP4f-7
 rpc	Tagged	computation	NP4f-7
 rpc	Transport	type
 rpc	Unrepresentable	type
-rpc	call	library	NP4f-6
+rpc	call	library	GB3, GB4 (stores, not on this base) and HOST-ROW: an HTTP POST through net/http's client, as http.send
 rpc	exitLines	computation	NP4f-7
 rpc	exits	computation	NP4f-7
 rpc	nextID	computation	NP4f-7
@@ -264,17 +264,17 @@ testing	newLine	provider
 testing	newOp	provider
 time	Count	computation	NP4f-7
 time	Divide	computation	NP4f-7
-time	DurationText	library	NP4f-6
-time	ParseDuration	library	NP4f-6
+time	DurationText	library	GBX4: time.Duration is Ergo's duration, so gostd refuses Duration.String
+time	ParseDuration	library	GBX4: time.Duration is Ergo's duration, so gostd refuses ParseDuration's result
 time	ParseError	type
 time	Reading	type
 time	Timeline	type
 time	Times	computation	NP4f-7
-time	format	library	NP4f-6
-time	hostMono	library	NP4f-6
-time	hostNow	library	NP4f-6
+time	format	library	GBX6 rows for time: time.Unix, Time.UTC and Time.Format are pure, but std/time is outside v1.PureImports and gostd binds each needs go.Foreign; FK2's gofacts rows
+time	hostMono	library	HOST-ROW: time.Since through import go needs go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead; it reads the runtime's start time, a Go variable of runtime/v1 (GBX3)
+time	hostNow	library	HOST-ROW: time.Now through import go needs go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead
 time	newTimeline	provider
-time	parse	library	NP4f-6
+time	parse	library	GBX6 rows for time (time.ParseInLocation, Time.Unix, Time.Nanosecond bind needs go.Foreign) and GBX3 (time.UTC is a Go variable)
 time	subMono	computation	NP4f-7
 time	subWall	computation	NP4f-7
 timeout	After	provider
