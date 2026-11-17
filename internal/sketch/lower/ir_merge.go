@@ -55,6 +55,9 @@ func SetPureMerge(on bool) (restore func()) {
 // forms report.
 type irCall struct {
 	site *syntax.CallExpr
+	// fn is the callee (the fold pass reads a Go function's path and
+	// name; ir_fold.go).
+	fn *check.Func
 }
 
 // The merge pass's reasons (ir_forms_report.go).
@@ -78,7 +81,7 @@ func (b *irBuilder) markPure(x *syntax.CallExpr, e *irExpr) {
 		return
 	}
 	if b.pureCallee(c.Func) { // ir_memo.go
-		e.C = &irCall{site: x}
+		e.C = &irCall{site: x, fn: c.Func}
 	}
 }
 

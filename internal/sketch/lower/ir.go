@@ -39,8 +39,11 @@ type IRReport struct {
 	Memo int `json:"memo,omitempty"`
 	// Merge counts the pure calls that read an equal call's value
 	// (ir_merge.go).
-	Merge int    `json:"merge,omitempty"`
-	Hash  string `json:"hash"`
+	Merge int `json:"merge,omitempty"`
+	// Fold counts the pure Go calls on constants computed at compile
+	// time (ir_fold.go).
+	Fold int    `json:"fold,omitempty"`
+	Hash string `json:"hash"`
 	// Forms counts the IR forms the bodies held before erasure, by
 	// kind and layout ("match/flat"; ir_forms.go): in memory only.
 	Forms map[string]int `json:"-"`
@@ -372,6 +375,9 @@ type irBuilder struct {
 	// mergeSites counts the body's calls the merge pass replaced
 	// (ir_merge.go).
 	mergeSites int
+	// foldSites counts the body's calls the fold pass replaced
+	// (ir_fold.go).
+	foldSites int
 	// forms are the body's form sites (ir_forms_report.go), kept with its
 	// IR body.
 	forms []FormSite
@@ -559,6 +565,7 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	}
 	n := len(b.fn.Body)
 	b.fn.Body = append(b.fn.Body, b.bodyStmts(f.Decl.Body.List)...) // ir_fail.go
+	b.fn.Body = b.foldCalls(b.fn.Body)                              // ir_fold.go
 	b.fn.Body = b.mergeCalls(b.fn.Body)                             // ir_merge.go
 	b.fn.Body = eraseForms(b.fn.Body, b.st.sawForm)                 // ir_forms_erase.go
 	b.part(b.ownVisited)                                            // ir_own.go
@@ -574,6 +581,7 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	st.report.IR = append(st.report.IR, name)
 	st.report.Memo += b.memoSites
 	st.report.Merge += b.mergeSites
+	st.report.Fold += b.foldSites
 	st.report.FormSites = append(st.report.FormSites, b.forms...) // ir_forms_report.go
 	return true
 }

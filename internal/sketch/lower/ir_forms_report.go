@@ -54,7 +54,8 @@ var (
 // formReasons is every reason a pass may give, by pass, in the order the
 // docs list them (docs/spec/inspect.md, Forms).
 var formReasons = []*FormReason{memoFired, memoImpure, memoKind, memoNotBasic, memoVariant, memoStatements,
-	mergeFired, mergeWritten, mergeNotValue, mergeNotFirst} // ir_merge.go
+	mergeFired, mergeWritten, mergeNotValue, mergeNotFirst, // ir_merge.go
+	foldFired, foldOtherGo, foldNotConst} // ir_fold.go
 
 // FormReasons is every reason a pass may give: the vocabulary of
 // `ergo inspect forms`.
