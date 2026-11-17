@@ -840,10 +840,10 @@ func overlapIsRefused(seed int) bool {
 // FixesCycleIsRefused: fixes that give back the sources of an earlier
 // round (a fix that turns "a" into "b" and a fix that turns it back) are
 // refused as soon as the round repeats, not after MaxFixRounds checks.
-law FixesCycleIsRefused() { fixesCycleIsRefused() }
+law FixesCycleIsRefused(seed int) { fixesCycleIsRefused(seed) }
 
-func fixesCycleIsRefused() bool {
-	let sources = []Source{Source{File: "gen/p0/a.ergo", Text: "a\n"}}
+func fixesCycleIsRefused(seed int) bool {
+	let sources = []Source{Source{File: "gen/p0/a.ergo", Text: "a\(seed)\n"}}
 	let _ = Plan(Open(sources, flip, NewStore()), Fixes{Rules: []string{}}) catch {
 	case BadChange as b:
 		return strings.Contains(b.Reason, "round 2 gives the sources of an earlier one")
