@@ -639,7 +639,7 @@ index 0000000..c3c34df
 +		val := x.V
 +		if x.Op == "quoted" {
 +			// A string constant that is not UTF-8, which the JSON file
-+			// cannot carry: its Go quoted form (WIRE-IR, CBOR's bytes).
++			// cannot carry: its Go quoted form (CW-IR, CBOR's bytes).
 +			s, err := strconv.Unquote(x.V)
 +			if err != nil || !ergoIsString(t) {
 +				c.errorf(x.Pos, "ergoir: quoted constant %s of type %v", x.V, t)
@@ -876,7 +876,7 @@ index 0000000..c3c34df
 +			return nil, nil
 +		}
 +		if m, ok := types2.CoreType(xt).(*types2.Map); ok {
-+			// A Map's value by its key, read only (WIRE-IR: a codec
++			// A Map's value by its key, read only (CW-IR: a codec
 +			// writer reads each entry by a key of WireKeys).
 +			if !types2.Identical(it, m.Key()) {
 +				c.errorf(x.Pos, "ergoir: index of %v by %v", xt, it)

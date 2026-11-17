@@ -1,6 +1,6 @@
 package lower
 
-// IR builder: a cell writer's codec function (WIRE-IR; wiretext.go, Cell
+// IR builder: a cell writer's codec function (CW-IR; wiretext.go, Cell
 // writers). The text emitter writes the function's Go text and rewrites it
 // line by line (cellEventsFrom). On the IR path the same function is built
 // here as an IR body, in two steps:

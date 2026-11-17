@@ -20,6 +20,7 @@ internal/sketch/check/wireform_test.go	*
 internal/sketch/eval/codecwalk.go	w.callFunc(w.in.wirePair(r.t).Wire, v)
 internal/sketch/eval/codecwalk.go	w.callFunc(p.Wire, v)
 internal/sketch/lower/wireform_test.go	*
+internal/sketch/lower/ir_wire.go	irNo("codec writer of a wire form %v", check.WireFormOf(t))
 docs/spec/types.md	8. **Declared wire forms.**
 docs/spec/types.md	A marker with the wrong structural shape is S108 when used as `wire`.
 docs/spec/types.md	A structural form cannot also declare an independent Parse/Wire pair;

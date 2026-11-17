@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// GenerateCellWire is a program of cell writers (WIRE-IR; lower's
+// GenerateCellWire is a program of cell writers (CW-IR; lower's
 // ir_wire.go): seeded records, slices, Maps and a union, each value
 // encoded on std json's Text, whose provider's proved laws rewrite each
 // codec function's runs of events, and printed. Record i's fields are

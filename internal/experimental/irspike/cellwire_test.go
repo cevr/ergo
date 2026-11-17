@@ -19,7 +19,7 @@ func (admitAll) Admit(*check.Law, *check.Named, lower.RewriteInstance) (bool, st
 }
 
 // TestIRCellWritersMatchSource is the seeded property over the codec
-// writers the IR builds (WIRE-IR, lower's ir_wire.go; GenerateCellWire):
+// writers the IR builds (CW-IR, lower's ir_wire.go; GenerateCellWire):
 // each program prints the same on json's Text and on Tape under the IR
 // path and the source path, whose codec functions are the text emitter's
 // (the reference), every law admitted, and the IR file holds the cell
@@ -28,9 +28,9 @@ func (admitAll) Admit(*check.Law, *check.Named, lower.RewriteInstance) (bool, st
 // replay command.
 //
 // Mutants (ir_wire.go; the ledger names the ones this kills):
-// wire-ir-lead-kept, wire-ir-tail-past-loop, wire-ir-arm-tail,
-// wire-ir-variant-any-state, wire-ir-passthrough-first,
-// wire-ir-tail-after-call, wire-ir-map-unordered.
+// cw-ir-tail-past-loop, cw-ir-arm-tail,
+// cw-ir-variant-any-state, cw-ir-passthrough-first,
+// cw-ir-tail-after-call, cw-ir-map-unordered.
 //
 // It builds Go because the codec functions' events run only in the
 // compiled program, on the providers' functions.
