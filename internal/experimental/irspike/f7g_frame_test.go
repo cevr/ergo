@@ -97,33 +97,6 @@ func TestIRStaticExits(t *testing.T) {
 	}
 }
 
-// callKinds adds to into "pcall NAME" for each package call under v, the
-// IR's JSON, and "defer NAME" for each deferred method call.
-func callKinds(v any, into map[string]bool) {
-	switch x := v.(type) {
-	case map[string]any:
-		if k, _ := x["k"].(string); k == "pcall" {
-			if n, ok := x["name"].(string); ok {
-				into["pcall "+n] = true
-			}
-		}
-		if k, _ := x["k"].(string); k == "defer" {
-			if c, ok := x["x"].(map[string]any); ok {
-				if n, ok := c["name"].(string); ok {
-					into["defer "+n] = true
-				}
-			}
-		}
-		for _, e := range x {
-			callKinds(e, into)
-		}
-	case []any:
-		for _, e := range x {
-			callKinds(e, into)
-		}
-	}
-}
-
 // TestIRFramesHaveBodies checks in process, on LowerIR's report, that the
 // bodies of GenerateFrame that open a frame scope have IR bodies.
 //

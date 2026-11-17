@@ -77,6 +77,17 @@ func main() {
 		if _, err = fmt.Sscan(os.Args[2], &seed); err == nil {
 			fmt.Print(irspike.GenerateFail(seed))
 		}
+	case "exitforms":
+		if len(os.Args) != 3 {
+			fail(fmt.Errorf("usage: irspike exitforms ROOT"))
+		}
+		var forms map[string][]string
+		if forms, err = irspike.ExitForms(os.Args[2], os.Stderr); err == nil {
+			for _, form := range []string{"scope", "slots", "defer", "quiet"} {
+				fmt.Printf("%s\t%d\t%s\n", form, len(forms[form]), strings.Join(forms[form], " "))
+			}
+			fmt.Printf("unbuilt\t%s\n", forms["unbuilt"][0])
+		}
 	case "genunion":
 		var seed uint64
 		if len(os.Args) != 3 {
