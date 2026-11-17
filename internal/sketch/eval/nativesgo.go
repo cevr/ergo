@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"hash/crc32"
 	"math"
-	"strconv"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -18,8 +17,7 @@ import (
 // package reaches it as a user does (NP4f: std binds Go through import
 // go), so its Ergo body runs here and calls the same entry. Only the
 // functions listed here run; any other Go function stays a skip. Each
-// takes and gives basic values, a []byte or a [N]byte (goBytes), and a
-// Go error is a failure that only a catch of go.Error takes (goFails).
+// takes and gives basic values, a []byte or a [N]byte (goBytes).
 var goNatives = map[string]native{
 	"math.Log":          goFloat(math.Log),
 	"math.Exp":          goFloat(math.Exp),
@@ -62,8 +60,6 @@ func registerNativesgo() {
 		}
 		return newSlice(out), nil
 	}
-	goNatives["strconv.ParseBool"] = goFails(func(s string) (Value, error) { return strconv.ParseBool(s) })
-	goNatives["strconv.Unquote"] = goFails(func(s string) (Value, error) { return strconv.Unquote(s) })
 	goNatives["math.Pow"] = two(math.Pow)
 	goNatives["math.Mod"] = two(math.Mod)
 	goNatives["math.FMA"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
@@ -141,24 +137,4 @@ func byteArray(b []byte) Value {
 	a := newSlice(out)
 	a.array = true
 	return a
-}
-
-// goFails is a Go function of a string with a result and an error: the
-// error is the call's failure, a Go value that only a catch of go.Error
-// takes (hasType: a value that is not a record has every type).
-func goFails(f func(string) (Value, error)) native {
-	return func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
-		s := args[0].(string)
-		if ab := in.charge(fr, at, 1+int64(len(s))); ab != nil {
-			return nil, ab
-		}
-		v, err := f(s)
-		if err != nil {
-			return nil, fr.abrupt(ctlFail, at, err, "")
-		}
-		if out, ok := v.(string); ok {
-			return out, in.allocate(fr, at, int64(len(out)))
-		}
-		return v, nil
-	}
 }
