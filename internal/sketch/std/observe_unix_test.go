@@ -20,7 +20,7 @@ import (
 // (Package reads a file without observing it).
 func TestObserveOpensTheCheckoutCopy(t *testing.T) {
 	root := t.TempDir()
-	dir := filepath.Join(root, filepath.FromSlash(sourceDir), "json")
+	dir := filepath.Join(root, filepath.FromSlash(moduleDir), "json")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestObserveOpensTheCheckoutCopy(t *testing.T) {
 	if err := <-opened; err != nil {
 		t.Fatalf("open %s for writing: %v", path.Join("json", first), err)
 	}
-	prelude := filepath.Join(root, filepath.FromSlash(sourceDir), "prelude.ergo")
+	prelude := filepath.Join(root, filepath.FromSlash(moduleDir), "prelude.ergo")
 	if err := syscall.Mkfifo(prelude, 0o600); err != nil {
 		t.Fatal(err)
 	}
