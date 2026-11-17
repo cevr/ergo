@@ -139,10 +139,11 @@ func TestLongestStepTakesTheFirstFreedSlot(t *testing.T) {
 // weight, each sharded test step weighs the recorded cost of its tests
 // (shardCosts), the other packages' step theirs, a closure sweep
 // sweepWeightFactor times its package's (a host package's the stated
-// default), and the closure sweep of internal/sketch/lower is the heaviest
-// step after the writers, so it takes the first slot the writers free
-// (batch-10: it started at 381 s of the merge tier and was its longest
-// step).
+// default), and the closure sweep of the package with the most recorded
+// time is the heaviest step after the writers, so it takes the first slot
+// the writers free (batch-10: internal/sketch/lower's started at 381 s of
+// the merge tier and was its longest step; since the IR tests' rows,
+// internal/experimental/irspike has the most).
 func TestStepsWeighTheirRecordedTime(t *testing.T) {
 	host := sweepOS
 	t.Cleanup(func() { sweepOS = host })
@@ -201,8 +202,16 @@ func TestStepsWeighTheirRecordedTime(t *testing.T) {
 			heaviest = step
 		}
 	}
-	if heaviest == nil || heaviest.Name != "closure sweep ./internal/sketch/lower" {
-		t.Errorf("the heaviest step after the writers is %v; want the closure sweep of internal/sketch/lower", heaviest)
+	longest, most := "", 0.0
+	for _, step := range steps {
+		if step.Sweep != "" && !slices.Contains(hostTestPackages, step.Sweep) {
+			if seconds := total(module + "/" + step.Sweep); seconds > most {
+				longest, most = step.Sweep, seconds
+			}
+		}
+	}
+	if heaviest == nil || heaviest.Name != "closure sweep ./"+longest {
+		t.Errorf("the heaviest step after the writers is %v; want the closure sweep of %s, the package with the most recorded time", heaviest, longest)
 	}
 	if len(shards) == 0 {
 		t.Fatal("no sharded test step")

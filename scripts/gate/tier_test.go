@@ -350,8 +350,10 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 	// scripts/mutants is not reached. The combined batch 19+20+21 head adds
 	// the lint rules (internal/sketch/lint and the example rule package
 	// examples/lintpack/policy read the checker's result) and
-	// scripts/bootstrap, whose closure covers the checker's sources (GS29).
-	want := []string{"cmd/ergo", "examples/lintpack/policy", "internal/bindc", "internal/experimental/irspike", "internal/gobind", "internal/migrate196", "internal/residue", "internal/rpcgen", "internal/sketch/api", "internal/sketch/check", "internal/sketch/eval", "internal/sketch/facts", "internal/sketch/fix", "internal/sketch/lint", "internal/sketch/lower", "internal/sketch/machinegraph", "internal/sketch/std", "internal/sketch/syntax", "internal/sketchfront", "internal/testinputs/guard", "internal/tsproj", "scripts/bootstrap", "scripts/examples"}
+	// scripts/bootstrap, whose closure covers the checker's sources (GS29),
+	// and internal/opcount, whose HookedBuild builds through sketchfront
+	// (TM 88a4a6aab).
+	want := []string{"cmd/ergo", "examples/lintpack/policy", "internal/bindc", "internal/experimental/irspike", "internal/gobind", "internal/migrate196", "internal/opcount", "internal/residue", "internal/rpcgen", "internal/sketch/api", "internal/sketch/check", "internal/sketch/eval", "internal/sketch/facts", "internal/sketch/fix", "internal/sketch/lint", "internal/sketch/lower", "internal/sketch/machinegraph", "internal/sketch/std", "internal/sketch/syntax", "internal/sketchfront", "internal/testinputs/guard", "internal/tsproj", "scripts/bootstrap", "scripts/examples"}
 	if !slices.Equal(check, want) {
 		t.Errorf("a checker edit reaches %v; want %v", check, want)
 	}
