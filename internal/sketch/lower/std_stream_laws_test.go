@@ -6,7 +6,9 @@ package lower
 
 // stdStreamLawsProbe restates the stream laws whose runner is
 // TestStdStreamLawsRun as Ergo tests over std stream.
-const stdStreamLawsProbe = `import stream
+const stdStreamLawsProbe = `import queue
+import stream
+import task
 import time
 
 // gapAt is the gap before the i-th value, in milliseconds: gaps[i] mod 50,
@@ -105,6 +107,39 @@ func groupedModel(at []int, xs []int, n int, d int) [][]int {
 	out
 }
 
+// arrives more than d later, at at[i]+d, and the last at its arrival.
+func debouncedModel(at []int, xs []int, d int) []int {
+	let mut out = []int{}
+	for i, x in xs {
+		if i == len(xs)-1 {
+			out = out.Append(x).Append(at[i])
+		} else if at[i+1]-at[i] > d {
+			out = out.Append(x).Append(at[i] + d)
+		}
+	}
+	out
+}
+
+// doubled, in milliseconds.
+func evenArrivals(gaps []int, n int) []int {
+	let mut at = []int{}
+	let mut t = 0
+	for i in 0..n {
+		t = t + 2*gapAt(gaps, i)
+		at = at.Append(t)
+	}
+	at
+}
+
+// lastOf is the last value of at, or 0 when at is empty.
+func lastOf(at []int) int {
+	if len(at) == 0 {
+		0
+	} else {
+		at[len(at)-1]
+	}
+}
+
 // collect is the values of s.
 func collect(s Seq[int]) []int {
 	let mut out = []int{}
@@ -196,6 +231,50 @@ test StreamThrottleStops(gaps []int, xs []int, w int) {
 	assert stops(stream.Throttle(arrivals(m, gaps, xs), millis(window(w)), m))
 }
 
+test StreamDebouncedMatchesModel(gaps []int, xs []int, w int) {
+	let m = time.NewManual(0)
+	let d = 2*(window(w)%30) + 1
+	let n = len(xs)
+	let start = m.Now()
+	let ok = with context { Scheduler: m } {
+		let src = queue.New[int](n + 1)
+		let out = queue.New[int](n + 1)
+		let seen = queue.New[int](2*n + 1)
+		let producer = task.Go() {
+			for i, x in xs {
+				Scheduler.Sleep(millis(2 * gapAt(gaps, i)))
+				src.Push(x) catch {
+				case queue.Closed:
+				}
+			}
+			src.End()
+		}
+		let debouncer = task.Go() {
+			stream.Debounced(src, millis(d), out) catch {
+			case queue.Closed:
+			}
+		}
+		let reader = task.Go() {
+			for v in out.Values() {
+				seen.Push(v) catch {
+				case queue.Closed:
+				}
+				seen.Push(time.Count(m.Elapsed(start), 1ms)) catch {
+				case queue.Closed:
+				}
+			}
+			seen.End()
+		}
+		let at = evenArrivals(gaps, n)
+		m.Advance(millis(lastOf(at) + d + 1))
+		producer.Wait()
+		debouncer.Wait()
+		reader.Wait()
+		sameInts(collect(seen.Values()), debouncedModel(at, xs, d))
+	}
+	assert ok
+}
+
 test StreamDebounceStops(gaps []int, xs []int, w int) {
 	let m = time.NewManual(0)
 	assert stops(stream.Debounce(arrivals(m, gaps, xs), millis(window(w)), m))
@@ -215,6 +294,7 @@ var stdStreamLawStatements = map[string]string{
 	"stream GroupedWithinMatchesModel":    `GroupedWithinMatchesModel(gaps []int, xs []int, w int, k int) { let m = time.NewManual(0) sameChunks(collectChunks(GroupedWithin(arrivals(m, gaps, xs), size(k), millis(window(w)), m)), groupedModel(arrivalsAt(gaps, len(xs)), xs, size(k), window(w))) }`,
 	"stream GroupedWithinKeepsEveryValue": `GroupedWithinKeepsEveryValue(gaps []int, xs []int, w int, k int) { let m = time.NewManual(0) let mut joined = []int{} let mut empty = false for c in GroupedWithin(arrivals(m, gaps, xs), size(k), millis(window(w)), m) { empty = empty || len(c) == 0 for x in c { joined = joined.Append(x) } } !empty && sameInts(joined, xs) }`,
 	"stream ThrottleStops":                `ThrottleStops(gaps []int, xs []int, w int) { let m = time.NewManual(0) stops(Throttle(arrivals(m, gaps, xs), millis(window(w)), m)) }`,
+	"stream DebouncedMatchesModel":        `DebouncedMatchesModel(gaps []int, xs []int, w int) { let m = time.NewManual(0) let d = 2*(window(w)%30) + 1 let n = len(xs) let start = m.Now() with context { Scheduler: m } { let src = queue.New[int](n + 1) let out = queue.New[int](n + 1) let seen = queue.New[int](2*n + 1) let producer = task.Go() { for i, x in xs { Scheduler.Sleep(millis(2 * gapAt(gaps, i))) src.Push(x) catch { case queue.Closed: } } src.End() } let debouncer = task.Go() { Debounced(src, millis(d), out) catch { case queue.Closed: } } let reader = task.Go() { for v in out.Values() { seen.Push(v) catch { case queue.Closed: } seen.Push(time.Count(m.Elapsed(start), 1ms)) catch { case queue.Closed: } } seen.End() } let at = evenArrivals(gaps, n) m.Advance(millis(lastOf(at) + d + 1)) producer.Wait() debouncer.Wait() reader.Wait() sameInts(collect(seen.Values()), debouncedModel(at, xs, d)) } }`,
 	"stream DebounceStops":                `DebounceStops(gaps []int, xs []int, w int) { let m = time.NewManual(0) stops(Debounce(arrivals(m, gaps, xs), millis(window(w)), m)) }`,
 	"stream GroupedWithinStops":           `GroupedWithinStops(gaps []int, xs []int, w int, k int) { let m = time.NewManual(0) stops(GroupedWithin(arrivals(m, gaps, xs), size(k), millis(window(w)), m)) }`,
 }
