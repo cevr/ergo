@@ -823,6 +823,13 @@ func readAs(n ui.Node[int], off bool, desc string) ui.Access {
 		ui.Access{Role: ui.Region, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
 	case ui.CanvasNode as x:
 		ui.Access{Role: ui.Image, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
+	case ui.SemanticNode[int] as x:
+		let mut a = x.Access
+		a.Disabled = x.Access.Disabled || off
+		if x.Access.Description == "" {
+			a.Description = desc
+		}
+		a
 	case ui.RowsNode as x:
 		ui.Access{Role: ui.List, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
 	case _:
@@ -852,6 +859,8 @@ func wants(loc ui.Locator, x seen) bool {
 		match x.node {
 		case ui.InputNode as i:
 			i.Label != "" && i.Label == l.Label
+		case ui.SemanticNode[int] as s:
+			s.Access.Name == l.Label
 		case _:
 			labelled && x.a.Name == l.Label
 		}
@@ -894,6 +903,9 @@ func extras(f *ui.Frame[int], v int) {
 		}
 		ui.Canvas(f, "c\(v % 4)", 4, 4) func(p *ui.Paint) {}
 		ui.Rows(f, "rows", 0, 10, func(i int) ui.Key { ui.ByInt(i) }) func(i int) {}
+		ui.Semantic(f, extraSem(v), None, ui.Plain()) {
+			ui.Text(f, "in sem")
+		}
 	}
 }
 
@@ -908,9 +920,25 @@ func extraLabel(v int) ui.FieldLabel {
 	l
 }
 
+// extraRoles is every role (UG2).
+func extraRoles() []ui.Role {
+	[]ui.Role{ui.Button, ui.Checkbox, ui.Switch, ui.TextBox, ui.Static, ui.Group, ui.Region, ui.Image, ui.List, ui.Status, ui.Generic, ui.Tab, ui.TabList, ui.TabPanel, ui.Dialog, ui.Menu, ui.MenuItem, ui.Tree, ui.TreeItem, ui.Heading, ui.Alert, ui.Link, ui.Table, ui.TableRow, ui.TableCell, ui.RadioGroup, ui.Radio, ui.ListBox, ui.ListOption, ui.Slider, ui.SpinButton, ui.SearchBox, ui.MenuItemCheckbox, ui.ComboBox, ui.Grid, ui.GridCell, ui.ColumnHeader, ui.RowHeader, ui.Navigation, ui.ListItem, ui.Separator, ui.Tooltip}
+}
+
+// extraSem is extras' Semantic: a role, name, state, key and relation v
+// draws (UG2).
+func extraSem(v int) ui.Access {
+	let roles = extraRoles()
+	let mut a = ui.Named(roles[v%len(roles)], "sem\(v % 3)")
+	a.Selected = Some{Value: v%2 == 0}
+	a.Key = ui.ByInt(v % 3)
+	a.Rels = []ui.Rel{ui.Controls{To: ui.ByInt(v % 2)}}
+	a
+}
+
 func extraShapes(v int) []ui.Shape[int] {
 	let l = extraLabel(v)
-	let kids = []ui.Shape[int]{leaf(ui.ToggleNode{Label: "tg\(v % 3)", On: true}), leaf(ui.InputNode{Value: "val", Placeholder: "ph\(v % 2)", Label: l.Text, Description: l.Description, Invalid: l.Invalid}), ui.Shape[int]{Node: ui.AreaNode{Label: "area\(v % 2)", Style: ui.Plain()}, Kids: []ui.Shape[int]{leaf(ui.TextNode{Value: "in area", Style: ui.Plain()})}}, leaf(ui.CanvasNode{Label: "c\(v % 4)", Width: 4, Height: 4, Paint: []ui.PaintOp{}}), leaf(ui.RowsNode{Label: "rows", Count: 0, RowHeight: 10, First: 0, Offset: 0})}
+	let kids = []ui.Shape[int]{leaf(ui.ToggleNode{Label: "tg\(v % 3)", On: true}), leaf(ui.InputNode{Value: "val", Placeholder: "ph\(v % 2)", Label: l.Text, Description: l.Description, Invalid: l.Invalid}), ui.Shape[int]{Node: ui.AreaNode{Label: "area\(v % 2)", Style: ui.Plain()}, Kids: []ui.Shape[int]{leaf(ui.TextNode{Value: "in area", Style: ui.Plain()})}}, leaf(ui.CanvasNode{Label: "c\(v % 4)", Width: 4, Height: 4, Paint: []ui.PaintOp{}}), leaf(ui.RowsNode{Label: "rows", Count: 0, RowHeight: 10, First: 0, Offset: 0}), ui.Shape[int]{Node: ui.SemanticNode{Access: extraSem(v), On: None, Style: ui.Plain()}, Kids: []ui.Shape[int]{leaf(ui.TextNode{Value: "in sem", Style: ui.Plain()})}}}
 	[]ui.Shape[int]{ui.Shape[int]{Node: ui.FieldsetNode{Disabled: v%2 == 1, Description: "x\(v)"}, Kids: kids}}
 }
 
@@ -942,7 +970,7 @@ func lawLocatorAgreesWithAccessTree(seed int) bool {
 		}
 		let want = accessModel(shapes, false, "")
 		let mut locs = []ui.Locator{}
-		for role in []ui.Role{ui.Button, ui.Checkbox, ui.Switch, ui.TextBox, ui.Static, ui.Group, ui.Region, ui.Image, ui.List, ui.Generic} {
+		for role in extraRoles() {
 			locs = locs.Append(ui.WithRole{Role: role, Name: ""})
 		}
 		let w = want[draw(&r, len(want))]
