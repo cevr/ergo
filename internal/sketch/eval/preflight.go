@@ -21,7 +21,8 @@ func (p *preflight) function(fr *frame, fn *check.Func) string {
 		ice("no resolved callee")
 	}
 	if fn.Decl == nil || fn.Decl.Body == nil || fn.Decl.Extern != nil || fn.Pkg.Host() {
-		if !fn.Pkg.Host() && nativeOf(fn) != nil || goNativeOf(fn) != nil {
+		// Go's append, at either shape, runs (interp.go callWitnessed).
+		if !fn.Pkg.Host() && nativeOf(fn) != nil || goNativeOf(fn) != nil || check.GoBuiltin(fn) == "append" {
 			return ""
 		}
 		return fmt.Sprintf("a Go function (%s), even a pure one", fn.Name)

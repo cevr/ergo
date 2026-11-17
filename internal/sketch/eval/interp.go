@@ -318,6 +318,19 @@ func (in *interp) callWitnessed(fr *frame, at *syntax.CallExpr, fn *check.Func, 
 			return nil, ab
 		}
 		return appendString(fn, args[0], args[1]), nil
+	case in.sym == nil && check.GoBuiltin(fn) == "append":
+		// An extern of Go's append at its first shape, [T](xs []T, x T)
+		// []T (check/builtin.go): the prelude's xs.Append(x), which the
+		// lowering also writes as Go's append (MX-EVAPPEND).
+		xs, ok := args[0].(sliceV)
+		if !ok {
+			ice("append's first argument is %T", args[0])
+		}
+		var site syntax.Node = fr.decl
+		if at != nil {
+			site = at
+		}
+		return in.appendTo(fr, site, xs, args[1], nil)
 	case fn.Decl == nil || fn.Decl.Body == nil || fn.Decl.Extern != nil || fn.Pkg.Host():
 		if in.sym != nil {
 			v, why := externTerm(fn, args)
