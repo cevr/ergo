@@ -17,9 +17,13 @@ var placeFuncs = []string{"Inner.grow", "Inner.reset", "Rec.bump"}
 // (loc.n, loc.xs[2]), pass a place's address to a *T function (grow(&r.inr,
 // k), reset(&loc, k), which stores through *i) and call one on a T place
 // (loc.grow(k), r.items[1].reset(k): the place's address, not a copy's),
-// and on a *T (r.bump(k)). main runs each at several k and prints what it
-// returns and a digest of r, so a write lost, made to a copy, or made
-// twice changes the output.
+// and on a *T (r.bump(k)). Some stores to a field through r take a value
+// whose statements write first (r.a = if k > 1 { r.inr.n = …; … } else
+// { … }): r is a parameter, so no statement moves the place (STOREMOVE).
+// moved stores through a let mut p that the value's statements reassign,
+// which only the place fixed first gets right. main runs each at several
+// k and prints what it returns and a digest of r, so a write lost, made
+// to a copy, made twice or made to the moved place changes the output.
 func GeneratePlace(seed uint64) string {
 	g := &plgen{r: rand.New(rand.NewPCG(seed, seed^0x9c4f1d2b7a3e5c61))}
 	var b strings.Builder
@@ -62,6 +66,33 @@ func mk(k int) Rec {
 	Rec{a: k, inr: Inner{n: k, xs: []int{k, 1, 2}}, items: []Inner{Inner{n: 1, xs: []int{0, k, 4}}, Inner{n: 2, xs: []int{5, 6, k}}}}
 }
 
+// moved stores through p, a let mut, a value whose statements move p:
+// the store goes to the record p held before them (r).
+func moved(r *Rec, k int) int {
+	let mut other = mk(k + 7)
+	let mut p = r
+	p.a = if k > 1 {
+		p = &other
+		p.a + 1
+	} else {
+		k
+	}
+	r.a * 100 + other.a
+}
+
+// movedAll is moved's store to *q itself.
+func movedAll(r *Rec, k int) int {
+	let mut other = mk(k + 7)
+	let mut q = r
+	*q = if k > 2 {
+		q = &other
+		mk(q.a + 1)
+	} else {
+		*q
+	}
+	r.a * 100 + other.a
+}
+
 `)
 	nf := 3 + g.r.IntN(3)
 	for i := 0; i < nf; i++ {
@@ -75,6 +106,7 @@ func mk(k int) Rec {
 	for i := 0; i < nf; i++ {
 		fmt.Fprintf(&b, "\t\tlet v%d = pl%d(&r, k)\n\t\tConsole.Println(\"pl%d \\(k) \\(v%d) \\(r.digest())\")\n", i, i, i, i)
 	}
+	b.WriteString("\t\tlet w = moved(&r, k)\n\t\tConsole.Println(\"moved \\(k) \\(w) \\(r.digest())\")\n\t\tlet wa = movedAll(&r, k)\n\t\tConsole.Println(\"movedAll \\(k) \\(wa) \\(r.digest())\")\n")
 	b.WriteString("\t}\n}\n")
 	return b.String()
 }
@@ -111,8 +143,22 @@ func (g *plgen) num() string {
 	return fmt.Sprintf("k * %d + 1", 2+g.r.IntN(5))
 }
 
+// fieldPlace is a place of an int reached from r by fields alone (r.a,
+// (*r).inr.n): r is a parameter, so no statement moves it.
+func (g *plgen) fieldPlace() string {
+	return g.pick("r", "(*r)") + g.pick(".a", ".inr.n")
+}
+
+// stmtValue is an int value whose IR writes statements: an if whose arm
+// first writes a place, which may be the stored one.
+func (g *plgen) stmtValue() string {
+	return fmt.Sprintf("if k > %d {\n\t\t%s = %s\n\t\t%s\n\t} else {\n\t\t%s\n\t}", g.r.IntN(4), g.intPlace(), g.num(), g.num(), g.num())
+}
+
 func (g *plgen) stmt() string {
-	switch g.r.IntN(7) {
+	switch g.r.IntN(9) {
+	case 7, 8:
+		return g.fieldPlace() + " = " + g.stmtValue()
 	case 0, 1:
 		return g.intPlace() + " = " + g.num()
 	case 2:
