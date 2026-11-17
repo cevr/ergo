@@ -1,12 +1,15 @@
 package main
 
 import (
-	"bytes"
+	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
+	"ergo.local/prototype/internal/linked/code"
 	"ergo.local/prototype/internal/sketch/fix"
 	"ergo.local/prototype/internal/sketch/lint"
 )
@@ -238,8 +241,13 @@ func displayPath(path string) string {
 	return path
 }
 
-// writeFixed writes each changed file once, by rename, after checking
-// that it still holds the text the fix read.
+// writeFixed writes the files whose text changes from before to after
+// (keyed by path) as one plan, by std code's apply protocol
+// (code.Rewrite, SEMTOOLS SEM4c): each is exchanged with its new text in
+// one host call, under the workspace's lock, after a check that every
+// file still holds the text the fix read; a file changed meanwhile is
+// refused Stale and no file is written. The workspace folder is the
+// folder that holds every path.
 func writeFixed(before, after map[string]string) error {
 	var paths []string
 	for p, text := range after {
@@ -247,38 +255,39 @@ func writeFixed(before, after map[string]string) error {
 			paths = append(paths, p)
 		}
 	}
+	if len(paths) == 0 {
+		return nil
+	}
 	slices.Sort(paths)
+	root := filepath.Dir(paths[0])
+	for _, p := range paths[1:] {
+		for root != filepath.Dir(root) && !strings.HasPrefix(p, root+string(filepath.Separator)) {
+			root = filepath.Dir(root)
+		}
+	}
+	was, now := []codeSource{}, []codeSource{}
 	for _, p := range paths {
-		info, err := os.Stat(p)
+		rel, err := filepath.Rel(root, p)
 		if err != nil {
 			return err
 		}
-		now, err := os.ReadFile(p)
-		if err != nil {
-			return err
-		}
-		if !bytes.Equal(now, []byte(before[p])) {
-			return fmt.Errorf("fix: %s changed while it was fixed; nothing written to it", p)
-		}
-		temp, err := os.CreateTemp(filepath.Dir(p), "."+filepath.Base(p)+".ergo-fix-*")
-		if err != nil {
-			return err
-		}
-		_, werr := temp.WriteString(after[p])
-		cerr := temp.Close()
-		if werr == nil {
-			werr = cerr
-		}
-		if werr == nil {
-			werr = os.Chmod(temp.Name(), info.Mode().Perm())
-		}
-		if werr == nil {
-			werr = os.Rename(temp.Name(), p)
-		}
-		if werr != nil {
-			_ = os.Remove(temp.Name())
-			return werr
-		}
+		was = append(was, codeSource{File: filepath.ToSlash(rel), Text: before[p]})
+		now = append(now, codeSource{File: filepath.ToSlash(rel), Text: after[p]})
+	}
+	b, err := json.Marshal(was)
+	if err != nil {
+		return err
+	}
+	a, err := json.Marshal(now)
+	if err != nil {
+		return err
+	}
+	out, err := code.Rewrite(context.Background(), root, string(b), string(a))
+	if err != nil {
+		return fmt.Errorf("fix: %w", err)
+	}
+	if len(out) < 3 || out[0] != "0" {
+		return fmt.Errorf("%s", strings.TrimSpace(strings.Join(out[min(len(out), 2):], "")))
 	}
 	return nil
 }

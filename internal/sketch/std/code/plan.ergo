@@ -314,6 +314,35 @@ func planChange(sources []Source, c Change, checker Checker) Planned fails BadCh
 	}}
 }
 
+// Rewritten is the plan that writes after over before, as a caller that
+// made and checked after itself gives it (ergo fix: its clause, mode and
+// lint passes): what is its change's text; it reads each file of before
+// at its revision, changes each file whose text after differs, and is
+// Ready with the proof Checked and no impact. Before and after name the
+// same files in the same order, else BadChange.
+func Rewritten(what string, before []Source, after []Source) Planned fails BadChange {
+	if len(before) != len(after) {
+		return BadChange{Reason: "a rewrite names \(len(before)) files before and \(len(after)) after"}
+	}
+	let mut reads = []FileRead{}
+	let mut files = []FileChange{}
+	let mut patch = ""
+	let mut key = what
+	for i, s in before {
+		if after[i].File != s.File {
+			return BadChange{Reason: "a rewrite names \(s.File) before and \(after[i].File) after"}
+		}
+		reads = reads.Append(FileRead{File: s.File, Revision: revision(s.Text)})
+		key = key + "\n" + s.File + " " + revision(s.Text)
+		let t = after[i].Text
+		if t != s.Text {
+			files = files.Append(FileChange{File: s.File, Old: revision(s.Text), New: revision(t), Text: t})
+			patch = patch + diff(s.File, s.Text, t)
+		}
+	}
+	Planned{ID: revision(key), Change: what, Reads: reads, Files: files, Patch: patch, Verdict: Ready{Proof: Checked}, Impact: []ApiChange{}}
+}
+
 // verdictOf: Blocked by each diagnostic the overlay adds (by code and
 // message, counted); else Checked when the base has diagnostics, SameCode
 // when the lowered code is unchanged, Checked otherwise.
@@ -807,6 +836,37 @@ func overlapIsRefused(seed int) bool {
 	let t = trialOf(sources, Fixes{Rules: []string{}})
 	!t.Ok
 }
+
+// FixesCycleIsRefused: fixes that give back the sources of an earlier
+// round (a fix that turns "a" into "b" and a fix that turns it back) are
+// refused as soon as the round repeats, not after MaxFixRounds checks.
+law FixesCycleIsRefused() { fixesCycleIsRefused() }
+
+func fixesCycleIsRefused() bool {
+	let sources = []Source{Source{File: "gen/p0/a.ergo", Text: "a\n"}}
+	let _ = Plan(Open(sources, flip, NewStore()), Fixes{Rules: []string{}}) catch {
+	case BadChange as b:
+		return strings.Contains(b.Reason, "round 2 gives the sources of an earlier one")
+	case _:
+		return false
+	}
+	false
+}
+
+// flip is a Checker whose one fix turns a first file that starts with
+// "a" into "b", and back: fixes with no fixed point (law
+// FixesCycleIsRefused). Its tables are the Model's.
+type flip {} implements Checker
+
+func Check(_ flip, sources []Source) Report fails CheckFailed {
+	let r = try Model.Check(sources)
+	let s = sources[0]
+	let to = if strings.HasPrefix(s.Text, "a") { "b" } else { "a" }
+	let d = Diagnostic{Code: "F1", Message: "flip", File: s.File, Line: 1, Column: 1, Fix: []Edit{Edit{File: s.File, Start: 0, End: 1, Text: to}}}
+	Report{Tables: r.Tables, Extents: r.Extents, Diagnostics: []Diagnostic{d}, Code: r.Code, Binds: r.Binds, Workspace: r.Workspace}
+}
+
+func Format(_ flip, text string) string fails CheckFailed { try Model.Format(text) }
 
 // EqualEditsOnce: of the edits of a round's fixes, equal ones are made
 // once, and insertions at one place go in the order the fixes list them

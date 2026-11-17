@@ -139,22 +139,50 @@ func Apply(root string, plan string) []string needs Ambient {
 	case _:
 		return []string{"1", "", "ergo code apply: the kept plan does not decode\n"}
 	}
+	applied("ergo code apply", root, p)
+}
+
+// Rewrite is `ergo fix`'s write (SEMTOOLS SEM4c): the files of the
+// workspace folder root whose text changes from before to after (each a
+// JSON []code.Source, paths relative to root, in one order), written as
+// one plan (code.Rewritten) by std code's apply protocol, so a file that
+// changed since the fix read it is refused Stale and nothing is written.
+func Rewrite(root string, before string, after string) []string needs Ambient {
+	let codec = json.Codec[[]code.Source]{MaxBytes: 1 << 40, MaxDepth: 16}
+	let b = json.Decode(codec, before) catch {
+	case _:
+		return []string{"1", "", "ergo fix: the sources before do not decode\n"}
+	}
+	let a = json.Decode(codec, after) catch {
+	case _:
+		return []string{"1", "", "ergo fix: the sources after do not decode\n"}
+	}
+	let p = code.Rewritten("fix", b, a) catch {
+	case code.BadChange as x:
+		return []string{"1", "", "ergo fix: \(x.Reason)\n"}
+	}
+	applied("ergo fix", root, p)
+}
+
+// applied is p written into root: the exit status, standard output and
+// standard error of the command named by.
+func applied(by string, root string, p code.Planned) []string needs Ambient {
 	let files code.Files = code.HostFilesOf(fs.NewHost(), root)
 	let r = code.ApplierOf(files, code.StoreOf([]code.Planned{p})).Apply(p.ID) catch {
 	case code.NoPlan as n:
-		return []string{"1", "", "ergo code apply: no plan \(n.ID)\n"}
+		return []string{"1", "", "\(by): no plan \(n.ID)\n"}
 	case code.NotReady as n:
-		return []string{"1", "", "ergo code apply: plan \(n.ID) is blocked by \(len(n.Diagnostics)) diagnostics\n"}
+		return []string{"1", "", "\(by): plan \(n.ID) is blocked by \(len(n.Diagnostics)) diagnostics\n"}
 	case code.Stale as s:
 		let mut names = ""
 		for f in s.Files {
 			names = names + " " + f
 		}
-		return []string{"1", "", "ergo code apply: plan \(s.ID) is stale; changed since it was made:\(names)\n"}
+		return []string{"1", "", "\(by): plan \(s.ID) is stale; changed since it was made:\(names)\n"}
 	case code.Busy:
-		return []string{"1", "", "ergo code apply: another apply holds the workspace's lock\n"}
+		return []string{"1", "", "\(by): another apply holds the workspace's lock\n"}
 	case code.IOFailed as e:
-		return []string{"1", "", "ergo code apply: \(e.Reason)\n"}
+		return []string{"1", "", "\(by): \(e.Reason)\n"}
 	}
 	let mut out = "applied \(r.ID)\n"
 	for f in r.Files {

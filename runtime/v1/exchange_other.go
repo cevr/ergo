@@ -1,9 +1,9 @@
-//go:build !(linux && (amd64 || arm64))
+//go:build !(linux && (amd64 || arm64)) && !darwin
 
 package v1
 
-// exchangePaths has no atomic exchange to call here. macOS has one,
-// renamex_np(RENAME_SWAP), behind libc, which Go's syscall package does
-// not bind (a follow-up of SEMTOOLS SEM4b); until then an apply on this
-// host is refused, never done by renames a reader could see half done.
+// exchangePaths has no atomic exchange to call here (Linux has
+// renameat2(RENAME_EXCHANGE), exchange_linux.go; macOS has
+// renamex_np(RENAME_SWAP), exchange_darwin.go): an apply on this host is
+// refused, never done by renames a reader could see half done.
 func exchangePaths(a string, b string) error { return errNoExchange }

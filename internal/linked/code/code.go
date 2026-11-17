@@ -41,6 +41,16 @@ func Apply(ctx context.Context, p0 string, p1 string) ([]string, error) {
 	return append([]string(nil), v...), err
 }
 
+// Rewrite calls the Ergo function Rewrite for a Go caller (IG11): on the
+// calling goroutine, as a root task that ctx cancels (v1.Call).
+func Rewrite(ctx context.Context, p0 string, p1 string, p2 string) ([]string, error) {
+	v, err := ergo.Call(ctx, "Rewrite", func(t *rt.Task) ([]string, error) {
+		env := &Env{task: t, Ambient: hostConsole{}}
+		return Rewrite_1(env, p0, p1, p2), nil
+	})
+	return append([]string(nil), v...), err
+}
+
 // Recover calls the Ergo function Recover for a Go caller (IG11): on the
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func Recover(ctx context.Context, p0 string) ([]string, error) {
@@ -6709,7 +6719,7 @@ func (p Planned) PlanText() string {
 		case 2:
 			v = "checked"
 		default:
-			panic("ergo: defect: no case of the match at std/code/plan.ergo:720:37 matched")
+			panic("ergo: defect: no case of the match at std/code/plan.ergo:749:37 matched")
 		}
 		b = ((t + v) + "\n")
 	case 1:
@@ -6817,6 +6827,46 @@ func DecodeMono_i4(env *Env, wT struct {
 		return *new(Planned), err_1
 	}
 	return v_1, nil
+}
+
+func Rewritten(env *Env, what string, before []Source, after_1 []Source) (Planned, error) {
+	if len(before) != len(after_1) {
+		return *new(Planned), BadChange{Reason: ("a rewrite names " + string(strconv.AppendInt(make([]byte, 0, 20), int64(len(before)), 10)) + " files before and " + string(strconv.AppendInt(make([]byte, 0, 20), int64(len(after_1)), 10)) + " after")}
+	}
+	var reads []FileRead = []FileRead{}
+	var files []FileChange = []FileChange{}
+	var patch string = ""
+	var key_1 string = what
+	for k, v := range before {
+		var i int = k
+		var s Source = v
+		if after_1[i].File != s.File {
+			return *new(Planned), BadChange{Reason: ("a rewrite names " + s.File + " before and " + after_1[i].File + " after")}
+		}
+		t := reads
+		t_1 := s.File
+		v_1 := revision(s.Text)
+		v_2 := Append[FileRead](t, FileRead{File: t_1, Revision: v_1})
+		reads = v_2
+		t_2 := (((key_1 + "\n") + s.File) + " ")
+		v_3 := revision(s.Text)
+		key_1 = (t_2 + v_3)
+		var t_3 string = after_1[i].Text
+		if t_3 != s.Text {
+			t_4 := files
+			t_5 := s.File
+			v_4 := revision(s.Text)
+			t_6 := v_4
+			v_5 := revision(t_3)
+			v_6 := Append[FileChange](t_4, FileChange{File: t_5, Old: t_6, New: v_5, Text: t_3})
+			files = v_6
+			t_7 := patch
+			v_7 := diff(s.File, s.Text, t_3)
+			patch = (t_7 + v_7)
+		}
+	}
+	v_8 := revision(key_1)
+	return Planned{ID: v_8, Change: what, Reads: reads, Files: files, Patch: patch, Verdict: (Verdict{}).of0(Ready{Proof: (Proof{}).of2(Checked{})}), Impact: []ApiChange{}}, nil
 }
 
 type Files interface {
@@ -10563,6 +10613,38 @@ func quoted(text_2 string) string {
 	return (("\"" + v_2) + "\"")
 }
 
+func revision(text_2 string) string {
+	v := ergodigest.Sha256Sum(text_2)
+	v_1 := ergodigest.HexEncode(v)
+	v_2 := ergo.StringsSlice(v_1, int(0), int(16))
+	return v_2
+}
+
+func diff(file string, old string, new_1 string) string {
+	v := ergo.StringsSplit(old, "\n")
+	v_1 := ergo.StringsSplit(new_1, "\n")
+	var head_1 int = int(0)
+	for ((head_1 < len(v)) && (head_1 < len(v_1))) && (v[head_1] == v_1[head_1]) {
+		head_1 = (head_1 + int(1))
+	}
+	var tail_1 int = int(0)
+	for ((tail_1 < (len(v) - head_1)) && (tail_1 < (len(v_1) - head_1))) && (v[((len(v)-int(1))-tail_1)] == v_1[((len(v_1)-int(1))-tail_1)]) {
+		tail_1 = (tail_1 + int(1))
+	}
+	var out string = ("--- a/" + file + "\n+++ b/" + file + "\n@@ -" + string(strconv.AppendInt(make([]byte, 0, 20), int64((head_1+int(1))), 10)) + "," + string(strconv.AppendInt(make([]byte, 0, 20), int64(((len(v)-head_1)-tail_1)), 10)) + " +" + string(strconv.AppendInt(make([]byte, 0, 20), int64((head_1+int(1))), 10)) + "," + string(strconv.AppendInt(make([]byte, 0, 20), int64(((len(v_1)-head_1)-tail_1)), 10)) + " @@\n")
+	t := (Range[int]{Start: head_1, End: (len(v) - tail_1)})
+	for i := t.Start; i < t.End; i++ {
+		var i_1 int = i
+		out = (((out + "-") + v[i_1]) + "\n")
+	}
+	t_1 := (Range[int]{Start: head_1, End: (len(v_1) - tail_1)})
+	for i_2 := t_1.Start; i_2 < t_1.End; i_2++ {
+		var i_3 int = i_2
+		out = (((out + "+") + v_1[i_3]) + "\n")
+	}
+	return out
+}
+
 type Host struct {
 	root string
 }
@@ -12137,40 +12219,8 @@ func changed(env *Env, sources []Source, report Report, c_1 Change, checker Chec
 		return v_27, nil
 	default:
 		_ = v
-		panic("ergo: defect: no case of the match at std/code/plan.ergo:347:2 matched")
+		panic("ergo: defect: no case of the match at std/code/plan.ergo:376:2 matched")
 	}
-}
-
-func revision(text_2 string) string {
-	v := ergodigest.Sha256Sum(text_2)
-	v_1 := ergodigest.HexEncode(v)
-	v_2 := ergo.StringsSlice(v_1, int(0), int(16))
-	return v_2
-}
-
-func diff(file string, old string, new_1 string) string {
-	v := ergo.StringsSplit(old, "\n")
-	v_1 := ergo.StringsSplit(new_1, "\n")
-	var head_1 int = int(0)
-	for ((head_1 < len(v)) && (head_1 < len(v_1))) && (v[head_1] == v_1[head_1]) {
-		head_1 = (head_1 + int(1))
-	}
-	var tail_1 int = int(0)
-	for ((tail_1 < (len(v) - head_1)) && (tail_1 < (len(v_1) - head_1))) && (v[((len(v)-int(1))-tail_1)] == v_1[((len(v_1)-int(1))-tail_1)]) {
-		tail_1 = (tail_1 + int(1))
-	}
-	var out string = ("--- a/" + file + "\n+++ b/" + file + "\n@@ -" + string(strconv.AppendInt(make([]byte, 0, 20), int64((head_1+int(1))), 10)) + "," + string(strconv.AppendInt(make([]byte, 0, 20), int64(((len(v)-head_1)-tail_1)), 10)) + " +" + string(strconv.AppendInt(make([]byte, 0, 20), int64((head_1+int(1))), 10)) + "," + string(strconv.AppendInt(make([]byte, 0, 20), int64(((len(v_1)-head_1)-tail_1)), 10)) + " @@\n")
-	t := (Range[int]{Start: head_1, End: (len(v) - tail_1)})
-	for i := t.Start; i < t.End; i++ {
-		var i_1 int = i
-		out = (((out + "-") + v[i_1]) + "\n")
-	}
-	t_1 := (Range[int]{Start: head_1, End: (len(v_1) - tail_1)})
-	for i_2 := t_1.Start; i_2 < t_1.End; i_2++ {
-		var i_3 int = i_2
-		out = (((out + "+") + v_1[i_3]) + "\n")
-	}
-	return out
 }
 
 func describe(c_1 Change) string {
@@ -12212,7 +12262,7 @@ func describe(c_1 Change) string {
 		return (t_3 + v_8)
 	default:
 		_ = v
-		panic("ergo: defect: no case of the match at std/code/plan.ergo:513:2 matched")
+		panic("ergo: defect: no case of the match at std/code/plan.ergo:542:2 matched")
 	}
 }
 
@@ -12462,6 +12512,11 @@ func quotedAt(env *Env, s string) (struct {
 	}), BadChange{Reason: "a quoted text has no closing quote"}
 }
 
+type Range[T ergoOrdered] struct {
+	Start T
+	End   T
+}
+
 func (h Host) at(env *Env, path_1 string) (string, error) {
 	env.task.Check()
 	if h.root == "" {
@@ -12562,11 +12617,6 @@ func journalEntries(text_2 string) []journalEntry {
 		}
 	}
 	return out
-}
-
-type Range[T ergoOrdered] struct {
-	Start T
-	End   T
 }
 
 func (t Tables) complete() bool {
@@ -18938,8 +18988,10 @@ var ergoDecls = [...]ergoDecl{
 	{Name: "Plan", File: "plan.ergo", Line: 84, End: 110},
 	{Name: "changeOf", File: "plan.ergo", Line: 113, End: 121},
 	{Name: "refusal", File: "plan.ergo", Line: 125, End: 131},
-	{Name: "Apply", File: "plan.ergo", Line: 137, End: 164},
-	{Name: "Recover", File: "plan.ergo", Line: 168, End: 177},
+	{Name: "Apply", File: "plan.ergo", Line: 137, End: 143},
+	{Name: "Rewrite", File: "plan.ergo", Line: 150, End: 165},
+	{Name: "applied", File: "plan.ergo", Line: 169, End: 192},
+	{Name: "Recover", File: "plan.ergo", Line: 196, End: 205},
 	{Name: "Run", File: "tool.ergo", Line: 16, End: 25},
 	{Name: "tablesOf", File: "tool.ergo", Line: 29, End: 36},
 	{Name: "rootApi", File: "tool.ergo", Line: 42, End: 50},
@@ -18964,25 +19016,25 @@ var ergoDecls = [...]ergoDecl{
 // ergoInlines lists the program's inlined calls: each one's call table
 // entry and the inlined call around it, or -1 (runtime.md, Exit causes 6).
 var ergoInlines = [...]struct{ Call, Parent int }{
-	{Call: 67, Parent: -1},
-	{Call: 68, Parent: -1},
-	{Call: 69, Parent: -1},
-	{Call: 70, Parent: -1},
-	{Call: 71, Parent: -1},
 	{Call: 72, Parent: -1},
-	{Call: 80, Parent: -1},
-	{Call: 110, Parent: 6},
-	{Call: 84, Parent: -1},
+	{Call: 73, Parent: -1},
+	{Call: 74, Parent: -1},
+	{Call: 75, Parent: -1},
+	{Call: 76, Parent: -1},
+	{Call: 77, Parent: -1},
 	{Call: 85, Parent: -1},
-	{Call: 91, Parent: -1},
-	{Call: 92, Parent: -1},
-	{Call: 93, Parent: -1},
-	{Call: 94, Parent: -1},
-	{Call: 100, Parent: -1},
-	{Call: 103, Parent: -1},
-	{Call: 104, Parent: -1},
+	{Call: 115, Parent: 6},
+	{Call: 89, Parent: -1},
+	{Call: 90, Parent: -1},
+	{Call: 96, Parent: -1},
+	{Call: 97, Parent: -1},
+	{Call: 98, Parent: -1},
+	{Call: 99, Parent: -1},
+	{Call: 105, Parent: -1},
+	{Call: 108, Parent: -1},
 	{Call: 109, Parent: -1},
-	{Call: 110, Parent: 17},
+	{Call: 114, Parent: -1},
+	{Call: 115, Parent: 17},
 }
 
 // ergoCall is the Ergo identity of one lowered call (#230).
@@ -19014,161 +19066,166 @@ var ergoCalls = [...]ergoCall{
 	{Func: 15, Callee: 4, File: 2, Line: 128, Column: 39},
 	{Func: 15, Callee: 4, File: 2, Line: 128, Column: 80},
 	{Func: 19, Callee: 9, File: 2, Line: 138, Column: 10},
-	{Func: 19, Callee: 20, File: 2, Line: 142, Column: 25},
-	{Func: 19, Callee: 21, File: 2, Line: 142, Column: 42},
-	{Func: 19, Callee: 22, File: 2, Line: 143, Column: 10},
-	{Func: 19, Callee: 23, File: 2, Line: 143, Column: 10},
-	{Func: 19, Callee: 24, File: 2, Line: 143, Column: 32},
-	{Func: 25, Callee: 20, File: 2, Line: 169, Column: 25},
-	{Func: 25, Callee: 21, File: 2, Line: 169, Column: 42},
-	{Func: 25, Callee: 22, File: 2, Line: 170, Column: 10},
-	{Func: 25, Callee: 26, File: 2, Line: 170, Column: 10},
-	{Func: 25, Callee: 14, File: 2, Line: 170, Column: 32},
-	{Func: 27, Callee: 28, File: 29, Line: 17, Column: 10},
-	{Func: 27, Callee: 30, File: 29, Line: 21, Column: 30},
-	{Func: 27, Callee: 31, File: 29, Line: 22, Column: 13},
-	{Func: 27, Callee: 32, File: 29, Line: 23, Column: 12},
-	{Func: 28, Callee: 9, File: 29, Line: 30, Column: 2},
-	{Func: 33, Callee: 30, File: 29, Line: 43, Column: 30},
-	{Func: 33, Callee: 34, File: 29, Line: 44, Column: 11},
-	{Func: 35, Callee: 28, File: 29, Line: 56, Column: 10},
-	{Func: 35, Callee: 33, File: 29, Line: 60, Column: 11},
-	{Func: 35, Callee: 4, File: 29, Line: 61, Column: 28},
-	{Func: 35, Callee: 36, File: 29, Line: 61, Column: 115},
-	{Func: 37, Callee: 28, File: 29, Line: 67, Column: 10},
-	{Func: 37, Callee: 28, File: 29, Line: 71, Column: 10},
-	{Func: 37, Callee: 38, File: 29, Line: 75, Column: 16},
-	{Func: 37, Callee: 33, File: 29, Line: 75, Column: 29},
-	{Func: 37, Callee: 33, File: 29, Line: 75, Column: 41},
-	{Func: 37, Callee: 4, File: 29, Line: 76, Column: 28},
-	{Func: 37, Callee: 39, File: 29, Line: 76, Column: 121},
-	{Func: 40, Callee: 28, File: 29, Line: 83, Column: 10},
-	{Func: 40, Callee: 30, File: 29, Line: 87, Column: 10},
-	{Func: 40, Callee: 41, File: 29, Line: 95, Column: 5},
-	{Func: 40, Callee: 42, File: 29, Line: 100, Column: 12},
-	{Func: 40, Callee: 4, File: 29, Line: 104, Column: 24},
-	{Func: 40, Callee: 43, File: 29, Line: 108, Column: 11},
-	{Func: 44, Callee: 45, File: 46, Line: 22, Column: 26},
-	{Func: 44, Callee: 47, File: 46, Line: 22, Column: 45},
-	{Func: 44, Callee: 48, File: 46, Line: 22, Column: 63},
-	{Func: 44, Callee: 49, File: 46, Line: 22, Column: 80},
-	{Func: 44, Callee: 50, File: 46, Line: 22, Column: 101},
-	{Func: 44, Callee: 51, File: 46, Line: 22, Column: 117},
-	{Func: 44, Callee: 52, File: 46, Line: 22, Column: 131},
-	{Func: 44, Callee: 53, File: 46, Line: 22, Column: 147},
-	{Func: 54, Callee: 55, File: 46, Line: 34, Column: 11},
-	{Func: 54, Callee: 55, File: 46, Line: 35, Column: 11},
-	{Func: 54, Callee: 55, File: 46, Line: 36, Column: 11},
-	{Func: 54, Callee: 55, File: 46, Line: 37, Column: 11},
-	{Func: 54, Callee: 56, File: 46, Line: 38, Column: 11},
-	{Func: 54, Callee: 56, File: 46, Line: 39, Column: 11},
-	{Func: 54, Callee: 57, File: 46, Line: 41, Column: 44},
-	{Func: 54, Callee: 57, File: 46, Line: 41, Column: 62},
-	{Func: 54, Callee: 57, File: 46, Line: 41, Column: 79},
-	{Func: 54, Callee: 57, File: 46, Line: 41, Column: 99},
-	{Func: 54, Callee: 58, File: 46, Line: 41, Column: 118},
-	{Func: 54, Callee: 58, File: 46, Line: 41, Column: 136},
-	{Func: 59, Callee: 60, File: 46, Line: 47, Column: 11},
-	{Func: 59, Callee: 61, File: 46, Line: 49, Column: 12},
-	{Func: 62, Callee: 63, File: 46, Line: 56, Column: 11},
-	{Func: 62, Callee: 64, File: 46, Line: 57, Column: 11},
-	{Func: 62, Callee: 65, File: 46, Line: 57, Column: 11},
-	{Func: 62, Callee: 56, File: 46, Line: 58, Column: 11},
-	{Func: 62, Callee: 56, File: 46, Line: 59, Column: 11},
-	{Func: 62, Callee: 66, File: 46, Line: 61, Column: 42},
-	{Func: 62, Callee: 67, File: 46, Line: 61, Column: 60},
-	{Func: 62, Callee: 58, File: 46, Line: 61, Column: 79},
-	{Func: 62, Callee: 58, File: 46, Line: 61, Column: 97},
-	{Func: 68, Callee: 63, File: 46, Line: 67, Column: 11},
-	{Func: 68, Callee: 55, File: 46, Line: 68, Column: 11},
-	{Func: 68, Callee: 56, File: 46, Line: 69, Column: 11},
-	{Func: 68, Callee: 56, File: 46, Line: 70, Column: 11},
-	{Func: 68, Callee: 56, File: 46, Line: 71, Column: 11},
-	{Func: 68, Callee: 66, File: 46, Line: 73, Column: 38},
-	{Func: 68, Callee: 57, File: 46, Line: 73, Column: 60},
-	{Func: 68, Callee: 58, File: 46, Line: 73, Column: 78},
-	{Func: 68, Callee: 58, File: 46, Line: 73, Column: 97},
-	{Func: 68, Callee: 58, File: 46, Line: 73, Column: 115},
-	{Func: 69, Callee: 55, File: 46, Line: 79, Column: 11},
-	{Func: 69, Callee: 57, File: 46, Line: 81, Column: 40},
-	{Func: 70, Callee: 63, File: 46, Line: 87, Column: 11},
-	{Func: 70, Callee: 56, File: 46, Line: 88, Column: 11},
-	{Func: 70, Callee: 56, File: 46, Line: 89, Column: 11},
-	{Func: 70, Callee: 66, File: 46, Line: 91, Column: 39},
-	{Func: 70, Callee: 58, File: 46, Line: 91, Column: 58},
-	{Func: 70, Callee: 58, File: 46, Line: 91, Column: 76},
-	{Func: 71, Callee: 60, File: 46, Line: 97, Column: 11},
-	{Func: 71, Callee: 61, File: 46, Line: 99, Column: 12},
-	{Func: 72, Callee: 73, File: 46, Line: 106, Column: 8},
-	{Func: 74, Callee: 75, File: 46, Line: 117, Column: 6},
-	{Func: 74, Callee: 76, File: 46, Line: 117, Column: 65},
-	{Func: 77, Callee: 78, File: 46, Line: 265, Column: 24},
-	{Func: 27, Callee: 79, File: 46, Line: 279, Column: 11},
-	{Func: 27, Callee: 80, File: 46, Line: 282, Column: 10},
-	{Func: 27, Callee: 81, File: 46, Line: 286, Column: 31},
-	{Func: 27, Callee: 82, File: 46, Line: 290, Column: 11},
-	{Func: 27, Callee: 83, File: 46, Line: 291, Column: 17},
-	{Func: 27, Callee: 84, File: 46, Line: 292, Column: 3},
-	{Func: 27, Callee: 85, File: 46, Line: 294, Column: 11},
-	{Func: 27, Callee: 83, File: 46, Line: 295, Column: 17},
-	{Func: 27, Callee: 84, File: 46, Line: 296, Column: 3},
-	{Func: 27, Callee: 86, File: 46, Line: 298, Column: 11},
-	{Func: 27, Callee: 87, File: 46, Line: 300, Column: 11},
-	{Func: 27, Callee: 88, File: 46, Line: 300, Column: 26},
-	{Func: 27, Callee: 83, File: 46, Line: 300, Column: 49},
-	{Func: 27, Callee: 87, File: 46, Line: 302, Column: 11},
-	{Func: 27, Callee: 88, File: 46, Line: 302, Column: 26},
-	{Func: 27, Callee: 83, File: 46, Line: 302, Column: 50},
-	{Func: 27, Callee: 83, File: 46, Line: 304, Column: 17},
-	{Func: 27, Callee: 84, File: 46, Line: 305, Column: 3},
-	{Func: 27, Callee: 89, File: 46, Line: 307, Column: 11},
-	{Func: 27, Callee: 87, File: 46, Line: 309, Column: 11},
-	{Func: 27, Callee: 88, File: 46, Line: 309, Column: 26},
-	{Func: 27, Callee: 83, File: 46, Line: 309, Column: 49},
-	{Func: 27, Callee: 87, File: 46, Line: 311, Column: 11},
-	{Func: 27, Callee: 88, File: 46, Line: 311, Column: 26},
-	{Func: 27, Callee: 83, File: 46, Line: 311, Column: 50},
-	{Func: 27, Callee: 83, File: 46, Line: 313, Column: 17},
-	{Func: 27, Callee: 84, File: 46, Line: 314, Column: 3},
-	{Func: 27, Callee: 90, File: 46, Line: 316, Column: 11},
-	{Func: 27, Callee: 87, File: 46, Line: 318, Column: 11},
-	{Func: 27, Callee: 88, File: 46, Line: 318, Column: 26},
-	{Func: 27, Callee: 83, File: 46, Line: 318, Column: 49},
-	{Func: 27, Callee: 87, File: 46, Line: 320, Column: 11},
-	{Func: 27, Callee: 88, File: 46, Line: 320, Column: 26},
-	{Func: 27, Callee: 83, File: 46, Line: 320, Column: 50},
-	{Func: 27, Callee: 87, File: 46, Line: 322, Column: 11},
-	{Func: 27, Callee: 88, File: 46, Line: 322, Column: 26},
-	{Func: 27, Callee: 83, File: 46, Line: 322, Column: 52},
-	{Func: 27, Callee: 83, File: 46, Line: 324, Column: 17},
-	{Func: 27, Callee: 84, File: 46, Line: 325, Column: 3},
-	{Func: 27, Callee: 34, File: 46, Line: 327, Column: 11},
-	{Func: 27, Callee: 87, File: 46, Line: 329, Column: 11},
-	{Func: 27, Callee: 88, File: 46, Line: 329, Column: 26},
-	{Func: 27, Callee: 83, File: 46, Line: 329, Column: 50},
-	{Func: 27, Callee: 83, File: 46, Line: 331, Column: 17},
-	{Func: 27, Callee: 84, File: 46, Line: 332, Column: 3},
-	{Func: 27, Callee: 91, File: 46, Line: 334, Column: 11},
-	{Func: 27, Callee: 87, File: 46, Line: 336, Column: 11},
-	{Func: 27, Callee: 88, File: 46, Line: 336, Column: 26},
-	{Func: 27, Callee: 83, File: 46, Line: 336, Column: 49},
-	{Func: 27, Callee: 87, File: 46, Line: 338, Column: 11},
-	{Func: 27, Callee: 88, File: 46, Line: 338, Column: 26},
-	{Func: 27, Callee: 83, File: 46, Line: 338, Column: 50},
-	{Func: 27, Callee: 83, File: 46, Line: 340, Column: 17},
-	{Func: 27, Callee: 84, File: 46, Line: 341, Column: 3},
-	{Func: 27, Callee: 41, File: 46, Line: 343, Column: 11},
-	{Func: 27, Callee: 87, File: 46, Line: 345, Column: 11},
-	{Func: 27, Callee: 88, File: 46, Line: 345, Column: 26},
-	{Func: 27, Callee: 83, File: 46, Line: 345, Column: 49},
-	{Func: 27, Callee: 87, File: 46, Line: 347, Column: 11},
-	{Func: 27, Callee: 88, File: 46, Line: 347, Column: 26},
-	{Func: 27, Callee: 83, File: 46, Line: 347, Column: 50},
-	{Func: 27, Callee: 87, File: 46, Line: 349, Column: 11},
-	{Func: 27, Callee: 88, File: 46, Line: 349, Column: 26},
-	{Func: 27, Callee: 83, File: 46, Line: 349, Column: 51},
-	{Func: 27, Callee: 83, File: 46, Line: 351, Column: 17},
-	{Func: 27, Callee: 84, File: 46, Line: 352, Column: 3},
+	{Func: 19, Callee: 20, File: 2, Line: 142, Column: 2},
+	{Func: 21, Callee: 9, File: 2, Line: 152, Column: 10},
+	{Func: 21, Callee: 9, File: 2, Line: 156, Column: 10},
+	{Func: 21, Callee: 22, File: 2, Line: 160, Column: 10},
+	{Func: 21, Callee: 20, File: 2, Line: 164, Column: 2},
+	{Func: 20, Callee: 23, File: 2, Line: 170, Column: 25},
+	{Func: 20, Callee: 24, File: 2, Line: 170, Column: 42},
+	{Func: 20, Callee: 25, File: 2, Line: 171, Column: 10},
+	{Func: 20, Callee: 26, File: 2, Line: 171, Column: 10},
+	{Func: 20, Callee: 27, File: 2, Line: 171, Column: 32},
+	{Func: 28, Callee: 23, File: 2, Line: 197, Column: 25},
+	{Func: 28, Callee: 24, File: 2, Line: 197, Column: 42},
+	{Func: 28, Callee: 25, File: 2, Line: 198, Column: 10},
+	{Func: 28, Callee: 29, File: 2, Line: 198, Column: 10},
+	{Func: 28, Callee: 14, File: 2, Line: 198, Column: 32},
+	{Func: 30, Callee: 31, File: 32, Line: 17, Column: 10},
+	{Func: 30, Callee: 33, File: 32, Line: 21, Column: 30},
+	{Func: 30, Callee: 34, File: 32, Line: 22, Column: 13},
+	{Func: 30, Callee: 35, File: 32, Line: 23, Column: 12},
+	{Func: 31, Callee: 9, File: 32, Line: 30, Column: 2},
+	{Func: 36, Callee: 33, File: 32, Line: 43, Column: 30},
+	{Func: 36, Callee: 37, File: 32, Line: 44, Column: 11},
+	{Func: 38, Callee: 31, File: 32, Line: 56, Column: 10},
+	{Func: 38, Callee: 36, File: 32, Line: 60, Column: 11},
+	{Func: 38, Callee: 4, File: 32, Line: 61, Column: 28},
+	{Func: 38, Callee: 39, File: 32, Line: 61, Column: 115},
+	{Func: 40, Callee: 31, File: 32, Line: 67, Column: 10},
+	{Func: 40, Callee: 31, File: 32, Line: 71, Column: 10},
+	{Func: 40, Callee: 41, File: 32, Line: 75, Column: 16},
+	{Func: 40, Callee: 36, File: 32, Line: 75, Column: 29},
+	{Func: 40, Callee: 36, File: 32, Line: 75, Column: 41},
+	{Func: 40, Callee: 4, File: 32, Line: 76, Column: 28},
+	{Func: 40, Callee: 42, File: 32, Line: 76, Column: 121},
+	{Func: 43, Callee: 31, File: 32, Line: 83, Column: 10},
+	{Func: 43, Callee: 33, File: 32, Line: 87, Column: 10},
+	{Func: 43, Callee: 44, File: 32, Line: 95, Column: 5},
+	{Func: 43, Callee: 45, File: 32, Line: 100, Column: 12},
+	{Func: 43, Callee: 4, File: 32, Line: 104, Column: 24},
+	{Func: 43, Callee: 46, File: 32, Line: 108, Column: 11},
+	{Func: 47, Callee: 48, File: 49, Line: 22, Column: 26},
+	{Func: 47, Callee: 50, File: 49, Line: 22, Column: 45},
+	{Func: 47, Callee: 51, File: 49, Line: 22, Column: 63},
+	{Func: 47, Callee: 52, File: 49, Line: 22, Column: 80},
+	{Func: 47, Callee: 53, File: 49, Line: 22, Column: 101},
+	{Func: 47, Callee: 54, File: 49, Line: 22, Column: 117},
+	{Func: 47, Callee: 55, File: 49, Line: 22, Column: 131},
+	{Func: 47, Callee: 56, File: 49, Line: 22, Column: 147},
+	{Func: 57, Callee: 58, File: 49, Line: 34, Column: 11},
+	{Func: 57, Callee: 58, File: 49, Line: 35, Column: 11},
+	{Func: 57, Callee: 58, File: 49, Line: 36, Column: 11},
+	{Func: 57, Callee: 58, File: 49, Line: 37, Column: 11},
+	{Func: 57, Callee: 59, File: 49, Line: 38, Column: 11},
+	{Func: 57, Callee: 59, File: 49, Line: 39, Column: 11},
+	{Func: 57, Callee: 60, File: 49, Line: 41, Column: 44},
+	{Func: 57, Callee: 60, File: 49, Line: 41, Column: 62},
+	{Func: 57, Callee: 60, File: 49, Line: 41, Column: 79},
+	{Func: 57, Callee: 60, File: 49, Line: 41, Column: 99},
+	{Func: 57, Callee: 61, File: 49, Line: 41, Column: 118},
+	{Func: 57, Callee: 61, File: 49, Line: 41, Column: 136},
+	{Func: 62, Callee: 63, File: 49, Line: 47, Column: 11},
+	{Func: 62, Callee: 64, File: 49, Line: 49, Column: 12},
+	{Func: 65, Callee: 66, File: 49, Line: 56, Column: 11},
+	{Func: 65, Callee: 67, File: 49, Line: 57, Column: 11},
+	{Func: 65, Callee: 68, File: 49, Line: 57, Column: 11},
+	{Func: 65, Callee: 59, File: 49, Line: 58, Column: 11},
+	{Func: 65, Callee: 59, File: 49, Line: 59, Column: 11},
+	{Func: 65, Callee: 69, File: 49, Line: 61, Column: 42},
+	{Func: 65, Callee: 70, File: 49, Line: 61, Column: 60},
+	{Func: 65, Callee: 61, File: 49, Line: 61, Column: 79},
+	{Func: 65, Callee: 61, File: 49, Line: 61, Column: 97},
+	{Func: 71, Callee: 66, File: 49, Line: 67, Column: 11},
+	{Func: 71, Callee: 58, File: 49, Line: 68, Column: 11},
+	{Func: 71, Callee: 59, File: 49, Line: 69, Column: 11},
+	{Func: 71, Callee: 59, File: 49, Line: 70, Column: 11},
+	{Func: 71, Callee: 59, File: 49, Line: 71, Column: 11},
+	{Func: 71, Callee: 69, File: 49, Line: 73, Column: 38},
+	{Func: 71, Callee: 60, File: 49, Line: 73, Column: 60},
+	{Func: 71, Callee: 61, File: 49, Line: 73, Column: 78},
+	{Func: 71, Callee: 61, File: 49, Line: 73, Column: 97},
+	{Func: 71, Callee: 61, File: 49, Line: 73, Column: 115},
+	{Func: 72, Callee: 58, File: 49, Line: 79, Column: 11},
+	{Func: 72, Callee: 60, File: 49, Line: 81, Column: 40},
+	{Func: 73, Callee: 66, File: 49, Line: 87, Column: 11},
+	{Func: 73, Callee: 59, File: 49, Line: 88, Column: 11},
+	{Func: 73, Callee: 59, File: 49, Line: 89, Column: 11},
+	{Func: 73, Callee: 69, File: 49, Line: 91, Column: 39},
+	{Func: 73, Callee: 61, File: 49, Line: 91, Column: 58},
+	{Func: 73, Callee: 61, File: 49, Line: 91, Column: 76},
+	{Func: 74, Callee: 63, File: 49, Line: 97, Column: 11},
+	{Func: 74, Callee: 64, File: 49, Line: 99, Column: 12},
+	{Func: 75, Callee: 76, File: 49, Line: 106, Column: 8},
+	{Func: 77, Callee: 78, File: 49, Line: 117, Column: 6},
+	{Func: 77, Callee: 79, File: 49, Line: 117, Column: 65},
+	{Func: 80, Callee: 81, File: 49, Line: 265, Column: 24},
+	{Func: 30, Callee: 82, File: 49, Line: 279, Column: 11},
+	{Func: 30, Callee: 83, File: 49, Line: 282, Column: 10},
+	{Func: 30, Callee: 84, File: 49, Line: 286, Column: 31},
+	{Func: 30, Callee: 85, File: 49, Line: 290, Column: 11},
+	{Func: 30, Callee: 86, File: 49, Line: 291, Column: 17},
+	{Func: 30, Callee: 87, File: 49, Line: 292, Column: 3},
+	{Func: 30, Callee: 88, File: 49, Line: 294, Column: 11},
+	{Func: 30, Callee: 86, File: 49, Line: 295, Column: 17},
+	{Func: 30, Callee: 87, File: 49, Line: 296, Column: 3},
+	{Func: 30, Callee: 89, File: 49, Line: 298, Column: 11},
+	{Func: 30, Callee: 90, File: 49, Line: 300, Column: 11},
+	{Func: 30, Callee: 91, File: 49, Line: 300, Column: 26},
+	{Func: 30, Callee: 86, File: 49, Line: 300, Column: 49},
+	{Func: 30, Callee: 90, File: 49, Line: 302, Column: 11},
+	{Func: 30, Callee: 91, File: 49, Line: 302, Column: 26},
+	{Func: 30, Callee: 86, File: 49, Line: 302, Column: 50},
+	{Func: 30, Callee: 86, File: 49, Line: 304, Column: 17},
+	{Func: 30, Callee: 87, File: 49, Line: 305, Column: 3},
+	{Func: 30, Callee: 92, File: 49, Line: 307, Column: 11},
+	{Func: 30, Callee: 90, File: 49, Line: 309, Column: 11},
+	{Func: 30, Callee: 91, File: 49, Line: 309, Column: 26},
+	{Func: 30, Callee: 86, File: 49, Line: 309, Column: 49},
+	{Func: 30, Callee: 90, File: 49, Line: 311, Column: 11},
+	{Func: 30, Callee: 91, File: 49, Line: 311, Column: 26},
+	{Func: 30, Callee: 86, File: 49, Line: 311, Column: 50},
+	{Func: 30, Callee: 86, File: 49, Line: 313, Column: 17},
+	{Func: 30, Callee: 87, File: 49, Line: 314, Column: 3},
+	{Func: 30, Callee: 93, File: 49, Line: 316, Column: 11},
+	{Func: 30, Callee: 90, File: 49, Line: 318, Column: 11},
+	{Func: 30, Callee: 91, File: 49, Line: 318, Column: 26},
+	{Func: 30, Callee: 86, File: 49, Line: 318, Column: 49},
+	{Func: 30, Callee: 90, File: 49, Line: 320, Column: 11},
+	{Func: 30, Callee: 91, File: 49, Line: 320, Column: 26},
+	{Func: 30, Callee: 86, File: 49, Line: 320, Column: 50},
+	{Func: 30, Callee: 90, File: 49, Line: 322, Column: 11},
+	{Func: 30, Callee: 91, File: 49, Line: 322, Column: 26},
+	{Func: 30, Callee: 86, File: 49, Line: 322, Column: 52},
+	{Func: 30, Callee: 86, File: 49, Line: 324, Column: 17},
+	{Func: 30, Callee: 87, File: 49, Line: 325, Column: 3},
+	{Func: 30, Callee: 37, File: 49, Line: 327, Column: 11},
+	{Func: 30, Callee: 90, File: 49, Line: 329, Column: 11},
+	{Func: 30, Callee: 91, File: 49, Line: 329, Column: 26},
+	{Func: 30, Callee: 86, File: 49, Line: 329, Column: 50},
+	{Func: 30, Callee: 86, File: 49, Line: 331, Column: 17},
+	{Func: 30, Callee: 87, File: 49, Line: 332, Column: 3},
+	{Func: 30, Callee: 94, File: 49, Line: 334, Column: 11},
+	{Func: 30, Callee: 90, File: 49, Line: 336, Column: 11},
+	{Func: 30, Callee: 91, File: 49, Line: 336, Column: 26},
+	{Func: 30, Callee: 86, File: 49, Line: 336, Column: 49},
+	{Func: 30, Callee: 90, File: 49, Line: 338, Column: 11},
+	{Func: 30, Callee: 91, File: 49, Line: 338, Column: 26},
+	{Func: 30, Callee: 86, File: 49, Line: 338, Column: 50},
+	{Func: 30, Callee: 86, File: 49, Line: 340, Column: 17},
+	{Func: 30, Callee: 87, File: 49, Line: 341, Column: 3},
+	{Func: 30, Callee: 44, File: 49, Line: 343, Column: 11},
+	{Func: 30, Callee: 90, File: 49, Line: 345, Column: 11},
+	{Func: 30, Callee: 91, File: 49, Line: 345, Column: 26},
+	{Func: 30, Callee: 86, File: 49, Line: 345, Column: 49},
+	{Func: 30, Callee: 90, File: 49, Line: 347, Column: 11},
+	{Func: 30, Callee: 91, File: 49, Line: 347, Column: 26},
+	{Func: 30, Callee: 86, File: 49, Line: 347, Column: 50},
+	{Func: 30, Callee: 90, File: 49, Line: 349, Column: 11},
+	{Func: 30, Callee: 91, File: 49, Line: 349, Column: 26},
+	{Func: 30, Callee: 86, File: 49, Line: 349, Column: 51},
+	{Func: 30, Callee: 86, File: 49, Line: 351, Column: 17},
+	{Func: 30, Callee: 87, File: 49, Line: 352, Column: 3},
 }
 
 var ergoCallNames = [...]string{
@@ -19192,6 +19249,9 @@ var ergoCallNames = [...]string{
 	"strings.HasPrefix",
 	"code.ParseChange",
 	"Apply",
+	"applied",
+	"Rewrite",
+	"code.Rewritten",
 	"code.HostFilesOf",
 	"fs.NewHost",
 	"code.ApplierOf",
@@ -19923,130 +19983,248 @@ func Apply_1(env *Env, root string, plan string) []string {
 	}
 	/*line plan.ergo:140:3*/ var p Planned = v_3
 //line plan.ergo:142:2
-//line plan.ergo:142:42
-	v_4 := NewHost(env)
-//line plan.ergo:142:2
-//line plan.ergo:142:25
-	v_5 := HostFilesOf(env, v_4, root)
-//line plan.ergo:142:2
-	var files Files = &opsHostFilesAsFiles{v: v_5, env: env}
-//line plan.ergo:143:2
-	t := files
-//line plan.ergo:143:32
-	v_6 := StoreOf(env, []Planned{p})
-//line plan.ergo:143:2
-//line plan.ergo:143:10
-	v_7 := ApplierOf(t, v_6)
-//line plan.ergo:143:2
-//line plan.ergo:143:10
-	v_8, err_2 := (v_7).Apply(env, p.ID)
-//line plan.ergo:143:2
-	if err_2 != nil {
-		/*line plan.ergo:143:2*/ switch caught := err_2.(type) {
-		/*line plan.ergo:143:2*/ case NoPlan:
-			/*line plan.ergo:143:2*/ n := caught
-//line plan.ergo:145:3
-			return []string{"1", "", ("ergo code apply: no plan " + n.ID + "\n")}
-			/*line plan.ergo:145:3*/
-		case NotReady:
-			/*line plan.ergo:145:3*/ n_1 := caught
-//line plan.ergo:147:3
-			return []string{"1", "", ("ergo code apply: plan " + n_1.ID + " is blocked by " + string(strconv.AppendInt(make([]byte, 0, 20), int64(len(n_1.Diagnostics)), 10)) + " diagnostics\n")}
-			/*line plan.ergo:147:3*/
-		case Stale:
-			/*line plan.ergo:147:3*/ s := caught
-//line plan.ergo:149:3
-			var names string = ""
-//line plan.ergo:150:3
-			for _, v_9 := range s.Files {
-				/*line plan.ergo:150:3*/ var f string = v_9
-//line plan.ergo:151:4
-				names = ((names + " ") + f)
-//line plan.ergo:150:3
-				env.task.Check()
-				/*line plan.ergo:150:3*/
-			}
-//line plan.ergo:153:3
-			return []string{"1", "", ("ergo code apply: plan " + s.ID + " is stale; changed since it was made:" + names + "\n")}
-			/*line plan.ergo:153:3*/
-		case Busy:
-			/*line plan.ergo:153:3*/ _ = caught
-//line plan.ergo:155:3
-			return []string{"1", "", "ergo code apply: another apply holds the workspace's lock\n"}
-			/*line plan.ergo:155:3*/
-		case IOFailed:
-			/*line plan.ergo:155:3*/ e_3 := caught
-//line plan.ergo:157:3
-			return []string{"1", "", ("ergo code apply: " + e_3.Reason + "\n")}
-			/*line plan.ergo:157:3*/
-		default:
-			/*line plan.ergo:157:3*/ _ = caught
-			/*line plan.ergo:157:3*/ panic(err_2)
-			/*line plan.ergo:157:3*/
-		}
-		/*line plan.ergo:157:3*/
-	}
-//line plan.ergo:159:2
-	var out string = ("applied " + v_8.ID + "\n")
-//line plan.ergo:160:2
-	for _, v_10 := range v_8.Files {
-		/*line plan.ergo:160:2*/ var f_1 FileRead = v_10
-//line plan.ergo:161:3
-		out = (out + ("  " + f_1.File + " " + f_1.Revision + "\n"))
-//line plan.ergo:160:2
-		env.task.Check()
-		/*line plan.ergo:160:2*/
-	}
-//line plan.ergo:163:2
-	return []string{"0", out, ""}
-	/*line plan.ergo:163:2*/
+	v_4 := applied(env, "ergo code apply", root, p)
+	/*line plan.ergo:142:2*/ return v_4
+	/*line plan.ergo:142:2*/
 }
 
-//line plan.ergo:168:1
-func Recover_1(env *Env, root string) []string {
-//line plan.ergo:168:1
+//line plan.ergo:150:1
+func Rewrite_1(env *Env, root string, before string, after_1 string) []string {
+//line plan.ergo:150:1
 	env.task.Check()
-//line plan.ergo:169:2
-//line plan.ergo:169:42
-	v := NewHost(env)
-//line plan.ergo:169:2
-//line plan.ergo:169:25
-	v_1 := HostFilesOf(env, v, root)
-//line plan.ergo:169:2
-	var files Files = &opsHostFilesAsFiles{v: v_1, env: env}
-//line plan.ergo:170:2
-	t := files
-//line plan.ergo:170:32
-	v_2 := NewStore(env)
-//line plan.ergo:170:2
-//line plan.ergo:170:10
-	v_3 := ApplierOf(t, v_2)
-//line plan.ergo:170:2
-//line plan.ergo:170:10
-	v_4, err := (v_3).Recover(env)
-//line plan.ergo:170:2
-	if err != nil {
-		/*line plan.ergo:170:2*/ switch caught := err.(type) {
-		/*line plan.ergo:170:2*/ case Busy:
-			/*line plan.ergo:170:2*/ _ = caught
-//line plan.ergo:172:3
-			return []string{"1", "", "ergo code recover: another apply holds the workspace's lock\n"}
-			/*line plan.ergo:172:3*/
-		case IOFailed:
-			/*line plan.ergo:172:3*/ e := caught
-//line plan.ergo:174:3
-			return []string{"1", "", ("ergo code recover: " + e.Reason + "\n")}
-			/*line plan.ergo:174:3*/
-		default:
-			/*line plan.ergo:174:3*/ _ = caught
-			/*line plan.ergo:174:3*/ panic(err)
-			/*line plan.ergo:174:3*/
+//line plan.ergo:151:2
+	var codec_1 Codec[[]Source] = Codec[[]Source]{MaxBytes: int(1099511627776), MaxDepth: int(16)}
+//line plan.ergo:152:2
+//line plan.ergo:152:10
+	v_2, err_1 := DecodeMono_i2(env, struct {
+		/*line plan.ergo:152:10*/ Enc func(*Env, Writer_1, []Source) (struct{}, error)
+		/*line plan.ergo:152:10*/ Dec func(*Env, Reader_2) ([]Source, error)
+		/*line plan.ergo:152:10*/ Direct0 func(*Env, text_1, []Source) text_1
+		/*line plan.ergo:152:10*/ Field *struct {
+			/*line plan.ergo:152:10*/ Enc func(*Env, Writer_1, []Source) (struct{}, error)
+			/*line plan.ergo:152:10*/ Dec func(*Env, Reader_2) ([]Source, error)
+			/*line plan.ergo:152:10*/ Direct0 func(*Env, text_1, []Source) text_1
+			/*line plan.ergo:152:10*/ Absent func([]Source) bool
+			/*line plan.ergo:152:10*/ Empty []Source
+			/*line plan.ergo:152:10*/
 		}
-		/*line plan.ergo:174:3*/
+		/*line plan.ergo:152:10*/
+	}{Enc: func(e *Env, w Writer_1, v []Source) (struct{}, error) {
+		/*line plan.ergo:152:10*/ ergoEncodeSlice_26(e, w, v)
+		/*line plan.ergo:152:10*/ return struct{}{}, nil
+		/*line plan.ergo:152:10*/
+	}, Dec: func(e_1 *Env, r Reader_2) ([]Source, error) {
+		/*line plan.ergo:152:10*/ x, err := ergoDecodeSlice_26(e_1, r)
+		/*line plan.ergo:152:10*/ if err != nil {
+			/*line plan.ergo:152:10*/ return *new([]Source), err
+			/*line plan.ergo:152:10*/
+		}
+		/*line plan.ergo:152:10*/ return x, nil
+		/*line plan.ergo:152:10*/
+	}, Direct0: ergoWriteSlice_26, Field: nil}, codec_1, before)
+//line plan.ergo:152:2
+	var v_3 []Source
+	/*line plan.ergo:152:2*/ if err_1 != nil {
+//line plan.ergo:154:3
+		return []string{"1", "", "ergo fix: the sources before do not decode\n"}
+		/*line plan.ergo:154:3*/
+	} else {
+		/*line plan.ergo:154:3*/ v_3 = v_2
+		/*line plan.ergo:154:3*/
 	}
-//line plan.ergo:176:2
+	/*line plan.ergo:154:3*/ var b_1 []Source = v_3
+//line plan.ergo:156:2
+//line plan.ergo:156:10
+	v_6, err_3 := DecodeMono_i2(env, struct {
+		/*line plan.ergo:156:10*/ Enc func(*Env, Writer_1, []Source) (struct{}, error)
+		/*line plan.ergo:156:10*/ Dec func(*Env, Reader_2) ([]Source, error)
+		/*line plan.ergo:156:10*/ Direct0 func(*Env, text_1, []Source) text_1
+		/*line plan.ergo:156:10*/ Field *struct {
+			/*line plan.ergo:156:10*/ Enc func(*Env, Writer_1, []Source) (struct{}, error)
+			/*line plan.ergo:156:10*/ Dec func(*Env, Reader_2) ([]Source, error)
+			/*line plan.ergo:156:10*/ Direct0 func(*Env, text_1, []Source) text_1
+			/*line plan.ergo:156:10*/ Absent func([]Source) bool
+			/*line plan.ergo:156:10*/ Empty []Source
+			/*line plan.ergo:156:10*/
+		}
+		/*line plan.ergo:156:10*/
+	}{Enc: func(e_3 *Env, w_1 Writer_1, v_4 []Source) (struct{}, error) {
+		/*line plan.ergo:156:10*/ ergoEncodeSlice_26(e_3, w_1, v_4)
+		/*line plan.ergo:156:10*/ return struct{}{}, nil
+		/*line plan.ergo:156:10*/
+	}, Dec: func(e_4 *Env, r_1 Reader_2) ([]Source, error) {
+		/*line plan.ergo:156:10*/ x_1, err_2 := ergoDecodeSlice_26(e_4, r_1)
+		/*line plan.ergo:156:10*/ if err_2 != nil {
+			/*line plan.ergo:156:10*/ return *new([]Source), err_2
+			/*line plan.ergo:156:10*/
+		}
+		/*line plan.ergo:156:10*/ return x_1, nil
+		/*line plan.ergo:156:10*/
+	}, Direct0: ergoWriteSlice_26, Field: nil}, codec_1, after_1)
+//line plan.ergo:156:2
+	var v_7 []Source
+	/*line plan.ergo:156:2*/ if err_3 != nil {
+//line plan.ergo:158:3
+		return []string{"1", "", "ergo fix: the sources after do not decode\n"}
+		/*line plan.ergo:158:3*/
+	} else {
+		/*line plan.ergo:158:3*/ v_7 = v_6
+		/*line plan.ergo:158:3*/
+	}
+	/*line plan.ergo:158:3*/ var a []Source = v_7
+//line plan.ergo:160:2
+//line plan.ergo:160:10
+	v_8, err_4 := Rewritten(env, "fix", b_1, a)
+//line plan.ergo:160:2
+	if err_4 != nil {
+		/*line plan.ergo:160:2*/ switch caught := err_4.(type) {
+		/*line plan.ergo:160:2*/ case BadChange:
+			/*line plan.ergo:160:2*/ x_2 := caught
+//line plan.ergo:162:3
+			return []string{"1", "", ("ergo fix: " + x_2.Reason + "\n")}
+			/*line plan.ergo:162:3*/
+		default:
+			/*line plan.ergo:162:3*/ _ = caught
+			/*line plan.ergo:162:3*/ panic(err_4)
+			/*line plan.ergo:162:3*/
+		}
+		/*line plan.ergo:162:3*/
+	}
+//line plan.ergo:164:2
+	v_9 := applied(env, "ergo fix", root, v_8)
+	/*line plan.ergo:164:2*/ return v_9
+	/*line plan.ergo:164:2*/
+}
+
+//line plan.ergo:169:1
+func applied(env *Env, by string, root string, p Planned) []string {
+//line plan.ergo:169:1
+	env.task.Check()
+//line plan.ergo:170:2
+//line plan.ergo:170:42
+	v := NewHost(env)
+//line plan.ergo:170:2
+//line plan.ergo:170:25
+	v_1 := HostFilesOf(env, v, root)
+//line plan.ergo:170:2
+	var files Files = &opsHostFilesAsFiles{v: v_1, env: env}
+//line plan.ergo:171:2
+	t := files
+//line plan.ergo:171:32
+	v_2 := StoreOf(env, []Planned{p})
+//line plan.ergo:171:2
+//line plan.ergo:171:10
+	v_3 := ApplierOf(t, v_2)
+//line plan.ergo:171:2
+//line plan.ergo:171:10
+	v_4, err := (v_3).Apply(env, p.ID)
+//line plan.ergo:171:2
+	if err != nil {
+		/*line plan.ergo:171:2*/ switch caught := err.(type) {
+		/*line plan.ergo:171:2*/ case NoPlan:
+			/*line plan.ergo:171:2*/ n := caught
+//line plan.ergo:173:3
+			return []string{"1", "", (by + ": no plan " + n.ID + "\n")}
+			/*line plan.ergo:173:3*/
+		case NotReady:
+			/*line plan.ergo:173:3*/ n_1 := caught
+//line plan.ergo:175:3
+			return []string{"1", "", (by + ": plan " + n_1.ID + " is blocked by " + string(strconv.AppendInt(make([]byte, 0, 20), int64(len(n_1.Diagnostics)), 10)) + " diagnostics\n")}
+			/*line plan.ergo:175:3*/
+		case Stale:
+			/*line plan.ergo:175:3*/ s := caught
+//line plan.ergo:177:3
+			var names string = ""
+//line plan.ergo:178:3
+			for _, v_5 := range s.Files {
+				/*line plan.ergo:178:3*/ var f string = v_5
+//line plan.ergo:179:4
+				names = ((names + " ") + f)
+//line plan.ergo:178:3
+				env.task.Check()
+				/*line plan.ergo:178:3*/
+			}
+//line plan.ergo:181:3
+			return []string{"1", "", (by + ": plan " + s.ID + " is stale; changed since it was made:" + names + "\n")}
+			/*line plan.ergo:181:3*/
+		case Busy:
+			/*line plan.ergo:181:3*/ _ = caught
+//line plan.ergo:183:3
+			return []string{"1", "", (by + ": another apply holds the workspace's lock\n")}
+			/*line plan.ergo:183:3*/
+		case IOFailed:
+			/*line plan.ergo:183:3*/ e := caught
+//line plan.ergo:185:3
+			return []string{"1", "", (by + ": " + e.Reason + "\n")}
+			/*line plan.ergo:185:3*/
+		default:
+			/*line plan.ergo:185:3*/ _ = caught
+			/*line plan.ergo:185:3*/ panic(err)
+			/*line plan.ergo:185:3*/
+		}
+		/*line plan.ergo:185:3*/
+	}
+//line plan.ergo:187:2
+	var out string = ("applied " + v_4.ID + "\n")
+//line plan.ergo:188:2
+	for _, v_6 := range v_4.Files {
+		/*line plan.ergo:188:2*/ var f_1 FileRead = v_6
+//line plan.ergo:189:3
+		out = (out + ("  " + f_1.File + " " + f_1.Revision + "\n"))
+//line plan.ergo:188:2
+		env.task.Check()
+		/*line plan.ergo:188:2*/
+	}
+//line plan.ergo:191:2
+	return []string{"0", out, ""}
+	/*line plan.ergo:191:2*/
+}
+
+//line plan.ergo:196:1
+func Recover_1(env *Env, root string) []string {
+//line plan.ergo:196:1
+	env.task.Check()
+//line plan.ergo:197:2
+//line plan.ergo:197:42
+	v := NewHost(env)
+//line plan.ergo:197:2
+//line plan.ergo:197:25
+	v_1 := HostFilesOf(env, v, root)
+//line plan.ergo:197:2
+	var files Files = &opsHostFilesAsFiles{v: v_1, env: env}
+//line plan.ergo:198:2
+	t := files
+//line plan.ergo:198:32
+	v_2 := NewStore(env)
+//line plan.ergo:198:2
+//line plan.ergo:198:10
+	v_3 := ApplierOf(t, v_2)
+//line plan.ergo:198:2
+//line plan.ergo:198:10
+	v_4, err := (v_3).Recover(env)
+//line plan.ergo:198:2
+	if err != nil {
+		/*line plan.ergo:198:2*/ switch caught := err.(type) {
+		/*line plan.ergo:198:2*/ case Busy:
+			/*line plan.ergo:198:2*/ _ = caught
+//line plan.ergo:200:3
+			return []string{"1", "", "ergo code recover: another apply holds the workspace's lock\n"}
+			/*line plan.ergo:200:3*/
+		case IOFailed:
+			/*line plan.ergo:200:3*/ e := caught
+//line plan.ergo:202:3
+			return []string{"1", "", ("ergo code recover: " + e.Reason + "\n")}
+			/*line plan.ergo:202:3*/
+		default:
+			/*line plan.ergo:202:3*/ _ = caught
+			/*line plan.ergo:202:3*/ panic(err)
+			/*line plan.ergo:202:3*/
+		}
+		/*line plan.ergo:202:3*/
+	}
+//line plan.ergo:204:2
 	return []string{"0", ("recovered: " + v_4.Outcome + "\n"), ""}
-	/*line plan.ergo:176:2*/
+	/*line plan.ergo:204:2*/
 }
 
 //line tool.ergo:16:1

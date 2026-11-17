@@ -420,8 +420,7 @@ func Remove(h Host, path string) fails NotFound | Denied | Failed {
 // nothing moves. A host or a file system with no atomic exchange is
 // Failed "no atomic exchange on this host": Exchange is never done by
 // renames a reader could see half done. Linux has one (renameat2 with
-// RENAME_EXCHANGE); macOS's (renamex_np with RENAME_SWAP) is not bound
-// yet. It is a function of Host alone, not an operation of Writes, as
+// RENAME_EXCHANGE), and macOS (renamex_np with RENAME_SWAP). It is a function of Host alone, not an operation of Writes, as
 // LockFile is.
 func Exchange(h Host, a string, b string) fails NotFound | Denied | Failed {
 	try hostExchange(try at(h, a), try at(h, b))
