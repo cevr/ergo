@@ -40,7 +40,12 @@ extern go ergo.local/prototype/runtime/v1.StrconvParseFloat func ParseFloat(s st
 
 // ParseBool is the bool in s: 1, t, T, TRUE, true, True, 0, f, F, FALSE,
 // false or False. Any other text fails Malformed.
-extern go ergo.local/prototype/runtime/v1.StrconvParseBool func ParseBool(s string) bool fails Malformed
+func ParseBool(s string) bool fails Malformed {
+	strconv.ParseBool(s) catch {
+	case go.Error:
+		return Malformed{Text: s}
+	}
+}
 
 // FormatBool is "true" or "false".
 func FormatBool(b bool) string { strconv.FormatBool(b) }
@@ -68,7 +73,12 @@ func Quote(s string) string { strconv.Quote(s) }
 
 // Unquote is the value of the Go string, rune or raw string literal s.
 // Text that is not one fails Malformed.
-extern go ergo.local/prototype/runtime/v1.StrconvUnquote func Unquote(s string) string fails Malformed
+func Unquote(s string) string fails Malformed {
+	strconv.Unquote(s) catch {
+	case go.Error:
+		return Malformed{Text: s}
+	}
+}
 
 // The round trips of strconv (docs/spec/stdlib.md, Std laws).
 

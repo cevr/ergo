@@ -38,10 +38,10 @@ atomic	Int64	type
 atomic	NewBool	library	GBX1b: go.New[atomic.Bool]() charges go.Foreign (interop.md, Go values by address 3), which no test or law holds; Bool's methods are memory-only (GBX6), its constructor is not
 atomic	NewInt64	library	GBX1b: go.New[atomic.Int64]() charges go.Foreign (interop.md, Go values by address 3), which no test or law holds; Int64's methods are memory-only (GBX6), its constructor is not
 base64	Malformed	type
-base64	decodeStd	library	NP4f-5
-base64	decodeURL	library	NP4f-5
-base64	encodeStd	library	NP4f-5
-base64	encodeURL	library	NP4f-5
+base64	decodeStd	library	GBX3: Go's base64.StdEncoding is a package variable, which import go does not bind
+base64	decodeURL	library	GBX3: Go's base64.URLEncoding is a package variable, which import go does not bind
+base64	encodeStd	library	GBX3: Go's base64.StdEncoding is a package variable, which import go does not bind
+base64	encodeURL	library	GBX3: Go's base64.URLEncoding is a package variable, which import go does not bind
 cmp	Max	computation	PRIM: Go's builtin max over every ordered type (a float's sign of zero); goBuiltins bind min and max for basic types only
 cmp	Min	computation	PRIM: Go's builtin min over every ordered type (a float's sign of zero); goBuiltins bind min and max for basic types only
 config	NewRedacted	computation	NP4f-7
@@ -51,13 +51,12 @@ config	envName	computation	NP4f-7
 config	flagKey	computation	NP4f-7
 config	flagName	computation	NP4f-7
 config	hostEnviron	library	NP4f-6
-crc32	Checksum	library	NP4f-5
-crc32	Update	library	NP4f-5
-csv	Format	library	NP4f-5
+crc32	Update	library	GBX3: Go's crc32.IEEETable is a package variable; MakeTable(IEEE) returns Option[go.Ref[Table]], a match per call
+csv	Format	library	not tried in NP4f-5: Go's csv.Writer writes to an io.Writer (strings.Builder through import go), a GB2 binding not probed
 csv	ParseError	type
 csv	Position	type
-csv	ReadAll	library	NP4f-5
-csv	scan	library	NP4f-5
+csv	ReadAll	library	not tried in NP4f-5: the body gives each field's Position and std's ParseError, which Go's csv.Reader gives through FieldPos and *ParseError over an io.Reader
+csv	scan	library	not tried in NP4f-5: it calls an Ergo callback per record with positions, over Go's csv.Reader
 embed	FS	type
 embed	NewEmpty	provider
 exec	Chunk	type
@@ -146,9 +145,9 @@ json	Cursor	type
 json	Malformed	type
 json	appendBool	computation	NP4f-7
 json	appendFloat	computation	NP4f-7
-json	appendInt	library	NP4f-5
+json	appendInt	library	FK2 appender fact: a []byte argument to import go's appender is cloned in and its result cloned out (strconv.AppendInt(slices.Clone(out), …), probe NP4f-5); the body appends in place
 json	appendQuoted	computation	NP4f-7
-json	appendUint	library	NP4f-5
+json	appendUint	library	FK2 appender fact: a []byte argument to import go's appender is cloned in and its result cloned out (strconv.AppendInt(slices.Clone(out), …), probe NP4f-5); the body appends in place
 json	bytesText	language	PRIM
 json	open	computation	NP4f-8
 log	contextBound	provider
@@ -211,27 +210,24 @@ rpc	parse	computation	NP4f-7
 rpc	readExit	computation	NP4f-7
 rpc	request	computation	NP4f-7
 scope	OnExit	provider
-sha256	Sum	library	NP4f-5
 slices	Clone	language	PRIM
 slices	Concat	language	PRIM
 slices	Repeat	language	PRIM
 slices	Reverse	computation	OWN1: the owned in-place form (//ergo:owned SlicesReverseOwned) must come from OWN1's rules on an Ergo body
 slices	Slice	language	PRIM
-slices	Sort	library	NP4f-5
-slices	SortFunc	library	NP4f-5
-slices	SortStableFunc	library	NP4f-5
+slices	Sort	library	GBX2: Go's slices.Sort writes its argument, and import go lowers it to a sort of a clone that is dropped
+slices	SortFunc	library	GBX2: Go's slices.SortFunc writes its argument, and import go lowers it to a sort of a clone that is dropped
+slices	SortStableFunc	library	GBX2: Go's slices.SortStableFunc writes its argument, and import go lowers it to a sort of a clone that is dropped
 slices	Take	language	PRIM
 slices	WithCapacity	language	PRIM
-strconv	AppendFloat	library	NP4f-5
-strconv	AppendInt	library	NP4f-5
-strconv	AppendUint	library	NP4f-5
+strconv	AppendFloat	library	FK2 appender fact: a []byte argument to import go's appender is cloned in and its result cloned out (strconv.AppendInt(slices.Clone(out), …), probe NP4f-5); the body appends in place
+strconv	AppendInt	library	FK2 appender fact: a []byte argument to import go's appender is cloned in and its result cloned out (strconv.AppendInt(slices.Clone(out), …), probe NP4f-5); the body appends in place
+strconv	AppendUint	library	FK2 appender fact: a []byte argument to import go's appender is cloned in and its result cloned out (strconv.AppendInt(slices.Clone(out), …), probe NP4f-5); the body appends in place
 strconv	Atoi	computation	NP4f-7
 strconv	Malformed	type
 strconv	OutOfRange	type
-strconv	ParseBool	library	NP4f-5
-strconv	ParseFloat	library	NP4f-5
-strconv	ParseInt	library	NP4f-5
-strconv	Unquote	library	NP4f-5
+strconv	ParseFloat	library	GBX3: OutOfRange is Go's ErrRange, a package variable go.Is cannot name until import go binds it
+strconv	ParseInt	library	GBX3: OutOfRange is Go's ErrRange, a package variable go.Is cannot name until import go binds it
 strings	Borrow	provider
 strings	Give	provider
 strings	Hint	provider
