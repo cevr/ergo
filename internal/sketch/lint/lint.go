@@ -82,6 +82,9 @@ type File struct {
 type Unit struct {
 	Package *check.Package
 	Files   []File
+	// Dependency marks a package of a required module, not the linted
+	// module's own: its facts are read, but no rule runs over its files.
+	Dependency bool
 }
 
 // Input is a program to lint: its packages, dependencies first. Checked
@@ -117,13 +120,13 @@ type ruleRun struct {
 // one source text.
 func (p *Pass) Rel() string { return p.rel }
 
-// Program is the checked packages of the program's own (not std's, not a
-// host binding's) in the run, dependencies first: the rest of the world a
-// rule that compares declarations across packages can see.
+// Program is the checked packages of the linted module in the run,
+// dependencies first: the rest of the world a rule that compares
+// declarations across packages can see.
 func (p *Pass) Program() []Unit {
 	var out []Unit
 	for _, u := range p.run.in.Units {
-		if programUnit(u) {
+		if u.Package != nil && u.Package.Info != nil && !u.Dependency {
 			out = append(out, u)
 		}
 	}

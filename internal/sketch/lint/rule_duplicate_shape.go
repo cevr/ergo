@@ -32,9 +32,6 @@ type shapeDecl struct {
 }
 
 func checkDuplicateShape(p *Pass) {
-	if p.Package.Std() || p.Package.Host() {
-		return
-	}
 	copies := p.Memo(func() any { return duplicateShapes(p) }).(map[*syntax.Ident]shapeDecl)
 	for _, d := range p.File.Decls {
 		if t, ok := d.(*syntax.TypeDecl); ok {

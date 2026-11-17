@@ -30,9 +30,6 @@ type testDecl struct {
 }
 
 func checkDuplicateTest(p *Pass) {
-	if p.Package.Std() || p.Package.Host() {
-		return
-	}
 	copies := p.Memo(func() any { return map[*check.Package]map[*syntax.Ident]testDecl{} }).(map[*check.Package]map[*syntax.Ident]testDecl)
 	if copies[p.Package] == nil {
 		copies[p.Package] = duplicateTests(p)

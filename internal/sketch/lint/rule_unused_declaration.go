@@ -21,9 +21,6 @@ var unusedDeclaration = &Rule{
 }
 
 func checkUnusedDeclaration(p *Pass) {
-	if p.Package.Std() || p.Package.Host() {
-		return
-	}
 	used := p.Memo(func() any { return map[*check.Package]map[check.Object]bool{} }).(map[*check.Package]map[check.Object]bool)
 	if used[p.Package] == nil {
 		used[p.Package] = usedElsewhere(p)

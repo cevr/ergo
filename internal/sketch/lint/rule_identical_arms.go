@@ -32,9 +32,6 @@ type arm struct {
 }
 
 func checkIdenticalArms(p *Pass) {
-	if p.Package.Std() || p.Package.Host() {
-		return
-	}
 	syntax.Inspect(p.File, func(n syntax.Node) bool {
 		var arms []arm
 		switch x := n.(type) {

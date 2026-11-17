@@ -21,9 +21,6 @@ var unusedTypeParameter = &Rule{
 }
 
 func checkUnusedTypeParameter(p *Pass) {
-	if p.Package.Std() || p.Package.Host() {
-		return
-	}
 	for _, d := range p.File.Decls {
 		f, ok := d.(*syntax.FuncDecl)
 		if !ok || f.TypeParams == nil || f.Derived != nil || f.Extern != nil {

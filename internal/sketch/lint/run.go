@@ -61,6 +61,9 @@ func (c *Configuration) Run(in Input) Result {
 	}
 	suppressed := make([]bool, len(findings))
 	for _, unit := range in.Units {
+		if unit.Dependency {
+			continue
+		}
 		for _, file := range unit.Files {
 			for _, d := range directivesOf(file) {
 				if problem := c.suppress(d, in.Checked, statuses, findings, suppressed, &res); problem != "" {
@@ -244,7 +247,7 @@ func runRule(rule *Rule, options any, in Input) (found []Finding, err error) {
 	}()
 	run := &ruleRun{in: in}
 	for _, unit := range in.Units {
-		if unit.Package == nil || unit.Package.Info == nil {
+		if unit.Package == nil || unit.Package.Info == nil || unit.Dependency {
 			continue
 		}
 		for _, file := range unit.Files {

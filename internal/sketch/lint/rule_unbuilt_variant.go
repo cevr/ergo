@@ -28,9 +28,6 @@ type variantFacts struct {
 }
 
 func checkUnbuiltVariant(p *Pass) {
-	if p.Package.Std() || p.Package.Host() {
-		return
-	}
 	facts := p.Memo(func() any { return variantsOf(p) }).(variantFacts)
 	closed := p.Closed()
 	report := func(id *syntax.Ident) {
