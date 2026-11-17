@@ -14,38 +14,55 @@ import strings
 
 // printsOf is the prints of the top-level declaration row d.
 func printsOf(p syntax.Parsed, d dense.ID[syntax.Node]) store.Prints {
+	let lo = syntax.NodePos(p, d)
 	let hi = syntax.NodeEnd(p, d)
 	let (cutLo, cutHi) = cutOf(p, d)
-	let mut all = strings.NewBuilder()
-	let mut iface = strings.NewBuilder()
+	let first = firstToken(p, lo)
+	// A token writes its text and five bytes; twice the span's bytes is
+	// room for the usual run, so the builder rarely grows.
+	let fp = printOf(tokensIn(p, first, hi, 0, 0, 2*(hi-lo)+16))
+	if cutHi <= cutLo {
+		return store.Prints{Fp: fp, Ifp: fp}
+	}
+	store.Prints{Fp: fp, Ifp: printOf(tokensIn(p, first, hi, cutLo, cutHi, 2*(hi-lo)+16))}
+}
+
+// tokensIn is the tokens from from up to offset hi, written by writeToken;
+// those starting in cutLo..cutHi (when not empty) are one cut token.
+func tokensIn(p syntax.Parsed, from int, hi int, cutLo int, cutHi int, room int) string {
+	let mut b = strings.NewBuilder()
+	b.Grow(room)
 	let mut cut = false
-	let mut j = firstToken(p, syntax.NodePos(p, d))
+	let mut j = from
 	for j >= 0 && syntax.TokPos(p, j) < hi {
 		let at = syntax.TokPos(p, j)
-		let k = syntax.TokKind(p, j)
-		let t = if k == syntax.Semicolon { "" } else { syntax.TokText(p, j) }
-		writeToken(&all, k, t)
 		if at >= cutLo && at < cutHi {
 			if !cut {
-				iface.WriteString("cut;")
+				b.WriteString("cut;")
 				cut = true
 			}
 		} else {
-			writeToken(&iface, k, t)
+			let k = syntax.TokKind(p, j)
+			writeToken(&b, k, if k == syntax.Semicolon { "" } else { syntax.TokText(p, j) })
 		}
 		j = j + 1
 	}
-	store.Prints{Fp: printOf(all.String()), Ifp: printOf(iface.String())}
+	b.String()
 }
 
 // firstToken is the first token at or after offset at (a node starts at
 // a token, so this is that token).
 func firstToken(p syntax.Parsed, at int) int { syntax.TokStartingAt(p, at) }
 
-// writeToken writes a token as its kind, its text's length and its text,
-// so no two token runs write the same bytes.
+// writeToken writes a token as its kind, its text's length (four bytes,
+// low first) and its text, so no two token runs write the same bytes.
 func writeToken(b *strings.Builder, k uint8, t string) {
-	b.WriteString("\(k):\(len(t)):")
+	let n = len(t)
+	b.WriteByte(byte(k))
+	b.WriteByte(byte(n & 255))
+	b.WriteByte(byte((n >> 8) & 255))
+	b.WriteByte(byte((n >> 16) & 255))
+	b.WriteByte(byte((n >> 24) & 255))
 	b.WriteString(t)
 }
 
