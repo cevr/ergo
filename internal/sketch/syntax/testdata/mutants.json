@@ -297,8 +297,8 @@
       "name": "parsefiles-decodes-the-first",
       "origin": "wf10/selfhost/S2e",
       "file": "internal/sketch/syntax/decode.go",
-      "from": "files[i], errs[i] = decodeColumns(srcs[i], cols)",
-      "to": "files[i], errs[i] = decodeColumns(srcs[i], all[0])",
+      "from": "\tfor i, cols := range all {\n",
+      "to": "\tfor i, cols := range all {\n\t\tcols = all[0]\n",
       "rule": "ParseFiles decodes each file from its own columns.",
       "killers": []
     }

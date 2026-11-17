@@ -443,7 +443,9 @@
       "from": "func(src string) []uint32 { syntax.Columns(syntax.Parse(src)) }",
       "to": "func(src string) []uint32 { syntax.Columns(syntax.Parse(srcs[0])) }",
       "rule": "The columns of a package's files are each file's own, in file order.",
-      "killers": []
+      "killers": [
+        "internal/sketchfront:TestLoaderOrderIsTheNames"
+      ]
     }
   ]
 }
