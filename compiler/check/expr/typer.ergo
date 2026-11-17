@@ -467,6 +467,9 @@ func stmt(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node]) {
 	} else if kd == syntax.KAssignStmt {
 		let a = syntax.AssignStmtOf(tr, x)
 		let lt = expr(s, k, t, a.Lhs, Free)
+		if assignsImmutable(*s, k, *t, a.Lhs) {
+			report(k, t, a.Lhs)
+		}
 		let op = syntax.TokKind(k.Parsed[t.file], a.Tok)
 		match lt {
 		case Some[dense.ID[store.TKey]] as l:
@@ -876,7 +879,13 @@ func ident(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node]) Option[dens
 	case bind.Outside:
 		let p = k.Parsed[t.file]
 		let text = syntax.TokText(p, syntax.TokStartingAt(p, syntax.NodePos(p, x)))
-		if text == "true" || text == "false" { some(store.TBasic(s, bBool)) } else { None }
+		if text == "true" || text == "false" {
+			return some(store.TBasic(s, bBool))
+		}
+		if !predeclared(*s, k, text) {
+			report(k, t, x)
+		}
+		None
 	case _:
 		None
 	}

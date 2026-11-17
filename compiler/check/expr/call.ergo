@@ -170,6 +170,7 @@ func call(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], c syntax.Cal
 				let f = infer.Unmarked(*s, ft.Value)
 				if store.KindOfType(*s, f) == store.KSig {
 					let (params, r) = sigParts(*s, k, f, n)
+					arity(k, t, x, n, len(params))
 					args(s, k, t, c, params)
 					return resultOf(*s, r)
 				}
@@ -200,6 +201,7 @@ func call(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], c syntax.Cal
 			note(k, t, c.Fun, f.Sig)
 		}
 		let (params, r) = sigParts(*s, k, f.Sig, n)
+		arity(k, t, x, n, len(params))
 		args(s, k, t, c, params)
 		return resultOf(*s, r)
 	}
@@ -272,6 +274,7 @@ func valueCall(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], c synta
 		let f = infer.Unmarked(*s, ft.Value)
 		if store.KindOfType(*s, f) == store.KSig {
 			let (params, r) = sigParts(*s, k, f, n)
+			arity(k, t, x, n, len(params))
 			args(s, k, t, c, params)
 			return resultOf(*s, r)
 		}
@@ -289,6 +292,7 @@ func valueCall(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], c synta
 			note(k, t, fun, withoutFirst(s, f.Sig))
 		}
 		let (params, r) = sigParts(*s, k, f.Sig, n+1)
+		arity(k, t, x, n+1, len(params))
 		args(s, k, t, c, params[1:len(params)])
 		resultOf(*s, r)
 	case None:
@@ -307,6 +311,7 @@ func generic(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], c syntax.
 	let n = syntax.Len(c.Args)
 	let m = if isSome(recv) { 1 } else { 0 }
 	let (params, r) = sigParts(*s, k, f.Sig, n+m)
+	arity(k, t, x, n+m, len(params))
 	let me = k.Fns[t.fn]
 	let base = len(me.Params)
 	let mut rename = []dense.ID[store.TKey]{}
