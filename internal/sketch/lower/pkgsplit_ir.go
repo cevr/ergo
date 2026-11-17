@@ -53,6 +53,10 @@ type irSplit struct {
 	// qual are, by package, the generic names of other packages its IR
 	// bodies use, each spelled PATH.Name (foreignDecls).
 	qual map[int]map[string]string
+	// getters are, by package, the forwarding functions its IR bodies
+	// read another package's let with no value through (foreignDecls),
+	// by the let's name.
+	getters map[int]map[string]string
 }
 
 // newIRSplit reads the references of ir's bodies; groupOf is the group
@@ -136,6 +140,7 @@ func (d splitDefs) add(name string, n ast.Node, i int) {
 // imports (Q5, option b). It reports why it cannot, "" when it can.
 func (s *irSplit) foreignDecls(defs splitDefs, taken map[string]bool, text func(k, decl int, n ast.Node) string, qualified, goPath func(k int, name string) string, extra []bytes.Buffer) string {
 	s.qual = map[int]map[string]string{}
+	s.getters = nil
 	generic := func(k int, name string) {
 		if s.qual[k] == nil {
 			s.qual[k] = map[string]string{}
@@ -180,7 +185,28 @@ func (s *irSplit) foreignDecls(defs splitDefs, taken map[string]bool, text func(
 				// package state (mutPackageLet), and Go initializes an
 				// imported package first, so a copy reads what the
 				// variable holds (the reader's "global" looks a name up in
-				// the package's own scope only).
+				// the package's own scope only). A variable declared with
+				// no value is set by ergoInit, which main runs inside the
+				// root task (a let whose value takes statements), after
+				// every package's Go initialization: a copy holds its zero
+				// value (Q13: fk-routes's people.All read as an empty list,
+				// "person 3: not found"). The IR body reads it through a
+				// forwarding function instead (files), when the body runs.
+				if len(n.Values) == 0 {
+					if n.Type == nil {
+						return "an IR body uses the variable " + name + " of another package, declared with no type"
+					}
+					get := freshName(taken, "ergoGet"+strings.ToUpper(name[:1])+name[1:])
+					extra[k].WriteString("\nfunc " + get + "() " + text(k, decl, n.Type) + " { return " + qualified(k, name) + " }\n")
+					if s.getters == nil {
+						s.getters = map[int]map[string]string{}
+					}
+					if s.getters[k] == nil {
+						s.getters[k] = map[string]string{}
+					}
+					s.getters[k][name] = get
+					continue
+				}
 				extra[k].WriteString("\nvar " + name + " = " + qualified(k, name) + "\n")
 			default:
 				return "an IR body uses the variable " + name + " of another package"
@@ -275,6 +301,13 @@ func (s *irSplit) files(pkgOf func(i int) int, rename map[string]string, plan *s
 		fn.walk(own, renamed)
 		if err := pcalls(&fn, s.qual[p]); err != nil {
 			return nil, 0, err
+		}
+		if get := s.getters[p]; len(get) > 0 {
+			fn.exprs(func(x *irExpr) {
+				if g, ok := get[x.Name]; ok && x.K == "global" {
+					x.K, x.Name = "call", g
+				}
+			})
 		}
 		byPkg[p] = append(byPkg[p], fn)
 	}
