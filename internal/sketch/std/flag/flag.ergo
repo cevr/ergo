@@ -394,13 +394,16 @@ func findIn(flags []Flag, name string) Option[Flag] {
 // f, of the same kind with the same default. A handle of another set, or
 // of another kind under the name of one of the set's flags, is a defect.
 func known(v Values, f Flag) {
-	match find(v.set, nameOf(f)) {
+	let ok = match find(v.set, nameOf(f)) {
 	case Some[Flag] as found:
-		if !sameHandle(found.Value, f) {
-			notInSet(nameOf(f))
-		}
+		sameHandle(found.Value, f)
 	case None:
-		notInSet(nameOf(f))
+		false
+	}
+	if !ok {
+		// A pure call's dropped result does nothing (S110): the defect is
+		// stated, not computed.
+		Unreachable("flag -" + nameOf(f) + " is not a flag of the parsed set")
 	}
 }
 

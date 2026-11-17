@@ -706,7 +706,7 @@ func use(s Store, m Mem, xs []int8) int {
 	for i, x in xs {
 		let y = int(x) + i
 		s.Get()
-		m.Get()
+		total += len(m.Get())
 		total += y
 	}
 	for k in 0..total {

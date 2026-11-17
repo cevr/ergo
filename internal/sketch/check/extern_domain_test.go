@@ -37,7 +37,9 @@ var externForms = []externForm{
 	{
 		name: "user", decl: "extern go strings.ToUpper func Upper(s string) string\n",
 		ref: "Upper", typ: "func(string) string", args: `("x")`,
-		ctlDecl: "func upper(s string) string { s }\n", ctlRef: "upper", value: true,
+		// The control runs a function value, as opaque as the host
+		// function: neither one's dropped result is a dead call (M2).
+		ctlDecl: "let id = func(s string) string { s }\nfunc upper(s string) string { id(s) }\n", ctlRef: "upper", value: true,
 	},
 	{
 		name: "std-value", imports: "import strings\n",

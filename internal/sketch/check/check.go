@@ -216,6 +216,9 @@ type checker struct {
 	// pureArgs are the arguments of pure parameters (durable.go), which
 	// checkPureArgs judges once the footprints are known.
 	pureArgs []pureArg
+	// discarded are the calls whose result a statement drops, which
+	// checkDiscardedCalls judges once the footprints are known (stmt.go).
+	discarded []discardedCall
 	// lawPreds are the invariant laws whose predicate checkLawPreds judges
 	// pure once the footprints are known (machinelaw.go).
 	lawPreds []*Law

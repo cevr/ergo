@@ -47,7 +47,8 @@ func checkWith(t *testing.T, imp check.Importer, src string) []check.Diagnostic 
 // Totality 3). In statement position, a tail that is a pure value (a
 // literal, a name, an operator or a conversion, with no call at its top) is
 // S110 "this value is not used", in every body kind; a tail that is a call,
-// a try, a catch or a with has its result discarded, in every body kind;
+// a try, a catch or a with has its result discarded, in every body kind,
+// unless the call is pure (M2; the calls here run function values);
 // an empty body is the spelling of an arm with no work. Round 4 review M1:
 // the call's resolved kind decides, so a generic, a parenthesised and a
 // qualified conversion are conversions like int8(n).
@@ -56,7 +57,10 @@ func TestOneStatementPositionRule(t *testing.T) {
 	const units = "import units\nfunc c(x units.Celsius) units.Celsius { x }\n"
 	const decls = "let W = context {}\ntype E {}\ntype F {}\ntype N[T] int\n" +
 		"func g() int fails E { 1 }\nfunc two() int fails E | F { 2 }\n" +
-		"func i() int { 1 }\nfunc s() string { \"s\" }\nfunc each(f func()) { f() }\n"
+		"let one = func() int { 1 }\nlet str = func() string { \"s\" }\n" +
+		// i and s run a function value, so they are not pure: a pure
+		// call's dropped result is S110 (lint/plan.md M2).
+		"func i() int { one() }\nfunc s() string { str() }\nfunc each(f func()) { f() }\n"
 	// X is the tail under test; every other tail is a call.
 	bodies := []struct {
 		name, src string
