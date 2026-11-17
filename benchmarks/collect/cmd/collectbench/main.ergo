@@ -45,7 +45,45 @@ func foldPart(src []int, lo int, hi int) int {
 	h
 }
 
+// line is a fresh source of 80 elements for each part: a parsed line, say.
+func line(r int) []int {
+	let mut xs = []int{}
+	for i in 0..80 {
+		xs = xs.Append(i * 7 + r)
+	}
+	xs
+}
+
+// reslicePart collects 64 elements of a fresh line, which is dead after
+// the loop, and grows the result by one (GP-RESLICE: the result takes the
+// line's part, with no copy, and grows into the line's array).
+func reslicePart(r int) int {
+	let src = line(r)
+	let mut ys = []int{}
+	for i in 8..72 {
+		ys = ys.Append(src[i])
+	}
+	ys = ys.Append(r)
+	ys[r & 63] + len(ys)
+}
+
+func resliceBench(n int) int {
+	let mut t = 0
+	for r in 0..n / part {
+		t = t + reslicePart(r)
+	}
+	t
+}
+
 func bench(kind string, n int) int {
+	if kind == "reslice" || kind == "reslicefloor" {
+		resliceBench(n)
+	} else {
+		partsBench(kind, n)
+	}
+}
+
+func partsBench(kind string, n int) int {
 	let src = source(4096)
 	let mut s = 0
 	for r in 0..n / part {
