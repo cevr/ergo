@@ -13,12 +13,12 @@ import (
 
 // formsPrelude is the callees of the forms rows: sq, a pure function;
 // noisy, one that prints; ones, a pure one whose result is a slice;
-// Box.Get, a method; quoted, a call of Go's strconv, which the fold rows
-// import.
+// Box.Get, a method; quoted, a function whose body is a call of Go's
+// strconv on a constant (the fold rows import strconv).
 const formsPrelude = `import go strconv
 
-func quoted(a int) string {
-	strconv.Quote("\(a)")
+func quoted() string {
+	strconv.Quote("q")
 }
 
 func sq(a int) int {
@@ -67,6 +67,7 @@ var formsRows = []struct {
 	{"an operand is not a constant of a basic type", "let s = strconv.Quote(\"\\(k)\")\n\t\tacc = acc + len(s)", ":29:11  call  fold  not fired  f  (an operand is not a constant of a basic type)", ""},
 	{"the compiler does not run on the pinned Go release", "let s = strconv.Quote(\"lit\")\n\t\tacc = acc + len(s)", ":29:11  call  fold  not fired  f  (the compiler does not run on the pinned Go release)", "go1.26.0"},
 	{"the call folds to a constant", "let s = strconv.Quote(\"lit\")\n\t\tacc = acc + len(s)", ":29:11  call  memo  not fired  f  (the call folds to a constant)", ""},
+	{"the call folds to a constant", "let s = quoted()\n\t\tacc = acc + len(s)", ":29:11  call  memo  not fired  f  (the call folds to a constant)", ""},
 }
 
 // TestInspectFormsRows holds ergo inspect forms: for each reason a pass

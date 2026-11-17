@@ -75,7 +75,8 @@ ergo inspect forms FILE|DIR [--json]
    - `statements run before the call`: an operand runs statements of its
      own (an effectful call, an if);
    - `the call folds to a constant`: the fold pass computes it at compile
-     time, so it needs no cache.
+     time, or it calls a function of no operands whose body is one such
+     call (which Go then inlines as a constant), so it needs no cache.
 
    A call inside an operator's operand (`acc + sq(k)`) is not looked at
    yet: the forms substrate's statement slot gives the pass those sites.

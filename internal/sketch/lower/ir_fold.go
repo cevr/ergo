@@ -77,15 +77,40 @@ var memoFolds = &FormReason{"call", "memo", false, "the call folds to a constant
 // foldable reports a call x of f, its operands constants of basic types,
 // that this pass will compute.
 func (b *irBuilder) foldable(f *check.Func, x *syntax.CallExpr) bool {
+	return b.foldableIn(b.l.info, f, x) || b.foldsToConstant(f, x)
+}
+
+// foldableIn is foldable for a call x checked in info.
+func (b *irBuilder) foldableIn(info *check.Info, f *check.Func, x *syntax.CallExpr) bool {
 	if pureFold == "off" || compilerGo != toolchain.Version || f == nil || !f.Pkg.Host() || !eval.HasGoFold(f.Pkg.Path, f.Name) {
 		return false
 	}
 	for _, a := range x.Args {
-		if _, ok := b.l.info.Values[a]; !ok {
+		if _, ok := info.Values[a]; !ok {
 			return false
 		}
 	}
 	return true
+}
+
+// foldsToConstant reports a call x of an Ergo function f of no operands
+// whose body is one call this pass computes (func label() string {
+// strconv.Quote("lit") }): its IR body returns a constant, which Go
+// inlines, so a cache around the call costs more than the call.
+func (b *irBuilder) foldsToConstant(f *check.Func, x *syntax.CallExpr) bool {
+	if len(x.Args) != 0 || f == nil || f.Decl == nil || f.Decl.Body == nil || f.Decl.Extern != nil || len(f.Decl.Body.List) != 1 {
+		return false
+	}
+	es, ok := f.Decl.Body.List[0].(*syntax.ExprStmt)
+	if !ok {
+		return false
+	}
+	inner, ok := unparen(es.X).(*syntax.CallExpr)
+	if !ok {
+		return false
+	}
+	c := f.Pkg.Info.Calls[inner]
+	return c != nil && c.Kind == check.CallFunc && c.Recv == nil && b.foldableIn(f.Pkg.Info, c.Func, inner)
 }
 
 // foldCalls is body with each pure Go call on constants that has a
