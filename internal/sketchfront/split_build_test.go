@@ -187,11 +187,21 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
 func main() {
 	tool, args := os.Args[1], os.Args[2:]
+	socket := os.Getenv("SPLIT_SOCKET")
+	if len(socket) > 100 { // too long for a socket: dial it through its folder's descriptor, as the test binds it
+		dir, err := os.Open(filepath.Dir(socket))
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(3)
+		}
+		socket = fmt.Sprintf("/proc/self/fd/%d/%s", dir.Fd(), filepath.Base(socket))
+	}
 	pkg := ""
 	for i := 0; i+1 < len(args); i++ {
 		if args[i] == "-p" {
@@ -199,7 +209,7 @@ func main() {
 		}
 	}
 	if strings.HasSuffix(tool, "compile") && pkg != "" && strings.Contains(" "+os.Getenv("SPLIT_HOLD")+" ", " "+pkg+" ") {
-		conn, err := net.Dial("unix", os.Getenv("SPLIT_SOCKET"))
+		conn, err := net.Dial("unix", socket)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(3)
@@ -240,8 +250,20 @@ func TestColdCompilesInParallel(t *testing.T) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("the wrapper does not build: %v\n%s", err, out)
 	}
+	// The gate's TMPDIR can make this path longer than a socket's may be
+	// (108 bytes on Linux); then both ends name it through a descriptor of
+	// its folder, /proc/self/fd/N/s, as cmd/ergo's dev daemon does.
 	socket := filepath.Join(tmp, "s")
-	ln, err := net.Listen("unix", socket)
+	bind := socket
+	if len(socket) > 100 {
+		dir, err := os.Open(tmp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer dir.Close()
+		bind = fmt.Sprintf("/proc/self/fd/%d/s", dir.Fd())
+	}
+	ln, err := net.Listen("unix", bind)
 	if err != nil {
 		t.Fatal(err)
 	}
