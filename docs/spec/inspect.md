@@ -44,7 +44,7 @@ code and changes no lowering or optimization path.
 
 ## Forms
 
-Status: **implemented** for the passes on the line today: the memo pass (IR-FORMS IRF-6). Unlike the API view, this view lowers the program to the IR in process; it runs no Go tool.
+Status: **implemented** for the passes on the line today: the memo pass and the merge pass (IR-FORMS IRF-6). Unlike the API view, this view lowers the program to the IR in process; it runs no Go tool.
 
 ```
 ergo inspect forms FILE|DIR [--json]
@@ -77,6 +77,21 @@ ergo inspect forms FILE|DIR [--json]
 
    A call inside an operator's operand (`acc + sq(k)`) is not looked at
    yet: the forms substrate's statement slot gives the pass those sites.
+
+   The merge pass (form `call`; LAWFFI LF3b) runs on the built body: a
+   pure call equal to one whose value a let bound earlier (the same callee,
+   the same operands, each a constant or a name) reads that let's value.
+   It looks at each pure call that has an equal call before it. Its
+   reasons:
+   - fired: `reads the value of an equal call before it`;
+   - `an operand or the earlier value is written in the function, or not of a basic type`:
+     a name involved is a `let mut`, or its address is taken, or it is not
+     a number, a bool or a string;
+   - `the equal call before it is not a whole value`: the earlier call is
+     an operator's operand, so no name holds its value;
+   - `the equal call before it does not run first on every path`: the
+     earlier let is in a branch or a loop body this call is outside of,
+     or a jump target lies between them.
 4. `--json` lists the same sites with `file`, `line`, `column`, `func`,
    `form`, `pass`, `fired` and `reason`. Exit 0 when the package checks, 1
    when it does not, 2 on an invalid invocation.

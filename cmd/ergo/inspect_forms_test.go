@@ -49,6 +49,10 @@ var formsRows = []struct {
 	{"an operand or the result is not a number, a bool or a string", "let s = ones(k)\n\t\tacc = acc + len(s)", ":23:11  call  memo  not fired  f  (an operand or the result is not a number, a bool or a string)"},
 	{"an operand may change in the loop", "let s = sq(i)\n\t\tacc = acc + s", ":23:11  call  memo  not fired  f  (an operand may change in the loop)"},
 	{"statements run before the call", "let s = sq(noisy(k))\n\t\tacc = acc + s", ":23:11  call  memo  not fired  f  (statements run before the call)"},
+	{"reads the value of an equal call before it", "let a = sq(i)\n\t\tlet b = sq(i)\n\t\tacc = acc + a + b", ":24:11  call  merge  fired  f  (reads the value of an equal call before it)"},
+	{"an operand or the earlier value is written in the function, or not of a basic type", "let mut q = i\n\t\tlet a = sq(q)\n\t\tq = q + 1\n\t\tlet b = sq(q)\n\t\tacc = acc + a + b", ":26:11  call  merge  not fired  f  (an operand or the earlier value is written in the function, or not of a basic type)"},
+	{"the equal call before it is not a whole value", "acc = acc + sq(i)\n\t\tlet b = sq(i)\n\t\tacc = acc + b", ":24:11  call  merge  not fired  f  (the equal call before it is not a whole value)"},
+	{"the equal call before it does not run first on every path", "if i > 1 {\n\t\t\tlet a = sq(i)\n\t\t\tacc = acc + a\n\t\t}\n\t\tlet b = sq(i)\n\t\tacc = acc + b", ":27:11  call  merge  not fired  f  (the equal call before it does not run first on every path)"},
 }
 
 // TestInspectFormsRows holds ergo inspect forms: for each reason a pass
@@ -95,7 +99,7 @@ func TestInspectFormsRows(t *testing.T) {
 		}
 		found := false
 		for _, s := range sites {
-			found = found || s.Reason == row.reason && s.Func == "f" && s.Fired == (row.reason == "computed once per entry of its loop")
+			found = found || s.Reason == row.reason && s.Func == "f" && s.Fired == strings.Contains(row.line, "  fired  ")
 		}
 		if !found {
 			t.Errorf("row %q: ergo inspect forms --json has no such site: %+v", row.reason, sites)
