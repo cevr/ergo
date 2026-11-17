@@ -26,13 +26,11 @@ type Scanned {
 // scanner is the state of one scan, with Go's semicolon insertion and the
 // word contexts of import and extern (the Go scanner's doc comment).
 type scanner {
-	src      string,
-	offset   int,
-	ids      dense.Count[Tok],
+	src    string,
+	offset int,
+	// toks is the token columns; n counts the tokens.
+	toks     Toks,
 	n        int,
-	kind     []uint32,
-	start    []uint32,
-	end      []uint32,
 	comments Comments,
 	semi     bool,
 	failed   bool,
@@ -55,16 +53,28 @@ type scanner {
 
 // Scan is the scan of src.
 func Scan(src string) Scanned {
+	let s = scanAll(src)
+	Scanned{
+		Toks:     s.toks,
+		Comments: s.comments,
+		Failed:   s.failed,
+		Message:  s.message,
+		Offset:   s.at,
+		Length:   s.length,
+	}
+}
+
+// scanAll is the scanner at the end of the scan of src, a failure's
+// ILLEGAL and EOF past its tokens. Parse takes it whole: a new value, so
+// its columns move into the parser with no copy.
+func scanAll(src string) scanner {
 	// Room for a token per five bytes: the corpus has one per 6.8.
 	let room = len(src)/5 + 16
 	let mut s = scanner{
 		src:    src,
 		offset: 0,
-		ids:    dense.NewCount[Tok](),
+		toks:   Toks{ids: dense.NewCount[Tok](), kind: zeros32(room), start: zeros32(room), end: zeros32(room)},
 		n:      0,
-		kind:   zeros32(room),
-		start:  zeros32(room),
-		end:    zeros32(room),
 		// Room for a comment per 64 bytes: the corpus has one per 132.
 		comments: newComments(len(src)/64 + 4),
 		semi:     false,
@@ -82,34 +92,49 @@ func Scan(src string) Scanned {
 		open:     0,
 	}
 	run(&s)
-	Scanned{
-		Toks:     Toks{ids: s.ids, kind: s.kind, start: s.start, end: s.end},
-		Comments: s.comments,
-		Failed:   s.failed,
-		Message:  s.message,
-		Offset:   s.at,
-		Length:   s.length,
+	if s.failed {
+		failTail(&s)
 	}
+	s
+}
+
+// failTail puts the ILLEGAL and EOF of the Go scanner's fail past the
+// tokens, where Toks keeps room for them and Parse reads them: at the
+// failure, or at the end of the last token when that is past it.
+func failTail(s *scanner) {
+	let n = s.n
+	let mut at = s.at
+	let mut end = s.at + s.length
+	if n > 0 && int(s.toks.end[n-1]) > at {
+		at = int(s.toks.end[n-1])
+		end = at
+	}
+	s.toks.kind[n] = uint32(Illegal)
+	s.toks.start[n] = uint32(at)
+	s.toks.end[n] = uint32(end)
+	s.toks.kind[n+1] = uint32(EOF)
+	s.toks.start[n+1] = uint32(end)
+	s.toks.end[n+1] = uint32(end)
 }
 
 // growToks doubles the token columns.
 func growToks(s *scanner) {
-	s.kind = slices.AppendAll(s.kind, zeros32(len(s.kind)))
-	s.start = slices.AppendAll(s.start, zeros32(len(s.start)))
-	s.end = slices.AppendAll(s.end, zeros32(len(s.end)))
+	s.toks.kind = slices.AppendAll(s.toks.kind, zeros32(len(s.toks.kind)))
+	s.toks.start = slices.AppendAll(s.toks.start, zeros32(len(s.toks.start)))
+	s.toks.end = slices.AppendAll(s.toks.end, zeros32(len(s.toks.end)))
 }
 
 // push appends a token with no change of context.
 func push(s *scanner, kind uint8, start int, end int) {
 	let i = s.n
-	if i+2 >= len(s.kind) {
+	if i+2 >= len(s.toks.kind) {
 		growToks(s)
 	}
-	s.kind[i] = uint32(kind)
-	s.start[i] = uint32(start)
-	s.end[i] = uint32(end)
+	s.toks.kind[i] = uint32(kind)
+	s.toks.start[i] = uint32(start)
+	s.toks.end[i] = uint32(end)
 	s.n = i + 1
-	let _ = dense.Next(&s.ids)
+	let _ = dense.Next(&s.toks.ids)
 }
 
 // semiAfter reports whether a newline after a token of kind inserts a

@@ -123,7 +123,7 @@ type Tok {}
 // covers no byte.
 //
 // The columns are plain slices with room past the last token (at least two
-// words: the parser puts a failed scan's ILLEGAL and EOF there), indexed
+// words: a failed scan puts its ILLEGAL and EOF there), indexed
 // by the token's id; ids counts the tokens.
 type Toks {
 	ids   dense.Count[Tok],

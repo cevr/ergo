@@ -37,10 +37,10 @@ type Parsed {
 // reads as EOF and no token is consumed, so every loop ends and the parse
 // returns along its normal paths (the Go parser's bailout panic).
 type parser {
-	src         string,
-	kinds       []uint32,
-	starts      []uint32,
-	ends        []uint32,
+	src string,
+	// toks is the scan's columns, whole: ntok of them are the parse's
+	// tokens.
+	toks        Toks,
 	nreal       int,
 	vend        int,
 	ntok        int,
@@ -79,54 +79,26 @@ type parser {
 // declarations and the expansion of or-patterns left out: the tree is the
 // tree as written).
 func Parse(src string) Parsed {
-	let s = Scan(src)
-	let n = NumToks(s.Toks)
-	// The parser reads the scan's columns in place: they have room for
-	// the two tokens a failed scan adds.
-	let mut kinds = s.Toks.kind
-	let mut starts = s.Toks.start
-	let mut ends = s.Toks.end
-	let mut ntok = n
-	let mut vend = 0
-	if s.Failed {
-		// The ILLEGAL and EOF of the Go scanner's fail: at the failure, or
-		// at the end of the last token when that is past it.
-		let mut at = s.Offset
-		let mut end = s.Offset + s.Length
-		if n > 0 {
-			let last = int(ends[n-1])
-			if last > at {
-				at = last
-				end = last
-			}
-		}
-		kinds[n] = uint32(Illegal)
-		starts[n] = uint32(at)
-		ends[n] = uint32(end)
-		kinds[n+1] = uint32(EOF)
-		starts[n+1] = uint32(end)
-		ends[n+1] = uint32(end)
-		vend = end
-		ntok = n + 2
-	}
-	kinds = kinds[:ntok]
-	starts = starts[:ntok]
-	ends = ends[:ntok]
+	let s = scanAll(src)
+	let n = s.n
+	// The parser reads the scan's columns in place, a failed scan's
+	// ILLEGAL and EOF past its tokens (Scan), and takes them whole as the
+	// last use of s, so they are not copied (scanAll).
+	let ntok = if s.failed { n + 2 } else { n }
+	let vend = if s.failed { int(s.toks.start[n+1]) } else { 0 }
+	let tk = uint8(s.toks.kind[0])
 	let mut p = parser{
 		src:         src,
-		kinds:       kinds,
-		starts:      starts,
-		ends:        ends,
 		nreal:       n,
 		vend:        vend,
 		ntok:        ntok,
-		cmts:        s.Comments,
-		scanFailed:  s.Failed,
-		scanOffset:  s.Offset,
-		scanLength:  s.Length,
-		scanMessage: s.Message,
+		cmts:        s.comments,
+		scanFailed:  s.failed,
+		scanOffset:  s.at,
+		scanLength:  s.length,
+		scanMessage: s.message,
 		i:           0,
-		tk:          uint8(kinds[0]),
+		tk:          tk,
 		exprLev:     0,
 		orAllowed:   false,
 		nest:        0,
@@ -154,6 +126,7 @@ func Parse(src string) Parsed {
 		entTop:   0,
 		quiet:    0,
 		gHint:    0,
+		toks:     s.toks,
 	}
 	groupComments(&p)
 	parseFile(&p)
@@ -170,9 +143,9 @@ func Parse(src string) Parsed {
 		Line:    pos.Line,
 		Column:  pos.Column,
 		src:     src,
-		kinds:   p.kinds,
-		starts:  p.starts,
-		ends:    p.ends,
+		kinds:   p.toks.kind[:p.ntok],
+		starts:  p.toks.start[:p.ntok],
+		ends:    p.toks.end[:p.ntok],
 		nreal:   p.nreal,
 		vend:    p.vend,
 		cmts:    p.cmts,
@@ -307,7 +280,7 @@ func sourcesOf(picks []int) []string {
 func next(p *parser) {
 	if p.tk != EOF && p.tk != Illegal {
 		p.i = p.i + 1
-		p.tk = uint8(p.kinds[p.i])
+		p.tk = uint8(p.toks.kind[p.i])
 	}
 }
 
@@ -316,32 +289,32 @@ func next(p *parser) {
 func peek(p *parser, n int) uint8 {
 	let j = p.i + n
 	if j < p.ntok {
-		return uint8(p.kinds[j])
+		return uint8(p.toks.kind[j])
 	}
-	uint8(p.kinds[p.ntok-1])
+	uint8(p.toks.kind[p.ntok-1])
 }
 
 // tpos is the offset of token j.
-func tpos(p *parser, j int) int { int(p.starts[j]) }
+func tpos(p *parser, j int) int { int(p.toks.start[j]) }
 
 // tend is the end of token j.
 func tend(p *parser, j int) int {
 	if j >= p.nreal {
 		return p.vend
 	}
-	int(p.ends[j])
+	int(p.toks.end[j])
 }
 
 // pos and end are the current token's.
-func pos(p *parser) int { int(p.starts[p.i]) }
+func pos(p *parser) int { int(p.toks.start[p.i]) }
 
-func tokLen(p *parser) int { tend(p, p.i) - int(p.starts[p.i]) }
+func tokLen(p *parser) int { tend(p, p.i) - int(p.toks.start[p.i]) }
 
 // lit is the source text of token j (a raw string without its carriage
 // returns, as the Go scanner's literal).
 func lit(p *parser, j int) string {
 	let s = p.src[tpos(p, j):tend(p, j)]
-	if uint8(p.kinds[j]) == String && len(s) > 0 && s[0] == '`' {
+	if uint8(p.toks.kind[j]) == String && len(s) > 0 && s[0] == '`' {
 		return dropCR(s)
 	}
 	s
@@ -364,22 +337,22 @@ func isWord(p *parser, w string) bool {
 	if p.tk != Ident {
 		return false
 	}
-	let at = int(p.starts[p.i])
+	let at = int(p.toks.start[p.i])
 	at+len(w) <= len(p.src) && p.src[at:at+len(w)] == w && identEnd(p.src, at) == at+len(w)
 }
 
 // wordAt reports token j an identifier spelled w.
 func wordAt(p *parser, j int, w string) bool {
-	if j >= p.ntok || uint8(p.kinds[j]) != Ident {
+	if j >= p.ntok || uint8(p.toks.kind[j]) != Ident {
 		return false
 	}
-	let at = int(p.starts[j])
+	let at = int(p.toks.start[j])
 	at+len(w) <= len(p.src) && p.src[at:at+len(w)] == w && identEnd(p.src, at) == at+len(w)
 }
 
 // inserted reports an inserted semicolon (a newline's).
 func inserted(p *parser, j int) bool {
-	uint8(p.kinds[j]) == Semicolon && !(int(p.starts[j]) < len(p.src) && p.src[int(p.starts[j])] == ';')
+	uint8(p.toks.kind[j]) == Semicolon && !(int(p.toks.start[j]) < len(p.src) && p.src[int(p.toks.start[j])] == ';')
 }
 
 // atLineEnd reports whether the current token is an inserted semicolon.
@@ -387,7 +360,7 @@ func atLineEnd(p *parser) bool { p.tk == Semicolon && inserted(p, p.i) }
 
 func backtrack(p *parser, j int) {
 	p.i = j
-	p.tk = uint8(p.kinds[j])
+	p.tk = uint8(p.toks.kind[j])
 }
 
 // want consumes a token of kind k and returns its index.
@@ -619,7 +592,7 @@ func groupComments(p *parser) {
 		let from = ti
 		let mut step = 1
 		let mut hi = ti
-		for hi < p.ntok && int(p.starts[hi]) < slash {
+		for hi < p.ntok && int(p.toks.start[hi]) < slash {
 			ti = hi + 1
 			hi = hi + step
 			step = step * 2
@@ -629,14 +602,14 @@ func groupComments(p *parser) {
 		}
 		for ti < hi {
 			let mid = (ti + hi) / 2
-			if int(p.starts[mid]) < slash {
+			if int(p.toks.start[mid]) < slash {
 				ti = mid + 1
 			} else {
 				hi = mid
 			}
 		}
 		let mut j = ti - 1
-		for j >= from && (inserted(p, j) || uint8(p.kinds[j]) == EOF) {
+		for j >= from && (inserted(p, j) || uint8(p.toks.kind[j]) == EOF) {
 			j = j - 1
 		}
 		if j >= from {
@@ -734,7 +707,7 @@ func nodeEnd(p *parser, x uint32) int { endOf(p.t, toks(p), x) }
 // toks is the parser's tokens, to read spans from.
 func toks(p *parser) tokens {
 	let c0 = if NumComments(p.cmts) > 0 { cmtStart(p, 0) } else { -1 }
-	tokens{src: p.src, kinds: p.kinds, starts: p.starts, ends: p.ends, nreal: p.nreal, vend: p.vend, cmt0: c0}
+	tokens{src: p.src, kinds: p.toks.kind, starts: p.toks.start, ends: p.toks.end, nreal: p.nreal, vend: p.vend, cmt0: c0}
 }
 
 // errorNode reports message at the span of row x.

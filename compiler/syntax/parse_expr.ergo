@@ -245,7 +245,7 @@ func positionalElement(p *parser) bool {
 	let mut i = 1
 	for {
 		let j = tokIdx(p, i)
-		let k = uint8(p.kinds[j])
+		let k = uint8(p.toks.kind[j])
 		if k == EOF || lineBetween(p, prevEnd, tpos(p, j)) {
 			return false
 		}
@@ -259,7 +259,7 @@ func positionalElement(p *parser) bool {
 		} else if k == RBrace {
 			if depth == 0 {
 				let after = tokIdx(p, i+1)
-				return i > 1 && uint8(p.kinds[after]) == LBrace && !lineBetween(p, tend(p, j), tpos(p, after))
+				return i > 1 && uint8(p.toks.kind[after]) == LBrace && !lineBetween(p, tend(p, j), tpos(p, after))
 			}
 			depth = depth - 1
 		} else if depth > 0 {
@@ -695,7 +695,7 @@ func parseMatch(p *parser) uint32 {
 		}
 		for j in cm..cm+n {
 			let mut x = p.t.stack[j]
-			if kindAt(p, x) == KUnaryExpr && uint8(p.kinds[int(p.t.tok[int(x)])]) == Sub {
+			if kindAt(p, x) == KUnaryExpr && uint8(p.toks.kind[int(p.t.tok[int(x)])]) == Sub {
 				x = p.t.a[int(x)]
 			}
 			if kindAt(p, x) != KBasicLit {
@@ -994,7 +994,7 @@ func parseForStmt(p *parser) uint32 {
 	let mut i = 0
 	for {
 		let j = tokIdx(p, i)
-		let k = uint8(p.kinds[j])
+		let k = uint8(p.toks.kind[j])
 		if k == KwRange {
 			habit(p, tpos(p, j), tend(p, j)-tpos(p, j), habitRange)
 		}
