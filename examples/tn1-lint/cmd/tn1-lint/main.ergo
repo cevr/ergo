@@ -1,13 +1,14 @@
-// lint-ts is TN1's sidecar for TypeScript projects: it runs beside
-// oxlint (as `oxlint && lint-ts lint …`) and prints its findings in
+// tn1-lint is TN1's sidecar for TypeScript projects: it runs beside
+// oxlint (as `oxlint && tn1-lint lint …`) and prints its findings in
 // oxlint's JSON form, so a tool that reads oxlint's report reads these
 // too. It reads source itself, through the TypeScript host of the
 // feature record (ergo.dev/tn1/ts), and decides with the Ergo engine
 // (ergo.dev/tn1); no Ergo toolchain is needed beside the binary.
 //
-//	lint-ts lint --rule NAME WEIGHTS FILE...   findings, oxlint JSON; exit 0 (advisory)
-//	lint-ts record FILE                        the feature record
-//	lint-ts chunks FILE                        each top-level statement: FROM TO (bytes)
+//	tn1-lint lint --rule NAME WEIGHTS FILE...   findings, oxlint JSON; exit 0 (advisory)
+//	tn1-lint record FILE                        the feature record
+//	tn1-lint chunks FILE                        each top-level statement: FROM TO (bytes)
+//	tn1-lint --help                             this usage, exit 0
 //
 // A finding's span is its line's comment. Its probability and the
 // model's id are in its message; an advisory finding never changes the
@@ -23,17 +24,21 @@ import strings
 import strconv
 
 // Usage is the text of a usage failure.
-let Usage = "usage: lint-ts lint --rule NAME WEIGHTS FILE... | lint-ts record FILE | lint-ts chunks FILE"
+let Usage = "usage: tn1-lint lint --rule NAME WEIGHTS FILE... | tn1-lint record FILE | tn1-lint chunks FILE | tn1-lint --help"
 
 type Lint { Rule string, Weights string, Files []string }
 type Record { File string }
 type Chunks { File string }
-type Command = Lint | Record | Chunks
+type Help {}
+type Command = Lint | Record | Chunks | Help
 
 func usage() os.Exit { os.Exit{Code: 2, Message: Usage} }
 
 // Parse is the command of args.
 func Parse(args []string) Command fails os.Exit {
+	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
+		return Help
+	}
 	if len(args) == 2 && args[0] == "record" {
 		return Record{File: args[1]}
 	}
@@ -65,7 +70,7 @@ type Report {
 func read(path string) string fails os.Exit needs fs.Files {
 	fs.Files.ReadFile(path) catch {
 	case fs.NotFound, fs.Denied, fs.Failed:
-		return os.Exit{Code: 1, Message: "lint-ts: cannot read \(path)"}
+		return os.Exit{Code: 1, Message: "tn1-lint: cannot read \(path)"}
 	}
 }
 
@@ -105,6 +110,8 @@ func lastNewline(src string, p int) int {
 // Run is what the command writes.
 func Run(c Command) string fails os.Exit needs fs.Files {
 	match c {
+	case Help:
+		Usage + "\n"
 	case Record as r:
 		tn1.EncodeRecord(ts.FromSource(try read(r.File)))
 	case Chunks as k:
@@ -116,7 +123,7 @@ func Run(c Command) string fails os.Exit needs fs.Files {
 	case Lint as l:
 		let net = tn1.ParseNet(try read(l.Weights)) catch {
 		case tn1.Malformed as m:
-			return os.Exit{Code: 1, Message: "lint-ts: \(l.Weights):\(m.Line): \(m.Reason)"}
+			return os.Exit{Code: 1, Message: "tn1-lint: \(l.Weights):\(m.Line): \(m.Reason)"}
 		}
 		let mut all = []Diagnostic{}
 		for f in l.Files {

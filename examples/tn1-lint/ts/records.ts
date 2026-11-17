@@ -1,5 +1,5 @@
 // records.ts holds the TypeScript host to the conformance vectors: for
-// each DIR/src/NAME.ts.txt, `lint-ts record` must write DIR/records/NAME.record
+// each DIR/src/NAME.ts.txt, `tn1-lint record` must write DIR/records/NAME.record
 // byte for byte. Another TypeScript host (oxlint-plugin-effect's ESTree
 // extractor) is held to the same records.
 //
@@ -8,7 +8,7 @@ import { readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 
 const bin = process.env.ERGO_BIN
-if (!bin) throw new Error("ERGO_BIN names the built lint-ts")
+if (!bin) throw new Error("ERGO_BIN names the built tn1-lint")
 const dir = process.argv[2]
 if (!dir) throw new Error("usage: bun ts/records.ts DIR")
 let failed = false
@@ -23,7 +23,7 @@ for (const file of readdirSync(join(dir, "src")).sort()) {
     const g = got.split("\n")
     const w = want.split("\n")
     const at = g.findIndex((line, i) => line !== w[i])
-    console.log(`${name}: differs at record line ${at + 1}\n  lint-ts: ${g[at]}\n  vectors: ${w[at]}`)
+    console.log(`${name}: differs at record line ${at + 1}\n  tn1-lint: ${g[at]}\n  vectors: ${w[at]}`)
   } else {
     console.log(`same ${name}`)
   }
