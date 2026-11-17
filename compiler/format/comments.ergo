@@ -4,7 +4,7 @@
 import strings
 
 // flushComments prints every comment before at.
-func flushComments(p *Printer, at int) {
+func flushComments(p mut Printer, at int) {
 	for p.Ci < len(p.CSlash) && p.CSlash[p.Ci] < at {
 		p.comment(at)
 	}
@@ -13,7 +13,7 @@ func flushComments(p *Printer, at int) {
 // flushClauseComments prints, at the current (clause body) indentation,
 // the comments before at up to the first one that a blank line separates
 // from what precedes it; that one and the rest belong to the next clause.
-func flushClauseComments(p *Printer, at int) {
+func flushClauseComments(p mut Printer, at int) {
 	for p.Ci < len(p.CSlash) && p.CSlash[p.Ci] < at {
 		if p.LastEnd >= 0 && p.ln(p.CSlash[p.Ci])-p.ln(p.LastEnd) >= 2 {
 			return
@@ -23,7 +23,7 @@ func flushClauseComments(p *Printer, at int) {
 }
 
 // comment prints the next comment; limit is the token it precedes.
-func comment(p *Printer, limit int) {
+func comment(p mut Printer, limit int) {
 	let ci = p.Ci
 	let slash = p.CSlash[ci]
 	let end = p.CEnd[ci]

@@ -33,7 +33,7 @@ func New(path string, imports []string) Store {
 }
 
 // Name is the id of text, with a slot in the scope column (C0b's name).
-func Name(s *Store, text string) dense.ID[dense.Str] {
+func Name(s mut Store, text string) dense.ID[dense.Str] {
 	let id = dense.InternText(&s.names, text)
 	for !dense.In(s.scope, id) {
 		dense.Push(&s.scope, dense.NoID[Decl]())
@@ -51,7 +51,7 @@ func Text(s Store, n dense.ID[dense.Str]) string { dense.Text(s.names, n) }
 // checker, and a type takes its name from a function declared before it.
 // Bind refuses a second declaration that is no member before it calls
 // Declare. The declaration's fingerprints are zero until SetPrints.
-func Declare(s *Store, n dense.ID[dense.Str], file int, node int, o Object) dense.ID[Decl] {
+func Declare(s mut Store, n dense.ID[dense.Str], file int, node int, o Object) dense.ID[Decl] {
 	let r = Add(&s.objects, o)
 	let d = dense.Put(&s.decls, Decl{Kind: uint8(KindOf(r)), Name: n, File: uint32(file), Node: uint32(node), Obj: r})
 	dense.Push(&s.prints, Prints{Fp: Print{Hi: uint64(0), Lo: uint64(0)}, Ifp: Print{Hi: uint64(0), Lo: uint64(0)}})
@@ -119,7 +119,7 @@ func PathOf(s Store) string { s.path }
 // SetPath gives the package the path its own types are named by. A
 // package checked as a program's root is named main, though its importers
 // (a test's, S3d3) reach it by its folder's path.
-func SetPath(s *Store, path string) { s.path = path }
+func SetPath(s mut Store, path string) { s.path = path }
 
 // ImportOf is the import d declares (its place in the import list plus
 // one), or 0 when d is no import or a Go import.
@@ -146,7 +146,7 @@ type Print { Hi uint64, Lo uint64 }
 type Prints { Fp Print, Ifp Print }
 
 // SetPrints records declaration d's fingerprints.
-func SetPrints(s *Store, d dense.ID[Decl], p Prints) { dense.SetOf(&s.prints, d, p) }
+func SetPrints(s mut Store, d dense.ID[Decl], p Prints) { dense.SetOf(&s.prints, d, p) }
 
 // PrintsOf is declaration d's fingerprints.
 func PrintsOf(s Store, d dense.ID[Decl]) Prints { dense.Of(s.prints, d) }
@@ -166,12 +166,12 @@ func KindName(k int) string {
 }
 
 // Unset is the type a row holds before the signature pass gives it one.
-func Unset(s *Store) dense.ID[TKey] { Basic(&s.pool, 0) }
+func Unset(s mut Store) dense.ID[TKey] { Basic(&s.pool, 0) }
 
 // TSubst is t with the type parameter at position i replaced by args[i]
 // (the pool's Subst): inference renames a callee's parameters past its
 // caller's with it (capstone S3d).
-func TSubst(s *Store, t dense.ID[TKey], args []dense.ID[TKey]) dense.ID[TKey] { Subst(&s.pool, t, args) }
+func TSubst(s mut Store, t dense.ID[TKey], args []dense.ID[TKey]) dense.ID[TKey] { Subst(&s.pool, t, args) }
 
 // Frozen is a package's store after its check: immutable, moved into the
 // value every importer task shares with no lock (C0/plan.md §4, Decided
@@ -254,7 +254,7 @@ law InstanceIdentityIsKey(xs []int, ys []int) {
 
 // BasicOrdinal is t's basic ordinal, -1 for a type that is no basic: a
 // read through the pointer, so no Store is copied (S3d8).
-func BasicOrdinal(s *Store, t dense.ID[TKey]) int {
+func BasicOrdinal(s mut Store, t dense.ID[TKey]) int {
 	let key = dense.Value(s.pool.keys, t)
 	if int(key.k) == tBasic { int(key.a) } else { -1 }
 }

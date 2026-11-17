@@ -36,7 +36,7 @@ type gen { file int, name dense.ID[syntax.Node], body dense.ID[syntax.Node], par
 type solver { parent []int, seen []int, steps int }
 
 // find is v's root, halving the path it walks.
-func find(s *solver, v int) int {
+func find(s mut solver, v int) int {
 	let mut r = v
 	for s.parent[r] != r {
 		s.parent[r] = s.parent[s.parent[r]]
@@ -46,12 +46,12 @@ func find(s *solver, v int) int {
 	r
 }
 
-func observe(s *solver, v int, k int) {
+func observe(s mut solver, v int, k int) {
 	let r = find(s, v)
 	s.seen[r] = s.seen[r] | k
 }
 
-func union(s *solver, a int, b int) {
+func union(s mut solver, a int, b int) {
 	let ra = find(s, a)
 	let rb = find(s, b)
 	if ra == rb {
@@ -196,7 +196,7 @@ func orLeaves(p syntax.Parsed, x dense.ID[syntax.Node]) []dense.ID[syntax.Node] 
 // own generic type: each argument that is a variable of w unifies with
 // the head's parameter; a lone other argument is walked as a type. It
 // reports whether it took the expression.
-func linkHead(st *solve, w walker, head dense.ID[syntax.Node], indices []dense.ID[syntax.Node]) bool {
+func linkHead(st mut solve, w walker, head dense.ID[syntax.Node], indices []dense.ID[syntax.Node]) bool {
 	// A function's solve has no declarations: it takes no head.
 	let g = localGen(*st, w.p, head)
 	if g < 0 {
@@ -232,7 +232,7 @@ func listIDs(p syntax.Parsed, l syntax.List) []dense.ID[syntax.Node] {
 
 // index walks an index expression head[indices], or lets linkHead take
 // it.
-func index(st *solve, w walker, head dense.ID[syntax.Node], indices []dense.ID[syntax.Node]) {
+func index(st mut solve, w walker, head dense.ID[syntax.Node], indices []dense.ID[syntax.Node]) {
 	if linkHead(st, w, head, indices) {
 		return
 	}
@@ -256,7 +256,7 @@ func index(st *solve, w walker, head dense.ID[syntax.Node], indices []dense.ID[s
 }
 
 // fields walks the types of a field list.
-func fields(st *solve, w walker, l dense.ID[syntax.Node]) {
+func fields(st mut solve, w walker, l dense.ID[syntax.Node]) {
 	match syntax.ViewOf(w.p.Tree, l) {
 	case syntax.FieldList as fl:
 		for f in listIDs(w.p, fl.List) {
@@ -276,7 +276,7 @@ func fields(st *solve, w walker, l dense.ID[syntax.Node]) {
 
 // walk observes the names in type positions of x with the kind of their
 // position (decl.go typeWalker).
-func walk(st *solve, w walker, x dense.ID[syntax.Node], k int) {
+func walk(st mut solve, w walker, x dense.ID[syntax.Node], k int) {
 	match syntax.ViewOf(w.p.Tree, x) {
 	case syntax.Name:
 		let v = self(w, x)
@@ -554,7 +554,7 @@ func mentioned(p syntax.Parsed, l dense.ID[syntax.Node]) []string {
 }
 
 // names appends each name in a type position of x to out.
-func names(p syntax.Parsed, x dense.ID[syntax.Node], out *[]string) {
+func names(p syntax.Parsed, x dense.ID[syntax.Node], out mut []string) {
 	match syntax.ViewOf(p.Tree, x) {
 	case syntax.Name:
 		*out = (*out).Append(nameText(p, x))
@@ -606,7 +606,7 @@ func names(p syntax.Parsed, x dense.ID[syntax.Node], out *[]string) {
 	}
 }
 
-func fieldNames(p syntax.Parsed, l dense.ID[syntax.Node], out *[]string) {
+func fieldNames(p syntax.Parsed, l dense.ID[syntax.Node], out mut []string) {
 	match syntax.ViewOf(p.Tree, l) {
 	case syntax.FieldList as fl:
 		for f in listIDs(p, fl.List) {
@@ -643,7 +643,7 @@ func topDecls(p syntax.Parsed) []dense.ID[syntax.Node] {
 }
 
 // receiverKinds applies the receiver rule to one function declaration.
-func receiverKinds(st *solve, p syntax.Parsed, fd syntax.FuncDecl) {
+func receiverKinds(st mut solve, p syntax.Parsed, fd syntax.FuncDecl) {
 	let own = match dense.Unpack(fd.TypeParams) {
 	case Some[dense.ID[syntax.Node]] as tp:
 		let (names, _) = bracketNames(p, tp.Value)

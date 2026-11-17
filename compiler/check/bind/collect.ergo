@@ -41,13 +41,13 @@ func parseName(name string) string {
 
 // declare puts a package-level declaration named by the Name row id of
 // file f.
-func declare(s *store.Store, p syntax.Parsed, f int, id dense.ID[syntax.Node], kind int) {
+func declare(s mut store.Store, p syntax.Parsed, f int, id dense.ID[syntax.Node], kind int) {
 	declareAs(s, p, f, id, text(p, id), kind)
 }
 
 // declareAs puts a package-level declaration of name text at the Name row
 // id of file f: a derived declaration stands at its origin's name.
-func declareAs(s *store.Store, p syntax.Parsed, f int, id dense.ID[syntax.Node], text string, kind int) {
+func declareAs(s mut store.Store, p syntax.Parsed, f int, id dense.ID[syntax.Node], text string, kind int) {
 	let n = store.Name(s, text)
 	if text == "_" {
 		return
@@ -69,7 +69,7 @@ func declareAs(s *store.Store, p syntax.Parsed, f int, id dense.ID[syntax.Node],
 
 // declareImport puts the import of name text at row id of file f: imp is
 // its place in the store's import list plus one, 0 for a Go import.
-func declareImport(s *store.Store, f int, id dense.ID[syntax.Node], text string, imp int) {
+func declareImport(s mut store.Store, f int, id dense.ID[syntax.Node], text string, imp int) {
 	if text == "_" {
 		return
 	}
@@ -174,7 +174,7 @@ func topDecls(p syntax.Parsed) []dense.ID[syntax.Node] {
 // source order (patterns.go patternNames): a name that is not a package
 // type (which tests; a prelude name never tests at a let), the values of
 // a record pattern, the elements of a tuple and an as pattern's name.
-func patternNames(s *store.Store, p syntax.Parsed, f int, x dense.ID[syntax.Node]) {
+func patternNames(s mut store.Store, p syntax.Parsed, f int, x dense.ID[syntax.Node]) {
 	match syntax.ViewOf(p.Tree, x) {
 	case syntax.Name:
 		if store.KindOfName(*s, text(p, x)) != 3 {
@@ -204,7 +204,7 @@ func patternNames(s *store.Store, p syntax.Parsed, f int, x dense.ID[syntax.Node
 }
 
 // collectDecl puts the declarations of one top-level declaration row.
-func collectDecl(s *store.Store, p syntax.Parsed, f int, d dense.ID[syntax.Node]) {
+func collectDecl(s mut store.Store, p syntax.Parsed, f int, d dense.ID[syntax.Node]) {
 	match syntax.ViewOf(p.Tree, d) {
 	case syntax.FuncDecl as fd:
 		declare(s, p, f, fd.Name, 1)

@@ -59,33 +59,33 @@ func newPrinter(t tree.Tree) Printer {
 	}
 }
 
-func ln(p *Printer, at int) int { line(p.T, at) }
+func ln(p mut Printer, at int) int { line(p.T, at) }
 
 // breakBefore reports whether the source has a line break between the
 // last printed token and at.
-func breakBefore(p *Printer, at int) bool {
+func breakBefore(p mut Printer, at int) bool {
 	p.LastTok >= 0 && p.ln(at) > p.ln(p.LastTok)
 }
 
 // ---------------------------------------------------------------- whitespace requests
 
-func space(p *Printer) { p.L.step(Space) }
+func space(p mut Printer) { p.L.step(Space) }
 
-func newline(p *Printer) { p.L.step(Newline) }
+func newline(p mut Printer) { p.L.step(Newline) }
 
 // newlineNoBlank asks for a line break that is never a blank line (after
 // an opening brace, before a closing one).
-func newlineNoBlank(p *Printer) {
+func newlineNoBlank(p mut Printer) {
 	p.L.step(Newline)
 	p.L.step(NoBlank)
 }
 
-func indent(p *Printer, by int) { p.L.step(Indent{By: by}) }
+func indent(p mut Printer, by int) { p.L.step(Indent{By: by}) }
 
 // gap is the whitespace before the token at at in a gap whose line break
 // the source decides: a line break if the source has one, else a blank
 // when blank.
-func gap(p *Printer, at int, blank bool) bool {
+func gap(p mut Printer, at int, blank bool) bool {
 	if p.breakBefore(at) {
 		p.newline()
 		return true
@@ -101,17 +101,17 @@ func gap(p *Printer, at int, blank bool) bool {
 // emit applies the pending whitespace before an item at at (NoPos for a
 // synthesized token): a requested line break is a blank line when the
 // source has one between the last item and this one.
-func emit(p *Printer, at int) {
+func emit(p mut Printer, at int) {
 	let blank = at >= 0 && p.LastEnd >= 0 && p.ln(at)-p.ln(p.LastEnd) >= 2
 	p.L.step(Emit{Blank: blank})
 }
 
-func write(p *Printer, text string) { p.L.step(Write{Text: text}) }
+func write(p mut Printer, text string) { p.L.step(Write{Text: text}) }
 
 // token prints a source token at at after the comments before it.
-func token(p *Printer, at int, text string) { p.tokenEnd(at, text, at+len(text)) }
+func token(p mut Printer, at int, text string) { p.tokenEnd(at, text, at+len(text)) }
 
-func tokenEnd(p *Printer, at int, text string, end int) {
+func tokenEnd(p mut Printer, at int, text string, end int) {
 	p.flushComments(at)
 	if p.L.PendingSpace && p.L.PendingNL == 0 && p.LastEnd > p.LastTok && p.LastTok >= 0 {
 		// After a block comment on the same line, go/printer writes no
@@ -132,7 +132,7 @@ func tokenEnd(p *Printer, at int, text string, end int) {
 
 // tok prints a token at at, or a synthesized one when the tree has no
 // position for it.
-func tok(p *Printer, at int, text string) {
+func tok(p mut Printer, at int, text string) {
 	if at >= 0 {
 		p.token(at, text)
 		return
@@ -146,7 +146,7 @@ func tok(p *Printer, at int, text string) {
 // its source position, so the comments before it stay before it and the
 // comments after it stay after it. Otherwise the token is not in the
 // source, such as a comma added before a closer on its own line.
-func synth(p *Printer, text string) {
+func synth(p mut Printer, text string) {
 	let at = p.sourceToken(text)
 	if at >= 0 {
 		p.token(at, text)
@@ -158,7 +158,7 @@ func synth(p *Printer, text string) {
 
 // sourceToken is the offset of text as the next source token after the
 // last printed token, skipping blanks and comments, or NoPos.
-func sourceToken(p *Printer, text string) int {
+func sourceToken(p mut Printer, text string) int {
 	if p.LastTok < 0 {
 		return NoPos
 	}
@@ -202,7 +202,7 @@ func sourceToken(p *Printer, text string) int {
 }
 
 // finish prints the comments after the last token and renders.
-func finish(p *Printer, limit int) Rendered fails OutputLimit {
+func finish(p mut Printer, limit int) Rendered fails OutputLimit {
 	p.flushComments(p.EOF + 1)
 	Finish(p.L, limit)
 }

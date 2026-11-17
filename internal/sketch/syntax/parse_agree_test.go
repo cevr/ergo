@@ -272,7 +272,7 @@ func (d *dumper) node(depth int, n Node) {
 		d.list(c, exprs(x.Args))
 		d.node(c, x.Trailing)
 	case *StarExpr:
-		d.line(depth, "StarExpr %s Star=%d", at, x.Star)
+		d.line(depth, "StarExpr %s Star=%d Mut=%d", at, x.Star, b01(x.Mut))
 		d.node(c, x.X)
 	case *UnaryExpr:
 		d.line(depth, "UnaryExpr %s OpPos=%d Op=%d", at, x.OpPos, x.Op)

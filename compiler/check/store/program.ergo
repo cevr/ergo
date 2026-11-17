@@ -14,7 +14,7 @@ func at(x int, d int, n int) int {
 }
 
 // declareType declares a type name text in s and is its row's id.
-func declareType(s *Store, text string) dense.ID[TypeName] {
+func declareType(s mut Store, text string) dense.ID[TypeName] {
 	let n = Name(s, text)
 	let d = Declare(s, n, 0, 0, TypeNameObj{Row: TypeName{Name: n, Type: Basic(&s.pool, 0)}})
 	dense.IDOf(s.objects.typeNames, indexOf(DeclOf(*s, d).Obj))
@@ -44,7 +44,7 @@ func setup(path string, noise bool) (Store, []dense.ID[TypeName]) {
 }
 
 // build runs program xs in s and is the id of each type, B0 first.
-func build(s *Store, named []dense.ID[TypeName], xs []int) []dense.ID[TKey] {
+func build(s mut Store, named []dense.ID[TypeName], xs []int) []dense.ID[TKey] {
 	let mut ts = []dense.ID[TKey]{Basic(&s.pool, 0)}
 	for x in xs {
 		let n = len(ts)

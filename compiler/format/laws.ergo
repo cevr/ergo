@@ -120,7 +120,7 @@ func Shape(t tree.Tree) string {
 	out.String()
 }
 
-func shape(t tree.Tree, it tree.Item, o *strings.Builder) {
+func shape(t tree.Tree, it tree.Item, o mut strings.Builder) {
 	match it {
 	case tree.Number as n:
 		o.WriteString("\(n.V)")

@@ -78,7 +78,7 @@ func sameHead(s store.Store, p dense.ID[store.TKey], base dense.ID[store.TKey]) 
 // methodOf is the function name on the type of the receiver xt, with its
 // signature in s's pool; none when the package that declares the type
 // declares no such function, or its signature does not port.
-func methodOf(s *store.Store, k Pkg, t *Typer, xt dense.ID[store.TKey], name string) Option[Fn] {
+func methodOf(s mut store.Store, k Pkg, t mut Typer, xt dense.ID[store.TKey], name string) Option[Fn] {
 	let base = receiverBase(*s, xt)
 	let owner = ownerOf(*s, k, base)
 	if owner == -2 {
@@ -126,7 +126,7 @@ func methodOf(s *store.Store, k Pkg, t *Typer, xt dense.ID[store.TKey], name str
 // when it names an operation type of the package: a capability the
 // function needs, used as the value its operations are called on
 // (Console.Println(s)).
-func opTypeAt(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], at dense.ID[store.PNode]) Option[dense.ID[store.TKey]] {
+func opTypeAt(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], at dense.ID[store.PNode]) Option[dense.ID[store.TKey]] {
 	let text = types.NameText(k.Parsed[t.file], x)
 	let r = recOf(*s, k, text)
 	if r < 0 || !k.Recs[r].Op {
@@ -144,7 +144,7 @@ func opTypeAt(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], at dense
 
 // opReceiver is the type of x when x names an operation type, of the
 // package or of an import.
-func opReceiver(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
+func opReceiver(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
 	let tr = k.Parsed[t.file].Tree
 	match syntax.ViewOf(tr, x) {
 	case syntax.SelectorExpr as se:
@@ -165,7 +165,7 @@ func opReceiver(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node]) Option
 // importedOp is the type of the selector name sel when it names an
 // operation type of an import (io.Stdout): the importer's foreign type of
 // it.
-func importedOp(s *store.Store, k Pkg, t *Typer, sel dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
+func importedOp(s mut store.Store, k Pkg, t mut Typer, sel dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
 	if len(k.Deps) == 0 {
 		return None
 	}
@@ -206,7 +206,7 @@ func fnNamed(s store.Store, k Pkg, name string) int {
 
 // withoutFirst is the signature sig without its first parameter: the type
 // of a selector that calls a function on a type.
-func withoutFirst(s *store.Store, sig dense.ID[store.TKey]) dense.ID[store.TKey] {
+func withoutFirst(s mut store.Store, sig dense.ID[store.TKey]) dense.ID[store.TKey] {
 	let ops = store.OperandsOf(*s, sig)
 	let n = len(ops)
 	store.TSig(s, ops[1:n-3], ops[n-3], ops[n-2], ops[n-1])

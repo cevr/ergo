@@ -58,7 +58,7 @@ func NewObjects() Objects {
 }
 
 // Add puts o in its kind's table and is its ref.
-func Add(t *Objects, o Object) ObjRef {
+func Add(t mut Objects, o Object) ObjRef {
 	match o {
 	case FuncObj as f:
 		refOf(kFunc, dense.Index(dense.Put(&t.funcs, f.Row)))

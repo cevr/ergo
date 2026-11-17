@@ -49,7 +49,7 @@ func NewPool() Pool {
 // intern is the id of k; a new id gets its open bit, which is whether
 // the type mentions a type parameter (a pure function of the key, so it
 // is the same at 1 and at 8 threads).
-func intern(p *Pool, k TKey, open bool) dense.ID[TKey] {
+func intern(p mut Pool, k TKey, open bool) dense.ID[TKey] {
 	let n = dense.Interned(p.keys)
 	let id = dense.Intern(&p.keys, k)
 	if dense.Index(id) == n {
@@ -60,7 +60,7 @@ func intern(p *Pool, k TKey, open bool) dense.ID[TKey] {
 
 // list is the number of the list prefix then ts: a list equal to one
 // interned before shares its number.
-func list(p *Pool, prefix string, ts []dense.ID[TKey]) uint32 {
+func list(p mut Pool, prefix string, ts []dense.ID[TKey]) uint32 {
 	let mut b = strings.NewBuilder()
 	b.WriteString(prefix)
 	for t in ts {
@@ -90,32 +90,32 @@ func anyOpen(p Pool, ts []dense.ID[TKey]) bool {
 }
 
 // composite interns a type of kind k over the operands ts.
-func composite(p *Pool, k int, ts []dense.ID[TKey]) dense.ID[TKey] {
+func composite(p mut Pool, k int, ts []dense.ID[TKey]) dense.ID[TKey] {
 	let l = list(p, "", ts)
 	intern(p, TKey{k: uint8(k), a: l, b: uint32(len(ts))}, anyOpen(*p, ts))
 }
 
 // Basic is the basic type of ordinal n (int, string, …).
-func Basic(p *Pool, n int) dense.ID[TKey] { intern(p, TKey{k: uint8(tBasic), a: uint32(n), b: uint32(0)}, false) }
+func Basic(p mut Pool, n int) dense.ID[TKey] { intern(p, TKey{k: uint8(tBasic), a: uint32(n), b: uint32(0)}, false) }
 
 // Named is the type a TypeName row of this package names.
-func Named(p *Pool, n dense.ID[TypeName]) dense.ID[TKey] { intern(p, TKey{k: uint8(tNamed), a: uint32(dense.Index(n)), b: uint32(0)}, false) }
+func Named(p mut Pool, n dense.ID[TypeName]) dense.ID[TKey] { intern(p, TKey{k: uint8(tNamed), a: uint32(dense.Index(n)), b: uint32(0)}, false) }
 
 // Param is the type parameter at position i of the declaration in hand.
-func Param(p *Pool, i int) dense.ID[TKey] { intern(p, TKey{k: uint8(tParam), a: uint32(i), b: uint32(0)}, true) }
+func Param(p mut Pool, i int) dense.ID[TKey] { intern(p, TKey{k: uint8(tParam), a: uint32(i), b: uint32(0)}, true) }
 
 // Slice is []e.
-func Slice(p *Pool, e dense.ID[TKey]) dense.ID[TKey] { composite(p, tSlice, []dense.ID[TKey]{e}) }
+func Slice(p mut Pool, e dense.ID[TKey]) dense.ID[TKey] { composite(p, tSlice, []dense.ID[TKey]{e}) }
 
 // MapOf is Map[k, v].
-func MapOf(p *Pool, k dense.ID[TKey], v dense.ID[TKey]) dense.ID[TKey] { composite(p, tMap, []dense.ID[TKey]{k, v}) }
+func MapOf(p mut Pool, k dense.ID[TKey], v dense.ID[TKey]) dense.ID[TKey] { composite(p, tMap, []dense.ID[TKey]{k, v}) }
 
 // FuncOf is a function from params to result.
-func FuncOf(p *Pool, params []dense.ID[TKey], result dense.ID[TKey]) dense.ID[TKey] { composite(p, tFunc, params.Append(result)) }
+func FuncOf(p mut Pool, params []dense.ID[TKey], result dense.ID[TKey]) dense.ID[TKey] { composite(p, tFunc, params.Append(result)) }
 
 // Row is the row of the types ts: a sorted run with no repeats, so two
 // rows of the same types are one id (design.md: a row is a sorted set).
-func Row(p *Pool, ts []dense.ID[TKey]) dense.ID[TKey] {
+func Row(p mut Pool, ts []dense.ID[TKey]) dense.ID[TKey] {
 	let sorted = slices.SortFunc(ts, func(a dense.ID[TKey], b dense.ID[TKey]) int { dense.Index(a) - dense.Index(b) })
 	let mut set = []dense.ID[TKey]{}
 	for t in sorted {
@@ -129,7 +129,7 @@ func Row(p *Pool, ts []dense.ID[TKey]) dense.ID[TKey] {
 // Instance is the instance of the generic declaration origin at the
 // type arguments args, interned in this package's pool (C0/plan.md §2.4
 // ruling: identity across packages is Canon's key, never this id).
-func Instance(p *Pool, o XRef, args []dense.ID[TKey]) dense.ID[TKey] {
+func Instance(p mut Pool, o XRef, args []dense.ID[TKey]) dense.ID[TKey] {
 	let l = list(p, "\(o.Import).\(o.Decl)", args)
 	let id = intern(p, TKey{k: uint8(tInstance), a: l, b: uint32(len(args))}, anyOpen(*p, args))
 	dense.SideSet(&p.origin, id, o)
@@ -159,7 +159,7 @@ func Open(p Pool, t dense.ID[TKey]) bool { dense.Of(p.open, t) }
 // Subst is t with the type parameter at position i replaced by args[i]
 // (a position past args stays). A closed type is itself, at once (Bun
 // T11: no walk for the common case).
-func Subst(p *Pool, t dense.ID[TKey], args []dense.ID[TKey]) dense.ID[TKey] {
+func Subst(p mut Pool, t dense.ID[TKey], args []dense.ID[TKey]) dense.ID[TKey] {
 	if !Open(*p, t) {
 		return t
 	}

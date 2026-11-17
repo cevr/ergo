@@ -22,7 +22,7 @@ let depthLimit = 50
 
 // NoValue is the binding of a result parameter matched against a function
 // with no result: the empty tuple, a signature's absent result.
-func NoValue(s *store.Store) dense.ID[store.TKey] { store.TTuple(s, []dense.ID[store.TKey]{}) }
+func NoValue(s mut store.Store) dense.ID[store.TKey] { store.TTuple(s, []dense.ID[store.TKey]{}) }
 
 // Unmarked is t without an own or entry mark: the Go checker's signature
 // unification reads a parameter's type with its marks ignored.
@@ -33,9 +33,9 @@ func Unmarked(s store.Store, t dense.ID[store.TKey]) dense.ID[store.TKey] {
 
 // Unify matches the parameter type p against the argument type a,
 // binding c's free parameters, and reports whether they match.
-func Unify(s *store.Store, f *Frame, c Call, p dense.ID[store.TKey], a dense.ID[store.TKey]) bool { nify(s, f, c, p, a, 0) }
+func Unify(s mut store.Store, f mut Frame, c Call, p dense.ID[store.TKey], a dense.ID[store.TKey]) bool { nify(s, f, c, p, a, 0) }
 
-func nify(s *store.Store, f *Frame, c Call, x0 dense.ID[store.TKey], y0 dense.ID[store.TKey], depth int) bool {
+func nify(s mut store.Store, f mut Frame, c Call, x0 dense.ID[store.TKey], y0 dense.ID[store.TKey], depth int) bool {
 	f.steps = f.steps + 1
 	let x = Unmarked(*s, x0)
 	let y = Unmarked(*s, y0)
@@ -138,7 +138,7 @@ func results(s store.Store, r dense.ID[store.TKey]) int {
 // nifySig unifies two signatures: parameters and results, then the rows by
 // the row rule. A result parameter matched against no result binds to no
 // value (unify.go nifySig).
-func nifySig(s *store.Store, f *Frame, c Call, x dense.ID[store.TKey], y dense.ID[store.TKey], d int) bool {
+func nifySig(s mut store.Store, f mut Frame, c Call, x dense.ID[store.TKey], y dense.ID[store.TKey], d int) bool {
 	let xs = store.OperandsOf(*s, x)
 	let ys = store.OperandsOf(*s, y)
 	if len(xs) != len(ys) {
@@ -178,7 +178,7 @@ func nifySig(s *store.Store, f *Frame, c Call, x dense.ID[store.TKey], y dense.I
 // ordered by inclusion, so the least binding that admits every argument
 // is the union. A written type argument is never widened (call.go
 // unifyRow).
-func unifyRow(s *store.Store, f *Frame, c Call, p dense.ID[store.TKey], a dense.ID[store.TKey]) {
+func unifyRow(s mut store.Store, f mut Frame, c Call, p dense.ID[store.TKey], a dense.ID[store.TKey]) {
 	f.steps = f.steps + 1
 	if store.KindOfType(*s, p) != store.KRow || store.KindOfType(*s, a) != store.KRow {
 		return
