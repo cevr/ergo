@@ -84,6 +84,12 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 		}
 		return
 	case *check.Named:
+		if check.IsGoError(t) {
+			// go.Error is the runtime's GoError, a Go type of its own
+			// that every program may name (SP4: a Go call's failure).
+			b.keepImport("var _ " + b.l.rt() + ".GoError")
+			return
+		}
 		if len(t.TParams) > 0 || t.Obj.Decl == nil {
 			irNo("generic or declared-elsewhere type")
 		}

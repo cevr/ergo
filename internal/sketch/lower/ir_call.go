@@ -71,6 +71,9 @@ func (b *irBuilder) opResult(c *check.Call, e *irExpr) *irExpr {
 	return e
 }
 
+// externFunc reports a function declared extern, whose body is Go's.
+func externFunc(f *check.Func) bool { return f.Decl != nil && f.Decl.Extern != nil }
+
 // rawCall is the fallible call x: its Go call, whose result is the value
 // and the error (ir_fail.go binds or returns them).
 func (b *irBuilder) rawCall(x *syntax.CallExpr) ([]*irStmt, *irExpr) {
@@ -87,11 +90,12 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 	}
 	c = b.knownField(x, c) // a known record's field in its copy (ir_known.go)
 	// A trailing block is a function literal, the call's last operand:
-	// a call of a function with an Ergo body, the program's or std's
-	// (ui.Column(f, s) { … }), takes it as any function value
-	// (ir_closure.go); a std extern's adapts it (stdCall, ir_adapt.go:
-	// timeout.After { … }).
-	if x.Trailing != nil && (c.Kind != check.CallFunc || c.Func == nil || c.Func.Pkg.Host()) {
+	// a call of a function with an Ergo body takes it as any function
+	// value (ir_closure.go), whichever package declares it (SP4: no std
+	// read); an extern that binds the Ergo runtime adapts it (stdCall,
+	// ir_adapt.go: timeout.After { … }; OPC-ADAPT2). An extern whose
+	// target is Go's library (hostCall) takes none.
+	if x.Trailing != nil && (c.Kind != check.CallFunc || c.Func == nil || c.Func.Pkg.Host() || userExtern(c.Func)) {
 		irNo("trailing block")
 	}
 	if c.StartsTask {
@@ -141,25 +145,26 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 			irNo("call without a function")
 		case check.GoBuiltin(f) != "":
 			return b.goBuiltinCall(x, c, f, p, stmt) // ir_builtin.go
-		case userExtern(f):
-			irNo("call of a user extern")
-		case f.Pkg != nil && f.Pkg.Host():
-			// A function of a Go package read from its binding (import
-			// go; gostd's runtime.NumCPU): the emitter calls its Go
-			// target, and useFunc would ask the naming pass for a name it
-			// never gave (examples/onebrc). The IR calls the target by
-			// its import path, in the plain domain (ir_tuple.go).
+		case userExtern(f), f.Pkg != nil && f.Pkg.Host():
+			// A function of a Go package: an extern whose target is in
+			// Go's library, or one read from its binding (import go;
+			// gostd's runtime.NumCPU). The emitter calls its Go target
+			// (hostCall), and useFunc would ask the naming pass for a
+			// name it never gave (examples/onebrc). The IR calls the
+			// target by its import path, in the plain domain, by the
+			// call's shape and types alone (ir_tuple.go; SP4).
 			return b.hostCall(x, c, f, p)
 		}
 		// A function of another Ergo package of the program, or a std
 		// function with an Ergo body, is a function of the one Go package
-		// the program lowers to, by its Go name; a std extern calls its
-		// runtime/v1 body (ir_pkg.go).
+		// the program lowers to, by its Go name; an extern that binds the
+		// Ergo runtime calls its runtime/v1 body (ir_pkg.go), whichever
+		// package declares it (SP4: no std read).
 		// A prelude intrinsic (Append) is a Go function of main.go that
 		// the lowering writes (decls.go intrinsic): a call like a user
 		// function's.
 		intrinsic := b.l.intrinsic(f) != nil
-		if f.Pkg.Std() && f.Decl != nil && f.Decl.Extern != nil && !intrinsic {
+		if externFunc(f) && !intrinsic {
 			return b.stdCall(x, c, f, p)
 		}
 		fd := b.l.useFunc(f, x)
