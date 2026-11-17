@@ -1,6 +1,7 @@
 package lower
 
-// IR builder: a count loop that is a fill or a move (FLIP F7 GP-LOOPS).
+// IR builder: a count loop that is a fill, a move or a collect (FLIP F7
+// GP-LOOPS, GP-COLLECT).
 // See ir.go and loops.go.
 //
 // The loop idioms (DT4) are decided once, by loops.go's loopIdiomOf, for
@@ -21,11 +22,13 @@ package lower
 // it raises today. The Range's operands run first, once, as countLoop
 // writes them; the guard and the call read the Range's temporary.
 //
-// A collect (`xs = xs.Append(Q[i+s])`) keeps the element loop: loopIdiomOf
-// reads the emitter's own locals (fc.locals, fc.scalarIdent) for it, which
-// the IR builder does not keep. An idiom whose operand needs statements
-// (none does: loopIdiomOf takes only names, constants, fields and
-// operators) keeps the loop too.
+//   - collect (FLIP GP-COLLECT): `xs = xs.Append(Q[i+s])`, the part
+//     Q[a:b] appended to the local xs at once (collectIR); loopIdiomWith
+//     asks the IR's locals, not the emitter's, whether xs is a local.
+//
+// A collect from an array, or to a defined slice type, keeps the element
+// loop. An idiom whose operand needs statements (none does: loopIdiomOf
+// takes only names, constants, fields and operators) keeps the loop too.
 //
 // Prior art: loops.go (LLVM's LoopIdiomRecognize, GCC's loop distribution,
 // Go's memclr range loop).
@@ -39,10 +42,15 @@ import (
 
 // loopIdiomIR is the count loop s, built as loop over the Range in the
 // local r (field reads its Start and End), written as its idiom, or nil
-// when s is no fill or move.
+// when s is no fill, move or collect.
 func (b *irBuilder) loopIdiomIR(s *syntax.RangeStmt, lp *check.Loop, loop *irStmt, field func(string) *irExpr) *irStmt {
-	idiom := b.fc.loopIdiomOf(s, lp) // loops.go: the one decision
-	if idiom == nil || idiom.kind == "collect" {
+	// loops.go: the one decision; a collect appends to a local of the
+	// IR's own, not one in the scalar form.
+	idiom := b.fc.loopIdiomWith(s, lp, func(v *check.Var, _ *syntax.Ident) bool {
+		_, known := b.locals[v]
+		return known && b.scalars[v] == nil
+	})
+	if idiom == nil {
 		return nil
 	}
 	elem, ok := sliceElem(b.l.info.Types[idiom.place])
@@ -132,6 +140,13 @@ func (b *irBuilder) loopIdiomIR(s *syntax.RangeStmt, lp *check.Loop, loop *irStm
 		forward := bin("||", bin("<=", da(), sa()), bin(">=", da(), sb()))
 		cond = bin("&&", bin("&&", bin("&&", guard, in(da, db, idiom.dst)), in(sa, sb, idiom.src)), forward)
 		then = []*irStmt{builtin("copy", part(da, db), part(sa, sb))}
+	case "collect":
+		then = b.collectIR(idiom, elem, p, val, part(at("Start", idiom.src, idiom.srcNeg), at("End", idiom.src, idiom.srcNeg)))
+		if then == nil {
+			return nil
+		}
+		sa, sb := at("Start", idiom.src, idiom.srcNeg), at("End", idiom.src, idiom.srcNeg)
+		cond = bin("&&", guard, in(sa, sb, idiom.src))
 	default:
 		ice(s, "the loop idiom %q", idiom.kind)
 	}
@@ -139,4 +154,51 @@ func (b *irBuilder) loopIdiomIR(s *syntax.RangeStmt, lp *check.Loop, loop *irStm
 		return nil
 	}
 	return &irStmt{K: "if", Pos: loop.Pos, End: loop.Pos, X: cond, Then: then, Else: []*irStmt{loop}, ElsePos: loop.Pos, ElseEnd: loop.End}
+}
+
+// collectIR is the collect's call, q (the part Q[a:b]) appended to the
+// local xs at once, as the emitter's `xs = append(src, q...)`, with
+// Append's source under the value rule (valueSource: clipped unless the
+// call may write it in place). The decoder's append takes one element or
+// a string's bytes, never a slice's elements, so the part goes in as the
+// same one growth and one memmove written out:
+//
+//	part := q
+//	grown := slices.Grow(src, len(part))
+//	n := len(grown)
+//	xs = grown[:n+len(part)]
+//	copy(xs[n:], part)
+//
+// slices.Grow grows by append, as append itself does, so xs's capacity is
+// the one append gives. nil keeps the loop: an xs of a defined slice type.
+func (b *irBuilder) collectIR(idiom *loopIdiom, elem check.Type, p irPos, val func(syntax.Expr) *irExpr, q *irExpr) []*irStmt {
+	xs := b.locals[b.l.info.Uses[idiom.xs].(*check.Var)]
+	et := b.goType(elem, idiom.call)
+	st := "[]" + et
+	if b.goType(b.l.info.Types[idiom.xs], idiom.xs) != st {
+		return nil
+	}
+	list := idiom.call.Args
+	if idiom.c.Recv != nil {
+		list = append([]syntax.Expr{idiom.c.Recv}, list...)
+	}
+	args := []*irExpr{val(list[0]), nil}
+	b.valueSource(idiom.call, idiom.c, list, args) // ir_pkg.go
+	keep := b.fc.goType(elem)
+	if b.namesTypeParam(keep) {
+		keep = "int" // a generic body's element is no package-level type (valueSource)
+	}
+	b.keepImport("var _ = " + b.l.goPkg("slices") + ".Grow[[]" + keep + "]")
+	local := func(i int) *irExpr { return &irExpr{K: "local", Pos: p, I: i} }
+	length := func(i int) *irExpr { return &irExpr{K: "len", Pos: p, X: local(i)} }
+	part := b.temp("part", st, p)
+	grown := b.temp("grown", st, p)
+	n := b.temp("n", "int", p)
+	return []*irStmt{
+		{K: "def", Pos: p, Local: part, X: q},
+		{K: "def", Pos: p, Local: grown, X: &irExpr{K: "pcall", Pos: p, T: "slices", Name: "Grow", V: st + ", " + et, Args: []*irExpr{args[0], length(part)}}},
+		{K: "def", Pos: p, Local: n, X: length(grown)},
+		{K: "set", Pos: p, Local: xs, X: &irExpr{K: "slice", Pos: p, X: local(grown), Args: []*irExpr{nil, {K: "bin", Pos: p, Op: "+", X: local(n), Y: length(part)}}}},
+		{K: "expr", Pos: p, X: &irExpr{K: "builtin", Pos: p, Name: "copy", Args: []*irExpr{{K: "slice", Pos: p, X: local(xs), Args: []*irExpr{local(n), nil}}, local(part)}}},
+	}
 }
