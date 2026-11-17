@@ -21,7 +21,9 @@ import (
 //     parameter is bound; and a local the callee only reads, so it
 //     stands for itself;
 //   - a value parameter the callee copies into a let mut and changes, so
-//     the caller's variable must not change;
+//     the caller's variable must not change; and a generic helper that
+//     changes its copy of a slice field (a package call, slices.Clone,
+//     whose type arguments name the callee's type parameter);
 //   - a fallible helper (fails Gone) whose catch the loop takes, so a
 //     copy's failure sets the site's error and jumps past its block;
 //   - a call whose result a statement drops (let _ =), one whose result
@@ -43,6 +45,7 @@ func GenerateInline(seed uint64) string {
 	b.WriteString("type Gone { At int }\n\n")
 	fmt.Fprintf(&b, "func fetch[T](a *Acc[T], i int) T fails Gone {\n\tif i >= len(a.items) {\n\t\treturn Gone{At: i}\n\t}\n\ta.hits = a.hits + %d\n\ta.items[i]\n}\n\n", 1+n(3))
 	fmt.Fprintf(&b, "func at[T](a *Acc[T], i int) T {\n\ta.hits = a.hits + 1\n\ta.items[i %% len(a.items)]\n}\n\n")
+	b.WriteString("func first[T](a *Acc[T], i int) T {\n\tlet mut xs = a.items\n\txs[0] = xs[i % len(xs)]\n\txs[0]\n}\n\n")
 	fmt.Fprintf(&b, "func bump[T](a *Acc[T], by int) {\n\tif by > %d {\n\t\ta.hits = a.hits + by - %d\n\t\treturn\n\t}\n\ta.hits = a.hits + by\n}\n\n", 1+n(2), 1+n(3))
 	fmt.Fprintf(&b, "func keep[T](a *Acc[T], v T) T {\n\ta.last = v\n\ta.bump(%d)\n\tv\n}\n\n", 1+n(4))
 	fmt.Fprintf(&b, "func clamp(v int, lo int, hi int) int {\n\tif v < lo {\n\t\treturn lo\n\t}\n\tif v > hi {\n\t\treturn hi\n\t}\n\tv\n}\n\n")
@@ -72,6 +75,7 @@ func GenerateInline(seed uint64) string {
 	b.WriteString("\t\tlet _ = s.keep(s.at(i))\n")
 	b.WriteString("\t\ttext = text + len(s.at(i + total % 3))\n")
 	b.WriteString("\t\ta.bump(i % 5)\n")
+	b.WriteString("\t\tlet fs = s.first(i)\n\t\tlet fa = a.first(i + 2)\n\t\ttext = text + len(fs) + fa - a.items[0]\n")
 	b.WriteString("\t\tlet mut w = a.at(i + 1)\n\t\tlet z = w\n\t\tw = w + 1\n\t\ttotal = total + z * 2 + w\n")
 	b.WriteString("\t\tlet got = a.fetch(i % (len(a.items) + 2)) catch {\n\t\tcase Gone:\n\t\t\t-1\n\t\t}\n")
 	b.WriteString("\t\ttotal = total + got\n")
