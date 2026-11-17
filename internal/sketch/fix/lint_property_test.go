@@ -46,7 +46,7 @@ func raceBody(r *rand.Rand, indent, inner string) string {
 // finding of another rule; a second fix changes nothing; and the
 // formatter keeps the text (EX1's properties, with --lint).
 func TestFixLintProperty(t *testing.T) {
-	conf, err := lint.Builtin().Configure(lint.Config{Version: lint.ConfigVersion}, nil)
+	conf, err := lint.Builtin().Configure(lint.Config{Version: lint.ConfigVersion}, []string{lint.Justifiers})
 	if err != nil {
 		t.Fatal(err)
 	}

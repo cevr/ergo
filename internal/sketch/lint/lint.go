@@ -149,6 +149,9 @@ type Finding struct {
 	// suggested edits (previews, never applied).
 	Related     []sdk.Related
 	Suggestions []sdk.Suggestion
+	// Precision is the rule's published precision (precision.go); unknown
+	// for an unmeasured rule, a pack rule and the runner's codes.
+	Precision Precision
 }
 
 // Rule statuses.

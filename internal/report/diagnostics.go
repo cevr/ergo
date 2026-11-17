@@ -94,6 +94,10 @@ type DiagnosticFinding struct {
 	// (LINT3); omitted when the finding has none.
 	Related     []sdk.Related    `json:"related,omitempty"`
 	Suggestions []sdk.Suggestion `json:"suggestions,omitempty"`
+	// Precision is a lint finding's published precision (the lower of
+	// the rule's corpus and its held-out read sample, capped at 0.95);
+	// omitted for a rule that has none and for compiler diagnostics.
+	Precision *float64 `json:"precision,omitempty"`
 }
 
 // DiagnosticCounts counts findings by severity.
@@ -231,7 +235,11 @@ func (r DiagnosticReport) WriteText(w io.Writer, source string) error {
 		if finding.File != "" {
 			name = finding.File
 		}
-		if _, err := fmt.Fprintf(w, "%s:%d:%d: %s %s: %s\n", name, start.Line+1, start.Character+1, finding.Severity, finding.Code, finding.Message); err != nil {
+		precision := ""
+		if finding.Precision != nil {
+			precision = fmt.Sprintf(" (p%.2f)", *finding.Precision)
+		}
+		if _, err := fmt.Fprintf(w, "%s:%d:%d: %s %s: %s%s\n", name, start.Line+1, start.Character+1, finding.Severity, finding.Code, finding.Message, precision); err != nil {
 			return err
 		}
 	}

@@ -1,11 +1,16 @@
 package lint
 
-// The built-in presets. Recommended is the base: the justifier rules that
-// are on by default (plan §3). Strict and Layout are opt-in (--preset or
-// extends): strict holds the complexity caps (q149) and the style rules,
-// layout the owner's Go layout (AGENTS.md).
+// The built-in presets. Recommended is the base: the rules on by default,
+// each with a published precision at Bar or above (precision.go;
+// TestDefaultRulesMeetTheBar). No rule reaches the bar yet, so it is
+// empty. Justifiers, Strict and Layout are opt-in (--preset or extends):
+// justifiers holds the justifier rules (legal code that must say why;
+// they were the base until their read sample, 2026-11-17, put them under
+// the bar), strict the complexity caps (q149) and the style rules, layout
+// the owner's Go layout (AGENTS.md).
 const (
 	Recommended = "recommended"
+	Justifiers  = "justifiers"
 	Strict      = "strict"
 	Layout      = "layout"
 )
@@ -29,6 +34,11 @@ func builtinPresets() []Preset {
 	return []Preset{
 		{
 			Name:  Recommended,
+			Doc:   "The rules on by default: each has a published precision of at least 0.80.",
+			Rules: on(),
+		},
+		{
+			Name:  Justifiers,
 			Doc:   "The justifier rules: legal code that must say why.",
 			Rules: on(silentCatch, foreignErrorPublic, foreignWhereStd, deprecated, unboundedCollect, raceForTimeout),
 		},
@@ -53,3 +63,6 @@ func Builtin() *Registry {
 	}
 	return r
 }
+
+// BasePreset is the name and rules of the registry's base preset.
+func (r *Registry) BasePreset() Preset { return r.presets[r.base] }
