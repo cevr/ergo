@@ -85,6 +85,12 @@ type Virtual struct {
 	change       chan struct{}
 	// advancing is set while an AdvanceSettled runs: one at a time.
 	advancing bool
+	// running counts the AfterFunc functions started and not yet
+	// returned. A domain is not settled, and an auto clock does not move,
+	// while one runs: its function may wake a parked member (an alarm's
+	// waiter, timeout.PopBefore's), which then runs before the time moves
+	// on.
+	running int
 }
 
 // AdvanceRunning is AdvanceSettled's result when another AdvanceSettled of
@@ -152,7 +158,7 @@ func (v *Virtual) AfterFunc(d Span, f func()) Timer {
 	v.seq++
 	t := &virtualTimer{v: v, when: v.now + Instant(d), seq: v.seq, f: f}
 	if d <= 0 {
-		go f()
+		v.runAlarm(f)
 		return t
 	}
 	i := sort.Search(len(v.timers), func(i int) bool { return t.before(v.timers[i]) })
@@ -268,7 +274,7 @@ func (v *Virtual) Settle(t *Task) error {
 		if m := t.member.Load(); m != nil && m.v == v && !m.parked {
 			self = 1
 		}
-		if v.parked >= v.live-self {
+		if v.parked >= v.live-self && v.running == 0 {
 			v.mu.Unlock()
 			return nil
 		}

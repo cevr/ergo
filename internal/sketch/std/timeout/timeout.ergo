@@ -51,10 +51,42 @@ law DeadlineFirstExpires() {
 // Queue.take with a timeout). It fails Expired when d passes first, having
 // taken nothing, and Closed when q is closed and empty. A value that is
 // there now is taken with no deadline, so a burst arms no timer; a wait
-// arms one, as After does, and stops it before PopWithin returns. A value
-// that enters at the deadline's instant is either taken or left in q,
-// never lost. A d of zero or less never waits.
+// arms one Deadline, an alarm of the Scheduler with no task, and stops it
+// before PopWithin returns. A value that enters at the deadline's instant
+// is either taken or left in q, never lost. A d of zero or less never
+// waits.
 extern go ergo.local/prototype/runtime/v1.PopWithin func PopWithin[T](q queue.Queue[T], d duration) T fails queue.Closed | Expired needs Scheduler
+
+// Deadline is one re-armable deadline on the Scheduler (Go's time.Timer
+// with Reset): Arm arms one alarm of the Scheduler's AlarmClock, with no
+// task and no sleep, and PopBefore waits on a queue until it fires. A
+// value that comes first leaves it armed, so a loop that takes many values
+// under one deadline arms it once (stream.Debounced arms one per window of
+// d, not one per value). One task waits on a Deadline at a time.
+// law-exempt: a member law has no Scheduler to arm on and no clock to move; its laws bind a time.Manual and run beside it (PopBeforeKeepsTheDeadline, and PopWithin's laws, which arm one).
+extern go ergo.local/prototype/runtime/v1.Deadline type Deadline {
+	runtimeOnly(),
+	// Arm arms the deadline to fire once d has passed, replacing an
+	// earlier arm and a fire PopBefore has not taken. A d of zero or less
+	// fires at once.
+	Arm(d duration),
+	// Armed reports that Arm armed it and neither PopBefore took its fire
+	// nor Stop disarmed it.
+	Armed() bool,
+	// Stop disarms it; it does nothing on a deadline that is not armed.
+	Stop(),
+}
+
+// NewDeadline is a Deadline that is not armed, on the Scheduler's
+// AlarmClock.
+extern go ergo.local/prototype/runtime/v1.NewDeadline func NewDeadline() Deadline needs Scheduler
+
+// PopBefore takes the value at the front of q, waiting for one until dl
+// fires. It fails Expired when dl has fired, taking the fire, so dl is no
+// longer armed; Closed when q is closed and empty. A value there now is
+// taken first, even after the fire. On a deadline that is not armed it
+// waits as Pop does.
+extern go ergo.local/prototype/runtime/v1.PopBefore func PopBefore[T](q queue.Queue[T], dl Deadline) T fails queue.Closed | Expired
 
 // PopWithinWaitsUpToD: a value pushed gap ms after the call is taken at
 // gap when gap is less than d, and no deadline sleeps on after it; when d
@@ -127,5 +159,83 @@ law PopWithinTakesWhatIsThere(v int) {
 			-2
 		}
 		first == v && then == -1 && q.Len() == 0
+	}
+}
+
+// PopBeforeKeepsTheDeadline: one Deadline, armed once for an odd D ms,
+// bounds a loop of PopBefore while a producer pushes 0, 1, ... with even
+// gaps: the loop takes, in order, each value that arrives before D, then
+// fails Expired at D with the deadline no longer armed, and the values
+// that arrive later stay in the queue. A value taken does not move or
+// disarm the deadline. The producer ends the queue long after D, so a
+// deadline that never fires ends the loop by Closed, and the law is false.
+law PopBeforeKeepsTheDeadline(gaps []int, w int) {
+	let m = time.NewManual(0)
+	let big = 2*(((w%30)+30)%30) + 1
+	let n = len(gaps)
+	let start = m.Now()
+	with context { Scheduler: m } {
+		let q = queue.New[int](n + 1)
+		let got = queue.New[int](n + 3)
+		let producer = task.Go() {
+			for i, g in gaps {
+				Scheduler.Sleep(time.Times(1ms, 2*(((g%10)+10)%10)))
+				q.Push(i) catch {
+				case queue.Closed:
+				}
+			}
+			Scheduler.Sleep(time.Times(1ms, 2*big))
+			q.End()
+		}
+		let consumer = task.Go() {
+			let dl = NewDeadline()
+			dl.Arm(time.Times(1ms, big))
+			let mut open = true
+			for open {
+				let v = PopBefore(q, dl) catch {
+				case Expired:
+					-1
+				case queue.Closed:
+					-2
+				}
+				if v >= 0 {
+					got.Push(v) catch {
+					case queue.Closed:
+					}
+				} else {
+					open = false
+					got.Push(v) catch {
+					case queue.Closed:
+					}
+					got.Push(time.Count(m.Elapsed(start), 1ms)) catch {
+					case queue.Closed:
+					}
+					got.Push(if dl.Armed() { 1 } else { 0 }) catch {
+					case queue.Closed:
+					}
+				}
+			}
+			got.End()
+		}
+		m.Advance(time.Times(1ms, 20*n+4*big+2))
+		producer.Wait()
+		consumer.Wait()
+		let mut want = []int{}
+		let mut at = 0
+		for i, g in gaps {
+			at = at + 2*(((g%10)+10)%10)
+			if at < big {
+				want = want.Append(i)
+			}
+		}
+		let left = n - len(want)
+		want = want.Append(-1).Append(big).Append(0)
+		let mut same = true
+		let mut k = 0
+		for v in got.Values() {
+			same = same && k < len(want) && v == want[k]
+			k = k + 1
+		}
+		same && k == len(want) && q.Len() == left
 	}
 }
