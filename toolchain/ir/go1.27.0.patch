@@ -37,10 +37,10 @@ index 3d8974e..12bc3e2 100644
  	}
 diff --git a/src/cmd/compile/internal/noder/ergoir.go b/src/cmd/compile/internal/noder/ergoir.go
 new file mode 100644
-index 0000000..f0ab9bc
+index 0000000..f70005a
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir.go
-@@ -0,0 +1,251 @@
+@@ -0,0 +1,252 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -121,7 +121,8 @@ index 0000000..f0ab9bc
 +	// Label is a loop's or a block's label, or the label a break,
 +	// continue or goto names (ergoir_label.go).
 +	Label string `json:"label,omitempty"`
-+	// Y is a store's value (store: X = Y, X a field; IRG6).
++	// Y is a store's value (store: X = Y, X a field; IRG6), or a "count"
++	// loop's bound (ergoir_stmt.go).
 +	Y *ergoExpr `json:"y,omitempty"`
 +}
 +
@@ -1574,10 +1575,10 @@ index 0000000..3d9db4a
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_stmt.go b/src/cmd/compile/internal/noder/ergoir_stmt.go
 new file mode 100644
-index 0000000..ec3e834
+index 0000000..dec55ae
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_stmt.go
-@@ -0,0 +1,309 @@
+@@ -0,0 +1,333 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1779,6 +1780,30 @@ index 0000000..ec3e834
 +				return nil
 +			}
 +		}
++		st.Body = c.loopBlock(st, s.Label, s.Pos, s.End, s.Body)
++		return c.labeled(s, st) // ergoir_label.go
++	case "count":
++		// for i := X; i < Y; i++ { body }: a for-in over an integer Range
++		// (IRG4b), i the loop's integer local; Y is read each iteration.
++		v := c.local(s.Pos, s.Local)
++		lo, lt := c.expr(s.X)
++		if v == nil || lo == nil || s.Y == nil {
++			return nil
++		}
++		if !ergoIsInteger(v.Type()) || !c.assignable(s.Pos, "count", lt, v.Type()) {
++			c.errorf(s.Pos, "ergoir: count of %v", v.Type())
++			return nil
++		}
++		init := &syntax.AssignStmt{Op: syntax.Def, Lhs: c.name(s.Pos, v, true), Rhs: lo}
++		init.SetPos(pos)
++		cond := c.cond(&ergoExpr{K: "bin", Pos: s.Pos, Op: "<", X: &ergoExpr{K: "local", Pos: s.Pos, I: s.Local}, Y: s.Y})
++		if cond == nil {
++			return nil
++		}
++		post := &syntax.AssignStmt{Op: syntax.Add, Lhs: c.name(s.Pos, v, false)}
++		post.SetPos(pos)
++		st := &syntax.ForStmt{Init: init, Cond: cond, Post: post}
++		st.SetPos(pos)
 +		st.Body = c.loopBlock(st, s.Label, s.Pos, s.End, s.Body)
 +		return c.labeled(s, st) // ergoir_label.go
 +	case "break", "continue":
