@@ -27,7 +27,8 @@ package lower
 //     match's union type, and no loop or function literal (a loop
 //     amortizes its call; a literal's return is its own);
 //   - its body has at most fuseBudget syntax nodes (the site's cost: the
-//     body is written at every fused site);
+//     body is written at every fused site), or viewBudget for a view (lets,
+//     then a match on a value whose every arm is one result: one switch);
 //   - each result is a variant the checker converts into the union (a
 //     result of the union's own type, a call returning it, keeps the
 //     two-step form);
@@ -40,13 +41,15 @@ package lower
 // position (the compiler's DWARF scopes must not go back to its lines);
 // each arm keeps its case's position, in the match's order.
 //
-// viewMatch (ir_view.go, VW1) is tried first: it builds a view's switch as
-// the match's own, with its lets sunk into the cases (VW1b), which a join
-// after the body cannot do.
+// The callee's leading lets that only its results read sink into those
+// results (VW1b, fuseSinkable): a row's view reads, by its kind, only the
+// columns its variant holds. A sunk let's index checks stay in its place.
+// This replaces VW1's viewMatch, which built only a view of the match's
+// own package with no type parameters.
 //
-// The reference is fuseLowering "off": the two-step form.
-// TestIRFusesMatchesOnCalls (irspike) runs seeded fusions through the IR
-// path and the source path.
+// The reference is fuseLowering "off": the two-step form; "nosink" sinks
+// no let. TestIRViewsMatchSource (irspike) runs seeded views and fused
+// views through the IR path and the source path.
 //
 // Prior art: GHC's case-of-known-constructor and case-of-case with join
 // points (Maurer et al., "Compiling without continuations"); OCaml's
@@ -70,6 +73,45 @@ var fuseLowering string
 // a fused site: dense.Unpack is about 40.
 const fuseBudget = 256
 
+// fuseBudgetOf is the budget of a callee whose body is list: viewBudget
+// for a view (lets, then a match on a value whose every arm is one
+// result), whose fused site is one switch with each result in its case,
+// and fuseBudget for any other body.
+func fuseBudgetOf(info *check.Info, list []syntax.Stmt) int {
+	last, ok := list[len(list)-1].(*syntax.SwitchStmt)
+	if !ok || last.Tag == nil {
+		return fuseBudget
+	}
+	for _, st := range list[:len(list)-1] {
+		if _, ok := st.(*syntax.DeclStmt); !ok {
+			return fuseBudget
+		}
+	}
+	for _, cl := range last.Clauses {
+		if len(cl.Body) != 1 || !fuseResult(info, cl.Body[0]) {
+			return fuseBudget
+		}
+	}
+	return viewBudget
+}
+
+// fuseResult reports whether s is a result fuseTail builds at once: a
+// variant's literal or a field-less variant's name.
+func fuseResult(info *check.Info, s syntax.Stmt) bool {
+	e, ok := s.(*syntax.ExprStmt)
+	if !ok {
+		return false
+	}
+	switch x := unparen(e.X).(type) {
+	case *syntax.CompositeLit:
+		return true
+	case *syntax.Ident:
+		_, ok := info.Uses[x].(*check.TypeName)
+		return ok
+	}
+	return false
+}
+
 // fuseSite is a match fused with the body of the call it matches on.
 type fuseSite struct {
 	byType   map[string]*syntax.CaseClause // each tested variant's arm, by Go type
@@ -79,10 +121,69 @@ type fuseSite struct {
 	bind     map[*syntax.CaseClause]int // an arm's `as` local, declared before the body
 	bindType map[*syntax.CaseClause]string
 	reached  map[*syntax.CaseClause]bool
+	lets     []syntax.Stmt            // the callee's leading lets
+	sunk     map[syntax.Stmt]*sunkLet // those built in the results that read them
 }
 
-// saveBuilder is a restore of the builder's per-site state (viewMatch's
-// and fuseMatch's way back to the two-step form).
+// fuseSinkable is the callee's leading lets that sink into its results
+// (VW1b's rule, sunkLetOf): a let sinks when only results read it, the
+// variant literals or names that are the body's tail or the tails of its
+// final match's arms (a result elsewhere, in an if or a nested match,
+// reads its lets where they are). fuseLowering "nosink" sinks none.
+func (b *irBuilder) fuseSinkable(lets, rest []syntax.Stmt) map[syntax.Stmt]*sunkLet {
+	out := map[syntax.Stmt]*sunkLet{}
+	if fuseLowering == "nosink" || len(rest) == 0 {
+		return out
+	}
+	byVar := map[*check.Var]syntax.Stmt{}
+	for _, st := range lets {
+		if d := b.sunkLetOf(st); d != nil {
+			out[st] = d
+			byVar[d.v] = st
+		}
+	}
+	stay := func(x syntax.Node) {
+		for w := range b.reads(x) {
+			delete(out, byVar[w])
+		}
+	}
+	result := func(s syntax.Stmt) bool { return fuseResult(b.l.info, s) }
+	for _, st := range rest[:len(rest)-1] {
+		stay(st)
+	}
+	switch last := rest[len(rest)-1].(type) {
+	case *syntax.SwitchStmt:
+		if last.Tag == nil {
+			stay(last)
+			break
+		}
+		stay(last.Tag)
+		for _, cl := range last.Clauses {
+			for _, x := range cl.List {
+				stay(x)
+			}
+			if len(cl.Body) == 1 && result(cl.Body[0]) {
+				continue
+			}
+			for _, st := range cl.Body {
+				stay(st)
+			}
+		}
+	default:
+		if !result(last) {
+			stay(last)
+		}
+	}
+	for i := len(lets) - 1; i >= 0; i-- {
+		if _, ok := out[lets[i]]; !ok {
+			stay(lets[i])
+		}
+	}
+	return out
+}
+
+// saveBuilder is a restore of the builder's per-site state (fuseMatch's
+// way back to the two-step form).
 func (b *irBuilder) saveBuilder() (restore func(), locals map[*check.Var]int) {
 	next, nLocals, at := b.next, len(b.fn.Locals), b.at
 	locals, admitted, switches := maps.Clone(b.locals), maps.Clone(b.admitted), b.switches
@@ -138,7 +239,7 @@ func (b *irBuilder) fuseOf(s *syntax.TypeSwitchStmt) (*syntax.CallExpr, *check.C
 		return nil, nil, nil
 	}
 	f := c.Func
-	if f.Pkg == nil || f.Decl == nil || f.Decl.Extern != nil || f.Decl.Body == nil || f.Decl.Recv != nil || f.Ptr {
+	if f.Pkg == nil || f.Pkg.Info == nil || f.Decl == nil || f.Decl.Extern != nil || f.Decl.Body == nil || f.Decl.Recv != nil || f.Ptr {
 		return nil, nil, nil
 	}
 	sig := f.Sig
@@ -153,7 +254,7 @@ func (b *irBuilder) fuseOf(s *syntax.TypeSwitchStmt) (*syntax.CallExpr, *check.C
 			return nil, nil, nil
 		}
 	}
-	if inlineSize(f.Decl.Body) > fuseBudget || len(f.Decl.Body.List) == 0 {
+	if len(f.Decl.Body.List) == 0 || inlineSize(f.Decl.Body) > fuseBudgetOf(f.Pkg.Info, f.Decl.Body.List) {
 		return nil, nil, nil
 	}
 	plain := true
@@ -305,7 +406,29 @@ func (b *irBuilder) fuseBuild(s *syntax.TypeSwitchStmt, call *syntax.CallExpr, c
 		}
 		b.fuse = fz
 		defer func() { b.fuse = nil }()
-		body = b.tailTo(f.Decl.Body.List, false, &yieldTo{local: -1, t: f.Sig.Results[0], fuse: true})
+		list := f.Decl.Body.List
+		n := 0
+		for n < len(list)-1 {
+			if _, ok := list[n].(*syntax.DeclStmt); !ok {
+				break
+			}
+			n++
+		}
+		fz.lets = list[:n]
+		fz.sunk = b.fuseSinkable(fz.lets, list[n:])
+		for _, st := range fz.lets {
+			if d := fz.sunk[st]; d != nil {
+				// A sunk let keeps its index checks here, in its place
+				// among the lets: a row out of range fails as in the
+				// two-step form.
+				for _, x := range d.checks {
+					body = append(body, &irStmt{K: "discard", Pos: p, X: b.expr(x)})
+				}
+				continue
+			}
+			body = append(body, b.stmt(st)...)
+		}
+		body = append(body, b.tailTo(list[n:], false, &yieldTo{local: -1, t: f.Sig.Results[0], fuse: true})...)
 		b.rename(k)
 	}()
 	outer := append(decls, &irStmt{K: "block", Pos: p, End: p, Body: body})
@@ -363,7 +486,19 @@ func (b *irBuilder) fuseTail(x syntax.Expr, p irPos) []*irStmt {
 		irNo("fused result that no arm takes")
 	}
 	fz.reached[arm] = true
-	pre, e := b.variant(x) // ir_view.go: no union is built
+	// The sunk lets this result reads, in their order, in its branch.
+	var pre []*irStmt
+	if need := b.needs(x, fz.sunk); len(need) > 0 {
+		saved := maps.Clone(b.locals)
+		defer func() { b.locals = saved }()
+		for _, st := range fz.lets {
+			if need[st] {
+				pre = append(pre, b.stmt(st)...)
+			}
+		}
+	}
+	vpre, e := b.variant(x) // ir_view.go: no union is built
+	pre = append(pre, vpre...)
 	if l, ok := fz.bind[arm]; ok {
 		if fz.bindType[arm] != g {
 			irNo("fused result of another variant than its arm binds")

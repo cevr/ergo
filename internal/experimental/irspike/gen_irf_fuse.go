@@ -13,6 +13,7 @@ type FuseForm struct {
 	Method  bool // called as c.Read(i, …), not Read(c, i, …)
 	Generic bool // Read[T] takes a []T and reads its length
 	Tails   bool // results in ifs, nested matches and an early return
+	Big     bool // past fuseBudget: the matches keep the two-step form
 }
 
 // GenerateFuse writes the fused-view program of seed (IR-FORMS IRF-1) as a
@@ -24,12 +25,13 @@ type FuseForm struct {
 // seed's. With Tails, the view returns early for a negative kind and
 // writes some arms as an if or a nested match over its lets; without it,
 // the view is VW1's shape (lets, then a match whose every arm is one
-// literal). Some literals divide by a column that holds a zero: the
+// literal). With Big, the view has forty guards more, past the fusion
+// budget (and not a view's shape). Some literals divide by a column that holds a zero: the
 // variant panics where it is built, whatever arm takes it. main prints
 // pick and code of each row, then walk.
 func GenerateFuse(seed uint64) (map[string]string, FuseForm) {
 	g := &fusegen{vgen: vgen{r: rand.New(rand.NewPCG(seed, seed^0x3c6ef372fe94f82b))}}
-	f := FuseForm{Cross: g.n(2) == 0, Method: g.n(2) == 0, Generic: g.n(2) == 0, Tails: g.n(2) == 0}
+	f := FuseForm{Cross: g.n(2) == 0, Method: g.n(2) == 0, Generic: g.n(2) == 0, Tails: g.n(2) == 0, Big: g.n(5) == 0}
 	switch seed % 4 {
 	case 0:
 		f.Cross = true
@@ -98,6 +100,11 @@ func (g *fusegen) read(k int) {
 	// Every let is read here, whatever the literals read: the guard never
 	// holds for the rows main writes.
 	fmt.Fprintf(&g.lib, "\tif x + y + n < -1000000 {\n\t\treturn %s\n\t}\n", g.lit(g.n(k)))
+	if g.f.Big {
+		for j := range 40 {
+			fmt.Fprintf(&g.lib, "\tif x - y + n == %d {\n\t\treturn %s\n\t}\n", 100000+j, g.lit(g.n(k)))
+		}
+	}
 	if g.f.Tails {
 		fmt.Fprintf(&g.lib, "\tif kind < 0 {\n\t\treturn %s\n\t}\n", g.lit(g.n(k)))
 	}

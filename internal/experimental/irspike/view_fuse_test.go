@@ -15,7 +15,8 @@ import (
 // is generic, is called as a method, or has results in ifs, nested matches
 // and an early return, the IR path prints, exits and fails as the source
 // path. walk, pick and code get IR bodies in every seed and each is one
-// switch: it calls no Read and switches on no variant's tag (match fusion
+// switch, unless Read is past the fusion budget (Big), where each keeps
+// the two-step form: it calls no Read and switches on no variant's tag (match fusion
 // jumps from each of Read's results to the arm its variant reaches). Over
 // the run, every form is reached and some seed panics in a literal.
 func fusedViews(t *testing.T, src, ir Toolchain, first, count uint64) {
@@ -56,11 +57,18 @@ func fusedViews(t *testing.T, src, ir Toolchain, first, count uint64) {
 			if _, ok := calls[f]; !ok {
 				t.Fatalf("fuse seed %d (%+v): no IR body for %s (IR %v, fallback %v)\n%s\n%s", seed, form, f, rep.IR, rep.Fallback, replay, text.String())
 			}
+			if form.Big {
+				// Past the budget: the site calls Read and switches on its tag.
+				if calls[f] == 0 || tags[f] == 0 {
+					t.Fatalf("fuse seed %d (%+v): %s's Read is past the fusion budget, yet it is fused (%d calls, %d tag switches)\n%s\n%s", seed, form, f, calls[f], tags[f], replay, text.String())
+				}
+				continue
+			}
 			if calls[f] > 0 || tags[f] > 0 {
 				t.Fatalf("fuse seed %d (%+v): %s calls Read %d times and switches on a tag %d times: it is not one switch\n%s\n%s", seed, form, f, calls[f], tags[f], replay, text.String())
 			}
 		}
-		for name, on := range map[string]bool{"cross": form.Cross, "generic": form.Generic, "method": form.Method, "tails": form.Tails} {
+		for name, on := range map[string]bool{"cross": form.Cross, "generic": form.Generic, "method": form.Method, "tails": form.Tails, "big": form.Big} {
 			if on {
 				forms[name]++
 			}
@@ -72,7 +80,7 @@ func fusedViews(t *testing.T, src, ir Toolchain, first, count uint64) {
 	if count < 16 {
 		return // a replay: the coverage needs the whole run
 	}
-	if forms["cross"] == 0 || forms["generic"] == 0 || forms["method"] == 0 || forms["tails"] == 0 || panics == 0 {
+	if forms["cross"] == 0 || forms["generic"] == 0 || forms["method"] == 0 || forms["tails"] == 0 || forms["big"] == 0 || panics == 0 {
 		t.Errorf("the fused run did not reach every form (%v) and a panic in a literal (%d seeds)", forms, panics)
 	}
 }

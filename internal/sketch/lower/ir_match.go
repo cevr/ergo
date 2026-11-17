@@ -80,9 +80,6 @@ func (b *irBuilder) typeMatch(s *syntax.TypeSwitchStmt, ret bool, to *yieldTo) [
 	if len(b.l.info.Releases[s.Subjects[0]]) > 0 || len(b.l.info.Releases[x]) > 0 {
 		irNo("match subject that releases owned values")
 	}
-	if out, ok := b.viewMatch(s, ret, to); ok { // ir_view.go
-		return out
-	}
 	if out, ok := b.fuseMatch(s, ret, to); ok { // ir_forms_match.go
 		return out
 	}
