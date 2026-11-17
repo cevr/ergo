@@ -1415,25 +1415,38 @@ func (a *Actor[S, E, D]) Ask(t *rt.Task, e E) (D, error) {
 	return r.d, r.err
 }
 
-// replySlot is a reply channel an Ask or a State read reuses (MU18). Every
-// queued Ask and State read is answered exactly once (rules 1 and 8), so a
-// channel whose answer was taken is empty and nobody else holds it; one
-// whose wait was interrupted may still get its answer, so it is never
-// given back.
-// task is the asker's, so the runner can unpark it in a clock's domain
-// before it answers (fua-b).
+// replySlot is the one-value reply an Ask or a State read reuses (MU18).
+// Every queued Ask and State read is answered exactly once (rules 1 and
+// 8), so a slot whose answer was taken is empty and nobody else holds it;
+// one whose wait was interrupted may still get its answer, so it is never
+// given back. task is the asker's: the runner resumes it from its park
+// word (rt park.go, PARK1) once the answer is in, and in a clock's domain
+// unparks it before it answers (fua-b).
 type replySlot[S, D any] struct {
-	ch   chan answer[S, D]
+	ans  answer[S, D]
+	full atomic.Bool // ans holds the answer
 	task *rt.Task
 }
 
 // give answers r's asker. In a clock's domain the asker is unparked first
-// (rt idle.go), so no window shows it parked while it can run; the
-// channel has room for the one answer, so the send never waits.
+// (rt idle.go), so no window shows it parked while it can run. The asker
+// is read before the answer is published: once full is set, the asker may
+// take the answer and give the slot back for another asker.
 func (r *replySlot[S, D]) give(ans answer[S, D]) {
-	k := rt.Waking(r.task, r)
-	r.ch <- ans
+	asker := r.task
+	k := rt.Waking(asker, r)
+	r.ans = ans
+	r.full.Store(true)
 	k.Done()
+	asker.Resume()
+}
+
+// take takes the answer out of a full slot, leaving it empty.
+func (r *replySlot[S, D]) take() answer[S, D] {
+	ans := r.ans
+	r.ans = answer[S, D]{}
+	r.full.Store(false)
+	return ans
 }
 
 // takeReply is the actor's spare reply channel, or a new one when another
@@ -1443,7 +1456,7 @@ func (a *Actor[S, E, D]) takeReply(t *rt.Task) *replySlot[S, D] {
 		r.task = t
 		return r
 	}
-	return &replySlot[S, D]{ch: make(chan answer[S, D], 1), task: t}
+	return &replySlot[S, D]{task: t}
 }
 
 // giveReply keeps r, empty, as the spare, unless another one is there.
@@ -1475,25 +1488,29 @@ func (a *Actor[S, E, D]) State(t *rt.Task) S {
 	return s
 }
 
-// await waits for an answer on t: a stop of t raises rt.Interrupted.
-// In a clock's domain it waits parked on reply (fua-b).
+// await waits for an answer on t: a stop of t raises rt.Interrupted. t
+// parks on its own park word until the runner gives the answer or a stop
+// it can observe comes (rt park.go, PARK1); a stop that comes with the
+// answer wins, as in a task's Wait. In a clock's domain it waits parked on
+// reply (fua-b).
 func (a *Actor[S, E, D]) await(t *rt.Task, reply *replySlot[S, D]) answer[S, D] {
 	t.Check()
 	var p rt.Parked
 	if t.InDomain() {
-		p = rt.Park(t, reply, t.Done(), func() bool { return len(reply.ch) > 0 })
+		p = rt.Park(t, reply, t.Done(), reply.full.Load)
+	} else {
+		t.Waits()
 	}
 	rt.Block(t)
-	select {
-	case r := <-reply.ch:
-		rt.Unblock(t)
-		p.Unpark()
-		return r
-	case <-t.Done():
-		rt.Unblock(t)
-		p.Unpark()
+	for !reply.full.Load() && !t.Stopped() {
+		t.Suspend()
+	}
+	rt.Unblock(t)
+	p.Unpark()
+	if t.Stopped() {
 		panic(rt.Interrupted)
 	}
+	return reply.take()
 }
 
 // waitDone waits on t until the runner has ended. In a clock's domain it
