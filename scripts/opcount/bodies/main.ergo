@@ -7,10 +7,12 @@
 
 import bits
 import cmp
+import crc32
 import filepath
 import hex
 import math
 import os
+import sha256
 import slices
 import strconv
 import strings
@@ -29,6 +31,8 @@ func run(kind string, n int) string fails os.Exit {
 	let ints2 = [][]int{ints, slices.Clone(ints).Append(1)}
 	let asc = slices.Ascend(ints)
 	let cfloats = []float64{0.5, -129.5, 1e10, 300.25, -1e19, 42.0, 70000.75, -0.0}
+	let bools = []string{"true", "x", "0", "False", "T", "no", "1", "FALSE"}
+	let quoted = []string{"\"a\\tb\"", "`raw`", "'x'", "bad", "\"é\"", "\"\\u00e9\"", "\"open", "'\\n'"}
 	let mut acc = 0
 	let mut f = 0.0
 	match kind {
@@ -488,6 +492,31 @@ func run(kind string, n int) string fails os.Exit {
 			acc += int(math.ToUintptr(cfloats[i & 7]) catch {
 			case math.OutOfRange:
 				0
+			})
+		}
+	case "sha256.Sum":
+		for i in 0..n {
+			acc += int(sha256.Sum(words[i & 7] + lines[i & 3])[i & 31])
+		}
+	case "crc32.Checksum":
+		for i in 0..n {
+			acc += int(crc32.Checksum(lines[i & 3] + words[i & 7]) & 1023)
+		}
+	case "strconv.ParseBool":
+		for i in 0..n {
+			if strconv.ParseBool(bools[i & 7]) catch {
+			case strconv.Malformed:
+				acc += 2
+				false
+			} {
+				acc += 1
+			}
+		}
+	case "strconv.Unquote":
+		for i in 0..n {
+			acc += len(strconv.Unquote(quoted[i & 7]) catch {
+			case strconv.Malformed:
+				"?"
 			})
 		}
 	case _:
