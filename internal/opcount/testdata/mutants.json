@@ -127,6 +127,7 @@
       "rule": "The exit hook reports every counter scripts/opcount reads; a missing one is NoMetric in the receipt, never 0.",
       "killers": [],
       "gap": "The hook runs only inside a program scripts/opcount builds and runs; its run is a tool check by hand (round-1 request: opcount on examples/lru and examples/onebrc), not a gate test."
-    }
+    },
+    {"name":"gtd-darwin-countself-twice","origin":"wf10 GATE2 GT-DARWIN","file":"internal/opcount/counter_other.go","from":"// Available reports that only Linux counts instructions here.\n","to":"// CountSelf runs f; off Linux it counts nothing (-1).\nfunc CountSelf(f func()) int64 {\n\tf()\n\treturn -1\n}\n\n// Available reports that only Linux counts instructions here.\n","rule":"cmd/ergo and every package it imports compile on macOS (arm64 and amd64), not only on the Linux gate: a merge once declared CountSelf twice in the off-Linux counter.","killers":["scripts/gate:TestErgoCompilesOnEveryPlatform"]}
   ]
 }
