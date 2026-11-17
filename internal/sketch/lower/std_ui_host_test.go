@@ -687,14 +687,14 @@ func accessModel(shapes []ui.Shape[int], off bool, desc string) []seen {
 }
 
 func readAs(n ui.Node[int], off bool, desc string) ui.Access {
-	let base = ui.Access{Role: ui.Generic, Name: "", Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+	let base = ui.Access{Role: ui.Generic, Name: "", Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
 	match n {
 	case ui.PressableNode[int] as x:
-		ui.Access{Role: ui.Button, Name: x.Label, Disabled: off, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+		ui.Access{Role: ui.Button, Name: x.Label, Disabled: off, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
 	case ui.CheckNode[int] as x:
-		ui.Access{Role: ui.Checkbox, Name: x.Label, Disabled: off, Description: desc, Checked: Some{Value: x.Checked}, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+		ui.Access{Role: ui.Checkbox, Name: x.Label, Disabled: off, Description: desc, Checked: Some{Value: x.Checked}, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
 	case ui.ToggleNode as x:
-		ui.Access{Role: ui.Switch, Name: x.Label, Disabled: off, Description: desc, Checked: Some{Value: x.On}, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+		ui.Access{Role: ui.Switch, Name: x.Label, Disabled: off, Description: desc, Checked: Some{Value: x.On}, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
 	case ui.InputNode as x:
 		// A label names the field, a placeholder only an unlabelled one;
 		// its own description wins over the ui.Fieldset's.
@@ -706,17 +706,17 @@ func readAs(n ui.Node[int], off bool, desc string) ui.Access {
 		if x.Description != "" {
 			d = x.Description
 		}
-		ui.Access{Role: ui.TextBox, Name: name, Disabled: off, Description: d, Checked: None, Value: Some{Value: x.Value}, Selected: None, Expanded: None, Pressed: None, Invalid: x.Invalid, Busy: false, HasPopup: false, Level: None}
+		ui.Access{Role: ui.TextBox, Name: name, Disabled: off, Description: d, Checked: None, Value: Some{Value: x.Value}, Selected: None, Expanded: None, Pressed: None, Invalid: x.Invalid, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
 	case ui.TextNode as x:
-		ui.Access{Role: ui.Static, Name: x.Value, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+		ui.Access{Role: ui.Static, Name: x.Value, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
 	case ui.FieldsetNode:
-		ui.Access{Role: ui.Group, Name: "", Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+		ui.Access{Role: ui.Group, Name: "", Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
 	case ui.AreaNode as x:
-		ui.Access{Role: ui.Region, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+		ui.Access{Role: ui.Region, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
 	case ui.CanvasNode as x:
-		ui.Access{Role: ui.Image, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+		ui.Access{Role: ui.Image, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
 	case ui.RowsNode as x:
-		ui.Access{Role: ui.List, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+		ui.Access{Role: ui.List, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
 	case _:
 		base
 	}
@@ -4476,6 +4476,123 @@ func lawMirrorRejectsUnheldLooks(seed int) bool {
 	ui.MirrorLookCount(&m) == len(lookDefaults())+1
 }
 
+// relKeyOf, relScreen and lawRelationsNameHeldNodes restate relate.ergo's
+// law and helpers (UG2).
+func relKeyOf(r ui.Rel) ui.Key {
+	match r {
+	case ui.Controls as x:
+		x.To
+	case ui.LabelledBy as x:
+		x.To
+	case ui.DescribedBy as x:
+		x.To
+	case ui.ActiveDescendant as x:
+		x.To
+	case ui.OpensPopup:
+		ui.NoKey
+	}
+}
+
+func relScreen(f *ui.Frame[int], keyed []bool, rels [][]ui.Rel, gone []bool) {
+	ui.Column(f, ui.Plain()) {
+		for i, k in keyed {
+			if !gone[i] {
+				let mut a = ui.Named(ui.Group, "r\(i)")
+				if k {
+					a.Key = ui.ByInt(i)
+				}
+				a.Rels = rels[i]
+				ui.Semantic(f, a, None, ui.Plain()) {
+					ui.Text(f, "t\(i)")
+				}
+			}
+		}
+		ui.Pressable(f, "next", 1) {
+			ui.Text(f, "n")
+		}
+	}
+}
+
+func lawRelationsNameHeldNodes(seed int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut r = seeded(seed)
+		let n = draw(&r, 6) + 2
+		let mut keyed = []bool{}
+		let mut rels = [][]ui.Rel{}
+		let mut gone = []bool{}
+		let mut none = []bool{}
+		for _ in 0..n {
+			keyed = keyed.Append(draw(&r, 4) != 0)
+			gone = gone.Append(draw(&r, 3) == 0)
+			none = none.Append(false)
+			let mut rs = []ui.Rel{}
+			for _ in 0..draw(&r, 4) {
+				rs = rs.Append(relDraw(&r, n+2))
+			}
+			rels = rels.Append(rs)
+		}
+		let view = func(f *ui.Frame[int], s int) {
+			relScreen(f, keyed, rels, if s == 0 { none } else { gone })
+		}
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {})
+		let mut h = ui.NewTestHost(a, view, m, 4) catch {
+		case ui.BadPatch:
+			return false
+		}
+		for s in 0..2 {
+			let left = if s == 0 { none } else { gone }
+			for i in 0..n {
+				let ids = ui.Locate(&h, ui.WithLabel{Label: "r\(i)"})
+				if len(ids) != (if left[i] { 0 } else { 1 }) {
+					return false
+				}
+				if len(ids) == 1 {
+					let got = ui.RelationsAt(&h, ids[0])
+					if len(got) != len(rels[i]) {
+						return false
+					}
+					for j, rel in rels[i] {
+						let k = relKeyOf(rel)
+						let mut want = "none"
+						match k {
+						case ui.IntKey as x:
+							if x.Value < n && keyed[x.Value] && !left[x.Value] {
+								want = "r\(x.Value)"
+							}
+						case _:
+						}
+						let mut named = "none"
+						match got[j].To {
+						case Some[ui.Id[int]] as t:
+							named = ui.AccessAt(&h, t.Value).Name
+						case None:
+						}
+						if got[j].Rel != rel || named != want {
+							return false
+						}
+					}
+				}
+			}
+			if s == 0 {
+				let next = ui.Locate(&h, ui.WithLabel{Label: "next"})
+				if len(next) != 1 {
+					return false
+				}
+				ui.Tap(&h, next[0]) catch {
+				case _:
+					return false
+				}
+				ui.Settle(&h) catch {
+				case _:
+					return false
+				}
+			}
+		}
+		true
+	}
+}
+
 func lawAccessIsWhatWasDeclared(seed int, count int) bool {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
@@ -4559,7 +4676,7 @@ func lawWithinFindsUnder(seed int) bool {
 		}
 		let none Option[int] = None
 		let decl = func(role ui.Role, name string, level Option[int]) ui.Access {
-			ui.Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: level}
+			ui.Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: level, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
 		}
 		let view = func(f *ui.Frame[int], s int) {
 			ui.Column(f, ui.Plain()) {
@@ -4631,7 +4748,7 @@ func lawWithinFindsUnder(seed int) bool {
 }
 
 func semRoles() []ui.Role {
-	[]ui.Role{ui.Button, ui.Checkbox, ui.Switch, ui.TextBox, ui.Static, ui.Group, ui.Region, ui.Image, ui.List, ui.Status, ui.Generic, ui.Tab, ui.TabList, ui.TabPanel, ui.Dialog, ui.Menu, ui.MenuItem, ui.Tree, ui.TreeItem, ui.Heading, ui.Alert, ui.Link, ui.Table, ui.TableRow, ui.TableCell, ui.RadioGroup, ui.Radio, ui.ListBox, ui.ListOption}
+	[]ui.Role{ui.Button, ui.Checkbox, ui.Switch, ui.TextBox, ui.Static, ui.Group, ui.Region, ui.Image, ui.List, ui.Status, ui.Generic, ui.Tab, ui.TabList, ui.TabPanel, ui.Dialog, ui.Menu, ui.MenuItem, ui.Tree, ui.TreeItem, ui.Heading, ui.Alert, ui.Link, ui.Table, ui.TableRow, ui.TableCell, ui.RadioGroup, ui.Radio, ui.ListBox, ui.ListOption, ui.Slider, ui.SpinButton, ui.SearchBox, ui.MenuItemCheckbox, ui.ComboBox, ui.Grid, ui.GridCell, ui.ColumnHeader, ui.RowHeader, ui.Navigation, ui.ListItem, ui.Separator, ui.Tooltip}
 }
 
 func semMaybe(r *rng) Option[bool] {
@@ -4640,6 +4757,23 @@ func semMaybe(r *rng) Option[bool] {
 		return None
 	}
 	Some{Value: k == 1}
+}
+
+// relDraw restates relate.ergo's drawRel (UG2).
+func relDraw(r *rng, keys int) ui.Rel {
+	let k = ui.ByInt(draw(r, keys))
+	match draw(r, 5) {
+	case 0:
+		ui.Controls{To: k}
+	case 1:
+		ui.LabelledBy{To: k}
+	case 2:
+		ui.DescribedBy{To: k}
+	case 3:
+		ui.ActiveDescendant{To: k}
+	case _:
+		ui.OpensPopup{Role: ui.Menu}
+	}
 }
 
 func semDecls(seed int, n int) []ui.Access {
@@ -4659,7 +4793,23 @@ func semDecls(seed int, n int) []ui.Access {
 		if draw(&r, 2) == 0 {
 			desc = "d\(draw(&r, 9))"
 		}
-		out = out.Append(ui.Access{Role: roles[draw(&r, len(roles))], Name: "n\(i)", Disabled: draw(&r, 4) == 0, Description: desc, Checked: semMaybe(&r), Value: value, Selected: semMaybe(&r), Expanded: semMaybe(&r), Pressed: semMaybe(&r), Invalid: draw(&r, 2) == 0, Busy: draw(&r, 2) == 0, HasPopup: draw(&r, 2) == 0, Level: level})
+		let mut d = ui.Access{Role: roles[draw(&r, len(roles))], Name: "n\(i)", Disabled: draw(&r, 4) == 0, Description: desc, Checked: semMaybe(&r), Value: value, Selected: semMaybe(&r), Expanded: semMaybe(&r), Pressed: semMaybe(&r), Invalid: draw(&r, 2) == 0, Busy: draw(&r, 2) == 0, HasPopup: draw(&r, 2) == 0, Level: level, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
+		d.Mixed = draw(&r, 4) == 0
+		if draw(&r, 2) == 0 {
+			d.Current = Some{Value: "page"}
+		}
+		d.Modal = draw(&r, 4) == 0
+		d.MultiSelectable = draw(&r, 4) == 0
+		if draw(&r, 2) == 0 {
+			d.Range = Some{Value: ui.Range{Now: float64(draw(&r, 10)), Min: 0, Max: 10}}
+		}
+		if draw(&r, 2) == 0 {
+			d.Key = ui.ByInt(i)
+		}
+		for _ in 0..draw(&r, 3) {
+			d.Rels = d.Rels.Append(relDraw(&r, n))
+		}
+		out = out.Append(d)
 	}
 	out
 }
@@ -5184,6 +5334,10 @@ test UiAccessIsWhatWasDeclared(seed int, count int) {
 	assert lawAccessIsWhatWasDeclared(seed, count)
 }
 
+test UiRelationsNameHeldNodes(seed int) {
+	assert lawRelationsNameHeldNodes(seed)
+}
+
 test UiPaintIsWhatWasGiven(seed int, state int, part int) {
 	assert lawPaintIsWhatWasGiven(seed, state, part)
 }
@@ -5293,11 +5447,12 @@ var stdUIHostStatements = map[string]string{
 	"ui AmbiguousActFails":                 `AmbiguousActFails(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { let k = (seed%4+4)%4 + 2 let view = func(f *Frame[int], s int) { Column(f, Plain()) { Text(f, "at \(s)") for i in 0..k { Pressable(f, "dup", i+1) { Text(f, "x") } Pressable(f, "one\(i)", 50+i) { Text(f, "y") } Input(f, "", "dupi", func(t string) int { 100 + i }) } } } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: lastStep, After: lastTimer, Work: lastWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } let acts = []Act{TapOn{Label: "dup"}, ClickOn{At: WithRole{Role: Button, Name: "dup"}}, ClickOn{At: WithLabel{Label: "dup"}}, TypeInto{Label: "dupi", Text: "t"}, FillIn{At: WithPlaceholder{Text: "dupi"}, Text: "t"}} for act in acts { let mut count = -1 Play(&h, []Act{act}) catch { case Ambiguous as e: count = e.Count case _: return false } Settle(&h) catch { case _: return false } if count != k || StateOf(&h) != 0 { return false } } // A unique label acts, and First names the first match. Play(&h, []Act{TapOn{Label: "one1"}, SettleAll}) catch { case _: return false } if StateOf(&h) != 51 { return false } Play(&h, []Act{ClickOn{At: First{At: WithRole{Role: Button, Name: "dup"}}}, SettleAll}) catch { case _: return false } if StateOf(&h) != 1 { return false } Play(&h, []Act{FillIn{At: First{At: WithPlaceholder{Text: "dupi"}}, Text: "t"}, SettleAll}) catch { case _: return false } let firsts = Locate(&h, First{At: WithLabel{Label: "dup"}}) StateOf(&h) == 100 && len(firsts) == 1 && Find(&h, "dup") == (Some{Value: firsts[0]}) } }`,
 	"ui TypeIntoNamesTheField":             `TypeIntoNamesTheField(seed int, count int) { let m = time.NewManual(0) with context { Scheduler: m } { let n = (count%4+4)%4 + 2 let s = (seed%64 + 64) % 64 let view = func(f *Frame[int], st int) { Column(f, Plain()) { for i in 0..n { LabelledInput(f, FieldLabel{Text: typedLabel(s, i), Description: "", Invalid: false}, "", "ph\(i)", func(t string) int { i*1000 + len(t) }) } } } let a = actor.StartMachine(Machine[int, int, int]{Initial: -1, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } for i in 0..n { let label = typedLabel(s, i) let mut name = label if name == "" { name = "ph\(i)" } let mut text = "" for _ in 0..i+1 { text = text + "x" } Play(&h, []Act{TypeInto{Label: name, Text: text}, SettleAll}) catch { case _: return false } if StateOf(&h) != i*1000+i+1 { return false } if label != "" { let mut missing = false Play(&h, []Act{TypeInto{Label: "ph\(i)", Text: "y"}}) catch { case NoNode: missing = true case _: return false } if !missing || StateOf(&h) != i*1000+i+1 { return false } } } true } }`,
 	"ui AccessIsWhatWasDeclared":           `AccessIsWhatWasDeclared(seed int, count int) { let m = time.NewManual(0) with context { Scheduler: m } { let n = (count%6+6)%6 + 2 let view = func(f *Frame[int], s int) { let ds = semDecls(seed+s*7919, n) Column(f, Plain()) { for i, d in ds { if i%2 == 0 { Semantic(f, d, Some{Value: i + 1}, Plain()) { Text(f, "t\(i)") } } else { Fieldset(f, true, "fs") { Semantic(f, d, Some{Value: i + 1}, Plain()) { Text(f, "t\(i)") } } } } } } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } for s in 0..2 { let ds = semDecls(seed+StateOf(&h)*7919, n) for i, d in ds { let ids = Locate(&h, WithLabel{Label: d.Name}) if len(ids) != 1 { return false } let mut want = d if i%2 == 1 { want.Disabled = true if d.Description == "" { want.Description = "fs" } } if AccessAt(&h, ids[0]) != want { return false } // The matchers of the new states read the same record. if semHolds(&h, d.Name, ToBeSelected) != (want.Selected == (Some{Value: true})) || semHolds(&h, d.Name, ToBeExpanded) != (want.Expanded == (Some{Value: true})) || semHolds(&h, d.Name, ToBeCollapsed) != (want.Expanded == (Some{Value: false})) || semHolds(&h, d.Name, ToBeInvalid) != want.Invalid { return false } } if s == 0 { // A press on the first: the signal when it is enabled. let first = Locate(&h, WithLabel{Label: "n0"}) Tap(&h, first[0]) catch { case _: return false } Settle(&h) catch { case _: return false } if ds[0].Disabled != (StateOf(&h) == 0) { return false } } } true } }`,
+	"ui RelationsNameHeldNodes":            `RelationsNameHeldNodes(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { let mut r = seeded(seed) let n = draw(&r, 6) + 2 let mut keyed = []bool{} let mut rels = [][]Rel{} let mut gone = []bool{} let mut none = []bool{} for _ in 0..n { keyed = keyed.Append(draw(&r, 4) != 0) gone = gone.Append(draw(&r, 3) == 0) none = none.Append(false) let mut rs = []Rel{} for _ in 0..draw(&r, 4) { rs = rs.Append(drawRel(&r, n+2)) } rels = rels.Append(rs) } let view = func(f *Frame[int], s int) { relScreen(f, keyed, rels, if s == 0 { none } else { gone }) } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } for s in 0..2 { let left = if s == 0 { none } else { gone } for i in 0..n { let ids = Locate(&h, WithLabel{Label: "r\(i)"}) if len(ids) != (if left[i] { 0 } else { 1 }) { return false } if len(ids) == 1 { let got = RelationsAt(&h, ids[0]) if len(got) != len(rels[i]) { return false } for j, rel in rels[i] { let k = relKey(rel) let mut want = "none" match k { case IntKey as x: if x.Value < n && keyed[x.Value] && !left[x.Value] { want = "r\(x.Value)" } case _: } let mut named = "none" match got[j].To { case Some[Id[int]] as t: named = AccessAt(&h, t.Value).Name case None: } if got[j].Rel != rel || named != want { return false } } } } if s == 0 { let next = Locate(&h, WithLabel{Label: "next"}) if len(next) != 1 { return false } Tap(&h, next[0]) catch { case _: return false } Settle(&h) catch { case _: return false } } } true } }`,
 	"ui PaintIsWhatWasGiven":               `PaintIsWhatWasGiven(seed int, state int, part int) { let m = time.NewManual(0) with context { Scheduler: m } { let mut r = seeded(seed) let mut before = []Looks{} for _ in 0..8 { before = before.Append(drawLooks(&r)) } let k = draw(&r, 8) let changed = changeLooks(before[k], state, part) let mut after = []Looks{} for i, ls in before { after = after.Append(if i == k { changed } else { ls }) } let view = func(f *Frame[int], s int) { if s == 0 { lookedView(f, before) } else { lookedView(f, after) } } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } let shot = Screenshot(&h) for step in 0..2 { let want = if step == 0 { before } else { after } let screen = Screen(&h) if len(screen) != 1 || len(screen[0].Kids) != 9 { return false } for i, ls in want { if LooksOf(&h, screen[0].Kids[i].Node) != ls { return false } } if LooksOf(&h, screen[0].Kids[8].Node) != Steady(PressLook()) { return false } if step == 0 { let ids = Locate(&h, WithLabel{Label: "go"}) if len(ids) != 1 { return false } Tap(&h, ids[0]) catch { case _: return false } Settle(&h) catch { case _: return false } } } Screenshot(&h) != shot } }`,
 	"ui MirrorRejectsUnheldLooks":          `MirrorRejectsUnheldLooks(seed int) { let mut r = seeded(seed) let mut l = drawLook(&r) l.Border = Border{Width: 1, Color: Rgb(0x000000)} let view = func(f *Frame[int], s int) { let mut st = Plain() if s == 1 { st.Look = LookFor(f, Steady(l)) } Column(f, Plain()) { Box(f, st) { Text(f, "x") } } } let mut f = NewFrame[int]() let mut m = NewMirror[int](Root(&f)) Apply(&m, Render(&f, view, 0)) catch { case BadPatch: return false } let shown = MirrorShape(&m) let mut defines = []Op[int]{} let mut uses = []Op[int]{} for op in Render(&f, view, 1) { match op { case Define: defines = defines.Append(op) case _: uses = uses.Append(op) } } if len(defines) != 1 || len(uses) == 0 { return false } let twice = []Op[int]{defines[0], defines[0]} let mut fits = []Op[int]{defines[0]} for op in uses { fits = fits.Append(op) } if !lookRejected(&m, uses, shown) || !lookRejected(&m, twice, shown) { return false } Apply(&m, fits) catch { case BadPatch: return false } MirrorLookCount(&m) == len(defaultTable())+1 }`,
 	"ui PaintIsNotInherited":               `PaintIsNotInherited(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { let mut r = seeded(seed) let ls = drawLooks(&r) let mut kinds = []int{} for _ in 0..draw(&r, 4)+1 { kinds = kinds.Append(draw(&r, 4)) } let view = func(f *Frame[int], s int) { nested(f, ls, kinds, 0) } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } let screen = Screen(&h) len(screen) == 1 && LooksOf(&h, screen[0].Node) == ls && unpainted(&h, screen, false) } }`,
 	"ui PaintTableGrowsWithDistinctPaints": `PaintTableGrowsWithDistinctPaints(seed int, count int) { let mut r = seeded(seed) let k = draw(&r, 5) + 1 let n = (count%20+20)%20 + k let mut pool = []Looks{} for i in 0..k { let mut l = drawLook(&r) l.Border = Border{Width: Length(float64(i + 1)), Color: Rgb(0x000000)} pool = pool.Append(Steady(l)) } let mut ok = true for size in []int{n, 2 * n} { let mut picks = []int{} for i in 0..size { picks = picks.Append(if i < k { i } else { draw(&r, k) }) } let view = func(f *Frame[int], xs []int) { Column(f, Plain()) { for x in xs { let mut s = Plain() s.Look = LookFor(f, pool[x]) Box(f, s) { Text(f, "x") } } } } let mut f = NewFrame[int]() let mut m = NewMirror[int](Root(&f)) Apply(&m, Render(&f, view, picks)) catch { case BadPatch: return false } Apply(&m, Render(&f, view, picks)) catch { case BadPatch: return false } ok = ok && LookCount(&f) == len(defaultTable())+k && MirrorLookCount(&m) == LookCount(&f) } ok }`,
-	"ui WithinFindsUnder":                  `WithinFindsUnder(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { let mut r = seeded(seed) let mut board = [][]int{} for _ in 0..draw(&r, 4)+1 { let mut col = []int{} for _ in 0..draw(&r, 5) { col = col.Append(draw(&r, 8)) } board = board.Append(col) } let none Option[int] = None let decl = func(role Role, name string, level Option[int]) Access { Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: level} } let view = func(f *Frame[int], s int) { Column(f, Plain()) { for i, col in board { Semantic(f, decl(Region, "col \(i)", None), none, Plain()) { Semantic(f, decl(Heading, "col \(i)", Some{Value: 2}), none, Plain()) { Text(f, "col \(i)") } for j, c in col { if c%2 == 0 { Pressable(f, withinLabel(c/2), 100*i+j) { Text(f, "x") } } else { Box(f, Plain()) { Pressable(f, withinLabel(c/2), 100*i+j) { Text(f, "x") } } } } } } } } let a = actor.StartMachine(Machine[int, int, int]{Initial: -1, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } for i, col in board { let column = WithRole{Role: Region, Name: "col \(i)"} let found = Locate(&h, Within{In: column, At: WithRole{Role: Button, Name: ""}}) if len(found) != len(col) { return false } for j, c in col { if AccessAt(&h, found[j]).Name != withinLabel(c/2) { return false } } let nested = Locate(&h, Within{In: WithRole{Role: Region, Name: ""}, At: Within{In: column, At: WithRole{Role: Button, Name: ""}}}) if nested != found { return false } for j, c in col { let label = withinLabel(c / 2) let mut first = j for k in 0..j { if withinLabel(col[k]/2) == label && first == j { first = k } } if first == j { Play(&h, []Act{ClickOn{At: First{At: Within{In: column, At: WithLabel{Label: label}}}}, SettleAll}) catch { case _: return false } if StateOf(&h) != 100*i+j { return false } } } } // A column is not within itself, nor within another: none nests. let regions = WithRole{Role: Region, Name: ""} len(Locate(&h, Within{In: WithRole{Role: Region, Name: "col 9"}, At: WithRole{Role: Button, Name: ""}})) == 0 && len(Locate(&h, Within{In: regions, At: regions})) == 0 } }`,
+	"ui WithinFindsUnder":                  `WithinFindsUnder(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { let mut r = seeded(seed) let mut board = [][]int{} for _ in 0..draw(&r, 4)+1 { let mut col = []int{} for _ in 0..draw(&r, 5) { col = col.Append(draw(&r, 8)) } board = board.Append(col) } let none Option[int] = None let decl = func(role Role, name string, level Option[int]) Access { Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: level, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}} } let view = func(f *Frame[int], s int) { Column(f, Plain()) { for i, col in board { Semantic(f, decl(Region, "col \(i)", None), none, Plain()) { Semantic(f, decl(Heading, "col \(i)", Some{Value: 2}), none, Plain()) { Text(f, "col \(i)") } for j, c in col { if c%2 == 0 { Pressable(f, withinLabel(c/2), 100*i+j) { Text(f, "x") } } else { Box(f, Plain()) { Pressable(f, withinLabel(c/2), 100*i+j) { Text(f, "x") } } } } } } } } let a = actor.StartMachine(Machine[int, int, int]{Initial: -1, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } for i, col in board { let column = WithRole{Role: Region, Name: "col \(i)"} let found = Locate(&h, Within{In: column, At: WithRole{Role: Button, Name: ""}}) if len(found) != len(col) { return false } for j, c in col { if AccessAt(&h, found[j]).Name != withinLabel(c/2) { return false } } let nested = Locate(&h, Within{In: WithRole{Role: Region, Name: ""}, At: Within{In: column, At: WithRole{Role: Button, Name: ""}}}) if nested != found { return false } for j, c in col { let label = withinLabel(c / 2) let mut first = j for k in 0..j { if withinLabel(col[k]/2) == label && first == j { first = k } } if first == j { Play(&h, []Act{ClickOn{At: First{At: Within{In: column, At: WithLabel{Label: label}}}}, SettleAll}) catch { case _: return false } if StateOf(&h) != 100*i+j { return false } } } } // A column is not within itself, nor within another: none nests. let regions = WithRole{Role: Region, Name: ""} len(Locate(&h, Within{In: WithRole{Role: Region, Name: "col 9"}, At: WithRole{Role: Button, Name: ""}})) == 0 && len(Locate(&h, Within{In: regions, At: regions})) == 0 } }`,
 	"ui ChoiceIsAnnouncedAndReachable":     `ChoiceIsAnnouncedAndReachable(n int, from int, to int, radio bool) { let m = time.NewManual(0) with context { Scheduler: m } { let k = (n%4+4)%4 + 3 let options = choiceOptions(k) let start = (from%k + k) % k let target = (to%k + k) % k let view = func(f *Frame[int], s int) { let on = func(v string) int { choiceIndex(options, v) } if radio { Radios(f, "pick", options, options[s], on) } else { Select(f, "pick", options, options[s], on) } } let a = actor.StartMachine(Machine[int, int, int]{Initial: start, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } if !choiceShown(&h, k, start, radio) { return false } // The keys reach the choice once the focus is in it: a press on its // selected option (UC-FOCUS). Play(&h, []Act{ClickOn{At: WithLabel{Label: options[start]}}}) catch { case _: return false } if StateOf(&h) != start || !choiceKey(&h, "Home") || StateOf(&h) != 0 || !choiceShown(&h, k, 0, radio) { return false } if !choiceWalk(&h, "ArrowDown", k-1, 1) || !choiceShown(&h, k, k-1, radio) { return false } let _ = choiceKey(&h, if radio { "ArrowRight" } else { "ArrowDown" }) if StateOf(&h) != if radio { 0 } else { k - 1 } || !choiceKey(&h, "End") || StateOf(&h) != k-1 { return false } if !choiceWalk(&h, "ArrowUp", k-1, -1) || !choiceShown(&h, k, 0, radio) { return false } let _ = choiceKey(&h, if radio { "ArrowLeft" } else { "ArrowUp" }) if StateOf(&h) != if radio { k - 1 } else { 0 } { return false } let here = StateOf(&h) let ok = if target >= here { choiceWalk(&h, "ArrowDown", target-here, 1) } else { choiceWalk(&h, "ArrowUp", here-target, -1) } let _ = choiceKey(&h, "x") if !ok || StateOf(&h) != target || !choiceShown(&h, k, target, radio) { return false } let other = (target + 1) % k Play(&h, []Act{ClickOn{At: WithLabel{Label: options[other]}}}) catch { case _: return false } StateOf(&h) == other && choiceShown(&h, k, other, radio) } }`,
 	"ui ChoicesTakeKeysWhenFocused":        `ChoicesTakeKeysWhenFocused(seed int, steps int) { let mut r = seeded(seed) let m = time.NewManual(0) with context { Scheduler: m } { let oa = namedOptions("a", draw(&r, 4)+3) let ob = namedOptions("b", draw(&r, 4)+3) let ra = draw(&r, 2) == 0 let rb = draw(&r, 2) == 0 let mut a = draw(&r, len(oa)) let mut b = draw(&r, len(ob)) let view = func(f *Frame[int], s int) { twoChoices(f, s, oa, ob, ra, rb) } let start = a*10 + b let app = actor.StartMachine(Machine[int, int, int]{Initial: start, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(app, view, m, 4) catch { case BadPatch: return false } // focus: 0 none, 1 the first choice, 2 the second. let mut focus = 0 let keys = choiceKeys() let mut acts = []int{3 + draw(&r, len(keys)), 1, 3 + draw(&r, len(keys))} for _ in 0..(steps%8+8)%8+6 { acts = acts.Append(draw(&r, 3+len(keys))) } for i, act in acts { if act == 0 || act == 1 { let opts = if act == 0 { oa } else { ob } // The run's first press is on the second choice's selected option. let j = if i == 1 { b } else { draw(&r, len(opts)) } Play(&h, []Act{ClickOn{At: WithLabel{Label: opts[j]}}}) catch { case _: return false } if act == 0 { a = j focus = 1 } else { b = j focus = 2 } } else if act == 2 { Play(&h, []Act{ClickOn{At: WithLabel{Label: "elsewhere"}}}) catch { case _: return false } focus = 0 } else { let key = keys[act-3] if !choiceKey(&h, key) { return false } if focus == 1 { a = modelPick(len(oa), a, key, ra) } else if focus == 2 { b = modelPick(len(ob), b, key, rb) } } if StateOf(&h) != a*10+b { return false } } true } }`,
 	"ui TabWalksTheFocusables":             `TabWalksTheFocusables(seed int, steps int) { let mut r = seeded(seed) let m = time.NewManual(0) with context { Scheduler: m } { let mut kinds = []int{} let mut order = []string{} for i in 0..draw(&r, 6)+3 { let k = draw(&r, 7) kinds = kinds.Append(k) if k >= 1 && k <= 4 { order = order.Append("f\(i)") } } let ks = kinds let view = func(f *Frame[int], s int) { tabScreen(f, s, ks) } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } let n = len(order) let mut at = -1 for _ in 0..(steps%10+10)%10+4 { let act = draw(&r, 4) if act == 3 && n > 0 { let j = draw(&r, n) Play(&h, []Act{ClickOn{At: WithLabel{Label: order[j]}}}) catch { case _: return false } at = j } else { let back = act == 2 if !tabKey(&h, back) { return false } if n > 0 { at = if at < 0 { if back { n - 1 } else { 0 } } else if back { (at + n - 1) % n } else { (at + 1) % n } } } match FocusOf(&h) { case Some[Id[int]] as id: if at < 0 || AccessAt(&h, id.Value).Name != order[at] { return false } case None: if at >= 0 { return false } } } true } }`,

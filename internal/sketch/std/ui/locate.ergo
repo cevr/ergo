@@ -12,7 +12,7 @@ import time
 // with the ARIA states its control has. Radios and Select declare the
 // choice roles (choice.ergo): RadioGroup and Radio, ListBox and
 // ListOption.
-type Role = Button | Checkbox | Switch | TextBox | Static | Group | Region | Image | List | Status | Generic | Tab | TabList | TabPanel | Dialog | Menu | MenuItem | Tree | TreeItem | Heading | Alert | Link | Table | TableRow | TableCell | RadioGroup | Radio | ListBox | ListOption
+type Role = Button | Checkbox | Switch | TextBox | Static | Group | Region | Image | List | Status | Generic | Tab | TabList | TabPanel | Dialog | Menu | MenuItem | Tree | TreeItem | Heading | Alert | Link | Table | TableRow | TableCell | RadioGroup | Radio | ListBox | ListOption | Slider | SpinButton | SearchBox | MenuItemCheckbox | ComboBox | Grid | GridCell | ColumnHeader | RowHeader | Navigation | ListItem | Separator | Tooltip
 
 // Button is the role of a Pressable (and a Submit).
 type Button {}
@@ -104,6 +104,45 @@ type ListBox {}
 // whether it is the list's value.
 type ListOption {}
 
+// Slider is a value in a range the user moves (its Range) (UG2).
+type Slider {}
+
+// SpinButton is a value in a range the user steps (its Range) (UG2).
+type SpinButton {}
+
+// SearchBox is a text box for a search (UG2).
+type SearchBox {}
+
+// MenuItemCheckbox is an item of a menu that is checked or not (UG2).
+type MenuItemCheckbox {}
+
+// ComboBox is a text box or button with a popup of options (UG2).
+type ComboBox {}
+
+// Grid is a table whose cells the keyboard moves through (UG2).
+type Grid {}
+
+// GridCell is a cell of a Grid (UG2).
+type GridCell {}
+
+// ColumnHeader is the header cell of a column (UG2).
+type ColumnHeader {}
+
+// RowHeader is the header cell of a row (UG2).
+type RowHeader {}
+
+// Navigation is a landmark of links that navigate (UG2).
+type Navigation {}
+
+// ListItem is an item of a List (UG2).
+type ListItem {}
+
+// Separator is a line between groups of content (UG2).
+type Separator {}
+
+// Tooltip is a popup that describes the node that shows it (UG2).
+type Tooltip {}
+
 // Access is a node as a locator and an assistive technology read it: its
 // role; its accessible name (the label its primitive was given, a Text's
 // value, an Input's placeholder; empty for a container); whether it is a
@@ -113,14 +152,21 @@ type ListOption {}
 // node declares the rest (NS4, after WAI-ARIA's states): whether it is
 // selected (a tab, a tree item), expanded (a menu, a tree item; None for
 // a node that does not expand) or pressed (a toggle button), invalid,
-// busy, whether it opens a popup, and a heading's level.
-type Access { Role Role, Name string, Disabled bool, Description string, Checked Option[bool], Value Option[string], Selected Option[bool], Expanded Option[bool], Pressed Option[bool], Invalid bool, Busy bool, HasPopup bool, Level Option[int] }
+// busy, whether it opens a popup, and a heading's level. UG2 adds, after
+// WAI-ARIA: Mixed (a checkbox neither checked nor unchecked,
+// aria-checked="mixed"), Current (which current item it is, as "page" or
+// "step", aria-current), Modal (a dialog that blocks the rest), and
+// MultiSelectable (a list or grid whose user chooses several), Range (a
+// slider's or spin button's value in its range); Key, the node's own key,
+// which other nodes' relations name, NoKey for none; and Rels, its
+// relations (relate.ergo).
+type Access { Role Role, Name string, Disabled bool, Description string, Checked Option[bool], Value Option[string], Selected Option[bool], Expanded Option[bool], Pressed Option[bool], Invalid bool, Busy bool, HasPopup bool, Level Option[int], Mixed bool, Current Option[string], Modal bool, MultiSelectable bool, Range Option[Range], Key Key, Rels []Rel }
 
 // Named is the Access of a node of role named name, with no state (FK2-g1):
 // a container's declaration, written as one call; a view sets the states
 // its control has on the copy it gets.
 func Named(role Role, name string) Access {
-	Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+	Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
 }
 
 // Locator finds nodes on a screen, as Testing Library's queries do: by
@@ -288,7 +334,7 @@ func AccessOf[E](m *Mirror[E], id Id[E]) Access {
 // access is n as a locator reads it, under a disabled Fieldset when off,
 // with the description desc.
 func access[E](n Node[E], off bool, desc string) Access {
-	let mut a = Access{Role: Generic, Name: "", Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+	let mut a = Access{Role: Generic, Name: "", Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
 	match n {
 	case PressableNode[E] as x:
 		a.Role = Button
@@ -541,6 +587,11 @@ func keyText(k Key) string {
 	}
 }
 
+// RoleName is a role's WAI-ARIA name ("tab", "menuitemcheckbox"; a
+// Static is "static", a TableRow "row", a ListOption "option"), as a
+// host's accessibility tree names it (UG2).
+func RoleName(r Role) string { roleText(r) }
+
 func roleText(r Role) string {
 	match r {
 	case Button:
@@ -601,6 +652,32 @@ func roleText(r Role) string {
 		"listbox"
 	case ListOption:
 		"option"
+	case Slider:
+		"slider"
+	case SpinButton:
+		"spinbutton"
+	case SearchBox:
+		"searchbox"
+	case MenuItemCheckbox:
+		"menuitemcheckbox"
+	case ComboBox:
+		"combobox"
+	case Grid:
+		"grid"
+	case GridCell:
+		"gridcell"
+	case ColumnHeader:
+		"columnheader"
+	case RowHeader:
+		"rowheader"
+	case Navigation:
+		"navigation"
+	case ListItem:
+		"listitem"
+	case Separator:
+		"separator"
+	case Tooltip:
+		"tooltip"
 	}
 }
 
@@ -639,7 +716,7 @@ func matcherText(is Matcher) string {
 
 // semRoles is every role a Semantic may declare. (a law's helper)
 func semRoles() []Role {
-	[]Role{Button, Checkbox, Switch, TextBox, Static, Group, Region, Image, List, Status, Generic, Tab, TabList, TabPanel, Dialog, Menu, MenuItem, Tree, TreeItem, Heading, Alert, Link, Table, TableRow, TableCell, RadioGroup, Radio, ListBox, ListOption}
+	[]Role{Button, Checkbox, Switch, TextBox, Static, Group, Region, Image, List, Status, Generic, Tab, TabList, TabPanel, Dialog, Menu, MenuItem, Tree, TreeItem, Heading, Alert, Link, Table, TableRow, TableCell, RadioGroup, Radio, ListBox, ListOption, Slider, SpinButton, SearchBox, MenuItemCheckbox, ComboBox, Grid, GridCell, ColumnHeader, RowHeader, Navigation, ListItem, Separator, Tooltip}
 }
 
 // semMaybe is a drawn Option[bool]. (a law's helper)
@@ -670,7 +747,23 @@ func semDecls(seed int, n int) []Access {
 		if draw(&r, 2) == 0 {
 			desc = "d\(draw(&r, 9))"
 		}
-		out = out.Append(Access{Role: roles[draw(&r, len(roles))], Name: "n\(i)", Disabled: draw(&r, 4) == 0, Description: desc, Checked: semMaybe(&r), Value: value, Selected: semMaybe(&r), Expanded: semMaybe(&r), Pressed: semMaybe(&r), Invalid: draw(&r, 2) == 0, Busy: draw(&r, 2) == 0, HasPopup: draw(&r, 2) == 0, Level: level})
+		let mut d = Access{Role: roles[draw(&r, len(roles))], Name: "n\(i)", Disabled: draw(&r, 4) == 0, Description: desc, Checked: semMaybe(&r), Value: value, Selected: semMaybe(&r), Expanded: semMaybe(&r), Pressed: semMaybe(&r), Invalid: draw(&r, 2) == 0, Busy: draw(&r, 2) == 0, HasPopup: draw(&r, 2) == 0, Level: level, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
+		d.Mixed = draw(&r, 4) == 0
+		if draw(&r, 2) == 0 {
+			d.Current = Some{Value: "page"}
+		}
+		d.Modal = draw(&r, 4) == 0
+		d.MultiSelectable = draw(&r, 4) == 0
+		if draw(&r, 2) == 0 {
+			d.Range = Some{Value: Range{Now: float64(draw(&r, 10)), Min: 0, Max: 10}}
+		}
+		if draw(&r, 2) == 0 {
+			d.Key = ByInt(i)
+		}
+		for _ in 0..draw(&r, 3) {
+			d.Rels = d.Rels.Append(drawRel(&r, n))
+		}
+		out = out.Append(d)
 	}
 	out
 }
@@ -804,7 +897,7 @@ law WithinFindsUnder(seed int) {
 		}
 		let none Option[int] = None
 		let decl = func(role Role, name string, level Option[int]) Access {
-			Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: level}
+			Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: level, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
 		}
 		let view = func(f *Frame[int], s int) {
 			Column(f, Plain()) {
