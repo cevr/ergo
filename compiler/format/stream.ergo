@@ -39,7 +39,7 @@ func Stream(src string, limit int) string fails SyntaxFailure | OutputLimit {
 	}
 	let mut s = stTokens(p, src)
 	s.stStructure()
-	s.stAnalyze(0, len(s.kind), 1, true)
+	s.stAnalyze(0, s.n, 1, true)
 	s.stFormat()
 	let r = try s.l.Finish(limit)
 	r.Text
@@ -116,8 +116,11 @@ let stMaxFrames = 128
 // columns (kind, span, line breaks before, flags, the matching bracket,
 // the binary precedence), the scratch of the analysis, and the layout.
 type streamer {
-	src   string,
+	src string,
+	// n counts the items; the columns have room for every one.
+	n     int,
 	kind  []uint8,
+	ch    []uint8,
 	s     []int,
 	e     []int,
 	nl    []int,
@@ -159,13 +162,15 @@ func stTokens(p syntax.Parsed, src string) streamer {
 	let room = n + nc + 8
 	let mut s = streamer{
 		src:      src,
-		kind:     slices.WithCapacity[uint8](room),
-		s:        slices.WithCapacity[int](room),
-		e:        slices.WithCapacity[int](room),
-		nl:       slices.WithCapacity[int](room),
-		flags:    slices.WithCapacity[int](room),
-		mate:     slices.WithCapacity[int](room),
-		prec:     slices.WithCapacity[int](room),
+		n:        0,
+		kind:     slices.Repeat([]uint8{0}, room),
+		ch:       slices.Repeat([]uint8{0}, room),
+		s:        slices.Repeat([]int{0}, room),
+		e:        slices.Repeat([]int{0}, room),
+		nl:       slices.Repeat([]int{0}, room),
+		flags:    slices.Repeat([]int{0}, room),
+		mate:     slices.Repeat([]int{-1}, room),
+		prec:     slices.Repeat([]int{0}, room),
 		stack:    slices.WithCapacity[int](64),
 		ops:      slices.WithCapacity[int](64),
 		atoms:    slices.WithCapacity[int](64),
@@ -250,13 +255,15 @@ func stPush(s *streamer, k uint8, a int, b int, last int) {
 			nl += 1
 		}
 	}
-	s.kind = s.kind.Append(k)
-	s.s = s.s.Append(a)
-	s.e = s.e.Append(b)
-	s.nl = s.nl.Append(if nl > 2 { 2 } else { nl })
-	s.flags = s.flags.Append(0)
-	s.mate = s.mate.Append(-1)
-	s.prec = s.prec.Append(0)
+	let i = s.n
+	s.kind[i] = k
+	if k >= syntax.Add && k <= syntax.Colon && b-a == 1 {
+		s.ch[i] = s.src[a]
+	}
+	s.s[i] = a
+	s.e[i] = b
+	s.nl[i] = if nl > 2 { 2 } else { nl }
+	s.n = i + 1
 }
 
 // ---------------------------------------------------------------- token classes
@@ -274,7 +281,7 @@ func stIsIdent(s *streamer, i int) bool { s.kind[i] == syntax.Ident || s.kind[i]
 func stIsLit(s *streamer, i int) bool { s.kind[i] >= syntax.Int && s.kind[i] <= syntax.Path }
 
 // stIs reports the one-byte operator c.
-func stIs(s *streamer, i int, c byte) bool { s.stIsOp(i) && s.e[i]-s.s[i] == 1 && s.src[s.s[i]] == c }
+func stIs(s *streamer, i int, c byte) bool { s.ch[i] == c }
 
 func stIsKind(s *streamer, i int, k uint8) bool { s.kind[i] == k }
 
@@ -345,7 +352,7 @@ func stTop(s *streamer) int { s.stack[len(s.stack)-1] }
 // stStructure matches the brackets and classifies the openers and the
 // unary and binary operators.
 func stStructure(s *streamer) {
-	let n = len(s.kind)
+	let n = s.n
 	let mut d = 0
 	s.stLevel(0)
 	// The last token that is not a comment.
@@ -667,7 +674,7 @@ func stClimb(s *streamer, ob int, ab int, a int, b int, d int) {
 		if x+1 == b || s.stOpPrec(ob, x+1) <= pr {
 			let r = s.atoms[ab+x+1]
 			let o = s.ops[ob+x]
-			if r < len(s.kind) && s.stHasFlag(r, sfUnary) && s.e[o]-s.s[o] == 1 && s.e[r]-s.s[r] == 1 {
+			if r < s.n && s.stHasFlag(r, sfUnary) && s.e[o]-s.s[o] == 1 && s.e[r]-s.s[r] == 1 {
 				let oc = s.src[s.s[o]]
 				let uc = s.src[s.s[r]]
 				if oc == '/' && uc == '*' || oc == '&' && uc == '&' || oc == '&' && uc == '^' {
@@ -742,7 +749,7 @@ func stWrite(s *streamer, a int, b int) {
 }
 
 // stEndsLine reports whether the item after i is on a later line.
-func stEndsLine(s *streamer, i int) bool { i+1 >= len(s.kind) || s.nl[i+1] > 0 }
+func stEndsLine(s *streamer, i int) bool { i+1 >= s.n || s.nl[i+1] > 0 }
 
 // stContinues reports whether the line starting at token i continues the
 // expression of the line that ended with token p.
@@ -751,7 +758,7 @@ func stContinues(s *streamer, p int, i int) bool {
 }
 
 func stNextIsCase(s *streamer, i int) bool {
-	for j in i+1..len(s.kind) {
+	for j in i+1..s.n {
 		if s.stIsCmt(j) {
 			continue
 		}
@@ -794,12 +801,12 @@ func stInRow(s *streamer, i int) bool {
 }
 
 func stUpper(s *streamer, k int) bool {
-	k >= 0 && k < len(s.kind) && s.stIsIdent(k) && s.src[s.s[k]] >= 'A' && s.src[s.s[k]] <= 'Z'
+	k >= 0 && k < s.n && s.stIsIdent(k) && s.src[s.s[k]] >= 'A' && s.src[s.s[k]] <= 'Z'
 }
 
 // stFormat writes the stream into the layout.
 func stFormat(s *streamer) {
-	let n = len(s.kind)
+	let n = s.n
 	let mut sd = 0
 	// The last printed token that is not a comment, and the last item.
 	let mut prev = -1
@@ -1025,7 +1032,7 @@ func stSpace(s *streamer, p int, t int, sd int) bool {
 				return true
 			}
 			let m = s.mate[t]
-			if m == t+2 && s.stIsLit(t+1) && m+1 < len(s.kind) && s.nl[m+1] == 0 && (s.stIsIdent(m+1) || s.stIs(m+1, '*')) {
+			if m == t+2 && s.stIsLit(t+1) && m+1 < s.n && s.nl[m+1] == 0 && (s.stIsIdent(m+1) || s.stIs(m+1, '*')) {
 				return true
 			}
 			if s.stOperandEnd(p) && m != t+1 {
