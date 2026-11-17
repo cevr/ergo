@@ -11,6 +11,7 @@ tn1-lint lint --rule narration narration.tn1 src/*.ts > tn1.json
 tn1-lint lint --rule NAME WEIGHTS FILE...   # findings, oxlint JSON; always exit 0 (advisory)
 tn1-lint record FILE                        # the feature record of FILE (a FILE of - is the standard input)
 tn1-lint chunks FILE                        # each top-level statement: FROM TO (bytes)
+tn1-lint serve                              # one JSON reply line per JSON request line, until EOF
 tn1-lint --help                             # the usage; exit 0
 ```
 
@@ -25,7 +26,8 @@ Cases (the `ts` leg: Bun and the pinned `typescript` package of `tools/ts`):
 - `lint` is the oxlint report of the narration control on the vectors' TypeScript source.
 - `usage` is a bad command line; `help` is `--help`.
 - `stdin` is `lint` of the standard input (`-`), the way the effect-oxlint rule `tn1Lint` passes a buffer.
+- `serve` is the long-lived mode: each line of its input is a request `{"rule","weights","path","text"}` and each line of its output the reply `{"diagnostics","error"}`, the diagnostics `lint` reports for that text. A weights file is parsed once per run; a request that fails (no such weights file, a line that is not a request) is an `error` reply and the next line is read. The package's JS wrapper keeps one `serve` per lint run (below).
 
-The npm package `@cevr/tn1-lint` (`tools/npm/tn1-lint`) ships this program's static binary per platform: `sh scripts/npm.sh tn1-lint` builds and dry-packs it, `sh scripts/npm-check.sh tn1-lint DIR` installs the packs with bun and npm and runs `tn1-lint --help`. The `workload` file gives `scripts/opcount` the record of N bytes of TypeScript against the hand Go control in `cmd/ergo/testdata/tn1lint/control`; `cmd/ergo/testdata/tn1lint/floor` is its floor.
+The npm package `@cevr/tn1-lint` (`tools/npm/tn1-lint`) ships this program's static binary per platform, and `lint.js`, a synchronous `lintSync` for an oxlint rule that holds one `serve` process per lint run through a worker thread and `Atomics.wait` (`node scripts/npm-sidecar-check.js BINARY N` counts its process starts against one `lint` per file, compares the two paths' findings, and checks that no `serve` outlives the run): `sh scripts/npm.sh tn1-lint` builds and dry-packs it, `sh scripts/npm-check.sh tn1-lint DIR` installs the packs with bun and npm and runs `tn1-lint --help`. The `workload` file gives `scripts/opcount` the record of N bytes of TypeScript against the hand Go control in `cmd/ergo/testdata/tn1lint/control`; `cmd/ergo/testdata/tn1lint/floor` is its floor.
 
 What it shows: closed unions for the token kinds and the commands, exhaustive `match` over them, typed failures (`os.Exit`, `tn1.Malformed`) and a record (`Report`) whose field keys are oxlint's names.
