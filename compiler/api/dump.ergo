@@ -12,6 +12,10 @@ func Parse(src string) string { dump.Parse(src) }
 // (internal/sketch/syntax/decode.go).
 func Columns(src string) []uint32 { dump.Columns(src) }
 
+// ColumnsAll is dump.ColumnsAll: Columns of each source, in order, each
+// file on a task of its own, at most workers at once.
+func ColumnsAll(srcs []string, workers int) [][]uint32 { dump.ColumnsAll(srcs, workers) }
+
 // Tokens is dump.Tokens: kind, start and end per token of the scan of src.
 func Tokens(src string) []uint32 { dump.Tokens(src) }
 

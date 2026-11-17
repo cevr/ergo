@@ -955,8 +955,14 @@ func (s *stdImporter) load(path string) (*Package, error) {
 	}
 	s.count(int64(len(sources)), 1)
 	var files []*syntax.File
-	for _, name := range sortedKeys(sources) {
-		f, err := syntax.Parse(sources[name])
+	names := sortedKeys(sources)
+	texts := make([]string, len(names))
+	for i, name := range names {
+		texts[i] = sources[name]
+	}
+	parsed, errs := syntax.ParseFiles(texts)
+	for i, name := range names {
+		f, err := parsed[i], errs[i]
 		if err != nil {
 			return nil, fmt.Errorf("std package %q does not parse: %v", path, err)
 		}

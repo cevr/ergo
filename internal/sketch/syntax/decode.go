@@ -3,6 +3,7 @@ package syntax
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -46,6 +47,11 @@ func ParseRows(src string) (*File, error) {
 	if err != nil {
 		return nil, err
 	}
+	return decodeColumns(src, cols)
+}
+
+// decodeColumns is the file of src's columns, or the parse's failure.
+func decodeColumns(src string, cols []uint32) (*File, error) {
 	if len(cols) < colHeader || cols[0] != columnsVersion {
 		return nil, fmt.Errorf("syntax: the rows of compiler/syntax have another layout (version %d)", cols[0])
 	}
@@ -57,6 +63,29 @@ func ParseRows(src string) (*File, error) {
 		return nil, failureOf(text)
 	}
 	return Decode(src, cols), nil
+}
+
+// ParseFiles is Parse of each source, in the order of srcs (a package's
+// files): compiler/syntax parses each file on a task of its own, at most
+// GOMAXPROCS at once (syntax.ParseAll, capstone S2e), and the rows are
+// decoded here in file order. files[i] and errs[i] are Parse(srcs[i])'s.
+func ParseFiles(srcs []string) (files []*File, errs []error) {
+	files = make([]*File, len(srcs))
+	errs = make([]error, len(srcs))
+	if len(srcs) == 0 {
+		return files, errs
+	}
+	all, err := linked.ColumnsAll(context.Background(), srcs, runtime.GOMAXPROCS(0))
+	if err != nil {
+		for i := range errs {
+			errs[i] = err
+		}
+		return files, errs
+	}
+	for i, cols := range all {
+		files[i], errs[i] = decodeColumns(srcs[i], cols)
+	}
+	return files, errs
 }
 
 // columnsVersion is the layout of syntax.Columns this decoder reads.

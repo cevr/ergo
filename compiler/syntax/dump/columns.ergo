@@ -1,11 +1,19 @@
 import compiler/syntax
 import slices
 import strconv
+import tasks
 
 // Columns is the parse of src as syntax.Columns packs it: the token
 // columns, the rows, the extra pool, the comments and their groups, for
 // the Go decoder (internal/sketch/syntax/decode.go).
 func Columns(src string) []uint32 { syntax.Columns(syntax.Parse(src)) }
+
+// ColumnsAll is Columns of each source, in the order of srcs: each file
+// parses and packs on a task of its own, at most workers at once, as
+// syntax.ParseAll parses (a package's files, for the Go loader).
+func ColumnsAll(srcs []string, workers int) [][]uint32 {
+	tasks.Transform(srcs, workers, func(src string) []uint32 { syntax.Columns(syntax.Parse(src)) })
+}
 
 // Tokens is the scan of src alone, for a host that reads tokens and no
 // tree (syntax.TokenText, WhereText): kind, start and end per token. A

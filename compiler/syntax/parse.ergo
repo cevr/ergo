@@ -1,4 +1,6 @@
+import slices
 import strings
+import tasks
 
 // noNode is what a parse function returns when the parse failed before it
 // built its node: no row has this index, and every reader of a row treats
@@ -170,6 +172,50 @@ func Parse(src string) Parsed {
 		gFirst:  p.gFirst,
 		gLast:   p.gLast,
 	}
+}
+
+// ParseAll is the parse of each source, in the order of srcs: each file
+// parses on a task of its own, at most workers at once (capstone S2e,
+// CAP-par). A parse shares nothing with another: it reads its own source
+// and builds its own columns and tree, and its task hands them back whole,
+// so the join is the results in file order and no parse writes a table of
+// another (there is no interner: names stay offsets into the source). A
+// workers below 1 is a defect, as Transform's limit.
+func ParseAll(srcs []string, workers int) []Parsed {
+	tasks.Transform(srcs, workers, func(src string) Parsed { Parse(src) })
+}
+
+// ParseAllIsEachParse: the parses on tasks are each file's own parse, in
+// file order, at one task and at several: the rows, the extra words, the
+// tokens, the comments and the failure are the same bytes.
+law ParseAllIsEachParse(picks []int) {
+	let srcs = sourcesOf(picks)
+	let one = ParseAll(srcs, 1)
+	let many = ParseAll(srcs, 8)
+	let mut ok = len(one) == len(srcs) && len(many) == len(srcs)
+	for i in 0..len(srcs) {
+		let own = Columns(Parse(srcs[i]))
+		ok = ok && slices.Equal(Columns(one[i]), own) && slices.Equal(Columns(many[i]), own) && one[i].Message == many[i].Message
+	}
+	ok
+}
+
+// sourcesOf is a few sources from picks: programs of its rotations, and a
+// source that fails, so a failed parse sits among parses that succeed.
+func sourcesOf(picks []int) []string {
+	let mut srcs = []string{}
+	let n = len(picks)
+	for k in 0..n%6+2 {
+		let mut rot = []int{}
+		for j in 0..n {
+			rot = rot.Append(picks[(j+k)%n])
+		}
+		srcs = srcs.Append(program(rot))
+		if k == 1 {
+			srcs = srcs.Append("func f( {\n")
+		}
+	}
+	srcs
 }
 
 // ---------------------------------------------------------------- tokens
