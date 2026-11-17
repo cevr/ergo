@@ -1,0 +1,37 @@
+{
+  "about": "module fluid's mutants; each is judged by the module's tests and laws (scripts/examples -modules fluid), not by a compiler test. The law that kills each is named in its rule.",
+  "mutants": [
+    {
+      "name": "fl0-slug-collides", "origin": "wf10/fl0 FL0",
+      "file": "modules/fluid/page.ergo",
+      "from": "\tcase CheckboxGroup:\n\t\t\"checkbox-group\"\n",
+      "to": "\tcase CheckboxGroup:\n\t\t\"checkbox\"\n",
+      "rule": "Two components share a slug, so one has no page of its own: SlugParses (ParseComponent finds checkbox for checkbox-group's slug).",
+      "anchor": {"tests": ["examples:modules/fluid"]}, "killers": ["examples:modules/fluid"]
+    },
+    {
+      "name": "fl0-component-listed-twice", "origin": "wf10/fl0 FL0",
+      "file": "modules/fluid/page.ergo",
+      "from": "Button, Calendar, Card,\n",
+      "to": "Button, Calendar, Button,\n",
+      "rule": "The list names a component twice and drops another, so a page per entry renders one component twice and misses one: ListedOnce (and SlugParses for the dropped Card).",
+      "anchor": {"tests": ["examples:modules/fluid"]}, "killers": ["examples:modules/fluid"]
+    },
+    {
+      "name": "fl0-component-duplicated", "origin": "wf10/fl0 FL0",
+      "file": "modules/fluid/page.ergo",
+      "from": "ThinkingSteps, Tooltip}\n",
+      "to": "ThinkingSteps, Tooltip, Badge}\n",
+      "rule": "The list names a component twice and drops none: ListedOnce alone (SlugParses still finds every component).",
+      "anchor": {"tests": ["examples:modules/fluid"]}, "killers": ["examples:modules/fluid"]
+    },
+    {
+      "name": "fl0-foundation-slug-collides", "origin": "wf10/fl0 FL0",
+      "file": "modules/fluid/page.ergo",
+      "from": "\tcase FluidHover:\n\t\t\"fluid-hover\"\n",
+      "to": "\tcase FluidHover:\n\t\t\"motion\"\n",
+      "rule": "Two foundation pages share a slug: FoundationSlugParses.",
+      "anchor": {"tests": ["examples:modules/fluid"]}, "killers": ["examples:modules/fluid"]
+    }
+  ]
+}
