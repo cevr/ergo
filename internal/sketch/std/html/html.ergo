@@ -21,7 +21,7 @@ import strings
 type Node { text string, late Option[Writer] }
 
 // Writer writes a node's markup at the end of a buffer.
-type Writer { write func(b strings.Builder) strings.Builder }
+type Writer { write func(b *strings.Builder) }
 
 // Attr is an attribute of an element: its name, its value (escaped when
 // it is written), or a name alone (a boolean attribute such as hidden).
@@ -43,7 +43,7 @@ func Trust(s string) Trusted { Trusted{s: s} }
 func fixed(m string) Node { Node{text: m, late: None} }
 
 // later is the node that w writes.
-func later(w own func(b strings.Builder) strings.Builder) Node { Node{text: "", late: Some[Writer]{Value: Writer{write: w}}} }
+func later(w own func(b *strings.Builder)) Node { Node{text: "", late: Some[Writer]{Value: Writer{write: w}}} }
 
 // Text is s as an element's text, escaped (TextIsInert).
 func Text(s string) Node { fixed(Escape(s)) }
@@ -57,12 +57,10 @@ func Raw(t Trusted) Node { fixed(t.s) }
 // Each is the node f makes of each item, in order. f runs when the node
 // is written, so no list of nodes is built.
 func Each[T](items []T, f own func(item T) Node) Node {
-	later(func(b strings.Builder) strings.Builder {
-		let mut out = b
+	later(func(b *strings.Builder) {
 		for x in items {
-			writeNode(&out, f(x))
+			writeNode(b, f(x))
 		}
-		out
 	})
 }
 
@@ -79,11 +77,9 @@ func Doc(root Node) Node {
 	if isFixed(root) {
 		return fixed("<!DOCTYPE html>" + root.text)
 	}
-	later(func(b strings.Builder) strings.Builder {
-		let mut out = b
-		out.WriteString("<!DOCTYPE html>")
-		writeNode(&out, root)
-		out
+	later(func(b *strings.Builder) {
+		b.WriteString("<!DOCTYPE html>")
+		writeNode(b, root)
 	})
 }
 
@@ -120,7 +116,7 @@ func isFixed(n Node) bool {
 func writeNode(b *strings.Builder, n Node) {
 	match n.late {
 	case Some[Writer] as w:
-		*b = w.Value.write(*b)
+		w.Value.write(b)
 	case None:
 		b.WriteString(n.text)
 	}
@@ -189,11 +185,7 @@ func element(tag string, kids []Child) Node {
 		writeElement(&b, tag, kids)
 		return fixed(b.String())
 	}
-	later(func(b strings.Builder) strings.Builder {
-		let mut out = b
-		writeElement(&out, tag, kids)
-		out
-	})
+	later(func(b *strings.Builder) { writeElement(b, tag, kids) })
 }
 
 // void is the void element tag: a start tag closed by />, with no
