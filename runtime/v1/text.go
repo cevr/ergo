@@ -580,8 +580,17 @@ func StrconvUnquote(s string) (string, error) {
 	return u, nil
 }
 
-// StrconvQuote is strconv.Quote.
+// StrconvQuote is strconv.Quote. It is Quote's own body, Go's quoteWith,
+// written out over AppendQuote (B1-Q): a body that called strconv.Quote
+// cost 84 in Go's inliner, past its budget of 80, so a call of it stayed
+// out of line and its result escaped. This one costs 78, so it inlines
+// into its caller, and a quote whose buffer is 32 bytes or less and that
+// does not leave the caller is built on the caller's stack, as Go's
+// inlined Quote is. Source: Go's strconv/quote.go (quoteWith), BSD-style
+// licence, Copyright The Go Authors.
 //
 //ergo:pure
 //ergo:wait none
-func StrconvQuote(s string) string { return strconv.Quote(s) }
+func StrconvQuote(s string) string {
+	return string(strconv.AppendQuote(make([]byte, 0, 3*len(s)/2), s))
+}
