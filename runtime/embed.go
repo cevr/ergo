@@ -32,7 +32,7 @@ import (
 //go:embed v1/time.go v1/timetext.go v1/timeappend.go v1/tzdata.go v1/tzhost.go v1/wire.go v1/json.go v1/json_append.go v1/json_bytes.go v1/toml.go
 //go:embed v1/sync.go v1/set.go v1/script.go v1/shrink.go
 //go:embed v1/path.go v1/numbers.go v1/goerror.go v1/goarg.go v1/gocall.go v1/gocallback.go
-//go:embed v1/digest/digest.go v1/csv/csv.go v1/rand/rand.go v1/gofmt/gofmt.go v1/hostwalk/hostwalk.go
+//go:embed v1/digest/digest.go v1/digest/keyed.go v1/csv/csv.go v1/rand/rand.go v1/gofmt/gofmt.go v1/hostwalk/hostwalk.go
 //go:embed v1/exec/exec.go v1/exec/exec_confine.go v1/exec/exec_exit_kqueue.go v1/exec/exec_exit_linux.go v1/exec/exec_start.go v1/exec/exec_sandbox_linux.go v1/exec/exec_sandbox_other.go
 //go:embed explore/explore.go
 //go:embed testgen/stream.go
@@ -91,7 +91,7 @@ var packages = map[string]pkg{
 		files: []string{"csv.go"},
 	},
 	"runtime/v1/digest": {
-		files: []string{"digest.go"},
+		files: []string{"digest.go", "keyed.go"},
 	},
 	"runtime/v1/gofmt": {
 		files:   []string{"gofmt.go"},

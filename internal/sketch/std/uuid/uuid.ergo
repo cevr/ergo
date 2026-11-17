@@ -1,0 +1,254 @@
+// Package uuid is RFC 9562 UUIDs (docs/spec/stdlib.md, keyed digests;
+// std-spike D3): V4, 122 random bits, and V7, a Unix millisecond time,
+// a counter and random bits, so the V7 ids of one Generator sort by when
+// they were made, as a database index wants. The random bits come from rand.Secure and the time from
+// time.Clock, both in the caller's row, so a test binds
+// rand.NewSeededSecure and time.NewManual and gets the same ids every run.
+// Go's std has no uuid (github.com/google/uuid is the common package);
+// Effect has none either.
+
+import atomic
+import rand
+import strings
+import time
+
+// UUID is 128 bits, hi the first eight bytes and lo the last, big-endian,
+// so == is the RFC's equality and Compare its byte order.
+type UUID { hi uint64, lo uint64 }
+
+// Malformed is the failure of Parse: At is the first byte that breaks the
+// form.
+type Malformed { Text string, At int }
+
+// Nil is the UUID of 128 zero bits.
+func Nil() UUID { UUID{hi: 0, lo: 0} }
+
+// word is the first eight bytes of s, big-endian.
+func word(s string) uint64 {
+	let mut w = uint64(0)
+	for i in 0..8 {
+		w = w<<8 | uint64(s[i])
+	}
+	w
+}
+
+// stamp is u's version in its 4 version bits and RFC 9562's variant (10)
+// in its 2 variant bits.
+func stamp(hi uint64, lo uint64, version uint64) UUID {
+	UUID{hi: hi&0xffffffffffff0fff | version<<12, lo: lo&0x3fffffffffffffff | 0x8000000000000000}
+}
+
+// V4 is a version 4 UUID: 122 random bits from rand.Secure.
+func V4() UUID needs rand.Secure {
+	let b = rand.Secure.Bytes(16)
+	stamp(word(b), word(b[8:16]), 4)
+}
+
+// Generator makes V7 ids in order: each id it makes sorts after the one
+// before, by Compare and by Text, within one millisecond too (RFC 9562
+// §6.2, method 1). It holds the last millisecond and counter it used, in
+// one atomic cell, so tasks that share a Generator share its order. Make
+// one per process and pass it where ids are made; ids of two Generators,
+// or of two processes, are ordered only across milliseconds.
+type Generator { last atomic.Int64 }
+
+// NewGenerator is a Generator that has made no id.
+func NewGenerator() Generator { Generator{last: atomic.NewInt64(0)} }
+
+// counterTop is the largest value of the 12-bit counter in rand_a.
+func counterTop() int64 { 0xfff }
+
+// V7 is a version 7 UUID: the Unix time in milliseconds from time.Clock in
+// the first 48 bits, a 12-bit counter, then 62 random bits from
+// rand.Secure. The counter starts at a random value under 2048 in each new
+// millisecond and counts up within it; when it passes 4095, or the clock
+// reads an earlier millisecond than g's last, the id takes g's last
+// millisecond (plus one when the counter is spent), so g's ids never go
+// back. A time before 1970 counts as 0.
+func V7(g Generator) UUID needs rand.Secure | time.Clock {
+	let t = time.Clock.Now()
+	let ms = time.UnixSeconds(t)*1000 + time.Nanosecond(t)/1000000
+	let now = if ms < 0 { int64(0) } else { ms & 0xffffffffffff }
+	let b = rand.Secure.Bytes(10)
+	let fresh = int64(b[0]&0x7)<<8 | int64(b[1])
+	let mut next = int64(0)
+	let mut done = false
+	for !done {
+		let prev = g.last.Load()
+		let pms = prev >> 12
+		let pc = prev & counterTop()
+		next = if now > pms {
+			now<<12 | fresh
+		} else if pc < counterTop() {
+			pms<<12 | (pc + 1)
+		} else {
+			(pms+1)<<12 | fresh
+		}
+		done = g.last.CompareAndSwap(prev, next)
+	}
+	stamp(uint64(next>>12)<<16|uint64(next&counterTop()), word(b[2:10]), 7)
+}
+
+// UnixMilli is the Unix time in milliseconds in u's first 48 bits: the
+// time a V7 was made, at most 2⁴⁸-1. For another version it is those bits.
+func UnixMilli(u UUID) int64 { int64(u.hi >> 16) }
+
+// Version is u's version: 4 for V4, 7 for V7, 0 for Nil.
+func Version(u UUID) int { int(u.hi >> 12 & 0xf) }
+
+// Compare is -1, 0 or 1 as a is before, equal to or after b in byte order.
+func Compare(a UUID, b UUID) int {
+	if a.hi != b.hi {
+		return if a.hi < b.hi { -1 } else { 1 }
+	}
+	if a.lo != b.lo {
+		return if a.lo < b.lo { -1 } else { 1 }
+	}
+	0
+}
+
+// hexOf is the 2·n lower-case hex digits of the low n bytes of w.
+func hexOf(w uint64, n int) string {
+	let digits = "0123456789abcdef"
+	let mut out = ""
+	let mut shift = 8*n - 4
+	for shift >= 0 {
+		let d = int(w >> uint(shift) & 0xf)
+		out = out + digits[d:d+1]
+		shift = shift - 4
+	}
+	out
+}
+
+// Text is u as RFC 9562 writes it: 32 lower-case hex digits in groups of
+// 8, 4, 4, 4 and 12 with hyphens between.
+func Text(u UUID) string {
+	hexOf(u.hi>>32, 4) + "-" + hexOf(u.hi>>16, 2) + "-" + hexOf(u.hi, 2) + "-" + hexOf(u.lo>>48, 2) + "-" + hexOf(u.lo, 6)
+}
+
+// nibble is the value of the hex digit c, or 16 for another byte.
+func nibble(c byte) uint64 {
+	if c >= '0' && c <= '9' {
+		uint64(c - '0')
+	} else if c >= 'a' && c <= 'f' {
+		uint64(c-'a') + 10
+	} else if c >= 'A' && c <= 'F' {
+		uint64(c-'A') + 10
+	} else {
+		16
+	}
+}
+
+// Parse is the UUID s writes in Text's form: 36 bytes, hex digits of
+// either case, hyphens at 8, 13, 18 and 23. Braces, a urn:uuid: prefix and
+// the 32-digit form without hyphens are Malformed.
+func Parse(s string) UUID fails Malformed {
+	if len(s) != 36 {
+		return Malformed{Text: s, At: if len(s) < 36 { len(s) } else { 36 }}
+	}
+	let mut hi = uint64(0)
+	let mut lo = uint64(0)
+	let mut n = 0
+	for i in 0..36 {
+		if i == 8 || i == 13 || i == 18 || i == 23 {
+			if s[i] != '-' {
+				return Malformed{Text: s, At: i}
+			}
+		} else {
+			let v = nibble(s[i])
+			if v == 16 {
+				return Malformed{Text: s, At: i}
+			}
+			if n < 16 {
+				hi = hi<<4 | v
+			} else {
+				lo = lo<<4 | v
+			}
+			n = n + 1
+		}
+	}
+	UUID{hi: hi, lo: lo}
+}
+
+// TextRoundTrips: Parse reads back Text's text, in lower or upper case.
+law TextRoundTrips(seed uint64) {
+	let u = with context { rand.Secure: rand.NewSeededSecure(seed) } { V4() }
+	let lower = Parse(Text(u)) catch {
+	case Malformed:
+		return false
+	}
+	let upper = Parse(strings.ToUpper(Text(u))) catch {
+	case Malformed:
+		return false
+	}
+	len(Text(u)) == 36 && lower == u && upper == u
+}
+
+// V4HasVersionAndVariant: a V4 has version 4 and RFC 9562's variant (its
+// 17th digit is 8, 9, a or b), one seed gives one id, and two draws differ.
+law V4HasVersionAndVariant(seed uint64) {
+	let p = rand.NewSeededSecure(seed)
+	let u = with context { rand.Secure: p } { V4() }
+	let v = with context { rand.Secure: p } { V4() }
+	let again = with context { rand.Secure: rand.NewSeededSecure(seed) } { V4() }
+	Version(u) == 4 && strings.Contains("89ab", Text(u)[19:20]) && u == again && u != v
+}
+
+// V7IsOrderedByTime: a V7 made at an earlier millisecond sorts before one
+// made at a later millisecond, by Compare and by Text, and holds its time;
+// the counter of a new millisecond starts under 2048 (its first digit is
+// under 8).
+law V7IsOrderedByTime(seed uint64, a int64, b int64) {
+	let x = (a%100000000000 + 100000000000) % 100000000000
+	let y = x + 1 + (b%1000000+1000000)%1000000
+	let m = time.NewManual(x / 1000)
+	time.Advance(m, duration((x%1000)*1000000))
+	let p = rand.NewSeededSecure(seed)
+	let g = NewGenerator()
+	let first = with context { rand.Secure: p, time.Clock: m } { g.V7() }
+	time.Advance(m, duration((y-x)*1000000))
+	let second = with context { rand.Secure: p, time.Clock: m } { g.V7() }
+	let fresh = strings.Contains("01234567", Text(first)[15:16]) && strings.Contains("01234567", Text(second)[15:16])
+	fresh && Version(first) == 7 && Version(second) == 7 && UnixMilli(first) == x && UnixMilli(second) == y && Compare(first, second) < 0 && Text(first) < Text(second)
+}
+
+// V7IsOrderedInProcess: every id one Generator makes sorts after the one
+// before it, by Compare, when the clock stays in one millisecond (past
+// the 4,096 ids its counter holds, too) or moves on.
+law V7IsOrderedInProcess(seed uint64, n int, steps []bool) {
+	let k = 1 + (n%3000+3000)%3000
+	let m = time.NewManual(1700000000)
+	let p = rand.NewSeededSecure(seed)
+	let g = NewGenerator()
+	let mut prev = with context { rand.Secure: p, time.Clock: m } { g.V7() }
+	let mut ok = Version(prev) == 7
+	let moving = len(steps) > 0 && steps[0]
+	for i in 0..k {
+		if moving && steps[i%len(steps)] {
+			time.Advance(m, 1ms)
+		}
+		let u = with context { rand.Secure: p, time.Clock: m } { g.V7() }
+		ok = ok && Version(u) == 7 && Compare(prev, u) < 0
+		prev = u
+	}
+	ok
+}
+
+// ParseRefusesOtherForms: Parse refuses Text's form with a byte changed
+// into one the form has no place for, at that byte.
+law ParseRefusesOtherForms(seed uint64, k int) {
+	let u = with context { rand.Secure: rand.NewSeededSecure(seed) } { V4() }
+	let t = Text(u)
+	let i = (k%36 + 36) % 36
+	let bad = t[0:i] + (if i == 8 || i == 13 || i == 18 || i == 23 { "0" } else { "g" }) + t[i+1:36]
+	failsAt(bad) == i
+}
+
+// failsAt is where Parse refuses s, or -1 when it reads it.
+func failsAt(s string) int {
+	let _ = Parse(s) catch {
+	case Malformed as e:
+		return e.At
+	}
+	-1
+}

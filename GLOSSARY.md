@@ -178,7 +178,13 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Task tree**: The parent and child relation of tasks. Stopping a task stops every task below it.
 
-**Set**: `tasks.Set(policy)`, a resource that owns an unbounded number of tasks and applies a fail-fast, log or restart policy (G4).
+**Set**: `tasks.Set(policy)`, a resource that owns an unbounded number of tasks and applies a fail-fast, log or restart policy (G4). Not std `set.Set`, a key set.
+
+**Key set**: A value of std `set.Set[K comparable]`: keys with no order, each once, over a Map. It is a value, as a Map is: `set.Add` and `set.Remove` return a new set, and a copy never sees a later change. Effect's `HashSet`; Go's `map[K]struct{}`. See [stdlib](docs/spec/stdlib.md#slices-maps-and-cmp) 13.
+
+**Decimal**: A value of std `decimal.Decimal`: an exact decimal number, a sign, a 128-bit coefficient and a scale (the digits after the point), so 12.50 is 1250 at scale 2. Arithmetic is exact or fails with `Overflow`; only `Round` and `Div` drop digits, by a named **rounding mode** (`HalfUp`, `HalfEven`, `Down`, `Up`, `Floor`, `Ceil`). Effect's `BigDecimal`. See [stdlib](docs/spec/stdlib.md#decimal).
+
+**Secure source**: The operation type std `rand.Secure`, whose `Bytes(n)` is random bytes no one can predict, for keys, tokens and ids. `rand.NewSecureHost()` reads Go's `crypto/rand` and needs `Ambient`; `rand.NewSeededSecure(seed)` replays a stream for tests. It is apart from `Random`, whose draws are fast and replayable and so predictable. `uuid.V4` and `uuid.V7` draw from it. See [stdlib](docs/spec/stdlib.md#keyed-digests).
 
 **Interruption**: A request that a task stop. It is cooperative and is not a typed error: no error row names it.
 

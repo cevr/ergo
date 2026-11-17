@@ -69,3 +69,9 @@ tz/iana	same
 ui	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
 ui/layout	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
 utf8	same
+decimal	same
+hmac	same
+set	same
+sha1	same
+sha512	same
+uuid	same
