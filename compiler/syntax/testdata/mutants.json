@@ -156,8 +156,8 @@
       "name": "tree-children-flushed-in-reverse",
       "origin": "wf10 S2b (SL6)",
       "file": "compiler/syntax/tree.ergo",
-      "from": "\t\tt.extra[start+j] = t.stack[m+j]\n",
-      "to": "\t\tt.extra[start+j] = t.stack[m+count-1-j]\n",
+      "from": "\tt.extra = slices.AppendAll(t.extra, t.stack[m:t.top])\n",
+      "to": "\tt.extra = slices.AppendAll(t.extra, slices.Reverse(t.stack[m:t.top]))\n",
       "rule": "A record keeps its children in source order.",
       "killers": [
         "internal/sketch/syntax:TestDecodeAgreesWithView"
@@ -253,9 +253,9 @@
       "name": "columns-token-end-short",
       "origin": "wf10 selfhost S2d",
       "file": "compiler/syntax/columns.ergo",
-      "from": "\t\tout = out.Append(uint32(tokEnd(t, j)))",
-      "to": "\t\tout = out.Append(uint32(tokEnd(t, j)) - uint32(1))",
-      "rule": "A token's column carries its end, the second scan's (End): a name's or a literal's text is its whole span.",
+      "from": "\tout = slices.AppendAll(out, slices.Slice(p.ends, 0, ntok))\n",
+      "to": "\tout = slices.AppendAll(out, slices.Slice(p.starts, 0, ntok))\n",
+      "rule": "A token's column carries its end, the one the scan stored: a name's or a literal's text is its whole span.",
       "killers": [
         "internal/sketch/syntax:TestDecodeAgreesWithView"
       ]
@@ -456,6 +456,33 @@
       "rule": "The runs cover every file: none is left out of the parse.",
       "killers": [],
       "gap": "killed by law ChunksTile (ergo test compiler/syntax); no Go suite runs compiler/'s laws until scripts/mutants has a compiler scope (GT7)"
+    },
+    {
+      "name": "scan-rune-end-short",
+      "origin": "wf10 selfhost S2f",
+      "file": "compiler/syntax/scan.ergo",
+      "from": "\t\t\temit(s, Rune, start, i+1)\n",
+      "to": "\t\t\temit(s, Rune, start, i)\n",
+      "rule": "The end the scan stores for a token is the token's whole span (law EndsAreStored).",
+      "killers": []
+    },
+    {
+      "name": "parse-extra-not-cut-on-rewind",
+      "origin": "wf10 selfhost S2f",
+      "file": "compiler/syntax/tree.ergo",
+      "from": "\tt.extra = t.extra[:c.ne]\n",
+      "to": "",
+      "rule": "A rewind cuts the extra pool back to the checkpoint, so the records after it start where the checkpoint's words end.",
+      "killers": []
+    },
+    {
+      "name": "parse-failed-illegal-end-unset",
+      "origin": "wf10 selfhost S2f",
+      "file": "compiler/syntax/parse.ergo",
+      "from": "\t\tends[n] = uint32(end)\n",
+      "to": "",
+      "rule": "A failed scan's ILLEGAL carries its end in the ends column, which Columns copies whole.",
+      "killers": []
     }
   ]
 }
