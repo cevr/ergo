@@ -317,8 +317,8 @@ func closed(s store.Store, t dense.ID[store.TKey]) bool {
 // body walks a function's block; its final expression statement is the
 // function's result.
 func body(s *store.Store, k Pkg, t *Typer, b dense.ID[syntax.Node]) {
-	match syntax.ViewOf(tree(k, *t), b) {
-	case syntax.BlockStmt as bs:
+	if syntax.KindOf(tree(k, *t), b) == syntax.KBlockStmt {
+		let bs = syntax.BlockStmtOf(tree(k, *t), b)
 		let n = syntax.Len(bs.List)
 		for i in 0..n {
 			let st = syntax.Item(tree(k, *t), bs.List, i)
@@ -334,17 +334,17 @@ func body(s *store.Store, k Pkg, t *Typer, b dense.ID[syntax.Node]) {
 			}
 			stmt(s, k, t, st)
 		}
-	case _:
+	} else {
 		walk(s, k, t, b)
 	}
 }
 
 // block walks a block whose value nothing reads the typer knows.
 func block(s *store.Store, k Pkg, t *Typer, b dense.ID[syntax.Node]) {
-	match syntax.ViewOf(tree(k, *t), b) {
-	case syntax.BlockStmt as bs:
-		stmts(s, k, t, bs.List)
-	case _:
+	let tr = tree(k, *t)
+	if syntax.KindOf(tr, b) == syntax.KBlockStmt {
+		stmts(s, k, t, syntax.BlockStmtOf(tr, b).List)
+	} else {
 		walk(s, k, t, b)
 	}
 }
@@ -384,16 +384,16 @@ func walk(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node]) {
 
 func stmt(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node]) {
 	let tr = tree(k, *t)
-	match syntax.ViewOf(tr, x) {
-	case syntax.ExprStmt as e:
-		expr(s, k, t, e.X, Free)
-	case syntax.DeclStmt as d:
-		match syntax.ViewOf(tr, d.Decl) {
-		case syntax.VarDecl as vd:
-			letSpec(s, k, t, vd.Spec)
-		case _:
+	let kd = syntax.KindOf(tr, x)
+	if kd == syntax.KExprStmt {
+		expr(s, k, t, syntax.ExprStmtOf(tr, x).X, Free)
+	} else if kd == syntax.KDeclStmt {
+		let d = syntax.DeclStmtOf(tr, x)
+		if syntax.KindOf(tr, d.Decl) == syntax.KVarDecl {
+			letSpec(s, k, t, syntax.VarDeclOf(tr, d.Decl).Spec)
 		}
-	case syntax.ReturnStmt as r:
+	} else if kd == syntax.KReturnStmt {
+		let r = syntax.ReturnStmtOf(tr, x)
 		match dense.Unpack(r.Result) {
 		case Some[dense.ID[syntax.Node]] as v:
 			match result(*s, k, *t) {
@@ -404,9 +404,10 @@ func stmt(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node]) {
 			}
 		case None:
 		}
-	case syntax.BlockStmt:
+	} else if kd == syntax.KBlockStmt {
 		block(s, k, t, x)
-	case syntax.IfStmt as i:
+	} else if kd == syntax.KIfStmt {
+		let i = syntax.IfStmtOf(tr, x)
 		expr(s, k, t, i.Cond, Exactly{T: store.TBasic(s, bBool)})
 		block(s, k, t, i.Body)
 		match dense.Unpack(i.Else) {
@@ -414,23 +415,27 @@ func stmt(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node]) {
 			stmt(s, k, t, e.Value)
 		case None:
 		}
-	case syntax.ForStmt as f:
+	} else if kd == syntax.KForStmt {
+		let f = syntax.ForStmtOf(tr, x)
 		match dense.Unpack(f.Cond) {
 		case Some[dense.ID[syntax.Node]] as c:
 			expr(s, k, t, c.Value, Exactly{T: store.TBasic(s, bBool)})
 		case None:
 		}
 		block(s, k, t, f.Body)
-	case syntax.RangeStmt as r:
-		rangeStmt(s, k, t, r)
-	case syntax.CaseClause as cc:
+	} else if kd == syntax.KRangeStmt {
+		rangeStmt(s, k, t, syntax.RangeStmtOf(tr, x))
+	} else if kd == syntax.KCaseClause {
 		// A case's list is patterns, not expressions.
+		let cc = syntax.CaseClauseOf(tr, x)
 		patterns(s, k, t, cc.List)
 		stmts(s, k, t, cc.Body)
-	case syntax.CatchArm as ca:
+	} else if kd == syntax.KCatchArm {
+		let ca = syntax.CatchArmOf(tr, x)
 		patterns(s, k, t, ca.Types)
 		stmts(s, k, t, ca.Body)
-	case syntax.AssignStmt as a:
+	} else if kd == syntax.KAssignStmt {
+		let a = syntax.AssignStmtOf(tr, x)
 		let lt = expr(s, k, t, a.Lhs, Free)
 		let op = syntax.TokKind(k.Parsed[t.file], a.Tok)
 		match lt {
@@ -443,7 +448,7 @@ func stmt(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node]) {
 		case None:
 			expr(s, k, t, a.Rhs, Unsure)
 		}
-	case _:
+	} else {
 		walk(s, k, t, x)
 	}
 }
@@ -456,8 +461,8 @@ func def(k Pkg, t *Typer, x dense.ID[syntax.Node], ty dense.ID[store.TKey]) {
 // letSpec types a let: its written type, or its value's.
 func letSpec(s *store.Store, k Pkg, t *Typer, spec dense.ID[syntax.Node]) {
 	let tr = tree(k, *t)
-	match syntax.ViewOf(tr, spec) {
-	case syntax.VarSpec as v:
+	if syntax.KindOf(tr, spec) == syntax.KVarSpec {
+		let v = syntax.VarSpecOf(tr, spec)
 		let written = match dense.Unpack(v.Type) {
 		case Some[dense.ID[syntax.Node]] as ty:
 			let r = types.Resolve(s, envOf(*s, k, *t), ty.Value)
@@ -484,7 +489,7 @@ func letSpec(s *store.Store, k Pkg, t *Typer, spec dense.ID[syntax.Node]) {
 			case None:
 			}
 		}
-	case _:
+	} else {
 		walk(s, k, t, spec)
 	}
 }
@@ -557,18 +562,20 @@ func rangeStmt(s *store.Store, k Pkg, t *Typer, r syntax.RangeStmt) {
 // signed one, or an operation on constants; its type is its context's.
 func isConst(k Pkg, t Typer, x dense.ID[syntax.Node]) bool {
 	let p = k.Parsed[t.file]
-	match syntax.ViewOf(p.Tree, x) {
-	case syntax.BasicLit:
+	let kd = syntax.KindOf(p.Tree, x)
+	if kd == syntax.KBasicLit {
 		true
-	case syntax.ParenExpr as pe:
-		isConst(k, t, pe.X)
-	case syntax.UnaryExpr as u:
+	} else if kd == syntax.KParenExpr {
+		isConst(k, t, syntax.ParenExprOf(p.Tree, x).X)
+	} else if kd == syntax.KUnaryExpr {
+		let u = syntax.UnaryExprOf(p.Tree, x)
 		let op = syntax.TokKind(p, u.Op)
 		(op == syntax.Sub || op == syntax.Add) && isConst(k, t, u.X)
-	case syntax.BinaryExpr as b:
+	} else if kd == syntax.KBinaryExpr {
+		let b = syntax.BinaryExprOf(p.Tree, x)
 		let op = syntax.TokKind(p, b.Op)
 		(op == syntax.Add || op == syntax.Sub || op == syntax.Mul || op == syntax.Quo) && isConst(k, t, b.X) && isConst(k, t, b.Y)
-	case _:
+	} else {
 		false
 	}
 }
@@ -577,19 +584,20 @@ func isConst(k Pkg, t Typer, x dense.ID[syntax.Node]) bool {
 // float, 3 string, 4 duration, -1 another.
 func constKind(k Pkg, t Typer, x dense.ID[syntax.Node]) int {
 	let p = k.Parsed[t.file]
-	match syntax.ViewOf(p.Tree, x) {
-	case syntax.BasicLit as b:
-		let tk = syntax.TokKind(p, b.Tok)
+	let kd = syntax.KindOf(p.Tree, x)
+	if kd == syntax.KBasicLit {
+		let tk = syntax.TokKind(p, syntax.BasicLitOf(p.Tree, x).Tok)
 		if tk == syntax.Int { 0 } else if tk == syntax.Rune { 1 } else if tk == syntax.Float { 2 } else if tk == syntax.String { 3 } else if tk == syntax.Duration { 4 } else { -1 }
-	case syntax.ParenExpr as pe:
-		constKind(k, t, pe.X)
-	case syntax.UnaryExpr as u:
-		constKind(k, t, u.X)
-	case syntax.BinaryExpr as b:
+	} else if kd == syntax.KParenExpr {
+		constKind(k, t, syntax.ParenExprOf(p.Tree, x).X)
+	} else if kd == syntax.KUnaryExpr {
+		constKind(k, t, syntax.UnaryExprOf(p.Tree, x).X)
+	} else if kd == syntax.KBinaryExpr {
+		let b = syntax.BinaryExprOf(p.Tree, x)
 		let a = constKind(k, t, b.X)
 		let c = constKind(k, t, b.Y)
 		if a < 0 || c < 0 || (a == 3) != (c == 3) || (a == 4) != (c == 4) { -1 } else if a > c { a } else { c }
-	case _:
+	} else {
 		-1
 	}
 }
@@ -662,19 +670,30 @@ func exprType(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], w Want) 
 		// The parts of a constant operation take its type; a signed
 		// literal is one constant, its literal not recorded (the Go
 		// checker folds the sign into it).
-		match syntax.ViewOf(tr, x) {
-		case syntax.ParenExpr as pe:
-			constParts(s, k, t, pe.X, ty)
-		case syntax.BinaryExpr as b:
+		let ck = syntax.KindOf(tr, x)
+		if ck == syntax.KParenExpr {
+			constParts(s, k, t, syntax.ParenExprOf(tr, x).X, ty)
+		} else if ck == syntax.KBinaryExpr {
+			let b = syntax.BinaryExprOf(tr, x)
 			constParts(s, k, t, b.X, ty)
 			constParts(s, k, t, b.Y, ty)
-		case _:
 		}
 		return ty
 	}
+	let kd = syntax.KindOf(tr, x)
+	if kd == syntax.KIdent {
+		return ident(s, k, t, x)
+	}
+	if kd == syntax.KBinaryExpr {
+		return binary(s, k, t, syntax.BinaryExprOf(tr, x), w)
+	}
+	if kd == syntax.KCallExpr {
+		return call(s, k, t, x, syntax.CallExprOf(tr, x))
+	}
+	if kd == syntax.KSelectorExpr {
+		return selector(s, k, t, syntax.SelectorExprOf(tr, x))
+	}
 	match syntax.ViewOf(tr, x) {
-	case syntax.Name:
-		ident(s, k, t, x)
 	case syntax.ParenExpr as pe:
 		expr(s, k, t, pe.X, w)
 	case syntax.UnaryExpr as u:
@@ -695,14 +714,8 @@ func exprType(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], w Want) 
 			expr(s, k, t, u.X, Unsure)
 			None
 		}
-	case syntax.BinaryExpr as b:
-		binary(s, k, t, b, w)
-	case syntax.CallExpr as c:
-		call(s, k, t, x, c)
 	case syntax.CompositeLit as cl:
 		composite(s, k, t, cl)
-	case syntax.SelectorExpr as se:
-		selector(s, k, t, se)
 	case syntax.InterpolatedString as is:
 		for i in 0..syntax.Len(is.Parts) {
 			let part = syntax.Item(tr, is.Parts, i)
@@ -765,13 +778,14 @@ func constParts(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], ty Opt
 	match ty {
 	case Some[dense.ID[store.TKey]] as r:
 		note(k, t, x, r.Value)
-		match syntax.ViewOf(tree(k, *t), x) {
-		case syntax.ParenExpr as pe:
-			constParts(s, k, t, pe.X, ty)
-		case syntax.BinaryExpr as b:
+		let tr = tree(k, *t)
+		let kd = syntax.KindOf(tr, x)
+		if kd == syntax.KParenExpr {
+			constParts(s, k, t, syntax.ParenExprOf(tr, x).X, ty)
+		} else if kd == syntax.KBinaryExpr {
+			let b = syntax.BinaryExprOf(tr, x)
 			constParts(s, k, t, b.X, ty)
 			constParts(s, k, t, b.Y, ty)
-		case _:
 		}
 	case None:
 	}

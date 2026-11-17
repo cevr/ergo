@@ -17,12 +17,7 @@ func isSome[T](o Option[T]) bool {
 }
 
 func unparen(tr syntax.Tree, x dense.ID[syntax.Node]) dense.ID[syntax.Node] {
-	match syntax.ViewOf(tr, x) {
-	case syntax.ParenExpr as pe:
-		unparen(tr, pe.X)
-	case _:
-		x
-	}
+	if syntax.KindOf(tr, x) == syntax.KParenExpr { unparen(tr, syntax.ParenExprOf(tr, x).X) } else { x }
 }
 
 // isCallSite is whether t is the prelude's CallSite.
@@ -136,8 +131,8 @@ func call(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], c syntax.Cal
 	let mut fun = unparen(tr, c.Fun)
 	let mut written = []dense.ID[syntax.Node]{}
 	let mut indexed = false
-	match syntax.ViewOf(tr, fun) {
-	case syntax.IndexExpr as ix:
+	if syntax.KindOf(tr, fun) == syntax.KIndexExpr {
+		let ix = syntax.IndexExprOf(tr, fun)
 		if syntax.KindOf(tr, unparen(tr, ix.X)) == syntax.KIdent || isSome(importedFn(s, k, t, selOf(tr, unparen(tr, ix.X)))) {
 			fun = unparen(tr, ix.X)
 			indexed = true
@@ -145,7 +140,6 @@ func call(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], c syntax.Cal
 				written = written.Append(syntax.Item(tr, ix.Indices, j))
 			}
 		}
-	case _:
 	}
 	if c.Trailing == dense.NoID[syntax.Node]() && !indexed && n == 1 && isLen(k, *t, fun) {
 		return lenCall(s, k, t, syntax.Item(tr, c.Args, 0))
@@ -488,12 +482,7 @@ func composite(s *store.Store, k Pkg, t *Typer, cl syntax.CompositeLit) Option[d
 
 // selOf is the name of the selector x, or none when x is no selector.
 func selOf(tr syntax.Tree, x dense.ID[syntax.Node]) dense.Opt[syntax.Node] {
-	match syntax.ViewOf(tr, x) {
-	case syntax.SelectorExpr as se:
-		dense.OptOf(se.Sel)
-	case _:
-		dense.NoID[syntax.Node]()
-	}
+	if syntax.KindOf(tr, x) == syntax.KSelectorExpr { dense.OptOf(syntax.SelectorExprOf(tr, x).Sel) } else { dense.NoID[syntax.Node]() }
 }
 
 // selector types x.F: a function of an import, or a field of a record of
