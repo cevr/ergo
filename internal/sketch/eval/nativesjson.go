@@ -45,6 +45,18 @@ func registerNativesjson() {
 		return args[0], in.charge(fr, at, 1)
 	}
 	natives["strings.builderText"] = bytesText
+	// std strings' Builder writes (SSR WEB3: std hmac builds its blocks
+	// with them): WriteString and WriteByte append as Go's append grows
+	// the buffer; Grow keeps no room here, so it is the buffer unchanged,
+	// and a negative count is Go's panic.
+	natives["strings.builderAppend"] = jsonAppend(func(args []Value) string { return args[0].(string) })
+	natives["strings.builderAppendByte"] = jsonAppend(func(args []Value) string { return string([]byte{args[0].(uint8)}) })
+	natives["strings.builderGrow"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		if args[1].(int64) < 0 {
+			return nil, fr.defect(at, "strings.Builder.Grow: negative count")
+		}
+		return args[0], in.charge(fr, at, 1)
+	}
 	natives["json.open"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		if ab := in.charge(fr, at, 1+argWork(args)); ab != nil {
 			return nil, ab
