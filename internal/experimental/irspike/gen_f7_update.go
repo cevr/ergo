@@ -36,6 +36,13 @@ func GenerateUpdate(seed uint64) string {
 		}
 		fmt.Fprintf(&b, "func up%d(r R, k int) R {\n\tR{..%s, %s}\n}\n\n", i, base, parts)
 	}
+	// A generic record whose replaced field is of a type parameter
+	// (FORK-RELUPD): the checker records it as replaced (Info.Replaced)
+	// with no owner entry, as domain.Sourced's Ledger update, so nothing is
+	// released and the update is a literal.
+	b.WriteString("type G[T] { V T, N int, W T }\n\n")
+	gf := []string{"V: v", fmt.Sprintf("N: g.N + %d", 1+g.n(5)), "W: v"}[g.n(3)]
+	fmt.Fprintf(&b, "func upg[T](g G[T], v T) G[T] {\n\tG[T]{..g, %s}\n}\n\n", gf)
 	b.WriteString("func show(r R) string {\n\t\"\\(r.A) \\(r.B) \\(r.C) \\(r.D)\"\n}\n\n")
 	b.WriteString("func main() needs Console {\n")
 	fmt.Fprintf(&b, "\tlet r = R{A: %d, B: %d, C: %d, D: \"r\"}\n", g.n(50), g.n(50), g.n(50))
@@ -43,6 +50,9 @@ func GenerateUpdate(seed uint64) string {
 		x := g.n(9)
 		fmt.Fprintf(&b, "\tConsole.Println(\"%d: \\(show(up0(r, %d))) | \\(show(up1(r, %d))) | \\(show(up2(up0(r, %d), %d)))\")\n", k, x, x, x, g.n(9))
 	}
+	fmt.Fprintf(&b, "\tlet gi = upg(G[int]{V: %d, N: %d, W: %d}, %d)\n", g.n(50), g.n(50), g.n(50), g.n(50))
+	fmt.Fprintf(&b, "\tlet gs = upg(G[string]{V: \"v%d\", N: %d, W: \"w\"}, \"s%d\")\n", g.n(9), g.n(50), g.n(9))
+	b.WriteString("\tConsole.Println(\"g: \\(gi.V) \\(gi.N) \\(gi.W) \\(gs.V) \\(gs.N) \\(gs.W)\")\n")
 	b.WriteString("}\n")
 	return b.String()
 }
