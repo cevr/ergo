@@ -765,6 +765,13 @@ func genTypes(seed uint32) string {
 			return "func(" + strings.Join(params, ", ") + ")" + res + fails
 		case 8:
 			return "sync.Ref[" + ty(d-1, ps) + "]"
+		case 9:
+			// A row written for a type parameter: its value type, a set.
+			xs := make([]string, 2+r.n(2))
+			for i := range xs {
+				xs[i] = pick(r, append(append([]string{}, errs...), "fs.NotFound", "fs.Denied", "time.Time"))
+			}
+			return "Box[" + strings.Join(xs, " | ") + "]"
 		}
 		return base()
 	}
