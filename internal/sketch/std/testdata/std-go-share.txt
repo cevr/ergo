@@ -33,6 +33,10 @@ actor	shown	provider
 actor	start	provider
 arena	stored	type
 arena	takeValue	language	PRIM
+atomic	Bool	type
+atomic	Int64	type
+atomic	NewBool	library	POLL: the Ergo form (a record over go.New[atomic.Bool](), GBX1b) counts 1.44 to 4.38x this body (NP4f-8 receipt-1): each std function polls at entry (env.task.Check()), which keeps Go from inlining it, though its one call is a memory-only Go method that cannot wait
+atomic	NewInt64	library	POLL: the Ergo form (a record over go.New[atomic.Int64](), GBX1b) counts 1.44 to 4.38x this body (NP4f-8 receipt-1): each std function polls at entry (env.task.Check()), which keeps Go from inlining it, though its one call is a memory-only Go method that cannot wait
 base64	Malformed	type
 base64	decodeStd	library	GBX3: Go's base64.StdEncoding is a package variable, which import go does not bind
 base64	decodeURL	library	GBX3: Go's base64.URLEncoding is a package variable, which import go does not bind

@@ -4,86 +4,50 @@
 // update; an atomic Load followed by Store is not a compound operation.
 // Effect Ref has the same shared-state intent. Ergo uses scalar operations
 // and operation laws, not modify tuples, pipe or dual-call encodings.
-//
-// Int64 and Bool hold Go's sync/atomic values by address (go.New), so a
-// copy of a handle shares the cell, and each operation is Go's method,
-// which needs no row: sync/atomic's methods are memory-only.
 
-import go sync/atomic
 import tasks
 
-// Int64 is a shared counter: every copy is the same cell.
-type Int64 { cell go.Ref[atomic.Int64] }
+extern go ergo.local/prototype/runtime/v1.Int64 type Int64 {
+	runtimeOnly(),
+	Load() int64,
+	Store(value int64),
+	Add(delta int64) int64,
+	Swap(value int64) int64,
+	CompareAndSwap(old int64, value int64) bool,
 
-// Bool is a shared flag, with the same ordering and identity as Int64.
-type Bool { cell go.Ref[atomic.Bool] }
-
-// NewInt64 is a fresh counter holding value.
-func NewInt64(value int64) Int64 {
-	let cell = go.New[atomic.Int64]()
-	cell.Store(value)
-	Int64{cell: cell}
+	law StoresAndAdds(a int64, b int64) {
+		Store(a)
+		let sum = Add(b)
+		let seen = Load()
+		let previous = Swap(a)
+		let changed = CompareAndSwap(a, b)
+		let unchanged = !CompareAndSwap(b+1, a)
+		sum == a+b && seen == sum && previous == sum && changed && unchanged && Load() == b
+	},
 }
 
-// NewBool is a fresh flag holding value.
-func NewBool(value bool) Bool {
-	let cell = go.New[atomic.Bool]()
-	cell.Store(value)
-	Bool{cell: cell}
+extern go ergo.local/prototype/runtime/v1.Bool type Bool {
+	runtimeOnly(),
+	Load() bool,
+	Store(value bool),
+	Swap(value bool) bool,
+	CompareAndSwap(old bool, value bool) bool,
+
+	law Exchanges(a bool, b bool) {
+		Store(a)
+		let previous = Swap(b)
+		let seen = Load()
+		let changed = CompareAndSwap(b, a)
+		let unchanged = !CompareAndSwap(!a, b)
+		previous == a && seen == b && changed && unchanged && Load() == a
+	},
 }
 
-// Load is the counter's value.
-func Load(c Int64) int64 { c.cell.Load() }
-
-// Store sets the counter to value.
-func Store(c Int64, value int64) { c.cell.Store(value) }
-
-// Add adds delta to the counter and gives the sum.
-func Add(c Int64, delta int64) int64 { c.cell.Add(delta) }
-
-// Swap sets the counter to value and gives the value it held.
-func Swap(c Int64, value int64) int64 { c.cell.Swap(value) }
-
-// CompareAndSwap sets the counter to value if it holds old, and says
-// whether it did.
-func CompareAndSwap(c Int64, old int64, value int64) bool { c.cell.CompareAndSwap(old, value) }
-
-// Load is the flag's value.
-func Load(f Bool) bool { f.cell.Load() }
-
-// Store sets the flag to value.
-func Store(f Bool, value bool) { f.cell.Store(value) }
-
-// Swap sets the flag to value and gives the value it held.
-func Swap(f Bool, value bool) bool { f.cell.Swap(value) }
-
-// CompareAndSwap sets the flag to value if it holds old, and says whether
-// it did.
-func CompareAndSwap(f Bool, old bool, value bool) bool { f.cell.CompareAndSwap(old, value) }
+extern go ergo.local/prototype/runtime/v1.NewInt64 func NewInt64(value int64) Int64
+extern go ergo.local/prototype/runtime/v1.NewBool func NewBool(value bool) Bool
 
 law InitialValues(value int64, flag bool) {
 	NewInt64(value).Load() == value && NewBool(flag).Load() == flag
-}
-
-law StoresAndAdds(a int64, b int64) {
-	let c = NewInt64(0)
-	c.Store(a)
-	let sum = c.Add(b)
-	let seen = c.Load()
-	let previous = c.Swap(a)
-	let changed = c.CompareAndSwap(a, b)
-	let unchanged = !c.CompareAndSwap(b+1, a)
-	sum == a+b && seen == sum && previous == sum && changed && unchanged && c.Load() == b
-}
-
-law Exchanges(a bool, b bool) {
-	let f = NewBool(false)
-	f.Store(a)
-	let previous = f.Swap(b)
-	let seen = f.Load()
-	let changed = f.CompareAndSwap(b, a)
-	let unchanged = !f.CompareAndSwap(!a, b)
-	previous == a && seen == b && changed && unchanged && f.Load() == a
 }
 
 law IncrementsCount(n int) {
