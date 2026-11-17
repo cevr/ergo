@@ -699,8 +699,22 @@ type (
 		Includes []*Field
 		Methods  []*Field
 		Laws     []*LawDecl
-		Union    []Expr
-		Rbrace   Pos
+		// Terms is the type-set member `~int | ~int64` (types.md,
+		// Generics 2): one term per `|`-separated type. Nil when the
+		// operation type has no type set; it then constrains by its
+		// operations alone. A type with a type set is a constraint only.
+		Terms []*TypeTerm
+		Union []Expr
+		// Rbrace closes the braces; NoPos for a union.
+		Rbrace Pos
+	}
+
+	// TypeTerm is one term of a type-set member: `~T` (Tilde set) admits
+	// every type whose underlying type is T, a bare `T` admits T alone,
+	// and the term `comparable` admits the comparable types.
+	TypeTerm struct {
+		Tilde Pos // NoPos for a bare term
+		Type  Expr
 	}
 
 	// ErrorRow is the failure row `fails A | B` of a signature: Error is the
@@ -863,6 +877,13 @@ func (x *InterfaceType) End() Pos {
 	}
 	return x.Union[len(x.Union)-1].End()
 }
+func (x *TypeTerm) Pos() Pos {
+	if x.Tilde.IsValid() {
+		return x.Tilde
+	}
+	return x.Type.Pos()
+}
+func (x *TypeTerm) End() Pos    { return x.Type.End() }
 func (x *ErrorRow) Pos() Pos    { return x.Error }
 func (x *ErrorRow) End() Pos    { return x.Types[len(x.Types)-1].End() }
 func (x *MachineType) Pos() Pos { return x.Machine }

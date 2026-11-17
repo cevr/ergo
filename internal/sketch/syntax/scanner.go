@@ -552,6 +552,7 @@ var singleOperators = map[byte]Token{
 	'+': ADD, '-': SUB, '*': MUL, '/': QUO, '%': REM, '&': AND, '|': OR, '^': XOR,
 	'<': LSS, '>': GTR, '=': ASSIGN, '!': NOT, '(': LPAREN, '[': LBRACK, '{': LBRACE,
 	',': COMMA, '.': PERIOD, ')': RPAREN, ']': RBRACK, '}': RBRACE, ';': SEMICOLON, ':': COLON,
+	'~': TILDE,
 }
 
 func (s *scanner) operator(start int) {

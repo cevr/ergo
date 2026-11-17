@@ -616,6 +616,7 @@ type members struct {
 	fields         []*Field
 	ops            []*Field
 	laws           []*LawDecl
+	terms          []*TypeTerm // the type-set member, at most one
 }
 
 // parseMembers parses `{ Member, … }`. A body that mixes fields with
@@ -643,6 +644,20 @@ func (p *parser) parseMembers() *members {
 		case p.tok.tok == LAW:
 			kind = memberLaw
 			m.laws = append(m.laws, p.parseLawDecl(doc, false))
+		case p.typeSetStarts() && !(first == memberField && p.bareOneTerm()):
+			// After fields, a lone bare name is the embedding the field
+			// branch refuses (S001), not a one-term type set.
+			// `~int | ~int64`: the type-set member of an operation type
+			// (types.md, Generics 2). It counts as an operation for the
+			// mix rule: a record has no type set.
+			kind = memberOperation
+			if m.terms != nil {
+				p.errorAt(p.tok.pos, 1, "an operation type has one type-set member; join the terms with |")
+			}
+			terms := p.parseTypeTerms()
+			if m.terms == nil {
+				m.terms = terms
+			}
 		case p.tok.tok == IDENT && p.peek(1).tok == LBRACK && p.bracketsThenParen():
 			p.errorAt(p.peek(1).pos, 1, "an operation has no type parameters; declare them on its type: `type Name[T] { … }`")
 		case p.tok.tok == IDENT && p.peek(1).tok == LPAREN,
@@ -711,6 +726,99 @@ func (p *parser) parseMembers() *members {
 	m.rbrace = p.tok.pos
 	p.next()
 	return m
+}
+
+// typeSetStarts reports whether the member at the current token is a
+// type-set member (grammar.md, Declarations 4): it starts with `~`, or it
+// is a type name (`T` or `pkg.T`) followed by `|`, by the end of the
+// braces, or by a comma and then a member that cannot continue a field
+// group `a, b T`. A field group goes on with a name and then a type, so
+// after `T,` the member `Label() string` (an operation with no
+// parameters, or one with a result) starts a new member, while
+// `Y (A, B)`, a tuple field, continues the group as it does today.
+func (p *parser) typeSetStarts() bool {
+	if p.tok.tok == TILDE {
+		return true
+	}
+	if p.tok.tok != IDENT {
+		return false
+	}
+	i := 1
+	if p.peek(1).tok == PERIOD && p.peek(2).tok == IDENT {
+		i = 3
+	}
+	switch p.peek(i).tok {
+	case OR, RBRACE, SEMICOLON:
+		return true
+	case COMMA:
+	default:
+		return false
+	}
+	// `T, …`: a term when what follows cannot continue a name group.
+	next := p.peek(i + 1)
+	if next.tok != IDENT {
+		return next.tok == TILDE || next.tok == LAW || next.tok == DOTDOT || next.tok == RBRACE
+	}
+	if next.lit == "own" && p.peek(i+2).tok == IDENT && p.peek(i+3).tok == LPAREN {
+		return true // `own Close()`
+	}
+	if p.peek(i+2).tok != LPAREN {
+		return false // `a, b int`
+	}
+	// `T, Name(…)`: an operation unless the parentheses close with
+	// nothing after them that a result could start (a tuple field).
+	depth := 0
+	for k := i + 2; ; k++ {
+		switch p.peek(k).tok {
+		case LPAREN, LBRACK:
+			depth++
+		case RPAREN, RBRACK:
+			depth--
+			if depth == 0 {
+				if k == i+3 {
+					return true // `Name()`: a tuple has two or more elements
+				}
+				switch p.peek(k + 1).tok {
+				case COMMA, RBRACE, SEMICOLON, STRING:
+					return false
+				}
+				return true
+			}
+		case LBRACE, EOF, ILLEGAL:
+			return false
+		}
+	}
+}
+
+// bareOneTerm reports a type-set member that is one bare type name, with
+// no `~` and no `|`.
+func (p *parser) bareOneTerm() bool {
+	if p.tok.tok != IDENT {
+		return false
+	}
+	i := 1
+	if p.peek(1).tok == PERIOD && p.peek(2).tok == IDENT {
+		i = 3
+	}
+	return p.peek(i).tok != OR
+}
+
+// parseTypeTerms parses `[~]T { | [~]T }`, the terms of a type-set member.
+func (p *parser) parseTypeTerms() []*TypeTerm {
+	var terms []*TypeTerm
+	for {
+		t := &TypeTerm{Tilde: NoPos}
+		if p.tok.tok == TILDE {
+			t.Tilde = p.tok.pos
+			p.next()
+		}
+		t.Type = p.parseType(ctxMember)
+		terms = append(terms, t)
+		if p.tok.tok != OR {
+			return terms
+		}
+		p.next()
+	}
 }
 
 // tupleShaped reports whether an operation's signature also reads as a
@@ -804,14 +912,14 @@ func (p *parser) groupsName(t Token) bool {
 // and laws (InterfaceType).
 func (p *parser) parseMembersType() Expr {
 	m := p.parseMembers()
-	if len(m.ops) > 0 || len(m.laws) > 0 {
+	if len(m.ops) > 0 || len(m.laws) > 0 || m.terms != nil {
 		var includes []*Field
 		for _, f := range m.fields {
 			if f.Include {
 				includes = append(includes, f)
 			}
 		}
-		return &InterfaceType{Lbrace: m.lbrace, Includes: includes, Methods: m.ops, Laws: m.laws, Rbrace: m.rbrace}
+		return &InterfaceType{Lbrace: m.lbrace, Includes: includes, Methods: m.ops, Laws: m.laws, Terms: m.terms, Rbrace: m.rbrace}
 	}
 	return &StructType{Fields: &FieldList{Opening: m.lbrace, List: m.fields, Closing: m.rbrace}}
 }
@@ -865,7 +973,7 @@ func (p *parser) parseVariant() Expr {
 		}
 	}
 	m := p.parseMembers()
-	if len(m.ops) > 0 || len(m.laws) > 0 {
+	if len(m.ops) > 0 || len(m.laws) > 0 || m.terms != nil {
 		var at Node = m.lawsOrOps()
 		p.errorAt(at.Pos(), 1, "a variant holds fields only")
 	}
@@ -877,7 +985,10 @@ func (m *members) lawsOrOps() Node {
 	if len(m.ops) > 0 {
 		return m.ops[0]
 	}
-	return m.laws[0]
+	if len(m.laws) > 0 {
+		return m.laws[0]
+	}
+	return m.terms[0]
 }
 
 // parseMachineType parses `machine[S, E] { initial: x, step: f }`, with

@@ -501,7 +501,24 @@ func (p *printer) operationType(t *syntax.InterfaceType) {
 	for _, l := range t.Laws {
 		list = append(list, member{l, func(bool) { p.memberLaw(l) }})
 	}
-	// Source order: includes, operations and laws may interleave.
+	if len(t.Terms) > 0 {
+		// The type-set member, `~int | ~int64`, on one line.
+		list = append(list, member{t.Terms[0], func(bool) {
+			for i, term := range t.Terms {
+				if i > 0 {
+					p.space()
+					p.synth("|")
+					p.space()
+				}
+				if term.Tilde.IsValid() {
+					p.token(term.Tilde, "~")
+				}
+				p.typ(term.Type)
+			}
+		}})
+	}
+	// Source order: includes, operations, laws and the type set may
+	// interleave.
 	sort.SliceStable(list, func(i, j int) bool { return list[i].node.Pos() < list[j].node.Pos() })
 	p.members(t.Lbrace, t.Rbrace, list, false)
 }
