@@ -201,7 +201,7 @@ law PlayPacesEachFrame(seed int, a int, b int) {
 			return false
 		}
 	}
-	c.Edges() == int64(x + y)
+	c.Edges() == int64(x+y)
 }
 
 // sent is b with e given to panel i, writing a refusal.

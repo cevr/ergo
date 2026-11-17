@@ -39,7 +39,7 @@ type Pacing {
 		let kept = xs.Append(len(s))
 		let text = s + "."
 		Edge()
-		let mut same = len(kept) == len(xs) + 1 && kept[len(xs)] == len(s) && text == s + "."
+		let mut same = len(kept) == len(xs)+1 && kept[len(xs)] == len(s) && text == s+"."
 		for i, x in xs {
 			same = same && kept[i] == x
 		}
@@ -74,7 +74,7 @@ law DefaultReachesNothing(xs []int, n int) {
 			Pacing.Edge()
 		}
 	}
-	len(kept) == len(xs) + 1 && kept[len(xs)] == n
+	len(kept) == len(xs)+1 && kept[len(xs)] == n
 }
 
 // Percent is Go's GOGC=n: the collector starts a cycle when the heap has
@@ -103,12 +103,12 @@ func Edge(_ Percent) {}
 // collector cost on the frame model). An edge reads the heap only now and
 // then (NextRead), so most edges are a counter's step.
 type AtEdges {
-	grow int64,
+	grow  int64,
 	stats go.Ref[runtime.MemStats],
-	base atomic.Int64,
-	last atomic.Int64,
-	span atomic.Int64,
-	wait atomic.Int64,
+	base  atomic.Int64,
+	last  atomic.Int64,
+	span  atomic.Int64,
+	wait  atomic.Int64,
 } implements Pacing
 
 // NewAtEdges turns the collector's percent off, sets the memory limit to
@@ -146,7 +146,7 @@ func Edge(p AtEdges) needs go.Foreign {
 		p.wait.Store(1)
 		return
 	}
-	let next = NextRead(heap - p.last.Load(), p.span.Load(), p.grow - grown)
+	let next = NextRead(heap-p.last.Load(), p.span.Load(), p.grow-grown)
 	p.last.Store(heap)
 	p.span.Store(next)
 	p.wait.Store(next)
@@ -195,12 +195,12 @@ func spanOf(n int64) int64 {
 // while the heap grows at the rate seen, before it has grown by more
 // than half of the room left (or at the very next edge).
 law NextReadLeavesRoom(grown int64, edges int64, room int64) {
-	let g = int64(within(int(grown % 1000000000), 0, 999999999))
-	let e = int64(within(int(edges % 1000), 1, 1000))
-	let r = int64(within(int(room % 1000000000000), -1000, 999999999999))
+	let g = int64(within(int(grown%1000000000), 0, 999999999))
+	let e = int64(within(int(edges%1000), 1, 1000))
+	let r = int64(within(int(room%1000000000000), -1000, 999999999999))
 	let next = NextRead(g, e, r)
-	let perEdge = if g / e < 1 { int64(1) } else { g / e }
-	1 <= next && next <= MaxSpan && (next == 1 || g == 0 || next * perEdge <= r / 2)
+	let perEdge = if g/e < 1 { int64(1) } else { g / e }
+	1 <= next && next <= MaxSpan && (next == 1 || g == 0 || next*perEdge <= r/2)
 }
 
 // Counting is the test provider: an edge does nothing to the collector

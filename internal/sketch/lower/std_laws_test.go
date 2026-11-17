@@ -297,7 +297,7 @@ func paceKeeps(xs []int, s string) bool needs pace.Pacing {
 	let kept = xs.Append(len(s))
 	let text = s + "."
 	pace.Pacing.Edge()
-	let mut same = len(kept) == len(xs) + 1 && kept[len(xs)] == len(s) && text == s + "."
+	let mut same = len(kept) == len(xs)+1 && kept[len(xs)] == len(s) && text == s+"."
 	for i, x in xs {
 		same = same && kept[i] == x
 	}
@@ -540,9 +540,9 @@ var stdLawsStatements = map[string]string{
 	"testing ScriptAnswersByTheLastAnswer": `ScriptAnswersByTheLastAnswer(k string, a int, b int) { let s = Script[probe]{} s.Size.Answer(func() int { a }) s.Get.Answer(func(key string) int fails Absent { Absent{Key: key} }) with context { probe: s } { let first = probe.Size() s.Size.Answer(func() int { b }) let second = probe.Size() let got = probe.Get(k) catch { case Absent as e: if e.Key == k { -1 } else { -2 } } first == a && second == b && got == -1 && len(s.Size.Calls()) == 2 && s.Size.Calls()[0] == NoArgs && s.Get.Calls()[0] == k } }`,
 	"testing ScriptRecordsEachCall":        `ScriptRecordsEachCall(ks []string, n int) { let s = Script[probe]{} s.Has.Answer(func(k string) bool { len(k) > 0 }) with context { probe: s } { for i, k in ks { probe.Put(k, n + i) let _ = probe.Has(k) } } let puts = s.Put.Calls() let mut same = len(puts) == len(ks) && len(s.Has.Calls()) == len(ks) && len(s.Size.Calls()) == 0 for i, k in ks { same = same && puts[i] == (k, n + i) && s.Has.Calls()[i] == k } same }`,
 	"timeout QuickBodyWins":                `QuickBodyWins(n int) { with context { Scheduler: time.NewManual(0) } { try After(1h) { n } == n } }`,
-	"pace Pacing.EdgeKeepsValues":          `EdgeKeepsValues(xs []int, s string) { let kept = xs.Append(len(s)) let text = s + "." Edge() let mut same = len(kept) == len(xs) + 1 && kept[len(xs)] == len(s) && text == s + "." for i, x in xs { same = same && kept[i] == x } same }`,
-	"pace DefaultReachesNothing":           `DefaultReachesNothing(xs []int, n int) { let kept = xs.Append(n) with context { Pacing: Default } { for _ in 0..within(n, 0, 64) { Pacing.Edge() } } len(kept) == len(xs) + 1 && kept[len(xs)] == n }`,
-	"pace NextReadLeavesRoom":              `NextReadLeavesRoom(grown int64, edges int64, room int64) { let g = int64(within(int(grown % 1000000000), 0, 999999999)) let e = int64(within(int(edges % 1000), 1, 1000)) let r = int64(within(int(room % 1000000000000), -1000, 999999999999)) let next = NextRead(g, e, r) let perEdge = if g / e < 1 { int64(1) } else { g / e } 1 <= next && next <= MaxSpan && (next == 1 || g == 0 || next * perEdge <= r / 2) }`,
+	"pace Pacing.EdgeKeepsValues":          `EdgeKeepsValues(xs []int, s string) { let kept = xs.Append(len(s)) let text = s + "." Edge() let mut same = len(kept) == len(xs)+1 && kept[len(xs)] == len(s) && text == s+"." for i, x in xs { same = same && kept[i] == x } same }`,
+	"pace DefaultReachesNothing":           `DefaultReachesNothing(xs []int, n int) { let kept = xs.Append(n) with context { Pacing: Default } { for _ in 0..within(n, 0, 64) { Pacing.Edge() } } len(kept) == len(xs)+1 && kept[len(xs)] == n }`,
+	"pace NextReadLeavesRoom":              `NextReadLeavesRoom(grown int64, edges int64, room int64) { let g = int64(within(int(grown%1000000000), 0, 999999999)) let e = int64(within(int(edges%1000), 1, 1000)) let r = int64(within(int(room%1000000000000), -1000, 999999999999)) let next = NextRead(g, e, r) let perEdge = if g/e < 1 { int64(1) } else { g / e } 1 <= next && next <= MaxSpan && (next == 1 || g == 0 || next*perEdge <= r/2) }`,
 	"pace CountingCountsEachEdge":          `CountingCountsEachEdge(n int) { let k = within(n, 0, 64) let c = NewCounting() let before = c.Edges() with context { Pacing: c } { for _ in 0..k { Pacing.Edge() } } before == 0 && c.Edges() == int64(k) }`,
 	"trace InnerSpanShadows":               `InnerSpanShadows(outer string, inner string) { with Span(outer) { with Span(inner) { Current() == Some[string]{Value: inner} } } }`,
 	"trace SpanEndRestores":                `SpanEndRestores(name string) { let before = Current() with Span(name) { Current() } Current() == before }`,
