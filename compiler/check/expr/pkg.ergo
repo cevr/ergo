@@ -207,6 +207,21 @@ func fieldsOf(s *store.Store, env types.Env, p syntax.Parsed, l dense.ID[syntax.
 	out
 }
 
+// writesWired is whether a token of the node x is the name wired: a type
+// with none writes no wired[T] (types.WiredOfType), so its walk is
+// skipped (S3d9).
+func writesWired(p syntax.Parsed, x dense.ID[syntax.Node]) bool {
+	let hi = syntax.NodeEnd(p, x)
+	let mut j = syntax.TokStartingAt(p, syntax.NodePos(p, x))
+	for j >= 0 && syntax.TokPos(p, j) < hi {
+		if syntax.TokText(p, j) == "wired" {
+			return true
+		}
+		j = j + 1
+	}
+	false
+}
+
 // Load is the package of files, collected and bound into s: its
 // signatures and record fields resolved with ext and foreign (the
 // imports' kinds and types), prelude telling whether the package is the
@@ -223,7 +238,7 @@ func Load(s *store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ext [
 		match syntax.ViewOf(p.Tree, f.Decl) {
 		case syntax.FuncDecl as fd:
 			let env = types.NewEnv(*s, parsed, p, f.Params, kinds, ext, foreign)
-			if types.WiredOfType(*s, env, fd.Type) {
+			if writesWired(p, fd.Type) && types.WiredOfType(*s, env, fd.Type) {
 				continue
 			}
 			let sig = types.Resolve(s, env, fd.Type)
