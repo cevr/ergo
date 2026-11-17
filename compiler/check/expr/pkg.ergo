@@ -55,7 +55,7 @@ type Pkg {
 	Fns     []Fn,
 	Recs    []Rec,
 	Deps    []Dep,
-	fnBy    dense.Side[store.PNode, int],
+	fnBy    dense.Col[store.PNode, int],
 	// named is the last function of each name; sameName[i] the one
 	// before function i of its name, -1 for none (methods.ergo).
 	named    dense.Side[dense.Str, int],
@@ -209,15 +209,23 @@ func fieldsOf(s *store.Store, env types.Env, p syntax.Parsed, l dense.ID[syntax.
 
 // writesWired is whether a token of the node x is the name wired: a type
 // with none writes no wired[T] (types.WiredOfType), so its walk is
-// skipped (S3d9).
+// skipped (S3d9). A token's text is read only for a name with room for
+// five bytes before the next token (the loop reads the next token's
+// offset anyway).
 func writesWired(p syntax.Parsed, x dense.ID[syntax.Node]) bool {
 	let hi = syntax.NodeEnd(p, x)
 	let mut j = syntax.TokStartingAt(p, syntax.NodePos(p, x))
-	for j >= 0 && syntax.TokPos(p, j) < hi {
-		if syntax.TokText(p, j) == "wired" {
+	if j < 0 {
+		return false
+	}
+	let mut at = syntax.TokPos(p, j)
+	for at < hi {
+		let next = syntax.TokPos(p, j+1)
+		if next-at >= 5 && syntax.TokKind(p, j) == syntax.Ident && syntax.TokText(p, j) == "wired" {
 			return true
 		}
 		j = j + 1
+		at = next
 	}
 	false
 }
@@ -286,9 +294,20 @@ func Load(s *store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ext [
 	// The functions by their name's node and the records by their
 	// declaration: a lookup per expression reads one slot, so typing a
 	// body costs the same in a package of any size.
-	let mut fnBy = dense.NewSide[store.PNode, int](-1)
+	// fnBy holds one slot per row of the package (-1: no function's
+	// name), sized once.
+	let mut rows = 0
+	for p in parsed {
+		if !p.Failed {
+			rows = rows + syntax.NumNodes(p.Tree)
+		}
+	}
+	let mut fnBy = dense.ColWithCap[store.PNode, int](rows)
+	for _ in 0..rows {
+		dense.Push(&fnBy, -1)
+	}
 	for i, f in fns {
-		dense.SideSet(&fnBy, bind.PNodeOf(ps, f.File, f.Name), i)
+		dense.SetOf(&fnBy, bind.PNodeOf(ps, f.File, f.Name), i)
 	}
 	let mut named = dense.NewSide[dense.Str, int](-1)
 	let mut sameName = []int{}
@@ -314,7 +333,7 @@ func Load(s *store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ext [
 
 // FnAt is the index in k.Fns of the function whose name node is the
 // package node at, -1 when none is.
-func FnAt(k Pkg, at dense.ID[store.PNode]) int { dense.SideOf(k.fnBy, at) }
+func FnAt(k Pkg, at dense.ID[store.PNode]) int { if dense.In(k.fnBy, at) { dense.Of(k.fnBy, at) } else { -1 } }
 
 // recOf is the index in k.Recs of the record named name, -1 when none is.
 func recOf(s store.Store, k Pkg, name string) int {
