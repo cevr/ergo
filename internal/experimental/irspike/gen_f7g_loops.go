@@ -22,8 +22,8 @@ var foldFuncs = struct{ fused, kept []string }{
 // slice (it takes the source's part); kept copies, each for its own
 // reason.
 var resliceFuncs = struct{ taken, kept []string }{
-	taken: []string{"resliceSum", "resliceField"},
-	kept:  []string{"resliceLive", "resliceShared", "resliceOuter", "resliceFieldLive", "resliceFieldWhole"},
+	taken: []string{"resliceSum", "resliceField", "resliceGap"},
+	kept:  []string{"resliceLive", "resliceShared", "resliceOuter", "resliceFieldLive", "resliceFieldWhole", "resliceGapWritten"},
 }
 
 // GenerateLoops is a program of the count loops loops.go's DT4 writes as
@@ -90,6 +90,12 @@ func GenerateLoops(seed uint64) string {
 	b.WriteString("func resliceField(n int, lo int, hi int, s int, extra int) int {\n\tlet rec = Line{items: seqBy(n, 3), n: n}\n\tlet mut ys = []int{}\n\tfor i in lo..hi {\n\t\tys = ys.Append(rec.items[i + s])\n\t}\n\tys = ys.Append(extra)\n\thash(ys) * 7 + rec.n\n}\n\n")
 	b.WriteString("func resliceFieldLive(n int, lo int, hi int, s int, extra int) int {\n\tlet rec = Line{items: seqBy(n, 3), n: n}\n\tlet mut ys = []int{}\n\tfor i in lo..hi {\n\t\tys = ys.Append(rec.items[i + s])\n\t}\n\tys = ys.Append(extra)\n\thash(ys) * 7 + hash(rec.items)\n}\n\n")
 	b.WriteString("func resliceFieldWhole(n int, lo int, hi int, s int, extra int) int {\n\tlet rec = Line{items: seqBy(n, 3), n: n}\n\tlet mut ys = []int{}\n\tfor i in lo..hi {\n\t\tys = ys.Append(rec.items[i + s])\n\t}\n\tys = ys.Append(extra)\n\thash(ys) * 7 + lineHash(rec)\n}\n\n")
+	// The gaps (GP-RESLICE-EMPTY): the empty let is further up the block.
+	// resliceGap's statement between does not name ys, so the slice takes
+	// the part; resliceGapWritten's appends to ys between, so it copies
+	// (taking the part would drop that element).
+	b.WriteString("func resliceGap(n int, lo int, hi int, s int, extra int) int {\n\tlet src = seqBy(n, 3)\n\tlet mut ys = []int{}\n\tlet k = extra * 2 + 1\n\tfor i in lo..hi {\n\t\tys = ys.Append(src[i + s])\n\t}\n\tys = ys.Append(k)\n\thash(ys)\n}\n\n")
+	b.WriteString("func resliceGapWritten(n int, lo int, hi int, s int, extra int) int {\n\tlet src = seqBy(n, 3)\n\tlet mut ys = []int{}\n\tys = ys.Append(extra)\n\tfor i in lo..hi {\n\t\tys = ys.Append(src[i + s])\n\t}\n\tys = ys.Append(extra + 1)\n\thash(ys)\n}\n\n")
 	b.WriteString("func lineHash(l Line) int {\n\thash(l.items) + l.n\n}\n\n")
 	b.WriteString("func seqBy(n int, m int) []int {\n\tlet mut xs = []int{}\n\tfor i in 0..n {\n\t\txs = xs.Append(i * m + 2)\n\t}\n\txs\n}\n\n")
 	b.WriteString("func main() needs Console {\n")
@@ -136,7 +142,7 @@ func GenerateLoops(seed uint64) string {
 		// so a slice grown in place past it would write the source.
 		lo, hi = g.span(n)
 		s = g.n(n - hi + 1)
-		for _, f := range []string{"resliceSum", "resliceLive", "resliceShared", "resliceOuter", "resliceField", "resliceFieldLive", "resliceFieldWhole"} {
+		for _, f := range []string{"resliceSum", "resliceLive", "resliceShared", "resliceOuter", "resliceField", "resliceFieldLive", "resliceFieldWhole", "resliceGap", "resliceGapWritten"} {
 			fmt.Fprintf(&b, "\tConsole.Println(\"\\(%s(%d, %d, %d, %d, %d))\")\n", f, n, lo, hi, s, 900+g.n(50))
 		}
 	}
