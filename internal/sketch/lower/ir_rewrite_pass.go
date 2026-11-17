@@ -129,10 +129,12 @@ func (b *irBuilder) patterns() map[string][]*rwPattern {
 // pattern is law's left side lowered with each parameter a hole, or nil
 // when the body cannot lower it as one value (the law matches nothing
 // here). The pattern is never emitted: the locals it declared are
-// dropped.
+// dropped, and its nodes take no position, so the law's file joins the IR
+// file's table only where a site places a side.
 func (b *irBuilder) pattern(law *check.Law) (p *rwPattern) {
-	m := b.mark()
-	defer b.unmark(m)
+	m, at := b.mark(), b.at
+	b.at = &irPos{}
+	defer func() { b.unmark(m); b.at = at }()
 	defer func() {
 		if r := recover(); r != nil {
 			if _, isNo := r.(irUnsupported); !isNo {
