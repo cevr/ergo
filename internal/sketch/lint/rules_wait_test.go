@@ -42,7 +42,7 @@ var (
 // run nothing else that reads or waits on time: a clock read, a function
 // whose row needs the Scheduler, a sleep in the task, the clock passed to
 // other code. Mutants: lhw-zero-advance-waits, lhw-task-sleep-waits,
-// lhw-row-unread, lhw-advance-timed, lhw-virtual-clock-unread,
+// lhw-row-unread, lhw-virtual-clock-unread,
 // lhw-shared-clock-ignored.
 func TestTestWaitsOnTimeAgreesWithReference(t *testing.T) {
 	for _, seed := range propertySeeds(40) {
