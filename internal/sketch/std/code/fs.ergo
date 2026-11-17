@@ -1,0 +1,152 @@
+import fs
+import strings
+import sync
+
+// HostFiles is the product Files: a workspace's folder on the host's file
+// system, through a host fs provider (SEMTOOLS SEM4b). Exchange is
+// fs.Exchange, one host call (Linux's renameat2 with RENAME_EXCHANGE), so
+// Apply's exchange-and-verify protocol holds on the disk as on Disk; a
+// host with no atomic exchange fails it IOFailed and Apply refuses, never
+// falling back to renames. Write is fs.WriteFile, a synced new file
+// renamed over the path, and makes the path's missing folders. The lock
+// is an exclusive kernel lock (fs.LockFile, flock) on .ergo/apply.lock,
+// which the host lets go when the process ends, however it ends.
+//
+// A path is relative to the workspace's folder, "/"-separated, as the
+// plan's files are.
+type HostFiles {
+	host fs.Host,
+	root string,
+	lock sync.Ref[Option[fs.FileLock]],
+} implements Files
+
+// HostFilesOf is the Files of the workspace in the folder root, through
+// host; root "" is the working directory.
+func HostFilesOf(host fs.Host, root string) HostFiles {
+	HostFiles{host: host, root: root, lock: sync.NewRef[Option[fs.FileLock]](None)}
+}
+
+// LockPath is the file the apply lock is taken on, from the workspace
+// root.
+let LockPath = ".ergo/apply.lock"
+
+// onHost is path in h's folder.
+func onHost(h HostFiles, path string) string {
+	if h.root == "" {
+		return path
+	}
+	h.root + "/" + path
+}
+
+// ioFailed is an fs failure as Files gives it.
+func ioFailed(path string, reason string) IOFailed { IOFailed{Reason: "\(path): \(reason)"} }
+
+func Read(h HostFiles, path string) string fails Missing | IOFailed {
+	fs.ReadFile(h.host, onHost(h, path)) catch {
+	case fs.NotFound:
+		return Missing{Path: path}
+	case fs.Denied:
+		return ioFailed(path, "permission denied")
+	case fs.Failed as e:
+		return ioFailed(path, e.Reason)
+	}
+}
+
+func Write(h HostFiles, path string, text string) fails IOFailed {
+	try folderOf(h, path)
+	fs.WriteFile(h.host, onHost(h, path), text) catch {
+	case fs.NotFound:
+		return ioFailed(path, "no such folder")
+	case fs.Denied:
+		return ioFailed(path, "permission denied")
+	case fs.Failed as e:
+		return ioFailed(path, e.Reason)
+	}
+}
+
+// folderOf makes the folders of path that are missing.
+func folderOf(h HostFiles, path string) fails IOFailed {
+	let i = strings.LastIndex(path, "/")
+	if i <= 0 {
+		return
+	}
+	fs.MkdirAll(h.host, onHost(h, strings.Slice(path, 0, i))) catch {
+	case fs.Denied:
+		return ioFailed(path, "permission denied")
+	case fs.Failed as e:
+		return ioFailed(path, e.Reason)
+	}
+}
+
+func Exchange(h HostFiles, a string, b string) fails Missing | IOFailed {
+	fs.Exchange(h.host, onHost(h, a), onHost(h, b)) catch {
+	case fs.NotFound as m:
+		return Missing{Path: if m.Path == onHost(h, a) { a } else { b }}
+	case fs.Denied:
+		return ioFailed(a, "permission denied")
+	case fs.Failed as e:
+		return ioFailed(a, e.Reason)
+	}
+}
+
+func Remove(h HostFiles, path string) fails IOFailed {
+	fs.Remove(h.host, onHost(h, path)) catch {
+	case fs.NotFound:
+	case fs.Denied:
+		return ioFailed(path, "permission denied")
+	case fs.Failed as e:
+		return ioFailed(path, e.Reason)
+	}
+}
+
+func Exists(h HostFiles, path string) bool fails IOFailed {
+	let _ = fs.Stat(h.host, onHost(h, path)) catch {
+	case fs.NotFound:
+		return false
+	case fs.Denied:
+		return ioFailed(path, "permission denied")
+	case fs.Failed as e:
+		return ioFailed(path, e.Reason)
+	}
+	true
+}
+
+// Lock takes the apply lock, or fails Busy when another open of it (this
+// process's or another's) holds it. A handle that holds it already keeps
+// it.
+func Lock(h HostFiles) fails Busy | IOFailed {
+	match h.lock.Get() {
+	case Some[fs.FileLock]:
+		return
+	case None:
+	}
+	try folderOf(h, LockPath)
+	let got = fs.LockFile(h.host, onHost(h, LockPath), 0s) catch {
+	case fs.NotFound:
+		return ioFailed(LockPath, "no such folder")
+	case fs.Denied:
+		return ioFailed(LockPath, "permission denied")
+	case fs.Failed as e:
+		return ioFailed(LockPath, e.Reason)
+	}
+	match got {
+	case Some[fs.FileLock] as l:
+		h.lock.Set(Some[fs.FileLock]{Value: l.Value})
+	case None:
+		return Busy
+	}
+}
+
+// Unlock lets the apply lock go, when h holds it.
+func Unlock(h HostFiles) fails IOFailed {
+	match h.lock.Get() {
+	case Some[fs.FileLock] as l:
+		fs.UnlockFile(h.host, l.Value)
+		h.lock.Set(None)
+	case None:
+	}
+}
+
+// OnTestHost runs the Files laws on the product provider, in a folder of
+// the case's own (rows.md, Test's ambient).
+let OnTestHost = context needs TestAmbient { Files: HostFilesOf(fs.NewTestHost(), "") }

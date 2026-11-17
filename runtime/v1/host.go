@@ -743,6 +743,37 @@ func FSRename(from string, to string) error {
 	return fsErr(from, err)
 }
 
+// FSExchange is the body of fs.Host's Exchange: the files at a and b
+// trade places in one host call, so a reader of either path sees the old
+// file or the new one and never no file (Linux's renameat2 with
+// RENAME_EXCHANGE). Both must be there: a missing one is NotFound,
+// naming it, and nothing moves. A host or a file system that has no
+// atomic exchange is Failed "no atomic exchange on this host", never a
+// sequence of renames that a reader could see half done (SEMTOOLS SEM4b;
+// code.md, Apply).
+//
+//ergo:host
+//ergo:wait none
+func FSExchange(a string, b string) error {
+	err := exchangePaths(a, b)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, errNoExchange):
+		return Failed{Path: a, Reason: errNoExchange.Error()}
+	case errors.Is(err, fs.ErrNotExist):
+		if _, lerr := os.Lstat(a); lerr != nil {
+			return NotFound{Path: a}
+		}
+		return NotFound{Path: b}
+	}
+	return fsErr(a, err)
+}
+
+// errNoExchange is exchangePaths's failure on a host or a file system with
+// no atomic exchange.
+var errNoExchange = errors.New("no atomic exchange on this host")
+
 // FSRemove is the body of fs.Host's Remove: os.Remove, which removes a
 // file, a symbolic link (not what it names) or an empty directory.
 //

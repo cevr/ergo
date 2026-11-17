@@ -414,6 +414,19 @@ func Remove(h Host, path string) fails NotFound | Denied | Failed {
 	try hostRemove(try at(h, path))
 }
 
+// Exchange makes the files at a and b trade places in one host call, so
+// a reader of either path sees the old file or the new one and never no
+// file. Both must be there: a missing one is NotFound, naming it, and
+// nothing moves. A host or a file system with no atomic exchange is
+// Failed "no atomic exchange on this host": Exchange is never done by
+// renames a reader could see half done. Linux has one (renameat2 with
+// RENAME_EXCHANGE); macOS's (renamex_np with RENAME_SWAP) is not bound
+// yet. It is a function of Host alone, not an operation of Writes, as
+// LockFile is.
+func Exchange(h Host, a string, b string) fails NotFound | Denied | Failed {
+	try hostExchange(try at(h, a), try at(h, b))
+}
+
 // FileLock is an exclusive kernel lock on a file, which LockFile took and
 // UnlockFile gives back. Its field gives this package the construction
 // authority: no other package makes one.
@@ -454,3 +467,4 @@ extern go ergo.local/prototype/runtime/v1.FSAppendFile func hostAppendFile(path 
 extern go ergo.local/prototype/runtime/v1.FSChmod func hostChmod(path string, perm int) fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSRename func hostRename(from string, to string) fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSRemove func hostRemove(path string) fails NotFound | Denied | Failed
+extern go ergo.local/prototype/runtime/v1.FSExchange func hostExchange(a string, b string) fails NotFound | Denied | Failed
