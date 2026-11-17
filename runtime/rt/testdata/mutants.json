@@ -351,7 +351,7 @@
       "origin": "wf10 std-spike RT-AFTERDROP",
       "file": "runtime/rt/timeout.go",
       "from": "\t\tif returned {\n",
-      "to": "\t\tif false {\n",
+      "to": "\t\tif returned && false {\n",
       "rule": "runtime.md Timeouts 4: a body that returned its value before the deadline's stop ended it gives that value, not Expired",
       "killers": ["lower:TestStdLawsRun"]
     },
