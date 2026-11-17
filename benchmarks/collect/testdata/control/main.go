@@ -1,13 +1,10 @@
 // Command control is collectbench's hand Go twin
 // (benchmarks/collect/cmd/collectbench): the same parts of the same
-// source, as a person optimizing Go writes them.
-//
-//	control bench KIND N
-//
-//   - collect: the part appended at once into a slice made to its size.
-//   - fold: the part collected that way, then folded (hand Go collects
-//     before it folds: it allocates).
-//   - foldfloor: the part folded in place, with no slice (the floor).
+// source, as a person optimizing Go writes them, run as
+// `control bench KIND N`. KIND collect appends each part at once into a
+// slice made to its size; fold collects each part that way, then folds it
+// (hand Go collects before it folds: it allocates); foldfloor folds each
+// part in place, with no slice (the floor).
 package main
 
 import (
