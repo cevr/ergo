@@ -44,7 +44,7 @@ code and changes no lowering or optimization path.
 
 ## Forms
 
-Status: **implemented** for the passes on the line today: the memo pass and the merge pass (IR-FORMS IRF-6). Unlike the API view, this view lowers the program to the IR in process; it runs no Go tool.
+Status: **implemented** for the passes on the line today: the memo, merge and fold passes (IR-FORMS IRF-6). Unlike the API view, this view lowers the program to the IR in process; it runs no Go tool.
 
 ```
 ergo inspect forms FILE|DIR [--json]
@@ -92,6 +92,22 @@ ergo inspect forms FILE|DIR [--json]
    - `the equal call before it does not run first on every path`: the
      earlier let is in a branch or a loop body this call is outside of,
      or a jump target lies between them.
+
+   The fold pass (form `call`; LAWFFI LF3c) runs on the built body before
+   the merge pass. A call of a reviewed-pure Go function that has a
+   check-time native (`strconv.Quote`, `QuoteToASCII`, `Itoa`,
+   `FormatBool`, `strings.ToUpper`, `ToLower`, `TrimSpace`,
+   `filepath.Clean`) on constants becomes the constant the compiler
+   computes with the same Go function. A let bound once to a constant,
+   or to a folded call, is a constant operand. Some of these functions read
+   Go's Unicode tables, so the pass folds only when the compiler runs on
+   the pinned Go release (`ergo version`), the one that builds the
+   program. It looks at each such call. Its reasons:
+   - fired: `computed at compile time by the same Go function`;
+   - `an operand is not a constant of a basic type`: a parameter, a
+     `let mut`, an interpolation or any other value the IR does not hold
+     as a constant;
+   - `the compiler does not run on the pinned Go release`.
 4. `--json` lists the same sites with `file`, `line`, `column`, `func`,
    `form`, `pass`, `fired` and `reason`. Exit 0 when the package checks, 1
    when it does not, 2 on an invalid invocation.

@@ -13,8 +13,15 @@ import (
 
 // formsPrelude is the callees of the forms rows: sq, a pure function;
 // noisy, one that prints; ones, a pure one whose result is a slice;
-// Box.Get, a method.
-const formsPrelude = `func sq(a int) int {
+// Box.Get, a method; quoted, a call of Go's strconv, which the fold rows
+// import.
+const formsPrelude = `import go strconv
+
+func quoted(a int) string {
+	strconv.Quote("\(a)")
+}
+
+func sq(a int) int {
 	a * a + 1
 }
 
@@ -42,17 +49,23 @@ var formsRows = []struct {
 	reason string
 	body   string
 	line   string
+	// compilerGo is the Go release the compiler is seen running on, or
+	// "" for the one it runs on.
+	compilerGo string
 }{
-	{"computed once per entry of its loop", "let s = sq(k)\n\t\tacc = acc + s", ":23:11  call  memo  fired  f  (computed once per entry of its loop)"},
-	{"the callee is not pure", "let s = noisy(k)\n\t\tacc = acc + s", ":23:11  call  memo  not fired  f  (the callee is not pure)"},
-	{"a method, a task, a call with a block or a call site", "let s = Box{V: k}.Get()\n\t\tacc = acc + s", "  call  memo  not fired  f  (a method, a task, a call with a block or a call site)"},
-	{"an operand or the result is not a number, a bool or a string", "let s = ones(k)\n\t\tacc = acc + len(s)", ":23:11  call  memo  not fired  f  (an operand or the result is not a number, a bool or a string)"},
-	{"an operand may change in the loop", "let s = sq(i)\n\t\tacc = acc + s", ":23:11  call  memo  not fired  f  (an operand may change in the loop)"},
-	{"statements run before the call", "let s = sq(noisy(k))\n\t\tacc = acc + s", ":23:11  call  memo  not fired  f  (statements run before the call)"},
-	{"reads the value of an equal call before it", "let a = sq(i)\n\t\tlet b = sq(i)\n\t\tacc = acc + a + b", ":24:11  call  merge  fired  f  (reads the value of an equal call before it)"},
-	{"an operand or the earlier value is written in the function, or not of a basic type", "let mut q = i\n\t\tlet a = sq(q)\n\t\tq = q + 1\n\t\tlet b = sq(q)\n\t\tacc = acc + a + b", ":26:11  call  merge  not fired  f  (an operand or the earlier value is written in the function, or not of a basic type)"},
-	{"the equal call before it is not a whole value", "acc = acc + sq(i)\n\t\tlet b = sq(i)\n\t\tacc = acc + b", ":24:11  call  merge  not fired  f  (the equal call before it is not a whole value)"},
-	{"the equal call before it does not run first on every path", "if i > 1 {\n\t\t\tlet a = sq(i)\n\t\t\tacc = acc + a\n\t\t}\n\t\tlet b = sq(i)\n\t\tacc = acc + b", ":27:11  call  merge  not fired  f  (the equal call before it does not run first on every path)"},
+	{"computed once per entry of its loop", "let s = sq(k)\n\t\tacc = acc + s", ":29:11  call  memo  fired  f  (computed once per entry of its loop)", ""},
+	{"the callee is not pure", "let s = noisy(k)\n\t\tacc = acc + s", ":29:11  call  memo  not fired  f  (the callee is not pure)", ""},
+	{"a method, a task, a call with a block or a call site", "let s = Box{V: k}.Get()\n\t\tacc = acc + s", "  call  memo  not fired  f  (a method, a task, a call with a block or a call site)", ""},
+	{"an operand or the result is not a number, a bool or a string", "let s = ones(k)\n\t\tacc = acc + len(s)", ":29:11  call  memo  not fired  f  (an operand or the result is not a number, a bool or a string)", ""},
+	{"an operand may change in the loop", "let s = sq(i)\n\t\tacc = acc + s", ":29:11  call  memo  not fired  f  (an operand may change in the loop)", ""},
+	{"statements run before the call", "let s = sq(noisy(k))\n\t\tacc = acc + s", ":29:11  call  memo  not fired  f  (statements run before the call)", ""},
+	{"reads the value of an equal call before it", "let a = sq(i)\n\t\tlet b = sq(i)\n\t\tacc = acc + a + b", ":30:11  call  merge  fired  f  (reads the value of an equal call before it)", ""},
+	{"an operand or the earlier value is written in the function, or not of a basic type", "let mut q = i\n\t\tlet a = sq(q)\n\t\tq = q + 1\n\t\tlet b = sq(q)\n\t\tacc = acc + a + b", ":32:11  call  merge  not fired  f  (an operand or the earlier value is written in the function, or not of a basic type)", ""},
+	{"the equal call before it is not a whole value", "acc = acc + sq(i)\n\t\tlet b = sq(i)\n\t\tacc = acc + b", ":30:11  call  merge  not fired  f  (the equal call before it is not a whole value)", ""},
+	{"the equal call before it does not run first on every path", "if i > 1 {\n\t\t\tlet a = sq(i)\n\t\t\tacc = acc + a\n\t\t}\n\t\tlet b = sq(i)\n\t\tacc = acc + b", ":33:11  call  merge  not fired  f  (the equal call before it does not run first on every path)", ""},
+	{"computed at compile time by the same Go function", "let s = strconv.Quote(\"lit\")\n\t\tacc = acc + len(s)", ":29:11  call  fold  fired  f  (computed at compile time by the same Go function)", ""},
+	{"an operand is not a constant of a basic type", "let s = strconv.Quote(\"\\(k)\")\n\t\tacc = acc + len(s)", ":29:11  call  fold  not fired  f  (an operand is not a constant of a basic type)", ""},
+	{"the compiler does not run on the pinned Go release", "let s = strconv.Quote(\"lit\")\n\t\tacc = acc + len(s)", ":29:11  call  fold  not fired  f  (the compiler does not run on the pinned Go release)", "go1.26.0"},
 }
 
 // TestInspectFormsRows holds ergo inspect forms: for each reason a pass
@@ -88,13 +101,20 @@ func TestInspectFormsRows(t *testing.T) {
 		if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
 			t.Fatal(err)
 		}
+		restore := func() {}
+		if row.compilerGo != "" {
+			restore = lower.SetCompilerGo(row.compilerGo)
+		}
 		text := captureInspect(t, dir, "forms", path)
 		if !strings.Contains(text, row.line+"\n") {
 			t.Errorf("row %q: ergo inspect forms prints\n%s\nwant a line ending %q; the program:\n%s", row.reason, text, row.line, src)
+			restore()
 			continue
 		}
 		var sites []lower.FormSite
-		if err := json.Unmarshal([]byte(captureInspect(t, dir, "forms", path, "--json")), &sites); err != nil {
+		err := json.Unmarshal([]byte(captureInspect(t, dir, "forms", path, "--json")), &sites)
+		restore()
+		if err != nil {
 			t.Fatal(err)
 		}
 		found := false

@@ -53,7 +53,8 @@ const inspectFormsHelp = `usage: ergo inspect forms FILE|DIR [--json]
 Lists the decisions of the passes over the IR of the run build
 (inspect.md, Forms): at each site a pass looked at, the position, the form
 (call), the pass (memo: a loop-invariant pure call computed once per entry
-of its loop; merge: a pure call reads an equal call's value), whether it fired, the body, and what it did or the reason it
+of its loop; merge: a pure call reads an equal call's value; fold: a pure
+Go call on constants computed at compile time), whether it fired, the body, and what it did or the reason it
 did not, in the pass's own words. Only the sites of bodies the IR path
 builds are listed. --json prints them as JSON.
 
