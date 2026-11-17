@@ -7,6 +7,7 @@
 
 import bits
 import cmp
+import config
 import crc32
 import filepath
 import hex
@@ -16,6 +17,7 @@ import sha256
 import slices
 import strconv
 import strings
+import time
 import utf8
 
 func run(kind string, n int) string fails os.Exit {
@@ -33,6 +35,10 @@ func run(kind string, n int) string fails os.Exit {
 	let cfloats = []float64{0.5, -129.5, 1e10, 300.25, -1e19, 42.0, 70000.75, -0.0}
 	let bools = []string{"true", "x", "0", "False", "T", "no", "1", "FALSE"}
 	let quoted = []string{"\"a\\tb\"", "`raw`", "'x'", "bad", "\"é\"", "\"\\u00e9\"", "\"open", "'\\n'"}
+	let durs = []duration{1500ms, -3s, 1h, 7ns, -250us, 90m, 0ns, 12345678ns}
+	let keys = []string{"server.port", "http.maxBodyBytes", "dbURL", "a.bC.dEF", "logLevel", "Ünïcode.keyÉtat", "x", "cache.ttlSeconds.max"}
+	let flags = []string{"server.port", "http.max-body-bytes", "db-u-r-l", "a.b-c.d-e-f", "log-level", "ünïcode.key-état", "x", "cache.ttl-seconds.max"}
+	let envs = []string{"APP_SERVER__PORT", "APP_HTTP__MAX_BODY_BYTES", "APP_DB_URL", "APP_A__B_C__D_E_F", "APP_LOG_LEVEL", "APP_ÜNÏCODE__KEY_ÉTAT", "APP_X", "APP_CACHE__TTL_SECONDS__MAX"}
 	let mut acc = 0
 	let mut f = 0.0
 	match kind {
@@ -518,6 +524,34 @@ func run(kind string, n int) string fails os.Exit {
 			case strconv.Malformed:
 				"?"
 			})
+		}
+	case "time.Times":
+		for i in 0..n {
+			acc += int(int64(time.Times(durs[i & 7], i * 7919 - 500000)) & 1023)
+		}
+	case "time.Divide":
+		for i in 0..n {
+			acc += int(int64(time.Divide(durs[i & 7], (i & 15) + 1)) & 1023)
+		}
+	case "time.Count":
+		for i in 0..n {
+			acc += time.Count(durs[i & 7], durs[(i + 3) & 7] + 1ns) & 1023
+		}
+	case "config.FlagName":
+		for i in 0..n {
+			acc += len(config.FlagName(keys[i & 7]))
+		}
+	case "config.EnvName":
+		for i in 0..n {
+			acc += len(config.EnvName("APP", keys[i & 7]))
+		}
+	case "config.FlagKey":
+		for i in 0..n {
+			acc += len(config.FlagKey(flags[i & 7]))
+		}
+	case "config.EnvKey":
+		for i in 0..n {
+			acc += len(config.EnvKey("APP", envs[i & 7]))
 		}
 	case _:
 		return os.Exit{Code: 2, Message: "bodies: no kind \(strconv.Quote(kind))"}
