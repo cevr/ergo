@@ -729,6 +729,7 @@ func (e *encoder) encFieldsMachineType(v *MachineType) {
 	e.encExpr(v.Step)
 	e.encExpr(v.After)
 	e.encExpr(v.Work)
+	e.encExpr(v.Exit)
 	e.encT14(v.Laws)
 }
 
@@ -2523,6 +2524,7 @@ func (d *decoder) decFieldsMachineType(v *MachineType) {
 	v.Step = d.decExpr()
 	v.After = d.decExpr()
 	v.Work = d.decExpr()
+	v.Exit = d.decExpr()
 	v.Laws = d.decT14()
 }
 

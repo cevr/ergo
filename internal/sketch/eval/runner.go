@@ -87,6 +87,7 @@ type actorV struct {
 	initial, fresh                                 Value
 	step, fire, delay, workOf, hasWork, work, kind Value
 	next, out                                      Value
+	hasExit, leave                                 Value // a state's exit action (rule 18)
 	limit                                          int64
 
 	inbox *queueV
@@ -109,6 +110,7 @@ type actorV struct {
 	// timer and work tasks, and the started sources.
 	cur     *envelope
 	epoch   uint64
+	owed    bool // the open entry has not run its exit action yet (rule 18)
 	timer   *etask
 	working *etask
 	feeds   []*etask
@@ -218,7 +220,7 @@ func registerRunner() {
 // actorStart is std actor's start: the actor, once its runner has
 // opened the first entry (its timer armed, its work started).
 func (in *interp) actorStart(fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
-	if len(args) != 13 {
+	if len(args) != 15 {
 		ice("actor.start with %d arguments", len(args))
 	}
 	limit := args[2].(int64)
@@ -228,9 +230,10 @@ func (in *interp) actorStart(fr *frame, at syntax.Node, fn *check.Func, args []V
 	a := &actorV{
 		initial: args[0], fresh: args[1], limit: limit,
 		step: args[3], fire: args[4], delay: args[5], workOf: args[6], hasWork: args[7], work: args[8],
-		kind: args[9], next: args[10], out: args[11],
+		hasExit: args[9], leave: args[10],
+		kind: args[11], next: args[12], out: args[13],
 	}
-	if ab := in.launch(fr, at, fn, a, args[12].(int64)); ab != nil {
+	if ab := in.launch(fr, at, fn, a, args[14].(int64)); ab != nil {
 		return nil, ab
 	}
 	return a, nil
@@ -357,6 +360,9 @@ func (a *actorV) renew(in *interp, fr *frame) *abrupt {
 // loop is one incarnation: the first entry, then one envelope at a time.
 func (a *actorV) loop(in *interp, fr *frame) *abrupt {
 	s := a.state
+	// The first entry is open from here: a raise in its arm or its work
+	// still ends it with its exit action (rule 18).
+	a.owed = true
 	if ab := a.open(in, fr, s, false); ab != nil {
 		return ab
 	}
@@ -470,11 +476,17 @@ func (a *actorV) handle(in *interp, fr *frame, s Value, env *envelope) (Value, b
 		if ab := a.stopEntry(in, fr); ab != nil {
 			return s, true, ab
 		}
+		// The old entry's exit action runs last, with the state it holds
+		// now, before the next entry opens (rule 18).
+		if ab := a.leaveEntry(in, fr, s); ab != nil {
+			return s, true, ab
+		}
 		ns, ab := a.call(in, fr, a.next, s, d)
 		if ab != nil {
 			return s, true, ab
 		}
 		s = ns
+		a.owed = true
 		a.epoch++
 		if ab := a.open(in, fr, s, true); ab != nil {
 			return s, true, ab
@@ -662,6 +674,31 @@ func (a *actorV) stopEntry(in *interp, fr *frame) *abrupt {
 	return a.stopTask(in, fr, w)
 }
 
+// leaveEntry runs the open entry's exit action (rule 18), as the Go
+// runner's leaveEntry does: when the entry owes it and its state s has
+// one, masked, so a stop does not cut it, after the entry's children,
+// timer and work ended. owed is cleared first, so the end that follows a
+// defect in the action does not run it again. The action has no error
+// row: it ends normally or with a defect.
+func (a *actorV) leaveEntry(in *interp, fr *frame, s Value) *abrupt {
+	if !a.owed {
+		return nil
+	}
+	a.owed = false
+	if a.hasExit == nil {
+		return nil
+	}
+	// Both calls are masked: a Stop's end runs them on a stopped runner.
+	in.mask(1)
+	defer in.mask(-1)
+	has, ab := a.call(in, fr, a.hasExit, s)
+	if ab != nil || has != true {
+		return ab
+	}
+	_, ab = a.call(in, fr, a.leave, s)
+	return ab
+}
+
 // stopKids ends the open entry's children (rule 13): the entry takes no
 // more, its hosts close, and each child is stopped and waited for, last
 // started first. It gives the first defect a child did not report.
@@ -747,6 +784,11 @@ func (a *actorV) crash(in *interp, fr *frame) *abrupt {
 			return ab
 		}
 	}
+	// The open entry's exit action (rule 18); its defect is the crash's,
+	// as the children's are.
+	if ab := a.leaveEntry(in, fr, a.state); stops(ab) {
+		return ab
+	}
 	if a.cur != nil {
 		a.release(a.cur)
 		a.cur = nil
@@ -792,6 +834,13 @@ func (a *actorV) finish(in *interp, fr *frame, exit *abrupt) *abrupt {
 		a.note(ab)
 	}
 	a.timer, a.working = nil, nil
+	// The open entry's exit action, with the state it holds (rule 18): a
+	// defect in it joins the exit.
+	ab = a.leaveEntry(in, fr, a.state)
+	if stops(ab) {
+		return ab
+	}
+	a.note(ab)
 	for _, t := range a.feeds {
 		ab := a.stopTask(in, fr, t)
 		if stops(ab) {
