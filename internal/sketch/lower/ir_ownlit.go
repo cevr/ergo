@@ -1,0 +1,110 @@
+package lower
+
+// IR builder: a call into an owning literal (refown.go, V6; FLIP F7
+// FORK-OWNLIT). sync.Modify, or a Ref's Update, given a function literal
+// written at the call, hands the literal the held value: the call is the
+// owned form of its runtime body (RefModifyOwned, RefUpdateOwned), as the
+// emitter's ownedRefCall writes it,
+//
+//	rt.RefModifyOwned[T, R](r, <adapted literal>, func(v T) T { return <copy of v> }, fresh)
+//
+// its operands in order (the receiver first for an operation), the
+// literal adapted as any std callback is (ir_adapt.go), then the copy
+// function of T, which the cell calls under its lock when the value it
+// holds is shared, and the value walk's proof that the literal's result is
+// unshared. The literal's parameter is a fresh local of the value walk
+// (handParams), so its body's copies are the facts the IR reads already
+// (valueCopy). The in-place form (inPlaceOf: the literal's parameter lowers
+// to *p) keeps the source body.
+//
+// Prior art: Swift's Array and Dictionary copy on write after a uniqueness
+// test of their storage (isKnownUniquelyReferenced), the cell's shared flag
+// here; Clojure's transients and Haskell's ST write a value in place while
+// one owner holds it. Gleam, Elixir and ReScript have no shared mutable cell
+// over mutable data in their std: an Agent's state is a persistent map.
+
+import (
+	"strconv"
+	"strings"
+
+	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/syntax"
+)
+
+// ownedSiteCall is the call x, the owned site s, of a std function (c's
+// Func) or of an operation of a std runtime type (c.Recv's).
+func (b *irBuilder) ownedSiteCall(x *syntax.CallExpr, c *check.Call, s *refSite, p irPos) ([]*irStmt, *irExpr, bool) {
+	if s.lit == nil {
+		irNo("owning site of a function value") // the mutant hand-nonliteral
+	}
+	if ip, _, _ := b.fc.inPlaceOf(s); ip != nil {
+		irNo("owning literal in place")
+	}
+	owned, err := runtimeBody(s.form.name)
+	if err != nil {
+		irNo("owning site without its owned body")
+	}
+	list := x.Args
+	var targs string
+	var subst map[string]string
+	if c.Kind == check.CallOp {
+		// The owned function takes the receiver type's type arguments
+		// (opCallExpr), each the Go type parameter of its position.
+		n, ok := b.l.info.Types[c.Recv].(*check.Named)
+		if !ok || len(n.TArgs) != len(owned.TypeParams) {
+			irNo("owning site on a receiver of another shape")
+		}
+		var ts []string
+		subst = map[string]string{}
+		for i, a := range n.TArgs {
+			ts = append(ts, b.goType(a, x))
+			subst[owned.TypeParams[i].Name] = b.fc.goType(a)
+		}
+		targs = strings.Join(ts, ", ")
+		list = append([]syntax.Expr{c.Recv}, x.Args...)
+	} else {
+		targs, subst = b.stdTypeArgs(owned, c, x)
+	}
+	cb := s.form.cb
+	if x.Trailing != nil || len(owned.Params) != len(list)+2 || cb >= len(list) || owned.Params[cb].Func == nil {
+		irNo("owning site of another shape")
+	}
+	for i, q := range owned.Params[:len(list)] {
+		if i != cb && !b.operandFits(list[i], q.Type, subst) { // ir_operand.go
+			irNo("std call with a converted operand")
+		}
+	}
+	if failsHere(c) {
+		irNo("fallible call with an empty row at its site")
+	}
+	if goValue(owned) && !b.sameGo(b.l.info.Types[x], owned.Results[0]) && !b.sameRT(b.l.info.Types[x], owned.Results[0], subst) {
+		irNo("std call with a converted result")
+	}
+	pre, args := b.operands(list)
+	t := b.l.info.Types[list[cb]]
+	if n, ok := t.(*check.Named); ok {
+		t = n.Underlying()
+	}
+	sig, _ := t.(*check.Signature)
+	bind, fn := b.adaptOperand(sig, list[cb], args[cb], owned.Params[cb], p) // ir_adapt.go
+	pre, args[cb] = append(pre, bind...), fn
+	args = append(args, b.cellCopy(s, p), &irExpr{K: "const", Pos: p, T: "bool", V: strconv.FormatBool(s.fresh)})
+	if targs != "" {
+		b.keepImport("var _ " + b.l.rt() + ".Site") // the instance's types may name the body's type parameters
+	} else {
+		b.keepImport("var _ = " + b.l.rtRef(s.form.name))
+	}
+	return pre, &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: s.form.name, V: targs, Args: args}, !owned.Pure
+}
+
+// cellCopy is the copy function the owned body calls on a shared held
+// value: func(v T) T { return <v copied as cloneValue copies it> }. Its
+// site is the literal's body, no expression, so the copy is never a deep
+// one by vals.deep: cloneValue's never is.
+func (b *irBuilder) cellCopy(s *refSite, p irPos) *irExpr {
+	site := syntax.Node(s.lit.Body)
+	gt := b.goType(s.elem, site)
+	v := b.temp("v", gt, p)
+	body := b.copyOf(s.elem, site, &irExpr{K: "local", Pos: p, I: v}) // ir_copy.go
+	return &irExpr{K: "func", Pos: p, End: &p, T: "func(" + gt + ") " + gt, Params: []int{v}, Body: []*irStmt{{K: "ret", Pos: p, X: body}}}
+}
