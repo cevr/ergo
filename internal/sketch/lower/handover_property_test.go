@@ -238,18 +238,19 @@ func (g *handoverGen) stmt() {
 			return
 		}
 		j := g.r.IntN(len(g.store))
-		kinds := []string{"Kind", "Item", "Push", "Pass", "Method", "Bump", "CycleA", "CycleB", "CallBump", "CallPoke"}
-		// Two peeks of the element; seed s takes the kinds s-1, s+3,
-		// s+7, …, so four seeds reach them all in few reads.
+		kinds := []string{"Kind", "Item", "Push", "Pass", "Method", "Bump", "CycleA", "CycleB", "CallBump", "CallPoke", "Chain"}
+		// Two peeks of the element; seed s takes the kinds s-1, s+2,
+		// s+5, s+8: seeds 2, 3 and 4 alone reach all eleven (seed 1 adds
+		// no bag to the store), in two reads each.
 		for range 2 {
-			kind := kinds[(g.peeks*4+g.peekAt)%len(kinds)]
+			kind := kinds[(g.peeks*3+g.peekAt)%len(kinds)]
 			g.peeks++
 			g.reached["peek "+kind] = true
 			g.line(fmt.Sprintf("out = out + peek%s(&st, %d, %d) + \" \"", kind, j, v))
 			b := g.store[j].copy()
 			e := &g.store[j]
 			switch kind {
-			case "Kind", "Bump", "CallBump":
+			case "Kind", "Bump", "CallBump", "Chain":
 				e.n += v
 			case "Push":
 				e.items = append(append([]int(nil), e.items...), v)
@@ -487,6 +488,16 @@ func peekCallPoke(s *Store, i int, v int) string {
 	view(s.bags[i], pokeN(s, i, v))
 }
 
+// A let of the element's field after the let of the element (storeread.go,
+// letKeepsNothing); the borrow passed on writes only a scalar field: no
+// copy.
+func peekChain(s *Store, i int, v int) string {
+	let b = s.bags[i]
+	let it = b.Items
+	bump(s, i, v)
+	"\(dig(it)),\(b.N)"
+}
+
 // pokeA writes the element's slice; pokeB only passes the borrow back to
 // pokeA: through the recursion, both write it.
 func pokeA(s *Store, i int, v int, d int) {
@@ -668,7 +679,7 @@ func TestHandoverAgrees(t *testing.T) {
 		}
 		return src[i : i+end]
 	}
-	for name, copies := range map[string]bool{"peekKind": false, "peekItem": true, "peekPass": true, "peekBump": false, "peekCycleA": true, "peekCycleB": true, "peekCallBump": false, "peekCallPoke": true, "trim": false} {
+	for name, copies := range map[string]bool{"peekKind": false, "peekItem": true, "peekPass": true, "peekBump": false, "peekCycleA": true, "peekCycleB": true, "peekCallBump": false, "peekCallPoke": true, "peekChain": false, "trim": false} {
 		b := body(programs[0].mainGo(), name)
 		if b == "" || strings.Contains(b, "Clone") != copies {
 			var named []string
@@ -697,7 +708,7 @@ func TestHandoverAgrees(t *testing.T) {
 		}
 	}
 	if *handoverSeed == 0 {
-		for _, s := range []string{"push", "branch", "ring on a live let", "root rings", "inline append on a live let", "grow", "cut", "root takes a push", "root pushes", "concat on a root", "concat on a live let", "concat on a dead local", "store add", "peek Kind", "peek Item", "peek Push", "peek Pass", "peek Method", "peek Bump", "peek CycleA", "peek CycleB", "peek CallBump", "peek CallPoke", "root read then write", "root reslices", "root takes a let's cut", "let keeps the root", "trim through a borrow", "root threads arms", "arm on a live let", "root mk", "mk on a live let", "root both", "window kept", "window kept by a call", "window popped", "window read", "window read in flight"} {
+		for _, s := range []string{"push", "branch", "ring on a live let", "root rings", "inline append on a live let", "grow", "cut", "root takes a push", "root pushes", "concat on a root", "concat on a live let", "concat on a dead local", "store add", "peek Kind", "peek Item", "peek Push", "peek Pass", "peek Method", "peek Bump", "peek CycleA", "peek CycleB", "peek CallBump", "peek CallPoke", "peek Chain", "root read then write", "root reslices", "root takes a let's cut", "let keeps the root", "trim through a borrow", "root threads arms", "arm on a live let", "root mk", "mk on a live let", "root both", "window kept", "window kept by a call", "window popped", "window read", "window read in flight"} {
 			if !reached[s] {
 				t.Errorf("seeds %v never write %q", seeds, s)
 			}

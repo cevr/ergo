@@ -117,13 +117,8 @@ func (w *valueWalk) keptRead(vv *vvar, o *vocc) bool {
 			break
 		}
 	}
-	if local == nil || !local.local || local.mut || local.ptr || local.handed || local.frame != o.frame {
+	if local == nil || local.frame != o.frame || !w.letKeepsNothing(local, 0) {
 		return false
-	}
-	for _, u := range local.occs {
-		if u.kind != occRead || u.frame != local.frame {
-			return false
-		}
 	}
 	read := map[string]bool{}
 	if w.l.reaches(w.typeOf(o.path), read, map[check.Type]bool{}) {
@@ -147,6 +142,47 @@ func (w *valueWalk) keptRead(vv *vvar, o *vocc) bool {
 		return false
 	}
 	w.l.took("own-read")
+	return true
+}
+
+// A let of a part of such a let (OWN1, own-read; lane C's S3d6 typer,
+// `let p = k.Parsed[t.file]` then `let tr = p.Tree`) shares the element's
+// storage the same way: it keeps nothing when it too is a plain let whose
+// every use is a read that keeps nothing, or the whole initializer of one
+// more such let, in the same frame. The storage the first read reaches
+// covers the parts' (reaches), so keptRead's write check stands.
+
+// keptLetDepth bounds a chain of lets of parts (letKeepsNothing).
+const keptLetDepth = 8
+
+// letKeepsNothing reports whether the let local is plain (no mut, no
+// borrow, not handed over) and each of its uses is a read that keeps
+// nothing in its frame, or the initializer of a let that keeps nothing.
+func (w *valueWalk) letKeepsNothing(local *vvar, depth int) bool {
+	if !local.local || local.mut || local.ptr || local.handed || depth > keptLetDepth {
+		return false
+	}
+	for _, u := range local.occs {
+		if u.frame != local.frame {
+			return false
+		}
+		if u.kind == occRead {
+			continue
+		}
+		if u.kind != occEscape {
+			return false
+		}
+		var next *vvar
+		for _, cand := range w.order {
+			if cand.init != nil && unparen(cand.init) == unparen(u.path) {
+				next = cand
+				break
+			}
+		}
+		if next == nil || next == local || next.frame != local.frame || !w.letKeepsNothing(next, depth+1) {
+			return false
+		}
+	}
 	return true
 }
 
