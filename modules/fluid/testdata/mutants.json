@@ -391,7 +391,7 @@
       "file": "modules/fluid/web/atom.ergo",
       "from": "\t\tif len(out) == 0 || key(out[len(out)-1]) != key(a) {",
       "to": "\t\tif true {",
-      "rule": "An atom two looks share is printed twice: SheetIsOneRulePerDistinctDecl and SheetIgnoresRepeats.",
+      "rule": "An atom two looks share is printed twice: SheetIsOneRulePerDistinctDecl.",
       "anchor": {
         "tests": [
           "examples:modules/fluid",
@@ -469,6 +469,22 @@
       },
       "killers": [
         "examples:fluid-gallery"
+      ]
+    },
+    {
+      "name": "fl1-theme-adds-rule",
+      "origin": "wf10/fl1 FL1",
+      "file": "modules/fluid/web/atom.ergo",
+      "from": "\tb.WriteString(token.Sheet(t))\n\tb.WriteString(\"}\")\n",
+      "to": "\tb.WriteString(token.Sheet(t))\n\tb.WriteString(\"}\")\n\tif token.Sheet(t) != token.Sheet(token.Default) {\n\t\tb.WriteString(\".fx{color-scheme:only light}\")\n\t}\n",
+      "rule": "A theme other than the default adds a rule to the sheet: ThemeChangesNoAtom (every other law builds its sheet under the default theme).",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
       ]
     }
   ]
