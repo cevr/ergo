@@ -77,9 +77,6 @@ func run(args []string, input io.Stdin) fails os.Exit needs io.Stdout {
 			case ui.NoNode as n:
 				io.Stdout.Println("\(i + 1): no node \(n.Label)")
 				continue
-			case ui.Mismatch as m:
-				io.Stdout.Println("\(i + 1): want \(m.Want), got \(m.Got)")
-				continue
 			case actor.Stopped:
 				return os.Exit{Code: 1, Message: "todo-gui: the list stopped"}
 			case ui.BadPatch as b:

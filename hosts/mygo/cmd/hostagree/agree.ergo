@@ -382,8 +382,6 @@ func played(f func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed |
 		return Broke{Why: b.Why}
 	case ui.Closed:
 		return Broke{Why: "closed"}
-	case ui.Mismatch as m:
-		return Broke{Why: "want \(m.Want), got \(m.Got)"}
 	}
 	Done
 }
