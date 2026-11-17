@@ -29,7 +29,7 @@ package lower
 // callText does: the IR never passes a witness the emitter's call does
 // not.
 //
-// Still gated: a wire parameter (its witness is a codec, read by the
+// Still gated: a codec parameter (its witness is a codec, read by the
 // codec calls), and in a copy for a known witness (fc.static, whose body
 // "copy for an instance" keeps the emitter's until G4) an operation call
 // on that witness, which the copy makes a direct call (witnessCall).
@@ -164,7 +164,7 @@ func (b *irBuilder) passedWitnesses(f *check.Func, inst *check.Instance, params 
 }
 
 // witnessGate stops a body with witness parameters that the IR does not
-// take yet: a wire parameter's (its witness is a codec). A copy for a
+// take yet: a codec parameter's (isWireParam). A copy for a
 // known witness keeps its own gate, "copy for an instance" (G4), and its
 // operation calls on the known witness theirs (witnessOpCall).
 func (b *irBuilder) witnessGate() {
