@@ -46,10 +46,10 @@ cmp	Max	computation	PRIM: Go's builtin max over every ordered type (a float's si
 cmp	Min	computation	PRIM: Go's builtin min over every ordered type (a float's sign of zero); goBuiltins bind min and max for basic types only
 config	NewRedacted	computation	NP4f-7
 config	Redacted	type
-config	envKey	computation	NP4f-7
-config	envName	computation	NP4f-7
-config	flagKey	computation	NP4f-7
-config	flagName	computation	NP4f-7
+config	envKey	computation	LF2 and IR1: as an Ergo body it counted 1.126x the runtime/v1 body (NP4f-7 receipt-2): std strings.Join clones its slice argument (LF2's appender and reads facts), and the per-part slices and Builder writes go through runtime/v1 calls the IR does not inline
+config	envName	computation	LF2 and IR1: as an Ergo body it counted 1.225x the runtime/v1 body (NP4f-7 receipt-2): std strings.Join clones its slice argument (LF2's appender and reads facts), and the per-part slices and Builder writes go through runtime/v1 calls the IR does not inline
+config	flagKey	computation	LF2 and IR1: as an Ergo body it counted 1.197x the runtime/v1 body (NP4f-7 receipt-2): std strings.Join clones its slice argument (LF2's appender and reads facts), and the per-part slices and Builder writes go through runtime/v1 calls the IR does not inline
+config	flagName	computation	LF2 and IR1: as an Ergo body it counted 1.281x the runtime/v1 body (NP4f-7 receipt-2): std strings.Join clones its slice argument (LF2's appender and reads facts), and the per-part slices and Builder writes go through runtime/v1 calls the IR does not inline
 config	hostEnviron	library	HOST-ROW: os.Environ through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead
 crc32	Update	library	GBX3: Go's crc32.IEEETable is a package variable; MakeTable(IEEE) returns Option[go.Ref[Table]], a match per call
 csv	Format	library	not tried in NP4f-5: Go's csv.Writer writes to an io.Writer (strings.Builder through import go), a GB2 binding not probed
@@ -262,14 +262,13 @@ testing	Op	type
 testing	Unanswered	provider
 testing	newLine	provider
 testing	newOp	provider
-time	Count	computation	NP4f-7
-time	Divide	computation	NP4f-7
+time	Count	computation	IR1 inline: as an Ergo body it counted 1.200x the runtime/v1 body (NP4f-7 receipt-2): the same instructions, but an IR-compiled body is not inlined into its caller, and Go inlines the runtime/v1 body
+time	Divide	computation	IR1 inline: as an Ergo body it counted 2.000x the runtime/v1 body (NP4f-7 receipt-2): the same instructions, but an IR-compiled body is not inlined into its caller, and Go inlines the runtime/v1 body
 time	DurationText	library	GBX4: time.Duration is Ergo's duration, so gostd refuses Duration.String
 time	ParseDuration	library	GBX4: time.Duration is Ergo's duration, so gostd refuses ParseDuration's result
 time	ParseError	type
 time	Reading	type
 time	Timeline	type
-time	Times	computation	NP4f-7
 time	format	library	GBX6 rows for time: time.Unix, Time.UTC and Time.Format are pure, but std/time is outside v1.PureImports and gostd binds each needs go.Foreign; FK2's gofacts rows
 time	hostMono	library	HOST-ROW: time.Since through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead; it reads the runtime's start time, a Go variable of runtime/v1 (GBX3)
 time	hostNow	library	HOST-ROW: time.Now through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead

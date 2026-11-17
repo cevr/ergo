@@ -45,7 +45,7 @@ var stdGoShareCeiling = map[string]int{
 	"host":        19,
 	"library":     66,
 	"language":    21,
-	"computation": 49,
+	"computation": 48,
 	"type":        75,
 }
 
