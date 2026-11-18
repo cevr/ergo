@@ -18,6 +18,11 @@
 // identity that is process-scoped (go run, go test) keeps the store in
 // memory: another process's compiler may differ.
 //
+// The gate's core (cmd/ergo, gate.go) keeps its other verdicts here too,
+// fmt --check, lint, gen --check and a module's whole run, each under a
+// key whose first part names its verb ("gate fmt/1"), so no verdict of
+// one kind has another's key.
+//
 // Prior art: go test caches a package's passing result keyed by its
 // inputs and prints "(cached)"; Bazel caches test actions by their input
 // digests; Lean keeps each declaration's checked proof in its .olean;
