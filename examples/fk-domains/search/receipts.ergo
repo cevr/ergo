@@ -53,10 +53,13 @@ test TypingScriptsMakeTheOriginalsRequests {
 }
 
 // P6: before a row is loaded the state holds nothing per candidate: Held
-// is 0 at each of the plan's four catalog sizes, scrolled anywhere, and
-// the ranges are one Load per range (plan.Count(n), n/60 and two).
+// is 0 at the plan's catalog sizes, scrolled anywhere, and the ranges are
+// one Load per range (plan.Count(n), n/60 and two). The plan's fourth
+// size, 100,000, adds no case the others miss: Held reads no row of the
+// catalog, and the planner's flat work at 100,000 is law StepWorkIsFlat's
+// (FK-TRIM: no ledger mutant is killed by this test at any size).
 test HoldsNothingPerCandidate {
-	for n in []int{556, 1000, 10000, 100000} {
+	for n in []int{556, 1000, 10000} {
 		let mut catalog = []string{}
 		for i in 0..n {
 			catalog = catalog.Append("x\(i)")
@@ -68,21 +71,24 @@ test HoldsNothingPerCandidate {
 	}
 }
 
-// P7: a session of 400 distinct settled queries holds what a session of
-// 100 holds: the cache keeps 100 settled answers, and the page shows one
-// query's first page.
+// P7: a session of one more distinct settled query than the cache holds
+// holds what a session of the cache's capacity holds: the cache keeps
+// Capacity() settled answers, and the page shows one query's first page.
+// One query past the capacity is the least that shows the bound: the
+// eviction it makes is the one a longer session repeats.
 test ASessionIsBounded {
+	let n = Capacity() + 1
 	let mut m = page()
-	let mut at100 = m
-	for i in 0..400 {
+	let mut full = m
+	for i in 0..n {
 		m = Settle(Feed(m, Typed{Text: "q\(i)"}))
-		if i == 99 {
-			at100 = m
+		if i == Capacity() - 1 {
+			full = m
 		}
 	}
-	assert cache.SettledCount(at100.S.Cache) == Capacity() && cache.SettledCount(m.S.Cache) == Capacity()
-	assert Held(at100.S) == Held(m.S) && Held(m.S) == 60
-	assert len(m.Fetches) == 800
+	assert cache.SettledCount(full.S.Cache) == Capacity() && cache.SettledCount(m.S.Cache) == Capacity()
+	assert Held(full.S) == Held(m.S) && Held(m.S) == 60
+	assert len(m.Fetches) == 2*n
 }
 
 // P8: choosing a price order makes one request, the whole catalog, and
