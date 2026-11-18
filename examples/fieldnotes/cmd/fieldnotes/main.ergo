@@ -148,13 +148,13 @@ test BuildWritesWhatPrintPrints {
 	with context { io.Stdout: out, fs.Files: disk, fs.Writes: disk } {
 		try run([]string{"build", "site"})
 	}
-	assert out.Text() == "wrote site/index.html\nwrote site/feed.xml\nwrote site/entries/frost/index.html\nwrote site/entries/marsh/index.html\nwrote site/404.html\n"
+	assert out.Text() == "wrote site/index.html\nwrote site/feed.xml\nwrote site/entries/frost/index.html\nwrote site/entries/marsh/index.html\nwrote site/notes.5655a480eb7a.css\nwrote site/404.html\n"
 	let printed = io.NewRecorder()
 	with context { io.Stdout: printed, fs.Files: disk, fs.Writes: disk } {
 		try run([]string{"print"})
 	}
 	let mut want = ""
-	for path in []string{"index.html", "feed.xml", "entries/frost/index.html", "entries/marsh/index.html", "404.html"} {
+	for path in []string{"index.html", "feed.xml", "entries/frost/index.html", "entries/marsh/index.html", "notes.5655a480eb7a.css", "404.html"} {
 		let body = try disk.ReadFile("site/" + path)
 		want = want + "== " + path + "\n" + (if strings.HasSuffix(body, "\n") { body } else { body + "\n" })
 	}

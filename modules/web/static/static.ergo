@@ -53,8 +53,9 @@ func PathOf(u ui.URL) string fails BadPath {
 
 // Pages is the tree of site's routes: a file for each route of routes (a
 // route listed twice, or two routes of one file, are written once, the
-// first), then the 404 page as NotFoundPath, the page Fetch answers for a
-// path that is no route. A route whose loader fails stops the build with
+// first), then each of site's assets at its place's file, as its bytes,
+// then the 404 page as NotFoundPath, the page Fetch answers for a path
+// that is no route. A route whose loader fails stops the build with
 // its failure, so a listed route that does not load is never a file
 // (ListedRoutesLoad).
 func Pages[R comparable, P, F, N](site web.Site[R, P, F, N], routes []R) []File fails F | BadPath needs N {
@@ -66,6 +67,13 @@ func Pages[R comparable, P, F, N](site web.Site[R, P, F, N], routes []R) []File 
 			paths = paths.Append(path)
 			let page = try site.Load(r)
 			files = files.Append(File{Path: path, Body: html.Render(site.View(page))})
+		}
+	}
+	for a in site.Assets {
+		let path = try PathOf(ui.URL{Path: a.Path, Query: "", Fragment: ""})
+		if !slices.Contains(paths, path) {
+			paths = paths.Append(path)
+			files = files.Append(File{Path: path, Body: a.Body})
 		}
 	}
 	files.Append(File{Path: NotFoundPath, Body: html.Render(site.NotFound("/" + NotFoundPath))})
@@ -87,7 +95,8 @@ func Build[R comparable, P, F, N](site web.Site[R, P, F, N], routes []R, dir str
 // Differences is what Pages of site's routes writes that a served site
 // would not answer: each file whose bytes are not the body Fetch answers
 // GET of its route with status 200, each route of routes with no file,
-// each file of no route of routes, and a 404 page that is not Fetch's
+// each asset whose file is not its bytes, each file of no route of
+// routes and no asset, and a 404 page that is not Fetch's
 // answer for its path, with status 404. It is empty when the build is the
 // site (StaticEqualsServed).
 func Differences[R comparable, P, F, N](site web.Site[R, P, F, N], routes []R) []string fails F | BadPath needs N {
@@ -105,6 +114,19 @@ func Differences[R comparable, P, F, N](site web.Site[R, P, F, N], routes []R) [
 			let served = web.Fetch(site, web.Request("GET", place))
 			if served.Status != 200 || served.Body != f.Value.Body {
 				out = out.Append(place + ": " + path + " is not what Fetch answers")
+			}
+		}
+	}
+	for a in site.Assets {
+		let path = try PathOf(ui.URL{Path: a.Path, Query: "", Fragment: ""})
+		want = want.Append(path)
+		let served = web.Fetch(site, web.Request("GET", a.Path))
+		match find(files, path) {
+		case None:
+			out = out.Append(a.Path + ": no file")
+		case Some as f:
+			if served.Status != 200 || served.Body != f.Value.Body {
+				out = out.Append(a.Path + ": " + path + " is not what Fetch answers")
 			}
 		}
 	}
@@ -201,6 +223,7 @@ func lawSite() web.Site[lawRoute, string, lawGone] {
 			}
 		},
 		NotFound: func(path string) html.Node { html.P([]html.Child{html.Text("no page at " + path)}) },
+		Assets:   []web.Asset{web.Stylesheet("site.css", "p { margin: 0 }")},
 	}
 }
 
@@ -220,8 +243,9 @@ func loads(routes []lawRoute) []lawRoute {
 }
 
 // StaticEqualsServed (the host law): for a list of routes that load, the
-// built tree is a file for each listed route and the 404 page, and each
-// file's bytes are the body Fetch answers for a GET of its route.
+// built tree is a file for each listed route, each asset and the 404
+// page, and each file's bytes are the body Fetch answers for a GET of its
+// route or asset: a served asset is the bytes the build wrote.
 law StaticEqualsServed(routes []lawRoute) {
 	let list = loads(routes)
 	let diffs = Differences(lawSite(), list) catch {

@@ -52,5 +52,6 @@ func New(origin string) web.Site[Route, Page, journal.Missing, journal.Journal] 
 			}
 		},
 		NotFound: notFoundPage,
+		Assets:   []web.Asset{sheet},
 	}
 }

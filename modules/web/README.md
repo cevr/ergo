@@ -4,7 +4,7 @@ An Ergo module of this repository (`modules/`, MK0): a web framework for server-
 
 | Package | What |
 | --- | --- |
-| `web` | `Routes[R]` with law `HrefParses`; `To` (a route's link, for `html.Href`); `Site[R, P, F, N]`; `Reply`; `Fetch`; `Request` |
+| `web` | `Routes[R]` with law `HrefParses`; `To` (a route's link, for `html.Href`); `Site[R, P, F, N]`; `Reply`; `Fetch`; `Request`; `Asset`, `Hashed`, `Stylesheet`, `Link` |
 | `web/webtest` | `Get`, `Head` and `Post` on a site with no server; `Links` (the hrefs of a page's `<a>` elements) and `Unresolved` (each link to the site that does not answer 200) |
 | `web/static` | the prerender host: `PathOf` (a place's file), `Pages`, `Build` (writes them under a folder, `needs fs.Writes`), `Differences` (what a build writes that `Fetch` would not serve) |
 
@@ -28,6 +28,10 @@ An Ergo module of this repository (`modules/`, MK0): a web framework for server-
 Each answer is `Content-Type: text/html; charset=utf-8` but the 405. The request's path is read as written, escaped: `Fetch` does not unescape it before `Parse` (`ui.Segments` unescapes each segment).
 
 Laws (`app.ergo`, over a site of their own whose loader fails): `HeadIsGetWithoutBody`, `UnknownPathIsNotFound`, `OtherMethodIsNotAllowed`, `KnownPathIsLoadThenView`. `webtest`'s test `FixtureSiteAnswers` drives a three-route site whose loader reads a capability.
+
+## Assets
+
+A site's `Assets` are files served as they are beside its pages: a style sheet, a font, an image. `Fetch` answers a GET of an asset's `Path` with its bytes and its `Content-Type` (HEAD with no body, another method 405), before it parses the path as a route; `static` writes each at its place's file. `Hashed(name, type, body)` places an asset at `/stem.<12 hex digits of its SHA-256>.ext`, so a changed file gets a new place and a host or browser may keep it forever; `Stylesheet(name, css)` is a `text/css` one; `Link(a)` is its link for `html.Href`. Laws: `HashedNameIsItsBytes`, `AssetServedIsItsBytes`, and static's `StaticEqualsServed`, whose law site has an asset.
 
 ## The static host
 

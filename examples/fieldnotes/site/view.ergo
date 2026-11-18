@@ -45,6 +45,7 @@ func layout(title string, main []html.Child) html.Node {
 		html.Head([]html.Child{
 			html.Meta([]html.Attr{html.Charset("utf-8")}),
 			html.Title([]html.Child{html.Text(title)}),
+			html.Link([]html.Attr{html.Rel("stylesheet"), html.Href(web.Link(sheet))}),
 		}),
 		html.Body([]html.Child{
 			html.Header([]html.Child{html.Nav([]html.Child{
@@ -56,6 +57,9 @@ func layout(title string, main []html.Child) html.Node {
 		}),
 	}))
 }
+
+// sheet is the site's style sheet, served at a place named by its bytes.
+let sheet = web.Stylesheet("notes.css", "body { max-width: 40rem; margin: 2rem auto; font-family: Georgia, serif; line-height: 1.5 }\ntime { color: #666 }\n")
 
 // missingPage is the page of an entry the journal lacks.
 func missingPage(slug string) html.Node {
