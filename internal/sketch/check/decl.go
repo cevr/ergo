@@ -2342,6 +2342,9 @@ func (c *checker) funcSig(f *Func) *Signature {
 	if c.pkg.Host() && d.Extern != nil {
 		c.hostClauses(d.Extern.Target.Value, sig, d)
 	}
+	if d.Extern != nil {
+		c.externRows(d, sig)
+	}
 	if d.Body == nil {
 		// A bodiless (extern) function's parameters are declared here; a
 		// body's are declared when it is checked.
