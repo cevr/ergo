@@ -41,12 +41,12 @@ func TestStdGoShareOnlyFalls(t *testing.T) {
 // may hold. It only falls: a move lowers its class's ceiling to the count
 // it leaves.
 var stdGoShareCeiling = map[string]int{
-	"provider":    54, // I-FLIP: +1 prelude.AsWritten (LF6w, a runtime mark: the call tree kept as written)
-	"host":        19,
-	"library":     63,
-	"language":    1,
-	"computation": 48,
-	"type":        75,
+	"provider":    79, // I-FLIP: +1 prelude.AsWritten (LF6w, a runtime mark: the call tree kept as written); I22: +25 batch-22 externs
+	"host":        33, // I22: +14 batch-22 externs
+	"library":     77, // I22: +14 batch-22 externs (I22-B22CLASS rows)
+	"language":    3,  // I22: +2 batch-22 externs
+	"computation": 53, // I22: +5 batch-22 externs
+	"type":        79, // I22: +4 batch-22 externs
 }
 
 // stdGoShareClasses are the classes a row may name; the true ones need a

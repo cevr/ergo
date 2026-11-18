@@ -59,7 +59,7 @@ func (f changeFunc) source() string {
 // formatter's), and the record and the findings must stay as they were.
 // Mutants: change-clone-self (a function is its own twin, so a moved one
 // is a clone), change-scattered-two (two packages are scattered),
-// change-files-dropped (an untracked file left out of the record).
+// change-files-untracked-dropped (an untracked file left out of the record).
 //
 // Replay: go test -run '^TestLintChangeSetModel$' ./cmd/ergo -args -change.seed=N
 func TestLintChangeSetModel(t *testing.T) {

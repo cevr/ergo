@@ -17,7 +17,7 @@ var coChangeSeed = flag.Uint64("cochange.seed", 0, "run TestCoChangesModel on th
 // commits past CoChangeMaxFiles), CoChanges equals a reference fold that
 // counts each unordered pair of distinct paths once per commit of at most
 // CoChangeMaxFiles distinct paths, sorted by count then paths. Mutants:
-// cochange-no-skip (the 50-file skip removed), cochange-twice (each pair
+// cochange-no-skip (the skip of a commit past 50 files removed), cochange-twice (each pair
 // counted in both orders), cochange-no-dedup (a path listed twice in one
 // commit counted twice).
 //
