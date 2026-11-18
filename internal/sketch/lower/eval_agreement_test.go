@@ -157,8 +157,11 @@ func referenceLowerings() (restore func()) {
 	getLowering, unionLowering = "switch", "interface"
 	inlineLowering, builtinLowering, callbackLowering, recordLowering, scalarLowering = "call", "call", "opaque", "opaque", "off"
 	catch := SetCatchSwitchForTest(true)
+	savedChain := chainLowering
+	chainLowering = "if"
 	return func() {
 		catch()
+		chainLowering = savedChain
 		valueLowering, matchLowering, captureLowering = saved[0], saved[1], saved[2]
 		getLowering, unionLowering = saved[3], saved[4]
 		inlineLowering, builtinLowering, callbackLowering, recordLowering, scalarLowering = saved[5], saved[6], saved[7], saved[8], saved[9]

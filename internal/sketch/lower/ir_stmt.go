@@ -84,8 +84,18 @@ func (b *irBuilder) tail(list []syntax.Stmt, ret bool) []*irStmt {
 // to (an if expression's branch) instead of returning it.
 func (b *irBuilder) tailTo(list []syntax.Stmt, ret bool, to *yieldTo) []*irStmt {
 	var out []*irStmt
+	skip := 0
 	for i, s := range list {
 		last := i == len(list)-1
+		if skip > 0 {
+			skip--
+			continue
+		}
+		// A run of comparisons of one value, as one switch (chainswitch.go).
+		if n := b.chainSwitch(&out, list, i, ret || to != nil); n > 0 {
+			skip = n - 1
+			continue
+		}
 		b.part(func() {
 			if len(b.l.info.Releases[s]) > 0 {
 				irNo("statement that releases owned values")

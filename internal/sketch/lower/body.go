@@ -337,6 +337,12 @@ func (fc *funcCtx) stmts(list []syntax.Stmt) bool {
 			terminates = false
 			continue
 		}
+		if n := fc.chainSwitch(list, i); n > 0 {
+			// A run of comparisons of one value, as one switch (chainswitch.go).
+			i += n - 1
+			terminates = false
+			continue
+		}
 		s := list[i]
 		terminates = fc.stmt(s)
 		if !terminates {
