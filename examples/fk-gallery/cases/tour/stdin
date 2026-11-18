@@ -10,8 +10,8 @@
 @1200 open /gallery/4
 @1700 open /gallery/4
 @1750 link Next →
-# a draft in the studio, saved on leaving (300 ms) for a painting the
-# gallery does not have
+# a draft in the studio, saved by the studio's exit action on leaving
+# for a painting the gallery does not have
 @1800 link Studio
 @1900 type half-finished thought
 @2000 open /gallery/9

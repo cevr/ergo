@@ -24,10 +24,11 @@ With `-stats`, the program also prints the work of each step.
 - Package `gallery` is the domain.
   - `Route = Home | Gallery | Painting{ID} | Studio | NotFound{Path}`, with `Parse` (a URL or a path) and `Print`.
   - The paintings.
-  - The machine `Gallerist` over `Site`. `Site` holds the route (`None` before the first URL), the log of the last 20 navigations, the catalog (`Idle | Loading | Ready`), the painting (`NoPainting | LoadingPainting{ID} | ReadyPainting{ID}`), the draft, the draft saved, and the jobs asked for.
-  - The loads and the save (`LoadCatalog`, `LoadPainting{ID}`, `SaveDraft{Draft}`) are jobs in the state. The machine's work runs them: it dates each job on the clock (600, 400 and 300 ms, as upstream's sleeps), sleeps to each in time order and answers it. A navigation opens a new entry, and the work starts again with the jobs left, each keeping its due time.
+  - The machine `Gallerist` over `Site`. `Site` holds the route (`None` before the first URL), the log of the last 20 navigations, the catalog (`Idle | Loading | Ready`), the painting (`NoPainting | LoadingPainting{ID} | ReadyPainting{ID}`), the draft, the draft last saved as the studio's work read it, and the jobs asked for.
+  - The loads (`LoadCatalog`, `LoadPainting{ID}`) are jobs in the state. The machine's work runs them: it dates each job on the clock (600 and 400 ms, as upstream's sleeps), sleeps to each in time order and answers it. A navigation opens a new entry, and the work starts again with the jobs left, each keeping its due time.
   - The step's output is what the page asks of the browser: `Push{URL}` or `Leave{Href}`. The host answers a push with `Arrived`.
-  - Leaving the studio saves the draft as last typed: the leaving arm adds the save. A state's exit action would see only the draft the studio was entered with, since a key typed is a `Stay` (gap FK9-g1).
+  - **Leaving the studio saves the draft in the studio's exit action** (`exit: leave`). The runner runs it when the studio's entry ends, with the state the entry ends with, so the draft is the one last typed (a key is a `Stay`), once per visit: on the navigation away, or at the site's end. A stay in the studio and a click are no end of the entry (a click is a `Tell`). The contract `Drafts` (`Save`, `Last`, law `LastIsTheLatestSave`) is the domain's; the studio's work reads `Last` back as `Recalled`. Upstream's save sleeps 300 ms; the in-process store takes no time, so the exit action holds the site for no wait.
+- Package `memory` holds `Drafts` in process; `cmd/fk-gallery/main.ergo` binds it, the only place that chooses it.
 - **What a navigation means is one `match` on the route before and the route after.** `(Home, Gallery)` is an entry, `(Gallery, Gallery)` a stay, `(Painting, Painting)` a stay that compares ids, and `(Studio, Home)` an exit. The match lists all 25 pairs, so a new route is a compile error until each of its pairs says what it means. A cold load comes from no page; as a path the site does not have, it enters every page.
 - Package `screen` is upstream's view:
   - the navigation;
@@ -61,7 +62,8 @@ A story is an Ergo test only when the test kills a mutant that no law and no cas
 
 - `CatalogueLoadsOncePerVisit`: drawn navigations and catalog answers, step by step against a reference of a visit and a flight. The catalog is asked for exactly when the site enters the gallery, from another page or cold, with no load in flight.
 - `StayRefetchesOnlyOnIdChange`: on a painting, whether it is loaded or loading, a navigation to a painting loads it exactly when the id is another.
-- `LeavingStudioAlwaysSaves`: over drawn navigations, keys and answers of the work, each navigation that leaves the studio with a draft asks for one save, of the draft as last typed, and no other step asks for one; once every job is answered, the draft saved is the one the studio was last left with.
+- `LeavingStudioAlwaysSaves`: the site runs as an actor on a manual clock over drawn keys, arrivals, link clicks and clock moves, then stops; the drafts its exit actions saved are, in order, the draft as last typed at each leave of the studio with a draft, then at the end if it ends in the studio with one. No other step saves. A reference model reads only the route and the draft.
+- `Drafts.LastIsTheLatestSave` (in the contract): after any saves, `Last` is the last draft saved.
 - `LogKeepsTheLastTwenty`: the log keeps the last 20 navigations, newest first.
 - `RoutesRoundTrip`: `Parse(Print(r))` is `r` for every route of the site.
 
@@ -69,6 +71,6 @@ The mutants these kill are in `testdata/mutants.json`.
 
 ## Cases
 
-- `tour`: a cold load home; the gallery; leaving and re-entering it while the catalog loads (one load); a painting and then another typed, where the first one's late answer is ignored; the same painting again (no load); its Next link; a draft written in the studio and saved on the move to a painting the gallery does not have; Back to the studio, and an empty draft left unsaved; a path the site does not have; a link elsewhere; and the log.
+- `tour`: a cold load home; the gallery; leaving and re-entering it while the catalog loads (one load); a painting and then another typed, where the first one's late answer is ignored; the same painting again (no load); its Next link; a draft written in the studio and saved by its exit action on the move to a painting the gallery does not have; Back to the studio, and an empty draft left unsaved; a path the site does not have; a link elsewhere; and the log.
 - `scenes` (new): the screen through its own links: a cold load into the gallery, a painting's Next and Previous, a fresh gallery entry that loads again, a painting the gallery lacks, a missing path and its link home, and Back.
 - `badscript`: an unknown word; the program says which line and exits 1.

@@ -106,7 +106,7 @@ type Frame { Head string, Asks []string, Lines []string, Counts ui.StepCounts }
 // PlayScreen plays s on the site's screen, on the test host over clock,
 // and gives each frame to show: one per line, one per answer, and one at
 // the end.
-func PlayScreen[R](s Script, clock time.Manual, show func(f Frame) needs R) fails actor.Stopped | ui.BadPatch needs R | time.Clock | Scheduler {
+func PlayScreen[R](s Script, clock time.Manual, show func(f Frame) needs R) fails actor.Stopped | ui.BadPatch needs R | time.Clock | Scheduler | gallery.Drafts {
 	let gone = queue.New[[]gallery.Command](64)
 	let site = actor.StartMachine(gallery.Gallerist{}, 16, func(cs []gallery.Command) {
 		gone.Push(cs) catch {
@@ -229,7 +229,7 @@ func run(h *Host, gone queue.Queue[[]gallery.Command], seen int) Ran fails actor
 				try ui.Settle(h)
 				ran = asked(h, ran)
 			case gallery.Leave:
-			case gallery.LoadCatalog, gallery.LoadPainting, gallery.SaveDraft:
+			case gallery.LoadCatalog, gallery.LoadPainting:
 				Unreachable("script: a job is never the step's output")
 			}
 		}
@@ -252,7 +252,7 @@ func asked(h *Host, r Ran) Ran {
 // each frame: its heading, what the site asked, and the screen's lines
 // that changed; with stats, the work of each step too. It returns the
 // exit status: 0, or 1 when the script is refused or the screen fails.
-func Run(clock time.Manual, stats bool) int needs Console | io.Stdin | time.Clock | Scheduler {
+func Run(clock time.Manual, stats bool) int needs Console | io.Stdin | time.Clock | Scheduler | gallery.Drafts {
 	let mut text = []string{}
 	for line in io.Stdin.Lines() {
 		text = text.Append(line)
@@ -362,8 +362,6 @@ func Ask(c gallery.Command) string {
 		"load the catalog"
 	case gallery.LoadPainting as p:
 		"load painting \(p.ID)"
-	case gallery.SaveDraft as s:
-		"save \"\(s.Draft)\""
 	case gallery.Push as p:
 		"push \(p.URL)"
 	case gallery.Leave as l:
@@ -378,9 +376,7 @@ func Answer(sig gallery.Signal) string {
 		"catalog loaded"
 	case gallery.PaintingLoaded as p:
 		"painting \(p.ID) loaded"
-	case gallery.DraftSaved as d:
-		"saved \"\(d.Draft)\""
-	case gallery.Arrived, gallery.Clicked, gallery.Drafted, gallery.Dated, gallery.Answered:
+	case gallery.Arrived, gallery.Clicked, gallery.Drafted, gallery.Recalled, gallery.Dated, gallery.Answered:
 		"signal"
 	}
 }
