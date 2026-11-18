@@ -10,7 +10,8 @@ import machines
 
 // State is where a workspace is in its lifecycle. A crash between the
 // clone and the registry's record of it leaves Creating, which gc
-// removes. The state carries no data: the record (Workspace) does, so the
+// removes, unless the clone carries its marker: gc activates that one,
+// whose folder may already hold work (Collect). The state carries no data: the record (Workspace) does, so the
 // machine's states can be listed and ergo test decides its laws on the
 // whole graph.
 type State = Creating{} | Active{} | Landing{} | Landed{} | Abandoned{} | Trashed{}

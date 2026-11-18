@@ -350,6 +350,45 @@ law StackRecordsItsParent(tree Map[string, string]) {
 	slices.IndexFunc(all, func(r work.Workspace) bool { r.Name == "b" && r.Parent == a.Path }) >= 0
 }
 
+// MadeCloneOutlivesItsMaker: a new that dies between its clone and its
+// activation (a `work new` killed by its caller) leaves a reservation
+// whose clone is whole and marked, which an agent may already work in;
+// gc, run by another process however old it asks, activates it and keeps
+// its folder and what was written there, never deletes it (2026-11-17: gc
+// deleted such a workspace with two commits). The folder of a reservation
+// cut off before its marker, which nobody was handed, is still collected
+// (CrashOp in the model).
+law MadeCloneOutlivesItsMaker(text string) {
+	let w = world(true)
+	let maker = Sharing(w.lock, 2)
+	let t = toolOf(w, maker, []work.Cloner{w.trees})
+	let reserved = t.Reserve("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let made = match reserved {
+	case work.Making as m:
+		t.Fill(m) catch {
+		case _:
+			return false
+		}
+	case work.Created:
+		return false
+	}
+	Die(maker)
+	let _ = Write(w.trees, made.Path, "draft.txt", text)
+	let _ = toolOf(w, Sharing(w.lock, 99), []work.Cloner{w.trees}).Gc(work.GcOptions{Older: Some[string]{Value: "0s"}, Idle: None, Id: None, Archive: false}) catch {
+	case _:
+		return false
+	}
+	let all = w.tool.List() catch {
+	case work.NoBase, work.Unkept:
+		return false
+	}
+	let kept = Files(w.trees, made.Path).Get("draft.txt") == Some[string]{Value: text}
+	kept && slices.IndexFunc(all, func(r work.Workspace) bool { r.Name == "a" && r.Id == made.Id && work.StateName(r.State) == "active" }) >= 0 && w.lock.Holds() == 0
+}
+
 // nothing is the answer of a new that failed.
 func nothing() work.Created { work.Created{Name: "", Id: "", Path: "", Branch: "", Deps: work.NoDeps, Hooks: work.HooksRan{Count: 0}} }
 
