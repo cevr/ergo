@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/lower"
@@ -35,7 +36,8 @@ func TestIRSpawnsMatchSource(t *testing.T) {
 //
 // Mutants: gp-spawn-task-gated (a call that starts a task keeps the
 // source, the gate before GP-SPAWN), gp-spawn-list-off (frameListLowering
-// "off": an owned local in a frame scope keeps the source).
+// "off": an owned local in a frame scope keeps the source),
+// gp-spawn2-with-off (task.Go's block stays a closure over its captures).
 func TestIRSpawnsHaveBodies(t *testing.T) {
 	first, count := envInt("ERGO_IRSPIKE_SEED", 1), envInt("ERGO_IRSPIKE_SEEDS", 4)
 	for seed := first; seed < first+count; seed++ {
@@ -48,7 +50,7 @@ func TestIRSpawnsHaveBodies(t *testing.T) {
 		if err != nil {
 			t.Fatalf("seed %d: the program does not check: %v\n%s", seed, err, text)
 		}
-		_, rep, err := lower.LowerIR(u)
+		files, rep, err := lower.LowerIR(u)
 		if err != nil {
 			t.Fatalf("seed %d: %v\n%s", seed, err, text)
 		}
@@ -56,6 +58,17 @@ func TestIRSpawnsHaveBodies(t *testing.T) {
 			if !slices.Contains(rep.IR, f) {
 				t.Errorf("seed %d: %s has no IR body (IR bodies: %v; fallbacks: %v)\n%s", seed, f, rep.IR, rep.Fallback, text)
 			}
+		}
+		// Each spawn function's one task.Go block reads a local of its
+		// body, so each is GoWith of its captures (GP-SPAWN2).
+		ir := ""
+		for _, f := range files {
+			if f.Path == lower.IRFileName {
+				ir = string(f.Data)
+			}
+		}
+		if n := strings.Count(ir, `"name":"GoWith"`); n != len(spawnFuncs) {
+			t.Errorf("seed %d: %d task.Go blocks are GoWith of their captures; want %d, one per spawn function\n%s", seed, n, len(spawnFuncs), text)
 		}
 	}
 }

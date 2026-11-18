@@ -9,7 +9,7 @@ import (
 // spawnFuncs are GenerateSpawn's functions: each starts a task with
 // task.Go on its frame scope and owns the Task in the scope's list form,
 // and each has an IR body (GP-SPAWN, PARK2's "body that needs a frame").
-var spawnFuncs = []string{"join", "spawns", "leave", "scoped", "later"}
+var spawnFuncs = []string{"join", "spawns", "leave", "scoped", "later", "gather"}
 
 // GenerateSpawn is a program of bodies that start tasks (GP-SPAWN): a
 // task.Go call takes the body's frame scope, and the Task it returns is an
@@ -26,7 +26,10 @@ var spawnFuncs = []string{"join", "spawns", "leave", "scoped", "later"}
 //   - scoped starts one inside an if block, released at the block's end:
 //     its defect at a seeded k ends the program before the line after the
 //     block;
-//   - later returns its task, which main waits for.
+//   - later returns its task, which main waits for;
+//   - gather's block reads two parameters, a let and the environment
+//     (Console), each a field of the captures GoWith keeps in the Task
+//     (GP-SPAWN2).
 //
 // main calls each at seeded arguments and prints what they return. A
 // release that does not run, runs at another place or loses its defect
@@ -40,6 +43,7 @@ func GenerateSpawn(seed uint64) string {
 	b.WriteString("func leave(k int) int needs Console {\n\tlet t = task.Go() {\n\t\tlet ys = []int{1, 2}\n\t\tys[k]\n\t}\n\tConsole.Println(\"leave body \\(k)\")\n\tk\n}\n\n")
 	fmt.Fprintf(&b, "func scoped(k int) int needs Console {\n\tif k > %d {\n\t\tlet t = task.Go() {\n\t\t\tlet ys = []int{1, 2, 3}\n\t\t\tys[k]\n\t\t}\n\t\tConsole.Println(\"scoped block \\(k)\")\n\t}\n\tConsole.Println(\"scoped after \\(k)\")\n\tk\n}\n\n", g.n(2))
 	fmt.Fprintf(&b, "func later(k int) Task[int] {\n\tlet t = task.Go() { k + %d }\n\tt\n}\n\n", 1+g.n(9))
+	fmt.Fprintf(&b, "func gather(a int, s string) int needs Console {\n\tlet w = a * %d\n\tlet t = task.Go() {\n\t\tConsole.Println(\"gather \\(s) \\(w)\")\n\t\tw + len(s) - a\n\t}\n\tt.Wait()\n}\n\n", 2+g.n(4))
 	b.WriteString("func main() needs Console {\n")
 	for i, k := 0, 2+g.n(3); i < k; i++ {
 		fmt.Fprintf(&b, "\tConsole.Println(\"join \\(join(%d))\")\n", g.n(9))
@@ -47,6 +51,7 @@ func GenerateSpawn(seed uint64) string {
 		fmt.Fprintf(&b, "\tConsole.Println(\"leave \\(leave(%d))\")\n", g.n(2))
 		fmt.Fprintf(&b, "\tConsole.Println(\"scoped \\(scoped(%d))\")\n", g.n(3))
 		fmt.Fprintf(&b, "\tlet l%d = later(%d)\n\tConsole.Println(\"later \\(l%d.Wait())\")\n", i, g.n(9), i)
+		fmt.Fprintf(&b, "\tConsole.Println(\"gather \\(gather(%d, %q))\")\n", g.n(9), []string{"", "ab", "xyz"}[g.n(3)])
 	}
 	// The last call raises a defect at a task's release, which ends the
 	// program: the seed's residue mod 2 picks the frame's End (leave) or
