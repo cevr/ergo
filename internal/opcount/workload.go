@@ -30,6 +30,12 @@ const WorkloadFile = "workload"
 //	                      repository root) prints with these arguments
 //	control DIR           the hand Go control: the main package DIR (from the
 //	                      repository root), run with the same arguments
+//	floor DIR             the Go-runtime floor: the main package DIR of a
+//	                      hand-optimized program at the least work the Go
+//	                      runtime allows for the job (packed data, no
+//	                      interface call or allocation it can avoid), run
+//	                      with the same arguments and printing the same
+//	                      output (common.md GO-RUNTIME FLOOR)
 //
 // With an input and no {input} in args, the input is the program's stdin.
 // {n} must appear in args or in the input's arguments, or both sizes would
@@ -46,6 +52,7 @@ type Workload struct {
 	InputDir  string   `json:"input_dir,omitempty"`
 	InputArgs []string `json:"input_args,omitempty"`
 	Control   string   `json:"control,omitempty"`
+	Floor     string   `json:"floor,omitempty"`
 }
 
 // Problem is a line of a workload file that does not read (Line 0: the
@@ -161,8 +168,14 @@ func ParseWorkload(text string) (Workload, []Problem) {
 				continue
 			}
 			w.Control = rest[0]
+		case "floor":
+			if len(rest) != 1 || !cleanRel(rest[0]) {
+				bad(line, "floor takes one Go package folder, relative to the repository root")
+				continue
+			}
+			w.Floor = rest[0]
 		default:
-			bad(line, "unknown key %q; a workload has unit, sizes, args, binary, procs, input and control", key)
+			bad(line, "unknown key %q; a workload has unit, sizes, args, binary, procs, input, control and floor", key)
 		}
 	}
 	for _, key := range []string{"unit", "sizes", "args"} {
@@ -242,7 +255,7 @@ func CheckIn(root, dir, program string) (Workload, []Problem, bool) {
 	default:
 		w.Binary = filepath.Base(filepath.Dir(binaries[0]))
 	}
-	for _, d := range []string{w.InputDir, w.Control} {
+	for _, d := range []string{w.InputDir, w.Control, w.Floor} {
 		if d == "" {
 			continue
 		}

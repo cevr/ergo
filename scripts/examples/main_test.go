@@ -364,17 +364,20 @@ func TestBudgetAndSelection(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
 	slow := map[string]map[string]string{"basic": {"expected.out": "done\n"}}
-	// slowpoke burns CPU (a shell loop; at least 10 ms on any host); dozer
-	// sleeps a second and does almost nothing.
-	f.program("slowpoke", "#!/bin/sh\ni=0\nwhile [ $i -lt 200000 ]; do i=$((i+1)); done\necho done\n", "default\n", slow, nil)
+	// The budget sits an order of magnitude from both: slowpoke burns CPU
+	// (a shell loop, about a second; never under 100 ms on any host), and
+	// dozer sleeps a second and does almost nothing (its start and sleep's
+	// took 10 ms under load 50, merge tier at fca9f4f96, which a 10 ms
+	// budget failed).
+	f.program("slowpoke", "#!/bin/sh\ni=0\nwhile [ $i -lt 1000000 ]; do i=$((i+1)); done\necho done\n", "default\n", slow, nil)
 	f.program("dozer", "#!/bin/sh\nsleep 1\necho done\n", "default\n", slow, nil)
 	f.program("lazy", "#!/bin/sh\nsleep 1\necho done\n", "slow net\n", slow, nil)
-	code, out := f.run("-budget", "10ms")
+	code, out := f.run("-budget", "100ms")
 	oks, fails := verdicts(out)
 	if code != 1 || !strings.Contains(fails["slowpoke/basic"], "budget") || !oks["dozer/basic"] || strings.Contains(out, "lazy") {
 		t.Fatalf("default selection: want FAIL slowpoke/basic budget, ok dozer/basic and no lazy; exit %d\n%s", code, out)
 	}
-	for _, args := range [][]string{{"-tags", "slow", "-budget", "10ms"}, {"-tags", "cc,net"}, {"lazy"}} {
+	for _, args := range [][]string{{"-tags", "slow", "-budget", "100ms"}, {"-tags", "cc,net"}, {"lazy"}} {
 		code, out = f.run(args...)
 		oks, _ := verdicts(out)
 		if code != 0 || !oks["lazy/basic"] || strings.Contains(out, "slowpoke") || strings.Contains(out, "dozer") {

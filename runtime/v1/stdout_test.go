@@ -139,7 +139,15 @@ func stdoutCase(seed uint64) (steps []string, err error) {
 	status := mainStatus(func(task *rt.Task) error {
 		for range 1 + next(24) {
 			var step string
-			switch k := next(9); k {
+			k := next(9)
+			if k == 6 && rt.Exploring {
+				// The feeder of a Pop that waits is a goroutine the explored
+				// schedule does not run, so the explore scheduler would see the
+				// only task wait forever (a deadlock defect): a Sleep stands
+				// for the wait instead.
+				k = 5
+			}
+			switch k {
 			case 0, 1:
 				s := text()
 				step = fmt.Sprintf("Print(%d bytes)", len(s))

@@ -264,6 +264,7 @@ func (s *GoBindings) Package(path string) (*Package, bool) {
 		s.pkgs[path] = nil
 		return nil, false
 	}
+	// A pointer, the form the export codec carries (B7e).
 	c := newChecker(path, &goImp{s}, prelude().scope)
 	c.pkg.Name = GoPackageName(path)
 	c.pkg.qualify = true

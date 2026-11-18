@@ -1086,7 +1086,7 @@ func (p *program) contractSource(c *contract) string {
 	b.WriteString(`// Ref is the reference provider: it notes each call's arguments and
 // gives the outcome the sequence planned for its count; with a wide key
 // ("w3"), the outcome of that wide call.
-type Ref { log sync.Ref[[]string], n sync.Ref[int], wide string }
+type Ref { log sync.Ref[[]string], n sync.Ref[int], wide string } implements Svc
 
 func NewRef(wide string) Ref { Ref{log: sync.NewRef[[]string]([]string{}), n: sync.NewRef[int](0), wide: wide} }
 

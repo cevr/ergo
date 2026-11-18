@@ -17,15 +17,21 @@ import (
 // and foreign copy facts omitted by reading only recorded body facts.
 // This seam tests checked docs and diff, not the lowering or Go execution.
 func TestOwnershipAPIModel(t *testing.T) {
-	// Smallest repro of the foreign-fact omission: both declarations have
-	// no body, but only Clone's reviewed runtime body may copy its T.
+	// Smallest repro of the foreign-fact omission: Reverse has no body, its
+	// runtime/v1 body may copy its T, and only the conservative policy for a
+	// foreign body says so; reading only recorded body facts drops it. (Until
+	// PRIM-4 this was Clone; Clone is now an Ergo body, xs.Clone(), whose copy
+	// is a recorded fact of its own.) WithCapacity moves its values only.
 	std, err := check.Std.Import("slices")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, f := range Functions(std) {
-		if f.Name == "Clone" && (len(f.Copies) != 1 || f.Copies[0].Parameter != "T" || f.Copies[0].Where != "" || f.Copies[0].What == "" || !strings.Contains(Text([]Function{f}), "copies T at foreign body (plain data only)")) {
+		if f.Name == "Reverse" && (len(f.Copies) != 1 || f.Copies[0].Parameter != "T" || f.Copies[0].Where != "" || f.Copies[0].What == "" || !strings.Contains(Text([]Function{f}), "copies T at foreign body (plain data only)")) {
 			t.Fatalf("foreign copy policy lost: %+v", f)
+		}
+		if f.Name == "Clone" && (len(f.Copies) != 1 || f.Copies[0].Parameter != "T") {
+			t.Fatalf("Clone's copy of its T lost: %+v", f)
 		}
 		if f.Name == "WithCapacity" && len(f.Copies) != 0 {
 			t.Fatalf("reviewed moving body reported as copying: %+v", f)

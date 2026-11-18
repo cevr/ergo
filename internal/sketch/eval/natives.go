@@ -376,6 +376,7 @@ var collNatives = map[check.CollOp]string{
 	check.CollText:       "strings.builderText",
 	check.CollRuneText:   "utf8.RuneText",
 	check.CollMakeSlice:  "slices.WithCapacity",
+	check.CollBytes:      "strings.stringsBytes",
 }
 
 // nativeOf is fn's native, nil when the evaluator has none.

@@ -271,7 +271,11 @@ func (b *irBuilder) bind(call *syntax.CallExpr) (pre []*irStmt, v, e int) {
 		v = b.temp("v", b.goType(t, call), p)
 		pre = append(pre, &irStmt{K: "def2", Pos: p, Local: v, Val: &e, X: x})
 	}
-	if b.hostFails(call) {
+	if b.rawErr != nil && b.rawErr == call {
+		// A plain catch tests Go's error against nil alone, which the
+		// conversion keeps: the emitter's goErrorOf with fc.rawErr.
+		b.rawErr = nil
+	} else if b.hostFails(call) {
 		// A Go call's error is go.Error: the emitter's hostFallible and
 		// goErrorOf (v1.GoErrorOf; the eager form in the reference).
 		name := "GoErrorOf"
@@ -396,9 +400,19 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 		arms = append(arms, ar)
 		alts = append(alts, as)
 	}
+	// A plain catch (catch_plain.go: one arm of one type test around a
+	// Go call, whose only failure is go.Error) whose arm binds nothing
+	// takes Go's error as it is: no go.Error box, no type switch, hand
+	// Go's `if err != nil` (GOERR-BOX; SetCatchSwitchForTest keeps the
+	// switch as the reference).
+	plain := call != nil && !patterned && b.hostFails(call) && b.fc.plainCatch(x, m) && catchBinding(b.l.info, x) == nil
+	if plain {
+		b.rawErr = call
+	}
 	pre, v, e := bindSrc()
+	b.rawErr = nil
 	p := b.pos(x, x.Catch)
-	result := -1
+	result, caught := -1, -1
 	var rt string
 	if m.Result != nil {
 		rt = b.goType(m.Result, x)
@@ -406,6 +420,7 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 			irNo("catch value of another type")
 		}
 		result = b.temp("caught", rt, p)
+		caught = len(pre)
 		pre = append(pre, &irStmt{K: "def", Pos: p, Local: result, X: &irExpr{K: "zero", Pos: p, T: rt}})
 	}
 	k := "panic"
@@ -426,6 +441,9 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 		then = t.write([]treeHead{{e, &check.Union{Variants: m.Subjects}}}, alts, sw.End)
 		arms = nil
 	}
+	if plain {
+		arms = nil
+	}
 	for i, a := range arms {
 		c := &irCase{Pos: a.pos, Types: a.types}
 		if a.as != nil {
@@ -438,7 +456,9 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 	}
 	sw.ElsePos = b.pos(x, x.Rbrace)
 	sw.Else = []*irStmt{{K: k, Pos: sw.ElsePos, X: &irExpr{K: "local", Pos: sw.ElsePos, I: e}}}
-	if then == nil {
+	if plain {
+		then = b.armBody(x.Arms[0], result, m.Result)
+	} else if then == nil {
 		then = []*irStmt{sw}
 	}
 	ifs := &irStmt{K: "if", Pos: p, End: sw.End, X: b.notNil(e, p), Then: then}
@@ -447,6 +467,13 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 		// The call's value joins the union of the arms' (ir_union.go).
 		val := b.variantInto(b.l.info.Types[src], m.Result, &irExpr{K: "local", Pos: sw.End, I: v}, src)
 		ifs.Else = []*irStmt{{K: "set", Pos: sw.End, Local: result, X: val}}
+		if !patterned && val.K == "local" && val.I == v && b.localType(v) == rt && irArmsLeave(sw, result) {
+			// Every arm leaves (the emitter's catch, whose arms all
+			// panic or return, yields the call's value in place): the
+			// value is the call's own local, with no caught copy (RED17).
+			pre = append(pre[:caught], pre[caught+1:]...)
+			return append(pre, &irStmt{K: "if", Pos: p, End: sw.End, X: ifs.X, Then: then}), &irExpr{K: "local", Pos: p, I: v}
+		}
 	}
 	pre = append(pre, ifs)
 	if result < 0 {

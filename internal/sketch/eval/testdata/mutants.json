@@ -1572,6 +1572,16 @@
       "to": "fn.Pkg == nil || fn.Pkg.Std() || fn.Pkg.Host() {",
       "rule": "The evaluator runs a listed Go function a package reaches through import go, as std's bodies now do (NP4f).",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "red18-bytes-op-not-evaluated",
+      "origin": "wf10 red #18 (NP4f x PRIM-4)",
+      "file": "internal/sketch/eval/natives.go",
+      "from": "\tcheck.CollBytes:      \"strings.stringsBytes\",\n",
+      "to": "",
+      "rule": "The evaluator runs the operation s.Bytes(), so check-time evaluation of std's digests (sha256.Sum) agrees with the build.",
+      "anchor": {"tests":["internal/sketch/eval:TestEvalAgreesWithLowering"]},
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     }
   ]
 }

@@ -162,7 +162,10 @@ const (
 //   - caller: it waits on the caller's task, and a stop of it ends the wait;
 //   - handle: it waits on the task of the handle it is given;
 //   - drain: an uninterruptible stop and completed drain;
-//   - child: the caller is the parent of the children it starts and joins;
+//   - child: the caller is the parent of the children it starts and joins
+//     before it returns; it runs its function operands only on itself and
+//     on those children, so none runs after the call (lower's
+//     joinsChildren: a task's captures end at its join);
 //   - member: the caller becomes the first member of a clock's domain;
 //   - parent: the caller is the parent of the task it starts;
 //   - settle: it waits until the rest of a manual clock's domain is parked;

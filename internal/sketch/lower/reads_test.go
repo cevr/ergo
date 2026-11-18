@@ -177,6 +177,59 @@ func hostReadsFalseFact(t *testing.T) {
 	}
 }
 
+// joinsProgram passes a live []string, a parameter read after the calls,
+// to strings.Join and path/filepath.Join (a variadic binding).
+const joinsProgram = `import go strings
+import go path/filepath
+
+func both(parts []string) int {
+	len(strings.Join(parts, ",")) + len(filepath.Join(parts)) + len(parts)
+}
+
+func main() needs Console {
+	Console.Println("\(both([]string{"a", "b"}))")
+}
+`
+
+// TestJoinsTakeNoCopy: strings.Join and path/filepath.Join only read
+// their []string (gofacts' vouched reads rows, validated in std's ledger),
+// so the run build passes a live slice with no copy and the test build
+// compares each after its call (JOIN, from NP4f-4: the copy cost the
+// import go forms 1.659x of the runtime body). The lowered text is the
+// check because the absence of the copy is the promise.
+//
+// Mutants it alone catches: join-reads-strings-dropped and
+// join-reads-filepath-dropped (a binding without its reads line).
+func TestJoinsTakeNoCopy(t *testing.T) {
+	file, err := syntax.Parse(joinsProgram)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, diags := check.Check("main", []*syntax.File{file}, nil)
+	if len(diags) > 0 {
+		t.Fatal(diags)
+	}
+	u := Unit{Package: pkg, Files: []*syntax.File{file}, Sources: []Source{{Path: testSourcePath, Text: joinsProgram}}}
+	text := func(o *lowered) string {
+		out := ""
+		for _, f := range o.files {
+			if strings.HasSuffix(f.Path, ".go") {
+				out += string(f.Data)
+			}
+		}
+		return out
+	}
+	run := mustLowerUnit(t, "joins_run", u, false)
+	if s := text(run); strings.Contains(s, "Clone(") {
+		t.Errorf("the run build copies a Join operand:\n%s", s)
+	}
+	test := mustLowerUnit(t, "joins_test", u, true)
+	if n := strings.Count(text(test), ".GoReadsCheck("); n != 2 {
+		t.Errorf("the test build compares %d Join operands after the call, want 2:\n%s", n, text(test))
+	}
+	typecheckGo(t, []*lowered{run, test})
+}
+
 // readsProgram calls Go functions whose bindings carry a `reads` fact
 // (sort.SearchInts a, sort.SearchStrings a) on live slices: a parameter,
 // a field and a local read after the call.

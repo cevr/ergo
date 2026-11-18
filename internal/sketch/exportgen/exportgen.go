@@ -95,7 +95,6 @@ var skipTypes = map[string]string{
 	"UserExport": "the measure of user segments (export_user.go), never in the model",
 	"CrossRef":   "a reference UserExport records, never in the model",
 	"pathRef":    "a decoder's cache key (export.go), never in the model",
-	"pathWalker": "the object path walk (objpath.go), never in the model",
 }
 
 // Generate returns the generated sources of the syntax codec and the check
