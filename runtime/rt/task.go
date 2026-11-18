@@ -44,6 +44,9 @@ type Task struct {
 	// is in none. It is fixed before t runs, except for the task that
 	// makes an auto clock, which sets its own.
 	member atomic.Pointer[member]
+	// wake is t's park word (park.go): t's goroutine parks on it in a
+	// wait on one value, and a waker or a stop request wakes it.
+	wake parker
 
 	mu sync.Mutex
 	// stop is made on first use under mu, by the task's Done or by its Go
@@ -171,6 +174,9 @@ func (t *Task) Interrupt() {
 			close(t.stop)
 		}
 		m.unlock()
+		// A wait parked on t's word ends on the stop: the wake comes after
+		// the flag, so the woken waiter sees it.
+		t.wake.unpark()
 		if t.waker {
 			if wake, ok := wakers.Load(t); ok {
 				wake.(StopWaker).Wake()
@@ -257,12 +263,7 @@ var wakers sync.Map
 // registered what it waits for (a Sleep after its timer is armed), so it is
 // also the point where WhenWaiting's hook runs.
 func (t *Task) Done() <-chan struct{} {
-	if waitFlush.pending.Load() {
-		waitFlush.flush()
-	}
-	if waitHooks.n.Load() != 0 {
-		t.fireWaitHook()
-	}
+	t.Waits()
 	if t.regions.top != interruptible {
 		return nil
 	}

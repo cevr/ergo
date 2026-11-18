@@ -144,14 +144,20 @@ func (m *member) release() {
 // end at once or the stop it waits on has come. It returns the member to
 // unpark after the wait, or nil when t is no member.
 func park(t *Task, a, b any, stop <-chan struct{}, ready func() bool) *member {
+	return parkOn(t, a, b, stop != nil, ready)
+}
+
+// parkOn is park for a wait that ends on t's stop when stoppable, the
+// form of a wait on t's park word, which has no stop channel.
+func parkOn(t *Task, a, b any, stoppable bool, ready func() bool) *member {
 	m := t.member.Load()
 	if m == nil {
 		return nil
 	}
 	d := m.d
 	d.mu.Lock()
-	if !(stop != nil && t.stopped.Load()) && (ready == nil || !ready()) {
-		m.parked, m.stop, m.on = true, stop != nil, [2]any{a, b}
+	if !(stoppable && t.stopped.Load()) && (ready == nil || !ready()) {
+		m.parked, m.stop, m.on = true, stoppable, [2]any{a, b}
 		d.parked++
 		d.idle()
 	}

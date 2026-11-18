@@ -2794,7 +2794,7 @@
       "name": "L8-B4-boundary-keeps-no-value",
       "origin": "L8 B4 Gap 47 (Quint mutant 4)",
       "file": "runtime/v1/task.go",
-      "from": "\t\t\tt.out, t.ended = v, true",
+      "from": "\t\tb.out, b.ended = v, true",
       "to": "\t\t\t_ = v",
       "rule": "A value the body returned is kept past rt's stop-wins, so the Task's release releases it.",
       "killers": ["lower:TestTaskOwnershipRunModel"],
