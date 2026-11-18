@@ -126,6 +126,6 @@ func TestFileMethodsNeedOnlyAmbient(t *testing.T) {
 		body = body[:j]
 	}
 	if strings.Contains(body, "Clone(") {
-		t.Errorf("touch copies b for WriteAt:\n%s", regexp.MustCompile(`/\*line [^*]*\*/`).ReplaceAllString(body, ""))
+		t.Errorf("touch copies b for WriteAt or Readdirnames' names:\n%s", regexp.MustCompile(`/\*line [^*]*\*/`).ReplaceAllString(body, ""))
 	}
 }
