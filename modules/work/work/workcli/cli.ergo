@@ -6,13 +6,12 @@
 // Request, and Run, which calls the provider the caller binds.
 
 import flag
-import fs
 import rpc
 import github.com/cevr/ergo/modules/work/work
+import github.com/cevr/ergo/modules/work/work/workapi
 
-// Request is one call of work.Api: a variant per operation, whose fields
-// are the operation's parameters (the Request of ergo gen rpc).
-type Request = InitRequest{} | NewRequest{Name string, O work.NewOptions} | AdoptRequest{Dir string, O work.AdoptOptions} | AdoptRiftRequest{O work.RiftOptions} | ListRequest{} | RmRequest{Name string, O work.RmOptions} | GcRequest{O work.GcOptions} | DuRequest{} | ReadyRequest{O work.ReadyOptions} | SyncRequest{O work.SyncOptions} | EnvRequest{O work.EnvOptions} | MergeFileRequest{Class string, Base string, Ours string, Theirs string, O work.MergeFileOptions} | MergeFoldersRequest{Base string, Ours string, Theirs string, Out string} | DeriveRequest{O work.DeriveOptions} | DepsRequest{O work.DepsOptions} | TrustRequest{} | DoctorRequest{O work.DoctorOptions} | PluginTestRequest{Command string, O work.PluginTestOptions} | RefreshRequest{} | BasesRequest{} | ShellInitRequest{} | ImportRiftRequest{O work.ImportRiftOptions}
+// Request is one call of work.Api: the hub's Request.
+type Request = workapi.Request
 
 // Output is what Run prints: Out to standard output, Err to standard
 // error, and the exit status.
@@ -26,7 +25,7 @@ func Commands() []flag.Command[Request] {
 // commandInit is the command of Init.
 func commandInit() flag.Command[Request] {
 	flag.Command[Request]{Name: "init", Usage: "Init() string fails work.BadConfig | work.Unkept | fs.Denied | fs.Failed", Set: flag.Set{Name: "init", Usage: "Init() string fails work.BadConfig | work.Unkept | fs.Denied | fs.Failed", Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
-		InitRequest
+		workapi.InitRequest
 	}, Commands: []flag.Command[Request]{}}
 }
 
@@ -40,7 +39,7 @@ func commandNew() flag.Command[Request] {
 	let f6 = flag.OptionalString("token", "o.Token (Option[string])")
 	flag.Command[Request]{Name: "new", Usage: "New(name string, o work.NewOptions) work.Created fails work.HookFailed | work.BadConfig | work.Unkept | work.NoBase | work.BadName | work.NameTaken | work.NoWorkspace | work.NoRevision | work.Diverged | work.CopyRefused | work.NotSameVolume | work.Unsupported | work.Exists | work.Missing | work.NoSpace | work.CloneFailed | work.VcsFailed | work.Locked | work.Busy", Set: flag.Set{Name: "new", Usage: "New(name string, o work.NewOptions) work.Created fails work.HookFailed | work.BadConfig | work.Unkept | work.NoBase | work.BadName | work.NameTaken | work.NoWorkspace | work.NoRevision | work.Diverged | work.CopyRefused | work.NotSameVolume | work.Unsupported | work.Exists | work.Missing | work.NoSpace | work.CloneFailed | work.VcsFailed | work.Locked | work.Busy", Flags: []flag.Flag{f2, f3, f4, f5, f6}, Args: []flag.ArgSpec{a0}}, Build: func(v flag.Values) Request fails flag.Failure {
 		let t1 = argText(a0, v)
-		NewRequest{Name: t1, O: work.NewOptions{Copy: f2.Get(v), From: f3.Get(v), Branch: f4.Get(v), On: f5.Get(v), Token: f6.Get(v)}}
+		workapi.NewRequest{Name: t1, O: work.NewOptions{Copy: f2.Get(v), From: f3.Get(v), Branch: f4.Get(v), On: f5.Get(v), Token: f6.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
@@ -50,7 +49,7 @@ func commandAdopt() flag.Command[Request] {
 	let f2 = flag.OptionalString("name", "o.Name (Option[string])")
 	flag.Command[Request]{Name: "adopt", Usage: "Adopt(dir string, o work.AdoptOptions) work.Workspace fails work.Unkept | work.NoBase | work.BadName | work.NameTaken | work.Missing | work.VcsFailed | work.Locked", Set: flag.Set{Name: "adopt", Usage: "Adopt(dir string, o work.AdoptOptions) work.Workspace fails work.Unkept | work.NoBase | work.BadName | work.NameTaken | work.Missing | work.VcsFailed | work.Locked", Flags: []flag.Flag{f2}, Args: []flag.ArgSpec{a0}}, Build: func(v flag.Values) Request fails flag.Failure {
 		let t1 = argText(a0, v)
-		AdoptRequest{Dir: t1, O: work.AdoptOptions{Name: f2.Get(v)}}
+		workapi.AdoptRequest{Dir: t1, O: work.AdoptOptions{Name: f2.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
@@ -58,14 +57,14 @@ func commandAdopt() flag.Command[Request] {
 func commandAdoptRift() flag.Command[Request] {
 	let f0 = flag.OptionalString("registry", "o.Registry (Option[string])")
 	flag.Command[Request]{Name: "adopt-rift", Usage: "AdoptRift(o work.RiftOptions) work.RiftAdopted fails work.Unkept | work.NoBase | work.VcsFailed | work.Locked | work.RiftUnread", Set: flag.Set{Name: "adopt-rift", Usage: "AdoptRift(o work.RiftOptions) work.RiftAdopted fails work.Unkept | work.NoBase | work.VcsFailed | work.Locked | work.RiftUnread", Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
-		AdoptRiftRequest{O: work.RiftOptions{Registry: f0.Get(v)}}
+		workapi.AdoptRiftRequest{O: work.RiftOptions{Registry: f0.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
 // commandList is the command of List.
 func commandList() flag.Command[Request] {
 	flag.Command[Request]{Name: "list", Usage: "List() []work.Workspace fails work.Unkept | work.NoBase", Set: flag.Set{Name: "list", Usage: "List() []work.Workspace fails work.Unkept | work.NoBase", Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
-		ListRequest
+		workapi.ListRequest
 	}, Commands: []flag.Command[Request]{}}
 }
 
@@ -77,7 +76,7 @@ func commandRm() flag.Command[Request] {
 	let f4 = flag.Bool("tree", false, "o.Tree (bool)")
 	flag.Command[Request]{Name: "rm", Usage: "Rm(name string, o work.RmOptions) []work.Removed fails work.HookFailed | work.BadConfig | work.Unkept | work.NoBase | work.NoWorkspace | work.Exists | work.Missing | work.CloneFailed | work.VcsFailed | work.Locked | work.Busy | work.NotHeld | work.IdMismatch | work.HasDescendants", Set: flag.Set{Name: "rm", Usage: "Rm(name string, o work.RmOptions) []work.Removed fails work.HookFailed | work.BadConfig | work.Unkept | work.NoBase | work.NoWorkspace | work.Exists | work.Missing | work.CloneFailed | work.VcsFailed | work.Locked | work.Busy | work.NotHeld | work.IdMismatch | work.HasDescendants", Flags: []flag.Flag{f2, f3, f4}, Args: []flag.ArgSpec{a0}}, Build: func(v flag.Values) Request fails flag.Failure {
 		let t1 = argText(a0, v)
-		RmRequest{Name: t1, O: work.RmOptions{Abandon: f2.Get(v), Expect: f3.Get(v), Tree: f4.Get(v)}}
+		workapi.RmRequest{Name: t1, O: work.RmOptions{Abandon: f2.Get(v), Expect: f3.Get(v), Tree: f4.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
@@ -88,14 +87,14 @@ func commandGc() flag.Command[Request] {
 	let f2 = flag.OptionalString("idle", "o.Idle (Option[string])")
 	let f3 = flag.Bool("archive", false, "o.Archive (bool)")
 	flag.Command[Request]{Name: "gc", Usage: "Gc(o work.GcOptions) work.Collected fails work.HookFailed | work.BadConfig | work.Unkept | work.NoBase | work.NoWorkspace | work.Exists | work.Missing | work.CloneFailed | work.VcsFailed | work.Locked | work.BadAge", Set: flag.Set{Name: "gc", Usage: "Gc(o work.GcOptions) work.Collected fails work.HookFailed | work.BadConfig | work.Unkept | work.NoBase | work.NoWorkspace | work.Exists | work.Missing | work.CloneFailed | work.VcsFailed | work.Locked | work.BadAge", Flags: []flag.Flag{f0, f1, f2, f3}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
-		GcRequest{O: work.GcOptions{Older: f0.Get(v), Id: f1.Get(v), Idle: f2.Get(v), Archive: f3.Get(v)}}
+		workapi.GcRequest{O: work.GcOptions{Older: f0.Get(v), Id: f1.Get(v), Idle: f2.Get(v), Archive: f3.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
 // commandDu is the command of Du.
 func commandDu() flag.Command[Request] {
 	flag.Command[Request]{Name: "du", Usage: "Du() []work.Space fails work.Unkept | work.NoBase | work.Unsupported | work.Missing | work.CloneFailed", Set: flag.Set{Name: "du", Usage: "Du() []work.Space fails work.Unkept | work.NoBase | work.Unsupported | work.Missing | work.CloneFailed", Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
-		DuRequest
+		workapi.DuRequest
 	}, Commands: []flag.Command[Request]{}}
 }
 
@@ -103,7 +102,7 @@ func commandDu() flag.Command[Request] {
 func commandReady() flag.Command[Request] {
 	let f0 = flag.OptionalString("name", "o.Name (Option[string])")
 	flag.Command[Request]{Name: "ready", Usage: "Ready(o work.ReadyOptions) work.Handed fails work.Unkept | work.NoBase | work.NoWorkspace | work.VcsFailed | work.Locked | work.Busy | work.NotHere | work.Detached | work.NotFastForward | work.Moved", Set: flag.Set{Name: "ready", Usage: "Ready(o work.ReadyOptions) work.Handed fails work.Unkept | work.NoBase | work.NoWorkspace | work.VcsFailed | work.Locked | work.Busy | work.NotHere | work.Detached | work.NotFastForward | work.Moved", Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
-		ReadyRequest{O: work.ReadyOptions{Name: f0.Get(v)}}
+		workapi.ReadyRequest{O: work.ReadyOptions{Name: f0.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
@@ -111,7 +110,7 @@ func commandReady() flag.Command[Request] {
 func commandSync() flag.Command[Request] {
 	let f0 = flag.OptionalString("name", "o.Name (Option[string])")
 	flag.Command[Request]{Name: "sync", Usage: "Sync(o work.SyncOptions) work.Synced fails work.BadConfig | work.Unkept | work.NoBase | work.NoWorkspace | work.VcsFailed | work.Locked | work.Busy | work.NotHere | work.Detached | work.Dirty | work.Conflicted", Set: flag.Set{Name: "sync", Usage: "Sync(o work.SyncOptions) work.Synced fails work.BadConfig | work.Unkept | work.NoBase | work.NoWorkspace | work.VcsFailed | work.Locked | work.Busy | work.NotHere | work.Detached | work.Dirty | work.Conflicted", Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
-		SyncRequest{O: work.SyncOptions{Name: f0.Get(v)}}
+		workapi.SyncRequest{O: work.SyncOptions{Name: f0.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
@@ -119,7 +118,7 @@ func commandSync() flag.Command[Request] {
 func commandEnv() flag.Command[Request] {
 	let f0 = flag.OptionalString("name", "o.Name (Option[string])")
 	flag.Command[Request]{Name: "env", Usage: "Env(o work.EnvOptions) string fails work.BadConfig | work.Unkept | work.NoBase | work.NoWorkspace | work.NotHere", Set: flag.Set{Name: "env", Usage: "Env(o work.EnvOptions) string fails work.BadConfig | work.Unkept | work.NoBase | work.NoWorkspace | work.NotHere", Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
-		EnvRequest{O: work.EnvOptions{Name: f0.Get(v)}}
+		workapi.EnvRequest{O: work.EnvOptions{Name: f0.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
@@ -135,7 +134,7 @@ func commandMergeFile() flag.Command[Request] {
 		let t3 = argText(a2, v)
 		let t5 = argText(a4, v)
 		let t7 = argText(a6, v)
-		MergeFileRequest{Class: t1, Base: t3, Ours: t5, Theirs: t7, O: work.MergeFileOptions{Path: f8.Get(v)}}
+		workapi.MergeFileRequest{Class: t1, Base: t3, Ours: t5, Theirs: t7, O: work.MergeFileOptions{Path: f8.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
@@ -150,7 +149,7 @@ func commandMergeFolders() flag.Command[Request] {
 		let t3 = argText(a2, v)
 		let t5 = argText(a4, v)
 		let t7 = argText(a6, v)
-		MergeFoldersRequest{Base: t1, Ours: t3, Theirs: t5, Out: t7}
+		workapi.MergeFoldersRequest{Base: t1, Ours: t3, Theirs: t5, Out: t7}
 	}, Commands: []flag.Command[Request]{}}
 }
 
@@ -158,7 +157,7 @@ func commandMergeFolders() flag.Command[Request] {
 func commandDerive() flag.Command[Request] {
 	let f0 = flag.OptionalString("name", "o.Name (Option[string])")
 	flag.Command[Request]{Name: "derive", Usage: "Derive(o work.DeriveOptions) work.Derived fails work.Untrusted | work.BadConfig | work.Unkept | work.NoBase | work.NoWorkspace | work.NotHere | work.DeriveFailed", Set: flag.Set{Name: "derive", Usage: "Derive(o work.DeriveOptions) work.Derived fails work.Untrusted | work.BadConfig | work.Unkept | work.NoBase | work.NoWorkspace | work.NotHere | work.DeriveFailed", Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
-		DeriveRequest{O: work.DeriveOptions{Name: f0.Get(v)}}
+		workapi.DeriveRequest{O: work.DeriveOptions{Name: f0.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
@@ -166,14 +165,14 @@ func commandDerive() flag.Command[Request] {
 func commandDeps() flag.Command[Request] {
 	let f0 = flag.OptionalString("name", "o.Name (Option[string])")
 	flag.Command[Request]{Name: "deps", Usage: "Deps(o work.DepsOptions) work.DepsDone fails work.Untrusted | work.DepsFailed | work.BadConfig | work.Unkept | work.NoBase | work.NoWorkspace | work.Locked | work.NotHere", Set: flag.Set{Name: "deps", Usage: "Deps(o work.DepsOptions) work.DepsDone fails work.Untrusted | work.DepsFailed | work.BadConfig | work.Unkept | work.NoBase | work.NoWorkspace | work.Locked | work.NotHere", Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
-		DepsRequest{O: work.DepsOptions{Name: f0.Get(v)}}
+		workapi.DepsRequest{O: work.DepsOptions{Name: f0.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
 // commandTrust is the command of Trust.
 func commandTrust() flag.Command[Request] {
 	flag.Command[Request]{Name: "trust", Usage: "Trust() work.Trusted fails work.BadConfig | work.Unkept | fs.Denied | fs.Failed | work.NoBase | fs.NotFound", Set: flag.Set{Name: "trust", Usage: "Trust() work.Trusted fails work.BadConfig | work.Unkept | fs.Denied | fs.Failed | work.NoBase | fs.NotFound", Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
-		TrustRequest
+		workapi.TrustRequest
 	}, Commands: []flag.Command[Request]{}}
 }
 
@@ -182,7 +181,7 @@ func commandDoctor() flag.Command[Request] {
 	let f0 = flag.Bool("rift", false, "o.Rift (bool)")
 	let f1 = flag.OptionalString("registry", "o.Registry (Option[string])")
 	flag.Command[Request]{Name: "doctor", Usage: "Doctor(o work.DoctorOptions) work.Report fails work.BadConfig | work.Unkept | work.NoBase | work.VcsFailed | work.RiftUnread", Set: flag.Set{Name: "doctor", Usage: "Doctor(o work.DoctorOptions) work.Report fails work.BadConfig | work.Unkept | work.NoBase | work.VcsFailed | work.RiftUnread", Flags: []flag.Flag{f0, f1}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
-		DoctorRequest{O: work.DoctorOptions{Rift: f0.Get(v), Registry: f1.Get(v)}}
+		workapi.DoctorRequest{O: work.DoctorOptions{Rift: f0.Get(v), Registry: f1.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
@@ -194,28 +193,28 @@ func commandPluginTest() flag.Command[Request] {
 	let f4 = flag.OptionalInt("seed", "o.Seed (Option[int])")
 	flag.Command[Request]{Name: "plugin-test", Usage: "PluginTest(command string, o work.PluginTestOptions) work.PluginAdmitted fails work.Untrusted | work.BadConfig | work.NoBase | work.VcsFailed | work.PluginRefused", Set: flag.Set{Name: "plugin-test", Usage: "PluginTest(command string, o work.PluginTestOptions) work.PluginAdmitted fails work.Untrusted | work.BadConfig | work.NoBase | work.VcsFailed | work.PluginRefused", Flags: []flag.Flag{f2, f3, f4}, Args: []flag.ArgSpec{a0}}, Build: func(v flag.Values) Request fails flag.Failure {
 		let t1 = argText(a0, v)
-		PluginTestRequest{Command: t1, O: work.PluginTestOptions{Files: f2.Get(v), Max: f3.Get(v), Seed: f4.Get(v)}}
+		workapi.PluginTestRequest{Command: t1, O: work.PluginTestOptions{Files: f2.Get(v), Max: f3.Get(v), Seed: f4.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
 // commandRefresh is the command of Refresh.
 func commandRefresh() flag.Command[Request] {
 	flag.Command[Request]{Name: "refresh", Usage: "Refresh() int fails work.Unkept | work.NoBase | work.VcsFailed", Set: flag.Set{Name: "refresh", Usage: "Refresh() int fails work.Unkept | work.NoBase | work.VcsFailed", Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
-		RefreshRequest
+		workapi.RefreshRequest
 	}, Commands: []flag.Command[Request]{}}
 }
 
 // commandBases is the command of Bases.
 func commandBases() flag.Command[Request] {
 	flag.Command[Request]{Name: "bases", Usage: "Bases() []string fails work.Unkept", Set: flag.Set{Name: "bases", Usage: "Bases() []string fails work.Unkept", Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
-		BasesRequest
+		workapi.BasesRequest
 	}, Commands: []flag.Command[Request]{}}
 }
 
 // commandShellInit is the command of ShellInit.
 func commandShellInit() flag.Command[Request] {
 	flag.Command[Request]{Name: "shell-init", Usage: "ShellInit() string", Set: flag.Set{Name: "shell-init", Usage: "ShellInit() string", Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
-		ShellInitRequest
+		workapi.ShellInitRequest
 	}, Commands: []flag.Command[Request]{}}
 }
 
@@ -223,7 +222,7 @@ func commandShellInit() flag.Command[Request] {
 func commandImportRift() flag.Command[Request] {
 	let f0 = flag.OptionalString("file", "o.File (Option[string])")
 	flag.Command[Request]{Name: "import-rift", Usage: "ImportRift(o work.ImportRiftOptions) string fails work.BadConfig | fs.Denied | fs.Failed | fs.NotFound", Set: flag.Set{Name: "import-rift", Usage: "ImportRift(o work.ImportRiftOptions) string fails work.BadConfig | fs.Denied | fs.Failed | fs.NotFound", Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
-		ImportRiftRequest{O: work.ImportRiftOptions{File: f0.Get(v)}}
+		workapi.ImportRiftRequest{O: work.ImportRiftOptions{File: f0.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
@@ -247,9 +246,9 @@ func Parse(args []string) Request fails flag.Failure {
 // each flag as -name=value, then "--" and the positional arguments.
 func Print(r Request) []string {
 	match r {
-	case InitRequest:
+	case workapi.InitRequest:
 		[]string{"init"}
-	case NewRequest as x:
+	case workapi.NewRequest as x:
 		let mut out = []string{"new"}
 		out = out.Append("-copy=\(x.O.Copy)")
 		match x.O.From {
@@ -275,7 +274,7 @@ func Print(r Request) []string {
 		out = out.Append("--")
 		out = out.Append("\(x.Name)")
 		out
-	case AdoptRequest as x:
+	case workapi.AdoptRequest as x:
 		let mut out = []string{"adopt"}
 		match x.O.Name {
 		case Some[string] as s:
@@ -285,7 +284,7 @@ func Print(r Request) []string {
 		out = out.Append("--")
 		out = out.Append("\(x.Dir)")
 		out
-	case AdoptRiftRequest as x:
+	case workapi.AdoptRiftRequest as x:
 		let mut out = []string{"adopt-rift"}
 		match x.O.Registry {
 		case Some[string] as s:
@@ -293,9 +292,9 @@ func Print(r Request) []string {
 		case None:
 		}
 		out
-	case ListRequest:
+	case workapi.ListRequest:
 		[]string{"list"}
-	case RmRequest as x:
+	case workapi.RmRequest as x:
 		let mut out = []string{"rm"}
 		out = out.Append("-abandon=\(x.O.Abandon)")
 		match x.O.Expect {
@@ -307,7 +306,7 @@ func Print(r Request) []string {
 		out = out.Append("--")
 		out = out.Append("\(x.Name)")
 		out
-	case GcRequest as x:
+	case workapi.GcRequest as x:
 		let mut out = []string{"gc"}
 		match x.O.Older {
 		case Some[string] as s:
@@ -326,9 +325,9 @@ func Print(r Request) []string {
 		}
 		out = out.Append("-archive=\(x.O.Archive)")
 		out
-	case DuRequest:
+	case workapi.DuRequest:
 		[]string{"du"}
-	case ReadyRequest as x:
+	case workapi.ReadyRequest as x:
 		let mut out = []string{"ready"}
 		match x.O.Name {
 		case Some[string] as s:
@@ -336,7 +335,7 @@ func Print(r Request) []string {
 		case None:
 		}
 		out
-	case SyncRequest as x:
+	case workapi.SyncRequest as x:
 		let mut out = []string{"sync"}
 		match x.O.Name {
 		case Some[string] as s:
@@ -344,7 +343,7 @@ func Print(r Request) []string {
 		case None:
 		}
 		out
-	case EnvRequest as x:
+	case workapi.EnvRequest as x:
 		let mut out = []string{"env"}
 		match x.O.Name {
 		case Some[string] as s:
@@ -352,7 +351,7 @@ func Print(r Request) []string {
 		case None:
 		}
 		out
-	case MergeFileRequest as x:
+	case workapi.MergeFileRequest as x:
 		let mut out = []string{"merge-file"}
 		match x.O.Path {
 		case Some[string] as s:
@@ -365,7 +364,7 @@ func Print(r Request) []string {
 		out = out.Append("\(x.Ours)")
 		out = out.Append("\(x.Theirs)")
 		out
-	case MergeFoldersRequest as x:
+	case workapi.MergeFoldersRequest as x:
 		let mut out = []string{"merge-folders"}
 		out = out.Append("--")
 		out = out.Append("\(x.Base)")
@@ -373,7 +372,7 @@ func Print(r Request) []string {
 		out = out.Append("\(x.Theirs)")
 		out = out.Append("\(x.Out)")
 		out
-	case DeriveRequest as x:
+	case workapi.DeriveRequest as x:
 		let mut out = []string{"derive"}
 		match x.O.Name {
 		case Some[string] as s:
@@ -381,7 +380,7 @@ func Print(r Request) []string {
 		case None:
 		}
 		out
-	case DepsRequest as x:
+	case workapi.DepsRequest as x:
 		let mut out = []string{"deps"}
 		match x.O.Name {
 		case Some[string] as s:
@@ -389,9 +388,9 @@ func Print(r Request) []string {
 		case None:
 		}
 		out
-	case TrustRequest:
+	case workapi.TrustRequest:
 		[]string{"trust"}
-	case DoctorRequest as x:
+	case workapi.DoctorRequest as x:
 		let mut out = []string{"doctor"}
 		out = out.Append("-rift=\(x.O.Rift)")
 		match x.O.Registry {
@@ -400,7 +399,7 @@ func Print(r Request) []string {
 		case None:
 		}
 		out
-	case PluginTestRequest as x:
+	case workapi.PluginTestRequest as x:
 		let mut out = []string{"plugin-test"}
 		match x.O.Files {
 		case Some[string] as s:
@@ -420,13 +419,13 @@ func Print(r Request) []string {
 		out = out.Append("--")
 		out = out.Append("\(x.Command)")
 		out
-	case RefreshRequest:
+	case workapi.RefreshRequest:
 		[]string{"refresh"}
-	case BasesRequest:
+	case workapi.BasesRequest:
 		[]string{"bases"}
-	case ShellInitRequest:
+	case workapi.ShellInitRequest:
 		[]string{"shell-init"}
-	case ImportRiftRequest as x:
+	case workapi.ImportRiftRequest as x:
 		let mut out = []string{"import-rift"}
 		match x.O.File {
 		case Some[string] as s:
@@ -490,398 +489,173 @@ func Run(args []string) Output needs work.Api {
 	case err:
 		return Output{Out: "", Err: flag.Describe(err) + "\n", Code: 2}
 	}
-	match r {
-	case InitRequest:
-		let v = work.Api.Init() catch {
-		case work.BadConfig as e:
-			return failed(asJSON, rpc.Tagged("BadConfig", rpc.Encode(e)))
-		case work.Unkept as e:
-			return failed(asJSON, rpc.Tagged("Unkept", rpc.Encode(e)))
-		case fs.Denied as e:
-			return failed(asJSON, rpc.Tagged("Denied", rpc.Encode(e)))
-		case fs.Failed as e:
-			return failed(asJSON, rpc.Tagged("Failed", rpc.Encode(e)))
+	match workapi.Call(r) {
+	case workapi.Done as done:
+		match done.Reply {
+		case workapi.InitReply as reply:
+			let v = reply.Value
+			answer(asJSON, "\(v)", rpc.Encode(v))
+		case workapi.NewReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case workapi.AdoptReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case workapi.AdoptRiftReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case workapi.ListReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case workapi.RmReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case workapi.GcReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case workapi.DuReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case workapi.ReadyReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case workapi.SyncReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case workapi.EnvReply as reply:
+			let v = reply.Value
+			answer(asJSON, "\(v)", rpc.Encode(v))
+		case workapi.MergeFileReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case workapi.MergeFoldersReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case workapi.DeriveReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case workapi.DepsReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case workapi.TrustReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case workapi.DoctorReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case workapi.PluginTestReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case workapi.RefreshReply as reply:
+			let v = reply.Value
+			answer(asJSON, "\(v)", rpc.Encode(v))
+		case workapi.BasesReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case workapi.ShellInitReply as reply:
+			let v = reply.Value
+			answer(asJSON, "\(v)", rpc.Encode(v))
+		case workapi.ImportRiftReply as reply:
+			let v = reply.Value
+			answer(asJSON, "\(v)", rpc.Encode(v))
 		}
-		answer(asJSON, "\(v)", rpc.Encode(v))
-	case NewRequest as x:
-		let v = work.Api.New(x.Name, x.O) catch {
-		case work.HookFailed as e:
-			return failed(asJSON, rpc.Tagged("HookFailed", rpc.Encode(e)))
-		case work.BadConfig as e:
-			return failed(asJSON, rpc.Tagged("BadConfig", rpc.Encode(e)))
-		case work.Unkept as e:
-			return failed(asJSON, rpc.Tagged("Unkept", rpc.Encode(e)))
-		case work.NoBase as e:
-			return failed(asJSON, rpc.Tagged("NoBase", rpc.Encode(e)))
-		case work.BadName as e:
-			return failed(asJSON, rpc.Tagged("BadName", rpc.Encode(e)))
-		case work.NameTaken as e:
-			return failed(asJSON, rpc.Tagged("NameTaken", rpc.Encode(e)))
-		case work.NoWorkspace as e:
-			return failed(asJSON, rpc.Tagged("NoWorkspace", rpc.Encode(e)))
-		case work.NoRevision as e:
-			return failed(asJSON, rpc.Tagged("NoRevision", rpc.Encode(e)))
-		case work.Diverged as e:
-			return failed(asJSON, rpc.Tagged("Diverged", rpc.Encode(e)))
-		case work.CopyRefused as e:
-			return failed(asJSON, rpc.Tagged("CopyRefused", rpc.Encode(e)))
-		case work.NotSameVolume as e:
-			return failed(asJSON, rpc.Tagged("NotSameVolume", rpc.Encode(e)))
-		case work.Unsupported as e:
-			return failed(asJSON, rpc.Tagged("Unsupported", rpc.Encode(e)))
-		case work.Exists as e:
-			return failed(asJSON, rpc.Tagged("Exists", rpc.Encode(e)))
-		case work.Missing as e:
-			return failed(asJSON, rpc.Tagged("Missing", rpc.Encode(e)))
-		case work.NoSpace as e:
-			return failed(asJSON, rpc.Tagged("NoSpace", rpc.Encode(e)))
-		case work.CloneFailed as e:
-			return failed(asJSON, rpc.Tagged("CloneFailed", rpc.Encode(e)))
-		case work.VcsFailed as e:
-			return failed(asJSON, rpc.Tagged("VcsFailed", rpc.Encode(e)))
-		case work.Locked as e:
-			return failed(asJSON, rpc.Tagged("Locked", rpc.Encode(e)))
-		case work.Busy as e:
-			return failed(asJSON, rpc.Tagged("Busy", rpc.Encode(e)))
+	case workapi.Rejected as rejected:
+		match rejected.Failure {
+		case workapi.BadConfig as failure:
+			failed(asJSON, rpc.Tagged("BadConfig", rpc.Encode(failure.E)))
+		case workapi.Unkept as failure:
+			failed(asJSON, rpc.Tagged("Unkept", rpc.Encode(failure.E)))
+		case workapi.Denied as failure:
+			failed(asJSON, rpc.Tagged("Denied", rpc.Encode(failure.E)))
+		case workapi.Failed as failure:
+			failed(asJSON, rpc.Tagged("Failed", rpc.Encode(failure.E)))
+		case workapi.HookFailed as failure:
+			failed(asJSON, rpc.Tagged("HookFailed", rpc.Encode(failure.E)))
+		case workapi.NoBase as failure:
+			failed(asJSON, rpc.Tagged("NoBase", rpc.Encode(failure.E)))
+		case workapi.BadName as failure:
+			failed(asJSON, rpc.Tagged("BadName", rpc.Encode(failure.E)))
+		case workapi.NameTaken as failure:
+			failed(asJSON, rpc.Tagged("NameTaken", rpc.Encode(failure.E)))
+		case workapi.NoWorkspace as failure:
+			failed(asJSON, rpc.Tagged("NoWorkspace", rpc.Encode(failure.E)))
+		case workapi.NoRevision as failure:
+			failed(asJSON, rpc.Tagged("NoRevision", rpc.Encode(failure.E)))
+		case workapi.Diverged as failure:
+			failed(asJSON, rpc.Tagged("Diverged", rpc.Encode(failure.E)))
+		case workapi.CopyRefused as failure:
+			failed(asJSON, rpc.Tagged("CopyRefused", rpc.Encode(failure.E)))
+		case workapi.NotSameVolume as failure:
+			failed(asJSON, rpc.Tagged("NotSameVolume", rpc.Encode(failure.E)))
+		case workapi.Unsupported as failure:
+			failed(asJSON, rpc.Tagged("Unsupported", rpc.Encode(failure.E)))
+		case workapi.Exists as failure:
+			failed(asJSON, rpc.Tagged("Exists", rpc.Encode(failure.E)))
+		case workapi.Missing as failure:
+			failed(asJSON, rpc.Tagged("Missing", rpc.Encode(failure.E)))
+		case workapi.NoSpace as failure:
+			failed(asJSON, rpc.Tagged("NoSpace", rpc.Encode(failure.E)))
+		case workapi.CloneFailed as failure:
+			failed(asJSON, rpc.Tagged("CloneFailed", rpc.Encode(failure.E)))
+		case workapi.VcsFailed as failure:
+			failed(asJSON, rpc.Tagged("VcsFailed", rpc.Encode(failure.E)))
+		case workapi.Locked as failure:
+			failed(asJSON, rpc.Tagged("Locked", rpc.Encode(failure.E)))
+		case workapi.Busy as failure:
+			failed(asJSON, rpc.Tagged("Busy", rpc.Encode(failure.E)))
+		case workapi.RiftUnread as failure:
+			failed(asJSON, rpc.Tagged("RiftUnread", rpc.Encode(failure.E)))
+		case workapi.NotHeld as failure:
+			failed(asJSON, rpc.Tagged("NotHeld", rpc.Encode(failure.E)))
+		case workapi.IdMismatch as failure:
+			failed(asJSON, rpc.Tagged("IdMismatch", rpc.Encode(failure.E)))
+		case workapi.HasDescendants as failure:
+			failed(asJSON, rpc.Tagged("HasDescendants", rpc.Encode(failure.E)))
+		case workapi.BadAge as failure:
+			failed(asJSON, rpc.Tagged("BadAge", rpc.Encode(failure.E)))
+		case workapi.NotHere as failure:
+			failed(asJSON, rpc.Tagged("NotHere", rpc.Encode(failure.E)))
+		case workapi.Detached as failure:
+			failed(asJSON, rpc.Tagged("Detached", rpc.Encode(failure.E)))
+		case workapi.NotFastForward as failure:
+			failed(asJSON, rpc.Tagged("NotFastForward", rpc.Encode(failure.E)))
+		case workapi.Moved as failure:
+			failed(asJSON, rpc.Tagged("Moved", rpc.Encode(failure.E)))
+		case workapi.Dirty as failure:
+			failed(asJSON, rpc.Tagged("Dirty", rpc.Encode(failure.E)))
+		case workapi.Conflicted as failure:
+			failed(asJSON, rpc.Tagged("Conflicted", rpc.Encode(failure.E)))
+		case workapi.BadClass as failure:
+			failed(asJSON, rpc.Tagged("BadClass", rpc.Encode(failure.E)))
+		case workapi.MergeConflict as failure:
+			failed(asJSON, rpc.Tagged("MergeConflict", rpc.Encode(failure.E)))
+		case workapi.NotFound as failure:
+			failed(asJSON, rpc.Tagged("NotFound", rpc.Encode(failure.E)))
+		case workapi.Untrusted as failure:
+			failed(asJSON, rpc.Tagged("Untrusted", rpc.Encode(failure.E)))
+		case workapi.DeriveFailed as failure:
+			failed(asJSON, rpc.Tagged("DeriveFailed", rpc.Encode(failure.E)))
+		case workapi.DepsFailed as failure:
+			failed(asJSON, rpc.Tagged("DepsFailed", rpc.Encode(failure.E)))
+		case workapi.PluginRefused as failure:
+			failed(asJSON, rpc.Tagged("PluginRefused", rpc.Encode(failure.E)))
 		}
-		let encoded = rpc.Encode(v)
-		answer(asJSON, encoded, encoded)
-	case AdoptRequest as x:
-		let v = work.Api.Adopt(x.Dir, x.O) catch {
-		case work.Unkept as e:
-			return failed(asJSON, rpc.Tagged("Unkept", rpc.Encode(e)))
-		case work.NoBase as e:
-			return failed(asJSON, rpc.Tagged("NoBase", rpc.Encode(e)))
-		case work.BadName as e:
-			return failed(asJSON, rpc.Tagged("BadName", rpc.Encode(e)))
-		case work.NameTaken as e:
-			return failed(asJSON, rpc.Tagged("NameTaken", rpc.Encode(e)))
-		case work.Missing as e:
-			return failed(asJSON, rpc.Tagged("Missing", rpc.Encode(e)))
-		case work.VcsFailed as e:
-			return failed(asJSON, rpc.Tagged("VcsFailed", rpc.Encode(e)))
-		case work.Locked as e:
-			return failed(asJSON, rpc.Tagged("Locked", rpc.Encode(e)))
-		}
-		let encoded = rpc.Encode(v)
-		answer(asJSON, encoded, encoded)
-	case AdoptRiftRequest as x:
-		let v = work.Api.AdoptRift(x.O) catch {
-		case work.Unkept as e:
-			return failed(asJSON, rpc.Tagged("Unkept", rpc.Encode(e)))
-		case work.NoBase as e:
-			return failed(asJSON, rpc.Tagged("NoBase", rpc.Encode(e)))
-		case work.VcsFailed as e:
-			return failed(asJSON, rpc.Tagged("VcsFailed", rpc.Encode(e)))
-		case work.Locked as e:
-			return failed(asJSON, rpc.Tagged("Locked", rpc.Encode(e)))
-		case work.RiftUnread as e:
-			return failed(asJSON, rpc.Tagged("RiftUnread", rpc.Encode(e)))
-		}
-		let encoded = rpc.Encode(v)
-		answer(asJSON, encoded, encoded)
-	case ListRequest:
-		let v = work.Api.List() catch {
-		case work.Unkept as e:
-			return failed(asJSON, rpc.Tagged("Unkept", rpc.Encode(e)))
-		case work.NoBase as e:
-			return failed(asJSON, rpc.Tagged("NoBase", rpc.Encode(e)))
-		}
-		let encoded = rpc.Encode(v)
-		answer(asJSON, encoded, encoded)
-	case RmRequest as x:
-		let v = work.Api.Rm(x.Name, x.O) catch {
-		case work.HookFailed as e:
-			return failed(asJSON, rpc.Tagged("HookFailed", rpc.Encode(e)))
-		case work.BadConfig as e:
-			return failed(asJSON, rpc.Tagged("BadConfig", rpc.Encode(e)))
-		case work.Unkept as e:
-			return failed(asJSON, rpc.Tagged("Unkept", rpc.Encode(e)))
-		case work.NoBase as e:
-			return failed(asJSON, rpc.Tagged("NoBase", rpc.Encode(e)))
-		case work.NoWorkspace as e:
-			return failed(asJSON, rpc.Tagged("NoWorkspace", rpc.Encode(e)))
-		case work.Exists as e:
-			return failed(asJSON, rpc.Tagged("Exists", rpc.Encode(e)))
-		case work.Missing as e:
-			return failed(asJSON, rpc.Tagged("Missing", rpc.Encode(e)))
-		case work.CloneFailed as e:
-			return failed(asJSON, rpc.Tagged("CloneFailed", rpc.Encode(e)))
-		case work.VcsFailed as e:
-			return failed(asJSON, rpc.Tagged("VcsFailed", rpc.Encode(e)))
-		case work.Locked as e:
-			return failed(asJSON, rpc.Tagged("Locked", rpc.Encode(e)))
-		case work.Busy as e:
-			return failed(asJSON, rpc.Tagged("Busy", rpc.Encode(e)))
-		case work.NotHeld as e:
-			return failed(asJSON, rpc.Tagged("NotHeld", rpc.Encode(e)))
-		case work.IdMismatch as e:
-			return failed(asJSON, rpc.Tagged("IdMismatch", rpc.Encode(e)))
-		case work.HasDescendants as e:
-			return failed(asJSON, rpc.Tagged("HasDescendants", rpc.Encode(e)))
-		}
-		let encoded = rpc.Encode(v)
-		answer(asJSON, encoded, encoded)
-	case GcRequest as x:
-		let v = work.Api.Gc(x.O) catch {
-		case work.HookFailed as e:
-			return failed(asJSON, rpc.Tagged("HookFailed", rpc.Encode(e)))
-		case work.BadConfig as e:
-			return failed(asJSON, rpc.Tagged("BadConfig", rpc.Encode(e)))
-		case work.Unkept as e:
-			return failed(asJSON, rpc.Tagged("Unkept", rpc.Encode(e)))
-		case work.NoBase as e:
-			return failed(asJSON, rpc.Tagged("NoBase", rpc.Encode(e)))
-		case work.NoWorkspace as e:
-			return failed(asJSON, rpc.Tagged("NoWorkspace", rpc.Encode(e)))
-		case work.Exists as e:
-			return failed(asJSON, rpc.Tagged("Exists", rpc.Encode(e)))
-		case work.Missing as e:
-			return failed(asJSON, rpc.Tagged("Missing", rpc.Encode(e)))
-		case work.CloneFailed as e:
-			return failed(asJSON, rpc.Tagged("CloneFailed", rpc.Encode(e)))
-		case work.VcsFailed as e:
-			return failed(asJSON, rpc.Tagged("VcsFailed", rpc.Encode(e)))
-		case work.Locked as e:
-			return failed(asJSON, rpc.Tagged("Locked", rpc.Encode(e)))
-		case work.BadAge as e:
-			return failed(asJSON, rpc.Tagged("BadAge", rpc.Encode(e)))
-		}
-		let encoded = rpc.Encode(v)
-		answer(asJSON, encoded, encoded)
-	case DuRequest:
-		let v = work.Api.Du() catch {
-		case work.Unkept as e:
-			return failed(asJSON, rpc.Tagged("Unkept", rpc.Encode(e)))
-		case work.NoBase as e:
-			return failed(asJSON, rpc.Tagged("NoBase", rpc.Encode(e)))
-		case work.Unsupported as e:
-			return failed(asJSON, rpc.Tagged("Unsupported", rpc.Encode(e)))
-		case work.Missing as e:
-			return failed(asJSON, rpc.Tagged("Missing", rpc.Encode(e)))
-		case work.CloneFailed as e:
-			return failed(asJSON, rpc.Tagged("CloneFailed", rpc.Encode(e)))
-		}
-		let encoded = rpc.Encode(v)
-		answer(asJSON, encoded, encoded)
-	case ReadyRequest as x:
-		let v = work.Api.Ready(x.O) catch {
-		case work.Unkept as e:
-			return failed(asJSON, rpc.Tagged("Unkept", rpc.Encode(e)))
-		case work.NoBase as e:
-			return failed(asJSON, rpc.Tagged("NoBase", rpc.Encode(e)))
-		case work.NoWorkspace as e:
-			return failed(asJSON, rpc.Tagged("NoWorkspace", rpc.Encode(e)))
-		case work.VcsFailed as e:
-			return failed(asJSON, rpc.Tagged("VcsFailed", rpc.Encode(e)))
-		case work.Locked as e:
-			return failed(asJSON, rpc.Tagged("Locked", rpc.Encode(e)))
-		case work.Busy as e:
-			return failed(asJSON, rpc.Tagged("Busy", rpc.Encode(e)))
-		case work.NotHere as e:
-			return failed(asJSON, rpc.Tagged("NotHere", rpc.Encode(e)))
-		case work.Detached as e:
-			return failed(asJSON, rpc.Tagged("Detached", rpc.Encode(e)))
-		case work.NotFastForward as e:
-			return failed(asJSON, rpc.Tagged("NotFastForward", rpc.Encode(e)))
-		case work.Moved as e:
-			return failed(asJSON, rpc.Tagged("Moved", rpc.Encode(e)))
-		}
-		let encoded = rpc.Encode(v)
-		answer(asJSON, encoded, encoded)
-	case SyncRequest as x:
-		let v = work.Api.Sync(x.O) catch {
-		case work.BadConfig as e:
-			return failed(asJSON, rpc.Tagged("BadConfig", rpc.Encode(e)))
-		case work.Unkept as e:
-			return failed(asJSON, rpc.Tagged("Unkept", rpc.Encode(e)))
-		case work.NoBase as e:
-			return failed(asJSON, rpc.Tagged("NoBase", rpc.Encode(e)))
-		case work.NoWorkspace as e:
-			return failed(asJSON, rpc.Tagged("NoWorkspace", rpc.Encode(e)))
-		case work.VcsFailed as e:
-			return failed(asJSON, rpc.Tagged("VcsFailed", rpc.Encode(e)))
-		case work.Locked as e:
-			return failed(asJSON, rpc.Tagged("Locked", rpc.Encode(e)))
-		case work.Busy as e:
-			return failed(asJSON, rpc.Tagged("Busy", rpc.Encode(e)))
-		case work.NotHere as e:
-			return failed(asJSON, rpc.Tagged("NotHere", rpc.Encode(e)))
-		case work.Detached as e:
-			return failed(asJSON, rpc.Tagged("Detached", rpc.Encode(e)))
-		case work.Dirty as e:
-			return failed(asJSON, rpc.Tagged("Dirty", rpc.Encode(e)))
-		case work.Conflicted as e:
-			return failed(asJSON, rpc.Tagged("Conflicted", rpc.Encode(e)))
-		}
-		let encoded = rpc.Encode(v)
-		answer(asJSON, encoded, encoded)
-	case EnvRequest as x:
-		let v = work.Api.Env(x.O) catch {
-		case work.BadConfig as e:
-			return failed(asJSON, rpc.Tagged("BadConfig", rpc.Encode(e)))
-		case work.Unkept as e:
-			return failed(asJSON, rpc.Tagged("Unkept", rpc.Encode(e)))
-		case work.NoBase as e:
-			return failed(asJSON, rpc.Tagged("NoBase", rpc.Encode(e)))
-		case work.NoWorkspace as e:
-			return failed(asJSON, rpc.Tagged("NoWorkspace", rpc.Encode(e)))
-		case work.NotHere as e:
-			return failed(asJSON, rpc.Tagged("NotHere", rpc.Encode(e)))
-		}
-		answer(asJSON, "\(v)", rpc.Encode(v))
-	case MergeFileRequest as x:
-		let v = work.Api.MergeFile(x.Class, x.Base, x.Ours, x.Theirs, x.O) catch {
-		case work.BadConfig as e:
-			return failed(asJSON, rpc.Tagged("BadConfig", rpc.Encode(e)))
-		case fs.Denied as e:
-			return failed(asJSON, rpc.Tagged("Denied", rpc.Encode(e)))
-		case fs.Failed as e:
-			return failed(asJSON, rpc.Tagged("Failed", rpc.Encode(e)))
-		case work.BadClass as e:
-			return failed(asJSON, rpc.Tagged("BadClass", rpc.Encode(e)))
-		case work.MergeConflict as e:
-			return failed(asJSON, rpc.Tagged("MergeConflict", rpc.Encode(e)))
-		case fs.NotFound as e:
-			return failed(asJSON, rpc.Tagged("NotFound", rpc.Encode(e)))
-		}
-		let encoded = rpc.Encode(v)
-		answer(asJSON, encoded, encoded)
-	case MergeFoldersRequest as x:
-		let v = work.Api.MergeFolders(x.Base, x.Ours, x.Theirs, x.Out) catch {
-		case work.Untrusted as e:
-			return failed(asJSON, rpc.Tagged("Untrusted", rpc.Encode(e)))
-		case work.BadConfig as e:
-			return failed(asJSON, rpc.Tagged("BadConfig", rpc.Encode(e)))
-		case fs.Denied as e:
-			return failed(asJSON, rpc.Tagged("Denied", rpc.Encode(e)))
-		case fs.Failed as e:
-			return failed(asJSON, rpc.Tagged("Failed", rpc.Encode(e)))
-		case fs.NotFound as e:
-			return failed(asJSON, rpc.Tagged("NotFound", rpc.Encode(e)))
-		case work.DeriveFailed as e:
-			return failed(asJSON, rpc.Tagged("DeriveFailed", rpc.Encode(e)))
-		}
-		let encoded = rpc.Encode(v)
-		answer(asJSON, encoded, encoded)
-	case DeriveRequest as x:
-		let v = work.Api.Derive(x.O) catch {
-		case work.Untrusted as e:
-			return failed(asJSON, rpc.Tagged("Untrusted", rpc.Encode(e)))
-		case work.BadConfig as e:
-			return failed(asJSON, rpc.Tagged("BadConfig", rpc.Encode(e)))
-		case work.Unkept as e:
-			return failed(asJSON, rpc.Tagged("Unkept", rpc.Encode(e)))
-		case work.NoBase as e:
-			return failed(asJSON, rpc.Tagged("NoBase", rpc.Encode(e)))
-		case work.NoWorkspace as e:
-			return failed(asJSON, rpc.Tagged("NoWorkspace", rpc.Encode(e)))
-		case work.NotHere as e:
-			return failed(asJSON, rpc.Tagged("NotHere", rpc.Encode(e)))
-		case work.DeriveFailed as e:
-			return failed(asJSON, rpc.Tagged("DeriveFailed", rpc.Encode(e)))
-		}
-		let encoded = rpc.Encode(v)
-		answer(asJSON, encoded, encoded)
-	case DepsRequest as x:
-		let v = work.Api.Deps(x.O) catch {
-		case work.Untrusted as e:
-			return failed(asJSON, rpc.Tagged("Untrusted", rpc.Encode(e)))
-		case work.DepsFailed as e:
-			return failed(asJSON, rpc.Tagged("DepsFailed", rpc.Encode(e)))
-		case work.BadConfig as e:
-			return failed(asJSON, rpc.Tagged("BadConfig", rpc.Encode(e)))
-		case work.Unkept as e:
-			return failed(asJSON, rpc.Tagged("Unkept", rpc.Encode(e)))
-		case work.NoBase as e:
-			return failed(asJSON, rpc.Tagged("NoBase", rpc.Encode(e)))
-		case work.NoWorkspace as e:
-			return failed(asJSON, rpc.Tagged("NoWorkspace", rpc.Encode(e)))
-		case work.Locked as e:
-			return failed(asJSON, rpc.Tagged("Locked", rpc.Encode(e)))
-		case work.NotHere as e:
-			return failed(asJSON, rpc.Tagged("NotHere", rpc.Encode(e)))
-		}
-		let encoded = rpc.Encode(v)
-		answer(asJSON, encoded, encoded)
-	case TrustRequest:
-		let v = work.Api.Trust() catch {
-		case work.BadConfig as e:
-			return failed(asJSON, rpc.Tagged("BadConfig", rpc.Encode(e)))
-		case work.Unkept as e:
-			return failed(asJSON, rpc.Tagged("Unkept", rpc.Encode(e)))
-		case fs.Denied as e:
-			return failed(asJSON, rpc.Tagged("Denied", rpc.Encode(e)))
-		case fs.Failed as e:
-			return failed(asJSON, rpc.Tagged("Failed", rpc.Encode(e)))
-		case work.NoBase as e:
-			return failed(asJSON, rpc.Tagged("NoBase", rpc.Encode(e)))
-		case fs.NotFound as e:
-			return failed(asJSON, rpc.Tagged("NotFound", rpc.Encode(e)))
-		}
-		let encoded = rpc.Encode(v)
-		answer(asJSON, encoded, encoded)
-	case DoctorRequest as x:
-		let v = work.Api.Doctor(x.O) catch {
-		case work.BadConfig as e:
-			return failed(asJSON, rpc.Tagged("BadConfig", rpc.Encode(e)))
-		case work.Unkept as e:
-			return failed(asJSON, rpc.Tagged("Unkept", rpc.Encode(e)))
-		case work.NoBase as e:
-			return failed(asJSON, rpc.Tagged("NoBase", rpc.Encode(e)))
-		case work.VcsFailed as e:
-			return failed(asJSON, rpc.Tagged("VcsFailed", rpc.Encode(e)))
-		case work.RiftUnread as e:
-			return failed(asJSON, rpc.Tagged("RiftUnread", rpc.Encode(e)))
-		}
-		let encoded = rpc.Encode(v)
-		answer(asJSON, encoded, encoded)
-	case PluginTestRequest as x:
-		let v = work.Api.PluginTest(x.Command, x.O) catch {
-		case work.Untrusted as e:
-			return failed(asJSON, rpc.Tagged("Untrusted", rpc.Encode(e)))
-		case work.BadConfig as e:
-			return failed(asJSON, rpc.Tagged("BadConfig", rpc.Encode(e)))
-		case work.NoBase as e:
-			return failed(asJSON, rpc.Tagged("NoBase", rpc.Encode(e)))
-		case work.VcsFailed as e:
-			return failed(asJSON, rpc.Tagged("VcsFailed", rpc.Encode(e)))
-		case work.PluginRefused as e:
-			return failed(asJSON, rpc.Tagged("PluginRefused", rpc.Encode(e)))
-		}
-		let encoded = rpc.Encode(v)
-		answer(asJSON, encoded, encoded)
-	case RefreshRequest:
-		let v = work.Api.Refresh() catch {
-		case work.Unkept as e:
-			return failed(asJSON, rpc.Tagged("Unkept", rpc.Encode(e)))
-		case work.NoBase as e:
-			return failed(asJSON, rpc.Tagged("NoBase", rpc.Encode(e)))
-		case work.VcsFailed as e:
-			return failed(asJSON, rpc.Tagged("VcsFailed", rpc.Encode(e)))
-		}
-		answer(asJSON, "\(v)", rpc.Encode(v))
-	case BasesRequest:
-		let v = work.Api.Bases() catch {
-		case work.Unkept as e:
-			return failed(asJSON, rpc.Tagged("Unkept", rpc.Encode(e)))
-		}
-		let encoded = rpc.Encode(v)
-		answer(asJSON, encoded, encoded)
-	case ShellInitRequest:
-		let v = work.Api.ShellInit()
-		answer(asJSON, "\(v)", rpc.Encode(v))
-	case ImportRiftRequest as x:
-		let v = work.Api.ImportRift(x.O) catch {
-		case work.BadConfig as e:
-			return failed(asJSON, rpc.Tagged("BadConfig", rpc.Encode(e)))
-		case fs.Denied as e:
-			return failed(asJSON, rpc.Tagged("Denied", rpc.Encode(e)))
-		case fs.Failed as e:
-			return failed(asJSON, rpc.Tagged("Failed", rpc.Encode(e)))
-		case fs.NotFound as e:
-			return failed(asJSON, rpc.Tagged("NotFound", rpc.Encode(e)))
-		}
-		answer(asJSON, "\(v)", rpc.Encode(v))
 	}
 }
