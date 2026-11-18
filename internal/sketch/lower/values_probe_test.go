@@ -170,10 +170,10 @@ func main() needs Console {
 `, "1 2\n"},
 	// A later rebinding ends the value a use reads (S2-COPY, killOf): Go
 	// writes the let mut it gets in place only when every run of the use
-	// runs the rebinding next. A break between them (mutant
-	// kill-branch-blind), a read between them (kill-between-blind) and a
-	// use in a loop's condition with the rebinding after the loop
-	// (kill-loop-blind) each keep the copy.
+	// runs the rebinding next. A break between them, a read between them
+	// and a use in a loop's condition with the rebinding after the loop
+	// each keep the copy (TestValueRuleMutants' switches kill-branch-blind,
+	// kill-between-blind and kill-loop-blind).
 	{"PKbreak", `import go slices
 
 func main() needs Console | go.Foreign {

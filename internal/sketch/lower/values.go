@@ -2479,24 +2479,6 @@ func (w *valueWalk) fresh(e syntax.Expr) bool {
 				}
 				return !w.l.holdsValue(elemOf(w.typeOf(x)))
 			}
-			if op, ok := writtenOperand(x, c).(syntax.Expr); ok {
-				// A Go call that writes its slice operand in place (GBX2)
-				// returns that operand's storage, first beside Go's own
-				// results: fresh when the operand Go got is (a copy, or a
-				// dead local) and Go's other results hold no Map or slice
-				// (S2-COPY: `let (b, n) = try f.Read(buf); buf = b`).
-				if !w.vf.clone[op] && !w.fresh(op) {
-					return false
-				}
-				if t, ok := w.typeOf(x).(*check.Tuple); ok {
-					for _, e := range t.Types[1:] {
-						if w.l.holdsValue(e) {
-							return false
-						}
-					}
-				}
-				return true
-			}
 			if w.typeArgShared(c, x) {
 				return false
 			}

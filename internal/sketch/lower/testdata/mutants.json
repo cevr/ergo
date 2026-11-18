@@ -1810,8 +1810,8 @@
       "name": "t5-25-false-true-values.go:1111",
       "origin": "test-speed T5 no-loss sample (gen5.ts 40 5; kept coverers 3)",
       "file": "internal/sketch/lower/values.go",
-      "from": "\t\t\tif !containsNode(loops, l) {\n\t\t\t\treturn false\n\t\t\t}",
-      "to": "\t\t\tif !containsNode(loops, l) {\n\t\t\t\treturn true\n\t\t\t}",
+      "from": "\t\t\tif kill == nil || !(w.pre[l] <= w.pre[killStmt] && w.pre[killStmt] < w.post[l]) && valueMutant != \"kill-loop-blind\" {\n\t\t\t\treturn false\n\t\t\t}",
+      "to": "\t\t\tif kill == nil || !(w.pre[l] <= w.pre[killStmt] && w.pre[killStmt] < w.post[l]) && valueMutant != \"kill-loop-blind\" {\n\t\t\t\treturn true\n\t\t\t}",
       "rule": "freshIdent: freshIdent reports whether the use id of vv may take its value without a copy: vv is a local of this frame, read nowhere else after this use and never shared before it, captured by no other frame, and its value is unshared (a let mut always is; a let when its value was fresh).",
       "killers": [
         "lower:TestValueRuleProbes"
@@ -5893,7 +5893,6 @@
     {"name":"s2c-kill-off","origin":"wf10 lawffi S2-COPY","file":"internal/sketch/lower/values.go","from":"\tif !vv.mut || !valueOwned() {\n\t\treturn nil, nil\n\t}\n\tvar stmt syntax.Node = use.id","to":"\tif true {\n\t\treturn nil, nil\n\t}\n\tvar stmt syntax.Node = use.id","rule":"types.md value rule (S2-COPY): a later rebinding of a let mut that every run of a use runs next ends the value the use reads, so the read loop hands Go its buffer.","killers":["lower:TestFileHandlesNeedOnlyAmbient"]},
     {"name":"s2c-written-escapes","origin":"wf10 lawffi S2-COPY","file":"internal/sketch/lower/values.go","from":"\t\tcase writtenOperand(p, c) == child:\n","to":"\t\tcase false && writtenOperand(p, c) == child:\n","rule":"interop.md Go writes in place (S2-COPY): Go keeps no reference to the slice it writes, so that operand is no escape.","killers":["lower:TestFileHandlesNeedOnlyAmbient"]},
     {"name":"s2c-reads-escapes","origin":"wf10 lawffi S2-COPY","file":"internal/sketch/lower/values.go","from":"\t\tcase c.Kind == check.CallFunc && c.Func != nil && goReadsAt(p, c, child):\n","to":"\t\tcase false && c.Kind == check.CallFunc && c.Func != nil && goReadsAt(p, c, child):\n","rule":"interop.md reads facts (S2-COPY): an operand Go only reads is no escape.","killers":["lower:TestFileHandlesNeedOnlyAmbient"]},
-    {"name":"s2c-written-unfresh","origin":"wf10 lawffi S2-COPY","file":"internal/sketch/lower/values.go","from":"\t\t\tif op, ok := writtenOperand(x, c).(syntax.Expr); ok {\n","to":"\t\t\tif op, ok := writtenOperand(x, c).(syntax.Expr); false && ok {\n","rule":"interop.md Go writes in place (S2-COPY): the slice a Go call wrote is as fresh as the operand Go got.","killers":["lower:TestFileHandlesNeedOnlyAmbient"]},
     {"name":"s2c-reads-slice-refused","origin":"wf10 lawffi S2-COPY","file":"internal/sketch/lower/gofacts.go","from":"\t\tcase *syntax.SliceExpr:\n","to":"\t\tcase *syntax.SliceExpr:\n\t\t\treturn \"not a binding or a field of one\"\n","rule":"interop.md reads facts (S2-COPY): a slice of a binding under a reads fact goes to Go uncopied.","killers":["lower:TestFileHandlesNeedOnlyAmbient"]}
   ]
 }
