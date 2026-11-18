@@ -137,7 +137,7 @@ func parameterClumps(p *Pass) map[*syntax.Ident]string {
 				list += ", " + s
 			}
 			partners++
-			if first == "" {
+			if partners == 1 {
 				first = a.name.Name + " shares " + list + " with " + b.name.Name + where
 			}
 		}
