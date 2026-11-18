@@ -3148,12 +3148,18 @@ func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 				held = 0
 			}
 		} else if other == 1 {
-			// A tap is a press and a release: it lets go of the pointer.
-			ui.Play(&h, []ui.Act{ui.TapOn{Label: "tap"}}) catch {
+			// A tap is a press and a release: it lets go of the pointer, and
+			// its Down and Up go to what it taps, not the Area that held the
+			// pointer. The opening's tap, after a Down on b, is on the Text,
+			// whose press sends nothing.
+			let onText = i == 5 || (i >= 9 && draw(&r, 2) == 0)
+			ui.Play(&h, []ui.Act{ui.TapOn{Label: if onText { "top" } else { "tap" }}}) catch {
 			case _:
 				return false
 			}
-			state = 98
+			if !onText {
+				state = 98
+			}
 			held = 0
 		} else {
 			let phases = []ui.Phase{ui.Down, ui.Moved, ui.Up, ui.Wheel{DX: 0.0, DY: 1.0}, ui.Drag}
