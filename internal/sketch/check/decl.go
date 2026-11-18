@@ -946,7 +946,15 @@ func (c *checker) resolveNamed(n *Named) {
 						tp.Constraint = c.constraint(cons, ctx)
 						c.deferBounds--
 					})
-					checks = append(checks, func() { c.constraintBounds(tp, cons) })
+					checks = append(checks, func() {
+						if cn, ok := tp.Constraint.(*Named); ok && cn.origin() == n && !bareParams(cn.TArgs) {
+							// A self bound that grows its argument,
+							// type R[T R[[]T]]: the instantiation cycle
+							// is its one diagnostic (mono.go).
+							return
+						}
+						c.constraintBounds(tp, cons)
+					})
 				case conflicts[name.Name]:
 					c.errorf(name, CodeType, "type parameter %s is used both as a type and as a row (types.md, Generics 1)", name.Name)
 					tp.conflict = true
@@ -1706,6 +1714,16 @@ func (c *checker) constraintBounds(tp *TypeParam, x syntax.Expr) {
 	if p, why := c.boundsUnmet(n); p != nil {
 		c.errorf(x, CodeType, "%s does not satisfy %s: %s", n.TArgs[slices.Index(n.origin().TParams, p)], c.subst(p.Constraint, paramMap(n.origin().TParams, n.TArgs)), why)
 	}
+}
+
+// bareParams reports whether every type argument is a type parameter.
+func bareParams(args []Type) bool {
+	for _, a := range args {
+		if _, ok := a.(*TypeParam); !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // resolvingOps reports whether n is an instance of a type still resolving

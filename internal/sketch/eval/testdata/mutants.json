@@ -2102,6 +2102,8 @@
       "rule": "The evaluator runs the operation s.Bytes(), so check-time evaluation of std's digests (sha256.Sum) agrees with the build.",
       "anchor": {"tests":["internal/sketch/eval:TestEvalAgreesWithLowering"]},
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
-    }
+    },
+    {"name":"c2-eval-tie-dropped","origin":"wf10 CONSTRAINTS C2","file":"internal/sketch/testplan/plan.go","from":"if i < len(p.Ties) && len(p.Ties[i]) > 0 {","to":"if false {","rule":"runtime.md Tests 5, Ties: at check time a later parameter of one type repeats an earlier value in a quarter of the cases.","killers":["internal/sketch/eval:TestTiesReachEqualArguments"]},
+    {"name":"c2-tie-never","origin":"wf10 CONSTRAINTS C2","file":"runtime/testgen/stream.go","from":"if k := r.Intn(4 * n); k < n {","to":"if k := r.Intn(4 * n); k < 0 {","rule":"runtime.md Tests 5, Ties: a tie is drawn with probability 1/4 (the tie rule removed, probability 0).","killers":["internal/sketch/eval:TestTiesReachEqualArguments"]}
   ]
 }

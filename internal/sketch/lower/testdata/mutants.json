@@ -6363,6 +6363,7 @@
       "killers": [
         "internal/sketch/lower:TestLinkedRuntimeHoldsEveryImport"
       ]
-    }
+    },
+    {"name":"c2-build-tie-dropped","origin":"wf10 CONSTRAINTS C2","file":"internal/sketch/lower/lawcases.go","from":"\tif i >= len(p.Ties) || len(p.Ties[i]) == 0 {\n\t\treturn gen","to":"\tif true {\n\t\treturn gen","rule":"runtime.md Tests 5, Ties: the test build repeats an earlier value of one type in a quarter of a law's cases, as check time does.","killers":["lower:TestLawRunFindsTheBrokenProvider"]}
   ]
 }

@@ -972,7 +972,9 @@ func genLawRunProgram(r *rand.Rand, i int) lawRunProgram {
 // operation types with 1-3 providers, one of them broken at random (or
 // none), exactly the broken provider fails, with its name and the seed, and
 // the top-level law runs as well. A failure prints the program's source.
-// ERGO_LAWRUN_SEED replays another seed.
+// ERGO_LAWRUN_SEED replays another seed. An even program also has a law
+// false only at equal arguments (CONSTRAINTS C2), which the test build's
+// tie rule must refute: mutant c2-build-tie-dropped.
 func TestLawRunFindsTheBrokenProvider(t *testing.T) {
 	needsBuild(t)
 	seed := int64(162)
