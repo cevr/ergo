@@ -152,6 +152,9 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			if i, known := b.locals[o]; known {
 				return b.handoff(x, &irExpr{K: "local", Pos: p, I: i}) // ir_own.go
 			}
+			if i, built := b.strBufs[o]; built {
+				return b.strCall("StrGet", i, p) // strbuf.go
+			}
 			if b.scalars[o] != nil {
 				// Its gather writes statements: a value (ir_scalar.go).
 				irNo("scalar-form local inside an expression")
@@ -254,6 +257,18 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 				}
 			}
 			lit.Elems = b.inOrder(x.Elts) // ir_order.go
+			if b.l.valueFacts().seeds[x] && len(lit.Elems) == 1 {
+				// append(slices.Grow([]T{}, seedCap), e) (seedcap.go).
+				et := b.goType(tt.Elem, x)
+				keep := lit.T
+				if b.namesTypeParam(keep) {
+					keep = "[]int" // a generic body's slice is no package-level type (ir_loops.go)
+				}
+				b.keepImport("var _ = " + b.l.goPkg("slices") + ".Grow[" + keep + "]")
+				room := &irExpr{K: "pcall", Pos: p, T: "slices", Name: "Grow", V: lit.T + ", " + et, Args: []*irExpr{{K: "lit", Pos: p, T: lit.T}, {K: "const", Pos: p, T: "int", V: strconv.Itoa(seedCap)}}}
+				b.seedSites++
+				return &irExpr{K: "append", Pos: p, Args: []*irExpr{room, lit.Elems[0]}}
+			}
 		case *check.Map:
 			lit.Elems = b.mapLit(x) // ir_pkg.go
 		case *check.Named:
