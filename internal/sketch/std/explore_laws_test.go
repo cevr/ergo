@@ -15,7 +15,9 @@ var exploreLawPackages = []string{"explore", "dense"}
 
 // TestStdExploreLawsRun runs the laws of std explore (AlwaysAgreesWithReference,
 // the search against a reference that keeps whole states; KeyIsEquality, a
-// state's key against ==) and dense.KeysAgreeWithAList at check time, in
+// state's key against ==; Conform's ProjectionsConform,
+// ConformAgreesWithReference, TraceErrorsNameTheLine and
+// LimitNeverConforms) and dense.KeysAgreeWithAList at check time, in
 // process: the evaluator runs std explore's Ergo, which is the code a test
 // build lowers, so no Go is built. Each law runs its 100 generated cases
 // with a step budget large enough to finish them; lawledger.Run holds that
