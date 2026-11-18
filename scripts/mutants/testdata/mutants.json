@@ -189,8 +189,8 @@
       "name": "mutnames-no-test-timeout",
       "origin": "wf10 MUT-names r2",
       "file": "scripts/mutants/runner.go",
-      "from": "\"-test.count=1\", \"-test.timeout=\" + (deadline * 9 / 10).String()},",
-      "to": "\"-test.count=1\"},",
+      "from": "\"-test.count=1\", \"-test.v\", \"-test.timeout=\" + (deadline * 9 / 10).String()},",
+      "to": "\"-test.count=1\", \"-test.v\"},",
       "rule": "A Go test binary runs with a -test.timeout, as under go test, so a test that bounds its children by t.Deadline judges mutants.",
       "killers": ["scripts/mutants:TestRunnerMatchesModel"]
     },
@@ -556,7 +556,7 @@
       "killers": []
     },
     {"name":"gtb-hung-exit","origin":"wf10 GATE2 GT-BOUND","file":"scripts/mutants/main.go","from":"\tif len(newSurvivors) > 0 || len(unjudged) > 0 || len(hung) > 0 || invalid > 0 {","to":"\tif len(newSurvivors) > 0 || len(unjudged) > 0 || invalid > 0 {","rule":"A hung row fails the run, as an invalid one does.","killers":["scripts/mutants:TestUnjudgedFailsTheRun"]},
-    {"name":"gtb-panic-ignored","origin":"wf10 GATE2 GT-BOUND","file":"scripts/mutants/runner.go","from":"\to.timeout = o.reason == \"deadline\" || o.reason == \"fail\" && out.sawTimeout()","to":"\to.timeout = o.reason == \"deadline\"","rule":"A go test that fails only by its own -test.timeout panic kills nothing: its row is hung.","killers":["scripts/mutants:TestRunnerMatchesModel"]},
+    {"name":"gtb-panic-ignored","origin":"wf10 GATE2 GT-BOUND","file":"scripts/mutants/runner.go","from":"\to.timeout = o.reason == \"deadline\" || o.reason == \"fail\" && out.saw(0)","to":"\to.timeout = o.reason == \"deadline\"","rule":"A go test that fails only by its own -test.timeout panic kills nothing: its row is hung.","killers":["scripts/mutants:TestRunnerMatchesModel"]},
     {"name":"gtb-named-skipped","origin":"wf10 GATE2 GT-BOUND","file":"scripts/mutants/judge.go","from":"\tif len(named) == 0 {\n\t\treturn r, true\n\t}\n\tr.Covering = len(named)","to":"\tif len(named) >= 0 {\n\t\treturn r, true\n\t}\n\tr.Covering = len(named)","rule":"A row its named tests kill is judged before any coverage pass (phase A).","killers":["scripts/mutants:TestRunnerMatchesModel"]},
     {"name":"gtb-red-named-run","origin":"wf10 GATE2 GT-BOUND","file":"scripts/mutants/judge.go","from":"\tif red := w.e.red(named); len(red) > 0 {","to":"\tif red := w.e.red(named); len(red) > 99 {","rule":"A named test that fails on the unmutated tree leaves its row unjudged.","killers":["scripts/mutants:TestRunnerMatchesModel"]},
     {"name":"gtb-journal-unread","origin":"wf10 GATE2 GT-BOUND","file":"scripts/mutants/judge.go","from":"if r, ok := jr.results[resultKey(it.ledger, it.m.Name)]; ok {","to":"if r, ok := jr.results[resultKey(it.ledger, it.m.Name)]; ok && false {","rule":"A run takes the verdicts its tree's journal holds and does not judge those rows again.","killers":["scripts/mutants:TestRunnerMatchesModel"]},
@@ -565,7 +565,8 @@
     {"name":"gtb-first-kill-runs-on","origin":"wf10 GATE2 GT-BOUND","file":"scripts/mutants/judge.go","from":"\t\t\tif killedBy(o) && !w.e.cfg.All {\n\t\t\t\tcancel()\n\t\t\t}","to":"\t\t\t_ = killedBy(o)","rule":"The first kill stops a row's other tests.","killers":[],"gap":"survived: the model's verdicts do not depend on how many covering tests run after the first kill; the receipt (stopped) shows it (GT-BOUND, 2026-11-16)"},
     {"name":"gtb-path-toolchain","origin":"wf10 GATE2 GT-BOUND","file":"scripts/mutants/runner.go","from":"\t\t\t\tkv = \"PATH=\" + filepath.Join(e.goRoot, \"bin\") + string(os.PathListSeparator) + value","to":"\t\t\t\tkv = \"PATH=\" + value","rule":"Every child of the runner finds the module's toolchain first on PATH, as go test puts it.","killers":["scripts/mutants:TestRunnerMatchesModel"]},
     {"name":"gtb-goroot-stale","origin":"wf10 GATE2 GT-BOUND","file":"scripts/mutants/runner.go","from":"\t\tcase \"GOROOT\":\n","to":"\t\tcase \"GOROOT_UNUSED\":\n","rule":"No child inherits a GOROOT: the go first on its PATH finds its own.","killers":["scripts/mutants:TestRunnerMatchesModel"]},
-    {"name":"gtb-command-measured","origin":"wf10 GATE2 Q15 (GT-BOUND x GT6)","file":"scripts/mutants/coverstore.go","from":"func(s Suite) bool { return s.Commands != nil })","to":"func(s Suite) bool { return false })","rule":"The coverage pass measures go test suites only: a command runs only for the rows that name it.","killers":["scripts/mutants:TestRunnerMatchesModel"]}
+    {"name":"gtb-command-measured","origin":"wf10 GATE2 Q15 (GT-BOUND x GT6)","file":"scripts/mutants/coverstore.go","from":"func(s Suite) bool { return s.Commands != nil })","to":"func(s Suite) bool { return false })","rule":"The coverage pass measures go test suites only: a command runs only for the rows that name it.","killers":["scripts/mutants:TestRunnerMatchesModel"]},
+    {"name":"gtn-started-ignored","origin":"wf10 GATE2 GT-NOTESTS","file":"scripts/mutants/judge.go","from":"\t\tcase !o.started:\n","to":"\t\tcase false:\n","rule":"A test whose binary ended before the test started kills nothing: its row is invalid unless another test killed it.","killers":["scripts/mutants:TestRunnerMatchesModel"]}
 
   ]
 }

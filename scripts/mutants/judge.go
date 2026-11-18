@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -242,10 +243,11 @@ func (e *engine) baselines(ctx context.Context, items []item, pending []int, jr 
 			suite, name := splitID(id)
 			s := e.suite(suite)
 			argv, cwd, env := e.argv(s, w.root, w.bin, name, e.cfg.CoverDeadline)
-			o := e.exec(ctx, cwd, argv, e.env(env...), e.cfg.CoverDeadline)
+			o := e.execStarted(ctx, cwd, argv, e.env(env...), e.cfg.CoverDeadline, startLine(s, name))
 			if o.reason == "interrupted" {
 				return
 			}
+			o = neverRan(o)
 			t := &covTest{ID: id, Seconds: o.seconds}
 			if o.reason != "" {
 				t.Failed, t.Detail = true, o.reason+": "+lastLines(o.tail, 20)
@@ -536,6 +538,8 @@ func verdict(r Result) string {
 	switch {
 	case r.Killer != "":
 		return Killed
+	case len(r.NotStarted) > 0:
+		return Invalid
 	case len(r.Hung) > 0:
 		return Hung
 	}
@@ -599,6 +603,15 @@ func (w *worker) runTests(ctx context.Context, m *Mutant, ids []string, r *Resul
 			if r.Killer == "" && r.Detail == "" {
 				r.Detail = id + " " + o.reason + " (a timeout, no kill): " + lastLines(o.tail, 30)
 			}
+		case !o.started:
+			// The binary ended before the test started (a usage error, a
+			// panic in an init, no test of that name): no kill, and no
+			// pass either (GT-NOTESTS: Lane A's S2e run counted every row
+			// killed when its test command errored before any test ran).
+			r.NotStarted = append(r.NotStarted, id)
+			if r.Killer == "" && r.Detail == "" {
+				r.Detail = id + " ended before the test started (" + cmp.Or(o.reason, "exit 0") + ", no kill): " + lastLines(o.tail, 30)
+			}
 		case o.reason == "":
 			r.Ran = append(r.Ran, id)
 		default:
@@ -611,9 +624,23 @@ func (w *worker) runTests(ctx context.Context, m *Mutant, ids []string, r *Resul
 	return false
 }
 
-// killedBy says whether o is a kill: a failure that is not a timeout.
+// killedBy says whether o is a kill: a failure of a test that started
+// (startLine), and not by its timeout.
 func killedBy(o outcome) bool {
-	return o.reason != "" && o.reason != "interrupted" && !o.timeout
+	return o.reason != "" && o.reason != "interrupted" && !o.timeout && o.started
+}
+
+// notRun is the reason of a test that passed without starting: no test of
+// its name ran ("testing: warning: no tests to run").
+const notRun = "not run"
+
+// neverRan makes a run on the unmutated tree that never started its test
+// a failure there: a named test that runs nothing judges nothing.
+func neverRan(o outcome) outcome {
+	if o.reason == "" && !o.started {
+		o.reason = notRun
+	}
+	return o
 }
 
 // runOne runs one test on the mutated copy, with a deadline derived from
@@ -623,7 +650,7 @@ func (w *worker) runOne(ctx context.Context, m *Mutant, id string) outcome {
 	s := w.e.suite(suite)
 	deadline := max(w.e.testFloor(), time.Duration(deadlineFactor*w.e.info(id).Seconds*float64(time.Second)))
 	argv, cwd, env := w.e.argv(s, w.root, w.bin, name, deadline)
-	return w.e.exec(ctx, cwd, argv, w.e.env(append(env, MutantVariable+"="+m.Name)...), deadline)
+	return w.e.execStarted(ctx, cwd, argv, w.e.env(append(env, MutantVariable+"="+m.Name)...), deadline, startLine(s, name))
 }
 
 func (e *engine) testFloor() time.Duration {

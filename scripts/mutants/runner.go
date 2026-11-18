@@ -175,8 +175,12 @@ type Result struct {
 	Ran     []string `json:"ran,omitempty"`
 	Stopped []string `json:"stopped,omitempty"`
 	Hung    []string `json:"hung,omitempty"`
-	Seconds float64  `json:"seconds"`
-	Detail  string   `json:"detail,omitempty"`
+	// NotStarted are the tests whose binary ended before the test started
+	// (startLine): no kill, and the row is invalid unless another test
+	// killed it.
+	NotStarted []string `json:"not_started,omitempty"`
+	Seconds    float64  `json:"seconds"`
+	Detail     string   `json:"detail,omitempty"`
 	// checked is set once phase A applied the row and its source checks
 	// passed: phase B does not check it again.
 	checked bool
@@ -519,6 +523,9 @@ type outcome struct {
 	seconds float64
 	tail    string
 	timeout bool
+	// started is set when the child printed the start line it was run
+	// with (execStarted), or had none to print.
+	started bool
 }
 
 // timeoutPanic is how a go test binary says that its -test.timeout ran
@@ -579,8 +586,14 @@ func lookPathIn(name string, env []string) string {
 // exec runs argv in dir as the leader of its own process group, under the
 // memory limit and the deadline, and stops the whole group when it ends.
 func (e *engine) exec(ctx context.Context, dir string, argv, env []string, deadline time.Duration) outcome {
+	return e.execStarted(ctx, dir, argv, env, deadline, "")
+}
+
+// execStarted is exec of a child that prints startLine when the test it
+// runs starts ("" for none): outcome.started says whether it did.
+func (e *engine) execStarted(ctx context.Context, dir string, argv, env []string, deadline time.Duration, startLine string) outcome {
 	start := time.Now()
-	out := &tail{}
+	out := &tail{needles: []string{timeoutPanic, startLine}}
 	cmd := exec.Command(lookPathIn(argv[0], env), argv[1:]...)
 	cmd.Dir = dir
 	cmd.Env = env
@@ -626,11 +639,23 @@ func (e *engine) exec(ctx context.Context, dir string, argv, env []string, deadl
 	mu.Unlock()
 	o := outcome{seconds: time.Since(start).Seconds(), tail: out.String()}
 	o.reason = childReason(err, timedOut, e.cfg.Memory, watch.Stderr())
-	o.timeout = o.reason == "deadline" || o.reason == "fail" && out.sawTimeout()
+	o.timeout = o.reason == "deadline" || o.reason == "fail" && out.saw(0)
+	o.started = startLine == "" || out.saw(1)
 	if ctx.Err() != nil && o.reason != "" {
 		o.reason, o.timeout = "interrupted", false
 	}
 	return o
+}
+
+// startLine is what a test binary run with -test.v prints when the
+// top-level test starts: a Go test that fails without it never ran (a
+// usage error, a binary that died in its init, no test of that name), so
+// its failure kills nothing (GT-NOTESTS). A command suite prints none.
+func startLine(s *Suite, test string) string {
+	if s.Package == "" {
+		return ""
+	}
+	return "=== RUN   " + test + "\n"
 }
 
 // tail keeps the first and the last bytes a child wrote: a crash names its
@@ -640,17 +665,20 @@ type tail struct {
 	head    []byte
 	buf     []byte
 	dropped bool
-	// seen is set once timeoutPanic was written, wherever the display
-	// truncates; carry is the end of the last write, for a panic line cut
-	// between two writes.
-	seen  bool
-	carry []byte
+	// needles are texts to watch for wherever the display truncates (an
+	// empty one is not watched): seen[i] is set once needles[i] was
+	// written; carry is the end of the last write, for a line cut between
+	// two writes.
+	needles []string
+	seen    []bool
+	carry   []byte
 }
 
-func (t *tail) sawTimeout() bool {
+// saw says whether needles[i] was written.
+func (t *tail) saw(i int) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.seen
+	return i < len(t.seen) && t.seen[i]
 }
 
 const tailSize = 16 << 10
@@ -673,10 +701,22 @@ func (t *tail) Write(p []byte) (int, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	n := len(p)
-	if !t.seen {
+	if t.seen == nil {
+		t.seen = make([]bool, len(t.needles))
+		for i, n := range t.needles {
+			t.seen[i] = n == "" // nothing to watch for
+		}
+	}
+	if slices.Contains(t.seen, false) {
 		scan := append(t.carry, p...)
-		t.seen = bytes.Contains(scan, []byte(timeoutPanic))
-		t.carry = append(t.carry[:0], scan[max(0, len(scan)-len(timeoutPanic)):]...)
+		longest := 0
+		for i, n := range t.needles {
+			longest = max(longest, len(n))
+			if n != "" && !t.seen[i] {
+				t.seen[i] = bytes.Contains(scan, []byte(n))
+			}
+		}
+		t.carry = append(t.carry[:0], scan[max(0, len(scan)-longest):]...)
 	}
 	if room := tailSize/4 - len(t.head); room > 0 {
 		k := min(room, len(p))
@@ -798,7 +838,7 @@ func (e *engine) argv(s *Suite, root, bin, test string, deadline time.Duration) 
 		env = append(env, expand(kv, bin, root, test))
 	}
 	if s.Package != "" {
-		return []string{filepath.Join(bin, s.Name+".test"), "-test.run=^" + regexp.QuoteMeta(test) + "$", "-test.count=1", "-test.timeout=" + (deadline * 9 / 10).String()},
+		return []string{filepath.Join(bin, s.Name+".test"), "-test.run=^" + regexp.QuoteMeta(test) + "$", "-test.count=1", "-test.v", "-test.timeout=" + (deadline * 9 / 10).String()},
 			filepath.Join(root, filepath.FromSlash(s.Module), filepath.FromSlash(s.Package)), env
 	}
 	var argv []string
@@ -1004,7 +1044,7 @@ func (e *engine) measureOne(ctx context.Context, root, bin string, t *covTest, i
 		argv = append(argv, "-test.testlogfile="+testLog)
 		defer os.Remove(testLog)
 	}
-	o := e.exec(ctx, cwd, argv, e.env(append(env, "GOCOVERDIR="+dir, coverGoVariable+"="+k.ergo.dir, embedObserveVariable+"="+root)...), e.cfg.CoverDeadline)
+	o := e.execStarted(ctx, cwd, argv, e.env(append(env, "GOCOVERDIR="+dir, coverGoVariable+"="+k.ergo.dir, embedObserveVariable+"="+root)...), e.cfg.CoverDeadline, startLine(s, name))
 	if testLog != "" {
 		if f, err := os.Open(testLog); err == nil {
 			mu.Lock()
@@ -1037,7 +1077,7 @@ func (e *engine) measureOne(ctx context.Context, root, bin string, t *covTest, i
 			o = plain
 		}
 	}
-	if o.reason != "" {
+	if o = neverRan(o); o.reason != "" {
 		t.Failed = true
 		t.Detail = o.reason + ": " + lastLines(o.tail, 20)
 		e.logf("coverage: %s fails on the unmutated tree (%s): it kills nothing", t.ID, o.reason)
@@ -1089,7 +1129,7 @@ func (e *engine) plainRun(ctx context.Context, root string, s *Suite, test strin
 		return outcome{}, b.err
 	}
 	argv, cwd, env := e.argv(s, root, bin, test, e.cfg.CoverDeadline)
-	return e.exec(ctx, cwd, argv, e.env(env...), e.cfg.CoverDeadline), nil
+	return e.execStarted(ctx, cwd, argv, e.env(env...), e.cfg.CoverDeadline, startLine(s, test)), nil
 }
 
 // headerLine reports whether the line of text at byte offset at is a case

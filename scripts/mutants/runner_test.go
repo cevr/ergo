@@ -71,6 +71,10 @@ const seedVariable = "ERGO_MUTANTS_SEED"
 // journal at its end (gtb-named-skipped, gtb-panic-ignored,
 // gtb-journal-unread, gtb-journal-kept, gtb-command-words).
 //
+// GT-NOTESTS: dies-before-tests makes every binary that links one panic in
+// its init, before any test starts: its tests fail, but none ran, so it is
+// invalid, not killed (gtn-started-ignored).
+//
 // It builds Go because the runner's whole job is to build and run go test
 // binaries on mutated copies; no in-process check stands in for that.
 func TestRunnerMatchesModel(t *testing.T) {
@@ -496,6 +500,12 @@ func checkModel(t *testing.T, seed uint64, all bool) {
 		want expect
 	}{
 		{&Mutant{Name: "does-not-build", File: "one/f.go", From: "return greeting + farewell }", To: "return 1 }"}, m.model("one.Greet", true)},
+		// Every test binary that links one dies in its init, before any
+		// test starts, as a test command that errors before it runs one
+		// does (Lane A's S2e run): a failure, but no test ran, so no kill
+		// (GT-NOTESTS).
+		{&Mutant{Name: "dies-before-tests", File: "one/f.go", From: "func Greet() string { return greeting + farewell }", To: "func Greet() string { return greeting + farewell }\n\nfunc init() { panic(\"before any test\") }"},
+			m.model("one.Greet", true)},
 		{&Mutant{Name: "no-longer-applies", File: "one/f.go", From: "return 9999 }", To: "return 1 }"}, expect{status: Stale}},
 		{&Mutant{Name: "literal-anchored", File: "one/f.go", From: `"hello"`, To: `"hullo"`, Anchor: &Anchor{Text: "return greeting + farewell"}}, m.model("one.Greet", false)},
 		// No block of one's runs in two:TestReadsOne, but it reads one/f.go
