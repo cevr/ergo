@@ -28,6 +28,7 @@ var overShardTarget = map[string]string{
 	// two example targets a part. Their rows were measured at the lane's
 	// share (GOMAXPROCS=1, nice 19) on a host at load 26 to 37, not at the
 	// gate's budget; a part's time is about one target's.
+	"internal/experimental/irspike TestIRMatchesSource":           "follow-up: split TestIRMatchesSource by seed (irspike); recorded 16.58 s at the batch-19 combined head (GOMAXPROCS=2, nice 19, in the full irspike run)",
 	"internal/experimental/irspike TestIRCoverage":                "follow-up: split TestIRCoverage (irspike); recorded 41.93 s",
 	"internal/experimental/irspike TestIRFailuresMatchSource":     "follow-up: split TestIRFailuresMatchSource by seed (irspike); recorded 356.86 s",
 	"internal/experimental/irspike TestIRAgreesOnExamplesPart7":   irspikeLaneShare,

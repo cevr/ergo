@@ -1,0 +1,23 @@
+# The hooks of the IR compiler patch in Go's own files (common.md MINIMAL
+# FORK PATCH, owner 2026-11-16: "as minimal as a large patch can be";
+# PATCH-MIN plan, run dir patch-min/plan.md). Our code lives in new files
+# (the -ergoir reader, noder/ergoir*.go), which never conflict with a Go
+# release; a hunk in a file Go already has is a hook, a cost at every
+# rebase. internal/residue TestPatchHooksBudgeted holds this file to the
+# patch toolchain/ir/lock names: one line per hunk, its exact count, its
+# first changed line (a prefix, runs of spaces as one) and the reason gc
+# must call our code there, and the total. A unit that adds or grows a hook
+# edits its line and says why; one that shrinks or drops one updates it.
+#
+# file | +added -deleted | the hunk's first changed line | why gc must call us there
+src/cmd/compile/internal/base/flag.go | +3 -0 | ErgoIR string "help:\"experimental: read typed function bodies | the -ergoir, -ergoirtext and -ergoirshape flags: cmd/go keys its build cache on -gcflags, and base.Flag's fields are the compile's flags (PATCH-MIN move M1 takes them to a flag.Var in our file: 0 lines)
+src/cmd/compile/internal/gc/compile.go | +1 -0 | "cmd/compile/internal/noder" | MONO-SHARED (tip 99): enqueueFunc reads noder's shared-instance set (PATCH-MIN M5 removes it)
+src/cmd/compile/internal/gc/compile.go | +4 -0 | if noder.ErgoShared[fn] { | MONO-SHARED: enqueueFunc skips a shared generic instance outside its owning package, which compiles it once per program (M5)
+src/cmd/compile/internal/noder/reader.go | +6 -0 | if dict.hasTypeParams() { | MONO-SHARED: the reader's instance bookkeeping tags an instance the program shares (objIdxMayFail) (M5)
+src/cmd/compile/internal/noder/reader.go | +2 -2 | todoDicts = append(todoDicts, func() { | MONO-SHARED: a shared instance's dictionary is read where its owner reads it (M5)
+src/cmd/compile/internal/noder/reader.go | +2 -2 | todoDicts = append(todoDicts, func() { | MONO-SHARED: the same for the second dictionary path (M5)
+src/cmd/compile/internal/noder/reader.go | +3 -0 | if r.hasTypeParams() { | MONO-SHARED: addBody marks the body of a shared instance (M5)
+src/cmd/compile/internal/noder/unified.go | +1 -0 | ergoSharedMark() | MONO-SHARED: readBodies marks the shared instances once the package's bodies are read (M5)
+src/cmd/compile/internal/noder/unified.go | +2 -0 | done := ergoRead(fn, len(pri.dict.targs) != 0) | MONO-SHARED: readBodies hands a shared instance's body to the IR reader (M5)
+src/cmd/compile/internal/noder/unified.go | +7 -0 | if base.Flag.ErgoIR != "" { | the one call into the reader: after types2 checked the package and before the unified writer encodes it, the IR bodies are attached as typed syntax (ergoAttach), and the text and shape views are written
+total +31 -4

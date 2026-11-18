@@ -585,10 +585,10 @@ index 0000000..296a8b0
 +}
 diff --git a/src/cmd/compile/internal/noder/ergoir_expr.go b/src/cmd/compile/internal/noder/ergoir_expr.go
 new file mode 100644
-index 0000000..4ae2239
+index 0000000..ce4e31e
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_expr.go
-@@ -0,0 +1,415 @@
+@@ -0,0 +1,430 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -599,6 +599,8 @@ index 0000000..4ae2239
 +
 +import (
 +	"go/constant"
++	"go/token"
++	"strings"
 +
 +	"cmd/compile/internal/syntax"
 +	"cmd/compile/internal/types2"
@@ -628,6 +630,19 @@ index 0000000..4ae2239
 +		if v == nil {
 +			c.errorf(x.Pos, "ergoir: constant %q of type %v", x.V, t)
 +			return nil, nil
++		}
++		if digits, neg := strings.CutPrefix(x.V, "-"); neg && t == types2.Typ[types2.Float64] {
++			// -1e-12: Go has no negative literal, so the same constant in
++			// Go is the negation of an untyped literal, exact until it is
++			// converted (types2 keeps -1/10^12 on the negation, the rounded
++			// float64 only where it is converted). Keep Go's exact value:
++			// the compiled float64 is the same, and the text view's
++			// (-1e-12) compiles to this tree (IRFIX-FLOAT). Only float64,
++			// the literal's default type: a constant of any other type is
++			// spelled as a conversion, whose value Go rounds.
++			if exact := constant.MakeFromLiteral(digits, token.FLOAT, 0); exact.Kind() != constant.Unknown {
++				v = constant.UnaryOp(token.SUB, exact, 0)
++			}
 +		}
 +		lit := &syntax.BasicLit{Value: x.V}
 +		lit.SetPos(pos)
