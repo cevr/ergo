@@ -3268,6 +3268,26 @@
     {"name":"gb2-any-out","origin":"wf10 GB2","file":"internal/sketch/check/typeops.go","from":"\tif IsGoAny(v) {\n\t\treturn assignment{}, \"only go.As[T](a) takes a value out of a go.Any\"","to":"\tif false && IsGoAny(v) {\n\t\treturn assignment{}, \"only go.As[T](a) takes a value out of a go.Any\"","rule":"Only go.As[T] takes a value out of a go.Any; it goes into no other type, a Go interface included.","killers":["lower:TestValuesIntoGoAny"]},
     {"name":"gb2-record-field","origin":"wf10 GB2","file":"internal/sketch/check/decl.go","from":"\t\tif !c.pkg.Host() && mentionsGoAny(t, map[Type]bool{}) {","to":"\t\tif false && mentionsGoAny(t, map[Type]bool{}) {","rule":"No Ergo record stores a go.Any; only a Go struct of a binding does.","killers":["lower:TestValuesIntoGoAny"]},
     {"name":"gb2-borrow-outside-call","origin":"wf10 GB2","file":"internal/sketch/check/expr.go","from":"\tif a.clause == assignGoAny && isPointer(op.typ) && what != \"argument\" && what != \"element\" {","to":"\tif false && a.clause == assignGoAny && isPointer(op.typ) {","rule":"A borrow goes into a go.Any only as a Go call's argument, alone or in its []go.Any.","killers":["lower:TestValuesIntoGoAny"]},
-    {"name":"gb1-no-keeps","origin":"wf10 GB1","file":"internal/sketch/check/hostclauses.go","from":"\tif !ok || w.lending == nil || !w.st.reached || !w.c.hostKeeps(w.info.Types[x]) {","to":"\tif true {","rule":"A Go method's result that holds a handle keeps its receiver's owner: no release of the owner while it is in scope, no escape past it.","killers":["check:TestDriverHandleIsLent"]}
+    {"name":"gb1-no-keeps","origin":"wf10 GB1","file":"internal/sketch/check/hostclauses.go","from":"\tif !ok || w.lending == nil || !w.st.reached || !w.c.hostKeeps(w.info.Types[x]) {","to":"\tif true {","rule":"A Go method's result that holds a handle keeps its receiver's owner: no release of the owner while it is in scope, no escape past it.","killers":["check:TestDriverHandleIsLent"]},
+    {
+      "name": "aw-line-unread",
+      "origin": "wf10 AW-ERGO",
+      "file": "internal/sketch/check/aswritten.go",
+      "from": "\t\tif strings.TrimSpace(cm.Text) == asWrittenMarker {\n",
+      "to": "\t\tif strings.TrimSpace(cm.Text) == asWrittenMarker+\"!\" {\n",
+      "rule": "types.md Laws 14.2: the line // ergo:aswritten marks a function in any package, the prelude's AsWritten and a user's alike.",
+      "anchor": {"tests":["lower:TestRewriteAtTakesOneDecision"]},
+      "killers": ["lower:TestRewriteAtTakesOneDecision"]
+    },
+    {
+      "name": "aw-shape-unchecked",
+      "origin": "wf10 AW-ERGO",
+      "file": "internal/sketch/check/aswritten.go",
+      "from": "\t\tif !c.asWrittenShape(f) {\n",
+      "to": "\t\tif false {\n",
+      "rule": "types.md Laws 14.2: the checker accepts // ergo:aswritten only above a pure identity of one parameter, else S108.",
+      "anchor": {"tests":["check:TestNegativeSpans"]},
+      "killers": ["check:TestNegativeSpans", "check:TestFixtures"]
+    }
   ]
 }
