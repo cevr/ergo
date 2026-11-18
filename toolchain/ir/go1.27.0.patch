@@ -3428,10 +3428,10 @@ index 0000000..9868cc4
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_text_shape.go b/src/cmd/compile/internal/ergoir/ergoir_text_shape.go
 new file mode 100644
-index 0000000..9efef14
+index 0000000..0f3af44
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_text_shape.go
-@@ -0,0 +1,516 @@
+@@ -0,0 +1,522 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -3531,9 +3531,15 @@ index 0000000..9efef14
 +// and results dropped: they are not part of a type's identity (the Go
 +// spec), and the IR's function types name none where the text's
 +// function literal names its parameters, or the writer names a result
-+// #rv1 where Go's instance leaves it unnamed (IRFIX-TEXT).
++// #rv1 where Go's instance leaves it unnamed (IRFIX-TEXT). It is also t
++// without aliases, at any depth, and with each basic type by its kind:
++// an alias is its type (the Go spec), so the IR's *T and the text's
++// alias of it (an import an IR body names), or []uint8 and []byte, are
++// one type and shape alike (TEXT-SHAPE).
 +func ergoShapeUnnamed(t types2.Type) types2.Type {
-+	switch t := t.(type) {
++	switch t := types2.Unalias(t).(type) {
++	case *types2.Basic:
++		return types2.Typ[t.Kind()]
 +	case *types2.Tuple:
 +		if t == nil {
 +			return t
