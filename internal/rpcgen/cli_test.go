@@ -37,8 +37,11 @@ const cliSeedVariable = "ERGO_CLI_SEED"
 // has an operation with a positional int, a record with a bool and a nested
 // record, so a Print that writes a bool flag with no value, drops a nested
 // field or reads a negative int as a flag is refuted on every seed, and an
-// operation whose provider always fails. A
-// failing seed prints the Ergo source, the test binary's output and the
+// operation whose provider always fails. Each contract's cli Wire (and
+// rpc Wire, when it has one) holds api.Agrees (AF1): every Request and
+// every Outcome the hub's OutcomeOf gives comes through unchanged, so a
+// transport that drops a flag or maps one rejection to another is refuted
+// by Agrees as well as by ArgsRoundTrip. A failing seed prints the Ergo source, the test binary's output and the
 // replay command.
 //
 // It builds Go because the law runs on values the native test runner
@@ -522,7 +525,7 @@ func (p *program) contractSource(c *contract) string {
 	for _, o := range c.ops {
 		fmt.Fprintf(&b, "\t%s,\n", sig(o, ""))
 	}
-	b.WriteString("}\n\ntype Ref {}\n")
+	b.WriteString("}\n\ntype Ref {} implements Svc\n")
 	for _, o := range c.ops {
 		fmt.Fprintf(&b, "\nfunc %s {\n", sig(o, "r Ref"))
 		switch {
@@ -542,11 +545,12 @@ func (p *program) contractSource(c *contract) string {
 }
 
 // probeSource is the probe package: per contract, a law that runs the cli
-// package's RoundTrips, and per operation two tests of Run against Ref,
-// with --json and without.
+// package's RoundTrips, its law Agrees restated over its Wire (and the
+// rpc package's, for a contract that has one), and per
+// operation two tests of Run against Ref, with --json and without.
 func (p *program) probeSource() string {
 	var b strings.Builder
-	b.WriteString("// Package probe runs the generated cli packages' round trip and Run.\n\nimport rpc\n")
+	b.WriteString("// Package probe runs the generated cli packages' round trip and Run.\n\nimport api\nimport rpc\n")
 	for _, c := range p.contracts {
 		fmt.Fprintf(&b, "import loop/%s\nimport loop/%s/%sapi\nimport loop/%s/%scli\n", c.pkg(), c.pkg(), c.pkg(), c.pkg(), c.pkg())
 		if c.withRPC {
@@ -557,10 +561,12 @@ func (p *program) probeSource() string {
 		cli := c.pkg() + "cli"
 		q := c.pkg() + "."
 		fmt.Fprintf(&b, "\nlaw C%dArgsRoundTrip(r %s.Request) { %s.RoundTrips(r) }\n", c.i, cli, cli)
-		variants := c.pkg() + "api."
+		fmt.Fprintf(&b, "\nlaw C%dAgrees(r %s.Request, g %sapi.Given) { api.Agrees(%s.Wire, r, %sapi.OutcomeOf(r, g)) }\n", c.i, cli, c.pkg(), cli, c.pkg())
 		if c.withRPC {
-			variants = c.pkg() + "rpc."
+			h, w := c.pkg()+"api", c.pkg()+"rpc"
+			fmt.Fprintf(&b, "\nlaw C%dRpcAgrees(r %s.Request, g %s.Given) {\n\tlet o = %s.OutcomeOf(r, g)\n\t!%s.Fits(r, o) || api.Agrees(%s.Wire, r, o)\n}\n", c.i, h, h, h, w, w)
 		}
+		variants := c.pkg() + "api."
 		for _, o := range c.ops {
 			req := variants + o.name + "Request"
 			if len(o.args) > 0 {
@@ -601,7 +607,10 @@ func (p *program) probeSource() string {
 func (p *program) obligations() []string {
 	var out []string
 	for _, c := range p.contracts {
-		out = append(out, fmt.Sprintf("law C%dArgsRoundTrip", c.i))
+		out = append(out, fmt.Sprintf("law C%dArgsRoundTrip", c.i), fmt.Sprintf("law C%dAgrees", c.i))
+		if c.withRPC {
+			out = append(out, fmt.Sprintf("law C%dRpcAgrees", c.i))
+		}
 		for _, o := range c.ops {
 			out = append(out, fmt.Sprintf("C%d%sRuns", c.i, o.name))
 		}

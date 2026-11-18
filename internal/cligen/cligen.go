@@ -55,8 +55,10 @@ func Generate(pkg *check.Package, path, opName, apiPath string) (Files, error) {
 		return Files{}, fmt.Errorf("the cli package is written over the hub; run ergo gen api first")
 	}
 	pkgName := lastElem(path)
-	g := &gen{pkg: pkg, path: path, op: opName, imports: map[string]string{"flag": "flag", "rpc": "rpc", "strconv": "strconv"}}
+	g := &gen{pkg: pkg, path: path, op: opName, imports: map[string]string{"flag": "flag", "rpc": "rpc", "strconv": "strconv", "strings": "strings"}}
 	g.importOf(pkg)
+	g.stdAPI = rpcgen.StdAPIName(g.imports)
+	g.imports["api"] = g.stdAPI
 	g.api = lastElem(apiPath)
 	g.reqQual = g.api + "."
 	g.imports[apiPath] = g.api
@@ -105,9 +107,10 @@ type gen struct {
 	// name source uses for it.
 	imports map[string]string
 	// api is the name the file uses for the hub's package; reqQual, api
-	// and a dot, qualifies Request's variants.
-	api, reqQual string
-	err          error
+	// and a dot, qualifies Request's variants; stdAPI is the name of std
+	// api.
+	api, reqQual, stdAPI string
+	err                  error
 }
 
 func (g *gen) fail(format string, args ...any) {
@@ -453,17 +456,22 @@ func kebab(s string) string {
 
 // reserved are the names the generated functions use for their locals: an
 // imported package of one of these names would be shadowed.
-var reserved = map[string]bool{"done": true, "rejected": true, "reply": true, "failure": true, "args": true, "asJSON": true, "rest": true, "i": true, "a": true, "r": true, "h": true, "err": true, "x": true, "v": true, "e": true, "s": true, "out": true, "back": true, "encoded": true, "plain": true, "tagged": true}
+var reserved = map[string]bool{"done": true, "rejected": true, "reply": true, "failure": true, "args": true, "asJSON": true, "rest": true, "i": true, "a": true, "r": true, "h": true, "err": true, "x": true, "v": true, "e": true, "s": true, "out": true, "back": true, "encoded": true, "plain": true, "tagged": true, "o": true, "text": true, "t": true, "c": true, "w": true, "g": true, "answer": true, "carry": true, "runOver": true}
 
 var localName = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[fatn][0-9]+$`) }) // compiled on first use, not at process start (TestStartBuildsNoTables)
 
 // checkNames refuses a contract whose imports the generated locals would
 // shadow.
 func (g *gen) checkNames() error {
-	for _, name := range g.imports {
+	byName := map[string]string{}
+	for path, name := range g.imports {
 		if reserved[name] || localName().MatchString(name) {
 			return fmt.Errorf("%s: the package %s is one the generated code names as a local; rename it", g.op, name)
 		}
+		if other, ok := byName[name]; ok {
+			return fmt.Errorf("%s: the packages %s and %s have one name, %s, in the generated code; rename one", g.op, other, path, name)
+		}
+		byName[name] = path
 	}
 	return nil
 }
@@ -487,7 +495,7 @@ func (g *gen) file(pkgName string, ops []rpcgen.Op, cmds []*command) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "// Request is one call of %s: the hub's Request.\n", capName)
 	fmt.Fprintf(&b, "type Request = %sRequest\n\n", g.reqQual)
-	b.WriteString("// Output is what Run prints: Out to standard output, Err to standard\n// error, and the exit status.\ntype Output { Out string, Err string, Code int }\n\n")
+	fmt.Fprintf(&b, "// Output is what Run prints: std api's Output (Out to standard output,\n// Err to standard error, and the exit status).\ntype Output = %s.Output\n\n", g.stdAPI)
 
 	var names []string
 	for _, c := range cmds {
@@ -545,12 +553,10 @@ func (g *gen) file(pkgName string, ops []rpcgen.Op, cmds []*command) string {
 	b.WriteString("\n// answer is the Output of a value: its text, or its JSON with --json.\nfunc answer(asJSON bool, plain string, encoded string) Output {\nif asJSON {\nOutput{Out: encoded + \"\\n\", Err: \"\", Code: 0}\n} else if plain == \"\" {\nOutput{Out: \"\", Err: \"\", Code: 0}\n} else {\nOutput{Out: plain + \"\\n\", Err: \"\", Code: 0}\n}\n}\n")
 	b.WriteString("\n// failed is the Output of a typed failure, from its tagged JSON: on\n// standard output with --json, else its tag and JSON on standard error;\n// status 1.\nfunc failed(asJSON bool, tagged string) Output {\nif asJSON {\nOutput{Out: tagged + \"\\n\", Err: \"\", Code: 1}\n} else {\nOutput{Out: \"\", Err: rpc.TagOf(tagged) + \": \" + tagged + \"\\n\", Code: 1}\n}\n}\n")
 
-	fmt.Fprintf(&b, "\n// Run reads args as [--json] COMMAND ARGS..., calls the operation on\n// the %s the caller binds, and is what to print: the value (its\n// text when it is a basic value, else its JSON; its JSON with --json), or\n// a typed failure (failed), or the help (status 0) or a usage error\n// (status 2) of the command line.\n", capName)
-	fmt.Fprintf(&b, "func Run(args []string) Output needs %s {\n", capName)
-	b.WriteString("let asJSON = len(args) > 0 && (args[0] == \"--json\" || args[0] == \"-json\")\nlet mut rest = []string{}\nfor i, a in args {\nif i > 0 || !asJSON {\nrest = rest.Append(a)\n}\n}\n")
-	b.WriteString("let r = Parse(rest) catch {\ncase flag.Help as h:\nreturn Output{Out: h.Text, Err: \"\", Code: 0}\ncase err:\nreturn Output{Out: \"\", Err: flag.Describe(err) + \"\\n\", Code: 2}\n}\n")
-	// The one dispatch, the hub's Call; then its Outcome as Output.
-	fmt.Fprintf(&b, "match %s.Call(r) {\ncase %s.Done as done:\nmatch done.Reply {\n", g.api, g.api)
+	// Show: the Outcome as Output, the writer of the transport's answer.
+	b.WriteString("\n// Show is what Run prints of the outcome o: the value (its text when it\n// is a basic value, else its JSON; its JSON with --json), or a typed\n// failure (failed).\n")
+	fmt.Fprintf(&b, "func Show(o %s.Outcome, asJSON bool) Output {\n", g.api)
+	fmt.Fprintf(&b, "match o {\ncase %s.Done as done:\nmatch done.Reply {\n", g.api)
 	for _, c := range cmds {
 		op := c.op
 		reply := g.reqQual + op.Name + "Reply"
@@ -579,6 +585,49 @@ func (g *gen) file(pkgName string, ops []rpcgen.Op, cmds []*command) string {
 		fmt.Fprintf(&b, "case %sNoFailure:\nOutput{Out: \"\", Err: \"the hub answered NoFailure, which no operation fails\\n\", Code: 1}\n", g.reqQual)
 	}
 	b.WriteString("}\n}\n}\n")
+
+	// Read: the Output of --json read back as r's Outcome, the reader of
+	// the transport's answer.
+	b.WriteString("\n// Read is the outcome of r that the Output of Run with --json says: its\n// value's JSON on standard output with status 0, or its failure's tagged\n// JSON with status 1. Any other Output is not an answer to r, a defect.\n")
+	fmt.Fprintf(&b, "func Read(r Request, out Output) %s.Outcome {\n", g.api)
+	b.WriteString("let text = strings.TrimSuffix(out.Out, \"\\n\")\nif out.Code == 0 {\nmatch r {\n")
+	for _, c := range cmds {
+		op := c.op
+		req := g.reqQual + op.Name + "Request"
+		reply := g.reqQual + op.Name + "Reply"
+		if op.Result == nil {
+			fmt.Fprintf(&b, "case %s:\nif text != \"null\" {\nUnreachable(\"the command line answered %s with \" + text + \", not null\")\n}\n%s.Done{Reply: %s}\n", req, op.Name, g.api, reply)
+			continue
+		}
+		fmt.Fprintf(&b, "case %s:\nlet v = rpc.Decode[%s](\"value\", text) catch {\ncase rpc.Transport as t:\nUnreachable(\"the command line answered %s with a value it cannot read: \" + t.Reason)\n}\n%s.Done{Reply: %s{Value: v}}\n", req, g.expr(op.Result), op.Name, g.api, reply)
+	}
+	b.WriteString("}\n} else if out.Code == 1 {\nmatch rpc.TagOf(text) {\n")
+	for _, f := range fails {
+		tags := rpcgen.FailTags(unalias(f))
+		var quoted []string
+		for _, t := range tags {
+			quoted = append(quoted, fmt.Sprintf("%q", t))
+		}
+		fmt.Fprintf(&b, "case %s:\nlet e = rpc.Decode[%s](\"failure\", text) catch {\ncase rpc.Transport as t:\nUnreachable(\"the command line answered a failure it cannot read: \" + t.Reason)\n}\n%s.Rejected{Failure: %s%s{E: e}}\n", strings.Join(quoted, ", "), g.expr(f), g.api, g.reqQual, rpcgen.FailureVariant(ops, f))
+	}
+	b.WriteString("case _:\nUnreachable(\"the command line answered a failure no operation has: \" + text)\n}\n} else {\nUnreachable(\"the command line answered status \\(out.Code): \" + out.Err)\n}\n}\n")
+
+	// run: the host loop, written once over its answer.
+	b.WriteString("\n// runOver reads args as [--json] COMMAND ARGS..., answers the Request with\n// answer and is what to print (Show), or the help (status 0) or a usage\n// error (status 2) of the command line.\n")
+	fmt.Fprintf(&b, "func runOver[R](args []string, answer func(r Request) %s.Outcome needs R) Output needs R {\n", g.api)
+	b.WriteString("let asJSON = len(args) > 0 && (args[0] == \"--json\" || args[0] == \"-json\")\nlet mut rest = []string{}\nfor i, a in args {\nif i > 0 || !asJSON {\nrest = rest.Append(a)\n}\n}\n")
+	b.WriteString("let r = Parse(rest) catch {\ncase flag.Help as h:\nreturn Output{Out: h.Text, Err: \"\", Code: 0}\ncase err:\nreturn Output{Out: \"\", Err: flag.Describe(err) + \"\\n\", Code: 2}\n}\n")
+	b.WriteString("Show(answer(r), asJSON)\n}\n")
+
+	fmt.Fprintf(&b, "\n// Run reads args as [--json] COMMAND ARGS..., answers the call through\n// the hub's Call on the %s the caller binds, and is what to print:\n// the value (its text when it is a basic value, else its JSON; its JSON\n// with --json), or a typed failure (failed), or the help (status 0) or a\n// usage error (status 2) of the command line.\n", capName)
+	fmt.Fprintf(&b, "func Run(args []string) Output needs %s {\nrunOver(args, %s.Call)\n}\n", capName, g.api)
+
+	// The transport: carry, Wire and its law.
+	fmt.Fprintf(&b, "\n// carry is c through the command line: printed with --json, read back\n// by Run's own reader, answered by answer, shown, and read back (Read).\nfunc carry(c Request, answer func(c Request) %s.Outcome) %s.Outcome {\n", g.api, g.api)
+	b.WriteString("let mut args = []string{\"--json\"}\nfor a in Print(c) {\nargs = args.Append(a)\n}\nRead(c, runOver(args, answer))\n}\n")
+	fmt.Fprintf(&b, "\n// Wire is the command line as a transport of the hub's calls.\ntype Wire {} implements %s.Transport[Request, %s.Outcome]\n", g.stdAPI, g.api)
+	fmt.Fprintf(&b, "\n// Carry is carry.\nfunc Carry(w Wire, c Request, answer own func(c Request) %s.Outcome) %s.Outcome { carry(c, answer) }\n", g.api, g.api)
+	fmt.Fprintf(&b, "\n// Agrees: the command line carries every call and every outcome the\n// call can have unchanged.\nlaw Agrees(r Request, g %s.Given) { %s.Agrees(Wire, r, %s.OutcomeOf(r, g)) }\n", g.api, g.stdAPI, g.api)
 	return b.String()
 }
 
@@ -644,7 +693,11 @@ func (g *gen) importBlock(text string) string {
 	})
 	var b strings.Builder
 	for _, p := range paths {
-		fmt.Fprintf(&b, "import %s\n", p)
+		if name := g.imports[p]; name != lastElem(p) {
+			fmt.Fprintf(&b, "import %s %s\n", name, p)
+		} else {
+			fmt.Fprintf(&b, "import %s\n", p)
+		}
 	}
 	return b.String()
 }
