@@ -336,6 +336,14 @@ func fieldList(p *Printer, l int, open string, close string) {
 			p.space()
 			p.token(p.at(f, "Any"), "any")
 		}
+		if p.at(f, "Lent") > 0 {
+			p.space()
+			p.token(p.at(f, "Lent"), "lent")
+		}
+		if p.fl(f, "Pure") {
+			p.space()
+			p.token(p.at(f, "PurePos"), "pure")
+		}
 		let own = p.hasK(f, "Own")
 		if own {
 			if len(names) > 0 {
@@ -468,27 +476,35 @@ func fieldMembers(p *Printer, fieldList int, tight bool) {
 	}, tight)
 }
 
-// operationType prints the operations and laws of an operation type in
-// source order.
-func operationType(p *Printer, t int) {
-	let methods = p.ks(t, "Methods")
-	let laws = p.ks(t, "Laws")
-	let mut nodes = []int{}
+// bySource merges two lists of nodes, each in source order, into one.
+func bySource(p *Printer, a []int, b []int) []int {
+	let mut out = []int{}
 	let mut i = 0
 	let mut j = 0
-	for i < len(methods) || j < len(laws) {
-		if j == len(laws) || i < len(methods) && p.start(methods[i]) < p.start(laws[j]) {
-			nodes = nodes.Append(methods[i])
+	for i < len(a) || j < len(b) {
+		if j == len(b) || i < len(a) && p.start(a[i]) < p.start(b[j]) {
+			out = out.Append(a[i])
 			i += 1
 			continue
 		}
-		nodes = nodes.Append(laws[j])
+		out = out.Append(b[j])
 		j += 1
 	}
+	out
+}
+
+// operationType prints the includes, operations and laws of an operation
+// type in source order.
+func operationType(p *Printer, t int) {
+	let nodes = p.bySource(p.bySource(p.ks(t, "Includes"), p.ks(t, "Methods")), p.ks(t, "Laws"))
 	p.members(p.at(t, "Lbrace"), p.at(t, "Rbrace"), nodes, func(x int, aligned bool) {
 		let m = nodes[x]
 		if p.fam(m) == "LawDecl" {
 			p.memberLaw(m)
+			return
+		}
+		if p.fl(m, "Include") {
+			p.fieldMember(m, aligned)
 			return
 		}
 		if p.hasK(m, "Own") {
@@ -1163,6 +1179,10 @@ func call(p *Printer, x int, depth int) {
 func funcType(p *Printer, t int) {
 	if p.at(t, "Escaping") >= 0 {
 		p.token(p.at(t, "Escaping"), "escaping")
+		p.space()
+	}
+	if p.fl(t, "Entry") {
+		p.token(p.at(t, "EntryPos"), "entry")
 		p.space()
 	}
 	if p.at(t, "Func") >= 0 {

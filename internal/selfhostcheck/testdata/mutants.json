@@ -419,6 +419,50 @@
       "killers": [
         "internal/selfhostcheck:TestSelfhostFormatAgrees"
       ]
+    },
+    {
+      "name": "sh-format-lent-dropped",
+      "origin": "wf10/selfhost/FMT-MODES",
+      "file": "internal/selfhostcheck/testdata/selfhost/format/nodes.ergo",
+      "from": "\t\tif p.at(f, \"Lent\") > 0 {\n",
+      "to": "\t\tif false && p.at(f, \"Lent\") > 0 {\n",
+      "rule": "A type parameter's lent is printed (grammar Declarations); dropped, the formatted text loses it.",
+      "killers": [
+        "internal/selfhostcheck:TestSelfhostFormatAgrees"
+      ]
+    },
+    {
+      "name": "sh-format-entry-dropped",
+      "origin": "wf10/selfhost/FMT-MODES",
+      "file": "internal/selfhostcheck/testdata/selfhost/format/nodes.ergo",
+      "from": "\tif p.fl(t, \"Entry\") {\n",
+      "to": "\tif false && p.fl(t, \"Entry\") {\n",
+      "rule": "A function type's entry is printed; dropped, the formatted text loses it.",
+      "killers": [
+        "internal/selfhostcheck:TestSelfhostFormatAgrees"
+      ]
+    },
+    {
+      "name": "sh-format-include-dropped",
+      "origin": "wf10/selfhost/FMT-MODES",
+      "file": "internal/selfhostcheck/testdata/selfhost/format/nodes.ergo",
+      "from": "\tlet nodes = p.bySource(p.bySource(p.ks(t, \"Includes\"), p.ks(t, \"Methods\")), p.ks(t, \"Laws\"))\n",
+      "to": "\tlet nodes = p.bySource(p.ks(t, \"Methods\"), p.ks(t, \"Laws\"))\n",
+      "rule": "An operation type's includes (..I) are printed among its members in source order.",
+      "killers": [
+        "internal/selfhostcheck:TestSelfhostFormatAgrees"
+      ]
+    },
+    {
+      "name": "sh-format-pure-dropped",
+      "origin": "wf10/selfhost/FMT-MODES",
+      "file": "internal/selfhostcheck/testdata/selfhost/format/nodes.ergo",
+      "from": "\t\tif p.fl(f, \"Pure\") {\n",
+      "to": "\t\tif false && p.fl(f, \"Pure\") {\n",
+      "rule": "A parameter's pure is printed; dropped, the formatted text loses it.",
+      "killers": [
+        "internal/selfhostcheck:TestSelfhostFormatAgrees"
+      ]
     }
   ]
 }
