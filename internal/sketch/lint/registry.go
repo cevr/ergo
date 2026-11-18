@@ -30,7 +30,7 @@ type Registry struct {
 
 // NewRegistry validates rules and presets together: names are kebab-case
 // identifiers, unique, never a reserved runner name; codes are unique and
-// never the runner's; every preset names known rules; base is a preset.
+// never the runner's; every rule has a remedy (Instead); every preset\n// names known rules; base is a preset.
 func NewRegistry(rules []*Rule, presets []Preset, base string) (*Registry, error) {
 	r := &Registry{byName: map[string]*Rule{}, presets: map[string]Preset{}, base: base}
 	codes := map[string]bool{CodeRunner: true, CodeSuppression: true}
@@ -46,6 +46,8 @@ func NewRegistry(rules []*Rule, presets []Preset, base string) (*Registry, error
 			return nil, fmt.Errorf("rule %s: invalid default severity", rule.Name)
 		case rule.Check == nil:
 			return nil, fmt.Errorf("rule %s has no check", rule.Name)
+		case rule.Instead == "":
+			return nil, fmt.Errorf("rule %s has no remedy: write Instead, what to do in place of what it reports", rule.Name)
 		}
 		codes[rule.Code] = true
 		r.byName[rule.Name] = rule

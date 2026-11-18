@@ -15,6 +15,7 @@ var deprecated = &Rule{
 	Name:    "deprecated",
 	Code:    "L104",
 	Doc:     "A use of a function, type, context or operation whose doc comment has a Deprecated: paragraph; use what the paragraph names.",
+	Instead: "use what its Deprecated: paragraph names",
 	Default: Warning,
 	Check:   checkDeprecated,
 }

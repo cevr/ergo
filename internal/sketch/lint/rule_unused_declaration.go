@@ -17,6 +17,7 @@ var unusedDeclaration = &Rule{
 	Name:    "unused-declaration",
 	Code:    "L114",
 	Doc:     "An unexported top-level function, type or let that nothing else in its package uses is dead code; delete it.",
+	Instead: "delete it",
 	Default: Warning,
 	Check:   checkUnusedDeclaration,
 }
@@ -35,7 +36,7 @@ func checkUnusedDeclaration(p *Pass) {
 		if f, ok := o.(*check.Func); ok && (f == entry || f.ProvidesOperation()) {
 			return
 		}
-		p.Report(id.Pos(), id.End(), id.Name+" is declared and never used in its package; delete it")
+		p.Report(id.Pos(), id.End(), id.Name+" is declared and never used in its package")
 	}
 	for _, d := range p.File.Decls {
 		switch d := d.(type) {

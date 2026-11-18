@@ -20,6 +20,7 @@ var duplicateShape = &Rule{
 	Name:    "duplicate-shape",
 	Code:    "L118",
 	Doc:     "Two unions with the same variants are one type written twice; keep one.",
+	Instead: "keep one",
 	Default: Warning,
 	Check:   checkDuplicateShape,
 }
@@ -40,7 +41,7 @@ func checkDuplicateShape(p *Pass) {
 				if kept.rel != p.Rel() {
 					where = " in " + kept.rel
 				}
-				p.Report(t.Name.Pos(), t.Name.End(), fmt.Sprintf("%s has the variants of %s%s; keep one", t.Name.Name, kept.name.Name, where))
+				p.Report(t.Name.Pos(), t.Name.End(), fmt.Sprintf("%s has the variants of %s%s", t.Name.Name, kept.name.Name, where))
 			}
 		}
 	}

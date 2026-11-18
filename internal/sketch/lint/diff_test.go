@@ -17,7 +17,7 @@ import (
 // everyNode is a test rule that reports every top-level declaration and
 // every local let, so a run has findings of one line and of many.
 var everyNode = &lint.Rule{
-	Name: "every-node", Code: "L900", Doc: "every declaration and let", Default: lint.Warning,
+	Name: "every-node", Code: "L900", Doc: "every declaration and let", Instead: "look", Default: lint.Warning,
 	Check: func(p *lint.Pass) {
 		for _, d := range p.File.Decls {
 			p.Report(d.Pos(), d.End(), "declaration")

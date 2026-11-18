@@ -32,6 +32,7 @@ var withAtEntry = &Rule{
 	Name:    "with-at-entry",
 	Code:    "L112",
 	Doc:     "A with or a named context that picks a program's implementation outside cmd/NAME/main.ergo or a file of tests and laws chooses it away from the entry; move the choice to the entry.",
+	Instead: "bind it in cmd/NAME/main.ergo, or in a test file for the tests",
 	Default: Warning,
 	Check:   checkWithAtEntry,
 	Options: options(func() functionOptions { return functionOptions{} }, nil),
@@ -49,7 +50,7 @@ func checkWithAtEntry(p *Pass) {
 				continue
 			}
 			if t := contextPick(w, map[*check.Context]bool{}); t != nil {
-				p.Report(cd.Name.Pos(), cd.Name.End(), "this context picks a program implementation ("+t.String()+") away from the entry; bind it in cmd/NAME/main.ergo, or in a test file for the tests")
+				p.Report(cd.Name.Pos(), cd.Name.End(), "this context picks a program implementation ("+t.String()+") away from the entry")
 			}
 			continue
 		}
@@ -71,7 +72,7 @@ func checkWithAtEntry(p *Pass) {
 			}
 			for _, t := range w.ImplementationTypes() {
 				if check.ProgramType(t) {
-					p.Report(x.Pos(), x.Fun.End(), "this with picks a program implementation ("+t.String()+") away from the entry; bind it in cmd/NAME/main.ergo and pass the capability down")
+					p.ReportInstead(x.Pos(), x.Fun.End(), "this with picks a program implementation ("+t.String()+") away from the entry", "bind it in cmd/NAME/main.ergo and pass the capability down", nil)
 					break
 				}
 			}

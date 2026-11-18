@@ -18,6 +18,7 @@ var duplicateTest = &Rule{
 	Name:    "duplicate-test",
 	Code:    "L117",
 	Doc:     "A test or law whose parameters and body are another's in its package proves nothing new; delete one.",
+	Instead: "delete one",
 	Default: Warning,
 	Check:   checkDuplicateTest,
 }
@@ -47,7 +48,7 @@ func checkDuplicateTest(p *Pass) {
 			if kept.rel != p.Rel() {
 				where = " in " + kept.rel
 			}
-			p.Report(name.Pos(), name.End(), name.Name+" does what "+kept.name.Name+where+" does; delete one")
+			p.Report(name.Pos(), name.End(), name.Name+" does what "+kept.name.Name+where+" does")
 		}
 	}
 }

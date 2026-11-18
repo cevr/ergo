@@ -41,6 +41,9 @@ func (c *Configuration) Run(in Input) Result {
 			precision := PrecisionOf(rule.Name)
 			for _, f := range found {
 				f.Code, f.Rule, f.Severity, f.Precision = rule.Code, rule.Name, severity, precision
+				if f.Instead == "" {
+					f.Instead = rule.Instead
+				}
 				if f.Fix != nil {
 					fix := *f.Fix
 					fix.Rule = rule.Name

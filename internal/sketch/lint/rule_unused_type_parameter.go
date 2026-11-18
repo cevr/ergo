@@ -16,6 +16,7 @@ var unusedTypeParameter = &Rule{
 	Name:    "unused-type-parameter",
 	Code:    "L116",
 	Doc:     "A function's type parameter that nothing in the function names generalises nothing; delete it.",
+	Instead: "delete it",
 	Default: Warning,
 	Check:   checkUnusedTypeParameter,
 }
@@ -33,7 +34,7 @@ func checkUnusedTypeParameter(p *Pass) {
 		for _, field := range f.TypeParams.List {
 			for _, id := range field.Names {
 				if tp, ok := p.Info.Defs[id].(*check.TypeParam); ok && tp.Kind == check.KindType && !namesTypeParam(p.Info, f, fn, tp) {
-					p.Report(id.Pos(), id.End(), "the type parameter "+id.Name+" of "+f.Name.Name+" is named nowhere in it; delete it")
+					p.Report(id.Pos(), id.End(), "the type parameter "+id.Name+" of "+f.Name.Name+" is named nowhere in it")
 				}
 			}
 		}

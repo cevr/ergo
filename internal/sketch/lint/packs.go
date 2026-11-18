@@ -277,7 +277,7 @@ func (c *Configuration) Inspect() []sdk.RuleInfo {
 	var out []sdk.RuleInfo
 	for _, rule := range c.registry.rules {
 		info := sdk.RuleInfo{
-			Rule: rule.Name, Builtin: true, Code: rule.Code, Description: rule.Doc,
+			Rule: rule.Name, Builtin: true, Code: rule.Code, Description: rule.Doc, Instead: rule.Instead,
 			DefaultSeverity: sdk.Severity(rule.Default.String()), Severity: sdk.Severity(c.severity[rule.Name].String()),
 		}
 		if m, ok := MeasureOf(rule.Name); ok && m.Read > 0 {

@@ -80,10 +80,13 @@ type DiagnosticFinding struct {
 	// program read from a directory (Diagnostic.File); omitted otherwise.
 	File string `json:"file,omitempty"`
 	// Origin is "compiler" or "lint"; Rule names a lint finding's rule.
-	Origin            string         `json:"origin"`
-	Rule              string         `json:"rule,omitempty"`
-	Severity          string         `json:"severity"`
-	Message           string         `json:"message"`
+	Origin   string `json:"origin"`
+	Rule     string `json:"rule,omitempty"`
+	Severity string `json:"severity"`
+	Message  string `json:"message"`
+	// Instead is a lint finding's remedy, what to write in place of
+	// what Message reports; omitted when it has none.
+	Instead           string         `json:"instead,omitempty"`
 	Span              Span           `json:"span"`
 	LocationAvailable bool           `json:"locationAvailable"`
 	LSP               *LSPDiagnostic `json:"lsp,omitempty"`
@@ -98,6 +101,15 @@ type DiagnosticFinding struct {
 	// the rule's corpus and its held-out read sample, capped at 0.95);
 	// omitted for a rule that has none and for compiler diagnostics.
 	Precision *float64 `json:"precision,omitempty"`
+}
+
+// Text is the finding as one line reads it: the message, then "; " and
+// the remedy when it has one.
+func (f DiagnosticFinding) Text() string {
+	if f.Instead == "" {
+		return f.Message
+	}
+	return f.Message + "; " + f.Instead
 }
 
 // DiagnosticCounts counts findings by severity.
@@ -239,7 +251,7 @@ func (r DiagnosticReport) WriteText(w io.Writer, source string) error {
 		if finding.Precision != nil {
 			precision = fmt.Sprintf(" (p%.2f)", *finding.Precision)
 		}
-		if _, err := fmt.Fprintf(w, "%s:%d:%d: %s %s: %s%s\n", name, start.Line+1, start.Character+1, finding.Severity, finding.Code, finding.Message, precision); err != nil {
+		if _, err := fmt.Fprintf(w, "%s:%d:%d: %s %s: %s%s\n", name, start.Line+1, start.Character+1, finding.Severity, finding.Code, finding.Text(), precision); err != nil {
 			return err
 		}
 	}
