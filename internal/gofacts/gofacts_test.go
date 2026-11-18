@@ -30,6 +30,16 @@ func TestVouchedRowsReviewed(t *testing.T) {
 			t.Errorf("%s %s %s: Source %q, the declaration's hash is %q (reason %q): review the function again", r.Target, r.Fact, r.Param, r.Source, h, r.Reason)
 		}
 	}
+	// The memory-only rows (GBX6) are reviewed the same way.
+	for _, e := range Effects {
+		h, err := SourceHash(goroot, e.Target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if e.Reason == "" || h != e.Source {
+			t.Errorf("%s effect none: Source %q, the declaration's hash is %q (reason %q): review the function again", e.Target, e.Source, h, e.Reason)
+		}
+	}
 }
 
 // TestVouchedFactsHold runs every row's guard (the std gate runs it under

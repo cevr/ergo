@@ -68,7 +68,7 @@ var index struct {
 	lines map[string]Entry
 }
 
-// Find is the guard line of key (a sync or pure key) in the ledger text,
+// Find is the guard line of key (a sync, pure or effect key) in the ledger text,
 // if it has one.
 func Find(ledger, key string) (Entry, bool) {
 	index.Lock()
@@ -80,13 +80,14 @@ func Find(ledger, key string) (Entry, bool) {
 	return e, ok
 }
 
-// parseGuardLines is every sync and pure line of the ledger text, by key.
+// parseGuardLines is every sync, pure and effect line of the ledger text,
+// by key.
 func parseGuardLines(ledger string) map[string]Entry {
 	out := map[string]Entry{}
 	for _, line := range strings.Split(ledger, "\n") {
 		words := strings.Fields(line)
 		// fact go <target> <fact> <param> <verdict> … <digest>
-		if len(words) < 7 || words[0] != "fact" || !(words[3] == "sync" && words[4] == "callbacks" || words[3] == "pure" && words[4] == "members") {
+		if len(words) < 7 || words[0] != "fact" || !(words[3] == "sync" && words[4] == "callbacks" || words[3] == "pure" && words[4] == "members" || words[3] == "effect" && words[4] == "none") {
 			continue
 		}
 		e := Entry{Key: strings.Join(words[1:5], " "), Verdict: words[5], Digest: words[len(words)-1]}

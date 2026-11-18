@@ -88,6 +88,46 @@ func (h *hostPkg) readsLine(fn *Func, text string) {
 	}
 }
 
+// effectMarker starts a binding's memory-only line (np4f-plan GBX6):
+// `// ergo:effect none (vouched: <reason>)` above a Go function or method
+// that `ergo bind go` binds with no `needs go.Foreign`.
+const effectMarker = "// ergo:effect "
+
+// effectLine records the memory-only line above fn. The row acts only on
+// its guard line current and validated (EffectActs); any other line, or a
+// row that does not act, is S108, since the binding then charges nothing
+// for Go that may read host state.
+func (h *hostPkg) effectLine(fn *Func, text string) {
+	if fn.Decl == nil || fn.Decl.Extern == nil {
+		return
+	}
+	target := fn.Decl.Extern.Target.Value
+	if !strings.HasPrefix(text, "none (vouched: ") || !strings.HasSuffix(text, ")") {
+		h.c.errorf(fn.Decl.Name, CodeType, "the `// ergo:effect` line above %s is not `// ergo:effect none (vouched: <reason>)`", fn.Name)
+		return
+	}
+	switch ok, refuted, why := EffectActs(target); {
+	case refuted:
+		h.c.errorf(fn.Decl.Name, CodeType, "%s is bound as memory-only, and its reviewed row does not hold: %s", target, why)
+		return
+	case !ok:
+		h.c.errorf(fn.Decl.Name, CodeType, "%s is bound as memory-only without a reviewed row that acts (%s); regenerate its binding", target, why)
+		return
+	}
+	if h.effect == nil {
+		h.effect = map[*Func]bool{}
+	}
+	h.effect[fn] = true
+}
+
+// GoEffect reports a Go function or method of import go bound as
+// memory-only (`// ergo:effect none`; GBX6): it charges no go.Foreign, and
+// it is not pure, so its call is opaque in a footprint (pureGo).
+func GoEffect(f *Func) bool {
+	h := hostOf(f.Pkg)
+	return h != nil && h.effect[f]
+}
+
 // operandIndex is the index of the binder name among fn's operands (a
 // method's receiver first), or -1.
 func operandIndex(fn *Func, name string) int {

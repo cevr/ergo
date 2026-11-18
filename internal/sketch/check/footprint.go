@@ -872,7 +872,9 @@ func pureStd(f *Func) bool {
 // q35, reversing stdlib.md Pure bodies 3 for the reviewed list), and its
 // caller needs no environment or entry poll for it, as hand Go has none.
 func pureGo(f *Func) bool {
-	if f == nil || !f.Pkg.Host() || f.Sig == nil || !f.Sig.Uses.Empty() {
+	if f == nil || !f.Pkg.Host() || f.Sig == nil || !f.Sig.Uses.Empty() || GoEffect(f) {
+		// A memory-only call (GBX6) charges nothing and is still not
+		// pure: it reads or writes memory its arguments reach.
 		return false
 	}
 	for _, p := range f.Sig.Params {
