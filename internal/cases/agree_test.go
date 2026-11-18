@@ -276,6 +276,10 @@ func TestCasesAgreeWithTheRunner(t *testing.T) {
 			seeds = append(seeds, s)
 		}
 	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, seed := range seeds {
 		p, cs := generate(seed)
 		root := t.TempDir()
@@ -289,7 +293,18 @@ func TestCasesAgreeWithTheRunner(t *testing.T) {
 		}
 		write(t, dir, cs)
 		var out bytes.Buffer
-		loaded, problems := Load(dir, false)
+		// Odd seeds name the folder relative to the test's working
+		// directory, as `ergo test PKG --cases cmd/NAME/cases` does; a
+		// case runs in another folder, so its paths must not stay
+		// relative.
+		given := dir
+		if seed%2 == 1 {
+			t.Chdir(root)
+			given = "cases"
+		} else {
+			t.Chdir(cwd)
+		}
+		loaded, problems := Load(given, false)
 		code := WriteProblems(&out, problems)
 		if code == 0 {
 			code = NewLive().Run(&out, bin, loaded, 0)

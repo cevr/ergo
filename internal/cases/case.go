@@ -77,8 +77,13 @@ func Load(dir string, record bool) ([]*Case, []string) {
 	return cases, problems
 }
 
-// LoadCase reads the case folder dir, named name.
+// LoadCase reads the case folder dir, named name. The case's paths are
+// absolute: it runs in another folder, where a relative dir names nothing.
 func LoadCase(dir, name string, record bool) (*Case, []string) {
+	dir, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, []string{err.Error()}
+	}
 	c := &Case{Name: name, Dir: dir}
 	var problems []string
 	entries, err := os.ReadDir(dir)
