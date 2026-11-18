@@ -2581,6 +2581,12 @@ func (c *checker) collectSelfFuncs() {
 		// function) still apply first (round 3 review M3).
 		owners := map[any]bool{}
 		valid := true
+		// One member may be a plain function, whose first parameter is no
+		// type of the package: a plain call or reference names it, and
+		// x.f(…) a function on x's type (types.md, Methods 3; CONSTRAINTS
+		// C3: cmp.Compare beside Natural's Compare). Go declares a method
+		// and a function of one name in one package the same way.
+		var plain *Func
 		for _, g := range group {
 			var key any
 			if g.owner != nil {
@@ -2604,6 +2610,10 @@ func (c *checker) collectSelfFuncs() {
 					key = name
 				}
 			}
+			if key == nil && plain == nil && g.Name != "main" && !c.namesLocalType(g.Decl) {
+				plain = g
+				continue
+			}
 			if key == nil || owners[key] {
 				valid = false
 				break
@@ -2612,7 +2622,12 @@ func (c *checker) collectSelfFuncs() {
 		}
 		if valid {
 			for _, g := range group {
-				g.overloaded = true
+				if g == plain {
+					// The package scope holds the plain function.
+					c.pkg.Scope.names[g.Name] = g
+				} else {
+					g.overloaded = true
+				}
 				c.def(g.Decl.Name, g) // a later same-named function is in no scope
 			}
 			c.pkg.Funcs = append(c.pkg.Funcs, f.same...)
@@ -2627,7 +2642,7 @@ func (c *checker) collectSelfFuncs() {
 				// main is never a member (types.md, Methods 3).
 				c.errorf(g.Decl.Name, CodeType, "%s is already declared in this package", g.Name)
 			} else {
-				c.errorf(g.Decl.Name, CodeType, "%s is already declared in this package; functions share a name only when each one's first parameter is a distinct named type declared in this package (types.md, Methods 3)", g.Name)
+				c.errorf(g.Decl.Name, CodeType, "%s is already declared in this package; functions share a name only when each one's first parameter is a distinct named type declared in this package, and one other may be a plain function (types.md, Methods 3)", g.Name)
 			}
 			g.owner, g.opOwner, g.selfArgs, g.Ptr = nil, nil, nil, false
 		}
@@ -2714,6 +2729,18 @@ func (c *checker) collOwner(f *Func) (collKey, []syntax.Expr, bool) {
 // memberShaped reports a function whose first parameter names a type, so
 // it may be a member of that type (selfOwner decides once the types are
 // declared).
+// namesLocalType reports whether d's first parameter names a type the
+// package declares: such a function is a member that failed, never the
+// plain function of a group (types.md, Methods 3).
+func (c *checker) namesLocalType(d *syntax.FuncDecl) bool {
+	name, _, _ := selfOwnerName(d)
+	if name == "" {
+		return false
+	}
+	_, ok := c.pkg.Scope.names[name].(*TypeName)
+	return ok || c.dupNames[name]
+}
+
 func memberShaped(d *syntax.FuncDecl) bool {
 	name, _, _ := selfOwnerName(d)
 	return name != "" && d.Name.Name != "main"
