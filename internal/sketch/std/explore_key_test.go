@@ -31,8 +31,9 @@ import (
 //
 // Mutants it kills that KeyIsEquality (one fixed type) does not:
 // mc-map-order (internal/sketch/eval codecwalk.go writes a Map's keys in
-// Go's iteration order, not sorted), and mc-key-variant-untagged (the key
-// takes in a union variant's fields and not its Tag).
+// Go's iteration order, not sorted), mc-key-variant-untagged (the key
+// takes in a union variant's fields and not its Tag), and mc-hash-8-bits
+// (a test of 1,024 distinct ints asks for 1,024 keys).
 func TestKeyEqualsEquality(t *testing.T) {
 	seeds, first := 30, uint64(1)
 	if s := os.Getenv("ERGO_KEY_SEED"); s != "" {
@@ -58,7 +59,7 @@ func TestKeyEqualsEquality(t *testing.T) {
 			fail("check: %v", diags)
 		}
 		b := eval.DefaultBudget()
-		b.Steps = 20_000_000
+		b.Steps, b.Bytes = 20_000_000, 256<<20
 		rep, err := eval.Run(pkg, b)
 		if err != nil {
 			fail("%v", err)
@@ -415,5 +416,9 @@ func (g *keyGen) program(n int) string {
 			i, t.ergo(), a.literal(), t.ergo(), b.literal(), same, a.equal(b, false))
 		g.pairs++
 	}
-	return "import explore\n\nfunc neg(x float64) float64 { -x }\n\n" + g.decls.String() + tests.String()
+	// Distinct: 1,024 distinct states have 1,024 keys, which a key of 8
+	// or 12 bits cannot (mc-hash-8-bits).
+	g.pairs++
+	return "import dense\nimport explore\n\nfunc neg(x float64) float64 { -x }\n\n" + g.decls.String() + tests.String() +
+		"test Distinct {\n\tlet mut seen = dense.NewKeys()\n\tfor i in 0..1024 {\n\t\tlet (k, _) = explore.KeyOf(i)\n\t\tdense.AddKey(&seen, k.Hi, k.Lo)\n\t}\n\tassert dense.KeyCount(seen) == 1024\n}\n"
 }
