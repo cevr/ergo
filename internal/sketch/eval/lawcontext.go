@@ -62,16 +62,15 @@ func (in *interp) contextLaw(law *check.Law, lc *check.LawContext, res Result) (
 	// The one rule, as ergo test runs it (lawContextRun's listedRun).
 	p := testplan.Context(law.Params, types)
 	out.TotalCases = p.Count
-	out.Evidence, out.Seed = "tested", in.budget.Seed
+	out.Evidence, out.Seed, out.form = "tested", in.budget.Seed, formDrawn
 	if p.Listed {
-		out.Evidence = "proved"
+		out.Evidence, out.form = "proved", formListed
 	}
 	r := testgen.New(in.budget.Seed, res.Name)
 	r.Charge = func(n int64) { mustCharge(in, fr, n) }
-	for k := 0; k < p.Count; k++ {
-		out.Case = k + 1
-		mustCharge(in, fr, 1)
-		r.Start(k + 1)
+	// run draws case k's arguments from r, as it stands (or takes the
+	// listed case k), builds the context and runs the law.
+	run := func(k int) (Result, []func() Argument) {
 		cf := in.newFrame(fr.pkg, fr.decl)
 		cf.env = fr.env
 		var listed []testplan.Value
@@ -91,9 +90,7 @@ func (in *interp) contextLaw(law *check.Law, lc *check.LawContext, res Result) (
 		}
 		caps, built, ab := in.acquire(cf, law.Decl, lc.With)
 		if ab != nil {
-			out.Status, out.Reason, out.Site = statusOf(ab), ab.msg, in.site(ab.pkg, ab.decl, ab.at)
-			out.Case, out.Arguments = k+1, shown(shows)
-			return
+			return in.abruptResult(res, ab), shows
 		}
 		key := typeKey(cf.rt(cap))
 		own, found := caps.lookup(key)
@@ -109,16 +106,27 @@ func (in *interp) contextLaw(law *check.Law, lc *check.LawContext, res Result) (
 		// Laws 10, Under a context).
 		if result.Status == Passed || result.Status == Refuted || result.Status == Defect {
 			if rel := in.releaseAll(cf, law.Decl, built, outer, nil); rel != nil && (result.Status != Defect || rel.kind != ctlDefect) {
-				result.Status, result.Reason, result.Site = statusOf(rel), rel.msg, in.site(rel.pkg, rel.decl, rel.at)
+				result = in.abruptResult(result, rel)
 			}
 		}
+		return result, shows
+	}
+	for k := 0; k < p.Count; k++ {
+		out.Case = k + 1
+		mustCharge(in, fr, 1)
+		r.Start(k + 1)
+		r.Record()
+		result, shows := run(k)
 		out.Cases = k + 1
-		out.Status, out.Reason, out.Site = result.Status, result.Reason, result.Site
+		if result.Status == Refuted && !p.Listed && len(law.Params) > 0 {
+			result, shows = in.shrinkCase(r, result, shows, func() (Result, []func() Argument) { return run(k) })
+		}
+		out.Status, out.Reason, out.Site, out.escaped, out.Message = result.Status, result.Reason, result.Site, result.escaped, result.Message
 		if result.Schedule != 0 {
 			out.Schedule = result.Schedule
 		}
 		if result.Status != Passed {
-			out.Case, out.Arguments = k+1, shown(shows)
+			out.Case, out.Arguments, out.Drawn = k+1, shown(shows), result.Drawn
 			return
 		}
 	}

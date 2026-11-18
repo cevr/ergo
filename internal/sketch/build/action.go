@@ -51,6 +51,12 @@ type Toolchain struct {
 	// Profile is how the module's own packages compile: Release, as go
 	// build does, or Dev, with inlining off and no DWARF (test-speed FT5).
 	Profile Profile
+	// Stored builds only from the direct path's store: a compile or a
+	// link the store does not hold, or a refusal of the direct path, ends
+	// the build with ErrNotStored, and no tool or go command runs
+	// (TEQ: `ergo test --count 1 ./...` reuses the packages' own stored
+	// test binaries).
+	Stored bool
 }
 
 // Profile is a build's compile profile (test-speed FT5).

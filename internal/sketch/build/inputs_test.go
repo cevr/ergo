@@ -3,7 +3,9 @@ package build
 import (
 	"bytes"
 	"debug/elf"
+	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -335,6 +337,24 @@ func TestCacheInputs(t *testing.T) {
 				// direct path refuses it; only the selection says why.
 				if err != nil || (report.Refused == "go build selected") != goBuild {
 					t.Fatalf("GoBuild=%t built by %v: %v", goBuild, report, err)
+				}
+			}
+		})
+		t.Run("Stored", func(t *testing.T) {
+			// A build from the store (TEQ) runs no tool: the direct path
+			// refuses this module (its go line), and go build, its
+			// fallback or the selected path, does not run either. It
+			// kills teq-stored-gobuild.
+			covered["Toolchain.Stored"] = true
+			for _, goBuild := range []bool{false, true} {
+				tc := hostToolchain()
+				tc.GoBuild, tc.Stored = goBuild, true
+				out := filepath.Join(t.TempDir(), "program")
+				if _, err := tc.Build(Cache{Root: root}, module, out, io.Discard); !errors.Is(err, ErrNotStored) {
+					t.Fatalf("GoBuild=%t from the store: %v, want ErrNotStored", goBuild, err)
+				}
+				if _, err := os.Stat(out); !errors.Is(err, fs.ErrNotExist) {
+					t.Fatalf("GoBuild=%t from the store placed an executable (%v)", goBuild, err)
 				}
 			}
 		})

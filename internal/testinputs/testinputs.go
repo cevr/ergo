@@ -62,6 +62,11 @@ func MainFunc(m *testing.M, run func() int) int {
 		os.Setenv("ERGO_GO", "system")
 	}
 	run = withPrivateCache(run)
+	// A test's `ergo test DIR/...` whose module test binary does not build
+	// fails instead of testing each package alone (cmd/ergo, TEST-one).
+	if _, set := os.LookupEnv("ERGO_SHARED_FALLBACK"); !set {
+		os.Setenv("ERGO_SHARED_FALLBACK", "fail")
+	}
 	raiseOOMScore()
 	log := testLog(os.Args[1:])
 	if observed || log == "" {

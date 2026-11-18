@@ -14,9 +14,11 @@ import (
 	"strconv"
 	"strings"
 
+	"ergo.local/prototype/internal/gobind"
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketchfront"
 	"ergo.local/prototype/internal/stage"
+	"ergo.local/prototype/internal/toolchain"
 )
 
 // The test result cache (g-b2), go test's cache of a passing result: the
@@ -57,10 +59,13 @@ func ledgerPart(path string) string {
 	return "no ledger"
 }
 
-func testResultKey(opts fileOptions, tc build.Toolchain, args []string, limit uint64, ledger string) string {
-	if !testCacheable(opts) {
-		return ""
-	}
+// toolchainIdentity is the Go toolchain that links tc's builds, as a key
+// part: the go command's resolved path, size and time, the managed GOROOT,
+// the platform, GOFLAGS, the tags and the link mode; "" when the go
+// command cannot be found. A stored test result and a law verdict a test
+// binary wrote (FT2) are both keyed by it, so another Go never replays
+// either.
+func toolchainIdentity(tc build.Toolchain) string {
 	goPath, err := exec.LookPath(tc.Go)
 	if err != nil {
 		return ""
@@ -72,17 +77,55 @@ func testResultKey(opts fileOptions, tc build.Toolchain, args []string, limit ui
 	if err != nil {
 		return ""
 	}
+	parts := []string{goPath, strconv.FormatInt(info.Size(), 10), strconv.FormatInt(info.ModTime().UnixNano(), 10), tc.Root, tc.GOOS + "/" + tc.GOARCH, tc.GOFLAGS, strings.Join(tc.Tags, ","), strconv.FormatBool(tc.GoBuild) + " " + strconv.FormatBool(tc.Strip) + " " + string(tc.Profile)}
+	var b strings.Builder
+	for _, p := range parts {
+		fmt.Fprintf(&b, "%d:%s\x00", len(p), p)
+	}
+	return b.String()
+}
+
+// pinnedToolchain is the toolchain key part of a law verdict a test binary
+// linked by the pinned managed release (internal/toolchain) for platform
+// wrote: the release, the platform and GOFLAGS; "" when ERGO_GO chooses
+// another Go. It starts no process and installs nothing, so ergo check
+// and the evaluator can name it too, and read the verdicts such a binary
+// wrote: a native run under the pin is exactly what the key names (FT2
+// r3). The release's patch is a constant of this ergo, which the store's
+// compiler identity already keys.
+func pinnedToolchain(platform gobind.Platform) string {
+	root, err := build.DefaultRoot()
+	if err != nil {
+		return ""
+	}
+	if t, _ := toolchain.Status(os.Getenv, root); t.Mode != "managed" {
+		return ""
+	}
+	return "pinned " + toolchain.Version + " " + platform.GOOS + "/" + platform.GOARCH + " GOFLAGS=" + os.Getenv("GOFLAGS")
+}
+
+// nativeToolchain is the toolchain key part of the law verdicts tc's test
+// binary writes: the pin's when the build runs the pinned release, else
+// the go command's identity (toolchainIdentity), which no evaluator reads.
+func nativeToolchain(opts fileOptions, tc build.Toolchain) string {
+	if p := pinnedToolchain(opts.platform); p != "" {
+		return p
+	}
+	return toolchainIdentity(tc)
+}
+
+func testResultKey(opts fileOptions, tc build.Toolchain, args []string, limit uint64, ledger string) string {
+	if !testCacheable(opts) {
+		return ""
+	}
+	id := toolchainIdentity(tc)
+	if id == "" {
+		return ""
+	}
 	h := sha256.New()
 	write := func(s string) { fmt.Fprintf(h, "%d:%s\x00", len(s), s) }
 	write("ergo-test-result-1")
-	write(goPath)
-	write(strconv.FormatInt(info.Size(), 10))
-	write(strconv.FormatInt(info.ModTime().UnixNano(), 10))
-	write(tc.Root)
-	write(tc.GOOS + "/" + tc.GOARCH)
-	write(tc.GOFLAGS)
-	write(strings.Join(tc.Tags, ","))
-	write(strconv.FormatBool(tc.GoBuild) + " " + strconv.FormatBool(tc.Strip) + " " + string(tc.Profile))
+	write(id)
 	// A full run writes the law ledger; a run that finds another ledger
 	// than the stored run left is no hit.
 	write(ledgerPart(ledger))

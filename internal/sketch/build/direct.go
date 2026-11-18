@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"go/build"
 	"io"
@@ -111,6 +112,9 @@ func (t Toolchain) Build(c Cache, module Module, output string, stderr io.Writer
 		report.Refused = err.Error()
 		report.Executable = ""
 	}
+	if t.Stored {
+		return report, ErrNotStored
+	}
 	child := t.Command(module, output)
 	child.Stdout, child.Stderr = stderr, stderr
 	stage.Add(stage.GoCommands, 1)
@@ -120,6 +124,9 @@ func (t Toolchain) Build(c Cache, module Module, output string, stderr io.Writer
 	}
 	return report, nil
 }
+
+// ErrNotStored ends a Toolchain.Stored build that would run a tool.
+var ErrNotStored = errors.New("build: not in the store")
 
 // refusal is a reason the direct path does not build a module.
 type refusal string
@@ -735,6 +742,9 @@ func (d *direct) compile(p *goPackage) error {
 		stage.Add(stage.GoCompilesReused, 1) // reused from the set, as from the store
 		return d.record(key, a.Digest, a.Export)
 	}
+	if d.t.Stored {
+		return ErrNotStored
+	}
 	pkgPath := p.ImportPath
 	if pkgPath == d.mainPath() {
 		pkgPath = "main"
@@ -909,6 +919,8 @@ func (d *direct) link(tg *target) error {
 	if ok && len(fields) == 1 {
 		digest = fields[0]
 		stage.Add(stage.LinksReused, 1)
+	} else if d.t.Stored {
+		return ErrNotStored
 	} else {
 		var cfg strings.Builder
 		cfg.WriteString("# import config\n")

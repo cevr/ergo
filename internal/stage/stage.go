@@ -60,15 +60,27 @@ const (
 	// Go's build cache held it. A plan whose archives come from a pin set
 	// (internal/pinset) takes none.
 	StdExports
+	// SharedFallbacks counts the `ergo test DIR/...` runs whose module test
+	// binary (TEST-one) did not build, so each package was tested alone.
+	SharedFallbacks
+	// BinariesIR and BinariesText count the executables a build placed
+	// (linked, reused from the store, or built by go build), by their
+	// module's lowering: with the IR bodies, as every ergo command builds,
+	// or the Go source text alone, the reference lowering (TEQb).
+	BinariesIR
+	BinariesText
 	// ObligationsEvaluated counts the tests and law runs check-time
-	// evaluation decided (skipped and not-run ones aside), and EvalSteps
-	// the evaluator steps they used; ObligationsNative counts those a test
-	// binary ran, and ObligationsStored those a stored verdict answered
-	// (test-speed FT0).
+	// evaluation decided (skipped and not-run ones aside; the verdicts
+	// `ergo test` printed from the check-time evaluator, tier 1, TESTSPEED
+	// FT1), and EvalSteps the evaluator steps they used; ObligationsNative
+	// counts those a test binary ran, and ObligationsStored those a stored
+	// verdict answered with no run (test-speed FT0, FT2); PackagesRouted the
+	// packages a route note sent to the test binary with no evaluation.
 	ObligationsEvaluated
 	EvalSteps
 	ObligationsNative
 	ObligationsStored
+	PackagesRouted
 	numCounters
 )
 
@@ -80,7 +92,8 @@ var names = [numCounters]string{
 	"bytes_hashed",
 	"go_compiles", "go_compiles_reused", "links", "links_reused",
 	"go_commands", "processes", "bytes_written", "outputs_placed", "std_exports",
-	"obligations_evaluated", "eval_steps", "obligations_native", "obligations_stored",
+	"shared_fallbacks", "binaries_ir", "binaries_text",
+	"obligations_evaluated", "eval_steps", "obligations_native", "obligations_stored", "packages_routed",
 }
 
 var counts [numCounters]atomic.Int64

@@ -65,6 +65,48 @@ func (t *varTable) put(i int, s *slot) {
 	t.moreVals[i-inlineVars] = s
 }
 
+// keyAt is the variable at index i, nil past the table.
+func (t *varTable) keyAt(i int) *check.Var {
+	if i < t.n {
+		return t.keys[i]
+	}
+	if j := i - inlineVars; j >= 0 && j < len(t.moreKeys) {
+		return t.moreKeys[j]
+	}
+	return nil
+}
+
+// getAt is get from a compiled form, which keeps in *hint the index it
+// found v at (ORACLE O38). A body binds its locals in the same order at
+// each call, so the hint is almost always v's index: one compare, no
+// scan. A table holds a variable once (bind and set reuse its index), so
+// a hint that names v names its only entry.
+func (t *varTable) getAt(v *check.Var, hint *int32) (*slot, bool) {
+	if i := int(*hint); t.keyAt(i) == v {
+		return t.at(i), true
+	}
+	i := t.find(v)
+	if i < 0 {
+		return nil, false
+	}
+	*hint = int32(i)
+	return t.at(i), true
+}
+
+// bindAt is bind from a compiled form, with getAt's hint.
+func (t *varTable) bindAt(v *check.Var, val Value, hint *int32) {
+	if i := int(*hint); t.keyAt(i) == v {
+		*t.at(i) = slot{v: val}
+		return
+	}
+	if i := t.find(v); i >= 0 {
+		*t.at(i) = slot{v: val} // as bind: the old binding has ended
+		*hint = int32(i)
+		return
+	}
+	*hint = int32(t.bindNew(v, val))
+}
+
 // bind binds v to a new slot holding val.
 func (t *varTable) bind(v *check.Var, val Value) {
 	if i := t.find(v); i >= 0 {
@@ -75,15 +117,22 @@ func (t *varTable) bind(v *check.Var, val Value) {
 		*t.at(i) = slot{v: val}
 		return
 	}
+	t.bindNew(v, val)
+}
+
+// bindNew binds v, which t does not hold, to a new slot holding val, and
+// is its index.
+func (t *varTable) bindNew(v *check.Var, val Value) int {
 	if t.n < inlineVars {
 		s := &t.store[t.n]
 		s.v = val
 		t.keys[t.n], t.vals[t.n] = v, s
 		t.n++
-		return
+		return t.n - 1
 	}
 	t.moreKeys = append(t.moreKeys, v)
 	t.moreVals = append(t.moreVals, &slot{v: val})
+	return inlineVars + len(t.moreKeys) - 1
 }
 
 // set makes s v's slot.

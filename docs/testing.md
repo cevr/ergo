@@ -59,6 +59,53 @@ The runner shrinks a failing case before it reports it: it replays the case with
 
 Integers shrink by their value, not by the generator's choice of small values or edges: the runner records a sign and magnitude after narrowing to the integer's width. It searches toward zero, then checks adjacent values, and revisits every component of a composite value until no pass improves it. Thus a monotone integer predicate such as `n < 5` shrinks to its boundary, `5`, when the replay budget is enough. The budget is 500 replays per failed case; reaching that limit can leave a non-minimal case. Arbitrary predicates have no global-minimum guarantee.
 
+### Two tiers: the evaluator and the test binary
+
+`ergo test PKG` first asks the check-time evaluator (the one `ergo check`
+runs, `internal/sketch/eval`). When it decides every test and law run of
+the package, `ergo test` prints the native test binary's output from it,
+line for line, with ` (evaluated)` after each verdict line, and exits with
+the binary's status (and its `error: K of N tests failed` line). Nothing
+is lowered, built or run. A passing run writes the law ledger as a native
+one does. Both tiers draw a property's or a law's cases from the same
+`--seed`, so a failure names the same case, shrunk the same way.
+
+The test binary answers the whole package (tier 2) when the evaluator
+leaves any obligation undecided: a run that outgrows its budget of steps,
+a skip line or a provider note, a defect (the binary stops at one), a
+machine's reachability law, a failure the evaluator does not write in the
+binary's words, or a host it does not have. `--native` always runs the
+binary; the gate and CI use it. So do `--receipt`, `--explore`, a
+schedule search and the selections `--law`, `--skip-law` and `--run`.
+`ergo test DIR/...` still runs the module's one test binary (TEST-one).
+`TestTiersAgree` (internal/sketch/eval) holds `ergo test` to
+`ergo test --native`: the same output but the marks, the same exit status
+and error line. The stage report counts `obligations_evaluated` and
+`eval_steps`.
+
+The evaluator keeps each passed test's and law run's verdict in the law
+verdict store (under the emission cache's root, `laws/`), keyed by its
+reach digest: the tokens of the test's declaration and of every
+declaration it reaches, in any package, with the seed. The next
+`ergo test` prints a verdict whose key still holds with ` (cached)` and
+does not run it, so after an edit of one function only the tests that
+reach it run again; a comment or a moved declaration runs none. A failure
+is never stored. When the evaluator leaves an obligation incomplete (its
+budget of steps runs out), it stores a route note under that obligation's
+key, and while the key holds the package goes straight to the test binary
+with no evaluation. Every key holds the compiler's identity, the digest
+of the `ergo` executable (its lowering, rewrite ledger, evaluator,
+standard library and runtime), so another compiler replays nothing. A law
+verdict the test binary wrote is also keyed by the Go toolchain that
+linked it, so another toolchain does not read it, and the evaluator
+(`ergo check`, tier 1) reads it only when that toolchain is the pinned
+release `ergo` would build with now (not under `ERGO_GO=system` or a path).
+`ergo test --native`, which the gate and CI run, reads no stored verdict:
+every test and law runs in the binary (it still stores what held, for
+the next default run). `TestStoredVerdictsAgree` (internal/sketchfront)
+holds the stored answers to a full evaluation under seeded edits. The
+stage report counts `obligations_stored` and `packages_routed`.
+
 ### A module of packages
 
 From a directory in a module, run `ergo test ./...` to select every package
@@ -105,9 +152,14 @@ obligations evaluated, it is named `main`, as checking it alone names it. A
 selected test package (its path a package's path with `test` after it) that
 another package imports is checked a second time, as `main`, because the
 builder rule reads its path. `ergo test` links one test binary that
-holds every selected package's test build and runs it once per package, so each
+holds every selected package's test build, lowered through IR as its own build is, and runs it once per package, so each
 package prints what `ergo test` of that package alone prints, with the same
-receipt and the same exit status rule (TEST-one). When the packages cannot share
+receipt and the same exit status rule (TEST-one). When the store already holds
+every package's own test binary (an earlier `ergo test DIR/...` linked them),
+each package runs its own and nothing is lowered, compiled or linked. When the
+build of the one binary fails, `ergo test` says so once on stderr with the go
+error's first line, and with `ERGO_SHARED_FALLBACK=fail` (set by the tests and
+the gate) the run fails instead. When the packages cannot share
 one load or one build (a diagnostic, a lowering refusal, a Go build failure, a
 module binding in `ergo.bind`), and for `-work`, `--explore` and a schedule
 search, each package is checked and built alone, as before, so a failure is
@@ -157,7 +209,7 @@ For `ergo test DIR/... --receipt PATH`, PATH is a directory: each tested package
 
 The rules are the rules of `ergo test`, not a second test language:
 
-- A test with no parameters is an example and runs once (`evaluated`). A property or a law runs by the one rule of [Laws](#laws): every value of a type that can be listed (`proved`), else 100 cases drawn from the seed (`tested`). For one `--seed`, `ergo check` and `ergo test` draw the same cases, so a refuted law names the same first bad case at both.
+- A test with no parameters is an example and runs once (`evaluated`). A property or a law runs by the one rule of [Laws](#laws): every value of a type that can be listed (`proved`), else 100 cases drawn from the seed (`tested`). For one `--seed`, `ergo check` and `ergo test` draw the same cases, so a refuted law names the same first bad case at both. A refuted drawn case is shrunk as `ergo test` shrinks it (the same replays of its draws, at most 500), so both name the same smallest arguments, and the drawn ones beside them. The evaluator writes a failed assert's report as the test binary does: its site, its source text, and, for a comparison of printable values, `left` and `right` (with a line diff of strings over several lines).
 - A machine's reachability law is decided by the same explorer as in `ergo test` ([types.md](spec/types.md#laws), Laws 13). A law that a run proves (`reaches`, `path`) may stop at the shortest witness before it has seen the whole graph (`router-model`'s `CanStop` sees 9 of its 16 states); `never reaches` is proved only by a complete search. An invariant law (`always p`, `sometimes p`; X2) is decided as `ergo test` decides it: `always p` never reaches a state where `p` is false, and `sometimes p` reaches one where `p` holds. The predicate is a pure Ergo function of the state, and check time calls it at each state the search visits.
 - An imported package supplies definitions only: its own tests do not run. A law runs in the least package that sees the law and its provider, as in `ergo test`.
 - A record that did not pass has `replay`: the `ergo test` command that runs the same cases natively, `ergo test limit --seed 1 --law RefillNeverOverfills`.

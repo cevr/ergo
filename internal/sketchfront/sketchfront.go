@@ -394,6 +394,10 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 		}
 	}
 	module, err := req.Cache.Module(input, func() ([]build.File, error) {
+		if req.Toolchain.Stored {
+			// A build from the store lowers nothing either.
+			return nil, build.ErrNotStored
+		}
 		files := ledgered
 		if files == nil {
 			var err error
@@ -443,6 +447,15 @@ func link(module build.Module, req BuildRequest) error {
 	report, err := req.Toolchain.Build(req.Cache, module, absolute, req.Stderr)
 	if req.Report != nil {
 		*req.Report = report
+	}
+	if err == nil {
+		// Each executable by its module's lowering (TEQb): every ergo
+		// build lowers through IR, the source text being the reference.
+		if req.IR {
+			stage.Add(stage.BinariesIR, 1)
+		} else {
+			stage.Add(stage.BinariesText, 1)
+		}
 	}
 	return err
 }

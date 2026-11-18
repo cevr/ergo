@@ -34,6 +34,14 @@ func (in *interp) tailExpr(fr *frame, x syntax.Expr) (Value, *abrupt) {
 
 // tailK is tailExpr with x's facts, f.
 func (in *interp) tailK(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt) {
+	if f.plain && fr.forms() {
+		if f.fast != nil {
+			return f.fast(in, fr) // compile.go
+		}
+		if f.form != formDone && in.visitExpr(fr, x, f) {
+			return f.fast(in, fr)
+		}
+	}
 	if ab := in.charge(fr, x, 1); ab != nil {
 		return nil, ab
 	}
@@ -113,7 +121,7 @@ func (in *interp) exprOf(fr *frame, x syntax.Expr) (Value, *abrupt) {
 func (in *interp) exprFacts(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt) {
 	switch f.op {
 	case opConst:
-		if f.cval != nil && fr.env == nil {
+		if f.cval != nil && fr.forms() {
 			return f.cval, nil
 		}
 		t := fr.rt(f.typ)
@@ -121,8 +129,8 @@ func (in *interp) exprFacts(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt)
 		if !ok {
 			return nil, fr.unsupported(x, "a constant of %s yet", t.t)
 		}
-		if fr.env == nil {
-			f.cval = v // a constant's value, made once outside a generic body
+		if fr.forms() {
+			f.cval = v // a constant's value, made once per instance (O38)
 		}
 		return v, nil
 	case opBare:
@@ -261,6 +269,14 @@ func (in *interp) slotOf(fr *frame, v *check.Var) *slot {
 	return in.globals[v]
 }
 
+// slotAt is slotOf from a compiled form, with varTable.getAt's hint.
+func (in *interp) slotAt(fr *frame, v *check.Var, hint *int32) *slot {
+	if s, ok := fr.vars.getAt(v, hint); ok {
+		return s
+	}
+	return in.globals[v]
+}
+
 // peek reads x without lending: a local, a package let, a field of a
 // record or an element of a slice, array or string, through a path of
 // them. root is the local's slot at the path's root, nil when the path
@@ -285,7 +301,7 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 		}
 	case *syntax.SelectorExpr:
 		xf := in.fx(fr, x)
-		if xf.field.t != nil && fr.env == nil {
+		if xf.field.t != nil && fr.forms() {
 			// A record's field, checked at an earlier read (ORACLE O33).
 			base, root, ab := in.peekBase(fr, x.X, path)
 			if ab != nil {
@@ -359,7 +375,7 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 		if path != nil {
 			*path = append(*path, step{at: x, field: x.Sel.Name})
 		}
-		if fr.env == nil {
+		if fr.forms() {
 			xf.field.t = n
 		}
 		return r.fields[xf.fieldOf(r.t, x.Sel.Name)], root, nil
@@ -848,7 +864,7 @@ func (in *interp) callOf(fr *frame, x *syntax.CallExpr, xf *facts) (Value, *abru
 	if c == nil {
 		ice("a call with no Calls entry")
 	}
-	if check.IsUnreachable(c) {
+	if xf.unreachable {
 		return nil, fr.defect(x, "unreachable")
 	}
 	switch c.Kind {
@@ -891,31 +907,37 @@ func (in *interp) callOf(fr *frame, x *syntax.CallExpr, xf *facts) (Value, *abru
 		if c.Site != nil {
 			return nil, fr.unsupported(x, "a call that passes its CallSite yet")
 		}
+		p := in.planAt(xf, c.Func)
 		ergoBody := c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil
 		if x.Trailing != nil && !ergoBody && (c.Func.Pkg.Host() || nativeOf(c.Func) == nil) {
 			return nil, fr.unsupported(x, "a trailing block yet")
 		}
-		if preludeCollection(c.Func) {
+		if p.collection {
 			return in.collectionCall(fr, x, c, nil)
 		}
 		// A bodiless std function that takes an owned local holds its
 		// entry until it returns (own.go, holdTaken).
 		var held []*syntax.Ident
-		if c.Func.Decl != nil && c.Func.Decl.Extern != nil && c.Func.Pkg.Std() && len(c.Func.Sig.Takes) > 0 {
+		if p.takes {
 			ops := x.Args
 			if c.Recv != nil {
 				ops = append([]syntax.Expr{c.Recv}, x.Args...)
 			}
 			held = in.holdTaken(fr, ops, c.Func.Sig.Takes)
 		}
-		if ergoBody && x.Trailing == nil && len(held) == 0 && !c.Func.Pkg.Host() {
+		if p.ergo && x.Trailing == nil && len(held) == 0 {
 			// An Ergo body binds its arguments to its parameters and
 			// keeps no slice of them.
 			args, mark, ab := in.stackArgs(fr, x, c, xf)
 			if ab != nil {
 				return nil, ab
 			}
-			v, ab := in.call(fr, x, c.Func, c.TypeArgs, args)
+			var v Value
+			if len(c.Func.Sig.TParams) == 0 {
+				v, ab = in.callPlanned(fr, x, p, nil, args)
+			} else {
+				v, ab = in.call(fr, x, c.Func, c.TypeArgs, args)
+			}
 			in.argStack = in.argStack[:mark]
 			return v, ab
 		}
@@ -932,7 +954,12 @@ func (in *interp) callOf(fr *frame, x *syntax.CallExpr, xf *facts) (Value, *abru
 			fr.escaped = true
 			args = append(args, &closure{key: x.Trailing, body: x.Trailing, vars: fr.vars, env: fr.env, home: fr, caps: fr.caps})
 		}
-		v, ab := in.call(fr, x, c.Func, c.TypeArgs, args)
+		var v Value
+		if len(c.Func.Sig.TParams) == 0 {
+			v, ab = in.callPlanned(fr, x, p, nil, args)
+		} else {
+			v, ab = in.call(fr, x, c.Func, c.TypeArgs, args)
+		}
 		if len(held) > 0 {
 			ab = in.settleHeld(fr, held, ab)
 		}

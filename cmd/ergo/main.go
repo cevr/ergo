@@ -184,7 +184,11 @@ type fileOptions struct {
 	// trace is test's --trace: after the run, the steps of every scene
 	// script played (printSteps). A traced run is never cached.
 	trace bool
-	file  string
+	// native is test's --native: every obligation runs in the native test binary
+	// (tier 2), never on the check-time evaluator (TESTSPEED FT1). The gate
+	// and CI use it.
+	native bool
+	file   string
 	// args are run's program arguments: every word after the source, as
 	// go run passes them, less one "--" right after the source.
 	args []string
@@ -330,6 +334,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 			opts.emitted = true
 		case "--debug":
 			opts.debug = true
+		case "--native":
+			opts.native = true
 		case "--explore":
 			opts.explore = true
 			if i+1 < len(args) && slices.Contains(exploreModes, args[i+1]) {
@@ -371,6 +377,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--emitted is only supported by build and test")
 	case opts.debug && command != "build" && command != "run" && command != "test":
 		return opts, fmt.Errorf("--debug is only supported by build, run and test")
+	case opts.native && command != "test":
+		return opts, fmt.Errorf("--native is only supported by test")
 	case opts.receipt != "" && command != "test":
 		return opts, fmt.Errorf("--receipt is only supported by test")
 	case (opts.explore || searched) && command != "test":
@@ -615,7 +623,7 @@ func checkLoaded(opts fileOptions, l loaded, w *warm) error {
 	if compiler, err := build.IdentityOf(id); err == nil {
 		store = lawStoreOf(compiler)
 	}
-	budget.Verdicts = l.analysis.EvalVerdicts(store, budget.Seed, budget.States)
+	budget.Verdicts = l.analysis.EvalVerdicts(store, budget.Seed, budget.States, pinnedToolchain(opts.platform))
 	evaluation, err := l.analysis.Evaluation(budget, opts.file)
 	boundLaws(store)
 	if err != nil {

@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"path"
 	"slices"
 	"sort"
 
@@ -181,6 +182,34 @@ func lowerIRSplit(u Unit, tests bool, base string, sh *shardOpts) ([]File, IRRep
 type irModule struct {
 	IRReport
 	out *irFile
+}
+
+// lowerIRTestParts is lowerTestParts with the IR bodies, as LowerIRTests
+// lowers them: the test build's main.go, its assets and its IR file, for
+// the Go package in the module's folder dir (TEST-one). The compile reads
+// an IR source path relative to its working directory, the module's
+// folder, where a //line name is read from main.go's folder: so each path
+// is written under dir, and a frame of an IR body names the file a frame
+// of the same function's source body names (runtime/v1, sourceDir).
+func lowerIRTestParts(u Unit, dir string) ([]byte, []File, []byte, error) {
+	files, _, report, l, err := lowerIRModule(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}})
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	i := slices.IndexFunc(files, func(f File) bool { return isMainGo(f.Path) })
+	if i < 0 {
+		return nil, nil, nil, fmt.Errorf("lower: an IR test build has no main.go (a compiler defect)")
+	}
+	for i, f := range report.out.Files {
+		if !path.IsAbs(f) {
+			report.out.Files[i] = path.Join(dir, f)
+		}
+	}
+	data, err := json.Marshal(report.out)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return files[i].Data, l.assetFiles(), data, nil
 }
 
 // lowerIRModule lowers u with IR bodies: the module's files without an IR

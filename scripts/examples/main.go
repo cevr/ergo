@@ -13,6 +13,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -886,11 +887,48 @@ func (r *runner) tool(timeout time.Duration, args ...string) (outcome, error) {
 	if o, ok := r.keyed[keyedCall(args)]; ok {
 		return o, nil
 	}
-	env := r.toolEnv
+	env, report := r.toolEnv, ""
 	if len(args) > 0 && args[0] == "check" {
 		env = append(slices.Clip(env), lawCacheOff)
 	}
-	return r.live.execute(append([]string{r.cfg.ergo}, args...), r.cfg.root, env, "", timeout, 0)
+	if len(args) > 0 && args[0] == "test" {
+		if f, err := os.CreateTemp(r.scratch, "stage-*.json"); err == nil {
+			report = f.Name()
+			f.Close()
+			defer os.Remove(report)
+			env = append(slices.Clone(env), stageReportVariable+"="+report)
+		}
+	}
+	o, err := r.live.execute(append([]string{r.cfg.ergo}, args...), r.cfg.root, env, "", timeout, 0)
+	if report != "" {
+		r.testsThroughIR(args, report)
+	}
+	return o, err
+}
+
+// stageReportVariable is sketchfront.StageReportVariable: the file an
+// ergo command writes its work counters to as it exits.
+const stageReportVariable = "ERGO_STAGE_REPORT"
+
+// testsThroughIR fails the run when an `ergo test` call placed a test
+// binary lowered as Go source text (the stage report's binaries_text):
+// every test binary lowers through IR, as `ergo build` ships it, so the
+// tests check the code a build ships (TEQb). A report the command did not
+// write (it was stopped) says nothing.
+func (r *runner) testsThroughIR(args []string, report string) {
+	data, err := os.ReadFile(report)
+	if err != nil || len(data) == 0 {
+		return
+	}
+	var counts map[string]int64
+	if json.Unmarshal(data, &counts) != nil {
+		return
+	}
+	if n := counts["binaries_text"]; n > 0 {
+		call := "ergo " + strings.Join(args, " ")
+		fmt.Fprintf(r.out, "FAIL %s: %d test binaries lowered as Go source text, not through IR\n", call, n)
+		r.fail(call + ": text lowering")
+	}
 }
 
 // lawCacheOff turns the law-verdict store off for a check (lawcache): every

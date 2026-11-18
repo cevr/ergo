@@ -48,6 +48,9 @@ type taskState struct {
 	// argStack holds the arguments of the task's Ergo calls in progress
 	// (stackArgs): each task has its own, as its calls nest.
 	argStack []Value
+	// stepStack holds the paths of the task's assignments in progress
+	// (placePush).
+	stepStack []step
 }
 
 // etask is one task of the obligation.
