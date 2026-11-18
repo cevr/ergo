@@ -239,8 +239,11 @@ type Actor[S, E, D any] struct {
 	cur *envelope[S, E, D] // the envelope in a step, nil between steps
 	// curEnv holds the envelope in a step, so taking one allocates
 	// nothing (MU18); cur points to it while the step runs.
-	curEnv  envelope[S, E, D]
-	timer   *rt.Handle[struct{}]
+	curEnv envelope[S, E, D]
+	timer  *rt.Handle[struct{}]
+	// timers is the goroutine every entry's timer child runs on, kept for
+	// the actor's life (FU-actor-timer-slot): a timer starts no goroutine.
+	timers  rt.Carrier
 	working *rt.Handle[struct{}] // the entry's work, nil when it has none
 	feeds   []*feed              // the started sources that may still run (rule 14)
 	// newHosts are the hosts the running step made (rule 15); hostSlot
@@ -1126,10 +1129,15 @@ func (a *Actor[S, E, D]) arm(at *rt.Task, s S) {
 	}
 	env := envelope[S, E, D]{kind: timerSignal, epoch: a.epoch, at: s}
 	holder := rt.NewScope(at)
-	armed := make(chan struct{})
-	var once sync.Once
-	registered := func() { once.Do(func() { close(armed) }) }
-	a.timer = rt.Go(&holder, a.span+" (timer)", func(ct *rt.Task) (struct{}, error) {
+	// The runner waits on its own park word for the child's first wait
+	// (FU-actor-timer-slot): no channel and no sync.Once per entry.
+	var armed atomic.Bool
+	registered := func() {
+		if armed.CompareAndSwap(false, true) {
+			at.Resume()
+		}
+	}
+	a.timer = rt.GoOn(&holder, &a.timers, a.span+" (timer)", func(ct *rt.Task) (struct{}, error) {
 		cancel := rt.WhenWaiting(ct, registered)
 		defer func() {
 			cancel()
@@ -1143,9 +1151,13 @@ func (a *Actor[S, E, D]) arm(at *rt.Task, s S) {
 		})
 	})
 	if rt.Exploring {
-		rt.Await(at, isClosedTest(armed))
+		rt.Await(at, armed.Load)
 	}
-	<-armed
+	// A wake meant for another wait of the runner (a stop) costs one more
+	// look: the handshake ignores a stop, as the receive it replaced did.
+	for !armed.Load() {
+		at.Suspend()
+	}
 }
 
 // noTimer is the delay of a state with no timer: no timer waits it.
@@ -1333,6 +1345,8 @@ func (a *Actor[S, E, D]) finish(exit error) {
 		}
 	}
 	a.timer, a.working = nil, nil
+	a.timers.Close() // no entry arms a timer again
+
 	// The sources last (rule 14): admission is closed, so each one's next
 	// send raises; the stop interrupts one that waits.
 	for _, f := range a.feeds {
