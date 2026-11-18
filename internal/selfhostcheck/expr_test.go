@@ -378,8 +378,8 @@ func patternBinders(pkg *check.Package) map[check.Object]string {
 // whole run's expressions, not to the generic literals written with their
 // arguments: those are typed wherever they stand (the written type), an
 // elided one only where the typer reads its context, and the contexts it
-// does not read yet (an untyped operand of ==, an operation's argument)
-// are the expression typer's gaps, not the spelling's. all is
+// does not read yet (an operation's argument, a constant beside an
+// untyped operand of ==) are the expression typer's gaps, not the spelling's. all is
 // the run's typed and total expressions. A short form the run does not
 // reach is a failure too: the fixture testdata/bind/elide.ergo writes
 // each.
