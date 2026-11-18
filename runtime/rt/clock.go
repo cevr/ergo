@@ -65,20 +65,19 @@ func (l liveTimer) Stop() bool        { return l.stop() }
 // which fires each due timer in deadline order, ties in arming order. Tests
 // call AwaitTimers to know a task has armed its deadline before advancing.
 type Virtual struct {
-	mu     sync.Mutex
+	// mu is the clock's lock; the clocks of one domain share their
+	// domain's (idle.go), so a wait checks its event and parks in one step.
+	mu     *sync.Mutex
 	armed  *sync.Cond
 	now    Instant
 	seq    uint64
 	timers []*virtualTimer // sorted by (when, seq)
-	// A clock with a domain (idle.go: an auto clock or a manual one)
-	// counts its live members and the parked ones; an auto clock also
-	// moves when every live member is parked, and steps counts those
-	// moves. change is closed when a member parks or leaves, so a Settle
-	// looks again.
-	domain, auto bool
-	live, parked int
-	steps        int
-	change       chan struct{}
+	// d is the domain of a clock that has one (idle.go: an auto clock or
+	// a manual one), nil otherwise. An auto clock moves when every live
+	// member of its domain is parked, and steps counts those moves.
+	d     *domain
+	auto  bool
+	steps int
 	// advancing is set while an AdvanceSettled runs: one at a time.
 	advancing bool
 }
@@ -100,8 +99,8 @@ type virtualTimer struct {
 
 // NewVirtual returns a virtual clock that reads start.
 func NewVirtual(start time.Time) *Virtual {
-	v := &Virtual{now: Instant(start.UnixNano())}
-	v.armed = sync.NewCond(&v.mu)
+	v := &Virtual{now: Instant(start.UnixNano()), mu: new(sync.Mutex)}
+	v.armed = sync.NewCond(v.mu)
 	return v
 }
 
@@ -179,7 +178,7 @@ func (v *Virtual) Advance(d Span) {
 // One runs at a time: a call while another runs returns AdvanceRunning at
 // once and moves nothing.
 func (v *Virtual) AdvanceSettled(t *Task, d Span) error {
-	if !v.domain {
+	if v.d == nil {
 		v.Advance(d)
 		return nil
 	}
@@ -227,23 +226,28 @@ func (v *Virtual) AdvanceSettled(t *Task, d Span) error {
 // waits on anything else, keeps it waiting. With no domain it returns at
 // once. A stop of t ends it with Interrupted.
 func (v *Virtual) Settle(t *Task) error {
-	if !v.domain {
+	d := v.d
+	if d == nil {
 		return nil
 	}
 	v.mu.Lock()
+	m := t.member.Load()
+	if m != nil && m.d != d {
+		m = nil
+	}
 	for {
 		self := 0
-		if m := t.member.Load(); m != nil && m.v == v && !m.parked {
+		if m != nil && !m.parked {
 			self = 1
 		}
-		if v.parked >= v.live-self {
+		if d.parked >= d.live-self {
 			v.mu.Unlock()
 			return nil
 		}
-		if v.change == nil {
-			v.change = make(chan struct{})
+		if d.change == nil {
+			d.change = make(chan struct{})
 		}
-		ch := v.change
+		ch := d.change
 		v.mu.Unlock()
 		stop := t.Done()
 		if Exploring {
@@ -294,7 +298,7 @@ func Sleep(t *Task, s Scheduler, d time.Duration) error {
 	if t.Stopped() {
 		return Interrupted
 	}
-	if v, ok := s.(*Virtual); ok && v.domain {
+	if v, ok := s.(*Virtual); ok && v.d != nil {
 		return v.sleep(t, Span(d))
 	}
 	if _, ok := s.(Live); ok {

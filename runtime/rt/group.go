@@ -37,9 +37,9 @@ func NewGroup(parent *Task, span string) *Group {
 	// its parent's auto clock domain: it only passes the domain on to its
 	// members, which join it as Go's children do.
 	if m := g.task.member.Load(); m != nil {
-		m.v.mu.Lock()
-		m.v.live--
-		m.v.mu.Unlock()
+		m.d.mu.Lock()
+		m.d.live--
+		m.d.mu.Unlock()
 	}
 	if g.task.trace != nil {
 		g.task.traceTask(TraceStart, nil)

@@ -77,8 +77,8 @@
       "name": "X5-clock-moves-while-enabled",
       "origin": "X5",
       "file": "runtime/rt/idle.go",
-      "from": "v.parked < v.live ||",
-      "to": "v.parked < v.live-1 ||",
+      "from": "d.parked < d.live {",
+      "to": "d.parked < d.live-1 {",
       "rule": "Explored schedules: the clock moves only when no task is enabled",
       "killers": ["runtime/rt[ergoexplore]:TestSchedulerFollowsModel"]
     },
@@ -169,7 +169,7 @@
       "name": "gx4-group-counted-live",
       "origin": "wf10 GX4",
       "file": "runtime/rt/group.go",
-      "from": "\t\tm.v.live--\n",
+      "from": "\t\tm.d.live--\n",
       "to": "",
       "rule": "rt Group (GX4): a group runs nothing, so it is no live member of its clock's domain.",
       "killers": [
@@ -345,6 +345,24 @@
       "to": "\tstatus := report(",
       "rule": "Emitted main paces the program's heap",
       "killers": ["runtime/v1:TestMainPacesTheHeap"]
+    },
+    {
+      "name": "second-clock-leaves-domain",
+      "origin": "wf10/research/P3 P3-9",
+      "file": "runtime/rt/idle.go",
+      "from": "\tif m := t.member.Load(); m != nil {\n\t\td := m.d\n",
+      "to": "\tif m := t.member.Load(); m != nil {\n\t\tm.leave()\n\t}\n\tif m := t.member.Load(); false {\n\t\td := m.d\n",
+      "rule": "A clock that a member makes joins its domain; the maker stays a member, so an auto clock made before it still moves",
+      "killers": ["runtime/rt:TestAutoClockMovesBesideAnotherClock"]
+    },
+    {
+      "name": "idle-moves-first-clock",
+      "origin": "wf10/research/P3 P3-9",
+      "file": "runtime/rt/idle.go",
+      "from": "(next == nil || c.timers[0].when-c.now < next.timers[0].when-next.now)",
+      "to": "next == nil",
+      "rule": "With several auto clocks armed, the one whose deadline is nearest its own now moves",
+      "killers": ["runtime/rt:TestDomainMovesNearestClock"]
     }
   ]
 }

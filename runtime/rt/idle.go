@@ -2,21 +2,26 @@ package rt
 
 import (
 	"sort"
+	"sync"
 	"time"
 )
 
 // An auto clock is a Virtual whose time also moves on its own, when every
 // task of its domain waits and none can run (testing.VirtualClock;
 // docs/spec/stdlib.md, Testing). The domain is the task that made the
-// clock, from that call on, and every task started below a member. The
-// clock counts its live members and those parked in a wait it can see:
-// a sleep on the clock, a queue wait, the join of a task and the race of
-// timeout.After. When the two counts are equal and a sleeper is armed,
-// the time moves to the earliest deadline, and every sleeper of that
-// deadline wakes, in the order they slept.
+// clock, from that call on, and every task started below a member; a
+// clock that a member makes joins the domain (P3-9), so a task is in one
+// domain, which every clock its members made shares. The domain counts
+// its live members and those parked in a wait it can see:
+// a sleep on a clock of the domain, a queue wait, the join of a task and
+// the race of timeout.After. When the two counts are equal and a sleeper
+// is armed, an auto clock moves to its earliest deadline (idle: the one
+// nearest its own now), and every sleeper of that deadline wakes, in the
+// order they slept.
 //
 // A wait on anything else (the host's input, a file, the host clock, a
-// Manual clock, a lock) is not parked, so the clock never moves past it:
+// clock of another domain, a lock) is not parked, so the clock never
+// moves past it:
 // a task that reads standard input keeps the clock still until the read
 // ends.
 //
@@ -43,10 +48,27 @@ import (
 // auto-advance; Trio's MockClock(autojump_threshold=0). Effect's TestClock
 // moves only on adjust.
 
-// member is a task's place in the domain of an auto clock. Its fields
-// after v are guarded by v.mu.
+// A domain is a set of tasks and the clocks its members made (P3-9): the
+// first clock a task makes opens one, and a clock that a member makes
+// joins its domain, so the task stays a member and every clock of the
+// domain sees the same waits. Its clocks share mu. Before P3-9 a second
+// clock took its maker out of the first one's domain: an auto clock made
+// before a time.Manual that nothing used then had no member left and
+// never moved.
+type domain struct {
+	mu *sync.Mutex
+	// live and parked count the members and those parked in a wait the
+	// domain sees. change is closed when a member parks or leaves, so a
+	// Settle looks again.
+	live, parked int
+	change       chan struct{}
+	clocks       []*Virtual
+}
+
+// member is a task's place in a domain. Its fields after d are guarded
+// by d.mu.
 type member struct {
-	v      *Virtual
+	d      *domain
 	parked bool
 	stop   bool   // the parked wait ends on a stop of the task
 	on     [2]any // the sources whose event ends the parked wait
@@ -55,9 +77,8 @@ type member struct {
 // stopSource is the source of a stop's wake.
 type stopSource struct{}
 
-// NewAuto is an auto clock that reads start. t, the calling task, is its
-// first member; a task that was a member of another clock's domain leaves
-// it.
+// NewAuto is an auto clock that reads start, in t's domain: the one t is
+// a member of, else a new one whose first member is t.
 func NewAuto(t *Task, start time.Time) *Virtual {
 	v := newDomain(t, start)
 	v.auto = true
@@ -66,51 +87,55 @@ func NewAuto(t *Task, start time.Time) *Virtual {
 
 // NewManual is a manual clock with a domain (time.Manual; fua-b): it reads
 // start and moves only by AdvanceSettled, which waits for the domain to
-// settle, but never on its own. t, the calling task, is its first member,
-// as for NewAuto.
+// settle, but never on its own. Its domain is t's, as for NewAuto.
 func NewManual(t *Task, start time.Time) *Virtual {
 	return newDomain(t, start)
 }
 
-// newDomain is a Virtual with a domain whose first member is t.
+// newDomain is a Virtual in t's domain, or in a new domain whose first
+// member is t.
 func newDomain(t *Task, start time.Time) *Virtual {
 	v := NewVirtual(start)
-	v.domain = true
-	if old := t.member.Load(); old != nil {
-		old.leave()
+	if m := t.member.Load(); m != nil {
+		d := m.d
+		v.mu, v.armed, v.d = d.mu, sync.NewCond(d.mu), d
+		d.mu.Lock()
+		d.clocks = append(d.clocks, v)
+		d.mu.Unlock()
+		return v
 	}
-	v.live = 1
-	t.member.Store(&member{v: v})
+	v.d = &domain{mu: v.mu, live: 1, clocks: []*Virtual{v}}
+	t.member.Store(&member{d: v.d})
 	return v
 }
 
-// join makes t, a new child of parent, a member of parent's clock.
+// join makes t, a new child of parent, a member of parent's domain.
 func (t *Task) join(parent *Task) {
 	if m := parent.member.Load(); m != nil {
-		v := m.v
-		v.mu.Lock()
-		v.live++
-		v.mu.Unlock()
-		t.member.Store(&member{v: v})
+		d := m.d
+		d.mu.Lock()
+		d.live++
+		d.mu.Unlock()
+		t.member.Store(&member{d: d})
 	}
 }
 
-// leave takes a finished member out of its clock's domain; the members
-// left may all be parked now.
+// leave takes a finished member out of its domain; the members left may
+// all be parked now.
 func (m *member) leave() {
-	v := m.v
-	v.mu.Lock()
+	d := m.d
+	d.mu.Lock()
 	m.release()
-	v.live--
-	v.idle()
-	v.mu.Unlock()
+	d.live--
+	d.idle()
+	d.mu.Unlock()
 }
 
-// release clears m's parked flag. v.mu is held.
+// release clears m's parked flag. d.mu is held.
 func (m *member) release() {
 	if m.parked {
 		m.parked, m.stop, m.on = false, false, [2]any{}
-		m.v.parked--
+		m.d.parked--
 	}
 }
 
@@ -123,14 +148,14 @@ func park(t *Task, a, b any, stop <-chan struct{}, ready func() bool) *member {
 	if m == nil {
 		return nil
 	}
-	v := m.v
-	v.mu.Lock()
+	d := m.d
+	d.mu.Lock()
 	if !(stop != nil && t.stopped.Load()) && (ready == nil || !ready()) {
 		m.parked, m.stop, m.on = true, stop != nil, [2]any{a, b}
-		v.parked++
-		v.idle()
+		d.parked++
+		d.idle()
 	}
-	v.mu.Unlock()
+	d.mu.Unlock()
 	return m
 }
 
@@ -139,9 +164,9 @@ func (m *member) unpark() {
 	if m == nil {
 		return
 	}
-	m.v.mu.Lock()
+	m.d.mu.Lock()
 	m.release()
-	m.v.mu.Unlock()
+	m.d.mu.Unlock()
 }
 
 // waking locks the clock of w, a waiter, and clears its parked flag when
@@ -156,7 +181,7 @@ func (w *Task) waking(src any) *member {
 	if m == nil {
 		return nil
 	}
-	m.v.mu.Lock()
+	m.d.mu.Lock()
 	if m.parked && waitEndsOn(m, src) {
 		m.release()
 	}
@@ -178,7 +203,7 @@ func waitEndsOn(m *member, src any) bool {
 // unlock ends a waking. It is nil-safe.
 func (m *member) unlock() {
 	if m != nil {
-		m.v.mu.Unlock()
+		m.d.mu.Unlock()
 	}
 }
 
@@ -230,18 +255,34 @@ type WakeSource interface {
 	WakesItsWaiter()
 }
 
-// idle moves an auto clock when every live member is parked and a sleeper
-// is armed: to the earliest deadline, waking every sleeper of it. v.mu is
-// held.
-func (v *Virtual) idle() {
+// idle moves an auto clock of d when every live member is parked and a
+// sleeper is armed: to its earliest deadline, waking every sleeper of it.
+// With several auto clocks armed, the one whose earliest deadline is the
+// nearest to its own now moves, the first made on a tie; the woken tasks
+// run to their next wait before any clock moves again. d.mu is held.
+func (d *domain) idle() {
 	// A Settle looks again: a member parked or left.
-	if v.change != nil {
-		close(v.change)
-		v.change = nil
+	if d.change != nil {
+		close(d.change)
+		d.change = nil
 	}
-	if !v.auto || v.live == 0 || v.parked < v.live || len(v.timers) == 0 {
+	if d.live == 0 || d.parked < d.live {
 		return
 	}
+	var next *Virtual
+	for _, c := range d.clocks {
+		if c.auto && len(c.timers) > 0 && (next == nil || c.timers[0].when-c.now < next.timers[0].when-next.now) {
+			next = c
+		}
+	}
+	if next != nil {
+		next.move()
+	}
+}
+
+// move moves v, an auto clock with a timer armed, to its earliest
+// deadline and fires every timer of it. v.mu is held.
+func (v *Virtual) move() {
 	when := v.timers[0].when
 	if when > v.now {
 		v.now = when
@@ -258,7 +299,7 @@ func (v *Virtual) idle() {
 // fire wakes the sleeper of t, if any, and delivers t's time. v.mu is held.
 func (v *Virtual) fire(t *virtualTimer) {
 	if t.task != nil {
-		if m := t.task.member.Load(); m != nil && m.v == v && m.parked && m.on[0] == any(t) {
+		if m := t.task.member.Load(); m != nil && m.d == v.d && m.parked && m.on[0] == any(t) {
 			m.release()
 		}
 	}
@@ -302,12 +343,12 @@ func (v *Virtual) sleep(t *Task, d Span) error {
 	stop := t.Done()
 	v.mu.Lock()
 	m := t.member.Load()
-	if m != nil && m.v == v {
+	if m != nil && m.d == v.d {
 		if !(stop != nil && t.stopped.Load()) && len(tm.c) == 0 {
 			m.parked, m.stop, m.on = true, stop != nil, [2]any{tm, nil}
-			v.parked++
+			v.d.parked++
 		}
-		v.idle()
+		v.d.idle()
 	} else {
 		m = nil
 	}
