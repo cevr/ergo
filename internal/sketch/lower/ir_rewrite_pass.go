@@ -74,9 +74,9 @@ func (b *irBuilder) callFacts(x *syntax.CallExpr, e *irExpr, stmt bool) {
 	e.CF = f
 }
 
-// localType records local i's Go type, for a hole that is not a call's
+// setLocalType records local i's Go type, for a hole that is not a call's
 // operand (rwMatch.hole).
-func (b *irBuilder) localType(i int, typ string) {
+func (b *irBuilder) setLocalType(i int, typ string) {
 	if b.localTypes == nil {
 		b.localTypes = map[int]string{}
 	}
