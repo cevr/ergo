@@ -55,11 +55,27 @@ func (in *interp) argument(fr *frame, t check.Type, v Value) (out string) {
 		}
 		return fmt.Sprint(v)
 	case *check.Named:
+		// The Go build's text of the value (lower/literal.go): an operation
+		// type's is the call of its builder, a value built by a
+		// constructor its call when its record has no text.
+		if _, ops := t.Underlying().(*check.Interface); ops {
+			return in.builtText(t)
+		}
+		if testplan.ByConstructor(t) {
+			ctor := testplan.Constructor(t)
+			text := in.argumentType(t)
+			if i := strings.LastIndex(text, "."); i >= 0 {
+				text = text[:i+1]
+			} else {
+				text = ""
+			}
+			if len(ctor.Sig.Params) > 0 {
+				return text + ctor.Name + "(…)"
+			}
+			return text + ctor.Name + "()"
+		}
 		switch under := t.Underlying().(type) {
 		case *check.Struct:
-			if ctor := testplan.Constructor(t); ctor != nil && len(ctor.Sig.Params) == 0 {
-				return ctor.Name + "()"
-			}
 			r := v.(*record)
 			if len(r.fields) == 0 {
 				return in.argumentType(t)
@@ -123,6 +139,31 @@ func (in *interp) argument(fr *frame, t check.Type, v Value) (out string) {
 		return in.argument(fr, r.t, v)
 	}
 	return describe(v)
+}
+
+// builtText is the text of a value of the operation type n: its builder's
+// call, `fstest.NewMemory()`, with `…` for generated arguments, as the Go
+// build writes it (lower/builders.go builtText).
+func (in *interp) builtText(n *check.Named) string {
+	b := in.root.Builder(n)
+	if b == nil {
+		return in.argumentType(n)
+	}
+	text := b.Func.Name
+	if p := b.Func.Pkg; p != nil && p != in.root && p.Path != "prelude" {
+		text = p.Name + "." + text
+	}
+	if targs, _ := b.Instance(n); len(targs) > 0 {
+		parts := make([]string, len(targs))
+		for i, a := range targs {
+			parts[i] = in.argumentType(a)
+		}
+		text += "[" + strings.Join(parts, ", ") + "]"
+	}
+	if b.World() {
+		return text + "()"
+	}
+	return text + "(…)"
 }
 
 func (in *interp) argumentType(t check.Type) string {
