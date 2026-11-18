@@ -1308,7 +1308,7 @@ func (c *checker) noMethodHint(t Type, x *syntax.SelectorExpr, called bool) stri
 		case n.Orig != nil && c.identical(fn, n):
 			star := ""
 			if ptr != "" {
-				star = "*"
+				star = "mut " // the borrow, as Ergo writes it (MODES-2)
 			}
 			var tps []string
 			for _, tp := range n.Orig.TParams {

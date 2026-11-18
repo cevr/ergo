@@ -32,14 +32,14 @@ type Sink {
 
 type Counter { sum int, puts int } implements Sink
 
-func Put(c *Counter, n int) {
+func Put(c mut Counter, n int) {
 	c.sum = c.sum + n
 	c.puts = c.puts + 1
 }
 
-func Total(c *Counter) int { c.sum }
+func Total(c mut Counter) int { c.sum }
 
-func Take(c *Counter, n int) int fails Empty {
+func Take(c mut Counter, n int) int fails Empty {
 	if n == 77 {
 		let z = []int{1}
 		c.sum = z[n]
@@ -53,11 +53,11 @@ func Take(c *Counter, n int) int fails Empty {
 
 type Log { text string } implements Sink
 
-func Put(l *Log, n int) { l.text = l.text + "+\(n)" }
+func Put(l mut Log, n int) { l.text = l.text + "+\(n)" }
 
-func Total(l *Log) int { len(l.text) }
+func Total(l mut Log) int { len(l.text) }
 
-func Take(l *Log, n int) int fails Empty {
+func Take(l mut Log, n int) int fails Empty {
 	if n > len(l.text) {
 		return Empty{at: 0 - len(l.text)}
 	}

@@ -47,7 +47,7 @@ type Counter {
 
 type Tally { n int } implements Counter
 
-func Bump(t *Tally) int {
+func Bump(t mut Tally) int {
 	t.n = t.n + 1
 	t.n
 }
@@ -100,7 +100,7 @@ func apply[T lent](x T, use func(v T) int) int { use(x) }
 
 func fwdLocal[T lent](x T) int { local(x) }
 
-func put[T lent](out *T, x T) { *out = x }
+func put[T lent](out mut T, x T) { *out = x }
 
 func relay[T lent](x T, use own func(v T) int) int { use(x) + run(func() int { let _ = use; 1 }) }
 
@@ -171,7 +171,7 @@ func bcGoCase(r *rand.Rand, name string) ([]string, int, string, string) {
 		return len(lines) - 1
 	}
 	finish := func(site bcSite, value string) int {
-		lines[0] = fmt.Sprintf("func %s(b *strings.Builder) %s needs go.Foreign {", name, site.result)
+		lines[0] = fmt.Sprintf("func %s(b mut strings.Builder) %s needs go.Foreign {", name, site.result)
 		at := body(fmt.Sprintf(site.at, value))
 		for _, s := range site.after {
 			body(s)
@@ -252,9 +252,9 @@ var bcGenericSites = []bcSite{
 func bcGenericCase(r *rand.Rand, name string) ([]string, int, string, string) {
 	sources := []string{"t", "&x", "Fixed"}
 	source := sources[r.IntN(len(sources))]
-	typ := map[string]string{"t": "*Tally", "&x": "*Tally", "Fixed": "Fixed"}[source]
+	typ := map[string]string{"t": "mut Tally", "&x": "mut Tally", "Fixed": "Fixed"}[source]
 	site := bcGenericSites[r.IntN(len(bcGenericSites))]
-	lines := []string{fmt.Sprintf("func %s(t *Tally) %s {", name, site.result)}
+	lines := []string{fmt.Sprintf("func %s(t mut Tally) %s {", name, site.result)}
 	body := func(s string) int {
 		lines = append(lines, "\t"+s)
 		return len(lines) - 1
@@ -273,7 +273,7 @@ func bcGenericCase(r *rand.Rand, name string) ([]string, int, string, string) {
 		body(a)
 	}
 	lines = append(lines, "}")
-	named := map[string]string{"targ-id": "typearg id", "targ-ret": "typearg ret", "targ-arm": "typearg arm", "targ-fwd": "typearg fwd", "targ-hold": "typearg hold", "targ-box": "typearg Box[*Tally]", "targ-later": "typearg later", "targ-via": "typearg via", "targ-task": "typearg spawn", "targ-opplain": "typearg opPlain"}[site.name]
+	named := map[string]string{"targ-id": "typearg id", "targ-ret": "typearg ret", "targ-arm": "typearg arm", "targ-fwd": "typearg fwd", "targ-hold": "typearg hold", "targ-box": "typearg Box[mut Tally]", "targ-later": "typearg later", "targ-via": "typearg via", "targ-task": "typearg spawn", "targ-opplain": "typearg opPlain"}[site.name]
 	if source == "Fixed" || site.ok {
 		at = 0
 	}
@@ -299,7 +299,7 @@ func bcCase(r *rand.Rand, name string) ([]string, int, string, string) {
 		return len(lines) - 1
 	}
 	finish := func(site bcSite, value string) (int, string) {
-		lines[0] = fmt.Sprintf("func %s(t *Tally) %s {", name, site.result)
+		lines[0] = fmt.Sprintf("func %s(t mut Tally) %s {", name, site.result)
 		for _, s := range site.before {
 			body(s)
 		}
@@ -397,7 +397,13 @@ func TestBorrowConvModel(t *testing.T) {
 				f, _, _ := strings.Cut(d.Message, " ")
 				got[d.Line] = "typearg " + f
 			case d.Code == "S108" && strings.HasPrefix(d.Message, "this value of ") && strings.Contains(d.Message, "Borrows 7"):
-				t, _, _ := strings.Cut(strings.TrimPrefix(d.Message, "this value of "), " ")
+				// The type may hold a space (Box[mut Tally]): it ends at "] ".
+				t := strings.TrimPrefix(d.Message, "this value of ")
+				if i := strings.Index(t, "] "); i >= 0 {
+					t = t[:i+1]
+				} else {
+					t, _, _ = strings.Cut(t, " ")
+				}
 				got[d.Line] = "typearg " + t
 			default:
 				got[d.Line] = d.String()
@@ -474,9 +480,9 @@ type Counter {
 
 type Tally { n int } implements Counter
 
-func Bump(t *Tally) int { t.n }
+func Bump(t mut Tally) int { t.n }
 
-func keep(t *Tally) Counter {
+func keep(t mut Tally) Counter {
 	let c Counter = t
 	c
 }
@@ -577,11 +583,11 @@ type Counter { Bump() int }
 
 type Tally { n int } implements Counter
 
-func Bump(t *Tally) int { t.n }
+func Bump(t mut Tally) int { t.n }
 
 func opPlain[T Counter](x T) int { x.Bump() }
 
-func useOp(t *Tally) int { opPlain(t) }
+func useOp(t mut Tally) int { opPlain(t) }
 `
 	_, diags := CheckSource(src)
 	var got []string
@@ -594,7 +600,7 @@ func useOp(t *Tally) int { opPlain(t) }
 		"10:1: S108 the extern cloned has the type parameter T; a user extern writes the types it calls its Go target at, and Go infers the type arguments",
 		"10:36: S108 T cannot be lent: an extern's body is Go code, which Ergo does not read (types.md, Borrows 7)",
 		"12:10: S108 T cannot be lent: a value of a generic type holds its type argument, and a record or a collection never holds a borrow (types.md, Borrows 7)",
-		"23:28: S108 opPlain cannot take a borrow as its T (*Tally): its signature does not write [T lent Counter], so its body may keep a value of T; a borrow instantiates only a type parameter whose signature writes lent (types.md, Borrows 7)",
+		"23:31: S108 opPlain cannot take a borrow as its T (mut Tally): its signature does not write [T lent Counter], so its body may keep a value of T; a borrow instantiates only a type parameter whose signature writes lent (types.md, Borrows 7)",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("got:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))

@@ -126,7 +126,7 @@ test Grow {
 
 type Store { blocks []Block }
 
-func total(p *Store) int {
+func total(p mut Store) int {
 	let mut n = 0
 	for i in 0..len(p.blocks) {
 		let b = p.blocks[i]
@@ -148,7 +148,7 @@ test Total {
 `,
 	"own-reslice": `type Stack { xs []int }
 
-func pop(s *Stack) {
+func pop(s mut Stack) {
 	if len(s.xs) > 0 {
 		s.xs = s.xs[:len(s.xs)-1]
 	}
@@ -236,7 +236,7 @@ type C { N int }
 
 func port(p Port) int { int(p) + 1 }
 
-func swap(a *C, b *C) {
+func swap(a mut C, b mut C) {
 	let n = a.N
 	a.N = b.N
 	b.N = n

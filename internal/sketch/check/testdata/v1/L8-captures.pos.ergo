@@ -22,7 +22,7 @@ func local() int {
 	n
 }
 
-func two(a *C, b *C) {
+func two(a mut C, b mut C) {
 	a.n += 1
 	b.n += 2
 }

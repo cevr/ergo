@@ -1520,7 +1520,7 @@ func main() { with W { A.Use() } }
 		"pointer-close-value-provider": `type A { Use() }
 type P {} implements A, Closer
 func Use(_ P) {}
-func Close(_ *P) {}
+func Close(_ mut P) {}
 let W = context { A: P }
 func main() { with W { A.Use() } }
 `,

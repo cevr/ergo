@@ -16,7 +16,7 @@ func All[T lent Valid](x T) bool { x.Check() }
 // reuses the enclosing T witness (E1 r2 M2).
 func TestErgoRunE1ForwardedPointerWitness(t *testing.T) {
 	needsBuild(t)
-	wantRun(t, nestedWitnessDecls+`func FromPointer[T Valid](x *T) bool { All(x) }
+	wantRun(t, nestedWitnessDecls+`func FromPointer[T Valid](x mut T) bool { All(x) }
 func main() needs Console {
 	let mut c = Card{N: 1}
 	Console.Println("\(FromPointer(&c))")

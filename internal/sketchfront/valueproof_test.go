@@ -24,8 +24,8 @@ type Counter { Inc(), Twice(), Read() bool,
 }
 type Box { at bool } implements Counter
 func NewBox() Box { Box{at: false} }
-func Inc(p *Box) { p.at = !p.at }
-func Twice(p *Box) { p.at = false }
+func Inc(p mut Box) { p.at = !p.at }
+func Twice(p mut Box) { p.at = false }
 func Read(p Box) bool { p.at }
 func main() {
 	let mut p = NewBox()

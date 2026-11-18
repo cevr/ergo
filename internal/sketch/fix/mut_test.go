@@ -24,9 +24,12 @@ import (
 // indirection `*out = v` in a body, which is no type and stays. A Go
 // binding keeps `*P`. Then: ergo fix(old) is byte-equal to the new
 // spelling; a second fix writes nothing; format leaves the new spelling
-// as written; and both spellings check with the same diagnostics (code
-// and line) and the same checked facts (every declared function's and
-// variable's type, each operation's signature). ERGO_SEED=<n> replays one
+// as written; and both spellings check with the same checked facts
+// (every declared function's and variable's type, each operation's
+// signature) and the same diagnostics (code and line), but for the old
+// spelling's S108 naming mut (MODES-2): one on each line the fix rewrote
+// that the new spelling does not refuse, and none elsewhere (a Go
+// binding's *P is Go's pointer). ERGO_SEED=<n> replays one
 // seed; a failure prints both programs.
 //
 // Mutants it kills that no other test does (ledgers: syntax, fix): the
@@ -72,24 +75,46 @@ func TestMutSpellsTheBorrow(t *testing.T) {
 		if out, err := format.Source(newSrc); err != nil || out != newSrc {
 			fail("format gives (%v):\n%s", err, out)
 		}
-		oldFacts, oldDiags := mutFacts(oldSrc)
-		newFacts, newDiags := mutFacts(newSrc)
+		oldFacts, oldDiags, oldStars := mutFacts(oldSrc)
+		newFacts, newDiags, newStars := mutFacts(newSrc)
+		if len(newStars) > 0 {
+			fail("the new spelling is refused as *T on lines %v", newStars)
+		}
+		oldLines, newLines := strings.Split(oldSrc, "\n"), strings.Split(newSrc, "\n")
+		refused := map[int]bool{}
+		for _, d := range strings.Fields(newDiags) {
+			_, l, _ := strings.Cut(d, ":")
+			n, _ := strconv.Atoi(l)
+			refused[n] = true
+		}
+		for i := range oldLines {
+			changed := oldLines[i] != newLines[i]
+			if changed && !refused[i+1] && !oldStars[i+1] {
+				fail("line %d writes *T and the old spelling is not refused there", i+1)
+			}
+			if !changed && oldStars[i+1] {
+				fail("line %d is refused as *T, but fix rewrites nothing there", i+1)
+			}
+		}
+		if len(oldStars) > 0 {
+			kinds["star refused"]++
+		}
 		if oldDiags != newDiags {
 			fail("diagnostics differ:\nold %s\nnew %s", oldDiags, newDiags)
 		}
 		if oldFacts != newFacts {
 			fail("facts differ:\nold %s\nnew %s", oldFacts, newFacts)
 		}
-		if strings.Contains(oldFacts, "*main.P") {
+		if strings.Contains(oldFacts, "mut main.P") {
 			kinds["borrow facts"]++
 		}
-		if oldDiags == "" {
+		if newDiags == "" {
 			kinds["checks clean"]++
 		}
 	}
 	t.Logf("%d seeds reach: %v", len(seeds), kinds)
 	if len(seeds) > 1 {
-		for _, k := range []string{"decl", "group", "functype", "unnamed", "result", "lit", "op", "law", "field", "own", "deref", "binding", "plain", "borrow facts", "checks clean"} {
+		for _, k := range []string{"decl", "group", "functype", "unnamed", "result", "lit", "op", "law", "field", "own", "deref", "binding", "plain", "borrow facts", "checks clean", "star refused"} {
 			if kinds[k] == 0 {
 				t.Errorf("no seed reaches %s", k)
 			}
@@ -197,15 +222,20 @@ func mutProgram(r *rand.Rand) (string, string, map[string]bool) {
 // mutFacts are a program's checked facts (each declared function's and
 // variable's type, each operation's signature) and its diagnostics as
 // code and line.
-func mutFacts(src string) (string, string) {
+func mutFacts(src string) (string, string, map[int]bool) {
 	pkg, diags := check.CheckSource(src)
 	var ds []string
+	stars := map[int]bool{}
 	for _, d := range diags {
+		if d.Code == "S108" && strings.HasPrefix(d.Message, "write the borrow as mut ") {
+			stars[d.Line] = true
+			continue
+		}
 		ds = append(ds, fmt.Sprintf("%s:%d", d.Code, d.Line))
 	}
 	sort.Strings(ds)
 	if pkg == nil {
-		return "", strings.Join(ds, " ")
+		return "", strings.Join(ds, " "), stars
 	}
 	var facts []string
 	for id, obj := range pkg.Info.Defs {
@@ -226,7 +256,7 @@ func mutFacts(src string) (string, string) {
 		}
 	}
 	sort.Strings(facts)
-	return strings.Join(facts, "\n"), strings.Join(ds, " ")
+	return strings.Join(facts, "\n"), strings.Join(ds, " "), stars
 }
 
 func mutSig(s *check.Signature) string {
@@ -248,4 +278,41 @@ func mutType(t check.Type) string {
 		return "nil"
 	}
 	return t.String()
+}
+
+// TestMutGoLeavesGoSource (MODES-2): ergo fix --go respells the borrows of
+// the Go string literals that hold an Ergo source, and leaves a string that
+// also parses as Ergo but is Go source (a Go test function naming
+// testing.T, which it imports no package for) as it is. The fixture is
+// testdata/mutgo/lits.go; its .want is the file after the fix.
+//
+// Mutant it kills that no other test does (ledger: fix): goSource answers
+// false, so a Go test function's *testing.T becomes mut testing.T.
+func TestMutGoLeavesGoSource(t *testing.T) {
+	src, err := os.ReadFile("testdata/mutgo/lits.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile("testdata/mutgo/lits.go.want")
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := t.TempDir() + "/lits.go"
+	if err := os.WriteFile(file, src, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := fix.RunMut(fix.Options{Paths: []string{file}, Write: true, Go: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(want) {
+		t.Errorf("ergo fix --go wrote:\n%s\nwant:\n%s", got, want)
+	}
+	if rep.Edits[file] != 2 {
+		t.Errorf("%d borrows rewritten, want 2", rep.Edits[file])
+	}
 }

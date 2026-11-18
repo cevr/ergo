@@ -21,7 +21,7 @@ func early(n int64) int64 {
 	n
 }
 
-func point(p *Point) {
+func point(p mut Point) {
 	p.X = 1
 	use(&p.Y)
 }

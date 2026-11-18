@@ -38,9 +38,9 @@ type Tally[T] {
 
 type Box[T] { n int } implements Store[T], Tally[T]
 
-func Put[T](b *Box[T], v T) { b.n = b.n + 1 }
+func Put[T](b mut Box[T], v T) { b.n = b.n + 1 }
 
-func Bump[T](b *Box[T], v T) { b.n = b.n + 100 }
+func Bump[T](b mut Box[T], v T) { b.n = b.n + 100 }
 `
 
 // gcapInstance is one capability instance: Store (0) or Tally (1) of Ek.

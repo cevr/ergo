@@ -50,8 +50,8 @@ type H[T, U] { V T, W U } implements A[T], B[T, U]
 
 func M(_ S) int { 1 }
 func K(_ S, u string) string { u }
-func M(_ *P) int { 2 }
-func K(_ *P, u string) string { u }
+func M(_ mut P) int { 2 }
+func K(_ mut P, u string) string { u }
 func M[T](g G[T]) T { g.V }
 func K[T](g G[T], u string) string { u }
 func M[T, U](h H[T, U]) T { h.V }

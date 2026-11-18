@@ -195,7 +195,7 @@ func (l symLaw) source(i int) string {
 			fmt.Fprintf(&b, "func %s%s(t T%s) bool { t.c }\n", name, sfx, sfx)
 			continue
 		}
-		fmt.Fprintf(&b, "func %s%s(t *T%s", name, sfx, sfx)
+		fmt.Fprintf(&b, "func %s%s(t mut T%s", name, sfx, sfx)
 		for k, p := range op.params {
 			fmt.Fprintf(&b, ", %c%d %s", p[0], k, p)
 		}

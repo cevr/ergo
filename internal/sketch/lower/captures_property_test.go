@@ -118,7 +118,7 @@ const capturePrelude = `func each(n int, f func()) {
 	}
 }
 
-func bump(p *int, c int) {
+func bump(p mut int, c int) {
 	*p = *p + c
 }
 
@@ -691,7 +691,7 @@ func holderPrograms() []holderProgram {
 					if frame == 4 {
 						tail = "let get = func() int { x }\n(get, func() { " + write + " })\n"
 					}
-					src := "func bump(p *int, n int) { *p = *p + n }\nfunc each(n int, f func()) { for _ in 0..n { f() } }\nfunc make() (func() int, func()) {\nlet mut x = 0\nlet mut y = 0\nlet _ = &y\n" + bind + tail + "}\nfunc main() needs Console { let (get, put) = make(); put(); Console.Println(\"\\(get())\") }\n"
+					src := "func bump(p mut int, n int) { *p = *p + n }\nfunc each(n int, f func()) { for _ in 0..n { f() } }\nfunc make() (func() int, func()) {\nlet mut x = 0\nlet mut y = 0\nlet _ = &y\n" + bind + tail + "}\nfunc main() needs Console { let (get, put) = make(); put(); Console.Println(\"\\(get())\") }\n"
 					out = append(out, holderProgram{fmt.Sprintf("holder%d", seed), src, fmt.Sprintf("%d\n", delta), frame == 4})
 				}
 			}
@@ -742,8 +742,8 @@ func callAliasPrograms() []holderProgram {
 				if before != 0 {
 					get, work = work+get, ""
 				}
-				src := `func put[T lent](out *T, x T) { *out = x }
-func bump(p *int, n int) { *p = *p + n }
+				src := `func put[T lent](out mut T, x T) { *out = x }
+func bump(p mut int, n int) { *p = *p + n }
 func make() func() int {
 let mut x = 0
 let mut y = 0
@@ -757,7 +757,7 @@ let _ = &y
 	// borrow. The latter is conservative even though this borrow ends early.
 	out = append(out,
 		holderProgram{"fast", "func make() func() int { let mut x = 0; x = 7; func() int { x } }\nfunc main() needs Console { let get = make(); Console.Println(\"\\(get())\") }", "7\n", false},
-		holderProgram{"implicit", "type Box { n int }\nfunc Bump(b *Box) { b.n = 7 }\nfunc make() func() int { let mut x = Box{n: 0}; x.Bump(); func() int { x.n } }\nfunc main() needs Console { let get = make(); Console.Println(\"\\(get())\") }", "7\n", false})
+		holderProgram{"implicit", "type Box { n int }\nfunc Bump(b mut Box) { b.n = 7 }\nfunc make() func() int { let mut x = Box{n: 0}; x.Bump(); func() int { x.n } }\nfunc main() needs Console { let get = make(); Console.Println(\"\\(get())\") }", "7\n", false})
 	return out
 }
 

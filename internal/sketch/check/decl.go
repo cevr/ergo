@@ -1076,7 +1076,7 @@ func (c *checker) interfaceType(spec *syntax.InterfaceType, ctx *typeCtx, owner 
 			continue
 		}
 		name := m.Names[0]
-		mctx := &typeCtx{method: true}
+		mctx := &typeCtx{method: true, binding: c.pkg.Host()}
 		if ctx != nil {
 			// A package var's type has no context (FuzzCheck found
 			// var A interface{A()} dereferencing it).
@@ -1208,6 +1208,7 @@ type typeCtx struct {
 	decl     bool                  // a type declaration: bracket parameters only
 	field    bool                  // a struct field: *T is not a field type (types.md, Borrows 1)
 	param    bool                  // a parameter or receiver: *T allowed
+	binding  bool                  // a Go binding (a host package or extern go): *T is Go's pointer there
 	textTop  syntax.Expr           // a parameter's whole type: fs.Text allowed there (mappedtext.go)
 	scope    *Scope
 	lit      *litParams // a function literal's signature: its untyped parameters (D-E1)
@@ -1365,6 +1366,12 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 		inner := *ctx
 		inner.param = false
 		elem := c.typExpr(x.X, &inner)
+		if !x.Mut && !ctx.binding && !isInvalid(elem) {
+			// *T is Go's pointer, written only in a Go binding; Ergo writes
+			// the borrow as the mode mut (q169; MODES-2). The borrow still
+			// checks, so this is the one diagnostic.
+			c.errorf(x, CodeType, "write the borrow as %s: *T is Go's pointer, written only in a Go binding (types.md, Borrows 1)", &Pointer{Elem: elem})
+		}
 		return &Pointer{Elem: elem}
 	case *syntax.FuncType:
 		// A parameter written own may outlive the call it is passed to or
@@ -2274,7 +2281,7 @@ func (c *checker) funcSig(f *Func) *Signature {
 	c.cur = f.file
 	defer func() { c.cur = saved }()
 	d := f.Decl
-	ctx := &typeCtx{params: map[string]*TypeParam{}}
+	ctx := &typeCtx{params: map[string]*TypeParam{}, binding: c.pkg.Host() || d.Extern != nil}
 	if c.pkg.Host() && d.Recv != nil && len(d.Recv.List) > 0 && len(d.Recv.List[0].Names) > 0 {
 		ctx.hostRecv = d.Recv.List[0].Names[0].Name
 		ctx.method = true

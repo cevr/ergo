@@ -31,12 +31,12 @@ const borrowPrelude = `type C { n int }
 
 type P { a C, b C }
 
-func two(x *C, y *C) {
+func two(x mut C, y mut C) {
 	x.n += 1
 	y.n += 2
 }
 
-func whole(x *P, y *C) {
+func whole(x mut P, y mut C) {
 	x.a.n += 1
 	y.n += 2
 }

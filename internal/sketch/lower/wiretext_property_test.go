@@ -82,16 +82,16 @@ type Tape {
 type tape { last string, out string } implements Tape
 
 func NewTape() Tape { tape{last: "", out: ""} }
-func raw(t *tape, s string) { t.out = t.out + s }
-func mark(t *tape, k string) { t.last = k }
-func echo(t *tape) { t.out = t.out + t.last }
-func Written(t *tape) string { t.out }
+func raw(t mut tape, s string) { t.out = t.out + s }
+func mark(t mut tape, k string) { t.last = k }
+func echo(t mut tape) { t.out = t.out + t.last }
+func Written(t mut tape) string { t.out }
 func empty(s string) bool { s == "" }
 `)
 	for _, e := range tapeEvents {
 		body := e.bodies[rng.Intn(len(e.bodies))]
 		body = strings.ReplaceAll(body, "$", tapeTails[rng.Intn(len(tapeTails))])
-		params := "t *tape"
+		params := "t mut tape"
 		if e.param != "" {
 			params += ", " + e.param
 		}
@@ -212,7 +212,7 @@ func tapeProgram(seed int64) string {
 		return "own0{F0: " + own(rng) + ", F1: []own{" + strings.Join(xs, ", ") + "}, F2: " + []string{"true", "false"}[rng.Intn(2)] + "}"
 	}}
 	kinds = append(kinds, own0)
-	records += "type own { V int }\nfunc WireWrite(o own, t *tape) { t.raw(\"<own \\(o.V)>\") }\ntype own0 { F0 own, F1 []own, F2 bool }\n"
+	records += "type own { V int }\nfunc WireWrite(o own, t mut tape) { t.raw(\"<own \\(o.V)>\") }\ntype own0 { F0 own, F1 []own, F2 bool }\n"
 	var b strings.Builder
 	b.WriteString(src + "\n" + records + "\nfunc main() needs Console {\n")
 	for i := range 12 {

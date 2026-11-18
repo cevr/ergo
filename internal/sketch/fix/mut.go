@@ -48,10 +48,30 @@ func Mut(src string) (out string, n int, err error) {
 // it is Go's pointer (interop.md).
 func borrowStars(f *syntax.File) []syntax.Pos {
 	var stars []syntax.Pos
+	for _, s := range borrows(f) {
+		stars = append(stars, s.Star)
+	}
+	sort.Slice(stars, func(i, j int) bool { return stars[i] < stars[j] })
+	return stars
+}
+
+// borrowElems are the types the borrows of borrowStars write after `*`.
+func borrowElems(f *syntax.File) []syntax.Expr {
+	var xs []syntax.Expr
+	for _, s := range borrows(f) {
+		xs = append(xs, s.X)
+	}
+	return xs
+}
+
+// borrows are the borrow types `*T` written in a type of f outside a Go
+// binding (borrowStars).
+func borrows(f *syntax.File) []*syntax.StarExpr {
+	var stars []*syntax.StarExpr
 	inType := func(t syntax.Expr) {
 		syntax.Inspect(t, func(node syntax.Node) bool {
 			if s, ok := node.(*syntax.StarExpr); ok && !s.Mut {
-				stars = append(stars, s.Star)
+				stars = append(stars, s)
 			}
 			return true
 		})
@@ -72,7 +92,6 @@ func borrowStars(f *syntax.File) []syntax.Pos {
 		}
 		return true
 	})
-	sort.Slice(stars, func(i, j int) bool { return stars[i] < stars[j] })
 	return stars
 }
 
@@ -166,6 +185,50 @@ func RunMut(opts Options) (MutReport, error) {
 	return rep, nil
 }
 
+// goSource reports a string that parses as Ergo but is Go source: a borrow
+// it would rewrite names a type through a qualifier the text imports no
+// package for (`func TestA(t *testing.T) { … }`). An Ergo source names a
+// package's type only after importing it, so no such text checks as Ergo,
+// and its `*T` is Go's pointer; mutGo leaves it as it is (MODES-2).
+func goSource(text string) bool {
+	f, err := syntax.Parse(text)
+	if err != nil {
+		return false
+	}
+	imported := map[string]bool{}
+	for _, d := range f.Decls {
+		id, ok := d.(*syntax.ImportDecl)
+		if !ok {
+			continue
+		}
+		for _, sp := range id.Specs {
+			switch {
+			case sp.Name != nil:
+				imported[sp.Name.Name] = true
+			case sp.Path != nil:
+				p := strings.Trim(sp.Path.Value, "\"`")
+				imported[p[strings.LastIndex(p, "/")+1:]] = true
+			}
+		}
+	}
+	foreign := false
+	for _, x := range borrowElems(f) {
+		for {
+			if ix, ok := x.(*syntax.IndexExpr); ok {
+				x = ix.X
+				continue
+			}
+			break
+		}
+		if sel, ok := x.(*syntax.SelectorExpr); ok {
+			if q, ok := sel.X.(*syntax.Ident); ok && q.Name != "go" && !imported[q.Name] {
+				foreign = true
+			}
+		}
+	}
+	return foreign
+}
+
 // mutGo applies Mut to each string literal of a Go file that parses as
 // an Ergo source and writes a borrow.
 func mutGo(file string) (string, int, []string, error) {
@@ -191,7 +254,7 @@ func mutGo(file string) (string, int, []string, error) {
 			return true
 		}
 		text, err := strconv.Unquote(bl.Value)
-		if err != nil || !strings.Contains(text, "*") {
+		if err != nil || !strings.Contains(text, "*") || goSource(text) {
 			return true
 		}
 		out, k, err := Mut(text)

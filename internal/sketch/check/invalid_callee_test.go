@@ -126,7 +126,7 @@ var invalidRoutes = map[string][]route{
 		{name: "a pointer to a local", local: "let l1 = task.Go; let p = &l1", callee: "(*p)"},
 	},
 	"StarExpr": {
-		{name: "a dereferenced pointer", params: "p *task.Fn", args: "task.Go", callee: "(*p)"},
+		{name: "a dereferenced pointer", params: "p mut task.Fn", args: "task.Go", callee: "(*p)"},
 	},
 }
 
