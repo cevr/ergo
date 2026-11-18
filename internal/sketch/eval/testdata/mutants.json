@@ -2075,6 +2075,28 @@
     {"name":"ll-qualified-let-unbound","origin":"wf10 LAZY-LET","file":"internal/sketch/eval/expr.go","from":"\t\t\t\t\tif s := in.slotOf(fr, o); s != nil {\n","to":"\t\t\t\t\tif s := in.globals[o]; s != nil {\n","rule":"In a fold, another package's let (pkg.v) binds on its first read as a bare name does (LAZY-LET).","killers":["internal/experimental/irspike:TestConstFoldCounts"]},
     {"name":"ll-let-bound-ignored","origin":"wf10 LAZY-LET","file":"internal/sketch/eval/foldvalue.go","from":"\tin.budget.Steps, in.stepsAt, in.bytesAt, in.depth, in.sym = foldLetSteps, in.steps, in.bytes, 0, nil\n","to":"\tin.stepsAt, in.bytesAt, in.depth, in.sym = in.steps, in.bytes, 0, nil\n","rule":"A let's initializer in a fold runs under foldLetSteps, not the fold's budget (LAZY-LET).","killers":["internal/experimental/irspike:TestConstFoldCounts"]},
     {"name":"ll-fold-pays-let","origin":"wf10 LAZY-LET","file":"internal/sketch/eval/foldvalue.go","from":"\t\tin.budget, in.steps, in.bytes, in.stepsAt, in.bytesAt, in.depth, in.sym = budget, steps, bytes, stepsAt, bytesAt, depth, sym\n","to":"\t\tin.budget, in.steps, in.bytes, in.stepsAt, in.bytesAt, in.depth, in.sym = budget, in.steps+0*steps, bytes, stepsAt, bytesAt, depth, sym\n","rule":"A fold pays none of the steps of the lets it binds: each is paid once, under its own bound (LAZY-LET).","killers":["internal/experimental/irspike:TestConstFoldCounts"]},
-    {"name":"ll-bound-keeps-old-lets","origin":"wf10 LAZY-LET","file":"internal/sketch/eval/foldvalue.go","from":"\tfoldLets.sites = nil\n","to":"","rule":"A new let bound forgets the lets bound under the old one (SetFoldLetStepsForTest), so a test's bound is the one the folds see.","killers":["internal/experimental/irspike:TestConstFoldCounts"]}
+    {"name":"ll-bound-keeps-old-lets","origin":"wf10 LAZY-LET","file":"internal/sketch/eval/foldvalue.go","from":"\tfoldLets.sites = nil\n","to":"","rule":"A new let bound forgets the lets bound under the old one (SetFoldLetStepsForTest), so a test's bound is the one the folds see.","killers":["internal/experimental/irspike:TestConstFoldCounts"]},
+    {
+      "name": "casefix2-ops-arg-as-conversion",
+      "origin": "wf10 CASEFIX2",
+      "file": "internal/sketch/eval/arguments.go",
+      "from": "\t\tif _, ops := t.Underlying().(*check.Interface); ops {\n\t\t\treturn in.builtText(t)\n\t\t}\n",
+      "to": "",
+      "rule": "A refuted case shows an operation type's value as its builder's call, NewHeld(…), as the Go build does (lower/builders.go builtText).",
+      "killers": [
+        "internal/sketch/lower:TestCasePlansAgreeWithGo"
+      ]
+    },
+    {
+      "name": "casefix2-ctor-arg-as-record",
+      "origin": "wf10 CASEFIX2",
+      "file": "internal/sketch/eval/arguments.go",
+      "from": "\t\tif testplan.ByConstructor(t) {\n",
+      "to": "\t\tif ctor := testplan.Constructor(t); ctor != nil && len(ctor.Sig.Params) == 0 && testplan.ByConstructor(t) {\n",
+      "rule": "A refuted case shows a value built by a constructor whose record has no text as the constructor's call, NewWrap(…), as the Go build does (testplan.ByConstructor).",
+      "killers": [
+        "internal/sketch/lower:TestCasePlansAgreeWithGo"
+      ]
+    }
   ]
 }
