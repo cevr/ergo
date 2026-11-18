@@ -28,7 +28,9 @@ import (
 // operand resource test removed (peek(a)), the result resource test
 // removed (open(1)), the footprint test removed (call(one)), the
 // failure-row test removed (parse(n)), the Unreachable walk removed
-// (must(n)) or made one level deep (must2(n)), the prelude-collection
+// (must(n)) or made one level deep (must2(n)), the "never reassigned"
+// advice kept beside a refused xs.Append (or given up for every local),
+// the prelude-collection
 // clause removed (Append under the reference collections), and the
 // rebinding message chosen for any type (m.Get).
 //
@@ -145,7 +147,15 @@ func droppedProgram(seed uint64) (string, map[int]string) {
 		}
 		emit(1, "}")
 	}
-	b.WriteString("\txs = xs.Append(2)\n\tm = m.Put(\"b\", 2)\n\tc = c.Add(1)\n")
+	// Half the seeds never reassign xs: its let mut is S110 "never
+	// reassigned" unless a refused xs.Append(…) is there, whose own
+	// remedy (xs = xs.Append(…)) is the one diagnostic (M2-APPEND).
+	if r.IntN(2) == 0 {
+		b.WriteString("\txs = xs.Append(2)\n")
+	} else if !strings.Contains(b.String()[len(droppedPrelude):], "xs.Append(1)") {
+		want[strings.Count(droppedPrelude[:strings.Index(droppedPrelude, "let mut xs")], "\n")+1] = "unassigned"
+	}
+	b.WriteString("\tm = m.Put(\"b\", 2)\n\tc = c.Add(1)\n")
 	b.WriteString("\tConsole.Println(\"\\(len(xs)) \\(c.n) \\(n) \\(peek(a))\")\n}\n")
 	return b.String(), want
 }
@@ -161,6 +171,8 @@ func droppedVerdicts(diags []Diagnostic) (map[int]string, []string) {
 			got[d.Line] = "rebind"
 		case d.Code == "S110" && strings.Contains(d.Message, "the call does nothing else"):
 			got[d.Line] = "let"
+		case d.Code == "S110" && strings.Contains(d.Message, "is never reassigned"):
+			got[d.Line] = "unassigned"
 		case strings.Contains(d.Message, "is discarded, and a resource has one owner"),
 			d.Code == "S105":
 			// The ownership pass's R42 and the fallible statement's S105.
@@ -196,7 +208,7 @@ func TestDroppedResultModel(t *testing.T) {
 			}
 		}
 		restore()
-		if *droppedSeed == 0 && (!reached["rebind"] || !reached["let"]) {
+		if *droppedSeed == 0 && (!reached["rebind"] || !reached["let"] || !reached["unassigned"]) {
 			t.Errorf("pure collections %v: the seeds reached %v, not both refusals", pure, reached)
 		}
 	}

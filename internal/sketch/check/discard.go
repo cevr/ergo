@@ -45,15 +45,37 @@ func (c *checker) noteDropped(at syntax.Expr, call *syntax.CallExpr, info *Call)
 }
 
 // checkDroppedResults reports each recorded call that does nothing but
-// make the value it drops.
+// make the value it drops, then each never-reassigned let mut that is not
+// the root of such a call's receiver (bindings.go).
 func (c *checker) checkDroppedResults() {
+	roots := map[*Var]bool{}
 	for _, d := range c.dropped {
 		if !c.pureCallee(d.info.Func) || !c.plainOperands(d) || c.raisesByName(d.info.Func) {
 			continue
 		}
 		c.cur = d.file
 		c.errorf(d.at, CodeUnused, "%s", droppedMessage(d))
+		if v := c.rootVar(d.info.Recv); v != nil {
+			roots[v] = true
+		}
 	}
+	c.reportUnassigned(roots)
+}
+
+// rootVar is the local a receiver place starts from (xs of xs.f.g), or nil.
+func (c *checker) rootVar(x syntax.Expr) *Var {
+	for x != nil {
+		switch e := unparen(x).(type) {
+		case *syntax.Ident:
+			v, _ := c.pkg.Info.Uses[e].(*Var)
+			return v
+		case *syntax.SelectorExpr:
+			x = e.X
+		default:
+			return nil
+		}
+	}
+	return nil
 }
 
 // raisesByName reports a function with an Ergo body that calls the

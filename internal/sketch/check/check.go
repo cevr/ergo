@@ -226,6 +226,9 @@ type checker struct {
 	dropped []droppedCall
 	// raises memoizes raisesByName.
 	raises map[*Func]bool
+	// unassigned are the never-reassigned let mut locals, which
+	// checkDroppedResults reports once the dropped calls are judged.
+	unassigned []unassignedLocal
 	// lawPreds are the invariant laws whose predicate checkLawPreds judges
 	// pure once the footprints are known (machinelaw.go).
 	lawPreds []*Law
