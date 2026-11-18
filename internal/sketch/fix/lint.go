@@ -35,7 +35,7 @@ type Linted struct {
 // run. The rounds are bounded by the first round's findings + 1: a safe
 // fix removes its finding and adds none.
 func RunLint(texts map[string]string, chk Checker, lintr Linter) (Result, error) {
-	res, err := rows(texts, chk, true)
+	res, err := Rows(texts, chk)
 	if err != nil || lintr == nil || len(res.Remaining) > 0 {
 		return res, err
 	}

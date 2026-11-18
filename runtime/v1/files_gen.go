@@ -152,6 +152,7 @@ var bodyTable = []bodyRow{
 	{"FSChmod", bodyFact{body: Body{Params: []Param{{Type: "string"}, {Type: "int"}}, Results: []string{"error"}, Host: true, Wait: "none", Package: Path}}},
 	{"FSClone", bodyFact{body: Body{Params: []Param{{Type: "string"}}, Results: []string{"string"}, Pure: true, Wait: "none", Package: Path}}},
 	{"FSConfine", bodyFact{body: Body{Params: []Param{{Type: "string"}, {Type: "string"}}, Results: []string{"string", "error"}, Host: true, Wait: "none", Package: Path}}},
+	{"FSExchange", bodyFact{body: Body{Params: []Param{{Type: "string"}, {Type: "string"}}, Results: []string{"error"}, Host: true, Wait: "none", Package: Path}}},
 	{"FSLockFile", bodyFact{body: Body{Params: []Param{{Type: "string"}, {Type: "time.Duration"}}, Results: []string{"int", "error"}, Host: true, Wait: "none", Package: Path}}},
 	{"FSMapFile", bodyFact{body: Body{Params: []Param{{Type: "string"}}, Results: []string{"*Mapped", "error"}, Host: true, Wait: "none", Package: Path}}},
 	{"FSMapText", bodyFact{body: Body{Params: []Param{{Type: "string"}}, Results: []string{"*Mapped"}, Pure: true, Wait: "none", Package: Path}}},

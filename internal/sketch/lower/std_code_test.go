@@ -21,6 +21,9 @@ var codeLawStatements = map[string]string{
 	"code CanonicalStaysCanonical":           `CanonicalStaysCanonical(seed int, pick int, word int) { canonicalStaysCanonical(seed, pick, word) }`,
 	"code Checker.CheckIsDeterministic":      `CheckIsDeterministic(seed int) { checkIsDeterministic(seed) }`,
 	"code Checker.FormatIsIdempotent":        `FormatIsIdempotent(text string) { formatIsIdempotent(text) }`,
+	"code DescribeParsesBack":                `DescribeParsesBack(pick int, word int, text string) { describeParsesBack(pick, word, text) }`,
+	"code EqualEditsOnce":                    `EqualEditsOnce(text string, at int) { equalEditsOnce(text, at) }`,
+	"code FixesCycleIsRefused":               `FixesCycleIsRefused(seed int) { fixesCycleIsRefused(seed) }`,
 	"code Files.ExchangeSwaps":               `ExchangeSwaps(x string, y string) { exchangeSwaps(x, y) }`,
 	"code Files.WriteThenRead":               `WriteThenRead(x string) { writeThenRead(x) }`,
 	"code ImpactIsTheChangedContracts":       `ImpactIsTheChangedContracts(seed int, pick int, word int) { impactIsTheChangedContracts(seed, pick, word) }`,
@@ -56,8 +59,11 @@ var codeLawLines = map[string][]string{
 	"code CanonicalStaysCanonical":           {"ok law CanonicalStaysCanonical"},
 	"code Checker.CheckIsDeterministic":      {"ok law Checker.CheckIsDeterministic for Model"},
 	"code Checker.FormatIsIdempotent":        {"ok law Checker.FormatIsIdempotent for Model"},
-	"code Files.ExchangeSwaps":               {"ok law Files.ExchangeSwaps for Disk"},
-	"code Files.WriteThenRead":               {"ok law Files.WriteThenRead for Disk"},
+	"code DescribeParsesBack":                {"ok law DescribeParsesBack"},
+	"code EqualEditsOnce":                    {"ok law EqualEditsOnce"},
+	"code FixesCycleIsRefused":               {"ok law FixesCycleIsRefused"},
+	"code Files.ExchangeSwaps":               {"ok law Files.ExchangeSwaps for Disk", "ok law Files.ExchangeSwaps under OnTestHost"},
+	"code Files.WriteThenRead":               {"ok law Files.WriteThenRead for Disk", "ok law Files.WriteThenRead under OnTestHost"},
 	"code ImpactIsTheChangedContracts":       {"ok law ImpactIsTheChangedContracts"},
 	"code IndexIsScan":                       {"ok law IndexIsScan"},
 	"code OverlapIsRefused":                  {"ok law OverlapIsRefused"},
@@ -85,7 +91,8 @@ var codeLawLines = map[string][]string{
 // package's own sources are checked as a program, so its test build runs
 // the member laws of each operation type against its providers (Reader
 // against Index and Scan, Checker against Model, Planner against Session,
-// Files against Disk, Writer against Applier) and the top-level laws; lawledger.Run holds that this test runs
+// Files against Disk and, under OnTestHost, the product HostFiles in the
+// case's folder, Writer against Applier) and the top-level laws; lawledger.Run holds that this test runs
 // exactly the ledger's rows of std code. It builds Go because a law runs
 // only in the built test binary. Mutants code-short-first,
 // code-page-repeats-a-row, code-kinds-ignored
