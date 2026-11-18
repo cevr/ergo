@@ -480,6 +480,10 @@ func (p *printer) operationType(t *syntax.InterfaceType) {
 				p.token(m.Own.At, "own")
 				p.space()
 			}
+			if m.Mut != nil {
+				p.token(m.Mut.At, "mut")
+				p.space()
+			}
 			p.ident(m.Names[0])
 			p.signature(m.Type.(*syntax.FuncType))
 		}})

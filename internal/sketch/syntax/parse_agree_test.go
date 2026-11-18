@@ -184,7 +184,11 @@ func (d *dumper) node(depth int, n Node) {
 		if x.Lent > 0 {
 			lent = x.Lent
 		}
-		d.line(depth, "Field %s doc=%d Any=%d Lent=%d Include=%d Dots=%d WherePos=%d Pure=%d PurePos=%d Own=%d", at, d.doc(x.Doc), anyPos, lent, b01(x.Include), dots, x.WherePos, b01(x.Pure), purePos, own)
+		mut := NoPos
+		if x.Mut != nil {
+			mut = x.Mut.At
+		}
+		d.line(depth, "Field %s doc=%d Any=%d Lent=%d Include=%d Dots=%d WherePos=%d Pure=%d PurePos=%d Own=%d Mut=%d", at, d.doc(x.Doc), anyPos, lent, b01(x.Include), dots, x.WherePos, b01(x.Pure), purePos, own, mut)
 		d.list(c, idents(x.Names))
 		d.node(c, x.Type)
 		d.node(c, x.Key)
