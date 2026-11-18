@@ -386,10 +386,11 @@ func (c *checker) planLaws() {
 // planLaw sets the law's slots, or why it does not run (rules 7 and 8).
 func (c *checker) planLaw(law *Law) {
 	if len(law.TParams) > 0 {
-		// A rewrite over functions (owner q234): its run instantiates
-		// the type parameters and generates pure functions, which no
-		// run does yet; until then no build rewrites by it.
-		law.Unrun = "a law with type parameters of its own does not run yet: no run instantiates them"
+		// A rewrite over functions (owner q234): the property run has no
+		// instantiation and no generator of functions; ergo test's licence
+		// run (eval/licencefuncs.go) runs it at int over a family of pure
+		// functions, and its verdict goes to ergo.laws.
+		law.Unrun = "a law with type parameters of its own runs as its licence run, at int, not as a property"
 		return
 	}
 	var slots []LawSlot

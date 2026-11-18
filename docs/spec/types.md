@@ -628,7 +628,12 @@ law AddCommutes(a Money, b Money) { add(a, b) == add(b, a) }
         - Rule 5: each of the law's type parameters is read at `int`; a site's types are checked where it is matched. The sides compare with `==`, so the type parameter of the sides' type is `comparable`.
         - The parser takes type parameters only on such a law: on any other top-level law they are S001 at the `[`.
 
-        Such a law does not run yet: `ergo test` reports it skipped ("a law with type parameters of its own does not run yet: no run instantiates them"). Until its validated evidence exists (FUSION-EVIDENCE), its entry is missing and no build rewrites by it; a module's own ledger may hold one.
+        Such a law is not run as a property: `ergo test` reports it skipped ("a law with type parameters of its own runs as its licence run, at int, not as a property"). Its evidence is the licence run (FUSION-EVIDENCE, `eval/licencefuncs.go`; [runtime.md](runtime.md#tests) Tests 7):
+          1. It runs at `int`: each of the law's type parameters stands for `int`.
+          2. A function parameter takes a family of pure functions as its classes: `func x`, `func x + 1`, `func x * 3`, `func 7` and `func defect at odd x` for `func(int) int`; `func x > 0`, `func x is even`, `func true`, `func false` and `func defect at x < 0` for a predicate. Each member is reached alone and paired with each class of the other parameters, and a drawn case takes one at random. A function type with no family makes the run skipped.
+          3. The right side's outcome is read as the site gives it under `v1.FuseOr`: a defect of the right side gives the left side's outcome. A defect the left side raises and the right side does not refutes the law.
+          4. A refutation names the family members (`f = func x + 1`). It writes no corpus line, since no corpus text holds a function.
+        Its verdict, validated like any licence run's, is what admits it at a site.
 
         **Its sites** (FUSION-LOWER, `lower/ir_fusion.go`). Such a law is matched at the call, from the call's source, before the call is lowered, and not by the pass's IR patterns: the IR of a call with a function operand depends on the operand (a known callback's call goes to its known variant). A call is a site when the law's left side and the call are calls of the same functions at the same shape, and their types unify; that binds the law's type parameters, and the sides are lowered at the site's types. The same decision applies as at any site (`rewriteAt`), with three additions:
           1. Each operand is lowered once, in the order the left side evaluates it, before either side.
