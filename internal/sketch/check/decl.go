@@ -610,7 +610,9 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 	if err != nil || pkg == nil {
 		// An importer may wrap its *ImportError (fmt.Errorf %w,
 		// errors.Join); findImportError searches the chain.
-		if reason := findImportError(err); reason != nil {
+		if reason := findImportError(err); reason != nil && reason.Broken {
+			c.errorf(spec.Path, CodeUnknown, "package %q does not check: %s", reason.Path, reason.Reason)
+		} else if reason != nil {
 			c.errorf(spec.Path, CodeUnknown, "unknown package %q: %s", path, reason.Reason)
 		} else {
 			c.errorf(spec.Path, CodeUnknown, "unknown package %q", path)
@@ -767,6 +769,9 @@ func importName(element string) bool {
 type ImportError struct {
 	Path   string
 	Reason string
+	// Broken marks a package that exists and does not check: Reason is its
+	// first diagnostic, and the import says so instead of "unknown".
+	Broken bool
 }
 
 func (e *ImportError) Error() string { return fmt.Sprintf("package %q: %s", e.Path, e.Reason) }

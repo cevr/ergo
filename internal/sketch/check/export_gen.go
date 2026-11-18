@@ -6582,6 +6582,7 @@ func (e *encoder) encPtrImport(v *Import) {
 func (e *encoder) encFieldsImportError(v *ImportError) {
 	e.encT2(v.Path)
 	e.encT2(v.Reason)
+	e.encT14(v.Broken)
 }
 
 func (e *encoder) encImportError(v ImportError) { e.encFieldsImportError(&v) }
@@ -17749,6 +17750,7 @@ func (d *decoder) decPtrImport() *Import {
 func (d *decoder) decFieldsImportError(v *ImportError) {
 	v.Path = d.decT2()
 	v.Reason = d.decT2()
+	v.Broken = d.decT14()
 }
 
 func (d *decoder) decImportError() (v ImportError) {
