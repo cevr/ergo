@@ -61,6 +61,8 @@ Each case runs in a fresh empty directory, which is also its `HOME`. Its environ
 
 A case passes when stdout, stderr and the status all equal the recorded ones. A failure names each stream that differs and shows a unified diff (`--- want`, `+++ got`). The runner prints `ok <program>/<case> (<time>)` or `FAIL <program>/<case>: <what>`, and exits 0 when every case passes, 1 when a program or a case fails, and 2 on a usage or layout error.
 
+The case loop is `internal/cases`, which `ergo test PKG --cases DIR` also runs ([tooling](../docs/tooling.md#recorded-cases-ergo-test---cases)), so a program outside this repository keeps its cases beside its binary (`cmd/NAME/cases/`) and runs them with the same rules: one runner, one verdict.
+
 ## Workload
 
 A program's `workload` file tells `scripts/opcount` (docs/tooling.md, "Counted receipts") how to run it at a small and a large size, so that the cost of one unit of work is the slope between the two runs and start-up cancels. One `KEY VALUE…` line per key; blank lines and `#` lines are skipped:

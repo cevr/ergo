@@ -45,7 +45,17 @@ import (
 // is cached by everything it reads, and replayed with no link and no run
 // (testcache.go); --count 1 always runs. A package with nothing to test is
 // never built (empty.go).
+//
+// --cases DIR runs the recorded cases of DIR against the built main
+// package in place of its tests (cases.go, testCases).
 func testCommand(args []string) error {
+	args, casesDir, err := casesFlag(args)
+	if err != nil {
+		return invalidInvocation(err)
+	}
+	if casesDir != "" {
+		return testCases(args, casesDir)
+	}
 	opts, err := parseFileOptions("test", args)
 	if err != nil {
 		return invalidInvocation(err)
