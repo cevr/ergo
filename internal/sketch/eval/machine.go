@@ -144,15 +144,18 @@ func (in *interp) machineLaw(law *check.Law, res Result) (out Result) {
 		out.Status, out.Reason = Skipped, why
 		return out
 	}
-	// An always or sometimes law (X2) reads each state through its
-	// predicate; check time searches only for named variants, so it
-	// leaves the law to ergo test.
-	if law.Decl.Reach.Pred != nil {
-		return skip("this " + law.Decl.Reach.Kind() + " law reads its states through a predicate, which check time does not search")
-	}
 	pre := preflight{in: in, seen: map[syntax.Node]bool{}}
 	if why := pre.function(fr, m.step); why != "" {
 		return skip(why)
+	}
+	// An always or sometimes law (X2) reads each state through its
+	// predicate, which runs here as any function does: always p is decided
+	// as a never law whose target is a state where p is false, sometimes p
+	// as a reaches law whose target is a state where p holds ($ExploreAll).
+	if law.Pred != nil {
+		if why := pre.function(fr, law.Pred); why != "" {
+			return skip(why)
+		}
 	}
 	std := ""
 	keyless := testplan.KeyWhy(m.state, func(n *check.Named) bool {
@@ -239,7 +242,29 @@ func (in *interp) machineLaw(law *check.Law, res Result) (out Result) {
 		names = append(names, t.Obj.Name)
 	}
 	kind := law.Decl.Reach.Kind()
-	l := &machineRun{in: in, fr: fr, m: m, g: g, targets: targets, names: names, ms: ms, res: &out}
+	pred := ""
+	if law.Pred != nil {
+		pred = law.Decl.Reach.Pred.Name
+		holds := func(s Value) bool {
+			mustCharge(in, fr, 1)
+			v := mustValue(in.call(fr, nil, law.Pred, nil, []Value{s}))
+			b, ok := v.(bool)
+			if !ok {
+				ice("the predicate %s of law %s returned %T, not a bool", pred, law.Name, v)
+			}
+			return b
+		}
+		if kind == "always" {
+			kind = "never"
+			targets = append(targets, func(s Value) bool { return !holds(s) })
+			names = append(names, "a state where "+pred+" is false")
+		} else {
+			kind = "reaches"
+			targets = append(targets, holds)
+			names = append(names, "a state where "+pred+" holds")
+		}
+	}
+	l := &machineRun{in: in, fr: fr, m: m, g: g, targets: targets, names: names, pred: pred, ms: ms, res: &out}
 	note, bounded := "", false
 	if starts != nil && signals != nil {
 		if g.Key == nil {
@@ -276,8 +301,19 @@ type machineRun struct {
 	g       explore.Graph[Value, Value]
 	targets []func(Value) bool
 	names   []string
-	ms      *MachineSearch
-	res     *Result
+	// pred is an invariant law's predicate's name (X2), else "".
+	pred string
+	ms   *MachineSearch
+	res  *Result
+}
+
+// broken is what a counterexample's last state breaks ($Broken): ", where
+// p is false" for an always law, else "".
+func (l *machineRun) broken() string {
+	if l.pred == "" {
+		return ""
+	}
+	return ", where " + l.pred + " is false"
 }
 
 func (l *machineRun) refute(why string) {
@@ -339,7 +375,7 @@ func (l *machineRun) all(kind string) (string, bool) {
 		}
 		l.ms.Run = text
 		_, idx := r.Run(r.Found)
-		l.refute("the run " + text + " reaches " + l.in.argument(l.fr, l.m.state, explore.Replay(l.g, start, idx)))
+		l.refute("the run " + text + " reaches " + l.in.argument(l.fr, l.m.state, explore.Replay(l.g, start, idx)) + l.broken())
 		return "", true
 	}
 	if r.Complete {
@@ -427,7 +463,7 @@ func (l *machineRun) runs(kind string, startTypes []check.Type, note string) str
 			case kind == "never" && l.targets[0](nodes[k].s):
 				text, _ := trace(nodes, k)
 				l.ms.Run = text
-				l.refute("the run " + text + " reaches " + in.argument(fr, l.m.state, nodes[k].s))
+				l.refute("the run " + text + " reaches " + in.argument(fr, l.m.state, nodes[k].s) + l.broken())
 				return ""
 			case kind == "reaches" && l.targets[0](nodes[k].s):
 				text, _ := trace(nodes, k)
@@ -452,6 +488,11 @@ func (l *machineRun) runs(kind string, startTypes []check.Type, note string) str
 	}
 	if kind == "path" {
 		l.refute("no generated run follows the path [" + strings.Join(l.names, ", ") + "]")
+		return ""
+	}
+	if l.pred != "" {
+		// No witness in a sample of runs is no proof either way ($ExploreRuns).
+		l.refute("not found: no generated run reaches " + l.names[0])
 		return ""
 	}
 	l.refute("no generated run reaches " + l.names[0])

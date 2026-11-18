@@ -362,6 +362,15 @@
       "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
     },
     {
+      "name": "mc-always-pred-not-negated",
+      "origin": "wf10/mc/E1",
+      "file": "internal/sketch/eval/machine.go",
+      "from": "targets = append(targets, func(s Value) bool { return !holds(s) })",
+      "to": "targets = append(targets, func(s Value) bool { return holds(s) })",
+      "rule": "An always law is decided as a never law whose target is a state where its predicate is false (types.md, Laws 13; X2), at check time as in the test build.",
+      "killers": ["internal/sketch/eval:TestMachineLawsAgreeWithModel"]
+    },
+    {
       "name": "machine-done-is-edge",
       "origin": "wf10/l7-eval/EV4",
       "file": "internal/sketch/eval/machine.go",
