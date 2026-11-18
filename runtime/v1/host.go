@@ -421,7 +421,9 @@ func (r *HostRoot) ReadFile(_ *rt.Task, path string) (string, error) {
 	var text string
 	err := r.in(path, func(root *os.Root) error {
 		data, err := root.ReadFile(path)
-		text = string(data)
+		// The text is data itself, not a copy (HTTP-FAST-c9): the slice
+		// ReadFile made is held by nothing else and is never written again.
+		text = unsafe.String(unsafe.SliceData(data), len(data))
 		return err
 	})
 	return text, err
