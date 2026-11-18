@@ -810,7 +810,14 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 		took     string
 		measured sweepCost
 		err      error
+		// reused are the entries of the package's recorded runs, when the
+		// sweep compares them with its own (reuseCompare).
+		reused []entry
+		// reusedOnly says the sweep did not run the package's tests: it
+		// has no cost to record.
+		reusedOnly bool
 	}
+	reuseBase, reuseMode := os.Getenv(reuseVariable), os.Getenv(reuseModeVariable)
 	results := make([]result, len(targets))
 	sem := make(chan struct{}, jobs)
 	var wg sync.WaitGroup
@@ -819,6 +826,24 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			name := strings.ReplaceAll(dir, "/", "_")
+			reuseNote := ""
+			if reuseBase != "" {
+				reused, why := reusePackage(reuseBase, roots, dir, filepath.Join(root, filepath.FromSlash(dir)))
+				switch {
+				case why != "":
+					reuseNote = "; reuse refused: " + why
+				case reuseMode == reuseCompare:
+					results[i].reused = reused
+					reuseNote = "; recorded runs reused, compared with a sweep"
+				default:
+					results[i].took, results[i].reusedOnly = "reused its recorded runs", true
+					results[i].used = map[string]bool{}
+					results[i].outside = closures[dir].check(reused, results[i].used)
+					results[i].identity = identityCounts(reused)
+					return
+				}
+			}
+			defer func() { results[i].took += reuseNote }()
 			entries, took, measured, err := runPackage(root, protect, roots, dir, filepath.Join(binaries, name+".test"), filepath.Join(work, name), costs[dir], cpuCosts[dir], sweepCosts[dir], std, sem)
 			results[i].took, results[i].measured = took, measured
 			if err != nil {
@@ -828,6 +853,11 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 			results[i].used = map[string]bool{}
 			results[i].outside = closures[dir].check(entries, results[i].used)
 			results[i].identity = identityCounts(entries)
+			if results[i].reused != nil {
+				if d := sameVerdict(closures[dir], dir, entries, results[i].reused); d != "" {
+					results[i].err = fmt.Errorf("the verdict on its recorded runs differs from the sweep's: %s", d)
+				}
+			}
 		}()
 	}
 	wg.Wait()
@@ -837,7 +867,7 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 	if out := os.Getenv(sweepCostOutVariable); out != "" {
 		measured := map[string]sweepCost{}
 		for i, dir := range targets {
-			if results[i].err == nil {
+			if results[i].err == nil && !results[i].reusedOnly {
 				measured[dir] = results[i].measured
 			}
 		}

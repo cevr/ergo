@@ -1,0 +1,122 @@
+package closure
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+
+	"ergo.local/prototype/internal/testinputs"
+)
+
+// reuseTargetVariable makes TestReuseTarget run.
+const reuseTargetVariable = "ERGO_CLOSURE_REUSE_TARGET"
+
+// TestReuseTarget reads in a fixture's checkout as a test package does:
+// a file of its own testdata, a document outside its closure, and, through
+// a child process, another one, which only the observer sees. It runs only
+// as the target of TestRecordedRunReadsAsASweptRun.
+func TestReuseTarget(t *testing.T) {
+	if os.Getenv(reuseTargetVariable) == "" {
+		t.Skip("the target of TestRecordedRunReadsAsASweptRun")
+	}
+	for _, name := range []string{"testdata/in/a.txt", "../../docs/tooling.md"} {
+		if _, err := os.ReadFile(name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if out, err := exec.Command("cat", "../../docs/sub/x.md").CombinedOutput(); err != nil {
+		t.Fatalf("cat: %v\n%s", err, out)
+	}
+}
+
+// TestRecordedRunReadsAsASweptRun: a test process run with
+// testinputs.RecordVariable in the sweep's sandbox, as a go test -count=1
+// step of the merge tier runs it once that tier gives its steps the
+// sweep's guarantees, records the same inputs as the sweep's own run of
+// the package, the child process's read included, and the sweep reuses
+// it. The same run outside the sandbox, with the checkout writable, is
+// refused, and the refusal names the guarantee. Mutants: the recorder
+// passes no test log (heavy-cost2-record-unobserved), no identity file
+// (heavy-cost2-record-no-identity), or probes nothing
+// (heavy-cost2-record-tree-unprobed).
+func TestRecordedRunReadsAsASweptRun(t *testing.T) {
+	needSandbox(t)
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := newFixture(t)
+	const pkg = "internal/p"
+	run := []string{"-test.run=^TestReuseTarget$"}
+	target := reuseTargetVariable + "=1"
+	swept, err := runTests(f.root, []string{f.root}, pkg, f.pkg, filepath.Join(t.TempDir(), "swept"), []string{target}, self, run...)
+	if err != nil {
+		t.Fatalf("the swept run: %v", err)
+	}
+	if !slices.Contains(swept, entry{"open", "docs/sub/x.md"}) {
+		t.Fatalf("the swept run did not see the child's read: %v", swept)
+	}
+
+	record := func(sandboxed bool) string {
+		base, err := filepath.EvalSymlinks(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		s, err := newScratch()
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { s.remove() })
+		env := withEnv(testEnv(f.pkg, target, testinputs.RecordVariable+"="+base), s.env()...)
+		out := filepath.Join(t.TempDir(), "out")
+		if sandboxed {
+			deadline, err := runDeadline(0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sb := sandbox{Root: f.root, Scratch: append(s.dirs(), base)}
+			if err := runProtectedWithin(sb, pkg, f.pkg, env, out, deadline, self, run...); err != nil {
+				t.Fatalf("the recorded run: %v", err)
+			}
+		} else {
+			cmd := exec.Command(self, run...)
+			cmd.Dir, cmd.Env = f.pkg, env
+			if b, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("the recorded run outside the sandbox: %v\n%s", err, b)
+			}
+		}
+		return base
+	}
+	names := []string{"TestReuseTarget"}
+	sweptEnv := withEnv(sweepEnvironment(), target)
+
+	base := record(true)
+	recs, dirs, err := testinputs.ReadRecords(base, pkg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if why := reuseRefusal(recs, dirs, pkg, f.pkg, names, sweptEnv); why != "" {
+		t.Fatalf("the sweep refused the recorded run: %s", why)
+	}
+	reused, err := recordedEntries(recs, dirs, []string{f.root}, pkg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.SortFunc(swept, func(a, b entry) int { return strings.Compare(a.path+" "+a.op, b.path+" "+b.op) })
+	slices.SortFunc(reused, func(a, b entry) int { return strings.Compare(a.path+" "+a.op, b.path+" "+b.op) })
+	if !slices.Equal(reused, swept) {
+		t.Errorf("the recorded run's inputs differ from the swept run's:\nrecorded %v\nswept    %v", reused, swept)
+	}
+
+	base = record(false)
+	recs, dirs, err = testinputs.ReadRecords(base, pkg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if why := reuseRefusal(recs, dirs, pkg, f.pkg, names, sweptEnv); !strings.Contains(why, "checkout writable") {
+		t.Errorf("a run that saw the checkout writable: refusal %q; want it named", why)
+	}
+}
