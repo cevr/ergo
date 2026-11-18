@@ -1,6 +1,8 @@
 package eval
 
 import (
+	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -405,13 +407,13 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 		case string:
 			i, ok := in.index(fr, x, iv, len(b))
 			if !ok {
-				return nil, nil, fr.defect(x, "index out of range [%s] with length %d", describe(iv), len(b))
+				return nil, nil, fr.defect(x, "%s", indexError(iv, len(b)))
 			}
 			return b[i], root, nil
 		case sliceV:
 			i, ok := in.index(fr, x, iv, b.n)
 			if !ok {
-				return nil, nil, fr.defect(x, "index out of range [%s] with length %d", describe(iv), b.n)
+				return nil, nil, fr.defect(x, "%s", indexError(iv, b.n))
 			}
 			return b.b.data[b.off+i], root, nil
 		case mapV:
@@ -456,7 +458,10 @@ func (in *interp) sliceExpr(fr *frame, x *syntax.SliceExpr) (Value, *abrupt) {
 	default:
 		ice("a slice of %T", base)
 	}
-	bounds := []int{0, length, length}
+	// Every bound is evaluated, left to right, before any is checked, as
+	// in Go.
+	var bounds [3]int64
+	given := [3]bool{}
 	for i, e := range []syntax.Expr{x.Low, x.High, x.Max} {
 		if e == nil {
 			continue
@@ -465,27 +470,23 @@ func (in *interp) sliceExpr(fr *frame, x *syntax.SliceExpr) (Value, *abrupt) {
 		if ab != nil {
 			return nil, ab
 		}
-		n, negative, ok := shiftCount(v)
-		if !ok {
-			ice("a slice bound of %T", v)
-		}
-		if negative {
-			return nil, fr.defect(e, "slice bounds out of range [%s]", describe(v))
-		}
-		if n > uint64(length) {
-			if s, isSlice := base.(sliceV); isSlice && !s.array {
-				return nil, fr.unsupported(e, "a slice bound past the length, which reads the Go target's capacity")
-			}
-			return nil, fr.defect(e, "slice bounds out of range [%d] with length %d", n, length)
-		}
-		bounds[i] = int(n)
-		if i == 1 && x.Max == nil {
-			bounds[2] = max(bounds[2], bounds[1])
-		}
+		bounds[i], given[i] = boundValue(v), true
 	}
-	lo, hi, mx := bounds[0], bounds[1], bounds[2]
-	if lo > hi || hi > mx {
-		return nil, fr.defect(x, "slice bounds out of range [%d:%d:%d]", lo, hi, mx)
+	_, capacityUnknown := base.(sliceV)
+	if s, ok := base.(sliceV); ok && s.array {
+		capacityUnknown = false
+	}
+	if msg, skip := sliceBoundsError(bounds, given, int64(length), capacityUnknown); skip {
+		return nil, fr.unsupported(x, "a slice bound past the length, which reads the Go target's capacity")
+	} else if msg != "" {
+		return nil, fr.defect(x, "%s", msg)
+	}
+	lo, hi, mx := int(bounds[0]), length, length
+	if given[1] {
+		hi = int(bounds[1])
+	}
+	if given[2] {
+		mx = int(bounds[2])
 	}
 	switch b := base.(type) {
 	case string:
@@ -507,6 +508,81 @@ func (in *interp) sliceExpr(fr *frame, x *syntax.SliceExpr) (Value, *abrupt) {
 		return out, nil
 	}
 	return nil, nil
+}
+
+// boundValue is an integer slice bound as an int64 (a uint64 past
+// MaxInt64 stays past every length: it is clamped).
+func boundValue(v Value) int64 {
+	n, negative, ok := shiftCount(v)
+	if !ok {
+		ice("a slice bound of %T", v)
+	}
+	if !negative && n > math.MaxInt64 {
+		return math.MaxInt64
+	}
+	return int64(n)
+}
+
+// sliceBoundsError is Go's runtime error for a slice expression whose
+// bounds (low, high, max; given says which were written) do not fit
+// length, or "" when they fit. Go checks, in order, the last bound against
+// the capacity, then each bound against the next one, comparing unsigned
+// (a negative bound is past every other), and names a negative bound
+// alone (runtime boundsError). A slice's capacity is the Go target's:
+// when the check would read it (a last bound past the length, where
+// capacityUnknown), skip says so.
+func sliceBoundsError(b [3]int64, given [3]bool, length int64, capacityUnknown bool) (msg string, skip bool) {
+	past := func(x, y int64) bool { return uint64(x) > uint64(y) }
+	lo, hi := b[0], length
+	if given[1] {
+		hi = b[1]
+	}
+	if given[2] {
+		mx := b[2]
+		switch {
+		case mx < 0:
+			return fmt.Sprintf("runtime error: slice bounds out of range [::%d]", mx), false
+		case mx > length && capacityUnknown:
+			return "", true
+		case mx > length:
+			return fmt.Sprintf("runtime error: slice bounds out of range [::%d] with length %d", mx, length), false
+		case hi < 0:
+			return fmt.Sprintf("runtime error: slice bounds out of range [:%d:]", hi), false
+		case past(hi, mx):
+			return fmt.Sprintf("runtime error: slice bounds out of range [:%d:%d]", hi, mx), false
+		case lo < 0:
+			return fmt.Sprintf("runtime error: slice bounds out of range [%d::]", lo), false
+		case past(lo, hi):
+			return fmt.Sprintf("runtime error: slice bounds out of range [%d:%d:]", lo, hi), false
+		}
+		return "", false
+	}
+	if given[1] {
+		switch {
+		case hi < 0:
+			return fmt.Sprintf("runtime error: slice bounds out of range [:%d]", hi), false
+		case hi > length && capacityUnknown:
+			return "", true
+		case hi > length:
+			return fmt.Sprintf("runtime error: slice bounds out of range [:%d] with length %d", hi, length), false
+		}
+	}
+	switch {
+	case lo < 0:
+		return fmt.Sprintf("runtime error: slice bounds out of range [%d:]", lo), false
+	case past(lo, hi):
+		return fmt.Sprintf("runtime error: slice bounds out of range [%d:%d]", lo, hi), false
+	}
+	return "", false
+}
+
+// indexError is Go's runtime error for the index iv out of range of n
+// elements: a negative index is named alone (runtime boundsError).
+func indexError(iv Value, n int) string {
+	if _, negative, _ := shiftCount(iv); negative {
+		return fmt.Sprintf("runtime error: index out of range [%s]", describe(iv))
+	}
+	return fmt.Sprintf("runtime error: index out of range [%s] with length %d", describe(iv), n)
 }
 
 // binary evaluates x op y: && and || evaluate y only when x does not

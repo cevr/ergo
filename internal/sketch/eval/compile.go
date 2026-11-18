@@ -431,13 +431,13 @@ func (in *interp) compilePeek(fr *frame, x syntax.Expr) fastPeek {
 			case string:
 				i, ok := in.index(fr, at, iv, len(b))
 				if !ok {
-					return nil, nil, fr.defect(at, "index out of range [%s] with length %d", describe(iv), len(b))
+					return nil, nil, fr.defect(at, "%s", indexError(iv, len(b)))
 				}
 				return b[i], root, nil
 			case sliceV:
 				i, ok := in.index(fr, at, iv, b.n)
 				if !ok {
-					return nil, nil, fr.defect(at, "index out of range [%s] with length %d", describe(iv), b.n)
+					return nil, nil, fr.defect(at, "%s", indexError(iv, b.n))
 				}
 				return b.b.data[b.off+i], root, nil
 			case mapV:

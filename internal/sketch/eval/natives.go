@@ -262,7 +262,7 @@ func registerNatives() {
 			return nil, fr.unsupported(at, "a slice bound past the length, which reads the Go target's capacity")
 		}
 		if i < 0 || j < i || j > int64(xs.n) {
-			return nil, fr.defect(at, "slice bounds out of range [%d:%d] with length %d", i, j, xs.n)
+			return nil, fr.defect(at, "runtime error: slice bounds out of range [%d:%d] with length %d", i, j, xs.n)
 		}
 		return newSlice(append([]Value{}, xs.elems()[i:j]...)), nil
 	}
@@ -279,7 +279,7 @@ func registerNatives() {
 	natives["slices.Take"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		xs, i := args[0].(sliceV).elems(), args[1].(int64)
 		if i < 0 || i >= int64(len(xs)) {
-			return nil, fr.defect(at, "index out of range [%d] with length %d", i, len(xs))
+			return nil, fr.defect(at, "runtime error: index out of range [%d] with length %d", i, len(xs))
 		}
 		if ab := in.build(fr, at, int64(len(xs)), int64(len(xs)), 0); ab != nil {
 			return nil, ab

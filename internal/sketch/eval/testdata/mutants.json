@@ -1986,6 +1986,33 @@
       "killers": ["internal/sketch/eval:TestEvalReleasesAgreeWithModel"]
     },
     {"name":"ft-stored-law-form-dropped","origin":"wf10 FT2 (stored verdicts and route notes)","file":"internal/sketch/eval/eval.go","from":"\t\t\t\t\tif v.Machine == nil {\n\t\t\t\t\t\tres.form = formOf(v.Evidence)\n\t\t\t\t\t}\n","to":"","rule":"A law verdict read from the store is written as the native runner's line, so a package with stored laws stays the evaluator's.","killers":["internal/sketchfront:TestStoredVerdictsAgree"],"anchor":{"tests":["internal/sketchfront:TestStoredVerdictsAgree"]}},
-    {"name":"tskip-eval-reason","origin":"wf10 TSKIP","file":"internal/sketch/eval/stmt.go","from":"return fr.abrupt(ctlUnsupported, s, nil, why)","to":"return fr.abrupt(ctlUnsupported, s, nil, \"skipped\" + why[:0])","rule":"Check-time evaluation reports a skip skipped with the test's reason and the statement's site.","killers":["internal/sketch/eval:TestRunReportsTheSkipsReason"]}
+    {"name":"tskip-eval-reason","origin":"wf10 TSKIP","file":"internal/sketch/eval/stmt.go","from":"return fr.abrupt(ctlUnsupported, s, nil, why)","to":"return fr.abrupt(ctlUnsupported, s, nil, \"skipped\" + why[:0])","rule":"Check-time evaluation reports a skip skipped with the test's reason and the statement's site.","killers":["internal/sketch/eval:TestRunReportsTheSkipsReason"]},
+    {
+      "name": "oracle-f8-runtime-error-unprefixed",
+      "origin": "wf10 ORACLE F8 (irspike GenerateFail probe)",
+      "file": "internal/sketch/eval/ops.go",
+      "from": "\t\tif b == 0 {\n\t\t\treturn nil, \"runtime error: integer divide by zero\", true\n\t\t}\n\t\treturn a / b, \"\", true\n",
+      "to": "\t\tif b == 0 {\n\t\t\treturn nil, \"integer divide by zero\", true\n\t\t}\n\t\treturn a / b, \"\", true\n",
+      "rule": "A defect the Go runtime raises is written as the built program writes it: panic: runtime error: TEXT.",
+      "killers": ["internal/sketch/eval:TestRuntimeErrorsAreGos"]
+    },
+    {
+      "name": "oracle-f8-negative-index-with-length",
+      "origin": "wf10 ORACLE F8 (irspike GenerateFail probe)",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\tif _, negative, _ := shiftCount(iv); negative {\n",
+      "to": "\tif _, negative, _ := shiftCount(iv); negative && false {\n",
+      "rule": "Go names a negative index alone, with no length.",
+      "killers": ["internal/sketch/eval:TestRuntimeErrorsAreGos"]
+    },
+    {
+      "name": "oracle-f8-slice-low-negative-unnamed",
+      "origin": "wf10 ORACLE F8 (irspike GenerateFail probe)",
+      "file": "internal/sketch/eval/expr.go",
+      "from": "\tcase lo < 0:\n\t\treturn fmt.Sprintf(\"runtime error: slice bounds out of range [%d:]\", lo), false\n",
+      "to": "\tcase lo < 0:\n\t\treturn fmt.Sprintf(\"runtime error: slice bounds out of range [%d:%d]\", lo, hi), false\n",
+      "rule": "Go names a negative low bound alone: slice bounds out of range [LO:].",
+      "killers": ["internal/sketch/eval:TestRuntimeErrorsAreGos"]
+    }
   ]
 }
