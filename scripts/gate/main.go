@@ -662,6 +662,9 @@ func (g *gate) mergeTier(out io.Writer) int {
 	for _, step := range g.steps {
 		uncached = append(uncached, uncachedStep(step))
 	}
+	// The go test steps record their runs, and the sweeps read them
+	// (closurerecord.go).
+	uncached = recordForSweep(g.root, uncached)
 	// The uncached run is the merge verdict, so it runs sandboxed or not at
 	// all: no sandbox, no verdict (sandbox.go).
 	open := g.openSandbox
