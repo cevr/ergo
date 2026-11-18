@@ -30,7 +30,8 @@ extern go os.Clearenv func Clearenv() needs go.Foreign
 extern go os.CopyFS func CopyFS(dir string, fsys own fs.FS) fails go.Error needs go.Foreign
 
 // ergo:go func Create(name string) (*File, error)
-extern go os.Create func Create(name string) go.Ref[File] fails go.Error needs go.Foreign
+// ergo:effect ambient (vouched: it creates or truncates one file, opens it for reading and writing, and returns its new handle to the caller)
+extern go os.Create func Create(name string) go.Ref[File] fails go.Error needs Ambient
 
 // ergo:go func CreateTemp(dir string, pattern string) (*File, error)
 extern go os.CreateTemp func CreateTemp(dir string, pattern string) go.Ref[File] fails go.Error needs go.Foreign
@@ -100,19 +101,25 @@ extern go os.File.Chmod func (f *File) Chmod(mode fs.FileMode) fails go.Error ne
 extern go os.File.Chown func (f *File) Chown(uid int, gid int) fails go.Error needs go.Foreign
 
 // ergo:go func (*File).Close() error
-extern go os.File.Close func (f own *File) Close() fails go.Error needs go.Foreign
+// ergo:effect ambient (vouched: it closes its handle; a later call on it fails with os.ErrClosed)
+extern go os.File.Close func (f own *File) Close() fails go.Error needs Ambient
 
 // ergo:go func (*File).Fd() uintptr
 // ergo:refused File.Fd: result 1: Ergo has no uintptr
 
 // ergo:go func (*File).Name() string
-extern go os.File.Name func (f *File) Name() string needs go.Foreign
+// ergo:effect ambient (vouched: it returns the name its handle was opened with)
+extern go os.File.Name func (f *File) Name() string needs Ambient
 
 // ergo:go func (*File).Read(b []byte) (n int, err error)
-extern go os.File.Read func (f *File) Read(b []byte) int fails go.Error needs go.Foreign
+// ergo:writes b
+// ergo:effect ambient (vouched: it reads up to len(b) bytes of its file at the handle's offset into b[:n], keeping no reference to b)
+extern go os.File.Read func (f *File) Read(b []byte) ([]byte, int) fails go.Error needs Ambient
 
 // ergo:go func (*File).ReadAt(b []byte, off int64) (n int, err error)
-extern go os.File.ReadAt func (f *File) ReadAt(b []byte, off int64) int fails go.Error needs go.Foreign
+// ergo:writes b
+// ergo:effect ambient (vouched: it reads len(b) bytes of its file at off into b, keeping no reference to b, and leaves the handle's offset)
+extern go os.File.ReadAt func (f *File) ReadAt(b []byte, off int64) ([]byte, int) fails go.Error needs Ambient
 
 // ergo:go func (*File).ReadDir(n int) ([]DirEntry, error)
 extern go os.File.ReadDir func (f *File) ReadDir(n int) []fs.DirEntry fails go.Error needs go.Foreign
@@ -127,7 +134,8 @@ extern go os.File.Readdir func (f *File) Readdir(n int) []fs.FileInfo fails go.E
 extern go os.File.Readdirnames func (f *File) Readdirnames(n int) []string fails go.Error needs go.Foreign
 
 // ergo:go func (*File).Seek(offset int64, whence int) (ret int64, err error)
-extern go os.File.Seek func (f *File) Seek(offset int64, whence int) int64 fails go.Error needs go.Foreign
+// ergo:effect ambient (vouched: it moves the handle's offset and returns the new one)
+extern go os.File.Seek func (f *File) Seek(offset int64, whence int) int64 fails go.Error needs Ambient
 
 // ergo:go func (*File).SetDeadline(t time.Time) error
 extern go os.File.SetDeadline func (f *File) SetDeadline(t time.Time) fails go.Error needs go.Foreign
@@ -142,22 +150,26 @@ extern go os.File.SetWriteDeadline func (f *File) SetWriteDeadline(t time.Time) 
 extern go os.File.Stat func (f *File) Stat() fs.FileInfo fails go.Error needs go.Foreign
 
 // ergo:go func (*File).Sync() error
-extern go os.File.Sync func (f *File) Sync() fails go.Error needs go.Foreign
+// ergo:effect ambient (vouched: it commits its file's contents to stable storage)
+extern go os.File.Sync func (f *File) Sync() fails go.Error needs Ambient
 
 // ergo:go func (*File).SyscallConn() (syscall.RawConn, error)
 // ergo:refused File.SyscallConn: it names the refused type syscall.RawConn
 
 // ergo:go func (*File).Truncate(size int64) error
-extern go os.File.Truncate func (f *File) Truncate(size int64) fails go.Error needs go.Foreign
+// ergo:effect ambient (vouched: it changes its file's size)
+extern go os.File.Truncate func (f *File) Truncate(size int64) fails go.Error needs Ambient
 
 // ergo:go func (*File).Write(b []byte) (n int, err error)
-extern go os.File.Write func (f *File) Write(b []byte) int fails go.Error needs go.Foreign
+// ergo:effect ambient (vouched: it writes b to its file at the handle's offset, keeping no reference to b)
+extern go os.File.Write func (f *File) Write(b []byte) int fails go.Error needs Ambient
 
 // ergo:go func (*File).WriteAt(b []byte, off int64) (n int, err error)
 extern go os.File.WriteAt func (f *File) WriteAt(b []byte, off int64) int fails go.Error needs go.Foreign
 
 // ergo:go func (*File).WriteString(s string) (n int, err error)
-extern go os.File.WriteString func (f *File) WriteString(s string) int fails go.Error needs go.Foreign
+// ergo:effect ambient (vouched: it writes s to its file at the handle's offset)
+extern go os.File.WriteString func (f *File) WriteString(s string) int fails go.Error needs Ambient
 
 // ergo:go func (*File).WriteTo(w io.Writer) (n int64, err error)
 extern go os.File.WriteTo func (f *File) WriteTo(w own io.Writer) int64 fails go.Error needs go.Foreign
@@ -342,10 +354,12 @@ extern go os.O_TRUNC let O_TRUNC int
 extern go os.O_WRONLY let O_WRONLY int
 
 // ergo:go func Open(name string) (*File, error)
-extern go os.Open func Open(name string) go.Ref[File] fails go.Error needs go.Foreign
+// ergo:effect ambient (vouched: it opens one file for reading and returns its new handle to the caller)
+extern go os.Open func Open(name string) go.Ref[File] fails go.Error needs Ambient
 
 // ergo:go func OpenFile(name string, flag int, perm FileMode) (*File, error)
-extern go os.OpenFile func OpenFile(name string, flag int, perm fs.FileMode) go.Ref[File] fails go.Error needs go.Foreign
+// ergo:effect ambient (vouched: it opens one file with the caller's flags and mode and returns its new handle to the caller)
+extern go os.OpenFile func OpenFile(name string, flag int, perm fs.FileMode) go.Ref[File] fails go.Error needs Ambient
 
 // ergo:go func OpenInRoot(dir string, name string) (*File, error)
 extern go os.OpenInRoot func OpenInRoot(dir string, name string) go.Ref[File] fails go.Error needs go.Foreign

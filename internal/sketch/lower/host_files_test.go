@@ -1,0 +1,69 @@
+package lower
+
+import (
+	"regexp"
+	"strings"
+	"testing"
+)
+
+// hostReadLoop copies one file to another through an open handle with only
+// Ambient (HOST-ROW-3 slice 2): os.Open, os.Create and the *os.File
+// methods are host rows, and File.Read writes its buffer in place
+// (v1.GoWrites), so its value is (the buffer Go wrote, n).
+const hostReadLoop = `import go os
+
+func copyFile(from string, to string, size int) int fails go.Error needs Ambient {
+	let src = try os.Open(from)
+	let dst = try os.Create(to)
+	let mut buf = []byte{0, 0, 0, 0, 0, 0, 0, 0}
+	let mut total = 0
+	for total < size {
+		let (b, n) = try src.Read(buf)
+		let _ = try dst.Write(b[:n])
+		buf = b
+		total = total + n
+	}
+	let _ = try src.Seek(0, 0)
+	let (whole, m) = try src.ReadAt(buf, 0)
+	try dst.Sync()
+	try dst.Close()
+	try src.Close()
+	total + m + len(whole)
+}
+
+func main() needs Console | Ambient {
+	let n = copyFile("/nonexistent/loop-probe-x", "/nonexistent/loop-probe-y", 16) catch { case go.Error: -1 }
+	Console.Println("\(n)")
+}
+`
+
+// TestFileHandlesNeedOnlyAmbient: a read loop over an open file checks
+// with Ambient alone, File.Read's value is the buffer Go wrote with its
+// count, and ReadAt, whose buffer is dead after it, writes that buffer in
+// place. The emitted Go type-checks. (The loop's Read still copies buf:
+// the value rule holds a let mut used in a loop it is not declared in as
+// live; follow-up S2-COPY.) Mutants (lower and check mutants.json):
+// s2-writes-method-skipped, s2-writes-result-dropped,
+// s2-writes-results-refused.
+func TestFileHandlesNeedOnlyAmbient(t *testing.T) {
+	p := lowerSource("hostreadloop", hostReadLoop, true)
+	if p.err != nil || len(p.diags) != 0 || len(p.refused) != 0 || p.panicked != nil {
+		t.Fatalf("err=%v diagnostics=%v refusals=%v panic=%v\n%s", p.err, p.diags, p.refused, p.panicked, hostReadLoop)
+	}
+	typecheckGo(t, []*lowered{p})
+	goSrc := p.mainGo()
+	i := strings.Index(goSrc, "func copyFile(")
+	if i < 0 {
+		t.Fatalf("no copyFile in the emitted Go:\n%s", goSrc)
+	}
+	body := goSrc[i:]
+	if j := strings.Index(body, "\n}\n"); j >= 0 {
+		body = body[:j]
+	}
+	body = regexp.MustCompile(`/\*line [^*]*\*/`).ReplaceAllString(body, "")
+	// ReadAt's buffer is dead after the call, so Go writes it in place: the
+	// written temporary is buf itself, and the tuple's first value is it.
+	if !regexp.MustCompile(`(?m)^\s*(w_\d+) := buf\n(?:.*\n)*?.*\.ReadAt\(w_\d+, `).MatchString(body) {
+		t.Errorf("copyFile's ReadAt does not take buf itself:\n%s", body)
+	}
+}

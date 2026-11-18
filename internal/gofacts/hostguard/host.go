@@ -59,7 +59,8 @@ func hostCalls() map[string]func(s ambient) error {
 			return nil
 		},
 	}
-	maps.Copy(calls, fileCalls()) // files.go
+	maps.Copy(calls, fileCalls())   // files.go
+	maps.Copy(calls, handleCalls()) // handles.go
 	return calls
 }
 

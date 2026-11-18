@@ -84,7 +84,9 @@ func EffectOf(target string) (Effect, bool) {
 // changes the host process's own state (its environment, its working
 // directory, its clock, its file system at a path it resolves against the
 // working directory) and nothing else: no memory its arguments reach, no
-// goroutine it leaves behind, no callback, no handle it keeps open. Ambient is the authority to
+// goroutine it leaves behind, no callback, no handle it keeps open but the
+// one it returns to its caller (an *os.File, a resource its owner must
+// close; HOST-ROW-3 slice 2). Ambient is the authority to
 // choose the host (stdlib.md, Host packages), so `ergo bind go` writes it
 // with `needs Ambient`, not go.Foreign, and a `// ergo:effect ambient
 // (vouched: <reason>)` line; the checker admits that row only on its guard
@@ -123,6 +125,23 @@ var Hosts = []Effect{
 	{Target: "ergo.local/prototype/runtime/v1/hostfs.Stat", Reason: "it calls os.Stat on one path, following a symbolic link, and copies the five values of its result into a new struct", Source: "07a2c004939a"},
 	{Target: "ergo.local/prototype/runtime/v1/hostfs.Lstat", Reason: "it calls os.Lstat on one path, not following a symbolic link, and copies the five values of its result into a new struct", Source: "b90166fec086"},
 	{Target: "ergo.local/prototype/runtime/v1/hostfs.ReadDir", Reason: "it calls os.ReadDir on one directory and copies each entry's name, kind and type into a new, sorted slice", Source: "66ec26573280"},
+	// The open files (HOST-ROW-3 slice 2): Open, Create and OpenFile
+	// return the one handle they open, which the caller owns (a go.Ref
+	// resource: its Close takes it); each method reads or changes the
+	// file of its handle and keeps nothing of its arguments. Read and
+	// ReadAt write only b[:n] (v1.GoWrites), so their binding returns b.
+	{Target: "os.Open", Reason: "it opens one file for reading and returns its new handle to the caller", Source: "f9e1351c88a4"},
+	{Target: "os.Create", Reason: "it creates or truncates one file, opens it for reading and writing, and returns its new handle to the caller", Source: "2f7de022449f"},
+	{Target: "os.OpenFile", Reason: "it opens one file with the caller's flags and mode and returns its new handle to the caller", Source: "ff9a64cc1436"},
+	{Target: "os.File.Read", Reason: "it reads up to len(b) bytes of its file at the handle's offset into b[:n], keeping no reference to b", Source: "80a3a9532f27"},
+	{Target: "os.File.ReadAt", Reason: "it reads len(b) bytes of its file at off into b, keeping no reference to b, and leaves the handle's offset", Source: "7c804d1ca0d7"},
+	{Target: "os.File.Write", Reason: "it writes b to its file at the handle's offset, keeping no reference to b", Source: "623de74b5313"},
+	{Target: "os.File.WriteString", Reason: "it writes s to its file at the handle's offset", Source: "da1e5bc07acd"},
+	{Target: "os.File.Seek", Reason: "it moves the handle's offset and returns the new one", Source: "6dc50422060a"},
+	{Target: "os.File.Close", Reason: "it closes its handle; a later call on it fails with os.ErrClosed", Source: "61bc2647f666"},
+	{Target: "os.File.Name", Reason: "it returns the name its handle was opened with", Source: "0099ffe09700"},
+	{Target: "os.File.Sync", Reason: "it commits its file's contents to stable storage", Source: "1ef07de7120d"},
+	{Target: "os.File.Truncate", Reason: "it changes its file's size", Source: "316577c38894"},
 }
 
 // HostOf is the host row of target, if it has one.
