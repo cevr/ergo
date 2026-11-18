@@ -21,9 +21,6 @@ var deprecated = &Rule{
 }
 
 func checkDeprecated(p *Pass) {
-	if p.Package.Std() || p.Package.Host() {
-		return
-	}
 	report := func(at syntax.Node, doc *syntax.CommentGroup, owner *check.Package) {
 		if owner == p.Package {
 			return

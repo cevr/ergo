@@ -13,6 +13,9 @@ const (
 	Justifiers  = "justifiers"
 	Strict      = "strict"
 	Layout      = "layout"
+	// Advisory is the opt-in preset of rules a reader judges: hints that
+	// never change the exit code by their severity (spec §4 point 2).
+	Advisory = "advisory"
 )
 
 // builtinRules are every built-in rule.
@@ -23,6 +26,10 @@ var builtinRules = []*Rule{
 	unusedDeclaration, unusedTypeParameter, duplicateTest, duplicateShape, identicalArms, unbuiltVariant,
 	forwardingFunc, loneProvider, modeParameter, stringlyState,
 	testWaitsOnTime,
+	defaultOnFailure, repeatedPureCall, guardTheTypeProves, repeatedGuard,
+	foreignOutsideAdapter, capabilityOutsideOwner, consoleOutsideEntry, testReadsUnexported,
+	causeDropped, failureAsVariant, vacuousTest, parameterClump, constantArgument, longParameterList,
+	narrationComment, commentedCode,
 }
 
 // builtinPresets are the built-in presets over builtinRules.
@@ -47,15 +54,22 @@ func builtinPresets() []Preset {
 		},
 		{
 			Name: Strict,
-			Doc:  "Complexity caps (cognitive and cyclomatic 21, Halstead difficulty 79), style (known-value widening, banned words) and dead or duplicate code: unused declarations and type parameters, duplicate tests and shapes, identical arms, unbuilt variants; and needless indirection: forwarding functions, lone providers, mode parameters, stringly state; and tests that wait by letting time pass.",
+			Doc:  "Complexity caps (cognitive and cyclomatic 21, Halstead difficulty 79), style (known-value widening, banned words) and dead or duplicate code: unused declarations and type parameters, duplicate tests and shapes, identical arms, unbuilt variants; and needless indirection: forwarding functions, lone providers, mode parameters, stringly state; tests that wait by letting time pass; and defensive code: defaults on any failure, repeated pure calls, guards a refined type proves, and the same guard in three functions; and the anti-slop family: a dropped cause, a failure returned as a value, a test that cannot fail, parameter clumps, constant arguments and long parameter lists.",
 			Rules: on(cognitiveComplexity, cyclomaticComplexity, halsteadDifficulty, knownValueWidening, bannedWords,
 				unusedDeclaration, unusedTypeParameter, duplicateTest, duplicateShape, identicalArms, unbuiltVariant,
-				forwardingFunc, loneProvider, modeParameter, stringlyState, testWaitsOnTime),
+				forwardingFunc, loneProvider, modeParameter, stringlyState, testWaitsOnTime,
+				defaultOnFailure, repeatedPureCall, guardTheTypeProves, repeatedGuard,
+				causeDropped, failureAsVariant, vacuousTest, parameterClump, constantArgument, longParameterList),
 		},
 		{
 			Name:  Layout,
-			Doc:   "The Go layout of AGENTS.md: implementations chosen only at the entry, files named by concept.",
-			Rules: on(withAtEntry, conceptFileNames),
+			Doc:   "The Go layout of AGENTS.md: implementations chosen only at the entry, files named by concept, Go code only in adapters, capabilities run only by their owners, Console kept out of domain packages, and tests through the exported functions.",
+			Rules: on(withAtEntry, conceptFileNames, foreignOutsideAdapter, capabilityOutsideOwner, consoleOutsideEntry, testReadsUnexported),
+		},
+		{
+			Name:  Advisory,
+			Doc:   "Comments a reader would cut, as hints: narration that repeats the code line under it, and code kept in a comment. Opt-in; precision 0.00 until a read sample reaches 0.80.",
+			Rules: on(narrationComment, commentedCode),
 		},
 	}
 }

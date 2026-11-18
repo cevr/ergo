@@ -78,6 +78,7 @@ language	internal/sketch/check/extern.go:IsGoError	go.Error of the Go boundary	-
 language	internal/sketch/check/extern.go:predeclaredExtern	the prelude's externs are intrinsics the lowering writes	-
 language	internal/sketch/check/footprint.go:preludeCollection	the prelude collection functions	-
 language	internal/sketch/check/lintfacts.go:IsScheduler	Scheduler, the predeclared capability a manual clock implements (test-waits-on-time)	-
+language	internal/sketch/check/lintfacts.go:IsConsole	Console, the predeclared output capability (console-outside-entry)	-
 language	internal/sketch/check/laws.go:lawClosures	the prelude's providers in a law	-
 language	internal/sketch/check/loops.go:checker.preludeOrigin	Range and Seq, the iteration forms	-
 language	internal/sketch/check/match.go:reusableBinderName	Decision, the machine result	-
@@ -130,16 +131,6 @@ debt	internal/sketch/check/lintfacts.go:RoleOf	decides by std membership or a st
 debt	internal/sketch/check/lintfacts.go:isStdObj	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
 debt	internal/sketch/check/lintfacts.go:stdRoles	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
 debt	internal/sketch/lint/facts.go:extractor.unit	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
-debt	internal/sketch/lint/facts.go:programUnit	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
-debt	internal/sketch/lint/rule_banned_words.go:checkBannedWords	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
-debt	internal/sketch/lint/rule_complexity.go:checkCap	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
-debt	internal/sketch/lint/rule_concept_file_names.go:checkConceptFileNames	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
-debt	internal/sketch/lint/rule_deprecated.go:checkDeprecated	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
-debt	internal/sketch/lint/rule_foreign_error_public.go:checkForeignErrorPublic	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
 debt	internal/sketch/lint/rule_foreign_where_std.go:checkForeignWhereStd	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
-debt	internal/sketch/lint/rule_known_value_widening.go:checkKnownValueWidening	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
-debt	internal/sketch/lint/rule_race_for_timeout.go:checkRaceForTimeout	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
-debt	internal/sketch/lint/rule_unbounded_collect.go:checkUnboundedCollect	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
-debt	internal/sketch/lint/rule_with_at_entry.go:checkWithAtEntry	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
 debt	internal/sketch/lower/std.go:lowerer.runtimeType	decides by std membership or a std name; came with a batch-19 unit developed beside the rule (batch 19 combined integration)	B19-NP
 debt	internal/sketch/lower/ir_pkg.go:irBuilder.stdOpCall	decides by std membership or a std name; came with a unit developed beside the rule (batch 22 integration, IRG4b r2: an operation call on a runtime-bound type)	B22-NP

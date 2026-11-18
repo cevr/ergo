@@ -21,9 +21,6 @@ var unboundedCollect = &Rule{
 }
 
 func checkUnboundedCollect(p *Pass) {
-	if p.Package.Std() || p.Package.Host() {
-		return
-	}
 	bound := map[*check.Var]syntax.Expr{}
 	syntax.Inspect(p.File, func(n syntax.Node) bool {
 		d, ok := n.(*syntax.DeclStmt)

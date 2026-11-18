@@ -40,10 +40,17 @@ func capOptions(max float64) func(json.RawMessage) (any, error) {
 	})
 }
 
-// wordOptions is a naming rule's list of words.
+// wordOptions is banned-words' lists: words no declared name may hold,
+// and generic verbs no top-level function may be named by alone.
 type wordOptions struct {
 	Words []string `json:"words"`
+	Verbs []string `json:"verbs"`
 }
+
+// genericVerbs is banned-words' default verbs: a function named by one of
+// them alone says it does something, not what (Fowler mysterious-name;
+// anti-slop §1c).
+var genericVerbs = []string{"handle", "process", "manage", "do", "perform", "execute", "run", "compute"}
 
 // suffixOptions is concept-file-names' list of kind words.
 type suffixOptions struct {
@@ -55,4 +62,11 @@ type suffixOptions struct {
 // a program implementation.
 type functionOptions struct {
 	Functions []string `json:"functions"`
+}
+
+// ownerOptions is capability-outside-owner's map from a capability, as
+// its type prints (store.Store), to the package folders under the module
+// root that may run its operations ("." the root package's).
+type ownerOptions struct {
+	Owners map[string][]string `json:"owners"`
 }

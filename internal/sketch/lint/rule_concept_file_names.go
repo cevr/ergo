@@ -22,9 +22,6 @@ var conceptFileNames = &Rule{
 }
 
 func checkConceptFileNames(p *Pass) {
-	if p.Package.Std() || p.Package.Host() {
-		return
-	}
 	if kind, ok := kindSuffix(p.Rel(), p.Options.(suffixOptions).Suffixes); ok {
 		at := p.File.Pos()
 		p.Report(at, at, "this file is named for a kind ("+kind+"), not a concept")

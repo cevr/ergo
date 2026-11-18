@@ -15,9 +15,6 @@ var foreignErrorPublic = &Rule{
 }
 
 func checkForeignErrorPublic(p *Pass) {
-	if p.Package.Std() || p.Package.Host() {
-		return
-	}
 	inFile := map[any]bool{}
 	for _, d := range p.File.Decls {
 		inFile[d] = true

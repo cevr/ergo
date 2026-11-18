@@ -39,7 +39,7 @@ var withAtEntry = &Rule{
 }
 
 func checkWithAtEntry(p *Pass) {
-	if p.Package.Std() || p.Package.Host() || entryFile(p.Rel()) || testFile(p.File) {
+	if entryFile(p.Rel()) || testFile(p.File) {
 		return
 	}
 	listed := p.Options.(functionOptions).Functions

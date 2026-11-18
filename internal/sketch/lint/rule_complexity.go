@@ -46,9 +46,6 @@ var halsteadDifficulty = &Rule{
 }
 
 func checkCap(p *Pass, metric string, measure func(*syntax.BlockStmt) float64) {
-	if p.Package.Std() || p.Package.Host() {
-		return
-	}
 	max := p.Options.(maxOptions).Max
 	for _, d := range p.File.Decls {
 		f, ok := d.(*syntax.FuncDecl)

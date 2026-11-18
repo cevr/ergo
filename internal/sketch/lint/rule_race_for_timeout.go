@@ -29,9 +29,6 @@ type sleeper struct {
 }
 
 func checkRaceForTimeout(p *Pass) {
-	if p.Package.Std() || p.Package.Host() {
-		return
-	}
 	caught := map[syntax.Expr]bool{}
 	syntax.Inspect(p.File, func(n syntax.Node) bool {
 		if c, ok := n.(*syntax.CatchExpr); ok {
