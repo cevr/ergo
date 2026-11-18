@@ -365,6 +365,10 @@ func InFlight[S, E, D, F](s *Session[S, E, D, F]) int { len(s.inflight) }
 // patch's top nodes: a host's mirror starts from it.
 func SessionRoot[S, E, D, F](s *Session[S, E, D, F]) Id[E] { Root(&s.frame) }
 
+// SessionHovered is the node the pointer is over in s's frame (Hovered,
+// UG3).
+func SessionHovered[S, E, D, F](s *Session[S, E, D, F]) Option[Id[E]] { Hovered(&s.frame) }
+
 // SessionLookState is the state whose look a host paints for the node id
 // (LookStateIn, UG3).
 func SessionLookState[S, E, D, F](s *Session[S, E, D, F], id Id[E]) LookState { LookStateIn(&s.frame, id) }

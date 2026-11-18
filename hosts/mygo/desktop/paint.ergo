@@ -365,7 +365,7 @@ func draw[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, ids Map[ui.Id[E], l
 	d.boxes[id] = b
 	let focus = ui.SessionFocus(&d.session) == (Some{Value: id})
 	let s = spot[E]{id: id, node: n, box: b, clip: clip}
-	let look = paintLook(d, n, b, clip, line, focus)
+	let look = paintLook(d, id, n, b, clip, line, focus)
 	match n {
 	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.FieldsetNode, ui.ZoneNode, ui.TransitionNode:
 		drawKids(d, t, ids, id, dy, clip, line)
@@ -426,7 +426,7 @@ func draw[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, ids Map[ui.Id[E], l
 	case ui.PressableNode[E] as x:
 		d.spots = d.spots.Append(s)
 		if focus {
-			ring(d, b, float32(float64(lookOf(d, n).Corners.TopLeft)))
+			ring(d, b, float32(float64(lookOf(d, id, n).Corners.TopLeft)))
 		}
 		access(d, id, screen.RoleButton, x.Label, "", b, false, focus)
 		drawKids(d, t, ids, id, dy, clip, line)

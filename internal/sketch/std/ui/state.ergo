@@ -454,7 +454,9 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 		if n.off {
 			return out
 		}
-		focusTo(f, p.Id.ref, false)
+		// A key's press (Enter on the focused node) keeps the focus look a
+		// key showed; a pointer's Down hid it already (UG3).
+		focusTo(f, p.Id.ref, f.visible && f.focus == p.Id.ref)
 		match n.node {
 		case PressableNode[E] as x:
 			out.Signal = Some{Value: x.On}
@@ -508,6 +510,13 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 		}
 	case Point[E] as p:
 		hovered(f, p.Id, p.Pointer)
+		// A pointer's press hides the focus look until a key moves the
+		// focus (focus-visible, UG3).
+		match p.Pointer.Phase {
+		case Down:
+			f.visible = false
+		case _:
+		}
 		let mut pe = p.Pointer
 		pe.Phase = gripped(f, p.Id, p.Pointer.Phase)
 		pe.Zone = None

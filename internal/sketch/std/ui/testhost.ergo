@@ -137,14 +137,24 @@ func isInput[E](ev Event[E]) bool {
 func Counts[S, E, D, F](h *TestHost[S, E, D, F]) StepCounts { h.step }
 
 // Tap presses the node id. A tap is a pointer's press and release on it,
-// so it ends any capture (FK12-g1), as a window's click on a button does.
+// so it ends any capture (FK12-g1), as a window's click on a button does,
+// and the pointer stays over it (UG3): a Down and an Up at its top left
+// corner, then the press, as the desktop host sends them.
 func Tap[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E]) fails actor.Stopped | BadPatch {
 	h.captured = None
+	try point(h, id, None, PointerEvent{Phase: Down, X: 0, Y: 0, Zone: None})
+	try point(h, id, None, PointerEvent{Phase: Up, X: 0, Y: 0, Zone: None})
 	try apply(h, Press[E]{Id: id})
 }
 
-// TypeText types text into the node id.
+// TypeText types text into the node id after a click on it, so the
+// pointer stays over it (UG3).
 func TypeText[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E], text string) fails actor.Stopped | BadPatch {
+	// A click on the node first, as a window's typing into a field does:
+	// the pointer stays over it (UG3).
+	h.captured = None
+	try point(h, id, None, PointerEvent{Phase: Down, X: 0, Y: 0, Zone: None})
+	try point(h, id, None, PointerEvent{Phase: Up, X: 0, Y: 0, Zone: None})
 	try apply(h, Type[E]{Id: id, Text: text})
 }
 
@@ -368,6 +378,23 @@ func LooksOf[S, E, D, F](h *TestHost[S, E, D, F], n Node[E]) Looks { LooksIn(Mir
 // leaves the window does: a Moved to the root (UG3).
 func PointNowhere[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
 	try point(h, SessionRoot(&h.session), None, PointerEvent{Phase: Moved, X: 0, Y: 0, Zone: None})
+}
+
+// ClickNowhere clicks where no node is, as a click on a window's
+// background does: the pointer leaves every node and the focus every
+// node (UG3).
+func ClickNowhere[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
+	try PointNowhere(h)
+	FocusSession(&h.session, None)
+}
+
+// Activate presses the node id from the keyboard, as Tab to it and Enter
+// do: the focus moves to it and shows, and the pointer stays where it is
+// (UG3).
+func Activate[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E]) fails actor.Stopped | BadPatch {
+	h.captured = None
+	focusTo(&h.session.frame, id.ref, true)
+	try apply(h, Press[E]{Id: id})
 }
 
 // LookStateAt is the state whose look the node id shows (UG3).
