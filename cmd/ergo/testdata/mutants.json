@@ -170,8 +170,8 @@
       "name": "dist1-platform-unchecked",
       "origin": "wf10 DIST1",
       "file": "cmd/ergo/build.go",
-      "from": "if slices.Contains(gobind.Platforms, p) {",
-      "to": "if true || slices.Contains(gobind.Platforms, p) {",
+      "from": "if _, phone := gobind.PhoneOf(p); phone || slices.Contains(gobind.Platforms, p) {",
+      "to": "if _, phone := gobind.PhoneOf(p); true || phone || slices.Contains(gobind.Platforms, p) {",
       "rule": "A platform outside the target list is the EF110 refusal, however it was named.",
       "killers": ["cmd/ergo:TestFileCommandsRefuseOptionsTheyDoNotTake", "cmd/ergo:TestPlatformOfABuild"]
     },
@@ -553,6 +553,10 @@
     {"name":"gs31b-test-digest-build-mode","origin":"wf10 GS31b","file":"cmd/ergo/emittedjson.go","from":"sketchfront.EmittedDigest(alone.analysis, emissionRequest(opts, alone, build.ModeTest))","to":"sketchfront.EmittedDigest(alone.analysis, emissionRequest(opts, alone, build.ModeBuild))","rule":"test --emitted --json's test digest is the one test --emitted prints.","killers":["cmd/ergo:TestEmittedJSONIsWhatTheCommandsGive"],"anchor":{"tests":["cmd/ergo:TestEmittedJSONIsWhatTheCommandsGive"]}},
     {"name":"gs31b-build-every-package","origin":"wf10 GS31b","file":"cmd/ergo/emittedjson.go","from":"\tif !hasMain(alone) {\n","to":"\tif false {\n","rule":"Only a package with a main function has a build digest.","killers":["cmd/ergo:TestEmittedJSONIsWhatTheCommandsGive"],"anchor":{"tests":["cmd/ergo:TestEmittedJSONIsWhatTheCommandsGive"]}},
     {"name":"gs31b-digests-shared-load","origin":"wf10 GS31b","file":"cmd/ergo/emittedjson.go","from":"\tif shared {\n","to":"\tif false {\n","rule":"The digests are of the package loaded alone, as the --emitted commands load it.","killers":["cmd/ergo:TestEmittedJSONIsWhatTheCommandsGive"],"anchor":{"tests":["cmd/ergo:TestEmittedJSONIsWhatTheCommandsGive"]}},
-    {"name":"p3-7-inspect-machine-json-refused","origin":"wf10 MX P3-7","file":"cmd/ergo/main.go","from":"command != \"test\" && command != \"inspect machine\":","to":"command != \"test\":","rule":"ergo inspect machine --json, documented in tooling.md and its help, prints the graphs as JSON instead of being refused by the option parser.","killers":["cmd/ergo:TestInspectMachineJSON"],"anchor":{"tests":["cmd/ergo:TestInspectMachineJSON"]}}
+    {"name":"p3-7-inspect-machine-json-refused","origin":"wf10 MX P3-7","file":"cmd/ergo/main.go","from":"command != \"test\" && command != \"inspect machine\":","to":"command != \"test\":","rule":"ergo inspect machine --json, documented in tooling.md and its help, prints the graphs as JSON instead of being refused by the option parser.","killers":["cmd/ergo:TestInspectMachineJSON"],"anchor":{"tests":["cmd/ergo:TestInspectMachineJSON"]}},
+    {"name":"mb2-phone-other-bindings","origin":"wf10 MB2","file":"internal/gobind/load.go","from":"{Platform{\"ios\", \"arm64\"}, Platform{\"darwin\", \"arm64\"}},","to":"{Platform{\"ios\", \"arm64\"}, Platform{\"darwin\", \"amd64\"}},","rule":"A phone checks against the bindings of the platform Go's build constraints read it as: ios/arm64 against darwin/arm64.","killers":["cmd/ergo:TestPlatformOfABuild"],"anchor":{"tests":["cmd/ergo:TestPlatformOfABuild"]}},
+    {"name":"mb2-phone-run-admitted","origin":"wf10 MB2","file":"cmd/ergo/main.go","from":"command == \"run\" || command == \"test\"","to":"command == \"test\"","rule":"ergo run refuses a phone platform: a phone program is a library its packager links, and nothing here can run it.","killers":["cmd/ergo:TestPlatformOfABuild"],"anchor":{"tests":["cmd/ergo:TestPlatformOfABuild"]}},
+    {"name":"mb2-phone-linked","origin":"wf10 MB2","file":"cmd/ergo/build.go","from":"return buildPhone(opts)","to":"_ = buildPhone","rule":"ergo build for a phone writes the module and stops before the link, printing WORK=, GO=, GOROOT= and GOFLAGS=; it writes no executable.","killers":["cmd/ergo:TestPhoneModuleTypechecks"],"anchor":{"tests":["cmd/ergo:TestPhoneModuleTypechecks"]}},
+    {"name":"mb2-phone-no-ir-flag","origin":"wf10 MB2","file":"cmd/ergo/build.go","from":"flags = append(flags, \"'-gcflags=\"","to":"_ = append(flags, \"'-gcflags=\"","rule":"The GOFLAGS a phone build prints hand each package its IR file; without them the compile stops at missing function body.","killers":["cmd/ergo:TestPhoneModuleTypechecks"],"anchor":{"tests":["cmd/ergo:TestPhoneModuleTypechecks"]}}
   ]
 }
