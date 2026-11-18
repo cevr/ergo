@@ -1,6 +1,10 @@
 package v1
 
-import "testing"
+import (
+	"testing"
+
+	"ergo.local/prototype/runtime/rt"
+)
 
 // TestFuseOrRunsTheLeftSideOnADefect: FuseOr is right's value when right
 // returns; when right raises a defect, it is left's (the staged form run
@@ -26,4 +30,28 @@ func TestFuseOrRunsTheLeftSideOnADefect(t *testing.T) {
 	}()
 	FuseOr(func() int { panic("later stage") }, func() int { panic("first stage") })
 	t.Errorf("FuseOr(defect, defect) returned; want the left side's defect")
+}
+
+// TestFuseOrPassesACarriedExit: a panic that carries an interruption or an
+// exit is no defect of the fused loop; it leaves FuseOr as it came, and left
+// does not run.
+//
+// Mutant: fusion-fuseor-swallows-exit (FuseOr runs left on any panic, so
+// an interruption inside the fused loop ends in left's value).
+func TestFuseOrPassesACarriedExit(t *testing.T) {
+	for _, p := range []any{rt.Interrupted, &exit{err: rt.Interrupted}} {
+		lefts := 0
+		func() {
+			defer func() {
+				if r := recover(); r != p {
+					t.Errorf("FuseOr(panic %v, left) raised %v; want the panic as it came", p, r)
+				}
+			}()
+			FuseOr(func() int { panic(p) }, func() int { lefts++; return 2 })
+			t.Errorf("FuseOr(panic %v, left) returned; want the panic", p)
+		}()
+		if lefts != 0 {
+			t.Errorf("FuseOr(panic %v, left) ran left %d times; want none", p, lefts)
+		}
+	}
 }

@@ -159,6 +159,7 @@ var bodyTable = []bodyRow{
 	{"FloatToUint8", bodyFact{body: Body{Params: []Param{{Type: "float64"}}, Results: []string{"uint8"}, Package: Path}}},
 	{"FloatToUintptr", bodyFact{body: Body{Params: []Param{{Type: "float64"}}, Results: []string{"uintptr"}, Package: Path}}},
 	{"FlushStdout", bodyFact{body: Body{Package: Path}}},
+	{"FuseOr", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "func() T", Func: &Body{Results: []string{"T"}}}, {Type: "func() T", Func: &Body{Results: []string{"T"}}}}, Results: []string{"T"}, Package: Path}}},
 	{"Get", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "K", Constraint: "comparable"}, {Name: "V", Constraint: "any"}}, Params: []Param{{Type: "map[K]V"}, {Type: "K"}}, Results: []string{"V", "bool"}, Pure: true, Package: Path}}},
 	{"Go", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Hidden: []Hidden{"frame", "site"}, Params: []Param{{Type: "func(*rt.Task) (T, error)", Func: &Body{Hidden: []Hidden{"task"}, Results: []string{"T", "error"}}}}, Results: []string{"*Task[T]"}, Wait: "none", Package: Path}}},
 	{"GoArgLent", bodyFact{body: Body{Params: []Param{{Type: "string"}, {Type: "int"}}, Results: []string{"bool"}, Package: Path}}},
