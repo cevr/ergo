@@ -77,6 +77,13 @@ func (b *irBuilder) ret(x syntax.Expr, p irPos) []*irStmt {
 
 // retOf is ret's statements before a law's check.
 func (b *irBuilder) retOf(x syntax.Expr, p irPos) []*irStmt {
+	if b.inPlaceTail != nil && x == b.inPlaceTail {
+		// The cell keeps what s holds (ir_refown.go, inPlaceLit).
+		if b.result == nil {
+			return []*irStmt{{K: "ret", Pos: p}}
+		}
+		x = unparen(x).(*syntax.TupleExpr).Elts[0]
+	}
 	if x == nil {
 		if b.result != nil {
 			irNo("bare return")

@@ -96,6 +96,9 @@ func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr
 	if l.bodyNeedsFrame(list) || l.ownsParams(params) {
 		irNo("function literal that is a frame")
 	}
+	if ip := l.inPlace[n]; ip != nil && x != nil {
+		return b.inPlaceLitIR(x, ip, list, end, endNode) // ir_refown.go
+	}
 	if x != nil && b.fc.plainLits[x] {
 		return b.plainLitIR(x, sig, params, ids, list, end) // a known callback (ir_kcb.go)
 	}

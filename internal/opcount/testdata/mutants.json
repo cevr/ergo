@@ -92,6 +92,15 @@
       "killers": ["internal/opcount:TestWorkloadFileReads"]
     },
     {
+      "name": "workload-floor-dropped",
+      "origin": "wf10 FLOORS",
+      "file": "internal/opcount/workload.go",
+      "from": "\t\t\tw.Floor = rest[0]\n",
+      "to": "\t\t\t_ = rest[0]\n",
+      "rule": "A floor line names the Go-runtime floor program the receipt measures beside the control.",
+      "killers": ["internal/opcount:TestWorkloadFileReads"]
+    },
+    {
       "name": "slope-not-difference",
       "origin": "wf10 STROBE OPC",
       "file": "internal/opcount/receipt.go",

@@ -451,6 +451,9 @@ type irBuilder struct {
 	// statement ends the body: a tail of an error value fails the frame
 	// (ir_fail.go bodyStmts, ir_stmt.go tailTo).
 	voidTail bool
+	// inPlaceTail is the last value of the in-place literal being built,
+	// s or (x, s) (ir_refown.go): its return gives x alone, or nothing.
+	inPlaceTail syntax.Expr
 	// at, when set, is the position of every node built: a view's body
 	// built at its match site takes the site's (ir_view.go).
 	at *irPos
