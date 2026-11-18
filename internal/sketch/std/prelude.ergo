@@ -524,6 +524,14 @@ func Using[K comparable, H Hashing[K], V](m hashTable[K, H, V], by H) hashTable[
 	t
 }
 
+// MakeMap is an empty Map[K, V, H] with the provider by, as MakeSlice is
+// an empty slice: the way to a Map whose provider has no default, a
+// record with fields such as a seeded hash (types.md, Maps 3). maps.Using
+// is it.
+func MakeMap[K comparable, V any, H Hashing[K]](by H) Map[K, V, H] {
+	hashTable[K, H, V]{by: by, norm: Map[K, keyEntry[K, V]]{}, slots: []Option[keyEntry[K, V]]{}, count: 0}
+}
+
 // Stored is the entries of m keyed by their stored spellings, a Map[K, V]:
 // `for k, v in m` reads it, in the sorted order of the stored keys.
 func Stored[K comparable, H Hashing[K], V](m hashTable[K, H, V]) Map[K, V] {

@@ -8,6 +8,11 @@
 // write to the clone never reaches m.
 func Clone[K comparable, V](m Map[K, V]) Map[K, V] { m.Clone() }
 
+// Using is an empty Map whose provider is by: the Map of a provider with
+// fields, such as a seeded hash, which has no default (types.md, Maps 3).
+// Rust's HashMap::with_hasher.
+func Using[K comparable, V any, H Hashing[K]](by H) Map[K, V, H] { MakeMap[K, V, H](by) }
+
 // GetOr is the value of k in m, or def when m has no key k: Effect's
 // HashMap.get then Option.getOrElse, and Go's comma-ok read with a
 // default.

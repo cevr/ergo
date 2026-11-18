@@ -67,7 +67,7 @@ func TestProviderMapAgrees(t *testing.T) {
 			return k % mod
 		}
 		provider := []string{
-			fmt.Sprintf("func Hash(_ Mod, k int) uint64 { uint64((k %% %[1]d) %% %[2]d) }\n\nfunc Equal(_ Mod, a int, b int) bool { a %% %[1]d == b %% %[1]d }", mod, buckets),
+			fmt.Sprintf("func Hash(p Mod, k int) uint64 { uint64((k %% p.m) %% %d) }\n\nfunc Equal(p Mod, a int, b int) bool { a %% p.m == b %% p.m }", buckets),
 			fmt.Sprintf("func Hash(_ Mod, k int) uint64 { hash(k %% %[1]d) }\n\nfunc Equal(_ Mod, a int, b int) bool { a %% %[1]d == b %% %[1]d }", mod),
 			fmt.Sprintf("func Hash(_ Mod, k int) uint64 { hash(k / %[1]d) }\n\nfunc Equal(_ Mod, a int, b int) bool { a / %[1]d == b / %[1]d }", mod),
 			"func Hash(_ Mod, k int) uint64 { hash(k) }\n\nfunc Equal(_ Mod, a int, b int) bool { a == b }",
@@ -145,9 +145,15 @@ func TestProviderMapAgrees(t *testing.T) {
 		if len(model) > 0 {
 			mut = "let mut "
 		}
-		body.WriteString("\t" + mut + "o = Map[int, int, Mod]{}\n" + same.String() + "\t" + mut + "p = Map[int, int, Mod]{}\n" + other.String() +
+		// Kind 0's provider has a field, so it has no default: its Maps
+		// are made by MakeMap with the modulus (types.md, Maps 3).
+		field, made := "", "MakeMap[int, int, Mod](Mod)"
+		if kind == 0 {
+			field, made = "\n\tm int,\n", fmt.Sprintf("MakeMap[int, int, Mod](Mod{m: %d})", mod)
+		}
+		body.WriteString("\t" + mut + "o = " + made + "\n" + same.String() + "\t" + mut + "p = " + made + "\n" + other.String() +
 			"\tConsole.Println(\"\\(m == o) \\(m != p)\")\n")
-		src := fmt.Sprintf(`type Mod {} implements Hashing[int]
+		src := fmt.Sprintf(`type Mod {%[3]s} implements Hashing[int]
 
 %[1]s
 
@@ -159,7 +165,7 @@ func show(o Option[int]) string {
 }
 
 func main() needs Console {
-	let mut m = Map[int, int, Mod]{}
+	let mut m = %[4]s
 %[2]s	let mut sum = 0
 	for k, v in m {
 		sum = sum + k * 1000 + v
@@ -170,7 +176,7 @@ func main() needs Console {
 func got[H Hashing[int]](m Map[int, int, H], k int) Option[int] { m.Get(k) }
 
 func size[H Hashing[int]](m Map[int, int, H]) int { len(m) }
-`, provider, body.String())
+`, provider, body.String(), field, made)
 		for _, lowering := range []string{"", "table"} {
 			restore := check.SetMapLowering(lowering)
 			pkg := checked(t, src)
