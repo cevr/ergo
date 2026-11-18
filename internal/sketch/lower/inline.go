@@ -742,6 +742,18 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 			same[i] = fc.goType(fc.typeOf(a))
 		}
 	}
+	// A growth guard first in the body is written as a call of f out of
+	// line (coldhead.go) when every parameter is a plain local of the body.
+	guard := fc.l.coldGuard(f, fd)
+	if len(lits) > 0 || len(funs) > 0 || len(alias) > 0 || c.Site != nil || fc.l.vals != nil && fc.l.vals.ownCall[x] {
+		guard = nil
+	}
+	coldArgs := make([]string, len(f.Sig.Params))
+	callDir := ""
+	if guard != nil && fc.directives && x.Pos().IsValid() {
+		_, src, line, column := fc.l.at(x, x.Pos())
+		callDir = Directive(fc.tagPath(src), line, column)
+	}
 	before := fc.l.lastDir
 	callerInfo := fc.l.info
 	func() {
@@ -789,10 +801,12 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 			}
 			if params[i] == nil {
 				ic.line("_ = " + vals[i])
+				guard = nil // the out-of-line call would evaluate it again
 				continue
 			}
 			if same[i] != "" && same[i] == ic.goType(p.Type) {
 				ic.locals[params[i]] = vals[i]
+				coldArgs[i] = vals[i]
 				if !fc.l.reads[params[i]] {
 					// The operand may have no other read (a catch binding).
 					ic.line("_ = " + vals[i])
@@ -800,6 +814,7 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 				continue
 			}
 			name := ic.declare(params[i])
+			coldArgs[i] = name
 			ic.line("var " + name + " " + ic.goType(p.Type) + " = " + vals[i])
 			if !fc.l.reads[params[i]] {
 				ic.line("_ = " + name)
@@ -808,7 +823,12 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 		fc.l.analyzeValues(f.Decl, f.Pkg.Info)
 		ic.goGeneric = fc.goGeneric
 		ic.scalarSet = fc.l.scalarVars(f)
-		ic.body(f.Decl.Body.List)
+		list := f.Decl.Body.List
+		if guard != nil {
+			ic.coldHead(f, fd, guard, coldArgs, ret.label, x, callDir) // coldhead.go
+			list = list[1:]
+		}
+		ic.body(list)
 	}()
 	fc.closeInline(ic.out.String(), ret, before)
 	if ret.tuple != nil {
