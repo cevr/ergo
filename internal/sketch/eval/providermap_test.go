@@ -39,8 +39,8 @@ var providerMapSeed = flag.Uint64("providermap.seed", 0, "replay TestProviderMap
 // Mutants only it kills (testdata/mutants.json): c5-table-hash-only,
 // c5-table-delete-hole, c5-table-grow-other-hash,
 // c5b-keytable-latest-spelling, c5b-map-equal-structural,
-// c5b-keytable-equal-spelling, c5d-normal-form-ignored,
-// c5d-written-normal-form-ignored.
+// c5b-map-equal-spelling, c5d-table-latest-spelling,
+// c5d-normal-form-ignored, c5d-written-normal-form-ignored.
 func TestProviderMapAgrees(t *testing.T) {
 	seeds := []uint64{}
 	for s := uint64(1); s <= 48; s++ {

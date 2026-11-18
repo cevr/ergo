@@ -326,12 +326,12 @@ func NormalKey[K comparable](_ Structural[K], k K) K { k }
 //
 //   - true: norm, Go's own map keyed by H's NormalKey(k), each entry
 //     holding the key as first put and its value;
-//   - false: an open-addressing table, the entries in dense slices in the
-//     order they were first put, each with its stored hash, and slots that
-//     hold an entry's index plus one (0 is an empty slot). A Delete clears
-//     the entry's live mark and keeps its slot, so a probe never ends
-//     early at a deleted key; a growth compacts the live entries and
-//     places each again by its own stored hash.
+//   - false: slots, one array of slots (MI-1's IntMap layout), each free
+//     (None) or holding a key as first put and its value. A key is at the
+//     first free slot from its home, Hash(k) & mask, on (linear probing),
+//     and the table is at most three quarters full. A Delete shifts the
+//     slots after it back, so no slot is a tombstone and a probe ends at
+//     the first free slot.
 //
 // Each function asks H once; in a copy for one provider (MONO1) the
 // answer is a constant and the other way is dead code. The zero value is
@@ -340,75 +340,75 @@ func NormalKey[K comparable](_ Structural[K], k K) K { k }
 type hashTable[K comparable, H Hashing[K], V] {
 	by H,
 	norm Map[K, keyEntry[K, V]],
-	keys []K,
-	vals []V,
-	sums []uint64,
-	live []bool,
-	slots []int,
+	slots []Option[keyEntry[K, V]],
 	count int,
 }
 
-// keyEntry is one entry of a Map under a normal form: the key as first
-// put, and its value.
+// keyEntry is one entry of a Map with a provider: the key as first put,
+// and its value.
 type keyEntry[K, V] {
 	key K,
 	val V,
 }
 
-// find is the entry of k in t, live or deleted, and its slot, or -1 and
-// the empty slot where k's probe ends. sum is H's hash of k.
-func find[K comparable, H Hashing[K], V](t hashTable[K, H, V], k K, sum uint64) (int, int) {
-	if len(t.slots) == 0 {
-		return (-1, -1)
+// home is the slot a key of hash sum starts its probe at, in a table of
+// size slots (a power of two).
+func home(sum uint64, size int) int { int(sum & uint64(size - 1)) }
+
+// isFree reports a free slot.
+func isFree[T](s Option[T]) bool {
+	match s {
+		case Some: false
+		case None: true
 	}
+}
+
+// find is the slot of k in t and true, or the free slot where k's probe
+// ends and false. t has a free slot (grown), so the probe ends.
+func find[K comparable, H Hashing[K], V](t hashTable[K, H, V], k K) (int, bool) {
 	let mask = len(t.slots) - 1
-	let mut j = int(sum & uint64(mask))
-	for t.slots[j] != 0 {
-		let e = t.slots[j] - 1
-		if t.sums[e] == sum && t.by.Equal(t.keys[e], k) {
-			return (e, j)
+	let mut j = home(t.by.Hash(k), len(t.slots))
+	for {
+		match t.slots[j] {
+			case Some{Value}:
+				if t.by.Equal(Value.key, k) {
+					return (j, true)
+				}
+			case None:
+				return (j, false)
 		}
 		j = (j + 1) & mask
 	}
-	(-1, j)
 }
 
-// grown is t with room for one more entry: when the entries would fill
-// three quarters of the slots, the live entries move, in order, to new
-// slices, and each takes a slot by its own stored hash.
+// grown is t with room for one more key: when one more would fill more
+// than three quarters of the slots, the keys move to twice the slots (8
+// at first), each to the first free slot from its home on.
 func grown[K comparable, H Hashing[K], V](t hashTable[K, H, V]) hashTable[K, H, V] {
-	if (len(t.keys) + 1) * 4 <= len(t.slots) * 3 {
+	if (t.count + 1) * 4 <= len(t.slots) * 3 {
 		return t
 	}
 	let mut size = 8
-	for size * 3 < (t.count + 1) * 8 {
+	for size * 3 < (t.count + 1) * 4 {
 		size = size * 2
 	}
-	let mut slots = MakeSlice[int](size)
+	let mut slots = MakeSlice[Option[keyEntry[K, V]]](size)
 	for len(slots) < size {
-		slots = slots.Append(0)
+		slots = slots.Append(None)
 	}
-	let mut keys = MakeSlice[K](t.count)
-	let mut vals = MakeSlice[V](t.count)
-	let mut sums = MakeSlice[uint64](t.count)
-	let mut live = MakeSlice[bool](t.count)
 	let mask = size - 1
-	let mut i = 0
-	for i < len(t.keys) {
-		if t.live[i] {
-			let mut j = int(t.sums[i] & uint64(mask))
-			for slots[j] != 0 {
-				j = (j + 1) & mask
-			}
-			slots[j] = len(keys) + 1
-			keys = keys.Append(t.keys[i])
-			vals = vals.Append(t.vals[i])
-			sums = sums.Append(t.sums[i])
-			live = live.Append(true)
+	for s in t.slots {
+		match s {
+			case Some{Value}:
+				let mut j = home(t.by.Hash(Value.key), size)
+				for !isFree(slots[j]) {
+					j = (j + 1) & mask
+				}
+				slots[j] = s
+			case None:
 		}
-		i = i + 1
 	}
-	hashTable[K, H, V]{by: t.by, norm: t.norm, keys: keys, vals: vals, sums: sums, live: live, slots: slots, count: t.count}
+	hashTable[K, H, V]{by: t.by, norm: t.norm, slots: slots, count: t.count}
 }
 
 // Get is the value of k in m, Some{v}, or None when m has no key Equal
@@ -420,11 +420,17 @@ func Get[K comparable, H Hashing[K], V](m hashTable[K, H, V], k K) Option[V] {
 			case None: None
 		}
 	}
-	let (e, _) = find(m, k, m.by.Hash(k))
-	if e < 0 || !m.live[e] {
+	if m.count == 0 {
 		return None
 	}
-	Some[V]{Value: m.vals[e]}
+	let (j, found) = find(m, k)
+	if !found {
+		return None
+	}
+	match m.slots[j] {
+		case Some{Value}: Some[V]{Value: Value.val}
+		case None: None
+	}
 }
 
 // Put is m with v at k. A key that m holds keeps the spelling it was
@@ -441,41 +447,54 @@ func Put[K comparable, H Hashing[K], V](m hashTable[K, H, V], k K, v V) hashTabl
 		return t
 	}
 	let mut t = grown(m)
-	let sum = t.by.Hash(k)
-	let (e, j) = find(t, k, sum)
-	if e >= 0 {
-		if !t.live[e] {
-			t.live[e] = true
-			t.keys[e] = k
-			t.count = t.count + 1
-		}
-		t.vals[e] = v
-		return t
+	let (j, found) = find(t, k)
+	let first = match t.slots[j] {
+		case Some{Value}: Value.key
+		case None: k
 	}
-	t.slots[j] = len(t.keys) + 1
-	t.keys = t.keys.Append(k)
-	t.vals = t.vals.Append(v)
-	t.sums = t.sums.Append(sum)
-	t.live = t.live.Append(true)
-	t.count = t.count + 1
+	t.slots[j] = Some[keyEntry[K, V]]{Value: keyEntry[K, V]{key: first, val: v}}
+	if !found {
+		t.count = t.count + 1
+	}
 	t
 }
 
-// Delete is m without the key Equal to k.
+// Delete is m without the key Equal to k. Each later slot of the probe
+// run whose key's home does not lie after the freed slot (read
+// cyclically) moves back into it (backward shift), so no probe passes a
+// free slot.
 func Delete[K comparable, H Hashing[K], V](m hashTable[K, H, V], k K) hashTable[K, H, V] {
 	if m.by.NormalForm() {
 		let mut t = m
 		t.norm = t.norm.Delete(t.by.NormalKey(k))
 		return t
 	}
-	let (e, _) = find(m, k, m.by.Hash(k))
-	if e < 0 || !m.live[e] {
+	if m.count == 0 {
+		return m
+	}
+	let (at, found) = find(m, k)
+	if !found {
 		return m
 	}
 	let mut t = m
-	t.live[e] = false
-	t.count = t.count - 1
-	t
+	let mask = len(t.slots) - 1
+	let mut i = at
+	let mut j = (i + 1) & mask
+	for {
+		match t.slots[j] {
+			case None:
+				t.slots[i] = None
+				t.count = t.count - 1
+				return t
+			case Some{Value}:
+				let h = home(t.by.Hash(Value.key), len(t.slots))
+				if (j - h) & mask >= (j - i) & mask {
+					t.slots[i] = t.slots[j]
+					i = j
+				}
+		}
+		j = (j + 1) & mask
+	}
 }
 
 // Take is the value of k in m and m without k.
@@ -498,7 +517,7 @@ func Len[K comparable, H Hashing[K], V](m hashTable[K, H, V]) int {
 // keys, into an empty Map with the provider by: maps.Using builds a Map
 // with it. by may store its keys the other way than m's provider.
 func Using[K comparable, H Hashing[K], V](m hashTable[K, H, V], by H) hashTable[K, H, V] {
-	let mut t = hashTable[K, H, V]{by: by, norm: Map[K, keyEntry[K, V]]{}, keys: []K{}, vals: []V{}, sums: []uint64{}, live: []bool{}, slots: []int{}, count: 0}
+	let mut t = hashTable[K, H, V]{by: by, norm: Map[K, keyEntry[K, V]]{}, slots: []Option[keyEntry[K, V]]{}, count: 0}
 	for k, v in m.Stored() {
 		t = t.Put(k, v)
 	}
@@ -515,12 +534,11 @@ func Stored[K comparable, H Hashing[K], V](m hashTable[K, H, V]) Map[K, V] {
 		}
 		return out
 	}
-	let mut i = 0
-	for i < len(m.keys) {
-		if m.live[i] {
-			out[m.keys[i]] = m.vals[i]
+	for s in m.slots {
+		match s {
+			case Some{Value}: out[Value.key] = Value.val
+			case None:
 		}
-		i = i + 1
 	}
 	out
 }

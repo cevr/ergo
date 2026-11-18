@@ -22,7 +22,7 @@ import (
 // A failing seed prints the Ergo source.
 //
 // Mutants only it kills (testdata/mutants.json): c5b-shape-hash-unread,
-// c5b-shape-reference-ignored.
+// c5b-shape-reference-ignored, c5d-shape-other-type.
 func TestNormalFormShapeIsRead(t *testing.T) {
 	exprs := []struct {
 		text string
