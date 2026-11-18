@@ -140,7 +140,7 @@
       "anchor": {"tests": ["internal/sketch/std:TestStdStrengthsFixtures"]},
       "killers": ["internal/sketch/std:TestStdStrengthsFixtures"]
     },
-    {"name":"ss1-host-elapsed-mono","origin":"wf10 std-speed-1","file":"internal/sketch/std/time/clock.ergo","from":"let m = now - t.mono","to":"let m = t.mono - now","rule":"stdlib.md time, Clock.ElapsedIsNowSub: the host's Elapsed of a time with a monotonic reading is the monotonic read less t's.","killers":["lower:TestTimeRuns"],"gap":"Only a lowered program runs it, so the std ledger judges it uncovered (docs/tooling.md, Mutant ledger); its killer is run by hand: red at std-speed-1, 2026-11-13."},
+    {"name":"ss1-host-elapsed-mono","origin":"wf10 std-speed-1","file":"internal/sketch/std/time/clock.ergo","from":"let m = now - t.mono","to":"let m = t.mono - now","rule":"stdlib.md time, Clock.ElapsedIsNowSub: the host's Elapsed of a time with a monotonic reading is the monotonic read less t's.","killers":["lower:TestTimeRuns"],"gap":"Only a lowered program runs it, so the std ledger judges it uncovered (docs/tooling.md, Mutant ledger); its killer is run by hand: red at std-speed-1, 2026-11-13; re-judged at NP4f-17 (the reversed difference saturates, so TestTimeRuns bounds Elapsed by a later read), 2026-11-18."},
     {"name":"ss1-host-elapsed-wall","origin":"wf10 std-speed-1","file":"internal/sketch/std/time/clock.ergo","from":"\t\th.Now().Sub(t)","to":"\t\tt.Sub(h.Now())","rule":"stdlib.md time, Clock.ElapsedIsNowSub: the host's Elapsed of a time with no monotonic reading is Now().Sub(t) by the wall.","killers":["lower:TestTimeRuns"],"gap":"Only a lowered program runs it, so the std ledger judges it uncovered (docs/tooling.md, Mutant ledger); its killer is run by hand: red at std-speed-1, 2026-11-13."},
     {"name":"ss1-input-lines-feed","origin":"wf10 std-speed-1","file":"internal/sketch/std/io/io.ergo","from":"strings.IndexByte(rest, '\\n')","to":"strings.IndexByte(rest, ' ')","rule":"stdlib.md io: Input's Lines splits at each line feed.","killers":["lower:TestInputLinesMatchesModel"],"gap":"Only a lowered program runs it, so the std ledger judges it uncovered (docs/tooling.md, Mutant ledger); its killer is run by hand: red at std-speed-1, 2026-11-13."},
     {
@@ -847,6 +847,56 @@
       "rule": "std math.ToUintptr fails OutOfRange exactly outside the open interval where T(f)'s truncation fits, as the old runtime/v1 body did.",
       "anchor": {"tests":["lower:TestStdMatchesGo"]},
       "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f17-sub-no-internal-offset",
+      "origin": "wf10 NP4f-17 (NS lane)",
+      "file": "internal/sketch/std/time/time.ergo",
+      "from": "\tlet ts = t.sec + unixToInternal\n\tlet us = u.sec + unixToInternal\n",
+      "to": "\tlet ts = t.sec\n\tlet us = u.sec\n",
+      "rule": "std time's Sub of two times with no monotonic reading works on Go's internal seconds, which wrap where Unix seconds plus 62135596800 overflow, as Go's Time.Sub.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f17-sub-saturates-up-below",
+      "origin": "wf10 NP4f-17 (NS lane)",
+      "file": "internal/sketch/std/time/time.ergo",
+      "from": "\tif ts < us || ts == us && t.nsec < u.nsec {\n\t\treturn duration(minDuration)\n",
+      "to": "\tif ts < us || ts == us && t.nsec < u.nsec {\n\t\treturn duration(maxDuration)\n",
+      "rule": "std time's Sub past the range is the smallest duration when t is before u, as Go's.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f17-sub-carry-short",
+      "origin": "wf10 NP4f-17 (NS lane)",
+      "file": "internal/sketch/std/time/time.ergo",
+      "from": "\t\tdsec = dsec + 1\n\t\tn = n - 1000000000\n",
+      "to": "\t\tdsec = dsec + 1\n\t\tn = n - 999999999\n",
+      "rule": "std time's Sub checks u + d as Go's Add does, carrying a second out of the nanoseconds.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f17-sub-addsec-wraps",
+      "origin": "wf10 NP4f-17 (NS lane)",
+      "file": "internal/sketch/std/time/time.ergo",
+      "from": "\tif (s > us) != (dsec > 0) {\n",
+      "to": "\tif false {\n",
+      "rule": "std time's Sub checks u + d with Go's Add, whose seconds saturate where they would overflow.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f17-sub-mono-reversed",
+      "origin": "wf10 NP4f-17 (NS lane)",
+      "file": "internal/sketch/std/time/time.ergo",
+      "from": "\t\tlet m = t.mono - u.mono\n",
+      "to": "\t\tlet m = u.mono - t.mono\n",
+      "rule": "std time's Sub of two times with monotonic readings is t's reading less u's.",
+      "killers": ["lower:TestTimeRuns"],
+      "gap": "Only a lowered program runs it, so the std ledger judges it uncovered (docs/tooling.md, Mutant ledger); its killer is run by hand: red at NP4f-17, 2026-11-18."
     }
   ]
 }

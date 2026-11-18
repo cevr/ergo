@@ -11,13 +11,15 @@ import (
 // time.Unix takes them (nanoseconds outside a second included).
 type np4f17Pair struct{ a, an, b, bn int64 }
 
-// stdGo17Cases are NP4f-17's moved time Sub (its subWall half; Go's
+// stdGo17Cases are NP4f-17's moved time Sub (its wall half; Go's
 // Time.Sub of two times with no monotonic reading) against Go's own:
 // time.Unix(a, an).Sub(time.Unix(b, bn)). Edges are the ends of years 1
 // and 9999, the ends of int64 and the seconds where Go's internal seconds
 // (Unix plus 62135596800) wrap, both saturations, equal instants, and
 // nanoseconds at 0, 999999999 and outside a second; seeded pairs mix near
-// and far instants. Mutants (std ledger): np4f17-*.
+// and far instants. Mutants (std ledger): np4f17-sub-no-internal-offset,
+// np4f17-sub-saturates-up-below, np4f17-sub-carry-short and
+// np4f17-sub-addsec-wraps.
 func stdGo17Cases(r *rand.Rand, n int) []bodyCase {
 	const first, last = -62135596800, 253402300799
 	const k = 62135596800
