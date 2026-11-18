@@ -6,18 +6,23 @@
 // one) and refuse the size less one with a *hostsyntax.LimitError and no
 // text, the input must parse, and compiler/api's Laws must answer "ok";
 // an input it does not format fails with a located *syntax.Error and no
-// text. Inputs: every examples/ and compiler/ .ergo file, the formatter's
-// fuzz seeds, one seeded edit of each (invalid UTF-8 in a comment or a
-// string, a truncation, a random byte), and 64 random byte strings; the
-// seed is ERGO_SELFHOST_SEED (default 1). It prints one FAIL line per
-// broken input, at most three (exit 1), or "ok N inputs, M formatted"
-// (exit 0). Run it from the repository root.
+// text. Inputs are the family's (selfhostcheck's formatInputs): every
+// examples/ and compiler/ .ergo file and the positive corpus, each
+// perturbed and edited once, 64 random byte strings, the superseded
+// corpus, the formatter's fuzz seeds, the string literals of
+// internal/hostsyntax's tests, tapered aligned columns, and 400 generated
+// sources, each perturbed and edited; the seed is ERGO_SELFHOST_SEED
+// (default 1). It prints at most three FAIL lines (exit 1), or "ok N
+// inputs, M formatted" (exit 0). Run it from the repository root.
 package main
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io/fs"
 	"math/rand/v2"
 	"os"
@@ -27,6 +32,7 @@ import (
 
 	"ergo.local/prototype/internal/hostsyntax"
 	linked "ergo.local/prototype/internal/linked/compiler"
+	"ergo.local/prototype/internal/sketch/sketchtest"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -112,44 +118,36 @@ func outcome(text string, err error) string {
 	return "go error " + err.Error() + "\n"
 }
 
-// sources are the inputs of seed.
+func check(err error) {
+	if err != nil {
+		fmt.Printf("FAIL %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// sources are the inputs of seed, in selfhostcheck's order.
 func sources(seed uint64) []string {
 	var inputs []string
 	for _, dir := range []string{"examples", "compiler"} {
-		err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		check(filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || !d.Type().IsRegular() || !strings.HasSuffix(path, ".ergo") {
 				return err
 			}
 			src, err := os.ReadFile(path)
 			inputs = append(inputs, string(src))
 			return err
-		})
-		if err != nil {
-			fmt.Printf("FAIL %v\n", err)
-			os.Exit(1)
-		}
+		}))
 	}
-	seeds, err := os.ReadDir(filepath.Join("internal", "hostsyntax", "testdata", "fuzz", "FuzzFormat"))
-	if err != nil {
-		fmt.Printf("FAIL %v\n", err)
-		os.Exit(1)
-	}
-	for _, e := range seeds {
-		data, err := os.ReadFile(filepath.Join("internal", "hostsyntax", "testdata", "fuzz", "FuzzFormat", e.Name()))
-		if err != nil {
-			fmt.Printf("FAIL %v\n", err)
-			os.Exit(1)
-		}
-		for _, line := range strings.Split(string(data), "\n") {
-			if q, ok := strings.CutPrefix(line, "string("); ok {
-				if s, err := strconv.Unquote(strings.TrimSuffix(q, ")")); err == nil {
-					inputs = append(inputs, s)
-				}
-			}
-		}
+	positive, err := sketchtest.Positive()
+	check(err)
+	for _, in := range positive {
+		inputs = append(inputs, in.Src)
 	}
 	r := rand.New(rand.NewPCG(seed, 0x5e1f))
-	for _, src := range inputs[:len(inputs):len(inputs)] {
+	for i, src := range inputs[:len(inputs):len(inputs)] {
+		if p, ok := sketchtest.Perturb(src, seed+uint64(i)); ok {
+			inputs = append(inputs, p)
+		}
 		inputs = append(inputs, edit(r, src))
 	}
 	for range 64 {
@@ -158,6 +156,52 @@ func sources(seed uint64) []string {
 			b[j] = byte(r.IntN(256))
 		}
 		inputs = append(inputs, string(b))
+	}
+	_, superseded, err := sketchtest.Corpus()
+	check(err)
+	for _, in := range superseded {
+		inputs = append(inputs, in.Src)
+	}
+	fuzz := filepath.Join("internal", "hostsyntax", "testdata", "fuzz", "FuzzFormat")
+	seeds, err := os.ReadDir(fuzz)
+	check(err)
+	for _, e := range seeds {
+		data, err := os.ReadFile(filepath.Join(fuzz, e.Name()))
+		check(err)
+		for _, line := range strings.Split(string(data), "\n") {
+			if q, ok := strings.CutPrefix(line, "string("); ok {
+				s, err := strconv.Unquote(strings.TrimSuffix(q, ")"))
+				check(err)
+				inputs = append(inputs, s)
+			}
+		}
+	}
+	files, err := filepath.Glob(filepath.Join("internal", "hostsyntax", "*_test.go"))
+	check(err)
+	fset := token.NewFileSet()
+	for _, file := range files {
+		f, err := parser.ParseFile(fset, file, nil, parser.SkipObjectResolution)
+		check(err)
+		ast.Inspect(f, func(n ast.Node) bool {
+			if lit, ok := n.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+				if s, err := strconv.Unquote(lit.Value); err == nil && s != "" {
+					inputs = append(inputs, s)
+				}
+			}
+			return true
+		})
+	}
+	for _, in := range alignInputs() {
+		inputs = append(inputs, in.Src)
+	}
+	g := rand.New(rand.NewPCG(seed, 0x6f72))
+	for i := range 400 {
+		src := generate(g)
+		inputs = append(inputs, src)
+		if p, ok := sketchtest.Perturb(src, seed+uint64(i)); ok {
+			inputs = append(inputs, p)
+		}
+		inputs = append(inputs, edit(g, src))
 	}
 	return inputs
 }
