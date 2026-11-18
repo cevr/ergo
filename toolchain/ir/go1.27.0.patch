@@ -1,6 +1,6 @@
 diff --git a/src/cmd/compile/internal/ergoir/ergoir.go b/src/cmd/compile/internal/ergoir/ergoir.go
 new file mode 100644
-index 0000000..4327a15
+index 0000000..76b1438
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir.go
 @@ -0,0 +1,293 @@
@@ -427,7 +427,7 @@ index 0000000..d16dcaa
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_call.go b/src/cmd/compile/internal/ergoir/ergoir_call.go
 new file mode 100644
-index 0000000..f5d5868
+index 0000000..be785d3
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_call.go
 @@ -0,0 +1,68 @@
@@ -3965,7 +3965,7 @@ index 0000000..0f3af44
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_tuple.go b/src/cmd/compile/internal/ergoir/ergoir_tuple.go
 new file mode 100644
-index 0000000..882ee23
+index 0000000..4d8201c
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_tuple.go
 @@ -0,0 +1,117 @@
