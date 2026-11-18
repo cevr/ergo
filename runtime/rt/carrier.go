@@ -21,6 +21,12 @@ type Carrier struct {
 	started bool
 	closed  bool
 	wake    parker // the carrier's goroutine waits for a job on it
+	// handed and ran count the jobs given to the goroutine and those that
+	// returned there; last is the handle of the last one handed and
+	// lastJob its job, for RestartOn (FU-handle-reuse).
+	handed, ran uint64
+	last        any
+	lastJob     func()
 }
 
 // StartOn is Start on c's goroutine: it starts b as a child of parent in
@@ -29,30 +35,64 @@ type Carrier struct {
 // starts each child with the handle as its one allocation and the
 // carrier's job (FU-timer-task-reuse).
 func StartOn[T any](c *Carrier, parent *Task, span string, b Body[T]) *Handle[T] {
-	h := &Handle[T]{}
+	return RestartOn(nil, c, parent, span, b)
+}
+
+// RestartOn is StartOn in h, the handle of c's last child with the same
+// body b, once its job has returned on c's goroutine: the end of a task
+// touches its handle after the task's Stop returns, until the job
+// returns, so only then is h free. The child then starts with no
+// allocation. Otherwise, or when h is nil, it starts in a new handle.
+// h must be consumed (Stop or Wait) before.
+func RestartOn[T any](h *Handle[T], c *Carrier, parent *Task, span string, b Body[T]) *Handle[T] {
+	var job func()
+	if h != nil && c.idleAfter(h) {
+		*h = Handle[T]{}
+		job = c.lastJob
+	} else {
+		h = &Handle[T]{}
+	}
 	Point(parent, Op{OpSpawn, parent})
 	h.owner = parent
 	h.task.init(parent, span, false, false)
 	schedSpawn(parent, &h.task)
-	c.run(func() { h.run(b) })
+	if job == nil {
+		job = func() { h.run(b) }
+	}
+	c.run(h, job)
 	return h
 }
 
-// run runs f on c's goroutine, or on a goroutine of its own when c is
-// closed or holds a job, or under the explored scheduler, whose runs the
-// carrier's hand-off would add steps to.
-func (c *Carrier) run(f func()) {
+// idleAfter reports whether h's job was the last handed to c's goroutine
+// and every job handed has returned.
+func (c *Carrier) idleAfter(h any) bool {
+	if Exploring {
+		return false
+	}
+	c.mu.Lock()
+	ok := c.last == h && c.ran == c.handed
+	c.mu.Unlock()
+	return ok
+}
+
+// run runs f, the job of h, on c's goroutine, or on a goroutine of its
+// own when c is closed or holds a job, or under the explored scheduler,
+// whose runs the carrier's hand-off would add steps to.
+func (c *Carrier) run(h any, f func()) {
 	if Exploring {
 		go f()
 		return
 	}
 	c.mu.Lock()
 	if c.closed || c.job != nil {
+		c.last, c.lastJob = nil, nil
 		c.mu.Unlock()
 		go f()
 		return
 	}
 	c.job = f
+	c.handed++
+	c.last, c.lastJob = h, f
 	if !c.started {
 		c.started = true
 		c.mu.Unlock()
@@ -65,8 +105,12 @@ func (c *Carrier) run(f func()) {
 
 // loop runs c's jobs until c is closed and holds none.
 func (c *Carrier) loop() {
+	ran := false
 	for {
 		c.mu.Lock()
+		if ran {
+			c.ran++
+		}
 		for c.job == nil && !c.closed {
 			c.mu.Unlock()
 			c.wake.park()
@@ -79,6 +123,7 @@ func (c *Carrier) loop() {
 			return // closed
 		}
 		f()
+		ran = true
 	}
 }
 

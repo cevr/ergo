@@ -253,6 +253,7 @@ type Actor[S, E, D any] struct {
 	timerEnv        envelope[S, E, D]
 	timerAt         *rt.Task
 	timerDone       atomic.Bool
+	timerLast       *rt.Handle[struct{}] // the last timer child, for RestartOn
 	working         *rt.Handle[struct{}] // the entry's work, nil when it has none
 	feeds           []*feed              // the started sources that may still run (rule 14)
 	// newHosts are the hosts the running step made (rule 15); hostSlot
@@ -1148,7 +1149,8 @@ func (a *Actor[S, E, D]) arm(at *rt.Task, s S) {
 	a.timerAt, a.timerDelay = at, d
 	a.timerEnv = envelope[S, E, D]{kind: timerSignal, epoch: a.epoch, at: s}
 	a.timerDone.Store(false)
-	a.timer = rt.StartOn[struct{}](&a.timers, at, a.timerSpan, (*actorTimer[S, E, D])(a))
+	a.timer = rt.RestartOn[struct{}](a.timerLast, &a.timers, at, a.timerSpan, (*actorTimer[S, E, D])(a))
+	a.timerLast = a.timer // reused once its job returned (FU-handle-reuse)
 	if rt.Exploring {
 		rt.Await(at, a.timerDone.Load)
 	}
