@@ -7,12 +7,14 @@ package lint
 // justifiers holds the justifier rules (legal code that must say why;
 // they were the base until their read sample, 2026-11-17, put them under
 // the bar), strict the complexity caps (q149) and the style rules, layout
-// the owner's Go layout (AGENTS.md).
+// the owner's Go layout (AGENTS.md), change the rules of a change, which
+// report only under --diff (anti-slop AS6).
 const (
 	Recommended = "recommended"
 	Justifiers  = "justifiers"
 	Strict      = "strict"
 	Layout      = "layout"
+	Change      = "change"
 )
 
 // builtinRules are every built-in rule.
@@ -24,6 +26,7 @@ var builtinRules = []*Rule{
 	forwardingFunc, loneProvider, modeParameter, stringlyState,
 	testWaitsOnTime,
 	defaultOnFailure, repeatedPureCall, guardTheTypeProves, repeatedGuard,
+	addedClone, scatteredEdit,
 }
 
 // builtinPresets are the built-in presets over builtinRules.
@@ -58,6 +61,11 @@ func builtinPresets() []Preset {
 			Name:  Layout,
 			Doc:   "The Go layout of AGENTS.md: implementations chosen only at the entry, files named by concept.",
 			Rules: on(withAtEntry, conceptFileNames),
+		},
+		{
+			Name:  Change,
+			Doc:   "The rules of a change, read under --diff: a function the change adds that the program has, and one edit added in three or more packages.",
+			Rules: on(addedClone, scatteredEdit),
 		},
 	}
 }
