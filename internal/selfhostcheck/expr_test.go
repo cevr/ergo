@@ -180,9 +180,10 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 	}
 	// Functions on a value's type, the prelude's on slices and Maps,
 	// operations, and fields through a pointer (S3d3), and the builtin
-	// len (S3d5): each kind typed
-	// somewhere, since the subset check alone would not see one lost.
-	for _, kind := range []string{"CallExpr method", "CallExpr prelude", "CallExpr op", "CallExpr capability", "SelectorExpr ptrfield", "CallExpr builtin"} {
+	// len (S3d5), and a tuple a result's type fixes (TUPLE-WANT): each
+	// kind typed somewhere, since the subset check alone would not see
+	// one lost.
+	for _, kind := range []string{"CallExpr method", "CallExpr prelude", "CallExpr op", "CallExpr capability", "SelectorExpr ptrfield", "CallExpr builtin", "TupleExpr"} {
 		if reach[kind][0] == 0 {
 			t.Errorf("the Ergo side typed no %s", kind)
 		}
@@ -377,8 +378,8 @@ func patternBinders(pkg *check.Package) map[check.Object]string {
 // whole run's expressions, not to the generic literals written with their
 // arguments: those are typed wherever they stand (the written type), an
 // elided one only where the typer reads its context, and the contexts it
-// does not read yet (an untyped operand of ==, an operation's argument,
-// a tuple) are the expression typer's gaps, not the spelling's. all is
+// does not read yet (an operation's argument, a constant beside an
+// untyped operand of ==) are the expression typer's gaps, not the spelling's. all is
 // the run's typed and total expressions. A short form the run does not
 // reach is a failure too: the fixture testdata/bind/elide.ergo writes
 // each.
