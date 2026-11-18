@@ -76,7 +76,7 @@ func RewriteFacts(sites []RewriteSite, ledger string) []Fact {
 }
 
 // windowsAt places the sites the evidence records next, a codec
-// function's windows (wire.go's cell writers), at t's declaration, or at
+// function's windows (the cell writers'), at t's declaration, or at
 // site, the function's first use, for a type with none. Before, they had
 // no position (:0:0), so inspect could not say where a codec rewrite is.
 func (l *lowerer) windowsAt(t check.Type, site syntax.Node) {

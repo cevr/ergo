@@ -133,13 +133,11 @@ func InspectFacts(a Analysis, source, ledger string) ([]lower.Fact, error) {
 	if err != nil {
 		return nil, err
 	}
-	facts, err := lower.Facts(unit)
+	facts, unsafe, err := lower.FactsAndUnsafe(unit)
 	if err != nil {
 		return facts, err
 	}
-	if facts == nil {
-		facts = []lower.Fact{}
-	}
+	facts = append(append([]lower.Fact{}, facts...), unsafe...)
 	text, err := ledgerText(nil, ledger)
 	if err != nil {
 		return facts, err
