@@ -115,7 +115,9 @@ type glyphText struct {
 }
 
 func newWindow(width, height float64) *Window {
-	return &Window{wake: make(chan struct{}, 1), start: time.Now(), width: width, height: height, sys: text.Shared()}
+	w := &Window{wake: make(chan struct{}, 1), start: time.Now(), width: width, height: height, sys: text.Shared()}
+	fastPango(func() { w.sys.Metrics(text.Style{Size: 13}) })
+	return w
 }
 
 // Open opens a desktop window of the size, titled title, once MyGo's app
