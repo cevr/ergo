@@ -11,9 +11,9 @@ import (
 
 // TestLintGateAndDiffCommand is LHP's command acceptance for --gate and
 // --diff (red at base: neither flag exists). In process, over the LINT0
-// fixture with the justifiers on: silent-catch publishes p0.12 and
-// foreign-error-public no number, so --gate 0.12 fails (exit 1, gate not
-// passed) and --gate 0.13 passes; an untracked file is all added, so
+// fixture with the justifiers on: silent-catch publishes p0.16 and
+// foreign-error-public no number, so --gate 0.16 fails (exit 1, gate not
+// passed) and --gate 0.17 passes; an untracked file is all added, so
 // --diff reports every finding; after a commit nothing is added, so none;
 // a function appended with a silent catch is the one finding --diff
 // reports, and --diff=HEAD reads the same; ergo lint rules prints
@@ -66,17 +66,17 @@ func TestLintGateAndDiffCommand(t *testing.T) {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
-	if r, code := run("lint", "--json", "--gate", "0.12", main); code != 1 || r.Gate == nil || r.Gate.Passed || r.PolicyPassed || codes(r) != "L102@10:- L101@16:0.12" {
-		t.Fatalf("--gate 0.12: exit %d %+v", code, r)
+	if r, code := run("lint", "--json", "--gate", "0.16", main); code != 1 || r.Gate == nil || r.Gate.Passed || r.PolicyPassed || codes(r) != "L102@10:- L101@16:0.16" {
+		t.Fatalf("--gate 0.16: exit %d %+v", code, r)
 	}
-	if r, code := run("lint", "--json", "--gate=0.13", main); code != 0 || r.Gate == nil || !r.Gate.Passed || !r.PolicyPassed {
-		t.Fatalf("--gate 0.13: exit %d %+v", code, r)
+	if r, code := run("lint", "--json", "--gate=0.17", main); code != 0 || r.Gate == nil || !r.Gate.Passed || !r.PolicyPassed {
+		t.Fatalf("--gate 0.17: exit %d %+v", code, r)
 	}
 	if _, code := commandInProcess(t, "lint", "--gate", "1.5", main); code != 2 {
 		t.Fatalf("--gate 1.5: exit %d, want 2", code)
 	}
 	git("init", "-q")
-	if r, code := run("lint", "--json", "--diff", main); code != 0 || codes(r) != "L102@10:- L101@16:0.12" {
+	if r, code := run("lint", "--json", "--diff", main); code != 0 || codes(r) != "L102@10:- L101@16:0.16" {
 		t.Fatalf("--diff, untracked: exit %d %+v", code, r)
 	}
 	git("add", ".")
@@ -86,7 +86,7 @@ func TestLintGateAndDiffCommand(t *testing.T) {
 	}
 	smokeWrite(t, dir, "cmd/app/main.ergo", lintFixture+"\nfunc more() int {\n\tparse(\"m\") catch {\n\tcase Bad:\n\t\t0\n\t}\n}\n")
 	for _, flag := range []string{"--diff", "--diff=HEAD"} {
-		if r, code := run("lint", "--json", flag, main); code != 0 || codes(r) != "L101@29:0.12" {
+		if r, code := run("lint", "--json", flag, main); code != 0 || codes(r) != "L101@29:0.16" {
 			t.Fatalf("%s, appended: exit %d %+v", flag, code, r)
 		}
 	}
@@ -105,7 +105,7 @@ func TestLintGateAndDiffCommand(t *testing.T) {
 	}) bool {
 		return r.Rule == "silent-catch"
 	})
-	if i < 0 || rules[i].Precision == nil || *rules[i].Precision != 0.12 {
-		t.Fatalf("ergo lint rules: silent-catch's precision is not 0.12: %s", out)
+	if i < 0 || rules[i].Precision == nil || *rules[i].Precision != 0.16 {
+		t.Fatalf("ergo lint rules: silent-catch's precision is not 0.16: %s", out)
 	}
 }
