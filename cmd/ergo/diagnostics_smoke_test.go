@@ -77,7 +77,7 @@ func TestDiagnosticsSmokePositions(t *testing.T) {
 		// A constraint the argument does not satisfy (CONSTRAINTS C2,
 		// decision 6): the checker makes the text and span once, and
 		// both surfaces carry them.
-		{"constraint.ergo", "type Ranked[T Ranked[T]] {\n\tCompare(other T) int,\n}\n\nfunc Top[T Ranked[T]](a T, b T) T {\n\tif a.Compare(b) < 0 {\n\t\treturn b\n\t}\n\ta\n}\n\nfunc main() needs Console {\n\tlet n = Top(7, 8)\n\tConsole.Println(\"\\(n)\")\n}\n", []diagnosticsSmokeFinding{{"S108", "7", 1}}},
+		{"constraint.ergo", "type Ranked[T Ranked[T]] {\n\tCompare(other T) int,\n}\n\nfunc Top[T Ranked[T]](a T, b T) T {\n\tif a.Compare(b) < 0 {\n\t\treturn b\n\t}\n\ta\n}\n\nfunc main() needs Console {\n\tlet n = Top(7, 8)\n\tConsole.Println(\"\\(n)\")\n}\n", []diagnosticsSmokeFinding{{"S108", "Top(7, 8)", 9}}},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
 			t.Parallel()
