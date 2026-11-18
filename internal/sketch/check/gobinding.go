@@ -302,6 +302,12 @@ func (s *GoBindings) ResolveAll(path string) bool {
 	}
 	h := p.host
 	h.load()
+	// A misfit line is reported in the binding's own file.
+	if h.fi != nil {
+		saved := h.c.cur
+		h.c.cur = h.fi
+		defer func() { h.c.cur = saved }()
+	}
 	for _, name := range sortedKeys(p.Scope.names) {
 		o := p.Scope.names[name]
 		h.resolve(o)
@@ -315,6 +321,7 @@ func (s *GoBindings) ResolveAll(path string) bool {
 			for _, m := range n.mlist {
 				h.c.funcSig(m)
 				h.misfitReads(m)
+				h.misfitWrites(m) // a method writes too (HOST-ROW-3 slice 2: File.Read)
 			}
 		}
 	}
