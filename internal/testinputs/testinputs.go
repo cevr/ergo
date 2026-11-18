@@ -70,6 +70,12 @@ func MainFunc(m *testing.M, run func() int) int {
 		}
 		return r.finish(mainFunc(run, recordLog))
 	}
+	// The record is the recording process's alone. The process its observer
+	// runs the tests in (observed) drops the variable, so the tests see the
+	// environment of a swept run, and a test binary they start again does
+	// not record itself under the observer's filter, where its namespace
+	// probe would end the observation ("unobserved: clone").
+	os.Unsetenv(RecordVariable)
 	return mainFunc(run, log)
 }
 

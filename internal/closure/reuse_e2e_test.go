@@ -30,6 +30,15 @@ func TestReuseTarget(t *testing.T) {
 	if out, err := exec.Command("cat", "../../docs/sub/x.md").CombinedOutput(); err != nil {
 		t.Fatalf("cat: %v\n%s", err, out)
 	}
+	// A test that runs its own test binary again (internal/toolchain's
+	// do): the child is observed with the rest and records nothing itself.
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command(self, "-test.run=^$").CombinedOutput(); err != nil {
+		t.Fatalf("the test binary again: %v\n%s", err, out)
+	}
 }
 
 // TestRecordedRunReadsAsASweptRun: a test process run with
@@ -42,8 +51,10 @@ func TestReuseTarget(t *testing.T) {
 // and the refusal names the guarantee. Mutants: the recorder passes no
 // test log (heavy-cost2-record-unobserved), no identity file
 // (heavy-cost2-record-no-identity), probes nothing
-// (heavy-cost2-record-tree-unprobed), or does not box itself
-// (heavy-cost2-record-unboxed).
+// (heavy-cost2-record-tree-unprobed), does not box itself
+// (heavy-cost2-record-unboxed), or leaves the record's variable to the
+// tests, whose own test binary then records under the observer
+// (heavy-cost2-record-inherited).
 func TestRecordedRunReadsAsASweptRun(t *testing.T) {
 	needSandbox(t)
 	self, err := os.Executable()
