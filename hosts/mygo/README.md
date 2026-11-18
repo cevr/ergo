@@ -173,6 +173,47 @@ table's window the frame does not show.
 scripts (`-stars.seed=N` replays one). The receipts per line, at 100,000
 rows, are in the run's `receipts/stars-gui-c/`.
 
+## Phones
+
+The same program builds as an iOS or Android app:
+
+```
+go -C hosts/mygo run ./cmd/phone build -platform ios/simulator -ergo ERGO ./cmd/counter-gui
+```
+
+`-platform` is `ios` (a device; signing is the owner's), `ios/simulator`,
+`android` (= `android/arm64`) or `android/amd64` (the emulator). The
+command runs `ergo build -work`, copies the generated Go module into
+`-o DIR` (by default a new temporary folder; it never builds in the
+source tree), and writes `mygo.json` there. If the program's folder has
+its own `mygo.json` (`cmd/todo-gui` has one), it copies that file. Else
+it names the app after the folder, with the identifier
+`dev.ergo.<module>.<folder>`. Then it runs MyGo's own CLI in DIR. That
+CLI is the pinned module's `cmd/mygo`, which `go.mod` names as a `tool`,
+so there is no other copy to download. The CLI's `go build` is Ergo's
+patched Go, first on `PATH`, with
+`GOFLAGS=-gcflags=.=-ergoir=DIR/ergoir.json`. The module's bodies are in
+that IR file, so stock Go stops at "missing function body". MyGo's CLI
+links the program as a c-archive (iOS) or c-shared library (Android)
+with Xcode's or the NDK's clang, and packages it. We write no Swift,
+Kotlin or Gradle. The command prints the `.app`, `.apk` and `.aab` it
+made.
+
+Until `ergo build` knows the phone platforms (unit MB2), the command
+emits for the desktop platform with the same kernel and architecture
+(darwin/arm64 for iOS, linux/ARCH for Android). It takes the patched Go
+from ergo's cache. Once ergo prints `GO=` and `GOFLAGS=`, it takes those.
+`ergo` reads the whole module graph, the CLI's modules among it, so a
+fresh module cache needs `go mod download` here once. `check.sh` runs it.
+
+`TestPhoneBuildsTheExamples` builds counter-gui and todo-gui for
+`-phone=PLATFORM`. By default it builds for each phone whose toolchain
+is on the host: Xcode, or `ANDROID_HOME` with an NDK and a JDK. It checks
+the app executable's architecture, and that the executable holds
+`main.main` and the desktop driver's functions. With no toolchain it
+skips, which is not a pass. The batch's Mac leg runs it with
+`-phone=ios/simulator`.
+
 ## Pins and checks
 
 - MyGo `github.com/egoist/mygo` at `v0.10.0` (`ebde939`, 2026-11-17, the
