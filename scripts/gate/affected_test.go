@@ -3,7 +3,6 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -11,7 +10,6 @@ import (
 	"maps"
 	"math/rand/v2"
 	"os"
-	"os/exec"
 	"path"
 	"slices"
 	"sort"
@@ -402,137 +400,4 @@ func (m *roundModel) edit() []string {
 		}
 	}
 	return done
-}
-
-// The round tier's selection, for every row of every ledger whose edit is
-// Go source and whose killers are Go tests of a suite the coverage store
-// holds at the backtest's commit, holds every named killer or runs every
-// test: a backtest over the store and the ledgers that starts no test. The
-// commit is the nearest ancestor of HEAD that the store's index names
-// ($ERGO_GATE_BACKTEST_COMMIT names another). With no store it fails: it
-// never passes empty.
-//
-// Mutants (testdata/mutants.json): round-missing-store-passes, and every
-// selection mutant of TestAffectedAgreesWithAFullRun that drops a killer.
-func TestSelectionHoldsEveryLedgerKiller(t *testing.T) {
-	if _, err := backtestCommit(covfile.Store{Dir: t.TempDir()}, "."); err == nil {
-		t.Fatal("an empty coverage store gave a backtest commit")
-	}
-	root, err := repositoryRoot()
-	if err != nil {
-		t.Fatal(err)
-	}
-	store, err := covfile.Open()
-	if err != nil {
-		t.Fatal(err)
-	}
-	commit, err := backtestCommit(store, root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	entries, err := store.At(commit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	packages, _, err := testPackages(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	closures := map[string]*replay.Closure{}
-	for _, p := range packages {
-		closures["./"+p.dir] = p.closure
-	}
-	ledgers, err := gitText(root, "ls-tree", "-r", "--name-only", commit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rows, killers, stale, shares := 0, 0, 0, []float64(nil)
-	var missed []string
-	segments := map[string]*covfile.Coverage{}
-	for _, ledger := range strings.Split(ledgers, "\n") {
-		if !strings.HasSuffix(ledger, "testdata/mutants.json") {
-			continue
-		}
-		text, err := gitText(root, "show", commit+":"+ledger)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var l struct {
-			Mutants []struct {
-				Name, File, From, To string
-				Killers              []string
-			}
-		}
-		if err := json.Unmarshal([]byte(text), &l); err != nil {
-			t.Fatalf("%s: %v", ledger, err)
-		}
-		for _, row := range l.Mutants {
-			if !strings.HasSuffix(row.File, ".go") {
-				continue
-			}
-			old, err := exec.Command("git", "-C", root, "--no-optional-locks", "cat-file", "blob", commit+":"+row.File).Output()
-			if err != nil || strings.Count(string(old), row.From) != 1 {
-				stale++
-				continue
-			}
-			change := []fileChange{{Path: row.File, Old: old, New: []byte(strings.Replace(string(old), row.From, row.To, 1)), Was: true, Is: true}}
-			counted := false
-			for _, id := range row.Killers {
-				suite, test, ok := strings.Cut(id, ":")
-				if !ok {
-					continue
-				}
-				i := slices.IndexFunc(entries, func(e covfile.Entry) bool {
-					return e.Suite == suite && e.Module == "" && e.Tags == "" && e.Package != ""
-				})
-				if i < 0 {
-					continue
-				}
-				e := entries[i]
-				closure := closures[e.Package]
-				if closure == nil {
-					continue
-				}
-				seg := segments[e.Key]
-				if seg == nil {
-					if seg, ok = store.Load(e.Key); !ok {
-						t.Fatalf("the index at %s names segment %s of %s, which the store does not hold", commit, e.Key, suite)
-					}
-					segments[e.Key] = seg
-				}
-				names := []string{test}
-				for _, st := range seg.Tests {
-					if s, n, _ := strings.Cut(st.ID, ":"); s == suite && n != test {
-						names = append(names, n)
-					}
-				}
-				pick := pickRound(e, seg, closure, change, names)
-				killers++
-				counted = true
-				if _, ok := pick.run[test]; pick.all == "" && !ok {
-					missed = append(missed, row.Name+" "+id)
-				}
-				share := 1.0
-				if pick.all == "" {
-					share = float64(len(pick.run)) / float64(len(names))
-				}
-				shares = append(shares, share)
-			}
-			if counted {
-				rows++
-			}
-		}
-	}
-	median := 0.0
-	if len(shares) > 0 {
-		slices.Sort(shares)
-		median = shares[len(shares)/2]
-	}
-	t.Logf("backtest at %s: %d rows, %d killers, %d missed, median %.0f%% of a package selected (%d rows stale at the commit)", short(commit), rows, killers, len(missed), 100*median, stale)
-	if rows == 0 {
-		t.Fatalf("the store at %s holds no suite a ledger's killer names: no backtest (go run ./scripts/mutants -measure)", short(commit))
-	}
-	if len(missed) > 0 {
-		t.Fatalf("the selection misses %d killers:\n%s", len(missed), strings.Join(missed, "\n"))
-	}
 }

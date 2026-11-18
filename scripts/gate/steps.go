@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"ergo.local/prototype/scripts/mutants/covfile"
 )
 
 // durationsFile records measured per-test seconds for the sharded packages.
@@ -305,6 +307,18 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	// systems, 600 s cold at 4 CPUs and 20 s for six warm (load 44 to 55,
 	// 2026-11-15), far past the fast tier's 2 s.
 	add(&Step{Name: "go vet every GOOS", Argv: []string{"go", "run", "./scripts/vetgoos"}, Weight: 600, Class: classHeavy})
+	// The round tier's backtest over the mutant runner's coverage store
+	// and the ledgers, and its replay to HEAD (backtest.go, CS-ROUND). The
+	// store lives on the workbox (Linux), not in the checkout: the step
+	// runs there, with the store's directory and its index's digest in its
+	// key, and fails on a missing store.
+	if runtime.GOOS == "linux" {
+		cache, err := covfile.CacheDir()
+		if err != nil {
+			return nil, err
+		}
+		add(&Step{Name: "coverage store backtest", Argv: []string{"go", "run", "./scripts/gate", "-backtest"}, Env: []string{covfile.CacheVariable + "=" + cache, "ERGO_COVER_INDEX=" + storeIndexDigest()}, Class: classHeavy})
+	}
 	// The analyzer's controls are a go test of another module, uncached,
 	// and its run builds and loads the checker with x/tools: full tier.
 	add(&Step{Name: "provenance analyzer", Argv: provenanceAnalyzer(root), Class: classHeavy})

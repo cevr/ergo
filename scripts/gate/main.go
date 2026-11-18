@@ -401,7 +401,11 @@ func main() {
 	replaySpan := flag.String("replay-affected", "", "FROM..TO: replay the round tier over the first-parent tips of the range against the coverage store, one row per tip (the share of recorded test seconds selected), and exit; with -reds FILE (lines TIP DIR:TEST) fail when a red test is outside its tip's selection")
 	replayOut := flag.String("o", "", "with -replay-affected: write the rows to this file instead of stdout")
 	replayReds := flag.String("reds", "", "with -replay-affected: the reds file")
+	backtest := flag.Bool("backtest", false, "backtest the round tier over the coverage store and the ledgers at the store's commit nearest to HEAD, replay it from there to HEAD, and exit (the full tier's step \"coverage store backtest\")")
 	flag.Parse()
+	if *backtest {
+		os.Exit(runBacktest(os.Stdout))
+	}
 	if *replaySpan != "" {
 		os.Exit(runReplayAffected(*replaySpan, *replayOut, *replayReds))
 	}
