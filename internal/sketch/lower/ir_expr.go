@@ -257,7 +257,11 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			if b.l.valueFacts().seeds[x] && len(lit.Elems) == 1 {
 				// append(slices.Grow([]T{}, seedCap), e) (seedcap.go).
 				et := b.goType(tt.Elem, x)
-				b.keepImport("var _ = " + b.l.goPkg("slices") + ".Grow[" + lit.T + "]")
+				keep := lit.T
+				if b.namesTypeParam(keep) {
+					keep = "[]int" // a generic body's slice is no package-level type (ir_loops.go)
+				}
+				b.keepImport("var _ = " + b.l.goPkg("slices") + ".Grow[" + keep + "]")
 				room := &irExpr{K: "pcall", Pos: p, T: "slices", Name: "Grow", V: lit.T + ", " + et, Args: []*irExpr{{K: "lit", Pos: p, T: lit.T}, {K: "const", Pos: p, T: "int", V: strconv.Itoa(seedCap)}}}
 				b.seedSites++
 				return &irExpr{K: "append", Pos: p, Args: []*irExpr{room, lit.Elems[0]}}
