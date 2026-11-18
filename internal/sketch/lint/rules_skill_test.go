@@ -347,3 +347,95 @@ func TestIndependentWaitsAgreesWithReference(t *testing.T) {
 		p.check(t, "independent-waits", "TestIndependentWaitsAgreesWithReference", seed)
 	}
 }
+
+// A statement of the weak-test generator: its text (one line, at the
+// indent of a test body), whether it is an assert whose sides are
+// constants of one value, and whether it is an assert, which a repeat of
+// it with only asserts between restates (each is pure).
+var weakStmts = []struct {
+	text             string
+	restated, assert bool
+}{
+	{"assert Limit == 5", true, true},
+	{"assert 3 == 3", true, true},
+	{"assert \"a\" == \"a\"", true, true},
+	{"assert Limit + 1 == 6", false, true}, // not a bare name: the checker folds no let
+	{"assert double(Limit) == 10", false, true},
+	{"assert double(2) == 4", false, true},
+	{"assert Limit == 6", false, true}, // constants of two values: a failing test, not a restated one
+	{"let _ = double(3)", false, false},
+	{"let _ = get(1) catch {\n\tcase Bad:\n\t\t0\n\t}", false, false},
+}
+
+// TestWeakTestsAgreeWithReference writes tests of one to four statements
+// from weakStmts over a constant Limit, a pure double and a failing get,
+// and checks constant-restated (every assert of two constants of one
+// value) and repeated-case (an assert equal to one before it with only
+// asserts between). Mutants: sr7-value, sr7-between, sr7-name.
+func TestWeakTestsAgreeWithReference(t *testing.T) {
+	for _, seed := range propertySeeds(40) {
+		r := rand.New(rand.NewPCG(seed, 0x7e57))
+		ps := map[string]*plantedRule{"constant-restated": {p: newPlanted()}, "repeated-case": {p: newPlanted()}}
+		head := "let Limit = 5\n\ntype Bad {}\n\nfunc double(n int) int {\n\tn + n\n}\n\nfunc get(n int) int fails Bad {\n\tif n < 0 {\n\t\treturn Bad\n\t}\n\tn\n}"
+		for _, pr := range ps {
+			pr.p.write(head, false, 0)
+		}
+		for i := range 1 + r.IntN(4) {
+			lines := []string{fmt.Sprintf("\ntest Weak%d {", i)}
+			restated, repeated := []int{}, []int{}
+			var run []string // the asserts since the last other statement
+			for range 1 + r.IntN(4) {
+				s := weakStmts[r.IntN(len(weakStmts))]
+				if r.IntN(3) == 0 && len(run) > 0 {
+					s = weakStmts[0]
+					for _, w := range weakStmts {
+						if w.text == run[r.IntN(len(run))] {
+							s = w
+						}
+					}
+				}
+				at := len(lines)
+				if s.restated {
+					restated = append(restated, at)
+				}
+				if s.assert && slices.Contains(run, s.text) {
+					repeated = append(repeated, at)
+				}
+				if s.assert {
+					run = append(run, s.text)
+				} else {
+					run = nil
+				}
+				lines = append(lines, "\t"+s.text)
+				lines = append(lines, make([]string, strings.Count(s.text, "\n"))...)
+			}
+			text := ""
+			for _, l := range lines {
+				if l != "" {
+					text += l + "\n"
+				}
+			}
+			text += "}"
+			ps["constant-restated"].write(text, restated)
+			ps["repeated-case"].write(text, repeated)
+		}
+		for name, pr := range ps {
+			pr.p.write("\nfunc main() {\n}", false, 0)
+			pr.p.check(t, name, "TestWeakTestsAgreeWithReference", seed)
+		}
+	}
+}
+
+// plantedRule is a planted program for one rule of a generator that
+// plants several on the same text.
+type plantedRule struct{ p *planted }
+
+// write adds text, recording each of its lines at (0 its first; text's
+// own first line is a newline, so at counts from the line after it).
+func (pr *plantedRule) write(text string, at []int) {
+	first := pr.p.line
+	pr.p.write(text, false, 0)
+	for _, a := range at {
+		pr.p.want = append(pr.p.want, first+1+a)
+	}
+}
