@@ -234,6 +234,9 @@ func (st *irState) inlineBodies(l *lowerer) {
 			continue
 		}
 		body = in.coalesce(body)
+		// After coalesce: a copy's result local is then the match's own
+		// subject, which the copy's returns set (ir_forms_variant.go).
+		body = in.knownVariants(body)
 		fn.Locals = in.locals(fn.Locals)
 		fn.Body = irScopesIncreaseTagged(irUseLocals(body), in.tagged, fn.Pos)
 		st.report.Inlined += in.count
@@ -251,6 +254,7 @@ type irInliner struct {
 	names  map[string]bool
 	tagged map[int]bool
 	count  int
+	known  int // the known-variant sites rewritten, for unique labels (ir_forms_variant.go)
 }
 
 func (in *irInliner) locals(base []irLocal) []irLocal {
