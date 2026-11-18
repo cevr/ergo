@@ -72,8 +72,8 @@ type frame { list bool, n int, key string, has bool }
 // length so a pop keeps the slice's room for the next push. bad records
 // the first break (its place and reason are rare's); frames and wrong are
 // the Reader's place, as Cursor's. The rest is in rare, which a refill,
-// a break and Settle change: every operation copies scan, so what tokens
-// do not touch stays out of it.
+// a break and Settle change. starved marks an operation that met the
+// window's end before the text's: it gives its place back (fill).
 type scan {
 	buf      string,
 	i        int,
@@ -87,15 +87,18 @@ type scan {
 	qi       int,
 	frames   []frame,
 	nf       int,
-	rare     sync.Ref[rare],
+	rare     rare,
 	bad      bool,
 	wrong    bool,
 	seq      bool,
+	starved  bool,
 }
 
-// rare is a Stream's state that a token does not touch: the source, the
+// rare is a Stream's state that few tokens touch: the source, the
 // window's offset (base), the bytes read (total) and their limit, its end, the first break's offset
 // and reason, a failed read, and the most bytes the window held (peak).
+// It is a field of scan, not a Ref of its own, so a token that reads it
+// (pos, fill) calls no Ref operation inside the state's.
 type rare {
 	src      io.Source,
 	base     int,
@@ -123,7 +126,7 @@ func NewSequenceStream(src io.Source, maxBytes int, maxDepth int) Stream { newSt
 
 // Window is the most bytes r has held at once: a chunk with the token
 // cut by its edge, never the text (ElementsHoldOneWindow).
-func Window(r Stream) int { r.st.Get().rare.Get().peak }
+func Window(r Stream) int { r.st.Get().rare.peak }
 
 // broke is whether r's text broke, and sequence whether r reads a
 // sequence: read with Modify, not Get, since a Get marks the state
@@ -151,7 +154,7 @@ func newStream(src io.Source, maxBytes int, maxDepth int, seq bool) Stream {
 		qi:       0,
 		frames:   []frame{},
 		nf:       0,
-		rare:     sync.NewRef[rare](rare{
+		rare:     rare{
 			src:      src,
 			base:     0,
 			total:    0,
@@ -162,10 +165,11 @@ func newStream(src io.Source, maxBytes int, maxDepth int, seq bool) Stream {
 			failed:   false,
 			failure:  io.ReadFailed{Reason: ""},
 			peak:     0,
-		}),
-		bad:   false,
-		wrong: false,
-		seq:   seq,
+		},
+		bad:     false,
+		wrong:   false,
+		seq:     seq,
+		starved: false,
 	})}
 }
 
@@ -175,10 +179,23 @@ func newStream(src io.Source, maxBytes int, maxDepth int, seq bool) Stream {
 // offset Open gives. A failed read fails io.ReadFailed: the text is not
 // all there, so no other verdict holds.
 func Settle(r Stream) fails Malformed | io.ReadFailed {
+	for {
+		let starved = sync.Modify(r.st, func(v scan) (bool, scan) {
+			let mut s = v
+			settle(&s)
+			let x = s.starved
+			s.starved = false
+			(x, s)
+		})
+		if !starved {
+			break
+		}
+		refill(r)
+	}
 	let (bad, k) = sync.Modify(r.st, func(v scan) ((bool, rare), scan) {
 		let mut s = v
-		settle(&s)
-		((s.bad, s.rare.Get()), s)
+		overflow(&s)
+		((s.bad, s.rare), s)
 	})
 	if k.failed {
 		return k.failure
@@ -205,8 +222,7 @@ func DecodeStream[T wire](c Codec[T], src io.Source) T fails Malformed | io.Read
 	v
 }
 
-// settle runs the tokenizer to the end of the text, then, after a break,
-// counts the rest of the text against MaxBytes, which Open checks first.
+// settle runs the tokenizer to the end of the text, or until it starves.
 func settle(s *scan) {
 	s.nq = 0
 	s.qi = 0
@@ -216,16 +232,21 @@ func settle(s *scan) {
 			break
 		}
 	}
-	let mut k = s.rare.Get()
-	if !s.bad || k.failed || k.maxBytes <= 0 {
+}
+
+// overflow counts the rest of the text after a break against MaxBytes,
+// which Open checks first.
+func overflow(s *scan) {
+	if !s.bad || s.rare.failed || s.rare.maxBytes <= 0 {
 		return
 	}
+	let mut k = s.rare
 	for !k.eof && k.total <= k.maxBytes {
 		let got = k.src.Read() catch {
 		case io.ReadFailed as e:
 			k.failed = true
 			k.failure = e
-			s.rare.Set(k)
+			s.rare = k
 			return
 		}
 		match got {
@@ -239,47 +260,38 @@ func settle(s *scan) {
 		k.badAt = k.maxBytes
 		k.badWhy = tooLong(k.maxBytes)
 	}
-	s.rare.Set(k)
+	s.rare = k
 }
 
-func tooLong(max int) string { "the text is longer than MaxBytes " + strconv.Itoa(max) }
-
-// The tokenizer.
-
-func pos(s *scan) int { s.rare.Get().base + s.i }
-
-// fail records the first break: Open stops at it.
-func fail(s *scan, at int, why string) {
-	if !s.bad {
-		s.bad = true
-		let mut k = s.rare.Get()
-		k.badAt = at
-		k.badWhy = why
-		s.rare.Set(k)
-	}
+// refill reads the next chunk of r's source into its window, in an
+// operation of its own: an operation that starves (fill) gives its state
+// back as it found it, and its caller refills and runs it again. Only
+// refill, overflow's Settle and nothing a token runs call the source, so
+// only their operations lock the state (REF-ALONE: a function that runs
+// unknown code is never told alone).
+func refill(r Stream) {
+	let _ = sync.Modify(r.st, func(v scan) (bool, scan) {
+		let mut s = v
+		readChunk(&s)
+		(true, s)
+	})
 }
 
-// failedRead reports whether a read of the source failed.
-func failedRead(s *scan) bool { s.rare.Get().failed }
-
-// fill reads the next chunk into the window, keeping the bytes from i on
-// (from mark on, while a token is read); false at the end of the text,
-// after a break or a failed read. A chunk past MaxBytes is a break.
-func fill(s *scan) bool {
-	if s.bad {
-		return false
-	}
-	let mut k = s.rare.Get()
-	if k.eof {
-		return false
+// readChunk reads the next chunk into the window, keeping the bytes from
+// i on (from mark on, while a token is read). A chunk past MaxBytes is a
+// break; a failed read ends the text, and the tokenizer tells it.
+func readChunk(s *scan) {
+	let mut k = s.rare
+	if s.bad || k.eof {
+		return
 	}
 	let got = k.src.Read() catch {
 	case io.ReadFailed as e:
 		k.failed = true
 		k.failure = e
 		k.eof = true
-		s.rare.Set(k)
-		return false
+		s.rare = k
+		return
 	}
 	match got {
 	case Some[string] as c:
@@ -294,17 +306,50 @@ func fill(s *scan) bool {
 		if len(s.buf) > k.peak {
 			k.peak = len(s.buf)
 		}
-		s.rare.Set(k)
+		s.rare = k
 		if k.maxBytes > 0 && k.total > k.maxBytes {
 			fail(s, k.maxBytes, tooLong(k.maxBytes))
-			return false
 		}
-		true
 	case None:
 		k.eof = true
-		s.rare.Set(k)
-		false
+		s.rare = k
 	}
+}
+
+func tooLong(max int) string { "the text is longer than MaxBytes " + strconv.Itoa(max) }
+
+// The tokenizer.
+
+func pos(s *scan) int { s.rare.base + s.i }
+
+// fail records the first break: Open stops at it. A starved token
+// records none: the text past the window is still unread.
+func fail(s *scan, at int, why string) {
+	if !s.bad && !s.starved {
+		s.bad = true
+		s.rare.badAt = at
+		s.rare.badWhy = why
+	}
+}
+
+// failedRead reports whether a read of the source failed.
+func failedRead(s *scan) bool { s.rare.failed }
+
+// fill is the window's growth inside an operation, which never reads the
+// source: false at the end of the text, after a break or a failed read,
+// and false with starved set when the next chunk is unread. The token
+// being read then gives its place back (produce), and so does the
+// operation (opening, held); its caller reads the chunk (refill) and runs
+// it again. A source is any io.Source, whose Read may start a task that
+// uses this Stream: a read inside an operation would make its function's
+// footprint opaque, and every operation would lock (OWN1 REF-ALONE).
+// With no read inside, each operation's function has an empty footprint
+// and runs unlocked while the program is alone.
+func fill(s *scan) bool {
+	if !s.bad && !s.rare.eof {
+		s.starved = true
+	}
+	false
 }
 
 // need reads until the window holds n bytes from i; false when the text
@@ -335,7 +380,37 @@ let badTok = tok{kind: kBad, text: "", raw: false}
 
 // produce is the next token of the text, checked by Open's rules: kBad
 // from the first break on, kDone at the end of a text that holds one value.
+// A token the window ends inside starves: the tokenizer's place goes back
+// to the token's start, past the white space before it (a push writes
+// past nc, a pop ends the token), and
+// produce gives kBad, which no caller keeps (peekAt).
 func produce(s *scan) tok {
+	if s.starved {
+		return badTok
+	}
+	if !s.bad && s.state != sEnd {
+		// White space before the token is passed for good, so a refill
+		// keeps none of it.
+		ws(s)
+		if s.starved {
+			return badTok
+		}
+	}
+	let i = s.i
+	let state = s.state
+	let nc = s.nc
+	let t = token(s)
+	if s.starved {
+		s.i = i
+		s.state = state
+		s.nc = nc
+		s.mark = -1
+		return badTok
+	}
+	t
+}
+
+func token(s *scan) tok {
 	if s.bad {
 		return badTok
 	}
@@ -650,6 +725,9 @@ func str(s *scan) tok {
 func peekAt(s *scan, k int) tok {
 	for s.nq-s.qi <= k {
 		let t = produce(s)
+		if s.starved {
+			return t
+		}
 		if s.nq < len(s.q) {
 			s.q[s.nq] = t
 		} else {
@@ -662,12 +740,40 @@ func peekAt(s *scan, k int) tok {
 
 func peek(s *scan) tok { peekAt(s, 0) }
 
-func advance(s *scan) {
-	s.qi = s.qi + 1
+// advance takes the next token. The queue empties at an operation's
+// start (opening), not here, so an operation that starves can give the
+// tokens it took back.
+func advance(s *scan) { s.qi = s.qi + 1 }
+
+// place is the Reader's place an operation may change, which it gives
+// back when it starves: the queue's next token, the frames' depth and the
+// innermost frame (an operation writes no other), and wrong.
+type place { qi int, nf int, top frame, wrong bool }
+
+// opening starts an operation: it empties a queue whose tokens are all
+// taken and gives the place to go back to.
+func opening(s *scan) place {
 	if s.qi >= s.nq {
 		s.nq = 0
 		s.qi = 0
 	}
+	let top = if s.nf > 0 { s.frames[s.nf-1] } else { frame{list: false, n: 0, key: "", has: false} }
+	place{qi: s.qi, nf: s.nf, top: top, wrong: s.wrong}
+}
+
+// held is x, or, when the operation starved, the place p given back.
+func held[R](s *scan, p place, x R) got[R] {
+	if s.starved {
+		s.qi = p.qi
+		s.nf = p.nf
+		if p.nf > 0 {
+			s.frames[p.nf-1] = p.top
+		}
+		s.wrong = p.wrong
+		s.starved = false
+		return got[R]{v: x, wrong: false, path: "", starved: true}
+	}
+	got[R]{v: x, wrong: false, path: "", starved: false}
 }
 
 // enter makes the next value the current element of the innermost frame.
@@ -936,17 +1042,28 @@ func tag(s *scan) string {
 // got is an operation's result with the state's wrong flag, and the
 // path when wrong: one change of the state gives all an operation needs,
 // so no operation reads the state again.
-type got[R] { v R, wrong bool, path string }
+// starved says the operation gave its place back for a refill.
+type got[R] { v R, wrong bool, path string, starved bool }
 
-func gave[R](s *scan, x R) got[R] {
-	if s.wrong {
-		return got[R]{v: x, wrong: true, path: path(s)}
+func gave[R](s *scan, p place, x R) got[R] {
+	let h = held(s, p, x)
+	if !h.starved && s.wrong {
+		return got[R]{v: x, wrong: true, path: path(s), starved: false}
 	}
-	got[R]{v: x, wrong: false, path: ""}
+	h
 }
 
-// The Reader's operations: each is one sync.Modify of the state that
-// calls the tokenizer directly.
+// began is begin's result ok as an operation's.
+func began(s *scan, p place, ok bool) got[bool] {
+	let h = held(s, p, ok)
+	if !h.starved && !ok {
+		return got[bool]{v: false, wrong: true, path: path(s), starved: false}
+	}
+	h
+}
+
+// The Reader's operations: each is a sync.Modify of the state that calls
+// the tokenizer directly, run again after a refill when it starves.
 func Path(r Stream) string {
 	sync.Modify(r.st, func(v scan) (string, scan) {
 		let mut s = v
@@ -956,133 +1073,210 @@ func Path(r Stream) string {
 }
 
 func TakeNull(r Stream) bool {
-	sync.Modify(r.st, func(v scan) (bool, scan) {
-		let mut s = v
-		let x = takeNull(&s)
-		(x, s)
-	})
+	for {
+		let o = sync.Modify(r.st, func(v scan) (got[bool], scan) {
+			let mut s = v
+			let p = opening(&s)
+			let x = takeNull(&s)
+			(held(&s, p, x), s)
+		})
+		if !o.starved {
+			return o.v
+		}
+		refill(r)
+	}
 }
 
 func Peek(r Stream) WireKind {
-	sync.Modify(r.st, func(v scan) (WireKind, scan) {
-		let mut s = v
-		let x = kind(&s)
-		(x, s)
-	})
+	for {
+		let o = sync.Modify(r.st, func(v scan) (got[WireKind], scan) {
+			let mut s = v
+			let p = opening(&s)
+			let x = kind(&s)
+			(held(&s, p, x), s)
+		})
+		if !o.starved {
+			return o.v
+		}
+		refill(r)
+	}
 }
 
 func Number(r Stream) string fails WireWrongKind {
-	let o = sync.Modify(r.st, func(v scan) (got[string], scan) {
-		let mut s = v
-		let x = readNumber(&s)
-		(gave(&s, x), s)
-	})
-	if o.wrong {
-		return WireWrongKind{Path: o.path, Want: "a number"}
+	for {
+		let o = sync.Modify(r.st, func(v scan) (got[string], scan) {
+			let mut s = v
+			let p = opening(&s)
+			let x = readNumber(&s)
+			(gave(&s, p, x), s)
+		})
+		if o.wrong {
+			return WireWrongKind{Path: o.path, Want: "a number"}
+		}
+		if !o.starved {
+			return o.v
+		}
+		refill(r)
 	}
-	o.v
 }
 
 func Bool(r Stream) bool fails WireWrongKind {
-	let o = sync.Modify(r.st, func(v scan) (got[bool], scan) {
-		let mut s = v
-		let x = readBool(&s)
-		(gave(&s, x), s)
-	})
-	if o.wrong {
-		return WireWrongKind{Path: o.path, Want: "a boolean"}
+	for {
+		let o = sync.Modify(r.st, func(v scan) (got[bool], scan) {
+			let mut s = v
+			let p = opening(&s)
+			let x = readBool(&s)
+			(gave(&s, p, x), s)
+		})
+		if o.wrong {
+			return WireWrongKind{Path: o.path, Want: "a boolean"}
+		}
+		if !o.starved {
+			return o.v
+		}
+		refill(r)
 	}
-	o.v
 }
 
 func Int(r Stream) int64 fails WireWrongKind {
-	let o = sync.Modify(r.st, func(v scan) (got[int64], scan) {
-		let mut s = v
-		let x = readInt(&s)
-		(gave(&s, x), s)
-	})
-	if o.wrong {
-		return WireWrongKind{Path: o.path, Want: "an integer"}
+	for {
+		let o = sync.Modify(r.st, func(v scan) (got[int64], scan) {
+			let mut s = v
+			let p = opening(&s)
+			let x = readInt(&s)
+			(gave(&s, p, x), s)
+		})
+		if o.wrong {
+			return WireWrongKind{Path: o.path, Want: "an integer"}
+		}
+		if !o.starved {
+			return o.v
+		}
+		refill(r)
 	}
-	o.v
 }
 
 func Uint(r Stream) uint64 fails WireWrongKind {
-	let o = sync.Modify(r.st, func(v scan) (got[uint64], scan) {
-		let mut s = v
-		let x = readUint(&s)
-		(gave(&s, x), s)
-	})
-	if o.wrong {
-		return WireWrongKind{Path: o.path, Want: "an unsigned integer"}
+	for {
+		let o = sync.Modify(r.st, func(v scan) (got[uint64], scan) {
+			let mut s = v
+			let p = opening(&s)
+			let x = readUint(&s)
+			(gave(&s, p, x), s)
+		})
+		if o.wrong {
+			return WireWrongKind{Path: o.path, Want: "an unsigned integer"}
+		}
+		if !o.starved {
+			return o.v
+		}
+		refill(r)
 	}
-	o.v
 }
 
 func Float(r Stream) float64 fails WireWrongKind {
-	let o = sync.Modify(r.st, func(v scan) (got[float64], scan) {
-		let mut s = v
-		let x = readFloat(&s)
-		(gave(&s, x), s)
-	})
-	if o.wrong {
-		return WireWrongKind{Path: o.path, Want: "a number"}
+	for {
+		let o = sync.Modify(r.st, func(v scan) (got[float64], scan) {
+			let mut s = v
+			let p = opening(&s)
+			let x = readFloat(&s)
+			(gave(&s, p, x), s)
+		})
+		if o.wrong {
+			return WireWrongKind{Path: o.path, Want: "a number"}
+		}
+		if !o.starved {
+			return o.v
+		}
+		refill(r)
 	}
-	o.v
 }
 
 func String(r Stream) string fails WireWrongKind {
-	let o = sync.Modify(r.st, func(v scan) (got[string], scan) {
-		let mut s = v
-		let x = readString(&s)
-		(gave(&s, x), s)
-	})
-	if o.wrong {
-		return WireWrongKind{Path: o.path, Want: "a string"}
+	for {
+		let o = sync.Modify(r.st, func(v scan) (got[string], scan) {
+			let mut s = v
+			let p = opening(&s)
+			let x = readString(&s)
+			(gave(&s, p, x), s)
+		})
+		if o.wrong {
+			return WireWrongKind{Path: o.path, Want: "a string"}
+		}
+		if !o.starved {
+			return o.v
+		}
+		refill(r)
 	}
-	o.v
 }
 
 func BeginList(r Stream) fails WireWrongKind {
-	let o = sync.Modify(r.st, func(v scan) (got[bool], scan) {
-		let mut s = v
-		let ok = begin(&s, true)
-		(if ok { got[bool]{v: true, wrong: false, path: ""} } else { got[bool]{v: false, wrong: true, path: path(&s)} }, s)
-	})
-	if o.wrong {
-		return WireWrongKind{Path: o.path, Want: "an array"}
+	for {
+		let o = sync.Modify(r.st, func(v scan) (got[bool], scan) {
+			let mut s = v
+			let p = opening(&s)
+			let ok = begin(&s, true)
+			(began(&s, p, ok), s)
+		})
+		if o.wrong {
+			return WireWrongKind{Path: o.path, Want: "an array"}
+		}
+		if !o.starved {
+			return
+		}
+		refill(r)
 	}
 }
 
 func BeginObject(r Stream) fails WireWrongKind {
-	let o = sync.Modify(r.st, func(v scan) (got[bool], scan) {
-		let mut s = v
-		let ok = begin(&s, false)
-		(if ok { got[bool]{v: true, wrong: false, path: ""} } else { got[bool]{v: false, wrong: true, path: path(&s)} }, s)
-	})
-	if o.wrong {
-		return WireWrongKind{Path: o.path, Want: "an object"}
+	for {
+		let o = sync.Modify(r.st, func(v scan) (got[bool], scan) {
+			let mut s = v
+			let p = opening(&s)
+			let ok = begin(&s, false)
+			(began(&s, p, ok), s)
+		})
+		if o.wrong {
+			return WireWrongKind{Path: o.path, Want: "an object"}
+		}
+		if !o.starved {
+			return
+		}
+		refill(r)
 	}
 }
 
 func Tag(r Stream) string fails WireMissingField {
-	let o = sync.Modify(r.st, func(v scan) (got[string], scan) {
-		let mut s = v
-		let x = tag(&s)
-		(gave(&s, x), s)
-	})
-	if o.wrong {
-		return WireMissingField{Path: o.path, Field: "_tag"}
+	for {
+		let o = sync.Modify(r.st, func(v scan) (got[string], scan) {
+			let mut s = v
+			let p = opening(&s)
+			let x = tag(&s)
+			(gave(&s, p, x), s)
+		})
+		if o.wrong {
+			return WireMissingField{Path: o.path, Field: "_tag"}
+		}
+		if !o.starved {
+			return o.v
+		}
+		refill(r)
 	}
-	o.v
 }
 
 func More(r Stream) bool {
-	sync.Modify(r.st, func(v scan) (bool, scan) {
-		let mut s = v
-		let x = more(&s)
-		(x, s)
-	})
+	for {
+		let o = sync.Modify(r.st, func(v scan) (got[bool], scan) {
+			let mut s = v
+			let p = opening(&s)
+			let x = more(&s)
+			(held(&s, p, x), s)
+		})
+		if !o.starved {
+			return o.v
+		}
+		refill(r)
+	}
 }
 
 func Key(r Stream) string {
@@ -1094,17 +1288,31 @@ func Key(r Stream) string {
 }
 
 func Skip(r Stream) {
-	let _ = sync.Modify(r.st, func(v scan) (bool, scan) {
-		let mut s = v
-		skip(&s)
-		(true, s)
-	})
+	for {
+		let o = sync.Modify(r.st, func(v scan) (got[bool], scan) {
+			let mut s = v
+			let p = opening(&s)
+			skip(&s)
+			(held(&s, p, true), s)
+		})
+		if !o.starved {
+			return
+		}
+		refill(r)
+	}
 }
 
 func End(r Stream) {
-	let _ = sync.Modify(r.st, func(v scan) (bool, scan) {
-		let mut s = v
-		end(&s)
-		(true, s)
-	})
+	for {
+		let o = sync.Modify(r.st, func(v scan) (got[bool], scan) {
+			let mut s = v
+			let p = opening(&s)
+			end(&s)
+			(held(&s, p, true), s)
+		})
+		if !o.starved {
+			return
+		}
+		refill(r)
+	}
 }
