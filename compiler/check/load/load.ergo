@@ -1,0 +1,240 @@
+// Package load finds a program's packages on disk and computes the
+// interfaces their importers read (S3d12): the module a folder is in, the
+// folder an import path names (the module's folders, its go.mod's local
+// replaces, then std), the packages a set of imports reaches, transitively,
+// and each one's types.Iface in import order. typedump and exprdump read
+// their imports through it, so an Ergo import's types are always XRefs
+// into an interface computed from its source.
+
+import compiler/check/bind
+import compiler/check/store
+import compiler/check/task
+import compiler/check/types
+import compiler/syntax
+import fs
+import slices
+import strings
+
+// Module is the module a folder is in: its path and folder, and the
+// modules it requires from a local folder (its go.mod's replace lines
+// whose target is a path).
+type Module { Path string, Dir string, Replaces []Replace }
+
+// Replace is a required module read from a folder.
+type Replace { Path string, Dir string }
+
+// Dir is the folder of the file path.
+func Dir(path string) string {
+	let i = strings.LastIndex(path, "/")
+	if i < 0 { "." } else if i == 0 { "/" } else { path[0:i] }
+}
+
+func replacesOf(d string) []Replace needs fs.Files {
+	let text = fs.Files.ReadFile(d + "/go.mod") catch {
+	case _:
+		""
+	}
+	let mut out = []Replace{}
+	for line in strings.Split(text, "\n") {
+		let l = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "replace "))
+		let i = strings.Index(l, "=>")
+		if i < 0 {
+			continue
+		}
+		let from = strings.Fields(l[0:i])
+		let to = strings.TrimSpace(l[i+2 : len(l)])
+		if len(from) == 0 || !(strings.HasPrefix(to, ".") || strings.HasPrefix(to, "/")) {
+			continue
+		}
+		let target = strings.Fields(to)[0]
+		out = out.Append(Replace{Path: from[0], Dir: if strings.HasPrefix(target, "/") { target } else { d + "/" + target }})
+	}
+	out
+}
+
+// ModuleOf is the module of the nearest ergo.mod in d or a folder above
+// it; none when there is none.
+func ModuleOf(d string) Option[Module] needs fs.Files {
+	let mut at = d
+	for {
+		let text = fs.Files.ReadFile(at + "/ergo.mod") catch {
+		case _:
+			""
+		}
+		for line in strings.Split(text, "\n") {
+			let l = strings.TrimSpace(line)
+			if strings.HasPrefix(l, "module ") {
+				return Some[Module]{Value: Module{Path: strings.TrimSpace(l[7:len(l)]), Dir: at, Replaces: replacesOf(at)}}
+			}
+		}
+		if at == "/" || at == "." || at == "" {
+			return None
+		}
+		at = Dir(at)
+	}
+}
+
+// FolderOf is the folder of the package at import path: in the module m,
+// in one of its replaces, else under std.
+func FolderOf(path string, m Option[Module], std string) string {
+	match m {
+	case Some[Module] as mod:
+		if path == mod.Value.Path {
+			return mod.Value.Dir
+		}
+		if strings.HasPrefix(path, mod.Value.Path+"/") {
+			return mod.Value.Dir + path[len(mod.Value.Path):len(path)]
+		}
+		for r in mod.Value.Replaces {
+			if path == r.Path {
+				return r.Dir
+			}
+			if strings.HasPrefix(path, r.Path+"/") {
+				return r.Dir + path[len(r.Path):len(path)]
+			}
+		}
+	case None:
+	}
+	std + "/" + path
+}
+
+// LoadDir is the package at import path in folder d, its .ergo files in
+// the folder's order; none when d holds no .ergo file or cannot be read.
+func LoadDir(path string, d string) Option[task.Package] needs fs.Files {
+	let names = fs.Files.ReadDir(d) catch {
+	case _:
+		return None
+	}
+	let mut files = []bind.File{}
+	for n in names {
+		if !strings.HasSuffix(n, ".ergo") {
+			continue
+		}
+		let src = fs.Files.ReadFile(d + "/" + n) catch {
+		case _:
+			continue
+		}
+		files = files.Append(bind.File{Name: n, Parsed: syntax.Parse(src)})
+	}
+	if len(files) == 0 {
+		return None
+	}
+	Some[task.Package]{Value: task.Package{Path: path, Files: files}}
+}
+
+// Imported is every package the import paths queue reach, transitively,
+// that the loader finds, in the order met; a path of held (the program's
+// packages already in hand) is neither loaded nor followed. None without
+// std.
+func Imported(queue0 []string, held []string, m Option[Module], std string) []task.Package needs fs.Files {
+	let mut pkgs = []task.Package{}
+	if std == "" {
+		return pkgs
+	}
+	let mut queue = queue0
+	let mut seen = held
+	let mut i = 0
+	for i < len(queue) {
+		let path = queue[i]
+		i = i + 1
+		if slices.Contains(seen, path) {
+			continue
+		}
+		seen = seen.Append(path)
+		match LoadDir(path, FolderOf(path, m, std)) {
+		case Some[task.Package] as p:
+			pkgs = pkgs.Append(p.Value)
+			for q in bind.Imports(p.Value.Files) {
+				queue = queue.Append(q)
+			}
+		case None:
+		}
+	}
+	pkgs
+}
+
+// Join is a followed by b.
+func Join(a []types.Ext, b []types.Ext) []types.Ext {
+	let mut out = a
+	for x in b {
+		out = out.Append(x)
+	}
+	out
+}
+
+func parsedOf(files []bind.File) []syntax.Parsed {
+	let mut out = []syntax.Parsed{}
+	for f in files {
+		out = out.Append(f.Parsed)
+	}
+	out
+}
+
+// Deps is the interfaces of s's imports in its import list's order, by
+// path: the first of have (done interfaces) with the path, else empty (an
+// import the program does not hold, or has not done).
+func Deps(s store.Store, have []types.Iface) []types.Iface {
+	let mut out = []types.Iface{}
+	for path in store.ImportPaths(s) {
+		let mut found = types.EmptyIface(path)
+		for d in have {
+			if d.Path == path {
+				found = d
+				break
+			}
+		}
+		out = out.Append(found)
+	}
+	out
+}
+
+// Interfaces is the interfaces of pkgs, in an order where a package's
+// imports among pkgs come first, each resolved against ext and foreign
+// (the prelude's, the universe's and the Go imports' kinds and types) and
+// the interfaces of have and of pkgs done before it. A package of an
+// import cycle reads empty interfaces for the imports not done when no
+// pass does more.
+func Interfaces(pkgs []task.Package, ext []types.Ext, foreign []types.Foreign, have []types.Iface) []types.Iface {
+	let mut done = have
+	let mut did = []bool{}
+	for _ in pkgs {
+		did = did.Append(false)
+	}
+	let mut left = len(pkgs)
+	for left > 0 {
+		let mut progress = false
+		for pass in 0..2 {
+			if progress {
+				break
+			}
+			for i, p in pkgs {
+				if did[i] || (pass == 1 && progress) {
+					continue
+				}
+				let s = bind.Collect(p.Path, p.Files)
+				if pass == 0 {
+					let mut ready = true
+					for path in store.ImportPaths(s) {
+						for j, q in pkgs {
+							if q.Path == path && j != i && !did[j] {
+								ready = false
+							}
+						}
+					}
+					if !ready {
+						continue
+					}
+				}
+				let deps = Deps(s, done)
+				let parsed = parsedOf(p.Files)
+				let e = Join(ext, types.ExtOf(s, deps))
+				let kinds = types.SolveKinds(s, parsed, e)
+				done = done.Append(types.Interface(s, parsed, kinds, e, foreign, deps))
+				did[i] = true
+				left = left - 1
+				progress = true
+			}
+		}
+	}
+	done
+}

@@ -36,8 +36,11 @@ func TestCompilerExprLawsRun(t *testing.T) {
 // generic call it infers (exprdump -calls) has the Go checker's
 // Info.Calls TypeArgs. An expression the Ergo side leaves untyped is not
 // compared: the run logs, by syntax form, how many of the Go checker's
-// typed expressions the Ergo side types. The types of other packages come
-// from the Go side, as in the types agreement.
+// typed expressions the Ergo side types. The Go side writes the
+// prelude's, the universe's and the Go imports' types; an Ergo import's
+// types are XRefs into its interface, which exprdump computes from the
+// import's source (a corpus package, else -std), as in the types
+// agreement.
 //
 // It builds Go because exprdump is the Ergo program under test:
 // compiler/check/expr is Ergo source, and only its lowered, built form
@@ -106,7 +109,7 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 	writeLines(t, m, manifest)
 	gotTypes, gotCalls, gotDiags := make([][]string, len(folders)), make([][]string, len(folders)), make([][]string, len(folders))
 	at := -1
-	for _, l := range runDump(t, ctx, bin, "-corpus", m) {
+	for _, l := range runDump(t, ctx, bin, "-std", stdDir(), "-corpus", m) {
 		switch {
 		case strings.HasPrefix(l, "@pkg "):
 			at++

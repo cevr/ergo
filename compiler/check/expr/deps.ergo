@@ -63,16 +63,23 @@ func genericAt(k Pkg, path string, name string) int {
 }
 
 // imported is the type of s's pool that names the type name of the
-// Ergo package at path, with args: an instance whose origin is k's
-// reference into the package's interface (types.ImportRef). None when
-// path is no import of k's, or name no type its interface exports.
+// package at path, with args: for an Ergo import of k's, an instance
+// whose origin is k's reference into its interface (types.ImportRef);
+// for the prelude, k's foreign type of the name (the prelude's types are
+// the foreign table's, as the Go side writes them). None when k can name
+// no such type.
 func imported(s *store.Store, k Pkg, path string, name string, args []dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
 	match types.ImportRef(*s, k.Ifaces, path, name) {
 	case Some[store.XRef] as ref:
-		some(store.TInstance(s, ref.Value, args))
+		return some(store.TInstance(s, ref.Value, args))
 	case None:
-		None
 	}
+	if len(args) > 0 {
+		let f = genericAt(k, path, name)
+		return if f >= 0 { some(store.TInstance(s, store.XRef{Import: uint32(store.ForeignBit), Decl: uint32(f)}, args)) } else { None }
+	}
+	let f = foreignAt(k, path, name)
+	if f >= 0 { some(store.TForeign(s, f)) } else { None }
 }
 
 // refName is the package path and type name the XRef o of the
