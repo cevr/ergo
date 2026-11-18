@@ -1754,21 +1754,22 @@ func (w *valueWalk) openingCall(n syntax.Node) *syntax.CallExpr {
 	return nil
 }
 
-// joinsChildren reports a call of a std function whose runtime/v1 body
-// states the child waiting policy (v1.WaitKinds): the caller is the
-// parent of the tasks the body starts, and the body joins them before it
-// returns, running its function operands only on itself and on them. So
-// an escaping literal it is given runs no more once the call returns.
+// joinsChildren reports a call of an extern whose runtime body (its body
+// contract, check.BodyOf) states the child waiting policy (v1.WaitKinds):
+// the caller is the parent of the tasks the body starts, and the body
+// joins them before it returns, running its function operands only on
+// itself and on them. So an escaping literal it is given runs no more once
+// the call returns.
 func (w *valueWalk) joinsChildren(call *syntax.CallExpr) bool {
 	c := w.info.Calls[call]
-	if c == nil || c.Kind != check.CallFunc || c.Func == nil || c.Func.Decl == nil || c.Func.Decl.Extern == nil {
+	if c == nil || c.Kind != check.CallFunc {
 		return false
 	}
-	path, name := c.Func.Decl.Extern.Split()
-	if !v1.Owns(path) {
+	name := check.BodyOf(c.Func).Runtime
+	if name == "" {
 		return false
 	}
-	body, err := v1.BodyOf(name)
+	body, err := runtimeBody(name)
 	return err == nil && body.Wait == "child"
 }
 
