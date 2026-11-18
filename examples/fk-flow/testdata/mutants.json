@@ -204,8 +204,8 @@
     {
       "name": "fk12b-pointer-moves-nothing", "origin": "wf10/fk12b",
       "file": "examples/fk-flow/screen/screen.ergo",
-      "from": "\t\tcase ui.Moved:\n\t\t\tSome[app.Signal]{Value: app.On{Signal: scene.Moved{X: e.X, Y: e.Y}}}\n",
-      "to": "\t\tcase ui.Moved:\n\t\t\tNone\n",
+      "from": "\t\tcase ui.Moved, ui.Drag:\n\t\t\tSome[app.Signal]{Value: app.On{Signal: scene.Moved{X: e.X, Y: e.Y}}}\n",
+      "to": "\t\tcase ui.Moved, ui.Drag:\n\t\t\tNone\n",
       "rule": "A move over the flow's canvas points the field (case tour: move 480 300, the pointer ring).",
       "anchor": {"tests": ["examples:fk-flow"]}, "killers": ["examples:fk-flow"]
     },
