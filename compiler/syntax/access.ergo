@@ -5,9 +5,6 @@ import dense
 
 func parsedToks(p Parsed) tokens { tokens{src: p.src, kinds: p.kinds, starts: p.starts, ends: p.ends, cmt0: p.cmt0} }
 
-// NumTokens is the number of tokens of the parse, its EOF the last.
-func NumTokens(p Parsed) int { len(p.kinds) }
-
 // TokPos is the offset of token j.
 func TokPos(p Parsed, j int) int { int(p.starts[j]) }
 

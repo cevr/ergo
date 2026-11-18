@@ -76,16 +76,6 @@ func SourceBounded(src string, maxBytes int) (string, error) {
 	return outcome(out)
 }
 
-// Stream formats like SourceBounded with the streaming printer (capstone
-// S1e), which the tree printer is the reference of.
-func Stream(src string, maxBytes int) (string, error) {
-	out, err := format.FormatStream(context.Background(), src, maxBytes)
-	if err != nil {
-		return "", err
-	}
-	return outcome(out)
-}
-
 // File prints a parsed file in the canonical layout: it formats the file's
 // source.
 func File(f *syntax.File) string {
