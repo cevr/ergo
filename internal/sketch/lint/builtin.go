@@ -13,6 +13,9 @@ const (
 	Justifiers  = "justifiers"
 	Strict      = "strict"
 	Layout      = "layout"
+	// Advisory is the opt-in preset of rules a reader judges: hints that
+	// never change the exit code by their severity (spec §4 point 2).
+	Advisory = "advisory"
 )
 
 // builtinRules are every built-in rule.
@@ -26,6 +29,7 @@ var builtinRules = []*Rule{
 	defaultOnFailure, repeatedPureCall, guardTheTypeProves, repeatedGuard,
 	foreignOutsideAdapter, capabilityOutsideOwner, consoleOutsideEntry, testReadsUnexported,
 	causeDropped, failureAsVariant, vacuousTest, parameterClump, constantArgument, longParameterList,
+	narrationComment, commentedCode,
 }
 
 // builtinPresets are the built-in presets over builtinRules.
@@ -61,6 +65,11 @@ func builtinPresets() []Preset {
 			Name:  Layout,
 			Doc:   "The Go layout of AGENTS.md: implementations chosen only at the entry, files named by concept, Go code only in adapters, capabilities run only by their owners, Console kept out of domain packages, and tests through the exported functions.",
 			Rules: on(withAtEntry, conceptFileNames, foreignOutsideAdapter, capabilityOutsideOwner, consoleOutsideEntry, testReadsUnexported),
+		},
+		{
+			Name:  Advisory,
+			Doc:   "Comments a reader would cut, as hints: narration that repeats the code line under it, and code kept in a comment. Opt-in; precision 0.00 until a read sample reaches 0.80.",
+			Rules: on(narrationComment, commentedCode),
 		},
 	}
 }

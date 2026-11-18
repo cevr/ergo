@@ -18,6 +18,13 @@ func ruleLines(t *testing.T, rule, src string) []int {
 	if !in.Checked {
 		t.Fatalf("the generated program does not check:\n%s", src)
 	}
+	return linesOf(t, rule, in)
+}
+
+// linesOf runs rule alone, at warning, on in and returns the lines of its
+// findings.
+func linesOf(t *testing.T, rule string, in lint.Input) []int {
+	t.Helper()
 	settings := map[string]lint.Setting{}
 	for _, r := range lint.Builtin().Rules() {
 		settings[r.Name] = lint.Setting{Severity: lint.Off, HasSeverity: true}
