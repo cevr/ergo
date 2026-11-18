@@ -844,6 +844,11 @@
       "rule": "crc32.Update carries the checksum crc over s.",
       "anchor": {"tests":["lower:TestStdMatchesGo"]},
       "killers": ["lower:TestStdMatchesGo"]
-    }
+    },
+    {"name":"debounced-no-timer","origin":"wf10 std-spike DEBOUNCE","file":"internal/sketch/std/stream/debounced.ergo","from":"\t\t\tnextBefore(src, dl)\n","to":"\t\t\tnextOf(src)\n","rule":"stdlib.md stream 5: Debounced emits the held value d after it arrived while src stays silent.","killers":["lower:TestStdStreamLawsRun"],"anchor":{"tests":["lower:TestStdStreamLawsRun"]}},
+    {"name":"debounced-emits-in-burst","origin":"wf10 std-spike DEBOUNCE","file":"internal/sketch/std/stream/debounced.ergo","from":"\t\tcase arrival[T] as a:\n\t\t\tpending = Some[T]{Value: a.Value}\n","to":"\t\tcase arrival[T] as a:\n\t\t\ttry pushHeld(out, pending)\n\t\t\tpending = Some[T]{Value: a.Value}\n","rule":"stdlib.md stream 5: Debounced never emits while a burst goes on.","killers":["lower:TestStdStreamLawsRun"],"anchor":{"tests":["lower:TestStdStreamLawsRun"]}},
+    {"name":"debounced-rearms-full-window","origin":"wf10 std-spike DEADLINE","file":"internal/sketch/std/stream/debounced.ergo","from":"\t\t\t\tdl.Arm(rest)\n","to":"\t\t\t\tdl.Arm(d)\n","rule":"stdlib.md stream 5: an early fire re-arms the deadline for the rest of the held value's d, so it leaves d after it arrived.","killers":["lower:TestStdStreamLawsRun"],"anchor":{"tests":["lower:TestStdStreamLawsRun"]}},
+    {"name":"debounced-quiet-keeps-held","origin":"wf10 std-spike DEBOUNCE","file":"internal/sketch/std/stream/debounced.ergo","from":"\t\t\t\ttry pushHeld(out, pending)\n\t\t\t\tpending = None\n","to":"\t\t\t\ttry pushHeld(out, pending)\n","rule":"stdlib.md stream 5: Debounced emits each held value once.","killers":["lower:TestStdStreamLawsRun"],"anchor":{"tests":["lower:TestStdStreamLawsRun"]}},
+    {"name":"debounced-end-drops-held","origin":"wf10 std-spike DEBOUNCE","file":"internal/sketch/std/stream/debounced.ergo","from":"\t\t\ttry pushHeld(out, pending)\n\t\t\tout.End()\n","to":"\t\t\tout.End()\n","rule":"stdlib.md stream 5: when src ends, Debounced emits the held value.","killers":["lower:TestStdStreamLawsRun"],"anchor":{"tests":["lower:TestStdStreamLawsRun"]}}
   ]
 }

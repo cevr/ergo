@@ -517,6 +517,15 @@ func main() {
 	use(Mine)
 }
 `,
+	// HTTP-FAST-b: Scheduler.Alarms returns it; only the runtime makes one.
+	"prelude.AlarmClock": `type Mine {}
+
+func use(c AlarmClock) {}
+
+func main() {
+	use(Mine)
+}
+`,
 	// std time (S2b): NewManual's extern returns the Timeline.
 	"time.Timeline": `import time
 

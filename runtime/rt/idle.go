@@ -219,6 +219,16 @@ func Park(t *Task, src any, stop <-chan struct{}, ready func() bool) Parked {
 	return Parked{park(t, src, nil, stop, ready)}
 }
 
+// ParkEither is Park on two sources: the wait ends on an event of src or
+// of other (a timer whose fire wakes through Wake with itself as src), or
+// on t's stop. timeout.PopWithin parks on its queue and its deadline.
+func ParkEither(t *Task, src, other any, stop <-chan struct{}, ready func() bool) Parked {
+	if t.member.Load() == nil {
+		return Parked{}
+	}
+	return Parked{park(t, src, other, stop, ready)}
+}
+
 // Parked is a parked wait (Park).
 type Parked struct{ m *member }
 
@@ -247,7 +257,7 @@ func (v *Virtual) idle() {
 		v.change = nil
 	}
 	kickStalls() // stall.go
-	if !v.auto || v.live == 0 || v.parked < v.live || len(v.timers) == 0 {
+	if !v.auto || v.live == 0 || v.parked < v.live || v.running > 0 || len(v.timers) == 0 {
 		return
 	}
 	when := v.timers[0].when
@@ -263,8 +273,29 @@ func (v *Virtual) idle() {
 	v.armed.Broadcast()
 }
 
+// runAlarm starts f, an AfterFunc's function, on a goroutine of its own,
+// never under v.mu. v.running counts it until it returns, so a Settle
+// waits for it and an auto clock does not move under it: a member that f
+// wakes runs before the time moves on. v.mu is held.
+func (v *Virtual) runAlarm(f func()) {
+	v.running++
+	go func() {
+		defer func() {
+			v.mu.Lock()
+			v.running--
+			v.idle()
+			v.mu.Unlock()
+		}()
+		f()
+	}()
+}
+
 // fire wakes the sleeper of t, if any, and delivers t's time. v.mu is held.
 func (v *Virtual) fire(t *virtualTimer) {
+	if t.f != nil {
+		v.runAlarm(t.f)
+		return
+	}
 	if t.task != nil {
 		if m := t.task.member.Load(); m != nil && m.v == v && m.parked && m.on[0] == any(t) {
 			m.release()
