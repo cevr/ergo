@@ -636,7 +636,6 @@ var stdPrivilegesBaseline = []string{
 	"internal/sketch/lower/handover.go:funcCtx.ownedFormAt",
 	"internal/sketch/lower/handover.go:lowerer.checkedOwnedForm",
 	"internal/sketch/lower/handover.go:lowerer.checkedOwnedForm",
-	"internal/sketch/lower/hook.go:hookFunc", // B22-NP (RT-HOOK, batch 22 integration)
 	"internal/sketch/lower/ir.go:irState.body",
 	"internal/sketch/lower/ir.go:irState.body",
 	"internal/sketch/lower/ir.go:irState.intrinsic",
