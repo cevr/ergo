@@ -1076,6 +1076,10 @@ type Test struct {
 	Name   string
 	Decl   *syntax.TestDecl
 	Params []*Var
+	// Ties are, for each parameter, the earlier parameters of an
+	// identical type whose drawn value a generated case may repeat
+	// (Law.Ties; runtime.md, Tests).
+	Ties [][]int
 
 	file *fileInfo // the declaring file, selected while the test is checked
 }
@@ -1127,6 +1131,12 @@ type Law struct {
 	// Where holds the refinement of each parameter that takes a where
 	// (refine.go), at its index in Params; nil without any.
 	Where []*Refinement
+	// Ties are, for each parameter, the earlier parameters of an
+	// identical type, neither with a where, whose drawn value a generated
+	// case may repeat, so that a run reaches equal arguments (the tie
+	// rule; runtime.md, Tests; CONSTRAINTS C2). A parameter of a generic
+	// owner's type parameter ties with another of the same parameter.
+	Ties [][]int
 	// Rewrite is the checked form of a rewrite law (Decl.Rewrite; types.md,
 	// Laws 14), nil for any other law or one whose shape was refused.
 	Rewrite *Rewrite
@@ -1196,6 +1206,10 @@ type LawProvider struct {
 	Slot   *Named
 	Params []Type
 	Ptr    bool
+	// Witnesses are, for a law of a generic operation type whose type
+	// parameter operations constrain, the witness of each such parameter
+	// at the provider's instance (lawWitnesses), in order.
+	Witnesses []Witness
 
 	// noGenerator marks an Unrun that says the values have no generator;
 	// lawRuns adds the fix the law's shape admits (lawProviderFix).

@@ -108,6 +108,19 @@ func (r *Stream) Intn(n int) int {
 
 func (r *Stream) Bool() bool { return r.Intn(2) == 1 }
 
+// Tie is the tie rule of generated cases (runtime.md, Tests): a parameter
+// of a case with n earlier parameters of its type repeats one of their
+// values with probability 1/4. It is k in 0..n-1, the earlier value to
+// repeat, or -1 when the case draws the value anew. One draw decides it,
+// and a tie replaces the value's own draws. A zero draw (a shrink) ties
+// with the first, the simpler case.
+func (r *Stream) Tie(n int) int {
+	if k := r.Intn(4 * n); k < n {
+		return k
+	}
+	return -1
+}
+
 // any64 is any int64: draws 0, 1, 2, 3, … give 0, -1, 1, -2, ….
 func (r *Stream) any64() int64 {
 	z := r.Next()

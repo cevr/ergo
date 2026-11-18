@@ -157,7 +157,14 @@ type checker struct {
 	// bracket constraint, an implements clause, an include, a type-set
 	// term): only there may a type with a type set be written (typExpr).
 	inConstraint int
-	derive       *derive.Package // the package's derive record (derive.go)
+	// deferBounds counts the positions where an instance's bounds wait
+	// (instantiateExprs): an implements clause, whose bound may be met by
+	// the clause itself (`type Level int implements Ranked[Level]`;
+	// checkImplementsClauses checks it, S106 at the clause), and a bracket
+	// constraint, whose bound may name a parameter whose constraint is not
+	// set yet (`[T Ranked[T]]`; checked once all are set, boundsUnmet).
+	deferBounds int
+	derive      *derive.Package // the package's derive record (derive.go)
 	// neverOrigins caches, per union origin, whether a variant holds a
 	// Never (switchUnion.mayHoldNever; types.md, Never).
 	neverOrigins map[*Union]bool

@@ -511,6 +511,13 @@ func (l *lowerer) lawDecl(law *check.Law) {
 		l.tests.lawOwn = scope.alloc("own")
 		parts = append(parts, l.tests.lawOwn+" "+fc.goType(own)+"["+strings.Join(args, ", ")+"]")
 		defer func() { l.tests.lawOwn = "" }()
+		// A parameter that operations constrain, Ranked's T in
+		// type Ranked[T Ranked[T]], takes its witness after the provider,
+		// as a generic function does (witness.go; CONSTRAINTS C2).
+		for _, tp := range lawWitnessParams(own) {
+			fc.witness[tp] = scope.alloc("w" + tp.Name)
+			parts = append(parts, fc.witness[tp]+" "+fc.witnessType(tp, tp))
+		}
 	}
 	result := check.Type(check.Typ[check.Bool])
 	fc.frame = lawFrame(l.info, d, result)
@@ -961,13 +968,16 @@ func (l *lowerer) testRun(b *strings.Builder, t *check.Test, scope *namer, env, 
 		// argument as an Ergo literal of its type (literal.go), written
 		// only when it fails.
 		shown := []string{strconv.Quote("case "), conv + ".Itoa(" + i + ")", strconv.Quote(" of " + strconv.Itoa(testCases) + ", seed "), conv + ".FormatUint(" + seed + ", 10)", strconv.Quote(", size "), conv + ".Itoa(" + i + " / 4)"}
-		for k, v := range testplan.Test(t).Inputs {
+		plan := testplan.Test(t)
+		drawn := make([]string, len(plan.Inputs))
+		for k, v := range plan.Inputs {
 			base := v.Name
 			if base == "_" {
 				base = "arg"
 			}
 			a := inner.alloc(base)
-			b.WriteString("\t\t\t" + a + " := " + l.genExpr(v.Type, r, strconv.Itoa(testDepth), inner, t.Decl) + "\n")
+			drawn[k] = a
+			b.WriteString("\t\t\t" + a + " := " + l.tieExpr(plan, k, drawn, v.Type, r, l.genExpr(v.Type, r, strconv.Itoa(testDepth), inner, t.Decl), t.Decl) + "\n")
 			args = append(args, a)
 			sep := ", "
 			if k == 0 {
@@ -998,6 +1008,29 @@ func (t *testLowering) lawOwnOf(c *check.Call) string {
 // type that runs (its first slot), nil for any other law.
 func lawGenericOwner(law *check.Law) *check.Named {
 	return testplan.GenericOwner(law)
+}
+
+// lawWitnessParams are the type parameters of a generic owner that take a
+// witness in its law's function: those operations constrain, in order
+// (check.LawProvider.Witnesses holds one for each).
+func lawWitnessParams(own *check.Named) []*check.TypeParam {
+	var out []*check.TypeParam
+	for _, tp := range witnessParams(&check.Signature{TParams: own.TParams}) {
+		if !isWireParam(tp) {
+			out = append(out, tp)
+		}
+	}
+	return out
+}
+
+// lawWitnessArgs are the witnesses a run of law passes at its provider
+// p's instance, after the provider (lawDecl).
+func (fc *funcCtx) lawWitnessArgs(p check.LawProvider, site syntax.Node) []string {
+	out := make([]string, len(p.Witnesses))
+	for i := range p.Witnesses {
+		out[i] = fc.witnessValue(&p.Witnesses[i], site)
+	}
+	return out
 }
 
 func lawSlotParam(law *check.Law, i int) bool {
@@ -1165,6 +1198,7 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 				// after the environment, at the instance the provider
 				// fixes (lawDecl).
 				args = append(args, provide(tg.b[k], "provider", "provider"))
+				args = append(args, fc.lawWitnessArgs(tg.b[k], law.Decl)...)
 				tc := &typeCtx{l: l, site: law.Decl}
 				targs := make([]string, len(tg.b[k].Slot.TArgs))
 				for i, a := range tg.b[k].Slot.TArgs {
@@ -1179,9 +1213,12 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 			}
 		}
 		paramPlans := plan.Inputs
+		offset := 0
 		if len(paramPlans) > 0 && paramPlans[0].Param < 0 {
 			paramPlans = paramPlans[1:]
+			offset = 1
 		}
+		drawn := make([]string, len(plan.Inputs))
 		for k, v := range law.Params {
 			input := paramPlans[k]
 			vt := input.Type
@@ -1198,7 +1235,8 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 			if input.Where != nil {
 				gen = l.genRefined(vt, input.Where, r, strconv.Itoa(testDepth), inner, law.Decl)
 			}
-			b.WriteString("\t\t\t" + a + " := " + gen + "\n")
+			drawn[k+offset] = a
+			b.WriteString("\t\t\t" + a + " := " + l.tieExpr(plan, k+offset, drawn, vt, r, gen, law.Decl) + "\n")
 			args = append(args, a)
 			shown = append(shown, strconv.Quote(sep+v.Name+" = "), l.litExpr(vt, a, law.Decl))
 			sep = ", "

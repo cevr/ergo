@@ -260,6 +260,7 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 		// values are the generated ones, which the body cannot change: a
 		// write copies a store its slot does not own.
 		shows := make([]func() Argument, 0, len(p.Inputs))
+		drawn := make([]Value, len(p.Inputs))
 		for i, input := range p.Inputs {
 			var v Value
 			if p.Listed {
@@ -279,8 +280,11 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 					return Argument{Name: input.Name, Value: ctor.Name + "(" + strings.Join(shown, ", ") + ")"}
 				})
 			} else {
-				v = in.generate(cf, r, input.Type, testplan.Depth, input.Where)
+				// The tie rule (testplan.Tie): an input may repeat an
+				// earlier value of its type, as the test build's does.
+				v = testplan.Tie(p, r, i, drawn, func() Value { return in.generate(cf, r, input.Type, testplan.Depth, input.Where) })
 			}
+			drawn[i] = v
 			switch {
 			case len(shows) > i:
 			case input.Provider != nil:

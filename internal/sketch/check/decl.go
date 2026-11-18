@@ -927,8 +927,12 @@ func (c *checker) resolveNamed(n *Named) {
 	defer func() { c.cur, c.shallow = saved, shallow }()
 	d := n.Obj.Decl
 	ctx := &typeCtx{params: map[string]*TypeParam{}, decl: true}
+	var later, checks []func()
 	if d.TypeParams != nil {
 		kinds, conflicts := c.bracketKinds(n.Obj)
+		// Every parameter is declared before any constraint resolves, so a
+		// bound may name a later parameter or the type itself:
+		// type Ranked[T Ranked[T]] (types.md, Generics 2; CONSTRAINTS C2).
 		for _, field := range d.TypeParams.List {
 			cons := c.constraintExpr(field)
 			for _, name := range field.Names {
@@ -937,7 +941,12 @@ func (c *checker) resolveNamed(n *Named) {
 				c.def(name, tp)
 				switch {
 				case cons != nil:
-					tp.Constraint = c.constraint(cons, ctx)
+					later = append(later, func() {
+						c.deferBounds++
+						tp.Constraint = c.constraint(cons, ctx)
+						c.deferBounds--
+					})
+					checks = append(checks, func() { c.constraintBounds(tp, cons) })
 				case conflicts[name.Name]:
 					c.errorf(name, CodeType, "type parameter %s is used both as a type and as a row (types.md, Generics 1)", name.Name)
 					tp.conflict = true
@@ -954,6 +963,18 @@ func (c *checker) resolveNamed(n *Named) {
 	}
 	restore := c.monoOwner(n.TParams)
 	defer restore()
+	// Under the owner, so that a bound that grows its own argument,
+	// type R[T R[[]T]], is an instantiation cycle (mono.go).
+	for _, f := range later {
+		f()
+	}
+	// A bound's own bounds, once every parameter has its constraint; for
+	// a self bound, once the type has its body (resolveNamed's end).
+	defer func() {
+		for _, f := range checks {
+			f()
+		}
+	}()
 	switch spec := d.Spec.(type) {
 	case *syntax.StructType:
 		if c.emptyUnion(n, spec) {
@@ -1657,6 +1678,12 @@ func (c *checker) constraint(x syntax.Expr, ctx *typeCtx) Type {
 	if isInvalid(t) {
 		return nil
 	}
+	if n, ok := t.(*Named); ok && resolvingOps(n) {
+		// A self bound, type Ranked[T Ranked[T]]: the operation type is
+		// still resolving here, and it is one by its declaration
+		// (CONSTRAINTS C2).
+		return t
+	}
 	it := asInterface(t)
 	if it == nil {
 		c.errorf(x, CodeType, "a constraint is an interface, not %s", t)
@@ -1666,6 +1693,31 @@ func (c *checker) constraint(x syntax.Expr, ctx *typeCtx) Type {
 		return nil
 	}
 	return t
+}
+
+// constraintBounds checks, once a bracket's constraints are all set
+// (deferBounds), that tp's constraint, an instance, meets its own type's
+// bounds: in `[T Ranked[T]]`, T must satisfy Ranked's bound on its T.
+func (c *checker) constraintBounds(tp *TypeParam, x syntax.Expr) {
+	n, ok := tp.Constraint.(*Named)
+	if !ok || n.Orig == nil {
+		return
+	}
+	if p, why := c.boundsUnmet(n); p != nil {
+		c.errorf(x, CodeType, "%s does not satisfy %s: %s", n.TArgs[slices.Index(n.origin().TParams, p)], c.subst(p.Constraint, paramMap(n.origin().TParams, n.TArgs)), why)
+	}
+}
+
+// resolvingOps reports whether n is an instance of a type still resolving
+// (a bound inside its own brackets) whose declaration is an operation type
+// with braces, no union.
+func resolvingOps(n *Named) bool {
+	o := n.origin()
+	if o.state != 1 || o.Obj == nil || o.Obj.Decl == nil {
+		return false
+	}
+	spec, ok := o.Obj.Decl.Spec.(*syntax.InterfaceType)
+	return ok && spec.Lbrace.IsValid() && len(spec.Union) == 0
 }
 
 // instantiateExprs instantiates a generic type with written type arguments.
@@ -1717,7 +1769,7 @@ func (c *checker) instantiateExprs(n *Named, args []syntax.Expr, at syntax.Node,
 		return invalid
 	}
 	for i, tp := range n.TParams {
-		if tp.Kind == KindType && tp.Constraint != nil && n.state == 2 {
+		if tp.Kind == KindType && tp.Constraint != nil && n.state == 2 && c.deferBounds == 0 {
 			cons := c.subst(tp.Constraint, paramMap(n.TParams, targs))
 			if why := c.satisfies(targs[i], cons); why != "" {
 				c.errorf(args[i], CodeType, "%s does not satisfy %s: %s", targs[i], cons, why)
@@ -2350,8 +2402,13 @@ func (c *checker) funcSig(f *Func) *Signature {
 	// signature instances too).
 	owner := append([]*TypeParam(nil), tparams...)
 	restore := c.monoOwner(owner)
+	c.deferBounds++
 	for _, p := range constraints {
 		p.tp.Constraint = c.constraint(p.x, ctx)
+	}
+	c.deferBounds--
+	for _, p := range constraints {
+		c.constraintBounds(p.tp, p.x)
 	}
 	c.kindBracketParams(d.Type, ctx, unconstrained)
 	c.monoLinkSelf(f, ctx)

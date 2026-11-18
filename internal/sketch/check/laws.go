@@ -343,19 +343,6 @@ func (l *Law) capability() *Named {
 	return n
 }
 
-// constraintMethods reports whether tp's constraint has operations: a run
-// would pass a witness for it (lower/witness.go), which it does not build.
-func constraintMethods(tp *TypeParam) bool {
-	var it *Interface
-	switch c := tp.Constraint.(type) {
-	case *Interface:
-		it = c
-	case *Named:
-		it, _ = c.Underlying().(*Interface)
-	}
-	return it != nil && len(it.Methods) > 0
-}
-
 // planLaws decides how ergo test runs each law (Running, rules 7 to 9):
 // its providers and, when it does not run, why. A duplicate law is
 // refused (S108), so its plan is never read.
@@ -471,10 +458,8 @@ func (c *checker) planLaw(law *Law) {
 					law.Unrun = "its operation type " + law.Owner.Name + " has the row parameter " + tp.Name + ", and a run binds only type parameters"
 					return
 				}
-				if constraintMethods(tp) {
-					law.Unrun = "its operation type " + law.Owner.Name + " constrains " + tp.Name + " by operations, and a run passes no witness"
-					return
-				}
+				// A parameter that operations constrain takes the
+				// witness of its instance (LawProvider.Witnesses).
 			}
 			own = n
 		}
@@ -629,8 +614,56 @@ func (c *checker) lawInstance(law *Law, b []LawProvider) []LawProvider {
 			p.Unrun = "its parameter " + v.Name + " has no generator at " + p.Slot.String() + ": " + why
 		}
 	}
+	if p.Unrun == "" {
+		var why string
+		p.Witnesses, why = c.lawWitnesses(own, p.Slot.TArgs)
+		if why != "" {
+			p.Unrun = why
+		}
+	}
 	b[0] = p
 	return b
+}
+
+// lawWitnesses are the witnesses a law of the generic operation type own
+// takes at the instance targs (CONSTRAINTS C2): one per type parameter
+// that operations constrain, Ranked's T in type Ranked[T Ranked[T]], built
+// as a call's are (instanceWitnesses), or why one cannot be.
+func (c *checker) lawWitnesses(own *Named, targs []Type) ([]Witness, string) {
+	m := paramMap(own.TParams, targs)
+	var out []Witness
+	for i, tp := range own.TParams {
+		if tp.Kind != KindType || tp.Constraint == nil || i >= len(targs) {
+			continue
+		}
+		constraint := c.subst(tp.Constraint, m)
+		it := asInterface(constraint)
+		if it == nil || len(it.Methods) == 0 {
+			continue
+		}
+		if why := c.satisfies(targs[i], constraint); why != "" {
+			return nil, "its instance " + targs[i].String() + " does not satisfy " + constraint.String() + ": " + why
+		}
+		w := Witness{Param: tp, Arg: targs[i]}
+		for _, op := range it.Methods {
+			method, f := c.methodOf(targs[i], op.Name)
+			if method == nil {
+				return nil, "its instance " + targs[i].String() + " has no operation " + op.Name
+			}
+			sig := *op.Sig
+			sig.Params = append([]*Var{{Name: "self", Type: targs[i]}}, op.Sig.Params...)
+			wo := WitnessOp{Name: op.Name, Sig: &sig, Func: f}
+			if f != nil && f.Sig != nil && len(f.Sig.TParams) > 0 {
+				var why string
+				if wo.Inst, why = c.witnessInstance(f, receiverTypeArgs(targs[i], f)); why != "" {
+					return nil, why
+				}
+			}
+			w.Ops = append(w.Ops, wo)
+		}
+		out = append(out, w)
+	}
+	return out, ""
 }
 
 // lawSlotParam reports whether the law's parameter i is a slot.
@@ -917,6 +950,7 @@ func (c *checker) checkLaw(law *Law) {
 			}
 		}
 	}
+	law.Ties = c.ties(law.Params, law.Where)
 	if d.Rewrite != nil {
 		c.rewriteLaw(law, tg)
 	} else {
@@ -993,4 +1027,28 @@ func (c *checker) lawOpCall(x *syntax.CallExpr) (operand, bool) {
 	call := c.callInfo(x)
 	call.Kind, call.Op = CallLawOp, m
 	return c.callSig(x, m.Sig, fun), true
+}
+
+// ties is, for each of params, the earlier parameters of an identical type
+// (Law.Ties): a generated case repeats one of their values with
+// probability 1/4 (the tie rule, runtime/testgen Stream.Tie). A parameter
+// with a where neither ties nor is tied to, since a repeated value need
+// not hold the other's predicate.
+func (c *checker) ties(params []*Var, where []*Refinement) [][]int {
+	var out [][]int
+	for i, p := range params {
+		var earlier []int
+		if i >= len(where) || where[i] == nil {
+			for j := range i {
+				if (j >= len(where) || where[j] == nil) && !containsInvalid(p.Type) && c.identical(params[j].Type, p.Type) {
+					earlier = append(earlier, j)
+				}
+			}
+		}
+		out = append(out, earlier)
+	}
+	if !slices.ContainsFunc(out, func(e []int) bool { return len(e) > 0 }) {
+		return nil
+	}
+	return out
 }
