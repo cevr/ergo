@@ -27,7 +27,9 @@ func TestLayoutsOfOldListsGo(t *testing.T) {
 	w.tmu.Lock()
 	n := len(w.laid) + len(w.lastLaid)
 	w.tmu.Unlock()
-	if n > 4 {
+	// A list lays out at most 4: its measured text, and the drawn line's
+	// words "frame", " " and its number (GP-SHAPE composes the line).
+	if n > 8 {
 		t.Fatalf("after 50 lists of 2 texts each the window keeps %d layouts, want those of 2 lists", n)
 	}
 }
