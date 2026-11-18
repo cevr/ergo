@@ -23,7 +23,9 @@ import (
 // echoed answer read whole per op, with no HTTP client, so what both modes
 // add is the server's. ergo is Serve with a handler that echoes the body,
 // reading with its engine; ergo-eager is the engine with the background
-// read started before every handler, as net/http starts it; ergo-port is the engine with every answer
+// read started before every handler, as net/http starts it; ergo-entrypoll
+// is ergo with a handler that polls (Check) at entry, as every lowered
+// Ergo handler does through std's http.Serve; ergo-port is the engine with every answer
 // through the port of net/http's writer (fastAnswer off); ergo-nethttp
 // is the same Serve on its reference reader, net/http;
 // go is hand net/http with the same guarantees (bounded header and body,
@@ -33,7 +35,7 @@ import (
 // pattern, -bench 'BenchmarkHTTPServeRaw/^go$': an unanchored "go$" also
 // matches "ergo".
 func BenchmarkHTTPServeRaw(b *testing.B) {
-	for _, mode := range []string{"ergo", "ergo-eager", "ergo-port", "ergo-nethttp", "go", "floor"} {
+	for _, mode := range []string{"ergo", "ergo-eager", "ergo-entrypoll", "ergo-port", "ergo-nethttp", "go", "floor"} {
 		b.Run(mode, func(b *testing.B) {
 			ln, err := net.Listen("tcp", "127.0.0.1:0")
 			if err != nil {
@@ -51,10 +53,17 @@ func BenchmarkHTTPServeRaw(b *testing.B) {
 				engineLazyWatch = false
 				b.Cleanup(func() { engineLazyWatch = true })
 			}
+			// ergo-entrypoll's handler polls once at entry, as std's
+			// http.Serve wrapper does before every lowered Ergo handler
+			// (HTTP-FAST-c5's measurement).
+			entryPoll := mode == "ergo-entrypoll"
 			if mode != "go" && mode != "floor" {
 				s := v1.NewScope(rt.Root("HTTP raw benchmark"))
 				h := v1.Go(&s, "Serve", func(ct *rt.Task) (struct{}, error) {
-					return struct{}{}, httpServe("request", ct, liveSleeper{}, ergonet.ListenerOn(ln), serveLimits(4096, 4096), func(_ *rt.Task, _ *Exchange, _, _, _ string, _, _ []HTTPField, body string, tooLarge bool, readError string) HTTPResponse {
+					return struct{}{}, httpServe("request", ct, liveSleeper{}, ergonet.ListenerOn(ln), serveLimits(4096, 4096), func(ct *rt.Task, _ *Exchange, _, _, _ string, _, _ []HTTPField, body string, tooLarge bool, readError string) HTTPResponse {
+						if entryPoll {
+							ct.Check()
+						}
 						if tooLarge || readError != "" {
 							return HTTPResponse{Status: 400}
 						}
