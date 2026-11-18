@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"time"
 
 	"ergo.local/prototype/runtime/rt"
@@ -163,6 +165,17 @@ type engineConn struct {
 	watching   bool        // the background read of this request runs (watch)
 	watchFn    func()      // watch, made once for the connection's requests
 	poll       rt.PollHook // the storage of the requests' watch hook (answer)
+	// The watcher's state (http_peer.go): its registration (peer, rc,
+	// pfd; peerFailed: none can be made), the armed watch (armed, guarded
+	// by c.mu), an end of stream seen (eof) and a close that may wait
+	// behind bytes (pending).
+	peer       *peerWatcher
+	rc         syscall.RawConn
+	pfd        int32
+	peerFailed bool
+	armed      bool
+	eof        atomic.Bool
+	pending    atomic.Bool
 	resp       engineResponse
 	fields     []fieldAt
 	out        []byte      // fastAnswer's answer, reused
@@ -599,11 +612,27 @@ func (e *engineConn) startBackgroundRead() bool {
 // watch starts the background read of the request being answered, once
 // (watching), when the connection has room to read into.
 func (e *engineConn) watch() {
-	if !e.watching {
+	if e.watching || e.armed {
+		return
+	}
+	if engineWatcher && e.registerPeer() {
+		e.arm()
+	} else {
 		e.watching = e.startBackgroundRead()
-		if e.watching && engineWatchHook != nil {
-			engineWatchHook()
-		}
+	}
+	if (e.watching || e.armed) && engineWatchHook != nil {
+		engineWatchHook()
+	}
+}
+
+// unwatch ends the watch of the request answered, the background read or
+// the watcher's.
+func (e *engineConn) unwatch() {
+	if e.watching {
+		e.abortBackgroundRead()
+	}
+	if e.armed {
+		e.disarm()
 	}
 }
 
@@ -638,6 +667,7 @@ func (s *httpServer) serveConn(c *httpConn, l *engineListener) {
 	e.watchFn = e.watch
 	handed := false
 	defer func() {
+		e.unregisterPeer()
 		if !handed {
 			e.close()
 		}
@@ -654,6 +684,7 @@ func (s *httpServer) serveConn(c *httpConn, l *engineListener) {
 		case headClosed:
 			return
 		case headHanded:
+			e.unregisterPeer() // net/http watches the connections it serves
 			handed = l.handOver(c, e.buf[e.r:e.w])
 			return
 		}
@@ -693,15 +724,11 @@ func (s *httpServer) serveConn(c *httpConn, l *engineListener) {
 		gone := c.gone
 		c.mu.Unlock()
 		if watch && gone || !s.answerOn(w, &in, c, watch) {
-			if e.watching {
-				e.abortBackgroundRead()
-			}
+			e.unwatch()
 			return
 		}
 		w.finishRequest()
-		if e.watching {
-			e.abortBackgroundRead()
-		}
+		e.unwatch()
 		if !w.shouldReuse() {
 			if w.bodyLimitHit {
 				// net/http's closeWriteAndWait.

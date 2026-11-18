@@ -197,6 +197,11 @@ type httpServer struct {
 	// conns are the connections the engine reads (serveConn), which a
 	// stop closes; nil when net/http reads every one (serveEngine).
 	conns map[*httpConn]struct{}
+
+	// peerW is the engine's watcher of its connections' peers, made at
+	// the first watch (peers); peerFailed: none can be made. Guarded by mu.
+	peerW      *peerWatcher
+	peerFailed bool
 }
 
 // phase is the read phase of one connection. Header, body and idle are
@@ -687,6 +692,11 @@ func httpServe(site v1.Site, t *rt.Task, sleeper v1.Sleeper, l *ergonet.Listener
 		s.requests.Interrupt()
 		var causes rt.Cause
 		s.workers.Wait()
+		s.mu.Lock()
+		if s.peerW != nil {
+			s.peerW.close() // every connection it watched has ended
+		}
+		s.mu.Unlock()
 		s.requests.End()
 		s.timers.End()
 		s.fmu.Lock()

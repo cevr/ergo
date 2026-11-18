@@ -21,6 +21,11 @@ var fastWriterFlag = flag.Bool("http.fastwriter", true, "the engine writes a com
 // the reference of the start at the handler's first wait.
 var lazyWatchFlag = flag.Bool("http.lazywatch", true, "the engine watches a connection from the handler's first wait (false: before the handler, as net/http)")
 
+// watcherFlag chooses how the engine sees a client leave: -http.watcher=false
+// watches every connection with net/http's background read, the reference
+// of the server's peer-close watcher (HTTP-FAST-c6).
+var watcherFlag = flag.Bool("http.watcher", true, "the engine sees a client leave through one peer-close watcher per server (false: net/http's background read)")
+
 // TestMain runs the tests under observation, so the files and variables
 // any process they start reads are inputs of Go's test cache.
 func TestMain(m *testing.M) {
@@ -33,6 +38,8 @@ func TestMain(m *testing.M) {
 			engineFastWriter = *fastWriterFlag
 		case "http.lazywatch":
 			engineLazyWatch = *lazyWatchFlag
+		case "http.watcher":
+			engineWatcher = *watcherFlag
 		}
 	})
 	os.Exit(testinputs.Main(m))
