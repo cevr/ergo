@@ -5874,6 +5874,16 @@
     {"name":"view-in-test-build","origin":"wf10 LAWFFI LF2b","file":"internal/sketch/lower/view.go","from":"if w.l.takes(\"host-view\") {","to":"if w.l.takes(\"host-view\") || w.l.tests != nil {","rule":"shortcuts.go: a test build takes no shortcut; it passes a guarded copy where the run build passes a view.","killers":["lower:TestHostViewAgrees"]},
     {"name":"view-switch-ignored","origin":"wf10 LAWFFI LF2b","file":"internal/sketch/lower/view.go","from":"if w.l.canon.noViews || hostViewLowering == \"copy\" {","to":"if hostViewLowering == \"copy\" {","rule":"interop.md Foreign facts 8: ergo build -views=off takes no view and no guarded copy.","killers":["lower:TestHostViewAgrees"]},
     {"name":"view-not-whole-operand","origin":"wf10 LAWFFI LF2b","file":"internal/sketch/lower/view.go","from":"if c == nil || c.Kind != check.CallFunc || w.l.viewForm(c.Func) == \"\" {","to":"if c == nil || c.Kind != check.CallFunc {","rule":"interop.md Foreign facts 8: a view replaces only a call whose body names a view form, written as the whole operand.","killers":["lower:TestHostViewAgrees"]},
-    {"name":"ffi-fresh-unguarded-acts","origin":"wf10 LAWFFI LF2c","file":"internal/sketch/lower/factledger.go","from":"\t\t\treturn level == check.FactValidated\n","to":"\t\t\treturn level != \"\"\n","rule":"interop.md Foreign facts 7: a fresh row skips the result's copy only on a current validated guard line.","killers":["lower:TestFreshResultsActOnlyValidated"]}
+    {"name":"ffi-fresh-unguarded-acts","origin":"wf10 LAWFFI LF2c","file":"internal/sketch/lower/factledger.go","from":"\t\t\treturn level == check.FactValidated\n","to":"\t\t\treturn level != \"\"\n","rule":"interop.md Foreign facts 7: a fresh row skips the result's copy only on a current validated guard line.","killers":["lower:TestFreshResultsActOnlyValidated"]},
+    {
+      "name": "red18-view-plain-calls-only",
+      "origin": "wf10 red #18 (NP4f x PRIM-4)",
+      "file": "internal/sketch/lower/view.go",
+      "from": "\tops := callOperands(call, c)\n\tif len(ops) != 1 {\n\t\treturn \"\"\n\t}\n\targ, ok := unparen(ops[0])",
+      "to": "\tops := call.Args\n\tif len(ops) != 1 {\n\t\treturn \"\"\n\t}\n\targ, ok := unparen(ops[0])",
+      "rule": "A one-call body reaches a view form through a dot call on its parameter (std strings.Bytes is s.Bytes(), PRIM-4), as through a plain one, so the Go operand it copies takes the view (LF2b).",
+      "anchor": {"tests":["lower:TestHostViewAgrees"]},
+      "killers": ["lower:TestHostViewAgrees"]
+    }
   ]
 }
