@@ -181,11 +181,15 @@ const sweepStdVariable = "ERGO_CLOSURE_STD_DIR"
 // hangs: a run's own default, 30 minutes, cut cmd/ergo's runs at 27-28
 // minutes in the merge tiers at fca9f4f96 and 36b1f8335 while they still
 // made progress, and the package takes 58-61 minutes at load 50-120 (I19
-// rerun, verify r4). AGENTS.md: a deadline only stops a hung test. A
-// deadline from each package's recorded duration is the TM follow-up.
+// rerun, verify r4). At 90 minutes, merge tier r4b at fba159c29 still cut
+// both runs of cmd/ergo and one of internal/sketchfront at load 50-80 on 16
+// cores, each still using CPU (3522 CPU-s in 96 minutes for cmd/ergo,
+// whose whole sweep once passed in 3009). AGENTS.md: a deadline only stops
+// a hung test. A deadline from each package's recorded duration, or a
+// detector of a run that has stopped using CPU, is the TM follow-up.
 const (
 	sweepRunDeadlineVariable = "ERGO_CLOSURE_RUN_DEADLINE"
-	sweepRunDeadline         = 90 * time.Minute
+	sweepRunDeadline         = 3 * time.Hour
 )
 
 // sweepStdDir is the one std store directory of the run's sweeps.
