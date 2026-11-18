@@ -196,6 +196,8 @@ var clauseUnreached = map[string]string{
 	"actor.changesOf.overflowed":   "changesOf is unexported; Changes passes std's own overflowedOf, which captures nothing",
 	"time.timeAsleep.t":            "timeAsleep is unexported; t is Asleep's own task parameter, not a callback",
 	"testing.At.f":                 "At lowers to nothing outside a test build (lower hook.go; RT-HOOK), and a clause program is a run build, so f never runs there; its test-build runs are runtime/v1 hook_test.go's",
+	"testing.Allocs.PerRun.f":      "an Allocs is made only under a test's ambient (FK2 F6), and a clause program is a run build, so PerRun never runs there",
+	"testing.allocsPerRun.f":       "allocsPerRun is unexported; PerRun passes its own f through, and an Allocs is made only under a test's ambient (FK2 F6)",
 	"http.serve.handle":            "serve is unexported; its handle is Serve's literal over Serve's escaping handle, and a server runs until stopped, which this property does not do",
 	"http.IntoFile.fetch":          "IntoFile needs an fs.HostRoot, which needs Ambient; the generated main holds Console only",
 	"http.Network.SendURLInto.put": "Network's std provider (NewNet's Remote) needs Ambient and a live origin; http.Net.SendInto.put's template covers the in-memory provider's shape",
