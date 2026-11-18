@@ -786,7 +786,7 @@ func (s *httpServer) answer(w http.ResponseWriter, in *httpIncoming, conn *httpC
 				// first interruption point (a wait, Check or Stopped),
 				// the first point a stop can end it: a handler that
 				// answers without one needs no watch (HTTP-FAST-c3, c4).
-				defer rt.WhenPolled(ct, ew.e.watchFn)()
+				defer rt.WhenPolled(ct, &ew.e.poll, ew.e.watchFn).End()
 			}
 			return s.handle(ct, x, in.Method, in.Path, in.RawPath, in.Query, in.Header, in.Body, in.TooLarge, in.ReadError), nil
 		})

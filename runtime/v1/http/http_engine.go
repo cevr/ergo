@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"ergo.local/prototype/runtime/rt"
 )
 
 // serveEngine selects how Serve reads its requests (HTTP-FAST-c1). true:
@@ -157,9 +159,10 @@ type engineConn struct {
 	bufw       *bufio.Writer
 	werr       error
 	lastMethod string
-	bg         chan int // the background read's byte count
-	watching   bool     // the background read of this request runs (watch)
-	watchFn    func()   // watch, made once for the connection's requests
+	bg         chan int    // the background read's byte count
+	watching   bool        // the background read of this request runs (watch)
+	watchFn    func()      // watch, made once for the connection's requests
+	poll       rt.PollHook // the storage of the requests' watch hook (answer)
 	resp       engineResponse
 	fields     []fieldAt
 	out        []byte      // fastAnswer's answer, reused
