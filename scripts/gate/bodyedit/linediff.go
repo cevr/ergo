@@ -1,4 +1,7 @@
-package main
+// Package bodyedit says which lines of a Go file an edit touches, and
+// whether every touched line lies inside one function body in both
+// versions (test-impact selection: gate-speed GS4, CI-SELECT CS-ROUND).
+package bodyedit
 
 import "strings"
 
