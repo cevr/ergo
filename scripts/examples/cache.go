@@ -151,23 +151,23 @@ func (r *runner) legKey(h io.Writer, p *program) string {
 		if err != nil {
 			return fmt.Sprintf("ergo %s could not start: %v", strings.Join(args, " "), err)
 		}
-		if over := o.overCap(); over != "" || o.timedOut {
+		if over := o.OverCap(); over != "" || o.TimedOut {
 			return fmt.Sprintf("ergo %s: no result to key", strings.Join(args, " "))
 		}
 		if r.keyed == nil {
 			r.keyed = map[string]outcome{}
 		}
 		r.keyed[keyedCall(args)] = o
-		stdout := o.stdout
+		stdout := o.Stdout
 		if args[0] == "check" {
 			stdout = withoutProducer(stdout)
 		}
 		if pattern != "" && args[0] == "test" {
-			if why := coveredPackages(p, targets, o.stdout); why != "" {
+			if why := coveredPackages(p, targets, o.Stdout); why != "" {
 				return why
 			}
 		}
-		fmt.Fprintf(h, "leg %q status %d %s\nstdout %q\nstderr %q\n", args, o.status, o.signal, stdout, o.stderr)
+		fmt.Fprintf(h, "leg %q status %d %s\nstdout %q\nstderr %q\n", args, o.Status, o.Signal, stdout, o.Stderr)
 	}
 	return ""
 }

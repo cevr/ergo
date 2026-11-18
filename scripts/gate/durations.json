@@ -148,6 +148,11 @@
     "TestUnsupportedProperty": 0.43,
     "TestWholeHeaderDiagnostics": 0
   },
+  "ergo.local/prototype/internal/cases": {
+    "TestCappedFaultIsMemory": 0,
+    "TestCasesAgreeWithTheRunner": 6.08,
+    "TestOutputCapLateStopNamesBothStreams": 0.15
+  },
   "ergo.local/prototype/internal/closure": {
     "TestAgentServesARunThatEndedFirst": 0.09,
     "TestAgentTarget": 0,
@@ -725,6 +730,9 @@
     "TestIRTextChecksPart98": 9.09,
     "TestIRTextChecksPart99": 8.97,
     "TestSplitsCoverTheirDomain": 0.01
+  },
+  "ergo.local/prototype/internal/ergoversion": {
+    "TestOfReadsTheStamp": 0
   },
   "ergo.local/prototype/internal/gobind": {
     "TestBindMappingProperty": 0.18,
@@ -2272,6 +2280,13 @@
     "TestReferenceOnlyCasesCannotBeCalledCoveredWithoutEvidence": 0.19,
     "TestUntrackedEvidenceFails": 0.03
   },
+  "ergo.local/prototype/scripts/downstream": {
+    "TestAMissingPinFails": 0.01,
+    "TestFetchTakesTheCommit": 1.17,
+    "TestLegsRunTheCheckoutErgo": 0.06,
+    "TestPinsAreCommits": 0,
+    "TestZeroPinsPassOnlyBeforeAMove": 0.02
+  },
   "ergo.local/prototype/scripts/examples": {
     "TestAPanicStopsTheGroup": 0.46,
     "TestASignalStopsTheRun": 6.3,
@@ -2294,7 +2309,6 @@
     "TestModuleProgramLayout": 0.01,
     "TestModuleProgramOperationTypeNeedsALaw": 0.02,
     "TestOutputCap": 1.82,
-    "TestOutputCapLateStopNamesBothStreams": 0.01,
     "TestOutputCapStopsTheGroupAtOnce": 4.11,
     "TestRecordLegWritesGoldensFromTheOriginal": 0.04,
     "TestRecordLegWritesNothingWhenTheOriginalCannotStart": 0,

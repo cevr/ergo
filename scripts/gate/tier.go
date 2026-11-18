@@ -364,7 +364,7 @@ const fastExamplesFile = "scripts/examples/fast-tier.txt"
 // row: 147 of the step's 208 ergo test runs, 261 s (gate-speed.md).
 // A missing or empty list is an error, never a silent full or empty run;
 // a module with no runner (a test's fixture) has no list to read, and
-// the step, if it runs there, fails (examplesRunnerInputs).
+// the step, if it runs there, fails (runnerInputs).
 func fastExamples(root string, steps []*Step) error {
 	i := slices.IndexFunc(steps, func(s *Step) bool { return s.Name == examplesStepName })
 	if i < 0 {

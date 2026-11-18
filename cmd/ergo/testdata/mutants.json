@@ -543,6 +543,8 @@
       "to": "\t\t_ = tc.Tags",
       "rule": "--go-trace links runtime/obs: the build action carries the ergogotrace tag.",
       "killers": ["cmd/ergo:TestGoTraceTagsTheBuild"]
-    }
+    },
+    {"name":"version-reads-go-release","origin":"wf10 SPLIT E1","file":"cmd/ergo/version.go","from":"fmt.Printf(\"ergo %s, Go %s\\n\", report.Version,","to":"fmt.Printf(\"ergo %s, Go %s\\n\", report.Go,","rule":"ergo version prints ergo's own version, not the Go release it pins.","killers":["cmd/ergo:TestVersionNamesErgo"]},
+    {"name":"cases-flag-failure-exits-zero","origin":"wf10 SPLIT E2","file":"cmd/ergo/cases.go","from":"\tif l.Run(os.Stdout, output.Path(), loaded, memory) != 0 {\n","to":"\tif l.Run(os.Stdout, output.Path(), loaded, memory) < 0 {\n","rule":"ergo test --cases exits 1 when a case fails, so a script or CI sees the failure.","killers":["cmd/ergo:TestCasesFlagRunsTheBuiltProgram"]}
   ]
 }

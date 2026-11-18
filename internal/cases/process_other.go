@@ -1,6 +1,6 @@
 //go:build !unix
 
-package main
+package cases
 
 import (
 	"os"
@@ -20,7 +20,7 @@ func stopGroup(process *os.Process) {
 
 func signalName(*os.ProcessState) string { return "unknown" }
 
-// stopSignals stop a run; here only an interrupt.
+// stopSignals stop a run; here only an Interrupt.
 var stopSignals = []os.Signal{os.Interrupt}
 
 // signalExit names a stop signal and gives the status of a run it stopped:

@@ -113,7 +113,7 @@ func CheckPackages(dirs []string, platform gobind.Platform) ([]Analysis, error) 
 			}
 		}
 	}
-	if len(l.diags) > 0 {
+	if len(l.diags) > 0 || l.dependencyPin() != nil {
 		return nil, ErrNotShared
 	}
 	imported := map[*loadedPackage]bool{}

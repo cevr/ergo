@@ -438,6 +438,11 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	}
 	add(examplesRun)
 	add(examplesFullTierStep(examplesRun))
+	downstream, err := downstreamStep(root)
+	if err != nil {
+		return nil, err
+	}
+	add(downstream)
 	add(&Step{Name: "model baton", Needs: []string{buildCLIStep}, Argv: []string{"./bin/ergo", "test", "models/baton"}, Class: classHeavy})
 
 	examples, err := authoredExamples(root)
@@ -604,7 +609,7 @@ func wayfinderSnapshotInputs() *Inputs {
 // a runner that links the checker (batch 9 D3) keys on the checker's
 // sources too, so a checker edit cannot replay a stale pass.
 func examplesStep(root string) (*Step, error) {
-	paths, exclude, err := examplesRunnerInputs(root)
+	paths, exclude, err := runnerInputs(root, examplesRunner)
 	if err != nil {
 		return nil, err
 	}
@@ -670,25 +675,55 @@ func examplesFullTierStep(examples *Step) *Step {
 	}
 }
 
+// downstreamRunner is the package the downstream step runs.
+const downstreamRunner = "./scripts/downstream"
+
+// downstreamStep is the downstream check (docs/tooling.md, Downstream
+// check): each commit downstream/pins names, from the cache the
+// integrator's `go run ./scripts/downstream fetch` fills, checked, tested,
+// built and its cases run with bin/ergo. Full tier only: the fast tier
+// cannot promise the cache and stays offline. Its key holds the pins and
+// the moved paths (zero pins pass only while none moved), the runner's
+// closure and bin/ergo's bytes; the cache is not keyed, as each entry is
+// the pinned commit's tree.
+func downstreamStep(root string) (*Step, error) {
+	paths, exclude, err := runnerInputs(root, downstreamRunner)
+	if err != nil {
+		return nil, err
+	}
+	return &Step{
+		Name:  "downstream",
+		Class: classHeavy,
+		Needs: []string{buildCLIStep},
+		Argv:  []string{"go", "run", downstreamRunner},
+		Inputs: &Inputs{
+			Paths:   append([]string{"scripts/downstream/", "downstream/", "go.mod"}, paths...),
+			Exclude: append([]string{"scripts/downstream/*_test.go", "scripts/downstream/testdata/"}, exclude...),
+			Tools:   []string{"go", "sh"},
+			Built:   []string{"bin/ergo"},
+		},
+	}, nil
+}
+
 // examplesRunner is the package the examples step runs.
 const examplesRunner = "./scripts/examples"
 
-// examplesRunnerInputs are the Go files of the module that the examples
-// runner links besides its own directory: for each package of the module
-// in `go list -deps` of the runner, its non-test Go files and the files it
-// embeds, as Inputs patterns. A checkout with no runner directory (a test
-// fixture module) has nothing to list: the step's own paths key it, and the
-// step, if it runs there, fails.
-func examplesRunnerInputs(root string) (paths, exclude []string, err error) {
-	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(examplesRunner, "./")))); os.IsNotExist(err) {
+// runnerInputs are the Go files of the module that a runner (the
+// examples runner, the downstream check) links besides its own directory:
+// for each package of the module in `go list -deps` of the runner, its
+// non-test Go files and the files it embeds, as Inputs patterns. A
+// checkout with no runner directory (a test fixture module) has nothing to
+// list: the step's own paths key it, and the step, if it runs there, fails.
+func runnerInputs(root, runner string) (paths, exclude []string, err error) {
+	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(runner, "./")))); os.IsNotExist(err) {
 		return nil, nil, nil
 	}
-	command := exec.Command("go", "list", "-deps", "-f", "{{if not .Standard}}{{.Dir}}\t{{join .EmbedFiles \"\\t\"}}{{end}}", examplesRunner)
+	command := exec.Command("go", "list", "-deps", "-f", "{{if not .Standard}}{{.Dir}}\t{{join .EmbedFiles \"\\t\"}}{{end}}", runner)
 	command.Dir = root
 	command.Env = stepEnvironment()
 	output, err := runOutput(command)
 	if err != nil {
-		return nil, nil, fmt.Errorf("go list -deps %s: %w", examplesRunner, err)
+		return nil, nil, fmt.Errorf("go list -deps %s: %w", runner, err)
 	}
 	resolved, err := filepath.EvalSymlinks(root)
 	if err != nil {
@@ -709,7 +744,7 @@ func examplesRunnerInputs(root string) (paths, exclude []string, err error) {
 			continue
 		}
 		rel = filepath.ToSlash(rel)
-		if rel == strings.TrimPrefix(examplesRunner, "./") {
+		if rel == strings.TrimPrefix(runner, "./") {
 			continue
 		}
 		paths = append(paths, rel+"/*.go")
