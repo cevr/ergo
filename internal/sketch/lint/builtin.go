@@ -32,6 +32,9 @@ var builtinRules = []*Rule{
 	defaultOnFailure, repeatedPureCall, guardTheTypeProves, repeatedGuard,
 	foreignOutsideAdapter, capabilityOutsideOwner, consoleOutsideEntry, testReadsUnexported,
 	causeDropped, failureAsVariant, vacuousTest, parameterClump, constantArgument, longParameterList,
+	derivedField, optionFollowsVariant, takeOneByLaw, independentWaits,
+	constantRestated, repeatedCase,
+	fileCycle, layer, domainImportsImplementation, hiddenDependency,
 	narrationComment, commentedCode,
 	snapshotArgument, repeatedTraversal, quadraticScan, concatInLoop, largeValueCopy,
 }
@@ -63,12 +66,13 @@ func builtinPresets() []Preset {
 				unusedDeclaration, unusedTypeParameter, duplicateTest, duplicateShape, identicalArms, unbuiltVariant,
 				forwardingFunc, loneProvider, modeParameter, stringlyState, testWaitsOnTime,
 				defaultOnFailure, repeatedPureCall, guardTheTypeProves, repeatedGuard,
-				causeDropped, failureAsVariant, vacuousTest, parameterClump, constantArgument, longParameterList),
+				causeDropped, failureAsVariant, vacuousTest, parameterClump, constantArgument, longParameterList,
+				derivedField, optionFollowsVariant, constantRestated, repeatedCase),
 		},
 		{
 			Name:  Layout,
-			Doc:   "The Go layout of AGENTS.md: implementations chosen only at the entry, files named by concept, Go code only in adapters, capabilities run only by their owners, Console kept out of domain packages, and tests through the exported functions.",
-			Rules: on(withAtEntry, conceptFileNames, foreignOutsideAdapter, capabilityOutsideOwner, consoleOutsideEntry, testReadsUnexported),
+			Doc:   "The Go layout of AGENTS.md: implementations chosen only at the entry, files named by concept, Go code only in adapters, capabilities run only by their owners, Console kept out of domain packages, tests through the exported functions, and from the graph rows: imports down a declared layering, implementations imported only by an entry, and no name reached through a re-export of a package not imported.",
+			Rules: on(withAtEntry, conceptFileNames, foreignOutsideAdapter, capabilityOutsideOwner, consoleOutsideEntry, testReadsUnexported, layer, domainImportsImplementation, hiddenDependency),
 		},
 		{
 			Name:  Advisory,
@@ -77,8 +81,8 @@ func builtinPresets() []Preset {
 		},
 		{
 			Name:  Speed,
-			Doc:   "Hints about work a loop repeats or a call copies: a *s argument the lowering copies, a second walk of one collection, a walk inside a walk of it, a string grown by + in a loop, a big element copied every turn. Opt-in; no precision published until a read sample reaches 0.80.",
-			Rules: on(snapshotArgument, repeatedTraversal, quadraticScan, concatInLoop, largeValueCopy),
+			Doc:   "Hints about work a loop repeats or a call copies: a *s argument the lowering copies, a second walk of one collection, a walk inside a walk of it, a string grown by + in a loop, a big element copied every turn, a whole result built to take the one element a law says another function gives, two waits in a row with disjoint footprints. Opt-in; no precision published until a read sample reaches 0.80.",
+			Rules: on(snapshotArgument, repeatedTraversal, quadraticScan, concatInLoop, largeValueCopy, takeOneByLaw, independentWaits),
 		},
 	}
 }
