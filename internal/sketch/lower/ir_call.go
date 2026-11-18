@@ -95,7 +95,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		// timeout.After { … }: stdCall adapts the block, its last operand
 		// (ir_adapt.go).
 	}
-	if c.StartsTask {
+	if c.StartsTask && !b.startsOnFrame(c) {
 		irNo("task call")
 	}
 	if len(c.TypeArgs) > 0 && c.Kind != check.CallFunc {
