@@ -91,7 +91,7 @@ func moduleOf(d string) Option[Module] needs fs.Files {
 		for line in strings.Split(text, "\n") {
 			let l = strings.TrimSpace(line)
 			if strings.HasPrefix(l, "module ") {
-				return Some[Module]{Value: Module{Path: strings.TrimSpace(l[7:len(l)]), Dir: at, Replaces: replacesOf(at)}}
+				return Some{Value: Module{Path: strings.TrimSpace(l[7:len(l)]), Dir: at, Replaces: replacesOf(at)}}
 			}
 		}
 		if at == "/" || at == "." || at == "" {
@@ -105,14 +105,14 @@ func moduleOf(d string) Option[Module] needs fs.Files {
 // under std; none when neither holds it.
 func folderOf(path string, m Option[Module], std string) string {
 	match m {
-	case Some[Module] as mod:
-		if path == mod.Value.Path {
-			return mod.Value.Dir
+	case Some{Value: mod}:
+		if path == mod.Path {
+			return mod.Dir
 		}
-		if strings.HasPrefix(path, mod.Value.Path+"/") {
-			return mod.Value.Dir + path[len(mod.Value.Path):len(path)]
+		if strings.HasPrefix(path, mod.Path+"/") {
+			return mod.Dir + path[len(mod.Path):len(path)]
 		}
-		for r in mod.Value.Replaces {
+		for r in mod.Replaces {
 			if path == r.Path {
 				return r.Dir
 			}
@@ -146,7 +146,7 @@ func loadDir(path string, d string) Option[task.Package] needs fs.Files {
 	if len(files) == 0 {
 		return None
 	}
-	Some[task.Package]{Value: task.Package{Path: path, Files: files}}
+	Some{Value: task.Package{Path: path, Files: files}}
 }
 
 // program is the root package and, with std, every package it imports,
@@ -167,9 +167,9 @@ func program(root task.Package, m Option[Module], std string) []task.Package nee
 		}
 		seen = seen.Append(path)
 		match loadDir(path, folderOf(path, m, std)) {
-		case Some[task.Package] as p:
-			pkgs = pkgs.Append(p.Value)
-			for q in bind.Imports(p.Value.Files) {
+		case Some{Value: p}:
+			pkgs = pkgs.Append(p)
+			for q in bind.Imports(p.Files) {
 				queue = queue.Append(q)
 			}
 		case None:
@@ -206,9 +206,9 @@ func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
 	}
 	let m = if len(paths) > 0 { moduleOf(dir(paths[0])) } else { None }
 	let rootPath = match m {
-	case Some[Module] as mod:
+	case Some{Value: mod}:
 		let d = dir(paths[0])
-		if d == mod.Value.Dir { mod.Value.Path } else { mod.Value.Path + d[len(mod.Value.Dir):len(d)] }
+		if d == mod.Dir { mod.Path } else { mod.Path + d[len(mod.Dir):len(d)] }
 	case None:
 		"main"
 	}
@@ -229,8 +229,8 @@ func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
 			for i in 0..syntax.NumNodes(p.Tree) {
 				let id = syntax.NodeAt(p.Tree, i)
 				match bind.LocalName(u, bind.PNodeOf(ps, f, id)) {
-				case Some[dense.ID[dense.Str]] as n:
-					b.WriteString("\(file.Name) \(syntax.NodePos(p, id)) \(dense.Index(n.Value)) \(store.Text(s, n.Value))\n")
+				case Some{Value: n}:
+					b.WriteString("\(file.Name) \(syntax.NodePos(p, id)) \(dense.Index(n)) \(store.Text(s, n))\n")
 				case None:
 				}
 			}

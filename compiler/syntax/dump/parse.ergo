@@ -30,8 +30,8 @@ func b01(b bool) string { if b { "1" } else { "0" } }
 
 func opt(d mut dumper, depth int, o dense.Opt[syntax.Node]) {
 	match dense.Unpack(o) {
-	case Some[dense.ID[syntax.Node]] as s:
-		node(d, depth, s.Value)
+	case Some{Value: s}:
+		node(d, depth, s)
 	case None:
 		line(d, depth, "nil")
 	}
@@ -39,8 +39,8 @@ func opt(d mut dumper, depth int, o dense.Opt[syntax.Node]) {
 
 func optPos(d mut dumper, o dense.Opt[syntax.Node]) int {
 	match dense.Unpack(o) {
-	case Some[dense.ID[syntax.Node]] as s:
-		syntax.NodePos(d.p, s.Value)
+	case Some{Value: s}:
+		syntax.NodePos(d.p, s)
 	case None:
 		-1
 	}
@@ -48,7 +48,7 @@ func optPos(d mut dumper, o dense.Opt[syntax.Node]) int {
 
 func isSome(o dense.Opt[syntax.Node]) bool {
 	match dense.Unpack(o) {
-	case Some[dense.ID[syntax.Node]]:
+	case Some:
 		true
 	case None:
 		false

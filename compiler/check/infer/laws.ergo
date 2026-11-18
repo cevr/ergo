@@ -8,7 +8,7 @@ import dense
 
 func isNone[T](o Option[T]) bool {
 	match o {
-	case Some[T]:
+	case Some:
 		false
 	case None:
 		true
@@ -166,9 +166,9 @@ law InferRecoversBindings(picks []int) {
 	let k = caseOf(&s, &f, picks)
 	let empty = store.TRow(&s, []dense.ID[store.TKey]{})
 	match Infer(&s, &f, k.callee, []dense.ID[store.TKey]{}, k.args) {
-	case Some[[]dense.ID[store.TKey]] as got:
+	case Some{Value: got}:
 		let wantF = if k.rowed { k.f } else { empty }
-		len(got.Value) == 3 && got.Value[0] == k.t && got.Value[1] == k.u && got.Value[2] == wantF && Depth(f) == 0
+		len(got) == 3 && got[0] == k.t && got[1] == k.u && got[2] == wantF && Depth(f) == 0
 	case None:
 		false
 	}
@@ -210,8 +210,8 @@ law FramesNest(picks []int) {
 	let k = caseOf(&s, &f, picks)
 	let inner = Infer(&s, &f, k.callee, []dense.ID[store.TKey]{}, k.args)
 	let kept = match Binding(f, outer, 0) {
-	case Some[dense.ID[store.TKey]] as b:
-		b.Value == store.TBasic(&s, 3)
+	case Some{Value: b}:
+		b == store.TBasic(&s, 3)
 	case None:
 		false
 	}

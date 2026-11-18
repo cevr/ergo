@@ -96,7 +96,7 @@ let bFloat32 = 14
 let bFloat64 = 15
 let bDuration = 18
 
-func some(t dense.ID[store.TKey]) Option[dense.ID[store.TKey]] { Some[dense.ID[store.TKey]]{Value: t} }
+func some(t dense.ID[store.TKey]) Option[dense.ID[store.TKey]] { Some{Value: t} }
 
 func tree(k Pkg, file int) syntax.Tree { k.Parsed[file].Tree }
 
@@ -138,12 +138,12 @@ func checkAll(s mut store.Store, k Pkg, record bool) Typer {
 	let mut t = Typer{Entries: slices.WithCapacity[Entry](entries), Diags: []Diag{}, Insts: slices.WithCapacity[Inst](calls), defs: defs, frame: infer.NewFrame(), boolT: store.TBasic(s, bBool), file: 0, fn: 0, res: None, steps: 0, typed: 0, record: record, reserved: entries + rows + calls}
 	for i, f in k.Fns {
 		match dense.Unpack(f.Body) {
-		case Some[dense.ID[syntax.Node]] as b:
+		case Some{Value: b}:
 			t.file = f.File
 			t.fn = i
 			t.res = sigResult(*s, f.Sig)
 			params(s, k, &t, f.Names, f.Sig)
-			body(s, k, &t, b.Value)
+			body(s, k, &t, b)
 		case None:
 		}
 	}
@@ -182,9 +182,9 @@ func params(s mut store.Store, k Pkg, t mut Typer, names []dense.Opt[syntax.Node
 	let n = len(store.OperandsOf(*s, sig))
 	for i, name in names {
 		match dense.Unpack(name) {
-		case Some[dense.ID[syntax.Node]] as x:
+		case Some{Value: x}:
 			if i < n-3 {
-				def(k, t, x.Value, infer.Unmarked(*s, operand(*s, sig, i)))
+				def(k, t, x, infer.Unmarked(*s, operand(*s, sig, i)))
 			}
 		case None:
 		}
@@ -289,8 +289,8 @@ func funcLit(s mut store.Store, k Pkg, t mut Typer, fl syntax.FuncLit, w Want) O
 	let errs = if writesErrors(p, ft) { some(ops[n-2]) } else { closedRow(*s, expected, 2) }
 	let uses = if ft.Needs != dense.NoID[syntax.Node]() { some(ops[n-1]) } else { closedRow(*s, expected, 1) }
 	match (errs, uses) {
-	case (Some[dense.ID[store.TKey]] as e, Some[dense.ID[store.TKey]] as u):
-		some(store.TSig(s, ops[0:n-3], ops[n-3], e.Value, u.Value))
+	case (Some{Value: e}, Some{Value: u}):
+		some(store.TSig(s, ops[0:n-3], ops[n-3], e, u))
 	case _:
 		None
 	}
@@ -299,15 +299,15 @@ func funcLit(s mut store.Store, k Pkg, t mut Typer, fl syntax.FuncLit, w Want) O
 // writesErrors is whether the function type ft writes a fails row.
 func writesErrors(p syntax.Parsed, ft syntax.FuncType) bool {
 	match dense.Unpack(ft.Results) {
-	case Some[dense.ID[syntax.Node]] as r:
-		match syntax.ViewOf(p.Tree, r.Value) {
+	case Some{Value: r}:
+		match syntax.ViewOf(p.Tree, r) {
 		case syntax.FieldList as fl:
 			for i in 0..syntax.Len(fl.List) {
 				match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, fl.List, i)) {
 				case syntax.Field as f:
 					match dense.Unpack(f.Type) {
-					case Some[dense.ID[syntax.Node]] as ty:
-						if syntax.KindOf(p.Tree, ty.Value) == syntax.KErrorRow {
+					case Some{Value: ty}:
+						if syntax.KindOf(p.Tree, ty) == syntax.KErrorRow {
 							return true
 						}
 					case None:
@@ -326,8 +326,8 @@ func writesErrors(p syntax.Parsed, ft syntax.FuncType) bool {
 // operands (2 errors, 1 capabilities), when it names no type parameter.
 func closedRow(s store.Store, expected Option[dense.ID[store.TKey]], back int) Option[dense.ID[store.TKey]] {
 	match expected {
-	case Some[dense.ID[store.TKey]] as x:
-		let ops = store.OperandsOf(s, x.Value)
+	case Some{Value: x}:
+		let ops = store.OperandsOf(s, x)
 		let r = ops[len(ops)-back]
 		if closed(s, r) { some(r) } else { None }
 	case None:
@@ -359,8 +359,8 @@ func body(s mut store.Store, k Pkg, t mut Typer, b dense.ID[syntax.Node]) {
 			if i == n-1 && syntax.KindOf(tree(k, t.file), st) == syntax.KExprStmt {
 				let x = syntax.ExprStmtOf(tree(k, t.file), st).X
 				match result(*s, k, *t) {
-				case Some[dense.ID[store.TKey]] as r:
-					expr(s, k, t, x, Exactly{T: r.Value})
+				case Some{Value: r}:
+					expr(s, k, t, x, Exactly{T: r})
 				case None:
 					expr(s, k, t, x, Unsure)
 				}
@@ -429,12 +429,12 @@ func stmt(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) {
 	} else if kd == syntax.KReturnStmt {
 		let r = syntax.ReturnStmtOf(tr, x)
 		match dense.Unpack(r.Result) {
-		case Some[dense.ID[syntax.Node]] as v:
+		case Some{Value: v}:
 			match result(*s, k, *t) {
-			case Some[dense.ID[store.TKey]] as want:
-				expr(s, k, t, v.Value, Exactly{T: want.Value})
+			case Some{Value: want}:
+				expr(s, k, t, v, Exactly{T: want})
 			case None:
-				expr(s, k, t, v.Value, Unsure)
+				expr(s, k, t, v, Unsure)
 			}
 		case None:
 		}
@@ -445,15 +445,15 @@ func stmt(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) {
 		expr(s, k, t, i.Cond, Exactly{T: store.TBasic(s, bBool)})
 		block(s, k, t, i.Body)
 		match dense.Unpack(i.Else) {
-		case Some[dense.ID[syntax.Node]] as e:
-			stmt(s, k, t, e.Value)
+		case Some{Value: e}:
+			stmt(s, k, t, e)
 		case None:
 		}
 	} else if kd == syntax.KForStmt {
 		let f = syntax.ForStmtOf(tr, x)
 		match dense.Unpack(f.Cond) {
-		case Some[dense.ID[syntax.Node]] as c:
-			expr(s, k, t, c.Value, Exactly{T: store.TBasic(s, bBool)})
+		case Some{Value: c}:
+			expr(s, k, t, c, Exactly{T: store.TBasic(s, bBool)})
 		case None:
 		}
 		block(s, k, t, f.Body)
@@ -476,9 +476,9 @@ func stmt(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) {
 		}
 		let op = syntax.TokKind(k.Parsed[t.file], a.Tok)
 		match lt {
-		case Some[dense.ID[store.TKey]] as l:
+		case Some{Value: l}:
 			if op == syntax.Assign || op == syntax.AddAssign || op == syntax.SubAssign || op == syntax.MulAssign || op == syntax.QuoAssign || op == syntax.RemAssign {
-				expr(s, k, t, a.Rhs, Exactly{T: l.Value})
+				expr(s, k, t, a.Rhs, Exactly{T: l})
 			} else {
 				expr(s, k, t, a.Rhs, Unsure)
 			}
@@ -501,28 +501,28 @@ func letSpec(s mut store.Store, k Pkg, t mut Typer, spec dense.ID[syntax.Node]) 
 	if syntax.KindOf(tr, spec) == syntax.KVarSpec {
 		let v = syntax.VarSpecOf(tr, spec)
 		let written = match dense.Unpack(v.Type) {
-		case Some[dense.ID[syntax.Node]] as ty:
-			let r = types.Resolve(s, envOf(*s, k, *t), ty.Value)
+		case Some{Value: ty}:
+			let r = types.Resolve(s, envOf(*s, k, *t), ty)
 			if valid(*s, r) { some(r) } else { None }
 		case None:
 			None
 		}
 		let vt = match dense.Unpack(v.Value) {
-		case Some[dense.ID[syntax.Node]] as x:
+		case Some{Value: x}:
 			match written {
-			case Some[dense.ID[store.TKey]] as w:
-				expr(s, k, t, x.Value, Exactly{T: w.Value})
+			case Some{Value: w}:
+				expr(s, k, t, x, Exactly{T: w})
 				written
 			case None:
-				expr(s, k, t, x.Value, Free)
+				expr(s, k, t, x, Free)
 			}
 		case None:
 			written
 		}
 		if syntax.Len(v.Names) == 1 && v.Pattern == dense.NoID[syntax.Node]() {
 			match vt {
-			case Some[dense.ID[store.TKey]] as ty:
-				def(k, t, syntax.Item(tr, v.Names, 0), ty.Value)
+			case Some{Value: ty}:
+				def(k, t, syntax.Item(tr, v.Names, 0), ty)
 			case None:
 			}
 		}
@@ -543,8 +543,8 @@ func rangeStmt(s mut store.Store, k Pkg, t mut Typer, r syntax.RangeStmt) {
 		if syntax.TokKind(p, b.Op) == syntax.DotDot {
 			let lo = expr(s, k, t, b.X, Free)
 			match lo {
-			case Some[dense.ID[store.TKey]] as l:
-				expr(s, k, t, b.Y, Exactly{T: l.Value})
+			case Some{Value: l}:
+				expr(s, k, t, b.Y, Exactly{T: l})
 			case None:
 				expr(s, k, t, b.Y, Unsure)
 			}
@@ -554,10 +554,10 @@ func rangeStmt(s mut store.Store, k Pkg, t mut Typer, r syntax.RangeStmt) {
 		}
 	case _:
 		match expr(s, k, t, r.X, Free) {
-		case Some[dense.ID[store.TKey]] as xt:
-			let kind = store.KindOfType(*s, xt.Value)
+		case Some{Value: xt}:
+			let kind = store.KindOfType(*s, xt)
 			if kind == store.KSlice || kind == store.KArray {
-				val = some(lastOperand(*s, xt.Value))
+				val = some(lastOperand(*s, xt))
 				key = some(store.TBasic(s, bInt))
 			}
 		case None:
@@ -565,19 +565,19 @@ func rangeStmt(s mut store.Store, k Pkg, t mut Typer, r syntax.RangeStmt) {
 	}
 	// `for v in x` names the element; `for i, v in x` the index first.
 	match dense.Unpack(r.Key) {
-	case Some[dense.ID[syntax.Node]] as kn:
-		if syntax.KindOf(tr, kn.Value) == syntax.KIdent {
+	case Some{Value: kn}:
+		if syntax.KindOf(tr, kn) == syntax.KIdent {
 			match key {
-			case Some[dense.ID[store.TKey]] as kt:
-				def(k, t, kn.Value, kt.Value)
+			case Some{Value: kt}:
+				def(k, t, kn, kt)
 			case None:
 			}
 		}
 		if syntax.KindOf(tr, r.Value) == syntax.KIdent {
 			match val {
-			case Some[dense.ID[store.TKey]] as vt:
+			case Some{Value: vt}:
 				if isSome(key) {
-					def(k, t, r.Value, vt.Value)
+					def(k, t, r.Value, vt)
 				}
 			case None:
 			}
@@ -585,8 +585,8 @@ func rangeStmt(s mut store.Store, k Pkg, t mut Typer, r syntax.RangeStmt) {
 	case None:
 		if syntax.KindOf(tr, r.Value) == syntax.KIdent {
 			match val {
-			case Some[dense.ID[store.TKey]] as vt:
-				def(k, t, r.Value, vt.Value)
+			case Some{Value: vt}:
+				def(k, t, r.Value, vt)
 			case None:
 			}
 		}
@@ -667,8 +667,8 @@ func expr(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], w Want
 	t.steps = t.steps + 1
 	let ty = exprType(s, k, t, x, w)
 	match ty {
-	case Some[dense.ID[store.TKey]] as r:
-		note(k, t, x, r.Value)
+	case Some{Value: r}:
+		note(k, t, x, r)
 	case None:
 	}
 	match w {
@@ -691,8 +691,8 @@ func misfits(s mut store.Store, k Pkg, file int, x dense.ID[syntax.Node], want d
 		return false
 	}
 	match ty {
-	case Some[dense.ID[store.TKey]] as got:
-		let g = basic(s, got.Value)
+	case Some{Value: got}:
+		let g = basic(s, got)
 		g > 0 && g != b
 	case None:
 		isConst(k, file, x) && constKind(k, file, x) >= 0
@@ -746,8 +746,8 @@ func exprType(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], w 
 			expr(s, k, t, u.X, w)
 		} else if op == syntax.And {
 			match expr(s, k, t, u.X, Free) {
-			case Some[dense.ID[store.TKey]] as xt:
-				some(store.TPointer(s, xt.Value))
+			case Some{Value: xt}:
+				some(store.TPointer(s, xt))
 			case None:
 				None
 			}
@@ -771,11 +771,11 @@ func exprType(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], w 
 		let xt = expr(s, k, t, ie.X, Free)
 		let mut out Option[dense.ID[store.TKey]] = None
 		match xt {
-		case Some[dense.ID[store.TKey]] as a:
-			let kind = store.KindOfType(*s, a.Value)
+		case Some{Value: a}:
+			let kind = store.KindOfType(*s, a)
 			if (kind == store.KSlice || kind == store.KArray) && syntax.Len(ie.Indices) == 1 {
 				index(s, k, t, syntax.Item(tr, ie.Indices, 0))
-				out = some(lastOperand(*s, a.Value))
+				out = some(lastOperand(*s, a))
 			}
 		case None:
 		}
@@ -804,8 +804,8 @@ func index(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) {
 		return
 	}
 	match expr(s, k, t, x, Free) {
-	case Some[dense.ID[store.TKey]] as it:
-		let b = basic(s, it.Value)
+	case Some{Value: it}:
+		let b = basic(s, it)
 		if b > 0 && (b < bInt || b > bUintptr) {
 			t.Diags = t.Diags.Append(Diag{At: pnode(k, t.file, x), Fn: t.fn})
 		}
@@ -816,8 +816,8 @@ func index(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) {
 // constParts records the parts of a constant operation with its type.
 func constParts(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], ty Option[dense.ID[store.TKey]]) {
 	match ty {
-	case Some[dense.ID[store.TKey]] as r:
-		note(k, t, x, r.Value)
+	case Some{Value: r}:
+		note(k, t, x, r)
 		let tr = tree(k, t.file)
 		let kd = syntax.KindOf(tr, x)
 		if kd == syntax.KParenExpr {
@@ -855,10 +855,10 @@ func binary(s mut store.Store, k Pkg, t mut Typer, b syntax.BinaryExpr, w Want) 
 	let second = if xc { b.X } else { b.Y }
 	let ft = expr(s, k, t, first, if cmp { Free } else { w })
 	match ft {
-	case Some[dense.ID[store.TKey]] as f:
-		let bt = basic(s, f.Value)
+	case Some{Value: f}:
+		let bt = basic(s, f)
 		if bt > 0 && bt != bBool || !isConst(k, t.file, second) {
-			expr(s, k, t, second, Exactly{T: f.Value})
+			expr(s, k, t, second, Exactly{T: f})
 		} else {
 			expr(s, k, t, second, Unsure)
 		}
@@ -875,7 +875,7 @@ func ident(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) Optio
 	match bind.ResolutionOf(k.U, k.Ps, pnode(k, t.file, x)) {
 	case bind.Declared as d:
 		match dense.Unpack(dense.Of(t.defs, d.At)) {
-		case Some[dense.ID[store.TKey]] as ty:
+		case Some as ty:
 			return ty
 		case None:
 		}

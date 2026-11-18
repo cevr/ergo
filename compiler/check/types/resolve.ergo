@@ -29,12 +29,12 @@ func aliasTarget(s store.Store, d dense.ID[store.Decl], files []syntax.Parsed) O
 	let p = files[int(row.File)]
 	let decl = parentDecl(p, int(row.Node))
 	match dense.Unpack(decl) {
-	case Some[dense.ID[syntax.Node]] as dn:
-		match syntax.ViewOf(p.Tree, dn.Value) {
+	case Some{Value: dn}:
+		match syntax.ViewOf(p.Tree, dn) {
 		case syntax.TypeDecl as td:
 			match dense.Unpack(td.Spec) {
-			case Some[dense.ID[syntax.Node]] as sp:
-				match syntax.ViewOf(p.Tree, sp.Value) {
+			case Some{Value: sp}:
+				match syntax.ViewOf(p.Tree, sp) {
 				case syntax.InterfaceType as it:
 					let ms = listIDs(p, it.Members)
 					if len(ms) != 1 {
@@ -48,7 +48,7 @@ func aliasTarget(s store.Store, d dense.ID[store.Decl], files []syntax.Parsed) O
 					case syntax.LawDecl:
 						None
 					case _:
-						Some[AliasOf]{Value: AliasOf{p: p, x: ms[0]}}
+						Some{Value: AliasOf{p: p, x: ms[0]}}
 					}
 				case _:
 					None
@@ -107,8 +107,8 @@ type Env {
 func NewEnv(s store.Store, files []syntax.Parsed, p syntax.Parsed, params []string, kinds Kinds, ext []Ext, foreign []Foreign) Env {
 	let mut own = false
 	match store.Lookup(s, "Map") {
-	case Some[dense.ID[store.Decl]] as d:
-		own = store.KindName(int(store.DeclOf(s, d.Value).Kind)) == "type"
+	case Some{Value: d}:
+		own = store.KindName(int(store.DeclOf(s, d).Kind)) == "type"
 	case None:
 	}
 	Env{p: p, params: params, kinds: kinds, ext: ext, foreign: foreign, ownMap: own, depth: 0, files: files}
@@ -167,9 +167,9 @@ func headOf(s store.Store, e Env, x dense.ID[syntax.Node]) head {
 			}
 		}
 		match store.Lookup(s, t) {
-		case Some[dense.ID[store.Decl]] as d:
-			if store.KindName(int(store.DeclOf(s, d.Value).Kind)) == "type" {
-				return HLocal{Decl: d.Value, Name: t}
+		case Some{Value: d}:
+			if store.KindName(int(store.DeclOf(s, d).Kind)) == "type" {
+				return HLocal{Decl: d, Name: t}
 			}
 			return HNone
 		case None:
@@ -186,8 +186,8 @@ func headOf(s store.Store, e Env, x dense.ID[syntax.Node]) head {
 	case syntax.SelectorExpr as se:
 		let q = nameText(e.p, se.X)
 		match store.Lookup(s, q) {
-		case Some[dense.ID[store.Decl]] as d:
-			if store.KindName(int(store.DeclOf(s, d.Value).Kind)) != "pkg" {
+		case Some{Value: d}:
+			if store.KindName(int(store.DeclOf(s, d).Kind)) != "pkg" {
 				return HNone
 			}
 		case None:
@@ -277,14 +277,14 @@ func rowElems(s mut store.Store, e Env, xs []dense.ID[syntax.Node], uses bool) [
 	let mut ts = []dense.ID[store.TKey]{}
 	for x in xs {
 		match wiredParam(*s, e, x) {
-		case Some[int] as p:
+		case Some{Value: p}:
 			// The row of decode[P] (wirecall.go wireRow): WireWrongKind
 			// for any value read, and wired[P]; needs wired[P] is wired[P].
 			if !uses {
 				let f = foreignIndex(e, "-", "WireWrongKind")
 				ts = ts.Append(if f >= 0 { store.TForeign(s, f) } else { invalidType(s) })
 			}
-			ts = ts.Append(store.TWired(s, store.TParam(s, p.Value), uses))
+			ts = ts.Append(store.TWired(s, store.TParam(s, p), uses))
 			continue
 		case None:
 		}
@@ -322,7 +322,7 @@ func wiredParam(s store.Store, e Env, x dense.ID[syntax.Node]) Option[int] {
 			return None
 		}
 		match store.Lookup(s, "wired") {
-		case Some[dense.ID[store.Decl]]:
+		case Some:
 			return None
 		case None:
 		}
@@ -332,7 +332,7 @@ func wiredParam(s store.Store, e Env, x dense.ID[syntax.Node]) Option[int] {
 		}
 		match headOf(s, e, is[0]) {
 		case HParam as p:
-			Some[int]{Value: p.At}
+			Some{Value: p.At}
 		case _:
 			None
 		}
@@ -349,7 +349,7 @@ func WiredOfType(s store.Store, e Env, x dense.ID[syntax.Node]) bool {
 	case syntax.IndexExpr as ix:
 		if nameText(e.p, ix.X) == "wired" {
 			match wiredParam(s, e, x) {
-			case Some[int]:
+			case Some:
 				return false
 			case None:
 				return true
@@ -385,13 +385,13 @@ func WiredOfType(s store.Store, e Env, x dense.ID[syntax.Node]) bool {
 	case syntax.FuncType as ft:
 		let mut any = wiredFields(s, e, ft.Params)
 		match dense.Unpack(ft.Results) {
-		case Some[dense.ID[syntax.Node]] as r:
-			any = any || wiredFields(s, e, r.Value)
+		case Some{Value: r}:
+			any = any || wiredFields(s, e, r)
 		case None:
 		}
 		match dense.Unpack(ft.Needs) {
-		case Some[dense.ID[syntax.Node]] as n:
-			match syntax.ViewOf(e.p.Tree, n.Value) {
+		case Some{Value: n}:
+			match syntax.ViewOf(e.p.Tree, n) {
 			case syntax.NeedsClause as nc:
 				for el in listIDs(e.p, nc.Names) {
 					any = any || WiredOfType(s, e, el)
@@ -414,8 +414,8 @@ func wiredFields(s store.Store, e Env, l dense.ID[syntax.Node]) bool {
 			match syntax.ViewOf(e.p.Tree, f) {
 			case syntax.Field as fd:
 				match dense.Unpack(fd.Type) {
-				case Some[dense.ID[syntax.Node]] as t:
-					any = any || WiredOfType(s, e, t.Value)
+				case Some{Value: t}:
+					any = any || WiredOfType(s, e, t)
 				case None:
 				}
 			case _:
@@ -447,19 +447,19 @@ func members(s mut store.Store, e Env, t dense.ID[store.TKey]) []dense.ID[store.
 		return []dense.ID[store.TKey]{t}
 	}
 	match store.Lookup(*s, store.TypeNameText(*s, store.ArgOf(*s, t))) {
-	case Some[dense.ID[store.Decl]] as d:
-		match unionVariants(*s, e, d.Value) {
-		case Some[UnionOf] as u:
+	case Some{Value: d}:
+		match unionVariants(*s, e, d) {
+		case Some{Value: u}:
 			let mut inner = e
-			inner.p = u.Value.p
+			inner.p = u.p
 			inner.params = []string{}
 			let mut out = []dense.ID[store.TKey]{}
-			for m in u.Value.members {
-				match syntax.ViewOf(u.Value.p.Tree, m) {
+			for m in u.members {
+				match syntax.ViewOf(u.p.Tree, m) {
 				case syntax.VariantSpec as vs:
-					match store.Lookup(*s, nameText(u.Value.p, vs.Name)) {
-					case Some[dense.ID[store.Decl]] as vd:
-						out = out.Append(store.TNamed(s, vd.Value))
+					match store.Lookup(*s, nameText(u.p, vs.Name)) {
+					case Some{Value: vd}:
+						out = out.Append(store.TNamed(s, vd))
 					case None:
 						out = out.Append(invalidType(s))
 					}
@@ -489,17 +489,17 @@ func unionVariants(s store.Store, e Env, d dense.ID[store.Decl]) Option[UnionOf]
 	}
 	let p = e.files[int(row.File)]
 	match dense.Unpack(parentDecl(p, int(row.Node))) {
-	case Some[dense.ID[syntax.Node]] as dn:
-		match syntax.ViewOf(p.Tree, dn.Value) {
+	case Some{Value: dn}:
+		match syntax.ViewOf(p.Tree, dn) {
 		case syntax.TypeDecl as td:
 			match dense.Unpack(td.TypeParams) {
-			case Some[dense.ID[syntax.Node]]:
+			case Some:
 				return None
 			case None:
 			}
 			match dense.Unpack(td.Spec) {
-			case Some[dense.ID[syntax.Node]] as sp:
-				match syntax.ViewOf(p.Tree, sp.Value) {
+			case Some{Value: sp}:
+				match syntax.ViewOf(p.Tree, sp) {
 				case syntax.InterfaceType as it:
 					let ms = listIDs(p, it.Members)
 					if len(ms) == 0 {
@@ -514,7 +514,7 @@ func unionVariants(s store.Store, e Env, d dense.ID[store.Decl]) Option[UnionOf]
 						case _:
 						}
 					}
-					Some[UnionOf]{Value: UnionOf{p: p, members: ms}}
+					Some{Value: UnionOf{p: p, members: ms}}
 				case _:
 					None
 				}
@@ -587,7 +587,7 @@ func named(s mut store.Store, e Env, h head) dense.ID[store.TKey] {
 			return invalidType(s)
 		}
 		match aliasTarget(*s, l.Decl, e.files) {
-		case Some[AliasOf] as a:
+		case Some{Value: a}:
 			// A union whose one variant is an existing type is that type
 			// (types.md, Unions 7): its target, resolved in its own file
 			// with no parameters. A cycle of aliases is invalid.
@@ -595,10 +595,10 @@ func named(s mut store.Store, e Env, h head) dense.ID[store.TKey] {
 				return invalidType(s)
 			}
 			let mut inner = e
-			inner.p = a.Value.p
+			inner.p = a.p
 			inner.params = []string{}
 			inner.depth = e.depth + 1
-			Resolve(s, inner, a.Value.x)
+			Resolve(s, inner, a.x)
 		case None:
 			store.TNamed(s, l.Decl)
 		}
@@ -619,8 +619,8 @@ func named(s mut store.Store, e Env, h head) dense.ID[store.TKey] {
 func RefinedParse(s mut store.Store, e Env, base dense.ID[syntax.Node], name string) dense.ID[store.TKey] {
 	let param = Resolve(s, e, base)
 	let result = match store.Lookup(*s, name) {
-	case Some[dense.ID[store.Decl]] as d:
-		store.TNamed(s, d.Value)
+	case Some{Value: d}:
+		store.TNamed(s, d)
 	case None:
 		invalidType(s)
 	}
@@ -660,8 +660,8 @@ func signature(s mut store.Store, e Env, ft syntax.FuncType) dense.ID[store.TKey
 			match syntax.ViewOf(e.p.Tree, f) {
 			case syntax.Field as fd:
 				let t = match dense.Unpack(fd.Type) {
-				case Some[dense.ID[syntax.Node]] as ty:
-					paramType(s, e, fd, ty.Value, Resolve(s, e, ty.Value))
+				case Some{Value: ty}:
+					paramType(s, e, fd, ty, Resolve(s, e, ty))
 				case None:
 					invalidType(s)
 				}
@@ -677,19 +677,19 @@ func signature(s mut store.Store, e Env, ft syntax.FuncType) dense.ID[store.TKey
 	let mut result = store.TTuple(s, []dense.ID[store.TKey]{})
 	let mut errs = store.TRow(s, []dense.ID[store.TKey]{})
 	match dense.Unpack(ft.Results) {
-	case Some[dense.ID[syntax.Node]] as rs:
-		match syntax.ViewOf(e.p.Tree, rs.Value) {
+	case Some{Value: rs}:
+		match syntax.ViewOf(e.p.Tree, rs) {
 		case syntax.FieldList as fl:
 			for f in listIDs(e.p, fl.List) {
 				match syntax.ViewOf(e.p.Tree, f) {
 				case syntax.Field as fd:
 					match dense.Unpack(fd.Type) {
-					case Some[dense.ID[syntax.Node]] as ty:
-						match syntax.ViewOf(e.p.Tree, ty.Value) {
+					case Some{Value: ty}:
+						match syntax.ViewOf(e.p.Tree, ty) {
 						case syntax.ErrorRow as er:
 							errs = row(s, e, listIDs(e.p, er.Types), false)
 						case _:
-							result = Resolve(s, e, ty.Value)
+							result = Resolve(s, e, ty)
 						}
 					case None:
 					}
@@ -702,8 +702,8 @@ func signature(s mut store.Store, e Env, ft syntax.FuncType) dense.ID[store.TKey
 	}
 	let mut uses = store.TRow(s, []dense.ID[store.TKey]{})
 	match dense.Unpack(ft.Needs) {
-	case Some[dense.ID[syntax.Node]] as n:
-		match syntax.ViewOf(e.p.Tree, n.Value) {
+	case Some{Value: n}:
+		match syntax.ViewOf(e.p.Tree, n) {
 		case syntax.NeedsClause as nc:
 			uses = row(s, e, listIDs(e.p, nc.Names), true)
 		case _:

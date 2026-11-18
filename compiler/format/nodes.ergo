@@ -1298,8 +1298,8 @@ func diffPrec(p mut Printer, x int, prec int) int {
 // length.
 func walkBinary(p mut Printer, e int) Walk {
 	match p.Walked.Get(e) {
-	case Some[Walk] as done:
-		return done.Value
+	case Some{Value: done}:
+		return done
 	case None:
 	}
 	let op = p.n(e, "Op")

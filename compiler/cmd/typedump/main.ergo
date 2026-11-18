@@ -53,8 +53,8 @@ func fieldLines(s mut store.Store, env types.Env, names types.Names, p syntax.Pa
 					continue
 				}
 				match dense.Unpack(fd.Type) {
-				case Some[dense.ID[syntax.Node]] as t:
-					let ty = types.Resolve(s, env, t.Value)
+				case Some{Value: t}:
+					let ty = types.Resolve(s, env, t)
 					let text = types.Text(*s, names, ty)
 					for j in 0..syntax.Len(fd.Names) {
 						*out = (*out).Append("\(rec).\(types.NameText(p, syntax.Item(p.Tree, fd.Names, j))) \(text)")

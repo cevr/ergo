@@ -9,7 +9,7 @@ import dense
 
 func isSome[T](o Option[T]) bool {
 	match o {
-	case Some[T]:
+	case Some:
 		true
 	case None:
 		false
@@ -152,7 +152,7 @@ func call(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c synt
 				None
 			} else {
 				let i = fnOf(k, t, d.At)
-				if i >= 0 { Some[Fn]{Value: k.Fns[i]} } else { None }
+				if i >= 0 { Some{Value: k.Fns[i]} } else { None }
 			}
 		case _:
 			None
@@ -166,8 +166,8 @@ func call(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c synt
 	if c.Trailing != dense.NoID[syntax.Node]() || !isSome(callee) {
 		if c.Trailing == dense.NoID[syntax.Node]() && !indexed {
 			match expr(s, k, t, c.Fun, Free) {
-			case Some[dense.ID[store.TKey]] as ft:
-				let f = infer.Unmarked(*s, ft.Value)
+			case Some{Value: ft}:
+				let f = infer.Unmarked(*s, ft)
 				if store.KindOfType(*s, f) == store.KSig {
 					let (params, r) = sigParts(*s, k, f, n)
 					arity(k, t, x, n, len(params))
@@ -180,15 +180,15 @@ func call(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c synt
 		args(s, k, t, c, []dense.ID[store.TKey]{})
 		// A trailing block's body is walked; the call is not typed.
 		match dense.Unpack(c.Trailing) {
-		case Some[dense.ID[syntax.Node]] as b:
-			expr(s, k, t, b.Value, Unsure)
+		case Some{Value: b}:
+			expr(s, k, t, b, Unsure)
 		case None:
 		}
 		return None
 	}
 	let f = match callee {
-	case Some[Fn] as cf:
-		cf.Value
+	case Some{Value: cf}:
+		cf
 	case None:
 		return None
 	}
@@ -227,8 +227,8 @@ func isLen(k Pkg, t Typer, fun dense.ID[syntax.Node]) bool {
 // (the builtin's callee has no type of its own).
 func lenCall(s mut store.Store, k Pkg, t mut Typer, a dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
 	match expr(s, k, t, a, Free) {
-	case Some[dense.ID[store.TKey]] as at:
-		let u = infer.Unmarked(*s, at.Value)
+	case Some{Value: at}:
+		let u = infer.Unmarked(*s, at)
 		let kind = store.KindOfType(*s, u)
 		if kind == store.KSlice || kind == store.KArray || kind == store.KMap || basic(s, u) == bString {
 			some(store.TBasic(s, bInt))
@@ -256,22 +256,22 @@ func valueCall(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c
 	// is the operation type's value; anywhere else (a context's key) the
 	// name is no expression.
 	let xt = match opReceiver(s, k, t, unparen(tr, se.X)) {
-	case Some[dense.ID[store.TKey]] as o:
-		note(k, t, se.X, o.Value)
-		o.Value
+	case Some{Value: o}:
+		note(k, t, se.X, o)
+		o
 	case None:
 		match expr(s, k, t, se.X, Free) {
-		case Some[dense.ID[store.TKey]] as v:
-			v.Value
+		case Some{Value: v}:
+			v
 		case None:
 			args(s, k, t, c, []dense.ID[store.TKey]{})
 			return None
 		}
 	}
 	match fieldType(s, k, xt, name) {
-	case Some[dense.ID[store.TKey]] as ft:
-		note(k, t, fun, ft.Value)
-		let f = infer.Unmarked(*s, ft.Value)
+	case Some{Value: ft}:
+		note(k, t, fun, ft)
+		let f = infer.Unmarked(*s, ft)
 		if store.KindOfType(*s, f) == store.KSig {
 			let (params, r) = sigParts(*s, k, f, n)
 			arity(k, t, x, n, len(params))
@@ -283,8 +283,8 @@ func valueCall(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c
 	case None:
 	}
 	match methodOf(s, k, t, xt, name) {
-	case Some[Fn] as mf:
-		let f = mf.Value
+	case Some{Value: mf}:
+		let f = mf
 		if len(f.Params) > 0 {
 			return generic(s, k, t, x, c, fun, []dense.ID[syntax.Node]{}, f, some(xt))
 		}
@@ -324,24 +324,24 @@ func generic(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c s
 	}
 	let mut ins = []infer.Arg{}
 	match recv {
-	case Some[dense.ID[store.TKey]] as rt:
-		ins = ins.Append(infer.Typed{T: rt.Value})
+	case Some{Value: rt}:
+		ins = ins.Append(infer.Typed{T: rt})
 	case None:
 	}
 	for i in 0..n {
 		let a = syntax.Item(tr, c.Args, i)
 		if isConst(k, t.file, a) {
 			match constType(s, k, *t, a, Free) {
-			case Some[dense.ID[store.TKey]] as d:
-				ins = ins.Append(infer.Literal{Default: d.Value})
+			case Some{Value: d}:
+				ins = ins.Append(infer.Literal{Default: d})
 			case None:
 				ins = ins.Append(infer.Unknown)
 			}
 			continue
 		}
 		match expr(s, k, t, a, Free) {
-		case Some[dense.ID[store.TKey]] as at:
-			ins = ins.Append(infer.Typed{T: at.Value})
+		case Some{Value: at}:
+			ins = ins.Append(infer.Typed{T: at})
 		case None:
 			ins = ins.Append(infer.Unknown)
 		}
@@ -352,7 +352,7 @@ func generic(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c s
 		explicit = explicit.Append(types.Resolve(s, env, w))
 	}
 	match infer.Infer(s, &t.frame, infer.Callee{Params: renamed, Rows: f.Rows, Base: base}, explicit, ins) {
-	case Some[[]dense.ID[store.TKey]] as targs:
+	case Some{Value: targs}:
 		// An import's function is named by its selector's name.
 		let named = match syntax.ViewOf(tr, fun) {
 		case syntax.SelectorExpr as se:
@@ -360,11 +360,11 @@ func generic(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c s
 		case _:
 			fun
 		}
-		t.Insts = t.Insts.Append(Inst{At: pnode(k, t.file, named), Args: targs.Value, Fn: t.fn})
-		let inst = store.TSubst(s, f.Sig, targs.Value)
+		t.Insts = t.Insts.Append(Inst{At: pnode(k, t.file, named), Args: targs, Fn: t.fn})
+		let inst = store.TSubst(s, f.Sig, targs)
 		// The callee records the instance: the name when inferred, the
 		// index expression when written.
-		if !dropsSite(*s, k, f.Sig, n+m) && !hasWired(*s, inst) && !emptiedFails(*s, f.Sig, targs.Value) && !funcArg(*s, targs.Value) {
+		if !dropsSite(*s, k, f.Sig, n+m) && !hasWired(*s, inst) && !emptiedFails(*s, f.Sig, targs) && !funcArg(*s, targs) {
 			let shown = if m == 1 { withoutFirst(s, inst) } else { inst }
 			note(k, t, if len(written) > 0 { unparen(tr, c.Fun) } else { fun }, shown)
 		}
@@ -373,11 +373,11 @@ func generic(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c s
 			if isConst(k, t.file, a) && i+m < len(params) {
 				// The substitution writes the pool, so it runs before the
 				// store is read: read after, the store is not copied.
-				let p = store.TSubst(s, params[i+m], targs.Value)
+				let p = store.TSubst(s, params[i+m], targs)
 				expr(s, k, t, a, Exactly{T: infer.Unmarked(*s, p)})
 			}
 		}
-		let res = store.TSubst(s, r, targs.Value)
+		let res = store.TSubst(s, r, targs)
 		resultOf(*s, res)
 	case None:
 		for i in 0..n {
@@ -432,13 +432,13 @@ func composite(s mut store.Store, k Pkg, t mut Typer, cl syntax.CompositeLit) Op
 	let tr = tree(k, t.file)
 	let p = k.Parsed[t.file]
 	match dense.Unpack(cl.Base) {
-	case Some[dense.ID[syntax.Node]] as b:
-		expr(s, k, t, b.Value, Free)
+	case Some{Value: b}:
+		expr(s, k, t, b, Free)
 	case None:
 	}
 	let ty = match dense.Unpack(cl.Type) {
-	case Some[dense.ID[syntax.Node]] as tx:
-		let r = types.Resolve(s, envOf(*s, k, *t), tx.Value)
+	case Some{Value: tx}:
+		let r = types.Resolve(s, envOf(*s, k, *t), tx)
 		if valid(*s, r) { some(r) } else { None }
 	case None:
 		None
@@ -447,26 +447,26 @@ func composite(s mut store.Store, k Pkg, t mut Typer, cl syntax.CompositeLit) Op
 		let e = syntax.Item(tr, cl.Elts, i)
 		let mut done = false
 		match ty {
-		case Some[dense.ID[store.TKey]] as rt:
-			let kind = store.KindOfType(*s, rt.Value)
+		case Some{Value: rt}:
+			let kind = store.KindOfType(*s, rt)
 			match syntax.ViewOf(tr, e) {
 			case syntax.KeyValueExpr as kv:
 				if kind == store.KMap {
-					let ops = store.OperandsOf(*s, rt.Value)
+					let ops = store.OperandsOf(*s, rt)
 					expr(s, k, t, kv.Key, Exactly{T: ops[0]})
 					expr(s, k, t, kv.Value, Exactly{T: ops[1]})
 					done = true
 				} else if syntax.KindOf(tr, kv.Key) == syntax.KIdent {
-					match fieldType(s, k, rt.Value, types.NameText(p, kv.Key)) {
-					case Some[dense.ID[store.TKey]] as ft:
-						expr(s, k, t, kv.Value, Exactly{T: infer.Unmarked(*s, ft.Value)})
+					match fieldType(s, k, rt, types.NameText(p, kv.Key)) {
+					case Some{Value: ft}:
+						expr(s, k, t, kv.Value, Exactly{T: infer.Unmarked(*s, ft)})
 						done = true
 					case None:
 					}
 				}
 			case _:
 				if kind == store.KSlice || kind == store.KArray {
-					let ops = store.OperandsOf(*s, rt.Value)
+					let ops = store.OperandsOf(*s, rt)
 					expr(s, k, t, e, Exactly{T: ops[len(ops)-1]})
 					done = true
 				}
@@ -494,13 +494,13 @@ func selOf(tr syntax.Tree, x dense.ID[syntax.Node]) dense.Opt[syntax.Node] {
 // the package or of an import.
 func selector(s mut store.Store, k Pkg, t mut Typer, se syntax.SelectorExpr) Option[dense.ID[store.TKey]] {
 	match importedFn(s, k, t, dense.OptOf(se.Sel)) {
-	case Some[Fn] as f:
-		return if len(f.Value.Params) == 0 { some(f.Value.Sig) } else { None }
+	case Some{Value: f}:
+		return if len(f.Params) == 0 { some(f.Sig) } else { None }
 	case None:
 	}
 	match expr(s, k, t, se.X, Free) {
-	case Some[dense.ID[store.TKey]] as xt:
-		fieldType(s, k, xt.Value, types.NameText(k.Parsed[t.file], se.Sel))
+	case Some{Value: xt}:
+		fieldType(s, k, xt, types.NameText(k.Parsed[t.file], se.Sel))
 	case None:
 		None
 	}

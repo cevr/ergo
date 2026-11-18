@@ -117,13 +117,13 @@ func declared(s mut store.Store, env types.Env, p syntax.Parsed, file int, decl 
 	let mut ts = []dense.ID[store.TKey]{}
 	let mut names = []dense.Opt[syntax.Node]{}
 	match dense.Unpack(params) {
-	case Some[dense.ID[syntax.Node]] as l:
-		for f in fieldsOf(s, env, p, l.Value) {
+	case Some{Value: l}:
+		for f in fieldsOf(s, env, p, l) {
 			ts = ts.Append(f.T)
 		}
 		// A law's function-typed parameter has a row the law's draw
 		// leaves open, which the pool does not write: it is not declared.
-		for i, n in listNames(p, l.Value) {
+		for i, n in listNames(p, l) {
 			names = names.Append(if i < len(ts) && hasSig(*s, ts[i]) { dense.NoID[syntax.Node]() } else { n })
 		}
 	case None:
@@ -146,8 +146,8 @@ func opTypes(s mut store.Store, p syntax.Parsed, parsed []syntax.Parsed, kinds t
 					continue
 				}
 				match dense.Unpack(td.Spec) {
-				case Some[dense.ID[syntax.Node]] as sp:
-					match syntax.ViewOf(p.Tree, sp.Value) {
+				case Some{Value: sp}:
+					match syntax.ViewOf(p.Tree, sp) {
 					case syntax.InterfaceType as it:
 						let mut ops = []Field{}
 						let mut any = false
@@ -155,10 +155,10 @@ func opTypes(s mut store.Store, p syntax.Parsed, parsed []syntax.Parsed, kinds t
 							match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, it.Members, j)) {
 							case syntax.Field as fd:
 								match dense.Unpack(fd.Type) {
-								case Some[dense.ID[syntax.Node]] as ft:
-									if syntax.KindOf(p.Tree, ft.Value) == syntax.KFuncType && syntax.Len(fd.Names) == 1 {
+								case Some{Value: ft}:
+									if syntax.KindOf(p.Tree, ft) == syntax.KFuncType && syntax.Len(fd.Names) == 1 {
 										any = true
-										ops = ops.Append(Field{Name: types.NameText(p, syntax.Item(p.Tree, fd.Names, 0)), T: types.Resolve(s, env, ft.Value)})
+										ops = ops.Append(Field{Name: types.NameText(p, syntax.Item(p.Tree, fd.Names, 0)), T: types.Resolve(s, env, ft)})
 									}
 								case None:
 								}
@@ -192,8 +192,8 @@ func fieldsOf(s mut store.Store, env types.Env, p syntax.Parsed, l dense.ID[synt
 					continue
 				}
 				match dense.Unpack(fd.Type) {
-				case Some[dense.ID[syntax.Node]] as t:
-					let ty = types.Resolve(s, env, t.Value)
+				case Some{Value: t}:
+					let ty = types.Resolve(s, env, t)
 					for j in 0..syntax.Len(fd.Names) {
 						out = out.Append(Field{Name: types.NameText(p, syntax.Item(p.Tree, fd.Names, j)), T: ty})
 					}
@@ -314,17 +314,17 @@ func Load(s mut store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ex
 	for i, f in fns {
 		sameName = sameName.Append(-1)
 		match store.FindName(*s, types.NameText(parsed[f.File], f.Name)) {
-		case Some[dense.ID[dense.Str]] as n:
-			sameName[i] = dense.SideOf(named, n.Value)
-			dense.SideSet(&named, n.Value, i)
+		case Some{Value: n}:
+			sameName[i] = dense.SideOf(named, n)
+			dense.SideSet(&named, n, i)
 		case None:
 		}
 	}
 	let mut recBy = dense.NewSide[store.Decl, int](-1)
 	for i, r in recs {
 		match store.Lookup(*s, r.Name) {
-		case Some[dense.ID[store.Decl]] as d:
-			dense.SideSet(&recBy, d.Value, i)
+		case Some{Value: d}:
+			dense.SideSet(&recBy, d, i)
 		case None:
 		}
 	}
@@ -338,8 +338,8 @@ func FnAt(k Pkg, at dense.ID[store.PNode]) int { if dense.In(k.fnBy, at) { dense
 // recOf is the index in k.Recs of the record named name, -1 when none is.
 func recOf(s store.Store, k Pkg, name string) int {
 	match store.Lookup(s, name) {
-	case Some[dense.ID[store.Decl]] as d:
-		dense.SideOf(k.recBy, d.Value)
+	case Some{Value: d}:
+		dense.SideOf(k.recBy, d)
 	case None:
 		-1
 	}

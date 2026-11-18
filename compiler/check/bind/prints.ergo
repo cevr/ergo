@@ -78,8 +78,8 @@ func cutOf(p syntax.Parsed, d dense.ID[syntax.Node]) (int, int) {
 			return (0, 0)
 		}
 		match dense.Unpack(fd.Body) {
-		case Some[dense.ID[syntax.Node]] as body:
-			(syntax.NodePos(p, body.Value), syntax.NodeEnd(p, body.Value))
+		case Some{Value: body}:
+			(syntax.NodePos(p, body), syntax.NodeEnd(p, body))
 		case None:
 			(0, 0)
 		}

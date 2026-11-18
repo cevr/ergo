@@ -60,9 +60,9 @@ func project(t Tree, it Item, depth int, out []string) []string {
 		o = o.Append("\(n.V)\n")
 	case Position as p:
 		match p.At {
-		case Some[int] as s:
-			let at = Locate(t, s.Value)
-			o = o.Append("@\(s.Value) \(at.Line):\(at.Column)\n")
+		case Some{Value: s}:
+			let at = Locate(t, s)
+			o = o.Append("@\(s) \(at.Line):\(at.Column)\n")
 		case None:
 			o = o.Append("-\n")
 		}

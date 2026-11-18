@@ -29,7 +29,7 @@ func pos(t tree.Tree, id int, name string) int {
 	match item(t, id, name) {
 	case tree.Position as p:
 		match p.At {
-		case Some[int] as s:
+		case Some as s:
 			s.Value
 		case None:
 			NoPos
@@ -86,7 +86,7 @@ func poss(t tree.Tree, id int, name string) []int {
 			match x {
 			case tree.Position as p:
 				out = out.Append(match p.At {
-				case Some[int] as s:
+				case Some as s:
 					s.Value
 				case None:
 					NoPos

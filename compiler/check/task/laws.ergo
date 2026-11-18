@@ -75,8 +75,8 @@ law ImportsNameTheirDeclarations(picks []int) {
 					ok = ok && name == text && text[0] >= 65 && text[0] <= 90
 					// The selector's X is the import's name, no local.
 					match dense.Unpack(bind.ParentOf(c.Parents, bind.PNodeOf(c.Parents, f, id))) {
-					case Some[dense.ID[store.PNode]] as up:
-						let (_, row) = bind.RowOf(c.Parents, up.Value)
+					case Some{Value: up}:
+						let (_, row) = bind.RowOf(c.Parents, up)
 						let sel = syntax.NodeAt(t, row)
 						ok = ok && syntax.KindOf(t, sel) == syntax.KSelectorExpr
 						if syntax.KindOf(t, sel) == syntax.KSelectorExpr {

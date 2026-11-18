@@ -86,8 +86,8 @@ func port(s mut store.Store, k Pkg, d Dep, dt dense.ID[store.TKey]) Option[dense
 	if kind == store.KArray {
 		let ops = store.OperandsOf(ds, dt)
 		return match port(s, k, d, ops[1]) {
-		case Some[dense.ID[store.TKey]] as e:
-			some(store.TArray(s, store.ArrayLen(ds, dt), e.Value))
+		case Some{Value: e}:
+			some(store.TArray(s, store.ArrayLen(ds, dt), e))
 		case None:
 			None
 		}
@@ -95,8 +95,8 @@ func port(s mut store.Store, k Pkg, d Dep, dt dense.ID[store.TKey]) Option[dense
 	let mut ops = []dense.ID[store.TKey]{}
 	for o in store.OperandsOf(ds, dt) {
 		match port(s, k, d, o) {
-		case Some[dense.ID[store.TKey]] as p:
-			ops = ops.Append(p.Value)
+		case Some{Value: p}:
+			ops = ops.Append(p)
 		case None:
 			return None
 		}
@@ -146,8 +146,8 @@ func port(s mut store.Store, k Pkg, d Dep, dt dense.ID[store.TKey]) Option[dense
 // a package k.Deps holds, or its signature does not port.
 func importedFn(s mut store.Store, k Pkg, t mut Typer, name dense.Opt[syntax.Node]) Option[Fn] {
 	let sel = match dense.Unpack(name) {
-	case Some[dense.ID[syntax.Node]] as n:
-		n.Value
+	case Some{Value: n}:
+		n
 	case None:
 		return None
 	}
@@ -174,10 +174,10 @@ func importedFn(s mut store.Store, k Pkg, t mut Typer, name dense.Opt[syntax.Nod
 		}
 		let fn = d.K.Fns[f]
 		match port(s, k, d, fn.Sig) {
-		case Some[dense.ID[store.TKey]] as sig:
+		case Some{Value: sig}:
 			let mut out = fn
-			out.Sig = sig.Value
-			Some[Fn]{Value: out}
+			out.Sig = sig
+			Some{Value: out}
 		case None:
 			None
 		}
@@ -213,8 +213,8 @@ func importedField(s mut store.Store, k Pkg, ty dense.ID[store.TKey], name strin
 	for fd in d.K.Recs[r].Fields {
 		if fd.Name == name {
 			return match port(s, k, d, fd.T) {
-			case Some[dense.ID[store.TKey]] as p:
-				let u = store.TSubst(s, p.Value, targs)
+			case Some{Value: p}:
+				let u = store.TSubst(s, p, targs)
 				some(u)
 			case None:
 				None

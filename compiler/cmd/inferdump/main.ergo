@@ -190,15 +190,15 @@ func literal(s mut store.Store, p syntax.Parsed, x dense.ID[syntax.Node]) Option
 		// The basic ordinals of types.BasicName: string 2, int 3, int32
 		// (rune) 6, float64 15, duration 18.
 		if k == syntax.Int {
-			Some[dense.ID[store.TKey]]{Value: store.TBasic(s, 3)}
+			Some{Value: store.TBasic(s, 3)}
 		} else if k == syntax.Float {
-			Some[dense.ID[store.TKey]]{Value: store.TBasic(s, 15)}
+			Some{Value: store.TBasic(s, 15)}
 		} else if k == syntax.String {
-			Some[dense.ID[store.TKey]]{Value: store.TBasic(s, 2)}
+			Some{Value: store.TBasic(s, 2)}
 		} else if k == syntax.Rune {
-			Some[dense.ID[store.TKey]]{Value: store.TBasic(s, 6)}
+			Some{Value: store.TBasic(s, 6)}
 		} else if k == syntax.Duration {
-			Some[dense.ID[store.TKey]]{Value: store.TBasic(s, 18)}
+			Some{Value: store.TBasic(s, 18)}
 		} else {
 			None
 		}
@@ -296,8 +296,8 @@ func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
 			let mut caller = -1
 			for caller < 0 {
 				match dense.Unpack(bind.ParentOf(ps, up)) {
-				case Some[dense.ID[store.PNode]] as q:
-					up = q.Value
+				case Some{Value: q}:
+					up = q
 					let (_, row) = bind.RowOf(ps, up)
 					let n = syntax.NodeAt(p.Tree, row)
 					if syntax.KindOf(p.Tree, n) == syntax.KFuncDecl {
@@ -362,8 +362,8 @@ func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
 					continue
 				}
 				match literal(&s, p, x) {
-				case Some[dense.ID[store.TKey]] as d:
-					inArgs = inArgs.Append(infer.Literal{Default: d.Value})
+				case Some{Value: d}:
+					inArgs = inArgs.Append(infer.Literal{Default: d})
 				case None:
 					known = false
 				}
@@ -377,11 +377,11 @@ func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
 				explicit = explicit.Append(types.Resolve(&s, env, w))
 			}
 			match infer.Infer(&s, &frame, infer.Callee{Params: params, Rows: to.rows, Base: m}, explicit, inArgs) {
-			case Some[[]dense.ID[store.TKey]] as targs:
+			case Some{Value: targs}:
 				let names = types.Names{Params: from.params, Foreign: tab.foreign, Pkg: tab.pkgName}
 				let none = infer.NoValue(&s)
 				let mut texts = []string{}
-				for t in targs.Value {
+				for t in targs {
 					texts = texts.Append(if t == none { "no value" } else { types.Text(s, names, t) })
 				}
 				b.WriteString("\(file.Name) \(syntax.NodePos(p, fun)) \(strings.Join(texts, " ; "))\n")

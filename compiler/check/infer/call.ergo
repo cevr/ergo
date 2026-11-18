@@ -82,8 +82,8 @@ func inferIn(s mut store.Store, f mut Frame, c Call, callee Callee, explicit []d
 					Bind(f, c, k, l.Default)
 					// A default, not a unification: a later literal compares.
 					f.slots[c.at+k].joined = true
-				case Some[dense.ID[store.TKey]] as b:
-					if f.slots[c.at+k].joined && b.Value != l.Default {
+				case Some{Value: b}:
+					if f.slots[c.at+k].joined && b != l.Default {
 						return None
 					}
 				}
@@ -94,8 +94,8 @@ func inferIn(s mut store.Store, f mut Frame, c Call, callee Callee, explicit []d
 	let mut targs = []dense.ID[store.TKey]{}
 	for i in 0..c.n {
 		match Binding(*f, c, i) {
-		case Some[dense.ID[store.TKey]] as b:
-			targs = targs.Append(b.Value)
+		case Some{Value: b}:
+			targs = targs.Append(b)
 		case None:
 			if !f.slots[c.at+i].row {
 				// Outside the inferred subset: write the type arguments.
@@ -104,5 +104,5 @@ func inferIn(s mut store.Store, f mut Frame, c Call, callee Callee, explicit []d
 			targs = targs.Append(store.TRow(s, []dense.ID[store.TKey]{}))
 		}
 	}
-	Some[[]dense.ID[store.TKey]]{Value: targs}
+	Some{Value: targs}
 }

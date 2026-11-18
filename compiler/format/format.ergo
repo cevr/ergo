@@ -171,7 +171,7 @@ func Validate(t tree.Tree) fails InvalidTree {
 	}
 	for id, nd in t.Nodes {
 		let fields = match schema.Get(nd.Family) {
-		case Some[string] as s:
+		case Some as s:
 			strings.Fields(s.Value)
 		case None:
 			return InvalidTree{Node: id, Reason: "unknown node family " + nd.Family}

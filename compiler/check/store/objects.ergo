@@ -148,7 +148,7 @@ law ObjectViewRoundTrips(xs []int) {
 	let mut ok = true
 	for i, d in ds {
 		let r = DeclOf(s, d).Obj
-		ok = ok && Lookup(s, "d\(i)") == Some[dense.ID[Decl]]{Value: d} && KindOf(r) == at(xs[i], 1, 8)+1 && View(s.objects, r) == os[i]
+		ok = ok && Lookup(s, "d\(i)") == Some{Value: d} && KindOf(r) == at(xs[i], 1, 8)+1 && View(s.objects, r) == os[i]
 	}
 	ok
 }

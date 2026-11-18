@@ -44,8 +44,8 @@ func predeclared(s store.Store, k Pkg, text string) bool {
 // inScope is whether s's package scope declares text.
 func inScope(s store.Store, text string) bool {
 	match store.FindName(s, text) {
-	case Some[dense.ID[dense.Str]] as n:
-		isSome(store.ScopeOf(s, n.Value))
+	case Some{Value: n}:
+		isSome(store.ScopeOf(s, n))
 	case None:
 		false
 	}
@@ -97,8 +97,8 @@ func assignsImmutable(s store.Store, k Pkg, t Typer, x dense.ID[syntax.Node]) bo
 		match bind.DefOf(k.U, d.At) {
 		case bind.Local:
 			match dense.Unpack(dense.Of(t.defs, d.At)) {
-			case Some[dense.ID[store.TKey]] as ty:
-				if root != y && store.KindOfType(s, infer.Unmarked(s, ty.Value)) == store.KPointer {
+			case Some{Value: ty}:
+				if root != y && store.KindOfType(s, infer.Unmarked(s, ty)) == store.KPointer {
 					return false
 				}
 				!letMut(k, d.At)
@@ -117,15 +117,15 @@ func assignsImmutable(s store.Store, k Pkg, t Typer, x dense.ID[syntax.Node]) bo
 // VarSpec whose VarDecl writes mut.
 func letMut(k Pkg, at dense.ID[store.PNode]) bool {
 	match dense.Unpack(bind.ParentOf(k.Ps, at)) {
-	case Some[dense.ID[store.PNode]] as spec:
-		let (f, row) = bind.RowOf(k.Ps, spec.Value)
+	case Some{Value: spec}:
+		let (f, row) = bind.RowOf(k.Ps, spec)
 		let tr = k.Parsed[f].Tree
 		if syntax.KindOf(tr, syntax.NodeAt(tr, row)) != syntax.KVarSpec {
 			return false
 		}
-		match dense.Unpack(bind.ParentOf(k.Ps, spec.Value)) {
-		case Some[dense.ID[store.PNode]] as decl:
-			let (g, drow) = bind.RowOf(k.Ps, decl.Value)
+		match dense.Unpack(bind.ParentOf(k.Ps, spec)) {
+		case Some{Value: decl}:
+			let (g, drow) = bind.RowOf(k.Ps, decl)
 			let dtr = k.Parsed[g].Tree
 			let did = syntax.NodeAt(dtr, drow)
 			syntax.KindOf(dtr, did) == syntax.KVarDecl && syntax.VarDeclOf(dtr, did).Mut >= 0

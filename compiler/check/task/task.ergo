@@ -90,8 +90,8 @@ func depsOf(p Package, pkgs []Package, done []Option[Checked]) []store.Frozen {
 		let i = indexOf(pkgs, path)
 		let found = if i >= 0 {
 			match done[i] {
-			case Some[Checked] as c:
-				Some[store.Frozen]{Value: c.Value.Store}
+			case Some{Value: c}:
+				Some{Value: c.Store}
 			case None:
 				None
 			}
@@ -99,8 +99,8 @@ func depsOf(p Package, pkgs []Package, done []Option[Checked]) []store.Frozen {
 			None
 		}
 		match found {
-		case Some[store.Frozen] as f:
-			out = out.Append(f.Value)
+		case Some{Value: f}:
+			out = out.Append(f)
 		case None:
 			out = out.Append(store.Freeze(store.New(path, []string{})))
 		}
@@ -137,14 +137,14 @@ func Check(pkgs []Package, threads int) []Checked {
 		let frozen = done
 		let out = tasks.Transform(members, threads, func(i int) Checked { checkOne(pkgs[i], depsOf(pkgs[i], pkgs, frozen), threads) })
 		for k, i in members {
-			done[i] = Some[Checked]{Value: out[k]}
+			done[i] = Some{Value: out[k]}
 		}
 	}
 	let mut result = []Checked{}
 	for d in done {
 		match d {
-		case Some[Checked] as c:
-			result = result.Append(c.Value)
+		case Some{Value: c}:
+			result = result.Append(c)
 		case None:
 		}
 	}

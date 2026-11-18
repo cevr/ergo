@@ -104,8 +104,8 @@ law UsesNameTheirDeclarations(picks []int) {
 				let t = text(p, id)
 				ok = ok && text(dp, did) == t
 				let pkg = match store.Lookup(s, t) {
-				case Some[dense.ID[store.Decl]] as x:
-					let row = store.DeclOf(s, x.Value)
+				case Some{Value: x}:
+					let row = store.DeclOf(s, x)
 					int(row.File) == df && int(row.Node) == dense.Index(did)
 				case None:
 					false
@@ -138,9 +138,9 @@ law JoinIsThreadFree(picks []int, t int, k int) {
 			let n = PNodeOf(ps, f, id)
 			ok = ok && dense.SideOf(u1.at, n) == dense.SideOf(un.at, n) && dense.SideOf(u1.defs, n) == dense.SideOf(un.defs, n)
 			match (LocalName(u1, n), LocalName(un, n)) {
-			case (Some[dense.ID[dense.Str]] as a, Some[dense.ID[dense.Str]] as b):
+			case (Some{Value: a}, Some{Value: b}):
 				locals = locals + 1
-				ok = ok && a.Value == b.Value && store.Text(s1, a.Value) == text(p, id) && store.Text(sn, b.Value) == text(p, id)
+				ok = ok && a == b && store.Text(s1, a) == text(p, id) && store.Text(sn, b) == text(p, id)
 			case (None, None):
 			case _:
 				ok = false

@@ -131,7 +131,7 @@ func item(w string, at int) (Item, int) fails BadEncoding {
 		(Number{V: n}, next)
 	case 'p':
 		let (n, next) = try decimal(w, at+1, ';')
-		(Position{At: Some[int]{Value: n}}, next)
+		(Position{At: Some{Value: n}}, next)
 	case 'q':
 		(Position{At: None}, at + 1)
 	case '-':
