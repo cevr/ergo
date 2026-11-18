@@ -387,7 +387,7 @@ func model(p prog, s []int, row int) outcome {
 		if o.fail != 0 {
 			return o
 		}
-		done([]ui.Shape[int]{ui.Shape[int]{Node: ui.PressableNode{Label: "press", On: s[x.slot]%4 + row, Style: ui.Plain()}, Kids: o.shapes}})
+		done([]ui.Shape[int]{ui.Shape[int]{Node: ui.PressableNode{Label: "press", On: s[x.slot]%4 + row, Style: ui.PressStyle()}, Kids: o.shapes}})
 	case pFieldset as x:
 		let o = outcomes(x.kids, s, row)
 		if o.fail != 0 {
@@ -888,7 +888,7 @@ func cellShape(keys []int, rows Map[int, row]) []ui.Shape[int] {
 		kids = kids.Append(leaf(ui.TextNode{Value: r.a, Style: ui.Plain()}))
 		kids = kids.Append(ui.Shape[int]{Node: ui.RowNode{Style: ui.Plain()}, Kids: []ui.Shape[int]{leaf(ui.InputNode{Value: r.b, Placeholder: "b", Label: "", Description: "", Invalid: false})}})
 		kids = kids.Append(leaf(ui.ToggleNode{Label: "t", On: r.on}))
-		kids = kids.Append(ui.Shape[int]{Node: ui.PressableNode{Label: "send", On: k, Style: ui.Plain()}, Kids: []ui.Shape[int]{leaf(ui.TextNode{Value: "send", Style: ui.Plain()})}})
+		kids = kids.Append(ui.Shape[int]{Node: ui.PressableNode{Label: "send", On: k, Style: ui.PressStyle()}, Kids: []ui.Shape[int]{leaf(ui.TextNode{Value: "send", Style: ui.Plain()})}})
 	}
 	[]ui.Shape[int]{ui.Shape[int]{Node: ui.ColumnNode{Style: ui.Plain()}, Kids: kids}}
 }

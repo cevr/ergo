@@ -388,7 +388,7 @@ func model(p prog, s []int, row int) outcome {
 		if o.fail != 0 {
 			return o
 		}
-		done([]ui.Shape[int]{ui.Shape[int]{Node: ui.PressableNode{Label: "press", On: s[x.slot]%4 + row, Style: ui.Plain()}, Kids: o.shapes}})
+		done([]ui.Shape[int]{ui.Shape[int]{Node: ui.PressableNode{Label: "press", On: s[x.slot]%4 + row, Style: ui.PressStyle()}, Kids: o.shapes}})
 	case pFieldset as x:
 		let o = outcomes(x.kids, s, row)
 		if o.fail != 0 {

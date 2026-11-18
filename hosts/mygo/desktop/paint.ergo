@@ -18,8 +18,6 @@ let ink = uint32(0x1f2328ff)
 
 let faint = uint32(0x6e7781ff)
 
-let button = uint32(0xe6e9edff)
-
 let accent = uint32(0x0969daff)
 
 let rule = uint32(0x8c959fff)
@@ -304,6 +302,9 @@ func drawAll[S, E, D, F](d *Driver[S, E, D, F], line float32, soiled Map[ui.Id[E
 	d.spots = []spot[E]{}
 	d.canvases = []spot[E]{}
 	d.drawn = 0
+	d.looked = []lookProbe{}
+	d.under = Some{Value: paper}
+	d.shadowed = false
 	let full = layout.Box{X: 0, Y: 0, W: d.width, H: d.height}
 	for k in kidsOf(d, d.root) {
 		draw(d, k, 0, full, line, soiled, again)
@@ -361,7 +362,7 @@ func sameSpots[E](a []spot[E], b []spot[E]) bool {
 // drawn is what a node's last draw was given (its box, the offset its
 // Scrolls lifted it by, its clip and the line height) and the spots and
 // canvases it added, as ranges of the paint's lists.
-type drawn { box layout.Box, dy float32, clip layout.Box, line float32, s0 int, s1 int, c0 int, c1 int }
+type drawn { box layout.Box, dy float32, clip layout.Box, line float32, opacity float64, under Option[uint32], shadow bool, s0 int, s1 int, c0 int, c1 int }
 
 // keyOf is id's key in the window's list (Mark, Again).
 func keyOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) int {
@@ -486,7 +487,10 @@ func draw[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], dy float32, clip layou
 		match d.drew.Get(id) {
 		case Some[drawn] as p:
 			let was = p.Value
-			if was.box == b && was.dy == dy && was.clip == clip && was.line == line && d.w.Again(key) {
+			if was.box == b && was.dy == dy && was.clip == clip && was.line == line && was.opacity == d.w.Opacity() && was.under == d.under && d.w.Again(key) {
+				if was.shadow {
+					d.shadowed = true
+				}
 				let s0 = len(d.spots)
 				let c0 = len(d.canvases)
 				for i in was.s0..was.s1 {
@@ -503,12 +507,21 @@ func draw[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], dy float32, clip layou
 	}
 	let s0 = len(d.spots)
 	let c0 = len(d.canvases)
+	// A look's opacity and the colour under it reach the whole subtree
+	// (look.ergo), so a kept draw is taken again only under the same
+	// ones, and says whether it painted a shadow.
+	let opacity = d.w.Opacity()
+	let under = d.under
+	let shadowed = d.shadowed
+	d.shadowed = false
 	d.w.Mark(key)
 	drawNode(d, id, laid, b, dy, clip, line, soiled, again)
 	d.w.Seal(key)
+	let shadow = d.shadowed
+	d.shadowed = shadowed || shadow
 	d.drawn = d.drawn + 1
 	if again {
-		d.drew[id] = drawn{box: b, dy: dy, clip: clip, line: line, s0: s0, s1: len(d.spots), c0: c0, c1: len(d.canvases)}
+		d.drew[id] = drawn{box: b, dy: dy, clip: clip, line: line, opacity: opacity, under: under, shadow: shadow, s0: s0, s1: len(d.spots), c0: c0, c1: len(d.canvases)}
 	}
 }
 
@@ -523,6 +536,7 @@ func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b
 	d.boxes[id] = b
 	let focus = ui.SessionFocus(&d.session) == (Some{Value: id})
 	let s = spot[E]{id: id, node: n, box: b, clip: clip}
+	let look = paintLook(d, n, b, clip, line, focus)
 	match n {
 	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode:
 		drawKids(d, id, dy, clip, line, soiled, again)
@@ -581,9 +595,8 @@ func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b
 		lines(d, x.Value, b.X+st.Padding[3], b.Y+st.Padding[0], b.W-st.Padding[1]-st.Padding[3], ink)
 	case ui.PressableNode[E] as x:
 		d.spots = d.spots.Append(s)
-		fill(d, b, 6, button)
 		if focus {
-			ring(d, b, 6)
+			ring(d, b, float32(float64(lookOf(d, n).Corners.TopLeft)))
 		}
 		access(d, id, screen.RoleButton, x.Label, "", b, false, focus)
 		drawKids(d, id, dy, clip, line, soiled, again)
@@ -644,6 +657,7 @@ func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b
 			fill(d, layout.Box{X: inner.X + caret, Y: inner.Y, W: 1, H: line}, 0, ink)
 		}
 	}
+	unpaint(d, look)
 }
 
 // drawKids paints id's children in order.

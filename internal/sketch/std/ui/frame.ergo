@@ -106,6 +106,12 @@ type Frame[E] {
 	// down is the node the last pointer Down went to, Null after an Up
 	// (FK12-g1): a move to it is a Drag.
 	down arena.Ref[node[E]],
+	// lookList is the Looks the frame interned (look.ergo), by LookId,
+	// lookIds each one's LookId, and lookSent how many a Commit has sent
+	// (Define).
+	lookList []Looks,
+	lookIds  Map[Looks, int],
+	lookSent int,
 }
 
 // Id names one node of a Frame's tree, from the pass that made it until
@@ -205,14 +211,15 @@ type spec[E] {
 let nowhere = CallSite{File: "", Line: 0, Column: 0}
 
 // Op is one change a host applies, in order. Before names the sibling the
-// node goes in front of; None puts it last.
-type Op[E] = Insert{Id Id[E], Parent Id[E], Before Option[Id[E]], Node Node[E]} | Move{Id Id[E], Parent Id[E], Before Option[Id[E]]} | Remove{Id Id[E]} | Set{Id Id[E], Node Node[E]}
+// node goes in front of; None puts it last. Define gives the host the
+// Looks of a new LookId, the next one, before any node names it (UG1).
+type Op[E] = Insert{Id Id[E], Parent Id[E], Before Option[Id[E]], Node Node[E]} | Move{Id Id[E], Parent Id[E], Before Option[Id[E]]} | Remove{Id Id[E]} | Set{Id Id[E], Node Node[E]} | Define{Id LookId, Looks Looks}
 
 // NewFrame is a composer whose tree has only its root.
 func NewFrame[E]() Frame[E] {
 	let mut nodes = arena.New[node[E]]()
 	let root = nodes.Put(fresh[E](BoxNode{Style: Plain()}, ident{site: nowhere, each: nowhere, key: NoKey, n: 0}, None, None, None, false))
-	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, nspecs: 0, first: -1, last: -1, nroot: 0, pass: 0, pending: []pendingCounts{}, npending: 0, rootPending: false, unplaced: 0, cells: []cellSpec{}, ncells: 0, loads: []loadSpec[E]{}, nloads: 0, seen: Map[slotOf, tally]{}, seenLog: []slotOf{}, nseen: 0, index: Map[kid[E], arena.Ref[node[E]]]{}, indexed: Map[arena.Ref[node[E]], bool]{}, held: Map[arena.Ref[node[E]], bool]{}, stopped: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, nkeys: 0, urls: []func(u URL) Option[E]{}, nurls: 0, anims: []func(at duration) E{}, nanims: 0, rowRuns: 0, skips: 0, written: 0, stops: []CallSite{}, nstops: 0, slow: None, args: newArgs(), kept: Map[groupKey[E], int]{}, keptList: []keptGroup[E]{}, free: []int{}, nfree: 0, keptPasses: 0, nheld: 0, swept: 0, groups: []groupRec[E]{}, ngroups: 0, nested: false, group: -1, groupSeen: Map[slotOf, tally]{}, groupRuns: 0, sameSkips: 0, sames: 0, keptSames: 0, compared: 0, visits: 0, now: duration(int64(0)), tickAt: None, passes: 0, moving: false, focus: arena.Null[node[E]](), down: arena.Null[node[E]]()}
+	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, nspecs: 0, first: -1, last: -1, nroot: 0, pass: 0, pending: []pendingCounts{}, npending: 0, rootPending: false, unplaced: 0, cells: []cellSpec{}, ncells: 0, loads: []loadSpec[E]{}, nloads: 0, seen: Map[slotOf, tally]{}, seenLog: []slotOf{}, nseen: 0, index: Map[kid[E], arena.Ref[node[E]]]{}, indexed: Map[arena.Ref[node[E]], bool]{}, held: Map[arena.Ref[node[E]], bool]{}, stopped: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, nkeys: 0, urls: []func(u URL) Option[E]{}, nurls: 0, anims: []func(at duration) E{}, nanims: 0, rowRuns: 0, skips: 0, written: 0, stops: []CallSite{}, nstops: 0, slow: None, args: newArgs(), kept: Map[groupKey[E], int]{}, keptList: []keptGroup[E]{}, free: []int{}, nfree: 0, keptPasses: 0, nheld: 0, swept: 0, groups: []groupRec[E]{}, ngroups: 0, nested: false, group: -1, groupSeen: Map[slotOf, tally]{}, groupRuns: 0, sameSkips: 0, sames: 0, keptSames: 0, compared: 0, visits: 0, now: duration(int64(0)), tickAt: None, passes: 0, moving: false, focus: arena.Null[node[E]](), down: arena.Null[node[E]](), lookList: defaultTable(), lookIds: defaultIds(), lookSent: len(defaultTable())}
 }
 
 func fresh[E](n Node[E], id ident, onText Option[func(t string) E], onPoint Option[func(p PointerEvent) Option[E]], onKey Option[func(k KeyPress) Option[E]], off bool) node[E] {
@@ -562,9 +569,10 @@ func Scroll[E, F, R](f *Frame[E], style Style, body func() fails F needs R, at C
 	try open(f, ScrollNode{Style: style}, body, at)
 }
 
-// Pressable sends on when the host presses it; body is what it shows.
+// Pressable sends on when the host presses it; body is what it shows. Its
+// look is PressLook (PressableStyled gives it another).
 func Pressable[E, F, R](f *Frame[E], label string, on E, body func() fails F needs R, at CallSite) fails F needs R {
-	try open(f, PressableNode{Label: label, On: on, Style: Plain()}, body, at)
+	try open(f, PressableNode{Label: label, On: on, Style: PressStyle()}, body, at)
 }
 
 // Semantic is a container that declares what it is to a locator and an
@@ -631,9 +639,10 @@ func Each[E, F, R, T](f *Frame[E], xs []T, key func(x T) Key, row func(x T) fail
 // in the order a host applies them. A node whose identity returns under
 // the same parent keeps its Id; a keyed row that moved is one Move. It
 // also decides the pass's jobs (Jobs): a load that is new or has a new
-// key is fetched, and a load that ended or changed key is cancelled.
+// key is fetched, and a load that ended or changed key is cancelled. The
+// Looks the pass interned come first, one Define each.
 func Commit[E comparable](f *Frame[E]) []Op[E] {
-	f.ops = []Op[E]{}
+	f.ops = defines(f)
 	f.jobs = []Job[E]{}
 	f.compared = 0
 	f.visits = 0

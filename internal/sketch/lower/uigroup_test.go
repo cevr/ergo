@@ -80,6 +80,7 @@ func show(ops []ui.Op[int]) string {
 			out = out + "R"
 		case ui.Set[int]:
 			out = out + "S"
+		case ui.Define:
 		}
 	}
 	out

@@ -58,8 +58,9 @@ func SameShapes[E comparable](a []Shape[E], b []Shape[E]) bool {
 // (FK11-g8, FK13-g2: a map of entries, read through *Mirror, was copied
 // whole at each read, and an Insert before a sibling scanned and rebuilt
 // the child list, so a Locate and a mount were quadratic in the screen).
-// reads counts the entries read or changed (MirrorReads).
-type Mirror[E] { refs Map[Id[E], arena.Ref[mirrored[E]]], store arena.Of[mirrored[E]], root Id[E], reads int }
+// reads counts the entries read or changed (MirrorReads). looks is the
+// host's table of looks (UG1): the defaults, then each Define's.
+type Mirror[E] { refs Map[Id[E], arena.Ref[mirrored[E]]], store arena.Of[mirrored[E]], root Id[E], reads int, looks []Looks }
 
 type mirrored[E] { node Node[E], parent Id[E], first Option[Id[E]], last Option[Id[E]], next Option[Id[E]], prev Option[Id[E]] }
 
@@ -72,7 +73,7 @@ type BadPatch { Why string }
 
 // NewMirror is the mirror of a tree with only its root.
 func NewMirror[E](root Id[E]) Mirror[E] {
-	let mut m = Mirror[E]{refs: Map[Id[E], arena.Ref[mirrored[E]]]{}, store: arena.New[mirrored[E]](), root: root, reads: 0}
+	let mut m = Mirror[E]{refs: Map[Id[E], arena.Ref[mirrored[E]]]{}, store: arena.New[mirrored[E]](), root: root, reads: 0, looks: defaultTable()}
 	let r = arena.Put(&m.store, mirrored[E]{node: BoxNode{Style: Plain()}, parent: root, first: None, last: None, next: None, prev: None})
 	m.refs[root] = r
 	m
@@ -112,7 +113,7 @@ func Apply[E](m *Mirror[E], ops []Op[E]) fails BadPatch {
 // node, a Move by putting the node back before the sibling it had, a
 // Remove by putting its subtree's entries back in the map and its node
 // back before the sibling it had, a Set by setting the node it had.
-type undo[E] = undoInsert{id Id[E]} | undoMove{id Id[E], before Option[Id[E]]} | undoRemove{id Id[E], before Option[Id[E]], dropped []dropped[E]} | undoSet{id Id[E], node Node[E]}
+type undo[E] = undoInsert{id Id[E]} | undoMove{id Id[E], before Option[Id[E]]} | undoRemove{id Id[E], before Option[Id[E]], dropped []dropped[E]} | undoSet{id Id[E], node Node[E]} | undoDefine{}
 
 // dropped is an entry a Remove took out of the map, not yet freed.
 type dropped[E] { id Id[E], ref arena.Ref[mirrored[E]] }
@@ -126,6 +127,7 @@ func applyOp[E](m *Mirror[E], op Op[E]) undo[E] fails BadPatch {
 		}
 		let pr = try held(m, o.Parent)
 		try checkBefore(m, o.Parent, o.Id, o.Before)
+		try checkLook(m, o.Node)
 		m.refs[o.Id] = arena.Put(&m.store, mirrored[E]{node: o.Node, parent: o.Parent, first: None, last: None, next: None, prev: None})
 		attachAt(m, pr, o.Id, o.Before)
 		undoInsert[E]{id: o.Id}
@@ -155,11 +157,33 @@ func applyOp[E](m *Mirror[E], op Op[E]) undo[E] fails BadPatch {
 		if kindOf(e.node) != kindOf(o.Node) {
 			return BadPatch{Why: "set changes the kind of a node"}
 		}
+		try checkLook(m, o.Node)
 		let node = o.Node
 		edit(m, r, func(n *mirrored[E]) { n.node = node })
 		undoSet[E]{id: o.Id, node: e.node}
+	case Define as o:
+		if o.Id.n != len(m.looks) {
+			return BadPatch{Why: "define of a look that is not the next"}
+		}
+		m.looks = m.looks.Append(o.Looks)
+		undoDefine
 	}
 }
+
+// checkLook fails when n names a look the mirror does not hold.
+func checkLook[E](m *Mirror[E], n Node[E]) fails BadPatch {
+	let id = LookIdOf(n)
+	if id.n < 0 || id.n >= len(m.looks) {
+		return BadPatch{Why: "a node names a look the mirror does not hold"}
+	}
+}
+
+// MirrorLooks is the host's table of looks, by LookId.
+func MirrorLooks[E](m *Mirror[E]) []Looks { m.looks }
+
+// MirrorLookCount is how many looks the mirror holds, the defaults
+// included.
+func MirrorLookCount[E](m *Mirror[E]) int { len(m.looks) }
 
 // rollBack takes back done, the last op first.
 func rollBack[E](m *Mirror[E], done []undo[E]) {
@@ -187,6 +211,8 @@ func rollBack[E](m *Mirror[E], done []undo[E]) {
 		case undoSet[E] as x:
 			let node = x.node
 			edit(m, refOf(m, x.id), func(n *mirrored[E]) { n.node = node })
+		case undoDefine:
+			m.looks = m.looks[:len(m.looks)-1]
 		}
 	}
 }
