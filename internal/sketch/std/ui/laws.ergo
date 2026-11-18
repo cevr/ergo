@@ -861,14 +861,14 @@ func accessModel(shapes []Shape[int], off bool, desc string) []seen {
 }
 
 func readAs(n Node[int], off bool, desc string) Access {
-	let base = Access{Role: Generic, Name: "", Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+	let base = Access{Role: Generic, Name: "", Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
 	match n {
 	case PressableNode[int] as x:
-		Access{Role: Button, Name: x.Label, Disabled: off, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+		Access{Role: Button, Name: x.Label, Disabled: off, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
 	case CheckNode[int] as x:
-		Access{Role: Checkbox, Name: x.Label, Disabled: off, Description: desc, Checked: Some{Value: x.Checked}, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+		Access{Role: Checkbox, Name: x.Label, Disabled: off, Description: desc, Checked: Some{Value: x.Checked}, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
 	case ToggleNode as x:
-		Access{Role: Switch, Name: x.Label, Disabled: off, Description: desc, Checked: Some{Value: x.On}, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+		Access{Role: Switch, Name: x.Label, Disabled: off, Description: desc, Checked: Some{Value: x.On}, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
 	case InputNode as x:
 		// A label names the field, a placeholder only an unlabelled one;
 		// its own description wins over the Fieldset's.
@@ -880,17 +880,24 @@ func readAs(n Node[int], off bool, desc string) Access {
 		if x.Description != "" {
 			d = x.Description
 		}
-		Access{Role: TextBox, Name: name, Disabled: off, Description: d, Checked: None, Value: Some{Value: x.Value}, Selected: None, Expanded: None, Pressed: None, Invalid: x.Invalid, Busy: false, HasPopup: false, Level: None}
+		Access{Role: TextBox, Name: name, Disabled: off, Description: d, Checked: None, Value: Some{Value: x.Value}, Selected: None, Expanded: None, Pressed: None, Invalid: x.Invalid, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
 	case TextNode as x:
-		Access{Role: Static, Name: x.Value, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+		Access{Role: Static, Name: x.Value, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
 	case FieldsetNode:
-		Access{Role: Group, Name: "", Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+		Access{Role: Group, Name: "", Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
 	case AreaNode as x:
-		Access{Role: Region, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+		Access{Role: Region, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
 	case CanvasNode as x:
-		Access{Role: Image, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+		Access{Role: Image, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
+	case SemanticNode[int] as x:
+		let mut a = x.Access
+		a.Disabled = x.Access.Disabled || off
+		if x.Access.Description == "" {
+			a.Description = desc
+		}
+		a
 	case RowsNode as x:
-		Access{Role: List, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+		Access{Role: List, Name: x.Label, Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
 	case _:
 		base
 	}
@@ -921,6 +928,8 @@ func wants(loc Locator, x seen) bool {
 		match x.node {
 		case InputNode as i:
 			i.Label != "" && i.Label == l.Label
+		case SemanticNode[int] as s:
+			s.Access.Name == l.Label
 		case _:
 			labelled && x.a.Name == l.Label
 		}
@@ -968,6 +977,9 @@ func extras(f *Frame[int], v int) {
 		}
 		Canvas(f, "c\(v % 4)", 4, 4) func(p *Paint) {}
 		Rows(f, "rows", 0, 10, func(i int) Key { ByInt(i) }) func(i int) {}
+		Semantic(f, extraSem(v), None, Plain()) {
+			Text(f, "in sem")
+		}
 	}
 }
 
@@ -984,9 +996,25 @@ func extraLabel(v int) FieldLabel {
 	l
 }
 
+// extraRoles is every role (UG2).
+func extraRoles() []Role {
+	[]Role{Button, Checkbox, Switch, TextBox, Static, Group, Region, Image, List, Status, Generic, Tab, TabList, TabPanel, Dialog, Menu, MenuItem, Tree, TreeItem, Heading, Alert, Link, Table, TableRow, TableCell, RadioGroup, Radio, ListBox, ListOption, Slider, SpinButton, SearchBox, MenuItemCheckbox, ComboBox, Grid, GridCell, ColumnHeader, RowHeader, Navigation, ListItem, Separator, Tooltip}
+}
+
+// extraSem is extras' Semantic: a role, name, state, key and relation v
+// draws (UG2).
+func extraSem(v int) Access {
+	let roles = extraRoles()
+	let mut a = Named(roles[v%len(roles)], "sem\(v % 3)")
+	a.Selected = Some{Value: v%2 == 0}
+	a.Key = ByInt(v % 3)
+	a.Rels = []Rel{Controls{To: ByInt(v % 2)}}
+	a
+}
+
 func extraShapes(v int) []Shape[int] {
 	let l = extraLabel(v)
-	let kids = []Shape[int]{leaf(ToggleNode{Label: "tg\(v % 3)", On: true}), leaf(InputNode{Value: "val", Placeholder: "ph\(v % 2)", Label: l.Text, Description: l.Description, Invalid: l.Invalid}), Shape[int]{Node: AreaNode{Label: "area\(v % 2)", Style: Plain()}, Kids: []Shape[int]{leaf(TextNode{Value: "in area", Style: Plain()})}}, leaf(CanvasNode{Label: "c\(v % 4)", Width: 4, Height: 4, Paint: []PaintOp{}}), leaf(RowsNode{Label: "rows", Count: 0, RowHeight: 10, First: 0, Offset: 0})}
+	let kids = []Shape[int]{leaf(ToggleNode{Label: "tg\(v % 3)", On: true}), leaf(InputNode{Value: "val", Placeholder: "ph\(v % 2)", Label: l.Text, Description: l.Description, Invalid: l.Invalid}), Shape[int]{Node: AreaNode{Label: "area\(v % 2)", Style: Plain()}, Kids: []Shape[int]{leaf(TextNode{Value: "in area", Style: Plain()})}}, leaf(CanvasNode{Label: "c\(v % 4)", Width: 4, Height: 4, Paint: []PaintOp{}}), leaf(RowsNode{Label: "rows", Count: 0, RowHeight: 10, First: 0, Offset: 0}), Shape[int]{Node: SemanticNode{Access: extraSem(v), On: None, Style: Plain()}, Kids: []Shape[int]{leaf(TextNode{Value: "in sem", Style: Plain()})}}}
 	[]Shape[int]{Shape[int]{Node: FieldsetNode{Disabled: v%2 == 1, Description: "x\(v)"}, Kids: kids}}
 }
 
@@ -1025,7 +1053,7 @@ law LocatorAgreesWithAccessTree(seed int) {
 		}
 		let want = accessModel(shapes, false, "")
 		let mut locs = []Locator{}
-		for role in []Role{Button, Checkbox, Switch, TextBox, Static, Group, Region, Image, List, Generic} {
+		for role in extraRoles() {
 			locs = locs.Append(WithRole{Role: role, Name: ""})
 		}
 		let w = want[draw(&r, len(want))]

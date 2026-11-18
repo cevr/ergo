@@ -77,6 +77,27 @@ extern go ergo.local/prototype/hosts/mygo/screen.Window type Window {}
 // ergo:go func (*Window).Access(id int, parent int, role int, label string, value string, x float64, y float64, width float64, height float64, checked bool, focused bool)
 extern go ergo.local/prototype/hosts/mygo/screen.Window.Access func (w own *Window) Access(id int, parent int, role int, label string, value string, x float64, y float64, width float64, height float64, checked bool, focused bool) needs go.Foreign
 
+// ergo:go func (*Window).AccessDescribe(description string, level int, current string, popup string)
+extern go ergo.local/prototype/hosts/mygo/screen.Window.AccessDescribe func (w own *Window) AccessDescribe(description string, level int, current string, popup string) needs go.Foreign
+
+// ergo:go func (*Window).AccessFocusable()
+extern go ergo.local/prototype/hosts/mygo/screen.Window.AccessFocusable func (w own *Window) AccessFocusable() needs go.Foreign
+
+// ergo:go func (*Window).AccessRange(now float64, min float64, max float64)
+extern go ergo.local/prototype/hosts/mygo/screen.Window.AccessRange func (w own *Window) AccessRange(now float64, min float64, max float64) needs go.Foreign
+
+// ergo:go func (*Window).AccessRelate(kind string, to int)
+extern go ergo.local/prototype/hosts/mygo/screen.Window.AccessRelate func (w own *Window) AccessRelate(kind string, to int) needs go.Foreign
+
+// ergo:go func (*Window).AccessRole(role string)
+extern go ergo.local/prototype/hosts/mygo/screen.Window.AccessRole func (w own *Window) AccessRole(role string) needs go.Foreign
+
+// ergo:go func (*Window).AccessState(state string)
+extern go ergo.local/prototype/hosts/mygo/screen.Window.AccessState func (w own *Window) AccessState(state string) needs go.Foreign
+
+// ergo:go func (*Window).AccessText(id int) string
+extern go ergo.local/prototype/hosts/mygo/screen.Window.AccessText func (w own *Window) AccessText(id int) string needs go.Foreign
+
 // ergo:go func (*Window).Again(key int) bool
 extern go ergo.local/prototype/hosts/mygo/screen.Window.Again func (w own *Window) Again(key int) bool needs go.Foreign
 

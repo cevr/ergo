@@ -471,6 +471,10 @@ func Locate[S, E, D, F](h *TestHost[S, E, D, F], loc Locator) []Id[E] { LocateIn
 // AccessAt is the node id names on the screen as a locator reads it.
 func AccessAt[S, E, D, F](h *TestHost[S, E, D, F], id Id[E]) Access { AccessOf(&h.mirror, id) }
 
+// RelationsAt is the relations of the node id names on the screen, each
+// with the node it names (RelationsIn, UG2).
+func RelationsAt[S, E, D, F](h *TestHost[S, E, D, F], id Id[E]) []Related[E] { RelationsIn(&h.mirror, id) }
+
 // Expect checks is against what loc finds on the screen.
 func Expect[S, E, D, F](h *TestHost[S, E, D, F], loc Locator, is Matcher) fails Mismatch {
 	try ExpectIn(&h.mirror, loc, is)
