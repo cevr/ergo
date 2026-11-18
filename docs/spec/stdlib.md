@@ -417,6 +417,11 @@ have a body, a body of at most 2 KiB, and fields the writer only writes)
 goes out in one write of one buffer, with no header map, and the Date line
 formatted once a second. Any other answer takes the port, which stays
 selectable for all of them (`-args -http.fastwriter=false`).
+Since HTTP-FAST-c3, the engine starts its read that sees a client leave at
+the handler's first wait, the first point a stop can end the handler, not
+before every handler as net/http does; a handler that answers without
+waiting costs no goroutine, deadline or read for it. The start before
+every handler stays selectable (`-args -http.lazywatch=false`).
 
 1. `Listen(addr) net.Listener fails ListenFailed needs Ambient` binds TCP;
    port zero is valid, and `l.Addr()` reports the bound address. The

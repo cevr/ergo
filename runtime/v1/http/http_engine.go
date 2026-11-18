@@ -26,6 +26,15 @@ import (
 // -http.engine=false runs the package's tests on the reference.
 var serveEngine = true
 
+// engineLazyWatch selects when the engine starts its background read of a
+// request's connection, the read that sees the client leave
+// (HTTP-FAST-c3). true: at the handler's first wait (rt.WhenWaiting), the
+// first point a stop can end it, so a handler that answers without
+// waiting costs no goroutine, deadline or read. false: before the handler
+// runs, as net/http starts it, the reference. go test -args
+// -http.lazywatch=false runs the package's tests on the reference.
+var engineLazyWatch = true
+
 // The engine reads the common request itself and leaves the rest to
 // net/http: a head of at most engineHead bytes whose lines are all
 // "Name: value" over CRLF, an HTTP/1.1 request line with an origin-form
@@ -148,6 +157,8 @@ type engineConn struct {
 	werr       error
 	lastMethod string
 	bg         chan int // the background read's byte count
+	watching   bool     // the background read of this request runs (watch)
+	watchFn    func()   // watch, made once for the connection's requests
 	resp       engineResponse
 	fields     []fieldAt
 	out        []byte      // fastAnswer's answer, reused
@@ -581,6 +592,21 @@ func (e *engineConn) startBackgroundRead() bool {
 	return true
 }
 
+// watch starts the background read of the request being answered, once
+// (watching), when the connection has room to read into.
+func (e *engineConn) watch() {
+	if !e.watching {
+		e.watching = e.startBackgroundRead()
+		if e.watching && engineWatchHook != nil {
+			engineWatchHook()
+		}
+	}
+}
+
+// engineWatchHook, when set, is called for each background read the
+// engine starts. Only a test sets it.
+var engineWatchHook func()
+
 // abortBackgroundRead ends the background read, as net/http does, with a
 // past read deadline, and keeps what it read.
 func (e *engineConn) abortBackgroundRead() {
@@ -605,6 +631,7 @@ func (e *engineConn) close() {
 func (s *httpServer) serveConn(c *httpConn, l *engineListener) {
 	e := &engineConn{c: c, s: s, bg: make(chan int, 1)}
 	e.bufw = bufio.NewWriterSize(engineWriter{e}, 4<<10)
+	e.watchFn = e.watch
 	handed := false
 	defer func() {
 		if !handed {
@@ -652,18 +679,23 @@ func (s *httpServer) serveConn(c *httpConn, l *engineListener) {
 			}
 		}
 		watch := in.ReadError == ""
-		bg := watch && e.startBackgroundRead()
+		e.watching = false
+		if watch && !engineLazyWatch {
+			// The reference: net/http's background read from before the
+			// handler runs.
+			e.watch()
+		}
 		c.mu.Lock()
 		gone := c.gone
 		c.mu.Unlock()
 		if watch && gone || !s.answerOn(w, &in, c, watch) {
-			if bg {
+			if e.watching {
 				e.abortBackgroundRead()
 			}
 			return
 		}
 		w.finishRequest()
-		if bg {
+		if e.watching {
 			e.abortBackgroundRead()
 		}
 		if !w.shouldReuse() {

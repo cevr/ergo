@@ -299,6 +299,63 @@ func engineRequests(r *rand.Rand) string {
 	return out.String()
 }
 
+// TestHTTPEngineWatchesWaitingHandlers counts the engine's background
+// reads, the watch that sees a client leave (HTTP-FAST-c3): a handler that
+// answers without waiting starts none, since nothing could stop it, and a
+// handler that reaches a wait (its task's Done) starts one, so a client
+// that leaves still stops it (TestHTTPDisconnectAndDefects holds the stop
+// itself). Mutants: c3-lazy-never, c3-watch-never (runtime/v1/http
+// ledger).
+func TestHTTPEngineWatchesWaitingHandlers(t *testing.T) {
+	if !*lazyWatchFlag {
+		t.Skip("the reference watches every request, as net/http does")
+	}
+	var watches atomic.Int64
+	engineWatchHook = func() { watches.Add(1) }
+	t.Cleanup(func() { engineWatchHook = nil })
+	root := rt.Root(t.Name())
+	pn := ergonet.NetNewPipe()
+	l, err := pn.Listen("127.0.0.1:3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	serveWith(t, root, l, serveLimits(4096, 4096), func(ct *rt.Task, _ *Exchange, _, path, _ string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
+		if path == "/wait" {
+			select {
+			case <-ct.Done():
+			default:
+			}
+		}
+		return HTTPResponse{Status: 200, Body: path}
+	}, true)
+	client := rt.Root(t.Name() + " client")
+	for _, c := range []struct {
+		paths   []string
+		watches int64
+	}{{[]string{"/a", "/b", "/c"}, 0}, {[]string{"/a", "/wait", "/b"}, 1}} {
+		watches.Store(0)
+		var raw strings.Builder
+		for i, p := range c.paths {
+			raw.WriteString("GET " + p + " HTTP/1.1\r\nHost: x\r\n")
+			if i == len(c.paths)-1 {
+				raw.WriteString("Connection: close\r\n")
+			}
+			raw.WriteString("\r\n")
+		}
+		conn, err := pn.Dial(l.Addr())
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := exchangeRaw(client, conn, raw.String())
+		if n := strings.Count(got, "HTTP/1.1 200 OK"); n != len(c.paths) {
+			t.Fatalf("%v: %d answers, want %d:\n%s", c.paths, n, len(c.paths), got)
+		}
+		if n := watches.Load(); n != c.watches {
+			t.Errorf("%v: the engine started %d background reads, want %d", c.paths, n, c.watches)
+		}
+	}
+}
+
 // TestEngineDateIsNetHTTPs: the Date value fastAnswer caches per second is
 // the one net/http formats for the same time (time.Now().UTC() in
 // http.TimeFormat), over a seeded walk of times that stays in a second,

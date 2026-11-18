@@ -16,6 +16,11 @@ import (
 // writer, the reference of fastAnswer.
 var fastWriterFlag = flag.Bool("http.fastwriter", true, "the engine writes a common buffered answer in one write (false: the port of net/http's writer)")
 
+// lazyWatchFlag chooses when the engine starts its background read:
+// -http.lazywatch=false starts it before every handler, as net/http does,
+// the reference of the start at the handler's first wait.
+var lazyWatchFlag = flag.Bool("http.lazywatch", true, "the engine watches a connection from the handler's first wait (false: before the handler, as net/http)")
+
 // TestMain runs the tests under observation, so the files and variables
 // any process they start reads are inputs of Go's test cache.
 func TestMain(m *testing.M) {
@@ -23,8 +28,11 @@ func TestMain(m *testing.M) {
 	// Only a flag given chooses: by default the tests run on the default
 	// writer, so a changed default is under test (c2-path-never).
 	flag.Visit(func(f *flag.Flag) {
-		if f.Name == "http.fastwriter" {
+		switch f.Name {
+		case "http.fastwriter":
 			engineFastWriter = *fastWriterFlag
+		case "http.lazywatch":
+			engineLazyWatch = *lazyWatchFlag
 		}
 	})
 	os.Exit(testinputs.Main(m))
