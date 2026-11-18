@@ -86,6 +86,39 @@ A module's `ergo.mod` may hold one line `ergo VERSION` ([grammar](spec/grammar.m
 
 `ergo test PKG --cases DIR` runs a program's recorded cases: it reads every case folder of DIR, builds the main package PKG into a private temporary folder (as `ergo run` does: never `dist/`, the working directory or the module), and runs each case against the built program, byte for byte, by the rules of [examples/README.md, Cases](../examples/README.md#cases): `args`, `stdin`, `env` and `setup.sh` in, `expected.out`, `expected.err` and `expected.status` out. Each case runs in a fresh empty folder that is also its `HOME`, with exactly `PATH`, `HOME` and its `env` lines, in its own process group, under the program memory bound (`ERGO_PROGRAM_MEMORY`, 2 GiB by default; [Test memory](#test-memory)); it has no deadline. It prints `ok NAME` or `FAIL NAME: WHAT` with a unified diff of each stream that differs, then `PASS (N cases)` or `FAIL (F of N cases)`. The exit status is 0 when every case passes; 1 when a case fails, when DIR's layout has a problem (a file a case may not hold, a case with no `expected.out`), when DIR holds no case (no tests is red), or when PKG does not check or build; 2 for an invalid invocation (`--cases` with no folder or twice, a pattern, `-o`, `--emitted`). Cases sit beside their binary, `cmd/NAME/cases/`, as a module may hold several binaries. The runner is `internal/cases`, which the examples runner also runs, so the two give one verdict (`TestCasesAgreeWithTheRunner`). A std `clitest` package, once std `exec` test hosts can run a built binary, is the way to reverse this flag.
 
+## Downstream check
+
+Ergo builds pinned commits of the repositories it must not break, as Rust's `cargotest` builds pinned crates in rustc's CI. `downstream/pins` holds one line per repository, `NAME URL COMMIT`. COMMIT is a full commit hash, never a branch or a tag (`models/downstream`, `FloatingPin.NeverArrives`: with a floating pin no breaking change can land safely).
+
+- `go run ./scripts/downstream fetch [NAME...]` is the only command that reads the network.
+  - It brings each pinned commit into the cache, `downstream/NAME@COMMIT` under the user's ergo cache (`$XDG_CACHE_HOME/ergo`, else the user's cache directory; `ERGO_DOWNSTREAM_CACHE` moves it, `-cache DIR` too).
+  - Each entry is a clone with no blobs until checkout (`--filter=blob:none`), checked out detached at the commit, with its `.git` removed. It is renamed into place, so an entry is whole or absent.
+  - A pin already in the cache costs no Git work.
+  - The integrator runs it before a batch gate.
+- `go run ./scripts/downstream [NAME...]` reads no network. For each pin it copies the cached tree to scratch and runs these legs with the checkout's `bin/ergo` (`-ergo`), never an ergo found on `PATH`:
+  - `ergo check ./...`;
+  - `ergo test ./...`, whose `skip ` lines must equal the tree's `expected-skips`;
+  - `ergo build` of each `cmd/NAME`;
+  - `ergo test ./cmd/NAME --cases cmd/NAME/cases` ([recorded cases](#recorded-cases-ergo-test---cases)) where that folder exists.
+
+  It prints `ok NAME COMMIT` or one `FAIL NAME COMMIT: LEG: WHY` line per failed leg with the leg's output. A pin that is not in the cache fails with `run go run ./scripts/downstream fetch`; it is never skipped.
+- A pin's own `ergo` line is not enforced: the checkout's ergo is newer by design.
+- Exit codes: 0 when every pin passes, 1 when one fails, 2 for a usage error or a malformed pins file.
+- With no pin it prints `downstream: 0 pins` and passes, but only while `downstream/moved` holds no path. Once a path has moved, zero pins is red.
+- The gate's full tier runs it as the step `downstream`, after `build bin/ergo`. Its key holds `downstream/`, the runner's closure and `bin/ergo`'s bytes. The cache is not keyed: each entry is the pinned commit's tree.
+  - It does not run in the fast tier, which cannot promise the cache and stays offline.
+  - A lane that changes the language runs `go run ./scripts/downstream NAME` by name.
+- A breaking change follows the protocol `models/downstream/pins.ergo` checks:
+  - The unit that breaks a downstream repository ports it on that repository's `ergo-next` branch, and moves its pin to that commit in the same ergo commit.
+  - Once ergo's main is pushed, the downstream's main takes `ergo-next` and raises its `ergo` line.
+
+`downstream/moved` holds one `PATH TREEHASH REPOSITORY` line for each path that moved to its own repository at the source head F. TREEHASH is `git rev-parse F:PATH`.
+
+- `TestMovedPathsAreFrozen` (`internal/residue`) fails when `HEAD:PATH` is another tree: `PATH moved to REPOSITORY at F; make this change there`. So no lane's late commit to a moved path is lost silently.
+- A path that is gone passes (the delete of unit D1).
+- With no line the test passes and says so.
+- The integrator fills the file at F and sets `movedAt` in `internal/residue/moved_test.go` to F.
+
 ## ergo get
 
 `ergo get MODULE[@VERSION]...` (MD2) requires each module in the Ergo module at or above the current folder ([grammar](spec/grammar.md#source-files) rule 1, Required modules). It runs `go get` with the selected go command in the module root (first `go mod init NAME` when `ergo.mod` has no `go.mod` beside it), so `go.mod` pins the module, `go.sum` holds its two hashes and Go's module cache holds its copy. The fetch is Go's: `GOPROXY`, `GOPRIVATE`, `GONOSUMDB`, `GOFLAGS` and the checksum database apply, and VERSION is any query `go get` takes. Then it reads each module as an import does, with no process: the copy's hash must be go.sum's, and an Ergo module's `ergo.mod` must name its path. When one fails, ergo get puts `go.mod` and `go.sum` back as they were (it removes a file that was not there), prints why and exits 1. A module with no `ergo.mod` is a Go module: it is required and printed as one, and `ergo bind go` binds its packages. On success it prints `required PATH VERSION` per module. `MODULE@none` is a usage error (exit 2): `go get` removes a requirement. `go mod tidy` drops a requirement that no Go file imports, so it drops an Ergo module's; a module with Ergo requirements does not run it.

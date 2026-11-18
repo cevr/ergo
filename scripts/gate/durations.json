@@ -2272,6 +2272,13 @@
     "TestReferenceOnlyCasesCannotBeCalledCoveredWithoutEvidence": 0.19,
     "TestUntrackedEvidenceFails": 0.03
   },
+  "ergo.local/prototype/scripts/downstream": {
+    "TestAMissingPinFails": 0.01,
+    "TestFetchTakesTheCommit": 1.17,
+    "TestLegsRunTheCheckoutErgo": 0.06,
+    "TestPinsAreCommits": 0,
+    "TestZeroPinsPassOnlyBeforeAMove": 0.02
+  },
   "ergo.local/prototype/scripts/examples": {
     "TestAPanicStopsTheGroup": 0.46,
     "TestASignalStopsTheRun": 6.3,
