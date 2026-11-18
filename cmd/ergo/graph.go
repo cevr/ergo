@@ -235,15 +235,16 @@ func baseRows(dir, base string) ([]byte, error) {
 		return nil, err
 	}
 	defer os.RemoveAll(tmp)
-	// The whole tree at base: a module's ergo.mod, or a package an import
-	// names, may sit above or beside dir.
-	cmd := exec.Command("git", "archive", "--format=tar", base)
-	cmd.Dir = top
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	tarText, err := cmd.Output()
+	// Only the folders the check reads: dir's module (or dir, when it is in
+	// none) and each local module a go.mod replace names, as they sit in
+	// the working tree. When base lacks one of them, the whole tree.
+	roots := baseFolders(top, abs)
+	tarText, err := gitArchive(top, base, roots)
+	if err != nil && len(roots) > 0 {
+		tarText, err = gitArchive(top, base, nil)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("git archive %s: %v: %s", base, err, strings.TrimSpace(stderr.String()))
+		return nil, err
 	}
 	if err := untar(bytes.NewReader(tarText), tmp); err != nil {
 		return nil, err
@@ -257,6 +258,97 @@ func baseRows(dir, base string) ([]byte, error) {
 		return nil, fmt.Errorf("the program at %s: %w", base, err)
 	}
 	return json.Marshal(t)
+}
+
+// gitArchive is the tar of base's tree, limited to the folders paths
+// (relative to the repository root top) when there are any.
+func gitArchive(top, base string, paths []string) ([]byte, error) {
+	args := append([]string{"archive", "--format=tar", base, "--"}, paths...)
+	cmd := exec.Command("git", args...)
+	cmd.Dir = top
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git archive %s: %v: %s", base, err, strings.TrimSpace(stderr.String()))
+	}
+	return out, nil
+}
+
+// baseFolders is the folders, relative to the repository root top, that a
+// check of the folder abs reads: the module that holds abs (the nearest
+// ergo.mod at or above it), or abs itself when no module holds it, and,
+// transitively, each folder a `replace X => ./path` of a go.mod in them
+// names. None when a folder lies outside top (then the whole tree).
+func baseFolders(top, abs string) []string {
+	start := abs
+	for d := abs; strings.HasPrefix(d, top); d = filepath.Dir(d) {
+		if _, err := os.Stat(filepath.Join(d, "ergo.mod")); err == nil {
+			start = d
+			break
+		}
+		if d == top {
+			break
+		}
+	}
+	seen := map[string]bool{}
+	queue := []string{start}
+	var out []string
+	for len(queue) > 0 {
+		d := queue[0]
+		queue = queue[1:]
+		rel, err := filepath.Rel(top, d)
+		if err != nil || strings.HasPrefix(rel, "..") {
+			return nil
+		}
+		if seen[rel] {
+			continue
+		}
+		seen[rel] = true
+		out = append(out, filepath.ToSlash(rel))
+		_ = filepath.WalkDir(d, func(p string, e os.DirEntry, err error) error {
+			if err != nil || e.IsDir() || e.Name() != "go.mod" {
+				return nil
+			}
+			data, err := os.ReadFile(p)
+			if err != nil {
+				return nil
+			}
+			for _, r := range localReplaces(string(data)) {
+				queue = append(queue, filepath.Clean(filepath.Join(filepath.Dir(p), r)))
+			}
+			return nil
+		})
+	}
+	return out
+}
+
+// localReplaces is the local paths (./ or ../) the replace directives of a
+// go.mod text name, in the one-line and the block form.
+func localReplaces(text string) []string {
+	var out []string
+	block := false
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		switch {
+		case line == "replace (":
+			block = true
+			continue
+		case block && line == ")":
+			block = false
+			continue
+		case !block && !strings.HasPrefix(line, "replace "):
+			continue
+		}
+		_, target, ok := strings.Cut(line, "=>")
+		if !ok {
+			continue
+		}
+		if f := strings.Fields(target); len(f) > 0 && (strings.HasPrefix(f[0], "./") || strings.HasPrefix(f[0], "../")) {
+			out = append(out, f[0])
+		}
+	}
+	return out
 }
 
 // gitOutput is git's standard output for args, run in dir.
