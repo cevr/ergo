@@ -40,7 +40,8 @@ func TestHTTPWatcherSeesWhatTheReadSees(t *testing.T) {
 		t.Cleanup(func() { engineWatchEvent = nil })
 	}
 	// watcherSaw waits for the watcher's event, when the watcher serves.
-	watcherSaw := func() {
+	watcherSaw := func(t *testing.T) {
+		t.Helper()
 		if !*watcherFlag {
 			return
 		}
@@ -51,6 +52,28 @@ func TestHTTPWatcherSeesWhatTheReadSees(t *testing.T) {
 		}
 	}
 	started, goOn, stopped := make(chan string, 4), make(chan struct{}), make(chan string, 4)
+	// abort frees a handler held at goOn when the test fails, before the
+	// server stops: its cleanup is registered after the server's, and
+	// cleanups run last first.
+	abort := make(chan struct{})
+	next := func(t *testing.T) string {
+		t.Helper()
+		select {
+		case p := <-started:
+			return p
+		case <-testwait.After(t):
+			t.Fatal("no handler started")
+			return ""
+		}
+	}
+	release := func(t *testing.T) {
+		t.Helper()
+		select {
+		case goOn <- struct{}{}:
+		case <-testwait.After(t):
+			t.Fatal("no handler waited to poll")
+		}
+	}
 	l, _ := startHTTP(t, func(ct *rt.Task, _ *Exchange, _, path, _ string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
 		defer func() {
 			if ct.StopRequested() {
@@ -59,7 +82,11 @@ func TestHTTPWatcherSeesWhatTheReadSees(t *testing.T) {
 		}()
 		started <- path
 		if path != "/next" && path != "/warm" {
-			<-goOn // a Go channel: no interruption point
+			select { // Go channels: no interruption point
+			case <-goOn:
+			case <-abort:
+				return HTTPResponse{Status: 500}
+			}
 		}
 		ct.Check()
 		if path == "/first" || path == "/warm" {
@@ -69,6 +96,7 @@ func TestHTTPWatcherSeesWhatTheReadSees(t *testing.T) {
 			ct.Check() // until the client's leaving stops it
 		}
 	})
+	t.Cleanup(func() { close(abort) })
 	const warm = "GET /warm HTTP/1.1\r\nHost: x\r\n\r\n"
 	// exchange sends /warm and then raw, waits for raw's handler, then
 	// sends more and closes its side.
@@ -80,8 +108,8 @@ func TestHTTPWatcherSeesWhatTheReadSees(t *testing.T) {
 		if _, err := io.WriteString(conn, warm+raw); err != nil {
 			t.Fatal(err)
 		}
-		<-started // /warm
-		<-started
+		next(t) // /warm
+		next(t)
 		if more != "" {
 			if _, err := io.WriteString(conn, more); err != nil {
 				t.Fatal(err)
@@ -95,9 +123,9 @@ func TestHTTPWatcherSeesWhatTheReadSees(t *testing.T) {
 	t.Run("bytes ahead of the close", func(t *testing.T) {
 		conn := exchange(t, "GET /first HTTP/1.1\r\nHost: x\r\n\r\n", "GET /next HTTP/1.1\r\nHost: x\r\n\r\n")
 		defer conn.Close()
-		watcherSaw()
-		goOn <- struct{}{}
-		if p := <-started; p != "/next" {
+		watcherSaw(t)
+		release(t)
+		if p := next(t); p != "/next" {
 			t.Fatalf("the second handler ran %s", p)
 		}
 		select {
@@ -116,8 +144,8 @@ func TestHTTPWatcherSeesWhatTheReadSees(t *testing.T) {
 	t.Run("close before the first poll", func(t *testing.T) {
 		conn := exchange(t, "GET /late HTTP/1.1\r\nHost: x\r\n\r\n", "")
 		defer conn.Close()
-		watcherSaw()
-		goOn <- struct{}{}
+		watcherSaw(t)
+		release(t)
 		select {
 		case p := <-stopped:
 			if p != "/late" {
