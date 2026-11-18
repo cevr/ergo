@@ -661,6 +661,9 @@
       "rule": "crc32.Update carries the checksum crc over s.",
       "anchor": {"tests":["lower:TestStdMatchesGo"]},
       "killers": ["lower:TestStdMatchesGo"]
-    }
+    },
+    {"name":"mc-conform-broken-forgets","origin":"wf10 MODELCHECK T2 r2 (batch-mc1 M1)","file":"internal/sketch/std/explore/conform.ergo","from":"\t\tlet mut at = if parent >= 0 { b.at[parent*b.laws+l] } else { -1 }","to":"\t\tlet mut at = -1","rule":"A run that broke a law stays broken after it leaves the bad state: Broken when every explaining run broke it somewhere, not only at the last logged state.","killers":["std:TestStdExploreLawsRun"]},
+    {"name":"mc-conform-broken-key-merged","origin":"wf10 MODELCHECK T2 r2 (batch-mc1 M1)","file":"internal/sketch/std/explore/conform.ergo","from":"\tif any { Hash{Hi: h.hi, Lo: h.lo} } else { k }","to":"\tif false { Hash{Hi: h.hi, Lo: h.lo} } else { k }","rule":"Two runs to one state are one candidate only when they broke the same laws: a clean run is never dropped for a broken one.","killers":["std:TestStdExploreLawsRun"]},
+    {"name":"mc-conform-hidden-state-unchecked","origin":"wf10 MODELCHECK T2 r2 (batch-mc1 M1)","file":"internal/sketch/std/explore/conform.ergo","from":"// laws are checked on it too (batch-mc1 T2 M1).\n\t\t\t\t\t\treach(&bk, c.nodes[i], t.Value, ob.Line, laws)","to":"// laws are checked on it too (batch-mc1 T2 M1).\n\t\t\t\t\t\treach(&bk, c.nodes[i], c.states[i], ob.Line, laws)","rule":"A hidden step's state is a state of the run: the laws are checked on it.","killers":["std:TestStdExploreLawsRun"]}
   ]
 }

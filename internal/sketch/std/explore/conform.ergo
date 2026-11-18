@@ -21,7 +21,8 @@
 // may also leave the state as it is. The verdicts: Conforms (a matching
 // behaviour, as a Run), Mismatch (the first line no candidate can explain,
 // with what the model allowed there), Broken (every behaviour that
-// explains the trace so far breaks a named property), OverLimit (more
+// explains the trace so far breaks a named property at some state of its
+// run: a logged one, a hidden step's, or one a partial line left open), OverLimit (more
 // than Limit candidates: no verdict, never a pass) and TraceError.
 //
 // What one trace proves: that this trace is a behaviour of the model,
@@ -31,7 +32,8 @@
 // state fields it never named.
 //
 // Prior art: everystate's trace validation (untyped JSON against TLA+
-// values, its exit codes 0, 20, 21, 22 are kept by `ergo conform`); TLC's
+// values, its exit codes 0, 20, 21 bad trace, 22 limit reached are kept
+// by `ergo conform`, which gives Broken 23); TLC's
 // trace validation (Kuppe et al., 2024) checks a log as a constrained
 // behaviour of the spec; Quint's `run` replays a trace step by step.
 
@@ -346,10 +348,48 @@ func runOf(t trail, node int) Run {
 	RunTo(Result{Found: node, Stats: Stats{States: 0, Edges: 0, Depth: 0, Checked: 0, Complete: false, Frontier: 0}, parent: t.parent, sig: t.sig}, node)
 }
 
+// broke is, for each node of a trail and each law, the line at which the
+// node's run first reached a state the law rejects, or -1: a run that
+// broke a law stays broken, whatever states it reaches after (an always
+// law is about every state of the run, hidden steps' included).
+type broke { laws int, at []int }
+
+// reach records node, reached by a step from parent (-1: a start) to s
+// before or at line: parent's breaks, and line for each law s breaks first.
+func reach[S](b *broke, parent int, s S, line int, laws []Invariant[S]) {
+	for l in 0..b.laws {
+		let mut at = if parent >= 0 { b.at[parent*b.laws+l] } else { -1 }
+		if at < 0 && !laws[l].Holds(s) {
+			at = line
+		}
+		b.at = b.at.Append(at)
+	}
+}
+
+// candidateKey is s's key, told apart by the laws its run broke: two runs
+// to one state are one candidate only when they broke the same laws, so a
+// run that kept every law is never dropped for one that did not.
+func candidateKey[S wire](s S, node int, b broke) Hash needs wired[S] {
+	let (k, _) = KeyOf(s)
+	let mut h = newHasher()
+	let mut any = false
+	for l in 0..b.laws {
+		if b.at[node*b.laws+l] >= 0 {
+			if !any {
+				absorb(&h, k.Hi)
+				absorb(&h, k.Lo)
+				any = true
+			}
+			absorb(&h, uint64(l + 1))
+		}
+	}
+	if any { Hash{Hi: h.hi, Lo: h.lo} } else { k }
+}
+
 // put adds s, reached as node, unless the set has it; it reports whether
 // it did.
-func put[S wire](c *candidates[S], s S, node int) bool needs wired[S] {
-	let (k, _) = KeyOf(s)
+func put[S wire](c *candidates[S], s S, node int, b broke) bool needs wired[S] {
+	let k = candidateKey(s, node, b)
 	if !dense.AddKey(&c.keys, k.Hi, k.Lo) {
 		return false
 	}
@@ -375,8 +415,14 @@ func Conform[S wire, E wire](g Graph[S, E], trace []Obs, o Options, laws []Invar
 	// The state's fields, and which ones the trace observed.
 	let mut fields = []string{}
 	let mut seen = []bool{}
+	// The laws each run broke, and where: a start that breaks one breaks
+	// it before the first line.
+	let mut bk = broke{laws: len(laws), at: []int{}}
+	let first = if len(trace) > 0 { trace[0].Line } else { 0 }
 	for i in 0..len(g.Starts) {
-		if put(&c, g.Starts[i], addNode(&tr, -1, i)) && len(fields) == 0 {
+		let node = addNode(&tr, -1, i)
+		reach(&bk, -1, g.Starts[i], first, laws)
+		if put(&c, g.Starts[i], node, bk) && len(fields) == 0 {
 			for k in keysOf(valueOf(g.Starts[i])) {
 				fields = fields.Append(k)
 				seen = seen.Append(false)
@@ -408,7 +454,10 @@ func Conform[S wire, E wire](g Graph[S, E], trace []Obs, o Options, laws []Invar
 					case Some[S] as t:
 						let node = addNode(&tr, c.nodes[i], e)
 						hiddenAt = hiddenAt.Append(hiddenAt[c.nodes[i]] + 1)
-						if put(&c, t.Value, node) && len(c.states) > limit {
+						// A hidden step's state is a state of the run: the
+						// laws are checked on it too (batch-mc1 T2 M1).
+						reach(&bk, c.nodes[i], t.Value, ob.Line, laws)
+						if put(&c, t.Value, node, bk) && len(c.states) > limit {
 							rep.Peak = len(c.states)
 							return OverLimit{Line: ob.Line, Candidates: len(c.states), Report: finish(rep, g, taken, fields, seen)}
 						}
@@ -466,7 +515,7 @@ func Conform[S wire, E wire](g Graph[S, E], trace []Obs, o Options, laws []Invar
 			if o.Stutter && isNone(ob.Signal) {
 				match fitState(s, ob.State) {
 				case Fits:
-					put(&next, s, c.nodes[i])
+					put(&next, s, c.nodes[i], bk)
 				case Differs:
 				case Bad as b:
 					return TraceError{Line: ob.Line, Why: "state " + b.Why}
@@ -481,7 +530,8 @@ func Conform[S wire, E wire](g Graph[S, E], trace []Obs, o Options, laws []Invar
 						taken[e] = true
 						let node = addNode(&tr, c.nodes[i], e)
 						hiddenAt = hiddenAt.Append(hiddenAt[c.nodes[i]])
-						put(&next, t.Value, node)
+						reach(&bk, c.nodes[i], t.Value, ob.Line, laws)
+						put(&next, t.Value, node, bk)
 					case Differs:
 						if len(next.states) == 0 {
 							steps = steps.Append(tagOrText(sigs[e]))
@@ -521,18 +571,24 @@ func Conform[S wire, E wire](g Graph[S, E], trace []Obs, o Options, laws []Invar
 			return OverLimit{Line: ob.Line, Candidates: len(c.states), Report: finish(rep, g, taken, fields, seen)}
 		}
 		rep.Lines = rep.Lines + 1
-		// A property every candidate breaks is broken by every behaviour
-		// that explains the trace so far.
-		for inv in laws {
+		// A law every candidate's run broke, at a logged state, a hidden
+		// one or one the trace left out, is broken by every behaviour that
+		// explains the trace so far; the line is the latest at which one of
+		// them broke it.
+		for l in 0..len(laws) {
 			let mut all = true
-			for s in c.states {
-				if inv.Holds(s) {
+			let mut line = 0
+			for n in c.nodes {
+				let at = bk.at[n*bk.laws+l]
+				if at < 0 {
 					all = false
+				} else if at > line {
+					line = at
 				}
 			}
 			if all {
 				rep.Hidden = hiddenAt[c.nodes[0]]
-				return Broken{Line: ob.Line, Invariant: inv.Name, Run: runOf(tr, c.nodes[0]), Report: finish(rep, g, taken, fields, seen)}
+				return Broken{Line: line, Invariant: laws[l].Name, Run: runOf(tr, c.nodes[0]), Report: finish(rep, g, taken, fields, seen)}
 			}
 		}
 	}

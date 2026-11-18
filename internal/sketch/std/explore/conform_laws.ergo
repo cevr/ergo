@@ -231,6 +231,106 @@ law ConformAgreesWithReference(seed uint64, size uint8, signals uint8, length ui
 	}
 }
 
+// cExplainsClean is cExplains over the runs that never visit a state of
+// bad (bit n: state n), its start, its hidden steps and its stutters
+// included.
+func cExplainsClean(table []int, k int, obs []CObs, i int, s int, left int, hidden int, stutter bool, bad uint64) bool {
+	if (bad>>uint64(s))&uint64(1) == uint64(1) {
+		return false
+	}
+	if i == len(obs) {
+		return true
+	}
+	if stutter && cMatches(obs[i], -1, k, s) && cExplainsClean(table, k, obs, i+1, s, hidden, hidden, stutter, bad) {
+		return true
+	}
+	for e in 0..k {
+		let t = table[s*k+e]
+		if t < 0 {
+			continue
+		}
+		if cMatches(obs[i], e, k, t) && cExplainsClean(table, k, obs, i+1, t, hidden, hidden, stutter, bad) {
+			return true
+		}
+		if left > 0 && cExplainsClean(table, k, obs, i, t, left-1, hidden, stutter, bad) {
+			return true
+		}
+	}
+	false
+}
+
+// cleanRunKept is the smallest case of two runs that meet: 0 -Go0-> 1 (a
+// bad state) -Tick-> 3 and 0 -Go1-> 2 -Tick-> 3. The trace "{}", then
+// "Tick" is explained by the second, which keeps the law, so it conforms;
+// a candidate set that keeps one run per state, the broken one found
+// first, would say Broken.
+func cleanRunKept() bool {
+	let table = []int{1, 2, -1, -1, -1, 3, -1, -1, 3, -1, -1, -1}
+	let inv = Invariant[CState]{Name: "Good", Holds: func(s CState) bool { cIndex(s) != 1 }}
+	let tr = ReadTrace("{}\n{\"signal\": \"Tick\"}\n") catch {
+	case TraceError:
+		return false
+	}
+	match Conform(cGraph(table, 3), tr, Options{Hidden: 0, Stutter: false, Limit: 0}, []Invariant[CState]{inv}) {
+	case Conforms:
+		true
+	case _:
+		false
+	}
+}
+
+// ConformBreaksWithReference (batch-mc1 T2 M1): with a generated law
+// (the states of bad are rejected), Conform's verdict is the naive
+// reference's, line by line: at the first prefix of the trace no run
+// explains, Mismatch; at the first that only runs through a bad state
+// explain (a logged state, a hidden one or a stutter's), Broken; else
+// Conforms. A broken run stays broken when it leaves the bad states, and
+// a run that broke the law is never kept in place of one that did not
+// (cleanRunKept, which generated tables seldom reach).
+law ConformBreaksWithReference(seed uint64, size uint8, signals uint8, length uint8, mask uint64, gone uint64, h uint8, stutter bool, bad uint16) {
+	if !cleanRunKept() {
+		return false
+	}
+	let n = 1 + int(size%uint8(12))
+	let k = 1 + int(signals%uint8(4))
+	let table = refTable(seed, n, k)
+	let run = cWalk(table, k, seed ^ mask, 1+int(length%uint8(6)))
+	let hidden = int(h % uint8(3))
+	let obs = cProject(run, k, mask, gone, hidden)
+	let b = uint64(bad)
+	let inv = Invariant[CState]{Name: "Good", Holds: func(s CState) bool { (b>>uint64(cIndex(s)))&uint64(1) == uint64(0) }}
+	let tr = ReadTrace(cText(obs)) catch {
+	case TraceError:
+		return false
+	}
+	let got = Conform(cGraph(table, k), tr, Options{Hidden: hidden, Stutter: stutter, Limit: 0}, []Invariant[CState]{inv})
+	for i in 1..len(obs)+1 {
+		let prefix = obs[0:i]
+		if !cExplains(table, k, prefix, 0, 0, hidden, hidden, stutter) {
+			match got {
+			case Mismatch as m:
+				return m.Line == i
+			case _:
+				return false
+			}
+		}
+		if !cExplainsClean(table, k, prefix, 0, 0, hidden, hidden, stutter, b) {
+			match got {
+			case Broken as x:
+				return x.Line <= i && x.Invariant == "Good"
+			case _:
+				return false
+			}
+		}
+	}
+	match got {
+	case Conforms:
+		true
+	case _:
+		false
+	}
+}
+
 // TraceErrorsNameTheLine: after `at` lines a run of Ticks explains, a
 // line that is not of the model's types is a TraceError at that line,
 // never a mismatch: a field of the wrong kind, a field the state does not
