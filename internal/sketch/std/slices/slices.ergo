@@ -62,13 +62,16 @@ func SortBy[T any, O cmp.Order[T]](xs []T, by O) []T {
 	if len(out) < 2 {
 		return out
 	}
-	// The ranges still to sort, as lo, hi pairs: the larger part of each
-	// split waits here, so it holds at most 2·log2(len(xs)) entries.
+	// The ranges still to sort, as lo, hi pairs below top: the larger part
+	// of each split waits here, so it holds at most 2·log2(len(xs))
+	// entries. A pop moves top and keeps the storage, so the stack
+	// allocates only when it grows past its deepest point so far.
 	let mut todo = []int{0, len(out)}
-	for len(todo) > 0 {
-		let mut hi = todo[len(todo)-1]
-		let mut lo = todo[len(todo)-2]
-		todo = todo.Slice(0, len(todo)-2)
+	let mut top = 2
+	for top > 0 {
+		let mut hi = todo[top-1]
+		let mut lo = todo[top-2]
+		top = top - 2
 		for hi-lo > 12 {
 			let m = lo + (hi-lo)/2
 			let last = hi - 1
@@ -107,13 +110,22 @@ func SortBy[T any, O cmp.Order[T]](xs []T, by O) []T {
 			}
 			// lo..j+1 and i..hi are each shorter than lo..hi: sort the
 			// shorter now and keep the longer for later.
+			let mut wlo = lo
+			let mut whi = j + 1
 			if j+1-lo < hi-i {
-				todo = todo.Append(i).Append(hi)
+				wlo = i
+				whi = hi
 				hi = j + 1
 			} else {
-				todo = todo.Append(lo).Append(j + 1)
 				lo = i
 			}
+			if top == len(todo) {
+				todo = todo.Append(wlo).Append(whi)
+			} else {
+				todo[top] = wlo
+				todo[top+1] = whi
+			}
+			top = top + 2
 		}
 		for i in lo+1..hi {
 			let mut j = i
