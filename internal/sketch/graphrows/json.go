@@ -7,8 +7,10 @@ import (
 
 // The JSON of the rows (`ergo graph export --json`; docs/spec/graph.md):
 // one object per node and per edge, by id, with names written out and
-// kinds by name. Positions are the fields file, offset, line and column
-// of a row that has one; a key never reads them.
+// kinds by name. Every row has every field: a missing node (a root's
+// parent, a non-task's subject, no position's file) is -1, and the
+// position fields file, offset, line and column are 0 without one.
+// No key reads a position.
 type (
 	jsonTable struct {
 		Version int        `json:"version"`
@@ -16,40 +18,41 @@ type (
 		Edges   []jsonEdge `json:"edges"`
 	}
 	jsonNode struct {
-		ID      uint32  `json:"id"`
-		Kind    string  `json:"kind"`
-		Sub     string  `json:"sub,omitempty"`
-		Parent  *uint32 `json:"parent,omitempty"`
-		Name    string  `json:"name"`
-		Digest  string  `json:"digest,omitempty"`
-		Subject *uint32 `json:"subject,omitempty"`
+		ID      uint32 `json:"id"`
+		Kind    string `json:"kind"`
+		Sub     string `json:"sub"`
+		Parent  int64  `json:"parent"`
+		Name    string `json:"name"`
+		Digest  string `json:"digest"`
+		Subject int64  `json:"subject"`
 		jsonPos
 	}
 	jsonEdge struct {
 		Kind string `json:"kind"`
-		How  string `json:"how,omitempty"`
+		How  string `json:"how"`
 		From uint32 `json:"from"`
 		To   uint32 `json:"to"`
 		jsonPos
 	}
 	jsonPos struct {
-		File   *uint32 `json:"file,omitempty"`
-		Offset uint32  `json:"offset,omitempty"`
-		Line   uint32  `json:"line,omitempty"`
-		Column uint32  `json:"column,omitempty"`
+		File   int64  `json:"file"`
+		Offset uint32 `json:"offset"`
+		Line   uint32 `json:"line"`
+		Column uint32 `json:"column"`
 	}
 )
 
-func id(n uint32) *uint32 {
+// id is a node id, or -1 for NoNode.
+func id(n uint32) int64 {
 	if n == NoNode {
-		return nil
+		return -1
 	}
-	return &n
+	return int64(n)
 }
 
 func posJSON(p Pos) jsonPos {
 	if p.File == NoNode {
-		return jsonPos{}
+		return jsonPos{File: -1}
 	}
 	return jsonPos{File: id(p.File), Offset: p.Off, Line: p.Line, Column: p.Col}
 }

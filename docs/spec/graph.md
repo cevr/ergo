@@ -6,6 +6,8 @@ The checker's graph of a program as dense rows (CI-SELECT §12, GRAPH-TABLE). Ev
 ergo graph export [DIR|DIR/...] [--json]
 ```
 
+The queries over these rows are std `codegraph`'s functions, and `ergo graph cycles | why | affected | hidden | chains | fan | layers` their command line ([stdlib, Graph and codegraph](stdlib.md#graph-and-codegraph); `ergo graph --help`).
+
 `DIR/...` takes every package below `DIR`: of `DIR`'s module, or, when `DIR` is in no module, of every module below it (testdata, hidden and `_` folders skipped).
 
 ## Nodes
@@ -42,6 +44,7 @@ Locals, parameters and type parameters are no nodes: their sites stay inside one
 ## Rules
 
 - Positions (`file`, `offset`, `line`, `column`) are side columns no key reads: a comment or layout edit changes positions and nothing else.
+- With `--json` every row has every field, so a reader with no optional fields (std json into `codegraph.Rows`) decodes it: a missing node (a root's parent, a non-task's subject, a row with no position's file) is `-1`, and a row with no position has offset, line and column 0.
 - A task's key changes if and only if the tokens of a declaration its `input` rows name change (`TestGraphRowsAreTheCheckedProgram`).
 - A package that does not check gives the rows the checker resolved and no tasks.
 - The rows are made when asked; nothing caches them yet (no count of repeat readers).
