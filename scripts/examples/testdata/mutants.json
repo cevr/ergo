@@ -548,7 +548,8 @@
       "to": "case file == opcount.WorkloadFile:",
       "rule": "A package folder named workload is a package, not opcount's workload file (examples/vt).",
       "killers": ["scripts/examples:TestModuleProgramWorkloadPackage"]
-    }
+    },
+    {"name":"gtcb-budget-ignored","origin":"wf10 GATE2 GT-CPUBUDGET","file":"scripts/examples/main.go","from":"r.cfg.budget > 0 && o.cpu > r.cfg.budget","to":"r.cfg.budget > 0 && o.cpu < 0","rule":"A case of a default program that uses more CPU time than -budget fails.","killers":["scripts/examples:TestBudgetAndSelection"]}
 
   ]
 }
