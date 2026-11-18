@@ -146,6 +146,9 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		c.checkPureArgs,
 		// After the footprints: an invariant law's predicate is pure (X2).
 		c.checkLawPreds,
+		// After the footprints: a top-level rewrite law's functions are
+		// pure (Laws 14; funcrewrite.go).
+		c.checkFuncRewrites,
 		// After every body: the first with operand past the with budget,
 		// silent checks included (withbudget.go).
 		c.reportWithBudget,

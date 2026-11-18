@@ -83,7 +83,7 @@ law RotateLeft64Inverts(x uint64, k int) { RotateLeft64(RotateLeft64(x, k), -k) 
 law RotateLeft32Inverts(x uint32, k int) { RotateLeft32(RotateLeft32(x, k), -k) == x }
 
 // RotateKeepsOnes: a rotation moves bits and loses none.
-law RotateKeepsOnes(x uint64, k int) { OnesCount64(RotateLeft64(x, k)) == OnesCount64(x) }
+law RotateKeepsOnes(x uint64, k int) { OnesCount64(RotateLeft64(x, k)) } == { OnesCount64(x) }
 
 // LenAndLeadingZeros: the bits of x are its length and the zeros above it.
 law LenAndLeadingZeros(x uint64) { Len64(x)+LeadingZeros64(x) == 64 }

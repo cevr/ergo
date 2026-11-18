@@ -1122,6 +1122,10 @@ type Law struct {
 	// exported declarations of a file of laws that only laws and tests use
 	// read as helpers too (Package.LawHelpers).
 	FixSubjects []LawSubject
+	// FuncRewrite is the checked form of a top-level rewrite law over
+	// functions (Decl.Equation; funcrewrite.go), nil for any other law or
+	// one outside the rewrite's scope.
+	FuncRewrite *FuncRewrite
 
 	file *fileInfo // the declaring file, selected while the law is checked
 }

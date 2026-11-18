@@ -33,7 +33,7 @@ extern go ergo.local/prototype/runtime/v1.TimeCount func Count(d duration, unit 
 
 // DurationTextRoundTrips: ParseDuration reads DurationText's text of d
 // back to d.
-law DurationTextRoundTrips(d duration) { try ParseDuration(DurationText(d)) == d }
+law DurationTextRoundTrips(d duration) { try ParseDuration(DurationText(d)) } == { d }
 
 // DivideInvertsTimes: dividing a product by its factor gives the duration
 // back when the product is in range (d is at most 2^63/10^6 and n at most
