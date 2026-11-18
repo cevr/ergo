@@ -81,10 +81,6 @@ type config struct {
 	names   []string
 	// cache is the verdict cache's directory (cache.go), or "" for none.
 	cache string
-	// fullTier runs only the package folders the modules' full-tier
-	// files name (modules.go): the gate's full tier runs them, and every
-	// other run leaves them out.
-	fullTier bool
 	// memory is the limit of each built program a case runs: ERGO_PROGRAM_MEMORY,
 	// 2 GiB by default (internal/proclimit; docs/tooling.md, "Test memory").
 	// `ergo test` reads the same variable for the test binaries it runs.
@@ -99,12 +95,10 @@ type program struct {
 	port    bool     // holds record.sh and origin
 	// module marks a program of packages (196b): ergo.mod, the binary's
 	// package cmd/NAME/main.ergo and package folders. main is what the
-	// build leg builds and the cases run; others are the program's other
-	// binaries, cmd/OTHER, which the build leg builds too; tests are the
-	// targets of the test leg: every package, sorted.
+	// build leg builds, and tests are the targets of the test leg: every
+	// package, sorted.
 	module bool
 	main   string
-	others []string
 	tests  []string
 	cases  []*testCase
 	// explored are the lines of its explored file (explored.go).
@@ -112,9 +106,6 @@ type program struct {
 	// library marks a module of modules/ (MK0, modules.go): no binary,
 	// no cases; the fmt, gen and test legs run.
 	library bool
-	// heavy are the package folders of a library's full-tier file, which
-	// only a -full-tier run tests; tests holds none of them.
-	heavy []string
 }
 
 func (p *program) tagged(tag string) bool { return slices.Contains(p.tags, tag) }
@@ -156,14 +147,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	var selected []*program
-	if !cfg.modules && len(cfg.names) > 0 && !slices.ContainsFunc(cfg.names, func(n string) bool { return !strings.HasPrefix(n, modulesDir+"/") }) {
-		// Names that are all modules/NAME select those modules, as
-		// -modules does: a ledger's killer examples:modules/NAME runs here.
-		cfg.modules = true
-	}
-	if cfg.fullTier {
-		cfg.modules = true
-	}
 	if cfg.modules {
 		selected, err = selectModules(cfg.names, modules)
 	} else if selected, err = selectPrograms(cfg, programs, modules); err == nil && len(cfg.names) == 0 && !cfg.record {
@@ -306,7 +289,6 @@ func parseFlags(args []string, stderr io.Writer) (*config, error) {
 	flags.BoolVar(&cfg.lawless, "lawless", false, "report every operation type under examples/ with no law, run nothing, and exit 0")
 	flags.StringVar(&cfg.cache, "cache", os.Getenv(cacheVariable), "replay a program's recorded pass when every input it reads is unchanged, keyed and kept in `DIR` (default $"+cacheVariable+"; empty: no cache)")
 	flags.BoolVar(&cfg.modules, "modules", false, "run only the modules of modules/: every one, or the MODULE names given")
-	flags.BoolVar(&cfg.fullTier, "full-tier", false, "run only the module package folders each module's full-tier file names (the gate's full tier); other runs leave them out")
 	flags.IntVar(&cfg.jobs, "jobs", defaultJobs(), "programs run at once; the default is GOMAXPROCS when the environment sets it (the gate's CPU budget), else half the usable CPUs")
 	flags.Usage = func() {
 		fmt.Fprintln(stderr, "usage: go run ./scripts/examples [flags] [PROGRAM...]")
@@ -438,8 +420,7 @@ func loadProgram(dir, name string, record bool) (*program, []string) {
 
 // loadModuleProgram reads the layout of a program of packages (196b; the
 // Go layout of AGENTS.md): ergo.mod, the binary's package cmd/NAME (NAME
-// being the program folder's name) with its main.ergo, any other binary
-// as cmd/OTHER with its main.ergo, and package
+// being the program folder's name) with its main.ergo, and package
 // folders of .ergo files, beside the files every program holds. Top-level
 // .ergo files are the module root's package.
 func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program, []string) {
@@ -474,8 +455,7 @@ func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program
 			}
 		case file == opcount.WorkloadFile && !entry.IsDir():
 			// scripts/opcount's sizes and arguments (examples/README.md,
-			// "Workload"); the runner checks it and does not run it. A
-			// folder of that name is a package (examples/vt's workload).
+			// "Workload"); the runner checks it and does not run it.
 			if !entry.Type().IsRegular() {
 				problem("%s is not a regular file", file)
 				continue
@@ -484,23 +464,6 @@ func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program
 			for _, w := range found {
 				problem("%s: %s", file, w)
 			}
-		case file == opcount.WorkloadFile:
-			// A workload package (its program's gen documents) holds the
-			// workload file, so scripts/opcount counts every program that
-			// has a workload (examples/README.md, "Workload").
-			at := opcount.WorkloadFile + "/" + opcount.WorkloadFile
-			_, found, ok := opcount.Check(filepath.Dir(filepath.Dir(p.dir)), p.dir)
-			if !ok {
-				problem("%s: a workload package holds its workload file, for scripts/opcount", at)
-			}
-			for _, w := range found {
-				problem("%s: %s", at, w)
-			}
-			spec, err := filepath.Abs(opcount.Path(p.dir))
-			if err != nil {
-				problem("%s: %v", at, err)
-			}
-			problems = append(problems, packageAssetSources(p, filepath.Join(p.dir, file), file, map[string]bool{spec: true})...)
 		case file == "ts" && entry.IsDir():
 			problems = append(problems, tsSources(filepath.Join(p.dir, file))...)
 		case entry.IsDir():
@@ -521,37 +484,28 @@ func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program
 	return finishProgram(p, present, problems, record)
 }
 
-// checkCommands checks that cmd holds a folder per binary, each with its
-// main.ergo (AGENTS.md: each binary's cmd/<name>/main.ergo): the
-// program's own, cmd/NAME, whose binary the cases run, and any others,
-// which the build leg builds (p.others, sorted).
+// checkCommands checks that cmd holds the program's binary, cmd/NAME
+// with its main.ergo, whose cases run, and that every other folder of
+// cmd is a binary too, cmd/OTHER/main.ergo (a server beside its CLI, as
+// Go's cmd/ holds several), which the test leg checks and builds.
 func checkCommands(p *program, dir string) []string {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return []string{err.Error()}
 	}
 	var problems []string
-	own := false
 	for _, entry := range entries {
-		name := entry.Name()
 		if !entry.IsDir() {
-			problems = append(problems, fmt.Sprintf("cmd/%s is not a folder; cmd holds a folder per binary, cmd/%s first", name, p.name))
+			problems = append(problems, fmt.Sprintf("cmd holds only folders, one per binary; cmd/%s is not one", entry.Name()))
 			continue
 		}
-		if info, err := os.Stat(filepath.Join(dir, name, "main.ergo")); err != nil || !info.Mode().IsRegular() {
-			problems = append(problems, fmt.Sprintf("no cmd/%s/main.ergo", name))
-			continue
-		}
-		if name == p.name {
-			own = true
-		} else {
-			p.others = append(p.others, filepath.Join(dir, name))
+		if info, err := os.Stat(filepath.Join(dir, entry.Name(), "main.ergo")); err != nil || !info.Mode().IsRegular() {
+			problems = append(problems, fmt.Sprintf("no cmd/%s/main.ergo", entry.Name()))
 		}
 	}
-	if !own && len(problems) == 0 {
-		problems = append(problems, fmt.Sprintf("cmd holds the program's binary, cmd/%s", p.name))
+	if _, err := os.Stat(filepath.Join(dir, p.name)); err != nil {
+		problems = append(problems, fmt.Sprintf("no cmd/%s/main.ergo, the program's binary", p.name))
 	}
-	slices.Sort(p.others)
 	return problems
 }
 
@@ -861,13 +815,6 @@ func (r *runner) runProgram(p *program) {
 		r.toolFailed(p, "build", o, err)
 		return
 	}
-	for _, other := range p.others {
-		leg := "build cmd/" + filepath.Base(other)
-		if o, err := r.tool(0, "build", other, "-o", filepath.Join(dir, filepath.Base(other))); err != nil || !o.Passed() {
-			r.toolFailed(p, leg, o, err)
-			return
-		}
-	}
 	r.testProgram(p)
 	r.exploreProgram(p)
 	command := []string{binary}
@@ -1008,25 +955,7 @@ func splitPackages(stdout []byte) (map[string][]byte, []string) {
 
 func (r *runner) testTarget(p *program, target, leg string) {
 	evaluation := r.checkTarget(p, target, strings.Replace(leg, "test", "check", 1))
-	// The run gets a TMPDIR of its own, which must be empty after it: a
-	// law case or a test under TestAmbient makes its folder there,
-	// and the runner removes each when its case ends (rows.md, Test's ambient).
-	tmp, err := os.MkdirTemp(r.scratch, "test-tmp-")
-	if err != nil {
-		fmt.Fprintf(r.out, "FAIL %s: %s: %v\n", p.name, leg, err)
-		r.fail(p.name + ": " + leg)
-		return
-	}
-	defer os.RemoveAll(tmp)
-	o, err := r.live.Execute([]string{r.cfg.ergo, "test", target}, r.cfg.root, append(slices.Clip(r.toolEnv), "TMPDIR="+tmp), "", r.cfg.testTimeout, 0)
-	// Only a run that ended by itself is held to it: a hang or the output
-	// cap stops the group, and the stopped ergo removes nothing, so that
-	// run fails for its own reason below.
-	if left, _ := os.ReadDir(tmp); err == nil && o.Passed() && len(left) > 0 {
-		fmt.Fprintf(r.out, "FAIL %s: %s: ergo test left %s in its TMPDIR; each case's folder is removed when the case ends (rows.md, Test's ambient)\n", p.name, leg, left[0].Name())
-		r.fail(p.name + ": " + leg)
-		return
-	}
+	o, err := r.tool(r.cfg.testTimeout, "test", target)
 	if evaluation != nil && err == nil && o.OverCap() == "" && !o.TimedOut {
 		r.compareEvaluation(p, strings.Replace(leg, "test", "check", 1), evaluation, o.Stdout)
 	}
