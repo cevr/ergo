@@ -114,7 +114,7 @@ func lineCol(src string, offset int) (int, int) {
 //     v1/*.neg.ergo), each a package of one file, and
 //   - a seeded perturbation of corpus files that check alone: an unread
 //     let at the start of a body or of a nested block, a function literal
-//     with an unread local, an import of a std package nothing reads (by
+//     with an unread local and an unread parameter (never reported), an import of a std package nothing reads (by
 //     its path, or under a name), or an unread import and an unread let
 //     together (the order across the two).
 //
@@ -339,7 +339,8 @@ var unusedImports = []string{"strings", "slices", "maps", "strconv", "cmp", "mat
 
 // perturbUnused is seed's perturbation of a pool file: one of an unread
 // let at a body's start, one at a nested block's start, a function
-// literal holding an unread local (the literal itself unread), an unread
+// literal holding an unread local and an unread parameter (the literal
+// itself unread), an unread
 // import by its path or under a name (with the package-level let that
 // makes the name clash), or an unread import with an unread let. False when the seed's form does not apply to its file.
 func perturbUnused(pool []unusedFile, seed uint32) (string, bool) {
@@ -385,7 +386,7 @@ func perturbUnused(pool []unusedFile, seed uint32) (string, bool) {
 		}
 		return insert(u.blocks[r.IntN(len(u.blocks))], "\n\tlet "+name+" = 0\n"), true
 	case 2:
-		return insert(u.bodies[r.IntN(len(u.bodies))], "\n\tlet "+name+"f = func() int {\n\t\tlet "+name+" = 1\n\t\t2\n\t}\n"), true
+		return insert(u.bodies[r.IntN(len(u.bodies))], "\n\tlet "+name+"f = func("+name+"p int) int {\n\t\tlet "+name+" = 1\n\t\t2\n\t}\n"), true
 	default:
 		p := free()
 		if p == "" {

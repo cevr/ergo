@@ -94,8 +94,9 @@ func isSome[T](o Option[T]) bool {
 
 // reportable is whether the local that row n declares has the unused
 // message of a local: the nearest row above it that decides is a let
-// (VarSpec) or a range, not a parameter's field, a case's or a catch
-// arm's pattern, or an as-pattern.
+// (VarSpec) or a range, not a case's or a catch arm's pattern or an
+// as-pattern, and not a function: a parameter (of a declaration or of a
+// literal, which a let may hold) meets its function before any let.
 func reportable(files []bind.File, ps bind.Parents, n dense.ID[store.PNode]) bool {
 	let mut at = n
 	for {
@@ -106,7 +107,7 @@ func reportable(files []bind.File, ps bind.Parents, n dense.ID[store.PNode]) boo
 			if k == syntax.KVarSpec || k == syntax.KRangeStmt {
 				return true
 			}
-			if k == syntax.KField || k == syntax.KAsPattern || k == syntax.KCaseClause || k == syntax.KCatchArm || k == syntax.KFuncDecl || k == syntax.KFuncLit {
+			if k == syntax.KAsPattern || k == syntax.KCaseClause || k == syntax.KCatchArm || k == syntax.KFuncDecl || k == syntax.KFuncLit {
 				return false
 			}
 			at = up.Value
