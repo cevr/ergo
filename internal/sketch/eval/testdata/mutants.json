@@ -2104,6 +2104,9 @@
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     },
     {"name":"c2-eval-tie-dropped","origin":"wf10 CONSTRAINTS C2","file":"internal/sketch/testplan/plan.go","from":"if i < len(p.Ties) && len(p.Ties[i]) > 0 {","to":"if false {","rule":"runtime.md Tests 5, Ties: at check time a later parameter of one type repeats an earlier value in a quarter of the cases.","killers":["internal/sketch/eval:TestTiesReachEqualArguments"]},
+    {"name":"c5-table-hash-only","origin":"wf10 CONSTRAINTS C5 mutant 1","file":"internal/sketch/std/prelude.ergo","from":"if t.sums[e] == sum && t.by.Equal(t.keys[e], k) {","to":"if t.sums[e] == sum {","rule":"types.md Maps 5: the table compares keys by H.Equal, not by their hashes alone.","killers":["internal/sketch/eval:TestProviderMapAgrees"]},
+    {"name":"c5-table-delete-hole","origin":"wf10 CONSTRAINTS C5 mutant 2","file":"internal/sketch/std/prelude.ergo","from":"\tlet mut t = m\n\tt.live[e] = false\n","to":"\tlet mut t = m\n\tt.live[e] = false\n\tlet (_, hole) = find(m, k, m.by.Hash(k))\n\tt.slots[hole] = 0\n","rule":"types.md Maps 5: a delete keeps its slot, so a later probe does not end early.","killers":["internal/sketch/eval:TestProviderMapAgrees"]},
+    {"name":"c5-table-grow-other-hash","origin":"wf10 CONSTRAINTS C5 mutant 11","file":"internal/sketch/std/prelude.ergo","from":"let mut j = int(t.sums[i] & uint64(mask))","to":"let mut j = int(t.sums[0] & uint64(mask))","rule":"types.md Maps 5: a growth places each entry by its own stored hash.","killers":["internal/sketch/eval:TestProviderMapAgrees"]},
     {"name":"c2-tie-never","origin":"wf10 CONSTRAINTS C2","file":"runtime/testgen/stream.go","from":"if k := r.Intn(4 * n); k < n {","to":"if k := r.Intn(4 * n); k < 0 {","rule":"runtime.md Tests 5, Ties: a tie is drawn with probability 1/4 (the tie rule removed, probability 0).","killers":["internal/sketch/eval:TestTiesReachEqualArguments"]}
   ]
 }
