@@ -50,6 +50,34 @@ func TestIRIntMapsMatchSource(t *testing.T) {
 	}
 }
 
+// TestIntMapRoundsAreFew counts the int map choice's lowerings, the work
+// it adds to a build (intmap.go): a GenerateIntMap program has one Map
+// type that conflicts (walked's, a for-in over it), so it lowers twice,
+// the first round finding that conflict by its cause and the second none.
+// A choice that lowered again with nothing new to turn off would run all
+// of intMapRounds (mutant mi2-rounds-always).
+func TestIntMapRoundsAreFew(t *testing.T) {
+	first, count := envInt("ERGO_IRSPIKE_SEED", 1), envInt("ERGO_IRSPIKE_SEEDS", 4)
+	for seed := first; seed < first+count; seed++ {
+		text := GenerateIntMap(seed)
+		file := filepath.Join(t.TempDir(), "p.ergo")
+		if err := os.WriteFile(file, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		u, err := Load(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, rep, err := lower.LowerIR(u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rep.MapRounds != 2 || rep.MapConflicts["body: for-in over an int map"] != 1 {
+			t.Fatalf("seed %d: %d lowerings, conflicts %v; want 2, one for-in over an int map\nreplay: ERGO_IRSPIKE_SEED=%d ERGO_IRSPIKE_SEEDS=1 go test -run TestIntMapRoundsAreFew ./internal/experimental/irspike\n%s", seed, rep.MapRounds, rep.MapConflicts, seed, text)
+		}
+	}
+}
+
 // intMapBodies is each IR function's body, as JSON, by name.
 func intMapBodies(t *testing.T, files []lower.File) map[string]string {
 	t.Helper()

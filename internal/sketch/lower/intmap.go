@@ -18,6 +18,9 @@ package lower
 // every Map is Go's map, as before MI-2.
 
 import (
+	"path/filepath"
+	"runtime"
+
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -35,6 +38,10 @@ type intMapState struct {
 	conflicts map[string]bool
 	// allGo keeps every Map Go's: the last round (intMapRounds).
 	allGo bool
+	// why counts this round's conflicts by cause: "body: " and the IR
+	// builder's reason, or "helper " and the emitter file that wrote Go's
+	// map operations (IRReport.MapConflicts).
+	why map[string]int
 }
 
 // intKey reports a key type IntMap takes: a Go integer type.
@@ -65,10 +72,18 @@ func (l *lowerer) intMap(t *check.Map) bool {
 
 // intMapConflict records each int map that t is or holds (through
 // slices, arrays, pointers, Maps, tuples and the fields of records) as a
-// conflict: the next round lowers it as Go's map.
-func (l *lowerer) intMapConflict(t check.Type) {
+// conflict: the next round lowers it as Go's map. why is the cause the
+// report counts; without one, the cause is the emitter file of the caller.
+func (l *lowerer) intMapConflict(t check.Type, why ...string) {
 	if l.ir == nil {
 		return
+	}
+	_, file, _, _ := runtime.Caller(1)
+	cause := func() string {
+		if len(why) > 0 {
+			return why[0]
+		}
+		return "helper " + filepath.Base(file)
 	}
 	seen := map[check.Type]bool{}
 	var walk func(t check.Type)
@@ -81,7 +96,10 @@ func (l *lowerer) intMapConflict(t check.Type) {
 		case *check.Map:
 			if l.intMap(t) {
 				if l.ir.maps.conflicts == nil {
-					l.ir.maps.conflicts = map[string]bool{}
+					l.ir.maps.conflicts, l.ir.maps.why = map[string]bool{}, map[string]int{}
+				}
+				if !l.ir.maps.conflicts[l.typeKey(t)] {
+					l.ir.maps.why[cause()]++
 				}
 				l.ir.maps.conflicts[l.typeKey(t)] = true
 			}
@@ -114,19 +132,20 @@ func (l *lowerer) intMapConflict(t check.Type) {
 // intMapBody records a conflict for each int map that a node of decl
 // has a value of: decl keeps its emitter body (the IR builder refused
 // it), whose Map operations are Go's.
-func (l *lowerer) intMapBody(info *check.Info, decl syntax.Node) {
+func (l *lowerer) intMapBody(info *check.Info, decl syntax.Node, reason string) {
 	if l.ir == nil || info == nil || decl == nil {
 		return
 	}
+	why := "body: " + reason
 	syntax.Inspect(decl, func(n syntax.Node) bool {
 		if x, ok := n.(syntax.Expr); ok {
 			if t, ok := info.Types[x]; ok {
-				l.intMapConflict(t)
+				l.intMapConflict(t, why)
 			}
 		}
 		if id, ok := n.(*syntax.Ident); ok {
 			if v, ok := info.Defs[id].(*check.Var); ok {
-				l.intMapConflict(v.Type)
+				l.intMapConflict(v.Type, why)
 			}
 		}
 		return true

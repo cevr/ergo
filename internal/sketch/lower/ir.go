@@ -53,6 +53,11 @@ type IRReport struct {
 	// ConstFolds counts the operations of constants folded into one
 	// (ir_constfold.go).
 	ConstFolds int `json:"-"`
+	// MapRounds is the number of lowerings the int map choice ran
+	// (intmap.go; 1 when no Map type conflicts), and MapConflicts counts
+	// the Map types each cause made Go's map, over every round.
+	MapRounds    int            `json:"-"`
+	MapConflicts map[string]int `json:"-"`
 }
 
 // LowerIR is Lower with the IR bodies. The report's Hash names the IR
@@ -221,6 +226,7 @@ func lowerIRModule(u Unit, tests *testLowering, formsOff bool) ([]File, map[stri
 		code []byte
 		err  error
 		ims  intMapState
+		why  = map[string]int{}
 	)
 	for round := 0; ; round++ {
 		l = newBuildLowerer(u, tests)
@@ -232,8 +238,12 @@ func lowerIRModule(u Unit, tests *testLowering, formsOff bool) ([]File, map[stri
 		if err != nil {
 			return nil, nil, irModule{}, nil, err
 		}
+		for k, n := range l.ir.maps.why {
+			why[k] += n
+		}
 		next, again := l.ir.maps.newRound() // intmap.go: a conflict lowers again
 		if !again || round == intMapRounds {
+			l.ir.report.MapRounds, l.ir.report.MapConflicts = round+1, why
 			break
 		}
 		ims = next
@@ -673,7 +683,7 @@ func (st *irState) finish(b *irBuilder, pkg, name string, decl syntax.Node, std 
 		}
 		st.report.Fallback[u.reason]++
 		b.note(u.reason)
-		b.l.intMapBody(b.l.info, decl) // intmap.go: its emitter body writes Go's map operations
+		b.l.intMapBody(b.l.info, decl, u.reason) // intmap.go: its emitter body writes Go's map operations
 		*ok = false
 		st.rewritesDone(b, false, u.reason) // ir_rewrite.go
 	} else if *ok {
