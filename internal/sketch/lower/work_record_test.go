@@ -134,7 +134,7 @@ func start(q string) Phase { Asking{Query: q} }
 func main() needs Console {
 	with context { Scheduler: time.NewManual(0), Source: Fixed } {
 		let a = actor.StartMachine(machines.Start(Asker{}, "abc"), 1, func(n int) {})
-		for st in a.Changes() {
+		for st in a.LatestChanges() {
 			match st {
 			case Asking:
 			case Told as t:
