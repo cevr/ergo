@@ -2087,6 +2087,7 @@ The standard library is an ordinary set of packages ([NORTH_STAR.md](../../NORTH
    - `internal/sketchfront/load.go`: std paths resolve to the embedded std, and a module path does not take a std package's name.
    - `internal/sketchfront/sketchfront.go`: the digest of std's sources is part of every build key.
    - `internal/sketch/lower/lower.go`, `internal/sketch/lower/naming.go` and `internal/sketch/lower/sources.go`: a std package ships in the compiler, so the lowering names its declarations and positions from the embedded files, not from a unit, and its law ledger ships beside them. Which ledger answers for a provider's laws is chosen by the module that declares it, in one function of the lowering (`evidenceFor`): the build's module's `ergo.laws` for its packages, the shipped ledger for the shipped ones.
+   - `internal/sketch/check/factguard.go`: the guard lines of the reviewed tables in `runtime/v1` (`v1.GoSyncCallbacks`, `v1.PureImports`) ship in that same ledger, because the tables and their guards ship with the compiler; the checker reads them from it (`FactLedger`; interop.md, Foreign facts 7).
 2. **The predeclared names.** The language gives a meaning to some names that the prelude declares, and to the operation names of its protocols. These functions read such a name:
 
 | Reader | Predeclared name |

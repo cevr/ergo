@@ -298,10 +298,11 @@ func resourceType(t types.Type) bool {
 }
 
 // pure reports whether a member of the bound package is in the reviewed
-// pure tier: a package of v1.PureImports, minus v1.PureImportsExcept.
+// pure tier: a package of v1.PureImports whose guard line acts
+// (check.PureActs; LAWFFI LF2d), minus v1.PureImportsExcept.
 func (m *mapper) pure(name string) bool {
 	path := m.pkg.Path()
-	return slices.Contains(v1.PureImports, path) && !slices.Contains(v1.PureImportsExcept[path], name)
+	return check.PureActs(path) && !slices.Contains(v1.PureImportsExcept[path], name)
 }
 
 func (m *mapper) needs(name string) string {
@@ -346,7 +347,7 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, bool,
 	// A first context.Context parameter is hidden (IG10), except in the
 	// context package itself, whose functions take a context as their
 	// subject (context.Cause(ctx)), not as the call's cancellation.
-	sm := &sigMapper{mapper: m, subst: subst, sync: v1.GoSyncCallbacks[target] != "", method: recv != nil,
+	sm := &sigMapper{mapper: m, subst: subst, sync: syncActs(target), method: recv != nil,
 		outerFails: n > 0 && isError(sig.Results().At(n-1).Type()),
 		ctx:        m.pkg.Path() != "context" && sig.Params().Len() > 0 && isContext(sig.Params().At(0).Type())}
 	params, results, fails, variadic, err := sm.signature(sig, false)
@@ -1108,4 +1109,12 @@ func (m *mapper) constType(c *types.Const) (string, error) {
 		return "complex128", nil
 	}
 	return "", refuse("an untyped %s constant", b.Name())
+}
+
+// syncActs reports a function whose callbacks the reviewed table
+// v1.GoSyncCallbacks lists as synchronous, with its guard line acting
+// (check.SyncActs; LAWFFI LF2d).
+func syncActs(target string) bool {
+	ok, _, _ := check.SyncActs(target)
+	return ok
 }

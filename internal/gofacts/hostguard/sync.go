@@ -1,4 +1,4 @@
-package gofacts
+package hostguard
 
 import (
 	"bytes"
@@ -23,17 +23,15 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"testing"
 	"time"
-
-	v1 "ergo.local/prototype/runtime/v1"
 )
 
-// The guard of the reviewed table v1.GoSyncCallbacks (LAWFFI LF2c;
+// The guard of the reviewed table v1.GoSyncCallbacks (LAWFFI LF2c, LF2d;
 // plan-r1 §1, sync f: "a run that records the goroutine and the call's
 // end at each callback"). The table stays in runtime/v1, where the checker
-// and ergo bind go read it; this file holds one call per row, whose
-// callbacks report to a probe.
+// and ergo bind go read it, each row acting only on its guard line
+// (gofacts.Acts); this file holds one call per row, whose callbacks report
+// to a probe.
 
 // probe records a guarded call's callbacks: each must run on the caller's
 // goroutine before the call returns.
@@ -151,13 +149,13 @@ func syncCalls() map[string]func(p *probe) {
 		},
 		"os.Expand": func(p *probe) { os.Expand("$a", func(string) string { p.hit(); return "" }) },
 		"path/filepath.Walk": func(p *probe) {
-			_ = filepath.Walk("testdata", func(string, fs.FileInfo, error) error { p.hit(); return nil })
+			_ = filepath.Walk(walkRoot(), func(string, fs.FileInfo, error) error { p.hit(); return nil })
 		},
 		"path/filepath.WalkDir": func(p *probe) {
-			_ = filepath.WalkDir("testdata", func(string, fs.DirEntry, error) error { p.hit(); return nil })
+			_ = filepath.WalkDir(walkRoot(), func(string, fs.DirEntry, error) error { p.hit(); return nil })
 		},
 		"io/fs.WalkDir": func(p *probe) {
-			_ = fs.WalkDir(os.DirFS("testdata"), ".", func(string, fs.DirEntry, error) error { p.hit(); return nil })
+			_ = fs.WalkDir(os.DirFS(walkRoot()), ".", func(string, fs.DirEntry, error) error { p.hit(); return nil })
 		},
 		"regexp.Regexp.ReplaceAllFunc": func(p *probe) {
 			regexp.MustCompile("a").ReplaceAllFunc([]byte("aa"), func(b []byte) []byte { p.hit(); return b })
@@ -189,56 +187,5 @@ func syncCalls() map[string]func(p *probe) {
 			var o sync.Once
 			o.Do(p.hit)
 		},
-	}
-}
-
-// TestSyncCallbacksHold is the guard of v1.GoSyncCallbacks: every row has
-// a guarded call and passes it, and every guarded call is a row; two
-// planted false rows, a function that runs its callback on another
-// goroutine and one that keeps it for its next call, are refuted.
-//
-// Mutants it alone catches: ffi-sync-row-unguarded (a row with no guarded
-// call), ffi-sync-guard-goroutine-blind, ffi-sync-guard-one-call.
-func TestSyncCallbacksHold(t *testing.T) {
-	calls := syncCalls()
-	for target, reason := range v1.GoSyncCallbacks {
-		call, ok := calls[target]
-		switch {
-		case !ok:
-			t.Errorf("%s: a row of v1.GoSyncCallbacks (%q) with no guarded call in syncCalls", target, reason)
-		case reason == "":
-			t.Errorf("%s: a row with no reason", target)
-		default:
-			if err := syncGuard(target, call); err != nil {
-				t.Error(err)
-			}
-		}
-	}
-	for target := range calls {
-		if v1.GoSyncCallbacks[target] == "" {
-			t.Errorf("%s: a guarded call with no row in v1.GoSyncCallbacks", target)
-		}
-	}
-	var kept func()
-	for name, c := range map[string]struct {
-		call func(p *probe)
-		want string
-	}{
-		"fixture.Async": {func(p *probe) {
-			done := make(chan struct{})
-			go func() { p.hit(); close(done) }()
-			<-done
-		}, "a callback ran on another goroutine"},
-		"fixture.Keep": {func(p *probe) {
-			p.hit()
-			if kept != nil {
-				kept()
-			}
-			kept = p.hit
-		}, "a callback ran after the call returned"},
-	} {
-		if err := syncGuard(name, c.call); err == nil || !strings.Contains(err.Error(), c.want) {
-			t.Errorf("a planted false row %s passes the sync guard: %v, want %q", name, err, c.want)
-		}
 	}
 }

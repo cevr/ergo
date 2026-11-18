@@ -249,8 +249,10 @@ const StdLedgerHeader = "# std law ledger (runtime.md, Tests 10). Written by go 
 // check runs of every std package with a rewrite law that a provider's run
 // checks, each package checked as the root of its own unit, as a module's
 // ergo test writes them. A package with no such law runs nothing, so a std
-// with none needs no Go tool.
-func FreshStdLedger(req BuildRequest) (string, error) {
+// with none needs no Go tool. host are the guard lines of the reviewed
+// tables in runtime/v1 (internal/gofacts/hostguard.Entries, LAWFFI LF2d),
+// which the caller runs: the compiler does not link their guards.
+func FreshStdLedger(req BuildRequest, host []gofacts.Entry) (string, error) {
 	entries := map[string]lower.LedgerEntry{}
 	for _, path := range stdlib.Packages() {
 		texts, _ := stdlib.Package(path)
@@ -303,6 +305,10 @@ func FreshStdLedger(req BuildRequest) (string, error) {
 		}
 	}
 	for _, e := range GuardFactEntries() {
+		entries[e.Key()] = e
+	}
+	for _, h := range host {
+		e := lower.LedgerEntry{Fact: h.Key, Verdict: h.Verdict, By: h.By, With: h.With, Digest: h.Digest}
 		entries[e.Key()] = e
 	}
 	return StdLedgerHeader + lower.FormatLedger(entries), nil
