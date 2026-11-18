@@ -34,8 +34,15 @@ func (in *interp) tailExpr(fr *frame, x syntax.Expr) (Value, *abrupt) {
 
 // tailK is tailExpr with x's facts, f.
 func (in *interp) tailK(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt) {
-	if ab := in.charge(fr, x, 1); ab != nil {
-		return nil, ab
+	// A leaf, a name or a constant (a folded one too), is an operand of
+	// the node that reads it, as Go's build reads it in that node's
+	// instructions (a register or an immediate): the reading node's step
+	// pays for it (FU-eval-step-per-op). A leaf evaluates no operand, so a
+	// step still bounds the work: one node and the leaves it reads.
+	if leaf := f.op == opConst || f.op == opIdent; !leaf {
+		if ab := in.charge(fr, x, 1); ab != nil {
+			return nil, ab
+		}
 	}
 	// plain: no rule below applies, unless a try is open (ownFailure) or
 	// the run is symbolic (symStop).
@@ -277,9 +284,8 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 	case *syntax.Ident:
 		if v, ok := in.fx(fr, x).use.(*check.Var); ok {
 			if s := in.slotOf(fr, v); s != nil {
-				if ab := in.charge(fr, x, 1); ab != nil {
-					return nil, nil, ab
-				}
+				// The path's root is a leaf the path's node pays for
+				// (tailK).
 				return s.v, s, nil
 			}
 		}
@@ -1253,7 +1259,7 @@ func (in *interp) interpolated(fr *frame, x *syntax.InterpolatedString) (Value, 
 		}
 		b.WriteString(text)
 	}
-	if ab := in.build(fr, x, int64(b.Len()), 0, int64(b.Len())); ab != nil {
+	if ab := in.build(fr, x, byteWork(int64(b.Len())), 0, int64(b.Len())); ab != nil {
 		return nil, ab
 	}
 	return b.String(), nil
