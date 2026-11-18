@@ -13,7 +13,9 @@ import (
 // An exported one is read with its package's name (keys.Run), which says
 // what; the entry's run is the body of main by convention (the
 // 2026-11-18 read sample: 108 of 123 findings were Run or run of these
-// two kinds). It reads the names the checker resolved
+// two kinds). Option glossary (SR-ERGO-3): a GLOSSARY.md whose _Avoid_
+// terms no declared name may hold; the finding names the term to use.
+// It reads the names the checker resolved
 // as declarations (Info.Defs) through words.go.
 var bannedWords = &Rule{
 	Name:    "banned-words",
@@ -26,7 +28,7 @@ var bannedWords = &Rule{
 }
 
 func checkBannedWords(p *Pass) {
-	words := p.Options.(wordOptions).Words
+	words, avoid := p.Options.(wordOptions).Words, p.Options.(wordOptions).avoid
 	for _, d := range p.File.Decls {
 		f, ok := d.(*syntax.FuncDecl)
 		if !ok || p.Package.Entry() != nil {
@@ -43,6 +45,8 @@ func checkBannedWords(p *Pass) {
 		}
 		if word, banned := bannedWord(id.Name, words); banned {
 			p.Report(id.Pos(), id.End(), "the name "+id.Name+" holds the banned word "+word)
+		} else if t, avoided := avoidedTerm(id.Name, avoid); avoided {
+			p.ReportInstead(id.Pos(), id.End(), "the name "+id.Name+" holds "+t.Avoid+", which the glossary lists under Avoid", "name it with the glossary's term "+t.Use, nil)
 		}
 		return true
 	})

@@ -3,7 +3,13 @@ package lint_test
 import (
 	"fmt"
 	"math/rand/v2"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
+
+	"ergo.local/prototype/internal/sketch/lint"
 )
 
 // The SKILL-RULES rules for Ergo (SR-ERGO-n): each a generator of
@@ -135,5 +141,102 @@ func TestOptionFieldsFollowVariantAgreesWithReference(t *testing.T) {
 		}
 		p.write("\nfunc main() {\n}", false, 0)
 		p.check(t, "option-fields-follow-variant", "TestOptionFieldsFollowVariantAgreesWithReference", seed)
+	}
+}
+
+// The avoided terms of the glossary generator, each under the term to use.
+var glossaryAvoids = []struct{ use, avoid string }{
+	{"Customer", "Client"},
+	{"Customer", "buyer"},
+	{"Invoice", "payment request"},
+	{"Invoice", "Bill"},
+}
+
+// A function name of the glossary generator and the avoided terms (by
+// index into glossaryAvoids) it holds as a run of its words.
+var glossaryNames = []struct {
+	name  string
+	holds []int
+}{
+	{"clientList", []int{0}},
+	{"BuyerOf", []int{1}},
+	{"paymentRequestID", []int{2}},
+	{"lastBillOfClient", []int{0, 3}},
+	{"paymentID", nil},      // one word of a two-word term
+	{"requestPayment", nil}, // its words out of order
+	{"billing", nil},        // another word
+	{"customerName", nil},
+}
+
+// TestBannedGlossaryAgreesWithReference writes a GLOSSARY.md that lists a
+// random subset of avoided terms (one of two words) under their terms,
+// configures banned-words with it as glossary, relative to the document's
+// directory, and checks that the rule fires on exactly the functions whose
+// name holds a listed term as a run of its words, naming the term to use;
+// and that a glossary that cannot be read refuses the configuration.
+// Mutants: sr3-run, sr3-unread, sr3-use.
+func TestBannedGlossaryAgreesWithReference(t *testing.T) {
+	for _, seed := range propertySeeds(40) {
+		r := rand.New(rand.NewPCG(seed, 0x6105))
+		listed := make([]bool, len(glossaryAvoids))
+		doc := "# Shop\n\n## Language\n"
+		for _, use := range []string{"Customer", "Invoice"} {
+			var avoid []string
+			for i, a := range glossaryAvoids {
+				if a.use == use && r.IntN(2) == 0 {
+					listed[i] = true
+					avoid = append(avoid, a.avoid)
+				}
+			}
+			doc += "\n**" + use + "**:\nA term of the shop.\n"
+			if avoid != nil {
+				doc += "_Avoid_: " + strings.Join(avoid, ", ") + "\n"
+			}
+		}
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "GLOSSARY.md"), []byte(doc), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		p := newPlanted()
+		uses := map[int]string{}
+		for i := range 1 + r.IntN(5) {
+			n := glossaryNames[r.IntN(len(glossaryNames))]
+			fires := false
+			for _, h := range n.holds {
+				if listed[h] {
+					if !fires {
+						uses[p.line+1] = glossaryAvoids[h].use
+					}
+					fires = true
+				}
+			}
+			p.write(fmt.Sprintf("\nfunc %s%d() int {\n\t%d\n}", n.name, i, i), fires, 1)
+		}
+		p.write("\nfunc main() {\n}", false, 0)
+		settings := map[string]lint.Setting{}
+		for _, rule := range lint.Builtin().Rules() {
+			settings[rule.Name] = lint.Setting{Severity: lint.Off, HasSeverity: true}
+		}
+		settings["banned-words"] = lint.Setting{Severity: lint.Warning, HasSeverity: true, Options: []byte("{\"glossary\": \"GLOSSARY.md\"}")}
+		conf, err := lint.Builtin().Configure(lint.Config{Version: lint.ConfigVersion, Rules: settings, Dir: dir}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		src := p.b.String()
+		var got []int
+		for _, f := range conf.Run(lintInput(src)).Findings {
+			got = append(got, f.Line)
+			if !strings.HasSuffix(f.Instead, "glossary's term "+uses[f.Line]) {
+				t.Fatalf("seed %d: line %d names no term %q to use: %s", seed, f.Line, uses[f.Line], f.Instead)
+			}
+		}
+		want := slices.Clone(p.want)
+		slices.Sort(want)
+		if !slices.Equal(got, want) {
+			t.Fatalf("seed %d: banned-words fired on lines %v, the reference says %v\n%s\n%s\nreplay: go test ./internal/sketch/lint -run TestBannedGlossaryAgreesWithReference -lint.seed=%d", seed, got, want, doc, numbered(src), seed)
+		}
+		if _, err := lint.Builtin().Configure(lint.Config{Version: lint.ConfigVersion, Rules: settings, Dir: filepath.Join(dir, "absent")}, nil); err == nil {
+			t.Fatalf("seed %d: a glossary that cannot be read configured", seed)
+		}
 	}
 }

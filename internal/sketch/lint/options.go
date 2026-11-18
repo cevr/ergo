@@ -42,9 +42,14 @@ func capOptions(max float64) func(json.RawMessage) (any, error) {
 
 // wordOptions is banned-words' lists: words no declared name may hold,
 // and generic verbs no top-level function may be named by alone.
+// Glossary is a GLOSSARY.md, relative to the configuration document's
+// directory, whose _Avoid_ terms no declared name may hold (glossary.go);
+// avoid is its terms, read at Configure.
 type wordOptions struct {
-	Words []string `json:"words"`
-	Verbs []string `json:"verbs"`
+	Words    []string `json:"words"`
+	Verbs    []string `json:"verbs"`
+	Glossary string   `json:"glossary"`
+	avoid    []avoidTerm
 }
 
 // genericVerbs is banned-words' default verbs: a function named by one of
