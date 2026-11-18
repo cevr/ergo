@@ -130,6 +130,19 @@ func (*exchangeV) opCall(in *interp, fr *frame, at syntax.Node, name string, arg
 }
 
 func registerNativesnet() {
+	natives["http.checkOrigin"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		if ab := in.charge(fr, at, 1+argWork(args[:1])); ab != nil {
+			return nil, ab
+		}
+		origin, limits := args[0].(string), args[1].(*record)
+		if !limitsValid(limits) {
+			return nil, httpFail(fn, fr, at, "InvalidLimits", limitsFields(limits))
+		}
+		if reason := originReason(origin); reason != "" {
+			return nil, httpFail(fn, fr, at, "InvalidClient", map[string]Value{"Origin": origin, "Reason": reason})
+		}
+		return unit{}, nil
+	}
 	natives["http.serve"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		l, ok := args[0].(*listenerV)
 		if !ok {

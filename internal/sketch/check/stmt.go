@@ -317,12 +317,8 @@ func (c *checker) varDecl(d *syntax.VarDecl) {
 				}
 			}
 			for i, n := range spec.Names {
-				v := declare(n, types[i])
-				if v != nil && mut && declared == nil {
+				if v := declare(n, types[i]); v != nil && mut && declared == nil {
 					v.byValue = spec.Values[i]
-				}
-				if len(spec.Names) == 1 {
-					c.markFreshRef(v, spec.Values[i])
 				}
 			}
 		case len(spec.Values) == 1:

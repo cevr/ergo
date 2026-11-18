@@ -388,7 +388,7 @@ A std extern whose `runtime/v1` Go body is marked pure is transparent in footpri
 1. The mark is the directive line `//ergo:pure` in the doc comment of an exported top-level function of `runtime/v1`. `v1.BodyOf` reads it and reports `Body.Pure`; the checker's footprint (`check/footprint.go`, `runs`) reads only that fact.
 2. The mark is a reviewed claim. `BodyOf` refuses a marked body, with an error that names the rule, when:
    - it is a method;
-   - its file imports a package outside `v1.PureImports` (`strings`, `strconv`, `unicode`, `unicode/utf8`, `unicode/utf16`, `slices`, `sort`, `math`, `math/bits`, `path/filepath`, `encoding/hex`, `encoding/base64`, `crypto/sha256`, `hash/crc32`, `net/url`, `net/netip`) and outside `v1.PureImportHostMembers` (`time`, std-align S2b; `encoding/csv`, std-csv U4, with no host member: [csv](#csv) 5);
+   - its file imports a package outside `v1.PureImports` (`strings`, `strconv`, `unicode`, `unicode/utf8`, `unicode/utf16`, `slices`, `sort`, `math`, `math/bits`, `path/filepath`, `encoding/hex`, `encoding/base64`, `crypto/sha256`, `hash/crc32`) and outside `v1.PureImportHostMembers` (`time`, std-align S2b; `encoding/csv`, std-csv U4, with no host member: [csv](#csv) 5);
    - its body names a member of a `PureImportHostMembers` package that reads host state, as a package member or a method of that name: for `time`, `Now`, `Since`, `Until`, `Sleep`, `After`, `AfterFunc`, `Tick`, `NewTicker`, `NewTimer`, `Local`, `LoadLocation` and `Parse` (which reads the local zone for an abbreviation). `time` is not in `PureImports`, which is also the user extern list (G9): a user extern binds a whole package, so it could bind `time.Now`;
    - its body names a member of an allowed package that reaches the host, as `v1.PureImportsExcept` lists them (`filepath.Abs`, `EvalSymlinks`, `Glob`, `Walk`, `WalkDir`), or its file dot-imports such a package;
    - it takes a hidden argument (the frame, the call site, the task, the Scheduler, the reading package);
@@ -735,16 +735,9 @@ streamed (Rm, item 9). TLS and HTTP/2 configuration are outside this core.
     caller builds a URL whose query `ParseQuery` reads back. Both are Ergo
     bodies (NP4f-15): `EncodeQuery` escapes as Go's `url.QueryEscape`,
     and `ParseQuery` reads as Go's `url.ParseQuery` (a pair with a ";"
-    or a malformed escape dropped, no fields past Go's limit on pairs:
-    GODEBUG `urlmaxqueryparams`, 10000 by default, which Go's own
-    `url.ParseQuery` reads for it, NP4f-URL) with the keys sorted and
-    each key's values in order. `TestStdMatchesGo` holds both to Go's.
-    `NewClient`'s and the Network's origin checks are Ergo too (NP4f-URL),
-    over Go's `url.Parse` and `netip.ParseAddr` in the pure tier: a URL's
-    fields are read through the fresh handle `url.Parse` returns
-    ([interop.md, Checking](interop.md) 4); the evaluator runs the same Go
-    functions (`TestHTTPPolicyAgreesWithRuntime` holds them to the Go body
-    they replaced); the host client and server keep Go's own helpers
+    or a malformed escape dropped, no fields past 10000 pairs) with the
+    keys sorted and each key's values in order. `TestStdMatchesGo` holds
+    both to Go's; the host client and server keep Go's own helpers
     (`httpEncodeQuery`, `httpParseQuery`), which
     `TestHTTPEncodeQueryIsGos` holds to `url.QueryEscape`. Effect's
     `HttpClient` test layer and Gleam's and Elixir's `Req.Test` plug

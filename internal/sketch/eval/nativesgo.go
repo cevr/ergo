@@ -87,10 +87,7 @@ func goNativeOf(fn *check.Func) native {
 		return nil
 	}
 	path, name := fn.Decl.Extern.Split()
-	if nat := goNatives[path+"."+name]; nat != nil {
-		return nat
-	}
-	return goReflectNative(fn) // gohost.go
+	return goNatives[path+"."+name]
 }
 
 func goFloat(f func(float64) float64) native {

@@ -148,6 +148,12 @@ func TestHTTPServerMatchesModel(t *testing.T) {
 		case 4:
 			limits.ReadBodyTimeout = time.Duration(bad)
 		}
+		if err := HTTPCheckOrigin("http://localhost", limits); err != HTTPInvalidLimits(limits) {
+			t.Fatalf("client limits %+v: %v", limits, err)
+		}
+		if _, err := HTTPCheckNetwork(nil, limits); err != HTTPInvalidLimits(limits) {
+			t.Fatalf("network limits %+v: %v", limits, err)
+		}
 		err = HTTPServe("invalid", rt.Root("invalid"), liveSleeper{}, l, limits, func(_ *rt.Task, _ *Exchange, _, _ string, _, _ []HTTPField, _ string, _ bool, _ string) HTTPResponse {
 			t.Error("invalid limits called handler")
 			return HTTPResponse{Status: 200}

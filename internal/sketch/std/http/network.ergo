@@ -113,6 +113,8 @@ func policyOf(policy OriginPolicy, limits Limits, redirects RedirectPolicy) netP
 	netPolicy{origins: checked, anyOrigin: anyOrigin, limits: limits, hops: hops}
 }
 
+extern go ergo.local/prototype/runtime/v1/http.HTTPCheckNetwork func checkNetwork(origins []string, limits Limits) []string fails InvalidClient | InvalidLimits
+
 func SendURL(n Remote, r URLRequest) Response fails RequestFailed | OriginRefused | RedirectLimit {
 	let mut owners = []string{}
 	let mut fields = []Field{}

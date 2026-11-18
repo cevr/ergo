@@ -69,11 +69,11 @@ func main() needs Console | go.Foreign {
 // (it has no row and no context can bind it; rows.md, Entry 4).
 func TestImportGoRows(t *testing.T) {
 	for _, tc := range []struct{ name, src, want string }{
-		{"foreign", "import go regexp\nfunc Escape(s string) string { regexp.QuoteMeta(s) }\n",
+		{"foreign", "import go net/url\nfunc Escape(s string) string { url.QueryEscape(s) }\n",
 			"2:32:S102 this call requires go.Foreign, which is not in the capability row of function Escape and no with provides it"},
 		{"error", "import go strconv\nfunc N(s string) int { try strconv.Atoi(s) }\n",
 			"2:24:S101 {go.Error} escapes function N, whose error row {} does not list it"},
-		{"test", "import go regexp\nfunc esc(s string) string needs go.Foreign { regexp.QuoteMeta(s) }\ntest Esc { assert esc(\"a\") == \"a\" }\n",
+		{"test", "import go net/url\nfunc esc(s string) string needs go.Foreign { url.QueryEscape(s) }\ntest Esc { assert esc(\"a\") == \"a\" }\n",
 			"3:19:S102 this call requires go.Foreign, which is not in the capability row of test Esc and no with provides it"},
 		// go.Foreign's interface is empty, so only this rule keeps a
 		// context (in a test, say) from providing it.
