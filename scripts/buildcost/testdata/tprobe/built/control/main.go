@@ -20,7 +20,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -127,7 +126,7 @@ func agree(ref jsonRef, what string, args []string) {
 	var first string
 	for i, run := range [][]string{args, flat} {
 		got := runBin(run)
-		if !want.MatchString(got) || (i > 0 && got != first) {
+		if !want.match(got) || (i > 0 && got != first) {
 			fail("%s: jsonparse %s printed %q, the reference wants %s", what, strings.Join(run, " "), got, want)
 		}
 		first = got
@@ -235,12 +234,32 @@ func tokens(dec *json.Decoder) *value {
 	panic(fmt.Sprintf("token %T", tok))
 }
 
-func (r jsonRef) outcome(args []string, file string) *regexp.Regexp {
-	exact := func(out string) *regexp.Regexp {
-		return regexp.MustCompile("^" + regexp.QuoteMeta("stdout:\n"+out+"\nstderr:\n\nstatus 0\n") + "$")
+// expected is what a run must print, compared byte for byte (a regexp
+// reads an invalid UTF-8 byte as U+FFFD and cannot tell the two apart):
+// the whole text, or with reason a prefix, then one line of the
+// program's own reason and the failure's end.
+type expected struct {
+	text   string
+	reason bool
+}
+
+func (e expected) match(got string) bool {
+	if !e.reason {
+		return got == e.text
 	}
-	failure := func(line string) *regexp.Regexp {
-		return regexp.MustCompile("^" + regexp.QuoteMeta("stdout:\n\nstderr:\njsonparse: "+line+"\n\nstatus 1\n") + "$")
+	rest, ok := strings.CutPrefix(got, e.text)
+	why, ok2 := strings.CutSuffix(rest, "\n\nstatus 1\n")
+	return ok && ok2 && why != "" && !strings.Contains(why, "\n")
+}
+
+func (e expected) String() string { return fmt.Sprintf("%q (reason %v)", e.text, e.reason) }
+
+func (r jsonRef) outcome(args []string, file string) expected {
+	exact := func(out string) expected {
+		return expected{text: "stdout:\n" + out + "\nstderr:\n\nstatus 0\n"}
+	}
+	failure := func(line string) expected {
+		return expected{text: "stdout:\n\nstderr:\njsonparse: " + line + "\n\nstatus 1\n"}
 	}
 	if r.bad >= 0 {
 		line, start := 1, 0
@@ -250,7 +269,7 @@ func (r jsonRef) outcome(args []string, file string) *regexp.Regexp {
 			}
 		}
 		at := fmt.Sprintf("%s:%d:%d: ", file, line, r.bad-start+1)
-		return regexp.MustCompile("^" + regexp.QuoteMeta("stdout:\n\nstderr:\njsonparse: "+at) + "[^\n]+\n\nstatus 1\n$")
+		return expected{text: "stdout:\n\nstderr:\njsonparse: " + at, reason: true}
 	}
 	switch args[0] {
 	case "min":

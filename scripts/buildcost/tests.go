@@ -584,14 +584,16 @@ func probeMain(args []string) int {
 	}
 	if *kills {
 		for _, k := range picked {
-			if err := p.killMatrix(k); err != nil {
+			// Saved after each kind, so a run that is cut keeps the
+			// kinds it finished.
+			err := p.killMatrix(k)
+			if err == nil {
+				err = p.save()
+			}
+			if err != nil {
 				fmt.Fprintln(os.Stderr, "buildcost tests:", err)
 				return 1
 			}
-		}
-		if err := p.save(); err != nil {
-			fmt.Fprintln(os.Stderr, "buildcost tests:", err)
-			return 1
 		}
 		return 0
 	}
