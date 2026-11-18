@@ -58,6 +58,20 @@ function run(binary, count, mode) {
         findings.push(JSON.parse(result.stdout).diagnostics.map((d) => ({ ...d, filename: file.path })));
       }
     }
+  } else if (mode === "broken") {
+    // A sidecar that cannot start or keeps exiting: every call fails, none
+    // waits, and the starts stay bounded.
+    process.env.TN1_LINT_BINARY = binary;
+    const { lintSync, processStarts } = require(path.join(root, "tools/npm/tn1-lint/lint.js"));
+    for (let i = 0; i < count; i++) {
+      try {
+        lintSync({ rule: "vector", weights: nets[0], path: files[i].path, text: files[i].text });
+        findings.push("answered");
+      } catch (error) {
+        findings.push(error.message);
+      }
+    }
+    starts = processStarts();
   } else {
     process.env.TN1_LINT_BINARY = binary;
     const { lintSync, processStarts } = require(path.join(root, "tools/npm/tn1-lint/lint.js"));
@@ -138,6 +152,29 @@ async function main() {
   const left = survivors(binary);
   console.log(`serve processes left after the run: ${left.length}`);
   if (left.length > 0) fail(`serve processes left: ${left.join(" ")}`);
+  await broken();
+}
+
+// A start that throws (/dev/null/tn1-lint: exec fails with ENOTDIR, which
+// spawn throws as it throws ENOMEM when fork fails), a start that fails
+// later (ENOENT, an error event) and a sidecar that exits at once: each
+// call fails with the reason, the first failed start ends the starts, and
+// an exiting sidecar is started at most 3 times.
+async function broken() {
+  const cases = [
+    { binary: "/dev/null/tn1-lint", reason: "cannot start /dev/null/tn1-lint: spawn ENOTDIR", starts: 0 },
+    { binary: "/nonexistent/tn1-lint", reason: "cannot start /nonexistent/tn1-lint: spawn /nonexistent/tn1-lint ENOENT", starts: 1 },
+    { binary: "/bin/false", reason: "not starting it again", starts: 3 },
+  ];
+  for (const c of cases) {
+    const got = await child(c.binary, 5, "broken");
+    const last = got.findings[got.findings.length - 1];
+    const ok = got.starts === c.starts && got.findings.every((f) => f !== "answered") && last.includes(c.reason);
+    console.log(`${c.binary}: starts ${got.starts}, last reason: ${last}`);
+    if (!ok) fail(`${c.binary}: want ${c.starts} starts and every call failed, the last with "${c.reason}"`);
+    if (c.starts === 0 && !got.findings.every((f) => f === got.findings[0]))
+      fail(`${c.binary}: a failed start is tried again: ${got.findings.join(" | ")}`);
+  }
 }
 
 if (process.argv[2] === "--run") {
