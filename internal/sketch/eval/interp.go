@@ -375,7 +375,26 @@ func (in *interp) callPlanned(fr *frame, at *syntax.CallExpr, p *funcPlan, targs
 		if ab := in.charge(fr, at, 1); ab != nil {
 			return nil, ab
 		}
-		return appendString(fn, args[0], args[1]), nil
+		xs, isSlice := args[0].(sliceV)
+		s, isText := args[1].(string)
+		if in.sym != nil || !isSlice || !isText {
+			return appendString(fn, args[0], args[1]), nil
+		}
+		// A run appends each byte as Go's append does, growing the
+		// store in place (MX-EVBUILDER: a copy per call made civil's
+		// formats quadratic, at one step a call).
+		var site syntax.Node = fr.decl
+		if at != nil {
+			site = at
+		}
+		var v Value = xs
+		for i := 0; i < len(s); i++ {
+			var ab *abrupt
+			if v, ab = in.appendTo(fr, site, v.(sliceV), s[i], nil); ab != nil {
+				return nil, ab
+			}
+		}
+		return v, nil
 	}
 	if !p.ergo {
 		if in.sym == nil && check.GoBuiltin(fn) == "append" {

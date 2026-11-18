@@ -127,6 +127,7 @@ func registerNatives() {
 	pure("strings.ToLower", func(a []Value) Value { return strings.ToLower(str(a[0])) })
 	pure("strings.ToUpper", func(a []Value) Value { return strings.ToUpper(str(a[0])) })
 	pure("strings.Index", func(a []Value) Value { return int64(strings.Index(str(a[0]), str(a[1]))) })
+	pure("strings.IndexByte", func(a []Value) Value { return int64(strings.IndexByte(str(a[0]), a[1].(uint8))) })
 	pure("strings.Contains", func(a []Value) Value { return strings.Contains(str(a[0]), str(a[1])) })
 	pure("strings.Slice", func(a []Value) Value { return str(a[0])[i64(a[1]):i64(a[2])] })
 	pure("strings.ReplaceAll", func(a []Value) Value { return strings.ReplaceAll(str(a[0]), str(a[1]), str(a[2])) })
@@ -415,6 +416,14 @@ var readsOf = map[string]func(a []Value) int64{
 	"strings.HasSuffix":  func(a []Value) int64 { return int64(len(a[1].(string))) },
 	"strings.TrimPrefix": func(a []Value) int64 { return int64(len(a[1].(string))) },
 	"strings.TrimSuffix": func(a []Value) int64 { return int64(len(a[1].(string))) },
+	// IndexByte reads up to the byte it finds (std io's lines: one call
+	// per line on the rest of the text).
+	"strings.IndexByte": func(a []Value) int64 {
+		if i := strings.IndexByte(a[0].(string), a[1].(uint8)); i >= 0 {
+			return int64(i) + 1
+		}
+		return int64(len(a[0].(string)))
+	},
 }
 
 // shares names the pure natives whose result is a view of an argument's
