@@ -172,23 +172,13 @@ func inRank(atoms []Atom) []Atom {
 
 // Classes is the class attribute of a box with look l: its atoms' classes, and the group
 // class when the box is a group.
-func Classes(l look.Look) string {
-	let mut b = strings.NewBuilder()
-	if l.Marks {
-		b.WriteString(GroupClass)
-	}
-	for a in Atoms(l) {
-		if b.Len() > 0 {
-			b.WriteString(" ")
-		}
-		b.WriteString(Class(a))
-	}
-	b.String()
-}
+func Classes(l look.Look) string { Named(Long(), l) }
 
 // Rule is an atom's rule in the sheet.
-func Rule(a Atom) string {
-	let c = Class(a)
+func Rule(a Atom) string { ruleAs(a, Class(a)) }
+
+// ruleAs is an atom's rule under class c.
+func ruleAs(a Atom, c string) string {
 	let body = "{" + look.Key(a.Decl) + ":" + look.Value(a.Decl) + "}"
 	match a.Cond {
 	case Self as s:
@@ -216,17 +206,7 @@ let base = "*,::before,::after{box-sizing:border-box;margin:0;padding:0;border:0
 
 // Sheet is the sheet of theme t and looks: the reset, the tokens as custom properties, then
 // the rule of every distinct atom of the looks, in rank order.
-func Sheet(t token.Theme, looks []look.Look) string {
-	let mut b = strings.NewBuilder()
-	b.WriteString(base)
-	b.WriteString(":root{")
-	b.WriteString(token.Sheet(t))
-	b.WriteString("}")
-	for a in Union(looks) {
-		b.WriteString(Rule(a))
-	}
-	b.String()
-}
+func Sheet(t token.Theme, looks []look.Look) string { SheetNamed(t, Long(), looks) }
 
 // Union is the distinct atoms of looks, in rank order: the sheet's rules.
 func Union(looks []look.Look) []Atom {
@@ -241,6 +221,103 @@ func Union(looks []look.Look) []Atom {
 
 // Style is the sheet as a style element, for a page's head.
 func Style(t token.Theme, looks []look.Look) html.Node { html.Style([]html.Attr{}, html.Trust(Sheet(t, looks))) }
+
+// Names is a program's short class names: each atom of the looks it was made from is named by
+// its index in their union (shortName: a, b, …), so a page's class attributes are a few bytes
+// each.
+// Make it once, from every look the program draws; an atom it does not name keeps its long
+// class (Class).
+type Names { of Map[string, string] }
+
+// Long is no short names: every atom keeps its long class.
+func Long() Names { Names{of: Map[string, string]{}} }
+
+// NamesOf is the short names of the atoms of looks.
+func NamesOf(looks []look.Look) Names {
+	let mut of = Map[string, string]{}
+	let all = Union(looks)
+	for i in 0..len(all) {
+		of[key(all[i])] = shortName(i)
+	}
+	Names{of: of}
+}
+
+// shortName is the i-th short name: one of 51 first letters, then digits in base 64.
+func shortName(i int) string {
+	let first = "abcdeghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	let rest = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
+	let mut b = strings.NewBuilder()
+	b.WriteByte(first[i%51])
+	let mut v = i / 51
+	for v > 0 {
+		b.WriteByte(rest[(v-1)%64])
+		v = (v - 1) / 64
+	}
+	b.String()
+}
+
+// nameOf is an atom's class under names n.
+func nameOf(n Names, a Atom) string {
+	match n.of.Get(key(a)) {
+	case Some as s:
+		s.Value
+	case None:
+		Class(a)
+	}
+}
+
+// Named is the class attribute of a box with look l under names n.
+func Named(n Names, l look.Look) string {
+	let mut b = strings.NewBuilder()
+	if l.Marks {
+		b.WriteString(GroupClass)
+	}
+	for a in Atoms(l) {
+		if b.Len() > 0 {
+			b.WriteString(" ")
+		}
+		b.WriteString(nameOf(n, a))
+	}
+	b.String()
+}
+
+// SheetNamed is Sheet with the atoms' classes under names n.
+func SheetNamed(t token.Theme, n Names, looks []look.Look) string {
+	let mut b = strings.NewBuilder()
+	b.WriteString(base)
+	b.WriteString(":root{")
+	b.WriteString(token.Sheet(t))
+	b.WriteString("}")
+	for a in Union(looks) {
+		b.WriteString(ruleAs(a, nameOf(n, a)))
+	}
+	b.String()
+}
+
+// NamesAreDistinct: two atoms never share a short name, and the sheet under the names has a
+// rule for every class a look's box prints under them.
+law NamesAreDistinct(a []look.Decl, b []look.Decl, group bool) {
+	let looks = []look.Look{lookOf(a, b, group, b), lookOf(b, a, !group, a)}
+	let n = NamesOf(looks)
+	let mut seen = Map[string, string]{}
+	let mut ok = true
+	for x in Union(looks) {
+		let c = nameOf(n, x)
+		match seen.Get(c) {
+		case Some as k:
+			ok = ok && k.Value == key(x)
+		case None:
+		}
+		seen[c] = key(x)
+	}
+	let sheet = SheetNamed(token.Default, n, looks)
+	for l in looks {
+		for x in Atoms(l) {
+			ok = ok && strings.Contains(sheet, ruleAs(x, nameOf(n, x))) && strings.Contains(" "+Named(n, l)+" ", " "+nameOf(n, x)+" ")
+		}
+	}
+	ok
+}
 
 // lookOf is a look built from generated declarations: a rest style, a hover overlay that
 // follows the box or its group, and an overlay at a wide viewport. (a law's helper)

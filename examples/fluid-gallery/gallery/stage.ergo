@@ -94,7 +94,7 @@ func join(parts [][]look.Decl) []look.Decl {
 // kitOf resolves the gallery's looks to classes.
 func kitOf() Kit {
 	let ls = chrome()
-	let c = func(i int) string { web.Classes(ls[i]) }
+	let c = func(i int) string { web.Named(names, ls[i]) }
 	Kit{
 		Html:    c(0), Shell: c(1), Main: c(2), Column: c(3),
 		Stage:   c(4), Header: c(5), Tabs: c(6), Tab: c(7), TabOn: c(8), TabText: c(9), Sizer: c(10), TabLabelOn: c(11), TabLabel: c(12),

@@ -71,7 +71,7 @@ func docLooks() []look.Look {
 
 func docKitOf() DocKit {
 	let ls = docLooks()
-	let c = func(i int) string { web.Classes(ls[i]) }
+	let c = func(i int) string { web.Named(names, ls[i]) }
 	DocKit{
 		TitleRow: c(0), Title: c(1), Nav: c(2), NavLink: c(3), Lead: c(4),
 		Install:  c(5), InstallText: c(6), Heading: c(7), InstallLead: c(8),
@@ -89,7 +89,7 @@ let copyControl = look.ControlLook(look.Solid, token.Comfortable, token.Medium, 
 // CopyParts is the copy button's classes and the glyph class, resolved once.
 type CopyParts { Root string, Plate string, Content string, Label string, Glyph string }
 
-let copyParts = CopyParts{Root: web.Classes(copyControl.Root), Plate: web.Classes(copyControl.Plate), Content: web.Classes(copyControl.Content), Label: web.Classes(copyControl.Label), Glyph: web.Classes(glyphLook())}
+let copyParts = CopyParts{Root: web.Named(names, copyControl.Root), Plate: web.Named(names, copyControl.Plate), Content: web.Named(names, copyControl.Content), Label: web.Named(names, copyControl.Label), Glyph: web.Named(names, glyphLook())}
 
 // docColumn is the children of the page's column for doc d: title, installation, sections, API.
 func docColumn(d Doc) []html.Child {

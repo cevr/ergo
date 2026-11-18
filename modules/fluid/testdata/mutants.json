@@ -460,7 +460,7 @@
       "origin": "wf10/fl1 FL1",
       "file": "examples/fluid-gallery/gallery/doc.ergo",
       "from": "markup(g, copyParts.Glyph)",
-      "to": "markup(g, web.Classes(glyphLook()))",
+      "to": "markup(g, web.Named(names, glyphLook()))",
       "rule": "A view resolves a look per render (the page's bytes are the same): ResolvedOncePerLook.",
       "anchor": {
         "tests": [
@@ -485,6 +485,248 @@
       },
       "killers": [
         "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl2-key-dot-unescaped",
+      "origin": "wf10/fl2 FL2",
+      "file": "modules/fluid/part/part.ergo",
+      "from": "if c == '%' || c == '.' || c <= ' '",
+      "to": "if c == '%' || c <= ' '",
+      "rule": "A name's dot is not escaped, so the name \"a.b\" and the path a, b give one key: KeysAreUnique.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl2-nameless-missed",
+      "origin": "wf10/fl2 FL2",
+      "file": "modules/fluid/part/part.ergo",
+      "from": "\t\tif !p.Sem.Hidden && Name[E](n) == \"\" {",
+      "to": "\t\tif false {",
+      "rule": "A press with no name and no text is not reported: EveryControlHasAName.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl2-tab-needs-no-selection",
+      "origin": "wf10/fl2 FL2",
+      "file": "modules/fluid/a11y/rules.ergo",
+      "from": "\tcase part.Tab, part.Choice:\n\t\t[]part.State{part.Selected{Yes: false}}",
+      "to": "\tcase part.Choice:\n\t\t[]part.State{part.Selected{Yes: false}}",
+      "rule": "A tab need not state whether it is selected: RolesHaveRequiredStates.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl2-button-selected",
+      "origin": "wf10/fl2 FL2",
+      "file": "modules/fluid/a11y/rules.ergo",
+      "from": "\t\tcase part.Tab, part.Choice, part.Row, part.GridCell, part.ColumnHeader, part.RowHeader:",
+      "to": "\t\tcase part.Button, part.Tab, part.Choice, part.Row, part.GridCell, part.ColumnHeader, part.RowHeader:",
+      "rule": "aria-selected is allowed on a button: StatesAreSupportedByRole.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl2-native-needs-keys",
+      "origin": "wf10/fl2 FL2",
+      "file": "modules/fluid/a11y/rules.ergo",
+      "from": "\t\tif Keyed(r) && !t.Keyed && !t.Native {",
+      "to": "\t\tif Keyed(r) && !t.Keyed {",
+      "rule": "A native slider is flagged for having no keyboard map of its own: KeyedRolesHaveKeys.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl2-unreachable-ok",
+      "origin": "wf10/fl2 FL2",
+      "file": "modules/fluid/a11y/rules.ergo",
+      "from": "\t\tif Focusable(r) && !reaches(t.Reach) {",
+      "to": "\t\tif false {",
+      "rule": "A button no focus reaches is not flagged: FocusKindIsStated.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl2-named-generic-ok",
+      "origin": "wf10/fl2 FL2",
+      "file": "modules/fluid/a11y/rules.ergo",
+      "from": "\t\tif isRole(r, part.Generic) && t.Name != \"\" {",
+      "to": "\t\tif false {",
+      "rule": "A generic box with a name is not flagged: NamelessRolesHaveNoName.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl2-relation-dangles",
+      "origin": "wf10/fl2 FL2",
+      "file": "modules/fluid/a11y/rules.ergo",
+      "from": "\t\t\tif to != \"\" && keys.Get(to) == None {",
+      "to": "\t\t\tif false {",
+      "rule": "A relation to a dropped key is not flagged: RelationsResolve.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl2-composite-no-stop-ok",
+      "origin": "wf10/fl2 FL2",
+      "file": "modules/fluid/a11y/rules.ergo",
+      "from": "\t\t\tif n != 1 {",
+      "to": "\t\t\tif n > 1 {",
+      "rule": "A tab list no Tab reaches is not flagged: OneTabStopPerComposite.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl2-modal-hides-nothing",
+      "origin": "wf10/fl2 FL2",
+      "file": "modules/fluid/part/part.ergo",
+      "from": "\tlet modal = anyModal[E](kids)\n",
+      "to": "\tlet modal = false\n",
+      "rule": "The page behind a modal layer stays reachable (projector and Of agree, so only this law sees it): ModalHidesTheRest.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl2-link-to-current-state",
+      "origin": "wf10/fl2 FL2",
+      "file": "modules/fluid/web/page.ergo",
+      "from": "\t\tlet next = StateHref(p.Path, p.Step(s, e)) catch {",
+      "to": "\t\tlet next = StateHref(p.Path, s) catch {",
+      "rule": "Every link leads to the current state: LinkIsStep.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl2-disabled-press-links",
+      "origin": "wf10/fl2 FL2",
+      "file": "modules/fluid/web/node.ergo",
+      "from": "\t\tlet dest = if a11yHas(p.Sem.States, part.Disabled) {\n\t\t\tNone\n",
+      "to": "\t\tlet dest = if false {\n\t\t\tNone\n",
+      "rule": "A press stated disabled that still sends is printed as a link: LinkIsStep (the laws' page's disabled tab), and AccessOfWebIsAccessOfPart when a seed draws one.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl2-selected-on-wrong-tab",
+      "origin": "wf10/fl2 FL2",
+      "file": "modules/fluid/web/node.ergo",
+      "from": "\t\t\tout = out.Append(html.Aria(a11y.StateName(st), a11y.StateValue(st)))",
+      "to": "\t\t\tout = out.Append(html.Aria(a11y.StateName(st), if a11y.StateName(st) == \"selected\" { \"false\" } else { a11y.StateValue(st) }))",
+      "rule": "The selected tab's markup says it is not selected (aria-selected on the wrong tab): AccessOfWebIsAccessOfPart.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl2-state-href-other-page",
+      "origin": "wf10/fl2 FL2",
+      "file": "modules/fluid/web/page.ergo",
+      "from": "ui.WithQuery(ui.URL{Path: path, Query: \"\", Fragment: \"\"}, s)",
+      "to": "ui.WithQuery(ui.URL{Path: path + \"/\", Query: \"\", Fragment: \"\"}, s)",
+      "rule": "A state's URL is another page's (the state reads back, the path does not): StateRoundTrips.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl2-short-names-collide",
+      "origin": "wf10/fl2 FL2",
+      "file": "modules/fluid/web/atom.ergo",
+      "from": "\t\tof[key(all[i])] = shortName(i)",
+      "to": "\t\tof[key(all[i])] = shortName(i / 2)",
+      "rule": "Two atoms share a short name, so one rule styles both: NamesAreDistinct.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid",
+          "examples:fluid-gallery"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid",
+        "examples:fluid-gallery"
       ]
     }
   ]
