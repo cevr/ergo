@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000..4327a15
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir.go
-@@ -0,0 +1,290 @@
+@@ -0,0 +1,293 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -141,6 +141,9 @@ index 0000000..4327a15
 +	// tparams are the type parameters of the function being decoded, its
 +	// receiver's then its own (F1): a type spelling names them first.
 +	tparams []*types2.TypeParam
++	// tdef is the call a "tdef" binds, whose several results call
++	// admits (ergoir_tuple.go).
++	tdef *ergoExpr
 +}
 +
 +// ergoAttach gives every function the IR file names its checked body.
@@ -461,13 +464,13 @@ index 0000000..f5d5868
 +
 +// call checks the arguments of a call of fun, whose signature is sig.
 +func (c *ergoChecker) call(x *ergoExpr, fun syntax.Expr, sig *types2.Signature) (syntax.Expr, types2.Type) {
-+	// A package function may return several values, which only a tdef
-+	// binds (ergoir_tuple.go).
++	// A function may return several values, which only a tdef binds
++	// (ergoir_tuple.go): a package call, or the call a tdef holds.
 +	// A variadic Go function takes its last argument spread, f(xs...),
 +	// when the IR's Op says "..." (FLIP F7 FORK-GOLIB): types2's last
 +	// parameter is then the slice.
 +	dots := x.Op == "..." && sig.Variadic()
-+	if sig.Variadic() != dots || sig.Params().Len() != len(x.Args) || !ergoSigOK(sig) && x.K != "pcall" {
++	if sig.Variadic() != dots || sig.Params().Len() != len(x.Args) || !ergoSigOK(sig) && x.K != "pcall" && x != c.tdef {
 +		c.errorf(x.Pos, "ergoir: call of %s with %d arguments", x.Name, len(x.Args))
 +		return nil, nil
 +	}
@@ -3957,7 +3960,7 @@ new file mode 100644
 index 0000000..882ee23
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_tuple.go
-@@ -0,0 +1,111 @@
+@@ -0,0 +1,117 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -3966,9 +3969,10 @@ index 0000000..882ee23
 +//
 +// An Ergo tuple is an unnamed struct, spelled as Go spells it,
 +// "struct{F0 T0; F1 T1}": "lit" builds one and "field" reads one, as for
-+// a named record. "tdef" binds the results of a call of a package
-+// function with several results to locals, in order: l0, l1, … := f(…);
-+// a local of -1 is Go's blank.
++// a named record. "tdef" binds the results of a call with several
++// results (of a function of a package or of this one, a Go method or a
++// function value) to locals, in order: l0, l1, … := f(…); a local of -1
++// is Go's blank.
 +
 +package ergoir
 +
@@ -4024,16 +4028,21 @@ index 0000000..882ee23
 +	return types2.NewStruct(fields, nil)
 +}
 +
++// ergoTdefCall are the call kinds a tdef binds.
++var ergoTdefCall = map[string]bool{"pcall": true, "call": true, "mcall": true, "vcall": true}
++
 +// tupleStmt decodes a "tdef"; ok is false for any other kind.
 +func (c *ergoChecker) tupleStmt(s *ergoStmt) (st syntax.Stmt, ok bool) {
 +	if s.K != "tdef" {
 +		return nil, false
 +	}
-+	if s.X == nil || s.X.K != "pcall" || len(s.Ls) < 2 {
-+		c.errorf(s.Pos, "ergoir: tdef of a value that is not a package call")
++	if s.X == nil || !ergoTdefCall[s.X.K] || len(s.Ls) < 2 {
++		c.errorf(s.Pos, "ergoir: tdef of a value that is not a call")
 +		return nil, true
 +	}
++	c.tdef = s.X
 +	x, t := c.expr(s.X)
++	c.tdef = nil
 +	if x == nil {
 +		return nil, true
 +	}
