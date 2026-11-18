@@ -21,7 +21,7 @@ func (c *checker) hostResourceParam(t Type) bool {
 			return true
 		}
 	}
-	return isHostNamed(t) && asInterface(t) != nil || c.mayHoldResource(t)
+	return isHostNamed(t) && asInterface(t) != nil || c.mayHoldAny(t)
 }
 
 // hostClauses supplies the conservative clause even for an old or edited

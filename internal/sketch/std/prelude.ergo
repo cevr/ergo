@@ -334,7 +334,7 @@ extern go ergo.local/prototype/runtime/v1.Unreachable func Unreachable(reason st
 // Seq[T](f). A Seq value lowers to the one Go shape of every Ergo function
 // value (spec D5); the for adapts it to Go's range over func at the loop,
 // and a std binding that returns Go's iter.Seq[T] adapts at the call.
-type Seq[T] func(yield func(v T) bool)
+type Seq[T own] func(yield func(v T) bool)
 
 // Decision is the result of a machine's step (docs/spec/runtime.md,
 // Machines and actors).
@@ -435,13 +435,13 @@ type Closer {
 // left, a Task's result no Wait took); an Ergo record that keeps values
 // holds them in its fields, which its own release releases (R3).
 // law-exempt: drain takes the value and only the release calls it, so no law can call it or observe it; the keeping rules are the checker's (resources R13, R35).
-type Keeping[T] {
+type Keeping[T own] {
 	own drain() []T,
 }
 
 // Task is a started task: task.Go() { … } yields one
 // (docs/spec/runtime.md, Tasks). E is an error row.
-extern go ergo.local/prototype/runtime/v1.Task type Task[T, E] {
+extern go ergo.local/prototype/runtime/v1.Task type Task[T own, E] {
 	runtimeOnly(),
 	// Wait takes the task: its one result moves out once (#197 q54).
 	// Stop lends it, so a law can say what holds after it.

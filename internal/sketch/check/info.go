@@ -414,25 +414,6 @@ type Info struct {
 	// in Signature.Takes; a function that takes nothing has no key. Added
 	// in L8 A3 (additive).
 	Takes map[*Func][]int
-	// Copies is each generic function's copy sites (#197 L8 A3; plan 1.3;
-	// takes.go): per type parameter of its signature, the first place its
-	// body copies a value of that type (a second use after a hand-off, or a
-	// call of a function that copies it). A call that binds such a type
-	// parameter to a resource is S108. Added in L8 A3 (additive).
-	Copies map[*Func][]CopySite
-}
-
-// CopySite is one place a generic body copies a value of its type
-// parameter TParam (an index into the signature's TParams).
-type CopySite struct {
-	TParam int
-	At     syntax.Node
-	// Where is At as file:line:col; empty for a declaration with no body.
-	Where string
-	// What says how it copies, for the diagnostic: "x is used twice".
-	What string
-	// Key marks a map key (resources R40: S112 at the instantiation).
-	Key bool
 }
 
 // Release is one value a place releases: an owned local or taken
@@ -561,7 +542,6 @@ func newInfo() *Info {
 		Handoffs:       map[*syntax.Ident]*Var{},
 		PatternOwners:  map[*syntax.CaseClause]PatternOwners{},
 		Takes:          map[*Func][]int{},
-		Copies:         map[*Func][]CopySite{},
 	}
 }
 

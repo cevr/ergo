@@ -1371,17 +1371,7 @@
         "check:TestResourceTypeModel"
       ]
     },
-    {
-      "name": "L8-A1 a resource map key admitted",
-      "origin": "wf10 L8 A1 (#197)",
-      "file": "internal/sketch/check/resource.go",
-      "from": "\t\t\tif c.holdsResource(s.t) {",
-      "to": "\t\t\tif false {",
-      "rule": "resources R40: a map key type holds no resource (S112).",
-      "killers": [
-        "check:TestResourceTypeModel"
-      ]
-    },
+    {"name":"L8-A1 a resource map key admitted","origin":"wf10 L8 A1 (#197)","file":"internal/sketch/check/resource.go","from":"\t\t\tif c.mayHoldResource(s.t) {","to":"\t\t\tif false {","rule":"resources R40: a map key type holds no resource (S112).","killers":["check:TestResourceTypeModel"]},
     {
       "name": "L8-A1 a taking operation ignored",
       "origin": "wf10 L8 A1 (#197)",
@@ -1426,17 +1416,7 @@
         "check:TestResourceTypeModel"
       ]
     },
-    {
-      "name": "L8-A1 takes on a crossing parameter admitted silently",
-      "origin": "wf10 L8 A1 (#197)",
-      "file": "internal/sketch/check/resource.go",
-      "from": "\t\tif !c.mayHoldResource(s.t) && !c.pkg.Host() {",
-      "to": "\t\tif false {",
-      "rule": "grammar.md Declarations 13: takes on a parameter whose type crosses is S110.",
-      "killers": [
-        "check:TestResourceTypeModel"
-      ]
-    },
+    {"name":"L8-A1 takes on a crossing parameter admitted silently","origin":"wf10 L8 A1 (#197)","file":"internal/sketch/check/resource.go","from":"\t\tif !c.mayHoldAny(s.t) && !c.pkg.Host() {","to":"\t\tif false {","rule":"grammar.md Declarations 13: takes on a parameter whose type crosses is S110.","killers":["check:TestResourceTypeModel"]},
     {
       "name": "L8-A1 takes naming no parameter admitted",
       "origin": "wf10 L8 A1 (#197)",
@@ -1514,17 +1494,7 @@
         "check:TestOwnershipFlowModel"
       ]
     },
-    {
-      "name": "L8-A2 a written takes call does not move",
-      "origin": "wf10 L8 A2 (#197)",
-      "file": "internal/sketch/check/ownership.go",
-      "from": "\t\t}\n\t}\n\tfor _, i := range takes {\n\t\ttaken[i] = true\n\t}",
-      "to": "\t\t}\n\t}\n\tfor range takes {\n\t}",
-      "rule": "resources R19: a call of a function whose takes clause names a parameter hands the argument off.",
-      "killers": [
-        "check:TestOwnershipFlowModel"
-      ]
-    },
+    {"name":"L8-A2 a written takes call does not move","origin":"wf10 L8 A2 (#197)","file":"internal/sketch/check/ownership.go","from":"\t\ttakes = takesOf(call.Func)\n\t}\n\tfor _, i := range takes {\n\t\ttaken[i] = true\n\t}","to":"\t\ttakes = takesOf(call.Func)\n\t}\n\tfor range takes {\n\t}","rule":"resources R19: a call of a function whose takes clause names a parameter hands the argument off.","killers":["check:TestOwnershipFlowModel"]},
     {
       "name": "L8-A2 a lend counts as a move",
       "origin": "wf10 L8 A2 (#197)",
@@ -1933,29 +1903,8 @@
         "check:TestTakesInferenceModel"
       ]
     },
-    {
-      "name": "L8-A3 a copy site not propagated through a generic callee",
-      "origin": "wf10 L8 A3 (#197)",
-      "file": "internal/sketch/check/takes.go",
-      "from": "\t\t\tw.copySite(t, x, what, s.Key)\n",
-      "to": "\t\t\t_ = what\n",
-      "rule": "plan 1.3: a call that binds a copying callee's type parameter to the caller's is the caller's copy site.",
-      "killers": [
-        "check:TestTakesInferenceModel"
-      ]
-    },
-    {
-      "name": "L8-A3 a copy site reported at a call with plain data",
-      "origin": "wf10 L8 A3 (#197)",
-      "file": "internal/sketch/check/takes.go",
-      "from": "\t\twhere := \"\"\n\t\tif s.Where != \"\" {\n\t\t\twhere = \" at \" + s.Where\n\t\t}\n\t\tswitch {\n\t\tcase w.c.holdsResource(t):",
-      "to": "\t\twhere := \"\"\n\t\tif s.Where != \"\" {\n\t\t\twhere = \" at \" + s.Where\n\t\t}\n\t\tswitch {\n\t\tcase w.c.mayHoldResource(t) || !isInvalid(t):",
-      "rule": "plan 1.3, q56: a crossing type argument is checked as today (dup(1) stays legal).",
-      "killers": [
-        "check:TestTakesInferenceModel"
-      ]
-    },
-    {"name":"L8-A3 a bodiless generic outside the table treated as moving","origin":"wf10 L8 A3 (#197)","file":"internal/sketch/check/takes.go","from":"\t\tif BodyOf(f).MovesOnly {\n\t\t\treturn nil","to":"\t\tif true {\n\t\t\treturn nil","rule":"plan 1.3, D-B: a generic extern copies its type parameters unless runtime/v1 lists it.","killers":["check:TestTakesInferenceModel"]},
+    {"name":"modes5-own-arg-unchecked","origin":"wf10 MODES-5 (EXM2)","file":"internal/sketch/check/resource.go","from":"\t\tif containsInvalid(s.arg) || !c.mayHoldResource(s.arg) || seen[ownershipKey{s.at, s.tp}] {","to":"\t\tif containsInvalid(s.arg) || !c.holdsResource(s.arg) || seen[ownershipKey{s.at, s.tp}] {","rule":"types.md Generics 9: a call that binds a caller's own T to an unmarked callee's T is S108 (the mark propagates through a generic callee).","killers":["check:TestTakesInferenceModel"]},
+    {"name":"modes5-own-extern-unreviewed","origin":"wf10 MODES-5 (EXM2)","file":"internal/sketch/check/takes.go","from":"f.Decl.TypeParams == nil || BodyOf(f).MovesOnly {","to":"f.Decl.TypeParams == nil || true {","rule":"types.md Generics 9: own on an extern's type parameter stands on runtime/v1's MovesOnly review.","killers":["check:TestOwnMarkRows"]},
     {
       "name": "L8-A3 a function with an inferred clause admitted as a value",
       "origin": "wf10 L8 A3 (#197)",
@@ -1967,28 +1916,7 @@
         "check:TestTakesInferenceModel"
       ]
     },
-    {
-      "name": "L8-A3 a type parameter used as a map key is no copy site",
-      "origin": "wf10 L8 A3 (#197)",
-      "file": "internal/sketch/check/takes.go",
-      "from": "\tc.mapKeyCopies()\n",
-      "to": "\n",
-      "rule": "resources R40: a generic that keys a map by its T cannot take a resource; the call is S112.",
-      "killers": [
-        "check:TestTakesInferenceModel"
-      ]
-    },
-    {
-      "name": "L8-A3 a map-key copy site reported as S108, not S112",
-      "origin": "wf10 L8 A3 (#197)",
-      "file": "internal/sketch/check/takes.go",
-      "from": "\t\t\tif s.Key {\n\t\t\t\tw.reportCode(x, \"S112\"",
-      "to": "\t\t\tif false {\n\t\t\t\tw.reportCode(x, \"S112\"",
-      "rule": "resources R40: the instantiation of a map key at a resource is S112 (diagnostics.md).",
-      "killers": [
-        "check:TestTakesInferenceModel"
-      ]
-    },
+    {"name":"modes5-own-key-admitted","origin":"wf10 MODES-5 (EXM2)","file":"internal/sketch/check/resource.go","from":"\t\t\tif c.mayHoldResource(s.t) {","to":"\t\t\tif c.holdsResource(s.t) {","rule":"resources R40, types.md Generics 9: an own T as a map key is S112.","killers":["check:TestTakesInferenceModel"]},
     {
       "name": "L8-A4 a field take does not mark the field",
       "origin": "wf10 L8 A4 (#197)",
@@ -2143,17 +2071,7 @@
         "check:TestCloseFormsTakeOnce"
       ]
     },
-    {
-      "name": "L8-B2 a generic body's dropped T is no copy site",
-      "origin": "wf10 L8 B2 (#197)",
-      "file": "internal/sketch/check/ownership.go",
-      "from": "\t\tif t := w.typ(l); w.copies != nil && w.genericOnly(t) {",
-      "to": "\t\tif t := w.typ(l); false && w.copies != nil && w.genericOnly(t) {",
-      "rule": "resources Gap 42: a generic body cannot release a T yet, so its drop refuses an instance with a resource instead of leaking it.",
-      "killers": [
-        "check:TestGenericDropRefused"
-      ]
-    },
+    {"name":"L8-B2 a generic body's dropped own T admitted","origin":"wf10 L8 B2 (#197)","file":"internal/sketch/check/ownership.go","from":"\t\tif t := w.typ(l); w.genericOnly(t) {","to":"\t\tif t := w.typ(l); false && w.genericOnly(t) {","rule":"resources Gap 42: a generic body cannot release a T yet, so the drop of an own T is refused in the body instead of leaking it.","killers":["check:TestGenericDropRefused"]},
     {
       "name": "L8-B2 a Close through &h takes nothing",
       "origin": "wf10 L8 B2 (#197)",
@@ -2479,27 +2397,24 @@
     {"name":"ps3-hidden-cell-accepted","origin":"wf10 PS3","file":"internal/sketch/check/typeops.go","from":"if h := c.holdsCell(v); h != nil && !c.cellType(t) && !(c.encodeLend && !cell) {","to":"if h := c.holdsCell(v); false && h != nil && !c.cellType(t) && !(c.encodeLend && !cell) {","rule":"A value that holds a cell converts to no other operation type, which would hide the cell from the confinement rules.","killers":["check:TestProviderCellDiagnostics"]},
     {"name":"ps3-cell-skips-r22","origin":"wf10 PS3","file":"internal/sketch/check/typeops.go","from":"if !c.providing && !c.hostLendArg(t) && c.holdsResource(v) && !c.releasable(t) {","to":"if !cell && !c.providing && !c.hostLendArg(t) && c.holdsResource(v) && !c.releasable(t) {","rule":"A cell of a resource converts only to an operation type with Close (R22).","killers":["check:TestProviderCellDiagnostics"]},
     {"name":"ps3-holder-field-unseen","origin":"wf10 PS3","file":"internal/sketch/check/cells.go","from":"\t\tfor _, f := range t.Fields {","to":"\t\tfor _, f := range t.Fields[:0] {","rule":"A record that holds a cell in a field holds the cell.","killers":["check:TestProviderCellConfinementModel"]},
-    {"name":"16a-r5-site-takes-holds","origin":"batch-16a fix r5 M1","file":"internal/sketch/check/resource.go","from":"if c.holdsResource(s.from) && !c.releasable(s.to) {","to":"if c.holdsResource(s.from) && !c.holdsResource(s.to) {","rule":"A resource type argument meets a bound only when the bound has a release (R1, R13): an operation that takes the value releases nothing (R22).","killers":["check:TestOwnershipFlowModel"]},
-    {"name":"16a-r5-copies-takes-holds","origin":"batch-16a fix r5 M1","file":"internal/sketch/check/resource.go","from":"!c.mayHoldResource(s.from) || c.releasable(s.to) {","to":"!c.mayHoldResource(s.from) || c.mayHoldResource(s.to) {","rule":"A type parameter that binds an inner bound with no release (only a taking operation) is a copy site (R22, R44).","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"16a-r5-site-takes-holds","origin":"batch-16a fix r5 M1","file":"internal/sketch/check/resource.go","from":"\t\tif c.mayHoldResource(s.from) && !c.releasable(s.to) {","to":"\t\tif c.mayHoldResource(s.from) && !c.mayHoldResource(s.to) {","rule":"A resource type argument meets a bound only when the bound has a release (R1, R13): an operation that takes the value releases nothing (R22).","killers":["check:TestOwnershipFlowModel"]},
     {"name":"16a-r5-conversion-takes-holds","origin":"batch-16a fix r5 M1","file":"internal/sketch/check/typeops.go","from":"c.holdsResource(v) && !c.releasable(t) {","to":"c.holdsResource(v) && !c.holdsResource(t) {","rule":"A resource converted to an operation type with no release is R22's refusal, the same predicate as at an instantiation (R1, R13, R22).","killers":["check:TestOwnershipFlowModel"]},
     {"name":"16a-r4-bound-site-dropped","origin":"batch-16a fix r4 M1","file":"internal/sketch/check/resource.go","from":"c.addOwnershipSite(ownershipSite{file: c.cur, at: at, name: name, tp: tp, from: targs[i], to: cons})","to":"_ = cons","rule":"Every instantiation records its type arguments bound by an operation type, for R22 at the instantiation (R22, R44).","killers":["check:TestOwnershipFlowModel"]},
-    {"name":"16a-r4-bound-concrete-skipped","origin":"batch-16a fix r4 M1","file":"internal/sketch/check/resource.go","from":"if c.holdsResource(s.from) && !c.releasable(s.to) {","to":"if false && c.holdsResource(s.from) && !c.releasable(s.to) {","rule":"A resource type argument for a type parameter bound by an operation type without Close is S108 with R22's text (R22).","killers":["check:TestOwnershipFlowModel"]},
-    {"name":"16a-r4-bound-close-ignored","origin":"batch-16a fix r4 M1","file":"internal/sketch/check/resource.go","from":"if c.holdsResource(s.from) && !c.releasable(s.to) {","to":"if c.holdsResource(s.from) {","rule":"A bound with Close admits a resource type argument (R22, R23).","killers":["check:TestOwnershipFlowModel"]},
-    {"name":"16a-r4-copies-close-ignored","origin":"batch-16a fix r4 M1","file":"internal/sketch/check/resource.go","from":"!c.mayHoldResource(s.from) || c.releasable(s.to) {","to":"!c.mayHoldResource(s.from) || false {","rule":"A type parameter bound with Close that binds an inner bound with Close is no copy site (R22, R44).","killers":["check:TestOwnershipFlowModel"]},
-    {"name":"16a-r4-copies-dropped","origin":"batch-16a fix r4 M1","file":"internal/sketch/check/resource.go","from":"if f := owner[tp]; f != nil {","to":"if f := owner[tp]; false && f != nil {","rule":"A type argument or conversion that is a resource only through the enclosing function's type parameter is that parameter's copy site (R22, R44).","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"16a-r4-bound-concrete-skipped","origin":"batch-16a fix r4 M1","file":"internal/sketch/check/resource.go","from":"\t\tif c.mayHoldResource(s.from) && !c.releasable(s.to) {","to":"\t\tif false && c.mayHoldResource(s.from) && !c.releasable(s.to) {","rule":"A resource type argument for a type parameter bound by an operation type without Close is S108 with R22's text (R22).","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"16a-r4-bound-close-ignored","origin":"batch-16a fix r4 M1","file":"internal/sketch/check/resource.go","from":"\t\tif c.mayHoldResource(s.from) && !c.releasable(s.to) {","to":"\t\tif c.mayHoldResource(s.from) {","rule":"A bound with Close admits a resource type argument (R22, R23).","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"16a-r4-copies-dropped","origin":"batch-16a fix r4 M1","file":"internal/sketch/check/resource.go","from":"\t\t\tif s.tp == nil {\n\t\t\t\tc.errorf(s.at, CodeType, \"%s; its type parameter is marked own","to":"\t\t\tif s.tp == nil {\n\t\t\t\tcontinue\n\t\t\t\tc.errorf(s.at, CodeType, \"%s; its type parameter is marked own","rule":"A value of an own type parameter converted in a generic body to an operation type without Close is refused there (R22, R44; Generics 9).","killers":["check:TestOwnershipFlowModel"]},
     {"name":"16a-r4-conversion-site-dropped","origin":"batch-16a fix r4 M1","file":"internal/sketch/check/expr.go","from":"c.recordConversion(op.expr, op.typ, t)","to":"_ = t","rule":"A generic body that converts a value of its type parameter to an operation type without Close makes a copy site (R22, R44).","killers":["check:TestOwnershipFlowModel"]},
-    {"name":"16a-r4-value-instance-dropped","origin":"batch-16a fix r4 M1","file":"internal/sketch/check/takes.go","from":"\t\tw.instance(x, inst.Func, inst.TypeArgs)","to":"\t\t_ = inst","rule":"A generic function value checks the copy sites of its instance as a call does (R44).","killers":["check:TestOwnershipFlowModel"]},
     {"name":"16b-m2-sealed-conversion","origin":"batch-16b merge of 16a-r5 (orchestrator ruling 2026-11-11: C28's sealed-source refusal removed)","file":"internal/sketch/check/typeops.go","from":"if sealedStdOps(v) && !sealedStdOps(t) && !isHostNamed(t) {","to":"if false && sealedStdOps(v) && !sealedStdOps(t) && !isHostNamed(t) {","rule":"A sealed std protocol's value converts to an operation type its members satisfy through an operations conversion, which the lowering builds from the std operations (no Go assignment of the runtime type).","killers":["lower:TestSealedStdConvertsToItsOperationTypes"]},
     {"name":"16a-r3-spread-drops-reversed","origin":"batch-16a fix r3 (verifier 16a r3 v3-spread-drops-reversed)","file":"internal/sketch/check/ownership.go","from":"\tfor _, f := range bs.Fields {\n\t\tif !seen[f] {\n\t\t\tadd(f, x.Base.Pos())","to":"\tfor i := range bs.Fields {\n\t\tf := bs.Fields[len(bs.Fields)-1-i]\n\t\tif !seen[f] {\n\t\t\tadd(f, x.Base.Pos())","rule":"The fields a spread drops are released in declaration order (R43).","killers":["lower:TestOwnershipRunModel"]},
     {"name":"16a-r3-generic-method-value","origin":"batch-16a fix r3 M1","file":"internal/sketch/check/ownership.go","from":"\t\t\tif generic {\n\t\t\t\tif w.st.reached {","to":"\t\t\tif generic {\n\t\t\t\tif false {","rule":"In a generic body, a method value of an operation on a value that is a resource only through a type parameter (q.Values on Queue[T]) is a copy site of that parameter (R19, R35, R44).","killers":["check:TestOwnershipFlowModel"]},
-    {"name":"16a-r3-values-copysite-dropped","origin":"batch-16a fix r3 (verifier 16a r3 v3-values-copysite-dropped)","file":"internal/sketch/check/ownership.go","from":"w.copySite(elem, x, fmt.Sprintf(\"%s yields owned values of %s outside a for-in\", text, elem), false)","to":"_ = text","rule":"A generic body that keeps or passes a Queue[T]'s Values() is a copy site of T (R35, R44).","killers":["check:TestOwnershipFlowModel"]},
+    {"name":"16a-r3-values-copysite-dropped","origin":"batch-16a fix r3 (verifier 16a r3 v3-values-copysite-dropped)","file":"internal/sketch/check/ownership.go","from":"w.ownSite(elem, x, fmt.Sprintf(\"%s yields owned values of %s outside a for-in\", text, elem))","to":"_ = text","rule":"A generic body that keeps or passes a Queue[T]'s Values() with T own is refused there (R35, R44; Generics 9).","killers":["check:TestOwnershipFlowModel"]},
     {"name":"lr1-const-as-passthrough","origin":"wf10 LR1","file":"internal/sketch/check/rewrite.go","from":"\t\t\t\t\t\t\trw.Const[i] = true","to":"\t\t\t\t\t\t\t_ = i","rule":"A parameter a rewrite's right side computes with is constant at a site, so it may pass bare more than once (types.md, Laws 14).","killers":["lower:TestRewriteLawVerdicts"]},
     {"name":"lr1-linearity-unchecked","origin":"wf10 LR1","file":"internal/sketch/check/rewrite.go","from":"\t\t\tif passed[a.Param] {","to":"\t\t\tif false && passed[a.Param] {","rule":"A pass-through parameter of a rewrite law is a bare right argument at most once (Laws 14).","killers":["check:TestRewriteLawShapes"]},
     {"name":"lr1-rows-unchecked","origin":"wf10 LR1","file":"internal/sketch/check/rewrite.go","from":"\tif !lhsRow.equal(c.types, rhsRow) {","to":"\tif false && !lhsRow.equal(c.types, rhsRow) {","rule":"A rewrite law's sides fail with the same row (Laws 14).","killers":["check:TestRewriteLawShapes"]},
     {"name":"lr1-cycle-unchecked","origin":"wf10 LR1","file":"internal/sketch/check/rewrite.go","from":"\t\t\tif cycle {","to":"\t\t\tif false && cycle {","rule":"An unfold law that unfolds into itself is S108 (Laws 14).","killers":["check:TestRewriteLawShapes"]},
     {"name":"std1a-refined-exit-field","origin":"STD1a","file":"internal/sketch/std/os/os.ergo","from":"type Exit { Code Code, Message string }","to":"type Exit { Code int, Message string }","rule":"Exit's Code field accepts only values of its refined failure-status type.","killers":["check:TestExitCodeIsRefined"],"anchor":{"tests":["check:TestExitCodeIsRefined"]}},
-    {"name":"std1a-seal-task","origin":"STD1a","file":"internal/sketch/std/prelude.ergo","from":"type Task[T, E] {\n\truntimeOnly(),","to":"type Task[T, E] {","rule":"A runtime Task cannot be forged by a program provider.","killers":["check:TestSealingIsTheVisibilityRule"],"anchor":{"tests":["check:TestSealingIsTheVisibilityRule"]}},
-    {"name":"std1a-seal-queue","origin":"STD1a","file":"internal/sketch/std/queue/queue.ergo","from":"type Queue[T] {\n\truntimeOnly(),","to":"type Queue[T] {","rule":"A runtime Queue declares its seal.","killers":["check:TestSealingIsTheVisibilityRule"],"anchor":{"tests":["check:TestSealingIsTheVisibilityRule"]}},
+    {"name":"std1a-seal-task","origin":"STD1a","file":"internal/sketch/std/prelude.ergo","from":"type Task[T own, E] {\n\truntimeOnly(),","to":"type Task[T own, E] {","rule":"A runtime Task cannot be forged by a program provider.","killers":["check:TestSealingIsTheVisibilityRule"],"anchor":{"tests":["check:TestSealingIsTheVisibilityRule"]}},
+    {"name":"std1a-seal-queue","origin":"STD1a","file":"internal/sketch/std/queue/queue.ergo","from":"type Queue[T own] {\n\truntimeOnly(),","to":"type Queue[T own] {","rule":"A runtime Queue declares its seal.","killers":["check:TestSealingIsTheVisibilityRule"],"anchor":{"tests":["check:TestSealingIsTheVisibilityRule"]}},
     {"name":"rc4b-refine-strict-bound","origin":"wf10 RC4b","file":"internal/sketch/derive/bundle.go","from":"\"type %s %s where %d <= %s && %s <= %d\\n\"","to":"\"type %s %s where %d < %s && %s <= %d\\n\"","rule":"Refine(Of[B](), lo, hi) derives exactly `type N B where lo <= it && it <= hi` (patterns.md, Coherence 1).","killers":["check:TestDeriveModel"]},
     {"name":"rc4b-shadow-ignored","origin":"wf10 RC4b","file":"internal/sketch/derive/eval.go","from":"\t\tif f.pkg.names[fun.Name] || f.pkg.imported(f.file, fun.Name) {\n","to":"\t\tif f.pkg.imported(f.file, fun.Name) {\n","rule":"A declaration in scope hides a predeclared constructor of the same name; calls key on values, never names (patterns.md, Derivation 6).","killers":["check:TestDeriveModel"]},
     {"name":"rc4b-step-budget-off","origin":"wf10 RC4b","file":"internal/sketch/derive/eval.go","from":"\tif *what > limit {\n","to":"\tif *what >= limit {\n","rule":"A derive may take exactly its step and depth budgets and stops past them (patterns.md, Budgets 1).","killers":["check:TestDeriveModel"]},
@@ -3231,6 +3146,12 @@
     {"name":"modes4-ptr-implements-read-op","origin":"wf10 SIMPLIFY MODES-4","file":"internal/sketch/check/typeops.go","from":"\t\tcase fn != nil && fn.Ptr && declared != nil && !m.Sig.MutSelf:","to":"\t\tcase false:","rule":"At a constraint a function on mut T implements only a mut operation (types.md, Generics 2; MODES-4).","killers":["check:TestModeDeclarations"]},
     {"name":"modes4-tparam-binds-borrow","origin":"wf10 SIMPLIFY MODES-4","file":"internal/sketch/check/borrowconv.go","from":"\t\treturn inst, inst.Func.Sig.TParams[i], a, \"a type parameter binds no borrow\"","to":"\t\tcontinue","rule":"A type parameter binds no borrow (types.md, Borrows 7; MODES-4).","killers":["check:TestBorrowConvModel","check:TestModeDeclarations"]},
     {"name":"modes4-clause-admits-mut-fn","origin":"wf10 SIMPLIFY MODES-4 r2","file":"internal/sketch/check/implements.go","from":"\t\t\tif why := c.implementsAt(&Pointer{Elem: self}, it, checkReceiver, &foreign, op); why != \"\" {","to":"\t\t\tif why := c.implementsAt(&Pointer{Elem: self}, it, checkReceiver, &foreign, nil); why != \"\" {","rule":"At an implements clause a function on mut T implements only a mut operation (types.md, Generics 2; report CSX §7 EXM3).","killers":["check:TestModeDeclarations"]},
-    {"name":"modes4-host-iface-mut-rule","origin":"wf10 SIMPLIFY MODES-4 r2","file":"internal/sketch/check/typeops.go","from":"\tif declared != nil && isHostNamed(declared) {\n\t\tdeclared = nil\n\t}","to":"\tif false && declared != nil && isHostNamed(declared) {\n\t\tdeclared = nil\n\t}","rule":"A Go interface spells no mut: at its implements clause a function on mut T provides its operation by the conversion rule (types.md, Generics 2).","killers":["lower:TestValuesIntoGoInterfaces"]}
+    {"name":"modes4-host-iface-mut-rule","origin":"wf10 SIMPLIFY MODES-4 r2","file":"internal/sketch/check/typeops.go","from":"\tif declared != nil && isHostNamed(declared) {\n\t\tdeclared = nil\n\t}","to":"\tif false && declared != nil && isHostNamed(declared) {\n\t\tdeclared = nil\n\t}","rule":"A Go interface spells no mut: at its implements clause a function on mut T provides its operation by the conversion rule (types.md, Generics 2).","killers":["lower:TestValuesIntoGoInterfaces"]},
+    {"name":"modes5-unmarked-admits-resource","origin":"wf10 MODES-5 (EXM2)","file":"internal/sketch/check/resource.go","from":"\t\tif c.recordOwnLegacy(s.tp) {\n\t\t\tcontinue // ergo fix","to":"\t\tif true || c.recordOwnLegacy(s.tp) {\n\t\t\tcontinue // ergo fix","rule":"types.md Generics 9: a resource bound to an unmarked type parameter is S108 at the instantiation.","killers":["check:TestTakesInferenceModel","check:TestOwnershipFlowModel"]},
+    {"name":"modes5-own-copy-admitted","origin":"wf10 MODES-5 (EXM2)","file":"internal/sketch/check/takes.go","from":"\tif len(names) == 0 || !w.c.mayHoldResource(t) {","to":"\tif true {","rule":"types.md Generics 9: a marked body that copies its T is S108 at the copy.","killers":["check:TestTakesInferenceModel"]},
+    {"name":"modes5-type-mark-unrequired","origin":"wf10 MODES-5 (EXM2)","file":"internal/sketch/check/resource.go","from":"\tq, ok := s.arg.(*TypeParam)\n\tif !ok ||","to":"\tq, ok := s.arg.(*TypeParam)\n\tif true || !ok ||","rule":"types.md Generics 9: a generic type's mark is required of its functions (a method of the type does not ignore it).","killers":["check:TestOwnMarkRows"]},
+    {"name":"modes5-own-row-admitted","origin":"wf10 MODES-5 (EXM2)","file":"internal/sketch/check/decl.go","from":"if tp.Name == name.Name && tp.Kind != KindType {","to":"if tp.Name == name.Name && tp.Kind != KindType && false {","rule":"types.md Generics 9: a row parameter takes no own mark.","killers":["check:TestOwnMarkRows"]},
+    {"name":"modes5-language-type-marked","origin":"wf10 MODES-5 (EXM2)","file":"internal/sketch/check/resource.go","from":"func languageParam(tp *TypeParam) bool { return tp.lang }","to":"func languageParam(tp *TypeParam) bool { return false }","rule":"types.md Generics 9: Option, Some and go.Ref admit a resource with no mark.","killers":["check:TestLevel2AdapterRelation"]},
+    {"name":"modes5-own-mark-unread","origin":"wf10 MODES-5 (EXM2)","file":"internal/sketch/check/decl.go","from":"Own: field.Own != nil, id: newID()}\n\t\t\t\tc.noteOwner(tp, f.Name)","to":"Own: false, id: newID()}\n\t\t\t\tc.noteOwner(tp, f.Name)","rule":"types.md Generics 9: [T own] marks the type parameter.","killers":["check:TestTakesInferenceModel"]}
   ]
 }

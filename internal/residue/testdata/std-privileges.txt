@@ -33,6 +33,7 @@ language	internal/rpcgen/rpcgen.go:pairOf	Wire, the codec's conversion protocol	
 language	internal/sketch/check/authority.go:authorityText	a prelude constructor is named unqualified in a diagnostic	-
 language	internal/sketch/check/authority.go:isAmbient	Ambient, the host authority	-
 language	internal/sketch/check/call.go:checker.preludeOp	a prelude operation reached by the dot form	-
+language	internal/sketch/check/decl.go:checker.resolveNamed	Option and Some, language types whose T admits a resource with no own mark (types.md, Generics 9)	-
 language	internal/sketch/check/call.go:isUnreachable	Unreachable	-
 language	internal/sketch/check/close.go:checker.closeFacts	Close, the release operation	-
 language	internal/sketch/check/close.go:checker.closeTakes	Close, the release operation	-

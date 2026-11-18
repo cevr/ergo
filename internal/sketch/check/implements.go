@@ -577,6 +577,13 @@ type LegacyPair struct {
 	// rule admitted through [T lent C]: the fix writes mut before it
 	// (MODES-4). Op is nil then.
 	MutOp string
+	// Own, with Site "own", is a type parameter that a resource binds,
+	// which the old copy-site inference admitted: the fix writes own after
+	// it, [T own] (MODES-5). Decl names its declaration (a function or a
+	// type, Type nil), and At is its offset in the declaring file.
+	Own  string
+	Decl string
+	At   int
 }
 
 // legacyRecord, when set, records each pair the old rule admits (ergo
@@ -644,6 +651,30 @@ func (c *checker) recordMutOp(t Type, op string) bool {
 		return false
 	}
 	legacyRecord(LegacyPair{Type: o.Obj, Pkg: o.Obj.Pkg.Path, Site: "mut", MutOp: op})
+	return true
+}
+
+// tpOwner is each type parameter's declaration while a recorder is set:
+// its package's path and its name (MODES-5).
+var tpOwner = map[*TypeParam][2]string{}
+
+// noteOwner records tp's declaration for ergo fix.
+func (c *checker) noteOwner(tp *TypeParam, decl string) {
+	if legacyRecord != nil && c.pkg != nil {
+		tpOwner[tp] = [2]string{c.pkg.Path, decl}
+	}
+}
+
+// recordOwnLegacy records, for ergo fix, a type parameter without the own
+// mark that a resource binds: the old copy-site inference admitted the
+// instance (a clean program had no other kind), and the fix writes the
+// mark. It reports whether it recorded, so the check goes on.
+func (c *checker) recordOwnLegacy(tp *TypeParam) bool {
+	o, ok := tpOwner[tp]
+	if legacyRecord == nil || !ok || o[0] == "" {
+		return false
+	}
+	legacyRecord(LegacyPair{Pkg: o[0], Site: "own", Own: tp.Name, Decl: o[1], At: int(tp.Pos)})
 	return true
 }
 
@@ -763,6 +794,9 @@ func (c *checker) recordLegacyReleases() {
 
 // String prints a pair for ergo fix's report.
 func (p LegacyPair) String() string {
+	if p.Own != "" {
+		return fmt.Sprintf("%s.%s marks %s own (%s)", p.Pkg, p.Decl, p.Own, p.Site)
+	}
 	if p.MutOp != "" {
 		return fmt.Sprintf("%s.%s marks %s mut (%s)", p.Pkg, p.Type.Name, p.MutOp, p.Site)
 	}

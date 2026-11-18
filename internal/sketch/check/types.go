@@ -320,7 +320,13 @@ type TypeParam struct {
 	// must see the argument's value type there, so the lowering makes it a
 	// Go type parameter constrained by error: one error type when its row
 	// has one element, error otherwise (types.md, Generics 6 and 8).
-	Slot     bool
+	Slot bool
+	// Own is the mark own, [T own]: a resource may bind the parameter,
+	// and the declaration's body is held to it, as to a resource's
+	// value (types.md, Generics 9; EXM2). A parameter without it binds
+	// plain data only.
+	Own      bool
+	lang     bool // a parameter of Option or Some, which admits a resource unmarked
 	conflict bool // a kind conflict, already reported: resolves to nothing
 	id       int
 }

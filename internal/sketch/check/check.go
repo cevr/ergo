@@ -274,9 +274,10 @@ type checker struct {
 	// which reads a literal's kind as the walk does: an operation count for the
 	// linear-growth tests (round 17 M2).
 	walkOps int
-	// resMemo caches holdsResource (0) and mayHoldResource (1) by interned
-	// type id; resSteps counts the walk's visits (resource.go).
-	resMemo  [2]map[int32]bool
+	// resMemo caches holdsResource, mayHoldResource and mayHoldAny (the
+	// walk's modes) by interned type id; resSteps counts the walk's visits
+	// (resource.go).
+	resMemo  [3]map[int32]bool
 	resSteps int
 	// ownSteps counts the ownership pass's work: nodes visited and state
 	// slots copied or joined (ownership.go), for the growth guard.
@@ -311,6 +312,9 @@ type checker struct {
 	// resourceSites are the map keys and taken parameters A1's late pass
 	// decides (resource.go); the seen sets keep one site per syntax node.
 	resourceSites []resourceSite
+	// ownMarkSites are the type arguments the late own-mark check decides
+	// (resource.go, checkOwnMarks; types.md, Generics 9).
+	ownMarkSites []ownMarkSite
 	// ownershipSites are the places a value meets an operation type
 	// without Close (R22): a type argument bound by one, and a conversion
 	// in a generic body; ownershipSeen keeps one site per node and type
@@ -752,7 +756,8 @@ func universe() *Scope {
 		// collection: an opaque handle, never nil (owner q32, q38;
 		// docs/spec/interop.md). Ergo's own *T stays a borrow.
 		ref := &TypeName{Name: "Ref", Pkg: goPkg, id: newID()}
-		refT := &TypeParam{Name: "T", id: newID()}
+		// A language type: its T admits a resource with no mark (Generics 9).
+		refT := &TypeParam{Name: "T", lang: true, id: newID()}
 		ref.Type = &Named{Obj: ref, TParams: []*TypeParam{refT}, under: &Pointer{Elem: refT}, state: 2}
 		goPkg.Scope.insert("Ref", ref)
 		universeOnce.ref = ref.Type.(*Named)

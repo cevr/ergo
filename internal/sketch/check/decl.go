@@ -912,11 +912,15 @@ func (c *checker) resolveNamed(n *Named) {
 	ctx := &typeCtx{params: map[string]*TypeParam{}, decl: true}
 	if d.TypeParams != nil {
 		kinds, conflicts := c.bracketKinds(n.Obj)
+		// Option and Some are language types: their T admits a resource
+		// with no mark (types.md, Generics 9).
+		lang := c.pkg.Path == std.PreludePath && (n.Obj.Name == "Option" || n.Obj.Name == "Some")
 		for _, field := range d.TypeParams.List {
 			cons := c.constraintExpr(field)
 			for _, name := range field.Names {
 				c.preludeName(name) // D-D3; the parameter still binds
-				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), id: newID()}
+				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), Own: field.Own != nil, lang: lang, id: newID()}
+				c.noteOwner(tp, n.Obj.Name)
 				c.def(name, tp)
 				switch {
 				case cons != nil:
@@ -934,6 +938,7 @@ func (c *checker) resolveNamed(n *Named) {
 				n.TParams = append(n.TParams, tp)
 			}
 		}
+		c.ownRowParams(d.TypeParams, n.TParams)
 	}
 	restore := c.monoOwner(n.TParams)
 	defer restore()
@@ -1703,6 +1708,7 @@ func (c *checker) instantiateExprs(n *Named, args []syntax.Expr, at syntax.Node,
 		targs[i] = t
 	}
 	c.recordInstantiation(n.Obj.Name, n.TParams, targs, at)
+	c.recordTypeMark(n, targs, at)
 	inst := c.instantiate(n, targs)
 	if len(args) > 0 && !c.scriptWritten(inst, args[0]) {
 		return invalid
@@ -2318,7 +2324,8 @@ func (c *checker) funcSig(f *Func) *Signature {
 			cons := c.constraintExpr(field)
 			for _, name := range field.Names {
 				c.preludeName(name) // D-D3; the parameter still binds
-				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), id: newID()}
+				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), Own: field.Own != nil, id: newID()}
+				c.noteOwner(tp, f.Name)
 				c.def(name, tp)
 				switch {
 				case cons != nil:
@@ -2345,6 +2352,7 @@ func (c *checker) funcSig(f *Func) *Signature {
 		p.tp.Constraint = c.constraint(p.x, ctx)
 	}
 	c.kindBracketParams(d.Type, ctx, unconstrained)
+	c.ownRowParams(d.TypeParams, tparams)
 	c.monoLinkSelf(f, ctx)
 	nbracket := len(tparams)
 	c.mono.owner = owner
@@ -2361,6 +2369,9 @@ func (c *checker) funcSig(f *Func) *Signature {
 	c.closeTakes(f)
 	if c.pkg.Host() && d.Extern != nil {
 		c.hostClauses(d.Extern.Target.Value, sig, d)
+	}
+	if d.Extern != nil && !c.pkg.Host() {
+		c.ownExternReviewed(f)
 	}
 	if d.Body == nil {
 		// A bodiless (extern) function's parameters are declared here; a
@@ -2379,6 +2390,26 @@ func (c *checker) funcSig(f *Func) *Signature {
 		sig.Uses = c.types.row(f.useVar)
 	}
 	return sig
+}
+
+// ownRowParams refuses own on a bracket parameter that is a row: the mark
+// says what a type parameter's values may hold (types.md, Generics 9).
+func (c *checker) ownRowParams(l *syntax.FieldList, tparams []*TypeParam) {
+	if l == nil {
+		return
+	}
+	for _, field := range l.List {
+		if field.Own == nil {
+			continue
+		}
+		for _, name := range field.Names {
+			for _, tp := range tparams {
+				if tp.Name == name.Name && tp.Kind != KindType {
+					c.errorIn(field, field.Own.At, field.Own.At+3, CodeType, "own marks a type parameter that a resource may bind, and %s is a row (types.md, Generics 9)", name.Name)
+				}
+			}
+		}
+	}
 }
 
 // kindBracketParams gives each unconstrained bracket parameter of a

@@ -131,16 +131,6 @@ func inspectAPICommand(args []string) error {
 			return refuseUnchecked(l, opts)
 		}
 		fs := api.Functions(l.analysis.Root().Package)
-		// A single-file check has no file name in the syntax snapshot.
-		if !isPackageFolder(path) {
-			for i := range fs {
-				for j := range fs[i].Copies {
-					if fs[i].Copies[j].Where != "" {
-						fs[i].Copies[j].Where = path + ":" + fs[i].Copies[j].Where
-					}
-				}
-			}
-		}
 		views = append(views, fs)
 	}
 	var text string
