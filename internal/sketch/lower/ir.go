@@ -435,6 +435,9 @@ type irBuilder struct {
 	// loop and their fold loop (ir_collectfold.go).
 	folds map[*syntax.RangeStmt]*foldPlan
 	ops   *irOpBody // the body's known capability providers (ir_forms_op.go)
+	// fuse is the fused match whose callee body is being built: its
+	// results jump to the match's arms (ir_forms_match.go).
+	fuse *fuseSite
 }
 
 // gate stops the body for reason; a census records it and goes on.

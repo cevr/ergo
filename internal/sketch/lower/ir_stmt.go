@@ -134,6 +134,9 @@ type yieldTo struct {
 	// local is -1 when the with has no value.
 	fails bool
 	err   int
+	// fuse marks a fused callee's results (ir_forms_match.go): each is a
+	// jump to the arm its variant reaches.
+	fuse bool
 }
 
 // yield is s in result position: its value is returned, or put in to.
@@ -153,6 +156,12 @@ func (b *irBuilder) yield(s syntax.Stmt, to *yieldTo) []*irStmt {
 				}
 				return b.matchStmt(m, true, to) // ir_match.go: each arm yields
 			}
+		}
+		if to != nil && to.fuse {
+			if _, ok := b.isWith(s.X); ok && !conv {
+				irNo("with in a fused body")
+			}
+			return b.fuseTail(s.X, p) // ir_forms_match.go
 		}
 		if w, ok := b.isWith(s.X); ok && !conv {
 			return b.withStmt(w, true, to) // ir_with.go: the block's tail yields
@@ -386,6 +395,9 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		return append(pre, &irStmt{K: "set", Pos: b.pos(s, s.Pos()), Local: i, X: x, Op: op})
 	case *syntax.ReturnStmt:
 		p := b.pos(s, s.Pos())
+		if b.fuse != nil && len(s.Results) == 1 {
+			return b.fuseTail(s.Results[0], p) // ir_forms_match.go: a fused callee's return
+		}
 		if len(s.Results) == 0 {
 			return b.ret(nil, p) // ir_fail.go
 		}
