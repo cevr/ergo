@@ -139,9 +139,14 @@ func Counts[S, E, D, F](h *TestHost[S, E, D, F]) StepCounts { h.step }
 // Tap presses the node id. A tap is a pointer's press and release on it,
 // so it ends any capture (FK12-g1), as a window's click on a button does,
 // and the pointer stays over it (UG3): a Down and an Up at its top left
-// corner, then the press, as the desktop host sends them.
+// corner, then the press, as the desktop host sends them. Over a node a
+// layer's scrim covers, the click lands on the scrim: no press (UG4).
 func Tap[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E]) fails actor.Stopped | BadPatch {
 	h.captured = None
+	if Shielded(&h.session.frame, id) {
+		try scrimClick(h)
+		return
+	}
 	try point(h, id, None, PointerEvent{Phase: Down, X: 0, Y: 0, Zone: None})
 	try point(h, id, None, PointerEvent{Phase: Up, X: 0, Y: 0, Zone: None})
 	try apply(h, Press[E]{Id: id})
@@ -151,8 +156,12 @@ func Tap[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E]) fails actor.S
 // pointer stays over it (UG3).
 func TypeText[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E], text string) fails actor.Stopped | BadPatch {
 	// A click on the node first, as a window's typing into a field does:
-	// the pointer stays over it (UG3).
+	// the pointer stays over it (UG3), or lands on a scrim (UG4).
 	h.captured = None
+	if Shielded(&h.session.frame, id) {
+		try scrimClick(h)
+		return
+	}
 	try point(h, id, None, PointerEvent{Phase: Down, X: 0, Y: 0, Zone: None})
 	try point(h, id, None, PointerEvent{Phase: Up, X: 0, Y: 0, Zone: None})
 	try apply(h, Type[E]{Id: id, Text: text})
@@ -284,6 +293,20 @@ func PointAt[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E], p Pointer
 	try point(h, id, None, p)
 }
 
+// scrimClick is a click on a layer's scrim: a Down and an Up on the root,
+// as the desktop host sends them (UG4).
+func scrimClick[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
+	let r = SessionRoot(&h.session)
+	try point(h, r, None, PointerEvent{Phase: Down, X: 0, Y: 0, Zone: None})
+	try point(h, r, None, PointerEvent{Phase: Up, X: 0, Y: 0, Zone: None})
+}
+
+// KidsAt is the node id's children on the test host, in order (UG4).
+func KidsAt[S, E, D, F](h *TestHost[S, E, D, F], id Id[E]) []Id[E] { Kids(&h.session.frame, id) }
+
+// LayersOf is the test host's layers, the bottom first (UG4).
+func LayersOf[S, E, D, F](h *TestHost[S, E, D, F]) []Id[E] { Layers(&h.session.frame) }
+
 // PointOver sends a pointer event to the Area id over the zone zone, whose
 // box in the Area's box is box (the host's hit test of the topmost zone
 // under the pointer). Capture holds as for PointAt.
@@ -312,7 +335,8 @@ func Announced[S, E, D, F](h *TestHost[S, E, D, F]) []string { h.said }
 // pointer, if one does and the tree still holds it; a Down makes the
 // Area it goes to hold the pointer, and an Up lets go.
 func point[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E], over Option[ZoneBox[E]], p PointerEvent) fails actor.Stopped | BadPatch {
-	let mut to = id
+	// Over a node a scrim covers, the pointer is over the scrim (UG4).
+	let mut to = if Shielded(&h.session.frame, id) { SessionRoot(&h.session) } else { id }
 	match Captured(h) {
 	case Some[Id[E]] as c:
 		to = c.Value
@@ -798,6 +822,31 @@ func nodeText[E](n Node[E]) string {
 		"transition \(keyText(x.Key)) \(motionText(x.Motion)) \(x.T)"
 	case SemanticNode[E] as x:
 		"\(roleText(x.Access.Role)) \"\(x.Access.Name)\""
+	case LayerNode[E] as x:
+		let mut out = "layer \(zText(x.Z))"
+		match x.Anchor {
+		case Some[Key] as k:
+			out = out + " at \(keyText(k.Value))"
+		case None:
+		}
+		if x.Scrim {
+			out = out + " scrim"
+		}
+		out
+	}
+}
+
+// zText is a layer's kind as the screenshot names it.
+func zText(z Z) string {
+	match z {
+	case PopoverZ:
+		"popover"
+	case ModalZ:
+		"modal"
+	case ToastZ:
+		"toast"
+	case TooltipZ:
+		"tooltip"
 	}
 }
 

@@ -442,6 +442,12 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 	if len(f.crossed) > 0 {
 		f.crossed = []E{}
 	}
+	// The layers first (UG4): Escape, a press outside, a scrim.
+	match layerGate(f, event) {
+	case Some[Handled[E]] as h:
+		return h.Value
+	case None:
+	}
 	match event {
 	case Press[E] as p:
 		// A press is a pointer's (or a key's) press and release: no move

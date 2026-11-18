@@ -4608,6 +4608,304 @@ func lawRelationsNameHeldNodes(seed int) bool {
 	}
 }
 
+// UG4: laws_layer.ergo restated.
+// dip is n DIPs. (a law's helper)
+func dip(n int) ui.Length { ui.Length(float64(n)) }
+
+// whole is l's whole DIPs. (a law's helper)
+func whole(l ui.Length) int { int(float64(l)) }
+
+// sideOf is side k of four. (a law's helper)
+func sideOf(k int) ui.Side {
+	if k == 0 { ui.SideTop } else if k == 1 { ui.SideBottom } else if k == 2 { ui.SideLeft } else { ui.SideRight }
+}
+
+// alignOf is alignment k of four. (a law's helper)
+func alignOf(k int) ui.Align {
+	if k == 0 { ui.AlignStart } else if k == 1 { ui.AlignCenter } else if k == 2 { ui.AlignEnd } else { ui.AlignStretch }
+}
+
+// LayerStaysInViewAndTouches (UG4): over drawn views, anchors in them,
+// layer sizes no larger than the view, sides, alignments and gaps,
+// PlaceLayer's box has the layer's size and lies in the view; when its
+// side has room it touches the anchor's edge on that side, a gap away,
+// and else, when the other side has room, the anchor's other edge; along
+// the side it is at its alignment's place when that place is in the
+// view. With no anchor it is centred in the view.
+func lawLayerStaysInViewAndTouches(seed int) bool {
+	let mut r = seeded(seed)
+	let view = ui.Rect{X: dip(draw(&r, 50)), Y: dip(draw(&r, 50)), W: dip(draw(&r, 500) + 100), H: dip(draw(&r, 500) + 100)}
+	let aw = dip(draw(&r, whole(view.W)) + 1)
+	let ah = dip(draw(&r, whole(view.H)) + 1)
+	let a = ui.Rect{X: view.X + dip(draw(&r, whole(view.W-aw)+1)), Y: view.Y + dip(draw(&r, whole(view.H-ah)+1)), W: aw, H: ah}
+	let w = dip(draw(&r, whole(view.W)) + 1)
+	let h = dip(draw(&r, whole(view.H)) + 1)
+	let side = draw(&r, 4)
+	let align = draw(&r, 4)
+	let p = ui.Place{Side: sideOf(side), Align: alignOf(align), Gap: dip(draw(&r, 9))}
+	let b = ui.PlaceLayer(Some{Value: a}, w, h, view, p)
+	if b.W != w || b.H != h || b.X < view.X || b.Y < view.Y || b.X+b.W > view.X+view.W || b.Y+b.H > view.Y+view.H {
+		return false
+	}
+	let vertical = side < 2
+	// The main axis.
+	let (lo, hi, at, span, size, got) = if vertical { (view.Y, view.Y + view.H, a.Y, a.H, h, b.Y) } else { (view.X, view.X + view.W, a.X, a.W, w, b.X) }
+	let before = side == 0 || side == 2
+	let beforeAt = at - p.Gap - size
+	let afterAt = at + span + p.Gap
+	let roomBefore = beforeAt >= lo
+	let roomAfter = afterAt+size <= hi
+	let (mine, other, mineAt, otherAt) = if before { (roomBefore, roomAfter, beforeAt, afterAt) } else { (roomAfter, roomBefore, afterAt, beforeAt) }
+	if mine && got != mineAt {
+		return false
+	}
+	if !mine && other && got != otherAt {
+		return false
+	}
+	// The cross axis.
+	let (clo, chi, cat, cspan, csize, cgot) = if vertical { (view.X, view.X + view.W, a.X, a.W, w, b.X) } else { (view.Y, view.Y + view.H, a.Y, a.H, h, b.Y) }
+	let want = if align == 1 { cat + (cspan-csize)/2 } else if align == 2 { cat + cspan - csize } else { cat }
+	if want >= clo && want+csize <= chi && cgot != want {
+		return false
+	}
+	let c = ui.PlaceLayer(None, w, h, view, p)
+	c.X == view.X+(view.W-w)/2 && c.Y == view.Y+(view.H-h)/2 && c.W == w && c.H == h
+}
+
+// layerApp is the layer law's state: the open layers (bit i for layer i)
+// and the signals seen. (a law's helper)
+type layerApp { open int, log string }
+
+// layerStep closes layer i on its dismiss signal 10+i, and logs every
+// signal. (a law's helper)
+func layerStep(s layerApp, e int) Decision[layerApp, int] {
+	let mut open = s.open
+	if e >= 10 && e < 20 {
+		open = open - (open & (1 << (e - 10)))
+	}
+	Enter[layerApp]{Next: layerApp{open: open, log: s.log + "\(e),"}}
+}
+
+func layerTimer(s layerApp) Option[Timeout[int]] {
+	None
+}
+
+func layerWork(s layerApp) Option[func(send func(e int))] {
+	None
+}
+
+// layerKind is kind k of four. (a law's helper)
+func layerKind(k int) ui.Z {
+	if k == 0 { ui.PopoverZ } else if k == 1 { ui.ModalZ } else if k == 2 { ui.ToastZ } else { ui.TooltipZ }
+}
+
+// layerBody writes layer i while it is open: a Pressable "l<i>" sending
+// 200+i, then, under it, layer i+1 when that one's parent is i. (a law's
+// helper)
+func layerBody(f *ui.Frame[int], s layerApp, i int, kinds []int, scrims []bool, dismiss []bool, parents []int) {
+	if s.open&(1<<i) == 0 {
+		return
+	}
+	let d = if dismiss[i] { Some{Value: 10 + i} } else { None }
+	ui.Layer(f, ui.Layered[int]{Z: layerKind(kinds[i]), Anchor: Some{Value: ui.ByInt(0)}, Place: ui.Place{Side: ui.SideBottom, Align: ui.AlignStart, Gap: 0}, Scrim: scrims[i], Dismiss: d}, ui.Plain()) {
+		ui.Pressable(f, "l\(i)", 200+i) {
+			ui.Text(f, "x")
+		}
+		if i+1 < len(kinds) && parents[i+1] == i {
+			layerBody(f, s, i+1, kinds, scrims, dismiss, parents)
+		}
+	}
+}
+
+// layerScreen is three Pressables "f0" to "f2" sending 100 to 102, in a
+// zone keyed 0, an OnKey sending 900 on Escape, and the open layers. (a
+// law's helper)
+func layerScreen(f *ui.Frame[int], s layerApp, kinds []int, scrims []bool, dismiss []bool, parents []int) {
+	ui.OnKey(f, func(k ui.KeyPress) Option[int] {
+		if k.Name == "Escape" { Some{Value: 900} } else { None }
+	})
+	ui.Zone(f, ui.ByInt(0), ui.Plain()) {
+		for j in 0..3 {
+			ui.Pressable(f, "f\(j)", 100+j) {
+				ui.Text(f, "x")
+			}
+		}
+	}
+	for i in 0..len(kinds) {
+		if parents[i] < 0 {
+			layerBody(f, s, i, kinds, scrims, dismiss, parents)
+		}
+	}
+}
+
+// layerShown is whether layer i is in the tree: it and every layer it is
+// under are open. (a law's helper)
+func layerShown(open int, parents []int, i int) bool {
+	let mut k = i
+	for k >= 0 {
+		if open&(1<<k) == 0 {
+			return false
+		}
+		k = parents[k]
+	}
+	true
+}
+
+// layerTop is the top shown layer (by kind, then the later) that pick
+// holds of, -1 for none. (a law's helper)
+func layerTop(open int, kinds []int, parents []int, pick []bool) int {
+	let mut top = -1
+	for i in 0..len(kinds) {
+		if layerShown(open, parents, i) && pick[i] && (top < 0 || kinds[i] >= kinds[top]) {
+			top = i
+		}
+	}
+	top
+}
+
+// layerUnder is whether layer i is layer l or under it. (a law's helper)
+func layerUnder(parents []int, l int, i int) bool {
+	let mut k = i
+	for k >= 0 {
+		if k == l {
+			return true
+		}
+		k = parents[k]
+	}
+	false
+}
+
+// LayersDismissFromTheTop (UG4): over drawn layers of drawn kinds, some
+// nested in the one before, some with a scrim, some dismissable, and
+// drawn Escapes and clicks on the flow's and the layers' Pressables, the
+// program sees the reference model's signals: Escape is the top
+// dismissable layer's dismiss signal, and the page's key function's only
+// when no layer is dismissable; a click outside the top dismissable layer
+// sends its dismiss signal first; a click on a node a scrim covers (outside
+// the top scrim layer) sends nothing else, and any other click its press;
+// a key's press of a node sends its press unless a scrim covers it.
+// The layers stack by kind, then in tree order.
+func lawLayersDismissFromTheTop(seed int, steps int) bool {
+	let mut r = seeded(seed)
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let n = draw(&r, 4) + 1
+		let mut kinds = []int{}
+		let mut scrims = []bool{}
+		let mut dismiss = []bool{}
+		let mut parents = []int{}
+		for i in 0..n {
+			kinds = kinds.Append(draw(&r, 4))
+			scrims = scrims.Append(draw(&r, 3) == 0)
+			dismiss = dismiss.Append(draw(&r, 4) != 0)
+			parents = parents.Append(if i > 0 && draw(&r, 2) == 0 { i - 1 } else { -1 })
+		}
+		let ks = kinds
+		let ss = scrims
+		let ds = dismiss
+		let ps = parents
+		let view = func(f *ui.Frame[int], s layerApp) { layerScreen(f, s, ks, ss, ds, ps) }
+		let all = (1 << n) - 1
+		let a = actor.StartMachine(Machine[layerApp, int, int]{Initial: layerApp{open: all, log: ""}, Step: layerStep, After: layerTimer, Work: layerWork}, 1, func(o int) {})
+		let mut h = ui.NewTestHost(a, view, m, 4) catch {
+		case ui.BadPatch:
+			return false
+		}
+		let mut open = all
+		let mut log = ""
+		for _ in 0..(steps%16+16)%16+4 {
+			let topD = layerTop(open, kinds, parents, dismiss)
+			let topS = layerTop(open, kinds, parents, scrims)
+			let act = draw(&r, 4)
+			if act == 0 {
+				ui.Play(&h, []ui.Act{ui.KeyIn{Press: ui.KeyPress{Name: "Escape", Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}}) catch {
+				case _:
+					return false
+				}
+				if topD >= 0 {
+					log = log + "\(10+topD),"
+					open = open - (open & (1 << topD))
+				} else {
+					log = log + "900,"
+				}
+			} else {
+				// A click on a flow Pressable (-1) or a shown layer's.
+				let mut shown = []int{-1}
+				for i in 0..n {
+					if layerShown(open, parents, i) {
+						shown = shown.Append(i)
+					}
+				}
+				let at = shown[draw(&r, len(shown))]
+				let j = draw(&r, 3)
+				let label = if at < 0 { "f\(j)" } else { "l\(at)" }
+				let inside = func(l int) bool { at >= 0 && layerUnder(parents, l, at) }
+				if act == 3 {
+					// A key's press: no pointer, so no dismissal; a scrim
+					// stops it outside its layer.
+					let ids = ui.Locate(&h, ui.WithLabel{Label: label})
+					if len(ids) != 1 {
+						return false
+					}
+					ui.Activate(&h, ids[0]) catch {
+					case _:
+						return false
+					}
+					if topS < 0 || inside(topS) {
+						log = log + if at < 0 { "\(100+j)," } else { "\(200+at)," }
+					}
+				} else {
+				ui.Play(&h, []ui.Act{ui.TapOn{Label: label}}) catch {
+				case _:
+					return false
+				}
+				if topD >= 0 && (!inside(topD) || (topS >= 0 && !inside(topS))) {
+					log = log + "\(10+topD),"
+					open = open - (open & (1 << topD))
+				}
+				if topS < 0 || inside(topS) {
+					log = log + if at < 0 { "\(100+j)," } else { "\(200+at)," }
+				}
+				}
+			}
+			if ui.StateOf(&h).log != log || ui.StateOf(&h).open != open {
+				return false
+			}
+			// The stack: by kind, then in tree order.
+			let ids = ui.LayersOf(&h)
+			let mut k = 0
+			for z in 0..4 {
+				for i in 0..n {
+					if layerShown(open, parents, i) && kinds[i] == z {
+						if k >= len(ids) {
+							return false
+						}
+						let held = ui.Locate(&h, ui.WithLabel{Label: "l\(i)"})
+						if len(held) != 1 || !isUnderId(&h, ids[k], held[0]) {
+							return false
+						}
+						k = k + 1
+					}
+				}
+			}
+			if k != len(ids) {
+				return false
+			}
+		}
+		true
+	}
+}
+
+// isUnderId is whether x is the node id's child. (a law's helper)
+func isUnderId[S, E, D, F](h *ui.TestHost[S, E, D, F], id ui.Id[E], x ui.Id[E]) bool {
+	for k in ui.KidsAt(h, id) {
+		if k == x {
+			return true
+		}
+	}
+	false
+}
+
 // UG3: laws_focus.ergo restated.
 // tinted is a look filled with the colour c. (a law's helper)
 func tinted(c uint32) ui.Look {
@@ -5915,6 +6213,16 @@ test UiFocusGoesWhereAsked(seed int) {
 	assert lawFocusGoesWhereAsked(seed)
 }
 
+test UiLayerStaysInViewAndTouches(seed int) {
+	assert lawLayerStaysInViewAndTouches(seed)
+}
+
+test UiLayersDismissFromTheTop(seed int, steps int) {
+	assert lawLayersDismissFromTheTop(seed, steps)
+}
+
+
+
 test UiRelationsNameHeldNodes(seed int) {
 	assert lawRelationsNameHeldNodes(seed)
 }
@@ -6034,6 +6342,8 @@ var stdUIHostStatements = map[string]string{
 	"ui FocusStaysInScope":                 `FocusStaysInScope(seed int, steps int) { let mut r = seeded(seed) let m = time.NewManual(0) with context { Scheduler: m } { let outs = draw(&r, 4) + 1 let ins = draw(&r, 4) + 1 let view = func(f *Frame[int], s int) { scopeScreen(f, s, outs, ins) } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } Play(&h, []Act{ClickOn{At: WithLabel{Label: "o\(draw(&r, outs))"}}}) catch { case _: return false } if focusName(&h) != "s0" { return false } let n = ins + 1 let mut at = 0 for _ in 0..(steps%12+12)%12+4 { let act = draw(&r, 3) if act == 2 { Play(&h, []Act{keyIn("ArrowDown", false)}) catch { case _: return false } } else { Play(&h, []Act{keyIn("Tab", act == 1)}) catch { case _: return false } at = if act == 1 { (at + n - 1) % n } else { (at + 1) % n } } let want = if at == ins { "close" } else { "s\(at)" } if focusName(&h) != want { return false } } true } }`,
 	"ui FocusReturnsOnEnd":                 `FocusReturnsOnEnd(seed int) { let mut r = seeded(seed) let m = time.NewManual(0) with context { Scheduler: m } { let outs = draw(&r, 4) + 1 let ins = draw(&r, 3) + 1 let view = func(f *Frame[int], s int) { scopeScreen(f, s, outs, ins) } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } for _ in 0..draw(&r, 3)+1 { let opener = draw(&r, outs) let mut want = "o\(opener)" Play(&h, []Act{ClickOn{At: WithLabel{Label: want}}}) catch { case _: return false } for _ in 0..draw(&r, 4) { Play(&h, []Act{keyIn("Tab", false)}) catch { case _: return false } } let out = draw(&r, 2) == 0 if out { want = "o\(draw(&r, outs))" Play(&h, []Act{ClickOn{At: WithLabel{Label: want}}}) catch { case _: return false } } let escape = out || draw(&r, 2) == 0 let close = if escape { keyIn("Escape", false) } else { ClickOn{At: WithLabel{Label: "close"}} } Play(&h, []Act{close}) catch { case _: return false } if focusName(&h) != want { return false } } true } }`,
 	"ui FocusGoesWhereAsked":               `FocusGoesWhereAsked(seed int) { let mut r = seeded(seed) let m = time.NewManual(0) with context { Scheduler: m } { let n = draw(&r, 4) + 2 let view = func(f *Frame[int], s int) { askScreen(f, s, n) } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } if focusName(&h) != "t0" { return false } let mut s = 0 let mut at = 1 for _ in 0..draw(&r, 10)+4 { if draw(&r, 2) == 0 { Play(&h, []Act{ClickOn{At: WithLabel{Label: "next"}}}) catch { case _: return false } let was = (s / 2) % n s = s + 1 let now = (s / 2) % n at = if now != was { now + 1 } else { 0 } } else { let back = draw(&r, 2) == 0 Play(&h, []Act{keyIn("Tab", back)}) catch { case _: return false } at = if back { (at + n) % (n + 1) } else { (at + 1) % (n + 1) } } let want = if at == 0 { "next" } else { "t\(at - 1)" } if focusName(&h) != want { return false } } true } }`,
+	"ui LayerStaysInViewAndTouches":        `LayerStaysInViewAndTouches(seed int) { let mut r = seeded(seed) let view = Rect{X: dip(draw(&r, 50)), Y: dip(draw(&r, 50)), W: dip(draw(&r, 500) + 100), H: dip(draw(&r, 500) + 100)} let aw = dip(draw(&r, whole(view.W)) + 1) let ah = dip(draw(&r, whole(view.H)) + 1) let a = Rect{X: view.X + dip(draw(&r, whole(view.W-aw)+1)), Y: view.Y + dip(draw(&r, whole(view.H-ah)+1)), W: aw, H: ah} let w = dip(draw(&r, whole(view.W)) + 1) let h = dip(draw(&r, whole(view.H)) + 1) let side = draw(&r, 4) let align = draw(&r, 4) let p = Place{Side: sideOf(side), Align: alignOf(align), Gap: dip(draw(&r, 9))} let b = PlaceLayer(Some{Value: a}, w, h, view, p) if b.W != w || b.H != h || b.X < view.X || b.Y < view.Y || b.X+b.W > view.X+view.W || b.Y+b.H > view.Y+view.H { return false } let vertical = side < 2 // The main axis. let (lo, hi, at, span, size, got) = if vertical { (view.Y, view.Y + view.H, a.Y, a.H, h, b.Y) } else { (view.X, view.X + view.W, a.X, a.W, w, b.X) } let before = side == 0 || side == 2 let beforeAt = at - p.Gap - size let afterAt = at + span + p.Gap let roomBefore = beforeAt >= lo let roomAfter = afterAt+size <= hi let (mine, other, mineAt, otherAt) = if before { (roomBefore, roomAfter, beforeAt, afterAt) } else { (roomAfter, roomBefore, afterAt, beforeAt) } if mine && got != mineAt { return false } if !mine && other && got != otherAt { return false } // The cross axis. let (clo, chi, cat, cspan, csize, cgot) = if vertical { (view.X, view.X + view.W, a.X, a.W, w, b.X) } else { (view.Y, view.Y + view.H, a.Y, a.H, h, b.Y) } let want = if align == 1 { cat + (cspan-csize)/2 } else if align == 2 { cat + cspan - csize } else { cat } if want >= clo && want+csize <= chi && cgot != want { return false } let c = PlaceLayer(None, w, h, view, p) c.X == view.X+(view.W-w)/2 && c.Y == view.Y+(view.H-h)/2 && c.W == w && c.H == h }`,
+	"ui LayersDismissFromTheTop":           `LayersDismissFromTheTop(seed int, steps int) { let mut r = seeded(seed) let m = time.NewManual(0) with context { Scheduler: m } { let n = draw(&r, 4) + 1 let mut kinds = []int{} let mut scrims = []bool{} let mut dismiss = []bool{} let mut parents = []int{} for i in 0..n { kinds = kinds.Append(draw(&r, 4)) scrims = scrims.Append(draw(&r, 3) == 0) dismiss = dismiss.Append(draw(&r, 4) != 0) parents = parents.Append(if i > 0 && draw(&r, 2) == 0 { i - 1 } else { -1 }) } let ks = kinds let ss = scrims let ds = dismiss let ps = parents let view = func(f *Frame[int], s layerApp) { layerScreen(f, s, ks, ss, ds, ps) } let all = (1 << n) - 1 let a = actor.StartMachine(Machine[layerApp, int, int]{Initial: layerApp{open: all, log: ""}, Step: layerStep, After: layerTimer, Work: layerWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } let mut open = all let mut log = "" for _ in 0..(steps%16+16)%16+4 { let topD = layerTop(open, kinds, parents, dismiss) let topS = layerTop(open, kinds, parents, scrims) let act = draw(&r, 4) if act == 0 { Play(&h, []Act{KeyIn{Press: KeyPress{Name: "Escape", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}}) catch { case _: return false } if topD >= 0 { log = log + "\(10 + topD)," open = open - (open & (1 << topD)) } else { log = log + "900," } } else { // A click on a flow Pressable (-1) or a shown layer's. let mut shown = []int{-1} for i in 0..n { if layerShown(open, parents, i) { shown = shown.Append(i) } } let at = shown[draw(&r, len(shown))] let j = draw(&r, 3) let label = if at < 0 { "f\(j)" } else { "l\(at)" } let inside = func(l int) bool { at >= 0 && layerUnder(parents, l, at) } if act == 3 { // A key's press: no pointer, so no dismissal; a scrim // stops it outside its layer. let ids = Locate(&h, WithLabel{Label: label}) if len(ids) != 1 { return false } Activate(&h, ids[0]) catch { case _: return false } if topS < 0 || inside(topS) { log = log + if at < 0 { "\(100 + j)," } else { "\(200 + at)," } } } else { Play(&h, []Act{TapOn{Label: label}}) catch { case _: return false } if topD >= 0 && (!inside(topD) || (topS >= 0 && !inside(topS))) { log = log + "\(10 + topD)," open = open - (open & (1 << topD)) } if topS < 0 || inside(topS) { log = log + if at < 0 { "\(100 + j)," } else { "\(200 + at)," } } } } if StateOf(&h).log != log || StateOf(&h).open != open { return false } // The stack: by kind, then in tree order. let ids = LayersOf(&h) let mut k = 0 for z in 0..4 { for i in 0..n { if layerShown(open, parents, i) && kinds[i] == z { if k >= len(ids) { return false } let held = Locate(&h, WithLabel{Label: "l\(i)"}) if len(held) != 1 || !isUnderId(&h, ids[k], held[0]) { return false } k = k + 1 } } } if k != len(ids) { return false } } true } }`,
 	"ui RelationsNameHeldNodes":            `RelationsNameHeldNodes(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { let mut r = seeded(seed) let n = draw(&r, 6) + 2 let mut keyed = []bool{} let mut rels = [][]Rel{} let mut gone = []bool{} let mut none = []bool{} for _ in 0..n { keyed = keyed.Append(draw(&r, 4) != 0) gone = gone.Append(draw(&r, 3) == 0) none = none.Append(false) let mut rs = []Rel{} for _ in 0..draw(&r, 4) { rs = rs.Append(drawRel(&r, n+2)) } rels = rels.Append(rs) } let view = func(f *Frame[int], s int) { relScreen(f, keyed, rels, if s == 0 { none } else { gone }) } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } for s in 0..2 { let left = if s == 0 { none } else { gone } for i in 0..n { let ids = Locate(&h, WithLabel{Label: "r\(i)"}) if len(ids) != (if left[i] { 0 } else { 1 }) { return false } if len(ids) == 1 { let got = RelationsAt(&h, ids[0]) if len(got) != len(rels[i]) { return false } for j, rel in rels[i] { let k = relKey(rel) let mut want = "none" match k { case IntKey as x: if x.Value < n && keyed[x.Value] && !left[x.Value] { want = "r\(x.Value)" } case _: } let mut named = "none" match got[j].To { case Some[Id[int]] as t: named = AccessAt(&h, t.Value).Name case None: } if got[j].Rel != rel || named != want { return false } } } } if s == 0 { let next = Locate(&h, WithLabel{Label: "next"}) if len(next) != 1 { return false } Tap(&h, next[0]) catch { case _: return false } Settle(&h) catch { case _: return false } } } true } }`,
 	"ui PaintIsWhatWasGiven":               `PaintIsWhatWasGiven(seed int, state int, part int) { let m = time.NewManual(0) with context { Scheduler: m } { let mut r = seeded(seed) let mut before = []Looks{} for _ in 0..8 { before = before.Append(drawLooks(&r)) } let k = draw(&r, 8) let changed = changeLooks(before[k], state, part) let mut after = []Looks{} for i, ls in before { after = after.Append(if i == k { changed } else { ls }) } let view = func(f *Frame[int], s int) { if s == 0 { lookedView(f, before) } else { lookedView(f, after) } } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } let shot = Screenshot(&h) for step in 0..2 { let want = if step == 0 { before } else { after } let screen = Screen(&h) if len(screen) != 1 || len(screen[0].Kids) != 9 { return false } for i, ls in want { if LooksOf(&h, screen[0].Kids[i].Node) != ls { return false } } if LooksOf(&h, screen[0].Kids[8].Node) != Steady(PressLook()) { return false } if step == 0 { let ids = Locate(&h, WithLabel{Label: "go"}) if len(ids) != 1 { return false } Tap(&h, ids[0]) catch { case _: return false } Settle(&h) catch { case _: return false } } } Screenshot(&h) != shot } }`,
 	"ui MirrorRejectsUnheldLooks":          `MirrorRejectsUnheldLooks(seed int) { let mut r = seeded(seed) let mut l = drawLook(&r) l.Border = Border{Width: 1, Color: Rgb(0x000000)} let view = func(f *Frame[int], s int) { let mut st = Plain() if s == 1 { st.Look = LookFor(f, Steady(l)) } Column(f, Plain()) { Box(f, st) { Text(f, "x") } } } let mut f = NewFrame[int]() let mut m = NewMirror[int](Root(&f)) Apply(&m, Render(&f, view, 0)) catch { case BadPatch: return false } let shown = MirrorShape(&m) let mut defines = []Op[int]{} let mut uses = []Op[int]{} for op in Render(&f, view, 1) { match op { case Define: defines = defines.Append(op) case _: uses = uses.Append(op) } } if len(defines) != 1 || len(uses) == 0 { return false } let twice = []Op[int]{defines[0], defines[0]} let mut fits = []Op[int]{defines[0]} for op in uses { fits = fits.Append(op) } if !lookRejected(&m, uses, shown) || !lookRejected(&m, twice, shown) { return false } Apply(&m, fits) catch { case BadPatch: return false } MirrorLookCount(&m) == len(defaultTable())+1 }`,
