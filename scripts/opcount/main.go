@@ -746,13 +746,15 @@ func (b builder) program(cmdDir, name string) (built, error) {
 
 // moduleBuild is ergo's go build action (build.Toolchain.Command) of the
 // emitted module at dir with release, unstripped, the overlay and
-// -checklinkname=0 (the exit hook's linkname) in GOFLAGS: each package
-// that has an IR file is compiled with its -ergoir.
+// -checklinkname=0 (the exit hook's linkname) in GOFLAGS, after the
+// caller's own GOFLAGS (such as -tags=ergo_stockpark, the runtime's stock
+// park body: PARK1): each package that has an IR file is compiled with its
+// -ergoir.
 func moduleBuild(release toolchain.Patched, dir, overlay, bin string) *exec.Cmd {
 	tc := build.HostToolchain()
 	tc.Go, tc.Root = release.Go, release.Root
 	tc.GOOS, tc.GOARCH = runtime.GOOS, runtime.GOARCH
-	tc.GOFLAGS = "'-overlay=" + overlay + "' -ldflags=-checklinkname=0"
+	tc.GOFLAGS = strings.TrimSpace(os.Getenv("GOFLAGS") + " '-overlay=" + overlay + "' -ldflags=-checklinkname=0")
 	tc.GoBuild = true
 	return tc.Command(build.Module{Dir: dir}, bin)
 }

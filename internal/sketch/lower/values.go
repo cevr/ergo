@@ -159,6 +159,7 @@ var valueLowering string
 // frame reads) and "own-live" (a parameter read after its bind is owned),
 // and for owned Refs (V6) "hand-nonliteral" (a function value takes the
 // held value over), "store-unfresh" (every site is proved fresh),
+// "site-alone-always" (every site is proved alone, its footprint unread),
 // "share-blind" (every pure call keeps nothing) and "return-blind" (two
 // parts of one returned value count as two returns), and for hand-over
 // (V7) "hand-shared" (an Ergo body's result is taken as sharing only the
@@ -209,6 +210,8 @@ type valueFacts struct {
 	borrowRet   map[*check.Func]map[syntax.Expr]bool // the parts of borrows a function returns shared (borrowret.go)
 	// A collect's source whose read in the loop is its last, unshared (lastread.go).
 	lastRead map[*syntax.Ident]bool
+	// Slice literals that seed a let mut the body grows in place (seedcap.go).
+	seeds map[*syntax.CompositeLit]bool
 }
 
 // ownedParam is an owned parameter (V5): its index, counting a dot call's
@@ -247,6 +250,7 @@ func (l *lowerer) valueFacts() *valueFacts {
 			moveRead: map[*syntax.CallExpr]bool{},
 			copied:   map[*check.Var]bool{},
 			lastRead: map[*syntax.Ident]bool{},
+			seeds:    map[*syntax.CompositeLit]bool{},
 		}
 	}
 	return l.vals
@@ -1090,6 +1094,7 @@ func (w *valueWalk) decide() {
 	w.consumes()
 	w.settleLineage()
 	w.lastReads() // lastread.go: once every copy is decided
+	w.seedLits()  // seedcap.go
 }
 
 // takeRest is the let that binds the rest of the Take call, let v, rest =

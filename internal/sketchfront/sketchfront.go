@@ -288,6 +288,8 @@ type BuildRequest struct {
 	Locked bool
 	// NoViews is ergo build -views=off (lower.Unit.NoViews).
 	NoViews bool
+	// NoFallback is ergo build -fallback=off (lower.Unit.NoFallback).
+	NoFallback bool
 	// Inputs, when set, is the file system the build reads the ledger
 	// through (a warm request's Recorder); nil reads the host.
 	Inputs FS
@@ -453,6 +455,11 @@ func unitInput(unit lower.Unit, dependencies []build.Dependency, req BuildReques
 		// -views=off lowers other Go (LF2b): its module is another key.
 		emitter += "+noviews"
 	}
+	if req.NoFallback {
+		// -fallback=off refuses what an IR build would link: a cached
+		// module never answers it (FALLBACK-OFF).
+		emitter += "+nofallback"
+	}
 	if unit.Rewrites != "" && unit.Rewrites != "on" {
 		// The switch decides the lowered module (lower.Unit.Rewrites), so
 		// it keys it: an off build never reuses an on build's module.
@@ -551,6 +558,7 @@ func emission(a Analysis, req BuildRequest) (lower.Unit, func(lower.Unit) ([]low
 		return lower.Unit{}, nil, false, err
 	}
 	unit.NoViews = req.NoViews
+	unit.NoFallback = req.NoFallback
 	unit.Rewrites = req.Rewrites
 	split := splitLowering()
 	if split {

@@ -111,7 +111,7 @@ func warmToolchain(opts fileOptions) *build.Toolchain {
 // test's answer.
 func warmOptions(opts fileOptions) string {
 	options := []string{opts.target, opts.platform.String(), strconv.FormatBool(opts.locked), strconv.FormatBool(opts.json), strconv.FormatBool(opts.debug),
-		opts.seed, opts.evalSteps, opts.evalBytes, opts.states, opts.law, opts.skipLaw, opts.run, strconv.FormatBool(opts.noViews)}
+		opts.seed, opts.evalSteps, opts.evalBytes, opts.states, opts.law, opts.skipLaw, opts.run, strconv.FormatBool(opts.noViews), strconv.FormatBool(opts.noFallback || os.Getenv("ERGO_FALLBACK") == "off")}
 	if opts.strict {
 		// check --strict: its exit judges the answer; added only when set,
 		// so the keys of every other request stay as they were.
