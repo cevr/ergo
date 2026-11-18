@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"slices"
+	"time"
 )
 
 // The guard of the open-file rows (HOST-ROW-3 slice 2; gofacts.Hosts):
@@ -35,6 +38,193 @@ func handleCalls() map[string]func(s ambient) error {
 		"os.File.Name":        nameCheck,
 		"os.File.Sync":        syncCheck,
 		"os.File.Truncate":    truncateCheck,
+		// The rest of *os.File's methods (S2-FILE).
+		"os.File.WriteAt":          writeAtCheck,
+		"os.File.Chmod":            fileChmodCheck,
+		"os.File.Chown":            fileChownCheck,
+		"os.File.Chdir":            fileChdirCheck,
+		"os.File.Readdirnames":     readdirnamesCheck,
+		"os.File.SetDeadline":      deadlineCheck((*os.File).SetDeadline, true, true),
+		"os.File.SetReadDeadline":  deadlineCheck((*os.File).SetReadDeadline, true, false),
+		"os.File.SetWriteDeadline": deadlineCheck((*os.File).SetWriteDeadline, false, true),
+	}
+}
+
+// writeAtCheck: WriteAt puts b at off, leaves the handle's offset, and
+// keeps no reference to b.
+func writeAtCheck(s ambient) error {
+	defer clean(s, "hg-fwriteat")
+	f, err := fixture(s, "hg-fwriteat", os.O_WRONLY)
+	if err != nil {
+		return err
+	}
+	data := []byte("AB")
+	n, werr := f.WriteAt(data, 2)
+	for i := range data {
+		data[i] = 'x'
+	}
+	_, w2 := f.Write([]byte("Z"))
+	if err := errors.Join(werr, w2, f.Close()); err != nil || n != 2 {
+		return fmt.Errorf("WriteAt(AB, 2) then Write(Z) is (%d, %v)", n, err)
+	}
+	text := stateText(s)
+	want := append(append([]byte("Z"), text[1:2]...), "AB"...)
+	want = append(want, text[4:]...)
+	if got, err := get(s, "hg-fwriteat"); err != nil || !bytes.Equal(got, want) {
+		return fmt.Errorf("after WriteAt(AB, 2) and Write(Z) in %s the file is (%q, %v), want %q", s.dir, got, err, want)
+	}
+	return nil
+}
+
+// fileChmodCheck: Chmod changes the mode of its handle's file.
+func fileChmodCheck(s ambient) error {
+	defer clean(s, "hg-fchmod")
+	f, err := fixture(s, "hg-fchmod", os.O_RDONLY)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	for _, m := range []os.FileMode{0o600, 0o640} {
+		if err := f.Chmod(m); err != nil {
+			return err
+		}
+		if fi, err := os.Stat(at(s, "hg-fchmod")); err != nil || fi.Mode().Perm() != m {
+			return fmt.Errorf("after Chmod(%v) in %s the file's mode is %v (%v)", m, s.dir, fi.Mode(), err)
+		}
+	}
+	return nil
+}
+
+// fileChownCheck: Chown to the process's own ids succeeds and leaves the
+// file's contents; a negative id leaves that id.
+func fileChownCheck(s ambient) error {
+	defer clean(s, "hg-fchown")
+	f, err := fixture(s, "hg-fchown", os.O_RDONLY)
+	if err != nil {
+		return err
+	}
+	if err := errors.Join(f.Chown(os.Getuid(), os.Getgid()), f.Chown(-1, -1), f.Close()); err != nil {
+		return fmt.Errorf("Chown to the process's ids in %s fails: %v", s.dir, err)
+	}
+	if got, err := get(s, "hg-fchown"); err != nil || !bytes.Equal(got, stateText(s)) {
+		return fmt.Errorf("after Chown the file is (%q, %v)", got, err)
+	}
+	return nil
+}
+
+// fileChdirCheck: Chdir makes its handle's directory the working
+// directory, so a relative path then resolves inside it. The check
+// returns to the state's directory.
+func fileChdirCheck(s ambient) error {
+	defer clean(s, "hg-fchdir")
+	defer os.Chdir(s.dir)
+	if err := os.Mkdir(at(s, "hg-fchdir"), 0o755); err != nil {
+		return err
+	}
+	if err := put(s, "hg-fchdir/inner", stateText(s)); err != nil {
+		return err
+	}
+	f, err := os.Open(at(s, "hg-fchdir"))
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err := f.Chdir(); err != nil {
+		return err
+	}
+	if got, err := os.ReadFile("inner"); err != nil || !bytes.Equal(got, stateText(s)) {
+		return fmt.Errorf("after Chdir to %s/hg-fchdir, inner reads (%q, %v)", s.dir, got, err)
+	}
+	return nil
+}
+
+// readdirnamesCheck: Readdirnames gives the names of its handle's
+// directory, n at a time, then io.EOF, in a slice the caller owns.
+func readdirnamesCheck(s ambient) error {
+	defer clean(s, "hg-fnames")
+	if err := os.Mkdir(at(s, "hg-fnames"), 0o755); err != nil {
+		return err
+	}
+	want := []string{"a", "b", "of-" + filepath.Base(s.home)}
+	for _, n := range want {
+		if err := put(s, "hg-fnames/"+n, nil); err != nil {
+			return err
+		}
+	}
+	slices.Sort(want)
+	f, err := os.Open(at(s, "hg-fnames"))
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	var got []string
+	for {
+		ns, err := f.Readdirnames(2)
+		if len(ns) > 2 {
+			return fmt.Errorf("Readdirnames(2) gives %q", ns)
+		}
+		got = append(got, ns...)
+		if len(ns) > 0 {
+			ns[0] = "x" // the caller's: the next call is not changed
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+	}
+	slices.Sort(got)
+	if !slices.Equal(got, want) {
+		return fmt.Errorf("Readdirnames of %s/hg-fnames gives %q, want %q", s.dir, got, want)
+	}
+	return nil
+}
+
+// deadlineCheck: a deadline on a regular file is os.ErrNoDeadline; on a
+// pipe's ends (os.Pipe, no row under test) a past deadline makes the
+// next read (r) or write (w) fail with os.ErrDeadlineExceeded, and a zero
+// one clears it.
+func deadlineCheck(set func(*os.File, time.Time) error, r, w bool) func(s ambient) error {
+	return func(s ambient) error {
+		defer clean(s, "hg-fdeadline")
+		f, err := fixture(s, "hg-fdeadline", os.O_RDONLY)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		if err := set(f, time.Now()); !errors.Is(err, os.ErrNoDeadline) {
+			return fmt.Errorf("a deadline on a regular file is %v, want os.ErrNoDeadline", err)
+		}
+		pr, pw, err := os.Pipe()
+		if err != nil {
+			return err
+		}
+		defer pr.Close()
+		defer pw.Close()
+		past := time.Unix(1, 0)
+		if err := errors.Join(set(pr, past), set(pw, past)); err != nil {
+			return err
+		}
+		_, werr := pw.Write([]byte("x"))
+		if w != errors.Is(werr, os.ErrDeadlineExceeded) {
+			return fmt.Errorf("a write after a past deadline is %v (the setter covers writes: %v)", werr, w)
+		}
+		if r || !w {
+			// With no write deadline the byte the write put is there,
+			// so only a read deadline makes the read fail.
+			_, rerr := pr.Read(make([]byte, 1))
+			if r != errors.Is(rerr, os.ErrDeadlineExceeded) || !r && rerr != nil {
+				return fmt.Errorf("a read after a past deadline is %v (the setter covers reads: %v)", rerr, r)
+			}
+		}
+		if err := errors.Join(set(pr, time.Time{}), set(pw, time.Time{})); err != nil {
+			return err
+		}
+		if _, err := pw.Write([]byte("y")); err != nil {
+			return fmt.Errorf("a write after the deadline is cleared fails: %v", err)
+		}
+		return nil
 	}
 }
 

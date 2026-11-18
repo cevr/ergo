@@ -73,3 +73,59 @@ func TestFileHandlesNeedOnlyAmbient(t *testing.T) {
 		t.Errorf("copyFile copies a buffer:\n%s", body)
 	}
 }
+
+// hostFileMethods calls the rest of *os.File's methods (S2-FILE), each a
+// host row, with only Ambient.
+const hostFileMethods = `import go os
+import go time
+
+func touch(dir string, name string) int fails go.Error needs Ambient {
+	let f = try os.OpenFile(name, 2, 420)
+	let mut b = []byte{1, 2, 3}
+	let n = try f.WriteAt(b, 4)
+	b[0] = 9
+	try f.Chmod(420)
+	try f.Chown(-1, -1)
+	try f.SetDeadline(time.Now())
+	try f.SetReadDeadline(time.Now())
+	try f.SetWriteDeadline(time.Now())
+	try f.Close()
+	let d = try os.Open(dir)
+	let names = try d.Readdirnames(-1)
+	try d.Chdir()
+	try d.Close()
+	n + len(names) + int(b[0])
+}
+
+func main() needs Console | Ambient {
+	let n = touch("/nonexistent/loop-probe-x", "/nonexistent/loop-probe-y") catch { case go.Error: -1 }
+	Console.Println("\(n)")
+}
+`
+
+// TestFileMethodsNeedOnlyAmbient: WriteAt, Chmod, Chown, Chdir,
+// Readdirnames and the three deadlines check with Ambient alone, and the
+// emitted Go type-checks; WriteAt only reads b (its reads row), so the
+// live b goes to Go uncopied, and Readdirnames' result is new memory (its
+// fresh row), so Ergo takes it uncopied. Mutants (gofacts mutants.json):
+// s2f-writeat-reads-line-dropped, s2f-readdirnames-fresh-dropped,
+// s2f-handle-row-foreign.
+func TestFileMethodsNeedOnlyAmbient(t *testing.T) {
+	p := lowerSource("hostfilemethods", hostFileMethods, true)
+	if p.err != nil || len(p.diags) != 0 || len(p.refused) != 0 || p.panicked != nil {
+		t.Fatalf("err=%v diagnostics=%v refusals=%v panic=%v\n%s", p.err, p.diags, p.refused, p.panicked, hostFileMethods)
+	}
+	typecheckGo(t, []*lowered{p})
+	goSrc := p.mainGo()
+	i := strings.Index(goSrc, "func touch(")
+	if i < 0 {
+		t.Fatalf("no touch in the emitted Go:\n%s", goSrc)
+	}
+	body := goSrc[i:]
+	if j := strings.Index(body, "\n}\n"); j >= 0 {
+		body = body[:j]
+	}
+	if strings.Contains(body, "Clone(") {
+		t.Errorf("touch copies b for WriteAt:\n%s", regexp.MustCompile(`/\*line [^*]*\*/`).ReplaceAllString(body, ""))
+	}
+}

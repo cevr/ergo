@@ -92,13 +92,16 @@ extern go os.ExpandEnv func ExpandEnv(s string) string needs go.Foreign
 extern go os.File type File {} implements Closer
 
 // ergo:go func (*File).Chdir() error
-extern go os.File.Chdir func (f *File) Chdir() fails go.Error needs go.Foreign
+// ergo:effect ambient (vouched: it makes its directory the process's working directory)
+extern go os.File.Chdir func (f *File) Chdir() fails go.Error needs Ambient
 
 // ergo:go func (*File).Chmod(mode FileMode) error
-extern go os.File.Chmod func (f *File) Chmod(mode fs.FileMode) fails go.Error needs go.Foreign
+// ergo:effect ambient (vouched: it changes its file's mode)
+extern go os.File.Chmod func (f *File) Chmod(mode fs.FileMode) fails go.Error needs Ambient
 
 // ergo:go func (*File).Chown(uid int, gid int) error
-extern go os.File.Chown func (f *File) Chown(uid int, gid int) fails go.Error needs go.Foreign
+// ergo:effect ambient (vouched: it changes its file's owner and group, a negative id leaving that one)
+extern go os.File.Chown func (f *File) Chown(uid int, gid int) fails go.Error needs Ambient
 
 // ergo:go func (*File).Close() error
 // ergo:effect ambient (vouched: it closes its handle; a later call on it fails with os.ErrClosed)
@@ -131,20 +134,24 @@ extern go os.File.ReadFrom func (f *File) ReadFrom(r own io.Reader) int64 fails 
 extern go os.File.Readdir func (f *File) Readdir(n int) []fs.FileInfo fails go.Error needs go.Foreign
 
 // ergo:go func (*File).Readdirnames(n int) (names []string, err error)
-extern go os.File.Readdirnames func (f *File) Readdirnames(n int) []string fails go.Error needs go.Foreign
+// ergo:effect ambient (vouched: it reads up to n names of its directory from the handle's position into a new slice)
+extern go os.File.Readdirnames func (f *File) Readdirnames(n int) []string fails go.Error needs Ambient
 
 // ergo:go func (*File).Seek(offset int64, whence int) (ret int64, err error)
 // ergo:effect ambient (vouched: it moves the handle's offset and returns the new one)
 extern go os.File.Seek func (f *File) Seek(offset int64, whence int) int64 fails go.Error needs Ambient
 
 // ergo:go func (*File).SetDeadline(t time.Time) error
-extern go os.File.SetDeadline func (f *File) SetDeadline(t time.Time) fails go.Error needs go.Foreign
+// ergo:effect ambient (vouched: it sets its handle's read and write deadlines, or fails with os.ErrNoDeadline on a file with none)
+extern go os.File.SetDeadline func (f *File) SetDeadline(t time.Time) fails go.Error needs Ambient
 
 // ergo:go func (*File).SetReadDeadline(t time.Time) error
-extern go os.File.SetReadDeadline func (f *File) SetReadDeadline(t time.Time) fails go.Error needs go.Foreign
+// ergo:effect ambient (vouched: it sets its handle's read deadline, or fails with os.ErrNoDeadline on a file with none)
+extern go os.File.SetReadDeadline func (f *File) SetReadDeadline(t time.Time) fails go.Error needs Ambient
 
 // ergo:go func (*File).SetWriteDeadline(t time.Time) error
-extern go os.File.SetWriteDeadline func (f *File) SetWriteDeadline(t time.Time) fails go.Error needs go.Foreign
+// ergo:effect ambient (vouched: it sets its handle's write deadline, or fails with os.ErrNoDeadline on a file with none)
+extern go os.File.SetWriteDeadline func (f *File) SetWriteDeadline(t time.Time) fails go.Error needs Ambient
 
 // ergo:go func (*File).Stat() (FileInfo, error)
 extern go os.File.Stat func (f *File) Stat() fs.FileInfo fails go.Error needs go.Foreign
@@ -166,7 +173,9 @@ extern go os.File.Truncate func (f *File) Truncate(size int64) fails go.Error ne
 extern go os.File.Write func (f *File) Write(b []byte) int fails go.Error needs Ambient
 
 // ergo:go func (*File).WriteAt(b []byte, off int64) (n int, err error)
-extern go os.File.WriteAt func (f *File) WriteAt(b []byte, off int64) int fails go.Error needs go.Foreign
+// ergo:reads b (vouched: it passes each rest of b to File.pwrite, poll.FD.Pwrite, which hands it to the pwrite system call; the kernel only loads from it and nothing keeps it)
+// ergo:effect ambient (vouched: it writes b to its file at off, keeping no reference to b, and leaves the handle's offset)
+extern go os.File.WriteAt func (f *File) WriteAt(b []byte, off int64) int fails go.Error needs Ambient
 
 // ergo:go func (*File).WriteString(s string) (n int, err error)
 // ergo:effect ambient (vouched: it writes s to its file at the handle's offset)

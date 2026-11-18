@@ -92,10 +92,28 @@ var Rows = []Row{
 			f.Close()
 		}
 	}},
+	// WriteAt (S2-FILE): the positioned write takes the same path.
+	{Target: "os.File.WriteAt", Fact: "reads", Param: "b", Reason: "it passes each rest of b to File.pwrite, poll.FD.Pwrite, which hands it to the pwrite system call; the kernel only loads from it and nothing keeps it", Source: "adab3799e15d", Call: func(_ *rand.Rand, p []byte) {
+		if f, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0); err == nil {
+			f.WriteAt(p, 0)
+			f.Close()
+		}
+	}},
 
 	// fresh rows (LF2c): the slice result is new memory on every call, so
 	// the lowering passes it to Ergo with no deep copy (lower/gocall.go,
 	// goResult). They were lower.freshGoResults.
+	{Target: "os.File.Readdirnames", Fact: "fresh", Param: "result", Reason: "File.readdir appends each name, a new string, to a nil slice (or returns a new empty one)", Source: "9564848e855e", Result: func(*rand.Rand) func() any {
+		return func() any {
+			f, err := os.Open(".")
+			if err != nil {
+				return []string(nil)
+			}
+			defer f.Close()
+			ns, _ := f.Readdirnames(-1)
+			return ns
+		}
+	}},
 	{Target: "strings.Split", Fact: "fresh", Param: "result", Reason: "genSplit makes the result with make and fills it with substrings of s", Source: "65e3a355768c", Result: func(r *rand.Rand) func() any {
 		s, sep := text(r), seps[r.IntN(len(seps))]
 		return func() any { return strings.Split(s, sep) }

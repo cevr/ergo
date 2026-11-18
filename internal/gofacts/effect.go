@@ -142,6 +142,18 @@ var Hosts = []Effect{
 	{Target: "os.File.Name", Reason: "it returns the name its handle was opened with", Source: "0099ffe09700"},
 	{Target: "os.File.Sync", Reason: "it commits its file's contents to stable storage", Source: "1ef07de7120d"},
 	{Target: "os.File.Truncate", Reason: "it changes its file's size", Source: "316577c38894"},
+	// The rest of *os.File's methods (S2-FILE). Chdir changes the
+	// process's working directory, a host state Getwd reads; the
+	// deadlines set the handle's own poller deadlines, which arm a runtime
+	// timer and start no goroutine.
+	{Target: "os.File.WriteAt", Reason: "it writes b to its file at off, keeping no reference to b, and leaves the handle's offset", Source: "adab3799e15d"},
+	{Target: "os.File.Chmod", Reason: "it changes its file's mode", Source: "9d9b9e00558b"},
+	{Target: "os.File.Chown", Reason: "it changes its file's owner and group, a negative id leaving that one", Source: "63cd3451504c"},
+	{Target: "os.File.Chdir", Reason: "it makes its directory the process's working directory", Source: "2c7cab4822f3"},
+	{Target: "os.File.Readdirnames", Reason: "it reads up to n names of its directory from the handle's position into a new slice", Source: "9564848e855e"},
+	{Target: "os.File.SetDeadline", Reason: "it sets its handle's read and write deadlines, or fails with os.ErrNoDeadline on a file with none", Source: "04da8420ccbd"},
+	{Target: "os.File.SetReadDeadline", Reason: "it sets its handle's read deadline, or fails with os.ErrNoDeadline on a file with none", Source: "9c34436651b5"},
+	{Target: "os.File.SetWriteDeadline", Reason: "it sets its handle's write deadline, or fails with os.ErrNoDeadline on a file with none", Source: "dad17b485b6d"},
 }
 
 // HostOf is the host row of target, if it has one.
