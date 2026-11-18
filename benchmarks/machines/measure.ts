@@ -26,8 +26,8 @@ const rows: [string, string[], string[]][] = [
   ["S3 step", [ergoBin, "s3", "step"], [controlBin, "s3"]],
   ["S4 step", [ergoBin, "s4", "step"], [controlBin, "s4"]],
   ["S7", [ergoBin, "s7", "timed"], [controlBin, "s7"]],
-  ["S1 actor", [ergoBin, "s1", "actor"], [controlBin, "s1"]],
-  ["S7 actor", [ergoBin, "s7", "actor"], [controlBin, "s7"]],
+  ["S1 actor", [ergoBin, "s1", "actor"], [controlBin, "s1actor"]],
+  ["S7 actor", [ergoBin, "s7", "actor"], [controlBin, "s7actor"]],
 ];
 // The live runner costs microseconds an event: a smaller N keeps its runs short.
 const nOf = (name: string) => (name.endsWith("actor") ? N / 16 : N);
@@ -58,7 +58,7 @@ async function perEvent(cmd: string[], n: number) {
 const out: Record<string, unknown> = { N, measured: new Date().toISOString(), compiler: process.env.ERGO_COMMIT ?? "unknown" };
 for (const [name, ergo, control] of rows) {
   const e = await perEvent(ergo, nOf(name));
-  const g = await perEvent(control, N);
+  const g = await perEvent(control, nOf(name));
   out[name] = { ergo: e, control: g };
   console.log(name.padEnd(8), "ergo", e.ir.map((x) => x.toFixed(2)).join("/"), "instr", e.bytes.map((x) => x.toFixed(3)).join("/"), "B |",
     "go", g.ir.map((x) => x.toFixed(2)).join("/"), "instr", g.bytes.map((x) => x.toFixed(3)).join("/"), "B");

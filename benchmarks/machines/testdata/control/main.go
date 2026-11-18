@@ -8,7 +8,9 @@
 // as the Ergo program p3bench does. S7 is emulated as plusthree's statig and
 // smlang drivers emulate it: the exit pushes a cancel effect and the entry a
 // schedule effect into a reused buffer, and the host turns the scheduled key
-// into the next event.
+// into the next event. s1actor and s7actor are the floor of a live machine:
+// a goroutine that owns the state, asked over an unbuffered channel and
+// answering on another, one handoff each way per event.
 package main
 
 import (
@@ -113,6 +115,40 @@ func (m *s7) fire(key uint8) {
 	m.buf = append(m.buf, timerEffect{schedule: true, key: uint8(m.at), delayMs: 1000})
 }
 
+// ask is a request to an actor goroutine: one signal, answered on the
+// actor's reply channel with the state after it.
+type ask struct{ e event }
+
+// lightActor runs S1 in a goroutine: each request steps the state and
+// replies with it, as a live machine answers an Ask.
+func lightActor(inbox <-chan ask, reply chan<- light) {
+	s := inactive
+	for r := range inbox {
+		s = toggle(s, r.e)
+		reply <- s
+	}
+	close(reply)
+}
+
+// phaseActor runs S7 in a goroutine on a manual clock: each tick moves the
+// clock by d; when it reaches the open entry's deadline, the timer fires,
+// the state flips and the new entry's timer is armed. It replies with the
+// state after each tick, as a time.Manual's Advance returns once the woken
+// sleeper has run.
+func phaseActor(ticks <-chan int64, reply chan<- phase) {
+	var now, deadline int64 = 0, 1000
+	at := phase(0)
+	for d := range ticks {
+		now += d
+		if now >= deadline {
+			at = 1 - at
+			deadline = now + 1000
+		}
+		reply <- at
+	}
+	close(reply)
+}
+
 func mallocs() uint64 {
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
@@ -121,7 +157,7 @@ func mallocs() uint64 {
 
 func main() {
 	if len(os.Args) != 3 {
-		fmt.Fprintln(os.Stderr, "usage: control s1|s2|s3|s4|s7 N")
+		fmt.Fprintln(os.Stderr, "usage: control s1|s2|s3|s4|s7|s1actor|s7actor N")
 		os.Exit(2)
 	}
 	n, err := strconv.Atoi(os.Args[2])
@@ -178,6 +214,26 @@ func main() {
 			m.fire(key)
 		}
 		probe = int(m.at)
+	case "s1actor":
+		inbox, reply := make(chan ask), make(chan light)
+		go lightActor(inbox, reply)
+		var s light
+		for i := 0; i < n; i++ {
+			inbox <- ask{e: press}
+			s = <-reply
+		}
+		close(inbox)
+		probe = int(s)
+	case "s7actor":
+		ticks, reply := make(chan int64), make(chan phase)
+		go phaseActor(ticks, reply)
+		var s phase
+		for i := 0; i < n; i++ {
+			ticks <- 1000
+			s = <-reply
+		}
+		close(ticks)
+		probe = int(s)
 	default:
 		fmt.Fprintln(os.Stderr, "control: no scenario", os.Args[1])
 		os.Exit(2)
