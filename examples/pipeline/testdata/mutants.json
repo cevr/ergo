@@ -109,7 +109,7 @@
       "name": "px2-server-maps-rejection", "origin": "wf10/domain PX2",
       "file": "examples/pipeline/pipeline/pipelinerpc/server.ergo",
       "from": "\t\tcase pipelineapi.WrongState as failure:\n\t\t\tlet e = failure.E\n\t\t\treturn rpc.Failed{Text: rpc.Tagged(\"WrongState\", rpc.Encode(e))}\n",
-      "to": "\t\tcase pipelineapi.WrongState as failure:\n\t\t\tlet e = failure.E\n\t\t\treturn rpc.Failed{Text: rpc.Tagged(\"Closed\", rpc.Encode(run.Closed{Status: e.Status}))}\n",
+      "to": "\t\tcase pipelineapi.WrongState as failure:\n\t\t\tlet e = failure.E\n\t\t\treturn rpc.Failed{Text: rpc.Tagged(\"Closed\", \"{\\\"status\\\":\" + rpc.Encode(e.Status) + \"}\")}\n",
       "rule": "The wire answers each rejection as itself: pipelinerpc's law Agrees (AF1; it was SurfacesAgree's wire arm).",
       "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
     },
