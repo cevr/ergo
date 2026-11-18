@@ -156,6 +156,13 @@ func TestKillerInAnotherSuiteIsRun(t *testing.T) {
 	if err != nil || len(cover) != 0 || len(suites) != 1 || suites[0].Module != "nested/m" || suites[0].Package != "./p" {
 		t.Errorf("a nested module's killer: cover %q, suites %+v, err %v; want the suite ./p of module nested/m and no cover package", cover, suites, err)
 	}
+	// The ledger of a nested module's package (hosts/mygo) is its own
+	// suite, built in that module too, and its killers name that suite
+	// (MUT-MODULES: the runner built ./hosts/mygo in the checkout's module).
+	cover, _, suites, err = suitesFor(root, []Job{{Path: ledgerPath(root, filepath.Join(root, "nested", "m", "p")), Ledger: nested}})
+	if err != nil || len(cover) != 0 || len(suites) != 1 || suites[0].Name != "nested/m/p" || suites[0].Module != "nested/m" || suites[0].Package != "./p" {
+		t.Errorf("a nested module's ledger: cover %q, suites %+v, err %v; want its own suite ./p of module nested/m and no cover package", cover, suites, err)
+	}
 	ledger := &Ledger{Mutants: []*Mutant{
 		{Name: "a", Killers: []string{"runtime/v1[ergoexplore]:TestA", "runtime/v1:TestB", "internal/sketchfront:TestF"}},
 		{Name: "b", Killers: []string{"lower:TestL", "runtime/v1:TestOwn (a note)"}, Anchor: &Anchor{Tests: []string{"runtime/v1[ergoexplore]:TestC"}}},

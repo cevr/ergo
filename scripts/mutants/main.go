@@ -324,7 +324,14 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 			// The ledger's env reaches every run of its own suite (the
 			// coverage pass and the mutant pass), and enters the tree key
 			// with it.
-			suites = append(suites, Suite{Name: rel, Package: "./" + rel, Env: slices.Clone(j.Ledger.Env)})
+			own := Suite{Name: rel, Package: "./" + rel, Env: slices.Clone(j.Ledger.Env)}
+			// A package of a module nested in the checkout (hosts/mygo) is
+			// built and run in its own module, as namedSuite builds a
+			// killer there (MUT-MODULES).
+			if mod := nestedModule(absRoot, rel); mod != "" {
+				own.Module, own.Package = mod, "./"+strings.TrimPrefix(strings.TrimPrefix(rel, mod), "/")
+			}
+			suites = append(suites, own)
 		}
 	}
 	// A killer or anchor test in a suite no ledger brought is run too, and
