@@ -626,7 +626,7 @@ func checkPackage(opts fileOptions) error {
 // checkLoaded prints the check envelope of a loaded package, evaluated
 // when it checks, and returns check's exit status.
 func checkLoaded(opts fileOptions, l loaded, w *warm) error {
-	out, exit, err := checkEnvelope(opts, l)
+	out, exit, err := checkEnvelope(opts, l, w.fsys())
 	if err != nil {
 		return err
 	}
@@ -643,7 +643,7 @@ func checkLoaded(opts fileOptions, l loaded, w *warm) error {
 // one JSON line, evaluated when the package checks, and check's exit
 // status (exit); err is a failure to produce it. test --emitted --json
 // prints the same envelope (emittedjson.go).
-func checkEnvelope(opts fileOptions, l loaded) (out []byte, exit, err error) {
+func checkEnvelope(opts fileOptions, l loaded, fsys sketchfront.FS) (out []byte, exit, err error) {
 	id := producer.Current()
 	if err := l.result.Qualify(id); err != nil {
 		return nil, nil, err
@@ -675,8 +675,8 @@ func checkEnvelope(opts fileOptions, l loaded) (out []byte, exit, err error) {
 	// A rewrite law in scope that its ledger does not license yet gets
 	// advice (LF6c). The ledger is read through the warm recorder, so a
 	// changed ergo.laws changes the warm key.
-	if err := l.analysis.AdviseLicences(&evaluation, w.fsys(), ledgerPath(opts.file)); err != nil {
-		return err
+	if err := l.analysis.AdviseLicences(&evaluation, fsys, ledgerPath(opts.file)); err != nil {
+		return nil, nil, err
 	}
 	l.result.SetEvaluation(evaluation)
 	if err := json.NewEncoder(&buf).Encode(l.result.CheckEnvelope()); err != nil {
