@@ -179,6 +179,12 @@ func (b *irBuilder) opsConv(conv check.Conversion, e *irExpr, x syntax.Expr) *ir
 		irNo("operations conversion without an adapter")
 	}
 	p := e.Pos
+	if goAdapterConv(conv) {
+		// goInterface's v1.GoHanded: Go may call the value's methods from
+		// a goroutine of its own (rt.Alone).
+		b.keepImport("var _ = " + l.rt() + ".GoHanded")
+		b.runFirst([]*irStmt{{K: "expr", Pos: p, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "GoHanded"}}})
+	}
 	lit := &irExpr{K: "lit", Pos: p, T: name, Keys: []string{"v"}, Elems: []*irExpr{e}}
 	if !sealed {
 		env := &irExpr{K: "zero", Pos: p, T: "*" + l.env()}

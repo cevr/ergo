@@ -148,7 +148,7 @@ func TestRefPoisonedByADefect(t *testing.T) {
 			RefUpdateOwned(r, func(v []int) []int {
 				v[0] = 9 // a write in place, then the defect
 				panic("defect")
-			}, clone, true)
+			}, clone, true, true)
 		},
 	}
 	for name, defect := range defects {
@@ -161,7 +161,7 @@ func TestRefPoisonedByADefect(t *testing.T) {
 			"Set":    func() { r.Set([]int{2}) },
 			"Update": func() { r.Update(func(v []int) []int { return v }) },
 			"Modify": func() { RefModify(r, pair) },
-			"Owned":  func() { RefModifyOwned(r, pair, clone, true) },
+			"Owned":  func() { RefModifyOwned(r, pair, clone, true, true) },
 		}
 		for op, f := range later {
 			if p := raised(f); p != refPoisoned {
@@ -190,7 +190,7 @@ func TestRefOwnsItsValue(t *testing.T) {
 		RefUpdateOwned(r, func(m map[int]int) map[int]int {
 			m[k] = k
 			return m
-		}, clone, true)
+		}, clone, true, true)
 	}
 	own(1)
 	if len(given) != 1 {
@@ -240,7 +240,7 @@ func TestRefOwnedSharedByTasks(t *testing.T) {
 					runtime.Gosched()
 					m[w*each+i] = i
 					return m
-				}, clone, true)
+				}, clone, true, true)
 				if i%3 == 0 {
 					g := r.Get()
 					n := len(g)

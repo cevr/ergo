@@ -185,7 +185,7 @@ func BenchmarkRef(b *testing.B) {
 			RefUpdateOwned(r, func(m map[int]int) map[int]int {
 				m[i&1023] = i
 				return m
-			}, clone, true)
+			}, clone, true, true)
 		}
 	})
 	b.Run("UpdateOwnedMap/mutex", func(b *testing.B) {

@@ -134,10 +134,8 @@ func (r *Ref[T]) Set(v T) {
 //ergo:wait none
 func (r *Ref[T]) Update(f func(v T) T) {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
-	if !rt.Alone() {
-		r.mu.Lock()
-		defer r.mu.Unlock()
-	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.check()
 	r.poison = true // until f returns (check)
 	r.v = f(r.v)
@@ -156,10 +154,8 @@ func RefModify[T, R any](r *Ref[T], f func(v T) struct {
 	F1 T
 }) R {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
-	if !rt.Alone() {
-		r.mu.Lock()
-		defer r.mu.Unlock()
-	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.check()
 	r.poison = true // until f returns (check)
 	out := f(r.v)
@@ -172,12 +168,15 @@ func RefModify[T, R any](r *Ref[T], f func(v T) struct {
 // binding outside the cell reaches, and may write it in place. A shared
 // value is copied first, with clone, under the lock. fresh is the
 // lowering's proof that f's result is unshared too; without it the stored
-// value is shared.
+// value is shared. alone is the lowering's proof that f starts no task and
+// runs no code it does not know (its footprint is empty, check.Footprint):
+// then, while the program is alone (rt.Alone), the operation takes no lock,
+// since nothing f runs can start a second goroutine that reaches r.
 //
 //ergo:wait none
-func RefUpdateOwned[T any](r *Ref[T], f func(v T) T, clone func(v T) T, fresh bool) {
+func RefUpdateOwned[T any](r *Ref[T], f func(v T) T, clone func(v T) T, fresh, alone bool) {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
-	if !rt.Alone() {
+	if !alone || !rt.Alone() {
 		r.mu.Lock()
 		defer r.mu.Unlock()
 	}
@@ -200,9 +199,9 @@ func RefUpdateOwned[T any](r *Ref[T], f func(v T) T, clone func(v T) T, fresh bo
 func RefModifyOwned[T, R any](r *Ref[T], f func(v T) struct {
 	F0 R
 	F1 T
-}, clone func(v T) T, fresh bool) R {
+}, clone func(v T) T, fresh, alone bool) R {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
-	if !rt.Alone() {
+	if !alone || !rt.Alone() {
 		r.mu.Lock()
 		defer r.mu.Unlock()
 	}
@@ -225,9 +224,9 @@ func RefModifyOwned[T, R any](r *Ref[T], f func(v T) struct {
 // value f may have written in part.
 //
 //ergo:wait none
-func RefUpdateInPlace[T any](r *Ref[T], f func(p *T), clone func(v T) T, fresh bool) {
+func RefUpdateInPlace[T any](r *Ref[T], f func(p *T), clone func(v T) T, fresh, alone bool) {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
-	if !rt.Alone() {
+	if !alone || !rt.Alone() {
 		r.mu.Lock()
 		defer r.mu.Unlock()
 	}
@@ -245,9 +244,9 @@ func RefUpdateInPlace[T any](r *Ref[T], f func(p *T), clone func(v T) T, fresh b
 // through p and returns x (RefUpdateInPlace).
 //
 //ergo:wait none
-func RefModifyInPlace[T, R any](r *Ref[T], f func(p *T) R, clone func(v T) T, fresh bool) R {
+func RefModifyInPlace[T, R any](r *Ref[T], f func(p *T) R, clone func(v T) T, fresh, alone bool) R {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
-	if !rt.Alone() {
+	if !alone || !rt.Alone() {
 		r.mu.Lock()
 		defer r.mu.Unlock()
 	}
@@ -268,8 +267,12 @@ func RefModifyInPlace[T, R any](r *Ref[T], f func(p *T) R, clone func(v T) T, fr
 // it calls f and clears it once f has returned and the value is stored,
 // so a defect in f (or in clone) leaves r poisoned, with no deferred flag
 // to read. The lock, when the program is not alone (rt.Alone), is
-// unlocked by a defer, so a defect never leaves r locked; while the
-// program is alone there is neither lock nor unlock to run.
+// unlocked by a defer, so a defect never leaves r locked. An owned or
+// in-place form told alone (the lowering's proof that f starts no task and
+// runs no unknown code) skips the lock while the program is alone: no
+// goroutine but this one can reach r, and f cannot start one. Every other
+// Update or Modify locks, since its function may start a task that uses r
+// before the operation stores (TestRefFlipInsideUpdate).
 func (r *Ref[T]) check() {
 	if r.poison {
 		panic(refPoisoned)
