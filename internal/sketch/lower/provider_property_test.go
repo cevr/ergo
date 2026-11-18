@@ -276,7 +276,7 @@ func TestKnownProvidersAgree(t *testing.T) {
 		on, onErr, onCode := runExe(t, exes[fmt.Sprintf("providers%d", seed)])
 		off, offErr, offCode := runExe(t, exes[fmt.Sprintf("providers%ddynamic", seed)])
 		ended := (onCode != 0) == defects[seed] && strings.Contains(on, "both ")
-		if on != off || onErr != offErr || onCode != offCode || !ended {
+		if on != off || !sameReport(onErr, offErr) || onCode != offCode || !ended {
 			t.Errorf("seed %d: the copies and the reference differ (or the program did not end as written)\nReplay: go test -run '^TestKnownProvidersAgree$' ./internal/sketch/lower -args -providers.seed=%d\n%s\n--- copies (exit %d)\n%s%s\n--- reference (exit %d)\n%s%s", seed, seed, sources[seed], onCode, on, onErr, offCode, off, offErr)
 		}
 	}

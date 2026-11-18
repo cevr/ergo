@@ -1,4 +1,9 @@
-package opcount
+// Package hooked is the measured build of an emitted module for
+// internal/opcount. It is a package of its own because it builds through
+// the compiler front (sketchfront): opcount's counting needs none of it,
+// so a checker edit does not reach opcount's tests (the fast tier's reach,
+// scripts/gate TestFastTierReachOfAnEdit).
+package hooked
 
 import (
 	"io"
@@ -12,15 +17,15 @@ import (
 	"ergo.local/prototype/internal/toolchain"
 )
 
-// HookedBuild is the measured build of the module ergo emitted at work:
+// Build is the measured build of the module ergo emitted at work:
 // ergo's own Go build action (build.Toolchain.Command, with the release
 // ergo selects and its patched compile, and -ergoir for each package with
 // an IR file), linking to bin, with the hook's link flag and overlay (a
-// go build -overlay file that adds Hook as HookFile) added. Every Ergo
-// body lowers through IR, which only the patched compile reads: a plain go
-// build of the module stops at the first body-less IR declaration
-// ("missing function body").
-func HookedBuild(work, overlay, bin string) (*exec.Cmd, error) {
+// go build -overlay file that adds opcount's Hook as HookFile) added.
+// Every Ergo body lowers through IR, which only the patched compile reads:
+// a plain go build of the module stops at the first body-less IR
+// declaration ("missing function body").
+func Build(work, overlay, bin string) (*exec.Cmd, error) {
 	root, err := build.DefaultRoot()
 	if err != nil {
 		return nil, err

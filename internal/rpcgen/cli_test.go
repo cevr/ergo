@@ -515,7 +515,7 @@ func (p *program) contractSource(c *contract) string {
 	for _, o := range c.ops {
 		fmt.Fprintf(&b, "\t%s,\n", sig(o, ""))
 	}
-	b.WriteString("}\n\ntype Ref {}\n")
+	b.WriteString("}\n\ntype Ref {} implements Svc\n")
 	for _, o := range c.ops {
 		fmt.Fprintf(&b, "\nfunc %s {\n", sig(o, "r Ref"))
 		switch {

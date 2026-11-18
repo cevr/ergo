@@ -27,13 +27,19 @@ func ergoRun(t *testing.T, src string) (string, error) {
 	cmd := exec.Command(ergoCLI(t), "run", path)
 	cmd.Dir = filepath.Dir(path)
 	out, err := cmd.CombinedOutput()
-	// The first build in the test process's cache builds the IR compiler
-	// and says so first; which test makes it depends on the order the
-	// tests run in, and the note is no output of the program.
-	if note, rest, ok := strings.Cut(string(out), "\n"); ok && strings.HasPrefix(note, toolchain.BuildNote) {
-		out = []byte(rest)
-	}
+	out = withoutBuildNote(out)
 	return string(out), err
+}
+
+// withoutBuildNote is out without the line the first build in the test
+// process's cache writes first when it builds the IR compiler: which test
+// makes that build depends on the order the tests run in, and the note is
+// no output of the program (CS10, TRC).
+func withoutBuildNote(out []byte) []byte {
+	if note, rest, ok := strings.Cut(string(out), "\n"); ok && strings.HasPrefix(note, toolchain.BuildNote) {
+		return []byte(rest)
+	}
+	return out
 }
 
 func wantRun(t *testing.T, src, want string) {

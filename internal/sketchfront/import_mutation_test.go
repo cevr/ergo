@@ -111,7 +111,7 @@ func multiPackageExamples(t *testing.T) []exampleDir {
 		}
 		cmds, _ := os.ReadDir(filepath.Join(root, e.Name(), "cmd"))
 		for _, c := range cmds {
-			if c.IsDir() {
+			if src, _ := filepath.Glob(filepath.Join(root, e.Name(), "cmd", c.Name(), "*.ergo")); c.IsDir() && len(src) > 0 {
 				abs, err := filepath.Abs(filepath.Join(root, e.Name(), "cmd", c.Name()))
 				if err != nil {
 					t.Fatal(err)
@@ -158,6 +158,11 @@ var lazyState = map[string]string{
 	"*check.checker.instance":      "the origin's instance table: an instance is made once, on first use",
 	"*check.checker.instancesMade": "counter: the count of instances the origin's table made",
 	"*check.Named.under":           "an instance's underlying type, expanded on first use from its origin and type arguments",
+	// The program's Go packages (gobinding.go): one package per Go import
+	// path, shared by every package of the program, so an importer that
+	// imports another Go package adds it to the set. The bindings the
+	// import already holds are unchanged.
+	"*check.GoBindings.pkgs": "the program's set of Go packages, which each importer's Go imports join",
 }
 
 // lazyFree drops the changes lazyState allows, and the fields of objects

@@ -638,14 +638,7 @@ func (fc *funcCtx) assert(s *syntax.AssertStmt) {
 	if x, lt, rt, ok := fc.l.assertShown(s.X); ok {
 		// A try that starts the assert covers the whole comparison: its
 		// operands are lowered under it, as (try a) == b lowers a (q105).
-		inTry := tried(s.X) != s.X
-		if inTry {
-			fc.tries++
-		}
-		cond, text = fc.assertCompare(x, lt, rt, text)
-		if inTry {
-			fc.tries--
-		}
+		cond, text = fc.underTriedAssert(s.X, func() (string, string) { return fc.assertCompare(x, lt, rt, text) })
 	} else {
 		cond = fc.value(s.X)
 	}

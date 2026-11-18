@@ -135,12 +135,17 @@ func ExecKill(t *rt.Task, pid int, start int64, grace time.Duration) {
 		return
 	}
 	group := pid // Spawn's setsid made the program its group's leader
+	// The program counts as well as its group: on Darwin a group whose
+	// processes are exiting can answer ESRCH before the program is a
+	// zombie, which a wait on the group alone took for its end (I19 macOS
+	// check: TestExecSpawnOutlivesItsStarter, alive after Kill).
+	left := func() bool { return syscall.Kill(-group, 0) == nil || execRunning(pid, start) }
 	if grace > 0 {
 		execSignalGroup(group, syscall.SIGTERM)
 		deadline := time.NewTimer(grace)
 		defer deadline.Stop()
 	wait:
-		for pause := execSpawnPoll; syscall.Kill(-group, 0) == nil; pause = min(2*pause, execSpawnPollMax) {
+		for pause := execSpawnPoll; left(); pause = min(2*pause, execSpawnPollMax) {
 			select {
 			case <-deadline.C:
 				break wait
@@ -151,5 +156,12 @@ func ExecKill(t *rt.Task, pid int, start int64, grace time.Duration) {
 		}
 	}
 	execKillGroup(group)
+	if execRunning(pid, start) {
+		_ = execKill(pid, syscall.SIGKILL) // the program itself, whatever its group answered
+	}
 	execAwaitGroupEnd(group)
+	deadline := time.Now().Add(execReapWait)
+	for pause := execSpawnPoll; execRunning(pid, start) && time.Now().Before(deadline); pause = min(2*pause, execSpawnPollMax) {
+		time.Sleep(pause)
+	}
 }
