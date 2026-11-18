@@ -1,0 +1,144 @@
+import atomic
+import sync
+
+// Readouts (LIVE): a text the host reads each time it paints, which the
+// program changes with no pass. A view places a Readout (ReadoutText) and
+// the pass commits it as any node; afterwards Publish, from a signal's
+// handler, a work, a fetch's task, a timer or an Area's pointer function,
+// stores a new text and wakes each session that showed the readout with
+// one Published event. The session runs no pass for it (no view, no
+// commit, no op): the host paints again the nodes that read the readout.
+// A clock, a meter, a progress count or a pointer's place changes many
+// times a second without making the view run.
+//
+// The box is the reserve's: a host lays a ReadoutNode out by its Reserve
+// text, so a reading longer or shorter than the reserve never moves its
+// siblings; a reading wider than the box is clipped to it.
+//
+// A Readout is a handle: every copy is the same readout. Its node names
+// it by a number NewReadout gives it, so a node still compares with ==,
+// and the session that placed it keeps the handle by that number. It is
+// ordinary std code over sync.Ref and atomic, so any package can build
+// the same thing; no compiler rule knows it.
+//
+// Prior art: rune's LiveText (a placeholder reserves the box, an equal
+// string wakes no host); Flutter's ValueNotifier with a
+// ValueListenableBuilder; the web's textContent written outside a
+// framework's render.
+
+// Readout is a text a host reads at paint. Its fields are unexported, so
+// only NewReadout makes one.
+type Readout { id int, text sync.Ref[string], watch sync.Ref[[]readoutWatch] }
+
+// readoutWatch is one session's wake: pending is whether a Published it
+// posted waits to be taken, so a burst of Publishes posts one.
+type readoutWatch { pending sync.Ref[bool], wake func() }
+
+// readoutIds numbers the readouts of the program, from 1.
+let readoutIds = atomic.NewInt64(0)
+
+// NewReadout is a readout that reads text until a Publish.
+func NewReadout(text string) Readout {
+	Readout{id: int(readoutIds.Add(1)), text: sync.NewRef(text), watch: sync.NewRef([]readoutWatch{})}
+}
+
+// Publish makes r read text. When the text is new it wakes each session
+// that showed r and has no Published of r waiting; an equal text wakes
+// none. It never waits for a host.
+func Publish(r Readout, text string) {
+	let changed = sync.Modify(r.text, func(old string) (bool, string) { (old != text, text) })
+	if !changed {
+		return
+	}
+	for w in r.watch.Get() {
+		if !sync.Modify(w.pending, func(b bool) (bool, bool) { (b, true) }) {
+			w.wake()
+		}
+	}
+}
+
+// Reading is the text r reads now.
+func Reading(r Readout) string { r.text.Get() }
+
+// ReadoutText shows the text r reads, in a box the size of reserve's
+// text. The node is the same across passes while r and reserve are, so a
+// pass that writes it again changes nothing.
+func ReadoutText[E](f *Frame[E], r Readout, reserve string, at CallSite) {
+	if f.nreadouts < len(f.readouts) {
+		f.readouts[f.nreadouts] = r
+	} else {
+		f.readouts = f.readouts.Append(r)
+	}
+	f.nreadouts = f.nreadouts + 1
+	let _ = put(f, ReadoutNode{Readout: r.id, Reserve: reserve, Style: Plain()}, None, None, at)
+}
+
+// watched is a readout a session watches and the flag of its Published.
+type watched { readout Readout, pending sync.Ref[bool] }
+
+// watchReadouts makes the session wake for each readout its last pass
+// placed and it does not watch yet. A readout a later pass removes keeps
+// its wake: its Published then finds no node to paint.
+func watchReadouts[S, E, D, F](s *Session[S, E, D, F]) {
+	for i in 0..s.frame.nreadouts {
+		let r = s.frame.readouts[i]
+		if has(s.readouts, r.id) {
+			continue
+		}
+		let pending = sync.NewRef(false)
+		let post = s.post
+		let id = r.id
+		r.watch.Update(func(ws []readoutWatch) []readoutWatch {
+			ws.Append(readoutWatch{pending: pending, wake: func() { post(Published{Readout: id}) }})
+		})
+		s.readouts[r.id] = watched{readout: r, pending: pending}
+	}
+}
+
+// taken clears the flag of readout id's Published, so the next Publish of
+// it posts again. The session clears it before the host reads the
+// readout, so a Publish after that is either read now or posts once more.
+func taken[S, E, D, F](s *Session[S, E, D, F], id int) {
+	match s.readouts.Get(id) {
+	case Some[watched] as w:
+		w.Value.pending.Set(false)
+	case None:
+	}
+}
+
+// ReadingIn is the text the readout numbered id reads now, for a node of
+// s's tree; None for a number s never placed.
+func ReadingIn[S, E, D, F](s *Session[S, E, D, F], id int) Option[string] {
+	match s.readouts.Get(id) {
+	case Some[watched] as w:
+		Some{Value: Reading(w.Value.readout)}
+	case None:
+		None
+	}
+}
+
+// ShownIn is what n, a node of s's tree, shows now: a ReadoutNode as the
+// TextNode of its reading, any other node as it is.
+func ShownIn[S, E, D, F](s *Session[S, E, D, F], n Node[E]) Node[E] {
+	match n {
+	case ReadoutNode as x:
+		match ReadingIn(s, x.Readout) {
+		case Some[string] as t:
+			TextNode{Value: t.Value, Style: x.Style}
+		case None:
+			TextNode{Value: x.Reserve, Style: x.Style}
+		}
+	case _:
+		n
+	}
+}
+
+// ShownShapesIn is shapes of s's tree with each node ShownIn: the screen
+// as a host paints it at this moment.
+func ShownShapesIn[S, E, D, F](s *Session[S, E, D, F], shapes []Shape[E]) []Shape[E] {
+	let mut out = []Shape[E]{}
+	for sh in shapes {
+		out = out.Append(Shape[E]{Node: ShownIn(s, sh.Node), Kids: ShownShapesIn[S, E, D, F](s, sh.Kids)})
+	}
+	out
+}

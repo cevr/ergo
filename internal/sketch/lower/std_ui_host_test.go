@@ -6266,6 +6266,219 @@ test UiTabWalksTheFocusables(seed int, steps int) {
 }
 
 
+// LIVE: laws_readout.ergo restated.
+// readWords is the texts the readout laws publish: equal, longer and
+// shorter than the reserve, and empty. (a law's helper)
+let readWords = []string{"00:00", "00:01", "12:34", "", "a reading far wider than its reserve", "9"}
+
+// readoutRows is the readouts' screen at layout s. (a law's helper)
+func readoutRows(f *ui.Frame[int], s int, n int, shown func(i int)) {
+	ui.Column(f, ui.Plain()) {
+		ui.Text(f, "at \(s)")
+		ui.Pressable(f, "next", (s+1)%4) {
+			ui.Text(f, "next")
+		}
+		for j in 0..n {
+			let i = if s%2 == 0 { j } else { n - 1 - j }
+			if s >= 2 && i == 0 {
+				continue
+			}
+			ui.Row(f, ui.Plain()) {
+				ui.Text(f, "r\(i)")
+				shown(i)
+			}
+		}
+	}
+}
+
+// readoutsOf is n readouts, each reading readWords[0]. (a law's helper)
+func readoutsOf(n int) []ui.Readout {
+	let mut rs = []ui.Readout{}
+	for _ in 0..n {
+		rs = rs.Append(ui.NewReadout(readWords[0]))
+	}
+	rs
+}
+
+// texts is the text of every Text node of shapes, in order. (a law's
+// helper)
+func texts(shapes []ui.Shape[int]) []string {
+	let mut out = []string{}
+	for s in shapes {
+		match s.Node {
+		case ui.TextNode as t:
+			out = out.Append(t.Value)
+		case _:
+		}
+		for t in texts(s.Kids) {
+			out = out.Append(t)
+		}
+	}
+	out
+}
+
+func lawLiveCostsNoPass(seed int, steps int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut r = seeded(seed)
+		let n = draw(&r, 4) + 1
+		let rs = readoutsOf(n)
+		let view = func(f *ui.Frame[int], s int) {
+			readoutRows(f, s, n, func(i int) { ui.ReadoutText(f, rs[i], "--:--") })
+		}
+		let a = actor.StartMachine(dialMachine(), 1, func(o int) {})
+		let mut h = ui.NewTestHost(a, view, m, 4) catch {
+		case ui.BadPatch:
+			return false
+		}
+		ui.Settle(&h) catch {
+		case _:
+			return false
+		}
+		let before = ui.Counts(&h)
+		for _ in 0..(steps%16+16)%16+1 {
+			let i = draw(&r, n)
+			let mut word = readWords[draw(&r, len(readWords))]
+			let was = ui.Reading(rs[i])
+			if draw(&r, 2) == 0 {
+				ui.Publish(rs[i], word)
+			} else {
+				let first = word
+				let t = task.Go() {
+					ui.Publish(rs[i], first)
+					true
+				}
+				let _ = t.Wait()
+			}
+			let woke = if word == was { 0 } else { 1 }
+			if ui.Posted(&h) != woke {
+				return false
+			}
+			// A second text before the host takes the first posts no more.
+			if woke == 1 && draw(&r, 2) == 0 {
+				word = readWords[draw(&r, len(readWords))]
+				ui.Publish(rs[i], word)
+				if ui.Posted(&h) != 1 {
+					return false
+				}
+			}
+			ui.Pump(&h) catch {
+			case _:
+				return false
+			}
+			if ui.Posted(&h) != 0 || ui.Counts(&h) != before || ui.Reading(rs[i]) != word {
+				return false
+			}
+			let mut want = []string{"at 0", "next"}
+			for k in 0..n {
+				want = want.Append("r\(k)")
+				want = want.Append(ui.Reading(rs[k]))
+			}
+			if texts(ui.Screen(&h)) != want {
+				return false
+			}
+		}
+		true
+	}
+}
+
+// readState is the reference program's state. (a law's helper)
+type readState { layout int, words []int }
+
+// readStep: a signal under 100 is a layout; 100 + 10i + w sets row i's
+// text to readWords[w]. (a law's helper)
+func readStep(s readState, e int) Decision[readState, int] {
+	if e < 100 {
+		return Enter[readState]{Next: readState{layout: e, words: s.words}}
+	}
+	let i = (e - 100) / 10
+	let mut words = s.words
+	words[i] = (e - 100) % 10
+	Enter[readState]{Next: readState{layout: s.layout, words: words}}
+}
+
+func readTimer(s readState) Option[Timeout[int]] { None }
+
+func readWork(s readState) Option[func(send func(e int))] { None }
+
+func lawLiveEqualsRerun(seed int, steps int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut r = seeded(seed)
+		let n = draw(&r, 4) + 1
+		let rs = readoutsOf(n)
+		let live = func(f *ui.Frame[int], s int) {
+			readoutRows(f, s, n, func(i int) { ui.ReadoutText(f, rs[i], "--:--") })
+		}
+		let mut zero = []int{}
+		for _ in 0..n {
+			zero = zero.Append(0)
+		}
+		let rerun = func(f *ui.Frame[int], s readState) {
+			ui.OnKey(f, func(k ui.KeyPress) Option[int] {
+				for e in 100..100+10*n {
+					if k.Name == "\(e)" {
+						return Some{Value: e}
+					}
+				}
+				None
+			})
+			readoutRows(f, s.layout, n, func(i int) { ui.Text(f, readWords[s.words[i]]) })
+		}
+		let a = actor.StartMachine(dialMachine(), 1, func(o int) {})
+		let b = actor.StartMachine(Machine[readState, int, int]{Initial: readState{layout: 0, words: zero}, Step: readStep, After: readTimer, Work: readWork}, 1, func(o int) {})
+		let mut ha = ui.NewTestHost(a, live, m, 4) catch {
+		case ui.BadPatch:
+			return false
+		}
+		let mut hb = ui.NewTestHost(b, rerun, m, 4) catch {
+		case ui.BadPatch:
+			return false
+		}
+		let mods = ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}
+		for _ in 0..(steps%20+20)%20+1 {
+			if draw(&r, 3) == 0 {
+				ui.Play(&ha, []ui.Act{ui.TapOn{Label: "next"}, ui.SettleAll}) catch {
+				case _:
+					return false
+				}
+				ui.Play(&hb, []ui.Act{ui.TapOn{Label: "next"}, ui.SettleAll}) catch {
+				case _:
+					return false
+				}
+			} else {
+				let i = draw(&r, n)
+				let w = draw(&r, len(readWords))
+				ui.Publish(rs[i], readWords[w])
+				ui.Settle(&ha) catch {
+				case _:
+					return false
+				}
+				ui.PressKey(&hb, ui.KeyPress{Name: "\(100 + 10*i + w)", Mods: mods}) catch {
+				case _:
+					return false
+				}
+				ui.Settle(&hb) catch {
+				case _:
+					return false
+				}
+			}
+			if ui.Screen(&ha) != ui.Screen(&hb) {
+				return false
+			}
+		}
+		true
+	}
+}
+
+test UiLiveCostsNoPass(seed int, steps int) {
+	assert lawLiveCostsNoPass(seed, steps)
+}
+
+test UiLiveEqualsRerun(seed int, steps int) {
+	assert lawLiveEqualsRerun(seed, steps)
+}
+
 test UiLocationPushThenBackRestores(path string) {
 	let h = ui.NewMemoryHistory(ui.URL{Path: "/", Query: "", Fragment: ""})
 	let u = ui.URL{Path: "/" + path, Query: "", Fragment: ""}
@@ -6359,6 +6572,8 @@ var stdUIHostStatements = map[string]string{
 	"ui ChoiceIsAnnouncedAndReachable":     `ChoiceIsAnnouncedAndReachable(n int, from int, to int, radio bool) { let m = time.NewManual(0) with context { Scheduler: m } { let k = (n%4+4)%4 + 3 let options = choiceOptions(k) let start = (from%k + k) % k let target = (to%k + k) % k let view = func(f *Frame[int], s int) { let on = func(v string) int { choiceIndex(options, v) } if radio { Radios(f, "pick", options, options[s], on) } else { Select(f, "pick", options, options[s], on) } } let a = actor.StartMachine(Machine[int, int, int]{Initial: start, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } if !choiceShown(&h, k, start, radio) { return false } // The keys reach the choice once the focus is in it: a press on its // selected option (UC-FOCUS). Play(&h, []Act{ClickOn{At: WithLabel{Label: options[start]}}}) catch { case _: return false } if StateOf(&h) != start || !choiceKey(&h, "Home") || StateOf(&h) != 0 || !choiceShown(&h, k, 0, radio) { return false } if !choiceWalk(&h, "ArrowDown", k-1, 1) || !choiceShown(&h, k, k-1, radio) { return false } let _ = choiceKey(&h, if radio { "ArrowRight" } else { "ArrowDown" }) if StateOf(&h) != if radio { 0 } else { k - 1 } || !choiceKey(&h, "End") || StateOf(&h) != k-1 { return false } if !choiceWalk(&h, "ArrowUp", k-1, -1) || !choiceShown(&h, k, 0, radio) { return false } let _ = choiceKey(&h, if radio { "ArrowLeft" } else { "ArrowUp" }) if StateOf(&h) != if radio { k - 1 } else { 0 } { return false } let here = StateOf(&h) let ok = if target >= here { choiceWalk(&h, "ArrowDown", target-here, 1) } else { choiceWalk(&h, "ArrowUp", here-target, -1) } let _ = choiceKey(&h, "x") if !ok || StateOf(&h) != target || !choiceShown(&h, k, target, radio) { return false } let other = (target + 1) % k Play(&h, []Act{ClickOn{At: WithLabel{Label: options[other]}}}) catch { case _: return false } StateOf(&h) == other && choiceShown(&h, k, other, radio) } }`,
 	"ui ChoicesTakeKeysWhenFocused":        `ChoicesTakeKeysWhenFocused(seed int, steps int) { let mut r = seeded(seed) let m = time.NewManual(0) with context { Scheduler: m } { let oa = namedOptions("a", draw(&r, 4)+3) let ob = namedOptions("b", draw(&r, 4)+3) let ra = draw(&r, 2) == 0 let rb = draw(&r, 2) == 0 let mut a = draw(&r, len(oa)) let mut b = draw(&r, len(ob)) let view = func(f *Frame[int], s int) { twoChoices(f, s, oa, ob, ra, rb) } let start = a*10 + b let app = actor.StartMachine(Machine[int, int, int]{Initial: start, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(app, view, m, 4) catch { case BadPatch: return false } // focus: 0 none, 1 the first choice, 2 the second. let mut focus = 0 let keys = choiceKeys() let mut acts = []int{3 + draw(&r, len(keys)), 1, 3 + draw(&r, len(keys))} for _ in 0..(steps%8+8)%8+6 { acts = acts.Append(draw(&r, 3+len(keys))) } for i, act in acts { if act == 0 || act == 1 { let opts = if act == 0 { oa } else { ob } // The run's first press is on the second choice's selected option. let j = if i == 1 { b } else { draw(&r, len(opts)) } Play(&h, []Act{ClickOn{At: WithLabel{Label: opts[j]}}}) catch { case _: return false } if act == 0 { a = j focus = 1 } else { b = j focus = 2 } } else if act == 2 { Play(&h, []Act{ClickOn{At: WithLabel{Label: "elsewhere"}}}) catch { case _: return false } focus = 0 } else { let key = keys[act-3] if !choiceKey(&h, key) { return false } if focus == 1 { a = modelPick(len(oa), a, key, ra) } else if focus == 2 { b = modelPick(len(ob), b, key, rb) } } if StateOf(&h) != a*10+b { return false } } true } }`,
 	"ui TabWalksTheFocusables":             `TabWalksTheFocusables(seed int, steps int) { let mut r = seeded(seed) let m = time.NewManual(0) with context { Scheduler: m } { let mut kinds = []int{} let mut order = []string{} for i in 0..draw(&r, 6)+3 { let k = draw(&r, 7) kinds = kinds.Append(k) if k >= 1 && k <= 4 { order = order.Append("f\(i)") } } let ks = kinds let view = func(f *Frame[int], s int) { tabScreen(f, s, ks) } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } let n = len(order) let mut at = -1 for _ in 0..(steps%10+10)%10+4 { let act = draw(&r, 4) if act == 3 && n > 0 { let j = draw(&r, n) Play(&h, []Act{ClickOn{At: WithLabel{Label: order[j]}}}) catch { case _: return false } at = j } else { let back = act == 2 if !tabKey(&h, back) { return false } if n > 0 { at = if at < 0 { if back { n - 1 } else { 0 } } else if back { (at + n - 1) % n } else { (at + 1) % n } } } match FocusOf(&h) { case Some[Id[int]] as id: if at < 0 || AccessAt(&h, id.Value).Name != order[at] { return false } case None: if at >= 0 { return false } } } true } }`,
+	"ui LiveCostsNoPass":                   `LiveCostsNoPass(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { let mut r = seeded(seed) let n = draw(&r, 4) + 1 let rs = readoutsOf(n) let view = func(f *Frame[int], s int) { readoutRows(f, s, n, func(i int) { ReadoutText(f, rs[i], "--:--") }) } let a = actor.StartMachine(dialMachine(), 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } Settle(&h) catch { case _: return false } let before = Counts(&h) for _ in 0..(steps%16+16)%16+1 { let i = draw(&r, n) let mut word = readWords[draw(&r, len(readWords))] let was = Reading(rs[i]) if draw(&r, 2) == 0 { Publish(rs[i], word) } else { let first = word let t = task.Go() { Publish(rs[i], first) true } let _ = t.Wait() } let woke = if word == was { 0 } else { 1 } if Posted(&h) != woke { return false } // A second text before the host takes the first posts no more. if woke == 1 && draw(&r, 2) == 0 { word = readWords[draw(&r, len(readWords))] Publish(rs[i], word) if Posted(&h) != 1 { return false } } Pump(&h) catch { case _: return false } if Posted(&h) != 0 || Counts(&h) != before || Reading(rs[i]) != word { return false } let mut want = []string{"at 0", "next"} for k in 0..n { want = want.Append("r\(k)") want = want.Append(Reading(rs[k])) } if texts(Screen(&h)) != want { return false } } true } }`,
+	"ui LiveEqualsRerun":                   `LiveEqualsRerun(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { let mut r = seeded(seed) let n = draw(&r, 4) + 1 let rs = readoutsOf(n) let live = func(f *Frame[int], s int) { readoutRows(f, s, n, func(i int) { ReadoutText(f, rs[i], "--:--") }) } let mut zero = []int{} for _ in 0..n { zero = zero.Append(0) } let rerun = func(f *Frame[int], s readState) { OnKey(f, func(k KeyPress) Option[int] { for e in 100..100+10*n { if k.Name == "\(e)" { return Some{Value: e} } } None }) readoutRows(f, s.layout, n, func(i int) { Text(f, readWords[s.words[i]]) }) } let a = actor.StartMachine(dialMachine(), 1, func(o int) {}) let b = actor.StartMachine(Machine[readState, int, int]{Initial: readState{layout: 0, words: zero}, Step: readStep, After: readTimer, Work: readWork}, 1, func(o int) {}) let mut ha = NewTestHost(a, live, m, 4) catch { case BadPatch: return false } let mut hb = NewTestHost(b, rerun, m, 4) catch { case BadPatch: return false } let mods = Mods{Shift: false, Ctrl: false, Alt: false, Meta: false} for _ in 0..(steps%20+20)%20+1 { if draw(&r, 3) == 0 { Play(&ha, []Act{TapOn{Label: "next"}, SettleAll}) catch { case _: return false } Play(&hb, []Act{TapOn{Label: "next"}, SettleAll}) catch { case _: return false } } else { let i = draw(&r, n) let w = draw(&r, len(readWords)) Publish(rs[i], readWords[w]) Settle(&ha) catch { case _: return false } PressKey(&hb, KeyPress{Name: "\(100 + 10*i + w)", Mods: mods}) catch { case _: return false } Settle(&hb) catch { case _: return false } } if Screen(&ha) != Screen(&hb) { return false } } true } }`,
 	"ui Location.PushThenBackRestores":     `PushThenBackRestores(u URL) { let before = Current() Push(u) let there = Current() Back() && there == u && Current() == before }`,
 	"ui Location.ReplaceKeepsDepth":        `ReplaceKeepsDepth(u URL, v URL) { let before = Current() Push(u) Replace(v) let there = Current() Back() && there == v && Current() == before }`,
 	"ui Location.BackStopsAtTheStart":      `BackStopsAtTheStart(u URL) { Replace(u) for Back() { } let first = Current() !Back() && Current() == first }`,
