@@ -443,8 +443,14 @@ func Collect(t Tool, id Option[string], older duration) []Workspace fails Unkept
 			if taken && markerOf(t, w.Path) == w.Id && w.Id != "" {
 				// The clone was made and marked: its maker stopped before it
 				// wrote the activation, and the folder may already hold work.
-				// gc writes the activation instead of deleting it.
-				let active = moved(w, Cloned, at) catch {
+				// gc writes the activation instead of deleting it, with the
+				// digest of the lock its clone carries, as Activate would.
+				let c = config(t) catch {
+				case BadConfig:
+					EmptyConfig()
+				}
+				let installedAs = if len(c.LeaveOut) == 0 { lockDigest(t, w.Path, c) } else { "" }
+				let active = moved(Workspace{..w, Deps: installedAs}, Cloned, at) catch {
 				case Busy:
 					Unreachable("a workspace being created takes Cloned")
 					w
