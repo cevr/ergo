@@ -83,6 +83,11 @@ func compare[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Drive
 		return why
 	case None:
 	}
+	match layersPlacedWrong(d) {
+	case Some[string] as why:
+		return why
+	case None:
+	}
 	let _ = w.Render()
 	for p in desktop.Probes(d) {
 		let got = w.Pixel(p.X, p.Y)

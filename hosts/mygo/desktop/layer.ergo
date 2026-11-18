@@ -1,0 +1,176 @@
+// Layers (ui.Layer, UG4): a layer is out of the window's flow. build lays
+// it out as an absolute child of the window's box at its own size; place
+// moves it to ui.PlaceLayer's box against the box of the node its anchor
+// key names (ui.AnchorIn); paint paints the layers after the flow, in
+// ui.StackOrder, each over its scrim, so the top layer is painted last
+// and hit first. A press on a scrim goes to the root: outside every
+// layer, so the frame sends the top layer's dismiss signal.
+
+import arena
+import ui
+import ui/layout
+
+// scrimColor is a scrim's fill: black at 35%.
+let scrimColor = uint32(0x00000059)
+
+// isLayer is whether n is a layer.
+func isLayer[E](n ui.Node[E]) bool {
+	match n {
+	case ui.LayerNode[E]:
+		true
+	case _:
+		false
+	}
+}
+
+// layerNode is the node id when it is a layer.
+func layerNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) Option[ui.LayerNode[E]] {
+	match d.nodes.Get(id) {
+	case Some[held[E]] as h:
+		match h.Value.node {
+		case ui.LayerNode[E] as l:
+			Some{Value: l}
+		case _:
+			None
+		}
+	case None:
+		None
+	}
+}
+
+// layersFrom is the layers at or under id, in tree order, onto out.
+func layersFrom[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], out []ui.Id[E]) []ui.Id[E] {
+	let mut all = out
+	match layerNode(d, id) {
+	case Some[ui.LayerNode[E]]:
+		all = all.Append(id)
+	case None:
+	}
+	for k in kidsOf(d, id) {
+		all = layersFrom[S, E, D, F](d, k, all)
+	}
+	all
+}
+
+// stacked is the window's layers, the bottom first (ui.StackOrder).
+func stacked[S, E, D, F](d *Driver[S, E, D, F]) []ui.Id[E] {
+	let ls = layersFrom(d, d.root, []ui.Id[E]{})
+	let mut zs = []ui.Z{}
+	for l in ls {
+		match layerNode(d, l) {
+		case Some[ui.LayerNode[E]] as x:
+			zs = zs.Append(x.Value.Z)
+		case None:
+		}
+	}
+	let mut out = []ui.Id[E]{}
+	for i in ui.StackOrder(zs) {
+		out = out.Append(ls[i])
+	}
+	out
+}
+
+// rectOf is a laid box as a ui Rect.
+func rectOf(b layout.Box) ui.Rect {
+	ui.Rect{X: ui.Length(float64(b.X)), Y: ui.Length(float64(b.Y)), W: ui.Length(float64(b.W)), H: ui.Length(float64(b.H))}
+}
+
+// placeLayers moves each layer, laid out at its own size, to its place
+// against its anchor's box in the window. It is whether it moved any.
+func placeLayers[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, ids Map[ui.Id[E], layout.Id]) bool {
+	let mut moved = false
+	let view = ui.Rect{X: 0, Y: 0, W: ui.Length(float64(d.width)), H: ui.Length(float64(d.height))}
+	for l in stacked(d) {
+		match (layerNode(d, l), ids.Get(l)) {
+		case (Some[ui.LayerNode[E]] as x, Some[layout.Id] as li):
+			let b = boxOf(t, li.Value)
+			let mut anchor Option[ui.Rect] = None
+			match x.Value.Anchor {
+			case Some[ui.Key] as k:
+				match ui.AnchorIn(&d.mirror, k.Value) {
+				case Some[ui.Id[E]] as a:
+					match ids.Get(a.Value) {
+					case Some[layout.Id] as ai:
+						anchor = Some{Value: rectOf(boxOf(t, ai.Value))}
+					case None:
+					}
+				case None:
+				}
+			case None:
+			}
+			let p = ui.PlaceLayer(anchor, ui.Length(float64(b.W)), ui.Length(float64(b.H)), view, x.Value.Place)
+			let at = layout.Absolute{Left: float32(float64(p.X)), Top: float32(float64(p.Y))}
+			let was = layout.StyleOf(t, li.Value) catch {
+			case arena.Stale:
+				layout.Default()
+			}
+			let same = match was.Position {
+			case layout.Absolute as w:
+				w.Left == at.Left && w.Top == at.Top
+			case layout.Flow:
+				false
+			}
+			if !same {
+				let mut s = was
+				s.Position = at
+				// The layer keeps the size it was laid out at.
+				s.Width = layout.Px{Value: b.W}
+				s.Height = layout.Px{Value: b.H}
+				layout.SetStyle(t, li.Value, s) catch {
+				case arena.Stale:
+				}
+				moved = true
+			}
+		case _:
+		}
+	}
+	moved
+}
+
+// paintLayers paints the layers over the flow, the bottom first, each
+// over its scrim; a scrim is a spot of the root's, so a press on it is a
+// press outside every layer.
+func paintLayers[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, ids Map[ui.Id[E], layout.Id], line float32) needs go.Foreign {
+	let full = layout.Box{X: 0, Y: 0, W: d.width, H: d.height}
+	for l in stacked(d) {
+		match layerNode(d, l) {
+		case Some[ui.LayerNode[E]] as x:
+			if x.Value.Scrim {
+				fill(d, full, 0, scrimColor)
+				d.under = None
+				d.spots = d.spots.Append(spot[E]{id: d.root, node: x.Value, box: full, clip: full})
+			}
+			draw(d, t, ids, l, 0, full, line)
+		case None:
+		}
+	}
+}
+
+// LayerAt is a layer as the last paint placed it: its box, its anchor's
+// box (None: no anchor, or none the window holds), its Place and the
+// window's box.
+type LayerAt { Box layout.Box, Anchor Option[layout.Box], Place ui.Place, View layout.Box }
+
+// LayerBoxes is the window's layers as the last paint placed them, the
+// bottom first.
+func LayerBoxes[S, E, D, F](d *Driver[S, E, D, F]) []LayerAt {
+	let mut out = []LayerAt{}
+	for l in stacked(d) {
+		match (layerNode(d, l), d.boxes.Get(l)) {
+		case (Some[ui.LayerNode[E]] as x, Some[layout.Box] as b):
+			let mut anchor Option[layout.Box] = None
+			match x.Value.Anchor {
+			case Some[ui.Key] as k:
+				match ui.AnchorIn(&d.mirror, k.Value) {
+				case Some[ui.Id[E]] as a:
+					anchor = d.boxes.Get(a.Value)
+				case None:
+				}
+			case None:
+			}
+			out = out.Append(LayerAt{Box: b.Value, Anchor: anchor, Place: x.Value.Place, View: layout.Box{X: 0, Y: 0, W: d.width, H: d.height}})
+		case _:
+		}
+	}
+	out
+}

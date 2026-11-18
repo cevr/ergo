@@ -115,6 +115,8 @@ func styleOf[E](n ui.Node[E], line float32) layout.Style {
 		boxStyle(x.Style, layout.Column)
 	case ui.SemanticNode[E] as x:
 		boxStyle(x.Style, layout.Column)
+	case ui.LayerNode[E] as x:
+		boxStyle(x.Style, layout.Column)
 	case ui.TransitionNode:
 		plainStyle()
 	case ui.ZoneNode as x:
@@ -251,13 +253,24 @@ func paint[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
 	rs.Width = layout.Px{Value: d.width}
 	rs.Height = layout.Px{Value: d.height}
 	let top = layout.Add(&t, rs)
-	let ids = build(d, &t, d.root, top, Map[ui.Id[E], layout.Id]{}, line)
+	let ids = build(d, &t, d.root, top, top, Map[ui.Id[E], layout.Id]{}, line)
 	let m = d.metrics
 	with context { layout.Measure: m } {
 		layout.Layout(&t, top, d.width, d.height) catch {
 		case arena.Stale:
 		}
 		if roomForLists(d, &t, ids) {
+			layout.Layout(&t, top, d.width, d.height) catch {
+			case arena.Stale:
+			}
+		}
+		// Each layer, laid out at its own size, goes to its place (UG4);
+		// a layer anchored in a layer that moved goes again, so this ends
+		// after at most one round per layer.
+		for _ in 0..len(stacked(d))+1 {
+			if !placeLayers(d, &t, ids) {
+				break
+			}
 			layout.Layout(&t, top, d.width, d.height) catch {
 			case arena.Stale:
 			}
@@ -272,9 +285,8 @@ func paint[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
 	d.under = Some{Value: paper}
 	d.shadowed = false
 	let full = layout.Box{X: 0, Y: 0, W: d.width, H: d.height}
-	for k in kidsOf(d, d.root) {
-		draw(d, &t, ids, k, 0, full, line)
-	}
+	drawKids(d, &t, ids, d.root, 0, full, line)
+	paintLayers(d, &t, ids, line)
 	d.w.Present()
 	d.painted = d.painted + 1
 }
@@ -309,8 +321,10 @@ func roomForLists[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, ids Map[ui.
 
 // build adds id's children under into, in order, and their subtrees. A
 // list's row is out of the flow, at its index's place below the list's
-// top (from the list's First), as wide as the list and one row high.
-func build[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, id ui.Id[E], into layout.Id, ids Map[ui.Id[E], layout.Id], line float32) Map[ui.Id[E], layout.Id] {
+// top (from the list's First), as wide as the list and one row high. A
+// layer is out of the flow too: an absolute child of the window's box
+// (top), at its own size, which placeLayers moves (UG4).
+func build[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, id ui.Id[E], into layout.Id, top layout.Id, ids Map[ui.Id[E], layout.Id], line float32) Map[ui.Id[E], layout.Id] {
 	let mut out = ids
 	let list = match d.nodes.Get(id) {
 	case Some[held[E]] as p:
@@ -335,12 +349,16 @@ func build[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, id ui.Id[E], into 
 				st.Height = layout.Px{Value: rh}
 			case None:
 			}
+			let layer = isLayer(h.Value.node)
+			if layer {
+				st.Position = layout.Absolute{Left: 0, Top: 0}
+			}
 			let n = layout.Add(t, st)
-			layout.Append(t, into, n) catch {
+			layout.Append(t, if layer { top } else { into }, n) catch {
 			case arena.Stale:
 			}
 			out[k] = n
-			out = build[S, E, D, F](d, t, k, n, out, line)
+			out = build[S, E, D, F](d, t, k, n, top, out, line)
 		case None:
 		}
 	}
@@ -367,7 +385,7 @@ func draw[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, ids Map[ui.Id[E], l
 	let s = spot[E]{id: id, node: n, box: b, clip: clip}
 	let look = paintLook(d, id, n, b, clip, line, focus)
 	match n {
-	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.FieldsetNode, ui.ZoneNode, ui.TransitionNode:
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.FieldsetNode, ui.ZoneNode, ui.TransitionNode, ui.LayerNode:
 		drawKids(d, t, ids, id, dy, clip, line)
 	case ui.SemanticNode[E]:
 		// A Semantic a press sends from (a radio, an option, a link) takes
@@ -490,10 +508,15 @@ func draw[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, ids Map[ui.Id[E], l
 	unpaint(d, look)
 }
 
-// drawKids paints id's children in order.
+// drawKids paints id's children in order, but its layers, which
+// paintLayers paints over the flow (UG4).
 func drawKids[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, ids Map[ui.Id[E], layout.Id], id ui.Id[E], dy float32, clip layout.Box, line float32) needs go.Foreign {
 	for k in kidsOf(d, id) {
-		draw(d, t, ids, k, dy, clip, line)
+		match layerNode(d, k) {
+		case Some[ui.LayerNode[E]]:
+		case None:
+			draw(d, t, ids, k, dy, clip, line)
+		}
 	}
 }
 
