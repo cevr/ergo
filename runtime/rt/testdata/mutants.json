@@ -400,6 +400,39 @@
       "killers": [
         "runtime/rt:TestVirtualAfterFuncIsTimer"
       ]
+    },
+    {
+      "name": "c4-check-unpolled",
+      "origin": "wf10 HTTP-FAST-c4 (NG)",
+      "file": "runtime/rt/task.go",
+      "from": "\tif t.stopped.v.Load()&(flagStopped|flagPolled) != 0 {\n\t\tt.checkSlow()",
+      "to": "\tif t.stopped.v.Load()&flagStopped != 0 {\n\t\tt.checkSlow()",
+      "rule": "Check is an interruption point, so it runs a WhenPolled hook: a handler that only Checks is watched, and a client that leaves stops it.",
+      "killers": [
+        "runtime/v1/http:TestHTTPEngineWatchesWaitingHandlers"
+      ]
+    },
+    {
+      "name": "c4-stopped-unpolled",
+      "origin": "wf10 HTTP-FAST-c4 (NG)",
+      "file": "runtime/rt/task.go",
+      "from": "\tif t.stopped.v.Load()&(flagStopped|flagPolled) == 0 {\n\t\treturn false",
+      "to": "\tif t.stopped.v.Load()&flagStopped == 0 {\n\t\treturn false",
+      "rule": "Stopped is an interruption point, so it runs a WhenPolled hook.",
+      "killers": [
+        "runtime/v1/http:TestHTTPEngineWatchesWaitingHandlers"
+      ]
+    },
+    {
+      "name": "c4-done-unpolled",
+      "origin": "wf10 HTTP-FAST-c4 (NG)",
+      "file": "runtime/rt/task.go",
+      "from": "\tif t.stopped.v.Load()&flagPolled != 0 {\n\t\tt.firePollHook()\n\t}\n\tif waitHooks",
+      "to": "\tif waitHooks",
+      "rule": "A wait (Done) is an interruption point, so it runs a WhenPolled hook: a handler that waits is watched.",
+      "killers": [
+        "runtime/v1/http:TestHTTPEngineWatchesWaitingHandlers"
+      ]
     }
   ]
 }

@@ -188,9 +188,24 @@ func (t *Task) Interrupt() {
 }
 
 // Stopped is the interruption point (I1): it reports whether t was asked to
-// stop and is not masked. While no stop is requested it costs one atomic load;
-// the region state it reads after that is owner-local.
-func (t *Task) Stopped() bool { return t.stopped.Load() && t.regions.top == interruptible }
+// stop and is not masked. While no stop is requested and no WhenPolled hook
+// is set it costs one atomic load; the region state it reads after that is
+// owner-local.
+func (t *Task) Stopped() bool {
+	if t.stopped.v.Load()&(flagStopped|flagPolled) == 0 {
+		return false
+	}
+	return t.stoppedSlow()
+}
+
+// stoppedSlow is Stopped once its word has a stop or a WhenPolled hook:
+// it runs the hook, then reads the stop.
+func (t *Task) stoppedSlow() bool {
+	if t.stopped.v.Load()&flagPolled != 0 {
+		t.firePollHook()
+	}
+	return t.stopped.Load() && t.regions.top == interruptible
+}
 
 // StopRequested reports whether a stop was requested, masked or not.
 func (t *Task) StopRequested() bool { return t.stopped.Load() }
@@ -209,7 +224,13 @@ func (t *Task) Firing() bool { return t.firing }
 // Check is the interruption point for code with no error row: it panics with
 // Interrupted when Stopped would return true. The task boundary recovers it.
 func (t *Task) Check() {
-	if t.stopped.Load() && t.regions.top == interruptible {
+	if t.stopped.v.Load()&(flagStopped|flagPolled) != 0 {
+		t.checkSlow()
+	}
+}
+
+func (t *Task) checkSlow() {
+	if t.stoppedSlow() {
 		panic(Interrupted)
 	}
 }
@@ -260,6 +281,9 @@ func (t *Task) Done() <-chan struct{} {
 	if waitFlush.pending.Load() {
 		waitFlush.flush()
 	}
+	if t.stopped.v.Load()&flagPolled != 0 {
+		t.firePollHook()
+	}
 	if waitHooks.n.Load() != 0 {
 		t.fireWaitHook()
 	}
@@ -293,8 +317,8 @@ func (t *Task) makeStop() chan struct{} {
 	return t.stop
 }
 
-// stopFlags is one word of two flags: stopped (Load, set) and made, which
-// publishes Task.stop to a read without the lock. It is the size of the
+// stopFlags is one word of three flags: stopped (Load, set); made, which
+// publishes Task.stop to a read without the lock; and polled (WhenPolled). It is the size of the
 // atomic.Bool it replaced, so a Task keeps its size class
 // (TestTraceHookKeepsTaskSize).
 type stopFlags struct{ v atomic.Uint32 }
@@ -302,6 +326,9 @@ type stopFlags struct{ v atomic.Uint32 }
 const (
 	flagStopped uint32 = 1 << iota
 	flagMade
+	// flagPolled marks a task with a WhenPolled hook. Only the task's own
+	// goroutine sets or clears it.
+	flagPolled
 )
 
 // Load reports whether a stop was requested.
@@ -369,6 +396,38 @@ func WhenWaiting(t *Task, f func()) (cancel func()) {
 func (t *Task) fireWaitHook() {
 	if f, ok := waitHooks.m.LoadAndDelete(t); ok {
 		waitHooks.n.Add(-1)
+		f.(func())()
+	}
+}
+
+// pollHooks holds the hooks of WhenPolled, keyed by task. A task with one
+// has flagPolled in its stop word, so an interruption point reads it in
+// the load it makes for the stop, and a task without one pays nothing.
+var pollHooks sync.Map // *Task -> func()
+
+// WhenPolled runs f once, on t's goroutine, when t first reaches an
+// interruption point: a wait of the runtime (Done), Check or Stopped. f
+// runs before that point reads the stop flag, so a stop f requests is seen
+// there. It is for a watch that only a task that can be stopped needs (the
+// HTTP engine's read that sees a client leave): a task that never polls
+// cannot be stopped, so it never pays for one. cancel removes the hook if
+// it has not run; call it when t ends. Call WhenPolled from t's own
+// goroutine.
+func WhenPolled(t *Task, f func()) (cancel func()) {
+	pollHooks.Store(t, f)
+	t.stopped.v.Or(flagPolled)
+	return func() {
+		if t.stopped.v.Load()&flagPolled != 0 {
+			t.stopped.v.And(^flagPolled)
+			pollHooks.Delete(t)
+		}
+	}
+}
+
+// firePollHook runs and removes t's WhenPolled hook.
+func (t *Task) firePollHook() {
+	t.stopped.v.And(^flagPolled)
+	if f, ok := pollHooks.LoadAndDelete(t); ok {
 		f.(func())()
 	}
 }
