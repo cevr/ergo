@@ -207,7 +207,9 @@ func TestKillerInAnotherSuiteIsRun(t *testing.T) {
 		have = append(have, got{s.Name, s.Package, s.Tags, s.Only, s.Named})
 	}
 	want := []got{
-		{"runtime/v1", "./runtime/v1", "", nil, []string{"TestB", "TestOwn"}},
+		// A -run selection runs only the selected rows' killers, in the
+		// ledger's own suite too (TM: irspike's 531 tests for one row).
+		{"runtime/v1", "./runtime/v1", "", []string{"TestB", "TestOwn"}, []string{"TestB", "TestOwn"}},
 		{"runtime/v1[ergoexplore]", "./runtime/v1", "ergoexplore", []string{"TestA", "TestC"}, []string{"TestA", "TestC"}},
 		{"internal/sketchfront", "./internal/sketchfront", "", []string{"TestF"}, []string{"TestF"}},
 		{"lower", "./internal/sketch/lower", "", []string{"TestL"}, []string{"TestL"}},
@@ -221,6 +223,21 @@ func TestKillerInAnotherSuiteIsRun(t *testing.T) {
 	}
 	if len(tools) != 1 || tools[0].Name != "ergo" {
 		t.Errorf("tools %+v, want the ergo CLI that lower runs", tools)
+	}
+	// A selected row whose killers are all in another suite builds
+	// nothing of the ledger's own package.
+	elsewhere := &Ledger{Mutants: []*Mutant{{Name: "own", Killers: []string{"runtime/v1:TestOwn"}}, {Name: "away", Killers: []string{"lower:TestL"}}}}
+	if _, _, away, err := suitesFor(root, []Job{{Path: path, Ledger: elsewhere, Select: regexp.MustCompile("^away$")}}); err != nil || len(away) != 1 || away[0].Name != "lower" {
+		t.Errorf("-run away: suites %+v, err %v; want lower alone", away, err)
+	}
+	// A family a selection names is measured as its parts.
+	fam := Suite{Only: []string{"TestFam"}, Families: []string{"TestFam"}}
+	if !measured(&fam, "TestFamPart0") || !measured(&fam, "TestFamPart12") || measured(&fam, "TestFamily") || measured(&fam, "TestOther") {
+		t.Errorf("a selected family: measured parts %v %v, TestFamily %v, TestOther %v; want its parts alone", measured(&fam, "TestFamPart0"), measured(&fam, "TestFamPart12"), measured(&fam, "TestFamily"), measured(&fam, "TestOther"))
+	}
+	// Without a selection the ledger's own suite runs every test.
+	if _, _, all, err := suitesFor(root, []Job{{Path: path, Ledger: elsewhere}}); err != nil || len(all) != 2 || all[0].Name != "runtime/v1" || all[0].Only != nil {
+		t.Errorf("no selection: suites %+v, err %v; want runtime/v1 with every test, and lower", all, err)
 	}
 	for _, id := range []string{"v1:TestA", "runtime/v1:TestNone", "lower:TestNone", "examples:nowhere", "runtime/v1[ergoexplore:TestA"} {
 		bad := &Ledger{Mutants: []*Mutant{{Name: "d", Killers: []string{"runtime/v1:TestB", id}}}}

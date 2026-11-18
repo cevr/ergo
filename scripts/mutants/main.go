@@ -426,6 +426,18 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 	// and their rows judged without them (MUT-names). Only the selected
 	// rows bring suites: a run of one row builds and runs the killers that
 	// row names, not every killer of its ledger.
+	// A -run selection judges its rows by the killers they name: each
+	// suite runs only those tests, not every test of its package (TM:
+	// one irspike row started a pass over its 531 tests, for hours), and a
+	// suite none of them names is not built.
+	selection := !slices.ContainsFunc(jobs, func(j Job) bool { return j.Select == nil })
+	if selection {
+		for i := range suites {
+			if suites[i].Only == nil {
+				suites[i].Only = []string{}
+			}
+		}
+	}
 	var unresolved []error
 	for _, j := range jobs {
 		for _, m := range j.Ledger.Mutants {
@@ -482,6 +494,9 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 	}
 	if len(unresolved) > 0 {
 		return nil, nil, nil, errors.Join(unresolved...)
+	}
+	if selection {
+		suites = slices.DeleteFunc(suites, func(s Suite) bool { return len(s.Only) == 0 })
 	}
 	return cover, tools, suites, nil
 }

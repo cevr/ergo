@@ -684,7 +684,7 @@ func (p pass) check(t *testing.T, log io.Writer) []Result {
 		Root:  repo,
 		Work:  filepath.Join(t.TempDir(), "work"),
 		Cover: []string{"./one", "./two"},
-		Suites: []Suite{{Name: "one", Package: "./one", Env: []string{"FAKE_SUITE=one"}}, {Name: "two", Package: "./two", Env: []string{"FAKE_SUITE=two"}},
+		Suites: []Suite{{Name: "one", Package: "./one", Env: []string{"FAKE_SUITE=one"}}, {Name: "two", Package: "./two", Env: []string{"FAKE_SUITE=two"}, Families: []string{"TestFam"}},
 			// A killer that is not a go test (Ledger.Commands).
 			{Name: commandSuite, Commands: map[string][]string{"word": {"grep", "-qx", "hi", "{root}/one/word.txt"}}, Only: []string{}, Named: []string{"word"}}},
 		Workers:    2,
