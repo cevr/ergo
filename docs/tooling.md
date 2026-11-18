@@ -291,6 +291,10 @@ A test or a runner that starts a program gives the program a memory limit of its
 
 The receipt is a `bench.v1` JSON file (`internal/opcount/receipt.go`): per case its series (side, counter, kind `exact`, `counted` or `timed`, one value per round, median and spread) and, with two sides, a comparison with the median ratio. opcount takes no verdict: the paired test belongs to the bench referee (the STROBE plan); a comparison carries a verdict only when it is refused. A count is a number only when it is whole: `internal/opcount.Count`, the repository's one `perf_event_open` site, counts the program's whole process tree from its exec, and refuses a count with `NoCounter` (no hardware counter), `Multiplexed` (the kernel ran the counter for part of the run only) or `RunIncomplete` (the program exited with a status other than 0, was killed, or left a process of its group running). `NotEquivalent` refuses the comparisons when the control prints other output than the program on the small input, and `NoMetric` a counter the exit hook did not report. opcount exits 1 when anything is refused. `internal/experimental/irspike` and `TestOneBRCCountsAsHandGo` count with the same function.
 
+## Graph rows
+
+`ergo graph export [DIR|DIR/...] [--json]` prints the checker's graph of a program as rows ([graph](spec/graph.md)): modules, packages, files, declarations and tasks, and the imports, uses, needs, fails, provides, reexports, testof, lawof and input edges between them. `internal/sketch/graphrows` builds them from the loader's imports, SEM's fact tables and the verdict store's digester; a task's key is the store's digest and its input rows the declarations that digest covers. std `codegraph` and the affected selector read these rows, never the checker's structures.
+
 ## Linked Ergo packages
 
 Some of the `ergo` binary's commands are written in Ergo. Until capstone stage S1 builds a mixed binary, such a command is a **linked Ergo package**: an Ergo module whose lowered Go is checked in and compiled into the binary like any Go package.
