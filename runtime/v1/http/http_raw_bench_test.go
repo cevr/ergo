@@ -22,8 +22,9 @@ import (
 // kept-alive loopback connection, a raw POST of 256 bytes written and its
 // echoed answer read whole per op, with no HTTP client, so what both modes
 // add is the server's. ergo is Serve with a handler that echoes the body,
-// reading with its engine; ergo-nethttp is the same Serve on its
-// reference reader, net/http;
+// reading with its engine; ergo-port is the engine with every answer
+// through the port of net/http's writer (fastAnswer off); ergo-nethttp
+// is the same Serve on its reference reader, net/http;
 // go is hand net/http with the same guarantees (bounded header and body,
 // the phase timeouts, cancelled in-flight work, a joined shutdown), as
 // BenchmarkHTTPServer's control; floor is the least work the Go runtime
@@ -31,13 +32,19 @@ import (
 // pattern, -bench 'BenchmarkHTTPServeRaw/^go$': an unanchored "go$" also
 // matches "ergo".
 func BenchmarkHTTPServeRaw(b *testing.B) {
-	for _, mode := range []string{"ergo", "ergo-nethttp", "go", "floor"} {
+	for _, mode := range []string{"ergo", "ergo-port", "ergo-nethttp", "go", "floor"} {
 		b.Run(mode, func(b *testing.B) {
 			ln, err := net.Listen("tcp", "127.0.0.1:0")
 			if err != nil {
 				b.Fatal(err)
 			}
-			if mode == "ergo" || mode == "ergo-nethttp" {
+			if mode == "ergo-port" {
+				// The engine with every answer through the port of
+				// net/http's writer (HTTP-FAST-c1's writer).
+				engineFastWriter = false
+				b.Cleanup(func() { engineFastWriter = true })
+			}
+			if mode != "go" && mode != "floor" {
 				s := v1.NewScope(rt.Root("HTTP raw benchmark"))
 				h := v1.Go(&s, "Serve", func(ct *rt.Task) (struct{}, error) {
 					return struct{}{}, httpServe("request", ct, liveSleeper{}, ergonet.ListenerOn(ln), serveLimits(4096, 4096), func(_ *rt.Task, _ *Exchange, _, _, _ string, _, _ []HTTPField, body string, tooLarge bool, readError string) HTTPResponse {
@@ -45,7 +52,7 @@ func BenchmarkHTTPServeRaw(b *testing.B) {
 							return HTTPResponse{Status: 400}
 						}
 						return HTTPResponse{Status: 200, Body: body}
-					}, mode == "ergo")
+					}, mode != "ergo-nethttp")
 				})
 				b.Cleanup(h.Stop)
 			} else if mode == "go" {
