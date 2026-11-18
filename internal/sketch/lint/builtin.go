@@ -32,6 +32,7 @@ var builtinRules = []*Rule{
 	defaultOnFailure, repeatedPureCall, guardTheTypeProves, repeatedGuard,
 	foreignOutsideAdapter, capabilityOutsideOwner, consoleOutsideEntry, testReadsUnexported,
 	causeDropped, failureAsVariant, vacuousTest, parameterClump, constantArgument, longParameterList,
+	derivedField,
 	narrationComment, commentedCode,
 	snapshotArgument, repeatedTraversal, quadraticScan, concatInLoop, largeValueCopy,
 }
@@ -63,7 +64,8 @@ func builtinPresets() []Preset {
 				unusedDeclaration, unusedTypeParameter, duplicateTest, duplicateShape, identicalArms, unbuiltVariant,
 				forwardingFunc, loneProvider, modeParameter, stringlyState, testWaitsOnTime,
 				defaultOnFailure, repeatedPureCall, guardTheTypeProves, repeatedGuard,
-				causeDropped, failureAsVariant, vacuousTest, parameterClump, constantArgument, longParameterList),
+				causeDropped, failureAsVariant, vacuousTest, parameterClump, constantArgument, longParameterList,
+				derivedField),
 		},
 		{
 			Name:  Layout,
