@@ -157,6 +157,66 @@ func (lr *layoutRows) fileReaches(from, to uint32) bool {
 	return false
 }
 
+// testCode reports whether p's file is test code to the graph rules: a
+// file of tests (testFile), or a file of the test build's constructors
+// (TESTFILE-FUNCS): with no test or law of its own, it declares a type's
+// row-free constructor New<P>, the one the law runner and the generators
+// build P with (TypeName.Constructor), and its other declarations are
+// functions that no declaration outside the file uses but a test or a
+// law, such as a replay helper.
+func (lr *layoutRows) testCode(p *Pass) bool {
+	if testFile(p.File) {
+		return true
+	}
+	ctors := map[*check.Func]bool{}
+	for _, tn := range p.Package.Types {
+		if c := tn.Constructor(); c != nil {
+			ctors[c] = true
+		}
+	}
+	f, ok := lr.fileNode[p.Rel()]
+	if !ok {
+		return false
+	}
+	// used is each top-level declaration of the file that code outside
+	// it, not a test or a law, uses, by name.
+	used := map[string]bool{}
+	for _, e := range lr.t.Edges {
+		if e.Kind != graphrows.Uses || lr.file[e.To] != f || lr.file[e.From] == f {
+			continue
+		}
+		if k := graphrows.DeclKind(lr.t.Nodes[lr.top(e.From)].Sub); k != graphrows.Test && k != graphrows.Law {
+			used[lr.t.Str(lr.t.Nodes[lr.top(e.To)].Name)] = true
+		}
+	}
+	ctor := false
+	for _, d := range p.File.Decls {
+		switch d := d.(type) {
+		case *syntax.ImportDecl:
+		case *syntax.FuncDecl:
+			fn, _ := p.Info.Defs[d.Name].(*check.Func)
+			switch {
+			case fn != nil && ctors[fn]:
+				ctor = true
+			case used[d.Name.Name]:
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return ctor
+}
+
+// top is the top-level declaration that holds node n (n itself when it
+// is one).
+func (lr *layoutRows) top(n uint32) uint32 {
+	for q := lr.t.Nodes[n].Parent; q != graphrows.NoNode && lr.t.Nodes[q].Kind == graphrows.Decl; q = lr.t.Nodes[n].Parent {
+		n = q
+	}
+	return n
+}
+
 // declaresOperation reports whether pkg declares an operation type: a
 // domain package.
 func declaresOperation(pkg *check.Package) bool {

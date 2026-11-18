@@ -63,6 +63,9 @@ func rowsOf(p *Pass) *layoutRows {
 
 func checkFileCycle(p *Pass) {
 	lr := rowsOf(p)
+	if lr.testCode(p) {
+		return
+	}
 	seen := map[uint32]bool{}
 	lr.edgesIn(p.Rel(), graphrows.Uses, func(e graphrows.Edge, off syntax.Pos) {
 		a, b := lr.file[e.From], lr.file[e.To]
@@ -77,6 +80,9 @@ func checkFileCycle(p *Pass) {
 func checkLayer(p *Pass) {
 	layers := p.Options.(layerOptions).Layers
 	lr := rowsOf(p)
+	if lr.testCode(p) {
+		return
+	}
 	lr.edgesIn(p.Rel(), graphrows.Imports, func(e graphrows.Edge, off syntax.Pos) {
 		from, to := lr.path(lr.pkg[e.From]), lr.path(e.To)
 		la, lb := layerOf(layers, from), layerOf(layers, to)
@@ -91,10 +97,10 @@ func checkDomainImportsImplementation(p *Pass) {
 	// it: a loader, a script host or a server that imports an
 	// implementation is wiring, and a choice it makes is a with that
 	// with-at-entry reports.
-	if p.Package.Entry() != nil || testFile(p.File) || !declaresOperation(p.Package) {
+	lr := rowsOf(p)
+	if p.Package.Entry() != nil || lr.testCode(p) || !declaresOperation(p.Package) {
 		return
 	}
-	lr := rowsOf(p)
 	lr.edgesIn(p.Rel(), graphrows.Imports, func(e graphrows.Edge, off syntax.Pos) {
 		if to := lr.path(e.To); lr.impls[to] {
 			p.Report(off, off+1, "this package declares an operation type and imports "+to+", an implementation of another package's operation type")
@@ -104,6 +110,9 @@ func checkDomainImportsImplementation(p *Pass) {
 
 func checkHiddenDependency(p *Pass) {
 	lr := rowsOf(p)
+	if lr.testCode(p) {
+		return
+	}
 	lr.edgesIn(p.Rel(), graphrows.Uses, func(e graphrows.Edge, off syntax.Pos) {
 		pkg, decl, ok := lr.hiddenReexport(e)
 		if !ok {

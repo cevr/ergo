@@ -48,13 +48,17 @@ func graphConf(t *testing.T, layers []string) *lint.Configuration {
 // (file-cycle) or one file that uses another one way (none). It checks
 // that the graph rules report exactly the planted findings, and that
 // after fix --lint the module checks, the hidden-dependency findings are
-// gone and every other finding stays. Also no finding: an import of
+// gone and every other finding stays. A domain package may hold a file
+// of the test build's constructors (a row-free NewBox and a helper):
+// test code, so no finding, unless the package's code uses the helper.
+// Also no finding: an import of
 // both, a domain package that also implements store's type, or the
 // implementation imported by a file of tests. A test-only package cycle
 // cannot be planted: the loader refuses every import cycle (S108).
 // Mutants: gl-layer-order, gl-entry, gl-reexport-imported,
 // gl-file-reach, gl-fix-qualifier, gl-fix-import, gl-drop-once,
-// gl-domain-only, gl-own-optype, gl-testfile.
+// gl-domain-only, gl-own-optype, gl-testfile, gl-ctor-file,
+// gl-ctor-file-used.
 func TestGraphLayoutAgreesWithReference(t *testing.T) {
 	for _, seed := range propertySeeds(10) {
 		r := rand.New(rand.NewPCG(seed, 0x6a1))
@@ -124,6 +128,18 @@ func TestGraphLayoutAgreesWithReference(t *testing.T) {
 				f.add("\tRun() int,", "")
 				f.add("}", "")
 				f.add("", "")
+				if r.IntN(2) == 0 {
+					// A file of the test build's constructors: the row-free
+					// NewBox and a helper. Test code, unless code outside
+					// it uses the helper.
+					used := r.IntN(2) == 0
+					files[name+"/box.ergo"] = &ownerFile{lines: []string{"type Box { N int }"}}
+					files[name+"/world.ergo"] = &ownerFile{lines: []string{"import app/memory", "", "func NewBox() Box { Box{N: memory.Fixed{N: 1}.N} }", "", "func Spare() int { memory.Fixed{N: 2}.N }"}}
+					if used {
+						files[name+"/world.ergo"].want = []string{"1 domain-imports-implementation"}
+						deps = append(deps, "Spare()")
+					}
+				}
 			}
 			body := strings.Join(append(deps, "1"), " + ")
 			f.add("func F() int { "+body+" }", "")
