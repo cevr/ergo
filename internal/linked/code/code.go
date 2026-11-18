@@ -22397,7 +22397,8 @@ type Outcome_1 interface{ isOutcome_1() }
 /*line codeapi/api.ergo:28:1*/
 func (Done) isOutcome_1() {}
 
-/*line codeapi/api.ergo:28:1*/ func (Rejected) isOutcome_1() {}
+/*line codeapi/api.ergo:28:1*/
+func (Rejected) isOutcome_1() {}
 
 //line codeapi/api.ergo:129:1
 func Call_1(env *Env, r Request) Outcome_1 {
@@ -22775,19 +22776,26 @@ type Reply interface{ isReply() }
 /*line codeapi/api.ergo:20:1*/
 func (DescribeReply) isReply() {}
 
-/*line codeapi/api.ergo:20:1*/ func (SymbolsReply) isReply() {}
+/*line codeapi/api.ergo:20:1*/
+func (SymbolsReply) isReply() {}
 
-/*line codeapi/api.ergo:20:1*/ func (SymbolReply) isReply() {}
+/*line codeapi/api.ergo:20:1*/
+func (SymbolReply) isReply() {}
 
-/*line codeapi/api.ergo:20:1*/ func (ReferencesReply) isReply() {}
+/*line codeapi/api.ergo:20:1*/
+func (ReferencesReply) isReply() {}
 
-/*line codeapi/api.ergo:20:1*/ func (CallsReply) isReply() {}
+/*line codeapi/api.ergo:20:1*/
+func (CallsReply) isReply() {}
 
-/*line codeapi/api.ergo:20:1*/ func (ApiReply) isReply() {}
+/*line codeapi/api.ergo:20:1*/
+func (ApiReply) isReply() {}
 
-/*line codeapi/api.ergo:20:1*/ func (ReachReply) isReply() {}
+/*line codeapi/api.ergo:20:1*/
+func (ReachReply) isReply() {}
 
-/*line codeapi/api.ergo:20:1*/ func (MachineOfReply) isReply() {}
+/*line codeapi/api.ergo:20:1*/
+func (MachineOfReply) isReply() {}
 
 //line codeapi/api.ergo:24:1
 type Failure interface{ isFailure() }
@@ -22795,13 +22803,17 @@ type Failure interface{ isFailure() }
 /*line codeapi/api.ergo:24:1*/
 func (NoSymbol_1) isFailure() {}
 
-/*line codeapi/api.ergo:24:1*/ func (Ambiguous_1) isFailure() {}
+/*line codeapi/api.ergo:24:1*/
+func (Ambiguous_1) isFailure() {}
 
-/*line codeapi/api.ergo:24:1*/ func (NotCallable_1) isFailure() {}
+/*line codeapi/api.ergo:24:1*/
+func (NotCallable_1) isFailure() {}
 
-/*line codeapi/api.ergo:24:1*/ func (NoPackage_1) isFailure() {}
+/*line codeapi/api.ergo:24:1*/
+func (NoPackage_1) isFailure() {}
 
-/*line codeapi/api.ergo:24:1*/ func (NotMachine_1) isFailure() {}
+/*line codeapi/api.ergo:24:1*/
+func (NotMachine_1) isFailure() {}
 
 //line codecli/cli.ergo:26:1
 func commandDescribe() Command[Request] {

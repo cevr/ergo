@@ -71,7 +71,6 @@ var commands = []cliCommand{
 	{name: "lint receipt", fate: removed, reason: "cost receipts return with rule packs", ticket: ticketTooling},
 	{name: "query", fate: removed, reason: toolingReason, ticket: ticketTooling},
 	{name: "type", fate: removed, reason: toolingReason, ticket: ticketTooling},
-	{name: "graph", fate: removed, reason: toolingReason, ticket: ticketTooling},
 	{name: "inspect", usage: "inspect FILE|DIR [--target go] | inspect machine FILE|DIR [--json] | inspect deps DIR [--json] | inspect facts FILE|DIR [--json] | inspect forms FILE|DIR [--json] | inspect rewrites FILE|DIR [--json]", help: inspectHelp, run: inspectCommand},
 	{name: "explain", fate: removed, reason: toolingReason, ticket: ticketTooling},
 	{name: "lsp", fate: dark, ticket: ticketTooling},
