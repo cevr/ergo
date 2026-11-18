@@ -116,8 +116,10 @@ func lineCol(src string, offset int) (int, int) {
 //     let at the start of a body or of a nested block, a function literal
 //     with an unread local and an unread parameter (never reported), an import of a std package nothing reads (by
 //     its path, or under a name), an unread import and an unread let
-//     together (the order across the two), or an unread let holding a
-//     match whose case binding is unread (the arm's message, not a local's).
+//     together (the order across the two), an unread let holding a
+//     match whose case binding is unread (the arm's message, not a
+//     local's), or an unread let beside an alias with no name clash (S108,
+//     which counts the import as read).
 //
 // A failing seed prints the source, both outputs and the replay command.
 //
@@ -343,9 +345,10 @@ var unusedImports = []string{"strings", "slices", "maps", "strconv", "cmp", "mat
 // literal holding an unread local and an unread parameter (the literal
 // itself unread), an unread
 // import by its path or under a name (with the package-level let that
-// makes the name clash), an unread import with an unread let, or an
-// unread let of a match whose case binding is unread. False when the
-// seed's form does not apply to its file.
+// makes the name clash), an unread import with an unread let, an
+// unread let of a match whose case binding is unread, or an unread let
+// beside a refused alias. False when the seed's form does not apply to
+// its file.
 func perturbUnused(pool []unusedFile, seed uint32) (string, bool) {
 	r := rand.New(rand.NewPCG(uint64(seed), 0x5333))
 	u := pool[r.IntN(len(pool))]
@@ -364,7 +367,15 @@ func perturbUnused(pool []unusedFile, seed uint32) (string, bool) {
 		sort.Strings(out)
 		return out[r.IntN(len(out))]
 	}
-	switch seed % 7 {
+	switch seed % 8 {
+	case 7:
+		// An alias with no name clash is refused (S108) and counts as read.
+		p := free()
+		if p == "" {
+			return "", false
+		}
+		b := u.bodies[r.IntN(len(u.bodies))]
+		return "import " + name + "i " + p + "\n\n" + u.src[:b] + "\n\tlet " + name + " = 0\n" + u.src[b:], true
 	case 6:
 		return insert(u.bodies[r.IntN(len(u.bodies))], "\n\tlet "+name+"m = match 0 {\n\tcase "+name+"b:\n\t\t1\n\t}\n"), true
 	case 4:
