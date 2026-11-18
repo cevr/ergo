@@ -24,6 +24,9 @@ let kLaw = 6
 let kTest = 7
 let kPkgName = 8
 
+// KindPkgName is an import's object kind (an import binds a PkgName).
+let KindPkgName = kPkgName
+
 // ObjRef names an object in one word: the kind in the top 4 bits, the id
 // in its kind's table in the low 28 (C0/plan.md Decided 4).
 type ObjRef { bits uint32 }

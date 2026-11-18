@@ -6,6 +6,11 @@
 //	                          "-> import PATH NAME" per use
 //	binddump -locals FILE...  the declarations, then "FILE OFFSET local|law NAME" per Def
 //	binddump -names FILE...   "FILE OFFSET ID NAME" per local: its name's id and text
+//	binddump -unused FILE...  "FILE L:C: S110 MESSAGE" per unread local or import
+//	                          (compiler/check/diag), in the Go checker's order
+//	binddump -unused -batch MANIFEST
+//	                          -unused for each package of MANIFEST (a line of
+//	                          files each), each after an "@pkg I" line
 //
 // Flags, first: -threads N binds on up to N tasks at once (default 1);
 // -std DIR loads the packages the files import, transitively, as package
@@ -14,9 +19,11 @@
 // import is an empty interface.
 //
 // It is the Ergo side of the bind agreement (internal/selfhostcheck's
-// TestCompilerBindAgreesWithChecker).
+// TestCompilerBindAgreesWithChecker) and of the unused agreement
+// (TestCompilerUnusedAgreesWithChecker, S3-DIAG).
 
 import compiler/check/bind
+import compiler/check/diag
 import compiler/check/store
 import compiler/check/task
 import compiler/syntax
@@ -178,6 +185,58 @@ func program(root task.Package, m Option[Module], std string) []task.Package nee
 	pkgs.Append(root)
 }
 
+// rootPath is the import path of the package of the files at paths: its
+// folder in its module, else main.
+func rootPath(paths []string, m Option[Module]) string {
+	match m {
+	case Some[Module] as mod:
+		let d = dir(paths[0])
+		if d == mod.Value.Dir { mod.Value.Path } else { mod.Value.Path + d[len(mod.Value.Dir):len(d)] }
+	case None:
+		"main"
+	}
+}
+
+// unused writes the S110 lines of the package of the files at paths,
+// "FILE L:C: S110 MESSAGE", in the Go checker's order.
+func unused(b *strings.Builder, paths []string, std string, threads int) fails os.Exit needs fs.Files {
+	let mut files = []bind.File{}
+	let mut srcs = []string{}
+	for path in paths {
+		let src = try read(path)
+		srcs = srcs.Append(src)
+		files = files.Append(bind.File{Name: base(path), Parsed: syntax.Parse(src)})
+	}
+	if len(files) == 0 {
+		return
+	}
+	let m = moduleOf(dir(paths[0]))
+	let pkgs = program(task.Package{Path: rootPath(paths, m), Files: files}, m, std)
+	let checked = task.Check(pkgs, threads)
+	let c = checked[len(checked)-1]
+	// An import no package answers (with -std: none was loaded for it).
+	let mut missing = []string{}
+	if std != "" {
+		for path in bind.Imports(files) {
+			let mut found = false
+			for p in pkgs {
+				found = found || p.Path == path
+			}
+			if !found {
+				missing = missing.Append(path)
+			}
+		}
+	}
+	let mut lines = []syntax.Lines{}
+	for src in srcs {
+		lines = lines.Append(syntax.LinesOf(src))
+	}
+	for d in diag.Unused(files, store.Of(c.Store), c.Uses, c.Parents, missing) {
+		let at = syntax.PositionOf(lines[d.File], d.Offset)
+		b.WriteString("\(files[d.File].Name) \(at.Line):\(at.Column): \(d.Code) \(d.Message)\n")
+	}
+}
+
 func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
 	let mut threads = 1
 	let mut std = ""
@@ -196,6 +255,25 @@ func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
 		}
 		rest = rest[2:len(rest)]
 	}
+	if len(rest) > 0 && rest[0] == "-unused" {
+		let mut b = strings.NewBuilder()
+		if len(rest) == 3 && rest[1] == "-batch" {
+			let mut i = 0
+			for line in strings.Split(try read(rest[2]), "\n") {
+				let g = strings.Fields(line)
+				if len(g) == 0 {
+					continue
+				}
+				b.WriteString("@pkg \(i)\n")
+				try unused(&b, g, std, threads)
+				i = i + 1
+			}
+		} else {
+			try unused(&b, rest[1:len(rest)], std, threads)
+		}
+		io.Stdout.Print(b.String())
+		return
+	}
 	let uses = len(rest) > 0 && rest[0] == "-uses"
 	let locals = len(rest) > 0 && rest[0] == "-locals"
 	let names = len(rest) > 0 && rest[0] == "-names"
@@ -205,14 +283,7 @@ func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
 		files = files.Append(bind.File{Name: base(path), Parsed: syntax.Parse(try read(path))})
 	}
 	let m = if len(paths) > 0 { moduleOf(dir(paths[0])) } else { None }
-	let rootPath = match m {
-	case Some[Module] as mod:
-		let d = dir(paths[0])
-		if d == mod.Value.Dir { mod.Value.Path } else { mod.Value.Path + d[len(mod.Value.Dir):len(d)] }
-	case None:
-		"main"
-	}
-	let pkgs = program(task.Package{Path: rootPath, Files: files}, m, std)
+	let pkgs = program(task.Package{Path: if len(paths) > 0 { rootPath(paths, m) } else { "main" }, Files: files}, m, std)
 	let checked = task.Check(pkgs, threads)
 	let c = checked[len(checked)-1]
 	let s = store.Of(c.Store)
