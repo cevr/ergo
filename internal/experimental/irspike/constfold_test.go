@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"ergo.local/prototype/internal/sketch/eval"
 	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/toolchain"
 )
@@ -78,6 +79,10 @@ func foldIRText(files []lower.File) string {
 // nothing. With a budget of a few steps, every candidate that needs more
 // stays as written: fewer folds, more over the budget. lits and recs, whose
 // list and record literals hold impure calls, take IR bodies (the spill).
+// fromLets, which reads package lets, folds (LAZY-LET: the fold runs each
+// let's initializer on its first read, under the let's bound, and pays
+// none of it: heavy costs more than the fold's budget); with no steps for
+// a let, it stays a call.
 func TestConstFoldCounts(t *testing.T) {
 	defer lower.SetConstFoldBuildGoForTest(toolchain.Version)()
 	defer lower.SetConstFoldCompilerGoForTest(toolchain.Version)()
@@ -106,6 +111,15 @@ func TestConstFoldCounts(t *testing.T) {
 	}
 	if !tags {
 		t.Errorf("no static page holds a tag: a folded element is not its markup")
+	}
+	if strings.Contains(foldIRText(files), `"name":"fromLets"`) {
+		t.Errorf("fromLets is still called: a fold that reads package lets did not bind them\n%s", text)
+	}
+	prevLet := eval.SetFoldLetStepsForTest(0)
+	unbound, _ := lowerFold(t, u, "")
+	eval.SetFoldLetStepsForTest(prevLet)
+	if !strings.Contains(foldIRText(unbound), `"name":"fromLets"`) {
+		t.Errorf("with no steps for a let, fromLets folded: a let's initializer ran past its bound")
 	}
 	// main takes IR once its html calls fold, and calls spin there.
 	if !slices.Contains(rep.IR, "main_1") || !strings.Contains(foldIRText(files), `"name":"spin"`) {

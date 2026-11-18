@@ -18,12 +18,16 @@ import (
 // which stays a call; every seed has a call of constants that runs past
 // the fold's budget (spin), which stays as written. main prints each
 // value. lits and recs call an impure function inside list and record
-// literals, so the order their elements run in prints. The second result reports a seed that ends in a defect.
+// literals, so the order their elements run in prints. fromLets reads
+// package lets (a let of a call, a let that reads it, a node let, std
+// code's let and a let that costs more than a fold's budget), which a fold
+// binds on its first read (LAZY-LET), paying none of their steps. The second
+// result reports a seed that ends in a defect.
 func GenerateConstFold(seed uint64) (string, bool) {
 	r := rand.New(rand.NewPCG(seed, seed^0x51ed270b2f3a9c4d))
 	g := &cfGen{r: r}
 	var b strings.Builder
-	b.WriteString("import html\n\n")
+	b.WriteString("import code\nimport html\n\n")
 	b.WriteString("type Circle { R int }\n\ntype Square { S int }\n\ntype Shape = Circle | Square\n\n")
 	b.WriteString("type Pt { X int, Y float64, Name string, Tags []string, On bool, Shape Shape }\n\n")
 	k := 1 + r.IntN(9)
@@ -38,6 +42,11 @@ func GenerateConstFold(seed uint64) (string, bool) {
 	fmt.Fprintf(&b, "func lits(n int) []int needs Console {\n\t[]int{noisy(n), n * %d, noisy(n + 1)}\n}\n\n", k)
 	b.WriteString("func recs(n int) Pt needs Console {\n\tlet name = \"r\\(n)\"\n\tPt{X: noisy(n), Y: 0.5, Name: name, Tags: []string{name, name + \"!\"}, On: true, Shape: Circle{R: noisy(n + 1)}}\n}\n\n")
 	b.WriteString("func spin(n int) int {\n\tlet mut s = 0\n\tfor i in 0..n {\n\t\ts = s + i % 7\n\t}\n\ts\n}\n\n")
+	// Package lets a folded call reads: a let of a call, a let of that
+	// let, a list of calls, a node, std code's let (pkg.v), and a let whose
+	// initializer runs past a fold's budget but not past a let's.
+	fmt.Fprintf(&b, "let base = pt(%d, %s)\n\nlet names = base.Tags.Append(\"n\")\n\nlet table = []int{area(mk(%d)), %d}\n\nlet node = %s\n\nlet heavy = spin(%d)\n\n", r.IntN(12), g.text(), r.IntN(20), r.IntN(50), g.tree(2, false), 1_000_000+r.IntN(1000))
+	b.WriteString("func fromLets(i int) string {\n\tshow(base) + \" \\(len(names)) \\(pick(table, i)) \\(len(code.RenameNames)) \\(heavy) \" + html.Render(node)\n}\n\n")
 	pages := 2 + r.IntN(3)
 	for i := 0; i < pages; i++ {
 		fmt.Fprintf(&b, "func static%d() html.Node {\n\t%s\n}\n\n", i, g.tree(3, false))
@@ -56,6 +65,7 @@ func GenerateConstFold(seed uint64) (string, bool) {
 		fmt.Fprintf(&b, "\tlet s%d = pt(%d, %s).Tags\n\tfor t in s%d {\n\t\tConsole.Println(t)\n\t}\n", i, r.IntN(12), g.text(), i)
 		fmt.Fprintf(&b, "\tConsole.Println(\"\\(area(mk(%d)))\")\n", r.IntN(20))
 	}
+	fmt.Fprintf(&b, "\tConsole.Println(fromLets(%d))\n", r.IntN(2))
 	fmt.Fprintf(&b, "\tlet ls = lits(%d)\n\tfor v in ls {\n\t\tConsole.Println(\"\\(v)\")\n\t}\n\tConsole.Println(show(recs(%d)))\n", r.IntN(9), r.IntN(9))
 	// A node of run-time data is no markup in a built program: html's
 	// inFold is false there, whatever the fold's evaluator answers.

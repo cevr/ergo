@@ -265,6 +265,9 @@ func (in *interp) identUse(fr *frame, id *syntax.Ident, use check.Object) (Value
 			in.handoff(fr, id)
 			return s.v, nil
 		}
+		if in.fold {
+			return nil, fr.unsupported(id, "the package let %s in a fold: %s", id.Name, foldLetWhy(o))
+		}
 		return nil, fr.unsupported(id, "the package let %s, which no initializer bound", id.Name)
 	case *check.Const:
 		return o.Val, nil
@@ -276,12 +279,16 @@ func (in *interp) identUse(fr *frame, id *syntax.Ident, use check.Object) (Value
 	return nil, fr.unsupported(id, "the name %s here", id.Name)
 }
 
-// slotOf is v's slot: a local of the frame, or a package let.
+// slotOf is v's slot: a local of the frame, or a package let; in a fold,
+// a package let no initializer bound yet binds on this read (foldLet).
 func (in *interp) slotOf(fr *frame, v *check.Var) *slot {
 	if s, ok := fr.vars.get(v); ok {
 		return s
 	}
-	return in.globals[v]
+	if s := in.globals[v]; s != nil || !in.fold {
+		return s
+	}
+	return in.foldLet(v)
 }
 
 // slotAt is slotOf from a compiled form, with varTable.getAt's hint.
@@ -344,7 +351,7 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 				}
 				switch o := member.(type) {
 				case *check.Var:
-					if s := in.globals[o]; s != nil {
+					if s := in.slotOf(fr, o); s != nil {
 						return s.v, nil, nil
 					}
 				case *check.Func:

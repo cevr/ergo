@@ -109,7 +109,8 @@ func foldGoPinned() bool {
 }
 
 // constFoldBudget bounds one fold: a call that needs more stays as written.
-var constFoldBudget = eval.Budget{Steps: 200_000, Depth: 64}
+// The fluid gallery's button page, a 28 KB tree, takes 0.5M to 1M.
+var constFoldBudget = eval.Budget{Steps: 2_000_000, Depth: 64}
 
 // SetConstFoldBudgetForTest sets the steps of one fold and returns the
 // previous steps.
