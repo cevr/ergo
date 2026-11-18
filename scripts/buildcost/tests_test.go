@@ -276,6 +276,8 @@ var evidenceTemplates = []evidenceTemplate{
 	{form: "ergo-test", output: "PASS (0 tests)\n", of: 1, class: "broken"},
 	{form: "ergo-test", output: "ok A\nFAIL B (case 3 of 100, seed 1, size 0: n = 2): assert failed at b.ergo:4:2\nFAIL (1 of 2 tests)\n", exit: 1, of: 1, class: "fail"},
 	{form: "ergo-test", output: "FAIL Divides: a defect, which stops the run\npanic: index out of range\n", exit: 2, of: 1, class: "fail"},
+	{form: "ergo-test", output: "FAIL B (case 1 of 100, seed 1, size 0: seed = 10): assert failed at agree.ergo:155:2\nFAIL (1 of 1 tests)\n", exit: 1, of: 2, failed: 0, class: "fail"},
+	{form: "ergo-test", output: "agree.ergo:3:9: error S100: undefined: json.Parsee\n", exit: 1, of: 2, failed: 0, class: "broken"},
 	{form: "ergo-test", output: "probe.ergo:3:9: error S100: undefined: syntax.Parsee\n", exit: 1, of: 1, class: "broken"},
 	{form: "ergo-test", output: "ok A\n", hung: true, exit: -1, of: 1, class: "broken"},
 	{form: "ergo-check", output: `{"schemaVersion":11,"checked":true,"evaluation":{"status":"passed","obligations":[{"name":"A","status":"passed"}]}}`, of: 1, class: "pass"},

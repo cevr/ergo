@@ -336,7 +336,10 @@ func probeClassify(r probeRun) probeOutcome {
 	if r.CommandError != "" {
 		return probeOutcome{"broken", r.CommandError}
 	}
-	if r.Exit != 0 && r.Failed < r.Of-1 {
+	// The go and control forms' leading commands are setup (relink, go
+	// build); every command of an Ergo form is a test command, and its
+	// verdict is read from its output.
+	if r.Exit != 0 && r.Failed < r.Of-1 && (r.Form == "go" || r.Form == "control") {
 		return probeOutcome{"broken", fmt.Sprintf("command %d of %d failed (a build or setup step)", r.Failed+1, r.Of)}
 	}
 	for _, m := range probeNoRun {
