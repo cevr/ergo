@@ -8,6 +8,7 @@
 //	tn1-lint lint --rule NAME WEIGHTS FILE...   findings, oxlint JSON; exit 0 (advisory)
 //	tn1-lint record FILE                        the feature record
 //	tn1-lint chunks FILE                        each top-level statement: FROM TO (bytes)
+//	tn1-lint serve                              one reply line per request line, until EOF
 //	tn1-lint --help                             this usage, exit 0
 //
 // A FILE of - is the standard input: a caller with an unsaved buffer (an
@@ -28,13 +29,14 @@ import strings
 import strconv
 
 // Usage is the text of a usage failure.
-let Usage = "usage: tn1-lint lint --rule NAME WEIGHTS FILE... | tn1-lint record FILE | tn1-lint chunks FILE | tn1-lint --help"
+let Usage = "usage: tn1-lint lint --rule NAME WEIGHTS FILE... | tn1-lint record FILE | tn1-lint chunks FILE | tn1-lint serve | tn1-lint --help"
 
 type Lint { Rule string, Weights string, Files []string }
 type Record { File string }
 type Chunks { File string }
 type Help {}
-type Command = Lint | Record | Chunks | Help
+type Serve {}
+type Command = Lint | Record | Chunks | Serve | Help
 
 func usage() os.Exit { os.Exit{Code: 2, Message: Usage} }
 
@@ -42,6 +44,9 @@ func usage() os.Exit { os.Exit{Code: 2, Message: Usage} }
 func Parse(args []string) Command fails os.Exit {
 	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
 		return Help
+	}
+	if len(args) == 1 && args[0] == "serve" {
+		return Serve
 	}
 	if len(args) == 2 && args[0] == "record" {
 		return Record{File: args[1]}
@@ -117,11 +122,15 @@ func lastNewline(src string, p int) int {
 	i - 1
 }
 
-// Run is what the command writes.
-func Run(c Command) string fails os.Exit needs fs.Files | io.Stdin {
+// Run is what the command writes; serve writes its replies as it goes,
+// and Run is "" then.
+func Run(c Command) string fails os.Exit needs fs.Files | io.Stdin | io.Stdout {
 	match c {
 	case Help:
 		Usage + "\n"
+	case Serve:
+		Answer()
+		""
 	case Record as r:
 		tn1.EncodeRecord(ts.FromSource(try read(r.File)))
 	case Chunks as k:
@@ -147,6 +156,7 @@ func Run(c Command) string fails os.Exit needs fs.Files | io.Stdin {
 
 func main() fails os.Exit needs Ambient {
 	let c = try Parse(os.NewHost().Args())
-	let out = try with context { fs.Files: fs.NewHost(), io.Stdin: io.NewStdin() } { Run(c) }
-	with context { io.Stdout: io.NewHost() } { io.Stdout.Print(out) }
+	with context { fs.Files: fs.NewHost(), io.Stdin: io.NewStdin(), io.Stdout: io.NewHost() } {
+		io.Stdout.Print(try Run(c))
+	}
 }

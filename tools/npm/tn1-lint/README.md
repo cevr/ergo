@@ -10,6 +10,13 @@ tn1-lint chunks src/a.ts           # each top-level statement: FROM TO (bytes)
 tn1-lint --help
 ```
 
+From an oxlint rule, which cannot wait on a promise, call it synchronously; one `tn1-lint serve` process answers every call of the lint run (started on the first call by a worker thread, ended when the run ends):
+
+```js
+const { lintSync } = require("@cevr/tn1-lint");
+lintSync({ rule: "narration", weights: "narration.tn1", path: "src/a.ts", text }); // diagnostics, oxlint JSON
+```
+
 A rule's weights are a `.tn1` file named on the command line; this package ships none yet. A network ships only once it passes its suite and a hold-out. The source, the record's format and the engine are in [examples/tn1-lint](https://github.com/cevr/ergo/tree/main/examples/tn1-lint) and [modules/tn1](https://github.com/cevr/ergo/tree/main/modules/tn1).
 
 The package holds no program of its own. Its optional dependency for the platform (`@cevr/tn1-lint-linux-x64`, `@cevr/tn1-lint-linux-arm64` or `@cevr/tn1-lint-darwin-arm64`) holds the static binary, and the install puts it at `bin/tn1-lint`, so `tn1-lint` starts no Node process.
