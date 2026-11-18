@@ -137,7 +137,7 @@ func (l *Timeline) Sleepers() int { return l.v.Pending() }
 //
 //ergo:wait none
 func TimeAsleep[T any](l *Timeline, tk *Task[T]) bool {
-	if tk == nil || tk.h == nil {
+	if tk == nil {
 		return false
 	}
 	return l.v.Asleep(tk.h.Task())

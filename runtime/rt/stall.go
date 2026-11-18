@@ -1,17 +1,15 @@
 package rt
 
 import (
-	"slices"
-	"sort"
 	"sync"
 	"sync/atomic"
 )
 
-// A stall of a domain d is a moment when every live member of d, and of
-// every domain a member of d's tree made since (a task of d that made a
-// clock of its own: a server on a clock of its own), waits on a wait its
-// clock sees, and no clock of them can move: no auto clock has a sleeper
-// and no Manual's Advance runs. Nothing those tasks hold can run again
+// A stall of a domain d is a moment when every live member of d waits on
+// a wait its clocks see (a clock that a member makes joins d, P3-9, so a
+// server on a clock of its own is a member of d too), and no clock of d
+// can move: no auto clock has a sleeper, no Manual's Advance runs and no
+// AfterFunc's function runs. Nothing those tasks hold can run again
 // then, short of a task outside them or the host. A test that armed a
 // named point (runtime/v1 hook.go, RT-HOOK) watches for it: a point armed
 // and never reached would otherwise leave its law waiting for the release
@@ -19,9 +17,8 @@ import (
 //
 // Only WatchStalls turns the watch on; until then the one cost of a park
 // is a load of stalls.on. The watch is a goroutine that calls its report
-// at each park or leave of a member; the report asks Stalled, which looks
-// at the domains at once, under each one's lock taken in the order they
-// were made, so it reads one state of them all.
+// at each park or leave of a member; the report asks Stalled, which reads
+// the domain under its lock, so it reads one state of it.
 
 var stalls struct {
 	on     atomic.Bool
@@ -29,7 +26,7 @@ var stalls struct {
 	flush  chan chan struct{}
 	mu     sync.Mutex
 	seq    uint64
-	live   map[*Virtual]uint64 // the domains with a live member, by order made
+	live   map[*domain]uint64 // the domains with a live member, by order made
 	report func()
 	once   sync.Once
 }
@@ -71,38 +68,39 @@ func FlushStalls() bool {
 	return true
 }
 
-// DomainOf is the clock domain t is a member of, or nil.
+// DomainOf is the first clock of the domain t is a member of, which names
+// the domain to Stalled, or nil.
 func DomainOf(t *Task) *Virtual {
-	if m := t.member.Load(); m != nil {
-		return m.v
+	m := t.member.Load()
+	if m == nil {
+		return nil
 	}
-	return nil
+	d := m.d
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.clocks[0]
 }
 
-// domainMade records v, a new domain with its first member, made by a
-// task that was a member of up (nil for none).
-func domainMade(v, up *Virtual) {
+// domainMade records d, a new domain with its first member.
+func domainMade(d *domain) {
 	stalls.mu.Lock()
 	if stalls.live == nil {
-		stalls.live = map[*Virtual]uint64{}
+		stalls.live = map[*domain]uint64{}
 	}
 	stalls.seq++
-	v.made = stalls.seq
-	if up != nil {
-		v.ups = append(slices.Clip(up.ups), up.made)
-	}
-	stalls.live[v] = v.made
+	d.made = stalls.seq
+	stalls.live[d] = d.made
 	stalls.mu.Unlock()
 }
 
-// domainEmpty forgets v, whose last member left: no member of it can wait.
-func domainEmpty(v *Virtual) {
+// domainEmpty forgets d, whose last member left: no member of it can wait.
+func domainEmpty(d *domain) {
 	stalls.mu.Lock()
-	delete(stalls.live, v)
+	delete(stalls.live, d)
 	stalls.mu.Unlock()
 }
 
-// kickStalls tells the watch that a member parked or left. v.mu is held.
+// kickStalls tells the watch that a member parked or left. d.mu is held.
 func kickStalls() {
 	if stalls.on.Load() {
 		select {
@@ -112,39 +110,27 @@ func kickStalls() {
 	}
 }
 
-// below reports whether v is d or a domain made below it, through any
-// chain of domains, the ones that have since emptied included.
-// stalls.mu is held.
-func below(v, d *Virtual) bool {
-	return v == d || slices.Contains(v.ups, d.made)
-}
-
-// Stalled reports whether d, a domain with a live member, is stalled with
-// the domains made below it.
-func Stalled(d *Virtual) bool {
+// Stalled reports whether the domain of v, a clock with a live member, is
+// stalled.
+func Stalled(v *Virtual) bool {
+	d := v.d
+	if d == nil {
+		return false
+	}
 	stalls.mu.Lock()
 	defer stalls.mu.Unlock()
 	if _, ok := stalls.live[d]; !ok {
 		return false
 	}
-	var vs []*Virtual
-	for v := range stalls.live {
-		if below(v, d) {
-			vs = append(vs, v)
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.live == 0 || d.parked < d.live || d.running > 0 {
+		return false
+	}
+	for _, c := range d.clocks {
+		if c.advancing || c.auto && len(c.timers) > 0 {
+			return false
 		}
 	}
-	sort.Slice(vs, func(i, j int) bool { return stalls.live[vs[i]] < stalls.live[vs[j]] })
-	for _, v := range vs {
-		v.mu.Lock()
-	}
-	all := true
-	for _, v := range vs {
-		if v.live > 0 && (v.parked < v.live || v.advancing || v.auto && len(v.timers) > 0) {
-			all = false
-		}
-	}
-	for _, v := range vs {
-		v.mu.Unlock()
-	}
-	return all
+	return true
 }

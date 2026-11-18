@@ -277,6 +277,9 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		// IG6: a callback's failure handed to Go, and the call's error
 		// untunnelled; neither waits nor releases.
 		"GoCallbackError": true, "GoUntunnel": true, "GoUntunnelEager": true,
+		// REF-ALONE: an Ergo function handed to Go ends rt.Alone, one
+		// atomic store; no wait.
+		"GoHanded": true,
 		// S-json: the fast path appends a string to a json Text; no wait.
 		"JSONAppendTextString": true,
 		// 1BRC: a read of a let lowered as a Go constant (constValueLet), an

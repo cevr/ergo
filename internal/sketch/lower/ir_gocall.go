@@ -63,6 +63,12 @@ func (b *irBuilder) hostArgs(x *syntax.CallExpr, c *check.Call, f *check.Func, p
 		}
 	}
 	for i, shape := range shapes {
+		if cb, ok := f.Sig.Params[i].Type.(*check.Signature); ok && !cb.NonEscaping {
+			// goCallbacks' v1.GoHanded: an escaping callback may run on a
+			// goroutine of Go's (rt.Alone).
+			b.keepImport("var _ = " + b.l.rt() + ".GoHanded")
+			pre = append(pre, &irStmt{K: "expr", Pos: p, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "GoHanded"}})
+		}
 		if fails[i] != nil {
 			t := b.l.info.Types[x.Args[i]]
 			if n, ok := t.(*check.Named); ok {

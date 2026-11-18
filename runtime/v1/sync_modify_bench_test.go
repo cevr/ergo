@@ -32,7 +32,7 @@ func BenchmarkModifyOwned(b *testing.B) {
 			} {
 				out, _ := benchErgoTouch(env, p, k)
 				return out
-			}, clone, true)
+			}, clone, true, false)
 		}
 	})
 	// direct: RefModifyOwned with a Go function in place of the adapter,
@@ -55,7 +55,7 @@ func BenchmarkModifyOwned(b *testing.B) {
 					F0 bool
 					F1 benchTable
 				}{!old, t}
-			}, clone, true)
+			}, clone, true, false)
 		}
 	})
 	b.Run("mutex", func(b *testing.B) {

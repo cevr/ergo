@@ -78,8 +78,8 @@ func TestRefOwnElides(t *testing.T) {
 	}
 	for _, loc := range owned {
 		call := code[loc[0]:]
-		// The call ends at the copy function, then the proof.
-		end := regexp.MustCompile(`\{ return (maps|slices)\.Clone\([a-z_0-9]+\) \}, (true|false)\)`).FindStringSubmatch(call)
+		// The call ends at the copy function, then the proofs (fresh, alone).
+		end := regexp.MustCompile(`\{ return (maps|slices)\.Clone\([a-z_0-9]+\) \}, (true|false), (true|false)\)`).FindStringSubmatch(call)
 		if end == nil || end[2] != "true" {
 			t.Errorf("an owned call is not proved fresh:\n%s", firstLines(call, 40))
 		}

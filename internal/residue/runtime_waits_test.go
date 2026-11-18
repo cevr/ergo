@@ -25,7 +25,8 @@ const runtimeWaitsAllow = "testdata/runtime-waits-allow.txt"
 // its leaves (binsize BS1, BS8: a body that moved to a leaf keeps its rule), a
 // function (its literals included) that blocks (a channel receive or send
 // outside a select, a select with no default, or a call of a method Wait
-// with no arguments: a sync.WaitGroup's, a sync.Cond's, a process's)
+// with no arguments: a sync.WaitGroup's, a sync.Cond's, a process's; or
+// of a task's Suspend, its park word: PARK1)
 // also parks its task (calls rt.Park, or rt.ParkEither for a wait on two
 // sources), so the wait is the clock's. A wait
 // that needs no park is a row of the allow list with its reason: one that
@@ -135,8 +136,8 @@ func unparkedWaits(t *testing.T, name string, src []byte) []unparkedWait {
 				if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "rt" && (sel.Sel.Name == "Park" || sel.Sel.Name == "ParkEither") {
 					parks = true
 				}
-				if sel.Sel.Name == "Wait" && len(n.Args) == 0 && first == nil {
-					first, what = n, "calls Wait"
+				if (sel.Sel.Name == "Wait" || sel.Sel.Name == "Suspend") && len(n.Args) == 0 && first == nil {
+					first, what = n, "calls "+sel.Sel.Name
 				}
 			}
 			return true

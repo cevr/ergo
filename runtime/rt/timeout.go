@@ -74,7 +74,7 @@ func AfterSpan[T any](t *Task, s Scheduler, d time.Duration, span string, body f
 		kept     T
 		returned bool
 	)
-	h = spawn(t, span, false, false, func(ct *Task) (T, error) {
+	h = spawn(t, span, false, false, true, func(ct *Task) (T, error) {
 		v, err := body(ct)
 		if err == nil {
 			kept, returned = v, true

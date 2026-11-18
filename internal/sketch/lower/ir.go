@@ -43,8 +43,14 @@ type IRReport struct {
 	Merge int `json:"merge,omitempty"`
 	// Fold counts the pure Go calls on constants computed at compile
 	// time (ir_fold.go).
-	Fold int    `json:"fold,omitempty"`
-	Hash string `json:"hash"`
+	Fold int `json:"fold,omitempty"`
+	// Seed counts the slice literals the IR bodies seed with room
+	// (seedcap.go).
+	Seed int `json:"seed,omitempty"`
+	// StrBuf counts the string locals the IR bodies build in a buffer
+	// (strbuf.go).
+	StrBuf int    `json:"strbuf,omitempty"`
+	Hash   string `json:"hash"`
 	// Folds counts the build-time folds of the IR bodies (ir_constfold.go).
 	Folds FoldCounts `json:"folds"`
 	// Forms counts the IR forms the bodies held before erasure, by
@@ -262,9 +268,12 @@ func lowerIRModule(u Unit, tests *testLowering, formsOff bool) ([]File, map[stri
 		return nil, nil, irModule{}, nil, err
 	}
 	l := newBuildLowerer(u, tests)
-	l.ir = &irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, formsOff: formsOff}
+	l.ir = &irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, formsOff: formsOff, noFallback: u.NoFallback}
 	code, err := l.program()
 	if err != nil {
+		return nil, nil, irModule{}, nil, err
+	}
+	if err := l.ir.refuseFallbacks(); err != nil { // ir_fallback.go
 		return nil, nil, irModule{}, nil, err
 	}
 	if err := irNoForms(&l.ir.out); err != nil { // ir_forms_erase.go
@@ -303,6 +312,10 @@ type irState struct {
 	formsOff bool
 	ops      *opFacts  // the capability bindings (ir_forms_op.go)
 	inl      *irInline // the inliner's marks and frames (ir_forms_inline.go)
+	// noFallback is Unit.NoFallback; fallbacks are the bodies the
+	// builder stopped at, with their reasons (ir_fallback.go).
+	noFallback bool
+	fallbacks  []IRCensusFunc
 }
 
 // restart empties st for a lowering that runs again from the start
@@ -314,11 +327,11 @@ func (st *irState) restart() *irState {
 		return nil
 	}
 	reach := append(st.reached, st.reach...)
-	census, formsOff := st.census, st.formsOff
+	census, formsOff, noFallback := st.census, st.formsOff, st.noFallback
 	if census != nil {
 		census = &IRCensus{}
 	}
-	*st = irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, census: census, reach: reach, formsOff: formsOff}
+	*st = irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, census: census, reach: reach, formsOff: formsOff, noFallback: noFallback}
 	return st
 }
 
@@ -442,6 +455,8 @@ type irBuilder struct {
 	// mergeSites counts the body's calls the merge pass replaced
 	// (ir_merge.go).
 	mergeSites int
+	// seedSites counts the body's seeded slice literals (seedcap.go).
+	seedSites int
 	// foldSites counts the body's calls the fold pass replaced
 	// (ir_fold.go).
 	foldSites int
@@ -468,6 +483,12 @@ type irBuilder struct {
 	labels int
 	// scalars are the locals in the scalar form (ir_scalar.go).
 	scalars map[*check.Var]*irScalar
+	// strVars are the locals in the built string's form, strBufs their
+	// StrBuf locals once declared, and strSites the forms built
+	// (strbuf.go).
+	strVars  map[*check.Var]bool
+	strBufs  map[*check.Var]int
+	strSites int
 	// names allocates the temporaries' names (ir_fail.go, tempNames).
 	names *namer
 	// given are the names the body's locals and temporaries have: a
@@ -691,8 +712,9 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	}
 	b.ops = &irOpBody{f: f, env: b.env} // ir_forms_op.go
 	b.fn = &irFunc{Name: name, Pos: b.pos(f.Decl, f.Decl.Pos()), End: b.pos(f.Decl, f.Decl.Body.Rbrace)}
-	b.names = b.tempNames(f.Decl.Body) // ir_fail.go
-	b.params = map[int]bool{}          // ir_hoist.go: the parameters' locals, before openOwn's
+	b.names = b.tempNames(f.Decl.Body)            // ir_fail.go
+	b.strVars = strBufVars(b.l.info, f.Decl.Body) // strbuf.go
+	b.params = map[int]bool{}                     // ir_hoist.go: the parameters' locals, before openOwn's
 	for _, l := range b.locals {
 		b.params[l] = true
 	}
@@ -724,6 +746,8 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	st.report.Memo += b.memoSites
 	st.report.Merge += b.mergeSites
 	st.report.Fold += b.foldSites
+	st.report.Seed += b.seedSites
+	st.report.StrBuf += b.strSites
 	st.report.FormSites = append(st.report.FormSites, b.forms...) // ir_forms_report.go
 	return true
 }
@@ -739,18 +763,26 @@ func (st *irState) finish(b *irBuilder, pkg, name string, decl syntax.Node, std 
 		st.report.Fallback[u.reason]++
 		b.note(u.reason)
 		*ok = false
+		if st.noFallback {
+			st.fallbacks = append(st.fallbacks, IRCensusFunc{Pkg: pkg, Name: name, File: st.fileOf(b, decl), Std: std, Reasons: []string{u.reason}})
+		}
 		st.rewritesDone(b, false, u.reason) // ir_rewrite.go
 	} else if *ok {
 		st.rewritesDone(b, true, "")
 	}
 	if st.census != nil {
-		file := ""
-		if _, sourced := b.l.sourceOf(decl); sourced {
-			_, file, _, _ = b.l.at(decl, decl.Pos())
-		}
-		st.census.Funcs = append(st.census.Funcs, IRCensusFunc{Pkg: pkg, Name: name, File: file, Std: std, Reasons: b.reasons})
+		st.census.Funcs = append(st.census.Funcs, IRCensusFunc{Pkg: pkg, Name: name, File: st.fileOf(b, decl), Std: std, Reasons: b.reasons})
 		*ok = false
 	}
+}
+
+// fileOf is decl's source file for a sourced body, else "".
+func (st *irState) fileOf(b *irBuilder, decl syntax.Node) string {
+	file := ""
+	if _, sourced := b.l.sourceOf(decl); sourced {
+		_, file, _, _ = b.l.at(decl, decl.Pos())
+	}
+	return file
 }
 
 // intrinsic records f, whose body is the lowerer's own Go text (an extern

@@ -37,9 +37,9 @@ func TestRefUpdateIgnoresAStopInside(t *testing.T) {
 		},
 		"Modify": func(task *rt.Task, r *Ref[[]int]) { RefModify(task, r, pair(task)) },
 		"UpdateOwned": func(task *rt.Task, r *Ref[[]int]) {
-			RefUpdateOwned(task, r, func(v []int) []int { return pair(task)(v).F1 }, clone, true)
+			RefUpdateOwned(task, r, func(v []int) []int { return pair(task)(v).F1 }, clone, true, false)
 		},
-		"ModifyOwned": func(task *rt.Task, r *Ref[[]int]) { RefModifyOwned(task, r, pair(task), clone, true) },
+		"ModifyOwned": func(task *rt.Task, r *Ref[[]int]) { RefModifyOwned(task, r, pair(task), clone, true, false) },
 	}
 	for name, op := range ops {
 		r := NewRef([]int{1})

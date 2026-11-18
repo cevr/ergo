@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketchfront"
 )
@@ -20,6 +22,7 @@ func emissionRequest(opts fileOptions, l loaded, mode build.Mode) sketchfront.Bu
 	req.NoViews, req.Rewrites = opts.noViews, opts.rewrites
 	if mode == build.ModeBuild {
 		req.Ledger, req.Locked = ledgerPath(opts.file), opts.locked
+		req.NoFallback = opts.noFallback || os.Getenv("ERGO_FALLBACK") == "off" // FALLBACK-OFF: a build only (main.go)
 	}
 	return req
 }

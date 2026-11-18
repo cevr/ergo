@@ -343,6 +343,10 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 			if !ok {
 				irNo("let without a variable")
 			}
+			if sl, ok := b.strLet(v, spec.Values[0], b.pos(s.Decl, s.Decl.Pos())); ok {
+				out = append(out, sl...) // strbuf.go
+				continue
+			}
 			if sl, ok := b.scalarLet(v, spec.Values[0], s.Decl.Mut.IsValid(), b.pos(s.Decl, s.Decl.Pos())); ok {
 				out = append(out, sl...) // ir_scalar.go
 				continue
@@ -386,6 +390,9 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 			}
 			pre, x := b.value(s.Rhs[0])
 			return append(pre, b.scatter(sc, x, s, b.pos(s, s.Pos()))...) // ir_scalar.go
+		}
+		if sb, built := b.strBufs[v]; built && ok {
+			return b.strAssign(s, v, sb) // strbuf.go
 		}
 		i, known := b.locals[v]
 		if !ok || !known {

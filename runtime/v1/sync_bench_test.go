@@ -154,6 +154,7 @@ func BenchmarkRef(b *testing.B) {
 		}
 	})
 	b.Run("UpdateParallel/ergo", func(b *testing.B) {
+		rt.Spread() // RunParallel's goroutines (rt.Alone)
 		r := NewRef(0)
 		b.RunParallel(func(pb *testing.PB) {
 			task := rt.Root("bench") // a task per goroutine: a mask is its owner's
@@ -185,7 +186,7 @@ func BenchmarkRef(b *testing.B) {
 			RefUpdateOwned(env.task, r, func(m map[int]int) map[int]int {
 				m[i&1023] = i
 				return m
-			}, clone, true)
+			}, clone, true, true)
 		}
 	})
 	b.Run("UpdateOwnedMap/mutex", func(b *testing.B) {

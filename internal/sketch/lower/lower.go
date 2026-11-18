@@ -103,6 +103,10 @@ type Unit struct {
 	// NoViews is ergo build -views=off: no Go call takes a view of a
 	// string's bytes, in the run build or the test build (view.go).
 	NoViews bool
+	// NoFallback is ergo build -fallback=off (ERGO_FALLBACK=off): an IR
+	// lowering that keeps any body on the text path is refused with a
+	// FallbackRefused naming each (ir_fallback.go; F8's precondition).
+	NoFallback bool
 }
 
 // coverMarksAll lowers every unit with CoverMarks. Only this package's
