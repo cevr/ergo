@@ -1,0 +1,108 @@
+// gent is a small agent harness in a terminal, after the owner's gent:
+// type a message, the model's reply streams in, and the tools it calls
+// run in the working directory. Package agent is the domain (the Model
+// and Tools contracts and the Agent machine), memory holds the scripted
+// model and the map of files, screen draws a frame. This binary is the
+// only place that chooses the providers.
+//
+//	gent --script WORLD -p TEXT    one turn, the transcript printed
+//	gent --script WORLD            a chat at the terminal
+//	gent --replay RUN              the transcript of a recorded run
+//
+// A WORLD file is the JSON of memory.World (the replies, the files); a
+// RUN file the JSON of agent.Recorded, which --record writes.
+
+import flag
+import fs
+import gent/agent
+import gent/memory
+import gent/screen
+import io
+import json
+import os
+import term
+
+let promptFlag = flag.String("p", "", "send `text` with no terminal, print the transcript, and leave")
+let scriptFlag = flag.String("script", "", "the scripted world to talk to: a JSON `file` of replies and files")
+let replayFlag = flag.String("replay", "", "print the transcript of the recorded run in `file`, and leave")
+let recordFlag = flag.String("record", "", "write the run's signals to `file` (with -p)")
+let stepsFlag = flag.Int("max-steps", 8, "the most asks of the model after one message")
+let retriesFlag = flag.Int("retries", 3, "the most retries of one failed ask")
+
+let set = flag.Set{Name: "gent", Usage: "", Flags: []flag.Flag{promptFlag, scriptFlag, replayFlag, recordFlag, stepsFlag, retriesFlag}, Args: []flag.ArgSpec{}}
+
+let usage = "usage: gent --script FILE [-p TEXT] [--record FILE] | gent --replay FILE"
+
+// run is gent on args.
+func run(args []string) fails os.Exit needs io.Stdout | io.Stdin | fs.Files | fs.Writes | term.Terminal | Scheduler {
+	let v = flag.Parse(set, args) catch {
+	case err:
+		try flag.Exit(err, usage)
+		return
+	}
+	let replay = replayFlag.Get(v)
+	if replay != "" {
+		let r = try load(replay, json.Codec[agent.Recorded]{MaxBytes: 64 << 20, MaxDepth: 64})
+		print(agent.Replay(r).Log)
+		return
+	}
+	let script = scriptFlag.Get(v)
+	if script == "" {
+		return os.Exit{Code: 2, Message: "gent: no model: pass --script FILE (a live model is a later unit)\n" + usage}
+	}
+	let world = try load(script, json.Codec[memory.World]{MaxBytes: 16 << 20, MaxDepth: 64})
+	let limits = agent.Limits{MaxSteps: stepsFlag.Get(v), MaxRetries: retriesFlag.Get(v)}
+	with context { agent.Model: memory.Scripted{Replies: world.Replies}, agent.Tools: memory.Tree{Files: world.Files} } {
+		let text = promptFlag.Get(v)
+		if text != "" {
+			let (last, record) = agent.Headless(limits, []string{text})
+			print(last.Log)
+			let path = recordFlag.Get(v)
+			if path != "" {
+				fs.Writes.WriteFile(path, json.Encode(json.Codec[agent.Recorded]{MaxBytes: 0, MaxDepth: 0}, record)+"\n") catch {
+				case _:
+					return os.Exit{Code: 1, Message: "gent: cannot write " + path}
+				}
+			}
+			return
+		}
+		if !io.Stdin.IsTerminal() {
+			return os.Exit{Code: 2, Message: "gent: standard input is not a terminal: pass -p TEXT for one turn, or --replay FILE\n" + usage}
+		}
+		term.Raw() {
+			io.Stdout.Print("\x1b[?1049h")
+			Chat(agent.Open(limits))
+			io.Stdout.Print("\x1b[?1049l")
+		} catch {
+		case term.NotTerminal:
+			return os.Exit{Code: 2, Message: "gent: standard input is not a terminal"}
+		}
+	}
+}
+
+// load is the value that the JSON file at path holds.
+func load[T wire](path string, c json.Codec[T]) T fails os.Exit needs fs.Files | wired[T] {
+	let text = fs.Files.ReadFile(path) catch {
+	case _:
+		return os.Exit{Code: 1, Message: "gent: cannot read " + path}
+	}
+	json.Decode(c, text) catch {
+	case json.Malformed as m:
+		return os.Exit{Code: 1, Message: "gent: " + path + ": " + m.Reason}
+	case _:
+		return os.Exit{Code: 1, Message: "gent: " + path + " is not a " + "gent file"}
+	}
+}
+
+// print writes the transcript's lines.
+func print(log []agent.Row) needs io.Stdout {
+	for line in screen.Transcript(log) {
+		io.Stdout.Println(line)
+	}
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewStdin(), fs.Files: fs.NewHost(), fs.Writes: fs.NewHost(), term.Terminal: term.NewHost(), Scheduler: NewLiveScheduler() } {
+		try run(os.Process.Args())
+	}
+}
