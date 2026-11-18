@@ -155,18 +155,18 @@ type Opt[K any] struct {
 	n uint32
 }
 
-type Some[T any] struct {
-	Value T
-}
-
-type None struct {
-}
-
 func (o Opt[K]) Unpack() Option[ID[K]] {
 	if o.n == uint32(0) {
 		return (Option[ID[K]]{}).of1(None{})
 	}
 	return (Option[ID[K]]{}).of0(Some[ID[K]]{Value: ID[K]{n: (o.n - uint32(1))}})
+}
+
+type Some[T any] struct {
+	Value T
+}
+
+type None struct {
 }
 
 type Option[T any] struct {
@@ -10167,29 +10167,31 @@ func (d *dumper) opt(depth int, o Opt[Node]) {
 //line syntax/dump/parse.ergo:32:2
 //line syntax/dump/parse.ergo:32:8
 	var v Option[ID[Node]]
-	/*line syntax/dump/parse.ergo:32:8*/ _ = v
-	/*line syntax/dump/parse.ergo:32:8*/ var kp Some[ID[Node]]
-	/*line syntax/dump/parse.ergo:32:8*/ _ = kp
 	/*line syntax/dump/parse.ergo:32:8*/ {
 		/*line syntax/dump/parse.ergo:32:8*/ if o.n == uint32(0) {
-			/*line syntax/dump/parse.ergo:32:8*/ _ = None{}
-			/*line syntax/dump/parse.ergo:32:8*/ goto kn_1
+			/*line syntax/dump/parse.ergo:32:8*/ v = (Option[ID[Node]]{}).of1(None{})
+			/*line syntax/dump/parse.ergo:32:8*/ goto inl
 			/*line syntax/dump/parse.ergo:32:8*/
 		}
-		/*line syntax/dump/parse.ergo:32:8*/ kp = Some[ID[Node]]{Value: ID[Node]{n: (o.n - uint32(1))}}
-		/*line syntax/dump/parse.ergo:32:8*/ goto kn
+		/*line syntax/dump/parse.ergo:32:8*/ v = (Option[ID[Node]]{}).of0(Some[ID[Node]]{Value: ID[Node]{n: (o.n - uint32(1))}})
 		/*line syntax/dump/parse.ergo:32:8*/
 	}
-	/*line syntax/dump/parse.ergo:32:8*/ kn:
-	/*line syntax/dump/parse.ergo:32:8*/ {
-		/*line syntax/dump/parse.ergo:32:8*/ s := kp
+	/*line syntax/dump/parse.ergo:32:8*/ inl:
+	;
+	/*line syntax/dump/parse.ergo:32:8*/ s := v
+	/*line syntax/dump/parse.ergo:32:8*/ _ = s
+	/*line syntax/dump/parse.ergo:32:8*/ switch s.tag {
+	/*line syntax/dump/parse.ergo:32:8*/ case 0:
+		/*line syntax/dump/parse.ergo:32:8*/ n := s.v0
+		/*line syntax/dump/parse.ergo:32:8*/ _ = n
+		/*line syntax/dump/parse.ergo:32:8*/ s_1 := n.Value
 //line syntax/dump/parse.ergo:34:3
-		(d).node(depth, s.Value)
+		(d).node(depth, s_1)
 		/*line syntax/dump/parse.ergo:34:3*/ return
 		/*line syntax/dump/parse.ergo:34:3*/
-	}
-	/*line syntax/dump/parse.ergo:34:3*/ kn_1:
-	/*line syntax/dump/parse.ergo:34:3*/ {
+	case 1:
+		/*line syntax/dump/parse.ergo:34:3*/ n := None{}
+		/*line syntax/dump/parse.ergo:34:3*/ _ = n
 //line syntax/dump/parse.ergo:36:3
 //line syntax/dump/parse.ergo:36:3
 		{
@@ -10205,6 +10207,9 @@ func (d *dumper) opt(depth int, o Opt[Node]) {
 //line syntax/dump/parse.ergo:36:3
 		return
 		/*line syntax/dump/parse.ergo:36:3*/
+	default:
+		/*line syntax/dump/parse.ergo:36:3*/ panic("ergo: defect: no case of the match at 32:2 matched")
+		/*line syntax/dump/parse.ergo:36:3*/
 	}
 	/*line syntax/dump/parse.ergo:36:3*/
 }
@@ -10214,28 +10219,29 @@ func (d *dumper) optPos(o Opt[Node]) int {
 //line syntax/dump/parse.ergo:41:2
 //line syntax/dump/parse.ergo:41:8
 	var v Option[ID[Node]]
-	/*line syntax/dump/parse.ergo:41:8*/ _ = v
-	/*line syntax/dump/parse.ergo:41:8*/ var kp Some[ID[Node]]
-	/*line syntax/dump/parse.ergo:41:8*/ _ = kp
 	/*line syntax/dump/parse.ergo:41:8*/ {
 		/*line syntax/dump/parse.ergo:41:8*/ if o.n == uint32(0) {
-			/*line syntax/dump/parse.ergo:41:8*/ _ = None{}
-			/*line syntax/dump/parse.ergo:41:8*/ goto kn_1
+			/*line syntax/dump/parse.ergo:41:8*/ v = (Option[ID[Node]]{}).of1(None{})
+			/*line syntax/dump/parse.ergo:41:8*/ goto inl
 			/*line syntax/dump/parse.ergo:41:8*/
 		}
-		/*line syntax/dump/parse.ergo:41:8*/ kp = Some[ID[Node]]{Value: ID[Node]{n: (o.n - uint32(1))}}
-		/*line syntax/dump/parse.ergo:41:8*/ goto kn
+		/*line syntax/dump/parse.ergo:41:8*/ v = (Option[ID[Node]]{}).of0(Some[ID[Node]]{Value: ID[Node]{n: (o.n - uint32(1))}})
 		/*line syntax/dump/parse.ergo:41:8*/
 	}
-	/*line syntax/dump/parse.ergo:41:8*/ kn:
-	/*line syntax/dump/parse.ergo:41:8*/ {
-		/*line syntax/dump/parse.ergo:41:8*/ s := kp
+	/*line syntax/dump/parse.ergo:41:8*/ inl:
+	;
+	/*line syntax/dump/parse.ergo:41:8*/ s := v
+	/*line syntax/dump/parse.ergo:41:8*/ _ = s
+	/*line syntax/dump/parse.ergo:41:8*/ switch s.tag {
+	/*line syntax/dump/parse.ergo:41:8*/ case 0:
+		/*line syntax/dump/parse.ergo:41:8*/ n := s.v0
+		/*line syntax/dump/parse.ergo:41:8*/ _ = n
+		/*line syntax/dump/parse.ergo:41:8*/ s_1 := n.Value
 //line syntax/dump/parse.ergo:43:3
 //line syntax/dump/parse.ergo:43:3
 		var v_1 int
 		/*line syntax/dump/parse.ergo:43:3*/ {
 			/*line syntax/dump/parse.ergo:43:3*/ var p Parsed = d.p
-			/*line syntax/dump/parse.ergo:43:3*/ var id ID[Node] = s.Value
 //line syntax/access.ergo#ergo-inline-21:62:49
 			t := p.Tree
 //line syntax/access.ergo#ergo-inline-21:62:63
@@ -10290,13 +10296,13 @@ func (d *dumper) optPos(o Opt[Node]) int {
 					var v_8 int
 					/*line syntax/access.ergo#ergo-inline-22:7:40*/ {
 						/*line syntax/access.ergo#ergo-inline-22:7:40*/ var c_4 Comments = t_1
-						/*line syntax/access.ergo#ergo-inline-22:7:40*/ var id_1 ID[Cmt] = v_6
+						/*line syntax/access.ergo#ergo-inline-22:7:40*/ var id ID[Cmt] = v_6
 //line syntax/comments.ergo#ergo-inline-27:35:55
 //line syntax/comments.ergo#ergo-inline-27:35:59
 						var v_9 uint32
 						/*line syntax/comments.ergo#ergo-inline-27:35:59*/ {
 							/*line syntax/comments.ergo#ergo-inline-27:35:59*/ var c_5 Col[Cmt, uint32] = c_4.start
-							/*line syntax/comments.ergo#ergo-inline-27:35:59*/ v_9 = c_5.xs[int(id_1.n)]
+							/*line syntax/comments.ergo#ergo-inline-27:35:59*/ v_9 = c_5.xs[int(id.n)]
 							/*line syntax/comments.ergo#ergo-inline-27:35:59*/
 						}
 						/*line syntax/comments.ergo#ergo-inline-27:35:59*/ v_8 = int(v_9)
@@ -10320,7 +10326,7 @@ func (d *dumper) optPos(o Opt[Node]) int {
 //line syntax/access.ergo#ergo-inline-21:62:85
 			var v_10 int
 			/*line syntax/access.ergo#ergo-inline-21:62:85*/ {
-				/*line syntax/access.ergo#ergo-inline-21:62:85*/ v_10 = int(id.n)
+				/*line syntax/access.ergo#ergo-inline-21:62:85*/ v_10 = int(s_1.n)
 				/*line syntax/access.ergo#ergo-inline-21:62:85*/
 			}
 //line syntax/access.ergo#ergo-inline-21:62:49
@@ -10332,11 +10338,14 @@ func (d *dumper) optPos(o Opt[Node]) int {
 //line syntax/dump/parse.ergo:43:3
 		return v_1
 		/*line syntax/dump/parse.ergo:43:3*/
-	}
-	/*line syntax/dump/parse.ergo:43:3*/ kn_1:
-	/*line syntax/dump/parse.ergo:43:3*/ {
+	case 1:
+		/*line syntax/dump/parse.ergo:43:3*/ n := None{}
+		/*line syntax/dump/parse.ergo:43:3*/ _ = n
 //line syntax/dump/parse.ergo:45:3
 		return int(-1)
+		/*line syntax/dump/parse.ergo:45:3*/
+	default:
+		/*line syntax/dump/parse.ergo:45:3*/ panic("ergo: defect: no case of the match at 41:2 matched")
 		/*line syntax/dump/parse.ergo:45:3*/
 	}
 	/*line syntax/dump/parse.ergo:45:3*/
@@ -12331,28 +12340,29 @@ func (d *dumper) node(depth int, id ID[Node]) {
 //line syntax/dump/parse.ergo#ergo-inline-115:41:2
 //line syntax/dump/parse.ergo#ergo-inline-115:41:8
 			var v_156 Option[ID[Node]]
-			/*line syntax/dump/parse.ergo#ergo-inline-115:41:8*/ _ = v_156
-			/*line syntax/dump/parse.ergo#ergo-inline-115:41:8*/ var kp Some[ID[Node]]
-			/*line syntax/dump/parse.ergo#ergo-inline-115:41:8*/ _ = kp
 			/*line syntax/dump/parse.ergo#ergo-inline-115:41:8*/ {
 				/*line syntax/dump/parse.ergo#ergo-inline-115:41:8*/ if o_1.n == uint32(0) {
-					/*line syntax/dump/parse.ergo#ergo-inline-115:41:8*/ _ = None{}
-					/*line syntax/dump/parse.ergo#ergo-inline-115:41:8*/ goto kn_4
+					/*line syntax/dump/parse.ergo#ergo-inline-115:41:8*/ v_156 = (Option[ID[Node]]{}).of1(None{})
+					/*line syntax/dump/parse.ergo#ergo-inline-115:41:8*/ goto inl_66
 					/*line syntax/dump/parse.ergo#ergo-inline-115:41:8*/
 				}
-				/*line syntax/dump/parse.ergo#ergo-inline-115:41:8*/ kp = Some[ID[Node]]{Value: ID[Node]{n: (o_1.n - uint32(1))}}
-				/*line syntax/dump/parse.ergo#ergo-inline-115:41:8*/ goto kn_3
+				/*line syntax/dump/parse.ergo#ergo-inline-115:41:8*/ v_156 = (Option[ID[Node]]{}).of0(Some[ID[Node]]{Value: ID[Node]{n: (o_1.n - uint32(1))}})
 				/*line syntax/dump/parse.ergo#ergo-inline-115:41:8*/
 			}
-			/*line syntax/dump/parse.ergo#ergo-inline-115:41:8*/ kn_3:
-			/*line syntax/dump/parse.ergo#ergo-inline-115:41:8*/ {
-				/*line syntax/dump/parse.ergo#ergo-inline-115:41:8*/ s_1 := kp
+			/*line syntax/dump/parse.ergo#ergo-inline-115:41:8*/ inl_66:
+			;
+			/*line syntax/dump/parse.ergo#ergo-inline-115:41:8*/ s_1 := v_156
+			/*line syntax/dump/parse.ergo#ergo-inline-115:41:8*/ _ = s_1
+			/*line syntax/dump/parse.ergo#ergo-inline-115:41:8*/ switch s_1.tag {
+			/*line syntax/dump/parse.ergo#ergo-inline-115:41:8*/ case 0:
+				/*line syntax/dump/parse.ergo#ergo-inline-115:41:8*/ n := s_1.v0
+				/*line syntax/dump/parse.ergo#ergo-inline-115:41:8*/ _ = n
+				/*line syntax/dump/parse.ergo#ergo-inline-115:41:8*/ s_2 := n.Value
 //line syntax/dump/parse.ergo#ergo-inline-115:43:3
 //line syntax/dump/parse.ergo#ergo-inline-115:43:3
 				var v_157 int
 				/*line syntax/dump/parse.ergo#ergo-inline-115:43:3*/ {
 					/*line syntax/dump/parse.ergo#ergo-inline-115:43:3*/ var p_3 Parsed = d.p
-					/*line syntax/dump/parse.ergo#ergo-inline-115:43:3*/ var id_4 ID[Node] = s_1.Value
 //line syntax/access.ergo#ergo-inline-117:62:49
 					t_95 := p_3.Tree
 //line syntax/access.ergo#ergo-inline-117:62:63
@@ -12389,10 +12399,10 @@ func (d *dumper) node(depth int, id ID[Node]) {
 							var v_164 int
 							/*line syntax/access.ergo#ergo-inline-118:7:40*/ {
 								/*line syntax/access.ergo#ergo-inline-118:7:40*/ var c_15 Comments = t_96
-								/*line syntax/access.ergo#ergo-inline-118:7:40*/ var id_5 ID[Cmt] = v_162
+								/*line syntax/access.ergo#ergo-inline-118:7:40*/ var id_4 ID[Cmt] = v_162
 //line syntax/comments.ergo#ergo-inline-121:35:55
 //line syntax/comments.ergo#ergo-inline-121:35:59
-								v_165 := ColOfMono_i1(c_15.start, id_5)
+								v_165 := ColOfMono_i1(c_15.start, id_4)
 //line syntax/comments.ergo#ergo-inline-121:35:55
 								v_164 = int(v_165)
 								/*line syntax/comments.ergo#ergo-inline-121:35:55*/
@@ -12415,7 +12425,7 @@ func (d *dumper) node(depth int, id ID[Node]) {
 //line syntax/access.ergo#ergo-inline-117:62:85
 					var v_166 int
 					/*line syntax/access.ergo#ergo-inline-117:62:85*/ {
-						/*line syntax/access.ergo#ergo-inline-117:62:85*/ v_166 = int(id_4.n)
+						/*line syntax/access.ergo#ergo-inline-117:62:85*/ v_166 = int(s_2.n)
 						/*line syntax/access.ergo#ergo-inline-117:62:85*/
 					}
 //line syntax/access.ergo#ergo-inline-117:62:49
@@ -12428,12 +12438,15 @@ func (d *dumper) node(depth int, id ID[Node]) {
 				v_155 = v_157
 				/*line syntax/dump/parse.ergo#ergo-inline-115:43:3*/ goto inl_65
 				/*line syntax/dump/parse.ergo#ergo-inline-115:43:3*/
-			}
-			/*line syntax/dump/parse.ergo#ergo-inline-115:43:3*/ kn_4:
-			/*line syntax/dump/parse.ergo#ergo-inline-115:43:3*/ {
+			case 1:
+				/*line syntax/dump/parse.ergo#ergo-inline-115:43:3*/ n := None{}
+				/*line syntax/dump/parse.ergo#ergo-inline-115:43:3*/ _ = n
 //line syntax/dump/parse.ergo#ergo-inline-115:45:3
 				v_155 = int(-1)
 				/*line syntax/dump/parse.ergo#ergo-inline-115:45:3*/ goto inl_65
+				/*line syntax/dump/parse.ergo#ergo-inline-115:45:3*/
+			default:
+				/*line syntax/dump/parse.ergo#ergo-inline-115:45:3*/ panic("ergo: defect: no case of the match at 41:2 matched")
 				/*line syntax/dump/parse.ergo#ergo-inline-115:45:3*/
 			}
 			/*line syntax/dump/parse.ergo#ergo-inline-115:45:3*/
@@ -12452,28 +12465,29 @@ func (d *dumper) node(depth int, id ID[Node]) {
 //line syntax/dump/parse.ergo#ergo-inline-123:41:2
 //line syntax/dump/parse.ergo#ergo-inline-123:41:8
 			var v_170 Option[ID[Node]]
-			/*line syntax/dump/parse.ergo#ergo-inline-123:41:8*/ _ = v_170
-			/*line syntax/dump/parse.ergo#ergo-inline-123:41:8*/ var kp_1 Some[ID[Node]]
-			/*line syntax/dump/parse.ergo#ergo-inline-123:41:8*/ _ = kp_1
 			/*line syntax/dump/parse.ergo#ergo-inline-123:41:8*/ {
 				/*line syntax/dump/parse.ergo#ergo-inline-123:41:8*/ if o_2.n == uint32(0) {
-					/*line syntax/dump/parse.ergo#ergo-inline-123:41:8*/ _ = None{}
-					/*line syntax/dump/parse.ergo#ergo-inline-123:41:8*/ goto kn_7
+					/*line syntax/dump/parse.ergo#ergo-inline-123:41:8*/ v_170 = (Option[ID[Node]]{}).of1(None{})
+					/*line syntax/dump/parse.ergo#ergo-inline-123:41:8*/ goto inl_74
 					/*line syntax/dump/parse.ergo#ergo-inline-123:41:8*/
 				}
-				/*line syntax/dump/parse.ergo#ergo-inline-123:41:8*/ kp_1 = Some[ID[Node]]{Value: ID[Node]{n: (o_2.n - uint32(1))}}
-				/*line syntax/dump/parse.ergo#ergo-inline-123:41:8*/ goto kn_6
+				/*line syntax/dump/parse.ergo#ergo-inline-123:41:8*/ v_170 = (Option[ID[Node]]{}).of0(Some[ID[Node]]{Value: ID[Node]{n: (o_2.n - uint32(1))}})
 				/*line syntax/dump/parse.ergo#ergo-inline-123:41:8*/
 			}
-			/*line syntax/dump/parse.ergo#ergo-inline-123:41:8*/ kn_6:
-			/*line syntax/dump/parse.ergo#ergo-inline-123:41:8*/ {
-				/*line syntax/dump/parse.ergo#ergo-inline-123:41:8*/ s_2 := kp_1
+			/*line syntax/dump/parse.ergo#ergo-inline-123:41:8*/ inl_74:
+			;
+			/*line syntax/dump/parse.ergo#ergo-inline-123:41:8*/ s_3 := v_170
+			/*line syntax/dump/parse.ergo#ergo-inline-123:41:8*/ _ = s_3
+			/*line syntax/dump/parse.ergo#ergo-inline-123:41:8*/ switch s_3.tag {
+			/*line syntax/dump/parse.ergo#ergo-inline-123:41:8*/ case 0:
+				/*line syntax/dump/parse.ergo#ergo-inline-123:41:8*/ n_1 := s_3.v0
+				/*line syntax/dump/parse.ergo#ergo-inline-123:41:8*/ _ = n_1
+				/*line syntax/dump/parse.ergo#ergo-inline-123:41:8*/ s_4 := n_1.Value
 //line syntax/dump/parse.ergo#ergo-inline-123:43:3
 //line syntax/dump/parse.ergo#ergo-inline-123:43:3
 				var v_171 int
 				/*line syntax/dump/parse.ergo#ergo-inline-123:43:3*/ {
 					/*line syntax/dump/parse.ergo#ergo-inline-123:43:3*/ var p_4 Parsed = d.p
-					/*line syntax/dump/parse.ergo#ergo-inline-123:43:3*/ var id_6 ID[Node] = s_2.Value
 //line syntax/access.ergo#ergo-inline-125:62:49
 					t_99 := p_4.Tree
 //line syntax/access.ergo#ergo-inline-125:62:63
@@ -12510,10 +12524,10 @@ func (d *dumper) node(depth int, id ID[Node]) {
 							var v_178 int
 							/*line syntax/access.ergo#ergo-inline-126:7:40*/ {
 								/*line syntax/access.ergo#ergo-inline-126:7:40*/ var c_18 Comments = t_100
-								/*line syntax/access.ergo#ergo-inline-126:7:40*/ var id_7 ID[Cmt] = v_176
+								/*line syntax/access.ergo#ergo-inline-126:7:40*/ var id_5 ID[Cmt] = v_176
 //line syntax/comments.ergo#ergo-inline-129:35:55
 //line syntax/comments.ergo#ergo-inline-129:35:59
-								v_179 := ColOfMono_i1(c_18.start, id_7)
+								v_179 := ColOfMono_i1(c_18.start, id_5)
 //line syntax/comments.ergo#ergo-inline-129:35:55
 								v_178 = int(v_179)
 								/*line syntax/comments.ergo#ergo-inline-129:35:55*/
@@ -12536,7 +12550,7 @@ func (d *dumper) node(depth int, id ID[Node]) {
 //line syntax/access.ergo#ergo-inline-125:62:85
 					var v_180 int
 					/*line syntax/access.ergo#ergo-inline-125:62:85*/ {
-						/*line syntax/access.ergo#ergo-inline-125:62:85*/ v_180 = int(id_6.n)
+						/*line syntax/access.ergo#ergo-inline-125:62:85*/ v_180 = int(s_4.n)
 						/*line syntax/access.ergo#ergo-inline-125:62:85*/
 					}
 //line syntax/access.ergo#ergo-inline-125:62:49
@@ -12549,12 +12563,15 @@ func (d *dumper) node(depth int, id ID[Node]) {
 				v_169 = v_171
 				/*line syntax/dump/parse.ergo#ergo-inline-123:43:3*/ goto inl_73
 				/*line syntax/dump/parse.ergo#ergo-inline-123:43:3*/
-			}
-			/*line syntax/dump/parse.ergo#ergo-inline-123:43:3*/ kn_7:
-			/*line syntax/dump/parse.ergo#ergo-inline-123:43:3*/ {
+			case 1:
+				/*line syntax/dump/parse.ergo#ergo-inline-123:43:3*/ n_1 := None{}
+				/*line syntax/dump/parse.ergo#ergo-inline-123:43:3*/ _ = n_1
 //line syntax/dump/parse.ergo#ergo-inline-123:45:3
 				v_169 = int(-1)
 				/*line syntax/dump/parse.ergo#ergo-inline-123:45:3*/ goto inl_73
+				/*line syntax/dump/parse.ergo#ergo-inline-123:45:3*/
+			default:
+				/*line syntax/dump/parse.ergo#ergo-inline-123:45:3*/ panic("ergo: defect: no case of the match at 41:2 matched")
 				/*line syntax/dump/parse.ergo#ergo-inline-123:45:3*/
 			}
 			/*line syntax/dump/parse.ergo#ergo-inline-123:45:3*/
@@ -13039,13 +13056,13 @@ func (d *dumper) node(depth int, id ID[Node]) {
 					var v_230 int
 					/*line syntax/access.ergo#ergo-inline-147:7:40*/ {
 						/*line syntax/access.ergo#ergo-inline-147:7:40*/ var c_23 Comments = t_133
-						/*line syntax/access.ergo#ergo-inline-147:7:40*/ var id_8 ID[Cmt] = v_228
+						/*line syntax/access.ergo#ergo-inline-147:7:40*/ var id_6 ID[Cmt] = v_228
 //line syntax/comments.ergo#ergo-inline-152:35:55
 //line syntax/comments.ergo#ergo-inline-152:35:59
 						var v_231 uint32
 						/*line syntax/comments.ergo#ergo-inline-152:35:59*/ {
 							/*line syntax/comments.ergo#ergo-inline-152:35:59*/ var c_24 Col[Cmt, uint32] = c_23.start
-							/*line syntax/comments.ergo#ergo-inline-152:35:59*/ v_231 = c_24.xs[int(id_8.n)]
+							/*line syntax/comments.ergo#ergo-inline-152:35:59*/ v_231 = c_24.xs[int(id_6.n)]
 							/*line syntax/comments.ergo#ergo-inline-152:35:59*/
 						}
 						/*line syntax/comments.ergo#ergo-inline-152:35:59*/ v_230 = int(v_231)
@@ -13383,13 +13400,13 @@ func (d *dumper) node(depth int, id ID[Node]) {
 					var v_261 int
 					/*line syntax/access.ergo#ergo-inline-165:7:40*/ {
 						/*line syntax/access.ergo#ergo-inline-165:7:40*/ var c_29 Comments = t_152
-						/*line syntax/access.ergo#ergo-inline-165:7:40*/ var id_9 ID[Cmt] = v_259
+						/*line syntax/access.ergo#ergo-inline-165:7:40*/ var id_7 ID[Cmt] = v_259
 //line syntax/comments.ergo#ergo-inline-170:35:55
 //line syntax/comments.ergo#ergo-inline-170:35:59
 						var v_262 uint32
 						/*line syntax/comments.ergo#ergo-inline-170:35:59*/ {
 							/*line syntax/comments.ergo#ergo-inline-170:35:59*/ var c_30 Col[Cmt, uint32] = c_29.start
-							/*line syntax/comments.ergo#ergo-inline-170:35:59*/ v_262 = c_30.xs[int(id_9.n)]
+							/*line syntax/comments.ergo#ergo-inline-170:35:59*/ v_262 = c_30.xs[int(id_7.n)]
 							/*line syntax/comments.ergo#ergo-inline-170:35:59*/
 						}
 						/*line syntax/comments.ergo#ergo-inline-170:35:59*/ v_261 = int(v_262)
@@ -13533,13 +13550,13 @@ func (d *dumper) node(depth int, id ID[Node]) {
 					var v_276 int
 					/*line syntax/access.ergo#ergo-inline-175:7:40*/ {
 						/*line syntax/access.ergo#ergo-inline-175:7:40*/ var c_35 Comments = t_160
-						/*line syntax/access.ergo#ergo-inline-175:7:40*/ var id_10 ID[Cmt] = v_274
+						/*line syntax/access.ergo#ergo-inline-175:7:40*/ var id_8 ID[Cmt] = v_274
 //line syntax/comments.ergo#ergo-inline-180:35:55
 //line syntax/comments.ergo#ergo-inline-180:35:59
 						var v_277 uint32
 						/*line syntax/comments.ergo#ergo-inline-180:35:59*/ {
 							/*line syntax/comments.ergo#ergo-inline-180:35:59*/ var c_36 Col[Cmt, uint32] = c_35.start
-							/*line syntax/comments.ergo#ergo-inline-180:35:59*/ v_277 = c_36.xs[int(id_10.n)]
+							/*line syntax/comments.ergo#ergo-inline-180:35:59*/ v_277 = c_36.xs[int(id_8.n)]
 							/*line syntax/comments.ergo#ergo-inline-180:35:59*/
 						}
 						/*line syntax/comments.ergo#ergo-inline-180:35:59*/ v_276 = int(v_277)
@@ -14598,13 +14615,13 @@ func (d *dumper) node(depth int, id ID[Node]) {
 						var v_376 int
 						/*line syntax/access.ergo#ergo-inline-219:7:40*/ {
 							/*line syntax/access.ergo#ergo-inline-219:7:40*/ var c_41 Comments = t_227
-							/*line syntax/access.ergo#ergo-inline-219:7:40*/ var id_11 ID[Cmt] = v_374
+							/*line syntax/access.ergo#ergo-inline-219:7:40*/ var id_9 ID[Cmt] = v_374
 //line syntax/comments.ergo#ergo-inline-224:35:55
 //line syntax/comments.ergo#ergo-inline-224:35:59
 							var v_377 uint32
 							/*line syntax/comments.ergo#ergo-inline-224:35:59*/ {
 								/*line syntax/comments.ergo#ergo-inline-224:35:59*/ var c_42 Col[Cmt, uint32] = c_41.start
-								/*line syntax/comments.ergo#ergo-inline-224:35:59*/ v_377 = c_42.xs[int(id_11.n)]
+								/*line syntax/comments.ergo#ergo-inline-224:35:59*/ v_377 = c_42.xs[int(id_9.n)]
 								/*line syntax/comments.ergo#ergo-inline-224:35:59*/
 							}
 							/*line syntax/comments.ergo#ergo-inline-224:35:59*/ v_376 = int(v_377)
@@ -14759,7 +14776,7 @@ func (d *dumper) node(depth int, id ID[Node]) {
 		var v_389 int
 		/*line syntax/dump/parse.ergo:291:44*/ {
 			/*line syntax/dump/parse.ergo:291:44*/ var p_9 Parsed = d.p
-			/*line syntax/dump/parse.ergo:291:44*/ var id_12 ID[Node] = x_40.X
+			/*line syntax/dump/parse.ergo:291:44*/ var id_10 ID[Node] = x_40.X
 //line syntax/access.ergo#ergo-inline-230:62:49
 			t_236 := p_9.Tree
 //line syntax/access.ergo#ergo-inline-230:62:63
@@ -14814,13 +14831,13 @@ func (d *dumper) node(depth int, id ID[Node]) {
 					var v_396 int
 					/*line syntax/access.ergo#ergo-inline-231:7:40*/ {
 						/*line syntax/access.ergo#ergo-inline-231:7:40*/ var c_47 Comments = t_237
-						/*line syntax/access.ergo#ergo-inline-231:7:40*/ var id_13 ID[Cmt] = v_394
+						/*line syntax/access.ergo#ergo-inline-231:7:40*/ var id_11 ID[Cmt] = v_394
 //line syntax/comments.ergo#ergo-inline-236:35:55
 //line syntax/comments.ergo#ergo-inline-236:35:59
 						var v_397 uint32
 						/*line syntax/comments.ergo#ergo-inline-236:35:59*/ {
 							/*line syntax/comments.ergo#ergo-inline-236:35:59*/ var c_48 Col[Cmt, uint32] = c_47.start
-							/*line syntax/comments.ergo#ergo-inline-236:35:59*/ v_397 = c_48.xs[int(id_13.n)]
+							/*line syntax/comments.ergo#ergo-inline-236:35:59*/ v_397 = c_48.xs[int(id_11.n)]
 							/*line syntax/comments.ergo#ergo-inline-236:35:59*/
 						}
 						/*line syntax/comments.ergo#ergo-inline-236:35:59*/ v_396 = int(v_397)
@@ -14844,7 +14861,7 @@ func (d *dumper) node(depth int, id ID[Node]) {
 //line syntax/access.ergo#ergo-inline-230:62:85
 			var v_398 int
 			/*line syntax/access.ergo#ergo-inline-230:62:85*/ {
-				/*line syntax/access.ergo#ergo-inline-230:62:85*/ v_398 = int(id_12.n)
+				/*line syntax/access.ergo#ergo-inline-230:62:85*/ v_398 = int(id_10.n)
 				/*line syntax/access.ergo#ergo-inline-230:62:85*/
 			}
 //line syntax/access.ergo#ergo-inline-230:62:49
@@ -15556,7 +15573,7 @@ func (d *dumper) node(depth int, id ID[Node]) {
 			var v_465 int
 			/*line syntax/dump/parse.ergo:335:42*/ {
 				/*line syntax/dump/parse.ergo:335:42*/ var p_10 Parsed = t_281
-				/*line syntax/dump/parse.ergo:335:42*/ var id_14 ID[Node] = v_463
+				/*line syntax/dump/parse.ergo:335:42*/ var id_12 ID[Node] = v_463
 //line syntax/access.ergo#ergo-inline-269:62:49
 				t_283 := p_10.Tree
 //line syntax/access.ergo#ergo-inline-269:62:63
@@ -15611,13 +15628,13 @@ func (d *dumper) node(depth int, id ID[Node]) {
 						var v_472 int
 						/*line syntax/access.ergo#ergo-inline-270:7:40*/ {
 							/*line syntax/access.ergo#ergo-inline-270:7:40*/ var c_54 Comments = t_284
-							/*line syntax/access.ergo#ergo-inline-270:7:40*/ var id_15 ID[Cmt] = v_470
+							/*line syntax/access.ergo#ergo-inline-270:7:40*/ var id_13 ID[Cmt] = v_470
 //line syntax/comments.ergo#ergo-inline-275:35:55
 //line syntax/comments.ergo#ergo-inline-275:35:59
 							var v_473 uint32
 							/*line syntax/comments.ergo#ergo-inline-275:35:59*/ {
 								/*line syntax/comments.ergo#ergo-inline-275:35:59*/ var c_55 Col[Cmt, uint32] = c_54.start
-								/*line syntax/comments.ergo#ergo-inline-275:35:59*/ v_473 = c_55.xs[int(id_15.n)]
+								/*line syntax/comments.ergo#ergo-inline-275:35:59*/ v_473 = c_55.xs[int(id_13.n)]
 								/*line syntax/comments.ergo#ergo-inline-275:35:59*/
 							}
 							/*line syntax/comments.ergo#ergo-inline-275:35:59*/ v_472 = int(v_473)
@@ -15641,7 +15658,7 @@ func (d *dumper) node(depth int, id ID[Node]) {
 //line syntax/access.ergo#ergo-inline-269:62:85
 				var v_474 int
 				/*line syntax/access.ergo#ergo-inline-269:62:85*/ {
-					/*line syntax/access.ergo#ergo-inline-269:62:85*/ v_474 = int(id_14.n)
+					/*line syntax/access.ergo#ergo-inline-269:62:85*/ v_474 = int(id_12.n)
 					/*line syntax/access.ergo#ergo-inline-269:62:85*/
 				}
 //line syntax/access.ergo#ergo-inline-269:62:49
@@ -16649,13 +16666,13 @@ func (d *dumper) node(depth int, id ID[Node]) {
 					var v_572 int
 					/*line syntax/access.ergo#ergo-inline-317:7:40*/ {
 						/*line syntax/access.ergo#ergo-inline-317:7:40*/ var c_61 Comments = t_355
-						/*line syntax/access.ergo#ergo-inline-317:7:40*/ var id_16 ID[Cmt] = v_570
+						/*line syntax/access.ergo#ergo-inline-317:7:40*/ var id_14 ID[Cmt] = v_570
 //line syntax/comments.ergo#ergo-inline-322:35:55
 //line syntax/comments.ergo#ergo-inline-322:35:59
 						var v_573 uint32
 						/*line syntax/comments.ergo#ergo-inline-322:35:59*/ {
 							/*line syntax/comments.ergo#ergo-inline-322:35:59*/ var c_62 Col[Cmt, uint32] = c_61.start
-							/*line syntax/comments.ergo#ergo-inline-322:35:59*/ v_573 = c_62.xs[int(id_16.n)]
+							/*line syntax/comments.ergo#ergo-inline-322:35:59*/ v_573 = c_62.xs[int(id_14.n)]
 							/*line syntax/comments.ergo#ergo-inline-322:35:59*/
 						}
 						/*line syntax/comments.ergo#ergo-inline-322:35:59*/ v_572 = int(v_573)

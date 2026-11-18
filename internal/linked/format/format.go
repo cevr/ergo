@@ -7270,20 +7270,25 @@ func (t Tree) projectOwned(it Item, depth int, out []string) []string {
 		/*line tree/tree.ergo:60:3*/ p := s_1.as1()
 //line tree/tree.ergo:62:3
 		s_2 := p.At
+		/*line tree/tree.ergo:62:3*/ _ = s_2
 		/*line tree/tree.ergo:62:3*/ switch s_2.tag {
 		/*line tree/tree.ergo:62:3*/ case 0:
-			/*line tree/tree.ergo:62:3*/ s_3 := s_2.v0
+			/*line tree/tree.ergo:62:3*/ n_2 := s_2.v0
+			/*line tree/tree.ergo:62:3*/ _ = n_2
+			/*line tree/tree.ergo:62:3*/ s_3 := n_2.Value
 //line tree/tree.ergo:64:4
 //line tree/tree.ergo:64:13
-			v_1 := (t).Locate(s_3.Value)
+			v_1 := (t).Locate(s_3)
 //line tree/tree.ergo:64:4
 //line tree/tree.ergo:65:4
 //line tree/tree.ergo:65:8
-			v_2 := Append[string](o, ("@" + string(strconv.AppendInt(make([]byte, 0, 20), int64(s_3.Value), 10)) + " " + string(strconv.AppendInt(make([]byte, 0, 20), int64(v_1.Line), 10)) + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(v_1.Column), 10)) + "\n"))
+			v_2 := Append[string](o, ("@" + string(strconv.AppendInt(make([]byte, 0, 20), int64(s_3), 10)) + " " + string(strconv.AppendInt(make([]byte, 0, 20), int64(v_1.Line), 10)) + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(v_1.Column), 10)) + "\n"))
 //line tree/tree.ergo:65:4
 			o = v_2
 			/*line tree/tree.ergo:65:4*/
 		case 1:
+			/*line tree/tree.ergo:65:4*/ n_2 := None{}
+			/*line tree/tree.ergo:65:4*/ _ = n_2
 //line tree/tree.ergo:67:4
 //line tree/tree.ergo:67:8
 			v_3 := Append[string](o, "-\n")
@@ -7330,14 +7335,14 @@ func (t Tree) projectOwned(it Item, depth int, out []string) []string {
 	case 5:
 		/*line tree/tree.ergo:74:3*/ r := s_1.as5()
 //line tree/tree.ergo:76:3
-		var n_2 Node = /*line tree/tree.ergo:76:11*/ t.Nodes[r.Id]
+		var n_3 Node = /*line tree/tree.ergo:76:11*/ t.Nodes[r.Id]
 //line tree/tree.ergo:77:3
 //line tree/tree.ergo:77:7
-		v_8 := Append[string](o, (("{" + n_2.Family) + "}\n"))
+		v_8 := Append[string](o, (("{" + n_3.Family) + "}\n"))
 //line tree/tree.ergo:77:3
 		o = v_8
 //line tree/tree.ergo:78:3
-		for _, v_9 := range n_2.Fields {
+		for _, v_9 := range n_3.Fields {
 			/*line tree/tree.ergo:78:3*/ var f_1 Field = v_9
 //line tree/tree.ergo:79:4
 			t_2 := o
@@ -106325,9 +106330,9 @@ func (p *Printer) walkBinary(e int) Walk {
 //line format/nodes.ergo:1300:2
 	v, ok := p.Walked[e]
 	/*line format/nodes.ergo:1300:2*/ if ok {
-		/*line format/nodes.ergo:1300:2*/ done := Some[Walk]{Value: v}
+		/*line format/nodes.ergo:1300:2*/ done := v
 //line format/nodes.ergo:1302:3
-		return done.Value
+		return done
 		/*line format/nodes.ergo:1302:3*/
 	} else {
 		/*line format/nodes.ergo:1302:3*/
