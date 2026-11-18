@@ -42,6 +42,7 @@ fact go math/rand/v2.Rand.Shuffle sync callbacks validated by guard with go1.27.
 fact go math/rand/v2.Shuffle sync callbacks validated by guard with go1.27.4 h1:l5UDGnhnN4lB+WuspG7lxLoUPt6kaJk8xaSPjyAKeZw=
 fact go os.Expand sync callbacks validated by guard with go1.27.4 h1:j53n/Pcx9EUaCtaEX1s/vf8kbd+RiX2yEz+zBS0Y34E=
 fact go path/filepath pure members validated by guard with go1.27.4 h1:q+yklp6zZlmKjmrdmVgaIc7jyTFKF4rsCWFA/++DN48=
+fact go path/filepath.Join reads elem validated by guard with go1.27.4 h1:+93clsjHqXhN66F2mNfu4j3ltVCnF7p9Y1oQWM0Z4G8=
 fact go path/filepath.Walk sync callbacks validated by guard with go1.27.4 h1:PFVlybVoL91pfAm21l5XxX59Y2cYcQs2le9kYyPWdLc=
 fact go path/filepath.WalkDir sync callbacks validated by guard with go1.27.4 h1:2sI6rtvgluL2X+VA4QeTyRH+sT87Mu2edc+5CldznF8=
 fact go regexp.Regexp.FindAllString fresh result validated by guard with go1.27.4 h1:emt3eWjabftdVeKKhGoozPUv/FhSW4WVUEmaEpUyUQ0=
@@ -75,6 +76,7 @@ fact go strings.Fields fresh result validated by guard with go1.27.4 h1:ROjrohun
 fact go strings.FieldsFunc fresh result validated by guard with go1.27.4 h1:iRfGr0k+FMsxaDfCq5/wIRAvmBQdCbm1raSPiw57HdU=
 fact go strings.FieldsFunc sync callbacks validated by guard with go1.27.4 h1:LfdVZV9vE6GaqgBxnHYeiV+ZMw3VlPJ8bnDMvHqpqmg=
 fact go strings.IndexFunc sync callbacks validated by guard with go1.27.4 h1:kltytcgjQ6Mt+l2QtO6MO3ckTUU6M7+HgFMId6j9JAU=
+fact go strings.Join reads elems validated by guard with go1.27.4 h1:ggOIfQ8bwkHJ3RyRIbsbIaXSbjsWoCEeljpOzKO8eRY=
 fact go strings.LastIndexFunc sync callbacks validated by guard with go1.27.4 h1:l04F8qgH9GUg7SwBYPlhq5y5Uv9PrFuH6n89Odt93y0=
 fact go strings.Map sync callbacks validated by guard with go1.27.4 h1:9XcwRVhPc8TEXypQQji9gS9WT4mKwnrCiWsCMXERczU=
 fact go strings.Split fresh result validated by guard with go1.27.4 h1:XjeU8+u2HFvEF/bsBzrsycZDg7/jw58rFMN1bvAMecg=

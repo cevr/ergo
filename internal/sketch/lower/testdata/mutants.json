@@ -5884,6 +5884,8 @@
       "rule": "A one-call body reaches a view form through a dot call on its parameter (std strings.Bytes is s.Bytes(), PRIM-4), as through a plain one, so the Go operand it copies takes the view (LF2b).",
       "anchor": {"tests":["lower:TestHostViewAgrees"]},
       "killers": ["lower:TestHostViewAgrees"]
-    }
+    },
+    {"name":"join-reads-strings-dropped","origin":"wf10 lawffi JOIN","file":"internal/sketch/std/gostd/src/strings/strings.ergo","from":"// ergo:reads elems (vouched: Go reports only that an element string flows to the result (leaking param: elems to result level=1): the slice's array is neither written nor kept, and a string is immutable)\n","to":"","rule":"interop.md Foreign facts 7 (JOIN): strings.Join only reads elems: a live []string goes to it with no copy.","killers":["lower:TestJoinsTakeNoCopy"]},
+    {"name":"join-reads-filepath-dropped","origin":"wf10 lawffi JOIN","file":"internal/sketch/std/gostd/src/path/filepath/filepath.ergo","from":"// ergo:reads elem (vouched: it is join(elem), which reslices elem and passes it to strings.Join (a reads row); Go's mutation verdict comes from the inlined Clean of the joined string, which is immutable)\n","to":"","rule":"interop.md Foreign facts 7 (JOIN): path/filepath.Join only reads elem: a live []string goes to it with no copy.","killers":["lower:TestJoinsTakeNoCopy"]}
   ]
 }

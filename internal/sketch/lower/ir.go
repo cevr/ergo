@@ -395,6 +395,10 @@ type irBuilder struct {
 	// tries counts the try expressions being built (ir_fail.go): inside
 	// one, a fallible call fails the frame too.
 	tries int
+	// rawErr is the Go call whose error a plain catch takes unread
+	// (catch_plain.go; ir_fail.go catch): bind leaves it Go's error, not
+	// go.Error (GOERR-BOX).
+	rawErr *syntax.CallExpr
 	// admitted are the unions admitted so far (ir_union.go): one that
 	// holds itself is admitted once.
 	admitted map[*check.TypeName]bool
