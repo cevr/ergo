@@ -734,7 +734,7 @@
       "origin": "wf10/fl4 FL4",
       "file": "modules/fluid/gui/draw.ergo",
       "from": "\t\tlet on = if off { None } else { p.On }",
-      "to": "\t\tlet on = p.On",
+      "to": "\t\tlet on = if off { p.On } else { p.On }",
       "rule": "A press stated disabled still sends its signal when pressed (its access still says disabled): PressSendsItsSignal.",
       "anchor": {
         "tests": [
@@ -750,7 +750,7 @@
       "origin": "wf10/fl4 FL4",
       "file": "modules/fluid/gui/draw.ergo",
       "from": "ui.OnKey(f, func(k ui.KeyPress) Option[E] { Bound[E](keys, k) })",
-      "to": "ui.OnKey(f, func(k ui.KeyPress) Option[E] { None })",
+      "to": "ui.OnKey(f, func(k ui.KeyPress) Option[E] { Bound[E](keys, ui.KeyPress{..k, Name: \"\"}) })",
       "rule": "A keyed box's keyboard map sends nothing for a key it binds: PressSendsItsSignal.",
       "anchor": {
         "tests": [
@@ -766,7 +766,7 @@
       "origin": "wf10/fl4 FL4",
       "file": "modules/fluid/gui/draw.ergo",
       "from": "\t\t\ta.Expanded = Some[bool]{Value: x.Yes}",
-      "to": "\t\t\ta.Expanded = Some[bool]{Value: true}",
+      "to": "\t\t\ta.Expanded = Some[bool]{Value: x.Yes || true}",
       "rule": "A collapsed box is told to a reader as expanded in the window: AccessOfGuiIsAccessOfPart.",
       "anchor": {
         "tests": [
@@ -778,12 +778,12 @@
       ]
     },
     {
-      "name": "fl4-rest-over-state",
+      "name": "fl4-paint-rest-only",
       "origin": "wf10/fl4 FL4",
       "file": "modules/fluid/gui/paint.ergo",
       "from": "look.Merge(l.Rest, look.Overlay(l, st))",
-      "to": "look.Merge(look.Overlay(l, st), l.Rest)",
-      "rule": "The rest style is laid over the state's overlay, so a hovered box paints its rest fill: HostsResolveAlike.",
+      "to": "look.Merge(l.Rest, look.Overlay(l, if true { look.Rest } else { st }))",
+      "rule": "The paint is taken from the first of the two merged styles, the rest style, and the state's overlay is dropped: HostsResolveAlike.",
       "anchor": {
         "tests": [
           "examples:modules/fluid"
