@@ -98,6 +98,9 @@ func (r Report) String() string {
 // go build (Command); otherwise it takes the direct path, falling back to
 // go build when the direct path refuses or fails.
 func (t Toolchain) Build(c Cache, module Module, output string, stderr io.Writer) (Report, error) {
+	if t.Cover != "" {
+		return t.coverBuild(module, output, stderr)
+	}
 	var report Report
 	if t.GoBuild {
 		report.Refused = "go build selected"

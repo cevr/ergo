@@ -2435,20 +2435,7 @@
         "lower:TestMachineLawRuns"
       ]
     },
-    {
-      "name": "x1b-source-ignored",
-      "origin": "wf10/explorer/x1b",
-      "file": "internal/sketch/lower/tests.go",
-      "from": "\tif v, given := $Flag(\"source\"); given {",
-      "to": "\tif v, given := $Flag(\"source\"); given && false {",
-      "rule": "$Source: the replay command names the source as ergo test was given it (--source).",
-      "killers": [],
-      "gap": "killed by cmd/ergo TestTestCommand (the CLI passes --source), which is no suite of scripts/mutants",
-      "anchor": {
-        "file": "internal/sketch/lower/tests.go",
-        "text": "Replace(harnessGo + harnessReachGo)"
-      }
-    },
+    {"name":"x1b-source-ignored","origin":"wf10/explorer/x1b","file":"internal/sketch/lower/tests.go","from":"\tif v, given := $Flag(\"source\"); given {","to":"\tif v, given := $Flag(\"source\"); given && false {","rule":"$Source: the replay command names the source as ergo test was given it (--source).","killers":["cmd/ergo:TestTestCommand"],"anchor":{"file":"internal/sketch/lower/tests.go","text":"Replace(harnessGo + harnessReachGo)"}},
     {
       "name": "L8-B1 release at function end, not iteration end",
       "origin": "wf10 L8 B1 (#197)",
@@ -4906,7 +4893,7 @@
     {"name":"opt9-fail-jump-off","origin":"wf10 OPT9","file":"internal/sketch/lower/inline.go","from":"jump := fc.failJump == syntax.Expr(x) && failLowering != \"join\"","to":"jump := false && fc.failJump == syntax.Expr(x) && failLowering != \"join\"","rule":"failJump: a catch's or try's inlined operand sends its failures to a label of their own.","killers":["lower:TestInlineAgrees"]},
     {"name":"opt9-fail-around-off","origin":"wf10 OPT9","file":"internal/sketch/lower/expr.go","from":"\tif direct {\n\t\tfc.l.stats.FailsAround++","to":"\tif false && direct {\n\t\tfc.l.stats.FailsAround++","rule":"failJump: a site that declares nothing before its handler jumps its success path around it.","killers":["lower:TestInlineAgrees"]},
     {"name":"opt9-fail-around-alias","origin":"wf10 OPT9","file":"internal/sketch/lower/expr.go","from":"past := fc.failAround(o, alias || m.Result == nil)","to":"past := fc.failAround(o, m.Result == nil)","rule":"failJump: a catch whose value is named jumps its success path around its handler.","killers":["lower:TestInlineAgrees"]},
-    {"name":"opt9-fail-around-noresult","origin":"wf10 OPT9","file":"internal/sketch/lower/expr.go","from":"past := fc.failAround(o, alias || m.Result == nil)","to":"past := fc.failAround(o, alias)","rule":"failJump: a catch with no result jumps its success path around its handler (lru's arena updates).","killers":["cmd/ergo:TestLRUCountsAsHandGo"],"gap":"Killed by hand by cmd/ergo TestLRUCountsAsHandGo (full tier; outside the runner's suites, so the runner judges it survived): lru bench ran 0.986 of the hand control's branches per operation, over the bound 0.97 (the head runs 0.949; OPT9 round 2, by hand: apply, go test -count=1 -run '^TestLRUCountsAsHandGo$' ./cmd/ergo, restore). Same behaviour and every kind of label still placed, so no check, lower, std or example test sees it."},
+    {"name":"opt9-fail-around-noresult","origin":"wf10 OPT9","file":"internal/sketch/lower/expr.go","from":"past := fc.failAround(o, alias || m.Result == nil)","to":"past := fc.failAround(o, alias)","rule":"failJump: a catch with no result jumps its success path around its handler (lru's arena updates).","killers":["cmd/ergo:TestLRUCountsAsHandGo"]},
     {"name":"opt9-try-propagate-around","origin":"wf10 OPT9","file":"internal/sketch/lower/expr.go","from":"\tpast := fc.failAround(o, true)\n\tif past","to":"\tpast := fc.failAround(o, false)\n\tif past","rule":"failJump: a try jumps its success path around its propagation.","killers":["lower:TestInlineAgrees"]},
     {"name":"opt9-fail-body-goto","origin":"wf10 OPT9","file":"internal/sketch/lower/body.go","from":"\t\tif in.fail != \"\" {\n\t\t\tfc.line(\"goto \" + in.fail)","to":"\t\tif false {\n\t\t\tfc.line(\"goto \" + in.fail)","rule":"failJump: a failing return of an inlined body jumps to its failure label, past which the site's handler runs.","killers":["lower:TestInlineAgrees"]},
     {"name":"opt9-fail-return-call","origin":"wf10 OPT9","file":"internal/sketch/lower/inline.go","from":"if failing && in.fail != \"\" {","to":"if false && failing && in.fail != \"\" {","rule":"failJump: a returned call's error jumps to the failure label when it failed.","killers":["lower:TestInlineAgrees"]},
@@ -6058,6 +6045,9 @@
     {"name":"ui-version-guessed-high","origin":"wf10 RT-HOOK (FK2-g2-g1)","file":"internal/sketch/std/ui/session.ergo","from":"\t\tif w == v {\n\t\t\treturn (st, v)\n\t\t}","to":"\t\tif true {\n\t\t\treturn (st, w)\n\t\t}","rule":"A pass records a Version no later than the state it read: a commit between its reads is drawn again, never recorded as drawn (FK2-g2-g1; the point ui.versioned).","killers":["lower:TestUIHostModel"],"anchor":{"tests":["lower:TestUIHostModel"]}},
     {"name":"hook-run-build-keeps-points","origin":"wf10 RT-HOOK","file":"internal/sketch/lower/hook.go","from":"\tif fc.l.tests != nil {\n\t\treturn false\n\t}","to":"\tif true {\n\t\treturn false\n\t}","rule":"A named point (std testing's Point and At) leaves no call in the run build (RT-HOOK).","killers":["lower:TestHooksStayOutOfRunBuilds"],"anchor":{"tests":["lower:TestHooksStayOutOfRunBuilds"]}},
     {"name":"hook-test-build-drops-points","origin":"wf10 RT-HOOK","file":"internal/sketch/lower/hook.go","from":"\tif fc.l.tests != nil {\n\t\treturn false\n\t}","to":"\tif false {\n\t\treturn false\n\t}","rule":"The test build lowers a named point's call (RT-HOOK).","killers":["lower:TestHooksStayOutOfRunBuilds"],"anchor":{"tests":["lower:TestHooksStayOutOfRunBuilds"]}},
-    {"name":"ft-reach-drops-callee","origin":"wf10 FT2 (stored verdicts and route notes)","file":"internal/sketch/lower/ledger.go","from":"\td.decl(\"test \"+pkg.Path+\".\"+t.Name, pkg, t.Decl)\n","to":"\td.decls[\"test \"+pkg.Path+\".\"+t.Name+\"\\n\"+syntax.TokenText(declText(pkg, t.Decl))] = true\n","rule":"A test's stored verdict is keyed by every declaration the test reaches: an edit of a callee runs it again.","killers":["internal/sketchfront:TestStoredVerdictsAgree"],"anchor":{"tests":["internal/sketchfront:TestStoredVerdictsAgree"]}}
+    {"name":"ft-reach-drops-callee","origin":"wf10 FT2 (stored verdicts and route notes)","file":"internal/sketch/lower/ledger.go","from":"\td.decl(\"test \"+pkg.Path+\".\"+t.Name, pkg, t.Decl)\n","to":"\td.decls[\"test \"+pkg.Path+\".\"+t.Name+\"\\n\"+syntax.TokenText(declText(pkg, t.Decl))] = true\n","rule":"A test's stored verdict is keyed by every declaration the test reaches: an edit of a callee runs it again.","killers":["internal/sketchfront:TestStoredVerdictsAgree"],"anchor":{"tests":["internal/sketchfront:TestStoredVerdictsAgree"]}},
+    {"name":"gt7b-marks-off","origin":"wf10 GATE2 GT7b","file":"internal/sketch/lower/body.go","from":"\t} else if fc.marks && n != nil && n.Pos().IsValid() {","to":"\t} else if false && fc.marks && n != nil && n.Pos().IsValid() {","rule":"A coverage build's std bodies write cover marks.","killers":["internal/sketchfront:TestCoverMarksOnlyAddComments"]},
+    {"name":"gt7b-mark-moves-code","origin":"wf10 GATE2 GT7b","file":"internal/sketch/lower/lower.go","from":"\treturn fmt.Sprintf(\"%s%s:%d:%d\\n\", coverMarkPrefix, path, line, column)","to":"\treturn fmt.Sprintf(\"%s%s:%d:%d \", coverMarkPrefix, path, line, column)","rule":"A cover mark is a line of its own: the code after it is not commented out.","killers":["internal/sketchfront:TestCoverMarksOnlyAddComments"]},
+    {"name":"gt7b-e2e-dispatch-main","origin":"wf10 GATE2 GT7b","file":"internal/sketch/lower/coverdispatch_test.go","from":"\"-coverpkg=\"+importPath+\"/p/...,\"+importPath+\"/cmd/dispatch\"","to":"\"-coverpkg=\"+importPath+\"/p/...\"","rule":"The dispatcher's main package is covered: only an instrumented main writes counters.","gap":"Only an end-to-end coverage pass sees it (GT7b acceptance, gate2/GT7b/accept.ts: rpc-mount-exact covered by the rpcgen loopback, cu6-into-hops-lost by lower:TestHTTPNetworkRuns); no test of the package runs the coverage pass.","killers":[]}
   ]
 }

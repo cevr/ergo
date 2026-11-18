@@ -1025,6 +1025,9 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	scope := newNamer(l.names)
 	site := syntax.Node(f.Decl.Name)
 	fc := newFuncCtx(l, scope, directives)
+	// A library body, lowered without //line directives, writes cover
+	// marks in a coverage build (GT7b).
+	fc.marks = !directives && l.coverMarks
 	fc.hot = l.hotFunc(f)
 	fc.owner = f.Name
 	if fd.method != nil {

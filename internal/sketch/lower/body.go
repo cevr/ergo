@@ -141,7 +141,10 @@ type funcCtx struct {
 	env        string               // the current environment pointer, which every Go function the lowering writes binds
 	goDirect   map[syntax.Node]bool // Go functions of import go passed as Go's own to a Go function parameter (goCall)
 	directives bool
-	loops      []*loopCtx
+	// marks writes a cover mark where a body with directives writes its
+	// //line directive (Unit.CoverMarks): a std body of a coverage build.
+	marks bool
+	loops []*loopCtx
 	// tries counts the try expressions being lowered: inside one, every
 	// fallible value propagates (196r: try covers the expression to its
 	// right).
@@ -251,7 +254,7 @@ func newFuncCtx(l *lowerer, scope *namer, directives bool) *funcCtx {
 // type bindings and witnesses. These facts and captured local names are
 // shared; execution state (environment, frame, loops and tries) is fresh.
 func (fc *funcCtx) innerFuncCtx() *funcCtx {
-	return &funcCtx{typeCtx: fc.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: fc.locals, directives: fc.directives, owner: fc.owner, witness: fc.witness, static: fc.static, hot: fc.onLoopPath()}
+	return &funcCtx{typeCtx: fc.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: fc.locals, directives: fc.directives, marks: fc.marks, owner: fc.owner, witness: fc.witness, static: fc.static, hot: fc.onLoopPath()}
 }
 
 // line writes one Go line at the current depth.
@@ -267,6 +270,10 @@ func (fc *funcCtx) at(n syntax.Node) {
 		_, src, line, column := fc.l.at(n, n.Pos())
 		fc.writeDir(Directive(fc.tagPath(src), line, column))
 		fc.lastPos, fc.lastNode = n.Pos(), n
+	} else if fc.marks && n != nil && n.Pos().IsValid() {
+		if path, line, column, ok := fc.l.find(n, n.Pos()); ok {
+			fc.out.WriteString(CoverMark(path, line, column))
+		}
 	}
 }
 

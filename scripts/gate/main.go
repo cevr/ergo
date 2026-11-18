@@ -146,10 +146,16 @@ type Step struct {
 	// Package, set on a fast-tier test step, is the closure of the test
 	// package it runs: the step replays its last pass while its package
 	// key (replay.PackageKey) is unchanged, and records a pass under it.
+	// A full-tier closure sweep has the closure of what the sweep reads
+	// for its package (keySweeps).
 	Package *replay.Closure
 	// PackageProblem says why the package's closure is keyed on the whole
 	// checkout (testPackages).
 	PackageProblem string
+	// KeyParts are inputs of the package key beyond the closure and the
+	// step's name, argv and variables (packageIdentity): a sweep's facts
+	// about the sweeper's tables (keySweeps).
+	KeyParts []string
 	// Sweep, on a step of the closure sweep (sweepStep), names what it
 	// sweeps: the directory of the one package it sweeps. Only the full
 	// tier sweeps (classHeavy).
@@ -321,6 +327,12 @@ type gate struct {
 	// packageKeys are the start keys of the run's package steps
 	// (Step.Package), made before any step starts.
 	packageKeys map[*Step]packageKey
+	// sweepCollect, set on the merge tier's uncached run (which has no
+	// whole-gate key), collects the facts its closure sweep steps are keyed
+	// by, with the merge tier's name: those steps alone replay a pass of an
+	// earlier merge run at an unchanged key and record theirs (GATE2 GT5).
+	// Every other step of the run stays uncached.
+	sweepCollect func() (*replay.Facts, error)
 }
 
 // packageKey is a package step's key at the start of the run, or why it has
@@ -378,8 +390,8 @@ func (g *gate) collectTier(mechanism string) (*replay.Facts, error) {
 func main() {
 	list := flag.Bool("list", false, "print the checks the gate runs, one per line, and exit")
 	full := flag.Bool("full", false, "the full tier: every test of every package, uncached; the batch gate before main")
-	noCache := flag.Bool("no-cache", false, "the full tier, run even when a pass for identical inputs is recorded")
-	merge := flag.Bool("merge", false, "the merge tier: run every step uncached (every go test with -count=1) and compare each verdict with the full tier's whole-gate record of the checkout's key")
+	noCache := flag.Bool("no-cache", false, "the full tier, run even when a pass for identical inputs is recorded; with --merge, the reference: the uncached run replays no closure sweep")
+	merge := flag.Bool("merge", false, "the merge tier: run every step uncached (every go test with -count=1; a closure sweep whose merge-tier key is unchanged replays, which --no-cache does not) and compare each verdict with the full tier's whole-gate record of the checkout's key")
 	recordDurations := flag.Bool("record-durations", false, "measure the tests of the named Go packages (every test package when none is named) serially and rewrite their rows of "+durationsFile)
 	fast := flag.Bool("fast", false, "with -record-durations: run the named packages' fast-tier steps one at a time and rewrite their CPU seconds in "+fastCPUFile)
 	cpu := flag.Bool("cpu", false, "with -record-durations: measure the CPU seconds of each test of the named packages (the sharded packages when none is named), one test at a time, and rewrite their rows of "+testCPUFile)
@@ -397,9 +409,6 @@ func main() {
 	}
 	if *sweeps && (!*recordDurations || *fast || *cpu || *coverage) {
 		fatal(errors.New("-sweeps goes with -record-durations only, without -fast, -cpu or -coverage"))
-	}
-	if *merge && *noCache {
-		fatal(errors.New("--merge runs every step uncached already; it takes no --no-cache"))
 	}
 	if flag.NArg() > 0 && !*recordDurations {
 		fatal(fmt.Errorf("unexpected arguments %q: only -record-durations takes packages", flag.Args()))
@@ -710,6 +719,16 @@ func (g *gate) mergeTier(out io.Writer) int {
 			run := g.derive(uncached, true, nil)
 			run.tier = mergeTierName
 			run.enclosure = box
+			if !g.noCache {
+				// --merge --no-cache, the reference, sweeps every package.
+				run.sweepCollect = func() (*replay.Facts, error) {
+					facts, err := g.collectFacts(g.whole.mechanism)
+					if err != nil {
+						return nil, err
+					}
+					return replay.WithTier(facts, mergeTierName), nil
+				}
+			}
 			run.run(out)
 			var names []string
 			for _, step := range uncached {
@@ -949,6 +968,9 @@ func (g *gate) run(out io.Writer) int {
 			}
 		}
 	}
+	if g.whole == nil && g.sweepCollect != nil {
+		g.keySweepSteps(out)
+	}
 
 	results := make([]*result, len(g.steps))
 	done := make([]chan struct{}, len(g.steps))
@@ -1017,6 +1039,14 @@ func (g *gate) run(out io.Writer) int {
 	var failures []string
 	g.verdicts = map[string]replay.Verdict{}
 	objects := make([]*replay.Object, len(g.steps))
+	// owned are the objects no whole-gate recording holds; each is dropped
+	// after the package records (a committed one is gone already).
+	var owned []*replay.Object
+	defer func() {
+		for _, o := range owned {
+			o.Abort()
+		}
+	}()
 	for i, step := range g.steps {
 		<-done[i]
 		r := results[i]
@@ -1048,6 +1078,14 @@ func (g *gate) run(out io.Writer) int {
 				}
 				destination = io.MultiWriter(out, object)
 			}
+		} else if _, keyed := g.packageKeys[step]; keyed && g.sweepCollect != nil && r.outcome == passed {
+			// A swept pass of the merge tier's uncached run keeps its
+			// output in an object of its own for its package record.
+			if own, err := replay.Open(g.cacheDir).NewObject(); err == nil {
+				object = own
+				owned = append(owned, own)
+				destination = io.MultiWriter(out, object)
+			}
 		}
 		objects[i] = object
 		if err := r.print(destination); err != nil {
@@ -1071,7 +1109,11 @@ func (g *gate) run(out io.Writer) int {
 	}
 	// The end facts, collected once: the package records and the
 	// whole-gate record both compare their start keys with them.
-	end := sync.OnceValues(g.collect)
+	collectEnd := g.collect
+	if g.whole == nil && g.sweepCollect != nil {
+		collectEnd = g.sweepCollect
+	}
+	end := sync.OnceValues(collectEnd)
 	g.recordPackages(out, results, objects, end)
 	if recording != nil {
 		identity := g.whole.identity
@@ -1108,7 +1150,7 @@ func (g *gate) execute(step *Step) *result {
 		switch {
 		case pk.problem != "":
 			notCached = fmt.Sprintf("gate: %s: not cached: %s\n", step.Name, pk.problem)
-		case !g.noCache:
+		case !g.noCache || g.sweepCollect != nil && step.Sweep != "":
 			if r := g.replayPackage(step, pk.key); r != nil {
 				return r
 			}

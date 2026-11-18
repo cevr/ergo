@@ -93,7 +93,7 @@ func stepsFor(root, tier string) ([]*Step, error) {
 	if tier == fastTier {
 		return fastSteps(root)
 	}
-	return gateSteps(root)
+	return fullSteps(root)
 }
 
 // listedPackage is the part of `go list -json` the fast tier reads.
@@ -750,7 +750,7 @@ func (g *gate) recordPackages(out io.Writer, results []*result, objects []*repla
 }
 
 // packageIdentity names a package step in its key: its name, argv and
-// variables.
+// variables, and its KeyParts.
 func packageIdentity(step *Step) []string {
-	return []string{step.Name, fmt.Sprintf("%q", step.Argv), fmt.Sprintf("%q", step.Env)}
+	return append([]string{step.Name, fmt.Sprintf("%q", step.Argv), fmt.Sprintf("%q", step.Env)}, step.KeyParts...)
 }
