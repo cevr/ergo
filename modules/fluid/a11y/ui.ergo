@@ -182,6 +182,40 @@ func roleOfUI(r ui.Role, level Option[int]) part.Role {
 		case None:
 			part.Heading{Level: 2}
 		}
+	case ui.RadioGroup:
+		part.RadioGroup
+	case ui.Radio:
+		part.Radio
+	case ui.ListBox:
+		part.ListBox
+	case ui.ListOption:
+		part.Choice
+	case ui.Slider:
+		part.Slider
+	case ui.SpinButton:
+		part.SpinButton
+	case ui.SearchBox:
+		part.SearchBox
+	case ui.MenuItemCheckbox:
+		part.MenuItemCheckbox
+	case ui.ComboBox:
+		part.ComboBox
+	case ui.Grid:
+		part.Grid
+	case ui.GridCell:
+		part.GridCell
+	case ui.ColumnHeader:
+		part.ColumnHeader
+	case ui.RowHeader:
+		part.RowHeader
+	case ui.Navigation:
+		part.Navigation
+	case ui.ListItem:
+		part.ListItem
+	case ui.Separator:
+		part.Separator
+	case ui.Tooltip:
+		part.Tooltip
 	case ui.Static, ui.Generic, ui.Tree, ui.TreeItem:
 		part.Generic
 	}

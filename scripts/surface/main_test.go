@@ -1,10 +1,17 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/internal/testinputs"
 )
+
+// TestMain runs the tests under observation, so the files and variables
+// any process they start reads are inputs of Go's test cache.
+func TestMain(m *testing.M) { os.Exit(testinputs.Main(m)) }
 
 // TestREADMESurfaceIsCurrent is the acceptance check: the surface block
 // of docs/spec/README.md holds the count of the parser and the spec at
