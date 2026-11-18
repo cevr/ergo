@@ -124,6 +124,18 @@ func TestLetMutNeverReassigned(t *testing.T) {
 	})
 }
 
+// TestOneMemberRowValue is the smallest repro of SM WEB1's status table: a
+// value of a one-member error row is its record (rows.md, Catch 7), so a
+// named function of the record checks as the equivalent literal does
+// where func(f F) is expected with F the row.
+func TestOneMemberRowValue(t *testing.T) {
+	const decls = "type M { S string }\ntype Site[F] { Status func(f F) int }\n"
+	runD1(t, []d1Case{
+		{"named", decls + "func status(m M) int { len(m.S) }\nfunc f() Site[M] { Site[M]{Status: status} }\n", nil},
+		{"literal", decls + "func f() Site[M] { Site[M]{Status: func(m M) int { len(m.S) }} }\n", nil},
+	})
+}
+
 // D-D1: `let x` with neither a type nor a value is S108; x binds with the
 // invalid type, so its uses add nothing (D3). `let x T` is its zero value.
 func TestUntypedLet(t *testing.T) {
