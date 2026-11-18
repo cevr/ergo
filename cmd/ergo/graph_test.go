@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	lgraph "ergo.local/prototype/internal/linked/graph"
@@ -52,5 +53,55 @@ func TestGraphQueriesReadTheExport(t *testing.T) {
 	want := struct{ From, To, Package, Via, How string }{"m/cmd/m.main", "m/b.T.X", "m/b", "", "read"}
 	if len(hidden) != 1 || hidden[0] != want {
 		t.Fatalf("hidden uses %+v, want only %+v", hidden, want)
+	}
+}
+
+// TestGraphColumnsAreTheJSON runs every query of `ergo graph` over the
+// rows of examples/pipeline twice, as the binary hands them over (columns,
+// RunColumns) and as a rows file is read (JSON, Run), with the same rows
+// as the base for affected: the two outputs are equal. Mutant
+// graph-columns-drop-how (internal/sketch/lower/testdata/mutants.json): a
+// use's how missing from the columns changes hidden's output.
+func TestGraphColumnsAreTheJSON(t *testing.T) {
+	rows, err := graphRows("../../examples/pipeline/...")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	strs, ints := rows.AppendColumns(nil, nil)
+	base, bints := rows.AppendColumns(strs, ints)
+	for _, args := range [][]string{
+		{"cycles", "--json"},
+		{"cycles", "--level", "file", "--json"},
+		{"hidden", "--json"},
+		{"chains", "--json"},
+		{"fan", "--json"},
+		{"layers", "--json"},
+		{"why", "pipeline/run", "slices", "--json"},
+		{"hidden"},
+	} {
+		viaJSON, err := lgraph.Run(context.Background(), args, string(data), "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		viaColumns, err := lgraph.RunColumns(context.Background(), args, strs, ints)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(viaJSON, viaColumns) {
+			t.Errorf("ergo graph %v: columns %q, JSON %q", args, viaColumns, viaJSON)
+		}
+	}
+	args := []string{"affected", "base", "--json"}
+	viaJSON, err := lgraph.Run(context.Background(), args, string(data), string(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	viaColumns, err := lgraph.RunColumns(context.Background(), args, base, bints)
+	if err != nil || !slices.Equal(viaJSON, viaColumns) {
+		t.Errorf("ergo graph affected: columns %q %v, JSON %q", viaColumns, err, viaJSON)
 	}
 }

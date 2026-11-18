@@ -17,7 +17,8 @@ import (
 // a go.mod replace. After an edit of lib.Size the base's rows come from
 // the committed tree, which holds app's module and the module its replace
 // names (baseFolders), and the answer is the edited declaration and its
-// dependents in app. Mutant graph-base-skips-replaces
+// dependents in app; both go to the query as columns, as the binary hands
+// them over. Mutant graph-base-skips-replaces
 // (internal/sketch/lower/testdata/mutants.json): an archive of app's
 // module alone cannot check app at base.
 func TestGraphAffectedReadsTheBaseRevision(t *testing.T) {
@@ -58,15 +59,13 @@ func TestGraphAffectedReadsTheBaseRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := json.Marshal(rows)
-	if err != nil {
-		t.Fatal(err)
-	}
-	old, err := baseRows(app, "HEAD")
-	if err != nil {
+	old, _, err := baseRows(app, "HEAD")
+	if err != nil || old == nil {
 		t.Fatalf("the base's rows: %v", err)
 	}
-	out, err := lgraph.Run(context.Background(), []string{"affected", "HEAD", "--json"}, string(data), string(old))
+	strs, ints := rows.AppendColumns(nil, nil)
+	strs, ints = old.AppendColumns(strs, ints)
+	out, err := lgraph.RunColumns(context.Background(), []string{"affected", "HEAD", "--json"}, strs, ints)
 	if err != nil || len(out) != 3 || out[0] != "0" {
 		t.Fatalf("ergo graph affected HEAD: %v %q", err, out)
 	}

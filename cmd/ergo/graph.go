@@ -96,11 +96,8 @@ func graphCommand(args []string) error {
 	if err != nil {
 		return exitStatusError{code: 1, message: "ergo graph: " + err.Error()}
 	}
-	rows, err := json.Marshal(t)
-	if err != nil {
-		return err
-	}
-	old := ""
+	strs, ints := t.AppendColumns(nil, nil)
+	var old []byte
 	if args[0] == "affected" {
 		base := ""
 		for _, a := range args[1:] {
@@ -112,13 +109,28 @@ func graphCommand(args []string) error {
 		if base == "" {
 			return invalidInvocation(fmt.Errorf("ergo graph affected: supply a base: a git revision or a rows file"))
 		}
-		data, err := baseRows(dir, base)
+		bt, data, err := baseRows(dir, base)
 		if err != nil {
 			return exitStatusError{code: 1, message: "ergo graph affected: " + err.Error()}
 		}
-		old = string(data)
+		if bt != nil {
+			strs, ints = bt.AppendColumns(strs, ints)
+		}
+		old = data
 	}
-	out, err := lgraph.Run(context.Background(), args, string(rows), old)
+	// The rows go over as columns, with no JSON between the checker and
+	// the query (GRAPH-FAST); a base given as a rows file is JSON, so then
+	// both go as JSON.
+	var out []string
+	if old == nil {
+		out, err = lgraph.RunColumns(context.Background(), args, strs, ints)
+	} else {
+		rows, merr := json.Marshal(t)
+		if merr != nil {
+			return merr
+		}
+		out, err = lgraph.Run(context.Background(), args, string(rows), string(old))
+	}
 	if err != nil {
 		return exitStatusError{code: 1, message: "ergo graph: " + err.Error()}
 	}
@@ -204,13 +216,14 @@ func graphRows(dir string) (*graphrows.Table, error) {
 	return sketchfront.GraphOf(as), nil
 }
 
-// baseRows is the rows JSON of the program in dir at base: the file base
-// when one exists, else the git revision base, whose tree (the part under
-// the repository's folder that holds dir) is unpacked into a temporary
+// baseRows is the rows of the program in dir at base: the JSON text of the
+// file base when one exists, else the table of the git revision base,
+// whose tree (the folders baseFolders names) is unpacked into a temporary
 // folder and checked there.
-func baseRows(dir, base string) ([]byte, error) {
+func baseRows(dir, base string) (*graphrows.Table, []byte, error) {
 	if st, err := os.Stat(base); err == nil && !st.IsDir() {
-		return os.ReadFile(base)
+		data, err := os.ReadFile(base)
+		return nil, data, err
 	}
 	recursive := recursivePattern(dir)
 	folder := strings.TrimSuffix(strings.TrimSuffix(dir, "..."), "/")
@@ -219,20 +232,20 @@ func baseRows(dir, base string) ([]byte, error) {
 	}
 	abs, err := filepath.Abs(folder)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	top, err := gitOutput(abs, "rev-parse", "--show-toplevel")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	top = strings.TrimSpace(top)
 	rel, err := filepath.Rel(top, abs)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	tmp, err := os.MkdirTemp("", "ergo-graph-base-")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer os.RemoveAll(tmp)
 	// Only the folders the check reads: dir's module (or dir, when it is in
@@ -244,10 +257,10 @@ func baseRows(dir, base string) ([]byte, error) {
 		tarText, err = gitArchive(top, base, nil)
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := untar(bytes.NewReader(tarText), tmp); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	at := filepath.Join(tmp, rel)
 	if recursive {
@@ -255,9 +268,9 @@ func baseRows(dir, base string) ([]byte, error) {
 	}
 	t, err := graphRows(at)
 	if err != nil {
-		return nil, fmt.Errorf("the program at %s: %w", base, err)
+		return nil, nil, fmt.Errorf("the program at %s: %w", base, err)
 	}
-	return json.Marshal(t)
+	return t, nil, nil
 }
 
 // gitArchive is the tar of base's tree, limited to the folders paths

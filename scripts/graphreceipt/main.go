@@ -44,7 +44,7 @@ type rows struct {
 }
 
 func main() {
-	mode := flag.String("mode", "ergo", "ergo, go or decode")
+	mode := flag.String("mode", "ergo", "ergo, columns, go or decode")
 	query := flag.String("query", "hidden", "hidden or filecycles")
 	flag.Parse()
 	data, err := os.ReadFile(flag.Arg(0))
@@ -55,11 +55,24 @@ func main() {
 	var out string
 	switch *mode {
 	case "ergo":
-		args := []string{"hidden", "--json"}
-		if *query == "filecycles" {
-			args = []string{"cycles", "--level", "file", "--json"}
+		res, err := lgraph.Run(context.Background(), queryArgs(*query), string(data), "")
+		if err != nil || res[0] != "0" {
+			fmt.Fprintln(os.Stderr, err, res)
+			os.Exit(1)
 		}
-		res, err := lgraph.Run(context.Background(), args, string(data), "")
+		out = res[1]
+	case "columns":
+		// As the ergo binary runs a query since GRAPH-FAST: the rows go
+		// over as columns, not JSON. They are decoded here as the decode
+		// mode does (the floor's read) and laid out as AppendColumns does,
+		// so columns minus decode is the handover and the Ergo query.
+		var r rows
+		if err := json.Unmarshal(data, &r); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		strs, ints := columns(&r)
+		res, err := lgraph.RunColumns(context.Background(), queryArgs(*query), strs, ints)
 		if err != nil || res[0] != "0" {
 			fmt.Fprintln(os.Stderr, err, res)
 			os.Exit(1)
@@ -88,6 +101,31 @@ func main() {
 		out = string(b) + "\n"
 	}
 	fmt.Println(len(out))
+}
+
+func queryArgs(query string) []string {
+	if query == "filecycles" {
+		return []string{"cycles", "--level", "file", "--json"}
+	}
+	return []string{"hidden", "--json"}
+}
+
+// columns is the rows in RunColumns' layout (graphrows.Table.AppendColumns);
+// the digest and a task's subject, which these queries do not read, are
+// left out (empty, -1), so the decode stays the control's.
+func columns(r *rows) ([]string, []int) {
+	ints := make([]int, 0, 2+2*len(r.Nodes)+2*len(r.Edges))
+	strs := make([]string, 0, 4*len(r.Nodes)+2*len(r.Edges))
+	ints = append(ints, len(r.Nodes), len(r.Edges))
+	for _, n := range r.Nodes {
+		ints = append(ints, n.Parent, -1)
+		strs = append(strs, n.Kind, n.Sub, n.Name, "")
+	}
+	for _, e := range r.Edges {
+		ints = append(ints, e.From, e.To)
+		strs = append(strs, e.Kind, e.How)
+	}
+	return strs, ints
 }
 
 // up is, by node, its package and its file (-1 for none), each walked once.

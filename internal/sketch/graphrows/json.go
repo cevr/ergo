@@ -89,6 +89,31 @@ func (t *Table) MarshalJSON() ([]byte, error) {
 	return json.Marshal(out)
 }
 
+// AppendColumns appends the rows to strs and ints in the column form the
+// linked `ergo graph` reads with no JSON (internal/linked/graph,
+// RunColumns): to ints the node and edge counts, each node's parent and
+// subject (-1 for none), each edge's from and to; to strs each node's
+// kind, sub-kind, name and digest, each edge's kind and how. Edges are in
+// the canonical order, as MarshalJSON writes them; positions are left out.
+func (t *Table) AppendColumns(strs []string, ints []int) ([]string, []int) {
+	order := t.Sorted()
+	ints = append(ints, len(t.Nodes), len(order))
+	for _, n := range t.Nodes {
+		ints = append(ints, int(id(n.Parent)), int(id(n.Subject)))
+		strs = append(strs, n.Kind.String(), t.SubName(n), t.Str(n.Name), t.Str(n.Digest))
+	}
+	for _, i := range order {
+		e := t.Edges[i]
+		ints = append(ints, int(e.From), int(e.To))
+		how := ""
+		if e.Kind == Uses {
+			how = e.How.String()
+		}
+		strs = append(strs, e.Kind.String(), how)
+	}
+	return strs, ints
+}
+
 // Text is a line per node and per edge, the edges in canonical order,
 // for a reader: `n<ID> <kind>[/<sub>] <name> [in n<parent>]` and
 // `<kind>[/<how>] n<from> -> n<to> [file:line:column]`.
