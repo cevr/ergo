@@ -454,6 +454,7 @@ On SIMD and unsafe, owner, 2026-11-02 (voice-transcribed; "interrupt" means "int
 NORTH_STAR.md recorded this decision as an owner rule too:
 
 - SIMD is usable through a std `simd` module over Go's portable `simd` package (`GOEXPERIMENT=simd`, Go 1.27), lowered to a scalar loop without the experiment, with the toolchain recorded in every receipt. `unsafe` stays at the FFI edge (`import go` packages, cgo or purego), and Ergo gets no `unsafe` block (owner, 2026-11-02: "it's probably all right to leave unsafe at the edge with that FFI layer"; [#190](https://github.com/cevr/ergo/issues/190)).
+- **2026-11-18 (orchestrator ruling, wf10 U1 SIMD-SCAN).** A std module may use `simd/archsimd` in place of the portable `simd` package, and this is inside the intent of the rule above. Reason (measured, research LEVERS answer 3): in go1.27.4 the portable package's emulation is defective (`LoadInt64sPart` in `src/simd/simd_emulated.go:1084-1092` returns `len(s)` after it reads two lanes), so its fallback cannot be its own oracle (S-simd blocked note, 2026-11-10). Conditions: the scalar or SWAR body written in Ergo is the reference, and a law states that the vector body equals it; the vector body is Go in a file constrained to `goexperiment.simd && (amd64 || arm64)`, bound through `import go` as a user binds any Go library (std gets no privilege); no vector type appears in an Ergo signature; a plain `go build` with no experiment gets the reference body (STOCK GO STAYS CORRECT).
 
 ## Exports follow Go's capitalisation, 2026-10-27
 
