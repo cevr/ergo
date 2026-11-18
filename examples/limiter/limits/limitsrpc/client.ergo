@@ -3,6 +3,7 @@
 
 import rpc
 import limiter/limits
+import limiter/limits/limitsapi
 
 // Client is limits.Limiter over the wire: each operation is one call to the
 // server its Conn names. <Op>Checked fails the wire's failures as typed
@@ -18,7 +19,7 @@ func NewClient(conn rpc.Conn) Client { Client{conn: conn} }
 // TakeChecked calls limits.Limiter's Take on the server; the wire's failures are
 // typed failures.
 func TakeChecked(client Client, key string, cost int) limits.Grant fails limits.Limited | limits.UnknownBucket | limits.BadCost | rpc.Unrepresentable | rpc.Transport {
-	let p = TakeRequest{Key: key, Cost: cost}
+	let p = limitsapi.TakeRequest{Key: key, Cost: cost}
 	try exactTakeRequest(p)
 	let text = try rpc.Call(client.conn, "Take", rpc.Encode(p)) catch {
 	case rpc.Failed as f:
@@ -57,7 +58,7 @@ func Take(client Client, key string, cost int) limits.Grant fails limits.Limited
 // HoldChecked calls limits.Limiter's Hold on the server; the wire's failures are
 // typed failures.
 func HoldChecked(client Client, key string, cost int) limits.Grant fails limits.UnknownBucket | limits.BadCost | rpc.Unrepresentable | rpc.Transport {
-	let p = HoldRequest{Key: key, Cost: cost}
+	let p = limitsapi.HoldRequest{Key: key, Cost: cost}
 	try exactHoldRequest(p)
 	let text = try rpc.Call(client.conn, "Hold", rpc.Encode(p)) catch {
 	case rpc.Failed as f:
@@ -92,7 +93,7 @@ func Hold(client Client, key string, cost int) limits.Grant fails limits.Unknown
 // PeekChecked calls limits.Limiter's Peek on the server; the wire's failures are
 // typed failures.
 func PeekChecked(client Client, key string) Option[limits.Level] fails rpc.Unrepresentable | rpc.Transport {
-	let p = PeekRequest{Key: key}
+	let p = limitsapi.PeekRequest{Key: key}
 	let text = try rpc.Call(client.conn, "Peek", rpc.Encode(p)) catch {
 	case rpc.Failed as f:
 		return rpc.Transport{Reason: "Peek failed with a failure the contract does not name: \(f.Text)"}
@@ -116,7 +117,7 @@ func Peek(client Client, key string) Option[limits.Level] {
 // AdvanceChecked calls limits.Limiter's Advance on the server; the wire's failures are
 // typed failures.
 func AdvanceChecked(client Client, ms int) fails rpc.Unrepresentable | rpc.Transport {
-	let p = AdvanceRequest{Ms: ms}
+	let p = limitsapi.AdvanceRequest{Ms: ms}
 	try exactAdvanceRequest(p)
 	let _ = try rpc.Call(client.conn, "Advance", rpc.Encode(p)) catch {
 	case rpc.Failed as f:
@@ -138,7 +139,7 @@ func Advance(client Client, ms int) {
 // BucketsChecked calls limits.Limiter's Buckets on the server; the wire's failures are
 // typed failures.
 func BucketsChecked(client Client) []string fails rpc.Transport {
-	let p = BucketsRequest
+	let p = limitsapi.BucketsRequest
 	let text = try rpc.Call(client.conn, "Buckets", rpc.Encode(p)) catch {
 	case rpc.Failed as f:
 		return rpc.Transport{Reason: "Buckets failed with a failure the contract does not name: \(f.Text)"}

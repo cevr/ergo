@@ -4467,1313 +4467,10 @@ type MachineView struct {
 	Complete  bool
 }
 
-func ergoEncodeSummary(env *Env, w Writer_1, v Summary) {
-	w.BeginObject(env.task, 6)
-	w.Key(env.task, "revision")
-	w.String(env.task, string(v.Revision))
-	w.Key(env.task, "packages")
-	ergoEncodeSlice_27(env, w, v.Packages)
-	w.Key(env.task, "complete")
-	w.Bool(env.task, bool(v.Complete))
-	w.Key(env.task, "diagnostics")
-	w.Int(env.task, int64(v.Diagnostics))
-	w.Key(env.task, "symbols")
-	w.Int(env.task, int64(v.Symbols))
-	w.Key(env.task, "sites")
-	w.Int(env.task, int64(v.Sites))
-	w.EndObject(env.task)
-}
-
-func ergoDecodeSummary(env *Env, r Reader_2) (Summary, error) {
-	if err := r.BeginObject(env.task); err != nil {
-		return *new(Summary), err
-	}
-	var out Summary
-	var seen, seen_1, seen_2, seen_3, seen_4, seen_5 bool
-	for r.More(env.task) {
-		switch r.Key(env.task) {
-		case "revision":
-			raw_1, err_1 := r.String(env.task)
-			if err_1 != nil {
-				return *new(Summary), err_1
-			}
-			f := string(raw_1)
-			out.Revision = f
-			seen = true
-		case "packages":
-			f_1, err_2 := ergoDecodeSlice_27(env, r)
-			if err_2 != nil {
-				return *new(Summary), err_2
-			}
-			out.Packages = f_1
-			seen_1 = true
-		case "complete":
-			raw_2, err_3 := r.Bool(env.task)
-			if err_3 != nil {
-				return *new(Summary), err_3
-			}
-			f_2 := bool(raw_2)
-			out.Complete = f_2
-			seen_2 = true
-		case "diagnostics":
-			raw_3, err_4 := r.Int(env.task)
-			if err_4 != nil {
-				return *new(Summary), err_4
-			}
-			f_3 := int(raw_3)
-			out.Diagnostics = f_3
-			seen_3 = true
-		case "symbols":
-			raw_4, err_5 := r.Int(env.task)
-			if err_5 != nil {
-				return *new(Summary), err_5
-			}
-			f_4 := int(raw_4)
-			out.Symbols = f_4
-			seen_4 = true
-		case "sites":
-			raw_5, err_6 := r.Int(env.task)
-			if err_6 != nil {
-				return *new(Summary), err_6
-			}
-			f_5 := int(raw_5)
-			out.Sites = f_5
-			seen_5 = true
-		default:
-			r.Skip(env.task)
-		}
-	}
-	r.End(env.task)
-	if !seen {
-		return *new(Summary), WireMissingField{Path: r.Path(env.task), Field: "revision"}
-	}
-	if !seen_1 {
-		return *new(Summary), WireMissingField{Path: r.Path(env.task), Field: "packages"}
-	}
-	if !seen_2 {
-		return *new(Summary), WireMissingField{Path: r.Path(env.task), Field: "complete"}
-	}
-	if !seen_3 {
-		return *new(Summary), WireMissingField{Path: r.Path(env.task), Field: "diagnostics"}
-	}
-	if !seen_4 {
-		return *new(Summary), WireMissingField{Path: r.Path(env.task), Field: "symbols"}
-	}
-	if !seen_5 {
-		return *new(Summary), WireMissingField{Path: r.Path(env.task), Field: "sites"}
-	}
-	return out, nil
-}
-
-func ergoWriteSummary(env *Env, wv text_1, v Summary) text_1 {
-	w := &wv
-	(w).sep()
-	(w).raw(string("{"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).plainBody(string("revision"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).stringBody(string(v.Revision))
-	(w).setComma(bool(true))
-	(w).sep()
-	(w).plainBody(string("packages"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_27(env, *w, v.Packages)
-	(w).sep()
-	(w).plainBody(string("complete"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).boolBody(bool(v.Complete))
-	(w).setComma(bool(true))
-	(w).sep()
-	(w).plainBody(string("diagnostics"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).intBody(int64(v.Diagnostics))
-	(w).setComma(bool(true))
-	(w).sep()
-	(w).plainBody(string("symbols"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).intBody(int64(v.Symbols))
-	(w).setComma(bool(true))
-	(w).sep()
-	(w).plainBody(string("sites"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).intBody(int64(v.Sites))
-	(w).setComma(bool(true))
-	(w).raw(string("}"))
-	(w).setComma(bool(true))
-	return wv
-}
-
-func ergoEncodeSymbolPage(env *Env, w Writer_1, v SymbolPage) {
-	w.BeginObject(env.task, 4)
-	w.Key(env.task, "revision")
-	w.String(env.task, string(v.Revision))
-	w.Key(env.task, "decls")
-	ergoEncodeSlice_8(env, w, v.Decls)
-	w.Key(env.task, "total")
-	w.Int(env.task, int64(v.Total))
-	w.Key(env.task, "next")
-	w.Int(env.task, int64(v.Next))
-	w.EndObject(env.task)
-}
-
-func ergoDecodeSymbolPage(env *Env, r Reader_2) (SymbolPage, error) {
-	if err := r.BeginObject(env.task); err != nil {
-		return *new(SymbolPage), err
-	}
-	var out SymbolPage
-	var seen, seen_1, seen_2, seen_3 bool
-	for r.More(env.task) {
-		switch r.Key(env.task) {
-		case "revision":
-			raw_1, err_1 := r.String(env.task)
-			if err_1 != nil {
-				return *new(SymbolPage), err_1
-			}
-			f := string(raw_1)
-			out.Revision = f
-			seen = true
-		case "decls":
-			f_1, err_2 := ergoDecodeSlice_8(env, r)
-			if err_2 != nil {
-				return *new(SymbolPage), err_2
-			}
-			out.Decls = f_1
-			seen_1 = true
-		case "total":
-			raw_2, err_3 := r.Int(env.task)
-			if err_3 != nil {
-				return *new(SymbolPage), err_3
-			}
-			f_2 := int(raw_2)
-			out.Total = f_2
-			seen_2 = true
-		case "next":
-			raw_3, err_4 := r.Int(env.task)
-			if err_4 != nil {
-				return *new(SymbolPage), err_4
-			}
-			f_3 := int(raw_3)
-			out.Next = f_3
-			seen_3 = true
-		default:
-			r.Skip(env.task)
-		}
-	}
-	r.End(env.task)
-	if !seen {
-		return *new(SymbolPage), WireMissingField{Path: r.Path(env.task), Field: "revision"}
-	}
-	if !seen_1 {
-		return *new(SymbolPage), WireMissingField{Path: r.Path(env.task), Field: "decls"}
-	}
-	if !seen_2 {
-		return *new(SymbolPage), WireMissingField{Path: r.Path(env.task), Field: "total"}
-	}
-	if !seen_3 {
-		return *new(SymbolPage), WireMissingField{Path: r.Path(env.task), Field: "next"}
-	}
-	return out, nil
-}
-
-func ergoWriteSymbolPage(env *Env, wv text_1, v SymbolPage) text_1 {
-	w := &wv
-	(w).sep()
-	(w).raw(string("{"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).plainBody(string("revision"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).stringBody(string(v.Revision))
-	(w).setComma(bool(true))
-	(w).sep()
-	(w).plainBody(string("decls"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_8(env, *w, v.Decls)
-	(w).sep()
-	(w).plainBody(string("total"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).intBody(int64(v.Total))
-	(w).setComma(bool(true))
-	(w).sep()
-	(w).plainBody(string("next"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).intBody(int64(v.Next))
-	(w).setComma(bool(true))
-	(w).raw(string("}"))
-	(w).setComma(bool(true))
-	return wv
-}
-
-func ergoEncodeSitePage(env *Env, w Writer_1, v SitePage) {
-	w.BeginObject(env.task, 5)
-	w.Key(env.task, "revision")
-	w.String(env.task, string(v.Revision))
-	w.Key(env.task, "complete")
-	w.Bool(env.task, bool(v.Complete))
-	w.Key(env.task, "sites")
-	ergoEncodeSlice_18(env, w, v.Sites)
-	w.Key(env.task, "total")
-	w.Int(env.task, int64(v.Total))
-	w.Key(env.task, "next")
-	w.Int(env.task, int64(v.Next))
-	w.EndObject(env.task)
-}
-
-func ergoDecodeSitePage(env *Env, r Reader_2) (SitePage, error) {
-	if err := r.BeginObject(env.task); err != nil {
-		return *new(SitePage), err
-	}
-	var out SitePage
-	var seen, seen_1, seen_2, seen_3, seen_4 bool
-	for r.More(env.task) {
-		switch r.Key(env.task) {
-		case "revision":
-			raw_1, err_1 := r.String(env.task)
-			if err_1 != nil {
-				return *new(SitePage), err_1
-			}
-			f := string(raw_1)
-			out.Revision = f
-			seen = true
-		case "complete":
-			raw_2, err_2 := r.Bool(env.task)
-			if err_2 != nil {
-				return *new(SitePage), err_2
-			}
-			f_1 := bool(raw_2)
-			out.Complete = f_1
-			seen_1 = true
-		case "sites":
-			f_2, err_3 := ergoDecodeSlice_18(env, r)
-			if err_3 != nil {
-				return *new(SitePage), err_3
-			}
-			out.Sites = f_2
-			seen_2 = true
-		case "total":
-			raw_3, err_4 := r.Int(env.task)
-			if err_4 != nil {
-				return *new(SitePage), err_4
-			}
-			f_3 := int(raw_3)
-			out.Total = f_3
-			seen_3 = true
-		case "next":
-			raw_4, err_5 := r.Int(env.task)
-			if err_5 != nil {
-				return *new(SitePage), err_5
-			}
-			f_4 := int(raw_4)
-			out.Next = f_4
-			seen_4 = true
-		default:
-			r.Skip(env.task)
-		}
-	}
-	r.End(env.task)
-	if !seen {
-		return *new(SitePage), WireMissingField{Path: r.Path(env.task), Field: "revision"}
-	}
-	if !seen_1 {
-		return *new(SitePage), WireMissingField{Path: r.Path(env.task), Field: "complete"}
-	}
-	if !seen_2 {
-		return *new(SitePage), WireMissingField{Path: r.Path(env.task), Field: "sites"}
-	}
-	if !seen_3 {
-		return *new(SitePage), WireMissingField{Path: r.Path(env.task), Field: "total"}
-	}
-	if !seen_4 {
-		return *new(SitePage), WireMissingField{Path: r.Path(env.task), Field: "next"}
-	}
-	return out, nil
-}
-
-func ergoWriteSitePage(env *Env, wv text_1, v SitePage) text_1 {
-	w := &wv
-	(w).sep()
-	(w).raw(string("{"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).plainBody(string("revision"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).stringBody(string(v.Revision))
-	(w).setComma(bool(true))
-	(w).sep()
-	(w).plainBody(string("complete"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).boolBody(bool(v.Complete))
-	(w).setComma(bool(true))
-	(w).sep()
-	(w).plainBody(string("sites"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_18(env, *w, v.Sites)
-	(w).sep()
-	(w).plainBody(string("total"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).intBody(int64(v.Total))
-	(w).setComma(bool(true))
-	(w).sep()
-	(w).plainBody(string("next"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).intBody(int64(v.Next))
-	(w).setComma(bool(true))
-	(w).raw(string("}"))
-	(w).setComma(bool(true))
-	return wv
-}
-
-func ergoEncodeHop(env *Env, w Writer_1, v Hop) {
-	w.BeginObject(env.task, 2)
-	w.Key(env.task, "depth")
-	w.Int(env.task, int64(v.Depth))
-	w.Key(env.task, "call")
-	ergoEncodeCall(env, w, v.Call)
-	w.EndObject(env.task)
-}
-
-func ergoEncodeSlice_10(env *Env, w Writer_1, v []Hop) {
-	w.BeginList(env.task, len(v))
-	for _, e := range v {
-		ergoEncodeHop(env, w, e)
-	}
-	w.EndList(env.task)
-}
-
-func ergoEncodeCallPage(env *Env, w Writer_1, v CallPage) {
-	w.BeginObject(env.task, 5)
-	w.Key(env.task, "revision")
-	w.String(env.task, string(v.Revision))
-	w.Key(env.task, "complete")
-	w.Bool(env.task, bool(v.Complete))
-	w.Key(env.task, "hops")
-	ergoEncodeSlice_10(env, w, v.Hops)
-	w.Key(env.task, "total")
-	w.Int(env.task, int64(v.Total))
-	w.Key(env.task, "next")
-	w.Int(env.task, int64(v.Next))
-	w.EndObject(env.task)
-}
-
-func ergoDecodeHop(env *Env, r Reader_2) (Hop, error) {
-	if err := r.BeginObject(env.task); err != nil {
-		return *new(Hop), err
-	}
-	var out Hop
-	var seen, seen_1 bool
-	for r.More(env.task) {
-		switch r.Key(env.task) {
-		case "depth":
-			raw_1, err_1 := r.Int(env.task)
-			if err_1 != nil {
-				return *new(Hop), err_1
-			}
-			f := int(raw_1)
-			out.Depth = f
-			seen = true
-		case "call":
-			f_1, err_2 := ergoDecodeCall(env, r)
-			if err_2 != nil {
-				return *new(Hop), err_2
-			}
-			out.Call = f_1
-			seen_1 = true
-		default:
-			r.Skip(env.task)
-		}
-	}
-	r.End(env.task)
-	if !seen {
-		return *new(Hop), WireMissingField{Path: r.Path(env.task), Field: "depth"}
-	}
-	if !seen_1 {
-		return *new(Hop), WireMissingField{Path: r.Path(env.task), Field: "call"}
-	}
-	return out, nil
-}
-
-func ergoDecodeSlice_10(env *Env, r Reader_2) ([]Hop, error) {
-	if err := r.BeginList(env.task); err != nil {
-		return *new([]Hop), err
-	}
-	out := []Hop{}
-	for r.More(env.task) {
-		e, err_1 := ergoDecodeHop(env, r)
-		if err_1 != nil {
-			return *new([]Hop), err_1
-		}
-		out = append(out, e)
-	}
-	r.End(env.task)
-	return out, nil
-}
-
-func ergoDecodeCallPage(env *Env, r Reader_2) (CallPage, error) {
-	if err := r.BeginObject(env.task); err != nil {
-		return *new(CallPage), err
-	}
-	var out CallPage
-	var seen, seen_1, seen_2, seen_3, seen_4 bool
-	for r.More(env.task) {
-		switch r.Key(env.task) {
-		case "revision":
-			raw_1, err_1 := r.String(env.task)
-			if err_1 != nil {
-				return *new(CallPage), err_1
-			}
-			f := string(raw_1)
-			out.Revision = f
-			seen = true
-		case "complete":
-			raw_2, err_2 := r.Bool(env.task)
-			if err_2 != nil {
-				return *new(CallPage), err_2
-			}
-			f_1 := bool(raw_2)
-			out.Complete = f_1
-			seen_1 = true
-		case "hops":
-			f_2, err_3 := ergoDecodeSlice_10(env, r)
-			if err_3 != nil {
-				return *new(CallPage), err_3
-			}
-			out.Hops = f_2
-			seen_2 = true
-		case "total":
-			raw_3, err_4 := r.Int(env.task)
-			if err_4 != nil {
-				return *new(CallPage), err_4
-			}
-			f_3 := int(raw_3)
-			out.Total = f_3
-			seen_3 = true
-		case "next":
-			raw_4, err_5 := r.Int(env.task)
-			if err_5 != nil {
-				return *new(CallPage), err_5
-			}
-			f_4 := int(raw_4)
-			out.Next = f_4
-			seen_4 = true
-		default:
-			r.Skip(env.task)
-		}
-	}
-	r.End(env.task)
-	if !seen {
-		return *new(CallPage), WireMissingField{Path: r.Path(env.task), Field: "revision"}
-	}
-	if !seen_1 {
-		return *new(CallPage), WireMissingField{Path: r.Path(env.task), Field: "complete"}
-	}
-	if !seen_2 {
-		return *new(CallPage), WireMissingField{Path: r.Path(env.task), Field: "hops"}
-	}
-	if !seen_3 {
-		return *new(CallPage), WireMissingField{Path: r.Path(env.task), Field: "total"}
-	}
-	if !seen_4 {
-		return *new(CallPage), WireMissingField{Path: r.Path(env.task), Field: "next"}
-	}
-	return out, nil
-}
-
-func ergoWriteHop(env *Env, wv text_1, v Hop) text_1 {
-	w := &wv
-	(w).sep()
-	(w).raw(string("{"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).plainBody(string("depth"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).intBody(int64(v.Depth))
-	(w).setComma(bool(true))
-	(w).sep()
-	(w).plainBody(string("call"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteCall(env, *w, v.Call)
-	(w).raw(string("}"))
-	(w).setComma(bool(true))
-	return wv
-}
-
-func ergoWriteSlice_10(env *Env, wv text_1, v []Hop) text_1 {
-	w := &wv
-	(w).sep()
-	(w).raw(string("["))
-	(w).setComma(bool(false))
-	_ = len(v)
-	for _, e := range v {
-		*w = ergoWriteHop(env, *w, e)
-	}
-	(w).raw(string("]"))
-	(w).setComma(bool(true))
-	return wv
-}
-
-func ergoWriteCallPage(env *Env, wv text_1, v CallPage) text_1 {
-	w := &wv
-	(w).sep()
-	(w).raw(string("{"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).plainBody(string("revision"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).stringBody(string(v.Revision))
-	(w).setComma(bool(true))
-	(w).sep()
-	(w).plainBody(string("complete"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).boolBody(bool(v.Complete))
-	(w).setComma(bool(true))
-	(w).sep()
-	(w).plainBody(string("hops"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_10(env, *w, v.Hops)
-	(w).sep()
-	(w).plainBody(string("total"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).intBody(int64(v.Total))
-	(w).setComma(bool(true))
-	(w).sep()
-	(w).plainBody(string("next"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).intBody(int64(v.Next))
-	(w).setComma(bool(true))
-	(w).raw(string("}"))
-	(w).setComma(bool(true))
-	return wv
-}
-
-func ergoEncodeApiView(env *Env, w Writer_1, v ApiView) {
-	w.BeginObject(env.task, 3)
-	w.Key(env.task, "revision")
-	w.String(env.task, string(v.Revision))
-	w.Key(env.task, "package")
-	w.String(env.task, string(v.Package))
-	w.Key(env.task, "functions")
-	ergoEncodeSlice_6(env, w, v.Functions)
-	w.EndObject(env.task)
-}
-
-func ergoDecodeApiView(env *Env, r Reader_2) (ApiView, error) {
-	if err := r.BeginObject(env.task); err != nil {
-		return *new(ApiView), err
-	}
-	var out ApiView
-	var seen, seen_1, seen_2 bool
-	for r.More(env.task) {
-		switch r.Key(env.task) {
-		case "revision":
-			raw_1, err_1 := r.String(env.task)
-			if err_1 != nil {
-				return *new(ApiView), err_1
-			}
-			f := string(raw_1)
-			out.Revision = f
-			seen = true
-		case "package":
-			raw_2, err_2 := r.String(env.task)
-			if err_2 != nil {
-				return *new(ApiView), err_2
-			}
-			f_1 := string(raw_2)
-			out.Package = f_1
-			seen_1 = true
-		case "functions":
-			f_2, err_3 := ergoDecodeSlice_6(env, r)
-			if err_3 != nil {
-				return *new(ApiView), err_3
-			}
-			out.Functions = f_2
-			seen_2 = true
-		default:
-			r.Skip(env.task)
-		}
-	}
-	r.End(env.task)
-	if !seen {
-		return *new(ApiView), WireMissingField{Path: r.Path(env.task), Field: "revision"}
-	}
-	if !seen_1 {
-		return *new(ApiView), WireMissingField{Path: r.Path(env.task), Field: "package"}
-	}
-	if !seen_2 {
-		return *new(ApiView), WireMissingField{Path: r.Path(env.task), Field: "functions"}
-	}
-	return out, nil
-}
-
-func ergoWriteApiView(env *Env, wv text_1, v ApiView) text_1 {
-	w := &wv
-	(w).sep()
-	(w).raw(string("{"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).plainBody(string("revision"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).stringBody(string(v.Revision))
-	(w).setComma(bool(true))
-	(w).sep()
-	(w).plainBody(string("package"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).stringBody(string(v.Package))
-	(w).setComma(bool(true))
-	(w).sep()
-	(w).plainBody(string("functions"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_6(env, *w, v.Functions)
-	(w).raw(string("}"))
-	(w).setComma(bool(true))
-	return wv
-}
-
-func ergoEncodeReached(env *Env, w Writer_1, v Reached) {
-	w.BeginObject(env.task, 2)
-	w.Key(env.task, "function")
-	w.String(env.task, string(v.Function))
-	w.Key(env.task, "chain")
-	ergoEncodeSlice_5(env, w, v.Chain)
-	w.EndObject(env.task)
-}
-
-func ergoEncodeSlice_17(env *Env, w Writer_1, v []Reached) {
-	w.BeginList(env.task, len(v))
-	for _, e := range v {
-		ergoEncodeReached(env, w, e)
-	}
-	w.EndList(env.task)
-}
-
-func ergoEncodeReachPage(env *Env, w Writer_1, v ReachPage) {
-	w.BeginObject(env.task, 8)
-	w.Key(env.task, "revision")
-	w.String(env.task, string(v.Revision))
-	w.Key(env.task, "complete")
-	w.Bool(env.task, bool(v.Complete))
-	w.Key(env.task, "of")
-	w.String(env.task, string(v.Of))
-	w.Key(env.task, "kind")
-	w.String(env.task, string(v.Kind))
-	w.Key(env.task, "reached")
-	ergoEncodeSlice_17(env, w, v.Reached)
-	w.Key(env.task, "discharges")
-	ergoEncodeSlice_5(env, w, v.Discharges)
-	w.Key(env.task, "total")
-	w.Int(env.task, int64(v.Total))
-	w.Key(env.task, "next")
-	w.Int(env.task, int64(v.Next))
-	w.EndObject(env.task)
-}
-
-func ergoDecodeReached(env *Env, r Reader_2) (Reached, error) {
-	if err := r.BeginObject(env.task); err != nil {
-		return *new(Reached), err
-	}
-	var out Reached
-	var seen, seen_1 bool
-	for r.More(env.task) {
-		switch r.Key(env.task) {
-		case "function":
-			raw_1, err_1 := r.String(env.task)
-			if err_1 != nil {
-				return *new(Reached), err_1
-			}
-			f := string(raw_1)
-			out.Function = f
-			seen = true
-		case "chain":
-			f_1, err_2 := ergoDecodeSlice_5(env, r)
-			if err_2 != nil {
-				return *new(Reached), err_2
-			}
-			out.Chain = f_1
-			seen_1 = true
-		default:
-			r.Skip(env.task)
-		}
-	}
-	r.End(env.task)
-	if !seen {
-		return *new(Reached), WireMissingField{Path: r.Path(env.task), Field: "function"}
-	}
-	if !seen_1 {
-		return *new(Reached), WireMissingField{Path: r.Path(env.task), Field: "chain"}
-	}
-	return out, nil
-}
-
-func ergoDecodeSlice_17(env *Env, r Reader_2) ([]Reached, error) {
-	if err := r.BeginList(env.task); err != nil {
-		return *new([]Reached), err
-	}
-	out := []Reached{}
-	for r.More(env.task) {
-		e, err_1 := ergoDecodeReached(env, r)
-		if err_1 != nil {
-			return *new([]Reached), err_1
-		}
-		out = append(out, e)
-	}
-	r.End(env.task)
-	return out, nil
-}
-
-func ergoDecodeReachPage(env *Env, r Reader_2) (ReachPage, error) {
-	if err := r.BeginObject(env.task); err != nil {
-		return *new(ReachPage), err
-	}
-	var out ReachPage
-	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7 bool
-	for r.More(env.task) {
-		switch r.Key(env.task) {
-		case "revision":
-			raw_1, err_1 := r.String(env.task)
-			if err_1 != nil {
-				return *new(ReachPage), err_1
-			}
-			f := string(raw_1)
-			out.Revision = f
-			seen = true
-		case "complete":
-			raw_2, err_2 := r.Bool(env.task)
-			if err_2 != nil {
-				return *new(ReachPage), err_2
-			}
-			f_1 := bool(raw_2)
-			out.Complete = f_1
-			seen_1 = true
-		case "of":
-			raw_3, err_3 := r.String(env.task)
-			if err_3 != nil {
-				return *new(ReachPage), err_3
-			}
-			f_2 := string(raw_3)
-			out.Of = f_2
-			seen_2 = true
-		case "kind":
-			raw_4, err_4 := r.String(env.task)
-			if err_4 != nil {
-				return *new(ReachPage), err_4
-			}
-			f_3 := string(raw_4)
-			out.Kind = f_3
-			seen_3 = true
-		case "reached":
-			f_4, err_5 := ergoDecodeSlice_17(env, r)
-			if err_5 != nil {
-				return *new(ReachPage), err_5
-			}
-			out.Reached = f_4
-			seen_4 = true
-		case "discharges":
-			f_5, err_6 := ergoDecodeSlice_5(env, r)
-			if err_6 != nil {
-				return *new(ReachPage), err_6
-			}
-			out.Discharges = f_5
-			seen_5 = true
-		case "total":
-			raw_5, err_7 := r.Int(env.task)
-			if err_7 != nil {
-				return *new(ReachPage), err_7
-			}
-			f_6 := int(raw_5)
-			out.Total = f_6
-			seen_6 = true
-		case "next":
-			raw_6, err_8 := r.Int(env.task)
-			if err_8 != nil {
-				return *new(ReachPage), err_8
-			}
-			f_7 := int(raw_6)
-			out.Next = f_7
-			seen_7 = true
-		default:
-			r.Skip(env.task)
-		}
-	}
-	r.End(env.task)
-	if !seen {
-		return *new(ReachPage), WireMissingField{Path: r.Path(env.task), Field: "revision"}
-	}
-	if !seen_1 {
-		return *new(ReachPage), WireMissingField{Path: r.Path(env.task), Field: "complete"}
-	}
-	if !seen_2 {
-		return *new(ReachPage), WireMissingField{Path: r.Path(env.task), Field: "of"}
-	}
-	if !seen_3 {
-		return *new(ReachPage), WireMissingField{Path: r.Path(env.task), Field: "kind"}
-	}
-	if !seen_4 {
-		return *new(ReachPage), WireMissingField{Path: r.Path(env.task), Field: "reached"}
-	}
-	if !seen_5 {
-		return *new(ReachPage), WireMissingField{Path: r.Path(env.task), Field: "discharges"}
-	}
-	if !seen_6 {
-		return *new(ReachPage), WireMissingField{Path: r.Path(env.task), Field: "total"}
-	}
-	if !seen_7 {
-		return *new(ReachPage), WireMissingField{Path: r.Path(env.task), Field: "next"}
-	}
-	return out, nil
-}
-
-func ergoWriteReached(env *Env, wv text_1, v Reached) text_1 {
-	w := &wv
-	(w).sep()
-	(w).raw(string("{"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).plainBody(string("function"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).stringBody(string(v.Function))
-	(w).setComma(bool(true))
-	(w).sep()
-	(w).plainBody(string("chain"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_5(env, *w, v.Chain)
-	(w).raw(string("}"))
-	(w).setComma(bool(true))
-	return wv
-}
-
-func ergoWriteSlice_17(env *Env, wv text_1, v []Reached) text_1 {
-	w := &wv
-	(w).sep()
-	(w).raw(string("["))
-	(w).setComma(bool(false))
-	_ = len(v)
-	for _, e := range v {
-		*w = ergoWriteReached(env, *w, e)
-	}
-	(w).raw(string("]"))
-	(w).setComma(bool(true))
-	return wv
-}
-
-func ergoWriteReachPage(env *Env, wv text_1, v ReachPage) text_1 {
-	w := &wv
-	(w).sep()
-	(w).raw(string("{"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).plainBody(string("revision"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).stringBody(string(v.Revision))
-	(w).setComma(bool(true))
-	(w).sep()
-	(w).plainBody(string("complete"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).boolBody(bool(v.Complete))
-	(w).setComma(bool(true))
-	(w).sep()
-	(w).plainBody(string("of"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).stringBody(string(v.Of))
-	(w).setComma(bool(true))
-	(w).sep()
-	(w).plainBody(string("kind"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).stringBody(string(v.Kind))
-	(w).setComma(bool(true))
-	(w).sep()
-	(w).plainBody(string("reached"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_17(env, *w, v.Reached)
-	(w).sep()
-	(w).plainBody(string("discharges"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_5(env, *w, v.Discharges)
-	(w).sep()
-	(w).plainBody(string("total"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).intBody(int64(v.Total))
-	(w).setComma(bool(true))
-	(w).sep()
-	(w).plainBody(string("next"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).intBody(int64(v.Next))
-	(w).setComma(bool(true))
-	(w).raw(string("}"))
-	(w).setComma(bool(true))
-	return wv
-}
-
-func ergoEncodeNoSymbol(env *Env, w Writer_1, v NoSymbol) {
-	w.BeginObject(env.task, 1)
-	w.Key(env.task, "address")
-	w.String(env.task, string(v.Address))
-	w.EndObject(env.task)
-}
-
-func ergoDecodeNoSymbol(env *Env, r Reader_2) (NoSymbol, error) {
-	if err := r.BeginObject(env.task); err != nil {
-		return *new(NoSymbol), err
-	}
-	var out NoSymbol
-	var seen bool
-	for r.More(env.task) {
-		switch r.Key(env.task) {
-		case "address":
-			raw_1, err_1 := r.String(env.task)
-			if err_1 != nil {
-				return *new(NoSymbol), err_1
-			}
-			f := string(raw_1)
-			out.Address = f
-			seen = true
-		default:
-			r.Skip(env.task)
-		}
-	}
-	r.End(env.task)
-	if !seen {
-		return *new(NoSymbol), WireMissingField{Path: r.Path(env.task), Field: "address"}
-	}
-	return out, nil
-}
-
-func ergoWriteNoSymbol(env *Env, wv text_1, v NoSymbol) text_1 {
-	w := &wv
-	(w).sep()
-	(w).raw(string("{"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).plainBody(string("address"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).stringBody(string(v.Address))
-	(w).setComma(bool(true))
-	(w).raw(string("}"))
-	(w).setComma(bool(true))
-	return wv
-}
-
-func ergoEncodeAmbiguous(env *Env, w Writer_1, v Ambiguous) {
-	w.BeginObject(env.task, 2)
-	w.Key(env.task, "address")
-	w.String(env.task, string(v.Address))
-	w.Key(env.task, "candidates")
-	ergoEncodeSlice_27(env, w, v.Candidates)
-	w.EndObject(env.task)
-}
-
-func ergoDecodeAmbiguous(env *Env, r Reader_2) (Ambiguous, error) {
-	if err := r.BeginObject(env.task); err != nil {
-		return *new(Ambiguous), err
-	}
-	var out Ambiguous
-	var seen, seen_1 bool
-	for r.More(env.task) {
-		switch r.Key(env.task) {
-		case "address":
-			raw_1, err_1 := r.String(env.task)
-			if err_1 != nil {
-				return *new(Ambiguous), err_1
-			}
-			f := string(raw_1)
-			out.Address = f
-			seen = true
-		case "candidates":
-			f_1, err_2 := ergoDecodeSlice_27(env, r)
-			if err_2 != nil {
-				return *new(Ambiguous), err_2
-			}
-			out.Candidates = f_1
-			seen_1 = true
-		default:
-			r.Skip(env.task)
-		}
-	}
-	r.End(env.task)
-	if !seen {
-		return *new(Ambiguous), WireMissingField{Path: r.Path(env.task), Field: "address"}
-	}
-	if !seen_1 {
-		return *new(Ambiguous), WireMissingField{Path: r.Path(env.task), Field: "candidates"}
-	}
-	return out, nil
-}
-
-func ergoWriteAmbiguous(env *Env, wv text_1, v Ambiguous) text_1 {
-	w := &wv
-	(w).sep()
-	(w).raw(string("{"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).plainBody(string("address"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).stringBody(string(v.Address))
-	(w).setComma(bool(true))
-	(w).sep()
-	(w).plainBody(string("candidates"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_27(env, *w, v.Candidates)
-	(w).raw(string("}"))
-	(w).setComma(bool(true))
-	return wv
-}
-
-func ergoEncodeNotCallable(env *Env, w Writer_1, v NotCallable) {
-	w.BeginObject(env.task, 2)
-	w.Key(env.task, "address")
-	w.String(env.task, string(v.Address))
-	w.Key(env.task, "kind")
-	w.String(env.task, string(v.Kind))
-	w.EndObject(env.task)
-}
-
-func ergoDecodeNotCallable(env *Env, r Reader_2) (NotCallable, error) {
-	if err := r.BeginObject(env.task); err != nil {
-		return *new(NotCallable), err
-	}
-	var out NotCallable
-	var seen, seen_1 bool
-	for r.More(env.task) {
-		switch r.Key(env.task) {
-		case "address":
-			raw_1, err_1 := r.String(env.task)
-			if err_1 != nil {
-				return *new(NotCallable), err_1
-			}
-			f := string(raw_1)
-			out.Address = f
-			seen = true
-		case "kind":
-			raw_2, err_2 := r.String(env.task)
-			if err_2 != nil {
-				return *new(NotCallable), err_2
-			}
-			f_1 := string(raw_2)
-			out.Kind = f_1
-			seen_1 = true
-		default:
-			r.Skip(env.task)
-		}
-	}
-	r.End(env.task)
-	if !seen {
-		return *new(NotCallable), WireMissingField{Path: r.Path(env.task), Field: "address"}
-	}
-	if !seen_1 {
-		return *new(NotCallable), WireMissingField{Path: r.Path(env.task), Field: "kind"}
-	}
-	return out, nil
-}
-
-func ergoWriteNotCallable(env *Env, wv text_1, v NotCallable) text_1 {
-	w := &wv
-	(w).sep()
-	(w).raw(string("{"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).plainBody(string("address"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).stringBody(string(v.Address))
-	(w).setComma(bool(true))
-	(w).sep()
-	(w).plainBody(string("kind"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).stringBody(string(v.Kind))
-	(w).setComma(bool(true))
-	(w).raw(string("}"))
-	(w).setComma(bool(true))
-	return wv
-}
-
-func ergoEncodeNoPackage(env *Env, w Writer_1, v NoPackage) {
-	w.BeginObject(env.task, 1)
-	w.Key(env.task, "package")
-	w.String(env.task, string(v.Package))
-	w.EndObject(env.task)
-}
-
-func ergoDecodeNoPackage(env *Env, r Reader_2) (NoPackage, error) {
-	if err := r.BeginObject(env.task); err != nil {
-		return *new(NoPackage), err
-	}
-	var out NoPackage
-	var seen bool
-	for r.More(env.task) {
-		switch r.Key(env.task) {
-		case "package":
-			raw_1, err_1 := r.String(env.task)
-			if err_1 != nil {
-				return *new(NoPackage), err_1
-			}
-			f := string(raw_1)
-			out.Package = f
-			seen = true
-		default:
-			r.Skip(env.task)
-		}
-	}
-	r.End(env.task)
-	if !seen {
-		return *new(NoPackage), WireMissingField{Path: r.Path(env.task), Field: "package"}
-	}
-	return out, nil
-}
-
-func ergoWriteNoPackage(env *Env, wv text_1, v NoPackage) text_1 {
-	w := &wv
-	(w).sep()
-	(w).raw(string("{"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).plainBody(string("package"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).stringBody(string(v.Package))
-	(w).setComma(bool(true))
-	(w).raw(string("}"))
-	(w).setComma(bool(true))
-	return wv
-}
-
-func ergoEncodeNotMachine(env *Env, w Writer_1, v NotMachine) {
-	w.BeginObject(env.task, 2)
-	w.Key(env.task, "address")
-	w.String(env.task, string(v.Address))
-	w.Key(env.task, "kind")
-	w.String(env.task, string(v.Kind))
-	w.EndObject(env.task)
-}
-
-func ergoDecodeNotMachine(env *Env, r Reader_2) (NotMachine, error) {
-	if err := r.BeginObject(env.task); err != nil {
-		return *new(NotMachine), err
-	}
-	var out NotMachine
-	var seen, seen_1 bool
-	for r.More(env.task) {
-		switch r.Key(env.task) {
-		case "address":
-			raw_1, err_1 := r.String(env.task)
-			if err_1 != nil {
-				return *new(NotMachine), err_1
-			}
-			f := string(raw_1)
-			out.Address = f
-			seen = true
-		case "kind":
-			raw_2, err_2 := r.String(env.task)
-			if err_2 != nil {
-				return *new(NotMachine), err_2
-			}
-			f_1 := string(raw_2)
-			out.Kind = f_1
-			seen_1 = true
-		default:
-			r.Skip(env.task)
-		}
-	}
-	r.End(env.task)
-	if !seen {
-		return *new(NotMachine), WireMissingField{Path: r.Path(env.task), Field: "address"}
-	}
-	if !seen_1 {
-		return *new(NotMachine), WireMissingField{Path: r.Path(env.task), Field: "kind"}
-	}
-	return out, nil
-}
-
-func ergoWriteNotMachine(env *Env, wv text_1, v NotMachine) text_1 {
-	w := &wv
-	(w).sep()
-	(w).raw(string("{"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).plainBody(string("address"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).stringBody(string(v.Address))
-	(w).setComma(bool(true))
-	(w).sep()
-	(w).plainBody(string("kind"))
-	(w).raw(string(":"))
-	(w).setComma(bool(false))
-	(w).sep()
-	(w).stringBody(string(v.Kind))
-	(w).setComma(bool(true))
-	(w).raw(string("}"))
-	(w).setComma(bool(true))
-	return wv
+type Output struct {
+	Out  string
+	Err  string
+	Code int
 }
 
 // opsReaderAsReader provides Reader through the functions of json.Reader (an operations conversion).
@@ -7352,380 +6049,6 @@ type Reached struct {
 	Chain    []Call
 }
 
-type Help struct {
-	Text string
-}
-
-func (e Help) Error() string {
-	return "Help" + textHelp(e)
-}
-
-func Describe_3(f Failure_1) string {
-	switch v := f.(type) {
-	case Help:
-		_ = v
-		return "flag: help requested"
-	case Unknown:
-		u := v
-		return ("flag provided but not defined: -" + u.Name)
-	case NeedsValue:
-		n := v
-		return ("flag needs an argument: -" + n.Name)
-	case Invalid:
-		i := v
-		if i.Name == "" {
-			return ("bad flag syntax: " + i.Text)
-		} else {
-			v_1 := ergo.StrconvQuote(i.Text)
-			return ((((("invalid value " + v_1) + " for flag -") + i.Name) + ": ") + i.Reason)
-		}
-	case Missing_1:
-		m := v
-		return ("missing required flag or argument: " + m.Name)
-	case Extra:
-		e := v
-		return ("unexpected argument: " + e.Text)
-	case UnknownCommand:
-		c_1 := v
-		var v_2 string
-		if len(c_1.Group) == int(0) {
-			v_2 = ""
-		} else {
-			v_3 := ergo.StringsJoin(c_1.Group, " ")
-			v_2 = (" of " + v_3)
-		}
-		var at_1 string = v_2
-		if c_1.Name == "" {
-			t := (("missing command" + at_1) + "; commands: ")
-			v_4 := ergo.StringsJoin(c_1.Known, ", ")
-			return (t + v_4)
-		} else {
-			v_5 := ergo.StrconvQuote(c_1.Name)
-			t_1 := ((("unknown command " + v_5) + at_1) + "; commands: ")
-			v_6 := ergo.StringsJoin(c_1.Known, ", ")
-			return (t_1 + v_6)
-		}
-	default:
-		_ = v
-		panic("ergo: defect: no case of the match at std/flag/flag.ergo:490:2 matched")
-	}
-}
-
-type Failure_1 interface{ isFailure_1() }
-
-func (Help) isFailure_1() {}
-
-type Unknown struct {
-	Name string
-}
-
-func (e Unknown) Error() string {
-	return "Unknown" + textUnknown(e)
-}
-
-func (Unknown) isFailure_1() {}
-
-type NeedsValue struct {
-	Name string
-}
-
-func (e NeedsValue) Error() string {
-	return "NeedsValue" + textNeedsValue(e)
-}
-
-func (NeedsValue) isFailure_1() {}
-
-type Invalid struct {
-	Name   string
-	Text   string
-	Reason string
-}
-
-func (e Invalid) Error() string {
-	return "Invalid" + textInvalid(e)
-}
-
-func (Invalid) isFailure_1() {}
-
-type Missing_1 struct {
-	Name string
-}
-
-func (e Missing_1) Error() string {
-	return "Missing" + textMissing_1(e)
-}
-
-func (Missing_1) isFailure_1() {}
-
-type Extra struct {
-	Text string
-}
-
-func (e Extra) Error() string {
-	return "Extra" + textExtra(e)
-}
-
-func (Extra) isFailure_1() {}
-
-type UnknownCommand struct {
-	Name  string
-	Known []string
-	Group []string
-}
-
-func (e UnknownCommand) Error() string {
-	return "UnknownCommand" + textUnknownCommand(e)
-}
-
-func (UnknownCommand) isFailure_1() {}
-
-func Encode_2[T any](env *Env, wT struct {
-	Enc     func(*Env, Writer_1, T) (struct{}, error)
-	Dec     func(*Env, Reader_2) (T, error)
-	Direct0 func(*Env, text_1, T) text_1
-	Field   *struct {
-		Enc     func(*Env, Writer_1, T) (struct{}, error)
-		Dec     func(*Env, Reader_2) (T, error)
-		Direct0 func(*Env, text_1, T) text_1
-		Absent  func(T) bool
-		Empty   T
-	}
-}, v T) string {
-	env.task.Check()
-	v_1 := Encode_1[T](env, wT, Codec[T]{MaxBytes: int(0), MaxDepth: int(0)}, v)
-	return v_1
-}
-
-func EncodeMono_1_i1(env *Env, wT struct {
-	Enc     func(*Env, Writer_1, Summary) (struct{}, error)
-	Dec     func(*Env, Reader_2) (Summary, error)
-	Direct0 func(*Env, text_1, Summary) text_1
-	Field   *struct {
-		Enc     func(*Env, Writer_1, Summary) (struct{}, error)
-		Dec     func(*Env, Reader_2) (Summary, error)
-		Direct0 func(*Env, text_1, Summary) text_1
-		Absent  func(Summary) bool
-		Empty   Summary
-	}
-}, v Summary) string {
-	env.task.Check()
-	v_1 := EncodeMono_i4(env, wT, Codec[Summary]{MaxBytes: int(0), MaxDepth: int(0)}, v)
-	return v_1
-}
-
-func EncodeMono_1_i2(env *Env, wT struct {
-	Enc     func(*Env, Writer_1, SymbolPage) (struct{}, error)
-	Dec     func(*Env, Reader_2) (SymbolPage, error)
-	Direct0 func(*Env, text_1, SymbolPage) text_1
-	Field   *struct {
-		Enc     func(*Env, Writer_1, SymbolPage) (struct{}, error)
-		Dec     func(*Env, Reader_2) (SymbolPage, error)
-		Direct0 func(*Env, text_1, SymbolPage) text_1
-		Absent  func(SymbolPage) bool
-		Empty   SymbolPage
-	}
-}, v SymbolPage) string {
-	env.task.Check()
-	v_1 := EncodeMono_i5(env, wT, Codec[SymbolPage]{MaxBytes: int(0), MaxDepth: int(0)}, v)
-	return v_1
-}
-
-func EncodeMono_1_i3(env *Env, wT struct {
-	Enc     func(*Env, Writer_1, Decl) (struct{}, error)
-	Dec     func(*Env, Reader_2) (Decl, error)
-	Direct0 func(*Env, text_1, Decl) text_1
-	Field   *struct {
-		Enc     func(*Env, Writer_1, Decl) (struct{}, error)
-		Dec     func(*Env, Reader_2) (Decl, error)
-		Direct0 func(*Env, text_1, Decl) text_1
-		Absent  func(Decl) bool
-		Empty   Decl
-	}
-}, v Decl) string {
-	env.task.Check()
-	v_1 := EncodeMono_i6(env, wT, Codec[Decl]{MaxBytes: int(0), MaxDepth: int(0)}, v)
-	return v_1
-}
-
-func EncodeMono_1_i4(env *Env, wT struct {
-	Enc     func(*Env, Writer_1, SitePage) (struct{}, error)
-	Dec     func(*Env, Reader_2) (SitePage, error)
-	Direct0 func(*Env, text_1, SitePage) text_1
-	Field   *struct {
-		Enc     func(*Env, Writer_1, SitePage) (struct{}, error)
-		Dec     func(*Env, Reader_2) (SitePage, error)
-		Direct0 func(*Env, text_1, SitePage) text_1
-		Absent  func(SitePage) bool
-		Empty   SitePage
-	}
-}, v SitePage) string {
-	env.task.Check()
-	v_1 := EncodeMono_i7(env, wT, Codec[SitePage]{MaxBytes: int(0), MaxDepth: int(0)}, v)
-	return v_1
-}
-
-func EncodeMono_1_i5(env *Env, wT struct {
-	Enc     func(*Env, Writer_1, CallPage) (struct{}, error)
-	Dec     func(*Env, Reader_2) (CallPage, error)
-	Direct0 func(*Env, text_1, CallPage) text_1
-	Field   *struct {
-		Enc     func(*Env, Writer_1, CallPage) (struct{}, error)
-		Dec     func(*Env, Reader_2) (CallPage, error)
-		Direct0 func(*Env, text_1, CallPage) text_1
-		Absent  func(CallPage) bool
-		Empty   CallPage
-	}
-}, v CallPage) string {
-	env.task.Check()
-	v_1 := EncodeMono_i8(env, wT, Codec[CallPage]{MaxBytes: int(0), MaxDepth: int(0)}, v)
-	return v_1
-}
-
-func EncodeMono_1_i6(env *Env, wT struct {
-	Enc     func(*Env, Writer_1, ApiView) (struct{}, error)
-	Dec     func(*Env, Reader_2) (ApiView, error)
-	Direct0 func(*Env, text_1, ApiView) text_1
-	Field   *struct {
-		Enc     func(*Env, Writer_1, ApiView) (struct{}, error)
-		Dec     func(*Env, Reader_2) (ApiView, error)
-		Direct0 func(*Env, text_1, ApiView) text_1
-		Absent  func(ApiView) bool
-		Empty   ApiView
-	}
-}, v ApiView) string {
-	env.task.Check()
-	v_1 := EncodeMono_i9(env, wT, Codec[ApiView]{MaxBytes: int(0), MaxDepth: int(0)}, v)
-	return v_1
-}
-
-func EncodeMono_1_i7(env *Env, wT struct {
-	Enc     func(*Env, Writer_1, ReachPage) (struct{}, error)
-	Dec     func(*Env, Reader_2) (ReachPage, error)
-	Direct0 func(*Env, text_1, ReachPage) text_1
-	Field   *struct {
-		Enc     func(*Env, Writer_1, ReachPage) (struct{}, error)
-		Dec     func(*Env, Reader_2) (ReachPage, error)
-		Direct0 func(*Env, text_1, ReachPage) text_1
-		Absent  func(ReachPage) bool
-		Empty   ReachPage
-	}
-}, v ReachPage) string {
-	env.task.Check()
-	v_1 := EncodeMono_i10(env, wT, Codec[ReachPage]{MaxBytes: int(0), MaxDepth: int(0)}, v)
-	return v_1
-}
-
-func EncodeMono_1_i8(env *Env, wT struct {
-	Enc     func(*Env, Writer_1, MachineView) (struct{}, error)
-	Dec     func(*Env, Reader_2) (MachineView, error)
-	Direct0 func(*Env, text_1, MachineView) text_1
-	Field   *struct {
-		Enc     func(*Env, Writer_1, MachineView) (struct{}, error)
-		Dec     func(*Env, Reader_2) (MachineView, error)
-		Direct0 func(*Env, text_1, MachineView) text_1
-		Absent  func(MachineView) bool
-		Empty   MachineView
-	}
-}, v MachineView) string {
-	env.task.Check()
-	v_1 := EncodeMono_i11(env, wT, Codec[MachineView]{MaxBytes: int(0), MaxDepth: int(0)}, v)
-	return v_1
-}
-
-func EncodeMono_1_i9(env *Env, wT struct {
-	Enc     func(*Env, Writer_1, NoSymbol) (struct{}, error)
-	Dec     func(*Env, Reader_2) (NoSymbol, error)
-	Direct0 func(*Env, text_1, NoSymbol) text_1
-	Field   *struct {
-		Enc     func(*Env, Writer_1, NoSymbol) (struct{}, error)
-		Dec     func(*Env, Reader_2) (NoSymbol, error)
-		Direct0 func(*Env, text_1, NoSymbol) text_1
-		Absent  func(NoSymbol) bool
-		Empty   NoSymbol
-	}
-}, v NoSymbol) string {
-	env.task.Check()
-	v_1 := EncodeMono_i12(env, wT, Codec[NoSymbol]{MaxBytes: int(0), MaxDepth: int(0)}, v)
-	return v_1
-}
-
-func EncodeMono_1_i10(env *Env, wT struct {
-	Enc     func(*Env, Writer_1, Ambiguous) (struct{}, error)
-	Dec     func(*Env, Reader_2) (Ambiguous, error)
-	Direct0 func(*Env, text_1, Ambiguous) text_1
-	Field   *struct {
-		Enc     func(*Env, Writer_1, Ambiguous) (struct{}, error)
-		Dec     func(*Env, Reader_2) (Ambiguous, error)
-		Direct0 func(*Env, text_1, Ambiguous) text_1
-		Absent  func(Ambiguous) bool
-		Empty   Ambiguous
-	}
-}, v Ambiguous) string {
-	env.task.Check()
-	v_1 := EncodeMono_i13(env, wT, Codec[Ambiguous]{MaxBytes: int(0), MaxDepth: int(0)}, v)
-	return v_1
-}
-
-func EncodeMono_1_i11(env *Env, wT struct {
-	Enc     func(*Env, Writer_1, NotCallable) (struct{}, error)
-	Dec     func(*Env, Reader_2) (NotCallable, error)
-	Direct0 func(*Env, text_1, NotCallable) text_1
-	Field   *struct {
-		Enc     func(*Env, Writer_1, NotCallable) (struct{}, error)
-		Dec     func(*Env, Reader_2) (NotCallable, error)
-		Direct0 func(*Env, text_1, NotCallable) text_1
-		Absent  func(NotCallable) bool
-		Empty   NotCallable
-	}
-}, v NotCallable) string {
-	env.task.Check()
-	v_1 := EncodeMono_i14(env, wT, Codec[NotCallable]{MaxBytes: int(0), MaxDepth: int(0)}, v)
-	return v_1
-}
-
-func EncodeMono_1_i12(env *Env, wT struct {
-	Enc     func(*Env, Writer_1, NoPackage) (struct{}, error)
-	Dec     func(*Env, Reader_2) (NoPackage, error)
-	Direct0 func(*Env, text_1, NoPackage) text_1
-	Field   *struct {
-		Enc     func(*Env, Writer_1, NoPackage) (struct{}, error)
-		Dec     func(*Env, Reader_2) (NoPackage, error)
-		Direct0 func(*Env, text_1, NoPackage) text_1
-		Absent  func(NoPackage) bool
-		Empty   NoPackage
-	}
-}, v NoPackage) string {
-	env.task.Check()
-	v_1 := EncodeMono_i15(env, wT, Codec[NoPackage]{MaxBytes: int(0), MaxDepth: int(0)}, v)
-	return v_1
-}
-
-type NotMachine struct {
-	Address string
-	Kind    string
-}
-
-func (e NotMachine) Error() string {
-	return "NotMachine" + textNotMachine(e)
-}
-
-func EncodeMono_1_i13(env *Env, wT struct {
-	Enc     func(*Env, Writer_1, NotMachine) (struct{}, error)
-	Dec     func(*Env, Reader_2) (NotMachine, error)
-	Direct0 func(*Env, text_1, NotMachine) text_1
-	Field   *struct {
-		Enc     func(*Env, Writer_1, NotMachine) (struct{}, error)
-		Dec     func(*Env, Reader_2) (NotMachine, error)
-		Direct0 func(*Env, text_1, NotMachine) text_1
-		Absent  func(NotMachine) bool
-		Empty   NotMachine
-	}
-}, v NotMachine) string {
-	env.task.Check()
-	v_1 := EncodeMono_i16(env, wT, Codec[NotMachine]{MaxBytes: int(0), MaxDepth: int(0)}, v)
-	return v_1
-}
-
 type Reader_1 struct {
 	c *ergo.Cursor
 }
@@ -8547,6 +6870,15 @@ func chainOf(out map[string][]Call, f string) []Call {
 	return back
 }
 
+type NotMachine struct {
+	Address string
+	Kind    string
+}
+
+func (e NotMachine) Error() string {
+	return "NotMachine" + textNotMachine(e)
+}
+
 func (g MachineGraph) targets(e Transition) []string {
 	if (e.Decision == "?") || ((e.To == "*") && ((((e.Decision == "Enter") || (e.Decision == "Stay")) || (e.Decision == "Emit")) || (e.Decision == "Tell"))) {
 		return g.States
@@ -8687,6 +7019,1527 @@ func (g MachineGraph) pairsOf(env *Env, reached map[string]bool) []Pair {
 	return out
 }
 
+type Help struct {
+	Text string
+}
+
+func (e Help) Error() string {
+	return "Help" + textHelp(e)
+}
+
+func Describe_3(f Failure_1) string {
+	switch v := f.(type) {
+	case Help:
+		_ = v
+		return "flag: help requested"
+	case Unknown:
+		u := v
+		return ("flag provided but not defined: -" + u.Name)
+	case NeedsValue:
+		n := v
+		return ("flag needs an argument: -" + n.Name)
+	case Invalid:
+		i := v
+		if i.Name == "" {
+			return ("bad flag syntax: " + i.Text)
+		} else {
+			v_1 := ergo.StrconvQuote(i.Text)
+			return ((((("invalid value " + v_1) + " for flag -") + i.Name) + ": ") + i.Reason)
+		}
+	case Missing_1:
+		m := v
+		return ("missing required flag or argument: " + m.Name)
+	case Extra:
+		e := v
+		return ("unexpected argument: " + e.Text)
+	case UnknownCommand:
+		c_1 := v
+		var v_2 string
+		if len(c_1.Group) == int(0) {
+			v_2 = ""
+		} else {
+			v_3 := ergo.StringsJoin(c_1.Group, " ")
+			v_2 = (" of " + v_3)
+		}
+		var at_1 string = v_2
+		if c_1.Name == "" {
+			t := (("missing command" + at_1) + "; commands: ")
+			v_4 := ergo.StringsJoin(c_1.Known, ", ")
+			return (t + v_4)
+		} else {
+			v_5 := ergo.StrconvQuote(c_1.Name)
+			t_1 := ((("unknown command " + v_5) + at_1) + "; commands: ")
+			v_6 := ergo.StringsJoin(c_1.Known, ", ")
+			return (t_1 + v_6)
+		}
+	default:
+		_ = v
+		panic("ergo: defect: no case of the match at std/flag/flag.ergo:490:2 matched")
+	}
+}
+
+type Failure_1 interface{ isFailure_1() }
+
+func (Help) isFailure_1() {}
+
+type Unknown struct {
+	Name string
+}
+
+func (e Unknown) Error() string {
+	return "Unknown" + textUnknown(e)
+}
+
+func (Unknown) isFailure_1() {}
+
+type NeedsValue struct {
+	Name string
+}
+
+func (e NeedsValue) Error() string {
+	return "NeedsValue" + textNeedsValue(e)
+}
+
+func (NeedsValue) isFailure_1() {}
+
+type Invalid struct {
+	Name   string
+	Text   string
+	Reason string
+}
+
+func (e Invalid) Error() string {
+	return "Invalid" + textInvalid(e)
+}
+
+func (Invalid) isFailure_1() {}
+
+type Missing_1 struct {
+	Name string
+}
+
+func (e Missing_1) Error() string {
+	return "Missing" + textMissing_1(e)
+}
+
+func (Missing_1) isFailure_1() {}
+
+type Extra struct {
+	Text string
+}
+
+func (e Extra) Error() string {
+	return "Extra" + textExtra(e)
+}
+
+func (Extra) isFailure_1() {}
+
+type UnknownCommand struct {
+	Name  string
+	Known []string
+	Group []string
+}
+
+func (e UnknownCommand) Error() string {
+	return "UnknownCommand" + textUnknownCommand(e)
+}
+
+func (UnknownCommand) isFailure_1() {}
+
+func ergoEncodeSummary(env *Env, w Writer_1, v Summary) {
+	w.BeginObject(env.task, 6)
+	w.Key(env.task, "revision")
+	w.String(env.task, string(v.Revision))
+	w.Key(env.task, "packages")
+	ergoEncodeSlice_27(env, w, v.Packages)
+	w.Key(env.task, "complete")
+	w.Bool(env.task, bool(v.Complete))
+	w.Key(env.task, "diagnostics")
+	w.Int(env.task, int64(v.Diagnostics))
+	w.Key(env.task, "symbols")
+	w.Int(env.task, int64(v.Symbols))
+	w.Key(env.task, "sites")
+	w.Int(env.task, int64(v.Sites))
+	w.EndObject(env.task)
+}
+
+func ergoDecodeSummary(env *Env, r Reader_2) (Summary, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(Summary), err
+	}
+	var out Summary
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5 bool
+	for r.More(env.task) {
+		switch r.Key(env.task) {
+		case "revision":
+			raw_1, err_1 := r.String(env.task)
+			if err_1 != nil {
+				return *new(Summary), err_1
+			}
+			f := string(raw_1)
+			out.Revision = f
+			seen = true
+		case "packages":
+			f_1, err_2 := ergoDecodeSlice_27(env, r)
+			if err_2 != nil {
+				return *new(Summary), err_2
+			}
+			out.Packages = f_1
+			seen_1 = true
+		case "complete":
+			raw_2, err_3 := r.Bool(env.task)
+			if err_3 != nil {
+				return *new(Summary), err_3
+			}
+			f_2 := bool(raw_2)
+			out.Complete = f_2
+			seen_2 = true
+		case "diagnostics":
+			raw_3, err_4 := r.Int(env.task)
+			if err_4 != nil {
+				return *new(Summary), err_4
+			}
+			f_3 := int(raw_3)
+			out.Diagnostics = f_3
+			seen_3 = true
+		case "symbols":
+			raw_4, err_5 := r.Int(env.task)
+			if err_5 != nil {
+				return *new(Summary), err_5
+			}
+			f_4 := int(raw_4)
+			out.Symbols = f_4
+			seen_4 = true
+		case "sites":
+			raw_5, err_6 := r.Int(env.task)
+			if err_6 != nil {
+				return *new(Summary), err_6
+			}
+			f_5 := int(raw_5)
+			out.Sites = f_5
+			seen_5 = true
+		default:
+			r.Skip(env.task)
+		}
+	}
+	r.End(env.task)
+	if !seen {
+		return *new(Summary), WireMissingField{Path: r.Path(env.task), Field: "revision"}
+	}
+	if !seen_1 {
+		return *new(Summary), WireMissingField{Path: r.Path(env.task), Field: "packages"}
+	}
+	if !seen_2 {
+		return *new(Summary), WireMissingField{Path: r.Path(env.task), Field: "complete"}
+	}
+	if !seen_3 {
+		return *new(Summary), WireMissingField{Path: r.Path(env.task), Field: "diagnostics"}
+	}
+	if !seen_4 {
+		return *new(Summary), WireMissingField{Path: r.Path(env.task), Field: "symbols"}
+	}
+	if !seen_5 {
+		return *new(Summary), WireMissingField{Path: r.Path(env.task), Field: "sites"}
+	}
+	return out, nil
+}
+
+func ergoWriteSummary(env *Env, wv text_1, v Summary) text_1 {
+	w := &wv
+	(w).sep()
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("revision"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).stringBody(string(v.Revision))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("packages"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_27(env, *w, v.Packages)
+	(w).sep()
+	(w).plainBody(string("complete"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).boolBody(bool(v.Complete))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("diagnostics"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).intBody(int64(v.Diagnostics))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("symbols"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).intBody(int64(v.Symbols))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("sites"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).intBody(int64(v.Sites))
+	(w).setComma(bool(true))
+	(w).raw(string("}"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergoEncodeSymbolPage(env *Env, w Writer_1, v SymbolPage) {
+	w.BeginObject(env.task, 4)
+	w.Key(env.task, "revision")
+	w.String(env.task, string(v.Revision))
+	w.Key(env.task, "decls")
+	ergoEncodeSlice_8(env, w, v.Decls)
+	w.Key(env.task, "total")
+	w.Int(env.task, int64(v.Total))
+	w.Key(env.task, "next")
+	w.Int(env.task, int64(v.Next))
+	w.EndObject(env.task)
+}
+
+func ergoDecodeSymbolPage(env *Env, r Reader_2) (SymbolPage, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(SymbolPage), err
+	}
+	var out SymbolPage
+	var seen, seen_1, seen_2, seen_3 bool
+	for r.More(env.task) {
+		switch r.Key(env.task) {
+		case "revision":
+			raw_1, err_1 := r.String(env.task)
+			if err_1 != nil {
+				return *new(SymbolPage), err_1
+			}
+			f := string(raw_1)
+			out.Revision = f
+			seen = true
+		case "decls":
+			f_1, err_2 := ergoDecodeSlice_8(env, r)
+			if err_2 != nil {
+				return *new(SymbolPage), err_2
+			}
+			out.Decls = f_1
+			seen_1 = true
+		case "total":
+			raw_2, err_3 := r.Int(env.task)
+			if err_3 != nil {
+				return *new(SymbolPage), err_3
+			}
+			f_2 := int(raw_2)
+			out.Total = f_2
+			seen_2 = true
+		case "next":
+			raw_3, err_4 := r.Int(env.task)
+			if err_4 != nil {
+				return *new(SymbolPage), err_4
+			}
+			f_3 := int(raw_3)
+			out.Next = f_3
+			seen_3 = true
+		default:
+			r.Skip(env.task)
+		}
+	}
+	r.End(env.task)
+	if !seen {
+		return *new(SymbolPage), WireMissingField{Path: r.Path(env.task), Field: "revision"}
+	}
+	if !seen_1 {
+		return *new(SymbolPage), WireMissingField{Path: r.Path(env.task), Field: "decls"}
+	}
+	if !seen_2 {
+		return *new(SymbolPage), WireMissingField{Path: r.Path(env.task), Field: "total"}
+	}
+	if !seen_3 {
+		return *new(SymbolPage), WireMissingField{Path: r.Path(env.task), Field: "next"}
+	}
+	return out, nil
+}
+
+func ergoWriteSymbolPage(env *Env, wv text_1, v SymbolPage) text_1 {
+	w := &wv
+	(w).sep()
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("revision"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).stringBody(string(v.Revision))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("decls"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_8(env, *w, v.Decls)
+	(w).sep()
+	(w).plainBody(string("total"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).intBody(int64(v.Total))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("next"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).intBody(int64(v.Next))
+	(w).setComma(bool(true))
+	(w).raw(string("}"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergoEncodeSitePage(env *Env, w Writer_1, v SitePage) {
+	w.BeginObject(env.task, 5)
+	w.Key(env.task, "revision")
+	w.String(env.task, string(v.Revision))
+	w.Key(env.task, "complete")
+	w.Bool(env.task, bool(v.Complete))
+	w.Key(env.task, "sites")
+	ergoEncodeSlice_18(env, w, v.Sites)
+	w.Key(env.task, "total")
+	w.Int(env.task, int64(v.Total))
+	w.Key(env.task, "next")
+	w.Int(env.task, int64(v.Next))
+	w.EndObject(env.task)
+}
+
+func ergoDecodeSitePage(env *Env, r Reader_2) (SitePage, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(SitePage), err
+	}
+	var out SitePage
+	var seen, seen_1, seen_2, seen_3, seen_4 bool
+	for r.More(env.task) {
+		switch r.Key(env.task) {
+		case "revision":
+			raw_1, err_1 := r.String(env.task)
+			if err_1 != nil {
+				return *new(SitePage), err_1
+			}
+			f := string(raw_1)
+			out.Revision = f
+			seen = true
+		case "complete":
+			raw_2, err_2 := r.Bool(env.task)
+			if err_2 != nil {
+				return *new(SitePage), err_2
+			}
+			f_1 := bool(raw_2)
+			out.Complete = f_1
+			seen_1 = true
+		case "sites":
+			f_2, err_3 := ergoDecodeSlice_18(env, r)
+			if err_3 != nil {
+				return *new(SitePage), err_3
+			}
+			out.Sites = f_2
+			seen_2 = true
+		case "total":
+			raw_3, err_4 := r.Int(env.task)
+			if err_4 != nil {
+				return *new(SitePage), err_4
+			}
+			f_3 := int(raw_3)
+			out.Total = f_3
+			seen_3 = true
+		case "next":
+			raw_4, err_5 := r.Int(env.task)
+			if err_5 != nil {
+				return *new(SitePage), err_5
+			}
+			f_4 := int(raw_4)
+			out.Next = f_4
+			seen_4 = true
+		default:
+			r.Skip(env.task)
+		}
+	}
+	r.End(env.task)
+	if !seen {
+		return *new(SitePage), WireMissingField{Path: r.Path(env.task), Field: "revision"}
+	}
+	if !seen_1 {
+		return *new(SitePage), WireMissingField{Path: r.Path(env.task), Field: "complete"}
+	}
+	if !seen_2 {
+		return *new(SitePage), WireMissingField{Path: r.Path(env.task), Field: "sites"}
+	}
+	if !seen_3 {
+		return *new(SitePage), WireMissingField{Path: r.Path(env.task), Field: "total"}
+	}
+	if !seen_4 {
+		return *new(SitePage), WireMissingField{Path: r.Path(env.task), Field: "next"}
+	}
+	return out, nil
+}
+
+func ergoWriteSitePage(env *Env, wv text_1, v SitePage) text_1 {
+	w := &wv
+	(w).sep()
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("revision"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).stringBody(string(v.Revision))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("complete"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).boolBody(bool(v.Complete))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("sites"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_18(env, *w, v.Sites)
+	(w).sep()
+	(w).plainBody(string("total"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).intBody(int64(v.Total))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("next"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).intBody(int64(v.Next))
+	(w).setComma(bool(true))
+	(w).raw(string("}"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergoEncodeHop(env *Env, w Writer_1, v Hop) {
+	w.BeginObject(env.task, 2)
+	w.Key(env.task, "depth")
+	w.Int(env.task, int64(v.Depth))
+	w.Key(env.task, "call")
+	ergoEncodeCall(env, w, v.Call)
+	w.EndObject(env.task)
+}
+
+func ergoEncodeSlice_10(env *Env, w Writer_1, v []Hop) {
+	w.BeginList(env.task, len(v))
+	for _, e := range v {
+		ergoEncodeHop(env, w, e)
+	}
+	w.EndList(env.task)
+}
+
+func ergoEncodeCallPage(env *Env, w Writer_1, v CallPage) {
+	w.BeginObject(env.task, 5)
+	w.Key(env.task, "revision")
+	w.String(env.task, string(v.Revision))
+	w.Key(env.task, "complete")
+	w.Bool(env.task, bool(v.Complete))
+	w.Key(env.task, "hops")
+	ergoEncodeSlice_10(env, w, v.Hops)
+	w.Key(env.task, "total")
+	w.Int(env.task, int64(v.Total))
+	w.Key(env.task, "next")
+	w.Int(env.task, int64(v.Next))
+	w.EndObject(env.task)
+}
+
+func ergoDecodeHop(env *Env, r Reader_2) (Hop, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(Hop), err
+	}
+	var out Hop
+	var seen, seen_1 bool
+	for r.More(env.task) {
+		switch r.Key(env.task) {
+		case "depth":
+			raw_1, err_1 := r.Int(env.task)
+			if err_1 != nil {
+				return *new(Hop), err_1
+			}
+			f := int(raw_1)
+			out.Depth = f
+			seen = true
+		case "call":
+			f_1, err_2 := ergoDecodeCall(env, r)
+			if err_2 != nil {
+				return *new(Hop), err_2
+			}
+			out.Call = f_1
+			seen_1 = true
+		default:
+			r.Skip(env.task)
+		}
+	}
+	r.End(env.task)
+	if !seen {
+		return *new(Hop), WireMissingField{Path: r.Path(env.task), Field: "depth"}
+	}
+	if !seen_1 {
+		return *new(Hop), WireMissingField{Path: r.Path(env.task), Field: "call"}
+	}
+	return out, nil
+}
+
+func ergoDecodeSlice_10(env *Env, r Reader_2) ([]Hop, error) {
+	if err := r.BeginList(env.task); err != nil {
+		return *new([]Hop), err
+	}
+	out := []Hop{}
+	for r.More(env.task) {
+		e, err_1 := ergoDecodeHop(env, r)
+		if err_1 != nil {
+			return *new([]Hop), err_1
+		}
+		out = append(out, e)
+	}
+	r.End(env.task)
+	return out, nil
+}
+
+func ergoDecodeCallPage(env *Env, r Reader_2) (CallPage, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(CallPage), err
+	}
+	var out CallPage
+	var seen, seen_1, seen_2, seen_3, seen_4 bool
+	for r.More(env.task) {
+		switch r.Key(env.task) {
+		case "revision":
+			raw_1, err_1 := r.String(env.task)
+			if err_1 != nil {
+				return *new(CallPage), err_1
+			}
+			f := string(raw_1)
+			out.Revision = f
+			seen = true
+		case "complete":
+			raw_2, err_2 := r.Bool(env.task)
+			if err_2 != nil {
+				return *new(CallPage), err_2
+			}
+			f_1 := bool(raw_2)
+			out.Complete = f_1
+			seen_1 = true
+		case "hops":
+			f_2, err_3 := ergoDecodeSlice_10(env, r)
+			if err_3 != nil {
+				return *new(CallPage), err_3
+			}
+			out.Hops = f_2
+			seen_2 = true
+		case "total":
+			raw_3, err_4 := r.Int(env.task)
+			if err_4 != nil {
+				return *new(CallPage), err_4
+			}
+			f_3 := int(raw_3)
+			out.Total = f_3
+			seen_3 = true
+		case "next":
+			raw_4, err_5 := r.Int(env.task)
+			if err_5 != nil {
+				return *new(CallPage), err_5
+			}
+			f_4 := int(raw_4)
+			out.Next = f_4
+			seen_4 = true
+		default:
+			r.Skip(env.task)
+		}
+	}
+	r.End(env.task)
+	if !seen {
+		return *new(CallPage), WireMissingField{Path: r.Path(env.task), Field: "revision"}
+	}
+	if !seen_1 {
+		return *new(CallPage), WireMissingField{Path: r.Path(env.task), Field: "complete"}
+	}
+	if !seen_2 {
+		return *new(CallPage), WireMissingField{Path: r.Path(env.task), Field: "hops"}
+	}
+	if !seen_3 {
+		return *new(CallPage), WireMissingField{Path: r.Path(env.task), Field: "total"}
+	}
+	if !seen_4 {
+		return *new(CallPage), WireMissingField{Path: r.Path(env.task), Field: "next"}
+	}
+	return out, nil
+}
+
+func ergoWriteHop(env *Env, wv text_1, v Hop) text_1 {
+	w := &wv
+	(w).sep()
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("depth"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).intBody(int64(v.Depth))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("call"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteCall(env, *w, v.Call)
+	(w).raw(string("}"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergoWriteSlice_10(env *Env, wv text_1, v []Hop) text_1 {
+	w := &wv
+	(w).sep()
+	(w).raw(string("["))
+	(w).setComma(bool(false))
+	_ = len(v)
+	for _, e := range v {
+		*w = ergoWriteHop(env, *w, e)
+	}
+	(w).raw(string("]"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergoWriteCallPage(env *Env, wv text_1, v CallPage) text_1 {
+	w := &wv
+	(w).sep()
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("revision"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).stringBody(string(v.Revision))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("complete"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).boolBody(bool(v.Complete))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("hops"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_10(env, *w, v.Hops)
+	(w).sep()
+	(w).plainBody(string("total"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).intBody(int64(v.Total))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("next"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).intBody(int64(v.Next))
+	(w).setComma(bool(true))
+	(w).raw(string("}"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergoEncodeApiView(env *Env, w Writer_1, v ApiView) {
+	w.BeginObject(env.task, 3)
+	w.Key(env.task, "revision")
+	w.String(env.task, string(v.Revision))
+	w.Key(env.task, "package")
+	w.String(env.task, string(v.Package))
+	w.Key(env.task, "functions")
+	ergoEncodeSlice_6(env, w, v.Functions)
+	w.EndObject(env.task)
+}
+
+func ergoDecodeApiView(env *Env, r Reader_2) (ApiView, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(ApiView), err
+	}
+	var out ApiView
+	var seen, seen_1, seen_2 bool
+	for r.More(env.task) {
+		switch r.Key(env.task) {
+		case "revision":
+			raw_1, err_1 := r.String(env.task)
+			if err_1 != nil {
+				return *new(ApiView), err_1
+			}
+			f := string(raw_1)
+			out.Revision = f
+			seen = true
+		case "package":
+			raw_2, err_2 := r.String(env.task)
+			if err_2 != nil {
+				return *new(ApiView), err_2
+			}
+			f_1 := string(raw_2)
+			out.Package = f_1
+			seen_1 = true
+		case "functions":
+			f_2, err_3 := ergoDecodeSlice_6(env, r)
+			if err_3 != nil {
+				return *new(ApiView), err_3
+			}
+			out.Functions = f_2
+			seen_2 = true
+		default:
+			r.Skip(env.task)
+		}
+	}
+	r.End(env.task)
+	if !seen {
+		return *new(ApiView), WireMissingField{Path: r.Path(env.task), Field: "revision"}
+	}
+	if !seen_1 {
+		return *new(ApiView), WireMissingField{Path: r.Path(env.task), Field: "package"}
+	}
+	if !seen_2 {
+		return *new(ApiView), WireMissingField{Path: r.Path(env.task), Field: "functions"}
+	}
+	return out, nil
+}
+
+func ergoWriteApiView(env *Env, wv text_1, v ApiView) text_1 {
+	w := &wv
+	(w).sep()
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("revision"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).stringBody(string(v.Revision))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("package"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).stringBody(string(v.Package))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("functions"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_6(env, *w, v.Functions)
+	(w).raw(string("}"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergoEncodeReached(env *Env, w Writer_1, v Reached) {
+	w.BeginObject(env.task, 2)
+	w.Key(env.task, "function")
+	w.String(env.task, string(v.Function))
+	w.Key(env.task, "chain")
+	ergoEncodeSlice_5(env, w, v.Chain)
+	w.EndObject(env.task)
+}
+
+func ergoEncodeSlice_17(env *Env, w Writer_1, v []Reached) {
+	w.BeginList(env.task, len(v))
+	for _, e := range v {
+		ergoEncodeReached(env, w, e)
+	}
+	w.EndList(env.task)
+}
+
+func ergoEncodeReachPage(env *Env, w Writer_1, v ReachPage) {
+	w.BeginObject(env.task, 8)
+	w.Key(env.task, "revision")
+	w.String(env.task, string(v.Revision))
+	w.Key(env.task, "complete")
+	w.Bool(env.task, bool(v.Complete))
+	w.Key(env.task, "of")
+	w.String(env.task, string(v.Of))
+	w.Key(env.task, "kind")
+	w.String(env.task, string(v.Kind))
+	w.Key(env.task, "reached")
+	ergoEncodeSlice_17(env, w, v.Reached)
+	w.Key(env.task, "discharges")
+	ergoEncodeSlice_5(env, w, v.Discharges)
+	w.Key(env.task, "total")
+	w.Int(env.task, int64(v.Total))
+	w.Key(env.task, "next")
+	w.Int(env.task, int64(v.Next))
+	w.EndObject(env.task)
+}
+
+func ergoDecodeReached(env *Env, r Reader_2) (Reached, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(Reached), err
+	}
+	var out Reached
+	var seen, seen_1 bool
+	for r.More(env.task) {
+		switch r.Key(env.task) {
+		case "function":
+			raw_1, err_1 := r.String(env.task)
+			if err_1 != nil {
+				return *new(Reached), err_1
+			}
+			f := string(raw_1)
+			out.Function = f
+			seen = true
+		case "chain":
+			f_1, err_2 := ergoDecodeSlice_5(env, r)
+			if err_2 != nil {
+				return *new(Reached), err_2
+			}
+			out.Chain = f_1
+			seen_1 = true
+		default:
+			r.Skip(env.task)
+		}
+	}
+	r.End(env.task)
+	if !seen {
+		return *new(Reached), WireMissingField{Path: r.Path(env.task), Field: "function"}
+	}
+	if !seen_1 {
+		return *new(Reached), WireMissingField{Path: r.Path(env.task), Field: "chain"}
+	}
+	return out, nil
+}
+
+func ergoDecodeSlice_17(env *Env, r Reader_2) ([]Reached, error) {
+	if err := r.BeginList(env.task); err != nil {
+		return *new([]Reached), err
+	}
+	out := []Reached{}
+	for r.More(env.task) {
+		e, err_1 := ergoDecodeReached(env, r)
+		if err_1 != nil {
+			return *new([]Reached), err_1
+		}
+		out = append(out, e)
+	}
+	r.End(env.task)
+	return out, nil
+}
+
+func ergoDecodeReachPage(env *Env, r Reader_2) (ReachPage, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(ReachPage), err
+	}
+	var out ReachPage
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7 bool
+	for r.More(env.task) {
+		switch r.Key(env.task) {
+		case "revision":
+			raw_1, err_1 := r.String(env.task)
+			if err_1 != nil {
+				return *new(ReachPage), err_1
+			}
+			f := string(raw_1)
+			out.Revision = f
+			seen = true
+		case "complete":
+			raw_2, err_2 := r.Bool(env.task)
+			if err_2 != nil {
+				return *new(ReachPage), err_2
+			}
+			f_1 := bool(raw_2)
+			out.Complete = f_1
+			seen_1 = true
+		case "of":
+			raw_3, err_3 := r.String(env.task)
+			if err_3 != nil {
+				return *new(ReachPage), err_3
+			}
+			f_2 := string(raw_3)
+			out.Of = f_2
+			seen_2 = true
+		case "kind":
+			raw_4, err_4 := r.String(env.task)
+			if err_4 != nil {
+				return *new(ReachPage), err_4
+			}
+			f_3 := string(raw_4)
+			out.Kind = f_3
+			seen_3 = true
+		case "reached":
+			f_4, err_5 := ergoDecodeSlice_17(env, r)
+			if err_5 != nil {
+				return *new(ReachPage), err_5
+			}
+			out.Reached = f_4
+			seen_4 = true
+		case "discharges":
+			f_5, err_6 := ergoDecodeSlice_5(env, r)
+			if err_6 != nil {
+				return *new(ReachPage), err_6
+			}
+			out.Discharges = f_5
+			seen_5 = true
+		case "total":
+			raw_5, err_7 := r.Int(env.task)
+			if err_7 != nil {
+				return *new(ReachPage), err_7
+			}
+			f_6 := int(raw_5)
+			out.Total = f_6
+			seen_6 = true
+		case "next":
+			raw_6, err_8 := r.Int(env.task)
+			if err_8 != nil {
+				return *new(ReachPage), err_8
+			}
+			f_7 := int(raw_6)
+			out.Next = f_7
+			seen_7 = true
+		default:
+			r.Skip(env.task)
+		}
+	}
+	r.End(env.task)
+	if !seen {
+		return *new(ReachPage), WireMissingField{Path: r.Path(env.task), Field: "revision"}
+	}
+	if !seen_1 {
+		return *new(ReachPage), WireMissingField{Path: r.Path(env.task), Field: "complete"}
+	}
+	if !seen_2 {
+		return *new(ReachPage), WireMissingField{Path: r.Path(env.task), Field: "of"}
+	}
+	if !seen_3 {
+		return *new(ReachPage), WireMissingField{Path: r.Path(env.task), Field: "kind"}
+	}
+	if !seen_4 {
+		return *new(ReachPage), WireMissingField{Path: r.Path(env.task), Field: "reached"}
+	}
+	if !seen_5 {
+		return *new(ReachPage), WireMissingField{Path: r.Path(env.task), Field: "discharges"}
+	}
+	if !seen_6 {
+		return *new(ReachPage), WireMissingField{Path: r.Path(env.task), Field: "total"}
+	}
+	if !seen_7 {
+		return *new(ReachPage), WireMissingField{Path: r.Path(env.task), Field: "next"}
+	}
+	return out, nil
+}
+
+func ergoWriteReached(env *Env, wv text_1, v Reached) text_1 {
+	w := &wv
+	(w).sep()
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("function"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).stringBody(string(v.Function))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("chain"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_5(env, *w, v.Chain)
+	(w).raw(string("}"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergoWriteSlice_17(env *Env, wv text_1, v []Reached) text_1 {
+	w := &wv
+	(w).sep()
+	(w).raw(string("["))
+	(w).setComma(bool(false))
+	_ = len(v)
+	for _, e := range v {
+		*w = ergoWriteReached(env, *w, e)
+	}
+	(w).raw(string("]"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergoWriteReachPage(env *Env, wv text_1, v ReachPage) text_1 {
+	w := &wv
+	(w).sep()
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("revision"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).stringBody(string(v.Revision))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("complete"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).boolBody(bool(v.Complete))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("of"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).stringBody(string(v.Of))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("kind"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).stringBody(string(v.Kind))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("reached"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_17(env, *w, v.Reached)
+	(w).sep()
+	(w).plainBody(string("discharges"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_5(env, *w, v.Discharges)
+	(w).sep()
+	(w).plainBody(string("total"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).intBody(int64(v.Total))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("next"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).intBody(int64(v.Next))
+	(w).setComma(bool(true))
+	(w).raw(string("}"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergoEncodeNoSymbol(env *Env, w Writer_1, v NoSymbol) {
+	w.BeginObject(env.task, 1)
+	w.Key(env.task, "address")
+	w.String(env.task, string(v.Address))
+	w.EndObject(env.task)
+}
+
+func ergoDecodeNoSymbol(env *Env, r Reader_2) (NoSymbol, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(NoSymbol), err
+	}
+	var out NoSymbol
+	var seen bool
+	for r.More(env.task) {
+		switch r.Key(env.task) {
+		case "address":
+			raw_1, err_1 := r.String(env.task)
+			if err_1 != nil {
+				return *new(NoSymbol), err_1
+			}
+			f := string(raw_1)
+			out.Address = f
+			seen = true
+		default:
+			r.Skip(env.task)
+		}
+	}
+	r.End(env.task)
+	if !seen {
+		return *new(NoSymbol), WireMissingField{Path: r.Path(env.task), Field: "address"}
+	}
+	return out, nil
+}
+
+func ergoWriteNoSymbol(env *Env, wv text_1, v NoSymbol) text_1 {
+	w := &wv
+	(w).sep()
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("address"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).stringBody(string(v.Address))
+	(w).setComma(bool(true))
+	(w).raw(string("}"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergoEncodeAmbiguous(env *Env, w Writer_1, v Ambiguous) {
+	w.BeginObject(env.task, 2)
+	w.Key(env.task, "address")
+	w.String(env.task, string(v.Address))
+	w.Key(env.task, "candidates")
+	ergoEncodeSlice_27(env, w, v.Candidates)
+	w.EndObject(env.task)
+}
+
+func ergoDecodeAmbiguous(env *Env, r Reader_2) (Ambiguous, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(Ambiguous), err
+	}
+	var out Ambiguous
+	var seen, seen_1 bool
+	for r.More(env.task) {
+		switch r.Key(env.task) {
+		case "address":
+			raw_1, err_1 := r.String(env.task)
+			if err_1 != nil {
+				return *new(Ambiguous), err_1
+			}
+			f := string(raw_1)
+			out.Address = f
+			seen = true
+		case "candidates":
+			f_1, err_2 := ergoDecodeSlice_27(env, r)
+			if err_2 != nil {
+				return *new(Ambiguous), err_2
+			}
+			out.Candidates = f_1
+			seen_1 = true
+		default:
+			r.Skip(env.task)
+		}
+	}
+	r.End(env.task)
+	if !seen {
+		return *new(Ambiguous), WireMissingField{Path: r.Path(env.task), Field: "address"}
+	}
+	if !seen_1 {
+		return *new(Ambiguous), WireMissingField{Path: r.Path(env.task), Field: "candidates"}
+	}
+	return out, nil
+}
+
+func ergoWriteAmbiguous(env *Env, wv text_1, v Ambiguous) text_1 {
+	w := &wv
+	(w).sep()
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("address"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).stringBody(string(v.Address))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("candidates"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_27(env, *w, v.Candidates)
+	(w).raw(string("}"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergoEncodeNotCallable(env *Env, w Writer_1, v NotCallable) {
+	w.BeginObject(env.task, 2)
+	w.Key(env.task, "address")
+	w.String(env.task, string(v.Address))
+	w.Key(env.task, "kind")
+	w.String(env.task, string(v.Kind))
+	w.EndObject(env.task)
+}
+
+func ergoDecodeNotCallable(env *Env, r Reader_2) (NotCallable, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(NotCallable), err
+	}
+	var out NotCallable
+	var seen, seen_1 bool
+	for r.More(env.task) {
+		switch r.Key(env.task) {
+		case "address":
+			raw_1, err_1 := r.String(env.task)
+			if err_1 != nil {
+				return *new(NotCallable), err_1
+			}
+			f := string(raw_1)
+			out.Address = f
+			seen = true
+		case "kind":
+			raw_2, err_2 := r.String(env.task)
+			if err_2 != nil {
+				return *new(NotCallable), err_2
+			}
+			f_1 := string(raw_2)
+			out.Kind = f_1
+			seen_1 = true
+		default:
+			r.Skip(env.task)
+		}
+	}
+	r.End(env.task)
+	if !seen {
+		return *new(NotCallable), WireMissingField{Path: r.Path(env.task), Field: "address"}
+	}
+	if !seen_1 {
+		return *new(NotCallable), WireMissingField{Path: r.Path(env.task), Field: "kind"}
+	}
+	return out, nil
+}
+
+func ergoWriteNotCallable(env *Env, wv text_1, v NotCallable) text_1 {
+	w := &wv
+	(w).sep()
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("address"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).stringBody(string(v.Address))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("kind"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).stringBody(string(v.Kind))
+	(w).setComma(bool(true))
+	(w).raw(string("}"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergoEncodeNoPackage(env *Env, w Writer_1, v NoPackage) {
+	w.BeginObject(env.task, 1)
+	w.Key(env.task, "package")
+	w.String(env.task, string(v.Package))
+	w.EndObject(env.task)
+}
+
+func ergoDecodeNoPackage(env *Env, r Reader_2) (NoPackage, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(NoPackage), err
+	}
+	var out NoPackage
+	var seen bool
+	for r.More(env.task) {
+		switch r.Key(env.task) {
+		case "package":
+			raw_1, err_1 := r.String(env.task)
+			if err_1 != nil {
+				return *new(NoPackage), err_1
+			}
+			f := string(raw_1)
+			out.Package = f
+			seen = true
+		default:
+			r.Skip(env.task)
+		}
+	}
+	r.End(env.task)
+	if !seen {
+		return *new(NoPackage), WireMissingField{Path: r.Path(env.task), Field: "package"}
+	}
+	return out, nil
+}
+
+func ergoWriteNoPackage(env *Env, wv text_1, v NoPackage) text_1 {
+	w := &wv
+	(w).sep()
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("package"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).stringBody(string(v.Package))
+	(w).setComma(bool(true))
+	(w).raw(string("}"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergoEncodeNotMachine(env *Env, w Writer_1, v NotMachine) {
+	w.BeginObject(env.task, 2)
+	w.Key(env.task, "address")
+	w.String(env.task, string(v.Address))
+	w.Key(env.task, "kind")
+	w.String(env.task, string(v.Kind))
+	w.EndObject(env.task)
+}
+
+func ergoDecodeNotMachine(env *Env, r Reader_2) (NotMachine, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(NotMachine), err
+	}
+	var out NotMachine
+	var seen, seen_1 bool
+	for r.More(env.task) {
+		switch r.Key(env.task) {
+		case "address":
+			raw_1, err_1 := r.String(env.task)
+			if err_1 != nil {
+				return *new(NotMachine), err_1
+			}
+			f := string(raw_1)
+			out.Address = f
+			seen = true
+		case "kind":
+			raw_2, err_2 := r.String(env.task)
+			if err_2 != nil {
+				return *new(NotMachine), err_2
+			}
+			f_1 := string(raw_2)
+			out.Kind = f_1
+			seen_1 = true
+		default:
+			r.Skip(env.task)
+		}
+	}
+	r.End(env.task)
+	if !seen {
+		return *new(NotMachine), WireMissingField{Path: r.Path(env.task), Field: "address"}
+	}
+	if !seen_1 {
+		return *new(NotMachine), WireMissingField{Path: r.Path(env.task), Field: "kind"}
+	}
+	return out, nil
+}
+
+func ergoWriteNotMachine(env *Env, wv text_1, v NotMachine) text_1 {
+	w := &wv
+	(w).sep()
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("address"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).stringBody(string(v.Address))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("kind"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).stringBody(string(v.Kind))
+	(w).setComma(bool(true))
+	(w).raw(string("}"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+type WireWrongKind struct {
+	Path string
+	Want string
+}
+
+func (e WireWrongKind) Error() string {
+	return "WireWrongKind" + textWireWrongKind(e)
+}
+
+func plain(s string) bool {
+	t := (Range[int]{Start: int(0), End: len(s)})
+	for i := t.Start; i < t.End; i++ {
+		var i_1 int = i
+		var b uint8 = s[i_1]
+		if (b >= uint8(128)) || ("00000000000000000000000000000000110111011111111111111111111101011111111111111111111111111111011111111111111111111111111111111110"[int(b)] != uint8(49)) {
+			return false
+		}
+	}
+	return true
+}
+
+func FromBytesOwned(bs []uint8) string {
+	v := ergo.StringsBuilderTextOwned(bs)
+	return v
+}
+
+func FromBytes(bs []uint8) string {
+	return FromBytesOwned(slices.Clone(bs))
+}
+
+type Seq[T any] func(*Env, func(*Env, T) (bool, error)) (struct{}, error)
+
+func Collect[T any](env *Env, s Seq[T]) []T {
+	env.task.Check()
+	var out []T = []T{}
+	t := s
+	for v := range func(yield func(T) bool) {
+		_, _ = t(env, func(_ *Env, v T) (bool, error) {
+			return yield(v), nil
+		})
+	} {
+		var v_1 T = v
+		out = Append[T](out, v_1)
+		env.task.Check()
+	}
+	return out
+}
+
+func CollectMono_i1(env *Env, s Seq[string]) []string {
+	env.task.Check()
+	var out []string = []string{}
+	t := s
+	for v := range func(yield func(string) bool) {
+		_, _ = t(env, func(_ *Env, v string) (bool, error) {
+			return yield(v), nil
+		})
+	} {
+		var v_1 string = v
+		out = Append[string](out, v_1)
+		env.task.Check()
+	}
+	return out
+}
+
+func textNotMachine(v NotMachine) string {
+	return "{" + "Address:" + v.Address + " Kind:" + v.Kind + "}"
+}
+
+func IndexFuncMono_i2(env *Env, xs []Alt, f func(*Env, Alt) (bool, error)) (int, error) {
+	env.task.Check()
+	for k, v := range xs {
+		var i int = k
+		var x Alt = v
+		v_1, err := f(env, x)
+		if err != nil {
+			return 0, err
+		}
+		if v_1 {
+			return i, nil
+		}
+		env.task.Check()
+	}
+	return int(-1), nil
+}
+
 func ParseCommand[C any](env *Env, name string, usage string, commands []Command[C], args []string) (C, error) {
 	env.task.Check()
 	v, err := parseLevel[C](env, name, usage, []string{}, commands, args)
@@ -8731,6 +8584,456 @@ func textExtra(v Extra) string {
 
 func textUnknownCommand(v UnknownCommand) string {
 	return "{" + "Name:" + v.Name + " Known:" + textList_1(v.Known) + " Group:" + textList_1(v.Group) + "}"
+}
+
+func Encode_2[T any](env *Env, wT struct {
+	Enc     func(*Env, Writer_1, T) (struct{}, error)
+	Dec     func(*Env, Reader_2) (T, error)
+	Direct0 func(*Env, text_1, T) text_1
+	Field   *struct {
+		Enc     func(*Env, Writer_1, T) (struct{}, error)
+		Dec     func(*Env, Reader_2) (T, error)
+		Direct0 func(*Env, text_1, T) text_1
+		Absent  func(T) bool
+		Empty   T
+	}
+}, v T) string {
+	env.task.Check()
+	v_1 := Encode_1[T](env, wT, Codec[T]{MaxBytes: int(0), MaxDepth: int(0)}, v)
+	return v_1
+}
+
+func EncodeMono_1_i1(env *Env, wT struct {
+	Enc     func(*Env, Writer_1, Summary) (struct{}, error)
+	Dec     func(*Env, Reader_2) (Summary, error)
+	Direct0 func(*Env, text_1, Summary) text_1
+	Field   *struct {
+		Enc     func(*Env, Writer_1, Summary) (struct{}, error)
+		Dec     func(*Env, Reader_2) (Summary, error)
+		Direct0 func(*Env, text_1, Summary) text_1
+		Absent  func(Summary) bool
+		Empty   Summary
+	}
+}, v Summary) string {
+	env.task.Check()
+	v_1 := EncodeMono_i4(env, wT, Codec[Summary]{MaxBytes: int(0), MaxDepth: int(0)}, v)
+	return v_1
+}
+
+func EncodeMono_1_i2(env *Env, wT struct {
+	Enc     func(*Env, Writer_1, SymbolPage) (struct{}, error)
+	Dec     func(*Env, Reader_2) (SymbolPage, error)
+	Direct0 func(*Env, text_1, SymbolPage) text_1
+	Field   *struct {
+		Enc     func(*Env, Writer_1, SymbolPage) (struct{}, error)
+		Dec     func(*Env, Reader_2) (SymbolPage, error)
+		Direct0 func(*Env, text_1, SymbolPage) text_1
+		Absent  func(SymbolPage) bool
+		Empty   SymbolPage
+	}
+}, v SymbolPage) string {
+	env.task.Check()
+	v_1 := EncodeMono_i5(env, wT, Codec[SymbolPage]{MaxBytes: int(0), MaxDepth: int(0)}, v)
+	return v_1
+}
+
+func EncodeMono_1_i3(env *Env, wT struct {
+	Enc     func(*Env, Writer_1, Decl) (struct{}, error)
+	Dec     func(*Env, Reader_2) (Decl, error)
+	Direct0 func(*Env, text_1, Decl) text_1
+	Field   *struct {
+		Enc     func(*Env, Writer_1, Decl) (struct{}, error)
+		Dec     func(*Env, Reader_2) (Decl, error)
+		Direct0 func(*Env, text_1, Decl) text_1
+		Absent  func(Decl) bool
+		Empty   Decl
+	}
+}, v Decl) string {
+	env.task.Check()
+	v_1 := EncodeMono_i6(env, wT, Codec[Decl]{MaxBytes: int(0), MaxDepth: int(0)}, v)
+	return v_1
+}
+
+func EncodeMono_1_i4(env *Env, wT struct {
+	Enc     func(*Env, Writer_1, SitePage) (struct{}, error)
+	Dec     func(*Env, Reader_2) (SitePage, error)
+	Direct0 func(*Env, text_1, SitePage) text_1
+	Field   *struct {
+		Enc     func(*Env, Writer_1, SitePage) (struct{}, error)
+		Dec     func(*Env, Reader_2) (SitePage, error)
+		Direct0 func(*Env, text_1, SitePage) text_1
+		Absent  func(SitePage) bool
+		Empty   SitePage
+	}
+}, v SitePage) string {
+	env.task.Check()
+	v_1 := EncodeMono_i7(env, wT, Codec[SitePage]{MaxBytes: int(0), MaxDepth: int(0)}, v)
+	return v_1
+}
+
+func EncodeMono_1_i5(env *Env, wT struct {
+	Enc     func(*Env, Writer_1, CallPage) (struct{}, error)
+	Dec     func(*Env, Reader_2) (CallPage, error)
+	Direct0 func(*Env, text_1, CallPage) text_1
+	Field   *struct {
+		Enc     func(*Env, Writer_1, CallPage) (struct{}, error)
+		Dec     func(*Env, Reader_2) (CallPage, error)
+		Direct0 func(*Env, text_1, CallPage) text_1
+		Absent  func(CallPage) bool
+		Empty   CallPage
+	}
+}, v CallPage) string {
+	env.task.Check()
+	v_1 := EncodeMono_i8(env, wT, Codec[CallPage]{MaxBytes: int(0), MaxDepth: int(0)}, v)
+	return v_1
+}
+
+func EncodeMono_1_i6(env *Env, wT struct {
+	Enc     func(*Env, Writer_1, ApiView) (struct{}, error)
+	Dec     func(*Env, Reader_2) (ApiView, error)
+	Direct0 func(*Env, text_1, ApiView) text_1
+	Field   *struct {
+		Enc     func(*Env, Writer_1, ApiView) (struct{}, error)
+		Dec     func(*Env, Reader_2) (ApiView, error)
+		Direct0 func(*Env, text_1, ApiView) text_1
+		Absent  func(ApiView) bool
+		Empty   ApiView
+	}
+}, v ApiView) string {
+	env.task.Check()
+	v_1 := EncodeMono_i9(env, wT, Codec[ApiView]{MaxBytes: int(0), MaxDepth: int(0)}, v)
+	return v_1
+}
+
+func EncodeMono_1_i7(env *Env, wT struct {
+	Enc     func(*Env, Writer_1, ReachPage) (struct{}, error)
+	Dec     func(*Env, Reader_2) (ReachPage, error)
+	Direct0 func(*Env, text_1, ReachPage) text_1
+	Field   *struct {
+		Enc     func(*Env, Writer_1, ReachPage) (struct{}, error)
+		Dec     func(*Env, Reader_2) (ReachPage, error)
+		Direct0 func(*Env, text_1, ReachPage) text_1
+		Absent  func(ReachPage) bool
+		Empty   ReachPage
+	}
+}, v ReachPage) string {
+	env.task.Check()
+	v_1 := EncodeMono_i10(env, wT, Codec[ReachPage]{MaxBytes: int(0), MaxDepth: int(0)}, v)
+	return v_1
+}
+
+func EncodeMono_1_i8(env *Env, wT struct {
+	Enc     func(*Env, Writer_1, MachineView) (struct{}, error)
+	Dec     func(*Env, Reader_2) (MachineView, error)
+	Direct0 func(*Env, text_1, MachineView) text_1
+	Field   *struct {
+		Enc     func(*Env, Writer_1, MachineView) (struct{}, error)
+		Dec     func(*Env, Reader_2) (MachineView, error)
+		Direct0 func(*Env, text_1, MachineView) text_1
+		Absent  func(MachineView) bool
+		Empty   MachineView
+	}
+}, v MachineView) string {
+	env.task.Check()
+	v_1 := EncodeMono_i11(env, wT, Codec[MachineView]{MaxBytes: int(0), MaxDepth: int(0)}, v)
+	return v_1
+}
+
+func EncodeMono_1_i9(env *Env, wT struct {
+	Enc     func(*Env, Writer_1, NoSymbol) (struct{}, error)
+	Dec     func(*Env, Reader_2) (NoSymbol, error)
+	Direct0 func(*Env, text_1, NoSymbol) text_1
+	Field   *struct {
+		Enc     func(*Env, Writer_1, NoSymbol) (struct{}, error)
+		Dec     func(*Env, Reader_2) (NoSymbol, error)
+		Direct0 func(*Env, text_1, NoSymbol) text_1
+		Absent  func(NoSymbol) bool
+		Empty   NoSymbol
+	}
+}, v NoSymbol) string {
+	env.task.Check()
+	v_1 := EncodeMono_i12(env, wT, Codec[NoSymbol]{MaxBytes: int(0), MaxDepth: int(0)}, v)
+	return v_1
+}
+
+func EncodeMono_1_i10(env *Env, wT struct {
+	Enc     func(*Env, Writer_1, Ambiguous) (struct{}, error)
+	Dec     func(*Env, Reader_2) (Ambiguous, error)
+	Direct0 func(*Env, text_1, Ambiguous) text_1
+	Field   *struct {
+		Enc     func(*Env, Writer_1, Ambiguous) (struct{}, error)
+		Dec     func(*Env, Reader_2) (Ambiguous, error)
+		Direct0 func(*Env, text_1, Ambiguous) text_1
+		Absent  func(Ambiguous) bool
+		Empty   Ambiguous
+	}
+}, v Ambiguous) string {
+	env.task.Check()
+	v_1 := EncodeMono_i13(env, wT, Codec[Ambiguous]{MaxBytes: int(0), MaxDepth: int(0)}, v)
+	return v_1
+}
+
+func EncodeMono_1_i11(env *Env, wT struct {
+	Enc     func(*Env, Writer_1, NotCallable) (struct{}, error)
+	Dec     func(*Env, Reader_2) (NotCallable, error)
+	Direct0 func(*Env, text_1, NotCallable) text_1
+	Field   *struct {
+		Enc     func(*Env, Writer_1, NotCallable) (struct{}, error)
+		Dec     func(*Env, Reader_2) (NotCallable, error)
+		Direct0 func(*Env, text_1, NotCallable) text_1
+		Absent  func(NotCallable) bool
+		Empty   NotCallable
+	}
+}, v NotCallable) string {
+	env.task.Check()
+	v_1 := EncodeMono_i14(env, wT, Codec[NotCallable]{MaxBytes: int(0), MaxDepth: int(0)}, v)
+	return v_1
+}
+
+func EncodeMono_1_i12(env *Env, wT struct {
+	Enc     func(*Env, Writer_1, NoPackage) (struct{}, error)
+	Dec     func(*Env, Reader_2) (NoPackage, error)
+	Direct0 func(*Env, text_1, NoPackage) text_1
+	Field   *struct {
+		Enc     func(*Env, Writer_1, NoPackage) (struct{}, error)
+		Dec     func(*Env, Reader_2) (NoPackage, error)
+		Direct0 func(*Env, text_1, NoPackage) text_1
+		Absent  func(NoPackage) bool
+		Empty   NoPackage
+	}
+}, v NoPackage) string {
+	env.task.Check()
+	v_1 := EncodeMono_i15(env, wT, Codec[NoPackage]{MaxBytes: int(0), MaxDepth: int(0)}, v)
+	return v_1
+}
+
+func EncodeMono_1_i13(env *Env, wT struct {
+	Enc     func(*Env, Writer_1, NotMachine) (struct{}, error)
+	Dec     func(*Env, Reader_2) (NotMachine, error)
+	Direct0 func(*Env, text_1, NotMachine) text_1
+	Field   *struct {
+		Enc     func(*Env, Writer_1, NotMachine) (struct{}, error)
+		Dec     func(*Env, Reader_2) (NotMachine, error)
+		Direct0 func(*Env, text_1, NotMachine) text_1
+		Absent  func(NotMachine) bool
+		Empty   NotMachine
+	}
+}, v NotMachine) string {
+	env.task.Check()
+	v_1 := EncodeMono_i16(env, wT, Codec[NotMachine]{MaxBytes: int(0), MaxDepth: int(0)}, v)
+	return v_1
+}
+
+func textWireWrongKind(v WireWrongKind) string {
+	return "{" + "Path:" + v.Path + " Want:" + v.Want + "}"
+}
+
+type Command[C any] struct {
+	Name     string
+	Usage    string
+	Set      Set
+	Build    func(*Env, Values_1) (C, error)
+	Commands []Command[C]
+}
+
+func parseLevel[C any](env *Env, name string, usage string, groups []string, commands []Command[C], args []string) (C, error) {
+	env.task.Check()
+	var v string
+	if len(args) > int(0) {
+		v = args[int(0)]
+	} else {
+		v = ""
+	}
+	var first string = v
+	var rest []string = []string{}
+	for k, v_1 := range args {
+		var i int = k
+		var a string = v_1
+		if i > int(0) {
+			rest = Append[string](rest, a)
+		}
+		env.task.Check()
+	}
+	if len(args) > int(0) {
+		for _, v_3 := range commands {
+			var c_1 Command[C] = v_3
+			if (c_1.Name != "") && (c_1.Name == first) {
+				var v_4 string
+				if name == "" {
+					v_4 = c_1.Name
+				} else {
+					v_4 = ((name + " ") + c_1.Name)
+				}
+				var path_1 string = v_4
+				if len(c_1.Commands) > int(0) {
+					t := path_1
+					t_1 := c_1.Usage
+					v_5 := Append[string](slices.Clip(groups), c_1.Name)
+					v_6, err := parseLevel[C](env, t, t_1, v_5, c_1.Commands, rest)
+					if err != nil {
+						return *new(C), err
+					}
+					return v_6, nil
+				}
+				u := c_1.Set
+				u.Name = path_1
+				v_7, err_1 := (u).Parse(env, rest)
+				if err_1 != nil {
+					return *new(C), err_1
+				}
+				v_8, err_2 := c_1.Build(env, v_7)
+				if err_2 != nil {
+					return *new(C), err_2
+				}
+				return v_8, nil
+			}
+			env.task.Check()
+		}
+	}
+	v_9 := ownLeaf[C](commands)
+	s := v_9
+	switch s.tag {
+	case 0:
+		own_1 := s.v0
+		var leaf Command[C] = own_1.Value
+		if len(leaf.Commands) > int(0) {
+			return ergo.Never[C]("flag: a group's own leaf has no children", "std/flag/command.ergo:101:11"), nil
+		}
+		u_1 := leaf.Set
+		u_1.Name = name
+		v_10 := (u_1).helpAsked(args)
+		if v_10 {
+			v_11 := CommandUsage[C](name, usage, commands)
+			return *new(C), Help{Text: v_11}
+		}
+		b := (len(args) == int(0))
+		if !b {
+			v_12 := ergo.StringsHasPrefix(first, "-")
+			b = v_12
+		}
+		if b || (len(leaf.Set.Args) > int(0)) {
+			u_2 := leaf.Set
+			u_2.Name = name
+			v_13, err_3 := (u_2).Parse(env, args)
+			if err_3 != nil {
+				return *new(C), err_3
+			}
+			v_14, err_4 := leaf.Build(env, v_13)
+			if err_4 != nil {
+				return *new(C), err_4
+			}
+			return v_14, nil
+		}
+	case 1:
+		v_15 := (Set{Name: name, Usage: usage, Flags: []Flag{}, Args: []ArgSpec{}}).helpAsked(args)
+		if v_15 {
+			v_16 := CommandUsage[C](name, usage, commands)
+			return *new(C), Help{Text: v_16}
+		}
+	}
+	t_2 := first
+	v_17 := commandNames[C](commands)
+	return *new(C), UnknownCommand{Name: t_2, Known: v_17, Group: groups}
+}
+
+func parseLevelMono_i1(env *Env, name string, usage string, groups []string, commands []Command[Request], args []string) (Request, error) {
+	env.task.Check()
+	var v string
+	if len(args) > int(0) {
+		v = args[int(0)]
+	} else {
+		v = ""
+	}
+	var first string = v
+	var rest []string = []string{}
+	for k, v_1 := range args {
+		var i int = k
+		var a string = v_1
+		if i > int(0) {
+			rest = Append[string](rest, a)
+		}
+		env.task.Check()
+	}
+	if len(args) > int(0) {
+		for _, v_3 := range commands {
+			var c_1 Command[Request] = v_3
+			if (c_1.Name != "") && (c_1.Name == first) {
+				var v_4 string
+				if name == "" {
+					v_4 = c_1.Name
+				} else {
+					v_4 = ((name + " ") + c_1.Name)
+				}
+				var path_1 string = v_4
+				if len(c_1.Commands) > int(0) {
+					t := path_1
+					t_1 := c_1.Usage
+					v_5 := Append[string](slices.Clip(groups), c_1.Name)
+					v_6, err := parseLevelMono_i1(env, t, t_1, v_5, c_1.Commands, rest)
+					if err != nil {
+						return *new(Request), err
+					}
+					return v_6, nil
+				}
+				u := c_1.Set
+				u.Name = path_1
+				v_7, err_1 := (u).Parse(env, rest)
+				if err_1 != nil {
+					return *new(Request), err_1
+				}
+				v_8, err_2 := c_1.Build(env, v_7)
+				if err_2 != nil {
+					return *new(Request), err_2
+				}
+				return v_8, nil
+			}
+			env.task.Check()
+		}
+	}
+	v_9 := ownLeafMono_i1(commands)
+	s := v_9
+	switch s.tag {
+	case 0:
+		own_1 := s.v0
+		var leaf Command[Request] = own_1.Value
+		if len(leaf.Commands) > int(0) {
+			return ergo.Never[Request]("flag: a group's own leaf has no children", "std/flag/command.ergo:101:11"), nil
+		}
+		u_1 := leaf.Set
+		u_1.Name = name
+		v_10 := (u_1).helpAsked(args)
+		if v_10 {
+			v_11 := CommandUsageMono_i1(name, usage, commands)
+			return *new(Request), Help{Text: v_11}
+		}
+		b := (len(args) == int(0))
+		if !b {
+			v_12 := ergo.StringsHasPrefix(first, "-")
+			b = v_12
+		}
+		if b || (len(leaf.Set.Args) > int(0)) {
+			u_2 := leaf.Set
+			u_2.Name = name
+			v_13, err_3 := (u_2).Parse(env, args)
+			if err_3 != nil {
+				return *new(Request), err_3
+			}
+			v_14, err_4 := leaf.Build(env, v_13)
+			if err_4 != nil {
+				return *new(Request), err_4
+			}
+			return v_14, nil
+		}
+	case 1:
+		v_15 := (Set{Name: name, Usage: usage, Flags: []Flag{}, Args: []ArgSpec{}}).helpAsked(args)
+		if v_15 {
+			v_16 := CommandUsageMono_i1(name, usage, commands)
+			return *new(Request), Help{Text: v_16}
+		}
+	}
+	t_2 := first
+	v_17 := commandNamesMono_i1(commands)
+	return *new(Request), UnknownCommand{Name: t_2, Known: v_17, Group: groups}
 }
 
 func EncodeMono_i4(env *Env, wT struct {
@@ -8997,10 +9300,6 @@ func EncodeMono_i15(env *Env, wT struct {
 	return v_3
 }
 
-func textNotMachine(v NotMachine) string {
-	return "{" + "Address:" + v.Address + " Kind:" + v.Kind + "}"
-}
-
 func EncodeMono_i16(env *Env, wT struct {
 	Enc     func(*Env, Writer_1, NotMachine) (struct{}, error)
 	Dec     func(*Env, Reader_2) (NotMachine, error)
@@ -9021,299 +9320,6 @@ func EncodeMono_i16(env *Env, wT struct {
 	*&t.v = wT.Direct0(env, *&t.v, v)
 	v_3 := (&t.v).finish(env, v_1)
 	return v_3
-}
-
-type WireWrongKind struct {
-	Path string
-	Want string
-}
-
-func (e WireWrongKind) Error() string {
-	return "WireWrongKind" + textWireWrongKind(e)
-}
-
-func plain(s string) bool {
-	t := (Range[int]{Start: int(0), End: len(s)})
-	for i := t.Start; i < t.End; i++ {
-		var i_1 int = i
-		var b uint8 = s[i_1]
-		if (b >= uint8(128)) || ("00000000000000000000000000000000110111011111111111111111111101011111111111111111111111111111011111111111111111111111111111111110"[int(b)] != uint8(49)) {
-			return false
-		}
-	}
-	return true
-}
-
-func FromBytesOwned(bs []uint8) string {
-	v := ergo.StringsBuilderTextOwned(bs)
-	return v
-}
-
-func FromBytes(bs []uint8) string {
-	return FromBytesOwned(slices.Clone(bs))
-}
-
-type Seq[T any] func(*Env, func(*Env, T) (bool, error)) (struct{}, error)
-
-func Collect[T any](env *Env, s Seq[T]) []T {
-	env.task.Check()
-	var out []T = []T{}
-	t := s
-	for v := range func(yield func(T) bool) {
-		_, _ = t(env, func(_ *Env, v T) (bool, error) {
-			return yield(v), nil
-		})
-	} {
-		var v_1 T = v
-		out = Append[T](out, v_1)
-		env.task.Check()
-	}
-	return out
-}
-
-func CollectMono_i1(env *Env, s Seq[string]) []string {
-	env.task.Check()
-	var out []string = []string{}
-	t := s
-	for v := range func(yield func(string) bool) {
-		_, _ = t(env, func(_ *Env, v string) (bool, error) {
-			return yield(v), nil
-		})
-	} {
-		var v_1 string = v
-		out = Append[string](out, v_1)
-		env.task.Check()
-	}
-	return out
-}
-
-func IndexFuncMono_i2(env *Env, xs []Alt, f func(*Env, Alt) (bool, error)) (int, error) {
-	env.task.Check()
-	for k, v := range xs {
-		var i int = k
-		var x Alt = v
-		v_1, err := f(env, x)
-		if err != nil {
-			return 0, err
-		}
-		if v_1 {
-			return i, nil
-		}
-		env.task.Check()
-	}
-	return int(-1), nil
-}
-
-type Command[C any] struct {
-	Name     string
-	Usage    string
-	Set      Set
-	Build    func(*Env, Values_1) (C, error)
-	Commands []Command[C]
-}
-
-func parseLevel[C any](env *Env, name string, usage string, groups []string, commands []Command[C], args []string) (C, error) {
-	env.task.Check()
-	var v string
-	if len(args) > int(0) {
-		v = args[int(0)]
-	} else {
-		v = ""
-	}
-	var first string = v
-	var rest []string = []string{}
-	for k, v_1 := range args {
-		var i int = k
-		var a string = v_1
-		if i > int(0) {
-			rest = Append[string](rest, a)
-		}
-		env.task.Check()
-	}
-	if len(args) > int(0) {
-		for _, v_3 := range commands {
-			var c_1 Command[C] = v_3
-			if (c_1.Name != "") && (c_1.Name == first) {
-				var v_4 string
-				if name == "" {
-					v_4 = c_1.Name
-				} else {
-					v_4 = ((name + " ") + c_1.Name)
-				}
-				var path_1 string = v_4
-				if len(c_1.Commands) > int(0) {
-					t := path_1
-					t_1 := c_1.Usage
-					v_5 := Append[string](slices.Clip(groups), c_1.Name)
-					v_6, err := parseLevel[C](env, t, t_1, v_5, c_1.Commands, rest)
-					if err != nil {
-						return *new(C), err
-					}
-					return v_6, nil
-				}
-				u := c_1.Set
-				u.Name = path_1
-				v_7, err_1 := (u).Parse(env, rest)
-				if err_1 != nil {
-					return *new(C), err_1
-				}
-				v_8, err_2 := c_1.Build(env, v_7)
-				if err_2 != nil {
-					return *new(C), err_2
-				}
-				return v_8, nil
-			}
-			env.task.Check()
-		}
-	}
-	v_9 := ownLeaf[C](commands)
-	s := v_9
-	switch s.tag {
-	case 0:
-		own_1 := s.v0
-		var leaf Command[C] = own_1.Value
-		if len(leaf.Commands) > int(0) {
-			return ergo.Never[C]("flag: a group's own leaf has no children", "std/flag/command.ergo:101:11"), nil
-		}
-		u_1 := leaf.Set
-		u_1.Name = name
-		v_10 := (u_1).helpAsked(args)
-		if v_10 {
-			v_11 := CommandUsage[C](name, usage, commands)
-			return *new(C), Help{Text: v_11}
-		}
-		b := (len(args) == int(0))
-		if !b {
-			v_12 := ergo.StringsHasPrefix(first, "-")
-			b = v_12
-		}
-		if b || (len(leaf.Set.Args) > int(0)) {
-			u_2 := leaf.Set
-			u_2.Name = name
-			v_13, err_3 := (u_2).Parse(env, args)
-			if err_3 != nil {
-				return *new(C), err_3
-			}
-			v_14, err_4 := leaf.Build(env, v_13)
-			if err_4 != nil {
-				return *new(C), err_4
-			}
-			return v_14, nil
-		}
-	case 1:
-		v_15 := (Set{Name: name, Usage: usage, Flags: []Flag{}, Args: []ArgSpec{}}).helpAsked(args)
-		if v_15 {
-			v_16 := CommandUsage[C](name, usage, commands)
-			return *new(C), Help{Text: v_16}
-		}
-	}
-	t_2 := first
-	v_17 := commandNames[C](commands)
-	return *new(C), UnknownCommand{Name: t_2, Known: v_17, Group: groups}
-}
-
-func parseLevelMono_i1(env *Env, name string, usage string, groups []string, commands []Command[Request], args []string) (Request, error) {
-	env.task.Check()
-	var v string
-	if len(args) > int(0) {
-		v = args[int(0)]
-	} else {
-		v = ""
-	}
-	var first string = v
-	var rest []string = []string{}
-	for k, v_1 := range args {
-		var i int = k
-		var a string = v_1
-		if i > int(0) {
-			rest = Append[string](rest, a)
-		}
-		env.task.Check()
-	}
-	if len(args) > int(0) {
-		for _, v_3 := range commands {
-			var c_1 Command[Request] = v_3
-			if (c_1.Name != "") && (c_1.Name == first) {
-				var v_4 string
-				if name == "" {
-					v_4 = c_1.Name
-				} else {
-					v_4 = ((name + " ") + c_1.Name)
-				}
-				var path_1 string = v_4
-				if len(c_1.Commands) > int(0) {
-					t := path_1
-					t_1 := c_1.Usage
-					v_5 := Append[string](slices.Clip(groups), c_1.Name)
-					v_6, err := parseLevelMono_i1(env, t, t_1, v_5, c_1.Commands, rest)
-					if err != nil {
-						return *new(Request), err
-					}
-					return v_6, nil
-				}
-				u := c_1.Set
-				u.Name = path_1
-				v_7, err_1 := (u).Parse(env, rest)
-				if err_1 != nil {
-					return *new(Request), err_1
-				}
-				v_8, err_2 := c_1.Build(env, v_7)
-				if err_2 != nil {
-					return *new(Request), err_2
-				}
-				return v_8, nil
-			}
-			env.task.Check()
-		}
-	}
-	v_9 := ownLeafMono_i1(commands)
-	s := v_9
-	switch s.tag {
-	case 0:
-		own_1 := s.v0
-		var leaf Command[Request] = own_1.Value
-		if len(leaf.Commands) > int(0) {
-			return ergo.Never[Request]("flag: a group's own leaf has no children", "std/flag/command.ergo:101:11"), nil
-		}
-		u_1 := leaf.Set
-		u_1.Name = name
-		v_10 := (u_1).helpAsked(args)
-		if v_10 {
-			v_11 := CommandUsageMono_i1(name, usage, commands)
-			return *new(Request), Help{Text: v_11}
-		}
-		b := (len(args) == int(0))
-		if !b {
-			v_12 := ergo.StringsHasPrefix(first, "-")
-			b = v_12
-		}
-		if b || (len(leaf.Set.Args) > int(0)) {
-			u_2 := leaf.Set
-			u_2.Name = name
-			v_13, err_3 := (u_2).Parse(env, args)
-			if err_3 != nil {
-				return *new(Request), err_3
-			}
-			v_14, err_4 := leaf.Build(env, v_13)
-			if err_4 != nil {
-				return *new(Request), err_4
-			}
-			return v_14, nil
-		}
-	case 1:
-		v_15 := (Set{Name: name, Usage: usage, Flags: []Flag{}, Args: []ArgSpec{}}).helpAsked(args)
-		if v_15 {
-			v_16 := CommandUsageMono_i1(name, usage, commands)
-			return *new(Request), Help{Text: v_16}
-		}
-	}
-	t_2 := first
-	v_17 := commandNamesMono_i1(commands)
-	return *new(Request), UnknownCommand{Name: t_2, Known: v_17, Group: groups}
-}
-
-func textWireWrongKind(v WireWrongKind) string {
-	return "{" + "Path:" + v.Path + " Want:" + v.Want + "}"
 }
 
 type Set struct {
@@ -13970,19 +13976,21 @@ var ergoDecls = [...]ergoDecl{
 	{Name: "ApiDiff", File: "tool.ergo", Line: 66, End: 77},
 	{Name: "Machines", File: "tool.ergo", Line: 82, End: 111},
 	{Name: "Call", File: "codeapi/api.ergo", Line: 129, End: 188},
-	{Name: "Commands", File: "codecli/cli.ergo", Line: 21, End: 23},
-	{Name: "commandDescribe", File: "codecli/cli.ergo", Line: 26, End: 30},
-	{Name: "commandSymbols", File: "codecli/cli.ergo", Line: 33, End: 43},
-	{Name: "commandSymbol", File: "codecli/cli.ergo", Line: 46, End: 52},
-	{Name: "commandReferences", File: "codecli/cli.ergo", Line: 55, End: 63},
-	{Name: "commandCalls", File: "codecli/cli.ergo", Line: 66, End: 75},
-	{Name: "commandApi", File: "codecli/cli.ergo", Line: 78, End: 83},
-	{Name: "commandReach", File: "codecli/cli.ergo", Line: 86, End: 93},
-	{Name: "commandMachineOf", File: "codecli/cli.ergo", Line: 96, End: 102},
-	{Name: "Parse", File: "codecli/cli.ergo", Line: 116, End: 118},
-	{Name: "answer", File: "codecli/cli.ergo", Line: 248, End: 256},
-	{Name: "failed", File: "codecli/cli.ergo", Line: 261, End: 267},
-	{Name: "Run", File: "codecli/cli.ergo", Line: 274, End: 338},
+	{Name: "Commands", File: "codecli/cli.ergo", Line: 23, End: 25},
+	{Name: "commandDescribe", File: "codecli/cli.ergo", Line: 28, End: 32},
+	{Name: "commandSymbols", File: "codecli/cli.ergo", Line: 35, End: 45},
+	{Name: "commandSymbol", File: "codecli/cli.ergo", Line: 48, End: 54},
+	{Name: "commandReferences", File: "codecli/cli.ergo", Line: 57, End: 65},
+	{Name: "commandCalls", File: "codecli/cli.ergo", Line: 68, End: 77},
+	{Name: "commandApi", File: "codecli/cli.ergo", Line: 80, End: 85},
+	{Name: "commandReach", File: "codecli/cli.ergo", Line: 88, End: 95},
+	{Name: "commandMachineOf", File: "codecli/cli.ergo", Line: 98, End: 104},
+	{Name: "Parse", File: "codecli/cli.ergo", Line: 118, End: 120},
+	{Name: "answer", File: "codecli/cli.ergo", Line: 250, End: 258},
+	{Name: "failed", File: "codecli/cli.ergo", Line: 263, End: 269},
+	{Name: "Show", File: "codecli/cli.ergo", Line: 274, End: 325},
+	{Name: "runOver", File: "codecli/cli.ergo", Line: 426, End: 441},
+	{Name: "Run", File: "codecli/cli.ergo", Line: 448, End: 450},
 }
 
 // ergoInlines lists the program's inlined calls: each one's call table
@@ -14045,96 +14053,98 @@ var ergoCalls = [...]ergoCall{
 	{Func: 19, Callee: 8, File: 21, Line: 164, Column: 11},
 	{Func: 19, Callee: 26, File: 21, Line: 170, Column: 11},
 	{Func: 19, Callee: 16, File: 21, Line: 178, Column: 11},
-	{Func: 27, Callee: 28, File: 29, Line: 22, Column: 26},
-	{Func: 27, Callee: 30, File: 29, Line: 22, Column: 45},
-	{Func: 27, Callee: 31, File: 29, Line: 22, Column: 63},
-	{Func: 27, Callee: 32, File: 29, Line: 22, Column: 80},
-	{Func: 27, Callee: 33, File: 29, Line: 22, Column: 101},
-	{Func: 27, Callee: 34, File: 29, Line: 22, Column: 117},
-	{Func: 27, Callee: 35, File: 29, Line: 22, Column: 131},
-	{Func: 27, Callee: 36, File: 29, Line: 22, Column: 147},
-	{Func: 37, Callee: 38, File: 29, Line: 34, Column: 11},
-	{Func: 37, Callee: 38, File: 29, Line: 35, Column: 11},
+	{Func: 27, Callee: 28, File: 29, Line: 24, Column: 26},
+	{Func: 27, Callee: 30, File: 29, Line: 24, Column: 45},
+	{Func: 27, Callee: 31, File: 29, Line: 24, Column: 63},
+	{Func: 27, Callee: 32, File: 29, Line: 24, Column: 80},
+	{Func: 27, Callee: 33, File: 29, Line: 24, Column: 101},
+	{Func: 27, Callee: 34, File: 29, Line: 24, Column: 117},
+	{Func: 27, Callee: 35, File: 29, Line: 24, Column: 131},
+	{Func: 27, Callee: 36, File: 29, Line: 24, Column: 147},
 	{Func: 37, Callee: 38, File: 29, Line: 36, Column: 11},
 	{Func: 37, Callee: 38, File: 29, Line: 37, Column: 11},
-	{Func: 37, Callee: 39, File: 29, Line: 38, Column: 11},
-	{Func: 37, Callee: 39, File: 29, Line: 39, Column: 11},
-	{Func: 37, Callee: 40, File: 29, Line: 41, Column: 52},
-	{Func: 37, Callee: 40, File: 29, Line: 41, Column: 70},
-	{Func: 37, Callee: 40, File: 29, Line: 41, Column: 87},
-	{Func: 37, Callee: 40, File: 29, Line: 41, Column: 107},
-	{Func: 37, Callee: 41, File: 29, Line: 41, Column: 126},
-	{Func: 37, Callee: 41, File: 29, Line: 41, Column: 144},
-	{Func: 42, Callee: 43, File: 29, Line: 47, Column: 11},
-	{Func: 42, Callee: 44, File: 29, Line: 49, Column: 12},
-	{Func: 45, Callee: 46, File: 29, Line: 56, Column: 11},
-	{Func: 45, Callee: 47, File: 29, Line: 57, Column: 11},
-	{Func: 45, Callee: 48, File: 29, Line: 57, Column: 11},
-	{Func: 45, Callee: 39, File: 29, Line: 58, Column: 11},
-	{Func: 45, Callee: 39, File: 29, Line: 59, Column: 11},
-	{Func: 45, Callee: 49, File: 29, Line: 61, Column: 50},
-	{Func: 45, Callee: 50, File: 29, Line: 61, Column: 68},
-	{Func: 45, Callee: 41, File: 29, Line: 61, Column: 87},
-	{Func: 45, Callee: 41, File: 29, Line: 61, Column: 105},
-	{Func: 51, Callee: 46, File: 29, Line: 67, Column: 11},
-	{Func: 51, Callee: 38, File: 29, Line: 68, Column: 11},
-	{Func: 51, Callee: 39, File: 29, Line: 69, Column: 11},
-	{Func: 51, Callee: 39, File: 29, Line: 70, Column: 11},
+	{Func: 37, Callee: 38, File: 29, Line: 38, Column: 11},
+	{Func: 37, Callee: 38, File: 29, Line: 39, Column: 11},
+	{Func: 37, Callee: 39, File: 29, Line: 40, Column: 11},
+	{Func: 37, Callee: 39, File: 29, Line: 41, Column: 11},
+	{Func: 37, Callee: 40, File: 29, Line: 43, Column: 52},
+	{Func: 37, Callee: 40, File: 29, Line: 43, Column: 70},
+	{Func: 37, Callee: 40, File: 29, Line: 43, Column: 87},
+	{Func: 37, Callee: 40, File: 29, Line: 43, Column: 107},
+	{Func: 37, Callee: 41, File: 29, Line: 43, Column: 126},
+	{Func: 37, Callee: 41, File: 29, Line: 43, Column: 144},
+	{Func: 42, Callee: 43, File: 29, Line: 49, Column: 11},
+	{Func: 42, Callee: 44, File: 29, Line: 51, Column: 12},
+	{Func: 45, Callee: 46, File: 29, Line: 58, Column: 11},
+	{Func: 45, Callee: 47, File: 29, Line: 59, Column: 11},
+	{Func: 45, Callee: 48, File: 29, Line: 59, Column: 11},
+	{Func: 45, Callee: 39, File: 29, Line: 60, Column: 11},
+	{Func: 45, Callee: 39, File: 29, Line: 61, Column: 11},
+	{Func: 45, Callee: 49, File: 29, Line: 63, Column: 50},
+	{Func: 45, Callee: 50, File: 29, Line: 63, Column: 68},
+	{Func: 45, Callee: 41, File: 29, Line: 63, Column: 87},
+	{Func: 45, Callee: 41, File: 29, Line: 63, Column: 105},
+	{Func: 51, Callee: 46, File: 29, Line: 69, Column: 11},
+	{Func: 51, Callee: 38, File: 29, Line: 70, Column: 11},
 	{Func: 51, Callee: 39, File: 29, Line: 71, Column: 11},
-	{Func: 51, Callee: 49, File: 29, Line: 73, Column: 46},
-	{Func: 51, Callee: 40, File: 29, Line: 73, Column: 68},
-	{Func: 51, Callee: 41, File: 29, Line: 73, Column: 86},
-	{Func: 51, Callee: 41, File: 29, Line: 73, Column: 105},
-	{Func: 51, Callee: 41, File: 29, Line: 73, Column: 123},
-	{Func: 52, Callee: 38, File: 29, Line: 79, Column: 11},
-	{Func: 52, Callee: 40, File: 29, Line: 81, Column: 48},
-	{Func: 53, Callee: 46, File: 29, Line: 87, Column: 11},
-	{Func: 53, Callee: 39, File: 29, Line: 88, Column: 11},
-	{Func: 53, Callee: 39, File: 29, Line: 89, Column: 11},
-	{Func: 53, Callee: 49, File: 29, Line: 91, Column: 47},
-	{Func: 53, Callee: 41, File: 29, Line: 91, Column: 66},
-	{Func: 53, Callee: 41, File: 29, Line: 91, Column: 84},
-	{Func: 54, Callee: 43, File: 29, Line: 97, Column: 11},
-	{Func: 54, Callee: 44, File: 29, Line: 99, Column: 12},
-	{Func: 55, Callee: 56, File: 29, Line: 106, Column: 8},
-	{Func: 57, Callee: 58, File: 29, Line: 117, Column: 6},
-	{Func: 57, Callee: 59, File: 29, Line: 117, Column: 65},
-	{Func: 60, Callee: 61, File: 29, Line: 265, Column: 24},
-	{Func: 0, Callee: 62, File: 29, Line: 279, Column: 11},
-	{Func: 0, Callee: 63, File: 29, Line: 282, Column: 10},
-	{Func: 0, Callee: 64, File: 29, Line: 286, Column: 31},
-	{Func: 0, Callee: 65, File: 29, Line: 288, Column: 8},
-	{Func: 0, Callee: 66, File: 29, Line: 293, Column: 18},
-	{Func: 0, Callee: 67, File: 29, Line: 294, Column: 4},
-	{Func: 0, Callee: 66, File: 29, Line: 297, Column: 18},
-	{Func: 0, Callee: 67, File: 29, Line: 298, Column: 4},
-	{Func: 0, Callee: 66, File: 29, Line: 301, Column: 18},
-	{Func: 0, Callee: 67, File: 29, Line: 302, Column: 4},
-	{Func: 0, Callee: 66, File: 29, Line: 305, Column: 18},
-	{Func: 0, Callee: 67, File: 29, Line: 306, Column: 4},
-	{Func: 0, Callee: 66, File: 29, Line: 309, Column: 18},
-	{Func: 0, Callee: 67, File: 29, Line: 310, Column: 4},
-	{Func: 0, Callee: 66, File: 29, Line: 313, Column: 18},
-	{Func: 0, Callee: 67, File: 29, Line: 314, Column: 4},
-	{Func: 0, Callee: 66, File: 29, Line: 317, Column: 18},
-	{Func: 0, Callee: 67, File: 29, Line: 318, Column: 4},
-	{Func: 0, Callee: 66, File: 29, Line: 321, Column: 18},
-	{Func: 0, Callee: 67, File: 29, Line: 322, Column: 4},
-	{Func: 0, Callee: 68, File: 29, Line: 327, Column: 4},
-	{Func: 0, Callee: 69, File: 29, Line: 327, Column: 19},
-	{Func: 0, Callee: 66, File: 29, Line: 327, Column: 42},
-	{Func: 0, Callee: 68, File: 29, Line: 329, Column: 4},
-	{Func: 0, Callee: 69, File: 29, Line: 329, Column: 19},
-	{Func: 0, Callee: 66, File: 29, Line: 329, Column: 43},
-	{Func: 0, Callee: 68, File: 29, Line: 331, Column: 4},
-	{Func: 0, Callee: 69, File: 29, Line: 331, Column: 19},
-	{Func: 0, Callee: 66, File: 29, Line: 331, Column: 45},
-	{Func: 0, Callee: 68, File: 29, Line: 333, Column: 4},
-	{Func: 0, Callee: 69, File: 29, Line: 333, Column: 19},
-	{Func: 0, Callee: 66, File: 29, Line: 333, Column: 43},
-	{Func: 0, Callee: 68, File: 29, Line: 335, Column: 4},
-	{Func: 0, Callee: 69, File: 29, Line: 335, Column: 19},
-	{Func: 0, Callee: 66, File: 29, Line: 335, Column: 44},
+	{Func: 51, Callee: 39, File: 29, Line: 72, Column: 11},
+	{Func: 51, Callee: 39, File: 29, Line: 73, Column: 11},
+	{Func: 51, Callee: 49, File: 29, Line: 75, Column: 46},
+	{Func: 51, Callee: 40, File: 29, Line: 75, Column: 68},
+	{Func: 51, Callee: 41, File: 29, Line: 75, Column: 86},
+	{Func: 51, Callee: 41, File: 29, Line: 75, Column: 105},
+	{Func: 51, Callee: 41, File: 29, Line: 75, Column: 123},
+	{Func: 52, Callee: 38, File: 29, Line: 81, Column: 11},
+	{Func: 52, Callee: 40, File: 29, Line: 83, Column: 48},
+	{Func: 53, Callee: 46, File: 29, Line: 89, Column: 11},
+	{Func: 53, Callee: 39, File: 29, Line: 90, Column: 11},
+	{Func: 53, Callee: 39, File: 29, Line: 91, Column: 11},
+	{Func: 53, Callee: 49, File: 29, Line: 93, Column: 47},
+	{Func: 53, Callee: 41, File: 29, Line: 93, Column: 66},
+	{Func: 53, Callee: 41, File: 29, Line: 93, Column: 84},
+	{Func: 54, Callee: 43, File: 29, Line: 99, Column: 11},
+	{Func: 54, Callee: 44, File: 29, Line: 101, Column: 12},
+	{Func: 55, Callee: 56, File: 29, Line: 108, Column: 8},
+	{Func: 57, Callee: 58, File: 29, Line: 119, Column: 6},
+	{Func: 57, Callee: 59, File: 29, Line: 119, Column: 65},
+	{Func: 60, Callee: 61, File: 29, Line: 267, Column: 24},
+	{Func: 62, Callee: 63, File: 29, Line: 280, Column: 18},
+	{Func: 62, Callee: 64, File: 29, Line: 281, Column: 4},
+	{Func: 62, Callee: 63, File: 29, Line: 284, Column: 18},
+	{Func: 62, Callee: 64, File: 29, Line: 285, Column: 4},
+	{Func: 62, Callee: 63, File: 29, Line: 288, Column: 18},
+	{Func: 62, Callee: 64, File: 29, Line: 289, Column: 4},
+	{Func: 62, Callee: 63, File: 29, Line: 292, Column: 18},
+	{Func: 62, Callee: 64, File: 29, Line: 293, Column: 4},
+	{Func: 62, Callee: 63, File: 29, Line: 296, Column: 18},
+	{Func: 62, Callee: 64, File: 29, Line: 297, Column: 4},
+	{Func: 62, Callee: 63, File: 29, Line: 300, Column: 18},
+	{Func: 62, Callee: 64, File: 29, Line: 301, Column: 4},
+	{Func: 62, Callee: 63, File: 29, Line: 304, Column: 18},
+	{Func: 62, Callee: 64, File: 29, Line: 305, Column: 4},
+	{Func: 62, Callee: 63, File: 29, Line: 308, Column: 18},
+	{Func: 62, Callee: 64, File: 29, Line: 309, Column: 4},
+	{Func: 62, Callee: 65, File: 29, Line: 314, Column: 4},
+	{Func: 62, Callee: 66, File: 29, Line: 314, Column: 19},
+	{Func: 62, Callee: 63, File: 29, Line: 314, Column: 42},
+	{Func: 62, Callee: 65, File: 29, Line: 316, Column: 4},
+	{Func: 62, Callee: 66, File: 29, Line: 316, Column: 19},
+	{Func: 62, Callee: 63, File: 29, Line: 316, Column: 43},
+	{Func: 62, Callee: 65, File: 29, Line: 318, Column: 4},
+	{Func: 62, Callee: 66, File: 29, Line: 318, Column: 19},
+	{Func: 62, Callee: 63, File: 29, Line: 318, Column: 45},
+	{Func: 62, Callee: 65, File: 29, Line: 320, Column: 4},
+	{Func: 62, Callee: 66, File: 29, Line: 320, Column: 19},
+	{Func: 62, Callee: 63, File: 29, Line: 320, Column: 43},
+	{Func: 62, Callee: 65, File: 29, Line: 322, Column: 4},
+	{Func: 62, Callee: 66, File: 29, Line: 322, Column: 19},
+	{Func: 62, Callee: 63, File: 29, Line: 322, Column: 44},
+	{Func: 67, Callee: 68, File: 29, Line: 431, Column: 11},
+	{Func: 67, Callee: 69, File: 29, Line: 434, Column: 10},
+	{Func: 67, Callee: 70, File: 29, Line: 438, Column: 31},
+	{Func: 67, Callee: 71, File: 29, Line: 440, Column: 2},
+	{Func: 67, Callee: 72, File: 29, Line: 440, Column: 7},
+	{Func: 0, Callee: 73, File: 29, Line: 449, Column: 2},
 }
 
 var ergoCallNames = [...]string{
@@ -14200,14 +14210,18 @@ var ergoCallNames = [...]string{
 	"codetool/codecli.Commands",
 	"failed",
 	"rpc.TagOf",
-	"[]string.Append",
-	"codetool/codecli.Parse",
-	"flag.Describe",
-	"codetool/codeapi.Call",
+	"Show",
 	"rpc.Encode",
 	"codetool/codecli.answer",
 	"codetool/codecli.failed",
 	"rpc.Tagged",
+	"runOver",
+	"[]string.Append",
+	"codetool/codecli.Parse",
+	"flag.Describe",
+	"codetool/codecli.Show",
+	"answer",
+	"codetool/codecli.runOver",
 }
 
 func init() {
@@ -14668,696 +14682,79 @@ func Machines_1(env *Env, tables string, asJSON bool) []string {
 	/*line tool.ergo:110:61*/
 }
 
-//line codecli/cli.ergo:18:1
-type Output struct {
-	/*line codecli/cli.ergo:18:1*/ Out string
-	/*line codecli/cli.ergo:18:1*/ Err string
-	/*line codecli/cli.ergo:18:1*/ Code int
-	/*line codecli/cli.ergo:18:1*/
-}
-
-//line codecli/cli.ergo:274:1
+//line codecli/cli.ergo:448:1
 func Run_2(env *Env, args []string) Output {
-//line codecli/cli.ergo:274:1
+//line codecli/cli.ergo:448:1
 	env.task.Check()
-//line codecli/cli.ergo:275:2
-	var asJSON bool = ((len(args) > int(0)) && (( /*line codecli/cli.ergo:275:33*/ args[int(0)] == "--json") || ( /*line codecli/cli.ergo:275:56*/ args[int(0)] == "-json")))
-//line codecli/cli.ergo:276:2
+//line codecli/cli.ergo:449:2
+	v := runOver(env, args, func(env_1 *Env, p Request) (Outcome_1, error) {
+		/*line codecli/cli.ergo:449:2*/ return Call_1(env_1, p), nil
+		/*line codecli/cli.ergo:449:2*/
+	})
+	/*line codecli/cli.ergo:449:2*/ return v
+	/*line codecli/cli.ergo:449:2*/
+}
+
+//line codecli/cli.ergo:426:1
+func runOver(env *Env, args []string, answer_1 func(*Env, Request) (Outcome_1, error)) Output {
+//line codecli/cli.ergo:426:1
+	env.task.Check()
+//line codecli/cli.ergo:427:2
+	var asJSON bool = ((len(args) > int(0)) && (( /*line codecli/cli.ergo:427:33*/ args[int(0)] == "--json") || ( /*line codecli/cli.ergo:427:56*/ args[int(0)] == "-json")))
+//line codecli/cli.ergo:428:2
 	var rest []string = []string{}
-//line codecli/cli.ergo:277:2
+//line codecli/cli.ergo:429:2
 	for k, v := range args {
-		/*line codecli/cli.ergo:277:2*/ var i int = k
-		/*line codecli/cli.ergo:277:2*/ var a string = v
-//line codecli/cli.ergo:278:3
+		/*line codecli/cli.ergo:429:2*/ var i int = k
+		/*line codecli/cli.ergo:429:2*/ var a string = v
+//line codecli/cli.ergo:430:3
 		if (i > int(0)) || (!asJSON) {
-//line codecli/cli.ergo:279:4
-//line codecli/cli.ergo:279:4
-			rest = /*line codecli/cli.ergo:279:11*/ Append[string](rest, a)
-			/*line codecli/cli.ergo:279:4*/
+//line codecli/cli.ergo:431:4
+//line codecli/cli.ergo:431:4
+			rest = /*line codecli/cli.ergo:431:11*/ Append[string](rest, a)
+			/*line codecli/cli.ergo:431:4*/
 		}
-//line codecli/cli.ergo:277:2
+//line codecli/cli.ergo:429:2
 		env.task.Check()
-		/*line codecli/cli.ergo:277:2*/
+		/*line codecli/cli.ergo:429:2*/
 	}
-//line codecli/cli.ergo:282:2
-//line codecli/cli.ergo:282:10
+//line codecli/cli.ergo:434:2
+//line codecli/cli.ergo:434:10
 	v_2, err := Parse(env, rest)
-//line codecli/cli.ergo:282:2
+//line codecli/cli.ergo:434:2
 	var v_3 Request
-	/*line codecli/cli.ergo:282:2*/ if err != nil {
-		/*line codecli/cli.ergo:282:2*/ switch n := err.(type) {
-		/*line codecli/cli.ergo:282:2*/ case Help:
-			/*line codecli/cli.ergo:282:2*/ _ = n
-			/*line codecli/cli.ergo:282:2*/ h := n
-//line codecli/cli.ergo:284:3
+	/*line codecli/cli.ergo:434:2*/ if err != nil {
+		/*line codecli/cli.ergo:434:2*/ switch n := err.(type) {
+		/*line codecli/cli.ergo:434:2*/ case Help:
+			/*line codecli/cli.ergo:434:2*/ _ = n
+			/*line codecli/cli.ergo:434:2*/ h := n
+//line codecli/cli.ergo:436:3
 			return Output{Out: h.Text, Err: "", Code: int(0)}
-			/*line codecli/cli.ergo:284:3*/
+			/*line codecli/cli.ergo:436:3*/
 		default:
-			/*line codecli/cli.ergo:284:3*/ err_1 := err
-//line codecli/cli.ergo:286:3
-//line codecli/cli.ergo:286:31
+			/*line codecli/cli.ergo:436:3*/ err_1 := err
+//line codecli/cli.ergo:438:3
+//line codecli/cli.ergo:438:31
 			v_4 := Describe_3(err_1.(Failure_1))
-//line codecli/cli.ergo:286:3
+//line codecli/cli.ergo:438:3
 			return Output{Out: "", Err: (v_4 + "\n"), Code: int(2)}
-			/*line codecli/cli.ergo:286:3*/
+			/*line codecli/cli.ergo:438:3*/
 		}
-		/*line codecli/cli.ergo:286:3*/
+		/*line codecli/cli.ergo:438:3*/
 	} else {
-		/*line codecli/cli.ergo:286:3*/ v_3 = v_2
-		/*line codecli/cli.ergo:286:3*/
+		/*line codecli/cli.ergo:438:3*/ v_3 = v_2
+		/*line codecli/cli.ergo:438:3*/
 	}
-	/*line codecli/cli.ergo:286:3*/ var r Request = v_3
-//line codecli/cli.ergo:288:2
-//line codecli/cli.ergo:288:8
-	v_5 := Call_1(env, r)
-//line codecli/cli.ergo:288:2
-	switch v_6 := v_5.(type) {
-	/*line codecli/cli.ergo:288:2*/ case Done:
-		/*line codecli/cli.ergo:288:2*/ done := v_6
-//line codecli/cli.ergo:290:3
-		switch v_7 := done.Reply.(type) {
-		/*line codecli/cli.ergo:290:3*/ case DescribeReply:
-			/*line codecli/cli.ergo:290:3*/ reply_2 := v_7
-//line codecli/cli.ergo:292:4
-			var v_8 Summary = reply_2.Value
-//line codecli/cli.ergo:293:4
-//line codecli/cli.ergo:293:18
-			v_11 := EncodeMono_1_i1(env, struct {
-				/*line codecli/cli.ergo:293:18*/ Enc func(*Env, Writer_1, Summary) (struct{}, error)
-				/*line codecli/cli.ergo:293:18*/ Dec func(*Env, Reader_2) (Summary, error)
-				/*line codecli/cli.ergo:293:18*/ Direct0 func(*Env, text_1, Summary) text_1
-				/*line codecli/cli.ergo:293:18*/ Field *struct {
-					/*line codecli/cli.ergo:293:18*/ Enc func(*Env, Writer_1, Summary) (struct{}, error)
-					/*line codecli/cli.ergo:293:18*/ Dec func(*Env, Reader_2) (Summary, error)
-					/*line codecli/cli.ergo:293:18*/ Direct0 func(*Env, text_1, Summary) text_1
-					/*line codecli/cli.ergo:293:18*/ Absent func(Summary) bool
-					/*line codecli/cli.ergo:293:18*/ Empty Summary
-					/*line codecli/cli.ergo:293:18*/
-				}
-				/*line codecli/cli.ergo:293:18*/
-			}{Enc: func(e *Env, w Writer_1, v_9 Summary) (struct{}, error) {
-				/*line codecli/cli.ergo:293:18*/ ergoEncodeSummary(e, w, v_9)
-				/*line codecli/cli.ergo:293:18*/ return struct{}{}, nil
-				/*line codecli/cli.ergo:293:18*/
-			}, Dec: func(e_1 *Env, r_1 Reader_2) (Summary, error) {
-				/*line codecli/cli.ergo:293:18*/ x, err_2 := ergoDecodeSummary(e_1, r_1)
-				/*line codecli/cli.ergo:293:18*/ if err_2 != nil {
-					/*line codecli/cli.ergo:293:18*/ return *new(Summary), err_2
-					/*line codecli/cli.ergo:293:18*/
-				}
-				/*line codecli/cli.ergo:293:18*/ return x, nil
-				/*line codecli/cli.ergo:293:18*/
-			}, Direct0: ergoWriteSummary, Field: nil}, v_8)
-//line codecli/cli.ergo:293:4
-//line codecli/cli.ergo:294:4
-			v_12 := answer(asJSON, v_11, v_11)
-			/*line codecli/cli.ergo:294:4*/ return v_12
-			/*line codecli/cli.ergo:294:4*/
-		case SymbolsReply:
-			/*line codecli/cli.ergo:294:4*/ reply_3 := v_7
-//line codecli/cli.ergo:296:4
-			var v_13 SymbolPage = reply_3.Value
-//line codecli/cli.ergo:297:4
-//line codecli/cli.ergo:297:18
-			v_16 := EncodeMono_1_i2(env, struct {
-				/*line codecli/cli.ergo:297:18*/ Enc func(*Env, Writer_1, SymbolPage) (struct{}, error)
-				/*line codecli/cli.ergo:297:18*/ Dec func(*Env, Reader_2) (SymbolPage, error)
-				/*line codecli/cli.ergo:297:18*/ Direct0 func(*Env, text_1, SymbolPage) text_1
-				/*line codecli/cli.ergo:297:18*/ Field *struct {
-					/*line codecli/cli.ergo:297:18*/ Enc func(*Env, Writer_1, SymbolPage) (struct{}, error)
-					/*line codecli/cli.ergo:297:18*/ Dec func(*Env, Reader_2) (SymbolPage, error)
-					/*line codecli/cli.ergo:297:18*/ Direct0 func(*Env, text_1, SymbolPage) text_1
-					/*line codecli/cli.ergo:297:18*/ Absent func(SymbolPage) bool
-					/*line codecli/cli.ergo:297:18*/ Empty SymbolPage
-					/*line codecli/cli.ergo:297:18*/
-				}
-				/*line codecli/cli.ergo:297:18*/
-			}{Enc: func(e_3 *Env, w_1 Writer_1, v_14 SymbolPage) (struct{}, error) {
-				/*line codecli/cli.ergo:297:18*/ ergoEncodeSymbolPage(e_3, w_1, v_14)
-				/*line codecli/cli.ergo:297:18*/ return struct{}{}, nil
-				/*line codecli/cli.ergo:297:18*/
-			}, Dec: func(e_4 *Env, r_2 Reader_2) (SymbolPage, error) {
-				/*line codecli/cli.ergo:297:18*/ x_1, err_3 := ergoDecodeSymbolPage(e_4, r_2)
-				/*line codecli/cli.ergo:297:18*/ if err_3 != nil {
-					/*line codecli/cli.ergo:297:18*/ return *new(SymbolPage), err_3
-					/*line codecli/cli.ergo:297:18*/
-				}
-				/*line codecli/cli.ergo:297:18*/ return x_1, nil
-				/*line codecli/cli.ergo:297:18*/
-			}, Direct0: ergoWriteSymbolPage, Field: nil}, v_13)
-//line codecli/cli.ergo:297:4
-//line codecli/cli.ergo:298:4
-			v_17 := answer(asJSON, v_16, v_16)
-			/*line codecli/cli.ergo:298:4*/ return v_17
-			/*line codecli/cli.ergo:298:4*/
-		case SymbolReply:
-			/*line codecli/cli.ergo:298:4*/ reply_4 := v_7
-//line codecli/cli.ergo:300:4
-			var v_18 Decl = reply_4.Value
-//line codecli/cli.ergo:301:4
-//line codecli/cli.ergo:301:18
-			v_21 := EncodeMono_1_i3(env, struct {
-				/*line codecli/cli.ergo:301:18*/ Enc func(*Env, Writer_1, Decl) (struct{}, error)
-				/*line codecli/cli.ergo:301:18*/ Dec func(*Env, Reader_2) (Decl, error)
-				/*line codecli/cli.ergo:301:18*/ Direct0 func(*Env, text_1, Decl) text_1
-				/*line codecli/cli.ergo:301:18*/ Field *struct {
-					/*line codecli/cli.ergo:301:18*/ Enc func(*Env, Writer_1, Decl) (struct{}, error)
-					/*line codecli/cli.ergo:301:18*/ Dec func(*Env, Reader_2) (Decl, error)
-					/*line codecli/cli.ergo:301:18*/ Direct0 func(*Env, text_1, Decl) text_1
-					/*line codecli/cli.ergo:301:18*/ Absent func(Decl) bool
-					/*line codecli/cli.ergo:301:18*/ Empty Decl
-					/*line codecli/cli.ergo:301:18*/
-				}
-				/*line codecli/cli.ergo:301:18*/
-			}{Enc: func(e_6 *Env, w_2 Writer_1, v_19 Decl) (struct{}, error) {
-				/*line codecli/cli.ergo:301:18*/ ergoEncodeDecl(e_6, w_2, v_19)
-				/*line codecli/cli.ergo:301:18*/ return struct{}{}, nil
-				/*line codecli/cli.ergo:301:18*/
-			}, Dec: func(e_7 *Env, r_3 Reader_2) (Decl, error) {
-				/*line codecli/cli.ergo:301:18*/ x_2, err_4 := ergoDecodeDecl(e_7, r_3)
-				/*line codecli/cli.ergo:301:18*/ if err_4 != nil {
-					/*line codecli/cli.ergo:301:18*/ return *new(Decl), err_4
-					/*line codecli/cli.ergo:301:18*/
-				}
-				/*line codecli/cli.ergo:301:18*/ return x_2, nil
-				/*line codecli/cli.ergo:301:18*/
-			}, Direct0: ergoWriteDecl, Field: nil}, v_18)
-//line codecli/cli.ergo:301:4
-//line codecli/cli.ergo:302:4
-			v_22 := answer(asJSON, v_21, v_21)
-			/*line codecli/cli.ergo:302:4*/ return v_22
-			/*line codecli/cli.ergo:302:4*/
-		case ReferencesReply:
-			/*line codecli/cli.ergo:302:4*/ reply_5 := v_7
-//line codecli/cli.ergo:304:4
-			var v_23 SitePage = reply_5.Value
-//line codecli/cli.ergo:305:4
-//line codecli/cli.ergo:305:18
-			v_26 := EncodeMono_1_i4(env, struct {
-				/*line codecli/cli.ergo:305:18*/ Enc func(*Env, Writer_1, SitePage) (struct{}, error)
-				/*line codecli/cli.ergo:305:18*/ Dec func(*Env, Reader_2) (SitePage, error)
-				/*line codecli/cli.ergo:305:18*/ Direct0 func(*Env, text_1, SitePage) text_1
-				/*line codecli/cli.ergo:305:18*/ Field *struct {
-					/*line codecli/cli.ergo:305:18*/ Enc func(*Env, Writer_1, SitePage) (struct{}, error)
-					/*line codecli/cli.ergo:305:18*/ Dec func(*Env, Reader_2) (SitePage, error)
-					/*line codecli/cli.ergo:305:18*/ Direct0 func(*Env, text_1, SitePage) text_1
-					/*line codecli/cli.ergo:305:18*/ Absent func(SitePage) bool
-					/*line codecli/cli.ergo:305:18*/ Empty SitePage
-					/*line codecli/cli.ergo:305:18*/
-				}
-				/*line codecli/cli.ergo:305:18*/
-			}{Enc: func(e_9 *Env, w_3 Writer_1, v_24 SitePage) (struct{}, error) {
-				/*line codecli/cli.ergo:305:18*/ ergoEncodeSitePage(e_9, w_3, v_24)
-				/*line codecli/cli.ergo:305:18*/ return struct{}{}, nil
-				/*line codecli/cli.ergo:305:18*/
-			}, Dec: func(e_10 *Env, r_4 Reader_2) (SitePage, error) {
-				/*line codecli/cli.ergo:305:18*/ x_3, err_5 := ergoDecodeSitePage(e_10, r_4)
-				/*line codecli/cli.ergo:305:18*/ if err_5 != nil {
-					/*line codecli/cli.ergo:305:18*/ return *new(SitePage), err_5
-					/*line codecli/cli.ergo:305:18*/
-				}
-				/*line codecli/cli.ergo:305:18*/ return x_3, nil
-				/*line codecli/cli.ergo:305:18*/
-			}, Direct0: ergoWriteSitePage, Field: nil}, v_23)
-//line codecli/cli.ergo:305:4
-//line codecli/cli.ergo:306:4
-			v_27 := answer(asJSON, v_26, v_26)
-			/*line codecli/cli.ergo:306:4*/ return v_27
-			/*line codecli/cli.ergo:306:4*/
-		case CallsReply:
-			/*line codecli/cli.ergo:306:4*/ reply_6 := v_7
-//line codecli/cli.ergo:308:4
-			var v_28 CallPage = reply_6.Value
-//line codecli/cli.ergo:309:4
-//line codecli/cli.ergo:309:18
-			v_31 := EncodeMono_1_i5(env, struct {
-				/*line codecli/cli.ergo:309:18*/ Enc func(*Env, Writer_1, CallPage) (struct{}, error)
-				/*line codecli/cli.ergo:309:18*/ Dec func(*Env, Reader_2) (CallPage, error)
-				/*line codecli/cli.ergo:309:18*/ Direct0 func(*Env, text_1, CallPage) text_1
-				/*line codecli/cli.ergo:309:18*/ Field *struct {
-					/*line codecli/cli.ergo:309:18*/ Enc func(*Env, Writer_1, CallPage) (struct{}, error)
-					/*line codecli/cli.ergo:309:18*/ Dec func(*Env, Reader_2) (CallPage, error)
-					/*line codecli/cli.ergo:309:18*/ Direct0 func(*Env, text_1, CallPage) text_1
-					/*line codecli/cli.ergo:309:18*/ Absent func(CallPage) bool
-					/*line codecli/cli.ergo:309:18*/ Empty CallPage
-					/*line codecli/cli.ergo:309:18*/
-				}
-				/*line codecli/cli.ergo:309:18*/
-			}{Enc: func(e_12 *Env, w_4 Writer_1, v_29 CallPage) (struct{}, error) {
-				/*line codecli/cli.ergo:309:18*/ ergoEncodeCallPage(e_12, w_4, v_29)
-				/*line codecli/cli.ergo:309:18*/ return struct{}{}, nil
-				/*line codecli/cli.ergo:309:18*/
-			}, Dec: func(e_13 *Env, r_5 Reader_2) (CallPage, error) {
-				/*line codecli/cli.ergo:309:18*/ x_4, err_6 := ergoDecodeCallPage(e_13, r_5)
-				/*line codecli/cli.ergo:309:18*/ if err_6 != nil {
-					/*line codecli/cli.ergo:309:18*/ return *new(CallPage), err_6
-					/*line codecli/cli.ergo:309:18*/
-				}
-				/*line codecli/cli.ergo:309:18*/ return x_4, nil
-				/*line codecli/cli.ergo:309:18*/
-			}, Direct0: ergoWriteCallPage, Field: nil}, v_28)
-//line codecli/cli.ergo:309:4
-//line codecli/cli.ergo:310:4
-			v_32 := answer(asJSON, v_31, v_31)
-			/*line codecli/cli.ergo:310:4*/ return v_32
-			/*line codecli/cli.ergo:310:4*/
-		case ApiReply:
-			/*line codecli/cli.ergo:310:4*/ reply_7 := v_7
-//line codecli/cli.ergo:312:4
-			var v_33 ApiView = reply_7.Value
-//line codecli/cli.ergo:313:4
-//line codecli/cli.ergo:313:18
-			v_36 := EncodeMono_1_i6(env, struct {
-				/*line codecli/cli.ergo:313:18*/ Enc func(*Env, Writer_1, ApiView) (struct{}, error)
-				/*line codecli/cli.ergo:313:18*/ Dec func(*Env, Reader_2) (ApiView, error)
-				/*line codecli/cli.ergo:313:18*/ Direct0 func(*Env, text_1, ApiView) text_1
-				/*line codecli/cli.ergo:313:18*/ Field *struct {
-					/*line codecli/cli.ergo:313:18*/ Enc func(*Env, Writer_1, ApiView) (struct{}, error)
-					/*line codecli/cli.ergo:313:18*/ Dec func(*Env, Reader_2) (ApiView, error)
-					/*line codecli/cli.ergo:313:18*/ Direct0 func(*Env, text_1, ApiView) text_1
-					/*line codecli/cli.ergo:313:18*/ Absent func(ApiView) bool
-					/*line codecli/cli.ergo:313:18*/ Empty ApiView
-					/*line codecli/cli.ergo:313:18*/
-				}
-				/*line codecli/cli.ergo:313:18*/
-			}{Enc: func(e_15 *Env, w_5 Writer_1, v_34 ApiView) (struct{}, error) {
-				/*line codecli/cli.ergo:313:18*/ ergoEncodeApiView(e_15, w_5, v_34)
-				/*line codecli/cli.ergo:313:18*/ return struct{}{}, nil
-				/*line codecli/cli.ergo:313:18*/
-			}, Dec: func(e_16 *Env, r_6 Reader_2) (ApiView, error) {
-				/*line codecli/cli.ergo:313:18*/ x_5, err_7 := ergoDecodeApiView(e_16, r_6)
-				/*line codecli/cli.ergo:313:18*/ if err_7 != nil {
-					/*line codecli/cli.ergo:313:18*/ return *new(ApiView), err_7
-					/*line codecli/cli.ergo:313:18*/
-				}
-				/*line codecli/cli.ergo:313:18*/ return x_5, nil
-				/*line codecli/cli.ergo:313:18*/
-			}, Direct0: ergoWriteApiView, Field: nil}, v_33)
-//line codecli/cli.ergo:313:4
-//line codecli/cli.ergo:314:4
-			v_37 := answer(asJSON, v_36, v_36)
-			/*line codecli/cli.ergo:314:4*/ return v_37
-			/*line codecli/cli.ergo:314:4*/
-		case ReachReply:
-			/*line codecli/cli.ergo:314:4*/ reply_8 := v_7
-//line codecli/cli.ergo:316:4
-			var v_38 ReachPage = reply_8.Value
-//line codecli/cli.ergo:317:4
-//line codecli/cli.ergo:317:18
-			v_41 := EncodeMono_1_i7(env, struct {
-				/*line codecli/cli.ergo:317:18*/ Enc func(*Env, Writer_1, ReachPage) (struct{}, error)
-				/*line codecli/cli.ergo:317:18*/ Dec func(*Env, Reader_2) (ReachPage, error)
-				/*line codecli/cli.ergo:317:18*/ Direct0 func(*Env, text_1, ReachPage) text_1
-				/*line codecli/cli.ergo:317:18*/ Field *struct {
-					/*line codecli/cli.ergo:317:18*/ Enc func(*Env, Writer_1, ReachPage) (struct{}, error)
-					/*line codecli/cli.ergo:317:18*/ Dec func(*Env, Reader_2) (ReachPage, error)
-					/*line codecli/cli.ergo:317:18*/ Direct0 func(*Env, text_1, ReachPage) text_1
-					/*line codecli/cli.ergo:317:18*/ Absent func(ReachPage) bool
-					/*line codecli/cli.ergo:317:18*/ Empty ReachPage
-					/*line codecli/cli.ergo:317:18*/
-				}
-				/*line codecli/cli.ergo:317:18*/
-			}{Enc: func(e_18 *Env, w_6 Writer_1, v_39 ReachPage) (struct{}, error) {
-				/*line codecli/cli.ergo:317:18*/ ergoEncodeReachPage(e_18, w_6, v_39)
-				/*line codecli/cli.ergo:317:18*/ return struct{}{}, nil
-				/*line codecli/cli.ergo:317:18*/
-			}, Dec: func(e_19 *Env, r_7 Reader_2) (ReachPage, error) {
-				/*line codecli/cli.ergo:317:18*/ x_6, err_8 := ergoDecodeReachPage(e_19, r_7)
-				/*line codecli/cli.ergo:317:18*/ if err_8 != nil {
-					/*line codecli/cli.ergo:317:18*/ return *new(ReachPage), err_8
-					/*line codecli/cli.ergo:317:18*/
-				}
-				/*line codecli/cli.ergo:317:18*/ return x_6, nil
-				/*line codecli/cli.ergo:317:18*/
-			}, Direct0: ergoWriteReachPage, Field: nil}, v_38)
-//line codecli/cli.ergo:317:4
-//line codecli/cli.ergo:318:4
-			v_42 := answer(asJSON, v_41, v_41)
-			/*line codecli/cli.ergo:318:4*/ return v_42
-			/*line codecli/cli.ergo:318:4*/
-		case MachineOfReply:
-			/*line codecli/cli.ergo:318:4*/ reply_9 := v_7
-//line codecli/cli.ergo:320:4
-			var v_43 MachineView = reply_9.Value
-//line codecli/cli.ergo:321:4
-//line codecli/cli.ergo:321:18
-			v_46 := EncodeMono_1_i8(env, struct {
-				/*line codecli/cli.ergo:321:18*/ Enc func(*Env, Writer_1, MachineView) (struct{}, error)
-				/*line codecli/cli.ergo:321:18*/ Dec func(*Env, Reader_2) (MachineView, error)
-				/*line codecli/cli.ergo:321:18*/ Direct0 func(*Env, text_1, MachineView) text_1
-				/*line codecli/cli.ergo:321:18*/ Field *struct {
-					/*line codecli/cli.ergo:321:18*/ Enc func(*Env, Writer_1, MachineView) (struct{}, error)
-					/*line codecli/cli.ergo:321:18*/ Dec func(*Env, Reader_2) (MachineView, error)
-					/*line codecli/cli.ergo:321:18*/ Direct0 func(*Env, text_1, MachineView) text_1
-					/*line codecli/cli.ergo:321:18*/ Absent func(MachineView) bool
-					/*line codecli/cli.ergo:321:18*/ Empty MachineView
-					/*line codecli/cli.ergo:321:18*/
-				}
-				/*line codecli/cli.ergo:321:18*/
-			}{Enc: func(e_21 *Env, w_7 Writer_1, v_44 MachineView) (struct{}, error) {
-				/*line codecli/cli.ergo:321:18*/ ergoEncodeMachineView(e_21, w_7, v_44)
-				/*line codecli/cli.ergo:321:18*/ return struct{}{}, nil
-				/*line codecli/cli.ergo:321:18*/
-			}, Dec: func(e_22 *Env, r_8 Reader_2) (MachineView, error) {
-				/*line codecli/cli.ergo:321:18*/ x_7, err_9 := ergoDecodeMachineView(e_22, r_8)
-				/*line codecli/cli.ergo:321:18*/ if err_9 != nil {
-					/*line codecli/cli.ergo:321:18*/ return *new(MachineView), err_9
-					/*line codecli/cli.ergo:321:18*/
-				}
-				/*line codecli/cli.ergo:321:18*/ return x_7, nil
-				/*line codecli/cli.ergo:321:18*/
-			}, Direct0: ergoWriteMachineView, Field: nil}, v_43)
-//line codecli/cli.ergo:321:4
-//line codecli/cli.ergo:322:4
-			v_47 := answer(asJSON, v_46, v_46)
-			/*line codecli/cli.ergo:322:4*/ return v_47
-			/*line codecli/cli.ergo:322:4*/
-		default:
-			/*line codecli/cli.ergo:322:4*/ _ = v_7
-			/*line codecli/cli.ergo:322:4*/ panic("ergo: defect: no case of the match at 290:3 matched")
-			/*line codecli/cli.ergo:322:4*/
-		}
-		/*line codecli/cli.ergo:322:4*/
-	case Rejected:
-		/*line codecli/cli.ergo:322:4*/ rejected := v_6
-//line codecli/cli.ergo:325:3
-		switch v_48 := rejected.Failure.(type) {
-		/*line codecli/cli.ergo:325:3*/ case NoSymbol_1:
-			/*line codecli/cli.ergo:325:3*/ failure := v_48
-//line codecli/cli.ergo:327:4
-			t := asJSON
-//line codecli/cli.ergo:327:42
-			v_51 := EncodeMono_1_i9(env, struct {
-				/*line codecli/cli.ergo:327:42*/ Enc func(*Env, Writer_1, NoSymbol) (struct{}, error)
-				/*line codecli/cli.ergo:327:42*/ Dec func(*Env, Reader_2) (NoSymbol, error)
-				/*line codecli/cli.ergo:327:42*/ Direct0 func(*Env, text_1, NoSymbol) text_1
-				/*line codecli/cli.ergo:327:42*/ Field *struct {
-					/*line codecli/cli.ergo:327:42*/ Enc func(*Env, Writer_1, NoSymbol) (struct{}, error)
-					/*line codecli/cli.ergo:327:42*/ Dec func(*Env, Reader_2) (NoSymbol, error)
-					/*line codecli/cli.ergo:327:42*/ Direct0 func(*Env, text_1, NoSymbol) text_1
-					/*line codecli/cli.ergo:327:42*/ Absent func(NoSymbol) bool
-					/*line codecli/cli.ergo:327:42*/ Empty NoSymbol
-					/*line codecli/cli.ergo:327:42*/
-				}
-				/*line codecli/cli.ergo:327:42*/
-			}{Enc: func(e_24 *Env, w_8 Writer_1, v_49 NoSymbol) (struct{}, error) {
-				/*line codecli/cli.ergo:327:42*/ ergoEncodeNoSymbol(e_24, w_8, v_49)
-				/*line codecli/cli.ergo:327:42*/ return struct{}{}, nil
-				/*line codecli/cli.ergo:327:42*/
-			}, Dec: func(e_25 *Env, r_9 Reader_2) (NoSymbol, error) {
-				/*line codecli/cli.ergo:327:42*/ x_8, err_10 := ergoDecodeNoSymbol(e_25, r_9)
-				/*line codecli/cli.ergo:327:42*/ if err_10 != nil {
-					/*line codecli/cli.ergo:327:42*/ return *new(NoSymbol), err_10
-					/*line codecli/cli.ergo:327:42*/
-				}
-				/*line codecli/cli.ergo:327:42*/ return x_8, nil
-				/*line codecli/cli.ergo:327:42*/
-			}, Direct0: ergoWriteNoSymbol, Field: nil}, failure.E)
-//line codecli/cli.ergo:327:4
-//line codecli/cli.ergo:327:19
-			v_52 := ergorpc.RPCTagged("NoSymbol", v_51)
-//line codecli/cli.ergo:327:4
-			v_53 := failed(env, t, v_52)
-			/*line codecli/cli.ergo:327:4*/ return v_53
-			/*line codecli/cli.ergo:327:4*/
-		case Ambiguous_1:
-			/*line codecli/cli.ergo:327:4*/ failure_1 := v_48
-//line codecli/cli.ergo:329:4
-			t_1 := asJSON
-//line codecli/cli.ergo:329:43
-			v_56 := EncodeMono_1_i10(env, struct {
-				/*line codecli/cli.ergo:329:43*/ Enc func(*Env, Writer_1, Ambiguous) (struct{}, error)
-				/*line codecli/cli.ergo:329:43*/ Dec func(*Env, Reader_2) (Ambiguous, error)
-				/*line codecli/cli.ergo:329:43*/ Direct0 func(*Env, text_1, Ambiguous) text_1
-				/*line codecli/cli.ergo:329:43*/ Field *struct {
-					/*line codecli/cli.ergo:329:43*/ Enc func(*Env, Writer_1, Ambiguous) (struct{}, error)
-					/*line codecli/cli.ergo:329:43*/ Dec func(*Env, Reader_2) (Ambiguous, error)
-					/*line codecli/cli.ergo:329:43*/ Direct0 func(*Env, text_1, Ambiguous) text_1
-					/*line codecli/cli.ergo:329:43*/ Absent func(Ambiguous) bool
-					/*line codecli/cli.ergo:329:43*/ Empty Ambiguous
-					/*line codecli/cli.ergo:329:43*/
-				}
-				/*line codecli/cli.ergo:329:43*/
-			}{Enc: func(e_27 *Env, w_9 Writer_1, v_54 Ambiguous) (struct{}, error) {
-				/*line codecli/cli.ergo:329:43*/ ergoEncodeAmbiguous(e_27, w_9, v_54)
-				/*line codecli/cli.ergo:329:43*/ return struct{}{}, nil
-				/*line codecli/cli.ergo:329:43*/
-			}, Dec: func(e_28 *Env, r_10 Reader_2) (Ambiguous, error) {
-				/*line codecli/cli.ergo:329:43*/ x_9, err_11 := ergoDecodeAmbiguous(e_28, r_10)
-				/*line codecli/cli.ergo:329:43*/ if err_11 != nil {
-					/*line codecli/cli.ergo:329:43*/ return *new(Ambiguous), err_11
-					/*line codecli/cli.ergo:329:43*/
-				}
-				/*line codecli/cli.ergo:329:43*/ return x_9, nil
-				/*line codecli/cli.ergo:329:43*/
-			}, Direct0: ergoWriteAmbiguous, Field: nil}, failure_1.E)
-//line codecli/cli.ergo:329:4
-//line codecli/cli.ergo:329:19
-			v_57 := ergorpc.RPCTagged("Ambiguous", v_56)
-//line codecli/cli.ergo:329:4
-			v_58 := failed(env, t_1, v_57)
-			/*line codecli/cli.ergo:329:4*/ return v_58
-			/*line codecli/cli.ergo:329:4*/
-		case NotCallable_1:
-			/*line codecli/cli.ergo:329:4*/ failure_2 := v_48
-//line codecli/cli.ergo:331:4
-			t_2 := asJSON
-//line codecli/cli.ergo:331:45
-			v_61 := EncodeMono_1_i11(env, struct {
-				/*line codecli/cli.ergo:331:45*/ Enc func(*Env, Writer_1, NotCallable) (struct{}, error)
-				/*line codecli/cli.ergo:331:45*/ Dec func(*Env, Reader_2) (NotCallable, error)
-				/*line codecli/cli.ergo:331:45*/ Direct0 func(*Env, text_1, NotCallable) text_1
-				/*line codecli/cli.ergo:331:45*/ Field *struct {
-					/*line codecli/cli.ergo:331:45*/ Enc func(*Env, Writer_1, NotCallable) (struct{}, error)
-					/*line codecli/cli.ergo:331:45*/ Dec func(*Env, Reader_2) (NotCallable, error)
-					/*line codecli/cli.ergo:331:45*/ Direct0 func(*Env, text_1, NotCallable) text_1
-					/*line codecli/cli.ergo:331:45*/ Absent func(NotCallable) bool
-					/*line codecli/cli.ergo:331:45*/ Empty NotCallable
-					/*line codecli/cli.ergo:331:45*/
-				}
-				/*line codecli/cli.ergo:331:45*/
-			}{Enc: func(e_30 *Env, w_10 Writer_1, v_59 NotCallable) (struct{}, error) {
-				/*line codecli/cli.ergo:331:45*/ ergoEncodeNotCallable(e_30, w_10, v_59)
-				/*line codecli/cli.ergo:331:45*/ return struct{}{}, nil
-				/*line codecli/cli.ergo:331:45*/
-			}, Dec: func(e_31 *Env, r_11 Reader_2) (NotCallable, error) {
-				/*line codecli/cli.ergo:331:45*/ x_10, err_12 := ergoDecodeNotCallable(e_31, r_11)
-				/*line codecli/cli.ergo:331:45*/ if err_12 != nil {
-					/*line codecli/cli.ergo:331:45*/ return *new(NotCallable), err_12
-					/*line codecli/cli.ergo:331:45*/
-				}
-				/*line codecli/cli.ergo:331:45*/ return x_10, nil
-				/*line codecli/cli.ergo:331:45*/
-			}, Direct0: ergoWriteNotCallable, Field: nil}, failure_2.E)
-//line codecli/cli.ergo:331:4
-//line codecli/cli.ergo:331:19
-			v_62 := ergorpc.RPCTagged("NotCallable", v_61)
-//line codecli/cli.ergo:331:4
-			v_63 := failed(env, t_2, v_62)
-			/*line codecli/cli.ergo:331:4*/ return v_63
-			/*line codecli/cli.ergo:331:4*/
-		case NoPackage_1:
-			/*line codecli/cli.ergo:331:4*/ failure_3 := v_48
-//line codecli/cli.ergo:333:4
-			t_3 := asJSON
-//line codecli/cli.ergo:333:43
-			v_66 := EncodeMono_1_i12(env, struct {
-				/*line codecli/cli.ergo:333:43*/ Enc func(*Env, Writer_1, NoPackage) (struct{}, error)
-				/*line codecli/cli.ergo:333:43*/ Dec func(*Env, Reader_2) (NoPackage, error)
-				/*line codecli/cli.ergo:333:43*/ Direct0 func(*Env, text_1, NoPackage) text_1
-				/*line codecli/cli.ergo:333:43*/ Field *struct {
-					/*line codecli/cli.ergo:333:43*/ Enc func(*Env, Writer_1, NoPackage) (struct{}, error)
-					/*line codecli/cli.ergo:333:43*/ Dec func(*Env, Reader_2) (NoPackage, error)
-					/*line codecli/cli.ergo:333:43*/ Direct0 func(*Env, text_1, NoPackage) text_1
-					/*line codecli/cli.ergo:333:43*/ Absent func(NoPackage) bool
-					/*line codecli/cli.ergo:333:43*/ Empty NoPackage
-					/*line codecli/cli.ergo:333:43*/
-				}
-				/*line codecli/cli.ergo:333:43*/
-			}{Enc: func(e_33 *Env, w_11 Writer_1, v_64 NoPackage) (struct{}, error) {
-				/*line codecli/cli.ergo:333:43*/ ergoEncodeNoPackage(e_33, w_11, v_64)
-				/*line codecli/cli.ergo:333:43*/ return struct{}{}, nil
-				/*line codecli/cli.ergo:333:43*/
-			}, Dec: func(e_34 *Env, r_12 Reader_2) (NoPackage, error) {
-				/*line codecli/cli.ergo:333:43*/ x_11, err_13 := ergoDecodeNoPackage(e_34, r_12)
-				/*line codecli/cli.ergo:333:43*/ if err_13 != nil {
-					/*line codecli/cli.ergo:333:43*/ return *new(NoPackage), err_13
-					/*line codecli/cli.ergo:333:43*/
-				}
-				/*line codecli/cli.ergo:333:43*/ return x_11, nil
-				/*line codecli/cli.ergo:333:43*/
-			}, Direct0: ergoWriteNoPackage, Field: nil}, failure_3.E)
-//line codecli/cli.ergo:333:4
-//line codecli/cli.ergo:333:19
-			v_67 := ergorpc.RPCTagged("NoPackage", v_66)
-//line codecli/cli.ergo:333:4
-			v_68 := failed(env, t_3, v_67)
-			/*line codecli/cli.ergo:333:4*/ return v_68
-			/*line codecli/cli.ergo:333:4*/
-		case NotMachine_1:
-			/*line codecli/cli.ergo:333:4*/ failure_4 := v_48
-//line codecli/cli.ergo:335:4
-			t_4 := asJSON
-//line codecli/cli.ergo:335:44
-			v_71 := EncodeMono_1_i13(env, struct {
-				/*line codecli/cli.ergo:335:44*/ Enc func(*Env, Writer_1, NotMachine) (struct{}, error)
-				/*line codecli/cli.ergo:335:44*/ Dec func(*Env, Reader_2) (NotMachine, error)
-				/*line codecli/cli.ergo:335:44*/ Direct0 func(*Env, text_1, NotMachine) text_1
-				/*line codecli/cli.ergo:335:44*/ Field *struct {
-					/*line codecli/cli.ergo:335:44*/ Enc func(*Env, Writer_1, NotMachine) (struct{}, error)
-					/*line codecli/cli.ergo:335:44*/ Dec func(*Env, Reader_2) (NotMachine, error)
-					/*line codecli/cli.ergo:335:44*/ Direct0 func(*Env, text_1, NotMachine) text_1
-					/*line codecli/cli.ergo:335:44*/ Absent func(NotMachine) bool
-					/*line codecli/cli.ergo:335:44*/ Empty NotMachine
-					/*line codecli/cli.ergo:335:44*/
-				}
-				/*line codecli/cli.ergo:335:44*/
-			}{Enc: func(e_36 *Env, w_12 Writer_1, v_69 NotMachine) (struct{}, error) {
-				/*line codecli/cli.ergo:335:44*/ ergoEncodeNotMachine(e_36, w_12, v_69)
-				/*line codecli/cli.ergo:335:44*/ return struct{}{}, nil
-				/*line codecli/cli.ergo:335:44*/
-			}, Dec: func(e_37 *Env, r_13 Reader_2) (NotMachine, error) {
-				/*line codecli/cli.ergo:335:44*/ x_12, err_14 := ergoDecodeNotMachine(e_37, r_13)
-				/*line codecli/cli.ergo:335:44*/ if err_14 != nil {
-					/*line codecli/cli.ergo:335:44*/ return *new(NotMachine), err_14
-					/*line codecli/cli.ergo:335:44*/
-				}
-				/*line codecli/cli.ergo:335:44*/ return x_12, nil
-				/*line codecli/cli.ergo:335:44*/
-			}, Direct0: ergoWriteNotMachine, Field: nil}, failure_4.E)
-//line codecli/cli.ergo:335:4
-//line codecli/cli.ergo:335:19
-			v_72 := ergorpc.RPCTagged("NotMachine", v_71)
-//line codecli/cli.ergo:335:4
-			v_73 := failed(env, t_4, v_72)
-			/*line codecli/cli.ergo:335:4*/ return v_73
-			/*line codecli/cli.ergo:335:4*/
-		default:
-			/*line codecli/cli.ergo:335:4*/ _ = v_48
-			/*line codecli/cli.ergo:335:4*/ panic("ergo: defect: no case of the match at 325:3 matched")
-			/*line codecli/cli.ergo:335:4*/
-		}
-		/*line codecli/cli.ergo:335:4*/
-	default:
-		/*line codecli/cli.ergo:335:4*/ _ = v_6
-		/*line codecli/cli.ergo:335:4*/ panic("ergo: defect: no case of the match at 288:2 matched")
-		/*line codecli/cli.ergo:335:4*/
-	}
-	/*line codecli/cli.ergo:335:4*/
+	/*line codecli/cli.ergo:438:3*/ var r Request = v_3
+//line codecli/cli.ergo:440:2
+//line codecli/cli.ergo:440:7
+	v_5, err_2 := answer_1(env, r)
+	/*line codecli/cli.ergo:440:7*/ _ = err_2
+//line codecli/cli.ergo:440:2
+	v_6 := Show(env, v_5, asJSON)
+	/*line codecli/cli.ergo:440:2*/ return v_6
+	/*line codecli/cli.ergo:440:2*/
 }
-
-//line codeapi/api.ergo:14:1
-type Request interface{ isRequest() }
-
-//line codeapi/api.ergo:14:16
-type DescribeRequest struct {
-	/*line codeapi/api.ergo:14:16*/
-}
-
-/*line codeapi/api.ergo:14:16*/
-func (DescribeRequest) isRequest() {}
-
-//line codeapi/api.ergo:14:36
-type SymbolsRequest struct {
-	/*line codeapi/api.ergo:14:36*/ Q SymbolQuery
-	/*line codeapi/api.ergo:14:36*/
-}
-
-/*line codeapi/api.ergo:14:36*/
-func (SymbolsRequest) isRequest() {}
-
-//line codeapi/api.ergo:14:73
-type SymbolRequest struct {
-	/*line codeapi/api.ergo:14:73*/ A string
-	/*line codeapi/api.ergo:14:73*/
-}
-
-/*line codeapi/api.ergo:14:73*/
-func (SymbolRequest) isRequest() {}
-
-//line codeapi/api.ergo:14:99
-type ReferencesRequest struct {
-	/*line codeapi/api.ergo:14:99*/ Q RefQuery
-	/*line codeapi/api.ergo:14:99*/
-}
-
-/*line codeapi/api.ergo:14:99*/
-func (ReferencesRequest) isRequest() {}
-
-//line codeapi/api.ergo:14:136
-type CallsRequest struct {
-	/*line codeapi/api.ergo:14:136*/ Q CallQuery
-	/*line codeapi/api.ergo:14:136*/
-}
-
-/*line codeapi/api.ergo:14:136*/
-func (CallsRequest) isRequest() {}
-
-//line codeapi/api.ergo:14:169
-type ApiRequest struct {
-	/*line codeapi/api.ergo:14:169*/ Q ApiQuery
-	/*line codeapi/api.ergo:14:169*/
-}
-
-/*line codeapi/api.ergo:14:169*/
-func (ApiRequest) isRequest() {}
-
-//line codeapi/api.ergo:14:199
-type ReachRequest struct {
-	/*line codeapi/api.ergo:14:199*/ Q ReachQuery
-	/*line codeapi/api.ergo:14:199*/
-}
-
-/*line codeapi/api.ergo:14:199*/
-func (ReachRequest) isRequest() {}
-
-//line codeapi/api.ergo:14:233
-type MachineOfRequest struct {
-	/*line codeapi/api.ergo:14:233*/ A string
-	/*line codeapi/api.ergo:14:233*/
-}
-
-/*line codeapi/api.ergo:14:233*/
-func (MachineOfRequest) isRequest() {}
-
-//line codecli/cli.ergo:116:1
-func Parse(env *Env, args []string) (Request, error) {
-//line codecli/cli.ergo:116:1
-	env.task.Check()
-//line codecli/cli.ergo:117:2
-//line codecli/cli.ergo:117:65
-	v := Commands()
-//line codecli/cli.ergo:117:2
-//line codecli/cli.ergo:117:6
-	v_1, err := ParseCommandMono_i1(env, "code", "code.Reader on a command line", v, args)
-//line codecli/cli.ergo:117:2
-	if err != nil {
-		/*line codecli/cli.ergo:117:2*/ return *new(Request), err
-		/*line codecli/cli.ergo:117:2*/
-	}
-	/*line codecli/cli.ergo:117:2*/ return v_1, nil
-	/*line codecli/cli.ergo:117:2*/
-}
-
-//line codeapi/api.ergo:28:16
-type Done struct {
-	/*line codeapi/api.ergo:28:16*/ Reply Reply
-	/*line codeapi/api.ergo:28:16*/
-}
-
-//line codeapi/api.ergo:28:36
-type Rejected struct {
-	/*line codeapi/api.ergo:28:36*/ Failure Failure
-	/*line codeapi/api.ergo:28:36*/
-}
-
-//line codeapi/api.ergo:28:1
-type Outcome_1 interface{ isOutcome_1() }
-
-/*line codeapi/api.ergo:28:1*/
-func (Done) isOutcome_1() {}
-
-/*line codeapi/api.ergo:28:1*/ func (Rejected) isOutcome_1() {}
 
 //line codeapi/api.ergo:129:1
 func Call_1(env *Env, r Request) Outcome_1 {
@@ -15570,6 +14967,640 @@ func Call_1(env *Env, r Request) Outcome_1 {
 	/*line codeapi/api.ergo:186:3*/
 }
 
+//line codeapi/api.ergo:14:1
+type Request interface{ isRequest() }
+
+//line codeapi/api.ergo:14:16
+type DescribeRequest struct {
+	/*line codeapi/api.ergo:14:16*/
+}
+
+/*line codeapi/api.ergo:14:16*/
+func (DescribeRequest) isRequest() {}
+
+//line codeapi/api.ergo:14:36
+type SymbolsRequest struct {
+	/*line codeapi/api.ergo:14:36*/ Q SymbolQuery
+	/*line codeapi/api.ergo:14:36*/
+}
+
+/*line codeapi/api.ergo:14:36*/
+func (SymbolsRequest) isRequest() {}
+
+//line codeapi/api.ergo:14:73
+type SymbolRequest struct {
+	/*line codeapi/api.ergo:14:73*/ A string
+	/*line codeapi/api.ergo:14:73*/
+}
+
+/*line codeapi/api.ergo:14:73*/
+func (SymbolRequest) isRequest() {}
+
+//line codeapi/api.ergo:14:99
+type ReferencesRequest struct {
+	/*line codeapi/api.ergo:14:99*/ Q RefQuery
+	/*line codeapi/api.ergo:14:99*/
+}
+
+/*line codeapi/api.ergo:14:99*/
+func (ReferencesRequest) isRequest() {}
+
+//line codeapi/api.ergo:14:136
+type CallsRequest struct {
+	/*line codeapi/api.ergo:14:136*/ Q CallQuery
+	/*line codeapi/api.ergo:14:136*/
+}
+
+/*line codeapi/api.ergo:14:136*/
+func (CallsRequest) isRequest() {}
+
+//line codeapi/api.ergo:14:169
+type ApiRequest struct {
+	/*line codeapi/api.ergo:14:169*/ Q ApiQuery
+	/*line codeapi/api.ergo:14:169*/
+}
+
+/*line codeapi/api.ergo:14:169*/
+func (ApiRequest) isRequest() {}
+
+//line codeapi/api.ergo:14:199
+type ReachRequest struct {
+	/*line codeapi/api.ergo:14:199*/ Q ReachQuery
+	/*line codeapi/api.ergo:14:199*/
+}
+
+/*line codeapi/api.ergo:14:199*/
+func (ReachRequest) isRequest() {}
+
+//line codeapi/api.ergo:14:233
+type MachineOfRequest struct {
+	/*line codeapi/api.ergo:14:233*/ A string
+	/*line codeapi/api.ergo:14:233*/
+}
+
+/*line codeapi/api.ergo:14:233*/
+func (MachineOfRequest) isRequest() {}
+
+//line codeapi/api.ergo:28:1
+type Outcome_1 interface{ isOutcome_1() }
+
+//line codeapi/api.ergo:28:16
+type Done struct {
+	/*line codeapi/api.ergo:28:16*/ Reply Reply
+	/*line codeapi/api.ergo:28:16*/
+}
+
+/*line codeapi/api.ergo:28:16*/
+func (Done) isOutcome_1() {}
+
+//line codeapi/api.ergo:28:36
+type Rejected struct {
+	/*line codeapi/api.ergo:28:36*/ Failure Failure
+	/*line codeapi/api.ergo:28:36*/
+}
+
+/*line codeapi/api.ergo:28:36*/
+func (Rejected) isOutcome_1() {}
+
+//line codecli/cli.ergo:118:1
+func Parse(env *Env, args []string) (Request, error) {
+//line codecli/cli.ergo:118:1
+	env.task.Check()
+//line codecli/cli.ergo:119:2
+//line codecli/cli.ergo:119:65
+	v := Commands()
+//line codecli/cli.ergo:119:2
+//line codecli/cli.ergo:119:6
+	v_1, err := ParseCommandMono_i1(env, "code", "code.Reader on a command line", v, args)
+//line codecli/cli.ergo:119:2
+	if err != nil {
+		/*line codecli/cli.ergo:119:2*/ return *new(Request), err
+		/*line codecli/cli.ergo:119:2*/
+	}
+	/*line codecli/cli.ergo:119:2*/ return v_1, nil
+	/*line codecli/cli.ergo:119:2*/
+}
+
+//line codecli/cli.ergo:274:1
+func Show(env *Env, o Outcome_1, asJSON bool) Output {
+//line codecli/cli.ergo:274:1
+	env.task.Check()
+//line codecli/cli.ergo:275:2
+	switch v := o.(type) {
+	/*line codecli/cli.ergo:275:2*/ case Done:
+		/*line codecli/cli.ergo:275:2*/ done := v
+//line codecli/cli.ergo:277:3
+		switch v_1 := done.Reply.(type) {
+		/*line codecli/cli.ergo:277:3*/ case DescribeReply:
+			/*line codecli/cli.ergo:277:3*/ reply_2 := v_1
+//line codecli/cli.ergo:279:4
+			var v_2 Summary = reply_2.Value
+//line codecli/cli.ergo:280:4
+//line codecli/cli.ergo:280:18
+			v_5 := EncodeMono_1_i1(env, struct {
+				/*line codecli/cli.ergo:280:18*/ Enc func(*Env, Writer_1, Summary) (struct{}, error)
+				/*line codecli/cli.ergo:280:18*/ Dec func(*Env, Reader_2) (Summary, error)
+				/*line codecli/cli.ergo:280:18*/ Direct0 func(*Env, text_1, Summary) text_1
+				/*line codecli/cli.ergo:280:18*/ Field *struct {
+					/*line codecli/cli.ergo:280:18*/ Enc func(*Env, Writer_1, Summary) (struct{}, error)
+					/*line codecli/cli.ergo:280:18*/ Dec func(*Env, Reader_2) (Summary, error)
+					/*line codecli/cli.ergo:280:18*/ Direct0 func(*Env, text_1, Summary) text_1
+					/*line codecli/cli.ergo:280:18*/ Absent func(Summary) bool
+					/*line codecli/cli.ergo:280:18*/ Empty Summary
+					/*line codecli/cli.ergo:280:18*/
+				}
+				/*line codecli/cli.ergo:280:18*/
+			}{Enc: func(e *Env, w Writer_1, v_3 Summary) (struct{}, error) {
+				/*line codecli/cli.ergo:280:18*/ ergoEncodeSummary(e, w, v_3)
+				/*line codecli/cli.ergo:280:18*/ return struct{}{}, nil
+				/*line codecli/cli.ergo:280:18*/
+			}, Dec: func(e_1 *Env, r Reader_2) (Summary, error) {
+				/*line codecli/cli.ergo:280:18*/ x, err := ergoDecodeSummary(e_1, r)
+				/*line codecli/cli.ergo:280:18*/ if err != nil {
+					/*line codecli/cli.ergo:280:18*/ return *new(Summary), err
+					/*line codecli/cli.ergo:280:18*/
+				}
+				/*line codecli/cli.ergo:280:18*/ return x, nil
+				/*line codecli/cli.ergo:280:18*/
+			}, Direct0: ergoWriteSummary, Field: nil}, v_2)
+//line codecli/cli.ergo:280:4
+//line codecli/cli.ergo:281:4
+			v_6 := answer(asJSON, v_5, v_5)
+			/*line codecli/cli.ergo:281:4*/ return v_6
+			/*line codecli/cli.ergo:281:4*/
+		case SymbolsReply:
+			/*line codecli/cli.ergo:281:4*/ reply_3 := v_1
+//line codecli/cli.ergo:283:4
+			var v_7 SymbolPage = reply_3.Value
+//line codecli/cli.ergo:284:4
+//line codecli/cli.ergo:284:18
+			v_10 := EncodeMono_1_i2(env, struct {
+				/*line codecli/cli.ergo:284:18*/ Enc func(*Env, Writer_1, SymbolPage) (struct{}, error)
+				/*line codecli/cli.ergo:284:18*/ Dec func(*Env, Reader_2) (SymbolPage, error)
+				/*line codecli/cli.ergo:284:18*/ Direct0 func(*Env, text_1, SymbolPage) text_1
+				/*line codecli/cli.ergo:284:18*/ Field *struct {
+					/*line codecli/cli.ergo:284:18*/ Enc func(*Env, Writer_1, SymbolPage) (struct{}, error)
+					/*line codecli/cli.ergo:284:18*/ Dec func(*Env, Reader_2) (SymbolPage, error)
+					/*line codecli/cli.ergo:284:18*/ Direct0 func(*Env, text_1, SymbolPage) text_1
+					/*line codecli/cli.ergo:284:18*/ Absent func(SymbolPage) bool
+					/*line codecli/cli.ergo:284:18*/ Empty SymbolPage
+					/*line codecli/cli.ergo:284:18*/
+				}
+				/*line codecli/cli.ergo:284:18*/
+			}{Enc: func(e_3 *Env, w_1 Writer_1, v_8 SymbolPage) (struct{}, error) {
+				/*line codecli/cli.ergo:284:18*/ ergoEncodeSymbolPage(e_3, w_1, v_8)
+				/*line codecli/cli.ergo:284:18*/ return struct{}{}, nil
+				/*line codecli/cli.ergo:284:18*/
+			}, Dec: func(e_4 *Env, r_1 Reader_2) (SymbolPage, error) {
+				/*line codecli/cli.ergo:284:18*/ x_1, err_1 := ergoDecodeSymbolPage(e_4, r_1)
+				/*line codecli/cli.ergo:284:18*/ if err_1 != nil {
+					/*line codecli/cli.ergo:284:18*/ return *new(SymbolPage), err_1
+					/*line codecli/cli.ergo:284:18*/
+				}
+				/*line codecli/cli.ergo:284:18*/ return x_1, nil
+				/*line codecli/cli.ergo:284:18*/
+			}, Direct0: ergoWriteSymbolPage, Field: nil}, v_7)
+//line codecli/cli.ergo:284:4
+//line codecli/cli.ergo:285:4
+			v_11 := answer(asJSON, v_10, v_10)
+			/*line codecli/cli.ergo:285:4*/ return v_11
+			/*line codecli/cli.ergo:285:4*/
+		case SymbolReply:
+			/*line codecli/cli.ergo:285:4*/ reply_4 := v_1
+//line codecli/cli.ergo:287:4
+			var v_12 Decl = reply_4.Value
+//line codecli/cli.ergo:288:4
+//line codecli/cli.ergo:288:18
+			v_15 := EncodeMono_1_i3(env, struct {
+				/*line codecli/cli.ergo:288:18*/ Enc func(*Env, Writer_1, Decl) (struct{}, error)
+				/*line codecli/cli.ergo:288:18*/ Dec func(*Env, Reader_2) (Decl, error)
+				/*line codecli/cli.ergo:288:18*/ Direct0 func(*Env, text_1, Decl) text_1
+				/*line codecli/cli.ergo:288:18*/ Field *struct {
+					/*line codecli/cli.ergo:288:18*/ Enc func(*Env, Writer_1, Decl) (struct{}, error)
+					/*line codecli/cli.ergo:288:18*/ Dec func(*Env, Reader_2) (Decl, error)
+					/*line codecli/cli.ergo:288:18*/ Direct0 func(*Env, text_1, Decl) text_1
+					/*line codecli/cli.ergo:288:18*/ Absent func(Decl) bool
+					/*line codecli/cli.ergo:288:18*/ Empty Decl
+					/*line codecli/cli.ergo:288:18*/
+				}
+				/*line codecli/cli.ergo:288:18*/
+			}{Enc: func(e_6 *Env, w_2 Writer_1, v_13 Decl) (struct{}, error) {
+				/*line codecli/cli.ergo:288:18*/ ergoEncodeDecl(e_6, w_2, v_13)
+				/*line codecli/cli.ergo:288:18*/ return struct{}{}, nil
+				/*line codecli/cli.ergo:288:18*/
+			}, Dec: func(e_7 *Env, r_2 Reader_2) (Decl, error) {
+				/*line codecli/cli.ergo:288:18*/ x_2, err_2 := ergoDecodeDecl(e_7, r_2)
+				/*line codecli/cli.ergo:288:18*/ if err_2 != nil {
+					/*line codecli/cli.ergo:288:18*/ return *new(Decl), err_2
+					/*line codecli/cli.ergo:288:18*/
+				}
+				/*line codecli/cli.ergo:288:18*/ return x_2, nil
+				/*line codecli/cli.ergo:288:18*/
+			}, Direct0: ergoWriteDecl, Field: nil}, v_12)
+//line codecli/cli.ergo:288:4
+//line codecli/cli.ergo:289:4
+			v_16 := answer(asJSON, v_15, v_15)
+			/*line codecli/cli.ergo:289:4*/ return v_16
+			/*line codecli/cli.ergo:289:4*/
+		case ReferencesReply:
+			/*line codecli/cli.ergo:289:4*/ reply_5 := v_1
+//line codecli/cli.ergo:291:4
+			var v_17 SitePage = reply_5.Value
+//line codecli/cli.ergo:292:4
+//line codecli/cli.ergo:292:18
+			v_20 := EncodeMono_1_i4(env, struct {
+				/*line codecli/cli.ergo:292:18*/ Enc func(*Env, Writer_1, SitePage) (struct{}, error)
+				/*line codecli/cli.ergo:292:18*/ Dec func(*Env, Reader_2) (SitePage, error)
+				/*line codecli/cli.ergo:292:18*/ Direct0 func(*Env, text_1, SitePage) text_1
+				/*line codecli/cli.ergo:292:18*/ Field *struct {
+					/*line codecli/cli.ergo:292:18*/ Enc func(*Env, Writer_1, SitePage) (struct{}, error)
+					/*line codecli/cli.ergo:292:18*/ Dec func(*Env, Reader_2) (SitePage, error)
+					/*line codecli/cli.ergo:292:18*/ Direct0 func(*Env, text_1, SitePage) text_1
+					/*line codecli/cli.ergo:292:18*/ Absent func(SitePage) bool
+					/*line codecli/cli.ergo:292:18*/ Empty SitePage
+					/*line codecli/cli.ergo:292:18*/
+				}
+				/*line codecli/cli.ergo:292:18*/
+			}{Enc: func(e_9 *Env, w_3 Writer_1, v_18 SitePage) (struct{}, error) {
+				/*line codecli/cli.ergo:292:18*/ ergoEncodeSitePage(e_9, w_3, v_18)
+				/*line codecli/cli.ergo:292:18*/ return struct{}{}, nil
+				/*line codecli/cli.ergo:292:18*/
+			}, Dec: func(e_10 *Env, r_3 Reader_2) (SitePage, error) {
+				/*line codecli/cli.ergo:292:18*/ x_3, err_3 := ergoDecodeSitePage(e_10, r_3)
+				/*line codecli/cli.ergo:292:18*/ if err_3 != nil {
+					/*line codecli/cli.ergo:292:18*/ return *new(SitePage), err_3
+					/*line codecli/cli.ergo:292:18*/
+				}
+				/*line codecli/cli.ergo:292:18*/ return x_3, nil
+				/*line codecli/cli.ergo:292:18*/
+			}, Direct0: ergoWriteSitePage, Field: nil}, v_17)
+//line codecli/cli.ergo:292:4
+//line codecli/cli.ergo:293:4
+			v_21 := answer(asJSON, v_20, v_20)
+			/*line codecli/cli.ergo:293:4*/ return v_21
+			/*line codecli/cli.ergo:293:4*/
+		case CallsReply:
+			/*line codecli/cli.ergo:293:4*/ reply_6 := v_1
+//line codecli/cli.ergo:295:4
+			var v_22 CallPage = reply_6.Value
+//line codecli/cli.ergo:296:4
+//line codecli/cli.ergo:296:18
+			v_25 := EncodeMono_1_i5(env, struct {
+				/*line codecli/cli.ergo:296:18*/ Enc func(*Env, Writer_1, CallPage) (struct{}, error)
+				/*line codecli/cli.ergo:296:18*/ Dec func(*Env, Reader_2) (CallPage, error)
+				/*line codecli/cli.ergo:296:18*/ Direct0 func(*Env, text_1, CallPage) text_1
+				/*line codecli/cli.ergo:296:18*/ Field *struct {
+					/*line codecli/cli.ergo:296:18*/ Enc func(*Env, Writer_1, CallPage) (struct{}, error)
+					/*line codecli/cli.ergo:296:18*/ Dec func(*Env, Reader_2) (CallPage, error)
+					/*line codecli/cli.ergo:296:18*/ Direct0 func(*Env, text_1, CallPage) text_1
+					/*line codecli/cli.ergo:296:18*/ Absent func(CallPage) bool
+					/*line codecli/cli.ergo:296:18*/ Empty CallPage
+					/*line codecli/cli.ergo:296:18*/
+				}
+				/*line codecli/cli.ergo:296:18*/
+			}{Enc: func(e_12 *Env, w_4 Writer_1, v_23 CallPage) (struct{}, error) {
+				/*line codecli/cli.ergo:296:18*/ ergoEncodeCallPage(e_12, w_4, v_23)
+				/*line codecli/cli.ergo:296:18*/ return struct{}{}, nil
+				/*line codecli/cli.ergo:296:18*/
+			}, Dec: func(e_13 *Env, r_4 Reader_2) (CallPage, error) {
+				/*line codecli/cli.ergo:296:18*/ x_4, err_4 := ergoDecodeCallPage(e_13, r_4)
+				/*line codecli/cli.ergo:296:18*/ if err_4 != nil {
+					/*line codecli/cli.ergo:296:18*/ return *new(CallPage), err_4
+					/*line codecli/cli.ergo:296:18*/
+				}
+				/*line codecli/cli.ergo:296:18*/ return x_4, nil
+				/*line codecli/cli.ergo:296:18*/
+			}, Direct0: ergoWriteCallPage, Field: nil}, v_22)
+//line codecli/cli.ergo:296:4
+//line codecli/cli.ergo:297:4
+			v_26 := answer(asJSON, v_25, v_25)
+			/*line codecli/cli.ergo:297:4*/ return v_26
+			/*line codecli/cli.ergo:297:4*/
+		case ApiReply:
+			/*line codecli/cli.ergo:297:4*/ reply_7 := v_1
+//line codecli/cli.ergo:299:4
+			var v_27 ApiView = reply_7.Value
+//line codecli/cli.ergo:300:4
+//line codecli/cli.ergo:300:18
+			v_30 := EncodeMono_1_i6(env, struct {
+				/*line codecli/cli.ergo:300:18*/ Enc func(*Env, Writer_1, ApiView) (struct{}, error)
+				/*line codecli/cli.ergo:300:18*/ Dec func(*Env, Reader_2) (ApiView, error)
+				/*line codecli/cli.ergo:300:18*/ Direct0 func(*Env, text_1, ApiView) text_1
+				/*line codecli/cli.ergo:300:18*/ Field *struct {
+					/*line codecli/cli.ergo:300:18*/ Enc func(*Env, Writer_1, ApiView) (struct{}, error)
+					/*line codecli/cli.ergo:300:18*/ Dec func(*Env, Reader_2) (ApiView, error)
+					/*line codecli/cli.ergo:300:18*/ Direct0 func(*Env, text_1, ApiView) text_1
+					/*line codecli/cli.ergo:300:18*/ Absent func(ApiView) bool
+					/*line codecli/cli.ergo:300:18*/ Empty ApiView
+					/*line codecli/cli.ergo:300:18*/
+				}
+				/*line codecli/cli.ergo:300:18*/
+			}{Enc: func(e_15 *Env, w_5 Writer_1, v_28 ApiView) (struct{}, error) {
+				/*line codecli/cli.ergo:300:18*/ ergoEncodeApiView(e_15, w_5, v_28)
+				/*line codecli/cli.ergo:300:18*/ return struct{}{}, nil
+				/*line codecli/cli.ergo:300:18*/
+			}, Dec: func(e_16 *Env, r_5 Reader_2) (ApiView, error) {
+				/*line codecli/cli.ergo:300:18*/ x_5, err_5 := ergoDecodeApiView(e_16, r_5)
+				/*line codecli/cli.ergo:300:18*/ if err_5 != nil {
+					/*line codecli/cli.ergo:300:18*/ return *new(ApiView), err_5
+					/*line codecli/cli.ergo:300:18*/
+				}
+				/*line codecli/cli.ergo:300:18*/ return x_5, nil
+				/*line codecli/cli.ergo:300:18*/
+			}, Direct0: ergoWriteApiView, Field: nil}, v_27)
+//line codecli/cli.ergo:300:4
+//line codecli/cli.ergo:301:4
+			v_31 := answer(asJSON, v_30, v_30)
+			/*line codecli/cli.ergo:301:4*/ return v_31
+			/*line codecli/cli.ergo:301:4*/
+		case ReachReply:
+			/*line codecli/cli.ergo:301:4*/ reply_8 := v_1
+//line codecli/cli.ergo:303:4
+			var v_32 ReachPage = reply_8.Value
+//line codecli/cli.ergo:304:4
+//line codecli/cli.ergo:304:18
+			v_35 := EncodeMono_1_i7(env, struct {
+				/*line codecli/cli.ergo:304:18*/ Enc func(*Env, Writer_1, ReachPage) (struct{}, error)
+				/*line codecli/cli.ergo:304:18*/ Dec func(*Env, Reader_2) (ReachPage, error)
+				/*line codecli/cli.ergo:304:18*/ Direct0 func(*Env, text_1, ReachPage) text_1
+				/*line codecli/cli.ergo:304:18*/ Field *struct {
+					/*line codecli/cli.ergo:304:18*/ Enc func(*Env, Writer_1, ReachPage) (struct{}, error)
+					/*line codecli/cli.ergo:304:18*/ Dec func(*Env, Reader_2) (ReachPage, error)
+					/*line codecli/cli.ergo:304:18*/ Direct0 func(*Env, text_1, ReachPage) text_1
+					/*line codecli/cli.ergo:304:18*/ Absent func(ReachPage) bool
+					/*line codecli/cli.ergo:304:18*/ Empty ReachPage
+					/*line codecli/cli.ergo:304:18*/
+				}
+				/*line codecli/cli.ergo:304:18*/
+			}{Enc: func(e_18 *Env, w_6 Writer_1, v_33 ReachPage) (struct{}, error) {
+				/*line codecli/cli.ergo:304:18*/ ergoEncodeReachPage(e_18, w_6, v_33)
+				/*line codecli/cli.ergo:304:18*/ return struct{}{}, nil
+				/*line codecli/cli.ergo:304:18*/
+			}, Dec: func(e_19 *Env, r_6 Reader_2) (ReachPage, error) {
+				/*line codecli/cli.ergo:304:18*/ x_6, err_6 := ergoDecodeReachPage(e_19, r_6)
+				/*line codecli/cli.ergo:304:18*/ if err_6 != nil {
+					/*line codecli/cli.ergo:304:18*/ return *new(ReachPage), err_6
+					/*line codecli/cli.ergo:304:18*/
+				}
+				/*line codecli/cli.ergo:304:18*/ return x_6, nil
+				/*line codecli/cli.ergo:304:18*/
+			}, Direct0: ergoWriteReachPage, Field: nil}, v_32)
+//line codecli/cli.ergo:304:4
+//line codecli/cli.ergo:305:4
+			v_36 := answer(asJSON, v_35, v_35)
+			/*line codecli/cli.ergo:305:4*/ return v_36
+			/*line codecli/cli.ergo:305:4*/
+		case MachineOfReply:
+			/*line codecli/cli.ergo:305:4*/ reply_9 := v_1
+//line codecli/cli.ergo:307:4
+			var v_37 MachineView = reply_9.Value
+//line codecli/cli.ergo:308:4
+//line codecli/cli.ergo:308:18
+			v_40 := EncodeMono_1_i8(env, struct {
+				/*line codecli/cli.ergo:308:18*/ Enc func(*Env, Writer_1, MachineView) (struct{}, error)
+				/*line codecli/cli.ergo:308:18*/ Dec func(*Env, Reader_2) (MachineView, error)
+				/*line codecli/cli.ergo:308:18*/ Direct0 func(*Env, text_1, MachineView) text_1
+				/*line codecli/cli.ergo:308:18*/ Field *struct {
+					/*line codecli/cli.ergo:308:18*/ Enc func(*Env, Writer_1, MachineView) (struct{}, error)
+					/*line codecli/cli.ergo:308:18*/ Dec func(*Env, Reader_2) (MachineView, error)
+					/*line codecli/cli.ergo:308:18*/ Direct0 func(*Env, text_1, MachineView) text_1
+					/*line codecli/cli.ergo:308:18*/ Absent func(MachineView) bool
+					/*line codecli/cli.ergo:308:18*/ Empty MachineView
+					/*line codecli/cli.ergo:308:18*/
+				}
+				/*line codecli/cli.ergo:308:18*/
+			}{Enc: func(e_21 *Env, w_7 Writer_1, v_38 MachineView) (struct{}, error) {
+				/*line codecli/cli.ergo:308:18*/ ergoEncodeMachineView(e_21, w_7, v_38)
+				/*line codecli/cli.ergo:308:18*/ return struct{}{}, nil
+				/*line codecli/cli.ergo:308:18*/
+			}, Dec: func(e_22 *Env, r_7 Reader_2) (MachineView, error) {
+				/*line codecli/cli.ergo:308:18*/ x_7, err_7 := ergoDecodeMachineView(e_22, r_7)
+				/*line codecli/cli.ergo:308:18*/ if err_7 != nil {
+					/*line codecli/cli.ergo:308:18*/ return *new(MachineView), err_7
+					/*line codecli/cli.ergo:308:18*/
+				}
+				/*line codecli/cli.ergo:308:18*/ return x_7, nil
+				/*line codecli/cli.ergo:308:18*/
+			}, Direct0: ergoWriteMachineView, Field: nil}, v_37)
+//line codecli/cli.ergo:308:4
+//line codecli/cli.ergo:309:4
+			v_41 := answer(asJSON, v_40, v_40)
+			/*line codecli/cli.ergo:309:4*/ return v_41
+			/*line codecli/cli.ergo:309:4*/
+		default:
+			/*line codecli/cli.ergo:309:4*/ _ = v_1
+			/*line codecli/cli.ergo:309:4*/ panic("ergo: defect: no case of the match at 277:3 matched")
+			/*line codecli/cli.ergo:309:4*/
+		}
+		/*line codecli/cli.ergo:309:4*/
+	case Rejected:
+		/*line codecli/cli.ergo:309:4*/ rejected := v
+//line codecli/cli.ergo:312:3
+		switch v_42 := rejected.Failure.(type) {
+		/*line codecli/cli.ergo:312:3*/ case NoSymbol_1:
+			/*line codecli/cli.ergo:312:3*/ failure := v_42
+//line codecli/cli.ergo:314:4
+			t := asJSON
+//line codecli/cli.ergo:314:42
+			v_45 := EncodeMono_1_i9(env, struct {
+				/*line codecli/cli.ergo:314:42*/ Enc func(*Env, Writer_1, NoSymbol) (struct{}, error)
+				/*line codecli/cli.ergo:314:42*/ Dec func(*Env, Reader_2) (NoSymbol, error)
+				/*line codecli/cli.ergo:314:42*/ Direct0 func(*Env, text_1, NoSymbol) text_1
+				/*line codecli/cli.ergo:314:42*/ Field *struct {
+					/*line codecli/cli.ergo:314:42*/ Enc func(*Env, Writer_1, NoSymbol) (struct{}, error)
+					/*line codecli/cli.ergo:314:42*/ Dec func(*Env, Reader_2) (NoSymbol, error)
+					/*line codecli/cli.ergo:314:42*/ Direct0 func(*Env, text_1, NoSymbol) text_1
+					/*line codecli/cli.ergo:314:42*/ Absent func(NoSymbol) bool
+					/*line codecli/cli.ergo:314:42*/ Empty NoSymbol
+					/*line codecli/cli.ergo:314:42*/
+				}
+				/*line codecli/cli.ergo:314:42*/
+			}{Enc: func(e_24 *Env, w_8 Writer_1, v_43 NoSymbol) (struct{}, error) {
+				/*line codecli/cli.ergo:314:42*/ ergoEncodeNoSymbol(e_24, w_8, v_43)
+				/*line codecli/cli.ergo:314:42*/ return struct{}{}, nil
+				/*line codecli/cli.ergo:314:42*/
+			}, Dec: func(e_25 *Env, r_8 Reader_2) (NoSymbol, error) {
+				/*line codecli/cli.ergo:314:42*/ x_8, err_8 := ergoDecodeNoSymbol(e_25, r_8)
+				/*line codecli/cli.ergo:314:42*/ if err_8 != nil {
+					/*line codecli/cli.ergo:314:42*/ return *new(NoSymbol), err_8
+					/*line codecli/cli.ergo:314:42*/
+				}
+				/*line codecli/cli.ergo:314:42*/ return x_8, nil
+				/*line codecli/cli.ergo:314:42*/
+			}, Direct0: ergoWriteNoSymbol, Field: nil}, failure.E)
+//line codecli/cli.ergo:314:4
+//line codecli/cli.ergo:314:19
+			v_46 := ergorpc.RPCTagged("NoSymbol", v_45)
+//line codecli/cli.ergo:314:4
+			v_47 := failed(env, t, v_46)
+			/*line codecli/cli.ergo:314:4*/ return v_47
+			/*line codecli/cli.ergo:314:4*/
+		case Ambiguous_1:
+			/*line codecli/cli.ergo:314:4*/ failure_1 := v_42
+//line codecli/cli.ergo:316:4
+			t_1 := asJSON
+//line codecli/cli.ergo:316:43
+			v_50 := EncodeMono_1_i10(env, struct {
+				/*line codecli/cli.ergo:316:43*/ Enc func(*Env, Writer_1, Ambiguous) (struct{}, error)
+				/*line codecli/cli.ergo:316:43*/ Dec func(*Env, Reader_2) (Ambiguous, error)
+				/*line codecli/cli.ergo:316:43*/ Direct0 func(*Env, text_1, Ambiguous) text_1
+				/*line codecli/cli.ergo:316:43*/ Field *struct {
+					/*line codecli/cli.ergo:316:43*/ Enc func(*Env, Writer_1, Ambiguous) (struct{}, error)
+					/*line codecli/cli.ergo:316:43*/ Dec func(*Env, Reader_2) (Ambiguous, error)
+					/*line codecli/cli.ergo:316:43*/ Direct0 func(*Env, text_1, Ambiguous) text_1
+					/*line codecli/cli.ergo:316:43*/ Absent func(Ambiguous) bool
+					/*line codecli/cli.ergo:316:43*/ Empty Ambiguous
+					/*line codecli/cli.ergo:316:43*/
+				}
+				/*line codecli/cli.ergo:316:43*/
+			}{Enc: func(e_27 *Env, w_9 Writer_1, v_48 Ambiguous) (struct{}, error) {
+				/*line codecli/cli.ergo:316:43*/ ergoEncodeAmbiguous(e_27, w_9, v_48)
+				/*line codecli/cli.ergo:316:43*/ return struct{}{}, nil
+				/*line codecli/cli.ergo:316:43*/
+			}, Dec: func(e_28 *Env, r_9 Reader_2) (Ambiguous, error) {
+				/*line codecli/cli.ergo:316:43*/ x_9, err_9 := ergoDecodeAmbiguous(e_28, r_9)
+				/*line codecli/cli.ergo:316:43*/ if err_9 != nil {
+					/*line codecli/cli.ergo:316:43*/ return *new(Ambiguous), err_9
+					/*line codecli/cli.ergo:316:43*/
+				}
+				/*line codecli/cli.ergo:316:43*/ return x_9, nil
+				/*line codecli/cli.ergo:316:43*/
+			}, Direct0: ergoWriteAmbiguous, Field: nil}, failure_1.E)
+//line codecli/cli.ergo:316:4
+//line codecli/cli.ergo:316:19
+			v_51 := ergorpc.RPCTagged("Ambiguous", v_50)
+//line codecli/cli.ergo:316:4
+			v_52 := failed(env, t_1, v_51)
+			/*line codecli/cli.ergo:316:4*/ return v_52
+			/*line codecli/cli.ergo:316:4*/
+		case NotCallable_1:
+			/*line codecli/cli.ergo:316:4*/ failure_2 := v_42
+//line codecli/cli.ergo:318:4
+			t_2 := asJSON
+//line codecli/cli.ergo:318:45
+			v_55 := EncodeMono_1_i11(env, struct {
+				/*line codecli/cli.ergo:318:45*/ Enc func(*Env, Writer_1, NotCallable) (struct{}, error)
+				/*line codecli/cli.ergo:318:45*/ Dec func(*Env, Reader_2) (NotCallable, error)
+				/*line codecli/cli.ergo:318:45*/ Direct0 func(*Env, text_1, NotCallable) text_1
+				/*line codecli/cli.ergo:318:45*/ Field *struct {
+					/*line codecli/cli.ergo:318:45*/ Enc func(*Env, Writer_1, NotCallable) (struct{}, error)
+					/*line codecli/cli.ergo:318:45*/ Dec func(*Env, Reader_2) (NotCallable, error)
+					/*line codecli/cli.ergo:318:45*/ Direct0 func(*Env, text_1, NotCallable) text_1
+					/*line codecli/cli.ergo:318:45*/ Absent func(NotCallable) bool
+					/*line codecli/cli.ergo:318:45*/ Empty NotCallable
+					/*line codecli/cli.ergo:318:45*/
+				}
+				/*line codecli/cli.ergo:318:45*/
+			}{Enc: func(e_30 *Env, w_10 Writer_1, v_53 NotCallable) (struct{}, error) {
+				/*line codecli/cli.ergo:318:45*/ ergoEncodeNotCallable(e_30, w_10, v_53)
+				/*line codecli/cli.ergo:318:45*/ return struct{}{}, nil
+				/*line codecli/cli.ergo:318:45*/
+			}, Dec: func(e_31 *Env, r_10 Reader_2) (NotCallable, error) {
+				/*line codecli/cli.ergo:318:45*/ x_10, err_10 := ergoDecodeNotCallable(e_31, r_10)
+				/*line codecli/cli.ergo:318:45*/ if err_10 != nil {
+					/*line codecli/cli.ergo:318:45*/ return *new(NotCallable), err_10
+					/*line codecli/cli.ergo:318:45*/
+				}
+				/*line codecli/cli.ergo:318:45*/ return x_10, nil
+				/*line codecli/cli.ergo:318:45*/
+			}, Direct0: ergoWriteNotCallable, Field: nil}, failure_2.E)
+//line codecli/cli.ergo:318:4
+//line codecli/cli.ergo:318:19
+			v_56 := ergorpc.RPCTagged("NotCallable", v_55)
+//line codecli/cli.ergo:318:4
+			v_57 := failed(env, t_2, v_56)
+			/*line codecli/cli.ergo:318:4*/ return v_57
+			/*line codecli/cli.ergo:318:4*/
+		case NoPackage_1:
+			/*line codecli/cli.ergo:318:4*/ failure_3 := v_42
+//line codecli/cli.ergo:320:4
+			t_3 := asJSON
+//line codecli/cli.ergo:320:43
+			v_60 := EncodeMono_1_i12(env, struct {
+				/*line codecli/cli.ergo:320:43*/ Enc func(*Env, Writer_1, NoPackage) (struct{}, error)
+				/*line codecli/cli.ergo:320:43*/ Dec func(*Env, Reader_2) (NoPackage, error)
+				/*line codecli/cli.ergo:320:43*/ Direct0 func(*Env, text_1, NoPackage) text_1
+				/*line codecli/cli.ergo:320:43*/ Field *struct {
+					/*line codecli/cli.ergo:320:43*/ Enc func(*Env, Writer_1, NoPackage) (struct{}, error)
+					/*line codecli/cli.ergo:320:43*/ Dec func(*Env, Reader_2) (NoPackage, error)
+					/*line codecli/cli.ergo:320:43*/ Direct0 func(*Env, text_1, NoPackage) text_1
+					/*line codecli/cli.ergo:320:43*/ Absent func(NoPackage) bool
+					/*line codecli/cli.ergo:320:43*/ Empty NoPackage
+					/*line codecli/cli.ergo:320:43*/
+				}
+				/*line codecli/cli.ergo:320:43*/
+			}{Enc: func(e_33 *Env, w_11 Writer_1, v_58 NoPackage) (struct{}, error) {
+				/*line codecli/cli.ergo:320:43*/ ergoEncodeNoPackage(e_33, w_11, v_58)
+				/*line codecli/cli.ergo:320:43*/ return struct{}{}, nil
+				/*line codecli/cli.ergo:320:43*/
+			}, Dec: func(e_34 *Env, r_11 Reader_2) (NoPackage, error) {
+				/*line codecli/cli.ergo:320:43*/ x_11, err_11 := ergoDecodeNoPackage(e_34, r_11)
+				/*line codecli/cli.ergo:320:43*/ if err_11 != nil {
+					/*line codecli/cli.ergo:320:43*/ return *new(NoPackage), err_11
+					/*line codecli/cli.ergo:320:43*/
+				}
+				/*line codecli/cli.ergo:320:43*/ return x_11, nil
+				/*line codecli/cli.ergo:320:43*/
+			}, Direct0: ergoWriteNoPackage, Field: nil}, failure_3.E)
+//line codecli/cli.ergo:320:4
+//line codecli/cli.ergo:320:19
+			v_61 := ergorpc.RPCTagged("NoPackage", v_60)
+//line codecli/cli.ergo:320:4
+			v_62 := failed(env, t_3, v_61)
+			/*line codecli/cli.ergo:320:4*/ return v_62
+			/*line codecli/cli.ergo:320:4*/
+		case NotMachine_1:
+			/*line codecli/cli.ergo:320:4*/ failure_4 := v_42
+//line codecli/cli.ergo:322:4
+			t_4 := asJSON
+//line codecli/cli.ergo:322:44
+			v_65 := EncodeMono_1_i13(env, struct {
+				/*line codecli/cli.ergo:322:44*/ Enc func(*Env, Writer_1, NotMachine) (struct{}, error)
+				/*line codecli/cli.ergo:322:44*/ Dec func(*Env, Reader_2) (NotMachine, error)
+				/*line codecli/cli.ergo:322:44*/ Direct0 func(*Env, text_1, NotMachine) text_1
+				/*line codecli/cli.ergo:322:44*/ Field *struct {
+					/*line codecli/cli.ergo:322:44*/ Enc func(*Env, Writer_1, NotMachine) (struct{}, error)
+					/*line codecli/cli.ergo:322:44*/ Dec func(*Env, Reader_2) (NotMachine, error)
+					/*line codecli/cli.ergo:322:44*/ Direct0 func(*Env, text_1, NotMachine) text_1
+					/*line codecli/cli.ergo:322:44*/ Absent func(NotMachine) bool
+					/*line codecli/cli.ergo:322:44*/ Empty NotMachine
+					/*line codecli/cli.ergo:322:44*/
+				}
+				/*line codecli/cli.ergo:322:44*/
+			}{Enc: func(e_36 *Env, w_12 Writer_1, v_63 NotMachine) (struct{}, error) {
+				/*line codecli/cli.ergo:322:44*/ ergoEncodeNotMachine(e_36, w_12, v_63)
+				/*line codecli/cli.ergo:322:44*/ return struct{}{}, nil
+				/*line codecli/cli.ergo:322:44*/
+			}, Dec: func(e_37 *Env, r_12 Reader_2) (NotMachine, error) {
+				/*line codecli/cli.ergo:322:44*/ x_12, err_12 := ergoDecodeNotMachine(e_37, r_12)
+				/*line codecli/cli.ergo:322:44*/ if err_12 != nil {
+					/*line codecli/cli.ergo:322:44*/ return *new(NotMachine), err_12
+					/*line codecli/cli.ergo:322:44*/
+				}
+				/*line codecli/cli.ergo:322:44*/ return x_12, nil
+				/*line codecli/cli.ergo:322:44*/
+			}, Direct0: ergoWriteNotMachine, Field: nil}, failure_4.E)
+//line codecli/cli.ergo:322:4
+//line codecli/cli.ergo:322:19
+			v_66 := ergorpc.RPCTagged("NotMachine", v_65)
+//line codecli/cli.ergo:322:4
+			v_67 := failed(env, t_4, v_66)
+			/*line codecli/cli.ergo:322:4*/ return v_67
+			/*line codecli/cli.ergo:322:4*/
+		default:
+			/*line codecli/cli.ergo:322:4*/ _ = v_42
+			/*line codecli/cli.ergo:322:4*/ panic("ergo: defect: no case of the match at 312:3 matched")
+			/*line codecli/cli.ergo:322:4*/
+		}
+		/*line codecli/cli.ergo:322:4*/
+	default:
+		/*line codecli/cli.ergo:322:4*/ _ = v
+		/*line codecli/cli.ergo:322:4*/ panic("ergo: defect: no case of the match at 275:2 matched")
+		/*line codecli/cli.ergo:322:4*/
+	}
+	/*line codecli/cli.ergo:322:4*/
+}
+
 //line codeapi/api.ergo:20:14
 type DescribeReply struct {
 	/*line codeapi/api.ergo:20:14*/ Value Summary
@@ -15580,65 +15611,6 @@ type DescribeReply struct {
 type SymbolsReply struct {
 	/*line codeapi/api.ergo:20:50*/ Value SymbolPage
 	/*line codeapi/api.ergo:20:50*/
-}
-
-//line codeapi/api.ergo:20:88
-type SymbolReply struct {
-	/*line codeapi/api.ergo:20:88*/ Value Decl
-	/*line codeapi/api.ergo:20:88*/
-}
-
-//line codeapi/api.ergo:20:119
-type ReferencesReply struct {
-	/*line codeapi/api.ergo:20:119*/ Value SitePage
-	/*line codeapi/api.ergo:20:119*/
-}
-
-//line codeapi/api.ergo:20:158
-type CallsReply struct {
-	/*line codeapi/api.ergo:20:158*/ Value CallPage
-	/*line codeapi/api.ergo:20:158*/
-}
-
-//line codeapi/api.ergo:20:192
-type ApiReply struct {
-	/*line codeapi/api.ergo:20:192*/ Value ApiView
-	/*line codeapi/api.ergo:20:192*/
-}
-
-//line codeapi/api.ergo:20:223
-type ReachReply struct {
-	/*line codeapi/api.ergo:20:223*/ Value ReachPage
-	/*line codeapi/api.ergo:20:223*/
-}
-
-//line codeapi/api.ergo:20:258
-type MachineOfReply struct {
-	/*line codeapi/api.ergo:20:258*/ Value MachineView
-	/*line codeapi/api.ergo:20:258*/
-}
-
-//line codecli/cli.ergo:248:1
-func answer(asJSON bool, plain_1 string, encoded string) Output {
-//line codecli/cli.ergo:249:2
-	if asJSON {
-//line codecli/cli.ergo:250:3
-		return Output{Out: (encoded + "\n"), Err: "", Code: int(0)}
-		/*line codecli/cli.ergo:250:3*/
-	} else {
-//line codecli/cli.ergo:251:9
-		if plain_1 == "" {
-//line codecli/cli.ergo:252:3
-			return Output{Out: "", Err: "", Code: int(0)}
-			/*line codecli/cli.ergo:252:3*/
-		} else {
-//line codecli/cli.ergo:254:3
-			return Output{Out: (plain_1 + "\n"), Err: "", Code: int(0)}
-			/*line codecli/cli.ergo:254:3*/
-		}
-		/*line codecli/cli.ergo:254:3*/
-	}
-	/*line codecli/cli.ergo:254:3*/
 }
 
 //line codeapi/api.ergo:24:16
@@ -15653,10 +15625,28 @@ type Ambiguous_1 struct {
 	/*line codeapi/api.ergo:24:44*/
 }
 
+//line codeapi/api.ergo:20:88
+type SymbolReply struct {
+	/*line codeapi/api.ergo:20:88*/ Value Decl
+	/*line codeapi/api.ergo:20:88*/
+}
+
+//line codeapi/api.ergo:20:119
+type ReferencesReply struct {
+	/*line codeapi/api.ergo:20:119*/ Value SitePage
+	/*line codeapi/api.ergo:20:119*/
+}
+
 //line codeapi/api.ergo:24:74
 type NotCallable_1 struct {
 	/*line codeapi/api.ergo:24:74*/ E NotCallable
 	/*line codeapi/api.ergo:24:74*/
+}
+
+//line codeapi/api.ergo:20:158
+type CallsReply struct {
+	/*line codeapi/api.ergo:20:158*/ Value CallPage
+	/*line codeapi/api.ergo:20:158*/
 }
 
 //line codeapi/api.ergo:24:108
@@ -15665,68 +15655,28 @@ type NoPackage_1 struct {
 	/*line codeapi/api.ergo:24:108*/
 }
 
+//line codeapi/api.ergo:20:192
+type ApiReply struct {
+	/*line codeapi/api.ergo:20:192*/ Value ApiView
+	/*line codeapi/api.ergo:20:192*/
+}
+
+//line codeapi/api.ergo:20:223
+type ReachReply struct {
+	/*line codeapi/api.ergo:20:223*/ Value ReachPage
+	/*line codeapi/api.ergo:20:223*/
+}
+
 //line codeapi/api.ergo:24:138
 type NotMachine_1 struct {
 	/*line codeapi/api.ergo:24:138*/ E NotMachine
 	/*line codeapi/api.ergo:24:138*/
 }
 
-//line codecli/cli.ergo:261:1
-func failed(env *Env, asJSON bool, tagged_1 string) Output {
-//line codecli/cli.ergo:261:1
-	env.task.Check()
-//line codecli/cli.ergo:262:2
-	if asJSON {
-//line codecli/cli.ergo:263:3
-		return Output{Out: (tagged_1 + "\n"), Err: "", Code: int(1)}
-		/*line codecli/cli.ergo:263:3*/
-	} else {
-//line codecli/cli.ergo:265:3
-//line codecli/cli.ergo:265:24
-		v := ergorpc.RPCTagOf(tagged_1)
-//line codecli/cli.ergo:265:3
-		return Output{Out: "", Err: (((v + ": ") + tagged_1) + "\n"), Code: int(1)}
-		/*line codecli/cli.ergo:265:3*/
-	}
-	/*line codecli/cli.ergo:265:3*/
-}
-
-//line codecli/cli.ergo:21:1
-func Commands() []Command[Request] {
-//line codecli/cli.ergo:22:2
-//line codecli/cli.ergo:22:26
-	v := commandDescribe()
-//line codecli/cli.ergo:22:2
-	t := v
-//line codecli/cli.ergo:22:45
-	v_1 := commandSymbols()
-//line codecli/cli.ergo:22:2
-	t_1 := v_1
-//line codecli/cli.ergo:22:63
-	v_2 := commandSymbol()
-//line codecli/cli.ergo:22:2
-	t_2 := v_2
-//line codecli/cli.ergo:22:80
-	v_3 := commandReferences()
-//line codecli/cli.ergo:22:2
-	t_3 := v_3
-//line codecli/cli.ergo:22:101
-	v_4 := commandCalls()
-//line codecli/cli.ergo:22:2
-	t_4 := v_4
-//line codecli/cli.ergo:22:117
-	v_5 := commandApi()
-//line codecli/cli.ergo:22:2
-	t_5 := v_5
-//line codecli/cli.ergo:22:131
-	v_6 := commandReach()
-//line codecli/cli.ergo:22:2
-	t_6 := v_6
-//line codecli/cli.ergo:22:147
-	v_7 := commandMachineOf()
-//line codecli/cli.ergo:22:2
-	return []Command[Request]{t, t_1, t_2, t_3, t_4, t_5, t_6, v_7}
-	/*line codecli/cli.ergo:22:2*/
+//line codeapi/api.ergo:20:258
+type MachineOfReply struct {
+	/*line codeapi/api.ergo:20:258*/ Value MachineView
+	/*line codeapi/api.ergo:20:258*/
 }
 
 //line codeapi/api.ergo:20:1
@@ -15763,426 +15713,507 @@ func (NoSymbol_1) isFailure() {}
 
 /*line codeapi/api.ergo:24:1*/ func (NotMachine_1) isFailure() {}
 
-//line codecli/cli.ergo:26:1
-func commandDescribe() Command[Request] {
-//line codecli/cli.ergo:27:2
-	return Command[Request]{Name: "describe", Usage: "Describe() code.Summary", Set: Set{Name: "describe", Usage: "Describe() code.Summary", Flags: []Flag{}, Args: []ArgSpec{}}, Build: func(env *Env, v Values_1) (Request, error) {
-//line codecli/cli.ergo:28:3
-		return DescribeRequest{}, nil
-		/*line codecli/cli.ergo:28:3*/
-	}, Commands: []Command[Request]{}}
-	/*line codecli/cli.ergo:28:3*/
+//line codecli/cli.ergo:23:1
+func Commands() []Command[Request] {
+//line codecli/cli.ergo:24:2
+//line codecli/cli.ergo:24:26
+	v := commandDescribe()
+//line codecli/cli.ergo:24:2
+	t := v
+//line codecli/cli.ergo:24:45
+	v_1 := commandSymbols()
+//line codecli/cli.ergo:24:2
+	t_1 := v_1
+//line codecli/cli.ergo:24:63
+	v_2 := commandSymbol()
+//line codecli/cli.ergo:24:2
+	t_2 := v_2
+//line codecli/cli.ergo:24:80
+	v_3 := commandReferences()
+//line codecli/cli.ergo:24:2
+	t_3 := v_3
+//line codecli/cli.ergo:24:101
+	v_4 := commandCalls()
+//line codecli/cli.ergo:24:2
+	t_4 := v_4
+//line codecli/cli.ergo:24:117
+	v_5 := commandApi()
+//line codecli/cli.ergo:24:2
+	t_5 := v_5
+//line codecli/cli.ergo:24:131
+	v_6 := commandReach()
+//line codecli/cli.ergo:24:2
+	t_6 := v_6
+//line codecli/cli.ergo:24:147
+	v_7 := commandMachineOf()
+//line codecli/cli.ergo:24:2
+	return []Command[Request]{t, t_1, t_2, t_3, t_4, t_5, t_6, v_7}
+	/*line codecli/cli.ergo:24:2*/
 }
 
-//line codecli/cli.ergo:33:1
+//line codecli/cli.ergo:250:1
+func answer(asJSON bool, plain_1 string, encoded string) Output {
+//line codecli/cli.ergo:251:2
+	if asJSON {
+//line codecli/cli.ergo:252:3
+		return Output{Out: (encoded + "\n"), Err: "", Code: int(0)}
+		/*line codecli/cli.ergo:252:3*/
+	} else {
+//line codecli/cli.ergo:253:9
+		if plain_1 == "" {
+//line codecli/cli.ergo:254:3
+			return Output{Out: "", Err: "", Code: int(0)}
+			/*line codecli/cli.ergo:254:3*/
+		} else {
+//line codecli/cli.ergo:256:3
+			return Output{Out: (plain_1 + "\n"), Err: "", Code: int(0)}
+			/*line codecli/cli.ergo:256:3*/
+		}
+		/*line codecli/cli.ergo:256:3*/
+	}
+	/*line codecli/cli.ergo:256:3*/
+}
+
+//line codecli/cli.ergo:263:1
+func failed(env *Env, asJSON bool, tagged_1 string) Output {
+//line codecli/cli.ergo:263:1
+	env.task.Check()
+//line codecli/cli.ergo:264:2
+	if asJSON {
+//line codecli/cli.ergo:265:3
+		return Output{Out: (tagged_1 + "\n"), Err: "", Code: int(1)}
+		/*line codecli/cli.ergo:265:3*/
+	} else {
+//line codecli/cli.ergo:267:3
+//line codecli/cli.ergo:267:24
+		v := ergorpc.RPCTagOf(tagged_1)
+//line codecli/cli.ergo:267:3
+		return Output{Out: "", Err: (((v + ": ") + tagged_1) + "\n"), Code: int(1)}
+		/*line codecli/cli.ergo:267:3*/
+	}
+	/*line codecli/cli.ergo:267:3*/
+}
+
+//line codecli/cli.ergo:28:1
+func commandDescribe() Command[Request] {
+//line codecli/cli.ergo:29:2
+	return Command[Request]{Name: "describe", Usage: "Describe() code.Summary", Set: Set{Name: "describe", Usage: "Describe() code.Summary", Flags: []Flag{}, Args: []ArgSpec{}}, Build: func(env *Env, v Values_1) (Request, error) {
+//line codecli/cli.ergo:30:3
+		return DescribeRequest{}, nil
+		/*line codecli/cli.ergo:30:3*/
+	}, Commands: []Command[Request]{}}
+	/*line codecli/cli.ergo:30:3*/
+}
+
+//line codecli/cli.ergo:35:1
 func commandSymbols() Command[Request] {
-//line codecli/cli.ergo:34:2
-//line codecli/cli.ergo:34:11
-	var v OptionalStringFlag
-	/*line codecli/cli.ergo:34:11*/ {
-		/*line codecli/cli.ergo:34:11*/ var name string = "name"
-		/*line codecli/cli.ergo:34:11*/ var usage string = "q.Name (Option[string])"
-		/*line codecli/cli.ergo:34:11*/ v_1 := String(name, "", usage)
-		/*line codecli/cli.ergo:34:11*/ v = OptionalStringFlag{base: v_1}
-		/*line codecli/cli.ergo:34:11*/
-	}
-//line codecli/cli.ergo:35:2
-//line codecli/cli.ergo:35:11
-	var v_2 OptionalStringFlag
-	/*line codecli/cli.ergo:35:11*/ {
-		/*line codecli/cli.ergo:35:11*/ var name_1 string = "match"
-		/*line codecli/cli.ergo:35:11*/ var usage_1 string = "q.Match (Option[string])"
-		/*line codecli/cli.ergo:35:11*/ v_3 := String(name_1, "", usage_1)
-		/*line codecli/cli.ergo:35:11*/ v_2 = OptionalStringFlag{base: v_3}
-		/*line codecli/cli.ergo:35:11*/
-	}
 //line codecli/cli.ergo:36:2
 //line codecli/cli.ergo:36:11
-	var v_4 OptionalStringFlag
+	var v OptionalStringFlag
 	/*line codecli/cli.ergo:36:11*/ {
-		/*line codecli/cli.ergo:36:11*/ var name_2 string = "kind"
-		/*line codecli/cli.ergo:36:11*/ var usage_2 string = "q.Kind (Option[string])"
-		/*line codecli/cli.ergo:36:11*/ v_5 := String(name_2, "", usage_2)
-		/*line codecli/cli.ergo:36:11*/ v_4 = OptionalStringFlag{base: v_5}
+		/*line codecli/cli.ergo:36:11*/ var name string = "name"
+		/*line codecli/cli.ergo:36:11*/ var usage string = "q.Name (Option[string])"
+		/*line codecli/cli.ergo:36:11*/ v_1 := String(name, "", usage)
+		/*line codecli/cli.ergo:36:11*/ v = OptionalStringFlag{base: v_1}
 		/*line codecli/cli.ergo:36:11*/
 	}
 //line codecli/cli.ergo:37:2
 //line codecli/cli.ergo:37:11
-	var v_6 OptionalStringFlag
+	var v_2 OptionalStringFlag
 	/*line codecli/cli.ergo:37:11*/ {
-		/*line codecli/cli.ergo:37:11*/ var name_3 string = "package"
-		/*line codecli/cli.ergo:37:11*/ var usage_3 string = "q.Package (Option[string])"
-		/*line codecli/cli.ergo:37:11*/ v_7 := String(name_3, "", usage_3)
-		/*line codecli/cli.ergo:37:11*/ v_6 = OptionalStringFlag{base: v_7}
+		/*line codecli/cli.ergo:37:11*/ var name_1 string = "match"
+		/*line codecli/cli.ergo:37:11*/ var usage_1 string = "q.Match (Option[string])"
+		/*line codecli/cli.ergo:37:11*/ v_3 := String(name_1, "", usage_1)
+		/*line codecli/cli.ergo:37:11*/ v_2 = OptionalStringFlag{base: v_3}
 		/*line codecli/cli.ergo:37:11*/
 	}
 //line codecli/cli.ergo:38:2
 //line codecli/cli.ergo:38:11
-	var v_8 OptionalIntFlag
+	var v_4 OptionalStringFlag
 	/*line codecli/cli.ergo:38:11*/ {
-		/*line codecli/cli.ergo:38:11*/ var name_4 string = "offset"
-		/*line codecli/cli.ergo:38:11*/ var usage_4 string = "q.Offset (Option[int])"
-		/*line codecli/cli.ergo:38:11*/ v_9 := Int(name_4, int(0), usage_4)
-		/*line codecli/cli.ergo:38:11*/ v_8 = OptionalIntFlag{base: v_9}
+		/*line codecli/cli.ergo:38:11*/ var name_2 string = "kind"
+		/*line codecli/cli.ergo:38:11*/ var usage_2 string = "q.Kind (Option[string])"
+		/*line codecli/cli.ergo:38:11*/ v_5 := String(name_2, "", usage_2)
+		/*line codecli/cli.ergo:38:11*/ v_4 = OptionalStringFlag{base: v_5}
 		/*line codecli/cli.ergo:38:11*/
 	}
 //line codecli/cli.ergo:39:2
 //line codecli/cli.ergo:39:11
-	var v_10 OptionalIntFlag
+	var v_6 OptionalStringFlag
 	/*line codecli/cli.ergo:39:11*/ {
-		/*line codecli/cli.ergo:39:11*/ var name_5 string = "limit"
-		/*line codecli/cli.ergo:39:11*/ var usage_5 string = "q.Limit (Option[int])"
-		/*line codecli/cli.ergo:39:11*/ v_11 := Int(name_5, int(0), usage_5)
-		/*line codecli/cli.ergo:39:11*/ v_10 = OptionalIntFlag{base: v_11}
+		/*line codecli/cli.ergo:39:11*/ var name_3 string = "package"
+		/*line codecli/cli.ergo:39:11*/ var usage_3 string = "q.Package (Option[string])"
+		/*line codecli/cli.ergo:39:11*/ v_7 := String(name_3, "", usage_3)
+		/*line codecli/cli.ergo:39:11*/ v_6 = OptionalStringFlag{base: v_7}
 		/*line codecli/cli.ergo:39:11*/
 	}
 //line codecli/cli.ergo:40:2
+//line codecli/cli.ergo:40:11
+	var v_8 OptionalIntFlag
+	/*line codecli/cli.ergo:40:11*/ {
+		/*line codecli/cli.ergo:40:11*/ var name_4 string = "offset"
+		/*line codecli/cli.ergo:40:11*/ var usage_4 string = "q.Offset (Option[int])"
+		/*line codecli/cli.ergo:40:11*/ v_9 := Int(name_4, int(0), usage_4)
+		/*line codecli/cli.ergo:40:11*/ v_8 = OptionalIntFlag{base: v_9}
+		/*line codecli/cli.ergo:40:11*/
+	}
+//line codecli/cli.ergo:41:2
+//line codecli/cli.ergo:41:11
+	var v_10 OptionalIntFlag
+	/*line codecli/cli.ergo:41:11*/ {
+		/*line codecli/cli.ergo:41:11*/ var name_5 string = "limit"
+		/*line codecli/cli.ergo:41:11*/ var usage_5 string = "q.Limit (Option[int])"
+		/*line codecli/cli.ergo:41:11*/ v_11 := Int(name_5, int(0), usage_5)
+		/*line codecli/cli.ergo:41:11*/ v_10 = OptionalIntFlag{base: v_11}
+		/*line codecli/cli.ergo:41:11*/
+	}
+//line codecli/cli.ergo:42:2
 	return Command[Request]{Name: "symbols", Usage: "Symbols(q code.SymbolQuery) code.SymbolPage", Set: Set{Name: "symbols", Usage: "Symbols(q code.SymbolQuery) code.SymbolPage", Flags: []Flag{v, v_2, v_4, v_6, v_8, v_10}, Args: []ArgSpec{}}, Build: func(env *Env, v_12 Values_1) (Request, error) {
-//line codecli/cli.ergo:41:3
-//line codecli/cli.ergo:41:52
+//line codecli/cli.ergo:43:3
+//line codecli/cli.ergo:43:52
 		v_13 := (v).Get(v_12)
-//line codecli/cli.ergo:41:3
+//line codecli/cli.ergo:43:3
 		t := v_13
-//line codecli/cli.ergo:41:70
+//line codecli/cli.ergo:43:70
 		v_14 := (v_2).Get(v_12)
-//line codecli/cli.ergo:41:3
+//line codecli/cli.ergo:43:3
 		t_1 := v_14
-//line codecli/cli.ergo:41:87
+//line codecli/cli.ergo:43:87
 		v_15 := (v_4).Get(v_12)
-//line codecli/cli.ergo:41:3
+//line codecli/cli.ergo:43:3
 		t_2 := v_15
-//line codecli/cli.ergo:41:107
+//line codecli/cli.ergo:43:107
 		v_16 := (v_6).Get(v_12)
-//line codecli/cli.ergo:41:3
+//line codecli/cli.ergo:43:3
 		t_3 := v_16
-//line codecli/cli.ergo:41:126
+//line codecli/cli.ergo:43:126
 		v_17 := (v_8).Get(v_12)
-//line codecli/cli.ergo:41:3
+//line codecli/cli.ergo:43:3
 		t_4 := v_17
-//line codecli/cli.ergo:41:144
+//line codecli/cli.ergo:43:144
 		v_18 := (v_10).Get(v_12)
-//line codecli/cli.ergo:41:3
+//line codecli/cli.ergo:43:3
 		return SymbolsRequest{Q: SymbolQuery{Name: t, Match: t_1, Kind: t_2, Package: t_3, Offset: t_4, Limit: v_18}}, nil
-		/*line codecli/cli.ergo:41:3*/
+		/*line codecli/cli.ergo:43:3*/
 	}, Commands: []Command[Request]{}}
-	/*line codecli/cli.ergo:41:3*/
+	/*line codecli/cli.ergo:43:3*/
 }
 
-//line codecli/cli.ergo:46:1
+//line codecli/cli.ergo:48:1
 func commandSymbol() Command[Request] {
-//line codecli/cli.ergo:47:2
-//line codecli/cli.ergo:47:11
+//line codecli/cli.ergo:49:2
+//line codecli/cli.ergo:49:11
 	v := Arg("a", "a (string)")
-//line codecli/cli.ergo:47:2
-//line codecli/cli.ergo:48:2
+//line codecli/cli.ergo:49:2
+//line codecli/cli.ergo:50:2
 	return Command[Request]{Name: "symbol", Usage: "Symbol(a string) code.Decl fails code.NoSymbol | code.Ambiguous", Set: Set{Name: "symbol", Usage: "Symbol(a string) code.Decl fails code.NoSymbol | code.Ambiguous", Flags: []Flag{}, Args: []ArgSpec{v}}, Build: func(env *Env, v_1 Values_1) (Request, error) {
-//line codecli/cli.ergo:49:3
-//line codecli/cli.ergo:49:12
+//line codecli/cli.ergo:51:3
+//line codecli/cli.ergo:51:12
 		var v_2 string
-		/*line codecli/cli.ergo:49:12*/ {
-//line codecli/cli.ergo#ergo-inline-6:106:2
-//line codecli/cli.ergo#ergo-inline-6:106:8
+		/*line codecli/cli.ergo:51:12*/ {
+//line codecli/cli.ergo#ergo-inline-6:108:2
+//line codecli/cli.ergo#ergo-inline-6:108:8
 			var v_3 Option[string]
-			/*line codecli/cli.ergo#ergo-inline-6:106:8*/ _ = v_3
-			/*line codecli/cli.ergo#ergo-inline-6:106:8*/ var kp Some[string]
-			/*line codecli/cli.ergo#ergo-inline-6:106:8*/ _ = kp
-			/*line codecli/cli.ergo#ergo-inline-6:106:8*/ {
-				/*line codecli/cli.ergo#ergo-inline-6:106:8*/ v_4, ok := v_1.named[v.name]
-				/*line codecli/cli.ergo#ergo-inline-6:106:8*/ if ok {
-					/*line codecli/cli.ergo#ergo-inline-6:106:8*/ found := Some[string]{Value: v_4}
-					/*line codecli/cli.ergo#ergo-inline-6:106:8*/ kp = found
-					/*line codecli/cli.ergo#ergo-inline-6:106:8*/ goto kn
-					/*line codecli/cli.ergo#ergo-inline-6:106:8*/
+			/*line codecli/cli.ergo#ergo-inline-6:108:8*/ _ = v_3
+			/*line codecli/cli.ergo#ergo-inline-6:108:8*/ var kp Some[string]
+			/*line codecli/cli.ergo#ergo-inline-6:108:8*/ _ = kp
+			/*line codecli/cli.ergo#ergo-inline-6:108:8*/ {
+				/*line codecli/cli.ergo#ergo-inline-6:108:8*/ v_4, ok := v_1.named[v.name]
+				/*line codecli/cli.ergo#ergo-inline-6:108:8*/ if ok {
+					/*line codecli/cli.ergo#ergo-inline-6:108:8*/ found := Some[string]{Value: v_4}
+					/*line codecli/cli.ergo#ergo-inline-6:108:8*/ kp = found
+					/*line codecli/cli.ergo#ergo-inline-6:108:8*/ goto kn
+					/*line codecli/cli.ergo#ergo-inline-6:108:8*/
 				} else {
-					/*line codecli/cli.ergo#ergo-inline-6:106:8*/ _ = None{}
-					/*line codecli/cli.ergo#ergo-inline-6:106:8*/ goto kn_1
-					/*line codecli/cli.ergo#ergo-inline-6:106:8*/
+					/*line codecli/cli.ergo#ergo-inline-6:108:8*/ _ = None{}
+					/*line codecli/cli.ergo#ergo-inline-6:108:8*/ goto kn_1
+					/*line codecli/cli.ergo#ergo-inline-6:108:8*/
 				}
-				/*line codecli/cli.ergo#ergo-inline-6:106:8*/
+				/*line codecli/cli.ergo#ergo-inline-6:108:8*/
 			}
-			/*line codecli/cli.ergo#ergo-inline-6:106:8*/ kn:
-			/*line codecli/cli.ergo#ergo-inline-6:106:8*/ {
-				/*line codecli/cli.ergo#ergo-inline-6:106:8*/ s := kp
-//line codecli/cli.ergo#ergo-inline-6:108:3
-				v_2 = s.Value
-				/*line codecli/cli.ergo#ergo-inline-6:108:3*/ goto inl
-				/*line codecli/cli.ergo#ergo-inline-6:108:3*/
-			}
-			/*line codecli/cli.ergo#ergo-inline-6:108:3*/ kn_1:
-			/*line codecli/cli.ergo#ergo-inline-6:108:3*/ {
+			/*line codecli/cli.ergo#ergo-inline-6:108:8*/ kn:
+			/*line codecli/cli.ergo#ergo-inline-6:108:8*/ {
+				/*line codecli/cli.ergo#ergo-inline-6:108:8*/ s := kp
 //line codecli/cli.ergo#ergo-inline-6:110:3
-				v_2 = ""
+				v_2 = s.Value
 				/*line codecli/cli.ergo#ergo-inline-6:110:3*/ goto inl
 				/*line codecli/cli.ergo#ergo-inline-6:110:3*/
 			}
-			/*line codecli/cli.ergo#ergo-inline-6:110:3*/
+			/*line codecli/cli.ergo#ergo-inline-6:110:3*/ kn_1:
+			/*line codecli/cli.ergo#ergo-inline-6:110:3*/ {
+//line codecli/cli.ergo#ergo-inline-6:112:3
+				v_2 = ""
+				/*line codecli/cli.ergo#ergo-inline-6:112:3*/ goto inl
+				/*line codecli/cli.ergo#ergo-inline-6:112:3*/
+			}
+			/*line codecli/cli.ergo#ergo-inline-6:112:3*/
 		}
-		/*line codecli/cli.ergo#ergo-inline-6:110:3*/ inl:
+		/*line codecli/cli.ergo#ergo-inline-6:112:3*/ inl:
 		;
-//line codecli/cli.ergo:49:12
-//line codecli/cli.ergo:50:3
+//line codecli/cli.ergo:51:12
+//line codecli/cli.ergo:52:3
 		return SymbolRequest{A: v_2}, nil
-		/*line codecli/cli.ergo:50:3*/
+		/*line codecli/cli.ergo:52:3*/
 	}, Commands: []Command[Request]{}}
-	/*line codecli/cli.ergo:50:3*/
+	/*line codecli/cli.ergo:52:3*/
 }
 
-//line codecli/cli.ergo:55:1
+//line codecli/cli.ergo:57:1
 func commandReferences() Command[Request] {
-//line codecli/cli.ergo:56:2
-//line codecli/cli.ergo:56:11
-	v := RequiredString("of", "q.Of (string)")
-//line codecli/cli.ergo:56:2
-//line codecli/cli.ergo:57:2
-//line codecli/cli.ergo:57:11
-	v_1 := String("kinds", "", "q.Kinds ([]string)")
-//line codecli/cli.ergo:57:2
-//line codecli/cli.ergo:57:11
-	v_2 := (v_1).Repeated()
-//line codecli/cli.ergo:57:2
 //line codecli/cli.ergo:58:2
 //line codecli/cli.ergo:58:11
-	var v_3 OptionalIntFlag
-	/*line codecli/cli.ergo:58:11*/ {
-		/*line codecli/cli.ergo:58:11*/ var name string = "offset"
-		/*line codecli/cli.ergo:58:11*/ var usage string = "q.Offset (Option[int])"
-		/*line codecli/cli.ergo:58:11*/ v_4 := Int(name, int(0), usage)
-		/*line codecli/cli.ergo:58:11*/ v_3 = OptionalIntFlag{base: v_4}
-		/*line codecli/cli.ergo:58:11*/
-	}
+	v := RequiredString("of", "q.Of (string)")
+//line codecli/cli.ergo:58:2
 //line codecli/cli.ergo:59:2
 //line codecli/cli.ergo:59:11
-	var v_5 OptionalIntFlag
-	/*line codecli/cli.ergo:59:11*/ {
-		/*line codecli/cli.ergo:59:11*/ var name_1 string = "limit"
-		/*line codecli/cli.ergo:59:11*/ var usage_1 string = "q.Limit (Option[int])"
-		/*line codecli/cli.ergo:59:11*/ v_6 := Int(name_1, int(0), usage_1)
-		/*line codecli/cli.ergo:59:11*/ v_5 = OptionalIntFlag{base: v_6}
-		/*line codecli/cli.ergo:59:11*/
-	}
+	v_1 := String("kinds", "", "q.Kinds ([]string)")
+//line codecli/cli.ergo:59:2
+//line codecli/cli.ergo:59:11
+	v_2 := (v_1).Repeated()
+//line codecli/cli.ergo:59:2
 //line codecli/cli.ergo:60:2
+//line codecli/cli.ergo:60:11
+	var v_3 OptionalIntFlag
+	/*line codecli/cli.ergo:60:11*/ {
+		/*line codecli/cli.ergo:60:11*/ var name string = "offset"
+		/*line codecli/cli.ergo:60:11*/ var usage string = "q.Offset (Option[int])"
+		/*line codecli/cli.ergo:60:11*/ v_4 := Int(name, int(0), usage)
+		/*line codecli/cli.ergo:60:11*/ v_3 = OptionalIntFlag{base: v_4}
+		/*line codecli/cli.ergo:60:11*/
+	}
+//line codecli/cli.ergo:61:2
+//line codecli/cli.ergo:61:11
+	var v_5 OptionalIntFlag
+	/*line codecli/cli.ergo:61:11*/ {
+		/*line codecli/cli.ergo:61:11*/ var name_1 string = "limit"
+		/*line codecli/cli.ergo:61:11*/ var usage_1 string = "q.Limit (Option[int])"
+		/*line codecli/cli.ergo:61:11*/ v_6 := Int(name_1, int(0), usage_1)
+		/*line codecli/cli.ergo:61:11*/ v_5 = OptionalIntFlag{base: v_6}
+		/*line codecli/cli.ergo:61:11*/
+	}
+//line codecli/cli.ergo:62:2
 	return Command[Request]{Name: "references", Usage: "References(q code.RefQuery) code.SitePage fails code.NoSymbol | code.Ambiguous", Set: Set{Name: "references", Usage: "References(q code.RefQuery) code.SitePage fails code.NoSymbol | code.Ambiguous", Flags: []Flag{v, v_2, v_3, v_5}, Args: []ArgSpec{}}, Build: func(env *Env, v_7 Values_1) (Request, error) {
-//line codecli/cli.ergo:61:3
-//line codecli/cli.ergo:61:50
+//line codecli/cli.ergo:63:3
+//line codecli/cli.ergo:63:50
 		v_8 := (v).Get(v_7)
-//line codecli/cli.ergo:61:3
+//line codecli/cli.ergo:63:3
 		t := v_8
-//line codecli/cli.ergo:61:68
+//line codecli/cli.ergo:63:68
 		v_9 := (v_2).Get(v_7)
-//line codecli/cli.ergo:61:3
+//line codecli/cli.ergo:63:3
 		t_1 := v_9
-//line codecli/cli.ergo:61:87
+//line codecli/cli.ergo:63:87
 		v_10 := (v_3).Get(v_7)
-//line codecli/cli.ergo:61:3
+//line codecli/cli.ergo:63:3
 		t_2 := v_10
-//line codecli/cli.ergo:61:105
+//line codecli/cli.ergo:63:105
 		v_11 := (v_5).Get(v_7)
-//line codecli/cli.ergo:61:3
+//line codecli/cli.ergo:63:3
 		return ReferencesRequest{Q: RefQuery{Of: t, Kinds: t_1, Offset: t_2, Limit: v_11}}, nil
-		/*line codecli/cli.ergo:61:3*/
+		/*line codecli/cli.ergo:63:3*/
 	}, Commands: []Command[Request]{}}
-	/*line codecli/cli.ergo:61:3*/
+	/*line codecli/cli.ergo:63:3*/
 }
 
-//line codecli/cli.ergo:66:1
+//line codecli/cli.ergo:68:1
 func commandCalls() Command[Request] {
-//line codecli/cli.ergo:67:2
-//line codecli/cli.ergo:67:11
-	v := RequiredString("of", "q.Of (string)")
-//line codecli/cli.ergo:67:2
-//line codecli/cli.ergo:68:2
-//line codecli/cli.ergo:68:11
-	var v_1 OptionalStringFlag
-	/*line codecli/cli.ergo:68:11*/ {
-		/*line codecli/cli.ergo:68:11*/ var name string = "direction"
-		/*line codecli/cli.ergo:68:11*/ var usage string = "q.Direction (Option[string])"
-		/*line codecli/cli.ergo:68:11*/ v_2 := String(name, "", usage)
-		/*line codecli/cli.ergo:68:11*/ v_1 = OptionalStringFlag{base: v_2}
-		/*line codecli/cli.ergo:68:11*/
-	}
 //line codecli/cli.ergo:69:2
 //line codecli/cli.ergo:69:11
-	var v_3 OptionalIntFlag
-	/*line codecli/cli.ergo:69:11*/ {
-		/*line codecli/cli.ergo:69:11*/ var name_1 string = "depth"
-		/*line codecli/cli.ergo:69:11*/ var usage_1 string = "q.Depth (Option[int])"
-		/*line codecli/cli.ergo:69:11*/ v_4 := Int(name_1, int(0), usage_1)
-		/*line codecli/cli.ergo:69:11*/ v_3 = OptionalIntFlag{base: v_4}
-		/*line codecli/cli.ergo:69:11*/
-	}
+	v := RequiredString("of", "q.Of (string)")
+//line codecli/cli.ergo:69:2
 //line codecli/cli.ergo:70:2
 //line codecli/cli.ergo:70:11
-	var v_5 OptionalIntFlag
+	var v_1 OptionalStringFlag
 	/*line codecli/cli.ergo:70:11*/ {
-		/*line codecli/cli.ergo:70:11*/ var name_2 string = "offset"
-		/*line codecli/cli.ergo:70:11*/ var usage_2 string = "q.Offset (Option[int])"
-		/*line codecli/cli.ergo:70:11*/ v_6 := Int(name_2, int(0), usage_2)
-		/*line codecli/cli.ergo:70:11*/ v_5 = OptionalIntFlag{base: v_6}
+		/*line codecli/cli.ergo:70:11*/ var name string = "direction"
+		/*line codecli/cli.ergo:70:11*/ var usage string = "q.Direction (Option[string])"
+		/*line codecli/cli.ergo:70:11*/ v_2 := String(name, "", usage)
+		/*line codecli/cli.ergo:70:11*/ v_1 = OptionalStringFlag{base: v_2}
 		/*line codecli/cli.ergo:70:11*/
 	}
 //line codecli/cli.ergo:71:2
 //line codecli/cli.ergo:71:11
-	var v_7 OptionalIntFlag
+	var v_3 OptionalIntFlag
 	/*line codecli/cli.ergo:71:11*/ {
-		/*line codecli/cli.ergo:71:11*/ var name_3 string = "limit"
-		/*line codecli/cli.ergo:71:11*/ var usage_3 string = "q.Limit (Option[int])"
-		/*line codecli/cli.ergo:71:11*/ v_8 := Int(name_3, int(0), usage_3)
-		/*line codecli/cli.ergo:71:11*/ v_7 = OptionalIntFlag{base: v_8}
+		/*line codecli/cli.ergo:71:11*/ var name_1 string = "depth"
+		/*line codecli/cli.ergo:71:11*/ var usage_1 string = "q.Depth (Option[int])"
+		/*line codecli/cli.ergo:71:11*/ v_4 := Int(name_1, int(0), usage_1)
+		/*line codecli/cli.ergo:71:11*/ v_3 = OptionalIntFlag{base: v_4}
 		/*line codecli/cli.ergo:71:11*/
 	}
 //line codecli/cli.ergo:72:2
+//line codecli/cli.ergo:72:11
+	var v_5 OptionalIntFlag
+	/*line codecli/cli.ergo:72:11*/ {
+		/*line codecli/cli.ergo:72:11*/ var name_2 string = "offset"
+		/*line codecli/cli.ergo:72:11*/ var usage_2 string = "q.Offset (Option[int])"
+		/*line codecli/cli.ergo:72:11*/ v_6 := Int(name_2, int(0), usage_2)
+		/*line codecli/cli.ergo:72:11*/ v_5 = OptionalIntFlag{base: v_6}
+		/*line codecli/cli.ergo:72:11*/
+	}
+//line codecli/cli.ergo:73:2
+//line codecli/cli.ergo:73:11
+	var v_7 OptionalIntFlag
+	/*line codecli/cli.ergo:73:11*/ {
+		/*line codecli/cli.ergo:73:11*/ var name_3 string = "limit"
+		/*line codecli/cli.ergo:73:11*/ var usage_3 string = "q.Limit (Option[int])"
+		/*line codecli/cli.ergo:73:11*/ v_8 := Int(name_3, int(0), usage_3)
+		/*line codecli/cli.ergo:73:11*/ v_7 = OptionalIntFlag{base: v_8}
+		/*line codecli/cli.ergo:73:11*/
+	}
+//line codecli/cli.ergo:74:2
 	return Command[Request]{Name: "calls", Usage: "Calls(q code.CallQuery) code.CallPage fails code.NoSymbol | code.Ambiguous | code.NotCallable", Set: Set{Name: "calls", Usage: "Calls(q code.CallQuery) code.CallPage fails code.NoSymbol | code.Ambiguous | code.NotCallable", Flags: []Flag{v, v_1, v_3, v_5, v_7}, Args: []ArgSpec{}}, Build: func(env *Env, v_9 Values_1) (Request, error) {
-//line codecli/cli.ergo:73:3
-//line codecli/cli.ergo:73:46
+//line codecli/cli.ergo:75:3
+//line codecli/cli.ergo:75:46
 		v_10 := (v).Get(v_9)
-//line codecli/cli.ergo:73:3
+//line codecli/cli.ergo:75:3
 		t := v_10
-//line codecli/cli.ergo:73:68
+//line codecli/cli.ergo:75:68
 		v_11 := (v_1).Get(v_9)
-//line codecli/cli.ergo:73:3
+//line codecli/cli.ergo:75:3
 		t_1 := v_11
-//line codecli/cli.ergo:73:86
+//line codecli/cli.ergo:75:86
 		v_12 := (v_3).Get(v_9)
-//line codecli/cli.ergo:73:3
+//line codecli/cli.ergo:75:3
 		t_2 := v_12
-//line codecli/cli.ergo:73:105
+//line codecli/cli.ergo:75:105
 		v_13 := (v_5).Get(v_9)
-//line codecli/cli.ergo:73:3
+//line codecli/cli.ergo:75:3
 		t_3 := v_13
-//line codecli/cli.ergo:73:123
+//line codecli/cli.ergo:75:123
 		v_14 := (v_7).Get(v_9)
-//line codecli/cli.ergo:73:3
+//line codecli/cli.ergo:75:3
 		return CallsRequest{Q: CallQuery{Of: t, Direction: t_1, Depth: t_2, Offset: t_3, Limit: v_14}}, nil
-		/*line codecli/cli.ergo:73:3*/
+		/*line codecli/cli.ergo:75:3*/
 	}, Commands: []Command[Request]{}}
-	/*line codecli/cli.ergo:73:3*/
+	/*line codecli/cli.ergo:75:3*/
 }
 
-//line codecli/cli.ergo:78:1
+//line codecli/cli.ergo:80:1
 func commandApi() Command[Request] {
-//line codecli/cli.ergo:79:2
-//line codecli/cli.ergo:79:11
+//line codecli/cli.ergo:81:2
+//line codecli/cli.ergo:81:11
 	var v OptionalStringFlag
-	/*line codecli/cli.ergo:79:11*/ {
-		/*line codecli/cli.ergo:79:11*/ var name string = "package"
-		/*line codecli/cli.ergo:79:11*/ var usage string = "q.Package (Option[string])"
-		/*line codecli/cli.ergo:79:11*/ v_1 := String(name, "", usage)
-		/*line codecli/cli.ergo:79:11*/ v = OptionalStringFlag{base: v_1}
-		/*line codecli/cli.ergo:79:11*/
+	/*line codecli/cli.ergo:81:11*/ {
+		/*line codecli/cli.ergo:81:11*/ var name string = "package"
+		/*line codecli/cli.ergo:81:11*/ var usage string = "q.Package (Option[string])"
+		/*line codecli/cli.ergo:81:11*/ v_1 := String(name, "", usage)
+		/*line codecli/cli.ergo:81:11*/ v = OptionalStringFlag{base: v_1}
+		/*line codecli/cli.ergo:81:11*/
 	}
-//line codecli/cli.ergo:80:2
+//line codecli/cli.ergo:82:2
 	return Command[Request]{Name: "api", Usage: "Api(q code.ApiQuery) code.ApiView fails code.NoPackage", Set: Set{Name: "api", Usage: "Api(q code.ApiQuery) code.ApiView fails code.NoPackage", Flags: []Flag{v}, Args: []ArgSpec{}}, Build: func(env *Env, v_2 Values_1) (Request, error) {
-//line codecli/cli.ergo:81:3
-//line codecli/cli.ergo:81:48
+//line codecli/cli.ergo:83:3
+//line codecli/cli.ergo:83:48
 		v_3 := (v).Get(v_2)
-//line codecli/cli.ergo:81:3
+//line codecli/cli.ergo:83:3
 		return ApiRequest{Q: ApiQuery{Package: v_3}}, nil
-		/*line codecli/cli.ergo:81:3*/
+		/*line codecli/cli.ergo:83:3*/
 	}, Commands: []Command[Request]{}}
-	/*line codecli/cli.ergo:81:3*/
+	/*line codecli/cli.ergo:83:3*/
 }
 
-//line codecli/cli.ergo:86:1
+//line codecli/cli.ergo:88:1
 func commandReach() Command[Request] {
-//line codecli/cli.ergo:87:2
-//line codecli/cli.ergo:87:11
-	v := RequiredString("of", "q.Of (string)")
-//line codecli/cli.ergo:87:2
-//line codecli/cli.ergo:88:2
-//line codecli/cli.ergo:88:11
-	var v_1 OptionalIntFlag
-	/*line codecli/cli.ergo:88:11*/ {
-		/*line codecli/cli.ergo:88:11*/ var name string = "offset"
-		/*line codecli/cli.ergo:88:11*/ var usage string = "q.Offset (Option[int])"
-		/*line codecli/cli.ergo:88:11*/ v_2 := Int(name, int(0), usage)
-		/*line codecli/cli.ergo:88:11*/ v_1 = OptionalIntFlag{base: v_2}
-		/*line codecli/cli.ergo:88:11*/
-	}
 //line codecli/cli.ergo:89:2
 //line codecli/cli.ergo:89:11
-	var v_3 OptionalIntFlag
-	/*line codecli/cli.ergo:89:11*/ {
-		/*line codecli/cli.ergo:89:11*/ var name_1 string = "limit"
-		/*line codecli/cli.ergo:89:11*/ var usage_1 string = "q.Limit (Option[int])"
-		/*line codecli/cli.ergo:89:11*/ v_4 := Int(name_1, int(0), usage_1)
-		/*line codecli/cli.ergo:89:11*/ v_3 = OptionalIntFlag{base: v_4}
-		/*line codecli/cli.ergo:89:11*/
-	}
+	v := RequiredString("of", "q.Of (string)")
+//line codecli/cli.ergo:89:2
 //line codecli/cli.ergo:90:2
+//line codecli/cli.ergo:90:11
+	var v_1 OptionalIntFlag
+	/*line codecli/cli.ergo:90:11*/ {
+		/*line codecli/cli.ergo:90:11*/ var name string = "offset"
+		/*line codecli/cli.ergo:90:11*/ var usage string = "q.Offset (Option[int])"
+		/*line codecli/cli.ergo:90:11*/ v_2 := Int(name, int(0), usage)
+		/*line codecli/cli.ergo:90:11*/ v_1 = OptionalIntFlag{base: v_2}
+		/*line codecli/cli.ergo:90:11*/
+	}
+//line codecli/cli.ergo:91:2
+//line codecli/cli.ergo:91:11
+	var v_3 OptionalIntFlag
+	/*line codecli/cli.ergo:91:11*/ {
+		/*line codecli/cli.ergo:91:11*/ var name_1 string = "limit"
+		/*line codecli/cli.ergo:91:11*/ var usage_1 string = "q.Limit (Option[int])"
+		/*line codecli/cli.ergo:91:11*/ v_4 := Int(name_1, int(0), usage_1)
+		/*line codecli/cli.ergo:91:11*/ v_3 = OptionalIntFlag{base: v_4}
+		/*line codecli/cli.ergo:91:11*/
+	}
+//line codecli/cli.ergo:92:2
 	return Command[Request]{Name: "reach", Usage: "Reach(q code.ReachQuery) code.ReachPage fails code.NoSymbol | code.Ambiguous", Set: Set{Name: "reach", Usage: "Reach(q code.ReachQuery) code.ReachPage fails code.NoSymbol | code.Ambiguous", Flags: []Flag{v, v_1, v_3}, Args: []ArgSpec{}}, Build: func(env *Env, v_5 Values_1) (Request, error) {
-//line codecli/cli.ergo:91:3
-//line codecli/cli.ergo:91:47
+//line codecli/cli.ergo:93:3
+//line codecli/cli.ergo:93:47
 		v_6 := (v).Get(v_5)
-//line codecli/cli.ergo:91:3
+//line codecli/cli.ergo:93:3
 		t := v_6
-//line codecli/cli.ergo:91:66
+//line codecli/cli.ergo:93:66
 		v_7 := (v_1).Get(v_5)
-//line codecli/cli.ergo:91:3
+//line codecli/cli.ergo:93:3
 		t_1 := v_7
-//line codecli/cli.ergo:91:84
+//line codecli/cli.ergo:93:84
 		v_8 := (v_3).Get(v_5)
-//line codecli/cli.ergo:91:3
+//line codecli/cli.ergo:93:3
 		return ReachRequest{Q: ReachQuery{Of: t, Offset: t_1, Limit: v_8}}, nil
-		/*line codecli/cli.ergo:91:3*/
+		/*line codecli/cli.ergo:93:3*/
 	}, Commands: []Command[Request]{}}
-	/*line codecli/cli.ergo:91:3*/
+	/*line codecli/cli.ergo:93:3*/
 }
 
-//line codecli/cli.ergo:96:1
+//line codecli/cli.ergo:98:1
 func commandMachineOf() Command[Request] {
-//line codecli/cli.ergo:97:2
-//line codecli/cli.ergo:97:11
+//line codecli/cli.ergo:99:2
+//line codecli/cli.ergo:99:11
 	v := Arg("a", "a (string)")
-//line codecli/cli.ergo:97:2
-//line codecli/cli.ergo:98:2
+//line codecli/cli.ergo:99:2
+//line codecli/cli.ergo:100:2
 	return Command[Request]{Name: "machine-of", Usage: "MachineOf(a string) code.MachineView fails code.NoSymbol | code.Ambiguous | code.NotMachine", Set: Set{Name: "machine-of", Usage: "MachineOf(a string) code.MachineView fails code.NoSymbol | code.Ambiguous | code.NotMachine", Flags: []Flag{}, Args: []ArgSpec{v}}, Build: func(env *Env, v_1 Values_1) (Request, error) {
-//line codecli/cli.ergo:99:3
-//line codecli/cli.ergo:99:12
+//line codecli/cli.ergo:101:3
+//line codecli/cli.ergo:101:12
 		var v_2 string
-		/*line codecli/cli.ergo:99:12*/ {
-//line codecli/cli.ergo#ergo-inline-17:106:2
-//line codecli/cli.ergo#ergo-inline-17:106:8
+		/*line codecli/cli.ergo:101:12*/ {
+//line codecli/cli.ergo#ergo-inline-17:108:2
+//line codecli/cli.ergo#ergo-inline-17:108:8
 			var v_3 Option[string]
-			/*line codecli/cli.ergo#ergo-inline-17:106:8*/ _ = v_3
-			/*line codecli/cli.ergo#ergo-inline-17:106:8*/ var kp Some[string]
-			/*line codecli/cli.ergo#ergo-inline-17:106:8*/ _ = kp
-			/*line codecli/cli.ergo#ergo-inline-17:106:8*/ {
-				/*line codecli/cli.ergo#ergo-inline-17:106:8*/ v_4, ok := v_1.named[v.name]
-				/*line codecli/cli.ergo#ergo-inline-17:106:8*/ if ok {
-					/*line codecli/cli.ergo#ergo-inline-17:106:8*/ found := Some[string]{Value: v_4}
-					/*line codecli/cli.ergo#ergo-inline-17:106:8*/ kp = found
-					/*line codecli/cli.ergo#ergo-inline-17:106:8*/ goto kn
-					/*line codecli/cli.ergo#ergo-inline-17:106:8*/
+			/*line codecli/cli.ergo#ergo-inline-17:108:8*/ _ = v_3
+			/*line codecli/cli.ergo#ergo-inline-17:108:8*/ var kp Some[string]
+			/*line codecli/cli.ergo#ergo-inline-17:108:8*/ _ = kp
+			/*line codecli/cli.ergo#ergo-inline-17:108:8*/ {
+				/*line codecli/cli.ergo#ergo-inline-17:108:8*/ v_4, ok := v_1.named[v.name]
+				/*line codecli/cli.ergo#ergo-inline-17:108:8*/ if ok {
+					/*line codecli/cli.ergo#ergo-inline-17:108:8*/ found := Some[string]{Value: v_4}
+					/*line codecli/cli.ergo#ergo-inline-17:108:8*/ kp = found
+					/*line codecli/cli.ergo#ergo-inline-17:108:8*/ goto kn
+					/*line codecli/cli.ergo#ergo-inline-17:108:8*/
 				} else {
-					/*line codecli/cli.ergo#ergo-inline-17:106:8*/ _ = None{}
-					/*line codecli/cli.ergo#ergo-inline-17:106:8*/ goto kn_1
-					/*line codecli/cli.ergo#ergo-inline-17:106:8*/
+					/*line codecli/cli.ergo#ergo-inline-17:108:8*/ _ = None{}
+					/*line codecli/cli.ergo#ergo-inline-17:108:8*/ goto kn_1
+					/*line codecli/cli.ergo#ergo-inline-17:108:8*/
 				}
-				/*line codecli/cli.ergo#ergo-inline-17:106:8*/
+				/*line codecli/cli.ergo#ergo-inline-17:108:8*/
 			}
-			/*line codecli/cli.ergo#ergo-inline-17:106:8*/ kn:
-			/*line codecli/cli.ergo#ergo-inline-17:106:8*/ {
-				/*line codecli/cli.ergo#ergo-inline-17:106:8*/ s := kp
-//line codecli/cli.ergo#ergo-inline-17:108:3
-				v_2 = s.Value
-				/*line codecli/cli.ergo#ergo-inline-17:108:3*/ goto inl
-				/*line codecli/cli.ergo#ergo-inline-17:108:3*/
-			}
-			/*line codecli/cli.ergo#ergo-inline-17:108:3*/ kn_1:
-			/*line codecli/cli.ergo#ergo-inline-17:108:3*/ {
+			/*line codecli/cli.ergo#ergo-inline-17:108:8*/ kn:
+			/*line codecli/cli.ergo#ergo-inline-17:108:8*/ {
+				/*line codecli/cli.ergo#ergo-inline-17:108:8*/ s := kp
 //line codecli/cli.ergo#ergo-inline-17:110:3
-				v_2 = ""
+				v_2 = s.Value
 				/*line codecli/cli.ergo#ergo-inline-17:110:3*/ goto inl
 				/*line codecli/cli.ergo#ergo-inline-17:110:3*/
 			}
-			/*line codecli/cli.ergo#ergo-inline-17:110:3*/
+			/*line codecli/cli.ergo#ergo-inline-17:110:3*/ kn_1:
+			/*line codecli/cli.ergo#ergo-inline-17:110:3*/ {
+//line codecli/cli.ergo#ergo-inline-17:112:3
+				v_2 = ""
+				/*line codecli/cli.ergo#ergo-inline-17:112:3*/ goto inl
+				/*line codecli/cli.ergo#ergo-inline-17:112:3*/
+			}
+			/*line codecli/cli.ergo#ergo-inline-17:112:3*/
 		}
-		/*line codecli/cli.ergo#ergo-inline-17:110:3*/ inl:
+		/*line codecli/cli.ergo#ergo-inline-17:112:3*/ inl:
 		;
-//line codecli/cli.ergo:99:12
-//line codecli/cli.ergo:100:3
+//line codecli/cli.ergo:101:12
+//line codecli/cli.ergo:102:3
 		return MachineOfRequest{A: v_2}, nil
-		/*line codecli/cli.ergo:100:3*/
+		/*line codecli/cli.ergo:102:3*/
 	}, Commands: []Command[Request]{}}
-	/*line codecli/cli.ergo:100:3*/
+	/*line codecli/cli.ergo:102:3*/
 }

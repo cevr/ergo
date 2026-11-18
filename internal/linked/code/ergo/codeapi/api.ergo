@@ -413,29 +413,34 @@ func inRow(op Op, f Failure) bool {
 	}
 }
 
-// answerOf is the Outcome of r's operation: f when failing and f is in
-// its row, else its value from v.
-func answerOf(r Request, v Values, f Failure, failing bool) Outcome {
-	if failing && inRow(OpOf(r), f) {
-		return Rejected{Failure: f}
+// Given is what a law gives a call: a value of each operation's value
+// type, a failure, and whether the call fails with it.
+type Given { Values Values, Failure Failure, Failing bool }
+
+// OutcomeOf is the Outcome g gives r: its failure when g fails and the
+// failure is in the row of r's operation, else the operation's value
+// from g. It is always an Outcome r's operation can have.
+func OutcomeOf(r Request, g Given) Outcome {
+	if g.Failing && inRow(OpOf(r), g.Failure) {
+		return Rejected{Failure: g.Failure}
 	}
 	match r {
 	case DescribeRequest:
-		Done{Reply: DescribeReply{Value: v.Describe}}
+		Done{Reply: DescribeReply{Value: g.Values.Describe}}
 	case SymbolsRequest:
-		Done{Reply: SymbolsReply{Value: v.Symbols}}
+		Done{Reply: SymbolsReply{Value: g.Values.Symbols}}
 	case SymbolRequest:
-		Done{Reply: SymbolReply{Value: v.Symbol}}
+		Done{Reply: SymbolReply{Value: g.Values.Symbol}}
 	case ReferencesRequest:
-		Done{Reply: ReferencesReply{Value: v.References}}
+		Done{Reply: ReferencesReply{Value: g.Values.References}}
 	case CallsRequest:
-		Done{Reply: CallsReply{Value: v.Calls}}
+		Done{Reply: CallsReply{Value: g.Values.Calls}}
 	case ApiRequest:
-		Done{Reply: ApiReply{Value: v.Api}}
+		Done{Reply: ApiReply{Value: g.Values.Api}}
 	case ReachRequest:
-		Done{Reply: ReachReply{Value: v.Reach}}
+		Done{Reply: ReachReply{Value: g.Values.Reach}}
 	case MachineOfRequest:
-		Done{Reply: MachineOfReply{Value: v.MachineOf}}
+		Done{Reply: MachineOfReply{Value: g.Values.MachineOf}}
 	}
 }
 
@@ -450,8 +455,8 @@ func scripted(want Outcome, sent sync.Ref[[]Request]) Client {
 
 // CallIsTheOperation: Call(r) calls r's operation once, with r's
 // arguments, and answers its value or failure as r's own Outcome.
-law CallIsTheOperation(r Request, v Values, f Failure, failing bool) {
-	let want = answerOf(r, v, f, failing)
+law CallIsTheOperation(r Request, g Given) {
+	let want = OutcomeOf(r, g)
 	let sent = sync.NewRef[[]Request]([]Request{})
 	let got = with context { code.Reader: scripted(want, sent) } { Call(r) }
 	got == want && sent.Get() == []Request{r}
@@ -459,8 +464,8 @@ law CallIsTheOperation(r Request, v Values, f Failure, failing bool) {
 
 // ClientIsCall: a Client whose send is Call answers each call as the
 // provider Call is bound to does.
-law ClientIsCall(r Request, v Values, f Failure, failing bool) {
-	let want = answerOf(r, v, f, failing)
+law ClientIsCall(r Request, g Given) {
+	let want = OutcomeOf(r, g)
 	let sent = sync.NewRef[[]Request]([]Request{})
 	let inner = scripted(want, sent)
 	let outer = NewClient(func(q Request) Outcome {

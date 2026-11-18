@@ -5,17 +5,19 @@
 // command per operation, Parse and Print between a command line and a
 // Request, and Run, which calls the provider the caller binds.
 
+import api
 import code
 import flag
 import rpc
+import strings
 import codetool/codeapi
 
 // Request is one call of code.Reader: the hub's Request.
 type Request = codeapi.Request
 
-// Output is what Run prints: Out to standard output, Err to standard
-// error, and the exit status.
-type Output { Out string, Err string, Code int }
+// Output is what Run prints: std api's Output (Out to standard output,
+// Err to standard error, and the exit status).
+type Output = api.Output
 
 // Commands are the commands of code.Reader, one per operation, in its order.
 func Commands() []flag.Command[Request] {
@@ -266,26 +268,11 @@ func failed(asJSON bool, tagged string) Output {
 	}
 }
 
-// Run reads args as [--json] COMMAND ARGS..., calls the operation on
-// the code.Reader the caller binds, and is what to print: the value (its
-// text when it is a basic value, else its JSON; its JSON with --json), or
-// a typed failure (failed), or the help (status 0) or a usage error
-// (status 2) of the command line.
-func Run(args []string) Output needs code.Reader {
-	let asJSON = len(args) > 0 && (args[0] == "--json" || args[0] == "-json")
-	let mut rest = []string{}
-	for i, a in args {
-		if i > 0 || !asJSON {
-			rest = rest.Append(a)
-		}
-	}
-	let r = Parse(rest) catch {
-	case flag.Help as h:
-		return Output{Out: h.Text, Err: "", Code: 0}
-	case err:
-		return Output{Out: "", Err: flag.Describe(err) + "\n", Code: 2}
-	}
-	match codeapi.Call(r) {
+// Show is what Run prints of the outcome o: the value (its text when it
+// is a basic value, else its JSON; its JSON with --json), or a typed
+// failure (failed).
+func Show(o codeapi.Outcome, asJSON bool) Output {
+	match o {
 	case codeapi.Done as done:
 		match done.Reply {
 		case codeapi.DescribeReply as reply:
@@ -336,3 +323,148 @@ func Run(args []string) Output needs code.Reader {
 		}
 	}
 }
+
+// Read is the outcome of r that the Output of Run with --json says: its
+// value's JSON on standard output with status 0, or its failure's tagged
+// JSON with status 1. Any other Output is not an answer to r, a defect.
+func Read(r Request, out Output) codeapi.Outcome {
+	let text = strings.TrimSuffix(out.Out, "\n")
+	if out.Code == 0 {
+		match r {
+		case codeapi.DescribeRequest:
+			let v = rpc.Decode[code.Summary]("value", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered Describe with a value it cannot read: " + t.Reason)
+			}
+			codeapi.Done{Reply: codeapi.DescribeReply{Value: v}}
+		case codeapi.SymbolsRequest:
+			let v = rpc.Decode[code.SymbolPage]("value", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered Symbols with a value it cannot read: " + t.Reason)
+			}
+			codeapi.Done{Reply: codeapi.SymbolsReply{Value: v}}
+		case codeapi.SymbolRequest:
+			let v = rpc.Decode[code.Decl]("value", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered Symbol with a value it cannot read: " + t.Reason)
+			}
+			codeapi.Done{Reply: codeapi.SymbolReply{Value: v}}
+		case codeapi.ReferencesRequest:
+			let v = rpc.Decode[code.SitePage]("value", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered References with a value it cannot read: " + t.Reason)
+			}
+			codeapi.Done{Reply: codeapi.ReferencesReply{Value: v}}
+		case codeapi.CallsRequest:
+			let v = rpc.Decode[code.CallPage]("value", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered Calls with a value it cannot read: " + t.Reason)
+			}
+			codeapi.Done{Reply: codeapi.CallsReply{Value: v}}
+		case codeapi.ApiRequest:
+			let v = rpc.Decode[code.ApiView]("value", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered Api with a value it cannot read: " + t.Reason)
+			}
+			codeapi.Done{Reply: codeapi.ApiReply{Value: v}}
+		case codeapi.ReachRequest:
+			let v = rpc.Decode[code.ReachPage]("value", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered Reach with a value it cannot read: " + t.Reason)
+			}
+			codeapi.Done{Reply: codeapi.ReachReply{Value: v}}
+		case codeapi.MachineOfRequest:
+			let v = rpc.Decode[code.MachineView]("value", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered MachineOf with a value it cannot read: " + t.Reason)
+			}
+			codeapi.Done{Reply: codeapi.MachineOfReply{Value: v}}
+		}
+	} else if out.Code == 1 {
+		match rpc.TagOf(text) {
+		case "NoSymbol":
+			let e = rpc.Decode[code.NoSymbol]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			codeapi.Rejected{Failure: codeapi.NoSymbol{E: e}}
+		case "Ambiguous":
+			let e = rpc.Decode[code.Ambiguous]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			codeapi.Rejected{Failure: codeapi.Ambiguous{E: e}}
+		case "NotCallable":
+			let e = rpc.Decode[code.NotCallable]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			codeapi.Rejected{Failure: codeapi.NotCallable{E: e}}
+		case "NoPackage":
+			let e = rpc.Decode[code.NoPackage]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			codeapi.Rejected{Failure: codeapi.NoPackage{E: e}}
+		case "NotMachine":
+			let e = rpc.Decode[code.NotMachine]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			codeapi.Rejected{Failure: codeapi.NotMachine{E: e}}
+		case _:
+			Unreachable("the command line answered a failure no operation has: " + text)
+		}
+	} else {
+		Unreachable("the command line answered status \(out.Code): " + out.Err)
+	}
+}
+
+// runOver reads args as [--json] COMMAND ARGS..., answers the Request with
+// answer and is what to print (Show), or the help (status 0) or a usage
+// error (status 2) of the command line.
+func runOver[R](args []string, answer func(r Request) codeapi.Outcome needs R) Output needs R {
+	let asJSON = len(args) > 0 && (args[0] == "--json" || args[0] == "-json")
+	let mut rest = []string{}
+	for i, a in args {
+		if i > 0 || !asJSON {
+			rest = rest.Append(a)
+		}
+	}
+	let r = Parse(rest) catch {
+	case flag.Help as h:
+		return Output{Out: h.Text, Err: "", Code: 0}
+	case err:
+		return Output{Out: "", Err: flag.Describe(err) + "\n", Code: 2}
+	}
+	Show(answer(r), asJSON)
+}
+
+// Run reads args as [--json] COMMAND ARGS..., answers the call through
+// the hub's Call on the code.Reader the caller binds, and is what to print:
+// the value (its text when it is a basic value, else its JSON; its JSON
+// with --json), or a typed failure (failed), or the help (status 0) or a
+// usage error (status 2) of the command line.
+func Run(args []string) Output needs code.Reader {
+	runOver(args, codeapi.Call)
+}
+
+// carry is c through the command line: printed with --json, read back
+// by Run's own reader, answered by answer, shown, and read back (Read).
+func carry(c Request, answer func(c Request) codeapi.Outcome) codeapi.Outcome {
+	let mut args = []string{"--json"}
+	for a in Print(c) {
+		args = args.Append(a)
+	}
+	Read(c, runOver(args, answer))
+}
+
+// Wire is the command line as a transport of the hub's calls.
+type Wire {} implements api.Transport[Request, codeapi.Outcome]
+
+// Carry is carry.
+func Carry(w Wire, c Request, answer own func(c Request) codeapi.Outcome) codeapi.Outcome { carry(c, answer) }
+
+// Agrees: the command line carries every call and every outcome the
+// call can have unchanged.
+law Agrees(r Request, g codeapi.Given) { api.Agrees(Wire, r, codeapi.OutcomeOf(r, g)) }

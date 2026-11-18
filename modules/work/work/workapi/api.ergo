@@ -1467,57 +1467,62 @@ func inRow(op Op, f Failure) bool {
 	}
 }
 
-// answerOf is the Outcome of r's operation: f when failing and f is in
-// its row, else its value from v.
-func answerOf(r Request, v Values, f Failure, failing bool) Outcome {
-	if failing && inRow(OpOf(r), f) {
-		return Rejected{Failure: f}
+// Given is what a law gives a call: a value of each operation's value
+// type, a failure, and whether the call fails with it.
+type Given { Values Values, Failure Failure, Failing bool }
+
+// OutcomeOf is the Outcome g gives r: its failure when g fails and the
+// failure is in the row of r's operation, else the operation's value
+// from g. It is always an Outcome r's operation can have.
+func OutcomeOf(r Request, g Given) Outcome {
+	if g.Failing && inRow(OpOf(r), g.Failure) {
+		return Rejected{Failure: g.Failure}
 	}
 	match r {
 	case InitRequest:
-		Done{Reply: InitReply{Value: v.Init}}
+		Done{Reply: InitReply{Value: g.Values.Init}}
 	case NewRequest:
-		Done{Reply: NewReply{Value: v.New}}
+		Done{Reply: NewReply{Value: g.Values.New}}
 	case AdoptRequest:
-		Done{Reply: AdoptReply{Value: v.Adopt}}
+		Done{Reply: AdoptReply{Value: g.Values.Adopt}}
 	case AdoptRiftRequest:
-		Done{Reply: AdoptRiftReply{Value: v.AdoptRift}}
+		Done{Reply: AdoptRiftReply{Value: g.Values.AdoptRift}}
 	case ListRequest:
-		Done{Reply: ListReply{Value: v.List}}
+		Done{Reply: ListReply{Value: g.Values.List}}
 	case RmRequest:
-		Done{Reply: RmReply{Value: v.Rm}}
+		Done{Reply: RmReply{Value: g.Values.Rm}}
 	case GcRequest:
-		Done{Reply: GcReply{Value: v.Gc}}
+		Done{Reply: GcReply{Value: g.Values.Gc}}
 	case DuRequest:
-		Done{Reply: DuReply{Value: v.Du}}
+		Done{Reply: DuReply{Value: g.Values.Du}}
 	case ReadyRequest:
-		Done{Reply: ReadyReply{Value: v.Ready}}
+		Done{Reply: ReadyReply{Value: g.Values.Ready}}
 	case SyncRequest:
-		Done{Reply: SyncReply{Value: v.Sync}}
+		Done{Reply: SyncReply{Value: g.Values.Sync}}
 	case EnvRequest:
-		Done{Reply: EnvReply{Value: v.Env}}
+		Done{Reply: EnvReply{Value: g.Values.Env}}
 	case MergeFileRequest:
-		Done{Reply: MergeFileReply{Value: v.MergeFile}}
+		Done{Reply: MergeFileReply{Value: g.Values.MergeFile}}
 	case MergeFoldersRequest:
-		Done{Reply: MergeFoldersReply{Value: v.MergeFolders}}
+		Done{Reply: MergeFoldersReply{Value: g.Values.MergeFolders}}
 	case DeriveRequest:
-		Done{Reply: DeriveReply{Value: v.Derive}}
+		Done{Reply: DeriveReply{Value: g.Values.Derive}}
 	case DepsRequest:
-		Done{Reply: DepsReply{Value: v.Deps}}
+		Done{Reply: DepsReply{Value: g.Values.Deps}}
 	case TrustRequest:
-		Done{Reply: TrustReply{Value: v.Trust}}
+		Done{Reply: TrustReply{Value: g.Values.Trust}}
 	case DoctorRequest:
-		Done{Reply: DoctorReply{Value: v.Doctor}}
+		Done{Reply: DoctorReply{Value: g.Values.Doctor}}
 	case PluginTestRequest:
-		Done{Reply: PluginTestReply{Value: v.PluginTest}}
+		Done{Reply: PluginTestReply{Value: g.Values.PluginTest}}
 	case RefreshRequest:
-		Done{Reply: RefreshReply{Value: v.Refresh}}
+		Done{Reply: RefreshReply{Value: g.Values.Refresh}}
 	case BasesRequest:
-		Done{Reply: BasesReply{Value: v.Bases}}
+		Done{Reply: BasesReply{Value: g.Values.Bases}}
 	case ShellInitRequest:
-		Done{Reply: ShellInitReply{Value: v.ShellInit}}
+		Done{Reply: ShellInitReply{Value: g.Values.ShellInit}}
 	case ImportRiftRequest:
-		Done{Reply: ImportRiftReply{Value: v.ImportRift}}
+		Done{Reply: ImportRiftReply{Value: g.Values.ImportRift}}
 	}
 }
 
@@ -1532,8 +1537,8 @@ func scripted(want Outcome, sent sync.Ref[[]Request]) Client {
 
 // CallIsTheOperation: Call(r) calls r's operation once, with r's
 // arguments, and answers its value or failure as r's own Outcome.
-law CallIsTheOperation(r Request, v Values, f Failure, failing bool) {
-	let want = answerOf(r, v, f, failing)
+law CallIsTheOperation(r Request, g Given) {
+	let want = OutcomeOf(r, g)
 	let sent = sync.NewRef[[]Request]([]Request{})
 	let got = with context { work.Api: scripted(want, sent) } { Call(r) }
 	got == want && sent.Get() == []Request{r}
@@ -1541,8 +1546,8 @@ law CallIsTheOperation(r Request, v Values, f Failure, failing bool) {
 
 // ClientIsCall: a Client whose send is Call answers each call as the
 // provider Call is bound to does.
-law ClientIsCall(r Request, v Values, f Failure, failing bool) {
-	let want = answerOf(r, v, f, failing)
+law ClientIsCall(r Request, g Given) {
+	let want = OutcomeOf(r, g)
 	let sent = sync.NewRef[[]Request]([]Request{})
 	let inner = scripted(want, sent)
 	let outer = NewClient(func(q Request) Outcome {
