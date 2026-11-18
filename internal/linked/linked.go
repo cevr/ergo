@@ -47,6 +47,8 @@ type CLI struct {
 var Packages = []Package{
 	// ergo code (SEMTOOLS SEM1): std code's Reader over the fact tables.
 	{Name: "code", CLIs: []CLI{{Std: "code", Op: "Reader", Dir: "codecli"}}},
+	// ergo graph (CI-SELECT GRAPH-STD): std codegraph over the graph rows.
+	{Name: "graph"},
 }
 
 // Module is the Go module path of the repository.

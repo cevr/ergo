@@ -1,38 +1,147 @@
 package main
 
 import (
+	"archive/tar"
+	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 
+	lgraph "ergo.local/prototype/internal/linked/graph"
+	"ergo.local/prototype/internal/sketch/graphrows"
 	"ergo.local/prototype/internal/sketchfront"
 )
 
-const graphHelp = `usage: ergo graph export [DIR|DIR/...] [--json]
+const graphHelp = `usage: ergo graph [--in DIR|DIR/...] COMMAND [--json] [ARGS]
 
-ergo graph prints the graph of the program in DIR (the current folder by
+ergo graph reads the graph of the program in DIR (the current folder by
 default), or of every package below DIR with DIR/..., as the checker's
-rows (docs/spec/graph.md): node rows (modules, packages, files,
-declarations, tasks) and edge rows (contains, imports, uses, needs, fails,
-provides, reexports, testof, lawof, input), each by a dense id. std
-codegraph decodes the same rows. With --json the rows are JSON; without,
-one line per row.
+rows (docs/spec/graph.md), and answers what depends on what. Each query
+is one std codegraph function over the rows; a project's own program can
+call the same functions.
 
-A package that does not check gives the rows the checker resolved and no
-tasks.
+Commands:
+  export                          the rows: node rows (modules, packages,
+                                  files, declarations, tasks) and edge rows
+                                  (contains, imports, uses, needs, fails,
+                                  provides, reexports, testof, lawof,
+                                  input), each by a dense id
+  cycles [--level L] [--tests]    each set of packages (L package, the
+                                  default), files of one package (file) or
+                                  top-level declarations (decl) that depend
+                                  on one another, with one closing path;
+                                  without --tests an import only tests and
+                                  laws use is left out
+  why A B                         a shortest chain of edges by which A
+                                  depends on B (a package path, a file
+                                  path, or a declaration as package.Name)
+  affected BASE                   every node that depends on a declaration
+                                  that changed since BASE (a git revision,
+                                  or a file of rows ergo graph export
+                                  --json wrote), with the edge that reached
+                                  it
+  hidden                          each use of another package's declaration
+                                  that no file of the user's package
+                                  imports, directly or through a let that
+                                  re-exports it
+  chains [--min N]                a longest import chain of at least N
+                                  packages (2 by default) from each package
+                                  no other imports
+  fan [--level L] [--tests]       how many edges enter and leave each node
+                                  of level L, in, out, name
+  layers PATTERN...               each import that goes up the layering
+                                  PATTERN... names from the top down (a
+                                  path, or a prefix ending /...)
 
-Exit status: 0 printed; 1 the program cannot be read; 2 invalid invocation.
+With --json each command prints JSON. A package that does not check gives
+the rows the checker resolved and no tasks.
+
+Exit status: 0 answered; 1 the program, the base or a name cannot be read;
+2 invalid invocation.
 `
 
-// graphCommand is `ergo graph`.
+// graphCommand is `ergo graph`: it checks the program, writes its rows,
+// and prints them (export) or runs the query over them in Ergo
+// (internal/linked/graph, std codegraph's command line, lowered to Go).
 func graphCommand(args []string) error {
-	if len(args) == 0 || args[0] != "export" {
-		return invalidInvocation(fmt.Errorf("ergo graph: supply a command: export"))
+	dir := "."
+	if len(args) > 0 && (args[0] == "--in" || strings.HasPrefix(args[0], "--in=")) {
+		if v, ok := strings.CutPrefix(args[0], "--in="); ok {
+			dir, args = v, args[1:]
+		} else if len(args) < 2 {
+			return invalidInvocation(fmt.Errorf("ergo graph: --in takes a folder"))
+		} else {
+			dir, args = args[1], args[2:]
+		}
 	}
+	if len(args) == 0 {
+		return invalidInvocation(fmt.Errorf("ergo graph: supply a command: export, cycles, why, affected, hidden, chains, fan, layers"))
+	}
+	if args[0] == "export" {
+		return graphExport(dir, args[1:])
+	}
+	switch args[0] {
+	case "cycles", "why", "affected", "hidden", "chains", "fan", "layers":
+	default:
+		return invalidInvocation(fmt.Errorf("ergo graph: unknown command %s", args[0]))
+	}
+	t, err := graphRows(dir)
+	if err != nil {
+		return exitStatusError{code: 1, message: "ergo graph: " + err.Error()}
+	}
+	rows, err := json.Marshal(t)
+	if err != nil {
+		return err
+	}
+	old := ""
+	if args[0] == "affected" {
+		base := ""
+		for _, a := range args[1:] {
+			if !strings.HasPrefix(a, "-") {
+				base = a
+				break
+			}
+		}
+		if base == "" {
+			return invalidInvocation(fmt.Errorf("ergo graph affected: supply a base: a git revision or a rows file"))
+		}
+		data, err := baseRows(dir, base)
+		if err != nil {
+			return exitStatusError{code: 1, message: "ergo graph affected: " + err.Error()}
+		}
+		old = string(data)
+	}
+	out, err := lgraph.Run(context.Background(), args, string(rows), old)
+	if err != nil {
+		return exitStatusError{code: 1, message: "ergo graph: " + err.Error()}
+	}
+	if len(out) != 3 {
+		return exitStatusError{code: 1, message: fmt.Sprintf("ergo graph: the query gave %d parts", len(out))}
+	}
+	os.Stdout.WriteString(out[1])
+	os.Stderr.WriteString(out[2])
+	status, err := strconv.Atoi(out[0])
+	if err != nil {
+		return exitStatusError{code: 1, message: "ergo graph: status " + out[0]}
+	}
+	if status != 0 {
+		return exitStatusError{code: status, handled: true}
+	}
+	return nil
+}
+
+// graphExport is `ergo graph export`.
+func graphExport(dir string, args []string) error {
 	jsonOut := false
 	var dirs []string
-	for _, arg := range args[1:] {
+	for _, arg := range args {
 		switch {
 		case arg == "--json":
 			jsonOut = true
@@ -42,7 +151,6 @@ func graphCommand(args []string) error {
 			dirs = append(dirs, arg)
 		}
 	}
-	dir := "."
 	switch len(dirs) {
 	case 0:
 	case 1:
@@ -50,21 +158,10 @@ func graphCommand(args []string) error {
 	default:
 		return invalidInvocation(fmt.Errorf("ergo graph export: supply one folder, DIR or DIR/..."))
 	}
-	var as []sketchfront.Analysis
-	if recursivePattern(dir) {
-		var err error
-		as, err = sketchfront.CheckTree(strings.TrimSuffix(strings.TrimSuffix(dir, "..."), "/"))
-		if err != nil {
-			return exitStatusError{code: 1, message: "ergo graph: " + err.Error()}
-		}
-	} else {
-		a, err := sketchfront.CheckDir(dir)
-		if err != nil {
-			return exitStatusError{code: 1, message: "ergo graph: " + err.Error()}
-		}
-		as = append(as, a)
+	t, err := graphRows(dir)
+	if err != nil {
+		return exitStatusError{code: 1, message: "ergo graph: " + err.Error()}
 	}
-	t := sketchfront.GraphOf(as)
 	if !jsonOut {
 		_, err := os.Stdout.WriteString(t.Text())
 		return err
@@ -75,4 +172,135 @@ func graphCommand(args []string) error {
 	}
 	_, err = os.Stdout.Write(append(data, '\n'))
 	return err
+}
+
+// graphRows is the rows of the program in dir, or of every package below
+// it for dir/....
+func graphRows(dir string) (*graphrows.Table, error) {
+	var as []sketchfront.Analysis
+	recursive := recursivePattern(dir)
+	if recursive {
+		dir = strings.TrimSuffix(strings.TrimSuffix(dir, "..."), "/")
+	}
+	if dir == "" {
+		dir = "."
+	}
+	dir, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, err
+	}
+	if recursive {
+		as, err = sketchfront.CheckTree(dir)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		a, err := sketchfront.CheckDir(dir)
+		if err != nil {
+			return nil, err
+		}
+		as = append(as, a)
+	}
+	return sketchfront.GraphOf(as), nil
+}
+
+// baseRows is the rows JSON of the program in dir at base: the file base
+// when one exists, else the git revision base, whose tree (the part under
+// the repository's folder that holds dir) is unpacked into a temporary
+// folder and checked there.
+func baseRows(dir, base string) ([]byte, error) {
+	if st, err := os.Stat(base); err == nil && !st.IsDir() {
+		return os.ReadFile(base)
+	}
+	recursive := recursivePattern(dir)
+	folder := strings.TrimSuffix(strings.TrimSuffix(dir, "..."), "/")
+	if folder == "" {
+		folder = "."
+	}
+	abs, err := filepath.Abs(folder)
+	if err != nil {
+		return nil, err
+	}
+	top, err := gitOutput(abs, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return nil, err
+	}
+	top = strings.TrimSpace(top)
+	rel, err := filepath.Rel(top, abs)
+	if err != nil {
+		return nil, err
+	}
+	tmp, err := os.MkdirTemp("", "ergo-graph-base-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(tmp)
+	// The whole tree at base: a module's ergo.mod, or a package an import
+	// names, may sit above or beside dir.
+	cmd := exec.Command("git", "archive", "--format=tar", base)
+	cmd.Dir = top
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	tarText, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git archive %s: %v: %s", base, err, strings.TrimSpace(stderr.String()))
+	}
+	if err := untar(bytes.NewReader(tarText), tmp); err != nil {
+		return nil, err
+	}
+	at := filepath.Join(tmp, rel)
+	if recursive {
+		at += "/..."
+	}
+	t, err := graphRows(at)
+	if err != nil {
+		return nil, fmt.Errorf("the program at %s: %w", base, err)
+	}
+	return json.Marshal(t)
+}
+
+// gitOutput is git's standard output for args, run in dir.
+func gitOutput(dir string, args ...string) (string, error) {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+	}
+	return string(out), nil
+}
+
+// untar writes the regular files and folders of a tar stream under dir.
+func untar(r io.Reader, dir string) error {
+	tr := tar.NewReader(r)
+	for {
+		h, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		name := filepath.Join(dir, filepath.FromSlash(h.Name))
+		if !strings.HasPrefix(name, dir+string(filepath.Separator)) {
+			continue
+		}
+		switch h.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(name, 0o755); err != nil {
+				return err
+			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
+				return err
+			}
+			data, err := io.ReadAll(tr)
+			if err != nil {
+				return err
+			}
+			if err := os.WriteFile(name, data, 0o644); err != nil {
+				return err
+			}
+		}
+	}
 }

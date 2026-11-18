@@ -61,7 +61,7 @@ var commands = []cliCommand{
 	{name: "dev", usage: "dev [DIR] [--idle DURATION]", help: devHelp, run: devCommand},
 	{name: "work", usage: "work COMMAND [ARGS...]", help: workHelp, run: workCommand},
 	{name: "code", usage: "code [--in DIR] [--json] COMMAND [ARGS...]", help: codeHelp, run: codeCommand},
-	{name: "graph", usage: "graph export [DIR|DIR/...] [--json]", help: graphHelp, run: graphCommand},
+	{name: "graph", usage: "graph [--in DIR|DIR/...] export|cycles|why|affected|hidden|chains|fan|layers [--json]", help: graphHelp, run: graphCommand},
 	{name: "version", usage: "version [--json]", help: versionHelp, run: versionCommand},
 	{name: "tsmap", usage: "tsmap [--emit-js FILE.ergo]", help: tsmapHelp, run: tsmapCommand},
 	{name: "edition", fate: removed, reason: "there is one language and no editions", ticket: ticketEditions},
