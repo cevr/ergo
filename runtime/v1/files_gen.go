@@ -180,6 +180,7 @@ var bodyTable = []bodyRow{
 	{"GoTunnel.Error", bodyFact{body: Body{Results: []string{"string"}, Package: Path}}},
 	{"GoUntunnel", bodyFact{body: Body{Params: []Param{{Type: "error"}}, Results: []string{"error"}, Package: Path}}},
 	{"GoUntunnelEager", bodyFact{body: Body{Params: []Param{{Type: "error"}}, Results: []string{"error"}, Package: Path}}},
+	{"GoWith", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}, {Name: "C", Constraint: "any"}}, Hidden: []Hidden{"frame", "site"}, Params: []Param{{Type: "C"}, {Type: "func(*rt.Task, *C) (T, error)", Func: &Body{Hidden: []Hidden{"task"}, Params: []Param{{Type: "*C"}}, Results: []string{"T", "error"}}}}, Results: []string{"*Task[T]"}, Wait: "none", Package: Path}}},
 	{"GuardBytes", bodyFact{body: Body{Params: []Param{{Type: "string"}, {Type: "string"}, {Type: "string"}, {Type: "string"}}, Results: []string{"*BytesGuard"}, Package: Path}}},
 	{"Guarded", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Hidden: []Hidden{"task"}, Params: []Param{{Type: "func(*rt.Task) (T, error)", Func: &Body{Hidden: []Hidden{"task"}, Results: []string{"T", "error"}}}}, Results: []string{"T", "error"}, Package: Path}}},
 	{"HTTPCheckNetwork", bodyFact{body: Body{Params: []Param{{Type: "[]string"}, {Type: "HTTPLimits"}}, Results: []string{"[]string", "error"}, Wait: "none", Package: Path + "/http"}}},
@@ -536,6 +537,7 @@ var bodyTable = []bodyRow{
 	{"stderrSink.Write", bodyFact{refusal: "runtime/v1: stderrSink.Write: the receiver type stderrSink is not declared"}},
 	{"strategy.Pick", bodyFact{refusal: "runtime/v1: strategy.Pick: the receiver type strategy is not declared"}},
 	{"taskBody.Run", bodyFact{refusal: "runtime/v1: taskBody.Run: the receiver type taskBody is not declared"}},
+	{"taskWith.Run", bodyFact{refusal: "runtime/v1: taskWith.Run: the receiver type taskWith is not declared"}},
 	{"textError.Error", bodyFact{refusal: "runtime/v1: textError.Error: the receiver type textError is not declared"}},
 	{"webURL.String", bodyFact{refusal: "runtime/v1: webURL.String: the receiver type webURL is not declared"}},
 }
