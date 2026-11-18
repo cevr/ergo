@@ -41,6 +41,7 @@ var bodyTable = []bodyRow{
 	{"ActorStopped.Error", bodyFact{body: Body{Results: []string{"string"}, Package: Path}}},
 	{"AddrAt", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "[]T"}, {Type: "int"}}, Results: []string{"*T"}, Package: Path}}},
 	{"After", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "A", Constraint: "any"}}, Hidden: []Hidden{"site", "task", "scheduler", "release"}, Params: []Param{{Type: "time.Duration"}, {Type: "func(*rt.Task) (A, error)", Func: &Body{Hidden: []Hidden{"task"}, Results: []string{"A", "error"}}}}, Results: []string{"A", "error"}, Wait: "child", Package: Path}}},
+	{"AllocsPerRun", bodyFact{body: Body{Hidden: []Hidden{"task"}, Params: []Param{{Type: "int"}, {Type: "func(*rt.Task)", Func: &Body{Hidden: []Hidden{"task"}}}}, Results: []string{"int"}, Wait: "none", Package: Path}}},
 	{"Append", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "[]T"}, {Type: "T"}}, Results: []string{"[]T"}, Pure: true, Package: Path}}},
 	{"AppendPoison", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "[]T"}, {Type: "T"}}, Results: []string{"[]T"}, Package: Path}}},
 	{"ArenaTake", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "*ArenaValue[T]"}}, Results: []string{"T"}, Pure: true, Wait: "none", Package: Path}}},
