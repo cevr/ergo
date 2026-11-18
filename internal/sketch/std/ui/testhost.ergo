@@ -502,6 +502,15 @@ func ReplaceOn[E comparable, S, D, F](h *TestHost[S, E, D, F], href string) fail
 	try apply(h, URLChanged{URL: u})
 }
 
+// OpenAt is the tab opened on href before the program hears anything:
+// the history's one entry becomes href and the session is opened, so the
+// next navigation pushes (FK9b's first-navigation replace is for a host
+// no address opened). No URLChanged: the program starts at href already.
+func OpenAt[S, E, D, F](h *TestHost[S, E, D, F], href string) {
+	Replace(h.history, ParseURL(href))
+	h.opened = true
+}
+
 // GoBackOn is the user pressing back: when the history moves, URLChanged
 // with the place it moved to, and true; false at the first entry, with
 // no event.

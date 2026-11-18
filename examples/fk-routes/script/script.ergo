@@ -85,7 +85,7 @@ func Run(clock time.Manual) int needs Console | io.Stdin | Scheduler {
 
 func play(p Program, gone queue.Queue[app.Go], clock time.Manual, start string, lines []string, first int) int fails actor.Stopped | ui.BadPatch needs Console | Scheduler {
 	let mut h = try ui.NewTestHost(p, screen.Screen, clock, 16)
-	ui.Replace(ui.History(&h), ui.ParseURL(start))
+	ui.OpenAt(&h, start)
 	Console.Println("> start \(start)")
 	let mut shown = show([]string{}, view(&h))
 	for i in first..len(lines) {
@@ -156,6 +156,8 @@ law BackRestoresRoute(picks []int) {
 
 func backs(p Program, gone queue.Queue[app.Go], clock time.Manual, picks []int) bool fails actor.Stopped | ui.BadPatch needs Scheduler {
 	let mut h = try ui.NewTestHost(p, screen.Screen, clock, 16)
+	// The tab opens at "/", where the program starts.
+	ui.OpenAt(&h, "/")
 	let mut seen = []route.Route{route.Home}
 	for k in picks {
 		let n = ((k % 3) + 3) % 3
