@@ -289,7 +289,10 @@ func Render(path, name, stamp, module string, decls []Decl) (string, error) {
 		for _, v := range d.Vouched {
 			body.WriteString("// ergo:reads " + v.Param + " (vouched: " + v.Reason + ")\n")
 		}
-		if d.Effect != "" {
+		switch {
+		case d.Effect != "" && d.EffectFrom != "":
+			body.WriteString("// ergo:effect none from " + d.EffectFrom + " (vouched: " + d.Effect + ")\n")
+		case d.Effect != "":
 			body.WriteString("// ergo:effect none (vouched: " + d.Effect + ")\n")
 		}
 		if d.Host != "" {

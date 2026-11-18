@@ -107,6 +107,18 @@ func (h *hostPkg) effectLine(fn *Func, text string) {
 		h.hostLine(fn, target)
 		return
 	}
+	// `none from <target> (vouched: …)` is a method Go promotes from an
+	// embedded field (GB): the row is its declaring type's method of the
+	// same name.
+	if rest, ok := strings.CutPrefix(text, "none from "); ok {
+		from, tail, _ := strings.Cut(rest, " ")
+		dot := strings.LastIndex(target, ".")
+		if dot < 0 || from == target || !strings.HasSuffix(from, target[dot:]) {
+			h.c.errorf(fn.Decl.Name, CodeType, "the `// ergo:effect` line above %s names %s, which is not a method of the same name", fn.Name, from)
+			return
+		}
+		target, text = from, "none "+tail
+	}
 	if !strings.HasPrefix(text, "none (vouched: ") || !strings.HasSuffix(text, ")") {
 		h.c.errorf(fn.Decl.Name, CodeType, "the `// ergo:effect` line above %s is not `// ergo:effect none (vouched: <reason>)` or `// ergo:effect ambient (vouched: <reason>)`", fn.Name)
 		return

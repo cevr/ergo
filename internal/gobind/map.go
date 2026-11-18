@@ -64,6 +64,10 @@ type Decl struct {
 	// binding writes no needs row and an `// ergo:effect none (vouched:
 	// <reason>)` line.
 	Effect string
+	// EffectFrom is the target of that row when a method Go promotes from
+	// an embedded field takes the declaring type's row (GB): the binding
+	// writes `// ergo:effect none from <EffectFrom> (vouched: <reason>)`.
+	EffectFrom string
 	// Host is the reason of the function's host row (gofacts.Hosts;
 	// HOST-ROW), acting on its guard line: the binding writes needs
 	// Ambient, not go.Foreign, and an `// ergo:effect ambient (vouched:
@@ -183,6 +187,10 @@ type mapper struct {
 	// effect is the reason of the memory-only row the last funcDecl
 	// bound by (GBX6), or "".
 	effect string
+	// effectFrom is the target of that row when it is not the bound
+	// method's own: the declaring type's, for a method Go promotes from an
+	// embedded field (GB); else "".
+	effectFrom string
 	// host is the reason of the host row the last funcDecl wrote
 	// (HOST-ROW), or "".
 	host string
@@ -306,7 +314,7 @@ func (m *mapper) decl(obj types.Object, recv *types.Named) Decl {
 			d.Refused = err.Error()
 			return d
 		}
-		d.Ergo, d.Variadic, d.Context, d.Writes, d.Effect, d.Host = text, variadic, ctx, m.writes, m.effect, m.host
+		d.Ergo, d.Variadic, d.Context, d.Writes, d.Effect, d.EffectFrom, d.Host = text, variadic, ctx, m.writes, m.effect, m.effectFrom, m.host
 	case *types.TypeName:
 		d.Kind = Type
 		text, members, lines, err := m.typeDecl(o)
@@ -545,16 +553,23 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, bool,
 		// does not have).
 		needs = " needs go.Foreign"
 	}
-	m.effect, m.host = "", ""
+	m.effect, m.effectFrom, m.host = "", "", ""
 	if e, ok := gofacts.HostOf(target); ok && needs == " needs go.Foreign" && !sm.ctx && hostActs(target) {
 		// A host call charges Ambient, the authority to choose the host,
 		// not go.Foreign (HOST-ROW); the binding says why.
 		needs, m.host = " needs Ambient", e.Reason
 	}
-	if e, ok := gofacts.EffectOf(target); ok && needs != "" && !sm.ctx && effectActs(target) {
+	// A method Go promotes from an embedded field is the field's method:
+	// its memory-only row is the declaring type's (GB), and the binding
+	// names that row with `from`.
+	row := declaredTarget(f, target)
+	if e, ok := gofacts.EffectOf(row); ok && needs != "" && !sm.ctx && effectActs(row) {
 		// A memory-only call needs no capability (GBX6): its row is
 		// what is left, and the binding says why.
 		needs, m.effect = "", e.Reason
+		if row != target {
+			m.effectFrom = row
+		}
 	}
 	if sm.usedNeeds {
 		if needs == "" {
@@ -1343,6 +1358,27 @@ func syncActs(target string) bool {
 func hostActs(target string) bool {
 	ok, _, _ := check.HostActs(target)
 	return ok
+}
+
+// declaredTarget is the target of f where Go declares it: for a method,
+// its own receiver type's (`sync/atomic.Int64.Add`), which differs from
+// target, the bound type's, when Go promotes f from an embedded field
+// (GB). A function, or a method whose receiver is not a named type, is
+// target itself.
+func declaredTarget(f *types.Func, target string) string {
+	sig, ok := f.Origin().Type().(*types.Signature)
+	if !ok || sig.Recv() == nil || f.Pkg() == nil {
+		return target
+	}
+	t := sig.Recv().Type()
+	if p, ok := t.(*types.Pointer); ok {
+		t = p.Elem()
+	}
+	n, ok := t.(*types.Named)
+	if !ok {
+		return target
+	}
+	return f.Pkg().Path() + "." + n.Obj().Name() + "." + f.Name()
 }
 
 // effectActs reports a function whose memory-only row acts
