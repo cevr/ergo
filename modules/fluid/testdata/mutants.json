@@ -728,6 +728,86 @@
         "examples:modules/fluid",
         "examples:fluid-gallery"
       ]
+    },
+    {
+      "name": "fl4-disabled-press-sends",
+      "origin": "wf10/fl4 FL4",
+      "file": "modules/fluid/gui/draw.ergo",
+      "from": "\t\tlet on = if off { None } else { p.On }",
+      "to": "\t\tlet on = p.On",
+      "rule": "A press stated disabled still sends its signal when pressed (its access still says disabled): PressSendsItsSignal.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl4-key-binding-dropped",
+      "origin": "wf10/fl4 FL4",
+      "file": "modules/fluid/gui/draw.ergo",
+      "from": "ui.OnKey(f, func(k ui.KeyPress) Option[E] { Bound[E](keys, k) })",
+      "to": "ui.OnKey(f, func(k ui.KeyPress) Option[E] { None })",
+      "rule": "A keyed box's keyboard map sends nothing for a key it binds: PressSendsItsSignal.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl4-expanded-always-open",
+      "origin": "wf10/fl4 FL4",
+      "file": "modules/fluid/gui/draw.ergo",
+      "from": "\t\t\ta.Expanded = Some[bool]{Value: x.Yes}",
+      "to": "\t\t\ta.Expanded = Some[bool]{Value: true}",
+      "rule": "A collapsed box is told to a reader as expanded in the window: AccessOfGuiIsAccessOfPart.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl4-rest-over-state",
+      "origin": "wf10/fl4 FL4",
+      "file": "modules/fluid/gui/paint.ergo",
+      "from": "look.Merge(l.Rest, look.Overlay(l, st))",
+      "to": "look.Merge(look.Overlay(l, st), l.Rest)",
+      "rule": "The rest style is laid over the state's overlay, so a hovered box paints its rest fill: HostsResolveAlike.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl4-dark-painted-light",
+      "origin": "wf10/fl4 FL4",
+      "file": "modules/fluid/gui/paint.ergo",
+      "from": "\t\tif dark { p.Dark } else { p.Light }",
+      "to": "\t\tp.Light",
+      "rule": "A dark scheme is painted with the light value: HostsResolveAlike.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
     }
   ]
 }
