@@ -64,6 +64,7 @@ timetable
 todo-gui
 toktree
 tomlparse
+triage
 tui
 twig
 vt
