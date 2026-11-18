@@ -65,7 +65,7 @@ func (b *irBuilder) template(x *syntax.CallExpr) (pre []*irStmt, out *irExpr) {
 	}
 	parent := map[syntax.Expr]syntax.Expr{}
 	holes := b.holesOf(x, parent, nil)
-	counts := &b.folds
+	counts := &b.foldCounts
 	for round := 0; round < templateRounds; round++ {
 		v, culprits, why, _ := eval.FoldTemplate(b.pkg, b.decl, x, holes, constFoldBudget)
 		if why == "" {

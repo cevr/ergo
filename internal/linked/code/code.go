@@ -5,6 +5,7 @@ package code
 import (
 	bytes "bytes"
 	context "context"
+	sha256 "crypto/sha256"
 	rt "ergo.local/prototype/runtime/rt"
 	ergo "ergo.local/prototype/runtime/v1"
 	ergodigest "ergo.local/prototype/runtime/v1/digest"
@@ -14,6 +15,7 @@ import (
 	maps "maps"
 	slices "slices"
 	strconv "strconv"
+	strings "strings"
 	time "time"
 )
 
@@ -6763,6 +6765,11 @@ func (p Planned) PlanText() string {
 	return (b + p.Patch)
 }
 
+func HasPrefix(s string, prefix string) bool {
+	r := strings.HasPrefix(s, prefix)
+	return r
+}
+
 func DecodeMono_i3(env *Env, wT struct {
 	Enc     func(*Env, Writer_1, Change) (struct{}, error)
 	Dec     func(*Env, Reader_2) (Change, error)
@@ -6889,8 +6896,24 @@ type Files interface {
 func (h HostFiles) Read(env *Env, path_1 string) (string, error) {
 	env.task.Check()
 	t := h.host
-	v := (h).onHost(path_1)
-	v_1, err := (t).ReadFile(env, v)
+	var v string
+	{
+		v_1 := HasPrefix(path_1, StateDir)
+		if v_1 {
+			t_1 := (h.state + "/")
+			v_2 := TrimPrefix(path_1, StateDir)
+			v = (t_1 + v_2)
+			goto inl
+		}
+		if h.root == "" {
+			v = path_1
+			goto inl
+		}
+		v = ((h.root + "/") + path_1)
+	}
+inl:
+	_ = 0
+	v_3, err := (t).ReadFile(env, v)
 	if err != nil {
 		switch caught := err.(type) {
 		case ergo.NotFound:
@@ -6898,18 +6921,18 @@ func (h HostFiles) Read(env *Env, path_1 string) (string, error) {
 			return "", Missing{Path: path_1}
 		case ergo.Denied:
 			_ = caught
-			v_2 := ioFailed(path_1, "permission denied")
-			return "", v_2
+			v_4 := ioFailed(path_1, "permission denied")
+			return "", v_4
 		case ergo.Failed:
 			e := caught
-			v_3 := ioFailed(path_1, e.Reason)
-			return "", v_3
+			v_5 := ioFailed(path_1, e.Reason)
+			return "", v_5
 		default:
 			_ = caught
 			panic(err)
 		}
 	}
-	return v_1, nil
+	return v_3, nil
 }
 
 func (h HostFiles) Write(env *Env, path_1 string, text_2 string) error {
@@ -6919,22 +6942,38 @@ func (h HostFiles) Write(env *Env, path_1 string, text_2 string) error {
 		return err
 	}
 	t := h.host
-	v := (h).onHost(path_1)
+	var v string
+	{
+		v_1 := HasPrefix(path_1, StateDir)
+		if v_1 {
+			t_1 := (h.state + "/")
+			v_2 := TrimPrefix(path_1, StateDir)
+			v = (t_1 + v_2)
+			goto inl
+		}
+		if h.root == "" {
+			v = path_1
+			goto inl
+		}
+		v = ((h.root + "/") + path_1)
+	}
+inl:
+	_ = 0
 	err_1 := (t).WriteFile(env, v, text_2)
 	if err_1 != nil {
 		switch caught := err_1.(type) {
 		case ergo.NotFound:
 			_ = caught
-			v_1 := ioFailed(path_1, "no such folder")
-			return v_1
+			v_3 := ioFailed(path_1, "no such folder")
+			return v_3
 		case ergo.Denied:
 			_ = caught
-			v_2 := ioFailed(path_1, "permission denied")
-			return v_2
+			v_4 := ioFailed(path_1, "permission denied")
+			return v_4
 		case ergo.Failed:
 			e := caught
-			v_3 := ioFailed(path_1, e.Reason)
-			return v_3
+			v_5 := ioFailed(path_1, e.Reason)
+			return v_5
 		default:
 			_ = caught
 			panic(err_1)
@@ -6950,31 +6989,63 @@ func (h HostFiles) Exchange(env *Env, a string, b string) error {
 		return err
 	}
 	t := h.host
-	v := (h).onHost(a)
-	t_1 := v
-	v_1 := (h).onHost(b)
-	err_1 := (t).Exchange(env, t_1, v_1)
+	var v string
+	{
+		v_1 := HasPrefix(a, StateDir)
+		if v_1 {
+			t_1 := (h.state + "/")
+			v_2 := TrimPrefix(a, StateDir)
+			v = (t_1 + v_2)
+			goto inl
+		}
+		if h.root == "" {
+			v = a
+			goto inl
+		}
+		v = ((h.root + "/") + a)
+	}
+inl:
+	_ = 0
+	t_2 := v
+	var v_3 string
+	{
+		v_4 := HasPrefix(b, StateDir)
+		if v_4 {
+			t_3 := (h.state + "/")
+			v_5 := TrimPrefix(b, StateDir)
+			v_3 = (t_3 + v_5)
+			goto inl_1
+		}
+		if h.root == "" {
+			v_3 = b
+			goto inl_1
+		}
+		v_3 = ((h.root + "/") + b)
+	}
+inl_1:
+	_ = 0
+	err_1 := (t).Exchange(env, t_2, v_3)
 	if err_1 != nil {
 		switch caught := err_1.(type) {
 		case ergo.NotFound:
 			m := caught
-			var v_2 string
-			t_2 := m.Path
-			v_3 := (h).onHost(a)
-			if t_2 == v_3 {
-				v_2 = a
+			var v_6 string
+			t_4 := m.Path
+			v_7 := (h).onHost(a)
+			if t_4 == v_7 {
+				v_6 = a
 			} else {
-				v_2 = b
+				v_6 = b
 			}
-			return Missing{Path: v_2}
+			return Missing{Path: v_6}
 		case ergo.Denied:
 			_ = caught
-			v_4 := ioFailed(a, "permission denied")
-			return v_4
+			v_8 := ioFailed(a, "permission denied")
+			return v_8
 		case ergo.Failed:
 			e := caught
-			v_5 := ioFailed(a, e.Reason)
-			return v_5
+			v_9 := ioFailed(a, e.Reason)
+			return v_9
 		default:
 			_ = caught
 			panic(err_1)
@@ -6986,7 +7057,23 @@ func (h HostFiles) Exchange(env *Env, a string, b string) error {
 func (h HostFiles) Remove(env *Env, path_1 string) error {
 	env.task.Check()
 	t := h.host
-	v := (h).onHost(path_1)
+	var v string
+	{
+		v_1 := HasPrefix(path_1, StateDir)
+		if v_1 {
+			t_1 := (h.state + "/")
+			v_2 := TrimPrefix(path_1, StateDir)
+			v = (t_1 + v_2)
+			goto inl
+		}
+		if h.root == "" {
+			v = path_1
+			goto inl
+		}
+		v = ((h.root + "/") + path_1)
+	}
+inl:
+	_ = 0
 	err := (t).Remove(env, v)
 	if err != nil {
 		switch caught := err.(type) {
@@ -6994,12 +7081,12 @@ func (h HostFiles) Remove(env *Env, path_1 string) error {
 			_ = caught
 		case ergo.Denied:
 			_ = caught
-			v_1 := ioFailed(path_1, "permission denied")
-			return v_1
+			v_3 := ioFailed(path_1, "permission denied")
+			return v_3
 		case ergo.Failed:
 			e := caught
-			v_2 := ioFailed(path_1, e.Reason)
-			return v_2
+			v_4 := ioFailed(path_1, e.Reason)
+			return v_4
 		default:
 			_ = caught
 			panic(err)
@@ -7011,8 +7098,24 @@ func (h HostFiles) Remove(env *Env, path_1 string) error {
 func (h HostFiles) Exists(env *Env, path_1 string) (bool, error) {
 	env.task.Check()
 	t := h.host
-	v := (h).onHost(path_1)
-	v_1, err := (t).Stat(env, v)
+	var v string
+	{
+		v_1 := HasPrefix(path_1, StateDir)
+		if v_1 {
+			t_1 := (h.state + "/")
+			v_2 := TrimPrefix(path_1, StateDir)
+			v = (t_1 + v_2)
+			goto inl
+		}
+		if h.root == "" {
+			v = path_1
+			goto inl
+		}
+		v = ((h.root + "/") + path_1)
+	}
+inl:
+	_ = 0
+	v_3, err := (t).Stat(env, v)
 	if err != nil {
 		switch caught := err.(type) {
 		case ergo.NotFound:
@@ -7020,18 +7123,18 @@ func (h HostFiles) Exists(env *Env, path_1 string) (bool, error) {
 			return false, nil
 		case ergo.Denied:
 			_ = caught
-			v_2 := ioFailed(path_1, "permission denied")
-			return false, v_2
+			v_4 := ioFailed(path_1, "permission denied")
+			return false, v_4
 		case ergo.Failed:
 			e := caught
-			v_3 := ioFailed(path_1, e.Reason)
-			return false, v_3
+			v_5 := ioFailed(path_1, e.Reason)
+			return false, v_5
 		default:
 			_ = caught
 			panic(err)
 		}
 	}
-	_ = v_1
+	_ = v_3
 	return true, nil
 }
 
@@ -7116,28 +7219,92 @@ func Rewritten(env *Env, what string, before []Source, after_1 []Source) (Planne
 		}
 		t := reads
 		t_1 := s.File
-		v_1 := revision(s.Text)
-		v_2 := Append[FileRead](t, FileRead{File: t_1, Revision: v_1})
-		reads = v_2
+		var v_1 string
+		{
+			var text_2 string = s.Text
+			var v_2 string
+			{
+				r := sha256.Sum256(ergo.BytesView(text_2))
+				var d [32]uint8 = r
+				v_2 = FromBytesOwned(d[:])
+
+			}
+			v_4 := ergodigest.HexEncode(v_2)
+			v_1 = Slice_3(v_4, int(0), int(16))
+
+		}
+		v_6 := Append[FileRead](t, FileRead{File: t_1, Revision: v_1})
+		reads = v_6
 		t_2 := (((key_1 + "\n") + s.File) + " ")
-		v_3 := revision(s.Text)
-		key_1 = (t_2 + v_3)
+		var v_7 string
+		{
+			var text_3 string = s.Text
+			var v_8 string
+			{
+				r_1 := sha256.Sum256(ergo.BytesView(text_3))
+				var d_1 [32]uint8 = r_1
+				v_8 = FromBytesOwned(d_1[:])
+
+			}
+			v_10 := ergodigest.HexEncode(v_8)
+			v_7 = Slice_3(v_10, int(0), int(16))
+
+		}
+		key_1 = (t_2 + v_7)
 		var t_3 string = after_1[i].Text
 		if t_3 != s.Text {
 			t_4 := files
 			t_5 := s.File
-			v_4 := revision(s.Text)
-			t_6 := v_4
-			v_5 := revision(t_3)
-			v_6 := Append[FileChange](t_4, FileChange{File: t_5, Old: t_6, New: v_5, Text: t_3})
-			files = v_6
+			var v_12 string
+			{
+				var text_4 string = s.Text
+				var v_13 string
+				{
+					r_2 := sha256.Sum256(ergo.BytesView(text_4))
+					var d_2 [32]uint8 = r_2
+					v_13 = FromBytesOwned(d_2[:])
+
+				}
+				v_15 := ergodigest.HexEncode(v_13)
+				v_12 = Slice_3(v_15, int(0), int(16))
+
+			}
+			t_6 := v_12
+			var v_17 string
+			{
+				var v_18 string
+				{
+					r_3 := sha256.Sum256(ergo.BytesView(t_3))
+					var d_3 [32]uint8 = r_3
+					v_18 = FromBytesOwned(d_3[:])
+
+				}
+				v_20 := ergodigest.HexEncode(v_18)
+				v_17 = Slice_3(v_20, int(0), int(16))
+
+			}
+			v_22 := Append[FileChange](t_4, FileChange{File: t_5, Old: t_6, New: v_17, Text: t_3})
+			files = v_22
 			t_7 := patch
-			v_7 := diff(s.File, s.Text, t_3)
-			patch = (t_7 + v_7)
+			v_23 := diff(s.File, s.Text, t_3)
+			patch = (t_7 + v_23)
 		}
 	}
-	v_8 := revision(key_1)
-	return Planned{ID: v_8, Change: what, Reads: reads, Files: files, Patch: patch, Verdict: (Verdict{}).of0(Ready{Proof: (Proof{tag: 2})}), Impact: []ApiChange{}}, nil
+	var v_24 string
+	{
+		var text_5 string = key_1
+		var v_25 string
+		{
+			r_4 := sha256.Sum256(ergo.BytesView(text_5))
+			var d_4 [32]uint8 = r_4
+			v_25 = FromBytesOwned(d_4[:])
+
+		}
+		v_27 := ergodigest.HexEncode(v_25)
+		v_24 = Slice_3(v_27, int(0), int(16))
+
+	}
+	return Planned{ID: v_24, Change: what, Reads: reads, Files: files, Patch: patch, Verdict: (Verdict{}).of0(Ready{Proof: (Proof{tag: 2})}), Impact: []ApiChange{}}, nil
 }
 
 func HostFilesIn(env *Env, host Host, root string, state_1 string) HostFiles {
@@ -7318,9 +7485,9 @@ func (t Tables) IndexOf() Index {
 		for _, v_1 := range p.Decls {
 			var d Decl = v_1
 			byHandle[d.Handle] = len(decls)
-			v_2 := ergo.StringsHasPrefix(d.Handle, (d.Package + "."))
+			v_2 := HasPrefix(d.Handle, (d.Package + "."))
 			if v_2 {
-				v_3 := ergo.StringsTrimPrefix(d.Handle, (d.Package + "."))
+				v_3 := TrimPrefix(d.Handle, (d.Package + "."))
 				t_1 := short
 				t_2 := v_3
 				var v_4 []int
@@ -7757,11 +7924,11 @@ func (x Index) Symbols(q SymbolQuery) SymbolPage {
 			v_5 := text(q.Match)
 			switch v_5 {
 			case "prefix":
-				v_6 := ergo.StringsHasPrefix(d.Name, v_4)
+				v_6 := HasPrefix(d.Name, v_4)
 				v_1 = v_6
 				goto inl
 			case "part":
-				v_7 := ergo.StringsContains(d.Name, v_4)
+				v_7 := Contains_1(d.Name, v_4)
 				v_1 = v_7
 				goto inl
 			default:
@@ -7792,7 +7959,7 @@ func (x Index) Symbol(env *Env, a string) (Decl, error) {
 	}
 	var v_1 bool
 	{
-		v_2 := ergo.StringsSplit(a, ":")
+		v_2 := Split_1(a, ":")
 		if len(v_2) < int(3) {
 			v_1 = false
 			goto inl
@@ -9317,6 +9484,11 @@ func ergoWriteNotMachine(env *Env, wv text_1, v NotMachine) text_1 {
 	return wv
 }
 
+func Itoa(n int) string {
+	r := strconv.Itoa(n)
+	return r
+}
+
 func DecodeMono_i5(env *Env, wT struct {
 	Enc     func(*Env, Writer_1, Tables) (struct{}, error)
 	Dec     func(*Env, Reader_2) (Tables, error)
@@ -9542,7 +9714,7 @@ func ApiDiff_2(env *Env, old []Contract, new_1 []Contract) []ApiChange {
 						}
 						for _, v_9 := range y.Value.TakesParameters {
 							var t int = v_9
-							v_10 := ergo.SlicesContains[int](x.Value.TakesParameters, t)
+							v_10 := ContainsMono_i1(x.Value.TakesParameters, t)
 							if !v_10 {
 								breaks = true
 							}
@@ -9719,80 +9891,95 @@ func (v MachineView) MachineText(env *Env) string {
 		}
 		env.task.Check()
 	}
-	v_12 := ergo.SlicesClone[Timer](slices.Clip(g.Timers))
-	v_14 := ergo.SlicesSortFunc[Timer](v_12, func(p Timer, p_1 Timer) int {
+	var v_12 []Timer
+	{
+		var xs []Timer = g.Timers
+		v_12 = ergo.SlicesClone[Timer](slices.Clip(xs))
+
+	}
+	v_15 := ergo.SlicesSortFunc[Timer](v_12, func(p Timer, p_1 Timer) int {
 		r, _ := func(env_2 *Env, x Timer, y Timer) (int, error) {
-			v_13 := ergo.StringsCompare(x.State, y.State)
-			return v_13, nil
+			v_14 := Compare_1(x.State, y.State)
+			return v_14, nil
 		}(env, p, p_1)
 		return r
 	})
-	for _, v_15 := range v_14 {
-		var tm Timer = v_15
+	for _, v_16 := range v_15 {
+		var tm Timer = v_16
 		t_10 := b
 		t_11 := tm.State
 		t_12 := tm.Signal
-		v_16 := (tm.At).placeText()
-		b = (t_10 + ("  timer " + t_11 + " -> " + t_12 + " at " + v_16 + "\n"))
+		v_17 := (tm.At).placeText()
+		b = (t_10 + ("  timer " + t_11 + " -> " + t_12 + " at " + v_17 + "\n"))
 		env.task.Check()
 	}
-	v_17 := ergo.SlicesClone[Place](slices.Clip(g.Work))
-	v_19 := ergo.SlicesSortFunc[Place](v_17, func(p_2 Place, p_3 Place) int {
+	var v_18 []Place
+	{
+		var xs_1 []Place = g.Work
+		v_18 = ergo.SlicesClone[Place](slices.Clip(xs_1))
+
+	}
+	v_21 := ergo.SlicesSortFunc[Place](v_18, func(p_2 Place, p_3 Place) int {
 		r_1, _ := func(env_3 *Env, x_1 Place, y_1 Place) (int, error) {
-			v_18 := ergo.StringsCompare(x_1.What, y_1.What)
-			return v_18, nil
+			v_20 := Compare_1(x_1.What, y_1.What)
+			return v_20, nil
 		}(env, p_2, p_3)
 		return r_1
 	})
-	for _, v_20 := range v_19 {
-		var w Place = v_20
+	for _, v_22 := range v_21 {
+		var w Place = v_22
 		t_13 := b
 		t_14 := w.What
-		v_21 := (w).placeText()
-		b = (t_13 + ("  work " + t_14 + " at " + v_21 + "\n"))
+		v_23 := (w).placeText()
+		b = (t_13 + ("  work " + t_14 + " at " + v_23 + "\n"))
 		env.task.Check()
 	}
-	v_22 := ergo.SlicesClone[Place](slices.Clip(g.Exit))
-	v_24 := ergo.SlicesSortFunc[Place](v_22, func(p_4 Place, p_5 Place) int {
+	var v_24 []Place
+	{
+		var xs_2 []Place = g.Exit
+		v_24 = ergo.SlicesClone[Place](slices.Clip(xs_2))
+
+	}
+	v_27 := ergo.SlicesSortFunc[Place](v_24, func(p_4 Place, p_5 Place) int {
 		r_2, _ := func(env_4 *Env, x_2 Place, y_2 Place) (int, error) {
-			v_23 := ergo.StringsCompare(x_2.What, y_2.What)
-			return v_23, nil
+			v_26 := Compare_1(x_2.What, y_2.What)
+			return v_26, nil
 		}(env, p_4, p_5)
 		return r_2
 	})
-	for _, v_25 := range v_24 {
-		var x_3 Place = v_25
+	for _, v_28 := range v_27 {
+		var x_3 Place = v_28
 		t_15 := b
 		t_16 := x_3.What
-		v_26 := (x_3).placeText()
-		b = (t_15 + ("  exit " + t_16 + " at " + v_26 + "\n"))
+		v_29 := (x_3).placeText()
+		b = (t_15 + ("  exit " + t_16 + " at " + v_29 + "\n"))
 		env.task.Check()
 	}
-	for _, v_27 := range g.Unsure {
-		var s string = v_27
+	for _, v_30 := range g.Unsure {
+		var s string = v_30
 		b = (b + ("  unsure " + s + ": its timer, work or exit action is not a literal\n"))
 		env.task.Check()
 	}
-	for _, v_28 := range v.Reachable {
-		var p_6 Pair = v_28
+	for _, v_31 := range v.Reachable {
+		var p_6 Pair = v_31
 		var sites []string = []string{}
 		sites = ergo.Reserve(sites, len(p_6.Arms))
-		for _, v_29 := range p_6.Arms {
-			var a_1 Place = v_29
+		for _, v_32 := range p_6.Arms {
+			var a_1 Place = v_32
 			t_17 := sites
-			v_30 := (a_1).placeText()
-			v_31 := Append[string](t_17, v_30)
-			sites = v_31
+			v_33 := (a_1).placeText()
+			v_34 := Append[string](t_17, v_33)
+			sites = v_34
 			env.task.Check()
 		}
-		var v_32 string
+		var v_35 string
 		if len(sites) == int(0) {
-			v_32 = "no arm"
+			v_35 = "no arm"
 		} else {
-			v_33 := ergo.StringsJoin(sites, " or ")
-			v_32 = v_33
+			v_36 := ergo.StringsJoin(sites, " or ")
+			v_35 = v_36
 		}
-		var arms string = v_32
+		var arms string = v_35
 		b = (b + ("  reach (" + p_6.State + ", " + p_6.Signal + ") by " + arms + "\n"))
 		env.task.Check()
 	}
@@ -9837,7 +10024,7 @@ type Text_2 interface {
 }
 
 func (t *text_1) Written() string {
-	v := ergo.JSONBytesText(t.out)
+	v := ergo.StringsBuilderText(t.out)
 	return v
 }
 
@@ -10354,49 +10541,100 @@ func planChange(env *Env, sources []Source, c_1 Change, checker Checker) (Planne
 		var s Source = v_3
 		t := reads
 		t_1 := s.File
-		v_4 := revision(s.Text)
-		v_5 := Append[FileRead](t, FileRead{File: t_1, Revision: v_4})
-		reads = v_5
+		var v_4 string
+		{
+			var text_2 string = s.Text
+			var v_5 string
+			{
+				r := sha256.Sum256(ergo.BytesView(text_2))
+				var d [32]uint8 = r
+				v_5 = FromBytesOwned(d[:])
+
+			}
+			v_7 := ergodigest.HexEncode(v_5)
+			v_4 = Slice_3(v_7, int(0), int(16))
+
+		}
+		v_9 := Append[FileRead](t, FileRead{File: t_1, Revision: v_4})
+		reads = v_9
 		var t_2 string = v_1[i].Text
 		if t_2 != s.Text {
 			t_3 := files
 			t_4 := s.File
-			v_6 := revision(s.Text)
-			t_5 := v_6
-			v_7 := revision(t_2)
-			v_8 := Append[FileChange](t_3, FileChange{File: t_4, Old: t_5, New: v_7, Text: t_2})
-			files = v_8
+			var v_10 string
+			{
+				var text_3 string = s.Text
+				var v_11 string
+				{
+					r_1 := sha256.Sum256(ergo.BytesView(text_3))
+					var d_1 [32]uint8 = r_1
+					v_11 = FromBytesOwned(d_1[:])
+
+				}
+				v_13 := ergodigest.HexEncode(v_11)
+				v_10 = Slice_3(v_13, int(0), int(16))
+
+			}
+			t_5 := v_10
+			var v_15 string
+			{
+				var v_16 string
+				{
+					r_2 := sha256.Sum256(ergo.BytesView(t_2))
+					var d_2 [32]uint8 = r_2
+					v_16 = FromBytesOwned(d_2[:])
+
+				}
+				v_18 := ergodigest.HexEncode(v_16)
+				v_15 = Slice_3(v_18, int(0), int(16))
+
+			}
+			v_20 := Append[FileChange](t_3, FileChange{File: t_4, Old: t_5, New: v_15, Text: t_2})
+			files = v_20
 			t_6 := patch
-			v_9 := diff(s.File, s.Text, t_2)
-			patch = (t_6 + v_9)
+			v_21 := diff(s.File, s.Text, t_2)
+			patch = (t_6 + v_21)
 		}
 		env.task.Check()
 	}
-	v_10 := describe(c_1)
-	var key_1 string = v_10
-	for _, v_11 := range reads {
-		var r FileRead = v_11
-		key_1 = ((((key_1 + "\n") + r.File) + " ") + r.Revision)
+	v_22 := describe(c_1)
+	var key_1 string = v_22
+	for _, v_23 := range reads {
+		var r_3 FileRead = v_23
+		key_1 = ((((key_1 + "\n") + r_3.File) + " ") + r_3.Revision)
 		env.task.Check()
 	}
-	v_12 := revision(key_1)
-	t_7 := v_12
-	t_8 := v_10
+	var v_24 string
+	{
+		var text_4 string = key_1
+		var v_25 string
+		{
+			r_4 := sha256.Sum256(ergo.BytesView(text_4))
+			var d_3 [32]uint8 = r_4
+			v_25 = FromBytesOwned(d_3[:])
+
+		}
+		v_27 := ergodigest.HexEncode(v_25)
+		v_24 = Slice_3(v_27, int(0), int(16))
+
+	}
+	t_7 := v_24
+	t_8 := v_22
 	t_9 := reads
 	t_10 := files
 	t_11 := patch
-	v_13 := (v.Tables).impactOf(env, v_2.Tables, v.Workspace)
-	t_12 := v_13
-	var v_14 Verdict
+	v_29 := (v.Tables).impactOf(env, v_2.Tables, v.Workspace)
+	t_12 := v_29
+	var v_30 Verdict
 	switch c_1.(type) {
 	case Rename:
-		v_15 := (v).renameVerdict(v_2)
-		v_14 = v_15
+		v_31 := (v).renameVerdict(v_2)
+		v_30 = v_31
 	default:
-		v_16 := (v).verdictOf(v_2)
-		v_14 = v_16
+		v_32 := (v).verdictOf(v_2)
+		v_30 = v_32
 	}
-	return Planned{ID: t_7, Change: t_8, Reads: t_9, Files: t_10, Patch: t_11, Impact: t_12, Verdict: v_14}, nil
+	return Planned{ID: t_7, Change: t_8, Reads: t_9, Files: t_10, Patch: t_11, Impact: t_12, Verdict: v_30}, nil
 }
 
 func ergoClonePlanned(v Planned) Planned {
@@ -10431,14 +10669,21 @@ func (s Store) keep(env *Env, p Planned) {
 			}
 			out = Append[Planned](out, ergoClonePlanned(p))
 			if len(out) > MaxPlans {
-				v_3 := ergo.SlicesSlice[Planned](out, (len(out) - MaxPlans), len(out))
+				var v_3 []Planned
+				{
+					var xs []Planned = out
+					var i int = (len(out) - MaxPlans)
+					var j int = len(out)
+					v_3 = ergo.SlicesSlice[Planned](xs, i, j)
+
+				}
 				return v_3, nil
 			} else {
 				return out, nil
 			}
 		}(env, p_1)
 		return r
-	}, func(v_4 []Planned) []Planned { return ergoCloneSlice_16(v_4) }, false)
+	}, func(v_5 []Planned) []Planned { return ergoCloneSlice_16(v_5) }, false)
 	return
 }
 
@@ -10462,9 +10707,9 @@ func changeAt(env *Env, s string) (struct {
 	F0 Change
 	F1 string
 }, error) {
-	v := ergo.StringsHasPrefix(s, "replace ")
+	v := HasPrefix(s, "replace ")
 	if v {
-		v_1 := ergo.StringsTrimPrefix(s, "replace ")
+		v_1 := TrimPrefix(s, "replace ")
 		v_2, err := wordAt(env, v_1)
 		if err != nil {
 			return *new(struct {
@@ -10492,9 +10737,9 @@ func changeAt(env *Env, s string) (struct {
 			F1 string
 		}{F0: Replace{Of: of, Text: text_2}, F1: more_1}, nil
 	}
-	v_4 := ergo.StringsHasPrefix(s, "insert after ")
+	v_4 := HasPrefix(s, "insert after ")
 	if v_4 {
-		v_5 := ergo.StringsTrimPrefix(s, "insert after ")
+		v_5 := TrimPrefix(s, "insert after ")
 		v_6, err_2 := wordAt(env, v_5)
 		if err_2 != nil {
 			return *new(struct {
@@ -10522,9 +10767,9 @@ func changeAt(env *Env, s string) (struct {
 			F1 string
 		}{F0: Insert{After: after_1, Text: text_3}, F1: more_2}, nil
 	}
-	v_8 := ergo.StringsHasPrefix(s, "delete ")
+	v_8 := HasPrefix(s, "delete ")
 	if v_8 {
-		v_9 := ergo.StringsTrimPrefix(s, "delete ")
+		v_9 := TrimPrefix(s, "delete ")
 		v_10, err_4 := wordAt(env, v_9)
 		if err_4 != nil {
 			return *new(struct {
@@ -10541,9 +10786,9 @@ func changeAt(env *Env, s string) (struct {
 			F1 string
 		}{F0: Delete{Of: of_1}, F1: rest_2}, nil
 	}
-	v_11 := ergo.StringsHasPrefix(s, "rename ")
+	v_11 := HasPrefix(s, "rename ")
 	if v_11 {
-		v_12 := ergo.StringsTrimPrefix(s, "rename ")
+		v_12 := TrimPrefix(s, "rename ")
 		v_13, err_5 := wordAt(env, v_12)
 		if err_5 != nil {
 			return *new(struct {
@@ -10555,14 +10800,14 @@ func changeAt(env *Env, s string) (struct {
 		_ = p_5
 		var of_2 string = p_5.F0
 		var rest_3 string = p_5.F1
-		v_14 := ergo.StringsHasPrefix(rest_3, "to ")
+		v_14 := HasPrefix(rest_3, "to ")
 		if !v_14 {
 			return *new(struct {
 				F0 Change
 				F1 string
 			}), BadChange{Reason: "a rename is written rename ADDRESS to \"NAME\""}
 		}
-		v_15 := ergo.StringsTrimPrefix(rest_3, "to ")
+		v_15 := TrimPrefix(rest_3, "to ")
 		v_16, err_6 := quotedAt(env, v_15)
 		if err_6 != nil {
 			return *new(struct {
@@ -10579,40 +10824,40 @@ func changeAt(env *Env, s string) (struct {
 			F1 string
 		}{F0: Rename{Of: of_2, To: to}, F1: more_3}, nil
 	}
-	v_17 := ergo.StringsHasPrefix(s, "fixes [")
+	v_17 := HasPrefix(s, "fixes [")
 	if v_17 {
-		v_18 := ergo.StringsTrimPrefix(s, "fixes [")
-		v_19 := ergo.StringsIndex(v_18, "]")
+		v_18 := TrimPrefix(s, "fixes [")
+		v_19 := Index_2(v_18, "]")
 		if v_19 < int(0) {
 			return *new(struct {
 				F0 Change
 				F1 string
 			}), BadChange{Reason: "a fixes list has no ]"}
 		}
-		v_20 := ergo.StringsSlice(v_18, int(0), v_19)
+		v_20 := Slice_3(v_18, int(0), v_19)
 		var v_21 []string
 		if v_20 == "" {
 			v_21 = []string{}
 		} else {
-			v_22 := ergo.StringsSplit(v_20, " ")
+			v_22 := Split_1(v_20, " ")
 			v_21 = v_22
 		}
 		var rules []string = v_21
 		t := Fixes{Rules: rules}
-		v_23 := ergo.StringsSlice(v_18, (v_19 + int(1)), len(v_18))
+		v_23 := Slice_3(v_18, (v_19 + int(1)), len(v_18))
 		return struct {
 			F0 Change
 			F1 string
 		}{F0: t, F1: v_23}, nil
 	}
-	v_24 := ergo.StringsHasPrefix(s, "script (")
+	v_24 := HasPrefix(s, "script (")
 	if v_24 {
-		v_25 := ergo.StringsTrimPrefix(s, "script (")
+		v_25 := TrimPrefix(s, "script (")
 		var steps []Change = []Change{}
-		v_26 := ergo.StringsHasPrefix(v_25, ")")
+		v_26 := HasPrefix(v_25, ")")
 		if v_26 {
 			t_1 := Script{Steps: steps}
-			v_27 := ergo.StringsTrimPrefix(v_25, ")")
+			v_27 := TrimPrefix(v_25, ")")
 			return struct {
 				F0 Change
 				F1 string
@@ -10631,14 +10876,14 @@ func changeAt(env *Env, s string) (struct {
 			var step Change = p_7.F0
 			var more_4 string = p_7.F1
 			steps = Append[Change](steps, step)
-			v_30 := ergo.StringsHasPrefix(more_4, "; ")
+			v_30 := HasPrefix(more_4, "; ")
 			if v_30 {
-				v_25 = ergo.StringsTrimPrefix(more_4, "; ")
+				v_25 = TrimPrefix(more_4, "; ")
 			} else {
-				v_32 := ergo.StringsHasPrefix(more_4, ")")
+				v_32 := HasPrefix(more_4, ")")
 				if v_32 {
 					t_2 := Script{Steps: steps}
-					v_33 := ergo.StringsTrimPrefix(more_4, ")")
+					v_33 := TrimPrefix(more_4, ")")
 					return struct {
 						F0 Change
 						F1 string
@@ -10652,7 +10897,13 @@ func changeAt(env *Env, s string) (struct {
 			}
 		}
 	}
-	v_34 := quoted(s)
+	var v_34 string
+	{
+		v_35 := ReplaceAll(s, "\\", "\\\\")
+		v_36 := ReplaceAll(v_35, "\"", "\\\"")
+		v_37 := ReplaceAll(v_36, "\n", "\\n")
+		v_34 = (("\"" + v_37) + "\"")
+	}
 	return *new(struct {
 		F0 Change
 		F1 string
@@ -10660,9 +10911,9 @@ func changeAt(env *Env, s string) (struct {
 }
 
 func quoted(text_2 string) string {
-	v := ergo.StringsReplaceAll(text_2, "\\", "\\\\")
-	v_1 := ergo.StringsReplaceAll(v, "\"", "\\\"")
-	v_2 := ergo.StringsReplaceAll(v_1, "\n", "\\n")
+	v := ReplaceAll(text_2, "\\", "\\\\")
+	v_1 := ReplaceAll(v, "\"", "\\\"")
+	v_2 := ReplaceAll(v_1, "\n", "\\n")
 	return (("\"" + v_2) + "\"")
 }
 
@@ -10687,17 +10938,11 @@ func (h Host) ReadFile(env *Env, path_1 string) (string, error) {
 	return v_1, nil
 }
 
-func (h HostFiles) onHost(path_1 string) string {
-	v := ergo.StringsHasPrefix(path_1, StateDir)
-	if v {
-		t := (h.state + "/")
-		v_1 := ergo.StringsTrimPrefix(path_1, StateDir)
-		return (t + v_1)
-	}
-	if h.root == "" {
-		return path_1
-	}
-	return ((h.root + "/") + path_1)
+const StateDir string = ".ergo/"
+
+func TrimPrefix(s string, prefix string) string {
+	r := strings.TrimPrefix(s, prefix)
+	return r
 }
 
 type Missing struct {
@@ -10714,24 +10959,40 @@ func ioFailed(path_1 string, reason string) IOFailed {
 
 func (h HostFiles) folderOf(env *Env, path_1 string) error {
 	env.task.Check()
-	v := (h).onHost(path_1)
-	v_1 := ergo.StringsLastIndex(v, "/")
-	if v_1 <= int(0) {
+	var v string
+	{
+		v_1 := HasPrefix(path_1, StateDir)
+		if v_1 {
+			t := (h.state + "/")
+			v_2 := TrimPrefix(path_1, StateDir)
+			v = (t + v_2)
+			goto inl
+		}
+		if h.root == "" {
+			v = path_1
+			goto inl
+		}
+		v = ((h.root + "/") + path_1)
+	}
+inl:
+	_ = 0
+	v_3 := LastIndex(v, "/")
+	if v_3 <= int(0) {
 		return nil
 	}
-	t := h.host
-	v_2 := ergo.StringsSlice(v, int(0), v_1)
-	err := (t).MkdirAll(env, v_2)
+	t_1 := h.host
+	v_4 := Slice_3(v, int(0), v_3)
+	err := (t_1).MkdirAll(env, v_4)
 	if err != nil {
 		switch caught := err.(type) {
 		case ergo.Denied:
 			_ = caught
-			v_3 := ioFailed(path_1, "permission denied")
-			return v_3
+			v_5 := ioFailed(path_1, "permission denied")
+			return v_5
 		case ergo.Failed:
 			e := caught
-			v_4 := ioFailed(path_1, e.Reason)
-			return v_4
+			v_6 := ioFailed(path_1, e.Reason)
+			return v_6
 		default:
 			_ = caught
 			panic(err)
@@ -10756,8 +11017,24 @@ func (h Host) WriteFile(env *Env, path_1 string, text_2 string) error {
 func (h HostFiles) keepMode(env *Env, a string, b string) error {
 	env.task.Check()
 	t := h.host
-	v := (h).onHost(b)
-	v_1, err := (t).Stat(env, v)
+	var v string
+	{
+		v_1 := HasPrefix(b, StateDir)
+		if v_1 {
+			t_1 := (h.state + "/")
+			v_2 := TrimPrefix(b, StateDir)
+			v = (t_1 + v_2)
+			goto inl
+		}
+		if h.root == "" {
+			v = b
+			goto inl
+		}
+		v = ((h.root + "/") + b)
+	}
+inl:
+	_ = 0
+	v_3, err := (t).Stat(env, v)
 	if err != nil {
 		switch caught := err.(type) {
 		case ergo.NotFound:
@@ -10765,64 +11042,80 @@ func (h HostFiles) keepMode(env *Env, a string, b string) error {
 			return nil
 		case ergo.Denied:
 			_ = caught
-			v_2 := ioFailed(b, "permission denied")
-			return v_2
+			v_4 := ioFailed(b, "permission denied")
+			return v_4
 		case ergo.Failed:
 			e := caught
-			v_3 := ioFailed(b, e.Reason)
-			return v_3
+			v_5 := ioFailed(b, e.Reason)
+			return v_5
 		default:
 			_ = caught
 			panic(err)
 		}
 	}
-	var v_4 Mode
+	var v_6 Mode
 	var err_1 error
 	_ = err_1
 	{
-		var perm int = v_1.Perm
-		v_5, err_2 := accessOf(env, ((perm / int(64)) % int(8)))
+		var perm int = v_3.Perm
+		v_7, err_2 := accessOf(env, ((perm / int(64)) % int(8)))
 		if err_2 != nil {
 			err_1 = err_2
 			goto fail_1
 		}
-		t_1 := v_5
-		v_6, err_3 := accessOf(env, ((perm / int(8)) % int(8)))
+		t_2 := v_7
+		v_8, err_3 := accessOf(env, ((perm / int(8)) % int(8)))
 		if err_3 != nil {
 			err_1 = err_3
 			goto fail_1
 		}
-		t_2 := v_6
-		v_7, err_4 := accessOf(env, (perm % int(8)))
+		t_3 := v_8
+		v_9, err_4 := accessOf(env, (perm % int(8)))
 		if err_4 != nil {
 			err_1 = err_4
 			goto fail_1
 		}
-		v_4 = Mode{Owner: t_1, Group: t_2, Other: v_7}
+		v_6 = Mode{Owner: t_2, Group: t_3, Other: v_9}
 	}
 	goto past
 fail_1:
 	if err_1 != nil {
-		v_8 := ioFailed(b, ("its mode " + string(strconv.AppendInt(make([]byte, 0, 20), int64(v_1.Perm), 10)) + " is not one fs.Mode writes"))
-		return v_8
+		v_10 := ioFailed(b, ("its mode " + string(strconv.AppendInt(make([]byte, 0, 20), int64(v_3.Perm), 10)) + " is not one fs.Mode writes"))
+		return v_10
 	}
 past:
 	;
-	t_3 := h.host
-	v_9 := (h).onHost(a)
-	err_5 := (t_3).Chmod(env, v_9, v_4)
+	t_4 := h.host
+	var v_11 string
+	{
+		v_12 := HasPrefix(a, StateDir)
+		if v_12 {
+			t_5 := (h.state + "/")
+			v_13 := TrimPrefix(a, StateDir)
+			v_11 = (t_5 + v_13)
+			goto inl_2
+		}
+		if h.root == "" {
+			v_11 = a
+			goto inl_2
+		}
+		v_11 = ((h.root + "/") + a)
+	}
+inl_2:
+	_ = 0
+	err_5 := (t_4).Chmod(env, v_11, v_6)
 	if err_5 != nil {
 		switch caught_1 := err_5.(type) {
 		case ergo.NotFound:
 			_ = caught_1
 		case ergo.Denied:
 			_ = caught_1
-			v_10 := ioFailed(a, "permission denied")
-			return v_10
+			v_14 := ioFailed(a, "permission denied")
+			return v_14
 		case ergo.Failed:
 			e_1 := caught_1
-			v_11 := ioFailed(a, e_1.Reason)
-			return v_11
+			v_15 := ioFailed(a, e_1.Reason)
+			return v_15
 		default:
 			_ = caught_1
 			panic(err_5)
@@ -10847,6 +11140,19 @@ func (h Host) Exchange(env *Env, a string, b string) error {
 		return err_2
 	}
 	return nil
+}
+
+func (h HostFiles) onHost(path_1 string) string {
+	v := HasPrefix(path_1, StateDir)
+	if v {
+		t := (h.state + "/")
+		v_1 := TrimPrefix(path_1, StateDir)
+		return (t + v_1)
+	}
+	if h.root == "" {
+		return path_1
+	}
+	return ((h.root + "/") + path_1)
 }
 
 func (h Host) Remove(env *Env, path_1 string) error {
@@ -10899,16 +11205,30 @@ func (_p Host) UnlockFile(env *Env, l FileLock) {
 	return
 }
 
-func revision(text_2 string) string {
-	v := ergodigest.Sha256Sum(text_2)
-	v_1 := ergodigest.HexEncode(v)
-	v_2 := ergo.StringsSlice(v_1, int(0), int(16))
-	return v_2
+func Slice_3(s string, i int, j int) string {
+	v := ergo.StringsSlice(s, i, j)
+	return v
+}
+
+func Sum(s string) string {
+	r := sha256.Sum256(ergo.BytesView(s))
+	var d [32]uint8 = r
+	v := FromBytesOwned(d[:])
+	return v
+}
+
+func FromBytesOwned(bs []uint8) string {
+	v := ergo.StringsBuilderTextOwned(bs)
+	return v
+}
+
+func FromBytes(bs []uint8) string {
+	return FromBytesOwned(slices.Clone(bs))
 }
 
 func diff(file string, old string, new_1 string) string {
-	v := ergo.StringsSplit(old, "\n")
-	v_1 := ergo.StringsSplit(new_1, "\n")
+	v := Split_1(old, "\n")
+	v_1 := Split_1(new_1, "\n")
 	var head_1 int = int(0)
 	for ((head_1 < len(v)) && (head_1 < len(v_1))) && (v[head_1] == v_1[head_1]) {
 		head_1 = (head_1 + int(1))
@@ -10978,7 +11298,19 @@ func applyLocked(env *Env, files Files, p Planned) (Receipt, error) {
 			} else {
 				v_3 = v_2
 			}
-			v_5 := revision(v_3)
+			var v_5 string
+			{
+				var v_6 string
+				{
+					r_1 := sha256.Sum256(ergo.BytesView(v_3))
+					var d [32]uint8 = r_1
+					v_6 = FromBytesOwned(d[:])
+
+				}
+				v_8 := ergodigest.HexEncode(v_6)
+				v_5 = Slice_3(v_8, int(0), int(16))
+
+			}
 			if v_5 != r.Revision {
 				stale = Append[string](stale, r.File)
 			}
@@ -10991,8 +11323,8 @@ func applyLocked(env *Env, files Files, p Planned) (Receipt, error) {
 	}
 	var wrote []FileRead = []FileRead{}
 	wrote = ergo.Reserve(wrote, len(p.Files))
-	for _, v_7 := range p.Files {
-		var f FileChange = v_7
+	for _, v_11 := range p.Files {
+		var f FileChange = v_11
 		wrote = Append[FileRead](wrote, FileRead{File: f.File, Revision: f.New})
 		env.task.Check()
 	}
@@ -11001,57 +11333,69 @@ func applyLocked(env *Env, files Files, p Planned) (Receipt, error) {
 	}
 	t := files
 	t_1 := JournalPath
-	v_9 := journalText("intent", p)
-	err_2 := (t).Write(env.task, t_1, v_9)
+	v_13 := journalText("intent", p)
+	err_2 := (t).Write(env.task, t_1, v_13)
 	if err_2 != nil {
 		return *new(Receipt), err_2
 	}
-	for _, v_10 := range p.Files {
-		var f_1 FileChange = v_10
+	for _, v_14 := range p.Files {
+		var f_1 FileChange = v_14
 		t_2 := files
-		v_11 := tempOf(f_1.File)
-		err_3 := (t_2).Write(env.task, v_11, f_1.Text)
+		v_15 := tempOf(f_1.File)
+		err_3 := (t_2).Write(env.task, v_15, f_1.Text)
 		if err_3 != nil {
 			return *new(Receipt), err_3
 		}
 		env.task.Check()
 	}
-	for _, v_12 := range p.Files {
-		var f_2 FileChange = v_12
+	for _, v_16 := range p.Files {
+		var f_2 FileChange = v_16
 		t_3 := files
-		v_13 := tempOf(f_2.File)
-		err_4 := exchanged(env, t_3, v_13, f_2.File)
+		v_17 := tempOf(f_2.File)
+		err_4 := exchanged(env, t_3, v_17, f_2.File)
 		if err_4 != nil {
 			return *new(Receipt), err_4
 		}
 		t_4 := files
-		v_14 := tempOf(f_2.File)
-		v_15, err_5 := readOr(env, t_4, v_14)
+		v_18 := tempOf(f_2.File)
+		v_19, err_5 := readOr(env, t_4, v_18)
 		if err_5 != nil {
 			return *new(Receipt), err_5
 		}
-		v_16 := revision(v_15)
-		if v_16 != f_2.Old {
-			v_17, err_6 := restoreLocked(env, files)
+		var v_20 string
+		{
+			var v_21 string
+			{
+				r_2 := sha256.Sum256(ergo.BytesView(v_19))
+				var d_1 [32]uint8 = r_2
+				v_21 = FromBytesOwned(d_1[:])
+
+			}
+			v_23 := ergodigest.HexEncode(v_21)
+			v_20 = Slice_3(v_23, int(0), int(16))
+
+		}
+		if v_20 != f_2.Old {
+			v_25, err_6 := restoreLocked(env, files)
 			if err_6 != nil {
 				return *new(Receipt), err_6
 			}
-			_ = v_17
+			_ = v_25
 			return *new(Receipt), Stale{ID: p.ID, Files: []string{f_2.File}}
 		}
 	}
 	t_5 := files
 	t_6 := JournalPath
-	v_18 := journalText("committed", p)
-	err_7 := (t_5).Write(env.task, t_6, v_18)
+	v_26 := journalText("committed", p)
+	err_7 := (t_5).Write(env.task, t_6, v_26)
 	if err_7 != nil {
 		return *new(Receipt), err_7
 	}
-	for _, v_19 := range p.Files {
-		var f_3 FileChange = v_19
+	for _, v_27 := range p.Files {
+		var f_3 FileChange = v_27
 		t_7 := files
-		v_20 := tempOf(f_3.File)
-		err_8 := (t_7).Remove(env.task, v_20)
+		v_28 := tempOf(f_3.File)
+		err_8 := (t_7).Remove(env.task, v_28)
 		if err_8 != nil {
 			return *new(Receipt), err_8
 		}
@@ -11099,7 +11443,7 @@ func restoreLocked(env *Env, files Files) (Recovered, error) {
 		return *new(Recovered), err_1
 	}
 	v_2 := journalEntries(v_1)
-	v_3 := ergo.StringsHasPrefix(v_1, "committed\n")
+	v_3 := HasPrefix(v_1, "committed\n")
 	if v_3 {
 		for _, v_4 := range v_2 {
 			var e journalEntry = v_4
@@ -11144,7 +11488,20 @@ func restoreLocked(env *Env, files Files) (Recovered, error) {
 				if err_6 != nil {
 					return *new(Recovered), err_6
 				}
-				v_12 := revision(v_11)
+				var v_12 string
+				{
+					var text_2 string = v_11
+					var v_13 string
+					{
+						r := sha256.Sum256(ergo.BytesView(text_2))
+						var d [32]uint8 = r
+						v_13 = FromBytesOwned(d[:])
+
+					}
+					v_15 := ergodigest.HexEncode(v_13)
+					v_12 = Slice_3(v_15, int(0), int(16))
+
+				}
 				if v_12 == e_1.New {
 					err_7 := (files).Remove(env.task, v_9)
 					if err_7 != nil {
@@ -11152,13 +11509,13 @@ func restoreLocked(env *Env, files Files) (Recovered, error) {
 					}
 				} else {
 					if v_12 == e_1.Old {
-						v_13, err_8 := (files).Read(env.task, e_1.File)
-						var v_14 string
+						v_17, err_8 := (files).Read(env.task, e_1.File)
+						var v_18 string
 						if err_8 != nil {
 							switch caught := err_8.(type) {
 							case Missing:
 								_ = caught
-								v_14 = ""
+								v_18 = ""
 							case IOFailed:
 								x := caught
 								return *new(Recovered), x
@@ -11167,10 +11524,22 @@ func restoreLocked(env *Env, files Files) (Recovered, error) {
 								panic(err_8)
 							}
 						} else {
-							v_14 = v_13
+							v_18 = v_17
 						}
-						v_15 := revision(v_14)
-						if v_15 == e_1.New {
+						var v_19 string
+						{
+							var v_20 string
+							{
+								r_1 := sha256.Sum256(ergo.BytesView(v_18))
+								var d_1 [32]uint8 = r_1
+								v_20 = FromBytesOwned(d_1[:])
+
+							}
+							v_22 := ergodigest.HexEncode(v_20)
+							v_19 = Slice_3(v_22, int(0), int(16))
+
+						}
+						if v_19 == e_1.New {
 							err_9 := exchanged(env, files, v_9, e_1.File)
 							if err_9 != nil {
 								return *new(Recovered), err_9
@@ -11330,6 +11699,11 @@ func text(o Option[string]) string {
 	}
 }
 
+func Contains_1(s string, sub string) bool {
+	r := strings.Contains(s, sub)
+	return r
+}
+
 func window(n int, offset Option[int], limit Option[int]) struct {
 	F0 int
 	F1 int
@@ -11379,6 +11753,11 @@ func window(n int, offset Option[int], limit Option[int]) struct {
 		F1 int
 		F2 int
 	}{F0: t, F1: t_1, F2: v_5}
+}
+
+func Split_1(s string, sep_1 string) []string {
+	r := strings.Split(s, sep_1)
+	return r
 }
 
 func isNumber(s string) bool {
@@ -11532,7 +11911,7 @@ func (t Tables) apiOf(env *Env, q ApiQuery) (ApiView, error) {
 			t_2 := p_1.Path
 			v_3 := ergo.SlicesSortFunc[Contract](p_1.Contracts, func(p_2 Contract, p_3 Contract) int {
 				r, _ := func(env_1 *Env, a Contract, b Contract) (int, error) {
-					v_2 := ergo.StringsCompare(a.Name, b.Name)
+					v_2 := Compare_1(a.Name, b.Name)
 					return v_2, nil
 				}(env, p_2, p_3)
 				return r
@@ -11719,7 +12098,7 @@ func Describe_3(f Failure_1) string {
 		if i.Name == "" {
 			return ("bad flag syntax: " + i.Text)
 		} else {
-			v_1 := ergo.StrconvQuote(i.Text)
+			v_1 := Quote(i.Text)
 			return ((((("invalid value " + v_1) + " for flag -") + i.Name) + ": ") + i.Reason)
 		}
 	case Missing_1:
@@ -11743,7 +12122,7 @@ func Describe_3(f Failure_1) string {
 			v_4 := ergo.StringsJoin(c_1.Known, ", ")
 			return (t + v_4)
 		} else {
-			v_5 := ergo.StrconvQuote(c_1.Name)
+			v_5 := Quote(c_1.Name)
 			t_1 := ((("unknown command " + v_5) + at_1) + "; commands: ")
 			v_6 := ergo.StringsJoin(c_1.Known, ", ")
 			return (t_1 + v_6)
@@ -12131,6 +12510,26 @@ func Get_13[K comparable, V any](m map[K]V, k K) Option[V] {
 	return (Option[V]{tag: 1})
 }
 
+func Contains[T comparable](xs []T, x T) bool {
+	for _, v := range xs {
+		var y T = v
+		if y == x {
+			return true
+		}
+	}
+	return false
+}
+
+func ContainsMono_i1(xs []int, x int) bool {
+	for _, v := range xs {
+		var y int = v
+		if y == x {
+			return true
+		}
+	}
+	return false
+}
+
 func IndexFunc[T any](env *Env, xs []T, f func(*Env, T) (bool, error)) (int, error) {
 	env.task.Check()
 	for k, v := range xs {
@@ -12169,6 +12568,16 @@ func (p Place) placeText() string {
 	return (p.File + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(p.Line), 10)))
 }
 
+func Clone_4[T any](xs []T) []T {
+	v := ergo.SlicesClone[T](slices.Clip(xs))
+	return v
+}
+
+func Compare_1(a string, b string) int {
+	r := strings.Compare(a, b)
+	return r
+}
+
 func plain(s string) bool {
 	t := (Range[int]{Start: int(0), End: len(s)})
 	for i := t.Start; i < t.End; i++ {
@@ -12179,15 +12588,6 @@ func plain(s string) bool {
 		}
 	}
 	return true
-}
-
-func FromBytesOwned(bs []uint8) string {
-	v := ergo.StringsBuilderTextOwned(bs)
-	return v
-}
-
-func FromBytes(bs []uint8) string {
-	return FromBytesOwned(slices.Clone(bs))
 }
 
 func checkWith(env *Env, checker Checker, sources []Source) (Report, error) {
@@ -12361,38 +12761,59 @@ func describe(c_1 Change) string {
 	case Replace:
 		r := v
 		t := ("replace " + r.Of + " ")
-		v_1 := quoted(r.Text)
+		var v_1 string
+		{
+			var text_2 string = r.Text
+			v_2 := ReplaceAll(text_2, "\\", "\\\\")
+			v_3 := ReplaceAll(v_2, "\"", "\\\"")
+			v_4 := ReplaceAll(v_3, "\n", "\\n")
+			v_1 = (("\"" + v_4) + "\"")
+		}
 		return (t + v_1)
 	case Insert:
 		r_1 := v
 		t_1 := ("insert after " + r_1.After + " ")
-		v_2 := quoted(r_1.Text)
-		return (t_1 + v_2)
+		var v_5 string
+		{
+			var text_3 string = r_1.Text
+			v_6 := ReplaceAll(text_3, "\\", "\\\\")
+			v_7 := ReplaceAll(v_6, "\"", "\\\"")
+			v_8 := ReplaceAll(v_7, "\n", "\\n")
+			v_5 = (("\"" + v_8) + "\"")
+		}
+		return (t_1 + v_5)
 	case Delete:
 		r_2 := v
 		return ("delete " + r_2.Of)
 	case Fixes:
 		f := v
-		v_3 := ergo.StringsJoin(f.Rules, " ")
-		return (("fixes [" + v_3) + "]")
+		v_9 := ergo.StringsJoin(f.Rules, " ")
+		return (("fixes [" + v_9) + "]")
 	case Script:
 		s := v
 		var parts []string = []string{}
 		parts = ergo.Reserve(parts, len(s.Steps))
-		for _, v_4 := range s.Steps {
-			var step Change = v_4
+		for _, v_10 := range s.Steps {
+			var step Change = v_10
 			t_2 := parts
-			v_5 := describe(step)
-			v_6 := Append[string](t_2, v_5)
-			parts = v_6
+			v_11 := describe(step)
+			v_12 := Append[string](t_2, v_11)
+			parts = v_12
 		}
-		v_7 := ergo.StringsJoin(parts, "; ")
-		return (("script (" + v_7) + ")")
+		v_13 := ergo.StringsJoin(parts, "; ")
+		return (("script (" + v_13) + ")")
 	case Rename:
 		r_3 := v
 		t_3 := ("rename " + r_3.Of + " to ")
-		v_8 := quoted(r_3.To)
-		return (t_3 + v_8)
+		var v_14 string
+		{
+			var text_4 string = r_3.To
+			v_15 := ReplaceAll(text_4, "\\", "\\\\")
+			v_16 := ReplaceAll(v_15, "\"", "\\\"")
+			v_17 := ReplaceAll(v_16, "\n", "\\n")
+			v_14 = (("\"" + v_17) + "\"")
+		}
+		return (t_3 + v_14)
 	default:
 		_ = v
 		panic("ergo: defect: no case of the match at std/code/plan.ergo:542:2 matched")
@@ -12572,13 +12993,18 @@ func (base Report) verdictOf(after_1 Report) Verdict {
 
 const MaxPlans int = int(64)
 
+func Slice_2[T any](xs []T, i int, j int) []T {
+	v := ergo.SlicesSlice[T](xs, i, j)
+	return v
+}
+
 func wordAt(env *Env, s string) (struct {
 	F0 string
 	F1 string
 }, error) {
 	var i int = int(0)
 	for i < len(s) {
-		v := ergo.StringsSlice(s, i, (i + int(1)))
+		v := Slice_3(s, i, (i + int(1)))
 		if ((v == " ") || (v == ";")) || (v == ")") {
 			break
 		}
@@ -12590,10 +13016,10 @@ func wordAt(env *Env, s string) (struct {
 			F1 string
 		}), BadChange{Reason: "an address is missing"}
 	}
-	v_1 := ergo.StringsSlice(s, i, len(s))
-	v_2 := ergo.StringsSlice(s, int(0), i)
+	v_1 := Slice_3(s, i, len(s))
+	v_2 := Slice_3(s, int(0), i)
 	t := v_2
-	v_3 := ergo.StringsTrimPrefix(v_1, " ")
+	v_3 := TrimPrefix(v_1, " ")
 	return struct {
 		F0 string
 		F1 string
@@ -12604,7 +13030,7 @@ func quotedAt(env *Env, s string) (struct {
 	F0 string
 	F1 string
 }, error) {
-	v := ergo.StringsHasPrefix(s, "\"")
+	v := HasPrefix(s, "\"")
 	if !v {
 		return *new(struct {
 			F0 string
@@ -12614,17 +13040,17 @@ func quotedAt(env *Env, s string) (struct {
 	var out string = ""
 	var i int = int(1)
 	for i < len(s) {
-		v_1 := ergo.StringsSlice(s, i, (i + int(1)))
+		v_1 := Slice_3(s, i, (i + int(1)))
 		if v_1 == "\"" {
 			t := out
-			v_2 := ergo.StringsSlice(s, (i + int(1)), len(s))
+			v_2 := Slice_3(s, (i + int(1)), len(s))
 			return struct {
 				F0 string
 				F1 string
 			}{F0: t, F1: v_2}, nil
 		}
 		if (v_1 == "\\") && ((i + int(1)) < len(s)) {
-			v_3 := ergo.StringsSlice(s, (i + int(1)), (i + int(2)))
+			v_3 := Slice_3(s, (i + int(1)), (i + int(2)))
 			t_1 := out
 			var v_4 string
 			if v_3 == "n" {
@@ -12645,6 +13071,16 @@ func quotedAt(env *Env, s string) (struct {
 	}), BadChange{Reason: "a quoted text has no closing quote"}
 }
 
+func Index_2(s string, sub string) int {
+	r := strings.Index(s, sub)
+	return r
+}
+
+func ReplaceAll(s string, old string, repl string) string {
+	r := strings.ReplaceAll(s, old, repl)
+	return r
+}
+
 func (h Host) at(env *Env, path_1 string) (string, error) {
 	env.task.Check()
 	if h.root == "" {
@@ -12657,10 +13093,13 @@ func (h Host) at(env *Env, path_1 string) (string, error) {
 	return v, nil
 }
 
-const StateDir string = ".ergo/"
-
 func textMissing(v Missing) string {
 	return "{" + "Path:" + v.Path + "}"
+}
+
+func LastIndex(s string, sub string) int {
+	r := strings.LastIndex(s, sub)
+	return r
 }
 
 func (h Host) MkdirAll(env *Env, path_1 string) error {
@@ -12838,11 +13277,11 @@ type journalEntry struct {
 
 func journalEntries(text_2 string) []journalEntry {
 	var out []journalEntry = []journalEntry{}
-	v := ergo.StringsSplit(text_2, "\n")
+	v := Split_1(text_2, "\n")
 	for k, v_1 := range v {
 		var i int = k
 		var line string = v_1
-		v_2 := ergo.StringsSplit(line, "\t")
+		v_2 := Split_1(line, "\t")
 		if (i >= int(2)) && (len(v_2) == int(3)) {
 			out = Append[journalEntry](out, journalEntry{File: v_2[int(0)], Old: v_2[int(1)], New: v_2[int(2)]})
 		}
@@ -13215,6 +13654,11 @@ func ParseCommandMono_i1(env *Env, name string, usage string, commands []Command
 
 func textHelp(v Help) string {
 	return "{" + "Text:" + v.Text + "}"
+}
+
+func Quote(s string) string {
+	r := strconv.Quote(s)
+	return r
 }
 
 func textUnknown(v Unknown) string {
@@ -13619,7 +14063,7 @@ func edited(env *Env, sources []Source, edits []Edit) ([]Source, error) {
 			var unique []Edit = []Edit{}
 			for _, v_4 := range mine {
 				var e_1 Edit = v_4
-				v_5 := ergo.SlicesContains[Edit](unique, e_1)
+				v_5 := ContainsMono_i2(unique, e_1)
 				if !v_5 {
 					unique = Append[Edit](unique, e_1)
 				}
@@ -13649,9 +14093,9 @@ func edited(env *Env, sources []Source, edits []Edit) ([]Source, error) {
 				if ((e_2.Start < int(0)) || (e_2.End > len(text_2))) || (e_2.Start > e_2.End) {
 					return *new([]Source), BadChange{Reason: ("an edit of " + s.File + " lies outside it: " + string(strconv.AppendInt(make([]byte, 0, 20), int64(e_2.Start), 10)) + ".." + string(strconv.AppendInt(make([]byte, 0, 20), int64(e_2.End), 10)))}
 				}
-				v_9 := ergo.StringsSlice(text_2, int(0), e_2.Start)
+				v_9 := Slice_3(text_2, int(0), e_2.Start)
 				t_1 := (v_9 + e_2.Text)
-				v_10 := ergo.StringsSlice(text_2, e_2.End, len(text_2))
+				v_10 := Slice_3(text_2, e_2.End, len(text_2))
 				text_2 = (t_1 + v_10)
 				k = (k - int(1))
 				env.task.Check()
@@ -13677,7 +14121,7 @@ func deletion(sources []Source, e Extent) Edit {
 	}
 	b := (e.End < len(text_2))
 	if b {
-		v_1 := ergo.StringsSlice(text_2, e.End, (e.End + int(1)))
+		v_1 := Slice_3(text_2, e.End, (e.End + int(1)))
 		b = (v_1 == "\n")
 	}
 	if b {
@@ -13685,7 +14129,7 @@ func deletion(sources []Source, e Extent) Edit {
 	}
 	b_1 := (e.Start >= int(2))
 	if b_1 {
-		v_2 := ergo.StringsSlice(text_2, (e.Start - int(2)), e.Start)
+		v_2 := Slice_3(text_2, (e.Start - int(2)), e.Start)
 		b_1 = (v_2 == "\n\n")
 	}
 	if b_1 {
@@ -13702,7 +14146,20 @@ func revisionOf(sources []Source) string {
 		var s Source = v
 		all = (((all + s.File) + ("\n" + string(strconv.AppendInt(make([]byte, 0, 20), int64(len(s.Text)), 10)) + "\n")) + s.Text)
 	}
-	v_1 := revision(all)
+	var v_1 string
+	{
+		var text_2 string = all
+		var v_2 string
+		{
+			r := sha256.Sum256(ergo.BytesView(text_2))
+			var d [32]uint8 = r
+			v_2 = FromBytesOwned(d[:])
+
+		}
+		v_4 := ergodigest.HexEncode(v_2)
+		v_1 = Slice_3(v_4, int(0), int(16))
+
+	}
 	return v_1
 }
 
@@ -13734,22 +14191,35 @@ func renamed(env *Env, sources []Source, base Report, r Rename, checker Checker)
 		{
 			var handle_1 string = m_1.Handle
 			var to string = r.To
-			v_9 := ergo.StringsLastIndex(handle_1, "#")
+			v_9 := LastIndex(handle_1, "#")
 			var v_10 string
 			if v_9 < int(0) {
 				v_10 = ""
 			} else {
-				v_11 := ergo.StringsSlice(handle_1, v_9, len(handle_1))
+				v_11 := Slice_3(handle_1, v_9, len(handle_1))
 				v_10 = v_11
 			}
 			var suffix string = v_10
-			v_12 := scopeOf(handle_1)
+			var v_12 string
+			{
+				v_13 := LastIndex(handle_1, ".")
+				if v_13 < int(0) {
+					v_12 = ""
+					goto inl_1
+				} else {
+					v_14 := Slice_3(handle_1, int(0), v_13)
+					v_12 = v_14
+					goto inl_1
+				}
+			}
+		inl_1:
+			_ = 0
 			v_8 = (((v_12 + ".") + to) + suffix)
 		}
 		if v_8 != m_1.Handle {
-			v_13, ok := v_3[v_8]
+			v_15, ok := v_3[v_8]
 			if ok {
-				x := Some[Decl]{Value: v_13}
+				x := Some[Decl]{Value: v_15}
 				return *new([]Source), NameTaken{Handle: m_1.Handle, To: r.To, By: x.Value.Handle}
 			} else {
 			}
@@ -13759,74 +14229,74 @@ func renamed(env *Env, sources []Source, base Report, r Rename, checker Checker)
 	}
 	var edits []Edit = []Edit{}
 	var shifts map[string][]int = map[string][]int{}
-	for _, v_14 := range base.Tables.Packages {
-		var p Package = v_14
-		for _, v_15 := range p.Sites {
-			var s Site = v_15
-			v_16, ok_1 := moved[s.Symbol]
-			_ = v_16
+	for _, v_16 := range base.Tables.Packages {
+		var p Package = v_16
+		for _, v_17 := range p.Sites {
+			var s Site = v_17
+			v_18, ok_1 := moved[s.Symbol]
+			_ = v_18
 			if ok_1 {
-				v_17 := has(base.Workspace, s.Package)
-				if !v_17 {
+				v_19 := has(base.Workspace, s.Package)
+				if !v_19 {
 					return *new([]Source), OutsideWorkspace{Handle: s.Symbol}
 				}
-				v_18, err_1 := offsetOf(env, sources, s.File, s.Line, s.Column)
+				v_20, err_1 := offsetOf(env, sources, s.File, s.Line, s.Column)
 				if err_1 != nil {
 					return *new([]Source), err_1
 				}
-				v_19 := textOf(sources, s.File)
-				b := ((v_18 + len(v.Name)) > len(v_19))
+				v_21 := textOf(sources, s.File)
+				b := ((v_20 + len(v.Name)) > len(v_21))
 				if !b {
-					v_20 := ergo.StringsSlice(v_19, v_18, (v_18 + len(v.Name)))
-					b = (v_20 != v.Name)
+					v_22 := Slice_3(v_21, v_20, (v_20 + len(v.Name)))
+					b = (v_22 != v.Name)
 				}
 				if b {
 					return *new([]Source), BadChange{Reason: ("the site " + s.File + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(s.Line), 10)) + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(s.Column), 10)) + " does not hold " + v.Name)}
 				}
-				edits = Append[Edit](edits, Edit{File: s.File, Start: v_18, End: (v_18 + len(v.Name)), Text: r.To})
+				edits = Append[Edit](edits, Edit{File: s.File, Start: v_20, End: (v_20 + len(v.Name)), Text: r.To})
 				var key_1 string = (s.File + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(s.Line), 10)))
 				t := shifts
 				t_1 := key_1
-				var v_22 []int
+				var v_24 []int
 				{
 					var m_2 map[string][]int = shifts
 					var def []int = []int{}
-					v_23, ok_2 := m_2[key_1]
+					v_25, ok_2 := m_2[key_1]
 					if ok_2 {
-						v_24 := Some[[]int]{Value: v_23}
-						v_22 = v_24.Value
-						goto inl_1
+						v_26 := Some[[]int]{Value: v_25}
+						v_24 = v_26.Value
+						goto inl_2
 					} else {
-						v_22 = def
-						goto inl_1
+						v_24 = def
+						goto inl_2
 					}
 				}
-			inl_1:
+			inl_2:
 				_ = 0
-				v_25 := Append[int](slices.Clip(slices.Clone(v_22)), s.Column)
-				t[t_1] = v_25
+				v_27 := Append[int](slices.Clip(slices.Clone(v_24)), s.Column)
+				t[t_1] = v_27
 			} else {
 			}
 			env.task.Check()
 		}
 		env.task.Check()
 	}
-	v_26, err_2 := edited(env, sources, edits)
+	v_28, err_2 := edited(env, sources, edits)
 	if err_2 != nil {
 		return *new([]Source), err_2
 	}
-	v_27, err_3 := checkWith(env, checker, v_26)
+	v_29, err_3 := checkWith(env, checker, v_28)
 	if err_3 != nil {
 		return *new([]Source), err_3
 	}
-	v_28 := (base).rowsOf(env, moved, r.To, shifts, (len(r.To) - len(v.Name)))
-	t_2 := v_28
-	v_29 := (v_27).rowsOf(env, map[string]string{}, "", map[string][]int{}, int(0))
-	v_30 := differing(env, t_2, v_29)
-	if len(v_30) > int(0) {
-		return *new([]Source), Capture{Handle: v.Handle, To: r.To, Rows: v_30}
+	v_30 := (base).rowsOf(env, moved, r.To, shifts, (len(r.To) - len(v.Name)))
+	t_2 := v_30
+	v_31 := (v_29).rowsOf(env, map[string]string{}, "", map[string][]int{}, int(0))
+	v_32 := differing(env, t_2, v_31)
+	if len(v_32) > int(0) {
+		return *new([]Source), Capture{Handle: v.Handle, To: r.To, Rows: v_32}
 	}
-	return v_26, nil
+	return v_28, nil
 }
 
 func (t Tables) contractsIn(path_1 string) []Contract {
@@ -14029,7 +14499,7 @@ func parseLevel[C any](env *Env, name string, usage string, groups []string, com
 		}
 		b := (len(args) == int(0))
 		if !b {
-			v_12 := ergo.StringsHasPrefix(first, "-")
+			v_12 := HasPrefix(first, "-")
 			b = v_12
 		}
 		if b || (len(leaf.Set.Args) > int(0)) {
@@ -14129,7 +14599,7 @@ func parseLevelMono_i1(env *Env, name string, usage string, groups []string, com
 		}
 		b := (len(args) == int(0))
 		if !b {
-			v_12 := ergo.StringsHasPrefix(first, "-")
+			v_12 := HasPrefix(first, "-")
 			b = v_12
 		}
 		if b || (len(leaf.Set.Args) > int(0)) {
@@ -14190,13 +14660,23 @@ func (report Report) declOf(env *Env, a string) (Decl, error) {
 	return v_3, nil
 }
 
+func ContainsMono_i2(xs []Edit, x Edit) bool {
+	for _, v := range xs {
+		var y Edit = v
+		if y == x {
+			return true
+		}
+	}
+	return false
+}
+
 func isName(s string) bool {
 	var letters string = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 	b := (s == "")
 	if !b {
 		t := letters
-		v := ergo.StringsSlice(s, int(0), int(1))
-		v_1 := ergo.StringsContains(t, v)
+		v := Slice_3(s, int(0), int(1))
+		v_1 := Contains_1(t, v)
 		b = (!v_1)
 	}
 	if b {
@@ -14206,8 +14686,8 @@ func isName(s string) bool {
 	for i := t_1.Start; i < t_1.End; i++ {
 		var i_1 int = i
 		t_2 := (letters + "0123456789_")
-		v_3 := ergo.StringsSlice(s, i_1, (i_1 + int(1)))
-		v_4 := ergo.StringsContains(t_2, v_3)
+		v_3 := Slice_3(s, i_1, (i_1 + int(1)))
+		v_4 := Contains_1(t_2, v_3)
 		if !v_4 {
 			return false
 		}
@@ -14249,11 +14729,24 @@ func (report Report) familyOf(env *Env, d Decl) []Decl {
 						goto inl
 					} else {
 					}
-					v_4 := scopeOf(by)
+					var v_4 string
+					{
+						v_5 := LastIndex(by, ".")
+						if v_5 < int(0) {
+							v_4 = ""
+							goto inl_1
+						} else {
+							v_6 := Slice_3(by, int(0), v_5)
+							v_4 = v_6
+							goto inl_1
+						}
+					}
+				inl_1:
+					_ = 0
 					var top string = ((v_4 + ".") + name)
-					v_5, ok_1 := v[top]
+					v_7, ok_1 := v[top]
 					if ok_1 {
-						x := Some[Decl]{Value: v_5}
+						x := Some[Decl]{Value: v_7}
 						if x.Value.Kind == "func" {
 							v_2 = top
 							goto inl
@@ -14270,26 +14763,26 @@ func (report Report) familyOf(env *Env, d Decl) []Decl {
 				_ = 0
 				b_2 := (v_2 == d.Handle)
 				if b_2 {
-					var v_6 Decl
+					var v_8 Decl
 					{
-						v_7, ok_2 := v[op]
+						v_9, ok_2 := v[op]
 						if ok_2 {
-							v_8 := Some[Decl]{Value: v_7}
-							v_6 = v_8.Value
-							goto inl_1
+							v_10 := Some[Decl]{Value: v_9}
+							v_8 = v_10.Value
+							goto inl_2
 						} else {
-							v_6 = d
-							goto inl_1
+							v_8 = d
+							goto inl_2
 						}
 					}
-				inl_1:
+				inl_2:
 					_ = 0
-					b_2 = (v_6.Kind == "operation")
+					b_2 = (v_8.Kind == "operation")
 				}
 				b_1 := b_2
 				if b_1 {
-					v_9 := has(ops, op)
-					b_1 = (!v_9)
+					v_11 := has(ops, op)
+					b_1 = (!v_11)
 				}
 				if b_1 {
 					ops = Append[string](ops, op)
@@ -14298,60 +14791,86 @@ func (report Report) familyOf(env *Env, d Decl) []Decl {
 		}
 	}
 	var out []Decl = []Decl{d}
-	for _, v_11 := range ops {
-		var op_1 string = v_11
+	for _, v_13 := range ops {
+		var op_1 string = v_13
 		var members []string = []string{op_1}
-		for _, v_12 := range report.Binds {
-			var b_3 Bind = v_12
+		for _, v_14 := range report.Binds {
+			var b_3 Bind = v_14
 			t := b_3.Op
-			v_13 := scopeOf(op_1)
-			if t == v_13 {
+			var v_15 string
+			{
+				v_16 := LastIndex(op_1, ".")
+				if v_16 < int(0) {
+					v_15 = ""
+					goto inl_3
+				} else {
+					v_17 := Slice_3(op_1, int(0), v_16)
+					v_15 = v_17
+					goto inl_3
+				}
+			}
+		inl_3:
+			_ = 0
+			if t == v_15 {
 				t_1 := members
-				var v_14 string
+				var v_18 string
 				{
 					var by_1 string = b_3.By
 					var name_1 string = d.Name
 					var member_1 string = ((by_1 + ".") + name_1)
-					v_15, ok_3 := v[member_1]
-					_ = v_15
+					v_19, ok_3 := v[member_1]
+					_ = v_19
 					if ok_3 {
-						v_14 = member_1
-						goto inl_2
+						v_18 = member_1
+						goto inl_4
 					} else {
 					}
-					v_16 := scopeOf(by_1)
-					var top_1 string = ((v_16 + ".") + name_1)
-					v_17, ok_4 := v[top_1]
-					if ok_4 {
-						x_1 := Some[Decl]{Value: v_17}
-						if x_1.Value.Kind == "func" {
-							v_14 = top_1
-							goto inl_2
+					var v_20 string
+					{
+						v_21 := LastIndex(by_1, ".")
+						if v_21 < int(0) {
+							v_20 = ""
+							goto inl_5
 						} else {
-							v_14 = ""
-							goto inl_2
+							v_22 := Slice_3(by_1, int(0), v_21)
+							v_20 = v_22
+							goto inl_5
+						}
+					}
+				inl_5:
+					_ = 0
+					var top_1 string = ((v_20 + ".") + name_1)
+					v_23, ok_4 := v[top_1]
+					if ok_4 {
+						x_1 := Some[Decl]{Value: v_23}
+						if x_1.Value.Kind == "func" {
+							v_18 = top_1
+							goto inl_4
+						} else {
+							v_18 = ""
+							goto inl_4
 						}
 					} else {
-						v_14 = ""
-						goto inl_2
+						v_18 = ""
+						goto inl_4
 					}
 				}
-			inl_2:
+			inl_4:
 				_ = 0
-				v_18 := Append[string](t_1, v_14)
-				members = v_18
+				v_24 := Append[string](t_1, v_18)
+				members = v_24
 			}
 		}
-		for _, v_19 := range members {
-			var h string = v_19
-			v_20, ok_5 := v[h]
+		for _, v_25 := range members {
+			var h string = v_25
+			v_26, ok_5 := v[h]
 			if ok_5 {
-				x_2 := Some[Decl]{Value: v_20}
-				v_21, err := IndexFuncMono_i3(env, slices.Clone(out), func(env_1 *Env, y Decl) (bool, error) {
+				x_2 := Some[Decl]{Value: v_26}
+				v_27, err := IndexFuncMono_i3(env, slices.Clone(out), func(env_1 *Env, y Decl) (bool, error) {
 					return (y.Handle == h), nil
 				})
 				_ = err
-				if v_21 < int(0) {
+				if v_27 < int(0) {
 					out = Append[Decl](out, x_2.Value)
 				}
 			} else {
@@ -14361,23 +14880,13 @@ func (report Report) familyOf(env *Env, d Decl) []Decl {
 	return out
 }
 
-func scopeOf(handle_1 string) string {
-	v := ergo.StringsLastIndex(handle_1, ".")
-	if v < int(0) {
-		return ""
-	} else {
-		v_1 := ergo.StringsSlice(handle_1, int(0), v)
-		return v_1
-	}
-}
-
 func offsetOf(env *Env, sources []Source, file string, line int, column int) (int, error) {
 	v := textOf(sources, file)
 	var at_1 int = int(0)
 	t := (Range[int]{Start: int(1), End: line})
 	for i := t.Start; i < t.End; i++ {
-		v_1 := ergo.StringsSlice(v, at_1, len(v))
-		v_2 := ergo.StringsIndex(v_1, "\n")
+		v_1 := Slice_3(v, at_1, len(v))
+		v_2 := Index_2(v_1, "\n")
 		if v_2 < int(0) {
 			return 0, BadChange{Reason: (file + " has no line " + string(strconv.AppendInt(make([]byte, 0, 20), int64(line), 10)))}
 		}
@@ -14490,10 +14999,10 @@ func (report Report) rowsOf(env *Env, moved map[string]string, to string, shifts
 		for k, v_1 := range moved {
 			var k_1 string = k
 			var v_2 string = v_1
-			v_3 := ergo.StringsHasPrefix(h, (k_1 + "."))
+			v_3 := HasPrefix(h, (k_1 + "."))
 			if v_3 {
 				t := v_2
-				v_4 := ergo.StringsSlice(h, len(k_1), len(h))
+				v_4 := Slice_3(h, len(k_1), len(h))
 				return (t + v_4), nil
 			}
 		}
@@ -14548,7 +15057,13 @@ func (report Report) rowsOf(env *Env, moved map[string]string, to string, shifts
 						v_14 = d.Exported
 						goto inl_1
 					} else {
-						v_15 := exportedName(to)
+						var v_15 bool
+						{
+							v_16 := Slice_3(to, int(0), int(1))
+							t_1 := v_16
+							v_17 := ToLower(v_16)
+							v_15 = (t_1 != v_17)
+						}
 						v_14 = v_15
 						goto inl_1
 					}
@@ -14560,59 +15075,59 @@ func (report Report) rowsOf(env *Env, moved map[string]string, to string, shifts
 				v_13 = d.Exported
 			}
 			var exported bool = v_13
-			t_1 := out
-			v_16, err := mapped(env, d.Handle)
+			t_2 := out
+			v_18, err := mapped(env, d.Handle)
 			_ = err
-			t_2 := v_16
-			t_3 := d.Kind
-			t_4 := name
-			t_5 := d.Package
-			t_6 := exported
-			t_7 := d.File
-			t_8 := d.Line
-			v_17, err_1 := shifted(env, d.File, d.Line, d.Column)
+			t_3 := v_18
+			t_4 := d.Kind
+			t_5 := name
+			t_6 := d.Package
+			t_7 := exported
+			t_8 := d.File
+			t_9 := d.Line
+			v_19, err_1 := shifted(env, d.File, d.Line, d.Column)
 			_ = err_1
-			v_18 := Append[string](t_1, ("decl " + t_2 + " " + t_3 + " " + t_4 + " " + t_5 + " " + strconv.FormatBool(t_6) + " " + t_7 + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(t_8), 10)) + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(v_17), 10))))
-			out = v_18
+			v_20 := Append[string](t_2, ("decl " + t_3 + " " + t_4 + " " + t_5 + " " + t_6 + " " + strconv.FormatBool(t_7) + " " + t_8 + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(t_9), 10)) + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(v_19), 10))))
+			out = v_20
 			env.task.Check()
 		}
 		out = ergo.Reserve(out, len(p.Sites))
-		for _, v_19 := range p.Sites {
-			var s Site = v_19
-			t_9 := out
-			v_20, err_2 := mapped(env, s.Symbol)
+		for _, v_21 := range p.Sites {
+			var s Site = v_21
+			t_10 := out
+			v_22, err_2 := mapped(env, s.Symbol)
 			_ = err_2
-			t_10 := v_20
-			t_11 := s.Kind
-			t_12 := s.Package
-			t_13 := s.File
-			t_14 := s.Line
-			v_21, err_3 := shifted(env, s.File, s.Line, s.Column)
+			t_11 := v_22
+			t_12 := s.Kind
+			t_13 := s.Package
+			t_14 := s.File
+			t_15 := s.Line
+			v_23, err_3 := shifted(env, s.File, s.Line, s.Column)
 			_ = err_3
-			t_15 := v_21
-			v_22, err_4 := mapped(env, s.In)
+			t_16 := v_23
+			v_24, err_4 := mapped(env, s.In)
 			_ = err_4
-			v_23 := Append[string](t_9, ("site " + t_10 + " " + t_11 + " " + t_12 + " " + t_13 + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(t_14), 10)) + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(t_15), 10)) + " in " + v_22))
-			out = v_23
+			v_25 := Append[string](t_10, ("site " + t_11 + " " + t_12 + " " + t_13 + " " + t_14 + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(t_15), 10)) + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(t_16), 10)) + " in " + v_24))
+			out = v_25
 			env.task.Check()
 		}
 		env.task.Check()
 	}
 	out = ergo.Reserve(out, len(report.Binds))
-	for _, v_24 := range report.Binds {
-		var b Bind = v_24
-		t_16 := out
-		v_25, err_5 := mapped(env, b.Op)
+	for _, v_26 := range report.Binds {
+		var b Bind = v_26
+		t_17 := out
+		v_27, err_5 := mapped(env, b.Op)
 		_ = err_5
-		t_17 := v_25
-		v_26, err_6 := mapped(env, b.By)
+		t_18 := v_27
+		v_28, err_6 := mapped(env, b.By)
 		_ = err_6
-		v_27 := Append[string](t_16, ("bind " + t_17 + " " + v_26))
-		out = v_27
+		v_29 := Append[string](t_17, ("bind " + t_18 + " " + v_28))
+		out = v_29
 		env.task.Check()
 	}
-	v_28 := ergo.SlicesSortOwned[string](out)
-	return v_28
+	v_30 := ergo.SlicesSortOwned[string](out)
+	return v_30
 }
 
 type Set struct {
@@ -14645,7 +15160,7 @@ func (s Set) Parse(env *Env, args []string) (Values_1, error) {
 		i += int(1)
 		b := ((!open_3) || (len(arg) < int(2)))
 		if !b {
-			v_2 := ergo.StringsHasPrefix(arg, "-")
+			v_2 := HasPrefix(arg, "-")
 			b = (!v_2)
 		}
 		if b {
@@ -14657,23 +15172,23 @@ func (s Set) Parse(env *Env, args []string) (Values_1, error) {
 			continue
 		}
 		var v_4 string
-		v_5 := ergo.StringsHasPrefix(arg, "--")
+		v_5 := HasPrefix(arg, "--")
 		if v_5 {
-			v_6 := ergo.StringsSlice(arg, int(2), len(arg))
+			v_6 := Slice_3(arg, int(2), len(arg))
 			v_4 = v_6
 		} else {
-			v_7 := ergo.StringsSlice(arg, int(1), len(arg))
+			v_7 := Slice_3(arg, int(1), len(arg))
 			v_4 = v_7
 		}
 		var body string = v_4
 		b_2 := (body == "")
 		if !b_2 {
-			v_8 := ergo.StringsHasPrefix(body, "-")
+			v_8 := HasPrefix(body, "-")
 			b_2 = v_8
 		}
 		b_1 := b_2
 		if !b_1 {
-			v_9 := ergo.StringsHasPrefix(body, "=")
+			v_9 := HasPrefix(body, "=")
 			b_1 = v_9
 		}
 		if b_1 {
@@ -14682,10 +15197,10 @@ func (s Set) Parse(env *Env, args []string) (Values_1, error) {
 		var name string = body
 		var given string = ""
 		var hasValue bool = false
-		v_10 := ergo.StringsIndex(body, "=")
+		v_10 := Index_2(body, "=")
 		if v_10 > int(0) {
-			name = ergo.StringsSlice(body, int(0), v_10)
-			given = ergo.StringsSlice(body, (v_10 + int(1)), len(body))
+			name = Slice_3(body, int(0), v_10)
+			given = Slice_3(body, (v_10 + int(1)), len(body))
 			hasValue = true
 		}
 		var v_13 Option[Flag]
@@ -14878,14 +15393,9 @@ func (s Set) Parse(env *Env, args []string) (Values_1, error) {
 		kn_9:
 			{
 				if hasValue {
-					v_20, err := ergo.StrconvParseBool(given)
+					v_20, err := ParseBool(env, given)
 					if err != nil {
-						switch err.(type) {
-						case ergo.Malformed:
-							return *new(Values_1), Invalid{Name: name, Text: given, Reason: "parse error"}
-						default:
-							panic(err)
-						}
+						return *new(Values_1), Invalid{Name: name, Text: given, Reason: "parse error"}
 					}
 					t := flags
 					t_1 := v_15
@@ -15571,26 +16081,26 @@ func (s Set) helpAsked(args []string) bool {
 		}
 		b := (len(arg) < int(2))
 		if !b {
-			v := ergo.StringsHasPrefix(arg, "-")
+			v := HasPrefix(arg, "-")
 			b = (!v)
 		}
 		if b {
 			continue
 		}
 		var v_1 string
-		v_2 := ergo.StringsHasPrefix(arg, "--")
+		v_2 := HasPrefix(arg, "--")
 		if v_2 {
-			v_3 := ergo.StringsSlice(arg, int(2), len(arg))
+			v_3 := Slice_3(arg, int(2), len(arg))
 			v_1 = v_3
 		} else {
-			v_4 := ergo.StringsSlice(arg, int(1), len(arg))
+			v_4 := Slice_3(arg, int(1), len(arg))
 			v_1 = v_4
 		}
 		var body string = v_1
-		v_5 := ergo.StringsIndex(body, "=")
+		v_5 := Index_2(body, "=")
 		var v_6 string
 		if v_5 > int(0) {
-			v_7 := ergo.StringsSlice(body, int(0), v_5)
+			v_7 := Slice_3(body, int(0), v_5)
 			v_6 = v_7
 		} else {
 			v_6 = body
@@ -16015,11 +16525,9 @@ func KeysMono_i2(m map[string]int) Seq[string] {
 	})
 }
 
-func exportedName(name string) bool {
-	v := ergo.StringsSlice(name, int(0), int(1))
-	t := v
-	v_1 := ergo.StringsToLower(v)
-	return (t != v_1)
+func ToLower(s string) string {
+	r := strings.ToLower(s)
+	return r
 }
 
 type value interface{ isvalue() }
@@ -16508,7 +17016,7 @@ func Usage(s Set) string {
 			t_1 := (out + "  ")
 			v_3 := (a).argShape()
 			t_2 := ((t_1 + v_3) + "\n    \t")
-			v_4 := ergo.StringsReplaceAll(a.usage, "\n", "\n    \t")
+			v_4 := ReplaceAll(a.usage, "\n", "\n    \t")
 			out = ((t_2 + v_4) + "\n")
 		}
 	}
@@ -16882,6 +17390,17 @@ func (u scalarFlag) as4() ChoiceFlag {
 
 func (x scalarFlag) ErgoVariant() string {
 	return [...]string{"StringFlag", "IntFlag", "BoolFlag", "DurationFlag", "ChoiceFlag"}[x.tag]
+}
+
+func ParseBool(env *Env, s string) (bool, error) {
+	switch s {
+	case "1", "t", "T", "TRUE", "true", "True":
+		return true, nil
+	case "0", "f", "F", "FALSE", "false", "False":
+		return false, nil
+	default:
+		return false, ergo.Malformed{Text: s}
+	}
 }
 
 func cardinality(f Flag) int {
@@ -18322,12 +18841,35 @@ func Defaults(flags []Flag) string {
 				}
 			inl_5:
 				_ = 0
-				v_13 := unquote(t_1, v_9)
-				shape, usage = v_13.F0, v_13.F1
-				var v_14 string
 				{
-					var v_15 scalarFlag
-					_ = v_15
+					{
+						var usage_1 string = t_1
+						var kind_1 string = v_9
+						v_13 := Index_2(usage_1, "`")
+						if v_13 < int(0) {
+							shape, usage = kind_1, usage_1
+							goto inl_7
+						}
+						v_14 := Slice_3(usage_1, (v_13 + int(1)), len(usage_1))
+						v_15 := Index_2(v_14, "`")
+						if v_15 < int(0) {
+							shape, usage = kind_1, usage_1
+							goto inl_7
+						}
+						v_16 := Slice_3(v_14, int(0), v_15)
+						t_2 := v_16
+						v_17 := Slice_3(usage_1, int(0), v_13)
+						t_3 := (v_17 + v_16)
+						v_18 := Slice_3(v_14, (v_15 + int(1)), len(v_14))
+						shape, usage = t_2, (t_3 + v_18)
+					}
+				inl_7:
+					_ = 0
+				}
+				var v_19 string
+				{
+					var v_20 scalarFlag
+					_ = v_20
 					var kp_11 StringFlag
 					_ = kp_11
 					var kp_12 IntFlag
@@ -18339,98 +18881,98 @@ func Defaults(flags []Flag) string {
 					var kp_15 ChoiceFlag
 					_ = kp_15
 					{
-						switch v_16 := f_2.(type) {
+						switch v_21 := f_2.(type) {
 						case StringFlag:
-							s_12 := v_16
+							s_12 := v_21
 							kp_11 = s_12
 							goto kn_20
 						case IntFlag:
-							n_11 := v_16
+							n_11 := v_21
 							kp_12 = n_11
 							goto kn_21
 						case BoolFlag:
-							b_8 := v_16
+							b_8 := v_21
 							kp_13 = b_8
 							goto kn_22
 						case DurationFlag:
-							d_8 := v_16
+							d_8 := v_21
 							kp_14 = d_8
 							goto kn_24
 						case ChoiceFlag:
-							c_10 := v_16
+							c_10 := v_21
 							kp_15 = c_10
 							goto kn_23
 						case OptionalStringFlag:
-							s_13 := v_16
+							s_13 := v_21
 							kp_11 = s_13.base
 							goto kn_20
 						case OptionalIntFlag:
-							n_12 := v_16
+							n_12 := v_21
 							kp_12 = n_12.base
 							goto kn_21
 						case RepeatedStringFlag:
-							s_14 := v_16
+							s_14 := v_21
 							kp_11 = s_14.base
 							goto kn_20
 						case RepeatedIntFlag:
-							n_13 := v_16
+							n_13 := v_21
 							kp_12 = n_13.base
 							goto kn_21
 						case RepeatedBoolFlag:
-							b_9 := v_16
+							b_9 := v_21
 							kp_13 = b_9.base
 							goto kn_22
 						case RepeatedDurationFlag:
-							d_9 := v_16
+							d_9 := v_21
 							kp_14 = d_9.base
 							goto kn_24
 						case RepeatedChoiceFlag:
-							c_11 := v_16
+							c_11 := v_21
 							kp_15 = c_11.base
 							goto kn_23
 						default:
-							_ = v_16
+							_ = v_21
 							panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 						}
 					}
 				kn_20:
 					{
 						s_15 := kp_11
-						v_14 = s_15.name
-						goto inl_7
+						v_19 = s_15.name
+						goto inl_8
 					}
 				kn_21:
 					{
 						n_14 := kp_12
-						v_14 = n_14.name
-						goto inl_7
+						v_19 = n_14.name
+						goto inl_8
 					}
 				kn_22:
 					{
 						b_10 := kp_13
-						v_14 = b_10.name
-						goto inl_7
+						v_19 = b_10.name
+						goto inl_8
 					}
 				kn_23:
 					{
 						c_12 := kp_15
-						v_14 = c_12.name
-						goto inl_7
+						v_19 = c_12.name
+						goto inl_8
 					}
 				kn_24:
 					{
 						d_10 := kp_14
-						v_14 = d_10.name
-						goto inl_7
+						v_19 = d_10.name
+						goto inl_8
 					}
 				}
-			inl_7:
+			inl_8:
 				_ = 0
-				var line string = ("  -" + v_14)
-				var v_17 string
+				var line string = ("  -" + v_19)
+				var v_22 string
 				{
-					var v_18 scalarFlag
-					_ = v_18
+					var v_23 scalarFlag
+					_ = v_23
 					var kp_16 StringFlag
 					_ = kp_16
 					var kp_17 IntFlag
@@ -18442,198 +18984,127 @@ func Defaults(flags []Flag) string {
 					var kp_20 ChoiceFlag
 					_ = kp_20
 					{
-						switch v_19 := f_2.(type) {
+						switch v_24 := f_2.(type) {
 						case StringFlag:
-							s_16 := v_19
+							s_16 := v_24
 							kp_16 = s_16
 							goto kn_26
 						case IntFlag:
-							n_15 := v_19
+							n_15 := v_24
 							kp_17 = n_15
 							goto kn_27
 						case BoolFlag:
-							b_11 := v_19
+							b_11 := v_24
 							kp_18 = b_11
 							goto kn_28
 						case DurationFlag:
-							d_11 := v_19
+							d_11 := v_24
 							kp_19 = d_11
 							goto kn_29
 						case ChoiceFlag:
-							c_13 := v_19
+							c_13 := v_24
 							kp_20 = c_13
 							goto kn_30
 						case OptionalStringFlag:
-							s_17 := v_19
+							s_17 := v_24
 							kp_16 = s_17.base
 							goto kn_26
 						case OptionalIntFlag:
-							n_16 := v_19
+							n_16 := v_24
 							kp_17 = n_16.base
 							goto kn_27
 						case RepeatedStringFlag:
-							s_18 := v_19
+							s_18 := v_24
 							kp_16 = s_18.base
 							goto kn_26
 						case RepeatedIntFlag:
-							n_17 := v_19
+							n_17 := v_24
 							kp_17 = n_17.base
 							goto kn_27
 						case RepeatedBoolFlag:
-							b_12 := v_19
+							b_12 := v_24
 							kp_18 = b_12.base
 							goto kn_28
 						case RepeatedDurationFlag:
-							d_12 := v_19
+							d_12 := v_24
 							kp_19 = d_12.base
 							goto kn_29
 						case RepeatedChoiceFlag:
-							c_14 := v_19
+							c_14 := v_24
 							kp_20 = c_14.base
 							goto kn_30
 						default:
-							_ = v_19
+							_ = v_24
 							panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 						}
 					}
 				kn_26:
 					{
 						s_19 := kp_16
-						v_17 = s_19.alias
-						goto inl_9
+						v_22 = s_19.alias
+						goto inl_10
 					}
 				kn_27:
 					{
 						n_18 := kp_17
-						v_17 = n_18.alias
-						goto inl_9
+						v_22 = n_18.alias
+						goto inl_10
 					}
 				kn_28:
 					{
 						b_13 := kp_18
-						v_17 = b_13.alias
-						goto inl_9
+						v_22 = b_13.alias
+						goto inl_10
 					}
 				kn_29:
 					{
 						d_13 := kp_19
-						v_17 = d_13.alias
-						goto inl_9
+						v_22 = d_13.alias
+						goto inl_10
 					}
 				kn_30:
 					{
 						c_15 := kp_20
-						v_17 = c_15.alias
-						goto inl_9
+						v_22 = c_15.alias
+						goto inl_10
 					}
 				}
-			inl_9:
+			inl_10:
 				_ = 0
-				if v_17 != "" {
-					t_2 := (line + ", -")
-					var v_20 string
+				if v_22 != "" {
+					t_4 := (line + ", -")
+					var v_25 string
 					{
-						var v_21 scalarFlag
-						_ = v_21
-						var kp_21 StringFlag
-						_ = kp_21
-						var kp_22 IntFlag
-						_ = kp_22
-						var kp_23 BoolFlag
-						_ = kp_23
-						var kp_24 DurationFlag
-						_ = kp_24
-						var kp_25 ChoiceFlag
-						_ = kp_25
-						{
-							switch v_22 := f_2.(type) {
-							case StringFlag:
-								s_20 := v_22
-								kp_21 = s_20
-								goto kn_32
-							case IntFlag:
-								n_19 := v_22
-								kp_22 = n_19
-								goto kn_33
-							case BoolFlag:
-								b_14 := v_22
-								kp_23 = b_14
-								goto kn_34
-							case DurationFlag:
-								d_14 := v_22
-								kp_24 = d_14
-								goto kn_35
-							case ChoiceFlag:
-								c_16 := v_22
-								kp_25 = c_16
-								goto kn_36
-							case OptionalStringFlag:
-								s_21 := v_22
-								kp_21 = s_21.base
-								goto kn_32
-							case OptionalIntFlag:
-								n_20 := v_22
-								kp_22 = n_20.base
-								goto kn_33
-							case RepeatedStringFlag:
-								s_22 := v_22
-								kp_21 = s_22.base
-								goto kn_32
-							case RepeatedIntFlag:
-								n_21 := v_22
-								kp_22 = n_21.base
-								goto kn_33
-							case RepeatedBoolFlag:
-								b_15 := v_22
-								kp_23 = b_15.base
-								goto kn_34
-							case RepeatedDurationFlag:
-								d_15 := v_22
-								kp_24 = d_15.base
-								goto kn_35
-							case RepeatedChoiceFlag:
-								c_17 := v_22
-								kp_25 = c_17.base
-								goto kn_36
-							default:
-								_ = v_22
-								panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
-							}
-						}
-					kn_32:
-						{
-							s_23 := kp_21
-							v_20 = s_23.alias
-							goto inl_11
-						}
-					kn_33:
-						{
-							n_22 := kp_22
-							v_20 = n_22.alias
-							goto inl_11
-						}
-					kn_34:
-						{
-							b_16 := kp_23
-							v_20 = b_16.alias
-							goto inl_11
-						}
-					kn_35:
-						{
-							d_16 := kp_24
-							v_20 = d_16.alias
-							goto inl_11
-						}
-					kn_36:
-						{
-							c_18 := kp_25
-							v_20 = c_18.alias
-							goto inl_11
+						v_26 := scalar(f_2)
+						s_20 := v_26
+						switch s_20.tag {
+						case 0:
+							s_21 := s_20.as0()
+							v_25 = s_21.alias
+							goto inl_12
+						case 1:
+							n_19 := s_20.as1()
+							v_25 = n_19.alias
+							goto inl_12
+						case 2:
+							b_14 := s_20.as2()
+							v_25 = b_14.alias
+							goto inl_12
+						case 3:
+							d_14 := s_20.as3()
+							v_25 = d_14.alias
+							goto inl_12
+						case 4:
+							c_16 := s_20.as4()
+							v_25 = c_16.alias
+							goto inl_12
+						default:
+							panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:205:2 matched")
 						}
 					}
-				inl_11:
+				inl_12:
 					_ = 0
-					line = (t_2 + v_20)
+					line = (t_4 + v_25)
 				}
 				if shape != "" {
 					line = ((line + " ") + shape)
@@ -18643,11 +19114,11 @@ func Defaults(flags []Flag) string {
 				} else {
 					line = (line + "\n    \t")
 				}
-				t_3 := line
-				v_23 := ergo.StringsReplaceAll(usage, "\n", "\n    \t")
-				t_4 := (t_3 + v_23)
-				v_24 := defaultOf(f_2)
-				v_5 = ((t_4 + v_24) + "\n")
+				t_5 := line
+				v_27 := ReplaceAll(usage, "\n", "\n    \t")
+				t_6 := (t_5 + v_27)
+				v_28 := defaultOf(f_2)
+				v_5 = ((t_6 + v_28) + "\n")
 			}
 			out = (t + v_5)
 		case 1:
@@ -19117,34 +19588,48 @@ func notInSetDropped(name string) {
 	panic(ergo.UnreachableAt((("flag -" + name) + " is not a flag of the parsed set"), "std/flag/flag.ergo:453:2"))
 }
 
-func unquote(usage string, kind_1 string) struct {
-	F0 string
-	F1 string
-} {
-	v := ergo.StringsIndex(usage, "`")
-	if v < int(0) {
-		return struct {
-			F0 string
-			F1 string
-		}{F0: kind_1, F1: usage}
+func scalar(f Flag) scalarFlag {
+	switch v := f.(type) {
+	case StringFlag:
+		s := v
+		return (scalarFlag{}).of0(s)
+	case IntFlag:
+		n := v
+		return (scalarFlag{}).of1(n)
+	case BoolFlag:
+		b := v
+		return (scalarFlag{}).of2(b)
+	case DurationFlag:
+		d := v
+		return (scalarFlag{}).of3(d)
+	case ChoiceFlag:
+		c_1 := v
+		return (scalarFlag{}).of4(c_1)
+	case OptionalStringFlag:
+		s_1 := v
+		return (scalarFlag{}).of0(s_1.base)
+	case OptionalIntFlag:
+		n_1 := v
+		return (scalarFlag{}).of1(n_1.base)
+	case RepeatedStringFlag:
+		s_2 := v
+		return (scalarFlag{}).of0(s_2.base)
+	case RepeatedIntFlag:
+		n_2 := v
+		return (scalarFlag{}).of1(n_2.base)
+	case RepeatedBoolFlag:
+		b_1 := v
+		return (scalarFlag{}).of2(b_1.base)
+	case RepeatedDurationFlag:
+		d_1 := v
+		return (scalarFlag{}).of3(d_1.base)
+	case RepeatedChoiceFlag:
+		c_2 := v
+		return (scalarFlag{}).of4(c_2.base)
+	default:
+		_ = v
+		panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 	}
-	v_1 := ergo.StringsSlice(usage, (v + int(1)), len(usage))
-	v_2 := ergo.StringsIndex(v_1, "`")
-	if v_2 < int(0) {
-		return struct {
-			F0 string
-			F1 string
-		}{F0: kind_1, F1: usage}
-	}
-	v_3 := ergo.StringsSlice(v_1, int(0), v_2)
-	t := v_3
-	v_4 := ergo.StringsSlice(usage, int(0), v)
-	t_1 := (v_4 + v_3)
-	v_5 := ergo.StringsSlice(v_1, (v_2 + int(1)), len(v_1))
-	return struct {
-		F0 string
-		F1 string
-	}{F0: t, F1: (t_1 + v_5)}
 }
 
 func defaultOf(f Flag) string {
@@ -19232,7 +19717,7 @@ kn:
 			if s_3.def == "" {
 				return ""
 			} else {
-				v_4 := ergo.StrconvQuote(s_3.def)
+				v_4 := Quote(s_3.def)
 				return ((" (default " + v_4) + ")")
 			}
 		}
@@ -19246,7 +19731,7 @@ kn_1:
 			if n_3.def == int(0) {
 				return ""
 			} else {
-				v_5 := ergo.StrconvItoa(n_3.def)
+				v_5 := Itoa(n_3.def)
 				return ((" (default " + v_5) + ")")
 			}
 		}
@@ -19266,7 +19751,7 @@ kn_3:
 		if c_3.def == "" {
 			return ""
 		} else {
-			v_6 := ergo.StrconvQuote(c_3.def)
+			v_6 := Quote(c_3.def)
 			return ((" (default " + v_6) + ")")
 		}
 	}
@@ -20104,7 +20589,7 @@ func changeOf(env *Env, text_2 string) (Change, error) {
 	env.task.Check()
 //line plan.ergo:114:2
 //line plan.ergo:114:5
-	v := ergo.StringsHasPrefix(text_2, "{")
+	v := HasPrefix(text_2, "{")
 //line plan.ergo:114:2
 	if v {
 //line plan.ergo:115:3
@@ -20578,7 +21063,7 @@ func Run_1(env *Env, args []string, tables string) []string {
 //line tool.ergo:22:3
 //line tool.ergo:23:3
 //line tool.ergo:23:12
-		v_4 := ergo.StrconvItoa(v_3.Code)
+		v_4 := Itoa(v_3.Code)
 //line tool.ergo:23:3
 		v_1 = []string{v_4, v_3.Out, v_3.Err}
 		/*line tool.ergo:23:3*/
@@ -21912,8 +22397,7 @@ type Outcome_1 interface{ isOutcome_1() }
 /*line codeapi/api.ergo:28:1*/
 func (Done) isOutcome_1() {}
 
-/*line codeapi/api.ergo:28:1*/
-func (Rejected) isOutcome_1() {}
+/*line codeapi/api.ergo:28:1*/ func (Rejected) isOutcome_1() {}
 
 //line codeapi/api.ergo:129:1
 func Call_1(env *Env, r Request) Outcome_1 {
@@ -22291,26 +22775,19 @@ type Reply interface{ isReply() }
 /*line codeapi/api.ergo:20:1*/
 func (DescribeReply) isReply() {}
 
-/*line codeapi/api.ergo:20:1*/
-func (SymbolsReply) isReply() {}
+/*line codeapi/api.ergo:20:1*/ func (SymbolsReply) isReply() {}
 
-/*line codeapi/api.ergo:20:1*/
-func (SymbolReply) isReply() {}
+/*line codeapi/api.ergo:20:1*/ func (SymbolReply) isReply() {}
 
-/*line codeapi/api.ergo:20:1*/
-func (ReferencesReply) isReply() {}
+/*line codeapi/api.ergo:20:1*/ func (ReferencesReply) isReply() {}
 
-/*line codeapi/api.ergo:20:1*/
-func (CallsReply) isReply() {}
+/*line codeapi/api.ergo:20:1*/ func (CallsReply) isReply() {}
 
-/*line codeapi/api.ergo:20:1*/
-func (ApiReply) isReply() {}
+/*line codeapi/api.ergo:20:1*/ func (ApiReply) isReply() {}
 
-/*line codeapi/api.ergo:20:1*/
-func (ReachReply) isReply() {}
+/*line codeapi/api.ergo:20:1*/ func (ReachReply) isReply() {}
 
-/*line codeapi/api.ergo:20:1*/
-func (MachineOfReply) isReply() {}
+/*line codeapi/api.ergo:20:1*/ func (MachineOfReply) isReply() {}
 
 //line codeapi/api.ergo:24:1
 type Failure interface{ isFailure() }
@@ -22318,17 +22795,13 @@ type Failure interface{ isFailure() }
 /*line codeapi/api.ergo:24:1*/
 func (NoSymbol_1) isFailure() {}
 
-/*line codeapi/api.ergo:24:1*/
-func (Ambiguous_1) isFailure() {}
+/*line codeapi/api.ergo:24:1*/ func (Ambiguous_1) isFailure() {}
 
-/*line codeapi/api.ergo:24:1*/
-func (NotCallable_1) isFailure() {}
+/*line codeapi/api.ergo:24:1*/ func (NotCallable_1) isFailure() {}
 
-/*line codeapi/api.ergo:24:1*/
-func (NoPackage_1) isFailure() {}
+/*line codeapi/api.ergo:24:1*/ func (NoPackage_1) isFailure() {}
 
-/*line codeapi/api.ergo:24:1*/
-func (NotMachine_1) isFailure() {}
+/*line codeapi/api.ergo:24:1*/ func (NotMachine_1) isFailure() {}
 
 //line codecli/cli.ergo:26:1
 func commandDescribe() Command[Request] {

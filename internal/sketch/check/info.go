@@ -192,10 +192,11 @@ func (p *Package) Files() []*syntax.File {
 	return out
 }
 
-// collKey names a prelude function on a slice (isMap false) or a Map.
+// collKey names an operation of a built-in type by its name and the kind
+// of receiver it is on (collop.go).
 type collKey struct {
-	name  string
-	isMap bool
+	name string
+	on   collOn
 }
 
 // Info records the checker's results for the lowering (#197, #50).

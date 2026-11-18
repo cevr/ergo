@@ -122,6 +122,76 @@ test Grow {
 	assert grow(3) == 6
 }
 `,
+	"own-call-pass": `type Bag { Items []int, N int }
+
+type Store { bags []Bag }
+
+func view(b Bag, w int) int {
+	len(b.Items) + b.N + w
+}
+
+func bump(s *Store, i int) int {
+	s.bags[i].N = s.bags[i].N + 1
+	0
+}
+
+func peek(s *Store) int {
+	view(s.bags[0], bump(s, 0))
+}
+
+func main() needs Console {
+	let mut s = Store{bags: []Bag{Bag{Items: []int{1}, N: 0}}}
+	Console.Println("\(peek(&s))")
+}
+
+test Peek {
+	let mut s = Store{bags: []Bag{Bag{Items: []int{1}, N: 0}}}
+	assert peek(&s) == 1
+}
+`,
+	"own-enter-field": `type Walk { rows []int, n []int }
+
+func tally(w *Walk, v int) {
+	w.n = w.n.Append(v)
+}
+
+func count(rows []int, v int) int {
+	let mut w = Walk{rows: rows, n: []int{}}
+	tally(&w, v)
+	len(w.rows) + len(w.n)
+}
+
+func main() needs Console {
+	Console.Println("\(count([]int{1, 2}, 3))")
+}
+
+test Count {
+	assert count([]int{1, 2}, 3) == 3
+}
+`,
+	"own-borrow-return": `type Bag { Items []int, N int }
+
+type Store { bags []Bag }
+
+func items(s *Store) []int {
+	s.bags[0].Items
+}
+
+func total(s *Store) int {
+	let it = items(s)
+	len(it)
+}
+
+func main() needs Console {
+	let mut s = Store{bags: []Bag{Bag{Items: []int{1}, N: 0}}}
+	Console.Println("\(total(&s))")
+}
+
+test Total {
+	let mut s = Store{bags: []Bag{Bag{Items: []int{1}, N: 0}}}
+	assert total(&s) == 1
+}
+`,
 	"own-read": `type Block { Kind int, Lines []string }
 
 type Store { blocks []Block }

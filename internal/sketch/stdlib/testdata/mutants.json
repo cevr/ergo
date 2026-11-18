@@ -81,7 +81,7 @@
     {
       "name": "stdsh-trimleft-binding", "origin": "wf10 STD-sh",
       "file": "internal/sketch/std/strings/strings.ergo",
-      "from": "runtime/v1.StringsTrimLeft func TrimLeft", "to": "runtime/v1.StringsTrimRight func TrimLeft",
+      "from": "{ strings.TrimLeft(s, cutset) }", "to": "{ strings.TrimRight(s, cutset) }",
       "rule": "stdlib.md strings 10: TrimLeft binds Go's TrimLeft (law TrimLeftRightKeepEnds).",
       "anchor": {"tests": ["lower:TestStdTextRuns2"]},
       "killers": ["lower:TestStdTextRuns2"]
@@ -89,7 +89,7 @@
     {
       "name": "stdsh-builder-write", "origin": "wf10 STD-sh",
       "file": "internal/sketch/std/strings/builder.ergo",
-      "from": "{ b.buf = builderAppend(b.buf, s) }", "to": "{ b.buf = builderAppend(b.buf, s+s) }",
+      "from": "{ b.buf = b.buf.AppendString(s) }", "to": "{ b.buf = b.buf.AppendString(s+s) }",
       "rule": "stdlib.md strings 10: a Builder's text is its writes in order (law BuilderConcatenates).",
       "anchor": {"tests": ["lower:TestStdTextRuns2"]},
       "killers": ["lower:TestStdTextRuns2"]
@@ -200,8 +200,8 @@
       "anchor": {"tests": ["lower:TestStdLayoutLawsRun"]},
       "killers": ["lower:TestStdLayoutLawsRun"]
     },
-    {"name":"sb2-writefrom-start","origin":"wf10 SB2","file":"internal/sketch/std/strings/builder.ergo","from":"{ b.buf = builderAppendFrom(b.buf, start, n) }","to":"{ b.buf = builderAppendFrom(b.buf, 0, n) }","rule":"stdlib.md strings 11: WriteFrom copies from start (law WriteFromRepeats).","anchor":{"tests":["lower:TestStdTextRuns2"]},"killers":["lower:TestStdTextRuns2"]},
-    {"name":"sb2-frombytes-drops","origin":"wf10 SB2","file":"internal/sketch/std/strings/bytes.ergo","from":"func FromBytes(bs []byte) string { builderText(bs) }","to":"func FromBytes(bs []byte) string { builderText(bs[:len(bs)/2]) }","rule":"stdlib.md strings 11: FromBytes is the text of its bytes (law BytesRoundTrip).","anchor":{"tests":["lower:TestStdTextRuns2"]},"killers":["lower:TestStdTextRuns2"]},
+    {"name":"sb2-writefrom-start","origin":"wf10 SB2","file":"internal/sketch/std/strings/builder.ergo","from":"{ b.buf = b.buf.AppendFrom(start, n) }","to":"{ b.buf = b.buf.AppendFrom(0, n) }","rule":"stdlib.md strings 11: WriteFrom copies from start (law WriteFromRepeats).","anchor":{"tests":["lower:TestStdTextRuns2"]},"killers":["lower:TestStdTextRuns2"]},
+    {"name":"sb2-frombytes-drops","origin":"wf10 SB2","file":"internal/sketch/std/strings/bytes.ergo","from":"func FromBytes(bs []byte) string { bs.Text() }","to":"func FromBytes(bs []byte) string { bs.Slice(0, len(bs)/2).Text() }","rule":"stdlib.md strings 11: FromBytes is the text of its bytes (law BytesRoundTrip).","anchor":{"tests":["lower:TestStdTextRuns2"]},"killers":["lower:TestStdTextRuns2"]},
     {"name":"sb4-sorted-copies","origin":"wf10 SB4","file":"internal/sketch/std/slices/slices.ergo","from":"\tSort(Collect(s))\n","to":"\tSort(Clone(Collect(s)))\n","rule":"stdlib.md Slices and Maps 1: Sorted sorts the slice it collects in place, with no copy.","anchor":{"tests":["lower:TestValueRuleElides"]},"killers":["lower:TestValueRuleElides"]},
     {"name":"sj0-chunk-size-short","origin":"wf10 SJ0","file":"internal/sketch/std/io/source.ergo","from":"\t\t\tend = p.at + size\n","to":"\t\t\tend = p.at + size - 1\n","rule":"stdlib.md io 10: Chunked's chunks are size bytes, the last one shorter (ChunksJoinToInput).","anchor":{"tests":["lower:TestIOLaws"]},"killers":["lower:TestIOLaws"]},
     {"name":"sj0-cut-not-passed","origin":"wf10 SJ0","file":"internal/sketch/std/io/source.ergo","from":"\t\t\tnext = next + 1\n","to":"\t\t\tnext = next\n","rule":"stdlib.md io 10: a chunk is not empty; each kept cut ends one chunk (ChunksJoinToInput).","anchor":{"tests":["lower:TestIOLaws"]},"killers":["lower:TestIOLaws"]},
@@ -518,6 +518,332 @@
     {"name":"f6-allocs-no-warmup","origin":"wf10 lawffi MX-P3 F6","file":"runtime/v1/allocs.go","from":"\tf(t)\n\tvar ms runtime.MemStats\n","to":"\tvar ms runtime.MemStats\n","rule":"stdlib.md testing.Allocs (F6): PerRun counts after one warm-up call, as Go's testing.AllocsPerRun, so a lazy first-call allocation is not a steady one.","killers":["internal/sketch/stdlib:TestAllocsLaws"]},
     {"name":"f6-allocs-total-not-mean","origin":"wf10 lawffi MX-P3 F6","file":"runtime/v1/allocs.go","from":"\treturn int((ms.Mallocs - before) / uint64(runs))\n","to":"\treturn int(ms.Mallocs - before)\n","rule":"stdlib.md testing.Allocs (F6): PerRun is the mean per call, not the total of the runs.","killers":["internal/sketch/stdlib:TestAllocsLaws"]},
     {"name":"g6-link-unbound","origin":"wf10 lawffi G6","file":"internal/sketch/std/fs/fs.ergo","from":"func Link(h Host, from string, to string) fails NotFound | Denied | Failed | CrossDevice {\n","to":"func LinkGone(h Host, from string, to string) fails NotFound | Denied | Failed | CrossDevice {\n","rule":"stdlib.md fs Link (G6): a linker places by a hard link with std fs alone, no trusted Go.","killers":["lower:TestHardlinkLinkerOnStd"]},
-    {"name":"g6-crossdevice-unlisted","origin":"wf10 lawffi G6","file":"internal/sketch/std/fs/fs.ergo","from":"func Link(h Host, from string, to string) fails NotFound | Denied | Failed | CrossDevice {\n\ttry hostLink(","to":"func Link(h Host, from string, to string) fails NotFound | Denied | Failed {\n\ttry hostLink(","rule":"stdlib.md fs Link (G6): CrossDevice is in Link's row, so a caller tells a second file system from a failure.","killers":["lower:TestHardlinkLinkerOnStd"]}
+    {"name":"g6-crossdevice-unlisted","origin":"wf10 lawffi G6","file":"internal/sketch/std/fs/fs.ergo","from":"func Link(h Host, from string, to string) fails NotFound | Denied | Failed | CrossDevice {\n\ttry hostLink(","to":"func Link(h Host, from string, to string) fails NotFound | Denied | Failed {\n\ttry hostLink(","rule":"stdlib.md fs Link (G6): CrossDevice is in Link's row, so a caller tells a second file system from a failure.","killers":["lower:TestHardlinkLinkerOnStd"]},
+    {"name":"np4f-share-rises","origin":"wf10 NP4f-0","file":"internal/sketch/stdlib/goshare_test.go","from":"\t\tcase n > most:","to":"\t\tcase n > most+1:","rule":"np4f-plan §6.3: the Go share of std only falls; a class over its ceiling is refused.","killers":["internal/sketch/stdlib:TestStdGoShareRule"]},
+    {"name":"np4f-share-unclassed","origin":"wf10 NP4f-0","file":"internal/sketch/stdlib/goshare_test.go","from":"\t\tif !ok {\n\t\t\tout = append(out, fmt.Sprintf(\"std extern %s binds","to":"\t\tif !ok && false {\n\t\t\tout = append(out, fmt.Sprintf(\"std extern %s binds","rule":"np4f-plan §6.3: a new std extern of the Ergo runtime has a class before it lands.","killers":["internal/sketch/stdlib:TestStdGoShareRule"]},
+    {"name":"np4f2-split-in-two","origin":"wf10 NP4f-2","file":"internal/sketch/std/strings/strings.ergo","from":"{ strings.Split(s, sep) }","to":"{ strings.SplitN(s, sep, 2) }","rule":"strings.Split cuts at every separator, as the old body did.","anchor":{"tests":["lower:TestStdMatchesGo"]},"killers":["lower:TestStdMatchesGo"]},
+    {"name":"np4f2-lastindex-first","origin":"wf10 NP4f-2","file":"internal/sketch/std/strings/strings.ergo","from":"{ strings.LastIndex(s, sub) }","to":"{ strings.Index(s, sub) }","rule":"strings.LastIndex finds the last occurrence.","anchor":{"tests":["lower:TestStdMatchesGo"]},"killers":["lower:TestStdMatchesGo"]},
+    {"name":"np4f2-fold-is-equal","origin":"wf10 NP4f-2","file":"internal/sketch/std/strings/strings.ergo","from":"{ strings.EqualFold(s, t) }","to":"{ s == t }","rule":"strings.EqualFold compares under simple Unicode case folding.","anchor":{"tests":["lower:TestStdMatchesGo"]},"killers":["lower:TestStdMatchesGo"]},
+    {"name":"np4f2-float-32","origin":"wf10 NP4f-2","file":"internal/sketch/std/strconv/strconv.ergo","from":"{ strconv.FormatFloat(f, fmt, prec, 64) }","to":"{ strconv.FormatFloat(f, fmt, prec, 32) }","rule":"strconv.FormatFloat formats a float64 at 64 bits.","anchor":{"tests":["lower:TestStdMatchesGo"]},"killers":["lower:TestStdMatchesGo"]},
+    {"name":"np4f2-quote-ascii","origin":"wf10 NP4f-2","file":"internal/sketch/std/strconv/strconv.ergo","from":"{ strconv.Quote(s) }","to":"{ strconv.QuoteToASCII(s) }","rule":"strconv.Quote keeps printable non-ASCII runes as they are.","anchor":{"tests":["lower:TestStdMatchesGo"]},"killers":["lower:TestStdMatchesGo"]},
+    {"name":"np4f1-rotate-sign","origin":"wf10 NP4f-1","file":"internal/sketch/std/bits/bits.ergo","from":"bits.RotateLeft32(x, k)","to":"bits.RotateLeft32(x, -k)","rule":"bits.RotateLeft32 rotates left by k, right for a negative k, as Go's does.","anchor":{"tests":["lower:TestStdMatchesGo"]},"killers":["lower:TestStdMatchesGo"]},
+    {"name":"np4f1-len-is-zeros","origin":"wf10 NP4f-1","file":"internal/sketch/std/bits/bits.ergo","from":"{ bits.Len64(x) }","to":"{ 64 - bits.LeadingZeros64(x) - bits.TrailingZeros64(x) }","rule":"bits.Len64 is the bit length of x.","anchor":{"tests":["lower:TestStdMatchesGo"]},"killers":["lower:TestStdMatchesGo"]},
+    {"name":"np4f1-round-even","origin":"wf10 NP4f-1","file":"internal/sketch/std/math/math.ergo","from":"{ math.Round(f) }","to":"{ math.RoundToEven(f) }","rule":"math.Round rounds half away from zero, as Go's does.","anchor":{"tests":["lower:TestStdMatchesGo"]},"killers":["lower:TestStdMatchesGo"]},
+    {"name":"np4f1-isinf-sign","origin":"wf10 NP4f-1","file":"internal/sketch/std/math/math.ergo","from":"{ math.IsInf(f, sign) }","to":"{ math.IsInf(f, -sign) }","rule":"math.IsInf keeps the sign's meaning.","anchor":{"tests":["lower:TestStdMatchesGo"]},"killers":["lower:TestStdMatchesGo"]},
+    {"name":"np4f1-runecount-bytes","origin":"wf10 NP4f-1","file":"internal/sketch/std/utf8/utf8.ergo","from":"{ utf8.RuneCountInString(s) }","to":"{ len(s) }","rule":"utf8.RuneCount counts runes, an invalid byte as one.","anchor":{"tests":["lower:TestStdMatchesGo"]},"killers":["lower:TestStdMatchesGo"]},
+    {"name":"stdsh-log","origin":"wf10/STD-sh (NP4f-3: on the import go body)","file":"internal/sketch/std/math/math.ergo","from":"{ math.Log(f) }","to":"{ math.Log1p(f) }","rule":"stdlib.md math: Log is Go's math.Log.","anchor":{"tests":["lower:TestStdMatchesGo"]},"killers":["lower:TestStdMatchesGo"]},
+    {"name":"stdsh-exp","origin":"wf10/STD-sh (NP4f-3: on the import go body)","file":"internal/sketch/std/math/math.ergo","from":"{ math.Exp(f) }","to":"{ math.Exp2(f) }","rule":"stdlib.md math: Exp is Go's math.Exp.","anchor":{"tests":["lower:TestStdMatchesGo"]},"killers":["lower:TestStdMatchesGo"]},
+    {"name":"math-fma-unfused","origin":"wf10 corpus wave HP4 (NP4f-3: on the import go body)","file":"internal/sketch/std/math/math.ergo","from":"{ math.FMA(x, y, z) }","to":"{ x * y + z }","rule":"math.FMA rounds x*y + z once.","anchor":{"tests":["lower:TestStdMatchesGo"]},"killers":["lower:TestStdMatchesGo"]},
+    {"name":"math-fma-sign","origin":"wf10 corpus wave HP4 (NP4f-3: on the import go body)","file":"internal/sketch/std/math/math.ergo","from":"{ math.FMA(x, y, z) }","to":"{ math.FMA(x, y, -z) }","rule":"math.FMA is Go's FMA of x, y and z.","anchor":{"tests":["lower:TestStdMatchesGo"]},"killers":["lower:TestStdMatchesGo"]},
+    {
+      "name": "np4f3-runelen-text",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/utf8/utf8.ergo",
+      "from": "func RuneLen(r rune) int { utf8.RuneLen(r) }",
+      "to": "func RuneLen(r rune) int { len(RuneText(r)) }",
+      "rule": "utf8.RuneLen is -1 for a rune that is not valid, as Go's utf8.RuneLen.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f3-base-cleans",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/filepath/filepath.ergo",
+      "from": "func Base(path string) string { filepath.Base(path) }",
+      "to": "func Base(path string) string { filepath.Base(filepath.Clean(path)) }",
+      "rule": "filepath.Base is Go's filepath.Base: the last element as written, not of the cleaned path.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f3-dir-cleans-first",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/filepath/filepath.ergo",
+      "from": "func Dir(path string) string { filepath.Dir(path) }",
+      "to": "func Dir(path string) string { filepath.Dir(filepath.Clean(path)) }",
+      "rule": "filepath.Dir is Go's filepath.Dir: a trailing separator ends the directory.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f3-clean-is-join",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/filepath/filepath.ergo",
+      "from": "func Clean(path string) string { filepath.Clean(path) }",
+      "to": "func Clean(path string) string { filepath.Join([]string{path}) }",
+      "rule": "filepath.Clean of the empty path is \".\", as Go's filepath.Clean.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f3-split-swapped",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/filepath/filepath.ergo",
+      "from": "Parts{Dir: dir, File: file}",
+      "to": "Parts{Dir: file, File: dir}",
+      "rule": "filepath.Split is Go's filepath.Split: Dir then File.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f3-compare-nan-last",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/cmp/cmp.ergo",
+      "from": "\t\t\treturn 0\n\t\t}\n\t\treturn -1\n",
+      "to": "\t\t\treturn 0\n\t\t}\n\t\treturn 1\n",
+      "rule": "cmp.Compare puts a NaN before every other value, as Go's cmp.Compare.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f3-less-ignores-nan",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/cmp/cmp.ergo",
+      "from": "{ (a != a && b == b) || a < b }",
+      "to": "{ a < b }",
+      "rule": "cmp.Less puts a NaN before every other value, as Go's cmp.Less.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f3-padleft-after",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/strings/pad.ergo",
+      "from": "\tstrings.Repeat(utf8.RuneText(pad), width - n) + s\n",
+      "to": "\ts + strings.Repeat(utf8.RuneText(pad), width - n)\n",
+      "rule": "strings.PadLeft puts the pad before s.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f3-padright-space",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/strings/pad.ergo",
+      "from": "\ts + strings.Repeat(utf8.RuneText(pad), width - n)\n",
+      "to": "\ts + strings.Repeat(\" \", width - n)\n",
+      "rule": "strings.PadRight pads with the rune it is given.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f3-padleft-bytes",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/strings/pad.ergo",
+      "from": "\tlet n = utf8.RuneCount(s)\n\tif n >= width {\n\t\treturn s\n\t}\n\tstrings.Repeat",
+      "to": "\tlet n = len(s)\n\tif n >= width {\n\t\treturn s\n\t}\n\tstrings.Repeat",
+      "rule": "strings.PadLeft counts the runes of s, an invalid byte as one, as fmt's %*s does.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f3-contains-nan",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/slices/slices.ergo",
+      "from": "\tfor y in xs {\n\t\tif y == x {\n\t\t\treturn true",
+      "to": "\tfor y in xs {\n\t\tif y == x || y != y && x != x {\n\t\t\treturn true",
+      "rule": "slices.Contains compares by ==, so a NaN is never found, as Go's slices.Contains.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f3-index-last",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/slices/slices.ergo",
+      "from": "\tfor i, y in xs {\n\t\tif y == x {\n\t\t\treturn i\n",
+      "to": "\tfor i, y in xs {\n\t\tif y == x && i > 0 {\n\t\t\treturn i\n",
+      "rule": "slices.Index is the first index of x.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f3-equal-skips-first",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/slices/slices.ergo",
+      "from": "\t\tif x != b[i] {",
+      "to": "\t\tif x != b[i] && i > 0 {",
+      "rule": "slices.Equal compares every element.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f3-largest-no-nan",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/slices/slices.ergo",
+      "from": "\t\tm = cmp.Max(m, xs[i])\n",
+      "to": "\t\tif xs[i] > m {\n\t\t\tm = xs[i]\n\t\t}\n",
+      "rule": "slices.Max is Go's max over the slice: a NaN gives NaN and +0 beats -0.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f3-smallest-no-nan",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/slices/slices.ergo",
+      "from": "\t\tm = cmp.Min(m, xs[i])\n",
+      "to": "\t\tif xs[i] < m {\n\t\t\tm = xs[i]\n\t\t}\n",
+      "rule": "slices.Min is Go's min over the slice: a NaN gives NaN and -0 beats +0.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f3-search-nan-misses",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/slices/slices.ergo",
+      "from": "(xs[i] == x || xs[i] != xs[i] && x != x)",
+      "to": "xs[i] == x",
+      "rule": "slices.BinarySearch finds a NaN in a slice that holds one, as Go's slices.BinarySearch.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f3-search-by-lt",
+      "origin": "wf10 NP4f-3",
+      "file": "internal/sketch/std/slices/slices.ergo",
+      "from": "\t\tif cmp.Less(xs[h], x) {",
+      "to": "\t\tif xs[h] < x {",
+      "rule": "slices.BinarySearch searches in cmp.Less's order, which sorts a NaN first.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f5-sum-is-sha224",
+      "origin": "wf10 NP4f-5",
+      "file": "internal/sketch/std/sha256/sha256.ergo",
+      "from": "\tlet d = sha256.Sum256(strings.Bytes(s))",
+      "to": "\tlet d = sha256.Sum224(strings.Bytes(s))",
+      "rule": "sha256.Sum is Go's sha256.Sum256 of the string's bytes: 32 bytes of SHA-256, not another digest.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f5-sum-short",
+      "origin": "wf10 NP4f-5",
+      "file": "internal/sketch/std/sha256/sha256.ergo",
+      "from": "\tstrings.FromBytes(d[:])",
+      "to": "\tstrings.FromBytes(d[1:])",
+      "rule": "sha256.Sum gives every byte of the digest, in Go's order.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f5-checksum-no-final-xor",
+      "origin": "wf10 NP4f-5",
+      "file": "internal/sketch/std/crc32/crc32.ergo",
+      "from": "func Checksum(s string) uint32 { crc32.ChecksumIEEE(strings.Bytes(s)) }",
+      "to": "func Checksum(s string) uint32 { crc32.ChecksumIEEE(strings.Bytes(s)) ^ 0xffffffff }",
+      "rule": "crc32.Checksum is Go's ChecksumIEEE of the string's bytes, with its final inversion.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f5-parsebool-takes-tRUE",
+      "origin": "wf10 NP4f-5",
+      "file": "internal/sketch/std/strconv/strconv.ergo",
+      "from": "\tcase \"1\", \"t\", \"T\", \"TRUE\", \"true\", \"True\":",
+      "to": "\tcase \"1\", \"t\", \"T\", \"TRUE\", \"tRUE\", \"true\", \"True\":",
+      "rule": "strconv.ParseBool takes Go's twelve spellings only: tRUE is Malformed.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f5-parsebool-drops-False",
+      "origin": "wf10 NP4f-5",
+      "file": "internal/sketch/std/strconv/strconv.ergo",
+      "from": "\tcase \"0\", \"f\", \"F\", \"FALSE\", \"false\", \"False\":",
+      "to": "\tcase \"0\", \"f\", \"F\", \"FALSE\", \"false\":",
+      "rule": "strconv.ParseBool reads False as false, as Go's.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f5-parsebool-malformed-text",
+      "origin": "wf10 NP4f-5",
+      "file": "internal/sketch/std/strconv/strconv.ergo",
+      "from": "\tcase _:\n\t\treturn Malformed{Text: s}\n\t}\n}\n\n// FormatBool",
+      "to": "\tcase _:\n\t\treturn Malformed{Text: \"\"}\n\t}\n}\n\n// FormatBool",
+      "rule": "strconv.ParseBool's Malformed names the text it could not read.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f7-times-wraps",
+      "origin": "wf10 NP4f-7",
+      "file": "internal/sketch/std/time/duration.ergo",
+      "from": "\tif p / m == x && (p < 0) == ((x < 0) != (m < 0)) {",
+      "to": "\tif true {",
+      "rule": "time.Times saturates a product past a duration's range at the end of its sign, where Go's d * time.Duration(n) wraps.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f7-times-no-quotient-check",
+      "origin": "wf10 NP4f-7",
+      "file": "internal/sketch/std/time/duration.ergo",
+      "from": "\tif p / m == x && (p < 0) == ((x < 0) != (m < 0)) {",
+      "to": "\tif (p < 0) == ((x < 0) != (m < 0)) {",
+      "rule": "time.Times checks the quotient: a product that wraps to the right sign, 2^62 by 4, saturates.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f7-times-sign-check",
+      "origin": "wf10 NP4f-7",
+      "file": "internal/sketch/std/time/duration.ergo",
+      "from": "\tif p / m == x && (p < 0) == ((x < 0) != (m < 0)) {",
+      "to": "\tif p / m == x {",
+      "rule": "time.Times checks the product's sign: the smallest duration by -1 wraps to itself and passes the quotient check.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f7-times-saturates-wrong-end",
+      "origin": "wf10 NP4f-7",
+      "file": "internal/sketch/std/time/duration.ergo",
+      "from": "\t} else if (x < 0) != (m < 0) {\n\t\tduration(minDuration)",
+      "to": "\t} else if (x < 0) == (m < 0) {\n\t\tduration(minDuration)",
+      "rule": "time.Times saturates a negative product at the smallest duration and a positive one at the largest.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f9-encode-std-alphabet",
+      "origin": "wf10 NP4f-9",
+      "file": "internal/sketch/std/base64/base64.ergo",
+      "from": "{ base64.StdEncoding.EncodeToString(strings.Bytes(s)) }",
+      "to": "{ base64.URLEncoding.EncodeToString(strings.Bytes(s)) }",
+      "rule": "base64.Encode(StdEncoding, s) writes + and /, Go's StdEncoding.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f9-encode-std-unpadded",
+      "origin": "wf10 NP4f-9",
+      "file": "internal/sketch/std/base64/base64.ergo",
+      "from": "{ base64.StdEncoding.EncodeToString(strings.Bytes(s)) }",
+      "to": "{ base64.RawStdEncoding.EncodeToString(strings.Bytes(s)) }",
+      "rule": "base64.Encode pads to a multiple of four with =.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f9-encode-url-unpadded",
+      "origin": "wf10 NP4f-9",
+      "file": "internal/sketch/std/base64/base64.ergo",
+      "from": "{ base64.URLEncoding.EncodeToString(strings.Bytes(s)) }",
+      "to": "{ base64.RawURLEncoding.EncodeToString(strings.Bytes(s)) }",
+      "rule": "base64.Encode(URLEncoding, s) pads with =, Go's URLEncoding.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f9-update-drops-crc",
+      "origin": "wf10 NP4f-9",
+      "file": "internal/sketch/std/crc32/crc32.ergo",
+      "from": "{ crc32.Update(crc, crc32.IEEETable, strings.Bytes(s)) }",
+      "to": "{ crc32.Update(0, crc32.IEEETable, strings.Bytes(s)) }",
+      "rule": "crc32.Update carries the checksum crc over s.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    }
   ]
 }

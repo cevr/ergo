@@ -68,29 +68,102 @@ func FuncLawEntry(law *check.Law, names LedgerNames, verdict string, keys Foreig
 // admitLevel admits its level for the value class. Else it says why. A
 // current refuted entry is recorded as a refusal, which stops the build.
 func (e *LedgerEvidence) AdmitFunc(law *check.Law) (bool, string) {
+	v := e.funcVerdict(law)
+	return v.OK, v.Why
+}
+
+// funcVerdict is what evidence says of a top-level rewrite law: its entry
+// name, the entry's verdict, run and foreign keys, its state (current,
+// stale or missing), and whether a site may use it, else why not.
+type funcVerdict struct {
+	Key, Verdict, By, With, State string
+	OK                            bool
+	Why                           string
+}
+
+// funcEvidence is evidence that answers for top-level rewrite laws: the
+// build's ledger (LedgerEvidence) or the shipped one (shippedEvidence).
+type funcEvidence interface {
+	funcVerdict(law *check.Law) funcVerdict
+}
+
+func (e *LedgerEvidence) funcVerdict(law *check.Law) funcVerdict {
 	key := e.names.funcLaw(law)
 	if law.FuncRewrite == nil {
-		return false, "law " + key + " is not in the scope of a rewrite"
+		return funcVerdict{Key: key, Why: "law " + key + " is not in the scope of a rewrite"}
 	}
 	entry, found := e.entries[key]
 	digest, with := FuncLawDigest(law, e.keys)
 	if found {
 		e.read[key] = true
 	}
+	return judgeFunc(key, entry, found, digest, with, "ergo.laws: ", func() {
+		e.refused[fmt.Sprintf("ergo.laws: law %s is refuted, and the sources are those it was refuted on: the build stops; correct the law or what it reaches, then run ergo test", key)] = true
+	})
+}
+
+// funcVerdict of a law of a shipped package: its entry in the shipped
+// ledger, against the shipped foreign keys. A refuted shipped entry
+// refuses the rewrite and stops nothing: the compiler shipped it.
+func (e *shippedEvidence) funcVerdict(law *check.Law) funcVerdict {
+	key := LedgerNames(nil).funcLaw(law)
+	if law.FuncRewrite == nil {
+		return funcVerdict{Key: key, Why: "law " + key + " is not in the scope of a rewrite"}
+	}
+	entry, found := e.entries[key]
+	d, with := FuncLawDigest(law, ShippedForeignKeys)
+	return judgeFunc(key, entry, found, d, with, "the std law ledger: ", func() {})
+}
+
+// judgeFunc is the one judgement of a top-level law's entry: missing,
+// stale, refuted (onRefuted is called), a level admitLevel refuses, or
+// admitted.
+func judgeFunc(key string, entry LedgerEntry, found bool, digest, with, ledger string, onRefuted func()) funcVerdict {
+	v := funcVerdict{Key: key, Verdict: entry.Verdict, By: entry.By, With: with, State: "current"}
 	switch {
 	case !found:
-		return false, "ergo.laws: " + key + " is missing; run ergo test"
+		v.State, v.Why = "missing", ledger+key+" is missing; run ergo test"
 	case digest != entry.Digest:
+		v.State, v.Why = "stale", ledger+key+" is stale; run ergo test"
 		if entry.With != with {
-			return false, "ergo.laws: " + key + " was " + entry.Verdict + " with " + orNone(entry.With) + ", and the sources now give " + orNone(with) + "; run ergo test"
+			v.Why = ledger + key + " was " + entry.Verdict + " with " + orNone(entry.With) + ", and the sources now give " + orNone(with) + "; run ergo test"
 		}
-		return false, "ergo.laws: " + key + " is stale; run ergo test"
 	case entry.Verdict == "refuted":
-		why := "law " + key + " is refuted"
-		e.refused[fmt.Sprintf("ergo.laws: law %s is refuted, and the sources are those it was refuted on: the build stops; correct the law or what it reaches, then run ergo test", key)] = true
-		return false, why
+		v.Why = "law " + key + " is refuted"
+		onRefuted()
 	case !admitLevel(entry.Verdict, entry.By, lawRewriteClass):
-		return false, "law " + key + " is " + entry.Verdict + ", and only a proved law or one validated by a named run changes code"
+		v.Why = "law " + key + " is " + entry.Verdict + ", and only a proved law or one validated by a named run changes code"
+	default:
+		v.OK = true
 	}
-	return true, ""
+	return v
+}
+
+// funcSite records the row of a rewrite site of a top-level law at
+// file:line:col (ergo inspect rewrites), or replaces it: a lowering that
+// runs again from the start (lowerAgain) meets the site again. It returns
+// the row's key.
+func (e *LedgerEvidence) funcSite(file string, line, col int, v funcVerdict, applied bool, why string) string {
+	site := fmt.Sprintf("%s:%d:%d %s", file, line, col, v.Key)
+	if e.sites[site] == nil {
+		e.order = append(e.order, site)
+		if v.State != "current" {
+			e.notes[site] = v.Why
+		}
+	}
+	if v.State != "current" {
+		why = ""
+	}
+	e.sites[site] = &RewriteSite{File: file, Line: line, Column: col, Law: v.Key, Verdict: v.Verdict, By: v.By, With: v.With, State: v.State, Applied: applied, Why: why}
+	return site
+}
+
+// funcUnapplied marks the rows sites as not applied, for why: the body
+// that holds them kept its source body.
+func (e *LedgerEvidence) funcUnapplied(sites []string, why string) {
+	for _, s := range sites {
+		if r := e.sites[s]; r != nil && r.Applied {
+			r.Applied, r.Why = false, why
+		}
+	}
 }

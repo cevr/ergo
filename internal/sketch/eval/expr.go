@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -669,12 +668,12 @@ func (in *interp) composite(fr *frame, x *syntax.CompositeLit) (Value, *abrupt) 
 	}
 	switch u := t.under().t.(type) {
 	case *check.Slice:
-		return in.listLit(fr, x, 0, false, goBytes(rtype{u.Elem, t.under().env}))
+		return in.listLit(fr, x, 0, false, goSize(rtype{u.Elem, t.under().env}))
 	case *check.Array:
 		if len(x.Elts) == 0 {
 			return in.zero(fr, x, t)
 		}
-		return in.listLit(fr, x, int(u.Len), true, goBytes(rtype{u.Elem, t.under().env}))
+		return in.listLit(fr, x, int(u.Len), true, goSize(rtype{u.Elem, t.under().env}))
 	case *check.Map:
 		m := newMap()
 		if ab := in.build(fr, x, int64(len(x.Elts)), 2*int64(len(x.Elts)), 0); ab != nil {
@@ -778,7 +777,7 @@ func (in *interp) composite(fr *frame, x *syntax.CompositeLit) (Value, *abrupt) 
 }
 
 // listLit builds a slice literal, or an array literal that lists all its
-// elements, each slot elem bytes (goBytes).
+// elements, each slot elem bytes (goSize).
 func (in *interp) listLit(fr *frame, x *syntax.CompositeLit, n int, array bool, elem int64) (Value, *abrupt) {
 	if ab := in.buildSlots(fr, x, int64(len(x.Elts)), int64(len(x.Elts)), elem); ab != nil {
 		return nil, ab
@@ -812,7 +811,7 @@ func (in *interp) zero(fr *frame, at syntax.Node, t rtype) (Value, *abrupt) {
 		return nil, fr.unsupported(at, "the default value of %s yet", t.t)
 	}
 	// The steps build each value; the bytes are the Go value's size.
-	if ab := in.build(fr, at, size, 0, goBytes(t)); ab != nil {
+	if ab := in.build(fr, at, size, 0, goSize(t)); ab != nil {
 		return nil, ab
 	}
 	z, ok := zeroOf(t)
@@ -1236,11 +1235,8 @@ func (c *closure) callerCaps(fr *frame) *capEnv {
 // which the evaluator runs as value operations, never by their Go bodies
 // (plan section 4: pure prelude collection operations).
 func preludeCollection(f *check.Func) bool {
-	if f == nil || f.Pkg == nil || f.Pkg.Path != stdlib.PreludePath || f.Decl == nil || f.Decl.Extern == nil {
-		return false
-	}
-	switch f.Name {
-	case "Append", "Get", "Delete", "Put":
+	switch check.CollOpOf(f) {
+	case check.CollAppend, check.CollGet, check.CollDelete, check.CollPut:
 		return true
 	}
 	return false
@@ -1278,7 +1274,7 @@ func (in *interp) collectionCall(fr *frame, x *syntax.CallExpr, c *check.Call, o
 	}
 	if in.sym != nil {
 		if _, ok := recv.(term); ok {
-			if c.Func.Name != "Append" {
+			if check.CollOpOf(c.Func) != check.CollAppend {
 				return nil, in.symStop(fr, c.Recv, recv)
 			}
 			if ab := in.charge(fr, x, 1); ab != nil {
@@ -1287,18 +1283,18 @@ func (in *interp) collectionCall(fr *frame, x *syntax.CallExpr, c *check.Call, o
 			return concatSlice(recv, args[0]), nil
 		}
 	}
-	switch c.Func.Name {
-	case "Append":
+	switch check.CollOpOf(c.Func) {
+	case check.CollAppend:
 		return in.appendTo(fr, x, recv.(sliceV), args[0], tok)
-	case "Get":
+	case check.CollGet:
 		if ab := in.charge(fr, x, 1); ab != nil {
 			return nil, ab
 		}
 		v, found := recv.(mapV).b.get(args[0])
 		return in.option(fr, x, v, found)
-	case "Delete":
+	case check.CollDelete:
 		return in.deleteIn(fr, x, recv.(mapV), args[0], tok)
-	case "Put":
+	case check.CollPut:
 		return in.putIn(fr, x, recv.(mapV), args[0], args[1], tok)
 	}
 	ice("the prelude function %s", c.Func.Name)

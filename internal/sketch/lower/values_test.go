@@ -19,6 +19,7 @@ const valueElideSource = `import maps
 import slices
 import strings
 import sync
+import tasks
 import utf8
 
 type Box { M Map[int, int], S []int }
@@ -35,6 +36,24 @@ func bump(old Option[int]) int {
 func put(m Map[int, int], k int) Map[int, int] {
 	let mut c = m
 	c[k] = k
+	c
+}
+
+func each(xs []int, f func(x int)) {
+	for x in xs {
+		f(x)
+	}
+}
+
+// joinedPut reads m in a callback each runs and in one tasks.Transform
+// runs on the children it joins: both end before the bind, so m is owned.
+func joinedPut(m Map[int, int], k int) Map[int, int] {
+	each([]int{1, 2}, func(x int) {
+		let _ = len(m) + x
+	})
+	let sizes = tasks.Transform([]int{1, 2}, 2, func(x int) int { len(m) + x })
+	let mut c = m
+	c[k] = len(sizes)
 	c
 }
 
@@ -261,7 +280,7 @@ func bottoms(bottom int, k int) int {
 func main() needs Console {
 	let mut m = build(3)
 	m[9] = 9
-	Console.Println("\(len(m)) \(len(drop(3))) \(len(boxed(2).S)) \(moved(2)[0]) \(kept([]int{4, 4})) \(len(count(9))) \(len(puts(4))) \(len(roomy(3))) \(tally(3)) \(len(runes(3).B)) \(len(bytesTwice(3))) \(joined(3)) \(keptText(1)) \(sortedDown(3)[0]) \(reversedDown(3)[0]) \(sortedSeq(3)[0]) \(len(tagged(3).S)) \(shelve(sync.NewRef[Map[int, Box]](Map[int, Box]{}), 2)) \(shelveArms(sync.NewRef[Map[int, Box]](Map[int, Box]{}), 2, true)) \(bottoms(-1, 5))")
+	Console.Println("\(len(m)) \(len(drop(3))) \(len(boxed(2).S)) \(moved(2)[0]) \(kept([]int{4, 4})) \(len(count(9))) \(len(puts(4))) \(len(roomy(3))) \(tally(3)) \(len(runes(3).B)) \(len(bytesTwice(3))) \(joined(3)) \(keptText(1)) \(sortedDown(3)[0]) \(reversedDown(3)[0]) \(sortedSeq(3)[0]) \(len(tagged(3).S)) \(shelve(sync.NewRef[Map[int, Box]](Map[int, Box]{}), 2)) \(shelveArms(sync.NewRef[Map[int, Box]](Map[int, Box]{}), 2, true)) \(bottoms(-1, 5)) \(len(joinedPut(build(2), 5)))")
 }
 `
 
@@ -293,6 +312,13 @@ func TestValueRuleElides(t *testing.T) {
 		if body := goFunc(t, code, fn); strings.Contains(body, "Clone") || strings.Contains(body, "Clip(") {
 			t.Errorf("%s copies a fresh value:\n%s", fn, body)
 		}
+	}
+	// A parameter read in callbacks before its bind is owned when every
+	// callback has ended by then: each's (non-escaping) and
+	// tasks.Transform's (its children are joined; joinedBefore). The
+	// owned body takes m with no copy; the wrapper copies it once.
+	if body := goFunc(t, code, "joinedPutOwned"); body == "" || strings.Contains(body, "Clone") {
+		t.Errorf("joinedPut does not own m, whose callbacks end before its bind:\n%s", body)
 	}
 	// A consumed receiver (Bindings 2): String's owned body shares the
 	// buffer through the runtime/v1 owned form; joined calls it with no

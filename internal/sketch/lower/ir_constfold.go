@@ -166,7 +166,7 @@ func (b *irBuilder) fold(x *syntax.CallExpr) (out *irExpr) {
 	if t == nil || !b.closed(x) {
 		return nil
 	}
-	counts := &b.folds
+	counts := &b.foldCounts
 	v, why, over := eval.FoldValue(b.pkg, b.decl, x, constFoldBudget)
 	if why != "" {
 		if over {

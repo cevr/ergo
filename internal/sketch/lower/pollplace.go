@@ -151,3 +151,22 @@ func (fc *funcCtx) callPolls(x *syntax.CallExpr) bool {
 	fp, ok := c.Func.Pkg.Info.Footprints[c.Func.Decl]
 	return ok && fp.EntryPoll && !fp.Empty() && !fc.l.knownClosed(c.Func)
 }
+
+// containsContinue reports a continue in body, outside a function
+// literal: a nested loop's counts too (conservative: a labelled continue
+// may leave the nested loop).
+func (fc *funcCtx) containsContinue(body *syntax.BlockStmt) bool {
+	found := false
+	syntax.Inspect(body, func(n syntax.Node) bool {
+		switch n := n.(type) {
+		case *syntax.FuncLit:
+			return false
+		case *syntax.BranchStmt:
+			if n.Tok == syntax.CONTINUE {
+				found = true
+			}
+		}
+		return !found
+	})
+	return found
+}

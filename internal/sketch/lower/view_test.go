@@ -108,7 +108,7 @@ func viewCase(r *rand.Rand, k int, ieeeCurrent bool) (string, bool) {
 // the whole operand, at a parameter whose vouched reads fact allows a view
 // and whose guard line is current); the test build takes a guarded copy
 // at the same sites and no view; a -views=off build and the reference
-// viewLowering "copy" take neither. A failing seed prints the program and
+// hostViewLowering "copy" take neither. A failing seed prints the program and
 // the replay command.
 //
 // Mutants it alone catches: view-on-assumed (a stale guard line acts),
@@ -186,9 +186,9 @@ func TestHostViewAgrees(t *testing.T) {
 			t.Errorf("-views=off takes %d views or guarded copies\n%s", n, replay)
 		}
 		u.NoViews = false
-		viewLowering = "copy"
+		hostViewLowering = "copy"
 		ref := mustLowerUnit(t, "view_ref", u, false)
-		viewLowering = ""
+		hostViewLowering = ""
 		if n := count(ref, ".BytesView("); n != 0 {
 			t.Errorf("the reference takes %d views\n%s", n, replay)
 		}

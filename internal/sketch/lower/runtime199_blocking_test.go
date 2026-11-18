@@ -36,6 +36,12 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"irBuilder.callParts":      "the experimental IR's capability operation call, the caller's task first, as funcCtx.callText's, as an IR node (wf10 IR1)",
 			"irBuilder.opCall":         "the experimental IR's program operation call, the caller's task first, as funcCtx.programOpCall's (IRG4b r2)",
 			"irBuilder.hidden":         "the experimental IR's hidden CallerTask of a std operation call, as funcCtx.hiddenArgs's for runtimeCall, whose checks the source path already ran on the same call (IRG4b r2)",
+			"irBuilder.adaptOperand":   "the IR's task block adapter: the Env copy's task is the body's task parameter, as childEnv's (ir_adapt.go, FLIP OPC-adapt)",
+			"irBuilder.closeMasked":    "the IR's checked Close: v1.Release's hidden CallerTask (its body's facts read through runtimeBody), as closeBody's runtimeCall writes it (FLIP F7 FORK unit 4)",
+			"irBuilder.releaseFuncs":   "the IR's static-frame release: StaticBegin's hidden CallerTask, as closeStatic's runtimeCall writes it (FLIP F7 FORK RELEASE-IR)",
+			"irBuilder.hostCloseCall":  "the IR's release of a Go value: v1.Release's hidden CallerTask, as hostRelease's runtimeCall writes it (FLIP F7 FORK-GOCALL)",
+			"irBuilder.goTarget":       "the IR's rt.GoContext, the task as the hidden context.Context of a Go call, as funcCtx.goContext's; it neither waits nor releases (FLIP F7 FORK-GOLIB)",
+			"irBuilder.openScope":      "the IR's frame scope: NewScope of the frame's task, as openFrame writes it (FLIP F7 GP-FRAME)",
 		}},
 		{"taskOf", map[string]string{
 			"funcCtx.hiddenArgs":      "runtimeCall's hidden CallerTask argument",
@@ -63,6 +69,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 		}},
 		{"memberName", map[string]string{
 			"funcCtx.runtimeCall":       "the runtime binding emitter",
+			"irBuilder.stdCloseCall":    "the IR's release of a std operation value: its runtime method with no hidden argument, as opCall's runtimeCall writes it (FLIP F7 FORK RELEASE-IR)",
 			"funcCtx.programOpCall":     "a program-declared operation's method",
 			"funcCtx.callText":          "a capability operation's method",
 			"funcCtx.everyTimers":       "a machines.Every After's Timeout fields In and Signal (FKG1)",
@@ -93,6 +100,10 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"irBuilder.callParts":       "the experimental IR's capability operation method, as funcCtx.callText's (wf10 IR1)",
 			"irBuilder.opCall":          "the experimental IR's program operation method, as funcCtx.programOpCall's (IRG4b r2)",
 			"irBuilder.stdOpCall":       "the experimental IR's std operation method on a runtime type, as runtimeCall's method head (IRG4b r2)",
+			"irBuilder.getArm":          "the experimental IR's Value field of Some, bound in a comma-ok match on Get, as funcCtx.getArmsLower's (FLIP F7 lane B)",
+			"irBuilder.hostResult":      "the Value field of Some, for an Option of a Go pointer result, as funcCtx.optionSome's (FLIP F7 FORK-GOLIB)",
+			"irBuilder.nicheNarrow":     "the Value field of Some, written from an Option of a go.Ref in the pointer niche, as flatUnion.flatNarrow's (FLIP F7 FORK-GOLIB)",
+			"irBuilder.nicheValue":      "the Value field of Some, read into an Option of a go.Ref in the pointer niche, as flatUnion.flatValue's (FLIP F7 FORK-GOLIB)",
 		}},
 	} {
 		obj := scope.Lookup(c.obj)

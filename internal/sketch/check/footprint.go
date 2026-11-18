@@ -6,7 +6,6 @@ import (
 	"slices"
 	"sort"
 
-	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -905,13 +904,11 @@ func PureStd(f *Func) bool { return pureStd(f) }
 // and a test with SetPureCollectionsForTest.
 var pureCollections string
 
-// preludeCollection reports the prelude's Append, Get, Delete or Put.
+// preludeCollection reports the slice or Map operation Append, Get,
+// Delete or Put (collop.go).
 func preludeCollection(f *Func) bool {
-	if f.Pkg == nil || f.Pkg.Path != stdlib.PreludePath {
-		return false
-	}
-	switch f.Name {
-	case "Append", "Get", "Delete", "Put":
+	switch CollOpOf(f) {
+	case CollAppend, CollGet, CollDelete, CollPut:
 		return true
 	}
 	return false

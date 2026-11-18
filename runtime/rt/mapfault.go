@@ -88,10 +88,14 @@ func MapRegister(base, size uintptr, path string) uint64 {
 // fault off bytes into the pages. MapUnregister forgets it.
 func GuardRegister(base, size uintptr, fault func(off uintptr, cause error) any) uint64 {
 	mappingsMu.Lock()
+	if mappings == nil {
+		mappings = map[uint64]mapping{}
+	}
 	mappingID++
 	id := mappingID
 	mappings[id] = mapping{base: base, size: size, fault: fault}
 	mappingsMu.Unlock()
+	faultValueOf.Store(&mappedFaultValue) // I-FLIP: LF2b x SIZE-HELLO
 	mappingsLive.Add(1)
 	panicOnFault(true)
 	return id

@@ -39,6 +39,15 @@
       ]
     },
     {
+      "file": "inspect.md",
+      "heading": "Forms",
+      "status": "implemented",
+      "text": " for the passes on the line today: the memo, merge and fold passes (IR-FORMS IRF-6). Unlike the API view, this view lowers the program to the IR in process; it runs no Go tool.",
+      "witnesses": [
+        "cmd/ergo:TestInspectFormsRows"
+      ]
+    },
+    {
       "file": "interop.md",
       "heading": "Go interop: `import go`, bindings and adapters",
       "status": "implemented",

@@ -26,9 +26,9 @@ type operand struct {
 	fail    string
 	failOut *strings.Builder
 	failAt  int
-	// failsAlways: every path of the inlined block jumps to fail, so no
-	// success path follows the block (go vet: unreachable code).
-	failsAlways bool
+	// failOnly is set when every path of the call jumps to fail: the site
+	// writes no jump around its handler, which would be unreachable.
+	failOnly bool
 }
 
 func unparen(x syntax.Expr) syntax.Expr {
@@ -1432,10 +1432,9 @@ func (fc *funcCtx) failAround(o operand, direct bool) string {
 	if !fc.placeFail(o, direct) {
 		return ""
 	}
-	if o.failsAlways {
-		// No success path reaches here: the handler follows the block,
-		// and there is nothing to jump around it (go vet: unreachable
-		// code).
+	if o.failOnly {
+		// No success path reaches here: the handler follows the call's
+		// block, with nothing to jump around (go vet: unreachable code).
 		fc.line(o.fail + ":")
 		return ""
 	}

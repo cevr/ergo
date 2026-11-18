@@ -11,7 +11,7 @@ go run ./scripts/examples -tags slow,net       # the programs with either tag
 
 The runner runs `-jobs` programs at once. The default is `GOMAXPROCS` when the environment sets it (the gate sets each step's `GOMAXPROCS` to its CPU budget, `ERGO_GATE_CPUS`), else half the usable CPUs: never every CPU of the host. Each program's lines stay together and print in name order, whatever order the programs end in (`TestProgramsRunAtOnceAndPrintInOrder`), and each FAIL line names its program. Each built program still runs under its own memory limit (`ERGO_PROGRAM_MEMORY`, 2 GiB by default; docs/tooling.md, "Test memory"), which the kernel enforces.
 
-One folder is not a program: `editions` (edition fixtures that Go tests pin). Any other folder that is not a program is an error. Go interop is shown by `gointerop`, an `import go` program.
+One folder is not a program: `editions` (edition fixtures that Go tests pin). Any other folder that is not a program is an error. Go interop is shown by `gointerop`, an `import go` program of Go's standard library, and by `admit`, which imports a third-party Go module (`golang.org/x/sync`, a committed copy under its `testdata/`).
 
 ## Layout
 
@@ -74,6 +74,7 @@ A program's `workload` file tells `scripts/opcount` (docs/tooling.md, "Counted r
 - `procs N`: `GOMAXPROCS` of each run (default 1).
 - `input self WORD…`: the input is what the program prints with these arguments (a `gen` subcommand); `input go DIR WORD…`: what the Go main package `DIR` (from the repository root) prints. With an input and no `{input}` in `args`, the input is the program's stdin.
 - `control DIR`: the hand Go control, a Go main package `DIR` from the repository root, run with the same arguments and input; `opcount -control` measures it beside the program and requires the same output.
+- `floor DIR`: the Go-runtime floor, a Go main package `DIR` that does the same job at the least work the Go runtime allows (packed data, no interface call or allocation it can avoid), run with the same arguments and input; `opcount -control` measures it beside the program and the control, requires the same output, and prints the program's ratio to it beside the ratio to the control.
 
 `{n}` must appear in `args` or in the input's arguments. `lru`, `stackvm`, `onebrc`, `vt`, `toktree` and `tn1-lint` hold one; `flattree`, `jsonparse`, `mdhtml`, `tomlparse` and `twig` keep theirs in their `workload` package, as `workload/workload`. A package folder named `workload` (the DOD programs' document writers, as `twig`'s) is a package, not this file.
 

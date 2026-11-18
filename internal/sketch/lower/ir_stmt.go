@@ -27,9 +27,7 @@ func (b *irBuilder) local(v *check.Var, id *syntax.Ident) int {
 	if _, dup := b.locals[v]; dup {
 		irNo("local declared twice")
 	}
-	if b.l.info.OwnedVars[v] != nil {
-		irNo("owned local")
-	}
+	b.ownable(v) // ir_own.go
 	i := b.named(v.Name, b.goType(v.Type, id), b.pos(id, id.Pos()))
 	b.locals[v] = i
 	return i
@@ -67,6 +65,7 @@ func (b *irBuilder) declare(name, typ string, p irPos) int {
 	i := b.next
 	b.next++
 	b.fn.Locals = append(b.fn.Locals, irLocal{Name: name, Type: typ, Pos: p})
+	b.setLocalType(i, typ) // ir_rewrite_pass.go (I-FLIP: LF6w's setter, renamed beside RED17's localType)
 	if b.given == nil {
 		b.given = map[string]bool{}
 	}
@@ -80,11 +79,23 @@ func (b *irBuilder) tail(list []syntax.Stmt, ret bool) []*irStmt {
 	return b.tailTo(list, ret, nil)
 }
 
+// isBranchStmt reports a block, an if or a match: a statement whose
+// branches' tails are the tail of the list that ends with it.
+func isBranchStmt(s syntax.Stmt) bool {
+	switch s.(type) {
+	case *syntax.BlockStmt, *syntax.IfStmt, *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
+		return true
+	}
+	return false
+}
+
 // tailTo is tail; with to set, the last statement yields its value into
 // to (an if expression's branch) instead of returning it.
 func (b *irBuilder) tailTo(list []syntax.Stmt, ret bool, to *yieldTo) []*irStmt {
 	var out []*irStmt
 	skip := 0
+	voidTail := b.voidTail && !ret && to == nil
+	defer func(saved bool) { b.voidTail = saved }(b.voidTail)
 	for i, s := range list {
 		last := i == len(list)-1
 		if skip > 0 {
@@ -96,15 +107,27 @@ func (b *irBuilder) tailTo(list []syntax.Stmt, ret bool, to *yieldTo) []*irStmt 
 			skip = n - 1
 			continue
 		}
+		b.planFold(list, i) // ir_collectfold.go: a collect only folded next
+		// Only the tail's own branches stay in the tail (failureTail).
+		b.voidTail = voidTail && last && isBranchStmt(s)
 		b.part(func() {
-			if len(b.l.info.Releases[s]) > 0 {
-				irNo("statement that releases owned values")
-			}
-			if last && (ret || to != nil) {
-				out = append(out, b.yield(s, to)...)
+			exit := b.releasesAtExit(s, last && ret && to == nil) // ir_own.go
+			var ss []*irStmt
+			if es, ok := s.(*syntax.ExprStmt); ok && last && voidTail && b.isFailure(es.X) {
+				// A branch tail of an error value in a body with no
+				// value fails the frame (the emitter's ifYield).
+				out = append(out, b.ret(es.X, b.pos(es.X, es.X.Pos()))...) // ir_fail.go
 				return
 			}
-			out = append(out, b.stmt(s)...)
+			if last && (ret || to != nil) {
+				ss = b.yield(s, to)
+			} else {
+				ss = b.stmt(s)
+			}
+			if !exit {
+				ss = b.scoped(s, ss, b.pos(s, s.Pos())) // ir_own.go: the statement's releases (R43)
+			}
+			out = append(out, ss...)
 		})
 	}
 	if (ret || to != nil) && len(list) == 0 {
@@ -122,12 +145,18 @@ type yieldTo struct {
 	// local is -1 when the with has no value.
 	fails bool
 	err   int
+	// fuse marks a fused callee's results (ir_forms_match.go): each is a
+	// jump to the arm its variant reaches.
+	fuse bool
 }
 
 // yield is s in result position: its value is returned, or put in to.
 func (b *irBuilder) yield(s syntax.Stmt, to *yieldTo) []*irStmt {
 	switch s := s.(type) {
 	case *syntax.ExprStmt:
+		if call := b.unreachableCall(s.X); call != nil {
+			return b.unreachableStmt(call) // ir_defect.go: a defect leaves the branch
+		}
 		p := b.pos(s.X, s.X.Pos())
 		_, conv := b.l.info.Implicit[s.X]
 		if m, ok := unparen(s.X).(syntax.Stmt); ok && !conv {
@@ -138,6 +167,12 @@ func (b *irBuilder) yield(s syntax.Stmt, to *yieldTo) []*irStmt {
 				}
 				return b.matchStmt(m, true, to) // ir_match.go: each arm yields
 			}
+		}
+		if to != nil && to.fuse {
+			if _, ok := b.isWith(s.X); ok && !conv {
+				irNo("with in a fused body")
+			}
+			return b.fuseTail(s.X, p) // ir_forms_match.go
 		}
 		if w, ok := b.isWith(s.X); ok && !conv {
 			return b.withStmt(w, true, to) // ir_with.go: the block's tail yields
@@ -151,8 +186,8 @@ func (b *irBuilder) yield(s syntax.Stmt, to *yieldTo) []*irStmt {
 			return append(pre, &irStmt{K: "set", Pos: p, Local: to.local, X: x})
 		}
 		return b.ret(s.X, p) // ir_fail.go
-	case *syntax.ReturnStmt:
-		return b.stmt(s)
+	case *syntax.ReturnStmt, *syntax.BranchStmt:
+		return b.stmt(s) // it leaves: no value to yield (a catch arm's continue)
 	case *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
 		if to != nil && to.fails {
 			irNo("with whose block fails in a match")
@@ -164,9 +199,9 @@ func (b *irBuilder) yield(s syntax.Stmt, to *yieldTo) []*irStmt {
 				irNo("if without else in result position")
 			}
 			// The branch returns, or the function's end panics (bodyEnd).
-			return []*irStmt{b.ifStmt(s, true, nil)}
+			return b.ifStmts(s, true, nil)
 		}
-		return []*irStmt{b.ifStmt(s, true, to)}
+		return b.ifStmts(s, true, to)
 	case *syntax.ForStmt, *syntax.RangeStmt:
 		if to != nil {
 			irNo("result statement %T", s)
@@ -179,28 +214,16 @@ func (b *irBuilder) yield(s syntax.Stmt, to *yieldTo) []*irStmt {
 	return nil
 }
 
-// cond is a loop's or an if's condition, which runs no operation call.
-func (b *irBuilder) cond(x syntax.Expr) (cond *irExpr) {
-	b.part(func() {
-		pre, c := b.value(x)
-		if len(pre) > 0 {
-			irNo("operation call in a condition")
-		}
-		cond = c
-	})
-	return cond
-}
-
-// ifStmt is s; ret says its branches yield, into to or as the result.
-func (b *irBuilder) ifStmt(s *syntax.IfStmt, ret bool, to *yieldTo) *irStmt {
-	cond := b.cond(s.Cond)
+// ifWith is s with its condition cond, built (ifStmts, ir_order.go); ret
+// says its branches yield, into to or as the result.
+func (b *irBuilder) ifWith(s *syntax.IfStmt, cond *irExpr, ret bool, to *yieldTo) *irStmt {
 	st := &irStmt{K: "if", Pos: b.pos(s, s.Pos()), X: cond, End: b.pos(s.Body, s.Body.Rbrace)}
-	st.Then = b.tailTo(s.Body.List, ret && to == nil, to)
+	st.Then = b.scoped(s.Body, b.tailTo(s.Body.List, ret && to == nil, to), b.pos(s.Body, s.Body.Rbrace)) // ir_own.go
 	switch e := s.Else.(type) {
 	case nil:
 	case *syntax.BlockStmt:
 		st.ElsePos, st.ElseEnd = b.pos(e, e.Lbrace), b.pos(e, e.Rbrace)
-		st.Else = b.tailTo(e.List, ret && to == nil, to)
+		st.Else = b.scoped(e, b.tailTo(e.List, ret && to == nil, to), b.pos(e, e.Rbrace)) // ir_own.go
 	case *syntax.IfStmt:
 		// The else block of an else-if wraps the chain to its last brace.
 		last := syntax.Stmt(e)
@@ -222,7 +245,7 @@ func (b *irBuilder) ifStmt(s *syntax.IfStmt, ret bool, to *yieldTo) *irStmt {
 			irNo("if without else in result position")
 		}
 		st.ElsePos, st.ElseEnd = b.pos(e, e.Pos()), b.pos(e, end)
-		st.Else = []*irStmt{b.ifStmt(e, ret, to)}
+		st.Else = b.ifStmts(e, ret, to) // its condition's statements inside the else block
 	default:
 		irNo("else %T", e)
 	}
@@ -241,7 +264,7 @@ func (b *irBuilder) ifValue(s *syntax.IfStmt) ([]*irStmt, *irExpr) {
 	}
 	p := b.pos(s, s.Pos())
 	i := b.temp(fmt.Sprintf("if%d", b.next), b.goType(t, s), p)
-	pre := []*irStmt{{K: "var", Pos: p, Local: i}, b.ifStmt(s, true, &yieldTo{local: i, t: t})}
+	pre := append([]*irStmt{{K: "var", Pos: p, Local: i}}, b.ifStmts(s, true, &yieldTo{local: i, t: t})...)
 	return pre, &irExpr{K: "local", Pos: p, I: i}
 }
 
@@ -253,11 +276,18 @@ func (b *irBuilder) discard(x syntax.Expr) []*irStmt {
 	if w, ok := b.isWith(x); ok {
 		return b.withStmt(w, false, nil) // ir_with.go
 	}
+	if call := b.unreachableCall(x); call != nil {
+		return b.unreachableStmt(call) // ir_defect.go (FLIP OPC-unreach)
+	}
 	if call, ok := x.(*syntax.CallExpr); ok {
 		if c := b.l.info.Calls[call]; c != nil && c.Kind != check.CallConversion && c.Kind != check.CallLen {
+			b.dropping = call // its value is dropped (ir_forms_drop.go)
 			pre, e := b.call(call, true)
+			b.dropping = nil
 			if e == nil {
-				return pre // a function value's call, bound and dropped (ir_closure.go)
+				// A function value's call, bound and dropped (ir_closure.go),
+				// or a tried call with no value (call).
+				return pre
 			}
 			return append(pre, &irStmt{K: "expr", Pos: p, X: e})
 		}
@@ -285,7 +315,15 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 	case *syntax.DeclStmt:
 		var out []*irStmt
 		for _, spec := range s.Decl.Specs {
+			if spec.Pattern == nil && len(spec.Names) == 1 && len(spec.Values) == 0 {
+				out = append(out, b.letDefault(s.Decl, spec)...) // ir_letpat.go
+				continue
+			}
 			if spec.Pattern != nil || len(spec.Names) != 1 || len(spec.Values) != 1 {
+				if tl, ok := b.letTuple(spec, b.pos(s.Decl, s.Decl.Pos())); ok {
+					out = append(out, tl...) // ir_tuple.go
+					continue
+				}
 				irNo("let pattern")
 			}
 			id := spec.Names[0]
@@ -319,6 +357,7 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 				b.reserve(v)
 			}
 			out = append(out, &irStmt{K: "def", Pos: b.pos(s.Decl, s.Decl.Pos()), Local: i, X: x})
+			b.part(func() { out = append(append(out, b.ownLet(v, i, id)...), b.releaseAt(spec, b.pos(id, id.Pos()))...) }) // ir_own.go: the let's temporaries (R43)
 		}
 		return out
 	case *syntax.AssignStmt:
@@ -338,7 +377,7 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		}
 		id, ok := s.Lhs[0].(*syntax.Ident)
 		if !ok {
-			irNo("assignment to a place")
+			return b.store(s, op) // ir_place.go
 		}
 		v, ok := b.l.info.Uses[id].(*check.Var)
 		if sc := b.scalars[v]; sc != nil && ok {
@@ -358,12 +397,22 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		pre, x := b.value(s.Rhs[0])
 		if op != "" && len(pre) > 0 {
 			// The emitter reads the target before a value that writes
-			// statements (assign's old); the IR has no such read yet.
-			irNo("op-assignment of a value with statements")
+			// statements (assign's old): x = old op v.
+			t := b.l.info.Types[s.Lhs[0]]
+			if op == "*" && isFloatType(t) {
+				irNo("op-assignment of a value with statements") // a float product rounds: T(old * v)
+			}
+			p := b.pos(s, s.Pos())
+			old := b.temp("old", b.goType(t, s), p)
+			out := append([]*irStmt{{K: "def", Pos: p, Local: old, X: &irExpr{K: "local", Pos: p, I: i}}}, pre...)
+			return append(out, &irStmt{K: "set", Pos: p, Local: i, X: &irExpr{K: "bin", Pos: p, Op: op, X: &irExpr{K: "local", Pos: p, I: old}, Y: x}})
 		}
 		return append(pre, &irStmt{K: "set", Pos: b.pos(s, s.Pos()), Local: i, X: x, Op: op})
 	case *syntax.ReturnStmt:
 		p := b.pos(s, s.Pos())
+		if b.fuse != nil && len(s.Results) == 1 {
+			return b.fuseTail(s.Results[0], p) // ir_forms_match.go: a fused callee's return
+		}
 		if len(s.Results) == 0 {
 			return b.ret(nil, p) // ir_fail.go
 		}
@@ -374,17 +423,11 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 	case *syntax.ExprStmt:
 		return b.discard(s.X)
 	case *syntax.IfStmt:
-		return []*irStmt{b.ifStmt(s, false, nil)}
+		return b.ifStmts(s, false, nil) // ir_order.go
 	case *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
 		return b.matchStmt(s, false, nil) // ir_match.go
 	case *syntax.ForStmt:
-		var cond *irExpr
-		if s.Cond != nil {
-			cond = b.cond(s.Cond)
-		}
-		st := &irStmt{K: "while", Pos: b.pos(s, s.Pos()), X: cond, End: b.pos(s.Body, s.Body.Rbrace)}
-		b.loopBody(st, s, s.Body)
-		return []*irStmt{st}
+		return b.memoLoop(s, func() []*irStmt { return b.whileStmt(s) }) // ir_order.go, ir_memo.go
 	case *syntax.BranchStmt:
 		if b.loops == 0 {
 			irNo("break or continue outside a loop")
@@ -401,27 +444,20 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 				}
 				st.Label = b.label
 			}
-			return []*irStmt{st}
+			return append(b.releaseAt(s, st.Pos), st) // ir_own.go: what the iterations' scopes own (R6)
 		case syntax.CONTINUE:
-			return []*irStmt{{K: "continue", Pos: b.pos(s, s.Pos())}}
+			return append(b.releaseAt(s, b.pos(s, s.Pos())), b.continueStmt(s)...) // ir_fail.go: the back-edge poll first
 		}
 		irNo("statement *syntax.BranchStmt %s", s.Tok)
 	case *syntax.RangeStmt:
 		lp := b.l.info.Loops[s]
 		if lp != nil && lp.Domain == check.LoopRange {
-			return b.countLoop(s, lp) // ir_pkg.go
+			return b.memoLoop(s, func() []*irStmt { return b.countLoop(s, lp) }) // ir_pkg.go, ir_memo.go
 		}
 		if lp == nil || !goRange(lp.Domain) { // ir_pkg.go
 			b.gate("for-in over a non-slice")
 		}
-		var x *irExpr
-		b.part(func() {
-			var pre []*irStmt
-			pre, x = b.value(s.X)
-			if len(pre) > 0 {
-				irNo("operation call in a range")
-			}
-		})
+		pre, x := b.foldRangeValue(s) // ir_collectfold.go: rangeValue (ir_order.go), run once before the loop, unless fused
 		st := &irStmt{K: "range", Pos: b.pos(s, s.Pos()), X: x, End: b.pos(s.Body, s.Body.Rbrace)}
 		bind := func(e syntax.Expr) *int {
 			if !bound(e) {
@@ -445,8 +481,12 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		}
 		b.part(func() { st.Key = bind(s.Key) })
 		b.part(func() { st.Val = bind(s.Value) })
-		b.loopBody(st, s, s.Body)
-		return []*irStmt{st}
+		loop := b.memoLoop(s, func() []*irStmt { // ir_memo.go
+			b.loopBody(st, s, s.Body)
+			return []*irStmt{st}
+		})
+		st.Pos = past(st.Pos, pre) // ir_match.go
+		return append(pre, loop...)
 	}
 	irNo("statement %T", s)
 	return nil
@@ -460,8 +500,8 @@ func (b *irBuilder) loopBody(st *irStmt, s syntax.Stmt, body *syntax.BlockStmt) 
 	switches, label := b.switches, b.label
 	b.switches, b.label = 0, ""
 	defer func() { b.loops, b.switches, b.label = b.loops-1, switches, label }()
-	st.Body = b.tail(body.List, false)
-	poll := b.loopPoll(s, body) // its gates hold either way
+	st.Body = b.scoped(body, b.tail(body.List, false), b.pos(body, body.Rbrace)) // ir_own.go: the iteration's scope (R6)
+	poll := b.loopPoll(s, body)
 	// The back-edge poll follows a body that reaches its end: after a
 	// break or a terminating statement it never runs, and go vet calls it
 	// unreachable (ir_end.go).

@@ -105,6 +105,7 @@ extern go strings.IndexFunc func IndexFunc[CR](s string, f func(rune) bool needs
 extern go strings.IndexRune func IndexRune(s string, r rune) int
 
 // ergo:go func Join(elems []string, sep string) string
+// ergo:reads elems (vouched: Go reports only that an element string flows to the result (leaking param: elems to result level=1): the slice's array is neither written nor kept, and a string is immutable)
 extern go strings.Join func Join(elems []string, sep string) string
 
 // ergo:go func LastIndex(s string, substr string) int

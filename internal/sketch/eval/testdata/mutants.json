@@ -977,30 +977,12 @@
       "killers": ["internal/sketch/eval:TestEvalEffectsAgreeWithModel"]
     },
     {
-      "name": "oracle-o1-native-pad-bytes",
-      "origin": "wf10 ORACLE O1",
-      "file": "internal/sketch/eval/natives.go",
-      "from": "\tn := utf8.RuneCountInString(s)\n\tif n >= width {",
-      "to": "\tn := len(s)\n\tif n >= width {",
-      "rule": "strings.PadLeft and PadRight count the runes of s as fmt's %*s does, an invalid byte as one rune.",
-      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
-    },
-    {
       "name": "oracle-o1-native-parse-range",
       "origin": "wf10 ORACLE O1",
       "file": "internal/sketch/eval/natives.go",
       "from": "\t\t\tcase ok && ne.Err == strconv.ErrRange:",
       "to": "\t\t\tcase ok && ne.Err == strconv.ErrRange && false:",
       "rule": "A number out of its type's range fails strconv.OutOfRange, not Malformed.",
-      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
-    },
-    {
-      "name": "oracle-o1-native-times-wraps",
-      "origin": "wf10 ORACLE O1",
-      "file": "internal/sketch/eval/natives.go",
-      "from": "\tif hi != 0 || lo > limit {",
-      "to": "\tif false && (hi != 0 || lo > limit) {",
-      "rule": "time.Times saturates at the bounds of duration; it never wraps.",
       "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
     },
     {
@@ -1043,8 +1025,8 @@
       "name": "oracle-o1-native-split-empty-sep",
       "origin": "wf10 ORACLE O1",
       "file": "internal/sketch/eval/natives.go",
-      "from": "\tpure(\"strings.Split\", func(a []Value) Value { return list(strings.Split(str(a[0]), str(a[1]))) })",
-      "to": "\tpure(\"strings.Split\", func(a []Value) Value {\n\t\tif str(a[1]) == \"\" {\n\t\t\treturn list([]string{str(a[0])})\n\t\t}\n\t\treturn list(strings.Split(str(a[0]), str(a[1])))\n\t})",
+      "from": "\tgoPure(\"strings.Split\", func(a []Value) Value { return list(strings.Split(str(a[0]), str(a[1]))) })",
+      "to": "\tgoPure(\"strings.Split\", func(a []Value) Value {\n\t\tif str(a[1]) == \"\" {\n\t\t\treturn list([]string{str(a[0])})\n\t\t}\n\t\treturn list(strings.Split(str(a[0]), str(a[1])))\n\t})",
       "rule": "strings.Split with an empty separator splits after each UTF-8 sequence, as Go's does.",
       "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
     },
@@ -1329,20 +1311,11 @@
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     },
     {
-      "name": "oracle-o16-max-by-less",
-      "origin": "wf10 ORACLE O16",
-      "file": "internal/sketch/eval/nativesmore.go",
-      "from": "\t\t\tcase float64:\n\t\t\t\tbest = max(b, x.(float64))\n",
-      "to": "",
-      "rule": "std slices.Max is Go's slices.Max: Go's max over the list, NaN anywhere giving NaN and +0 beating -0 (std slices).",
-      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
-    },
-    {
       "name": "oracle-o16-stable-sort-reversed",
       "origin": "wf10 ORACLE O16",
       "file": "internal/sketch/eval/nativesmore.go",
-      "from": "\t\t\treturn cmp.Compare(v.(int64), 0)\n\t\t})\n\t\tif stop != nil {\n\t\t\treturn nil, stop\n\t\t}\n\t\treturn newSlice(out), nil\n\t}\n\tnatives[\"slices.largest\"]",
-      "to": "\t\t\treturn cmp.Compare(0, v.(int64))\n\t\t})\n\t\tif stop != nil {\n\t\t\treturn nil, stop\n\t\t}\n\t\treturn newSlice(out), nil\n\t}\n\tnatives[\"slices.largest\"]",
+      "from": "\t\t\treturn cmp.Compare(v.(int64), 0)\n\t\t})\n\t\tif stop != nil {\n\t\t\treturn nil, stop\n\t\t}\n\t\treturn newSlice(out), nil\n\t}\n\tnatives[\"arena.grow\"]",
+      "to": "\t\t\treturn cmp.Compare(0, v.(int64))\n\t\t})\n\t\tif stop != nil {\n\t\t\treturn nil, stop\n\t\t}\n\t\treturn newSlice(out), nil\n\t}\n\tnatives[\"arena.grow\"]",
       "rule": "std slices.SortStableFunc sorts a copy by compare, as Go's slices.SortStableFunc (std slices).",
       "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
     },
@@ -1458,9 +1431,9 @@
       "name": "oracle-o12-ones-count-is-len",
       "origin": "wf10 ORACLE O12",
       "file": "internal/sketch/eval/nativesbits.go",
-      "from": "\tpure(\"bits.OnesCount64\", func(a []Value) Value { return int64(bits.OnesCount64(u(a[0]))) })\n",
-      "to": "\tpure(\"bits.OnesCount64\", func(a []Value) Value { return int64(bits.Len64(u(a[0]))) })\n",
-      "rule": "std bits.OnesCount64 is Go's math/bits.OnesCount64 (stdlib.md; std bits).",
+      "from": "\tgoPure(\"OnesCount64\", func(a []Value) Value { return int64(bits.OnesCount64(u(a[0]))) })\n",
+      "to": "\tgoPure(\"OnesCount64\", func(a []Value) Value { return int64(bits.Len64(u(a[0]))) })\n",
+      "rule": "std bits.OnesCount64 is Go's math/bits.OnesCount64, bound through import go (stdlib.md; std bits).",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     },
     {
@@ -2036,7 +2009,7 @@
     {"name":"evmathbits-float64-missing","origin":"wf10 MX-EVMATHBITS","file":"internal/sketch/eval/nativesgo.go","from":"\t\"math.Float64bits\":     goBits(math.Float64bits),\n","to":"\t\"math.Float64bitz\":     goBits(math.Float64bits),\n","rule":"math.Float64bits runs at check time and gives Go's bits.","killers":["internal/sketch/eval:TestGoBitConversionsRunAtCheckTime"]},
     {"name":"evmathbits-frombits-missing","origin":"wf10 MX-EVMATHBITS","file":"internal/sketch/eval/nativesgo.go","from":"\t\"math.Float64frombits\": goBits(math.Float64frombits),\n","to":"\t\"math.Float64frombitz\": goBits(math.Float64frombits),\n","rule":"math.Float64frombits runs at check time, through a program's extern too.","killers":["internal/sketch/eval:TestGoBitConversionsRunAtCheckTime"]},
     {"name":"evmathbits-float32-swapped","origin":"wf10 MX-EVMATHBITS","file":"internal/sketch/eval/nativesgo.go","from":"\t\"math.Float32frombits\": goBits(math.Float32frombits),\n","to":"\t\"math.Float32frombits\": goBits(func(b uint32) float32 { return float32(b) }),\n","rule":"math.Float32frombits reinterprets the bits; it does not convert the number.","killers":["internal/sketch/eval:TestGoBitConversionsRunAtCheckTime"]},
-    {"name":"evbuilder-indexbyte-missing","origin":"wf10 MX-EVBUILDER","file":"internal/sketch/eval/natives.go","from":"\tpure(\"strings.IndexByte\", ","to":"\tpure(\"strings.IndexBytez\", ","rule":"std strings.IndexByte runs at check time as Go's strings.IndexByte.","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
+    {"name":"evbuilder-indexbyte-missing","origin":"wf10 MX-EVBUILDER","file":"internal/sketch/eval/nativesgo.go","from":"\tgoNatives[\"strings.IndexByte\"] = func(","to":"\tgoNatives[\"strings.IndexBytez\"] = func(","rule":"std strings.IndexByte runs at check time as Go's strings.IndexByte.","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
     {"name":"evbuilder-indexbyte-reads-all","origin":"wf10 MX-EVBUILDER","file":"internal/sketch/eval/natives.go","from":"\t\t\treturn int64(i) + 1\n","to":"\t\t\treturn int64(len(a[0].(string)))\n","rule":"IndexByte's work is the bytes it reads, up to the byte it finds (readsOf).","killers":["internal/sketch/eval:TestNativeWorkIsWhatGoReads"]},
     {"name":"evbuilder-appendstring-copies","origin":"wf10 MX-EVBUILDER","file":"internal/sketch/eval/interp.go","from":"\t\tif in.sym != nil || !isSlice || !isText {\n","to":"\t\tif true || in.sym != nil || !isSlice || !isText {\n","rule":"Go's append(out, s...) at check time appends each byte in place and counts it, as Append does.","killers":["internal/sketch/eval:TestAppendStringCountsItsBytes"]},
     {"name":"evbuilder-appendfrom-whole-run","origin":"wf10 MX-EVBUILDER","file":"internal/sketch/eval/nativesbuilder.go","from":"cur.elems()[start+k], nil)","to":"buf.elems()[min(start+k, buf.n-1)], nil)","rule":"WriteFrom's byte k is the byte at start+k of the result, so a run past the end repeats what the call wrote.","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
@@ -2050,8 +2023,8 @@
     {"name":"evslot-literal-two-words","origin":"wf10 MX-EVSLOT","file":"internal/sketch/eval/expr.go","from":"in.buildSlots(fr, x, int64(len(x.Elts)), int64(len(x.Elts)), elem)","to":"in.buildSlots(fr, x, int64(len(x.Elts)), int64(len(x.Elts)), valueBytes)","rule":"A slice or array literal charges its element type's Go size a slot.","killers":["internal/sketch/eval:TestSlotBytesAreGoBytes"]},
     {"name":"evslot-literal-elem-lost","origin":"wf10 MX-EVSLOT","file":"internal/sketch/eval/expr.go","from":"\ts.b.elem = elem\n","to":"","rule":"A literal's store keeps its element size, so a later copy is charged at it.","killers":["internal/sketch/eval:TestSlotBytesAreGoBytes"]},
     {"name":"evslot-copy-elem-lost","origin":"wf10 MX-EVSLOT","file":"internal/sketch/eval/coll.go","from":"&backing{data: data, owner: tok, elem: s.b.elem}","to":"&backing{data: data, owner: tok}","rule":"A copied store keeps its element size.","killers":["internal/sketch/eval:TestSlotBytesAreGoBytes"]},
-    {"name":"evslot-array-elem-lost","origin":"wf10 MX-EVSLOT","file":"internal/sketch/eval/types.go","from":"\t\ts.array = true\n\t\ts.b.elem = goBytes(rtype{t.Elem, u.env})\n","to":"\t\ts.array = true\n","rule":"An array default's store has its element size.","killers":["internal/sketch/eval:TestSlotBytesAreGoBytes"]},
-    {"name":"evslot-zero-slice-elem","origin":"wf10 MX-EVSLOT","file":"internal/sketch/eval/types.go","from":"\t\ts := newSlice(nil)\n\t\ts.b.elem = goBytes(rtype{t.Elem, u.env})\n","to":"\t\ts := newSlice(nil)\n","rule":"A slice default's store has its element size, so its appends are charged at it.","killers":["internal/sketch/eval:TestSlotBytesAreGoBytes"]},
+    {"name":"evslot-array-elem-lost","origin":"wf10 MX-EVSLOT","file":"internal/sketch/eval/types.go","from":"\t\ts.array = true\n\t\ts.b.elem = goSize(rtype{t.Elem, u.env})\n","to":"\t\ts.array = true\n","rule":"An array default's store has its element size.","killers":["internal/sketch/eval:TestSlotBytesAreGoBytes"]},
+    {"name":"evslot-zero-slice-elem","origin":"wf10 MX-EVSLOT","file":"internal/sketch/eval/types.go","from":"\t\ts := newSlice(nil)\n\t\ts.b.elem = goSize(rtype{t.Elem, u.env})\n","to":"\t\ts := newSlice(nil)\n","rule":"A slice default's store has its element size, so its appends are charged at it.","killers":["internal/sketch/eval:TestSlotBytesAreGoBytes"]},
     {"name":"evslot-append-two-words","origin":"wf10 MX-EVSLOT","file":"internal/sketch/eval/coll.go","from":"in.buildSlots(fr, at, int64(len(xs.b.data)), 2*int64(len(xs.b.data))+1, xs.b.slotBytes())","to":"in.buildSlots(fr, at, int64(len(xs.b.data)), 2*int64(len(xs.b.data))+1, valueBytes)","rule":"An Append that grows its store charges its element size a slot.","killers":["internal/sketch/eval:TestSlotBytesAreGoBytes"]},
     {"name":"evslot-append-copy-elem-lost","origin":"wf10 MX-EVSLOT","file":"internal/sketch/eval/coll.go","from":"&backing{data: data, owner: own, elem: xs.b.elem}","to":"&backing{data: data, owner: own}","rule":"An Append that copies its slice into a new store keeps the element size.","killers":["internal/sketch/eval:TestSlotBytesAreGoBytes"]},
     {"name":"evslot-appender-lends","origin":"wf10 MX-EVSLOT","file":"internal/sketch/eval/stmt.go","from":"\t} else if call := in.appenderHandover(fr, root, steps, s); call != nil {\n","to":"\t} else if call := in.appenderHandover(fr, root, steps, s); false && call != nil {\n","rule":"x.f = f(x.f, …), f a pure extern []T -> []T, reads x.f without lending, so the next write through x does not copy.","killers":["internal/sketch/eval:TestAppenderKeepsItsPlace"]},
@@ -2097,6 +2070,25 @@
       "killers": [
         "internal/sketch/lower:TestCasePlansAgreeWithGo"
       ]
+    },
+    {
+      "name": "np4f1-eval-skips-import-go",
+      "origin": "wf10 NP4f-1",
+      "file": "internal/sketch/eval/nativesgo.go",
+      "from": "fn.Pkg == nil || fn.Pkg.Std() {",
+      "to": "fn.Pkg == nil || fn.Pkg.Std() || fn.Pkg.Host() {",
+      "rule": "The evaluator runs a listed Go function a package reaches through import go, as std's bodies now do (NP4f).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "red18-bytes-op-not-evaluated",
+      "origin": "wf10 red #18 (NP4f x PRIM-4)",
+      "file": "internal/sketch/eval/natives.go",
+      "from": "\tcheck.CollBytes:      \"strings.stringsBytes\",\n",
+      "to": "",
+      "rule": "The evaluator runs the operation s.Bytes(), so check-time evaluation of std's digests (sha256.Sum) agrees with the build.",
+      "anchor": {"tests":["internal/sketch/eval:TestEvalAgreesWithLowering"]},
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     }
   ]
 }

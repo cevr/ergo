@@ -5,14 +5,14 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// goBytes is what one value of r takes in the Go target (64-bit), the
+// goSize is what one value of r takes in the Go target (64-bit), the
 // bytes the byte budget charges for one slot of a collection of r: the
 // budget measures what the built program allocates, so a [65536]int32
 // costs 256 KiB, not 65536 interface slots (MX-EVSLOT). A type whose
 // layout the evaluator does not read (an interface, a union, a type
 // parameter, a function) is two words, valueBytes. At least 1, and never
 // more than 1<<56, so a product of counts still fits.
-func goBytes(r rtype) int64 {
+func goSize(r rtype) int64 {
 	size, _ := goLayout(r)
 	return max(size, 1)
 }

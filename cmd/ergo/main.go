@@ -22,6 +22,7 @@ import (
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/eval"
 	"ergo.local/prototype/internal/sketch/lawcache"
+	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/sketchfront"
 	sourcefile "ergo.local/prototype/internal/source"
 	"ergo.local/prototype/internal/stage"
@@ -215,6 +216,9 @@ type fileOptions struct {
 	// noViews is build's -views=off: no Go call takes a view of a
 	// string's bytes (LAWFFI LF2b; lower.Unit.NoViews).
 	noViews bool
+	// rewrites is build's -rewrites=on|proved|off|canary[=N] (lower.Unit.Rewrites):
+	// which rewrites over functions the run build applies; empty is on.
+	rewrites string
 }
 
 // parseFileOptions reads the options of command. --strict and --json belong
@@ -281,6 +285,13 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		}
 		if value, ok := strings.CutPrefix(args[i], "--eval-bytes="); ok {
 			opts.evalBytes, bytesGiven = value, true
+			continue
+		}
+		if value, ok := strings.CutPrefix(args[i], "-rewrites="); ok {
+			if _, _, err := lower.ParseRewrites(value); err != nil {
+				return opts, err
+			}
+			opts.rewrites = value
 			continue
 		}
 		if value, ok := strings.CutPrefix(args[i], "--law="); ok {
@@ -387,6 +398,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("-views=off is only supported by build")
 	case opts.report != "" && command != "build":
 		return opts, fmt.Errorf("-report is only supported by build")
+	case opts.rewrites != "" && command != "build":
+		return opts, fmt.Errorf("-rewrites is only supported by build")
 	case opts.report != "" && opts.report != "copies":
 		return opts, fmt.Errorf("-report takes copies, not %q", opts.report)
 	case opts.work && command != "build" && command != "test":

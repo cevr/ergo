@@ -44,7 +44,7 @@ func (st *irState) testBody(fc *funcCtx, d *syntax.TestDecl, name string, params
 	}
 	b.fn.Body = append(b.fn.Body, b.bodyStmts(d.Body.List)...) // ir_fail.go
 	b.fn.Body = append(b.fn.Body, b.bodyEnd(b.fn.Body, b.fn.End)...)
-	b.fn.Body = irUseLocals(b.fn.Body) // ir_end.go
+	b.fn.Body = irScopesIncrease(irUseLocals(b.fn.Body)) // ir_end.go
 	if st.census != nil {
 		return false
 	}
@@ -83,7 +83,7 @@ func (st *irState) lawBody(fc *funcCtx, law *check.Law, name string, needsFrame 
 	}
 	b.fn.Body = append(b.fn.Body, b.bodyStmts(d.Body.List)...) // ir_fail.go
 	b.fn.Body = append(b.fn.Body, b.bodyEnd(b.fn.Body, b.fn.End)...)
-	b.fn.Body = irUseLocals(b.fn.Body) // ir_end.go
+	b.fn.Body = irScopesIncrease(irUseLocals(b.fn.Body)) // ir_end.go
 	if st.census != nil {
 		return false
 	}
@@ -173,7 +173,16 @@ func (b *irBuilder) assert(s *syntax.AssertStmt) []*irStmt {
 		op := x.Op.String()
 		b.operator(op, l.info.Types[x.X], x)
 		var vals []*irExpr
+		// A try that starts the assert covers the whole comparison: its
+		// operands are built under it (the emitter's assert, q105).
+		inTry := tried(s.X) != s.X
+		if inTry {
+			b.tries++
+		}
 		pre, vals = b.operands([]syntax.Expr{x.X, x.Y}) // ir_fail.go
+		if inTry {
+			b.tries--
+		}
 		for k, e := range []syntax.Expr{x.X, x.Y} {
 			if vals[k].K == "const" || vals[k].K == "local" {
 				continue

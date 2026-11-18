@@ -65,11 +65,11 @@ type GoImporter interface {
 // goImp is a binder's importer: a binding imports Go packages only.
 type goImp struct{ set *GoBindings }
 
-func (g goImp) Import(path string) (*Package, error) {
+func (g *goImp) Import(path string) (*Package, error) {
 	return nil, fmt.Errorf("a binding imports Go packages only (%s)", path)
 }
 
-func (g goImp) GoBindings() *GoBindings { return g.set }
+func (g *goImp) GoBindings() *GoBindings { return g.set }
 
 // goBindings is the program's Go packages.
 func (c *checker) goBindings() *GoBindings {
@@ -255,7 +255,11 @@ func (s *GoBindings) Package(path string) (*Package, bool) {
 	if p, ok := s.pkgs[path]; ok {
 		return p, p != nil
 	}
-	src, ok := s.lookup(path)
+	lookup := s.lookup
+	if lookup == nil { // decoded from the std snapshot: Go's standard library
+		lookup = gostd.Binding
+	}
+	src, ok := lookup(path)
 	if !ok {
 		s.pkgs[path] = nil
 		return nil, false

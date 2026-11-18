@@ -6,8 +6,10 @@ import (
 	context "context"
 	rt "ergo.local/prototype/runtime/rt"
 	ergo "ergo.local/prototype/runtime/v1"
+	_ "ergo.local/prototype/runtime/v1/gofmt"
 	slices "slices"
 	strconv "strconv"
+	strings "strings"
 )
 
 // Run calls the Ergo function Run for a Go caller (IG11): on the
@@ -1417,6 +1419,11 @@ func (Level) of2(_ Decls) Level    { return Level{tag: 2} }
 
 func (x Level) ErgoVariant() string { return [...]string{"Packages", "Files", "Decls"}[x.tag] }
 
+func HasPrefix(s string, prefix string) bool {
+	r := strings.HasPrefix(s, prefix)
+	return r
+}
+
 func (r Rows) NameOf(id int) string {
 	var n NodeRow = r.Nodes[id]
 	if n.Kind != "decl" {
@@ -2442,7 +2449,7 @@ func (g Graph) Cycles() []Cycle_1 {
 		b := (len(c_1) == int(1))
 		if b {
 			v_2 := (g).Succ(first)
-			v_3 := ergo.SlicesContains[int](v_2, first)
+			v_3 := ContainsMono_i1(v_2, first)
 			b = (!v_3)
 		}
 		if b {
@@ -2506,7 +2513,7 @@ type Text_2 interface {
 }
 
 func (t *text) Written() string {
-	v := ergo.JSONBytesText(t.out)
+	v := ergo.StringsBuilderText(t.out)
 	return v
 }
 
@@ -2849,10 +2856,15 @@ func (r Rows) dependsOf() depends {
 		t_1[t_2] = Append[Step](bySource[s_1.From], s_1)
 	}
 	var inOrder []Step = []Step{}
-	inOrder = ergo.Reserve(inOrder, len(bySource))
 	for _, v_10 := range bySource {
 		var l []Step = v_10
-		inOrder = ergo.SlicesConcatOwned[Step](inOrder, l)
+		var v_11 []Step
+		{
+			var a []Step = inOrder
+			v_11 = ergo.SlicesConcatOwned[Step](a, l)
+
+		}
+		inOrder = v_11
 	}
 	return depends{Graph: v_6, Steps: inOrder}
 }
@@ -3018,12 +3030,12 @@ func layerOf(layers_1 []string, path_1 string) int {
 		var l string = v
 		b := (l == path_1)
 		if !b {
-			v_1 := ergo.StringsHasSuffix(l, "/...")
+			v_1 := HasSuffix(l, "/...")
 			b_1 := v_1
 			if b_1 {
 				t := path_1
-				v_2 := ergo.StringsTrimSuffix(l, "...")
-				v_3 := ergo.StringsHasPrefix(t, v_2)
+				v_2 := TrimSuffix(l, "...")
+				v_3 := HasPrefix(t, v_2)
 				b_1 = v_3
 			}
 			b = b_1
@@ -3419,13 +3431,33 @@ func (g Graph) Components() [][]int {
 	return v_14
 }
 
+func Contains[T comparable](xs []T, x T) bool {
+	for _, v := range xs {
+		var y T = v
+		if y == x {
+			return true
+		}
+	}
+	return false
+}
+
+func ContainsMono_i1(xs []int, x int) bool {
+	for _, v := range xs {
+		var y int = v
+		if y == x {
+			return true
+		}
+	}
+	return false
+}
+
 func (g Graph) closedPath(c_1 []int) []int {
 	var first int = c_1[int(0)]
 	var best []int = []int{}
 	v := (g).Succ(first)
 	for _, v_1 := range v {
 		var m int = v_1
-		v_2 := ergo.SlicesContains[int](c_1, m)
+		v_2 := ContainsMono_i1(c_1, m)
 		if !v_2 {
 			continue
 		}
@@ -3438,7 +3470,14 @@ func (g Graph) closedPath(c_1 []int) []int {
 		case 0:
 			p := s.v0
 			if (len(best) == int(0)) || ((len(p.Value) + int(1)) < len(best)) {
-				best = ergo.SlicesConcat[int](slices.Clip([]int{first}), p.Value)
+				var v_4 []int
+				{
+					var a []int = []int{first}
+					var b []int = p.Value
+					v_4 = ergo.SlicesConcatOwned[int](a, b)
+
+				}
+				best = v_4
 			}
 		case 1:
 		}
@@ -3465,6 +3504,15 @@ func FromBytesOwned(bs []uint8) string {
 
 func FromBytes(bs []uint8) string {
 	return FromBytesOwned(slices.Clone(bs))
+}
+
+func ConcatOwned[T any](a []T, b []T) []T {
+	v := ergo.SlicesConcatOwned[T](a, b)
+	return v
+}
+
+func Concat_1[T any](a []T, b []T) []T {
+	return ConcatOwned[T](slices.Clone(a), b)
 }
 
 func filled(n int, v int) []int {
@@ -3513,11 +3561,18 @@ func (g Graph) Order() Option[[]int] {
 			}
 		}
 		var n_1 int = ready[least]
-		ready = ergo.SlicesConcat[int](slices.Clip(ready[int(0):least]), slices.Clone(ready[(least+int(1)):len(ready)]))
+		var v_6 []int
+		{
+			var a []int = slices.Clone(ready[int(0):least])
+			var b []int = ready[(least + int(1)):len(ready)]
+			v_6 = ergo.SlicesConcatOwned[int](a, b)
+
+		}
+		ready = slices.Clone(v_6)
 		out = Append[int](out, n_1)
-		v_8 := (g).Succ(n_1)
-		for _, v_9 := range v_8 {
-			var m int = v_9
+		v_9 := (g).Succ(n_1)
+		for _, v_10 := range v_9 {
+			var m int = v_10
 			v[m] = (v[m] - int(1))
 			if v[m] == int(0) {
 				ready = Append[int](ready, m)
@@ -3529,6 +3584,16 @@ func (g Graph) Order() Option[[]int] {
 	} else {
 		return (Option[[]int]{}).of0(Some[[]int]{Value: out})
 	}
+}
+
+func HasSuffix(s string, suffix string) bool {
+	r := strings.HasSuffix(s, suffix)
+	return r
+}
+
+func TrimSuffix(s string, suffix string) string {
+	r := strings.TrimSuffix(s, suffix)
+	return r
 }
 
 type WireWrongKind struct {
@@ -4168,7 +4233,7 @@ func options(args []string) Options {
 		default:
 //line tool.ergo:184:4
 //line tool.ergo:184:7
-			v_3 := ergo.StringsHasPrefix(a, "-")
+			v_3 := HasPrefix(a, "-")
 //line tool.ergo:184:4
 			if v_3 {
 //line tool.ergo:185:5
