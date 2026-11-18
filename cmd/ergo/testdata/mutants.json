@@ -251,6 +251,8 @@
       "rule": "The HOME witness measures Ergo's writes: with Go's telemetry left on, the compile and link the direct build path runs write their counters under the witnessed HOME, which is Go's write, not Ergo's.",
       "anchor": {"tests": ["cmd/ergo:TestPackageNeverWritesUnderHome"]},
       "killers": ["cmd/ergo:TestPackageNeverWritesUnderHome"]
-    }
+    },
+    {"name":"p3-7-inspect-machine-json-refused","origin":"wf10 MX P3-7","file":"cmd/ergo/main.go","from":"command != \"test\" && command != \"inspect machine\":","to":"command != \"test\":","rule":"ergo inspect machine --json, documented in tooling.md and its help, prints the graphs as JSON instead of being refused by the option parser.","killers":["cmd/ergo:TestInspectMachineJSON"],"anchor":{"tests":["cmd/ergo:TestInspectMachineJSON"]}},
+    {"name":"p3-7-inspect-machine-json-no-pairs","origin":"wf10 MX P3-7","file":"cmd/ergo/inspect.go","from":"list[i] = out{g, g.Reachable()}","to":"list[i] = out{g, nil}","rule":"The JSON form of inspect machine carries the reachable pairs the text form prints.","killers":["cmd/ergo:TestInspectMachineJSON"],"anchor":{"tests":["cmd/ergo:TestInspectMachineJSON"]}}
   ]
 }
