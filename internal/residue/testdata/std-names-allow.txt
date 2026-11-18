@@ -30,6 +30,6 @@ internal/sketch/check/entry.go	o.Pkg.Path == stdlib.PreludePath	Machine and Inpu
 internal/sketch/check/expr.go	c.pkg.Path != stdlib.PreludePath	the prelude writes its Map table as the record it is; no other package can name hashTable (CONSTRAINTS C5, types.md Maps 5)
 internal/sketch/check/laws.go	law.Pkg.Path != stdlib.PreludePath	a prelude law is named bare, as every prelude name is written (CONSTRAINTS C5)
 internal/sketch/check/mapprovider.go	c.pkg.Path == stdlib.PreludePath	the prelude's own check reads its Map types from its scope (CONSTRAINTS C5)
-internal/sketch/check/mapprovider.go	o.Pkg.Path != stdlib.PreludePath	hashTable and keyTable, the predeclared Map's provider forms (types.md Maps 5, 6; CONSTRAINTS C5b)
+internal/sketch/check/mapprovider.go	o.Pkg.Path != stdlib.PreludePath	hashTable, the predeclared Map's provider form (types.md Maps 5, 6; CONSTRAINTS C5b)
 internal/sketch/check/mapshape.go	c.pkg.Path == stdlib.PreludePath	the prelude's own providers get no derived normal form (types.md Maps 6; CONSTRAINTS C5b)
 internal/sketch/check/mapprovider.go	o.Pkg.Path == stdlib.PreludePath	Structural and hashTable, the predeclared Map's provider forms (types.md Maps 1, 5; CONSTRAINTS C5)

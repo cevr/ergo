@@ -54,7 +54,7 @@ func TestProviderMapAgrees(t *testing.T) {
 		mod := []int{5, 13, 40}[r.IntN(3)]
 		buckets := []int{1, 3, 64}[r.IntN(3)]
 		// The provider: keys equal modulo mod with a bucketed hash (the
-		// table), or with a normal form (keyTable, types.md Maps 5):
+		// table), or with a normal form (Go's map by NormalKey, types.md Maps 5):
 		// k % mod, k / mod, or k itself.
 		kind := seed % 5
 		norm := func(k int) int {
