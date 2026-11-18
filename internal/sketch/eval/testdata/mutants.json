@@ -362,6 +362,15 @@
       "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
     },
     {
+      "name": "mc-map-order",
+      "origin": "wf10/mc/E1",
+      "file": "internal/sketch/eval/codecwalk.go",
+      "from": "\t\tsort.Slice(keys, func(i, j int) bool { return keys[i].(string) < keys[j].(string) })",
+      "to": "\t\tsort.Slice(keys, func(i, j int) bool { return false && keys[i].(string) < keys[j].(string) })",
+      "rule": "A Map encodes its keys in sorted order, so equal Maps have one wire form and one explore key (MODELCHECK risk 5).",
+      "killers": ["std:TestKeyEqualsEquality"]
+    },
+    {
       "name": "mc-always-pred-not-negated",
       "origin": "wf10/mc/E1",
       "file": "internal/sketch/eval/machine.go",
@@ -459,16 +468,6 @@
       "to": "Revision:   report.Revision(a.source),",
       "rule": "The evaluation names the revision of the text it ran on, a package folder's too.",
       "killers": ["cmd/ergo:TestCheckEvaluatesWithoutBuild"]
-    },
-    {
-      "name": "b16d-eval-invariant-searched",
-      "origin": "wf10 batch 16d (EV x X2)",
-      "file": "internal/sketch/eval/machine.go",
-      "from": "\tif law.Decl.Reach.Pred != nil {\n\t\treturn skip(",
-      "to": "\tif false && law.Decl.Reach.Pred != nil {\n\t\treturn skip(",
-      "rule": "Check time leaves an always or sometimes law (X2) to ergo test: it has no target variant to search, so searching it is a defect. Its killer is in the lowering's suite, which the runner judges it with: TestMachineLawRuns runs the law through ergo check, a built CLI the coverage pass does not instrument, so the anchor names it as covering.",
-      "killers": ["internal/sketch/lower:TestMachineLawRuns"],
-      "anchor": {"tests": ["internal/sketch/lower:TestMachineLawRuns"]}
     },
     {
       "name": "b16d-eval-float-int-wraps",
