@@ -45,10 +45,10 @@ state.
 It prints what the trace never observed: the signals it never took and the
 state's fields it never named. One trace proves nothing about other runs.
 
-Exit codes: 0 conforms; 20 mismatch; 21 a law of the machine broken by
-the trace's behaviour; 22 a malformed trace; 23 over the candidate limit
-(no verdict); 1 the run did not finish (its reason is printed); 2 an
-invalid invocation.
+Exit codes, everystate's for the first four: 0 conforms; 20 mismatch; 21
+a malformed trace; 22 over the candidate limit (no verdict); then 23 a law
+of the machine broken by every behaviour that explains the trace; 1 the
+run did not finish (its reason is printed); 2 an invalid invocation.
 `
 
 // conformEntry is the function conform adds to the package: it gives the
@@ -172,7 +172,10 @@ type conformVerdict struct {
 	} `json:"report"`
 }
 
-var conformCodes = map[string]int{"Conforms": 0, "Mismatch": 20, "Broken": 21, "TraceError": 22, "OverLimit": 23}
+// conformCodes are everystate's exit codes (0 conforms, 20 does not, 21
+// bad trace, 22 limit reached), so a script written for it reads ergo's
+// the same; Broken, which everystate does not have, is 23 (batch-mc1 T2 M2).
+var conformCodes = map[string]int{"Conforms": 0, "Mismatch": 20, "TraceError": 21, "OverLimit": 22, "Broken": 23}
 
 // conformReport prints the verdict and returns its exit status.
 func conformReport(text string, asJSON bool, hidden int) error {

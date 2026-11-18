@@ -79,12 +79,12 @@ func TestConformCommand(t *testing.T) {
 	}{
 		{"conforms", put, nil, 0, []string{"conforms: 1 lines", "signals never taken: Close", "state fields never observed: none"}},
 		{"mismatch", `{"signal": "Put", "state": {"_tag": "Open", "count": 5}}`, nil, 20, []string{"mismatch at line 1:", `nearest: {"_tag":"Open","count":1}, differs in count`}},
-		{"wrong kind", `{"signal": "Put", "state": {"_tag": "Open", "count": "one"}}`, nil, 22, []string{"trace error at line 1: state at "}},
-		{"no such signal", `{"signal": "Take"}`, nil, 22, []string{"trace error at line 1: the model has no signal Take"}},
-		{"always broken", put + "\n" + `{"signal": "Put"}`, nil, 21, []string{"law Shop.Small broken at line 2"}},
-		{"never broken", `{"signal": "Close"}`, nil, 21, []string{"law Shop.NeverCloses broken at line 1"}},
-		{"hidden", `{"state": {"_tag": "Open", "count": 1}}` + "\n" + `{"signal": "Close"}`, []string{"--hidden", "1"}, 21, []string{"law Shop.NeverCloses broken at line 2"}},
-		{"over the limit", `{}`, []string{"--hidden", "2", "--limit", "1"}, 23, []string{"no verdict: 2 candidate states at line 1"}},
+		{"wrong kind", `{"signal": "Put", "state": {"_tag": "Open", "count": "one"}}`, nil, 21, []string{"trace error at line 1: state at "}},
+		{"no such signal", `{"signal": "Take"}`, nil, 21, []string{"trace error at line 1: the model has no signal Take"}},
+		{"always broken", put + "\n" + `{"signal": "Put"}`, nil, 23, []string{"law Shop.Small broken at line 2"}},
+		{"never broken", `{"signal": "Close"}`, nil, 23, []string{"law Shop.NeverCloses broken at line 1"}},
+		{"hidden", `{"state": {"_tag": "Open", "count": 1}}` + "\n" + `{"signal": "Close"}`, []string{"--hidden", "1"}, 23, []string{"law Shop.NeverCloses broken at line 2"}},
+		{"over the limit", `{}`, []string{"--hidden", "2", "--limit", "1"}, 22, []string{"no verdict: 2 candidate states at line 1"}},
 	} {
 		tr := filepath.Join(dir, "trace.jsonl")
 		if err := os.WriteFile(tr, []byte(c.trace+"\n"), 0o644); err != nil {
