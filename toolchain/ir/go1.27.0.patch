@@ -725,10 +725,10 @@ index 0000000..2995f1c
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_expr.go b/src/cmd/compile/internal/ergoir/ergoir_expr.go
 new file mode 100644
-index 0000000..4798b5a
+index 0000000..bafcb87
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_expr.go
-@@ -0,0 +1,470 @@
+@@ -0,0 +1,472 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -1000,8 +1000,10 @@ index 0000000..4798b5a
 +		if xs == nil || i == nil {
 +			return nil, nil
 +		}
++		// Go indexes by a value of any integer type (red #31: a string
++		// by a byte).
 +		elem := ergoIndexElem(xt) // ergoir_f7.go
-+		if elem == nil || !types2.Identical(it, types2.Typ[types2.Int]) {
++		if elem == nil || !ergoIsInteger(it) {
 +			c.errorf(x.Pos, "ergoir: index of %v by %v", xt, it)
 +			return nil, nil
 +		}
@@ -2257,7 +2259,7 @@ index 0000000..cb33a2b
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_slice.go b/src/cmd/compile/internal/ergoir/ergoir_slice.go
 new file mode 100644
-index 0000000..4743a17
+index 0000000..f90510c
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_slice.go
 @@ -0,0 +1,58 @@
@@ -2309,7 +2311,7 @@ index 0000000..4743a17
 +		if v == nil {
 +			return nil, nil
 +		}
-+		if !types2.Identical(vt, types2.Typ[types2.Int]) {
++		if !ergoIsInteger(vt) { // any integer type, as an index (red #31)
 +			c.errorf(a.Pos, "ergoir: slice index of type %v", vt)
 +			return nil, nil
 +		}

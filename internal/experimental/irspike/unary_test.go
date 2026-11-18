@@ -35,7 +35,11 @@ func TestIRUnaryOperandsMatchSource(t *testing.T) {
 //     argument was dropped at the call, and a caught error stored in a
 //     field of the row's Go type parameter was not asserted to it, so the
 //     IR build did not compile (mutants opc-goarg-slot-row-dropped,
-//     opc-intoslot-unasserted).
+//     opc-intoslot-unasserted);
+//   - byteindex (red #31, NP4f-15's http query.ergo): the decoder refused
+//     a string or slice indexed by a byte, and a slice expression's byte
+//     bound (derivative mutants red31-index-int-only,
+//     red31-slice-int-only).
 //
 // It builds Go for the reason TestIRUnaryOperandsMatchSource does.
 func TestIRReprosMatchSource(t *testing.T) {
@@ -43,7 +47,7 @@ func TestIRReprosMatchSource(t *testing.T) {
 	for _, r := range []struct {
 		name string
 		fns  []string
-	}{{"notand", []string{"pick"}}, {"rowslot", []string{"held", "run"}}} {
+	}{{"notand", []string{"pick"}}, {"rowslot", []string{"held", "run"}}, {"byteindex", []string{"hex", "pick", "tail"}}} {
 		t.Run(r.name, func(t *testing.T) {
 			text, err := os.ReadFile(filepath.Join("testdata", r.name+".ergo"))
 			if err != nil {
