@@ -189,6 +189,38 @@ func importedFn(s mut store.Store, k Pkg, t mut Typer, name dense.Opt[syntax.Nod
 // importedField is the type of field name of the foreign record type ty
 // (an import's record, generic or not) ported into s's pool with ty's type
 // arguments in place; none when no package of k.Deps declares it.
+// fieldNames is the field names, in order, of the record ty instantiates:
+// of the package or of an import; none when ty is no record either knows.
+func fieldNames(s store.Store, k Pkg, ty dense.ID[store.TKey]) Option[[]string] {
+	let (r, _) = recordOf(s, k, ty)
+	if r >= 0 {
+		return Some{Value: namesOf(k.Recs[r].Fields)}
+	}
+	let kind = store.KindOfType(s, ty)
+	let f = if kind == store.KInstance && int(store.OriginOfType(s, ty).Import) == store.ForeignBit { int(store.OriginOfType(s, ty).Decl) } else { -1 }
+	if f < 0 || f >= len(k.Foreign) {
+		return None
+	}
+	let di = depOf(k, k.Foreign[f].Path)
+	if di < 0 {
+		return None
+	}
+	let d = k.Deps[di]
+	let dr = recOf(d.S, d.K, k.Foreign[f].Name)
+	if dr < 0 {
+		return None
+	}
+	Some{Value: namesOf(d.K.Recs[dr].Fields)}
+}
+
+func namesOf(fs []Field) []string {
+	let mut out = []string{}
+	for f in fs {
+		out = out.Append(f.Name)
+	}
+	out
+}
+
 func importedField(s mut store.Store, k Pkg, ty dense.ID[store.TKey], name string) Option[dense.ID[store.TKey]] {
 	let kind = store.KindOfType(*s, ty)
 	let (f, targs) = if kind == store.KForeign {

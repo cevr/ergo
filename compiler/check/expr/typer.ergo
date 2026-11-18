@@ -169,7 +169,8 @@ func sizes(k Pkg) (int, int) {
 	(rows, calls)
 }
 
-// sigResult is a signature's result type: none for none or several.
+// sigResult is a signature's result type: none for none, the tuple of
+// several (a tuple expression returned takes its parts).
 func sigResult(s store.Store, sig dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
 	let ops = store.OperandsOf(s, sig)
 	let r = ops[len(ops)-3]
@@ -233,19 +234,84 @@ func valid(s store.Store, t dense.ID[store.TKey]) bool {
 	true
 }
 
-// patterns declares the names of a case's or a catch arm's as-patterns
-// whose type is written: `case T as x` gives x the type T.
-func patterns(s mut store.Store, k Pkg, t mut Typer, l syntax.List) {
+// patterns declares the names a case's or a catch arm's patterns bind:
+// `case T as x` gives x the type T, and a record pattern `case
+// T{F: x}` gives x the type of T's field F. A generic T written without
+// its type arguments takes the ones the match's subject fixes (subj,
+// types.Elided).
+func patterns(s mut store.Store, k Pkg, t mut Typer, l syntax.List, subj Option[dense.ID[store.TKey]]) {
 	let tr = tree(k, t.file)
 	for i in 0..syntax.Len(l) {
-		match syntax.ViewOf(tr, syntax.Item(tr, l, i)) {
+		let x = syntax.Item(tr, l, i)
+		match syntax.ViewOf(tr, x) {
 		case syntax.AsPattern as ap:
-			let kind = syntax.KindOf(tr, ap.X)
-			if kind == syntax.KIdent || kind == syntax.KSelectorExpr || kind == syntax.KIndexExpr {
-				let ty = types.Resolve(s, envOf(*s, k, *t), ap.X)
-				if valid(*s, ty) {
-					def(k, t, ap.Name, ty)
-				}
+			match patternType(s, k, *t, ap.X, subj) {
+			case Some{Value: ty}:
+				def(k, t, ap.Name, ty)
+			case None:
+			}
+		case syntax.CompositeLit:
+			recordPattern(s, k, t, x, subj)
+		case _:
+		}
+	}
+}
+
+// patternType is the type a pattern's type name x tests: as written, or
+// as the subject fixes a generic one written bare.
+func patternType(s mut store.Store, k Pkg, t Typer, x dense.ID[syntax.Node], subj Option[dense.ID[store.TKey]]) Option[dense.ID[store.TKey]] {
+	let kind = syntax.KindOf(tree(k, t.file), x)
+	if kind != syntax.KIdent && kind != syntax.KSelectorExpr && kind != syntax.KIndexExpr {
+		return None
+	}
+	let ty = types.Resolve(s, envOf(*s, k, t), x)
+	if valid(*s, ty) {
+		return some(ty)
+	}
+	match subj {
+	case Some{Value: c}:
+		elidedIn(s, k, t, x, c)
+	case None:
+		None
+	}
+}
+
+// recordPattern declares the names the record pattern x binds: each
+// keyed field whose pattern is a name takes the field's type, and a
+// field whose pattern is a record pattern binds within it, its field's
+// type its subject.
+func recordPattern(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], subj Option[dense.ID[store.TKey]]) {
+	let tr = tree(k, t.file)
+	let cl = syntax.CompositeLitOf(tr, x)
+	let rt = match dense.Unpack(cl.Type) {
+	case Some{Value: tx}:
+		match patternType(s, k, *t, tx, subj) {
+		case Some{Value: r}:
+			r
+		case None:
+			return
+		}
+	case None:
+		return
+	}
+	let p = k.Parsed[t.file]
+	for i in 0..syntax.Len(cl.Elts) {
+		match syntax.ViewOf(tr, syntax.Item(tr, cl.Elts, i)) {
+		case syntax.KeyValueExpr as kv:
+			if syntax.KindOf(tr, kv.Key) != syntax.KIdent {
+				continue
+			}
+			let ft = match fieldType(s, k, rt, types.NameText(p, kv.Key)) {
+			case Some{Value: f}:
+				infer.Unmarked(*s, f)
+			case None:
+				continue
+			}
+			let vk = syntax.KindOf(tr, kv.Value)
+			if vk == syntax.KIdent && types.NameText(p, kv.Value) != "_" {
+				def(k, t, kv.Value, ft)
+			} else if vk == syntax.KCompositeLit {
+				recordPattern(s, k, t, kv.Value, some(ft))
 			}
 		case _:
 		}
@@ -356,13 +422,12 @@ func body(s mut store.Store, k Pkg, t mut Typer, b dense.ID[syntax.Node]) {
 		let n = syntax.Len(bs.List)
 		for i in 0..n {
 			let st = syntax.Item(tree(k, t.file), bs.List, i)
-			if i == n-1 && syntax.KindOf(tree(k, t.file), st) == syntax.KExprStmt {
-				let x = syntax.ExprStmtOf(tree(k, t.file), st).X
+			if i == n-1 {
 				match result(*s, k, *t) {
 				case Some{Value: r}:
-					expr(s, k, t, x, Exactly{T: r})
+					tail(s, k, t, st, Exactly{T: r})
 				case None:
-					expr(s, k, t, x, Unsure)
+					tail(s, k, t, st, Unsure)
 				}
 				continue
 			}
@@ -386,15 +451,91 @@ func block(s mut store.Store, k Pkg, t mut Typer, b dense.ID[syntax.Node]) {
 // stmts walks a statement list. Its final expression statement may be the
 // list's value (an if or match used as an expression), whose context the
 // typer does not read.
-func stmts(s mut store.Store, k Pkg, t mut Typer, l syntax.List) {
-	let tr = tree(k, t.file)
+func stmts(s mut store.Store, k Pkg, t mut Typer, l syntax.List) { valued(s, k, t, l, Unsure) }
+
+// valued walks a statement list whose value w expects: its final
+// statement is the value (tail).
+func valued(s mut store.Store, k Pkg, t mut Typer, l syntax.List, w Want) {
 	let n = syntax.Len(l)
 	for i in 0..n {
-		let st = syntax.Item(tr, l, i)
-		if i == n-1 && syntax.KindOf(tr, st) == syntax.KExprStmt {
-			expr(s, k, t, syntax.ExprStmtOf(tr, st).X, Unsure)
+		let st = syntax.Item(tree(k, t.file), l, i)
+		if i == n-1 {
+			tail(s, k, t, st, w)
 		} else {
 			stmt(s, k, t, st)
+		}
+	}
+}
+
+// tail walks the final statement x of a list whose value w expects: an
+// expression statement is the value; a match's arms and an if's branches
+// end in it (the Go checker passes a function's result type into the
+// match or if that ends its body).
+func tail(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], w Want) {
+	let tr = tree(k, t.file)
+	let kd = syntax.KindOf(tr, x)
+	if kd == syntax.KExprStmt {
+		expr(s, k, t, syntax.ExprStmtOf(tr, x).X, w)
+	} else if kd == syntax.KTypeSwitchStmt {
+		matchStmt(s, k, t, x, w)
+	} else if kd == syntax.KSwitchStmt {
+		// A match on a value: its case values are not patterns that
+		// bind.
+		let m = syntax.SwitchStmtOf(tr, x)
+		expr(s, k, t, m.Tag, Unsure)
+		for i in 0..syntax.Len(m.Clauses) {
+			let c = syntax.Item(tr, m.Clauses, i)
+			if syntax.KindOf(tr, c) == syntax.KCaseClause {
+				let cc = syntax.CaseClauseOf(tr, c)
+				patterns(s, k, t, cc.List, None)
+				valued(s, k, t, cc.Body, w)
+			} else {
+				stmt(s, k, t, c)
+			}
+		}
+	} else if kd == syntax.KIfStmt {
+		let i = syntax.IfStmtOf(tr, x)
+		expr(s, k, t, i.Cond, Exactly{T: store.TBasic(s, bBool)})
+		tailBlock(s, k, t, i.Body, w)
+		match dense.Unpack(i.Else) {
+		case Some{Value: e}:
+			if syntax.KindOf(tr, e) == syntax.KBlockStmt {
+				tailBlock(s, k, t, e, w)
+			} else {
+				tail(s, k, t, e, w)
+			}
+		case None:
+		}
+	} else if kd == syntax.KBlockStmt {
+		tailBlock(s, k, t, x, w)
+	} else {
+		stmt(s, k, t, x)
+	}
+}
+
+func tailBlock(s mut store.Store, k Pkg, t mut Typer, b dense.ID[syntax.Node], w Want) {
+	let tr = tree(k, t.file)
+	if syntax.KindOf(tr, b) == syntax.KBlockStmt {
+		valued(s, k, t, syntax.BlockStmtOf(tr, b).List, w)
+	} else {
+		walk(s, k, t, b)
+	}
+}
+
+// matchStmt walks a match whose value w expects. Its subject's type fixes
+// the arguments of a generic pattern written bare.
+func matchStmt(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], w Want) {
+	let tr = tree(k, t.file)
+	let m = syntax.TypeSwitchStmtOf(tr, x)
+	let subj = expr(s, k, t, m.Subject, Unsure)
+	for i in 0..syntax.Len(m.Clauses) {
+		let c = syntax.Item(tr, m.Clauses, i)
+		if syntax.KindOf(tr, c) == syntax.KCaseClause {
+			let cc = syntax.CaseClauseOf(tr, c)
+			patterns(s, k, t, cc.List, subj)
+			valued(s, k, t, cc.Body, w)
+		} else {
+			stmt(s, k, t, c)
 		}
 	}
 }
@@ -459,14 +600,16 @@ func stmt(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) {
 		block(s, k, t, f.Body)
 	} else if kd == syntax.KRangeStmt {
 		rangeStmt(s, k, t, syntax.RangeStmtOf(tr, x))
+	} else if kd == syntax.KTypeSwitchStmt {
+		matchStmt(s, k, t, x, Unsure)
 	} else if kd == syntax.KCaseClause {
 		// A case's list is patterns, not expressions.
 		let cc = syntax.CaseClauseOf(tr, x)
-		patterns(s, k, t, cc.List)
+		patterns(s, k, t, cc.List, None)
 		stmts(s, k, t, cc.Body)
 	} else if kd == syntax.KCatchArm {
 		let ca = syntax.CatchArmOf(tr, x)
-		patterns(s, k, t, ca.Types)
+		patterns(s, k, t, ca.Types, None)
 		stmts(s, k, t, ca.Body)
 	} else if kd == syntax.KAssignStmt {
 		let a = syntax.AssignStmtOf(tr, x)
@@ -756,7 +899,7 @@ func exprType(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], w 
 			None
 		}
 	case syntax.CompositeLit as cl:
-		composite(s, k, t, cl)
+		composite(s, k, t, cl, w)
 	case syntax.InterpolatedString as is:
 		for i in 0..syntax.Len(is.Parts) {
 			let part = syntax.Item(tr, is.Parts, i)
@@ -791,6 +934,37 @@ func exprType(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], w 
 		block(s, k, t, x)
 		None
 	case _:
+		// An if or a match used as a value passes an expected type to the
+		// values its branches end in (tail). With none, the Go checker
+		// unifies the branches (`if c { raw[i] } else { 0 }` is a byte),
+		// which the typer does not: their values are Unsure.
+		if kd == syntax.KIfStmt || kd == syntax.KSwitchStmt || kd == syntax.KTypeSwitchStmt {
+			match w {
+			case Exactly:
+				tail(s, k, t, x, w)
+			case _:
+				tail(s, k, t, x, Unsure)
+			}
+			return None
+		}
+		// A tuple an expected tuple type fixes: each element takes its
+		// part.
+		if kd == syntax.KTupleExpr {
+			match w {
+			case Exactly as e:
+				let te = syntax.TupleExprOf(tr, x)
+				let n = syntax.Len(te.Elts)
+				let want = infer.Unmarked(*s, e.T)
+				if store.KindOfType(*s, want) == store.KTuple && len(store.OperandsOf(*s, want)) == n {
+					let parts = store.OperandsOf(*s, want)
+					for i in 0..n {
+						expr(s, k, t, syntax.Item(tr, te.Elts, i), Exactly{T: parts[i]})
+					}
+					return None
+				}
+			case _:
+			}
+		}
 		walk(s, k, t, x)
 		None
 	}

@@ -362,6 +362,20 @@ func goKinds(pkg *check.Package) (local, ext []string) {
 // pkg can name that is not its own, PRINT and KEY with spaces as ^: the
 // type's text and sort key as a use of the name gives them (an alias's are
 // its target's).
+// takesParams reports a variant written with the union's own parameters,
+// in their order, as its type arguments.
+func takesParams(v *check.Named, ps []*check.TypeParam) bool {
+	if len(v.TArgs) != len(ps) {
+		return false
+	}
+	for i, a := range v.TArgs {
+		if p, ok := a.(*check.TypeParam); !ok || p != ps[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func goTypes(pkg *check.Package) (fields, foreign []string) {
 	for _, tn := range pkg.Types {
 		n, ok := tn.Type.(*check.Named)
@@ -412,7 +426,7 @@ func goTypes(pkg *check.Package) (fields, foreign []string) {
 	})
 	visible(pkg, func(qual, name string, tn *check.TypeName) {
 		n, ok := tn.Type.(*check.Named)
-		if !ok || len(n.TParams) > 0 {
+		if !ok {
 			return
 		}
 		u, ok := fieldOf(reflect.ValueOf(n), "under").Interface().(*check.Union)
@@ -425,7 +439,17 @@ func goTypes(pkg *check.Package) (fields, foreign []string) {
 			if !ok || vn.Obj == nil || vn.Obj.Pkg != tn.Pkg {
 				return
 			}
+			// A generic union lists only the variants that take its
+			// parameters in their order (Option's Some[T]): the Ergo side
+			// instantiates such a variant with the union's arguments when
+			// a bare name's context fixes them (types.Elided).
+			if len(n.TParams) > 0 && !takesParams(vn, n.TParams) {
+				continue
+			}
 			vs = append(vs, vn.Obj.Name)
+		}
+		if len(vs) == 0 {
+			return
 		}
 		foreign = append(foreign, "@union "+qual+" "+name+" "+strings.Join(vs, ","))
 	})
