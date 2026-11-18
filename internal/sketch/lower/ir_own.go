@@ -240,7 +240,6 @@ func (b *irBuilder) listLet(v *check.Var, i int, d *check.Drop, site syntax.Node
 	h := b.temp("own", "*"+b.spelling(b.l.rt()+".Owned"), p)
 	o.handle[v] = h
 	rel := b.listRelease(d, v.Type, typ, p)
-	b.keepImport("var _ = " + b.l.rt() + ".Owning")
 	return []*irStmt{
 		{K: "def", Pos: p, Local: h, X: &irExpr{K: "mcall", Pos: p, Name: "Owner", X: b.frameArg(p)}},
 		{K: "expr", Pos: p, X: b.ownCall("Owning", typ, p, &irExpr{K: "local", Pos: p, I: h}, &irExpr{K: "local", Pos: p, I: i}, rel)},
@@ -786,7 +785,6 @@ func (b *irBuilder) listHand(o *irOwn, v *check.Var, id *syntax.Ident, e *irExpr
 		// known (R10; the emitter's tails.go sets fc.returned for it).
 		name = "Returned"
 	}
-	b.keepImport("var _ = " + b.l.rt() + "." + name)
 	return b.ownCall(name, b.goType(v.Type, id), e.Pos, &irExpr{K: "local", Pos: e.Pos, I: h}, e)
 }
 
