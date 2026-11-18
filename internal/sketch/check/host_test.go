@@ -169,6 +169,35 @@ func main() needs Console | Ambient {
 	}
 }
 
+// TestStatValueMethodsNeedNoForeign is HOST-ROW-3b's acceptance: the
+// methods of a file's mode and modification time that compute on the
+// value alone (fs.FileMode's IsDir, IsRegular, Perm, Type and String;
+// time.Time's instant methods) are memory-only rows, so a user reads
+// them with Ambient for the stat and nothing more. Red at base: each call
+// needs go.Foreign (S102). A zone-reading method (Year) still needs it.
+func TestStatValueMethodsNeedNoForeign(t *testing.T) {
+	for _, c := range []struct{ expr, want string }{
+		{`"\(info.Mode.IsRegular()) \(info.Mode.IsDir()) \(uint32(info.Mode.Perm())) \(uint32(info.Mode.Type())) \(info.Mode.String())"`, ""},
+		{`"\(info.ModTime.Unix()) \(info.ModTime.UnixMilli()) \(info.ModTime.UnixNano()) \(info.ModTime.IsZero()) \(info.ModTime.Before(info.ModTime.Add(1s))) \(info.ModTime.After(info.ModTime)) \(info.ModTime.Equal(info.ModTime.UTC())) \(info.ModTime.Compare(info.ModTime)) \(info.ModTime.Sub(info.ModTime))"`, ""},
+		{`"\(info.ModTime.Year())"`, "S102"},
+	} {
+		src := "import go os\n\nfunc describe(path string) string needs Ambient {\n\tlet info = os.Stat(path) catch {\n\tcase go.Error:\n\t\treturn \"missing\"\n\t}\n\t" + c.expr + "\n}\n"
+		f, err := syntax.Parse(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, ds := check.Check("example.test/statmethods", []*syntax.File{f}, nil)
+		var got []string
+		for _, d := range ds {
+			got = append(got, d.Code+" "+strconv.Itoa(d.Line)+":"+strconv.Itoa(d.Column)+" "+d.Message)
+		}
+		text := strings.Join(got, "\n")
+		if c.want == "" && text != "" || c.want != "" && (len(got) != 1 || !strings.HasPrefix(text, c.want)) {
+			t.Errorf("%s\ngot:\n%s\nwant %q", src, text, c.want)
+		}
+	}
+}
+
 // TestFileRowsChargeAmbient is HOST-ROW-2's acceptance: Go's os file
 // calls (ReadFile, WriteFile, ReadDir, Stat, Lstat, Mkdir, MkdirAll,
 // Remove, RemoveAll, Rename, Readlink, Chmod) are host rows, so a user's

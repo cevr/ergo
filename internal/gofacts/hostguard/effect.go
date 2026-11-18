@@ -3,10 +3,12 @@ package hostguard
 import (
 	"fmt"
 	"hash/fnv"
+	"io/fs"
 	"math/rand/v2"
 	"reflect"
 	"sort"
 	"sync/atomic"
+	"time"
 )
 
 // The guard of the memory-only rows (gofacts.Effects; np4f-plan GBX6): the
@@ -41,7 +43,59 @@ func effectCalls() map[string]func(r *rand.Rand) effectRun {
 		return x, r.IntN(2) == 1
 	}
 	pcg := func(r *rand.Rand) *rand.PCG { return rand.NewPCG(r.Uint64(), r.Uint64()) }
+	// A file mode: type bits and permission bits.
+	mode := func(r *rand.Rand) fs.FileMode {
+		types := []fs.FileMode{0, fs.ModeDir, fs.ModeSymlink, fs.ModeNamedPipe, fs.ModeSocket, fs.ModeDevice | fs.ModeCharDevice, fs.ModeIrregular}
+		return types[r.IntN(len(types))] | fs.FileMode(r.Uint32N(0o1000)) | fs.ModeSetuid*fs.FileMode(r.Uint32N(2))
+	}
+	// A time in time.Local, as os gives a file's: its zone is the host
+	// state the two host states differ in (TZ), so a row that read it
+	// would give another result under each. A time is compared by its
+	// instant, never printed in its zone or by its location's name (which
+	// is the host's zone's for time.Local); a result's location is
+	// compared with the one it must keep or take.
+	instant := func(r *rand.Rand) time.Time {
+		if r.IntN(8) == 0 {
+			return time.Time{}
+		}
+		return time.Unix(r.Int64N(4_000_000_000)-1_000_000_000, r.Int64N(1_000_000_000))
+	}
+
+	mode1 := func(f func(m fs.FileMode) any) func(r *rand.Rand) effectRun {
+		return func(r *rand.Rand) effectRun {
+			m := mode(r)
+			return effectRun{uint32(m), func() []any { return []any{f(m)} }}
+		}
+	}
+	time2 := func(f func(t, u time.Time) any) func(r *rand.Rand) effectRun {
+		return func(r *rand.Rand) effectRun {
+			t, u := instant(r), instant(r)
+			if r.IntN(4) == 0 {
+				u = t
+			}
+			return effectRun{[2]int64{t.UnixNano(), u.UnixNano()}, func() []any { return []any{f(t, u)} }}
+		}
+	}
 	return map[string]func(r *rand.Rand) effectRun{
+		"io/fs.FileMode.IsDir":     mode1(func(m fs.FileMode) any { return m.IsDir() }),
+		"io/fs.FileMode.IsRegular": mode1(func(m fs.FileMode) any { return m.IsRegular() }),
+		"io/fs.FileMode.Perm":      mode1(func(m fs.FileMode) any { return uint32(m.Perm()) }),
+		"io/fs.FileMode.Type":      mode1(func(m fs.FileMode) any { return uint32(m.Type()) }),
+		"io/fs.FileMode.String":    mode1(func(m fs.FileMode) any { return m.String() }),
+		"time.Time.Add": time2(func(t, u time.Time) any {
+			s := t.Add(time.Duration(u.UnixNano() % 1e12))
+			return [2]any{s.UnixNano(), s.Location() == t.Location()}
+		}),
+		"time.Time.After":     time2(func(t, u time.Time) any { return t.After(u) }),
+		"time.Time.Before":    time2(func(t, u time.Time) any { return t.Before(u) }),
+		"time.Time.Compare":   time2(func(t, u time.Time) any { return t.Compare(u) }),
+		"time.Time.Equal":     time2(func(t, u time.Time) any { return t.Equal(u) }),
+		"time.Time.IsZero":    time2(func(t, _ time.Time) any { return t.IsZero() }),
+		"time.Time.Sub":       time2(func(t, u time.Time) any { return int64(t.Sub(u)) }),
+		"time.Time.UTC":       time2(func(t, _ time.Time) any { s := t.UTC(); return [2]any{s.UnixNano(), s.Location() == time.UTC} }),
+		"time.Time.Unix":      time2(func(t, _ time.Time) any { return t.Unix() }),
+		"time.Time.UnixMilli": time2(func(t, _ time.Time) any { return t.UnixMilli() }),
+		"time.Time.UnixNano":  time2(func(t, _ time.Time) any { return t.UnixNano() }),
 		"sync/atomic.Bool.CompareAndSwap": func(r *rand.Rand) effectRun {
 			x, v := b(r)
 			return effectRun{x, func() []any { return []any{x.CompareAndSwap(v, !v), x.CompareAndSwap(!v, v)} }}

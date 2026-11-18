@@ -20,10 +20,13 @@ type Effect struct {
 	Target, Reason, Source string
 }
 
-// atomicWord and pcgState are the reasons of the rows below.
+// atomicWord, pcgState, fileModeBits and timeInstant are the reasons of
+// the rows below.
 const (
-	atomicWord = "its body is one atomic instruction on x's own word: it touches no memory but x's and never waits"
-	pcgState   = "it reads and writes only p's two state words: a multiply and an add, or the seeds"
+	atomicWord   = "its body is one atomic instruction on x's own word: it touches no memory but x's and never waits"
+	pcgState     = "it reads and writes only p's two state words: a multiply and an add, or the seeds"
+	fileModeBits = "it reads only m's bits: a mask, a compare or their text"
+	timeInstant  = "it reads only the instants of t and its argument (wall, ext), never a location's zone or the host's"
 )
 
 // Effects is the table of memory-only Go functions and methods.
@@ -42,6 +45,28 @@ var Effects = []Effect{
 	{Target: "math/rand/v2.NewPCG", Reason: "it returns a new PCG whose two state words are its arguments", Source: "07dc6a6412f8"},
 	{Target: "math/rand/v2.PCG.Seed", Reason: pcgState, Source: "7a7521723a07"},
 	{Target: "math/rand/v2.PCG.Uint64", Reason: pcgState, Source: "82ade025cb4d"},
+	// The values of a file's metadata (HOST-ROW-3b): hostfs.Info's Mode
+	// and ModTime are an fs.FileMode and a time.Time, whose methods below
+	// compute on the value alone, so a user reads them with no go.Foreign.
+	// A time.Time method that reads its location's zone (Year, Hour,
+	// Format, Local, In, ...) is not a row: the zone is host state for a
+	// time in time.Local, which os's times are.
+	{Target: "io/fs.FileMode.IsDir", Reason: fileModeBits, Source: "09c52a7f6974"},
+	{Target: "io/fs.FileMode.IsRegular", Reason: fileModeBits, Source: "adeb948447f8"},
+	{Target: "io/fs.FileMode.Perm", Reason: fileModeBits, Source: "892d9c86cda5"},
+	{Target: "io/fs.FileMode.Type", Reason: fileModeBits, Source: "002a34f0fec4"},
+	{Target: "io/fs.FileMode.String", Reason: fileModeBits, Source: "ec31917348c5"},
+	{Target: "time.Time.Add", Reason: timeInstant, Source: "0363db7ec041"},
+	{Target: "time.Time.After", Reason: timeInstant, Source: "f66cc9c7d00c"},
+	{Target: "time.Time.Before", Reason: timeInstant, Source: "6b1fb40f80d2"},
+	{Target: "time.Time.Compare", Reason: timeInstant, Source: "ec502b96477d"},
+	{Target: "time.Time.Equal", Reason: timeInstant, Source: "6e90fda3fff1"},
+	{Target: "time.Time.IsZero", Reason: timeInstant, Source: "48e36ccb8bf8"},
+	{Target: "time.Time.Sub", Reason: timeInstant, Source: "e1b6a752c5b6"},
+	{Target: "time.Time.UTC", Reason: timeInstant, Source: "a37ff6506242"},
+	{Target: "time.Time.Unix", Reason: timeInstant, Source: "f38f0efa4da0"},
+	{Target: "time.Time.UnixMilli", Reason: timeInstant, Source: "0e69a893e6c6"},
+	{Target: "time.Time.UnixNano", Reason: timeInstant, Source: "87ce5948816a"},
 }
 
 // EffectOf is the row of target, if it has one.
