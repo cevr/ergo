@@ -106,7 +106,9 @@ func (b *irBuilder) addrRecv(c *check.Call) bool {
 	if c.Recv == nil || !c.Func.Ptr {
 		return false
 	}
-	_, isPtr := b.l.info.Types[c.Recv].(*check.Pointer)
+	// In a copy, a type parameter is its bound type: a witness copy's S
+	// bound to *Screen is a pointer already (G4, examples/vt).
+	_, isPtr := b.fc.boundType(b.l.info.Types[c.Recv]).(*check.Pointer)
 	return !isPtr
 }
 
