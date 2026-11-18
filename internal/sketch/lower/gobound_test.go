@@ -554,10 +554,10 @@ var goBoundCrossing = regexp.MustCompile(`takes (\w+) has no effect`)
 // goBoundReleaseNeed is S102 on a capability that the release of a value
 // the use owns requires (resources, Context ownership 6): the row is
 // written, not inferred (EX2), so the generator adds the capability to the
-// use's needs clause, and to its literal's when the release is in the
-// literal (a method value's literal that returns an *os.File, whose Close
-// needs Ambient: HOST-ROW-3 slice 2), and checks the program again; not a
-// step down.
+// use's row (and to its literal's row when the release is in the literal:
+// a method value's literal that returns an *os.File, whose Close charges
+// Ambient; HOST-ROW-3 slice 2) and checks the program again; not a step
+// down.
 var goBoundReleaseNeed = regexp.MustCompile(`, run by the release of .* requires (\S+), which is not in the capability row of (?:function use\d+|this function literal)`)
 
 // goBoundOwnText is a kept parameter the generator writes: its name and
