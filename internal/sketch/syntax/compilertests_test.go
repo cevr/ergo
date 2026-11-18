@@ -16,7 +16,7 @@ import (
 // a pass. It is the bridge that lets a mutant ledger and the gate run
 // Ergo tests until scripts/mutants and the gate run `ergo test` of a
 // compiler package themselves (ST-0). The laws of the package are not
-// required here: four of them use the whole step budget at check time.
+// required here: ten of them use the whole step budget at check time.
 // Its first tests were TestLexicalErrorInLookahead's rows (wf10 TP-DIAG),
 // so it kills that family's mutants: the diag-* rows of
 // compiler/syntax/testdata/mutants.json.
