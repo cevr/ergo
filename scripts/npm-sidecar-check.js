@@ -1,5 +1,5 @@
 "use strict";
-// AS8's acceptance check of @cevr/tn1-lint's JS wrapper (tools/npm/tn1-lint/lint.js),
+// AS8's acceptance check of @cvr/tn1-lint's JS wrapper (tools/npm/tn1-lint/lint.js),
 // counted, never timed:
 //
 //   node scripts/npm-sidecar-check.js BINARY N

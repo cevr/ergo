@@ -1,5 +1,5 @@
 "use strict";
-// The synchronous API of @cevr/tn1-lint, for a caller that cannot wait on
+// The synchronous API of @cvr/tn1-lint, for a caller that cannot wait on
 // a promise (an oxlint rule): lintSync(request) is the diagnostics
 // `tn1-lint lint` reports for one text.
 //
@@ -8,7 +8,7 @@
 // Atomics.wait until the worker has its reply (the pattern of synckit and
 // oxlint-plugin-jev). N files cost one process start, not N.
 //
-//   const { lintSync, processStarts } = require("@cevr/tn1-lint/lint");
+//   const { lintSync, processStarts } = require("@cvr/tn1-lint/lint");
 //   lintSync({ rule, weights, path, text }) // => [{ message, code, severity, filename, labels }]
 //
 // The request and reply are tn1-lint's Ergo types Request and Reply

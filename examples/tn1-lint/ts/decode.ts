@@ -1,4 +1,4 @@
-// decode.ts holds @cevr/tn1-lint's wire module and lintSync to the replies
+// decode.ts holds @cvr/tn1-lint's wire module and lintSync to the replies
 // tn1-lint really writes. The `wire` case's setup.sh copies the package
 // (pkg/: lint.js, worker.js, wire.js) and the serve and lint cases'
 // expected output, which the built binary is held to, into the case.

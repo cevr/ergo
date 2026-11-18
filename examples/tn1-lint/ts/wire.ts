@@ -1,4 +1,4 @@
-// wire.ts generates @cevr/tn1-lint's wire module (tools/npm/tn1-lint/wire.js
+// wire.ts generates @cvr/tn1-lint's wire module (tools/npm/tn1-lint/wire.js
 // and wire.d.ts) from tn1-lint's Ergo types: `ergo tsmap --emit-js` of
 // cmd/tn1-lint gives Request, Reply and Report as Effect schemas, and
 // their JSON Schemas are embedded in a zero-dependency CommonJS module
