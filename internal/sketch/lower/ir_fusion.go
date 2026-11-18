@@ -87,7 +87,7 @@ func (b *irBuilder) bindAt(law *check.Law, x *syntax.CallExpr) (rwBinding, map[*
 		}
 		return true
 	}
-	if !walk(lawRw(law).Lhs, x) {
+	if !walk(law.TopRewrite().Lhs, x) {
 		return nil, nil, false
 	}
 	for _, tp := range law.TParams {
@@ -208,7 +208,7 @@ func (b *irBuilder) fuseAt(x *syntax.CallExpr) ([]*irStmt, *irExpr, bool) {
 		return nil, nil, false
 	}
 	for _, law := range b.l.scopeLaws() {
-		if !lawRw(law).OverFuncs {
+		if !law.TopRewrite().OverFuncs {
 			continue
 		}
 		bind, ops, ok := b.bindAt(law, x)
@@ -243,7 +243,7 @@ func (b *irBuilder) fuseSite(law *check.Law, bind rwBinding, ops map[*check.Var]
 		for len(m.holes) <= j {
 			m.holes, m.vals = append(m.holes, nil), append(m.vals, nil)
 		}
-		m.holes[j] = &irExpr{K: "hole", I: j, T: b.goType(v.Type, lawRw(law).Lhs)}
+		m.holes[j] = &irExpr{K: "hole", I: j, T: b.goType(v.Type, law.TopRewrite().Lhs)}
 		m.vals[j] = e
 		m.order = append(m.order, j)
 	}
@@ -264,7 +264,7 @@ func lawOrder(law *check.Law) []*check.Var {
 		param[v] = true
 	}
 	var out []*check.Var
-	syntax.Inspect(lawRw(law).Lhs, func(n syntax.Node) bool {
+	syntax.Inspect(law.TopRewrite().Lhs, func(n syntax.Node) bool {
 		if id, ok := n.(*syntax.Ident); ok {
 			if v, isVar := law.Pkg.Info.Uses[id].(*check.Var); isVar && param[v] && !slices.Contains(out, v) {
 				out = append(out, v)
@@ -356,7 +356,7 @@ func writesCaptured(info *check.Info, lit *syntax.FuncLit) bool {
 // function is the left side at the same operands, run again on a defect.
 func (b *irBuilder) fuseOr(m rwMatch, x *syntax.CallExpr, gt string, vals map[*check.Var]*irExpr, rpre []*irStmt, right *irExpr) *irExpr {
 	p := b.pos(x, x.Pos())
-	lpre, left := b.lawSide(m.law, lawRw(m.law).Lhs, vals, true)
+	lpre, left := b.lawSide(m.law, m.law.TopRewrite().Lhs, vals, true)
 	end := p
 	typ := "func() " + gt
 	rlit := &irExpr{K: "func", Pos: p, T: typ, Body: append(rpre, &irStmt{K: "ret", Pos: p, X: right}), End: &end}

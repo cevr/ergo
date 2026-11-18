@@ -18,15 +18,25 @@ import (
 // function literal on its right side: `law TransformFuses[T, U, V](xs []T,
 // f func(x T) U, g func(x U) V) { Transform(Transform(xs, f), g) } == {
 // Transform(xs, func(x T) V { g(f(x)) }) }`. Such a law takes
-// Law.FuncsRewrite, not Law.FuncRewrite: its matcher and right side are
-// FUSION-LOWER's, its evidence FUSION-EVIDENCE's, so until then no build
-// rewrites by it.
+// Law.FuncsRewrite, not Law.FuncRewrite: its sites are matched from the
+// call's source (lower's ir_fusion.go), not by the pass's IR patterns.
+// Law.TopRewrite reads either.
 type FuncRewrite struct {
 	Lhs, Rhs           syntax.Expr
 	Root               *Func
 	LhsCalls, RhsCalls int
 	// OverFuncs reports a rewrite over function parameters.
 	OverFuncs bool
+}
+
+// TopRewrite is law's rewrite: over values (FuncRewrite) or over function
+// parameters (FuncsRewrite); nil when the law is no rewrite in scope. The
+// licence run, the ledger and the build read every rewrite through it.
+func (law *Law) TopRewrite() *FuncRewrite {
+	if law.FuncRewrite != nil {
+		return law.FuncRewrite
+	}
+	return law.FuncsRewrite
 }
 
 // checkFuncRewrites checks the scope of every top-level rewrite law of the

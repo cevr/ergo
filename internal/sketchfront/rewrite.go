@@ -215,7 +215,7 @@ func (s ledgerSource) declares(e lower.LedgerEntry) bool {
 		if e.Provider == "" {
 			// A top-level law's entry (LF6b): the law, in the
 			// rewrite's scope still.
-			return l.Owner == nil && l.Machine == nil && l.Name == law && l.FuncRewrite != nil
+			return l.Owner == nil && l.Machine == nil && l.Name == law && l.TopRewrite() != nil
 		}
 		return l.Owner != nil && l.Owner.Name+"."+l.Name == law
 	})) {

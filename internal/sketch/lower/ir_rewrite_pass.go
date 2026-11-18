@@ -129,7 +129,7 @@ func (b *irBuilder) patterns() map[string][]*rwPattern {
 	}
 	b.rwPatterns = map[string][]*rwPattern{}
 	for _, law := range b.l.scopeLaws() {
-		if lawRw(law).OverFuncs {
+		if law.TopRewrite().OverFuncs {
 			continue // decided at the call, from its source (ir_fusion.go fuseAt)
 		}
 		if p := b.pattern(law); p != nil {
@@ -160,11 +160,11 @@ func (b *irBuilder) pattern(law *check.Law) (p *rwPattern) {
 	p = &rwPattern{law: law}
 	vals := map[*check.Var]*irExpr{}
 	for i, v := range law.Params {
-		h := &irExpr{K: "hole", I: i, T: b.goType(v.Type, lawRw(law).Lhs)}
+		h := &irExpr{K: "hole", I: i, T: b.goType(v.Type, law.TopRewrite().Lhs)}
 		p.holes = append(p.holes, h)
 		vals[v] = h
 	}
-	pre, left := b.lawSide(law, lawRw(law).Lhs, vals, true)
+	pre, left := b.lawSide(law, law.TopRewrite().Lhs, vals, true)
 	if len(pre) > 0 || left == nil || left.CF == nil {
 		return nil
 	}
