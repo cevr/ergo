@@ -190,6 +190,10 @@ func TestConstantArgumentAgreesWithReference(t *testing.T) {
 				calls[i] = append(calls[i], 1+r.IntN(2))
 			}
 			value[i] = r.IntN(5) == 0
+			if value[i] {
+				// two same constants, so only the value use keeps it quiet
+				calls[i] = []int{1, 1}
+			}
 		}
 		p := newPlanted()
 		for i := range n {
