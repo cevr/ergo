@@ -231,12 +231,15 @@ func TestKillerInAnotherSuiteIsRun(t *testing.T) {
 // env in their ledgers is refused rather than leaking into every suite.
 func TestLedgerEnvReachesItsOwnSuite(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "internal", "sketch", "lower", "l_test.go")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte("func TestL(t *testing.T) {}\n"), 0o644); err != nil {
-		t.Fatal(err)
+	// Only a package with tests is a suite (suitesFor), so tsproj has one.
+	for _, f := range []string{"internal/sketch/lower/l_test.go", "internal/tsproj/p_test.go"} {
+		path := filepath.Join(root, filepath.FromSlash(f))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("func TestL(t *testing.T) {}\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	env := []string{"ERGO_TS_TEST=1"}
 	own := &Ledger{Env: env, Mutants: []*Mutant{{Name: "a", Killers: []string{"lower:TestL"}}}}
