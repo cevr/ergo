@@ -120,7 +120,12 @@ func RewritesText(sites []lower.RewriteSite) string {
 // (lower/facts.go; facts.md, Lowering 7): each fact the build exports for
 // Go's optimizer, by position. It lowers the program in process and runs
 // no Go tool; source anchors a program of one source text.
-func InspectFacts(a Analysis, source string) ([]lower.Fact, error) {
+//
+// After the facts come the build's evidence rows (lower's
+// facts_evidence.go): each law rewrite the run build applies, with its
+// ledger entry's level and line in ledger (the module's ergo.laws), and
+// each unsafe body its shortcuts link.
+func InspectFacts(a Analysis, source, ledger string) ([]lower.Fact, error) {
 	if len(a.Diagnostics) > 0 || (a.file == nil && a.program == nil) || a.pkg == nil {
 		return nil, &BuildError{Diagnostics: a.Diagnostics}
 	}
@@ -129,10 +134,21 @@ func InspectFacts(a Analysis, source string) ([]lower.Fact, error) {
 		return nil, err
 	}
 	facts, err := lower.Facts(unit)
-	if facts == nil && err == nil {
+	if err != nil {
+		return facts, err
+	}
+	if facts == nil {
 		facts = []lower.Fact{}
 	}
-	return facts, err
+	text, err := ledgerText(nil, ledger)
+	if err != nil {
+		return facts, err
+	}
+	sites, err := InspectRewrites(a, source, ledger)
+	if err != nil {
+		return facts, err
+	}
+	return append(facts, lower.RewriteFacts(sites, text)...), nil
 }
 
 // FactsText is facts as ergo inspect facts prints them, one line each.

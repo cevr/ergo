@@ -561,12 +561,14 @@ func (l *lowerer) wireFunc(dir string, t check.Type, site syntax.Node) string {
 			// The state passes by value and comes back (cellFuncs).
 			param, result = scope.alloc("wv"), " "+writer
 			raw := text
+			l.windowsAt(t, site) // facts_evidence.go
 			if l.ir != nil && l.ir.wireCell(l, name, t, em, cw, nil, scope, site) {
 				// The IR builds the body (ir_wire.go): the Go
 				// declaration has none. A variant the IR refuses keeps
 				// its text.
 				bodyless := func(n string) string { return strings.TrimSuffix(head(n), " {\n") + "\n\n" }
 				cf.emit = func(n string, start rwCall) {
+					l.windowsAt(t, site)
 					if l.ir.wireCell(l, n, t, em, cw, &start, scope, site) {
 						l.gen.WriteString(bodyless(n))
 						return
@@ -582,6 +584,7 @@ func (l *lowerer) wireFunc(dir string, t check.Type, site syntax.Node) string {
 			}
 			text = w + " := &" + param + "\n" + l.cellEvents(cw, env, w, raw, site) + "\nreturn " + param + "\n"
 			cf.emit = func(n string, start rwCall) {
+				l.windowsAt(t, site)
 				l.gen.WriteString(head(n) + w + " := &" + param + "\n" + l.cellEventsFrom(cw, env, w, raw, &start, site) + "\nreturn " + param + "\n}\n\n")
 			}
 		}

@@ -194,7 +194,8 @@ func (l *lowerer) factList() []Fact {
 }
 
 // Facts is the fact section of the run build of u: every fact the build
-// exports, by position. It lowers u as Lower does and writes no file.
+// exports, by position, then the unsafe bodies its shortcuts link
+// (facts_evidence.go). It lowers u as Lower does and writes no file.
 func Facts(u Unit) ([]Fact, error) {
 	if err := u.Validate(); err != nil {
 		return nil, err
@@ -203,7 +204,7 @@ func Facts(u Unit) ([]Fact, error) {
 	if _, err := l.program(); err != nil {
 		return nil, err
 	}
-	return l.factList(), nil
+	return append(l.factList(), l.unsafeFacts()...), nil
 }
 
 // FactsText is facts as text, one line each: position, kind, function,
