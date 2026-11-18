@@ -63,5 +63,7 @@ func Get(f Folder, slot string) topdown.World fails topdown.Missing | topdown.Br
 		return topdown.Broken{Slot: slot, Why: m.Path + "." + m.Field + " is missing"}
 	case WireWrongKind as k:
 		return topdown.Broken{Slot: slot, Why: k.Path + " is not " + k.Want}
+	case WireUnknownTag as u:
+		return topdown.Broken{Slot: slot, Why: u.Path + " has no case " + u.Tag}
 	}
 }

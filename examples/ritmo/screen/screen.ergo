@@ -9,9 +9,9 @@ import strings
 // Cell is the units of the room one character shows: 100 by 100.
 let Cell = 100000
 
-// Map is the room as 16 rows of 22 cells: # a wall, * a pickup, @ the
+// Room is the room as 16 rows of 22 cells: # a wall, * a pickup, @ the
 // player, . the floor.
-func Map(w topdown.World) string {
+func Room(w topdown.World) string {
 	let cols = topdown.WorldWidth / Cell
 	let rows = topdown.WorldHeight / Cell
 	let walls = topdown.WallsOf(w)

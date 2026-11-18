@@ -138,7 +138,7 @@ func Run() int needs io.Stdin | io.Stdout | topdown.Saves {
 				io.Stdout.Println("rewound \(rw.Ticks)")
 				io.Stdout.Println(screen.Status(rw.W))
 			case topdown.Seen as v:
-				io.Stdout.Println(strings.TrimSuffix(screen.Map(v.W), "\n"))
+				io.Stdout.Println(strings.TrimSuffix(screen.Room(v.W), "\n"))
 				io.Stdout.Println(screen.Status(v.W))
 			}
 		}
