@@ -1,0 +1,185 @@
+//go:build unix
+
+package mygo
+
+import (
+	"archive/zip"
+	"bytes"
+	"debug/elf"
+	"debug/macho"
+	"flag"
+	"io"
+	"io/fs"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"testing"
+)
+
+var phonePlatform = flag.String("phone", "", "TestPhoneBuildsTheExamples: build for this phone (ios/simulator, ios, android/arm64, android/amd64); default: each phone whose toolchain is here")
+
+// phoneToolchains is the phones this host has a toolchain for, as MyGo's
+// CLI looks for them: Xcode (xcrun) for the iOS simulator; ANDROID_HOME
+// with an NDK, and a JDK (JAVA_HOME or java), for Android.
+func phoneToolchains() []string {
+	var out []string
+	if _, err := exec.LookPath("xcrun"); err == nil {
+		out = append(out, "ios/simulator")
+	}
+	sdk := os.Getenv("ANDROID_HOME")
+	ndks, _ := filepath.Glob(filepath.Join(sdk, "ndk", "*"))
+	_, java := exec.LookPath("java")
+	if sdk != "" && (len(ndks) > 0 || os.Getenv("ANDROID_NDK_HOME") != "") && (os.Getenv("JAVA_HOME") != "" || java == nil) {
+		out = append(out, "android/arm64")
+	}
+	return out
+}
+
+// TestPhoneBuildsTheExamples builds counter-gui and todo-gui as phone apps
+// with cmd/phone, for -phone or each phone whose toolchain is here. The
+// app's executable (the iOS app's Mach-O, the Android app's
+// libmygoapp.so) is for the phone's architecture and holds the Ergo
+// program: main.main and the desktop driver's functions, by name.
+//
+// It builds binaries because what it claims is that the phone's own
+// linker (Xcode's or the NDK's clang, as a c-archive or c-shared library)
+// links the IR module the patched compiler builds; no in-process check
+// sees a link. Each process runs under the memory bound (bounded) in a
+// process group of its own, killed when it ends. With -phone given and no
+// toolchain for it, it fails; with neither, it skips with "no phone
+// toolchain", which is not a pass (NO TESTS IS RED): the batch's Mac leg
+// builds for ios/simulator.
+//
+// Mutants it kills (testdata/mutants.json): the IR flag dropped from the
+// CLI's GOFLAGS (the compile then stops at "missing function body", which
+// it names apart from a toolchain failure); mygo.json written over the
+// program's own.
+func TestPhoneBuildsTheExamples(t *testing.T) {
+	platforms := phoneToolchains()
+	if *phonePlatform != "" {
+		platforms = []string{*phonePlatform}
+	}
+	if len(platforms) == 0 {
+		t.Skip("no phone toolchain (no xcrun; no ANDROID_HOME with an NDK and a JDK): the batch's Mac leg builds for ios/simulator")
+	}
+	ergo, err := builtErgo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range platforms {
+		for _, name := range guiExamples {
+			t.Run(p+"/"+name, func(t *testing.T) {
+				program := "./cmd/" + name
+				dir := filepath.Join(t.TempDir(), "app")
+				cmd := bounded("go", "run", "./cmd/phone", "build", "-platform", p, "-ergo", ergo, "-o", dir, program)
+				out := runGroup(t, cmd)
+				if bytes.Contains(out, []byte("missing function body")) {
+					t.Fatalf("the compile did not read the IR file (no -ergoir in the CLI's go build): %s", tail(out))
+				}
+				if !bytes.Contains(out, []byte(dir)) {
+					t.Fatalf("phone printed no app under %s:\n%s", dir, tail(out))
+				}
+				exe := appExecutable(t, dir, p)
+				for _, sym := range []string{"main.main", "ergo.local/prototype/hosts/mygo/desktop."} {
+					if !bytes.Contains(exe, []byte(sym)) {
+						t.Errorf("the app's executable holds no %q: not the Ergo program", sym)
+					}
+				}
+				// todo-gui has a mygo.json of its own, which the app gets;
+				// counter-gui has none, and gets one named after it.
+				want, err := os.ReadFile(filepath.Join("cmd", name, "mygo.json"))
+				if err != nil {
+					want = []byte(`"identifier":"dev.ergo.mygo.countergui"`)
+				}
+				if got, _ := os.ReadFile(filepath.Join(dir, "mygo.json")); !bytes.Contains(got, bytes.TrimSpace(want)) {
+					t.Errorf("the app's mygo.json is %s, want %s", got, want)
+				}
+			})
+		}
+	}
+}
+
+// runGroup runs cmd in a process group of its own, killed when it ends,
+// and returns what it printed; it fails t when cmd fails.
+func runGroup(t *testing.T, cmd *exec.Cmd) []byte {
+	t.Helper()
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	err := cmd.Wait()
+	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	if err != nil && !bytes.Contains(out.Bytes(), []byte("missing function body")) {
+		t.Fatalf("%v: %v\n%s", cmd.Args, err, tail(out.Bytes()))
+	}
+	return out.Bytes()
+}
+
+func tail(b []byte) []byte {
+	if len(b) > 4000 {
+		return b[len(b)-4000:]
+	}
+	return b
+}
+
+// appExecutable is the bytes of the executable of the app built in dir for
+// p, after checking its architecture.
+func appExecutable(t *testing.T, dir, p string) []byte {
+	t.Helper()
+	var app string
+	filepath.WalkDir(filepath.Join(dir, "dist"), func(f string, d fs.DirEntry, err error) error {
+		if err == nil && app == "" && (filepath.Ext(f) == ".app" || filepath.Ext(f) == ".apk") {
+			app = f
+		}
+		return nil
+	})
+	if app == "" {
+		t.Fatalf("no .app or .apk under %s", filepath.Join(dir, "dist"))
+	}
+	if strings.HasPrefix(p, "ios") {
+		exe := filepath.Join(app, strings.TrimSuffix(filepath.Base(app), ".app"))
+		f, err := macho.Open(exe)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		if f.Cpu != macho.CpuArm64 {
+			t.Fatalf("%s is for %v, want arm64", exe, f.Cpu)
+		}
+		b, err := os.ReadFile(exe)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	abi, machine := "arm64-v8a", elf.EM_AARCH64
+	if p == "android/amd64" {
+		abi, machine = "x86_64", elf.EM_X86_64
+	}
+	z, err := zip.OpenReader(app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer z.Close()
+	r, err := z.Open("lib/" + abi + "/libmygoapp.so")
+	if err != nil {
+		t.Fatalf("%s: %v", app, err)
+	}
+	b, err := io.ReadAll(r)
+	r.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := elf.NewFile(bytes.NewReader(b))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Machine != machine {
+		t.Fatalf("lib/%s/libmygoapp.so is for %v, want %v", abi, f.Machine, machine)
+	}
+	return b
+}
