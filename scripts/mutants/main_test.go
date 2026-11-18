@@ -230,6 +230,11 @@ func TestKillerInAnotherSuiteIsRun(t *testing.T) {
 	if _, _, away, err := suitesFor(root, []Job{{Path: path, Ledger: elsewhere, Select: regexp.MustCompile("^away$")}}); err != nil || len(away) != 1 || away[0].Name != "lower" {
 		t.Errorf("-run away: suites %+v, err %v; want lower alone", away, err)
 	}
+	// A family a selection names is measured as its parts.
+	fam := Suite{Only: []string{"TestFam"}, Families: []string{"TestFam"}}
+	if !measured(&fam, "TestFamPart0") || !measured(&fam, "TestFamPart12") || measured(&fam, "TestFamily") || measured(&fam, "TestOther") {
+		t.Errorf("a selected family: measured parts %v %v, TestFamily %v, TestOther %v; want its parts alone", measured(&fam, "TestFamPart0"), measured(&fam, "TestFamPart12"), measured(&fam, "TestFamily"), measured(&fam, "TestOther"))
+	}
 	// Without a selection the ledger's own suite runs every test.
 	if _, _, all, err := suitesFor(root, []Job{{Path: path, Ledger: elsewhere}}); err != nil || len(all) != 2 || all[0].Name != "runtime/v1" || all[0].Only != nil {
 		t.Errorf("no selection: suites %+v, err %v; want runtime/v1 with every test, and lower", all, err)
