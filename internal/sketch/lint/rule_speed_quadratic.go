@@ -6,8 +6,9 @@ import "ergo.local/prototype/internal/sketch/syntax"
 // the same collection (catalog PF7): in the body of a for-in over a
 // variable or a field of one, a for-in over the same collection, or a call
 // that passes the collection to a function whose body loops over that
-// parameter (one level; a Go binding has no body, so slices.Contains and
-// slices.Index are not seen yet). n turns of a loop that each walk n
+// parameter (one level), or whose doc comment's Scans: paragraph names it
+// (a Go binding has no body to read: std writes Scans: on slices.Contains
+// and slices.Index). A walk in a return statement runs once and is out. n turns of a loop that each walk n
 // elements do n² work.
 var quadraticScan = &Rule{
 	Name:    "quadratic-scan",
@@ -32,7 +33,9 @@ func checkQuadraticScan(p *Pass) {
 		same := func(e syntax.Expr) bool { return rootVar(p.Info, e) == v && shapeOf(p.Info, e) == shape }
 		syntax.Inspect(outer.Body, func(m syntax.Node) bool {
 			switch m := m.(type) {
-			case *syntax.FuncLit:
+			case *syntax.FuncLit, *syntax.ReturnStmt:
+				// A return runs once, ending the loop: its walk is no
+				// walk per turn.
 				return false
 			case *syntax.RangeStmt:
 				if same(m.X) {
@@ -40,9 +43,10 @@ func checkQuadraticScan(p *Pass) {
 				}
 			case *syntax.CallExpr:
 				call := p.Info.Calls[m]
-				if call == nil || call.Func == nil || call.Func.Decl == nil || call.Func.Decl.Body == nil || call.Func.Sig == nil || call.Func.Pkg == nil || call.Func.Pkg.Info == nil {
+				if call == nil || call.Func == nil || call.Func.Sig == nil {
 					return true
 				}
+				readable := call.Func.Decl != nil && call.Func.Decl.Body != nil && call.Func.Pkg != nil && call.Func.Pkg.Info != nil
 				args := m.Args
 				if call.Recv != nil {
 					args = append([]syntax.Expr{call.Recv}, m.Args...)
@@ -52,7 +56,7 @@ func checkQuadraticScan(p *Pass) {
 					return true
 				}
 				for i, a := range args {
-					if same(a) && loopsOver(call.Func.Pkg.Info, call.Func.Decl.Body, params[i]) {
+					if same(a) && (readable && loopsOver(call.Func.Pkg.Info, call.Func.Decl.Body, params[i]) || docScans(call.Func, i)) {
 						p.Report(m.Pos(), m.End(), "this call walks the collection the loop around it walks")
 						break
 					}

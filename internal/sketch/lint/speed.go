@@ -1,6 +1,9 @@
 package lint
 
 import (
+	"strings"
+	"unicode"
+
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -167,6 +170,25 @@ func usesAny(info *check.Info, n syntax.Node, vars map[*check.Var]bool) bool {
 		return !found
 	})
 	return found
+}
+
+// docScans reports whether fn's doc comment has a Scans: paragraph that
+// names its i-th parameter first.
+func docScans(fn *check.Func, i int) bool {
+	doc, _ := check.DocOf(fn)
+	text, ok := doc.Scans()
+	if !ok || fn.Sig == nil || i >= len(fn.Sig.Params) {
+		return false
+	}
+	// The paragraph starts with the word and its colon; the name follows.
+	if colon := strings.IndexByte(text, ':'); colon >= 0 {
+		text = strings.TrimSpace(text[colon+1:])
+	}
+	end := 0
+	for end < len(text) && (unicode.IsLetter(rune(text[end])) || unicode.IsDigit(rune(text[end])) || text[end] == '_') {
+		end++
+	}
+	return end > 0 && text[:end] == fn.Sig.Params[i].Name
 }
 
 // loopsOver reports whether body, outside function literals, has a for-in

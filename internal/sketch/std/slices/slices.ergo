@@ -44,9 +44,13 @@ extern go ergo.local/prototype/runtime/v1.SlicesSortFunc func SortFunc[T](xs []T
 extern go ergo.local/prototype/runtime/v1.SlicesSortStableFunc func SortStableFunc[T](xs []T, compare func(a T, b T) int) []T
 
 // Contains reports whether x is in xs.
+//
+// Scans: xs, element by element until it finds x.
 extern go ergo.local/prototype/runtime/v1.SlicesContains func Contains[T comparable](xs []T, x T) bool
 
 // Index is the index of the first x in xs, or -1.
+//
+// Scans: xs, element by element until it finds x.
 extern go ergo.local/prototype/runtime/v1.SlicesIndex func Index[T comparable](xs []T, x T) int
 
 // IndexFunc is the index of the first element of xs that f accepts, or -1.

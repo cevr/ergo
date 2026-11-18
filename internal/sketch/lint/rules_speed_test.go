@@ -42,6 +42,16 @@ func count(ys []int, v int) int {
 
 func size(ys []int) int { len(ys) }
 
+// has is whether v is in ys.
+//
+// Scans: ys, until it finds v.
+func has(ys []int, v int) bool { v >= 0 && len(ys) > 0 }
+
+// pick is the first of ys.
+//
+// Scans: zs, which it does not take.
+func pick(ys []int) int { len(ys) }
+
 func countIn(ys []int, zs []int) int {
 	let mut n = 0
 	for z in zs {
@@ -109,6 +119,9 @@ var quadraticKinds = []planKind{
 	{true, 4, "func %s(xs []int) int {\n\tlet mut n = 0\n\tfor x in xs {\n\t\tn = n + count(xs, x)\n\t}\n\tn\n}"},
 	{false, 0, "func %s(xs []int, zs []int) int {\n\tlet mut n = 0\n\tfor x in xs {\n\t\tfor z in zs {\n\t\t\tn = n + x * z\n\t\t}\n\t}\n\tn\n}"},
 	{false, 0, "func %s(xs []int) int {\n\tlet mut n = 0\n\tfor x in xs {\n\t\tn = n + x * size(xs)\n\t}\n\tn\n}"},
+	{false, 0, "func %s(xs []int) int {\n\tfor x in xs {\n\t\tif x < 0 {\n\t\t\treturn count(xs, x)\n\t\t}\n\t}\n\t0\n}"},
+	{true, 4, "func %s(xs []int) int {\n\tlet mut n = 0\n\tfor x in xs {\n\t\tif has(xs, x) {\n\t\t\tn = n + 1\n\t\t}\n\t}\n\tn\n}"},
+	{false, 0, "func %s(xs []int) int {\n\tlet mut n = 0\n\tfor x in xs {\n\t\tn = n + x * pick(xs)\n\t}\n\tn\n}"},
 	{false, 0, "func %s(xs []int, zs []int) int {\n\tlet mut n = 0\n\tfor x in xs {\n\t\tn = n + x * countIn(xs, zs)\n\t}\n\tn\n}"},
 	{true, 4, "func %s(xs []int, zs []int) int {\n\tlet mut n = 0\n\tfor x in xs {\n\t\tn = n + x * countIn(zs, xs)\n\t}\n\tn\n}"},
 }
@@ -117,9 +130,11 @@ var quadraticKinds = []planKind{
 // that walk it again (a nested loop, a call of a function that loops over
 // the parameter it is passed to) and ones that do not (a nested loop over
 // another collection, a call that only measures it, a call that loops
-// over another parameter), and checks that quadratic-scan fires on
-// exactly the walks inside. Mutants: lh3-quad-nested, lh3-quad-any-callee,
-// lh3-quad-param-first.
+// over another parameter), and calls of functions whose doc says Scans:
+// of the parameter passed (has) or of another name (pick), and checks
+// that quadratic-scan fires on exactly the walks inside. Mutants:
+// lh3-quad-nested, lh3-quad-any-callee, lh3-quad-param-first,
+// lh3-quad-scans-ignored, lh3-quad-scans-any-name, lh3-quad-return.
 func TestQuadraticScanAgreesWithReference(t *testing.T) {
 	speedProperty(t, "quadratic-scan", "TestQuadraticScanAgreesWithReference", 0x53, quadraticKinds)
 }
