@@ -197,14 +197,17 @@ func assembleCoverage(key string, suites []Suite, keys map[string]string, load f
 // coverageOfTree measures the coverage of the engine's suites, taking each
 // suite's segment from the store (Config.CoverStore) where its key holds.
 func (e *engine) coverageOfTree(ctx context.Context) (*coverage, error) {
+	// A command runs only where a row names it (Suite.Commands, judge.go;
+	// gtb-command-measured).
+	suites := slices.DeleteFunc(slices.Clone(e.cfg.Suites), func(s Suite) bool { return s.Commands != nil })
 	if e.cfg.CoverStore == "" {
 		e.logf("coverage: measuring every suite (tree %s)", e.key)
-		return e.measure(ctx, e.cfg.Suites)
+		return e.measure(ctx, suites)
 	}
 	keys, err := e.suiteKeys()
 	if err != nil {
 		e.logf("coverage: no segment reused: %v", err)
-		return e.measure(ctx, e.cfg.Suites)
+		return e.measure(ctx, suites)
 	}
 	store := coverStore{e.cfg.CoverStore}
 	measure := func(suites []Suite) (*coverage, error) {
@@ -215,9 +218,9 @@ func (e *engine) coverageOfTree(ctx context.Context) (*coverage, error) {
 		e.logf("coverage: measuring %s (tree %s); the other suites' segments are stored at %s", strings.Join(names, ", "), e.key, store.dir)
 		return e.measure(ctx, suites)
 	}
-	c, measured, err := assembleCoverage(e.key, e.cfg.Suites, keys, store.load, measure, e.suiteKeys, store.save)
+	c, measured, err := assembleCoverage(e.key, suites, keys, store.load, measure, e.suiteKeys, store.save)
 	if err == nil {
-		e.logf("coverage: %d of %d suites' segments reused from %s", len(e.cfg.Suites)-len(measured), len(e.cfg.Suites), store.dir)
+		e.logf("coverage: %d of %d suites' segments reused from %s", len(suites)-len(measured), len(suites), store.dir)
 	}
 	return c, err
 }

@@ -17,11 +17,13 @@ func TestMain(m *testing.M) { os.Exit(testinputs.Main(m)) }
 // where 7 tests failed on the unmutated tree and the run judged their rows
 // uncovered: a row a red test would judge gets no verdict, and the run
 // fails and lists it. So does an invalid row (GT-COMPILE: rows "killed"
-// only by a compile error). Mutants: gt8b-unjudged-exit, gtc-invalid-exit.
+// only by a compile error), and a hung one (GT-BOUND: a timeout is no
+// kill). Mutants: gt8b-unjudged-exit, gtc-invalid-exit, gtb-hung-exit.
 func TestUnjudgedFailsTheRun(t *testing.T) {
 	for _, c := range []struct{ status, detail, list string }{
 		{Unjudged, "s:TestRed fails on the unmutated tree", "NOT JUDGED"},
 		{Invalid, "does not compile: f.go:3:1: x", "row (invalid, origin o): does not compile"},
+		{Hung, "s:TestRed fail (a timeout, no kill): panic: test timed out", "HUNG"},
 	} {
 		m := &Mutant{Name: "row", Origin: "o", File: "f.go", Killers: []string{"s:TestRed"}}
 		jobs := []Job{{Path: "l.json", Ledger: &Ledger{Mutants: []*Mutant{m}}}}

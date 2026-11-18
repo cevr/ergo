@@ -70,7 +70,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	flags.SetOutput(stderr)
 	cfg := Config{Log: stderr}
 	var selectRE, memory, jsonOut string
-	var write, fresh, measureOnly, compileOnly bool
+	var write, fresh, measureOnly, compileOnly, resume bool
 	flags.BoolVar(&compileOnly, "compiles", false, "apply each selected row and compile it, and run no test: list the rows that do not compile (invalid)")
 	flags.StringVar(&cfg.Root, "root", ".", "the checkout")
 	flags.BoolVar(&fresh, "fresh", false, "judge every selected row, also one whose killed verdict is stored at its unchanged key, and measure every suite's coverage (the reference)")
@@ -80,6 +80,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	flags.BoolVar(&cfg.All, "all", false, "run every covering test of each mutant, to name every killer")
 	flags.BoolVar(&write, "write", false, "record the killers found (and the gaps of mutants judged for the first time) in the ledgers")
 	flags.IntVar(&cfg.Workers, "workers", 2, "mutants judged at once, each in its own copy")
+	flags.IntVar(&cfg.Tests, "tests", 2, "tests of one mutant run at once, until the first kill (workers × tests children run at once, each under -memory)")
+	flags.BoolVar(&resume, "resume", true, "keep a journal of the tree's verdicts under the user cache directory, and take the verdicts an earlier, unfinished run of the same tree wrote there")
 	flags.IntVar(&cfg.Procs, "procs", 2, "GOMAXPROCS and go -p of each child")
 	flags.StringVar(&memory, "memory", "4GiB", "RLIMIT_DATA of each child (KiB, MiB, GiB, or 0 for none)")
 	flags.StringVar(&cfg.Coverage, "coverage", "", "read the coverage from `FILE` instead of measuring it")
@@ -112,6 +114,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "mutants: -memory: %v\n", err)
 		return 2
 	}
+	// reused are the verdicts the store holds (reuse.go), set before any
+	// row is judged.
+	var reused []Result
 	var sel *regexp.Regexp
 	if selectRE != "" {
 		if sel, err = regexp.Compile(selectRE); err != nil {
@@ -133,6 +138,20 @@ func run(args []string, stdout, stderr io.Writer) int {
 	// Every .ergo row is formatted and checked before and after its edit,
 	// in the run and in -compiles (FK7a, FK12a; source.go).
 	cfg.Sources = ergoSources
+	if resume {
+		if dir, err := os.UserCacheDir(); err == nil {
+			cfg.JournalDir = filepath.Join(dir, "ergo-mutants", "journal")
+		}
+	}
+	if jsonOut != "" {
+		// Each verdict is written as it lands: a run killed before its end
+		// leaves the verdicts it reached.
+		cfg.Progress = func(results []Result) {
+			if err := writeResults(jsonOut, inLedgerOrder(jobs, append(slices.Clone(reused), results...))); err != nil {
+				fmt.Fprintf(stderr, "mutants: %v\n", err)
+			}
+		}
+	}
 	if compileOnly {
 		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 		defer cancel()
@@ -185,7 +204,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	start := time.Now()
 	// The rows whose killed verdict the store holds at their key are not
 	// judged again (reuse.go); -fresh and -all judge every row.
-	judge, reused := jobs, []Result(nil)
+	judge := jobs
 	pass := &reusePass{root: cfg.Root, log: stderr}
 	if !fresh && !cfg.All {
 		if pass.store, err = openReuseStore(); err != nil {
@@ -416,6 +435,19 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 			for _, id := range killerIDs(m) {
 				name, test := splitID(id)
 				i := slices.IndexFunc(suites, func(s Suite) bool { return s.Name == name })
+				if i < 0 && name == commandSuite {
+					s, need, err := commandsOf(jobs)
+					if err != nil {
+						return nil, nil, nil, err
+					}
+					for _, t := range need {
+						if !slices.ContainsFunc(tools, func(u Tool) bool { return u.Name == t.Name }) {
+							tools = append(tools, t)
+						}
+					}
+					suites = append(suites, s)
+					i = len(suites) - 1
+				}
 				if i < 0 {
 					s, need, ok := namedSuite(absRoot, name)
 					if !ok {
@@ -448,6 +480,31 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 		return nil, nil, nil, errors.Join(unresolved...)
 	}
 	return cover, tools, suites, nil
+}
+
+// commandsOf is the suite of the jobs' ledgers' commands, with the tools
+// their words name (one of ergoSuites' tools). Two ledgers may share a
+// command's name only with the same words.
+func commandsOf(jobs []Job) (Suite, []Tool, error) {
+	s := Suite{Name: commandSuite, Commands: map[string][]string{}, Only: []string{}}
+	for _, j := range jobs {
+		for name, words := range j.Ledger.Commands {
+			if had, ok := s.Commands[name]; ok && !slices.Equal(had, words) {
+				return Suite{}, nil, fmt.Errorf("%s: command %q differs from another ledger's", j.Path, name)
+			}
+			s.Commands[name] = words
+		}
+	}
+	_, known, _ := ergoSuites()
+	var need []Tool
+	for _, name := range toolsOf(&s) {
+		i := slices.IndexFunc(known, func(t Tool) bool { return t.Name == name })
+		if i < 0 {
+			return Suite{}, nil, fmt.Errorf("a command names the tool %q, which is none of %v", name, toolNames(known))
+		}
+		need = append(need, known[i])
+	}
+	return s, need, nil
 }
 
 // goFiles says whether the module directory dir holds a Go file: a test
@@ -513,6 +570,9 @@ func nestedModule(root, dir string) string {
 // none ran nothing.
 func hasTest(root string, s *Suite, test string) bool {
 	switch {
+	case s.Commands != nil:
+		_, ok := s.Commands[test]
+		return ok
 	case s.Package != "":
 		// A nested module's suite names its package in its module.
 		files, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(s.Module), filepath.FromSlash(s.Package), "*_test.go"))
@@ -560,8 +620,8 @@ func report(w io.Writer, jobs []Job, results []Result, cov *coverage) int {
 		}
 	}
 	counts := map[string]int{}
-	var newSurvivors, gaps, closed, moved, only, owners, unjudged []string
-	invalid := 0
+	var newSurvivors, gaps, closed, moved, only, owners, unjudged, hung []string
+	invalid, ran, most, stopped := 0, 0, 0, 0
 	for _, r := range results {
 		if r.Status == "" {
 			continue // not judged: the run was interrupted
@@ -573,7 +633,10 @@ func report(w io.Writer, jobs []Job, results []Result, cov *coverage) int {
 		if r.Killer != "" {
 			line += fmt.Sprintf("  by %s (%s)", r.Killer, r.Reason)
 		}
-		fmt.Fprintf(w, "%s  [%d run, %d covering, %.0f s]\n", line, len(r.Ran), r.Covering, r.Seconds)
+		fmt.Fprintf(w, "%s  [%d run, %d stopped, %d covering, %.0f s]\n", line, len(r.Ran), len(r.Stopped), r.Covering, r.Seconds)
+		ran += len(r.Ran)
+		most = max(most, len(r.Ran))
+		stopped += len(r.Stopped)
 		switch r.Status {
 		case Survived, Uncovered:
 			if m.Gap == "" {
@@ -598,6 +661,8 @@ func report(w io.Writer, jobs []Job, results []Result, cov *coverage) int {
 			}
 		case Unjudged:
 			unjudged = append(unjudged, fmt.Sprintf("%s (%s): %s", r.Name, where, r.Detail))
+		case Hung:
+			hung = append(hung, fmt.Sprintf("%s (%s, origin %s): %s", r.Name, where, m.Origin, firstLine(r.Detail)))
 		}
 	}
 	var keys []string
@@ -606,6 +671,7 @@ func report(w io.Writer, jobs []Job, results []Result, cov *coverage) int {
 	}
 	slices.Sort(keys)
 	fmt.Fprintf(w, "mutants: %d judged: %s\n", len(results), strings.Join(keys, ", "))
+	fmt.Fprintf(w, "receipt: %d tests run on mutants (at most %d on one), %d stopped by a first kill\n", ran, most, stopped)
 	section(w, "NEW SURVIVORS (no test kills them and the ledger records no gap)", newSurvivors)
 	section(w, "known gaps (survivors the ledger records)", gaps)
 	section(w, "gaps closed (now killed: clear the gap)", closed)
@@ -620,7 +686,8 @@ func report(w io.Writer, jobs []Job, results []Result, cov *coverage) int {
 	}
 	section(w, "tests that fail on the unmutated tree (they kill nothing)", broken)
 	section(w, "NOT JUDGED (a test that covers them fails on the unmutated tree: fix it, then run again)", unjudged)
-	if len(newSurvivors) > 0 || len(unjudged) > 0 || invalid > 0 {
+	section(w, "HUNG (no test killed them, and a test ran into its timeout: a deadline only stops a hung test, it kills nothing; fix the row or the test; a hung row fails the run)", hung)
+	if len(newSurvivors) > 0 || len(unjudged) > 0 || len(hung) > 0 || invalid > 0 {
 		return 1
 	}
 	return 0
@@ -673,17 +740,27 @@ func record(j Job, results []Result, cov *coverage, now time.Time) {
 	}
 }
 
+// writeResults writes the judged results to path, whole or not at all:
+// it is rewritten after each verdict, and a run may die at any point.
 func writeResults(path string, results []Result) error {
-	f, err := os.Create(path)
+	f, err := os.CreateTemp(filepath.Dir(path), ".results-*")
 	if err != nil {
 		return err
 	}
 	encoder := json.NewEncoder(f)
 	for _, r := range results {
+		if r.Status == "" {
+			continue // not judged yet
+		}
 		if err := encoder.Encode(r); err != nil {
 			f.Close()
+			os.Remove(f.Name())
 			return err
 		}
 	}
-	return f.Close()
+	if err := f.Close(); err != nil {
+		os.Remove(f.Name())
+		return err
+	}
+	return os.Rename(f.Name(), path)
 }

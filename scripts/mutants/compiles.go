@@ -167,6 +167,17 @@ func (w *worker) apply(m *Mutant, path string, original []byte) (func(), string)
 	}, ""
 }
 
+// applyChecked applies m and compiles it (compiles, with a .ergo row's
+// source check). It returns nil and why when the edit was not written, and
+// the restore with a detail when the mutated file does not compile.
+func (w *worker) applyChecked(ctx context.Context, m *Mutant, path string, original []byte) (func(), string) {
+	restore, detail := w.apply(m, path, original)
+	if restore == nil {
+		return nil, detail
+	}
+	return restore, w.compiles(ctx, m, path, original)
+}
+
 // CompileRows applies each selected row in a copy and compiles it, as judge
 // does before it runs a test, and runs no test and no coverage pass
 // (-compiles): a sweep of every ledger for rows that do not compile.
