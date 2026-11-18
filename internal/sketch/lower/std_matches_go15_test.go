@@ -25,8 +25,7 @@ const stdGo15Decls = `func fieldsText(fs []http.Field) string {
 // escapes ("%", "%4", "%zz"), "+", upper and lower case hex, repeated keys
 // out of order, invalid UTF-8 and non-ASCII, and 10000 and 10001 pairs
 // (Go's default limit); seeded queries mix them. Mutants (std ledger):
-// np4f15-parse-semicolon-kept, np4f15-parse-limit-past,
-// np4f15-parse-unsorted, np4f15-parse-unstable, np4f15-unescape-plus,
+// np4f15-parse-semicolon-kept, np4f15-parse-unsorted, np4f15-parse-unstable, np4f15-unescape-plus,
 // np4f15-unescape-truncated, np4f15-unhex-lower, np4f15-encode-lower-hex,
 // np4f15-encode-tilde, np4f15-encode-space.
 func stdGo15Cases(r *rand.Rand, n int) []bodyCase {

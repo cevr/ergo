@@ -1,5 +1,6 @@
 import hex
 import json
+import go net/url
 import slices
 import strconv
 import strings
@@ -14,10 +15,10 @@ type QueryRepeated { Key string }
 // %XX an escape; the fields are in key order, and the values of one key
 // in the order they came. A pair with a malformed escape is dropped, as
 // Go's Request.URL.Query drops it, and so is a pair with a ";" in it. A
-// query of more than 10000 pairs (Go's default urlmaxqueryparams) has no
-// fields.
+// query of more pairs than Go allows (GODEBUG urlmaxqueryparams, 10000 by
+// default) has no fields.
 func ParseQuery(raw string) []Field {
-	if strings.Count(raw, "&") >= 10000 {
+	if !queryWithinMax(strings.Count(raw, "&")) {
 		return []Field{}
 	}
 	let mut fields = []Field{}
@@ -49,6 +50,18 @@ func ParseQuery(raw string) []Field {
 	}
 	// Go's map gives each key's values in their order; its keys sorted.
 	slices.SortStableFunc(fields, func(a Field, b Field) int { strings.Compare(a.Name, b.Name) })
+}
+
+// queryWithinMax reports whether a query with amps "&" (amps + 1 pairs)
+// is within Go's limit on query pairs, as Go's url.ParseQuery reads it
+// from GODEBUG urlmaxqueryparams: Go's ParseQuery of amps "&" alone, whose
+// only failure is that limit (its pairs are empty, so skipped).
+func queryWithinMax(amps int) bool {
+	let _ = url.ParseQuery(strings.Repeat("&", amps)) catch {
+	case go.Error:
+		return false
+	}
+	true
 }
 
 // queryUnescape is s with "+" a space and each %XX its byte, as Go's
