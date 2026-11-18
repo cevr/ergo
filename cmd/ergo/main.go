@@ -672,6 +672,12 @@ func checkEnvelope(opts fileOptions, l loaded) (out []byte, exit, err error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	// A rewrite law in scope that its ledger does not license yet gets
+	// advice (LF6c). The ledger is read through the warm recorder, so a
+	// changed ergo.laws changes the warm key.
+	if err := l.analysis.AdviseLicences(&evaluation, w.fsys(), ledgerPath(opts.file)); err != nil {
+		return err
+	}
 	l.result.SetEvaluation(evaluation)
 	if err := json.NewEncoder(&buf).Encode(l.result.CheckEnvelope()); err != nil {
 		return nil, nil, err
