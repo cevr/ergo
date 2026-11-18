@@ -208,11 +208,11 @@ func (l symLaw) source(i int) string {
 		for k, p := range op.params {
 			ps = append(ps, fmt.Sprintf("%c%d %s", p[0], k, p))
 		}
-		res := ""
+		res, mode := "", "mut "
 		if op.result {
-			res = " bool"
+			res, mode = " bool", ""
 		}
-		fmt.Fprintf(&b, "\t%s%s(%s)%s,\n", name, sfx, strings.Join(ps, ", "), res)
+		fmt.Fprintf(&b, "\t%s%s%s(%s)%s,\n", mode, name, sfx, strings.Join(ps, ", "), res)
 	}
 	var decl []string
 	for k, p := range l.params {

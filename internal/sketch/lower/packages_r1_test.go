@@ -238,7 +238,7 @@ func TestImportedOperationTypes(t *testing.T) {
 		lib := strings.Replace(opsLib(fmt.Sprint(k)), "implements Read", "implements Read, Bump", 1)
 		return lib + `func Show(r Read) int { r.Get() }
 func First[T](xs []T, d T) T { d }
-type Bump { Inc() int }
+type Bump { mut Inc() int }
 func Inc(q mut Q) int { q.N + 10 }
 type Missing { Why string }
 func Fail(w string) int fails Missing { return Missing{Why: w} }

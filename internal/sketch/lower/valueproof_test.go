@@ -256,7 +256,7 @@ func provedModel(t *testing.T) {
 			fmt.Fprintf(&src, "func odd%s() %s { %s{s: %d} }\n", suffix, p, p, m.n-1)
 		}
 		fmt.Fprintf(&src, "func Ready(p %s) bool { int(p.s) != %d }\n", p, m.n-1)
-		fmt.Fprintf(&src, "type %s { Inc(), Twice(), Read() int, Ready() bool,\n", typ)
+		fmt.Fprintf(&src, "type %s { mut Inc(), mut Twice(), Read() int, Ready() bool,\n", typ)
 		if m.resultBad {
 			src.WriteString("Other() int,\n")
 		}

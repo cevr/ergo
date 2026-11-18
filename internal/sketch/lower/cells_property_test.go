@@ -162,7 +162,7 @@ func cellProgram(rng *rand.Rand) (string, string) {
 // cellCounterSource is the counter of TestProvedRunsModel with its
 // operation type sealed (seal), used through a cell local.
 var cellCounterSource = strings.NewReplacer(
-	"\tTotal() Digit,\n", "\tTotal() Digit,\n\tseal(),\n",
+	"\tmut Total() Digit,\n", "\tmut Total() Digit,\n\tseal(),\n",
 	"func Total(w mut Wheel) Digit { w.at }\n", "func Total(w mut Wheel) Digit { w.at }\nfunc seal(w Wheel) {}\n",
 	"\tlet mut w = NewWheel()\n\tw.Add(1)\n\tw.Add(2)\n\tw.Add(4)\n\tw.Total()\n", "\tlet c Counter = NewWheel()\n\tc.Add(1)\n\tc.Add(2)\n\tc.Add(4)\n\tc.Total()\n",
 ).Replace(wheelSource)

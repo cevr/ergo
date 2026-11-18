@@ -144,23 +144,24 @@ func listed(n int, changed int) []Item {
 
 type Counter { N int }
 
-func counted(f mut ui.Frame[int], c mut Counter) {
+func counted(f mut ui.Frame[int], c Counter) {
 	ui.Text(f, "n \(c.N)")
 }
 
-func counterView(f mut ui.Frame[int], c mut Counter) {
+func counterView(f mut ui.Frame[int], c Counter) {
 	counted(f, c)
 }
 
-// pointers renders the counter at each of ns, through one pointer: a
-// component whose argument is a pointer is no group, since an equal
-// pointer may reach a changed value.
+// pointers renders the counter at each of ns, one counter changed in
+// place between renders. A type parameter binds no borrow (types.md,
+// Generics 2; MODES-4), so the view takes the counter's value: an equal
+// value is the group's skip, a changed one renders again.
 func pointers(ns []int) needs Console {
 	let mut f = ui.NewFrame[int]()
 	let mut c = Counter{N: 0}
 	for n in ns {
 		c.N = n
-		let ops = ui.Render(&f, counterView, &c)
+		let ops = ui.Render(&f, counterView, c)
 		Console.Println("pointer ops \(show(ops))")
 		Console.Println(shot(ui.FrameShape(&f), ""))
 	}

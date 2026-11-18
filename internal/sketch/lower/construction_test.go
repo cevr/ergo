@@ -30,7 +30,7 @@ var openForms = []openForm{
 	{name: "conversion", decl: "type Q P\n\nfunc conv(q Q) P { P(q) }", what: "a conversion makes one", rank: 2},
 	{name: "exported field", field: ", S int", ctorField: ", S: 0", what: "its field S is exported", rank: 0},
 	{name: "self field", field: ", more []P", ctorField: ", more: []P{}", what: "its field more holds a P", rank: 0},
-	{name: "operation parameter", op: "Mix(o P),", opFunc: "func Mix(p mut P, o P) {}", what: "its operation Mix takes a P besides its receiver", rank: 1},
+	{name: "operation parameter", op: "mut Mix(o P),", opFunc: "func Mix(p mut P, o P) {}", what: "its operation Mix takes a P besides its receiver", rank: 1},
 	{name: "operation result", op: "Fork() P,", opFunc: "func Fork(p P) P { p }", what: "its operation Fork returns a P", rank: 1},
 }
 
@@ -94,7 +94,7 @@ func constructionProgram(seed int64) (src, want, form string) {
 	b.WriteString("func Inc(p mut P) { p.s = step(p.s) }\n\nfunc Read(p P) int { int(p.s) }\n\n")
 	fmt.Fprintf(&b, "func Reset(p mut P) { *p = P{s: 0, xs: []Small{}%s} }\n\n", ctorField)
 	b.WriteString(opFuncs)
-	fmt.Fprintf(&b, "type Ops {\n\tInc(),\n\tRead() int,\n\tReset(),\n\t%s\n\tlaw Same() { Inc(); Reset() } == { Reset() },\n}\n\n", ops)
+	fmt.Fprintf(&b, "type Ops {\n\tmut Inc(),\n\tRead() int,\n\tmut Reset(),\n\t%s\n\tlaw Same() { Inc(); Reset() } == { Reset() },\n}\n\n", ops)
 	for _, d := range decls {
 		b.WriteString(strings.ReplaceAll(d, "FIELDS", ctorField) + "\n\n")
 	}

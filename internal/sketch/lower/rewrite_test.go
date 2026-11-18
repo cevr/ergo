@@ -222,7 +222,7 @@ func digit(n int) Digit {
 // exactly as Add itself does in the handle-backed reference provider.
 func (a agreeType) valueSource() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "type %s { Add(n Digit), Inc(), Halve(), Clear(), Read() int, Even() bool,\n", a.name)
+	fmt.Fprintf(&b, "type %s { mut Add(n Digit), mut Inc(), mut Halve(), mut Clear(), Read() int, Even() bool,\n", a.name)
 	for _, law := range a.laws {
 		text := law.text()
 		head := text[:strings.LastIndex(text, " == ")]

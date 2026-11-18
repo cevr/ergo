@@ -7,7 +7,7 @@ import "testing"
 func TestErgoRunE1GenericDomain(t *testing.T) {
 	needsBuild(t)
 	for _, tc := range []struct{ name, decls, body, want string }{
-		{"closure-generic-instance", `func Later[T Valid](x T) func() bool { func() bool { let f = All[T]; f(x) } }`, `let f = Later(Card{N: 1}); Console.Println("\(f())")`, "true\n"},
+		{"closure-generic-instance", `func Later[T Valid](x T) func() bool { func() bool { let f = All[T]; let mut y = x; f(&y) } }`, `let f = Later(Card{N: 1}); Console.Println("\(f())")`, "true\n"},
 		{"nested-operation", `func Later[T Valid](x T) func() bool { func() bool { let g = func() bool { x.Check() }; g() } }`, `let f = Later(Card{N: 0}); Console.Println("\(f())")`, "false\n"},
 		{"pointer-method-closure", `func Later[T Valid](x mut T) bool { let f = func() bool { let m = x.Check; m() }; f() }`, `let mut c = Card{N: 1}; Console.Println("\(Later(&c))")`, "true\n"},
 		{"parameter-conversion", `func Later[T Valid](x T) func() bool { func() bool { let v Valid = x; v.Check() } }`, `let f = Later(Card{N: 1}); Console.Println("\(f())")`, "true\n"},
@@ -24,13 +24,13 @@ func Later[T comparable](a T, b T) func() bool { func() bool { Equal(a, b) } }`,
 		{"two-witnesses", `type Scored { Score() int, }
 type Mark { N int } implements Scored
 func Score(m Mark) int { m.N }
-func Later[A Valid, B Scored](a A, b B) func() int { func() int { if All(a) { b.Score() } else { 0 } } }`, `let f = Later(Card{N: 1}, Mark{N: 9}); Console.Println("\(f())")`, "9\n"},
+func Later[A Valid, B Scored](a A, b B) func() int { func() int { let mut y = a; if All(&y) { b.Score() } else { 0 } } }`, `let f = Later(Card{N: 1}, Mark{N: 9}); Console.Println("\(f())")`, "9\n"},
 		{"instantiated-operation-constraint", `type Getter[T] { Get() T, }
 type Cell[T] { V T } implements Getter[T]
 func Get[T](c Cell[T]) T { c.V }
 func Later[T Getter[int]](c T) func() int { func() int { c.Get() } }`, `let f = Later(Cell[int]{V: 8}); Console.Println("\(f())")`, "8\n"},
 		{"map-conversion-closure", `func Later[T Valid](x T) func() Map[string, Valid] { func() Map[string, Valid] { Map[string, Valid]{"x": Box[T]{V: x}} } }`, `let f = Later(Card{N: 1}); let m = f(); for v in m { Console.Println("\(v.Check())") }`, "true\n"},
-		{"two-generic-layers", `func Inner[T Valid](x T) func() bool { func() bool { All(Box[T]{V: x}) } }
+		{"two-generic-layers", `func Inner[T Valid](x T) func() bool { func() bool { let mut b = Box[T]{V: x}; All(&b) } }
 func Outer[T Valid](x T) func() bool { func() bool { let f = Inner(Box[T]{V: x}); f() } }`, `let f = Outer(Card{N: 1}); Console.Println("\(f())")`, "true\n"},
 		{"pointer-closure-parameter", `func Via[T Valid](x mut T) bool { let f = func(y mut T) bool { All(y) }; f(x) }`, `let mut c = Card{N: 1}; Console.Println("\(Via(&c))")`, "true\n"},
 	} {

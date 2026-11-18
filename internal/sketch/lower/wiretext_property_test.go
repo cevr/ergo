@@ -69,10 +69,10 @@ func tapeSource(rng *rand.Rand) string {
 
 type Tape {
 	..Writer,
-	Written() string,
-	raw(text string),
-	mark(k string),
-	echo(),
+	mut Written() string,
+	mut raw(text string),
+	mut mark(k string),
+	mut echo(),
 
 	law RawJoins(a string, b string) { raw(a); raw(b) } == { raw(a + b) },
 	law MarkLast(a string, b string) { mark(a); mark(b) } == { mark(b) },
