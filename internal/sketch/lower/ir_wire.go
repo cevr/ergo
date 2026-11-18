@@ -36,6 +36,7 @@ import (
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // wireIRLowering selects the codec writers' form on the IR path: "" (an
@@ -70,7 +71,14 @@ type wireGen struct {
 	p    irPos
 	env  int // locals: the environment, the cell's value, the value
 	wv   int
+	// decls declare the function's key arrays (WireKeysIn), at its entry.
+	decls []*irStmt
 }
+
+// wireKeysLowering selects how a codec writer orders a Map's keys: ""
+// (WireKeysIn, in an array of the frame) or "heap" (the reference:
+// WireKeys, a fresh slice per Map, as the text form does).
+var wireKeysLowering string
 
 // wireCell builds the IR body of the cell codec function name of t,
 // whose first run starts in start's state (nil when unknown), and reports
@@ -123,7 +131,7 @@ func (st *irState) wireCell(l *lowerer, name string, t check.Type, em wireEvents
 	g.p = b.pos(site, site.Pos())
 	steps := g.plan(t, &irExpr{K: "local", Pos: g.p, I: 2})
 	w := &wireWalk{g: g, tail: start}
-	body := w.steps(steps)
+	body := append(g.decls, w.steps(steps)...)
 	body = append(w.flush(body), &irStmt{K: "ret", Pos: g.p, X: g.local(g.wv)})
 	b.fn.Pos, b.fn.End = g.p, g.p
 	b.fn.Body = irScopesIncrease(irUseLocals(body)) // ir_end.go
@@ -159,9 +167,18 @@ func (g *wireGen) plan(t check.Type, v *irExpr) []wireStep {
 		return append(out, g.event("EndList"))
 	case *check.Map:
 		// Each entry as v[k], in WireKeys' order, as the text reads it.
+		// The keys are sorted in an array of this frame, one per Map
+		// step (WireKeysIn): the loop over them ends before the step
+		// runs again, and a Map it holds has its own.
 		kt := b.goType(u.Key, g.site)
 		k := b.temp("k", kt, g.p)
 		keys := &irExpr{K: "pcall", Pos: g.p, T: runtimeImport, Name: "WireKeys", V: kt + ", " + b.goType(u.Elem, g.site), Args: []*irExpr{v}}
+		if wireKeysLowering == "" {
+			room := b.temp("keys", "["+strconv.Itoa(v1.WireKeyRoom)+"]"+kt, g.p)
+			g.decls = append(g.decls, &irStmt{K: "var", Pos: g.p, Local: room})
+			keys.Name = "WireKeysIn"
+			keys.Args = []*irExpr{{K: "addr", Pos: g.p, X: g.local(room)}, v}
+		}
 		out := []wireStep{g.event("BeginObject", &irExpr{K: "len", Pos: g.p, X: v})}
 		body := []wireStep{g.event("Key", &irExpr{K: "conv", Pos: g.p, T: "string", X: g.local(k)})}
 		body = append(body, g.value(u.Elem, &irExpr{K: "index", Pos: g.p, X: v, Y: g.local(k)})...)
