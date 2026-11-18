@@ -726,7 +726,7 @@ type universeState struct {
 var universeOnce universeState
 
 // universe is the predeclared block: the basic types, the constraints
-// lent, wire and comparable, true,
+// lent, comparable and the codec one, true,
 // false and len, the one built-in function (#196, fourth round, item 2;
 // removedBuiltins names the Ergo form of each Go built-in it drops), and
 // with, the construct (grammar.md, Reserved names 2).

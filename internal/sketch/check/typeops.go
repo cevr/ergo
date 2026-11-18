@@ -1103,7 +1103,7 @@ func equatableSeen(t Type, seen map[Type]bool) bool {
 }
 
 // typeSet is the predeclared constraint a type parameter's constraint
-// names (lent, wire or comparable), SetAll for any other type or
+// names (lent, comparable or the codec one), SetAll for any other type or
 // constraint.
 func typeSet(t Type) TypeSet {
 	tp, ok := t.(*TypeParam)
@@ -1119,10 +1119,14 @@ func typeSet(t Type) TypeSet {
 // inSet reports whether t lies in the predeclared constraint s (types.md,
 // Generics 2). A type-set member is read by inTypeSet (typeset.go).
 func inSet(t Type, s TypeSet) bool {
-	if s == SetComparable {
+	switch s {
+	case SetAll, SetLent:
+		return true
+	case SetComparable:
 		return comparable(t)
 	}
-	return true
+	// The codec constraint is read by satisfies before it reaches here.
+	return false
 }
 
 // satisfies checks a type argument against its constraint.
