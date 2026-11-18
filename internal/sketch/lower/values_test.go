@@ -277,10 +277,37 @@ func bottoms(bottom int, k int) int {
 	a[0] + a[k % 12]
 }
 
+func growB(b Box, v int) Box {
+	Box{..b, S: b.S.Append(v)}
+}
+
+type Two { A []int, B []int }
+
+func growT(t Two, v int) Two {
+	Two{..t, A: t.A.Append(v)}
+}
+
+func regrowT(n int) int {
+	let mut t = Two{A: []int{}, B: []int{1}}
+	for i in 0..n {
+		t = growT(t, i)
+	}
+	len(t.A) + len(t.B)
+}
+
+func regrow(n int) int {
+	let mut b = Box{M: Map[int, int]{}, S: []int{}}
+	for i in 0..n {
+		b = growB(b, i)
+		b = Box{..b, M: Map[int, int]{i: i}}
+	}
+	len(b.S) + len(b.M)
+}
+
 func main() needs Console {
 	let mut m = build(3)
 	m[9] = 9
-	Console.Println("\(len(m)) \(len(drop(3))) \(len(boxed(2).S)) \(moved(2)[0]) \(kept([]int{4, 4})) \(len(count(9))) \(len(puts(4))) \(len(roomy(3))) \(tally(3)) \(len(runes(3).B)) \(len(bytesTwice(3))) \(joined(3)) \(keptText(1)) \(sortedDown(3)[0]) \(reversedDown(3)[0]) \(sortedSeq(3)[0]) \(len(tagged(3).S)) \(shelve(sync.NewRef[Map[int, Box]](Map[int, Box]{}), 2)) \(shelveArms(sync.NewRef[Map[int, Box]](Map[int, Box]{}), 2, true)) \(bottoms(-1, 5)) \(len(joinedPut(build(2), 5)))")
+	Console.Println("\(len(m)) \(len(drop(3))) \(len(boxed(2).S)) \(moved(2)[0]) \(kept([]int{4, 4})) \(len(count(9))) \(len(puts(4))) \(len(roomy(3))) \(tally(3)) \(len(runes(3).B)) \(len(bytesTwice(3))) \(joined(3)) \(keptText(1)) \(sortedDown(3)[0]) \(reversedDown(3)[0]) \(sortedSeq(3)[0]) \(len(tagged(3).S)) \(shelve(sync.NewRef[Map[int, Box]](Map[int, Box]{}), 2)) \(shelveArms(sync.NewRef[Map[int, Box]](Map[int, Box]{}), 2, true)) \(bottoms(-1, 5)) \(len(joinedPut(build(2), 5))) \(regrow(3)) \(regrowT(3))")
 }
 `
 
@@ -383,6 +410,18 @@ func TestValueRuleElides(t *testing.T) {
 	// constant length, which Go keeps on the stack (repeat.go).
 	if body := goFunc(t, code, "bottoms"); !strings.Contains(body, ".SlicesFill[int](make([]int, 12), ") {
 		t.Errorf("bottoms does not make its Repeat with a constant length:\n%s", body)
+	}
+	// A record update hands its base over (update.go): b = Box{..b, M: …}
+	// rebinds b, and growB's result shares only b's storage, so b = growB(b, i)
+	// hands b over (V7); neither copies the Box, its Map or its slice. The
+	// call stays (growB, or its owned variant growBOwned when b is handed).
+	if body := goFunc(t, code, "regrow"); strings.Contains(body, "Clone") || !strings.Contains(body, "growB") {
+		t.Errorf("regrow copies the Box its record updates hand over:\n%s", body)
+	}
+	// Two's fields have one type, so only the unshared premise (growT's
+	// parameter, handed over) makes t.A apart from the base's B.
+	if body := goFunc(t, code, "regrowT"); strings.Contains(body, "Clone") {
+		t.Errorf("regrowT copies the Two it hands over:\n%s", body)
 	}
 	// m = maps.Update(m, k, bump) is inlined at its site (inline.go):
 	// Update's body takes the Map as it is passed, unshared, and calls

@@ -64,7 +64,8 @@ import (
 //     with no failure row whose result shares no storage but p's (a pure
 //     runtime/v1 body, or an Ergo body freshFrom proves so), on one place
 //     rooted at a let mut or a borrow, passes p with no copy and takes
-//     the result with none;
+//     the result with none; so does p = T{..p, …} with its base, and a
+//     literal's base is apart from a field it sets (update.go);
 //   - a Ref owns its value (V6, refown.go): the parameter of a function
 //     literal written at Ref.Update or sync.Modify takes the held value
 //     over, as an unshared local; the cell copies a value that may be
@@ -3117,8 +3118,9 @@ func (w *valueWalk) freshPath(vv *vvar, id *syntax.Ident, path syntax.Expr) bool
 		if o == use || path != nil && valueOwned() && w.disjointRead(o.id, path) {
 			continue
 		}
-		if valueOwned() && (w.baseCovers(use.id, o.id) || w.baseCovers(o.id, use.id)) {
-			// An update's base and a path under a field it names (parts.go).
+		if valueOwned() && (w.baseCovers(use.id, o.id) || w.baseCovers(o.id, use.id)) || w.baseDisjoint(o.id, use.id, unshared) || w.baseDisjoint(use.id, o.id, unshared) {
+			// An update's base and a path under a field it names (parts.go),
+			// or under a field it sets when the value is unshared (update.go).
 			continue
 		}
 		if o.frame != frame {

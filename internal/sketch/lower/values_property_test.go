@@ -353,6 +353,12 @@ func idM(m Map[int, int]) Map[int, int] { m }
 
 func idB(b Box) Box { b }
 
+// growB gives b's Map and b's slice grown by v (update.go): its base and
+// the field it sets are apart, so b = growB(b, v) hands b over (V7).
+func growB(b Box, v int) Box {
+	Box{..b, S: b.S.Append(v)}
+}
+
 func freshM(k int) Map[int, int] {
 	let mut m = Map[int, int]{}
 	m[k] = k * 2
@@ -1194,9 +1200,21 @@ func (g *valueGen) write() {
 			g.reached["write field slice"] = true
 			g.moveField(b, v)
 		default:
-			g.line(fmt.Sprintf("%s.S = %s.S.Append(%d)", b.name, b.name, v))
+			// v, already drawn, picks the form, so the seeds keep their
+			// paths: a field write, a record update of b itself, or one
+			// through a body that returns one (update.go).
+			switch v % 3 {
+			case 1:
+				g.line(fmt.Sprintf("%s = Box{..%s, S: %s.S.Append(%d)}", b.name, b.name, b.name, v))
+				g.reached["update self"] = true
+			case 2:
+				g.line(fmt.Sprintf("%s = growB(%s, %d)", b.name, b.name, v))
+				g.reached["update handed"] = true
+			default:
+				g.line(fmt.Sprintf("%s.S = %s.S.Append(%d)", b.name, b.name, v))
+				g.reached["append field"] = true
+			}
 			b.val.s = append(b.val.s, v)
-			g.reached["append field"] = true
 		}
 	case kMaps:
 		if len(b.val.ms) == 0 {
@@ -1758,7 +1776,7 @@ var valuePaths = []string{
 	"source append live", "source delete live", "source put live", "source append element", "source update",
 	"argument", "pure", "closure", "task", "loop kept", "literal write",
 	"write map", "delete in place", "take live", "take in place", "put in place", "write loop", "write slice", "append in place",
-	"write field map", "write field slice", "append field", "write element",
+	"write field map", "write field slice", "append field", "write element", "update self", "update handed",
 	"own rebind", "own loop", "own capture", "own slice", "own field", "own live",
 	"update rebind", "update rebind option", "update field", "update live",
 	"ref new literal", "ref new binding", "ref own write", "ref own delete", "ref get", "ref set", "ref modify both",

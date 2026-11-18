@@ -6367,6 +6367,8 @@
       "killers": [
         "internal/sketch/lower:TestLinkedRuntimeHoldsEveryImport"
       ]
-    }
+    },
+    {"name":"own-update-apart-off","origin":"wf10 OWN1 UPDATE","file":"internal/sketch/lower/update.go","from":"\tif !valueOwned() || valueMutant == \"update-base-blind\" || base == read {\n","to":"\tif true {\n","rule":"A record literal's base is apart from a field it sets (update.go), so growB's Box{..b, S: b.S.Append(v)} is fresh from b and b = growB(b, i) hands b over with no copy.","killers":["lower:TestValueRuleElides"]},
+    {"name":"own-update-apart-typed","origin":"wf10 OWN1 UPDATE","file":"internal/sketch/lower/update.go","from":"\tif unshared {\n\t\treturn true\n\t}\n","to":"","rule":"An unshared value's fields share no storage, so a set field is apart from the base whatever its type: growT's Two{..t, A: t.A.Append(v)} (A and B both []int) hands t over.","killers":["lower:TestValueRuleElides"]}
   ]
 }
