@@ -3,6 +3,7 @@
 //
 //	triage                 the most severe first, then by host, then by line
 //	triage -by host        by host, then the most severe first, then by line
+//	triage -by count       each host and its number of entries, case-free
 //	triage -gen N          print a generated log of N entries
 //
 // Each line of the log on standard input is `SEVERITY HOST`, a severity of
@@ -18,7 +19,7 @@ import slices
 import strings
 import triage/entry
 
-let byFlag = flag.Choice("by", "severity", []string{"severity", "host"}, "sort by `order`")
+let byFlag = flag.Choice("by", "severity", []string{"severity", "host", "count"}, "sort by `order`, or count hosts")
 let genFlag = flag.Int("gen", -1, "print a generated log of `n` entries")
 
 let set = flag.Set{
@@ -47,6 +48,16 @@ func read() []entry.Entry fails os.Exit needs io.Stdin {
 	out
 }
 
+// counted is each host of the entries and its count, one line each, sorted;
+// hosts are compared by entry.HostCase, each as first written.
+func counted(entries []entry.Entry) string {
+	let mut lines = []string{}
+	for host, n in entry.Counts(entries) {
+		lines = lines.Append(host + " \(n)\n")
+	}
+	strings.Join(slices.Sort(lines), "")
+}
+
 // report is the entries, one line each.
 func report(entries []entry.Entry) string {
 	let mut b = strings.NewBuilder()
@@ -71,6 +82,8 @@ func run(args []string) fails os.Exit needs io.Stdout | io.Stdin {
 	match byFlag.Get(v) {
 	case "host":
 		io.Stdout.Print(report(slices.SortBy(entries, entry.ByHost)))
+	case "count":
+		io.Stdout.Print(counted(entries))
 	case _:
 		io.Stdout.Print(report(slices.SortBy(entries, entry.BySeverity)))
 	}
@@ -99,6 +112,10 @@ test SortsBySeverityThenHost {
 	let log = "info b\nerror b\ndebug a\nerror a\ninfo b\n"
 	assert ran([]string{}, log) == "error a 4\nerror b 2\ninfo b 1\ninfo b 5\ndebug a 3\n"
 	assert ran([]string{"-by", "host"}, log) == "error a 4\ndebug a 3\nerror b 2\ninfo b 1\ninfo b 5\n"
+}
+
+test CountsHostsWhateverTheirCase {
+	assert ran([]string{"-by", "count"}, "info Web-1\nerror db\nwarn WEB-1\ninfo web-1\n") == "Web-1 3\ndb 1\n"
 }
 
 test RefusesABadLine {
