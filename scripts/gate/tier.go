@@ -90,8 +90,12 @@ func tierFor(full, noCache, merge, recordDurations bool) string {
 
 // stepsFor declares the steps of a tier.
 func stepsFor(root, tier string) ([]*Step, error) {
-	if tier == fastTier {
+	switch tier {
+	case fastTier:
 		return fastSteps(root)
+	case roundTier:
+		steps, _, err := fastStepsSelected(root, nil, true)
+		return steps, err
 	}
 	return fullSteps(root)
 }
@@ -397,7 +401,7 @@ func fastExamples(root string, steps []*Step) error {
 // (classFastSteps), and one keyed -short step per test package or shard
 // but the host packages' and the full-tier-only packages' (fullTierOnly).
 func fastSteps(root string) ([]*Step, error) {
-	steps, _, err := fastStepsSelected(root, nil)
+	steps, _, err := fastStepsSelected(root, nil, false)
 	return steps, err
 }
 
@@ -410,8 +414,10 @@ type selector func(p testPackage, env, names []string) selection
 // joins the large ones that every shard skips, so a test the record does
 // not know still runs.
 // A package whose every fast test the selection skips has no step; dropped
-// says so, one line per package, for the gate to print.
-func fastStepsSelected(root string, choose selector) (steps []*Step, dropped []string, err error) {
+// says so, one line per package, for the gate to print. round declares
+// the round tier (affected.go) instead: every test of each package, no
+// -short, and choose judges every package, not only selectPackages.
+func fastStepsSelected(root string, choose selector, round bool) (steps []*Step, dropped []string, err error) {
 	packages, problem, err := testPackages(root)
 	if err != nil {
 		return nil, nil, err
@@ -461,7 +467,7 @@ func fastStepsSelected(root string, choose selector) (steps []*Step, dropped []s
 		}
 		if only, err := fullTierOnly(filepath.Join(root, filepath.FromSlash(p.dir))); err != nil {
 			return nil, nil, err
-		} else if only {
+		} else if only && !round {
 			continue
 		}
 		// A hermetic package builds as its full-tier step builds it.
@@ -479,13 +485,16 @@ func fastStepsSelected(root string, choose selector) (steps []*Step, dropped []s
 		}
 		measured := durations[p.importPath]
 		fast, large := fastSelection(names, measured)
+		if round {
+			fast, large = names, nil
+		}
 		plans = append(plans, &plan{p: p, relative: relative, env: env, needs: needs, fast: fast, large: large, measured: measured})
 	}
 	if choose != nil {
 		var wg sync.WaitGroup
 		slots := make(chan struct{}, runtime.GOMAXPROCS(0))
 		for _, pl := range plans {
-			if !slices.Contains(selectPackages, pl.relative) {
+			if !round && !slices.Contains(selectPackages, pl.relative) {
 				continue
 			}
 			wg.Go(func() {
@@ -502,7 +511,11 @@ func fastStepsSelected(root string, choose selector) (steps []*Step, dropped []s
 		p, env, needs, fast, large, measured := pl.p, pl.env, pl.needs, pl.fast, pl.large, pl.measured
 		note := ""
 		pkg := "./" + p.dir
-		name := "go test " + pkg + " (fast)"
+		suffix := "fast"
+		if round {
+			suffix = roundTier
+		}
+		name := "go test " + pkg + " (" + suffix + ")"
 		if pl.chosen != nil {
 			chosen := *pl.chosen
 			fast = slices.DeleteFunc(fast, func(name string) bool { return slices.Contains(chosen.skip, name) })
@@ -525,6 +538,9 @@ func fastStepsSelected(root string, choose selector) (steps []*Step, dropped []s
 			continue
 		}
 		base := []string{"go", "test", fastFlag}
+		if round {
+			base = []string{"go", "test"}
+		}
 		n := 1
 		if slices.Contains(slowPackages, pkg) {
 			total := 0.0
@@ -538,7 +554,7 @@ func fastStepsSelected(root string, choose selector) (steps []*Step, dropped []s
 		for i, selection := range selections {
 			step := &Step{Name: name, Needs: needs, Argv: append(append(append(slices.Clone(base), testTimeoutFor(weights[i])), selection...), pkg), Env: env, ToolEnv: testTools, GoStore: slices.Contains(goStorePackages, pl.relative), Package: p.closure, PackageProblem: problem, Weight: weights[i], Class: classFast, Note: note}
 			if len(selections) > 1 {
-				step.Name = fmt.Sprintf("go test %s [%d/%d] (fast)", pkg, i+1, len(selections))
+				step.Name = fmt.Sprintf("go test %s [%d/%d] (%s)", pkg, i+1, len(selections), suffix)
 			}
 			tests = append(tests, step)
 		}

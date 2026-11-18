@@ -84,7 +84,7 @@
       "name": "b18-full-tier-package-stepped",
       "origin": "wf10 batch-18 fix-tool (verify B1)",
       "file": "scripts/gate/tier.go",
-      "from": "\t\t} else if only {\n\t\t\tcontinue\n\t\t}\n\t\t// A hermetic package",
+      "from": "\t\t} else if only && !round {\n\t\t\tcontinue\n\t\t}\n\t\t// A hermetic package",
       "to": "\t\t} else if only && false {\n\t\t\tcontinue\n\t\t}\n\t\t// A hermetic package",
       "rule": "The fast tier declares no step for a full-tier-only package (fullTierOnly).",
       "killers": ["scripts/gate:TestFastStepsKeyEveryTestPackage"]
@@ -398,7 +398,14 @@
       "to": "\t\t\tif true {\n\t\t\t\t// --merge --no-cache, the reference, sweeps every package.",
       "rule": "--merge --no-cache, the reference, replays no sweep.",
       "killers": ["scripts/gate:TestMergeTierReplaysUnchangedSweeps"]
-    }
+    },
+    {"name":"round-read-ignored","origin":"wf10 CI-SELECT CS-ROUND","file":"scripts/gate/affected.go","from":"\t\t\t\t\tmark(t, \"reads \"+c.Path)","to":"\t\t\t\t\t_ = t","rule":"A test that opened a changed file is selected, whichever lines changed.","killers":["scripts/gate:TestAffectedAgreesWithAFullRun"]},
+    {"name":"round-deleted-file-selects-none","origin":"wf10 CI-SELECT CS-ROUND","file":"scripts/gate/affected.go","from":"\t\tcase !c.Was || !c.Is:\n","to":"\t\tcase !c.Is:\n\t\t\tcontinue\n\t\tcase !c.Was:\n","rule":"A compiled file added or removed runs every test of the package: the binary is built from it.","killers":["scripts/gate:TestAffectedAgreesWithAFullRun"]},
+    {"name":"round-unknown-test-skipped","origin":"wf10 CI-SELECT CS-ROUND","file":"scripts/gate/affected.go","from":"\t\tcase t == nil:\n\t\t\trun[name] = \"new: the segment does not know it\"\n","to":"\t\tcase t == nil:\n","rule":"A test the segment does not know runs.","killers":["scripts/gate:TestAffectedAgreesWithAFullRun"]},
+    {"name":"round-short-segment-used","origin":"wf10 CI-SELECT CS-ROUND","file":"scripts/gate/affected.go","from":"\tif entry.Mode != covfile.Mode {","to":"\tif false && entry.Mode != covfile.Mode {","rule":"A segment recorded under -short is no record of a full run: every test runs.","killers":["scripts/gate:TestAffectedAgreesWithAFullRun"]},
+    {"name":"round-uncovered-package-placed","origin":"wf10 CI-SELECT CS-ROUND","file":"scripts/gate/affected.go","from":"\t\tcase !cover[dir]:\n","to":"\t\tcase false:\n","rule":"A Go file of a package whose blocks the segment does not record runs every test.","killers":["scripts/gate:TestAffectedAgreesWithAFullRun"]},
+    {"name":"round-blocks-ignored","origin":"wf10 CI-SELECT CS-ROUND","file":"scripts/gate/affected.go","from":"\t\t\t\t\t\tmark(t, fmt.Sprintf(\"blocks %s:%d-%d\", c.Path, b.Start, b.End))","to":"\t\t\t\t\t\t_ = t","rule":"A body edit selects the tests that ran the blocks it touches.","killers":["scripts/gate:TestAffectedAgreesWithAFullRun"]},
+    {"name":"round-missing-store-passes","origin":"wf10 CI-SELECT CS-ROUND","file":"scripts/gate/affected.go","from":"\tif len(commits) == 0 {\n\t\treturn \"\", fmt.Errorf(\"no coverage store","to":"\tif len(commits) == 0 {\n\t\treturn \"HEAD\", nil\n\t}\n\tif false {\n\t\treturn \"\", fmt.Errorf(\"no coverage store","rule":"An empty coverage store is no backtest: the backtest fails and says how to fill it (NO TESTS IS RED).","killers":["scripts/gate:TestSelectionHoldsEveryLedgerKiller"]}
 
   ]
 }

@@ -361,7 +361,7 @@ func TestFastTierSkipsWhatTheSelectorSkips(t *testing.T) {
 			return selection{skip: names, note: "selected none of " + p.dir}
 		}
 		return selection{skip: []string{skipped}, note: "selected for " + p.dir}
-	})
+	}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
