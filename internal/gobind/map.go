@@ -465,9 +465,21 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, bool,
 	// `let s = slices.Sort(s)`. The lowering passes Go the value the
 	// value rule gives it (a copy, or the dead local itself) and takes it
 	// back as the call's value.
-	if w, ok := v1.GoWrites[target]; ok && w.Reason != "" && recv == nil && results == "" && !fails {
+	// A function or method with results of its own (`(*os.File).Read`;
+	// HOST-ROW-3 slice 2) returns the written slice first, then Go's
+	// results: `func (f *File) Read(b []byte) ([]byte, int) fails
+	// go.Error`.
+	if w, ok := v1.GoWrites[target]; ok && w.Reason != "" {
 		if i := w.Index; i >= 0 && i < len(params) && !(variadic && i == len(params)-1) && goSlice(sig.Params().At(i+first).Type()) {
-			results, m.writes = params[i].typ, params[i].name
+			switch {
+			case results == "":
+				results = params[i].typ
+			case strings.HasPrefix(results, "("):
+				results = "(" + params[i].typ + ", " + results[1:]
+			default:
+				results = "(" + params[i].typ + ", " + results + ")"
+			}
+			m.writes = params[i].name
 		}
 	}
 	var b strings.Builder

@@ -200,15 +200,21 @@ func (fc *funcCtx) goCall(x *syntax.CallExpr, c *check.Call) operand {
 	if variadic && len(vals) > 0 {
 		vals[len(vals)-1] += "..."
 	}
-	// A Go function that writes its slice argument in place (GBX2;
-	// check/gowrites.go): Go gets the operand the value rule gave (a copy,
-	// or the dead local itself), and the call's value is what Go wrote.
+	// A Go function or method that writes its slice argument in place
+	// (GBX2; check/gowrites.go): Go gets the operand the value rule gave
+	// (a copy, or the dead local itself), and the call's value is what Go
+	// wrote, first in a tuple with Go's own results (HOST-ROW-3 slice 2).
 	written := ""
-	if c.Kind == check.CallFunc && c.Recv == nil {
-		if i, ok := check.GoWrites(c.Func); ok && i < len(vals) {
-			written = fc.temp("w")
-			fc.line(written + " := " + vals[i])
-			vals[i] = written
+	if c.Kind == check.CallFunc && c.Func != nil && c.Func.Decl != nil && (c.Recv == nil) == (c.Func.Decl.Recv == nil) {
+		if i, ok := check.GoWrites(c.Func); ok {
+			if c.Recv != nil {
+				i-- // vals holds no receiver
+			}
+			if i >= 0 && i < len(vals) {
+				written = fc.temp("w")
+				fc.line(written + " := " + vals[i])
+				vals[i] = written
+			}
 		}
 	}
 	ctx := c.Kind != check.CallOp && check.GoContext(c.Func)
@@ -217,11 +223,6 @@ func (fc *funcCtx) goCall(x *syntax.CallExpr, c *check.Call) operand {
 	}
 	text := head + "(" + strings.Join(vals, ", ") + ")"
 	defer fc.identify(x, c)()
-	if written != "" {
-		fc.line(text)
-		fc.afterGoContext(x, ctx)
-		return operand{val: written}
-	}
 	var goResults []check.Type
 	if len(sig.Results) == 1 {
 		if t, ok := sig.Results[0].(*check.Tuple); ok {
@@ -229,6 +230,11 @@ func (fc *funcCtx) goCall(x *syntax.CallExpr, c *check.Call) operand {
 		} else {
 			goResults = sig.Results
 		}
+	}
+	skip := 0 // the written slice, the first of the Ergo results, is no Go result
+	if written != "" && len(goResults) > 0 {
+		skip = 1
+		goResults = goResults[1:]
 	}
 	names := make([]string, len(goResults))
 	for i := range names {
@@ -244,7 +250,7 @@ func (fc *funcCtx) goCall(x *syntax.CallExpr, c *check.Call) operand {
 		fc.line(text)
 		fc.compareReads(mark)
 		fc.afterGoContext(x, ctx)
-		return operand{}
+		return operand{val: written}
 	}
 	fc.line(strings.Join(lhs, ", ") + " := " + text)
 	fc.compareReads(mark)
@@ -261,17 +267,20 @@ func (fc *funcCtx) goCall(x *syntax.CallExpr, c *check.Call) operand {
 			// The call's checked type: a generic Go function's result
 			// names its own type parameter (maps.Keys's Seq[K]).
 			t = fc.typeOf(x)
-			if tuple, ok := t.(*check.Tuple); ok && len(goResults) > 1 {
-				t = tuple.Types[i]
+			if tuple, ok := t.(*check.Tuple); ok && len(goResults)+skip > 1 {
+				t = tuple.Types[i+skip]
 			}
 		}
 		vs[i] = fc.goResult(x, t, names[i], e, name)
 	}
-	if len(goResults) == 0 {
+	if written != "" {
+		vs = append([]string{written}, vs...)
+	}
+	if len(vs) == 0 {
 		return operand{err: e}
 	}
 	v := vs[0]
-	if len(goResults) > 1 {
+	if len(vs) > 1 {
 		parts := make([]string, len(vs))
 		for i, s := range vs {
 			parts[i] = tupleField(i) + ": " + s

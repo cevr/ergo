@@ -40,18 +40,22 @@ var GoArgClauses = map[string]map[int]GoArgClause{
 	"os.File.ReadDir":      {0: {true, "os/dir.go: returns entries after the directory read"}},
 }
 
-// GoWrite is a reviewed Go function that writes its slice parameter Index
-// in place and returns nothing (GBX2; docs/spec/interop.md, Go writes in
-// place). Its binding returns that slice in Ergo, and the call's value is
-// the slice Go wrote.
+// GoWrite is a reviewed Go function or method that writes its slice
+// parameter Index (counted after the receiver) in place (GBX2;
+// docs/spec/interop.md, Go writes in place). Its binding returns that
+// slice in Ergo, first when Go has results of its own (HOST-ROW-3 slice
+// 2: `(*os.File).Read` is `([]byte, int) fails go.Error`), and the
+// call's value is the slice Go wrote.
 type GoWrite struct {
 	Index  int
 	Reason string
 }
 
 // GoWrites records source facts (go1.27): each function writes only its
-// slice argument's elements, keeps no reference to it, and returns nothing.
+// slice argument's elements and keeps no reference to it.
 var GoWrites = map[string]GoWrite{
+	"os.File.Read":          {0, "os/file.go: f.read(b) fills b[:n] through poll.FD.Read, keeps no reference"},
+	"os.File.ReadAt":        {0, "os/file.go: f.pread(b, off) fills b in a loop through poll.FD.Pread, keeps no reference"},
 	"slices.Sort":           {0, "slices/sort.go: pdqsortOrdered sorts x's elements in place, keeps no reference"},
 	"slices.SortFunc":       {0, "slices/sort.go: pdqsortCmpFunc sorts x's elements in place, keeps no reference"},
 	"slices.SortStableFunc": {0, "slices/sort.go: stableCmpFunc sorts x's elements in place, keeps no reference"},
