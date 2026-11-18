@@ -135,4 +135,3 @@ func CheckTree(dir string) ([]Analysis, error) {
 	}
 	return out, nil
 }
-
