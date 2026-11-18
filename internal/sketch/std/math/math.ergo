@@ -2,10 +2,13 @@
 // bits; std-text-runes). Its functions call Go's math through import
 // go, as a user binds it (NP4f), so a call compiles to Go's own call, an
 // instruction for Floor, Ceil, Trunc, Sqrt and Abs on amd64 and arm64.
-// ToInt … ToUintptr are Ergo (NP4f-16): each guards T(f) with the open
-// interval in which the truncation fits, the compares of runtime/v1's
-// FloatToT fast path, so Go's prove pass drops the helper's own compares
-// and the conversion is one Go conversion. Go's constants are functions here
+// ToInt, ToInt64, ToUint, ToUint64 and ToUintptr are Ergo (NP4f-16): each
+// guards the conversion with the open interval in which the truncation
+// fits, and converts through int64(f) or uint64(f), whose helper's compare
+// is the guard's own, so Go's CSE and prove pass drop it. The externs
+// ToInt8 … ToUint32 bind runtime/v1 bodies (runtime/v1/numbers.go): an
+// Ergo body pays the helper's 64-bit compare and clamps inside its guard
+// (std-go-share.txt names why). Go's constants are functions here
 // (MaxInt64()): a std package let has no Go name in a build yet.
 
 import go math
@@ -95,28 +98,13 @@ func ToInt(f float64) int fails OutOfRange {
 }
 
 // ToInt8 is the checked int8(f).
-func ToInt8(f float64) int8 fails OutOfRange {
-	if f > -129.0 && f < 128.0 {
-		return int8(f)
-	}
-	OutOfRange{Value: f}
-}
+extern go ergo.local/prototype/runtime/v1.MathToInt8 func ToInt8(f float64) int8 fails OutOfRange
 
 // ToInt16 is the checked int16(f).
-func ToInt16(f float64) int16 fails OutOfRange {
-	if f > -32769.0 && f < 32768.0 {
-		return int16(f)
-	}
-	OutOfRange{Value: f}
-}
+extern go ergo.local/prototype/runtime/v1.MathToInt16 func ToInt16(f float64) int16 fails OutOfRange
 
 // ToInt32 is the checked int32(f).
-func ToInt32(f float64) int32 fails OutOfRange {
-	if f > -2147483649.0 && f < 2147483648.0 {
-		return int32(f)
-	}
-	OutOfRange{Value: f}
-}
+extern go ergo.local/prototype/runtime/v1.MathToInt32 func ToInt32(f float64) int32 fails OutOfRange
 
 // ToInt64 is the checked int64(f).
 func ToInt64(f float64) int64 fails OutOfRange {
@@ -135,28 +123,13 @@ func ToUint(f float64) uint fails OutOfRange {
 }
 
 // ToUint8 is the checked uint8(f).
-func ToUint8(f float64) uint8 fails OutOfRange {
-	if f > -1.0 && f < 256.0 {
-		return uint8(f)
-	}
-	OutOfRange{Value: f}
-}
+extern go ergo.local/prototype/runtime/v1.MathToUint8 func ToUint8(f float64) uint8 fails OutOfRange
 
 // ToUint16 is the checked uint16(f).
-func ToUint16(f float64) uint16 fails OutOfRange {
-	if f > -1.0 && f < 65536.0 {
-		return uint16(f)
-	}
-	OutOfRange{Value: f}
-}
+extern go ergo.local/prototype/runtime/v1.MathToUint16 func ToUint16(f float64) uint16 fails OutOfRange
 
 // ToUint32 is the checked uint32(f).
-func ToUint32(f float64) uint32 fails OutOfRange {
-	if f > -1.0 && f < 4294967296.0 {
-		return uint32(f)
-	}
-	OutOfRange{Value: f}
-}
+extern go ergo.local/prototype/runtime/v1.MathToUint32 func ToUint32(f float64) uint32 fails OutOfRange
 
 // ToUint64 is the checked uint64(f).
 func ToUint64(f float64) uint64 fails OutOfRange {

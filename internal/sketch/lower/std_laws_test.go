@@ -459,34 +459,6 @@ test TestingScriptNamesTheHeldCall(k string) {
 	}
 }
 
-func lawInt16(f float64) bool {
-	let n = math.ToInt16(f) catch {
-	case math.OutOfRange:
-		return math.IsNaN(f) || f >= 32768.0 || math.Trunc(f) < -32768.0
-	}
-	float64(n) == math.Trunc(f) && n == int16(f)
-}
-
-test MathToInt16FailsOnlyOutside(f float64) {
-	for g in mathEdges(f) {
-		assert lawInt16(g)
-	}
-}
-
-func lawInt32(f float64) bool {
-	let n = math.ToInt32(f) catch {
-	case math.OutOfRange:
-		return math.IsNaN(f) || f >= 2147483648.0 || math.Trunc(f) < -2147483648.0
-	}
-	float64(n) == math.Trunc(f) && n == int32(f)
-}
-
-test MathToInt32FailsOnlyOutside(f float64) {
-	for g in mathEdges(f) {
-		assert lawInt32(g)
-	}
-}
-
 func lawInt64(f float64) bool {
 	let n = math.ToInt64(f) catch {
 	case math.OutOfRange:
@@ -498,20 +470,6 @@ func lawInt64(f float64) bool {
 test MathToInt64FailsOnlyOutside(f float64) {
 	for g in mathEdges(f) {
 		assert lawInt64(g)
-	}
-}
-
-func lawInt8(f float64) bool {
-	let n = math.ToInt8(f) catch {
-	case math.OutOfRange:
-		return math.IsNaN(f) || f >= 128.0 || math.Trunc(f) < -128.0
-	}
-	float64(n) == math.Trunc(f) && n == int8(f)
-}
-
-test MathToInt8FailsOnlyOutside(f float64) {
-	for g in mathEdges(f) {
-		assert lawInt8(g)
 	}
 }
 
@@ -529,34 +487,6 @@ test MathToIntFailsOnlyOutside(f float64) {
 	}
 }
 
-func lawUint16(f float64) bool {
-	let n = math.ToUint16(f) catch {
-	case math.OutOfRange:
-		return math.IsNaN(f) || f >= 65536.0 || math.Trunc(f) < 0.0
-	}
-	float64(n) == math.Trunc(f) && n == uint16(f)
-}
-
-test MathToUint16FailsOnlyOutside(f float64) {
-	for g in mathEdges(f) {
-		assert lawUint16(g)
-	}
-}
-
-func lawUint32(f float64) bool {
-	let n = math.ToUint32(f) catch {
-	case math.OutOfRange:
-		return math.IsNaN(f) || f >= 4294967296.0 || math.Trunc(f) < 0.0
-	}
-	float64(n) == math.Trunc(f) && n == uint32(f)
-}
-
-test MathToUint32FailsOnlyOutside(f float64) {
-	for g in mathEdges(f) {
-		assert lawUint32(g)
-	}
-}
-
 func lawUint64(f float64) bool {
 	let n = math.ToUint64(f) catch {
 	case math.OutOfRange:
@@ -568,20 +498,6 @@ func lawUint64(f float64) bool {
 test MathToUint64FailsOnlyOutside(f float64) {
 	for g in mathEdges(f) {
 		assert lawUint64(g)
-	}
-}
-
-func lawUint8(f float64) bool {
-	let n = math.ToUint8(f) catch {
-	case math.OutOfRange:
-		return math.IsNaN(f) || f >= 256.0 || math.Trunc(f) < 0.0
-	}
-	float64(n) == math.Trunc(f) && n == uint8(f)
-}
-
-test MathToUint8FailsOnlyOutside(f float64) {
-	for g in mathEdges(f) {
-		assert lawUint8(g)
 	}
 }
 
@@ -624,17 +540,11 @@ func stdLawsTestName(pkg, law string) string {
 // holds it equal to the ledger, so a law changed in source fails here
 // until its restatement in the probe is changed with it.
 var stdLawsStatements = map[string]string{
-	"math ToInt16FailsOnlyOutside": `ToInt16FailsOnlyOutside(f float64) { let n = ToInt16(f) catch { case OutOfRange: return IsNaN(f) || f >= 32768.0 || Trunc(f) < -32768.0 } float64(n) == Trunc(f) && n == int16(f) }`,
-	"math ToInt32FailsOnlyOutside": `ToInt32FailsOnlyOutside(f float64) { let n = ToInt32(f) catch { case OutOfRange: return IsNaN(f) || f >= 2147483648.0 || Trunc(f) < -2147483648.0 } float64(n) == Trunc(f) && n == int32(f) }`,
-	"math ToInt64FailsOnlyOutside": `ToInt64FailsOnlyOutside(f float64) { let n = ToInt64(f) catch { case OutOfRange: return IsNaN(f) || f >= 9223372036854775808.0 || Trunc(f) < -9223372036854775808.0 } float64(n) == Trunc(f) && n == int64(f) }`,
-	"math ToInt8FailsOnlyOutside": `ToInt8FailsOnlyOutside(f float64) { let n = ToInt8(f) catch { case OutOfRange: return IsNaN(f) || f >= 128.0 || Trunc(f) < -128.0 } float64(n) == Trunc(f) && n == int8(f) }`,
-	"math ToIntFailsOnlyOutside": `ToIntFailsOnlyOutside(f float64) { let n = ToInt(f) catch { case OutOfRange: return IsNaN(f) || f >= 9223372036854775808.0 || Trunc(f) < -9223372036854775808.0 } float64(n) == Trunc(f) && n == int(f) }`,
-	"math ToUint16FailsOnlyOutside": `ToUint16FailsOnlyOutside(f float64) { let n = ToUint16(f) catch { case OutOfRange: return IsNaN(f) || f >= 65536.0 || Trunc(f) < 0.0 } float64(n) == Trunc(f) && n == uint16(f) }`,
-	"math ToUint32FailsOnlyOutside": `ToUint32FailsOnlyOutside(f float64) { let n = ToUint32(f) catch { case OutOfRange: return IsNaN(f) || f >= 4294967296.0 || Trunc(f) < 0.0 } float64(n) == Trunc(f) && n == uint32(f) }`,
-	"math ToUint64FailsOnlyOutside": `ToUint64FailsOnlyOutside(f float64) { let n = ToUint64(f) catch { case OutOfRange: return IsNaN(f) || f >= 18446744073709551616.0 || Trunc(f) < 0.0 } float64(n) == Trunc(f) && n == uint64(f) }`,
-	"math ToUint8FailsOnlyOutside": `ToUint8FailsOnlyOutside(f float64) { let n = ToUint8(f) catch { case OutOfRange: return IsNaN(f) || f >= 256.0 || Trunc(f) < 0.0 } float64(n) == Trunc(f) && n == uint8(f) }`,
-	"math ToUintFailsOnlyOutside": `ToUintFailsOnlyOutside(f float64) { let n = ToUint(f) catch { case OutOfRange: return IsNaN(f) || f >= 18446744073709551616.0 || Trunc(f) < 0.0 } float64(n) == Trunc(f) && n == uint(f) }`,
-	"math ToUintptrFailsOnlyOutside": `ToUintptrFailsOnlyOutside(f float64) { let n = ToUintptr(f) catch { case OutOfRange: return IsNaN(f) || f >= 18446744073709551616.0 || Trunc(f) < 0.0 } float64(n) == Trunc(f) && n == uintptr(f) }`,
+	"math ToInt64FailsOnlyOutside":         `ToInt64FailsOnlyOutside(f float64) { let n = ToInt64(f) catch { case OutOfRange: return IsNaN(f) || f >= 9223372036854775808.0 || Trunc(f) < -9223372036854775808.0 } float64(n) == Trunc(f) && n == int64(f) }`,
+	"math ToIntFailsOnlyOutside":           `ToIntFailsOnlyOutside(f float64) { let n = ToInt(f) catch { case OutOfRange: return IsNaN(f) || f >= 9223372036854775808.0 || Trunc(f) < -9223372036854775808.0 } float64(n) == Trunc(f) && n == int(f) }`,
+	"math ToUint64FailsOnlyOutside":        `ToUint64FailsOnlyOutside(f float64) { let n = ToUint64(f) catch { case OutOfRange: return IsNaN(f) || f >= 18446744073709551616.0 || Trunc(f) < 0.0 } float64(n) == Trunc(f) && n == uint64(f) }`,
+	"math ToUintFailsOnlyOutside":          `ToUintFailsOnlyOutside(f float64) { let n = ToUint(f) catch { case OutOfRange: return IsNaN(f) || f >= 18446744073709551616.0 || Trunc(f) < 0.0 } float64(n) == Trunc(f) && n == uint(f) }`,
+	"math ToUintptrFailsOnlyOutside":       `ToUintptrFailsOnlyOutside(f float64) { let n = ToUintptr(f) catch { case OutOfRange: return IsNaN(f) || f >= 18446744073709551616.0 || Trunc(f) < 0.0 } float64(n) == Trunc(f) && n == uintptr(f) }`,
 	"os CodeWhere":                         `CodeWhere(v Code) { let it = int(v) (1 <= it && it <= 125) && try ParseCode(it) == v }`,
 	"atomic InitialValues":                 `InitialValues(value int64, flag bool) { NewInt64(value).Load() == value && NewBool(flag).Load() == flag }`,
 	"atomic Int64.StoresAndAdds":           `StoresAndAdds(a int64, b int64) { Store(a) let sum = Add(b) let seen = Load() let previous = Swap(a) let changed = CompareAndSwap(a, b) let unchanged = !CompareAndSwap(b+1, a) sum == a+b && seen == sum && previous == sum && changed && unchanged && Load() == b }`,

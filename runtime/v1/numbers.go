@@ -25,15 +25,11 @@ import (
 //
 // The functions have two forms. FloatToInt64 and FloatToUint64 each guard
 // one Go conversion with range compares. Every narrower width is one form:
-// inside the open interval (min-1, max+1) where the truncation fits, the
-// Go conversion itself; outside it, FloatToInt64's result clamped to the
-// width's bounds with Go's min and max, then converted, an integer
-// conversion Go defines on every host. The interval's compares are the
-// ones std math.ToT guards with, so in a checked conversion the guard's
-// compares dominate the helper's, Go's CSE makes them one value, and its
-// prove pass drops the helper's branch (NP4f-16). Each function is within
-// Go's inlining budget, so the call inlines; for a constant argument Go
-// folds the compares away (lower TestFloatConversionInlines).
+// FloatToInt64's result clamped to the width's bounds with Go's min and
+// max, then converted, an integer conversion Go defines on every host.
+// Each function is within Go's inlining budget, so the call inlines to the
+// conversion, a compare and the clamps; for a constant argument Go folds
+// the compares away (lower TestFloatConversionInlines).
 //
 // FloatToInt64 guards only the upper side. Below -2^63, Go's int64(f)
 // gives math.MinInt64, the rule's answer, on both supported platforms
@@ -71,49 +67,31 @@ func FloatToInt(f float64) int { return int(FloatToInt64(f)) }
 
 // FloatToInt8 is Ergo's int8(f): f toward zero, saturated, NaN 0.
 func FloatToInt8(f float64) int8 {
-	if f > -129 && f < 128 {
-		return int8(f)
-	}
 	return int8(min(max(FloatToInt64(f), math.MinInt8), math.MaxInt8))
 }
 
 // FloatToInt16 is Ergo's int16(f): f toward zero, saturated, NaN 0.
 func FloatToInt16(f float64) int16 {
-	if f > -32769 && f < 32768 {
-		return int16(f)
-	}
 	return int16(min(max(FloatToInt64(f), math.MinInt16), math.MaxInt16))
 }
 
 // FloatToInt32 is Ergo's int32(f): f toward zero, saturated, NaN 0.
 func FloatToInt32(f float64) int32 {
-	if f > -2147483649 && f < 2147483648 {
-		return int32(f)
-	}
 	return int32(min(max(FloatToInt64(f), math.MinInt32), math.MaxInt32))
 }
 
 // FloatToUint8 is Ergo's uint8(f): f toward zero, saturated, NaN 0.
 func FloatToUint8(f float64) uint8 {
-	if f > -1 && f < 256 {
-		return uint8(f)
-	}
 	return uint8(min(max(FloatToInt64(f), 0), math.MaxUint8))
 }
 
 // FloatToUint16 is Ergo's uint16(f): f toward zero, saturated, NaN 0.
 func FloatToUint16(f float64) uint16 {
-	if f > -1 && f < 65536 {
-		return uint16(f)
-	}
 	return uint16(min(max(FloatToInt64(f), 0), math.MaxUint16))
 }
 
 // FloatToUint32 is Ergo's uint32(f): f toward zero, saturated, NaN 0.
 func FloatToUint32(f float64) uint32 {
-	if f > -1 && f < 4294967296 {
-		return uint32(f)
-	}
 	return uint32(min(max(FloatToInt64(f), 0), math.MaxUint32))
 }
 
@@ -143,4 +121,81 @@ type MathOutOfRange struct{ Value float64 }
 // Error is the failure's text: its Ergo name and field.
 func (e MathOutOfRange) Error() string {
 	return "math.OutOfRange{Value:" + strconv.FormatFloat(e.Value, 'g', -1, 64) + "}"
+}
+
+// The checked forms of the narrow widths (std math.ToInt8 … ToUint32;
+// the wider ones are Ergo, NP4f-16): each is f
+// toward zero when the result fits the type, and MathOutOfRange for NaN,
+// an infinity or a value out of range, where the conversion saturates.
+// Each guards one Go conversion with the open interval in which the
+// truncation fits: (min-1, max+1) as float64 constants, exact for every
+// width up to 32 bits and for 2^63 and 2^64; for 64 signed bits -2^63 is
+// itself the least value, so the lower compare is >=. NaN fails both
+// compares. A pure body names no other top-level function, so each width
+// spells out its compares.
+
+// MathToInt8 is std math.ToInt8, the checked form of int8(f).
+//
+//ergo:pure
+//ergo:wait none
+func MathToInt8(f float64) (int8, error) {
+	if f > -129 && f < 128 {
+		return int8(f), nil
+	}
+	return 0, MathOutOfRange{Value: f}
+}
+
+// MathToInt16 is std math.ToInt16, the checked form of int16(f).
+//
+//ergo:pure
+//ergo:wait none
+func MathToInt16(f float64) (int16, error) {
+	if f > -32769 && f < 32768 {
+		return int16(f), nil
+	}
+	return 0, MathOutOfRange{Value: f}
+}
+
+// MathToInt32 is std math.ToInt32, the checked form of int32(f).
+//
+//ergo:pure
+//ergo:wait none
+func MathToInt32(f float64) (int32, error) {
+	if f > -2147483649 && f < 2147483648 {
+		return int32(f), nil
+	}
+	return 0, MathOutOfRange{Value: f}
+}
+
+// MathToUint8 is std math.ToUint8, the checked form of uint8(f).
+//
+//ergo:pure
+//ergo:wait none
+func MathToUint8(f float64) (uint8, error) {
+	if f > -1 && f < 256 {
+		return uint8(f), nil
+	}
+	return 0, MathOutOfRange{Value: f}
+}
+
+// MathToUint16 is std math.ToUint16, the checked form of uint16(f).
+//
+//ergo:pure
+//ergo:wait none
+func MathToUint16(f float64) (uint16, error) {
+	if f > -1 && f < 65536 {
+		return uint16(f), nil
+	}
+	return 0, MathOutOfRange{Value: f}
+}
+
+// MathToUint32 is std math.ToUint32, the checked form of uint32(f).
+//
+//ergo:pure
+//ergo:wait none
+func MathToUint32(f float64) (uint32, error) {
+	if f > -1 && f < 4294967296 {
+		return uint32(f), nil
+	}
+	return 0, MathOutOfRange{Value: f}
 }

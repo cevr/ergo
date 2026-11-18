@@ -15,7 +15,7 @@ type np4f16Kind struct {
 	old  func(float64) (string, bool)
 }
 
-func np4f16Signed[T int | int8 | int16 | int32 | int64](lo, hi float64, loClosed bool) func(float64) (string, bool) {
+func np4f16Signed[T int | int64](lo, hi float64, loClosed bool) func(float64) (string, bool) {
 	return func(f float64) (string, bool) {
 		if (f > lo || loClosed && f == lo) && f < hi {
 			return strconv.FormatInt(int64(T(f)), 10), true
@@ -24,7 +24,7 @@ func np4f16Signed[T int | int8 | int16 | int32 | int64](lo, hi float64, loClosed
 	}
 }
 
-func np4f16Unsigned[T uint | uint8 | uint16 | uint32 | uint64 | uintptr](hi float64) func(float64) (string, bool) {
+func np4f16Unsigned[T uint | uint64 | uintptr](hi float64) func(float64) (string, bool) {
 	return func(f float64) (string, bool) {
 		if f > -1 && f < hi {
 			return strconv.FormatUint(uint64(T(f)), 10), true
@@ -33,18 +33,12 @@ func np4f16Unsigned[T uint | uint8 | uint16 | uint32 | uint64 | uintptr](hi floa
 	}
 }
 
-// np4f16Kinds are the old bodies' guards: the open interval (min-1, max+1),
-// closed below at -2^63 for 64 signed bits.
+// np4f16Kinds are the old bodies' guards: (-2^63, 2^63) closed below for
+// 64 signed bits, (-1, 2^64) for 64 unsigned bits.
 var np4f16Kinds = []np4f16Kind{
 	{"Int", np4f16Signed[int](-0x1p63, 0x1p63, true)},
-	{"Int8", np4f16Signed[int8](-129, 128, false)},
-	{"Int16", np4f16Signed[int16](-32769, 32768, false)},
-	{"Int32", np4f16Signed[int32](-2147483649, 2147483648, false)},
 	{"Int64", np4f16Signed[int64](-0x1p63, 0x1p63, true)},
 	{"Uint", np4f16Unsigned[uint](0x1p64)},
-	{"Uint8", np4f16Unsigned[uint8](256)},
-	{"Uint16", np4f16Unsigned[uint16](65536)},
-	{"Uint32", np4f16Unsigned[uint32](4294967296)},
 	{"Uint64", np4f16Unsigned[uint64](0x1p64)},
 	{"Uintptr", np4f16Unsigned[uintptr](0x1p64)},
 }
@@ -75,7 +69,8 @@ func np4f16Gen(r *rand.Rand) float64 {
 	return b + (r.Float64()-0.5)*4
 }
 
-// stdGo16Cases are NP4f-16's moved math.ToInt … ToUintptr against the old
+// stdGo16Cases are NP4f-16's moved math.ToInt, ToInt64, ToUint, ToUint64
+// and ToUintptr against the old
 // runtime/v1 bodies, on every bound and seeded floats near them; a failure
 // prints x, and xbad when OutOfRange's Value is not f. Mutants (std
 // ledger): np4f16-*-lower and np4f16-*-upper, each bound moved by one.
