@@ -96,11 +96,8 @@ func graphCommand(args []string) error {
 	if err != nil {
 		return exitStatusError{code: 1, message: "ergo graph: " + err.Error()}
 	}
-	rows, err := json.Marshal(t)
-	if err != nil {
-		return err
-	}
-	old := ""
+	strs, ints := t.AppendColumns(nil, nil)
+	var old []byte
 	if args[0] == "affected" {
 		base := ""
 		for _, a := range args[1:] {
@@ -112,13 +109,28 @@ func graphCommand(args []string) error {
 		if base == "" {
 			return invalidInvocation(fmt.Errorf("ergo graph affected: supply a base: a git revision or a rows file"))
 		}
-		data, err := baseRows(dir, base)
+		bt, data, err := baseRows(dir, base)
 		if err != nil {
 			return exitStatusError{code: 1, message: "ergo graph affected: " + err.Error()}
 		}
-		old = string(data)
+		if bt != nil {
+			strs, ints = bt.AppendColumns(strs, ints)
+		}
+		old = data
 	}
-	out, err := lgraph.Run(context.Background(), args, string(rows), old)
+	// The rows go over as columns, with no JSON between the checker and
+	// the query (GRAPH-FAST); a base given as a rows file is JSON, so then
+	// both go as JSON.
+	var out []string
+	if old == nil {
+		out, err = lgraph.RunColumns(context.Background(), args, strs, ints)
+	} else {
+		rows, merr := json.Marshal(t)
+		if merr != nil {
+			return merr
+		}
+		out, err = lgraph.Run(context.Background(), args, string(rows), string(old))
+	}
 	if err != nil {
 		return exitStatusError{code: 1, message: "ergo graph: " + err.Error()}
 	}
@@ -204,13 +216,14 @@ func graphRows(dir string) (*graphrows.Table, error) {
 	return sketchfront.GraphOf(as), nil
 }
 
-// baseRows is the rows JSON of the program in dir at base: the file base
-// when one exists, else the git revision base, whose tree (the part under
-// the repository's folder that holds dir) is unpacked into a temporary
+// baseRows is the rows of the program in dir at base: the JSON text of the
+// file base when one exists, else the table of the git revision base,
+// whose tree (the folders baseFolders names) is unpacked into a temporary
 // folder and checked there.
-func baseRows(dir, base string) ([]byte, error) {
+func baseRows(dir, base string) (*graphrows.Table, []byte, error) {
 	if st, err := os.Stat(base); err == nil && !st.IsDir() {
-		return os.ReadFile(base)
+		data, err := os.ReadFile(base)
+		return nil, data, err
 	}
 	recursive := recursivePattern(dir)
 	folder := strings.TrimSuffix(strings.TrimSuffix(dir, "..."), "/")
@@ -219,34 +232,35 @@ func baseRows(dir, base string) ([]byte, error) {
 	}
 	abs, err := filepath.Abs(folder)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	top, err := gitOutput(abs, "rev-parse", "--show-toplevel")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	top = strings.TrimSpace(top)
 	rel, err := filepath.Rel(top, abs)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	tmp, err := os.MkdirTemp("", "ergo-graph-base-")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer os.RemoveAll(tmp)
-	// The whole tree at base: a module's ergo.mod, or a package an import
-	// names, may sit above or beside dir.
-	cmd := exec.Command("git", "archive", "--format=tar", base)
-	cmd.Dir = top
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	tarText, err := cmd.Output()
+	// Only the folders the check reads: dir's module (or dir, when it is in
+	// none) and each local module a go.mod replace names, as they sit in
+	// the working tree. When base lacks one of them, the whole tree.
+	roots := baseFolders(top, abs)
+	tarText, err := gitArchive(top, base, roots)
+	if err != nil && len(roots) > 0 {
+		tarText, err = gitArchive(top, base, nil)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("git archive %s: %v: %s", base, err, strings.TrimSpace(stderr.String()))
+		return nil, nil, err
 	}
 	if err := untar(bytes.NewReader(tarText), tmp); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	at := filepath.Join(tmp, rel)
 	if recursive {
@@ -254,9 +268,100 @@ func baseRows(dir, base string) ([]byte, error) {
 	}
 	t, err := graphRows(at)
 	if err != nil {
-		return nil, fmt.Errorf("the program at %s: %w", base, err)
+		return nil, nil, fmt.Errorf("the program at %s: %w", base, err)
 	}
-	return json.Marshal(t)
+	return t, nil, nil
+}
+
+// gitArchive is the tar of base's tree, limited to the folders paths
+// (relative to the repository root top) when there are any.
+func gitArchive(top, base string, paths []string) ([]byte, error) {
+	args := append([]string{"archive", "--format=tar", base, "--"}, paths...)
+	cmd := exec.Command("git", args...)
+	cmd.Dir = top
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git archive %s: %v: %s", base, err, strings.TrimSpace(stderr.String()))
+	}
+	return out, nil
+}
+
+// baseFolders is the folders, relative to the repository root top, that a
+// check of the folder abs reads: the module that holds abs (the nearest
+// ergo.mod at or above it), or abs itself when no module holds it, and,
+// transitively, each folder a `replace X => ./path` of a go.mod in them
+// names. None when a folder lies outside top (then the whole tree).
+func baseFolders(top, abs string) []string {
+	start := abs
+	for d := abs; strings.HasPrefix(d, top); d = filepath.Dir(d) {
+		if _, err := os.Stat(filepath.Join(d, "ergo.mod")); err == nil {
+			start = d
+			break
+		}
+		if d == top {
+			break
+		}
+	}
+	seen := map[string]bool{}
+	queue := []string{start}
+	var out []string
+	for len(queue) > 0 {
+		d := queue[0]
+		queue = queue[1:]
+		rel, err := filepath.Rel(top, d)
+		if err != nil || strings.HasPrefix(rel, "..") {
+			return nil
+		}
+		if seen[rel] {
+			continue
+		}
+		seen[rel] = true
+		out = append(out, filepath.ToSlash(rel))
+		_ = filepath.WalkDir(d, func(p string, e os.DirEntry, err error) error {
+			if err != nil || e.IsDir() || e.Name() != "go.mod" {
+				return nil
+			}
+			data, err := os.ReadFile(p)
+			if err != nil {
+				return nil
+			}
+			for _, r := range localReplaces(string(data)) {
+				queue = append(queue, filepath.Clean(filepath.Join(filepath.Dir(p), r)))
+			}
+			return nil
+		})
+	}
+	return out
+}
+
+// localReplaces is the local paths (./ or ../) the replace directives of a
+// go.mod text name, in the one-line and the block form.
+func localReplaces(text string) []string {
+	var out []string
+	block := false
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		switch {
+		case line == "replace (":
+			block = true
+			continue
+		case block && line == ")":
+			block = false
+			continue
+		case !block && !strings.HasPrefix(line, "replace "):
+			continue
+		}
+		_, target, ok := strings.Cut(line, "=>")
+		if !ok {
+			continue
+		}
+		if f := strings.Fields(target); len(f) > 0 && (strings.HasPrefix(f[0], "./") || strings.HasPrefix(f[0], "../")) {
+			out = append(out, f[0])
+		}
+	}
+	return out
 }
 
 // gitOutput is git's standard output for args, run in dir.

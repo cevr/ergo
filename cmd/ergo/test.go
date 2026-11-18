@@ -23,7 +23,7 @@ import (
 	v1 "ergo.local/prototype/runtime/v1"
 )
 
-// testCommand runs a source's tests: `ergo test FILE [--seed N] [--states N]
+// testCommand runs a source's tests: `ergo test FILE|DIR|DIR/... [MORE...] [--seed N] [--states N]
 // [--law NAME] [--skip-law NAME] [--run NAME] [--receipt FILE]
 // [--explore [dfs|pct|random] [--preempt B] [--depth D] [--schedules S]]
 // [--schedule TOKEN] [--native] [-work] [--debug] [--target go]`. A package
@@ -63,6 +63,11 @@ import (
 //
 // --cases DIR runs the recorded cases of DIR against the built main
 // package in place of its tests (cases.go, testCases).
+//
+// Several targets (`ergo test ./a ./b c/...`) run one after another, each
+// under its own package line, a failure not stopping the rest
+// (manyTestCommand); options that pick one law, test or receipt take one
+// target.
 func testCommand(args []string) error {
 	args, casesDir, err := casesFlag(args)
 	if err != nil {
@@ -77,13 +82,16 @@ func testCommand(args []string) error {
 		return invalidInvocation(err)
 	}
 	opts.trace = trace
-	if trace && (recursivePattern(opts.file) || opts.explore || opts.search.mode != "") {
+	if trace && (recursivePattern(opts.file) || len(opts.more) > 0 || opts.explore || opts.search.mode != "") {
 		return invalidInvocation(fmt.Errorf("ergo test: --trace takes one package, played plainly, not a pattern or --explore"))
 	}
 	if opts.emitted && opts.json {
 		// Each package's check envelope and emitted digests, one JSON
 		// line each, from one process (emittedjson.go, gate-speed GS31b).
 		return printEmittedJSON(opts)
+	}
+	if len(opts.more) > 0 {
+		return manyTestCommand(opts)
 	}
 	if recursivePattern(opts.file) {
 		if opts.emitted {

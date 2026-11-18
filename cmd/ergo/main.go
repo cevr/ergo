@@ -193,6 +193,9 @@ type fileOptions struct {
 	// and CI use it.
 	native bool
 	file   string
+	// more are test's targets after the first (`ergo test A B C/...`),
+	// each a file, a folder or a pattern; none for every other command.
+	more []string
 	// args are run's program arguments: every word after the source, as
 	// go run passes them, less one "--" right after the source.
 	args []string
@@ -430,8 +433,14 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--law and --skip-law are only supported by test")
 	case selected && (!validLaw(opts.law) || !validLaw(opts.skipLaw) || opts.law+opts.skipLaw == ""):
 		return opts, fmt.Errorf("--law and --skip-law take a law's name, as a report shows it (Design.Safe)")
-	case len(positional) != 1:
+	case len(positional) > 1 && command != "test" && command != "check", len(positional) == 0 && command != "test":
 		return opts, fmt.Errorf("incorrect arguments for %s", command)
+	}
+	if len(positional) > 1 {
+		if err := severalTargets(command, opts, positional); err != nil {
+			return opts, err
+		}
+		opts.more = positional[1:]
 	}
 	var err error
 	if opts.platform, opts.phone, err = targetPlatforms(platform, platformed, os.Getenv("GOOS"), os.Getenv("GOARCH")); err != nil {
@@ -593,11 +602,11 @@ func checkCommand(args []string) error {
 	if err != nil {
 		return err
 	}
+	if len(opts.more) > 0 {
+		return manyCheckCommand(opts)
+	}
 	if recursivePattern(opts.file) {
-		if shared, err := sharedCheckCommand(opts); shared {
-			return err
-		}
-		return recursiveCommand(opts, nil, checkPackage)
+		return recursiveCheckCommand(opts)
 	}
 	// A daemon of this release serving the working directory answers a
 	// warm check with no work here (ergo dev).
@@ -608,6 +617,43 @@ func checkCommand(args []string) error {
 		}
 	}
 	return checkPackage(opts)
+}
+
+// recursiveCheckCommand is `ergo check DIR/...`: one shared load of the
+// module when it can, else each package alone.
+func recursiveCheckCommand(opts fileOptions) error {
+	if shared, err := sharedCheckCommand(opts); shared {
+		return err
+	}
+	return recursiveCommand(opts, nil, checkPackage)
+}
+
+// manyCheckCommand is `ergo check A B ...` (PKG G9): each target in the
+// order given, a file or folder as `ergo check A` prints it, a DIR/...
+// pattern as `ergo check DIR/...` does. A target that does not check does
+// not stop the later ones; a defect, a signal or a usage error does. The
+// run exits 1 when a target failed. No ergo dev daemon answers it.
+func manyCheckCommand(opts fileOptions) error {
+	failed := false
+	for _, target := range append([]string{opts.file}, opts.more...) {
+		one := opts
+		one.file, one.more = target, nil
+		var err error
+		if recursivePattern(target) {
+			err = recursiveCheckCommand(one)
+		} else {
+			err = checkPackage(one)
+		}
+		stop, fail := packageOutcome(target, err)
+		if stop != nil {
+			return stop
+		}
+		failed = failed || fail
+	}
+	if failed {
+		return exitStatusError{code: 1, handled: true}
+	}
+	return nil
 }
 
 func checkPackage(opts fileOptions) error {

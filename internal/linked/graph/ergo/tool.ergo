@@ -12,13 +12,69 @@ import strconv
 import strings
 
 // Run is the output of `ergo graph COMMAND ARGS` over the rows whose JSON
-// text is rows, and for affected the rows at the base, old: its exit
-// status, its standard output and its standard error, in that order.
+// text is rows, and for affected the rows at the base, old (empty for
+// none): its exit status, its standard output and its standard error, in
+// that order.
 func Run(args []string, rows string, old string) []string {
 	let r = codegraph.Decode(rows) catch {
 	case codegraph.BadRows as b:
 		return []string{"1", "", "ergo graph: \(b.Reason)\n"}
 	}
+	if old == "" {
+		return runRows(args, r, noRows())
+	}
+	let base = codegraph.Decode(old) catch {
+	case codegraph.BadRows as b:
+		return []string{"1", "", "ergo graph: the base's rows: \(b.Reason)\n"}
+	}
+	runRows(args, r, base)
+}
+
+// noRows is the rows of no program.
+func noRows() codegraph.Rows { codegraph.Rows{Version: 1, Nodes: []codegraph.NodeRow{}, Edges: []codegraph.EdgeRow{}} }
+
+// RunColumns is Run over the rows as columns, the form the ergo binary
+// hands over with no JSON written or read (GRAPH-FAST; a Go caller can
+// pass slices of basic types, not records). The rows of the program and
+// then, for affected, those of the base follow one another: for each,
+// ints holds its node count and edge count, then each node's parent and
+// subject, then each edge's from and to; strs holds each node's kind,
+// sub-kind, name and digest, then each edge's kind and how. Positions are
+// left out (no query reads them): File is -1 in every row.
+func RunColumns(args []string, strs []string, ints []int) []string {
+	let r = fromColumns(strs, ints, 0, 0)
+	let base = if r.Ints < len(ints) { fromColumns(strs, ints, r.Strs, r.Ints) } else { columnsOf(noRows(), 0, 0) }
+	runRows(args, r.Rows, base.Rows)
+}
+
+// Columns is rows read from columns and where the next rows start.
+type Columns { Rows codegraph.Rows, Strs int, Ints int }
+
+func columnsOf(r codegraph.Rows, s int, i int) Columns { Columns{Rows: r, Strs: s, Ints: i} }
+
+// fromColumns is the rows whose columns start at s in strs and at i in
+// ints (RunColumns' layout).
+func fromColumns(strs []string, ints []int, s int, i int) Columns {
+	let n = ints[i]
+	let m = ints[i + 1]
+	let mut nodes = []codegraph.NodeRow{}
+	for k in 0..n {
+		let at = s + 4 * k
+		let p = i + 2 + 2 * k
+		nodes = nodes.Append(codegraph.NodeRow{Id: k, Kind: strs[at], Sub: strs[at + 1], Parent: ints[p], Name: strs[at + 2], Digest: strs[at + 3], Subject: ints[p + 1], File: -1, Offset: 0, Line: 0, Column: 0})
+	}
+	let mut edges = []codegraph.EdgeRow{}
+	for k in 0..m {
+		let at = s + 4 * n + 2 * k
+		let p = i + 2 + 2 * n + 2 * k
+		edges = edges.Append(codegraph.EdgeRow{Kind: strs[at], How: strs[at + 1], From: ints[p], To: ints[p + 1], File: -1, Offset: 0, Line: 0, Column: 0})
+	}
+	columnsOf(codegraph.Rows{Version: 1, Nodes: nodes, Edges: edges}, s + 4 * n + 2 * m, i + 2 + 2 * n + 2 * m)
+}
+
+// runRows is Run over rows already read: r, and for affected the rows at
+// the base.
+func runRows(args []string, r codegraph.Rows, base codegraph.Rows) []string {
 	let o = options(args)
 	if o.Bad != "" {
 		return []string{"2", "", "ergo graph: \(o.Bad)\n"}
@@ -41,10 +97,6 @@ func Run(args []string, rows string, old string) []string {
 	case "affected":
 		if len(words) != 2 {
 			return usage("affected takes one base: affected BASE")
-		}
-		let base = codegraph.Decode(old) catch {
-		case codegraph.BadRows as b:
-			return []string{"1", "", "ergo graph: the base's rows: \(b.Reason)\n"}
 		}
 		affected(r, o, codegraph.Changed(base, r))
 	case "hidden":
