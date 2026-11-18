@@ -924,9 +924,12 @@ func (fc *funcCtx) closeInline(body string, ret *inlineRet, before string) {
 	fc.line("}")
 	if strings.Contains(body, jump) {
 		// A label needs a statement: the call may end a match or catch
-		// arm, where the next token is a case (UC H8a). The empty
-		// statement is explicit, so gofmt keeps it.
-		fc.line(ret.label + ": ;")
+		// arm, where the next token is a case (UC H8a). It is `_ = 0` on
+		// a line of its own: gofmt prints a label's empty statement after
+		// a block on the block's line and drops the next statement's
+		// directive, so the raw text (FT5) would keep other lines.
+		fc.line(ret.label + ":")
+		fc.line("_ = 0")
 	}
 	if ret.fail != "" && !strings.Contains(body, "goto "+ret.fail+"\n") {
 		ret.fail = "" // no return fails: the site has no label to place

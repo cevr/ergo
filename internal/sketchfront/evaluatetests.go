@@ -97,7 +97,6 @@ func (a Analysis) EvaluateTests(seed uint64, states int, admitted, source string
 	if err != nil {
 		return TestAnswer{}, false
 	}
-	stage.Add(stage.EvalSteps, rep.Steps)
 	// The obligations the evaluator gave up on get a route note.
 	for _, r := range rep.Results {
 		if r.Status == eval.Incomplete {
@@ -141,7 +140,6 @@ func (a Analysis) EvaluateTests(seed uint64, states int, admitted, source string
 	if stderr != "" {
 		answer.Stderr = stderr + "\n"
 	}
-	stage.Add(stage.ObligationsEvaluated, int64(answer.Obligations))
 	stage.Add(stage.ObligationsStored, int64(stored))
 	return answer, true
 }

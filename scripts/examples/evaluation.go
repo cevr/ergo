@@ -109,6 +109,11 @@ func nativeEvaluations(stdout []byte) map[string]nativeEvaluation {
 		default:
 			continue
 		}
+		// The marks of a verdict the evaluator decided or the store kept
+		// (test-speed FT1, FT2) say where it came from, not what it is.
+		for _, mark := range []string{" (evaluated)", " (cached)"} {
+			line = strings.TrimSuffix(line, mark)
+		}
 		name, details, _ := strings.Cut(line, " (")
 		name, _, _ = strings.Cut(name, ":")
 		if details != "" && v.status == "passed" {

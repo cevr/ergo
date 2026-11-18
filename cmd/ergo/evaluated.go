@@ -46,8 +46,11 @@ func evaluatedTestRun(opts fileOptions, l loaded, stdout, stderr io.Writer, keep
 		return true, err
 	}
 	// A passing answer is kept as the warm answer, as a native pass is.
+	// Its replay counts the obligations it decided as stored, as a native
+	// pass's does (FT0's counter).
 	var result testResult
 	result.stdout.WriteString(answer.Stdout)
+	result.obligations = nativeObligations(l.analysis.Root().Package, opts)
 	keep(result.encode())
 	return true, nil
 }

@@ -79,7 +79,7 @@ func TestTestCommand(t *testing.T) {
 	}
 	defect := write("defect.ergo", "func at(xs []int, i int) int { xs[i] }\n\ntest Before { assert true }\n\ntest Panics { assert at([]int{}, 1) == 0 }\n\ntest After { assert true }\n")
 	stdout, stderr, code = run("test", defect)
-	if code != 2 || stdout != "ok Before\nFAIL Panics: a defect, which stops the run\n" || !strings.Contains(stderr, "panic: ") || !strings.Contains(stderr, "defect.ergo:1") {
+	if code != 2 || stdout != "ok Before\nFAIL Panics: a defect, which stops the run\n" || !strings.Contains(stderr, "panic: ") || !strings.Contains(stderr, "\n\tat at defect.ergo:1\n\ttest Panics calls at at defect.ergo:5:22\n") {
 		t.Fatalf("a defect: exit %d stdout %q stderr %q; want exit 2, the run stopped, the runtime's report", code, stdout, stderr)
 	}
 	for _, main := range []string{stdout, stderr} {
