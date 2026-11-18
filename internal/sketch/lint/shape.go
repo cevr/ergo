@@ -29,10 +29,26 @@ func shapeOf[N syntax.Node](info *check.Info, nodes ...N) string {
 	return s.b.String()
 }
 
+// shapeOfEdit is shapeOf of a piece of a body (an added hunk), whose
+// variables may be declared outside it: a variable it uses but does not
+// declare (a parameter, a local of the enclosing body) is numbered by its
+// first use, as a declared one is, so one edit made in two bodies has one
+// shape.
+func shapeOfEdit(info *check.Info, nodes ...syntax.Node) string {
+	s := shaper{info: info, locals: map[check.Object]int{}, free: true}
+	for _, n := range nodes {
+		s.node(n)
+		s.b.WriteByte(';')
+	}
+	return s.b.String()
+}
+
 type shaper struct {
 	info   *check.Info
 	locals map[check.Object]int
 	b      strings.Builder
+	// free numbers the variables the tree uses and does not declare.
+	free bool
 }
 
 var posType = reflect.TypeOf(syntax.Pos(0))
@@ -93,6 +109,9 @@ func (s *shaper) ident(x *syntax.Ident) {
 	if o := s.info.Uses[x]; o != nil {
 		if i, local := s.locals[o]; local {
 			fmt.Fprintf(&s.b, "(local %d)", i)
+		} else if _, isVar := o.(*check.Var); isVar && s.free {
+			s.locals[o] = len(s.locals)
+			fmt.Fprintf(&s.b, "(local %d)", s.locals[o])
 		} else {
 			fmt.Fprintf(&s.b, "(obj %p)", o)
 		}

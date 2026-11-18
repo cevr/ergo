@@ -7,7 +7,8 @@ package lint
 // justifiers holds the justifier rules (legal code that must say why;
 // they were the base until their read sample, 2026-11-17, put them under
 // the bar), strict the complexity caps (q149) and the style rules, layout
-// the owner's Go layout (AGENTS.md).
+// the owner's Go layout (AGENTS.md), change the rules of a change, which
+// report only under --diff (anti-slop AS6).
 const (
 	Recommended = "recommended"
 	Justifiers  = "justifiers"
@@ -18,7 +19,8 @@ const (
 	Advisory = "advisory"
 	// Speed is the opt-in preset of hints about work a loop repeats or a
 	// call copies (catalog §3, PF5 to PF18).
-	Speed = "speed"
+	Speed  = "speed"
+	Change = "change"
 )
 
 // builtinRules are every built-in rule.
@@ -37,6 +39,7 @@ var builtinRules = []*Rule{
 	fileCycle, layer, domainImportsImplementation, hiddenDependency,
 	narrationComment, commentedCode,
 	snapshotArgument, repeatedTraversal, quadraticScan, concatInLoop, largeValueCopy,
+	addedClone, scatteredEdit,
 }
 
 // builtinPresets are the built-in presets over builtinRules.
@@ -83,6 +86,11 @@ func builtinPresets() []Preset {
 			Name:  Speed,
 			Doc:   "Hints about work a loop repeats or a call copies: a *s argument the lowering copies, a second walk of one collection, a walk inside a walk of it, a string grown by + in a loop, a big element copied every turn, a whole result built to take the one element a law says another function gives, two waits in a row with disjoint footprints. Opt-in; no precision published until a read sample reaches 0.80.",
 			Rules: on(snapshotArgument, repeatedTraversal, quadraticScan, concatInLoop, largeValueCopy, takeOneByLaw, independentWaits),
+		},
+		{
+			Name:  Change,
+			Doc:   "The rules of a change, read under --diff: a function the change adds that the program has, and one edit added in three or more packages.",
+			Rules: on(addedClone, scatteredEdit),
 		},
 	}
 }
