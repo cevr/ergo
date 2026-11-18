@@ -32,8 +32,8 @@ func init() {
 		syntax.AssertStmt{}, syntax.VariantSpec{}, syntax.AsPattern{}, syntax.InterpolatedString{},
 		syntax.OrPattern{},
 		// Not Nodes, but a node's field points to them (LawDecl.Rewrite,
-		// Field.Own).
-		syntax.LawRewrite{}, syntax.Word{},
+		// LawDecl.Equation, Field.Own).
+		syntax.LawRewrite{}, syntax.LawEquation{}, syntax.Word{},
 	} {
 		families[reflect.TypeOf(n)] = true
 	}
