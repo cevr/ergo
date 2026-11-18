@@ -70,6 +70,45 @@ func stacked[S, E, D, F](d *Driver[S, E, D, F]) []ui.Id[E] {
 	out
 }
 
+// liftOf is how far the Scrolls and lists between at and id (at's own
+// offset counted, id's not) lift id: the sum of their offsets, 0 when id
+// is not under at.
+func liftOf[S, E, D, F](d *Driver[S, E, D, F], at ui.Id[E], id ui.Id[E]) float32 {
+	match upFrom(d, at, id) {
+	case Some[float32] as l:
+		l.Value
+	case None:
+		0
+	}
+}
+
+// upFrom is the lift of id under at (at's own offset counted), None when
+// id is not under at.
+func upFrom[S, E, D, F](d *Driver[S, E, D, F], at ui.Id[E], id ui.Id[E]) Option[float32] {
+	let own = match d.nodes.Get(at) {
+	case Some[held[E]] as h:
+		match h.Value.node {
+		case ui.ScrollNode, ui.RowsNode:
+			scrolledBy(d, at)
+		case _:
+			float32(0)
+		}
+	case None:
+		float32(0)
+	}
+	for k in kidsOf(d, at) {
+		if k == id {
+			return Some{Value: own}
+		}
+		match upFrom[S, E, D, F](d, k, id) {
+		case Some[float32] as l:
+			return Some{Value: own + l.Value}
+		case None:
+		}
+	}
+	None
+}
+
 // rectOf is a laid box as a ui Rect.
 func rectOf(b layout.Box) ui.Rect {
 	ui.Rect{X: ui.Length(float64(b.X)), Y: ui.Length(float64(b.Y)), W: ui.Length(float64(b.W)), H: ui.Length(float64(b.H))}
@@ -91,7 +130,10 @@ func placeLayers[S, E, D, F](d *Driver[S, E, D, F], t *layout.Tree, ids Map[ui.I
 				case Some[ui.Id[E]] as a:
 					match ids.Get(a.Value) {
 					case Some[layout.Id] as ai:
-						anchor = Some{Value: rectOf(boxOf(t, ai.Value))}
+						// Where the anchor shows: lifted by the offsets of the
+						// Scrolls and lists it is in, as draw lifts it.
+						let laid = boxOf(t, ai.Value)
+						anchor = Some{Value: rectOf(layout.Box{X: laid.X, Y: laid.Y - liftOf(d, d.root, a.Value), W: laid.W, H: laid.H})}
 					case None:
 					}
 				case None:

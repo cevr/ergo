@@ -1,6 +1,6 @@
 // layers (UG4): a menu (a popover layer under the "menu" button, over
 // two buttons of the flow), a dialog (a modal layer over a scrim) with a
-// tooltip on its button, so both hosts agree on what a press inside a
+// tooltip on its button, a pin beside a row of a list that scrolls (UG4b), so both hosts agree on what a press inside a
 // layer, outside it, on a scrim and Escape send, and the window places
 // each layer against its anchor in the window and hit-tests the top
 // layer first.
@@ -10,7 +10,7 @@ import ui
 import ui/layout
 
 // layersApp is the open layers and the last signal.
-type layersApp { menu bool, dialog bool, tip bool, last int }
+type layersApp { menu bool, dialog bool, tip bool, pin bool, last int }
 
 func layersStep(s layersApp, e int) Decision[layersApp, int] {
 	let mut n = s
@@ -25,12 +25,14 @@ func layersStep(s layersApp, e int) Decision[layersApp, int] {
 	} else if e == 4 {
 		n.dialog = false
 		n.tip = false
+	} else if e == 5 {
+		n.pin = !s.pin
 	}
 	Enter[layersApp]{Next: n}
 }
 
 func layersMachine() Machine[layersApp, int, int] {
-	Machine[layersApp, int, int]{Initial: layersApp{menu: false, dialog: false, tip: false, last: 0}, Step: layersStep, After: none[layersApp, int], Work: idle[layersApp, int]}
+	Machine[layersApp, int, int]{Initial: layersApp{menu: false, dialog: false, tip: false, pin: true, last: 0}, Step: layersStep, After: none[layersApp, int], Work: idle[layersApp, int]}
 }
 
 // layerLook is a layer's panel: white, a border, rounded.
@@ -71,8 +73,27 @@ func layersView(f *ui.Frame[int], s layersApp) {
 				ui.Text(f, "Dialog")
 			}
 		}
-		ui.Pressable(f, "plain", 12) {
-			ui.Text(f, "Plain")
+		let mut line = ui.Plain()
+		line.Gap = 8
+		ui.Row(f, line) {
+			ui.Pressable(f, "plain", 12) {
+				ui.Text(f, "Plain")
+			}
+			ui.Pressable(f, "pin", 5) {
+				ui.Text(f, "Pin")
+			}
+		}
+		// A list whose row 5 anchors the pin (UG4b): the pin follows the
+		// row as the list scrolls.
+		ui.Rows(f, "rows", 30, ui.Length(32.0), func(i int) ui.Key { ui.ByInt(i) }, func(i int) {
+			ui.Zone(f, ui.ByInt(100+i), ui.Plain()) {
+				ui.Text(f, "row \(i)")
+			}
+		})
+	}
+	if s.pin {
+		ui.Layer(f, ui.Layered[int]{Z: ui.PopoverZ, Anchor: Some{Value: ui.ByInt(105)}, Place: ui.Place{Side: ui.SideRight, Align: ui.AlignStart, Gap: 4}, Scrim: false, Dismiss: None}, layerLook(f)) {
+			ui.Text(f, "pinned to row 5")
 		}
 	}
 	if s.menu {
