@@ -82,6 +82,7 @@ func (c *checker) implementsClause(n *Named, d *syntax.TypeDecl, ctx *typeCtx) {
 		n.impls = append(n.impls, op)
 		n.implExprs = append(n.implExprs, x)
 	}
+	c.shapeClause(n, d, ctx) // a derived normal form (mapshape.go)
 }
 
 // hidesNoOps reports whether the package declares a type named name that

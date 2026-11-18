@@ -448,6 +448,88 @@ func Stored[K comparable, H Hashing[K], V](m hashTable[K, H, V]) Map[K, V] {
 	out
 }
 
+// normalKeyed is a provider of a normal form: a Hashing provider whose
+// Equal(a, b) is n(a) == n(b) and whose Hash(k) is hash(n(k)) for one
+// pure, rowless expression n of the key alone (types.md, Maps 5). No
+// program writes it: the checker reads the shape from the provider's two
+// bodies and writes NormalKey(k), n(k), beside them, so a Map with that
+// provider is keyTable, Go's own map keyed by n's result.
+type normalKeyed[K, N] {
+	NormalKey(k K) N,
+}
+
+// keyTable is a Map[K, V, H] whose provider has a normal form N
+// (normalKeyed): a Map keyed by n(k), each entry holding the key it was
+// first put with. Its functions are hashTable's, with the same meaning.
+type keyTable[K comparable, N comparable, H normalKeyed[K, N], V] {
+	by H,
+	m Map[N, keyEntry[K, V]],
+}
+
+// keyEntry is one entry of a keyTable: the key as first put, and its
+// value.
+type keyEntry[K, V] {
+	key K,
+	val V,
+}
+
+// Get is the value of k in m, Some{v}, or None when m has no key Equal
+// to k.
+func Get[K comparable, N comparable, H normalKeyed[K, N], V](m keyTable[K, N, H, V], k K) Option[V] {
+	match m.m.Get(m.by.NormalKey(k)) {
+		case Some{Value}: Some[V]{Value: Value.val}
+		case None: None
+	}
+}
+
+// Put is m with v at k. A key that m holds keeps the spelling it was
+// first put with; a new key is stored as written.
+func Put[K comparable, N comparable, H normalKeyed[K, N], V](m keyTable[K, N, H, V], k K, v V) keyTable[K, N, H, V] {
+	let n = m.by.NormalKey(k)
+	let first = match m.m.Get(n) {
+		case Some{Value}: Value.key
+		case None: k
+	}
+	let mut t = m
+	t.m[n] = keyEntry[K, V]{key: first, val: v}
+	t
+}
+
+// Delete is m without the key Equal to k.
+func Delete[K comparable, N comparable, H normalKeyed[K, N], V](m keyTable[K, N, H, V], k K) keyTable[K, N, H, V] {
+	let mut t = m
+	t.m = t.m.Delete(t.by.NormalKey(k))
+	t
+}
+
+// Take is the value of k in m and m without k.
+func Take[K comparable, N comparable, H normalKeyed[K, N], V](m keyTable[K, N, H, V], k K) (Option[V], keyTable[K, N, H, V]) {
+	(m.Get(k), m.Delete(k))
+}
+
+// Clone is a Map with the entries of m.
+func Clone[K comparable, N comparable, H normalKeyed[K, N], V](m keyTable[K, N, H, V]) keyTable[K, N, H, V] { m }
+
+// Len is the number of keys in m: len(m).
+func Len[K comparable, N comparable, H normalKeyed[K, N], V](m keyTable[K, N, H, V]) int { len(m.m) }
+
+// Using is m with the provider by.
+func Using[K comparable, N comparable, H normalKeyed[K, N], V](m keyTable[K, N, H, V], by H) keyTable[K, N, H, V] {
+	let mut t = m
+	t.by = by
+	t
+}
+
+// Stored is the entries of m keyed by their stored spellings, a Map[K, V]:
+// `for k, v in m` reads it, in the sorted order of the stored keys.
+func Stored[K comparable, N comparable, H normalKeyed[K, N], V](m keyTable[K, N, H, V]) Map[K, V] {
+	let mut out = Map[K, V]{}
+	for _, e in m.m {
+		out[e.key] = e.val
+	}
+	out
+}
+
 // StructuralFloatKeysHashEqual: Structural[float64]'s equal keys hash
 // equal; 0.0 and -0.0 are == and must have one hash.
 law StructuralFloatKeysHashEqual(a float64, b float64 where a == b) { hash(a) == hash(b) }

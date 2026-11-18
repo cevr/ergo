@@ -26,7 +26,7 @@ var providerMapSeed = flag.Uint64("providermap.seed", 0, "replay TestProviderMap
 // c5-table-hash-only, c5-table-delete-hole, c5-table-grow-other-hash.
 func TestProviderMapAgrees(t *testing.T) {
 	seeds := []uint64{}
-	for s := uint64(1); s <= 24; s++ {
+	for s := uint64(1); s <= 48; s++ {
 		seeds = append(seeds, s)
 	}
 	if *providerMapSeed != 0 {
@@ -36,11 +36,30 @@ func TestProviderMapAgrees(t *testing.T) {
 		r := rand.New(rand.NewPCG(seed, 218))
 		mod := []int{5, 13, 40}[r.IntN(3)]
 		buckets := []int{1, 3, 64}[r.IntN(3)]
+		// The provider: keys equal modulo mod with a bucketed hash (the
+		// table), or with a normal form (keyTable, types.md Maps 5):
+		// k % mod, k / mod, or k itself.
+		kind := seed % 4
+		norm := func(k int) int {
+			switch kind {
+			case 2:
+				return k / mod
+			case 3:
+				return k
+			}
+			return k % mod
+		}
+		provider := []string{
+			fmt.Sprintf("func Hash(_ Mod, k int) uint64 { uint64((k %% %[1]d) %% %[2]d) }\n\nfunc Equal(_ Mod, a int, b int) bool { a %% %[1]d == b %% %[1]d }", mod, buckets),
+			fmt.Sprintf("func Hash(_ Mod, k int) uint64 { hash(k %% %[1]d) }\n\nfunc Equal(_ Mod, a int, b int) bool { a %% %[1]d == b %% %[1]d }", mod),
+			fmt.Sprintf("func Hash(_ Mod, k int) uint64 { hash(k / %[1]d) }\n\nfunc Equal(_ Mod, a int, b int) bool { a / %[1]d == b / %[1]d }", mod),
+			"func Hash(_ Mod, k int) uint64 { hash(k) }\n\nfunc Equal(_ Mod, a int, b int) bool { a == b }",
+		}[kind]
 		type entry struct{ k, v int }
 		var model []entry
 		find := func(k int) int {
 			for i, e := range model {
-				if e.k%mod == k%mod {
+				if norm(e.k) == norm(k) {
 					return i
 				}
 			}
@@ -89,9 +108,7 @@ func TestProviderMapAgrees(t *testing.T) {
 		fmt.Fprintf(&want, "%d %d\n", len(model), sum)
 		src := fmt.Sprintf(`type Mod {} implements Hashing[int]
 
-func Hash(_ Mod, k int) uint64 { uint64((k %% %[1]d) %% %[2]d) }
-
-func Equal(_ Mod, a int, b int) bool { a %% %[1]d == b %% %[1]d }
+%[1]s
 
 func show(o Option[int]) string {
 	match o {
@@ -102,14 +119,21 @@ func show(o Option[int]) string {
 
 func main() needs Console {
 	let mut m = Map[int, int, Mod]{}
-%[3]s	let mut sum = 0
+%[2]s	let mut sum = 0
 	for k, v in m {
 		sum = sum + k * 1000 + v
 	}
 	Console.Println("\(len(m)) \(sum)")
 }
-`, mod, buckets, body.String())
+`, provider, body.String())
 		pkg := checked(t, src)
+		shaped := false
+		for _, f := range pkg.Funcs {
+			shaped = shaped || f.Name == "NormalKey"
+		}
+		if shaped != (kind != 0) {
+			t.Fatalf("seed %d: the provider's normal form derived: %v, want %v\n%s", seed, shaped, kind != 0, src)
+		}
 		out, err := RunMain(pkg, DefaultBudget(), Process{})
 		if err != nil {
 			t.Fatalf("seed %d: %v\n%s", seed, err, src)

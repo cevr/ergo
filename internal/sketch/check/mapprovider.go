@@ -217,10 +217,17 @@ func (c *checker) isStructural(h, k Type) bool {
 }
 
 // mapOf is the type Map[k, v, h]: the Map type when h is nil or
-// Structural[k], else hashTable[k, v, h].
+// Structural[k]; keyTable[k, n, h, v] when h has a normal form n
+// (mapshape.go), unless the reference lowering is chosen; else
+// hashTable[k, h, v].
 func (c *checker) mapOf(k, v, h Type) Type {
 	if h == nil || c.isStructural(h, k) {
 		return &Map{Key: k, Elem: v}
+	}
+	if n := c.normalFormOf(h, k); n != nil {
+		if tn := c.preludeTypeObj("keyTable"); tn != nil {
+			return c.instantiate(tn.Type.(*Named), []Type{k, n, h, v}) // keyTable[K, N, H, V]
+		}
 	}
 	tn := c.preludeTypeObj("hashTable")
 	if tn == nil {
@@ -230,14 +237,30 @@ func (c *checker) mapOf(k, v, h Type) Type {
 }
 
 // IsProviderMap reports whether t is a Map with a provider other than
-// Structural: an instance of the prelude's hashTable.
+// Structural: an instance of the prelude's hashTable or keyTable.
 func IsProviderMap(t Type) bool {
-	n, ok := t.(*Named)
-	if !ok || len(n.TArgs) != 3 {
-		return false
+	_, _, _, ok := providerParts(t)
+	return ok
+}
+
+// providerParts are the key, provider and value types of t, an instance
+// of the prelude's hashTable[K, H, V] or keyTable[K, N, H, V].
+func providerParts(t Type) (k, h, v Type, ok bool) {
+	n, isNamed := t.(*Named)
+	if !isNamed {
+		return nil, nil, nil, false
 	}
 	o := n.origin().Obj
-	return o != nil && o.Name == "hashTable" && o.Pkg != nil && o.Pkg.Path == stdlib.PreludePath
+	if o == nil || o.Pkg == nil || o.Pkg.Path != stdlib.PreludePath {
+		return nil, nil, nil, false
+	}
+	switch {
+	case o.Name == "hashTable" && len(n.TArgs) == 3:
+		return n.TArgs[0], n.TArgs[1], n.TArgs[2], true
+	case o.Name == "keyTable" && len(n.TArgs) == 4:
+		return n.TArgs[0], n.TArgs[2], n.TArgs[3], true
+	}
+	return nil, nil, nil, false
 }
 
 // mapParts are the key, value and provider types of a Map type t, with
@@ -251,8 +274,8 @@ func (c *checker) mapParts(t Type) (k, v, h Type, ok bool) {
 		}
 		return t.Key, t.Elem, c.instantiate(tn.Type.(*Named), []Type{t.Key}), true
 	case *Named:
-		if IsProviderMap(t) {
-			return t.TArgs[0], t.TArgs[2], t.TArgs[1], true
+		if k, h, v, ok := providerParts(t); ok {
+			return k, v, h, true
 		}
 	}
 	return nil, nil, nil, false
@@ -274,7 +297,8 @@ func (c *checker) mapProviderMismatch(from, to Type) string {
 
 // mapTypeString is the Map spelling of a provider Map's type.
 func mapTypeString(n *Named) string {
-	return "Map[" + n.TArgs[0].String() + ", " + n.TArgs[2].String() + ", " + n.TArgs[1].String() + "]" // hashTable[K, H, V]
+	k, h, v, _ := providerParts(n)
+	return "Map[" + k.String() + ", " + v.String() + ", " + h.String() + "]"
 }
 
 // hashCall checks hash(k): k of a comparable type, the result a uint64

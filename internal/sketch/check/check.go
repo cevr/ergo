@@ -110,11 +110,18 @@ func check(path string, files []*syntax.File, imp Importer, under *Package, opts
 	c.pkg.testOf = under
 	c.placeLaws = lawPlacementReported || opts.placeLaws
 	pkg := c.run(met)
-	if len(c.mapSites) > 0 && !opts.mapsRewritten {
-		rewriteMapSites(c.mapSites, met)
+	rewrite := len(c.mapSites) > 0 && !opts.mapsRewritten
+	shapes := !opts.shapesWritten && c.writeShapes() // mapshape.go
+	if rewrite || shapes {
+		if rewrite {
+			rewriteMapSites(c.mapSites, met)
+			opts.mapsRewritten = true
+		}
 		// The forms of Maps with a provider are now calls of the table's
-		// functions (mapprovider.go): check the rewritten package.
-		opts.mapsRewritten = true
+		// functions (mapprovider.go), and each provider with a normal
+		// form has its derived function (mapshape.go): check the
+		// rewritten package.
+		opts.shapesWritten = true
 		return check(path, files, imp, under, opts)
 	}
 	for _, d := range derivedDiags {
