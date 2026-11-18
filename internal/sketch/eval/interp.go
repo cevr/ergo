@@ -378,6 +378,20 @@ func (in *interp) callPlanned(fr *frame, at *syntax.CallExpr, p *funcPlan, targs
 		return appendString(fn, args[0], args[1]), nil
 	}
 	if !p.ergo {
+		if in.sym == nil && check.GoBuiltin(fn) == "append" {
+			// An extern of Go's append at its first shape, [T](xs []T, x T)
+			// []T (check/builtin.go): the prelude's xs.Append(x), which the
+			// lowering also writes as Go's append (MX-EVAPPEND).
+			xs, ok := args[0].(sliceV)
+			if !ok {
+				ice("append's first argument is %T", args[0])
+			}
+			var site syntax.Node = fr.decl
+			if at != nil {
+				site = at
+			}
+			return in.appendTo(fr, site, xs, args[1], nil)
+		}
 		if in.sym != nil {
 			v, why := externTerm(fn, args)
 			if why != "" {
