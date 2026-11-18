@@ -161,6 +161,7 @@ extern go os.File.Sync func (f *File) Sync() fails go.Error needs Ambient
 extern go os.File.Truncate func (f *File) Truncate(size int64) fails go.Error needs Ambient
 
 // ergo:go func (*File).Write(b []byte) (n int, err error)
+// ergo:reads b (vouched: it passes b to poll.FD.Write, which hands each chunk of b to the write system call; the kernel only loads from it and nothing keeps it)
 // ergo:effect ambient (vouched: it writes b to its file at the handle's offset, keeping no reference to b)
 extern go os.File.Write func (f *File) Write(b []byte) int fails go.Error needs Ambient
 

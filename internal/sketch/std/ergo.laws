@@ -60,6 +60,7 @@ fact go os.File.Seek effect ambient validated by guard with go1.27.4 h1:72FJIAHK
 fact go os.File.Sync effect ambient validated by guard with go1.27.4 h1:bAHrlybMBuKff/C9fRwiuIHCjhPwb7rzpVVuzLFQbuI=
 fact go os.File.Truncate effect ambient validated by guard with go1.27.4 h1:UUGpn737vnlvLmmsaF+GwS2cuVYXOp5E5uNhNGFVtgc=
 fact go os.File.Write effect ambient validated by guard with go1.27.4 h1:Df+uARxWnhgM6gtfeMx5EGsRg1Pdhp9oq+JaWrK9jbo=
+fact go os.File.Write reads b validated by guard with go1.27.4 h1:XB+nDNO8P4HQEenOK40pPWjBpcOhDTibxfzSxeAxT9g=
 fact go os.File.WriteString effect ambient validated by guard with go1.27.4 h1:VLuXdNbu1LMlkEgvjdSsbKo6wwjVNiVI6NlKD8QbjAw=
 fact go os.Getenv effect ambient validated by guard with go1.27.4 h1:/ccwIxKhU8XbcPtMEBqi6bEm461e3wIE2gooNXO2lWk=
 fact go os.Getwd effect ambient validated by guard with go1.27.4 h1:r/2LsBrLrIAI2l8oVIFDIBKk4luxppaTqbEYPZ2AQFM=
