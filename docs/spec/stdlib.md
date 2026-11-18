@@ -138,12 +138,12 @@ Std `slices`, `maps` and `cmp` (std-align S2a) follow Go's packages of the same 
 | `slices` | `Len[T ordered](a Ascending[T]) int`; `At[T ordered](a Ascending[T], i int) T` | Ergo |
 | `maps` | `Keys[K comparable, V](m Map[K, V]) Seq[K]`; `Values[K comparable, V](m Map[K, V]) Seq[V]`; `GetOr[K comparable, V](m Map[K, V], k K, def V) V`; `Update[K comparable, V, E, R](m Map[K, V], k K, f func(old Option[V]) V fails E needs R) Map[K, V] fails E needs R` | Ergo |
 | `maps` | `Clone[K comparable, V](m Map[K, V]) Map[K, V]` | `runtime/v1` collections.go |
-| `cmp` | `Compare[T ordered](a T, b T) int`; `Less[T ordered](a T, b T) bool`; `Max`, `Min[T ordered](a T, b T) T` (Go's builtin `max` and `min`: for floats a NaN gives NaN, `Max(-0, +0)` is +0 and `Min` is -0) | `runtime/v1` collections.go |
+| `cmp` | `Compare[T ordered](a T, b T) int`; `Less[T ordered](a T, b T) bool`; `Max`, `Min[T ordered](a T, b T) T` (Go's builtin `max` and `min`: for floats a NaN gives NaN, `Max(-0, +0)` is +0 and `Min` is -0) | Ergo (Compare, Less); `runtime/v1` collections.go (Max, Min) |
 
 1. **A new slice, never a changed one.** `Sort`, `SortFunc`, `SortStableFunc` and `Reverse` return a new slice and leave their argument unchanged, where Go's change it in place: a `let` is immutable, and aliasing is visible (plan owner question 3; law `SortLeavesItsArgument`). The copy is made only where it is needed: where no binding reads the argument after the call (a fresh slice, a local read no more, an owned parameter), `Sort` and `Reverse` sort or reverse its own array in place, as Go's do, through their runtime/v1 owned forms `SlicesSortOwned` and `SlicesReverseOwned` (types.md, Bindings 2, consumed arguments); a live argument, or one a second binding shares, is copied first, where Go's call silently changes every alias. `Sorted` is `Sort(Collect(s))`, so the slice it collects is sorted in place by the same rule (SB4). Receipt (SB4, generated slices of 64 ints, per element): `Reverse` of a dead slice no longer copies: 16 to 8 bytes allocated per element (the 8 is the slice itself, which `WithCapacity` puts on the heap where hand Go's `make` stays on the stack) and 62.4 to 50.2 user instructions per element, against hand Go's in-place `slices.Reverse` at 41.3. `SortFunc` and `SortStableFunc` still copy: their runtime/v1 bodies take a function, and the owned form is for a pure body (a follow-up for the lowering; an Ergo body over an in-place extern removed the copy but cost 300 to 384 instructions per element, through a second closure around `compare`).
 2. **Option, never a panic or a second result.** `Max` and `Min` of an empty slice are `None`, where Go's panic. `BinarySearch` is `Some` of the index of the first `x`, or `None`, where Go returns `(int, bool)`. Each is an Ergo body over a `runtime/v1` body that the Ergo body calls only where Go's answer is defined.
 3. **Callbacks.** `Transform`, `Filter`, `Fold` and `IndexFunc` take a function with a row and pass the row on, as `task.Go` does: an effectful or failing callback is allowed, and its first failure ends the call. `Transform` is Effect's `Array.map`: `Map` is the prelude's type, which no package may redeclare (#196), so the name is the one types.md, Generics, uses. The comparator of `SortFunc` and `SortStableFunc` has an empty row, as Go's has no error: the lowering adapts the Ergo function value to Go's `func(a, b T) int` (`lower/std.go`, `adaptPlainFunc`), and its error, which a value with no error row never returns, is dropped. A comparator must be a strict weak order, as Go's `SortFunc` needs; a comparator that is not one gives an unspecified order and no defect, as in Go.
-4. **Order.** `ordered` is Ergo's constraint: the integer, float and string types, `duration`, and the types defined over them; its Go form is `runtime/v1`'s `ordered`, whose terms are Go's `cmp.Ordered`'s. `cmp.Compare` is a total order on floats too: a NaN is less than every other value and equal to a NaN, and `Sort` puts a NaN first, as Go does. collections.go restates `cmp.Compare` and `cmp.Less` rather than import `cmp`, which is not in `PureImports`; `TestStdCmpMatchesGo` holds them to Go's.
+4. **Order.** `ordered` is Ergo's constraint: the integer, float and string types, `duration`, and the types defined over them; its Go form is `runtime/v1`'s `ordered`, whose terms are Go's `cmp.Ordered`'s. `cmp.Compare` is a total order on floats too: a NaN is less than every other value and equal to a NaN, and `Sort` puts a NaN first, as Go does. std's `cmp.Compare` and `cmp.Less` are Ergo bodies, and lower's `TestStdMatchesGo` holds them to Go's.
 5. **Map order.** `maps.Keys` and `maps.Values` are Seqs in an unspecified order, as a `for` over a Map is ([types.md, Loops and len](types.md#loops-and-len) 1). `slices.Sorted(maps.Keys(m))` gives a fixed order, which a golden test needs.
 6. **Purity.** The Go bodies of `Sort`, `Contains`, `Index`, `Reverse`, `Equal`, `Compare`, `Less` and the halves of `Max`, `Min` and `BinarySearch` are marked pure ([Pure bodies](#pure-bodies)). `SortFunc` and `SortStableFunc` take a function, so they are not, and neither is the body behind `Sorted`, which sorts the slice it has just collected in place.
 7. **Laws and runners.** `TestStdSlicesLawsRun` (lower) restates each law as an Ergo property test and runs it with `--seed 1`. Under it, `TestStdSlicesLaws` (runtime/v1) checks the laws that a Go body decides over 10,000 seeded cases each, on `[]int` and `[]string` with empty, one-element and duplicate-heavy slices, the extremes of `int`, multi-byte UTF-8 and invalid bytes.
@@ -208,7 +208,7 @@ Std `rand` (std-align S2c) follows Go's `math/rand/v2` for names and meaning, an
 
 ## filepath
 
-Std `filepath` works on file paths by their text alone (std-align S3a). It follows Go's `path/filepath` for its names, arguments and results, and Effect's `Path` service (`join`, `basename`, `dirname`, `extname`, `normalize`, `relative`, `isAbsolute`) for what it covers. It has no operation type and no capability: no function reads the file system or the working directory. Each export is an `extern go` of a pure `runtime/v1` body in `path.go` that calls the Go function of the same name, each marked `//ergo:wait none`, with no release route. `Split`'s body returns `v1.Parts`, so it scans the path once, as Go's `filepath.Split` does. The laws import `strings` for `strings.HasSuffix`; one Go body has one Ergo extern in the std (`TestStdBindsNoForeignBody`).
+Std `filepath` works on file paths by their text alone (std-align S3a). It follows Go's `path/filepath` for its names, arguments and results, and Effect's `Path` service (`join`, `basename`, `dirname`, `extname`, `normalize`, `relative`, `isAbsolute`) for what it covers. It has no operation type and no capability: no function reads the file system or the working directory. Base, Dir, Clean, IsAbs and Split call Go's `path/filepath` through `import go`, as a user binds it (NP4f); `Split` builds the record `Parts` from Go's two results, one scan. Join, Ext and Rel are `extern go` of pure `runtime/v1` bodies in `path.go` until their `import go` form counts within 1.02 of them (`std-go-share.txt` names why). The laws import `strings` for `strings.HasSuffix`; one Go body has one Ergo extern in the std (`TestStdBindsNoForeignBody`).
 
 | Declaration | Meaning |
 | --- | --- |
@@ -244,7 +244,7 @@ Std `math` and `bits` (std-text-runes) are Go's `math` for `float64` and Go's `m
 
 ## Encodings and digests
 
-Std `hex`, `base64`, `sha256` and `crc32` (G3 std-digest) are Go's `encoding/hex`, `encoding/base64`, `crypto/sha256` and `hash/crc32` over Ergo's `string`, which holds bytes ([types.md, Strings](types.md) 1), so they need no byte-slice type. They match Effect's `Encoding` module (`encodeHex`, `decodeHex`, `encodeBase64`, `encodeBase64Url` and their decoders) for behaviour; Effect has no hash module. Each extern binds a pure `runtime/v1` body in `digest.go` of the `runtime/v1/digest` leaf, each marked `//ergo:wait none`, with no release route.
+Std `hex`, `base64`, `sha256` and `crc32` (G3 std-digest) are Go's `encoding/hex`, `encoding/base64`, `crypto/sha256` and `hash/crc32` over Ergo's `string`, which holds bytes ([types.md, Strings](types.md) 1), so they need no byte-slice type. They match Effect's `Encoding` module (`encodeHex`, `decodeHex`, `encodeBase64`, `encodeBase64Url` and their decoders) for behaviour; Effect has no hash module. `sha256.Sum` and `crc32.Checksum` call Go's `Sum256` and `ChecksumIEEE` through `import go`, as a user binds them (NP4f), on a view of the string's bytes with no copy ([interop.md, Foreign facts](interop.md) 8). Every other extern binds a pure `runtime/v1` body in `digest.go` of the `runtime/v1/digest` leaf, each marked `//ergo:wait none`, with no release route.
 
 | Package | Signatures |
 | --- | --- |
@@ -397,7 +397,7 @@ A std extern whose `runtime/v1` Go body is marked pure is transparent in footpri
    For a refused body `BodyOf` returns no shape, so the checker treats its call as opaque. A body that is not marked is not pure.
 3. Purity is only std's. A user `extern go strings.TrimSpace` stays opaque: its Go body is outside the reviewed set.
 4. An Ergo std function over pure externs, such as `strings.Cut`, is pure through its own footprint, which its package records.
-5. Today the marked bodies are the bodies of `strings` and `strconv` in `text.go`, those of `slices` and `cmp` in `collections.go` named in [Slices, maps and cmp](#slices-maps-and-cmp) 6, those of `filepath` in `path.go`, those of `math` and `bits` in `numbers.go`, those of `hex`, `base64`, `sha256` and `crc32` in `digest.go`, those of `csv` in `csv.go`, the prelude's `Append`, `Get`, `Delete` and `Put` in `data.go` (lw-pure-prelude; `Put`, L2), and the prelude's `Unreachable` in `data.go`, which raises a defect and reaches nothing (a defect is no capability; the lowering panics at each call site instead of calling it, [types.md, Unreachable](types.md#unreachable) 6). The prelude's `Append`, `Get`, `Delete` and `Put` are intrinsics: the lowering writes a Go wrapper for each in the program (`Get` builds the program's `Option` from the comma-ok read that `v1.Get` is), and a marked intrinsic's wrapper is a pure function with no environment. So `func evens(n int) []int` that loops and calls `out.Append(i)` lowers to Go's `func evens(n int) []int` with no task poll, and `match m.Get(k)` in a function that does nothing else keeps it pure (`TestPurePreludeEmits`, `TestPurePreludeAgrees`). Their writes are the writes Go's `append` and `delete` make, on a source that no other binding sees ([types.md, Bindings](types.md#bindings) 2), so a pure function gives equal results for equal arguments. The reference lowering, in which their calls are opaque again, is selected with `-ldflags=-X=ergo.local/prototype/internal/sketch/check.pureCollections=off`, or in a test with `check.SetPureCollectionsForTest(false)`. `TestPureBodiesKeepTheAllowlist` reads every embedded runtime file and checks each marked body against the rules independently of `BodyOf`; `TestFootprintsPureStd` checks the footprints.
+5. Today the marked bodies are the bodies of `strings` and `strconv` in `text.go`, those of `slices` and `cmp` in `collections.go` named in [Slices, maps and cmp](#slices-maps-and-cmp) 6, those of `filepath` in `path.go`, those of `math` and `bits` in `numbers.go`, those of `hex`, `base64` and `crc32.Update` in `digest.go`, those of `csv` in `csv.go`, the prelude's `Append`, `Get`, `Delete` and `Put` in `data.go` (lw-pure-prelude; `Put`, L2), and the prelude's `Unreachable` in `data.go`, which raises a defect and reaches nothing (a defect is no capability; the lowering panics at each call site instead of calling it, [types.md, Unreachable](types.md#unreachable) 6). The prelude's `Append`, `Get`, `Delete` and `Put` are intrinsics: the lowering writes a Go wrapper for each in the program (`Get` builds the program's `Option` from the comma-ok read that `v1.Get` is), and a marked intrinsic's wrapper is a pure function with no environment. So `func evens(n int) []int` that loops and calls `out.Append(i)` lowers to Go's `func evens(n int) []int` with no task poll, and `match m.Get(k)` in a function that does nothing else keeps it pure (`TestPurePreludeEmits`, `TestPurePreludeAgrees`). Their writes are the writes Go's `append` and `delete` make, on a source that no other binding sees ([types.md, Bindings](types.md#bindings) 2), so a pure function gives equal results for equal arguments. The reference lowering, in which their calls are opaque again, is selected with `-ldflags=-X=ergo.local/prototype/internal/sketch/check.pureCollections=off`, or in a test with `check.SetPureCollectionsForTest(false)`. `TestPureBodiesKeepTheAllowlist` reads every embedded runtime file and checks each marked body against the rules independently of `BodyOf`; `TestFootprintsPureStd` checks the footprints.
 
 *Prior art:* GHC trusts a foreign import's declared type: an import whose result is not in `IO` is pure on the author's word. Gleam's and ReScript's externals carry no effect fact, and Elixir's compiler sees a remote call as unknown code. Koka infers effects only for code it can see, and its externs state their effect in the declared type. Ergo keeps the claim on the Go body, where a reviewer reads it, and checks its mechanical part: what the file can reach.
 
@@ -1335,8 +1335,15 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `os` | `CodeWhere` | `CodeWhere(v Code) { let it = int(v) (1 <= it && it <= 125) && try ParseCode(it) == v }` | `TestStdLawsRun` | tested |
 | `os` | `Process.GetwdIsAbsolute` | `GetwdIsAbsolute() { let dir = Getwd() catch { case NoWorkdir: return true } filepath.IsAbs(dir) }` | `TestStdHostLawsHold` | tested |
 | `os` | `Process.GetwdIsStable` | `GetwdIsStable() { let first = Getwd() catch { case NoWorkdir: let _ = Getwd() catch { case NoWorkdir: return true } return false } let second = Getwd() catch { case NoWorkdir: return false } first == second }` | `TestStdHostLawsHold` | tested |
+| `prelude` | `AppendIsLast` | `AppendIsLast(xs []int, x int) { let ys = xs.Append(x) len(ys) == len(xs) + 1 && ys[len(xs)] == x }` | `TestCollLaws` | tested |
+| `prelude` | `CloneIsEqual` | `CloneIsEqual(m Map[int, int], k int) { let c = m.Clone() len(c) == len(m) && sameEntry(c.Get(k), m.Get(k)) }` | `TestCollLaws` | tested |
+| `prelude` | `GetAfterDelete` | `GetAfterDelete(m Map[int, int], k int) { match m.Delete(k).Get(k) { case Some[int]: false case None: true } }` | `TestCollLaws` | tested |
+| `prelude` | `GetAfterPut` | `GetAfterPut(m Map[int, int], k int, v int) { match m.Put(k, v).Get(k) { case Some[int] as x: x.Value == v case None: false } }` | `TestCollLaws` | tested |
 | `prelude` | `Random.Float64InUnit` | `Float64InUnit() { let f = Float64() f >= 0.0 && f < 1.0 }` | `TestRandLaws` | tested |
 | `prelude` | `Random.IntNInRange` | `IntNInRange(n int) { if n <= 0 { return true } let x = IntN(n) x >= 0 && x < n }` | `TestRandLaws` | tested |
+| `prelude` | `SliceIsWindow` | `SliceIsWindow(xs []int, i int, j int) { if i < 0 \|\| j > len(xs) \|\| i > j { return true } let w = xs.Slice(i, j) let mut ok = len(w) == j - i for k, y in w { ok = ok && y == xs[i + k] } ok }` | `TestCollLaws` | tested |
+| `prelude` | `TakeIsGetAndDelete` | `TakeIsGetAndDelete(m Map[int, int], k int) { let v, rest = m.Take(k) sameEntry(v, m.Get(k)) && sameEntry(rest.Get(k), None) && len(rest) == len(m.Delete(k)) }` | `TestCollLaws` | tested |
+| `prelude` | `TakeAtIsIndexAndRest` | `TakeAtIsIndexAndRest(xs []int, i int) { if i < 0 \|\| i >= len(xs) { return true } let x, rest = xs.TakeAt(i) let mut ok = x == xs[i] && len(rest) == len(xs) - 1 for k, y in rest { ok = ok && (k < i && y == xs[k] \|\| k >= i && y == xs[k + 1]) } ok }` | `TestCollLaws` | tested |
 | `prelude` | `Task.StopIsIdempotent` | `StopIsIdempotent() { Stop() Stop() true }` | `TestStdLawsRun` | tested |
 | `queue` | `EndKeepsValues` | `EndKeepsValues(v int) { let q = New[int](1) try q.Push(v) q.End() try q.Pop() == v }` | `TestStdLawsRun` | tested |
 | `queue` | `FirstInFirstOut` | `FirstInFirstOut(a int, b int) { let q = New[int](2) try q.Push(a) try q.Push(b) let first = try q.Pop() let second = try q.Pop() first == a && second == b }` | `TestStdLawsRun` | tested |
@@ -1418,7 +1425,7 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `strconv` | `ParseIntInvertsFormat` | `ParseIntInvertsFormat(n int) { try ParseInt(Itoa(n), 10, 64) } == { int64(n) }` | `TestStdTextLaws` | tested |
 | `strconv` | `ParseIntInvertsFormatInt` | `ParseIntInvertsFormatInt(n int64, b int) { let base = 2 + (b%35+35)%35 try ParseInt(FormatInt(n, base), base, 64) == n }` | `TestStdRunesLaws` | tested |
 | `strconv` | `UnquoteInvertsQuote` | `UnquoteInvertsQuote(s string) { try Unquote(Quote(s)) } == { s }` | `TestStdTextLaws` | tested |
-| `strings` | `BuilderConcatenates` | `BuilderConcatenates(a string, c byte, d string) { let mut b = NewBuilder() b.WriteString(a) b.Grow(len(d)) b.WriteByte(c) let mut copy = b copy.WriteString(d) let want = a + builderText([]byte{c}) b.String() == want && b.Len() == len(want) && copy.String() == want+d && copy.Len() == len(want)+len(d) }` | `TestStdTextRuns2` | tested |
+| `strings` | `BuilderConcatenates` | `BuilderConcatenates(a string, c byte, d string) { let mut b = NewBuilder() b.WriteString(a) b.Grow(len(d)) b.WriteByte(c) let mut copy = b copy.WriteString(d) let want = a + []byte{c}.Text() b.String() == want && b.Len() == len(want) && copy.String() == want+d && copy.Len() == len(want)+len(d) }` | `TestStdTextRuns2` | tested |
 | `strings` | `BytesRoundTrip` | `BytesRoundTrip(s string, c byte) { let text = s + "x" let mut a = Bytes(text) let shared = a let t = FromBytes(shared) let u = FromBytes(a) a[0] = c let mut b = NewBuilder() b.WriteString(s) b.WriteBytes(a) let mut w = NewBuilder() w.WriteString(s) w.WriteByte(c) w.WriteString(Slice(text, 1, len(text))) t == text && u == text && FromBytes(Bytes(s)) == s && b.String() == w.String() && b.Len() == len(s)+len(text) }` | `TestStdTextRuns2` | tested |
 | `strings` | `CompareIsAntisymmetric` | `CompareIsAntisymmetric(a string, b string) { Compare(a, b) == -Compare(b, a) && (Compare(a, b) == 0) == (a == b) }` | `TestStdPadLaws` | tested |
 | `strings` | `CountMatchesSplit` | `CountMatchesSplit(s string, sep string) { if sep == "" { return true } Count(s, sep) == len(Split(s, sep))-1 }` | `TestStdTextLaws` | tested |
@@ -1639,6 +1646,7 @@ The standard library is an ordinary set of packages ([NORTH_STAR.md](../../NORTH
    - `internal/sketchfront/load.go`: std paths resolve to the embedded std, and a module path does not take a std package's name.
    - `internal/sketchfront/sketchfront.go`: the digest of std's sources is part of every build key.
    - `internal/sketch/lower/lower.go`, `internal/sketch/lower/naming.go` and `internal/sketch/lower/sources.go`: a std package ships in the compiler, so the lowering names its declarations and positions from the embedded files, not from a unit, and its law ledger ships beside them. Which ledger answers for a provider's laws is chosen by the module that declares it, in one function of the lowering (`evidenceFor`): the build's module's `ergo.laws` for its packages, the shipped ledger for the shipped ones.
+   - `internal/sketch/check/factguard.go`: the guard lines of the reviewed tables in `runtime/v1` (`v1.GoSyncCallbacks`, `v1.PureImports`) ship in that same ledger, because the tables and their guards ship with the compiler; the checker reads them from it (`FactLedger`; interop.md, Foreign facts 7).
 2. **The predeclared names.** The language gives a meaning to some names that the prelude declares, and to the operation names of its protocols. These functions read such a name:
 
 | Reader | Predeclared name |
@@ -1647,13 +1655,11 @@ The standard library is an ordinary set of packages ([NORTH_STAR.md](../../NORTH
 | `internal/rpcgen/rpcgen.go:pairOf` | `Wire`, the codec's conversion protocol |
 | `internal/sketch/check/authority.go:authorityText` | a prelude constructor, named unqualified |
 | `internal/sketch/check/authority.go:isAmbient` | `Ambient` |
-| `internal/sketch/check/call.go:checker.collFuncs` | `Append`, `Get`, `Delete`, `Put` |
 | `internal/sketch/check/call.go:checker.preludeOp` | a prelude operation, reached by the dot form |
 | `internal/sketch/check/call.go:isUnreachable` | `Unreachable` |
 | `internal/sketch/check/close.go:checker.closeFacts` | `Close`, the release operation |
 | `internal/sketch/check/close.go:checker.closeTakes` | `Close` |
 | `internal/sketch/check/contextvalues.go:contextRow` | `Context` |
-| `internal/sketch/check/decl.go:checker.collectSelfFuncs` | the prelude's ownership declarations |
 | `internal/sketch/check/durable.go:pureSeer.step` | `Machine`, a machine literal whose Step a pure parameter sees |
 | `internal/sketch/check/durable.go:pureSeer.stepValue` | `Machine`'s `Step` |
 | `internal/sketch/check/entry.go:checker.checkErrorMethods` | `Error`, the method of a failure |
@@ -1663,7 +1669,6 @@ The standard library is an ordinary set of packages ([NORTH_STAR.md](../../NORTH
 | `internal/sketch/check/implements.go:checker.preludeContract` | `Closer`, `Keeping` |
 | `internal/sketch/check/implements.go:checker.recordLegacyReleases` | `Closer` |
 | `internal/sketch/check/implements.go:isGoCloser` | `io.Closer` |
-| `internal/sketch/check/footprint.go:preludeCollection` | `Append`, `Get`, `Delete`, `Put` |
 | `internal/sketch/check/hostres.go:checker.hostCloseFunc` | `Close` |
 | `internal/sketch/check/laws.go:lawClosures` | the prelude's providers in a law |
 | `internal/sketch/check/loops.go:checker.preludeOrigin` | `Range`, `Seq` |
@@ -1674,22 +1679,16 @@ The standard library is an ordinary set of packages ([NORTH_STAR.md](../../NORTH
 | `internal/sketch/check/takes.go:checker.takesPass` | `Close` |
 | `internal/sketch/derive/eval.go:evaluator.callee` | `Of`, the derive plan's constructor |
 | `internal/sketch/eval/arguments.go:interp.argumentType` | the prelude's types |
-| `internal/sketch/eval/expr.go:interp.collectionCall` | `Append`, `Get`, `Delete`, `Put` |
-| `internal/sketch/eval/expr.go:preludeCollection` | `Append`, `Get`, `Delete`, `Put` |
 | `internal/sketch/eval/machine.go:interp.machineStep` | `Enter`, `Stay`, `Emit`, `Tell`, `Done`, `Next` |
-| `internal/sketch/eval/stmt.go:interp.handover` | `Get` |
 | `internal/sketch/lower/builders.go:lowerer.builtText` | a prelude constructor, written unqualified |
 | `internal/sketch/lower/calls.go:funcCtx.callee` | a prelude function, written unqualified |
 | `internal/sketch/lower/decls.go:isPreludeType` | `Option`, `Some`, `None` |
 | `internal/sketch/lower/decls.go:lowerer.intrinsic` | `Append`, `Delete`, `Put`, `Take` |
 | `internal/sketch/lower/getmatch.go:getPattern` | `Some`'s `Value`, the comma-ok form of `Get` |
-| `internal/sketch/lower/getmatch.go:preludeGet` | `Get` |
 | `internal/sketch/lower/gocall.go:isOptionType` | `Option` |
 | `internal/sketch/lower/library.go:hostProvides` | `Console`, `Ambient` |
 | `internal/sketch/lower/literal.go:lowerer.ergoType` | a prelude type, written unqualified |
 | `internal/sketch/lower/module.go:lowerer.hostFields` | `Console`, `Ambient` |
-| `internal/sketch/lower/values.go:preludeAppend` | `Append` |
-| `internal/sketch/lower/values.go:preludeMapWrite` | `Delete`, `Put` |
 | `internal/tsproj/project.go:emitter.declare` | `Wire` |
 | `internal/tsproj/project.go:emitter.schema` | `Option` |
 

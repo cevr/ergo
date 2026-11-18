@@ -1134,10 +1134,11 @@ func isCallLike(x syntax.Expr) bool {
 
 // ---------------------------------------------------------------- builtins
 
-// collFuncs are the prelude's functions on slices and Maps (D-D6). The
-// prelude reads its own; every other package reads the checked prelude's.
+// collFuncs are the operations on slices and Maps (D-D6; collop.go). The
+// package that holds their file reads its own; every other package reads
+// the checked prelude's.
 func (c *checker) collFuncs() map[collKey]*Func {
-	if c.pkg.Path == std.PreludePath {
+	if c.pkg.collFuncs != nil {
 		return c.pkg.collFuncs
 	}
 	return prelude().pkg.collFuncs
@@ -1149,11 +1150,23 @@ func (c *checker) collFuncs() map[collKey]*Func {
 // the name is unambiguous; one mechanism with a function on a declared
 // type (196m), not a built-in branch (196a D1).
 func (c *checker) collFunc(t Type, name string) *Func {
-	switch t.(type) {
+	switch t := t.(type) {
 	case *Slice:
+		if b, ok := t.Elem.(*Basic); ok && b.Kind == Uint8 {
+			if f := c.collFuncs()[collKey{name: name, on: onBytes}]; f != nil {
+				return f
+			}
+		}
 		return c.collFuncs()[collKey{name: name}]
 	case *Map:
-		return c.collFuncs()[collKey{name: name, isMap: true}]
+		return c.collFuncs()[collKey{name: name, on: onMap}]
+	case *Basic:
+		switch t.Kind {
+		case String:
+			return c.collFuncs()[collKey{name: name, on: onString}]
+		case Int32:
+			return c.collFuncs()[collKey{name: name, on: onRune}]
+		}
 	}
 	return nil
 }

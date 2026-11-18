@@ -1,0 +1,6 @@
+build 2 1,2,3
+lint 1 4
+deploy 3 5,6
+report 9 7
+docs 1 8,9,10
+archive 5 11

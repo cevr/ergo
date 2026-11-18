@@ -286,6 +286,8 @@ type BuildRequest struct {
 	// Locked refuses a run build that needs a stale or missing ledger
 	// entry (ergo build --locked; owner q122).
 	Locked bool
+	// NoViews is ergo build -views=off (lower.Unit.NoViews).
+	NoViews bool
 	// Inputs, when set, is the file system the build reads the ledger
 	// through (a warm request's Recorder); nil reads the host.
 	Inputs FS
@@ -447,6 +449,10 @@ func unitInput(unit lower.Unit, dependencies []build.Dependency, req BuildReques
 	if req.IR {
 		emitter += "+ir"
 	}
+	if req.NoViews {
+		// -views=off lowers other Go (LF2b): its module is another key.
+		emitter += "+noviews"
+	}
 	if unit.Rewrites != "" && unit.Rewrites != "on" {
 		// The switch decides the lowered module (lower.Unit.Rewrites), so
 		// it keys it: an off build never reuses an on build's module.
@@ -544,6 +550,7 @@ func emission(a Analysis, req BuildRequest) (lower.Unit, func(lower.Unit) ([]low
 	if err != nil {
 		return lower.Unit{}, nil, false, err
 	}
+	unit.NoViews = req.NoViews
 	unit.Rewrites = req.Rewrites
 	split := splitLowering()
 	if split {

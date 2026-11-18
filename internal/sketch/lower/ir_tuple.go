@@ -87,15 +87,34 @@ func hostResults(f *check.Func) []check.Type {
 	return f.Sig.Results
 }
 
-// hostCall is the call x of f, a Go function of import go: its Go
-// target's "pcall", or, for a target with several results, a "tdef" of
-// them into fresh locals and their tuple. The domain is goCall's
-// boundary with nothing to adapt.
+// hostCall is the call x of f, a Go function of import go or the target
+// of a user extern: its Go target's "pcall", or, for a target with
+// several results, a "tdef" of them into fresh locals and their tuple.
+// The domain is goCall's boundary with nothing to adapt. A call with an
+// empty needs row binds the reviewed pure tier (check/extern.go, G9: it
+// reads only its arguments), so it is a value in its expression; one
+// that needs go.Foreign is an effect, which runs before its expression
+// (SP4).
 func (b *irBuilder) hostCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p irPos) ([]*irStmt, *irExpr, bool) {
+	if pre, v, ok := b.hostBound(x, c, f, p); ok { // ir_golib.go: the task's context, an Option result
+		return pre, v, false
+	}
 	pre, call := b.hostTarget(x, c, f, p)
 	results := hostResults(f)
+	effect := len(rowElems(f.Sig.Uses)) > 0 // the foreign tier
+	if f.Sig.Fallible {
+		// Go's results are the value and the error, which the fail
+		// forms bind and convert to go.Error (ir_fail.go bind).
+		if len(results) > 1 {
+			irNo("call of a Go package function")
+		}
+		if !failsHere(c) {
+			irNo("fallible call with an empty row at its site")
+		}
+		return pre, call, effect
+	}
 	if len(results) < 2 {
-		return pre, call, true
+		return pre, call, effect
 	}
 	t, ok := b.l.info.Types[x].(*check.Tuple)
 	if !ok || len(t.Types) != len(results) {
@@ -135,30 +154,17 @@ func readsTdef(e *irExpr, def *irStmt) bool {
 	return true
 }
 
-// hostTarget is the "pcall" of f's Go target with x's operands, after
-// their statements; it refuses a call outside the plain domain.
+// hostTarget is the Go call of f's target with x's operands, after their
+// statements (goTarget, ir_golib.go); it refuses a call outside its
+// domain.
 func (b *irBuilder) hostTarget(x *syntax.CallExpr, c *check.Call, f *check.Func, p irPos) ([]*irStmt, *irExpr) {
-	switch {
-	case c.Recv != nil || f.Decl == nil || f.Decl.Extern == nil || f.Decl.Extern.Target == nil,
-		len(f.Sig.TParams) > 0, f.Sig.Fallible, check.GoVariadic(f), check.GoContext(f),
-		len(x.Args) != len(f.Sig.Params):
+	// SP4: a user extern whose Go target needs an adapter is not called
+	// plainly; every other call is FORK-GOLIB's goTarget (I-FLIP: SP4 x
+	// FORK-GOLIB).
+	if ge := check.GoExternOf(f); ge != nil && ge.Adapter != check.AdaptSame {
 		irNo("call of a Go package function")
 	}
-	for _, q := range f.Sig.Params {
-		if !hostBasic(q.Type) {
-			irNo("call of a Go package function")
-		}
-	}
-	for _, r := range hostResults(f) {
-		if !hostBasic(r) {
-			irNo("call of a Go package function")
-		}
-	}
-	path, goName := f.Decl.Extern.Split()
-	name := b.l.hostPkg(path, x)
-	b.keepImport("var _ = " + name + "." + goName)
-	pre, args := b.operands(x.Args) // ir_fail.go
-	return pre, &irExpr{K: "pcall", Pos: p, T: path, Name: goName, Args: args}
+	return b.goTarget(x, c, f, p) // ir_golib.go (FORK-GOLIB)
 }
 
 // letTuple lowers `let (a, b) = x` and `let a, b = x` of the tuple x:

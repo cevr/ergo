@@ -276,7 +276,10 @@ type lowerer struct {
 	// names (bounds.go, unstableVars).
 	unstable map[*check.Info]map[*check.Var]bool
 	// facts are the facts the run build exports (facts.go), once each.
-	facts    factSet
+	facts factSet
+	// foreign are the foreign facts on Go call operands (gofacts.go),
+	// rows of ergo inspect facts that no Go pass reads.
+	foreign  []placedFact
 	contexts map[contextSet]string
 	adapters map[string]string        // operation-table adapters by source and target Go types
 	scripts  map[string]bool          // Script structs emitted, by instance key (script.go)

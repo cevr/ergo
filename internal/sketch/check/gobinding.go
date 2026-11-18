@@ -65,11 +65,11 @@ type GoImporter interface {
 // goImp is a binder's importer: a binding imports Go packages only.
 type goImp struct{ set *GoBindings }
 
-func (g goImp) Import(path string) (*Package, error) {
+func (g *goImp) Import(path string) (*Package, error) {
 	return nil, fmt.Errorf("a binding imports Go packages only (%s)", path)
 }
 
-func (g goImp) GoBindings() *GoBindings { return g.set }
+func (g *goImp) GoBindings() *GoBindings { return g.set }
 
 // goBindings is the program's Go packages.
 func (c *checker) goBindings() *GoBindings {
@@ -236,6 +236,10 @@ type hostPkg struct {
 	variadic map[*Func]bool           // a function whose last parameter is Go's ...T
 	context  map[*Func]bool           // a function whose hidden first parameter is Go's context.Context (IG10)
 	goLines  map[int]string           // the `// ergo:` comment of each line, read by GoDecl (IG8) on first use
+	reads    map[*Func][]string       // the binders a function's `// ergo:reads` line names (gofacts.go)
+	writes   map[*Func]int            // the parameter a function's `// ergo:writes` line names (GBX2, gowrites.go)
+	vouched  map[*Func][]vouch        // its vouched `// ergo:reads p (vouched: …)` lines (gofacts.go)
+	effect   map[*Func]bool           // a memory-only function, `// ergo:effect none (vouched: …)` (GBX6)
 }
 
 func hostOf(p *Package) *hostPkg {
@@ -251,12 +255,16 @@ func (s *GoBindings) Package(path string) (*Package, bool) {
 	if p, ok := s.pkgs[path]; ok {
 		return p, p != nil
 	}
-	src, ok := s.lookup(path)
+	lookup := s.lookup
+	if lookup == nil { // decoded from the std snapshot: Go's standard library
+		lookup = gostd.Binding
+	}
+	src, ok := lookup(path)
 	if !ok {
 		s.pkgs[path] = nil
 		return nil, false
 	}
-	c := newChecker(path, goImp{s}, prelude().scope)
+	c := newChecker(path, &goImp{s}, prelude().scope)
 	c.pkg.Name = GoPackageName(path)
 	c.pkg.qualify = true
 	c.pkg.host = &hostPkg{set: s, src: src, c: c, vars: map[*Var]*syntax.VarSpec{}, refused: map[string]string{}, recvPtr: map[*Func]bool{}, variadic: map[*Func]bool{}, context: map[*Func]bool{}}
@@ -296,11 +304,16 @@ func (s *GoBindings) ResolveAll(path string) bool {
 	for _, name := range sortedKeys(p.Scope.names) {
 		o := p.Scope.names[name]
 		h.resolve(o)
+		if fn, ok := o.(*Func); ok {
+			h.misfitReads(fn)
+			h.misfitWrites(fn)
+		}
 		if tn, ok := o.(*TypeName); ok {
 			n := tn.Type.(*Named)
 			under(n)
 			for _, m := range n.mlist {
 				h.c.funcSig(m)
+				h.misfitReads(m)
 			}
 		}
 	}
@@ -446,7 +459,7 @@ func (h *hostPkg) load() {
 	markers := map[int]string{}
 	for _, g := range f.Comments {
 		for _, cm := range g.List {
-			if cm.Text == "// ergo:variadic" || cm.Text == "// ergo:context" {
+			if cm.Text == "// ergo:variadic" || cm.Text == "// ergo:context" || strings.HasPrefix(cm.Text, writesMarker) || strings.HasPrefix(cm.Text, readsMarker) || strings.HasPrefix(cm.Text, effectMarker) {
 				line, _ := f.Position(cm.Pos())
 				markers[line] = cm.Text
 			}
@@ -466,11 +479,19 @@ func (h *hostPkg) load() {
 		mark := func(fn *Func) {
 			line, _ := f.Position(fn.Decl.Pos())
 			for l := line - 1; markers[l] != ""; l-- {
-				switch markers[l] {
-				case "// ergo:variadic":
+				switch text := markers[l]; {
+				case text == "// ergo:variadic":
 					h.variadic[fn] = true
-				case "// ergo:context":
+				case text == "// ergo:context":
 					h.context[fn] = true
+				case strings.HasPrefix(text, writesMarker):
+					h.writesLine(fn, strings.TrimPrefix(text, writesMarker))
+				default:
+					if rest, ok := strings.CutPrefix(text, effectMarker); ok {
+						h.effectLine(fn, rest)
+						continue
+					}
+					h.readsLine(fn, strings.TrimPrefix(text, readsMarker))
 				}
 			}
 		}

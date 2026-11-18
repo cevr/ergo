@@ -67,7 +67,7 @@ func printEmitted(opts fileOptions, mode build.Mode) error {
 	if !checked.result.Checked {
 		return refuseUnchecked(checked, opts)
 	}
-	digest, err := sketchfront.EmittedDigest(checked.analysis, sketchfront.BuildRequest{Mode: mode, Source: checked.source.Admitted(), Rewrites: opts.rewrites})
+	digest, err := sketchfront.EmittedDigest(checked.analysis, sketchfront.BuildRequest{Mode: mode, Source: checked.source.Admitted(), NoViews: opts.noViews, Rewrites: opts.rewrites})
 	if err != nil {
 		return err
 	}
@@ -155,6 +155,7 @@ func buildSource(opts fileOptions, place func(name, output string) string) (rece
 		Stderr:    stderr,
 		Ledger:    ledgerPath(opts.file),
 		Locked:    opts.locked,
+		NoViews:   opts.noViews,
 		Report:    &report,
 		Inputs:    w.fsys(),
 	})
@@ -206,6 +207,7 @@ func buildGoText(l loaded, opts fileOptions, output receipt.Location) error {
 	if err != nil {
 		return err
 	}
+	unit.NoViews = opts.noViews
 	files, _, err := lower.LowerIR(unit)
 	if err != nil {
 		return err

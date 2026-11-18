@@ -101,6 +101,8 @@ type canonical struct {
 	sourced map[*check.Package]bool
 	nodeSrc map[syntax.Node]int // each node of the program's sources: its source file
 	lists   map[*check.Package]*declLists
+	// noViews is Unit.NoViews: the build takes no view (view.go).
+	noViews bool
 	// funcRw is the rewrites over functions of the IR path (ir_rewrite.go):
 	// here, so a lowering that runs again from the start keeps them.
 	funcRw *funcRewrites
@@ -116,7 +118,7 @@ type declLists struct {
 
 // canonicalize converts u, which Validate admits, to its canonical form.
 func canonicalize(u Unit) *canonical {
-	c := &canonical{sourced: map[*check.Package]bool{}, lists: map[*check.Package]*declLists{}}
+	c := &canonical{sourced: map[*check.Package]bool{}, lists: map[*check.Package]*declLists{}, noViews: u.NoViews}
 	c.srcs = sources(u)
 	for _, s := range c.srcs {
 		c.sourced[s.pkg] = true

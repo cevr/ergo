@@ -50,17 +50,24 @@ func (b *irBuilder) place(x syntax.Expr) *irExpr {
 	return nil
 }
 
-// fixed reports a place no statement can move: a local, or a field of a
-// fixed place that is not reached through a pointer.
+// fixed reports a place no statement can move: a local, a field of a
+// fixed place that is not reached through a pointer, or *p and a field
+// through p where p is a local no assignment changes (a parameter or a
+// plain let: check.Var.Mut false, the emitter's fixedName). Statements may
+// write *p, never p, so the place's address is the same before them and
+// after, and a nil p fails at the store, after them, on both paths (the
+// emitter binds p to a temporary first, of the same value).
 func (b *irBuilder) fixed(x syntax.Expr) bool {
 	switch x := unparen(x).(type) {
 	case *syntax.Ident:
 		v, ok := b.l.info.Uses[x].(*check.Var)
 		_, local := b.locals[v]
 		return ok && local
+	case *syntax.StarExpr:
+		return b.fixed(x.X) && b.fc.fixedName(x.X)
 	case *syntax.SelectorExpr:
 		if _, isPtr := b.l.info.Types[x.X].(*check.Pointer); isPtr {
-			return false
+			return b.fixed(x.X) && b.fc.fixedName(x.X)
 		}
 		return b.fixed(x.X)
 	}
@@ -70,14 +77,23 @@ func (b *irBuilder) fixed(x syntax.Expr) bool {
 // store is the IR of p = v or p op= v, p a place that is not a name.
 func (b *irBuilder) store(s *syntax.AssignStmt, op string) []*irStmt {
 	lhs := s.Lhs[0]
-	if call, ok := unparen(s.Rhs[0]).(*syntax.CallExpr); ok && op == "" && formsOn() && b.l.valueFacts().inPlace[call] {
-		irNo("store of a call that updates its place") // mapStore (forms.go)
+	if op == "" && b.fc.mapStoreForm(s) {
+		// p = p.Put(…) with the call writing p's own Go map in place: the
+		// map it returns is p's, so the call is the statement and the store
+		// back is dropped, as the emitter's mapStore writes it (forms.go).
+		// Any other call the value rule writes in place (Append, a Map
+		// call that p does not hand) is stored back as written: the call's
+		// own IR is the in-place form (valueSource).
+		return b.discard(s.Rhs[0])
 	}
 	if op != "" {
 		b.operator(op, b.l.info.Types[lhs], s)
 	}
-	to := b.place(lhs)
+	to := b.storeTo(lhs) // ir_mapstore.go: a Map's entry, else a place
 	pre, x := b.value(s.Rhs[0])
+	if op == "" && to.K == "mapAt" {
+		return append(b.fixEntry(lhs, to, pre), &irStmt{K: "store", Pos: b.pos(s, s.Pos()), X: to, Y: x}) // ir_mapstore.go
+	}
 	if len(pre) > 0 && (op != "" || !b.fixed(lhs)) {
 		irNo("store to a place a value with statements may move")
 	}

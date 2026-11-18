@@ -3,7 +3,7 @@
 // status; then the caret's line and the two lines on each side, each with
 // its number, the caret's line marked with >.
 
-import editor/piece
+import ergo.local/prototype/examples/editorgui/piece
 
 // Frame is the lines of s's window.
 func Frame(s State) []string {

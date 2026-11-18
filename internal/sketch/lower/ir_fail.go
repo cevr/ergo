@@ -96,11 +96,17 @@ func (b *irBuilder) retOf(x syntax.Expr, p irPos) []*irStmt {
 			pre, _ := b.try(call)
 			return append(pre, &irStmt{K: "ret", Pos: p})
 		}
-		if c := b.l.info.Calls[call]; c != nil && c.Kind == check.CallFuncValue && b.result == nil {
-			// A function value's pair: its failure leaves, then the
-			// frame returns with no value (ir_closure.go).
-			pre, _ := b.try(call)
-			return append(pre, &irStmt{K: "ret", Pos: p})
+		if b.hostFails(call) {
+			// A Go call's error becomes go.Error (bind) before it
+			// leaves, then the value returns.
+			pre, v := b.try(call)
+			if v == nil {
+				return append(pre, &irStmt{K: "ret", Pos: p})
+			}
+			return append(pre, &irStmt{K: "ret", Pos: p, X: v})
+		}
+		if out, ok := b.hostRet(call, p); ok { // ir_golib.go: a fallible Go call
+			return out
 		}
 		pre, e := b.rawCall(call)
 		return append(pre, &irStmt{K: "ret", Pos: p, X: e})
@@ -245,6 +251,9 @@ func (b *irBuilder) bind(call *syntax.CallExpr) (pre []*irStmt, v, e int) {
 	if w, ok := b.isWith(call); ok {
 		return b.failWith(w) // ir_with.go
 	}
+	if pre, v, e, ok := b.hostBind(call); ok { // ir_golib.go: a fallible Go call
+		return pre, v, e
+	}
 	pre, x := b.rawCall(call)
 	p := b.pos(call, call.Pos())
 	e = b.temp("err", "error", p)
@@ -255,11 +264,36 @@ func (b *irBuilder) bind(call *syntax.CallExpr) (pre []*irStmt, v, e int) {
 		u := b.temp("unit", "struct{}", p)
 		return append(pre, &irStmt{K: "def2", Pos: p, Local: u, Val: &e, X: x}), -1, e
 	}
+	v = -1
 	if t == nil || isNoValue(t) {
-		return append(pre, &irStmt{K: "def", Pos: p, Local: e, X: x}), -1, e
+		pre = append(pre, &irStmt{K: "def", Pos: p, Local: e, X: x})
+	} else {
+		v = b.temp("v", b.goType(t, call), p)
+		pre = append(pre, &irStmt{K: "def2", Pos: p, Local: v, Val: &e, X: x})
 	}
-	v = b.temp("v", b.goType(t, call), p)
-	return append(pre, &irStmt{K: "def2", Pos: p, Local: v, Val: &e, X: x}), v, e
+	if b.hostFails(call) {
+		// A Go call's error is go.Error: the emitter's hostFallible and
+		// goErrorOf (v1.GoErrorOf; the eager form in the reference).
+		name := "GoErrorOf"
+		if goErrorEager {
+			name = "GoErrorEagerOf"
+		}
+		b.keepImport("var _ = " + b.l.rt() + "." + name)
+		conv := &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: name, Args: []*irExpr{{K: "local", Pos: p, I: e}}}
+		pre = append(pre, &irStmt{K: "set", Pos: p, Local: e, X: conv})
+	}
+	return pre, v, e
+}
+
+// hostFails reports the call x of a Go function that fails go.Error (a
+// user extern or import go): its Go error is converted where it is bound
+// (bind), never passed on raw (SP4).
+func (b *irBuilder) hostFails(x *syntax.CallExpr) bool {
+	c := b.l.info.Calls[x]
+	if c == nil || c.Kind != check.CallFunc || c.Func == nil || !c.Func.Sig.Fallible {
+		return false
+	}
+	return userExtern(c.Func) || c.Func.Pkg != nil && c.Func.Pkg.Host()
 }
 
 // bindMatch evaluates x, the match m whose arms' tails are fallible calls,

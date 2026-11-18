@@ -71,7 +71,7 @@ func (b *irBuilder) callFacts(x *syntax.CallExpr, e *irExpr, stmt bool) {
 	case b.lawKeep > 0:
 		f.Keep = keepCheck
 	}
-	e.C = f
+	e.CF = f
 }
 
 // localType records local i's Go type, for a hole that is not a call's
@@ -158,7 +158,7 @@ func (b *irBuilder) pattern(law *check.Law) (p *rwPattern) {
 		vals[v] = h
 	}
 	pre, left := b.lawSide(law, law.FuncRewrite.Lhs, vals, true)
-	if len(pre) > 0 || left == nil || left.C == nil {
+	if len(pre) > 0 || left == nil || left.CF == nil {
 		return nil
 	}
 	p.left = left
@@ -179,9 +179,9 @@ func (b *irBuilder) match(m *rwMatch, p, e *irExpr, typed bool) bool {
 	if p.K == "hole" {
 		return b.hole(m, p, e, typed)
 	}
-	if e.C != nil {
-		m.keep = m.keep || e.C.Keep == keepAsWritten
-		m.check = m.check || e.C.Keep == keepCheck
+	if e.CF != nil {
+		m.keep = m.keep || e.CF.Keep == keepAsWritten
+		m.check = m.check || e.CF.Keep == keepCheck
 	}
 	if p.K != e.K || p.Name != e.Name || p.T != e.T || p.V != e.V || p.Op != e.Op || p.I != e.I ||
 		p.K == "local" || p.Body != nil || e.Body != nil ||
@@ -225,11 +225,11 @@ func (b *irBuilder) hole(m *rwMatch, p, e *irExpr, typed bool) bool {
 // matchAt is the first law whose left side matches the call node e, in
 // the order its package declares them.
 func (b *irBuilder) matchAt(e *irExpr, site *syntax.CallExpr) (rwMatch, bool) {
-	if e.C == nil || e.C.Stmt {
+	if e.CF == nil || e.CF.Stmt {
 		return rwMatch{}, false
 	}
 	for _, p := range b.patterns()[rwHead(e)] {
-		m := rwMatch{law: p.law, holes: p.holes, vals: make([]*irExpr, len(p.holes)), site: e.C.Site}
+		m := rwMatch{law: p.law, holes: p.holes, vals: make([]*irExpr, len(p.holes)), site: e.CF.Site}
 		if m.site == nil {
 			m.site = site
 		}
@@ -328,7 +328,7 @@ func (b *irBuilder) rwExpr(e *irExpr, at *rwAt) *irExpr {
 		return e
 	}
 	site := at.site
-	for e.C != nil {
+	for e.CF != nil {
 		m, ok := b.matchAt(e, site)
 		if !ok {
 			break

@@ -817,8 +817,7 @@ type RewriteSite struct {
 // class; a validated entry, a vouched fact whose guard passed or a law
 // whose licence run passed, admits the value class only, and only with
 // the run that gave it named; tested, skipped and refuted admit nothing.
-// The memory-class exception of q193 (LF2b's host-view rows) is LF2b's to
-// add here.
+// The memory-class exception of q193 is admitView.
 func admitLevel(verdict, by string, class trust) bool {
 	switch verdict {
 	case "proved":
@@ -827,6 +826,14 @@ func admitLevel(verdict, by string, class trust) bool {
 		return by != "" && class == valueClass
 	}
 	return false
+}
+
+// admitView is the one memory-class exception of q193 (LAWFFI r2 §1;
+// LF2b): the shortcut host-view, a zero-copy view of a string's bytes at a
+// Go call, rests on a validated fact as a value-class change does. No
+// other memory-class change admits validated.
+func admitView(verdict, by string) bool {
+	return verdict == "proved" || verdict == "validated" && by != ""
 }
 
 // lawRewriteClass is the trust class of a law rewrite: a false law gives a

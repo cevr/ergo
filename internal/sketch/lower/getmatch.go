@@ -48,10 +48,10 @@ type getArm struct {
 	value  *check.Var
 }
 
-// preludeGet reports the prelude's Get[K, V](m Map[K, V], k K) Option[V],
-// the declaration whose body intrinsic writes.
+// preludeGet reports the Map operation Get[K, V](m Map[K, V], k K)
+// Option[V] (check.CollOpOf), whose body intrinsic writes.
 func preludeGet(f *check.Func) bool {
-	if f == nil || f.Pkg == nil || f.Pkg.Path != "prelude" || f.Decl == nil || f.Decl.Extern == nil || f.Name != "Get" {
+	if check.CollOpOf(f) != check.CollGet {
 		return false
 	}
 	s := f.Sig

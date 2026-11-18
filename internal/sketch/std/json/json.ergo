@@ -112,9 +112,6 @@ extern go ergo.local/prototype/runtime/v1.JSONAppendUint func appendUint(out []b
 extern go ergo.local/prototype/runtime/v1.JSONAppendBool func appendBool(out []byte, b bool) []byte
 extern go ergo.local/prototype/runtime/v1.JSONAppendFloat func appendFloat(out []byte, f float64) []byte
 
-// bytesText is the bytes of out as a string.
-extern go ergo.local/prototype/runtime/v1.JSONBytesText func bytesText(out []byte) string
-
 func raw(t *text, s string) { t.out = appendString(t.out, s) }
 
 func sep(t *text) {
@@ -249,7 +246,7 @@ func Key(t *text, k string) {
 	t.setComma(false)
 }
 
-func Written(t *text) string { bytesText(t.out) }
+func Written(t *text) string { t.out.Text() }
 
 func finish(t *text, hint int) string {
 	let s = strings.FromBytes(t.out)

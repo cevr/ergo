@@ -1,13 +1,18 @@
 package irspike
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/lower"
+	"ergo.local/prototype/internal/testwait"
 )
 
 // TestIRCopiesMatchSource is the seeded property over the value rule's
@@ -19,8 +24,10 @@ import (
 // It builds Go because a copy left out shows only when the compiled
 // program's append or Put writes the caller's array or map.
 func TestIRCopiesMatchSource(t *testing.T) {
+	// No ergoCloneMap: under the entry rule (V8) a Map of slices whose
+	// entries are not written copies by maps.Clone.
 	lyProperty(t, "TestIRCopiesMatchSource", GenerateCopy, []string{"slices.Clone", "maps.Clone", "ergoCloneSlice", "ergoCloneBox"},
-		"copySlice", "copyMap", "copyBoxes", "copyLists", "Box.copyBox", "copyAny")
+		"copySlice", "copyMap", "takeMap", "copyBoxes", "copyLists", "Box.copyBox", "copyAny")
 }
 
 // lyProperty runs the programs gen draws at ERGO_IRSPIKE_SEEDS seeds from
@@ -45,7 +52,7 @@ func lyProperty(t *testing.T, name string, gen func(uint64) string, texts []stri
 			t.Fatalf("the program does not check: %v\n%s", err, text)
 		}
 		sb, ib, rep := both(t, u, src, ir, dir, BuildOptions{})
-		a, b := run(t, sb), run(t, ib)
+		a, b := lyRun(t, sb, replay, text), lyRun(t, ib, replay, text)
 		if a != b {
 			t.Fatalf("the paths differ\nsource: %+v\nir:     %+v\n%s\n%s", a, b, replay, text)
 		}
@@ -67,6 +74,37 @@ func lyProperty(t *testing.T, name string, gen func(uint64) string, texts []stri
 			}
 		}
 	}
+}
+
+// lyRun is run, in a process group of its own, bounded by the test's
+// deadline (testwait): a binary still running then is killed with its
+// group and named as hung, with the program and its replay command. The
+// deadline only stops a hung run; a run that ends passes at any speed.
+// GenerateKnownCallback's program ends only when its stops end the loops
+// they interrupt (LY-POLL), so a loop that no longer polls hangs here.
+func lyRun(t *testing.T, bin, replay, text string) outcome {
+	t.Helper()
+	ctx, cancel := testwait.Context(t, context.Background())
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	var out, errb bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &errb
+	_, err := MeasureBounded(cmd, programMemory)
+	if cmd.Process != nil {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) // anything the program left
+	}
+	if ctx.Err() != nil {
+		t.Fatalf("%s hung until the test's deadline (killed): a stop did not end what it interrupts (stdout so far %q)\n%s\n%s", filepath.Base(bin), out.String(), replay, text)
+	}
+	o := outcome{stdout: out.String(), stderr: firstLine(errb.String())}
+	if ee, ok := err.(*exec.ExitError); ok {
+		o.exit = ee.ExitCode()
+	} else if err != nil {
+		t.Fatalf("run %s: %v", bin, err)
+	}
+	return o
 }
 
 // lyIRCalls are the callees of an IR file's calls: "name" for a call of a

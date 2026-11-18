@@ -81,8 +81,20 @@ type loopIdiom struct {
 	c              *check.Call
 }
 
-// loopIdiomOf is the idiom the range loop s is, or nil.
+// loopIdiomOf is the idiom the range loop s is, or nil, on the text path:
+// a collect appends to one of the emitter's own locals.
 func (fc *funcCtx) loopIdiomOf(s *syntax.RangeStmt, l *check.Loop) *loopIdiom {
+	return fc.loopIdiomWith(s, l, func(v *check.Var, xs *syntax.Ident) bool {
+		_, local := fc.locals[v]
+		return local && fc.scalarIdent(xs) == nil
+	})
+}
+
+// loopIdiomWith is the idiom the range loop s is, or nil. local reports
+// that the variable v (named by xs) is a plain local of the function's
+// lowering, which a collect may append to: the text path keeps its locals
+// in fc.locals, the IR builder in its own (ir_loops.go, FLIP GP-COLLECT).
+func (fc *funcCtx) loopIdiomWith(s *syntax.RangeStmt, l *check.Loop, local func(v *check.Var, xs *syntax.Ident) bool) *loopIdiom {
 	if loopLowering == "plain" || l.Domain != check.LoopRange || fc.frame == nil || fc.frame.polls {
 		return nil
 	}
@@ -105,7 +117,7 @@ func (fc *funcCtx) loopIdiomOf(s *syntax.RangeStmt, l *check.Loop) *loopIdiom {
 		return nil
 	}
 	if xs, ok := unparen(as.Lhs[0]).(*syntax.Ident); ok {
-		return fc.collectIdiom(xs, as.Rhs[0], iv)
+		return fc.collectIdiom(xs, as.Rhs[0], iv, local)
 	}
 	ix, ok := unparen(as.Lhs[0]).(*syntax.IndexExpr)
 	if !ok || len(ix.Indices) != 1 {
@@ -135,12 +147,9 @@ func (fc *funcCtx) loopIdiomOf(s *syntax.RangeStmt, l *check.Loop) *loopIdiom {
 }
 
 // collectIdiom is the collect `xs = xs.Append(Q[i+s])`, or nil.
-func (fc *funcCtx) collectIdiom(xs *syntax.Ident, rhs syntax.Expr, iv *check.Var) *loopIdiom {
+func (fc *funcCtx) collectIdiom(xs *syntax.Ident, rhs syntax.Expr, iv *check.Var, local func(*check.Var, *syntax.Ident) bool) *loopIdiom {
 	v, ok := fc.l.info.Uses[xs].(*check.Var)
-	if !ok || fc.l.info.OwnedVars[v] != nil || fc.scalarIdent(xs) != nil {
-		return nil
-	}
-	if _, local := fc.locals[v]; !local {
+	if !ok || fc.l.info.OwnedVars[v] != nil || !local(v, xs) {
 		return nil
 	}
 	call, ok := unparen(rhs).(*syntax.CallExpr)

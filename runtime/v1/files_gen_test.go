@@ -189,6 +189,9 @@ func bodyLiteral(b Body) string {
 	if b.Check != "" {
 		fields = append(fields, fmt.Sprintf("Check: %q", b.Check))
 	}
+	if b.View != "" {
+		fields = append(fields, fmt.Sprintf("View: %q", b.View))
+	}
 	if b.AsWritten {
 		fields = append(fields, "AsWritten: true")
 	}

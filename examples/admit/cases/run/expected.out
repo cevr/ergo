@@ -1,0 +1,14 @@
+start build (2)
+start lint (1)
+queue deploy (3)
+refuse report (9 > 4)
+start docs (1)
+refuse archive (5 > 4)
+finish build
+finish lint
+finish docs
+start deploy (3)
+finish deploy
+refused:
+report weighs 9, more than the capacity 4
+archive weighs 5, more than the capacity 4

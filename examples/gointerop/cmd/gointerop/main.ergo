@@ -5,6 +5,8 @@
 //	                          standard input is "-"
 //	gointerop check LIST      check each "DIGEST  NAME" line of LIST
 //	gointerop stats           summarize the numbers on standard input
+//	gointerop find KEY...     rank each KEY in the whole numbers on
+//	                          standard input
 //
 // This binary is the only place that chooses the providers: the hash
 // (gointerop/sha256), the host's files, input and arguments.
@@ -12,6 +14,7 @@
 import fs
 import fstest
 import gointerop/checksum
+import gointerop/index
 import gointerop/sha256
 import gointerop/stats
 import io
@@ -19,10 +22,10 @@ import os
 import slices
 
 // Usage is the text of a usage failure.
-let Usage = "usage: gointerop sum [FILE...] | check LIST | stats"
+let Usage = "usage: gointerop sum [FILE...] | check LIST | stats | find KEY..."
 
 // Command is what the arguments ask for.
-type Command = Sum{Files []string} | Check{List string} | Stats{}
+type Command = Sum{Files []string} | Check{List string} | Stats{} | Find{Keys []string}
 
 // Parse is the command of args.
 func Parse(args []string) Command fails os.Exit {
@@ -37,6 +40,8 @@ func Parse(args []string) Command fails os.Exit {
 		Check{List: rest[0]}
 	case ("stats", 0):
 		Stats
+	case ("find", _):
+		Find{Keys: rest}
 	case (_, _):
 		os.Exit{Code: 2, Message: Usage}
 	}
@@ -120,6 +125,31 @@ func StatsOf() fails os.Exit needs Console | io.Stdin {
 	}
 }
 
+// FindAll prints the rank of each key in the index of the numbers on
+// standard input, and whether it is one of them.
+func FindAll(keys []string) fails os.Exit needs Console | io.Stdin {
+	let text = io.Stdin.ReadAll() catch {
+	case io.ReadFailed as r:
+		return os.Exit{Code: 1, Message: "gointerop: \(r.Reason)"}
+	}
+	let xs = index.Read(text) catch {
+	case index.NotAnInt as n:
+		return os.Exit{Code: 1, Message: "gointerop: line \(n.Line): \(n.Text) is not a whole number"}
+	}
+	let ix = index.Build(xs)
+	for key in keys {
+		let k = index.Read(key) catch {
+		case index.NotAnInt:
+			return os.Exit{Code: 2, Message: "gointerop: \(key) is not a whole number"}
+		}
+		if len(k) != 1 {
+			return os.Exit{Code: 2, Message: "gointerop: \(key) is not a whole number"}
+		}
+		let seen = if index.Has(ix, k[0]) { "found" } else { "absent" }
+		Console.Println("\(k[0]) rank \(index.Rank(ix, k[0])) of \(index.Size(ix)) \(seen)")
+	}
+}
+
 // main does what the arguments ask, on the host's arguments, input and
 // files, hashing with gointerop/sha256.
 func main() fails os.Exit needs Console | Ambient {
@@ -131,6 +161,8 @@ func main() fails os.Exit needs Console | Ambient {
 			try CheckAll(c.List)
 		case Stats:
 			try StatsOf()
+		case Find as f:
+			try FindAll(f.Keys)
 		}
 	}
 }

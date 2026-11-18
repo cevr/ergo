@@ -4,13 +4,19 @@
 //
 // Program mode, from the repository root:
 //
-//	go run ./scripts/opcount [-control] [-rounds N] [-o FILE] [-ergo BIN] NAME
+//	go run ./scripts/opcount [-control] [-text] [-rounds N] [-o FILE] [-ergo BIN] NAME
 //
 // reads examples/NAME/workload (or FOLDER/workload for a NAME with a slash,
 // such as benchmarks/forms/step, whose program is the nearest folder from
 // it up that holds ergo.mod), builds the program with the exit hook
-// (ergo build -work, then go build -overlay of the emitted module in a
-// scratch folder) and its hand Go control with -control, and runs each at
+// (ergo build -work, then ergo's go build action on the emitted module
+// with an -overlay, in a scratch folder) and its hand Go control with
+// -control, all with the release ergo builds with and its patched compile.
+// The program builds as the product does: each package's IR bodies read by
+// the patched compile (-ergoir); the receipt names the path and, per
+// package, how many function bodies came from IR. -text builds the same IR
+// bodies printed as Go text (ergo build -go-text) instead, for
+// comparison. It runs each at
 // the workload's two sizes, with the default collector and with GOGC=off,
 // the sides alternating (A B, then B A) for N rounds. Per side it writes
 // user instructions per unit (and with GOGC=off), allocations and bytes
@@ -41,17 +47,25 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 
 	"ergo.local/prototype/internal/opcount"
 	"ergo.local/prototype/internal/proclimit"
+	"ergo.local/prototype/internal/sketch/build"
+	"ergo.local/prototype/internal/sketchfront"
+	"ergo.local/prototype/internal/toolchain"
 )
 
 func main() {
@@ -64,6 +78,7 @@ func main() {
 
 type options struct {
 	control, cmd     bool
+	text             bool
 	rounds           int
 	out, ergo, work  string
 	base, head, each string
@@ -76,6 +91,7 @@ func run(args []string, stdout, stderr io.Writer) (int, error) {
 	flags := flag.NewFlagSet("opcount", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.BoolVar(&o.control, "control", false, "also measure the workload's hand Go control, and compare")
+	flags.BoolVar(&o.text, "text", false, "build the program's IR bodies as Go text (ergo build -go-text), for comparison with the IR build")
 	flags.BoolVar(&o.cmd, "cmd", false, "command mode: compare -base and -head on each target")
 	flags.IntVar(&o.rounds, "rounds", 3, "rounds; each runs every side once, in alternating order")
 	flags.StringVar(&o.out, "o", "", "write the bench.v1 receipt to this file (default: stdout)")
@@ -156,6 +172,12 @@ func report(r opcount.Receipt, w io.Writer) int {
 			unit = " per " + c.Unit
 		}
 		fmt.Fprintf(w, "== %s (%d rounds%s)\n", c.Case, c.Rounds, map[bool]string{true: ", sizes " + fmt.Sprint(c.Sizes), false: ""}[len(c.Sizes) > 0])
+		if c.Path != "" {
+			fmt.Fprintf(w, "  path %s\n", c.Path)
+		}
+		for _, p := range c.Bodies {
+			fmt.Fprintf(w, "  IR bodies %-28s %d of %d functions\n", p.Package, p.IR, p.Funcs)
+		}
 		for _, s := range c.Series {
 			if s.Refusal != nil {
 				refused++
@@ -250,11 +272,16 @@ func programCase(o options, name string, log io.Writer) (opcount.Case, error) {
 	if o.control && w.Control == "" {
 		return opcount.Case{}, fmt.Errorf("%s/%s names no control", rel, opcount.WorkloadFile)
 	}
-	b := builder{o: o, root: root, log: log}
-	program, goLine, err := b.program(filepath.Join(module, "cmd", w.Binary), w.Binary)
+	release, err := patchedRelease(log)
 	if err != nil {
 		return opcount.Case{}, err
 	}
+	b := builder{o: o, root: root, log: log, release: release}
+	ergoSide, err := b.program(filepath.Join(module, "cmd", w.Binary), w.Binary)
+	if err != nil {
+		return opcount.Case{}, err
+	}
+	program, goLine := ergoSide.bin, ergoSide.goLine
 	sides := []side{{"ergo", program}}
 	if o.control {
 		bin, err := b.goPackage(w.Control, "control", goLine, true)
@@ -280,7 +307,10 @@ func programCase(o options, name string, log io.Writer) (opcount.Case, error) {
 		}
 	}
 	m := measurer{o: o, w: w, inputs: inputs}
-	c := opcount.Case{Case: name, Unit: w.Unit, Sizes: []int{w.Small, w.Large}, Rounds: o.rounds, Workload: &w}
+	c := opcount.Case{Case: name, Unit: w.Unit, Sizes: []int{w.Small, w.Large}, Rounds: o.rounds, Workload: &w, Path: "ir", Bodies: ergoSide.bodies}
+	if o.text {
+		c.Path = "text"
+	}
 	var equivalence *opcount.Refused
 	if o.control {
 		equivalence, err = m.agree(sides)
@@ -596,82 +626,190 @@ func commandCases(o options, args []string, log io.Writer) ([]opcount.Case, erro
 	return cases, nil
 }
 
-// builder builds the measured binaries into the scratch folder.
+// builder builds the measured binaries into the scratch folder, every Go
+// build with release: the Go release ergo builds with, with ergo's patched
+// compile (internal/toolchain, Patch), which compiles a package without
+// -ergoir as the stock compile does.
 type builder struct {
-	o    options
-	root string
-	log  io.Writer
+	o       options
+	root    string
+	log     io.Writer
+	release toolchain.Patched
+}
+
+// patchedRelease is the release ergo build runs, with ergo's patched
+// compile: the go command ERGO_GO selects, the pins of ergo's cache, as
+// cmd/ergo's buildAction takes them.
+func patchedRelease(log io.Writer) (toolchain.Patched, error) {
+	root, err := build.DefaultRoot()
+	if err != nil {
+		return toolchain.Patched{}, err
+	}
+	selected, err := toolchain.Select(os.Getenv, root, log)
+	if err != nil {
+		return toolchain.Patched{}, err
+	}
+	pins, err := toolchain.PinSource(root, os.Getenv("ERGO_PIN_URL"), log)
+	if err != nil {
+		return toolchain.Patched{}, err
+	}
+	return sketchfront.PinnedRelease(selected, root, &pins, log)
 }
 
 var goLinePattern = regexp.MustCompile(`(?m)^go [0-9.]+$`)
 
-// program builds the Ergo program at cmdDir with ergo build -work, then
-// builds the emitted module again with the exit hook added by an overlay,
-// so neither the checkout nor the emission cache is written. It returns
-// the hooked binary and the go line of the emitted module.
-func (b builder) program(cmdDir, name string) (string, string, error) {
+// built is the Ergo side's binary, the go line of its module and, on the
+// IR path, its bodies per package.
+type built struct {
+	bin, goLine string
+	bodies      []opcount.Bodies
+}
+
+// program builds the Ergo program at cmdDir as the product does: ergo
+// build -work emits the module, and opcount builds it again with the exit
+// hook added by an overlay, so neither the checkout nor the emission cache
+// is written, by ergo's own go build action (build.Toolchain.Command):
+// each package with an IR file compiled with -ergoir. With -text it builds
+// the module ergo build -go-text writes instead, the same IR bodies
+// printed as Go text, which compiles without -ergoir.
+func (b builder) program(cmdDir, name string) (built, error) {
 	ergo := b.o.ergo
 	if ergo == "" {
 		ergo = filepath.Join(b.o.work, "ergo")
 		if err := b.exec(b.root, "go", "build", "-o", ergo, "./cmd/ergo"); err != nil {
-			return "", "", err
+			return built{}, err
 		}
 	}
+	args := []string{"build", "-work"}
+	work := ""
+	if b.o.text {
+		work = filepath.Join(b.o.work, name+"-text")
+		args = []string{"build", "-go-text", work}
+	}
+	args = append(args, "-o", filepath.Join(b.o.work, name+"-plain"), cmdDir)
 	var stderr bytes.Buffer
-	cmd := exec.Command(ergo, "build", "-work", "-o", filepath.Join(b.o.work, name+"-plain"), cmdDir)
+	cmd := exec.Command(ergo, args...)
 	cmd.Stdout, cmd.Stderr = io.Discard, &stderr
 	if err := proclimit.Run(cmd, b.o.memory); err != nil {
-		return "", "", fmt.Errorf("ergo build %s: %v\n%s", cmdDir, err, stderr.Bytes())
+		return built{}, fmt.Errorf("ergo %s: %v\n%s", strings.Join(args, " "), err, stderr.Bytes())
 	}
-	work := ""
 	for _, line := range strings.Split(stderr.String(), "\n") {
-		if v, ok := strings.CutPrefix(line, "WORK="); ok {
+		if v, ok := strings.CutPrefix(line, "WORK="); ok && !b.o.text {
 			work = v
 		}
 	}
 	if work == "" {
-		return "", "", fmt.Errorf("ergo build -work %s printed no WORK= line:\n%s", cmdDir, stderr.Bytes())
+		return built{}, fmt.Errorf("ergo build -work %s printed no WORK= line:\n%s", cmdDir, stderr.Bytes())
 	}
 	mod, err := os.ReadFile(filepath.Join(work, "go.mod"))
 	if err != nil {
-		return "", "", err
+		return built{}, err
 	}
 	goLine := string(goLinePattern.Find(mod))
 	if goLine == "" {
-		return "", "", fmt.Errorf("%s/go.mod has no go line", work)
+		return built{}, fmt.Errorf("%s/go.mod has no go line", work)
 	}
 	hook := filepath.Join(b.o.work, "hook-"+name+".go")
 	if err := os.WriteFile(hook, []byte(opcount.Hook), 0o644); err != nil {
-		return "", "", err
+		return built{}, err
 	}
 	overlay, err := json.Marshal(map[string]map[string]string{"Replace": {filepath.Join(work, opcount.HookFile): hook}})
 	if err != nil {
-		return "", "", err
+		return built{}, err
 	}
 	overlayFile := filepath.Join(b.o.work, "overlay-"+name+".json")
 	if err := os.WriteFile(overlayFile, overlay, 0o644); err != nil {
-		return "", "", err
+		return built{}, err
 	}
-	bin := filepath.Join(b.o.work, name)
-	link, err := opcount.HookedBuild(work, overlayFile, bin)
-	if err != nil {
-		return "", "", err
+	out := built{bin: filepath.Join(b.o.work, name), goLine: goLine}
+	if err := b.run(moduleBuild(b.release, work, overlayFile, out.bin)); err != nil {
+		return built{}, err
 	}
-	if err := b.run(link); err != nil {
-		return "", "", err
+	if !b.o.text {
+		if out.bodies, err = irBodies(work); err != nil {
+			return built{}, err
+		}
 	}
-	return bin, goLine, nil
+	return out, nil
 }
 
-// run runs cmd under the memory limit, logging its words.
-func (b builder) run(cmd *exec.Cmd) error {
-	var out bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &out
-	fmt.Fprintf(b.log, "%s\n", strings.Join(cmd.Args, " "))
-	if err := proclimit.Run(cmd, b.o.memory); err != nil {
-		return fmt.Errorf("%s: %v\n%s", strings.Join(cmd.Args, " "), err, out.Bytes())
+// moduleBuild is ergo's go build action (build.Toolchain.Command) of the
+// emitted module at dir with release, unstripped, the overlay and
+// -checklinkname=0 (the exit hook's linkname) in GOFLAGS: each package
+// that has an IR file is compiled with its -ergoir.
+func moduleBuild(release toolchain.Patched, dir, overlay, bin string) *exec.Cmd {
+	tc := build.HostToolchain()
+	tc.Go, tc.Root = release.Go, release.Root
+	tc.GOOS, tc.GOARCH = runtime.GOOS, runtime.GOARCH
+	tc.GOFLAGS = "'-overlay=" + overlay + "' -ldflags=-checklinkname=0"
+	tc.GoBuild = true
+	return tc.Command(build.Module{Dir: dir}, bin)
+}
+
+// irBodies counts, per Go package of the module at dir (not of a module
+// nested in it, such as the runtime's), its function
+// declarations and the functions its IR file names, whose bodies the
+// patched compile takes from IR: packages in path order, "." the root.
+func irBodies(dir string) ([]opcount.Bodies, error) {
+	counts := map[string]*opcount.Bodies{}
+	at := func(rel string) *opcount.Bodies {
+		rel = filepath.ToSlash(rel)
+		if counts[rel] == nil {
+			counts[rel] = &opcount.Bodies{Package: rel}
+		}
+		return counts[rel]
 	}
-	return nil
+	err := filepath.WalkDir(dir, func(p string, e fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if e.IsDir() {
+			// A folder with a go.mod of its own (the runtime's) is
+			// another module: Ergo bodies are lowered into this one.
+			if _, err := os.Stat(filepath.Join(p, "go.mod")); err == nil && p != dir {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		rel, err := filepath.Rel(dir, filepath.Dir(p))
+		if err != nil {
+			return err
+		}
+		switch {
+		case e.Name() == build.IRFile:
+			data, err := os.ReadFile(p)
+			if err != nil {
+				return err
+			}
+			var ir struct {
+				Funcs []json.RawMessage `json:"funcs"`
+			}
+			if err := json.Unmarshal(data, &ir); err != nil {
+				return fmt.Errorf("%s: %v", p, err)
+			}
+			at(rel).IR += len(ir.Funcs)
+		case strings.HasSuffix(e.Name(), ".go") && !strings.HasSuffix(e.Name(), "_test.go"):
+			f, err := parser.ParseFile(token.NewFileSet(), p, nil, parser.SkipObjectResolution)
+			if err != nil {
+				return err
+			}
+			for _, d := range f.Decls {
+				if _, ok := d.(*ast.FuncDecl); ok {
+					at(rel).Funcs++
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]opcount.Bodies, 0, len(counts))
+	for _, c := range counts {
+		out = append(out, *c)
+	}
+	slices.SortFunc(out, func(a, b opcount.Bodies) int { return strings.Compare(a.Package, b.Package) })
+	return out, nil
 }
 
 // goPackage builds the main package rel (from the repository root) as a
@@ -708,7 +846,10 @@ func (b builder) goPackage(rel, role, goLine string, hooked bool) (string, error
 		}
 	}
 	bin := filepath.Join(b.o.work, role+"-bin")
-	if err := b.exec(dir, "go", "build", "-trimpath", "-buildvcs=false", "-ldflags=-checklinkname=0", "-o", bin, "."); err != nil {
+	cmd := exec.Command(b.release.Go, "build", "-trimpath", "-buildvcs=false", "-ldflags=-checklinkname=0", "-o", bin, ".")
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GOWORK=off", "GOROOT="+b.release.Root, "GOTOOLCHAIN=local")
+	if err := b.run(cmd); err != nil {
 		return "", err
 	}
 	return bin, nil
@@ -735,11 +876,17 @@ func (b builder) exec(dir, name string, args ...string) error {
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GOWORK=off")
+	return b.run(cmd)
+}
+
+// run runs a build step, bounded, logging its command line.
+func (b builder) run(cmd *exec.Cmd) error {
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
-	fmt.Fprintf(b.log, "%s %s\n", name, strings.Join(args, " "))
+	line := strings.Join(cmd.Args, " ")
+	fmt.Fprintln(b.log, line)
 	if err := proclimit.Run(cmd, b.o.memory); err != nil {
-		return fmt.Errorf("%s %s: %v\n%s", name, strings.Join(args, " "), err, out.Bytes())
+		return fmt.Errorf("%s: %v\n%s", line, err, out.Bytes())
 	}
 	return nil
 }

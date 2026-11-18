@@ -37,10 +37,10 @@ type irWindowCall struct {
 
 // windowAt is s as a window's call, or ok false.
 func (b *irBuilder) windowAt(s *irStmt) (w irWindowCall, ok bool) {
-	if s.K != "expr" || s.X == nil || s.X.C == nil || s.X.C.Site == nil || s.X.C.Keep != "" {
+	if s.K != "expr" || s.X == nil || s.X.CF == nil || s.X.CF.Site == nil || s.X.CF.Keep != "" {
 		return w, false
 	}
-	call := s.X.C.Site
+	call := s.X.CF.Site
 	if call.Trailing != nil {
 		return w, false
 	}
@@ -201,7 +201,8 @@ func (b *irBuilder) windowNode(c rwCall, win []irWindowCall) *irExpr {
 	}
 	t := tmpl.node
 	node := *t
-	node.C = nil
+	node.CF = nil
+	node.C = nil // LF3's pure-call facts name the template's call, not this one (I-FLIP)
 	if tmpl.fn != c.fn {
 		node.Name = b.l.useFunc(c.fn, tmpl.call).name
 	}

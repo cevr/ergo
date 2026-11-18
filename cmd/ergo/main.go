@@ -195,6 +195,9 @@ type fileOptions struct {
 	// Append and Concat site (in place, one extender or copy, and why) on
 	// stderr (OWN1); empty prints none.
 	report string
+	// noViews is build's -views=off: no Go call takes a view of a
+	// string's bytes (LAWFFI LF2b; lower.Unit.NoViews).
+	noViews bool
 	// rewrites is build's -rewrites=on|proved|off|canary[=N] (lower.Unit.Rewrites):
 	// which rewrites over functions the run build applies; empty is on.
 	rewrites string
@@ -334,6 +337,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 			opts.work = true
 		case "--locked":
 			opts.locked = true
+		case "-views=off":
+			opts.noViews = true
 		case "--emitted":
 			opts.emitted = true
 		case "--debug":
@@ -367,6 +372,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--platform is only supported by build")
 	case opts.goText != "" && command != "build":
 		return opts, fmt.Errorf("-go-text is only supported by build")
+	case opts.noViews && command != "build":
+		return opts, fmt.Errorf("-views=off is only supported by build")
 	case opts.report != "" && command != "build":
 		return opts, fmt.Errorf("-report is only supported by build")
 	case opts.rewrites != "" && command != "build":

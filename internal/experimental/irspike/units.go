@@ -47,7 +47,18 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"expression *syntax.StarExpr", "G1"},
 	{"selector on a non-record", "G1"},
 	// F7 select (ir_select.go): the qualified names it leaves.
-	{"package function as a value", "G6"},
+	// F7-cs-fnname (ir_fnname.go): the function values funcValue writes
+	// another way than a closure that calls the function.
+	{"function value without a function type", "G6"},
+	{"Go function as a value", "G6"},
+	{"user extern as a value", "G6"},
+	{"method as a value", "G6"},
+	{"function that takes witnesses as a value", "G4"},
+	{"function value of another arity", "G6"},
+	{"std extern as a value", "G6"},
+	{"extern as a value", "G6"},
+	{"generic function as a value", "G4"},
+	{"function value whose result differs from its function's", "G6"},
 	{"Go package variable", "G4"},
 	{"package let without a Go name", "G1"},
 	{"package type name as a value", "G1"},
@@ -147,7 +158,12 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"match on a value that is no union", "G3b"},
 	{"match on a value of type *", "G3b"},
 	{"match subject that releases owned values", "G2"},
-	{"match on Get", "G4"}, // a Map read: the comma-ok form (getmatch.go)
+	{"match on Get", "G4"},                // a Map read: the comma-ok form (getmatch.go)
+	{"match on Get with patterns", "G3b"}, // the emitter's type switch on the Option (ir_get.go)
+	{"call of Get with *", "G3b"},
+	{"Get of a value that is no Map", "G3b"},
+	{"operation-type value", "G4"}, // a value of an operation type: an interface of functions
+	{"operations conversion", "G4"},
 	{"result statement *syntax.BranchStmt", "G1"},
 	// G4: generics, packages, tasks, references, function values.
 	{"generic or declared-elsewhere type", "G4"},
@@ -155,6 +171,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"task call", "G4"},
 	{"generic call kind *", "G4"},
 	{"generic call without its type arguments", "G4"},
+	{"generic call with a row type argument of the caller", "G4"},
 	{"Option's pointer niche", "G4"},
 	{"append form", "G4"},
 	{"append to a defined slice type", "G4"},
@@ -165,7 +182,20 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"call without a function", "G4"},
 	{"call of a Go builtin", "G4"},
 	{"call of a user extern", "G4"},
-	{"call of a Go package function", "G4"}, // import go (gostd); IRG6 r2 gates it, the census crashed on it
+	{"generic Go package type", "G4"},                       // FORK-GOCALL: a Go generic type's instance
+	{"Go function passed to a Go package function", "G4"},   // FORK-GOCALL: goDirect
+	{"Go callback that fails or has several results", "G4"}, // FORK-GOCALL: GoCallbackError's tunnel
+	{"Go callback of another shape", "G4"},                  // FORK-GOCALL: goCallbackIn's copies
+	{"call of a Go package function", "G4"},                 // import go (gostd); IRG6 r2 gates it, the census crashed on it
+	// FORK-GOLIB's remaining Go call forms (ir_golib.go).
+	{"Go call whose site drops its failure", "G4"},
+	{"Go context call from a pure function", "G4"},
+	{"Go call with a result of another type", "G4"},
+	{"fallible Go call with several results", "G4"},
+	{"Go method call on a receiver of another type", "G4"},
+	{"Go method call that takes its receiver's address", "G4"},
+	{"Go callback from a pure function", "G4"},
+	{"go.Error literal form", "G4"},
 	{"call of a std intrinsic", "G4"},
 	{"dot call of a std function", "G4"},
 	{"std call *", "G4"}, // hidden arguments, adapted results, converted operands
@@ -178,7 +208,10 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"type *check.Union", "G4"}, // an anonymous union as a type argument (IRG4b instances)
 	// IRG4b r2: operation-type values and their calls, std operations.
 	{"operation call from a pure function", "G4"},
-	{"operation call into an owning literal", "G4"},
+	{"owned site *", "G4"}, // the Ref's owned site's refusals (ir_refown.go, IR-OWN)
+	{"fallible owned site", "G4"},
+	{"owned operation whose form *", "G4"},
+	{"owning *", "G4"}, // an owned Ref site's in-place form and its other shapes (ir_ownlit.go)
 	{"operation call on a *", "G4"},
 	{"std operation without its runtime method", "G4"},
 	{"std Close", "G4"},
@@ -202,7 +235,11 @@ var reasonUnits = []struct{ prefix, unit string }{
 	// parameters (ir_pkg.go), F1's generic bodies.
 	{"runtime leaf's generic function in a generic body", "G4"},
 	{"owned parameters", "G4"},
-	{"known-callback variant", "G4"},
+	// LY-FIX: a monomorphic, provider or witness copy keeps its emitter
+	// body; a function with a Go row (rowslot.go) and its calls too.
+	{"copy for an instance", "G4"},
+	{"Go row parameter", "G4"},
+	{"call of a function with a Go row", "G4"},
 	{"variant with no result", "G4"}, // drop.go's variant of a function whose result a call discards
 	{"call without a value", "G4"},
 	{"call without a Calls entry", "G4"},
@@ -231,7 +268,6 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"function type with several results", "G6"},
 	{"call of a function value *", "G6"},
 	{"call of a value of a named function type", "G6"},
-	{"call of a known callback", "G4"},          // known.go's plain variant
 	{"string constant that is not UTF-8", "G6"}, // the IR file is JSON (IRG6 r3)
 	// IRG6 r4 lowers law bodies; these stay the emitter's.
 	{"law of a generic operation type", "G6"},
@@ -251,5 +287,4 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"function type with several results", "G6"},
 	{"call of a function value *", "G6"},
 	{"call of a value of a named function type", "G6"},
-	{"call of a known callback", "G4"}, // known.go's plain variant
 }

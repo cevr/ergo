@@ -44,7 +44,7 @@ var i1FrameKinds = []i1FrameKind{
 	}, wrap: func(d int, body string) string {
 		return "let t" + i1Depth(d) + " = task.Go() {\n" + body + "}\nt" + i1Depth(d) + ".Wait()\n"
 	}},
-	{name: "trailing", goClass: "lit", params: true, sites: map[string]int{"funcLitClosure": 1, "plainLit": 1, "closureLit": 1}, program: func(ps, row, attempt string, body string) string {
+	{name: "trailing", goClass: "lit", params: true, sites: map[string]int{"funcLitClosure": 1, "plainLit": 1, "plainLitIR": 1, "closureLit": 1}, program: func(ps, row, attempt string, body string) string {
 		return "func run(f func() int" + row + ") int" + row + " { " + attempt + "f() }\nfunc subject(" + ps + ") int" + row + " {\n" + attempt + "run() {\n" + body + "}\n}\n"
 	}, wrap: func(_ int, body string) string { return "run() {\n" + body + "}\n" }},
 	{name: "provider", goClass: "decl", sites: map[string]int{"emitBody": 1}, program: func(_, _, _ string, body string) string {

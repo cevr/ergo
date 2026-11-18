@@ -73,6 +73,9 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 	text, result, fallible := fc.callText(x, c)
 	if op := fc.inlined; op != nil {
 		fc.inlined = nil
+		// A forwarder's taken values leave with the block (holdTaken,
+		// check.HoldsTaken): a defect inside it leaves them to the frame.
+		fc.handCaptures(held, x)
 		return *op // inline.go: its block is written
 	}
 	defer fc.identify(x, c)()
@@ -233,6 +236,11 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			return fc.hostCall(x, c, args), len(c.Func.Sig.Results) > 0, c.Func.Sig.Fallible
 		}
 		if body, name, ok := fc.l.stdBody(fd); ok {
+			if c.Recv != nil && check.CollOpOf(c.Func) != check.CollNone {
+				// An operation of the slice or Map type (PRIM-4): its
+				// receiver is the body's first operand.
+				return fc.stdCall(x, c, append([]syntax.Expr{c.Recv}, args...), body, name)
+			}
 			if c.Recv != nil {
 				ice(x, "a dot call to the std function %s", c.Func.Name)
 			}
@@ -546,6 +554,12 @@ func (fc *funcCtx) hostCall(x *syntax.CallExpr, c *check.Call, args []syntax.Exp
 // extern f: the imported package's name and the target's name.
 func (fc *funcCtx) hostTarget(site syntax.Node, f *check.Func) string {
 	path, name := f.Decl.Extern.Split()
+	if p, typ, m := f.Decl.Extern.SplitMethod(); f.Pkg != nil && f.Pkg.Host() && p == f.Pkg.Path && path != f.Pkg.Path {
+		// A method of a Go type that is an Ergo type of its own, bound as
+		// a function of its receiver (GBX4; gobind ownTypeMethods): Go's
+		// method expression, time.Duration.String.
+		return fc.l.hostPkg(p, site) + "." + typ + "." + m
+	}
 	return fc.l.hostPkg(path, site) + "." + name
 }
 

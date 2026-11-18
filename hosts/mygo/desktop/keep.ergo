@@ -1,0 +1,220 @@
+// The kept layout tree. A Driver keeps one layout.Tree across passes and
+// changes it where a pass's ops changed the window's tree: a node an
+// Insert added gets a box, a Remove takes its box out, and the children of
+// each parent an op touched are styled again and put in order, a style
+// set only where it differs. The kernel then lays out again only the boxes
+// whose style or children changed and those around them up to the root
+// (layout.Work counts them), and keeps what Measure said of each text.
+//
+// The tree built anew at every paint, as the driver did before, stays
+// selectable as the reference (Reference); Check builds it beside the kept
+// one at every paint and keeps the first box where they differ (Differs),
+// which hostagree and stars-gui's -check turn into a failing line.
+
+import arena
+import ui
+import ui/layout
+
+// keep changes the kept tree by one pass's ops, which show has already
+// applied to the window's tree: the boxes of new nodes, the style and
+// order of the children of every parent an op touched. A Remove's box
+// went out in drop.
+func keep[S, E, D, F](d *Driver[S, E, D, F], ops []ui.Op[E]) needs go.Foreign {
+	let mut touched = Map[ui.Id[E], bool]{}
+	for op in ops {
+		match op {
+		case ui.Insert[E] as x:
+			learn(&d.metrics, d.w, textOf(x.Node), textSize)
+			touched[x.Parent] = true
+		case ui.Move[E] as x:
+			touched[x.Parent] = true
+		case ui.Set[E] as x:
+			learn(&d.metrics, d.w, textOf(x.Node), textSize)
+			match d.lparent.Get(x.Id) {
+			case Some[ui.Id[E]] as p:
+				touched[p.Value] = true
+			case None:
+			}
+			// A list's First places its rows.
+			touched[x.Id] = true
+		case ui.Remove[E]:
+		}
+	}
+	let line = lineHeight(d.metrics, textSize)
+	for p, _ in touched {
+		keepKids(d, p, line)
+	}
+}
+
+// keepKids styles p's children again and puts them in p's order: from the
+// first child whose place changed, each is appended to p in turn.
+func keepKids[S, E, D, F](d *Driver[S, E, D, F], p ui.Id[E], line float32) {
+	match d.nodes.Get(p) {
+	case Some[held[E]]:
+	case None:
+		return
+	}
+	let into = boxFor(d, p)
+	let list = listOf(d, p)
+	let kids = kidsOf(d, p)
+	let old = match d.lkids.Get(p) {
+	case Some[[]ui.Id[E]] as o:
+		o.Value
+	case None:
+		[]ui.Id[E]{}
+	}
+	let mut from = 0
+	for from < len(kids) && from < len(old) && kids[from] == old[from] {
+		from = from + 1
+	}
+	for i, k in kids {
+		match d.nodes.Get(k) {
+		case Some[held[E]] as h:
+			let n = boxFor(d, k)
+			restyle(d, n, styleIn(list, i, h.Value.node, line))
+			if i >= from {
+				layout.Append(&d.tree, into, n) catch {
+				case arena.Stale:
+				}
+			}
+			d.lparent[k] = p
+			match h.Value.node {
+			case ui.RowsNode:
+				d.lists[k] = true
+			case _:
+				d.lists = d.lists.Delete(k)
+			}
+		case None:
+		}
+	}
+	d.lkids[p] = kids
+}
+
+// boxFor is id's box in the kept tree, a new one if it has none yet (the
+// root's is the window's).
+func boxFor[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) layout.Id {
+	if id == d.root {
+		return d.top
+	}
+	match d.lids.Get(id) {
+	case Some[layout.Id] as l:
+		l.Value
+	case None:
+		let n = layout.Add(&d.tree, plainStyle())
+		d.lids[id] = n
+		n
+	}
+}
+
+// restyle gives box n the style s, unless it has it: setting a style
+// forgets what the kernel computed around the box.
+func restyle[S, E, D, F](d *Driver[S, E, D, F], n layout.Id, s layout.Style) {
+	let now = layout.StyleOf(&d.tree, n) catch {
+	case arena.Stale:
+		return
+	}
+	if now != s {
+		layout.SetStyle(&d.tree, n, s) catch {
+		case arena.Stale:
+		}
+	}
+}
+
+// listOf is p's node when it is a list, whose rows it places.
+func listOf[S, E, D, F](d *Driver[S, E, D, F], p ui.Id[E]) Option[ui.RowsNode] {
+	match d.nodes.Get(p) {
+	case Some[held[E]] as h:
+		match h.Value.node {
+		case ui.RowsNode as x:
+			Some{Value: x}
+		case _:
+			None
+		}
+	case None:
+		None
+	}
+}
+
+// styleIn is how node, the i-th child of a parent, lays out: its own
+// style, and a list's row is out of the flow, at its index's place below
+// the list's top (from the list's First), as wide as the list and one row
+// high.
+func styleIn[E](list Option[ui.RowsNode], i int, node ui.Node[E], line float32) layout.Style {
+	let mut st = styleOf(node, line)
+	match list {
+	case Some[ui.RowsNode] as l:
+		let rh = dips(l.Value.RowHeight)
+		st.Position = layout.Absolute{Left: 0, Top: float32(l.Value.First+i) * rh}
+		st.Width = layout.Percent{Value: 100}
+		st.Height = layout.Px{Value: rh}
+	case None:
+	}
+	st
+}
+
+// layOutKept lays the kept tree out at the window's size: the window's
+// box takes its size, each list given room at the last paint goes back to
+// its own style, and after a layout each list no taller than 0 is given
+// the window's room below its top (giveRoom), as the reference does.
+func layOutKept[S, E, D, F](d *Driver[S, E, D, F]) {
+	let mut rs = plainStyle()
+	rs.Width = layout.Px{Value: d.width}
+	rs.Height = layout.Px{Value: d.height}
+	restyle(d, d.top, rs)
+	for k, s in d.roomed {
+		match d.lids.Get(k) {
+		case Some[layout.Id] as l:
+			restyle(d, l.Value, s)
+		case None:
+		}
+	}
+	d.roomed = Map[ui.Id[E], layout.Style]{}
+	d.work = 0
+	with context { layout.Measure: d.metrics } {
+		layout.Layout(&d.tree, d.top, d.width, d.height) catch {
+		case arena.Stale:
+		}
+		d.work = layout.Work(d.tree)
+		let mut changed = false
+		for k, _ in d.lists {
+			match (d.lids.Get(k), listOf(d, k)) {
+			case (Some[layout.Id] as l, Some[ui.RowsNode] as x):
+				match giveRoom(&d.tree, l.Value, d.height, dips(x.Value.RowHeight)) {
+				case Some[layout.Style] as s:
+					d.roomed[k] = s.Value
+					changed = true
+				case None:
+				}
+			case _:
+			}
+		}
+		if changed {
+			layout.Layout(&d.tree, d.top, d.width, d.height) catch {
+			case arena.Stale:
+			}
+			d.work = d.work + layout.Work(d.tree)
+		}
+	}
+}
+
+// giveRoom gives the list box l, when it laid out no taller than 0, the
+// window's room below its top, at least one row, as a list with no height
+// of its own fills the window under it. It is the style l had, when it
+// gave it room.
+func giveRoom(t *layout.Tree, l layout.Id, height float32, row float32) Option[layout.Style] {
+	let b = boxOf(t, l)
+	if b.H > 0 {
+		return None
+	}
+	let base = layout.StyleOf(t, l) catch {
+	case arena.Stale:
+		return None
+	}
+	let mut s = base
+	s.Height = layout.Px{Value: fmax(height-b.Y, row)}
+	s.Shrink = 0
+	layout.SetStyle(t, l, s) catch {
+	case arena.Stale:
+	}
+	Some{Value: base}
+}
