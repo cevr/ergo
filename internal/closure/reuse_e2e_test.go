@@ -148,6 +148,18 @@ func TestRecordedRunReadsAsASweptRun(t *testing.T) {
 		t.Errorf("the boxed run's inputs differ from the swept run's:\nrecorded %v\nswept    %v", boxed, swept)
 	}
 
+	// This package's tests make namespaces (testinputs.MakesNamespaces),
+	// so a run of them that is not the target records nothing.
+	quiet := t.TempDir()
+	declared := exec.Command(self, "-test.run=^$")
+	declared.Dir, declared.Env = f.pkg, withEnv(sweepEnvironment(), testinputs.RecordVariable+"="+quiet)
+	if b, err := declared.CombinedOutput(); err != nil {
+		t.Fatalf("a run of a package that makes namespaces: %v\n%s", err, b)
+	}
+	if recs, _, err := testinputs.ReadRecords(quiet, pkg); err != nil || len(recs) != 0 {
+		t.Errorf("a package that makes namespaces recorded %d runs (%v); want none", len(recs), err)
+	}
+
 	// With no bwrap to box it, the run records unboxed, and the sweep
 	// refuses it with the guarantee named.
 	bin := t.TempDir()

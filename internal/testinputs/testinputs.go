@@ -49,6 +49,19 @@ const ToolDigest = testenv.ToolDigest
 // runs twice, in the observing process and in the test process.
 func Main(m *testing.M) int { return MainFunc(m, m.Run) }
 
+// makesNamespaces is set by MakesNamespaces.
+var makesNamespaces bool
+
+// MakesNamespaces declares, before Main or MainFunc in TestMain, that the
+// package's tests make user namespaces (a sandbox, unshare, bwrap). Such a
+// package does not record its run for the closure sweep (RecordVariable):
+// the record's view, the sweep's (no user namespace), would make those
+// tests fail or skip, so the run would no longer test what it tests. The
+// sweep runs the package itself. internal/residue's
+// TestNamespaceTestsDeclareIt finds a package that makes namespaces
+// without saying so.
+func MakesNamespaces() { makesNamespaces = true }
+
 // MainFunc is Main for a TestMain that prepares the test process: run does
 // the preparation, calls m.Run and returns its exit code. It runs only in
 // the process that runs the tests.
@@ -59,7 +72,7 @@ func Main(m *testing.M) int { return MainFunc(m, m.Run) }
 // network. A caller's ERGO_GO stands.
 func MainFunc(m *testing.M, run func() int) int {
 	log := testLog(os.Args[1:])
-	if base := os.Getenv(RecordVariable); base != "" && !observed && impostor == "" && log == "" {
+	if base := os.Getenv(RecordVariable); base != "" && !observed && impostor == "" && log == "" && !makesNamespaces {
 		if why := boxRecording(); why != "" {
 			fmt.Fprintln(os.Stderr, "testinputs: the recorded run lacks the sweep's view, so the sweep will run these tests itself:", why)
 		}
