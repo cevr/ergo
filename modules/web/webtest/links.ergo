@@ -1,0 +1,58 @@
+import github.com/cevr/ergo/modules/web
+import strings
+import ui
+
+// Links is the href of each <a> element of body, in order, as a browser
+// reads it: the references html writes (&amp; &lt; &gt; &#34; &#39;)
+// read back. It reads markup html.Render wrote: lower-case tags and
+// double-quoted values.
+func Links(body string) []string {
+	let mut out = []string{}
+	let mut rest = body
+	for {
+		let at = strings.Index(rest, "<a ")
+		if at < 0 {
+			return out
+		}
+		rest = strings.Slice(rest, at+3, len(rest))
+		let end = strings.Index(rest, ">")
+		let tag = if end < 0 { rest } else { strings.Slice(rest, 0, end) }
+		let h = strings.Index(" "+tag, " href=\"")
+		if h >= 0 {
+			let value = strings.Slice(tag, h+6, len(tag))
+			let q = strings.Index(value, "\"")
+			if q >= 0 {
+				out = out.Append(unescape(strings.Slice(value, 0, q)))
+			}
+		}
+	}
+}
+
+// unescape reads back the references html's escape writes.
+func unescape(s string) string {
+	if !strings.Contains(s, "&") {
+		return s
+	}
+	let mut t = strings.ReplaceAll(s, "&lt;", "<")
+	t = strings.ReplaceAll(t, "&gt;", ">")
+	t = strings.ReplaceAll(t, "&#34;", "\"")
+	t = strings.ReplaceAll(t, "&#39;", "'")
+	strings.ReplaceAll(t, "&amp;", "&")
+}
+
+// Unresolved is each link of body to the site itself (a path that starts
+// with one /) whose GET site does not answer with 200: a link to no
+// route, or to a route whose page fails. A link to another site, and a
+// fragment or query on a link, are not judged; the path is.
+func Unresolved[R comparable, P, F, N](site web.Site[R, P, F, N], body string) []string needs N {
+	let mut out = []string{}
+	for link in Links(body) {
+		if strings.HasPrefix(link, "/") && !strings.HasPrefix(link, "//") {
+			let u = ui.ParseURL(link)
+			if Get(site, u.Path).Status != 200 {
+				out = out.Append(link)
+			}
+		}
+	}
+	out
+}
