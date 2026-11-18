@@ -141,6 +141,9 @@ func (e *engine) judgeAll(ctx context.Context, jobs []Job) ([]Result, error) {
 		return e.each(ctx, rest, func(w *worker, i int) { finish(i, w.judgeCovered(ctx, items[i].m, *open[i])) })
 	}
 	err = run()
+	// Anything a child left that its own end did not stop (one whose
+	// environment lost the token) ends with the run.
+	reapAfter("")
 	for _, w := range e.workers {
 		err = errors.Join(err, w.err, e.verifyCopy(w.root, w.touched))
 	}

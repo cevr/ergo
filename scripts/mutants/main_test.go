@@ -11,7 +11,12 @@ import (
 	"ergo.local/prototype/internal/testinputs"
 )
 
-func TestMain(m *testing.M) { os.Exit(testinputs.Main(m)) }
+func TestMain(m *testing.M) {
+	if reapHelper() {
+		return
+	}
+	os.Exit(testinputs.Main(m))
+}
 
 // TestUnjudgedFailsTheRun is the smallest repro of FT11b's cmd/ergo run,
 // where 7 tests failed on the unmutated tree and the run judged their rows

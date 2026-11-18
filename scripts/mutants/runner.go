@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"ergo.local/prototype/internal/proclimit"
@@ -600,6 +601,13 @@ func (e *engine) exec(ctx context.Context, dir string, argv, env []string, deadl
 	return e.execStarted(ctx, dir, argv, env, deadline, "")
 }
 
+// execTokenVariable carries, to every process a child of exec starts, the
+// token of that child: the processes it leaves in groups of their own are
+// found by it when it ends (reapAfter).
+const execTokenVariable = "ERGO_MUTANTS_EXEC"
+
+var execTokens atomic.Uint64
+
 // execStarted is exec of a child that prints startLine when the test it
 // runs starts ("" for none): outcome.started says whether it did.
 func (e *engine) execStarted(ctx context.Context, dir string, argv, env []string, deadline time.Duration, startLine string) outcome {
@@ -607,7 +615,9 @@ func (e *engine) execStarted(ctx context.Context, dir string, argv, env []string
 	out := &tail{needles: []string{timeoutPanic, startLine}}
 	cmd := exec.Command(lookPathIn(argv[0], env), argv[1:]...)
 	cmd.Dir = dir
-	cmd.Env = env
+	// The token marks every process the child starts, for reapAfter.
+	token := strconv.FormatUint(execTokens.Add(1), 10)
+	cmd.Env = append(slices.Clip(env), execTokenVariable+"="+token)
 	cmd.Stdout = out
 	cmd.Stderr = out
 	// Read every byte before tail truncates the display. The shared writer
@@ -618,9 +628,14 @@ func (e *engine) execStarted(ctx context.Context, dir string, argv, env []string
 	// below ends it.
 	cmd.WaitDelay = time.Second
 	ownGroup(cmd)
+	subreaper()
+	unlock := starting()
 	if err := proclimit.Start(cmd, e.cfg.Memory); err != nil {
+		unlock()
 		return outcome{reason: "fail", tail: err.Error()}
 	}
+	track(cmd.Process.Pid)
+	unlock()
 	var mu sync.Mutex
 	exited, timedOut := false, false
 	stop := func(deadline bool) {
@@ -644,10 +659,13 @@ func (e *engine) execStarted(ctx context.Context, dir string, argv, env []string
 	close(done)
 	timer.Stop()
 	mu.Lock()
-	// The leader is gone; stop what it left in its group.
+	// The leader is gone; stop what it left in its group, and what it
+	// left in groups of their own (reap_linux.go, GT-REAP).
 	stopGroup(cmd.Process)
 	exited = true
 	mu.Unlock()
+	untrack(cmd.Process.Pid)
+	reapAfter(token)
 	o := outcome{seconds: time.Since(start).Seconds(), tail: out.String()}
 	o.reason = childReason(err, timedOut, e.cfg.Memory, watch.Stderr())
 	o.timeout = o.reason == "deadline" || o.reason == "fail" && out.saw(0)
