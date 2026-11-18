@@ -58,6 +58,30 @@ func Main(m *testing.M) int { return MainFunc(m, m.Run) }
 // downloads its pinned Go (internal/toolchain), so no test needs the
 // network. A caller's ERGO_GO stands.
 func MainFunc(m *testing.M, run func() int) int {
+	log := testLog(os.Args[1:])
+	if base := os.Getenv(RecordVariable); base != "" && !observed && impostor == "" && log == "" {
+		if why := boxRecording(); why != "" {
+			fmt.Fprintln(os.Stderr, "testinputs: the recorded run lacks the sweep's view, so the sweep will run these tests itself:", why)
+		}
+		r, recordLog, err := startRecording(base)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "testinputs: record the run:", err)
+			return 1
+		}
+		return r.finish(mainFunc(run, recordLog))
+	}
+	// The record is the recording process's alone. The process its observer
+	// runs the tests in (observed) drops the variable, so the tests see the
+	// environment of a swept run, and a test binary they start again does
+	// not record itself under the observer's filter, where its namespace
+	// probe would end the observation ("unobserved: clone").
+	os.Unsetenv(RecordVariable)
+	return mainFunc(run, log)
+}
+
+// mainFunc is MainFunc after the record's preparation, with the test log
+// cmd/go or the record passed.
+func mainFunc(run func() int, log string) int {
 	if _, set := os.LookupEnv("ERGO_GO"); !set {
 		os.Setenv("ERGO_GO", "system")
 	}
@@ -68,7 +92,6 @@ func MainFunc(m *testing.M, run func() int) int {
 		os.Setenv("ERGO_SHARED_FALLBACK", "fail")
 	}
 	raiseOOMScore()
-	log := testLog(os.Args[1:])
 	if observed || log == "" {
 		return run() // the observed test process, or cmd/go is not caching
 	}
