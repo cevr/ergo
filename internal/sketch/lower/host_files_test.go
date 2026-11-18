@@ -40,11 +40,14 @@ func main() needs Console | Ambient {
 // TestFileHandlesNeedOnlyAmbient: a read loop over an open file checks
 // with Ambient alone, File.Read's value is the buffer Go wrote with its
 // count, and ReadAt, whose buffer is dead after it, writes that buffer in
-// place. The emitted Go type-checks. (The loop's Read still copies buf:
-// the value rule holds a let mut used in a loop it is not declared in as
-// live; follow-up S2-COPY.) Mutants (lower and check mutants.json):
-// s2-writes-method-skipped, s2-writes-result-dropped,
-// s2-writes-results-refused.
+// place. The emitted Go type-checks, and copyFile copies no buffer, as
+// hand Go copies none (S2-COPY, the promised form): Read gets buf, which
+// `buf = b` rebinds before any other read (killOf); b, the slice Go wrote
+// into a dead buf, is fresh, so the rebinding takes it as it is; and
+// Write only reads b[:n] (its reads row). Mutants (lower and check
+// mutants.json): s2-writes-method-skipped, s2-writes-result-dropped,
+// s2-writes-results-refused, s2c-kill-off, s2c-written-unfresh,
+// s2c-reads-slice-refused.
 func TestFileHandlesNeedOnlyAmbient(t *testing.T) {
 	p := lowerSource("hostreadloop", hostReadLoop, true)
 	if p.err != nil || len(p.diags) != 0 || len(p.refused) != 0 || p.panicked != nil {
@@ -65,5 +68,8 @@ func TestFileHandlesNeedOnlyAmbient(t *testing.T) {
 	// written temporary is buf itself, and the tuple's first value is it.
 	if !regexp.MustCompile(`(?m)^\s*(w_\d+) := buf\n(?:.*\n)*?.*\.ReadAt\(w_\d+, `).MatchString(body) {
 		t.Errorf("copyFile's ReadAt does not take buf itself:\n%s", body)
+	}
+	if strings.Contains(body, "Clone(") {
+		t.Errorf("copyFile copies a buffer:\n%s", body)
 	}
 }
