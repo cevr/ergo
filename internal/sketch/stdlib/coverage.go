@@ -25,6 +25,7 @@ var coverage = map[string][]string{
 	"fstest":   {"testing/fstest"},
 	"hex":      {"encoding/hex"},
 	"hmac":     {"crypto/hmac"},
+	"html":     {"html", "html/template"},
 	"http":     {"net/http"},
 	"json":     {"encoding/json"},
 	"log":      {"log", "log/slog"},

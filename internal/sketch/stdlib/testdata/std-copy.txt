@@ -32,6 +32,7 @@ fs	differs	lower: a union of a user package lowers to the flat form, a std union
 fstest	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
 graph	same
 hex	same
+html	same
 http	same
 io	same
 journal	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call

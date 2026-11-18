@@ -1,0 +1,57 @@
+import strings
+
+// escape writes s to b so that an HTML parser reads it back as s, in an
+// element's text and in a double- or single-quoted attribute value alike:
+// &, <, >, " and ' are written as the references &amp;, &lt;, &gt;, &#34;
+// and &#39;, and every other byte as it is (html/template's and the web
+// control's set). A run with nothing to escape is one write.
+func escape(b *strings.Builder, s string) {
+	let mut last = 0
+	for i in 0..len(s) {
+		let c = s[i]
+		let r = if c == '&' {
+			"&amp;"
+		} else if c == '<' {
+			"&lt;"
+		} else if c == '>' {
+			"&gt;"
+		} else if c == '"' {
+			"&#34;"
+		} else if c == '\'' {
+			"&#39;"
+		} else {
+			""
+		}
+		if r != "" {
+			if i > last {
+				b.WriteString(strings.Slice(s, last, i))
+			}
+			b.WriteString(r)
+			last = i + 1
+		}
+	}
+	if last == 0 {
+		b.WriteString(s)
+	} else if last < len(s) {
+		b.WriteString(strings.Slice(s, last, len(s)))
+	}
+}
+
+// Escape is s as escape writes it.
+func Escape(s string) string {
+	let mut b = strings.NewBuilder()
+	escape(&b, s)
+	b.String()
+}
+
+// TextIsInert (WEB0): any string, as Text writes it and as an attribute's
+// value writes it, is inert (no byte of it can open a tag or end the
+// value) and reads back as the same string; a string with markup in it,
+// with a reference already in it, or with quotes, included.
+law TextIsInert(s string, t string) {
+	let x = s + "<a href=\"x\" title='y'>&amp;</a>" + t
+	let e = Escape(x)
+	let text = Render(Text(x))
+	let attr = Render(Span([]Child{Class(x)}))
+	inert(e) && unescape(e) == x && text == e && attr == "<span class=\""+e+"\"></span>"
+}
