@@ -300,12 +300,13 @@ func engineRequests(r *rand.Rand) string {
 }
 
 // TestHTTPEngineWatchesWaitingHandlers counts the engine's background
-// reads, the watch that sees a client leave (HTTP-FAST-c3): a handler that
-// answers without waiting starts none, since nothing could stop it, and a
-// handler that reaches a wait (its task's Done) starts one, so a client
-// that leaves still stops it (TestHTTPDisconnectAndDefects holds the stop
-// itself). Mutants: c3-lazy-never, c3-watch-never (runtime/v1/http
-// ledger).
+// reads, the watch that sees a client leave (HTTP-FAST-c3, c4): a handler
+// that answers without an interruption point starts none, since nothing
+// could stop it, and a handler that reaches one (its task's Done, Check or
+// Stopped) starts one, so a client that leaves still stops it
+// (TestHTTPDisconnectAndDefects and TestHTTPCheckingHandlerStopsWhenClientLeaves
+// hold the stop itself). Mutants: c3-lazy-never, c3-watch-never,
+// c4-check-unpolled, c4-stopped-unpolled (runtime/v1/http ledger).
 func TestHTTPEngineWatchesWaitingHandlers(t *testing.T) {
 	if !*lazyWatchFlag {
 		t.Skip("the reference watches every request, as net/http does")
@@ -326,13 +327,24 @@ func TestHTTPEngineWatchesWaitingHandlers(t *testing.T) {
 			default:
 			}
 		}
+		if path == "/check" {
+			ct.Check()
+		}
+		if path == "/stopped" && ct.Stopped() {
+			return HTTPResponse{Status: 500}
+		}
 		return HTTPResponse{Status: 200, Body: path}
 	}, true)
 	client := rt.Root(t.Name() + " client")
 	for _, c := range []struct {
 		paths   []string
 		watches int64
-	}{{[]string{"/a", "/b", "/c"}, 0}, {[]string{"/a", "/wait", "/b"}, 1}} {
+	}{
+		{[]string{"/a", "/b", "/c"}, 0},
+		{[]string{"/a", "/wait", "/b"}, 1},
+		{[]string{"/check", "/a", "/check"}, 2},
+		{[]string{"/a", "/stopped"}, 1},
+	} {
 		watches.Store(0)
 		var raw strings.Builder
 		for i, p := range c.paths {

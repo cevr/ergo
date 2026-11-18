@@ -28,9 +28,10 @@ var serveEngine = true
 
 // engineLazyWatch selects when the engine starts its background read of a
 // request's connection, the read that sees the client leave
-// (HTTP-FAST-c3). true: at the handler's first wait (rt.WhenWaiting), the
-// first point a stop can end it, so a handler that answers without
-// waiting costs no goroutine, deadline or read. false: before the handler
+// (HTTP-FAST-c3). true: at the handler's first interruption point, a wait,
+// Check or Stopped (rt.WhenPolled, HTTP-FAST-c4), the first point a stop
+// can end it, so a handler that answers without one costs no goroutine,
+// deadline or read. false: before the handler
 // runs, as net/http starts it, the reference. go test -args
 // -http.lazywatch=false runs the package's tests on the reference.
 var engineLazyWatch = true
