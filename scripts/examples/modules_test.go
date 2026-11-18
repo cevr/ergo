@@ -81,6 +81,7 @@ func TestModulesLeg(t *testing.T) {
 		{map[string]string{"cmd/hello/main.ergo": "func main() {}\n"}, "modules/hello: a module is a library: it has no cmd/"},
 		{map[string]string{"go.mod": "module example.com/other\n"}, "modules/hello: ergo.mod names the module example.com/hello and go.mod example.com/other"},
 		{map[string]string{"notes.txt": "x\n"}, "modules/hello: unexpected notes.txt"},
+		{map[string]string{"origin/README.md": "x\n", "origin/hidden.ergo": "func g() {}\n"}, "modules/hello: unexpected origin/hidden.ergo; a module's origin folder holds Markdown notes only"},
 	} {
 		f := newFixture(t)
 		module(f, "func f() {}\n", c.extra)
