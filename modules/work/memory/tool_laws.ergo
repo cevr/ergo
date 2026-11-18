@@ -359,7 +359,7 @@ law StackRecordsItsParent(tree Map[string, string]) {
 // cut off before its marker, which nobody was handed, is still collected
 // (CrashOp in the model).
 law MadeCloneOutlivesItsMaker(text string) {
-	let w = world(true)
+	let w = worldWith(true, Map[string, string]{"bun.lock": "lock \(len(text))\n"}, "[deps]\nlock = \"bun.lock\"\ninstall = \"bun install\"\n", "")
 	let maker = Sharing(w.lock, 2)
 	let t = toolOf(w, maker, []work.Cloner{w.trees})
 	let reserved = t.Reserve("a", fresh(false)) catch {
@@ -387,6 +387,64 @@ law MadeCloneOutlivesItsMaker(text string) {
 	}
 	let kept = Files(w.trees, made.Path).Get("draft.txt") == Some[string]{Value: text}
 	kept && slices.IndexFunc(all, func(r work.Workspace) bool { r.Name == "a" && r.Id == made.Id && work.StateName(r.State) == "active" }) >= 0 && w.lock.Holds() == 0
+}
+
+// ActivatedCloneIsRecordedAsMade: the record gc writes for a clone whose
+// maker died after its marker names what Activate's would: the cloner
+// that made it (so gc and rm discard it by that cloner, a btrfs
+// snapshot as one) and the digest of the lock it carries (so deps does
+// not reinstall what the clone already holds: work deps finds it
+// unchanged and starts nothing), as a workspace made in full beside it
+// has.
+law ActivatedCloneIsRecordedAsMade(lock string) {
+	let w = worldWith(true, Map[string, string]{}, "[deps]\nlock = \"bun.lock\"\ninstall = \"bun install\"\n", "")
+	let maker = Sharing(w.lock, 2)
+	let t = toolOf(w, maker, []work.Cloner{w.trees})
+	let reserved = t.Reserve("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let made = match reserved {
+	case work.Making as m:
+		t.Fill(m) catch {
+		case _:
+			return false
+		}
+	case work.Created:
+		return false
+	}
+	Die(maker)
+	// The lock the clone carries, as one cloned with the base's would.
+	w.disk.WriteFile(made.Path+"/bun.lock", lock) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	let _ = w.tool.New("b", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let _ = toolOf(w, Sharing(w.lock, 99), []work.Cloner{w.trees}).Gc(work.GcOptions{Older: Some[string]{Value: "0s"}, Idle: None, Id: None, Archive: false}) catch {
+	case _:
+		return false
+	}
+	let all = w.tool.List() catch {
+	case work.NoBase, work.Unkept:
+		return false
+	}
+	let a = slices.IndexFunc(all, func(r work.Workspace) bool { r.Name == "a" && work.StateName(r.State) == "active" })
+	let b = slices.IndexFunc(all, func(r work.Workspace) bool { r.Name == "b" })
+	let runs = len(w.runner.Ran())
+	let deps = w.tool.Deps(work.DepsOptions{Name: Some[string]{Value: "a"}}) catch {
+	case _:
+		return false
+	}
+	let unchanged = match deps {
+	case work.Unchanged:
+		true
+	case work.Installed, work.NoDeps:
+		false
+	}
+	a >= 0 && b >= 0 && all[a].Cloner != "" && all[a].Cloner == all[b].Cloner && unchanged && len(w.runner.Ran()) == runs
 }
 
 // nothing is the answer of a new that failed.
