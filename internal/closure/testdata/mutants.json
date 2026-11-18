@@ -197,6 +197,26 @@
       "rule": "A sweep given ERGO_CLOSURE_STD_DIR shares that std store and builds nothing, whatever its TMPDIR. The edited file is a test file, which coverage does not instrument.",
       "killers": ["internal/closure:TestStdStoreHoldsOnlyStdCompiles"],
       "anchor": {"tests": ["internal/closure:TestStdStoreHoldsOnlyStdCompiles"]}
-    }
+    },
+    {"name": "heavy-cost2-reuse-env-unchecked", "origin": "wf10 HEAVY-COST-2", "file": "internal/closure/reuse_test.go",
+      "from": "\t\tif diff := envDifference(rec.Env, env); diff != \"\" {", "to": "\t\tif diff := envDifference(rec.Env, env); false && diff != \"\" {",
+      "rule": "A recorded run whose environment differs from a swept run's (a tier variable, another value) is not reused.",
+      "killers": ["internal/closure:TestReuseRefusesWhatASweepWouldNotSee"], "anchor": {"tests": ["internal/closure:TestReuseRefusesWhatASweepWouldNotSee"]}},
+    {"name": "heavy-cost2-reuse-coverage-unchecked", "origin": "wf10 HEAVY-COST-2", "file": "internal/closure/reuse_test.go",
+      "from": "\tif len(missing) > 0 {", "to": "\tif false && len(missing) > 0 {",
+      "rule": "Recorded runs are reused only when together they ran every test of the package.",
+      "killers": ["internal/closure:TestReuseRefusesWhatASweepWouldNotSee"], "anchor": {"tests": ["internal/closure:TestReuseRefusesWhatASweepWouldNotSee"]}},
+    {"name": "heavy-cost2-reuse-userns-unchecked", "origin": "wf10 HEAVY-COST-2", "file": "internal/closure/reuse_test.go",
+      "from": "\t\tcase rec.UserNamespaces != \"0\":", "to": "\t\tcase false && rec.UserNamespaces != \"0\":",
+      "rule": "A recorded run that could make user namespaces (the sweep's S3) is not reused.",
+      "killers": ["internal/closure:TestReuseRefusesWhatASweepWouldNotSee"], "anchor": {"tests": ["internal/closure:TestReuseRefusesWhatASweepWouldNotSee"]}},
+    {"name": "heavy-cost2-reuse-cache-unchecked", "origin": "wf10 HEAVY-COST-2", "file": "internal/closure/reuse_test.go",
+      "from": "\t\tcase !ownCache(rec, dirs[i]):", "to": "\t\tcase false && !ownCache(rec, dirs[i]):",
+      "rule": "A recorded run that built in a cache other packages share is not reused (TestSharedCacheKeepsEachPackagesInputs).",
+      "killers": ["internal/closure:TestReuseRefusesWhatASweepWouldNotSee"], "anchor": {"tests": ["internal/closure:TestReuseRefusesWhatASweepWouldNotSee"]}},
+    {"name": "heavy-cost2-reuse-short-run", "origin": "wf10 HEAVY-COST-2", "file": "internal/closure/reuse_test.go",
+      "from": "\t\t\tif !hasValue || value == \"true\" {", "to": "\t\t\tif false {",
+      "rule": "A -short run skipped the tests that build Go, so it does not stand for the sweep's run.",
+      "killers": ["internal/closure:TestReuseRefusesWhatASweepWouldNotSee"], "anchor": {"tests": ["internal/closure:TestReuseRefusesWhatASweepWouldNotSee"]}}
   ]
 }
