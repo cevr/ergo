@@ -50,6 +50,9 @@ func testCommand(args []string) error {
 	if err != nil {
 		return invalidInvocation(err)
 	}
+	if opts.affected.on {
+		return affectedTestCommand(opts, os.Stdout, func(o fileOptions, l loaded) error { return testLoadedPackage(o, l, nil) })
+	}
 	if recursivePattern(opts.file) {
 		if opts.emitted {
 			// One process for every package: the std packages they
