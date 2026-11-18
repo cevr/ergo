@@ -88,7 +88,10 @@ type File struct {
 // program does not check) and its files.
 type Unit struct {
 	Package *check.Package
-	Files   []File
+	// Path is the package's import path as the loader resolved it; the
+	// root package's own Package.Path is "main" whatever its folder.
+	Path  string
+	Files []File
 	// Dependency marks a package of a required module, not the linted
 	// module's own: its facts are read, but no rule runs over its files.
 	Dependency bool
