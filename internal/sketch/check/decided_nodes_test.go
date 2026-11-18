@@ -828,6 +828,17 @@ func half(s string) string { s[:len(s) / 2] }
 law HalfTwice(s string) { half(twice(s)) } == { s }
 func main() {}
 `, nil},
+	{"law", "a rewrite law over function parameters, with type parameters of its own (types.md, Laws 14; FUSION)", `
+func Transform[T, U, E, R](xs []T, f func(x T) U fails E needs R) []U fails E needs R {
+	let mut out = []U{}
+	for x in xs {
+		out = out.Append(try f(x))
+	}
+	out
+}
+law TransformFuses[T, U, V comparable](xs []T, f func(x T) U, g func(x U) V) { Transform(Transform(xs, f), g) } == { Transform(xs, func(x T) V { g(f(x)) }) }
+func main() {}
+`, nil},
 	{"law", "a documented top-level law", `
 func add(a int, b int) int { a + b }
 // AddCommutes: the order of the operands does not matter.
