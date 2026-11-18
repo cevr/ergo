@@ -803,6 +803,7 @@ func (fc *funcCtx) composite(x *syntax.CompositeLit, t check.Type) string {
 		vals := fc.elements(x.Elts, u.Elem)
 		return goType + "{" + strings.Join(vals, ", ") + "}"
 	case *check.Map:
+		fc.l.intMapConflict(u) // intmap.go: Go's map literal
 		var list []syntax.Expr
 		for _, e := range x.Elts {
 			kv, ok := e.(*syntax.KeyValueExpr)

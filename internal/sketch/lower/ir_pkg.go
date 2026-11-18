@@ -245,6 +245,10 @@ func (b *irBuilder) valueSource(x *syntax.CallExpr, c *check.Call, args []syntax
 		if len(c.TypeArgs) != 2 {
 			irNo("Map write form")
 		}
+		if _, ok := b.intMapOf(b.l.info.Types[args[0]]); ok { // ir_intmap.go: the table's own copy
+			irArgs[0] = tableCall(irArgs[0].Pos, "Clone", irArgs[0])
+			return
+		}
 		k, v := b.goType(c.TypeArgs[0], x), b.goType(c.TypeArgs[1], x)
 		m := "map[" + k + "]" + v
 		if b.goType(b.l.info.Types[args[0]], x) != m {

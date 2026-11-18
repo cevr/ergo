@@ -2924,6 +2924,10 @@ func (tc *typeCtx) cloneOf(t check.Type, val string, site syntax.Node, deep bool
 	switch u := underEqual(t).(type) {
 	case *check.Map:
 		if !deep && !tc.l.entryWritten(t) || !tc.l.holdsValue(u.Elem) || valueMutant == "shallow" {
+			if _, plain := t.(*check.Map); plain && tc.l.intMap(u) { // intmap.go: the table's own copy
+				return val + ".Clone()"
+			}
+			tc.l.intMapConflict(u) // a defined Map type: maps.Clone
 			return tc.l.goPkg("maps") + ".Clone(" + val + ")"
 		}
 	case *check.Slice:
@@ -3024,6 +3028,7 @@ func (l *lowerer) cloneFunc(t check.Type, site syntax.Node, deep bool) (string, 
 		body.WriteString("\tfor " + i + ", " + e + " := range " + v + " {\n")
 		body.WriteString("\t\t" + c + "[" + i + "] = " + tc.cloneOf(u.Elem, e, site, deep) + "\n\t}\n\treturn " + c + "\n")
 	case *check.Map:
+		l.intMapConflict(u) // intmap.go: a deep copy over Go's map
 		k, e := scope.alloc("k"), scope.alloc("e")
 		body.WriteString("\t" + c + " := make(" + goType + ", len(" + v + "))\n")
 		body.WriteString("\tfor " + k + ", " + e + " := range " + v + " {\n")

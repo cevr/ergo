@@ -216,11 +216,27 @@ func lowerIRModule(u Unit, tests *testLowering, formsOff bool) ([]File, map[stri
 	if err := u.Validate(); err != nil {
 		return nil, nil, irModule{}, nil, err
 	}
-	l := newBuildLowerer(u, tests)
-	l.ir = &irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, formsOff: formsOff}
-	code, err := l.program()
-	if err != nil {
-		return nil, nil, irModule{}, nil, err
+	var (
+		l    *lowerer
+		code []byte
+		err  error
+		ims  intMapState
+	)
+	for round := 0; ; round++ {
+		l = newBuildLowerer(u, tests)
+		l.ir = &irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, formsOff: formsOff, maps: ims}
+		if round == intMapRounds {
+			l.ir.maps = intMapState{allGo: true}
+		}
+		code, err = l.program()
+		if err != nil {
+			return nil, nil, irModule{}, nil, err
+		}
+		next, again := l.ir.maps.newRound() // intmap.go: a conflict lowers again
+		if !again || round == intMapRounds {
+			break
+		}
+		ims = next
 	}
 	if err := irNoForms(&l.ir.out); err != nil { // ir_forms_erase.go
 		return nil, nil, irModule{}, nil, err
@@ -257,6 +273,7 @@ type irState struct {
 	// formsOff builds no IR form (LowerIRReference; ir_forms.go).
 	formsOff bool
 	ops      *opFacts // the capability bindings (ir_forms_op.go)
+	maps     intMapState // MI-2: the int map choice (intmap.go)
 }
 
 // restart empties st for a lowering that runs again from the start
@@ -656,6 +673,7 @@ func (st *irState) finish(b *irBuilder, pkg, name string, decl syntax.Node, std 
 		}
 		st.report.Fallback[u.reason]++
 		b.note(u.reason)
+		b.l.intMapBody(b.l.info, decl) // intmap.go: its emitter body writes Go's map operations
 		*ok = false
 		st.rewritesDone(b, false, u.reason) // ir_rewrite.go
 	} else if *ok {

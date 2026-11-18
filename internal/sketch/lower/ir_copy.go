@@ -37,6 +37,9 @@ func (b *irBuilder) copyOf(t check.Type, x syntax.Node, e *irExpr) *irExpr {
 	}
 	switch u := underEqual(t).(type) {
 	case *check.Map:
+		if _, ok := b.intMapOf(t); ok && (!deep && !b.l.entryWritten(t) || !b.l.holdsValue(u.Elem) || valueMutant == "shallow") {
+			return tableCall(e.Pos, "Clone", e) // ir_intmap.go: the table's own copy
+		}
 		if !deep && !b.l.entryWritten(t) || !b.l.holdsValue(u.Elem) || valueMutant == "shallow" {
 			k, v := b.goType(u.Key, x), b.goType(u.Elem, x)
 			m := "map[" + k + "]" + v

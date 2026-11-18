@@ -255,6 +255,12 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			}
 			lit.Elems = b.inOrder(x.Elts) // ir_order.go
 		case *check.Map:
+			if b.l.intMap(tt) { // ir_intmap.go
+				if len(x.Elts) > 0 {
+					irNo("int map literal with entries")
+				}
+				return b.intMapLit(tt, x, p)
+			}
 			lit.Elems = b.mapLit(x) // ir_pkg.go
 		case *check.Named:
 			td := b.l.typeDecl(tt.Obj, x) // queued by goType, as above

@@ -110,6 +110,9 @@ func (tc *typeCtx) goType(t check.Type) string {
 	case *check.Array:
 		return "[" + arrayLen(t) + "]" + tc.goType(t.Elem)
 	case *check.Map:
+		if tc.l.intMap(t) { // intmap.go (MI-2)
+			return "*" + tc.l.rtRef("IntMap") + "[" + tc.goType(t.Key) + ", " + tc.goType(t.Elem) + "]"
+		}
 		return "map[" + tc.goType(t.Key) + "]" + tc.goType(t.Elem)
 	case *check.Pointer:
 		return "*" + tc.goType(t.Elem)
@@ -286,6 +289,9 @@ func (tc *typeCtx) defaultValue(t check.Type) string {
 	}
 	switch u := t.(type) {
 	case *check.Map:
+		if tc.l.intMap(u) { // intmap.go: an empty table
+			return tc.l.rtRef("NewIntMap") + "[" + tc.goType(u.Key) + ", " + tc.goType(u.Elem) + "](0)"
+		}
 		return tc.goType(t) + "{}"
 	case *check.Tuple:
 		return tc.goType(t) + "{" + strings.Join(tc.tupleDefaults(u), ", ") + "}"
