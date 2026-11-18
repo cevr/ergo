@@ -53,6 +53,21 @@ type Mutant struct {
 	// diagnostic mutant). Without it, a source the formatter would rewrite
 	// or the compiler refuses is invalid, never killed (Config.Sources).
 	Refused string `json:"refused,omitempty"`
+	// Regenerate, for a mutant of a generator, is the step that writes the
+	// generator's output again (go generate): the runner runs it on the
+	// mutated copy before the killers, and restores the files it wrote
+	// after, so the killers judge what the mutated generator writes
+	// (MUT-REGEN: H3f-consts-dropped survived, its killers reading the
+	// unmutated output).
+	Regenerate *Regenerate `json:"regenerate,omitempty"`
+}
+
+// Regenerate is a command run in Dir (relative to the module root, the
+// directory of a nested module included); a failure makes the row
+// invalid, as a mutated tree that does not build is.
+type Regenerate struct {
+	Dir  string   `json:"dir"`
+	Argv []string `json:"argv"`
 }
 
 // Anchor names the code that uses a mutated literal: the lines of Text (a
