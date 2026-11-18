@@ -406,6 +406,26 @@ func peekM(m Map[int, int], k int) int {
 	dm(c) + dm(m)
 }
 
+// upJ reads m in a callback apply runs, which ends before the bind: it
+// owns m (values.go, joinedBefore).
+func upJ(m Map[int, int], k int) Map[int, int] {
+	apply(func(j int) {
+		let _ = len(m) + j
+	})
+	let mut c = m
+	c[k] = k + 400
+	c
+}
+
+// peekJ binds a literal that reads m and calls it after its write: the
+// literal may run after the bind, so m is not owned.
+func peekJ(m Map[int, int], k int) int {
+	let g = func() int { dm(m) }
+	let mut c = m
+	c[k] = k + 500
+	dm(c) + g()
+}
+
 // cell is a Ref that holds m (V6: NewRef stores a value shared outside).
 func cell(m Map[int, int]) sync.Ref[Map[int, int]] { sync.NewRef[Map[int, int]](m) }
 
@@ -791,6 +811,17 @@ func (g *valueGen) stmt() {
 			peek[key] = key + 300
 			g.line(fmt.Sprintf("Console.Println(\"\\(peekM(%s, %d))\")", b.name, key))
 			fmt.Fprintf(&g.want, "%d\n", dmModel(peek)+dmModel(b.val.m))
+			// A read in a callback that ended before the bind (upJ) and
+			// one in a literal that runs after the write (peekJ).
+			joined := maps.Clone(b.val.m)
+			joined[key] = key + 400
+			g.line(fmt.Sprintf("Console.Println(\"\\(dm(upJ(%s, %d)))\")", b.name, key))
+			fmt.Fprintf(&g.want, "%d\n", dmModel(joined))
+			late := maps.Clone(b.val.m)
+			late[key] = key + 500
+			g.line(fmt.Sprintf("Console.Println(\"\\(peekJ(%s, %d))\")", b.name, key))
+			fmt.Fprintf(&g.want, "%d\n", dmModel(late)+dmModel(b.val.m))
+			g.print(b.name, b.kind, b.val.digest(b.kind))
 			g.reached["own live"] = true
 			// maps.Update on a Map that stays live: a copy is updated.
 			key = g.keyOf(b.val.m)
