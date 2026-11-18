@@ -110,8 +110,14 @@ func warmToolchain(opts fileOptions) *build.Toolchain {
 // warmOptions are the options that change a build's, a check's or a
 // test's answer.
 func warmOptions(opts fileOptions) string {
-	return fmt.Sprintf("%q", []string{opts.target, opts.platform.String(), strconv.FormatBool(opts.locked), strconv.FormatBool(opts.json), strconv.FormatBool(opts.debug),
-		opts.seed, opts.evalSteps, opts.evalBytes, opts.states, opts.law, opts.skipLaw, opts.run, strconv.FormatBool(opts.noViews)})
+	options := []string{opts.target, opts.platform.String(), strconv.FormatBool(opts.locked), strconv.FormatBool(opts.json), strconv.FormatBool(opts.debug),
+		opts.seed, opts.evalSteps, opts.evalBytes, opts.states, opts.law, opts.skipLaw, opts.run, strconv.FormatBool(opts.noViews)}
+	if opts.strict {
+		// check --strict: its exit judges the answer; added only when set,
+		// so the keys of every other request stay as they were.
+		options = append(options, "strict")
+	}
+	return fmt.Sprintf("%q", options)
 }
 
 // goStamp names the go command: its resolved path, size and modification

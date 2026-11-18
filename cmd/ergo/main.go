@@ -362,8 +362,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 	switch {
 	case len(positional) == 0:
 		return opts, fmt.Errorf("source file required")
-	case opts.strict && command != "diagnostics" && command != "lint":
-		return opts, fmt.Errorf("--strict is only supported by diagnostics and lint")
+	case opts.strict && command != "diagnostics" && command != "lint" && command != "check":
+		return opts, fmt.Errorf("--strict is only supported by diagnostics, lint and check")
 	case opts.json && command != "diagnostics" && command != "lint" && command != "run" && command != "test":
 		return opts, fmt.Errorf("--json is only supported by diagnostics, lint, run and test")
 	case opts.output != "" && command != "build":
@@ -653,6 +653,12 @@ func checkLoaded(opts fileOptions, l loaded, w *warm) error {
 		return err
 	}
 	exit := evaluationExit(evaluation)
+	if exit == nil && opts.strict {
+		exit = undecidedExit(evaluation.Obligations)
+	}
+	// Only a passing answer is warm; --strict is part of its key
+	// (warmOptions), so a strict request is never answered by a plain
+	// one that passed with a law undecided.
 	if exit == nil {
 		w.record(sketchfront.WarmAnswer{Stdout: out.Bytes()})
 	}
@@ -689,6 +695,25 @@ func evaluationExit(e report.Evaluation) error {
 		return exitStatusError{code: 1, message: "check: an obligation was refuted"}
 	}
 	return nil
+}
+
+// undecidedExit is check --strict's exit after an evaluation that
+// evaluationExit passed: 1 when an obligation was skipped, stopped or not
+// run, naming each with its reason, since a law that was not decided is
+// not a pass (MODELCHECK T3b: an ergo whose check skipped every law exited
+// 0, and orrery read that as proved). Plain check keeps exit 0 for them:
+// ergo test decides what check time skips.
+func undecidedExit(obligations []report.Obligation) error {
+	var undecided []string
+	for _, o := range obligations {
+		if o.Status != "passed" {
+			undecided = append(undecided, fmt.Sprintf("%s (%s: %s)", o.Name, o.Status, o.Reason))
+		}
+	}
+	if len(undecided) == 0 {
+		return nil
+	}
+	return exitStatusError{code: 1, message: "check --strict: not decided: " + strings.Join(undecided, "; ")}
 }
 
 // validCount reports whether s is a positive decimal int64 with no sign.
