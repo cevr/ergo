@@ -447,6 +447,32 @@ test TestingScriptNamesTheHeldCall(k string) {
 		assert testing.Unanswered() == ""
 	}
 }
+
+test TestingWorldSharesEachPair(text string, n int64) {
+	let d = duration(1 + (n%1099511627775+1099511627775)%1099511627775)
+	with testing.World() {
+		try fs.Writes.WriteFile("f", text)
+		let back = try fs.Files.ReadFile("f")
+		let before = time.Clock.Now()
+		Scheduler.Sleep(d)
+		assert back == text && time.Clock.Now().Sub(before) == d
+	}
+}
+
+test TestingWorldsAreFresh(text string) {
+	with testing.World() {
+		try fs.Writes.WriteFile("f", text)
+	}
+	with testing.World() {
+		fs.Files.Stat("f") catch {
+		case fs.NotFound:
+			return
+		case fs.Denied, fs.Failed:
+			assert false
+		}
+		assert false
+	}
+}
 `
 
 // stdLawsTestName is the probe test that restates the law of a ledger row.
@@ -484,6 +510,8 @@ var stdLawsStatements = map[string]string{
 	"testing ScriptNamesTheHeldCall":       `ScriptNamesTheHeldCall(k string) { let s = Script[probe]{} s.Get.Hold() let c = NewVirtualClock(0) with context { probe: s, Scheduler: c } { let t = task.Go() { probe.Get(k) } Scheduler.Sleep(1s) let report = Unanswered() let named = strings.HasPrefix(report, "testing.Script[") && strings.HasSuffix(report, "probe]: Get has a held call that no Release answered") let unread = len(s.Get.Unread()) == 1 && len(s.Get.Calls()) == 1 && len(s.Get.Unread()) == 0 s.Get.Release(func(key string) int fails Absent { 0 }) let _ = t.Wait() catch { case Absent: 0 } named && unread && Unanswered() == "" } }`,
 	"timeout DeadlineFirstExpires":         `DeadlineFirstExpires() { let m = time.NewManual(0) with context { Scheduler: m } { After(1ms) { for m.Sleepers() == 0 { } m.Advance(1ms) Scheduler.Sleep(1h) false } catch { case Expired: true } } }`,
 	"testing ScriptAnswersByTheLastAnswer": `ScriptAnswersByTheLastAnswer(k string, a int, b int) { let s = Script[probe]{} s.Size.Answer(func() int { a }) s.Get.Answer(func(key string) int fails Absent { Absent{Key: key} }) with context { probe: s } { let first = probe.Size() s.Size.Answer(func() int { b }) let second = probe.Size() let got = probe.Get(k) catch { case Absent as e: if e.Key == k { -1 } else { -2 } } first == a && second == b && got == -1 && len(s.Size.Calls()) == 2 && s.Size.Calls()[0] == NoArgs && s.Get.Calls()[0] == k } }`,
+	"testing WorldSharesEachPair":          `WorldSharesEachPair(text string, n int64) { let d = span(n) with World() { try fs.Writes.WriteFile("f", text) let back = try fs.Files.ReadFile("f") let before = time.Clock.Now() Scheduler.Sleep(d) back == text && time.Clock.Now().Sub(before) == d } }`,
+	"testing WorldsAreFresh":               `WorldsAreFresh(text string) { with World() { try fs.Writes.WriteFile("f", text) } with World() { fs.Files.Stat("f") catch { case fs.NotFound: return true case fs.Denied, fs.Failed: return false } false } }`,
 	"testing ScriptRecordsEachCall":        `ScriptRecordsEachCall(ks []string, n int) { let s = Script[probe]{} s.Has.Answer(func(k string) bool { len(k) > 0 }) with context { probe: s } { for i, k in ks { probe.Put(k, n + i) let _ = probe.Has(k) } } let puts = s.Put.Calls() let mut same = len(puts) == len(ks) && len(s.Has.Calls()) == len(ks) && len(s.Size.Calls()) == 0 for i, k in ks { same = same && puts[i] == (k, n + i) && s.Has.Calls()[i] == k } same }`,
 	"timeout QuickBodyWins":                `QuickBodyWins(n int) { with context { Scheduler: time.NewManual(0) } { try After(1h) { n } == n } }`,
 	"trace InnerSpanShadows":               `InnerSpanShadows(outer string, inner string) { with Span(outer) { with Span(inner) { Current() == Some[string]{Value: inner} } } }`,
