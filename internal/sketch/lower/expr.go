@@ -372,6 +372,11 @@ func (fc *funcCtx) covered(x syntax.Expr) operand {
 }
 
 func (fc *funcCtx) expr1(x syntax.Expr) operand {
+	if fc.l.vals != nil {
+		if site, ok := fc.l.vals.view[x]; ok {
+			return operand{val: fc.viewOperand(x, site)}
+		}
+	}
 	o := fc.exprOf(x)
 	if fc.l.vals != nil && fc.l.vals.clone[x] {
 		// The value rule's copy (values.go), deep for Go (V8); the test

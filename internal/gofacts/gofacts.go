@@ -27,6 +27,7 @@ import (
 	"hash/crc32"
 	"math/rand/v2"
 	"slices"
+	"strconv"
 )
 
 // Row is one vouched fact.
@@ -45,6 +46,11 @@ type Row struct {
 	// Call calls the function with p as the operand Param names, the
 	// other operands drawn from r.
 	Call func(r *rand.Rand, p []byte)
+	// View allows the run build to pass a view of a string's bytes as the
+	// operand (LAWFFI LF2b; v1.BytesView): a memory-class change, so a row
+	// sets it only with a counted gain, and each such row has its line in
+	// internal/residue/testdata/unsafe.txt (TestUnsafeBodiesListed).
+	View bool
 }
 
 // Key is the row's fact as the ledger names it: `go <target> <fact>
@@ -61,17 +67,17 @@ var Rows = []Row{
 	{Target: "bytes.Contains", Fact: "reads", Param: "subslice", Reason: "it is Index(b, subslice) != -1", Source: "cf60e3ee8bcf", Call: func(r *rand.Rand, p []byte) { bytes.Contains(draw(r, r.IntN(64)), p) }},
 	{Target: "bytes.Count", Fact: "reads", Param: "s", Reason: "it reaches bytealg.Count (assembly that only loads), utf8.RuneCount and Index", Source: "28a1ec4078dd", Call: func(r *rand.Rand, p []byte) { bytes.Count(p, draw(r, r.IntN(3))) }},
 	{Target: "bytes.Count", Fact: "reads", Param: "sep", Reason: "it reads sep[0] for bytealg.Count, and passes sep to Index", Source: "28a1ec4078dd", Call: func(r *rand.Rand, p []byte) { bytes.Count(draw(r, r.IntN(64)), p) }},
-	{Target: "crypto/sha256.Sum256", Fact: "reads", Param: "data", Reason: "Write copies data into the digest's buffer and the block function, assembly, only loads from it", Source: "d1bd973fda38", Call: func(_ *rand.Rand, p []byte) { sha256.Sum256(p) }},
-	{Target: "hash/crc32.ChecksumIEEE", Fact: "reads", Param: "data", Reason: "it calls the function variable updateIEEE, assembly or a table loop that only loads", Source: "0a577c2fb9b4", Call: func(_ *rand.Rand, p []byte) { crc32.ChecksumIEEE(p) }},
-	{Target: "hash/crc32.Update", Fact: "reads", Param: "p", Reason: "it calls update, over the function variables updateIEEE and updateCastagnoli or a table loop, that only loads", Source: "fadaf3baa7c7", Call: func(_ *rand.Rand, p []byte) { crc32.Update(0, crc32.IEEETable, p) }},
+	{Target: "crypto/sha256.Sum256", Fact: "reads", Param: "data", Reason: "Write copies data into the digest's buffer and the block function, assembly, only loads from it", Source: "d1bd973fda38", Call: func(_ *rand.Rand, p []byte) { sha256.Sum256(p) }, View: true},
+	{Target: "hash/crc32.ChecksumIEEE", Fact: "reads", Param: "data", Reason: "it calls the function variable updateIEEE, assembly or a table loop that only loads", Source: "0a577c2fb9b4", Call: func(_ *rand.Rand, p []byte) { crc32.ChecksumIEEE(p) }, View: true},
+	{Target: "hash/crc32.Update", Fact: "reads", Param: "p", Reason: "it calls update, over the function variables updateIEEE and updateCastagnoli or a table loop, that only loads", Source: "fadaf3baa7c7", Call: func(_ *rand.Rand, p []byte) { crc32.Update(0, crc32.IEEETable, p) }, View: true},
 }
 
 // Digest is the digest of the row's ledger line at toolchain (its shown
-// key, "go1.27.4"): the fact, the reviewed source hash, the reason and the
-// toolchain. A line whose digest differs is stale, and the fact acts only
+// key, "go1.27.4"): the fact, the reviewed source hash, the reason,
+// whether it allows a view, and the toolchain. A line whose digest differs is stale, and the fact acts only
 // once ergo test (go run ./scripts/stdlaws for std) runs the guard again.
 func (r Row) Digest(toolchain string) string {
-	sum := sha256.Sum256([]byte("fact " + r.Key() + "\nsource " + r.Source + "\nreason " + r.Reason + "\ngo " + toolchain + "\n"))
+	sum := sha256.Sum256([]byte("fact " + r.Key() + "\nsource " + r.Source + "\nreason " + r.Reason + "\nview " + strconv.FormatBool(r.View) + "\ngo " + toolchain + "\n"))
 	return "h1:" + base64.StdEncoding.EncodeToString(sum[:])
 }
 

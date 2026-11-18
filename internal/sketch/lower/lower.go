@@ -93,6 +93,9 @@ type Unit struct {
 	// emission key holds CoverMarkFlag. Without it the emitted Go is as
 	// before, byte for byte.
 	CoverMarks bool
+	// NoViews is ergo build -views=off: no Go call takes a view of a
+	// string's bytes, in the run build or the test build (view.go).
+	NoViews bool
 }
 
 // coverMarksAll lowers every unit with CoverMarks. Only this package's

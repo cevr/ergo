@@ -22,10 +22,10 @@ import (
 // the build at the call: the table vouches for a function its own guard
 // showed writing the operand.
 
-// factLevel is the level of fact f of the Go function fn at the call n,
-// and, for a fact that does not act, why. It stops the build on a current
-// refuted guard line.
-func factLevel(n syntax.Node, fn *check.Func, f check.ForeignFact) (level, why string) {
+// factLevel is the level of fact f of the Go function fn at the call n
+// for a change of class, and, for a fact that does not act, why. It stops
+// the build on a current refuted guard line.
+func factLevel(n syntax.Node, fn *check.Func, f check.ForeignFact, class trust) (level, why string) {
 	switch f.Level {
 	case check.FactChecked:
 		return check.FactChecked, ""
@@ -55,7 +55,7 @@ func factLevel(n syntax.Node, fn *check.Func, f check.ForeignFact) (level, why s
 		return check.FactVouched, "vouched, and the guard line for " + f.Law + " is stale (the row, its reviewed source or the toolchain changed): run go run ./scripts/stdlaws"
 	case entry.Verdict == "refuted":
 		factRefuted(n, "%s is vouched to only read %s, and its guard refuted it (ergo.laws: fact %s refuted by %s): the build stops; correct or remove the row in internal/gofacts, then run go run ./scripts/stdlaws", goTarget(fn), f.Param, f.Law, entry.By)
-	case !admitLevel(entry.Verdict, entry.By, valueClass):
+	case !admitLevel(entry.Verdict, entry.By, class) && !(class == memoryClass && admitView(entry.Verdict, entry.By)):
 		return check.FactVouched, "vouched, and the guard line for " + f.Law + " is " + entry.Verdict + ": only a validated guard line with its run named lets a vouched fact act"
 	}
 	return check.FactValidated, ""
@@ -77,11 +77,37 @@ func goReads(n syntax.Node, fn *check.Func, operand int) (ok bool, why string) {
 		if f.Kind != "reads" || f.Operand != operand {
 			continue
 		}
-		level, w := factLevel(n, fn, f)
+		level, w := factLevel(n, fn, f, valueClass)
 		if level == check.FactChecked || level == check.FactValidated {
 			return true, ""
 		}
 		why = w
 	}
 	return false, why
+}
+
+// goView is the parameter of the Go call n's operand i that may take a
+// view (view.go): its reads fact is vouched by a row that allows a view
+// (gofacts.Row.View) and validated for the memory class (admitView), or
+// why not.
+func goView(n syntax.Node, fn *check.Func, operand int) (param, why string) {
+	why = "no vouched reads fact whose row allows a view"
+	for _, f := range check.GoFacts(fn) {
+		if f.Kind != "reads" || f.Operand != operand {
+			continue
+		}
+		view := false
+		for _, r := range gofacts.Of(goTarget(fn)) {
+			view = view || r.Key() == f.Law && r.View
+		}
+		if !view {
+			continue
+		}
+		if level, w := factLevel(n, fn, f, memoryClass); level != check.FactValidated {
+			why = w
+			continue
+		}
+		return f.Param, ""
+	}
+	return "", why
 }

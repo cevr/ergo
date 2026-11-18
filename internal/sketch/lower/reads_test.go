@@ -42,6 +42,14 @@ func Rev(src, dst []int) int {
 	}
 	return dst[len(dst)-1]
 }
+
+// Poke writes b[0] and returns len(b) (TestViewFaultIsDefect).
+func Poke(b []byte) int {
+	if len(b) > 0 {
+		b[0] = 'z'
+	}
+	return len(b)
+}
 `
 
 // readsFixProgram passes live slices to readsfix. The value model: Ergo's
@@ -100,7 +108,7 @@ func readsFixImporter(t *testing.T) hresImporter {
 		t.Fatal(err)
 	}
 	planted := binding
-	for fn, line := range map[string]string{"Bump": "// ergo:reads xs", "Rev": "// ergo:reads src"} {
+	for fn, line := range map[string]string{"Bump": "// ergo:reads xs", "Rev": "// ergo:reads src", "Poke": "// ergo:reads b (vouched: planted)"} {
 		next := strings.Replace(planted, "extern go readsfix."+fn+" ", line+"\nextern go readsfix."+fn+" ", 1)
 		if next == planted {
 			t.Fatalf("no extern of readsfix.%s in its binding:\n%s", fn, binding)
