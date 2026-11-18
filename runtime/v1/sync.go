@@ -97,14 +97,15 @@ func NewRef[T any](v T) *Ref[T] {
 //ergo:wait none
 func (r *Ref[T]) Get() T {
 	rt.PointRunning(rt.Op{Kind: rt.OpRead, On: r})
-	locked := r.lock()
+	var op refOp
+	op.lock(&r.mu)
 	if r.poison {
-		r.unlock(locked)
+		op.unlock(&r.mu)
 		panic(refPoisoned)
 	}
 	r.shared = true
 	v := r.v
-	r.unlock(locked)
+	op.unlock(&r.mu)
 	return v
 }
 
@@ -114,13 +115,14 @@ func (r *Ref[T]) Get() T {
 //ergo:wait none
 func (r *Ref[T]) Set(v T) {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
-	locked := r.lock()
+	var op refOp
+	op.lock(&r.mu)
 	if r.poison {
-		r.unlock(locked)
+		op.unlock(&r.mu)
 		panic(refPoisoned)
 	}
 	r.v, r.shared = v, true
-	r.unlock(locked)
+	op.unlock(&r.mu)
 }
 
 // Update stores f of the value r holds, with no other operation of r
@@ -132,12 +134,14 @@ func (r *Ref[T]) Set(v T) {
 //ergo:wait none
 func (r *Ref[T]) Update(f func(v T) T) {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
-	locked := r.lock()
-	done := false
-	defer r.end(&done, locked)
+	if !rt.Alone() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+	}
 	r.check()
+	r.poison = true // until f returns (check)
 	r.v = f(r.v)
-	r.shared, done = true, true
+	r.shared, r.poison = true, false
 }
 
 // RefModify is sync.Modify: under r's lock, it calls f once on the value
@@ -152,12 +156,14 @@ func RefModify[T, R any](r *Ref[T], f func(v T) struct {
 	F1 T
 }) R {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
-	locked := r.lock()
-	done := false
-	defer r.end(&done, locked)
+	if !rt.Alone() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+	}
 	r.check()
+	r.poison = true // until f returns (check)
 	out := f(r.v)
-	r.v, r.shared, done = out.F1, true, true
+	r.v, r.shared, r.poison = out.F1, true, false
 	return out.F0
 }
 
@@ -171,16 +177,18 @@ func RefModify[T, R any](r *Ref[T], f func(v T) struct {
 //ergo:wait none
 func RefUpdateOwned[T any](r *Ref[T], f func(v T) T, clone func(v T) T, fresh bool) {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
-	locked := r.lock()
-	done := false
-	defer r.end(&done, locked)
+	if !rt.Alone() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+	}
 	r.check()
+	r.poison = true // until f returns (check)
 	v := r.v
 	if r.shared {
 		v = clone(v)
 	}
 	r.v = f(v)
-	r.shared, done = !fresh, true
+	r.shared, r.poison = !fresh, false
 }
 
 // RefModifyOwned is sync.Modify called with a function literal that takes
@@ -194,16 +202,18 @@ func RefModifyOwned[T, R any](r *Ref[T], f func(v T) struct {
 	F1 T
 }, clone func(v T) T, fresh bool) R {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
-	locked := r.lock()
-	done := false
-	defer r.end(&done, locked)
+	if !rt.Alone() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+	}
 	r.check()
+	r.poison = true // until f returns (check)
 	v := r.v
 	if r.shared {
 		v = clone(v)
 	}
 	out := f(v)
-	r.v, r.shared, done = out.F1, !fresh, true
+	r.v, r.shared, r.poison = out.F1, !fresh, false
 	return out.F0
 }
 
@@ -217,15 +227,17 @@ func RefModifyOwned[T, R any](r *Ref[T], f func(v T) struct {
 //ergo:wait none
 func RefUpdateInPlace[T any](r *Ref[T], f func(p *T), clone func(v T) T, fresh bool) {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
-	locked := r.lock()
-	done := false
-	defer r.end(&done, locked)
+	if !rt.Alone() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+	}
 	r.check()
+	r.poison = true // until f returns (check)
 	if r.shared {
 		r.v = clone(r.v)
 	}
 	f(&r.v)
-	r.shared, done = !fresh, true
+	r.shared, r.poison = !fresh, false
 }
 
 // RefModifyInPlace is RefModifyOwned for a literal that binds the held
@@ -235,53 +247,63 @@ func RefUpdateInPlace[T any](r *Ref[T], f func(p *T), clone func(v T) T, fresh b
 //ergo:wait none
 func RefModifyInPlace[T, R any](r *Ref[T], f func(p *T) R, clone func(v T) T, fresh bool) R {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
-	locked := r.lock()
-	done := false
-	defer r.end(&done, locked)
+	if !rt.Alone() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+	}
 	r.check()
+	r.poison = true // until f returns (check)
 	if r.shared {
 		r.v = clone(r.v)
 	}
 	x := f(&r.v)
-	r.shared, done = !fresh, true
+	r.shared, r.poison = !fresh, false
 	return x
 }
 
-// check raises refPoisoned when r is poisoned, with r locked (lock); end
-// unlocks it.
+// check raises refPoisoned when r is poisoned, before an Update or Modify
+// touches the value.
+//
+// An Update or Modify then poisons r while f runs: it sets poison before
+// it calls f and clears it once f has returned and the value is stored,
+// so a defect in f (or in clone) leaves r poisoned, with no deferred flag
+// to read. The lock, when the program is not alone (rt.Alone), is
+// unlocked by a defer, so a defect never leaves r locked; while the
+// program is alone there is neither lock nor unlock to run.
 func (r *Ref[T]) check() {
 	if r.poison {
 		panic(refPoisoned)
 	}
 }
 
-// end unlocks r at the end of an Update or Modify. When the operation did
-// not finish (done is false), a panic is on its way to the caller: it
-// poisons r, and is not recovered here.
-func (r *Ref[T]) end(done *bool, locked bool) {
-	if !*done {
-		r.poison = true
+// refOp is a Get or Set's hold of a Ref: whether it locked the cell's
+// mutex.
+type refOp struct{ locked bool }
+
+// lock locks mu unless the program runs one goroutine of Ergo code
+// (rt.Alone, OWN1 REF-ALONE): then no other goroutine can reach the cell,
+// and the operation runs as the hand-written Go value would, with no
+// lock. op remembers whether it locked, for unlock, so the pair never
+// depends on Alone staying the same between them. The locking half is out
+// of line, so the alone path inlines to one load.
+func (op *refOp) lock(mu *sync.Mutex) {
+	if !rt.Alone() {
+		op.lockMu(mu)
 	}
-	r.unlock(locked)
 }
 
-// lock locks r unless the program runs one task (rt.Alone, OWN1
-// REF-ALONE): then no other goroutine can reach r, and the operation
-// runs as the hand-written Go value would, with no lock. It reports
-// whether it locked, for unlock: Alone may turn false during the
-// operation only if its function starts a task, which f's empty row
-// rules out, but the pair never depends on that.
-func (r *Ref[T]) lock() bool {
-	if rt.Alone() {
-		return false
-	}
-	r.mu.Lock()
-	return true
+// lockMu is lock's locking half, kept out of line (noinline) so that lock
+// itself inlines.
+//
+//go:noinline
+func (op *refOp) lockMu(mu *sync.Mutex) {
+	mu.Lock()
+	op.locked = true
 }
 
-// unlock unlocks r when lock locked it.
-func (r *Ref[T]) unlock(locked bool) {
-	if locked {
-		r.mu.Unlock()
+// unlock unlocks mu when lock locked it.
+func (op *refOp) unlock(mu *sync.Mutex) {
+	if op.locked {
+		mu.Unlock()
 	}
 }
