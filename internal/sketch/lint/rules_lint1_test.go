@@ -60,7 +60,7 @@ var goImports = []goImport{
 	{"hex", "import go encoding/hex", "\"\\(hex.EncodedLen(3))\"", true},
 	{"unicode", "import go unicode", "\"\\(unicode.IsUpper(65))\"", false},
 	{"path", "import go path", "path.Base(\"a/b\")", false},
-	{"html", "import go html", "html.EscapeString(\"x\")", false},
+	{"html", "import go html", "html.EscapeString(\"x\")", true},
 }
 
 // TestForeignWhereStdAgreesWithReference plants Go and std imports and
