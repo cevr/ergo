@@ -297,19 +297,21 @@ func (v *Virtual) move() {
 	schedTick(v)
 	for len(v.timers) > 0 && v.timers[0].when == when {
 		v.fire(v.timers[0])
-		v.timers = v.timers[1:]
+		v.popFirst()
 	}
 	v.armed.Broadcast()
 }
 
 // fire wakes the sleeper of t, if any, and delivers t's time. v.mu is held.
 func (v *Virtual) fire(t *virtualTimer) {
-	if t.task != nil {
-		if m := t.task.member.Load(); m != nil && m.d == v.d && m.parked && m.on[0] == any(t) {
+	if task := t.task; task != nil {
+		if m := task.member.Load(); m != nil && m.d == v.d && m.parked && m.on[0] == any(t) {
 			m.release()
 		}
+		// The sleeper may return once fired is set and hand t to the next
+		// sleep (v.spare), so task was read before.
 		t.fired.Store(true)
-		t.task.wake.unpark()
+		task.wake.unpark()
 		return
 	}
 	t.c <- t.when
@@ -341,7 +343,9 @@ func (v *Virtual) sleep(t *Task, d Span) error {
 	v.seq++
 	// The timer has no channel: fire sets fired and resumes t's park word
 	// (FU-virtual-sleep), and t waits on its word as a join does.
-	tm := &virtualTimer{v: v, when: v.now + Instant(d), seq: v.seq, task: t}
+	tm := v.takeSpare()
+	tm.v, tm.when, tm.seq, tm.task = v, v.now+Instant(d), v.seq, t
+	tm.fired.Store(false)
 	i := sort.Search(len(v.timers), func(i int) bool { return tm.before(v.timers[i]) })
 	v.timers = append(v.timers, nil)
 	copy(v.timers[i+1:], v.timers[i:])
@@ -385,9 +389,33 @@ func (v *Virtual) sleep(t *Task, d Span) error {
 	// cleared the parked flag before it set fired, so there is nothing to
 	// unpark.
 	if tm.fired.Load() {
+		v.putSpare(tm)
 		return nil
 	}
 	m.unpark()
 	tm.Stop()
+	// A fire that came before the Stop ran under v.mu and is over.
+	v.putSpare(tm)
 	return Interrupted
+}
+
+// takeSpare is v's spare sleep timer, or a new one. Under the explored
+// scheduler every sleep has a timer of its own, which names its pending
+// wait.
+func (v *Virtual) takeSpare() *virtualTimer {
+	if !Exploring {
+		if tm := v.spare.Swap(nil); tm != nil {
+			return tm
+		}
+	}
+	return new(virtualTimer)
+}
+
+// putSpare keeps tm, a sleep's timer that no list and no member holds any
+// more, for v's next sleep.
+func (v *Virtual) putSpare(tm *virtualTimer) {
+	if !Exploring {
+		tm.task = nil
+		v.spare.Store(tm)
+	}
 }

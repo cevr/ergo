@@ -79,6 +79,9 @@ type Virtual struct {
 	d     *domain
 	auto  bool
 	steps int
+	// spare is a sleep's timer that its sleep no longer uses, for the
+	// next sleep on v (FU-sleep-timer-reuse): a sleep allocates no timer.
+	spare atomic.Pointer[virtualTimer]
 	// advancing is set while an AdvanceSettled runs: one at a time.
 	advancing bool
 }
@@ -136,6 +139,15 @@ func (v *Virtual) NewTimer(d Span) Timer {
 	return t
 }
 
+// popFirst removes the earliest timer. It keeps the slice's room at its
+// front, so a steady arm and fire allocates nothing (a reslice from the
+// front would give the room up). v.mu is held.
+func (v *Virtual) popFirst() {
+	n := copy(v.timers, v.timers[1:])
+	v.timers[n] = nil
+	v.timers = v.timers[:n]
+}
+
 func (t *virtualTimer) before(u *virtualTimer) bool {
 	return t.when < u.when || t.when == u.when && t.seq < u.seq
 }
@@ -164,7 +176,7 @@ func (v *Virtual) Advance(d Span) {
 	target := v.now + Instant(d)
 	for len(v.timers) > 0 && v.timers[0].when <= target {
 		t := v.timers[0]
-		v.timers = v.timers[1:]
+		v.popFirst()
 		v.now = t.when
 		v.fire(t)
 	}
@@ -219,7 +231,7 @@ func (v *Virtual) AdvanceSettled(t *Task, d Span) error {
 		v.now = when
 		for len(v.timers) > 0 && v.timers[0].when == when {
 			tm := v.timers[0]
-			v.timers = v.timers[1:]
+			v.popFirst()
 			v.fire(tm)
 		}
 		v.armed.Broadcast()
