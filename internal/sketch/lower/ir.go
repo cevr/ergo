@@ -62,6 +62,9 @@ type IRReport struct {
 	// Dropped counts the discarded calls that name the variant with no
 	// result (ir_forms_drop.go).
 	Dropped int `json:"-"`
+	// CatchDefects counts the full catches whose default panics with the
+	// unreachable defect, naming no failure (ir_catch_defect.go).
+	CatchDefects int `json:"-"`
 }
 
 // LowerIR is Lower with the IR bodies. The report's Hash names the IR

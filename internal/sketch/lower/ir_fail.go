@@ -438,7 +438,7 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 		sw.Cases = append(sw.Cases, c)
 	}
 	sw.ElsePos = b.pos(x, x.Rbrace)
-	sw.Else = []*irStmt{{K: k, Pos: sw.ElsePos, X: &irExpr{K: "local", Pos: sw.ElsePos, I: e}}}
+	sw.Else = []*irStmt{b.catchDefault(x, k, partial, e, sw.ElsePos)} // ir_catch_defect.go
 	if then == nil {
 		then = []*irStmt{sw}
 	}
