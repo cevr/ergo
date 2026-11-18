@@ -127,8 +127,10 @@ func (r *testResult) encode() []byte {
 // cachedNote is the line on stderr that says a run was replayed.
 const cachedNote = "ergo: cached pass replayed; --count 1 runs it again"
 
-// replayTestResult writes a stored passing run's output, then the note.
-func replayTestResult(data []byte, stdout, stderr io.Writer) error {
+// replayTestResult writes a stored passing run's output, then the note,
+// and judges its skips against the expected-skips of the module of path
+// as they are now (skipsExit): the file is no input of the stored key.
+func replayTestResult(data []byte, path string, stdout, stderr io.Writer) error {
 	var s stored
 	if err := json.Unmarshal(data, &s); err != nil {
 		return fmt.Errorf("test result cache: %w", err)
@@ -136,5 +138,5 @@ func replayTestResult(data []byte, stdout, stderr io.Writer) error {
 	stdout.Write(s.Stdout)
 	stderr.Write(s.Stderr)
 	fmt.Fprintln(stderr, cachedNote)
-	return nil
+	return skipsExit(s.Stdout, path)
 }

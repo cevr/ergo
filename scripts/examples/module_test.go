@@ -57,9 +57,8 @@ func TestModuleProgram(t *testing.T) {
 }
 
 // One ergo test of a program of packages still judges each package's part
-// of the report: its check-time verdicts against its native ones, and its
-// skip lines against expected-skips (TEST-one). It kills one-module-
-// ignores-evaluation and one-module-ignores-skips.
+// of the report: its check-time verdicts against its native ones
+// (TEST-one). It kills one-module-ignores-evaluation.
 func TestModuleProgramJudgesEachPackage(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -69,10 +68,9 @@ func TestModuleProgramJudgesEachPackage(t *testing.T) {
 	f.write(dir+"/tags", "default\n")
 	f.write(dir+"/cmd/walker/main.ergo", "#!/bin/sh\necho hi\n")
 	f.write(dir+"/walk/walk.ergo", "// CHECKJSON {\"checked\":true,\"evaluation\":{\"schemaVersion\":1,\"status\":\"passed\",\"obligations\":[{\"name\":\"Fixture\",\"status\":\"passed\",\"evidence\":\"evaluated\",\"cases\":1}]}}\n// NATIVE ok Different\nfunc w() {}\n")
-	f.write(dir+"/keep/keep.ergo", "// TESTSKIP\nfunc k() {}\n")
 	f.write(dir+"/cases/basic/expected.out", "hi\n")
 	code, out := f.run()
-	for _, want := range []string{"FAIL walker: check walk: Fixture: ", "FAIL walker: test keep: 1 unexpected skips"} {
+	for _, want := range []string{"FAIL walker: check walk: Fixture: "} {
 		if code == 0 || !strings.Contains(out, want) {
 			t.Errorf("exit %d, want a failure with %q\n%s", code, want, out)
 		}

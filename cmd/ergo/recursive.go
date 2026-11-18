@@ -289,6 +289,7 @@ func replayModuleVerdict(opts fileOptions, data []byte) error {
 	if err := json.Unmarshal(data, &verdicts); err != nil {
 		return fmt.Errorf("test result cache: %w", err)
 	}
+	failed := false
 	for _, v := range verdicts {
 		fmt.Fprintf(os.Stdout, "package %s\n", v.Path)
 		if v.Result == nil {
@@ -297,9 +298,16 @@ func replayModuleVerdict(opts fileOptions, data []byte) error {
 			}
 			continue
 		}
-		if err := replayTestResult(v.Result, os.Stdout, os.Stderr); err != nil {
-			return err
+		// An unexpected skip fails its package and the run, as a live
+		// run's does (packageOutcome); the other packages still replay.
+		stop, fail := packageOutcome(v.Path, replayTestResult(v.Result, opts.file, os.Stdout, os.Stderr))
+		if stop != nil {
+			return stop
 		}
+		failed = failed || fail
+	}
+	if failed {
+		return exitStatusError{code: 1, handled: true}
 	}
 	return nil
 }
