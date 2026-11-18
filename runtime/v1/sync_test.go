@@ -5,6 +5,8 @@ import (
 	"runtime"
 	"sync"
 	"testing"
+
+	"ergo.local/prototype/runtime/rt"
 )
 
 // TestRefSharedByTasks: goroutines that Update one Ref at once lose no
@@ -13,6 +15,7 @@ import (
 // one processor (the mutant "non-atomic Update"). Run with -race, it also
 // shows the lock covers the value.
 func TestRefSharedByTasks(t *testing.T) {
+	rt.Spread() // goroutines of the test's own (rt.Alone)
 	const workers, each = 8, 500
 	r := NewRef(0)
 	var wg sync.WaitGroup
@@ -39,6 +42,7 @@ func TestRefSharedByTasks(t *testing.T) {
 // replaced does; Set and Get from another goroutine meanwhile see whole
 // values only.
 func TestRefModifySharedByTasks(t *testing.T) {
+	rt.Spread() // goroutines of the test's own (rt.Alone)
 	const workers, each = 8, 300
 	r := NewRef(0)
 	got := make([][]int, workers)
@@ -222,6 +226,7 @@ func TestRefOwnsItsValue(t *testing.T) {
 // goroutines at once lose no Update and never write a value a Get
 // returned. A copy made outside the lock (the mutant) loses Updates.
 func TestRefOwnedSharedByTasks(t *testing.T) {
+	rt.Spread() // goroutines of the test's own (rt.Alone)
 	const workers, each = 6, 300
 	r := NewRef(map[int]int{})
 	clone := func(m map[int]int) map[int]int { return maps.Clone(m) }

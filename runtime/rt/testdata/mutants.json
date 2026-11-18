@@ -345,6 +345,8 @@
       "to": "\tstatus := report(",
       "rule": "Emitted main paces the program's heap",
       "killers": ["runtime/v1:TestMainPacesTheHeap"]
-    }
+    },
+    {"name":"alone-spawn-keeps","origin":"wf10/ir2-flip/REF-ALONE (OWN1)","file":"runtime/rt/handle.go","from":"\tSpread() // before the go statement (alone.go)\n","to":"","rule":"rt.Alone: starting a task ends Alone before the task's goroutine exists, so a Ref locks from then on","killers":["runtime/rt:TestStartsEndAlone"]},
+    {"name":"alone-group-keeps","origin":"wf10/ir2-flip/REF-ALONE (OWN1)","file":"runtime/rt/group.go","from":"\tSpread() // its members run on goroutines the host starts (alone.go)\n","to":"","rule":"rt.Alone: making a group ends Alone, since host goroutines run its members","killers":["runtime/rt:TestStartsEndAlone"]}
   ]
 }

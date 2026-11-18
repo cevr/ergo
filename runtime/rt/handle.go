@@ -56,6 +56,7 @@ func spawn[T any](parent *Task, span string, masked, shield bool, body func(*Tas
 	h := &Handle[T]{owner: parent, done: make(chan struct{})}
 	h.task.init(parent, span, masked, shield)
 	schedSpawn(parent, &h.task)
+	Spread() // before the go statement (alone.go)
 	go h.run(body)
 	return h
 }

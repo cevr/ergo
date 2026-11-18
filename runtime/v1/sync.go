@@ -49,6 +49,12 @@ import (
 // capability while the lock is held. No operation is an interruption
 // point: none waits for another task beyond the length of one operation.
 //
+// While the program runs one task (rt.Alone: no task or group has been
+// started yet), no other goroutine can reach the cell, and an operation
+// takes no lock (lock, unlock; OWN1 REF-ALONE): json's Stream, a Ref
+// read and written about 13 times per decoded event, pays the lock only
+// in a program that runs tasks.
+//
 // The control is a hand-written Go value guarded by a sync.Mutex
 // (sync_bench_test.go); the body is that value. A Ref built on
 // atomic.Pointer reads without the lock, but each store allocates a new
@@ -91,14 +97,14 @@ func NewRef[T any](v T) *Ref[T] {
 //ergo:wait none
 func (r *Ref[T]) Get() T {
 	rt.PointRunning(rt.Op{Kind: rt.OpRead, On: r})
-	r.mu.Lock()
+	locked := r.lock()
 	if r.poison {
-		r.mu.Unlock()
+		r.unlock(locked)
 		panic(refPoisoned)
 	}
 	r.shared = true
 	v := r.v
-	r.mu.Unlock()
+	r.unlock(locked)
 	return v
 }
 
@@ -108,13 +114,13 @@ func (r *Ref[T]) Get() T {
 //ergo:wait none
 func (r *Ref[T]) Set(v T) {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
-	r.mu.Lock()
+	locked := r.lock()
 	if r.poison {
-		r.mu.Unlock()
+		r.unlock(locked)
 		panic(refPoisoned)
 	}
 	r.v, r.shared = v, true
-	r.mu.Unlock()
+	r.unlock(locked)
 }
 
 // Update stores f of the value r holds, with no other operation of r
@@ -126,9 +132,9 @@ func (r *Ref[T]) Set(v T) {
 //ergo:wait none
 func (r *Ref[T]) Update(f func(v T) T) {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
-	r.mu.Lock()
+	locked := r.lock()
 	done := false
-	defer r.end(&done)
+	defer r.end(&done, locked)
 	r.check()
 	r.v = f(r.v)
 	r.shared, done = true, true
@@ -146,9 +152,9 @@ func RefModify[T, R any](r *Ref[T], f func(v T) struct {
 	F1 T
 }) R {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
-	r.mu.Lock()
+	locked := r.lock()
 	done := false
-	defer r.end(&done)
+	defer r.end(&done, locked)
 	r.check()
 	out := f(r.v)
 	r.v, r.shared, done = out.F1, true, true
@@ -165,9 +171,9 @@ func RefModify[T, R any](r *Ref[T], f func(v T) struct {
 //ergo:wait none
 func RefUpdateOwned[T any](r *Ref[T], f func(v T) T, clone func(v T) T, fresh bool) {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
-	r.mu.Lock()
+	locked := r.lock()
 	done := false
-	defer r.end(&done)
+	defer r.end(&done, locked)
 	r.check()
 	v := r.v
 	if r.shared {
@@ -188,9 +194,9 @@ func RefModifyOwned[T, R any](r *Ref[T], f func(v T) struct {
 	F1 T
 }, clone func(v T) T, fresh bool) R {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
-	r.mu.Lock()
+	locked := r.lock()
 	done := false
-	defer r.end(&done)
+	defer r.end(&done, locked)
 	r.check()
 	v := r.v
 	if r.shared {
@@ -211,9 +217,9 @@ func RefModifyOwned[T, R any](r *Ref[T], f func(v T) struct {
 //ergo:wait none
 func RefUpdateInPlace[T any](r *Ref[T], f func(p *T), clone func(v T) T, fresh bool) {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
-	r.mu.Lock()
+	locked := r.lock()
 	done := false
-	defer r.end(&done)
+	defer r.end(&done, locked)
 	r.check()
 	if r.shared {
 		r.v = clone(r.v)
@@ -229,9 +235,9 @@ func RefUpdateInPlace[T any](r *Ref[T], f func(p *T), clone func(v T) T, fresh b
 //ergo:wait none
 func RefModifyInPlace[T, R any](r *Ref[T], f func(p *T) R, clone func(v T) T, fresh bool) R {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
-	r.mu.Lock()
+	locked := r.lock()
 	done := false
-	defer r.end(&done)
+	defer r.end(&done, locked)
 	r.check()
 	if r.shared {
 		r.v = clone(r.v)
@@ -241,8 +247,8 @@ func RefModifyInPlace[T, R any](r *Ref[T], f func(p *T) R, clone func(v T) T, fr
 	return x
 }
 
-// check raises refPoisoned when r is poisoned, with r locked; end unlocks
-// it.
+// check raises refPoisoned when r is poisoned, with r locked (lock); end
+// unlocks it.
 func (r *Ref[T]) check() {
 	if r.poison {
 		panic(refPoisoned)
@@ -252,9 +258,30 @@ func (r *Ref[T]) check() {
 // end unlocks r at the end of an Update or Modify. When the operation did
 // not finish (done is false), a panic is on its way to the caller: it
 // poisons r, and is not recovered here.
-func (r *Ref[T]) end(done *bool) {
+func (r *Ref[T]) end(done *bool, locked bool) {
 	if !*done {
 		r.poison = true
 	}
-	r.mu.Unlock()
+	r.unlock(locked)
+}
+
+// lock locks r unless the program runs one task (rt.Alone, OWN1
+// REF-ALONE): then no other goroutine can reach r, and the operation
+// runs as the hand-written Go value would, with no lock. It reports
+// whether it locked, for unlock: Alone may turn false during the
+// operation only if its function starts a task, which f's empty row
+// rules out, but the pair never depends on that.
+func (r *Ref[T]) lock() bool {
+	if rt.Alone() {
+		return false
+	}
+	r.mu.Lock()
+	return true
+}
+
+// unlock unlocks r when lock locked it.
+func (r *Ref[T]) unlock(locked bool) {
+	if locked {
+		r.mu.Unlock()
+	}
 }

@@ -154,6 +154,7 @@ func BenchmarkRef(b *testing.B) {
 		}
 	})
 	b.Run("UpdateParallel/ergo", func(b *testing.B) {
+		rt.Spread() // RunParallel's goroutines (rt.Alone)
 		r := NewRef(0)
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
