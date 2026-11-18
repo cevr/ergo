@@ -100,6 +100,9 @@ type Unit struct {
 type Input struct {
 	Checked bool
 	Units   []Unit
+	// Change is the change --diff lints, nil without --diff: the change
+	// rules (added-clone, scattered-edit) report nothing without one.
+	Change *ChangeSet
 }
 
 // Pass is one rule's run over one file of a checked package.
@@ -139,6 +142,9 @@ func (p *Pass) Program() []Unit {
 	}
 	return out
 }
+
+// Change is the run's change (ChangeSet), nil without --diff.
+func (p *Pass) Change() *ChangeSet { return p.run.in.Change }
 
 // Closed reports whether the run sees every user of the program's code:
 // its root package has an entry (main), so no package outside the run
