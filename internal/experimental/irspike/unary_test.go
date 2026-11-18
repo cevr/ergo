@@ -38,8 +38,8 @@ func TestIRUnaryOperandsMatchSource(t *testing.T) {
 //     opc-intoslot-unasserted);
 //   - byteindex (red #31, NP4f-15's http query.ergo): the decoder refused
 //     a string or slice indexed by a byte, and a slice expression's byte
-//     bound (derivative mutants red31-index-int-only,
-//     red31-slice-int-only).
+//     bound (two derivative edits of the fork patch, which the irspike
+//     ledger's note names: red #31).
 //
 // It builds Go for the reason TestIRUnaryOperandsMatchSource does.
 func TestIRReprosMatchSource(t *testing.T) {
