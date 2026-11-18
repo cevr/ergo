@@ -337,6 +337,22 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 			}
 			return r.fields[fieldIndex(r.t, x.Sel.Name)], c.s, nil
 		}
+		if _, ref := check.GoRefElem(t.t); ref {
+			// A field of a Go value through its go.Ref (gohost.go).
+			base, root, ab := in.peekBase(fr, x.X, path)
+			if ab != nil {
+				return nil, nil, ab
+			}
+			g, ok := base.(goVal)
+			if !ok {
+				return nil, nil, fr.unsupported(x, "a field of %s", describe(base))
+			}
+			v, ok := goField(g, x.Sel.Name, fr.rtypeOf(x))
+			if !ok {
+				return nil, nil, fr.unsupported(x, "the Go field %s", x.Sel.Name)
+			}
+			return v, root, nil
+		}
 		if p, ok := t.t.(*check.Pointer); ok {
 			t = rtype{t: p.Elem, env: t.env} // a field through a borrow
 		}
@@ -966,6 +982,10 @@ func (in *interp) callOf(fr *frame, x *syntax.CallExpr, xf *facts) (Value, *abru
 		return in.embedValue(fr, x, c) // nativesembed.go
 	case check.CallEncode, check.CallDecode:
 		return in.wireCall(fr, x, c) // codecwalk.go
+	case check.CallGoError:
+		if c.Name == "go.New" || c.Name == "go.Zero" {
+			return in.goBuiltin(fr, x, c) // gohost.go
+		}
 	}
 	return nil, fr.unsupported(x, "this call (kind %d)", c.Kind)
 }

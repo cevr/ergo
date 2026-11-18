@@ -133,6 +133,9 @@ type Var struct {
 	// a binder with its own diagnostic (D-D3). Only a read in a value
 	// position finds it; every other lookup sees through it (lookupPast).
 	refused bool
+	// freshRef marks a let of a fresh Go handle: a field read through it
+	// charges nothing (gofresh.go).
+	freshRef bool
 }
 
 // Mut reports a `let mut` name, the only kind an assignment or a borrow

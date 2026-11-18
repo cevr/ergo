@@ -40,6 +40,8 @@ fact go math/rand/v2.PCG.Seed effect none validated by guard with go1.27.4 h1:Xq
 fact go math/rand/v2.PCG.Uint64 effect none validated by guard with go1.27.4 h1:DHlnwUTU9nkfGwU5R+WlKBAuOHLk4RskbSxIkgTMEjI=
 fact go math/rand/v2.Rand.Shuffle sync callbacks validated by guard with go1.27.4 h1:DUFi4FYJkSnI/jRnhTQpuiNXq0jL4KciVigm5FzM/qE=
 fact go math/rand/v2.Shuffle sync callbacks validated by guard with go1.27.4 h1:l5UDGnhnN4lB+WuspG7lxLoUPt6kaJk8xaSPjyAKeZw=
+fact go net/netip pure members validated by guard with go1.27.4 h1:II0TTq9/XXyAqFcSjANzHEZWF6o+00Nbckl2A96a30U=
+fact go net/url pure members validated by guard with go1.27.4 h1:8SL2W6sG/3Ohs12yj8u/W32Hxotph/sKs5Co3IATaO4=
 fact go os.Expand sync callbacks validated by guard with go1.27.4 h1:j53n/Pcx9EUaCtaEX1s/vf8kbd+RiX2yEz+zBS0Y34E=
 fact go path/filepath pure members validated by guard with go1.27.4 h1:q+yklp6zZlmKjmrdmVgaIc7jyTFKF4rsCWFA/++DN48=
 fact go path/filepath.Join reads elem validated by guard with go1.27.4 h1:+93clsjHqXhN66F2mNfu4j3ltVCnF7p9Y1oQWM0Z4G8=

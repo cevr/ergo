@@ -286,8 +286,12 @@ func hostMember(path, member string) bool {
 
 // PureImports are the Go packages a file may import when one of its bodies
 // is marked pure: packages that compute on values and reach no host state,
-// except the members PureImportsExcept names.
-var PureImports = []string{"strings", "strconv", "unicode", "unicode/utf8", "unicode/utf16", "slices", "sort", "math", "math/bits", "path/filepath", "encoding/hex", "encoding/base64", "crypto/sha256", "hash/crc32"}
+// except the members PureImportsExcept names. net/url and net/netip parse
+// and format text (NP4f-URL, G2: an entry keyed by Go path that any
+// user's import go reaches trusts Go); net/url's ParseQuery reads the
+// process's GODEBUG urlmaxqueryparams, a setting fixed for the process as
+// every Go program has it, not state that changes between calls.
+var PureImports = []string{"strings", "strconv", "unicode", "unicode/utf8", "unicode/utf16", "slices", "sort", "math", "math/bits", "path/filepath", "encoding/hex", "encoding/base64", "crypto/sha256", "hash/crc32", "net/url", "net/netip"}
 
 // PureImportsExcept names, for a package of PureImports, its members that
 // reach host state. A marked body that names one is refused. filepath.Abs

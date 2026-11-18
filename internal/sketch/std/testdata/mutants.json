@@ -666,16 +666,6 @@
       "killers": ["lower:TestStdMatchesGo"]
     },
     {
-      "name": "np4f15-parse-limit-past",
-      "origin": "wf10 NP4f-15 (NS lane)",
-      "file": "internal/sketch/std/http/query.ergo",
-      "from": "if strings.Count(raw, \"&\") >= 10000 {",
-      "to": "if strings.Count(raw, \"&\") > 10000 {",
-      "rule": "std http.ParseQuery reads as Go's url.ParseQuery: a query of more than 10000 pairs has no fields.",
-      "anchor": {"tests":["lower:TestStdMatchesGo"]},
-      "killers": ["lower:TestStdMatchesGo"]
-    },
-    {
       "name": "np4f15-parse-unstable",
       "origin": "wf10 NP4f-15 (NS lane)",
       "file": "internal/sketch/std/http/query.ergo",
@@ -904,6 +894,76 @@
       "rule": "std time's Sub of two times with monotonic readings is t's reading less u's.",
       "killers": ["lower:TestTimeRuns"],
       "gap": "Only a lowered program runs it, so the std ledger judges it uncovered (docs/tooling.md, Mutant ledger); its killer is run by hand: red at NP4f-17, 2026-11-18."
+    },
+    {
+      "name": "np4furl-query-default-limit",
+      "origin": "wf10 NP4f-URL (NS lane)",
+      "file": "internal/sketch/std/http/query.ergo",
+      "from": "\tif !queryWithinMax(strings.Count(raw, \"&\")) {\n",
+      "to": "\tif strings.Count(raw, \"&\") >= 10000 {\n",
+      "rule": "stdlib.md http: ParseQuery gives no fields past Go's limit on pairs, GODEBUG urlmaxqueryparams as Go's url.ParseQuery reads it.",
+      "anchor": {"tests":["internal/sketch/eval:TestParseQueryReadsGODEBUG"]},
+      "killers": ["internal/sketch/eval:TestParseQueryReadsGODEBUG"]
+    },
+    {
+      "name": "np4furl-origin-limits-timeouts",
+      "origin": "wf10 NP4f-URL (NS lane)",
+      "file": "internal/sketch/std/http/origin.ergo",
+      "from": "limits.MaxBodyBytes > 0 && limits.MaxHeaderBytes > 0 && limits.IdleTimeout > 0s && limits.ReadHeaderTimeout > 0s && limits.ReadBodyTimeout > 0s",
+      "to": "limits.MaxBodyBytes > 0 && limits.MaxHeaderBytes > 0",
+      "rule": "stdlib.md http: shared Limits reject a non-positive timeout at NewClient and for a Network policy too (was e4b-client/network-timeouts-unchecked).",
+      "anchor": {"tests":["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]},
+      "killers": ["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]
+    },
+    {
+      "name": "np4furl-origin-user-allowed",
+      "origin": "wf10 NP4f-URL (NS lane)",
+      "file": "internal/sketch/std/http/origin.ergo",
+      "from": "\tif host == \"\" || user {\n",
+      "to": "\tif host == \"\" {\n",
+      "rule": "stdlib.md http: an origin with user information is not a host and port.",
+      "anchor": {"tests":["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]},
+      "killers": ["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]
+    },
+    {
+      "name": "np4furl-origin-force-query",
+      "origin": "wf10 NP4f-URL (NS lane)",
+      "file": "internal/sketch/std/http/origin.ergo",
+      "from": "rawQuery != \"\" || fragment != \"\" || forceQuery {",
+      "to": "rawQuery != \"\" || fragment != \"\" {",
+      "rule": "stdlib.md http: an origin ending in a bare \"?\" has a query.",
+      "anchor": {"tests":["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]},
+      "killers": ["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]
+    },
+    {
+      "name": "np4furl-origin-zone-lowered",
+      "origin": "wf10 NP4f-URL (NS lane)",
+      "file": "internal/sketch/std/http/origin.ergo",
+      "from": "\t\t\thost = host + \"%\" + parts.After\n",
+      "to": "\t\t\thost = host + \"%\" + strings.ToLower(parts.After)\n",
+      "rule": "stdlib.md http: an IPv6 zone keeps its case in the canonical origin.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4furl-origin-default-port-kept",
+      "origin": "wf10 NP4f-URL (NS lane)",
+      "file": "internal/sketch/std/http/origin.ergo",
+      "from": "\tif port == \"80\" && scheme == \"http\" || port == \"443\" && scheme == \"https\" {\n",
+      "to": "\tif port == \"80\" && scheme == \"https\" || port == \"443\" && scheme == \"http\" {\n",
+      "rule": "stdlib.md http: the canonical origin drops the scheme's own default port.",
+      "anchor": {"tests":["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]},
+      "killers": ["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]
+    },
+    {
+      "name": "np4furl-origin-port-unparsed",
+      "origin": "wf10 NP4f-URL (NS lane)",
+      "file": "internal/sketch/std/http/origin.ergo",
+      "from": "\t\tport = strconv.FormatUint(n, 10)\n",
+      "to": "\t\tlet _ = n\n",
+      "rule": "stdlib.md http: a zero-padded port is the number's canonical form.",
+      "anchor": {"tests":["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]},
+      "killers": ["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]
     }
   ]
 }
