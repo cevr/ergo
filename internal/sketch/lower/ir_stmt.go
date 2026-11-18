@@ -270,7 +270,9 @@ func (b *irBuilder) discard(x syntax.Expr) []*irStmt {
 	}
 	if call, ok := x.(*syntax.CallExpr); ok {
 		if c := b.l.info.Calls[call]; c != nil && c.Kind != check.CallConversion && c.Kind != check.CallLen {
+			b.dropping = call // its value is dropped (ir_forms_drop.go)
 			pre, e := b.call(call, true)
+			b.dropping = nil
 			if e == nil {
 				// A function value's call, bound and dropped (ir_closure.go),
 				// or a tried call with no value (call).
