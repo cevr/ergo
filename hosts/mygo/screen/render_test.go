@@ -229,8 +229,10 @@ func paintOn(w *Window, ps []paint) {
 // package shows on both. What this test catches is a pinned MyGo whose
 // GPU path draws our lists otherwise than its CPU renderer. Only the GPU
 // path draws on phones, and every other host test draws on the CPU.
-// Mutant it kills (testdata/mutants.json): MyGo's GPU path keeping every
-// clip pushed (MB1-upstream-gpu-clip-kept).
+// Mutant it kills: MyGo's GPU path keeping every clip pushed
+// (internal/gpu/gpu.go, the OpPopClip case), applied to a copy of the
+// pinned module by a replace. The ledger takes edits of this repository
+// only, so the row is not in testdata/mutants.json.
 func TestRenderersAgree(t *testing.T) {
 	const width, height = 240, 180
 	seeds := []uint64{*renderersSeed}
