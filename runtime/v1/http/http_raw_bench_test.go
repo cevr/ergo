@@ -22,7 +22,8 @@ import (
 // kept-alive loopback connection, a raw POST of 256 bytes written and its
 // echoed answer read whole per op, with no HTTP client, so what both modes
 // add is the server's. ergo is Serve with a handler that echoes the body,
-// reading with its engine; ergo-port is the engine with every answer
+// reading with its engine; ergo-eager is the engine with the background
+// read started before every handler, as net/http starts it; ergo-port is the engine with every answer
 // through the port of net/http's writer (fastAnswer off); ergo-nethttp
 // is the same Serve on its reference reader, net/http;
 // go is hand net/http with the same guarantees (bounded header and body,
@@ -32,7 +33,7 @@ import (
 // pattern, -bench 'BenchmarkHTTPServeRaw/^go$': an unanchored "go$" also
 // matches "ergo".
 func BenchmarkHTTPServeRaw(b *testing.B) {
-	for _, mode := range []string{"ergo", "ergo-port", "ergo-nethttp", "go", "floor"} {
+	for _, mode := range []string{"ergo", "ergo-eager", "ergo-port", "ergo-nethttp", "go", "floor"} {
 		b.Run(mode, func(b *testing.B) {
 			ln, err := net.Listen("tcp", "127.0.0.1:0")
 			if err != nil {
@@ -43,6 +44,12 @@ func BenchmarkHTTPServeRaw(b *testing.B) {
 				// net/http's writer (HTTP-FAST-c1's writer).
 				engineFastWriter = false
 				b.Cleanup(func() { engineFastWriter = true })
+			}
+			if mode == "ergo-eager" {
+				// The engine with net/http's background read before every
+				// handler (HTTP-FAST-c2's watch).
+				engineLazyWatch = false
+				b.Cleanup(func() { engineLazyWatch = true })
 			}
 			if mode != "go" && mode != "floor" {
 				s := v1.NewScope(rt.Root("HTTP raw benchmark"))
