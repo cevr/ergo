@@ -85,6 +85,19 @@ func NewCounter() Counter needs go.Foreign {
 
 *Prior art:* Gleam and Elixir reach a mutable host cell only through the host (`:atomics.new`, an ETS table, a process), never as a language value; ReScript's `ref` and OCaml's `Atomic.make` are a heap cell with identity, as here. Effect's `Ref.make` is an effect for the same reason as the `go.Foreign` charge: allocation of identity is not pure. Each lowers to the host's own allocation.
 
+**Set at construction** (GBX5b, 2026-11-16). `go.New(v)` is a `go.Ref[T]` to a new Go `T` holding a copy of `v`. It is how Ergo source sets a Go struct's fields, since they stay read-only after it (q34). `go.Zero[T]()` is Go's zero `T` as a value. It is the explicit base a literal of a Go struct spreads from, because a literal names every field (owner q44: every field value comes from a site that named it):
+
+```
+let sys = go.New(syscall.SysProcAttr{..go.Zero[syscall.SysProcAttr](), Setpgid: true})
+let mut attr = os.ProcAttr{Dir: "", Env: []string{}, Sys: Some{Value: sys}}
+let p = try os.StartProcess("/bin/sh", argv, &attr)
+```
+
+5. **T** follows rule 1, for both. `go.New(v)` also refuses a `T` that holds a slice or Map through its fields (S108 "go.New(v) of os.ProcAttr: its field Env holds a slice or Map that an Ergo value may share …"). Go could write such a slice through the `go.Ref`, and an Ergo value could share it. A `go.Ref` field is Go's memory already and is admitted.
+6. **Rows.** `go.New(v)` charges `go.Foreign` (rule 3). `go.Zero[T]()` is a value with no identity, and charges nothing.
+7. **Lowering.** `n := v` and `&n` for `go.New(v)`, which is hand Go's `&T{…}`; `*new(T)` for `go.Zero[T]()`. A spread from it is a copy and one store per named field (types.md, Structs 3). `TestImportGoRuns` (lower) starts a child with `Setpgid` set and checks that it leads its own process group.
+8. **One task** (GB-RACE, 2026-11-16). A memory-only method ([Purity and authority](#purity-and-authority)) needs no `go.Foreign`, so any task may call it, and `math/rand/v2.PCG.Uint64` writes its two state words with no lock. A `go.Ref[T]` whose Go type `T` has a memory-only method is therefore confined to the task that holds it, by the provider cell's rules ([types.md](types.md), Interface assignability 6; `check/goconfined.go`): no escaping function literal or block (a `task.Go` body) captures a value that holds it, no type argument (a queue, a `sync.Ref`, a `Task`, a generic body) carries it, no package `let` holds it, and it converts to no Ergo operation type. Each is S108 "p holds go.Ref[rand.PCG], whose Go value's memory-only methods are not safe for concurrent use, so it is confined to the task that made it, …". Three cases are admitted. An `Option` or `Some` holds it where these rules still see it (`NewPCG`'s result is an `Option[go.Ref[PCG]]`). A Go interface argument (`rand.New(src)`) takes it, since only a `go.Foreign` call reaches it there. A type of the reviewed table `v1.GoConcurrentTypes` (`sync/atomic.Bool`, `Int64`), whose methods are safe for concurrent use, is not confined. `TestGoConfinedRefs` (check) holds each clause. *Prior art:* Rust's `ThreadRng` is `!Send`, so `thread::spawn` refuses a closure that captures one, and `AtomicU64` is `Sync`. Swift refuses a non-`Sendable` class across an isolation boundary. Go documents `PCG` as unsafe for concurrent use and leaves the race to `go test -race`. Erlang's `:rand` keeps its state in each process's dictionary.
+
 ## Purity and authority
 
 Each call's row comes from the reviewed tables of `runtime/v1`, never from the Go signature:

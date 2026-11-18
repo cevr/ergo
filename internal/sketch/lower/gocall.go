@@ -524,9 +524,21 @@ func (fc *funcCtx) goErrorOf(x syntax.Expr, e string) {
 // (v1.GoIs), and go.As[T](e), errors.As into a T (v1.GoAs), Some when Go
 // finds one (IG5; check/goerror.go).
 func (fc *funcCtx) goErrorCall(x *syntax.CallExpr, c *check.Call) operand {
+	if c.Name == "go.New" && len(x.Args) == 1 {
+		// go.New(v) is a new Go T holding a copy of v (GBX5b;
+		// check/gonew.go): &n of a fresh n, as hand Go writes &T{…}.
+		v := fc.assigned(x.Args[0])
+		n := fc.temp("n")
+		fc.line(n + " := " + v)
+		return operand{val: "&" + n}
+	}
 	if c.Name == "go.New" {
 		// go.New[T]() is Go's new(T) (GBX1; check/gonew.go).
 		return operand{val: "new(" + fc.goType(c.Type) + ")"}
+	}
+	if c.Name == "go.Zero" {
+		// go.Zero[T]() is Go's zero T (GBX5b).
+		return operand{val: "*new(" + fc.goType(c.Type) + ")"}
 	}
 	args := fc.operands(x.Args, true)
 	if c.Name == "go.Is" {

@@ -54,11 +54,14 @@ import go syscall
 
 // A Go struct whose fields differ by platform binds its common fields
 // (GBX5: syscall.SysProcAttr), so os.ProcAttr's Sys maps, and
-// os.StartProcess borrows the ProcAttr for the call.
+// os.StartProcess borrows the ProcAttr for the call. go.New(v) sets
+// Setpgid at construction from go.Zero's base (GBX5b): the child leads
+// its own process group, so a signal 0 to the group of its pid reaches
+// it, and the shell exits 3.
 func goProcess() string fails go.Error needs go.Foreign {
-	let sys = go.New[syscall.SysProcAttr]()
+	let sys = go.New(syscall.SysProcAttr{..go.Zero[syscall.SysProcAttr](), Setpgid: true})
 	let mut attr = os.ProcAttr{Dir: "", Env: []string{}, Sys: Some{Value: sys}}
-	let p = try os.StartProcess("/bin/sh", []string{"sh", "-c", "exit 3"}, &attr)
+	let p = try os.StartProcess("/bin/sh", []string{"sh", "-c", "kill -s 0 -- -$$ && exit 3"}, &attr)
 	let state = try p.Wait()
 	"\(state.ExitCode())|\(sys.Setpgid)"
 }
@@ -198,7 +201,7 @@ func TestImportGoRuns(t *testing.T) {
 	src.WriteString("\tConsole.Println(\"\\(math.MaxInt8 + 1)|\\(io.EOF.Text)|\\(strconv.IntSize)\")\n")
 	want = append(want, fmt.Sprintf("%d|%s|%d", math.MaxInt8+1, io.EOF.Error(), strconv.IntSize))
 	src.WriteString("\tConsole.Println(goProcess() catch { case go.Error as e: e.Text })\n")
-	want = append(want, "3|false")
+	want = append(want, "3|true")
 	src.WriteString("\tConsole.Println(goDurations(90s + 500ms))\n")
 	d := 90*time.Second + 500*time.Millisecond
 	want = append(want, fmt.Sprintf("%s|%v|%d|%s|%s|%s", d, d.Seconds(), d.Milliseconds(), d.Round(time.Second), d.Truncate(time.Minute), (-d).Abs()))
@@ -391,9 +394,9 @@ func copyElisionCase(r *rand.Rand, k int) (string, string) {
 	}
 	wrote := fmt.Sprintf("%d,%d,%d", written[0], written[1], written[2])
 	show := func(v string) string { return "\\(" + v + "[0]),\\(" + v + "[1]),\\(" + v + "[2])" }
-	head := fmt.Sprintf("func case%d() string needs go.Foreign {\n", k)
 	sorted := []int{a, b, c}
 	slices.Sort(sorted)
+	head := fmt.Sprintf("func case%d() string needs go.Foreign {\n", k)
 	// The reads shapes (LF1): sort.SearchInts and bytes.IndexFunc only
 	// read their slice (a checked fact), so the run build passes a live
 	// slice with no copy where nothing else can reach it.
