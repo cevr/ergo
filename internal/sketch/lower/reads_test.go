@@ -10,9 +10,11 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/gobind"
+	"ergo.local/prototype/internal/gofacts"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/std/gostd"
 	"ergo.local/prototype/internal/sketch/syntax"
+	"ergo.local/prototype/internal/toolchain"
 	v1 "ergo.local/prototype/runtime/v1"
 )
 
@@ -58,16 +60,16 @@ func Poke(b []byte) int {
 // dst keep 1 and 0.
 const readsFixProgram = `import go readsfix
 
-func bump(xs []int) int needs go.Foreign {
+func bump(xs []int) int {
 	readsfix.Bump(xs) + xs[0]
 }
 
-func rev() int needs go.Foreign {
+func rev() int {
 	let xs = []int{1, 2, 3}
 	readsfix.Rev(xs, xs)
 }
 
-func rev2() string needs go.Foreign {
+func rev2() string {
 	let src = []int{1, 2, 3}
 	let dst = []int{0, 0, 0}
 	let r = readsfix.Rev(src, dst)
@@ -90,10 +92,27 @@ test BumpLeavesItsArgument {
 // test build's compare runs where `ergo test` runs.
 func init() { v1.PureImports = append(v1.PureImports, "readsfix") }
 
+// plantReadsFixPure makes readsfix's pure row act for the rest of t: since
+// LF2d a package of v1.PureImports is pure only on its guard line in the
+// std ledger, current and validated (check.PureActs), so t plants that
+// line beside the shipped ones, as it plants the reads lines (LF-TESTFOREIGN).
+func plantReadsFixPure(t *testing.T) {
+	t.Helper()
+	saved := check.FactLedger
+	t.Cleanup(func() { check.FactLedger = saved })
+	line := "fact " + gofacts.PureKey("readsfix") + " validated by guard with " + toolchain.Version + " " + gofacts.PureDigest("readsfix", v1.PureImportsExcept["readsfix"], toolchain.Version) + "\n"
+	ledger := saved() + line
+	check.FactLedger = func() string { return ledger }
+	if !check.PureActs("readsfix") {
+		t.Fatalf("readsfix's planted pure line does not act: %q", line)
+	}
+}
+
 // readsFixImporter gives readsfix's binding, with the planted reads line,
 // beside Go's standard library.
 func readsFixImporter(t *testing.T) hresImporter {
 	t.Helper()
+	plantReadsFixPure(t)
 	fs := token.NewFileSet()
 	f, err := parser.ParseFile(fs, "readsfix.go", readsFixGo, 0)
 	if err != nil {

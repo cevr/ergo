@@ -18,7 +18,7 @@ import (
 const viewFalseProgram = `import go readsfix
 import strings
 
-func poke(s string) int needs go.Foreign {
+func poke(s string) int {
 	readsfix.Poke(strings.Bytes(s))
 }
 
