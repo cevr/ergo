@@ -60,6 +60,7 @@ var commands = []cliCommand{
 	{name: "gen", usage: "gen rpc|cli [--check] DIR.OPTYPE", help: genHelp, run: genCommand},
 	{name: "dev", usage: "dev [DIR] [--idle DURATION]", help: devHelp, run: devCommand},
 	{name: "version", usage: "version [--json]", help: versionHelp, run: versionCommand},
+	{name: "conform", usage: conformUsage, help: conformHelp, run: conformCommand},
 	{name: "tsmap", usage: "tsmap [--emit-js FILE.ergo]", help: tsmapHelp, run: tsmapCommand},
 	{name: "edition", fate: removed, reason: "there is one language and no editions", ticket: ticketEditions},
 	{name: "lint", usage: "lint FILE|DIR [--preset P]... [--lint-config FILE] [--rules MANIFEST]... [--strict] [--json] [--target go]", help: lintHelp, run: lintCommand},

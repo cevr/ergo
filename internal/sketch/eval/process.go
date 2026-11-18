@@ -132,6 +132,33 @@ func RunMain(pkg *check.Package, b Budget, p Process) (out Exit, err error) {
 
 // runMainOrdered is RunMain with every Map visited in order; it says
 // whether a for over a Map ran.
+// RunEntry runs pkg's function name, which takes nothing, as RunMain runs
+// main; when it gives a string, Exit.Stdout ends with it. `ergo conform`
+// runs the entry it adds to a package this way (MODELCHECK T2). Map
+// iteration takes the ascending order only.
+func RunEntry(pkg *check.Package, name string, b Budget, p Process) (Exit, error) {
+	if b.Steps <= 0 || b.Depth <= 0 || b.States < 0 || b.Bytes < 0 {
+		return Exit{}, ErrBudget
+	}
+	defer raiseGC()()
+	if pkg == nil || pkg.Info == nil {
+		return Exit{}, errors.New("eval: no checked package")
+	}
+	if b.States == 0 {
+		b.States = defaultStates
+	}
+	if b.Bytes == 0 {
+		b.Bytes = defaultBytes
+	}
+	for _, f := range pkg.Funcs {
+		if f.Name == name && f.Decl != nil && f.Decl.Body != nil && len(f.Sig.Params) == 0 {
+			out, _, err := runMainOrdered(pkg, f, b, p, mapAscending)
+			return out, err
+		}
+	}
+	return Exit{}, fmt.Errorf("eval: the package has no function %s()", name)
+}
+
 func runMainOrdered(pkg *check.Package, main *check.Func, b Budget, p Process, order mapOrder) (out Exit, ranged bool, err error) {
 	h := newHost(p)
 	in := &interp{budget: b, root: pkg, files: map[syntax.Decl]*syntax.File{}, initials: map[*check.TypeName]Value{}, host: h, mapOrder: order}
@@ -167,11 +194,20 @@ func runMainOrdered(pkg *check.Package, main *check.Func, b Budget, p Process, o
 		}
 		fr.caps = &capEnv{key: typeKey(rtype{t: n}), op: &hostCap{name: n.Obj.Name, h: h}, next: fr.caps}
 	}
+	var result Value
 	_, ab := in.rootTask(fr, "main", func() *abrupt {
-		_, ab := in.bodyValue(fr, main.Decl.Body.List)
+		v, ab := in.bodyValue(fr, main.Decl.Body.List)
+		result = v
 		return ab
 	})
+	if ab != nil && ab.kind == ctlReturn {
+		result = ab.val
+	}
 	if ab == nil || ab.kind == ctlReturn {
+		// An entry that gives a text (RunEntry) writes it to stdout.
+		if s, ok := result.(string); ok {
+			h.stdout.WriteString(s)
+		}
 		return out, false, nil
 	}
 	out.Site = in.site(ab.pkg, ab.decl, ab.at)
