@@ -398,7 +398,13 @@ func main() {
 	coverage := flag.Bool("coverage", false, "with -record-durations: record the per-test coverage and reads of the named packages' fast tests (those of the test-impact selection when none is named) in the gate cache, the base the fast tier selects its tests against")
 	sweeps := flag.Bool("sweeps", false, "with -record-durations: run the closure sweep of the named package directories (every swept package when none is named) one at a time and rewrite their real costs in "+sweepCostFile)
 	affected := flag.Bool("affected", false, "the round tier: every test of each package, without -short, narrowed to those the change since BASE (the one argument; default: the merge base with main) reaches by the mutant runner's coverage store; advisory, never a landing verdict ("+roundSelectionVariable+"=full runs every test)")
+	replaySpan := flag.String("replay-affected", "", "FROM..TO: replay the round tier over the first-parent tips of the range against the coverage store, one row per tip (the share of recorded test seconds selected), and exit; with -reds FILE (lines TIP DIR:TEST) fail when a red test is outside its tip's selection")
+	replayOut := flag.String("o", "", "with -replay-affected: write the rows to this file instead of stdout")
+	replayReds := flag.String("reds", "", "with -replay-affected: the reds file")
 	flag.Parse()
+	if *replaySpan != "" {
+		os.Exit(runReplayAffected(*replaySpan, *replayOut, *replayReds))
+	}
 	if *affected && (*full || *noCache || *merge || *recordDurations || flag.NArg() > 1) {
 		fatal(errors.New("--affected takes at most one argument, BASE, and no other tier"))
 	}
