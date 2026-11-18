@@ -798,11 +798,13 @@ func dialMachine() Machine[int, int, int] {
 
 // canvasOf is the paint list of the first canvas among shapes, and
 // whether there is one.
-func canvasOf(shapes []Shape[int]) ([]PaintOp, bool) {
+func canvasOf(shapes []Shape[int], label string) ([]PaintOp, bool) {
 	for x in shapes {
 		match x.Node {
 		case CanvasNode as c:
-			return (c.Paint, true)
+			if c.Label == label {
+				return (c.Paint, true)
+			}
 		case _:
 		}
 	}
@@ -814,7 +816,9 @@ func canvasOf(shapes []Shape[int]) ([]PaintOp, bool) {
 // the list the program means at the actor's state, written without a
 // Paint, its screenshot has a line for each node and each paint op, and
 // the canvas is findable by its label. A second pass at the
-// same state is an empty patch: an unchanged list repaints nothing.
+// same state is an empty patch: an unchanged list repaints nothing. A
+// second canvas, and a third written inside the second's draw, show
+// exactly their own lists, though a frame's canvases paint into one scratch.
 law PaintMatchesList(seed int, steps int) {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
@@ -833,6 +837,12 @@ func paintFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 		Canvas(f, "board", 120, 80) func(p *Paint) {
 			paintProg(p, prog, s)
 		}
+		Canvas(f, "rest", 120, 80) func(p *Paint) {
+			paintProg(p, prog, s+1)
+			Canvas(f, "inner", 40, 40) func(q *Paint) {
+				paintProg(q, prog, s+2)
+			}
+		}
 	}
 	let a = actor.StartMachine(dialMachine(), 1, func(o int) {})
 	let mut h = NewTestHost(a, view, m, 4) catch {
@@ -845,9 +855,14 @@ func paintFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 			return false
 		}
 		let s = StateOf(&h)
-		let (shown, ok) = canvasOf(Screen(&h))
+		let (shown, ok) = canvasOf(Screen(&h), "board")
 		let want = paintModel(prog, s)
-		if !ok || shown != want || Find(&h, "board") == None || strings.Count(Screenshot(&h), "\n") != 4+len(want) {
+		let (rest, okRest) = canvasOf(Screen(&h), "rest")
+		let (inner, okInner) = canvasOf(Screen(&h), "inner")
+		if !ok || shown != want || Find(&h, "board") == None || strings.Count(Screenshot(&h), "\n") != 6+3*len(want) {
+			return false
+		}
+		if !okRest || !okInner || rest != paintModel(prog, s+1) || inner != paintModel(prog, s+2) {
 			return false
 		}
 		let mut g = NewFrame[int]()
