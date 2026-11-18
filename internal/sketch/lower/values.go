@@ -1694,7 +1694,7 @@ func (w *valueWalk) ownedBind(f *check.Func, vv *vvar) syntax.Expr {
 		if o == bind {
 			continue
 		}
-		if o.frame != w.root || o.pre > bind.pre && valueMutant != "own-live" {
+		if o.frame != w.root && !w.joinedBefore(o.frame) || o.pre > bind.pre && valueMutant != "own-live" {
 			return nil
 		}
 		w.classify(vv, o)
@@ -1706,6 +1706,70 @@ func (w *valueWalk) ownedBind(f *check.Func, vv *vvar) syntax.Expr {
 		return nil
 	}
 	return value
+}
+
+// joinedBefore reports whether the frame f, nested in the root, has ended
+// once the call that opened it returns: f and each frame between it and
+// the root is a function literal or trailing block that is an operand of
+// a call (openingCall), and either cannot outlive that call (opens: not
+// escaping) or is passed to a std function whose runtime/v1 body joins
+// the children it starts (joinsChildren: tasks.Transform). Then nothing
+// runs f after that call returns, so what f captures is no longer read:
+// a task's captures end at its join. An occurrence in f that comes before
+// a bind (ownedBind) is then a use that ends before the bind, as one in
+// the root frame is: bindIn's let mut out = s after tasks.Transform's
+// callback read s.
+func (w *valueWalk) joinedBefore(f *vframe) bool {
+	for ; f != nil && f != w.root; f = f.parent {
+		call := w.openingCall(f.node)
+		if call == nil || f.escaping && !w.joinsChildren(call) {
+			return false
+		}
+	}
+	return f == w.root
+}
+
+// openingCall is the call whose operand, callee or trailing block the
+// frame node n is, or nil: a let-bound literal may run at any later call.
+func (w *valueWalk) openingCall(n syntax.Node) *syntax.CallExpr {
+	if b, ok := n.(*syntax.BlockStmt); ok {
+		if call, ok := w.parent[b].(*syntax.CallExpr); ok && call.Trailing == b {
+			return call
+		}
+		return nil
+	}
+	parent, child := w.unparenParent(n)
+	call, ok := parent.(*syntax.CallExpr)
+	if !ok {
+		return nil
+	}
+	if call.Fun == child {
+		return call
+	}
+	for _, a := range call.Args {
+		if a == child {
+			return call
+		}
+	}
+	return nil
+}
+
+// joinsChildren reports a call of a std function whose runtime/v1 body
+// states the child waiting policy (v1.WaitKinds): the caller is the
+// parent of the tasks the body starts, and the body joins them before it
+// returns, running its function operands only on itself and on them. So
+// an escaping literal it is given runs no more once the call returns.
+func (w *valueWalk) joinsChildren(call *syntax.CallExpr) bool {
+	c := w.info.Calls[call]
+	if c == nil || c.Kind != check.CallFunc || c.Func == nil || c.Func.Decl == nil || c.Func.Decl.Extern == nil {
+		return false
+	}
+	path, name := c.Func.Decl.Extern.Split()
+	if !v1.Owns(path) {
+		return false
+	}
+	body, err := v1.BodyOf(name)
+	return err == nil && body.Wait == "child"
 }
 
 // failsAfter reports whether f's body can fail after the point at: a call
