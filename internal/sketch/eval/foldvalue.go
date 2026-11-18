@@ -3,6 +3,7 @@ package eval
 import (
 	"fmt"
 	"go/constant"
+	"sync"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -35,14 +36,16 @@ type Const struct {
 }
 
 // FoldValue computes the expression x of the declaration decl of pkg at
-// build time (CF1), as Fold does: no initializer runs, x reads no local,
-// and the budget bounds the work. It returns the value as a Const, or a
+// build time (CF1): x reads no local, a package let it reads is computed
+// on its first read (foldLet), and the budget bounds the work. It returns the value as a Const, or a
 // reason it could not: the budget ran out (over is set), x reads what
 // the evaluator does not run, or the value is not a Const.
 func FoldValue(pkg *check.Package, decl syntax.Decl, x syntax.Expr, b Budget) (c Const, why string, over bool) {
 	if b.Steps <= 0 || b.Depth <= 0 {
 		return Const{}, "no evaluation budget", false
 	}
+	foldLets.Lock()
+	defer foldLets.Unlock()
 	if b.Bytes == 0 {
 		b.Bytes = defaultBytes
 	}
@@ -69,6 +72,170 @@ func FoldValue(pkg *check.Package, decl syntax.Decl, x syntax.Expr, b Budget) (c
 		return Const{}, "the value holds a part a constant cannot: a function, a pointer, a map or a cell", false
 	}
 	return out, "", false
+}
+
+// foldLetSteps bounds one package let's initializer that a fold runs
+// (foldLet), apart from the fold's own budget: a let that needs more stays
+// unbound, and a fold that reads it stays a call. The fluid gallery's
+// short class names (fluid/web NamesOf over every look) take 10M to 20M.
+var foldLetSteps int64 = 50_000_000
+
+// SetFoldLetStepsForTest sets foldLetSteps, forgets the lets the folds
+// bound under the previous bound, and returns that bound.
+func SetFoldLetStepsForTest(steps int64) int64 {
+	foldLets.Lock()
+	defer foldLets.Unlock()
+	foldLets.sites = nil
+	prev := foldLetSteps
+	foldLetSteps = steps
+	return prev
+}
+
+// letSite is where a package let is bound: its package, its let
+// declaration and the spec whose initializer binds it.
+type letSite struct {
+	pkg  *check.Package
+	decl *syntax.VarDecl
+	spec *syntax.VarSpec
+}
+
+// letOutcome is a spec's initializer as a fold ran it: the lets it bound,
+// or why it bound none.
+type letOutcome struct {
+	lets map[*check.Var]Value
+	why  string
+}
+
+// foldLets is what the folds of one compiler process know of package lets
+// (LAZY-LET): where each is bound, by package as a fold first looks, and
+// each spec's outcome, run once. A let's value does not depend on the
+// fold that reads it, so the folds share it. The lock is held for a whole
+// fold; outcomes are dropped when there are many (a long-lived process).
+var foldLets struct {
+	sync.Mutex
+	indexed  map[*check.Package]bool
+	sites    map[*check.Var]letSite
+	outcomes map[*syntax.VarSpec]letOutcome
+}
+
+// foldLetLimit bounds the outcomes foldLets keeps.
+const foldLetLimit = 1 << 14
+
+// foldLet is the slot of the package let v in a fold: its initializer runs
+// on the fold's first read of it (Elixir's module attributes, Zig's
+// comptime globals), as the built program runs it before main, in its own
+// package's frame, with InFold true, under foldLetSteps; the lets it
+// reads bind the same way. Nil when v is no package let the fold can bind:
+// its initializer is a Go value, uses a capability or starts a task, does
+// what the evaluator does not run, or runs past its bound. (A let that
+// reads itself, directly or through others, is the checker's error.)
+func (in *interp) foldLet(v *check.Var) *slot {
+	fl := &foldLets
+	if fl.sites == nil || len(fl.outcomes) > foldLetLimit {
+		fl.indexed, fl.sites = map[*check.Package]bool{}, map[*check.Var]letSite{}
+		fl.outcomes = map[*syntax.VarSpec]letOutcome{}
+	}
+	site, ok := fl.sites[v]
+	if !ok {
+		in.indexLets(in.root)
+		if site, ok = fl.sites[v]; !ok {
+			return nil
+		}
+	}
+	out, done := fl.outcomes[site.spec]
+	if !done {
+		out = in.runLet(site)
+		fl.outcomes[site.spec] = out
+	}
+	val, bound := out.lets[v]
+	if !bound {
+		return nil
+	}
+	s := &slot{v: val}
+	in.globals[v] = s
+	return s
+}
+
+// foldLetWhy is why a fold could not bind the package let v (foldLet).
+func foldLetWhy(v *check.Var) string {
+	fl := &foldLets
+	site, ok := fl.sites[v]
+	if !ok {
+		return "no package of the fold declares it"
+	}
+	out := fl.outcomes[site.spec]
+	switch {
+	case out.why != "":
+		return "its initializer: " + out.why
+	}
+	return "its initializer binds it to nothing"
+}
+
+// indexLets records where each package let of p and of the packages it
+// imports is bound.
+func (in *interp) indexLets(p *check.Package) {
+	fl := &foldLets
+	if p == nil || fl.indexed[p] || p.Host() || p.Info == nil {
+		return
+	}
+	fl.indexed[p] = true
+	for _, f := range p.Files() {
+		for _, d := range f.Decls {
+			vd, ok := d.(*syntax.VarDecl)
+			if !ok {
+				continue
+			}
+			for _, s := range vd.Specs {
+				site := letSite{pkg: p, decl: vd, spec: s}
+				for _, id := range s.Names {
+					if v, ok := p.Info.Defs[id].(*check.Var); ok {
+						fl.sites[v] = site
+					}
+				}
+				if s.Pattern != nil {
+					syntax.Inspect(s.Pattern, func(n syntax.Node) bool {
+						if id, ok := n.(*syntax.Ident); ok {
+							if v, ok := p.Info.Defs[id].(*check.Var); ok {
+								fl.sites[v] = site
+							}
+						}
+						return true
+					})
+				}
+			}
+		}
+	}
+	for _, dep := range imports(p) {
+		in.indexLets(dep)
+	}
+}
+
+// runLet runs the initializer of site's spec as initPackage does, with
+// a budget of its own: the steps and bytes it spends, its depth and a
+// template run's state are the reading fold's again after it.
+func (in *interp) runLet(site letSite) letOutcome {
+	if site.decl.Extern != nil {
+		return letOutcome{why: "a Go value"}
+	}
+	if fp := site.pkg.Info.Footprints[site.spec]; fp.Opaque && !fp.Tasks && len(fp.Caps) == 0 {
+	} else if why := in.impure(site.pkg, site.spec); why != "" {
+		return letOutcome{why: why}
+	}
+	budget, steps, bytes, stepsAt, bytesAt, depth, sym := in.budget, in.steps, in.bytes, in.stepsAt, in.bytesAt, in.depth, in.sym
+	in.budget.Steps, in.stepsAt, in.bytesAt, in.depth, in.sym = foldLetSteps, in.steps, in.bytes, 0, nil
+	defer func() {
+		in.budget, in.steps, in.bytes, in.stepsAt, in.bytesAt, in.depth, in.sym = budget, steps, bytes, stepsAt, bytesAt, depth, sym
+	}()
+	fr := in.newFrame(site.pkg, site.decl)
+	if ab := in.letSpec(fr, site.spec); ab != nil {
+		return letOutcome{why: ab.msg}
+	}
+	out := letOutcome{lets: map[*check.Var]Value{}}
+	fr.vars.each(func(v *check.Var, s *slot) {
+		s.lend()
+		out.lets[v] = s.v
+	})
+	return out
 }
 
 // Rowless reports a function whose row is empty, once each inferred row
@@ -150,6 +317,8 @@ func FoldTemplate(pkg *check.Package, decl syntax.Decl, x syntax.Expr, holes []s
 	if b.Steps <= 0 || b.Depth <= 0 {
 		return Const{}, nil, "no evaluation budget", false
 	}
+	foldLets.Lock()
+	defer foldLets.Unlock()
 	if b.Bytes == 0 {
 		b.Bytes = defaultBytes
 	}
