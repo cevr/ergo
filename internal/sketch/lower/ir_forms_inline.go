@@ -233,8 +233,10 @@ func (st *irState) inlineBodies(l *lowerer) {
 		if in.count == 0 {
 			continue
 		}
-		body = in.knownVariants(body) // ir_forms_variant.go
 		body = in.coalesce(body)
+		// After coalesce: a copy's result local is then the match's own
+		// subject, which the copy's returns set (ir_forms_variant.go).
+		body = in.knownVariants(body)
 		fn.Locals = in.locals(fn.Locals)
 		fn.Body = irScopesIncreaseTagged(irUseLocals(body), in.tagged, fn.Pos)
 		st.report.Inlined += in.count
