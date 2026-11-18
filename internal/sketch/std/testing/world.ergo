@@ -45,6 +45,8 @@ law WorldsAreFresh(text string) {
 		fs.Files.Stat("f") catch {
 		case fs.NotFound:
 			return true
+		case fs.Denied, fs.Failed:
+			return false
 		}
 		false
 	}
