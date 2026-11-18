@@ -289,6 +289,13 @@ func sourceLaws(t *testing.T, pkgs []stdLawPackage) map[string]string {
 				switch d := d.(type) {
 				case *syntax.LawDecl:
 					add(p.path+" "+d.Name.Name, lawStatement(f, d))
+				case *syntax.TestDecl:
+					// No step runs a std test: ergo test and check-time
+					// evaluation run the root package's tests, and no gate
+					// step makes a std package the root. A std law runs
+					// through its ledger runner; a std test would pass
+					// unrun (FK9 g1b dropped one for that reason).
+					t.Errorf("std %s declares test %s, which nothing runs: state it as a law with a ledger row and runner, or as a Go test", p.path, d.Name.Name)
 				case *syntax.TypeDecl:
 					if it, ok := d.Spec.(*syntax.InterfaceType); ok {
 						for _, l := range it.Laws {

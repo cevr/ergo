@@ -16,7 +16,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // durationsFile records measured per-test seconds for the sharded packages.
@@ -376,15 +375,15 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 		groups := shard(names, measured, n)
 		selections, weights := shardArgs(groups), shardWeights(groups, measured)
 		for i, selection := range selections {
-			argv := append([]string{"go", "test", testTimeoutFor(weights[i])}, selection...)
-			add(&Step{Name: fmt.Sprintf("go test %s [%d/%d]", shortPackage(root, pkg), i+1, len(selections)), Needs: needs, Argv: append(argv, pkg), Env: env, ToolEnv: testTools, GoStore: slices.Contains(goStorePackages, relative), Weight: weights[i], Class: classHeavy})
+			argv := append([]string{"go", "test", "-json", testTimeoutFor(weights[i])}, selection...)
+			add(&Step{Name: fmt.Sprintf("go test %s [%d/%d]", shortPackage(root, pkg), i+1, len(selections)), Needs: needs, Argv: append(argv, pkg), Env: env, ToolEnv: testTools, Observe: true, GoStore: slices.Contains(goStorePackages, relative), Weight: weights[i], Class: classHeavy})
 		}
 	}
 	others := 0.0
 	for _, pkg := range unsharded {
 		others += packageSeconds(durations[pkg])
 	}
-	add(&Step{Name: "go test (other packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", testTimeoutFor(others)}, unsharded...), ToolEnv: testTools, Weight: others, Class: classHeavy})
+	add(&Step{Name: "go test (other packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", "-json", testTimeoutFor(others)}, unsharded...), ToolEnv: testTools, Observe: true, Weight: others, Class: classHeavy})
 	add(&Step{Name: sizesStep, Needs: []string{"go test build"}, Argv: []string{"go", "run", sizesCommand}, Weight: sizesWeight, Class: classHeavy})
 	// The full tier sweeps every package's closure on every run (gate-tier
 	// round 1 and plan G2: "always in the full tier"; owner question 3 of
@@ -940,33 +939,12 @@ func writeDurations(root string, limit limiter, packages []string) error {
 		if err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
-		output := stdout.Bytes()
-		// Elapsed omits time a test spends waiting for its parallel
-		// subtests, so a test's weight is its wall time to finish, counted
-		// from its start or, for a parallel test, from when it resumes.
-		measured := map[string]float64{}
-		started := map[string]time.Time{}
-		decoder := json.NewDecoder(bytes.NewReader(output))
-		for decoder.More() {
-			var event struct {
-				Time   time.Time
-				Action string
-				Test   string
-			}
-			if err := decoder.Decode(&event); err != nil {
-				return err
-			}
-			if event.Test == "" || strings.Contains(event.Test, "/") {
-				continue
-			}
-			switch event.Action {
-			case "run", "cont":
-				started[event.Test] = event.Time
-			case "pass", "fail", "skip":
-				measured[event.Test] = math.Round(event.Time.Sub(started[event.Test]).Seconds()*100) / 100
-			}
+		measured, err := testWallSeconds(&stdout)
+		if err != nil {
+			return err
 		}
-		durations[module+"/"+strings.TrimPrefix(pkg, "./")] = measured
+		importPath := module + "/" + strings.TrimPrefix(pkg, "./")
+		durations[importPath] = measured[importPath]
 	}
 	data, err := json.MarshalIndent(durations, "", "  ")
 	if err != nil {

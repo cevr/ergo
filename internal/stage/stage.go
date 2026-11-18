@@ -81,6 +81,11 @@ const (
 	ObligationsNative
 	ObligationsStored
 	PackagesRouted
+	// SharedTestModules counts the shared test modules a recursive `ergo
+	// test DIR/...` linked and ran (TEST-one), where each package's own
+	// test module is linked otherwise; the examples runner checks that its
+	// test leg linked the modules its key hashed (gate-speed GS32a′).
+	SharedTestModules
 	numCounters
 )
 
@@ -94,6 +99,7 @@ var names = [numCounters]string{
 	"go_commands", "processes", "bytes_written", "outputs_placed", "std_exports",
 	"shared_fallbacks", "binaries_ir", "binaries_text",
 	"obligations_evaluated", "eval_steps", "obligations_native", "obligations_stored", "packages_routed",
+	"shared_test_modules",
 }
 
 var counts [numCounters]atomic.Int64

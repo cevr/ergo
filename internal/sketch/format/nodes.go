@@ -802,6 +802,12 @@ func (p *printer) stmt(s syntax.Stmt) {
 		p.token(s.Assert, "assert")
 		p.space()
 		p.expr(s.X)
+	case *syntax.SkipStmt:
+		// skip is a contextual keyword: the name, a space and the reason
+		// on one line, which is what makes it the statement.
+		p.token(s.Skip, "skip")
+		p.space()
+		p.tokenEnd(s.ReasonPos, s.Reason, s.ReasonEnd)
 	case *syntax.BlockStmt:
 		p.block(s, false)
 	case *syntax.IfStmt:

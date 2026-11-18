@@ -280,6 +280,7 @@ func sharedTestCommand(opts fileOptions, module moduleTestOptions) (shared bool,
 			return sharedFallback(os.Stderr, os.Getenv(SharedFallbackVariable) == "fail", err, held.String())
 		}
 	}
+	stage.Add(stage.SharedTestModules, 1)
 	failed := false
 	for i, r := range runs {
 		fmt.Fprintf(os.Stdout, "package %s\n", packages[i].Path)

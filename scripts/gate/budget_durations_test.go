@@ -112,8 +112,12 @@ func TestRecordFastCPURecordsAStepByName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cpu, ok := table[examplesStepName]; !ok || cpu <= 0 || table["example.test/step/q"] != 7 || len(table) != 2 {
-		t.Errorf("fast CPU table %v; want a positive row %q and q's row kept", table, examplesStepName)
+	// The row's value is the step's CPU rounded to tenths: this fixture's
+	// empty program takes about 0.05 s, so it rounds to 0 or 0.1 by the
+	// host's accounting (it failed about 1 run in 3). The row's presence is
+	// what the mutant takes away.
+	if cpu, ok := table[examplesStepName]; !ok || cpu < 0 || table["example.test/step/q"] != 7 || len(table) != 2 {
+		t.Errorf("fast CPU table %v; want a row %q and q's row kept", table, examplesStepName)
 	}
 }
 

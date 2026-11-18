@@ -131,6 +131,8 @@ func (c *checker) stmt(s syntax.Stmt) {
 		c.rangeStmt(s)
 	case *syntax.AssertStmt:
 		c.assertStmt(s)
+	case *syntax.SkipStmt:
+		c.skipStmt(s)
 	default:
 		c.undecided(s, "")
 	}

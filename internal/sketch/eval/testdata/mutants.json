@@ -1985,6 +1985,7 @@
       "rule": "A compiled scope releases what it owns at its normal end (R6).",
       "killers": ["internal/sketch/eval:TestEvalReleasesAgreeWithModel"]
     },
-    {"name":"ft-stored-law-form-dropped","origin":"wf10 FT2 (stored verdicts and route notes)","file":"internal/sketch/eval/eval.go","from":"\t\t\t\t\tif v.Machine == nil {\n\t\t\t\t\t\tres.form = formOf(v.Evidence)\n\t\t\t\t\t}\n","to":"","rule":"A law verdict read from the store is written as the native runner's line, so a package with stored laws stays the evaluator's.","killers":["internal/sketchfront:TestStoredVerdictsAgree"],"anchor":{"tests":["internal/sketchfront:TestStoredVerdictsAgree"]}}
+    {"name":"ft-stored-law-form-dropped","origin":"wf10 FT2 (stored verdicts and route notes)","file":"internal/sketch/eval/eval.go","from":"\t\t\t\t\tif v.Machine == nil {\n\t\t\t\t\t\tres.form = formOf(v.Evidence)\n\t\t\t\t\t}\n","to":"","rule":"A law verdict read from the store is written as the native runner's line, so a package with stored laws stays the evaluator's.","killers":["internal/sketchfront:TestStoredVerdictsAgree"],"anchor":{"tests":["internal/sketchfront:TestStoredVerdictsAgree"]}},
+    {"name":"tskip-eval-reason","origin":"wf10 TSKIP","file":"internal/sketch/eval/stmt.go","from":"return fr.abrupt(ctlUnsupported, s, nil, why)","to":"return fr.abrupt(ctlUnsupported, s, nil, \"skipped\" + why[:0])","rule":"Check-time evaluation reports a skip skipped with the test's reason and the statement's site.","killers":["internal/sketch/eval:TestRunReportsTheSkipsReason"]}
   ]
 }

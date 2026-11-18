@@ -116,6 +116,12 @@ func CheckPackages(dirs []string, platform gobind.Platform) ([]Analysis, error) 
 	if len(l.diags) > 0 || l.dependencyPin() != nil {
 		return nil, ErrNotShared
 	}
+	// The std snapshot, as a load of one package installs it before its
+	// check (checkDirFull): without it the shared check read std from
+	// source, and a later load of one package in the same process
+	// exported the snapshot: 3.2 CPU-s for `ergo test --emitted --json`
+	// of examples/sudoku, 1.5 with it (gate-speed GS31b).
+	prepareStd(nil)
 	imported := map[*loadedPackage]bool{}
 	for _, p := range l.order {
 		for _, imp := range p.imports {

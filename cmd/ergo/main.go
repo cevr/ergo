@@ -610,15 +610,34 @@ func checkPackage(opts fileOptions) error {
 // checkLoaded prints the check envelope of a loaded package, evaluated
 // when it checks, and returns check's exit status.
 func checkLoaded(opts fileOptions, l loaded, w *warm) error {
-	id := producer.Current()
-	if err := l.result.Qualify(id); err != nil {
+	out, exit, err := checkEnvelope(opts, l)
+	if err != nil {
 		return err
 	}
+	if _, err := os.Stdout.Write(out); err != nil {
+		return err
+	}
+	if exit == nil && l.result.Checked {
+		w.record(sketchfront.WarmAnswer{Stdout: out})
+	}
+	return exit
+}
+
+// checkEnvelope is the check envelope check prints for a loaded package,
+// one JSON line, evaluated when the package checks, and check's exit
+// status (exit); err is a failure to produce it. test --emitted --json
+// prints the same envelope (emittedjson.go).
+func checkEnvelope(opts fileOptions, l loaded) (out []byte, exit, err error) {
+	id := producer.Current()
+	if err := l.result.Qualify(id); err != nil {
+		return nil, nil, err
+	}
+	var buf bytes.Buffer
 	if !l.result.Checked {
-		if err := printProjectionJSON(l.result.CheckEnvelope()); err != nil {
-			return err
+		if err := json.NewEncoder(&buf).Encode(l.result.CheckEnvelope()); err != nil {
+			return nil, nil, err
 		}
-		return fmt.Errorf("check failed")
+		return buf.Bytes(), fmt.Errorf("check failed"), nil
 	}
 	// Only a source that checks is evaluated (L7): in process, with no Go
 	// build and no child.
@@ -635,21 +654,13 @@ func checkLoaded(opts fileOptions, l loaded, w *warm) error {
 	evaluation, err := l.analysis.Evaluation(budget, opts.file)
 	boundLaws(store)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	l.result.SetEvaluation(evaluation)
-	var out bytes.Buffer
-	if err := json.NewEncoder(&out).Encode(l.result.CheckEnvelope()); err != nil {
-		return err
+	if err := json.NewEncoder(&buf).Encode(l.result.CheckEnvelope()); err != nil {
+		return nil, nil, err
 	}
-	if _, err := os.Stdout.Write(out.Bytes()); err != nil {
-		return err
-	}
-	exit := evaluationExit(evaluation)
-	if exit == nil {
-		w.record(sketchfront.WarmAnswer{Stdout: out.Bytes()})
-	}
-	return exit
+	return buf.Bytes(), evaluationExit(evaluation), nil
 }
 
 // evalBudget is check's evaluation budget: the editor default

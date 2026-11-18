@@ -398,6 +398,8 @@ func (fc *funcCtx) stmt(s syntax.Stmt) bool {
 		return fc.rangeStmt(s)
 	case *syntax.AssertStmt:
 		fc.assert(s) // the test build only (tests.go)
+	case *syntax.SkipStmt:
+		fc.skip(s) // the test build only (tests.go)
 	default:
 		unreachable(s, ruleParser, "a statement of the kind %T", s)
 	}

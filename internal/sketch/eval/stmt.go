@@ -71,6 +71,13 @@ func (in *interp) stmtOnly(fr *frame, s syntax.Stmt) *abrupt {
 		return in.forStmt(fr, s)
 	case *syntax.RangeStmt:
 		return in.rangeStmt(fr, s)
+	case *syntax.SkipStmt:
+		// A skip ends the obligation as skipped, with the test's own
+		// reason and the statement as its site, as an obligation that
+		// reaches a form check-time evaluation does not run ends
+		// (runtime.md, Tests 4): never passed, never refuted.
+		why, _ := s.Text()
+		return fr.abrupt(ctlUnsupported, s, nil, why)
 	case *syntax.AssertStmt:
 		return in.assertStmt(fr, s)
 	}

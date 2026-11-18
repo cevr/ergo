@@ -604,8 +604,8 @@
       "name": "existing-13-defect-continues",
       "origin": "lower-v1/verify-s4a/mutants-s4a.json",
       "file": "internal/sketch/lower/tests.go",
-      "from": "\t\t$Runtime.Raise(exit)\n\t}\n\t$fmt.Println(\"FAIL \" + name + $Where(args) + \": \" + msg)\n",
-      "to": "\t\t_ = exit\n\t}\n\t$fmt.Println(\"FAIL \" + name + $Where(args) + \": \" + msg)\n",
+      "from": "\t\t$Runtime.Raise(exit)\n\tcase 4:\n\t\t$Skipping(name, msg)\n\t}\n\t$fmt.Println(\"FAIL \" + name + $Where(args) + \": \" + msg)\n",
+      "to": "\t\t_ = exit\n\tcase 4:\n\t\t$Skipping(name, msg)\n\t}\n\t$fmt.Println(\"FAIL \" + name + $Where(args) + \": \" + msg)\n",
       "rule": "$Case: $Case runs one case of the test name, declared at at, on the task t.",
       "killers": [
         "lower:TestE3Sweep",
@@ -6076,6 +6076,13 @@
     {"name":"local-const-decl-read","origin":"wf10 LOCAL-CONST","file":"internal/sketch/lower/forms.go","from":"if u, ok := o.(*check.Var); ok && l.info.Defs[id] == nil {","to":"if u, ok := o.(*check.Var); ok && (l.info.Defs[id] == nil || true) {","rule":"A local let's declaring name is a Uses entry but no read: counted as one, no local let is ever a Go const.","killers":["lower:TestConstFoldPlaces"]},
     {"name":"local-const-not-constlike","origin":"wf10 LOCAL-CONST","file":"internal/sketch/lower/forms.go","from":"\t\treturn ok && (pkgLet || local)","to":"\t\treturn ok && (pkgLet || local && false)","rule":"A read of a local let that may be a Go const is constant to Go's fold: a product of two such reads is no safe place (it may overflow at build time).","killers":["lower:TestConstFoldPlaces"]},
     {"name":"local-const-no-value","origin":"wf10 LOCAL-CONST","file":"internal/sketch/lower/forms.go","from":"\t\t\treturn l.localLets()[v] // nil for any other name","to":"\t\t\treturn l.localLets()[nil] // nil for any other name","rule":"A local let's value decides its places as a package let's does: a divisor other than zero is a safe place.","killers":["lower:TestConstFoldPlaces"]},
-    {"name":"local-const-never","origin":"wf10 LOCAL-CONST","file":"internal/sketch/lower/body.go","from":"if !d.Mut.IsValid() && fc.l.localConst(v) {","to":"if false && fc.l.localConst(v) {","rule":"A local let of a constant read only in safe places is written as a Go const.","killers":["lower:TestConstFoldPlaces"]}
+    {"name":"local-const-never","origin":"wf10 LOCAL-CONST","file":"internal/sketch/lower/body.go","from":"if !d.Mut.IsValid() && fc.l.localConst(v) {","to":"if false && fc.l.localConst(v) {","rule":"A local let of a constant read only in safe places is written as a Go const.","killers":["lower:TestConstFoldPlaces"]},
+    {"name":"tskip-not-recovered","origin":"wf10 TSKIP","file":"internal/sketch/lower/tests.go","from":"if why, skipped := $SkipOf(exit); skipped {","to":"if why, skipped := $SkipOf(exit); skipped && why == \"\" {","rule":"A case that testing.Skip ended is a skip, not a defect.","killers":["lower:TestSkipEndsTheRun"]},
+    {"name":"tskip-no-unwind","origin":"wf10 TSKIP","file":"internal/sketch/lower/tests.go","from":"\t$Skipped++\n\tpanic($SkipRun{})","to":"\t$Skipped++","rule":"A skip ends its run: no more cases, no ok or FAIL line.","killers":["lower:TestSkipEndsTheRun"]},
+    {"name":"tskip-counted-as-test","origin":"wf10 TSKIP","file":"internal/sketch/lower/tests.go","from":"\" = \" + total + \" - \" + l.helper(\"Skipped\")","to":"\" = \" + total + \" - 0*\" + l.helper(\"Skipped\")","rule":"A skipped run counts as a skip, not as a test.","killers":["lower:TestSkipEndsTheRun"]},
+    {"name":"tskip-receipt-dropped","origin":"wf10 TSKIP","file":"internal/sketch/lower/tests.go","from":"\tif $strings.HasPrefix(name, \"law \") {\n\t\t$Record(name, nil, why)\n\t}\n","to":"","rule":"A skipped law run's receipt entry is skipped with the reason.","killers":["lower:TestSkipEndsTheRun"]},
+    {"name":"tskip-target-unwrapped","origin":"wf10 TSKIP","file":"internal/sketch/lower/tests.go","from":"l.skippable(b, func() { l.lawTarget(b, law, tg.label, tg.b, scope, env, seed, failed, at) })","to":"l.lawTarget(b, law, tg.label, tg.b, scope, env, seed, failed, at)","rule":"A skip in a law run for a provider ends that run alone.","killers":["lower:TestSkipEndsTheRun"]},
+    {"name":"tskip-test-unwrapped","origin":"wf10 TSKIP","file":"internal/sketch/lower/tests.go","from":"l.skippable(&b, func() { l.testRun(&b, t, scope, env, seed, failed) })","to":"l.testRun(&b, t, scope, env, seed, failed)","rule":"A skip in a test ends that test alone.","killers":["lower:TestSkipEndsTheRun"]},
+    {"name":"tskip-context-unwrapped","origin":"wf10 TSKIP","file":"internal/sketch/lower/lawcontexts.go","from":"l.skippable(b, func() { l.lawContextRun(b, law, lc, label, scope, env, task, seed, failed, at) })","to":"l.lawContextRun(b, law, lc, label, scope, env, task, seed, failed, at)","rule":"A skip in a law run under a named context ends that run alone.","killers":["lower:TestSkipEndsTheRun"]}
   ]
 }
