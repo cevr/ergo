@@ -53,6 +53,9 @@ type IRReport struct {
 	// ConstFolds counts the operations of constants folded into one
 	// (ir_constfold.go).
 	ConstFolds int `json:"-"`
+	// Inlined counts the calls whose callee's IR body the pass copied to
+	// their site (ir_forms_inline.go).
+	Inlined int `json:"-"`
 }
 
 // LowerIR is Lower with the IR bodies. The report's Hash names the IR
@@ -256,7 +259,8 @@ type irState struct {
 	funcApplied map[string]int
 	// formsOff builds no IR form (LowerIRReference; ir_forms.go).
 	formsOff bool
-	ops      *opFacts // the capability bindings (ir_forms_op.go)
+	ops      *opFacts  // the capability bindings (ir_forms_op.go)
+	inl      *irInline // the inliner's marks and frames (ir_forms_inline.go)
 }
 
 // restart empties st for a lowering that runs again from the start
@@ -645,6 +649,7 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	}
 	b.ownDone(name) // ir_own.go
 	st.out.Funcs = append(st.out.Funcs, *b.fn)
+	st.inlineCallee(b, fd, params) // ir_forms_inline.go
 	st.report.IR = append(st.report.IR, name)
 	st.report.Memo += b.memoSites
 	st.report.Merge += b.mergeSites
