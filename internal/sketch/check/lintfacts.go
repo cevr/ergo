@@ -2,6 +2,7 @@ package check
 
 import (
 	"go/constant"
+	"math/big"
 	"slices"
 
 	"ergo.local/prototype/internal/sketch/stdlib"
@@ -516,4 +517,165 @@ func clockOp(clock *Named, f *Func) *Named {
 		}
 	}
 	return nil
+}
+
+// Mutable reports a `let mut` name, the only kind an assignment may
+// target: a parameter or a plain let holds one value for its scope.
+func (v *Var) Mutable() bool { return v.mut }
+
+// PureValueFunc reports a function whose call depends only on its
+// arguments and gives a plain value: it has a body whose footprint is
+// empty (no capability, no task, no unknown code, no function parameter it
+// runs), no pointer receiver, no pointer or function parameter, and one
+// result of a basic type or a type defined over one. Two calls of it with
+// the same arguments give the same value.
+func PureValueFunc(f *Func) bool {
+	if f == nil || f.Decl == nil || f.Ptr || f.Sig == nil || f.Pkg == nil || f.Pkg.Info == nil {
+		return false
+	}
+	fp, ok := f.Pkg.Info.Footprints[f.Decl]
+	if !ok || !fp.Empty() || len(fp.Params) > 0 {
+		return false
+	}
+	for _, p := range f.Sig.Params {
+		switch p.Type.(type) {
+		case *Pointer, *Signature:
+			return false
+		}
+	}
+	return len(f.Sig.Results) == 1 && PlainValue(f.Sig.Results[0])
+}
+
+// PlainValue reports a basic type or a type defined over one: a value
+// with no part another name can change.
+func PlainValue(t Type) bool {
+	if n, ok := t.(*Named); ok {
+		t = n.Underlying()
+	}
+	_, ok := t.(*Basic)
+	return ok
+}
+
+// RefinementDecides reports whether the refinement of an operand's type
+// decides the comparison x: x compares a value of a refined type (or the
+// length of one whose where bounds len(it)) with an integer constant, and
+// every value the refinement admits gives the same answer, which is value.
+// A refinement with a pattern bounds only the length.
+func RefinementDecides(info *Info, x *syntax.BinaryExpr) (value, ok bool) {
+	op := x.Op
+	subject, c := x.X, x.Y
+	if info.Values[subject] != nil {
+		subject, c = c, subject
+		op = mirror(op)
+	}
+	v := info.Values[c]
+	if v == nil || info.Values[subject] != nil {
+		return false, false
+	}
+	iv := constant.ToInt(v)
+	if iv.Kind() != constant.Int {
+		return false, false
+	}
+	var n *big.Int
+	switch i := constant.Val(iv).(type) {
+	case int64:
+		n = big.NewInt(i)
+	case *big.Int:
+		n = i
+	default:
+		return false, false
+	}
+	r, ok := refinementOf(info, subject)
+	if !ok {
+		return false, false
+	}
+	seen := map[bool]bool{}
+	for _, s := range r.Spans {
+		lo, hi, known := compareSpan(op, s, n)
+		if !known {
+			return false, false
+		}
+		seen[lo] = true
+		seen[hi] = true
+	}
+	if len(seen) != 1 {
+		return false, false
+	}
+	for b := range seen {
+		value = b
+	}
+	return value, true
+}
+
+// refinementOf is the refinement that bounds the subject: the refinement
+// of its refined type, or, for len(y), of y's type when it bounds len(it).
+func refinementOf(info *Info, subject syntax.Expr) (*Refinement, bool) {
+	subject = unparen(subject)
+	length := false
+	if call, ok := subject.(*syntax.CallExpr); ok {
+		c := info.Calls[call]
+		if c == nil || c.Kind != CallLen || len(call.Args) != 1 {
+			return nil, false
+		}
+		subject, length = call.Args[0], true
+	}
+	n, ok := info.Types[subject].(*Named)
+	if !ok || n.origin().Obj == nil || n.origin().Obj.Refine == nil {
+		return nil, false
+	}
+	r := n.origin().Obj.Refine
+	if r.Len != length || len(r.Spans) == 0 {
+		return nil, false
+	}
+	return r, true
+}
+
+// compareSpan is the answer of `v op n` at the ends of the span s, and
+// whether the answer is the same over the whole span (each of < <= > >=
+// == != changes its answer at most twice, at n; a span that holds n and
+// more is not known).
+func compareSpan(op syntax.Token, s Span, n *big.Int) (lo, hi, known bool) {
+	at := func(v *big.Int) bool {
+		c := v.Cmp(n)
+		switch op {
+		case syntax.LSS:
+			return c < 0
+		case syntax.LEQ:
+			return c <= 0
+		case syntax.GTR:
+			return c > 0
+		case syntax.GEQ:
+			return c >= 0
+		case syntax.EQL:
+			return c == 0
+		default:
+			return c != 0
+		}
+	}
+	switch op {
+	case syntax.LSS, syntax.LEQ, syntax.GTR, syntax.GEQ, syntax.EQL, syntax.NEQ:
+	default:
+		return false, false, false
+	}
+	lo, hi = at(s.Lo), at(s.Hi)
+	// == and != change inside the span when n is strictly inside it
+	if (op == syntax.EQL || op == syntax.NEQ) && s.Lo.Cmp(n) <= 0 && s.Hi.Cmp(n) >= 0 && s.Lo.Cmp(s.Hi) != 0 {
+		return false, false, false
+	}
+	return lo, hi, lo == hi
+}
+
+// mirror is the comparison with its operands swapped: c < x is x > c.
+func mirror(op syntax.Token) syntax.Token {
+	switch op {
+	case syntax.LSS:
+		return syntax.GTR
+	case syntax.LEQ:
+		return syntax.GEQ
+	case syntax.GTR:
+		return syntax.LSS
+	case syntax.GEQ:
+		return syntax.LEQ
+	}
+	return op
 }
