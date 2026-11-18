@@ -86,22 +86,19 @@ func (m *IntMap[K, V]) Len() int {
 // Get is the value of k in m and whether m holds k.
 //
 //ergo:wait none
-func (m *IntMap[K, V]) Get(k K) (V, bool) {
-	if m == nil || m.n == 0 {
-		var zero V
-		return zero, false
+func (m *IntMap[K, V]) Get(k K) (v V, ok bool) {
+	if m == nil {
+		return v, false
 	}
+	// Small enough for gc to inline at the call: the probe stops at the
+	// first empty slot, which a table at most half full always has.
 	mask := len(m.slots) - 1
-	for i := m.home(k); ; i = (i + 1) & mask {
-		s := &m.slots[i]
-		if !s.used {
-			var zero V
-			return zero, false
-		}
-		if s.key == k {
-			return s.val, true
+	for i := m.home(k); m.slots[i].used; i = (i + 1) & mask {
+		if m.slots[i].key == k {
+			return m.slots[i].val, true
 		}
 	}
+	return
 }
 
 // Put sets k to v in m.
