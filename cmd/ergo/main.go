@@ -187,6 +187,10 @@ type fileOptions struct {
 	args []string
 	// platform is the GOOS/GOARCH the command checks for (platformOf).
 	platform gobind.Platform
+	// phone is the phone platform a build is for (gobind.Phones), whose
+	// bindings are platform's; zero for any other platform. A phone build
+	// writes the module and stops before the link (buildPhone).
+	phone gobind.Platform
 	// goText is build's -go-text DIR: build through IR and write the Go
 	// text of what was compiled into DIR (buildGoText).
 	goText string
@@ -404,8 +408,13 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("incorrect arguments for %s", command)
 	}
 	var err error
-	if opts.platform, err = platformOf(platform, platformed, os.Getenv("GOOS"), os.Getenv("GOARCH")); err != nil {
+	if opts.platform, opts.phone, err = targetPlatforms(platform, platformed, os.Getenv("GOOS"), os.Getenv("GOARCH")); err != nil {
 		return opts, err
+	}
+	if opts.phone != (gobind.Platform{}) && (command == "run" || command == "test") {
+		// A phone program is a library its packager links; nothing here
+		// can run it.
+		return opts, fmt.Errorf("%s does not run a program for %s, a phone platform; ergo build writes its module", command, opts.phone)
 	}
 	opts.file = positional[0]
 	opts.uncached = counted

@@ -169,8 +169,8 @@
       "name": "dist1-platform-unchecked",
       "origin": "wf10 DIST1",
       "file": "cmd/ergo/build.go",
-      "from": "if slices.Contains(gobind.Platforms, p) {",
-      "to": "if true || slices.Contains(gobind.Platforms, p) {",
+      "from": "if _, phone := gobind.PhoneOf(p); phone || slices.Contains(gobind.Platforms, p) {",
+      "to": "if _, phone := gobind.PhoneOf(p); true || phone || slices.Contains(gobind.Platforms, p) {",
       "rule": "A platform outside the target list is the EF110 refusal, however it was named.",
       "killers": ["cmd/ergo:TestFileCommandsRefuseOptionsTheyDoNotTake", "cmd/ergo:TestPlatformOfABuild"]
     },
@@ -488,6 +488,10 @@
       "killers": ["cmd/ergo:TestHandoverGrowsLinearly"]
     },
     {"name":"opc-hooked-build-host-goroot","origin":"wf10 std-spike c1b22 r3 (opcount program mode)","file":"internal/opcount/hooked/hooked.go","from":"tc.Go, tc.Root = patched.Go, patched.Root","to":"tc.Go, tc.Root = patched.Go, \"\"","rule":"A measured build of an emitted module compiles with the GOROOT of ergo's patched release, whose compile reads the IR bodies (-ergoir); the host GOROOT's compile refuses the flag.","killers":["cmd/ergo:TestEventsStreamCounts"],"anchor":{"tests":["cmd/ergo:TestEventsStreamCounts"]}},
-    {"name":"dev-socket-path-unshortened","origin":"wf10 I19 full r4","file":"cmd/ergo/dev_unix.go","from":"\tif len(path) <= devSocketPathMax {\n","to":"\tif true || len(path) <= devSocketPathMax {\n","rule":"ergo dev listens and connects on a socket under the cache root whatever the root's depth, so a deep root does not fail bind.","killers":["cmd/ergo:TestDevSocketUnderDeepRoot"]}
+    {"name":"dev-socket-path-unshortened","origin":"wf10 I19 full r4","file":"cmd/ergo/dev_unix.go","from":"\tif len(path) <= devSocketPathMax {\n","to":"\tif true || len(path) <= devSocketPathMax {\n","rule":"ergo dev listens and connects on a socket under the cache root whatever the root's depth, so a deep root does not fail bind.","killers":["cmd/ergo:TestDevSocketUnderDeepRoot"]},
+    {"name":"mb2-phone-other-bindings","origin":"wf10 MB2","file":"internal/gobind/load.go","from":"{Platform{\"ios\", \"arm64\"}, Platform{\"darwin\", \"arm64\"}},","to":"{Platform{\"ios\", \"arm64\"}, Platform{\"darwin\", \"amd64\"}},","rule":"A phone checks against the bindings of the platform Go's build constraints read it as: ios/arm64 against darwin/arm64.","killers":["cmd/ergo:TestPlatformOfABuild"],"anchor":{"tests":["cmd/ergo:TestPlatformOfABuild"]}},
+    {"name":"mb2-phone-run-admitted","origin":"wf10 MB2","file":"cmd/ergo/main.go","from":"command == \"run\" || command == \"test\"","to":"command == \"test\"","rule":"ergo run refuses a phone platform: a phone program is a library its packager links, and nothing here can run it.","killers":["cmd/ergo:TestPlatformOfABuild"],"anchor":{"tests":["cmd/ergo:TestPlatformOfABuild"]}},
+    {"name":"mb2-phone-linked","origin":"wf10 MB2","file":"cmd/ergo/build.go","from":"return buildPhone(opts)","to":"_ = buildPhone","rule":"ergo build for a phone writes the module and stops before the link, printing WORK=, GO=, GOROOT= and GOFLAGS=; it writes no executable.","killers":["cmd/ergo:TestPhoneModuleTypechecks"],"anchor":{"tests":["cmd/ergo:TestPhoneModuleTypechecks"]}},
+    {"name":"mb2-phone-no-ir-flag","origin":"wf10 MB2","file":"cmd/ergo/build.go","from":"flags = append(flags, \"'-gcflags=\"","to":"_ = append(flags, \"'-gcflags=\"","rule":"The GOFLAGS a phone build prints hand each package its IR file; without them the compile stops at missing function body.","killers":["cmd/ergo:TestPhoneModuleTypechecks"],"anchor":{"tests":["cmd/ergo:TestPhoneModuleTypechecks"]}}
   ]
 }
