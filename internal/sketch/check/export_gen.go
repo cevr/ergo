@@ -563,6 +563,7 @@ func (e *encoder) encFieldsFunc(v *Func) {
 	e.encT12(v.overloaded)
 	e.encT1(v.size)
 	e.encPtrGoExtern(v.goExtern)
+	e.encT12(v.asWritten)
 }
 
 func (e *encoder) encFunc(v Func) { e.encFieldsFunc(&v) }
@@ -11205,6 +11206,7 @@ func (d *decoder) decFieldsFunc(v *Func) {
 	v.overloaded = d.decT12()
 	v.size = d.decT1()
 	v.goExtern = d.decPtrGoExtern()
+	v.asWritten = d.decT12()
 }
 
 func (d *decoder) decFunc() (v Func) {
