@@ -233,6 +233,7 @@ func (st *irState) inlineBodies(l *lowerer) {
 		if in.count == 0 {
 			continue
 		}
+		body = in.knownVariants(body) // ir_forms_variant.go
 		body = in.coalesce(body)
 		fn.Locals = in.locals(fn.Locals)
 		fn.Body = irScopesIncreaseTagged(irUseLocals(body), in.tagged, fn.Pos)
@@ -251,6 +252,7 @@ type irInliner struct {
 	names  map[string]bool
 	tagged map[int]bool
 	count  int
+	known  int // the known-variant sites rewritten, for unique labels (ir_forms_variant.go)
 }
 
 func (in *irInliner) locals(base []irLocal) []irLocal {

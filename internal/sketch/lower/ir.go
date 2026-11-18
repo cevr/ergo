@@ -53,6 +53,12 @@ type IRReport struct {
 	// Inlined counts the calls whose callee's IR body the pass copied to
 	// their site (ir_forms_inline.go).
 	Inlined int `json:"-"`
+	// KnownVariants counts the matches whose union the known-variant pass
+	// stopped building (ir_forms_variant.go).
+	KnownVariants int `json:"-"`
+	// Dropped counts the discarded calls that name the variant with no
+	// result (ir_forms_drop.go).
+	Dropped int `json:"-"`
 }
 
 // LowerIR is Lower with the IR bodies. The report's Hash names the IR
@@ -327,6 +333,10 @@ type irStmt struct {
 	Ls []int `json:"ls,omitempty"`
 	// F is a "match" form's facts, in memory only (ir_forms.go).
 	F *irMatch `json:"-"`
+	// Was is the facts of the match form this switch was erased from, in
+	// memory only (ir_forms_variant.go); an arm's Bind is only whether
+	// its case's body starts with the binding.
+	Was *irMatch `json:"-"`
 }
 
 type irExpr struct {
@@ -349,6 +359,10 @@ type irExpr struct {
 	End    *irPos    `json:"end,omitempty"`
 	// F is a "variant" form's facts, in memory only (ir_forms.go).
 	F *irVariant `json:"-"`
+	// Was is the facts of the variant form this expression was erased
+	// from, in memory only, for the known-variant pass that runs after
+	// erasure (ir_forms_variant.go).
+	Was *irVariant `json:"-"`
 	// C is a pure call's facts, in memory only (ir_merge.go).
 	C *irCall `json:"-"`
 }
@@ -419,6 +433,9 @@ type irBuilder struct {
 	// dropsErr marks the calls whose Go error the site drops: a row
 	// empty there (ir_call.go, dropErr).
 	dropsErr map[*irExpr]bool
+	// dropping is the call a statement discards, while it is built
+	// (ir_forms_drop.go).
+	dropping *syntax.CallExpr
 	// voidTail marks the branches of a body with no value whose last
 	// statement ends the body: a tail of an error value fails the frame
 	// (ir_fail.go bodyStmts, ir_stmt.go tailTo).
