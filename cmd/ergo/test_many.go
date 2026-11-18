@@ -6,11 +6,12 @@ import (
 	"path/filepath"
 )
 
-// severalTargets checks the targets of `ergo test A B ...`: each is a
-// source file, a package folder or a DIR/... pattern, none is named twice,
-// and no option that belongs to one package (--law, --skip-law, --run,
-// --receipt, --emitted, --explore) is given with them.
-func severalTargets(opts fileOptions, targets []string) error {
+// severalTargets checks the targets of `ergo test A B ...` and `ergo check
+// A B ...`: each is a source file, a package folder or a DIR/... pattern,
+// none is named twice, and no option that belongs to one package (test's
+// --law, --skip-law, --run, --receipt, --emitted, --explore) is given with
+// them.
+func severalTargets(command string, opts fileOptions, targets []string) error {
 	switch {
 	case opts.law != "" || opts.skipLaw != "":
 		return fmt.Errorf("incorrect arguments for test: --law and --skip-law take one target")
@@ -27,7 +28,7 @@ func severalTargets(opts fileOptions, targets []string) error {
 	for _, t := range targets {
 		key := filepath.Clean(t)
 		if seen[key] {
-			return fmt.Errorf("incorrect arguments for test: %s is named twice", t)
+			return fmt.Errorf("incorrect arguments for %s: %s is named twice", command, t)
 		}
 		seen[key] = true
 		if recursivePattern(t) || isPackageFolder(t) {
