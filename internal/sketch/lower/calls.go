@@ -743,7 +743,7 @@ func (l *lowerer) hostPkg(path string, site syntax.Node) string {
 	if path == "time" {
 		return l.timePkg()
 	}
-	if first, _, _ := strings.Cut(path, "/"); (first == "" || strings.Contains(first, ".")) && !l.goModule.covers(path) {
+	if first, _, _ := strings.Cut(path, "/"); (first == "" || strings.Contains(first, ".")) && !l.goModule.covers(path) && path != hostFSImport {
 		ice(site, "the Go package %q is outside Go's standard library and in no module of the go.mod beside ergo.mod; the loader refuses it (IG7)", path)
 	}
 	if path == "unsafe" {
