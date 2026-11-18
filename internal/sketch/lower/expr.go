@@ -273,6 +273,21 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 	case check.ConvRow:
 		// The row value holds one of the union's error variants, which
 		// implement its sealed interface (D-C3).
+		if fu := fc.l.flatUnionOf(conv.To); fu != nil {
+			// A flat union with some error variants (MSB3): a type switch
+			// on the Go error builds the variant it holds.
+			self := fc.goType(conv.To)
+			e, v := fc.scope.alloc("e"), fc.scope.alloc("v")
+			var b strings.Builder
+			b.WriteString("func(" + e + " error) " + self + " {\nswitch " + v + " := " + e + ".(type) {\n")
+			for k, vt := range fu.variants {
+				if fc.l.errorType(vt) {
+					b.WriteString("case " + fc.goType(vt) + ":\nreturn " + fu.flatValue(&fc.typeCtx, self, k, v) + "\n")
+				}
+			}
+			b.WriteString("}\npanic(" + e + ")\n}(" + val + ")")
+			return b.String()
+		}
 		return val + ".(" + fc.goType(conv.To) + ")"
 	case check.ConvMachine:
 		// A machine's value is a Machine of its plan's initial value and
