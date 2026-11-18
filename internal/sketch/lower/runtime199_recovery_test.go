@@ -204,7 +204,7 @@ func scanDefectOwners(t *testing.T, v1 *typedSource, allowed map[string]string, 
 				}
 				handed := false
 				for _, a := range n.Args {
-					handed = handed || v1Func(a) == want
+					handed = handed || v1Func(a) == want || want == "guarded" && bodyRunsGuarded(v1, a, v1Func)
 				}
 				if !handed {
 					t.Errorf("v1 %s hands rt %s no body run by %s", owner, funcKey(f), want)
@@ -230,6 +230,43 @@ func scanDefectOwners(t *testing.T, v1 *typedSource, allowed map[string]string, 
 		})
 		recoverFlows(t, v1, owner, decl)
 	})
+}
+
+// bodyRunsGuarded reports an operand a that is an rt.Body (PARK1: rt.Start
+// and rt.RestartOn take a value with a Run method, not a function) whose
+// Run method, declared in v1, calls guarded: the body still runs under
+// the defect owner. (I-FLIP: PARK x the defect-owner scan.)
+func bodyRunsGuarded(v1 *typedSource, a ast.Expr, v1Func func(ast.Expr) string) bool {
+	t := v1.info.TypeOf(a)
+	if t == nil {
+		return false
+	}
+	obj, _, _ := types.LookupFieldOrMethod(t, true, v1.pkg, "Run")
+	run, ok := obj.(*types.Func)
+	if !ok {
+		return false
+	}
+	run = run.Origin()
+	for _, f := range v1.files {
+		for _, d := range f.Decls {
+			fd, ok := d.(*ast.FuncDecl)
+			if !ok || fd.Recv == nil || fd.Body == nil {
+				continue
+			}
+			if def, _ := v1.info.Defs[fd.Name].(*types.Func); def == nil || def.Origin() != run {
+				continue
+			}
+			found := false
+			ast.Inspect(fd.Body, func(n ast.Node) bool {
+				if c, ok := n.(*ast.CallExpr); ok && v1Func(c.Fun) == "guarded" {
+					found = true
+				}
+				return !found
+			})
+			return found
+		}
+	}
+	return false
 }
 
 // recoverFlows checks that each recover in decl hands its value to capture
