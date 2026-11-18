@@ -1,0 +1,135 @@
+// lint-ts is TN1's sidecar for TypeScript projects: it runs beside
+// oxlint (as `oxlint && lint-ts lint …`) and prints its findings in
+// oxlint's JSON form, so a tool that reads oxlint's report reads these
+// too. It reads source itself, through the TypeScript host of the
+// feature record (ergo.dev/tn1/ts), and decides with the Ergo engine
+// (ergo.dev/tn1); no Ergo toolchain is needed beside the binary.
+//
+//	lint-ts lint --rule NAME WEIGHTS FILE...   findings, oxlint JSON; exit 0 (advisory)
+//	lint-ts record FILE                        the feature record
+//	lint-ts chunks FILE                        each top-level statement: FROM TO (bytes)
+//
+// A finding's span is its line's comment. Its probability and the
+// model's id are in its message; an advisory finding never changes the
+// exit code.
+
+import ergo.dev/tn1
+import ergo.dev/tn1/ts
+import fs
+import io
+import json
+import os
+import strings
+import strconv
+
+// Usage is the text of a usage failure.
+let Usage = "usage: lint-ts lint --rule NAME WEIGHTS FILE... | lint-ts record FILE | lint-ts chunks FILE"
+
+type Lint { Rule string, Weights string, Files []string }
+type Record { File string }
+type Chunks { File string }
+type Command = Lint | Record | Chunks
+
+func usage() os.Exit { os.Exit{Code: 2, Message: Usage} }
+
+// Parse is the command of args.
+func Parse(args []string) Command fails os.Exit {
+	if len(args) == 2 && args[0] == "record" {
+		return Record{File: args[1]}
+	}
+	if len(args) == 2 && args[0] == "chunks" {
+		return Chunks{File: args[1]}
+	}
+	if len(args) >= 5 && args[0] == "lint" && args[1] == "--rule" {
+		return Lint{Rule: args[2], Weights: args[3], Files: args[4:]}
+	}
+	return usage()
+}
+
+// The report, in oxlint's JSON form.
+type Place { Offset int "offset", Length int "length", Line int "line", Column int "column" }
+type Label { Span Place "span" }
+type Diagnostic {
+	Message  string "message",
+	Code     string "code",
+	Severity string "severity",
+	Filename string "filename",
+	Labels   []Label "labels",
+}
+type Report {
+	Diagnostics []Diagnostic "diagnostics",
+	Files       int "number_of_files",
+	Rules       int "number_of_rules",
+}
+
+func read(path string) string fails os.Exit needs fs.Files {
+	fs.Files.ReadFile(path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return os.Exit{Code: 1, Message: "lint-ts: cannot read \(path)"}
+	}
+}
+
+// thousandths writes n/1000 with three decimals.
+func thousandths(n int) string { "0." + strings.PadLeft(strconv.Itoa(n), 3, '0') }
+
+// Findings is the diagnostics of net on the file at path, whose text is
+// src.
+func Findings(rule string, net tn1.Net, path string, src string) []Diagnostic {
+	let model = strings.Slice(tn1.ID(net), 0, 12)
+	let spans = ts.CommentSpans(src)
+	let mut out = []Diagnostic{}
+	for f in tn1.Run(net, ts.FromSource(src)) {
+		let s = spans[f.Line-1]
+		let lineStart = s.From - lastNewline(src, s.From)
+		out = out.Append(Diagnostic{
+			Message:  "\(rule): flagged by a local network (p=\(thousandths(f.Permille)), model \(model))",
+			Code:     "ergo-tn1(\(rule))",
+			Severity: "advice",
+			Filename: path,
+			Labels:   []Label{Label{Span: Place{Offset: s.From, Length: s.To - s.From, Line: f.Line, Column: lineStart}}},
+		})
+	}
+	out
+}
+
+// lastNewline is how many bytes before p its line starts, less one: the
+// 1-based column of p is p - (that line's start) + 1.
+func lastNewline(src string, p int) int {
+	let mut i = p
+	for i > 0 && src[i-1] != '\n' {
+		i -= 1
+	}
+	i - 1
+}
+
+// Run is what the command writes.
+func Run(c Command) string fails os.Exit needs fs.Files {
+	match c {
+	case Record as r:
+		tn1.EncodeRecord(ts.FromSource(try read(r.File)))
+	case Chunks as k:
+		let mut b = strings.NewBuilder()
+		for s in ts.Statements(try read(k.File)) {
+			b.WriteString("\(s.From) \(s.To)\n")
+		}
+		b.String()
+	case Lint as l:
+		let net = tn1.ParseNet(try read(l.Weights)) catch {
+		case tn1.Malformed as m:
+			return os.Exit{Code: 1, Message: "lint-ts: \(l.Weights):\(m.Line): \(m.Reason)"}
+		}
+		let mut all = []Diagnostic{}
+		for f in l.Files {
+			for d in Findings(l.Rule, net, f, try read(f)) {
+				all = all.Append(d)
+			}
+		}
+		json.Encode(json.Codec[Report]{MaxBytes: 0, MaxDepth: 0}, Report{Diagnostics: all, Files: len(l.Files), Rules: 1}) + "\n"
+	}
+}
+
+func main() fails os.Exit needs Ambient {
+	let c = try Parse(os.NewHost().Args())
+	let out = try with context { fs.Files: fs.NewHost() } { Run(c) }
+	with context { io.Stdout: io.NewHost() } { io.Stdout.Print(out) }
+}

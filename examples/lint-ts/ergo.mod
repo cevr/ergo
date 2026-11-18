@@ -1,0 +1,1 @@
+module lint-ts
