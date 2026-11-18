@@ -433,6 +433,29 @@
       "killers": [
         "runtime/v1/http:TestHTTPEngineWatchesWaitingHandlers"
       ]
+    },
+    {
+      "name": "c5-poll-hook-allocates",
+      "origin": "wf10 HTTP-FAST-c5 (NG)",
+      "file": "runtime/rt/task.go",
+      "from": "\tc := t.Bind(&h.s, pollKey{}, f)\n",
+      "to": "\tc := t.WithValue(pollKey{}, f)\n",
+      "rule": "Arming a poll hook allocates nothing: it lives in the caller's PollHook.",
+      "killers": [
+        "runtime/rt:TestQuietExitsAllocateNothing"
+      ]
+    },
+    {
+      "name": "c5-poll-hook-lost",
+      "origin": "wf10 HTTP-FAST-c5 (NG)",
+      "file": "runtime/rt/task.go",
+      "from": "\tif f, ok := t.Value(pollKey{}).(func()); ok {\n",
+      "to": "\tif f, ok := t.Value(struct{}{}).(func()); ok {\n",
+      "rule": "The interruption point that finds the poll flag runs the armed hook.",
+      "killers": [
+        "runtime/rt:TestQuietExitsAllocateNothing",
+        "runtime/v1/http:TestHTTPEngineWatchesWaitingHandlers"
+      ]
     }
   ]
 }

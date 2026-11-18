@@ -400,34 +400,52 @@ func (t *Task) fireWaitHook() {
 	}
 }
 
-// pollHooks holds the hooks of WhenPolled, keyed by task. A task with one
-// has flagPolled in its stop word, so an interruption point reads it in
-// the load it makes for the stop, and a task without one pays nothing.
-var pollHooks sync.Map // *Task -> func()
+// PollHook is the storage of one WhenPolled hook that its owner keeps, so
+// arming a hook allocates nothing and takes no lock (HTTP-FAST-c5): the
+// HTTP engine keeps one per connection for the requests it serves. The
+// hook is a context binding of t under an unexported key, the innermost
+// one while it is armed; a task with one has flagPolled in its stop word,
+// so an interruption point finds the flag in the load it makes for the
+// stop, and a task without one pays nothing.
+type PollHook struct{ s Slot }
+
+// pollKey is the key of a PollHook's binding; no reader outside rt can
+// name it, and a defect's report prints only runtime/v1's context keys.
+type pollKey struct{}
+
+// Polled is an armed WhenPolled hook; End disarms it.
+type Polled struct {
+	t *Task
+	c Context
+}
 
 // WhenPolled runs f once, on t's goroutine, when t first reaches an
 // interruption point: a wait of the runtime (Done), Check or Stopped. f
 // runs before that point reads the stop flag, so a stop f requests is seen
 // there. It is for a watch that only a task that can be stopped needs (the
 // HTTP engine's read that sees a client leave): a task that never polls
-// cannot be stopped, so it never pays for one. cancel removes the hook if
-// it has not run; call it when t ends. Call WhenPolled from t's own
-// goroutine.
-func WhenPolled(t *Task, f func()) (cancel func()) {
-	pollHooks.Store(t, f)
+// cannot be stopped, so it never pays for one. h holds the hook and must
+// stay unchanged until End, which t calls before it ends, on every path,
+// after any context binding made after WhenPolled has ended (a binding
+// region, as Bind's). Call WhenPolled from t's own goroutine.
+func WhenPolled(t *Task, h *PollHook, f func()) Polled {
+	c := t.Bind(&h.s, pollKey{}, f)
 	t.stopped.v.Or(flagPolled)
-	return func() {
-		if t.stopped.v.Load()&flagPolled != 0 {
-			t.stopped.v.And(^flagPolled)
-			pollHooks.Delete(t)
-		}
-	}
+	return Polled{t: t, c: c}
 }
 
-// firePollHook runs and removes t's WhenPolled hook.
+// End disarms the hook if it has not run and ends its binding.
+func (p Polled) End() {
+	if p.t.stopped.v.Load()&flagPolled != 0 {
+		p.t.stopped.v.And(^flagPolled)
+	}
+	p.c.End()
+}
+
+// firePollHook runs and disarms t's WhenPolled hook.
 func (t *Task) firePollHook() {
 	t.stopped.v.And(^flagPolled)
-	if f, ok := pollHooks.LoadAndDelete(t); ok {
-		f.(func())()
+	if f, ok := t.Value(pollKey{}).(func()); ok {
+		f()
 	}
 }
