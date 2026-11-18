@@ -372,6 +372,18 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 			return b.store(s, op) // ir_place.go
 		}
 		v, ok := b.l.info.Uses[id].(*check.Var)
+		if ptr, held := b.held[v]; held && ok {
+			// The held local of an in-place literal is *p (ir_ownlit.go):
+			// s = v and s op= v store into the cell's value, which Go
+			// reads whole before the store, as the emitter's `*p = v`.
+			if op != "" {
+				b.operator(op, b.l.info.Types[s.Lhs[0]], s)
+			}
+			p := b.pos(s, s.Pos())
+			pre, x := b.value(s.Rhs[0])
+			to := &irExpr{K: "deref", Pos: p, X: &irExpr{K: "local", Pos: p, I: ptr}}
+			return append(pre, &irStmt{K: "store", Pos: p, X: to, Y: x, Op: op})
+		}
 		if sc := b.scalars[v]; sc != nil && ok {
 			if op != "" {
 				irNo("op-assignment of a scalar-form local")
