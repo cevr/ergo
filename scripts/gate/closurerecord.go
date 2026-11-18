@@ -84,6 +84,17 @@ func recordForSweep(root string, steps []*Step) []*Step {
 	return out
 }
 
+// recordsForSweep says whether step records its runs for a sweep
+// (recordForSweep). Such a step starts after every step that writes the
+// checkout, as a sweep does (sweepsAfterWriters): a write during its runs
+// would show in the sweep's reading of them as a change during the run,
+// and fail a package that its own sweep, after the writers, passes.
+func recordsForSweep(step *Step) bool {
+	return slices.ContainsFunc(step.Env, func(entry string) bool {
+		return strings.HasPrefix(entry, closureRecordVariable+"=")
+	})
+}
+
 // recordedPackages are the package directories, relative to the module
 // root, whose tests step runs and records (recordForSweep), or none.
 func recordedPackages(module string, step *Step) []string {

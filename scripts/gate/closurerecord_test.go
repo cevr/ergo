@@ -15,7 +15,8 @@ import (
 // inner tier's steps are unchanged. Mutants: a step with build tags
 // records (heavy-cost2-gate-tags-recorded), a sweep does not wait for its
 // package's runs (heavy-cost2-gate-sweep-unordered), the inner tier's step
-// is changed in place (heavy-cost2-gate-inner-changed).
+// is changed in place (heavy-cost2-gate-inner-changed), a recording step
+// runs beside a writer of the checkout (heavy-cost2-gate-record-beside-writer).
 func TestMergeTierRecordsForTheSweep(t *testing.T) {
 	host := sweepOS
 	t.Cleanup(func() { sweepOS = host })
@@ -63,6 +64,23 @@ func TestMergeTierRecordsForTheSweep(t *testing.T) {
 	for sweep, run := range map[string]string{"closure sweep ./a": "go test ./a [1/1]", "closure sweep ./b": "go test (other packages)"} {
 		if !slices.Contains(byName[sweep].Needs, run) || !slices.Contains(byName[sweep].Env, reuse) {
 			t.Errorf("%s: needs %q, env %q; want %q needed and %s", sweep, byName[sweep].Needs, byName[sweep].Env, run, reuse)
+		}
+	}
+	// A recording step starts after the writers of the checkout, as the
+	// sweep it stands for does.
+	writer := &Step{Name: buildCLIStep, Argv: []string{"go", "build", "-o", "bin/ergo", "./cmd/ergo"}, Writes: gateOutputs}
+	ordered := append(slices.Clone(got), writer)
+	index := map[string]int{}
+	for i, s := range ordered {
+		index[s.Name] = i
+	}
+	after, err := sweepsAfterWriters(ordered, index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"go test ./a [1/1]", "closure sweep ./a"} {
+		if !slices.Contains(after[index[name]], index[buildCLIStep]) {
+			t.Errorf("%s starts after %v; want after %s, which writes the checkout", name, after[index[name]], buildCLIStep)
 		}
 	}
 	for i, s := range steps {
