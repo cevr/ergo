@@ -8,13 +8,14 @@
 // Each group after a "--" is an imported package (its path is its
 // FOREIGN's @pkg line): it is bound and loaded on its own, and the package
 // binds against its frozen store and types the import's functions and
-// record fields from its signatures (S3d2).
+// record fields from its signatures (S3d2); its types are XRefs into the
+// import's interface (types.Iface), computed in import order (S3d12).
 //
 // START and END are the expression's byte offsets (END the byte after
 // it); OFFSET is the callee name's. Types print as the Go checker's
 // Type.String (compiler/check/types Text), no value as "no value". EXT and
-// FOREIGN are typedump's: the Go side writes them, standing in for the
-// imports' interfaces.
+// FOREIGN are typedump's: the Go side writes them, for the prelude's, the
+// universe's and the Go imports' types.
 //
 // It is the Ergo side of S3d's expression agreement
 // (internal/selfhostcheck's TestCompilerExprAgreesWithChecker).
@@ -86,30 +87,7 @@ func tables(extText string, foreignText string) Tables {
 		case _:
 			0
 		}
-		foreign = foreign.Append(types.Foreign{Qual: parts[0], Name: parts[1], Arity: n, Path: parts[3], Print: strings.ReplaceAll(parts[4], "^", " "), Key: parts[5], Variants: []int{}})
-	}
-	for line in strings.Split(foreignText, "\n") {
-		let parts = strings.Fields(line)
-		if len(parts) != 4 || parts[0] != "@union" {
-			continue
-		}
-		let mut vs = []int{}
-		let mut at = -1
-		for i, f in foreign {
-			if f.Qual == parts[1] && f.Name == parts[2] {
-				at = i
-			}
-		}
-		for v in strings.Split(parts[3], ",") {
-			for i, f in foreign {
-				if f.Qual == parts[1] && f.Name == v {
-					vs = vs.Append(i)
-				}
-			}
-		}
-		if at >= 0 {
-			foreign[at].Variants = vs
-		}
+		foreign = foreign.Append(types.Foreign{Qual: parts[0], Name: parts[1], Arity: n, Path: parts[3], Print: strings.ReplaceAll(parts[4], "^", " "), Key: parts[5]})
 	}
 	Tables{ext: ext, foreign: foreign, pkgName: pkgName, pkgPath: pkgPath}
 }
@@ -137,23 +115,101 @@ func unitOf(g []string) Unit fails os.Exit needs fs.Files {
 // typer's result.
 type Typed { s store.Store, k expr.Pkg, t expr.Typer }
 
+func isSome[T](o Option[T]) bool {
+	match o {
+	case Some[T]:
+		true
+	case None:
+		false
+	}
+}
+
+// ifacesOf is the interfaces of s's imports in its import list's order:
+// a unit's whose interface is done, else empty (an import the program
+// does not hold, or one of an import cycle not done yet).
+func ifacesOf(s store.Store, units []Unit, done []Option[types.Iface]) []types.Iface {
+	let mut out = []types.Iface{}
+	for path in store.ImportPaths(s) {
+		let mut found = types.EmptyIface(path)
+		for i, u in units {
+			if u.path == path {
+				match done[i] {
+				case Some[types.Iface] as d:
+					found = d.Value
+				case None:
+				}
+			}
+		}
+		out = out.Append(found)
+	}
+	out
+}
+
 // typeAll binds the units as package tasks in import waves (check/task:
-// each binds against its imports' frozen stores), loads each once, then
-// types each with its imports' loaded packages as its deps (S3d3).
+// each binds against its imports' frozen stores), loads each once, its
+// imports' interfaces (types.Iface) done first, then types each with its
+// imports' loaded packages as its deps (S3d3, S3d12).
 func typeAll(units []Unit) []Typed {
 	let mut pkgs = []task.Package{}
 	for u in units {
 		pkgs = pkgs.Append(task.Package{Path: u.path, Files: u.files})
 	}
 	let checked = task.Check(pkgs, 4)
-	let mut loaded = []expr.Dep{}
+	let mut stores = []store.Store{}
+	let mut done = []Option[types.Iface]{}
+	let mut ks = []Option[expr.Pkg]{}
 	for i, c in checked {
 		// Its importers reach it by its path; its own types are named
 		// by the path its tables give (main for a checked root).
 		let mut s = store.Of(c.Store)
 		store.SetPath(&s, units[i].tab.pkgPath)
-		let k = expr.Load(&s, units[i].files, c.Uses, c.Parents, units[i].tab.ext, units[i].tab.foreign, units[i].tab.pkgName == "")
-		loaded = loaded.Append(expr.Dep{Path: c.Path, S: s, K: k})
+		stores = stores.Append(s)
+		done = done.Append(None)
+		ks = ks.Append(None)
+	}
+	// A pass loads the units whose imports in the program are all
+	// loaded; when none is ready (an import cycle), the first one left
+	// loads against what is done.
+	let mut left = len(units)
+	for left > 0 {
+		let mut progress = false
+		for pass in 0..2 {
+			if progress {
+				break
+			}
+			for i, c in checked {
+				if isSome(ks[i]) || (pass == 1 && progress) {
+					continue
+				}
+				let mut ready = true
+				for path in store.ImportPaths(stores[i]) {
+					for j, u in units {
+						if u.path == path && j != i && !isSome(done[j]) {
+							ready = false
+						}
+					}
+				}
+				if pass == 0 && !ready {
+					continue
+				}
+				let deps = ifacesOf(stores[i], units, done)
+				let mut s = stores[i]
+				let k = expr.Load(&s, units[i].files, c.Uses, c.Parents, units[i].tab.ext, units[i].tab.foreign, deps, units[i].tab.pkgName == "")
+				done[i] = Some[types.Iface]{Value: types.Interface(s, k.Parsed, k.Kinds, k.Ext, units[i].tab.foreign, deps)}
+				stores[i] = s
+				ks[i] = Some[expr.Pkg]{Value: k}
+				left = left - 1
+				progress = true
+			}
+		}
+	}
+	let mut loaded = []expr.Dep{}
+	for i, c in checked {
+		match ks[i] {
+		case Some[expr.Pkg] as k:
+			loaded = loaded.Append(expr.Dep{Path: c.Path, S: stores[i], K: k.Value})
+		case None:
+		}
 	}
 	let mut out = []Typed{}
 	for d in loaded {
@@ -190,7 +246,7 @@ func write(b *strings.Builder, u Unit, d Typed, calls bool, prefix string) {
 	let s = s0
 	let k = d.k
 	let text = func(ty dense.ID[store.TKey], fn int) string {
-		if ty == none { "no value" } else { types.Text(s, types.Names{Params: k.Fns[fn].Params, Foreign: u.tab.foreign, Pkg: u.tab.pkgName}, ty) }
+		if ty == none { "no value" } else { types.Text(s, types.Names{Params: k.Fns[fn].Params, Foreign: k.Foreign, Pkg: u.tab.pkgName, Deps: k.Ifaces}, ty) }
 	}
 	if calls {
 		for c in d.t.Insts {

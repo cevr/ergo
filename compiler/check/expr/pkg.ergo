@@ -3,8 +3,10 @@
 // checker's Info.Types records it, and each call to a generic function its
 // type arguments, inferred with compiler/check/infer on the argument types
 // it gives. It reads the package's bound store (compiler/check/bind), the
-// signatures and record fields compiler/check/types resolves, and the
-// foreign table that stands in for the imports' interfaces.
+// signatures and record fields compiler/check/types resolves, its
+// imports' interfaces (types.Iface: an Ergo import's types are XRefs into
+// them) and the foreign table of the prelude's, the universe's and the Go
+// imports' types.
 //
 // An expression whose type this pass does not know yet is left without
 // one, and so is a constant whose type its context decides when the
@@ -52,6 +54,7 @@ type Pkg {
 	Kinds   types.Kinds,
 	Ext     []types.Ext,
 	Foreign []types.Foreign,
+	Ifaces  []types.Iface,
 	Fns     []Fn,
 	Recs    []Rec,
 	Deps    []Dep,
@@ -134,9 +137,9 @@ func declared(s *store.Store, env types.Env, p syntax.Parsed, file int, decl den
 
 // opTypes is recs with p's operation types that have no bracket
 // parameters: each operation a field of its signature's type.
-func opTypes(s *store.Store, p syntax.Parsed, parsed []syntax.Parsed, kinds types.Kinds, ext []types.Ext, foreign []types.Foreign, recs []Rec) []Rec {
+func opTypes(s *store.Store, p syntax.Parsed, parsed []syntax.Parsed, kinds types.Kinds, ext []types.Ext, foreign []types.Foreign, deps []types.Iface, recs []Rec) []Rec {
 	let mut out = recs
-	let env = types.NewEnv(*s, parsed, p, []string{}, kinds, ext, foreign)
+	let env = types.NewEnv(*s, parsed, p, []string{}, kinds, ext, foreign, deps)
 	match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
 	case syntax.File as root:
 		for i in 0..syntax.Len(root.Decls) {
@@ -231,21 +234,28 @@ func writesWired(p syntax.Parsed, x dense.ID[syntax.Node]) bool {
 }
 
 // Load is the package of files, collected and bound into s: its
-// signatures and record fields resolved with ext and foreign (the
-// imports' kinds and types), prelude telling whether the package is the
-// prelude.
-func Load(s *store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ext []types.Ext, foreign []types.Foreign, prelude bool) Pkg {
+// signatures and record fields resolved with ext0 and foreign0 (the
+// kinds and types of the prelude, the universe and the Go imports) and
+// deps (its Ergo imports' interfaces, in s's import list's order; an
+// import the program does not hold is types.EmptyIface), prelude telling
+// whether the package is the prelude.
+func Load(s *store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ext0 []types.Ext, foreign0 []types.Foreign, deps []types.Iface, prelude bool) Pkg {
 	let mut parsed = []syntax.Parsed{}
 	for f in files {
 		parsed = parsed.Append(f.Parsed)
 	}
+	let mut ext = ext0
+	for x in types.ExtOf(*s, deps) {
+		ext = ext.Append(x)
+	}
+	let foreign = types.WithAliases(foreign0, *s, deps)
 	let kinds = types.SolveKinds(*s, parsed, ext)
 	let mut fns = []Fn{}
 	for f in types.SolveFuncKinds(*s, parsed, ext, kinds) {
 		let p = parsed[f.File]
 		match syntax.ViewOf(p.Tree, f.Decl) {
 		case syntax.FuncDecl as fd:
-			let env = types.NewEnv(*s, parsed, p, f.Params, kinds, ext, foreign)
+			let env = types.NewEnv(*s, parsed, p, f.Params, kinds, ext, foreign, deps)
 			if writesWired(p, fd.Type) && types.WiredOfType(*s, env, fd.Type) {
 				continue
 			}
@@ -262,7 +272,7 @@ func Load(s *store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ext [
 		if p.Failed {
 			continue
 		}
-		let env = types.NewEnv(*s, parsed, p, []string{}, kinds, ext, foreign)
+		let env = types.NewEnv(*s, parsed, p, []string{}, kinds, ext, foreign, deps)
 		match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
 		case syntax.File as root:
 			for i in 0..syntax.Len(root.Decls) {
@@ -286,10 +296,10 @@ func Load(s *store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ext [
 			continue
 		}
 		for r in types.Records(p, prelude) {
-			let env = types.NewEnv(*s, parsed, p, r.Params, kinds, ext, foreign)
+			let env = types.NewEnv(*s, parsed, p, r.Params, kinds, ext, foreign, deps)
 			recs = recs.Append(Rec{Name: r.Name, Params: r.Params, Fields: fieldsOf(s, env, p, r.Fields), Op: false})
 		}
-		recs = opTypes(s, p, parsed, kinds, ext, foreign, recs)
+		recs = opTypes(s, p, parsed, kinds, ext, foreign, deps, recs)
 	}
 	// The functions by their name's node and the records by their
 	// declaration: a lookup per expression reads one slot, so typing a
@@ -328,7 +338,7 @@ func Load(s *store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ext [
 		case None:
 		}
 	}
-	Pkg{Files: files, Parsed: parsed, U: u, Ps: ps, Kinds: kinds, Ext: ext, Foreign: foreign, Fns: fns, Recs: recs, Deps: []Dep{}, fnBy: fnBy, named: named, sameName: sameName, recBy: recBy}
+	Pkg{Files: files, Parsed: parsed, U: u, Ps: ps, Kinds: kinds, Ext: ext, Foreign: foreign, Ifaces: deps, Fns: fns, Recs: recs, Deps: []Dep{}, fnBy: fnBy, named: named, sameName: sameName, recBy: recBy}
 }
 
 // FnAt is the index in k.Fns of the function whose name node is the

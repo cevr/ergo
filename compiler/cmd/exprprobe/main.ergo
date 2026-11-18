@@ -75,7 +75,7 @@ func run(args []string) fails os.Exit needs io.Stdout {
 	let ps = bind.BuildParents(files)
 	let (bound, u) = bind.Bind(bind.Collect("p", files), []store.Frozen{}, ps, files, 1)
 	let mut s = bound
-	let k = expr.Load(&s, files, u, ps, []types.Ext{}, []types.Foreign{}, false)
+	let k = expr.Load(&s, files, u, ps, []types.Ext{}, []types.Foreign{}, []types.Iface{}, false)
 	if mode == "setup" {
 		io.Stdout.Println("fns=\(len(k.Fns))")
 		return

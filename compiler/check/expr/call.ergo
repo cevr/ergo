@@ -346,7 +346,7 @@ func generic(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node], c syntax.
 			ins = ins.Append(infer.Unknown)
 		}
 	}
-	let env = types.NewEnv(*s, k.Parsed, k.Parsed[t.file], me.Params, k.Kinds, k.Ext, k.Foreign)
+	let env = types.NewEnv(*s, k.Parsed, k.Parsed[t.file], me.Params, k.Kinds, k.Ext, k.Foreign, k.Ifaces)
 	let mut explicit = []dense.ID[store.TKey]{}
 	for w in written {
 		explicit = explicit.Append(types.Resolve(s, env, w))

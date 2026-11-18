@@ -27,10 +27,12 @@ func ownerOf(s store.Store, k Pkg, base dense.ID[store.TKey]) int {
 		if int(o.Import) == 0 {
 			return -1
 		}
-		if int(o.Import) == store.ForeignBit && int(o.Decl) < len(k.Foreign) {
-			return depOf(k, k.Foreign[int(o.Decl)].Path)
+		if int(o.Import) == store.ForeignBit {
+			return if int(o.Decl) < len(k.Foreign) { depOf(k, k.Foreign[int(o.Decl)].Path) } else { -2 }
 		}
-		return -2
+		// An Ergo import's type, generic or not: an XRef into its
+		// interface.
+		return if int(o.Import) <= len(k.Ifaces) { depOf(k, k.Ifaces[int(o.Import)-1].Path) } else { -2 }
 	}
 	if kind == store.KForeign {
 		let f = store.ArgOf(s, base)
@@ -163,8 +165,8 @@ func opReceiver(s *store.Store, k Pkg, t *Typer, x dense.ID[syntax.Node]) Option
 }
 
 // importedOp is the type of the selector name sel when it names an
-// operation type of an import (io.Stdout): the importer's foreign type of
-// it.
+// operation type of an import (io.Stdout): the importer's reference into
+// the import's interface.
 func importedOp(s *store.Store, k Pkg, t *Typer, sel dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
 	if len(k.Deps) == 0 {
 		return None
@@ -186,8 +188,12 @@ func importedOp(s *store.Store, k Pkg, t *Typer, sel dense.ID[syntax.Node]) Opti
 		if r < 0 || !d.K.Recs[r].Op {
 			return None
 		}
-		let f = foreignAt(k, d.Path, text)
-		if f >= 0 { some(store.TForeign(s, f)) } else { None }
+		match types.ImportRef(*s, k.Ifaces, d.Path, text) {
+		case Some[store.XRef] as ref:
+			some(store.TInstance(s, ref.Value, []dense.ID[store.TKey]{}))
+		case None:
+			None
+		}
 	case _:
 		None
 	}

@@ -206,7 +206,7 @@ func result(s store.Store, k Pkg, t Typer) Option[dense.ID[store.TKey]] { t.res 
 
 // envOf is the resolver's environment at the function in hand.
 func envOf(s store.Store, k Pkg, t Typer) types.Env {
-	types.NewEnv(s, k.Parsed, k.Parsed[t.file], k.Fns[t.fn].Params, k.Kinds, k.Ext, k.Foreign)
+	types.NewEnv(s, k.Parsed, k.Parsed[t.file], k.Fns[t.fn].Params, k.Kinds, k.Ext, k.Foreign, k.Ifaces)
 }
 
 // valid is whether t names no invalid type, and no instance with an

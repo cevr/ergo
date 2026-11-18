@@ -26,7 +26,7 @@ func typedShape(m int) (int, int, int) {
 	let ps = bind.BuildParents(files)
 	let (bound, u) = bind.Bind(bind.Collect("p", files), []store.Frozen{}, ps, files, 1)
 	let mut s = bound
-	let k = Load(&s, files, u, ps, []types.Ext{}, []types.Foreign{}, false)
+	let k = Load(&s, files, u, ps, []types.Ext{}, []types.Foreign{}, []types.Iface{}, false)
 	let t = Check(&s, k)
 	(Steps(t), len(t.Entries), Reserved(t))
 }
@@ -51,7 +51,7 @@ func fusedShape(m int) bool {
 	let ps = bind.BuildParents(files)
 	let (bound, u) = bind.Bind(bind.Collect("p", files), []store.Frozen{}, ps, files, 1)
 	let mut s = bound
-	let k = Load(&s, files, u, ps, []types.Ext{}, []types.Foreign{}, false)
+	let k = Load(&s, files, u, ps, []types.Ext{}, []types.Foreign{}, []types.Iface{}, false)
 	let t = Check(&s, k)
 	let f = CheckFused(&s, k)
 	len(f.Entries) == 0 && Typed(f) == len(t.Entries) && Typed(t) == len(t.Entries) && len(f.Insts) == len(t.Insts) && len(Diags(f)) == len(Diags(t)) && Steps(f) == Steps(t)

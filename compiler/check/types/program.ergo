@@ -123,6 +123,25 @@ func declOf(dep Iface, name string) int {
 	-1
 }
 
+// ImportRef is the reference s makes to the exported type name of its
+// import at path: the import's place in s's import list plus one, and
+// the type's index in its interface (deps, in that list's order). None
+// when path is no import of s, or name no exported type of it that is no
+// alias (an alias reads as its target's text, AliasEntries).
+func ImportRef(s store.Store, deps []Iface, path string, name string) Option[store.XRef] {
+	for j, p in store.ImportPaths(s) {
+		if p != path || j >= len(deps) {
+			continue
+		}
+		let i = declOf(deps[j], name)
+		if i < 0 || deps[j].Decls[i].Alias {
+			return None
+		}
+		return Some[store.XRef]{Value: store.XRef{Import: uint32(j + 1), Decl: uint32(i)}}
+	}
+	None
+}
+
 // AliasEntries is the foreign table's rows for the exported aliases of
 // s's Ergo imports, by the import's local name: each reads as its
 // target's text (IfaceDecl).

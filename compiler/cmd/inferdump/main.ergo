@@ -11,7 +11,10 @@
 // written type arguments) from a function declaration, and each argument
 // is a basic literal or a parameter of that declaration: the types the
 // signatures give. EXT and FOREIGN are typedump's: the Go side writes
-// them, standing in for the frozen interfaces of the imports.
+// them, for the prelude's, the universe's and the Go imports' types. An
+// Ergo import's types are XRefs into its interface (types.Iface);
+// inferdump loads no import, so each interface is empty and a type of an
+// Ergo import resolves invalid.
 //
 // It is the Ergo side of S3d's inference agreement
 // (internal/selfhostcheck's TestCompilerInferAgreesWithChecker).
@@ -81,30 +84,7 @@ func tables(extText string, foreignText string) Tables {
 		case _:
 			0
 		}
-		foreign = foreign.Append(types.Foreign{Qual: parts[0], Name: parts[1], Arity: n, Path: parts[3], Print: strings.ReplaceAll(parts[4], "^", " "), Key: parts[5], Variants: []int{}})
-	}
-	for line in strings.Split(foreignText, "\n") {
-		let parts = strings.Fields(line)
-		if len(parts) != 4 || parts[0] != "@union" {
-			continue
-		}
-		let mut vs = []int{}
-		let mut at = -1
-		for i, f in foreign {
-			if f.Qual == parts[1] && f.Name == parts[2] {
-				at = i
-			}
-		}
-		for v in strings.Split(parts[3], ",") {
-			for i, f in foreign {
-				if f.Qual == parts[1] && f.Name == v {
-					vs = vs.Append(i)
-				}
-			}
-		}
-		if at >= 0 {
-			foreign[at].Variants = vs
-		}
+		foreign = foreign.Append(types.Foreign{Qual: parts[0], Name: parts[1], Arity: n, Path: parts[3], Print: strings.ReplaceAll(parts[4], "^", " "), Key: parts[5]})
 	}
 	Tables{ext: ext, foreign: foreign, pkgName: pkgName, pkgPath: pkgPath}
 }
@@ -232,13 +212,17 @@ func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
 	let ps = bind.BuildParents(files)
 	let (bound, u) = bind.Bind(collected, []store.Frozen{}, ps, files, 1)
 	let mut s = bound
+	let mut deps = []types.Iface{}
+	for path in store.ImportPaths(s) {
+		deps = deps.Append(types.EmptyIface(path))
+	}
 	let kinds = types.SolveKinds(s, parsed, tab.ext)
 	let mut fns = []Fn{}
 	for f in types.SolveFuncKinds(s, parsed, tab.ext, kinds) {
 		let p = parsed[f.File]
 		match syntax.ViewOf(p.Tree, f.Decl) {
 		case syntax.FuncDecl as fd:
-			let env = types.NewEnv(s, parsed, p, f.Params, kinds, tab.ext, tab.foreign)
+			let env = types.NewEnv(s, parsed, p, f.Params, kinds, tab.ext, tab.foreign, deps)
 			if types.WiredOfType(s, env, fd.Type) {
 				continue
 			}
@@ -371,14 +355,14 @@ func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
 			if !known {
 				continue
 			}
-			let env = types.NewEnv(s, parsed, p, from.params, kinds, tab.ext, tab.foreign)
+			let env = types.NewEnv(s, parsed, p, from.params, kinds, tab.ext, tab.foreign, deps)
 			let mut explicit = []dense.ID[store.TKey]{}
 			for w in written {
 				explicit = explicit.Append(types.Resolve(&s, env, w))
 			}
 			match infer.Infer(&s, &frame, infer.Callee{Params: params, Rows: to.rows, Base: m}, explicit, inArgs) {
 			case Some[[]dense.ID[store.TKey]] as targs:
-				let names = types.Names{Params: from.params, Foreign: tab.foreign, Pkg: tab.pkgName}
+				let names = types.Names{Params: from.params, Foreign: tab.foreign, Pkg: tab.pkgName, Deps: deps}
 				let none = infer.NoValue(&s)
 				let mut texts = []string{}
 				for t in targs.Value {
