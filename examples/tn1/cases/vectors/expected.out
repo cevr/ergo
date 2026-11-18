@@ -1,6 +1,9 @@
+id	control-stop.tn1	19f87aac524ea5a41f085793a5cad8f059169aadd2451f76067f4f55d8b79175
 id	control.tn1	b059d25d9503ef1cdd952e242a25da1367f95ca9db591bd1dcc3b4b6c02eb80a
 id	seeded-1.tn1	1eab660ef3494ae36a5305b6e433500d3b09bcdfcefc0af4b723b5e4b1505317
 id	seeded-2.tn1	72abe540d7c49db345901f8dbd219f4faa81ab998cda4aa07ff903de408052a7
+finding	effect.record	control-stop.tn1	30	1	622
+finding	effect.record	control-stop.tn1	32	1	622
 finding	effect.record	control.tn1	30	3	818
 finding	effect.record	control.tn1	32	1	622
 finding	effect.record	seeded-1.tn1	1	2	731

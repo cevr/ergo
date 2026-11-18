@@ -8,7 +8,8 @@
 //	               Directive
 //	x[F+5 … F+8]   depth >= 1, >= 2, >= 3, >= 4
 //	x[F+9 … F+17]  the start bits, in StartNames' order
-//	x[F+18 … F+81] the comment words' bits 0 to 63
+//	x[F+18 … F+81] the comment words' bits 0 to 63 (under `words stop`,
+//	               those of CommentText's words that are not StopWords)
 //	x[F+82 … F+145] the code words' bits 0 to 63
 //
 // The comment text is read as bytes, A to Z lowered, cut at MaxColumns; a
@@ -113,8 +114,9 @@ func active(n Net, l Line, into []int) []int {
 			out = out.Append(n.F + 9 + s)
 		}
 	}
+	let comment = if n.stop { ContentSketchOf(l.CommentText) } else { l.CommentWords }
 	for b in 0..64 {
-		if (l.CommentWords>>b)&1 == 1 {
+		if (comment>>b)&1 == 1 {
 			out = out.Append(n.F + 18 + b)
 		}
 	}

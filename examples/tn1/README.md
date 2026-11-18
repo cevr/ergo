@@ -4,6 +4,7 @@ The command line of TN1, the small integer network behind Ergo's advisory lint r
 
 ```sh
 tn1 gen control                     # the narration control's weights
+tn1 gen control-stop                # the same, function words left out of the comment (`words stop`)
 tn1 gen seeded SEED D F K H         # a seeded network of that shape
 tn1 id WEIGHTS                      # the model id: SHA-256 of the packed weights
 tn1 run WEIGHTS RECORD              # the findings: LINE SCORE PERMILLE

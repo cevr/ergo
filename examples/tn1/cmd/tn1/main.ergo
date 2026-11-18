@@ -3,6 +3,7 @@
 // network against a labelled suite.
 //
 //	tn1 gen control                     the narration control's weights
+//	tn1 gen control-stop                the same, reading `words stop`
 //	tn1 gen seeded SEED D F K H         a seeded network of that shape
 //	tn1 id WEIGHTS                      the model id (SHA-256 of the packed weights)
 //	tn1 run WEIGHTS RECORD              the findings: LINE SCORE PERMILLE
@@ -22,15 +23,16 @@ import strings
 import tn1/suite
 
 // Usage is the text of a usage failure.
-let Usage = "usage: tn1 gen control | tn1 gen seeded SEED D F K H | tn1 id WEIGHTS | tn1 run WEIGHTS RECORD | tn1 vectors DIR | tn1 score WEIGHTS RECORDS EXPECTED [train|holdout]"
+let Usage = "usage: tn1 gen control | tn1 gen control-stop | tn1 gen seeded SEED D F K H | tn1 id WEIGHTS | tn1 run WEIGHTS RECORD | tn1 vectors DIR | tn1 score WEIGHTS RECORDS EXPECTED [train|holdout]"
 
 type GenControl {}
+type GenControlStop {}
 type GenSeeded { Seed int, D int, F int, K int, H int }
 type Identify { Weights string }
 type RunOne { Weights string, Record string }
 type Vectors { Dir string }
 type Score { Weights string, Records string, Expected string, Bar suite.Bar }
-type Command = GenControl | GenSeeded | Identify | RunOne | Vectors | Score
+type Command = GenControl | GenControlStop | GenSeeded | Identify | RunOne | Vectors | Score
 
 func usage() os.Exit { os.Exit{Code: 2, Message: Usage} }
 
@@ -45,6 +47,9 @@ func count(s string) int fails os.Exit {
 func Parse(args []string) Command fails os.Exit {
 	if len(args) == 2 && args[0] == "gen" && args[1] == "control" {
 		return GenControl
+	}
+	if len(args) == 2 && args[0] == "gen" && args[1] == "control-stop" {
+		return GenControlStop
 	}
 	if len(args) == 7 && args[0] == "gen" && args[1] == "seeded" {
 		return GenSeeded{Seed: try count(args[2]), D: try count(args[3]), F: try count(args[4]), K: try count(args[5]), H: try count(args[6])}
@@ -115,6 +120,8 @@ func Run(c Command) string fails os.Exit needs fs.Files {
 	match c {
 	case GenControl:
 		tn1.NarrationControl()
+	case GenControlStop:
+		tn1.NarrationControlStop()
 	case GenSeeded as g:
 		tn1.Seeded(g.Seed, g.D, g.F, g.K, g.H)
 	case Identify as i:
