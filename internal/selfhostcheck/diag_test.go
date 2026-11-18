@@ -274,10 +274,10 @@ func bindDump(t *testing.T, ctx context.Context) string {
 // unusedFile is a corpus file that the Go checker accepts alone, with its
 // function bodies' braces and its import block's end.
 type unusedFile struct {
-	src     string
-	bodies  []int // the offset after each body's "{"
-	blocks  []int // the offset after each nested block's "{"
-	imports []string
+	src          string
+	bodies       []int // the offset after each body's "{"
+	blocks       []int // the offset after each nested block's "{"
+	imports      []string
 	afterImports int // where an import line goes: after the last import, else 0
 }
 
