@@ -240,6 +240,8 @@ var bodyTable = []bodyRow{
 	{"HmacSHA1", bodyFact{body: Body{Params: []Param{{Type: "string"}, {Type: "string"}}, Results: []string{"string"}, Pure: true, Wait: "none", Package: Path + "/digest"}}},
 	{"HmacSHA256", bodyFact{body: Body{Params: []Param{{Type: "string"}, {Type: "string"}}, Results: []string{"string"}, Pure: true, Wait: "none", Package: Path + "/digest"}}},
 	{"HmacSHA512", bodyFact{body: Body{Params: []Param{{Type: "string"}, {Type: "string"}}, Results: []string{"string"}, Pure: true, Wait: "none", Package: Path + "/digest"}}},
+	{"HookAt", bodyFact{body: Body{Hidden: []Hidden{"task"}, Params: []Param{{Type: "string"}, {Type: "func(*rt.Task)", Func: &Body{Hidden: []Hidden{"task"}}}}, Wait: "none", Package: Path}}},
+	{"HookPoint", bodyFact{body: Body{Hidden: []Hidden{"task"}, Params: []Param{{Type: "string"}}, Wait: "none", Package: Path}}},
 	{"Host.Get", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "A", Constraint: "any"}}, Hidden: []Hidden{"task"}, Results: []string{"A", "error"}, Wait: "caller", Package: Path}}},
 	{"HostRoot.Name", bodyFact{body: Body{Hidden: []Hidden{"task"}, Results: []string{"string"}, Wait: "none", Package: Path}}},
 	{"HostRoot.OSRoot", bodyFact{refusal: "runtime/v1: HostRoot.OSRoot reaches host state (os.Root) but is not marked //ergo:host"}},

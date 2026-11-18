@@ -172,7 +172,19 @@ func (p *preflight) generator(fr *frame, t check.Type, provider *check.LawProvid
 		case *check.Union:
 			children = under.Variants
 		case *check.Interface:
-			return "an operation-type builder without an interpreter adapter"
+			// Drawn by its builder, as the Go build draws it (genBuilt).
+			b := p.in.root.Builder(u)
+			if b == nil {
+				return "an operation type with no builder"
+			}
+			if b.Conv.Kind != 0 && b.Conv.Kind != check.ConvOperations {
+				return "an operation-type builder whose value needs a conversion other than into the type"
+			}
+			if why := p.function(fr, b.Func); why != "" {
+				return why
+			}
+			_, params := b.Instance(u)
+			children = params
 		default:
 			children = []check.Type{under}
 		}

@@ -437,6 +437,9 @@ func (in *interp) generate(fr *frame, r *testgen.Stream, t check.Type, d int, re
 	case *check.Union:
 		return in.genVariant(fr, r, u.Variants, d)
 	case *check.Named:
+		if _, ops := u.Underlying().(*check.Interface); ops {
+			return in.genBuilt(fr, r, u, d)
+		}
 		if ctor := testplan.Constructor(u); ctor != nil {
 			var args []Value
 			for _, p := range ctor.Sig.Params {
@@ -462,6 +465,41 @@ func (in *interp) generate(fr *frame, r *testgen.Stream, t check.Type, d int, re
 	}
 	panic(fr.unsupported(fr.decl, "a generator for %s", t))
 }
+
+// genBuilt is a value of the operation type n drawn as the Go build draws
+// it (lower/builders.go, genBuilt): its builder (check.Builder, a New<X>
+// with no row that provides n) called on generated arguments, and put into
+// n when it gives a provider. A builder of no arguments makes the case's
+// one value of it (rule 4: the case's world), as the Go build's built does.
+// The builder is the one the checked package sees (its test builders too),
+// as the Go build asks the package it lowers.
+func (in *interp) genBuilt(fr *frame, r *testgen.Stream, n *check.Named, d int) Value {
+	b := in.root.Builder(n)
+	if b == nil {
+		panic(fr.unsupported(fr.decl, "an operation type with no builder (%s)", n))
+	}
+	targs, params := b.Instance(n)
+	build := func() any {
+		args := make([]Value, len(params))
+		for i, p := range params {
+			args[i] = in.generate(fr, r, p, d-1, nil)
+		}
+		return mustValue(in.call(fr, nil, b.Func, targs, args))
+	}
+	var v Value
+	if b.World() {
+		// The case keeps the builder's result, not its conversion: one
+		// fstest.NewMemory is both a case's fs.Files and its fs.Writes.
+		v = r.Built(b.Func.Pkg.Path+"."+b.Func.Name, build)
+	} else {
+		v = build()
+	}
+	if b.Conv.Kind == check.ConvOperations {
+		v = &operation{value: v, conv: b.Conv, env: fr.env}
+	}
+	return v
+}
+
 func (in *interp) genVariant(fr *frame, r *testgen.Stream, vs []check.Type, d int) Value {
 	if d <= 0 {
 		vs = testplan.SmallVariants(vs)

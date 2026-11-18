@@ -53,6 +53,9 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 	case *check.Map:
 		b.admitMap(t, depth) // ir_pkg.go
 		return
+	case *check.Pointer:
+		b.admit(t.Elem, depth+1) // a *T receiver (IRG4b r2)
+		return
 	case *check.Named:
 		if len(t.TParams) > 0 || t.Obj.Decl == nil {
 			irNo("generic or declared-elsewhere type")

@@ -41,6 +41,9 @@ func Generate(seed uint64) Program {
 	n := target("law Samples", 1)
 	p := target("law Reader.Fresh for P", 1)
 	s := target("law Slot with r = P", 2)
+	// Box has no constructor, so it is drawn field by field, and its field
+	// is an operation type that its builder NewHeld draws (MX-EVLAW).
+	h := target("law Cell.Kept for Box", 1)
 	// Bounds straddle the finite-type cap; the expected evidence comes from
 	// integer-domain cardinality, not from testplan.Domain.
 	cap := 255 + int(seed%2)
@@ -65,6 +68,22 @@ type BoolEcho { B bool } implements Mirror[bool]
 func Echo(p BoolEcho, v bool) bool { v }
 type IntEcho { B bool } implements Mirror[int]
 func Echo(p IntEcho, v int) int { v }
-`, n, cap, p, s)
+type Inner { Get() int }
+type Held { N int } implements Inner
+func NewHeld(n int) Held { Held{N: n} }
+func Get(h Held) int { h.N }
+type Cell { Got() int, law Kept() { Got() != %d } }
+type Box { r Inner } implements Cell
+func Got(b Box) int { b.r.Get() }
+type Left { L() int }
+type Right { R() int }
+type Twin { N int } implements Left, Right
+func NewTwin() Twin { Twin{N: 0} }
+func L(t Twin) int { t.N }
+func R(t Twin) int { t.N + 1 }
+type Pair { Sum() int, law Apart() { Sum() == 1 } }
+type Two { l Left, r Right } implements Pair
+func Sum(t Two) int { t.l.L() + t.r.R() }
+`, n, cap, p, s, h)
 	return Program{Source: strings.TrimSpace(src) + "\n", First: first}
 }

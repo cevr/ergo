@@ -919,6 +919,9 @@ func (fc *funcCtx) discard(x syntax.Expr) {
 		fc.unreachableStmt(call)
 		return
 	}
+	if call, ok := x.(*syntax.CallExpr); ok && fc.dropHook(call) {
+		return // a named point outside the test build (hook.go)
+	}
 	if call, ok := x.(*syntax.CallExpr); ok {
 		if c := fc.l.info.Calls[call]; c != nil && c.Kind != check.CallWith && c.Kind != check.CallConversion && c.Kind != check.CallLen && c.Kind != check.CallGoError && !(fc.tries > 0 && fc.fallibleExpr(call)) {
 			if text := fc.callStmt(call); text != "" {

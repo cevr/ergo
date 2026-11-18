@@ -193,7 +193,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		b.goType(t, x)
 		return &irExpr{K: "un", Pos: p, Op: op, X: b.expr(x.X)}
 	case *syntax.SelectorExpr:
-		n, ok := b.l.info.Types[x.X].(*check.Named)
+		n, ok := derefNamed(b.l.info.Types[x.X]) // ir_pkg.go
 		if !ok {
 			irNo("selector on a non-record")
 		}

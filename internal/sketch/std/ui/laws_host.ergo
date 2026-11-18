@@ -247,12 +247,14 @@ func cancelStops(steps int, m time.Manual) bool needs Scheduler {
 // for its answer. The server answers from a task of its own, which left the
 // host's clock for a clock of its own and waits there before each answer,
 // as a real server answers on its own time; meanwhile a timer sleeps an
-// hour on the host's clock, and so does a second fetch of the view. After
-// each press of "next", Settle waits for the answer: it returns with the
-// live key's result shown, only the sleeping fetch in flight, and the
-// timer still asleep. A sleeper the script could wake, a fetch's own
-// among them, never makes it give up on a fetch the clock does not hold
-// (FK4-g2-g1).
+// hour on the host's clock, and so does a second fetch of the view. The
+// server answers only once Settle has found the fetch in flight and waits
+// for what it posts (the point "ui.settle.waits", RT-HOOK), so the answer
+// comes after every check Settle makes, on every run. After each press of
+// "next", Settle waits for the answer: it returns with the live key's
+// result shown, only the sleeping fetch in flight, and the timer still
+// asleep. A sleeper the script could wake, a fetch's own among them, never
+// makes it give up on a fetch the clock does not hold (FK4-g2-g1).
 law OffClockAnswerIsWaitedFor(steps int) {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
@@ -263,6 +265,7 @@ law OffClockAnswerIsWaitedFor(steps int) {
 func offClock(steps int, m time.Manual) bool needs Scheduler {
 	let asks = queue.New[int](8)
 	let answers = queue.New[int](8)
+	let release = queue.New[int](8)
 	let hops = (steps%32+32)%32 + 32
 	let server = task.Go() {
 		let c = testing.NewVirtualClock(0)
@@ -271,6 +274,12 @@ func offClock(steps int, m time.Manual) bool needs Scheduler {
 			let k = asks.Pop() catch {
 			case queue.Closed:
 				-1
+			}
+			if k >= 0 {
+				let _ = release.Pop() catch {
+				case queue.Closed:
+					-1
+				}
 			}
 			if k < 0 {
 				open = false
@@ -318,6 +327,11 @@ func offClock(steps int, m time.Manual) bool needs Scheduler {
 	let mut held = true
 	for i in 0..(steps%4+4)%4+1 {
 		let script = if i == 0 { []Act{SettleAll} } else { []Act{TapOn{Label: "next"}, SettleAll} }
+		testing.At("ui.settle.waits", func() {
+			release.Push(i) catch {
+			case queue.Closed:
+			}
+		})
 		Play(&h, script) catch {
 		case _:
 			return false
@@ -326,9 +340,56 @@ func offClock(steps int, m time.Manual) bool needs Scheduler {
 		held = held && s.ready == valueOf(s.key) && Fetching(&h) == 1 && time.Sleepers(m) == 2
 	}
 	asks.End()
+	release.End()
 	timer.Stop()
 	server.Stop()
 	held
+}
+
+// VersionedNeverRunsAhead: a commit that lands between a pass's read of
+// the actor's state and its read of the version after it (the point
+// "ui.versioned", RT-HOOK) is drawn. The pass reads again, so the version
+// it records is the version of the state it drew, and the screen shows the
+// newest state once Settle returns. A version guessed high would record
+// the commit as drawn and leave the older state on the screen
+// (FK2-g2-g1).
+law VersionedNeverRunsAhead(n int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		versionedHolds(n, m)
+	}
+}
+
+func versionedHolds(n int, m time.Manual) bool needs Scheduler {
+	let landed = 1000 + (n%1000+1000)%1000
+	let a = actor.StartMachine(dialMachine(), 4, func(o int) {})
+	let view = func(f *Frame[int], s int) {
+		Text(f, "n \(s)")
+		Pressable(f, "set", s+1) {
+			Text(f, "set")
+		}
+	}
+	let mut h = NewTestHost(a, view, m, 4) catch {
+	case BadPatch:
+		return false
+	}
+	testing.At("ui.versioned", func() {
+		a.Send(landed) catch {
+		case actor.Stopped:
+			return
+		}
+		let _ = actor.WaitFor(a, func(s int) bool { s == landed }) catch {
+		case actor.Stopped:
+			return
+		}
+	})
+	Play(&h, []Act{TapOn{Label: "set"}, SettleAll}) catch {
+	case _:
+		return false
+	}
+	let s = StateOf(&h)
+	a.Stop()
+	s == landed && SameShapes(Screen(&h), freshShape(view, s))
 }
 
 // spin is the state of the animation app: the frames it still wants, and
