@@ -502,7 +502,7 @@ var bodyTable = []bodyRow{
 	{"ViewDefect.String", bodyFact{body: Body{Results: []string{"string"}, Package: Path}}},
 	{"WireKeys", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "K", Constraint: "~string"}, {Name: "V", Constraint: "any"}}, Params: []Param{{Type: "map[K]V"}}, Results: []string{"[]K"}, Package: Path}}},
 	{"WireKeysIn", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "K", Constraint: "~string"}, {Name: "V", Constraint: "any"}}, Params: []Param{{Type: "*[WireKeyRoom]K"}, {Type: "map[K]V"}}, Results: []string{"[]K"}, Package: Path}}},
-	{"WithCapacity", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "int"}}, Results: []string{"[]T"}, Wait: "none", Package: Path}}},
+	{"WithCapacity", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "int"}}, Results: []string{"[]T"}, Pure: true, Wait: "none", Package: Path}}},
 	{"childLaws.Event", bodyFact{refusal: "runtime/v1: childLaws.Event: the receiver type childLaws is not declared"}},
 	{"closeFailure.Error", bodyFact{refusal: "runtime/v1: closeFailure.Error: the receiver type closeFailure is not declared"}},
 	{"closeFailure.Unwrap", bodyFact{refusal: "runtime/v1: closeFailure.Unwrap: the receiver type closeFailure is not declared"}},
