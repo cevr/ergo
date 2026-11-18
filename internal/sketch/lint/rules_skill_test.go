@@ -240,3 +240,58 @@ func TestBannedGlossaryAgreesWithReference(t *testing.T) {
 		}
 	}
 }
+
+// The laws of the take-one-by-law generator over sortOf: the law's body
+// and which ends of sortOf(xs) it states (first by least, last by most).
+var takeLaws = []struct {
+	body        string
+	first, last bool
+}{
+	{"\tlet s = sortOf(xs)\n\tif len(s) == 0 {\n\t\treturn true\n\t}\n\tleast(xs) == Some[int]{Value: s[0]} && most(xs) == Some[int]{Value: s[len(s)-1]}", true, true},
+	{"\tlet s = sortOf(xs)\n\tif len(xs) > 3 {\n\t\treturn true\n\t}\n\tleast(xs) == Some[int]{Value: s[0]}", false, false}, // a guard that is not the empty case
+	{"\tleast(xs) == Some[int]{Value: sortOf(xs)[0]}", true, false},
+	{"\tlet s = sortOf(xs)\n\tleast(xs) == Some[int]{Value: s[1]}", false, false}, // not an end
+}
+
+// A function of the take-one-by-law generator: its body over xs, the
+// element type, the end it takes (0 none, 1 first, 2 last) and the line
+// of the take within the function.
+var takeSites = []struct {
+	body, elem string
+	end, at    int
+}{
+	{"\tsortOf(xs)[0]", "int", 1, 1},
+	{"\tlet s = sortOf(xs)\n\ts[len(s)-1]", "int", 2, 2},
+	{"\tlet s = sortOf(xs)\n\tif len(s) == 0 {\n\t\treturn 0\n\t}\n\ts[0]", "int", 1, 5},
+	{"\tlet s = sortOf(xs)\n\ts[0] + s[1]", "int", 0, 0},       // the let read for more than its ends
+	{"\tsortOf(xs)[1]", "int", 0, 0},                           // not an end
+	{"\tsortOf(xs)[0]", "float64", 0, 0},                       // a type the law was not tested at
+	{"\tlet s = sortOf(xs)\n\tlet t = s\n\tt[0]", "int", 0, 0}, // the let passed on
+}
+
+// TestTakeOneByLawAgreesWithReference declares sortOf, least and most, a
+// law of one of four bodies over them, and functions that take an end of
+// sortOf's result directly or through a let, and checks that
+// take-one-by-law fires on exactly the takes of an end the law states, at
+// the law's argument type, through a let read only for its ends and
+// length. Mutants: sr5-guard, sr5-type, sr5-other-read, sr5-end.
+func TestTakeOneByLawAgreesWithReference(t *testing.T) {
+	for _, seed := range propertySeeds(40) {
+		r := rand.New(rand.NewPCG(seed, 0x5a7))
+		p := newPlanted()
+		p.write("func sortOf[T ordered](xs []T) []T {\n\txs\n}\n\nfunc least(xs []int) Option[int] {\n\tNone\n}\n\nfunc most(xs []int) Option[int] {\n\tNone\n}", false, 0)
+		law := takeLaws[r.IntN(len(takeLaws))]
+		if r.IntN(4) == 0 {
+			law.first, law.last = false, false
+		} else {
+			p.write("\nlaw Ends(xs []int) {\n"+law.body+"\n}", false, 0)
+		}
+		for i := range 1 + r.IntN(4) {
+			s := takeSites[r.IntN(len(takeSites))]
+			fires := s.end == 1 && law.first || s.end == 2 && law.last
+			p.write(fmt.Sprintf("\nfunc take%d(xs []%s) %s {\n%s\n}", i, s.elem, s.elem, s.body), fires, 1+s.at)
+		}
+		p.write("\nfunc main() {\n}", false, 0)
+		p.check(t, "take-one-by-law", "TestTakeOneByLawAgreesWithReference", seed)
+	}
+}

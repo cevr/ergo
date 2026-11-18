@@ -32,7 +32,7 @@ var builtinRules = []*Rule{
 	defaultOnFailure, repeatedPureCall, guardTheTypeProves, repeatedGuard,
 	foreignOutsideAdapter, capabilityOutsideOwner, consoleOutsideEntry, testReadsUnexported,
 	causeDropped, failureAsVariant, vacuousTest, parameterClump, constantArgument, longParameterList,
-	derivedField, optionFollowsVariant,
+	derivedField, optionFollowsVariant, takeOneByLaw,
 	narrationComment, commentedCode,
 	snapshotArgument, repeatedTraversal, quadraticScan, concatInLoop, largeValueCopy,
 }
@@ -79,8 +79,8 @@ func builtinPresets() []Preset {
 		},
 		{
 			Name:  Speed,
-			Doc:   "Hints about work a loop repeats or a call copies: a *s argument the lowering copies, a second walk of one collection, a walk inside a walk of it, a string grown by + in a loop, a big element copied every turn. Opt-in; no precision published until a read sample reaches 0.80.",
-			Rules: on(snapshotArgument, repeatedTraversal, quadraticScan, concatInLoop, largeValueCopy),
+			Doc:   "Hints about work a loop repeats or a call copies: a *s argument the lowering copies, a second walk of one collection, a walk inside a walk of it, a string grown by + in a loop, a big element copied every turn, a whole result built to take the one element a law says another function gives. Opt-in; no precision published until a read sample reaches 0.80.",
+			Rules: on(snapshotArgument, repeatedTraversal, quadraticScan, concatInLoop, largeValueCopy, takeOneByLaw),
 		},
 	}
 }
