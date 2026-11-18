@@ -1,5 +1,6 @@
 import maps
 import slices
+import strings
 
 // VcsFailed is a version-control call that could not run or answer.
 type VcsFailed { Reason string }
@@ -92,6 +93,9 @@ type Vcs {
 	Remote(root string, commit string, onDefault bool) bool fails VcsFailed,
 	// Configure sets key to value in the checkout's own configuration.
 	Configure(root string, key string, value string) fails VcsFailed,
+	// Setting is the value of key in the checkout's configuration, ""
+	// when no file of it sets key.
+	Setting(root string, key string) string fails VcsFailed,
 	// StatDirty is the number of tracked files whose stat the index does
 	// not match: the next Git command reads each again.
 	StatDirty(root string) int fails VcsFailed,
@@ -151,6 +155,17 @@ type Vcs {
 		let tree = try Snapshot(".")
 		let _ = try Keep(".", tree)
 		before == Outline{Head: try Head("."), Branch: try Branch("."), Clean: try Clean(".")}
+	},
+
+	// SettingIsWhatConfigureSet: a key Configure set reads back as its
+	// value (doctor's check of the merge drivers rests on it).
+	law SettingIsWhatConfigureSet(value string) {
+		let v = "v" + strings.ReplaceAll(strings.ReplaceAll(value, "\n", " "), "\x00", " ")
+		Configure(".", "work.law", v) catch {
+		case VcsFailed:
+			return true
+		}
+		(try Setting(".", "work.law")) == v
 	},
 
 	// CompareAndSetIsAtomic: two writers, each setting a ref from the

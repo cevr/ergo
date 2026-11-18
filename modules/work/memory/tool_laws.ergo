@@ -4,6 +4,7 @@
 
 import fs
 import fstest
+import github.com/cevr/ergo/modules/work/classes
 import github.com/cevr/ergo/modules/work/work
 import maps
 import slices
@@ -921,7 +922,7 @@ law AdoptLeavesPushesToTheOwner(own bool) {
 	case _:
 		return false
 	}
-	let o = work.DoctorOptions{Rift: false, Registry: None, Unguard: false}
+	let o = work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: false}
 	let noted = w.tool.Doctor(o) catch {
 	case _:
 		return false
@@ -936,4 +937,184 @@ law AdoptLeavesPushesToTheOwner(own bool) {
 	let newKept = Files(w.trees, made.Path).Get(".git/config/remote.origin.pushurl") == Some[string]{Value: Guard}
 	let fixedNote = slices.Contains(fixed.Notes, "dropped the push guard of 1 adopted workspaces")
 	Files(w.trees, "/w/fresh") == before && still && newKept && note == !own && fixedNote == !own && left == (if own { Some[string]{Value: mine} } else { None })
+}
+
+// ledgerPath and ledgerLine are the mutant ledger of the merge laws and
+// the attributes line that gives it the rows driver, as this
+// repository's .gitattributes does.
+let ledgerPath = "a/testdata/mutants.json"
+let ledgerLine = "**/testdata/mutants.json merge=ergo-rows\n"
+
+// ledger is a mutant ledger whose rows are named by names, each row's
+// `to` the value of the same index in tos.
+func ledger(names []string, tos []string) string {
+	let mut rows = []string{}
+	for i, n in names {
+		rows = rows.Append("    {\"name\":\"\(n)\",\"from\":\"x\",\"to\":\"\(tos[i])\"}")
+	}
+	"{\n  \"about\": \"t\",\n  \"mutants\": [\n" + strings.Join(rows, ",\n") + "\n  ]\n}\n"
+}
+
+// unregistered drops work's merge drivers from the configuration of the
+// checkout at root, as a base made before work wrote them has none.
+func unregistered(w World, root string) {
+	for kv in work.DriverSettings() {
+		let _ = Unlink(w.trees, root, ".git/config/"+kv[0])
+	}
+	let _ = Unlink(w.trees, root, ".git/config/"+work.DriversKey)
+}
+
+// NewWorkspaceMergesByClass: in a base whose .gitattributes gives its
+// ledger the rows driver and whose Git config names no driver (a base
+// made before work wrote them), a workspace new makes, or a copy adopt
+// took and doctor -fix fixed, merges the base's branch that edits one
+// row into its own edit of another row and its new row with Git's merge
+// (Sync), clean, to merge-file's answer (classes.Merge by rows), and its
+// config has rerere.enabled. Without the fix the adopted copy's merge
+// conflicts, as the model's merge of a file both sides changed does.
+law NewWorkspaceMergesByClass(rows int, mine int, theirs int, adopt bool) {
+	let k = 2 + small(rows, 4)
+	let mut names = []string{}
+	let mut tos = []string{}
+	for i in 0..k {
+		names = names.Append("r\(i)")
+		tos = tos.Append("y")
+	}
+	let i = small(mine, k)
+	let j = (i + 1 + small(theirs, k-1)) % k
+	let base = ledger(names, tos)
+	let mut oursTos = slices.Clone(tos)
+	oursTos[i] = "ours"
+	let ours = ledger(names.Append("m"), oursTos.Append("y"))
+	let mut theirsTos = slices.Clone(tos)
+	theirsTos[j] = "theirs"
+	let other = ledger(names, theirsTos)
+	let w = worldWith(true, Map[string, string]{ledgerPath: base}, "", "")
+	unregistered(w, theBase)
+	if !attributed(w, theBase) || !Commit(w.vcs, theBase, "c1") {
+		return false
+	}
+	let root = if adopt {
+		"/w/copy"
+	} else {
+		(w.tool.New("ws", fresh(false)) catch {
+		case _:
+			return false
+		}).Path
+	}
+	if adopt {
+		// A copy work did not make (as Rift made them): the base's files
+		// and Git folder, with no driver configured.
+		w.trees.Clone(theBase, root) catch {
+		case _:
+			return false
+		}
+		if !attributed(w, root) {
+			return false
+		}
+		let _ = w.tool.Adopt(root, work.AdoptOptions{Name: None}) catch {
+		case _:
+			return false
+		}
+	}
+	let side = SideCommit(w.vcs, theBase, "side", ledgerPath, other)
+	if side == "" || !Write(w.trees, root, ledgerPath, ours) || !Commit(w.vcs, root, "c-ours") {
+		return false
+	}
+	if adopt {
+		// The model's merge of a file both sides changed, with no driver,
+		// is a conflict: the one doctor -fix ends.
+		let before = w.vcs.Merge(root, theBase, "side") catch {
+		case work.Conflicted:
+			"conflicted"
+		case work.VcsFailed:
+			return false
+		}
+		if before != "conflicted" {
+			return false
+		}
+		let _ = w.tool.Doctor(work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: true}) catch {
+		case _:
+			return false
+		}
+	}
+	let _ = w.vcs.Merge(root, theBase, "side") catch {
+	case _:
+		return false
+	}
+	let want = classes.Merge(classes.Rows, base, ours, other) catch {
+	case classes.Unreadable:
+		return false
+	}
+	let files = Files(w.trees, root)
+	len(want.Conflicts) == 0 && files.Get(ledgerPath) == Some[string]{Value: want.Text} && files.Get(".git/config/rerere.enabled") == Some[string]{Value: "true"}
+}
+
+// attributed gives the checkout at root the ledger's attributes line, in
+// its tree and on the disk (one file on a host; the memory providers
+// keep Git's trees and the files work reads apart).
+func attributed(w World, root string) bool {
+	if !Write(w.trees, root, ".gitattributes", ledgerLine) {
+		return false
+	}
+	w.disk.MkdirAll(root) catch {
+	case _:
+		return false
+	}
+	w.disk.WriteFile(root+"/.gitattributes", ledgerLine) catch {
+	case _:
+		return false
+	}
+	true
+}
+
+// DoctorSeesAnUnregisteredDriver: doctor names an adopted copy whose
+// attributes give a file a driver its Git config lacks, and a merge line
+// of the base that takes no file; with -fix the copy's drivers are
+// registered and a second doctor is quiet about it; the base, which init
+// registered, is never named.
+law DoctorSeesAnUnregisteredDriver(fix bool, gone bool) {
+	let w = worldWith(true, Map[string, string]{ledgerPath: ledger([]string{"r0"}, []string{"y"})}, "", "")
+	if !attributed(w, theBase) || !Commit(w.vcs, theBase, "c1") {
+		return false
+	}
+	let copy = "/w/copy"
+	w.trees.Clone(theBase, copy) catch {
+	case _:
+		return false
+	}
+	unregistered(w, copy)
+	if !attributed(w, copy) {
+		return false
+	}
+	if gone {
+		w.disk.WriteFile(theBase+"/.gitattributes", ledgerLine+"gone/ledger.json merge=ergo-rows\n") catch {
+		case _:
+			return false
+		}
+	}
+	let _ = w.tool.Adopt(copy, work.AdoptOptions{Name: None}) catch {
+	case _:
+		return false
+	}
+	let o = work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: fix}
+	let first = w.tool.Doctor(o) catch {
+	case _:
+		return false
+	}
+	let second = w.tool.Doctor(work.DoctorOptions{..o, Fix: false}) catch {
+	case _:
+		return false
+	}
+	let lacks = copy + ": its attributes name merge drivers its Git config lacks (ergo-rows), so Git merges those files as text: run work doctor -fix"
+	let named = slices.Contains(first.Notes, lacks)
+	let fixedNote = slices.Contains(first.Notes, "registered the merge drivers of \(copy)")
+	let registered = (w.vcs.Setting(copy, "merge.ergo-rows.driver") catch {
+	case work.VcsFailed:
+		return false
+	}) != ""
+	let baseNamed = slices.IndexFunc(first.Notes, func(n string) bool { strings.HasPrefix(n, theBase+":") }) >= 0
+	let goneNamed = slices.Contains(first.Notes, "the merge line gone/ledger.json takes no file of the base")
+	let ledgerNamed = slices.IndexFunc(first.Notes, func(n string) bool { strings.Contains(n, "**/testdata") }) >= 0
+	named == !fix && fixedNote == fix && registered == fix && slices.Contains(second.Notes, lacks) == !fix && !baseNamed && goneNamed == gone && !ledgerNamed
 }

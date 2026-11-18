@@ -1592,6 +1592,78 @@
       "to": "\t\tif urls != \"\" {\n",
       "rule": "Guarded names only work's own guard, so Unguard keeps the owner's push URL (git's LocalsRemotesAndGuards).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "m0-new-registers-nothing", "origin": "wf10/semws M0",
+      "file": "modules/work/work/api.ergo",
+      "from": "\ttry RegisterDrivers(t, path)\n",
+      "to": "",
+      "rule": "new writes the merge drivers into the workspace's own config, not only the base's: a base made before work wrote them gives its clones none (memory's NewWorkspaceMergesByClass).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "m0-fix-registers-nothing", "origin": "wf10/semws M0",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\t\t\ttry RegisterDrivers(t, root)\n",
+      "to": "",
+      "rule": "doctor -fix registers the drivers of a checkout that lacks them (memory's DoctorSeesAnUnregisteredDriver, NewWorkspaceMergesByClass for an adopted copy).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "m0-doctor-skips-workspaces", "origin": "wf10/semws M0",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\t\tif w.State == Active {\n\t\t\troots = roots.Append(w.Path)\n",
+      "to": "\t\tif false {\n\t\t\troots = roots.Append(w.Path)\n",
+      "rule": "doctor checks every active workspace, not only the base (memory's DoctorSeesAnUnregisteredDriver).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "m0-unregistered-sees-none", "origin": "wf10/semws M0",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\t\tif !slices.Contains(out, l.Driver) && try t.vcs.Setting(root, \"merge.\\(l.Driver).driver\") == \"\" {\n",
+      "to": "\t\tif false {\n",
+      "rule": "A driver the attributes name and the config lacks is named, never passed silently (memory's DoctorSeesAnUnregisteredDriver).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "m0-unmatched-silent", "origin": "wf10/semws M0",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\t\tif !slices.Contains(out, l.Pattern) && slices.IndexFunc(files, func(p string) bool { Matches(l.Pattern, p) }) < 0 {\n",
+      "to": "\t\tif false {\n",
+      "rule": "A merge line that takes no file is named (memory's DoctorSeesAnUnregisteredDriver, gone).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "m0-driver-wrong-class", "origin": "wf10/semws M0",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\"work merge-file -path %P \\(c) %O %A %B >&2\"",
+      "to": "\"work merge-file -path %P lines %O %A %B >&2\"",
+      "rule": "Each ergo-CLASS driver merges by its own class (memory's NewWorkspaceMergesByClass: a ledger merged as lines is not the rows merge).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "m0-digest-blind", "origin": "wf10/semws M0",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\tif try t.vcs.Setting(root, DriversKey) == digest {\n",
+      "to": "\tif true {\n",
+      "rule": "The digest skips only a checkout that holds the drivers already (memory's NewWorkspaceMergesByClass).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "m0-no-rerere", "origin": "wf10/semws M0",
+      "file": "modules/work/work/merge.ergo",
+      "from": "\tout.Append([]string{\"rerere.enabled\", \"true\"})\n",
+      "to": "\tout\n",
+      "rule": "Every registered checkout reuses a recorded resolution (memory's NewWorkspaceMergesByClass).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "m0-builtin-driver-named", "origin": "wf10/semws M0",
+      "file": "modules/work/work/merge.ergo",
+      "from": "let gitDrivers = []string{\"text\", \"binary\", \"union\"}\n",
+      "to": "let gitDrivers = []string{}\n",
+      "rule": "Git's built-in drivers need no config and are never named (law MergeLinesNameTheirDrivers).",
+      "anchor": {"tests": ["examples:modules/work"]}
     }
   ]
 }

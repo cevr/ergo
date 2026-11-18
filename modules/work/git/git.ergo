@@ -408,6 +408,15 @@ func Configure(v Vcs, root string, key string, value string) fails work.VcsFaile
 	let _ = try writes(v, root, []string{"config", key, value})
 }
 
+// Setting is git config --get: status 1 is a key no file sets.
+func Setting(v Vcs, root string, key string) string fails work.VcsFailed {
+	let r = try reads(v, root, []string{"config", "--get", key})
+	if r.Status == 1 {
+		return ""
+	}
+	try ok(r, root, []string{"config", "--get", key})
+}
+
 // StatDirty counts the entries git diff-files reports (a stat that
 // differs from the index's; diff-files refreshes nothing) less those whose
 // content changed (git diff, which compares content and, with

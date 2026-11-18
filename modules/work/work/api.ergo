@@ -571,6 +571,9 @@ func startIn(t Tool, by Cloner, path string, branch string, start string) fails 
 	try t.vcs.Start(path, branch, start)
 	try guarded(t, path)
 	try t.vcs.Configure(path, "core.untrackedCache", "true")
+	// The merge drivers, in the clone's own config: a base registered
+	// before work wrote them, or never, gives its clones none (M0).
+	try RegisterDrivers(t, path)
 	if !by.KeepsInodes() {
 		try t.vcs.Configure(path, "core.checkStat", "minimal")
 		try t.vcs.Configure(path, "core.trustctime", "false")

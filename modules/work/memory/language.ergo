@@ -1062,6 +1062,6 @@ test DoctorNamesTheMountOfMount {
 	let runner = exec.Script{Results: Map[string, exec.Result]{exec.Key(exec.New("mount", []string{})): exec.Result{Status: 0, Stdout: list, Stderr: ""}}}
 	let (tool, _) = configuredWith(runner, Map[string, string]{}, "", false)
 	let _ = try tool.Init()
-	let report = try tool.Doctor(work.DoctorOptions{Rift: false, Registry: None, Unguard: false})
+	let report = try tool.Doctor(work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: false})
 	assert report.FileSystem == "apfs"
 }

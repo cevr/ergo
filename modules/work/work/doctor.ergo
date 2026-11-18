@@ -29,8 +29,10 @@ type Report {
 // DoctorOptions are doctor's flags: -rift lists the base's Rift copies
 // that no workspace holds (in the registry -registry names, else
 // Rift's own); -unguard drops the push guard an older adopt or
-// adopt-rift wrote into an adopted workspace's remotes.
-type DoctorOptions { Rift bool, Registry Option[string], Unguard bool }
+// adopt-rift wrote into an adopted workspace's remotes; -fix registers
+// work's merge drivers (DriverSettings) in each checkout whose attributes
+// name a driver its configuration lacks.
+type DoctorOptions { Rift bool, Registry Option[string], Unguard bool, Fix bool }
 
 // mountOf is the file system type and options of the mount that holds
 // path, from /proc/mounts (the longest mount point that is a prefix); on
@@ -150,11 +152,60 @@ func Doctor(t Tool, o DoctorOptions) Report fails NoBase | BadConfig | Unkept | 
 	if len(guarded) > 0 {
 		notes = notes.Append(if o.Unguard { "dropped the push guard of \(len(guarded)) adopted workspaces" } else { "\(len(guarded)) adopted workspaces carry the push guard an older adopt wrote: run work doctor -unguard" })
 	}
+	notes = slices.Concat(notes, try driverNotes(t, o.Fix))
 	let rift = if o.Rift { try RiftLeft(t, RiftOptions{Registry: o.Registry}) } else { []string{} }
 	if len(rift) > 0 {
 		notes = notes.Append("\(len(rift)) Rift copies of the base are no workspace: run work adopt-rift")
 	}
 	Report{Base: t.base, Storage: t.home, Cloners: names, LastCloner: last, FileSystem: kind, PurgeOneCall: oneCall, StaleIndex: stale, Trusted: ok, Notes: notes, Rift: rift}
+}
+
+// driverNotes are doctor's notes on the merge drivers of the base and of
+// each active workspace: a checkout whose attributes name a driver its
+// configuration lacks merges those files as text (with fix, its drivers
+// are registered and the note says so), and a merge line that takes no
+// file of the base merges nothing.
+func driverNotes(t Tool, fix bool) []string fails Unkept | VcsFailed {
+	let mut roots = []string{t.base}
+	for w in try t.registry.All() {
+		if w.State == Active {
+			roots = roots.Append(w.Path)
+		}
+	}
+	let mut notes = []string{}
+	for root in roots {
+		let names = Unregistered(t, root) catch {
+		case fs.Denied, fs.Failed:
+			[]string{}
+		case VcsFailed as e:
+			return e
+		}
+		if len(names) == 0 {
+			continue
+		}
+		if fix {
+			try RegisterDrivers(t, root)
+			let left = Unregistered(t, root) catch {
+			case fs.Denied, fs.Failed:
+				[]string{}
+			case VcsFailed as e:
+				return e
+			}
+			notes = notes.Append(if len(left) == 0 { "registered the merge drivers of \(root)" } else { "\(root) still lacks the merge drivers \(strings.Join(left, ", ")): work registers only its own" })
+		} else {
+			notes = notes.Append("\(root): its attributes name merge drivers its Git config lacks (\(strings.Join(names, ", "))), so Git merges those files as text: run work doctor -fix")
+		}
+	}
+	let unmatched = Unmatched(t, t.base) catch {
+	case fs.Denied, fs.Failed:
+		[]string{}
+	case VcsFailed as e:
+		return e
+	}
+	for p in unmatched {
+		notes = notes.Append("the merge line \(p) takes no file of the base")
+	}
+	notes
 }
 
 // Refresh refreshes the stat data of the base's Git index (git
