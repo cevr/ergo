@@ -56,7 +56,7 @@ func (c *checker) providerStore(s *syntax.AssignStmt) {
 func (c *checker) providerLit(x *syntax.CompositeLit, t Type, mark int, lt func() litType) operand {
 	k, v, h, _ := c.mapParts(t)
 	if !defaultable(h) {
-		c.errorf(x, CodeType, "%s has no default, so Map[%s, %s, %s]{} has no provider; a Map whose provider has no default needs maps.Using, which is not built yet (types.md, Maps)", h, k, v, h)
+		c.errorf(x, CodeType, "%s has no default, so Map[%s, %s, %s]{} has no provider; maps.Using, which would give it one, is not built yet (types.md, Maps)", h, k, v, h)
 		c.orphanElements(x, mark, lt())
 		return operand{mode: modeValue, typ: t}
 	}
