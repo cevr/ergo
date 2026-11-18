@@ -1,0 +1,8 @@
+# scripts/opcount: `park bench ask N` runs N Asks of an actor, a request
+# and its reply between two tasks; the cost of one is the slope between
+# the two sizes (PARK1).
+unit ask
+sizes 100000 1100000
+args bench ask {n}
+control benchmarks/park/testdata/control
+binary park
