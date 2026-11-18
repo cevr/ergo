@@ -153,6 +153,9 @@ func (in *interp) rangeStmt(fr *frame, s *syntax.RangeStmt) *abrupt {
 	if ab != nil {
 		return ab
 	}
+	if _, isTerm := dom.(term); isTerm && in.sym != nil {
+		return in.symStop(fr, s.X, dom)
+	}
 	if l.Domain == check.LoopMap {
 		return in.rangeMap(fr, s, dom.(mapV), root, path) // maporder.go
 	}
@@ -701,7 +704,7 @@ func (in *interp) placePush(fr *frame, x syntax.Expr) (*slot, string, *abrupt) {
 		}
 		return s, "", nil
 	case *syntax.SelectorExpr:
-		if in.sym != nil && isPointer(fr.typeOf(x.X)) {
+		if in.sym != nil && !in.sym.tmpl && isPointer(fr.typeOf(x.X)) {
 			// A field of a provider's cell (symbolic.go).
 			v, ab := in.expr(fr, x.X)
 			if ab != nil {
@@ -991,6 +994,9 @@ func (in *interp) typeArms(fr *frame, s *syntax.TypeSwitchStmt, subject Value, r
 // match tests v against the checked pattern p, read in the frame's
 // substitution, and binds its names.
 func (in *interp) match(fr *frame, at syntax.Node, p *check.Pattern, v Value) (bool, *abrupt) {
+	if in.sym != nil && in.sym.tmpl && p.Kind != check.PatWildcard && p.Kind != check.PatBind && p.Kind != check.PatAs && (isTerm(v) || p.Kind == check.PatConst && symbolic(v)) {
+		return in.symMatch(fr, at, p, v) // foldvalue.go
+	}
 	switch p.Kind {
 	case check.PatWildcard:
 		return true, nil

@@ -123,17 +123,22 @@ func SetConstFoldBudgetForTest(steps int64) int64 {
 // calls built as constants, the candidates the evaluator could not finish
 // within the budget, and the other candidates it refused (a value that is
 // no constant, a form it does not run), in the bodies that took IR. It is
-// a count, never a time.
+// a count, never a time. Templates counts the calls built as templates and
+// TemplateRefused the candidates that made none (ir_template.go).
 type FoldCounts struct {
-	Folded     int `json:"folded"`
-	OverBudget int `json:"overBudget"`
-	Refused    int `json:"refused"`
+	Folded          int `json:"folded"`
+	OverBudget      int `json:"overBudget"`
+	Refused         int `json:"refused"`
+	Templates       int `json:"templates"`
+	TemplateRefused int `json:"templateRefused"`
 }
 
 func (c *FoldCounts) add(d FoldCounts) {
 	c.Folded += d.Folded
 	c.OverBudget += d.OverBudget
 	c.Refused += d.Refused
+	c.Templates += d.Templates
+	c.TemplateRefused += d.TemplateRefused
 }
 
 // fold is the call x built as its constant, or nil when x is no candidate
@@ -245,6 +250,8 @@ func (b *irBuilder) closed(x syntax.Expr) bool {
 // constOf is the IR of the folded value v in a place of type t.
 func (b *irBuilder) constOf(v eval.Const, t check.Type, site syntax.Expr, p irPos) *irExpr {
 	switch v.Kind {
+	case eval.ConstHole:
+		return b.holeInto(v.Hole, t, site) // ir_template.go
 	case eval.ConstBasic:
 		return b.constant(t, v.Basic, site, p)
 	case eval.ConstSlice:

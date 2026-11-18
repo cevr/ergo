@@ -390,6 +390,10 @@ type irBuilder struct {
 	pkg  *check.Package
 	// folds are this body's folds, which count once the body is kept.
 	folds FoldCounts
+	// tmplHoles and tmplTypes are the holes of the template being built
+	// and their types, as constOf places them (ir_template.go).
+	tmplHoles []*irExpr
+	tmplTypes []check.Type
 	// law is the law whose body is built (ir_assert.go), nil in any
 	// other body and inside a function literal: each value it returns is
 	// checked where it is returned.

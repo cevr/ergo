@@ -136,6 +136,62 @@ func (b *irBuilder) operator(op string, t check.Type, site syntax.Node) {
 	b.goType(t, site)
 }
 
+// funcValue is the function f of the program, named by x, as a value of
+// type t (CF2, q11): a literal of the uniform shape that calls it, the
+// emitter's funcValue (calls.go). A generic, borrowing, fallible or
+// witnessed function, an extern and a function whose body is runtime/v1's
+// stay the emitter's.
+func (b *irBuilder) funcValue(f *check.Func, t check.Type, x syntax.Expr, p irPos) *irExpr {
+	sig, ok := t.(*check.Signature)
+	switch {
+	case !ok || len(sig.Results) > 1:
+		irNo("function value of several results")
+	case f.Pkg == nil || f.Pkg.Host() || userExtern(f) || check.GoBuiltin(f) != "" || (f.Decl != nil && f.Decl.Extern != nil):
+		irNo("extern function as a value")
+	case len(f.Sig.TParams) > 0 || b.l.info.Instances[x] != nil:
+		irNo("generic function as a value")
+	case len(witnessParams(f.Sig)) > 0 || len(b.l.ownedParams(f)) > 0:
+		irNo("function as a value that passes witnesses or owned values")
+	case len(sig.Params) != len(f.Sig.Params):
+		irNo("function as a value of another arity")
+	}
+	fd := b.l.useFunc(f, x)
+	switch {
+	case fd.extern != "" || fd.ptr || fd.fallible:
+		irNo("extern, borrowing or fallible function as a value")
+	case !fd.pure && b.env < 0:
+		irNo("impure function as a value in a pure one")
+	}
+	envLocal := b.temp("env", "*"+b.l.env(), p)
+	lit := &irExpr{K: "func", Pos: p, T: b.sigType(sig, x), Params: []int{envLocal}}
+	var args []*irExpr
+	for _, prm := range sig.Params {
+		l := b.temp("p", b.goType(prm.Type, x), p)
+		lit.Params = append(lit.Params, l)
+		args = append(args, &irExpr{K: "local", Pos: p, I: l})
+	}
+	if !fd.pure {
+		// The environment first, after a method's receiver (callParts).
+		at := 0
+		if fd.method != nil {
+			at = 1
+		}
+		args = append(args[:at:at], append([]*irExpr{{K: "local", Pos: p, I: envLocal}}, args[at:]...)...)
+	}
+	call := &irExpr{K: "call", Pos: p, Name: fd.name, Args: args}
+	if fd.method != nil {
+		call = &irExpr{K: "mcall", Pos: p, Name: fd.name, X: args[0], Args: args[1:]}
+	}
+	if len(sig.Results) == 1 {
+		lit.Body = []*irStmt{{K: "ret", Pos: p, X: call}}
+	} else {
+		lit.Body = []*irStmt{{K: "expr", Pos: p, X: call}, {K: "ret", Pos: p, X: &irExpr{K: "zero", Pos: p, T: "struct{}"}}}
+	}
+	end := p
+	lit.End = &end
+	return lit
+}
+
 // expr is x after its implicit conversion (implicit, ir_union.go).
 func (b *irBuilder) expr(x syntax.Expr) *irExpr {
 	return b.implicit(x, b.exprOf(x))
@@ -182,6 +238,8 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			if e := b.bareRecord(o, t, x, p); e != nil { // ir_union.go
 				return e
 			}
+		case *check.Func:
+			return b.funcValue(o, t, x, p)
 		}
 		irNo("name that is not a local")
 	case *syntax.BinaryExpr:
@@ -198,6 +256,9 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		b.goType(t, x)
 		return &irExpr{K: "un", Pos: p, Op: op, X: b.expr(x.X)}
 	case *syntax.SelectorExpr:
+		if f, ok := check.QualifiedMember(b.l.info, x).(*check.Func); ok {
+			return b.funcValue(f, t, x, p) // pkg.F as a value
+		}
 		n, ok := derefNamed(b.l.info.Types[x.X]) // ir_pkg.go
 		if !ok {
 			irNo("selector on a non-record")

@@ -1,6 +1,7 @@
 package eval
 
 import (
+	"fmt"
 	"go/constant"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -15,18 +16,22 @@ const (
 	ConstRecord                      // Named, with its fields in Elems
 	ConstSlice                       // Elems
 	ConstTuple                       // Elems
+	ConstHole                        // a template's hole: Hole
 )
 
 // Const is a value a build-time fold computed that the lowering can write
 // as a constant: a basic value, or a record, a slice or a tuple of
 // constants (CF1). A record's Named is its declared type, a union's
 // variant for a union value. Nothing else is a Const: a function value,
-// a pointer, a map, a cell or a capability.
+// a pointer, a map, a cell or a capability. In a template (CF2), a part
+// is a hole: the value its expression has when the program runs, by its
+// index among the template's holes.
 type Const struct {
 	Kind  ConstKind
 	Basic constant.Value
 	Named *check.Named
 	Elems []Const
+	Hole  int
 }
 
 // FoldValue computes the expression x of the declaration decl of pkg at
@@ -41,7 +46,7 @@ func FoldValue(pkg *check.Package, decl syntax.Decl, x syntax.Expr, b Budget) (c
 	if b.Bytes == 0 {
 		b.Bytes = defaultBytes
 	}
-	in := &interp{budget: b, root: pkg, files: map[syntax.Decl]*syntax.File{}, initials: map[*check.TypeName]Value{}, globals: map[*check.Var]*slot{}}
+	in := &interp{budget: b, root: pkg, files: map[syntax.Decl]*syntax.File{}, initials: map[*check.TypeName]Value{}, globals: map[*check.Var]*slot{}, fold: true}
 	defer func() {
 		if r := recover(); r != nil {
 			ie, ok := r.(internalError)
@@ -59,7 +64,7 @@ func FoldValue(pkg *check.Package, decl syntax.Decl, x syntax.Expr, b Budget) (c
 		}
 		return Const{}, "the expression does not end in a value", false
 	}
-	out, ok := toConst(got)
+	out, ok := toConst(got, nil)
 	if !ok {
 		return Const{}, "the value holds a part a constant cannot: a function, a pointer, a map or a cell", false
 	}
@@ -71,8 +76,13 @@ func FoldValue(pkg *check.Package, decl syntax.Decl, x syntax.Expr, b Budget) (c
 // call of it with constant arguments is a constant (CF1).
 func Rowless(fn *check.Func) bool { return rowless(fn) }
 
-// toConst is v as a Const, or false when a part of it is none.
-func toConst(v Value) (Const, bool) {
+// toConst is v as a Const, or false when a part of it is none: holes
+// index the symbols that are a template's holes.
+func toConst(v Value, holes map[*symbol]int) (Const, bool) {
+	if s, ok := v.(*symbol); ok {
+		i, isHole := holes[s]
+		return Const{Kind: ConstHole, Hole: i}, isHole
+	}
 	if c := toConstant(v); c != nil {
 		return Const{Kind: ConstBasic, Basic: c}, true
 	}
@@ -85,7 +95,7 @@ func toConst(v Value) (Const, bool) {
 		}
 		out := Const{Kind: ConstRecord, Named: v.t}
 		for _, f := range v.fields {
-			c, ok := toConst(f)
+			c, ok := toConst(f, holes)
 			if !ok {
 				return Const{}, false
 			}
@@ -98,7 +108,7 @@ func toConst(v Value) (Const, bool) {
 		}
 		out := Const{Kind: ConstSlice, Elems: []Const{}}
 		for _, e := range v.elems() {
-			c, ok := toConst(e)
+			c, ok := toConst(e, holes)
 			if !ok {
 				return Const{}, false
 			}
@@ -108,7 +118,7 @@ func toConst(v Value) (Const, bool) {
 	case tuple:
 		out := Const{Kind: ConstTuple}
 		for _, e := range v.elems {
-			c, ok := toConst(e)
+			c, ok := toConst(e, holes)
 			if !ok {
 				return Const{}, false
 			}
@@ -117,4 +127,237 @@ func toConst(v Value) (Const, bool) {
 		return out, true
 	}
 	return Const{}, false
+}
+
+// FoldTemplate computes the call x of the declaration decl of pkg at build
+// time as FoldValue does, with each expression of holes (subexpressions
+// of x, none inside another) standing for the value it has when the
+// program runs: a template (CF2). A hole is a symbol of its expression's
+// type; the run moves it (a binding, an argument, a result, a record, a
+// list or a tuple part) and stops at anything that reads it: a condition,
+// an operator other than + on strings, a match that its type cannot
+// decide, a field, an index, an extern go function's argument (build's
+// Known and Hole excepted). The value is a Const whose parts may be holes.
+// On a stop, culprits are the holes it read, by index, for the caller to
+// widen (each to the argument or element around it) and run again; none
+// when the run stopped for another reason.
+//
+// Prior art: partial evaluation with the data opaque (Futamura; Marko's
+// and Solid's SSR compilers split a template's static markup from its
+// dynamic expressions the same way, by syntax, where this run decides it
+// by evaluation).
+func FoldTemplate(pkg *check.Package, decl syntax.Decl, x syntax.Expr, holes []syntax.Expr, b Budget) (c Const, culprits []int, why string, over bool) {
+	if b.Steps <= 0 || b.Depth <= 0 {
+		return Const{}, nil, "no evaluation budget", false
+	}
+	if b.Bytes == 0 {
+		b.Bytes = defaultBytes
+	}
+	run := newSymRun()
+	run.tmpl = true
+	run.holes = map[syntax.Expr]*symbol{}
+	index := map[*symbol]int{}
+	for i, h := range holes {
+		// A hole has its own type, before the variant goes into its
+		// union, so a match can decide it (symMatch).
+		t := pkg.Info.Types[h]
+		if conv, ok := pkg.Info.Implicit[h]; ok && conv.Kind == check.ConvVariant && conv.From != nil {
+			t = conv.From
+		}
+		s := &symbol{name: fmt.Sprintf("hole%d", i), t: t}
+		run.holes[h] = s
+		index[s] = i
+	}
+	in := &interp{budget: b, root: pkg, files: map[syntax.Decl]*syntax.File{}, initials: map[*check.TypeName]Value{}, globals: map[*check.Var]*slot{}, sym: run, fold: true, walk: true}
+	blamed := func() []int {
+		seen := map[int]bool{}
+		var out []int
+		for _, s := range run.culprits {
+			if i, ok := index[s]; ok && !seen[i] {
+				seen[i] = true
+				out = append(out, i)
+			}
+		}
+		return out
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			// A form the run does not take a hole into: no template.
+			c, culprits, why, over = Const{}, blamed(), fmt.Sprint(r), false
+		}
+	}()
+	run.mark(pkg.Info, x)
+	run.ok[x] = true
+	fr := in.newFrame(pkg, decl)
+	got, ab := in.expr(fr, x)
+	if ab != nil {
+		if ab.msg != "" {
+			return Const{}, blamed(), ab.msg, ab.kind == ctlExhausted
+		}
+		return Const{}, nil, "the expression does not end in a value", false
+	}
+	out, ok := toConst(got, index)
+	if !ok {
+		run.culprits = nil
+		run.blameUnwritten(got)
+		return Const{}, blamed(), "the value holds a part a template cannot: a function, a pointer, a map, a cell or a computed hole", false
+	}
+	return out, nil, "", false
+}
+
+// blame records the holes in vs as the culprits of a template run's stop;
+// nothing in any other run.
+func (s *symRun) blame(vs ...Value) {
+	if !s.tmpl {
+		return
+	}
+	for _, v := range vs {
+		s.culprits = appendSymbols(s.culprits, v)
+	}
+}
+
+// blameUnwritten blames the holes inside the parts of v a template cannot
+// write: a term computed from holes.
+func (s *symRun) blameUnwritten(v Value) {
+	switch v := v.(type) {
+	case *symbol:
+	case term:
+		s.blame(v)
+	case *record:
+		for _, f := range v.fields {
+			s.blameUnwritten(f)
+		}
+	case tuple:
+		for _, e := range v.elems {
+			s.blameUnwritten(e)
+		}
+	case sliceV:
+		for _, e := range v.elems() {
+			s.blameUnwritten(e)
+		}
+	}
+}
+
+// appendSymbols appends the symbols v holds to out.
+func appendSymbols(out []*symbol, v Value) []*symbol {
+	switch v := v.(type) {
+	case *symbol:
+		return append(out, v)
+	case *extTerm:
+		for _, a := range v.args {
+			out = appendSymbols(out, a)
+		}
+	case *catTerm:
+		for _, p := range v.parts {
+			out = appendSymbols(out, p)
+		}
+	case chunk:
+		for _, e := range v.elems {
+			out = appendSymbols(out, e)
+		}
+	case *record:
+		for _, f := range v.fields {
+			out = appendSymbols(out, f)
+		}
+	case tuple:
+		for _, e := range v.elems {
+			out = appendSymbols(out, e)
+		}
+	case sliceV:
+		for _, e := range v.elems() {
+			out = appendSymbols(out, e)
+		}
+	}
+	return out
+}
+
+// takesHoles marks the natives a template run passes a hole, which
+// holeNative registers (std build's questions about what the build knows).
+var takesHoles = map[string]bool{}
+
+// holeNative registers f as the native of the function named name, which
+// a template run passes a hole: f answers for a symbol itself.
+func holeNative(name string, f native) {
+	natives[name] = f
+	takesHoles[name] = true
+}
+
+// symExtern is a template run's rule for a call of the function fn with
+// no Ergo body: its native runs on known arguments, and an argument that
+// holds a hole stops the run, except for a native holeNative registered.
+func (in *interp) symExtern(fr *frame, at *syntax.CallExpr, fn *check.Func, args []Value) *abrupt {
+	if nativeOf(fn) != nil && takesHoles[fn.Pkg.Path+"."+fn.Name] {
+		return nil
+	}
+	for _, a := range args {
+		if symbolic(a) {
+			in.sym.blame(args...)
+			return fr.abrupt(ctlUnsupported, at, nil, fn.Name+" reads a hole at "+in.siteText(fr, at.Pos()))
+		}
+	}
+	return nil
+}
+
+// symMatch is a template run's test of the pattern p on v, a term or a
+// value a constant pattern compares: a hole whose type is a record takes
+// a type test of its type or of a union of it, and refuses one of
+// another record; anything else stops the run.
+func (in *interp) symMatch(fr *frame, at syntax.Node, p *check.Pattern, v Value) (bool, *abrupt) {
+	if s, ok := v.(*symbol); ok && (p.Kind == check.PatTypeTest || p.Kind == check.PatRecord && len(p.Fields) == 0) {
+		if yes, decided := symHasType(s, fr.rt(p.Type)); decided {
+			return yes, nil
+		}
+	}
+	in.sym.blame(v)
+	what := describe(v)
+	if s, ok := v.(*symbol); ok {
+		what = fmt.Sprintf("%s, a hole of %s,", s.name, s.t)
+	}
+	return false, fr.abrupt(ctlUnsupported, at, nil, frameName(fr)+" matches on "+what+" at "+in.siteText(fr, at.Pos()))
+}
+
+// symHasType is whether a value of s's type has the type t, and whether
+// the types decide it: s's type is a record that is no instance of a
+// generic one, and t is a record or a union.
+func symHasType(s *symbol, t rtype) (yes, decided bool) {
+	n, ok := s.t.(*check.Named)
+	if !ok || len(n.TArgs) > 0 || structOf(n) == nil {
+		return false, false
+	}
+	t = t.env.resolve(t.t)
+	var variants []check.Type
+	switch tt := t.t.(type) {
+	case *check.Union:
+		variants = tt.Variants
+	case *check.Named:
+		if u, isUnion := tt.Underlying().(*check.Union); isUnion {
+			variants = u.Variants
+		} else {
+			variants = []check.Type{tt}
+		}
+	default:
+		return false, false
+	}
+	for _, vt := range variants {
+		vn, ok := vt.(*check.Named)
+		if !ok {
+			return false, false
+		}
+		if vn.Obj == n.Obj {
+			return len(vn.TArgs) == 0, len(vn.TArgs) == 0
+		}
+	}
+	return false, true
+}
+
+// isSliceV reports a slice value.
+func isSliceV(v Value) bool {
+	_, ok := v.(sliceV)
+	return ok
+}
+
+// isTerm reports a term: a hole or a value computed from one.
+func isTerm(v Value) bool {
+	_, ok := v.(term)
+	return ok
 }

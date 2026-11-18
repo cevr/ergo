@@ -26,6 +26,9 @@ func (b *irBuilder) call(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr) {
 		if e := b.fold(x); e != nil {
 			return nil, e
 		}
+		if pre, e := b.template(x); e != nil { // ir_template.go
+			return pre, e
+		}
 	}
 	if b.fallibleCall(x) != nil {
 		irNo("untried fallible call")

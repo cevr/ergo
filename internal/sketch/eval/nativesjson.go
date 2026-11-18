@@ -45,13 +45,23 @@ func registerNativesjson() {
 		return args[0], in.charge(fr, at, 1)
 	}
 	natives["strings.builderText"] = bytesText
-	// std html's inFold (CF1): the evaluator is what computes a build-time
-	// fold, so here it is true, where runtime/v1.HTMLInFold, the built
-	// program's, is false. It is no parity row: the two differ by design,
-	// and std html's laws hold its markup equal either way.
-	natives["html.inFold"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
-		return true, in.charge(fr, at, 1)
+	// std build's InFold, Known and Hole (CF1, CF2): the evaluator is what
+	// computes a build-time fold, so in a fold InFold is true, where
+	// runtime/v1.BuildInFold, the built program's, is false; a value is
+	// known unless it holds a template's hole (a symbol). Outside a fold (a
+	// law at check time) they answer as a built program does. They are no
+	// parity rows: the two differ by design, and a function that branches
+	// on them states a law that its branches agree (std/build).
+	natives["build.InFold"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		return in.fold, in.charge(fr, at, 1)
 	}
+	holeNative("build.Known", func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		return in.fold && !symbolic(args[0]), in.charge(fr, at, 1)
+	})
+	holeNative("build.Hole", func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		_, hole := args[0].(*symbol)
+		return in.fold && hole, in.charge(fr, at, 1)
+	})
 	// std strings' Builder writes (SSR WEB3: std hmac builds its blocks
 	// with them): WriteString and WriteByte append as Go's append grows
 	// the buffer; Grow keeps no room here, so it is the buffer unchanged,

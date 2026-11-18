@@ -12,8 +12,12 @@ import (
 type interp struct {
 	budget Budget
 	root   *check.Package
-	steps  int64
-	bytes  int64 // value bytes allocated
+	// fold is set in a build-time fold (FoldValue, FoldTemplate): std
+	// build's InFold, which a law evaluated at check time sees false, as
+	// a built program does.
+	fold  bool
+	steps int64
+	bytes int64 // value bytes allocated
 	// stepsAt and bytesAt are steps and bytes when the obligation in
 	// progress began (the package's initializers are their own): each
 	// obligation has the whole budget, so one that runs no longer leaves
@@ -397,7 +401,7 @@ func (in *interp) callPlanned(fr *frame, at *syntax.CallExpr, p *funcPlan, targs
 		return v, nil
 	}
 	if !p.ergo {
-		if in.sym == nil && check.GoBuiltin(fn) == "append" {
+		if check.GoBuiltin(fn) == "append" && (in.sym == nil || in.sym.tmpl && isSliceV(args[0])) {
 			// An extern of Go's append at its first shape, [T](xs []T, x T)
 			// []T (check/builtin.go): the prelude's xs.Append(x), which the
 			// lowering also writes as Go's append (MX-EVAPPEND).
@@ -411,7 +415,11 @@ func (in *interp) callPlanned(fr *frame, at *syntax.CallExpr, p *funcPlan, targs
 			}
 			return in.appendTo(fr, site, xs, args[1], nil)
 		}
-		if in.sym != nil {
+		if in.sym != nil && in.sym.tmpl {
+			if ab := in.symExtern(fr, at, fn, args); ab != nil { // foldvalue.go
+				return nil, ab
+			}
+		} else if in.sym != nil {
 			v, why := externTerm(fn, args)
 			if why != "" {
 				return nil, fr.abrupt(ctlUnsupported, at, nil, why)

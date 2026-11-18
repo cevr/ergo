@@ -52,6 +52,11 @@ func (in *interp) tailK(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt) {
 	if f.plain && fr.tries == 0 && in.sym == nil {
 		return in.exprFacts(fr, x, f)
 	}
+	if in.sym != nil && in.sym.holes != nil {
+		if h, ok := in.sym.holes[x]; ok {
+			return h, nil // a template's hole (foldvalue.go)
+		}
+	}
 	if f.ctx != nil {
 		return in.makeContextValue(fr, x, f.ctx)
 	}
@@ -312,6 +317,9 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 			}
 			r, ok := base.(*record)
 			if !ok {
+				if in.sym != nil {
+					return nil, nil, in.symStop(fr, x.X, base)
+				}
 				ice("a field of %T", base)
 			}
 			if path != nil {
@@ -341,7 +349,7 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 			}
 		}
 		t := fr.rtypeOf(x.X)
-		if _, isPtr := t.t.(*check.Pointer); isPtr && in.sym != nil {
+		if _, isPtr := t.t.(*check.Pointer); isPtr && in.sym != nil && !in.sym.tmpl {
 			// A field through a provider's cell (symbolic.go).
 			v, ab := in.expr(fr, x.X)
 			if ab != nil {
@@ -984,6 +992,11 @@ func (in *interp) callOf(fr *frame, x *syntax.CallExpr, xf *facts) (Value, *abru
 		}
 		if ab != nil {
 			return nil, ab
+		}
+		if isTerm(v) && in.sym != nil {
+			// A template run reads the length of a list that holds a
+			// hole, never of a hole (foldvalue.go).
+			return nil, in.symStop(fr, x.Args[0], v)
 		}
 		switch v := v.(type) {
 		case string:
