@@ -115,7 +115,7 @@ func (b *irBuilder) typeMatch(s *syntax.TypeSwitchStmt, ret bool, to *yieldTo) [
 		// slot (the emitter's scalarTags).
 		sw.K, sw.X = "switch", &irExpr{K: "local", Pos: p, I: sc.tag}
 	case fu != nil:
-		sw.K, sw.X = "switch", b.tagOf(subj, p)
+		sw.K, sw.X = "switch", b.flatTag(fu, subj, p, x) // ir_golib.go: a niche's tag too
 	default:
 		sw.X = &irExpr{K: "local", Pos: p, I: subj}
 	}

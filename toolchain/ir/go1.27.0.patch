@@ -424,10 +424,10 @@ index 0000000..d16dcaa
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_call.go b/src/cmd/compile/internal/ergoir/ergoir_call.go
 new file mode 100644
-index 0000000..a5cd3fc
+index 0000000..f5d5868
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_call.go
-@@ -0,0 +1,64 @@
+@@ -0,0 +1,68 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -463,11 +463,15 @@ index 0000000..a5cd3fc
 +func (c *ergoChecker) call(x *ergoExpr, fun syntax.Expr, sig *types2.Signature) (syntax.Expr, types2.Type) {
 +	// A package function may return several values, which only a tdef
 +	// binds (ergoir_tuple.go).
-+	if sig.Variadic() || sig.Params().Len() != len(x.Args) || !ergoSigOK(sig) && x.K != "pcall" {
++	// A variadic Go function takes its last argument spread, f(xs...),
++	// when the IR's Op says "..." (FLIP F7 FORK-GOLIB): types2's last
++	// parameter is then the slice.
++	dots := x.Op == "..." && sig.Variadic()
++	if sig.Variadic() != dots || sig.Params().Len() != len(x.Args) || !ergoSigOK(sig) && x.K != "pcall" {
 +		c.errorf(x.Pos, "ergoir: call of %s with %d arguments", x.Name, len(x.Args))
 +		return nil, nil
 +	}
-+	call := &syntax.CallExpr{Fun: fun}
++	call := &syntax.CallExpr{Fun: fun, HasDots: dots}
 +	call.SetPos(c.pos(x.Pos))
 +	for i, a := range x.Args {
 +		e, t := c.expr(a)

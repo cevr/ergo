@@ -121,7 +121,7 @@ func (b *irBuilder) operator(op string, t check.Type, site syntax.Node) {
 
 // expr is x after its implicit conversion (implicit, ir_union.go).
 func (b *irBuilder) expr(x syntax.Expr) *irExpr {
-	return b.implicit(x, b.valueCopy(x, b.exprOf(x))) // ir_copy.go
+	return b.implicit(x, b.valueCopy(x, b.foldConst(x, b.exprOf(x)))) // ir_constfold.go // ir_copy.go
 }
 
 func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
@@ -140,6 +140,15 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 	case *syntax.Ident:
 		switch o := b.l.info.Uses[x].(type) {
 		case *check.Var:
+			if i, held := b.held[o]; held {
+				return &irExpr{K: "deref", Pos: p, X: &irExpr{K: "local", Pos: p, I: i}} // ir_ownlit.go
+			}
+			if e, bound := b.lawArgs[o]; bound {
+				// A law's parameter, bound to a site's operand while a
+				// side of the law is lowered (ir_rewrite.go).
+				c := *e
+				return &c
+			}
 			if i, known := b.locals[o]; known {
 				return b.handoff(x, &irExpr{K: "local", Pos: p, I: i}) // ir_own.go
 			}
@@ -202,6 +211,9 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		// goType queued the declaration, unless the runtime's Go type
 		// stands for n (IRG4: a std record such as os.Exit), as fieldName.
 		td := b.l.typeDecl(n.Obj, x)
+		if td.goError {
+			return b.goErrorText(x, td, p) // ir_golib.go
+		}
 		field, ok := td.fieldName[x.Sel.Name]
 		if !ok {
 			irNo("selector that is not a field")
@@ -246,6 +258,9 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			lit.Elems = b.mapLit(x) // ir_pkg.go
 		case *check.Named:
 			td := b.l.typeDecl(tt.Obj, x) // queued by goType, as above
+			if td.goError {
+				return b.goErrorLit(x, t, p) // ir_golib.go
+			}
 			if td.kind == kindMachine {
 				return b.machineLit(x, lit) // ir_machine.go
 			}
@@ -334,10 +349,12 @@ func (b *irBuilder) constant(t check.Type, v constant.Value, x syntax.Expr, p ir
 	}
 	t = bt
 	switch v.Kind() {
+	// Each constant keeps its value as Go reads its spelling, for the
+	// fold of an operation over it (ir_constfold.go).
 	case constant.Bool:
-		return &irExpr{K: "const", Pos: p, T: gt, V: strconv.FormatBool(constant.BoolVal(v))}
+		return b.constValue(&irExpr{K: "const", Pos: p, T: gt, V: strconv.FormatBool(constant.BoolVal(v))}, v)
 	case constant.String:
-		return &irExpr{K: "const", Pos: p, T: gt, V: irString(constant.StringVal(v))}
+		return b.constValue(&irExpr{K: "const", Pos: p, T: gt, V: irString(constant.StringVal(v))}, v)
 	case constant.Int, constant.Float:
 		switch {
 		case isInteger(t) || bt.Kind == check.Duration:
@@ -345,13 +362,13 @@ func (b *irBuilder) constant(t check.Type, v constant.Value, x syntax.Expr, p ir
 			if i.Kind() != constant.Int {
 				irNo("constant kind %s", v.Kind())
 			}
-			return &irExpr{K: "const", Pos: p, T: gt, V: i.ExactString()}
+			return b.constValue(&irExpr{K: "const", Pos: p, T: gt, V: i.ExactString()}, i)
 		case bt.Kind == check.Float64:
 			f, _ := constant.Float64Val(constant.ToFloat(v))
-			return &irExpr{K: "const", Pos: p, T: gt, V: strconv.FormatFloat(f, 'g', -1, 64)}
+			return b.constValue(&irExpr{K: "const", Pos: p, T: gt, V: strconv.FormatFloat(f, 'g', -1, 64)}, constant.MakeFloat64(f))
 		case bt.Kind == check.Float32:
 			f, _ := constant.Float32Val(constant.ToFloat(v))
-			return &irExpr{K: "const", Pos: p, T: gt, V: strconv.FormatFloat(float64(f), 'g', -1, 32)}
+			return b.constValue(&irExpr{K: "const", Pos: p, T: gt, V: strconv.FormatFloat(float64(f), 'g', -1, 32)}, constant.MakeFloat64(float64(f)))
 		}
 	}
 	irNo("constant kind %s", v.Kind())

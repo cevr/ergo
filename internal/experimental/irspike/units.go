@@ -182,7 +182,20 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"call without a function", "G4"},
 	{"call of a Go builtin", "G4"},
 	{"call of a user extern", "G4"},
-	{"call of a Go package function", "G4"}, // import go (gostd); IRG6 r2 gates it, the census crashed on it
+	{"generic Go package type", "G4"},                       // FORK-GOCALL: a Go generic type's instance
+	{"Go function passed to a Go package function", "G4"},   // FORK-GOCALL: goDirect
+	{"Go callback that fails or has several results", "G4"}, // FORK-GOCALL: GoCallbackError's tunnel
+	{"Go callback of another shape", "G4"},                  // FORK-GOCALL: goCallbackIn's copies
+	{"call of a Go package function", "G4"},                 // import go (gostd); IRG6 r2 gates it, the census crashed on it
+	// FORK-GOLIB's remaining Go call forms (ir_golib.go).
+	{"Go call whose site drops its failure", "G4"},
+	{"Go context call from a pure function", "G4"},
+	{"Go call with a result of another type", "G4"},
+	{"fallible Go call with several results", "G4"},
+	{"Go method call on a receiver of another type", "G4"},
+	{"Go method call that takes its receiver's address", "G4"},
+	{"Go callback from a pure function", "G4"},
+	{"go.Error literal form", "G4"},
 	{"call of a std intrinsic", "G4"},
 	{"dot call of a std function", "G4"},
 	{"std call *", "G4"}, // hidden arguments, adapted results, converted operands
@@ -198,6 +211,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"owned site *", "G4"}, // the Ref's owned site's refusals (ir_refown.go, IR-OWN)
 	{"fallible owned site", "G4"},
 	{"owned operation whose form *", "G4"},
+	{"owning *", "G4"}, // an owned Ref site's in-place form and its other shapes (ir_ownlit.go)
 	{"operation call on a *", "G4"},
 	{"std operation without its runtime method", "G4"},
 	{"std Close", "G4"},

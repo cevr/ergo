@@ -305,7 +305,6 @@ func nativeCases(g nativeGen) []nativeCase {
 		{name: "path/filepath.IsAbs", args: []Value{s}, v1: func() any { return filepath.IsAbs(s) }},
 		{name: "hex.Encode", args: []Value{s}, v1: func() any { return v1digest.HexEncode(s) }},
 		{name: "time.DurationText", args: []Value{d}, v1: func() any { return v1.TimeDurationText(durationOf(d)) }},
-		{name: "time.Times", args: []Value{d, m}, v1: func() any { return int64(v1.TimeTimes(durationOf(d), int(m))) }},
 		{name: "time.subMono", args: []Value{d, m}, v1: func() any { return int64(v1.TimeSubMono(d, m)) }},
 		{name: "time.subWall", args: []Value{d % (1 << 34), x, m % (1 << 34), int64(i)}, v1: func() any { return int64(v1.TimeSub(d%(1<<34), x, m%(1<<34), int64(i))) }},
 		{name: "time.Divide", args: []Value{d, m}, anyDefect: true, v1: func() any { return int64(v1.TimeDivide(durationOf(d), int(m))) }},

@@ -250,7 +250,13 @@ func (b *irBuilder) valueSource(x *syntax.CallExpr, c *check.Call, args []syntax
 		if b.goType(b.l.info.Types[args[0]], x) != m {
 			irNo("Map write to a defined Map type")
 		}
-		b.keepImport("var _ = " + b.l.goPkg("maps") + ".Clone[map[" + b.fc.goType(c.TypeArgs[0]) + "]" + b.fc.goType(c.TypeArgs[1]) + "]")
+		if keep := "map[" + b.fc.goType(c.TypeArgs[0]) + "]" + b.fc.goType(c.TypeArgs[1]); b.namesTypeParam(keep) {
+			// A generic body's Map type is no package-level type, as
+			// Clip's above (I-FLIP: examples/fk-domains search/cache).
+			b.keepImport("var _ = " + b.l.goPkg("maps") + ".Clone[map[string]bool]")
+		} else {
+			b.keepImport("var _ = " + b.l.goPkg("maps") + ".Clone[" + keep + "]")
+		}
 		src := irArgs[0]
 		irArgs[0] = &irExpr{K: "pcall", Pos: src.Pos, T: "maps", Name: "Clone", V: m + ", " + k + ", " + v, Args: []*irExpr{src}}
 	}
@@ -318,6 +324,8 @@ func (b *irBuilder) opCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*irStm
 		irNo("operation call form")
 	case b.env < 0:
 		irNo("operation call from a pure function")
+	case b.inPlaceSite(x):
+		return b.ownedSiteCall(x, c, b.fc.refSiteOf(x), p) // ir_ownlit.go
 	}
 	n, ok := b.l.info.Types[c.Recv].(*check.Named)
 	if !ok {
@@ -497,6 +505,9 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	case c.Recv != nil:
 		irNo("dot call of a std function")
 	case b.fc.refSiteOf(x) != nil:
+		if b.inPlaceSite(x) {
+			return b.ownedSiteCall(x, c, b.fc.refSiteOf(x), p) // ir_ownlit.go
+		}
 		return b.ownedRefCall(x, c, b.fc.refSiteOf(x), x.Args, nil, p) // ir_refown.go
 	case defersCall(body) || commaOk(body):
 		irNo("std call with an adapted result")

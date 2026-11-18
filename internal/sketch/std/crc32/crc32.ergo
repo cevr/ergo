@@ -3,8 +3,7 @@
 // It is Go's hash/crc32 with IEEETable over Ergo's strings, which hold
 // bytes (types.md, Strings 1). Checksum calls Go's hash/crc32 through
 // import go, as a user binds it (NP4f), on a view of s's bytes (interop.md,
-// Foreign facts 8); Update binds a runtime/v1 body (runtime/v1/digest.go)
-// until import go reads Go's variable IEEETable (GBX3).
+// Foreign facts 8); Update passes Go's package variable IEEETable (GBX3).
 
 import go hash/crc32
 import strings
@@ -14,7 +13,7 @@ func Checksum(s string) uint32 { crc32.ChecksumIEEE(strings.Bytes(s)) }
 
 // Update is the checksum crc carried over the bytes of s, as Go's Update
 // with IEEETable: a checksum of a text read in parts.
-extern go ergo.local/prototype/runtime/v1/digest.Crc32Update func Update(crc uint32, s string) uint32
+func Update(crc uint32, s string) uint32 { crc32.Update(crc, crc32.IEEETable, strings.Bytes(s)) }
 
 // UpdateChains: the checksum of a, carried over b, is the checksum of a +
 // b.
