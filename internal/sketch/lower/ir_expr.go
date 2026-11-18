@@ -152,6 +152,9 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			if i, known := b.locals[o]; known {
 				return b.handoff(x, &irExpr{K: "local", Pos: p, I: i}) // ir_own.go
 			}
+			if i, built := b.strBufs[o]; built {
+				return b.strCall("StrGet", i, p) // strbuf.go
+			}
 			if b.scalars[o] != nil {
 				// Its gather writes statements: a value (ir_scalar.go).
 				irNo("scalar-form local inside an expression")

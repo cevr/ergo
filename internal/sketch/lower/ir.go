@@ -45,8 +45,11 @@ type IRReport struct {
 	Fold int `json:"fold,omitempty"`
 	// Seed counts the slice literals the IR bodies seed with room
 	// (seedcap.go).
-	Seed int    `json:"seed,omitempty"`
-	Hash string `json:"hash"`
+	Seed int `json:"seed,omitempty"`
+	// StrBuf counts the string locals the IR bodies build in a buffer
+	// (strbuf.go).
+	StrBuf int    `json:"strbuf,omitempty"`
+	Hash   string `json:"hash"`
 	// Forms counts the IR forms the bodies held before erasure, by
 	// kind and layout ("match/flat"; ir_forms.go): in memory only.
 	Forms map[string]int `json:"-"`
@@ -413,6 +416,12 @@ type irBuilder struct {
 	labels int
 	// scalars are the locals in the scalar form (ir_scalar.go).
 	scalars map[*check.Var]*irScalar
+	// strVars are the locals in the built string's form, strBufs their
+	// StrBuf locals once declared, and strSites the forms built
+	// (strbuf.go).
+	strVars  map[*check.Var]bool
+	strBufs  map[*check.Var]int
+	strSites int
 	// names allocates the temporaries' names (ir_fail.go, tempNames).
 	names *namer
 	// given are the names the body's locals and temporaries have: a
@@ -616,8 +625,9 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	}
 	b.ops = &irOpBody{f: f, env: b.env} // ir_forms_op.go
 	b.fn = &irFunc{Name: name, Pos: b.pos(f.Decl, f.Decl.Pos()), End: b.pos(f.Decl, f.Decl.Body.Rbrace)}
-	b.names = b.tempNames(f.Decl.Body) // ir_fail.go
-	b.params = map[int]bool{}          // ir_hoist.go: the parameters' locals, before openOwn's
+	b.names = b.tempNames(f.Decl.Body)            // ir_fail.go
+	b.strVars = strBufVars(b.l.info, f.Decl.Body) // strbuf.go
+	b.params = map[int]bool{}                     // ir_hoist.go: the parameters' locals, before openOwn's
 	for _, l := range b.locals {
 		b.params[l] = true
 	}
@@ -648,6 +658,7 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	st.report.Merge += b.mergeSites
 	st.report.Fold += b.foldSites
 	st.report.Seed += b.seedSites
+	st.report.StrBuf += b.strSites
 	st.report.FormSites = append(st.report.FormSites, b.forms...) // ir_forms_report.go
 	return true
 }
