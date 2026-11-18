@@ -831,6 +831,12 @@ func (c *checker) implementsCapturing(v Type, it *Interface, checkReceiver bool,
 // provides its operation for a value with a place, &x.
 func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, capture *bool, declared Type) string {
 	foreign := false
+	// A Go interface spells no mut: a function on mut T provides its
+	// operation as Go's pointer-receiver method does, by the conversion
+	// rule (interop.md, Checking).
+	if declared != nil && isHostNamed(declared) {
+		declared = nil
+	}
 	// The method set of *T holds the *T-receiver methods too, as in Go
 	// (N1); T's holds only the value-receiver ones.
 	ptr := false
