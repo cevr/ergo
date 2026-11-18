@@ -36,16 +36,26 @@ func Add[T comparable](c *Counted[T], v T) ID[T] {
 }
 
 // Use counts one more holder of id. An id past the end is a defect.
-func Use[T comparable](c *Counted[T], id ID[T]) { c.counts[int(id.n)] = c.counts[int(id.n)] + 1 }
+func Use[T comparable](c *Counted[T], id ID[T]) { UseN(c, id, 1) }
+
+// UseN counts n more holders of id at once: a run of cells taking one
+// value is one UseN, not n Uses. An id past the end is a defect.
+func UseN[T comparable](c *Counted[T], id ID[T], n int) {
+	c.counts[int(id.n)] = c.counts[int(id.n)] + uint32(n)
+}
 
 // Release counts one holder of id less; at 0 the value leaves the set and
 // id is free. A Release of an id with no holder is a defect.
-func Release[T comparable](c *Counted[T], id ID[T]) {
+func Release[T comparable](c *Counted[T], id ID[T]) { ReleaseN(c, id, 1) }
+
+// ReleaseN counts n holders of id less at once, as n Releases do. A
+// ReleaseN of more holders than id has is a defect.
+func ReleaseN[T comparable](c *Counted[T], id ID[T], n int) {
 	let i = int(id.n)
-	if c.counts[i] == 0 {
+	if int(c.counts[i]) < n {
 		Unreachable("dense: Release of an id that no holder holds")
 	}
-	c.counts[i] = c.counts[i] - 1
+	c.counts[i] = c.counts[i] - uint32(n)
 	if c.counts[i] == 0 {
 		c.ids = c.ids.Delete(c.rows[i])
 		c.free = c.free.Append(id)

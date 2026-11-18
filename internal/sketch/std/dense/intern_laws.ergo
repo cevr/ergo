@@ -71,9 +71,10 @@ law ValueOfIntern(xs []int, probe int) {
 	ok && Interned(s) == len(values) && Texts(t) == len(texts)
 }
 
-// ReleaseThenReuse: a run of up to 63 Add, Use and Release over 8 values,
-// drawn from a seed, agrees with a model of each live value's id and
-// count: a live value keeps its id, a new value never takes a live id, an
+// ReleaseThenReuse: a run of up to 63 Add, Use, UseN, Release and
+// ReleaseN over 8 values, drawn from a seed, agrees with a model of each
+// live value's id and count: a live value keeps its id, a new value never
+// takes a live id, an
 // id is reused only after its count fell to 0, and Member, Uses and Live
 // agree, and Find finds exactly the live values.
 law ReleaseThenReuse(seed int, count int) {
@@ -92,12 +93,21 @@ law ReleaseThenReuse(seed int, count int) {
 			if c.Add(v) != id.Value {
 				return false
 			}
-			if op == 1 {
+			let has = maps.GetOr(held, v, 0)
+			let k = (x / 65536) % 4
+			if op == 1 && k == 0 {
 				c.Use(id.Value)
-				held[v] = maps.GetOr(held, v, 0) + 1
-			} else if op == 2 && maps.GetOr(held, v, 0) > 0 {
+				held[v] = has + 1
+			} else if op == 1 {
+				c.UseN(id.Value, k)
+				held[v] = has + k
+			} else if op == 2 && has > 0 && k == 0 {
 				c.Release(id.Value)
-				held[v] = maps.GetOr(held, v, 0) - 1
+				held[v] = has - 1
+			} else if op == 2 && has > 0 {
+				let m = 1 + k%has
+				c.ReleaseN(id.Value, m)
+				held[v] = has - m
 				if maps.GetOr(held, v, 0) == 0 {
 					live = live.Delete(v)
 					held = held.Delete(v)
