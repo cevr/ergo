@@ -16,6 +16,9 @@ const (
 	// Advisory is the opt-in preset of rules a reader judges: hints that
 	// never change the exit code by their severity (spec §4 point 2).
 	Advisory = "advisory"
+	// Speed is the opt-in preset of hints about work a loop repeats or a
+	// call copies (catalog §3, PF5 to PF18).
+	Speed = "speed"
 )
 
 // builtinRules are every built-in rule.
@@ -30,6 +33,7 @@ var builtinRules = []*Rule{
 	foreignOutsideAdapter, capabilityOutsideOwner, consoleOutsideEntry, testReadsUnexported,
 	causeDropped, failureAsVariant, vacuousTest, parameterClump, constantArgument, longParameterList,
 	narrationComment, commentedCode,
+	snapshotArgument, repeatedTraversal, quadraticScan, concatInLoop, largeValueCopy,
 }
 
 // builtinPresets are the built-in presets over builtinRules.
@@ -70,6 +74,11 @@ func builtinPresets() []Preset {
 			Name:  Advisory,
 			Doc:   "Comments a reader would cut, as hints: narration that repeats the code line under it, and code kept in a comment. Opt-in; precision 0.00 until a read sample reaches 0.80.",
 			Rules: on(narrationComment, commentedCode),
+		},
+		{
+			Name:  Speed,
+			Doc:   "Hints about work a loop repeats or a call copies: a *s argument the lowering copies, a second walk of one collection, a walk inside a walk of it, a string grown by + in a loop, a big element copied every turn. Opt-in; no precision published until a read sample reaches 0.80.",
+			Rules: on(snapshotArgument, repeatedTraversal, quadraticScan, concatInLoop, largeValueCopy),
 		},
 	}
 }
