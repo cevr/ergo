@@ -46,11 +46,11 @@ func parseSignature(p mut parser, funcPos uint32, ctx int, lit bool) uint32 {
 	let rm = mark(p.t)
 	if startsType(p) {
 		let ty = parseResultType(p, ctx)
-		pushW(&p.t, mkField(&p.t, mark(p.t), none, some(ty), none, none, none, none, none, none, none, none))
+		pushW(&p.t, mkField(&p.t, mark(p.t), none, some(ty), none, none, none, none, none, none, none, none, none))
 	}
 	if p.tk == Fails {
 		let er = parseFails(p)
-		pushW(&p.t, mkField(&p.t, mark(p.t), none, some(er), none, none, none, none, none, none, none, none))
+		pushW(&p.t, mkField(&p.t, mark(p.t), none, some(er), none, none, none, none, none, none, none, none, none))
 	}
 	let mut results = none
 	if mark(p.t) > rm {
@@ -268,14 +268,14 @@ func parseParameters(p mut parser, decl bool, lit bool) uint32 {
 			if lit && kindAt(p, e.typ) == KIdent {
 				let fm = mark(p.t)
 				pushW(&p.t, e.typ)
-				pushW(&p.t, mkField(&p.t, fm, none, none, none, none, none, none, none, none, none, own))
+				pushW(&p.t, mkField(&p.t, fm, none, none, none, none, none, none, none, none, none, own, none))
 			} else {
 				if lit && !p.litErr {
 					p.litErr = true
 					p.litPos = nodePos(p, e.typ)
 					p.litLen = nodeEnd(p, e.typ) - p.litPos
 				}
-				pushW(&p.t, mkField(&p.t, mark(p.t), none, some(e.typ), none, none, none, none, none, none, none, own))
+				pushW(&p.t, mkField(&p.t, mark(p.t), none, some(e.typ), none, none, none, none, none, none, none, own, none))
 			}
 		}
 		p.entTop = base
@@ -300,7 +300,7 @@ func parseParameters(p mut parser, decl bool, lit bool) uint32 {
 		}
 		pushW(&p.t, entName(p, e))
 		let own = if e.ambiguous { none } else { e.own }
-		let f = mkField(&p.t, pm, none, some(e.typ), none, none, none, none, e.where, e.wherePos, e.purePos, own)
+		let f = mkField(&p.t, pm, none, some(e.typ), none, none, none, none, e.where, e.wherePos, e.purePos, own, none)
 		pushW(&p.t, f)
 		pm = mark(p.t)
 		npend = 0
@@ -341,7 +341,7 @@ func endsInNeeds(p mut parser, t uint32) bool {
 		let res = fixed(p.t, t, 7, 4)
 		if res != none && items(p.t, res-uint32(1), 2) > 0 {
 			let last = lastItem(p.t, res-uint32(1), 2)
-			let ty = fixed(p.t, last, 10, 1)
+			let ty = fixed(p.t, last, 11, 1)
 			return ty != none && endsInNeeds(p, ty-uint32(1))
 		}
 		return false

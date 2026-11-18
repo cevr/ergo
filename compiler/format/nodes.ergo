@@ -492,6 +492,10 @@ func operationType(p mut Printer, t int) {
 			p.token(p.at(p.k(m, "Own"), "At"), "own")
 			p.space()
 		}
+		if p.hasK(m, "Mut") {
+			p.token(p.at(p.k(m, "Mut"), "At"), "mut")
+			p.space()
+		}
 		p.ident(p.ks(m, "Names")[0])
 		p.signature(p.k(m, "Type"))
 	}, false)

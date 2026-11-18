@@ -216,7 +216,7 @@ func providerPlanWhy(p mut parser, c uint32, tparams uint32, name uint32) string
 		let l = tparams - uint32(1)
 		for f in 0..items(p.t, l, 2) {
 			let fl = item(p.t, l, f)
-			for k in 0..items(p.t, fl, 10) {
+			for k in 0..items(p.t, fl, 11) {
 				if params == 0 {
 					firstParam = item(p.t, fl, k)
 				}
@@ -240,7 +240,8 @@ func identText(p mut parser, x uint32) string {
 }
 
 // parseTypeParams parses `[T ordered]`, `[A, B]`, `[K comparable, V]`,
-// `[T lent Counter]` or `[E any, K comparable]` with Go's grouping.
+// `[T own]`, `[T own Counter]`, `[T lent Counter]` (for ergo fix) or
+// `[E any, K comparable]` with Go's grouping.
 func parseTypeParams(p mut parser) uint32 {
 	let open = want(p, LBrack)
 	let lm = mark(p.t)
@@ -254,7 +255,18 @@ func parseTypeParams(p mut parser) uint32 {
 				lentW = some(ty)
 				ty = parseTypeName(p, "a constraint")
 			}
-			let f = mkField(&p.t, pm, none, some(ty), none, none, lentW, none, none, none, none, none)
+			// `own` marks the parameters a resource may bind, alone or
+			// before a constraint (types.md, Generics 9). It is a word.
+			let mut ownW = none
+			let mut tyW = some(ty)
+			if identIs(p, ty, "own") {
+				ownW = someTok(int(p.t.tok[int(ty)]))
+				tyW = none
+				if p.tk != Comma && p.tk != RBrack {
+					tyW = some(parseTypeName(p, "a constraint"))
+				}
+			}
+			let f = mkField(&p.t, pm, none, tyW, none, none, lentW, none, none, none, none, ownW, none)
 			pushW(&p.t, f)
 			pm = mark(p.t)
 		}
@@ -263,7 +275,7 @@ func parseTypeParams(p mut parser) uint32 {
 		}
 	}
 	if mark(p.t) > pm {
-		let f = mkField(&p.t, pm, none, none, none, none, none, none, none, none, none, none)
+		let f = mkField(&p.t, pm, none, none, none, none, none, none, none, none, none, none, none)
 		pushW(&p.t, f)
 	}
 	if p.failed {
@@ -274,11 +286,12 @@ func parseTypeParams(p mut parser) uint32 {
 	for j in lm..mark(p.t)-1 {
 		let f = p.t.stack[j]
 		let g = p.t.stack[j+1]
-		let ft = fixed(p.t, f, 10, 1)
-		let gt = fixed(p.t, g, 10, 1)
-		if ft != none && identIs(p, ft-uint32(1), "any") && gt != none && !identIs(p, gt-uint32(1), "any") {
-			setFixed(&p.t, f, 10, 3, ft)
-			setFixed(&p.t, f, 10, 1, none)
+		let ft = fixed(p.t, f, 11, 1)
+		let gt = fixed(p.t, g, 11, 1)
+		let gOwn = fixed(p.t, g, 11, 9)
+		if ft != none && identIs(p, ft-uint32(1), "any") && (gt != none || gOwn != none) && (gt == none || !identIs(p, gt-uint32(1), "any")) {
+			setFixed(&p.t, f, 11, 3, ft)
+			setFixed(&p.t, f, 11, 1, none)
 		}
 	}
 	if p.tk != RBrack {
@@ -349,12 +362,16 @@ func memberList(p mut parser, lbrace int) members {
 		} else if p.tk == Ident && peek(p, 1) == LBrack && bracketsThenParen(p) {
 			errorAt(p, tpos(p, p.i+1), 1, "an operation has no type parameters; declare them on its type: `type Name[T] { … }`")
 			return r
-		} else if (p.tk == Ident && peek(p, 1) == LParen) || (isWord(p, "own") && peek(p, 1) == Ident && peek(p, 2) == LParen) {
+		} else if (p.tk == Ident && peek(p, 1) == LParen) || (isWord(p, "own") && peek(p, 1) == Ident && peek(p, 2) == LParen) || (p.tk == Mut && peek(p, 1) == Ident && peek(p, 2) == LParen) {
 			kind = memberOperation
 			let cp = save(p)
 			let fm = mark(p.t)
 			let mut own = none
-			if peek(p, 1) != LParen {
+			let mut mutW = none
+			if p.tk == Mut {
+				mutW = someTok(p.i) // `mut Bump()`: the operation writes its receiver
+				next(p)
+			} else if peek(p, 1) != LParen {
 				own = someTok(p.i)
 				next(p)
 			}
@@ -365,7 +382,7 @@ func memberList(p mut parser, lbrace int) members {
 				pushW(&p.t, opAsField(p, doc))
 				kind = -1
 			} else {
-				let op = mkField(&p.t, fm, doc, some(ft), none, none, none, none, none, none, none, own)
+				let op = mkField(&p.t, fm, doc, some(ft), none, none, none, none, none, none, none, own, mutW)
 				pushW(&p.t, op)
 				if r.ops == 0 {
 					r.firstOp = op
@@ -386,7 +403,7 @@ func memberList(p mut parser, lbrace int) members {
 			let dots = p.i
 			next(p)
 			let ty = parseType(p, ctxMember)
-			pushW(&p.t, mkField(&p.t, fm, doc, some(ty), none, none, none, someTok(dots), none, none, none, none))
+			pushW(&p.t, mkField(&p.t, fm, doc, some(ty), none, none, none, someTok(dots), none, none, none, none, none))
 		} else {
 			expected(p, "expected a field, an operation or a law, found ")
 			return r
@@ -430,7 +447,7 @@ func opAsField(p mut parser, doc uint32) uint32 {
 	let closing = p.i
 	next(p)
 	let tup = mkTuple(&p.t, tm, someTok(open), someTok(closing))
-	mkField(&p.t, fm, doc, some(tup), none, none, none, none, none, none, none, none)
+	mkField(&p.t, fm, doc, some(tup), none, none, none, none, none, none, none, none, none)
 }
 
 // restore goes back to the token and tree of st (a backtrack).
@@ -452,7 +469,7 @@ func tupleShaped(p mut parser, ft uint32) bool {
 	}
 	for j in 0..items(p.t, l, 2) {
 		let f = item(p.t, l, j)
-		if items(p.t, f, 10) > 0 || fixed(p.t, f, 10, 1) == none {
+		if items(p.t, f, 11) > 0 || fixed(p.t, f, 11, 1) == none {
 			return false
 		}
 	}
@@ -514,7 +531,7 @@ func parseFieldDecl(p mut parser, doc uint32) uint32 {
 			errorNode(p, k, "a wire key names one field; split the field group")
 		}
 	}
-	mkField(&p.t, fm, doc, some(ty), key, none, none, none, none, none, none, none)
+	mkField(&p.t, fm, doc, some(ty), key, none, none, none, none, none, none, none, none)
 }
 
 func groupsName(k uint8) bool {
@@ -590,7 +607,7 @@ func parseVariant(p mut parser) uint32 {
 		dropLast(&p.t)
 		for j in 0..n {
 			let a = p.t.stack[m+j]
-			let f = mkField(&p.t, mark(p.t), none, some(a), none, none, none, none, none, none, none, none)
+			let f = mkField(&p.t, mark(p.t), none, some(a), none, none, none, none, none, none, none, none, none)
 			p.t.stack[m+j] = f
 		}
 		targs = some(mkFieldList(&p.t, m, someTok(lb), someTok(rb)))
@@ -851,7 +868,7 @@ func parseExternDecl(p mut parser, doc uint32) uint32 {
 		let rest = targetPath(text)
 		let mpath = targetPath(rest)
 		let mtype = targetName(rest)
-		if !p.failed && (mpath == "" || !isIdentifier(mtype) || !isIdentifier(name) || items(p.t, r, 2) != 1 || items(p.t, item(p.t, r, 0), 10) != 1) {
+		if !p.failed && (mpath == "" || !isIdentifier(mtype) || !isIdentifier(name) || items(p.t, r, 2) != 1 || items(p.t, item(p.t, r, 0), 11) != 1) {
 			errorf(p, "an extern method has one named receiver and the target path.Type.Method")
 		}
 	}

@@ -106,7 +106,7 @@ let schema = Map[string, string]{
 	"ContextDecl":        "Doc n Let p Context p Name n Provides n Needs n Body n",
 	"ContextBody":        "Lbrace p Entries l Rbrace p",
 	"ContextEntry":       "Doc n Kind i Replace p Key n Keys l Assign p Value n",
-	"Field":              "Doc n Names l Type n Key n Any p Lent p Include b Dots p WherePos p Where n Pure b PurePos p Own n",
+	"Field":              "Doc n Names l Type n Key n Any p Lent p Include b Dots p WherePos p Where n Pure b PurePos p Own n Mut n",
 	"FieldList":          "Opening p List l Closing p",
 	"NeedsClause":        "Needs p Names l",
 	"TakesClause":        "Takes p Names l",

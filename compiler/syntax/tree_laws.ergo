@@ -88,7 +88,10 @@ func children(t Tree, x uint32, out []uint32) []uint32 {
 
 // fixedWords is the count of fixed words that end a record of kind k.
 func fixedWords(k uint8) int {
-	if k == KTypeDecl || k == KField {
+	if k == KField {
+		return 11
+	}
+	if k == KTypeDecl {
 		return 10
 	}
 	if k == KLawDecl {

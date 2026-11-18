@@ -79,6 +79,7 @@ type View =
 		WherePos int,
 		PurePos  int,
 		Own      int,
+		Mut      int,
 	}
 	| FieldList{Opening int, List List, Closing int}
 	| NeedsClause{Needs int, Names List}
@@ -426,7 +427,7 @@ func Put(t mut Tree, v View) dense.ID[Node] {
 		mkContextEntry(t, m, wtok(x.Doc), wtok(x.Replace), wid(x.Key), wtok(x.Assign), wopt(x.Value))
 	case Field as x:
 		pushList(t, x.Names)
-		mkField(t, m, wtok(x.Doc), wopt(x.Type), wopt(x.Key), wopt(x.Any), wopt(x.Lent), wtok(x.Dots), wopt(x.Where), wtok(x.WherePos), wtok(x.PurePos), wtok(x.Own))
+		mkField(t, m, wtok(x.Doc), wopt(x.Type), wopt(x.Key), wopt(x.Any), wopt(x.Lent), wtok(x.Dots), wopt(x.Where), wtok(x.WherePos), wtok(x.PurePos), wtok(x.Own), wtok(x.Mut))
 	case FieldList as x:
 		pushList(t, x.List)
 		mkFieldList(t, m, wtok(x.Opening), wtok(x.Closing))
@@ -653,7 +654,7 @@ func mkContextEntry(t mut Tree, m int, doc uint32, replace uint32, key uint32, a
 	rec(t, KContextEntry, uint32(0), m)
 }
 
-func mkField(t mut Tree, m int, doc uint32, typ uint32, key uint32, anyW uint32, lent uint32, dots uint32, where uint32, wherePos uint32, purePos uint32, own uint32) uint32 {
+func mkField(t mut Tree, m int, doc uint32, typ uint32, key uint32, anyW uint32, lent uint32, dots uint32, where uint32, wherePos uint32, purePos uint32, own uint32, mutW uint32) uint32 {
 	pushW(t, doc)
 	pushW(t, typ)
 	pushW(t, key)
@@ -664,6 +665,7 @@ func mkField(t mut Tree, m int, doc uint32, typ uint32, key uint32, anyW uint32,
 	pushW(t, wherePos)
 	pushW(t, purePos)
 	pushW(t, own)
+	pushW(t, mutW)
 	rec(t, KField, uint32(0), m)
 }
 

@@ -188,7 +188,7 @@ func node(d mut dumper, depth int, id dense.ID[syntax.Node]) {
 		list(d, c, x.Keys)
 		opt(d, c, x.Value)
 	case syntax.Field as x:
-		line(d, depth, "Field "+a+" doc="+itoa(x.Doc)+" Any="+itoa(optPos(d, x.Any))+" Lent="+itoa(optPos(d, x.Lent))+" Include="+b01(x.Dots >= 0)+" Dots="+itoa(tp(d, x.Dots))+" WherePos="+itoa(zp(d, x.WherePos))+" Pure="+b01(x.PurePos >= 0)+" PurePos="+itoa(tp(d, x.PurePos))+" Own="+itoa(tp(d, x.Own)))
+		line(d, depth, "Field "+a+" doc="+itoa(x.Doc)+" Any="+itoa(optPos(d, x.Any))+" Lent="+itoa(optPos(d, x.Lent))+" Include="+b01(x.Dots >= 0)+" Dots="+itoa(tp(d, x.Dots))+" WherePos="+itoa(zp(d, x.WherePos))+" Pure="+b01(x.PurePos >= 0)+" PurePos="+itoa(tp(d, x.PurePos))+" Own="+itoa(tp(d, x.Own))+" Mut="+itoa(tp(d, x.Mut)))
 		list(d, c, x.Names)
 		opt(d, c, x.Type)
 		opt(d, c, x.Key)
