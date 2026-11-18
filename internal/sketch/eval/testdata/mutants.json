@@ -1555,6 +1555,26 @@
       "to": "fn.Pkg == nil || fn.Pkg.Std() || fn.Pkg.Host() {",
       "rule": "The evaluator runs a listed Go function a package reaches through import go, as std's bodies now do (NP4f).",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "np4furl-eval-go-error-dropped",
+      "origin": "wf10 NP4f-URL (NS lane)",
+      "file": "internal/sketch/eval/gohost.go",
+      "from": "\t\tif err, _ := outs[n-1].Interface().(error); err != nil {\n",
+      "to": "\t\tif err, _ := outs[n-1].Interface().(error); err != nil && false {\n",
+      "rule": "A Go call's non-nil error is its go.Error failure in the evaluator, as in the built program.",
+      "anchor": {"tests":["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]},
+      "killers": ["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]
+    },
+    {
+      "name": "np4furl-eval-nil-field-some",
+      "origin": "wf10 NP4f-URL (NS lane)",
+      "file": "internal/sketch/eval/gohost.go",
+      "from": "\t\tif v.IsNil() {\n\t\t\treturn optionOf(t, nil, false), true\n",
+      "to": "\t\tif false {\n\t\t\treturn optionOf(t, nil, false), true\n",
+      "rule": "A nil Go pointer field is None in the evaluator, as in the built program.",
+      "anchor": {"tests":["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]},
+      "killers": ["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]
     }
   ]
 }
