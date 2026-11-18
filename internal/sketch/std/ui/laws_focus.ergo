@@ -226,8 +226,8 @@ func ringName(kinds []int, i int, j int) string {
 // was last on (its first before any); an arrow, Home or End moves inside
 // the roving group the focus is in, round at the ends, and does nothing
 // elsewhere; a click puts the focus on what it pressed. The focused node
-// shows its focus look after a key moved the focus there, and not after
-// a click.
+// shows its focus look after a key moved the focus there, and after a
+// click its hover look (the pointer stays over it).
 law FocusFollowsTheRing(seed int, steps int) {
 	let mut r = seeded(seed)
 	let m = time.NewManual(0)
@@ -334,7 +334,7 @@ law FocusFollowsTheRing(seed int, steps int) {
 			}
 			match FocusOf(&h) {
 			case Some[Id[int]] as id:
-				let shown LookState = if visible { FocusVisible } else { Rest }
+				let shown LookState = if visible { FocusVisible } else { Hover }
 				if LookStateAt(&h, id.Value) != shown {
 					return false
 				}

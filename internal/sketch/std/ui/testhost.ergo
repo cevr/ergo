@@ -382,8 +382,9 @@ func PointNowhere[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.St
 
 // ClickNowhere clicks where no node is, as a click on a window's
 // background does: the pointer leaves every node and the focus every
-// node (UG3).
+// node (UG3). A click ends any hold, as any Down elsewhere does.
 func ClickNowhere[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
+	h.captured = None
 	try PointNowhere(h)
 	FocusSession(&h.session, None)
 }
