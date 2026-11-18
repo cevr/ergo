@@ -128,8 +128,110 @@ func valueOf[T wire](v T) json.Value needs wired[T] {
 // FitOf compares the observation obs with v: obs laid over v's wire form,
 // decoded as T, must be v again. A member of obs that the decoded value
 // does not write is a field T does not have.
-func FitOf[T wire](v T, obs json.Value) Fit needs wired[T] {
-	let base = valueOf(v)
+func FitOf[T wire](v T, obs json.Value) Fit needs wired[T] { fitOn(v, valueOf(v), obs) }
+
+// quick is fitValue's answer, from the wire forms alone: Same (every
+// observed member equals v's), Other (a member differs, every one of a
+// kind that decodes exactly), OtherTag (a union tag differs: overlay's
+// None), or Unsure (only the typed decode can tell; it may be Bad).
+type quick = Same{} | Other{} | OtherTag{} | Unsure{}
+
+// fitValue compares obs with base, v's wire form, without decoding. base
+// is a value the codec wrote, so a member equal to base's reads back as
+// v's. A member base lacks, a value of another kind, and two different
+// numbers or strings (a codec may read two texts as one value) are Unsure.
+// A differing tag anywhere wins, as overlay's None does; then Unsure, since
+// the decode may find the observation Bad; then Other.
+func fitValue(base json.Value, obs json.Value) quick {
+	match obs {
+	case json.Object as o:
+		match base {
+		case json.Object as b:
+			let mut unsure = false
+			let mut other = false
+			for m in o.Members {
+				let mut found = false
+				for n in b.Members {
+					if n.Key == m.Key {
+						found = true
+						if m.Key == "_tag" {
+							if n.Value != m.Value {
+								return OtherTag
+							}
+						} else {
+							match fitValue(n.Value, m.Value) {
+							case OtherTag:
+								return OtherTag
+							case Unsure:
+								unsure = true
+							case Other:
+								other = true
+							case Same:
+							}
+						}
+					}
+				}
+				if !found {
+					if m.Key == "_tag" {
+						return OtherTag
+					}
+					unsure = true
+				}
+			}
+			if unsure { Unsure } else if other { Other } else { Same }
+		case _:
+			Unsure
+		}
+	case json.Boolean as x:
+		match base {
+		case json.Boolean as y:
+			if x.Value == y.Value { Same } else { Other }
+		case _:
+			Unsure
+		}
+	case json.Array as x:
+		// overlay replaces an array whole, so each element must equal
+		// base's to be Same (a partial element is no overlay), and only a
+		// differing bool, which decodes exactly, makes it Other.
+		match base {
+		case json.Array as y:
+			if len(x.Items) != len(y.Items) {
+				return Unsure
+			}
+			let mut other = false
+			for i in 0..len(x.Items) {
+				if x.Items[i] != y.Items[i] {
+					match x.Items[i] {
+					case json.Boolean:
+						match y.Items[i] {
+						case json.Boolean:
+							other = true
+						case _:
+							return Unsure
+						}
+					case _:
+						return Unsure
+					}
+				}
+			}
+			if other { Other } else { Same }
+		case _:
+			Unsure
+		}
+	case _:
+		if obs == base { Same } else { Unsure }
+	}
+}
+
+// fitOn is FitOf with v's wire form base already made.
+func fitOn[T wire](v T, base json.Value, obs json.Value) Fit needs wired[T] {
+	match fitValue(base, obs) {
+	case Same:
+		return Fits
+	case Other, OtherTag:
+		return Differs
+	case Unsure:
+	}
 	match overlay(base, obs) {
 	case None:
 		return Differs
@@ -407,9 +509,11 @@ func Conform[S wire, E wire](g Graph[S, E], trace []Obs, o Options, laws []Invar
 	let mut rep = Report{Lines: 0, Peak: 0, Hidden: 0, Unseen: []string{}, Unobserved: []string{}}
 	// The signals' wire forms, and which ones the trace took.
 	let mut sigs = []json.Value{}
+	let mut tags = []string{}
 	let mut taken = []bool{}
 	for e in g.Signals {
 		sigs = sigs.Append(valueOf(e))
+		tags = tags.Append(tagOf(sigs[len(sigs)-1]))
 		taken = taken.Append(false)
 	}
 	// The state's fields, and which ones the trace observed.
@@ -479,10 +583,13 @@ func Conform[S wire, E wire](g Graph[S, E], trace []Obs, o Options, laws []Invar
 			let want = signalObs(name.Value, ob.Args)
 			let mut named = false
 			for e in 0..len(g.Signals) {
-				if tagOf(sigs[e]) == name.Value {
+				if tags[e] == name.Value {
 					named = true
+				} else if tags[e] != "" {
+					// Another variant: overlay's tag rule makes it Differs.
+					continue
 				}
-				match FitOf(g.Signals[e], want) {
+				match fitOn(g.Signals[e], sigs[e], want) {
 				case Fits:
 					allowed = allowed.Append(e)
 				case Differs:
