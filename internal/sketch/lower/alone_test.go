@@ -210,3 +210,102 @@ func handedIn(text, head string) int {
 	}
 	return strings.Count(funcText(text, head), ".GoHanded()")
 }
+
+// streamAloneSrc decodes a json Stream over a cut text.
+const streamAloneSrc = `import io
+import json
+
+func main() needs Console {
+	let c = json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}
+	let v = json.DecodeStream(c, io.CutAt("[1, \"a\", {\"k\": true}]", []int{3, 9})) catch {
+	case _:
+		Console.Println("failed")
+		return
+	}
+	Console.Println(json.Encode(c, v))
+}
+`
+
+// TestStreamOperationsRunAlone: json's Stream reads its source only in
+// refill and in Settle's count past a break, outside the token
+// operations (stream.ergo, fill), so on the IR every other operation of
+// its state is told alone and runs unlocked while the program is.
+func TestStreamOperationsRunAlone(t *testing.T) {
+	o := lowerSource("streamalone", streamAloneSrc, true)
+	if o.err != nil || len(o.diags) > 0 || o.refused != nil || o.panicked != nil {
+		t.Fatalf("lowering failed: %v %v %v %v", o.err, o.diags, o.refused, o.panicked)
+	}
+	u := Unit{Package: o.pkg, Files: []*syntax.File{o.file}, Sources: []Source{{Path: testSourcePath, Text: streamAloneSrc}}}
+	files, _, err := LowerIR(u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Funcs []struct {
+			Name string `json:"name"`
+			Body any    `json:"body"`
+		} `json:"funcs"`
+	}
+	for _, f := range files {
+		if f.Path == IRFileName {
+			if err := json.Unmarshal(f.Data, &doc); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	sites := map[string][]string{}
+	var walk func(fn string, v any)
+	walk = func(fn string, v any) {
+		switch v := v.(type) {
+		case map[string]any:
+			if name, _ := v["name"].(string); strings.HasPrefix(name, "RefModify") || strings.HasPrefix(name, "RefUpdate") {
+				if args, _ := v["args"].([]any); len(args) > 0 {
+					a, _ := args[len(args)-1].(map[string]any)
+					s, _ := a["v"].(string)
+					sites[fn] = append(sites[fn], s)
+				}
+			}
+			for _, x := range v {
+				walk(fn, x)
+			}
+		case []any:
+			for _, x := range v {
+				walk(fn, x)
+			}
+		}
+	}
+	for _, f := range doc.Funcs {
+		if strings.HasPrefix(f.Name, "Stream") {
+			walk(f.Name, f.Body)
+		}
+	}
+	ops := 0
+	for fn, flags := range sites {
+		op := fn[strings.LastIndex(fn, ".")+1:]
+		for _, a := range flags {
+			switch {
+			case op == "refill":
+				if a != "false" {
+					t.Errorf("refill's read is told alone %s, want false", a)
+				}
+			case op == "Settle":
+			case a != "true":
+				t.Errorf("%s's operation is told alone %s, want true", fn, a)
+			default:
+				ops++
+			}
+		}
+	}
+	if ops < 5 || !hasSuffixKey(sites, ".refill") {
+		t.Errorf("want the Stream's operations and refill on the IR, got %v", sites)
+	}
+}
+
+func hasSuffixKey(m map[string][]string, suffix string) bool {
+	for k := range m {
+		if strings.HasSuffix(k, suffix) {
+			return true
+		}
+	}
+	return false
+}
