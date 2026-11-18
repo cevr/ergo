@@ -401,8 +401,8 @@
       "name": "vk1-flush-keeps-events",
       "origin": "wf10/dod/VK1",
       "file": "examples/vt/vt/play.ergo",
-      "from": "\tApply(s, p.out, u)\n\tp.Clear()\n",
-      "to": "\tApply(s, p.out, u)\n",
+      "from": "\tApply(s, p.out, &u)\n\tp.Clear()\n",
+      "to": "\tApply(s, p.out, &u)\n",
       "rule": "Flush forgets the events it gave the screen: the next piece's events are given once. Killed by the replay cases.",
       "killers": [
         "examples:vt"

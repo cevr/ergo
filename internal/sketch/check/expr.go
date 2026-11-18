@@ -1353,7 +1353,7 @@ func (c *checker) selfCall(x *syntax.SelectorExpr, base operand, sig *Signature,
 		return bad(x)
 	}
 	if fn.Ptr && !isPointer(base.typ) && !base.addressable {
-		c.errorf(x.X, CodeType, "%s takes *%s, and %s is not addressable", fn.Name, fn.owner.Obj.Name, exprText(x.X))
+		c.errorf(x.X, CodeType, "%s takes mut %s, and %s is not addressable", fn.Name, fn.owner.Obj.Name, exprText(x.X))
 		return bad(x)
 	}
 	if fn.Ptr && !isPointer(base.typ) {

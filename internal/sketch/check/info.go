@@ -261,6 +261,10 @@ type Info struct {
 	// only runs in place: a non-escaping frame (check/escaping.go,
 	// localFrames).
 	LocalFrames map[*syntax.FuncLit]bool
+	// Relends is every &x whose x is a mut parameter: the borrow it holds
+	// passed on, of x's type mut T, not a borrow of the parameter (types.md,
+	// Borrows 1). Every lowering passes x itself.
+	Relends map[*syntax.UnaryExpr]bool
 	// Loops is every for-in.
 	Loops map[*syntax.RangeStmt]*Loop
 	// Withs is every with site.
@@ -530,6 +534,7 @@ func newInfo() *Info {
 		Literals:      map[syntax.Node]*Signature{},
 		ValueCaptures: map[syntax.Node][]*Var{},
 		LocalFrames:   map[*syntax.FuncLit]bool{},
+		Relends:       map[*syntax.UnaryExpr]bool{},
 		Loops:         map[*syntax.RangeStmt]*Loop{},
 		Withs:         map[*syntax.CallExpr]*With{},
 		ContextValues: map[syntax.Expr]*With{},
