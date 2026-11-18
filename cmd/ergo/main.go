@@ -110,6 +110,10 @@ type fileOptions struct {
 	// locked is build's and run's --locked: a stale or missing law
 	// ledger entry refuses the build (owner q122).
 	locked bool
+	// goTrace is build's, run's and test's --go-trace: the program links
+	// runtime/obs (the ergogotrace tag), and ERGO_GO_TRACE then shows its
+	// task tree to Go's tracer and pprof (RT-OBS).
+	goTrace bool
 	// explore is test's --explore: the tests run under the controlled
 	// scheduler (runtime.md, Explored schedules). search is its mode
 	// (dfs, pct, random, or replay with --schedule) and bounds; with no
@@ -243,6 +247,8 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 			opts.work = true
 		case "--locked":
 			opts.locked = true
+		case "--go-trace":
+			opts.goTrace = true
 		case "--explore":
 			opts.explore = true
 			if i+1 < len(args) && slices.Contains(exploreModes, args[i+1]) {
@@ -274,6 +280,8 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("-work is only supported by build and test")
 	case opts.locked && command != "build" && command != "run":
 		return opts, fmt.Errorf("--locked is only supported by build and run")
+	case opts.goTrace && command != "build" && command != "run" && command != "test":
+		return opts, fmt.Errorf("--go-trace is only supported by build, run and test")
 	case opts.receipt != "" && command != "test":
 		return opts, fmt.Errorf("--receipt is only supported by test")
 	case (opts.explore || searched) && command != "test":

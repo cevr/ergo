@@ -251,6 +251,15 @@
       "rule": "The HOME witness measures Ergo's writes: with Go's telemetry left on, the compile and link the direct build path runs write their counters under the witnessed HOME, which is Go's write, not Ergo's.",
       "anchor": {"tests": ["cmd/ergo:TestPackageNeverWritesUnderHome"]},
       "killers": ["cmd/ergo:TestPackageNeverWritesUnderHome"]
+    },
+    {
+      "name": "obs-flag-untagged",
+      "origin": "wf10 RT-OBS",
+      "file": "cmd/ergo/build.go",
+      "from": "\t\ttc.Tags = append(tc.Tags, \"ergogotrace\")",
+      "to": "\t\t_ = tc.Tags",
+      "rule": "--go-trace links runtime/obs: the build action carries the ergogotrace tag.",
+      "killers": ["cmd/ergo:TestGoTraceTagsTheBuild"]
     }
   ]
 }

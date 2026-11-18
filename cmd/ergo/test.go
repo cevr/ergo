@@ -79,7 +79,7 @@ func testLoadedPackage(opts fileOptions, l loaded) error {
 		// The tag chooses the runtime's controlled scheduler at link
 		// time; the emitted module is the one a plain `ergo test` uses
 		// (runtime.md, Explored schedules).
-		tc.Tags = []string{"ergoexplore"}
+		tc.Tags = append(tc.Tags, "ergoexplore")
 	}
 	module, err := sketchfront.Build(l.analysis, sketchfront.BuildRequest{
 		Mode:      build.ModeTest,
