@@ -621,6 +621,25 @@ func checkLoaded(opts fileOptions, l loaded, w *warm) error {
 		}
 		return fmt.Errorf("check failed")
 	}
+	out, exit, err := evaluatedEnvelope(opts, l, id, w.fsys())
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stdout.Write(out); err != nil {
+		return err
+	}
+	if exit == nil {
+		w.record(sketchfront.WarmAnswer{Stdout: out})
+	}
+	return exit
+}
+
+// evaluatedEnvelope is the check envelope of a loaded package that
+// checks, with its evaluation, and check's exit status; id is the
+// producer identity the envelope was qualified with, and fsys the file
+// system the ledger is read through (a warm request's Recorder; nil reads
+// the host).
+func evaluatedEnvelope(opts fileOptions, l loaded, id producer.Identity, fsys sketchfront.FS) (out []byte, exit, err error) {
 	// Only a source that checks is evaluated (L7): in process, with no Go
 	// build and no child.
 	budget := evalBudget(opts)
@@ -636,27 +655,20 @@ func checkLoaded(opts fileOptions, l loaded, w *warm) error {
 	evaluation, err := l.analysis.Evaluation(budget, opts.file)
 	boundLaws(store)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	// A rewrite law in scope that its ledger does not license yet gets
 	// advice (LF6c). The ledger is read through the warm recorder, so a
 	// changed ergo.laws changes the warm key.
-	if err := l.analysis.AdviseLicences(&evaluation, w.fsys(), ledgerPath(opts.file)); err != nil {
-		return err
+	if err := l.analysis.AdviseLicences(&evaluation, fsys, ledgerPath(opts.file)); err != nil {
+		return nil, nil, err
 	}
 	l.result.SetEvaluation(evaluation)
-	var out bytes.Buffer
-	if err := json.NewEncoder(&out).Encode(l.result.CheckEnvelope()); err != nil {
-		return err
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(l.result.CheckEnvelope()); err != nil {
+		return nil, nil, err
 	}
-	if _, err := os.Stdout.Write(out.Bytes()); err != nil {
-		return err
-	}
-	exit := evaluationExit(evaluation)
-	if exit == nil {
-		w.record(sketchfront.WarmAnswer{Stdout: out.Bytes()})
-	}
-	return exit
+	return buf.Bytes(), evaluationExit(evaluation), nil
 }
 
 // evalBudget is check's evaluation budget: the editor default
