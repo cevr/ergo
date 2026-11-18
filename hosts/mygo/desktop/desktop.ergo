@@ -79,6 +79,8 @@ type Driver[S, E, D, F] {
 	lastCanv []spot[E],
 	lastSem  []ui.Id[E],
 	shownFoc Option[ui.Id[E]],
+	shownHov Option[ui.Id[E]],
+	shownAct Option[ui.Id[E]],
 	drawn    int,
 	// looked is the looks the last paint painted, under the colour
 	// under the node painting now (None: unknown), shadowed whether it
@@ -160,6 +162,8 @@ func start[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D
 		lastCanv:  []spot[E]{},
 		lastSem:   []ui.Id[E]{},
 		shownFoc:  None,
+		shownHov:  None,
+		shownAct:  None,
 		drawn:     0,
 		looked:    []lookProbe{},
 		under:     None,
@@ -387,7 +391,9 @@ func Feed[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fail
 				paint(d)
 			}
 			try pointed(d, s.Value, ui.Down, x, y)
+			paint(d)
 		case None:
+			try nowhere(d)
 			if ui.SessionFocus(&d.session) != None {
 				ui.FocusSession(&d.session, None)
 				paint(d)
@@ -403,6 +409,7 @@ func Feed[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fail
 				if pressable(s.Value.node) && inside(s.Value, x, y) {
 					try step(d, ui.Press[E]{Id: p.Value})
 				}
+				paint(d)
 			case None:
 			}
 		case None:
@@ -413,6 +420,10 @@ func Feed[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fail
 			}
 		}
 	} else if input.Kind == screen.Move {
+		// The frame decides the hover from where each move goes (UG3): to
+		// the node under the pointer, or to the root over none. A changed
+		// hover repaints, with no pass.
+		let was = ui.SessionHovered(&d.session)
 		// A pressed pointer's moves go to the node it went down on, over
 		// any other node or none; a free pointer's to the node under it.
 		let held = match d.pressed {
@@ -429,7 +440,11 @@ func Feed[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fail
 			case Some[spot[E]] as s:
 				try pointed(d, s.Value, ui.Moved, x, y)
 			case None:
+				try nowhere(d)
 			}
+		}
+		if ui.SessionHovered(&d.session) != was {
+			paint(d)
 		}
 	} else if input.Kind == screen.Scroll {
 		try scroll(d, x, y, float32(input.DX), float32(input.DY))
@@ -449,19 +464,51 @@ func Feed[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fail
 
 // step steps the session with ev and shows its patch.
 func step[E comparable, S, D, F](d *Driver[S, E, D, F], ev ui.Event[E]) fails actor.Stopped | ui.BadPatch needs go.Foreign {
+	let was = markOf(d)
 	let ops = try ui.Step(&d.session, ev)
 	if len(ops) > 0 {
 		try show(d, ops)
+	} else if markOf(d) != was {
+		paint(d)
 	}
 }
 
-// pointed sends a pointer event to an Area spot, at a place in its box.
-func pointed[E comparable, S, D, F](d *Driver[S, E, D, F], s spot[E], phase ui.Phase, x float32, y float32) fails actor.Stopped | ui.BadPatch needs go.Foreign {
-	match s.node {
-	case ui.AreaNode:
-		try step(d, ui.Point[E]{Id: s.id, Pointer: ui.PointerEvent{Phase: phase, X: float64(x - s.box.X), Y: float64(y - s.box.Y), Zone: None}, Over: None})
-	case _:
+// lookMark is what a step can change in the looks with no op (UG3): the
+// focus, whether its look shows, and the hover.
+type lookMark[E] { focus Option[ui.Id[E]], shown bool, hover Option[ui.Id[E]] }
+
+// markOf is d's lookMark now.
+func markOf[S, E, D, F](d *Driver[S, E, D, F]) lookMark[E] {
+	let focus = ui.SessionFocus(&d.session)
+	let shown = match focus {
+	case Some[ui.Id[E]] as id:
+		ui.SessionLookState(&d.session, id.Value) == ui.FocusVisible
+	case None:
+		false
 	}
+	lookMark[E]{focus: focus, shown: shown, hover: ui.SessionHovered(&d.session)}
+}
+
+// pointed sends a pointer event to a spot, at a place in its box: an
+// Area makes its signal, and any spot is where the pointer is, which the
+// frame's hover and pressed states follow (UG3).
+func pointed[E comparable, S, D, F](d *Driver[S, E, D, F], s spot[E], phase ui.Phase, x float32, y float32) fails actor.Stopped | ui.BadPatch needs go.Foreign {
+	try step(d, ui.Point[E]{Id: s.id, Pointer: ui.PointerEvent{Phase: phase, X: float64(x - s.box.X), Y: float64(y - s.box.Y), Zone: None}, Over: None})
+}
+
+// nowhere tells the frame the pointer is over no node (a move to the
+// root, UG3).
+func nowhere[E comparable, S, D, F](d *Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch needs go.Foreign {
+	if ui.SessionHovered(&d.session) != None {
+		try step(d, ui.Point[E]{Id: ui.SessionRoot(&d.session), Pointer: ui.PointerEvent{Phase: ui.Moved, X: 0, Y: 0, Zone: None}, Over: None})
+	}
+}
+
+// PointAway moves the window's pointer to its bottom right corner, over
+// no node, as a pointer leaving the window does.
+func PointAway[E comparable, S, D, F](d *Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch | ui.Closed needs go.Foreign {
+	d.w.Hover(float64(d.width-1), float64(d.height-1))
+	try Drain(d)
 }
 
 // scroll moves the innermost Scroll under x, y by dy, within its content,
@@ -530,7 +577,12 @@ func key[E comparable, S, D, F](d *Driver[S, E, D, F], k ui.KeyPress) fails acto
 		}
 	case None:
 	}
+	// A roving group's arrows move the focus with no pass (UG3).
+	let was = ui.SessionFocus(&d.session)
 	try step(d, ui.KeyDown{Press: k})
+	if ui.SessionFocus(&d.session) != was {
+		paint(d)
+	}
 }
 
 // typed types text into the focused Input, else gives each rune to OnKey

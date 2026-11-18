@@ -94,5 +94,5 @@ func anySending(d desk.Desk) bool {
 
 // named is the access of a container with a role and a name.
 func named(role ui.Role, name string, level Option[int]) ui.Access {
-	ui.Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: level}
+	ui.Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: level, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
 }

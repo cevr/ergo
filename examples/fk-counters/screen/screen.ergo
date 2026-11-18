@@ -42,5 +42,5 @@ func Screen(f *ui.Frame[rows.Signal], r rows.Rows) {
 // group is the access of a row: a group with its name, so a scene finds a
 // row's buttons within it.
 func group(name string) ui.Access {
-	ui.Access{Role: ui.Group, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+	ui.Access{Role: ui.Group, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
 }

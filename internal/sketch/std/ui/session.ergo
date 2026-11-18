@@ -241,13 +241,20 @@ func stepEvent[E comparable, S, D, F](s *Session[S, E, D, F], ev Event[E]) []Op[
 	case _:
 	}
 	let done = Handle(&s.frame, ev)
+	// The Leave and Enter a pointer event made go first (UG3).
+	let crossed = Crossed(&s.frame)
+	for e in crossed {
+		if !(try signal(s, e)) {
+			return judgedPass(s)
+		}
+	}
 	match done.Signal {
 	case Some[E] as e:
 		let _ = try signal(s, e.Value)
 		return judgedPass(s)
 	case None:
 	}
-	if done.Changed {
+	if done.Changed || len(crossed) > 0 {
 		return judgedPass(s)
 	}
 	[]Op[E]{}
@@ -256,6 +263,14 @@ func stepEvent[E comparable, S, D, F](s *Session[S, E, D, F], ev Event[E]) []Op[
 // SessionRoot is the Id of the root of s's tree, the parent of the first
 // patch's top nodes: a host's mirror starts from it.
 func SessionRoot[S, E, D, F](s *Session[S, E, D, F]) Id[E] { Root(&s.frame) }
+
+// SessionHovered is the node the pointer is over in s's frame (Hovered,
+// UG3).
+func SessionHovered[S, E, D, F](s *Session[S, E, D, F]) Option[Id[E]] { Hovered(&s.frame) }
+
+// SessionLookState is the state whose look a host paints for the node id
+// (LookStateIn, UG3).
+func SessionLookState[S, E, D, F](s *Session[S, E, D, F], id Id[E]) LookState { LookStateIn(&s.frame, id) }
 
 // SessionAnimates is whether s's last pass made an Animate: whether its
 // host should send frames (Run's Host.Frames).

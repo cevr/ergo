@@ -203,7 +203,7 @@ func padView(f *ui.Frame[int], s pad) {
 			Some{Value: 3000 + int(w.DY)}
 		case ui.Drag:
 			Some{Value: 4000 + int(p.X)}
-		case ui.Moved:
+		case ui.Moved, ui.PointerEnter, ui.PointerLeave:
 			None
 		}
 	}) {
@@ -477,6 +477,97 @@ func rolesView(f *ui.Frame[int], t int) {
 							}
 						}
 					}
+				}
+			}
+		}
+	}
+}
+
+// states (UG3): Pressables whose look differs in each state (rest, hover,
+// focus, pressed, disabled), a roving group, a disabled one, a focus scope
+// a tap opens and "close" or Escape closes, and a focus request "ask"
+// moves, so both hosts paint each node's look of the state std decides
+// from the pointer, the keys and the passes.
+type statesApp { open bool, asked int }
+
+func statesStep(s statesApp, e int) Decision[statesApp, int] {
+	if e == 0 {
+		return Enter[statesApp]{Next: statesApp{open: false, asked: s.asked}}
+	}
+	if e == 1 {
+		return Enter[statesApp]{Next: statesApp{open: true, asked: s.asked}}
+	}
+	if e == 2 {
+		return Enter[statesApp]{Next: statesApp{open: s.open, asked: s.asked + 1}}
+	}
+	Enter[statesApp]{Next: s}
+}
+
+func statesMachine() Machine[statesApp, int, int] {
+	Machine[statesApp, int, int]{Initial: statesApp{open: false, asked: 0}, Step: statesStep, After: none[statesApp, int], Work: idle[statesApp, int], Exit: func(s statesApp) Option[func()] { None }}
+}
+
+// stateLook is a filled, rounded look of the colour c.
+func stateLook(c uint32) ui.Look {
+	let mut l = ui.Bare()
+	l.Fill = ui.Rgb(c)
+	l.Corners = ui.Round(6)
+	l
+}
+
+// tinted is a Pressable's style whose fill is k's colour in each state.
+func tinted(f *ui.Frame[int], k int) ui.Style {
+	let c = uint32(k * 0x0a)
+	let mut st = ui.PressStyle()
+	st.Look = ui.LookFor(f, ui.Looks{Rest: stateLook(0xd0e0f0 + c), Hover: stateLook(0xf0d080 + c), Focus: stateLook(0x80d0a0 + c), Active: stateLook(0xc06060 + c), Disabled: stateLook(0xa0a0a0 + c)})
+	st
+}
+
+// statePress is a tinted Pressable label, sending on.
+func statePress(f *ui.Frame[int], label string, on int, k int) {
+	ui.PressableStyled(f, label, on, tinted(f, k)) {
+		ui.Text(f, label)
+	}
+}
+
+func statesView(f *ui.Frame[int], s statesApp) {
+	ui.OnKey(f, func(k ui.KeyPress) Option[int] {
+		if k.Name == "Escape" { Some{Value: 0} } else { None }
+	})
+	ui.Focus(f, ui.ByInt(s.asked%3))
+	let mut col = ui.Plain()
+	col.Gap = 8
+	col.Padding = ui.All(12)
+	ui.Column(f, col) {
+		let mut line = ui.Plain()
+		line.Gap = 8
+		ui.Row(f, line) {
+			statePress(f, "open", 1, 0)
+			statePress(f, "ask", 2, 1)
+			for i in 0..3 {
+				let mut a = ui.Named(ui.Group, "z\(i)")
+				a.Key = ui.ByInt(i)
+				ui.Semantic(f, a, None, ui.Plain()) {
+					statePress(f, "p\(i)", 3, i+2)
+				}
+			}
+		}
+		ui.Roving(f) {
+			ui.Row(f, line) {
+				for i in 0..3 {
+					statePress(f, "r\(i)", 3, i+5)
+				}
+			}
+		}
+		ui.Fieldset(f, true, "") {
+			statePress(f, "off", 3, 8)
+		}
+		if s.open {
+			ui.FocusScope(f) {
+				ui.Row(f, line) {
+					statePress(f, "in0", 3, 9)
+					statePress(f, "in1", 3, 10)
+					statePress(f, "close", 0, 11)
 				}
 			}
 		}

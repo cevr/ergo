@@ -48,7 +48,7 @@ func ballsView(f *ui.Frame[app.Signal], b scene.Balls) {
 		match e.Phase {
 		case ui.Down:
 			Some[app.Signal]{Value: app.On{Signal: scene.Pressed{X: e.X, Y: e.Y}}}
-		case ui.Moved, ui.Up, ui.Wheel:
+		case ui.Moved, ui.Drag, ui.Up, ui.Wheel, ui.PointerEnter, ui.PointerLeave:
 			None
 		}
 	}) {
@@ -73,9 +73,9 @@ func flowView(f *ui.Frame[app.Signal], fl flow.Field) {
 		match e.Phase {
 		case ui.Down:
 			Some[app.Signal]{Value: app.On{Signal: scene.Pressed{X: e.X, Y: e.Y}}}
-		case ui.Moved:
+		case ui.Moved, ui.Drag:
 			Some[app.Signal]{Value: app.On{Signal: scene.Moved{X: e.X, Y: e.Y}}}
-		case ui.Up, ui.Wheel:
+		case ui.Up, ui.Wheel, ui.PointerEnter, ui.PointerLeave:
 			None
 		}
 	}) {
@@ -101,7 +101,7 @@ func slider(f *ui.Frame[app.Signal], label string, value float64, lo float64, hi
 		match e.Phase {
 		case ui.Down:
 			Some[app.Signal]{Value: app.On{Signal: set(lo + (hi-lo)*e.X/SliderWidth)}}
-		case ui.Moved, ui.Up, ui.Wheel:
+		case ui.Moved, ui.Drag, ui.Up, ui.Wheel, ui.PointerEnter, ui.PointerLeave:
 			None
 		}
 	}) {
@@ -282,5 +282,5 @@ func heading(f *ui.Frame[app.Signal], text string) {
 
 // named is the access of a node with a role and a name.
 func named(role ui.Role, name string) ui.Access {
-	ui.Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None}
+	ui.Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
 }

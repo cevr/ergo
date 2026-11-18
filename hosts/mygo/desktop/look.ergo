@@ -10,7 +10,11 @@ import ui/layout
 
 // lookProbe is a painted look whose colours a test can sample: where its
 // fill shows, and what shows at its top-left corner (outside its radius).
-type lookProbe { label string, box layout.Box, clip layout.Box, look ui.Look, under Option[uint32], padTop float32, padLeft float32, alpha float64, ringed bool }
+type lookProbe { label string, box layout.Box, clip layout.Box, look ui.Look, state ui.LookState, under Option[uint32], padTop float32, padLeft float32, alpha float64, ringed bool }
+
+// LookAt is a labelled node's look state and the look the window painted
+// for it (UG3).
+type LookAt { Label string, State ui.LookState, Look ui.Look }
 
 // painted is what painting a look changed, for unpaint: the opacity and
 // the colour under the node's children before it.
@@ -21,21 +25,35 @@ func rgba(c ui.Color) uint32 {
 	(uint32(c.R) << 24) | (uint32(c.G) << 16) | (uint32(c.B) << 8) | uint32(c.A)
 }
 
-// lookOf is the look the window paints for n: the Rest look of its LookId.
-func lookOf[S, E, D, F](d *Driver[S, E, D, F], n ui.Node[E]) ui.Look {
-	ui.LooksIn(ui.MirrorLooks(&d.mirror), ui.LookIdOf(n)).Rest
+// lookOf is the look the window paints for the node id showing n: the
+// look of its LookId for the state std decides (ui.SessionLookState,
+// UG3): hovered, focused by a key, pressed, disabled or at rest.
+func lookOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], n ui.Node[E]) ui.Look {
+	ui.LookNow(ui.LooksIn(ui.MirrorLooks(&d.mirror), ui.LookIdOf(n)), ui.SessionLookState(&d.session, id))
+}
+
+// LookStates are the labelled nodes of the last paint with a look, each
+// with the state std decided and the look the window painted.
+func LookStates[S, E, D, F](d *Driver[S, E, D, F]) []LookAt {
+	let mut out = []LookAt{}
+	for p in d.looked {
+		if p.label != "" {
+			out = out.Append(LookAt{Label: p.label, State: p.state, Look: p.look})
+		}
+	}
+	out
 }
 
 // paintLook paints n's look at b, sets the opacity of its subtree and the
 // colour under its children, and is how to undo both (unpaint).
-func paintLook[S, E, D, F](d *Driver[S, E, D, F], n ui.Node[E], b layout.Box, clip layout.Box, lineH float32, focus bool) painted needs go.Foreign {
+func paintLook[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], n ui.Node[E], b layout.Box, clip layout.Box, lineH float32, focus bool) painted needs go.Foreign {
 	let before = painted{opacity: d.w.Opacity(), under: d.under}
 	match ui.StyleOf(n) {
 	case Some[ui.Style]:
 	case None:
 		return before
 	}
-	let l = lookOf(d, n)
+	let l = lookOf(d, id, n)
 	if l == ui.Bare() {
 		return before
 	}
@@ -63,7 +81,7 @@ func paintLook[S, E, D, F](d *Driver[S, E, D, F], n ui.Node[E], b layout.Box, cl
 		}
 	}
 	let st = styleOf(n, lineH)
-	d.looked = d.looked.Append(lookProbe{label: probeLabel(n), box: b, clip: clip, look: l, under: d.under, padTop: st.Padding[0], padLeft: st.Padding[3], alpha: before.opacity, ringed: focus})
+	d.looked = d.looked.Append(lookProbe{label: probeLabel(n), box: b, clip: clip, look: l, state: ui.SessionLookState(&d.session, id), under: d.under, padTop: st.Padding[0], padLeft: st.Padding[3], alpha: before.opacity, ringed: focus})
 	// What shows under the children: the fill, when it is opaque and
 	// nothing else of the look paints over it there; else unknown.
 	if l.Fill.A == 255 && line == 0 && !inset && l.Opacity == 1.0 {

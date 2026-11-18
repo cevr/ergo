@@ -294,7 +294,7 @@ func putTops[E](f *Frame[E], i int, p int) {
 		return
 	}
 	let x = f.keptList[i].tops[0]
-	let _ = putSpec(f, spec[E]{node: x.node, id: x.id, parent: p, prev: x.ref, ref: x.ref, onText: None, onPoint: None, onKey: None, binds: None, off: x.off, memo: memoOf(f, p), same: None, skip: true, again: true, live: true, first: -1, last: -1, next: -1, before: lastKid(f, p), nkids: 0, pending: false, block: i})
+	let _ = putSpec(f, spec[E]{node: x.node, id: x.id, parent: p, prev: x.ref, ref: x.ref, onText: None, onPoint: None, onKey: None, binds: None, off: x.off, memo: memoOf(f, p), same: None, skip: true, again: true, live: true, first: -1, last: -1, next: -1, before: lastKid(f, p), nkids: 0, pending: false, block: i, focusAs: focusPlain})
 }
 
 // clearBefore is whether the few nodes written so far under p (at most
