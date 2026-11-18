@@ -138,6 +138,16 @@ func minuteOf(dt civil.DateTime) civil.DateTime {
 	civil.DateTime{Date: dt.Date, Time: t}
 }
 
+// wallOr is o's wall time, or d when o is None.
+func wallOr(o Option[civil.DateTime], d civil.DateTime) civil.DateTime {
+	match o {
+	case Some[civil.DateTime] as v:
+		v.Value
+	case None:
+		d
+	}
+}
+
 // walkWall is the first of the n wall minutes after dt (step 1) or before
 // it (step -1), one at a time, at which e fires.
 func walkWall(e Expr, dt civil.DateTime, n int, step int) Option[civil.DateTime] {

@@ -141,6 +141,16 @@ func minuteOf(dt civil.DateTime) civil.DateTime {
 	civil.DateTime{Date: dt.Date, Time: t}
 }
 
+// wallOr is o's wall time, or d when o is None.
+func wallOr(o Option[civil.DateTime], d civil.DateTime) civil.DateTime {
+	match o {
+	case Some[civil.DateTime] as v:
+		v.Value
+	case None:
+		d
+	}
+}
+
 // walkWall is the first of the n wall minutes after dt (step 1) or before
 // it (step -1), one at a time, at which e fires.
 func walkWall(e cron.Expr, dt civil.DateTime, n int, step int) Option[civil.DateTime] {
@@ -205,6 +215,39 @@ test CronFormatParseRoundTrips(seed uint64) {
 		return
 	}
 	assert back == e
+}
+
+test CronMacrosAreTheirFields() {
+	let pairs = [][]string{
+		[]string{"@yearly", "0 0 1 1 *"},
+		[]string{"@ANNUALLY", "0 0 1 1 *"},
+		[]string{"@monthly", "0 0 1 * *"},
+		[]string{"@Weekly", "0 0 * * 0"},
+		[]string{"@daily", "0 0 * * *"},
+		[]string{"@midnight", "0 0 * * *"},
+		[]string{"@hourly", "0 * * * *"},
+	}
+	let mut ok = true
+	for p in pairs {
+		let m = try cron.Parse(p[0])
+		let f = try cron.Parse(p[1])
+		ok = ok && m == f
+	}
+	assert ok
+}
+
+test CronStepsCountFromTheStart(seed uint64) {
+	let from = int(seed % 60)
+	let step = 1 + int(seed/60%59)
+	let to = from + int(seed/3540%uint64(60-from))
+	let ranged = try cron.Parse("\(from)-\(to)/\(step) * * * *")
+	let open = try cron.Parse("\(from)/\(step) * * * *")
+	let mut ok = true
+	for v in 0..60 {
+		let on = v >= from && (v-from)%step == 0
+		ok = ok && cron.Has(ranged.Minute, v) == (on && v <= to) && cron.Has(open.Minute, v) == (on && (step > 1 || v == from))
+	}
+	assert ok
 }
 
 test CronWeekdaySevenIsSunday() {
@@ -272,7 +315,9 @@ test CronGapFiresOnce() {
 	let three = time.Unix(1772953200, 0)
 	let once = cron.Next(job, z, time.Unix(1772902800, 0)) == Some[time.Time]{Value: a} && cron.Next(job, z, a) == Some[time.Time]{Value: b}
 	let within = cron.Next(job, z, time.Unix(1772953800, 0)) == Some[time.Time]{Value: a}
-	assert once && within && cron.Next(half, z, time.Unix(1772951400, 0)) == Some[time.Time]{Value: three} && cron.Next(half, z, three) == Some[time.Time]{Value: a}
+	let pair = try cron.Parse("15,40 2 * * *")
+	let earliest = cron.Next(pair, lordHowe(), time.Unix(1791040800, 0)) == Some[time.Time]{Value: time.Unix(1791042000, 0)}
+	assert once && within && earliest && cron.Next(half, z, time.Unix(1772951400, 0)) == Some[time.Time]{Value: three} && cron.Next(half, z, three) == Some[time.Time]{Value: a}
 }
 
 test CronOverlapFiresOnce() {
@@ -283,6 +328,43 @@ test CronOverlapFiresOnce() {
 	let once = cron.Next(e, z, time.Unix(1793462400, 0)) == Some[time.Time]{Value: first} && cron.Next(e, z, first) == Some[time.Time]{Value: second}
 	let within = cron.Previous(e, z, time.Unix(1793513400, 0)) == Some[time.Time]{Value: first}
 	assert once && within && cron.Previous(e, z, second) == Some[time.Time]{Value: first} && cron.Previous(e, z, time.Unix(1793514600, 0)) == Some[time.Time]{Value: first}
+}
+
+test CronWalksKeepTheCalendar(seed uint64) {
+	let start = -717662 + int64(seed%3640000)
+	let at = civil.DateTime{Date: civil.FromUnixDays(start), Time: civil.Midnight()}
+	let daily = try cron.Parse("0 0 * * *")
+	let monthly = try cron.Parse("0 0 1 * *")
+	let friday = try cron.Parse("0 0 * * fri")
+	let first = civil.StartOf(at.Date, civil.Months)
+	let mut ok = true
+	let mut f = at
+	let mut b = at
+	for k in 1..401 {
+		f = wallOr(cron.NextWall(daily, f), at)
+		b = wallOr(cron.PreviousWall(daily, b), at)
+		ok = ok && f.Date == civil.FromUnixDays(start+int64(k)) && b.Date == civil.FromUnixDays(start-int64(k))
+	}
+	f = at
+	b = at
+	for k in 1..31 {
+		f = wallOr(cron.NextWall(monthly, f), at)
+		b = wallOr(cron.PreviousWall(monthly, b), at)
+		let back = if civil.Day(at.Date) == 1 { k } else { k - 1 }
+		ok = ok && f.Date == civil.AddMonths(first, k) && b.Date == civil.AddMonths(first, -back)
+	}
+	f = at
+	b = at
+	for k in 1..61 {
+		let nf = wallOr(cron.NextWall(friday, f), at)
+		let nb = wallOr(cron.PreviousWall(friday, b), at)
+		let fridays = time.WeekdayNumber(civil.Weekday(nf.Date)) == 5 && time.WeekdayNumber(civil.Weekday(nb.Date)) == 5
+		let apart = k == 1 || civil.UnixDays(nf.Date)-civil.UnixDays(f.Date) == 7 && civil.UnixDays(b.Date)-civil.UnixDays(nb.Date) == 7
+		ok = ok && fridays && apart
+		f = nf
+		b = nb
+	}
+	assert ok
 }
 
 test CronNextWallIsFirstMatch(seed uint64) {
@@ -324,11 +406,14 @@ test CronEitherDayMatches() {
 // restates, by ledger key; lawledger.Run holds it equal to the ledger.
 var stdCronLawStatements = map[string]string{
 	"cron FormatParseRoundTrips":   `FormatParseRoundTrips(seed uint64) { let e = drawnExpr(seed) let back = Parse(Format(e)) catch { case FieldCount, BadValue, OutOfRange, BadStep, BadRange: return false } back == e }`,
+	"cron MacrosAreTheirFields":    `MacrosAreTheirFields() { let pairs = [][]string{ []string{"@yearly", "0 0 1 1 *"}, []string{"@ANNUALLY", "0 0 1 1 *"}, []string{"@monthly", "0 0 1 * *"}, []string{"@Weekly", "0 0 * * 0"}, []string{"@daily", "0 0 * * *"}, []string{"@midnight", "0 0 * * *"}, []string{"@hourly", "0 * * * *"}, } let mut ok = true for p in pairs { let m = try Parse(p[0]) let f = try Parse(p[1]) ok = ok && m == f } ok }`,
+	"cron StepsCountFromTheStart":  `StepsCountFromTheStart(seed uint64) { let from = int(seed % 60) let step = 1 + int(seed/60%59) let to = from + int(seed/3540%uint64(60-from)) let ranged = try Parse("\(from)-\(to)/\(step) * * * *") let open = try Parse("\(from)/\(step) * * * *") let mut ok = true for v in 0..60 { let on = v >= from && (v-from)%step == 0 ok = ok && Has(ranged.Minute, v) == (on && v <= to) && Has(open.Minute, v) == (on && (step > 1 || v == from)) } ok }`,
 	"cron WeekdaySevenIsSunday":    `WeekdaySevenIsSunday() { let a = try Parse("0 0 * * 7") let b = try Parse("0 0 * * 0") let c = try Parse("0 0 * jAn sUN") a == b && Has(c.Month, 1) && Has(c.Dow, 0) && !Has(c.Dow, 7) }`,
 	"cron NextIsFirstFiring":       `NextIsFirstFiring(seed uint64) { let e = drawnExpr(seed) let z = drawnZone(seed) let t = drawnInstant(seed, z) let found = firstFiring(e, z, t) let day = time.Add(t, 24h) let next = Next(e, z, t) let nextNear = match next { case Some[time.Time] as n: time.After(n.Value, t) && !time.After(n.Value, day) case None: false } let foundNear = match found { case Some[time.Time] as f: !time.After(f.Value, day) case None: false } let after = match next { case Some[time.Time] as n: time.After(n.Value, t) case None: true } after && (!nextNear || found == next) && (!foundNear || found == next) }`,
 	"cron PreviousUndoesNext":      `PreviousUndoesNext(seed uint64) { let e = drawnExpr(seed) let z = drawnZone(seed) let t = drawnInstant(seed, z) let p = match Previous(e, z, t) { case Some[time.Time] as v: v.Value case None: return true } let n = match Next(e, z, p) { case Some[time.Time] as v: v.Value case None: return false } time.Before(p, t) && !time.Before(n, t) }`,
-	"cron GapFiresOnce":            `GapFiresOnce() { let z = newYork() let job = try Parse("30 2 * * *") let half = try Parse("*/30 * * * *") let a = time.Unix(1772955000, 0) let b = time.Unix(1773037800, 0) let three = time.Unix(1772953200, 0) let once = Next(job, z, time.Unix(1772902800, 0)) == Some[time.Time]{Value: a} && Next(job, z, a) == Some[time.Time]{Value: b} let within = Next(job, z, time.Unix(1772953800, 0)) == Some[time.Time]{Value: a} once && within && Next(half, z, time.Unix(1772951400, 0)) == Some[time.Time]{Value: three} && Next(half, z, three) == Some[time.Time]{Value: a} }`,
+	"cron GapFiresOnce":            `GapFiresOnce() { let z = newYork() let job = try Parse("30 2 * * *") let half = try Parse("*/30 * * * *") let a = time.Unix(1772955000, 0) let b = time.Unix(1773037800, 0) let three = time.Unix(1772953200, 0) let once = Next(job, z, time.Unix(1772902800, 0)) == Some[time.Time]{Value: a} && Next(job, z, a) == Some[time.Time]{Value: b} let within = Next(job, z, time.Unix(1772953800, 0)) == Some[time.Time]{Value: a} let pair = try Parse("15,40 2 * * *") let earliest = Next(pair, lordHowe(), time.Unix(1791040800, 0)) == Some[time.Time]{Value: time.Unix(1791042000, 0)} once && within && earliest && Next(half, z, time.Unix(1772951400, 0)) == Some[time.Time]{Value: three} && Next(half, z, three) == Some[time.Time]{Value: a} }`,
 	"cron OverlapFiresOnce":        `OverlapFiresOnce() { let z = newYork() let e = try Parse("30 1 * * *") let first = time.Unix(1793511000, 0) let second = time.Unix(1793601000, 0) let once = Next(e, z, time.Unix(1793462400, 0)) == Some[time.Time]{Value: first} && Next(e, z, first) == Some[time.Time]{Value: second} let within = Previous(e, z, time.Unix(1793513400, 0)) == Some[time.Time]{Value: first} once && within && Previous(e, z, second) == Some[time.Time]{Value: first} && Previous(e, z, time.Unix(1793514600, 0)) == Some[time.Time]{Value: first} }`,
+	"cron WalksKeepTheCalendar":    `WalksKeepTheCalendar(seed uint64) { let start = -717662 + int64(seed%3640000) let at = civil.DateTime{Date: civil.FromUnixDays(start), Time: civil.Midnight()} let daily = try Parse("0 0 * * *") let monthly = try Parse("0 0 1 * *") let friday = try Parse("0 0 * * fri") let first = civil.StartOf(at.Date, civil.Months) let mut ok = true let mut f = at let mut b = at for k in 1..401 { f = wallOr(NextWall(daily, f), at) b = wallOr(PreviousWall(daily, b), at) ok = ok && f.Date == civil.FromUnixDays(start+int64(k)) && b.Date == civil.FromUnixDays(start-int64(k)) } f = at b = at for k in 1..31 { f = wallOr(NextWall(monthly, f), at) b = wallOr(PreviousWall(monthly, b), at) let back = if civil.Day(at.Date) == 1 { k } else { k - 1 } ok = ok && f.Date == civil.AddMonths(first, k) && b.Date == civil.AddMonths(first, -back) } f = at b = at for k in 1..61 { let nf = wallOr(NextWall(friday, f), at) let nb = wallOr(PreviousWall(friday, b), at) let fridays = time.WeekdayNumber(civil.Weekday(nf.Date)) == 5 && time.WeekdayNumber(civil.Weekday(nb.Date)) == 5 let apart = k == 1 || civil.UnixDays(nf.Date)-civil.UnixDays(f.Date) == 7 && civil.UnixDays(b.Date)-civil.UnixDays(nb.Date) == 7 ok = ok && fridays && apart f = nf b = nb } ok }`,
 	"cron NextWallIsFirstMatch":    `NextWallIsFirstMatch(seed uint64) { let e = drawnExpr(seed) let dt = drawnWall(seed) let walked = walkWall(e, dt, 2880, 1) let ok = match NextWall(e, dt) { case Some[civil.DateTime] as n: Matches(e, n.Value) && (walked == Some[civil.DateTime]{Value: n.Value} || walked == None && civil.Sub(n.Value, dt) > 2880m) case None: walked == None } ok }`,
 	"cron PreviousWallIsLastMatch": `PreviousWallIsLastMatch(seed uint64) { let e = drawnExpr(seed) let dt = drawnWall(seed) let walked = walkWall(e, dt, 2880, -1) let ok = match PreviousWall(e, dt) { case Some[civil.DateTime] as p: Matches(e, p.Value) && (walked == Some[civil.DateTime]{Value: p.Value} || walked == None && civil.Sub(dt, p.Value) > 2880m) case None: walked == None } ok }`,
 	"cron EitherDayMatches":        `EitherDayMatches() { let either = try Parse("0 0 13 * fri") let both = try Parse("0 0 */10 * fri") let a = firedDays(either, 1794441600, 6) let b = firedDays(both, 1794096000, 1) a == "1794528000 1795132800 1795737600 1796342400 1796947200 1797120000" && b == "1796947200" }`,
