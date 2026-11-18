@@ -23,6 +23,16 @@ type SyntaxFailure { Code string, Message string, Offset int, Length int, Line i
 // Source formats src: its parse, laid out. A positive limit bounds the
 // output as in Finish.
 func Source(src string, limit int) string fails SyntaxFailure | OutputLimit {
+	let r = try Print(src, limit)
+	r.Text
+}
+
+// Printed is a formatted text and the printer's work counter: the walks
+// of binary expressions it computed (a memoised walk is not counted).
+type Printed { Text string, Walks int }
+
+// Print is Source with the printer's work counter.
+func Print(src string, limit int) Printed fails SyntaxFailure | OutputLimit {
 	// The printer owns the parse it makes. The value rule still copies it
 	// here: it does not prove Parse's result fresh (a follow-up of the
 	// lowering, capstone S1d).
@@ -48,6 +58,7 @@ func Source(src string, limit int) string fails SyntaxFailure | OutputLimit {
 		LastTokLine:  0,
 		Walked:       []Walk{},
 		WalkedSet:    []bool{},
+		Walks:        0,
 		ListIndented: false,
 	}
 	if p.P.Failed {
@@ -56,7 +67,7 @@ func Source(src string, limit int) string fails SyntaxFailure | OutputLimit {
 	p.load()
 	p.printFile()
 	let r = try p.finish(limit)
-	r.Text
+	Printed{Text: r.Text, Walks: p.Walks}
 }
 
 // Layouter is the contract of the layout state: commands in, text out.

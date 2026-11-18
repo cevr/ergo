@@ -76,6 +76,13 @@ func SourceBounded(src string, maxBytes int) (string, error) {
 	return outcome(out)
 }
 
+// Work is the formatter's work counter on src: the walks of binary
+// expressions it computed (capstone S1b's growth guard), or -1 for a
+// source that does not parse.
+func Work(src string) (int, error) {
+	return format.FormatWork(context.Background(), src)
+}
+
 // File prints a parsed file in the canonical layout: it formats the file's
 // source.
 func File(f *syntax.File) string {

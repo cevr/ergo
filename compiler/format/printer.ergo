@@ -37,6 +37,9 @@ type Printer {
 	// both are empty until the first walk.
 	Walked    []Walk,
 	WalkedSet []bool,
+	// Walks counts the walks computed, the work counter that shows the
+	// memo keeps the walks linear in a chain's length.
+	Walks int,
 	// ListIndented reports that the innermost list being printed has
 	// already broken a line before the current item, so the item has a
 	// continuation level (go/printer's ws == ignore in parameters).

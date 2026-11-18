@@ -1394,6 +1394,7 @@ func walkBinary(p *Printer, e dense.ID[syntax.Node]) Walk {
 	if p.WalkedSet[i] {
 		return p.Walked[i]
 	}
+	p.Walks += 1
 	let b = syntax.BinaryExprOf(p.P.Tree, e)
 	let op = syntax.TokKind(p.P, b.Op)
 	let prec = precedence(op)

@@ -363,6 +363,17 @@
       "killers": [
         "internal/selfhostcheck:TestFormatAgreesWithSeed"
       ]
+    },
+    {
+      "name": "sh-walk-memo-dropped",
+      "origin": "wf10/selfhost/S1b",
+      "file": "compiler/format/nodes.ergo",
+      "from": "\tif p.WalkedSet[i] {\n\t\treturn p.Walked[i]\n\t}\n",
+      "to": "\tif false && p.WalkedSet[i] {\n\t\treturn p.Walked[i]\n\t}\n",
+      "rule": "walkBinary is memoised by row: go/printer's cutoff asks it for every operator of a chain, which without the memo is quadratic in the chain's length (no output changes; SH1 gap 12).",
+      "killers": [
+        "internal/selfhostcheck:TestFormatWorkGrowsLinearly"
+      ]
     }
   ]
 }

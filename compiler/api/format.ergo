@@ -21,6 +21,18 @@ func FormatSource(src string, limit int) string {
 	"ok\n" + text
 }
 
+// FormatWork is the formatter's work counter on src (format.Printed's
+// Walks), or -1 for a source that does not parse.
+func FormatWork(src string) int {
+	let r = format.Print(src, 0) catch {
+	case format.SyntaxFailure:
+		return -1
+	case format.OutputLimit:
+		return -1
+	}
+	r.Walks
+}
+
 // Laws is format.CheckLaws on src: "ok\n" or the broken laws.
 func Laws(src string) string { format.CheckLaws(src) }
 
