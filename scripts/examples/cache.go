@@ -131,7 +131,7 @@ func (r *runner) legKey(h io.Writer, p *program) string {
 			targets = append(targets, e.target)
 		}
 	}
-	calls := [][]string{append([]string{"fmt", "--check"}, p.sources...), {"build", "--emitted", p.main}}
+	calls := [][]string{append([]string{"fmt", "--check"}, p.sources...), r.buildArgs("--emitted", p.main)}
 	// A program of packages is keyed by one check and one test --emitted
 	// over all its packages (DIR/...): the std packages they import are
 	// checked once per call, not once per package, about a third of the
@@ -220,6 +220,17 @@ func coveredPackages(p *program, targets []string, stdout []byte) string {
 // key's result: on a miss the fmt leg and each check leg run once, not
 // twice (gate-speed GS20).
 func keyedCall(args []string) string { return strings.Join(args, "\x00") }
+
+// buildArgs is an ergo build call of args, with -rewrites when the run
+// names a mode; the verdict cache keys on these words, so a run under
+// another mode never replays the default's pass.
+func (r *runner) buildArgs(args ...string) []string {
+	out := append([]string{"build"}, args...)
+	if r.cfg.rewrites != "" {
+		out = append(out, "-rewrites="+r.cfg.rewrites)
+	}
+	return out
+}
 
 // withoutProducer is a check envelope less its producers (its own and its
 // snapshot's), the digest of the compiler's own bytes, which every compiler
