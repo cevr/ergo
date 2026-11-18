@@ -312,7 +312,12 @@ func TestStdTypesBindRuntimeTypes(t *testing.T) {
 				t.Errorf("%s.%s is neither a record nor an operations type: it needs a binding rule", path, tn.Name)
 				continue
 			}
-			if _, named := check.GoTypeOf(n); !named && hasUnexportedField(st) {
+			// A provider, a record that declares an operation type
+			// (cmp.Natural and cmp.Reverse implement cmp.Order; CONSTRAINTS
+			// C3), is the program's declaration too: an Ergo value its
+			// package's functions operate on, never a runtime error value.
+			provider := n.Obj.Decl != nil && len(n.Obj.Decl.Implements) > 0
+			if _, named := check.GoTypeOf(n); !named && (hasUnexportedField(st) || provider) {
 				// A record with construction authority whose declaration
 				// names no Go type (slices.Ascending, SS5) is the program's
 				// declaration (lower runtimeType): only its package builds
