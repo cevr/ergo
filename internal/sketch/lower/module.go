@@ -228,6 +228,7 @@ type lowerer struct {
 	libsDone     bool
 	goPkgs       []*check.Package        // the Go packages the program reaches (import go; libraryPackages)
 	stdSrc       map[syntax.Node]stdFile // the std nodes locate placed, and their files (stdFileOf)
+	siteIDs      map[siteKey]int         // each call position's CallSite Id (siteid.go)
 	initPkgs     []*check.Package        // the sourced libraries in initialization order
 
 	names    *namer // the Go package scope

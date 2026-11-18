@@ -897,7 +897,7 @@ func (fc *funcCtx) callArgsAddr(list []syntax.Expr, call *syntax.CallExpr, addr 
 func (fc *funcCtx) siteValue(x *syntax.CallExpr, site *check.Named) string {
 	file, line, column := fc.l.locate(x, x.Pos())
 	td := fc.l.typeDecl(site.Obj, x)
-	return fmt.Sprintf("%s{%s: %q, %s: %d, %s: %d}", fc.goType(site), td.fieldName["File"], file, td.fieldName["Line"], line, td.fieldName["Column"], column)
+	return fmt.Sprintf("%s{%s: %q, %s: %d, %s: %d, %s: %d}", fc.goType(site), td.fieldName["File"], file, td.fieldName["Line"], line, td.fieldName["Column"], column, td.fieldName["Id"], fc.l.siteID(x))
 }
 
 // typeArgs writes a generic call's type-kinded arguments, from the call's
