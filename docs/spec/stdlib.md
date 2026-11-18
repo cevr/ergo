@@ -431,6 +431,15 @@ the watch starts stops the request at its start. A connection that is no
 socket, or a platform without such a poller, keeps net/http's background
 read, which `-args -http.watcher=false` selects for all. The start before
 every handler stays selectable (`-args -http.lazywatch=false`).
+Since HTTP-FAST-c7, the one-write answer sniffs an untyped body as
+net/http does, from its head: net/http's sniff of the leading whitespace
+and the 64 bytes past it, the most any signature but plain text's reads,
+decides when it finds plain text and the rest of the 512 bytes holds no
+byte plain text refuses (checked 8 bytes at a time); any other body is
+sniffed whole. The connection keeps its last head and that head's type, so
+an answer with the same head is not sniffed again. The whole sniff stays
+selectable (`-args -http.sniffhead=false`); `TestSniffIsNetHTTPs` holds
+both against net/http's `DetectContentType`.
 
 1. `Listen(addr) net.Listener fails ListenFailed needs Ambient` binds TCP;
    port zero is valid, and `l.Addr()` reports the bound address. The

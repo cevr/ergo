@@ -110,9 +110,7 @@ func (w *engineResponse) fastAnswer(r HTTPResponse) bool {
 	}
 	if !haveType && !haveEncoding && r.Body != "" {
 		out = append(out, "Content-Type: "...)
-		// DetectContentType reads at most the first 512 bytes.
-		n := copy(e.sniff[:], r.Body)
-		out = append(out, http.DetectContentType(e.sniff[:n])...)
+		out = append(out, e.sniff.sniffType(r.Body)...)
 		out = append(out, "\r\n"...)
 	}
 	if w.wantsClose {
@@ -194,4 +192,116 @@ func appendEngineDate(b []byte, now time.Time) []byte {
 		engineDateNow.Store(d)
 	}
 	return append(b, d.text[:]...)
+}
+
+// sniffHead bounds how far past the first non-whitespace byte any of
+// net/http's sniff signatures but text's reads: the longest is the
+// 36-byte ms-fontobject mask, and the tag byte after <!DOCTYPE HTML
+// the longest that skips whitespace. Only text's signature reads to
+// the end, and mp4's reads a length it finds in the first 4 bytes.
+const sniffHead = 64
+
+// sniffLen is how much of a body net/http's sniff reads (its sniffLen).
+const sniffLen = 512
+
+// engineSniffHead selects how fastAnswer sniffs a body's type
+// (HTTP-FAST-c7). true: the type of the head (the whitespace and
+// sniffHead bytes past it) is net/http's DetectContentType of it, kept
+// for the next answer on the connection with the same head; when it is
+// plain text, the rest is checked for a byte text's signature refuses,
+// in words of 8; any other head is sniffed whole, as net/http does.
+// false: DetectContentType of the 512 bytes, the reference. Both give
+// DetectContentType's answer (TestSniffIsNetHTTPs).
+var engineSniffHead = true
+
+// engineSniffHook, when set, is told how each body was sniffed: "kept"
+// (the head's type was the last answer's), "head" (the head was
+// sniffed and decided), "whole" (the 512 bytes were sniffed). Only a
+// test sets it.
+var engineSniffHook func(how string)
+
+// engineSniff is a connection's sniff: the last head sniffed and its
+// type, and the room the whole 512 bytes are copied to.
+type engineSniff struct {
+	head  [sniffLen]byte
+	headN int
+	ct    string // "": no head kept
+	whole [sniffLen]byte
+}
+
+// sniffType is http.DetectContentType(b), with b's bytes copied, never
+// converted.
+//
+// DetectContentType's head decides the whole when it is plain text and
+// nothing in the rest is a byte text's signature refuses: every other
+// signature reads only the head (mp4's too, since plain text starts
+// with no zero byte, so the box length it reads is above 512), and
+// text's signature passes the head and the rest. The type of a head is
+// DetectContentType's of its bytes, so a head equal to the last one has
+// its type.
+func (s *engineSniff) sniffType(b string) string {
+	if len(b) > sniffLen {
+		b = b[:sniffLen]
+	}
+	ws := 0
+	for ws < len(b) && sniffWS(b[ws]) {
+		ws++
+	}
+	if engineSniffHead {
+		head := b[:min(len(b), ws+sniffHead)]
+		how := "kept"
+		if s.ct == "" || s.headN != len(head) || string(s.head[:s.headN]) != head {
+			s.headN = copy(s.head[:], head)
+			s.ct = http.DetectContentType(s.head[:s.headN])
+			how = "head"
+		}
+		if len(head) == len(b) || s.ct == "text/plain; charset=utf-8" && sniffText(b[len(head):]) {
+			if engineSniffHook != nil {
+				engineSniffHook(how)
+			}
+			return s.ct
+		}
+	}
+	if engineSniffHook != nil {
+		engineSniffHook("whole")
+	}
+	n := copy(s.whole[:], b)
+	return http.DetectContentType(s.whole[:n])
+}
+
+// sniffWS is the mime sniff's whitespace, as net/http skips it.
+func sniffWS(c byte) bool {
+	return c == '\t' || c == '\n' || c == '\x0c' || c == '\r' || c == ' '
+}
+
+// sniffText reports whether b holds no byte net/http's text signature
+// refuses: 0x00-0x08, 0x0B, 0x0E-0x1A and 0x1C-0x1F. A word of 8 bytes
+// with none below 0x20 passes in one test; a word with one is read a
+// byte at a time.
+func sniffText(b string) bool {
+	const ones, highs = 0x0101010101010101, 0x8080808080808080
+	i := 0
+	for ; i+8 <= len(b); i += 8 {
+		w := uint64(b[i]) | uint64(b[i+1])<<8 | uint64(b[i+2])<<16 | uint64(b[i+3])<<24 |
+			uint64(b[i+4])<<32 | uint64(b[i+5])<<40 | uint64(b[i+6])<<48 | uint64(b[i+7])<<56
+		if (w-0x20*ones)&^w&highs == 0 {
+			continue
+		}
+		for _, c := range []byte{b[i], b[i+1], b[i+2], b[i+3], b[i+4], b[i+5], b[i+6], b[i+7]} {
+			if sniffRefused(c) {
+				return false
+			}
+		}
+	}
+	for ; i < len(b); i++ {
+		if sniffRefused(b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// sniffRefused is a byte net/http's text signature refuses.
+func sniffRefused(c byte) bool {
+	return c < 0x20 && c != '\t' && c != '\n' && c != '\x0c' && c != '\r' && c != 0x1B
 }

@@ -394,3 +394,105 @@ func TestEngineDateIsNetHTTPs(t *testing.T) {
 		}
 	}
 }
+
+// sniffStarts are bodies' first bytes that net/http's sniff signatures
+// look for, one or more per signature, so the property's bodies reach
+// each of them ahead of text's.
+var sniffStarts = []string{
+	"<!DOCTYPE HTML ", "<!doctype html>", "<html>", "<HEAD ", "<script>", "<iframe>", "<h1>", "<div>",
+	"<font>", "<table>", "<a ", "<style>", "<title>", "<b>", "<body>", "<br>", "<p>", "<!-->", "<pX",
+	"<?xml", "%PDF-", "%!PS-Adobe-", "\xFE\xFF\x00\x00", "\xFF\xFE\x00\x00", "\xEF\xBB\xBF", "\x00\x00\x01\x00",
+	"\x00\x00\x02\x00", "BM", "GIF87a", "GIF89a", "RIFF\x01\x02\x03\x04WEBPVP", "\x89PNG\x0D\x0A\x1A\x0A",
+	"\xFF\xD8\xFF", "FORM\x00\x00\x00\x00AIFF", "ID3", "OggS\x00", "MThd\x00\x00\x00\x06",
+	"RIFF\x00\x01\x00\x00AVI ", "RIFF\x00\x00\x00\x00WAVE", "\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00isom",
+	"\x00\x00\x00\x14ftypisom\x00\x00\x00\x00mp41", "\x1A\x45\xDF\xA3", strings.Repeat("e", 34) + "LP",
+	"\x00\x01\x00\x00", "OTTO", "ttcf", "wOFF", "wOF2", "\x1F\x8B\x08", "PK\x03\x04", "Rar!\x1A\x07\x00",
+	"Rar!\x1A\x07\x01\x00", "\x00\x61\x73\x6D",
+}
+
+// sniffBody is the body of one seed of TestSniffIsNetHTTPs: leading
+// whitespace (sometimes past the 512 bytes sniffed), a signature's
+// start or none, and a tail of text with now and then a byte text's
+// signature refuses, anywhere in it.
+func sniffBody(r *rand.Rand) string {
+	var b strings.Builder
+	switch r.IntN(8) {
+	case 0, 1, 2:
+	case 3:
+		for range 440 + r.IntN(90) {
+			b.WriteByte(" \t\n\x0c\r"[r.IntN(5)])
+		}
+	default:
+		for range 1 + r.IntN(4) {
+			b.WriteByte(" \t\n\x0c\r"[r.IntN(5)])
+		}
+	}
+	if r.IntN(4) != 0 {
+		b.WriteString(sniffStarts[r.IntN(len(sniffStarts))])
+	}
+	tail := make([]byte, r.IntN(600))
+	for i := range tail {
+		switch n := r.IntN(40); {
+		case n == 0:
+			tail[i] = "\t\n\x0c\r\x1b"[r.IntN(5)]
+		case n == 1:
+			tail[i] = byte(0x80 + r.IntN(0x80))
+		default:
+			tail[i] = byte(0x20 + r.IntN(0x5f))
+		}
+	}
+	if len(tail) > 0 && r.IntN(3) == 0 {
+		refused := "\x00\x01\x08\x0b\x0e\x1a\x1c\x1f"
+		tail[r.IntN(len(tail))] = refused[r.IntN(len(refused))]
+	}
+	b.Write(tail)
+	return b.String()
+}
+
+// TestSniffIsNetHTTPs: the type fastAnswer sniffs (sniffType) is
+// net/http's DetectContentType of the same body, over seeded pairs of
+// bodies on one connection's sniff that reach each signature,
+// whitespace past the sniffed 512 bytes, a refused byte before, in and
+// after the head sniffType reads first, and a second body whose head is
+// the first's or differs from it. The property counts (engineSniffHook)
+// kept heads, heads that decided and whole sniffs, and needs each.
+// Seeded: a failure prints both bodies, both types and the replay
+// command (ERGO_HTTP_SNIFF_SEED=N). Mutants: c7-sniff-path-never,
+// c7-sniff-head-short, c7-sniff-rest-unread, c7-sniff-word-skips,
+// c7-sniff-refused-high, c7-sniff-kept-stale, c7-sniff-kept-never
+// (runtime/v1/http ledger).
+func TestSniffIsNetHTTPs(t *testing.T) {
+	seeds := []uint64{}
+	if s := os.Getenv("ERGO_HTTP_SNIFF_SEED"); s != "" {
+		n, err := strconv.ParseUint(s, 10, 64)
+		if err != nil {
+			t.Fatal(err)
+		}
+		seeds = append(seeds, n)
+	} else {
+		for s := range uint64(20000) {
+			seeds = append(seeds, s)
+		}
+	}
+	hows := map[string]int{}
+	engineSniffHook = func(how string) { hows[how]++ }
+	defer func() { engineSniffHook = nil }()
+	for _, seed := range seeds {
+		r := rand.New(rand.NewPCG(seed, 67))
+		var s engineSniff
+		body := sniffBody(r)
+		// The second body starts with some of the first, often its whole
+		// head, so the connection's kept head is met equal and unequal.
+		next := body[:r.IntN(len(body)+1)] + sniffBody(r)
+		for _, b := range []string{body, next} {
+			want := http.DetectContentType([]byte(b))
+			if got := s.sniffType(b); got != want {
+				t.Fatalf("seed %d (replay ERGO_HTTP_SNIFF_SEED=%d go test -run TestSniffIsNetHTTPs ./runtime/v1/http):\nfirst    %q\nbody     %q\nnet/http %s\nengine   %s", seed, seed, body, b, want, got)
+			}
+		}
+	}
+	if len(seeds) > 1 && *sniffHeadFlag && (hows["kept"] == 0 || hows["head"] == 0 || hows["whole"] == 0) {
+		t.Fatalf("bodies sniffed: %v; the property must reach a kept head, a head that decides and a whole sniff", hows)
+	}
+	t.Logf("bodies sniffed: %v", hows)
+}

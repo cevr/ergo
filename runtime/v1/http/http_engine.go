@@ -180,7 +180,7 @@ type engineConn struct {
 	fields     []fieldAt
 	out        []byte      // fastAnswer's answer, reused
 	order      []fastField // fastAnswer's fields by name, reused
-	sniff      [512]byte   // the body start fastAnswer sniffs
+	sniff      engineSniff // fastAnswer's sniff
 }
 
 // fieldAt is a header line of the head being read, by offsets into buf.

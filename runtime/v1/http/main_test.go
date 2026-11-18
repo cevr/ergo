@@ -26,6 +26,11 @@ var lazyWatchFlag = flag.Bool("http.lazywatch", true, "the engine watches a conn
 // of the server's peer-close watcher (HTTP-FAST-c6).
 var watcherFlag = flag.Bool("http.watcher", true, "the engine sees a client leave through one peer-close watcher per server (false: net/http's background read)")
 
+// sniffHeadFlag chooses how fastAnswer sniffs a body's type:
+// -http.sniffhead=false runs net/http's DetectContentType on the whole
+// 512 bytes, the reference of the sniff from the head (HTTP-FAST-c7).
+var sniffHeadFlag = flag.Bool("http.sniffhead", true, "fastAnswer sniffs a body's head and checks the rest is text (false: net/http's sniff of 512 bytes)")
+
 // TestMain runs the tests under observation, so the files and variables
 // any process they start reads are inputs of Go's test cache.
 func TestMain(m *testing.M) {
@@ -40,6 +45,8 @@ func TestMain(m *testing.M) {
 			engineLazyWatch = *lazyWatchFlag
 		case "http.watcher":
 			engineWatcher = *watcherFlag
+		case "http.sniffhead":
+			engineSniffHead = *sniffHeadFlag
 		}
 	})
 	os.Exit(testinputs.Main(m))
