@@ -55,8 +55,8 @@ func reuseRefusal(recs []testinputs.Record, dirs []string, pkg, pkgDir string, n
 			return fmt.Sprintf("%s exited %d", run, rec.Exit)
 		case !rec.TreeReadOnly:
 			return fmt.Sprintf("%s saw the checkout writable (%s): the sweep's runs see it read-only", run, rec.TreeProbe)
-		case rec.UserNamespaces != "0":
-			return fmt.Sprintf("%s could make user namespaces (max_user_namespaces %s): the sweep's runs cannot", run, rec.UserNamespaces)
+		case !strings.HasPrefix(rec.UserNamespaces, testinputs.UserNamespacesRefused):
+			return fmt.Sprintf("%s could make user namespaces (%s): the sweep's runs cannot", run, rec.UserNamespaces)
 		case !ownCache(rec, dirs[i]):
 			return fmt.Sprintf("%s built in %s, not a cache of its package's own", run, rec.Cache)
 		}

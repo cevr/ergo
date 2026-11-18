@@ -25,7 +25,7 @@ func TestReuseRefusesWhatASweepWouldNotSee(t *testing.T) {
 		return testinputs.Record{
 			Package: pkg, Dir: pkgDir, Args: []string{"-test.timeout=10m"},
 			Env:   append([]string{"TMPDIR=/nonexistent/loop-probe-x/t", testinputs.RecordVariable + "=" + base}, env...),
-			Cache: filepath.Join(base, "cache", "internal_p"), TreeReadOnly: true, UserNamespaces: "0",
+			Cache: filepath.Join(base, "cache", "internal_p"), TreeReadOnly: true, UserNamespaces: testinputs.UserNamespacesRefused + "fork/exec /bin/true: no space left on device",
 		}
 	}
 	for _, c := range []struct {
@@ -36,7 +36,7 @@ func TestReuseRefusesWhatASweepWouldNotSee(t *testing.T) {
 	}{
 		{"reused", func(*testinputs.Record) {}, "", ""},
 		{"writable tree", func(r *testinputs.Record) { r.TreeReadOnly, r.TreeProbe = false, "the module root is writable" }, "", "checkout writable"},
-		{"user namespaces", func(r *testinputs.Record) { r.UserNamespaces = "63000" }, "", "user namespaces"},
+		{"user namespaces", func(r *testinputs.Record) { r.UserNamespaces = "allowed" }, "", "user namespaces"},
 		{"shared cache", func(r *testinputs.Record) { r.Cache = "/nonexistent/loop-probe-x/gocache" }, "", "cache of its package's own"},
 		{"tier variable", func(r *testinputs.Record) { r.Env = append(r.Env, "ERGO_TEST_CLI=bin/ergo") }, "", "ERGO_TEST_CLI is set in the recorded run only"},
 		{"other value", func(r *testinputs.Record) { r.Env[2] = "PATH=/usr/bin" }, "", `PATH="/usr/bin" in the recorded run`},

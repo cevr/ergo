@@ -56,8 +56,9 @@ type Record struct {
 	// TreeProbe says what the probe met.
 	TreeReadOnly bool
 	TreeProbe    string
-	// UserNamespaces is /proc/sys/user/max_user_namespaces: "0" is the
-	// sweep's S3 (no namespace a test could make a mount in).
+	// UserNamespaces is what starting a process in a new user namespace
+	// met (probeUserNamespaces): UserNamespacesRefused, then the error, is
+	// the sweep's S3 (no namespace a test could make a mount in).
 	UserNamespaces string
 	// Exit is the test binary's exit code.
 	Exit int
@@ -100,11 +101,7 @@ func startRecording(base string) (*recording, string, error) {
 	r.rec.Scratch = os.TempDir()
 	r.rec.Writable = writablePlaces(cache, dir)
 	r.rec.TreeReadOnly, r.rec.TreeProbe = probeTree(root)
-	if data, err := os.ReadFile("/proc/sys/user/max_user_namespaces"); err == nil {
-		r.rec.UserNamespaces = strings.TrimSpace(string(data))
-	} else {
-		r.rec.UserNamespaces = "unknown: " + err.Error()
-	}
+	r.rec.UserNamespaces = probeUserNamespaces()
 	log := filepath.Join(dir, RecordLog)
 	os.Args = append(os.Args, "-test.testlogfile="+log)
 	if err := os.Setenv(IdentityVariable, filepath.Join(dir, RecordIdentity)); err != nil {

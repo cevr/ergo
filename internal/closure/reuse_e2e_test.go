@@ -119,4 +119,9 @@ func TestRecordedRunReadsAsASweptRun(t *testing.T) {
 	if why := reuseRefusal(recs, dirs, pkg, f.pkg, names, sweptEnv); !strings.Contains(why, "checkout writable") {
 		t.Errorf("a run that saw the checkout writable: refusal %q; want it named", why)
 	}
+	// The sweep needs user namespaces on this host (needSandbox), so a run
+	// outside its sandbox can make one, and the probe says so.
+	if len(recs) != 1 || recs[0].UserNamespaces != "allowed" {
+		t.Errorf("a run outside the sandbox: user namespaces %q; want allowed", recs[0].UserNamespaces)
+	}
 }

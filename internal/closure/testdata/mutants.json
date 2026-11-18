@@ -207,7 +207,7 @@
       "rule": "Recorded runs are reused only when together they ran every test of the package.",
       "killers": ["internal/closure:TestReuseRefusesWhatASweepWouldNotSee"], "anchor": {"tests": ["internal/closure:TestReuseRefusesWhatASweepWouldNotSee"]}},
     {"name": "heavy-cost2-reuse-userns-unchecked", "origin": "wf10 HEAVY-COST-2", "file": "internal/closure/reuse_test.go",
-      "from": "\t\tcase rec.UserNamespaces != \"0\":", "to": "\t\tcase false && rec.UserNamespaces != \"0\":",
+      "from": "\t\tcase !strings.HasPrefix(rec.UserNamespaces, testinputs.UserNamespacesRefused):", "to": "\t\tcase false:",
       "rule": "A recorded run that could make user namespaces (the sweep's S3) is not reused.",
       "killers": ["internal/closure:TestReuseRefusesWhatASweepWouldNotSee"], "anchor": {"tests": ["internal/closure:TestReuseRefusesWhatASweepWouldNotSee"]}},
     {"name": "heavy-cost2-reuse-cache-unchecked", "origin": "wf10 HEAVY-COST-2", "file": "internal/closure/reuse_test.go",
