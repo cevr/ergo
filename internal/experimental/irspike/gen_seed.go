@@ -22,6 +22,8 @@ func GenerateSeed(seed uint64) string {
 	b.WriteString("func show(xs []int) string {\n\tlet mut s = \"[\"\n\tfor x in xs {\n\t\ts = s + \" \\(x)\"\n\t}\n\ts + \" ]\"\n}\n\n")
 	b.WriteString("func shows(xss [][]int) string {\n\tlet mut s = \"\"\n\tfor xs in xss {\n\t\ts = s + show(xs)\n\t}\n\ts\n}\n\n")
 	b.WriteString("func grow(xs []int, v int) []int {\n\tlet mut ys = xs\n\tys = ys.Append(v)\n\tys\n}\n\n")
+	// A generic body's seeded literal: its slice type names T.
+	b.WriteString("func pair[T](a T, c T) []T {\n\tlet mut xs = []T{a}\n\txs = xs.Append(c)\n\txs\n}\n\n")
 	nf := 3 + g.r.IntN(3)
 	for i := 0; i < nf; i++ {
 		fmt.Fprintf(&b, "func f%d(n int, k int) needs Console {\n", i)
@@ -34,7 +36,7 @@ func GenerateSeed(seed uint64) string {
 		b.WriteString("\tout = out.Append(xs)\n\tys = ys.Append(k)\n\txs = xs.Append(n)\n")
 		b.WriteString("\tConsole.Println(\"xs \\(show(xs)) ys \\(show(ys)) out \\(shows(out))\")\n}\n\n")
 	}
-	b.WriteString("func main() needs Console {\n")
+	b.WriteString("func main() needs Console {\n\tConsole.Println(show(pair(7, 8)))\n")
 	for i := 0; i < nf; i++ {
 		for _, in := range []string{"0, 1", "1, 2", "3, 5"} {
 			fmt.Fprintf(&b, "\tf%d(%s)\n", i, in)
