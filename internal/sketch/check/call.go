@@ -594,7 +594,9 @@ func (c *checker) callGeneric(x *syntax.CallExpr, sig *Signature, explicit []Typ
 		// A typed argument that does not match its parameter, or
 		// conflicts with what an earlier argument inferred (round-5 M3;
 		// go/types infer.go).
-		if want := c.subst(pt, in.m); in.hasFree(pt) || c.identical(want, pt) {
+		if why := c.normalFormGeneric(t, pt); why != "" {
+			c.errorf(at, CodeType, "%s", why) // mapshape.go
+		} else if want := c.subst(pt, in.m); in.hasFree(pt) || c.identical(want, pt) {
 			c.errorf(at, CodeType, "the argument has type %s, which does not match %s (D6; type inference)", t, pt)
 		} else {
 			c.errorf(at, CodeType, "the argument has type %s, which does not match %s, inferred for %s (D6; type inference)", t, want, pt)

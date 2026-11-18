@@ -448,6 +448,28 @@ func Stored[K comparable, H Hashing[K], V](m hashTable[K, H, V]) Map[K, V] {
 	out
 }
 
+// Equal is m == o: the same keys under H's Equal, each with an == value
+// (types.md, Maps 3). The checker writes a == b of two such Maps as it.
+func Equal[K comparable, H Hashing[K], V comparable](m hashTable[K, H, V], o hashTable[K, H, V]) bool {
+	if m.count != o.count {
+		return false
+	}
+	let mut i = 0
+	for i < len(m.keys) {
+		if m.live[i] {
+			let same = match o.Get(m.keys[i]) {
+				case Some{Value}: Value == m.vals[i]
+				case None: false
+			}
+			if !same {
+				return false
+			}
+		}
+		i = i + 1
+	}
+	true
+}
+
 // normalKeyed is a provider of a normal form: a Hashing provider whose
 // Equal(a, b) is n(a) == n(b) and whose Hash(k) is hash(n(k)) for one
 // pure, rowless expression n of the key alone (types.md, Maps 5). No
@@ -518,6 +540,23 @@ func Using[K comparable, N comparable, H normalKeyed[K, N], V](m keyTable[K, N, 
 	let mut t = m
 	t.by = by
 	t
+}
+
+// Equal is m == o: the same keys under H's Equal, each with an == value.
+func Equal[K comparable, N comparable, H normalKeyed[K, N], V comparable](m keyTable[K, N, H, V], o keyTable[K, N, H, V]) bool {
+	if len(m.m) != len(o.m) {
+		return false
+	}
+	for n, e in m.m {
+		let same = match o.m.Get(n) {
+			case Some{Value}: Value.val == e.val
+			case None: false
+		}
+		if !same {
+			return false
+		}
+	}
+	true
 }
 
 // Stored is the entries of m keyed by their stored spellings, a Map[K, V]:

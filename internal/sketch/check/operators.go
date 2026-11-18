@@ -256,6 +256,9 @@ func (c *checker) binary(x *syntax.BinaryExpr, hint Type) operand {
 				c.errorf(x, CodeType, "%s values cannot be compared with %s", t, x.Op)
 				return bad(x)
 			}
+			if IsProviderMap(t) && c.providerEqual(x, t) { // mapprovider.go
+				return operand{mode: modeValue, typ: Typ[Bool]}
+			}
 		default:
 			if !ordered(t) {
 				c.errorf(x, CodeType, "operator %s is not defined on %s", x.Op, t)

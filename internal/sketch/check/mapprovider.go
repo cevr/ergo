@@ -74,6 +74,27 @@ func (c *checker) providerLit(x *syntax.CompositeLit, t Type, mark int, lt func(
 	return operand{mode: modeValue, typ: t}
 }
 
+// providerEqual checks a == b or a != b of two Maps of the provider Map
+// type t outside the prelude: the same keys under the provider's Equal,
+// each with an == value (types.md, Maps 3), the table's Equal. It
+// records the site and reports true; the prelude compares its records
+// as the records they are.
+func (c *checker) providerEqual(x *syntax.BinaryExpr, t Type) bool {
+	if c.pkg.Path == stdlib.PreludePath {
+		return false
+	}
+	_, v, _, _ := c.mapParts(t)
+	switch {
+	case !comparable(v):
+		c.errorf(x, CodeType, "two Maps with a provider are == when they hold the same keys, each with an == value; %s values are not comparable (types.md, Maps 3)", v)
+	case c.opts.mapsRewritten:
+		c.errorf(x, CodeType, "this comparison of %s is not rewritten to its table; write a.Equal(b) (types.md, Maps)", t)
+	default:
+		c.mapSites = append(c.mapSites, mapSite{node: x})
+	}
+	return true
+}
+
 // rewriteMapSites writes each site as the calls of the table's functions,
 // in the files' syntax. A literal whose parent it does not find stays, and
 // the second check refuses it (providerLit).
@@ -93,6 +114,16 @@ func rewriteMapSites(sites []mapSite, files []*syntax.File) {
 			ix := unparen(n.Lhs[0]).(*syntax.IndexExpr)
 			n.Rhs[0] = call(clonePlace(ix.X), "Put", ix.Lbrack, ix.Indices[0], n.Rhs[0])
 			n.Lhs[0] = ix.X
+		case *syntax.BinaryExpr: // a == b, a != b
+			var out syntax.Expr = call(n.X, "Equal", n.OpPos, n.Y)
+			if n.Op == syntax.NEQ {
+				out = &syntax.UnaryExpr{OpPos: n.OpPos, Op: syntax.NOT, X: out}
+			}
+			for _, f := range files {
+				if replaceNode(reflect.ValueOf(f), n, out, map[uintptr]bool{}) {
+					break
+				}
+			}
 		case *syntax.CompositeLit: // Map[K, V, H]{k: v, …}
 			var out syntax.Expr = n
 			for _, e := range n.Elts {

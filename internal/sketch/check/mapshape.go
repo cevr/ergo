@@ -64,6 +64,26 @@ func (c *checker) normalFormOf(h, k Type) Type {
 	return nil
 }
 
+// normalFormGeneric is the S108 text of t, a Map whose provider has a
+// normal form (keyTable), passed where a Map over a provider type
+// parameter (hashTable[K, H, V] with H a type parameter) is expected, or
+// "". Such a Map is not that generic Map yet: its functions are
+// keyTable's, and a generic body is checked against hashTable's
+// (types.md, Maps 6).
+func (c *checker) normalFormGeneric(t, pt Type) string {
+	n, ok := t.(*Named)
+	if !ok || n.Obj == nil || n.Obj.Name != "keyTable" || !IsProviderMap(t) || !IsProviderMap(pt) {
+		return ""
+	}
+	_, h, _, _ := providerParts(pt)
+	if _, isParam := h.(*TypeParam); !isParam {
+		return ""
+	}
+	_, ph, _, _ := providerParts(t)
+	return "the argument has type " + t.String() + ", whose provider " + ph.String() + " has a normal form, so it is not yet a value of " +
+		pt.String() + " over a type parameter; write the function for " + ph.String() + " (types.md, Maps 6)"
+}
+
 // normalKeyDecl is the derived normal-form function of the type d, or nil.
 func (c *checker) normalKeyDecl(d *syntax.TypeDecl) *syntax.FuncDecl {
 	for _, f := range c.files {

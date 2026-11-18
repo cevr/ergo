@@ -22,8 +22,17 @@ var providerMapSeed = flag.Uint64("providermap.seed", 0, "replay TestProviderMap
 // the compaction. A failing seed prints the Ergo source, both outputs and
 // the replay flag.
 //
-// Mutants only it kills (internal/sketch/std/testdata/mutants.json):
-// c5-table-hash-only, c5-table-delete-hole, c5-table-grow-other-hash.
+// The provider is one of four (CONSTRAINTS C5b): keys equal modulo M with
+// a bucketed hash (the table), or with a normal form k % M, k / M or k
+// (keyTable, types.md Maps 5); a seed checks the checker chose the one
+// the shape gives. The run also compares m == o and m != p, o built of
+// the model's entries in reverse order under another equal spelling and
+// p the same with one value changed.
+//
+// Mutants only it kills (testdata/mutants.json): c5-table-hash-only,
+// c5-table-delete-hole, c5-table-grow-other-hash,
+// c5b-keytable-latest-spelling, c5b-map-equal-structural,
+// c5b-keytable-equal-spelling.
 func TestProviderMapAgrees(t *testing.T) {
 	seeds := []uint64{}
 	for s := uint64(1); s <= 48; s++ {
@@ -105,7 +114,30 @@ func TestProviderMapAgrees(t *testing.T) {
 		for _, e := range model {
 			sum += e.k*1000 + e.v
 		}
+		// == by the provider's Equal: the model's entries put in reverse
+		// order under another equal spelling, and the same with one value
+		// changed.
+		var same, other strings.Builder
+		for i := len(model) - 1; i >= 0; i-- {
+			k := model[i].k
+			if kind != 3 && kind != 2 {
+				k += mod // equal modulo mod, another spelling
+			}
+			fmt.Fprintf(&same, "\to[%d] = %d\n", k, model[i].v)
+			v := model[i].v
+			if i == 0 {
+				v++
+			}
+			fmt.Fprintf(&other, "\tp[%d] = %d\n", k, v)
+		}
+		fmt.Fprintf(&want, "true %v\n", len(model) > 0)
 		fmt.Fprintf(&want, "%d %d\n", len(model), sum)
+		mut := "let "
+		if len(model) > 0 {
+			mut = "let mut "
+		}
+		body.WriteString("\t" + mut + "o = Map[int, int, Mod]{}\n" + same.String() + "\t" + mut + "p = Map[int, int, Mod]{}\n" + other.String() +
+			"\tConsole.Println(\"\\(m == o) \\(m != p)\")\n")
 		src := fmt.Sprintf(`type Mod {} implements Hashing[int]
 
 %[1]s
