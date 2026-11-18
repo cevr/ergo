@@ -145,7 +145,7 @@ func httpRequestURL(t *rt.Task, origin, method, path string, query, header []HTT
 	if err != nil {
 		return nil, httpFailed(httpMalformed, err.Error())
 	}
-	u.Path, u.RawQuery = path, HTTPEncodeQuery(query)
+	u.Path, u.RawQuery = path, httpEncodeQuery(query)
 	return u, nil
 }
 

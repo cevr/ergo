@@ -732,10 +732,14 @@ streamed (Rm, item 9). TLS and HTTP/2 configuration are outside this core.
     Only the Date header is left out of the comparison.
     `EncodeQuery(fields)`
     is the raw query of fields, as a Client sends a Request's Query, so a
-    caller builds a URL whose query `ParseQuery` reads back. Its body is
-    marked `//ergo:pure`, the mark any module's Go body takes (The body
-    contract), in a file of pure bodies (`runtime/v1/http_query.go`);
-    `TestHTTPEncodeQueryIsGos` holds it to Go's `url.QueryEscape`. Effect's
+    caller builds a URL whose query `ParseQuery` reads back. Both are Ergo
+    bodies (NP4f-15): `EncodeQuery` escapes as Go's `url.QueryEscape`,
+    and `ParseQuery` reads as Go's `url.ParseQuery` (a pair with a ";"
+    or a malformed escape dropped, no fields past 10000 pairs) with the
+    keys sorted and each key's values in order. `TestStdMatchesGo` holds
+    both to Go's; the host client and server keep Go's own helpers
+    (`httpEncodeQuery`, `httpParseQuery`), which
+    `TestHTTPEncodeQueryIsGos` holds to `url.QueryEscape`. Effect's
     `HttpClient` test layer and Gleam's and Elixir's `Req.Test` plug
     stubs answer in memory the same way; Req routes by a plug, which here
     is `handle`.
