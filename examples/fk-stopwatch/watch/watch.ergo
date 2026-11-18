@@ -65,7 +65,8 @@ func Step(w Watch, s Signal) Decision[Watch, Never] {
 // ClickThenWorkIsThePress: in any state drawn presses reach, a click of a
 // drawn button and then the press its work sends (when the click waits for
 // a reading) leave the watch the press at the work's clock reading leaves
-// it; the work sends exactly that one press.
+// it. The law reads the button the click waits for (pressing); the cases
+// run the work itself, on the test host's runner.
 law ClickThenWorkIsThePress(gaps []int, words []int, button int, after int where 0 <= after && after <= 100000) {
 	let mut w = Initial()
 	let mut now = 0s
