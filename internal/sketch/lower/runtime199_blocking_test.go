@@ -95,7 +95,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"lowerer.rewriteObserve":    "a rewrite law case's drawn operation call on the provider (Laws 14)",
 			"irBuilder.callParts":       "the experimental IR's capability operation method, as funcCtx.callText's (wf10 IR1)",
 			"irBuilder.opCall":          "the experimental IR's program operation method, as funcCtx.programOpCall's (IRG4b r2)",
-			"irBuilder.stdOpCall":       "the experimental IR's std operation method on a runtime type, as runtimeCall's method head (IRG4b r2)",
+			"irBuilder.boundOpCall":     "the IR's bound operation method on a runtime type, as runtimeCall's method head (IRG4b r2)",
 			"irBuilder.getArm":          "the experimental IR's Value field of Some, bound in a comma-ok match on Get, as funcCtx.getArmsLower's (FLIP F7 lane B)",
 		}},
 	} {
