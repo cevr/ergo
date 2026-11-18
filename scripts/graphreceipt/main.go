@@ -45,7 +45,7 @@ type rows struct {
 
 func main() {
 	mode := flag.String("mode", "ergo", "ergo, columns, go or decode")
-	query := flag.String("query", "hidden", "hidden or filecycles")
+	query := flag.String("query", "hidden", "hidden, filecycles, or none (columns mode: the handover alone)")
 	flag.Parse()
 	data, err := os.ReadFile(flag.Arg(0))
 	if err != nil {
@@ -73,7 +73,9 @@ func main() {
 		}
 		strs, ints := columns(&r)
 		res, err := lgraph.RunColumns(context.Background(), queryArgs(*query), strs, ints)
-		if err != nil || res[0] != "0" {
+		// The query none is the handover alone: RunColumns reads the
+		// columns into rows, then stops at the missing command (status 2).
+		if err != nil || (res[0] != "0" && *query != "none") {
 			fmt.Fprintln(os.Stderr, err, res)
 			os.Exit(1)
 		}
@@ -104,6 +106,9 @@ func main() {
 }
 
 func queryArgs(query string) []string {
+	if query == "none" {
+		return []string{}
+	}
 	if query == "filecycles" {
 		return []string{"cycles", "--level", "file", "--json"}
 	}
