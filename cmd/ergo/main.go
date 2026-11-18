@@ -708,6 +708,11 @@ func undecidedExit(obligations []report.Obligation) error {
 	for _, o := range obligations {
 		if o.Status != "passed" {
 			undecided = append(undecided, fmt.Sprintf("%s (%s: %s)", o.Name, o.Status, o.Reason))
+		} else if o.Machine != nil && o.Evidence != "proved" {
+			// A machine law that passed on sampled runs only (its graph
+			// could not be listed): no run broke it, which proves nothing
+			// (batch-mc1 T3b O1).
+			undecided = append(undecided, fmt.Sprintf("%s (%s, not proved: %s)", o.Name, o.Evidence, o.Reason))
 		}
 	}
 	if len(undecided) == 0 {

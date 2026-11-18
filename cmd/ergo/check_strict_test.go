@@ -36,3 +36,52 @@ func TestCheckStrictRefusesUndecided(t *testing.T) {
 		t.Fatalf("check --strict of an undecided law: %v, want exit 1 naming law Doubles", err)
 	}
 }
+
+// TestCheckStrictRefusesASampledMachineLaw: an always law of a machine
+// whose signal carries an int (no finite list of signals) passes on 100
+// sampled runs, evidence "tested"; it is false (forty Adds of 3 pass 100),
+// so --strict must not exit 0 on it, while its sometimes law, proved by a
+// witness run, is decided. The smallest repro of batch-mc1 T3b O1. Kills
+// check-strict-sampled-passes.
+func TestCheckStrictRefusesASampledMachineLaw(t *testing.T) {
+	t.Setenv("ERGO_DEV", "off")
+	t.Setenv("ERGO_LAWCACHE", "off")
+	path := filepath.Join(t.TempDir(), "open.ergo")
+	source := `type Signal = Add{N int} | Reset{}
+
+type Count { N int }
+
+func step(s Count, event Signal) Decision[Count, string] {
+	let mut w = s
+	match event {
+	case Add as a:
+		if a.N < 0 || a.N > 3 {
+			return Ignore
+		}
+		w.N = w.N + a.N
+	case Reset:
+		w.N = 0
+	}
+	return Enter{w}
+}
+
+func small(s Count) bool { s.N < 100 }
+
+func some(s Count) bool { s.N >= 1 }
+
+type Counter machine[Count, Signal] {
+	initial: Count{N: 0},
+	step:    step,
+	law Small always small,
+	law Some sometimes some,
+}
+`
+	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := checkCommand([]string{path, "--strict"})
+	var exit exitStatusError
+	if !errors.As(err, &exit) || exit.code != 1 || !strings.Contains(exit.message, "law Counter.Small (tested, not proved") || strings.Contains(exit.message, "Counter.Some") {
+		t.Fatalf("check --strict of a sampled always law: %v, want exit 1 naming law Counter.Small alone", err)
+	}
+}
