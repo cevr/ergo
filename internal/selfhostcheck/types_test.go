@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -706,7 +707,21 @@ func genKinds(seed uint32) string {
 			// A constrained parameter is a type, whatever its positions.
 			bracket += " comparable"
 		}
-		lines = append(lines, fmt.Sprintf("func use%d[%s](g %s[%s], h %s) int { 0 }", i, bracket, g.name, strings.Join(args, ", "), ty(own, 1)), "")
+		h := ty(own, 1)
+		if r.next() < 0.3 {
+			// The receiver's instance grown: a cycle only through the
+			// function's receiver link (monoLinkSelf), which ties g's
+			// arguments back to the function's parameters.
+			grown := make([]string, len(args))
+			for j, a := range args {
+				grown[j] = a
+				if slices.Contains(own, a) {
+					grown[j] = "[]" + a
+				}
+			}
+			h = g.name + "[" + strings.Join(grown, ", ") + "]"
+		}
+		lines = append(lines, fmt.Sprintf("func use%d[%s](g %s[%s], h %s) int { 0 }", i, bracket, g.name, strings.Join(args, ", "), h), "")
 	}
 	return strings.Join(lines, "\n")
 }
