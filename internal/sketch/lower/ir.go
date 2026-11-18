@@ -217,9 +217,12 @@ func lowerIRModule(u Unit, tests *testLowering, formsOff bool) ([]File, map[stri
 		return nil, nil, irModule{}, nil, err
 	}
 	l := newBuildLowerer(u, tests)
-	l.ir = &irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, formsOff: formsOff}
+	l.ir = &irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, formsOff: formsOff, noFallback: u.NoFallback}
 	code, err := l.program()
 	if err != nil {
+		return nil, nil, irModule{}, nil, err
+	}
+	if err := l.ir.refuseFallbacks(); err != nil { // ir_fallback.go
 		return nil, nil, irModule{}, nil, err
 	}
 	if err := irNoForms(&l.ir.out); err != nil { // ir_forms_erase.go
@@ -257,6 +260,10 @@ type irState struct {
 	// formsOff builds no IR form (LowerIRReference; ir_forms.go).
 	formsOff bool
 	ops      *opFacts // the capability bindings (ir_forms_op.go)
+	// noFallback is Unit.NoFallback; fallbacks are the bodies the
+	// builder stopped at, with their reasons (ir_fallback.go).
+	noFallback bool
+	fallbacks  []IRCensusFunc
 }
 
 // restart empties st for a lowering that runs again from the start
@@ -268,11 +275,11 @@ func (st *irState) restart() *irState {
 		return nil
 	}
 	reach := append(st.reached, st.reach...)
-	census, formsOff := st.census, st.formsOff
+	census, formsOff, noFallback := st.census, st.formsOff, st.noFallback
 	if census != nil {
 		census = &IRCensus{}
 	}
-	*st = irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, census: census, reach: reach, formsOff: formsOff}
+	*st = irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, census: census, reach: reach, formsOff: formsOff, noFallback: noFallback}
 	return st
 }
 
@@ -657,18 +664,26 @@ func (st *irState) finish(b *irBuilder, pkg, name string, decl syntax.Node, std 
 		st.report.Fallback[u.reason]++
 		b.note(u.reason)
 		*ok = false
+		if st.noFallback {
+			st.fallbacks = append(st.fallbacks, IRCensusFunc{Pkg: pkg, Name: name, File: st.fileOf(b, decl), Std: std, Reasons: []string{u.reason}})
+		}
 		st.rewritesDone(b, false, u.reason) // ir_rewrite.go
 	} else if *ok {
 		st.rewritesDone(b, true, "")
 	}
 	if st.census != nil {
-		file := ""
-		if _, sourced := b.l.sourceOf(decl); sourced {
-			_, file, _, _ = b.l.at(decl, decl.Pos())
-		}
-		st.census.Funcs = append(st.census.Funcs, IRCensusFunc{Pkg: pkg, Name: name, File: file, Std: std, Reasons: b.reasons})
+		st.census.Funcs = append(st.census.Funcs, IRCensusFunc{Pkg: pkg, Name: name, File: st.fileOf(b, decl), Std: std, Reasons: b.reasons})
 		*ok = false
 	}
+}
+
+// fileOf is decl's source file for a sourced body, else "".
+func (st *irState) fileOf(b *irBuilder, decl syntax.Node) string {
+	file := ""
+	if _, sourced := b.l.sourceOf(decl); sourced {
+		_, file, _, _ = b.l.at(decl, decl.Pos())
+	}
+	return file
 }
 
 // intrinsic records f, whose body is the lowerer's own Go text (an extern
