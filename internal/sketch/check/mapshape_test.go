@@ -86,3 +86,45 @@ func size(m Map[int, int, Mod]) int { len(m) }
 		t.Fatalf("the seeds reach shaped %d and unshaped %d providers; want both", reach[true], reach[false])
 	}
 }
+
+// TestProviderMapRefusals holds the diagnostic texts of the readers of a
+// Map with a provider that refuse it (types.md, Maps 3, 6 and 7): its
+// codec, == over values that are not comparable, and a normal-form Map
+// passed where a Map over a provider type parameter is expected.
+//
+// Mutants only it kills (testdata/mutants.json): c5b-codec-not-refused,
+// c5b-map-equal-incomparable, c5b-generic-normal-form-unnamed.
+func TestProviderMapRefusals(t *testing.T) {
+	const provider = `import strings
+
+type Fold {} implements Hashing[string]
+
+func Hash(_ Fold, k string) uint64 { hash(strings.ToLower(k)) }
+
+func Equal(_ Fold, a string, b string) bool { strings.ToLower(a) == strings.ToLower(b) }
+
+`
+	for _, row := range []struct{ src, text string }{
+		{`func put(m Map[string, int, Fold], w Writer) { encode(m, w) }`,
+			"Map[string, int, Fold] does not satisfy wire: it is a Map with a provider, which has no wire form yet"},
+		{`func same(a Map[string, []int, Fold], b Map[string, []int, Fold]) bool { a == b }`,
+			"two Maps with a provider are == when they hold the same keys, each with an == value; []int values are not comparable (types.md, Maps 3)"},
+		{`func size[H Hashing[string]](m Map[string, int, H]) int { len(m) }
+
+func main() { let n = size(Map[string, int, Fold]{}); n }`,
+			"whose provider Fold has a normal form, so it is not yet a value of Map[string, int, H] over a type parameter; write the function for Fold (types.md, Maps 6)"},
+	} {
+		f, err := syntax.Parse(provider + row.src + "\n")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, ds := check.Check("main", []*syntax.File{f}, nil)
+		found := false
+		for _, d := range ds {
+			found = found || strings.Contains(d.Message, row.text)
+		}
+		if !found {
+			t.Errorf("%s\ngives %v; want a diagnostic with %q", row.src, ds, row.text)
+		}
+	}
+}

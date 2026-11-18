@@ -60,7 +60,7 @@ func (c *checker) wireWalk(t Type, seen map[Type]bool) (string, *wireFault) {
 		return "", &wireFault{t, why}
 	}
 	if IsProviderMap(t) {
-		return "", &wireFault{t, "is a Map with a provider, which has no wire form yet (types.md, Maps 6)"}
+		return "", &wireFault{t, "is a Map with a provider, which has no wire form yet"}
 	}
 	if tp, ok := t.(*TypeParam); ok {
 		if typeSet(tp) == SetWire {

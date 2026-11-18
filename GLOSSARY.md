@@ -276,6 +276,8 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Hashing provider**: A provider of the prelude's operation type `Hashing[K]` (`Hash` and `Equal`, with four laws), named as a Map's third type argument: `Map[K, V, H]` finds its keys through `H`. `Structural[K]` is the provider of `==` and `hash`, and `Map[K, V]` is `Map[K, V, Structural[K]]`. See [types](docs/spec/types.md#maps), Maps.
 
+**Normal-form shape**: A Hashing provider whose `Equal(a, b)` is `n(a) == n(b)` and whose `Hash(k)` is `hash(n(k))` for one expression `n` of the key alone. Its Map is Go's map keyed by `n(k)`, each entry keeping the key's first spelling; every other provider's Map is the prelude's table. See [types](docs/spec/types.md#maps), Maps 6.
+
 **Admission**: A law parameter's `where` that names an earlier parameter, `b K where Equal(a, b)`: a law of its own over the parameters up to it. A case runs only when every admission holds, and a parameter that names an earlier one of an identical type is found among that value's near variants. See [types](docs/spec/types.md#laws), Laws 15.
 
 **Invariant law**: A machine law `law L always p` or `law L sometimes p`, with `p` a pure function from the machine's state to `bool`. `always` holds when every reachable state satisfies `p`, the start included; `sometimes` holds when one does, shown by a shortest witness run. See [types](docs/spec/types.md#laws) Laws 13.
