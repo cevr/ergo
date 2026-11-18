@@ -24,6 +24,7 @@
 // for the same reason. The list of bases is in XDG_DATA_HOME/work (by
 // default ~/.local/share/work).
 
+import api
 import exec
 import filepath
 import fs
@@ -38,7 +39,6 @@ import github.com/cevr/ergo/modules/work/work
 import github.com/cevr/ergo/modules/work/work/workcli
 import os
 import strconv
-import strings
 import time
 
 // baseOf is the base of the working folder cwd, as the head says.
@@ -119,24 +119,5 @@ func main() fails os.Exit needs Ambient | Console {
 		Clock:    try clockOf(process.Getenv("WORK_NOW")),
 	}
 	let tool = work.NewTool(base, home, data, p, cwd)
-	let o = with context { work.Api: tool } { workcli.Run(process.Args()) }
-	if o.Out != "" {
-		Console.Println(strings.TrimSuffix(o.Out, "\n"))
-	}
-	if o.Code != 0 {
-		let code = os.ParseCode(o.Code) catch {
-		case Unsatisfied:
-			Unreachable("the generated CLI's Run gives status 0, 1 or 2")
-			os.ParseCode(1) catch {
-			case Unsatisfied:
-				return
-			}
-		}
-		// With --json the failure's JSON is the answer on standard output;
-		// an Exit always writes a line, so it says where the answer went.
-		if o.Err == "" {
-			return os.Exit{Code: code, Message: "work: failed; the JSON on standard output says why"}
-		}
-		return os.Exit{Code: code, Message: "work: " + strings.TrimSuffix(o.Err, "\n")}
-	}
+	try api.ExitAs("work", with context { work.Api: tool } { workcli.Run(process.Args(), workcli.Defaults()) })
 }
