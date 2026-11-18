@@ -2232,6 +2232,14 @@ The standard library is an ordinary set of packages ([NORTH_STAR.md](../../NORTH
 | `internal/sketch/lower/module.go:lowerer.hostFields` | `Console`, `Ambient` |
 | `internal/tsproj/project.go:emitter.declare` | `Wire` |
 | `internal/tsproj/project.go:emitter.schema` | `Option` |
+| `internal/sketch/check/entry.go:isPreludeMachine` | `Machine`, by declaration |
+| `internal/sketch/check/entry.go:isPreludeMachineValue` | `Machine` and `InputMachine`, by declaration |
+| `internal/sketch/check/expr.go:checker.compositeLit` | the Map's provider form `hashTable`, which the prelude writes as its record |
+| `internal/sketch/check/laws.go:Law.Title` | a prelude law, named unqualified |
+| `internal/sketch/check/mapprovider.go:IsProviderMap` | `hashTable`, the Map's provider form ([types](types.md#maps), Maps 5) |
+| `internal/sketch/check/mapprovider.go:checker.isStructural` | `Structural`, the Map's default provider |
+| `internal/sketch/check/mapprovider.go:checker.preludeTypeObj` | the prelude's Map types, from its scope in its own check |
+| `internal/sketch/eval/cases.go:qualifiedLaw` | a prelude law, named unqualified |
 
 The reviewed facts of a Go body (pure, host, inert, its hidden arguments, moves only, a moving callback and its keeper, a release that stops running code, an operation that drains lends) are read in one place, `check.BodyOf` and `check.OpBodyOf`, by the body the extern's declaration names. An extern of any package that binds the same body gets the same facts; the declaring package is never read (`TestBodyFactsFollowTheBody`). Whether a package may bind the runtime at all is the extern rule's question, not the facts'.
 
