@@ -165,7 +165,7 @@ var largeKinds = []planKind{
 // TestLargeValueCopyAgreesWithReference writes loops over records of 320,
 // 264, 256 and 96 bytes, and checks that large-value-copy, at its default
 // max of 256, fires on exactly the loops whose element is bigger. Mutants:
-// lh3-large-boundary, lh3-large-first-field.
+// lh3-large-boundary.
 func TestLargeValueCopyAgreesWithReference(t *testing.T) {
 	speedProperty(t, "large-value-copy", "TestLargeValueCopyAgreesWithReference", 0x55, largeKinds)
 }

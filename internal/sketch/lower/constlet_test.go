@@ -71,7 +71,7 @@ func main() needs Console {
 // v1.Let (int8(Wide), n / Zero, Big + Big, uint(Negative)).
 //
 // Mutant (lower ledger, with the fix): const-fold-scanner-places (the
-// fix's index, bitwise, fitting-conversion and divisor arms of
+// fix's index, bitwise, fitting conversion and divisor arms of
 // constUses dropped) fails here. Red before the fix: constUses admits
 // none of these places, so every read is v1.Let.
 func TestConstLetsFoldOnTheScannerPath(t *testing.T) {
