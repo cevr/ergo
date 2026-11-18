@@ -21,9 +21,6 @@ var knownValueWidening = &Rule{
 }
 
 func checkKnownValueWidening(p *Pass) {
-	if p.Package.Std() || p.Package.Host() {
-		return
-	}
 	syntax.Inspect(p.File, func(n syntax.Node) bool {
 		d, ok := n.(*syntax.DeclStmt)
 		if !ok || d.Decl.Mut.IsValid() {

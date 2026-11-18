@@ -56,3 +56,10 @@ type suffixOptions struct {
 type functionOptions struct {
 	Functions []string `json:"functions"`
 }
+
+// ownerOptions is capability-outside-owner's map from a capability, as
+// its type prints (store.Store), to the package folders under the module
+// root that may run its operations ("." the root package's).
+type ownerOptions struct {
+	Owners map[string][]string `json:"owners"`
+}

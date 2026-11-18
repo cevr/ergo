@@ -92,6 +92,18 @@ func listedFunction(rel string, f *check.Func, list []string) bool {
 	return f != nil && slices.Contains(list, path.Dir(rel)+"."+f.Name)
 }
 
+// ownersOf is the folders the owners option lists for the capability t,
+// and whether it lists t.
+func ownersOf(owners map[string][]string, t check.Type) ([]string, bool) {
+	dirs, ok := owners[t.String()]
+	return dirs, ok
+}
+
+// ownedHere reports whether the file at rel is in one of the folders.
+func ownedHere(rel string, dirs []string) bool {
+	return slices.Contains(dirs, path.Dir(rel))
+}
+
 // exportedName reports a declared name other packages can use: it starts
 // with an upper-case letter (grammar.md, Visibility).
 func exportedName(id *syntax.Ident) bool {

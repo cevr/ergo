@@ -17,9 +17,6 @@ var bannedWords = &Rule{
 }
 
 func checkBannedWords(p *Pass) {
-	if p.Package.Std() || p.Package.Host() {
-		return
-	}
 	words := p.Options.(wordOptions).Words
 	syntax.Inspect(p.File, func(n syntax.Node) bool {
 		id, ok := n.(*syntax.Ident)

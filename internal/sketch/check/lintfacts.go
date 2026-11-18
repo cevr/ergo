@@ -679,3 +679,33 @@ func mirror(op syntax.Token) syntax.Token {
 	}
 	return op
 }
+
+// IsConsole reports the prelude's Console capability, a predeclared name
+// (docs/spec/stdlib.md, Std is ordinary 2).
+func IsConsole(t Type) bool {
+	n, ok := t.(*Named)
+	if !ok {
+		return false
+	}
+	o := n.origin().Obj
+	return o != nil && o.Name == "Console" && o.Pkg != nil && o.Pkg.Path == stdlib.PreludePath
+}
+
+// ProviderOpType is the capability whose operation the call x runs
+// through a with or a row (`Store.Get(k)`), or nil.
+func ProviderOpType(info *Info, x *syntax.CallExpr) *Named {
+	call := info.Calls[x]
+	if call == nil || call.Kind != CallProviderOp {
+		return nil
+	}
+	sel, ok := unparen(x.Fun).(*syntax.SelectorExpr)
+	if !ok {
+		return nil
+	}
+	n, _ := info.Types[sel.X].(*Named)
+	return n
+}
+
+// IsGoImport reports a package `import go` names: a Go package read
+// through its bindings (interop.md), the Go boundary.
+func IsGoImport(p *Package) bool { return p != nil && p.Host() }

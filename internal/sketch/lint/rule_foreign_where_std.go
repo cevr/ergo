@@ -17,9 +17,6 @@ var foreignWhereStd = &Rule{
 }
 
 func checkForeignWhereStd(p *Pass) {
-	if p.Package.Std() || p.Package.Host() {
-		return
-	}
 	for _, im := range p.Package.ImportsOf(p.File) {
 		if !im.Pkg.Host() {
 			continue
