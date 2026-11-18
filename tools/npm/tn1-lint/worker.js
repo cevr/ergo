@@ -2,7 +2,10 @@
 // The worker thread of lint.js: it keeps one `tn1-lint serve` process,
 // writes each request it is posted as a line, and posts back each reply
 // line, then wakes the caller blocked in Atomics.wait. A sidecar that
-// exits fails the request in flight; the next request starts another.
+// exits fails the request in flight; the next request starts another, up
+// to MAX_STARTS per process. A start that fails (spawn throws, as fork
+// does with ENOMEM in a process holding much memory, or the binary cannot
+// run) is replied at once with `failed: true`, and lint.js starts no more.
 const { spawn } = require("node:child_process");
 const readline = require("node:readline");
 const { workerData } = require("node:worker_threads");
@@ -10,6 +13,10 @@ const { workerData } = require("node:worker_threads");
 const READY = 0;
 const STARTS = 1;
 const GROUP = 2;
+
+// The most sidecar processes one process starts: a sidecar that keeps
+// exiting is not started once per file.
+const MAX_STARTS = 3;
 
 const { binary, shared, port } = workerData;
 let child;
@@ -20,6 +27,11 @@ function reply(message) {
   port.postMessage(message);
   Atomics.store(shared, READY, 1);
   Atomics.notify(shared, READY);
+}
+
+/** A start that failed: this reply, and every later one, is this reason. */
+function failed(reason) {
+  reply({ diagnostics: [], error: reason, failed: true });
 }
 
 function launch() {
@@ -35,22 +47,37 @@ function launch() {
       reply({ diagnostics: [], error: `tn1-lint: an unreadable reply: ${line.slice(0, 200)}` });
     }
   });
-  const gone = (reason) => {
+  const gone = (reason, fatal) => {
     if (child !== started) return;
     child = undefined;
     Atomics.store(shared, GROUP, 0);
-    if (pending) reply({ diagnostics: [], error: reason });
+    if (!pending) return;
+    if (fatal) failed(reason);
+    else reply({ diagnostics: [], error: reason });
   };
-  started.on("error", (error) => gone(`tn1-lint: cannot start ${binary}: ${error.message}`));
+  // An error event is a start that failed (ENOENT, EACCES): no later
+  // request can do better.
+  started.on("error", (error) => gone(`tn1-lint: cannot start ${binary}: ${error.message}`, true));
   started.on("exit", (code, signal) =>
-    gone(`tn1-lint: the sidecar exited (${signal ?? `status ${code}`})`),
+    gone(`tn1-lint: the sidecar exited (${signal ?? `status ${code}`})`, false),
   );
   started.stdin.on("error", () => {});
   child = started;
 }
 
 port.on("message", (request) => {
-  if (child === undefined) launch();
   pending = true;
+  if (child === undefined) {
+    if (Atomics.load(shared, STARTS) >= MAX_STARTS) {
+      failed(`tn1-lint: the sidecar exited ${MAX_STARTS} times; not starting it again`);
+      return;
+    }
+    try {
+      launch();
+    } catch (error) {
+      failed(`tn1-lint: cannot start ${binary}: ${error.message}`);
+      return;
+    }
+  }
   child.stdin.write(`${JSON.stringify(request)}\n`);
 });
