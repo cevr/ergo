@@ -346,6 +346,9 @@ func posOf(t tree.Tree, id int) int {
 		posOf(t, kid(t, id, "Name"))
 	case "InterpolatedString":
 		posOf(t, kids(t, id, "Texts")[0])
+	case "TypeTerm":
+		let n = pos(t, id, "Tilde")
+		if n != NoPos { n } else { posOf(t, kid(t, id, "Type")) }
 	case _:
 		Unreachable("no Pos for \(family(t, id))")
 	}
@@ -510,6 +513,8 @@ func endOf(t tree.Tree, id int) int {
 		endOf(t, kid(t, id, "Name"))
 	case "InterpolatedString":
 		endOf(t, last(kids(t, id, "Texts")))
+	case "TypeTerm":
+		endOf(t, kid(t, id, "Type"))
 	case _:
 		Unreachable("no End for \(family(t, id))")
 	}

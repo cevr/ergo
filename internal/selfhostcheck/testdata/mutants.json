@@ -520,6 +520,28 @@
           "internal/selfhostcheck:TestSelfhostFormatAgrees"
         ]
       }
+    },
+    {
+      "name": "sc-format-drops-tilde",
+      "origin": "wf10 SELF-CONSTRAINTS",
+      "file": "internal/selfhostcheck/testdata/selfhost/format/nodes.ergo",
+      "from": "\t\t\t\tif p.at(term, \"Tilde\") != NoPos {\n",
+      "to": "\t\t\t\tif false {\n",
+      "rule": "A type set's `~T` term keeps its `~` (types.md, Generics 2).",
+      "killers": [
+        "internal/selfhostcheck:TestSelfhostFormatAgrees"
+      ]
+    },
+    {
+      "name": "sc-format-typeset-last",
+      "origin": "wf10 SELF-CONSTRAINTS",
+      "file": "internal/selfhostcheck/testdata/selfhost/format/nodes.ergo",
+      "from": "\t\t\tif !done && p.start(terms[0]) < p.start(m) {\n",
+      "to": "\t\t\tif false {\n",
+      "rule": "The type-set member keeps its source place among the operations and laws, as the Go formatter sorts members by position.",
+      "killers": [
+        "internal/selfhostcheck:TestSelfhostFormatAgrees"
+      ]
     }
   ]
 }

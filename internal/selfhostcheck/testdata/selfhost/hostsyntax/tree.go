@@ -30,7 +30,7 @@ func init() {
 		syntax.IfStmt{}, syntax.SwitchStmt{}, syntax.TypeSwitchStmt{}, syntax.ForStmt{}, syntax.RangeStmt{},
 		syntax.CaseClause{}, syntax.ExternSpec{}, syntax.TestDecl{}, syntax.LawDecl{}, syntax.LawReach{},
 		syntax.AssertStmt{}, syntax.SkipStmt{}, syntax.VariantSpec{}, syntax.AsPattern{}, syntax.InterpolatedString{},
-		syntax.OrPattern{},
+		syntax.OrPattern{}, syntax.TypeTerm{},
 		// Not Nodes, but a node's field points to them (LawDecl.Rewrite,
 		// LawDecl.Equation, Field.Own).
 		syntax.LawRewrite{}, syntax.LawEquation{}, syntax.Word{},

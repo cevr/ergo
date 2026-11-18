@@ -482,11 +482,43 @@ func bySource(p *Printer, a []int, b []int) []int {
 // operationType prints the includes, operations and laws of an operation
 // type in source order.
 func operationType(p *Printer, t int) {
-	let nodes = p.bySource(p.bySource(p.ks(t, "Includes"), p.ks(t, "Methods")), p.ks(t, "Laws"))
+	let mut nodes = p.bySource(p.bySource(p.ks(t, "Includes"), p.ks(t, "Methods")), p.ks(t, "Laws"))
+	// The type-set member `~int | ~int64` is one member, placed by its
+	// first term among the operations and laws.
+	let terms = p.ks(t, "Terms")
+	if len(terms) > 0 {
+		let mut placed = []int{}
+		let mut done = false
+		for m in nodes {
+			if !done && p.start(terms[0]) < p.start(m) {
+				placed = placed.Append(terms[0])
+				done = true
+			}
+			placed = placed.Append(m)
+		}
+		if !done {
+			placed = placed.Append(terms[0])
+		}
+		nodes = placed
+	}
 	p.members(p.at(t, "Lbrace"), p.at(t, "Rbrace"), nodes, func(x int, aligned bool) {
 		let m = nodes[x]
 		if p.fam(m) == "LawDecl" {
 			p.memberLaw(m)
+			return
+		}
+		if p.fam(m) == "TypeTerm" {
+			for ti, term in terms {
+				if ti > 0 {
+					p.space()
+					p.synth("|")
+					p.space()
+				}
+				if p.at(term, "Tilde") != NoPos {
+					p.token(p.at(term, "Tilde"), "~")
+				}
+				p.typ(p.k(term, "Type"))
+			}
 			return
 		}
 		if p.fl(m, "Include") {

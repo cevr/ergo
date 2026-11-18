@@ -444,6 +444,16 @@ func (g *gen) decl() {
 		g.fields(", ")
 		g.w("}", g.pick("", " | Z", "\n\t| W{}"))
 	case 4:
+		if g.r.IntN(3) == 0 {
+			// A type set (TypeTerm), alone or among operations.
+			g.w("type ", g.name(), " {", g.pick(" ", "\n\t", "\n\tLess(o int) bool,\n\t"))
+			g.w(g.pick("~int", "string", "~float64"))
+			for range g.r.IntN(3) {
+				g.w(g.pick(" | ", "|", " /* c */ | "), g.pick("~int64", "~string", "comparable", "uint8"))
+			}
+			g.w(g.pick(" }", ",\n}", "\n}", ",\n\n\tlaw L(a int) { a == a },\n}"))
+			return
+		}
 		// Includes, operations and laws may interleave: the printer keeps
 		// source order (sh-members-unsorted).
 		g.w("type ", g.name(), " {\n", g.pick("", "\t..Closer,\n"), "\tGet(k string) int fails NotFound needs Store,\n",
