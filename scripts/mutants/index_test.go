@@ -11,8 +11,12 @@ import (
 // diffs that commit against its change, so an entry for a dirty tree or
 // a missing segment would select from a record of another tree.
 //
+// A suite of named tests (r) is no record of its package and is not
+// indexed.
+//
 // Mutants (testdata/mutants.json): csr-index-dirty-tree,
-// csr-index-untracked-ignored, csr-index-unstored-suite.
+// csr-index-untracked-ignored, csr-index-unstored-suite,
+// csr-index-partial-suite.
 func TestIndexNamesOnlyCleanCommitsWithStoredSegments(t *testing.T) {
 	repo := t.TempDir()
 	git(t, repo, "init", "-q")
@@ -41,8 +45,8 @@ func TestIndexNamesOnlyCleanCommitsWithStoredSegments(t *testing.T) {
 	if err := store.Save(stored, &coverage{Tests: []*covTest{{ID: "p:TestA"}}}); err != nil {
 		t.Fatal(err)
 	}
-	suites := []Suite{{Name: "p", Package: "./p"}, {Name: "q", Package: "./q"}}
-	n, err := indexSegments(store, head, repo, suites, map[string]string{"p": stored, "q": missing}, []string{"./p"})
+	suites := []Suite{{Name: "p", Package: "./p"}, {Name: "q", Package: "./q"}, {Name: "r", Package: "./r", Only: []string{"TestA"}}}
+	n, err := indexSegments(store, head, repo, suites, map[string]string{"p": stored, "q": missing, "r": stored}, []string{"./p"})
 	if err != nil {
 		t.Fatal(err)
 	}

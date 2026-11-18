@@ -986,7 +986,11 @@ func (e *engine) measure(ctx context.Context, suites []Suite) (*coverage, error)
 			}
 			listed := strings.Fields(string(list))
 			for _, n := range listed {
-				if strings.HasPrefix(n, "Test") && (s.Only == nil || slices.Contains(s.Only, n)) {
+				// A family in Only is its parts (Suite.Families).
+				part := slices.ContainsFunc(s.Families, func(f string) bool {
+					return slices.Contains(s.Only, f) && regexp.MustCompile(partsPattern(f)).MatchString(n)
+				})
+				if strings.HasPrefix(n, "Test") && (s.Only == nil || slices.Contains(s.Only, n) || part) {
 					names = append(names, n)
 				}
 			}
