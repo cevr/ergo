@@ -730,12 +730,12 @@
       ]
     },
     {
-      "name": "fl4-disabled-press-sends",
+      "name": "fl4-press-takes-mirror-signal",
       "origin": "wf10/fl4 FL4",
       "file": "modules/fluid/gui/draw.ergo",
-      "from": "\t\tlet on = if off { None } else { p.On }",
-      "to": "\t\tlet on = if off { p.On } else { p.On }",
-      "rule": "A press stated disabled still sends its signal when pressed (its access still says disabled): PressSendsItsSignal.",
+      "from": "\t\t\tDraw[E](f, kids[i])",
+      "to": "\t\t\tDraw[E](f, kids[len(kids)-1-i])",
+      "rule": "Kids are drawn in reverse, so the i-th button sends another press's signal: PressSendsItsSignal (and AccessOfGuiIsAccessOfPart, by order).",
       "anchor": {
         "tests": [
           "examples:modules/fluid"
