@@ -82,7 +82,12 @@ func loadModule(dir, name string) (*program, []string) {
 			if !entry.IsDir() {
 				problem("%s is not a folder", file)
 			}
-		case file == "ergo.mod" || file == "go.mod" || file == "go.sum" || file == "README.md" || file == expectedSkipsFile || file == fullTierFile || strings.HasSuffix(file, ".ergo"):
+		case file == "origin" && entry.IsDir():
+			// A port's notes on its original (pins, how it was read): Markdown
+			// only, never source. The original itself is not vendored when its
+			// text has no licence (modules/fluid).
+			problems = append(problems, originNotes(filepath.Join(dir, file))...)
+		case file == "ergo.mod" || file == "go.mod" || file == "go.sum" || file == "README.md" || file == "NOTICE" || file == expectedSkipsFile || file == fullTierFile || strings.HasSuffix(file, ".ergo"):
 			if !entry.Type().IsRegular() {
 				problem("%s is not a regular file", file)
 				continue
@@ -95,7 +100,7 @@ func loadModule(dir, name string) (*program, []string) {
 		case entry.IsDir():
 			problems = append(problems, packageSources(p, filepath.Join(dir, file), file)...)
 		default:
-			problem("unexpected %s; a module holds ergo.mod, go.mod, README.md and package folders, and may hold go.sum, expected-skips, full-tier and testdata/", file)
+			problem("unexpected %s; a module holds ergo.mod, go.mod, README.md and package folders, and may hold go.sum, NOTICE, expected-skips, full-tier, origin/ and testdata/", file)
 		}
 	}
 	for _, required := range []string{"ergo.mod", "go.mod", "README.md"} {
@@ -205,4 +210,27 @@ func selectModules(names []string, modules []*program) ([]*program, error) {
 		}
 	}
 	return selected, nil
+}
+
+// originNotes checks a module's origin folder: README.md and other
+// Markdown files, no folder and nothing else, so no source hides there
+// from the test leg.
+func originNotes(dir string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return []string{err.Error()}
+	}
+	var problems []string
+	readme := false
+	for _, entry := range entries {
+		name := entry.Name()
+		if !entry.Type().IsRegular() || !strings.HasSuffix(name, ".md") {
+			problems = append(problems, fmt.Sprintf("unexpected origin/%s; a module's origin folder holds Markdown notes only", name))
+		}
+		readme = readme || name == "README.md"
+	}
+	if !readme {
+		problems = append(problems, "origin/README.md: missing; it names the original and its pins")
+	}
+	return problems
 }

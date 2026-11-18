@@ -25,6 +25,12 @@ import (
 // handle: replica.Source requires its state's codec (`S wire`), so the
 // checker refuses it at the Source and names the field. It catches
 // rpx1-source-without-codec (the constraint removed: the case checks).
+//
+// web-failure-without-status (wf10 SSR WEB1) is a site whose loader can
+// fail with a variant its status table (modules/web Site.Status) has no
+// case for: the site does not compile, so no typed failure reaches a
+// user as a 200 or a bare 500. It catches web1-status-case-wildcard (the
+// table answers every other failure with `case _`).
 func TestDiagnosticCases(t *testing.T) {
 	root, err := filepath.Abs("../..")
 	if err != nil {
