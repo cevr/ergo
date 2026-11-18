@@ -89,7 +89,12 @@ func targets(module string, jobs []Job) ([]string, map[string]bool) {
 // planScope chooses the suites to measure: those whose test binary
 // (suiteDeps, by suite name) or one of whose tools (toolDeps, by tool
 // name) compiles a package of pkgs.
-func planScope(suites []Suite, suiteDeps, toolDeps map[string][]string, pkgs []string, anchors map[string]bool) coverScope {
+//
+// A suite of a module nested in the checkout (Suite.Module) compiles no
+// package -coverpkg can name, and go list of the checkout cannot list it:
+// it is measured, for its baselines, when a selected row names a test of
+// it (named), and skipped otherwise (MUT-MODULES).
+func planScope(suites []Suite, suiteDeps, toolDeps map[string][]string, pkgs []string, anchors, named map[string]bool) coverScope {
 	s := coverScope{suites: map[string]bool{}, anchors: anchors}
 	reaches := func(deps []string) bool {
 		return slices.ContainsFunc(deps, func(d string) bool { return slices.Contains(pkgs, d) })
@@ -99,6 +104,9 @@ func planScope(suites []Suite, suiteDeps, toolDeps map[string][]string, pkgs []s
 		ok := reaches(suiteDeps[su.Name])
 		for _, tool := range toolsOf(su) {
 			ok = ok || reaches(toolDeps[tool])
+		}
+		if su.Module != "" {
+			ok = named[su.Name]
 		}
 		if ok {
 			s.suites[su.Name] = true
@@ -115,7 +123,7 @@ func (e *engine) scope(jobs []Job) (coverScope, error) {
 	pkgs, anchors := targets(e.module, jobs)
 	suiteDeps, toolDeps := map[string][]string{}, map[string][]string{}
 	for _, s := range e.cfg.Suites {
-		if s.Package == "" {
+		if s.Package == "" || s.Module != "" {
 			continue
 		}
 		deps, err := e.deps(true, s.Package)
@@ -131,7 +139,25 @@ func (e *engine) scope(jobs []Job) (coverScope, error) {
 		}
 		toolDeps[t.Name] = deps
 	}
-	return planScope(e.cfg.Suites, suiteDeps, toolDeps, pkgs, anchors), nil
+	return planScope(e.cfg.Suites, suiteDeps, toolDeps, pkgs, anchors, namedSuites(jobs)), nil
+}
+
+// namedSuites are the suites the selected rows of jobs name a killer or
+// anchor test of.
+func namedSuites(jobs []Job) map[string]bool {
+	out := map[string]bool{}
+	for _, j := range jobs {
+		for _, m := range j.Ledger.Mutants {
+			if j.Select != nil && !j.Select.MatchString(m.Name) {
+				continue
+			}
+			for _, id := range killerIDs(m) {
+				suite, _ := splitID(id)
+				out[suite] = true
+			}
+		}
+	}
+	return out
 }
 
 // deps is what pkg compiles (with test, its test binary), as import paths

@@ -29,13 +29,18 @@ func TestCoverageScopeIsWhatCompilesTheMutants(t *testing.T) {
 		{Name: "a", Package: "./a"},
 		{Name: "b", Package: "./b"},
 		{Name: "c", Command: []string{"{bin:tool}", "{test}"}},
+		// Suites of nested modules (MUT-MODULES): measured when a selected
+		// row names them, whatever go list of the checkout would say.
+		{Name: "n", Module: "n", Package: "./"},
+		{Name: "o", Module: "o", Package: "./p"},
 	}
+	named := namedSuites([]Job{{Ledger: &Ledger{Mutants: []*Mutant{{Name: "x-n", Killers: []string{"n:TestN"}}, {Name: "y-o", Killers: []string{"o:TestO"}}}}, Select: regexp.MustCompile("^x-")}})
 	scope := planScope(suites,
 		map[string][]string{"a": {"m/a", "m/x"}, "b": {"m/b", "m/y"}},
 		map[string][]string{"tool": {"m/tool", "m/x"}},
-		pkgs, anchors)
-	if !scope.suites["a"] || !scope.suites["c"] || scope.suites["b"] || !slices.Equal(scope.skipped, []string{"b"}) {
-		t.Fatalf("suites %v, skipped %v; want a and c (its tool compiles m/x), not b", scope.suites, scope.skipped)
+		pkgs, anchors, named)
+	if !scope.suites["a"] || !scope.suites["c"] || scope.suites["b"] || !scope.suites["n"] || scope.suites["o"] || !slices.Equal(scope.skipped, []string{"b", "o"}) {
+		t.Fatalf("suites %v, skipped %v; want a, c (its tool compiles m/x) and n (a selected row names it), not b or o", scope.suites, scope.skipped)
 	}
 	if !scope.measures("b", "b:TestZ") || scope.measures("b", "b:TestW") {
 		t.Fatal("the anchor's test b:TestZ is measured alone, and no other test of b")
