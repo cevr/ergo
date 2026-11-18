@@ -162,9 +162,18 @@ rows, are in the run's `receipts/stars-gui-c/`.
 
 ## Pins and checks
 
-- MyGo `github.com/egoist/mygo` at `afb7d5f` (`v0.8.4-0.20261109183017-afb7d5f170f7`), Go 1.27.3.
+- MyGo `github.com/egoist/mygo` at `v0.10.0` (`ebde939`, 2026-11-17, the
+  first tag that runs apps on iOS and Android), Go 1.27.3. Bump it with
+  `go get` in both modules and `go generate` in `drawing/`; never `go mod
+  tidy` here: no Go file imports the example modules, so tidy drops their
+  `require` lines and the Ergo build then fails with S104.
+- `TestMirrorsInternal` checks the mirror on this host's build and on the
+  phones' (android/arm64, ios/arm64, from source with cgo faked), so a file
+  constrained to a phone (the Android EGL window) is mirrored too.
 - `./check.sh` is the module's gate step: both modules' tests, uncached,
-  and `go vet` for linux, darwin, windows and js/wasm. The batch gate runs
+  and `go vet` for linux, darwin, windows and js/wasm, and for
+  android/arm64 and ios/arm64 where their C compiler is (`CC_ANDROID`,
+  Xcode; else it says "skipped: no toolchain"). The batch gate runs
   it after `scripts/gate.sh --merge`, on Linux and on the Mac. It needs the
   pinned modules in the module cache (the network once).
 - `testdata/mutants.json` is the module's mutant ledger.

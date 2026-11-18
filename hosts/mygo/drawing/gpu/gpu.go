@@ -71,3 +71,7 @@ func DownPass(bk scene.Backdrop, shift [2]int32) Pass {
 func BlurPass(bk scene.Backdrop, dir [2]int32) Pass {
 	return impl.BlurPass(bk, dir)
 }
+
+func EnableInstances() {
+	impl.EnableInstances()
+}
