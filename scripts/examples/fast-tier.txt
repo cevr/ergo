@@ -34,9 +34,11 @@ fk-transfers
 fk-weather
 fk-wizard
 flattree
+fluid-gallery
 jobq
 jobs
 jsonparse
+jsonv
 kmeans
 kvstore
 lease-sync
