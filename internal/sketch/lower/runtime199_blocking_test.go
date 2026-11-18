@@ -294,6 +294,9 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		// before a context's build and removed by a defer; frame
 		// plumbing of the test harness, no wait and no release.
 		"TestFolderOpen": true, "TestFolderRemove": true,
+		// LF1: the test build's compare of a reads operand after its Go
+		// call (gofacts.go); a loop of compares, no wait.
+		"GoReadsCheck": true,
 	}
 	// capabilityOps are the owners that call a capability operation on
 	// the Env's provider field outside callText, and the operation: FKG1's

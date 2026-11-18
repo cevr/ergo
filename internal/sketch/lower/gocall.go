@@ -200,6 +200,7 @@ func (fc *funcCtx) goCall(x *syntax.CallExpr, c *check.Call) operand {
 	if c.Recv != nil {
 		list = append([]syntax.Expr{c.Recv}, list...)
 	}
+	mark := len(fc.goCompare)
 	vals := fc.callArgs(list, x)
 	if c.Recv != nil {
 		head, vals = vals[0]+head, vals[1:]
@@ -236,10 +237,12 @@ func (fc *funcCtx) goCall(x *syntax.CallExpr, c *check.Call) operand {
 	}
 	if len(lhs) == 0 {
 		fc.line(text)
+		fc.compareReads(mark)
 		fc.afterGoContext(x, ctx)
 		return operand{}
 	}
 	fc.line(strings.Join(lhs, ", ") + " := " + text)
+	fc.compareReads(mark)
 	fc.afterGoContext(x, ctx)
 	switch {
 	case e != "" && tunnels:
