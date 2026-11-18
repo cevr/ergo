@@ -29,8 +29,8 @@ extern go image/jpeg.Options type Options {
 
 // ergo:go type Reader interface
 extern go image/jpeg.Reader type Reader {
-	own Read(p []byte) int fails go.Error needs go.Foreign,
-	own ReadByte() byte fails go.Error needs go.Foreign,
+	Read(p []byte) int fails go.Error needs go.Foreign,
+	ReadByte() byte fails go.Error needs go.Foreign,
 }
 
 // ergo:go type UnsupportedError string

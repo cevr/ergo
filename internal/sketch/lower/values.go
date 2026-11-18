@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"slices"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -196,11 +197,15 @@ type valueFacts struct {
 	byName   map[*check.Func]bool          // functions the program names as a value (handover.go, passedByName)
 	field    map[*syntax.CallExpr]bool     // Appends in place on a dead field path (handover.go, own-field)
 	deep     map[syntax.Expr]bool          // copies that go to Go, which may write a Map's entries (V8, cloneDeep)
+	reads    map[syntax.Expr]readsGuard    // copies the test build compares after the Go call, where the run build passes the operand (LF1, gofacts.go)
+	view     map[syntax.Expr]hostViewSite  // Go operands that take a view of a string's bytes, or its guarded copy (LF2b, view.go)
 	// The entry move-out (V9, moveout.go): the Map types the program
 	// moves an entry out of (by their type strings) and the Gets it reads.
 	entryWrites map[string]bool
 	moveRead    map[*syntax.CallExpr]bool
 	copied      map[*check.Var]bool // the bindings of a matched Get whose entry is copied
+	// A collect's source whose read in the loop is its last, unshared (lastread.go).
+	lastRead map[*syntax.Ident]bool
 }
 
 // ownedParam is an owned parameter (V5): its index, counting a dot call's
@@ -235,8 +240,10 @@ func (l *lowerer) valueFacts() *valueFacts {
 			lineage:  map[*syntax.CallExpr]bool{},
 			field:    map[*syntax.CallExpr]bool{},
 			deep:     map[syntax.Expr]bool{},
+			reads:    map[syntax.Expr]readsGuard{},
 			moveRead: map[*syntax.CallExpr]bool{},
 			copied:   map[*check.Var]bool{},
+			lastRead: map[*syntax.Ident]bool{},
 		}
 	}
 	return l.vals
@@ -304,6 +311,9 @@ type vvar struct {
 	ptr    bool // a borrow, *T
 	handed bool // the parameter of an owned Ref site's literal (V6): unshared, as a let mut is
 	init   syntax.Expr
+	// whole is the value of the let pattern that binds a part of it to
+	// this local (a name of `let (l, w) = f(…)`), or nil.
+	whole  syntax.Expr
 	frame  *vframe
 	loops  []syntax.Node
 	occs   []*vocc
@@ -378,6 +388,8 @@ type valueWalk struct {
 	done     bool                      // decide has run
 	args     []syntax.Expr             // arguments of owned parameters (V5)
 	goArgs   []syntax.Expr             // operands of Go calls of import go that hold a Map or slice (gocall.go)
+	goOps    map[syntax.Expr]goOperand // each goArgs operand's call (gofacts.go)
+	factUse  map[syntax.Expr]string    // what the lowering did with a Go operand's reads fact (gofacts.go)
 	sites    []*refSite                // owned Ref sites (V6, refown.go)
 	handOver map[*syntax.FuncLit]bool  // their literals
 	cells    []syntax.Expr             // values that move into a provider cell (cells.go)
@@ -433,6 +445,21 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 		}
 	case *syntax.DeclStmt:
 		for _, spec := range n.Decl.Specs {
+			if spec.Pattern != nil && !n.Decl.Mut.IsValid() && len(spec.Values) == 1 && sharingLowering != "params" {
+				// A let pattern, `let (l, w) = startLoad(k, u)`
+				// (LWR-REF-GENERIC, std cache's begin): each name is a
+				// local whose value is a part of the one value; it is
+				// unshared when that value is (freshPath, whole).
+				syntax.Inspect(spec.Pattern, func(p syntax.Node) bool {
+					if id, ok := p.(*syntax.Ident); ok {
+						if v, ok := w.info.Defs[id].(*check.Var); ok {
+							vv := w.varOf(v)
+							vv.local, vv.frame, vv.loops, vv.whole = true, frame, loops, spec.Values[0]
+						}
+					}
+					return true
+				})
+			}
 			for i, id := range spec.Names {
 				v, ok := w.info.Defs[id].(*check.Var)
 				if !ok {
@@ -445,6 +472,11 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 					if vv.mut {
 						w.owns = append(w.owns, owning{value: spec.Values[0], root: vv})
 					}
+				}
+				if call, ok := takeOf(spec); ok && i == 1 && !vv.mut && w.isTake(call) {
+					// let v, rest = m.Take(k): rest's value is the Take's
+					// (fresh, PRIM-3).
+					vv.init = call
 				}
 			}
 		}
@@ -463,7 +495,7 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 		if c := w.info.Calls[n]; c != nil && goImportCall(c, w.typeOf) {
 			w.goReads = append(w.goReads, n)
 		}
-		if c := w.info.Calls[n]; c != nil && c.Kind == check.CallFunc && (preludeAppend(c.Func) || preludeMapWrite(c.Func)) {
+		if c := w.info.Calls[n]; c != nil && c.Kind == check.CallFunc && (preludeAppend(c.Func) || preludeMapWrite(c.Func) || preludeMapTake(c.Func)) {
 			w.calls = append(w.calls, n)
 		} else if c != nil && c.Kind == check.CallFunc && c.Func != nil && c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil {
 			w.ergo = append(w.ergo, n)
@@ -476,9 +508,10 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 			if c.Recv != nil {
 				list = append([]syntax.Expr{c.Recv}, list...)
 			}
-			for _, a := range list {
+			for i, a := range list {
 				if goShared(w.typeOf(a)) {
 					w.goArgs = append(w.goArgs, a)
+					w.goOperand(a, n, c, i)
 				}
 			}
 		} else if c != nil && c.Kind == check.CallFunc && pureStdBody(c.Func) {
@@ -640,19 +673,29 @@ func pathRoot(x syntax.Expr) *syntax.Ident {
 	}
 }
 
-// preludeAppend reports the prelude's Append or an extern that binds Go's
-// append (check/builtin.go): a call that may write past its source's length,
-// so its source is clipped where it is not new or dead (V3).
+// preludeAppend reports the slice operation Append (check.CollOpOf) or an
+// extern that binds Go's append (check/builtin.go): a call that may write
+// past its source's length, so its source is clipped where it is not new
+// or dead (V3).
 func preludeAppend(f *check.Func) bool {
-	return check.GoBuiltin(f) == "append" || f != nil && f.Pkg != nil && f.Pkg.Path == "prelude" && f.Decl != nil && f.Decl.Extern != nil && f.Name == "Append" || appenderExtern(f)
+	return check.GoBuiltin(f) == "append" || check.CollOpOf(f) == check.CollAppend || appenderExtern(f)
 }
 
-// preludeMapWrite reports the prelude's Delete or Put, or an extern that
-// binds Go's delete (check/builtin.go; the prelude's Delete is one): a call
-// that writes its Map source when it may (V3), and writes a copy of it
-// otherwise.
+// preludeMapWrite reports the Map operation Delete or Put
+// (check.CollOpOf), or an extern that binds Go's delete (check/builtin.go):
+// a call that writes its Map source when it may (V3), and writes a copy of
+// it otherwise.
 func preludeMapWrite(f *check.Func) bool {
-	return check.GoBuiltin(f) == "delete" || f != nil && f.Pkg != nil && f.Pkg.Path == "prelude" && f.Decl != nil && f.Decl.Extern != nil && (f.Name == "Delete" || f.Name == "Put")
+	op := check.CollOpOf(f)
+	return check.GoBuiltin(f) == "delete" || op == check.CollDelete || op == check.CollPut
+}
+
+// preludeMapTake reports the Map operation Take (check.CollOpOf): a call
+// that takes its Map source apart, in place when it may (V3), and from a
+// copy otherwise, as Delete does (PRIM-3). Its result is the taken value
+// and the rest, so it heads no chain (writeCall).
+func preludeMapTake(f *check.Func) bool {
+	return check.CollOpOf(f) == check.CollTake
 }
 
 func (w *valueWalk) typeOf(x syntax.Expr) check.Type {
@@ -752,6 +795,14 @@ func (w *valueWalk) decide() {
 			for _, c := range chain {
 				vf.inPlace[c] = true
 			}
+		}
+	}
+	// Take's form of the pattern (PRIM-3): let v, rest = p.Take(k) and,
+	// as the next statement, p = rest: p's old value is read by the Take
+	// alone, so the Take writes it in place.
+	for _, call := range w.calls {
+		if w.isTake(call) && w.takeRebound(call) {
+			vf.inPlace[call] = true
 		}
 	}
 	// The one-extender sites (handover.go), before any freshness is read.
@@ -961,11 +1012,13 @@ func (w *valueWalk) decide() {
 		// both lowerings: a copy here would lose the write, not keep a
 		// value.
 		if inner := unparen(a); w.goHeld(inner) {
+			w.goOperandReport(a, "shared", "Go's own Map or slice, a Go call's result or a Go struct's field, goes back to Go as Go holds it")
 			vf.goShare[inner] = true
 			continue
 		}
 		// So is a let that holds one and that only Go calls use (H5).
 		if id, ok := unparen(a).(*syntax.Ident); ok {
+			w.goOnlyReport(a, id, goOnly)
 			if v, ok := w.info.Uses[id].(*check.Var); ok && goOnly[w.vars[v]] {
 				continue
 			}
@@ -975,10 +1028,33 @@ func (w *valueWalk) decide() {
 			// Two Maps may share an entry, which Go may write (V8): Go
 			// is given a deep copy, fresh or not.
 			vf.clone[a], vf.deep[a] = true, true
+			w.goOperandReport(a, "copy", "a deep copy: two Maps may share an entry, which Go may write")
 		case hostCopyAlways:
 			vf.clone[a] = true
+			w.goOperandReport(a, "copy", "the reference lowering copies every Go operand")
 		default:
+			// A reads fact (LF1): Go neither writes, keeps nor returns a
+			// part of the operand, so the run build passes it as it is;
+			// the test build copies it and compares after the call.
+			if w.viewOK(a) {
+				// A view of a string's bytes (LF2b, view.go).
+				w.goOperandReport(a, "view", "Go only reads the string's bytes")
+				continue
+			}
+			take, guard := w.readsOK(a)
+			if take {
+				w.goOperandReport(a, "no copy", "Go only reads the operand")
+				continue
+			}
 			w.freshen(a)
+			if guard && vf.clone[a] {
+				w.readsGuardAt(a)
+			}
+			if vf.clone[a] {
+				w.goOperandReport(a, "copy", "Go may write or keep the operand, and another binding reads its value later")
+			} else {
+				w.goOperandReport(a, "no copy", "the operand is fresh, or a local dead after the call")
+			}
 		}
 	}
 	// A value that moves into a provider cell (cells.go).
@@ -990,6 +1066,79 @@ func (w *valueWalk) decide() {
 	// Consumed operands of owned runtime/v1 forms, likewise.
 	w.consumes()
 	w.settleLineage()
+	w.lastReads() // lastread.go: once every copy is decided
+}
+
+// takeRest is the let that binds the rest of the Take call, let v, rest =
+// p.Take(k), its rest's name, and the let's statement, or nil.
+func (w *valueWalk) takeRest(call *syntax.CallExpr) (*syntax.DeclStmt, *syntax.Ident) {
+	_, child := w.unparenParent(call)
+	// The let's statement, above its spec and declaration nodes.
+	var d *syntax.DeclStmt
+	for p := w.parent[child]; p != nil && d == nil; p = w.parent[p] {
+		switch p := p.(type) {
+		case *syntax.DeclStmt:
+			d = p
+		case *syntax.VarSpec, *syntax.VarDecl:
+		default:
+			return nil, nil
+		}
+	}
+	if d == nil || len(d.Decl.Specs) != 1 {
+		return nil, nil
+	}
+	spec := d.Decl.Specs[0]
+	if spec.Pattern != nil || len(spec.Names) != 2 || len(spec.Values) != 1 || spec.Values[0] != child {
+		return nil, nil
+	}
+	return d, spec.Names[1]
+}
+
+// takeRebound reports the Take call's pattern: let v, rest = p.Take(k),
+// then p = rest as the next statement of the same block, with p a place
+// rooted at a let mut or a borrow (as p = p.Delete(k)).
+func (w *valueWalk) takeRebound(call *syntax.CallExpr) bool {
+	d, rest := w.takeRest(call)
+	if d == nil {
+		return false
+	}
+	block, ok := w.parent[d].(*syntax.BlockStmt)
+	if !ok {
+		return false
+	}
+	i := slices.Index(block.List, syntax.Stmt(d))
+	if i < 0 || i+1 >= len(block.List) {
+		return false
+	}
+	s, ok := block.List[i+1].(*syntax.AssignStmt)
+	if !ok || s.Tok != syntax.ASSIGN || len(s.Lhs) != 1 || len(s.Rhs) != 1 {
+		return false
+	}
+	r, ok := unparen(s.Rhs[0]).(*syntax.Ident)
+	if !ok || w.info.Uses[r] == nil || w.info.Uses[r] != w.info.Defs[rest] {
+		return false
+	}
+	id := pathRoot(s.Lhs[0])
+	if id == nil || !samePlace(s.Lhs[0], w.recvOf(call)) {
+		return false
+	}
+	v, ok := w.info.Uses[id].(*check.Var)
+	return ok && w.varOf(v).root()
+}
+
+// takeOf is the call a let of two names binds, let v, rest = call.
+func takeOf(spec *syntax.VarSpec) (*syntax.CallExpr, bool) {
+	if spec.Pattern != nil || len(spec.Names) != 2 || len(spec.Values) != 1 {
+		return nil, false
+	}
+	call, ok := unparen(spec.Values[0]).(*syntax.CallExpr)
+	return call, ok
+}
+
+// isTake reports call as a call of the Map operation Take.
+func (w *valueWalk) isTake(call *syntax.CallExpr) bool {
+	c := w.info.Calls[call]
+	return c != nil && c.Kind == check.CallFunc && preludeMapTake(c.Func)
 }
 
 // writeCall reports x, unparenthesized, as a call of the prelude's Append,
@@ -1152,11 +1301,37 @@ func (w *valueWalk) consumable(call *syntax.CallExpr, arg syntax.Expr) bool {
 			}
 			return false
 		}
-		if o.id != lid && o.id != aid && o.pre > w.pre[s] && o.pre < w.post[s] {
+		if o.id != lid && o.id != aid && o.pre > w.pre[s] && o.pre < w.post[s] && !w.plainReadIn(vv, o, call) {
 			return false
 		}
 	}
 	return true
+}
+
+// plainReadIn reports whether the use o of vv is an operand read inside
+// call of a part that holds no Map or slice (u.next in
+// u = touch(k, ready{stamp: u.next}, u); LWR-REF-GENERIC, std cache's
+// begin and keep): Go evaluates it before the call runs, and its value,
+// a copy, shares no storage with the value the call takes over, so the
+// old value is still dead from the call to the store-back. A write (an
+// assignment, a borrow, a method that takes the part by borrow) is no
+// plain read.
+func (w *valueWalk) plainReadIn(vv *vvar, o *vocc, call *syntax.CallExpr) bool {
+	if sharingLowering == "params" || o.pre <= w.pre[call] || o.pre >= w.post[call] {
+		return false
+	}
+	saved := *o
+	w.classify(vv, o)
+	path, kind := o.path, o.kind
+	*o = saved
+	if kind == occWrite || path == nil {
+		return false
+	}
+	t := w.typeOf(path)
+	if _, ptr := t.(*check.Pointer); ptr || t == nil {
+		return false
+	}
+	return !w.l.holdsValue(t)
 }
 
 // handedArg is the argument that the rebinding p = f(…, p, …) hands over
@@ -1787,7 +1962,7 @@ func (w *valueWalk) classify(vv *vvar, o *vocc) {
 			case entryRule() && w.matchedGet(p):
 				o.call, o.entry = p, true
 			}
-		case c.Kind == check.CallFunc && (preludeAppend(c.Func) || preludeMapWrite(c.Func)):
+		case c.Kind == check.CallFunc && (preludeAppend(c.Func) || preludeMapWrite(c.Func) || preludeMapTake(c.Func)):
 			if w.recvOf(p) == child && !w.l.holdsValue(elemOf(t)) {
 				o.kind = occRead
 			}
@@ -2245,6 +2420,14 @@ func (w *valueWalk) fresh(e syntax.Expr) bool {
 			return len(x.Args) == 1 && w.fresh(x.Args[0])
 		case check.CallFunc:
 			switch {
+			case preludeMapTake(c.Func):
+				// Its rest (PRIM-3): the source's own storage when the
+				// Take is in place, which the pattern hands back to the
+				// source's root, else a copy of the source.
+				if w.vf.inPlace[x] {
+					return w.takeRebound(x) || w.fresh(w.recvOf(x))
+				}
+				return !w.l.holdsValue(elemOf(w.typeOf(w.recvOf(x))))
 			case preludeAppend(c.Func) || preludeMapWrite(c.Func):
 				if w.vf.lineage[x] {
 					// A one-extender site may extend its result in place
@@ -2569,6 +2752,9 @@ func (w *valueWalk) freshPath(vv *vvar, id *syntax.Ident, path syntax.Expr) bool
 	if unshared {
 		return true
 	}
+	if vv.whole != nil {
+		return w.fresh(vv.whole)
+	}
 	return vv.init != nil && w.fresh(vv.init)
 }
 
@@ -2645,7 +2831,7 @@ func (l *lowerer) freshResult(f *check.Func) bool {
 		return true
 	}
 	if f != nil && f.Pkg.Host() {
-		// A Go call's Map or slice result is new (freshGoResults) or
+		// A Go call's Map or slice result is new (goFresh) or
 		// copied at the call (goResult).
 		return true
 	}
@@ -2707,7 +2893,7 @@ func (fc *funcCtx) valueSource(x *syntax.CallExpr, c *check.Call, vals []string)
 	switch {
 	case preludeAppend(c.Func):
 		vals[0] = fc.l.goPkg("slices") + ".Clip(" + vals[0] + ")"
-	case preludeMapWrite(c.Func):
+	case preludeMapWrite(c.Func) || preludeMapTake(c.Func):
 		vals[0] = fc.l.goPkg("maps") + ".Clone(" + vals[0] + ")"
 	}
 	return vals
@@ -2895,6 +3081,19 @@ func (l *lowerer) reserveClones(pkgs []*check.Package, reserve func(key pkgKey, 
 	walked := map[check.Type]bool{}
 	var walk func(t check.Type)
 	walk = func(t check.Type) {
+		if s, ok := t.(*check.Signature); ok && !walked[t] {
+			// A callback's Go operands and result are copied at the
+			// boundary (gocallback.go): testing/slogtest.TestHandler's
+			// func() []Map[string, go.Any] (GB2).
+			walked[t] = true
+			for _, p := range s.Params {
+				walk(p.Type)
+			}
+			for _, r := range s.Results {
+				walk(r)
+			}
+			return
+		}
 		if t == nil || walked[t] || !l.holdsValue(t) {
 			return
 		}

@@ -5,6 +5,7 @@ package lower
 import (
 	"go/constant"
 	"strconv"
+	"strings"
 	"unicode/utf8"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -40,6 +41,11 @@ func (b *irBuilder) valueOf(x syntax.Expr) ([]*irStmt, *irExpr) {
 			break
 		}
 		pre, e = b.call(y, false)
+		// A whole value may run statements before it, so a loop-invariant
+		// pure call computes its value once there (ir_memo.go).
+		if mpre, me, ok := b.memoCall(y, pre, e); ok {
+			pre, e = mpre, me
+		}
 	case *syntax.IfStmt:
 		b.plain(y)
 		pre, e = b.ifValue(y)
@@ -200,6 +206,11 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		if !ok {
 			irNo("selector that is not a field")
 		}
+		if m, ok := strings.CutSuffix(field, "()"); ok {
+			// A field the runtime's Go type reads by a method (go.Error's
+			// Text, decls.go): the method's call.
+			return &irExpr{K: "mcall", Pos: b.pos(x.Sel, x.Sel.Pos()), Name: m, X: b.expr(x.X)}
+		}
 		if h := b.hoistField(x, field); h != nil { // ir_hoist.go
 			return h
 		}
@@ -213,6 +224,8 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		}
 		xs := b.inOrder([]syntax.Expr{x.X, x.Indices[0]}) // ir_order.go
 		return &irExpr{K: "index", Pos: p, X: xs[0], Y: xs[1]}
+	case *syntax.SliceExpr:
+		return b.sliceOf(x, p) // ir_slice.go
 	case *syntax.CompositeLit:
 		if x.Base != nil || x.Type == nil {
 			return b.updateLit(x, t, p) // ir_update.go
@@ -242,6 +255,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			}
 			var values []syntax.Expr
 			var fts []check.Type
+			var names []string
 			for i, e := range x.Elts {
 				name := ""
 				kv, keyed := e.(*syntax.KeyValueExpr)
@@ -268,11 +282,13 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 					}
 				}
 				fts = append(fts, ft)
+				names = append(names, name)
 				lit.Keys = append(lit.Keys, td.fieldName[name])
 			}
 			lit.Elems = b.inOrder(values) // ir_order.go
 			for i, e := range lit.Elems {
-				lit.Elems[i] = b.intoField(values[i], e, fts[i]) // ir_field.go (B-CONVFIELD)
+				lit.Elems[i] = b.intoField(values[i], e, fts[i])                    // ir_field.go (B-CONVFIELD)
+				lit.Elems[i] = b.intoSlot(td, t, names[i], values[i], lit.Elems[i]) // ir_field.go (OPC-ADAPT2)
 			}
 		default:
 			irNo("literal of %T", t)

@@ -1,6 +1,6 @@
 # dash-gui
 
-An animated dashboard: twelve panels (four line charts over rings of 10,000 samples, three spark lines, two gauges that ease toward each new value, two heat strips and an event log), each fed by a seeded sensor source that runs as its own task and hands its samples over through a bounded queue, on a virtual clock of 120 frames a second. The model and its headless driver are stage a (corpus wave GP4a); the view on `ui.TestHost` is stage b (GP4b). The desktop window comes with the MyGo host (stage c).
+An animated dashboard: twelve panels (four line charts over rings of 10,000 samples, three spark lines, two gauges that ease toward each new value, two heat strips and an event log), each fed by a seeded sensor source that runs as its own task and hands its samples over through a bounded queue, on a virtual clock of 120 frames a second. The model and its headless driver are stage a (corpus wave GP4a); the view on `ui.TestHost` is stage b (GP4b). Stage c (GP4c) is the desktop window: `hosts/mygo/cmd/dash-gui` runs the same view on the MyGo host, its frames from the window's display, held to `dash-gui scene` by `TestDashGuiOnTheDesktop` there, beside a MyGo-direct control. The module is `ergo.local/prototype/examples/dashgui`, so the host can require it.
 
 ```sh
 dash-gui gen [-seed S] [-n N]   # write a script of N steps

@@ -99,6 +99,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"irBuilder.callParts":       "the experimental IR's capability operation method, as funcCtx.callText's (wf10 IR1)",
 			"irBuilder.opCall":          "the experimental IR's program operation method, as funcCtx.programOpCall's (IRG4b r2)",
 			"irBuilder.stdOpCall":       "the experimental IR's std operation method on a runtime type, as runtimeCall's method head (IRG4b r2)",
+			"irBuilder.getArm":          "the experimental IR's Value field of Some, bound in a comma-ok match on Get, as funcCtx.getArmsLower's (FLIP F7 lane B)",
 		}},
 	} {
 		obj := scope.Lookup(c.obj)
@@ -296,6 +297,14 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		// FKG1: a machines.Every After reads the task's firing mark, a
 		// field read; no wait.
 		"MachineFiringNow": true,
+		// LF1: the test build's compare of a reads operand after its Go
+		// call (gofacts.go); a loop of compares, no wait.
+		"GoReadsCheck": true,
+		// LF2b: a view of a string's bytes, and the test build's guarded
+		// copy, its Bytes and its Done after the Go call (view.go); a
+		// conversion, a copy into fresh pages and a protection change, no
+		// wait.
+		"BytesView": true, "GuardBytes": true, "Bytes": true,
 	}
 	// capabilityOps are the owners that call a capability operation on
 	// the Env's provider field outside callText, and the operation: FKG1's

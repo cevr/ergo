@@ -11,8 +11,12 @@ import (
 // adapt a function value to a Go parameter (FLIP OPC-adapt): each program
 // of GenerateAdapt (comparators, a Ref's Update) and of GenerateAdaptTask
 // (tasks.Go of a literal and of a trailing block, a block on a task of its
-// own) prints the same under both lowerings, and the functions that make
-// the calls have IR bodies. Mutants: opc-adapt-params-reversed (the
+// own) and of GenerateAdaptBlock (tasks.Retry and tasks.Repeat, std
+// functions with Ergo bodies, given a trailing block) prints the same
+// under both lowerings, and the functions that make the calls have IR
+// bodies. Mutants: opc-adapt2-std-trailing-gated (a std function's
+// trailing block refused again, so retried has no IR body),
+// opc-adapt-params-reversed (the
 // adapter passes its parameters to the value in the other order, so a
 // comparator sorts the other way), opc-adapt-task-error-dropped (a task
 // block's failure is lost, so the Set's Wait does not fail). A failing
@@ -30,6 +34,7 @@ func TestIRAdaptersMatchSource(t *testing.T) {
 	}{
 		{GenerateAdapt, []string{"order", "orderBy", "bump"}},
 		{GenerateAdaptTask, []string{"quiet", "loud", "block"}},
+		{GenerateAdaptBlock, []string{"retried", "repeated"}},
 	}
 	for seed := first; seed < first+count; seed++ {
 		for _, g := range gens {

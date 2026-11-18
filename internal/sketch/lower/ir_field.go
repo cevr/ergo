@@ -39,6 +39,53 @@ func (b *irBuilder) intoField(x syntax.Expr, e *irExpr, ft check.Type) *irExpr {
 	return nil
 }
 
+// intoSlot is e, the value of the field named field of a record literal of
+// type t, as the Go field takes it, as the emitter's intoSlot (rowslot.go):
+// a field whose declared type is a type parameter bound to a Slot row of
+// the enclosing function (Failed[F]{Error: err} in actor.ExitOf) has that
+// Go type parameter as its Go type, while the row value is a Go error, so
+// the value is asserted to the parameter. A value that is not an error
+// keeps the source body (the emitter's any(…) has no IR form).
+func (b *irBuilder) intoSlot(td *typeDecl, t check.Type, field string, x syntax.Expr, e *irExpr) *irExpr {
+	n, ok := t.(*check.Named)
+	if !ok || n.Orig == nil || td.named == nil {
+		return e
+	}
+	s, ok := td.named.Underlying().(*check.Struct)
+	if !ok {
+		return e
+	}
+	var p *check.TypeParam
+	for _, f := range s.Fields {
+		if f.Name == field {
+			p, _ = f.Type.(*check.TypeParam)
+		}
+	}
+	if p == nil {
+		return e
+	}
+	for i, q := range n.Orig.TParams {
+		if q != p || i >= len(n.TArgs) {
+			continue
+		}
+		if tp := check.SlotRow(n.TArgs[i]); tp != nil && tp.Slot {
+			name, ok := b.fc.params[tp]
+			if !ok {
+				return e
+			}
+			from := b.l.info.Types[x]
+			if cv, ok := b.l.info.Implicit[x]; ok && cv.Kind != 0 {
+				from = cv.To
+			}
+			if from == nil || b.goType(from, x) != "error" {
+				irNo("record field of a Slot row from a value that is not an error")
+			}
+			return &irExpr{K: "assert", Pos: e.Pos, T: name, X: e}
+		}
+	}
+	return e
+}
+
 // rowHolds reports whether t is a row of failure types (failureRow) one
 // of whose variants has the Go type gf.
 func (b *irBuilder) rowHolds(t check.Type, gf string, site syntax.Node) bool {

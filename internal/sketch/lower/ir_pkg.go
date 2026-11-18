@@ -14,7 +14,6 @@ package lower
 
 import (
 	"fmt"
-	"go/ast"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -175,15 +174,42 @@ func (b *irBuilder) typeArgs(c *check.Call, site syntax.Node) string {
 		irNo("call of a function with a Go row") // its row is a Go type argument too (rowslot.go; LY-FIX)
 	}
 	for i, tp := range c.Func.Sig.TParams {
-		if tp.Kind != check.KindType {
+		if !b.l.goParam(tp) {
 			continue
 		}
 		if i >= len(c.TypeArgs) {
 			irNo("generic call without its type arguments")
 		}
-		out = append(out, b.goType(c.TypeArgs[i], site))
+		out = append(out, b.goArg(tp, c.TypeArgs[i], site))
 	}
 	return strings.Join(out, ", ")
+}
+
+// goArg is the Go type argument a of the Go type parameter tp, as the
+// emitter's goArg writes it (rowslot.go): a type-kinded parameter's Go
+// type; a Slot row's (`F error`) single named error type, or error for a
+// row of none or several. A row that names a type parameter of the caller,
+// and a held row, keep the source body.
+func (b *irBuilder) goArg(tp *check.TypeParam, a check.Type, site syntax.Node) string {
+	if tp.Kind == check.KindType {
+		return b.goType(a, site)
+	}
+	if tp.Kind == check.KindUses || check.SlotRow(a) != nil {
+		irNo("generic call with a row type argument of the caller")
+	}
+	ra, ok := a.(*check.RowArg)
+	if !ok {
+		irNo("generic call with a row type argument of the caller")
+	}
+	es := rowElems(ra.Row)
+	if len(es) == 1 {
+		e, named := es[0].(*check.Named)
+		if !named {
+			irNo("generic call with a row type argument of the caller")
+		}
+		return b.goType(e, site)
+	}
+	return "error"
 }
 
 // valueSource applies the value rule to the operands of the call x, args
@@ -215,7 +241,7 @@ func (b *irBuilder) valueSource(x *syntax.CallExpr, c *check.Call, args []syntax
 		}
 		src := irArgs[0]
 		irArgs[0] = &irExpr{K: "pcall", Pos: src.Pos, T: "slices", Name: "Clip", V: "[]" + elem + ", " + elem, Args: []*irExpr{src}}
-	case preludeMapWrite(c.Func):
+	case preludeMapWrite(c.Func) || preludeMapTake(c.Func):
 		if len(c.TypeArgs) != 2 {
 			irNo("Map write form")
 		}
@@ -230,53 +256,15 @@ func (b *irBuilder) valueSource(x *syntax.CallExpr, c *check.Call, args []syntax
 	}
 }
 
-// builtinAppend reports a call of an intrinsic that the IR writes as Go's
-// builtin append (FLIP F3), not as a call of the intrinsic's Go function:
-// one whose runtime/v1 body is `return append(xs, x)` of its two
-// parameters, in order (goBodyIsAppend), a fact of the body's shape, not
-// of its name. The two are one append, but Go sees the builtin at once,
-// and with it a place appended back to itself. The value rule has already
-// clipped the source of a call that may not write it in place
+// builtinAppend reports the slice operation Append (check.CollOpOf),
+// which the IR writes as Go's builtin append (FLIP F3, PRIM), not as a
+// call of its runtime/v1 body (the Go reference). Go sees the builtin at
+// once, and with it a place appended back to itself. The value rule has
+// already clipped the source of a call that may not write it in place
 // (valueSource), and the builtin takes that clipped source, so an append
 // to a place another value shares still copies.
 func (b *irBuilder) builtinAppend(f *check.Func) bool {
-	if f.Decl == nil || f.Decl.Extern == nil {
-		return false
-	}
-	path, name := f.Decl.Extern.Split()
-	return path == runtimeImport && goBodyIsAppend(name)
-}
-
-// goBodyIsAppend reports a runtime/v1 function whose body is one return
-// of Go's builtin append of its two parameters, in order, with no spread.
-func goBodyIsAppend(name string) bool {
-	fd := goBodies()[name]
-	if fd == nil || fd.Body == nil || len(fd.Body.List) != 1 || fd.Type.Params == nil {
-		return false
-	}
-	var params []string
-	for _, p := range fd.Type.Params.List {
-		for _, n := range p.Names {
-			params = append(params, n.Name)
-		}
-	}
-	ret, ok := fd.Body.List[0].(*ast.ReturnStmt)
-	if !ok || len(ret.Results) != 1 || len(params) != 2 {
-		return false
-	}
-	call, ok := ret.Results[0].(*ast.CallExpr)
-	if !ok || call.Ellipsis.IsValid() || len(call.Args) != 2 {
-		return false
-	}
-	if fun, ok := call.Fun.(*ast.Ident); !ok || fun.Name != "append" {
-		return false
-	}
-	for i, a := range call.Args {
-		if id, ok := a.(*ast.Ident); !ok || id.Name != params[i] {
-			return false
-		}
-	}
-	return true
+	return check.CollOpOf(f) == check.CollAppend
 }
 
 // admitMap admits a Map, Go's map[K]V: its key and its value. A Map is a
@@ -330,8 +318,6 @@ func (b *irBuilder) opCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*irStm
 		irNo("operation call form")
 	case b.env < 0:
 		irNo("operation call from a pure function")
-	case b.fc.refSiteOf(x) != nil:
-		irNo("operation call into an owning literal")
 	}
 	n, ok := b.l.info.Types[c.Recv].(*check.Named)
 	if !ok {
@@ -341,6 +327,9 @@ func (b *irBuilder) opCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*irStm
 		irNo("operation call on a named type that is no operation type")
 	}
 	b.admitOps(n)
+	if s := b.fc.refSiteOf(x); s != nil {
+		return b.ownedRefCall(x, c, s, append([]syntax.Expr{c.Recv}, x.Args...), n, p) // ir_refown.go
+	}
 	if b.l.runtimeType(n, x) != "" {
 		return b.stdOpCall(x, c, n, p)
 	}
@@ -404,6 +393,10 @@ func (b *irBuilder) countLoop(s *syntax.RangeStmt, lp *check.Loop) []*irStmt {
 	b.loopBody(loop, s, s.Body) // ir_stmt.go
 	// The Range's statements run first, once (rangeStmt).
 	loop.Pos = past(loop.Pos, pre) // ir_match.go
+	if st := b.loopIdiomIR(s, lp, loop, field); st != nil {
+		// A fill, a move or a collect: the call, guarded, before the loop (ir_loops.go).
+		return append(append(pre, &irStmt{K: "def", Pos: p, Local: r, X: x}), st...)
+	}
 	return append(pre, &irStmt{K: "def", Pos: p, Local: r, X: x}, loop)
 }
 
@@ -504,7 +497,7 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	case c.Recv != nil:
 		irNo("dot call of a std function")
 	case b.fc.refSiteOf(x) != nil:
-		irNo("std call into an owning literal")
+		return b.ownedRefCall(x, c, b.fc.refSiteOf(x), x.Args, nil, p) // ir_refown.go
 	case defersCall(body) || commaOk(body):
 		irNo("std call with an adapted result")
 	case len(body.Params) != len(x.Args)+trailing(x):

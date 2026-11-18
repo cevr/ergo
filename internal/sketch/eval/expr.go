@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -1089,11 +1088,8 @@ func (c *closure) callerCaps(fr *frame) *capEnv {
 // which the evaluator runs as value operations, never by their Go bodies
 // (plan section 4: pure prelude collection operations).
 func preludeCollection(f *check.Func) bool {
-	if f == nil || f.Pkg == nil || f.Pkg.Path != std.PreludePath || f.Decl == nil || f.Decl.Extern == nil {
-		return false
-	}
-	switch f.Name {
-	case "Append", "Get", "Delete", "Put":
+	switch check.CollOpOf(f) {
+	case check.CollAppend, check.CollGet, check.CollDelete, check.CollPut:
 		return true
 	}
 	return false
@@ -1127,7 +1123,7 @@ func (in *interp) collectionCall(fr *frame, x *syntax.CallExpr, c *check.Call, o
 	}
 	if in.sym != nil {
 		if _, ok := recv.(term); ok {
-			if c.Func.Name != "Append" {
+			if check.CollOpOf(c.Func) != check.CollAppend {
 				return nil, in.symStop(fr, c.Recv, recv)
 			}
 			if ab := in.charge(fr, x, 1); ab != nil {
@@ -1136,18 +1132,18 @@ func (in *interp) collectionCall(fr *frame, x *syntax.CallExpr, c *check.Call, o
 			return concatSlice(recv, args[0]), nil
 		}
 	}
-	switch c.Func.Name {
-	case "Append":
+	switch check.CollOpOf(c.Func) {
+	case check.CollAppend:
 		return in.appendTo(fr, x, recv.(sliceV), args[0], tok)
-	case "Get":
+	case check.CollGet:
 		if ab := in.charge(fr, x, 1); ab != nil {
 			return nil, ab
 		}
 		v, found := recv.(mapV).b.get(args[0])
 		return in.option(fr, x, v, found)
-	case "Delete":
+	case check.CollDelete:
 		return in.deleteIn(fr, x, recv.(mapV), args[0], tok)
-	case "Put":
+	case check.CollPut:
 		return in.putIn(fr, x, recv.(mapV), args[0], args[1], tok)
 	}
 	ice("the prelude function %s", c.Func.Name)

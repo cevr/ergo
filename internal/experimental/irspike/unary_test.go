@@ -3,6 +3,7 @@ package irspike
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -29,12 +30,20 @@ func TestIRUnaryOperandsMatchSource(t *testing.T) {
 // TestIRReprosMatchSource runs the smallest repros of fixed miscompiles
 // under both lowerings, each with the function it needs an IR body of:
 //   - notand (MISCOMPILE-1): `if !(p && false)` was dropped as never
-//     taken (derivative mutant M7).
+//     taken (derivative mutant M7);
+//   - rowslot (FLIP OPC, downloads' actor.ExitOf): a Slot row's Go type
+//     argument was dropped at the call, and a caught error stored in a
+//     field of the row's Go type parameter was not asserted to it, so the
+//     IR build did not compile (mutants opc-goarg-slot-row-dropped,
+//     opc-intoslot-unasserted).
 //
 // It builds Go for the reason TestIRUnaryOperandsMatchSource does.
 func TestIRReprosMatchSource(t *testing.T) {
 	src, ir := needsBuild(t)
-	for _, r := range []struct{ name, fn string }{{"notand", "pick"}} {
+	for _, r := range []struct {
+		name string
+		fns  []string
+	}{{"notand", []string{"pick"}}, {"rowslot", []string{"held", "run"}}} {
 		t.Run(r.name, func(t *testing.T) {
 			text, err := os.ReadFile(filepath.Join("testdata", r.name+".ergo"))
 			if err != nil {
@@ -43,12 +52,10 @@ func TestIRReprosMatchSource(t *testing.T) {
 			rep := checkBoth(t, src, ir, string(text), func() string {
 				return "replay: go test -run 'TestIRReprosMatchSource/" + r.name + "' ./internal/experimental/irspike"
 			})
-			found := false
-			for _, f := range rep {
-				found = found || f == r.fn
-			}
-			if !found {
-				t.Fatalf("%s: %s has no IR body", r.name, r.fn)
+			for _, fn := range r.fns {
+				if !slices.Contains(rep, fn) {
+					t.Fatalf("%s: %s has no IR body (IR bodies: %v)", r.name, fn, rep)
+				}
 			}
 		})
 	}

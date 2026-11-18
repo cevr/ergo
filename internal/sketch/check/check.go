@@ -696,6 +696,7 @@ type universeState struct {
 	errorName *TypeName
 	goPkg     *Package
 	ref       *Named // go.Ref
+	any       *Named // go.Any
 }
 
 var universeOnce universeState
@@ -745,6 +746,8 @@ func universe() *Scope {
 		// go.Is and go.As read a go.Error's native chain (IG5, goerror.go).
 		goPkg.Scope.insert("Is", &Builtin{Name: "go.Is"})
 		goPkg.Scope.insert("As", &Builtin{Name: "go.As"})
+		// go.New[T]() is Go's new(T), held as a go.Ref[T] (GBX1, gonew.go).
+		goPkg.Scope.insert("New", &Builtin{Name: "go.New"})
 		// go.Ref[T] is a Go pointer that is stored, returned or held in a
 		// collection: an opaque handle, never nil (owner q32, q38;
 		// docs/spec/interop.md). Ergo's own *T stays a borrow.
@@ -753,6 +756,14 @@ func universe() *Scope {
 		ref.Type = &Named{Obj: ref, TParams: []*TypeParam{refT}, under: &Pointer{Elem: refT}, state: 2}
 		goPkg.Scope.insert("Ref", ref)
 		universeOnce.ref = ref.Type.(*Named)
+		// go.Any is Go's empty interface at the import go boundary (GB2;
+		// docs/spec/interop.md, Type mapping): a value with a Go form goes
+		// in (goany.go), and only go.As[T] takes one out. Ergo has no any:
+		// no operator, match or Ergo record field takes a go.Any.
+		anyName := &TypeName{Name: "Any", Pkg: goPkg, id: newID()}
+		anyName.Type = &Named{Obj: anyName, under: &Interface{}, state: 2}
+		goPkg.Scope.insert("Any", anyName)
+		universeOnce.any = anyName.Type.(*Named)
 		universeOnce.goPkg = goPkg
 		s.insert("go", &PkgName{Name: "go", Pkg: goPkg, used: true})
 		universeOnce.scope = s
@@ -792,6 +803,14 @@ func prelude() preludeResult {
 			f.Name = name // the embedded name, which the lowering reports (Files)
 			files = append(files, f)
 		}
+		// The slice and Map operations, the language's own file (collop.go).
+		f, err := syntax.Parse(collSource())
+		if err != nil {
+			panic("check: the slice and Map operations do not parse: " + err.Error())
+		}
+		f.Name = collFileName
+		collFile = f
+		files = append(files, f)
 		c := newChecker(std.PreludePath, nil, u)
 		c.pkg.std = true
 		c.pkg.trusted = true // the toolchain vouches for what it ships

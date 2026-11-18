@@ -1,23 +1,9 @@
-diff --git a/src/cmd/compile/internal/base/flag.go b/src/cmd/compile/internal/base/flag.go
-index c8f1b2d..dbdb46e 100644
---- a/src/cmd/compile/internal/base/flag.go
-+++ b/src/cmd/compile/internal/base/flag.go
-@@ -101,6 +101,9 @@ type CmdFlags struct {
- 	Dynlink            *bool        "help:\"support references to Go symbols defined in other shared libraries\"" // &Ctxt.Flag_dynlink, set below
- 	EmbedCfg           func(string) "help:\"read go:embed configuration from `file`\""
- 	Env                func(string) "help:\"add `definition` of the form key=value to environment\""
-+	ErgoIR             string       "help:\"experimental: read typed function bodies from Ergo IR `file`\""
-+	ErgoIRText         string       "help:\"with -ergoir: print the Go files that hold IR bodies, as compiled, into `dir`\""
-+	ErgoIRShape        string       "help:\"write the structure of every function body, as compiled, to `file`\""
- 	GenDwarfInl        int          "help:\"generate DWARF inline info records\"" // 0=disabled, 1=funcs, 2=funcs+formals/locals
- 	GoVersion          string       "help:\"required version of the runtime\""
- 	ImportCfg          func(string) "help:\"read import configuration from `file`\""
-diff --git a/src/cmd/compile/internal/noder/ergoir.go b/src/cmd/compile/internal/noder/ergoir.go
+diff --git a/src/cmd/compile/internal/ergoir/ergoir.go b/src/cmd/compile/internal/ergoir/ergoir.go
 new file mode 100644
-index 0000000..8ce131d
+index 0000000..4327a15
 --- /dev/null
-+++ b/src/cmd/compile/internal/noder/ergoir.go
-@@ -0,0 +1,288 @@
++++ b/src/cmd/compile/internal/ergoir/ergoir.go
+@@ -0,0 +1,290 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -35,7 +21,7 @@ index 0000000..8ce131d
 +// functions), ergoir_types.go, ergoir_stmt.go, ergoir_expr.go and
 +// ergoir_call.go.
 +
-+package noder
++package ergoir
 +
 +import (
 +	"encoding/json"
@@ -159,16 +145,16 @@ index 0000000..8ce131d
 +
 +// ergoAttach gives every function the IR file names its checked body.
 +func ergoAttach(m posMap, pkg *types2.Package, info *types2.Info, noders []*noder) {
-+	data, err := os.ReadFile(base.Flag.ErgoIR)
++	data, err := os.ReadFile(ergoFlag.IR)
 +	if err != nil {
 +		base.Fatalf("ergoir: %v", err)
 +	}
 +	var f ergoFile
 +	if err := json.Unmarshal(data, &f); err != nil {
-+		base.Fatalf("ergoir: %s: %v", base.Flag.ErgoIR, err)
++		base.Fatalf("ergoir: %s: %v", ergoFlag.IR, err)
 +	}
 +	if f.V != 1 {
-+		base.Fatalf("ergoir: %s: version %d, want 1", base.Flag.ErgoIR, f.V)
++		base.Fatalf("ergoir: %s: version %d, want 1", ergoFlag.IR, f.V)
 +	}
 +	c := &ergoChecker{m: &m, pkg: pkg, info: info}
 +	for _, name := range f.Files {
@@ -195,6 +181,8 @@ index 0000000..8ce131d
 +		case fd == nil:
 +			c.errorf(fn.Pos, "ergoir: %s is not declared in the Go source", fn.Name)
 +			continue
++		case ergoPlaceholder(info, fd.Body):
++			fd.Body = nil // a generic declaration's (ergoir_placeholder.go)
 +		case fd.Body != nil:
 +			c.errorf(fn.Pos, "ergoir: %s has a Go body as well as an IR body", fn.Name)
 +			continue
@@ -202,12 +190,12 @@ index 0000000..8ce131d
 +		c.function(fd, fn)
 +		delete(decls, fn.Name) // a second IR body for the same name finds it gone
 +	}
-+	// types2's "missing function body" of a generic function waits for
-+	// the IR (irgen.go): a generic function the IR gave no body keeps it.
++	// A placeholder the IR gave no body is an error, never a panic at run
++	// time (ergoir_placeholder.go).
 +	for _, p := range noders {
 +		for _, d := range p.file.DeclList {
-+			if fd, ok := d.(*syntax.FuncDecl); ok && len(fd.TParamList) > 0 && fd.Body == nil {
-+				base.ErrorfAt(m.makeXPos(fd.Pos()), errors.BadDecl, "generic function is missing function body")
++			if fd, ok := d.(*syntax.FuncDecl); ok && ergoPlaceholder(info, fd.Body) {
++				base.ErrorfAt(m.makeXPos(fd.Pos()), errors.BadDecl, "ergoir: %s has the placeholder body and no IR body", fd.Name.Value)
 +			}
 +		}
 +	}
@@ -306,11 +294,11 @@ index 0000000..8ce131d
 +	}
 +	fd.Body = body
 +}
-diff --git a/src/cmd/compile/internal/noder/ergoir_builtin.go b/src/cmd/compile/internal/noder/ergoir_builtin.go
+diff --git a/src/cmd/compile/internal/ergoir/ergoir_builtin.go b/src/cmd/compile/internal/ergoir/ergoir_builtin.go
 new file mode 100644
-index 0000000..1559c7b
+index 0000000..d16dcaa
 --- /dev/null
-+++ b/src/cmd/compile/internal/noder/ergoir_builtin.go
++++ b/src/cmd/compile/internal/ergoir/ergoir_builtin.go
 @@ -0,0 +1,122 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
@@ -318,7 +306,7 @@ index 0000000..1559c7b
 +
 +// Ergo IR decoder: calls of Go's builtins. See ergoir.go.
 +
-+package noder
++package ergoir
 +
 +import (
 +	"cmd/compile/internal/syntax"
@@ -434,11 +422,11 @@ index 0000000..1559c7b
 +	ergoValue(call, res, nil)
 +	return call, res
 +}
-diff --git a/src/cmd/compile/internal/noder/ergoir_call.go b/src/cmd/compile/internal/noder/ergoir_call.go
+diff --git a/src/cmd/compile/internal/ergoir/ergoir_call.go b/src/cmd/compile/internal/ergoir/ergoir_call.go
 new file mode 100644
-index 0000000..b9d8d1c
+index 0000000..a5cd3fc
 --- /dev/null
-+++ b/src/cmd/compile/internal/noder/ergoir_call.go
++++ b/src/cmd/compile/internal/ergoir/ergoir_call.go
 @@ -0,0 +1,64 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
@@ -446,7 +434,7 @@ index 0000000..b9d8d1c
 +
 +// Ergo IR decoder: calls. See ergoir.go.
 +
-+package noder
++package ergoir
 +
 +import (
 +	"cmd/compile/internal/syntax"
@@ -504,11 +492,11 @@ index 0000000..b9d8d1c
 +	ergoValue(call, t, nil)
 +	return call, t
 +}
-diff --git a/src/cmd/compile/internal/noder/ergoir_closure.go b/src/cmd/compile/internal/noder/ergoir_closure.go
+diff --git a/src/cmd/compile/internal/ergoir/ergoir_closure.go b/src/cmd/compile/internal/ergoir/ergoir_closure.go
 new file mode 100644
-index 0000000..1a808a2
+index 0000000..2995f1c
 --- /dev/null
-+++ b/src/cmd/compile/internal/noder/ergoir_closure.go
++++ b/src/cmd/compile/internal/ergoir/ergoir_closure.go
 @@ -0,0 +1,221 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
@@ -523,7 +511,7 @@ index 0000000..1a808a2
 +// returns, its labels, its loops). "vcall" calls a value of a function
 +// type.
 +
-+package noder
++package ergoir
 +
 +import (
 +	"strings"
@@ -731,19 +719,19 @@ index 0000000..1a808a2
 +	q.block(x.Body.List, depth+1)
 +	return "func(" + strings.Join(params, ", ") + ")" + res + " {\n" + q.b.String() + strings.Repeat("\t", depth) + "}"
 +}
-diff --git a/src/cmd/compile/internal/noder/ergoir_expr.go b/src/cmd/compile/internal/noder/ergoir_expr.go
+diff --git a/src/cmd/compile/internal/ergoir/ergoir_expr.go b/src/cmd/compile/internal/ergoir/ergoir_expr.go
 new file mode 100644
-index 0000000..d9e5c21
+index 0000000..4798b5a
 --- /dev/null
-+++ b/src/cmd/compile/internal/noder/ergoir_expr.go
-@@ -0,0 +1,468 @@
++++ b/src/cmd/compile/internal/ergoir/ergoir_expr.go
+@@ -0,0 +1,470 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
 +// Ergo IR decoder: expressions, literals and constants. See ergoir.go.
 +
-+package noder
++package ergoir
 +
 +import (
 +	"go/constant"
@@ -1075,6 +1063,8 @@ index 0000000..d9e5c21
 +		call.SetPos(pos)
 +		ergoValue(call, xt, nil)
 +		return call, xt
++	case "slice":
++		return c.slice(x) // ergoir_slice.go
 +	case "lit":
 +		t := c.typ(x.Pos, x.T)
 +		if t == nil {
@@ -1205,17 +1195,17 @@ index 0000000..d9e5c21
 +	}
 +	return bad()
 +}
-diff --git a/src/cmd/compile/internal/noder/ergoir_f7.go b/src/cmd/compile/internal/noder/ergoir_f7.go
+diff --git a/src/cmd/compile/internal/ergoir/ergoir_f7.go b/src/cmd/compile/internal/ergoir/ergoir_f7.go
 new file mode 100644
-index 0000000..64823a0
+index 0000000..5fa594c
 --- /dev/null
-+++ b/src/cmd/compile/internal/noder/ergoir_f7.go
++++ b/src/cmd/compile/internal/ergoir/ergoir_f7.go
 @@ -0,0 +1,50 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+package noder
++package ergoir
 +
 +import (
 +	"strconv"
@@ -1261,11 +1251,69 @@ index 0000000..64823a0
 +	}
 +	return nil
 +}
-diff --git a/src/cmd/compile/internal/noder/ergoir_f7f.go b/src/cmd/compile/internal/noder/ergoir_f7f.go
+diff --git a/src/cmd/compile/internal/ergoir/ergoir_f7b.go b/src/cmd/compile/internal/ergoir/ergoir_f7b.go
 new file mode 100644
-index 0000000..54a9b0f
+index 0000000..4937be9
 --- /dev/null
-+++ b/src/cmd/compile/internal/noder/ergoir_f7f.go
++++ b/src/cmd/compile/internal/ergoir/ergoir_f7b.go
+@@ -0,0 +1,52 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// Ergo IR decoder: F7 lane B's statements. See ergoir.go.
++//
++// "mapget" is Go's comma-ok read of a map, v, ok := m[k] (Local v, Val
++// ok, X the map, Y the key): the index expression's type is the tuple
++// (V, bool), as types2 records a comma-ok form (recordCommaOkTypes), so
++// the unified writer writes an N:1 assignment, which the reader types as
++// OAS2MAPR.
++
++package ergoir
++
++import (
++	"cmd/compile/internal/syntax"
++	"cmd/compile/internal/types2"
++)
++
++// f7bStmt decodes s when it is one of lane B's forms.
++func (c *ergoChecker) f7bStmt(s *ergoStmt) (syntax.Stmt, bool) {
++	if s.K != "mapget" {
++		return nil, false
++	}
++	pos := c.pos(s.Pos)
++	if s.Val == nil || s.X == nil || s.Y == nil {
++		c.errorf(s.Pos, "ergoir: mapget without its ok local, map or key")
++		return nil, true
++	}
++	v, ok := c.local(s.Pos, s.Local), c.local(s.Pos, *s.Val)
++	m, mt := c.expr(s.X)
++	k, kt := c.expr(s.Y)
++	if v == nil || ok == nil || m == nil || k == nil {
++		return nil, true
++	}
++	mp, isMap := types2.CoreType(mt).(*types2.Map)
++	if !isMap {
++		c.errorf(s.Pos, "ergoir: mapget of %v", mt)
++		return nil, true
++	}
++	if !c.assignable(s.Pos, "mapget key", kt, mp.Key()) || !c.assignable(s.Pos, "mapget value", mp.Elem(), v.Type()) || !c.assignable(s.Pos, "mapget ok", types2.Typ[types2.Bool], ok.Type()) {
++		return nil, true
++	}
++	ix := &syntax.IndexExpr{X: m, Index: k}
++	ix.SetPos(pos)
++	ergoValue(ix, types2.NewTuple(types2.NewParam(pos, nil, "", mp.Elem()), types2.NewParam(pos, nil, "", types2.Typ[types2.Bool])), nil)
++	lhs := &syntax.ListExpr{ElemList: []syntax.Expr{c.name(s.Pos, v, true), c.name(s.Pos, ok, true)}}
++	lhs.SetPos(pos)
++	a := &syntax.AssignStmt{Op: syntax.Def, Lhs: lhs, Rhs: ix}
++	a.SetPos(pos)
++	return a, true
++}
+diff --git a/src/cmd/compile/internal/ergoir/ergoir_f7f.go b/src/cmd/compile/internal/ergoir/ergoir_f7f.go
+new file mode 100644
+index 0000000..482f09f
+--- /dev/null
++++ b/src/cmd/compile/internal/ergoir/ergoir_f7f.go
 @@ -0,0 +1,113 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
@@ -1273,7 +1321,7 @@ index 0000000..54a9b0f
 +
 +// Ergo IR decoder: deferred calls (FLIP F7, owned values). See ergoir.go.
 +
-+package noder
++package ergoir
 +
 +import (
 +	"cmd/compile/internal/syntax"
@@ -1380,11 +1428,11 @@ index 0000000..54a9b0f
 +	}
 +	return c.name(x.Pos, v, false), v.Type()
 +}
-diff --git a/src/cmd/compile/internal/noder/ergoir_fail.go b/src/cmd/compile/internal/noder/ergoir_fail.go
+diff --git a/src/cmd/compile/internal/ergoir/ergoir_fail.go b/src/cmd/compile/internal/ergoir/ergoir_fail.go
 new file mode 100644
-index 0000000..fce95d4
+index 0000000..9f94f09
 --- /dev/null
-+++ b/src/cmd/compile/internal/noder/ergoir_fail.go
++++ b/src/cmd/compile/internal/ergoir/ergoir_fail.go
 @@ -0,0 +1,308 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
@@ -1399,7 +1447,7 @@ index 0000000..fce95d4
 +// "assert" reads the case's type out of it; "panic" (ergoir_stmt.go) is a
 +// total catch's default.
 +
-+package noder
++package ergoir
 +
 +import (
 +	"cmd/compile/internal/syntax"
@@ -1694,11 +1742,39 @@ index 0000000..fce95d4
 +	}
 +	return types2.Implements(t, ergoError().Underlying().(*types2.Interface))
 +}
-diff --git a/src/cmd/compile/internal/noder/ergoir_fold.go b/src/cmd/compile/internal/noder/ergoir_fold.go
+diff --git a/src/cmd/compile/internal/ergoir/ergoir_flags.go b/src/cmd/compile/internal/ergoir/ergoir_flags.go
 new file mode 100644
-index 0000000..348e00d
+index 0000000..b798149
 --- /dev/null
-+++ b/src/cmd/compile/internal/noder/ergoir_fold.go
++++ b/src/cmd/compile/internal/ergoir/ergoir_flags.go
+@@ -0,0 +1,22 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package ergoir
++
++import "flag"
++
++// ergoFlag holds the -ergoir flags. They are registered on the command
++// line flag set from this file, so Go's own base.CmdFlags is not edited
++// (PATCH-MIN M1): base.ParseFlags parses flag.CommandLine, and cmd/go keys
++// its build cache on the -gcflags that carry them.
++var ergoFlag struct{ IR, Text, Shape string }
++
++// Flag is ergoFlag for noder's hooks (noder/ergoir_hook.go).
++var Flag = &ergoFlag
++
++func init() {
++	flag.StringVar(&ergoFlag.IR, "ergoir", "", "experimental: read typed function bodies from Ergo IR `file`")
++	flag.StringVar(&ergoFlag.Text, "ergoirtext", "", "with -ergoir: print the Go files that hold IR bodies, as compiled, into `dir`")
++	flag.StringVar(&ergoFlag.Shape, "ergoirshape", "", "write the structure of every function body, as compiled, to `file`")
++}
+diff --git a/src/cmd/compile/internal/ergoir/ergoir_fold.go b/src/cmd/compile/internal/ergoir/ergoir_fold.go
+new file mode 100644
+index 0000000..2df917c
+--- /dev/null
++++ b/src/cmd/compile/internal/ergoir/ergoir_fold.go
 @@ -0,0 +1,131 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
@@ -1710,7 +1786,7 @@ index 0000000..348e00d
 +// constant, so the decoder does too: the compiled tree is the one the
 +// printed text compiles to. See ergoir.go.
 +
-+package noder
++package ergoir
 +
 +import (
 +	"go/constant"
@@ -1831,17 +1907,81 @@ index 0000000..348e00d
 +	}
 +	return v
 +}
-diff --git a/src/cmd/compile/internal/noder/ergoir_label.go b/src/cmd/compile/internal/noder/ergoir_label.go
+diff --git a/src/cmd/compile/internal/ergoir/ergoir_hook.go b/src/cmd/compile/internal/ergoir/ergoir_hook.go
 new file mode 100644
-index 0000000..3d9db4a
+index 0000000..3f602b5
 --- /dev/null
-+++ b/src/cmd/compile/internal/noder/ergoir_label.go
++++ b/src/cmd/compile/internal/ergoir/ergoir_hook.go
+@@ -0,0 +1,58 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// Package ergoir reads Ergo IR (-ergoir): typed function bodies that
++// replace the Go source's, attached as typed syntax after types2 checked
++// the package and before the unified writer encodes it (PATCH-MIN M4: our
++// code in our own package; noder calls it from one line of unified.go).
++package ergoir
++
++import (
++	"cmd/compile/internal/syntax"
++	"cmd/compile/internal/types2"
++	"cmd/internal/src"
++)
++
++// Stub is the reader's one entry (noder's ergoStub): with -ergoir it
++// attaches the IR bodies and writes the text view; with only
++// -ergoirshape it writes the shapes of the Go source's bodies.
++func Stub(makeXPos func(syntax.Pos) src.XPos, pkg *types2.Package, info *types2.Info, files []*syntax.File) {
++	m := posMap{makeXPos}
++	noders := make([]*noder, len(files))
++	for i, f := range files {
++		noders[i] = &noder{file: f}
++	}
++	if ergoFlag.IR != "" {
++		bodiless := ergoBodiless(noders)
++		ergoAttach(m, pkg, info, noders)
++		ergoTextOut(pkg, info, noders, bodiless) // ergoir_text.go
++	} else if ergoFlag.Shape != "" {
++		ergoShapeOut(info, noders, nil)
++	}
++}
++
++// noder is the part of noder's noder the reader reads: a file's syntax.
++type noder struct{ file *syntax.File }
++
++// posMap is the part of noder's posMap the reader calls.
++type posMap struct{ xpos func(syntax.Pos) src.XPos }
++
++func (m *posMap) makeXPos(p syntax.Pos) src.XPos { return m.xpos(p) }
++
++// lastNonEmptyStmt and isPtrTo are copies of noder's (writer.go).
++
++func lastNonEmptyStmt(stmts []syntax.Stmt) syntax.Stmt {
++	for i := len(stmts) - 1; i >= 0; i-- {
++		stmt := stmts[i]
++		if _, ok := stmt.(*syntax.EmptyStmt); !ok {
++			return stmt
++		}
++	}
++	return nil
++}
++
++func isPtrTo(from, to types2.Type) bool {
++	ptr, ok := types2.Unalias(from).(*types2.Pointer)
++	return ok && types2.Identical(ptr.Elem(), to)
++}
+diff --git a/src/cmd/compile/internal/ergoir/ergoir_label.go b/src/cmd/compile/internal/ergoir/ergoir_label.go
+new file mode 100644
+index 0000000..5727829
+--- /dev/null
++++ b/src/cmd/compile/internal/ergoir/ergoir_label.go
 @@ -0,0 +1,115 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+package noder
++package ergoir
 +
 +// Ergo IR labels (IRG3b): a loop that a break inside a switch leaves
 +// carries a label, and the break names it, since Go's unlabeled break
@@ -1952,17 +2092,17 @@ index 0000000..3d9db4a
 +	}
 +	c.labels, c.gotos = nil, nil
 +}
-diff --git a/src/cmd/compile/internal/noder/ergoir_mapstore.go b/src/cmd/compile/internal/noder/ergoir_mapstore.go
+diff --git a/src/cmd/compile/internal/ergoir/ergoir_mapstore.go b/src/cmd/compile/internal/ergoir/ergoir_mapstore.go
 new file mode 100644
-index 0000000..85a863d
+index 0000000..7f5ed0d
 --- /dev/null
-+++ b/src/cmd/compile/internal/noder/ergoir_mapstore.go
++++ b/src/cmd/compile/internal/ergoir/ergoir_mapstore.go
 @@ -0,0 +1,50 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+package noder
++package ergoir
 +
 +import (
 +	"cmd/compile/internal/syntax"
@@ -2008,17 +2148,17 @@ index 0000000..85a863d
 +	_, isMap := types2.CoreType(e.X.GetTypeInfo().Type).(*types2.Map)
 +	return isMap && e.GetTypeInfo().Assignable()
 +}
-diff --git a/src/cmd/compile/internal/noder/ergoir_opc.go b/src/cmd/compile/internal/noder/ergoir_opc.go
+diff --git a/src/cmd/compile/internal/ergoir/ergoir_opc.go b/src/cmd/compile/internal/ergoir/ergoir_opc.go
 new file mode 100644
-index 0000000..4d58d7f
+index 0000000..0fc996c
 --- /dev/null
-+++ b/src/cmd/compile/internal/noder/ergoir_opc.go
++++ b/src/cmd/compile/internal/ergoir/ergoir_opc.go
 @@ -0,0 +1,32 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
-+package noder
++package ergoir
 +
 +import (
 +	"cmd/compile/internal/syntax"
@@ -2046,19 +2186,148 @@ index 0000000..4d58d7f
 +	_, ok = p.Elem().Underlying().(*types2.Struct)
 +	return ok
 +}
-diff --git a/src/cmd/compile/internal/noder/ergoir_stmt.go b/src/cmd/compile/internal/noder/ergoir_stmt.go
+diff --git a/src/cmd/compile/internal/ergoir/ergoir_placeholder.go b/src/cmd/compile/internal/ergoir/ergoir_placeholder.go
 new file mode 100644
-index 0000000..23759f9
+index 0000000..cb33a2b
 --- /dev/null
-+++ b/src/cmd/compile/internal/noder/ergoir_stmt.go
-@@ -0,0 +1,357 @@
++++ b/src/cmd/compile/internal/ergoir/ergoir_placeholder.go
+@@ -0,0 +1,59 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// Ergo IR decoder: the placeholder body of a generic declaration. See
++// ergoir.go.
++//
++// types2 refuses a generic function without a body, so the lowering gives
++// a generic declaration whose body the IR holds the body
++//
++//	{ panic("ergoir: no IR body") }
++//
++// on its signature's line, and ergoAttach replaces exactly that body. A
++// declaration that keeps it after the IR is attached is an error, never a
++// panic at run time. No hook in Go's own files is needed (PATCH-MIN M3).
++
++package ergoir
++
++import (
++	"strconv"
++
++	"cmd/compile/internal/syntax"
++	"cmd/compile/internal/types2"
++)
++
++// ergoPlaceholderText is the placeholder as the lowering writes it after
++// the signature.
++const ergoPlaceholderText = `{ panic("ergoir: no IR body") }`
++
++// ergoPlaceholder reports a body that is exactly the placeholder: one call
++// of the universe's panic with the placeholder's string.
++func ergoPlaceholder(info *types2.Info, body *syntax.BlockStmt) bool {
++	if body == nil || len(body.List) != 1 {
++		return false
++	}
++	st, ok := body.List[0].(*syntax.ExprStmt)
++	if !ok {
++		return false
++	}
++	call, ok := st.X.(*syntax.CallExpr)
++	if !ok || len(call.ArgList) != 1 || call.HasDots {
++		return false
++	}
++	fun, ok := call.Fun.(*syntax.Name)
++	if !ok || fun.Value != "panic" {
++		return false
++	}
++	if info != nil {
++		if _, builtin := info.Uses[fun].(*types2.Builtin); !builtin {
++			return false
++		}
++	}
++	lit, ok := call.ArgList[0].(*syntax.BasicLit)
++	if !ok || lit.Kind != syntax.StringLit {
++		return false
++	}
++	s, err := strconv.Unquote(lit.Value)
++	return err == nil && s == "ergoir: no IR body"
++}
+diff --git a/src/cmd/compile/internal/ergoir/ergoir_slice.go b/src/cmd/compile/internal/ergoir/ergoir_slice.go
+new file mode 100644
+index 0000000..4743a17
+--- /dev/null
++++ b/src/cmd/compile/internal/ergoir/ergoir_slice.go
+@@ -0,0 +1,58 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++// Ergo IR decoder: slice expressions (FLIP F7, kind "slice"). See ergoir.go.
++//
++// x[lo:hi] and x[lo:hi:max] of a slice, and x[lo:hi] of a string (or a
++// named type over one): X is the operand, Args the indices, two or three,
++// a missing low or high index null. Go's own slice expression, so gc
++// lowers it to OSLICE or OSLICESTR and checks its bounds at the
++// expression's position. An array is no operand: Go slices an
++// addressable array only.
++
++package ergoir
++
++import (
++	"cmd/compile/internal/syntax"
++	"cmd/compile/internal/types2"
++)
++
++// slice checks the slice expression x.
++func (c *ergoChecker) slice(x *ergoExpr) (syntax.Expr, types2.Type) {
++	xs, xt := c.expr(x.X)
++	if xs == nil {
++		return nil, nil
++	}
++	n := len(x.Args)
++	if n != 2 && n != 3 || n == 3 && (x.Args[1] == nil || x.Args[2] == nil) {
++		c.errorf(x.Pos, "ergoir: slice with %d indices", n)
++		return nil, nil
++	}
++	switch types2.CoreType(xt).(type) {
++	case *types2.Slice:
++	default:
++		if !ergoIsString(xt) || n == 3 {
++			c.errorf(x.Pos, "ergoir: slice of %v", xt)
++			return nil, nil
++		}
++	}
++	e := &syntax.SliceExpr{X: xs, Full: n == 3}
++	for i, a := range x.Args {
++		if a == nil {
++			continue
++		}
++		v, vt := c.expr(a)
++		if v == nil {
++			return nil, nil
++		}
++		if !types2.Identical(vt, types2.Typ[types2.Int]) {
++			c.errorf(a.Pos, "ergoir: slice index of type %v", vt)
++			return nil, nil
++		}
++		e.Index[i] = v
++	}
++	e.SetPos(c.pos(x.Pos))
++	ergoValue(e, xt, nil)
++	return e, xt
++}
+diff --git a/src/cmd/compile/internal/ergoir/ergoir_stmt.go b/src/cmd/compile/internal/ergoir/ergoir_stmt.go
+new file mode 100644
+index 0000000..a54bb61
+--- /dev/null
++++ b/src/cmd/compile/internal/ergoir/ergoir_stmt.go
+@@ -0,0 +1,360 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
 +// Ergo IR decoder: statements and blocks. See ergoir.go.
 +
-+package noder
++package ergoir
 +
 +import (
 +	"cmd/compile/internal/syntax"
@@ -2382,6 +2651,9 @@ index 0000000..23759f9
 +		st.SetPos(pos)
 +		return st
 +	}
++	if st, ok := c.f7bStmt(s); ok { // ergoir_f7b.go
++		return st
++	}
 +	if st, ok := c.failStmt(s); ok { // ergoir_fail.go
 +		return st
 +	}
@@ -2409,12 +2681,12 @@ index 0000000..23759f9
 +	}
 +	return e
 +}
-diff --git a/src/cmd/compile/internal/noder/ergoir_text.go b/src/cmd/compile/internal/noder/ergoir_text.go
+diff --git a/src/cmd/compile/internal/ergoir/ergoir_text.go b/src/cmd/compile/internal/ergoir/ergoir_text.go
 new file mode 100644
-index 0000000..04b0837
+index 0000000..6646456
 --- /dev/null
-+++ b/src/cmd/compile/internal/noder/ergoir_text.go
-@@ -0,0 +1,706 @@
++++ b/src/cmd/compile/internal/ergoir/ergoir_text.go
+@@ -0,0 +1,713 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2430,7 +2702,7 @@ index 0000000..04b0837
 +// of its type. ergoir_text_shape.go writes the structure of the same trees
 +// (-ergoirshape), which a build of the printed text must reproduce.
 +
-+package noder
++package ergoir
 +
 +import (
 +	"fmt"
@@ -2445,12 +2717,13 @@ index 0000000..04b0837
 +	"cmd/compile/internal/types2"
 +)
 +
-+// ergoBodiless is every function declared without a body.
++// ergoBodiless is every function declared without a body, or with the
++// placeholder a generic one has (ergoir_placeholder.go).
 +func ergoBodiless(noders []*noder) map[*syntax.FuncDecl]bool {
 +	out := map[*syntax.FuncDecl]bool{}
 +	for _, p := range noders {
 +		for _, d := range p.file.DeclList {
-+			if fd, ok := d.(*syntax.FuncDecl); ok && fd.Body == nil {
++			if fd, ok := d.(*syntax.FuncDecl); ok && (fd.Body == nil || ergoPlaceholder(nil, fd.Body)) {
 +				out[fd] = true
 +			}
 +		}
@@ -2467,13 +2740,13 @@ index 0000000..04b0837
 +			attached[fd] = true
 +		}
 +	}
-+	if base.Flag.ErgoIRShape != "" {
++	if ergoFlag.Shape != "" {
 +		ergoShapeOut(info, noders, attached)
 +	}
-+	if base.Flag.ErgoIRText == "" {
++	if ergoFlag.Text == "" {
 +		return
 +	}
-+	if err := os.MkdirAll(base.Flag.ErgoIRText, 0o755); err != nil {
++	if err := os.MkdirAll(ergoFlag.Text, 0o755); err != nil {
 +		base.Fatalf("ergoir: %v", err)
 +	}
 +	for _, p := range noders {
@@ -2495,7 +2768,7 @@ index 0000000..04b0837
 +		if err != nil {
 +			base.Fatalf("ergoir: %s: %v", name, err)
 +		}
-+		if err := os.WriteFile(filepath.Join(base.Flag.ErgoIRText, filepath.Base(name)), []byte(text), 0o644); err != nil {
++		if err := os.WriteFile(filepath.Join(ergoFlag.Text, filepath.Base(name)), []byte(text), 0o644); err != nil {
 +			base.Fatalf("ergoir: %v", err)
 +		}
 +	}
@@ -2539,6 +2812,9 @@ index 0000000..04b0837
 +		if !ok {
 +			out.WriteString(l)
 +		} else {
++			if head, ok := strings.CutSuffix(strings.TrimRight(l, " \t"), ergoPlaceholderText); ok {
++				l = strings.TrimRight(head, " \t") // the placeholder the IR body replaced
++			}
 +			comment := ""
 +			if j := strings.Index(l, "//"); j >= 0 {
 +				l, comment = strings.TrimRight(l[:j], " \t"), " "+l[j:]
@@ -2980,6 +3256,9 @@ index 0000000..04b0837
 +	case *syntax.SliceExpr:
 +		s := p.expr(x.X) + "["
 +		for i, e := range x.Index {
++			if i == 2 && !x.Full {
++				break // x[lo:hi], not x[lo:hi:]
++			}
 +			if i > 0 {
 +				s += ":"
 +			}
@@ -3121,11 +3400,11 @@ index 0000000..04b0837
 +	}
 +	return p.typeOperand(t) + "(nil)"
 +}
-diff --git a/src/cmd/compile/internal/noder/ergoir_text_shape.go b/src/cmd/compile/internal/noder/ergoir_text_shape.go
+diff --git a/src/cmd/compile/internal/ergoir/ergoir_text_shape.go b/src/cmd/compile/internal/ergoir/ergoir_text_shape.go
 new file mode 100644
-index 0000000..e40cb9b
+index 0000000..9efef14
 --- /dev/null
-+++ b/src/cmd/compile/internal/noder/ergoir_text_shape.go
++++ b/src/cmd/compile/internal/ergoir/ergoir_text_shape.go
 @@ -0,0 +1,516 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
@@ -3142,7 +3421,7 @@ index 0000000..e40cb9b
 +// functions as the IR build did: the printed text then compiles to what
 +// was compiled. This walk shares no code with the printer.
 +
-+package noder
++package ergoir
 +
 +import (
 +	"fmt"
@@ -3185,7 +3464,7 @@ index 0000000..e40cb9b
 +			b.WriteString("end\n")
 +		}
 +	}
-+	if err := os.WriteFile(base.Flag.ErgoIRShape, []byte(b.String()), 0o644); err != nil {
++	if err := os.WriteFile(ergoFlag.Shape, []byte(b.String()), 0o644); err != nil {
 +		base.Fatalf("ergoir: %v", err)
 +	}
 +}
@@ -3643,11 +3922,11 @@ index 0000000..e40cb9b
 +	}
 +	s.out(depth, "zero %s", ergoShapeType(t))
 +}
-diff --git a/src/cmd/compile/internal/noder/ergoir_tuple.go b/src/cmd/compile/internal/noder/ergoir_tuple.go
+diff --git a/src/cmd/compile/internal/ergoir/ergoir_tuple.go b/src/cmd/compile/internal/ergoir/ergoir_tuple.go
 new file mode 100644
-index 0000000..07c7de5
+index 0000000..882ee23
 --- /dev/null
-+++ b/src/cmd/compile/internal/noder/ergoir_tuple.go
++++ b/src/cmd/compile/internal/ergoir/ergoir_tuple.go
 @@ -0,0 +1,111 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
@@ -3661,7 +3940,7 @@ index 0000000..07c7de5
 +// function with several results to locals, in order: l0, l1, … := f(…);
 +// a local of -1 is Go's blank.
 +
-+package noder
++package ergoir
 +
 +import (
 +	"strings"
@@ -3760,19 +4039,19 @@ index 0000000..07c7de5
 +	a.SetPos(pos)
 +	return a, true
 +}
-diff --git a/src/cmd/compile/internal/noder/ergoir_types.go b/src/cmd/compile/internal/noder/ergoir_types.go
+diff --git a/src/cmd/compile/internal/ergoir/ergoir_types.go b/src/cmd/compile/internal/ergoir/ergoir_types.go
 new file mode 100644
-index 0000000..fb97b8e
+index 0000000..f32141c
 --- /dev/null
-+++ b/src/cmd/compile/internal/noder/ergoir_types.go
-@@ -0,0 +1,397 @@
++++ b/src/cmd/compile/internal/ergoir/ergoir_types.go
+@@ -0,0 +1,399 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
 +
 +// Ergo IR decoder: types, locals, names and constants. See ergoir.go.
 +
-+package noder
++package ergoir
 +
 +import (
 +	"go/constant"
@@ -3996,6 +4275,8 @@ index 0000000..fb97b8e
 +		obj, _ = types2.Universe.Lookup(t.Name()).(*types2.TypeName)
 +	case *types2.Named:
 +		obj = t.Obj()
++	case *types2.TypeParam:
++		obj = t.Obj() // a Slot row's parameter (F error), asserted to (OPC-ADAPT2)
 +	case *types2.Alias:
 +		if t.TypeArgs().Len() == 0 {
 +			obj = t.Obj() // a shared type's alias (ergo_ergoshared)
@@ -4163,11 +4444,11 @@ index 0000000..fb97b8e
 +	tv.SetIsValue()
 +	x.SetTypeInfo(tv)
 +}
-diff --git a/src/cmd/compile/internal/noder/ergoir_union.go b/src/cmd/compile/internal/noder/ergoir_union.go
+diff --git a/src/cmd/compile/internal/ergoir/ergoir_union.go b/src/cmd/compile/internal/ergoir/ergoir_union.go
 new file mode 100644
-index 0000000..9a3cbd3
+index 0000000..a06fafe
 --- /dev/null
-+++ b/src/cmd/compile/internal/noder/ergoir_union.go
++++ b/src/cmd/compile/internal/ergoir/ergoir_union.go
 @@ -0,0 +1,140 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
@@ -4183,7 +4464,7 @@ index 0000000..9a3cbd3
 +// (ergoir_fail.go). A case marked Def is the default clause in its
 +// source place.
 +
-+package noder
++package ergoir
 +
 +import (
 +	"go/constant"
@@ -4309,47 +4590,46 @@ index 0000000..9a3cbd3
 +	}
 +	return nil, nil, false
 +}
-diff --git a/src/cmd/compile/internal/noder/irgen.go b/src/cmd/compile/internal/noder/irgen.go
-index e8b177f..b243208 100644
---- a/src/cmd/compile/internal/noder/irgen.go
-+++ b/src/cmd/compile/internal/noder/irgen.go
-@@ -80,6 +80,11 @@ recheck:
- 	conf.Error = func(err error) {
- 		terr := err.(types2.Error)
- 		msg := terr.Msg
-+		if base.Flag.ErgoIR != "" && terr.Code == errors.BadDecl && msg == "generic function is missing function body" {
-+			// Its body may come from the IR file; ergoAttach reports
-+			// the generic functions still without one (F1).
-+			return
-+		}
- 		if versionErrorRx.MatchString(msg) {
- 			fileBase := terr.Pos.FileBase()
- 			fileVersion := info.FileVersions[fileBase]
-@@ -99,6 +104,9 @@ recheck:
- 
- 	pkg, err := conf.Check(base.Ctxt.Pkgpath, files, info)
- 	base.ExitIfErrors()
-+	if terr, ok := err.(types2.Error); ok && base.Flag.ErgoIR != "" && terr.Code == errors.BadDecl && terr.Msg == "generic function is missing function body" {
-+		err = nil // the IR's (conf.Error above); no other error was reported
+diff --git a/src/cmd/compile/internal/noder/ergoir_hook.go b/src/cmd/compile/internal/noder/ergoir_hook.go
+new file mode 100644
+index 0000000..22a171b
+--- /dev/null
++++ b/src/cmd/compile/internal/noder/ergoir_hook.go
+@@ -0,0 +1,25 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package noder
++
++import (
++	"cmd/compile/internal/ergoir"
++	"cmd/compile/internal/syntax"
++	"cmd/compile/internal/types2"
++)
++
++// The -ergoir reader lives in package ergoir (PATCH-MIN M4). This adapter
++// is noder's side: ergoFlag for irgen.go's hooks, and ergoStub, which
++// unified.go's writePkgStub calls once (M2).
++
++var ergoFlag = ergoir.Flag
++
++func ergoStub(m posMap, pkg *types2.Package, info *types2.Info, noders []*noder) {
++	files := make([]*syntax.File, len(noders))
++	for i, p := range noders {
++		files[i] = p.file
 +	}
- 	if err != nil {
- 		base.FatalfAt(src.NoXPos, "conf.Check error: %v", err)
- 	}
++	ergoir.Stub(m.makeXPos, pkg, info, files)
++}
 diff --git a/src/cmd/compile/internal/noder/unified.go b/src/cmd/compile/internal/noder/unified.go
-index 9ec2e40..e04cee0 100644
+index 9ec2e40..f02b73d 100644
 --- a/src/cmd/compile/internal/noder/unified.go
 +++ b/src/cmd/compile/internal/noder/unified.go
-@@ -320,6 +320,13 @@ func readBodies(target *ir.Package, duringInlining bool, profile *pgoir.Profile)
+@@ -320,6 +320,7 @@ func readBodies(target *ir.Package, duringInlining bool, profile *pgoir.Profile)
  // and returns the result.
  func writePkgStub(m posMap, noders []*noder) string {
  	pkg, info, otherInfo := checkFiles(m, noders)
-+	if base.Flag.ErgoIR != "" {
-+		bodiless := ergoBodiless(noders)
-+		ergoAttach(m, pkg, info, noders)
-+		ergoTextOut(pkg, info, noders, bodiless) // ergoir_text.go
-+	} else if base.Flag.ErgoIRShape != "" {
-+		ergoShapeOut(info, noders, nil)
-+	}
++	ergoStub(m, pkg, info, noders) // -ergoir (ergoir_flags.go)
  
  	pw := newPkgWriter(m, pkg, info, otherInfo)
  

@@ -255,6 +255,7 @@ const (
 	assignSignature               // 5: a function value into a function type with wider rows
 	assignMachine                 // 6: a machine declaration's value into the prelude Machine
 	assignRowValue                // 7: a row's member or a narrower row value into a row value
+	assignGoAny                   // 8: a value with a Go form into go.Any (goany.go)
 )
 
 // assignment is the result of assignability: the clause that admitted the
@@ -340,6 +341,16 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 			table["Work"] = work // else every state has no work
 		}
 		return assignment{clause: assignMachine, conv: Conversion{Kind: ConvMachine, From: v, To: t, Table: table}}, ""
+	}
+	if IsGoAny(t) {
+		// Clause 8 (GB2): Go's own conversion to its empty interface.
+		if why := c.goAnyForm(v); why != "" {
+			return assignment{}, why
+		}
+		return assignment{clause: assignGoAny}, ""
+	}
+	if IsGoAny(v) {
+		return assignment{}, "only go.As[T](a) takes a value out of a go.Any"
 	}
 	if it := asInterface(t); it != nil {
 		if _, isTuple := under(v).(*Tuple); isTuple {

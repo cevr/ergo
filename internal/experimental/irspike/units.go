@@ -158,7 +158,12 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"match on a value that is no union", "G3b"},
 	{"match on a value of type *", "G3b"},
 	{"match subject that releases owned values", "G2"},
-	{"match on Get", "G4"}, // a Map read: the comma-ok form (getmatch.go)
+	{"match on Get", "G4"},                // a Map read: the comma-ok form (getmatch.go)
+	{"match on Get with patterns", "G3b"}, // the emitter's type switch on the Option (ir_get.go)
+	{"call of Get with *", "G3b"},
+	{"Get of a value that is no Map", "G3b"},
+	{"operation-type value", "G4"}, // a value of an operation type: an interface of functions
+	{"operations conversion", "G4"},
 	{"result statement *syntax.BranchStmt", "G1"},
 	// G4: generics, packages, tasks, references, function values.
 	{"generic or declared-elsewhere type", "G4"},
@@ -166,6 +171,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"task call", "G4"},
 	{"generic call kind *", "G4"},
 	{"generic call without its type arguments", "G4"},
+	{"generic call with a row type argument of the caller", "G4"},
 	{"Option's pointer niche", "G4"},
 	{"append form", "G4"},
 	{"append to a defined slice type", "G4"},
@@ -189,7 +195,9 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"type *check.Union", "G4"}, // an anonymous union as a type argument (IRG4b instances)
 	// IRG4b r2: operation-type values and their calls, std operations.
 	{"operation call from a pure function", "G4"},
-	{"operation call into an owning literal", "G4"},
+	{"owned site *", "G4"}, // the Ref's owned site's refusals (ir_refown.go, IR-OWN)
+	{"fallible owned site", "G4"},
+	{"owned operation whose form *", "G4"},
 	{"operation call on a *", "G4"},
 	{"std operation without its runtime method", "G4"},
 	{"std Close", "G4"},
