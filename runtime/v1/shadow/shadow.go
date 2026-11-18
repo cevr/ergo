@@ -15,8 +15,8 @@ import (
 
 // The run-time half of a rewrite over functions (docs/spec/types.md, Laws
 // 14; LAWFFI r2 §3.6): Shadow is the test build's check of a rewrite at a
-// site. AsWritten, which keeps a call tree as written, is pure and lives
-// in data.go.
+// site. AsWritten, which keeps a call tree as written, is the prelude's
+// Ergo identity marked `// ergo:aswritten` (check.AsWritten).
 
 // LawDefect is the defect a test build raises where a rewrite law is
 // false at a site: the law's two sides gave values that key equality
