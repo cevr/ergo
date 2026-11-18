@@ -40,11 +40,24 @@ let planeCodeWords = 82
 // own, so the syntax tree's attachment sets it aside. It is the control
 // of input version 2 for the narration suites, not a written network: no
 // weight in it was chosen by reading a suite.
-func NarrationControl() string {
+func NarrationControl() string { narrationControl(false) }
+
+// NarrationControlStop is NarrationControl reading `words stop`: function
+// words are not words of the comment, so prose narration ("Now we loop
+// over the values and add each one to the sum") is measured by its content
+// words (NARR-TS's stop variant).
+func NarrationControlStop() string { narrationControl(true) }
+
+func narrationControl(stop bool) string {
 	let n = Planes
 	let mut b = strings.NewBuilder()
-	b.WriteString("# narration control: the exact overlap rule as weights (gen.ergo, NarrationControl)\n")
-	b.WriteString("tn1 2 1 0 1 66\nembed\n")
+	if stop {
+		b.WriteString("# narration control, stop words left out (gen.ergo, NarrationControlStop)\n")
+		b.WriteString("tn1 2 1 0 1 66\nwords stop\nembed\n")
+	} else {
+		b.WriteString("# narration control: the exact overlap rule as weights (gen.ergo, NarrationControl)\n")
+		b.WriteString("tn1 2 1 0 1 66\nembed\n")
+	}
 	for _ in 0..256 {
 		b.WriteString("0\n")
 	}

@@ -63,6 +63,36 @@ func SketchOf(s string) uint64 {
 	sk
 }
 
+// StopWords are the function words a net that reads `words stop` leaves
+// out of a comment's sketch (NARR-TS's list): prose narration ("Now we
+// loop over the values and add each one") shares only its content words
+// with the code under it.
+let StopWords = []string{
+	"the", "and", "for", "with", "into", "over", "from", "then", "that", "this", "these", "those",
+	"now", "first", "next", "after", "before", "each", "one", "all", "its", "our", "are", "was",
+	"will", "can", "get", "set", "let", "here", "there", "what", "which", "when", "just", "also",
+}
+
+func stopWord(w string) bool {
+	for s in StopWords {
+		if s == w {
+			return true
+		}
+	}
+	false
+}
+
+// ContentSketchOf is the sketch of the words of s that are not StopWords.
+func ContentSketchOf(s string) uint64 {
+	let mut sk = uint64(0)
+	for w in Words([]string{}, s) {
+		if !stopWord(w) {
+			sk = sk | WordBit(w)
+		}
+	}
+	sk
+}
+
 // WordBit is a word's bit in a sketch: FNV-1a, 32 bits, modulo 64.
 func WordBit(w string) uint64 {
 	let mut h = uint32(2166136261)

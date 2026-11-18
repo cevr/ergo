@@ -6,6 +6,8 @@
 // empty lines are skipped):
 //
 //	tn1 2 D F K H
+//	words stop              optional: the comment's word planes leave out
+//	                        StopWords (words.ergo), read from CommentText
 //	embed
 //	<256 rows of D trits, one per byte value>
 //	conv BIAS               F times, each followed by
@@ -53,6 +55,7 @@ type Net {
 	outBias    int,
 	skip       []int,
 	skipScale  int,
+	stop       bool,
 	packed     string,
 }
 
@@ -62,8 +65,9 @@ func Inputs(n Net) int { n.F + Planes }
 // Packed is the canonical bytes of the weights: every trit in file order,
 // five to a byte (base 3, the first trit the lowest digit, -1 written as
 // 2), then the integers (the version, D, F, K, H, the conv biases, the
-// hidden biases, the out scale and bias, the skip scale) as two bytes
-// each, little-endian. Its length is what Budget counts.
+// hidden biases, the out scale and bias, the skip scale, and 1 when the
+// file reads `words stop`) as two bytes each, little-endian. Its length is
+// what Budget counts; a file without `words stop` packs as before it.
 func Packed(n Net) string { n.packed }
 
 // ID is the hexadecimal SHA-256 of the packed bytes: the model's name in
@@ -155,6 +159,10 @@ func ParseNet(text string) Net fails Malformed {
 	}
 	let n = f + Planes
 	let mut ints = []int{Version, d, f, k, h}
+	let stop = c.at < len(c.rows) && c.rows[c.at] == "words stop"
+	if stop {
+		let _ = try next(&c)
+	}
 	let _ = try head(&c, "embed", 0)
 	let mut trits = []int{}
 	for _ in 0..256 {
@@ -190,6 +198,9 @@ func ParseNet(text string) Net fails Malformed {
 	ints = ints.Append(o[0])
 	ints = ints.Append(o[1])
 	ints = ints.Append(s[0])
+	if stop {
+		ints = ints.Append(1)
+	}
 	let packed = pack(trits, ints)
 	if len(packed) > Budget {
 		return Malformed{Line: 0, Reason: "\(len(packed)) packed bytes, over the budget of \(Budget)"}
@@ -224,6 +235,7 @@ func ParseNet(text string) Net fails Malformed {
 		outBias:    o[1],
 		skip:       trits[skipAt : skipAt+n],
 		skipScale:  s[0],
+		stop:       stop,
 		packed:     packed,
 	}
 }
