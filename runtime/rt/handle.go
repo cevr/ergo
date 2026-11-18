@@ -87,7 +87,7 @@ func start[T any](h *Handle[T], parent *Task, span string, masked, shield bool, 
 	h.owner = parent
 	h.task.init(parent, span, masked, shield)
 	schedSpawn(parent, &h.task)
-	Spread() // before the go statement (alone.go; I-FLIP: REF-ALONE x PARK1's start)
+	Spread() // before the go statement (alone.go)
 	go h.run(b)
 }
 

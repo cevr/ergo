@@ -76,7 +76,8 @@ func Twice(p P) P {
 }
 
 func main() {
-	let _ = Twice(P{A: 1, B: 2})
+	let q = Twice(P{A: 1, B: 2})
+	let _ = q.A
 }
 `
 	want, rep, err := LowerIR(factsUnit(t, none))

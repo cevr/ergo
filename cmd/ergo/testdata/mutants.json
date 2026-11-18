@@ -397,8 +397,8 @@
       "name": "irt-build-source-path",
       "origin": "wf10 IRT0b",
       "file": "cmd/ergo/build.go",
-      "from": "\t\tIR:        true,\n\t\tRewrites:  opts.rewrites,\n\t\tStderr:    stderr,\n\t\tLedger:",
-      "to": "\t\tIR:        false,\n\t\tRewrites:  opts.rewrites,\n\t\tStderr:    stderr,\n\t\tLedger:",
+      "from": "\t\tIR:         true,\n\t\tRewrites:   opts.rewrites,\n\t\tStderr:     stderr,\n\t\tLedger:",
+      "to": "\t\tIR:         false,\n\t\tRewrites:   opts.rewrites,\n\t\tStderr:     stderr,\n\t\tLedger:",
       "rule": "ergo build lowers every program through IR (plan-tier §1.1): the module holds the IR file the patched compile reads.",
       "killers": ["cmd/ergo:TestBuildGoesThroughIR"]
     },

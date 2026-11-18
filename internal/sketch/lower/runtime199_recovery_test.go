@@ -96,7 +96,7 @@ func TestRuntime199DefectRecovery(t *testing.T) {
 	// The edges v1 may take into them, and what each must hand rt.
 	allowed := map[string]string{
 		"runOn -> Run":           "guarded",
-		"Go -> Go":               "guarded",
+		"Go -> Start":            "guarded", // PARK1: v1.Go starts its Task in place (rt.Start)
 		"Scope.end -> Scope.End": "",
 		"release -> Release":     "classify",
 		// The static exit form (STATIC-EXIT, exits.go): the frame's end and
@@ -122,8 +122,8 @@ func TestRuntime199DefectRecovery(t *testing.T) {
 		// actor.StartMachine's runner task and an entry's timer child (MU3).
 		"machineStart -> Go": "guarded",
 		// A child actor's runner (MU5), shielded: its owner entry stops it.
-		"machineStart -> GoShielded": "guarded",
-		"Actor[S, E, D].arm -> Go":   "guarded",
+		"machineStart -> GoShielded":      "guarded",
+		"Actor[S, E, D].arm -> RestartOn": "guarded", // PARK: the actor's timer child on its carrier
 		// An entry's work child (MU4).
 		"Actor[S, E, D].startWork -> GoShielded": "guarded",
 		// A source of Feed (MU10), a child of the runner.
