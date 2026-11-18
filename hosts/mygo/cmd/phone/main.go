@@ -8,19 +8,17 @@
 // build` takes: a program's folder or main file, in an Ergo module that
 // requires this host (as ./cmd/counter-gui here).
 //
-// It runs `ergo build --platform … -work`, copies the generated Go module
-// into DIR (the build never writes in the source tree), writes DIR's
-// mygo.json unless the program's folder has one (then it copies that),
-// and runs MyGo's CLI, the pinned module's cmd/mygo (go.mod's tool line),
-// in DIR. The CLI's go build is Ergo's patched Go, first on PATH, with
-// GOFLAGS naming the module's IR file (-gcflags=.=-ergoir=DIR/ergoir.json):
-// the module's bodies are in that file, so stock Go would stop at "missing
-// function body". It prints the apps and bundles the CLI wrote.
-//
-// Until `ergo build` knows the phones (unit MB2) it emits for the desktop
-// platform of the same kernel and architecture (darwin/arm64 for iOS,
-// linux/<arch> for Android) and the patched Go is found in ergo's cache.
-// Once ergo prints GO= and GOFLAGS= for a phone, those are taken.
+// It runs `ergo build --platform P`, which writes the program's Go module
+// for the phone and prints WORK=, GO=, GOROOT= and GOFLAGS= on stdout
+// (MB2). It copies the module into DIR (the build never writes in the
+// source tree), writes DIR's mygo.json unless the program's folder has
+// one (then it copies that), and runs MyGo's CLI, the pinned module's
+// cmd/mygo (go.mod's tool line), in DIR. The CLI's go build is ergo's GO,
+// first on PATH, with ergo's GOROOT (the root of the patched compile; the
+// go command finds it only with GOROOT set) and ergo's GOFLAGS, whose
+// per-package -gcflags name the module's IR files, rewritten from WORK to
+// DIR: the module's bodies are in those files, so stock Go would stop at
+// "missing function body". It prints the apps and bundles the CLI wrote.
 package main
 
 import (
@@ -35,9 +33,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
-	"sort"
 	"strings"
 )
 
@@ -72,20 +68,20 @@ type Options struct {
 }
 
 // target is a phone platform: MyGo's name for it, and the platform ergo
-// emits for.
+// emits for (the simulator runs ios/arm64 code, linked against its SDK).
 type target struct{ mygo, emit string }
 
 // targetOf is the build of platform p.
 func targetOf(p string) (target, error) {
 	switch p {
 	case "ios", "ios/arm64":
-		return target{"ios", "darwin/arm64"}, nil
+		return target{"ios", "ios/arm64"}, nil
 	case "ios/simulator":
-		return target{"ios/simulator", "darwin/arm64"}, nil
+		return target{"ios/simulator", "ios/arm64"}, nil
 	case "android", "android/arm64":
-		return target{"android/arm64", "linux/arm64"}, nil
+		return target{"android/arm64", "android/arm64"}, nil
 	case "android/amd64":
-		return target{"android/amd64", "linux/amd64"}, nil
+		return target{"android/amd64", "android/amd64"}, nil
 	}
 	return target{}, fmt.Errorf("-platform %q: want ios, ios/simulator, android, android/arm64 or android/amd64", p)
 }
@@ -117,41 +113,33 @@ func Build(o Options) ([]string, error) {
 	if dir, err = filepath.Abs(dir); err != nil {
 		return nil, err
 	}
-	if strings.ContainsAny(dir, " \t\n'\"") {
-		// GOFLAGS separates its flags by spaces.
-		return nil, fmt.Errorf("-o %s: the IR file's path goes into GOFLAGS, which takes no space or quote", dir)
+	if strings.ContainsAny(dir, "\n'\"\\") {
+		// ergo's GOFLAGS quotes each IR flag whole in single quotes.
+		return nil, fmt.Errorf("-o %s: the IR files' paths go into GOFLAGS, quoted, so the folder's path takes no quote, backslash or newline", dir)
 	}
 
-	// The generated module.
-	var stderr bytes.Buffer
-	emit := exec.Command(o.Ergo, "build", o.Program, "--platform", t.emit, "-work", "-o", filepath.Join(scratch, "desktop"))
-	emit.Stdout, emit.Stderr = o.Stderr, &stderr
+	// The generated module, and how to compile it.
+	var stdout bytes.Buffer
+	emit := exec.Command(o.Ergo, "build", "--platform", t.emit, o.Program)
+	emit.Stdout, emit.Stderr = &stdout, o.Stderr
 	if err := emit.Run(); err != nil {
-		return nil, fmt.Errorf("ergo build: %v\n%s", err, stderr.Bytes())
+		return nil, fmt.Errorf("ergo build --platform %s: %v\n%s", t.emit, err, stdout.Bytes())
 	}
-	said := lines(stderr.String())
-	work := said["WORK"]
-	if work == "" {
-		return nil, fmt.Errorf("ergo build printed no WORK=\n%s", stderr.Bytes())
+	said := lines(stdout.String())
+	for _, k := range []string{"WORK", "GO", "GOROOT"} {
+		if said[k] == "" {
+			return nil, fmt.Errorf("ergo build --platform %s printed no %s=\n%s", t.emit, k, stdout.Bytes())
+		}
 	}
+	work, goBin := said["WORK"], said["GO"]
 	if err := os.CopyFS(dir, os.DirFS(work)); err != nil {
 		return nil, fmt.Errorf("copy the generated module: %w", err)
 	}
 	if err := writeConfig(o.Program, dir); err != nil {
 		return nil, err
 	}
-
-	// The patched Go and its flag.
-	goBin := said["GO"]
-	if goBin == "" {
-		if goBin, err = patchedGo(); err != nil {
-			return nil, err
-		}
-	}
-	goflags := said["GOFLAGS"]
-	if goflags == "" {
-		goflags = "-gcflags=.=-ergoir=" + filepath.Join(dir, "ergoir.json")
-	}
+	// The IR flags name WORK's files; the CLI compiles DIR's copy.
+	goflags := strings.ReplaceAll(said["GOFLAGS"], "=-ergoir="+work, "=-ergoir="+dir)
 
 	// MyGo's CLI, built from the pinned module by this host's go.mod.
 	cli := filepath.Join(scratch, "mygo")
@@ -164,7 +152,7 @@ func Build(o Options) ([]string, error) {
 	pkg.Dir = dir
 	pkg.Env = append(withoutGo(os.Environ()),
 		"PATH="+filepath.Dir(goBin)+string(os.PathListSeparator)+os.Getenv("PATH"),
-		"GOROOT="+filepath.Dir(filepath.Dir(goBin)),
+		"GOROOT="+said["GOROOT"],
 		"GOTOOLCHAIN=local",
 		"GOFLAGS="+goflags)
 	var cliOut bytes.Buffer
@@ -259,40 +247,6 @@ func ergoModule(folder string) (string, error) {
 			return "", fmt.Errorf("no ergo.mod at or above %s", abs)
 		}
 	}
-}
-
-// patchedGo is the go command of ergo's patched release in ergo's cache
-// (ERGO_CACHE, else the user's cache's ergo), the newest when there are
-// several. It stands in for ergo's GO= until ergo build knows the phones.
-func patchedGo() (string, error) {
-	root := os.Getenv("ERGO_CACHE")
-	if root == "" {
-		if xdg := os.Getenv("XDG_CACHE_HOME"); xdg != "" && filepath.IsAbs(xdg) {
-			root = filepath.Join(xdg, "ergo")
-		} else if runtime.GOOS == "darwin" {
-			c, err := os.UserCacheDir()
-			if err != nil {
-				return "", err
-			}
-			root = filepath.Join(c, "ergo")
-		} else {
-			root = filepath.Join(os.Getenv("HOME"), ".cache", "ergo")
-		}
-	}
-	found, _ := filepath.Glob(filepath.Join(root, "toolchain", "*", "patched-*", "goroot", "bin", "go"))
-	if len(found) == 0 {
-		return "", fmt.Errorf("no patched Go under %s (ergo build makes it)", filepath.Join(root, "toolchain"))
-	}
-	sort.Slice(found, func(i, j int) bool { return modTime(found[i]) > modTime(found[j]) })
-	return found[0], nil
-}
-
-func modTime(p string) int64 {
-	st, err := os.Stat(p)
-	if err != nil {
-		return 0
-	}
-	return st.ModTime().UnixNano()
 }
 
 // apps is the apps and bundles under dir/dist.

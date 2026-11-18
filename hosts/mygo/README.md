@@ -183,26 +183,27 @@ go -C hosts/mygo run ./cmd/phone build -platform ios/simulator -ergo ERGO ./cmd/
 
 `-platform` is `ios` (a device; signing is the owner's), `ios/simulator`,
 `android` (= `android/arm64`) or `android/amd64` (the emulator). The
-command runs `ergo build -work`, copies the generated Go module into
+command runs `ergo build --platform P` (P is `ios/arm64` for the phone
+and the simulator, `android/ARCH` for Android), which writes the
+program's Go module for the phone, links nothing, and prints `WORK=`,
+`GO=`, `GOROOT=` and `GOFLAGS=`. It copies that module into
 `-o DIR` (by default a new temporary folder; it never builds in the
 source tree), and writes `mygo.json` there. If the program's folder has
 its own `mygo.json` (`cmd/todo-gui` has one), it copies that file. Else
 it names the app after the folder, with the identifier
 `dev.ergo.<module>.<folder>`. Then it runs MyGo's own CLI in DIR. That
 CLI is the pinned module's `cmd/mygo`, which `go.mod` names as a `tool`,
-so there is no other copy to download. The CLI's `go build` is Ergo's
-patched Go, first on `PATH`, with
-`GOFLAGS=-gcflags=.=-ergoir=DIR/ergoir.json`. The module's bodies are in
-that IR file, so stock Go stops at "missing function body". MyGo's CLI
+so there is no other copy to download. The CLI's `go build` is ergo's
+`GO`, first on `PATH`, with ergo's `GOROOT` (the root of the patched
+compile: without it the go command runs the stock one) and ergo's
+`GOFLAGS`, whose per-package `-gcflags=…=-ergoir=…` name the module's IR
+files, rewritten from `WORK` to `DIR`. The module's bodies are in those
+files, so stock Go stops at "missing function body". MyGo's CLI
 links the program as a c-archive (iOS) or c-shared library (Android)
 with Xcode's or the NDK's clang, and packages it. We write no Swift,
 Kotlin or Gradle. The command prints the `.app`, `.apk` and `.aab` it
 made.
 
-Until `ergo build` knows the phone platforms (unit MB2), the command
-emits for the desktop platform with the same kernel and architecture
-(darwin/arm64 for iOS, linux/ARCH for Android). It takes the patched Go
-from ergo's cache. Once ergo prints `GO=` and `GOFLAGS=`, it takes those.
 `ergo` reads the whole module graph, the CLI's modules among it, so a
 fresh module cache needs `go mod download` here once. `check.sh` runs it.
 
