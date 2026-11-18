@@ -46,6 +46,22 @@ func (n LedgerNames) funcLaw(law *check.Law) string {
 	return n.Of(law.Pkg) + "." + law.Name
 }
 
+// FuncLawEntry is the ledger entry of the top-level law law with verdict,
+// the licence run's (LF6b): by eval (the check-time evaluator) for every
+// verdict but skipped, which names no run, and the digest and foreign
+// keys of FuncLawDigest. The entry has no instance: a refutation's
+// arguments are ergo test's output, not the ledger's, since a line's
+// `at (…)` is a site's constants and a key part, and a value may be
+// private.
+func FuncLawEntry(law *check.Law, names LedgerNames, verdict string, keys ForeignKeys) LedgerEntry {
+	d, with := FuncLawDigest(law, keys)
+	by := "eval"
+	if verdict == "skipped" {
+		by = ""
+	}
+	return LedgerEntry{Law: names.funcLaw(law), Verdict: verdict, By: by, With: with, Digest: d}
+}
+
 // AdmitFunc admits the top-level rewrite law law at a site: the law is in
 // the rewrite's scope (Law.FuncRewrite), its ledger entry is current (its
 // digest is FuncLawDigest's for the sources and the foreign keys now) and

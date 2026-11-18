@@ -110,11 +110,15 @@ func (e LedgerEntry) Line() string {
 
 // LawPackage and ProviderPackage are the module-wide names of the
 // packages that declare the entry's law and provider, and LawName and
-// ProviderName their names there (Type.Law, Provider).
+// ProviderName their names there (Type.Law, Provider). A top-level law's
+// entry (no provider) names its law Law, as its package declares it.
 func (e LedgerEntry) LawPackage() (pkg, name string) {
 	i := strings.LastIndex(e.Law, ".")
 	if i < 0 {
 		return "", e.Law
+	}
+	if e.Provider == "" {
+		return e.Law[:i], e.Law[i+1:]
 	}
 	j := strings.LastIndex(e.Law[:i], ".")
 	if j < 0 {

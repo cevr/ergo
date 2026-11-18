@@ -101,6 +101,9 @@ fact go sync/atomic.Int64.Swap effect none validated by guard with go1.27.4 h1:Y
 fact go unicode pure members validated by guard with go1.27.4 h1:xrgHefhY5L5swJnkimY6OhFgKm95mni5O5fTGHr8NXU=
 fact go unicode/utf16 pure members validated by guard with go1.27.4 h1:K4aT3aUE7yWhZc1b6BS8ydNOtgVDCAJ1L9aTgSqJp8Q=
 fact go unicode/utf8 pure members validated by guard with go1.27.4 h1:5gjyDHvaVojxyercf1zdUm+G09IguET6X0RIacP+gjo=
+law bits.RotateKeepsOnes validated by eval with runtime/v1@9ee1b334ca5d h1:qUMrkX05pB93HqA2ZYHWvIzwNhp22Fj+LkdILHze5ok=
+law hex.DecodeInvertsEncode skipped with runtime/v1/digest@e958cc1575e5 h1:UJzfQ3vrqrlxZ4R3DGQ6F/kStZDUN6SxjC0+9FLvGHs=
+law hex.EncodeDoublesLength validated by eval with runtime/v1/digest@0f15dcb98673 h1:49MQOBirv5pqUuWxq+KUVTfOzjxVyZYIM3arp7Z+m+s=
 law json.Text.PlainIsRaw for json.text at ("None") proved by native with go1.27.4,runtime/v1@9e459916885c h1:Iu06WRmGnFRqcOxZagTa3EnJu7j7nsTlvBCtHjt5/qg=
 law json.Text.PlainIsRaw for json.text at ("Some") proved by native with go1.27.4,runtime/v1@9e459916885c h1:48UXZpeUfjflUTpbYmbObi8Mf1WApNN5bwtfbMYoBtc=
 law json.Text.PlainIsRaw for json.text at ("a") proved by native with go1.27.4,runtime/v1@9e459916885c h1:mPCtMZwh/ej4fCWCdiddiIuCkvzCxPH7NR6IkcFO1t0=
@@ -223,3 +226,10 @@ law json.Text.SetCommaSinksFloat for json.text proved by native with go1.27.4,ru
 law json.Text.SetCommaSinksInt for json.text proved by native with go1.27.4,runtime/v1@9e459916885c h1:XL9siV10kqetw/Jkst8ib0MIDnGf4/oeNDh8M9VLUjo=
 law json.Text.SetCommaSinksString for json.text proved by native with go1.27.4,runtime/v1@9e459916885c h1:XL9siV10kqetw/Jkst8ib0MIDnGf4/oeNDh8M9VLUjo=
 law json.Text.SetCommaSinksUint for json.text proved by native with go1.27.4,runtime/v1@9e459916885c h1:XL9siV10kqetw/Jkst8ib0MIDnGf4/oeNDh8M9VLUjo=
+law strconv.AtoiInvertsItoa validated by eval with runtime/v1@334f1309eb43 h1:qwAiEdhng9mPD0jn0w9GRH7pQ87limikulOj2edBn2g=
+law strconv.ParseBoolInvertsFormat validated by eval with runtime/v1@eae98e624afb h1:7q2BWfIZYtNl9TB2HbNa6sOWDq2bRPfxttIJIUKl1ZE=
+law strconv.ParseIntInvertsFormat validated by eval with runtime/v1@e8ea3595781a h1:zqR6geBFgiQze8eBeZrRguSbtyRaRR6YTahyA8tdHtU=
+law strconv.UnquoteInvertsQuote validated by eval with runtime/v1@f7bd1ca3db2e h1:TRj2A8CBc2y55eX3FNjxn7zPQMQaKtqkfP0Qz8NmJRU=
+law strings.ToLowerIsIdempotent validated by eval with runtime/v1@f2824ab03e3f h1:owyAibo3toF2Ewl/xCYK+EXeY4BMm5wmEboeamzSk0A=
+law strings.TrimSpaceIsIdempotent validated by eval with runtime/v1@4a8b994c7710 h1:d82+/5749KYkNOLJj5k7zfs34nhutbJ7ylf2qL8K+nY=
+law time.DurationTextRoundTrips validated by eval with runtime/v1@b1953398767e h1:f3WmWC9RrJJT6nTneJkZcVxM2JqrDqzjLXkZLN9DnOM=
