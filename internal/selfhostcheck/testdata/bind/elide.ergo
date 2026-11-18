@@ -90,15 +90,17 @@ func nested(o Option[Pair[int, string]]) int {
 // A tuple result fixes its parts: the literal takes the first part's type.
 func two8() (Option[int8], int) { (Some{Value: 1}, 2) }
 
-// Missing is load's failure.
-type Missing {}
+// Shelf is a generic record with a function on its type, as lru's Cache.
+type Shelf[K comparable, V] { key K, item V }
 
-func load(n int) Map[string, int] fails Missing { Map[string, int]{"a": n} }
+func Take[K comparable, V](s *Shelf[K, V], k K) Option[V] {
+	if s.key == k { Some{Value: s.item} } else { None }
+}
 
-// A comparison whose first operand the typer leaves untyped (a method of
-// a value bound by try, as lru's tests write): the literal's values bind
-// its arguments.
-func found(n int) bool fails Missing {
-	let m = try load(n)
-	m.Get("a") == Some{n}
+// A comparison whose first operand the typer leaves untyped (a generic
+// function on a value's type, as lru's tests call Cache.Get): the
+// literal's values bind its arguments.
+func taken(n int) bool {
+	let mut s = Shelf[string, int]{key: "a", item: n}
+	s.Take("a") == Some{n}
 }
