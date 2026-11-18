@@ -63,7 +63,7 @@ func TestCompilerInferAgreesWithChecker(t *testing.T) {
 		_, foreign := goTypes(pkg)
 		writeLines(t, e, ext)
 		writeLines(t, f, foreign)
-		got := comparableOnly(want, runDump(t, ctx, bin, append([]string{e, f}, ergoFiles(t, dir)...)...))
+		got := comparableOnly(want, runDump(t, ctx, bin, append([]string{"-std", stdDir(), e, f}, ergoFiles(t, dir)...)...))
 		if d := setDiff(want, got); d != "" {
 			t.Errorf("%s: inferred type arguments differ (go -, ergo +):\n%s", rel(dir), d)
 		}

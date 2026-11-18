@@ -2,7 +2,7 @@
 // generic functions with compiler/check/infer and prints one line per call
 // it infers, unsorted:
 //
-//	inferdump EXT FOREIGN FILE...   "FILE OFFSET T1 ; T2 …" per call
+//	inferdump [-std DIR] EXT FOREIGN FILE...   "FILE OFFSET T1 ; T2 …" per call
 //
 // OFFSET is the callee name's; the types print as the Go checker's
 // Type.String (compiler/check/types Text), a result parameter bound to no
@@ -12,15 +12,16 @@
 // is a basic literal or a parameter of that declaration: the types the
 // signatures give. EXT and FOREIGN are typedump's: the Go side writes
 // them, for the prelude's, the universe's and the Go imports' types. An
-// Ergo import's types are XRefs into its interface (types.Iface);
-// inferdump loads no import, so each interface is empty and a type of an
-// Ergo import resolves invalid.
+// Ergo import's types are XRefs into its interface (types.Iface), which
+// -std DIR loads as typedump does (compiler/check/load); without it each
+// is empty and a type of an Ergo import resolves invalid.
 //
 // It is the Ergo side of S3d's inference agreement
 // (internal/selfhostcheck's TestCompilerInferAgreesWithChecker).
 
 import compiler/check/bind
 import compiler/check/infer
+import compiler/check/load
 import compiler/check/store
 import compiler/check/types
 import compiler/syntax
@@ -196,9 +197,15 @@ func isCallSite(s store.Store, foreign []types.Foreign, t dense.ID[store.TKey]) 
 	f.Name == "CallSite" && f.Path == "prelude"
 }
 
-func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
+func run(args0 []string) fails os.Exit needs fs.Files | io.Stdout {
+	let mut std = ""
+	let mut args = args0
+	if len(args) > 1 && args[0] == "-std" {
+		std = args[1]
+		args = args[2:len(args)]
+	}
 	if len(args) < 2 {
-		return os.Exit{Code: 2, Message: "usage: inferdump EXT FOREIGN FILE..."}
+		return os.Exit{Code: 2, Message: "usage: inferdump [-std DIR] EXT FOREIGN FILE..."}
 	}
 	let tab = tables(try read(args[0]), try read(args[1]))
 	let mut files = []bind.File{}
@@ -212,17 +219,18 @@ func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
 	let ps = bind.BuildParents(files)
 	let (bound, u) = bind.Bind(collected, []store.Frozen{}, ps, files, 1)
 	let mut s = bound
-	let mut deps = []types.Iface{}
-	for path in store.ImportPaths(s) {
-		deps = deps.Append(types.EmptyIface(path))
-	}
-	let kinds = types.SolveKinds(s, parsed, tab.ext)
+	let mod = if len(args) > 2 { load.ModuleOf(load.Dir(args[2])) } else { None }
+	let pkgs = load.Imported(bind.Imports(files), []string{tab.pkgPath}, mod, std)
+	let deps = load.Deps(s, load.Interfaces(pkgs, tab.ext, tab.foreign, []types.Iface{}))
+	let ext = load.Join(tab.ext, types.ExtOf(s, deps))
+	let table = types.WithAliases(tab.foreign, s, deps)
+	let kinds = types.SolveKinds(s, parsed, ext)
 	let mut fns = []Fn{}
-	for f in types.SolveFuncKinds(s, parsed, tab.ext, kinds) {
+	for f in types.SolveFuncKinds(s, parsed, ext, kinds) {
 		let p = parsed[f.File]
 		match syntax.ViewOf(p.Tree, f.Decl) {
 		case syntax.FuncDecl as fd:
-			let env = types.NewEnv(s, parsed, p, f.Params, kinds, tab.ext, tab.foreign, deps)
+			let env = types.NewEnv(s, parsed, p, f.Params, kinds, ext, table, deps)
 			if types.WiredOfType(s, env, fd.Type) {
 				continue
 			}
@@ -310,7 +318,7 @@ func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
 			// A final CallSite parameter the call leaves out is the
 			// call's site, no argument (call.go siteless).
 			let mut np = len(ops) - 3
-			if np > 0 && syntax.Len(call.Args) == np-1 && isCallSite(s, tab.foreign, ops[np-1]) {
+			if np > 0 && syntax.Len(call.Args) == np-1 && isCallSite(s, table, ops[np-1]) {
 				np = np - 1
 			}
 			let mut params = []dense.ID[store.TKey]{}
@@ -355,14 +363,14 @@ func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
 			if !known {
 				continue
 			}
-			let env = types.NewEnv(s, parsed, p, from.params, kinds, tab.ext, tab.foreign, deps)
+			let env = types.NewEnv(s, parsed, p, from.params, kinds, ext, table, deps)
 			let mut explicit = []dense.ID[store.TKey]{}
 			for w in written {
 				explicit = explicit.Append(types.Resolve(&s, env, w))
 			}
 			match infer.Infer(&s, &frame, infer.Callee{Params: params, Rows: to.rows, Base: m}, explicit, inArgs) {
 			case Some[[]dense.ID[store.TKey]] as targs:
-				let names = types.Names{Params: from.params, Foreign: tab.foreign, Pkg: tab.pkgName, Deps: deps}
+				let names = types.Names{Params: from.params, Foreign: table, Pkg: tab.pkgName, Deps: deps}
 				let none = infer.NoValue(&s)
 				let mut texts = []string{}
 				for t in targs.Value {
