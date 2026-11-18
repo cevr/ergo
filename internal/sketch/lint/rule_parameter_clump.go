@@ -2,6 +2,7 @@ package lint
 
 import (
 	"cmp"
+	"fmt"
 	"slices"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -9,9 +10,12 @@ import (
 )
 
 // parameterClump is the strict rule for data that travels together
-// without a name (anti-slop data-clumps; Fowler): the same three or more
-// (name, type) pairs among the parameters or fields of two declarations
-// of the program, functions or records. The group is a record the domain
+// without a name (anti-slop data-clumps; Fowler): a declaration, function
+// or record, that shares three or more (name, type) pairs with each of
+// two or more other declarations of the program. Two declarations alone
+// were mostly a recursive helper and its caller sharing a working
+// context (the 2026-11-18 read sample, about 6 of 15 true); a group in
+// three places is data the code keeps passing together. The group is a record the domain
 // has not named yet, or one it has and these parameters do not use. Out
 // of scope: a method that provides an operation and an operation's
 // members (the operation fixes the parameters), Go bindings, derived
@@ -22,7 +26,7 @@ import (
 var parameterClump = &Rule{
 	Name:    "parameter-clump",
 	Code:    "L139",
-	Doc:     "The same three or more named, typed parameters or fields in two declarations are a record the code has not named.",
+	Doc:     "The same three or more named, typed parameters or fields in three or more declarations are a record the code has not named.",
 	Instead: "name the group as a record and pass it, or pass the record that already holds these fields",
 	Default: Warning,
 	Check:   checkParameterClump,
@@ -109,6 +113,7 @@ func parameterClumps(p *Pass) map[*syntax.Ident]string {
 	})
 	out := map[*syntax.Ident]string{}
 	for i, a := range all {
+		partners, first := 0, ""
 		for j, b := range all {
 			if i == j || len(a.pairs) < 3 || len(b.pairs) < 3 || constructs(a, b) || constructs(b, a) {
 				continue
@@ -131,8 +136,13 @@ func parameterClumps(p *Pass) map[*syntax.Ident]string {
 			for _, s := range shared[1:] {
 				list += ", " + s
 			}
-			out[a.name] = a.name.Name + " shares " + list + " with " + b.name.Name + where
-			break
+			partners++
+			if first == "" {
+				first = a.name.Name + " shares " + list + " with " + b.name.Name + where
+			}
+		}
+		if partners >= 2 {
+			out[a.name] = fmt.Sprintf("%s and %d other declarations", first, partners-1)
 		}
 	}
 	return out

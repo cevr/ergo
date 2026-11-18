@@ -121,10 +121,11 @@ var clumpKinds = []clumpKind{
 // a few groups of named, typed parameters (the same three, a superset,
 // one of another type, a constructor of the record Spot, another record,
 // a failure record) beside Spot, and checks that parameter-clump fires on
-// exactly the declarations that share three or more pairs with another,
+// exactly the declarations that share three or more pairs with each of
+// two others,
 // a constructor and its record aside, and a failure never. Mutants:
 // as4-clump-constructor, as4-clump-type-ignored, as4-clump-two-enough,
-// as4-clump-failure.
+// as4-clump-failure, as4-clump-one-partner.
 func TestParameterClumpAgreesWithReference(t *testing.T) {
 	spot := clumpKind{pairs: []string{"x int", "y int", "z int"}}
 	shared := func(a, b clumpKind) int {
@@ -141,22 +142,23 @@ func TestParameterClumpAgreesWithReference(t *testing.T) {
 	for _, seed := range propertySeeds(40) {
 		r := rand.New(rand.NewPCG(seed, 0xa5))
 		var picks []clumpKind
-		for range 1 + r.IntN(4) {
+		for range 1 + r.IntN(5) {
 			picks = append(picks, clumpKinds[r.IntN(len(clumpKinds))])
 		}
 		fires := func(d clumpKind, self int, isSpot bool) bool {
+			partners := 0
 			for j, e := range picks {
 				if j == self || isSpot && e.construct {
 					continue
 				}
 				if shared(d, e) >= 3 {
-					return true
+					partners++
 				}
 			}
 			if !isSpot && !d.construct && shared(d, spot) >= 3 {
-				return true
+				partners++
 			}
-			return false
+			return partners >= 2
 		}
 		p := newPlanted()
 		p.write("type Spot { x int, y int, z int }", fires(spot, -1, true), 0)
