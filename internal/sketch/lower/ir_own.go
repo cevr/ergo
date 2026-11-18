@@ -241,7 +241,11 @@ func (b *irBuilder) listLet(v *check.Var, i int, d *check.Drop, site syntax.Node
 	// The handle is defined where the local is: its scope is the local's.
 	h := b.temp("own", "*"+b.spelling(b.l.rt()+".Owned"), p)
 	o.handle[v] = h
-	rel := b.listRelease(d, v.Type, typ, p, b.startedHere(value))
+	here := ""
+	if n, ok := v.Type.(*check.Named); ok && len(n.TArgs) > 0 && b.startedHere(value) {
+		here = b.goType(n.TArgs[0], site) // v1.Task's T: the IR names a generic function with its type arguments
+	}
+	rel := b.listRelease(d, v.Type, typ, p, here)
 	return []*irStmt{
 		{K: "def", Pos: p, Local: h, X: &irExpr{K: "mcall", Pos: p, Name: "Owner", X: b.frameArg(p)}},
 		{K: "expr", Pos: p, X: b.ownCall("Owning", typ, p, &irExpr{K: "local", Pos: p, I: h}, &irExpr{K: "local", Pos: p, I: i}, rel)},
@@ -251,17 +255,18 @@ func (b *irBuilder) listLet(v *check.Var, i int, d *check.Drop, site syntax.Node
 // listRelease is the release of an owned value of type t, Go type typ: a
 // function literal of the value that calls its checked Close with the
 // frame's environment (the emitter's ownRelease); a Close the IR does not
-// call keeps the source body. here says the value is a Task this frame's
-// scope started (startedHere): its release is v1.ReleaseTask, Close on the
+// call keeps the source body. here, when not "", is the Go type of the
+// value of a Task this frame's scope started (startedHere): its release
+// is v1.ReleaseTask[here], Close on the
 // task that started it, which is the frame's, so the literal captures
 // nothing and Go allocates no closure for it (PARK2's release closure).
-func (b *irBuilder) listRelease(d *check.Drop, t check.Type, typ string, p irPos, here bool) *irExpr {
+func (b *irBuilder) listRelease(d *check.Drop, t check.Type, typ string, p irPos, here string) *irExpr {
 	owned := b.temp("owned", typ, p)
 	end := p
 	lit := &irExpr{K: "func", Pos: p, T: "func(" + typ + ")", Params: []int{owned}, End: &end}
 	if c, ok := b.taskClose(d, owned, p); ok {
-		if here && frameListLowering != "env" {
-			c = &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "ReleaseTask", Args: []*irExpr{{K: "local", Pos: p, I: owned}}}
+		if here != "" && frameListLowering != "env" {
+			c = &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "ReleaseTask", V: here, Args: []*irExpr{{K: "local", Pos: p, I: owned}}}
 		}
 		lit.Body = []*irStmt{{K: "expr", Pos: p, X: c}}
 		return lit
