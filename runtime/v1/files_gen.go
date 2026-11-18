@@ -654,6 +654,7 @@ var bodyTable = []bodyRow{
 	{"rpcDefect.Error", bodyFact{refusal: "runtime/v1: rpcDefect.Error: the receiver type rpcDefect is not declared"}},
 	{"stderrSink.Write", bodyFact{refusal: "runtime/v1: stderrSink.Write: the receiver type stderrSink is not declared"}},
 	{"strategy.Pick", bodyFact{refusal: "runtime/v1: strategy.Pick: the receiver type strategy is not declared"}},
+	{"tee.Event", bodyFact{refusal: "runtime/v1: tee.Event: the receiver type tee is not declared"}},
 	{"textError.Error", bodyFact{refusal: "runtime/v1: textError.Error: the receiver type textError is not declared"}},
 	{"webURL.String", bodyFact{refusal: "runtime/v1: webURL.String: the receiver type webURL is not declared"}},
 }

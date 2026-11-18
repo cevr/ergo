@@ -174,7 +174,7 @@ func testLoadedPackage(opts fileOptions, l loaded, keep func(result []byte)) err
 		// The tag chooses the runtime's controlled scheduler at link
 		// time; the emitted module is the one a plain `ergo test` uses
 		// (runtime.md, Explored schedules).
-		tc.Tags = []string{"ergoexplore"}
+		tc.Tags = append(tc.Tags, "ergoexplore")
 	}
 	childArgs, err := testChildArgs(opts, l.result.Revision)
 	if err != nil {

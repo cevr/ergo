@@ -208,6 +208,16 @@ Status: G2 is implemented for `task.Go` ([#199](https://github.com/cevr/ergo/iss
 4. A restart runs the same function value, so it starts from what the function captured, never from what the run before it left in local variables. Each run only lends the root's resource captures and cannot hand them off (R30), under every policy. A resource that a run must consume is acquired inside that run; it is then released before the next run. A handler can instead lend its captured connection for the whole run and let the member's root release it. `TestTaskOwnershipRunModel` tests the root's one release across restarts.
 5. *Prior art:* Erlang/OTP `one_for_one` supervisors restart from the child specification, within an intensity; Elixir's `Task.Supervisor` and `DynamicSupervisor`; Gleam OTP's `static_supervisor`; Effect `FiberSet`; Go's `errgroup.Group`; Kotlin's `supervisorScope` and `coroutineScope`.
 
+### G5. Go's tools
+
+Status: **implemented** (RT-OBS): `runtime/obs`; `TestObsMapsTheTree`, `TestObsLabelsTaskGoroutines`, `TestObsFlightWritesOnDefect`, `TestGoTraceRoot` (`-tags ergogotrace`), `TestGoTraceTagsTheBuild`.
+
+1. `ergo build`, `run` and `test` with `--go-trace` link `runtime/obs`, Go's `runtime/trace` and `runtime/pprof` into the program (the `ergogotrace` tag). Without the flag none of them is linked, and the program is the same.
+2. In such a build, `ERGO_GO_TRACE` traces main's root to Go's tracer. `FILE` writes a full Go execution trace while main runs. `flight:FILE` keeps a flight recorder (the last seconds of the trace, in memory) and writes its window to `FILE` at the first defect. Unset, the root is untraced. With `ERGO_TRACE` set too, both sinks receive every event.
+3. Each Ergo task is a Go user task (`trace.NewTask`) under its parent task's, named by its span. Each capability call is a region of its task, named by its definition. A defect is a log entry `ergo.defect` of its task. A region that an unwind leaves unpaired is dropped, never ended on another goroutine.
+4. Each task's goroutine carries the pprof label `ergo.def`, the task's span, and the goroutines it starts inherit it. So `go tool pprof` groups CPU samples by Ergo definition, and a goroutine profile names each goroutine's task.
+5. *Prior art:* Go's `runtime/trace` user tasks and regions and `pprof.Do`; Tokio's `tracing` spans with `tokio-console`; the BEAM's process labels in `observer`; Effect's `Tracer` spans.
+
 
 <a id="channels"></a>
 

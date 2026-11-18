@@ -154,6 +154,10 @@ type fileOptions struct {
 	// debug is build's, run's and test's --debug: the link keeps the symbol
 	// table and DWARF, which it leaves out by default (compile-speed CS7).
 	debug bool
+	// goTrace is build's, run's and test's --go-trace: the program links
+	// runtime/obs (the ergogotrace tag), and ERGO_GO_TRACE then shows its
+	// task tree to Go's tracer and pprof (RT-OBS).
+	goTrace bool
 	// explore is test's --explore: the tests run under the controlled
 	// scheduler (runtime.md, Explored schedules). search is its mode
 	// (dfs, pct, random, or replay with --schedule) and bounds; with no
@@ -336,6 +340,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 			opts.debug = true
 		case "--native":
 			opts.native = true
+		case "--go-trace":
+			opts.goTrace = true
 		case "--explore":
 			opts.explore = true
 			if i+1 < len(args) && slices.Contains(exploreModes, args[i+1]) {
@@ -379,6 +385,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--debug is only supported by build, run and test")
 	case opts.native && command != "test":
 		return opts, fmt.Errorf("--native is only supported by test")
+	case opts.goTrace && command != "build" && command != "run" && command != "test":
+		return opts, fmt.Errorf("--go-trace is only supported by build, run and test")
 	case opts.receipt != "" && command != "test":
 		return opts, fmt.Errorf("--receipt is only supported by test")
 	case (opts.explore || searched) && command != "test":
