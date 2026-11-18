@@ -20,7 +20,6 @@ import (
 	"math"
 	"reflect"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -1201,84 +1200,33 @@ func (w *Window) rasterize(q []float32, hw float32, ox, oy, tw, th int) []byte {
 // glyphLine adds the glyphs of one line of text to s, as MyGo's own
 // Painter.Glyphs does (ui/glyphs.go), one glyph at a time.
 func (w *Window) glyphLine(s *scene.Scene, t glyphText, scale float32) {
-	w.lineGlyphs(s, t, scale, composeLines)
-}
-
-// composeLines sets a line of ASCII words one space apart from the
-// layouts of its words (composable), the runs the program's layout
-// measured (TextWidth, the desktop host's Metrics), rather than shaping
-// the whole line again: text that changes every frame is shaped once a
-// frame, as MyGo's ui shapes it, not once to measure and once to draw
-// (GP-SHAPE). false shapes every line whole, the reference
-// TestComposedLinesDrawAsShaped holds it to.
-var composeLines = true
-
-// lineGlyphs is glyphLine, from its words' layouts when compose is set
-// and t's text is composable.
-func (w *Window) lineGlyphs(s *scene.Scene, t glyphText, scale float32, compose bool) {
 	style := text.Style{Size: t.size}
 	ascent, _, lineHeight := w.sys.Metrics(style)
+	l := w.layout(t.s, t.size)
 	shade := text.ShadeOf(t.color.R, t.color.G, t.color.B)
 	top := t.y + (float32(math.Ceil(float64(lineHeight)))-lineHeight)/2
 	baseline := w.sys.Baseline((top + ascent) * scale)
 	start := int32(len(s.Glyphs))
-	add := func(l *text.Layout, x float32) {
-		for _, line := range l.Lines {
-			for _, g := range line.Glyphs {
-				if g.Font == nil {
-					continue
-				}
-				pen := (x + line.X + g.X) * scale
-				gi := w.sys.Glyph(g.Font, g.ID, scale, pen, shade, false)
-				if !gi.OK {
-					continue
-				}
-				s.Glyphs = append(s.Glyphs, scene.Glyph{
-					X: float32(math.Floor(float64(pen))) + gi.Left, Y: baseline + gi.Top, W: float32(gi.W), H: float32(gi.H),
-					U: gi.X, V: gi.Y, UW: gi.W, VH: gi.H,
-					Color: t.color, Colored: gi.Colored, Subpixel: gi.Subpixel, Thin: gi.Thin,
-				})
+	for _, line := range l.Lines {
+		for _, g := range line.Glyphs {
+			if g.Font == nil {
+				continue
 			}
-		}
-	}
-	if compose && composable(t.s) {
-		x := t.x
-		var space float32
-		if strings.IndexByte(t.s, ' ') >= 0 {
-			space = w.layout(" ", t.size).Width
-		}
-		rest := t.s
-		for {
-			word, after, more := strings.Cut(rest, " ")
-			l := w.layout(word, t.size)
-			add(l, x)
-			if !more {
-				break
+			pen := (t.x + line.X + g.X) * scale
+			gi := w.sys.Glyph(g.Font, g.ID, scale, pen, shade, false)
+			if !gi.OK {
+				continue
 			}
-			x += l.Width + space
-			rest = after
+			s.Glyphs = append(s.Glyphs, scene.Glyph{
+				X: float32(math.Floor(float64(pen))) + gi.Left, Y: baseline + gi.Top, W: float32(gi.W), H: float32(gi.H),
+				U: gi.X, V: gi.Y, UW: gi.W, VH: gi.H,
+				Color: t.color, Colored: gi.Colored, Subpixel: gi.Subpixel, Thin: gi.Thin,
+			})
 		}
-	} else {
-		add(w.layout(t.s, t.size), t.x)
 	}
 	if end := int32(len(s.Glyphs)); end > start {
 		s.Ops = append(s.Ops, scene.Op{Kind: scene.OpGlyphs, Start: start, End: end, Transform: scene.Translation(0, 0)})
 	}
-}
-
-// composable reports a line that sets as its words do one space apart:
-// printable ASCII (no bidirectional text, no shaping across words), its
-// words one space apart, with no space at either end.
-func composable(s string) bool {
-	if s == "" || s[0] == ' ' || s[len(s)-1] == ' ' || strings.Contains(s, "  ") {
-		return false
-	}
-	for i := 0; i < len(s); i++ {
-		if s[i] < 0x20 || s[i] >= 0x7f {
-			return false
-		}
-	}
-	return true
 }
 
 // Painted is how many lists Present has given.
