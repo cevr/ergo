@@ -184,7 +184,11 @@ type engineConn struct {
 }
 
 // fieldAt is a header line of the head being read, by offsets into buf.
-type fieldAt struct{ name, nameEnd, value, valueEnd int }
+type fieldAt struct {
+	name, nameEnd, value, valueEnd int
+	kind                           uint8 // fieldHost, fieldLength, ... (nameKind)
+	canonical                      bool  // the name is in textproto's canonical form
+}
 
 type engineWriter struct{ e *engineConn }
 
@@ -300,15 +304,14 @@ func (e *engineConn) readHead(first bool, req *request) int {
 		if !ok || len(e.fields) == maxHeaderLines {
 			return headHanded
 		}
-		name := e.buf[f.name:f.nameEnd]
-		switch {
-		case asciiFold(name, "host"):
+		switch f.kind {
+		case fieldHost:
 			hosts++
 			host = len(e.fields)
-		case asciiFold(name, "content-length"):
+		case fieldLength:
 			lengths++
 			length = len(e.fields)
-		case asciiFold(name, "transfer-encoding"), asciiFold(name, "expect"), asciiFold(name, "trailer"), asciiFold(name, "pragma"):
+		case fieldNetHTTP:
 			return headHanded
 		}
 		e.fields = append(e.fields, f)
@@ -343,15 +346,18 @@ func (e *engineConn) readHead(first bool, req *request) int {
 		if i == host {
 			continue
 		}
-		field := HTTPField{Name: canonicalName(at(f.name, f.nameEnd)), Value: at(f.value, f.valueEnd)}
-		if field.Name == "Connection" {
+		field := HTTPField{Name: at(f.name, f.nameEnd), Value: at(f.value, f.valueEnd)}
+		if !f.canonical {
+			field.Name = textproto.CanonicalMIMEHeaderKey(field.Name)
+		}
+		if f.kind == fieldConnection {
 			connection = append(connection, field.Value)
 		}
 		req.fields = append(req.fields, field)
 	}
 	// net/http's Request.Close and response.wantsClose.
 	req.wantsClose = valuesContainToken(connection, "close") || len(connection) > 0 && hasToken(connection[0], "close")
-	slices.SortStableFunc(req.fields, func(a, b HTTPField) int { return strings.Compare(a.Name, b.Name) })
+	sortFields(req.fields)
 	e.r = end
 	return headRead
 }
@@ -367,7 +373,7 @@ func requestLine(line []byte) bool {
 		return false
 	}
 	for _, c := range line[:sp] {
-		if c < 'A' || c > 'Z' {
+		if headBytes[c]&byteUpper == 0 {
 			return false
 		}
 	}
@@ -389,27 +395,51 @@ func requestLine(line []byte) bool {
 				return false
 			}
 			i += 2
-		case !pathByte(c):
+		case headBytes[c]&bytePath == 0:
 			return false
 		}
 	}
 	for _, c := range target[min(i+1, len(target)):] {
-		if c <= ' ' || c >= 0x7f || c == '#' {
+		if headBytes[c]&byteQuery == 0 {
 			return false
 		}
 	}
 	return true
 }
 
-// pathByte: an unreserved byte, a sub-delim, ':', '@' or '/', which
-// net/url neither escapes nor refuses in a request's path.
-func pathByte(c byte) bool {
-	switch {
-	case 'a' <= c && c <= 'z', 'A' <= c && c <= 'Z', '0' <= c && c <= '9':
-		return true
+// The classes of headBytes, the bytes each part of a head the engine
+// reads may hold (HTTP-FAST-c8: one table load per byte).
+const (
+	byteUpper = 1 << iota // a method's: 'A' to 'Z'
+	bytePath              // a path's: an unreserved byte, a sub-delim, ':', '@' or '/', which net/url neither escapes nor refuses
+	byteQuery             // a query's: printable ASCII but '#'
+	byteName              // a field name's: a letter, a digit or '-'
+	byteValue             // a field value's: visible ASCII, space or tab
+	byteHost              // a Host's: a letter, a digit or one of ".-_:[]"
+	byteLower             // 'a' to 'z'
+)
+
+// headBytes is each byte's classes.
+var headBytes = func() (t [256]uint8) {
+	for i := range t {
+		c := byte(i)
+		upper, lower, digit := 'A' <= c && c <= 'Z', 'a' <= c && c <= 'z', '0' <= c && c <= '9'
+		alnum := upper || lower || digit
+		set := func(class uint8, in bool) {
+			if in {
+				t[i] |= class
+			}
+		}
+		set(byteUpper, upper)
+		set(byteLower, lower)
+		set(bytePath, alnum || strings.IndexByte("-._~/!$&'()*+,;=:@", c) >= 0)
+		set(byteQuery, c > ' ' && c < 0x7f && c != '#')
+		set(byteName, alnum || c == '-')
+		set(byteValue, c == '\t' || c >= ' ' && c < 0x7f)
+		set(byteHost, alnum || strings.IndexByte(".-_:[]", c) >= 0)
 	}
-	return strings.IndexByte("-._~/!$&'()*+,;=:@", c) >= 0
-}
+	return t
+}()
 
 func isHex(c byte) bool {
 	return '0' <= c && c <= '9' || 'a' <= c && c <= 'f' || 'A' <= c && c <= 'F'
@@ -423,14 +453,23 @@ func fieldLine(line []byte, start int) (fieldAt, bool) {
 	if colon <= 0 {
 		return fieldAt{}, false
 	}
+	// One pass over the name checks its bytes and whether it is in
+	// textproto's canonical form: upper case first and after each '-',
+	// lower case elsewhere.
+	canonical, upper := true, true
 	for _, c := range line[:colon] {
-		if !('a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' || c == '-') {
+		class := headBytes[c]
+		if class&byteName == 0 {
 			return fieldAt{}, false
 		}
+		if upper && class&byteLower != 0 || !upper && class&byteUpper != 0 {
+			canonical = false
+		}
+		upper = c == '-'
 	}
 	v, ve := colon+1, len(line)
 	for _, c := range line[v:] {
-		if c != '\t' && (c < ' ' || c >= 0x7f) {
+		if headBytes[c]&byteValue == 0 {
 			return fieldAt{}, false
 		}
 	}
@@ -440,17 +479,86 @@ func fieldLine(line []byte, start int) (fieldAt, bool) {
 	for ve > v && (line[ve-1] == ' ' || line[ve-1] == '\t') {
 		ve--
 	}
-	return fieldAt{start, start + colon, start + v, start + ve}, true
+	return fieldAt{start, start + colon, start + v, start + ve, nameKind(line[:colon]), canonical}, true
+}
+
+// The names readHead acts on.
+const (
+	fieldOther      uint8 = iota
+	fieldHost             // Host
+	fieldLength           // Content-Length
+	fieldConnection       // Connection
+	fieldNetHTTP          // Transfer-Encoding, Expect, Trailer, Pragma: net/http reads the request
+)
+
+// nameKind is which of readHead's names name is, ASCII case aside; name
+// holds letters, digits and '-' only (fieldLine checked it), so its
+// length picks the one or two names it can be.
+func nameKind(name []byte) uint8 {
+	switch len(name) {
+	case 4:
+		if foldName(name, "host") {
+			return fieldHost
+		}
+	case 6:
+		if foldName(name, "expect") || foldName(name, "pragma") {
+			return fieldNetHTTP
+		}
+	case 7:
+		if foldName(name, "trailer") {
+			return fieldNetHTTP
+		}
+	case 10:
+		if foldName(name, "connection") {
+			return fieldConnection
+		}
+	case 14:
+		if foldName(name, "content-length") {
+			return fieldLength
+		}
+	case 17:
+		if foldName(name, "transfer-encoding") {
+			return fieldNetHTTP
+		}
+	}
+	return fieldOther
+}
+
+// foldName reports whether name, of letters, digits and '-', is lower
+// (lower-case letters and '-', of the same length) ASCII case aside:
+// setting bit 0x20 lower-cases a letter and keeps a digit or '-'.
+func foldName(name []byte, lower string) bool {
+	for i, c := range name {
+		if c|0x20 != lower[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // validHost: a Host of names, addresses and ports only.
 func validHost(h []byte) bool {
 	for _, c := range h {
-		if !('a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' || strings.IndexByte(".-_:[]", c) >= 0) {
+		if headBytes[c]&byteHost == 0 {
 			return false
 		}
 	}
 	return true
+}
+
+// sortFields sorts fields by name, keeping the arrival order of equal
+// names, as httpFields gives net/http's: an insertion sort over the few
+// fields a request has, slices' stable sort over many.
+func sortFields(fields []HTTPField) {
+	if len(fields) > 16 {
+		slices.SortStableFunc(fields, func(a, b HTTPField) int { return strings.Compare(a.Name, b.Name) })
+		return
+	}
+	for i := 1; i < len(fields); i++ {
+		for j := i; j > 0 && fields[j].Name < fields[j-1].Name; j-- {
+			fields[j], fields[j-1] = fields[j-1], fields[j]
+		}
+	}
 }
 
 // declaredLength is a Content-Length of one to eighteen digits.
@@ -466,21 +574,6 @@ func declaredLength(v []byte) (int64, bool) {
 		n = n*10 + int64(c-'0')
 	}
 	return n, true
-}
-
-func asciiFold(b []byte, lower string) bool {
-	if len(b) != len(lower) {
-		return false
-	}
-	for i, c := range b {
-		if 'A' <= c && c <= 'Z' {
-			c += 'a' - 'A'
-		}
-		if c != lower[i] {
-			return false
-		}
-	}
-	return true
 }
 
 // canonicalName is textproto's canonical form of a name of letters,
