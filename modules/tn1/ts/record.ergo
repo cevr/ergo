@@ -144,13 +144,42 @@ func imports(code []Token) Imports {
 	Imports{Names: names, Clause: clause}
 }
 
-// FromSource is the record of TypeScript source src.
-func FromSource(src string) tn1.Features {
-	let starts = lineStarts(src)
-	let n = len(starts)
+// Scanned is what the record's lines and nodes read of a source: its
+// line starts, its tokens, its code tokens and its imports. It is made
+// once per file.
+type Scanned { Starts []int, Toks []Token, Code []Token, Imp Imports }
+
+func scanOf(src string) Scanned {
 	let toks = Scan(src)
 	let code = Code(src, toks)
-	let imp = imports(code)
+	Scanned{Starts: lineStarts(src), Toks: toks, Code: code, Imp: imports(code)}
+}
+
+// FromSource is the record of TypeScript source src.
+func FromSource(src string) tn1.Features {
+	let s = scanOf(src)
+	tn1.Features{Language: "ts", Lines: linesOf(src, s), Nodes: nodes(src, s.Starts, s.Code, s.Imp)}
+}
+
+// Linted is what a lint run reads of a source: the record's lines (the
+// network reads no node) and each line's comment span, from one scan.
+type Linted { Lines []tn1.Line, Spans []Span }
+
+// ForLint is the lines and comment spans of TypeScript source src: the
+// lines FromSource has, without its nodes, and CommentSpans, without a
+// second scan.
+func ForLint(src string) Linted {
+	let s = scanOf(src)
+	Linted{Lines: linesOf(src, s), Spans: spansOf(src, s.Starts, s.Toks)}
+}
+
+// linesOf is the record's lines of src.
+func linesOf(src string, s Scanned) []tn1.Line {
+	let starts = s.Starts
+	let n = len(starts)
+	let toks = s.Toks
+	let code = s.Code
+	let imp = s.Imp
 
 	// Per byte: in a comment, in a literal, blanked as an imported name.
 	let mut kind = strings.Bytes(strings.Repeat("c", len(src)))
@@ -300,27 +329,30 @@ func FromSource(src string) tn1.Features {
 			CommentText:  text,
 		})
 	}
-	tn1.Features{Language: "ts", Lines: lines, Nodes: nodes(src, starts, code, imp)}
+	lines
 }
 
 // CommentSpans is, for each line of src, the bytes of the comments on
 // it, from the first comment byte on the line to the last; From == To at
 // the line's start when it has none. A finding of a local network points
 // at its line's span.
-func CommentSpans(src string) []Span {
-	let starts = lineStarts(src)
+func CommentSpans(src string) []Span { spansOf(src, lineStarts(src), Scan(src)) }
+
+func spansOf(src string, starts []int, toks []Token) []Span {
 	let mut out = []Span{}
 	let mut seen = []bool{}
 	for s in starts {
 		out = out.Append(Span{From: s, To: s})
 		seen = seen.Append(false)
 	}
-	for t in Scan(src) {
+	let mut at = 0
+	for t in toks {
 		if !IsComment(t) {
 			continue
 		}
-		let first = lineOf(starts, t.From)
-		let last = lineOf(starts, lo(t.To, len(src))-if t.To > t.From { 1 } else { 0 })
+		let first = lineFrom(starts, at, t.From)
+		at = first
+		let last = lineFrom(starts, first, lo(t.To, len(src))-if t.To > t.From { 1 } else { 0 })
 		for l in first..last+1 {
 			let from = starts[l]
 			let to = if l+1 < len(starts) { starts[l+1] - 1 } else { len(src) }
