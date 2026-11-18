@@ -249,6 +249,12 @@ func indexSegments(store coverStore, commit, root string, suites []Suite, keys m
 	n := 0
 	var errs []error
 	for _, s := range suites {
+		// A suite of named tests (Only) is no record of its package: a
+		// reader would take it for one, and it would replace the whole
+		// suite's entry of the same name at the commit.
+		if s.Only != nil {
+			continue
+		}
 		if _, ok := store.Load(keys[s.Name]); !ok {
 			continue
 		}

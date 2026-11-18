@@ -139,6 +139,21 @@ type Suite struct {
 	Families []string
 }
 
+// measured says whether the coverage pass runs the listed test n of the
+// Go suite s: every test, or with Only those it names, a family in Only
+// as its parts (Families).
+func measured(s *Suite, n string) bool {
+	if !strings.HasPrefix(n, "Test") {
+		return false
+	}
+	if s.Only == nil || slices.Contains(s.Only, n) {
+		return true
+	}
+	return slices.ContainsFunc(s.Families, func(f string) bool {
+		return slices.Contains(s.Only, f) && regexp.MustCompile(partsPattern(f)).MatchString(n)
+	})
+}
+
 // partsPattern matches the parts of the test family name and nothing else.
 func partsPattern(name string) string {
 	return "^" + regexp.QuoteMeta(name) + "Part[0-9]+$"
@@ -986,7 +1001,7 @@ func (e *engine) measure(ctx context.Context, suites []Suite) (*coverage, error)
 			}
 			listed := strings.Fields(string(list))
 			for _, n := range listed {
-				if strings.HasPrefix(n, "Test") && (s.Only == nil || slices.Contains(s.Only, n)) {
+				if measured(s, n) {
 					names = append(names, n)
 				}
 			}
