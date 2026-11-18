@@ -60,28 +60,6 @@ func kid(t tree.Tree, id int, name string) int {
 	}
 }
 
-// poss is the positions of a list field of positions (kind P).
-func poss(t tree.Tree, id int, name string) []int {
-	let mut out = []int{}
-	match item(t, id, name) {
-	case tree.List as l:
-		for x in l.Items {
-			match x {
-			case tree.Position as p:
-				match p.At {
-				case Some[int] as s:
-					out = out.Append(s.Value)
-				case None:
-					out = out.Append(NoPos)
-				}
-			case _:
-			}
-		}
-	case _:
-	}
-	out
-}
-
 // kids is the nodes of a list field.
 func kids(t tree.Tree, id int, name string) []int {
 	let mut out = []int{}
@@ -526,8 +504,6 @@ func endOf(t tree.Tree, id int) int {
 		endOf(t, kid(t, id, "Fields"))
 	case "AsPattern":
 		endOf(t, kid(t, id, "Name"))
-	case "OrPattern":
-		endOf(t, last(kids(t, id, "Alts")))
 	case "InterpolatedString":
 		endOf(t, last(kids(t, id, "Texts")))
 	case _:

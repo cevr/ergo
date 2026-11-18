@@ -135,18 +135,6 @@ func decl(p *Printer, d int) {
 		p.ident(p.k(d, "Name"))
 		p.fieldList(p.k(d, "Params"), "(", ")")
 		p.space()
-		if p.hasK(d, "Equation") {
-			// The rewrite form (Laws 14): its Body is the synthetic
-			// lhs == rhs, printed as the two blocks it was written as.
-			let e = p.k(d, "Equation")
-			let eq = p.k(p.ks(p.k(d, "Body"), "List")[0], "X")
-			p.exprBlock(p.at(e, "LhsLbrace"), p.k(eq, "X"), p.at(e, "LhsRbrace"))
-			p.space()
-			p.token(p.at(eq, "OpPos"), "==")
-			p.space()
-			p.exprBlock(p.at(e, "RhsLbrace"), p.k(eq, "Y"), p.at(e, "RhsRbrace"))
-			return
-		}
 		p.block(p.k(d, "Body"), true)
 	case _:
 	}
@@ -761,23 +749,6 @@ func block(p *Printer, b int, oneLineOK bool) {
 	p.openBody(p.at(b, "Lbrace"))
 	p.stmtList(stmts)
 	p.closeBody(p.at(b, "Rbrace"), "}")
-}
-
-// exprBlock prints a block of the one expression x, braced at lbrace and
-// rbrace, as block prints one statement's block (a rewrite law's sides).
-func exprBlock(p *Printer, lbrace int, x int, rbrace int) {
-	if p.oneLine(lbrace, rbrace, []int{x}) {
-		p.token(lbrace, "{")
-		p.space()
-		p.expr(x)
-		p.space()
-		p.token(rbrace, "}")
-		return
-	}
-	p.openBody(lbrace)
-	p.bodyLine(0)
-	p.expr(x)
-	p.closeBody(rbrace, "}")
 }
 
 // blockOneLine reports whether a function-body-like block prints on one line.

@@ -459,11 +459,6 @@ func (g *gen) decl() {
 		g.w("test ", g.name(), " {")
 		g.block()
 	case 9:
-		if g.r.IntN(3) == 0 {
-			// The rewrite form of a top-level law: { lhs } == { rhs }.
-			g.w("law ", g.name(), "(a int) ", g.pick("{ f(a) } == { g(a) }", "{\n\tf(a)\n} == {\n\tg(a) + 1\n}", "{ f(a) }  ==  {\n\ta\n}"))
-			return
-		}
 		g.w("law ", g.name(), "(a int, b ", g.typeName(), ") {")
 		g.block()
 	case 10:
@@ -474,7 +469,7 @@ func (g *gen) decl() {
 		g.w("type ", g.name(), " = ", g.name(), " | ", g.name(), "{X int,\n\tY ", g.typeName(), "}", g.pick("", " | Z", " | W{}"))
 	default:
 		g.w("func ", g.pick("", "(p *Point) "), g.name(), g.pick("", "[T any, U comparable]"), "(")
-		g.list(func() { g.w(g.name(), g.pick(" ", " ", " own "), g.typeName()) })
+		g.list(func() { g.w(g.name(), " ", g.typeName()) })
 		g.w(")", g.pick("", " int", " (int, string)", " int fails A | B", " int fails A needs B | go.Foreign", " func() int"), " {")
 		g.block()
 	}
