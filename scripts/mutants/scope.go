@@ -148,12 +148,11 @@ func namedSuites(jobs []Job) map[string]bool {
 	out := map[string]bool{}
 	for _, j := range jobs {
 		for _, m := range j.Ledger.Mutants {
-			if j.Select != nil && !j.Select.MatchString(m.Name) {
-				continue
-			}
-			for _, id := range killerIDs(m) {
-				suite, _ := splitID(id)
-				out[suite] = true
+			if j.Select == nil || j.Select.MatchString(m.Name) {
+				for _, id := range killerIDs(m) {
+					suite, _ := splitID(id)
+					out[suite] = true
+				}
 			}
 		}
 	}
