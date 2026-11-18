@@ -60,6 +60,28 @@ func kid(t tree.Tree, id int, name string) int {
 	}
 }
 
+// poss is the positions of a list field of positions (kind P).
+func poss(t tree.Tree, id int, name string) []int {
+	let mut out = []int{}
+	match item(t, id, name) {
+	case tree.List as l:
+		for x in l.Items {
+			match x {
+			case tree.Position as p:
+				match p.At {
+				case Some[int] as s:
+					out = out.Append(s.Value)
+				case None:
+					out = out.Append(NoPos)
+				}
+			case _:
+			}
+		}
+	case _:
+	}
+	out
+}
+
 // kids is the nodes of a list field.
 func kids(t tree.Tree, id int, name string) []int {
 	let mut out = []int{}
@@ -211,9 +233,13 @@ func posOf(t tree.Tree, id int) int {
 	case "ContextEntry":
 		if num(t, id, "Kind") == 2 { pos(t, id, "Replace") } else { posOf(t, kid(t, id, "Key")) }
 	case "Field":
+		let names = kids(t, id, "Names")
+		let own = if has(t, id, "Own") { pos(t, kid(t, id, "Own"), "At") } else { NoPos }
 		if flag(t, id, "Include") {
 			pos(t, id, "Dots")
-		} else if len(kids(t, id, "Names")) > 0 {
+		} else if own >= 0 && (len(names) == 0 || own < posOf(t, names[0])) {
+			own
+		} else if len(names) > 0 {
 			posOf(t, kids(t, id, "Names")[0])
 		} else {
 			posOf(t, kid(t, id, "Type"))
@@ -245,6 +271,8 @@ func posOf(t tree.Tree, id int) int {
 		pos(t, id, "Lparen")
 	case "SelectorExpr", "IndexExpr", "SliceExpr", "TypeGuard", "BinaryExpr", "CatchExpr", "AsPattern":
 		posOf(t, kid(t, id, "X"))
+	case "OrPattern":
+		posOf(t, kids(t, id, "Alts")[0])
 	case "CallExpr":
 		posOf(t, kid(t, id, "Fun"))
 	case "StarExpr":
@@ -459,6 +487,8 @@ func endOf(t tree.Tree, id int) int {
 		endOf(t, kid(t, id, "Fields"))
 	case "AsPattern":
 		endOf(t, kid(t, id, "Name"))
+	case "OrPattern":
+		endOf(t, last(kids(t, id, "Alts")))
 	case "InterpolatedString":
 		endOf(t, last(kids(t, id, "Texts")))
 	case _:

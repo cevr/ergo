@@ -106,14 +106,15 @@ let schema = Map[string, string]{
 	"ContextDecl":        "Doc n Let p Context p Name n Provides n Needs n Body n",
 	"ContextBody":        "Lbrace p Entries l Rbrace p",
 	"ContextEntry":       "Doc n Kind i Replace p Key n Keys l Assign p Value n",
-	"Field":              "Doc n Names l Type n Key n Any p Include b Dots p WherePos p Where n",
+	"Field":              "Doc n Names l Own n Type n Key n Any p Include b Dots p WherePos p Where n",
+	"Word":               "At p",
 	"FieldList":          "Opening p List l Closing p",
 	"NeedsClause":        "Needs p Names l",
 	"TakesClause":        "Takes p Names l",
 	"ProvidesClause":     "Provides p Names l",
 	"MachineEntry":       "Doc n NamePos p Name s Colon p Value n",
-	"CatchArm":           "Case p Types l Colon p Body l",
-	"CaseClause":         "Case p List l Colon p Body l",
+	"CatchArm":           "Case p Types l Written l Colon p Body l",
+	"CaseClause":         "Case p List l Written l Colon p Body l",
 	"Ident":              "NamePos p Name s",
 	"BasicLit":           "ValuePos p Kind i Value s ValueEnd p",
 	"CompositeLit":       "Type n Lbrace p DotDot p Base n Elts l Rbrace p",
@@ -152,12 +153,14 @@ let schema = Map[string, string]{
 	"RangeStmt":          "For p Key n Value n Range p X n Body n",
 	"ExternSpec":         "Extern p Go p Target n",
 	"TestDecl":           "Doc n Test p Name n Params n Body n",
-	"LawDecl":            "Doc n Law p Name n Params n Body n Reach n Rewrite n Derived n Pair n",
+	"LawDecl":            "Doc n Law p Name n Params n Body n Reach n Rewrite n Equation n Derived n Pair n",
+	"LawEquation":        "LhsLbrace p LhsRbrace p RhsLbrace p RhsRbrace p",
 	"LawRewrite":         "When p Eq p",
 	"LawReach":           "Never p Word p Path b Lbrack p Targets l Rbrack p Invariant s Pred n",
 	"AssertStmt":         "Assert p X n",
 	"VariantSpec":        "Name n TypeArgs n Fields n",
 	"AsPattern":          "X n As p Name n",
+	"OrPattern":          "Alts l Bars P",
 	"InterpolatedString": "Texts l Exprs l",
 }
 
@@ -201,6 +204,17 @@ func kindIs(t tree.Tree, it tree.Item, kind string) bool {
 	case tree.Ref as r:
 		kind == "n" && r.Id >= 0 && r.Id < len(t.Nodes)
 	case tree.List as l:
+		if kind == "P" {
+			// A list of positions (OrPattern.Bars).
+			for x in l.Items {
+				match x {
+				case tree.Position:
+				case _:
+					return false
+				}
+			}
+			return true
+		}
 		if kind != "l" {
 			return false
 		}

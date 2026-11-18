@@ -118,6 +118,18 @@ func decl(p *Printer, d int) {
 		p.ident(p.k(d, "Name"))
 		p.fieldList(p.k(d, "Params"), "(", ")")
 		p.space()
+		if p.hasK(d, "Equation") {
+			// The rewrite form (Laws 14): its Body is the synthetic
+			// lhs == rhs, printed as the two blocks it was written as.
+			let e = p.k(d, "Equation")
+			let eq = p.k(p.ks(p.k(d, "Body"), "List")[0], "X")
+			p.exprBlock(p.at(e, "LhsLbrace"), p.k(eq, "X"), p.at(e, "LhsRbrace"))
+			p.space()
+			p.token(p.at(eq, "OpPos"), "==")
+			p.space()
+			p.exprBlock(p.at(e, "RhsLbrace"), p.k(eq, "Y"), p.at(e, "RhsRbrace"))
+			return
+		}
 		p.block(p.k(d, "Body"), true)
 	case _:
 	}
@@ -305,8 +317,15 @@ func fieldList(p *Printer, l int, open string, close string) {
 			p.space()
 			p.token(p.at(f, "Any"), "any")
 		}
-		if p.hasK(f, "Type") {
+		let own = p.hasK(f, "Own")
+		if own {
 			if len(names) > 0 {
+				p.space()
+			}
+			p.token(p.at(p.k(f, "Own"), "At"), "own")
+		}
+		if p.hasK(f, "Type") {
+			if len(names) > 0 || own {
 				p.space()
 			}
 			p.typ(p.k(f, "Type"))
@@ -452,6 +471,10 @@ func operationType(p *Printer, t int) {
 		if p.fam(m) == "LawDecl" {
 			p.memberLaw(m)
 			return
+		}
+		if p.hasK(m, "Own") {
+			p.token(p.at(p.k(m, "Own"), "At"), "own")
+			p.space()
 		}
 		p.ident(p.ks(m, "Names")[0])
 		p.signature(p.k(m, "Type"))
@@ -712,6 +735,23 @@ func block(p *Printer, b int, oneLineOK bool) {
 	p.closeBody(p.at(b, "Rbrace"), "}")
 }
 
+// exprBlock prints a block of the one expression x, braced at lbrace and
+// rbrace, as block prints one statement's block (a rewrite law's sides).
+func exprBlock(p *Printer, lbrace int, x int, rbrace int) {
+	if p.oneLine(lbrace, rbrace, []int{x}) {
+		p.token(lbrace, "{")
+		p.space()
+		p.expr(x)
+		p.space()
+		p.token(rbrace, "}")
+		return
+	}
+	p.openBody(lbrace)
+	p.bodyLine(0)
+	p.expr(x)
+	p.closeBody(rbrace, "}")
+}
+
 // blockOneLine reports whether a function-body-like block prints on one line.
 func blockOneLine(p *Printer, b int) bool { p.oneLine(p.at(b, "Lbrace"), p.at(b, "Rbrace"), p.ks(b, "List")) }
 
@@ -850,7 +890,9 @@ func clauses(p *Printer, lbrace int, arms []int, patterns string, rbrace int) {
 		} else {
 			p.newlineNoBlank()
 		}
-		p.caseHead(p.at(arm, "Case"), p.ks(arm, patterns), p.at(arm, "Colon"))
+		// The patterns as written when one holds an OrPattern.
+		let written = p.ks(arm, "Written")
+		p.caseHead(p.at(arm, "Case"), if len(written) > 0 { written } else { p.ks(arm, patterns) }, p.at(arm, "Colon"))
 		p.L.step(SetIndent{To: base + 1})
 		p.stmtList(p.ks(arm, "Body"))
 	}
@@ -996,6 +1038,16 @@ func expr1(p *Printer, x int, depth int) {
 		}, p.at(x, "Rbrace"), "}")
 	case "KeyValueExpr":
 		p.element(x)
+	case "OrPattern":
+		let bars = poss(p.T, x, "Bars")
+		for i, a in p.ks(x, "Alts") {
+			if i > 0 {
+				p.space()
+				p.token(bars[i-1], "|")
+				p.space()
+			}
+			p.expr1(a, depth)
+		}
 	case "AsPattern":
 		p.expr1(p.k(x, "X"), depth)
 		p.space()
