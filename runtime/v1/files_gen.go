@@ -398,6 +398,7 @@ var bodyTable = []bodyRow{
 	{"RegisteredGraph", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "S", Constraint: "any"}, {Name: "E", Constraint: "any"}}, Results: []string{"*MachineGraph"}, Package: Path}}},
 	{"Release", bodyFact{body: Body{Hidden: []Hidden{"task"}, Params: []Param{{Type: "func()", Func: &Body{}}}, Wait: "none", Release: "caller", Package: Path}}},
 	{"ReleaseLatestFirst", bodyFact{body: Body{Params: []Param{{Type: "...*Owned"}}, Wait: "none", Package: Path}}},
+	{"ReleaseTask", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "*Task[T]"}}, Wait: "none", Package: Path}}},
 	{"Reserve", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "[]T"}, {Type: "int"}}, Results: []string{"[]T"}, Pure: true, Package: Path}}},
 	{"ReturnStatic", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "*uint64"}, {Type: "*uint64"}, {Type: "uint64"}, {Type: "T"}}, Results: []string{"T"}, Wait: "none", Package: Path}}},
 	{"Returned", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "*Owned"}, {Type: "T"}}, Results: []string{"T"}, Wait: "none", Package: Path}}},

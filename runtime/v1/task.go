@@ -472,6 +472,16 @@ func (t *Task[T]) Close(ct *rt.Task) {
 	})
 }
 
+// ReleaseTask is t's release in its first owner's list: Close on the task
+// that started it, which is the owner's (the frame scope task.Go takes is
+// the scope that registers the Task), so the IR's release literal of a
+// Task captures nothing and Go makes it no closure (GP-SPAWN). A lowering
+// helper, as StringAt is: no Ergo declaration binds it. It waits as Close
+// does.
+//
+//ergo:wait none
+func ReleaseTask[T any](t *Task[T]) { t.Close(t.task) }
+
 // Drain is the rest of the release of a Task whose value holds a resource
 // (#197 L8 B3t, B4; Q5, Gap 47, resources R13): after Close, it gives the
 // value the body returned, for the owner's generated release, also when

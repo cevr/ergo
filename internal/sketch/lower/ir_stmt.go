@@ -332,7 +332,9 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 				b.reserve(v)
 			}
 			out = append(out, &irStmt{K: "def", Pos: b.pos(s.Decl, s.Decl.Pos()), Local: i, X: x})
-			b.part(func() { out = append(append(out, b.ownLet(v, i, id)...), b.releaseAt(spec, b.pos(id, id.Pos()))...) }) // ir_own.go: the let's temporaries (R43)
+			b.part(func() {
+				out = append(append(out, b.ownLet(v, i, id, spec.Values[0])...), b.releaseAt(spec, b.pos(id, id.Pos()))...)
+			}) // ir_own.go: the let's temporaries (R43)
 		}
 		return out
 	case *syntax.AssignStmt:
