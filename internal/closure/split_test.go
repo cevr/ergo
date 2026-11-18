@@ -680,7 +680,7 @@ func TestRunFailureNamesTheSlowestTests(t *testing.T) {
 	if len(plan) != 1 {
 		t.Fatalf("%d runs; want one under a budget above the total", len(plan))
 	}
-	stopped := runTimeout{pkg: "internal/x", output: "/tmp/x.out", deadline: 20 * time.Minute, left: []string{"x.test (pid 1)"}}
+	stopped := runTimeout{pkg: "internal/x", output: "/tmp/x.out", quiet: 20 * time.Minute, outcome: watchQuiet, left: []string{"x.test (pid 1)"}}
 	err := runFailure(0, 1, plan[0], stopped)
 	if !errors.As(err, new(runTimeout)) {
 		t.Fatalf("the deadline error is not kept: %v", err)

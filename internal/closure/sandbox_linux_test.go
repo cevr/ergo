@@ -259,17 +259,18 @@ const sysPidfdOpen = 434
 const reaperBound = 30 * time.Second
 
 // runWithin starts cmd, the run's reaper, which leads a process group of
-// its own (sandboxCommand), and waits for it at most deadline. At the
-// deadline it asks the reaper to end the run (SIGTERM) and waits for it at
-// most reaperBound. The reaper collects every process of the run, those
-// that left the group included. Then runWithin stops every process left
-// in the group, and reaps the leader. It reports whether the deadline
-// ended the run and, if it did, the processes the run had then (runTree).
-// The leader is not reaped before the group is stopped: until then its
-// process id, which is the group's, cannot name another process.
-func runWithin(cmd *exec.Cmd, deadline time.Duration) (timedOut bool, left []string, err error) {
+// its own (sandboxCommand), and waits for it while it makes progress
+// (watch): until it has made none for quiet, or until end. Then it asks
+// the reaper to end the run (SIGTERM) and waits for it at most
+// reaperBound. The reaper collects every process of the run, those that
+// left the group included. Then runWithin stops every process left in the
+// group, and reaps the leader. It reports how the run ended and, if the
+// watch ended it, the processes the run had then (runTree). The leader is
+// not reaped before the group is stopped: until then its process id, which
+// is the group's, cannot name another process.
+func runWithin(cmd *exec.Cmd, quiet time.Duration, end time.Time, progress func() int64) (outcome watchOutcome, left []string, err error) {
 	if err := cmd.Start(); err != nil {
-		return false, nil, err
+		return watchExited, nil, err
 	}
 	pid := cmd.Process.Pid
 	stop := func() {
@@ -281,10 +282,14 @@ func runWithin(cmd *exec.Cmd, deadline time.Duration) (timedOut bool, left []str
 	if errno != 0 {
 		stop()
 		cmd.Wait()
-		return false, nil, fmt.Errorf("pidfd_open on the run: %w", errno)
+		return watchExited, nil, fmt.Errorf("pidfd_open on the run: %w", errno)
 	}
-	exited, pollErr := readableWithin(int(pidfd), deadline)
-	if pollErr == nil && !exited {
+	w := watch{
+		quiet: quiet, end: end, now: time.Now, progress: progress,
+		wait: func(d time.Duration) (bool, error) { return readableWithin(int(pidfd), d) },
+	}
+	outcome, pollErr := w.run()
+	if pollErr == nil && outcome != watchExited {
 		left = runTree(pid)
 		syscall.Kill(pid, syscall.SIGTERM)
 		readableWithin(int(pidfd), reaperBound)
@@ -293,9 +298,9 @@ func runWithin(cmd *exec.Cmd, deadline time.Duration) (timedOut bool, left []str
 	stop()
 	waitErr := cmd.Wait()
 	if pollErr != nil {
-		return false, nil, pollErr
+		return watchExited, nil, pollErr
 	}
-	return !exited, left, waitErr
+	return outcome, left, waitErr
 }
 
 // runTree describes the run's reaper, pid, and each of its descendants,
