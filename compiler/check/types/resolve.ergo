@@ -105,6 +105,13 @@ type Env {
 	deps    []Iface,
 }
 
+// inFile is e's environment for a type expression of file p with no
+// parameters, at depth: a new Env that shares e's tables (a let mut copy
+// of e is cloned whole, its file included).
+func inFile(e Env, p syntax.Parsed, depth int) Env {
+	Env{p: p, params: []string{}, kinds: e.kinds, ext: e.ext, foreign: e.foreign, ownMap: e.ownMap, depth: depth, files: e.files, deps: e.deps}
+}
+
 // NewEnv is the environment of one declaration of file p.
 func NewEnv(s store.Store, files []syntax.Parsed, p syntax.Parsed, params []string, kinds Kinds, ext []Ext, foreign []Foreign, deps []Iface) Env {
 	let mut own = false
@@ -473,9 +480,7 @@ func members(s *store.Store, e Env, t dense.ID[store.TKey]) []dense.ID[store.TKe
 	case Some[dense.ID[store.Decl]] as d:
 		match unionVariants(*s, e, d.Value) {
 		case Some[UnionOf] as u:
-			let mut inner = e
-			inner.p = u.Value.p
-			inner.params = []string{}
+			let inner = inFile(e, u.Value.p, e.depth)
 			let mut out = []dense.ID[store.TKey]{}
 			for m in u.Value.members {
 				match syntax.ViewOf(u.Value.p.Tree, m) {
@@ -627,10 +632,7 @@ func named(s *store.Store, e Env, h head) dense.ID[store.TKey] {
 			if e.depth >= 64 {
 				return invalidType(s)
 			}
-			let mut inner = e
-			inner.p = a.Value.p
-			inner.params = []string{}
-			inner.depth = e.depth + 1
+			let inner = inFile(e, a.Value.p, e.depth+1)
 			Resolve(s, inner, a.Value.x)
 		case None:
 			store.TNamed(s, l.Decl)

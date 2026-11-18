@@ -64,14 +64,13 @@ type cyc { s store.Store, files []syntax.Parsed, gens []gen, kinds Kinds, ext []
 func genIndex(c cyc, p syntax.Parsed, x dense.ID[syntax.Node]) int { localGen(c.heads, p, x) }
 
 // record adds the edges of the instantiation head[indices] at.
-func record(c *cyc, o owner, f int, head dense.ID[syntax.Node], indices []dense.ID[syntax.Node], at dense.ID[syntax.Node]) {
-	let p = c.files[f]
+func record(c *cyc, o owner, f int, env Env, head dense.ID[syntax.Node], indices []dense.ID[syntax.Node], at dense.ID[syntax.Node]) {
+	let p = env.p
 	let g = genIndex(*c, p, head)
 	if g < 0 {
 		return
 	}
 	let ks = c.kinds.Of[g]
-	let env = NewEnv(c.s, c.files, p, o.names, c.kinds, c.ext, c.foreign, c.deps)
 	if !validArgs(c, o, env, p, ks, indices) {
 		// An instantiation the checker rejects records nothing
 		// (decl.go instantiateExprs returns before it).
@@ -231,8 +230,8 @@ func validArgs(c *cyc, o owner, env Env, p syntax.Parsed, ks []int, indices []de
 	true
 }
 
-func cfields(c *cyc, o owner, f int, l dense.ID[syntax.Node]) {
-	let p = c.files[f]
+func cfields(c *cyc, o owner, f int, env Env, l dense.ID[syntax.Node]) {
+	let p = env.p
 	match syntax.ViewOf(p.Tree, l) {
 	case syntax.FieldList as fl:
 		for x in listIDs(p, fl.List) {
@@ -240,7 +239,7 @@ func cfields(c *cyc, o owner, f int, l dense.ID[syntax.Node]) {
 			case syntax.Field as fd:
 				match dense.Unpack(fd.Type) {
 				case Some[dense.ID[syntax.Node]] as t:
-					cwalk(c, o, f, t.Value)
+					cwalk(c, o, f, env, t.Value)
 				case None:
 				}
 			case _:
@@ -250,37 +249,40 @@ func cfields(c *cyc, o owner, f int, l dense.ID[syntax.Node]) {
 	}
 }
 
-// cwalk records the instantiations of the type expression x, inner ones
-// first (an instantiation's arguments resolve before it).
-func cwalk(c *cyc, o owner, f int, x dense.ID[syntax.Node]) {
-	let p = c.files[f]
+// cwalk records the instantiations of the type expression x of file
+// env.p (c.files[f]), inner ones first (an instantiation's arguments
+// resolve before it). The walk takes the owner's Env from Cycles, made
+// once from its parameters: reading c.files[f] or making an Env of c's
+// fields per node copies the file whole.
+func cwalk(c *cyc, o owner, f int, env Env, x dense.ID[syntax.Node]) {
+	let p = env.p
 	match syntax.ViewOf(p.Tree, x) {
 	case syntax.ParenExpr as pe:
-		cwalk(c, o, f, pe.X)
+		cwalk(c, o, f, env, pe.X)
 	case syntax.BinaryExpr as b:
-		cwalk(c, o, f, b.X)
-		cwalk(c, o, f, b.Y)
+		cwalk(c, o, f, env, b.X)
+		cwalk(c, o, f, env, b.Y)
 	case syntax.IndexExpr as ix:
 		let indices = listIDs(p, ix.Indices)
 		for a in indices {
-			cwalk(c, o, f, a)
+			cwalk(c, o, f, env, a)
 		}
-		record(c, o, f, ix.X, indices, x)
+		record(c, o, f, env, ix.X, indices, x)
 	case syntax.ArrayType as a:
-		cwalk(c, o, f, a.Elt)
+		cwalk(c, o, f, env, a.Elt)
 	case syntax.MapType as mt:
-		cwalk(c, o, f, mt.Key)
-		cwalk(c, o, f, mt.Value)
+		cwalk(c, o, f, env, mt.Key)
+		cwalk(c, o, f, env, mt.Value)
 		if c.ownMap {
-			record(c, o, f, mt.X, []dense.ID[syntax.Node]{mt.Key, mt.Value}, x)
+			record(c, o, f, env, mt.X, []dense.ID[syntax.Node]{mt.Key, mt.Value}, x)
 		}
 	case syntax.StarExpr as s:
-		cwalk(c, o, f, s.X)
+		cwalk(c, o, f, env, s.X)
 	case syntax.FuncType as ft:
-		cfields(c, o, f, ft.Params)
+		cfields(c, o, f, env, ft.Params)
 		match dense.Unpack(ft.Results) {
 		case Some[dense.ID[syntax.Node]] as r:
-			cfields(c, o, f, r.Value)
+			cfields(c, o, f, env, r.Value)
 		case None:
 		}
 		match dense.Unpack(ft.Needs) {
@@ -288,7 +290,7 @@ func cwalk(c *cyc, o owner, f int, x dense.ID[syntax.Node]) {
 			match syntax.ViewOf(p.Tree, n.Value) {
 			case syntax.NeedsClause as nc:
 				for name in listIDs(p, nc.Names) {
-					cwalk(c, o, f, name)
+					cwalk(c, o, f, env, name)
 				}
 			case _:
 			}
@@ -296,10 +298,10 @@ func cwalk(c *cyc, o owner, f int, x dense.ID[syntax.Node]) {
 		}
 	case syntax.ErrorRow as er:
 		for t in listIDs(p, er.Types) {
-			cwalk(c, o, f, t)
+			cwalk(c, o, f, env, t)
 		}
 	case syntax.StructType as st:
-		cfields(c, o, f, st.Fields)
+		cfields(c, o, f, env, st.Fields)
 	case syntax.InterfaceType as it:
 		// Operations, includes and union members written as types; an
 		// inline variant is its own declaration, a law no type.
@@ -308,18 +310,18 @@ func cwalk(c *cyc, o owner, f int, x dense.ID[syntax.Node]) {
 			case syntax.Field as fd:
 				match dense.Unpack(fd.Type) {
 				case Some[dense.ID[syntax.Node]] as t:
-					cwalk(c, o, f, t.Value)
+					cwalk(c, o, f, env, t.Value)
 				case None:
 				}
 			case syntax.LawDecl:
 			case syntax.VariantSpec:
 			case _:
-				cwalk(c, o, f, mb)
+				cwalk(c, o, f, env, mb)
 			}
 		}
 	case syntax.MachineType as m:
-		cwalk(c, o, f, m.State)
-		cwalk(c, o, f, m.Signal)
+		cwalk(c, o, f, env, m.State)
+		cwalk(c, o, f, env, m.Signal)
 	case _:
 	}
 }
@@ -347,8 +349,8 @@ func isOps(p syntax.Parsed, body dense.ID[syntax.Node]) bool {
 // is no operation type with distinct parameters of the function, one per
 // type parameter and one per function parameter (mono.go monoLinkSelf;
 // decl.go selfOwner).
-func link(c *cyc, o owner, f int, fd syntax.FuncDecl) {
-	let p = c.files[f]
+func link(c *cyc, o owner, f int, env Env, fd syntax.FuncDecl) {
+	let p = env.p
 	let mut first = dense.NoID[syntax.Node]()
 	match syntax.ViewOf(p.Tree, fd.Type) {
 	case syntax.FuncType as ft:
@@ -460,9 +462,9 @@ func Cycles(s store.Store, files []syntax.Parsed, kinds Kinds, funcs []FuncKinds
 		let o = owner{names: g.params, verts: verts, typed: typedOf(kinds.Of[i]), kinds: kinds.Of[i]}
 		match syntax.ViewOf(files[g.file].Tree, g.body) {
 		case syntax.FieldList:
-			cfields(&c, o, g.file, g.body)
+			cfields(&c, o, g.file, NewEnv(s, files, files[g.file], o.names, kinds, ext, foreign, deps), g.body)
 		case _:
-			cwalk(&c, o, g.file, g.body)
+			cwalk(&c, o, g.file, NewEnv(s, files, files[g.file], o.names, kinds, ext, foreign, deps), g.body)
 		}
 	}
 	for fk in funcs {
@@ -477,8 +479,9 @@ func Cycles(s store.Store, files []syntax.Parsed, kinds Kinds, funcs []FuncKinds
 		let o = owner{names: fk.Params, verts: verts, typed: typedOf(fk.Kinds), kinds: fk.Kinds}
 		match syntax.ViewOf(files[fk.File].Tree, fk.Decl) {
 		case syntax.FuncDecl as fd:
-			link(&c, o, fk.File, fd)
-			cwalk(&c, o, fk.File, fd.Type)
+			let env = NewEnv(s, files, files[fk.File], o.names, kinds, ext, foreign, deps)
+			link(&c, o, fk.File, env, fd)
+			cwalk(&c, o, fk.File, env, fd.Type)
 		case _:
 		}
 	}
