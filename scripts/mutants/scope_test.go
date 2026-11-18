@@ -20,10 +20,18 @@ func TestCoverageScopeIsWhatCompilesTheMutants(t *testing.T) {
 		{Name: "x-value", File: "x/f.go", From: "1", To: "2"},
 		{Name: "y-value", File: "y/g.go", From: "1", To: "2"},
 		{Name: "x-std", File: "std/s.ergo", From: "a", To: "b", Anchor: &Anchor{Tests: []string{"b:TestZ"}}},
+		// An .ergo row's named killers are its only judges: each is measured
+		// alone, as an anchor's test is (ST-0: compiler/syntax's Ergo tests
+		// were skipped and its diag rows read uncovered).
+		{Name: "x-ergo", File: "compiler/syntax/scan.ergo", From: "a", To: "b", Killers: []string{"compiler/syntax:ScanOne"}},
+		{Name: "y-ergo", File: "compiler/syntax/scan.ergo", From: "c", To: "d", Killers: []string{"compiler/syntax:ScanTwo"}},
 	}}
 	pkgs, anchors := targets("m", []Job{{Ledger: ledger, Select: regexp.MustCompile("^x-")}})
 	if !slices.Equal(pkgs, []string{"m/x"}) {
 		t.Fatalf("targets %v; want only m/x: y-value is not selected and s.ergo has no block", pkgs)
+	}
+	if !anchors["compiler/syntax:ScanOne"] || anchors["compiler/syntax:ScanTwo"] {
+		t.Fatalf("anchors %v; want the selected .ergo row's killer measured alone, not the unselected one's", anchors)
 	}
 	suites := []Suite{
 		{Name: "a", Package: "./a"},

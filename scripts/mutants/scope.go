@@ -71,7 +71,13 @@ func targets(module string, jobs []Job) ([]string, map[string]bool) {
 				file = m.Anchor.File
 			}
 			if !strings.HasSuffix(file, ".go") {
-				continue // no block: only its anchor's tests cover it
+				// No block: only its anchor's tests and its named killers
+				// judge it, each measured alone for its baseline (ST-0).
+				for _, id := range m.Killers {
+					suite, test := splitID(id)
+					anchors[suite+":"+test] = true
+				}
+				continue
 			}
 			pkg := module
 			if dir := path.Dir(file); dir != "." {
