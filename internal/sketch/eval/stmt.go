@@ -509,6 +509,8 @@ func (in *interp) assignAt(fr *frame, s *syntax.AssignStmt, lhs syntax.Expr, roo
 	var val Value
 	if call, own := in.handover(fr, root, steps, s); call != nil {
 		val, ab = in.collectionCall(fr, call, fr.info.Calls[call], own, steps)
+	} else if call := in.appenderHandover(fr, root, steps, s); call != nil {
+		val, ab = in.appenderCall(fr, call, root, steps)
 	} else {
 		val, ab = in.expr(fr, s.Rhs[0])
 	}
@@ -576,6 +578,77 @@ func (in *interp) handover(fr *frame, root *slot, steps []step, s *syntax.Assign
 		return nil, nil
 	}
 	return call, root
+}
+
+// appenderHandover is the call of x = f(x, …) whose callee is a pure
+// extern that takes a slice first and gives a slice of the same type (an
+// appender: Go's append, std strings' Builder writes, json's appends),
+// and whose first argument is the assigned place itself, written as in
+// handover. The assignment replaces the place, and a pure extern keeps
+// nothing of its arguments, so the argument is read without lending its
+// slot (MX-EVSLOT: lzpack's d.out.WriteByte(c), through
+// b.buf = builderAppendByte(b.buf, c), lent the Decoder's slot, and the
+// next d.win[i] = c copied the whole window, where Go copies nothing).
+func (in *interp) appenderHandover(fr *frame, root *slot, steps []step, s *syntax.AssignStmt) *syntax.CallExpr {
+	if s.Tok != syntax.ASSIGN {
+		return nil
+	}
+	call, ok := unparen(s.Rhs[0]).(*syntax.CallExpr)
+	if !ok || call.Trailing != nil || len(call.Args) == 0 {
+		return nil
+	}
+	c := fr.info.Calls[call]
+	if c == nil || c.Kind != check.CallFunc || c.Recv != nil || c.Site != nil {
+		return nil
+	}
+	f := c.Func
+	if f.Decl == nil || f.Decl.Extern == nil || f.Sig == nil || len(f.Sig.Params) == 0 || len(f.Sig.Results) != 1 || len(f.Sig.Takes) > 0 {
+		return nil
+	}
+	if !f.Sig.Uses.Empty() || !f.Sig.Errors.Empty() {
+		return nil
+	}
+	if _, ok := f.Sig.Params[0].Type.(*check.Slice); !ok || f.Sig.Params[0].Type.String() != f.Sig.Results[0].String() {
+		return nil
+	}
+	if _, conv := fr.info.Implicit[call.Args[0]]; conv || !samePlace(s.Lhs[0], call.Args[0]) {
+		return nil
+	}
+	if len(steps) == 0 {
+		id, ok := unparen(call.Args[0]).(*syntax.Ident)
+		if !ok {
+			return nil
+		}
+		v, ok := fr.info.Uses[id].(*check.Var)
+		if s, _ := fr.vars.get(v); !ok || s != root {
+			return nil
+		}
+	}
+	return call
+}
+
+// appenderCall runs the appender call of appenderHandover: its first
+// argument is the place at steps from root, read without a lend; the rest
+// are evaluated left to right, as args does.
+func (in *interp) appenderCall(fr *frame, x *syntax.CallExpr, root *slot, steps []step) (Value, *abrupt) {
+	c := fr.info.Calls[x]
+	if ab := in.charge(fr, x.Args[0], 1); ab != nil {
+		return nil, ab
+	}
+	first, ab := in.read(fr, root.v, steps)
+	if ab != nil {
+		return nil, ab
+	}
+	args := []Value{first}
+	for _, a := range x.Args[1:] {
+		v, ab := in.expr(fr, a)
+		if ab != nil {
+			return nil, ab
+		}
+		args = append(args, v)
+	}
+	in.handParts(fr, x.Args[1:]...)
+	return in.call(fr, x, c.Func, c.TypeArgs, args)
 }
 
 // samePlace reports two field paths written the same: the same name,
