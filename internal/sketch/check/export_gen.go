@@ -3814,7 +3814,6 @@ func (e *encoder) encFieldsVar(v *Var) {
 	e.encSyntax_Expr(v.byValue)
 	e.encT12(v.undiagnosed)
 	e.encT12(v.refused)
-	e.encT12(v.freshRef)
 }
 
 func (e *encoder) encVar(v Var) { e.encFieldsVar(&v) }
@@ -14445,7 +14444,6 @@ func (d *decoder) decFieldsVar(v *Var) {
 	v.byValue = d.decSyntax_Expr()
 	v.undiagnosed = d.decT12()
 	v.refused = d.decT12()
-	v.freshRef = d.decT12()
 }
 
 func (d *decoder) decVar() (v Var) {
