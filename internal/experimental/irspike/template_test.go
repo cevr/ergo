@@ -3,6 +3,7 @@ package irspike
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -97,6 +98,47 @@ func TestTemplateCounts(t *testing.T) {
 	}
 	if _, none := lowerFold(t, u, "off"); none.Folds != (lower.FoldCounts{}) {
 		t.Errorf("the fold off: %+v, want none", none.Folds)
+	}
+}
+
+// qualifiedNames names another package's record with no fields
+// (base64.StdEncoding), its let lowered as a Go constant (io.DefaultChunk)
+// and its let held in a Go variable (code.RenameNames).
+const qualifiedNames = `import base64
+import code
+import io
+
+func enc() base64.StdEncoding { base64.StdEncoding }
+
+func chunk() int { io.DefaultChunk }
+
+func names() int { len(code.RenameNames) }
+
+func main() needs Console {
+	let _ = enc()
+	Console.Println("\(chunk() + names())")
+}
+`
+
+// TestIRReadsQualifiedNames is the smallest repro of HTML-COST's IR gap:
+// a body that names another package's record with no fields or its let
+// (pkg.T, pkg.v) fell back to the text path ("selector on a non-record"),
+// which kept the fluid gallery's page, gallery.View(gallery.ButtonDocs),
+// out of the fold. Each such body takes IR.
+func TestIRReadsQualifiedNames(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "p.ergo")
+	if err := os.WriteFile(file, []byte(qualifiedNames), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	u, err := Load(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, rep := lowerFold(t, u, "")
+	for _, fn := range []string{"enc", "chunk", "names"} {
+		if !slices.Contains(rep.IR, fn) {
+			t.Errorf("%s takes no IR body (fallback %v)", fn, rep.Fallback)
+		}
 	}
 }
 
