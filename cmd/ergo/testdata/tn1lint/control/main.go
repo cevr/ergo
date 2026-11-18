@@ -12,6 +12,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"math/bits"
 	"os"
 	"strconv"
 	"strings"
@@ -45,9 +46,94 @@ func identStart(c byte) bool {
 func identByte(c byte) bool { return identStart(c) || c >= '0' && c <= '9' }
 func digit(c byte) bool     { return c >= '0' && c <= '9' }
 
-var puncts = []string{
-	"...", "===", "!==", "**=", "<<=", "&&=", "||=", "??=",
-	"=>", "==", "!=", "<=", "&&", "||", "??", "?.", "++", "--", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "**", "<<",
+// A byte's class, which the scanner switches on: cIdent and cDigit come
+// first, so an identifier byte is a class of at most cDigit.
+const (
+	cIdent uint8 = iota
+	cDigit
+	cSpace
+	cNewline
+	cSlash
+	cQuote
+	cTick
+	cClose
+	cDot
+	cHash
+	cBackslash
+	cOther
+)
+
+var classes = func() (t [256]uint8) {
+	for c := range t {
+		switch {
+		case identStart(byte(c)):
+			t[c] = cIdent
+		case digit(byte(c)):
+			t[c] = cDigit
+		default:
+			t[c] = cOther
+		}
+	}
+	for _, c := range []byte(" \t\r\f\v") {
+		t[c] = cSpace
+	}
+	t['\n'], t['/'], t['"'], t['\''], t['`'] = cNewline, cSlash, cQuote, cQuote, cTick
+	t['}'], t['.'], t['#'], t['\\'] = cClose, cDot, cHash, cBackslash
+	return t
+}()
+
+// punctLen is the length of the punctuator at src[i], the longest of
+// "...", "===", "!==", "**=", "<<=", "&&=", "||=", "??=", "=>", "==",
+// "!=", "<=", "&&", "||", "??", "?.", "++", "--", "+=", "-=", "*=", "/=",
+// "%=", "&=", "|=", "^=", "**", "<<" that starts there, else 1. A > is
+// always one token, as TypeScript's scanner reads it.
+func punctLen(src string, i int) int {
+	at := func(k int) byte {
+		if i+k < len(src) {
+			return src[i+k]
+		}
+		return 0
+	}
+	c, d := src[i], at(1)
+	switch c {
+	case '.':
+		if d == '.' && at(2) == '.' {
+			return 3
+		}
+	case '=':
+		if d == '=' && at(2) == '=' {
+			return 3
+		}
+		if d == '>' || d == '=' {
+			return 2
+		}
+	case '!':
+		if d == '=' {
+			if at(2) == '=' {
+				return 3
+			}
+			return 2
+		}
+	case '*', '<', '&', '|', '?':
+		if d == c {
+			if at(2) == '=' {
+				return 3
+			}
+			return 2
+		}
+		if d == '=' && c != '?' || c == '?' && d == '.' {
+			return 2
+		}
+	case '+', '-':
+		if d == c || d == '=' {
+			return 2
+		}
+	case '/', '%', '^':
+		if d == '=' {
+			return 2
+		}
+	}
+	return 1
 }
 
 func set(xs ...string) map[string]bool {
@@ -148,12 +234,13 @@ func scan(src string) []token {
 	}
 	for i < len(src) {
 		c := src[i]
-		if c == '\n' {
+		cl := classes[c]
+		if cl == cNewline {
 			newLine = true
 			i++
 			continue
 		}
-		if c == ' ' || c == '\t' || c == '\r' || c == '\f' || c == '\v' {
+		if cl == cSpace {
 			i++
 			continue
 		}
@@ -161,32 +248,36 @@ func scan(src string) []token {
 		k := punct
 		end := i + 1
 		text := ""
+		next := byte(0)
+		if i+1 < len(src) {
+			next = src[i+1]
+		}
 		switch {
-		case c == '/' && i+1 < len(src) && src[i+1] == '/':
+		case cl == cSlash && next == '/':
 			k = lineComment
 			n := strings.IndexByte(src[i:], '\n')
 			end = len(src)
 			if n >= 0 {
 				end = i + n
 			}
-		case c == '/' && i+1 < len(src) && src[i+1] == '*':
+		case cl == cSlash && next == '*':
 			k = blockComment
 			n := strings.Index(src[i+2:], "*/")
 			end = len(src)
 			if n >= 0 {
 				end = i + 2 + n + 2
 			}
-		case c == '"' || c == '\'':
+		case cl == cQuote:
 			k = literal
 			end = quoted(src, i)
-		case c == '`':
+		case cl == cTick:
 			k = literal
 			var opens bool
 			end, opens = templateEnd(src, i+1)
 			if opens {
 				stack = append(stack, true)
 			}
-		case c == '}' && depth > 0 && stack[depth-1]:
+		case cl == cClose && depth > 0 && stack[depth-1]:
 			k = literal
 			stack = stack[:depth-1]
 			var opens bool
@@ -194,38 +285,31 @@ func scan(src string) []token {
 			if opens {
 				stack = append(stack, true)
 			}
-		case digit(c) || c == '.' && i+1 < len(src) && digit(src[i+1]):
+		case cl == cDigit || cl == cDot && classes[next] == cDigit:
 			k = literal
-			hex := src[i] == '0' && i+1 < len(src) && (src[i+1] == 'x' || src[i+1] == 'X')
+			hex := c == '0' && (next == 'x' || next == 'X')
 			j := i + 1
-			for j < len(src) && (identByte(src[j]) || src[j] == '.' || (src[j] == '+' || src[j] == '-') && (src[j-1] == 'e' || src[j-1] == 'E') && !hex) {
+			for j < len(src) && (classes[src[j]] <= cDigit || src[j] == '.' || (src[j] == '+' || src[j] == '-') && (src[j-1] == 'e' || src[j-1] == 'E') && !hex) {
 				j++
 			}
 			end = j
-		case identStart(c) || c == '#' && i+1 < len(src) && identStart(src[i+1]) || c == '\\':
+		case cl == cIdent || cl == cHash && classes[next] == cIdent || cl == cBackslash:
 			k = ident
 			j := i + 1
-			for j < len(src) && (identByte(src[j]) || src[j] == '\\') {
+			for j < len(src) && (classes[src[j]] <= cDigit || src[j] == '\\') {
 				j++
 			}
 			end = j
 			text = src[i:end]
-		case c == '/' && regexAllowed(toks):
+		case cl == cSlash && regexAllowed(toks):
 			k = literal
 			end = regexEnd(src, i)
 		default:
-			text = src[i : i+1]
-			rest := src[i:]
-			for _, p := range puncts {
-				if strings.HasPrefix(rest, p) {
-					text = p
-					break
-				}
-			}
-			end = i + len(text)
-			if text == "{" {
+			end = i + punctLen(src, i)
+			text = src[i:end]
+			if c == '{' {
 				stack = append(stack, false)
-			} else if text == "}" && depth > 0 {
+			} else if c == '}' && depth > 0 {
 				stack = stack[:depth-1]
 			}
 		}
@@ -440,6 +524,16 @@ func lineStarts(src string) []int {
 	return out
 }
 
+// lineFrom is lineOf(starts, p) for a p on line l or after it: a walk
+// forward from l, which costs the lines passed, so a pass over tokens in
+// order costs the file's lines once.
+func lineFrom(starts []int, l, p int) int {
+	for l+1 < len(starts) && starts[l+1] <= p {
+		l++
+	}
+	return l
+}
+
 func lineOf(starts []int, p int) int {
 	lo, hi := 0, len(starts)-1
 	for lo < hi {
@@ -564,14 +658,16 @@ func record(w *bufio.Writer, src string) {
 	depth := make([]int, n)
 	deep := make([]bool, n)
 	startBits := make([]int, n)
+	at := 0 // tokens come in order, so their lines are found by walking forward
 	for ti := range toks {
 		t := &toks[ti]
-		first := lineOf(starts, t.from)
+		first := lineFrom(starts, at, t.from)
+		at = first
 		e := min(t.to, len(src))
 		if t.to > t.from {
 			e--
 		}
-		last := lineOf(starts, e)
+		last := lineFrom(starts, first, e)
 		for l := first; l <= last; l++ {
 			if !deep[l] {
 				deep[l] = true
@@ -589,6 +685,7 @@ func record(w *bufio.Writer, src string) {
 		}
 	}
 
+	at = 0
 	for j := range code {
 		t := &code[j]
 		next, prev := "", ""
@@ -630,8 +727,8 @@ func record(w *bufio.Writer, src string) {
 			bits = 128
 		}
 		if bits != 0 {
-			l := lineOf(starts, t.from)
-			startBits[l] |= bits
+			at = lineFrom(starts, at, t.from)
+			startBits[at] |= bits
 		}
 	}
 
@@ -812,25 +909,83 @@ func trigrams(words []string) []uint64 {
 	return out
 }
 
+// votes counts, for each of the 64 bits, the runs that have it set, as
+// bit-sliced counters: planes[j] holds bit j of all 64 counts, so adding
+// a run is a ripple of carries over the planes (a few word operations)
+// and not 64 adds. n is the runs counted.
+type votes struct {
+	planes []uint64
+	n      int
+}
+
+func (v *votes) reset() {
+	clear(v.planes)
+	v.n = 0
+}
+
+// add counts one run.
+func (v *votes) add(h uint64) {
+	carry := h
+	for j := 0; carry != 0; j++ {
+		if j == len(v.planes) {
+			v.planes = append(v.planes, 0)
+		}
+		t := v.planes[j] & carry
+		v.planes[j] ^= carry
+		carry = t
+	}
+	v.n++
+}
+
+// addVotes adds o's counts to v's, plane by plane with a carry.
+func (v *votes) addVotes(o *votes) {
+	var carry uint64
+	for j := 0; j < len(o.planes) || carry != 0; j++ {
+		if j == len(v.planes) {
+			v.planes = append(v.planes, 0)
+		}
+		var y uint64
+		if j < len(o.planes) {
+			y = o.planes[j]
+		}
+		x := v.planes[j]
+		v.planes[j] = x ^ y ^ carry
+		carry = x&y | carry&(x^y)
+	}
+	v.n += o.n
+}
+
+// shape is the bits set in more of the counted runs than not: each
+// count compared with n/2+1 at once, from the top plane down.
+func (v *votes) shape() uint64 {
+	m := v.n/2 + 1
+	top := len(v.planes)
+	if l := bits.Len(uint(m)); l > top {
+		top = l
+	}
+	var gt uint64
+	eq := ^uint64(0)
+	for j := top - 1; j >= 0; j-- {
+		var a, mb uint64
+		if j < len(v.planes) {
+			a = v.planes[j]
+		}
+		if (m>>j)&1 == 1 {
+			mb = ^uint64(0)
+		}
+		gt |= eq & a &^ mb
+		eq &^= a ^ mb
+	}
+	return gt | eq
+}
+
+// shape is the SimHash of the runs of code[from:to].
 func shape(runs []uint64, from, to int) uint64 {
-	var votes [64]int
+	var v votes
 	for i := from; i < to-2; i++ {
-		h := runs[i]
-		for b := 0; b < 64; b++ {
-			if (h>>b)&1 == 1 {
-				votes[b]++
-			} else {
-				votes[b]--
-			}
-		}
+		v.add(runs[i])
 	}
-	var s uint64
-	for b := 0; b < 64; b++ {
-		if votes[b] > 0 {
-			s |= 1 << b
-		}
-	}
-	return s
+	return v.shape()
 }
 
 func handlerShape(code []token, bound string, open, close int) string {
@@ -890,11 +1045,12 @@ func catches(code []token, from, to int) []catch {
 	return out
 }
 
-func writeNode(w *bufio.Writer, starts []int, code []token, runs []uint64, kind string, from, to int, name string, whole int) {
+func writeNode(w *bufio.Writer, starts []int, code []token, cs []catch, sh uint64, kind string, from, to int, name string, whole int) {
 	line := lineOf(starts, code[from].from)
 	lines, lastLine, deepest := 0, -1, 0
+	l := line
 	for j := from; j < to; j++ {
-		l := lineOf(starts, code[j].from)
+		l = lineFrom(starts, l, code[j].from)
 		if l != lastLine {
 			lines++
 			lastLine = l
@@ -904,7 +1060,7 @@ func writeNode(w *bufio.Writer, starts []int, code []token, runs []uint64, kind 
 		}
 	}
 	shapes := ""
-	for _, c := range catches(code, from, to) {
+	for _, c := range cs {
 		if shapes != "" {
 			shapes += ","
 		}
@@ -928,7 +1084,7 @@ func writeNode(w *bufio.Writer, starts []int, code []token, runs []uint64, kind 
 	fmt.Fprintf(w, "N %s %d %d %d %d ", kind, offset, length, ln, col)
 	hex16(w, nameWords)
 	fmt.Fprintf(w, " %d %d %d %s ", ps, lines, deepest, shapes)
-	hex16(w, shape(runs, from, to))
+	hex16(w, sh)
 	w.WriteByte('\n')
 }
 
@@ -941,7 +1097,12 @@ func writeNodes(w *bufio.Writer, src string, starts []int, code []token, names m
 		words[i] = shapeWord(&code[i])
 	}
 	runs := trigrams(words)
-	writeNode(w, starts, code, runs, nModule, 0, len(code), "", len(src))
+	// The statements' runs are counted once each, and the module's votes
+	// are their votes plus the runs between statements.
+	var stmts []span
+	var shapes []uint64
+	var module, stmt votes
+	r := 0
 	cursor := 0
 	for _, s := range statements(code) {
 		from := cursor
@@ -953,15 +1114,33 @@ func writeNodes(w *bufio.Writer, src string, starts []int, code []token, names m
 			to++
 		}
 		cursor = to
-		kind := nodeKind(code, from, to)
-		name := nameOf(code, from, to)
+		for ; r < from && r < len(runs); r++ {
+			module.add(runs[r])
+		}
+		stmt.reset()
+		for i := from; i < to-2; i++ {
+			stmt.add(runs[i])
+		}
+		module.addVotes(&stmt)
+		r = max(r, to-2)
+		stmts = append(stmts, span{from, to})
+		shapes = append(shapes, stmt.shape())
+	}
+	for ; r < len(runs); r++ {
+		module.add(runs[r])
+	}
+	all := catches(code, 0, len(code))
+	writeNode(w, starts, code, all, module.shape(), nModule, 0, len(code), "", len(src))
+	for i, s := range stmts {
+		kind := nodeKind(code, s.from, s.to)
+		name := nameOf(code, s.from, s.to)
 		if names[name] {
 			name = ""
 		}
-		writeNode(w, starts, code, runs, kind, from, to, name, -1)
+		writeNode(w, starts, code, catches(code, s.from, s.to), shapes[i], kind, s.from, s.to, name, -1)
 	}
-	for _, c := range catches(code, 0, len(code)) {
-		writeNode(w, starts, code, runs, nHandler, c.at, c.close+1, "", -1)
+	for _, c := range all {
+		writeNode(w, starts, code, catches(code, c.at, c.close+1), shape(runs, c.at, c.close+1), nHandler, c.at, c.close+1, "", -1)
 	}
 }
 

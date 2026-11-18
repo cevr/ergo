@@ -74,6 +74,17 @@ func lineStarts(src string) []int {
 	out
 }
 
+// lineFrom is lineOf(starts, p) for a p on line l or after it: a walk
+// forward from l, which costs the lines passed, so a pass over tokens in
+// order costs the file's lines once.
+func lineFrom(starts []int, l int, p int) int {
+	let mut k = l
+	for k+1 < len(starts) && starts[k+1] <= p {
+		k += 1
+	}
+	k
+}
+
 // lineOf is the 0-based line of offset p.
 func lineOf(starts []int, p int) int {
 	let mut lo = 0
@@ -181,10 +192,13 @@ func FromSource(src string) tn1.Features {
 		deep = deep.Append(false)
 		startBits = startBits.Append(0)
 	}
+	// Tokens come in order, so their lines are found by walking forward.
+	let mut at = 0
 	for ti in 0..len(toks) {
 		let t = toks[ti]
-		let first = lineOf(starts, t.From)
-		let last = lineOf(starts, lo(t.To, len(src))-if t.To > t.From { 1 } else { 0 })
+		let first = lineFrom(starts, at, t.From)
+		at = first
+		let last = lineFrom(starts, first, lo(t.To, len(src))-if t.To > t.From { 1 } else { 0 })
 		for l in first..last+1 {
 			if !deep[l] {
 				deep[l] = true
@@ -203,6 +217,7 @@ func FromSource(src string) tn1.Features {
 	}
 
 	// Starts.
+	at = 0
 	for j in 0..len(code) {
 		let t = code[j]
 		let next = if j+1 < len(code) { code[j+1].Text } else { "" }
@@ -238,8 +253,8 @@ func FromSource(src string) tn1.Features {
 			bits = 128
 		}
 		if bits != 0 {
-			let l = lineOf(starts, t.From)
-			startBits[l] = startBits[l] | bits
+			at = lineFrom(starts, at, t.From)
+			startBits[at] = startBits[at] | bits
 		}
 	}
 

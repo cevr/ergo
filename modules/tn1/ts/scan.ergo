@@ -36,12 +36,118 @@ func identByte(c byte) bool { identStart(c) || c >= '0' && c <= '9' }
 
 func digit(c byte) bool { c >= '0' && c <= '9' }
 
-// puncts are the punctuators, longest first. A > is always one token,
-// as TypeScript's scanner reads it (its parser joins >> where an
-// expression needs it): Array<Array<X>> closes two type lists.
-let puncts = []string{
-	"...", "===", "!==", "**=", "<<=", "&&=", "||=", "??=",
-	"=>", "==", "!=", "<=", "&&", "||", "??", "?.", "++", "--", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "**", "<<",
+// A byte's class, which the scanner reads from one table: cIdent and
+// cDigit come first, so an identifier byte is a class of at most cDigit.
+let cIdent = byte(0)
+let cDigit = byte(1)
+let cSpace = byte(2)
+let cNewline = byte(3)
+let cSlash = byte(4)
+let cQuote = byte(5)
+let cTick = byte(6)
+let cClose = byte(7)
+let cDot = byte(8)
+let cHash = byte(9)
+let cBackslash = byte(10)
+let cOther = byte(11)
+
+func classOf(c byte) byte {
+	if identStart(c) {
+		return cIdent
+	}
+	if digit(c) {
+		return cDigit
+	}
+	if c == ' ' || c == '\t' || c == '\r' || c == '\f' || c == '\v' {
+		return cSpace
+	}
+	if c == '\n' {
+		return cNewline
+	}
+	if c == '/' {
+		return cSlash
+	}
+	if c == '"' || c == '\'' {
+		return cQuote
+	}
+	if c == '`' {
+		return cTick
+	}
+	if c == '}' {
+		return cClose
+	}
+	if c == '.' {
+		return cDot
+	}
+	if c == '#' {
+		return cHash
+	}
+	if c == '\\' {
+		return cBackslash
+	}
+	cOther
+}
+
+// classes is classOf of each byte.
+let classes = classTable()
+
+func classTable() []byte {
+	let mut t = slices.WithCapacity[byte](256)
+	for c in 0..256 {
+		t = t.Append(classOf(byte(c)))
+	}
+	t
+}
+
+// ClassesAreClassOf: the table is the rule it was built from.
+law ClassesAreClassOf(c byte) { classes[int(c)] == classOf(c) }
+
+// at is src[i], or 0 past its end.
+func at(src string, i int) byte {
+	if i < len(src) {
+		return src[i]
+	}
+	byte(0)
+}
+
+// punctLen is the length of the punctuator at src[i]: the longest of
+// "...", "===", "!==", "**=", "<<=", "&&=", "||=", "??=", "=>", "==",
+// "!=", "<=", "&&", "||", "??", "?.", "++", "--", "+=", "-=", "*=", "/=",
+// "%=", "&=", "|=", "^=", "**", "<<" that starts there, else 1. A > is
+// always one token, as TypeScript's scanner reads it (its parser joins >>
+// where an expression needs it): Array<Array<X>> closes two type lists.
+func punctLen(src string, i int) int {
+	let c = src[i]
+	let d = at(src, i+1)
+	let e = at(src, i+2)
+	if c == '.' {
+		return if d == '.' && e == '.' { 3 } else { 1 }
+	}
+	if c == '=' {
+		if d == '=' && e == '=' {
+			return 3
+		}
+		return if d == '>' || d == '=' { 2 } else { 1 }
+	}
+	if c == '!' {
+		if d == '=' {
+			return if e == '=' { 3 } else { 2 }
+		}
+		return 1
+	}
+	if c == '*' || c == '<' || c == '&' || c == '|' || c == '?' {
+		if d == c {
+			return if e == '=' { 3 } else { 2 }
+		}
+		return if d == '=' && c != '?' || c == '?' && d == '.' { 2 } else { 1 }
+	}
+	if c == '+' || c == '-' {
+		return if d == c || d == '=' { 2 } else { 1 }
+	}
+	if c == '/' || c == '%' || c == '^' {
+		return if d == '=' { 2 } else { 1 }
+	}
+	1
 }
 
 // regexAfter reports a word after which a slash starts a regular
@@ -164,38 +270,40 @@ func Scan(src string) []Token {
 	}
 	for i < len(src) {
 		let c = src[i]
-		if c == '\n' {
+		let cl = classes[int(c)]
+		if cl == cNewline {
 			newLine = true
 			i += 1
 			continue
 		}
-		if c == ' ' || c == '\t' || c == '\r' || c == '\f' || c == '\v' {
+		if cl == cSpace {
 			i += 1
 			continue
 		}
 		let depth = len(stack)
+		let next = at(src, i+1)
 		let mut kind Kind = Punct
 		let mut end = i + 1
 		let mut text = ""
-		if c == '/' && i+1 < len(src) && src[i+1] == '/' {
+		if cl == cSlash && next == '/' {
 			kind = LineComment
 			let n = strings.IndexByte(strings.Slice(src, i, len(src)), '\n')
 			end = if n < 0 { len(src) } else { i + n }
-		} else if c == '/' && i+1 < len(src) && src[i+1] == '*' {
+		} else if cl == cSlash && next == '*' {
 			kind = BlockComment
 			let n = strings.Index(strings.Slice(src, i+2, len(src)), "*/")
 			end = if n < 0 { len(src) } else { i + 2 + n + 2 }
-		} else if c == '"' || c == '\'' {
+		} else if cl == cQuote {
 			kind = Literal
 			end = quoted(src, i)
-		} else if c == '`' {
+		} else if cl == cTick {
 			kind = Literal
 			let p = templateEnd(src, i+1)
 			end = p.End
 			if p.Opens {
 				stack = stack.Append(true)
 			}
-		} else if c == '}' && depth > 0 && stack[depth-1] {
+		} else if cl == cClose && depth > 0 && stack[depth-1] {
 			kind = Literal
 			stack = stack[:depth-1]
 			let p = templateEnd(src, i+1)
@@ -203,36 +311,31 @@ func Scan(src string) []Token {
 			if p.Opens {
 				stack = stack.Append(true)
 			}
-		} else if digit(c) || c == '.' && i+1 < len(src) && digit(src[i+1]) {
+		} else if cl == cDigit || cl == cDot && classes[int(next)] == cDigit {
 			kind = Literal
+			let hex = c == '0' && (next == 'x' || next == 'X')
 			let mut j = i + 1
-			for j < len(src) && (identByte(src[j]) || src[j] == '.' || (src[j] == '+' || src[j] == '-') && (src[j-1] == 'e' || src[j-1] == 'E') && !(src[i] == '0' && i+1 < len(src) && (src[i+1] == 'x' || src[i+1] == 'X'))) {
+			for j < len(src) && (classes[int(src[j])] <= cDigit || src[j] == '.' || (src[j] == '+' || src[j] == '-') && (src[j-1] == 'e' || src[j-1] == 'E') && !hex) {
 				j += 1
 			}
 			end = j
-		} else if identStart(c) || c == '#' && i+1 < len(src) && identStart(src[i+1]) || c == '\\' {
+		} else if cl == cIdent || cl == cHash && classes[int(next)] == cIdent || cl == cBackslash {
 			kind = Ident
 			let mut j = i + 1
-			for j < len(src) && (identByte(src[j]) || src[j] == '\\') {
+			for j < len(src) && (classes[int(src[j])] <= cDigit || src[j] == '\\') {
 				j += 1
 			}
 			end = j
 			text = strings.Slice(src, i, end)
-		} else if c == '/' && regexAllowed(toks) {
+		} else if cl == cSlash && regexAllowed(toks) {
 			kind = Literal
 			end = regexEnd(src, i)
 		} else {
-			text = strings.Slice(src, i, i+1)
-			for p in puncts {
-				if strings.HasPrefix(strings.Slice(src, i, len(src)), p) {
-					text = p
-					break
-				}
-			}
-			end = i + len(text)
-			if text == "{" {
+			end = i + punctLen(src, i)
+			text = strings.Slice(src, i, end)
+			if c == '{' {
 				stack = stack.Append(false)
-			} else if text == "}" && depth > 0 {
+			} else if c == '}' && depth > 0 {
 				stack = stack[:depth-1]
 			}
 		}
