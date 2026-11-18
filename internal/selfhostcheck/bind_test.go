@@ -47,6 +47,12 @@ func TestCompilerBindLawsRun(t *testing.T) {
 // holds (with heads, operation laws, case alternatives, prelude types,
 // predeclared formers, derive clauses, parameters).
 //
+// Each folder is a subtest named by its path under its root, the root a
+// subtest of its own (cases, examples, std; corpusGroup), so a gate runs
+// the corpus in parts by folder name, one process each: for example
+// -run '^TestCompilerBindAgreesWithChecker$/^examples$/^[a-f]' (S3d8). A
+// root whose run checks no folder fails.
+//
 // It builds Go because binddump is the Ergo program under test: bind is
 // Ergo source, and only its lowered, built form runs over a corpus.
 func TestCompilerBindAgreesWithChecker(t *testing.T) {
@@ -62,13 +68,54 @@ func TestCompilerBindAgreesWithChecker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	checked := 0
+	groups := map[string][]string{}
 	for _, dir := range corpusDirs(t) {
-		got, ok := goBind(t, dir)
-		if !ok {
-			continue
+		g, _ := corpusGroup(dir)
+		groups[g] = append(groups[g], dir)
+	}
+	for _, g := range []string{"cases", "examples", "std"} {
+		t.Run(g, func(t *testing.T) {
+			checked, ran := 0, 0
+			for _, dir := range groups[g] {
+				_, name := corpusGroup(dir)
+				t.Run(name, func(t *testing.T) {
+					ran++
+					if bindAgrees(t, ctx, dump, limit, dir) {
+						checked++
+					}
+				})
+			}
+			if ran > 0 && checked == 0 {
+				t.Fatalf("the Go checker checked no %s folder alone", g)
+			}
+		})
+	}
+}
+
+// corpusGroup is the root a corpus folder belongs to (cases: the
+// testdata/bind cases; examples; std) and its subtest's name: its path
+// under the root, with dots for slashes ("." for the root itself).
+func corpusGroup(dir string) (string, string) {
+	r := rel(dir)
+	for _, root := range []struct{ group, path string }{{"cases", "internal/selfhostcheck/testdata/bind"}, {"examples", "examples"}, {"std", "internal/sketch/std"}} {
+		if r == root.path {
+			return root.group, "."
 		}
-		checked++
+		if rest, ok := strings.CutPrefix(r, root.path+"/"); ok {
+			return root.group, strings.ReplaceAll(rest, "/", ".")
+		}
+	}
+	return "other", strings.ReplaceAll(r, "/", ".")
+}
+
+// bindAgrees checks one corpus folder: false when the Go checker refuses
+// it alone (it is skipped).
+func bindAgrees(t *testing.T, ctx context.Context, dump string, limit uint64, dir string) bool {
+	got, ok := goBind(t, dir)
+	if !ok {
+		return false
+	}
+	{
 		files := ergoFiles(t, dir)
 		for _, mode := range []string{"collect", "uses", "locals"} {
 			args := append([]string{"-std", filepath.Join(repoRoot(), "internal", "sketch", "std")}, files...)
@@ -88,9 +135,7 @@ func TestCompilerBindAgreesWithChecker(t *testing.T) {
 			}
 		}
 	}
-	if checked == 0 {
-		t.Fatal("the Go checker checked no corpus folder alone")
-	}
+	return true
 }
 
 // corpusDirs is every folder of examples/ and std that holds .ergo files,

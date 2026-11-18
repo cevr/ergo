@@ -1,0 +1,108 @@
+// The inference of one call, after the Go checker's callGeneric (call.go):
+// the typed arguments unify in source order, then a parameter that only
+// literals bind takes their common default (196u rule 6), then a row
+// parameter nothing bound is the empty row.
+
+import compiler/check/store
+import dense
+
+// Arg is what inference reads of one argument: its type, or a literal's
+// default type (a literal binds a parameter only when no typed argument
+// does), or nothing known (the call is not inferred).
+type Arg = Typed | Literal | Unknown
+
+// Typed is an argument of a known type.
+type Typed { T dense.ID[store.TKey] }
+
+// Literal is a constant literal argument and its default type.
+type Literal { Default dense.ID[store.TKey] }
+
+// Unknown is an argument whose type inference cannot read.
+type Unknown {}
+
+// Callee is a generic function as a call sees it: its parameter types in
+// the caller's pool with its type parameters renamed to Base, Base+1, …,
+// and whether each type parameter is a row parameter.
+type Callee { Params []dense.ID[store.TKey], Rows []bool, Base int }
+
+// Infer is the type arguments of a call to callee with the written type
+// arguments explicit (a prefix of the callee's) and the arguments args, one
+// per parameter, or none when the call is not inferred: an argument does
+// not match, an unknown argument, two literals with different defaults
+// for one parameter, or a type parameter nothing binds. The frame is
+// begun on f and cut before Infer returns.
+func Infer(s *store.Store, f *Frame, callee Callee, explicit []dense.ID[store.TKey], args []Arg) Option[[]dense.ID[store.TKey]] {
+	if len(args) != len(callee.Params) || len(explicit) > len(callee.Rows) {
+		return None
+	}
+	let c = Begin(f, callee.Rows, callee.Base)
+	let out = inferIn(s, f, c, callee, explicit, args)
+	End(f, c)
+	out
+}
+
+func inferIn(s *store.Store, f *Frame, c Call, callee Callee, explicit []dense.ID[store.TKey], args []Arg) Option[[]dense.ID[store.TKey]] {
+	for i, t in explicit {
+		Bind(f, c, i, t)
+	}
+	let all = len(explicit) == c.n
+	// The literals' places, found on the first pass and read on the second;
+	// a mark on the stack's room, so a call adds no list of its own.
+	let mut deferred = 0
+	for i, a in args {
+		let pt = callee.Params[i]
+		match a {
+		case Unknown:
+			return None
+		case Literal:
+			if !all && mentions(*s, *f, c, pt) {
+				deferred = deferred + 1
+			}
+		case Typed as ta:
+			if all || !mentions(*s, *f, c, pt) {
+				continue
+			}
+			if !Unify(s, f, c, pt, ta.T) {
+				return None
+			}
+		}
+	}
+	if deferred > 0 {
+		// A parameter that only literals bind takes their common default;
+		// two different defaults name no type (S108).
+		for i, a in args {
+			match a {
+			case Literal as l:
+				let k = slotOf(*s, c, callee.Params[i])
+				if all || k < 0 || !mentions(*s, *f, c, callee.Params[i]) {
+					continue
+				}
+				match Binding(*f, c, k) {
+				case None:
+					Bind(f, c, k, l.Default)
+					// A default, not a unification: a later literal compares.
+					f.slots[c.at+k].joined = true
+				case Some[dense.ID[store.TKey]] as b:
+					if f.slots[c.at+k].joined && b.Value != l.Default {
+						return None
+					}
+				}
+			case _:
+			}
+		}
+	}
+	let mut targs = []dense.ID[store.TKey]{}
+	for i in 0..c.n {
+		match Binding(*f, c, i) {
+		case Some[dense.ID[store.TKey]] as b:
+			targs = targs.Append(b.Value)
+		case None:
+			if !f.slots[c.at+i].row {
+				// Outside the inferred subset: write the type arguments.
+				return None
+			}
+			targs = targs.Append(store.TRow(s, []dense.ID[store.TKey]{}))
+		}
+	}
+	Some[[]dense.ID[store.TKey]]{Value: targs}
+}

@@ -12,30 +12,40 @@ import strings
 // importer cannot see, the body of a function with no type parameters and
 // the body of a test, and writes one cut token in its place.
 
-// printsOf is the prints of the top-level declaration row d.
+// printsOf is the prints of the top-level declaration row d. One walk
+// writes its tokens; the interface print's text is that text with the
+// bytes of the cut span's tokens replaced by one cut token.
 func printsOf(p syntax.Parsed, d dense.ID[syntax.Node]) store.Prints {
+	let lo = syntax.NodePos(p, d)
 	let hi = syntax.NodeEnd(p, d)
 	let (cutLo, cutHi) = cutOf(p, d)
-	let mut all = strings.NewBuilder()
-	let mut iface = strings.NewBuilder()
-	let mut cut = false
-	let mut j = firstToken(p, syntax.NodePos(p, d))
+	// A token writes its text and two bytes (six for a long one); twice
+	// the span's bytes is room for the usual run, so the builder rarely
+	// grows.
+	let mut b = strings.NewBuilder()
+	b.Grow(2*(hi-lo) + 16)
+	let mut m1 = -1
+	let mut m2 = -1
+	let mut j = firstToken(p, lo)
 	for j >= 0 && syntax.TokPos(p, j) < hi {
 		let at = syntax.TokPos(p, j)
+		let inCut = at >= cutLo && at < cutHi
+		if inCut && m1 < 0 {
+			m1 = b.Len()
+		}
 		let k = syntax.TokKind(p, j)
-		let t = if k == syntax.Semicolon { "" } else { syntax.TokText(p, j) }
-		writeToken(&all, k, t)
-		if at >= cutLo && at < cutHi {
-			if !cut {
-				iface.WriteString("cut;")
-				cut = true
-			}
-		} else {
-			writeToken(&iface, k, t)
+		writeToken(&b, k, if k == syntax.Semicolon { "" } else { syntax.TokText(p, j) })
+		if inCut {
+			m2 = b.Len()
 		}
 		j = j + 1
 	}
-	store.Prints{Fp: printOf(all.String()), Ifp: printOf(iface.String())}
+	let all = b.String()
+	let fp = printOf(all)
+	if m1 < 0 {
+		return store.Prints{Fp: fp, Ifp: fp}
+	}
+	store.Prints{Fp: fp, Ifp: printOf(all[0:m1] + "cut;" + all[m2:len(all)])}
 }
 
 // firstToken is the first token at or after offset at (a node starts at
@@ -43,9 +53,20 @@ func printsOf(p syntax.Parsed, d dense.ID[syntax.Node]) store.Prints {
 func firstToken(p syntax.Parsed, at int) int { syntax.TokStartingAt(p, at) }
 
 // writeToken writes a token as its kind, its text's length and its text,
-// so no two token runs write the same bytes.
+// so no two token runs write the same bytes: a length under 255 is one
+// byte, a longer one 255 and four bytes, low first.
 func writeToken(b *strings.Builder, k uint8, t string) {
-	b.WriteString("\(k):\(len(t)):")
+	let n = len(t)
+	b.WriteByte(byte(k))
+	if n < 255 {
+		b.WriteByte(byte(n))
+	} else {
+		b.WriteByte(byte(255))
+		b.WriteByte(byte(n & 255))
+		b.WriteByte(byte((n >> 8) & 255))
+		b.WriteByte(byte((n >> 16) & 255))
+		b.WriteByte(byte((n >> 24) & 255))
+	}
 	b.WriteString(t)
 }
 

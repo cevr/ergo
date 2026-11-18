@@ -116,6 +116,11 @@ func ImportPaths(s Store) []string { s.imports }
 // PathOf is the package's import path.
 func PathOf(s Store) string { s.path }
 
+// SetPath gives the package the path its own types are named by. A
+// package checked as a program's root is named main, though its importers
+// (a test's, S3d3) reach it by its folder's path.
+func SetPath(s *Store, path string) { s.path = path }
+
 // ImportOf is the import d declares (its place in the import list plus
 // one), or 0 when d is no import or a Go import.
 func ImportOf(s Store, d dense.ID[Decl]) int {
@@ -162,6 +167,11 @@ func KindName(k int) string {
 
 // Unset is the type a row holds before the signature pass gives it one.
 func Unset(s *Store) dense.ID[TKey] { Basic(&s.pool, 0) }
+
+// TSubst is t with the type parameter at position i replaced by args[i]
+// (the pool's Subst): inference renames a callee's parameters past its
+// caller's with it (capstone S3d).
+func TSubst(s *Store, t dense.ID[TKey], args []dense.ID[TKey]) dense.ID[TKey] { Subst(&s.pool, t, args) }
 
 // Frozen is a package's store after its check: immutable, moved into the
 // value every importer task shares with no lock (C0/plan.md §4, Decided
@@ -240,4 +250,11 @@ law InstanceIdentityIsKey(xs []int, ys []int) {
 		}
 	}
 	ok
+}
+
+// BasicOrdinal is t's basic ordinal, -1 for a type that is no basic: a
+// read through the pointer, so no Store is copied (S3d8).
+func BasicOrdinal(s *Store, t dense.ID[TKey]) int {
+	let key = dense.Value(s.pool.keys, t)
+	if int(key.k) == tBasic { int(key.a) } else { -1 }
 }

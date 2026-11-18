@@ -168,18 +168,38 @@ func Subst(p *Pool, t dense.ID[TKey], args []dense.ID[TKey]) dense.ID[TKey] {
 	if kind == tParam {
 		return if int(k.a) < len(args) { args[int(k.a)] } else { t }
 	}
-	let mut ts = []dense.ID[TKey]{}
-	for o in Operands(*p, t) {
-		ts = ts.Append(Subst(p, o, args))
+	// The operands are read one at a time: Subst writes the pool, whose
+	// keys and operands only grow, so each read after a write is the one
+	// before it, and no copy of the operands is taken.
+	let n = len(Operands(*p, t))
+	let mut ts = slices.WithCapacity[dense.ID[TKey]](n)
+	for i in 0..n {
+		ts = ts.Append(Subst(p, operandAt(*p, t, i), args))
 	}
 	if kind == tRow {
-		return Row(p, ts)
+		// A row parameter bound to a row splices its elements in (the Go
+		// checker's subst flattens them); a row written inside the row
+		// stays one element.
+		let mut flat = []dense.ID[TKey]{}
+		for i, o in ts {
+			if int(Key(*p, operandAt(*p, t, i)).k) == tParam && int(Key(*p, o).k) == tRow {
+				for e in Operands(*p, o) {
+					flat = flat.Append(e)
+				}
+			} else {
+				flat = flat.Append(o)
+			}
+		}
+		return Row(p, flat)
 	}
 	if kind == tInstance {
 		return Instance(p, OriginOf(*p, t), ts)
 	}
 	composite(p, kind, ts)
 }
+
+// operandAt is t's i-th operand.
+func operandAt(p Pool, t dense.ID[TKey], i int) dense.ID[TKey] { Operands(p, t)[i] }
 
 // rising is whether t, if a row, has a strictly rising run of operands.
 func rising(p Pool, t dense.ID[TKey]) bool {

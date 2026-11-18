@@ -1,6 +1,7 @@
 import compiler/check/store
 import compiler/syntax
 import dense
+import slices
 
 // Parents is the package's parent column (C0/plan.md §2.7): for each row
 // of each file, laid end to end in file order (a PNode is the file's base
@@ -49,7 +50,15 @@ func Written(ps Parents) int { ps.written }
 // BuildParents is the parent column of the package's files; a file that
 // failed to parse has no rows.
 func BuildParents(files []File) Parents {
-	let mut ps = Parents{base: []uint32{}, ids: dense.NewCount[store.PNode](), up: dense.NewCol[store.PNode, dense.Opt[store.PNode]](), first: []uint32{}, kids: []uint32{}, written: 0}
+	// The columns are sized once from the package's node count: a node has
+	// one up and one first, and is at most one child.
+	let mut total = 0
+	for file in files {
+		if !file.Parsed.Failed {
+			total = total + syntax.NumNodes(file.Parsed.Tree)
+		}
+	}
+	let mut ps = Parents{base: []uint32{}, ids: dense.NewCount[store.PNode](), up: dense.ColWithCap[store.PNode, dense.Opt[store.PNode]](total), first: []uint32{}, kids: []uint32{}, written: 0}
 	for file in files {
 		ps.base = ps.base.Append(uint32(dense.Total(ps.ids)))
 		let n = if file.Parsed.Failed { 0 } else { syntax.NumNodes(file.Parsed.Tree) }
@@ -58,8 +67,8 @@ func BuildParents(files []File) Parents {
 			dense.Push(&ps.up, dense.NoID[store.PNode]())
 		}
 	}
-	let mut kids = []uint32{}
-	let mut first = []uint32{}
+	let mut kids = slices.WithCapacity[uint32](total)
+	let mut first = slices.WithCapacity[uint32](total + 1)
 	for f, file in files {
 		if file.Parsed.Failed {
 			continue
