@@ -49,8 +49,8 @@ const (
 	peekGone         // the end of the stream, or a failure
 )
 
-// peers returns s's watcher, made at the first watch that needs one, or
-// nil when the platform has none or making it failed.
+// peers returns s's watcher, made at its first watch. It is nil when the
+// platform has none, or when making it or running it failed.
 func (s *httpServer) peers() *peerWatcher {
 	s.mu.Lock()
 	defer s.mu.Unlock()

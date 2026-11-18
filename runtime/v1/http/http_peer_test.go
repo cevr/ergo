@@ -29,6 +29,9 @@ import (
 // order each rule is about is the one that runs. Mutants: c6-data-is-gone,
 // c6-pending-unread, c6-eof-forgotten (runtime/v1/http ledger).
 func TestHTTPWatcherSeesWhatTheReadSees(t *testing.T) {
+	if !*engineFlag {
+		t.Skip("net/http reads every connection: the watcher is the engine's")
+	}
 	events := make(chan struct{}, 16)
 	if *watcherFlag {
 		engineWatchEvent = func() {
