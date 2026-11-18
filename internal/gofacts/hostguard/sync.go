@@ -91,7 +91,18 @@ func syncGuard(target string, call func(p *probe)) error {
 	return nil
 }
 
+// probeFlag defines and sets one flag of flag.CommandLine, once, so the
+// guards of flag.Visit and flag.VisitAll each have a flag to visit,
+// whichever runs first (stdlaws runs the guards in no fixed order; a
+// VisitAll run before Visit's once visited nothing and was refuted).
 var probeFlag sync.Once
+
+func probeCommandLine() {
+	probeFlag.Do(func() {
+		flag.Bool("gofacts.probe", false, "set by the sync guards of flag.Visit and flag.VisitAll")
+		_ = flag.Set("gofacts.probe", "true")
+	})
+}
 
 func syncCalls() map[string]func(p *probe) {
 	rf := func(p *probe) func(rune) bool { return func(rune) bool { p.hit(); return false } }
@@ -164,13 +175,13 @@ func syncCalls() map[string]func(p *probe) {
 			regexp.MustCompile("a").ReplaceAllStringFunc("aa", func(s string) string { p.hit(); return s })
 		},
 		"flag.Visit": func(p *probe) {
-			probeFlag.Do(func() {
-				flag.Bool("gofacts.probe", false, "set by the sync guard of flag.Visit")
-				_ = flag.Set("gofacts.probe", "true")
-			})
+			probeCommandLine()
 			flag.Visit(visit(p))
 		},
-		"flag.VisitAll":         func(p *probe) { flag.VisitAll(visit(p)) },
+		"flag.VisitAll": func(p *probe) {
+			probeCommandLine()
+			flag.VisitAll(visit(p))
+		},
 		"flag.FlagSet.Visit":    func(p *probe) { flagSet().Visit(visit(p)) },
 		"flag.FlagSet.VisitAll": func(p *probe) { flagSet().VisitAll(visit(p)) },
 		"go/ast.Inspect": func(p *probe) {

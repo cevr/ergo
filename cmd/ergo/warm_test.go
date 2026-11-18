@@ -142,15 +142,18 @@ func TestWarmAnswerAgreesWithFullBuild(t *testing.T) {
 		t.Skip("full tier: builds Go")
 	}
 	bin := buildTestCLI(t)
-	// Another compiler: the same program with one more byte, so its
-	// identity (the digest of its image) differs.
+	// Another compiler: the same CLI linked with one string of other
+	// bytes, a lowering selector set to a value no lowering reads, so it
+	// lowers alike and its identity differs on every host. Not the CLI
+	// with a byte appended: on Darwin the identity is the code the
+	// signature authenticates (internal/producer, codesign.go), which a
+	// byte past it does not change, so that was the same compiler there
+	// (I19 macOS check at e08f49831: seed 1 answered warm, rightly).
 	other := filepath.Join(t.TempDir(), "ergo-other")
-	data, err := os.ReadFile(bin)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(other, append(data, 0), 0o755); err != nil {
-		t.Fatal(err)
+	link := exec.Command("go", "build", "-buildvcs=false", "-ldflags=-X=ergo.local/prototype/internal/sketch/lower.growthLowering=other-compiler", "-o", other, ".")
+	link.Env = testCLI.environment
+	if out, err := link.CombinedOutput(); err != nil {
+		t.Fatalf("build the other CLI: %v\n%s", err, out)
 	}
 	seeds := []uint64{1, 2, 3}
 	if s := os.Getenv("ERGO_WARM_SEED"); s != "" {

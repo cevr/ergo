@@ -39,7 +39,7 @@ func Tag(t *tape, name string) { t.raw(name) }
 func Key(t *tape, k string) { t.raw(k) }
 func EndObject(t *tape) { t.raw("}") }
 
-func Show[T wire](v T) string {
+func Show[T wire](v T) string needs wired[T] {
 	let t Tape = tape{out: ""}
 	encode(v, t)
 	t.Written()

@@ -208,13 +208,20 @@ func (b *irBuilder) hostBind(call *syntax.CallExpr) (pre []*irStmt, v, e int, ok
 	if check.GoContext(f) {
 		pre = append(pre, b.ctxPoll(call)...)
 	}
-	conv := "GoErrorOf"
-	if hostTunnels(f) {
-		conv = "GoUntunnel"
+	if b.rawErr != nil && b.rawErr == call && !hostTunnels(f) {
+		// A plain catch tests Go's error against nil alone (ir_fail.go
+		// catch, GOERR-BOX): it takes the error unconverted. I-FLIP: the
+		// GOLIB form of bind's rawErr branch.
+		b.rawErr = nil
+	} else {
+		conv := "GoErrorOf"
+		if hostTunnels(f) {
+			conv = "GoUntunnel"
+		}
+		b.keepImport("var _ = " + b.l.rt() + "." + conv)
+		errL := &irExpr{K: "local", Pos: p, I: e}
+		pre = append(pre, &irStmt{K: "set", Pos: p, Local: e, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: conv, Args: []*irExpr{errL}}})
 	}
-	b.keepImport("var _ = " + b.l.rt() + "." + conv)
-	errL := &irExpr{K: "local", Pos: p, I: e}
-	pre = append(pre, &irStmt{K: "set", Pos: p, Local: e, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: conv, Args: []*irExpr{errL}}})
 	if v >= 0 {
 		vpre, val := b.hostResult(results[0], v, call, p)
 		pre, v = append(pre, vpre...), val.I

@@ -32,7 +32,7 @@ func (b *irBuilder) ownedRefCall(x *syntax.CallExpr, c *check.Call, s *refSite, 
 	name, cb := s.form.name, s.form.cb
 	body, err := runtimeBody(name)
 	switch {
-	case err != nil || len(body.Params) != len(list)+2 || cb >= len(list) || body.Params[cb].Func == nil:
+	case err != nil || len(body.Params) != len(list)+3 || cb >= len(list) || body.Params[cb].Func == nil:
 		irNo("owned site without its runtime body")
 	case b.env < 0:
 		irNo("owned site in a pure function")
@@ -85,7 +85,11 @@ func (b *irBuilder) ownedRefCall(x *syntax.CallExpr, c *check.Call, s *refSite, 
 	if s.fresh {
 		fresh = "true"
 	}
-	vals = append(vals, b.cloneLit(s.elem, x, p), &irExpr{K: "const", Pos: p, T: "bool", V: fresh})
+	alone := "false"
+	if s.alone {
+		alone = "true"
+	}
+	vals = append(vals, b.cloneLit(s.elem, x, p), &irExpr{K: "const", Pos: p, T: "bool", V: fresh}, &irExpr{K: "const", Pos: p, T: "bool", V: alone})
 	if targs != "" {
 		b.keepImport("var _ " + b.l.rt() + ".Site")
 	} else {

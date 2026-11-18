@@ -107,13 +107,15 @@ func (n *NodeEncoder) Bytes() []byte {
 	return append(head.buf, body.buf...)
 }
 
-// Table is a NodeTable whose segments are the ones starts bounds, the
-// first n of them holding the very objects this encoder named (a decoder
+// Table is a NodeTable whose segments are the ones starts bounds, those
+// written reports holding the very objects this encoder named (a decoder
 // in the same process reads them); the others are not decoded yet.
-func (n *NodeEncoder) Table(starts []uint64, written int) *NodeTable {
+func (n *NodeEncoder) Table(starts []uint64, written func(seg int) bool) *NodeTable {
 	t := NewNodeTable(starts)
-	for i := range written {
-		t.segs[i] = n.objs[starts[i]-1 : starts[i+1]-1]
+	for i := range len(starts) - 1 {
+		if written(i) {
+			t.segs[i] = n.objs[starts[i]-1 : starts[i+1]-1]
+		}
 	}
 	return t
 }

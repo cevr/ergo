@@ -9,3 +9,4 @@ sizes 20000 220000
 input self gen {n}
 args stream
 control examples/events/testdata/control
+floor examples/events/testdata/floor

@@ -1,7 +1,9 @@
 package hostguard
 
 import (
+	"flag"
 	"strings"
+	"sync"
 	"testing"
 
 	v1 "ergo.local/prototype/runtime/v1"
@@ -54,6 +56,27 @@ func TestSyncCallbacksHold(t *testing.T) {
 	} {
 		if err := syncGuard(name, c.call); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("a planted false row %s passes the sync guard: %v, want %q", name, err, c.want)
+		}
+	}
+}
+
+// TestSyncGuardsHoldAlone: each guard of v1.GoSyncCallbacks gives its
+// verdict from a fresh process state, whatever guard ran before it: the
+// flag guards each start from a new flag.CommandLine (the global state
+// that differs between orders). The std ledger's guard lines must not
+// change from one run of stdlaws to the next (LAWFFI LF2d: flag.VisitAll
+// was written refuted, then validated).
+//
+// Mutant it alone catches: ffi-sync-visitall-order (VisitAll's guard
+// defines no flag and relies on Visit's having run first; the full-table
+// run above still passes when Visit runs first).
+func TestSyncGuardsHoldAlone(t *testing.T) {
+	saved := flag.CommandLine
+	defer func() { flag.CommandLine, probeFlag = saved, sync.Once{} }()
+	for target, call := range syncCalls() {
+		flag.CommandLine, probeFlag = flag.NewFlagSet("alone", flag.ContinueOnError), sync.Once{}
+		if err := syncGuard(target, call); err != nil {
+			t.Errorf("run alone: %v", err)
 		}
 	}
 }

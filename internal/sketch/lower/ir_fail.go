@@ -271,7 +271,11 @@ func (b *irBuilder) bind(call *syntax.CallExpr) (pre []*irStmt, v, e int) {
 		v = b.temp("v", b.goType(t, call), p)
 		pre = append(pre, &irStmt{K: "def2", Pos: p, Local: v, Val: &e, X: x})
 	}
-	if b.hostFails(call) {
+	if b.rawErr != nil && b.rawErr == call {
+		// A plain catch tests Go's error against nil alone, which the
+		// conversion keeps: the emitter's goErrorOf with fc.rawErr.
+		b.rawErr = nil
+	} else if b.hostFails(call) {
 		// A Go call's error is go.Error: the emitter's hostFallible and
 		// goErrorOf (v1.GoErrorOf; the eager form in the reference).
 		name := "GoErrorOf"
@@ -396,7 +400,17 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 		arms = append(arms, ar)
 		alts = append(alts, as)
 	}
+	// A plain catch (catch_plain.go: one arm of one type test around a
+	// Go call, whose only failure is go.Error) whose arm binds nothing
+	// takes Go's error as it is: no go.Error box, no type switch, hand
+	// Go's `if err != nil` (GOERR-BOX; SetCatchSwitchForTest keeps the
+	// switch as the reference).
+	plain := call != nil && !patterned && b.hostFails(call) && b.fc.plainCatch(x, m) && catchBinding(b.l.info, x) == nil
+	if plain {
+		b.rawErr = call
+	}
 	pre, v, e := bindSrc()
+	b.rawErr = nil
 	p := b.pos(x, x.Catch)
 	result, caught := -1, -1
 	var rt string
@@ -427,6 +441,9 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 		then = t.write([]treeHead{{e, &check.Union{Variants: m.Subjects}}}, alts, sw.End)
 		arms = nil
 	}
+	if plain {
+		arms = nil
+	}
 	for i, a := range arms {
 		c := &irCase{Pos: a.pos, Types: a.types}
 		if a.as != nil {
@@ -439,7 +456,9 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 	}
 	sw.ElsePos = b.pos(x, x.Rbrace)
 	sw.Else = []*irStmt{b.catchDefault(x, k, partial, e, sw.ElsePos)} // ir_catch_defect.go
-	if then == nil {
+	if plain {
+		then = b.armBody(x.Arms[0], result, m.Result)
+	} else if then == nil {
 		then = []*irStmt{sw}
 	}
 	ifs := &irStmt{K: "if", Pos: p, End: sw.End, X: b.notNil(e, p), Then: then}

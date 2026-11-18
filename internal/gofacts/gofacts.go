@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"math/rand/v2"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -48,6 +49,9 @@ type Row struct {
 	// Call calls the function with p as the operand Param names, the
 	// other operands drawn from r (a reads row).
 	Call func(r *rand.Rand, p []byte)
+	// CallStrings is Call for a []string operand (a reads row of a
+	// function of string slices).
+	CallStrings func(r *rand.Rand, p []string)
 	// Result draws the operands of one call from r and returns the call,
 	// whose result is a []string or a [][]string (a fresh row, LF2c).
 	Result func(r *rand.Rand) func() any
@@ -74,6 +78,10 @@ var Rows = []Row{
 	{Target: "bytes.Count", Fact: "reads", Param: "sep", Reason: "it reads sep[0] for bytealg.Count, and passes sep to Index", Source: "28a1ec4078dd", Call: func(r *rand.Rand, p []byte) { bytes.Count(draw(r, r.IntN(64)), p) }},
 	{Target: "crypto/sha256.Sum256", Fact: "reads", Param: "data", Reason: "Write copies data into the digest's buffer and the block function, assembly, only loads from it", Source: "d1bd973fda38", Call: func(_ *rand.Rand, p []byte) { sha256.Sum256(p) }, View: true},
 	{Target: "hash/crc32.ChecksumIEEE", Fact: "reads", Param: "data", Reason: "it calls the function variable updateIEEE, assembly or a table loop that only loads", Source: "0a577c2fb9b4", Call: func(_ *rand.Rand, p []byte) { crc32.ChecksumIEEE(p) }, View: true},
+	// Reads rows of []string operands (JOIN, from NP4f-4): Go derives no
+	// fact, so the value rule copied the slice before each call.
+	{Target: "strings.Join", Fact: "reads", Param: "elems", Reason: "Go reports only that an element string flows to the result (leaking param: elems to result level=1): the slice's array is neither written nor kept, and a string is immutable", Source: "8aa66715ab45", CallStrings: func(r *rand.Rand, p []string) { strings.Join(p, seps[r.IntN(len(seps))]) }},
+	{Target: "path/filepath.Join", Fact: "reads", Param: "elem", Reason: "it is join(elem), which reslices elem and passes it to strings.Join (a reads row); Go's mutation verdict comes from the inlined Clean of the joined string, which is immutable", Source: "6fc7b1fadbe3", CallStrings: func(_ *rand.Rand, p []string) { filepath.Join(p...) }},
 	{Target: "hash/crc32.Update", Fact: "reads", Param: "p", Reason: "it calls update, over the function variables updateIEEE and updateCastagnoli or a table loop, that only loads", Source: "fadaf3baa7c7", Call: func(_ *rand.Rand, p []byte) { crc32.Update(0, crc32.IEEETable, p) }, View: true},
 
 	// fresh rows (LF2c): the slice result is new memory on every call, so
@@ -174,6 +182,9 @@ func (r Row) Guard(seed uint64) error {
 	if r.Fact == "fresh" && r.Result != nil {
 		return r.freshGuard(seed)
 	}
+	if r.Fact == "reads" && r.CallStrings != nil {
+		return r.stringsGuard(seed)
+	}
 	if r.Fact != "reads" || r.Call == nil {
 		return fmt.Errorf("%s: no guard for the fact %s", r.Target, r.Fact)
 	}
@@ -190,6 +201,29 @@ func (r Row) Guard(seed uint64) error {
 		held := slices.Clone(p)
 		r.Call(rng, p)
 		if !bytes.Equal(held, p) {
+			return fmt.Errorf("%s wrote %s at case %d (length %d, seed %d)", r.Target, r.Param, i, size, seed)
+		}
+	}
+	return nil
+}
+
+// stringsGuard is the guard of a reads row of a []string operand: each
+// length of guardLengths up to 257, then GuardCases drawn ones, and the
+// guard fails at the first call that left the slice changed.
+func (r Row) stringsGuard(seed uint64) error {
+	rng := rand.New(rand.NewPCG(seed, 0x51e))
+	for i := range len(guardLengths) + GuardCases {
+		size := rng.IntN(1 << uint(rng.IntN(6)+1))
+		if i < len(guardLengths) {
+			size = min(guardLengths[i], 257)
+		}
+		p := make([]string, size)
+		for j := range p {
+			p[j] = []string{"", "a", "/", "..", "b/c", "\x00"}[rng.IntN(6)]
+		}
+		held := slices.Clone(p)
+		r.CallStrings(rng, p)
+		if !slices.Equal(held, p) {
 			return fmt.Errorf("%s wrote %s at case %d (length %d, seed %d)", r.Target, r.Param, i, size, seed)
 		}
 	}
