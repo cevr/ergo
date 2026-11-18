@@ -154,6 +154,7 @@ docs/specs/standard-library-capabilities.md	encoder; explicit secret access and 
 docs/specs/state-machines.md	derived codec therefore carries wire keys such as `"done"`, as Rust
 docs/standard-library.md	external codecs, validation and wire compatibility |
 runtime/v1/wire.go	*
+runtime/v1/testdata/mutants.json	"file":"runtime/v1/wire.go"
 internal/sketch/check/info.go	// WirePairs are the by-name wire forms (types.md, Codecs 1) that this
 internal/sketch/check/testdata/fixtures/negative/codec-rows.ergo	*
 internal/sketch/check/wire.go	*
