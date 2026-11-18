@@ -4,12 +4,28 @@
 package http
 
 import (
+	"flag"
 	"os"
 	"testing"
 
 	"ergo.local/prototype/internal/testinputs"
 )
 
+// fastWriterFlag chooses the engine's writer for every test:
+// -http.fastwriter=false writes every answer through the port of net/http's
+// writer, the reference of fastAnswer.
+var fastWriterFlag = flag.Bool("http.fastwriter", true, "the engine writes a common buffered answer in one write (false: the port of net/http's writer)")
+
 // TestMain runs the tests under observation, so the files and variables
 // any process they start reads are inputs of Go's test cache.
-func TestMain(m *testing.M) { os.Exit(testinputs.Main(m)) }
+func TestMain(m *testing.M) {
+	flag.Parse()
+	// Only a flag given chooses: by default the tests run on the default
+	// writer, so a changed default is under test (c2-path-never).
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "http.fastwriter" {
+			engineFastWriter = *fastWriterFlag
+		}
+	})
+	os.Exit(testinputs.Main(m))
+}

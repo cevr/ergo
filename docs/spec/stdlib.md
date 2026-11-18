@@ -412,6 +412,11 @@ net/http's writer. Every other head goes to net/http with the bytes already
 read put back. `TestHTTPEngineMatchesNetHTTP` holds the two paths to the
 same bytes on seeded requests and answers, and net/http for every
 connection stays selectable as the reference (`-args -http.engine=false`).
+Since HTTP-FAST-c2, a common buffered answer (a status from 200 that may
+have a body, a body of at most 2 KiB, and fields the writer only writes)
+goes out in one write of one buffer, with no header map, and the Date line
+formatted once a second. Any other answer takes the port, which stays
+selectable for all of them (`-args -http.fastwriter=false`).
 
 1. `Listen(addr) net.Listener fails ListenFailed needs Ambient` binds TCP;
    port zero is valid, and `l.Addr()` reports the bound address. The

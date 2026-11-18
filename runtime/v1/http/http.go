@@ -795,7 +795,14 @@ func (s *httpServer) answer(w http.ResponseWriter, in *httpIncoming, conn *httpC
 		return false
 	}
 	if !streamed {
-		httpWriteAnswer(w, response)
+		ew, onEngine := w.(*engineResponse)
+		fast := onEngine && engineFastWriter && ew.fastAnswer(response)
+		if onEngine && engineFastHook != nil {
+			engineFastHook(fast)
+		}
+		if !fast {
+			httpWriteAnswer(w, response)
+		}
 	}
 	return true
 }

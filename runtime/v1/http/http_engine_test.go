@@ -4,10 +4,13 @@ import (
 	"flag"
 	"fmt"
 	"math/rand/v2"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"ergo.local/prototype/runtime/rt"
 	v1 "ergo.local/prototype/runtime/v1"
@@ -41,6 +44,7 @@ var answerFields = []HTTPField{
 	{"Connection", "close"}, {"Connection", "keep-alive"}, {"Connection", "Upgrade"}, {"Upgrade", "websocket"},
 	{"Trailer", "X-T, Content-Length, Cache-Control"}, {"X-T", "t"}, {"Trailer:X-P", "p"}, {"Date", "then"},
 	{"Content-Encoding", "gzip"}, {"x-lower", "v"}, {"Bad Name", "v"}, {"X-Multi", "a\r\nb"}, {"Cache-Control", "no-store"},
+	{"X-Spaced", " v\t"}, {"Content-Type", ""},
 }
 
 var answerStatuses = []int{100, 101, 103, 200, 201, 204, 206, 299, 304, 404, 500, 799}
@@ -49,11 +53,12 @@ var answerStatuses = []int{100, 101, 103, 200, 201, 204, 206, 299, 304, 404, 500
 var bodyStarts = []string{"", "<html>", "{\"a\":1}", "%PDF-", "\x00\x01\x02"}
 
 // engineHandler answers from what the request asks (X-Status, X-Head,
-// X-Body: start,size, X-Stream: parts) with a body that holds every
+// X-Body: start,size, X-Stream: parts, X-Empty: no body) with a body that holds every
 // argument Serve gave it, so the property compares the reader's
 // arguments as well as the writer's bytes.
 func engineHandler(t *rt.Task, x *Exchange, method, path, rawPath string, query, header []HTTPField, body string, tooLarge bool, readError string) HTTPResponse {
 	status, start, size, parts := 200, 0, 0, -1
+	empty := false
 	var fields []HTTPField
 	for _, f := range header {
 		n, _ := strconv.Atoi(f.Value)
@@ -68,10 +73,15 @@ func engineHandler(t *rt.Task, x *Exchange, method, path, rawPath string, query,
 			size, _ = strconv.Atoi(b)
 		case "X-Stream":
 			parts = n
+		case "X-Empty":
+			empty = true
 		}
 	}
 	text := bodyStarts[start%len(bodyStarts)] + fmt.Sprintf("%s %s %s %q %q %q %v %q|", method, path, rawPath, query, header, body, tooLarge, readError)
 	text += strings.Repeat("0123456789abcdef", size/16+1)[:size]
+	if empty {
+		text = ""
+	}
 	if parts < 0 {
 		return HTTPResponse{Status: status, Header: fields, Body: text}
 	}
@@ -100,6 +110,17 @@ func engineHandler(t *rt.Task, x *Exchange, method, path, rawPath string, query,
 // (ERGO_HTTP_ENGINE_SEED=N).
 func TestHTTPEngineMatchesNetHTTP(t *testing.T) {
 	limits := serveLimits(4096, 4096)
+	// The engine's answers are counted by writer, so the property is known
+	// to reach both fastAnswer and the port it falls back to.
+	var fast, port atomic.Int64
+	engineFastHook = func(f bool) {
+		if f {
+			fast.Add(1)
+		} else {
+			port.Add(1)
+		}
+	}
+	t.Cleanup(func() { engineFastHook = nil })
 	root := rt.Root(t.Name())
 	pn := ergonet.NetNewPipe()
 	listen := func(addr string) *ergonet.Listener {
@@ -141,6 +162,10 @@ func TestHTTPEngineMatchesNetHTTP(t *testing.T) {
 			t.Fatalf("seed %d (replay ERGO_HTTP_ENGINE_SEED=%d go test -run TestHTTPEngineMatchesNetHTTP ./runtime/v1/http):\nsent     %q\nnet/http %q\nengine   %q", seed, seed, raw, want, got)
 		}
 	}
+	if len(seeds) > 1 && *fastWriterFlag && (fast.Load() == 0 || port.Load() == 0) {
+		t.Fatalf("the engine wrote %d answers through fastAnswer and %d through the port; the property must reach both", fast.Load(), port.Load())
+	}
+	t.Logf("engine answers: %d fast, %d through the port", fast.Load(), port.Load())
 }
 
 // engineRequests is the input of one seed of TestHTTPEngineMatchesNetHTTP.
@@ -170,9 +195,24 @@ func engineRequests(r *rand.Rand) string {
 		version := "HTTP/1.1"
 		var lines []string
 		lines = append(lines, pick("Host: x", "host: example.com:8080", "HOST:x", "Host:  [::1]:80  "))
-		lines = append(lines, fmt.Sprintf("%s: %d", pick("X-Status", "x-status"), answerStatuses[r.IntN(len(answerStatuses))]))
-		for range r.IntN(3) {
-			lines = append(lines, fmt.Sprintf("X-Head: %d", r.IntN(len(answerFields))))
+		// Half the answers are common ones, which the engine writes in one
+		// write (fastAnswer): a status that may have a body, fields its
+		// writer only writes, and a body up to just past 2 KiB.
+		common := r.IntN(2) == 0
+		status := answerStatuses[r.IntN(len(answerStatuses))]
+		if common {
+			status = []int{200, 201, 206, 299, 404, 500, 799}[r.IntN(7)]
+		}
+		lines = append(lines, fmt.Sprintf("%s: %d", pick("X-Status", "x-status"), status))
+		for range r.IntN(4) {
+			head := r.IntN(len(answerFields))
+			if common {
+				head = []int{0, 10, 12, 15, 16, 18, 19, 20, 21}[r.IntN(9)]
+			}
+			lines = append(lines, fmt.Sprintf("X-Head: %d", head))
+		}
+		if common && r.IntN(4) == 0 {
+			lines = append(lines, "X-Empty: 1")
 		}
 		if r.IntN(8) == 0 {
 			// A Trailer naming a field the answer has, that no trailer may be.
@@ -257,4 +297,31 @@ func engineRequests(r *rand.Rand) string {
 		}
 	}
 	return out.String()
+}
+
+// TestEngineDateIsNetHTTPs: the Date value fastAnswer caches per second is
+// the one net/http formats for the same time (time.Now().UTC() in
+// http.TimeFormat), over a seeded walk of times that stays in a second,
+// steps to the next one, jumps, and comes in another zone. The property
+// leaves Date aside, so this law holds it. Mutants: c2-date-stale,
+// c2-date-local (runtime/v1/http ledger).
+func TestEngineDateIsNetHTTPs(t *testing.T) {
+	r := rand.New(rand.NewPCG(7, 61))
+	zone := time.FixedZone("X", -5*3600)
+	now := time.Unix(1_700_000_000, 0)
+	for i := range 2000 {
+		switch r.IntN(4) {
+		case 0:
+			now = now.Add(time.Duration(r.IntN(int(time.Second))))
+		case 1:
+			now = now.Truncate(time.Second).Add(time.Second)
+		case 2:
+			now = now.Add(time.Duration(r.Int64N(int64(400 * 24 * time.Hour))))
+		case 3:
+			now = now.In(zone)
+		}
+		if got, want := string(appendEngineDate(nil, now)), now.UTC().Format(http.TimeFormat); got != want {
+			t.Fatalf("step %d, %v: Date %q, net/http writes %q", i, now, got, want)
+		}
+	}
 }
