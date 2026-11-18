@@ -3002,7 +3002,7 @@ func (l *lowerer) freshResult(f *check.Func) bool {
 		return true
 	}
 	if f != nil && f.Pkg.Host() {
-		// A Go call's Map or slice result is new (freshGoResults) or
+		// A Go call's Map or slice result is new (goFresh) or
 		// copied at the call (goResult).
 		return true
 	}

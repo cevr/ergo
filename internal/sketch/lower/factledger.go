@@ -43,22 +43,46 @@ func factLevel(n syntax.Node, fn *check.Func, f check.ForeignFact, class trust) 
 	if row == nil {
 		return check.FactVouched, "vouched by the binding, and the reviewed table has no row " + f.Law + ": regenerate the binding"
 	}
+	return rowLevel(n, *row, "only read "+f.Param, class)
+}
+
+// rowLevel is the level of the vouched row at the call n for a change of
+// class: validated on a current guard line the class admits, else vouched
+// and why. A current refuted line stops the build; says is what the row
+// vouches the function does ("only read b"), for the refusal.
+func rowLevel(n syntax.Node, row gofacts.Row, says string, class trust) (level, why string) {
+	law := row.Key()
 	entries, err := ParseLedger(shippedLedger())
 	if err != nil {
 		ice(nil, "the shipped law ledger: %v", err)
 	}
-	entry, found := entries["fact "+f.Law]
+	entry, found := entries["fact "+law]
 	switch {
 	case !found:
-		return check.FactVouched, "vouched, and the ledger has no guard line for " + f.Law + ": run go run ./scripts/stdlaws"
+		return check.FactVouched, "vouched, and the ledger has no guard line for " + law + ": run go run ./scripts/stdlaws"
 	case entry.Digest != row.Digest(toolchain.Version) || entry.With != toolchain.Version:
-		return check.FactVouched, "vouched, and the guard line for " + f.Law + " is stale (the row, its reviewed source or the toolchain changed): run go run ./scripts/stdlaws"
+		return check.FactVouched, "vouched, and the guard line for " + law + " is stale (the row, its reviewed source or the toolchain changed): run go run ./scripts/stdlaws"
 	case entry.Verdict == "refuted":
-		factRefuted(n, "%s is vouched to only read %s, and its guard refuted it (ergo.laws: fact %s refuted by %s): the build stops; correct or remove the row in internal/gofacts, then run go run ./scripts/stdlaws", goTarget(fn), f.Param, f.Law, entry.By)
+		factRefuted(n, "%s is vouched to %s, and its guard refuted it (ergo.laws: fact %s refuted by %s): the build stops; correct or remove the row in internal/gofacts, then run go run ./scripts/stdlaws", row.Target, says, law, entry.By)
 	case !admitLevel(entry.Verdict, entry.By, class) && !(class == memoryClass && admitView(entry.Verdict, entry.By)):
-		return check.FactVouched, "vouched, and the guard line for " + f.Law + " is " + entry.Verdict + ": only a validated guard line with its run named lets a vouched fact act"
+		return check.FactVouched, "vouched, and the guard line for " + law + " is " + entry.Verdict + ": only a validated guard line with its run named lets a vouched fact act"
 	}
 	return check.FactValidated, ""
+}
+
+// goFresh reports the Go function name ("strings.Split",
+// "regexp.Regexp.Split") as one whose slice or Map result is new on every
+// call by a fresh row of internal/gofacts that is validated (rowLevel;
+// LAWFFI LF2c), so goResult passes the result with no deep copy. It was
+// the unguarded table freshGoResults.
+func goFresh(n syntax.Node, name string) bool {
+	for _, r := range gofacts.Of(name) {
+		if r.Fact == "fresh" {
+			level, _ := rowLevel(n, r, "return a new result", valueClass)
+			return level == check.FactValidated
+		}
+	}
+	return false
 }
 
 // factRefuted stops the build at a call whose vouched fact a current

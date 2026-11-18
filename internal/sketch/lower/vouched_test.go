@@ -109,3 +109,74 @@ func TestVouchedReadsActOnlyValidated(t *testing.T) {
 		t.Errorf("a refuted guard line: the build gives %v, want it stopped with %q", err, want)
 	}
 }
+
+// freshProgram keeps the result of strings.Split, whose fresh row says Go
+// made it new.
+const freshProgram = `import go strings
+
+func parts(s string) []string needs go.Foreign {
+	strings.Split(s, ",")
+}
+
+func main() needs Console | go.Foreign {
+	Console.Println("\(len(parts("a,b")))")
+}
+`
+
+// TestFreshResultsActOnlyValidated is LF2c's admission of a fresh row
+// (interop.md, Foreign facts 7): the run build passes strings.Split's
+// result with no copy exactly when the shipped ledger holds the row's
+// guard line current and validated; a missing line copies it, and a
+// refuted line stops the build.
+//
+// Mutant it alone catches: ffi-fresh-unguarded-acts (a fresh row acts
+// with no guard line).
+func TestFreshResultsActOnlyValidated(t *testing.T) {
+	file, err := syntax.Parse(freshProgram)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, diags := check.Check("main", []*syntax.File{file}, nil)
+	if len(diags) > 0 {
+		t.Fatal(diags)
+	}
+	var row gofacts.Row
+	for _, r := range gofacts.Of("strings.Split") {
+		if r.Fact == "fresh" {
+			row = r
+		}
+	}
+	if row.Target == "" {
+		t.Fatal("no fresh row for strings.Split")
+	}
+	saved := shippedLedger
+	t.Cleanup(func() { shippedLedger = saved })
+	current := LedgerEntry{Fact: row.Key(), Verdict: "validated", By: "guard", With: toolchain.Version, Digest: row.Digest(toolchain.Version)}
+	u := Unit{Package: pkg, Files: []*syntax.File{file}, Sources: []Source{{Path: testSourcePath, Text: freshProgram}}}
+	copies := map[bool]int{}
+	for _, validated := range []bool{false, true} {
+		entries := map[string]LedgerEntry{}
+		if validated {
+			entries[current.Key()] = current
+		}
+		shippedLedger = func() string { return FormatLedger(entries) }
+		run := mustLowerUnit(t, "fresh_run", u, false)
+		for _, f := range run.files {
+			if f.Path == "main.go" {
+				copies[validated] = bytes.Count(f.Data, []byte("Clone"))
+			}
+		}
+	}
+	if copies[true] >= copies[false] {
+		t.Errorf("strings.Split's result: %d copies with a validated line, %d with none; want fewer with the line", copies[true], copies[false])
+	}
+	refuted := current
+	refuted.Verdict = "refuted"
+	entries := map[string]LedgerEntry{refuted.Key(): refuted}
+	shippedLedger = func() string { return FormatLedger(entries) }
+	_, err = Lower(u)
+	const want = "strings.Split is vouched to return a new result, and its guard refuted it"
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("a refuted fresh line: the build gives %v, want it stopped with %q", err, want)
+	}
+}
