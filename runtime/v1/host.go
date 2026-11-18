@@ -178,6 +178,16 @@ type Failed struct {
 // Error is the failure's text, as NotFound's is.
 func (e Failed) Error() string { return "fs.Failed{Path:" + e.Path + " Reason:" + e.Reason + "}" }
 
+// CrossDevice is fs.CrossDevice: a hard link from From to To cannot be
+// made, because the two paths are on different file systems (EXDEV).
+type CrossDevice struct {
+	From string
+	To   string
+}
+
+// Error is the failure's text, as NotFound's is.
+func (e CrossDevice) Error() string { return "fs.CrossDevice{From:" + e.From + " To:" + e.To + "}" }
+
 // Info is fs.Info: the last element of a path, its size in bytes,
 // whether it is a directory, and its permission bits.
 type Info struct {
@@ -768,6 +778,48 @@ func FSExchange(a string, b string) error {
 		return NotFound{Path: b}
 	}
 	return fsErr(a, err)
+}
+
+// FSLink is the body of fs.Host's Link (G6): a hard link at to of the
+// file at from (os.Link), so both names are one file. A file at to is
+// Failed ("file exists"): Link never replaces one. Two file systems are
+// CrossDevice, never a copy.
+//
+//ergo:host
+//ergo:wait none
+func FSLink(from string, to string) error {
+	err := os.Link(from, to)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, syscall.EXDEV):
+		return CrossDevice{From: from, To: to}
+	case errors.Is(err, fs.ErrNotExist):
+		if _, lerr := os.Lstat(from); lerr != nil {
+			return NotFound{Path: from}
+		}
+		return NotFound{Path: to}
+	}
+	return fsErr(to, err)
+}
+
+// FSSameFile is the body of fs.Host's SameFile (G6): whether the paths a
+// and b name one file, after symbolic links, by the host's identity of a
+// file (os.SameFile: the device and the inode on Unix), not by name or
+// bytes. A path with no file is NotFound, naming it.
+//
+//ergo:host
+//ergo:wait none
+func FSSameFile(a string, b string) (bool, error) {
+	fa, err := os.Stat(a)
+	if err != nil {
+		return false, fsErr(a, err)
+	}
+	fb, err := os.Stat(b)
+	if err != nil {
+		return false, fsErr(b, err)
+	}
+	return os.SameFile(fa, fb), nil
 }
 
 // errNoExchange is exchangePaths's failure on a host or a file system with
