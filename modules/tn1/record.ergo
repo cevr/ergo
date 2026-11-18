@@ -21,6 +21,20 @@
 // field of its own and may be empty. A node kind is function, type,
 // handler, test or module; HANDLERS is the handler shapes joined by
 // commas, or - for none.
+//
+// Version 3 (TN1-GRAPH-RECORD) adds what a file's place in its project's
+// graph says, all integers, and keeps every version 2 field:
+//
+//	tn1-record 3 LANGUAGE
+//	P NAME-WORDS FILES DECLS EXPORTED FAN-IN FAN-OUT INTERNAL-USES EXTERNAL-USES UP-EDGES DEPTH NEIGHBOUR-WORDS CHURN-TOGETHER
+//	F NAME-WORDS DECLS USES-IN-PACKAGE USES-OUT BEST-OTHER-PACKAGE-SHARE FAN-IN FAN-OUT CHURN-TOGETHER
+//	L ... (as version 2)
+//	N ... (as version 2) CALLERS-IN-PACKAGE CALLERS-OUT TOP-CALLER-PACKAGE-SHARE
+//
+// P is the file's package and F the file itself (at most one of each, P
+// before F, both before the L items). A share is in thousandths; a
+// NAME-WORDS or NEIGHBOUR-WORDS is a word sketch. A version 2 record
+// still parses, and is written again byte for byte.
 
 import strconv
 import strings
@@ -87,26 +101,92 @@ type Node {
 	MaxDepth   int,
 	Handlers   []HandlerShape,
 	Shape      uint64,
+	// Version 3: the uses of the node's name from the other files of its
+	// package and from other packages, and the share, in thousandths, of
+	// its outside callers that are in its top caller package (0 with no
+	// outside caller). A version 2 record holds 0.
+	CallersInPackage      int,
+	CallersOut            int,
+	TopCallerPackageShare int,
 }
 
-// Features is the record of one file.
-type Features { Language string, Lines []Line, Nodes []Node }
+// PackageItem is a version 3 record's P item: the file's package in its
+// project's import graph. NameWords is the sketch of the package's own
+// names (its directory and its files' base names), NeighbourWords that of
+// the packages it imports or that import it; FanIn and FanOut count
+// packages; InternalUses and ExternalUses are its files' uses of
+// declarations of its own package and of others; UpEdges the imports
+// that go up a declared layering; Depth the longest import chain below
+// it; ChurnTogether the commits that touched it with a neighbour, in
+// buckets (0 when the host reads no history).
+type PackageItem {
+	NameWords      uint64,
+	Files          int,
+	Decls          int,
+	Exported       int,
+	FanIn          int,
+	FanOut         int,
+	InternalUses   int,
+	ExternalUses   int,
+	UpEdges        int,
+	Depth          int,
+	NeighbourWords uint64,
+	ChurnTogether  int,
+}
+
+// FileItem is a version 3 record's F item: the file in its project's
+// import graph. FanIn and FanOut count files; BestOtherPackageShare is
+// the share, in thousandths, of its uses that go to the one other package
+// it uses most (high: the file may belong there).
+type FileItem {
+	NameWords             uint64,
+	Decls                 int,
+	UsesInPackage         int,
+	UsesOut               int,
+	BestOtherPackageShare int,
+	FanIn                 int,
+	FanOut                int,
+	ChurnTogether         int,
+}
+
+// Features is the record of one file. Version is its input version, 2 or
+// 3; Packages and Files hold at most one item each, and only in version 3.
+type Features {
+	Version  int,
+	Language string,
+	Lines    []Line,
+	Nodes    []Node,
+	Packages []PackageItem,
+	Files    []FileItem,
+}
 
 // Malformed is a record or weights text that does not parse: the 1-based
 // line of the text and why.
 type Malformed { Line int, Reason string }
 
-// RecordHeader is the first line of a record, before its language.
+// RecordHeader is the first line of a version 2 record, before its
+// language; RecordHeader3 that of a version 3 record.
 let RecordHeader = "tn1-record 2 "
+let RecordHeader3 = "tn1-record 3 "
 
-// ParseRecord reads the text form of a record.
+// ParseRecord reads the text form of a record, version 2 or 3.
 func ParseRecord(text string) Features fails Malformed {
 	let rows = strings.Split(text, "\n")
-	if len(rows) == 0 || !strings.HasPrefix(rows[0], RecordHeader) {
-		return Malformed{Line: 1, Reason: "the first line is not \"\(RecordHeader)LANGUAGE\""}
+	let mut version = 0
+	let mut header = ""
+	if len(rows) > 0 && strings.HasPrefix(rows[0], RecordHeader) {
+		version = 2
+		header = RecordHeader
+	} else if len(rows) > 0 && strings.HasPrefix(rows[0], RecordHeader3) {
+		version = 3
+		header = RecordHeader3
+	} else {
+		return Malformed{Line: 1, Reason: "the first line is not \"\(RecordHeader)LANGUAGE\" or \"\(RecordHeader3)LANGUAGE\""}
 	}
 	let mut lines = []Line{}
 	let mut nodes = []Node{}
+	let mut packages = []PackageItem{}
+	let mut files = []FileItem{}
 	for i in 1..len(rows) {
 		let row = rows[i]
 		if row == "" {
@@ -115,12 +195,83 @@ func ParseRecord(text string) Features fails Malformed {
 		if strings.HasPrefix(row, "L ") {
 			lines = lines.Append(try parseLine(row, i+1))
 		} else if strings.HasPrefix(row, "N ") {
-			nodes = nodes.Append(try parseNode(row, i+1))
+			nodes = nodes.Append(try parseNode(row, i+1, version))
+		} else if version == 3 && strings.HasPrefix(row, "P ") {
+			if len(packages) > 0 || len(files) > 0 || len(lines) > 0 || len(nodes) > 0 {
+				return Malformed{Line: i + 1, Reason: "a P item comes once, first"}
+			}
+			packages = packages.Append(try parsePackage(row, i+1))
+		} else if version == 3 && strings.HasPrefix(row, "F ") {
+			if len(files) > 0 || len(lines) > 0 || len(nodes) > 0 {
+				return Malformed{Line: i + 1, Reason: "an F item comes once, before the L and N items"}
+			}
+			files = files.Append(try parseFile(row, i+1))
+		} else if version == 3 {
+			return Malformed{Line: i + 1, Reason: "an item starts with P, F, L or N"}
 		} else {
 			return Malformed{Line: i + 1, Reason: "an item starts with L or N"}
 		}
 	}
-	Features{Language: strings.Slice(rows[0], len(RecordHeader), len(rows[0])), Lines: lines, Nodes: nodes}
+	Features{
+		Version:  version,
+		Language: strings.Slice(rows[0], len(header), len(rows[0])),
+		Lines:    lines,
+		Nodes:    nodes,
+		Packages: packages,
+		Files:    files,
+	}
+}
+
+// fields is row's fields after its item letter, want of them.
+func fields(row string, want int, item string, at int) []string fails Malformed {
+	let fs = strings.Split(row, " ")
+	if len(fs) != want+1 {
+		return Malformed{Line: at, Reason: "\(item) item has \(want) fields"}
+	}
+	fs
+}
+
+// parsePackage reads a P item; at is its line in the record.
+func parsePackage(row string, at int) PackageItem fails Malformed {
+	let fs = try fields(row, 12, "a P", at)
+	PackageItem{
+		NameWords:      try hex64(fs[1], at),
+		Files:          try count(fs[2], at),
+		Decls:          try count(fs[3], at),
+		Exported:       try count(fs[4], at),
+		FanIn:          try count(fs[5], at),
+		FanOut:         try count(fs[6], at),
+		InternalUses:   try count(fs[7], at),
+		ExternalUses:   try count(fs[8], at),
+		UpEdges:        try count(fs[9], at),
+		Depth:          try count(fs[10], at),
+		NeighbourWords: try hex64(fs[11], at),
+		ChurnTogether:  try count(fs[12], at),
+	}
+}
+
+// parseFile reads an F item; at is its line in the record.
+func parseFile(row string, at int) FileItem fails Malformed {
+	let fs = try fields(row, 8, "an F", at)
+	FileItem{
+		NameWords:             try hex64(fs[1], at),
+		Decls:                 try count(fs[2], at),
+		UsesInPackage:         try count(fs[3], at),
+		UsesOut:               try count(fs[4], at),
+		BestOtherPackageShare: try share(fs[5], at),
+		FanIn:                 try count(fs[6], at),
+		FanOut:                try count(fs[7], at),
+		ChurnTogether:         try count(fs[8], at),
+	}
+}
+
+// share is a count of thousandths, 0 to 1000.
+func share(s string, at int) int fails Malformed {
+	let n = try count(s, at)
+	if n > 1000 {
+		return Malformed{Line: at, Reason: "\(strconv.Quote(s)) is not a share in thousandths"}
+	}
+	n
 }
 
 // parseLine reads an L item; at is its line in the record.
@@ -140,10 +291,21 @@ func parseLine(row string, at int) Line fails Malformed {
 }
 
 // parseNode reads an N item; at is its line in the record.
-func parseNode(row string, at int) Node fails Malformed {
+func parseNode(row string, at int, version int) Node fails Malformed {
 	let fs = strings.Split(row, " ")
-	if len(fs) != 12 {
+	if version == 2 && len(fs) != 12 {
 		return Malformed{Line: at, Reason: "an N item has eleven fields"}
+	}
+	if version == 3 && len(fs) != 15 {
+		return Malformed{Line: at, Reason: "an N item has fourteen fields"}
+	}
+	let mut callersIn = 0
+	let mut callersOut = 0
+	let mut top = 0
+	if version == 3 {
+		callersIn = try count(fs[12], at)
+		callersOut = try count(fs[13], at)
+		top = try share(fs[14], at)
 	}
 	let mut shapes = []HandlerShape{}
 	if fs[10] != "-" {
@@ -152,17 +314,20 @@ func parseNode(row string, at int) Node fails Malformed {
 		}
 	}
 	Node{
-		Kind:       try nodeKind(fs[1], at),
-		Offset:     try count(fs[2], at),
-		Length:     try count(fs[3], at),
-		Line:       try count(fs[4], at),
-		Column:     try count(fs[5], at),
-		NameWords:  try hex64(fs[6], at),
-		Params:     try count(fs[7], at),
-		Statements: try count(fs[8], at),
-		MaxDepth:   try count(fs[9], at),
-		Handlers:   shapes,
-		Shape:      try hex64(fs[11], at),
+		Kind:                  try nodeKind(fs[1], at),
+		Offset:                try count(fs[2], at),
+		Length:                try count(fs[3], at),
+		Line:                  try count(fs[4], at),
+		Column:                try count(fs[5], at),
+		NameWords:             try hex64(fs[6], at),
+		Params:                try count(fs[7], at),
+		Statements:            try count(fs[8], at),
+		MaxDepth:              try count(fs[9], at),
+		Handlers:              shapes,
+		Shape:                 try hex64(fs[11], at),
+		CallersInPackage:      callersIn,
+		CallersOut:            callersOut,
+		TopCallerPackageShare: top,
 	}
 }
 

@@ -158,7 +158,7 @@ func scanOf(src string) Scanned {
 // FromSource is the record of TypeScript source src.
 func FromSource(src string) tn1.Features {
 	let s = scanOf(src)
-	tn1.Features{Language: "ts", Lines: linesOf(src, s), Nodes: nodes(src, s.Starts, s.Code, s.Imp)}
+	tn1.Features{Version: 2, Language: "ts", Lines: linesOf(src, s), Nodes: nodes(src, s.Starts, s.Code, s.Imp), Packages: []tn1.PackageItem{}, Files: []tn1.FileItem{}}
 }
 
 // Linted is what a lint run reads of a source: the record's lines (the
