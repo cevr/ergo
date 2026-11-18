@@ -463,9 +463,13 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 					suites = append(suites, s)
 					i = len(suites) - 1
 				}
-				if !hasTest(absRoot, &suites[i], test) {
+				found, family := hasTest(absRoot, &suites[i], test)
+				if !found {
 					unresolved = append(unresolved, fmt.Errorf("%s: mutant %q: %q names no test of suite %s", j.Path, m.Name, id, name))
 					continue
+				}
+				if family && !slices.Contains(suites[i].Families, test) {
+					suites[i].Families = append(suites[i].Families, test)
 				}
 				if suites[i].Only != nil && !slices.Contains(suites[i].Only, test) {
 					suites[i].Only = append(suites[i].Only, test)
@@ -567,31 +571,38 @@ func nestedModule(root, dir string) string {
 // root: a top-level func of a _test.go file in a Go suite's directory, or
 // an example program of the examples suite. A Go suite's runner lists its
 // binary's tests and keeps only those Only names, so a name that matches
-// none ran nothing.
-func hasTest(root string, s *Suite, test string) bool {
+// none ran nothing. family is set when test is no func but the family of
+// its parts, TestPart0 … (Suite.Families).
+func hasTest(root string, s *Suite, test string) (found, family bool) {
 	switch {
 	case s.Commands != nil:
 		_, ok := s.Commands[test]
-		return ok
+		return ok, false
 	case s.Package != "":
 		// A nested module's suite names its package in its module.
 		files, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(s.Module), filepath.FromSlash(s.Package), "*_test.go"))
+		one := regexp.MustCompile(`(?m)^func ` + regexp.QuoteMeta(test) + `\(`)
+		part := regexp.MustCompile(`(?m)^func ` + regexp.QuoteMeta(test) + `Part[0-9]+\(`)
 		for _, f := range files {
-			data, err := os.ReadFile(f)
-			if err == nil && regexp.MustCompile(`(?m)^func `+regexp.QuoteMeta(test)+`\(`).Match(data) {
-				return true
+			if data, err := os.ReadFile(f); err == nil && one.Match(data) {
+				return true, false
 			}
 		}
-		return false
+		for _, f := range files {
+			if data, err := os.ReadFile(f); err == nil && part.Match(data) {
+				return true, true
+			}
+		}
+		return false, false
 	case s.Name == "examples":
 		dir := filepath.Join(root, "examples", test)
 		if mod, ok := strings.CutPrefix(test, "modules/"); ok {
 			dir, test = filepath.Join(root, "modules", mod), mod // a module of modules/ (MK0)
 		}
 		info, err := os.Stat(dir)
-		return test != "" && !strings.ContainsAny(test, `/\`) && err == nil && info.IsDir()
+		return test != "" && !strings.ContainsAny(test, `/\`) && err == nil && info.IsDir(), false
 	}
-	return test != ""
+	return test != "", false
 }
 
 // defaultExamples lists the example programs tagged default.

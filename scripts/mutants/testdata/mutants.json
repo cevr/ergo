@@ -153,8 +153,8 @@
       "name": "mutnames-missing-test-accepted",
       "origin": "wf10 MUT-names",
       "file": "scripts/mutants/main.go",
-      "from": "\t\t\t\tif !hasTest(absRoot, &suites[i], test) {",
-      "to": "\t\t\t\tif false && !hasTest(absRoot, &suites[i], test) {",
+      "from": "\t\t\t\tif !found {\n\t\t\t\t\tunresolved = append(unresolved, fmt.Errorf(\"%s: mutant %q: %q names no test of suite %s\"",
+      "to": "\t\t\t\tif false && !found {\n\t\t\t\t\tunresolved = append(unresolved, fmt.Errorf(\"%s: mutant %q: %q names no test of suite %s\"",
       "rule": "A killer or anchor id names a test its suite has (a Test func of the package, an example program); a renamed or deleted test is an error of the ledger.",
       "killers": ["scripts/mutants:TestKillerInAnotherSuiteIsRun"]
     },
@@ -565,6 +565,8 @@
     {"name":"gtb-first-kill-runs-on","origin":"wf10 GATE2 GT-BOUND","file":"scripts/mutants/judge.go","from":"\t\t\tif killedBy(o) && !w.e.cfg.All {\n\t\t\t\tcancel()\n\t\t\t}","to":"\t\t\t_ = killedBy(o)","rule":"The first kill stops a row's other tests.","killers":[],"gap":"survived: the model's verdicts do not depend on how many covering tests run after the first kill; the receipt (stopped) shows it (GT-BOUND, 2026-11-16)"},
     {"name":"gtb-path-toolchain","origin":"wf10 GATE2 GT-BOUND","file":"scripts/mutants/runner.go","from":"\t\t\t\tkv = \"PATH=\" + filepath.Join(e.goRoot, \"bin\") + string(os.PathListSeparator) + value","to":"\t\t\t\tkv = \"PATH=\" + value","rule":"Every child of the runner finds the module's toolchain first on PATH, as go test puts it.","killers":["scripts/mutants:TestRunnerMatchesModel"]},
     {"name":"gtb-goroot-stale","origin":"wf10 GATE2 GT-BOUND","file":"scripts/mutants/runner.go","from":"\t\tcase \"GOROOT\":\n","to":"\t\tcase \"GOROOT_UNUSED\":\n","rule":"No child inherits a GOROOT: the go first on its PATH finds its own.","killers":["scripts/mutants:TestRunnerMatchesModel"]},
+    {"name":"gtf-family-one-part","origin":"wf10 GATE2 GT-FAMILY","file":"scripts/mutants/runner.go","from":"\treturn \"^\" + regexp.QuoteMeta(name) + \"Part[0-9]+$\"","to":"\treturn \"^\" + regexp.QuoteMeta(name) + \"Part0$\"","rule":"A row that names a test family runs every part of it: a split leaves the rows unchanged, and any failing part kills.","killers":["scripts/mutants:TestRunnerMatchesModel"]},
+    {"name":"gtf-family-start-unseen","origin":"wf10 GATE2 GT-FAMILY","file":"scripts/mutants/runner.go","from":"\t\treturn \"=== RUN   \" + test + \"Part\" // any part","to":"\t\treturn \"=== RUN   \" + test + \"\\n\" // any part","rule":"A family has started when any of its parts has: its failure is a kill (GT-NOTESTS).","killers":["scripts/mutants:TestRunnerMatchesModel"]},
     {"name":"gtb-command-measured","origin":"wf10 GATE2 Q15 (GT-BOUND x GT6)","file":"scripts/mutants/coverstore.go","from":"func(s Suite) bool { return s.Commands != nil })","to":"func(s Suite) bool { return false })","rule":"The coverage pass measures go test suites only: a command runs only for the rows that name it.","killers":["scripts/mutants:TestRunnerMatchesModel"]},
     {"name":"gtn-started-ignored","origin":"wf10 GATE2 GT-NOTESTS","file":"scripts/mutants/judge.go","from":"\t\tcase !o.started:\n","to":"\t\tcase false:\n","rule":"A test whose binary ended before the test started kills nothing: its row is invalid unless another test killed it.","killers":["scripts/mutants:TestRunnerMatchesModel"]}
 

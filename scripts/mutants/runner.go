@@ -130,6 +130,17 @@ type Suite struct {
 	// commands by name (Ledger.Commands): its tests, which run only where
 	// a row names them.
 	Commands map[string][]string
+	// Families are the Named tests of a Go suite that are no test but a
+	// family split into parts, TestXPart0, TestXPart1 … (a test split to
+	// fit the gate's step limit): the runner runs a family as every one of
+	// its parts in one process, so a failing part kills, and a row names
+	// the family, never a part number.
+	Families []string
+}
+
+// partsPattern matches the parts of the test family name and nothing else.
+func partsPattern(name string) string {
+	return "^" + regexp.QuoteMeta(name) + "Part[0-9]+$"
 }
 
 // commandSuite is the name of the suite of the ledgers' commands.
@@ -394,7 +405,7 @@ func (e *engine) load(ledgers []string) error {
 	}
 	fmt.Fprintf(h, "cover %q tools %q", e.cfg.Cover, toolNames(e.cfg.Tools))
 	for _, s := range e.cfg.Suites {
-		fmt.Fprintf(h, " suite %s %s %s %q %q %q %q %q %q", s.Name, s.Module, s.Package, s.Command, s.Env, s.Tags, s.Only, s.Named, s.Commands)
+		fmt.Fprintf(h, " suite %s %s %s %q %q %q %q %q %q %q", s.Name, s.Module, s.Package, s.Command, s.Env, s.Tags, s.Only, s.Named, s.Commands, s.Families)
 	}
 	e.key = hex.EncodeToString(h.Sum(nil))[:16]
 	return nil
@@ -655,6 +666,9 @@ func startLine(s *Suite, test string) string {
 	if s.Package == "" {
 		return ""
 	}
+	if slices.Contains(s.Families, test) {
+		return "=== RUN   " + test + "Part" // any part
+	}
 	return "=== RUN   " + test + "\n"
 }
 
@@ -838,7 +852,11 @@ func (e *engine) argv(s *Suite, root, bin, test string, deadline time.Duration) 
 		env = append(env, expand(kv, bin, root, test))
 	}
 	if s.Package != "" {
-		return []string{filepath.Join(bin, s.Name+".test"), "-test.run=^" + regexp.QuoteMeta(test) + "$", "-test.count=1", "-test.v", "-test.timeout=" + (deadline * 9 / 10).String()},
+		run := "^" + regexp.QuoteMeta(test) + "$"
+		if slices.Contains(s.Families, test) {
+			run = partsPattern(test)
+		}
+		return []string{filepath.Join(bin, s.Name+".test"), "-test.run=" + run, "-test.count=1", "-test.v", "-test.timeout=" + (deadline * 9 / 10).String()},
 			filepath.Join(root, filepath.FromSlash(s.Module), filepath.FromSlash(s.Package)), env
 	}
 	var argv []string
@@ -958,7 +976,8 @@ func (e *engine) measure(ctx context.Context, suites []Suite) (*coverage, error)
 			// never run: a stale killer is refused, not silently dropped.
 			var missing []string
 			for _, n := range s.Named {
-				if !slices.Contains(listed, n) {
+				parts := regexp.MustCompile(partsPattern(n))
+				if !slices.Contains(listed, n) && !(slices.Contains(s.Families, n) && slices.ContainsFunc(listed, parts.MatchString)) {
 					missing = append(missing, s.Name+":"+n)
 				}
 			}

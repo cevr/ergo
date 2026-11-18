@@ -75,6 +75,12 @@ const seedVariable = "ERGO_MUTANTS_SEED"
 // its init, before any test starts: its tests fail, but none ran, so it is
 // invalid, not killed (gtn-started-ignored).
 //
+// GT-FAMILY: two:TestFam is no test but a family split into parts
+// (TestFamPart0, TestFamPart1, as irspike's TestIRAgreesOnExamples is):
+// family-named names the family, which runs every part, and its
+// failing part kills it in the named pass (gtf-family-one-part,
+// gtf-family-start-unseen).
+//
 // It builds Go because the runner's whole job is to build and run go test
 // binaries on mutated copies; no in-process check stands in for that.
 func TestRunnerMatchesModel(t *testing.T) {
@@ -160,6 +166,8 @@ func generate(r *rand.Rand) fakeModule {
 		fakeTest{suite: "two", name: "TestPlain", calls: []string{"two.Plain"}, asserts: []string{"two.Plain"}, plainOnly: true},
 		fakeTest{suite: "one", name: "TestWord", reads: true},
 		fakeTest{suite: "two", name: "TestSpin", calls: []string{"two.Spin"}},
+		fakeTest{suite: "two", name: "TestFamPart0"},
+		fakeTest{suite: "two", name: "TestFamPart1", calls: []string{"two.Fam"}, asserts: []string{"two.Fam"}},
 	)
 	return m
 }
@@ -176,7 +184,7 @@ func (m fakeModule) source(pkg string) string {
 	if pkg == "one" {
 		b.WriteString("var greeting = \"hello\"\n\nvar farewell = \"bye\"\n\nfunc Greet() string { return greeting + farewell }\n")
 	} else {
-		b.WriteString("func Grow(n int) int { return n }\n\nfunc Plain() int { return 7 }\n\nfunc Spin() int { return 3 }\n")
+		b.WriteString("func Grow(n int) int { return n }\n\nfunc Plain() int { return 7 }\n\nfunc Spin() int { return 3 }\n\nfunc Fam() int { return 5 }\n")
 	}
 	return b.String()
 }
@@ -206,6 +214,9 @@ func (m fakeModule) testSource(pkg string) string {
 				continue
 			case "two.Grow":
 				fmt.Fprintf(&b, "\tif two.Grow(1) != 1 {\n\t\tt.Fatal(%q)\n\t}\n", fn)
+				continue
+			case "two.Fam":
+				fmt.Fprintf(&b, "\tif two.Fam() != 5 {\n\t\tt.Fatal(%q)\n\t}\n", fn)
 				continue
 			case "two.Plain":
 				fmt.Fprintf(&b, "\tif two.Plain() != 7 {\n\t\tt.Fatal(%q)\n\t}\n", fn)
@@ -525,6 +536,11 @@ func checkModel(t *testing.T, seed uint64, all bool) {
 		{&Mutant{Name: "spins", File: "two/f.go", From: "func Spin() int { return 3 }", To: "func Spin() int { return 4 }"},
 			expect{status: Hung, covering: []string{"two:TestSpin"}, detail: "two:TestSpin fail (a timeout, no kill)"}},
 		{&Mutant{Name: "plain-only", File: "two/f.go", From: "func Plain() int { return 7 }", To: "func Plain() int { return 8 }"}, m.model("two.Plain", false)},
+		// The row names the family; its named pass runs both parts, and
+		// TestFamPart1 fails (GT-FAMILY). With -all the coverage pass runs
+		// the part that covers Fam too.
+		{&Mutant{Name: "family-named", File: "two/f.go", From: "func Fam() int { return 5 }", To: "func Fam() int { return 6 }", Killers: []string{"two:TestFam"}},
+			expect{status: Killed, killers: familyKillers(all), covering: []string{"two:TestFam", "two:TestFamPart0", "two:TestFamPart1"}}},
 		// A mutant of a file that is not Go (std's .ergo sources) is in no
 		// block: the tests that read it (one:TestWord, its test log) and
 		// those its row names judge it. A named test that fails on the
@@ -765,6 +781,15 @@ func (p pass) check(t *testing.T, log io.Writer) []Result {
 		t.Errorf("seed %d: the checkout differs from HEAD after the run:\n%s", seed, status)
 	}
 	return results
+}
+
+// familyKillers are family-named's killers: the family alone, which
+// kills in the named pass; with -all the covering part too.
+func familyKillers(all bool) []string {
+	if all {
+		return []string{"two:TestFam", "two:TestFamPart1"}
+	}
+	return []string{"two:TestFam"}
 }
 
 func sameSet(a, b []string) bool {

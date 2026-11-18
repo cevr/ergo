@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -166,7 +167,9 @@ var hostWords = []string{"linux", "darwin", "unix", "windows", "amd64", "arm64",
 // runner can run, or "" when it does: SUITE:TEST with SUITE an ergo suite,
 // DIR or DIR[TAG] (a module directory, built with -tags=TAG) holding a
 // top-level TEST in a _test.go file built under that tag (a file with no constraint is built under every tag: EXPLORE-rt runs all of runtime/v1 under ergoexplore); or
-// examples:PROGRAM. A note after the test, past a space, is the reader's.
+// examples:PROGRAM. TEST may be a family whose parts are TESTPart0 … (a
+// test split to fit the gate's step limit). A note after the test, past a
+// space, is the reader's.
 // A DIR inside a nested Go module (selfhost's hostsyntax) is built in that
 // module (scripts/mutants nestedModule; batch-18 r4 M2). An id the runner cannot resolve makes it refuse the whole run
 // (fu-mutants-xpkg: 45 rows named v1:, main:, sched:, tsproj: … and were
@@ -222,8 +225,12 @@ func killerMissing(root, id string, cache map[string][]testFile) string {
 	if len(files) == 0 {
 		return "no test package " + dir + " (want DIR:Test, DIR[TAG]:Test, an ergo suite, or examples:PROGRAM)"
 	}
+	// A family split into parts (TestXPart0 …) is run as all its parts
+	// (scripts/mutants Suite.Families): a row names the family, so a split
+	// leaves its rows as they are.
+	parts := regexp.MustCompile(`\nfunc ` + regexp.QuoteMeta(test) + `(Part[0-9]+)?\(`)
 	for _, f := range files {
-		if strings.Contains(f.text, "\nfunc "+test+"(") {
+		if parts.MatchString(f.text) {
 			if f.tag != tag && f.constrained {
 				return "its file is built with tag " + strconv.Quote(f.tag) + ", the id names " + strconv.Quote(tag)
 			}
