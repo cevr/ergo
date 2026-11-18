@@ -311,6 +311,9 @@ func (v *Virtual) fire(t *virtualTimer) {
 		// The sleeper may return once fired is set and hand t to the next
 		// sleep (v.spare), so task was read before.
 		t.fired.Store(true)
+		if fireGap != nil {
+			fireGap()
+		}
 		task.wake.unpark()
 		return
 	}
@@ -330,6 +333,13 @@ func (v *Virtual) Steps() int {
 // looks. Only rt's tests set it (TestVirtualSleepTieEndsAsSleep); on
 // another host or under load a preemption opens the same window.
 var sleepGap func(*Task)
+
+// fireGap, when set, runs in fire between the store of fired and the
+// sleeper's wake: the window in which the sleeper, already awake, may see
+// fired, return and hand its timer on, clearing its task. Only rt's tests
+// set it (TestFireOutlivesItsSleep); a preemption opens the same window,
+// which the explored scheduler cannot: fire runs inside one step.
+var fireGap func()
 
 // sleep is Sleep on an auto clock: the sleeper parks when it is a member
 // of v, and an idle domain wakes it at its deadline. A stop ends the sleep
