@@ -169,12 +169,12 @@ func sizes(k Pkg) (int, int) {
 	(rows, calls)
 }
 
-// sigResult is a signature's result type: none for none, the tuple of
-// several (a tuple expression returned takes its parts).
+// sigResult is a signature's result type: none for no result, the tuple
+// of several (a tuple expression returned takes its parts).
 func sigResult(s store.Store, sig dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
 	let ops = store.OperandsOf(s, sig)
 	let r = ops[len(ops)-3]
-	if store.KindOfType(s, r) == store.KTuple { None } else { some(r) }
+	if store.KindOfType(s, r) == store.KTuple && len(store.OperandsOf(s, r)) == 0 { None } else { some(r) }
 }
 
 // params declares a function's parameters, named by names, with the
@@ -956,11 +956,14 @@ func exprType(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], w 
 				let n = syntax.Len(te.Elts)
 				let want = infer.Unmarked(*s, e.T)
 				if store.KindOfType(*s, want) == store.KTuple && len(store.OperandsOf(*s, want)) == n {
-					let parts = store.OperandsOf(*s, want)
+					// Each part is read just before its element is typed:
+					// a slice of the store's operands held across expr,
+					// which writes the store, keeps the store it read.
 					for i in 0..n {
-						expr(s, k, t, syntax.Item(tr, te.Elts, i), Exactly{T: parts[i]})
+						let part = operand(*s, want, i)
+						expr(s, k, t, syntax.Item(tr, te.Elts, i), Exactly{T: part})
 					}
-					return None
+					return some(want)
 				}
 			case _:
 			}
@@ -1038,7 +1041,12 @@ func binary(s mut store.Store, k Pkg, t mut Typer, b syntax.BinaryExpr, w Want) 
 		}
 		if cmp { some(boolT) } else if bt > 0 { ft } else { None }
 	case None:
-		expr(s, k, t, second, Unsure)
+		// An untyped first operand fixes nothing. A comparison's other
+		// operand that is no constant is typed on its own, as a bare
+		// generic literal's field values bind its arguments
+		// (`m.Get(k) == Some{Value: v}`); a constant would take a default
+		// type, where Go gives it the first operand's.
+		expr(s, k, t, second, if cmp && !isConst(k, t.file, second) { Free } else { Unsure })
 		if cmp { some(boolT) } else { None }
 	}
 }
