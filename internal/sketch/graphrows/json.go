@@ -1,0 +1,118 @@
+package graphrows
+
+import (
+	"encoding/json"
+	"fmt"
+)
+
+// The JSON of the rows (`ergo graph export --json`; docs/spec/graph.md):
+// one object per node and per edge, by id, with names written out and
+// kinds by name. Positions are the fields file, offset, line and column
+// of a row that has one; a key never reads them.
+type (
+	jsonTable struct {
+		Version int        `json:"version"`
+		Nodes   []jsonNode `json:"nodes"`
+		Edges   []jsonEdge `json:"edges"`
+	}
+	jsonNode struct {
+		ID      uint32  `json:"id"`
+		Kind    string  `json:"kind"`
+		Sub     string  `json:"sub,omitempty"`
+		Parent  *uint32 `json:"parent,omitempty"`
+		Name    string  `json:"name"`
+		Digest  string  `json:"digest,omitempty"`
+		Subject *uint32 `json:"subject,omitempty"`
+		jsonPos
+	}
+	jsonEdge struct {
+		Kind string `json:"kind"`
+		How  string `json:"how,omitempty"`
+		From uint32 `json:"from"`
+		To   uint32 `json:"to"`
+		jsonPos
+	}
+	jsonPos struct {
+		File   *uint32 `json:"file,omitempty"`
+		Offset uint32  `json:"offset,omitempty"`
+		Line   uint32  `json:"line,omitempty"`
+		Column uint32  `json:"column,omitempty"`
+	}
+)
+
+func id(n uint32) *uint32 {
+	if n == NoNode {
+		return nil
+	}
+	return &n
+}
+
+func posJSON(p Pos) jsonPos {
+	if p.File == NoNode {
+		return jsonPos{}
+	}
+	return jsonPos{File: id(p.File), Offset: p.Off, Line: p.Line, Column: p.Col}
+}
+
+// SubName is the name of a node's Sub.
+func (t *Table) SubName(n Node) string {
+	switch n.Kind {
+	case Decl:
+		return DeclKind(n.Sub).String()
+	case Task:
+		return TaskKind(n.Sub).String()
+	case Package:
+		if n.Sub == PackageGo {
+			return "go"
+		}
+	}
+	return ""
+}
+
+// MarshalJSON is the rows' JSON, edges in the canonical order (Sorted).
+func (t *Table) MarshalJSON() ([]byte, error) {
+	out := jsonTable{Version: Version, Nodes: make([]jsonNode, len(t.Nodes)), Edges: make([]jsonEdge, 0, len(t.Edges))}
+	for i, n := range t.Nodes {
+		out.Nodes[i] = jsonNode{ID: uint32(i), Kind: n.Kind.String(), Sub: t.SubName(n), Parent: id(n.Parent), Name: t.Str(n.Name), Digest: t.Str(n.Digest), Subject: id(n.Subject), jsonPos: posJSON(t.NodeAt[i])}
+	}
+	for _, i := range t.Sorted() {
+		e := t.Edges[i]
+		je := jsonEdge{Kind: e.Kind.String(), From: e.From, To: e.To, jsonPos: posJSON(t.EdgeAt[i])}
+		if e.Kind == Uses {
+			je.How = e.How.String()
+		}
+		out.Edges = append(out.Edges, je)
+	}
+	return json.Marshal(out)
+}
+
+// Text is a line per node and per edge, the edges in canonical order,
+// for a reader: `n<ID> <kind>[/<sub>] <name> [in n<parent>]` and
+// `<kind>[/<how>] n<from> -> n<to> [file:line:column]`.
+func (t *Table) Text() string {
+	var b []byte
+	for i, n := range t.Nodes {
+		b = fmt.Appendf(b, "n%d %s", i, n.Kind)
+		if s := t.SubName(n); s != "" {
+			b = fmt.Appendf(b, "/%s", s)
+		}
+		b = fmt.Appendf(b, " %s", t.Str(n.Name))
+		if n.Parent != NoNode {
+			b = fmt.Appendf(b, " in n%d", n.Parent)
+		}
+		b = append(b, '\n')
+	}
+	for _, i := range t.Sorted() {
+		e := t.Edges[i]
+		b = fmt.Appendf(b, "%s", e.Kind)
+		if e.Kind == Uses {
+			b = fmt.Appendf(b, "/%s", e.How)
+		}
+		b = fmt.Appendf(b, " n%d -> n%d", e.From, e.To)
+		if at := t.EdgeAt[i]; at.File != NoNode {
+			b = fmt.Appendf(b, " %s:%d:%d", t.Str(t.Nodes[at.File].Name), at.Line, at.Col)
+		}
+		b = append(b, '\n')
+	}
+	return string(b)
+}
