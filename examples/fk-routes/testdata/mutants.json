@@ -224,6 +224,22 @@
       "to": "link(f, \"Home\", route.Print(route.Nested))",
       "rule": "The navigation's Home link goes home (law BackRestoresRoute; no case clicks it).",
       "anchor": {"tests": ["examples:fk-routes"]}, "killers": ["examples:fk-routes"]
+    },
+    {
+      "name": "ugb22-openat-not-opened",
+      "origin": "wf10 UG-B22",
+      "file": "internal/sketch/std/ui/testhost.ergo",
+      "from": "\tReplace(h.history, ParseURL(href))\n\th.opened = true\n}",
+      "to": "\tReplace(h.history, ParseURL(href))\n}",
+      "rule": "OpenAt opens the session, so the first link or typed address after the start pushes (law BackRestoresRoute; cases scenes, tour, badscript: \"1 behind\").",
+      "anchor": {
+        "tests": [
+          "examples:fk-routes"
+        ]
+      },
+      "killers": [
+        "examples:fk-routes"
+      ]
     }
   ]
 }

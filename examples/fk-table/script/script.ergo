@@ -82,7 +82,7 @@ func Run(clock time.Manual, stats bool) int needs Console | io.Stdin | Scheduler
 func played(site Site, gone queue.Queue[[]explorer.Command], lines []string, first int, address string, clock time.Manual, stats bool) int fails actor.Stopped | ui.BadPatch needs Console | Scheduler {
 	let mut h = try ui.NewTestHost(site, screen.Screen, clock, 16)
 	// The browser opens at the start address: the history's first entry.
-	ui.Replace(ui.History(&h), ui.ParseURL(address))
+	ui.OpenAt(&h, address)
 	try ui.Settle(&h)
 	let mut shown = []string{}
 	Console.Println("> start \(address)")
