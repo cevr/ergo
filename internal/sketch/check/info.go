@@ -838,6 +838,12 @@ const (
 	// Machine[S, E, O, F, R, W] (README Gap 46): Table["Step"] is the
 	// machine's step function.
 	ConvMachine
+	// ConvNarrow puts a function value into a function type whose
+	// parameters it takes, except that where the type's parameter is a row
+	// value of one error type the value's parameter is that type
+	// (narrowsRowParams): the type's function narrows each such row value to
+	// its one type and calls the value.
+	ConvNarrow
 )
 
 // Conversion is an implicit conversion at an assignment site: From's value
