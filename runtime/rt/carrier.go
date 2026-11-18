@@ -59,6 +59,7 @@ func RestartOn[T any](h *Handle[T], c *Carrier, parent *Task, span string, b Bod
 	if job == nil {
 		job = func() { h.run(b) }
 	}
+	Spread() // before the job reaches another goroutine (alone.go; I-FLIP: REF-ALONE x PARK's carrier)
 	c.run(h, job)
 	return h
 }

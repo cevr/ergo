@@ -31,6 +31,7 @@ type Group struct {
 // NewGroup makes a group under parent, on parent's goroutine. span names
 // it in defect chains and traces.
 func NewGroup(parent *Task, span string) *Group {
+	Spread() // its members run on goroutines the host starts (alone.go)
 	g := &Group{}
 	g.task.init(parent, span, false, false)
 	// The group runs nothing and never waits, so it is no live member of
