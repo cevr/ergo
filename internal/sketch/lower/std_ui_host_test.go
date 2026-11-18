@@ -4693,7 +4693,7 @@ func lawHoverCostsNoPass(seed int) bool {
 		let mut r = seeded(seed)
 		let n = draw(&r, 6) + 2
 		let view = func(f *ui.Frame[int], s int) { hoverScreen(f, s, n) }
-		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {})
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = ui.NewTestHost(a, view, m, 4) catch {
 		case ui.BadPatch:
 			return false
@@ -4777,7 +4777,7 @@ func lawPointerCrossesOnce(seed int) bool {
 		let mut r = seeded(seed)
 		let n = draw(&r, 4) + 2
 		let view = func(f *ui.Frame[int], s string) { crossScreen(f, n) }
-		let a = actor.StartMachine(Machine[string, int, int]{Initial: "", Step: crossStep, After: crossTimer, Work: crossWork}, 1, func(o int) {})
+		let a = actor.StartMachine(Machine[string, int, int]{Initial: "", Step: crossStep, After: crossTimer, Work: crossWork, Exit: func(at string) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = ui.NewTestHost(a, view, m, 4) catch {
 		case ui.BadPatch:
 			return false
@@ -4904,7 +4904,7 @@ func lawFocusFollowsTheRing(seed int, steps int) bool {
 		let ks = kinds
 		let ss = sizes
 		let view = func(f *ui.Frame[int], s int) { ringScreen(f, s, ks, ss) }
-		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {})
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = ui.NewTestHost(a, view, m, 4) catch {
 		case ui.BadPatch:
 			return false
@@ -5036,7 +5036,7 @@ func lawFocusStaysInScope(seed int, steps int) bool {
 		let outs = draw(&r, 4) + 1
 		let ins = draw(&r, 4) + 1
 		let view = func(f *ui.Frame[int], s int) { scopeScreen(f, s, outs, ins) }
-		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {})
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = ui.NewTestHost(a, view, m, 4) catch {
 		case ui.BadPatch:
 			return false
@@ -5086,7 +5086,7 @@ func lawFocusReturnsOnEnd(seed int) bool {
 		let outs = draw(&r, 4) + 1
 		let ins = draw(&r, 3) + 1
 		let view = func(f *ui.Frame[int], s int) { scopeScreen(f, s, outs, ins) }
-		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {})
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = ui.NewTestHost(a, view, m, 4) catch {
 		case ui.BadPatch:
 			return false
@@ -5159,7 +5159,7 @@ func lawFocusGoesWhereAsked(seed int) bool {
 	with context { Scheduler: m } {
 		let n = draw(&r, 4) + 2
 		let view = func(f *ui.Frame[int], s int) { askScreen(f, s, n) }
-		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {})
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = ui.NewTestHost(a, view, m, 4) catch {
 		case ui.BadPatch:
 			return false
