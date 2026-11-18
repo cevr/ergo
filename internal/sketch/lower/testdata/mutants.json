@@ -5882,8 +5882,8 @@
       "from": "\tif check.AsWritten(f) {\n",
       "to": "\tif false && check.AsWritten(f) {\n",
       "rule": "types.md Laws 14.2: the lowering never inlines a function marked // ergo:aswritten, so its call stays a call while the laws rewrite.",
-      "anchor": {"tests":["lower:TestRewriteAtTakesOneDecision"]},
-      "killers": ["lower:TestRewriteAtTakesOneDecision"]
+      "anchor": {"tests":["lower:TestInlineRule"]},
+      "killers": ["lower:TestInlineRule"]
     }
   ]
 }
