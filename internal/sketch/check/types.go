@@ -478,7 +478,8 @@ func (t *Slice) String() string { return "[]" + t.Elem.String() }
 func (t *Array) String() string {
 	return "[" + strconv.FormatInt(t.Len, 10) + "]" + t.Elem.String()
 }
-func (t *Map) String() string     { return "Map[" + t.Key.String() + ", " + t.Elem.String() + "]" }
+func (t *Map) String() string { return "Map[" + t.Key.String() + ", " + t.Elem.String() + "]" }
+
 // A borrow prints as Ergo writes it, the mode word mut before the type
 // (MODES-2, q169), so a message and a generated source say mut T.
 func (t *Pointer) String() string { return "mut " + t.Elem.String() }
