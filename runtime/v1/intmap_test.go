@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"math/rand/v2"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -118,6 +119,53 @@ func intMapSame[K Integer](m *IntMap[K, int], ref map[K]int) string {
 		return sprint("All yields entries:", len(seen))
 	}
 	return ""
+}
+
+// TestIntMapSeedShowsOnlyAsOrder: the process seed (one per process,
+// MI-1 ruling) reaches nothing a program reads except the order of All.
+// The same seeded steps run under two seeds give the same Get, Len,
+// IntMapEqual and entries; for some seed pair the order of All differs,
+// so the order is the seed's and not the keys' alone.
+func TestIntMapSeedShowsOnlyAsOrder(t *testing.T) {
+	defer func(s uint64) { intMapSeed = s }(intMapSeed)
+	run := func(seed, steps uint64) (seen []string, order []int) {
+		intMapSeed = seed
+		r := rand.New(rand.NewPCG(steps, 7))
+		m, c := NewIntMap[int, int](0), NewIntMap[int, int](0)
+		for i := 0; i < 400; i++ {
+			k := r.IntN(90) - 20
+			switch r.IntN(4) {
+			case 0, 1:
+				m.Put(k, i)
+			case 2:
+				m.Delete(k)
+			default:
+				c = m.Clone()
+				c.Put(k, -i)
+			}
+			v, ok := m.Get(k)
+			seen = append(seen, fmt.Sprint(v, ok, m.Len(), IntMapEqual(m, c, func(a, b int) bool { return a == b })))
+		}
+		entries := map[int]int{}
+		for k, v := range m.All() {
+			entries[k] = v
+			order = append(order, k)
+		}
+		seen = append(seen, fmt.Sprint(entries)) // fmt prints a Go map in key order
+		return seen, order
+	}
+	reordered := false
+	for steps := uint64(1); steps <= 20; steps++ {
+		a, orderA := run(0x5eed, steps)
+		b, orderB := run(0x5eed^steps*0x9E3779B97F4A7C15, steps)
+		if !slices.Equal(a, b) {
+			t.Fatalf("steps %d: a result other than iteration order depends on the seed", steps)
+		}
+		reordered = reordered || !slices.Equal(orderA, orderB)
+	}
+	if !reordered {
+		t.Fatal("no two seeds iterate in different orders: the seed does not reach the table")
+	}
 }
 
 // TestIntMapNil: a nil IntMap reads as the empty map and Put on it is Go's
