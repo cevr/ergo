@@ -749,9 +749,10 @@ func TestActorSendersKeepTheirOrder(t *testing.T) {
 }
 
 // TestActorWaitsAreInterruptible: a Send waiting for room, an Ask waiting
-// for its answer, a State read waiting for its answer and a Changes loop
-// waiting for a change each end with an interruption when their task is
-// stopped; the stopped Send's signal never enters the inbox.
+// for its answer, a State read waiting for its answer and a Changes,
+// ActorChanges or LatestChanges loop waiting for a change each end with an
+// interruption when their task is stopped; the stopped Send's signal never
+// enters the inbox.
 func TestActorWaitsAreInterruptible(t *testing.T) {
 	for _, capacity := range []int{0, 4} {
 		root := rt.Root("waits")
@@ -773,6 +774,16 @@ func TestActorWaitsAreInterruptible(t *testing.T) {
 				for range a.Changes(w, everyState) {
 				}
 			}},
+			// std actor's changesOf and LatestChanges (F-GP4c-1) wait
+			// on the same subscription, on the iterating task.
+			{"ActorChanges", func(w *rt.Task) {
+				for range ActorChanges(w, a, everyState, func([]int) int { return 0 }, func(int) int { return 0 }) {
+				}
+			}},
+			{"LatestChanges", func(w *rt.Task) {
+				for range a.LatestChanges(w) {
+				}
+			}},
 		}
 		for _, wt := range waits {
 			if capacity == 4 && wt.name == "Send" {
@@ -785,7 +796,7 @@ func TestActorWaitsAreInterruptible(t *testing.T) {
 			}
 			parkedBefore, queuedBefore := 0, a.inbox.Len()
 			go func() { done <- interruptedBy(func() { wt.op(w) }) }()
-			if capacity == 0 && wt.name != "Changes" {
+			if capacity == 0 && (wt.name == "Send" || wt.name == "Ask" || wt.name == "State") {
 				// The operation is proven waiting for room before the stop.
 				for inboxParked(a) == parkedBefore {
 					runtime.Gosched()
