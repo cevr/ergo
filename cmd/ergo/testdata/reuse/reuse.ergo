@@ -153,7 +153,7 @@ type Store {
 	All() []Job,
 }
 
-type Shelf { jobs []Job }
+type Shelf { jobs []Job } implements Store
 
 func All(s Shelf) []Job { s.jobs }
 

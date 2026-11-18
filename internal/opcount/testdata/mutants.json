@@ -172,6 +172,7 @@
       "to": "if d := c - i; false && (d > PartsTolerance*i || -d > PartsTolerance*i) {",
       "rule": "Parts whose sampling events did not count the run the counting event counted are refused (PartsShort): the law that the parts sum to the run's instructions.",
       "killers": ["internal/opcount:TestShortPartsAreRefused"]
-    }
+    },
+    {"name":"gtd-darwin-countself-twice","origin":"wf10 GATE2 GT-DARWIN","file":"internal/opcount/counter_other.go","from":"// Available reports that only Linux counts instructions here.\n","to":"// CountSelf runs f; off Linux it counts nothing (-1).\nfunc CountSelf(f func()) int64 {\n\tf()\n\treturn -1\n}\n\n// Available reports that only Linux counts instructions here.\n","rule":"cmd/ergo and every package it imports compile on macOS (arm64 and amd64), not only on the Linux gate: a merge once declared CountSelf twice in the off-Linux counter.","killers":["scripts/gate:TestErgoCompilesOnEveryPlatform"]}
   ]
 }
