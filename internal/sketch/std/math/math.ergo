@@ -1,10 +1,11 @@
 // Package math is Go's math for float64 (docs/spec/stdlib.md, math and
 // bits; std-text-runes). Its functions call Go's math through import
 // go, as a user binds it (NP4f), so a call compiles to Go's own call, an
-// instruction for Floor, Ceil, Trunc, Sqrt and Abs on amd64 and arm64; the
-// externs ToInt … ToUintptr bind runtime/v1 bodies (runtime/v1/numbers.go),
-// guarded conversions, until an Ergo body counts within 1.02 of them
-// (std-go-share.txt names why). Go's constants are functions here
+// instruction for Floor, Ceil, Trunc, Sqrt and Abs on amd64 and arm64.
+// ToInt … ToUintptr are Ergo (NP4f-16): each guards T(f) with the open
+// interval in which the truncation fits, the compares of runtime/v1's
+// FloatToT fast path, so Go's prove pass drops the helper's own compares
+// and the conversion is one Go conversion. Go's constants are functions here
 // (MaxInt64()): a std package let has no Go name in a build yet.
 
 import go math
@@ -86,37 +87,92 @@ extern go ergo.local/prototype/runtime/v1.MathOutOfRange type OutOfRange { Value
 // caller that must know. byte is ToUint8 and rune is ToInt32.
 
 // ToInt is the checked int(f).
-extern go ergo.local/prototype/runtime/v1.MathToInt func ToInt(f float64) int fails OutOfRange
+func ToInt(f float64) int fails OutOfRange {
+	if f < 9223372036854775808.0 && f >= -9223372036854775808.0 {
+		return int(int64(f))
+	}
+	OutOfRange{Value: f}
+}
 
 // ToInt8 is the checked int8(f).
-extern go ergo.local/prototype/runtime/v1.MathToInt8 func ToInt8(f float64) int8 fails OutOfRange
+func ToInt8(f float64) int8 fails OutOfRange {
+	if f > -129.0 && f < 128.0 {
+		return int8(f)
+	}
+	OutOfRange{Value: f}
+}
 
 // ToInt16 is the checked int16(f).
-extern go ergo.local/prototype/runtime/v1.MathToInt16 func ToInt16(f float64) int16 fails OutOfRange
+func ToInt16(f float64) int16 fails OutOfRange {
+	if f > -32769.0 && f < 32768.0 {
+		return int16(f)
+	}
+	OutOfRange{Value: f}
+}
 
 // ToInt32 is the checked int32(f).
-extern go ergo.local/prototype/runtime/v1.MathToInt32 func ToInt32(f float64) int32 fails OutOfRange
+func ToInt32(f float64) int32 fails OutOfRange {
+	if f > -2147483649.0 && f < 2147483648.0 {
+		return int32(f)
+	}
+	OutOfRange{Value: f}
+}
 
 // ToInt64 is the checked int64(f).
-extern go ergo.local/prototype/runtime/v1.MathToInt64 func ToInt64(f float64) int64 fails OutOfRange
+func ToInt64(f float64) int64 fails OutOfRange {
+	if f < 9223372036854775808.0 && f >= -9223372036854775808.0 {
+		return int64(f)
+	}
+	OutOfRange{Value: f}
+}
 
 // ToUint is the checked uint(f).
-extern go ergo.local/prototype/runtime/v1.MathToUint func ToUint(f float64) uint fails OutOfRange
+func ToUint(f float64) uint fails OutOfRange {
+	if f > -1.0 && f < 18446744073709551616.0 {
+		return uint(uint64(f))
+	}
+	OutOfRange{Value: f}
+}
 
 // ToUint8 is the checked uint8(f).
-extern go ergo.local/prototype/runtime/v1.MathToUint8 func ToUint8(f float64) uint8 fails OutOfRange
+func ToUint8(f float64) uint8 fails OutOfRange {
+	if f > -1.0 && f < 256.0 {
+		return uint8(f)
+	}
+	OutOfRange{Value: f}
+}
 
 // ToUint16 is the checked uint16(f).
-extern go ergo.local/prototype/runtime/v1.MathToUint16 func ToUint16(f float64) uint16 fails OutOfRange
+func ToUint16(f float64) uint16 fails OutOfRange {
+	if f > -1.0 && f < 65536.0 {
+		return uint16(f)
+	}
+	OutOfRange{Value: f}
+}
 
 // ToUint32 is the checked uint32(f).
-extern go ergo.local/prototype/runtime/v1.MathToUint32 func ToUint32(f float64) uint32 fails OutOfRange
+func ToUint32(f float64) uint32 fails OutOfRange {
+	if f > -1.0 && f < 4294967296.0 {
+		return uint32(f)
+	}
+	OutOfRange{Value: f}
+}
 
 // ToUint64 is the checked uint64(f).
-extern go ergo.local/prototype/runtime/v1.MathToUint64 func ToUint64(f float64) uint64 fails OutOfRange
+func ToUint64(f float64) uint64 fails OutOfRange {
+	if f > -1.0 && f < 18446744073709551616.0 {
+		return uint64(f)
+	}
+	OutOfRange{Value: f}
+}
 
 // ToUintptr is the checked uintptr(f).
-extern go ergo.local/prototype/runtime/v1.MathToUintptr func ToUintptr(f float64) uintptr fails OutOfRange
+func ToUintptr(f float64) uintptr fails OutOfRange {
+	if f > -1.0 && f < 18446744073709551616.0 {
+		return uintptr(uint64(f))
+	}
+	OutOfRange{Value: f}
+}
 
 // FloorCeilBracket: a finite f lies between its Floor and its Ceil, which
 // are at most 1 apart.
