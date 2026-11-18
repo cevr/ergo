@@ -99,7 +99,10 @@ language	internal/sketch/check/entry.go:isPreludeMachine	Machine, by declaration
 language	internal/sketch/check/entry.go:isPreludeMachineValue	Machine and InputMachine, by declaration	-
 language	internal/sketch/check/expr.go:checker.compositeLit	the predeclared Map's provider form: the prelude writes its table as the record	-
 language	internal/sketch/check/laws.go:Law.Title	a prelude law is named unqualified, as prelude names are written	-
-language	internal/sketch/check/mapprovider.go:IsProviderMap	hashTable, the predeclared Map's provider form	-
+language	internal/sketch/check/mapprovider.go:providerParts	hashTable and keyTable, the predeclared Map's provider forms	-
+language	internal/sketch/check/mapprovider.go:checker.providerEqual	the prelude compares its Map records as records; a program's == of provider Maps is the table's Equal	-
+language	internal/sketch/check/mapshape.go:checker.normalKeyDecl	normalKeyed, the prelude's operation type of a normal-form provider	-
+language	internal/sketch/check/mapshape.go:checker.writeShapes	normalKeyed, the prelude's operation type of a normal-form provider; the prelude derives no normal form	-
 language	internal/sketch/check/mapprovider.go:checker.isStructural	Structural, the predeclared Map's default provider	-
 language	internal/sketch/check/mapprovider.go:checker.preludeTypeObj	the prelude's Map types, from its scope in its own check	-
 language	internal/sketch/eval/cases.go:qualifiedLaw	a prelude law is named unqualified, as prelude names are written	-

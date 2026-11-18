@@ -584,3 +584,6 @@ internal/sketch/stdlib/testdata/mutants.json	laid over the candidate's wire form
 internal/sketch/stdlib/testdata/mutants.json	The wire fast path:
 internal/sketch/stdlib/testdata/mutants.json	takes in every part of its wire form
 docs/spec/stdlib.md	func FitOf[T wire](v T, obs json.Value) Fit
+docs/spec/types.md	which has no wire form yet"), so its TS projection
+internal/sketch/check/mapshape_test.go	does not satisfy wire: it is a Map with a provider
+internal/sketch/check/mapshape_test.go	which has no wire form yet"},

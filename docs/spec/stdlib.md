@@ -2236,7 +2236,10 @@ The standard library is an ordinary set of packages ([NORTH_STAR.md](../../NORTH
 | `internal/sketch/check/entry.go:isPreludeMachineValue` | `Machine` and `InputMachine`, by declaration |
 | `internal/sketch/check/expr.go:checker.compositeLit` | the Map's provider form `hashTable`, which the prelude writes as its record |
 | `internal/sketch/check/laws.go:Law.Title` | a prelude law, named unqualified |
-| `internal/sketch/check/mapprovider.go:IsProviderMap` | `hashTable`, the Map's provider form ([types](types.md#maps), Maps 5) |
+| `internal/sketch/check/mapprovider.go:providerParts` | `hashTable` and `keyTable`, the Map's provider forms ([types](types.md#maps), Maps 5 and 6) |
+| `internal/sketch/check/mapprovider.go:checker.providerEqual` | `==` of provider Maps is the table's `Equal`; the prelude compares its records as records ([types](types.md#maps), Maps 3) |
+| `internal/sketch/check/mapshape.go:checker.normalKeyDecl` | `normalKeyed`, the prelude's operation type of a normal-form provider ([types](types.md#maps), Maps 6) |
+| `internal/sketch/check/mapshape.go:checker.writeShapes` | `normalKeyed`; the prelude's own providers get no derived normal form ([types](types.md#maps), Maps 6) |
 | `internal/sketch/check/mapprovider.go:checker.isStructural` | `Structural`, the Map's default provider |
 | `internal/sketch/check/mapprovider.go:checker.preludeTypeObj` | the prelude's Map types, from its scope in its own check |
 | `internal/sketch/eval/cases.go:qualifiedLaw` | a prelude law, named unqualified |
