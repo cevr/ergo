@@ -17,7 +17,7 @@ import "embed"
 //go:embed fs/*.ergo fstest/*.ergo
 //go:embed io/*.ergo term/*.ergo prompt/*.ergo
 //go:embed utf8/*.ergo
-//go:embed flag/*.ergo
+//go:embed flag/*.ergo api/*.ergo
 //go:embed maps/*.ergo cmp/*.ergo set/*.ergo
 //go:embed rand/*.ergo
 //go:embed sync/*.ergo
