@@ -21,6 +21,14 @@ import (
 // -ldflags=-X=ergo.local/prototype/internal/sketch/lower.spawnLowering=closure.
 var spawnLowering string
 
+// SetSpawnLoweringForTest sets spawnLowering for a test and returns the
+// previous mode ("" GoWith, "closure" the reference).
+func SetSpawnLoweringForTest(mode string) string {
+	old := spawnLowering
+	spawnLowering = mode
+	return old
+}
+
 // spawnWith is call, v1.Go of the adapter literal of a block the IR built
 // from the local mark on, as v1.GoWith of the block's captures, or call
 // itself when the block captures nothing or uses a captured local in any
