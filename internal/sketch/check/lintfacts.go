@@ -287,6 +287,58 @@ func IsTimeoutExpired(t Type) bool {
 // IsTimeoutPackage reports std's timeout package.
 func IsTimeoutPackage(p *Package) bool { return p.Std() && p.Path == "timeout" }
 
+// IsBoolean reports whether t is bool or a type defined over it.
+func IsBoolean(t Type) bool { return isBoolean(t) }
+
+// IsString reports whether t is string or a type defined over it.
+func IsString(t Type) bool { return isString(t) }
+
+// SelectedField is the record field x selects, as its declaration has it
+// (an instance's field is its origin's), and the package that declares
+// the record; nil when x selects no field.
+func SelectedField(info *Info, x *syntax.SelectorExpr) (*Field, *Package) {
+	return recordField(info.Types[x.X], x.Sel)
+}
+
+// KeyedField is the record field a keyed element of the composite literal
+// lit names, and the package that declares the record; nil when lit is
+// no record or key no field of it.
+func KeyedField(info *Info, lit *syntax.CompositeLit, key *syntax.Ident) (*Field, *Package) {
+	return recordField(info.Types[lit], key)
+}
+
+func recordField(t Type, name *syntax.Ident) (*Field, *Package) {
+	if p, ok := t.(*Pointer); ok {
+		t = p.Elem
+	}
+	n, ok := t.(*Named)
+	if !ok || n.origin().Obj == nil {
+		return nil, nil
+	}
+	s, ok := n.origin().underlying().(*Struct)
+	if !ok {
+		return nil, nil
+	}
+	f, _ := s.field(name.Name)
+	if f == nil {
+		return nil, nil
+	}
+	return f, n.origin().Obj.Pkg
+}
+
+// OperationType reports whether tn declares an operation type.
+func OperationType(tn *TypeName) bool {
+	n, ok := tn.Type.(*Named)
+	if !ok {
+		return false
+	}
+	it, ok := n.underlying().(*Interface)
+	return ok && it.obj == tn
+}
+
+// Implements are the operation types n's implements clause names.
+func (n *Named) Implements() []*Named { return n.origin().impls }
+
 func isStdObj(o *TypeName, path, name string) bool {
 	return o != nil && o.Pkg.Std() && o.Pkg.Path == path && o.Name == name
 }
