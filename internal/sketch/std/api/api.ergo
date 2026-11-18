@@ -44,6 +44,79 @@ func Exit(o Output) fails os.Exit needs Console {
 	try ExitOf(o)
 }
 
+// ExitAs is Exit for the program named program: an os.Exit's message
+// starts "program: ", as a command line names itself on standard error.
+func ExitAs(program string, o Output) fails os.Exit needs Console {
+	if o.Out != "" {
+		Console.Println(strings.TrimSuffix(o.Out, "\n"))
+	}
+	ExitOf(o) catch {
+	case os.Exit as e:
+		return os.Exit{Code: e.Code, Message: program + ": " + e.Message}
+	}
+}
+
+// Shell is a shell a completion script is written for.
+type Shell = Bash{} | Zsh{} | Fish{}
+
+// Entry is one command of a completion: its name and its doc comment,
+// whose first line describes it.
+type Entry { Name string, Doc string }
+
+// Completion is the script that completes the first word of program's
+// command line in shell with the commands' names (zsh and fish show each
+// doc's first line beside its name).
+func Completion(program string, shell Shell, commands []Entry) string {
+	match shell {
+	case Bash:
+		let mut names = []string{}
+		for c in commands {
+			names = names.Append(c.Name)
+		}
+		"complete -W \"" + strings.Join(names, " ") + "\" " + program + "\n"
+	case Zsh:
+		let mut out = "#compdef " + program + "\nlocal -a commands\ncommands=(\n"
+		for c in commands {
+			out = out + "  '" + c.Name + ":" + strings.ReplaceAll(strings.ReplaceAll(firstLine(c.Doc), "'", ""), ":", "\\:") + "'\n"
+		}
+		out + ")\n_describe 'command' commands\n"
+	case Fish:
+		let mut out = ""
+		for c in commands {
+			out = out + "complete -c " + program + " -n __fish_use_subcommand -f -a " + c.Name + " -d '" + strings.ReplaceAll(firstLine(c.Doc), "'", "") + "'\n"
+		}
+		out
+	}
+}
+
+// firstLine is s up to its first line break.
+func firstLine(s string) string {
+	let i = strings.Index(s, "\n")
+	if i < 0 {
+		return s
+	}
+	s[0:i]
+}
+
+// CompletionNamesEachCommand: the script of every shell names each
+// command, and its line, in the commands' order.
+law CompletionNamesEachCommand(words []string, shell Shell) {
+	let mut commands = []Entry{}
+	for w in words {
+		commands = commands.Append(Entry{Name: word(w), Doc: "does " + w + "\nmore"})
+	}
+	let text = Completion("prog", shell, commands)
+	let mut at = 0
+	for c in commands {
+		let i = strings.Index(text[at:], c.Name)
+		if i < 0 {
+			return false
+		}
+		at = at + i + len(c.Name)
+	}
+	!strings.Contains(text, "\nmore")
+}
+
 // ExitKeepsTheCode: a status of 0 ends with no failure, one of 1..125 is
 // the os.Exit of that code, and any other is 1.
 law ExitKeepsTheCode(o Output) {
