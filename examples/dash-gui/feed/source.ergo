@@ -6,7 +6,7 @@
 // what a queue drops never depends on how the tasks are scheduled, and a
 // seed replays the run exactly.
 
-import dash/panel
+import ergo.local/prototype/examples/dashgui/panel
 import queue
 import slices
 

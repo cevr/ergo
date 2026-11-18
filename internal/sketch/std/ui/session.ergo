@@ -1,6 +1,7 @@
 import actor
 import sync
 import task
+import testing
 
 // Session is the loop of one view over one actor, whatever the host: the
 // frame, the actor whose state the view shows, the view, where the
@@ -12,19 +13,22 @@ import task
 // shows, and run counts the actors it has run, so the end of an earlier
 // one is told apart.
 type Session[S, E, D, F] {
-	frame       Frame[E],
-	actor       actor.Actor[S, E, D, F],
-	view        func(f *Frame[E], s S),
-	post        func(ev Event[E]),
-	inflight    Map[int, Task[bool]],
-	stale       sync.Ref[bool],
+	frame    Frame[E],
+	actor    actor.Actor[S, E, D, F],
+	view     func(f *Frame[E], s S),
+	post     func(ev Event[E]),
+	inflight Map[int, Task[bool]],
+	stale    sync.Ref[bool],
+	// shown is the actor's Version when the last pass read its state: a
+	// commit raises it, so the session draws each state once (FK2-g2).
+	shown       sync.Ref[int],
 	watch       Task[bool],
-	exit        func(a actor.Actor[S, E, D, F]) Option[Crash[F]],
+	exit        func(a actor.Actor[S, E, D, F]) Option[CrashCause[F]],
 	alive       func(a actor.Actor[S, E, D, F], e E) bool,
 	fresh       Option[func() actor.Actor[S, E, D, F]],
-	crashView   func(f *Frame[E], c Crash[F]),
-	report      func(c Crash[F]),
-	crash       Option[Crash[F]],
+	crashView   func(f *Frame[E], c Crash[S, E, F]),
+	report      func(c Crash[S, E, F]),
+	crash       Option[Crash[S, E, F]],
 	run         int,
 	signals     int,
 	passSignals int,
@@ -34,7 +38,7 @@ type Session[S, E, D, F] {
 // fetches; post gets each fetch's result as an Arrived event, on the
 // fetch's task, and a Committed when the actor commits a state by its own
 // work or timer (DOMAIN PX3a: a work's reply is shown), on the session's
-// watcher task, which reads a.Changes(): every state change redraws, as
+// watcher task, which reads a.LatestChanges(): every state change redraws, as
 // every Msg does in Elm, and a commit the loop's own signal made already
 // redraws through Step. The result is the first patch. The view may need
 // capabilities (H8b, Q16): Start's caller has them in force, and every
@@ -49,17 +53,17 @@ func Start[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], view own func(f 
 			view(f, st)
 		}
 	}
-	let mut s = Session[S, E, D, F]{frame: NewFrame[E](), actor: a, view: shown, post: post, inflight: Map[int, Task[bool]]{}, stale: sync.NewRef(false), watch: task.Go() { true }, exit: noExit[S, E, D, F], alive: running[S, E, D, F], fresh: None, crashView: PlainCrash[E, F], report: noReport[F], crash: None, run: 0, signals: 0, passSignals: 0}
+	let mut s = Session[S, E, D, F]{frame: NewFrame[E](), actor: a, view: shown, post: post, inflight: Map[int, Task[bool]]{}, stale: sync.NewRef(false), shown: sync.NewRef(-1), watch: task.Go() { true }, exit: noExit[S, E, D, F], alive: running[S, E, D, F], fresh: None, crashView: PlainCrash[S, E, F], report: noReport[S, E, F], crash: None, run: 0, signals: 0, passSignals: 0}
 	watchActor(&s)
 	let ops = runPass(&s)
 	(s, ops)
 }
 
-func noExit[S, E, D, F](a actor.Actor[S, E, D, F]) Option[Crash[F]] { None }
+func noExit[S, E, D, F](a actor.Actor[S, E, D, F]) Option[CrashCause[F]] { None }
 
 func running[S, E, D, F](a actor.Actor[S, E, D, F], e E) bool { true }
 
-func noReport[F](c Crash[F]) {}
+func noReport[S, E, F](c Crash[S, E, F]) {}
 
 // watchActor starts the watcher of the session's actor: it marks the
 // session stale at each state the actor commits and posts one Committed
@@ -72,7 +76,10 @@ func watchActor[E comparable, S, D, F](s *Session[S, E, D, F]) {
 	let stale = s.stale
 	let run = s.run
 	s.watch = task.Go() {
-		for _ in a.Changes() {
+		// LatestChanges: the watcher wants the current state, not the
+		// history, so a watcher its host blocks keeps one state, not every
+		// state the actor commits meanwhile (F-GP4c-1).
+		for _ in a.LatestChanges() {
 			if !sync.Modify(stale, func(b bool) (bool, bool) { (b, true) }) {
 				post(Committed)
 			}
@@ -82,16 +89,45 @@ func watchActor[E comparable, S, D, F](s *Session[S, E, D, F]) {
 	}
 }
 
+// newer is whether the actor committed a state after the one the last
+// pass read.
+func newer[E comparable, S, D, F](s *Session[S, E, D, F]) bool { s.actor.Version() > s.shown.Get() }
+
+// versioned is the actor's state and a Version no later than it: exact
+// when no commit came between the reads around it, which a State read
+// waiting for the session's own signal makes the common case, so the
+// pass of a press is the press's only pass. A Version too low costs one
+// more pass; one too high would lose a commit, so it is never guessed.
+// The point "ui.versioned" lies between a state read and the version
+// read after it, where a commit makes them disagree (RT-HOOK;
+// VersionedNeverRunsAhead lands one there).
+func versioned[S, E, D, F](a actor.Actor[S, E, D, F]) (S, int) {
+	let mut v = a.Version()
+	for _ in 0..3 {
+		let st = a.State()
+		testing.Point("ui.versioned")
+		let w = a.Version()
+		if w == v {
+			return (st, v)
+		}
+		v = w
+	}
+	(a.State(), v)
+}
+
 // runPass renders the actor's state (the crash view of the crash, once
 // the actor crashed), then starts each Fetch of the commit as a task and
 // stops the task of each Cancel.
 func runPass[E comparable, S, D, F](s *Session[S, E, D, F]) []Op[E] {
 	s.stale.Set(false)
 	let ops = match s.crash {
-	case Some[Crash[F]] as c:
+	case Some[Crash[S, E, F]] as c:
+		s.shown.Set(s.actor.Version())
 		Render(&s.frame, s.crashView, c.Value)
 	case None:
-		Render(&s.frame, s.view, s.actor.State())
+		let (st, v) = versioned(s.actor)
+		s.shown.Set(v)
+		Render(&s.frame, s.view, st)
 	}
 	s.passSignals = s.signals
 	s.signals = 0
@@ -144,7 +180,8 @@ func Step[E comparable, S, D, F](s *Session[S, E, D, F], ev Event[E]) []Op[E] fa
 	case Arrived[E] as x:
 		finish(s, x.Epoch)
 	case Committed:
-		if sync.Modify(s.stale, func(b bool) (bool, bool) { (b, false) }) {
+		s.stale.Set(false)
+		if newer(s) {
 			return runPass(s)
 		}
 		return []Op[E]{}
@@ -153,8 +190,9 @@ func Step[E comparable, S, D, F](s *Session[S, E, D, F], ev Event[E]) []Op[E] fa
 			return []Op[E]{}
 		}
 		match s.exit(s.actor) {
-		case Some[Crash[F]] as c:
-			return crashed(s, c.Value)
+		case Some[CrashCause[F]] as c:
+			// No signal of the loop's was being stepped: a timer or a work.
+			return crashed(s, crashFrom(s, c.Value, None))
 		case None:
 			return []Op[E]{}
 		}
@@ -210,7 +248,7 @@ func judgedPass[E comparable, S, D, F](s *Session[S, E, D, F]) []Op[E] {
 // nothing.
 func signal[E comparable, S, D, F](s *Session[S, E, D, F], e E) bool fails actor.Stopped {
 	match s.crash {
-	case Some[Crash[F]]:
+	case Some[Crash[S, E, F]]:
 		match s.fresh {
 		case Some[func() actor.Actor[S, E, D, F]] as f:
 			s.actor = f.Value()
@@ -227,11 +265,13 @@ func signal[E comparable, S, D, F](s *Session[S, E, D, F], e E) bool fails actor
 	case actor.Stopped:
 		sent = false
 	}
-	// An actor that ended before e, or with it, crashed or ended.
+	// An actor that ended before e, or with it, crashed or ended: on e
+	// when e was taken, else before it.
 	if !sent || !s.alive(s.actor, e) {
+		let on Option[E] = if sent { Some{Value: e} } else { None }
 		match s.exit(s.actor) {
-		case Some[Crash[F]] as c:
-			takeCrash(s, c.Value)
+		case Some[CrashCause[F]] as c:
+			takeCrash(s, crashFrom(s, c.Value, on))
 			return false
 		case None:
 			return actor.Stopped
@@ -246,7 +286,7 @@ func signal[E comparable, S, D, F](s *Session[S, E, D, F], e E) bool fails actor
 func judge[E comparable, S, D, F](s *Session[S, E, D, F]) {
 	match s.frame.slow {
 	case Some[slowWatch[E]] as w:
-		let over = slows(SessionStats(s), w.Value.budget)
+		let over = SlowsOf(SessionStats(s), w.Value.budget)
 		for x in over {
 			s.actor.Send(w.Value.on(x)) catch {
 			case actor.Stopped:
@@ -257,15 +297,21 @@ func judge[E comparable, S, D, F](s *Session[S, E, D, F]) {
 	}
 }
 
+// crashFrom is the crash of the session's ended actor by cause, on the
+// signal on.
+func crashFrom[S, E, D, F](s *Session[S, E, D, F], cause CrashCause[F], on Option[E]) Crash[S, E, F] {
+	Crash[S, E, F]{Cause: cause, State: s.actor.State(), Signal: on}
+}
+
 // crashed takes the crash c and renders the crash view.
-func crashed[E comparable, S, D, F](s *Session[S, E, D, F], c Crash[F]) []Op[E] {
+func crashed[E comparable, S, D, F](s *Session[S, E, D, F], c Crash[S, E, F]) []Op[E] {
 	takeCrash(s, c)
 	runPass(s)
 }
 
 // takeCrash makes c the session's crash and reports it: each caller takes
 // a crash only while the session shows none, so a crash is reported once.
-func takeCrash[S, E, D, F](s *Session[S, E, D, F], c Crash[F]) {
+func takeCrash[S, E, D, F](s *Session[S, E, D, F], c Crash[S, E, F]) {
 	s.crash = Some{Value: c}
 	s.report(c)
 }
@@ -273,7 +319,7 @@ func takeCrash[S, E, D, F](s *Session[S, E, D, F], c Crash[F]) {
 // crashing is whether the session shows a crash.
 func crashing[S, E, D, F](s *Session[S, E, D, F]) bool {
 	match s.crash {
-	case Some[Crash[F]]:
+	case Some[Crash[S, E, F]]:
 		true
 	case None:
 		false

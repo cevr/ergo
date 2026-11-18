@@ -45,7 +45,7 @@ import (
 // testCacheable reports whether a run of opts is cached: not with --count
 // 1, --receipt or --explore.
 func testCacheable(opts fileOptions) bool {
-	return !opts.uncached && opts.receipt == "" && !opts.explore && opts.search.mode == ""
+	return !opts.uncached && !opts.trace && opts.receipt == "" && !opts.explore && opts.search.mode == ""
 }
 
 // ledgerPart is the law ledger at path as a key part: a full run writes it,

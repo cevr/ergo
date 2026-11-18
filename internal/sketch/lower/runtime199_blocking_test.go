@@ -34,6 +34,8 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"funcCtx.scriptOperations": "a Script adapter's Env literal for the caller's task, as an operation table's (script.go)",
 			"irBuilder.poll":           "the experimental IR's interruption point (Check), as funcCtx.poll's, as an IR node instead of taskOf's text (wf10 IR1)",
 			"irBuilder.callParts":      "the experimental IR's capability operation call, the caller's task first, as funcCtx.callText's, as an IR node (wf10 IR1)",
+			"irBuilder.opCall":         "the experimental IR's program operation call, the caller's task first, as funcCtx.programOpCall's (IRG4b r2)",
+			"irBuilder.hidden":         "the experimental IR's hidden CallerTask of a std operation call, as funcCtx.hiddenArgs's for runtimeCall, whose checks the source path already ran on the same call (IRG4b r2)",
 		}},
 		{"taskOf", map[string]string{
 			"funcCtx.hiddenArgs":      "runtimeCall's hidden CallerTask argument",
@@ -89,6 +91,8 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"lowerer.scriptType":        "a Script's struct fields (script.go)",
 			"lowerer.rewriteObserve":    "a rewrite law case's drawn operation call on the provider (Laws 14)",
 			"irBuilder.callParts":       "the experimental IR's capability operation method, as funcCtx.callText's (wf10 IR1)",
+			"irBuilder.opCall":          "the experimental IR's program operation method, as funcCtx.programOpCall's (IRG4b r2)",
+			"irBuilder.stdOpCall":       "the experimental IR's std operation method on a runtime type, as runtimeCall's method head (IRG4b r2)",
 		}},
 	} {
 		obj := scope.Lookup(c.obj)

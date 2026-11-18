@@ -16,10 +16,28 @@ import (
 	"testing"
 )
 
-// TestMain removes the folder builtErgo built into.
+// TestMain gives the ergo commands the tests start an emission cache of
+// their own, whatever ERGO_CACHE the caller set, and removes it and the
+// folder builtErgo built into. Under a Go test, ergo refuses the user's
+// cache (internal/sketch/build.DefaultRoot), and a caller's cache would
+// make a verdict depend on what an earlier run left there. The commands
+// build with the go command on PATH, as check.sh's gate does, so the fresh
+// cache never installs ergo's pinned Go (ERGO_GO).
 func TestMain(m *testing.M) {
 	flag.Parse()
+	cache, err := os.MkdirTemp("", "hostsmygo-cache-")
+	if err == nil {
+		err = os.Setenv("ERGO_CACHE", cache)
+	}
+	if _, set := os.LookupEnv("ERGO_GO"); !set && err == nil {
+		err = os.Setenv("ERGO_GO", "system")
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "hosts/mygo tests: private ergo cache:", err)
+		os.Exit(2)
+	}
 	code := m.Run()
+	os.RemoveAll(cache)
 	if ergoDir != "" {
 		os.RemoveAll(ergoDir)
 	}
@@ -60,8 +78,9 @@ func genScript(r *rand.Rand, app string) string {
 			}
 		case "list":
 			// rows past the window's fold and past the overscan, which a
-			// tap reaches by scrolling first or finds no node for
-			step = pick(r, "tap more", "tap less", fmt.Sprintf("scroll list %d", r.IntN(3000)), fmt.Sprintf("tap row %d", r.IntN(90)), fmt.Sprintf("tap row %d", r.IntN(20)))
+			// tap reaches by scrolling first or finds no node for; down
+			// and up move the cursor the list keeps in view (RowsKeeping)
+			step = pick(r, "tap more", "tap less", "tap note", fmt.Sprintf("scroll list %d", r.IntN(3000)), fmt.Sprintf("tap row %d", r.IntN(90)), fmt.Sprintf("tap row %d", r.IntN(20)), "tap down", "tap down", "tap up")
 		case "sketch":
 			step = fmt.Sprintf("point sketch %s %d %d", pick(r, "down", "down", "up", "move"), r.IntN(200), r.IntN(150))
 		}

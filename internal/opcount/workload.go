@@ -208,16 +208,24 @@ func (w Workload) FromStdin() bool {
 	return true
 }
 
+// Path is where the program folder dir keeps its workload file: dir/workload,
+// or, when workload is a package folder (the document writers of flattree,
+// jsonparse, mdhtml, tomlparse and twig, behind their gen commands), the
+// file workload in that folder.
+func Path(dir string) string {
+	p := filepath.Join(dir, WorkloadFile)
+	if st, err := os.Stat(p); err == nil && st.IsDir() {
+		return filepath.Join(p, WorkloadFile)
+	}
+	return p
+}
+
 // Check reads the workload file of the program folder dir (a module
 // program, with cmd/NAME folders) in the repository root, and returns its
 // problems, the folders it names that do not exist included. A folder with
-// no workload file has none; a folder named workload is a package (the
-// DOD programs' document writers), not the file.
+// no workload file has none. The file is found where Path says.
 func Check(root, dir string) (Workload, []Problem, bool) {
-	if st, err := os.Stat(filepath.Join(dir, WorkloadFile)); err == nil && st.IsDir() {
-		return Workload{}, nil, false
-	}
-	data, err := os.ReadFile(filepath.Join(dir, WorkloadFile))
+	data, err := os.ReadFile(Path(dir))
 	if os.IsNotExist(err) {
 		return Workload{}, nil, false
 	}

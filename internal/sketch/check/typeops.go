@@ -339,6 +339,9 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 		if work, _ := c.machineWork(v); work != nil {
 			table["Work"] = work // else every state has no work
 		}
+		if exit, _ := c.machineExit(v); exit != nil {
+			table["Exit"] = exit // else every state has no exit action
+		}
 		return assignment{clause: assignMachine, conv: Conversion{Kind: ConvMachine, From: v, To: t, Table: table}}, ""
 	}
 	if it := asInterface(t); it != nil {

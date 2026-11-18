@@ -181,7 +181,10 @@ type fileOptions struct {
 	// uncached is test's --count 1: the run neither replays nor keeps a
 	// cached result (testcache.go), as go test -count=1.
 	uncached bool
-	file     string
+	// trace is test's --trace: after the run, the steps of every scene
+	// script played (printSteps). A traced run is never cached.
+	trace bool
+	file  string
 	// args are run's program arguments: every word after the source, as
 	// go run passes them, less one "--" right after the source.
 	args []string

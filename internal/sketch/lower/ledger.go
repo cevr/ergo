@@ -378,6 +378,12 @@ func newDigester() *digester {
 // constructor and, for an operation type, its builder in pkg (check's
 // builders.go), which no name in the law reaches.
 func TargetDigest(pkg *check.Package, law *check.Law, binding []check.LawProvider) string {
+	_, digest := targetDigest(pkg, law, binding)
+	return digest
+}
+
+// targetDigest is TargetDigest and the walk that made it.
+func targetDigest(pkg *check.Package, law *check.Law, binding []check.LawProvider) (*digester, string) {
 	d := newDigester()
 	switch {
 	case law.Owner != nil:
@@ -406,7 +412,7 @@ func TargetDigest(pkg *check.Package, law *check.Law, binding []check.LawProvide
 		}
 		slots = append(slots, fmt.Sprintf("%d %s %s %t", k, p.Type, closed, p.Value))
 	}
-	return d.sum(pkg, slots)
+	return d, d.sum(pkg, slots)
 }
 
 // ContextDigest is the digest of every input of the verdict of the run of
@@ -419,6 +425,12 @@ func TargetDigest(pkg *check.Package, law *check.Law, binding []check.LawProvide
 // tokens of each (no position). An edit of any of them makes a new
 // digest.
 func ContextDigest(pkg *check.Package, law *check.Law, lc check.LawContext) string {
+	_, digest := contextDigest(pkg, law, lc)
+	return digest
+}
+
+// contextDigest is ContextDigest and the walk that made it.
+func contextDigest(pkg *check.Package, law *check.Law, lc check.LawContext) (*digester, string) {
 	d := newDigester()
 	d.typ(law.Owner)
 	d.context(lc.Context)
@@ -448,7 +460,7 @@ func ContextDigest(pkg *check.Package, law *check.Law, lc check.LawContext) stri
 		}
 	}
 	slots = append(slots, "context "+lc.Context.Name, "unrun "+lc.Unrun)
-	return d.sum(pkg, slots)
+	return d, d.sum(pkg, slots)
 }
 
 // context adds the declaration of the named context c, and of each
@@ -635,6 +647,43 @@ type digester struct {
 	indexed map[*check.Package]bool
 	// foreign are the `extern go` targets the walk reached.
 	foreign map[string]bool
+	// inputs are the declarations decl added, in the order the walk met
+	// them: the graph rows' Input edges (RunTarget.Inputs).
+	inputs []Input
+}
+
+// Input is one declaration whose tokens a verdict's digest covers: its
+// package and its top-level declaration node. The graph rows' Input
+// edges are these (internal/sketch/graphrows), so a digest changes when,
+// and only when, the tokens of one of them change.
+type Input struct {
+	Pkg  *check.Package
+	Decl syntax.Node
+}
+
+// Inputs is t's digest (Digest) and the declarations it covers.
+func (t RunTarget) Inputs(pkg *check.Package) (string, []Input) {
+	var d *digester
+	var digest string
+	if t.Context != nil {
+		d, digest = contextDigest(pkg, t.Law, *t.Context)
+	} else {
+		d, digest = targetDigest(pkg, t.Law, t.Binding)
+	}
+	return digest, d.inputs
+}
+
+// TestInputs is the digest of a test block's inputs, by TargetDigest's
+// rule (the test's declaration, every function, type and package let it
+// reaches, and the generators of the types reached), and the
+// declarations it covers. No store keys a test's verdict by it yet; the
+// graph's Task rows do (CI-SELECT §12.3).
+func TestInputs(pkg *check.Package, test *check.Test) (string, []Input) {
+	d := newDigester()
+	if test != nil && test.Decl != nil && pkg != nil {
+		d.decl("test "+pkg.Path+"."+test.Name, pkg, test.Decl)
+	}
+	return d.sum(pkg, nil), d.inputs
 }
 
 // letDecl is a package let's declaration and its package.
@@ -684,6 +733,7 @@ func (d *digester) let(v *check.Var) {
 // decl adds the declaration n of p under key and walks it.
 func (d *digester) decl(key string, p *check.Package, n syntax.Node) {
 	d.decls[key+"\n"+syntax.TokenText(declText(p, n))] = true
+	d.inputs = append(d.inputs, Input{Pkg: p, Decl: n})
 	d.walk(p, n)
 }
 

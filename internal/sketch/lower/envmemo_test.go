@@ -22,7 +22,7 @@ func unworked(s int) Option[func(send func(e int))] { None }
 type Bad { n int }
 
 func Pump(n int) int fails Bad needs Scheduler {
-	let a = try actor.StartDurable(Machine[int, int, int]{Initial: 0, Step: step, After: untimed, Work: unworked}, 1, func(o int) {}, func() Option[int] fails Bad { None }, func(p int, q int, e int) fails Bad {})
+	let a = try actor.StartDurable(Machine[int, int, int]{Initial: 0, Step: step, After: untimed, Work: unworked, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {}, func() Option[int] fails Bad { None }, func(p int, q int, e int) fails Bad {})
 	for _ in 0..n {
 		a.Send(1) catch {
 		case actor.Stopped:

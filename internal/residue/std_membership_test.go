@@ -566,7 +566,7 @@ func sortedKeys[V any](m map[string]V) []string {
 // stdPrivilegesBaseline are the debt rows of testdata/std-privileges.txt
 // as the rule landed. A row may leave; none may join, except once: the
 // batch-20 integration added the rows of units developed beside the rule
-// (B20-NP names who removes them), as batch 21's did (B21-NP) and the
+// (B20-NP names who removes them), as batch 21's did (B21-NP), batch 22's (B22-NP) and the
 // batch-19 combined integration's (B19-NP).
 var stdPrivilegesBaseline = []string{
 	"internal/sketch/check/call.go:IsInForce",
@@ -635,6 +635,7 @@ var stdPrivilegesBaseline = []string{
 	"internal/sketch/lower/handover.go:funcCtx.ownedFormAt",
 	"internal/sketch/lower/handover.go:lowerer.checkedOwnedForm",
 	"internal/sketch/lower/handover.go:lowerer.checkedOwnedForm",
+	"internal/sketch/lower/hook.go:hookFunc", // B22-NP (RT-HOOK, batch 22 integration)
 	"internal/sketch/lower/ir.go:irState.body",
 	"internal/sketch/lower/ir.go:irState.body",
 	"internal/sketch/lower/ir.go:irState.intrinsic",
@@ -644,6 +645,7 @@ var stdPrivilegesBaseline = []string{
 	"internal/sketch/lower/ir_assert.go:irState.lawBody",
 	"internal/sketch/lower/ir_call.go:irBuilder.callParts",
 	"internal/sketch/lower/ir_call.go:irBuilder.callParts",
+	"internal/sketch/lower/ir_pkg.go:irBuilder.stdOpCall", // B22-NP (IRG4b r2, batch 22 integration)
 	"internal/sketch/lower/pkgsplit.go:lowerer.stdOrigins",
 	"internal/sketch/lower/pkgsplit.go:stdImports",
 	"internal/sketch/lower/refown.go:funcCtx.inPlaceOf",

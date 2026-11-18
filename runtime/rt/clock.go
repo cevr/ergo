@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"weak"
 )
 
 // Instant is a time on a clock: nanoseconds since the Unix epoch, as
@@ -85,6 +86,9 @@ type Virtual struct {
 	change       chan struct{}
 	// advancing is set while an AdvanceSettled runs: one at a time.
 	advancing bool
+	// up is the domain the task that made this one was a member of
+	// (stall.go): weak, so a chain of old domains is not kept.
+	up weak.Pointer[Virtual]
 }
 
 // AdvanceRunning is AdvanceSettled's result when another AdvanceSettled of
@@ -282,6 +286,21 @@ func (v *Virtual) Pending() int {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	return len(v.timers)
+}
+
+// Asleep reports whether t, or a task started below it, sleeps on v: a
+// timer of a domain clock's Sleep holds its sleeper (FK4-g2).
+func (v *Virtual) Asleep(t *Task) bool {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	for _, tm := range v.timers {
+		for s := tm.task; s != nil; s = s.parent.Load() {
+			if s == t {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // AwaitTimers blocks until exactly n timers are armed.

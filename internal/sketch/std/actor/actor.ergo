@@ -47,15 +47,18 @@ extern go ergo.local/prototype/runtime/v1.Actor type Actor[S, E, D, F] {
 	// Dropped is how many timer and work signals of ended entries the
 	// actor dropped instead of stepping them (runner rules 6 and 11).
 	Dropped() int,
-	// Changes is the actor's state when the loop begins, then each state
-	// it commits (Enter, Stay, Emit, Tell), in order, once each, whatever the
-	// number of loops; it ends after the actor ends and it gave every
-	// state committed before the end, also one a stop overtook. A break
-	// ends it. A loop that does not read keeps the states.
-	//
-	// Unbounded: it ends only when the actor ends, so a loop that collects
-	// it all waits for the actor's end.
-	Changes() Seq[S],
+	// LatestChanges is the actor's state when the loop begins, then its
+	// latest state each time the loop reads after a commit: a loop slower
+	// than the actor skips the states between, so it holds at most one
+	// state however long it does not read (F-GP4c-1). It ends after the
+	// actor ends and it gave the last state, also one a stop overtook. A
+	// break ends it. A loop that needs every state reads Changes(a, room).
+	LatestChanges() Seq[S],
+	// Held is how many committed states its loops (Changes, LatestChanges)
+	// hold and have not given yet, summed: a loop that stops reading keeps
+	// it at its room, never one per commit (the counter a growth guard
+	// reads).
+	Held() int,
 	// Drain closes admission, so later Sends and Asks fail Stopped, and
 	// waits until the actor has stepped every signal queued before it, in
 	// order, its Asks answered, and then ended. A Done, a failure or a
@@ -74,10 +77,11 @@ extern go ergo.local/prototype/runtime/v1.Actor type Actor[S, E, D, F] {
 		}
 		false
 	},
-	// ChangesStops: Changes is a Seq that stops (stdlib.md, Std laws 5).
-	// On a stopped actor it gives one value, its last state, so a yield
-	// that returns false at its k-th call (k of 1 or more) is called once.
-	law ChangesStops(k int) {
+	// LatestChangesStops: LatestChanges is a Seq that stops (stdlib.md,
+	// Std laws 5). On a stopped actor it gives one value, its last state,
+	// so a yield that returns false at its k-th call (k of 1 or more) is
+	// called once.
+	law LatestChangesStops(k int) {
 		if k < 1 {
 			return true
 		}
@@ -85,7 +89,7 @@ extern go ergo.local/prototype/runtime/v1.Actor type Actor[S, E, D, F] {
 		case _:
 		}
 		let mut calls = 0
-		let s = Changes()
+		let s = LatestChanges()
 		s(func(v S) bool {
 			calls = calls + 1
 			calls < k
@@ -100,11 +104,13 @@ extern go ergo.local/prototype/runtime/v1.Actor type Actor[S, E, D, F] {
 // runs), its step, the step of a timer signal (fire), the delay of each
 // state's timer (noTimer() for none; one that is not positive is a
 // defect), each state's work (workOf gives it, hasWork says whether it is
-// one, and work runs it with the entry's send), the decision's kind
+// one, and work runs it with the entry's send), each state's exit action
+// (hasExit says whether the state has one, and leave runs it, masked, on
+// the actor's task, when an entry in that state ends), the decision's kind
 // (Enter 0, Stay 1, Emit 2, Ignore 3, Reject 4, Done 5, Tell 6), the
 // state after
 // a decision, the output of a decision, and the inbox's capacity.
-extern go ergo.local/prototype/runtime/v1.MachineSupervise func start[S, E, D, W, F, R, G](initial S, fresh own func() S fails G needs R, limit int, step own func(s S, e E) D fails F needs R, fire own func(at S, s S) D fails F needs R, delay own func(s S) duration, workOf own func(s S) W, hasWork own func(w W) bool, work own func(w W, send func(e E)) needs R, kind own func(d D) int, next own func(s S, d D) S, out own func(d D) needs R, capacity int) Actor[S, E, D, F] needs R | Scheduler
+extern go ergo.local/prototype/runtime/v1.MachineSupervise func start[S, E, D, W, F, R, G](initial S, fresh own func() S fails G needs R, limit int, step own func(s S, e E) D fails F needs R, fire own func(at S, s S) D fails F needs R, delay own func(s S) duration, workOf own func(s S) W, hasWork own func(w W) bool, work own func(w W, send func(e E)) needs R, hasExit own func(s S) bool, leave own func(s S) needs R, kind own func(d D) int, next own func(s S, d D) S, out own func(d D) needs R, capacity int) Actor[S, E, D, F] needs R | Scheduler
 
 // fired is the timer of the entry that opened in at, as it fires: m's
 // After under the firing mark, so a machines.Every timer's signal carries
@@ -112,6 +118,30 @@ extern go ergo.local/prototype/runtime/v1.MachineSupervise func start[S, E, D, W
 // delay reads only In.
 func fired[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], at S) Option[Timeout[E]] {
 	machines.AfterFiring(m, at)
+}
+
+// exits is whether the state s has an exit action (m.Exit gives Some): the
+// runner reads it at each entry's end and enters the mask only when it
+// is true, so a machine with no exit action pays one call per entry end
+// (FK9-g1; runtime.md, Machines and actors 12a).
+func exits[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], s S) bool {
+	match m.Exit(s) {
+	case Some[func() needs W]:
+		true
+	case None:
+		false
+	}
+}
+
+// exitOf runs the exit action of the state s, which the runner calls,
+// masked, after exits(m, s) was true: m.Exit is a function of the state,
+// so it gives the same action again.
+func exitOf[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], s S) needs W {
+	match m.Exit(s) {
+	case Some[func() needs W] as x:
+		x.Value()
+	case None:
+	}
 }
 
 // noTimer is the delay start reads as "no timer" for a state whose After
@@ -190,7 +220,7 @@ func launch[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], capacity int, sink
 			wk.Value(send)
 		case None:
 		}
-	}, func(d Decision[S, O]) int {
+	}, func(s S) bool { exits(m, s) }, func(s S) needs W { exitOf(m, s) }, func(d Decision[S, O]) int {
 		match d {
 		case Enter[S]:
 			0
@@ -306,7 +336,7 @@ func durable[S, E, O, F, R, W, G](m Machine[S, E, O, F, R, W], initial own S, sa
 		case Done[O]:
 		}
 		d
-	}, After: m.After, Work: m.Work}
+	}, After: m.After, Work: m.Work, Exit: m.Exit}
 }
 
 // keep is save(prev, next, sig), with its failure a defect
@@ -317,7 +347,7 @@ extern go ergo.local/prototype/runtime/v1.ActorKeep func keep[S, E, G, R](save f
 // gets each decision with deliver, which gives a child output to the
 // parent as a signal of the entry that owns the child. host is the host
 // the child fills (ChildIn), or noHost() (Child).
-extern go ergo.local/prototype/runtime/v1.MachineChild func child[S, E, D, W, F, R, P](host Host[Actor[S, E, D, F]], initial S, step own func(s S, e E) D fails F needs R, fire own func(at S, s S) D fails F needs R, delay own func(s S) duration, workOf own func(s S) W, hasWork own func(w W) bool, work own func(w W, send func(e E)) needs R, kind own func(d D) int, next own func(s S, d D) S, out own func(d D, deliver func(p P)) needs R, capacity int) Actor[S, E, D, F] needs R | Scheduler
+extern go ergo.local/prototype/runtime/v1.MachineChild func child[S, E, D, W, F, R, P](host Host[Actor[S, E, D, F]], initial S, step own func(s S, e E) D fails F needs R, fire own func(at S, s S) D fails F needs R, delay own func(s S) duration, workOf own func(s S) W, hasWork own func(w W) bool, work own func(w W, send func(e E)) needs R, hasExit own func(s S) bool, leave own func(s S) needs R, kind own func(d D) int, next own func(s S, d D) S, out own func(d D, deliver func(p P)) needs R, capacity int) Actor[S, E, D, F] needs R | Scheduler
 
 // Child runs m as an actor that the entry of the calling work owns
 // (runtime.md, Machines and actors 14), with an inbox of capacity
@@ -410,7 +440,7 @@ func childOf[S, E, O, F, R, W, P](host Host[Actor[S, E, Decision[S, O], F]], m M
 			wk.Value(wsend)
 		case None:
 		}
-	}, func(d Decision[S, O]) int {
+	}, func(s S) bool { exits(m, s) }, func(s S) needs W { exitOf(m, s) }, func(d Decision[S, O]) int {
 		match d {
 		case Enter[S]:
 			0
@@ -485,20 +515,61 @@ func Can[S, E, O, F](a Actor[S, E, Decision[S, O], F], step func(s S, e E) Decis
 	machines.Can(step, s, e)
 }
 
+// Changed is a state the actor committed, in a Changes loop.
+type Changed[S] { State S }
+
+// Overflowed is the gap of a Changes loop that fell room states behind:
+// Missed is how many committed states it dropped, just before the next
+// Changed, which is the state that found it full.
+type Overflowed { Missed int }
+
+// Change is one step of a Changes loop.
+type Change[S] = Changed[S] | Overflowed
+
+// Changes is a's state when the loop begins, then each state it commits
+// (Enter, Stay, Emit, Tell), in order, once each, as Changed; it ends after the
+// actor ends and it gave every state committed before the end, also one a
+// stop overtook. It holds at most room states (1 for a room under 1): a
+// commit that finds room states unread drops them, and the loop reads an
+// Overflowed with their number before that commit's state, so a loop that
+// does not read holds room states, never one per commit (F-GP4c-1; owner,
+// 2026-11-15). A break ends it. A loop that wants only the current state
+// reads a.LatestChanges().
+func Changes[S, E, D, F](a Actor[S, E, D, F], room int) Seq[Change[S]] {
+	changesOf(a, room, changedOf[S], overflowedOf[S])
+}
+
+func changedOf[S](s S) Change[S] { Changed[S]{State: s} }
+
+func overflowedOf[S](n int) Change[S] { Overflowed{Missed: n} }
+
+// changesOf is the loop of Changes(a, room), built by changed and
+// overflowed.
+extern go ergo.local/prototype/runtime/v1.ActorChanges func changesOf[S, E, D, F, C](a Actor[S, E, D, F], room int, changed own func(s S) C, overflowed own func(n int) C) Seq[C]
+
+// waitRoom is the room of the loops of WaitFor and SendAndWait.
+func waitRoom() int { 256 }
+
 // Observing an actor (MU12; runtime.md, Machines and actors 13). Each of
-// these is a loop over Changes, so it judges the state at its start, then
-// each committed state once, in order, and it releases its subscription
-// when it returns. No callback is registered with the actor and none runs
-// on its task.
+// these is a loop over Changes(a, waitRoom()), so it judges the state at
+// its start, then each committed state once, in order, and it releases
+// its subscription when it returns. A loop more than 256 states behind
+// the actor skips the states its Overflowed counts and judges the rest:
+// it holds 256 states at most, never one per commit. No callback is
+// registered with the actor and none runs on its task.
 
 // WaitFor is the first state that pred accepts: the state when the call
 // begins, then each state the actor commits after it, in order; a state
 // committed before the actor ended counts, also when a stop overtook it.
 // It fails Stopped when the actor ends with no such state.
 func WaitFor[S, E, D, F, R](a Actor[S, E, D, F], pred func(s S) bool needs R) S fails Stopped needs R {
-	for s in a.Changes() {
-		if pred(s) {
-			return s
+	for c in Changes(a, waitRoom()) {
+		match c {
+		case Changed[S] as s:
+			if pred(s.State) {
+				return s.State
+			}
+		case Overflowed:
 		}
 	}
 	Stopped
@@ -512,13 +583,17 @@ func WaitFor[S, E, D, F, R](a Actor[S, E, D, F], pred func(s S) bool needs R) S 
 // ends with no such state.
 func SendAndWait[S, E, D, F, R](a Actor[S, E, D, F], e E, pred func(s S) bool needs R) S fails Stopped needs R {
 	let mut sent = false
-	for s in a.Changes() {
+	for c in Changes(a, waitRoom()) {
 		if !sent {
 			sent = true
 			try a.Send(e)
 		}
-		if pred(s) {
-			return s
+		match c {
+		case Changed[S] as s:
+			if pred(s.State) {
+				return s.State
+			}
+		case Overflowed:
 		}
 	}
 	Stopped
@@ -538,8 +613,10 @@ type Halted[S] {
 }
 
 // Defected is an actor that a defect ended (of its step, its timer or its
-// work). The defect itself is Stop's to raise.
-type Defected {}
+// work): Reason is the defect's text, as the runtime's report writes it
+// after "panic: " (an Unreachable's "unreachable at a.ergo:9:3: no
+// route"). The defect itself is Stop's to raise (FK13-g1).
+type Defected { Reason string }
 
 // Failed is an actor that its step's typed failure ended, after a Send or
 // a timer: the failure, a value of the row F (owner q47; an Ask's failure
@@ -572,7 +649,7 @@ func ExitOf[S, E, O, F](a Actor[S, E, Decision[S, O], F]) Exit[S, O, F] {
 		}
 	}
 	if k == 3 {
-		return Defected
+		return Defected{Reason: defectOf(a)}
 	}
 	Halted[S]{State: a.State()}
 }
@@ -605,7 +682,7 @@ func Version[S, E, D, F](a Actor[S, E, D, F]) int {
 
 // Select is f of each state of changes, with each value equal (==) to
 // the one before it dropped: a view of one part of the state that changes
-// only when that part does. Select(a.Changes(), f) gives f of the state
+// only when that part does. Select(a.LatestChanges(), f) gives f of the state
 // at its start first.
 func Select[S, T comparable](changes Seq[S], f own func(s S) T) Seq[T] {
 	SelectBy(changes, f, func(x T, y T) bool { x == y })
@@ -637,6 +714,9 @@ extern go ergo.local/prototype/runtime/v1.ActorExitKind func exitKind[S, E, D, F
 extern go ergo.local/prototype/runtime/v1.ActorFinal func final[S, E, D, F](a Actor[S, E, D, F]) D
 
 extern go ergo.local/prototype/runtime/v1.ActorFailure func failure[S, E, D, F](a Actor[S, E, D, F]) fails F
+
+// defectOf is the text of the defect that ended a (kind 3).
+extern go ergo.local/prototype/runtime/v1.ActorDefectReason func defectOf[S, E, D, F](a Actor[S, E, D, F]) string
 
 extern go ergo.local/prototype/runtime/v1.ActorHasLatest func hasLatest[S, E, D, F](a Actor[S, E, D, F]) bool
 

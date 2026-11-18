@@ -17,8 +17,17 @@
 //	scroll LABEL N    scroll the list LABEL to offset N (the window turns
 //	                  its wheel; TestHost takes the viewport it reports)
 //	settle            settle the loads
+//	work              print "work N": the boxes the driver's last paint
+//	                  laid out (desktop.LaidOut)
+//	drawn             print "drawn N": the nodes the driver's last paint
+//	                  drew anew (desktop.Drawn)
 //
-// Output: "ok N" or "differ N: …" per step, then "end".
+// The driver checks its kept layout against the tree built anew at every
+// paint, and its damage paint against the full one (desktop.Check); a box
+// or a paint where they differ is a differing step.
+//
+// Output: "ok N" or "differ N: …" per step (or "work N", "drawn N"),
+// then "end".
 
 import io
 import slices

@@ -163,6 +163,16 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"std call *", "G4"}, // hidden arguments, adapted results, converted operands
 	{"type *check.Map", "G4"},
 	{"type *check.Union", "G4"}, // an anonymous union as a type argument (IRG4b instances)
+	// IRG4b r2: operation-type values and their calls, std operations.
+	{"operation call from a pure function", "G4"},
+	{"operation call into an owning literal", "G4"},
+	{"operation call on a *", "G4"},
+	{"std operation without its runtime method", "G4"},
+	{"std Close", "G4"},
+	{"call of a pointer-receiver method on a value", "G1"}, // &x of a place
+	{"for-in over a Range *", "G4"},
+	{"conversion *", "G4"},
+	{"type argument with no value", "G4"}, // a task's T bound by a block with no value
 	{"type *check.TypeParam", "G4"},
 	{"type *check.Pointer", "G4"},
 	{"pointer receiver", "G4"},

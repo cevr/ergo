@@ -367,11 +367,20 @@ type Timeout[E] { In duration, Signal E }
 // runner needs both. A Machine is also an ordinary record: a test may build
 // one from parts. The work's type is std machines.Work, not a prelude
 // name: every prelude name is one a program cannot declare.
+//
+// Exit is each state's exit action (FK9-g1; runtime.md, Machines and
+// actors 12a): when an entry ends, the runner calls Exit with the state
+// the entry holds then (its last commit, never the next entry's) and, on
+// Some, runs the action, masked, once its children, timer and work ended
+// and before the next entry opens; a Stay ends no entry. A machine with no
+// `exit` entry gives every state None. The action's row is part of W; a
+// fold runs no exit action.
 type Machine[S, E, O, F, R, W] {
 	Initial S,
 	Step func(s S, e E) Decision[S, O] fails F needs R,
 	After func(s S) Option[Timeout[E]],
 	Work func(s S) Option[func(send func(e E)) needs W],
+	Exit func(s S) Option[func() needs W],
 }
 
 // InputMachine is a machine whose initial state is a function of an input
@@ -384,6 +393,7 @@ type InputMachine[I, S, E, O, F, R, W] {
 	Step func(s S, e E) Decision[S, O] fails F needs R,
 	After func(s S) Option[Timeout[E]],
 	Work func(s S) Option[func(send func(e E)) needs W],
+	Exit func(s S) Option[func() needs W],
 }
 
 // Closer is the release contract (resources R1): a type that implements

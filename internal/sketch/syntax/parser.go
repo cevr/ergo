@@ -880,8 +880,8 @@ func (m *members) lawsOrOps() Node {
 	return m.laws[0]
 }
 
-// parseMachineType parses `machine[S, E] { initial: x, step: f }`, with an
-// optional `after: g` entry.
+// parseMachineType parses `machine[S, E] { initial: x, step: f }`, with
+// optional `after: g`, `work: w` and `exit: x` entries.
 func (p *parser) parseMachineType() *MachineType {
 	t := &MachineType{Machine: p.want(MACHINE)}
 	t.Lbrack = p.want(LBRACK)
@@ -905,11 +905,11 @@ func (p *parser) parseMachineType() *MachineType {
 			p.errorf("a machine's entries come before its laws")
 		}
 		e := &MachineEntry{Doc: doc, NamePos: p.tok.pos}
-		if p.tok.tok != IDENT || p.tok.lit != "initial" && p.tok.lit != "step" && p.tok.lit != "after" && p.tok.lit != "work" {
-			p.errorf("expected initial, step, after or work, found %s", p.found())
+		if p.tok.tok != IDENT || p.tok.lit != "initial" && p.tok.lit != "step" && p.tok.lit != "after" && p.tok.lit != "work" && p.tok.lit != "exit" {
+			p.errorf("expected initial, step, after, work or exit, found %s", p.found())
 		}
 		e.Name = p.tok.lit
-		if e.Name == "initial" && t.Initial != nil || e.Name == "step" && t.Step != nil || e.Name == "after" && t.After != nil || e.Name == "work" && t.Work != nil {
+		if e.Name == "initial" && t.Initial != nil || e.Name == "step" && t.Step != nil || e.Name == "after" && t.After != nil || e.Name == "work" && t.Work != nil || e.Name == "exit" && t.Exit != nil {
 			p.errorf("%s is set twice", e.Name)
 		}
 		p.next()
@@ -922,6 +922,8 @@ func (p *parser) parseMachineType() *MachineType {
 			t.Step = e.Value
 		case "work":
 			t.Work = e.Value
+		case "exit":
+			t.Exit = e.Value
 		default:
 			t.After = e.Value
 		}

@@ -146,6 +146,20 @@ import (
 //     every output of the commits up to it. A child's sink is its
 //     toParent (rule 13), so a child's output is in its parent's inbox
 //     before the child's state is shown.
+//  18. Exit actions (FK9-g1; the model models/runner): each entry that
+//     opened (the first state, an Enter, an Emit, a restart's first state;
+//     open from its commit, so also one whose arm raised or that a stop
+//     overtook) ends once, and then the runner calls leave with the state
+//     the entry holds (its last commit), when hasExit says it has one: on
+//     an Enter and an Emit (the state the step saw), and at the actor's
+//     end and a supervised crash (a.state). A Stay, an Ignore and a Reject
+//     end no entry. The action runs after the entry's hosts closed, its
+//     children stopped and its timer and work ended, and before the next
+//     entry opens; on the runner's task, masked, through release, so a
+//     stop does not cut it and Stop and Drain return after it. Its defect
+//     is a release defect of the actor: it ends the actor (the crash's own
+//     is the crash's), and the end that follows does not run the action
+//     again. A signal the old entry sends while it runs is stale (rule 6).
 type Actor[S, E, D any] struct {
 	inbox   mailbox[envelope[S, E, D]] // in the Actor: no allocation of its own
 	task    *rt.Task
@@ -165,6 +179,11 @@ type Actor[S, E, D any] struct {
 	// (rule 10): the program's workOf, hasWork and run bound together, so
 	// the Actor needs no type parameter for the program's Work value.
 	work func(S) (func(*rt.Task, func(E)), bool)
+	// hasExit and leave are each state's exit action (FK9-g1; rule 18):
+	// hasExit(s) reports whether s has one, and leave runs it. Both are nil
+	// for MachineStart, which runs none.
+	hasExit func(S) bool
+	leave   func(*rt.Task, S)
 
 	// spare is a reply channel no Ask or State read holds (takeReply).
 	spare   atomic.Pointer[replySlot[S, D]]
@@ -255,6 +274,10 @@ type Actor[S, E, D any] struct {
 	hostSlot  rt.Slot
 	epoch     uint64
 	bound     bool // the runner's task is in owners, as nil (runner)
+	// owed is whether the open entry has not run its exit action yet (rule
+	// 18): set when an entry is committed, cleared before the action runs,
+	// so no path runs one entry's action twice.
+	owed bool
 }
 
 // The decisions of the prelude Decision, in the order kind gives them.
@@ -321,7 +344,7 @@ func MachineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, graph Graph
 	delay func(S) time.Duration, workOf func(S) W, hasWork func(W) bool,
 	work func(*rt.Task, W, func(E)), kind func(D) int, next func(S, D) S,
 	out func(*rt.Task, D), capacity int) *Actor[S, E, D] {
-	return machineStart(span, t, sl, graph, initial, step, fire, delay, workOf, hasWork, work, kind, next,
+	return machineStart(span, t, sl, graph, initial, step, fire, delay, workOf, hasWork, work, nil, nil, kind, next,
 		out, capacity, nil, nil, 0)
 }
 
@@ -337,7 +360,8 @@ func MachineSupervise[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, graph G
 	fresh func(*rt.Task) (S, error), limit int,
 	step func(*rt.Task, S, E) (D, error), fire func(*rt.Task, S, S) (D, error),
 	delay func(S) time.Duration, workOf func(S) W, hasWork func(W) bool,
-	work func(*rt.Task, W, func(E)), kind func(D) int, next func(S, D) S,
+	work func(*rt.Task, W, func(E)), hasExit func(S) bool, leave func(*rt.Task, S),
+	kind func(D) int, next func(S, D) S,
 	out func(*rt.Task, D), capacity int) *Actor[S, E, D] {
 	if limit < 0 {
 		panic("actor.Supervise: a negative restart limit " + strconv.Itoa(limit))
@@ -346,7 +370,7 @@ func MachineSupervise[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, graph G
 		// No restart: the runner of MachineStart, which never calls fresh.
 		fresh = nil
 	}
-	return machineStart(span, t, sl, graph, initial, step, fire, delay, workOf, hasWork, work, kind, next,
+	return machineStart(span, t, sl, graph, initial, step, fire, delay, workOf, hasWork, work, hasExit, leave, kind, next,
 		out, capacity, nil, fresh, limit)
 }
 
@@ -384,7 +408,8 @@ func ActorRestarts[S, E, D any](a *Actor[S, E, D]) int { return int(a.restarts.L
 func MachineChild[S, E, D, W, P any](span Site, t *rt.Task, sl Sleeper, graph GraphOf, host *Host[*Actor[S, E, D]], initial S,
 	step func(*rt.Task, S, E) (D, error), fire func(*rt.Task, S, S) (D, error),
 	delay func(S) time.Duration, workOf func(S) W, hasWork func(W) bool,
-	work func(*rt.Task, W, func(E)), kind func(D) int, next func(S, D) S,
+	work func(*rt.Task, W, func(E)), hasExit func(S) bool, leave func(*rt.Task, S),
+	kind func(D) int, next func(S, D) S,
 	out func(*rt.Task, D, func(P)), capacity int) *Actor[S, E, D] {
 	owner, ok := ownerOf(t).(childOwner[P])
 	if !ok {
@@ -396,7 +421,7 @@ func MachineChild[S, E, D, W, P any](span Site, t *rt.Task, sl Sleeper, graph Gr
 		cell = host
 	}
 	adopted, hostOK := owner.adopt(cell, func(report func(*rt.Task, error) bool, deliver func(*rt.Task, P)) func(*rt.Task) error {
-		c = machineStart(span, t, sl, graph, initial, step, fire, delay, workOf, hasWork, work, kind, next,
+		c = machineStart(span, t, sl, graph, initial, step, fire, delay, workOf, hasWork, work, hasExit, leave, kind, next,
 			func(ct *rt.Task, d D) { out(ct, d, func(p P) { deliver(ct, p) }) }, capacity, report, nil, 0)
 		return c.halt
 	}, func() { host.fill(c) })
@@ -454,7 +479,8 @@ func (d *ActorChildDefect) String() string {
 func machineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, graph GraphOf, initial S,
 	step func(*rt.Task, S, E) (D, error), fire func(*rt.Task, S, S) (D, error),
 	delay func(S) time.Duration, workOf func(S) W, hasWork func(W) bool,
-	work func(*rt.Task, W, func(E)), kind func(D) int, next func(S, D) S,
+	work func(*rt.Task, W, func(E)), hasExit func(S) bool, leave func(*rt.Task, S),
+	kind func(D) int, next func(S, D) S,
 	out func(*rt.Task, D), capacity int, report func(*rt.Task, error) bool,
 	fresh func(*rt.Task) (S, error), limit int) *Actor[S, E, D] {
 	if capacity < 0 {
@@ -463,6 +489,7 @@ func machineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, graph Graph
 	a := &Actor[S, E, D]{
 		sleeper: sl, span: string(span), graph: graph,
 		step: step, fire: fire, delay: delay, kind: kind, next: next, out: out,
+		hasExit: hasExit, leave: leave,
 		done: make(chan struct{}), state: initial, version: 1,
 		report: report, fresh: fresh, limit: limit,
 		// A durable start's recovered hosts (DH1): this actor's first
@@ -605,6 +632,9 @@ func (a *Actor[S, E, D]) crash(at *rt.Task) {
 		}
 	}
 	a.timer, a.working = nil, nil
+	// The open entry's exit action (rule 18); its defect is the crash's,
+	// as the children's are.
+	_ = a.leaveEntry(at, a.state)
 	if a.cur != nil {
 		a.release(a.cur)
 		a.cur = nil
@@ -661,6 +691,9 @@ func (a *Actor[S, E, D]) loop(at *rt.Task) (struct{}, error) {
 	if at.Traced() {
 		a.traceStart(at, s)
 	}
+	// The first entry is open from here: a raise in its arm or its work
+	// still ends it with its exit action (rule 18).
+	a.owed = true
 	a.openKids()
 	a.openFirst(at, s)
 	if at.Traced() {
@@ -790,7 +823,13 @@ func (a *Actor[S, E, D]) handle(at *rt.Task, s S, env *envelope[S, E, D]) (S, bo
 		}
 		a.stopTimer()
 		a.stopWork()
+		// The old entry's exit action runs last, with the state it holds
+		// now, before the next entry opens (rule 18).
+		if err := a.leaveEntry(at, s); err != nil {
+			raise(err)
+		}
 		s = a.next(s, d)
+		a.owed = true
 		a.epoch++
 		a.open(at, s)
 	}
@@ -1117,6 +1156,28 @@ func (a *Actor[S, E, D]) stopWork() {
 	}
 }
 
+// leaveEntry ends the open entry's exit action (rule 18), on the runner's
+// task at: when the entry owes it and its state s has one, it runs it
+// through the release boundary, masked, so a stop does not cut it, and
+// gives its defect, marked as a release's. It runs after the entry's
+// children, timer and work ended. owed is cleared first, so the end that
+// follows a defect in the action does not run it again. It is a call of
+// its own (noinline), so the runner's loop frame does not grow.
+//
+//go:noinline
+func (a *Actor[S, E, D]) leaveEntry(at *rt.Task, s S) error {
+	if !a.owed {
+		return nil
+	}
+	a.owed = false
+	if a.hasExit == nil || !a.hasExit(s) {
+		return nil
+	}
+	var c rt.Cause
+	release(at, &c, func() { a.leave(at, s) }, nil)
+	return c.Err()
+}
+
 // arm starts the timer child of the entry that opened in s, when delay(s)
 // is not negative. The child sleeps on the program's Scheduler, then
 // pushes the timer envelope with the entry's epoch; a stop ends it first.
@@ -1195,7 +1256,16 @@ func (a *Actor[S, E, D]) publishLocked(s S) {
 		return
 	}
 	for c := range a.subs {
-		c.buf = append(c.buf, s)
+		if len(c.buf)-c.head >= c.room {
+			// Full: the unread states are dropped and counted, and s waits
+			// alone; the reader learns of the gap before s (Overflowed). A
+			// LatestChanges loop, of room 1, so holds the latest state.
+			c.missed += len(c.buf) - c.head
+			clear(c.buf)
+			c.buf, c.head = append(c.buf[:0], s), 0
+		} else {
+			c.buf = append(c.buf, s)
+		}
 		c.signal()
 	}
 }
@@ -1343,6 +1413,13 @@ func (a *Actor[S, E, D]) finish(exit error) {
 		}
 	}
 	a.timer, a.working = nil, nil
+	// The open entry's exit action, with the state it holds (rule 18): a
+	// defect in it joins the exit. a.state is the runner's own write (a
+	// Stay's commit, or open's publish, also when a stop or a raise
+	// overtook the open).
+	if err := a.leaveEntry(a.task, a.state); err != nil {
+		exit = join(exit, err)
+	}
 	// The sources last (rule 14): admission is closed, so each one's next
 	// send raises; the stop interrupts one that waits.
 	for _, f := range a.feeds {
@@ -1666,6 +1743,32 @@ func ActorFinal[S, E, D any](a *Actor[S, E, D]) D {
 	return a.final
 }
 
+// ActorDefectReason is std actor's defectOf(a): the text of the first
+// defect that ended a, as the runtime's report writes it after "panic: "
+// (reportDefect), such as "unreachable at a.ergo:9:3: no route"; "" when
+// no defect ended a. Read after ActorExitKind gave exitDefected (FK13-g1).
+//
+//ergo:wait none
+func ActorDefectReason[S, E, D any](a *Actor[S, E, D]) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return defectReason(a.exit)
+}
+
+// defectReason is the text of err's first defect, "" when it has none.
+func defectReason(err error) string {
+	c, ok := err.(*rt.Cause)
+	if !ok || c == nil {
+		return ""
+	}
+	for _, r := range c.Reasons {
+		if r.Kind == rt.KindDefect {
+			return rt.Text(r.Value)
+		}
+	}
+	return ""
+}
+
 // ActorFailure is std actor's failure(a): the typed failure that ended a,
 // read after ActorExitKind gave exitFailed.
 //
@@ -1732,16 +1835,78 @@ func defectsOnly(err error) error {
 //ergo:wait none
 func (a *Actor[S, E, D]) Dropped() int { return int(a.dropped.Load()) }
 
-// Changes is a.Changes() on the iterating task t: the actor's state when
-// the loop begins, then each state the runner commits after it (an Enter,
-// a Stay, an Emit), in commit order; it ends when the actor has ended and
-// the states committed before are given. A break ends the subscription.
-// Each step waits on t: a stop of t raises rt.Interrupted. A subscriber
-// that does not read keeps every state in its buffer.
+// Held is a.Held(): how many committed states the actor's Changes and
+// LatestChanges loops hold and have not given yet, summed over its loops;
+// a LatestChanges loop holds at most one (F-GP4c-1). It is the counter a
+// growth guard reads.
+//
+//ergo:wait none
+func (a *Actor[S, E, D]) Held() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	n := 0
+	for c := range a.subs {
+		n += len(c.buf) - c.head
+	}
+	return n
+}
+
+// Changes is the subscription std actor's Changes(a, room) reads, on the
+// iterating task t: the actor's state when the loop begins, then each
+// state the runner commits after it (an Enter, a Stay, an Emit), in commit
+// order, each with the number of states dropped just before it (0 but
+// after an overflow); it ends when the actor has ended and the states
+// committed before are given. It holds at most room states (1 when room
+// is less): a commit that finds room unread states drops them, counts
+// them, and waits alone, so a subscriber that stops reading holds room
+// states, never one per commit (F-GP4c-1; owner, q4). A break ends the
+// subscription. Each step waits on t: a stop of t raises rt.Interrupted.
 //
 //ergo:wait caller
-func (a *Actor[S, E, D]) Changes(t *rt.Task) iter.Seq[S] {
+func (a *Actor[S, E, D]) Changes(t *rt.Task, room int) iter.Seq2[S, int] {
+	return a.subscribe(t, max(room, 1))
+}
+
+// ActorChanges is std actor's changesOf(a, room, changed, overflowed): the
+// loop of Changes(a, room), giving changed(s) for each state and, before
+// a state an overflow dropped others for, overflowed(n) with their number.
+//
+//ergo:wait caller
+func ActorChanges[S, E, D, C any](t *rt.Task, a *Actor[S, E, D], room int, changed func(S) C, overflowed func(int) C) iter.Seq[C] {
+	return func(yield func(C) bool) {
+		for s, missed := range a.Changes(t, room) {
+			if missed > 0 && !yield(overflowed(missed)) {
+				return
+			}
+			if !yield(changed(s)) {
+				return
+			}
+		}
+	}
+}
+
+// LatestChanges is a.LatestChanges() on the iterating task t: as Changes,
+// but a subscriber that reads slower than the runner commits sees only the
+// latest state, never the ones in between (conflated, as Effect's
+// SubscriptionRef.changes read through a sliding buffer of one, or a Go
+// channel of one slot that the writer overwrites). It holds at most one
+// state, so a subscriber that stops reading keeps one state, not every
+// state (F-GP4c-1: ui's watcher, blocked on its host, kept every state).
+//
+//ergo:wait caller
+func (a *Actor[S, E, D]) LatestChanges(t *rt.Task) iter.Seq[S] {
 	return func(yield func(S) bool) {
+		for s := range a.subscribe(t, 1) {
+			if !yield(s) {
+				return
+			}
+		}
+	}
+}
+
+// subscribe is a subscription on t of room states.
+func (a *Actor[S, E, D]) subscribe(t *rt.Task, room int) iter.Seq2[S, int] {
+	return func(yield func(S, int) bool) {
 		a.mu.Lock()
 		// ACT-CH: a subscription that ended leaves its buffer and wake
 		// channel to the next one (a.spareSub), so a loop that subscribes per
@@ -1751,6 +1916,7 @@ func (a *Actor[S, E, D]) Changes(t *rt.Task) iter.Seq[S] {
 		if c == nil || changesReuse == "off" {
 			c = &changes[S]{}
 		}
+		c.room = room
 		c.buf = append(c.buf, a.state)
 		c.ended = a.ended
 		if a.subs == nil {
@@ -1767,8 +1933,8 @@ func (a *Actor[S, E, D]) Changes(t *rt.Task) iter.Seq[S] {
 		}()
 		for {
 			t.Check()
-			s, ok := a.nextChange(t, c)
-			if !ok || !yield(s) {
+			s, missed, ok := a.nextChange(t, c)
+			if !ok || !yield(s, missed) {
 				return
 			}
 		}
@@ -1780,9 +1946,14 @@ func (a *Actor[S, E, D]) Changes(t *rt.Task) iter.Seq[S] {
 type changes[S any] struct {
 	// buf[head:] are the states not given yet; once all are given, buf
 	// is emptied in place, so its array takes the next states.
-	buf   []S
-	head  int
-	ended bool
+	buf  []S
+	head int
+	// room is how many unread states buf may hold (1 for LatestChanges);
+	// missed counts the states an overflow dropped since the reader last
+	// took one.
+	room   int
+	missed int
+	ended  bool
 	// wake holds at most one token: signal sends it while the subscriber
 	// waits (waiting). The channel lives as long as the subscription and
 	// its successors (a.spareSub); a token left by a wait that a stop ended
@@ -1818,16 +1989,16 @@ func (c *changes[S]) signal() {
 func (c *changes[S]) reset() {
 	clear(c.buf)
 	c.buf, c.head = c.buf[:0], 0
-	c.ended, c.waiting, c.task = false, false, nil
+	c.ended, c.waiting, c.task, c.missed = false, false, nil, 0
 	select {
 	case <-c.wake:
 	default:
 	}
 }
 
-// nextChange is c's next state, waiting on t; false once the actor ended
-// and c gave every state.
-func (a *Actor[S, E, D]) nextChange(t *rt.Task, c *changes[S]) (S, bool) {
+// nextChange is c's next state and the number of states dropped before
+// it, waiting on t; false once the actor ended and c gave every state.
+func (a *Actor[S, E, D]) nextChange(t *rt.Task, c *changes[S]) (S, int, bool) {
 	a.mu.Lock()
 	for {
 		if c.head < len(c.buf) {
@@ -1838,13 +2009,15 @@ func (a *Actor[S, E, D]) nextChange(t *rt.Task, c *changes[S]) (S, bool) {
 			if c.head == len(c.buf) {
 				c.buf, c.head = c.buf[:0], 0
 			}
+			missed := c.missed
+			c.missed = 0
 			a.mu.Unlock()
-			return s, true
+			return s, missed, true
 		}
 		if c.ended {
 			a.mu.Unlock()
 			var zero S
-			return zero, false
+			return zero, 0, false
 		}
 		if c.wake == nil {
 			c.wake = make(chan struct{}, 1)

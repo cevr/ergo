@@ -25,7 +25,7 @@ Upstream's workloads burn CPU for some milliseconds, and the runtime times each 
 | Workload | Its work | Counter, bound | Count |
 | --- | --- | --- | --- |
 | Run update work | 8 animations, so one frame steps a burst of 8 signals | `Signals`, 4 | 8 |
-| Run view work | 250 nodes in a group that then stops (`ui.Boundary`), so they reach no patch | `Written`, 200 | 277 |
+| Run view work | 250 nodes in a group that then stops (`ui.Boundary`), so they reach no patch | `Written`, 200 | 273 |
 | Run patch work | mounts 120 keyed rows, kept from pass to pass by a `ui.Same` keyed by the mount (upstream's lazy rows) | `Ops`, 100 | 122 |
 | Run dependency extraction | 8 loads, one per dependency | `Fetches`, 4 | 8 |
 

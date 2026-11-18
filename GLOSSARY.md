@@ -202,6 +202,8 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Decision**: The value a machine step returns: `Enter{next}`, `Stay{next}`, `Emit{next, output}`, `Ignore{}`, `Reject{}`, `Done{output}` or `Tell{next, output}`. Its type is the prelude `Decision[S, O]`. Only the first state, an `Enter` and an `Emit` open an entry; `Stay` and `Tell` keep the entry's timer and work, and `Emit` and `Tell` give an output (runtime.md, Machines and actors 2).
 
+**State's exit action**: The action a machine's `exit: x` entry gives a state, `x(s) Option[func() needs R]`. The runner runs it once when an entry that holds `s` ends, with the state the entry holds then, on every path that ends it, `Stop` included. Not `actor.Exit`, the value of how an actor ended. See [runtime](docs/spec/runtime.md#machines-and-actors) Machines and actors 12a.
+
 **Actor**: A machine run by `actor.Start` as one task with a bounded mailbox, behind a resource handle with `Send`, `Ask`, `State` and `Stop`. In the earlier language (specified), an actor is an owned, addressable instance of behavior with typed messages and replies and an explicit admission and concurrency policy; an effect without a message interface remains a fiber.
 
 **Duration literal**: An integer with a unit suffix (`ns`, `us`, `ms`, `s`, `m`, `h`), of type `duration`.
