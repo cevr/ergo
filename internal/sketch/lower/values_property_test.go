@@ -359,6 +359,20 @@ func growB(b Box, v int) Box {
 	Box{..b, S: b.S.Append(v)}
 }
 
+// auditB owns b with field lets around its bind (ownedBind): s keeps b.S,
+// which growB's write through at reaches, so s is copied; m takes b.M
+// late, since nothing reads at.M before Box{..at, M: m} replaces it
+// (fieldflow.go).
+func auditB(b Box, k int) Box {
+	let s = b.S
+	let mut at = b
+	let mut m = b.M
+	m[k] = len(s)
+	at = growB(at, k)
+	at = Box{..at, M: m}
+	at
+}
+
 func freshM(k int) Map[int, int] {
 	let mut m = Map[int, int]{}
 	m[k] = k * 2
@@ -1205,10 +1219,30 @@ func (g *valueGen) write() {
 			// through a body that returns one (update.go).
 			switch v % 3 {
 			case 1:
+				if v == 7 {
+					// A let keeps b.S, which the update below writes, and
+					// another takes b.M until a record update gives it
+					// back (fieldflow.go: an apart read, a late take).
+					k, m := g.fresh(), g.fresh()
+					g.line(fmt.Sprintf("let %s = %s.S", k, b.name))
+					g.line(fmt.Sprintf("let mut %s = %s.M", m, b.name))
+					g.line(fmt.Sprintf("%s[%d] = %d", m, v, v))
+					g.line(fmt.Sprintf("%s = Box{..%s, M: %s}", b.name, b.name, m))
+					g.later(k, slices.Clone(b.val.s))
+					b.val.m[v] = v
+					g.reached["update field lets"] = true
+				}
 				g.line(fmt.Sprintf("%s = Box{..%s, S: %s.S.Append(%d)}", b.name, b.name, b.name, v))
 				g.reached["update self"] = true
 			case 2:
-				g.line(fmt.Sprintf("%s = growB(%s, %d)", b.name, b.name, v))
+				if v >= 5 {
+					// An owned parameter with field lets (ownedBind).
+					g.line(fmt.Sprintf("%s = auditB(%s, %d)", b.name, b.name, v))
+					b.val.m[v] = len(b.val.s)
+					g.reached["update owned lets"] = true
+				} else {
+					g.line(fmt.Sprintf("%s = growB(%s, %d)", b.name, b.name, v))
+				}
 				g.reached["update handed"] = true
 			default:
 				g.line(fmt.Sprintf("%s.S = %s.S.Append(%d)", b.name, b.name, v))
@@ -1777,6 +1811,7 @@ var valuePaths = []string{
 	"argument", "pure", "closure", "task", "loop kept", "literal write",
 	"write map", "delete in place", "take live", "take in place", "put in place", "write loop", "write slice", "append in place",
 	"write field map", "write field slice", "append field", "write element", "update self", "update handed",
+	"update field lets", "update owned lets",
 	"own rebind", "own loop", "own capture", "own slice", "own field", "own live",
 	"update rebind", "update rebind option", "update field", "update live",
 	"ref new literal", "ref new binding", "ref own write", "ref own delete", "ref get", "ref set", "ref modify both",
