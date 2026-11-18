@@ -2,6 +2,15 @@
   "about": "L8 B5 Scoped result-release mutants; runtime tests run in process. The standard mutant runner currently measures compiler suites only; the unit's runtime runner applies each edit in a scratch copy.",
   "mutants": [
     {
+      "name": "stall-below-parent-only",
+      "origin": "wf10 RT-HOOK fix (I22)",
+      "file": "runtime/rt/stall.go",
+      "from": "return v == d || slices.Contains(v.ups, d.made)",
+      "to": "return v == d || len(v.ups) > 0 && v.ups[len(v.ups)-1] == d.made",
+      "rule": "A domain made below d through domains that have since emptied is still below d: Stalled waits for its members too.",
+      "killers": ["runtime/rt:TestStalledSeesThroughEmptiedDomains"]
+    },
+    {
       "name": "L8-B5-scoped-result-lost",
       "origin": "L8 B5",
       "file": "runtime/rt/scope.go",

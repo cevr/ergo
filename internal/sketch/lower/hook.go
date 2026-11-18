@@ -14,15 +14,19 @@ import (
 // literal is still evaluated, as the call would have evaluated it, and
 // its value dropped.
 
-// hookTargets are the extern targets of std testing's At and Point.
+// hookTargets are the Go bodies of a named point: std testing's At and
+// Point bind them, and so may any package's extern.
 var hookTargets = map[string]bool{
 	runtimeModule + "/runtime/v1.HookAt":    true,
 	runtimeModule + "/runtime/v1.HookPoint": true,
 }
 
-// hookFunc reports whether f is std testing's At or Point.
+// hookFunc reports whether f is an extern bound to a named point's Go
+// body. It reads the binding, never the package that declares it, so a
+// user's extern of HookAt or HookPoint drops from a run build as std
+// testing's does (STD HAS NO PRIVILEGES).
 func hookFunc(f *check.Func) bool {
-	return f != nil && f.Pkg != nil && f.Pkg.Std() && f.Decl != nil && f.Decl.Extern != nil && f.Decl.Extern.Target != nil &&
+	return f != nil && f.Decl != nil && f.Decl.Extern != nil && f.Decl.Extern.Target != nil &&
 		hookTargets[strings.Trim(f.Decl.Extern.Target.Value, "\"`")]
 }
 

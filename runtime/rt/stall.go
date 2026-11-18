@@ -1,10 +1,10 @@
 package rt
 
 import (
+	"slices"
 	"sort"
 	"sync"
 	"sync/atomic"
-	"weak"
 )
 
 // A stall of a domain d is a moment when every live member of d, and of
@@ -82,15 +82,16 @@ func DomainOf(t *Task) *Virtual {
 // domainMade records v, a new domain with its first member, made by a
 // task that was a member of up (nil for none).
 func domainMade(v, up *Virtual) {
-	if up != nil {
-		v.up = weak.Make(up)
-	}
 	stalls.mu.Lock()
 	if stalls.live == nil {
 		stalls.live = map[*Virtual]uint64{}
 	}
 	stalls.seq++
-	stalls.live[v] = stalls.seq
+	v.made = stalls.seq
+	if up != nil {
+		v.ups = append(slices.Clip(up.ups), up.made)
+	}
+	stalls.live[v] = v.made
 	stalls.mu.Unlock()
 }
 
@@ -111,15 +112,11 @@ func kickStalls() {
 	}
 }
 
-// below reports whether v is d or a domain made below it.
+// below reports whether v is d or a domain made below it, through any
+// chain of domains, the ones that have since emptied included.
+// stalls.mu is held.
 func below(v, d *Virtual) bool {
-	for v != nil {
-		if v == d {
-			return true
-		}
-		v = v.up.Value()
-	}
-	return false
+	return v == d || slices.Contains(v.ups, d.made)
 }
 
 // Stalled reports whether d, a domain with a live member, is stalled with
