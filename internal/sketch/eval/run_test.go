@@ -133,12 +133,23 @@ test After {
 // preflight skipped an obligation that reaches encode or decode, or a
 // program's extern of a Go function the evaluator calls, though the run
 // itself evaluates both (O18, O20), so 42 example obligations were
-// skipped. Mutants: oracle-o23-preflight-codec,
-// oracle-o23-preflight-go-extern.
+// skipped. GoStd: a pure function of Go's standard library through
+// `import go` runs as the same Go function; compiler/syntax's scanner
+// calls these, and its tests were skipped (wf10 TP-DIAG). Mutants:
+// oracle-o23-preflight-codec, oracle-o23-preflight-go-extern,
+// tpdiag-import-go-skipped, tpdiag-isletter-is-isdigit.
 func TestPreflightAdmitsWhatRuns(t *testing.T) {
 	pkg := checked(t, `import json
+import go strconv
+import go unicode
 
 extern go math.Log func log(x float64) float64
+
+test GoStd {
+	assert unicode.IsLetter('é') && !unicode.IsLetter('1') && unicode.IsDigit('7') && !unicode.IsDigit('a')
+	assert strconv.QuoteRune('\u00a0') == "'\\u00a0'" && strconv.Quote("a\"") == "\"a\\\"\""
+	assert strconv.Itoa(-3) == "-3" && strconv.FormatInt(255, 16) == "ff"
+}
 
 type P { X int, Name string }
 

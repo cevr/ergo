@@ -127,6 +127,7 @@ func registerNatives() {
 	pure("strings.ToLower", func(a []Value) Value { return strings.ToLower(str(a[0])) })
 	pure("strings.ToUpper", func(a []Value) Value { return strings.ToUpper(str(a[0])) })
 	pure("strings.Index", func(a []Value) Value { return int64(strings.Index(str(a[0]), str(a[1]))) })
+	pure("strings.IndexByte", func(a []Value) Value { return int64(strings.IndexByte(str(a[0]), a[1].(uint8))) })
 	pure("strings.Contains", func(a []Value) Value { return strings.Contains(str(a[0]), str(a[1])) })
 	pure("strings.Slice", func(a []Value) Value { return str(a[0])[i64(a[1]):i64(a[2])] })
 	pure("strings.ReplaceAll", func(a []Value) Value { return strings.ReplaceAll(str(a[0]), str(a[1]), str(a[2])) })
@@ -238,6 +239,11 @@ func registerNatives() {
 	elems := func(v Value) []Value { return v.(sliceV).elems() }
 	pure("slices.Clone", func(a []Value) Value { return newSlice(append([]Value{}, elems(a[0])...)) })
 	pure("slices.Concat", func(a []Value) Value {
+		return newSlice(append(append([]Value{}, elems(a[0])...), elems(a[1])...))
+	})
+	// AppendAll is an extern of Go's builtin append(xs, ys...): xs keeps
+	// its elements, as a value does, so it is Concat at check time.
+	pure("slices.AppendAll", func(a []Value) Value {
 		return newSlice(append(append([]Value{}, elems(a[0])...), elems(a[1])...))
 	})
 	pure("slices.Reverse", func(a []Value) Value {
@@ -415,6 +421,15 @@ var readsOf = map[string]func(a []Value) int64{
 	"strings.HasSuffix":  func(a []Value) int64 { return int64(len(a[1].(string))) },
 	"strings.TrimPrefix": func(a []Value) int64 { return int64(len(a[1].(string))) },
 	"strings.TrimSuffix": func(a []Value) int64 { return int64(len(a[1].(string))) },
+	// IndexByte reads up to its match: a scan of each line of a text
+	// reads the text once.
+	"strings.IndexByte": func(a []Value) int64 {
+		s := a[0].(string)
+		if i := strings.IndexByte(s, a[1].(uint8)); i >= 0 {
+			return int64(i + 1)
+		}
+		return int64(len(s))
+	},
 }
 
 // shares names the pure natives whose result is a view of an argument's

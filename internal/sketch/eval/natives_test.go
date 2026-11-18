@@ -192,6 +192,7 @@ func nativeCases(g nativeGen) []nativeCase {
 	s, u, w := g.text(), g.text(), g.text()
 	i, j := g.small(), g.small()
 	rn := g.runeV()
+	c := []byte("a\n \xc3x")[g.r.IntN(5)]
 	xs := g.texts()
 	big := []int64{0, 1, -1, 7, math.MaxInt64, math.MinInt64, 1 << 40, -(1 << 33)}
 	d, m := big[g.r.IntN(len(big))], big[g.r.IntN(len(big))]
@@ -285,6 +286,7 @@ func nativeCases(g nativeGen) []nativeCase {
 		{name: "strings.ToLower", args: []Value{s}, v1: func() any { return v1.StringsToLower(s) }},
 		{name: "strings.ToUpper", args: []Value{s}, v1: func() any { return v1.StringsToUpper(s) }},
 		{name: "strings.Index", args: []Value{s, u}, v1: func() any { return int64(v1.StringsIndex(s, u)) }},
+		{name: "strings.IndexByte", args: []Value{s, c}, v1: func() any { return int64(v1.StringsIndexByte(s, c)) }},
 		{name: "strings.Contains", args: []Value{s, u}, v1: func() any { return v1.StringsContains(s, u) }},
 		{name: "strings.Slice", args: []Value{s, int64(i), int64(j)}, v1: func() any { return v1.StringsSlice(s, i, j) }},
 		{name: "strings.ReplaceAll", args: []Value{s, u, w}, v1: func() any { return v1.StringsReplaceAll(s, u, w) }},
@@ -328,6 +330,9 @@ func nativeCases(g nativeGen) []nativeCase {
 		{name: "slices.Take", args: []Value{li(ints), x}, anyDefect: true, v1: func() any { return takeOf(v1.SlicesTake(ints, int(x))) }},
 		{name: "slices.Clone", args: []Value{li(ints)}, v1: func() any { return v1.SlicesClone(ints) }},
 		{name: "slices.Concat", args: []Value{li(ints), li(ints2)}, v1: func() any { return v1.SlicesConcat(ints, ints2) }},
+		// AppendAll is an extern of Go's builtin append (slices.ergo):
+		// the reference is append itself.
+		{name: "slices.AppendAll", args: []Value{li(ints), li(ints2)}, v1: func() any { return append(ints[:len(ints):len(ints)], ints2...) }},
 		{name: "slices.Reverse", args: []Value{ls(xs)}, v1: func() any { return v1.SlicesReverse(xs) }},
 		{name: "slices.Sort", args: []Value{li(ints)}, v1: func() any { return v1.SlicesSort(ints) }},
 		{name: "slices.Sort", args: []Value{lf(fl)}, v1: func() any { return v1.SlicesSort(fl) }},

@@ -2,7 +2,9 @@ package eval
 
 import (
 	"math"
+	"strconv"
 	"strings"
+	"unicode"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -46,10 +48,54 @@ func registerNativesgo() {
 	}
 }
 
+// goStdNatives are the pure functions of Go's standard library that a
+// program reaches through `import go` (a binding of gostd), keyed by
+// import path and name: the evaluator calls the same Go function. Each
+// takes and gives basic values only (an Ergo int is an int64, a rune an
+// int32). compiler/syntax's scanner calls these (wf10 TP-DIAG).
+var goStdNatives = map[string]native{
+	"unicode.IsLetter":  goRune(unicode.IsLetter),
+	"unicode.IsDigit":   goRune(unicode.IsDigit),
+	"strconv.QuoteRune": goText(func(a []Value) string { return strconv.QuoteRune(rune(a[0].(int32))) }),
+	"strconv.Quote":     goText(func(a []Value) string { return strconv.Quote(a[0].(string)) }),
+	"strconv.Itoa":      goText(func(a []Value) string { return strconv.Itoa(int(a[0].(int64))) }),
+	"strconv.FormatInt": goText(func(a []Value) string { return strconv.FormatInt(a[0].(int64), int(a[1].(int64))) }),
+}
+
+func goRune(f func(rune) bool) native {
+	return func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		return f(rune(args[0].(int32))), in.charge(fr, at, 1)
+	}
+}
+
+// goText runs f, whose Go function may panic (FormatInt's base), as the
+// built program would: a panic is a defect.
+func goText(f func([]Value) string) native {
+	return func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		if ab := in.charge(fr, at, 1+argWork(args)); ab != nil {
+			return nil, ab
+		}
+		out, why := guard(func() Value { return f(args) })
+		if why != "" {
+			return nil, fr.defect(at, "%s", why)
+		}
+		return out, in.allocate(fr, at, int64(len(out.(string))))
+	}
+}
+
 // goNativeOf is the native of fn when it is a program's extern of a listed
-// Go function.
+// Go function, or a listed function of Go's standard library that the
+// program imports with `import go`.
 func goNativeOf(fn *check.Func) native {
-	if fn.Decl == nil || fn.Decl.Extern == nil || fn.Pkg == nil || fn.Pkg.Std() || fn.Pkg.Host() {
+	if fn.Pkg != nil && fn.Pkg.Host() {
+		if first, _, _ := strings.Cut(fn.Pkg.Path, "/"); strings.Contains(first, ".") {
+			// A module's own binding: Go's standard library paths have
+			// no dot in their first element.
+			return nil
+		}
+		return goStdNatives[fn.Pkg.Path+"."+fn.Name]
+	}
+	if fn.Decl == nil || fn.Decl.Extern == nil || fn.Pkg == nil || fn.Pkg.Std() {
 		return nil
 	}
 	path, name := fn.Decl.Extern.Split()
