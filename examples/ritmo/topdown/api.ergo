@@ -1,0 +1,110 @@
+// The game's Api: what a client can ask of a session, what each answer
+// is, and how each fails. A transport (cmd/topdown's script on standard
+// input) only reads requests and prints replies; it decides nothing.
+
+// Keep is how many ticks a session can rewind: ten seconds at Hz.
+let Keep = 600
+
+// Session is a game in play: the world now, and the worlds of the ticks
+// before it, oldest first, at most Keep (ritmo's checkpoints, here the
+// old values themselves).
+type Session { Now World, Past []World }
+
+// Request is one ask of a session: step a tick on some input, save the
+// world under a name, load a saved world, rewind some ticks, or look.
+type Request = Step{C Controls} | Save{Slot string} | Load{Slot string} | Rewind{Ticks int} | Look{}
+
+// Reply is a session's answer: the world after a step, a rewind, a load
+// or a look, or the name a save went under.
+type Reply = Stepped{W World} | Kept{Slot string} | Restored{W World, Slot string} | Rewound{W World, Ticks int} | Seen{W World}
+
+// TooFar is a rewind past the oldest tick the session keeps.
+type TooFar { Asked int, Kept int }
+
+// Missing is a load of a name nothing was saved under.
+type Missing { Slot string }
+
+// Broken is a store that cannot keep or give back a world.
+type Broken { Slot string, Why string }
+
+// Saves keeps worlds by name between sessions (ritmo's snapshot and
+// load, kept by the host).
+type Saves {
+	// Put keeps w under slot, in place of what slot held.
+	Put(slot string, w World) fails Broken,
+	// Get is the world last put under slot.
+	Get(slot string) World fails Missing | Broken,
+
+	// GetSeesPut: a world put under a slot is the world the slot gives,
+	// and the last put wins.
+	law GetSeesPut(slot string, a int, b int) {
+		try Put(slot, Sample(a))
+		try Put(slot, Sample(b))
+		try Get(slot) == Sample(b)
+	},
+
+	// SlotsAreApart: a put under one slot leaves another's world.
+	law SlotsAreApart(a int, b int) {
+		try Put("one", Sample(a))
+		try Put("two", Sample(b))
+		try Get("one") == Sample(a)
+	},
+}
+
+// Begin is a session of a new game: the world after Setup, with no tick
+// to rewind.
+func Begin() Session { Session{Now: Setup(Empty()), Past: []World{}} }
+
+// Handle answers r. Every failure is its own type, so a transport that
+// prints them names each one.
+func Handle(s Session, r Request) (Session, Reply) fails TooFar | Missing | Broken needs Saves {
+	match r {
+	case Step as st:
+		let next = Advance(s, st.C)
+		(next, Stepped{W: next.Now})
+	case Save as sv:
+		try Saves.Put(sv.Slot, s.Now)
+		(s, Kept{Slot: sv.Slot})
+	case Load as l:
+		let w = try Saves.Get(l.Slot)
+		(Session{Now: w, Past: []World{}}, Restored{W: w, Slot: l.Slot})
+	case Rewind as rw:
+		let back = try Back(s, rw.Ticks)
+		(back, Rewound{W: back.Now, Ticks: rw.Ticks})
+	case Look:
+		(s, Seen{W: s.Now})
+	}
+}
+
+// Advance is s after one tick on input c, keeping the world it leaves.
+func Advance(s Session, c Controls) Session {
+	let past = s.Past.Append(s.Now)
+	let kept = if len(past) > Keep { past[len(past)-Keep:len(past)] } else { past }
+	Session{Now: Update(s.Now, c), Past: kept}
+}
+
+// Back is s as it was ticks ticks ago.
+func Back(s Session, ticks int) Session fails TooFar {
+	if ticks < 0 || ticks > len(s.Past) {
+		return TooFar{Asked: ticks, Kept: len(s.Past)}
+	}
+	if ticks == 0 {
+		return s
+	}
+	let at = len(s.Past) - ticks
+	Session{Now: s.Past[at], Past: s.Past[0:at]}
+}
+
+// Sample is a world drawn from n: the game after a walk that n chooses,
+// with a pickup collected for some n, so a store is tried on worlds with
+// moved, removed and focused entities.
+func Sample(n int) World {
+	let mut w = Setup(Empty())
+	let mut x = if n < 0 { -(n / 2) } else { n }
+	for _ in 0..(x % 40) {
+		let c = Controls{DX: (x % 3) - 1, DY: ((x / 3) % 3) - 1, Interact: (x / 9) % 2 == 0}
+		w = Update(w, c)
+		x = x / 2 + 7
+	}
+	w
+}

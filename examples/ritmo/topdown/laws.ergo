@@ -1,0 +1,179 @@
+// ritmo's invariants (integration/top-down/invariants.ts) and its fuzzer
+// (fuzz.ts) as laws: each plays 400 ticks of input drawn from a seeded
+// Random and checks every world on the way. ergo test runs each over
+// many seeds and prints a failing seed's replay.
+
+import rand
+import ritmo/ecs
+
+// Fuzz is n ticks of input drawn from Random: a direction on each axis
+// and, one tick in four, interact. An input is held for 1 to 30 ticks,
+// as a person holds a key, so the walk reaches the walls and the
+// pickups.
+func Fuzz(n int) []Controls needs Random {
+	let mut out = []Controls{}
+	for _ in 0..n {
+		if len(out) >= n {
+			break
+		}
+		let c = Controls{DX: Random.IntN(3) - 1, DY: Random.IntN(3) - 1, Interact: Random.IntN(4) == 0}
+		for _ in 0..(1 + Random.IntN(30)) {
+			out = out.Append(c)
+		}
+	}
+	out[0:n]
+}
+
+// Play is the world after each tick of inputs, from the start.
+func Play(inputs []Controls) []World {
+	let mut w = Setup(Empty())
+	let mut out = []World{w}
+	for c in inputs {
+		w = Update(w, c)
+		out = out.Append(w)
+	}
+	out
+}
+
+// Run is the worlds of 400 ticks of fuzzed input from seed.
+func Run(seed int) []World {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		Play(Fuzz(400))
+	}
+}
+
+// PlayerStaysInTheWorld: the player's box is inside the room after
+// every tick (ritmo's PlayerInsideWorld, which checks the centre).
+law PlayerStaysInTheWorld(seed int) {
+	for w in Run(seed) {
+		match PlayerOf(w) {
+		case None:
+			return false
+		case Some[ecs.Entity] as p:
+			let at = PositionOf(w, p.Value)
+			let half = PlayerSide / 2
+			if at.X < half || at.Y < half || at.X > WorldWidth - half || at.Y > WorldHeight - half {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// NeverInsideAWall: no tick leaves the player's box overlapping a
+// wall's.
+law NeverInsideAWall(seed int) {
+	for w in Run(seed) {
+		match PlayerOf(w) {
+		case None:
+			return false
+		case Some[ecs.Entity] as p:
+			let at = PositionOf(w, p.Value)
+			let box = BoxOf(w, p.Value)
+			for b in WallsOf(w) {
+				if Overlaps(at, box, b.At, b.Box) {
+					return false
+				}
+			}
+		}
+	}
+	true
+}
+
+// CollectedMatchesTheRoom: the count of collected pickups is the
+// pickups gone from the room, never more than there were (ritmo's
+// CollectedAtMostTotal, made exact).
+law CollectedMatchesTheRoom(seed int) {
+	for w in Run(seed) {
+		if w.Collected > w.Total || w.Collected + w.Pickups.Size() != w.Total {
+			return false
+		}
+	}
+	true
+}
+
+// FocusIsInReach: a focused pickup is in the room and within its reach.
+law FocusIsInReach(seed int) {
+	for w in Run(seed) {
+		match w.Focus {
+		case Nothing:
+		case Near as n:
+			if !w.Pickups.Has(n.E) || n.Distance * Unit > Reach {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// MachinesFollowTheWalk: after a tick, the gait walks exactly when the
+// player has a velocity, and a tick that moves along one axis more than
+// the other faces that way.
+law MachinesFollowTheWalk(seed int) {
+	for w in Run(seed) {
+		match PlayerOf(w) {
+		case None:
+		case Some[ecs.Entity] as p:
+			let v = VelocityOf(w, p.Value)
+			let walking = match w.Gait {
+			case Walking:
+				true
+			case Standing:
+				false
+			}
+			if walking != (v.X != 0 || v.Y != 0) {
+				return false
+			}
+			match TurnOf(v) {
+			case Steady:
+			case Turned as t:
+				if t.To != w.Facing {
+					return false
+				}
+			}
+		}
+	}
+	true
+}
+
+// inputsOf is n ticks of fuzzed input from seed.
+func inputsOf(seed int, n int) []Controls {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		Fuzz(n)
+	}
+}
+
+// RewindReplays: rewinding k ticks and stepping the same k inputs again
+// gives the same world, bit for bit (ritmo's Checkpoint promise).
+law RewindReplays(seed int, k int) {
+	let inputs = inputsOf(seed, 120)
+	let back = if k < 0 { -(k % 120) } else { k % 120 }
+	let mut s = Begin()
+	for c in inputs {
+		s = Advance(s, c)
+	}
+	let end = s.Now
+	s = Back(s, back) catch {
+	case TooFar:
+		return false
+	}
+	for c in inputs[len(inputs)-back:len(inputs)] {
+		s = Advance(s, c)
+	}
+	s.Now == end
+}
+
+// RewindKeepsNoMore: a session rewinds at most Keep ticks, and a rewind
+// past what it keeps fails TooFar with what it keeps.
+law RewindKeepsNoMore(seed int, extra int) {
+	let mut s = Begin()
+	for c in inputsOf(seed, Keep + 5) {
+		s = Advance(s, c)
+	}
+	let past = Keep + 1 + (if extra < 0 { -(extra % 50) } else { extra % 50 })
+	let _ = Back(s, past) catch {
+	case TooFar as t:
+		return len(s.Past) == Keep && t.Kept == Keep && t.Asked == past
+	}
+	false
+}
