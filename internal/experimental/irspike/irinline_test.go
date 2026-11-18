@@ -11,6 +11,37 @@ import (
 	"ergo.local/prototype/internal/sketch/lower"
 )
 
+// TestIRKnowsLRUGet lowers examples/lru/cmd/lru on the IR, in process, and
+// requires that a match on an inlined call build no union. Churn's
+// `match c.Get(k)` is the one site of the shape: Get is an inlined body
+// with an environment parameter (its arena operations), so its call is
+// hoisted into a temporary the match's subject then reads, and only
+// coalesce joins the two, after which the known-variant pass sees the
+// copy write the subject (ir_forms_inline.go). GenerateInline's helpers
+// take no environment, and a helper given one by a `needs` row or a
+// function-value call is not inlined, so no generated case holds this
+// shape yet (IR-GETMATCH's ordering guard).
+func TestIRKnowsLRUGet(t *testing.T) {
+	if !lower.IRInlineOn() || !lower.IRKnownOn() {
+		t.Skip("the inliner or the known-variant pass is off")
+	}
+	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := Load(filepath.Join(root, "examples", "lru", "cmd", "lru"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, rep, err := lower.LowerIR(u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.KnownVariants == 0 {
+		t.Fatalf("examples/lru: no match on an inlined call built its union in place (inlined %d calls; fallback %v)", rep.Inlined, rep.Fallback)
+	}
+}
+
 // TestIRInlineMatchesSource is RED17's property over the IR inliner
 // (GenerateInline): each program prints the same and exits the same under
 // the source lowering (whose OPT4a inlines the same calls) and the IR,
@@ -51,10 +82,11 @@ func TestIRInlineMatchesSource(t *testing.T) {
 		if lower.IRInlineOn() && rep.Inlined == 0 {
 			t.Errorf("seed %d: the IR inlined no call (fallback %v)\n%s", seed, rep.Fallback, replay)
 		}
-		// The generator's two matches on look, an inlined Option helper,
-		// build no Option (peek's, on a Map's Get, is checked for its
-		// outcome only).
-		if lower.IRInlineOn() && lower.IRKnownOn() && rep.KnownVariants < 2 {
+		// The generator's three matches on an inlined Option helper build
+		// no Option: two on look, and one on peek, whose tail match on a
+		// Map's Get is lru's Cache.Get shape (TestIRKnowsLRUGet holds the
+		// hoisted call that needs coalesce first).
+		if lower.IRInlineOn() && lower.IRKnownOn() && rep.KnownVariants < 3 {
 			t.Errorf("seed %d: only %d matches on an inlined call built their union in place\n%s", seed, rep.KnownVariants, replay)
 		}
 		if lower.IRDropOn() && rep.Dropped == 0 {
