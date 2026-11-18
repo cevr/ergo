@@ -30,16 +30,16 @@ type Item {
 	..Writer,
 
 	// raw appends bytes as they are.
-	raw(bytes string),
+	mut raw(bytes string),
 	// head appends the head of an item of a major type and argument.
-	head(major int, n uint64),
+	mut head(major int, n uint64),
 	// wideHead is head for an argument of 256 or more.
-	wideHead(major int, n uint64),
+	mut wideHead(major int, n uint64),
 	// text appends the text string s.
-	text(s string),
+	mut text(s string),
 	// finish is the bytes written, and gives the buffer back (Encode
 	// only: nothing may use the Item after).
-	finish(hint int) string,
+	mut finish(hint int) string,
 
 	law RawJoins(a string, b string) { raw(a); raw(b) } == { raw(a + b) },
 }

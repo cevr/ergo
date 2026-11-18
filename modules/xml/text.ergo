@@ -10,19 +10,19 @@ import utf8
 type Text {
 	..Writer,
 	// Written is the text written so far.
-	Written() string,
+	mut Written() string,
 
 	// raw appends text as it is.
-	raw(s string),
+	mut raw(s string),
 	// open writes the start tag of a value's element, and close the end
 	// tag of the innermost element still open.
-	open(name string),
-	close(),
+	mut open(name string),
+	mut close(),
 	// enter starts a value: in a list, its item element.
-	enter(),
+	mut enter(),
 	// finish is the text written, and gives the buffer back (Encode
 	// only: nothing may use the Text after).
-	finish(hint int) string,
+	mut finish(hint int) string,
 
 	law RawJoins(a string, b string) { raw(a); raw(b) } == { raw(a + b) },
 }

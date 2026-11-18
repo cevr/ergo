@@ -55,29 +55,29 @@ extern go ergo.local/prototype/runtime/v1.JSONMalformed type Malformed { Offset 
 type Text {
 	..Writer,
 	// Written is the text written so far.
-	Written() string,
+	mut Written() string,
 
 	// raw appends text as it is; the comma state is unchanged.
-	raw(text string),
+	mut raw(text string),
 	// sep writes a comma when one is due.
-	sep(),
+	mut sep(),
 	// commaDue reports that the next value or key needs a comma.
-	commaDue() bool,
+	mut commaDue() bool,
 	// setComma sets whether the next value or key needs a comma.
-	setComma(due bool),
+	mut setComma(due bool),
 	// quote writes s as a JSON string; plainBody a plain s between quotes;
 	// the bodies write a value's text. None writes a comma or sets the
 	// state.
-	quote(s string),
-	plainBody(s string),
-	stringBody(s string),
-	intBody(n int64),
-	uintBody(n uint64),
-	boolBody(b bool),
-	floatBody(f float64),
+	mut quote(s string),
+	mut plainBody(s string),
+	mut stringBody(s string),
+	mut intBody(n int64),
+	mut uintBody(n uint64),
+	mut boolBody(b bool),
+	mut floatBody(f float64),
 	// finish is the text written, and gives the buffer back to the pool
 	// (Encode only: nothing may use the Text after).
-	finish(hint int) string,
+	mut finish(hint int) string,
 
 	law SetCommaSets(due bool) { setComma(due); commaDue() == due },
 

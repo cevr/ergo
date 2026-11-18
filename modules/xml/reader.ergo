@@ -20,7 +20,7 @@ type reader { text string, c cursor, a attrs } implements Cursor
 // decode[T] may borrow.
 type Cursor {
 	..Reader,
-	seal(),
+	mut seal(),
 }
 
 func seal(r mut reader) {}
