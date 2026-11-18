@@ -134,7 +134,19 @@ func (in *interp) operationCall(fr *frame, x *syntax.CallExpr, c *check.Call) (V
 		args = append(args, v)
 	}
 	in.handParts(fr, x.Args...)
-	v, ab := in.dispatch(fr, x, recv, c.Op.Name, args)
+	var v Value
+	var ab *abrupt
+	witnessed := false
+	if c.Kind == check.CallOp {
+		// A value of a constrained type parameter runs its witness's
+		// function (witness.go).
+		if tp := recvParam(fr.typeOf(c.Recv)); tp != nil {
+			v, ab, witnessed = in.witnessCall(fr, x, fr.env, tp, c.Op.Name, recv, args)
+		}
+	}
+	if !witnessed {
+		v, ab = in.dispatch(fr, x, recv, c.Op.Name, args)
+	}
 	if len(held) > 0 {
 		ab = in.settleHeld(fr, held, ab)
 	}

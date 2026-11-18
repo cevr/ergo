@@ -29,6 +29,27 @@ func (p *preflight) function(fr *frame, fn *check.Func) string {
 	return p.body(p.in.newFrame(fn.Pkg, fn.Decl), fn.Decl, fn.Decl.Body, nil, nil)
 }
 
+// witnesses is why a function some witness of inst names cannot run, or "".
+func (p *preflight) witnesses(fr *frame, inst *check.Instance) string {
+	if inst == nil {
+		return ""
+	}
+	for _, w := range inst.Witnesses {
+		for _, op := range w.Ops {
+			if op.Func == nil {
+				continue
+			}
+			if why := p.function(fr, op.Func); why != "" {
+				return why
+			}
+			if why := p.witnesses(fr, op.Inst); why != "" {
+				return why
+			}
+		}
+	}
+	return ""
+}
+
 func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own *check.Conversion, ops map[*check.Var]check.Conversion) string {
 	if p.seen[key] {
 		return ""
@@ -62,8 +83,9 @@ func (p *preflight) body(fr *frame, key syntax.Node, body *syntax.BlockStmt, own
 			switch c.Kind {
 			case check.CallLen, check.CallConversion, check.CallPattern, check.CallEmbed, check.CallEncode, check.CallDecode:
 			case check.CallFunc:
-				if inst := fr.info.Instances[x]; inst != nil && len(inst.Witnesses) > 0 {
-					why = "a generic call with unresolved operation witnesses"
+				// Each witnessed operation's function runs where the
+				// callee calls the operation (witness.go).
+				if why = p.witnesses(fr, fr.info.Instances[x]); why != "" {
 					break
 				}
 				if c.Site != nil {

@@ -189,6 +189,33 @@ func basicValue(v Value) bool {
 	return true
 }
 
+// holdsNoStore reports a value that reaches no slice or Map store: a
+// basic value, or a record or tuple of such values. A record is never
+// written in place (storePath builds a new one at each field), so a read
+// that lets such a part out of a slot shares nothing a later write
+// through the slot could change, and the slot need not lend: Go copies
+// the element and leaves the slice alone (MX-EVWITNESS: vt's Print read
+// a cell and then wrote one, and each write copied the whole screen).
+func holdsNoStore(v Value) bool {
+	switch v := v.(type) {
+	case *record:
+		for _, f := range v.fields {
+			if !holdsNoStore(f) {
+				return false
+			}
+		}
+		return true
+	case tuple:
+		for _, e := range v.elems {
+			if !holdsNoStore(e) {
+				return false
+			}
+		}
+		return true
+	}
+	return basicValue(v)
+}
+
 // ownSlice is s as a value whose store tok owns: s itself, or a copy of
 // its elements, charged before it is made.
 func (in *interp) ownSlice(fr *frame, at syntax.Node, s sliceV, tok *token) (sliceV, *abrupt) {

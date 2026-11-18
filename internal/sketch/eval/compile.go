@@ -187,7 +187,7 @@ func (in *interp) compileExprForm(fr *frame, x syntax.Expr, f *facts) fastExpr {
 			if ab != nil {
 				return nil, ab
 			}
-			if root != nil && !basicValue(v) {
+			if root != nil && !holdsNoStore(v) {
 				root.lend() // a part that holds a store leaves the slot
 			}
 			return v, nil
@@ -291,7 +291,7 @@ func (in *interp) compileCall(fr *frame, x *syntax.CallExpr, f *facts) fastExpr 
 			in.handParts(fr, x.Args...)
 		}
 		n := len(in.argStack)
-		v, ab := in.callPlanned(fr, x, p, nil, in.argStack[mark:n:n])
+		v, ab := in.callPlanned(fr, x, p, nil, nil, in.argStack[mark:n:n])
 		in.argStack = in.argStack[:mark]
 		return v, ab
 	}

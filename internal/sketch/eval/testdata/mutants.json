@@ -348,8 +348,8 @@
       "name": "generic-substitution-unbound",
       "origin": "wf10/l7-eval/EV2",
       "file": "internal/sketch/eval/interp.go",
-      "from": "args: targs[:n:n]}",
-      "to": "args: make([]rtype, n)}",
+      "from": "args: targs[:n:n], wits: wits}",
+      "to": "args: make([]rtype, n), wits: wits}",
       "rule": "A generic call's checked arguments bind the callee's type parameters, including nominal patterns (Generics).",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithModel"]
     },
@@ -2022,6 +2022,12 @@
       "to": "\tcase lo < 0:\n\t\treturn fmt.Sprintf(\"runtime error: slice bounds out of range [%d:%d]\", lo, hi), false\n",
       "rule": "Go names a negative low bound alone: slice bounds out of range [LO:].",
       "killers": ["internal/sketch/eval:TestRuntimeErrorsAreGos"]
-    }
+    },
+    {"name":"evwitness-skipped","origin":"wf10 MX-EVWITNESS","file":"internal/sketch/eval/interp.go","from":"\t\tif wits := witnessesOf(fr.info.Instances[at], fr.env); wits != nil {\n\t\t\treturn in.callWitnessed(fr, at, fn, rt, wits, args)\n","to":"\t\tif wits := witnessesOf(fr.info.Instances[at], fr.env); wits != nil {\n\t\t\treturn nil, fr.unsupported(at, \"a generic call with witnesses yet\")\n","rule":"A generic call whose type parameter an operation type constrains runs at check time, each operation through the instance's witness (lower/witness.go).","killers":["internal/sketch/eval:TestWitnessedCallsRunAtCheckTime"]},
+    {"name":"evwitness-outer-lost","origin":"wf10 MX-EVWITNESS","file":"internal/sketch/eval/witness.go","from":"\t\tif outer := recvParam(wv.w.Arg); outer != nil {\n","to":"\t\tif outer := recvParam(wv.w.Arg); false && outer != nil {\n","rule":"A type parameter passed on to another constrained call keeps its caller's witness (check Witness: Func is nil when Arg is the caller's type parameter).","killers":["internal/sketch/eval:TestWitnessedCallsRunAtCheckTime"]},
+    {"name":"evwitness-receiver-dropped","origin":"wf10 MX-EVWITNESS","file":"internal/sketch/eval/witness.go","from":"\tall = append(append(all, recv), args...)\n","to":"\tall = append(append(all, args...), recv)\n","rule":"A witnessed operation calls its function with the receiver first (WitnessOp.Sig: Arg first, then the operation's parameters).","killers":["internal/sketch/eval:TestWitnessedCallsRunAtCheckTime"]},
+    {"name":"evwitness-handover-local-only","origin":"wf10 MX-EVWITNESS","file":"internal/sketch/eval/stmt.go","from":"\tif len(steps) > 0 {\n\t\tif !samePlace(s.Lhs[0], c.Recv) {\n","to":"\tif len(steps) > 0 {\n\t\tif true || !samePlace(s.Lhs[0], c.Recv) {\n","rule":"x.f = x.f.Append(e), through a borrow too, hands the place over as x = x.Append(e) does: its slot does not lend, so the next write does not copy the slice (Go's append extends in place).","killers":["internal/sketch/eval:TestOwnedWritesStayLinear"]},
+    {"name":"evwitness-record-read-lends","origin":"wf10 MX-EVWITNESS","file":"internal/sketch/eval/expr.go","from":"\t\tif root != nil && !holdsNoStore(v) {\n\t\t\t// A part that holds a store leaves the slot: the slot lends.\n","to":"\t\tif root != nil && !basicValue(v) {\n\t\t\t// A part that holds a store leaves the slot: the slot lends.\n","rule":"A read of a part that reaches no slice or Map store (a record of basic values) does not lend its slot: records are never written in place, so nothing is shared.","killers":["internal/sketch/eval:TestOwnedWritesStayLinear"]},
+    {"name":"evwitness-len-lends","origin":"wf10 MX-EVWITNESS","file":"internal/sketch/eval/expr.go","from":"\t\tcase *syntax.SelectorExpr, *syntax.IndexExpr:\n\t\t\tif ab = in.charge(fr, a, 1); ab == nil {\n","to":"\t\tcase *syntax.BasicLit:\n\t\t\tif ab = in.charge(fr, a, 1); ab == nil {\n","rule":"len of a part reads its length only and does not lend the slot.","killers":["internal/sketch/eval:TestOwnedWritesStayLinear"]}
   ]
 }
