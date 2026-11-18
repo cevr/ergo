@@ -308,8 +308,16 @@ func fill(s *scan) bool {
 }
 
 // need reads until the window holds n bytes from i; false when the text
-// ends first.
+// ends first. The window mostly holds them already: that test is all of
+// need, small enough to inline, and the reads are needMore's.
 func need(s *scan, n int) bool {
+	if len(s.buf)-s.i >= n {
+		return true
+	}
+	needMore(s, n)
+}
+
+func needMore(s *scan, n int) bool {
 	for len(s.buf)-s.i < n {
 		if !fill(s) {
 			return false
@@ -318,16 +326,20 @@ func need(s *scan, n int) bool {
 	true
 }
 
+func space(c byte) bool { c == ' ' || c == '\t' || c == '\n' || c == '\r' }
+
+// ws passes the white space at i, a window at a time.
 func ws(s *scan) {
 	for {
-		if s.i >= len(s.buf) && !fill(s) {
+		let b = s.buf
+		let mut j = s.i
+		for j < len(b) && space(b[j]) {
+			j = j + 1
+		}
+		s.i = j
+		if j < len(b) || !fill(s) {
 			return
 		}
-		let c = s.buf[s.i]
-		if c != ' ' && c != '\t' && c != '\n' && c != '\r' {
-			return
-		}
-		s.i = s.i + 1
 	}
 }
 
@@ -466,11 +478,18 @@ func lit(s *scan, word string, kind int) tok {
 // digitRun passes the digits at i and counts them.
 func digitRun(s *scan) int {
 	let mut n = 0
-	for need(s, 1) && s.buf[s.i] >= '0' && s.buf[s.i] <= '9' {
-		s.i = s.i + 1
-		n = n + 1
+	for {
+		let b = s.buf
+		let mut j = s.i
+		for j < len(b) && b[j] >= '0' && b[j] <= '9' {
+			j = j + 1
+		}
+		n = n + (j - s.i)
+		s.i = j
+		if j < len(b) || !fill(s) {
+			return n
+		}
 	}
-	n
 }
 
 // num is the number at i; its spelling is a slice of the window.
@@ -533,6 +552,17 @@ func hex4(s *scan, j int) int {
 	r
 }
 
+// plainRun is the place of the first byte from j on in b that ends a run of
+// a string's plain bytes: a quote, a backslash or a control byte; len(b)
+// when there is none.
+func plainRun(b string, j int) int {
+	let mut k = j
+	for k < len(b) && b[k] != '"' && b[k] != '\\' && b[k] >= 0x20 {
+		k = k + 1
+	}
+	k
+}
+
 // str is the string at i, its escapes read as Cursor reads them: \udc80
 // to \udcff as the byte the encoder escaped, any other lone surrogate as
 // U+FFFD, a pair as its rune.
@@ -540,9 +570,7 @@ func str(s *scan) tok {
 	s.i = s.i + 1
 	s.mark = s.i
 	for {
-		for s.i < len(s.buf) && s.buf[s.i] != '"' && s.buf[s.i] != '\\' && s.buf[s.i] >= 0x20 {
-			s.i = s.i + 1
-		}
+		s.i = plainRun(s.buf, s.i)
 		if s.i < len(s.buf) {
 			break
 		}
@@ -565,9 +593,7 @@ func str(s *scan) tok {
 	let mut raw = true
 	for {
 		let start = s.i
-		for s.i < len(s.buf) && s.buf[s.i] != '"' && s.buf[s.i] != '\\' && s.buf[s.i] >= 0x20 {
-			s.i = s.i + 1
-		}
+		s.i = plainRun(s.buf, s.i)
 		b.WriteString(s.buf[start:s.i])
 		if s.i >= len(s.buf) {
 			if !fill(s) {
@@ -649,15 +675,19 @@ func str(s *scan) tok {
 // peekAt is the token k places after the next one, produced if need be.
 func peekAt(s *scan, k int) tok {
 	for s.nq-s.qi <= k {
-		let t = produce(s)
-		if s.nq < len(s.q) {
-			s.q[s.nq] = t
-		} else {
-			s.q = s.q.Append(t)
-		}
-		s.nq = s.nq + 1
+		push(s, produce(s))
 	}
 	s.q[s.qi+k]
+}
+
+// push queues t after the tokens produced and not yet taken.
+func push(s *scan, t tok) {
+	if s.nq < len(s.q) {
+		s.q[s.nq] = t
+	} else {
+		s.q = s.q.Append(t)
+	}
+	s.nq = s.nq + 1
 }
 
 func peek(s *scan) tok { peekAt(s, 0) }
@@ -740,11 +770,34 @@ func readInt(s *scan) int64 {
 	if s.wrong {
 		return 0
 	}
+	let (small, ok) = smallInt(t.text)
+	if ok {
+		return small
+	}
 	strconv.ParseInt(t.text, 10, 64) catch {
 	case _:
 		s.wrong = true
 		0
 	}
+}
+
+// smallInt is strconv.ParseInt(text, 10, 64) for an integer of at most
+// 18 digits, an optional minus first, which int64 always holds; false for
+// any other text, which ParseInt then reads.
+func smallInt(text string) (int64, bool) {
+	let start = if len(text) > 0 && text[0] == '-' { 1 } else { 0 }
+	if len(text) == start || len(text)-start > 18 {
+		return (0, false)
+	}
+	let mut n int64 = 0
+	for i in start..len(text) {
+		let c = text[i]
+		if c < '0' || c > '9' {
+			return (0, false)
+		}
+		n = n*10 + int64(c-'0')
+	}
+	(if start == 1 { -n } else { n }, true)
 }
 
 func readUint(s *scan) uint64 {
@@ -918,6 +971,7 @@ func end(s *scan) {
 // tag is the string value of the member "_tag" of the object just begun,
 // wherever it stands among the members; the tokens it passed stay queued.
 func tag(s *scan) string {
+	tagFirst(s)
 	let mut k = 0
 	for {
 		let t = peekAt(s, k)
@@ -933,6 +987,50 @@ func tag(s *scan) string {
 		k = after(s, k+1)
 	}
 }
+
+// tagFirst is tag's fast path for the form Encode writes: "_tag" is the
+// first member of the object just begun, its value a string with no
+// escape, all in the window. It queues the two tokens produce would give
+// for them, the key "_tag" and the value's text (a slice of the window,
+// as str gives it), and leaves the tokenizer where produce would: past
+// the value, after a member (sAfter). In any other case it does nothing,
+// and tag's look-ahead produces the tokens as usual.
+func tagFirst(s *scan) {
+	if s.bad || s.nq != s.qi || s.state != sFirst || s.ctx[s.nc-1] {
+		return
+	}
+	let b = s.buf
+	let mut j = s.i
+	for j < len(b) && space(b[j]) {
+		j = j + 1
+	}
+	if j+6 > len(b) || b[j:j+6] != "\"_tag\"" {
+		return
+	}
+	j = j + 6
+	for j < len(b) && space(b[j]) {
+		j = j + 1
+	}
+	if j >= len(b) || b[j] != ':' {
+		return
+	}
+	j = j + 1
+	for j < len(b) && space(b[j]) {
+		j = j + 1
+	}
+	if j >= len(b) || b[j] != '"' {
+		return
+	}
+	let end = plainRun(b, j+1)
+	if end >= len(b) || b[end] != '"' {
+		return
+	}
+	push(s, tok{kind: kKey, text: "_tag", raw: true})
+	push(s, tok{kind: kString, text: b[j+1:end], raw: true})
+	s.i = end + 1
+	s.state = sAfter
+}
+
 // got is an operation's result with the state's wrong flag, and the
 // path when wrong: one change of the state gives all an operation needs,
 // so no operation reads the state again.
