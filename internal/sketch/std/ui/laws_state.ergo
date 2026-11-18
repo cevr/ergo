@@ -37,9 +37,9 @@ func cellShape(keys []int, rows Map[int, row]) []Shape[int] {
 	let mut kids = []Shape[int]{}
 	for k in keys {
 		let r = rowOf(rows, k)
-		kids = kids.Append(leaf(InputNode{Value: r.a, Placeholder: "a"}))
+		kids = kids.Append(leaf(InputNode{Value: r.a, Placeholder: "a", Label: "", Description: "", Invalid: false}))
 		kids = kids.Append(leaf(TextNode{Value: r.a, Style: Plain()}))
-		kids = kids.Append(Shape[int]{Node: RowNode{Style: Plain()}, Kids: []Shape[int]{leaf(InputNode{Value: r.b, Placeholder: "b"})}})
+		kids = kids.Append(Shape[int]{Node: RowNode{Style: Plain()}, Kids: []Shape[int]{leaf(InputNode{Value: r.b, Placeholder: "b", Label: "", Description: "", Invalid: false})}})
 		kids = kids.Append(leaf(ToggleNode{Label: "t", On: r.on}))
 		kids = kids.Append(Shape[int]{Node: PressableNode{Label: "send", On: k, Style: Plain()}, Kids: []Shape[int]{leaf(TextNode{Value: "send", Style: Plain()})}})
 	}
@@ -423,7 +423,7 @@ func draft(vals Map[string, string], n string) string {
 }
 
 func input(vals Map[string, string], n string, placeholder string) Shape[int] {
-	leaf(InputNode{Value: draft(vals, n), Placeholder: placeholder})
+	leaf(InputNode{Value: draft(vals, n), Placeholder: placeholder, Label: "", Description: "", Invalid: false})
 }
 
 // bshape is what bview means at s for the model drafts.

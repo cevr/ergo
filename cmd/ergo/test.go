@@ -57,7 +57,9 @@ import (
 // --trace prints, after the run, the trace of every scene script the tests
 // played: one line per act, in the order the acts ran, each the line std
 // ui's PlayTrace returns for it (testTrace). It takes one package, played
-// plainly: with a pattern or --explore it is a usage error.
+// plainly: with a pattern or --explore it is a usage error. A traced run
+// is never answered from a cache, of results or of law verdicts, since a
+// cached answer has no trace.
 //
 // --cases DIR runs the recorded cases of DIR against the built main
 // package in place of its tests (cases.go, testCases).
@@ -117,7 +119,7 @@ func traceFlag(args []string) ([]string, bool) {
 // takesValue reports whether option a reads the next word as its value.
 func takesValue(a string) bool {
 	switch a {
-	case "--target", "-o", "--seed", "--states", "--receipt", "--law", "--skip-law", "--platform", "--eval-steps", "--eval-bytes", "--run", "--preempt", "--depth", "--schedules", "--schedule":
+	case "--target", "-o", "--seed", "--states", "--receipt", "--law", "--skip-law", "--platform", "--eval-steps", "--eval-bytes", "--run", "--preempt", "--depth", "--schedules", "--schedule", "--count":
 		return true
 	}
 	return false
@@ -126,10 +128,11 @@ func takesValue(a string) bool {
 // testPackage tests one package. An unchanged package folder whose last
 // run passed is a warm answer (warm.go; compile-speed CS8): its stored
 // result is replayed with no check, no emission, no link and no process.
-// The request's key adds the law ledger a full run writes.
+// The request's key adds the law ledger a full run writes. A traced run
+// takes no warm answer and keeps none: the answer has no trace.
 func testPackage(opts fileOptions) error {
 	var w *warm
-	if testCacheable(opts) {
+	if testCacheable(opts) && !opts.trace {
 		w = startWarm(opts, warmToolchain(opts), ledgerPart(ledgerPath(opts.file)))
 	}
 	if w != nil && w.hit {
@@ -209,6 +212,10 @@ func testLoadedPackage(opts fileOptions, l loaded, keep func(result []byte)) err
 	cache := build.Cache{Root: root}
 	ledger := ledgerPath(opts.file)
 	key := testResultKey(opts, tc, childArgs, limit, ledger)
+	if opts.trace {
+		// A cached answer has no trace.
+		key = ""
+	}
 	var cached []byte
 	hit := false
 	// A build that printed a note is not answered warm, since the answer
@@ -287,7 +294,7 @@ func runTestBinary(opts fileOptions, l loaded, tc build.Toolchain, binary string
 	// print it "(cached)" and do not run (lawcache); an explored run
 	// takes none, since it runs under another scheduler.
 	var verdicts *sketchfront.TestVerdicts
-	if !opts.explore && opts.receipt == "" {
+	if !opts.explore && opts.receipt == "" && !opts.trace {
 		seed, states := uint64(1), 0
 		if opts.seed != "" {
 			seed, _ = strconv.ParseUint(opts.seed, 10, 64)

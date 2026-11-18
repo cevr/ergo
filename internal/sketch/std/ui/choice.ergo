@@ -1,0 +1,243 @@
+import actor
+import time
+
+// Choices (a radio group; FK10-g2's list box): one value picked among
+// options, as ARIA's radiogroup and listbox are. A choice is a Semantic of
+// the group's role, named by its label, whose Value is the picked option,
+// holding a Semantic per option, named by the option and stating whether
+// it is the picked one; a press on an option, or a key, sends the signal
+// of the option it picks. The options are distinct: each is a row of the
+// group, keyed by itself.
+
+// Radios shows options as radio buttons in a group named label, the one
+// equal to selected checked (none when no option is). A press on a radio
+// sends on(its option); ArrowDown and ArrowRight pick the option after the
+// selected one and ArrowUp and ArrowLeft the one before, wrapping round,
+// as ARIA's radio group does; Home and End pick the first and the last.
+func Radios[E](f *Frame[E], label string, options []string, selected string, on own func(v string) E, at CallSite) {
+	choose(f, RadioGroup, label, options, selected, on, at)
+}
+
+// Select shows options as a list box named label, the one equal to
+// selected selected. A press on an option sends on(its option); ArrowDown
+// picks the option after the selected one and ArrowUp the one before,
+// stopping at the ends, as ARIA's list box does; Home and End pick the
+// first and the last.
+func Select[E](f *Frame[E], label string, options []string, selected string, on own func(v string) E, at CallSite) {
+	choose(f, ListBox, label, options, selected, on, at)
+}
+
+// choose writes a choice of role group (RadioGroup or ListBox) and takes
+// its keys.
+func choose[E](f *Frame[E], group Role, label string, options []string, selected string, on own func(v string) E, at CallSite) {
+	let radio = group == RadioGroup
+	let mut g = Named(group, label)
+	g.Value = Some{Value: selected}
+	Semantic(f, g, None, Plain(), func() {
+		Each(f, options, func(o string) Key { ByText(o) }) func(o string) {
+			let mut a = Named(ListOption, o)
+			if radio {
+				a.Role = Radio
+				a.Checked = Some{Value: o == selected}
+			} else {
+				a.Selected = Some{Value: o == selected}
+			}
+			Semantic(f, a, Some{Value: on(o)}, Plain()) {
+				Text(f, o)
+			}
+		}
+	}, at)
+	OnKey(f, func(k KeyPress) Option[E] {
+		match picked(options, selected, k.Name, radio) {
+		case Some[string] as v:
+			Some{Value: on(v.Value)}
+		case None:
+			None
+		}
+	})
+}
+
+// picked is the option the key named key picks in options from selected,
+// None for a key that picks none or for no options. With no option
+// selected, an arrow picks the first. wrap is a radio group's: the arrows
+// go round, and Right and Left are arrows too.
+func picked(options []string, selected string, key string, wrap bool) Option[string] {
+	let n = len(options)
+	if n == 0 {
+		return None
+	}
+	let mut at = -1
+	for i, o in options {
+		if o == selected {
+			at = i
+		}
+	}
+	let next = key == "ArrowDown" || (wrap && key == "ArrowRight")
+	let back = key == "ArrowUp" || (wrap && key == "ArrowLeft")
+	if key == "Home" {
+		return Some{Value: options[0]}
+	}
+	if key == "End" {
+		return Some{Value: options[n-1]}
+	}
+	if !next && !back {
+		return None
+	}
+	if at < 0 {
+		return Some{Value: options[0]}
+	}
+	if next {
+		if at+1 < n {
+			return Some{Value: options[at+1]}
+		}
+		if wrap {
+			return Some{Value: options[0]}
+		}
+		return Some{Value: options[n-1]}
+	}
+	if at > 0 {
+		return Some{Value: options[at-1]}
+	}
+	if wrap {
+		return Some{Value: options[n-1]}
+	}
+	Some{Value: options[0]}
+}
+
+// choiceOptions is the options "o0" to "o<n-1>". (a law's helper)
+func choiceOptions(n int) []string {
+	let mut out = []string{}
+	for i in 0..n {
+		out = out.Append("o\(i)")
+	}
+	out
+}
+
+// choiceIndex is the index of v in options, -1 for none. (a law's helper)
+func choiceIndex(options []string, v string) int {
+	for i, o in options {
+		if o == v {
+			return i
+		}
+	}
+	-1
+}
+
+// choiceShown is whether the test host shows a choice of n options named
+// "pick" as picking the option at index sel: the group's Value is that
+// option and exactly that option is checked (a radio) or selected (an
+// option), each found by its role and name and by its label.
+// (a law's helper)
+func choiceShown[S, D, F](h *TestHost[S, int, D, F], n int, sel int, radio bool) bool {
+	let options = choiceOptions(n)
+	let group = if radio { RadioGroup } else { ListBox }
+	let item = if radio { Radio } else { ListOption }
+	let gs = Locate(h, WithRole{Role: group, Name: "pick"})
+	if len(gs) != 1 || AccessAt(h, gs[0]).Value != (Some{Value: options[sel]}) {
+		return false
+	}
+	if len(Locate(h, WithRole{Role: item, Name: ""})) != n {
+		return false
+	}
+	for i, o in options {
+		let ids = Locate(h, WithRole{Role: item, Name: o})
+		if len(ids) != 1 || Locate(h, WithLabel{Label: o}) != ids {
+			return false
+		}
+		let a = AccessAt(h, ids[0])
+		let on = Some{Value: i == sel}
+		if radio && (a.Checked != on || a.Selected != None) {
+			return false
+		}
+		if !radio && (a.Selected != on || a.Checked != None) {
+			return false
+		}
+	}
+	true
+}
+
+// choiceKey presses the key named name on h. (a law's helper)
+func choiceKey[S, D, F](h *TestHost[S, int, D, F], name string) bool {
+	PressKey(h, KeyPress{Name: name, Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch {
+	case actor.Stopped:
+		return false
+	case BadPatch:
+		return false
+	}
+	true
+}
+
+// choiceWalk presses key steps times on h, and is whether each press
+// moves the state by by. (a law's helper)
+func choiceWalk[D, F](h *TestHost[int, int, D, F], key string, steps int, by int) bool {
+	for _ in 0..steps {
+		let was = StateOf(h)
+		if !choiceKey(h, key) || StateOf(h) != was+by {
+			return false
+		}
+	}
+	true
+}
+
+// ChoiceIsAnnouncedAndReachable (FK10-g2, the radio group): over radio
+// groups and list boxes of 3 to 6 options, from a drawn selection: the
+// group announces its selection (its Value) and exactly the selected
+// option says so (Checked for a radio, Selected for an option), found by
+// role and name and by label; Home and End reach the ends; ArrowDown
+// walks from the first option to the last and ArrowUp back, one option
+// per press; past the last option a radio group wraps to the first and a
+// list box stays, and before the first a radio group wraps to the last
+// (a radio group's ArrowRight and ArrowLeft too); the arrows reach a
+// drawn target; another key sends nothing; and a press on an option picks
+// it.
+law ChoiceIsAnnouncedAndReachable(n int, from int, to int, radio bool) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let k = (n%4+4)%4 + 3
+		let options = choiceOptions(k)
+		let start = (from%k + k) % k
+		let target = (to%k + k) % k
+		let view = func(f *Frame[int], s int) {
+			let on = func(v string) int { choiceIndex(options, v) }
+			if radio {
+				Radios(f, "pick", options, options[s], on)
+			} else {
+				Select(f, "pick", options, options[s], on)
+			}
+		}
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: start, Step: semStep, After: semTimer, Work: semWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		if !choiceShown(&h, k, start, radio) || !choiceKey(&h, "Home") || StateOf(&h) != 0 || !choiceShown(&h, k, 0, radio) {
+			return false
+		}
+		if !choiceWalk(&h, "ArrowDown", k-1, 1) || !choiceShown(&h, k, k-1, radio) {
+			return false
+		}
+		let _ = choiceKey(&h, if radio { "ArrowRight" } else { "ArrowDown" })
+		if StateOf(&h) != if radio { 0 } else { k - 1 } || !choiceKey(&h, "End") || StateOf(&h) != k-1 {
+			return false
+		}
+		if !choiceWalk(&h, "ArrowUp", k-1, -1) || !choiceShown(&h, k, 0, radio) {
+			return false
+		}
+		let _ = choiceKey(&h, if radio { "ArrowLeft" } else { "ArrowUp" })
+		if StateOf(&h) != if radio { k - 1 } else { 0 } {
+			return false
+		}
+		let here = StateOf(&h)
+		let ok = if target >= here { choiceWalk(&h, "ArrowDown", target-here, 1) } else { choiceWalk(&h, "ArrowUp", here-target, -1) }
+		let _ = choiceKey(&h, "x")
+		if !ok || StateOf(&h) != target || !choiceShown(&h, k, target, radio) {
+			return false
+		}
+		let other = (target + 1) % k
+		Play(&h, []Act{ClickOn{At: WithLabel{Label: options[other]}}}) catch {
+		case _:
+			return false
+		}
+		StateOf(&h) == other && choiceShown(&h, k, other, radio)
+	}
+}

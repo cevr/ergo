@@ -79,7 +79,9 @@ func Newest(w Warning, log []Warning) []Warning {
 	out
 }
 
-// PhaseOf is the phase whose counter is counter (ui.Slow.Counter).
+// PhaseOf is the phase of a Slow pass's counter (ui.Slow.Counter). The
+// match names every counter, so a counter ui adds is a case to place here
+// (FK13-g4).
 func PhaseOf(counter ui.Counter) Option[Phase] {
 	match counter {
 	case ui.SignalsCounter:

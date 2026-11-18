@@ -48,6 +48,38 @@ func findIn[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], label string) Option
 	None
 }
 
+// found is the one node whose label is label, as ui.TestHost's acts find
+// it (NS7): none fails NoNode, more than one Ambiguous, and a match inside
+// a match is the same target.
+func found[S, E, D, F](d *Driver[S, E, D, F], label string) ui.Id[E] fails ui.NoNode | ui.Ambiguous {
+	let ids = labelledIn(d, d.root, label, []ui.Id[E]{})
+	if len(ids) == 0 {
+		return ui.NoNode{Label: label}
+	}
+	if len(ids) > 1 {
+		return ui.Ambiguous{At: "label \"\(label)\"", Count: len(ids)}
+	}
+	ids[0]
+}
+
+// labelledIn is acc and the nodes under id whose label is label, in tree
+// order, none searched below a match.
+func labelledIn[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], label string, acc []ui.Id[E]) []ui.Id[E] {
+	let mut out = acc
+	for k in kidsOf(d, id) {
+		match d.nodes.Get(k) {
+		case Some[held[E]] as h:
+			if labelOf(h.Value.node) == (Some{Value: label}) {
+				out = out.Append(k)
+				continue
+			}
+		case None:
+		}
+		out = labelledIn[S, E, D, F](d, k, label, out)
+	}
+	out
+}
+
 // Focusables are the nodes that take the focus (a Pressable, a Check, a
 // Toggle, an Input), in tree order: the order Tab visits them in, since
 // the window paints in tree order and Tab follows the paint.
@@ -83,39 +115,8 @@ func BoxOf[S, E, D, F](d *Driver[S, E, D, F], label string) Option[layout.Box] {
 // points, after the Scrolls around it are scrolled with the wheel until
 // its centre shows, as a person scrolls to a row below the fold.
 func at[E comparable, S, D, F](d *Driver[S, E, D, F], label string) layout.Box fails ui.NoNode | ui.Ambiguous | ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
-	try boxAt(d, try the(d, label), label)
-}
-
-// the is the one node whose label is label: NoNode when none is, and
-// Ambiguous when more than one is (a match inside a match is the same
-// target, as ui.TestHost counts them).
-func the[S, E, D, F](d *Driver[S, E, D, F], label string) ui.Id[E] fails ui.NoNode | ui.Ambiguous {
-	let ids = labelled(d, d.root, label, []ui.Id[E]{})
-	if len(ids) == 0 {
-		return ui.NoNode{Label: label}
-	}
-	if len(ids) > 1 {
-		return ui.Ambiguous{At: "label \"\(label)\"", Count: len(ids)}
-	}
-	ids[0]
-}
-
-// labelled is acc and the nodes under id whose label is label, in tree
-// order, none under another.
-func labelled[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], label string, acc []ui.Id[E]) []ui.Id[E] {
-	let mut out = acc
-	for k in kidsOf(d, id) {
-		match d.nodes.Get(k) {
-		case Some[held[E]] as h:
-			if labelOf(h.Value.node) == (Some{Value: label}) {
-				out = out.Append(k)
-				continue
-			}
-		case None:
-		}
-		out = labelled[S, E, D, F](d, k, label, out)
-	}
-	out
+	let id = try found(d, label)
+	try boxAt(d, id, label)
 }
 
 // reveal wheels each Scroll that holds id, outermost first, until the
@@ -182,7 +183,7 @@ func Play[E comparable, S, D, F](d *Driver[S, E, D, F], script []ui.Act) fails u
 			let b = try at(d, x.Label)
 			tap(d, b)
 			try Drain(d)
-			let id = try the(d, x.Label)
+			let id = try found(d, x.Label)
 			let old = match d.nodes.Get(id) {
 			case Some[held[E]] as h:
 				match h.Value.node {
@@ -232,7 +233,7 @@ func Play[E comparable, S, D, F](d *Driver[S, E, D, F], script []ui.Act) fails u
 		case ui.ScrollOn as x:
 			// The wheel, at the list's centre, by what takes it to Offset;
 			// the height is the window's, which the list reports.
-			let id = try the(d, x.Label)
+			let id = try found(d, x.Label)
 			match spotOf(d, id) {
 			case Some[spot[E]] as s:
 				let dy = dips(x.Offset) - scrolledBy(d, id)

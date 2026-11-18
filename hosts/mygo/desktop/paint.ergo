@@ -24,6 +24,9 @@ let accent = uint32(0x0969daff)
 
 let rule = uint32(0x8c959fff)
 
+// danger is the border of an invalid Input.
+let danger = uint32(0xcf222eff)
+
 let track = uint32(0xc6ccd3ff)
 
 let paper = uint32(0xffffffff)
@@ -159,10 +162,12 @@ func styleOf[E](n ui.Node[E], line float32) layout.Style {
 		s.Padding = [4]float32{0, 0, 0, switchW + 10}
 		s.Content = layout.Text{Value: x.Label, Size: textSize}
 		s
-	case ui.InputNode:
+	case ui.InputNode as x:
+		// A label above the field and a description under it take a line
+		// each.
 		let mut s = plainStyle()
 		s.Width = layout.Px{Value: fieldW}
-		s.Height = layout.Px{Value: line + 12}
+		s.Height = layout.Px{Value: line + 12 + labelRoom(x, line) + describeRoom(x, line)}
 		s.Padding = [4]float32{6, 8, 6, 8}
 		s
 	}
@@ -178,7 +183,7 @@ func textOf[E](n ui.Node[E]) string {
 	case ui.ToggleNode as x:
 		x.Label
 	case ui.InputNode as x:
-		x.Value + "\n" + x.Placeholder
+		x.Value + "\n" + x.Placeholder + "\n" + x.Label + "\n" + x.Description
 	case _:
 		""
 	}
@@ -204,10 +209,35 @@ func labelOf[E](n ui.Node[E]) Option[string] {
 	case ui.TextNode as x:
 		Some{Value: x.Value}
 	case ui.InputNode as x:
-		Some{Value: x.Placeholder}
+		Some{Value: fieldName(x)}
 	case _:
 		None
 	}
+}
+
+// fieldName is an Input's accessible name: its label, or its placeholder
+// when it has none, as ui's locator reads it.
+func fieldName(x ui.InputNode) string {
+	if x.Label != "" {
+		return x.Label
+	}
+	x.Placeholder
+}
+
+// labelRoom is the height an Input's label takes above its field.
+func labelRoom(x ui.InputNode, line float32) float32 {
+	if x.Label == "" {
+		return 0
+	}
+	line + 4
+}
+
+// describeRoom is the height an Input's description takes under its field.
+func describeRoom(x ui.InputNode, line float32) float32 {
+	if x.Description == "" {
+		return 0
+	}
+	line + 4
 }
 
 // paint lays the window's tree out at the window's size and gives the
@@ -574,13 +604,21 @@ func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b
 		lines(d, x.Label, b.X+switchW+10, b.Y, b.W-switchW-10, ink)
 	case ui.InputNode as x:
 		d.spots = d.spots.Append(s)
-		fill(d, b, 4, paper)
-		if focus {
-			d.w.Border(float64(b.X), float64(b.Y), float64(b.W), float64(b.H), 4, 2, accent)
-		} else {
-			d.w.Border(float64(b.X), float64(b.Y), float64(b.W), float64(b.H), 4, 1, rule)
+		let top = labelRoom(x, line)
+		if x.Label != "" {
+			d.w.Text(float64(b.X), float64(b.Y), x.Label, float64(textSize), ink)
 		}
-		let inner = layout.Box{X: b.X + 8, Y: b.Y + 6, W: b.W - 16, H: b.H - 12}
+		if x.Description != "" {
+			d.w.Text(float64(b.X), float64(b.Y+b.H-line), x.Description, float64(textSize), if x.Invalid { danger } else { faint })
+		}
+		let fb = layout.Box{X: b.X, Y: b.Y + top, W: b.W, H: b.H - top - describeRoom(x, line)}
+		fill(d, fb, 4, paper)
+		if focus {
+			d.w.Border(float64(fb.X), float64(fb.Y), float64(fb.W), float64(fb.H), 4, 2, if x.Invalid { danger } else { accent })
+		} else {
+			d.w.Border(float64(fb.X), float64(fb.Y), float64(fb.W), float64(fb.H), 4, if x.Invalid { 2 } else { 1 }, if x.Invalid { danger } else { rule })
+		}
+		let inner = layout.Box{X: fb.X + 8, Y: fb.Y + 6, W: fb.W - 16, H: fb.H - 12}
 		d.w.Clip(float64(inner.X), float64(inner.Y), float64(inner.W), float64(inner.H))
 		if x.Value == "" {
 			d.w.Text(float64(inner.X), float64(inner.Y), x.Placeholder, float64(textSize), faint)
@@ -588,7 +626,7 @@ func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b
 			d.w.Text(float64(inner.X), float64(inner.Y), x.Value, float64(textSize), ink)
 		}
 		d.w.Unclip()
-		access(d, id, screen.RoleField, x.Placeholder, x.Value, b, false, focus)
+		access(d, id, screen.RoleField, fieldName(x), x.Value, b, false, focus)
 		if focus {
 			let caret = fmin(width(d.metrics, x.Value, textSize), inner.W)
 			d.w.Editing(x.Value, float64(inner.X+caret), float64(inner.Y), 1, float64(line))

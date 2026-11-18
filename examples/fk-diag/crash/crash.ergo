@@ -33,10 +33,9 @@ func View(f *ui.Frame[Signal], s Calm) {
 }
 
 // CrashView is what the window shows once the app crashed: what went
-// wrong, and a Reload button that starts the app afresh. A defect carries
-// no message to the crash view (ui.DefectCrash has no field), so the line
-// under the title names the kind of crash, where upstream shows the
-// thrown error's message (ledger row FK13-g1).
+// wrong, and a Reload button that starts the app afresh. The line under
+// the title names the kind of crash; the defect's text, which upstream
+// shows, is the crash's Reason (ui.DefectCrash, FK13-g1).
 func CrashView[F](f *ui.Frame[Signal], c ui.Crash[Calm, Signal, F]) {
 	ui.Text(f, "Something went wrong")
 	match c.Cause {

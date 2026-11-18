@@ -404,7 +404,7 @@ func labelOf[E](n Node[E]) Option[string] {
 	case TextNode as x:
 		Some{Value: x.Value}
 	case InputNode as x:
-		Some{Value: x.Placeholder}
+		Some{Value: fieldName(x)}
 	case _:
 		None
 	}
@@ -496,14 +496,17 @@ func played[E comparable, S, D, F](h *TestHost[S, E, D, F], script []Act, lines 
 }
 
 // fetchesAsleep says whether each fetch in flight is asleep on the
-// host's clock, so only an Advance wakes it.
+// host's clock, so only an Advance wakes it. It looks at every fetch
+// rather than stop at the first awake one, so the steps it takes do not
+// hang on the Map's order.
 func fetchesAsleep[E comparable, S, D, F](h *TestHost[S, E, D, F]) bool {
+	let mut asleep = 0
 	for _, t in h.session.inflight {
-		if !time.Asleep(h.clock, t) {
-			return false
+		if time.Asleep(h.clock, t) {
+			asleep = asleep + 1
 		}
 	}
-	true
+	asleep == len(h.session.inflight)
 }
 
 // waitText is what a SettleAll left in flight, waiting on the clock:
@@ -682,7 +685,17 @@ func nodeText[E](n Node[E]) string {
 		}
 		"(off) \"\(x.Label)\""
 	case InputNode as x:
-		"input \"\(x.Value)\" (\(x.Placeholder))"
+		let mut out = "input \"\(x.Value)\" (\(x.Placeholder))"
+		if x.Label != "" {
+			out = out + " label \"\(x.Label)\""
+		}
+		if x.Description != "" {
+			out = out + " \"\(x.Description)\""
+		}
+		if x.Invalid {
+			out = out + " invalid"
+		}
+		out
 	case FieldsetNode as x:
 		let mut out = "fieldset"
 		if x.Disabled {
