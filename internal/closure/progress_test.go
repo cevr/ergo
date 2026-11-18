@@ -9,7 +9,9 @@ import (
 // A swept run is stopped only when it hangs: when it has made no progress
 // for its quiet window, or at the end this test binary's own deadline
 // leaves it. Progress is any growth of the run's output or of its test log,
-// where the observer writes every access of every process of the run. A
+// where the observer writes every access of every process of the run, or
+// any CPU a process of the run uses (treeCPU, on Linux): a test that
+// computes for its window with no output and no file access is working. A
 // fixed bound on the whole run stopped cmd/ergo's runs, which take 58 to
 // 61 minutes under a merge tier's load, at their 27 to 30 minute deadline
 // though they were working (AGENTS.md: a deadline only stops a hung test).

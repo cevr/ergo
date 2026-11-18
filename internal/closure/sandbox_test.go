@@ -100,6 +100,34 @@ func helperMain() {
 	if op, ok := os.LookupEnv(childVariable); ok {
 		os.Exit(childMain(op))
 	}
+	if cpu, ok := os.LookupEnv(spinVariable); ok {
+		os.Exit(spinMain(cpu))
+	}
+}
+
+// spinVariable makes the test binary a silent worker (spinMain): it
+// computes, writing nothing, until it has used the CPU time the variable
+// names, then exits 0.
+const spinVariable = "ERGO_CLOSURE_SPIN"
+
+func spinMain(cpu string) int {
+	want, err := time.ParseDuration(cpu)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	for x := uint64(1); ; x = x*6364136223846793005 + 1442695040888963407 {
+		if x&0xfffff == 0 {
+			var usage syscall.Rusage
+			if err := syscall.Getrusage(syscall.RUSAGE_SELF, &usage); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				return 2
+			}
+			if time.Duration(usage.Utime.Nano()+usage.Stime.Nano()) >= want {
+				return 0
+			}
+		}
+	}
 }
 
 // sandboxMain builds the sandbox in this process's namespaces, checks it,
@@ -179,7 +207,7 @@ type runTimeout struct {
 }
 
 func (r runTimeout) Error() string {
-	why := fmt.Sprintf("did not end within %v of its last progress, a growth of its output or test log (%s)", r.quiet.Round(time.Second), runDeadlineVariable)
+	why := fmt.Sprintf("did not end within %v of its last progress, a growth of its output or test log or a use of CPU by any of its processes (%s)", r.quiet.Round(time.Second), runDeadlineVariable)
 	if r.outcome == watchEnd {
 		why = "did not end within this test's own deadline, though it was making progress"
 	}
