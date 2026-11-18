@@ -51,8 +51,11 @@ func TestIRInlineMatchesSource(t *testing.T) {
 		if lower.IRInlineOn() && rep.Inlined == 0 {
 			t.Errorf("seed %d: the IR inlined no call (fallback %v)\n%s", seed, rep.Fallback, replay)
 		}
-		if lower.IRInlineOn() && lower.IRKnownOn() && rep.KnownVariants == 0 {
-			t.Errorf("seed %d: no match on an inlined call built its union in place\n%s", seed, replay)
+		// The generator's two matches on look, an inlined Option helper,
+		// build no Option (peek's, on a Map's Get, is checked for its
+		// outcome only).
+		if lower.IRInlineOn() && lower.IRKnownOn() && rep.KnownVariants < 2 {
+			t.Errorf("seed %d: only %d matches on an inlined call built their union in place\n%s", seed, rep.KnownVariants, replay)
 		}
 		if lower.IRDropOn() && rep.Dropped == 0 {
 			t.Errorf("seed %d: no discarded call named the variant with no result\n%s", seed, replay)
