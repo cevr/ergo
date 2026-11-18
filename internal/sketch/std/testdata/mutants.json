@@ -17,6 +17,9 @@
       "rule": "std.ArgClauses: a Go body's parameter clause matches its review; ActorFeed runs run on a task of its own after feed returned.",
       "anchor": {"tests": ["std:TestExternArgumentClauses"]},
       "killers": ["std:TestExternArgumentClauses"]
-    }
+    },
+    {"name":"world-writes-own-tree","origin":"wf10 TEST-AMBIENT","file":"internal/sketch/std/testing/world.ergo","from":"fs.Writes: disk,","to":"fs.Writes: fstest.NewMemory(),","rule":"testing.World binds one fstest.Memory for fs.Files and fs.Writes: a write is read back (WorldSharesEachPair).","killers":["lower:TestStdLawsRun"]},
+    {"name":"world-scheduler-own-clock","origin":"wf10 TEST-AMBIENT","file":"internal/sketch/std/testing/world.ergo","from":"Scheduler: clock,","to":"Scheduler: NewVirtualClock(0),","rule":"testing.World binds one VirtualClock for time.Clock and Scheduler: a Sleep moves Now by exactly d (WorldSharesEachPair).","killers":["lower:TestStdLawsRun"]},
+    {"name":"world-shared-tree","origin":"wf10 TEST-AMBIENT","file":"internal/sketch/std/testing/world.ergo","from":"func World() Context[fs.Files | fs.Writes | time.Clock | Scheduler | Random] {\n\tlet disk = fstest.NewMemory()\n","to":"let worldDisk = fstest.NewMemory()\n\nfunc World() Context[fs.Files | fs.Writes | time.Clock | Scheduler | Random] {\n\tlet disk = worldDisk\n","rule":"Each testing.World() makes a new tree: nothing written under one World is in the next (WorldsAreFresh).","killers":["lower:TestStdLawsRun"]}
   ]
 }
