@@ -217,8 +217,8 @@
       "name": "gatesandbox-sweep-store-per-step",
       "origin": "wf10 fu-gate-sandbox",
       "file": "scripts/gate/steps.go",
-      "from": "sweepVariable + \"=\" + selection, sweepStdVariable + \"=\" + sweepStdDir()}",
-      "to": "sweepVariable + \"=\" + selection}",
+      "from": "sweepVariable + \"=\" + selection, sweepStdVariable + \"=\" + sweepStdDir(), ",
+      "to": "sweepVariable + \"=\" + selection, ",
       "rule": "The closure sweep steps of a run share one std store, outside each step's TMPDIR.",
       "killers": ["scripts/gate:TestSweepsShareOneStdStore"]
     },

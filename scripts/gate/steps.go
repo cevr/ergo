@@ -176,6 +176,18 @@ func sweepSupported() bool { return sweepOS == "linux" }
 // tier's sandbox, inside its scratch temporary directory.
 const sweepStdVariable = "ERGO_CLOSURE_STD_DIR"
 
+// sweepRunDeadlineVariable (internal/closure, runDeadlineVariable) is the
+// bound of each run of a sweep. sweepRunDeadline only stops a run that
+// hangs: a run's own default, 30 minutes, cut cmd/ergo's runs at 27-28
+// minutes in the merge tiers at fca9f4f96 and 36b1f8335 while they still
+// made progress, and the package takes 58-61 minutes at load 50-120 (I19
+// rerun, verify r4). AGENTS.md: a deadline only stops a hung test. A
+// deadline from each package's recorded duration is the TM follow-up.
+const (
+	sweepRunDeadlineVariable = "ERGO_CLOSURE_RUN_DEADLINE"
+	sweepRunDeadline         = 90 * time.Minute
+)
+
 // sweepStdDir is the one std store directory of the run's sweeps.
 func sweepStdDir() string {
 	return filepath.Join(os.TempDir(), "ergo-gate", "closure-std")
@@ -192,11 +204,15 @@ func sweepStdDir() string {
 // internal/sketch/lower, which took 2210 s under the batch-16b merge tier's
 // load, reach their own 20 minute deadline (gate16b-fix3). It is a safety
 // net for a sweep that hangs, as every go test step's timeout is.
+//
+// Each run's own deadline is sweepRunDeadline, and the step's timeout adds
+// it to hangDeadline of weight, so a run started late in the step still
+// has all of it.
 func sweepStep(selection string, weight float64) *Step {
 	return &Step{
 		Name:    "closure sweep",
-		Argv:    []string{"go", "test", testTimeoutFor(weight), "-run", "^" + sweepTest + "$", sweepPackage},
-		Env:     []string{sweepVariable + "=" + selection, sweepStdVariable + "=" + sweepStdDir()},
+		Argv:    []string{"go", "test", "-timeout=" + (hangDeadline(weight) + sweepRunDeadline).String(), "-run", "^" + sweepTest + "$", sweepPackage},
+		Env:     []string{sweepVariable + "=" + selection, sweepStdVariable + "=" + sweepStdDir(), sweepRunDeadlineVariable + "=" + sweepRunDeadline.String()},
 		ToolEnv: testTools,
 		Sweep:   selection,
 		Weight:  weight,
