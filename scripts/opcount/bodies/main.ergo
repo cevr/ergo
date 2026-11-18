@@ -5,6 +5,8 @@
 // slope of their instructions between two sizes is the cost of one call of
 // the old body and of the new one (README.md).
 
+import atomic
+import base64
 import bits
 import cmp
 import config
@@ -504,6 +506,33 @@ func run(kind string, n int) string fails os.Exit {
 		for i in 0..n {
 			acc += int(sha256.Sum(words[i & 7] + lines[i & 3])[i & 31])
 		}
+	case "base64.Encode":
+		for i in 0..n {
+			let e base64.Encoding = if (i & 1) == 0 { base64.StdEncoding } else { base64.URLEncoding }
+			acc += len(base64.Encode(e, words[i & 7] + lines[i & 3]))
+		}
+	case "crc32.Update":
+		for i in 0..n {
+			acc += int(crc32.Update(uint32(i), lines[i & 3] + words[i & 7]) & 1023)
+		}
+	case "slices.Sort":
+		for i in 0..n {
+			acc += slices.Sort(ints)[i & 15]
+		}
+	case "slices.SortDead":
+		for i in 0..n {
+			let mut xs = slices.Clone(ints)
+			xs[0] = i & 31
+			acc += slices.Sort(xs)[i & 15]
+		}
+	case "slices.SortFunc":
+		for i in 0..n {
+			acc += slices.SortFunc(ints, func(a int, b int) int { b - a })[i & 15]
+		}
+	case "slices.SortStableFunc":
+		for i in 0..n {
+			acc += slices.SortStableFunc(ints, func(a int, b int) int { (a & 3) - (b & 3) })[i & 15]
+		}
 	case "crc32.Checksum":
 		for i in 0..n {
 			acc += int(crc32.Checksum(lines[i & 3] + words[i & 7]) & 1023)
@@ -532,6 +561,39 @@ func run(kind string, n int) string fails os.Exit {
 	case "time.Divide":
 		for i in 0..n {
 			acc += int(int64(time.Divide(durs[i & 7], (i & 15) + 1)) & 1023)
+		}
+	case "atomic.Add":
+		let c = atomic.NewInt64(0)
+		for i in 0..n {
+			acc += int(c.Add(int64(i & 7)) & 1023)
+		}
+	case "atomic.CompareAndSwap":
+		let c = atomic.NewInt64(0)
+		for i in 0..n {
+			if c.CompareAndSwap(int64(i & 1), int64((i + 1) & 1)) {
+				acc += 1
+			}
+		}
+	case "atomic.Load":
+		let c = atomic.NewInt64(5)
+		for i in 0..n {
+			acc += int(c.Load()) + (i & 1)
+		}
+	case "atomic.Swap":
+		let c = atomic.NewInt64(0)
+		for i in 0..n {
+			acc += int(c.Swap(int64(i & 7)))
+		}
+	case "atomic.NewInt64":
+		for i in 0..n {
+			acc += int(atomic.NewInt64(int64(i & 7)).Load())
+		}
+	case "atomic.BoolSwap":
+		let flag = atomic.NewBool(false)
+		for i in 0..n {
+			if flag.Swap((i & 1) == 0) {
+				acc += 1
+			}
 		}
 	case "time.Count":
 		for i in 0..n {

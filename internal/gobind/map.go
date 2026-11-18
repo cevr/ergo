@@ -75,6 +75,11 @@ type Decl struct {
 	// for a declaration bound as Go writes it.
 	Via     string
 	Refused string
+	// Writes is the binder of the parameter that Go writes in place
+	// (v1.GoWrites; GBX2), or "". The Ergo signature returns that
+	// parameter's type: the call's value is the slice Go wrote, and the
+	// binding's `// ergo:writes` line names it.
+	Writes string
 	// Members are the refusals of a struct's fields and an interface's
 	// methods, by member name, for a type that maps.
 	Members []Member
@@ -172,6 +177,9 @@ type mapper struct {
 	// readable are the parameters of a function that may carry a derived
 	// `reads` fact (readsShape), set by funcDecl.
 	readable []readable
+	// writes is the binder of the parameter Go writes in place, set by
+	// funcDecl (Decl.Writes).
+	writes string
 	// effect is the reason of the memory-only row the last funcDecl
 	// bound by (GBX6), or "".
 	effect string
@@ -298,7 +306,7 @@ func (m *mapper) decl(obj types.Object, recv *types.Named) Decl {
 			d.Refused = err.Error()
 			return d
 		}
-		d.Ergo, d.Variadic, d.Context, d.Effect, d.Host = text, variadic, ctx, m.effect, m.host
+		d.Ergo, d.Variadic, d.Context, d.Writes, d.Effect, d.Host = text, variadic, ctx, m.writes, m.effect, m.host
 	case *types.TypeName:
 		d.Kind = Type
 		text, members, lines, err := m.typeDecl(o)
@@ -317,6 +325,18 @@ func (m *mapper) decl(obj types.Object, recv *types.Named) Decl {
 		d.Ergo = "let " + o.Name() + " " + t
 	case *types.Var:
 		d.Kind = Var
+		if v1.GoReadOnlyVars[m.pkg.Path()+"."+o.Name()] != "" && !resourceType(o.Type()) && !isError(o.Type()) {
+			// A reviewed variable no Go code of its package writes after
+			// init (GBX3): a read-only let, a pointer never nil, so a
+			// go.Ref. The table holds no interface variable.
+			t, err := (&sigMapper{mapper: m}).typ(o.Type(), atErrResult, false)
+			if err != nil {
+				d.Refused = err.Error()
+				return d
+			}
+			d.Ergo = "let " + o.Name() + " " + t
+			return d
+		}
 		if !isError(o.Type()) && !resourceType(o.Type()) {
 			d.Refused = "a Go variable is host state; call a function"
 			return d
@@ -439,6 +459,16 @@ func (m *mapper) funcDecl(f *types.Func, recv *types.Named) (string, bool, bool,
 	}
 	for i := range params {
 		params[i].own = goResourceParam(sig.Params().At(i+first).Type()) && !v1.GoArgLent(target, i+off)
+	}
+	// A Go function that sorts or reverses its slice in place and returns
+	// nothing (the reviewed v1.GoWrites; GBX2) returns the slice in Ergo:
+	// `let s = slices.Sort(s)`. The lowering passes Go the value the
+	// value rule gives it (a copy, or the dead local itself) and takes it
+	// back as the call's value.
+	if w, ok := v1.GoWrites[target]; ok && w.Reason != "" && recv == nil && results == "" && !fails {
+		if i := w.Index; i >= 0 && i < len(params) && !(variadic && i == len(params)-1) && goSlice(sig.Params().At(i+first).Type()) {
+			results, m.writes = params[i].typ, params[i].name
+		}
 	}
 	var b strings.Builder
 	b.WriteString("func ")
@@ -935,6 +965,20 @@ func (m *sigMapper) callback(sig *types.Signature) (string, error) {
 		}
 	}
 	return s, nil
+}
+
+// goSlice reports a Go slice type, or a type over one.
+func goSlice(t types.Type) bool {
+	if tp, ok := types.Unalias(t).(*types.TypeParam); ok {
+		t = tp.Constraint() // S ~[]E: its core type is the slice
+		if iface, ok := t.Underlying().(*types.Interface); ok && iface.NumEmbeddeds() == 1 {
+			if u, ok := iface.EmbeddedType(0).(*types.Union); ok && u.Len() == 1 {
+				t = u.Term(0).Type()
+			}
+		}
+	}
+	_, ok := types.Unalias(t).Underlying().(*types.Slice)
+	return ok
 }
 
 // goHoldsShared reports a Go type whose value shares memory when copied: a

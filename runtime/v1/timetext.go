@@ -92,26 +92,6 @@ func TimeParseDuration(s string) (time.Duration, error) {
 //ergo:wait none
 func TimeDurationText(d time.Duration) string { return d.String() }
 
-// TimeTimes is d * n, saturated at the range of a duration where Go's
-// d * time.Duration(n) wraps: a product too large is the largest duration
-// of its sign, as Go's Time.Sub saturates.
-//
-//ergo:pure
-//ergo:wait none
-func TimeTimes(d time.Duration, n int) time.Duration {
-	if d == 0 || n == 0 {
-		return 0
-	}
-	p := d * time.Duration(n)
-	if p/time.Duration(n) == d && !(n == -1 && d == time.Duration(-1<<63)) && (p < 0) == ((d < 0) != (n < 0)) {
-		return p
-	}
-	if (d < 0) != (n < 0) {
-		return time.Duration(-1 << 63)
-	}
-	return time.Duration(1<<63 - 1)
-}
-
 // TimeDivide is d / n, toward zero, as Go's d / time.Duration(n); the one
 // quotient that overflows, the smallest duration over -1, is the largest
 // duration, where Go's wraps. An n of 0 panics, a defect, as in Go.

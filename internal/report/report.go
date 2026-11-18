@@ -156,6 +156,10 @@ type Evaluation struct {
 // bad case and Arguments its values; Replay is the native command that
 // runs the same cases (ergo test draws the same ones for the same seed).
 type Obligation struct {
+	// Advice is ergo check's advice at a top-level rewrite law in scope
+	// whose ledger entry is not current and validated (LF6c): it changes
+	// no code until ergo test's licence run validates it.
+	Advice      string         `json:"advice,omitempty"`
 	Arguments   []Argument     `json:"arguments,omitempty"`
 	Cached      bool           `json:"cached,omitempty"`
 	Case        int            `json:"case,omitempty"`

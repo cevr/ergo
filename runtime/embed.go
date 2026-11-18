@@ -28,6 +28,7 @@ import (
 //go:embed v1/http/http.go v1/http/http_client.go v1/http/http_network.go v1/rpc/rpc.go
 //go:embed v1/embed.go v1/leaves.go
 //go:embed v1/atomic.go
+//go:embed v1/shadow/shadow.go
 //go:embed v1/collections.go
 //go:embed v1/time.go v1/timetext.go v1/wire.go v1/json.go v1/json_append.go v1/toml.go
 //go:embed v1/sync.go v1/set.go v1/script.go v1/shrink.go
@@ -38,7 +39,7 @@ import (
 //go:embed v1/exec/exec.go v1/exec/exec_exit_kqueue.go v1/exec/exec_exit_linux.go v1/exec/exec_start.go
 //go:embed explore/explore.go
 //go:embed testgen/stream.go
-//go:embed v1/moves.go v1/static.go v1/owned.go v1/unchecked.go
+//go:embed v1/moves.go v1/static.go v1/owned.go v1/unchecked.go v1/exits.go
 //go:embed v1/redacted/redacted.go v1/redacted/redacted_text.go v1/config_names.go v1/toml_encode.go
 //go:embed explore/sched/dfs.go explore/sched/pct.go explore/sched/sched.go explore/sched/token.go explore/sched/worker.go
 //go:embed rt/mapfault.go rt/pace.go
@@ -71,7 +72,7 @@ var packages = map[string]pkg{
 		files: []string{"cause.go", "clock.go", "doc.go", "gocontext.go", "group.go", "handle.go", "held.go", "idle.go", "machine.go", "mapfault.go", "pace.go", "regions.go", "run.go", "sched.go", "sched_explore.go", "sched_live.go", "scope.go", "task.go", "tasks.go", "text.go", "timeout.go", "trace.go", "values.go"},
 	},
 	"runtime/v1": {
-		files:   []string{"actor.go", "actor_host.go", "actor_recover.go", "actor_trace.go", "atomic.go", "buffer.go", "collections.go", "config_names.go", "context.go", "data.go", "embed.go", "exit.go", "explore_laws.go", "explore_off.go", "explore_on.go", "goarg.go", "gocall.go", "gocallback.go", "goerror.go", "goreads.go", "guard.go", "guard_other.go", "guard_unix.go", "heap.go", "host.go", "json.go", "json_append.go", "leaves.go", "lineage.go", "mailbox.go", "mapfile_unix.go", "mapped.go", "moves.go", "numbers.go", "owned.go", "path.go", "queue.go", "runtime.go", "script.go", "sealed.go", "set.go", "shrink.go", "static.go", "stdout.go", "sync.go", "task.go", "term.go", "term_bsd.go", "term_darwin.go", "term_linux.go", "term_unix.go", "text.go", "time.go", "timetext.go", "toml.go", "toml_encode.go", "trace.go", "ui_args.go", "unchecked.go", "unsupported_os.go", "view.go", "wire.go"},
+		files:   []string{"actor.go", "actor_host.go", "actor_recover.go", "actor_trace.go", "atomic.go", "buffer.go", "collections.go", "config_names.go", "context.go", "data.go", "embed.go", "exit.go", "exits.go", "explore_laws.go", "explore_off.go", "explore_on.go", "goarg.go", "gocall.go", "gocallback.go", "goerror.go", "goreads.go", "guard.go", "guard_other.go", "guard_unix.go", "heap.go", "host.go", "json.go", "json_append.go", "leaves.go", "lineage.go", "mailbox.go", "mapfile_unix.go", "mapped.go", "moves.go", "numbers.go", "owned.go", "path.go", "queue.go", "runtime.go", "script.go", "sealed.go", "set.go", "shrink.go", "static.go", "stdout.go", "sync.go", "task.go", "term.go", "term_bsd.go", "term_darwin.go", "term_linux.go", "term_unix.go", "text.go", "time.go", "timetext.go", "toml.go", "toml_encode.go", "trace.go", "ui_args.go", "unchecked.go", "unsupported_os.go", "view.go", "wire.go"},
 		imports: []string{"runtime/explore/sched", "runtime/rt", "runtime/rt/rttrace"},
 	},
 	// The schedule explorer's strategies and worker transport: the
@@ -84,6 +85,11 @@ var packages = map[string]pkg{
 	// package), so only a program that calls one imports it (binsize BS1).
 	"runtime/v1/csv": {
 		files: []string{"csv.go"},
+	},
+	// fmt and reflect: a test build's rewrite shadow (LF6c), which no run
+	// build imports.
+	"runtime/v1/shadow": {
+		files: []string{"shadow.go"},
 	},
 	"runtime/v1/digest": {
 		files: []string{"digest.go"},

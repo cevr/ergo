@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -110,11 +111,15 @@ func (e LedgerEntry) Line() string {
 
 // LawPackage and ProviderPackage are the module-wide names of the
 // packages that declare the entry's law and provider, and LawName and
-// ProviderName their names there (Type.Law, Provider).
+// ProviderName their names there (Type.Law, Provider). A top-level law's
+// entry (no provider) names its law Law, as its package declares it.
 func (e LedgerEntry) LawPackage() (pkg, name string) {
 	i := strings.LastIndex(e.Law, ".")
 	if i < 0 {
 		return "", e.Law
+	}
+	if e.Provider == "" {
+		return e.Law[:i], e.Law[i+1:]
 	}
 	j := strings.LastIndex(e.Law[:i], ".")
 	if j < 0 {
@@ -1041,12 +1046,25 @@ func (e *LedgerEvidence) Refusals() []string {
 func (e *LedgerEvidence) Applied() int { return e.applied }
 
 // record is the producer record's Go file: the sha256 of the entries the
-// build read (Read) and the rewrites applied, kept in the binary by a
-// store in an init function.
-func (e *LedgerEvidence) record(l *lowerer, applied int) []byte {
+// build read (Read) and the rewrites applied, the windows' and, by level,
+// the rewrites over functions (levels), kept in the binary by a store in
+// an init function.
+func (e *LedgerEvidence) record(l *lowerer, applied int, levels map[string]int) []byte {
+	byLevel := ""
+	for _, level := range slices.Sorted(maps.Keys(levels)) {
+		applied += levels[level]
+		byLevel += fmt.Sprintf(", %s %d", level, levels[level])
+	}
+	if byLevel != "" {
+		byLevel = " (over functions" + byLevel + ")"
+	}
+	if r := l.canon.funcRw; r != nil && r.every > 0 && !r.test {
+		// The canary's mode (LAWFFI r2 §3.7): the record names it.
+		byLevel += fmt.Sprintf("; -rewrites=canary=%d", r.every)
+	}
 	e.applied = applied
 	sum := sha256.Sum256([]byte(e.Read()))
-	text := fmt.Sprintf("%s entries sha256:%x; rewrites applied %d", LedgerFile, sum, applied)
+	text := fmt.Sprintf("%s entries sha256:%x; rewrites applied %d%s", LedgerFile, sum, applied, byLevel)
 	rec, kept := l.names.alloc("ergoLaws"), l.names.alloc("ergoLawsKept")
 	return fmt.Appendf(nil, "package main\n\n// %s is the producer record of the law ledgers this binary was built\n// with (runtime.md, Tests 10).\nvar %s = %q\n\nvar %s string\n\nfunc init() { %s = %s }\n", rec, rec, "ergo producer: "+text, kept, kept, rec)
 }

@@ -4,10 +4,11 @@
 import go ergo.local/prototype/runtime/v1/hostfs
 import go io
 import go io/fs
+import go syscall
 import go time
 
 // ergo:go var Args []string
-// ergo:refused Args: a Go variable is host state; call a function
+extern go os.Args let Args []string
 
 // ergo:go func Chdir(dir string) error
 extern go os.Chdir func Chdir(dir string) fails go.Error needs go.Foreign
@@ -368,13 +369,11 @@ extern go os.Pipe func Pipe() (Option[go.Ref[File]], Option[go.Ref[File]]) fails
 extern go os.ProcAttr type ProcAttr {
 	Dir string,
 	Env []string,
+	Sys Option[go.Ref[syscall.SysProcAttr]],
 }
 
 // ergo:go Files []*os.File
 // ergo:refused ProcAttr.Files: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
-
-// ergo:go Sys *syscall.SysProcAttr
-// ergo:refused ProcAttr.Sys: it names the refused type syscall.SysProcAttr
 
 // ergo:go type Process struct
 extern go os.Process type Process {
@@ -544,7 +543,7 @@ extern go os.Signal type Signal {
 }
 
 // ergo:go func StartProcess(name string, argv []string, attr *ProcAttr) (*Process, error)
-extern go os.StartProcess func StartProcess(name string, argv []string, attr own *ProcAttr) go.Ref[Process] fails go.Error needs go.Foreign
+extern go os.StartProcess func StartProcess(name string, argv []string, attr *ProcAttr) go.Ref[Process] fails go.Error needs go.Foreign
 
 // ergo:go func Stat(name string) (Info, error)
 // ergo:effect ambient (vouched: it calls os.Stat on one path, following a symbolic link, and copies the five values of its result into a new struct)

@@ -58,6 +58,10 @@ type interp struct {
 	// mapRanged says a for over a Map ran (maporder.go).
 	mapOrder  mapOrder
 	mapRanged bool
+	// ambient is the process state a licence run's side evaluates under
+	// (licence.go): a native that would read the working directory, the
+	// environment or the time zone reads it here.
+	ambient ambient
 	// pairs are the by-name codec pairs every package's check recorded
 	// (codecwalk.go), built at the first codec call.
 	pairs map[*check.TypeName]*check.WirePair

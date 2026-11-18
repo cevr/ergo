@@ -71,6 +71,7 @@ var skipFields = map[string]string{
 	"check.checker.capture":      "set only while one assignability runs",
 	"check.checker.nodeOrder":    "a memo of the source order, rebuilt on use",
 	"check.checker.neverOrigins": "a memo per union origin (never.go), rebuilt on use",
+	"check.cellSite.of":          "read only by checkCells, which ran before the export (cells.go, GB-RACE)",
 	// A module package's importer serves its check alone (check/export.go,
 	// ModuleImporter); the decoded wrapper imports nothing.
 	"check.moduleImporter.next": "the loader of the process that checked the package",

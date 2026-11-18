@@ -15,8 +15,9 @@ import (
 
 // TestPackagesMatchTheirDirectories: each runtime package's list of files is
 // every non-test file of its directory except runtime/v1/files.go and its
-// generated table files_gen.go, which
-// serves only the compiler; each embedded file has the bytes on disk; and
+// generated table files_gen.go, and runtime/testgen/classes.go (a licence
+// run's class tables, which the check-time evaluator reads), which
+// serve only the compiler; each embedded file has the bytes on disk; and
 // every runtime package a file imports is in the package's declared
 // imports, so Files never leaves an import of an emitted module unmet.
 func TestPackagesMatchTheirDirectories(t *testing.T) {
@@ -29,7 +30,7 @@ func TestPackagesMatchTheirDirectories(t *testing.T) {
 		var onDisk []string
 		for _, e := range entries {
 			name := e.Name()
-			if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") || path+"/"+name == "runtime/v1/files.go" || path+"/"+name == "runtime/v1/files_gen.go" {
+			if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") || path+"/"+name == "runtime/v1/files.go" || path+"/"+name == "runtime/v1/files_gen.go" || path+"/"+name == "runtime/testgen/classes.go" {
 				continue
 			}
 			onDisk = append(onDisk, name)

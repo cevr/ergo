@@ -30,11 +30,17 @@ func Decls(pkg *types.Package) []Decl {
 		d := Map(obj, nil, q)
 		out = append(out, d)
 		tn, ok := obj.(*types.TypeName)
-		if !ok || d.Refused != "" {
+		if !ok {
 			continue
 		}
 		n, ok := tn.Type().(*types.Named)
 		if !ok {
+			continue
+		}
+		if d.Refused != "" {
+			if ergoOwn(tn) {
+				out = append(out, ownTypeMethods(n, q)...)
+			}
 			continue
 		}
 		if _, iface := n.Underlying().(*types.Interface); iface {
@@ -52,6 +58,47 @@ func Decls(pkg *types.Package) []Decl {
 			out = append(out, Map(f, n, q))
 		}
 	}
+	return out
+}
+
+// ergoOwn reports a Go type that is an Ergo type of its own, so its binding
+// declares no type: time.Duration is Ergo's duration.
+func ergoOwn(tn *types.TypeName) bool {
+	return tn.Pkg().Path() == "time" && tn.Name() == "Duration"
+}
+
+// ownTypeMethods binds the value methods of n, a Go type that is an Ergo
+// type of its own (ergoOwn), as functions whose first parameter is the
+// receiver (GBX4): `extern go time.Duration.String func DurationString(d
+// duration) string`. Ergo declares no method on its own types, so the
+// function's name is the type's and the method's; the target is the
+// method, and the lowering calls Go's method expression
+// (time.Duration.String(d)). A method only a pointer has would write the
+// receiver, which an Ergo value never is, so the value method set is all.
+func ownTypeMethods(n *types.Named, q Qualifier) []Decl {
+	ms := types.NewMethodSet(n)
+	var out []Decl
+	for i := 0; i < ms.Len(); i++ {
+		f, ok := ms.At(i).Obj().(*types.Func)
+		if !ok || !f.Exported() {
+			continue
+		}
+		sig := f.Type().(*types.Signature)
+		recv := sig.Recv().Name()
+		if recv == "" || recv == "_" {
+			recv = "r"
+		}
+		params := []*types.Var{types.NewParam(sig.Recv().Pos(), f.Pkg(), recv, n)}
+		for j := 0; j < sig.Params().Len(); j++ {
+			params = append(params, sig.Params().At(j))
+		}
+		fn := types.NewFunc(f.Pos(), f.Pkg(), n.Obj().Name()+f.Name(), types.NewSignatureType(nil, nil, nil, types.NewTuple(params...), sig.Results(), sig.Variadic()))
+		d := Map(fn, nil, q)
+		d.Name = n.Obj().Name() + "." + f.Name()
+		d.Go = (&mapper{pkg: f.Pkg()}).goText(f)
+		out = append(out, d)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
 
@@ -101,6 +148,9 @@ func Merge(platforms []Platform, decls [][]Decl) []Decl {
 		switch {
 		case len(missing) > 0:
 			first = Decl{Kind: first.Kind, Name: name, Go: first.Go, Refused: "platform-specific: Go does not declare it on " + strings.Join(missing, ", ")}
+		case len(differ) > 0 && mergeStruct(&first, platforms, byName, name):
+			// A struct whose fields differ by platform keeps the fields
+			// every platform declares alike (GBX5: syscall.SysProcAttr).
 		case len(differ) > 0:
 			first = Decl{Kind: first.Kind, Name: name, Go: first.Go, Refused: "platform-specific: its Go declaration differs on " + strings.Join(differ, ", ")}
 		}
@@ -109,8 +159,104 @@ func Merge(platforms []Platform, decls [][]Decl) []Decl {
 	return out
 }
 
+// mergeStruct merges the struct type name, declared on every platform but
+// not alike, into d: the fields every platform maps to the same line stay,
+// and any other field is a member refused as platform-specific (GBX5).
+// It reports false, leaving d as it was, unless each platform's
+// declaration maps as a struct with the same Go line and the same text
+// after its fields (the release clause).
+func mergeStruct(d *Decl, platforms []Platform, byName []map[string]Decl, name string) bool {
+	var all []Decl
+	for i := range byName {
+		di, ok := byName[i][name]
+		if !ok || di.Kind != Type || di.Refused != "" || !strings.HasSuffix(di.Go, " struct") {
+			return false
+		}
+		all = append(all, di)
+	}
+	first := all[0]
+	tail, ok := strings.CutPrefix(first.Ergo, typeText(first.Name, first.Lines))
+	if !ok {
+		return false
+	}
+	for _, di := range all[1:] {
+		if t, ok := strings.CutPrefix(di.Ergo, typeText(di.Name, di.Lines)); !ok || t != tail || di.Go != first.Go {
+			return false
+		}
+	}
+	lineOn := func(di Decl, field string) (Line, bool) {
+		for _, l := range di.Lines {
+			if l.Name == field {
+				return l, true
+			}
+		}
+		return Line{}, false
+	}
+	var kept []Line
+	var members []Member
+	seen := map[string]bool{}
+	refuse := func(field, goText string) {
+		if seen[field] {
+			return
+		}
+		seen[field] = true
+		var on []string
+		for i, di := range all {
+			if _, ok := lineOn(di, field); ok || slices.ContainsFunc(di.Members, func(m Member) bool { return m.Name == field }) {
+				on = append(on, platforms[i].String())
+			}
+		}
+		reason := "platform-specific: its Go declaration differs by platform"
+		if len(on) < len(all) {
+			reason = "platform-specific: Go declares it only on " + strings.Join(on, ", ")
+		}
+		members = append(members, Member{Name: field, Go: goText, Refused: reason})
+	}
+	for _, di := range all {
+		for _, l := range di.Lines {
+			if seen[l.Name] {
+				continue
+			}
+			alike := true
+			for _, dj := range all {
+				if lj, ok := lineOn(dj, l.Name); !ok || lj.Text != l.Text || lj.Go != l.Go {
+					alike = false
+				}
+			}
+			if alike {
+				seen[l.Name] = true
+				kept = append(kept, l)
+				continue
+			}
+			refuse(l.Name, l.Go)
+		}
+		for _, m := range di.Members {
+			if seen[m.Name] {
+				continue
+			}
+			alike := true
+			for _, dj := range all {
+				if !slices.Contains(dj.Members, m) {
+					alike = false
+				}
+			}
+			if alike {
+				seen[m.Name] = true
+				members = append(members, m)
+				continue
+			}
+			refuse(m.Name, m.Go)
+		}
+	}
+	merged := first
+	merged.Lines, merged.Members = kept, members
+	merged.Ergo = typeText(first.Name, kept) + tail
+	*d = merged
+	return true
+}
+
 func same(a, b Decl) bool {
-	return a.Kind == b.Kind && a.Go == b.Go && a.Ergo == b.Ergo && a.Variadic == b.Variadic && a.Context == b.Context && a.Refused == b.Refused && slices.Equal(a.Members, b.Members)
+	return a.Kind == b.Kind && a.Go == b.Go && a.Ergo == b.Ergo && a.Variadic == b.Variadic && a.Context == b.Context && a.Writes == b.Writes && a.Refused == b.Refused && slices.Equal(a.Members, b.Members)
 }
 
 var placeholder = regexp.MustCompile(`⟦([^⟧]*)⟧`)
@@ -133,6 +279,9 @@ func Render(path, name, stamp, module string, decls []Decl) (string, error) {
 		}
 		if d.Variadic {
 			body.WriteString("// ergo:variadic\n")
+		}
+		if d.Writes != "" {
+			body.WriteString("// ergo:writes " + d.Writes + "\n")
 		}
 		if len(d.Reads) > 0 {
 			body.WriteString("// ergo:reads " + strings.Join(d.Reads, " ") + "\n")

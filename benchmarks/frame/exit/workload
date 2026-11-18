@@ -1,0 +1,7 @@
+# scripts/opcount: `irframe bench exit N` calls a body that registers one
+# exit action (scope.OnExit) N times (GP-FRAME); the cost of one call is
+# the slope between the two sizes. The control defers a closure.
+unit call
+sizes 409600 2457600
+args bench exit {n}
+control benchmarks/frame/testdata/control

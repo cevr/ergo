@@ -250,7 +250,13 @@ func (b *irBuilder) valueSource(x *syntax.CallExpr, c *check.Call, args []syntax
 		if b.goType(b.l.info.Types[args[0]], x) != m {
 			irNo("Map write to a defined Map type")
 		}
-		b.keepImport("var _ = " + b.l.goPkg("maps") + ".Clone[map[" + b.fc.goType(c.TypeArgs[0]) + "]" + b.fc.goType(c.TypeArgs[1]) + "]")
+		if keep := "map[" + b.fc.goType(c.TypeArgs[0]) + "]" + b.fc.goType(c.TypeArgs[1]); b.namesTypeParam(keep) {
+			// A generic body's Map type is no package-level type, as
+			// Clip's above (I-FLIP: examples/fk-domains search/cache).
+			b.keepImport("var _ = " + b.l.goPkg("maps") + ".Clone[map[string]bool]")
+		} else {
+			b.keepImport("var _ = " + b.l.goPkg("maps") + ".Clone[" + keep + "]")
+		}
 		src := irArgs[0]
 		irArgs[0] = &irExpr{K: "pcall", Pos: src.Pos, T: "maps", Name: "Clone", V: m + ", " + k + ", " + v, Args: []*irExpr{src}}
 	}
@@ -318,6 +324,8 @@ func (b *irBuilder) opCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*irStm
 		irNo("operation call form")
 	case b.env < 0:
 		irNo("operation call from a pure function")
+	case b.inPlaceSite(x):
+		return b.ownedSiteCall(x, c, b.fc.refSiteOf(x), p) // ir_ownlit.go
 	}
 	n, ok := b.l.info.Types[c.Recv].(*check.Named)
 	if !ok {
@@ -497,6 +505,9 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	case c.Recv != nil:
 		irNo("dot call of a std function")
 	case b.fc.refSiteOf(x) != nil:
+		if b.inPlaceSite(x) {
+			return b.ownedSiteCall(x, c, b.fc.refSiteOf(x), p) // ir_ownlit.go
+		}
 		return b.ownedRefCall(x, c, b.fc.refSiteOf(x), x.Args, nil, p) // ir_refown.go
 	case defersCall(body) || commaOk(body):
 		irNo("std call with an adapted result")
@@ -559,7 +570,8 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	// kept by a variable of the runtime's Site type, which is not generic.
 	// A body of a runtime leaf (runtime/v1/rpc, BS8) is called by the
 	// leaf's import path, which rtRef imports.
-	name = b.consumedForm(x, body, name) // ir_own.go
+	name = b.consumedForm(x, body, name)    // ir_own.go
+	name, isExit := b.exitsForm(body, name) // ir_exits.go: OnExit on a static exit form
 	pkg := v1.PackageOf(name)
 	switch {
 	case pkg != "" && pkg != runtimeImport && targs != "":
@@ -581,6 +593,9 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 		pkg = runtimeImport
 	}
 	call := &irExpr{K: "pcall", Pos: p, T: pkg, Name: name, V: targs, Args: append(hidden, args...)}
+	if isExit {
+		b.noteExit(call, x) // ir_exits.go: the defer form, if the frame keeps it
+	}
 	if isTuple {
 		tpre, e := b.tdef(call, tuple, x, p) // ir_tuple.go
 		return append(pre, tpre...), e, false
@@ -698,6 +713,8 @@ func (b *irBuilder) hidden(body v1.Body, x *syntax.CallExpr, c *check.Call, p ir
 			// rt.Site is a defined string type: Site("…") is a conversion
 			// of the constant (spelling keeps the import).
 			out = append(out, &irExpr{K: "conv", Pos: p, T: b.spelling(b.l.rt() + ".Site"), X: &irExpr{K: "const", Pos: p, T: "string", V: site}})
+		case v1.Frame:
+			out = append(out, b.frameArg(p)) // ir_own.go (GP-FRAME)
 		default:
 			irNo("std call with hidden argument %s", h)
 		}

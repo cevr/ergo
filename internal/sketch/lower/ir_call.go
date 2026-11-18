@@ -34,8 +34,16 @@ func (b *irBuilder) call(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr) {
 		}
 		return pre, v
 	}
+	if b.asWrittenCall(x) {
+		// A call tree inside AsWritten is kept as written (ir_rewrite.go).
+		b.keep++
+		defer func() { b.keep-- }()
+	}
 	pre, e, effect := b.callParts(x, stmt)
 	b.markPure(x, e) // ir_merge.go
+	if e != nil {
+		b.callFacts(x, e, stmt) // ir_rewrite_pass.go: the rewrite passes read them
+	}
 	if e != nil && (e.K == "vcall" && !b.plainCallee(x) || b.dropsErr[e] && (!stmt || b.hasValue(x))) {
 		// A function value returns its (value, error) pair (ir_closure.go;
 		// a known callback's is plain, ir_kcb.go),

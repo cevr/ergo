@@ -380,8 +380,15 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 			cell = true
 		}
 		if h := c.holdsCell(v); h != nil && !c.cellType(t) && !(c.encodeLend && !cell) {
-			// A cell stays where its confinement rules see it.
-			return assignment{}, fmt.Sprintf(cellHideText, v, h, t)
+			// A cell stays where its confinement rules see it. A confined
+			// go.Ref may go into a Go interface (rand.New(src)): only a
+			// go.Foreign call reaches it there (goconfined.go).
+			if !goConfinedRef(h) {
+				return assignment{}, fmt.Sprintf(cellHideText, v, h, t)
+			}
+			if !isHostNamed(t) {
+				return assignment{}, fmt.Sprintf(goConfinedHideText, v, h, t)
+			}
 		}
 		if tn, ok := t.(*Named); ok && c.keeps() != nil && tn.origin() == c.keeps() && !c.identical(v, t) {
 			// Keeping is the release's contract (R13): a type includes it,

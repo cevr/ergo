@@ -104,6 +104,9 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		// contexts are closed contexts that read the converged inferred rows
 		// (M2).
 		c.checkBodies,
+		// After the bodies: the rows a marked function must leave empty
+		// are final (aswritten.go).
+		c.checkAsWritten,
 		c.checkProviderFields,
 		// A constructor's rows are inferred, so constructors are planned
 		// once bodies converge, before any generator is decided.
@@ -142,6 +145,9 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		c.checkPureArgs,
 		// After the footprints: an invariant law's predicate is pure (X2).
 		c.checkLawPreds,
+		// After the footprints: a top-level rewrite law's functions are
+		// pure (Laws 14; funcrewrite.go).
+		c.checkFuncRewrites,
 		// After every body: the first with operand past the with budget,
 		// silent checks included (withbudget.go).
 		c.reportWithBudget,

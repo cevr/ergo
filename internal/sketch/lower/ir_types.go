@@ -90,6 +90,10 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 			b.keepImport("var _ " + b.l.rt() + ".GoError")
 			return
 		}
+		if t.Obj.Pkg != nil && t.Obj.Pkg.Host() || isGoRef(t) {
+			b.admitHost(t, depth) // ir_gocall.go (FORK-GOCALL, FORK-GOLIB)
+			return
+		}
 		if len(t.TParams) > 0 || t.Obj.Decl == nil {
 			irNo("generic or declared-elsewhere type")
 		}

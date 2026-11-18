@@ -1,0 +1,8 @@
+// AW-ERGO: `// ergo:aswritten` marks only a pure identity of one parameter.
+
+// ergo:aswritten
+func Twice(s string) string { s + s } // want S108
+
+func main() needs Console {
+	Console.Println(Twice("a"))
+}

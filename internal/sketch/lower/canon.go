@@ -103,6 +103,9 @@ type canonical struct {
 	lists   map[*check.Package]*declLists
 	// noViews is Unit.NoViews: the build takes no view (view.go).
 	noViews bool
+	// funcRw is the rewrites over functions of the IR path (ir_rewrite.go):
+	// here, so a lowering that runs again from the start keeps them.
+	funcRw *funcRewrites
 }
 
 // declLists are one sourced package's checker lists in canonical order.

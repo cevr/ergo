@@ -62,22 +62,37 @@ type irSlot struct {
 	local  int
 	t      check.Type
 	d      *check.Drop
-	helper string // the slot's release inside the body, once used
+	helper string      // the slot's release inside the body, once used
+	site   syntax.Node // where the slot first owns its value (staticOwn's site)
 }
 
-// irStaticFrame reports a body whose frame the IR builds: the static
-// release form (decls.go lifts the frame's gate). A fallible one has
-// named results (namedResults); its release helper settles the exit on
-// the error result's address ("result", the emitter's End(&err)).
-func irStaticFrame(fc *funcCtx, fallible bool) bool {
-	return fc.frame != nil && fc.frame.static != nil
+// irFrame reports a body whose frame the IR builds (decls.go lifts the
+// frame's gate): the static release form, or a frame scope that owns no
+// value (GP-FRAME, from FORK's shelved scope-frame.patch: the frame of a
+// body that starts a task, registers an exit action or receives a Task).
+// A fallible one has named results (namedResults); its exit settles on
+// the error result's address ("result", the emitter's End(&err)). A
+// plain frame not in the static form (owned values in the list form) is
+// the emitter's.
+func irFrame(fc *funcCtx) bool {
+	return fc.frame != nil && (fc.frame.static != nil || !fc.frame.plain && frameScopeLowering != "off")
 }
 
-// openOwn starts the static frame of the body of f, whose parameters are
-// params: its live local, its deferred release and its taken parameters'
-// registrations, before the entry poll (the emitter's openFrame, ownVar).
+// frameScopeLowering selects the frame scope on the IR: "" builds it,
+// "off" keeps such a body's source (the reference GP-FRAME's receipt
+// counts against). Set with
+// -ldflags=-X=ergo.local/prototype/internal/sketch/lower.frameScopeLowering=off.
+var frameScopeLowering string
+
+// openOwn starts the frame of the body of f, whose parameters are params:
+// a frame scope (openScope), or the static frame's live local, its
+// deferred release and its taken parameters' registrations, before the
+// entry poll (the emitter's openFrame, ownVar).
 func (b *irBuilder) openOwn(f *check.Func, params []*check.Var) []*irStmt {
-	if !irStaticFrame(b.fc, b.fc.frame.fallible) {
+	if b.fc.frame.static == nil {
+		if b.l.bodyNeedsFrame(f.Decl.Body.List) || b.l.ownsParams(params) {
+			return b.openScope(f, params)
+		}
 		return nil
 	}
 	if b.env < 0 {
@@ -101,9 +116,57 @@ func (b *irBuilder) openOwn(f *check.Func, params []*check.Var) []*irStmt {
 		if !ok {
 			irNo("owned parameters")
 		}
-		out = append(out, b.ownLet(v, i, f.Decl)...)
+		out = append(out, b.ownLet(v, i, f.Decl.Name)...) // the emitter's ownVar site
 	}
 	return out
+}
+
+// openScope opens the frame scope of f's body, whose parameters are
+// params (irFrame): its local, made from the caller's task, and its
+// deferred End on the error result's address, or nil with no error row
+// (the emitter's openFrame). A std call that takes the frame passes the
+// local's address (frameArg). The scope's owned values are the emitter's
+// list form: a taken parameter stops the body here, and an owned local
+// or temporary where it is bound (ownable, releaseAt).
+func (b *irBuilder) openScope(f *check.Func, params []*check.Var) []*irStmt {
+	if b.fc.frame.plain || b.l.ownsParams(params) {
+		irNo("owned local") // owned values in a frame scope: the list form
+	}
+	if b.env < 0 {
+		irNo("body that needs a frame") // the checker gives a frame a task
+	}
+	p := b.pos(f.Decl, f.Decl.Pos())
+	task := &irExpr{K: "field", Pos: p, Name: envTask, X: &irExpr{K: "local", Pos: p, I: b.env}}
+	errArg := &irExpr{K: "zero", Pos: p, T: "*error"}
+	if b.fc.frame.fallible {
+		// The frame's named error result, last (namedResults).
+		last := 0
+		if b.result != nil {
+			last = 1
+		}
+		errArg = &irExpr{K: "addr", Pos: p, X: &irExpr{K: "result", Pos: p, I: last}}
+	}
+	if b.l.staticExits(f.Decl.Body.List) {
+		return b.openExits(p, task, errArg) // ir_exits.go (STATIC-EXIT)
+	}
+	fs := b.temp("fs", b.spelling(b.l.rt()+".Scope"), p)
+	b.frame = fs + 1
+	b.keepImport("var _ = " + b.l.rt() + ".NewScope")
+	return []*irStmt{
+		{K: "var", Pos: p, Local: fs},
+		{K: "set", Pos: p, Local: fs, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "NewScope", Args: []*irExpr{task}}},
+		{K: "defer", Pos: p, X: &irExpr{K: "mcall", Pos: p, Name: "End", X: b.addrOf(fs, p), Args: []*irExpr{errArg}}},
+	}
+}
+
+// frameArg is the hidden frame argument of a std call (v1.Frame): the
+// address of the body's frame scope (openScope; the emitter's
+// frameScope). A call outside one keeps its source body.
+func (b *irBuilder) frameArg(p irPos) *irExpr {
+	if b.frame == 0 {
+		irNo("std call with hidden argument frame")
+	}
+	return b.addrOf(b.frame-1, p)
 }
 
 // closeMasked is the body of a checked Close f, built: the whole of it
@@ -228,16 +291,18 @@ func (b *irBuilder) releaseFuncs(name, helper string, params []string) bool {
 // providerRelease of a program's Close): a method call or a function
 // call, the receiver taken by address or through a pointer as Close's
 // parameter needs, a generic one with the provider's type arguments; a
-// std operation type's Close is stdCloseCall's. ok is false for a Close
-// the IR does not call: Go's own (a host value's: no IR body owns one,
-// while a Go package's calls and types are not IR), a std or extern
-// function (the checker refuses it, C26).
+// std operation type's Close is stdCloseCall's, a Go value's
+// hostCloseCall's (ir_gocall.go). ok is false for a Close the IR does not
+// call: a std or extern function (the checker refuses it, C26).
 func (b *irBuilder) closeCall(s irSlot, env, slot int, p irPos) (*irExpr, bool) {
 	cl := s.d.Close
 	if cl != nil && cl.Func == nil && cl.Op != nil {
 		return b.stdCloseCall(cl, s, slot, p)
 	}
-	if cl == nil || cl.HostClose() || cl.Func == nil || !isClose(cl.Func) || len(cl.Func.Sig.Params) != 1 {
+	if cl != nil && cl.HostClose() {
+		return b.hostCloseCall(cl, s, env, slot, p) // ir_gocall.go
+	}
+	if cl == nil || cl.Func == nil || !isClose(cl.Func) || len(cl.Func.Sig.Params) != 1 {
 		return nil, false
 	}
 	if len(cl.Func.Sig.TParams) > 0 && len(witnessParams(cl.Func.Sig)) > 0 {
@@ -504,7 +569,7 @@ func (b *irBuilder) ownLet(v *check.Var, i int, site syntax.Node) []*irStmt {
 		}
 		o.bit[v] = k
 		typ := b.goType(v.Type, site)
-		o.slots = append(o.slots, irSlot{local: b.temp("slot", typ, p), t: v.Type, d: d})
+		o.slots = append(o.slots, irSlot{local: b.temp("slot", typ, p), t: v.Type, d: d, site: site})
 	}
 	typ := b.goType(v.Type, site)
 	call := b.ownCall("OwnStatic", typ, p, b.addrOf(o.live, p), b.bitConst(k, p), b.addrOf(o.slots[k].local, p), &irExpr{K: "local", Pos: p, I: i})
