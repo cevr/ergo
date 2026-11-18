@@ -3,7 +3,7 @@ package rt
 import "sync"
 
 // A Carrier is a goroutine kept for the successive child tasks of one
-// owner, so a child that GoOn starts does not start a goroutine
+// owner, so a child that StartOn starts does not start a goroutine
 // (FU-actor-timer-slot). A goroutine starts with a small stack and grows
 // it through its body's call chain by copying, every time: a runtime/v1
 // actor that arms a timer child per entry spent 43% of a timer fire so. A
@@ -23,17 +23,18 @@ type Carrier struct {
 	wake    parker // the carrier's goroutine waits for a job on it
 }
 
-// GoOn is Go on c's goroutine.
-func GoOn[T any](s *Scope, c *Carrier, span string, body func(*Task) (T, error)) *Handle[T] {
+// StartOn is Start on c's goroutine: it starts b as a child of parent in
+// a new handle that it registers on no scope, so the caller stops and
+// drains it (Stop). An owner that keeps b, its span and c for its life
+// starts each child with the handle as its one allocation and the
+// carrier's job (FU-timer-task-reuse).
+func StartOn[T any](c *Carrier, parent *Task, span string, b Body[T]) *Handle[T] {
 	h := &Handle[T]{}
-	parent := s.task
 	Point(parent, Op{OpSpawn, parent})
 	h.owner = parent
 	h.task.init(parent, span, false, false)
 	schedSpawn(parent, &h.task)
-	b := funcBody[T](body)
 	c.run(func() { h.run(b) })
-	s.push(entry{run: closeResource{}, v: h})
 	return h
 }
 

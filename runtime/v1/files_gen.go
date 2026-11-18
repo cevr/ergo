@@ -502,6 +502,7 @@ var bodyTable = []bodyRow{
 	{"ViewDefect.String", bodyFact{body: Body{Results: []string{"string"}, Package: Path}}},
 	{"WireKeys", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "K", Constraint: "~string"}, {Name: "V", Constraint: "any"}}, Params: []Param{{Type: "map[K]V"}}, Results: []string{"[]K"}, Package: Path}}},
 	{"WithCapacity", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "int"}}, Results: []string{"[]T"}, Wait: "none", Package: Path}}},
+	{"actorTimer.Run", bodyFact{refusal: "runtime/v1: actorTimer.Run: the receiver type actorTimer is not declared"}},
 	{"childLaws.Event", bodyFact{refusal: "runtime/v1: childLaws.Event: the receiver type childLaws is not declared"}},
 	{"closeFailure.Error", bodyFact{refusal: "runtime/v1: closeFailure.Error: the receiver type closeFailure is not declared"}},
 	{"closeFailure.Unwrap", bodyFact{refusal: "runtime/v1: closeFailure.Unwrap: the receiver type closeFailure is not declared"}},
@@ -542,7 +543,7 @@ var bodyTable = []bodyRow{
 // typeTable is goDecls.goType of every exported type of Source, by name.
 // TypeOf reads it (CHK1). Sorted by name, a slice, as bodyTable is.
 var typeTable = []typeRow{
-	{"Actor", GoType{Arity: 3, Struct: true, Fields: []string{"inbox", "task", "sleeper", "span", "graph", "step", "fire", "delay", "kind", "next", "out", "work", "spare", "dropped", "handled", "done", "ready", "isReady", "mu", "state", "version", "ended", "doneWait", "exit", "subs", "latest", "hasLatest", "final", "finished", "kidsMu", "adopting", "kids", "kidsEpoch", "kidsOpen", "kidsDone", "hosts", "hostsLeft", "settle", "report", "reported", "feedMu", "feedSeq", "feedQ", "fresh", "limit", "restarts", "cur", "curEnv", "timer", "timers", "working", "feeds", "newHosts", "recovered", "hostSlot", "epoch", "bound"}, Package: Path}},
+	{"Actor", GoType{Arity: 3, Struct: true, Fields: []string{"inbox", "task", "sleeper", "span", "graph", "step", "fire", "delay", "kind", "next", "out", "work", "spare", "dropped", "handled", "done", "ready", "isReady", "mu", "state", "version", "ended", "doneWait", "exit", "subs", "latest", "hasLatest", "final", "finished", "kidsMu", "adopting", "kids", "kidsEpoch", "kidsOpen", "kidsDone", "hosts", "hostsLeft", "settle", "report", "reported", "feedMu", "feedSeq", "feedQ", "fresh", "limit", "restarts", "cur", "curEnv", "timer", "timers", "timerSpan", "timerRegistered", "timerDelay", "timerEnv", "timerAt", "timerDone", "working", "feeds", "newHosts", "recovered", "hostSlot", "epoch", "bound"}, Package: Path}},
 	{"ActorChildDefect", GoType{Struct: true, Fields: []string{"Site"}, Package: Path}},
 	{"ActorFreshDefect", GoType{Struct: true, Fields: []string{"Reason"}, Package: Path}},
 	{"ActorHostDefect", GoType{Struct: true, Fields: []string{"Site"}, Package: Path}},

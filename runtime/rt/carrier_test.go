@@ -17,7 +17,7 @@ func goid() uint64 {
 	return n
 }
 
-// TestCarrierRunsChildrenOnOneGoroutine: the successive children GoOn
+// TestCarrierRunsChildrenOnOneGoroutine: the successive children StartOn
 // starts on one carrier, each waited before the next, run on one
 // goroutine, and Close ends it: the bubble fails on a goroutine left
 // parked. Mutants carrier-always-goes (every child gets a goroutine) and
@@ -25,22 +25,20 @@ func goid() uint64 {
 // only here.
 func TestCarrierRunsChildrenOnOneGoroutine(t *testing.T) {
 	if Exploring {
-		t.Skip("under the explored scheduler GoOn is Go")
+		t.Skip("under the explored scheduler StartOn is Start")
 	}
 	synctest.Test(t, func(t *testing.T) {
 		root := Root("carrier")
-		s := NewScope(root)
 		var c Carrier
 		var ids []uint64
 		for i := range 4 {
-			h := GoOn(&s, &c, "child", func(*Task) (uint64, error) { return goid(), nil })
+			h := StartOn(&c, root, "child", funcBody[uint64](func(*Task) (uint64, error) { return goid(), nil }))
 			id, err := h.Wait()
 			if err != nil {
 				t.Fatalf("child %d: %v", i, err)
 			}
 			ids = append(ids, id)
 		}
-		s.End(nil)
 		c.Close()
 		for i, id := range ids {
 			if id != ids[0] {

@@ -243,9 +243,18 @@ type Actor[S, E, D any] struct {
 	timer  *rt.Handle[struct{}]
 	// timers is the goroutine every entry's timer child runs on, kept for
 	// the actor's life (FU-actor-timer-slot): a timer starts no goroutine.
-	timers  rt.Carrier
-	working *rt.Handle[struct{}] // the entry's work, nil when it has none
-	feeds   []*feed              // the started sources that may still run (rule 14)
+	timers rt.Carrier
+	// The timer child's state (arm): its span and hook, made once; the
+	// entry's delay and envelope; the runner it tells; and whether its
+	// sleep is registered yet.
+	timerSpan       string
+	timerRegistered func()
+	timerDelay      time.Duration
+	timerEnv        envelope[S, E, D]
+	timerAt         *rt.Task
+	timerDone       atomic.Bool
+	working         *rt.Handle[struct{}] // the entry's work, nil when it has none
+	feeds           []*feed              // the started sources that may still run (rule 14)
 	// newHosts are the hosts the running step made (rule 15); hostSlot
 	// binds the actor to its runner's task, so NewHost finds it.
 	newHosts []hostCell
@@ -1127,37 +1136,58 @@ func (a *Actor[S, E, D]) arm(at *rt.Task, s S) {
 	if d <= 0 {
 		panic(MachineTimerNotPositive("", s, d))
 	}
-	env := envelope[S, E, D]{kind: timerSignal, epoch: a.epoch, at: s}
-	holder := rt.NewScope(at)
-	// The runner waits on its own park word for the child's first wait
-	// (FU-actor-timer-slot): no channel and no sync.Once per entry.
-	var armed atomic.Bool
-	registered := func() {
-		if armed.CompareAndSwap(false, true) {
-			at.Resume()
-		}
+	// The child's body, its span and its hook are the actor's, made at
+	// its first timer; an arm writes the entry's delay and envelope, which
+	// the child reads after its start, and the previous child has ended
+	// (rule 5) (FU-timer-task-reuse). The runner waits on its own park
+	// word for the child's first wait (FU-actor-timer-slot).
+	if a.timerRegistered == nil {
+		a.timerSpan = a.span + " (timer)"
+		a.timerRegistered = a.timerArmed
 	}
-	a.timer = rt.GoOn(&holder, &a.timers, a.span+" (timer)", func(ct *rt.Task) (struct{}, error) {
-		cancel := rt.WhenWaiting(ct, registered)
-		defer func() {
-			cancel()
-			registered() // the child ended without a wait
-		}()
-		return guarded(ct, func(ct *rt.Task) (struct{}, error) {
-			a.sleeper.Sleep(ct, d)
-			// Closed: the actor ended; the timer has no one to tell.
-			_ = a.inbox.Push(ct, env)
-			return struct{}{}, nil
-		})
-	})
+	a.timerAt, a.timerDelay = at, d
+	a.timerEnv = envelope[S, E, D]{kind: timerSignal, epoch: a.epoch, at: s}
+	a.timerDone.Store(false)
+	a.timer = rt.StartOn[struct{}](&a.timers, at, a.timerSpan, (*actorTimer[S, E, D])(a))
 	if rt.Exploring {
-		rt.Await(at, armed.Load)
+		rt.Await(at, a.timerDone.Load)
 	}
 	// A wake meant for another wait of the runner (a stop) costs one more
 	// look: the handshake ignores a stop, as the receive it replaced did.
-	for !armed.Load() {
+	for !a.timerDone.Load() {
 		at.Suspend()
 	}
+}
+
+// timerArmed tells the runner that the timer child's sleep is registered,
+// or that the child ended without a wait; the second call does nothing.
+func (a *Actor[S, E, D]) timerArmed() {
+	if a.timerDone.CompareAndSwap(false, true) {
+		a.timerAt.Resume()
+	}
+}
+
+// actorTimer is an actor as the body of its timer children (arm), so a
+// child's start makes no closure.
+type actorTimer[S, E, D any] Actor[S, E, D]
+
+func (at *actorTimer[S, E, D]) Run(ct *rt.Task) (struct{}, error) {
+	a := (*Actor[S, E, D])(at)
+	rt.WhenWaitingHook(ct, a.timerRegistered)
+	defer func() {
+		rt.ClearWaitHook(ct)
+		a.timerRegistered() // the child ended without a wait
+	}()
+	return guarded(ct, at.sleep)
+}
+
+// sleep sleeps the entry's delay, then pushes its timer envelope.
+func (at *actorTimer[S, E, D]) sleep(ct *rt.Task) (struct{}, error) {
+	a := (*Actor[S, E, D])(at)
+	a.sleeper.Sleep(ct, a.timerDelay)
+	// Closed: the actor ended; the timer has no one to tell.
+	_ = a.inbox.Push(ct, a.timerEnv)
+	return struct{}{}, nil
 }
 
 // noTimer is the delay of a state with no timer: no timer waits it.
