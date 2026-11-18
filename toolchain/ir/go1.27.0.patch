@@ -296,10 +296,10 @@ index 0000000..4327a15
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_builtin.go b/src/cmd/compile/internal/ergoir/ergoir_builtin.go
 new file mode 100644
-index 0000000..f0348dc
+index 0000000..9dbb397
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_builtin.go
-@@ -0,0 +1,131 @@
+@@ -0,0 +1,174 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -309,6 +309,8 @@ index 0000000..f0348dc
 +package ergoir
 +
 +import (
++	"go/constant"
++
 +	"cmd/compile/internal/syntax"
 +	"cmd/compile/internal/types2"
 +)
@@ -316,9 +318,10 @@ index 0000000..f0348dc
 +// builtinExpr checks the IR kind "builtin", a call of Go's builtin
 +// x.Name, and writes it as Go's own call of the builtin, with the
 +// signature types2 records for it (types2/builtins.go): the reader then
-+// gives Go's ODELETE, OCOPY, OCLEAR, OMIN, OMAX and OCAP, as Go source
-+// does. append here is append(xs, ys...) of a slice or of a string's
-+// bytes; append of one element is the kind "append". A call with no
++// gives Go's ODELETE, OCOPY, OCLEAR, OMIN, OMAX, OCAP and OMAKESLICE, as
++// Go source does. append here is append(xs, ys...) of a slice or of a
++// string's bytes; append of one element is the kind "append". make is a
++// slice's, its type in x.T and its sizes in x.Args. A call with no
 +// result (delete, clear) is void, and only an expression statement takes
 +// it.
 +func (c *ergoChecker) builtinExpr(x *ergoExpr) (syntax.Expr, types2.Type) {
@@ -360,6 +363,46 @@ index 0000000..f0348dc
 +			return nil, nil
 +		}
 +		res, variadic, dots = ts[0], true, true
++	case "make":
++		// make([]T, n) and make([]T, n, c) (IR-MAKE), checked as types2
++		// checks a slice's make: x.T the slice type, the sizes of any
++		// integer type, a constant one not negative and a constant n not
++		// above a constant c. Go's escape analysis keeps a small make of a
++		// constant size on the stack, as it keeps hand Go's.
++		t := c.typ(x.Pos, x.T)
++		if t == nil {
++			return nil, nil
++		}
++		if _, ok := types2.CoreType(t).(*types2.Slice); !ok || len(args) > 2 {
++			c.errorf(x.Pos, "ergoir: make of %v with %d sizes", t, len(args))
++			return nil, nil
++		}
++		var sizes []int64
++		for i, a := range x.Args {
++			if !ergoIsInteger(ts[i]) {
++				c.errorf(a.Pos, "ergoir: make size of type %v", ts[i])
++				return nil, nil
++			}
++			if v := args[i].GetTypeInfo().Value; v != nil {
++				n, exact := constant.Int64Val(constant.ToInt(v))
++				if !exact || n < 0 {
++					c.errorf(a.Pos, "ergoir: make size %v", v)
++					return nil, nil
++				}
++				sizes = append(sizes, n)
++			}
++		}
++		if len(sizes) == 2 && sizes[0] > sizes[1] {
++			c.errorf(x.Pos, "ergoir: make length %d above capacity %d", sizes[0], sizes[1])
++			return nil, nil
++		}
++		tn := syntax.NewName(pos, types2.TypeString(t, nil))
++		ttv := syntax.TypeAndValue{Type: t}
++		ttv.SetIsType()
++		tn.SetTypeInfo(ttv)
++		args = append([]syntax.Expr{tn}, args...)
++		params = append([]types2.Type{t}, ts...)
++		res = t
 +	case "cap":
 +		if _, ok := types2.CoreType(ts[0]).(*types2.Slice); !ok {
 +			c.errorf(x.Pos, "ergoir: cap of %v", ts[0])
