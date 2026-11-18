@@ -160,8 +160,8 @@ type HNone {}
 type head = HParam{At int} | HBasic{Ord int} | HLocal{Decl dense.ID[store.Decl], Name string} | HImport{Ref store.XRef} | HForeign{At int, Text string} | HNone
 
 func headOf(s store.Store, e Env, x dense.ID[syntax.Node]) head {
-	match syntax.ViewOf(e.p.Tree, x) {
-	case syntax.Name:
+	let k = syntax.KindOf(e.p.Tree, x)
+	if k == syntax.KIdent {
 		let t = nameText(e.p, x)
 		for i, n in e.params {
 			if n == t {
@@ -181,11 +181,10 @@ func headOf(s store.Store, e Env, x dense.ID[syntax.Node]) head {
 			return HBasic{Ord: b}
 		}
 		let f = foreignIndex(e, "-", t)
-		if f >= 0 {
-			return HForeign{At: f, Text: t}
-		}
-		HNone
-	case syntax.SelectorExpr as se:
+		return if f >= 0 { HForeign{At: f, Text: t} } else { HNone }
+	}
+	if k == syntax.KSelectorExpr {
+		let se = syntax.SelectorExprOf(e.p.Tree, x)
 		let q = nameText(e.p, se.X)
 		match importDep(s, e.deps, q) {
 		case Some[int] as imp:
@@ -209,12 +208,12 @@ func headOf(s store.Store, e Env, x dense.ID[syntax.Node]) head {
 			return HNone
 		}
 		let f = foreignIndex(e, q, nameText(e.p, se.Sel))
-		if f >= 0 { HForeign{At: f, Text: q + "." + nameText(e.p, se.Sel)} } else { HNone }
-	case syntax.ParenExpr as pe:
-		headOf(s, e, pe.X)
-	case _:
-		HNone
+		return if f >= 0 { HForeign{At: f, Text: q + "." + nameText(e.p, se.Sel)} } else { HNone }
 	}
+	if k == syntax.KParenExpr {
+		return headOf(s, e, syntax.ParenExprOf(e.p.Tree, x).X)
+	}
+	HNone
 }
 
 // localKinds is the solved kinds of the package's generic type name.
@@ -557,16 +556,19 @@ func unionMembers(s store.Store, files []syntax.Parsed, d dense.ID[store.Decl]) 
 
 // Resolve is the type the type expression x writes.
 func Resolve(s *store.Store, e Env, x dense.ID[syntax.Node]) dense.ID[store.TKey] {
-	match syntax.ViewOf(e.p.Tree, x) {
-	case syntax.Name:
-		named(s, e, headOf(*s, e, x))
-	case syntax.SelectorExpr:
-		named(s, e, headOf(*s, e, x))
-	case syntax.ParenExpr as pe:
-		Resolve(s, e, pe.X)
-	case syntax.IndexExpr as ix:
-		instance(s, e, headOf(*s, e, ix.X), listIDs(e.p, ix.Indices))
-	case syntax.ArrayType as a:
+	let k = syntax.KindOf(e.p.Tree, x)
+	if k == syntax.KIdent || k == syntax.KSelectorExpr {
+		return named(s, e, headOf(*s, e, x))
+	}
+	if k == syntax.KParenExpr {
+		return Resolve(s, e, syntax.ParenExprOf(e.p.Tree, x).X)
+	}
+	if k == syntax.KIndexExpr {
+		let ix = syntax.IndexExprOf(e.p.Tree, x)
+		return instance(s, e, headOf(*s, e, ix.X), listIDs(e.p, ix.Indices))
+	}
+	if k == syntax.KArrayType {
+		let a = syntax.ArrayTypeOf(e.p.Tree, x)
 		if a.Len >= 0 {
 			// The parser takes only an integer literal (arrays.go).
 			let n = strconv.Atoi(syntax.TokText(e.p, a.Len)) catch {
@@ -579,26 +581,31 @@ func Resolve(s *store.Store, e Env, x dense.ID[syntax.Node]) dense.ID[store.TKey
 			}
 			return store.TArray(s, n, el)
 		}
-		store.TSlice(s, Resolve(s, e, a.Elt))
-	case syntax.MapType as m:
+		return store.TSlice(s, Resolve(s, e, a.Elt))
+	}
+	if k == syntax.KMapType {
+		let m = syntax.MapTypeOf(e.p.Tree, x)
 		if e.ownMap {
 			// The package's own Map hides the map type (L6).
 			return instance(s, e, headOf(*s, e, m.X), []dense.ID[syntax.Node]{m.Key, m.Value})
 		}
-		store.TMap(s, Resolve(s, e, m.Key), Resolve(s, e, m.Value))
-	case syntax.StarExpr as st:
-		store.TPointer(s, Resolve(s, e, st.X))
-	case syntax.TupleExpr as t:
-		let mut ts = []dense.ID[store.TKey]{}
-		for el in listIDs(e.p, t.Elts) {
-			ts = ts.Append(Resolve(s, e, el))
-		}
-		store.TTuple(s, ts)
-	case syntax.FuncType as ft:
-		signature(s, e, ft)
-	case _:
-		invalidType(s)
+		return store.TMap(s, Resolve(s, e, m.Key), Resolve(s, e, m.Value))
 	}
+	if k == syntax.KStarExpr {
+		return store.TPointer(s, Resolve(s, e, syntax.StarExprOf(e.p.Tree, x).X))
+	}
+	if k == syntax.KTupleExpr {
+		let elts = syntax.TupleExprOf(e.p.Tree, x).Elts
+		let mut ts = []dense.ID[store.TKey]{}
+		for i in 0..syntax.Len(elts) {
+			ts = ts.Append(Resolve(s, e, syntax.Item(e.p.Tree, elts, i)))
+		}
+		return store.TTuple(s, ts)
+	}
+	if k == syntax.KFuncType {
+		return signature(s, e, syntax.FuncTypeOf(e.p.Tree, x))
+	}
+	invalidType(s)
 }
 
 // named is the type a bare head names: a generic type needs arguments.
@@ -672,12 +679,12 @@ func paramType(s *store.Store, e Env, fd syntax.Field, x dense.ID[syntax.Node], 
 	if store.KindOfType(*s, r) != store.KSig {
 		return r
 	}
-	match syntax.ViewOf(e.p.Tree, unparen(e.p, x)) {
-	case syntax.FuncType as pf:
+	let ux = unparen(e.p, x)
+	if syntax.KindOf(e.p.Tree, ux) == syntax.KFuncType {
+		let pf = syntax.FuncTypeOf(e.p.Tree, ux)
 		if pf.Escaping < 0 && fd.Own < 0 {
 			return if pf.Entry >= 0 { store.TEntry(s, r) } else { r }
 		}
-	case _:
 	}
 	store.TOwn(s, r)
 }
@@ -687,59 +694,55 @@ func paramType(s *store.Store, e Env, fd syntax.Field, x dense.ID[syntax.Node], 
 // capability row.
 func signature(s *store.Store, e Env, ft syntax.FuncType) dense.ID[store.TKey] {
 	let mut params = []dense.ID[store.TKey]{}
-	match syntax.ViewOf(e.p.Tree, ft.Params) {
-	case syntax.FieldList as fl:
-		for f in listIDs(e.p, fl.List) {
-			match syntax.ViewOf(e.p.Tree, f) {
-			case syntax.Field as fd:
-				let t = match dense.Unpack(fd.Type) {
-				case Some[dense.ID[syntax.Node]] as ty:
-					paramType(s, e, fd, ty.Value, Resolve(s, e, ty.Value))
-				case None:
-					invalidType(s)
-				}
-				let n = syntax.Len(fd.Names)
-				for _ in 0..(if n == 0 { 1 } else { n }) {
-					params = params.Append(t)
-				}
-			case _:
+	if syntax.KindOf(e.p.Tree, ft.Params) == syntax.KFieldList {
+		let fl = syntax.FieldListOf(e.p.Tree, ft.Params).List
+		for i in 0..syntax.Len(fl) {
+			let f = syntax.Item(e.p.Tree, fl, i)
+			if syntax.KindOf(e.p.Tree, f) != syntax.KField {
+				continue
+			}
+			let fd = syntax.FieldOf(e.p.Tree, f)
+			let t = match dense.Unpack(fd.Type) {
+			case Some[dense.ID[syntax.Node]] as ty:
+				paramType(s, e, fd, ty.Value, Resolve(s, e, ty.Value))
+			case None:
+				invalidType(s)
+			}
+			let n = syntax.Len(fd.Names)
+			for _ in 0..(if n == 0 { 1 } else { n }) {
+				params = params.Append(t)
 			}
 		}
-	case _:
 	}
 	let mut result = store.TTuple(s, []dense.ID[store.TKey]{})
 	let mut errs = store.TRow(s, []dense.ID[store.TKey]{})
 	match dense.Unpack(ft.Results) {
 	case Some[dense.ID[syntax.Node]] as rs:
-		match syntax.ViewOf(e.p.Tree, rs.Value) {
-		case syntax.FieldList as fl:
-			for f in listIDs(e.p, fl.List) {
-				match syntax.ViewOf(e.p.Tree, f) {
-				case syntax.Field as fd:
-					match dense.Unpack(fd.Type) {
-					case Some[dense.ID[syntax.Node]] as ty:
-						match syntax.ViewOf(e.p.Tree, ty.Value) {
-						case syntax.ErrorRow as er:
-							errs = row(s, e, listIDs(e.p, er.Types), false)
-						case _:
-							result = Resolve(s, e, ty.Value)
-						}
-					case None:
+		if syntax.KindOf(e.p.Tree, rs.Value) == syntax.KFieldList {
+			let fl = syntax.FieldListOf(e.p.Tree, rs.Value).List
+			for i in 0..syntax.Len(fl) {
+				let f = syntax.Item(e.p.Tree, fl, i)
+				if syntax.KindOf(e.p.Tree, f) != syntax.KField {
+					continue
+				}
+				match dense.Unpack(syntax.FieldOf(e.p.Tree, f).Type) {
+				case Some[dense.ID[syntax.Node]] as ty:
+					if syntax.KindOf(e.p.Tree, ty.Value) == syntax.KErrorRow {
+						errs = row(s, e, listIDs(e.p, syntax.ErrorRowOf(e.p.Tree, ty.Value).Types), false)
+					} else {
+						result = Resolve(s, e, ty.Value)
 					}
-				case _:
+				case None:
 				}
 			}
-		case _:
 		}
 	case None:
 	}
 	let mut uses = store.TRow(s, []dense.ID[store.TKey]{})
 	match dense.Unpack(ft.Needs) {
 	case Some[dense.ID[syntax.Node]] as n:
-		match syntax.ViewOf(e.p.Tree, n.Value) {
-		case syntax.NeedsClause as nc:
-			uses = row(s, e, listIDs(e.p, nc.Names), true)
-		case _:
+		if syntax.KindOf(e.p.Tree, n.Value) == syntax.KNeedsClause {
+			uses = row(s, e, listIDs(e.p, syntax.NeedsClauseOf(e.p.Tree, n.Value).Names), true)
 		}
 	case None:
 	}

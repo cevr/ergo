@@ -10,6 +10,7 @@
 import compiler/check/store
 import compiler/syntax
 import dense
+import slices
 
 // The kinds, as bits of a position set.
 let kindType = 1
@@ -72,12 +73,7 @@ type solve { s store.Store, gens []gen, ext []Ext, sv solver, ownMap bool, fn bo
 type walker { p syntax.Parsed, names []string, vars []int }
 
 func nameText(p syntax.Parsed, id dense.ID[syntax.Node]) string {
-	match syntax.ViewOf(p.Tree, id) {
-	case syntax.Name as n:
-		syntax.TokText(p, n.Tok)
-	case _:
-		""
-	}
+	if syntax.KindOf(p.Tree, id) == syntax.KIdent { syntax.TokText(p, syntax.NameOf(p.Tree, id).Tok) } else { "" }
 }
 
 // self is the variable a bare name x stands for in w, or -1.
@@ -95,12 +91,7 @@ func self(w walker, x dense.ID[syntax.Node]) int {
 }
 
 func unparen(p syntax.Parsed, x dense.ID[syntax.Node]) dense.ID[syntax.Node] {
-	match syntax.ViewOf(p.Tree, x) {
-	case syntax.ParenExpr as pe:
-		unparen(p, pe.X)
-	case _:
-		x
-	}
+	if syntax.KindOf(p.Tree, x) == syntax.KParenExpr { unparen(p, syntax.ParenExprOf(p.Tree, x).X) } else { x }
 }
 
 // localGen is the index in gens of the package's own generic type the
@@ -133,9 +124,9 @@ func localGen(st solve, p syntax.Parsed, x dense.ID[syntax.Node]) int {
 // package scope holds is the package's (a local type has no entry here).
 func slotKinds(st solve, p syntax.Parsed, x dense.ID[syntax.Node]) []int {
 	let mut head = ""
-	match syntax.ViewOf(p.Tree, x) {
-	case syntax.Name as n:
-		let t = syntax.TokText(p, n.Tok)
+	let kind = syntax.KindOf(p.Tree, x)
+	if kind == syntax.KIdent {
+		let t = syntax.TokText(p, syntax.NameOf(p.Tree, x).Tok)
 		match store.Lookup(st.s, t) {
 		case Some[dense.ID[store.Decl]]:
 			// A function reads a local type's kinds as solved, before the
@@ -152,7 +143,8 @@ func slotKinds(st solve, p syntax.Parsed, x dense.ID[syntax.Node]) []int {
 		case None:
 			head = t
 		}
-	case syntax.SelectorExpr as se:
+	} else if kind == syntax.KSelectorExpr {
+		let se = syntax.SelectorExprOf(p.Tree, x)
 		let q = nameText(p, se.X)
 		match store.Lookup(st.s, q) {
 		case Some[dense.ID[store.Decl]] as d:
@@ -163,7 +155,7 @@ func slotKinds(st solve, p syntax.Parsed, x dense.ID[syntax.Node]) []int {
 			return []int{}
 		}
 		head = q + "." + nameText(p, se.Sel)
-	case _:
+	} else {
 		return []int{}
 	}
 	for e in st.ext {
@@ -177,8 +169,9 @@ func slotKinds(st solve, p syntax.Parsed, x dense.ID[syntax.Node]) []int {
 // orLeaves is the operands of a row argument written as a union, at any
 // nesting; any other expression is its own leaf.
 func orLeaves(p syntax.Parsed, x dense.ID[syntax.Node]) []dense.ID[syntax.Node] {
-	match syntax.ViewOf(p.Tree, unparen(p, x)) {
-	case syntax.BinaryExpr as b:
+	let u = unparen(p, x)
+	if syntax.KindOf(p.Tree, u) == syntax.KBinaryExpr {
+		let b = syntax.BinaryExprOf(p.Tree, u)
 		if syntax.TokText(p, b.Op) == "|" {
 			let mut out = orLeaves(p, b.X)
 			for y in orLeaves(p, b.Y) {
@@ -186,10 +179,8 @@ func orLeaves(p syntax.Parsed, x dense.ID[syntax.Node]) []dense.ID[syntax.Node] 
 			}
 			return out
 		}
-		[]dense.ID[syntax.Node]{x}
-	case _:
-		[]dense.ID[syntax.Node]{x}
 	}
+	[]dense.ID[syntax.Node]{x}
 }
 
 // linkHead takes over an index expression whose head is the package's
@@ -223,8 +214,9 @@ func linkHead(st *solve, w walker, head dense.ID[syntax.Node], indices []dense.I
 }
 
 func listIDs(p syntax.Parsed, l syntax.List) []dense.ID[syntax.Node] {
-	let mut out = []dense.ID[syntax.Node]{}
-	for i in 0..syntax.Len(l) {
+	let n = syntax.Len(l)
+	let mut out = slices.WithCapacity[dense.ID[syntax.Node]](n)
+	for i in 0..n {
 		out = out.Append(syntax.Item(p.Tree, l, i))
 	}
 	out
@@ -257,42 +249,45 @@ func index(st *solve, w walker, head dense.ID[syntax.Node], indices []dense.ID[s
 
 // fields walks the types of a field list.
 func fields(st *solve, w walker, l dense.ID[syntax.Node]) {
-	match syntax.ViewOf(w.p.Tree, l) {
-	case syntax.FieldList as fl:
-		for f in listIDs(w.p, fl.List) {
-			match syntax.ViewOf(w.p.Tree, f) {
-			case syntax.Field as fd:
-				match dense.Unpack(fd.Type) {
-				case Some[dense.ID[syntax.Node]] as t:
-					walk(st, w, t.Value, kindType)
-				case None:
-				}
-			case _:
-			}
+	if syntax.KindOf(w.p.Tree, l) != syntax.KFieldList {
+		return
+	}
+	let fl = syntax.FieldListOf(w.p.Tree, l).List
+	for i in 0..syntax.Len(fl) {
+		let f = syntax.Item(w.p.Tree, fl, i)
+		if syntax.KindOf(w.p.Tree, f) != syntax.KField {
+			continue
 		}
-	case _:
+		match dense.Unpack(syntax.FieldOf(w.p.Tree, f).Type) {
+		case Some[dense.ID[syntax.Node]] as t:
+			walk(st, w, t.Value, kindType)
+		case None:
+		}
 	}
 }
 
 // walk observes the names in type positions of x with the kind of their
 // position (decl.go typeWalker).
 func walk(st *solve, w walker, x dense.ID[syntax.Node], k int) {
-	match syntax.ViewOf(w.p.Tree, x) {
-	case syntax.Name:
+	let kind = syntax.KindOf(w.p.Tree, x)
+	if kind == syntax.KIdent {
 		let v = self(w, x)
 		if v >= 0 {
 			observe(&st.sv, v, k)
 		}
-	case syntax.ParenExpr as pe:
-		walk(st, w, pe.X, k)
-	case syntax.BinaryExpr as b:
+	} else if kind == syntax.KParenExpr {
+		walk(st, w, syntax.ParenExprOf(w.p.Tree, x).X, k)
+	} else if kind == syntax.KBinaryExpr {
+		let b = syntax.BinaryExprOf(w.p.Tree, x)
 		walk(st, w, b.X, k)
 		walk(st, w, b.Y, k)
-	case syntax.IndexExpr as ix:
+	} else if kind == syntax.KIndexExpr {
+		let ix = syntax.IndexExprOf(w.p.Tree, x)
 		index(st, w, ix.X, listIDs(w.p, ix.Indices))
-	case syntax.ArrayType as a:
-		walk(st, w, a.Elt, kindType)
-	case syntax.MapType as m:
+	} else if kind == syntax.KArrayType {
+		walk(st, w, syntax.ArrayTypeOf(w.p.Tree, x).Elt, kindType)
+	} else if kind == syntax.KMapType {
+		let m = syntax.MapTypeOf(w.p.Tree, x)
 		if st.ownMap {
 			// The package declares its own Map: Map[K, V] is its instance
 			// (bindings.go mapAsDeclared).
@@ -301,9 +296,10 @@ func walk(st *solve, w walker, x dense.ID[syntax.Node], k int) {
 			walk(st, w, m.Key, kindType)
 			walk(st, w, m.Value, kindType)
 		}
-	case syntax.StarExpr as s:
-		walk(st, w, s.X, kindType)
-	case syntax.FuncType as ft:
+	} else if kind == syntax.KStarExpr {
+		walk(st, w, syntax.StarExprOf(w.p.Tree, x).X, kindType)
+	} else if kind == syntax.KFuncType {
+		let ft = syntax.FuncTypeOf(w.p.Tree, x)
 		fields(st, w, ft.Params)
 		match dense.Unpack(ft.Results) {
 		case Some[dense.ID[syntax.Node]] as r:
@@ -312,27 +308,30 @@ func walk(st *solve, w walker, x dense.ID[syntax.Node], k int) {
 		}
 		match dense.Unpack(ft.Needs) {
 		case Some[dense.ID[syntax.Node]] as n:
-			match syntax.ViewOf(w.p.Tree, n.Value) {
-			case syntax.NeedsClause as nc:
-				for name in listIDs(w.p, nc.Names) {
-					walk(st, w, name, kindUses)
+			if syntax.KindOf(w.p.Tree, n.Value) == syntax.KNeedsClause {
+				let names = syntax.NeedsClauseOf(w.p.Tree, n.Value).Names
+				for i in 0..syntax.Len(names) {
+					walk(st, w, syntax.Item(w.p.Tree, names, i), kindUses)
 				}
-			case _:
 			}
 		case None:
 		}
-	case syntax.ErrorRow as er:
-		for t in listIDs(w.p, er.Types) {
-			walk(st, w, t, kindErrors)
+	} else if kind == syntax.KErrorRow {
+		let types = syntax.ErrorRowOf(w.p.Tree, x).Types
+		for i in 0..syntax.Len(types) {
+			walk(st, w, syntax.Item(w.p.Tree, types, i), kindErrors)
 		}
-	case syntax.StructType as s:
-		fields(st, w, s.Fields)
-	case syntax.InterfaceType as it:
+	} else if kind == syntax.KStructType {
+		fields(st, w, syntax.StructTypeOf(w.p.Tree, x).Fields)
+	} else if kind == syntax.KInterfaceType {
 		// Operations and union members are type positions; an include, a
 		// law and an inline variant are not (typeWalker).
-		for m in listIDs(w.p, it.Members) {
-			match syntax.ViewOf(w.p.Tree, m) {
-			case syntax.Field as fd:
+		let members = syntax.InterfaceTypeOf(w.p.Tree, x).Members
+		for i in 0..syntax.Len(members) {
+			let m = syntax.Item(w.p.Tree, members, i)
+			let mk = syntax.KindOf(w.p.Tree, m)
+			if mk == syntax.KField {
+				let fd = syntax.FieldOf(w.p.Tree, m)
 				if fd.Dots < 0 {
 					match dense.Unpack(fd.Type) {
 					case Some[dense.ID[syntax.Node]] as t:
@@ -340,16 +339,14 @@ func walk(st *solve, w walker, x dense.ID[syntax.Node], k int) {
 					case None:
 					}
 				}
-			case syntax.LawDecl:
-			case syntax.VariantSpec:
-			case _:
+			} else if mk != syntax.KLawDecl && mk != syntax.KVariantSpec {
 				walk(st, w, m, kindType)
 			}
 		}
-	case syntax.MachineType as mt:
+	} else if kind == syntax.KMachineType {
+		let mt = syntax.MachineTypeOf(w.p.Tree, x)
 		walk(st, w, mt.State, kindType)
 		walk(st, w, mt.Signal, kindType)
-	case _:
 	}
 }
 
