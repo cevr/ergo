@@ -67,9 +67,22 @@ package of this Go module and the Ergo half binds it.
   `mygo/ui`), `Headless` the same content on no window, for tests. It turns
   surface events into `Input` records that Ergo reads (`Next` waits, `Poll`
   does not), takes a paint list (`Begin`, `Fill`, `Border`, `Clip`,
-  `Text`, `Present`) that it records as display-list ops and renders with
-  the CPU renderer, measures text with MyGo's text layer, and carries the
-  accessibility tree (`Access`) and the text-input client (`Editing`).
+  `Text`, `Present`) that it records as display-list ops, measures text
+  with MyGo's text layer, and carries the accessibility tree (`Access`)
+  and the text-input client (`Editing`). A frame is one scene, drawn by
+  the GPU renderer MyGo has for the surface's native objects
+  (`render_*.go`, split by platform as MyGo's `ui/gpu_*.go`): Metal on
+  macOS and iOS, OpenGL ES in an EGL window on Android, OpenGL in a
+  GtkGLArea on Linux, WebGL 2 in a browser. Where there is none (the fake
+  backend, Windows for now, a GPU that failed) the CPU renderer draws it
+  and the surface presents its pixels. A phone's surface presents no
+  pixels, so there only the GPU path shows a frame. `MYGO_GPU=0` draws in
+  memory. The CPU renderer stays the reference.
+  `TestFrameNeedsNoPixelPresent` holds the choice of renderer.
+  `TestRenderersAgree` draws 40 seeded paint lists both ways (OpenGL
+  offscreen through Mesa on Linux, Metal on a Mac) and compares the
+  colours of fills and the ink of text; `-renderers.seed=N` replays one
+  seed.
 - `ergo.bind/` is its committed binding (`ergo bind go
   ergo.local/prototype/hosts/mygo/screen`, with Go 1.27.3: an `ergo` built
   with an older Go cannot read 1.27.3 export data).

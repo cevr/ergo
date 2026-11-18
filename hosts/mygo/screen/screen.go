@@ -3,7 +3,9 @@
 // can take through import go. The program lays out, hit tests and paints
 // (Ergo package desktop); screen turns the window's surface events into
 // Inputs, and turns the program's paint calls into MyGo's display list,
-// rasterized by MyGo's CPU renderer. It uses no MyGo widget.
+// drawn by the GPU renderer MyGo has for the surface (Metal, OpenGL or
+// OpenGL ES, render.go) or by its CPU renderer where there is none. It
+// uses no MyGo widget.
 //
 // Threading follows MyGo's rules (v1-gui plan §1.3): the surface's events
 // and frames arrive on the main thread, which only queues Inputs and
@@ -96,6 +98,11 @@ type Window struct {
 	r    raster.Renderer
 	sc   scene.Scene
 	sys  *text.System
+	// gpu is the surface's GPU renderer, nil where frames draw in memory;
+	// gpuTried tells that the surface's native objects were looked at.
+	// The main thread owns both.
+	gpu      gpuRenderer
+	gpuTried bool
 
 	// fake is the surface of a Headless window.
 	fake *fake.Surface
@@ -197,6 +204,12 @@ func (w *Window) event(ev platform.SurfaceEvent) bool {
 		if on {
 			w.push(Input{Kind: Frame, At: time.Since(w.start).Nanoseconds()})
 		}
+	case platform.SurfaceRenew, platform.SurfaceLowMemory:
+		// The surface's native objects are new (a phone app back from the
+		// background), or the system wants memory back: the next frame
+		// makes the renderer again, with its textures and atlases.
+		w.dropGPU()
+		w.conn.Surface.RequestFrame()
 	case platform.SurfaceResize:
 		width, height, _ := w.conn.Surface.Size()
 		w.mu.Lock()
@@ -511,12 +524,26 @@ func (w *Window) LineHeight(size float64) float64 {
 	return math.Ceil(float64(h))
 }
 
-// draw renders the shown list into the surface, on the main thread.
+// draw renders the shown list into the surface, on the main thread: with
+// the surface's GPU renderer where it has one (render.go), else with the
+// CPU renderer, whose pixels the surface presents. A phone's surface
+// presents no pixels, so there only the GPU shows a frame.
 func (w *Window) draw() {
 	if w.conn == nil {
 		return
 	}
 	width, height, scale := w.conn.Surface.Size()
+	s := w.frame(width, height, scale)
+	if !w.renderGPU(s) {
+		w.r.Render(s)
+		w.conn.Surface.PresentPixels(w.r.Image.Pix, w.r.Image.Stride, w.r.Image.W, w.r.Image.H)
+	}
+	w.sys.EndFrame()
+}
+
+// frame makes the display list of the shown list for a surface of width
+// by height DIPs at scale: the scene every renderer draws.
+func (w *Window) frame(width, height, scale float64) *scene.Scene {
 	if scale <= 0 {
 		scale = 1
 	}
@@ -539,9 +566,7 @@ func (w *Window) draw() {
 		w.glyphLine(s, texts[k], float32(scale))
 	}
 	w.mu.Unlock()
-	w.r.Render(s)
-	w.conn.Surface.PresentPixels(w.r.Image.Pix, w.r.Image.Stride, w.r.Image.W, w.r.Image.H)
-	w.sys.EndFrame()
+	return s
 }
 
 // glyphLine adds the glyphs of one line of text to s, as MyGo's own
