@@ -83,14 +83,15 @@ func Slug(text string) string {
 	b.String()
 }
 
-// SlugIsItsOwn: a slug is its own slug, and holds only a-z, 0-9 and -, so
-// it is one path segment and one file name.
+// SlugIsItsOwn: a slug is its own slug and its upper case's, and holds
+// only a-z, 0-9 and -, so it is one path segment and one file name, and
+// a title's case does not change its link. The text always has letters.
 law SlugIsItsOwn(text string) {
-	let s = Slug(text)
+	let s = Slug(text + " Field Note")
 	let mut plain = true
 	for i in 0..len(s) {
 		let c = s[i]
 		plain = plain && ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-')
 	}
-	plain && Slug(s) == s
+	plain && Slug(s) == s && Slug(strings.ToUpper(s)) == s
 }
