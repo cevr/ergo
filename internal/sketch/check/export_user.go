@@ -61,7 +61,8 @@ type UserExport struct {
 	// (B7e).
 	sets []*GoBindings
 	host map[int]bool
-	done map[*Package]bool
+	// done is each binding package's host segment.
+	done map[*Package]int
 }
 
 // fixed reports a segment of std or of a Go binding package.
@@ -89,7 +90,7 @@ func NewUserExport(importers ...any) (u *UserExport, err error) {
 	for i, imp := range importers {
 		e.ext[imp] = uint64(len(externals()) + i)
 	}
-	u = &UserExport{e: e, first: len(s.packages) + 1, tables: map[int]map[any]objPath{}, nodeCross: map[int]bool{}, pkgs: map[int]*Package{}, nodeTables: map[int]map[any]nodePath{}, host: map[int]bool{}, done: map[*Package]bool{}}
+	u = &UserExport{e: e, first: len(s.packages) + 1, tables: map[int]map[any]objPath{}, nodeCross: map[int]bool{}, pkgs: map[int]*Package{}, nodeTables: map[int]map[any]nodePath{}, host: map[int]bool{}, done: map[*Package]int{}}
 	for _, imp := range importers {
 		if set, ok := imp.(*GoBindings); ok {
 			u.sets = append(u.sets, set)
@@ -176,13 +177,8 @@ func (u *UserExport) cross(seg int, v any) {
 func (u *UserExport) Add(pkg *Package) (seg int, err error) {
 	defer recoverExport(&err)
 	u.addHosts()
-	if u.done[pkg] {
-		// A Go binding package, written by addHosts: its host segment.
-		for k := len(u.paths) - 1; k >= u.first; k-- {
-			if u.host[k] && u.paths[k] == pkg.Path {
-				return k, nil
-			}
-		}
+	if k, ok := u.done[pkg]; ok {
+		return k, nil // a Go binding package, written by addHosts
 	}
 	seg = len(u.e.objStarts)
 	u.paths = append(u.paths, pkg.Path)
@@ -224,10 +220,10 @@ func (u *UserExport) addHosts() {
 	for _, set := range u.sets {
 		for _, path := range sortedKeys(set.pkgs) {
 			p := set.pkgs[path]
-			if p == nil || u.done[p] {
+			if _, ok := u.done[p]; p == nil || ok {
 				continue
 			}
-			u.done[p] = true
+			u.done[p] = len(u.e.objStarts)
 			u.host[len(u.e.objStarts)] = true
 			u.paths = append(u.paths, path)
 			u.segs = append(u.segs, u.e.segment(path, func() { u.e.encPtrPackage(p) }))
