@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+
+	"ergo.local/prototype/runtime/v1/hostfs"
 )
 
 // The guard of the file rows (HOST-ROW-2; gofacts.Hosts): each call runs
@@ -24,11 +26,11 @@ import (
 // fileCalls are the guarded file calls, one per file row.
 func fileCalls() map[string]func(s ambient) error {
 	return map[string]func(s ambient) error{
-		"os.ReadFile":  readFileCheck(os.ReadFile),
-		"os.WriteFile": writeFileCheck,
-		"os.ReadDir":   readDirCheck,
-		"os.Stat":      statCheck(os.Stat, false),
-		"os.Lstat":     statCheck(os.Lstat, true),
+		"os.ReadFile":            readFileCheck(os.ReadFile),
+		"os.WriteFile":           writeFileCheck,
+		hostfs.Path + ".ReadDir": readDirCheck,
+		hostfs.Path + ".Stat":    statCheck(hostfs.Stat, false),
+		hostfs.Path + ".Lstat":   statCheck(hostfs.Lstat, true),
 		"os.Mkdir": func(s ambient) error {
 			return madeDir(s, "hg-mkdir", "hg-mkdir", func() error { return os.Mkdir("hg-mkdir", 0o755) })
 		},
@@ -143,22 +145,22 @@ func readDirCheck(s ambient) error {
 	if err := put(s, "hg-dir/"+filepath.Base(s.home), stateText(s)); err != nil {
 		return err
 	}
-	names := func(es []os.DirEntry) []string {
+	names := func(es []hostfs.Entry) []string {
 		var out []string
 		for _, e := range es {
-			out = append(out, e.Name())
+			out = append(out, e.Name)
 		}
 		return out
 	}
-	first, err := os.ReadDir("hg-dir")
+	first, err := hostfs.ReadDir("hg-dir")
 	if want := []string{filepath.Base(s.home)}; err != nil || !slices.Equal(names(first), want) {
 		return fmt.Errorf("ReadDir(hg-dir) is (%v, %v) in %s, want %v", names(first), err, s.dir, want)
 	}
 	fresh := names(first)
 	for i := range first {
-		first[i] = nil
+		first[i] = hostfs.Entry{}
 	}
-	if again, err := os.ReadDir("hg-dir"); err != nil || !slices.Equal(names(again), fresh) {
+	if again, err := hostfs.ReadDir("hg-dir"); err != nil || !slices.Equal(names(again), fresh) {
 		return fmt.Errorf("ReadDir(hg-dir) after a write to its last result is (%d entries, %v); the result is not the caller's", len(again), err)
 	}
 	return nil
@@ -166,7 +168,7 @@ func readDirCheck(s ambient) error {
 
 // statCheck: Stat or Lstat of a relative path reads the state's file: its
 // size, and, through a link, the link (Lstat) or its target (Stat).
-func statCheck(stat func(string) (fs.FileInfo, error), lstat bool) func(s ambient) error {
+func statCheck(stat func(string) (hostfs.Info, error), lstat bool) func(s ambient) error {
 	return func(s ambient) error {
 		defer clean(s, "hg-stat", "hg-stat-link")
 		if err := put(s, "hg-stat", stateText(s)); err != nil {
@@ -179,9 +181,9 @@ func statCheck(stat func(string) (fs.FileInfo, error), lstat bool) func(s ambien
 		if err != nil {
 			return err
 		}
-		link := fi.Mode()&fs.ModeSymlink != 0
-		if link != lstat || !lstat && fi.Size() != int64(len(stateText(s))) {
-			return fmt.Errorf("stat(hg-stat-link) in %s is size %d, link %v; want the link %v, size %d", s.dir, fi.Size(), link, lstat, len(stateText(s)))
+		link := fi.Mode&fs.ModeSymlink != 0
+		if link != lstat || fi.Name != "hg-stat-link" || fi.IsDir || !lstat && fi.Size != int64(len(stateText(s))) {
+			return fmt.Errorf("stat(hg-stat-link) in %s is %+v, link %v; want the link %v, size %d", s.dir, fi, link, lstat, len(stateText(s)))
 		}
 		return nil
 	}

@@ -24,6 +24,7 @@ import (
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 	v1 "ergo.local/prototype/runtime/v1"
+	"ergo.local/prototype/runtime/v1/hostfs"
 )
 
 // Kind is the kind of a Go declaration.
@@ -67,7 +68,12 @@ type Decl struct {
 	// HOST-ROW), acting on its guard line: the binding writes needs
 	// Ambient, not go.Foreign, and an `// ergo:effect ambient (vouched:
 	// <reason>)` line.
-	Host    string
+	Host string
+	// Via is the Go function the binding calls in Go's function's place
+	// (ValueResults; HOST-ROW-3): one that returns values where Go's
+	// returns an interface, so reading the result needs no row. Empty
+	// for a declaration bound as Go writes it.
+	Via     string
 	Refused string
 	// Members are the refusals of a struct's fields and an interface's
 	// methods, by member name, for a type that maps.
@@ -98,8 +104,31 @@ type Member struct {
 }
 
 // Target is the extern target of d in package path: `net/url.Parse`,
-// `net/url.URL.Hostname`.
-func (d Decl) Target(path string) string { return path + "." + d.Name }
+// `net/url.URL.Hostname`, or d's Via.
+func (d Decl) Target(path string) string {
+	if d.Via != "" {
+		return d.Via
+	}
+	return path + "." + d.Name
+}
+
+// HostFS is the import path of the toolchain's Go package that gives a
+// file's metadata as values (runtime/v1/hostfs).
+const HostFS = hostfs.Path
+
+// ValueResults are the Go functions whose binding calls another in their
+// place (HOST-ROW-3): Go's returns fs.FileInfo or []fs.DirEntry, whose
+// methods any Go type may implement, so a row on them would vouch for
+// every implementation; the function it names returns structs of the
+// same values, read once on the implementation os returns. The named
+// function is bound and reviewed as any Go function is (a host row, its
+// guard), and every binding of Go's, std's or a user's, gets the same
+// one. Keyed by Go's target, valued by the one the binding calls.
+var ValueResults = map[string]string{
+	"os.Stat":    HostFS + ".Stat",
+	"os.Lstat":   HostFS + ".Lstat",
+	"os.ReadDir": HostFS + ".ReadDir",
+}
 
 // Qualifier spells a package other than the bound one in Ergo source: the
 // name the binding's import gives it.
@@ -109,9 +138,16 @@ type Qualifier func(*types.Package) string
 // docs/spec/interop.md (Type mapping). For a method, obj is the method and
 // recv the named type whose method set holds it. q spells other packages.
 func Map(obj types.Object, recv *types.Named, q Qualifier) Decl {
-	m := &mapper{pkg: obj.Pkg(), q: q}
+	return mapIn(obj.Pkg(), obj, recv, q)
+}
+
+// mapIn is Map with obj's types spelled from the bound package home: a
+// type of obj's own package is qualified when home is another
+// (ValueResults). The target, and every row it reads, stay obj's.
+func mapIn(home *types.Package, obj types.Object, recv *types.Named, q Qualifier) Decl {
+	m := &mapper{pkg: obj.Pkg(), home: home, q: q}
 	if recv != nil {
-		m.pkg = recv.Obj().Pkg()
+		m.pkg, m.home = recv.Obj().Pkg(), recv.Obj().Pkg()
 		m.refs = []string{m.pkg.Path() + "." + recv.Obj().Name()}
 	}
 	d := m.decl(obj, recv)
@@ -125,7 +161,10 @@ func Map(obj types.Object, recv *types.Named, q Qualifier) Decl {
 
 type mapper struct {
 	pkg *types.Package
-	q   Qualifier
+	// home is the package whose binding the declaration is written in:
+	// pkg, or os for a ValueResults function of hostfs.
+	home *types.Package
+	q    Qualifier
 	// refs are the named types the Ergo text spells, "path.Name", and
 	// ".Map" for a prelude type (Close); refPkgs their packages.
 	refs    []string
@@ -962,7 +1001,7 @@ func (m *sigMapper) named(n *types.Named, at pos, cb bool) (string, error) {
 func (m *sigMapper) spell(obj *types.TypeName) string {
 	m.refs = append(m.refs, obj.Pkg().Path()+"."+obj.Name())
 	m.refPkgs = append(m.refPkgs, obj.Pkg())
-	if obj.Pkg() == m.pkg {
+	if obj.Pkg() == m.home {
 		return obj.Name()
 	}
 	return m.q(obj.Pkg()) + "." + obj.Name()
@@ -1038,7 +1077,7 @@ func typeRefusal(obj *types.TypeName) string {
 			return "an interface with no exported method"
 		}
 	case *types.Slice, *types.Map, *types.Array:
-		m := &sigMapper{mapper: &mapper{pkg: obj.Pkg(), q: func(p *types.Package) string { return p.Name() }}}
+		m := &sigMapper{mapper: &mapper{pkg: obj.Pkg(), home: obj.Pkg(), q: func(p *types.Package) string { return p.Name() }}}
 		if _, err := m.typ(u, atInner, false); err != nil {
 			return err.Error()
 		}

@@ -271,7 +271,7 @@ func (c *closer) decls(path string) []Decl {
 		if p == nil {
 			continue
 		}
-		ds := Decls(p)
+		ds := c.valueResults(path, i, Decls(p))
 		for _, d := range ds {
 			for _, rp := range d.refPkgs {
 				c.add(i, rp)
@@ -301,6 +301,32 @@ func (c *closer) decls(path string) []Decl {
 	}
 	c.done[path] = merged
 	return merged
+}
+
+// valueResults replaces each declaration of bound's ds that ValueResults names
+// with the declaration of the function it names, under Go's name, when
+// that function's package is loaded on platform i (Bind loads HostFS with
+// os); otherwise the declaration stays Go's.
+func (c *closer) valueResults(bound string, i int, ds []Decl) []Decl {
+	q := func(p *types.Package) string { return "⟦" + p.Path() + " " + p.Name() + "⟧" }
+	for k, d := range ds {
+		via, ok := ValueResults[bound+"."+d.Name]
+		if !ok || d.Kind != Func {
+			continue
+		}
+		path, name := splitRef(via)
+		var obj types.Object
+		if ps := c.pkgs[path]; ps != nil && ps[i] != nil {
+			obj = ps[i].Scope().Lookup(name)
+		}
+		if obj == nil {
+			continue
+		}
+		nd := mapIn(c.pkgs[bound][i], obj, nil, q)
+		nd.Name, nd.Via = d.Name, via
+		ds[k] = nd
+	}
+	return ds
 }
 
 func splitRef(ref string) (path, name string) {

@@ -84,9 +84,6 @@ var Hosts = []Effect{
 	// caller owns; none returns or keeps an open file.
 	{Target: "os.ReadFile", Reason: "it reads one file into a new byte slice and closes it", Source: "bb04a2d6e68b"},
 	{Target: "os.WriteFile", Reason: "it writes its bytes to one file, creating or truncating it, and closes it", Source: "c971c9ff32f1"},
-	{Target: "os.ReadDir", Reason: "it lists one directory into a new, sorted slice and closes it", Source: "8723386e817e"},
-	{Target: "os.Stat", Reason: "it reads one file's metadata, following a symbolic link", Source: "e25c7b85e958"},
-	{Target: "os.Lstat", Reason: "it reads one file's metadata, not following a symbolic link", Source: "5c0cd531dbf8"},
 	{Target: "os.Mkdir", Reason: "it makes one directory", Source: "054e02d4d835"},
 	{Target: "os.MkdirAll", Reason: "it makes a directory and its missing parents", Source: "387cad4262ed"},
 	{Target: "os.Remove", Reason: "it removes one file or empty directory", Source: "c04948848952"},
@@ -94,6 +91,13 @@ var Hosts = []Effect{
 	{Target: "os.Rename", Reason: "it renames one path", Source: "2e89ed8a4b75"},
 	{Target: "os.Readlink", Reason: "it reads one symbolic link's target", Source: "6a065e85af7a"},
 	{Target: "os.Chmod", Reason: "it changes one file's mode", Source: "354bb99d651b"},
+	// The metadata rows (HOST-ROW-3): os's Stat, Lstat and ReadDir are
+	// bound to these (gobind.ValueResults), which read Go's interface
+	// result once, on the implementation os returns, into a struct the
+	// caller owns; so no row vouches for an interface method.
+	{Target: "ergo.local/prototype/runtime/v1/hostfs.Stat", Reason: "it calls os.Stat on one path, following a symbolic link, and copies the five values of its result into a new struct", Source: "07a2c004939a"},
+	{Target: "ergo.local/prototype/runtime/v1/hostfs.Lstat", Reason: "it calls os.Lstat on one path, not following a symbolic link, and copies the five values of its result into a new struct", Source: "b90166fec086"},
+	{Target: "ergo.local/prototype/runtime/v1/hostfs.ReadDir", Reason: "it calls os.ReadDir on one directory and copies each entry's name, kind and type into a new, sorted slice", Source: "66ec26573280"},
 }
 
 // HostOf is the host row of target, if it has one.

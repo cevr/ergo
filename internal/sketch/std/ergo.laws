@@ -18,6 +18,9 @@ fact go crypto/sha256 pure members validated by guard with go1.27.4 h1:YF2lKIMh4
 fact go crypto/sha256.Sum256 reads data validated by guard with go1.27.4 h1:T7e2yd/DWHz2kDGtsKGHVxe7Lv8WKVODCneEqC755qE=
 fact go encoding/base64 pure members validated by guard with go1.27.4 h1:pSHJpg8KgN6lNEy01Rceqk70QhT/wbpsThj8eaSfdFI=
 fact go encoding/hex pure members validated by guard with go1.27.4 h1:mB4b6WuiVANm7t47/hEMO4QtNLlOLkn2wHKaiuYwNEE=
+fact go ergo.local/prototype/runtime/v1/hostfs.Lstat effect ambient validated by guard with go1.27.4 h1:ySqhFpLTezsColLQ+cz8s6REG7UjpA+yKDg4qXHNpnA=
+fact go ergo.local/prototype/runtime/v1/hostfs.ReadDir effect ambient validated by guard with go1.27.4 h1:d+oUwLLL8D0coEwPEeJdVlVsC0tqpyUM1wlJJKB/578=
+fact go ergo.local/prototype/runtime/v1/hostfs.Stat effect ambient validated by guard with go1.27.4 h1:nFnSkH1a/C75WshEZGFkVNwBm5TWmNuFdglevEi+GGA=
 fact go expvar.Do sync callbacks validated by guard with go1.27.4 h1:3EQ0+zCfgc9r17mu/CucahIalZw097SMGUzx5yl5vPs=
 fact go flag.FlagSet.Visit sync callbacks validated by guard with go1.27.4 h1:zMMlnOPaIglzVULTlb2NdPLItox4RwyzStbZZ9JP7oQ=
 fact go flag.FlagSet.VisitAll sync callbacks validated by guard with go1.27.4 h1:yIiRicEWxnxFxnFABwnva9OHAnH3lPi1IWTbtJqfNhE=
@@ -46,16 +49,13 @@ fact go os.Expand sync callbacks validated by guard with go1.27.4 h1:j53n/Pcx9EU
 fact go os.Getenv effect ambient validated by guard with go1.27.4 h1:/ccwIxKhU8XbcPtMEBqi6bEm461e3wIE2gooNXO2lWk=
 fact go os.Getwd effect ambient validated by guard with go1.27.4 h1:r/2LsBrLrIAI2l8oVIFDIBKk4luxppaTqbEYPZ2AQFM=
 fact go os.LookupEnv effect ambient validated by guard with go1.27.4 h1:E1rIctoNmJL03lzx+E63GWMGoy1E75KKREYek3q2O1k=
-fact go os.Lstat effect ambient validated by guard with go1.27.4 h1:Y7YhJ2LmKk0ZrQJC0fs7lfG4ffjYjkGNeixRY1PqsUw=
 fact go os.Mkdir effect ambient validated by guard with go1.27.4 h1:MtX+TBPy3KcFaT8XaJZFE4EDzM29XEcuI5MrYne5qiw=
 fact go os.MkdirAll effect ambient validated by guard with go1.27.4 h1:wVPBUr4NMYuq5mx5Z3dmyIh37fgW0dTs4punAZwotPQ=
-fact go os.ReadDir effect ambient validated by guard with go1.27.4 h1:AUnislcuoSeOx9tlMUVuD3zdx3Ukl871fr9ri8ZYJiQ=
 fact go os.ReadFile effect ambient validated by guard with go1.27.4 h1:N9eJ0hr+mg+2kGV9upLa/z8VkHRENjTml130Nk4nx+w=
 fact go os.Readlink effect ambient validated by guard with go1.27.4 h1:hKToFKZyjRC1Y1vRQtfulP7pXtj7r1ZLsja4ZGXfB8M=
 fact go os.Remove effect ambient validated by guard with go1.27.4 h1:mPy1bveWX2/bjaK+Lua1Q0ekMcA8UycDrkDtAX+dZmg=
 fact go os.RemoveAll effect ambient validated by guard with go1.27.4 h1:TzRRc4U6yuzKTOd1wi+ym0zV0/fC3OPZfOhOHpNpqaY=
 fact go os.Rename effect ambient validated by guard with go1.27.4 h1:lFEcVCnBEbrG6UnGvdit0uSCZgjiTKqIf+ndRqJrTnE=
-fact go os.Stat effect ambient validated by guard with go1.27.4 h1:pAk4HjQgUb6giA7/aDdi69hL0I8rj6PpJhDbZ6mvSw0=
 fact go os.WriteFile effect ambient validated by guard with go1.27.4 h1:w70/l5ltse5tMU7ZeEHxXiPDel/uUxCjIl4cCbftU5A=
 fact go path/filepath pure members validated by guard with go1.27.4 h1:q+yklp6zZlmKjmrdmVgaIc7jyTFKF4rsCWFA/++DN48=
 fact go path/filepath.Join reads elem validated by guard with go1.27.4 h1:+93clsjHqXhN66F2mNfu4j3ltVCnF7p9Y1oQWM0Z4G8=

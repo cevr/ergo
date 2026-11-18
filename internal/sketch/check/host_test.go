@@ -116,6 +116,59 @@ func Tidy(_ Real, path string) fails go.Error needs Ambient {
 func count(d Disk) int { d.Count("out") catch { case go.Error: -1 } }
 `
 
+// TestStatResultIsValues is HOST-ROW-3's acceptance: os.Stat, os.Lstat
+// and os.ReadDir are bound to runtime/v1/hostfs (gobind.ValueResults), so
+// their results are structs and a user reads a file's name, size, mode
+// and kind, and an entry's name and kind, by field access, with Ambient
+// alone: no row vouches for fs.FileInfo's or fs.DirEntry's methods, which
+// any Go type may implement. Red at base: the result is fs.FileInfo, which
+// has no field Size, and its methods need go.Foreign.
+func TestStatResultIsValues(t *testing.T) {
+	src := `import go os
+import go io/fs
+
+func describe(path string) string needs Ambient {
+	let info = os.Stat(path) catch {
+	case go.Error:
+		return "missing"
+	}
+	let link = os.Lstat(path) catch {
+	case go.Error:
+		return "missing"
+	}
+	let mode fs.FileMode = info.Mode
+	"\(info.Name) \(info.Size) \(info.IsDir) \(uint32(mode)) \(link.IsDir)"
+}
+
+func names(dir string) string needs Ambient {
+	let es = os.ReadDir(dir) catch {
+	case go.Error:
+		return "unreadable"
+	}
+	let mut out = ""
+	for e in es {
+		out = out + e.Name + " \(e.IsDir) \(uint32(e.Type))"
+	}
+	out
+}
+
+func main() needs Console | Ambient {
+	Console.Println(describe("a") + names("."))
+}
+`
+	f, err := syntax.Parse(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ds := check.Check("example.test/statvalues", []*syntax.File{f}, nil); len(ds) != 0 {
+		var got []string
+		for _, d := range ds {
+			got = append(got, d.Code+" "+strconv.Itoa(d.Line)+":"+strconv.Itoa(d.Column)+" "+d.Message)
+		}
+		t.Errorf("%s\ngot:\n%s\nwant no diagnostic", src, strings.Join(got, "\n"))
+	}
+}
+
 // TestFileRowsChargeAmbient is HOST-ROW-2's acceptance: Go's os file
 // calls (ReadFile, WriteFile, ReadDir, Stat, Lstat, Mkdir, MkdirAll,
 // Remove, RemoveAll, Rename, Readlink, Chmod) are host rows, so a user's
