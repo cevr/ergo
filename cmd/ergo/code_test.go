@@ -308,12 +308,13 @@ func agreeOnProgram(t *testing.T, a sketchfront.Analysis, r *rand.Rand, perPacka
 // machinesAgree holds `ergo code machine-of` and `ergo inspect machine`'s
 // text to the graph machinegraph reads from the checked program, for every
 // machine of the program: its states, signals and initial state, each arm
-// (place, variants, partial, edges), the timers, the work and the unsure
-// states; and the text of each package's machines (`ergo inspect
-// machine` with the package as root) names each arm, edge, timer and work
-// at its place.
+// (place, variants, partial, edges), the timers, the work, the exit
+// actions and the unsure states; and the text of each package's machines
+// (`ergo inspect machine` with the package as root) names each arm, edge,
+// timer, work and exit action at its place.
 //
-// Mutants machine-timer-dropped, machine-text-timer-dropped
+// Mutants machine-timer-dropped, machine-text-timer-dropped,
+// machine-exit-dropped, machine-text-exit-dropped
 // (cmd/ergo/testdata/mutants.json).
 func machinesAgree(t *testing.T, a sketchfront.Analysis, text string, fail func(string, ...any)) {
 	t.Helper()
@@ -370,6 +371,7 @@ func machinesAgree(t *testing.T, a sketchfront.Analysis, text string, fail func(
 						At            place
 					}
 					Work []place
+					Exit []place
 				}
 			}
 			if status != 0 || json.Unmarshal([]byte(out), &v) != nil {
@@ -385,7 +387,7 @@ func machinesAgree(t *testing.T, a sketchfront.Analysis, text string, fail func(
 			}
 			site := func(p place) machinegraph.Site { return machinegraph.Site{File: p.File, Line: p.Line} }
 			ok := m.Name == g.Machine && m.Initial == g.Initial && slices.Equal(m.States, names(g.States)) && slices.Equal(m.Signals, names(g.Signals)) &&
-				slices.Equal(m.Unsure, append([]string{}, g.Unsure...)) && len(m.Arms) == len(g.Arms) && len(m.Timers) == len(g.Timers) && len(m.Work) == len(g.Work)
+				slices.Equal(m.Unsure, append([]string{}, g.Unsure...)) && len(m.Arms) == len(g.Arms) && len(m.Timers) == len(g.Timers) && len(m.Work) == len(g.Work) && len(m.Exit) == len(g.Exit)
 			for k := 0; ok && k < len(g.Arms); k++ {
 				x, y := m.Arms[k], g.Arms[k]
 				ok = site(x.At) == y.Site && x.AnyState == (y.States == nil) && x.AnySignal == (y.Signals == nil) &&
@@ -404,6 +406,9 @@ func machinesAgree(t *testing.T, a sketchfront.Analysis, text string, fail func(
 			for _, w := range m.Work {
 				ok = ok && g.Work[w.What] == site(w)
 			}
+			for _, x := range m.Exit {
+				ok = ok && g.Exit[x.What] == site(x)
+			}
 			if !ok {
 				fail("machine-of %s:\n got %+v\nwant %+v", h, m, *g)
 			}
@@ -418,6 +423,9 @@ func machinesAgree(t *testing.T, a sketchfront.Analysis, text string, fail func(
 			}
 			for k, w := range g.Work {
 				lines = append(lines, fmt.Sprintf("  work %s at %s\n", k, w))
+			}
+			for k, x := range g.Exit {
+				lines = append(lines, fmt.Sprintf("  exit %s at %s\n", k, x))
 			}
 		}
 		if len(lines) == 0 {

@@ -167,7 +167,9 @@ type Table struct {
 }
 
 // MachineGraph is one machine's graph (internal/sketch/machinegraph),
-// with its maps in order.
+// with its maps in order: Timers, Work and Exit (the states' exit
+// actions, FK9-g1) in the states' order, each Work and Exit place naming
+// its state in What.
 type MachineGraph struct {
 	Sym     uint32
 	States  []string
@@ -176,6 +178,7 @@ type MachineGraph struct {
 	Arms    []Arm
 	Timers  []Timer
 	Work    []Place
+	Exit    []Place
 	Unsure  []string
 }
 
