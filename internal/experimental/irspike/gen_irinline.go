@@ -26,6 +26,11 @@ import (
 //     whose type arguments name the callee's type parameter);
 //   - a fallible helper (fails Gone) whose catch the loop takes, so a
 //     copy's failure sets the site's error and jumps past its block;
+//   - a match on an inlined helper that returns an Option (one binding
+//     Some, one with a wildcard arm), so each return jumps to its arm
+//     with no Option built (IR-GETMATCH);
+//   - a call of a body the inliner leaves (it loops) whose value a
+//     statement drops, so it calls the variant with no result (IR-DROP);
 //   - a call whose result a statement drops (let _ =), one whose result
 //     sets a let mut, and one whose result a let binds;
 //   - in odd seeds a defect inside a nested inlined body after the loop
@@ -45,6 +50,8 @@ func GenerateInline(seed uint64) string {
 	b.WriteString("type Gone { At int }\n\n")
 	fmt.Fprintf(&b, "func fetch[T](a *Acc[T], i int) T fails Gone {\n\tif i >= len(a.items) {\n\t\treturn Gone{At: i}\n\t}\n\ta.hits = a.hits + %d\n\ta.items[i]\n}\n\n", 1+n(3))
 	fmt.Fprintf(&b, "func at[T](a *Acc[T], i int) T {\n\ta.hits = a.hits + 1\n\ta.items[i %% len(a.items)]\n}\n\n")
+	b.WriteString("func sumTo(a *Acc[int], n int) int {\n\tlet mut t = 0\n\tfor i in 0..n {\n\t\tt = t + a.items[i % len(a.items)]\n\t}\n\ta.hits = a.hits + 1\n\tt\n}\n\n")
+	fmt.Fprintf(&b, "func look[T](a *Acc[T], i int) Option[T] {\n\tif i >= len(a.items) {\n\t\treturn None\n\t}\n\ta.hits = a.hits + %d\n\tSome{Value: a.items[i]}\n}\n\n", 1+n(3))
 	b.WriteString("func first[T](a *Acc[T], i int) T {\n\tlet mut xs = a.items\n\txs[0] = xs[i % len(xs)]\n\txs[0]\n}\n\n")
 	fmt.Fprintf(&b, "func bump[T](a *Acc[T], by int) {\n\tif by > %d {\n\t\ta.hits = a.hits + by - %d\n\t\treturn\n\t}\n\ta.hits = a.hits + by\n}\n\n", 1+n(2), 1+n(3))
 	fmt.Fprintf(&b, "func keep[T](a *Acc[T], v T) T {\n\ta.last = v\n\ta.bump(%d)\n\tv\n}\n\n", 1+n(4))
@@ -75,6 +82,9 @@ func GenerateInline(seed uint64) string {
 	b.WriteString("\t\tlet _ = s.keep(s.at(i))\n")
 	b.WriteString("\t\ttext = text + len(s.at(i + total % 3))\n")
 	b.WriteString("\t\ta.bump(i % 5)\n")
+	b.WriteString("\t\tlet _ = sumTo(&a, i % 4)\n\t\tlet _ = sumTo(&a, 2) + 0\n")
+	b.WriteString("\t\tmatch a.look(i % (len(a.items) + 2)) {\n\t\tcase Some[int] as v:\n\t\t\ttotal = total + v.Value\n\t\tcase None:\n\t\t\ttotal = total - 1\n\t\t}\n")
+	b.WriteString("\t\tmatch s.look(i % 5) {\n\t\tcase None:\n\t\t\ttext = text + 2\n\t\tcase _:\n\t\t\ttext = text + 1\n\t\t}\n")
 	b.WriteString("\t\tlet fs = s.first(i)\n\t\tlet fa = a.first(i + 2)\n\t\ttext = text + len(fs) + fa - a.items[0]\n")
 	b.WriteString("\t\tlet mut w = a.at(i + 1)\n\t\tlet z = w\n\t\tw = w + 1\n\t\ttotal = total + z * 2 + w\n")
 	b.WriteString("\t\tlet got = a.fetch(i % (len(a.items) + 2)) catch {\n\t\tcase Gone:\n\t\t\t-1\n\t\t}\n")

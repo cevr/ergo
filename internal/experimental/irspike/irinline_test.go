@@ -16,7 +16,10 @@ import (
 // the source lowering (whose OPT4a inlines the same calls) and the IR,
 // and a defect's report, the Ergo frames above Go's own traceback, is the
 // same line for line: an inlined body's frames come from the inline
-// table. With the inliner on, the IR copies calls in every seed. A
+// table. With the inliner on, the IR copies calls in every seed, and a
+// match on an inlined call that returns an Option builds no Option
+// (IR-GETMATCH, ir_forms_variant.go), and a discarded call of a body left as
+// a call names its variant with no result (IR-DROP, ir_forms_drop.go). A
 // failing seed prints the Ergo source, both outcomes and its replay
 // command.
 //
@@ -47,6 +50,12 @@ func TestIRInlineMatchesSource(t *testing.T) {
 		}
 		if lower.IRInlineOn() && rep.Inlined == 0 {
 			t.Errorf("seed %d: the IR inlined no call (fallback %v)\n%s", seed, rep.Fallback, replay)
+		}
+		if lower.IRInlineOn() && lower.IRKnownOn() && rep.KnownVariants == 0 {
+			t.Errorf("seed %d: no match on an inlined call built its union in place\n%s", seed, replay)
+		}
+		if lower.IRDropOn() && rep.Dropped == 0 {
+			t.Errorf("seed %d: no discarded call named the variant with no result\n%s", seed, replay)
 		}
 	}
 }
