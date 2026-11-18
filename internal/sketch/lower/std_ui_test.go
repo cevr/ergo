@@ -1594,6 +1594,50 @@ test UiSlowNamesItsCounter(seed int) {
 test UiKeyedReorderKeepsRows(seed int, steps int) {
 	assert lawKeyedReorderKeepsRows(seed, steps)
 }
+
+type grArgs { n int, on bool }
+
+func grBody(f *ui.Frame[int], a grArgs) {
+	ui.Text(f, "n \(a.n)")
+	if a.on {
+		ui.Box(f, ui.Plain()) {
+			ui.Text(f, "on")
+		}
+	}
+}
+
+// grGrouped's call of grBody is a component call: the compiler sends it
+// through std ui's group (the ledger's grGrouped calls group itself).
+func grGrouped(f *ui.Frame[int], a grArgs) {
+	grBody(f, a)
+}
+
+func lawGroupSkipsEqualArguments(seed int, steps int) bool {
+	let mut r = seeded(seed)
+	let mut f = ui.NewFrame[int]()
+	let mut g = ui.NewFrame[int]()
+	let mut prev = grArgs{n: 0, on: false}
+	for i in 0..(steps%10+10)%10+2 {
+		let a = if i > 0 && draw(&r, 2) == 0 {
+			prev
+		} else {
+			grArgs{n: draw(&r, 3), on: draw(&r, 2) == 0}
+		}
+		if !opsEqual(ui.Render(&f, grGrouped, a), ui.Render(&g, grBody, a)) || !ui.SameShapes(ui.TreeShape(&f), ui.TreeShape(&g)) {
+			return false
+		}
+		let ran = i == 0 || a.n != prev.n || a.on != prev.on
+		if (ui.GroupRuns(&f) == 1) != ran {
+			return false
+		}
+		prev = a
+	}
+	true
+}
+
+test UiGroupSkipsEqualArguments(seed int, steps int) {
+	assert lawGroupSkipsEqualArguments(seed, steps)
+}
 `
 
 // stdUITreeStatements is the statement of each ui law, as the ledger writes it,
@@ -1612,6 +1656,7 @@ var stdUITreeStatements = map[string]string{
 	"ui SlowNamesItsCounter":         `SlowNamesItsCounter(seed int) { let mut r = seeded(seed) let n = func() int { draw(&r, 9) } let s = Stats{Signals: n(), Written: n(), Rows: n(), Skipped: n(), Stopped: n(), Committed: n(), Inserted: n(), Moved: n(), Removed: n(), Set: n(), Painted: n(), Fetches: n(), Cancels: n()} let b = Budget{Signals: n(), Written: n(), Committed: n(), Ops: n() * 3, Painted: n(), Fetches: n()} let all = []Counter{SignalsCounter, WrittenCounter, CommittedCounter, OpsCounter, PaintedCounter, FetchesCounter} let names = []string{"Signals", "Written", "Committed", "Ops", "Painted", "Fetches"} let mut want = []Slow{} for i, c in all { if CounterText(c) != names[i] { return false } let bound = slowBound(c, b) let count = slowCount(c, s) if bound > 0 && count > bound { want = want.Append(Slow{Counter: c, Count: count, Bound: bound}) } } SlowsOf(s, b) == want }`,
 	"ui GroupByKeepsAfterCheapEqual": `GroupByKeepsAfterCheapEqual(seed int, steps int) { let mut r = seeded(seed) let mut f = NewFrame[int]() let mut g = NewFrame[int]() let mut prev = gbArgs{n: 0, xs: []int{}} let mut deep = true for i in 0..(steps%10+10)%10+2 { let pick = draw(&r, 4) let a = if i == 0 || pick == 3 { gbArgs{n: prev.n + draw(&r, 2), xs: []int{draw(&r, 3), draw(&r, 3)}} } else if pick == 0 { prev } else if pick == 1 { gbArgs{n: prev.n + 1, xs: prev.xs} } else { gbArgs{n: prev.n, xs: prev.xs.Append(draw(&r, 3))} } if !opsEqual(Render(&f, gbGrouped, a), Render(&g, gbBody, a)) { return false } let ran = i == 0 || !deep || !gbSame(prev, a) if (GroupRuns(&f) == 1) != ran { return false } if ran { deep = i == 0 || gbCheap(prev, a) } prev = a } true }`,
 	"ui KeyedReorderKeepsRows":       `KeyedReorderKeepsRows(seed int, steps int) { let orders = reorders(seed, steps) let mut r = seeded(steps) let view = func(f *Frame[int], k int) { reorderTable(f, seed, steps, k) } let mut f = NewFrame[int]() let mut m = NewMirror[int](Root(&f)) for k in 0..len(orders) { let mut want = []string{} for x in orders[k] { want = want.Append("row \(x)") } for _ in 0..draw(&r, 2)+1 { Apply(&m, Render(&f, view, k)) catch { case BadPatch: return false } if shownTexts(MirrorShape(&m)) != want { return false } } } true }`,
+	"ui GroupSkipsEqualArguments":    `GroupSkipsEqualArguments(seed int, steps int) { let mut r = seeded(seed) let mut f = NewFrame[int]() let mut g = NewFrame[int]() let mut prev = grArgs{n: 0, on: false} for i in 0..(steps%10+10)%10+2 { let a = if i > 0 && draw(&r, 2) == 0 { prev } else { grArgs{n: draw(&r, 3), on: draw(&r, 2) == 0} } if !opsEqual(Render(&f, grGrouped, a), Render(&g, grBody, a)) || !SameShapes(TreeShape(&f), TreeShape(&g)) { return false } let ran = i == 0 || a.n != prev.n || a.on != prev.on if (GroupRuns(&f) == 1) != ran { return false } prev = a } true }`,
 }
 
 // TestUITreeModel runs the probe's tests with --seed 1; lawledger.Run holds that

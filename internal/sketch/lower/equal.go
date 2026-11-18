@@ -261,7 +261,7 @@ func (l *lowerer) reserveEquals(pkgs []*check.Package, reserve func(key pkgKey, 
 			}
 			if t, ok := typedIn(p.Info, x.Args[0]); !ok {
 				continue
-			} else if _, g := groupFrame(t); g == nil {
+			} else if _, g := l.groupFrame(t); g == nil {
 				continue
 			}
 			for _, a := range x.Args[1:] {

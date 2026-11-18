@@ -203,6 +203,9 @@ type lowerer struct {
 	srcs    []srcFile                // every source file in canonical order (canon.srcs)
 	tpSrc   map[*check.TypeParam]int // each type parameter's source file (paramFile)
 	nodeIDs map[syntax.Node]int      // node identities for keys (nodeID)
+	// groups is the group function of each generic frame type, nil for
+	// one with none (uigroup.go, groupFrame).
+	groups map[*check.Named]*check.Func
 	// owned is the Go name of each owned value's entry (release.go, B1):
 	// keyed by its *check.Var or its temporary's syntax.Expr.
 	owned map[any]string
