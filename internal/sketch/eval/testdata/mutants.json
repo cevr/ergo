@@ -2013,6 +2013,28 @@
       "to": "\tcase lo < 0:\n\t\treturn fmt.Sprintf(\"runtime error: slice bounds out of range [%d:%d]\", lo, hi), false\n",
       "rule": "Go names a negative low bound alone: slice bounds out of range [LO:].",
       "killers": ["internal/sketch/eval:TestRuntimeErrorsAreGos"]
+    },
+    {
+      "name": "casefix2-ops-arg-as-conversion",
+      "origin": "wf10 CASEFIX2",
+      "file": "internal/sketch/eval/arguments.go",
+      "from": "\t\tif _, ops := t.Underlying().(*check.Interface); ops {\n\t\t\treturn in.builtText(t)\n\t\t}\n",
+      "to": "",
+      "rule": "A refuted case shows an operation type's value as its builder's call, NewHeld(…), as the Go build does (lower/builders.go builtText).",
+      "killers": [
+        "internal/sketch/lower:TestCasePlansAgreeWithGo"
+      ]
+    },
+    {
+      "name": "casefix2-ctor-arg-as-record",
+      "origin": "wf10 CASEFIX2",
+      "file": "internal/sketch/eval/arguments.go",
+      "from": "\t\tif testplan.ByConstructor(t) {\n",
+      "to": "\t\tif ctor := testplan.Constructor(t); ctor != nil && len(ctor.Sig.Params) == 0 && testplan.ByConstructor(t) {\n",
+      "rule": "A refuted case shows a value built by a constructor whose record has no text as the constructor's call, NewWrap(…), as the Go build does (testplan.ByConstructor).",
+      "killers": [
+        "internal/sketch/lower:TestCasePlansAgreeWithGo"
+      ]
     }
   ]
 }
