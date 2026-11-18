@@ -256,8 +256,26 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		b.goType(t, x)
 		return &irExpr{K: "un", Pos: p, Op: op, X: b.expr(x.X)}
 	case *syntax.SelectorExpr:
-		if f, ok := check.QualifiedMember(b.l.info, x).(*check.Func); ok {
-			return b.funcValue(f, t, x, p) // pkg.F as a value
+		switch o := check.QualifiedMember(b.l.info, x).(type) {
+		case *check.Func:
+			return b.funcValue(o, t, x, p) // pkg.F as a value
+		case *check.TypeName:
+			// pkg.T of a record with no fields, as the bare name T is.
+			if e := b.bareRecord(o, t, x, p); e != nil {
+				return e
+			}
+			irNo("selector on a non-record")
+		case *check.Var:
+			// pkg.v, a package let of another package, as the bare name is.
+			if val, ok := b.l.constVals[o]; ok && b.l.consts[o] {
+				return b.constant(o.Type, val, x, p)
+			}
+			if name, ok := b.l.vars[o]; ok {
+				b.goType(o.Type, x)
+				b.l.reachStdLet(o)
+				return &irExpr{K: "global", Pos: p, Name: name}
+			}
+			irNo("selector on a non-record")
 		}
 		n, ok := derefNamed(b.l.info.Types[x.X]) // ir_pkg.go
 		if !ok {

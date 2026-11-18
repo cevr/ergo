@@ -408,7 +408,7 @@ func lawTextIsInert(s string, t string) bool {
 	let e = html.Escape(x)
 	let text = html.Render(html.Text(x))
 	let attr = html.Render(html.Span([]html.Child{html.Class(x)}))
-	inert(e) && unescape(e) == x && text == e && attr == "<span class=\""+e+"\"></span>"
+	inert(e) && unescape(e) == x && text == e && attr == "<span class=\""+e+"\"></span>" && html.Escape(s+">") == html.Escape(s)+"&gt;"
 }
 
 func lawRenderIsAppend(a string, c string, k string) bool {
@@ -514,7 +514,7 @@ test HtmlRenderParsesBack(seed int) {
 // stdHTMLLawStatements is the statement of each html law, as the ledger
 // writes it, by ledger key.
 var stdHTMLLawStatements = map[string]string{
-	"html TextIsInert":        `TextIsInert(s string, t string) { let x = s + "<a href=\"x\" title='y'>&amp;</a>" + t let e = Escape(x) let text = Render(Text(x)) let attr = Render(Span([]Child{Class(x)})) inert(e) && unescape(e) == x && text == e && attr == "<span class=\""+e+"\"></span>" }`,
+	"html TextIsInert":        `TextIsInert(s string, t string) { let x = s + "<a href=\"x\" title='y'>&amp;</a>" + t let e = Escape(x) let text = Render(Text(x)) let attr = Render(Span([]Child{Class(x)})) inert(e) && unescape(e) == x && text == e && attr == "<span class=\""+e+"\"></span>" && Escape(s+">") == Escape(s)+"&gt;" }`,
 	"html RenderIsAppend":     `RenderIsAppend(a string, c string, k string) { let ta = Render(Text(a)) let tc = Render(Text(c)) let ek = Escape(k) let list = Render(Each([]string{a, c}, Text)) let div = Render(Div([]Child{Text(a), Class(k), Text(c), Id(k)})) let br = Render(Br([]Attr{Class(k)})) let doc = Render(Doc(P([]Child{When(a == c, Text(a)), Int(len(a))}))) list == ta+tc && div == "<div class=\""+ek+"\" id=\""+ek+"\">"+ta+tc+"</div>" && br == "<br class=\""+ek+"\"/>" && doc == "<!DOCTYPE html><p>"+(if a == c { ta } else { "" })+"\(len(a))</p>" }`,
 	"html StaticIsItsTree":    `StaticIsItsTree(a string, c string, k string) { let kids = []Child{Text(a), Class(k), P([]Child{Text(c), Int(len(c))}), Br([]Attr{Id(k)}), Raw(Trust(c)), When(a == c, Text(k)), Script([]Attr{Type(k)}, Trust(c))} let mut late = []Child{} for x in kids { match x { case Attr as at: late = late.Append(at) case Node as n: late = late.Append(Each([]int{0}, func(i int) Node { n })) } } let tree = Div(kids) let deferred = Div(late) let frozen = Raw(Trust(Render(tree))) Static(frozen) && !Static(deferred) && Render(frozen) == Render(tree) && Render(tree) == Render(deferred) && Render(Doc(frozen)) == Render(Doc(deferred)) && Render(Doc(tree)) == Render(Doc(deferred)) }`,
 	"html TemplateIsItsTree":  `TemplateIsItsTree(a string, c string, k string) { let kids = []Child{Text(a), Class(k), P([]Child{Text(c), Int(len(c))}), Flag(c), Br([]Attr{Id(k), Flag(a)}), Raw(Trust(c)), When(a == c, Text(k))} let inner = Template(Trust("<p"), []Child{Text(c), Id(a)}, Trust(">"), Trust("</p>")) let t = Template(Trust("<div"), kids.Append(inner), Trust(">"), Trust("</div>")) let tree = Div(kids.Append(P([]Child{Text(c), Id(a)}))) let br = Template(Trust("<br"), []Child{Id(k), Flag(a)}, Trust("/>"), Trust("")) !Static(t) && Render(t) == Render(tree) && Render(br) == Render(Br([]Attr{Id(k), Flag(a)})) && Render(Doc(t)) == Render(Doc(tree)) && Render(Template(Trust("<!DOCTYPE html>"), []Child{tree}, Trust(""), Trust(""))) == Render(Doc(tree)) }`,
