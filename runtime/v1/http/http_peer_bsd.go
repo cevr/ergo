@@ -19,12 +19,68 @@ func newPeerPoll() (int, error) {
 		return -1, err
 	}
 	syscall.CloseOnExec(kq)
-	if err := syscall.SetNonblock(kq, true); err != nil {
-		_ = syscall.Close(kq)
-		return -1, err
-	}
 	return kq, nil
 }
+
+// peerSys is the pipe whose write wakes the watcher's goroutine for
+// close. Go's poller does not serve a kqueue descriptor on darwin ("waiting
+// for unsupported file type"), so the goroutine waits in kevent itself, a
+// blocking system call that holds one thread per server while it waits.
+type peerSys struct{ rd, wr int }
+
+func (w *peerWatcher) start() error {
+	var p [2]int
+	if err := syscall.Pipe(p[:]); err != nil {
+		_ = syscall.Close(w.pfd)
+		return err
+	}
+	syscall.CloseOnExec(p[0])
+	syscall.CloseOnExec(p[1])
+	var ch [1]syscall.Kevent_t
+	syscall.SetKevent(&ch[0], p[0], syscall.EVFILT_READ, syscall.EV_ADD)
+	if _, err := syscall.Kevent(w.pfd, ch[:], nil, nil); err != nil {
+		_ = syscall.Close(p[0])
+		_ = syscall.Close(p[1])
+		_ = syscall.Close(w.pfd)
+		return err
+	}
+	w.sys = peerSys{rd: p[0], wr: p[1]}
+	go w.run()
+	return nil
+}
+
+// run waits in kevent until the kqueue has events and hands each to its
+// connection, until close's byte on the pipe ends it.
+func (w *peerWatcher) run() {
+	defer func() {
+		_ = syscall.Close(w.sys.rd)
+		_ = syscall.Close(w.sys.wr)
+		_ = syscall.Close(w.pfd)
+	}()
+	var ev peerEvents
+	fds := make([]int32, 0, len(ev))
+	for {
+		n, err := syscall.Kevent(w.pfd, nil, ev[:], nil)
+		if err == syscall.EINTR {
+			continue
+		}
+		if err != nil {
+			w.dead.Store(true)
+			return
+		}
+		fds = fds[:0]
+		for i := 0; i < n; i++ {
+			if int(ev[i].Ident) == w.sys.rd {
+				return // close
+			}
+			fds = append(fds, int32(ev[i].Ident))
+		}
+		w.deliver(fds)
+	}
+}
+
+// close ends the watcher once its server's connections have ended.
+func (w *peerWatcher) close() { _, _ = syscall.Write(w.sys.wr, []byte{0}) }
 
 func peerPollAdd(pfd, fd int) error {
 	var ch [1]syscall.Kevent_t
@@ -39,20 +95,6 @@ func peerPollDel(pfd, fd int) {
 	var ch [1]syscall.Kevent_t
 	syscall.SetKevent(&ch[0], fd, syscall.EVFILT_READ, syscall.EV_DELETE)
 	_, _ = syscall.Kevent(pfd, ch[:], nil, nil)
-}
-
-// peerPollWait takes the ready connections without waiting: none, with a
-// nil error, when there are none yet.
-func peerPollWait(pfd int, ev *peerEvents, fds []int32) ([]int32, error) {
-	var now syscall.Timespec
-	n, err := syscall.Kevent(pfd, nil, ev[:], &now)
-	if err == syscall.EINTR || err == syscall.EAGAIN {
-		return fds, nil
-	}
-	for i := 0; i < n; i++ {
-		fds = append(fds, int32(ev[i].Ident))
-	}
-	return fds, err
 }
 
 // peerPeek reads one byte of fd without consuming it and without waiting.

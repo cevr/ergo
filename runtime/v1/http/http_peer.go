@@ -1,8 +1,8 @@
 package http
 
 import (
-	"os"
 	"sync"
+	"sync/atomic"
 	"syscall"
 )
 
@@ -30,13 +30,16 @@ import (
 var engineWatcher = true
 
 // peerWatcher is a server's watcher: the platform poller's descriptor,
-// served by one goroutine through Go's own poller (run), and the
-// connections registered with it, by descriptor.
+// served by one goroutine (start, per platform), and the connections
+// registered with it, by descriptor. dead: that goroutine ended other
+// than by close, so the connections fall back to the background read at
+// their next watch.
 type peerWatcher struct {
 	pfd   int
-	f     *os.File
+	sys   peerSys
 	mu    sync.Mutex
 	conns map[int32]*engineConn
+	dead  atomic.Bool
 }
 
 // The results of a peek at a connection.
@@ -59,59 +62,46 @@ func (s *httpServer) peers() *peerWatcher {
 		}
 		s.peerW = w
 	}
+	if s.peerW != nil && s.peerW.dead.Load() {
+		return nil
+	}
 	return s.peerW
 }
 
 func newPeerWatcher() (*peerWatcher, error) {
-	pfd, err := newPeerPoll() // non-blocking, so Go's poller serves it
+	pfd, err := newPeerPoll()
 	if err != nil {
 		return nil, err
 	}
-	f := os.NewFile(uintptr(pfd), "http peer watcher")
-	rc, err := f.SyscallConn()
-	if err != nil {
-		_ = f.Close()
+	w := &peerWatcher{pfd: pfd, conns: map[int32]*engineConn{}}
+	if err := w.start(); err != nil {
 		return nil, err
 	}
-	w := &peerWatcher{pfd: pfd, f: f, conns: map[int32]*engineConn{}}
-	go w.run(rc)
 	return w, nil
 }
 
-// run waits, parked in Go's poller, until the watcher's poller has events,
-// takes them without waiting, and hands each to its connection, until
-// close.
-func (w *peerWatcher) run(rc syscall.RawConn) {
-	var ev peerEvents
-	var fds []int32
-	for {
-		err := rc.Read(func(pfd uintptr) bool {
-			var err error
-			fds, err = peerPollWait(int(pfd), &ev, fds[:0])
-			return err != nil || len(fds) > 0
-		})
-		if err != nil {
-			return // closed
-		}
-		for _, fd := range fds {
-			w.mu.Lock()
-			e := w.conns[fd]
-			w.mu.Unlock()
-			if e != nil {
-				e.peerEvent()
-			}
+// deliver hands each reported descriptor to its connection.
+func (w *peerWatcher) deliver(fds []int32) {
+	for _, fd := range fds {
+		w.mu.Lock()
+		e := w.conns[fd]
+		w.mu.Unlock()
+		if e != nil {
+			e.peerEvent()
 		}
 	}
 }
-
-// close ends the watcher once its server's connections have ended.
-func (w *peerWatcher) close() { _ = w.f.Close() }
 
 // registerPeer registers e with its server's watcher, once. false: e is
 // watched by the background read.
 func (e *engineConn) registerPeer() bool {
 	if e.peer != nil {
-		return true
+		if !e.peer.dead.Load() {
+			return true
+		}
+		e.unregisterPeer()
+		e.peerFailed = true
+		return false
 	}
 	if e.peerFailed {
 		return false

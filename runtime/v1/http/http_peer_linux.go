@@ -2,7 +2,54 @@
 
 package http
 
-import "syscall"
+import (
+	"errors"
+	"os"
+	"syscall"
+)
+
+// peerSys is the epoll instance as a file of Go's own poller, which
+// serves an epoll descriptor (one epoll waits on another), so the
+// watcher's goroutine parks with no thread of its own.
+type peerSys struct{ f *os.File }
+
+func (w *peerWatcher) start() error {
+	f := os.NewFile(uintptr(w.pfd), "http peer watcher")
+	rc, err := f.SyscallConn()
+	if err != nil {
+		_ = f.Close()
+		return err
+	}
+	w.sys.f = f
+	go w.run(rc)
+	return nil
+}
+
+// run waits, parked in Go's poller, until the epoll instance has events,
+// takes them without waiting, and hands each to its connection, until
+// close.
+func (w *peerWatcher) run(rc syscall.RawConn) {
+	var ev peerEvents
+	var fds []int32
+	for {
+		var werr error
+		err := rc.Read(func(pfd uintptr) bool {
+			fds, werr = peerPollWait(int(pfd), &ev, fds[:0])
+			return werr != nil || len(fds) > 0
+		})
+		if errors.Is(err, os.ErrClosed) {
+			return
+		}
+		if err != nil || werr != nil {
+			w.dead.Store(true)
+			return
+		}
+		w.deliver(fds)
+	}
+}
+
+// close ends the watcher once its server's connections have ended.
+func (w *peerWatcher) close() { _ = w.sys.f.Close() }
 
 // The Linux watcher is an epoll instance. A connection is registered for
 // EPOLLRDHUP alone, edge-triggered: the peer's close (and a failure, which
