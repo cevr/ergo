@@ -412,8 +412,8 @@
       "name": "vk1-clear-keeps-first",
       "origin": "wf10/dod/VK1",
       "file": "examples/vt/vt/stream.ergo",
-      "from": "func Clear(p *Stream) { p.out = p.out[0:0] }",
-      "to": "func Clear(p *Stream) { if len(p.out) > 0 { p.out = p.out[0:1] } }",
+      "from": "func Clear(p mut Stream) { p.out = p.out[0:0] }",
+      "to": "func Clear(p mut Stream) { if len(p.out) > 0 { p.out = p.out[0:1] } }",
       "rule": "Clear forgets every event kept, not all but the first. Killed by the replay cases.",
       "killers": [
         "examples:vt"
