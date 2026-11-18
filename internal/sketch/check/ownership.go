@@ -1240,6 +1240,9 @@ type hand struct {
 	// record's other fields (R39).
 	root     bool
 	endLoans bool
+	// endKept marks the receiver of a Close: releasing a Go result ends the
+	// lend it keeps of its receiver (the keeps rule, hostKeptLoans).
+	endKept bool
 	// hostLend marks an argument lent to a Go function's interface
 	// parameter: a Go signature cannot move a value (IG9), so its
 	// conversion (Info.Implicit) moves nothing (convertedAt).
@@ -1667,6 +1670,9 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 			w.callFailure(x, h)
 			w.produced(x, mode, h)
 		}
+		if mode == mMove {
+			w.checkKept(x)
+		}
 		return
 	case *syntax.FuncLit:
 		var takes []int
@@ -1859,7 +1865,13 @@ func (w *ownWalk) selector(x *syntax.SelectorExpr, mode ownMode, h hand) bool {
 		return false
 	}
 	if mode == mMove {
-		w.placeMove(x, "a field", "it is a field of %s; a field cannot be moved out of its record (resources R39); move %s whole, or lend the field")
+		// A pattern takes a field out where the record dies whole (GB1:
+		// match a fresh Option[go.Ref[T]] as Some{Value: c}).
+		hint := "or lend the field"
+		if n, ok := w.info.Types[x.X].(*Named); ok && n.Obj != nil {
+			hint = fmt.Sprintf("lend the field, or bind it where the record is matched: case %s{%s: name}", n.Obj.Name, x.Sel.Name)
+		}
+		w.placeMove(x, "a field", "it is a field of %s; a field cannot be moved out of its record (resources R39); move %s whole, "+hint)
 	}
 	h.root = true
 	w.lendRoot(x.X, w.info.Types[x], mode, h)
@@ -2498,6 +2510,9 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 	hostFunc := call.Kind == CallFunc && call.Func != nil && call.Func.Pkg.Host()
 	hostCallee := hostFunc || call.Kind == CallOp && call.Recv != nil && isHostNamed(w.info.Types[call.Recv])
 	hostMethod := hostFunc && call.Func.Decl != nil && call.Func.Decl.Recv != nil
+	if w.hostTakes(x) {
+		selfTaken = true // the result may be the receiver (hostTakesRecv)
+	}
 	if hostMethod {
 		// A binding signature lists no receiver parameter. Its named
 		// receiver's takes is TakesSelf; explicit parameters start at 1
@@ -2543,7 +2558,7 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 			if recv && w.fieldTake(a, hand{at: a, how: how}) {
 				return false // a field taken in place (R39, Gap 38)
 			}
-			w.expr(a, mMove, hand{at: a, how: how, endLoans: drains})
+			w.expr(a, mMove, hand{at: a, how: how, endLoans: drains, endKept: closes && recv})
 			_, local := unparen(a).(*syntax.Ident)
 			return !(held && local)
 		}
@@ -2567,7 +2582,9 @@ func (w *ownWalk) call(x *syntax.CallExpr, mode ownMode, h hand) bool {
 		w.expr(a, mLend, hand{hostLend: hostCallee, lend: lendTo})
 		w.textLoan(a, lendTo)
 		if len(w.valueLoans(a)) > 0 && !nonEscaping(pt) {
-			w.checkLoanValue(a)
+			// A Go callee may keep what Go keeps (GB1), and a borrow
+			// parameter keeps nothing past the call.
+			w.checkLoans(a, hostCallee || isPointer(pt))
 		}
 		return false
 	}

@@ -64,7 +64,7 @@ go        goto      interface map       package
 range     select    struct    switch    var
 ```
 
-No name may use them. Generated Go reserves them, and the parser must recognise them to name the Ergo form a Go habit should have used ([Old spellings](#old-spellings)). `go` is also the contextual word of `import go` and `extern go`, and the qualifier of `go.Error`, `go.Foreign`, `go.Ref`, `go.Is` and `go.As` (the last two read a `go.Error`'s Go chain: [interop.md](interop.md#go-errors), Go errors).
+No name may use them. Generated Go reserves them, and the parser must recognise them to name the Ergo form a Go habit should have used ([Old spellings](#old-spellings)). `go` is also the contextual word of `import go` and `extern go`, and the qualifier of `go.Error`, `go.Foreign`, `go.Ref`, `go.Any`, `go.Is`, `go.As` and `go.New` (`go.Is` and `go.As` read a `go.Error`'s Go chain: [interop.md](interop.md#go-errors), Go errors; `go.As` also takes a value out of a `go.Any`: [Go any](interop.md#go-any); `go.New[T]()` is Go's `new(T)`: [Go values by address](interop.md#go-values-by-address)).
 
 ## Reserved names
 

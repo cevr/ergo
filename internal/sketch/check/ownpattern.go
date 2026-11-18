@@ -178,8 +178,9 @@ func (w *ownWalk) acquireParts(parts []patternPart, local ownLocal, loans []reso
 	for _, p := range parts {
 		_, callable := under(p.v.Type).(*Signature)
 		handle := local.handle && !w.tracked(p.v.Type) && w.c.holdsHandle(p.v.Type)
-		if !w.tracked(p.v.Type) && !callable && !handle {
-			continue
+		kept := slices.ContainsFunc(loans, func(l resourceLoan) bool { return l.kept != "" && w.c.hostKeeps(p.v.Type) })
+		if !w.tracked(p.v.Type) && !callable && !handle && !kept {
+			continue // a binding that holds no Go result keeps nothing
 		}
 		l := local
 		l.v, l.loanOnly, l.handle = p.v, !w.tracked(p.v.Type) && !handle, handle

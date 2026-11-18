@@ -10,8 +10,8 @@ import go net/url
 
 // ergo:go type BufferPool interface
 extern go net/http/httputil.BufferPool type BufferPool {
-	own Get() []byte needs go.Foreign,
-	own Put(p0 []byte) needs go.Foreign,
+	Get() []byte needs go.Foreign,
+	Put(p0 []byte) needs go.Foreign,
 }
 
 // ergo:go type ClientConn struct
@@ -24,16 +24,16 @@ extern go net/http/httputil.ClientConn.Close func (cc own *ClientConn) Close() f
 extern go net/http/httputil.ClientConn.Do func (cc own *ClientConn) Do(req own *http.Request) go.Ref[http.Response] fails go.Error needs go.Foreign
 
 // ergo:go func (*ClientConn).Hijack() (c net.Conn, r *bufio.Reader)
-extern go net/http/httputil.ClientConn.Hijack func (cc own *ClientConn) Hijack() (net.Conn, Option[go.Ref[bufio.Reader]]) needs go.Foreign
+extern go net/http/httputil.ClientConn.Hijack func (cc *ClientConn) Hijack() (net.Conn, Option[go.Ref[bufio.Reader]]) needs go.Foreign
 
 // ergo:go func (*ClientConn).Pending() int
-extern go net/http/httputil.ClientConn.Pending func (cc own *ClientConn) Pending() int needs go.Foreign
+extern go net/http/httputil.ClientConn.Pending func (cc *ClientConn) Pending() int needs go.Foreign
 
 // ergo:go func (*ClientConn).Read(req *http.Request) (resp *http.Response, err error)
 extern go net/http/httputil.ClientConn.Read func (cc own *ClientConn) Read(req own *http.Request) go.Ref[http.Response] fails go.Error needs go.Foreign
 
 // ergo:go func (*ClientConn).Write(req *http.Request) error
-extern go net/http/httputil.ClientConn.Write func (cc own *ClientConn) Write(req own *http.Request) fails go.Error needs go.Foreign
+extern go net/http/httputil.ClientConn.Write func (cc *ClientConn) Write(req own *http.Request) fails go.Error needs go.Foreign
 
 // ergo:go func DumpRequest(req *http.Request, body bool) ([]byte, error)
 extern go net/http/httputil.DumpRequest func DumpRequest(req own *http.Request, body bool) []byte fails go.Error needs go.Foreign
@@ -81,10 +81,10 @@ extern go net/http/httputil.ProxyRequest type ProxyRequest {
 }
 
 // ergo:go func (*ProxyRequest).SetURL(target *url.URL)
-extern go net/http/httputil.ProxyRequest.SetURL func (r own *ProxyRequest) SetURL(target own *url.URL) needs go.Foreign
+extern go net/http/httputil.ProxyRequest.SetURL func (r *ProxyRequest) SetURL(target own *url.URL) needs go.Foreign
 
 // ergo:go func (*ProxyRequest).SetXForwarded()
-extern go net/http/httputil.ProxyRequest.SetXForwarded func (r own *ProxyRequest) SetXForwarded() needs go.Foreign
+extern go net/http/httputil.ProxyRequest.SetXForwarded func (r *ProxyRequest) SetXForwarded() needs go.Foreign
 
 // ergo:go type ReverseProxy struct
 extern go net/http/httputil.ReverseProxy type ReverseProxy {
@@ -107,7 +107,7 @@ extern go net/http/httputil.ReverseProxy type ReverseProxy {
 // ergo:refused ReverseProxy.Director: a Go function as a result, a field or an element
 
 // ergo:go func (*ReverseProxy).ServeHTTP(rw http.ResponseWriter, req *http.Request)
-extern go net/http/httputil.ReverseProxy.ServeHTTP func (p own *ReverseProxy) ServeHTTP(rw own http.ResponseWriter, req own *http.Request) needs go.Foreign
+extern go net/http/httputil.ReverseProxy.ServeHTTP func (p *ReverseProxy) ServeHTTP(rw own http.ResponseWriter, req own *http.Request) needs go.Foreign
 
 // ergo:go type ServerConn struct
 extern go net/http/httputil.ServerConn type ServerConn {} implements Closer
@@ -116,13 +116,13 @@ extern go net/http/httputil.ServerConn type ServerConn {} implements Closer
 extern go net/http/httputil.ServerConn.Close func (sc own *ServerConn) Close() fails go.Error needs go.Foreign
 
 // ergo:go func (*ServerConn).Hijack() (net.Conn, *bufio.Reader)
-extern go net/http/httputil.ServerConn.Hijack func (sc own *ServerConn) Hijack() (net.Conn, Option[go.Ref[bufio.Reader]]) needs go.Foreign
+extern go net/http/httputil.ServerConn.Hijack func (sc *ServerConn) Hijack() (net.Conn, Option[go.Ref[bufio.Reader]]) needs go.Foreign
 
 // ergo:go func (*ServerConn).Pending() int
-extern go net/http/httputil.ServerConn.Pending func (sc own *ServerConn) Pending() int needs go.Foreign
+extern go net/http/httputil.ServerConn.Pending func (sc *ServerConn) Pending() int needs go.Foreign
 
 // ergo:go func (*ServerConn).Read() (*http.Request, error)
 extern go net/http/httputil.ServerConn.Read func (sc own *ServerConn) Read() go.Ref[http.Request] fails go.Error needs go.Foreign
 
 // ergo:go func (*ServerConn).Write(req *http.Request, resp *http.Response) error
-extern go net/http/httputil.ServerConn.Write func (sc own *ServerConn) Write(req own *http.Request, resp own *http.Response) fails go.Error needs go.Foreign
+extern go net/http/httputil.ServerConn.Write func (sc *ServerConn) Write(req own *http.Request, resp own *http.Response) fails go.Error needs go.Foreign

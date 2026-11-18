@@ -18,11 +18,11 @@ import (
 const viewFalseProgram = `import go readsfix
 import strings
 
-func poke(s string) int {
+func poke(s string) int needs go.Foreign {
 	readsfix.Poke(strings.Bytes(s))
 }
 
-func main() needs Console {
+func main() needs Console | go.Foreign {
 	Console.Println("\(poke("abc"))")
 }
 

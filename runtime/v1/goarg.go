@@ -25,6 +25,7 @@ var GoArgClauses = map[string]map[int]GoArgClause{
 	"io.ReadFull":          {0: {true, "io/io.go: returns ReadAtLeast's result and keeps no reader"}},
 	"io.WriteString":       {0: {true, "io/io.go: one synchronous WriteString or Write call, no retained writer"}},
 	"os.File.Name":         {0: {true, "os/file.go: reads the file's name, retains no receiver"}},
+	"os.StartProcess":      {2: {true, "os/exec_posix.go: startProcess copies attr's Dir, Env, Sys (ensurePidfd copies it when it changes it) and each file's Fd into a syscall.ProcAttr; it keeps no attr past its return (GBX5)"}},
 	"os.File.Read":         {0: {true, "os/file.go: read and error conversion finish before return"}},
 	"os.File.ReadAt":       {0: {true, "os/file.go: pread loop finishes before return"}},
 	"os.File.Write":        {0: {true, "os/file.go: write and error conversion finish before return"}},
@@ -37,6 +38,44 @@ var GoArgClauses = map[string]map[int]GoArgClause{
 	"os.File.Readdir":      {0: {true, "os/dir.go: returns file info values after the directory read"}},
 	"os.File.Readdirnames": {0: {true, "os/dir.go: returns names after the directory read"}},
 	"os.File.ReadDir":      {0: {true, "os/dir.go: returns entries after the directory read"}},
+}
+
+// GoWrite is a reviewed Go function that writes its slice parameter Index
+// in place and returns nothing (GBX2; docs/spec/interop.md, Go writes in
+// place). Its binding returns that slice in Ergo, and the call's value is
+// the slice Go wrote.
+type GoWrite struct {
+	Index  int
+	Reason string
+}
+
+// GoWrites records source facts (go1.27): each function writes only its
+// slice argument's elements, keeps no reference to it, and returns nothing.
+var GoWrites = map[string]GoWrite{
+	"slices.Sort":           {0, "slices/sort.go: pdqsortOrdered sorts x's elements in place, keeps no reference"},
+	"slices.SortFunc":       {0, "slices/sort.go: pdqsortCmpFunc sorts x's elements in place, keeps no reference"},
+	"slices.SortStableFunc": {0, "slices/sort.go: stableCmpFunc sorts x's elements in place, keeps no reference"},
+	"slices.Reverse":        {0, "slices/slices.go: swaps s's elements in place, keeps no reference"},
+	"sort.Ints":             {0, "sort/sort.go: slices.Sort(x)"},
+	"sort.Float64s":         {0, "sort/sort.go: slices.Sort(x)"},
+	"sort.Strings":          {0, "sort/sort.go: slices.Sort(x)"},
+}
+
+// GoReadOnlyVars are the reviewed Go package variables of Go's standard
+// library that no Go code of their package writes after its init, each
+// with its source reason (go1.27; GBX3, docs/spec/interop.md, Go package
+// variables). A binding declares each as a read-only let; a pointer one is
+// never nil, so it is a go.Ref. No entry is of an interface type (os.Interrupt,
+// io.Discard): Ergo holds a Go interface value only through an operation.
+var GoReadOnlyVars = map[string]string{
+	"encoding/base64.StdEncoding":    "encoding/base64/base64.go: = NewEncoding(…) at init; the package never assigns it",
+	"encoding/base64.URLEncoding":    "encoding/base64/base64.go: = NewEncoding(…) at init; the package never assigns it",
+	"encoding/base64.RawStdEncoding": "encoding/base64/base64.go: = StdEncoding.WithPadding(NoPadding) at init; never assigned",
+	"encoding/base64.RawURLEncoding": "encoding/base64/base64.go: = URLEncoding.WithPadding(NoPadding) at init; never assigned",
+	"hash/crc32.IEEETable":           "hash/crc32/crc32.go: = simpleMakeTable(IEEE) at init; the package reads it only",
+	"time.UTC":                       "time/zoneinfo.go: = &utcLoc; the package never assigns it",
+	"time.Local":                     "time/zoneinfo.go: = &localLoc; the package never assigns it (it fills localLoc lazily, behind a sync.Once)",
+	"os.Args":                        "os/proc.go: set once by the runtime's init (runtime_args); the package never assigns it",
 }
 
 // GoArgLent reports a reviewed, reasoned resource lend, never a default.

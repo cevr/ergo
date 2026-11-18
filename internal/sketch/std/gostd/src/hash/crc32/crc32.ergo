@@ -17,7 +17,7 @@ extern go hash/crc32.ChecksumIEEE func ChecksumIEEE(data []byte) uint32
 extern go hash/crc32.IEEE let IEEE int
 
 // ergo:go var IEEETable *Table
-// ergo:refused IEEETable: a Go variable is host state; call a function
+extern go hash/crc32.IEEETable let IEEETable go.Ref[Table]
 
 // ergo:go const Koopman untyped int
 extern go hash/crc32.Koopman let Koopman int

@@ -31,6 +31,36 @@ extern go time.December let December Month
 // ergo:go type Duration int64
 // ergo:refused Duration: time.Duration is Ergo's duration
 
+// ergo:go func (Duration).Abs() Duration
+extern go time.Duration.Abs func DurationAbs(d duration) duration needs go.Foreign
+
+// ergo:go func (Duration).Hours() float64
+extern go time.Duration.Hours func DurationHours(d duration) float64 needs go.Foreign
+
+// ergo:go func (Duration).Microseconds() int64
+extern go time.Duration.Microseconds func DurationMicroseconds(d duration) int64 needs go.Foreign
+
+// ergo:go func (Duration).Milliseconds() int64
+extern go time.Duration.Milliseconds func DurationMilliseconds(d duration) int64 needs go.Foreign
+
+// ergo:go func (Duration).Minutes() float64
+extern go time.Duration.Minutes func DurationMinutes(d duration) float64 needs go.Foreign
+
+// ergo:go func (Duration).Nanoseconds() int64
+extern go time.Duration.Nanoseconds func DurationNanoseconds(d duration) int64 needs go.Foreign
+
+// ergo:go func (Duration).Round(m Duration) Duration
+extern go time.Duration.Round func DurationRound(d duration, m duration) duration needs go.Foreign
+
+// ergo:go func (Duration).Seconds() float64
+extern go time.Duration.Seconds func DurationSeconds(d duration) float64 needs go.Foreign
+
+// ergo:go func (Duration).String() string
+extern go time.Duration.String func DurationString(d duration) string needs go.Foreign
+
+// ergo:go func (Duration).Truncate(m Duration) Duration
+extern go time.Duration.Truncate func DurationTruncate(d duration, m duration) duration needs go.Foreign
+
 // ergo:go const February Month
 extern go time.February let February Month
 
@@ -65,13 +95,13 @@ extern go time.LoadLocation func LoadLocation(name string) go.Ref[Location] fail
 extern go time.LoadLocationFromTZData func LoadLocationFromTZData(name string, data []byte) go.Ref[Location] fails go.Error needs go.Foreign
 
 // ergo:go var Local *Location
-// ergo:refused Local: a Go variable is host state; call a function
+extern go time.Local let Local go.Ref[Location]
 
 // ergo:go type Location struct
 extern go time.Location type Location {}
 
 // ergo:go func (*Location).String() string
-extern go time.Location.String func (l own *Location) String() string needs go.Foreign
+extern go time.Location.String func (l *Location) String() string needs go.Foreign
 
 // ergo:go const March Month
 extern go time.March let March Month
@@ -131,7 +161,7 @@ extern go time.ParseError type ParseError {
 }
 
 // ergo:go func (*ParseError).Error() string
-extern go time.ParseError.Error func (e own *ParseError) Error() string needs go.Foreign
+extern go time.ParseError.Error func (e *ParseError) Error() string needs go.Foreign
 
 // ergo:go func ParseInLocation(layout string, value string, loc *Location) (Time, error)
 extern go time.ParseInLocation func ParseInLocation(layout string, value string, loc own *Location) Time fails go.Error needs go.Foreign
@@ -203,10 +233,10 @@ extern go time.Ticker type Ticker {}
 // ergo:refused Ticker.C: Ergo has no channels (196c); wrap the Go channel in a Go function of your module, or use std queue
 
 // ergo:go func (*Ticker).Reset(d Duration)
-extern go time.Ticker.Reset func (t own *Ticker) Reset(d duration) needs go.Foreign
+extern go time.Ticker.Reset func (t *Ticker) Reset(d duration) needs go.Foreign
 
 // ergo:go func (*Ticker).Stop()
-extern go time.Ticker.Stop func (t own *Ticker) Stop() needs go.Foreign
+extern go time.Ticker.Stop func (t *Ticker) Stop() needs go.Foreign
 
 // ergo:go type Time struct
 extern go time.Time type Time {}
@@ -255,7 +285,7 @@ extern go time.Time.GoString func (t Time) GoString() string needs go.Foreign
 
 // ergo:go func (*Time).GobDecode(data []byte) error
 // ergo:reads data
-extern go time.Time.GobDecode func (t own *Time) GobDecode(data []byte) fails go.Error needs go.Foreign
+extern go time.Time.GobDecode func (t *Time) GobDecode(data []byte) fails go.Error needs go.Foreign
 
 // ergo:go func (Time).GobEncode() ([]byte, error)
 extern go time.Time.GobEncode func (t Time) GobEncode() []byte fails go.Error needs go.Foreign
@@ -331,15 +361,15 @@ extern go time.Time.UnixNano func (t Time) UnixNano() int64 needs go.Foreign
 
 // ergo:go func (*Time).UnmarshalBinary(data []byte) error
 // ergo:reads data
-extern go time.Time.UnmarshalBinary func (t own *Time) UnmarshalBinary(data []byte) fails go.Error needs go.Foreign
+extern go time.Time.UnmarshalBinary func (t *Time) UnmarshalBinary(data []byte) fails go.Error needs go.Foreign
 
 // ergo:go func (*Time).UnmarshalJSON(data []byte) error
 // ergo:reads data
-extern go time.Time.UnmarshalJSON func (t own *Time) UnmarshalJSON(data []byte) fails go.Error needs go.Foreign
+extern go time.Time.UnmarshalJSON func (t *Time) UnmarshalJSON(data []byte) fails go.Error needs go.Foreign
 
 // ergo:go func (*Time).UnmarshalText(data []byte) error
 // ergo:reads data
-extern go time.Time.UnmarshalText func (t own *Time) UnmarshalText(data []byte) fails go.Error needs go.Foreign
+extern go time.Time.UnmarshalText func (t *Time) UnmarshalText(data []byte) fails go.Error needs go.Foreign
 
 // ergo:go func (Time).Weekday() Weekday
 extern go time.Time.Weekday func (t Time) Weekday() Weekday needs go.Foreign
@@ -366,16 +396,16 @@ extern go time.Timer type Timer {}
 // ergo:refused Timer.C: Ergo has no channels (196c); wrap the Go channel in a Go function of your module, or use std queue
 
 // ergo:go func (*Timer).Reset(d Duration) bool
-extern go time.Timer.Reset func (t own *Timer) Reset(d duration) bool needs go.Foreign
+extern go time.Timer.Reset func (t *Timer) Reset(d duration) bool needs go.Foreign
 
 // ergo:go func (*Timer).Stop() bool
-extern go time.Timer.Stop func (t own *Timer) Stop() bool needs go.Foreign
+extern go time.Timer.Stop func (t *Timer) Stop() bool needs go.Foreign
 
 // ergo:go const Tuesday Weekday
 extern go time.Tuesday let Tuesday Weekday
 
 // ergo:go var UTC *Location
-// ergo:refused UTC: a Go variable is host state; call a function
+extern go time.UTC let UTC go.Ref[Location]
 
 // ergo:go func Unix(sec int64, nsec int64) Time
 extern go time.Unix func Unix(sec int64, nsec int64) Time needs go.Foreign

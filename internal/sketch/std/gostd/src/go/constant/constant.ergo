@@ -52,7 +52,7 @@ extern go go/constant.Kind type Kind int
 extern go go/constant.Kind.String func (i Kind) String() string needs go.Foreign
 
 // ergo:go func Make(x any) Value
-// ergo:refused Make: parameter 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go go/constant.Make func Make(x go.Any) Value needs go.Foreign
 
 // ergo:go func MakeBool(b bool) Value
 extern go go/constant.MakeBool func MakeBool(b bool) Value needs go.Foreign
@@ -122,11 +122,11 @@ extern go go/constant.UnaryOp func UnaryOp(op token.Token, y own Value, prec uin
 extern go go/constant.Unknown let Unknown Kind
 
 // ergo:go func Val(x Value) any
-// ergo:refused Val: result 1: Ergo has no any; an interface{} parameter or result hides the host type
+extern go go/constant.Val func Val(x own Value) go.Any needs go.Foreign
 
 // ergo:go type Value interface
 extern go go/constant.Value type Value {
-	own ExactString() string needs go.Foreign,
-	own Kind() Kind needs go.Foreign,
-	own String() string needs go.Foreign,
+	ExactString() string needs go.Foreign,
+	Kind() Kind needs go.Foreign,
+	String() string needs go.Foreign,
 }

@@ -37,6 +37,7 @@ type stdBase struct {
 	errorName *TypeName
 	goPkg     *Package
 	ref       *Named
+	any       *Named // go.Any (GB2)
 	prelude   preludeResult
 	nextID    int
 }
@@ -105,6 +106,7 @@ func stdSnapshotNow(pkgs []*Package, keys []string) (*stdSnapshot, error) {
 		errorName: universeOnce.errorName,
 		goPkg:     universeOnce.goPkg,
 		ref:       universeOnce.ref,
+		any:       universeOnce.any,
 		prelude:   preludeOnce.r,
 	}}
 	// The order the packages became available is an order where every
@@ -345,6 +347,7 @@ func InstallStd(r io.ReaderAt, size int64) error {
 		universeOnce.errorName = base.errorName
 		universeOnce.goPkg = base.goPkg
 		universeOnce.ref = base.ref
+		universeOnce.any = base.any
 	})
 	if !installed {
 		return ErrInstalled

@@ -33,6 +33,13 @@ func a() Payment {
 func b() {
 	Limit = 3
 }`, 3, "the package-level let Limit is immutable", ""},
+	// GBX3's smallest repro: an element write to a Go package variable
+	// (os.Args) passed, as its root is a package name, and wrote Go's
+	// memory.
+	{"a Go package variable is read-only", `import go os
+func b() needs go.Foreign {
+	os.Args[0] = "x"
+}`, 3, "os.Args is another package's variable, read-only in Ergo", ""},
 	// An operation-type value and a value that satisfies it through its
 	// functions (196m) do not compare: the lowered == has no meaning
 	// (round-1 review m7; D-E2 keeps the general rule for stage E).

@@ -568,6 +568,12 @@ func (fc *funcCtx) hostCall(x *syntax.CallExpr, c *check.Call, args []syntax.Exp
 // extern f: the imported package's name and the target's name.
 func (fc *funcCtx) hostTarget(site syntax.Node, f *check.Func) string {
 	path, name := f.Decl.Extern.Split()
+	if p, typ, m := f.Decl.Extern.SplitMethod(); f.Pkg != nil && f.Pkg.Host() && p == f.Pkg.Path && path != f.Pkg.Path {
+		// A method of a Go type that is an Ergo type of its own, bound as
+		// a function of its receiver (GBX4; gobind ownTypeMethods): Go's
+		// method expression, time.Duration.String.
+		return fc.l.hostPkg(p, site) + "." + typ + "." + m
+	}
 	return fc.l.hostPkg(path, site) + "." + name
 }
 

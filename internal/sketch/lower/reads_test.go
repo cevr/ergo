@@ -58,23 +58,23 @@ func Poke(b []byte) int {
 // dst keep 1 and 0.
 const readsFixProgram = `import go readsfix
 
-func bump(xs []int) int {
+func bump(xs []int) int needs go.Foreign {
 	readsfix.Bump(xs) + xs[0]
 }
 
-func rev() int {
+func rev() int needs go.Foreign {
 	let xs = []int{1, 2, 3}
 	readsfix.Rev(xs, xs)
 }
 
-func rev2() string {
+func rev2() string needs go.Foreign {
 	let src = []int{1, 2, 3}
 	let dst = []int{0, 0, 0}
 	let r = readsfix.Rev(src, dst)
 	"\(r)|\(src[0])|\(dst[0])"
 }
 
-func main() needs Console {
+func main() needs Console | go.Foreign {
 	Console.Println("\(bump([]int{1, 2}))")
 	Console.Println("\(rev())")
 	Console.Println(rev2())

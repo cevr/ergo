@@ -3252,6 +3252,19 @@ func (l *lowerer) reserveClones(pkgs []*check.Package, reserve func(key pkgKey, 
 	walked := map[check.Type]bool{}
 	var walk func(t check.Type)
 	walk = func(t check.Type) {
+		if s, ok := t.(*check.Signature); ok && !walked[t] {
+			// A callback's Go operands and result are copied at the
+			// boundary (gocallback.go): testing/slogtest.TestHandler's
+			// func() []Map[string, go.Any] (GB2).
+			walked[t] = true
+			for _, p := range s.Params {
+				walk(p.Type)
+			}
+			for _, r := range s.Results {
+				walk(r)
+			}
+			return
+		}
 		if t == nil || walked[t] || !l.holdsValue(t) {
 			return
 		}
