@@ -157,7 +157,8 @@ func TestHTTPEngineMatchesNetHTTP(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want, got := exchangeRaw(client, rc, raw), exchangeRaw(client, ec, raw)
+		want := exchangeRaw(client, rc, raw)
+		got := exchangeRawAgainst(client, ec, raw, &want)
 		if want != got {
 			t.Fatalf("seed %d (replay ERGO_HTTP_ENGINE_SEED=%d go test -run TestHTTPEngineMatchesNetHTTP ./runtime/v1/http):\nsent     %q\nnet/http %q\nengine   %q", seed, seed, raw, want, got)
 		}

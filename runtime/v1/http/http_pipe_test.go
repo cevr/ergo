@@ -81,6 +81,16 @@ func TestHTTPServePipeMatchesLoopback(t *testing.T) {
 // response has its Date lines taken out, and a failed read ends it with
 // its reason.
 func exchangeRaw(t *rt.Task, c *ergonet.Conn, raw string) string {
+	return exchangeRawAgainst(t, c, raw, nil)
+}
+
+// exchangeRawAgainst is exchangeRaw that, given the reference's response
+// (want), stops at the first read after which the whole lines received
+// are no prefix of want, and returns them with what came after: a server
+// that answers otherwise than the reference is told by its bytes as they
+// arrive, not by waiting for a close it may never make (the engine that
+// misses a Connection: close keeps the connection open, c8-connection-unseen).
+func exchangeRawAgainst(t *rt.Task, c *ergonet.Conn, raw string, want *string) string {
 	defer c.Close()
 	if err := c.Write(t, raw); err != nil {
 		return "write failed: " + err.Error()
@@ -96,8 +106,23 @@ func exchangeRaw(t *rt.Task, c *ergonet.Conn, raw string) string {
 			break
 		}
 		b.WriteString(s)
+		if want != nil {
+			text := b.String()
+			whole := ""
+			if i := strings.LastIndex(text, "\r\n"); i >= 0 {
+				whole = text[:i+len("\r\n")]
+			}
+			if !strings.HasPrefix(*want, withoutDate(whole)) {
+				return withoutDate(whole) + text[len(whole):] + "\n(no longer net/http's answer; not read on)"
+			}
+		}
 	}
-	lines := strings.SplitAfter(b.String(), "\r\n")
+	return withoutDate(b.String())
+}
+
+// withoutDate is s with its Date lines taken out.
+func withoutDate(s string) string {
+	lines := strings.SplitAfter(s, "\r\n")
 	kept := lines[:0]
 	for _, l := range lines {
 		if !strings.HasPrefix(l, "Date: ") {
