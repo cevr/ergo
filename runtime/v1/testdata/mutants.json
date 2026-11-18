@@ -84,8 +84,8 @@
       "name": "b13-send-unparked",
       "origin": "wf10/batch-13 fua-b round 2 (B1), verifier r2",
       "file": "runtime/v1/mailbox.go",
-      "from": "\t\tif inDomain {\n\t\t\tp = rt.Park(t, s, stop, nil)",
-      "to": "\t\tif false && inDomain {\n\t\t\tp = rt.Park(t, s, stop, nil)",
+      "from": "\t\tif s.domain {\n\t\t\tp = rt.Park(t, s, stop, nil)",
+      "to": "\t\tif false && s.domain {\n\t\t\tp = rt.Park(t, s, stop, nil)",
       "rule": "runtime.md Machines and actors 11.16: a Send's wait for room in a full mailbox is parked.",
       "killers": [
         "runtime/v1:TestManualAdvanceSettles"
