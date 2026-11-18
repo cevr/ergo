@@ -73,3 +73,67 @@ func TestDerivedFieldAgreesWithReference(t *testing.T) {
 		p.check(t, "derived-field", "TestDerivedFieldAgreesWithReference", seed)
 	}
 }
+
+// The modes of the option-fields-follow-variant generator: how a write
+// gives the record's mode field, by index into Idle, Busy, Done.
+var followModes = []string{"Idle%[1]d", "Busy%[1]d{Job: n}", "Done%[1]d{Code: n}"}
+
+// TestOptionFieldsFollowVariantAgreesWithReference writes records
+// { M Mode, J Option[int] } and one to four constructors, each giving M a
+// mode and J a value or None; sometimes J from a call (its variant not
+// visible), an update that sets J alone, or an assignment to J. It checks that
+// option-fields-follow-variant fires on J exactly when every write's
+// variants are visible, no update moves J alone, every constructor that
+// gives J a value gives M one mode, and some constructor gives M another.
+// Mutants: sr2-some-site, sr2-unknown, sr2-no-other.
+func TestOptionFieldsFollowVariantAgreesWithReference(t *testing.T) {
+	for _, seed := range propertySeeds(40) {
+		r := rand.New(rand.NewPCG(seed, 0x5e2))
+		p := newPlanted()
+		p.write("func pick(n int) Option[int] {\n\tif n > 0 {\n\t\treturn Some[int]{Value: n}\n\t}\n\tNone\n}", false, 0)
+		for i := range 1 + r.IntN(3) {
+			var sites []string
+			under, mixed, other, hidden := -1, false, false, false
+			n := 1 + r.IntN(4)
+			modes := make([]int, n)
+			present := make([]bool, n)
+			for k := range n {
+				modes[k] = r.IntN(len(followModes))
+				present[k] = r.IntN(2) == 0
+				opt := "None"
+				if present[k] {
+					opt = "Some[int]{Value: n}"
+					if under >= 0 && under != modes[k] {
+						mixed = true
+					}
+					under = modes[k]
+				}
+				sites = append(sites, fmt.Sprintf("func mk%[1]d_%[2]d(n int) R%[1]d {\n\tR%[1]d{M: "+followModes[modes[k]]+", J: %[3]s}\n}", i, k, opt))
+			}
+			for k := range n {
+				if under >= 0 && modes[k] != under {
+					other = true
+				}
+			}
+			switch r.IntN(5) {
+			case 0:
+				sites = append(sites, fmt.Sprintf("func hidden%[1]d(n int) R%[1]d {\n\tR%[1]d{M: Idle%[1]d, J: pick(n)}\n}", i))
+				hidden = true
+			case 1:
+				sites = append(sites, fmt.Sprintf("func clear%[1]d(r R%[1]d) R%[1]d {\n\tR%[1]d{..r, J: None}\n}", i))
+				hidden = true
+			case 2:
+				sites = append(sites, fmt.Sprintf("func reset%[1]d(r R%[1]d) R%[1]d {\n\tlet mut s = r\n\ts.J = None\n\ts\n}", i))
+				hidden = true
+			}
+			fires := under >= 0 && !mixed && other && !hidden
+			text := fmt.Sprintf("type Idle%[1]d {}\ntype Busy%[1]d { Job int }\ntype Done%[1]d { Code int }\ntype Mode%[1]d = Idle%[1]d | Busy%[1]d | Done%[1]d\ntype R%[1]d { M Mode%[1]d, J Option[int] }", i)
+			for _, s := range sites {
+				text += "\n\n" + s
+			}
+			p.write("\n"+text, fires, 5)
+		}
+		p.write("\nfunc main() {\n}", false, 0)
+		p.check(t, "option-fields-follow-variant", "TestOptionFieldsFollowVariantAgreesWithReference", seed)
+	}
+}
