@@ -54,6 +54,15 @@
       "killers": ["scripts/gate:TestFastTierReachOfAnEdit"]
     },
     {
+      "name": "cpu-round-nearest",
+      "origin": "wf10 CPU-ROUND (batch-19 verifier: Ceil -> Round survived 3/3)",
+      "file": "scripts/gate/tier.go",
+      "from": "return math.Ceil(seconds*10) / 10",
+      "to": "return math.Round(seconds*10) / 10",
+      "rule": "A recorded CPU row rounds up to the next tenth: a step that used any CPU never records 0.",
+      "killers": ["scripts/gate:TestCPUTenthsRoundsUpProperty"]
+    },
+    {
       "name": "gateex-step-recorded-as-package",
       "origin": "wf10 GATE-ex",
       "file": "scripts/gate/tier.go",
