@@ -82,7 +82,7 @@ test ASessionIsBounded {
 	let mut full = m
 	for i in 0..n {
 		m = Settle(Feed(m, Typed{Text: "q\(i)"}))
-		if i == Capacity() - 1 {
+		if i == Capacity()-1 {
 			full = m
 		}
 	}
