@@ -204,7 +204,7 @@ func (in *interp) exprFacts(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt)
 		// It runs where it is written, or where a native the evaluator
 		// runs calls it (sync.Ref's Update, natives.go).
 		fr.escaped = true
-		return &closure{lit: x, key: x, params: x.Type.Params, body: x.Body, vars: fr.vars, env: fr.env, home: fr, caps: fr.caps}, nil
+		return &closure{lit: x, key: x, params: x.Type.Params, body: x.Body, vars: fr.vars.snapshot(), env: fr.env, home: fr, caps: fr.caps}, nil
 	case *syntax.StarExpr:
 		return in.deref(fr, x.X)
 	}

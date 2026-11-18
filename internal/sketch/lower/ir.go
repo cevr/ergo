@@ -36,6 +36,8 @@ type IRReport struct {
 	IR       []string       `json:"ir"`
 	Fallback map[string]int `json:"fallback"`
 	Hash     string         `json:"hash"`
+	// Folds counts the build-time folds of the IR bodies (ir_constfold.go).
+	Folds FoldCounts `json:"folds"`
 }
 
 // LowerIR is Lower with the IR bodies. The report's Hash names the IR
@@ -381,6 +383,13 @@ type irBuilder struct {
 	// source local keeps its spelling unless Go's scope or one of these
 	// has it (ir_stmt.go, localName).
 	given map[string]bool
+	// decl and pkg are the declaration whose body is built and its
+	// package, which a build-time fold evaluates in (ir_constfold.go); nil in a
+	// law's or a test's body, which never folds.
+	decl syntax.Decl
+	pkg  *check.Package
+	// folds are this body's folds, which count once the body is kept.
+	folds FoldCounts
 	// law is the law whose body is built (ir_assert.go), nil in any
 	// other body and inside a function literal: each value it returns is
 	// checked where it is returned.
@@ -433,6 +442,9 @@ func (b *irBuilder) part(f func()) {
 func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []string, drop bool) (ok bool) {
 	f := fd.fn
 	b := &irBuilder{fc: fc, l: fc.l, st: st, locals: map[*check.Var]int{}, env: -1, result: fc.frame.result}
+	if f != nil && f.Decl != nil {
+		b.decl, b.pkg = f.Decl, f.Pkg
+	}
 	name := fd.name
 	if drop {
 		name = fd.dropped
@@ -521,6 +533,7 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	}
 	st.out.Funcs = append(st.out.Funcs, *b.fn)
 	st.report.IR = append(st.report.IR, name)
+	st.report.Folds.add(b.folds) // ir_constfold.go
 	return true
 }
 

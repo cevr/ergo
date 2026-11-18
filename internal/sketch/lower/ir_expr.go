@@ -68,6 +68,11 @@ func (b *irBuilder) value(x syntax.Expr) ([]*irStmt, *irExpr) {
 		pre, e = b.matchValue(y) // ir_match.go
 	case *syntax.TryExpr, *syntax.CatchExpr:
 		pre, e = b.failValue(y) // ir_fail.go
+	case *syntax.CompositeLit:
+		// Its elements are operands: an impure call among them runs
+		// before the literal, in order (CF1).
+		b.plain(y)
+		pre, e = b.compositeLit(y)
 	case *syntax.Ident:
 		sc := b.scalarIdent(y)
 		if sc == nil {
@@ -215,55 +220,9 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		}
 		return &irExpr{K: "index", Pos: p, X: b.expr(x.X), Y: b.expr(x.Indices[0])}
 	case *syntax.CompositeLit:
-		if x.Base != nil || x.Type == nil {
-			irNo("record update or elided literal type")
-		}
-		if _, ok := b.l.info.Spreads[x]; ok {
-			irNo("spread")
-		}
-		lit := &irExpr{K: "lit", Pos: p, T: b.goType(t, x)}
-		switch tt := t.(type) {
-		case *check.Slice:
-			for _, e := range x.Elts {
-				if _, kv := e.(*syntax.KeyValueExpr); kv {
-					irNo("keyed slice literal")
-				}
-				lit.Elems = append(lit.Elems, b.expr(e))
-			}
-		case *check.Map:
-			lit.Elems = b.mapLit(x) // ir_pkg.go
-		case *check.Named:
-			td := b.l.typeDecl(tt.Obj, x) // queued by goType, as above
-			s := tt.Underlying().(*check.Struct)
-			if len(x.Elts) != len(s.Fields) {
-				irNo("record literal without every field")
-			}
-			for _, e := range x.Elts {
-				kv, ok := e.(*syntax.KeyValueExpr)
-				if !ok {
-					irNo("unkeyed record literal")
-				}
-				k, ok := kv.Key.(*syntax.Ident)
-				if !ok {
-					irNo("record key")
-				}
-				lit.Keys = append(lit.Keys, td.fieldName[k.Name])
-				// A field of a generic record's instance may hold a union
-				// its type argument names (failureCase[A | B]{Error: A{}}):
-				// the value goes into it as the emitter's Go assignment
-				// puts it (assignedTo, ir_union.go). A field of a row type
-				// (a Go error) takes a variant by an explicit conversion
-				// (intoRow).
-				val := b.expr(kv.Value)
-				if ft := fieldType(s, k.Name); ft != nil && b.goType(ft, kv.Value) == "error" {
-					val = b.intoRow(ft, kv.Value, val)
-				} else {
-					val = b.assignedTo(kv.Value, val, ft)
-				}
-				lit.Elems = append(lit.Elems, val)
-			}
-		default:
-			irNo("literal of %T", t)
+		pre, lit := b.compositeLit(x)
+		if len(pre) > 0 {
+			irNo("operation call inside an expression")
 		}
 		return lit
 	case *syntax.InterpolatedString:
@@ -314,4 +273,75 @@ func (b *irBuilder) constant(t check.Type, v constant.Value, x syntax.Expr, p ir
 	}
 	irNo("constant kind %s", v.Kind())
 	return nil
+}
+
+// compositeLit is the literal x and the statements its elements run
+// first. Its elements are operands (operands, ir_fail.go), so an impure
+// call among them runs before the literal, in source order, as the
+// emitter's literal evaluates them (CF1).
+func (b *irBuilder) compositeLit(x *syntax.CompositeLit) ([]*irStmt, *irExpr) {
+	p := b.pos(x, x.Pos())
+	t, ok := b.l.info.Types[x]
+	if !ok {
+		irNo("expression without a type")
+	}
+	if x.Base != nil || x.Type == nil {
+		irNo("record update or elided literal type")
+	}
+	if _, ok := b.l.info.Spreads[x]; ok {
+		irNo("spread")
+	}
+	lit := &irExpr{K: "lit", Pos: p, T: b.goType(t, x)}
+	var pre []*irStmt
+	switch tt := t.(type) {
+	case *check.Slice:
+		for _, e := range x.Elts {
+			if _, kv := e.(*syntax.KeyValueExpr); kv {
+				irNo("keyed slice literal")
+			}
+		}
+		pre, lit.Elems = b.operands(x.Elts)
+	case *check.Map:
+		lit.Elems = b.mapLit(x) // ir_pkg.go
+	case *check.Named:
+		td := b.l.typeDecl(tt.Obj, x) // queued by goType, as above
+		s := tt.Underlying().(*check.Struct)
+		if len(x.Elts) != len(s.Fields) {
+			irNo("record literal without every field")
+		}
+		vals := make([]syntax.Expr, len(x.Elts))
+		keys := make([]string, len(x.Elts))
+		for i, e := range x.Elts {
+			kv, ok := e.(*syntax.KeyValueExpr)
+			if !ok {
+				irNo("unkeyed record literal")
+			}
+			k, ok := kv.Key.(*syntax.Ident)
+			if !ok {
+				irNo("record key")
+			}
+			vals[i], keys[i] = kv.Value, k.Name
+		}
+		var ops []*irExpr
+		pre, ops = b.operands(vals)
+		for i, v := range vals {
+			lit.Keys = append(lit.Keys, td.fieldName[keys[i]])
+			// A field of a generic record's instance may hold a union
+			// its type argument names (failureCase[A | B]{Error: A{}}):
+			// the value goes into it as the emitter's Go assignment
+			// puts it (assignedTo, ir_union.go). A field of a row type
+			// (a Go error) takes a variant by an explicit conversion
+			// (intoRow).
+			val := ops[i]
+			if ft := fieldType(s, keys[i]); ft != nil && b.goType(ft, v) == "error" {
+				val = b.intoRow(ft, v, val)
+			} else {
+				val = b.assignedTo(v, val, ft)
+			}
+			lit.Elems = append(lit.Elems, val)
+		}
+	default:
+		irNo("literal of %T", t)
+	}
+	return pre, lit
 }

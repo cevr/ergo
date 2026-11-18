@@ -22,6 +22,11 @@ func (b *irBuilder) poll(site syntax.Node) *irStmt {
 // pre-statement, which an operand spills around (operands) or a binary
 // expression refuses ("operation call inside an expression").
 func (b *irBuilder) call(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr) {
+	if !stmt {
+		if e := b.fold(x); e != nil {
+			return nil, e
+		}
+	}
 	if b.fallibleCall(x) != nil {
 		irNo("untried fallible call")
 	}

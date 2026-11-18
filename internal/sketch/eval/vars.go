@@ -21,6 +21,10 @@ type varTable struct {
 	// moreKeys and moreVals are the locals past the first inlineVars.
 	moreKeys []*check.Var
 	moreVals []*slot
+	// held is set once a function literal holds the table's slots
+	// (snapshot): binding a bound local again then makes a new slot, so
+	// the literal keeps the binding it saw.
+	held bool
 }
 
 const inlineVars = 4
@@ -114,6 +118,10 @@ func (t *varTable) bind(v *check.Var, val Value) {
 		// binding's life has ended, and nothing holds its slot past it (a
 		// borrow is never stored, a range ends with its loop, a literal
 		// shares the table, a task copies it), so the slot is reused.
+		if t.held {
+			t.put(i, &slot{v: val})
+			return
+		}
 		*t.at(i) = slot{v: val}
 		return
 	}
@@ -148,6 +156,19 @@ func (t *varTable) set(v *check.Var, s *slot) {
 	}
 	t.moreKeys = append(t.moreKeys, v)
 	t.moreVals = append(t.moreVals, s)
+}
+
+// snapshot is a table of t's variables and their slots, for a function
+// literal made now: it reads and writes the same slots (a let mut it
+// assigns), but a binding t makes later, such as the next iteration of a
+// loop's variable, is a new slot it does not see, as in the lowered Go,
+// whose loop variables are per iteration.
+func (t *varTable) snapshot() *varTable {
+	t.held = true
+	s := newVars()
+	t.each(func(v *check.Var, sl *slot) { s.set(v, sl) })
+	s.held = true
+	return s
 }
 
 // each calls f with every variable and its slot.

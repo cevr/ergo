@@ -39,7 +39,11 @@ func escape(b *strings.Builder, s string) {
 
 // Escape is s as escape writes it.
 func Escape(s string) string {
+	if plain(s) {
+		return s
+	}
 	let mut b = strings.NewBuilder()
+	b.Grow(len(s) + 8)
 	escape(&b, s)
 	b.String()
 }
@@ -54,4 +58,15 @@ law TextIsInert(s string, t string) {
 	let text = Render(Text(x))
 	let attr = Render(Span([]Child{Class(x)}))
 	inert(e) && unescape(e) == x && text == e && attr == "<span class=\""+e+"\"></span>"
+}
+
+// plain is whether s has none of the characters Escape replaces.
+func plain(s string) bool {
+	for i in 0..len(s) {
+		let c = s[i]
+		if c == '&' || c == '<' || c == '>' || c == '"' || c == '\'' {
+			return false
+		}
+	}
+	true
 }

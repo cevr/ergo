@@ -5,16 +5,24 @@
 // escapes its string when it is written, an attribute's value is escaped,
 // Href, Src and Action take a URL (never a string), and Raw takes a
 // Trusted, which only Trust builds, so a search for Trust finds every
-// place markup comes from a string. A Node is a function that writes into
-// one strings.Builder: no intermediate string per node (templ's render
-// functions; Lustre's string tree).
+// place markup comes from a string. A Node is written into one
+// strings.Builder in one pass: an element holds its children and writes
+// them when it is written, so no intermediate string per node is built
+// (templ's render functions; Lustre's string tree).
 
 import strconv
 import strings
 
-// Node is a part of a document: an element, text, a list of nodes, or
-// trusted markup. Render or Write writes it.
-type Node { write func(b *strings.Builder) }
+// Node is a part of a document: markup, text, or a node that writes
+// itself (an element, a document, Each). Render or Write writes it. With
+// late None, it is text, written as it is (markup) or escaped (esc);
+// otherwise late writes it, reading the children it holds. A node a
+// build-time fold computes from constants is markup: its whole markup,
+// one string the program holds as a constant (CF1, inFold).
+type Node { text string, esc bool, late Option[Writer] }
+
+// Writer writes a node's markup at the end of a buffer.
+type Writer { write func(b *strings.Builder) }
 
 // Attr is an attribute of an element: its name, its value (escaped when
 // it is written), or a name alone (a boolean attribute such as hidden).
@@ -32,24 +40,51 @@ type Trusted { s string }
 // call of Trust is a place where a string becomes markup.
 func Trust(s string) Trusted { Trusted{s: s} }
 
-// Text is s as an element's text, escaped (TextIsInert).
-func Text(s string) Node { Node{write: func(b *strings.Builder) { escape(b, s) }} }
+// inFold is whether this code runs in a build-time fold (CF1): false in a
+// built program, true in the check-time evaluator that computes a fold.
+// A node is built as its markup only then, so a subtree of constants
+// becomes one constant string, and a render with data builds no markup
+// before it writes. The laws hold the markup equal either way
+// (StaticIsItsTree).
+extern go ergo.local/prototype/runtime/v1.HTMLInFold func inFold() bool
+
+// markup is the node of markup m.
+func markup(m string) Node { Node{text: m, esc: false, late: None} }
+
+// freeze is n as its markup: in a fold, the node a render of n writes.
+func freeze(n Node) Node { markup(Render(n)) }
+
+// later is the node that w writes; in a fold, its markup.
+func later(w own func(b *strings.Builder)) Node {
+	let n = Node{text: "", esc: false, late: Some[Writer]{Value: Writer{write: w}}}
+	if inFold() {
+		return freeze(n)
+	}
+	n
+}
+
+// Text is s as an element's text, escaped when it is written (TextIsInert).
+func Text(s string) Node {
+	if inFold() {
+		return markup(Escape(s))
+	}
+	Node{text: s, esc: true, late: None}
+}
 
 // Int is n in decimal, as text.
-func Int(n int) Node { Node{write: func(b *strings.Builder) { b.WriteString(strconv.Itoa(n)) }} }
+func Int(n int) Node { markup(strconv.Itoa(n)) }
 
 // Raw is t's markup, written as it is.
-func Raw(t Trusted) Node { Node{write: func(b *strings.Builder) { b.WriteString(t.s) }} }
+func Raw(t Trusted) Node { markup(t.s) }
 
 // Each is the node f makes of each item, in order. f runs when the node
 // is written, so no list of nodes is built.
 func Each[T](items []T, f own func(item T) Node) Node {
-	Node{write: func(b *strings.Builder) {
+	Node{text: "", esc: false, late: Some[Writer]{Value: Writer{write: func(b *strings.Builder) {
 		for x in items {
-			let n = f(x)
-			n.write(b)
+			writeNode(b, f(x))
 		}
-	}}
+	}}}}
 }
 
 // When is n when show holds, and nothing otherwise.
@@ -57,26 +92,62 @@ func When(show bool, n Node) Node {
 	if show {
 		return n
 	}
-	Node{write: func(b *strings.Builder) {}}
+	markup("")
 }
 
 // Doc is a document: the doctype, then root (Html).
 func Doc(root Node) Node {
-	Node{write: func(b *strings.Builder) {
+	later(func(b *strings.Builder) {
 		b.WriteString("<!DOCTYPE html>")
-		root.write(b)
-	}}
+		writeNode(b, root)
+	})
 }
 
 // Render is n's markup.
 func Render(n Node) string {
+	if isFixed(n) {
+		return n.text
+	}
 	let mut b = strings.NewBuilder()
-	n.write(&b)
+	writeNode(&b, n)
 	b.String()
 }
 
 // Write writes n's markup at the end of b.
-func Write(b *strings.Builder, n Node) { n.write(b) }
+func Write(b *strings.Builder, n Node) { writeNode(b, n) }
+
+// Static is whether n is markup, known before it is written: Int, Raw, an
+// empty When, and a node a build-time fold computed from constants (an
+// element, a text, a document of them). A node built from data at run
+// time is written when it is written.
+func Static(n Node) bool { isFixed(n) }
+
+// isFixed is whether n is markup.
+func isFixed(n Node) bool {
+	if n.esc {
+		return false
+	}
+	match n.late {
+	case Some[Writer]:
+		false
+	case None:
+		true
+	}
+}
+
+// writeNode writes n at the end of b.
+func writeNode(b *strings.Builder, n Node) {
+	match n.late {
+	case Some[Writer] as w:
+		w.Value.write(b)
+	case None:
+		if n.esc {
+			escape(b, n.text)
+		} else {
+			b.WriteString(n.text)
+		}
+	}
+}
 
 // attrs writes the attributes among kids, in order, each with a space
 // before it.
@@ -100,44 +171,53 @@ func attr(b *strings.Builder, a Attr) {
 	}
 }
 
-// element is the element tag around kids: its attributes in the start
-// tag, then its child nodes, then the end tag.
-func element(tag string, kids []Child) Node {
-	Node{write: func(b *strings.Builder) {
-		b.WriteString("<")
-		b.WriteString(tag)
-		attrs(b, kids)
-		b.WriteString(">")
-		for k in kids {
-			match k {
-			case Node as n:
-				n.write(b)
-			case Attr:
-			}
+// writeElement writes the element tag around kids: its attributes in
+// the start tag, then its child nodes, then the end tag.
+func writeElement(b *strings.Builder, tag string, kids []Child) {
+	b.WriteString("<")
+	b.WriteString(tag)
+	attrs(b, kids)
+	b.WriteString(">")
+	writeKids(b, kids)
+	b.WriteString("</")
+	b.WriteString(tag)
+	b.WriteString(">")
+}
+
+// writeKids writes the child nodes among kids, in order.
+func writeKids(b *strings.Builder, kids []Child) {
+	for k in kids {
+		match k {
+		case Node as n:
+			writeNode(b, n)
+		case Attr:
 		}
-		b.WriteString("</")
-		b.WriteString(tag)
-		b.WriteString(">")
-	}}
+	}
+}
+
+// element is the element tag around kids, written when it is written;
+// in a fold, its markup (law StaticIsItsTree).
+func element(tag string, kids []Child) Node {
+	later(func(b *strings.Builder) { writeElement(b, tag, kids) })
 }
 
 // void is the void element tag: a start tag closed by />, with no
 // children and no end tag.
 func void(tag string, attrList []Attr) Node {
-	Node{write: func(b *strings.Builder) {
+	later(func(b *strings.Builder) {
 		b.WriteString("<")
 		b.WriteString(tag)
 		for a in attrList {
 			attr(b, a)
 		}
 		b.WriteString("/>")
-	}}
+	})
 }
 
 // rawText is a script or style element: its body is not text to a
 // parser, so it is markup a program trusts.
 func rawText(tag string, attrList []Attr, body Trusted) Node {
-	Node{write: func(b *strings.Builder) {
+	later(func(b *strings.Builder) {
 		b.WriteString("<")
 		b.WriteString(tag)
 		for a in attrList {
@@ -148,7 +228,7 @@ func rawText(tag string, attrList []Attr, body Trusted) Node {
 		b.WriteString("</")
 		b.WriteString(tag)
 		b.WriteString(">")
-	}}
+	})
 }
 
 // The elements. Each is the HTML element of its name, lower case.
@@ -284,4 +364,25 @@ law RenderIsAppend(a string, c string, k string) {
 	let br = Render(Br([]Attr{Class(k)}))
 	let doc = Render(Doc(P([]Child{When(a == c, Text(a)), Int(len(a))})))
 	list == ta+tc && div == "<div class=\""+ek+"\" id=\""+ek+"\">"+ta+tc+"</div>" && br == "<br class=\""+ek+"\"/>" && doc == "<!DOCTYPE html><p>"+(if a == c { ta } else { "" })+"\(len(a))</p>"
+}
+
+// StaticIsItsTree (CF1): a node's markup is one: frozen into one string,
+// as a build-time fold builds it (freeze, which is Raw of its render), written as a tree, or written with each
+// child node run at write time (each wrapped in an Each of one item). A
+// frozen node is static and an Each is not.
+law StaticIsItsTree(a string, c string, k string) {
+	let kids = []Child{Text(a), Class(k), P([]Child{Text(c), Int(len(c))}), Br([]Attr{Id(k)}), Raw(Trust(c)), When(a == c, Text(k)), Script([]Attr{Type(k)}, Trust(c))}
+	let mut late = []Child{}
+	for x in kids {
+		match x {
+		case Attr as at:
+			late = late.Append(at)
+		case Node as n:
+			late = late.Append(Each([]int{0}, func(i int) Node { n }))
+		}
+	}
+	let tree = Div(kids)
+	let deferred = Div(late)
+	let frozen = Raw(Trust(Render(tree)))
+	Static(frozen) && !Static(deferred) && Render(frozen) == Render(tree) && Render(tree) == Render(deferred) && Render(Doc(frozen)) == Render(Doc(deferred)) && Render(Doc(tree)) == Render(Doc(deferred))
 }
