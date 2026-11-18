@@ -486,8 +486,6 @@ var bodyTable = []bodyRow{
 	{"TimeHostNow", bodyFact{body: Body{Results: []string{"Reading"}, Host: true, Wait: "none", Package: Path}}},
 	{"TimeParse", bodyFact{body: Body{Params: []Param{{Type: "string"}, {Type: "string"}}, Results: []string{"Reading", "error"}, Pure: true, Wait: "none", Package: Path}}},
 	{"TimeParseDuration", bodyFact{body: Body{Params: []Param{{Type: "string"}}, Results: []string{"time.Duration", "error"}, Pure: true, Wait: "none", Package: Path}}},
-	{"TimeSub", bodyFact{body: Body{Params: []Param{{Type: "int64"}, {Type: "int64"}, {Type: "int64"}, {Type: "int64"}}, Results: []string{"time.Duration"}, Pure: true, Wait: "none", Package: Path}}},
-	{"TimeSubMono", bodyFact{body: Body{Params: []Param{{Type: "int64"}, {Type: "int64"}}, Results: []string{"time.Duration"}, Pure: true, Wait: "none", Package: Path}}},
 	{"Timeline.Advance", bodyFact{body: Body{Hidden: []Hidden{"task"}, Params: []Param{{Type: "time.Duration"}}, Wait: "settle", Package: Path}}},
 	{"Timeline.Read", bodyFact{body: Body{Results: []string{"Reading"}, Wait: "none", Package: Path}}},
 	{"Timeline.Sleepers", bodyFact{body: Body{Results: []string{"int"}, Wait: "none", Package: Path}}},
