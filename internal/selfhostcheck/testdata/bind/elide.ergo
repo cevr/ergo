@@ -89,7 +89,3 @@ func nested(o Option[Pair[int, string]]) int {
 
 // A tuple result fixes its parts: the literal takes the first part's type.
 func two8() (Option[int8], int) { (Some{Value: 1}, 2) }
-
-// A comparison whose other operand the typer leaves untyped (a generic
-// method's result): the literal's values bind its arguments.
-func has(m Map[string, int], k string, v int) bool { m.Get(k) == Some{Value: v} }

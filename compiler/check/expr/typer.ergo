@@ -1041,12 +1041,7 @@ func binary(s mut store.Store, k Pkg, t mut Typer, b syntax.BinaryExpr, w Want) 
 		}
 		if cmp { some(boolT) } else if bt > 0 { ft } else { None }
 	case None:
-		// An untyped first operand fixes nothing. A comparison's other
-		// operand that is no constant is typed on its own, as a bare
-		// generic literal's field values bind its arguments
-		// (`m.Get(k) == Some{Value: v}`); a constant would take a default
-		// type, where Go gives it the first operand's.
-		expr(s, k, t, second, if cmp && !isConst(k, t.file, second) { Free } else { Unsure })
+		expr(s, k, t, second, Unsure)
 		if cmp { some(boolT) } else { None }
 	}
 }
