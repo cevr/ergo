@@ -131,10 +131,9 @@ func (in *interp) compileExprForm(fr *frame, x syntax.Expr, f *facts) fastExpr {
 			f.cval = v
 		}
 		v := f.cval
+		// A leaf costs no step: the node that reads it pays
+		// (FU-eval-step-per-op, as tailK).
 		return func(in *interp, fr *frame) (Value, *abrupt) {
-			if ab := in.charge(fr, at, 1); ab != nil {
-				return nil, ab
-			}
 			return v, nil
 		}
 	case opIdent:
@@ -145,9 +144,6 @@ func (in *interp) compileExprForm(fr *frame, x syntax.Expr, f *facts) fastExpr {
 		}
 		var hint int32
 		return func(in *interp, fr *frame) (Value, *abrupt) {
-			if ab := in.charge(fr, at, 1); ab != nil {
-				return nil, ab
-			}
 			if s := in.slotAt(fr, v, &hint); s != nil {
 				s.lend()
 				return s.v, nil
@@ -381,13 +377,11 @@ func (in *interp) compilePeek(fr *frame, x syntax.Expr) fastPeek {
 		if !ok {
 			return nil
 		}
-		var at syntax.Node = x
 		var hint int32
 		return func(in *interp, fr *frame) (Value, *slot, *abrupt) {
 			if s := in.slotAt(fr, v, &hint); s != nil {
-				if ab := in.charge(fr, at, 1); ab != nil {
-					return nil, nil, ab
-				}
+				// The path's root is a leaf the path's node pays for
+				// (FU-eval-step-per-op, as tailK).
 				return s.v, s, nil
 			}
 			v, ab := in.expr(fr, written)

@@ -326,7 +326,7 @@ func equal(a, b Value, spend func(int64) bool) (eq, paid bool) {
 		return true, true
 	case string:
 		bs := b.(string)
-		if !spend(int64(min(len(a), len(bs)))) {
+		if !spend(byteWork(int64(min(len(a), len(bs))))) {
 			return false, false
 		}
 		return a == bs, true

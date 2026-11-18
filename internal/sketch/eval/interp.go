@@ -313,6 +313,12 @@ func (in *interp) build(fr *frame, at syntax.Node, steps, slots, raw int64) *abr
 	return in.allocate(fr, at, slots*valueBytes+raw)
 }
 
+// byteWork is the steps of a copy or a comparison of n bytes: Go's build
+// moves and compares them a word at a time (memmove, memequal), so a step
+// is a word, not a byte (FU-eval-step-per-op). The node that copies or
+// compares pays its own step.
+func byteWork(n int64) int64 { return (n + 7) / 8 }
+
 // typeOf is x's checked type; a missing entry is an internal error.
 func (fr *frame) typeOf(x syntax.Expr) check.Type {
 	if fr.tab != nil {
