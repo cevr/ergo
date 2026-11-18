@@ -2188,10 +2188,10 @@ index 0000000..0fc996c
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_placeholder.go b/src/cmd/compile/internal/ergoir/ergoir_placeholder.go
 new file mode 100644
-index 0000000..cb33a2b
+index 0000000..c4434f6
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_placeholder.go
-@@ -0,0 +1,59 @@
+@@ -0,0 +1,55 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2216,10 +2216,6 @@ index 0000000..cb33a2b
 +	"cmd/compile/internal/syntax"
 +	"cmd/compile/internal/types2"
 +)
-+
-+// ergoPlaceholderText is the placeholder as the lowering writes it after
-+// the signature.
-+const ergoPlaceholderText = `{ panic("ergoir: no IR body") }`
 +
 +// ergoPlaceholder reports a body that is exactly the placeholder: one call
 +// of the universe's panic with the placeholder's string.
@@ -2683,10 +2679,10 @@ index 0000000..a54bb61
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_text.go b/src/cmd/compile/internal/ergoir/ergoir_text.go
 new file mode 100644
-index 0000000..451a019
+index 0000000..9868cc4
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_text.go
-@@ -0,0 +1,735 @@
+@@ -0,0 +1,743 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2717,14 +2713,15 @@ index 0000000..451a019
 +	"cmd/compile/internal/types2"
 +)
 +
-+// ergoBodiless is every function declared without a body, or with the
-+// placeholder a generic one has (ergoir_placeholder.go).
-+func ergoBodiless(noders []*noder) map[*syntax.FuncDecl]bool {
-+	out := map[*syntax.FuncDecl]bool{}
++// ergoBodiless is every function declared without a body (nil), or with
++// the placeholder a generic one has (ergoir_placeholder.go), which it
++// keeps: its span is where the IR body's text goes.
++func ergoBodiless(noders []*noder) map[*syntax.FuncDecl]*syntax.BlockStmt {
++	out := map[*syntax.FuncDecl]*syntax.BlockStmt{}
 +	for _, p := range noders {
 +		for _, d := range p.file.DeclList {
 +			if fd, ok := d.(*syntax.FuncDecl); ok && (fd.Body == nil || ergoPlaceholder(nil, fd.Body)) {
-+				out[fd] = true
++				out[fd] = fd.Body
 +			}
 +		}
 +	}
@@ -2733,10 +2730,10 @@ index 0000000..451a019
 +
 +// ergoTextOut writes the text (-ergoirtext) and the structure
 +// (-ergoirshape) of the bodies ergoAttach gave the functions of bodiless.
-+func ergoTextOut(pkg *types2.Package, info *types2.Info, noders []*noder, bodiless map[*syntax.FuncDecl]bool) {
++func ergoTextOut(pkg *types2.Package, info *types2.Info, noders []*noder, bodiless map[*syntax.FuncDecl]*syntax.BlockStmt) {
 +	attached := map[*syntax.FuncDecl]bool{}
-+	for fd := range bodiless {
-+		if fd.Body != nil {
++	for fd, old := range bodiless {
++		if fd.Body != nil && fd.Body != old {
 +			attached[fd] = true
 +		}
 +	}
@@ -2764,7 +2761,7 @@ index 0000000..451a019
 +		if err != nil {
 +			base.Fatalf("ergoir: %v", err)
 +		}
-+		text, err := ergoFileText(pkg, info, p.file, string(src), decls)
++		text, err := ergoFileText(pkg, info, p.file, string(src), decls, bodiless)
 +		if err != nil {
 +			base.Fatalf("ergoir: %s: %v", name, err)
 +		}
@@ -2775,8 +2772,8 @@ index 0000000..451a019
 +}
 +
 +// ergoFileText is src with each of decls' bodies printed after its
-+// signature, which ends its line.
-+func ergoFileText(pkg *types2.Package, info *types2.Info, file *syntax.File, src string, decls []*syntax.FuncDecl) (string, error) {
++// signature, which ends its line, or over its placeholder (placeholders).
++func ergoFileText(pkg *types2.Package, info *types2.Info, file *syntax.File, src string, decls []*syntax.FuncDecl, placeholders map[*syntax.FuncDecl]*syntax.BlockStmt) (string, error) {
 +	p := &ergoPrinter{pkg: pkg, info: info, imports: map[string]string{}}
 +	for _, d := range file.DeclList {
 +		if id, ok := d.(*syntax.ImportDecl); ok && id.LocalPkgName != nil && id.Path != nil {
@@ -2787,8 +2784,36 @@ index 0000000..451a019
 +	}
 +	lines := strings.Split(src, "\n")
 +	bodies := map[int]string{} // line index -> the body to append
-+	skip := map[int]bool{}     // the lines of a placeholder gofmt split
++	skip := map[int]bool{}     // the lines of a placeholder after its first
 +	for _, fd := range decls {
++		if ph := placeholders[fd]; ph != nil {
++			// The placeholder's span, from its { to its }, whatever its
++			// layout: on the signature's line, split by gofmt, with
++			// position comments, after a tuple's multi-line struct result
++			// (red #24: lru, snake/play, vt Parse.Advance).
++			lb, rb := ph.Pos(), ph.Rbrace
++			h, r := int(lb.Line())-1, int(rb.Line())-1
++			if lb.FileBase() != file.Pos().FileBase() || rb.FileBase() != file.Pos().FileBase() || h < 0 || r < h || r >= len(lines) ||
++				int(lb.Col()) > len(lines[h]) || lines[h][lb.Col()-1] != '{' || int(rb.Col()) > len(lines[r]) || lines[r][rb.Col()-1] != '}' {
++				return "", fmt.Errorf("%s: the placeholder %v-%v is not in the file", fd.Name.Value, lb, rb)
++			}
++			p.b.Reset()
++			p.reads = ergoReads(info, fd.Body)
++			p.block(fd.Body.List, 1)
++			// The lines after the body keep their positions: the line after
++			// the placeholder's } is that }'s next line.
++			p.b.WriteString(fmt.Sprintf("}\n//line %s:%d", rb.RelFilename(), int(rb.RelLine())+1))
++			rest := strings.TrimSpace(lines[r][rb.Col():]) // a comment after the }
++			lines[h] = strings.TrimRight(lines[h][:lb.Col()-1], " \t")
++			if rest != "" {
++				lines[h] += " " + rest
++			}
++			for i := h + 1; i <= r; i++ {
++				skip[i] = true
++			}
++			bodies[h] = p.b.String()
++			continue
++		}
 +		end := syntax.EndPos(fd.Type)
 +		if end.FileBase() != file.Pos().FileBase() || end.Line() == 0 || int(end.Line()) > len(lines) {
 +			return "", fmt.Errorf("%s: the signature's end %v is not in the file", fd.Name.Value, end)
@@ -2805,13 +2830,6 @@ index 0000000..451a019
 +		p.block(fd.Body.List, 1)
 +		// The lines after the body keep their positions.
 +		p.b.WriteString(fmt.Sprintf("}\n//line %s:%d", end.RelFilename(), int(end.RelLine())+last-(int(end.Line())-1)+1))
-+		if h, ok := ergoPlaceholderLines(lines, last); ok {
-+			// gofmt split the placeholder after a long signature: the
-+			// IR body replaces its three lines (red #24, lru).
-+			lines[h] = strings.TrimSuffix(strings.TrimRight(lines[h], " \t"), " {")
-+			skip[h+1], skip[h+2] = true, true
-+			last = h
-+		}
 +		bodies[last] = p.b.String()
 +	}
 +	var out strings.Builder
@@ -2823,9 +2841,6 @@ index 0000000..451a019
 +		if !ok {
 +			out.WriteString(l)
 +		} else {
-+			if head, ok := strings.CutSuffix(strings.TrimRight(l, " \t"), ergoPlaceholderText); ok {
-+				l = strings.TrimRight(head, " \t") // the placeholder the IR body replaced
-+			}
 +			comment := ""
 +			if j := strings.Index(l, "//"); j >= 0 {
 +				l, comment = strings.TrimRight(l[:j], " \t"), " "+l[j:]
@@ -2837,17 +2852,6 @@ index 0000000..451a019
 +		}
 +	}
 +	return out.String(), nil
-+}
-+
-+// ergoPlaceholderLines reports the placeholder written over the three
-+// lines that end at last, as gofmt writes it after a signature too long
-+// for one line: "… {", the panic, "}". h is the signature's last line.
-+func ergoPlaceholderLines(lines []string, last int) (h int, ok bool) {
-+	h = last - 2
-+	if h < 0 || strings.TrimSpace(lines[last]) != "}" || "{ "+strings.TrimSpace(lines[h+1])+" }" != ergoPlaceholderText {
-+		return 0, false
-+	}
-+	return h, strings.HasSuffix(strings.TrimRight(lines[h], " \t"), " {")
 +}
 +
 +// ergoSignatureEnd is the index of the line where a bodiless function's
