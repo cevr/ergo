@@ -15,7 +15,7 @@
 > tap Run update work
 > frame
 > stats
-  signals 8, written 25, committed 25, ops 0, fetches 0
+  signals 8, written 21, committed 21, ops 0, fetches 0
 > settle
 > warnings
   #1 Update exceeded 4 signals: 8; trigger Run update work
@@ -23,16 +23,16 @@
   found
 > tap Run view work
 > stats
-  signals 1, written 277, committed 27, ops 0, fetches 0
+  signals 1, written 273, committed 23, ops 0, fetches 0
 > settle
 > warnings
-  #2 View exceeded 200 nodes written: 277; trigger Run view work
+  #2 View exceeded 200 nodes written: 273; trigger Run view work
   #1 Update exceeded 4 signals: 8; trigger Run update work
 > find Patch row 1
   absent
 > tap Run patch work
 > stats
-  signals 1, written 150, committed 150, ops 122, fetches 0
+  signals 1, written 146, committed 146, ops 122, fetches 0
 > settle
 > find Patch row 1
   found
@@ -40,24 +40,24 @@
   found
 > warnings
   #3 Patch exceeded 100 patch ops: 122; trigger Run patch work
-  #2 View exceeded 200 nodes written: 277; trigger Run view work
+  #2 View exceeded 200 nodes written: 273; trigger Run view work
   #1 Update exceeded 4 signals: 8; trigger Run update work
 > tap Run dependency extraction
 > stats
-  signals 1, written 33, committed 33, ops 0, fetches 8
+  signals 1, written 29, committed 29, ops 0, fetches 8
 > settle
 > warnings
   #4 Subscription dependencies exceeded 4 fetches: 8; trigger Run dependency extraction
   #3 Patch exceeded 100 patch ops: 122; trigger Run patch work
-  #2 View exceeded 200 nodes written: 277; trigger Run view work
+  #2 View exceeded 200 nodes written: 273; trigger Run view work
   #1 Update exceeded 4 signals: 8; trigger Run update work
 > frame
 > stats
-  signals 0, written 36, committed 36, ops 0, fetches 0
+  signals 0, written 32, committed 32, ops 0, fetches 0
 > warnings
   #4 Subscription dependencies exceeded 4 fetches: 8; trigger Run dependency extraction
   #3 Patch exceeded 100 patch ops: 122; trigger Run patch work
-  #2 View exceeded 200 nodes written: 277; trigger Run view work
+  #2 View exceeded 200 nodes written: 273; trigger Run view work
   #1 Update exceeded 4 signals: 8; trigger Run update work
 > tap Clear
 > find Run a workload to record a warning.

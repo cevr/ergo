@@ -52,16 +52,16 @@
     {
       "name": "fk13-ops-is-view", "origin": "wf10/fk13a",
       "file": "examples/fk-diag/lab/lab.ergo",
-      "from": "\tcase \"Ops\":\n\t\tSome{PatchPhase}\n",
-      "to": "\tcase \"Ops\":\n\t\tSome{ViewPhase}\n",
+      "from": "\tcase ui.OpsCounter:\n\t\tSome{PatchPhase}\n",
+      "to": "\tcase ui.OpsCounter:\n\t\tSome{ViewPhase}\n",
       "rule": "A warning of the patch's ops is the patch phase's (law StepFollowsTheModel, law EachWorkloadWarnsItsPhase).",
       "anchor": {"tests": ["examples:fk-diag"]}, "killers": ["examples:fk-diag"]
     },
     {
       "name": "fk13-other-counter-logged", "origin": "wf10/fk13a",
       "file": "examples/fk-diag/lab/lab.ergo",
-      "from": "\tcase _:\n\t\tNone\n",
-      "to": "\tcase _:\n\t\tSome{UpdatePhase}\n",
+      "from": "\tcase ui.CommittedCounter, ui.PaintedCounter:\n\t\tNone\n",
+      "to": "\tcase ui.CommittedCounter, ui.PaintedCounter:\n\t\tSome{UpdatePhase}\n",
       "rule": "A warning of a counter the lab bounds for no phase changes nothing (law StepFollowsTheModel).",
       "anchor": {"tests": ["examples:fk-diag"]}, "killers": ["examples:fk-diag"]
     },
