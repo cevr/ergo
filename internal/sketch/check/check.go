@@ -221,6 +221,14 @@ type checker struct {
 	// pureArgs are the arguments of pure parameters (durable.go), which
 	// checkPureArgs judges once the footprints are known.
 	pureArgs []pureArg
+	// dropped are the calls whose result a statement discards, which
+	// checkDroppedResults judges once the footprints are known.
+	dropped []droppedCall
+	// raises memoizes raisesByName.
+	raises map[*Func]bool
+	// unassigned are the never-reassigned let mut locals, which
+	// checkDroppedResults reports once the dropped calls are judged.
+	unassigned []unassignedLocal
 	// lawPreds are the invariant laws whose predicate checkLawPreds judges
 	// pure once the footprints are known (machinelaw.go).
 	lawPreds []*Law
