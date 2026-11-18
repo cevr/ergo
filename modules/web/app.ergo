@@ -24,7 +24,9 @@ type Site[R comparable, P, F, N] {
 	Assets   []Asset,
 }
 
-// Fetch is site's answer to req. The path of an asset is the asset: its
+// Fetch is site's answer to req. Routes.Parse reads req's path with its
+// query (http.EncodeQuery of req.Query), so a route's query state
+// reaches its loader. The path of an asset is the asset: its
 // bytes with its Content-Type for GET, the same with no body for HEAD,
 // and 405 for another method. A path that parses to no route is the
 // 404 page with status 404. GET of a route is its page, loaded and viewed,
@@ -37,7 +39,7 @@ func Fetch[R comparable, P, F, N](site Site[R, P, F, N], req http.Request) http.
 			return served(req.Method, a)
 		}
 	}
-	match site.Routes.Parse(ui.URL{Path: req.Path, Query: "", Fragment: ""}) {
+	match site.Routes.Parse(ui.URL{Path: req.Path, Query: http.EncodeQuery(req.Query), Fragment: ""}) {
 	case None:
 		answer(req.Method, 404, site.NotFound(req.Path))
 	case Some as r:
@@ -149,7 +151,7 @@ func lawSite() Site[lawRoute, string, lawGone] {
 // generated strings are no route's place.
 func lawPath(r lawRoute, other string, known bool) string {
 	if known {
-		return ui.Href(Href(lawMap, r))
+		return ui.Href(lawMap.Href(r))
 	}
 	other
 }
@@ -168,7 +170,7 @@ law HeadIsGetWithoutBody(r lawRoute, other string, known bool) {
 law UnknownPathIsNotFound(path string, pick int) {
 	let methods = []string{"GET", "POST", "PUT", "DELETE"}
 	let method = methods[((pick%len(methods))+len(methods))%len(methods)]
-	match Parse(lawMap, ui.URL{Path: path, Query: "", Fragment: ""}) {
+	match lawMap.Parse(ui.URL{Path: path, Query: "", Fragment: ""}) {
 	case Some:
 		true
 	case None:
