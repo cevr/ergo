@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"os"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -120,36 +121,39 @@ func refDiffer(a, b []uint64, withinA, withinB bool) int {
 	return 0
 }
 
-// refVerdict is Measure's verdict from refDiffer.
-func refVerdict(tab verdictTable, ergo string) string {
-	d := map[string]int{}
-	faster, slower := false, false
+// refVerdict is Measure's verdict from refDiffer ("Any gain ports"), as
+// the verdict, the faster scenarios and the slower ones, in that order.
+func refVerdict(tab verdictTable, ergo string) (string, []string, []string) {
+	var faster, slower []string
 	for _, s := range probeScenarios {
-		d[s] = refDiffer(tab.Counts[ergo][s], tab.Counts["go"][s], tab.Within[ergo][s], tab.Within["go"][s])
-		faster = faster || d[s] < 0
-		slower = slower || d[s] > 0
+		switch refDiffer(tab.Counts[ergo][s], tab.Counts["go"][s], tab.Within[ergo][s], tab.Within["go"][s]) {
+		case -1:
+			faster = append(faster, s)
+		case 1:
+			slower = append(slower, s)
+		}
 	}
 	switch {
-	case d["edit"] < 0 && d["cold"] < 1 && d["warm"] < 1:
-		return "win"
-	case !faster && !slower:
-		return "tie"
-	case !faster:
-		return "loss"
+	case len(faster) > 0:
+		return "win", faster, slower
+	case len(slower) == 0:
+		return "tie", faster, slower
 	}
-	return "mixed"
+	return "loss", faster, slower
 }
 
 // TestProbeVerdictRule holds the meter's verdict to the rule of the TPROBE
-// spec (Measure, "Verdict per kind") on drawn result tables: (1) no speed
-// verdict comes from an Ergo form that misses a kill, and the counts of
-// such a form change nothing; (2) each form's verdict is the reference
-// reading of the rule from the raw counts (win only on disjoint ranges and
-// a lower median after the edit with no scenario slower beyond spread;
-// tie only when no scenario differs); (3) each scenario's comparison is
-// antisymmetric, a win read from the other side is a loss, the only
-// verdict that reads as a win from the other side is a loss, and a tie
-// stays a tie.
+// spec (Measure, "Verdict per kind"; owner, 2026-11-18: "Any gain ports")
+// on drawn result tables: (1) no speed verdict comes from an Ergo form
+// that misses a kill, and the counts of such a form change nothing; (2)
+// each form's verdict is the reference reading of the rule from the raw
+// counts (win exactly when some scenario is faster, on disjoint ranges and
+// a median lower by more than 2 %, whatever the others show, with every
+// slower scenario listed; tie exactly when no scenario differs), and the
+// kind is a win when a covered form wins; (3) each scenario's comparison
+// is antisymmetric, and exchanging the two sides turns a win with no
+// slower scenario into a loss and back, keeps a tie, and keeps a win that
+// has a slower scenario.
 //
 // Mutants it alone catches: scripts/buildcost/testdata/mutants.json,
 // killer scripts/buildcost:TestProbeVerdictRule.
@@ -165,18 +169,26 @@ func TestProbeVerdictRule(t *testing.T) {
 		fail := func(format string, a ...any) {
 			t.Fatalf("seed %d, table %d: %s\nverdict %q from %q\n%s\nreplay: TPROBE_SEED=%d go test -count=1 -run '^TestProbeVerdictRule$' ./scripts/buildcost", seed, i, fmt.Sprintf(format, a...), v, from, tab, seed)
 		}
-		seen[v]++
+		seen[v.Verdict]++
+		if v.Verdict == "win" && len(v.Slower) > 0 {
+			seen["win, slower"]++
+		}
 		// (1) Coverage decides whether a form has a verdict at all.
-		covered := 0
+		covered, anyWin := 0, false
 		for _, f := range probeErgoForms {
 			if tab.Kills[f] == tab.N {
 				covered++
+				w, _, _ := refVerdict(tab, f)
+				anyWin = anyWin || w == "win"
 			}
 		}
-		if covered == 0 && v != "no result" {
+		if anyWin != (v.Verdict == "win") {
+			fail("a covered form wins: %v, yet the kind reads %q", anyWin, v.Verdict)
+		}
+		if covered == 0 && v.Verdict != "no result" {
 			fail("no Ergo form kills every mutant, yet a speed verdict")
 		}
-		if v != "no result" && tab.Kills[from] != tab.N {
+		if v.Verdict != "no result" && tab.Kills[from] != tab.N {
 			fail("the verdict comes from a form that misses a kill")
 		}
 		for _, f := range probeErgoForms {
@@ -194,14 +206,16 @@ func TestProbeVerdictRule(t *testing.T) {
 				other.Counts[f][s] = drawCounts(r, 1e7, 0)
 			}
 			changed[f] = other.side(f)
-			if v2, _ := probeKindVerdict(goSide, changed); v2 != v {
-				fail("the counts of %s, which misses a kill, changed the verdict to %q", f, v2)
+			if v2, _ := probeKindVerdict(goSide, changed); !reflect.DeepEqual(v2, v) {
+				fail("the counts of %s, which misses a kill, changed the verdict to %+v", f, v2)
 			}
 		}
-		// (2) Each form's verdict is the rule's.
+		// (2) Each form's verdict, and the scenarios it lists, are the rule's.
 		for _, f := range probeErgoForms {
-			if got, want := probeVerdict(goSide.Rows, ergo[f].Rows), refVerdict(tab, f); got != want {
-				fail("%s: the meter reads %q, the rule %q", f, got, want)
+			got := probeVerdict(goSide.Rows, ergo[f].Rows)
+			want, faster, slower := refVerdict(tab, f)
+			if got.Verdict != want || !slices.Equal(got.Faster, faster) || !slices.Equal(got.Slower, slower) {
+				fail("%s: the meter reads %+v, the rule %s, faster %v, slower %v", f, got, want, faster, slower)
 			}
 		}
 		// (3) The two sides exchange.
@@ -213,18 +227,18 @@ func TestProbeVerdictRule(t *testing.T) {
 				}
 			}
 			there, back := probeVerdict(goSide.Rows, e.Rows), probeVerdict(e.Rows, goSide.Rows)
-			if there == "win" && back != "loss" {
-				fail("%s: a win reads as %q from the other side", f, back)
-			}
-			if back == "win" && there != "loss" {
-				fail("%s: %q reads as a win from the other side", f, there)
-			}
-			if (there == "tie") != (back == "tie") {
-				fail("%s: %q reads as %q from the other side", f, there, back)
+			pure := func(x probeResult) bool { return x.Verdict == "win" && len(x.Slower) == 0 }
+			switch {
+			case pure(there) && back.Verdict != "loss", there.Verdict == "loss" && !pure(back):
+				fail("%s: %+v reads as %+v from the other side, not a loss and a win with no slower scenario", f, there, back)
+			case (there.Verdict == "tie") != (back.Verdict == "tie"):
+				fail("%s: %+v reads as %+v from the other side", f, there, back)
+			case there.Verdict == "win" && len(there.Slower) > 0 && back.Verdict != "win":
+				fail("%s: a win with a slower scenario, %+v, reads as %+v from the other side", f, there, back)
 			}
 		}
 	}
-	for _, v := range []string{"win", "tie", "loss", "mixed", "no result"} {
+	for _, v := range []string{"win", "win, slower", "tie", "loss", "no result"} {
 		if seen[v] == 0 {
 			t.Errorf("seed %d: no table of %d gave %q; the draw misses a verdict", seed, probeDraws, v)
 		}

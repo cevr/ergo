@@ -24,12 +24,23 @@
       ]
     },
     {
-      "name": "tprobe-mixed-is-win",
+      "name": "tprobe-gain-needs-every-scenario",
       "origin": "wf10/selfhost/TPROBE",
       "file": "scripts/buildcost/tests.go",
-      "from": "case c[\"edit\"] < 0 && c[\"cold\"] <= 0 && c[\"warm\"] <= 0:",
-      "to": "case c[\"edit\"] < 0:",
-      "rule": "A win is faster after the edit and slower neither cold nor warm; faster after the edit and slower cold is mixed.",
+      "from": "\tcase len(r.Faster) > 0:\n\t\tr.Verdict = \"win\"\n",
+      "to": "\tcase len(r.Faster) > 0 && len(r.Slower) == 0:\n\t\tr.Verdict = \"win\"\n",
+      "rule": "Any gain ports (owner, 2026-11-18): a form faster in one scenario is a win even when another scenario is slower.",
+      "killers": [
+        "scripts/buildcost:TestProbeVerdictRule"
+      ]
+    },
+    {
+      "name": "tprobe-slower-scenario-hidden",
+      "origin": "wf10/selfhost/TPROBE",
+      "file": "scripts/buildcost/tests.go",
+      "from": "\tcase len(r.Faster) > 0:\n\t\tr.Verdict = \"win\"\n",
+      "to": "\tcase len(r.Faster) > 0:\n\t\tr.Verdict, r.Slower = \"win\", nil\n",
+      "rule": "A win lists every scenario where the form is slower, so the cost of the port is in the receipt.",
       "killers": [
         "scripts/buildcost:TestProbeVerdictRule"
       ]

@@ -203,31 +203,52 @@ func probeCompare(a, b probeStats) int {
 	return 1
 }
 
-// probeVerdict is the verdict of an Ergo form against the Go form, per
-// scenario: win when faster after the edit and slower in neither cold nor
-// warm; tie when no scenario differs; loss when faster in none and slower
-// in one; mixed otherwise.
-func probeVerdict(goRows, ergoRows map[string]probeStats) string {
-	c := map[string]int{}
-	faster, slower := false, false
+// probeResult is one Ergo form's verdict against the Go form, with the
+// scenarios where it is faster and those where it is slower.
+type probeResult struct {
+	Verdict        string
+	Faster, Slower []string
+}
+
+// probeVerdict is the verdict of an Ergo form against the Go form (owner,
+// 2026-11-18: "Any gain ports"): win when faster in at least one scenario,
+// whatever the others show; tie when no scenario differs; loss when faster
+// in none and slower in one. Every slower scenario is listed, a win's too.
+func probeVerdict(goRows, ergoRows map[string]probeStats) probeResult {
+	var r probeResult
 	for _, s := range probeScenarios {
-		c[s] = probeCompare(ergoRows[s], goRows[s])
-		faster = faster || c[s] < 0
-		slower = slower || c[s] > 0
+		switch probeCompare(ergoRows[s], goRows[s]) {
+		case -1:
+			r.Faster = append(r.Faster, s)
+		case 1:
+			r.Slower = append(r.Slower, s)
+		}
 	}
 	switch {
-	case c["edit"] < 0 && c["cold"] <= 0 && c["warm"] <= 0:
-		return "win"
-	case !faster && !slower:
-		return "tie"
-	case !faster && slower:
-		return "loss"
+	case len(r.Faster) > 0:
+		r.Verdict = "win"
+	case len(r.Slower) > 0:
+		r.Verdict = "loss"
+	default:
+		r.Verdict = "tie"
 	}
-	return "mixed"
+	return r
 }
 
 // probeRank orders the verdicts from the best for the Ergo side.
-var probeRank = map[string]int{"win": 4, "tie": 3, "mixed": 2, "loss": 1}
+var probeRank = map[string]int{"win": 3, "tie": 2, "loss": 1}
+
+// probeBetter reports that a is a better result for the Ergo side than b:
+// a better verdict, or among wins more scenarios faster, then fewer slower.
+func probeBetter(a, b probeResult) bool {
+	if probeRank[a.Verdict] != probeRank[b.Verdict] {
+		return probeRank[a.Verdict] > probeRank[b.Verdict]
+	}
+	if len(a.Faster) != len(b.Faster) {
+		return len(a.Faster) > len(b.Faster)
+	}
+	return len(a.Slower) < len(b.Slower)
+}
 
 // probeSide is one form's result: its kills of the family's mutants and
 // its rows. Counted is false when a guard refused a row of it.
@@ -241,21 +262,46 @@ type probeSide struct {
 func (s probeSide) covered() bool { return s.Mutants > 0 && s.Kills == s.Mutants && s.Counted }
 
 // probeKindVerdict is the kind's verdict: that of its best Ergo form with
-// equal coverage against the Go form, or "no result" when no Ergo form
-// reached it. It names the form the verdict is from.
-func probeKindVerdict(goSide probeSide, ergo map[string]probeSide) (string, string) {
-	best, from := "no result", ""
+// equal coverage against the Go form (a win when any form wins), or "no
+// result" when no Ergo form reached it. It names the form the verdict is
+// from.
+func probeKindVerdict(goSide probeSide, ergo map[string]probeSide) (probeResult, string) {
+	best, from := probeResult{Verdict: "no result"}, ""
 	for _, f := range probeErgoForms {
 		e, ok := ergo[f]
 		if !ok || !e.covered() || !goSide.Counted {
 			continue
 		}
 		v := probeVerdict(goSide.Rows, e.Rows)
-		if from == "" || probeRank[v] > probeRank[best] {
+		if from == "" || probeBetter(v, best) {
 			best, from = v, f
 		}
 	}
 	return best, from
+}
+
+// probeVerdictLine is a kind's verdict as the receipt prints it: a win
+// names the form, the scenarios it wins and every slower one, each with
+// its ratio to go (`win (ergo-test: edit 0.61; slower: cold 1.30)`).
+func probeVerdictLine(v probeResult, from string, goSide, e probeSide) string {
+	if from == "" {
+		return v.Verdict
+	}
+	ratios := func(scenarios []string) string {
+		var parts []string
+		for _, s := range scenarios {
+			parts = append(parts, s+" "+strings.TrimSuffix(probeRatio(e.Rows[s], goSide.Rows[s]), "x"))
+		}
+		return strings.Join(parts, ", ")
+	}
+	line := v.Verdict + " (" + from
+	if len(v.Faster) > 0 {
+		line += ": " + ratios(v.Faster)
+	}
+	if len(v.Slower) > 0 {
+		line += "; slower: " + ratios(v.Slower)
+	}
+	return line + ")"
 }
 
 // ---------------------------------------------------------------- evidence
@@ -1412,10 +1458,10 @@ func (r *probeReport) text(fams probeFile, kinds []string) string {
 		}
 		goSide := sides["go"]
 		v, from := probeKindVerdict(goSide, map[string]probeSide{"ergo-test": sides["ergo-test"], "ergo-check": sides["ergo-check"]})
-		fmt.Fprintf(&b, "\n**%s:** %s", kind, v)
+		fmt.Fprintf(&b, "\n**%s:** %s", kind, probeVerdictLine(v, from, goSide, sides[from]))
 		if from != "" {
 			e := sides[from]
-			fmt.Fprintf(&b, " (from %s; to go: cold %s, warm %s, edit %s)", from, probeRatio(e.Rows["cold"], goSide.Rows["cold"]), probeRatio(e.Rows["warm"], goSide.Rows["warm"]), probeRatio(e.Rows["edit"], goSide.Rows["edit"]))
+			fmt.Fprintf(&b, "; all three to go: cold %s, warm %s, edit %s", probeRatio(e.Rows["cold"], goSide.Rows["cold"]), probeRatio(e.Rows["warm"], goSide.Rows["warm"]), probeRatio(e.Rows["edit"], goSide.Rows["edit"]))
 		} else {
 			fmt.Fprintf(&b, " (ergo-test %d of %d, ergo-check %d of %d kills)", sides["ergo-test"].Kills, len(fam.Mutants), sides["ergo-check"].Kills, len(fam.Mutants))
 		}
