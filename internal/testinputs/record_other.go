@@ -9,3 +9,6 @@ const UserNamespacesRefused = "refused: "
 // probeUserNamespaces: no other system has the sweep's sandbox, so no run
 // there is reused.
 func probeUserNamespaces() string { return "unsupported off Linux" }
+
+// boxRecording: no other system has the sweep's sandbox to match.
+func boxRecording() string { return "unsupported off Linux" }

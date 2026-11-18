@@ -60,6 +60,9 @@ func Main(m *testing.M) int { return MainFunc(m, m.Run) }
 func MainFunc(m *testing.M, run func() int) int {
 	log := testLog(os.Args[1:])
 	if base := os.Getenv(RecordVariable); base != "" && !observed && impostor == "" && log == "" {
+		if why := boxRecording(); why != "" {
+			fmt.Fprintln(os.Stderr, "testinputs: the recorded run lacks the sweep's view, so the sweep will run these tests itself:", why)
+		}
 		r, recordLog, err := startRecording(base)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "testinputs: record the run:", err)

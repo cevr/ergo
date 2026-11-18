@@ -37,11 +37,13 @@ func TestReuseTarget(t *testing.T) {
 // step of the merge tier runs it once that tier gives its steps the
 // sweep's guarantees, records the same inputs as the sweep's own run of
 // the package, the child process's read included, and the sweep reuses
-// it. The same run outside the sandbox, with the checkout writable, is
-// refused, and the refusal names the guarantee. Mutants: the recorder
-// passes no test log (heavy-cost2-record-unobserved), no identity file
-// (heavy-cost2-record-no-identity), or probes nothing
-// (heavy-cost2-record-tree-unprobed).
+// it. The same run outside the sandbox boxes itself and is reused alike;
+// with no bwrap to box it, it sees the checkout writable and is refused,
+// and the refusal names the guarantee. Mutants: the recorder passes no
+// test log (heavy-cost2-record-unobserved), no identity file
+// (heavy-cost2-record-no-identity), probes nothing
+// (heavy-cost2-record-tree-unprobed), or does not box itself
+// (heavy-cost2-record-unboxed).
 func TestRecordedRunReadsAsASweptRun(t *testing.T) {
 	needSandbox(t)
 	self, err := os.Executable()
@@ -60,7 +62,9 @@ func TestRecordedRunReadsAsASweptRun(t *testing.T) {
 		t.Fatalf("the swept run did not see the child's read: %v", swept)
 	}
 
-	record := func(sandboxed bool) string {
+	// record runs the target with testinputs.RecordVariable, in the sweep's
+	// sandbox or not, and with path as PATH when it is not "".
+	record := func(sandboxed bool, path string) string {
 		base, err := filepath.EvalSymlinks(t.TempDir())
 		if err != nil {
 			t.Fatal(err)
@@ -71,6 +75,9 @@ func TestRecordedRunReadsAsASweptRun(t *testing.T) {
 		}
 		t.Cleanup(func() { s.remove() })
 		env := withEnv(testEnv(f.pkg, target, testinputs.RecordVariable+"="+base), s.env()...)
+		if path != "" {
+			env = withEnv(env, "PATH="+path)
+		}
 		out := filepath.Join(t.TempDir(), "out")
 		if sandboxed {
 			deadline, err := runDeadline(0)
@@ -93,7 +100,7 @@ func TestRecordedRunReadsAsASweptRun(t *testing.T) {
 	names := []string{"TestReuseTarget"}
 	sweptEnv := withEnv(sweepEnvironment(), target)
 
-	base := record(true)
+	base := record(true, "")
 	recs, dirs, err := testinputs.ReadRecords(base, pkg)
 	if err != nil {
 		t.Fatal(err)
@@ -111,17 +118,48 @@ func TestRecordedRunReadsAsASweptRun(t *testing.T) {
 		t.Errorf("the recorded run's inputs differ from the swept run's:\nrecorded %v\nswept    %v", reused, swept)
 	}
 
-	base = record(false)
+	// Outside the sweep's sandbox, as a go test step runs it, the run
+	// boxes itself in bwrap and records what the sweep's run records.
+	base = record(false, "")
 	recs, dirs, err = testinputs.ReadRecords(base, pkg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if why := reuseRefusal(recs, dirs, pkg, f.pkg, names, sweptEnv); !strings.Contains(why, "checkout writable") {
+	if why := reuseRefusal(recs, dirs, pkg, f.pkg, names, sweptEnv); why != "" {
+		t.Fatalf("the sweep refused the run that boxed itself: %s", why)
+	}
+	boxed, err := recordedEntries(recs, dirs, []string{f.root}, pkg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.SortFunc(boxed, func(a, b entry) int { return strings.Compare(a.path+" "+a.op, b.path+" "+b.op) })
+	if !slices.Equal(boxed, swept) {
+		t.Errorf("the boxed run's inputs differ from the swept run's:\nrecorded %v\nswept    %v", boxed, swept)
+	}
+
+	// With no bwrap to box it, the run records unboxed, and the sweep
+	// refuses it with the guarantee named.
+	bin := t.TempDir()
+	for _, name := range []string{"cat", "true"} {
+		found, err := exec.LookPath(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(found, filepath.Join(bin, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	base = record(false, bin)
+	recs, dirs, err = testinputs.ReadRecords(base, pkg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if why := reuseRefusal(recs, dirs, pkg, f.pkg, names, withEnv(sweptEnv, "PATH="+bin)); !strings.Contains(why, "checkout writable") {
 		t.Errorf("a run that saw the checkout writable: refusal %q; want it named", why)
 	}
 	// The sweep needs user namespaces on this host (needSandbox), so a run
-	// outside its sandbox can make one, and the probe says so.
+	// left outside a box can make one, and the probe says so.
 	if len(recs) != 1 || recs[0].UserNamespaces != "allowed" {
-		t.Errorf("a run outside the sandbox: user namespaces %q; want allowed", recs[0].UserNamespaces)
+		t.Errorf("a run outside the sandbox: records %d, user namespaces %q; want 1, allowed", len(recs), recs[0].UserNamespaces)
 	}
 }

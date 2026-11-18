@@ -20,7 +20,9 @@ import (
 // The process gives itself a test log, so it is observed as a swept run is,
 // the observer's access-time identity file, and a Go build cache of its
 // package's own for the programs it starts (the sweep's shared cache:
-// TestSharedCacheKeepsEachPackagesInputs). It writes a Record of what the
+// TestSharedCacheKeepsEachPackagesInputs). Without the sweep's view (the
+// root read-only, no user namespace), it first executes itself again in a
+// bwrap box that gives it (boxRecording). It writes a Record of what the
 // sweep's guarantees need, measured in the process, never assumed: the
 // sweep reuses a run only when every guarantee holds, and runs the tests
 // itself otherwise.
