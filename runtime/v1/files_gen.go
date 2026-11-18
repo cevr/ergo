@@ -498,6 +498,7 @@ var bodyTable = map[string]bodyFact{
 	"mailbox.Wake":              {refusal: "runtime/v1: mailbox.Wake: the receiver type mailbox is not declared"},
 	"rpcDefect.Error":           {refusal: "runtime/v1: rpcDefect.Error: the receiver type rpcDefect is not declared"},
 	"strategy.Pick":             {refusal: "runtime/v1: strategy.Pick: the receiver type strategy is not declared"},
+	"tee.Event":                 {refusal: "runtime/v1: tee.Event: the receiver type tee is not declared"},
 	"textError.Error":           {refusal: "runtime/v1: textError.Error: the receiver type textError is not declared"},
 	"webURL.String":             {refusal: "runtime/v1: webURL.String: the receiver type webURL is not declared"},
 }
