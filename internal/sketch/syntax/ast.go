@@ -409,6 +409,9 @@ func (f *Field) End() Pos {
 		return f.Where.End()
 	}
 	if f.Type == nil {
+		if f.Own != nil {
+			return f.Own.At + Pos(len("own")) // [T own]
+		}
 		return f.Names[len(f.Names)-1].End()
 	}
 	return f.Type.End()

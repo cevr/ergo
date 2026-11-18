@@ -558,7 +558,7 @@ func isAny(x Expr) bool {
 }
 
 // parseTypeParams parses `[T ordered]`, `[A, B]`, `[K comparable, V]`,
-// `[T lent Counter]` or
+// `[T own]`, `[T own Counter]`, `[T lent Counter]` (for ergo fix) or
 // `[E any, K comparable]` with Go's grouping: names before a constraint
 // share it, names at the end without one have none, and `any` gives a group
 // none where a constrained group follows it.
@@ -575,6 +575,15 @@ func (p *parser) parseTypeParams() *FieldList {
 			if id, ok := f.Type.(*Ident); ok && id.Name == "lent" && p.tok.tok != COMMA && p.tok.tok != RBRACK {
 				f.Lent, f.Type = id.Pos(), p.parseTypeName("a constraint")
 			}
+			// `own` marks the parameters a resource may bind, alone or
+			// before a constraint: `[T own]`, `[T own Counter]` (types.md,
+			// Generics 9; EXM2). It is a word, as on a parameter.
+			if id, ok := f.Type.(*Ident); ok && id.Name == "own" {
+				f.Own, f.Type = &Word{At: id.Pos()}, nil
+				if p.tok.tok != COMMA && p.tok.tok != RBRACK {
+					f.Type = p.parseTypeName("a constraint")
+				}
+			}
 			l.List = append(l.List, f)
 			pending = nil
 		}
@@ -589,7 +598,7 @@ func (p *parser) parseTypeParams() *FieldList {
 	// group: `[E any, K comparable]`. Anywhere else it is the checker's
 	// "Ergo has no any" (types.md, Generics 2).
 	for i, f := range l.List[:max(len(l.List)-1, 0)] {
-		if isAny(f.Type) && l.List[i+1].Type != nil && !isAny(l.List[i+1].Type) {
+		if next := l.List[i+1]; isAny(f.Type) && (next.Type != nil || next.Own != nil) && !isAny(next.Type) {
 			f.Any, f.Type = f.Type.Pos(), nil
 		}
 	}
