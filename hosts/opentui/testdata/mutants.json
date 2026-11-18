@@ -1,0 +1,6 @@
+{
+  "about": "Mutants of hosts/opentui (the schema of hosts/mygo's ledger). Each edit is applied to a scratch copy of the repository without .git, then the killers run. A killer is module:Test, where module is a directory of this Go module.",
+  "mutants": [
+    {"name":"OT0-fetch-no-integrity","origin":"OT0","file":"hosts/opentui/ot/fetch.go","from":"if err := CheckIntegrity(data, want); err != nil {","to":"if err := CheckIntegrity(data, want); false && err != nil {","rule":"a tarball whose bytes differ from the pinned sha512 integrity is refused before it is read","killers":["hosts/opentui/ot:TestFetchChecksIntegrity"]}
+  ]
+}
