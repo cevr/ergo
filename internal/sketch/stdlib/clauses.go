@@ -89,6 +89,7 @@ var ArgClauses = []ArgClause{
 	{"tasks.Transform", "f", "escaping", "TasksTransform calls f on child tasks, up to limit of them at once (lang audit B, F1, probes race and race2); it waits for every call before it returns, but the calls run at the same time"},
 	{"tasks.Go", "set", "lent", "TasksGo adds a member to set under its lock and keeps set only in that member's task, which set's own Wait, Stop or Close drains (v1.DrainsLends) before set is released"},
 	{"tasks.Go", "body", "escaping", "TasksGo runs body as a member of set, on a task of its own, after Go returned"},
+	{"testing.At", "f", "escaping", "HookAt keeps f in the process's table of armed points after At returns, and the next task to reach Point(name) runs it on that task (RT-HOOK); a stall of the caller's domain while it is armed stops the run; only a test build calls it"},
 	{"time.timeAsleep", "t", "lent", "TimeAsleep reads t's task pointer to compare it with the clock's sleepers, under the clock's lock, on the caller's goroutine, and keeps nothing (FK4-g2-g1)"},
 	{"timeout.After", "f", "escaping", "After runs f on a child task (rt.AfterSpan); joining it orders the runs but does not make a caller-owned resource's task-affine operations safe on that child"},
 }

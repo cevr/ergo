@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"weak"
 )
 
 // Instant is a time on a clock: nanoseconds since the Unix epoch, as
@@ -85,6 +86,9 @@ type Virtual struct {
 	change       chan struct{}
 	// advancing is set while an AdvanceSettled runs: one at a time.
 	advancing bool
+	// up is the domain the task that made this one was a member of
+	// (stall.go): weak, so a chain of old domains is not kept.
+	up weak.Pointer[Virtual]
 }
 
 // AdvanceRunning is AdvanceSettled's result when another AdvanceSettled of
