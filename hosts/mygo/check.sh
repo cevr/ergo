@@ -18,6 +18,9 @@ set -eu
 cd "$(dirname "$0")"
 export GOFLAGS="${GOFLAGS:--mod=readonly}"
 for dir in drawing .; do
+	# ergo reads the whole module graph (MyGo's CLI, go.mod's tool, among
+	# it), which go test alone does not download.
+	go -C "$dir" mod download
 	go -C "$dir" test -count=1 -timeout=15m ./...
 	for target in linux/amd64 linux/arm64 darwin/arm64 windows/amd64 js/wasm; do
 		GOOS=${target%/*} GOARCH=${target#*/} CGO_ENABLED=0 go -C "$dir" vet ./...
