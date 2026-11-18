@@ -15,8 +15,8 @@ import (
 const wheelSource = `
 type Digit int where 0 <= it && it <= 9
 type Counter {
-	Add(n Digit),
-	Total() Digit,
+	mut Add(n Digit),
+	mut Total() Digit,
 	law AddJoins(a Digit, b Digit) { Add(a); Add(b) } == { Add(plus(a, b)) },
 }
 type Wheel { at Digit } implements Counter

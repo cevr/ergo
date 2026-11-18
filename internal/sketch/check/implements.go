@@ -466,7 +466,7 @@ func (c *checker) checkImplementsClauses() {
 			// receiver to each conversion, which checks it at the instance
 			// (assignableTo, implementsCapturing).
 			checkReceiver := !(len(n.TParams) > 0 && isHostNamed(op))
-			if why := c.implementsCapturing(&Pointer{Elem: self}, it, checkReceiver, &foreign); why != "" {
+			if why := c.implementsAt(&Pointer{Elem: self}, it, checkReceiver, &foreign, op); why != "" {
 				c.errorf(n.implExprs[i], CodeProvider, "%s does not implement %s: %s (types.md, Interface assignability 1)", n.Obj.Name, op, strings.TrimPrefix(why, "*"))
 			}
 		}
@@ -639,12 +639,41 @@ func (c *checker) recordMutOp(t Type, op string) bool {
 	if legacyRecord == nil || !ok {
 		return false
 	}
-	o := n.origin()
-	if o.Obj == nil || o.Obj.Decl == nil || o.Obj.Pkg == nil || isHostNamed(o) {
+	o := declaringOp(n.origin(), op, map[*Named]bool{})
+	if o == nil || o.Obj == nil || o.Obj.Decl == nil || o.Obj.Pkg == nil || isHostNamed(o) {
 		return false
 	}
 	legacyRecord(LegacyPair{Type: o.Obj, Pkg: o.Obj.Pkg.Path, Site: "mut", MutOp: op})
 	return true
+}
+
+// declaringOp is the operation type that declares the operation op among
+// n and the types its members `..I` include, so the fix marks it where it
+// is written; nil when none does.
+func declaringOp(n *Named, op string, seen map[*Named]bool) *Named {
+	if n == nil || seen[n] {
+		return nil
+	}
+	seen[n] = true
+	if n.Obj != nil && n.Obj.Decl != nil {
+		if spec, ok := n.Obj.Decl.Spec.(*syntax.InterfaceType); ok {
+			for _, m := range spec.Methods {
+				if len(m.Names) > 0 && m.Names[0].Name == op {
+					return n
+				}
+			}
+		}
+	}
+	it := asInterface(n)
+	if it == nil {
+		return nil
+	}
+	for _, inc := range it.includes {
+		if d := declaringOp(inc.origin(), op, seen); d != nil {
+			return d
+		}
+	}
+	return nil
 }
 
 // sameOps reports whether every operation of op is an operation of k with

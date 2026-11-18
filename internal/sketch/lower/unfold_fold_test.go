@@ -14,9 +14,9 @@ import (
 // constant append, the short arm a slice of a constant.
 const unfoldFoldSource = `type Tape {
 	..Writer,
-	Written() string,
-	raw(text string),
-	count(n int),
+	mut Written() string,
+	mut raw(text string),
+	mut count(n int),
 
 	law RawJoins(a string, b string) { raw(a); raw(b) } == { raw(a + b) },
 }

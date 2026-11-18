@@ -19,9 +19,9 @@ import (
 // *Box; Get and Sum read. A Box starts with two elements, so Get and Put
 // at 0 and 1 are in range.
 const cellHeader = `type Bag {
-	Push(n int),
-	Put(i int, n int),
-	Bump(n int),
+	mut Push(n int),
+	mut Put(i int, n int),
+	mut Bump(n int),
 	Get(i int) int,
 	Sum() int,
 	seal(),
@@ -177,7 +177,7 @@ func Close(r Res) {}
 
 type Bag {
 	..Closer,
-	Add(n int),
+	mut Add(n int),
 	seal(),
 }
 

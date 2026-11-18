@@ -479,7 +479,7 @@ func TestBorrowConvModel(t *testing.T) {
 func TestBorrowConvRepro(t *testing.T) {
 	src := `// law-exempt: the repro's operation type.
 type Counter {
-	Bump() int,
+	mut Bump() int,
 }
 
 type Tally { n int } implements Counter
@@ -544,6 +544,7 @@ func usePeek(t mut Tally) int { peek(t) }
 	want := []string{
 		"1:14: S108 lent is gone: a type parameter binds no borrow; write [T] or [T C], and declare the parameter that the body writes through x mut T (types.md, Generics 2); ergo fix rewrites it",
 		"3:15: S108 lent is gone: a type parameter binds no borrow; write [T] or [T C], and declare the parameter that the body writes through x mut T (types.md, Generics 2); ergo fix rewrites it",
+		"11:42: S106 Tally does not implement Peeks: Tally.Peek writes its receiver (mut Tally), and the operation Peek does not: declare it mut Peek(…) (types.md, Interface assignability 1)",
 		"19:31: S108 opPlain cannot take a borrow as its T (mut Tally): a type parameter binds no borrow; to write through the argument, declare the parameter x mut T and pass &x (types.md, Generics 2)",
 		"21:37: S108 Bump is a mut operation, which writes its receiver, and x is a read T; write x mut T where it is declared (types.md, Generics 2)",
 		"25:33: S108 Tally does not satisfy the constraint Peeks of peek's T: Tally.Peek writes its receiver (mut Tally), and the operation Peek does not: declare it mut Peek(…) (types.md, Generics 2)",

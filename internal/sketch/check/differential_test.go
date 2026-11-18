@@ -985,12 +985,12 @@ func TestDifferentialInfoNames(t *testing.T) {
 func inferProgram(rng *rand.Rand, wrap int) twin {
 	var b twinBuilder
 	b.each("package p\n\n", "")
-	b.each("type I0[T any] interface{ M(T) T }\n\n", "type I0[T] { M(T) T }\n\n")
-	b.each("type W0 interface {\n\tM(int) int\n\tN()\n}\n\n", "type W0 {\n\tM(int) int,\n\tN(),\n}\n\n")
-	b.each("type J0 interface{ M(int) int }\n\n", "type J0 { M(int) int }\n\n")
-	b.each("type K0 interface{ M(string) string }\n\n", "type K0 { M(string) string }\n\n")
-	b.each("type A0[T any] interface{ M(T) T }\n\n", "type A0[T] { M(T) T }\n\n")
-	b.each("type V0[T any] interface {\n\tM(T) T\n\tN()\n}\n\n", "type V0[T] {\n\tM(T) T,\n\tN(),\n}\n\n")
+	b.each("type I0[T any] interface{ M(T) T }\n\n", "type I0[T] { mut M(T) T }\n\n")
+	b.each("type W0 interface {\n\tM(int) int\n\tN()\n}\n\n", "type W0 {\n\tmut M(int) int,\n\tmut N(),\n}\n\n")
+	b.each("type J0 interface{ M(int) int }\n\n", "type J0 { mut M(int) int }\n\n")
+	b.each("type K0 interface{ M(string) string }\n\n", "type K0 { mut M(string) string }\n\n")
+	b.each("type A0[T any] interface{ M(T) T }\n\n", "type A0[T] { mut M(T) T }\n\n")
+	b.each("type V0[T any] interface {\n\tM(T) T\n\tN()\n}\n\n", "type V0[T] {\n\tmut M(T) T,\n\tmut N(),\n}\n\n")
 	results := []string{"int", "string"}
 	nS := 1 + rng.Intn(3)
 	var values, types []string
@@ -1016,7 +1016,8 @@ func inferProgram(rng *rand.Rand, wrap int) twin {
 			}
 		}
 		b.each(fmt.Sprintf("type S%d struct{}\n\n", k), fmt.Sprintf("type S%d {} implements %s\n\n", k, strings.Join(decl, ", ")))
-		// Go's pointer receiver is Ergo's borrow, written mut (MODES-2).
+		// Go's pointer receiver is Ergo's borrow, written mut (MODES-2),
+		// which implements the operations because they are mut (MODES-4).
 		erecv := strings.Replace(recv, "*", "mut ", 1)
 		b.each(fmt.Sprintf("func (%s) M(v %s) %s { return v }\n\n", recv, r, r), fmt.Sprintf("func M(_ %s, v %s) %s { return v }\n\n", erecv, r, r))
 		if withN {

@@ -823,12 +823,13 @@ func (c *checker) implementsCapturing(v Type, it *Interface, checkReceiver bool,
 }
 
 // implementsAt is implementsCapturing, at a type parameter's constraint
-// when constraint (the constraint's type) is set: there a function on mut T implements an
-// operation marked mut (mut Bump()), and the generic body calls it on a
-// mut T only (types.md, Generics 2; MODES-4). Everywhere else a function
-// on mut T implements an operation for a value with a place, &x, as
-// before.
-func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, capture *bool, constraint Type) string {
+// or a type's implements clause when declared (the operation type) is
+// set: there a function on mut T implements only an operation marked mut
+// (mut Bump()), and a generic body calls it on a mut T only (types.md,
+// Generics 2; Interface assignability 1; MODES-4). A conversion
+// (declared nil) reads the clause's verdict: a function on mut T
+// provides its operation for a value with a place, &x.
+func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, capture *bool, declared Type) string {
 	foreign := false
 	// The method set of *T holds the *T-receiver methods too, as in Go
 	// (N1); T's holds only the value-receiver ones.
@@ -857,12 +858,12 @@ func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, captur
 			return fmt.Sprintf("the Go method %s.%s has a pointer receiver; pass a go.Ref[%s]", v, m.Name, v)
 		}
 		switch {
-		case fn != nil && fn.Ptr && !ptr && constraint != nil && !m.Sig.MutSelf:
-			if c.recordMutOp(constraint, m.Name) {
-				break // ergo fix: the old rule ([T lent C]) admitted it, and the fix marks it
+		case fn != nil && fn.Ptr && declared != nil && !m.Sig.MutSelf:
+			if c.recordMutOp(declared, m.Name) {
+				break // ergo fix: the old rule admitted it, and the fix marks the operation mut
 			}
 			return fmt.Sprintf("%s.%s writes its receiver (mut %s), and the operation %s does not: declare it mut %s(…)", v, m.Name, v, m.Name, m.Name)
-		case fn != nil && fn.Ptr && !ptr && constraint == nil:
+		case fn != nil && fn.Ptr && !ptr && declared == nil:
 			return fmt.Sprintf("%s.%s has a mut %s receiver", v, m.Name, v)
 		case fn == nil && got.MutSelf && !m.Sig.MutSelf:
 			return fmt.Sprintf("%s.%s writes its receiver (mut %s()), and the operation it implements does not", v, m.Name, m.Name)

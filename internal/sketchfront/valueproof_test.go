@@ -19,7 +19,7 @@ func TestLedgerRefusesReachableRewrite(t *testing.T) {
 		t.Skip("native proof admission")
 	}
 	const source = `
-type Counter { Inc(), Twice(), Read() bool,
+type Counter { mut Inc(), mut Twice(), Read() bool,
 	law Two() { Inc(); Inc() } == { Twice() },
 }
 type Box { at bool } implements Counter

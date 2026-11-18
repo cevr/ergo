@@ -231,7 +231,7 @@ func TestDotCallHintAcrossPackages(t *testing.T) {
 		t.Fatalf("library: %s", describe(ds))
 	}
 	for _, tc := range []struct{ name, body, want, not string }{
-		{"exported", "let mut b = a.Box[int]{V: 1}\n\tb.Twice()\n\tb.V", "Twice takes *a.Box[int], one instance, and a dot call reaches a function on a generic type only when its first parameter takes the function's own type parameters: call a.Twice(&b)", "write func"},
+		{"exported", "let mut b = a.Box[int]{V: 1}\n\tb.Twice()\n\tb.V", "Twice takes mut a.Box[int], one instance, and a dot call reaches a function on a generic type only when its first parameter takes the function's own type parameters: call a.Twice(&b)", "write func"},
 		{"unexported", "let b = a.Box[int]{V: 1}\n\tb.half()", "a.Box[int] has no field or method half", "half takes"},
 	} {
 		src := "import a\nfunc f() int {\n\t" + tc.body + "\n}\n"

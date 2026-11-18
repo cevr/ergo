@@ -28,12 +28,12 @@ var gcapSeed = flag.Uint64("gcap.seed", 0, "run TestGenericCapabilitiesAgree on 
 
 const gcapHelpers = `// law-exempt: the property's operation types.
 type Store[T] {
-	Put(v T),
+	mut Put(v T),
 }
 
 // law-exempt: the property's operation types.
 type Tally[T] {
-	Bump(v T),
+	mut Bump(v T),
 }
 
 type Box[T] { n int } implements Store[T], Tally[T]

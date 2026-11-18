@@ -23,7 +23,7 @@ const cellLib = `type Bag {
 }
 
 type Open {
-	Add(n int),
+	mut Add(n int),
 	Total() int,
 }
 
@@ -105,7 +105,7 @@ func TestProviderCellDiagnostics(t *testing.T) {
 		} else {
 			op, fn = "\tTotal() int,\n", "func Total(k Kept) int { k.n }\n"
 		}
-		return "type Bag {\n\tAdd(n int),\n" + op + "\tseal(),\n}\ntype Res { id int } implements Closer\nfunc Close(r Res) {}\ntype Kept { r Res, n int } implements Bag\nfunc Add(k mut Kept, n int) { k.n = k.n + n }\n" + fn + "func seal(k Kept) {}\n"
+		return "type Bag {\n\tmut Add(n int),\n" + op + "\tseal(),\n}\ntype Res { id int } implements Closer\nfunc Close(r Res) {}\ntype Kept { r Res, n int } implements Bag\nfunc Add(k mut Kept, n int) { k.n = k.n + n }\n" + fn + "func seal(k Kept) {}\n"
 	}
 	for _, row := range []struct {
 		name, src string
@@ -192,7 +192,7 @@ func cellConfinementProgram(rng *rand.Rand) (src string, want map[int]string) {
 	b.WriteString(`import task
 
 type Bag {
-	Add(n int),
+	mut Add(n int),
 	seal(),
 }
 

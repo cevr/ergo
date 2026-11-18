@@ -15,8 +15,8 @@ import (
 // on it. It has no main, so no ergo test of its own writes a ledger.
 const importedTapeSource = `type Tape {
 	..Writer,
-	Written() string,
-	raw(text string),
+	mut Written() string,
+	mut raw(text string),
 
 	law RawJoins(a string, b string) { raw(a); raw(b) } == { raw(a + b) },
 }
