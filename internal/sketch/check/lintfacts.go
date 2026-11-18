@@ -58,6 +58,53 @@ func ProgramType(t Type) bool {
 	return !pkg.Std() && !pkg.Host() && pkg != universeOnce.goPkg
 }
 
+// ProvidesOperation reports whether f is a method of its first
+// parameter's type (#196) that provides an operation of an operation type
+// the type declares it implements: a call of the operation reaches f with
+// no call that names it.
+func (f *Func) ProvidesOperation() bool {
+	if f == nil || f.Sig == nil || len(f.Sig.Params) == 0 {
+		return false
+	}
+	t := f.Sig.Params[0].Type
+	if p, ok := t.(*Pointer); ok {
+		t = p.Elem
+	}
+	n, ok := t.(*Named)
+	if !ok || n.method(f.Name) != f {
+		return false
+	}
+	for _, impl := range n.origin().impls {
+		if it, ok := impl.underlying().(*Interface); ok {
+			for _, m := range it.Methods {
+				if m.Name == f.Name {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// Entry is the package's entry function, main, or nil: a package with one
+// is a program's root, whose code no other package imports.
+func (p *Package) Entry() *Func {
+	if p == nil || p.Scope == nil {
+		return nil
+	}
+	f, _ := p.Scope.names["main"].(*Func)
+	return f
+}
+
+// MentionsParam reports whether the type t names the type parameter tp
+// anywhere in it. The checker resolves a type parameter's name to the
+// type, not to a use (Info.Uses), so a reader finds it through types.
+func MentionsParam(t Type, tp *TypeParam) bool {
+	found := false
+	eachTypeParam(t, func(p *TypeParam) { found = found || p == tp })
+	return found
+}
+
 // Import is one import of a file: its spec, the name the file binds, and
 // the package it resolved to (a std, program or host package).
 type Import struct {

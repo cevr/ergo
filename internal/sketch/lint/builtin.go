@@ -20,6 +20,7 @@ var builtinRules = []*Rule{
 	silentCatch, foreignErrorPublic, foreignWhereStd, deprecated, unboundedCollect, raceForTimeout,
 	cognitiveComplexity, cyclomaticComplexity, halsteadDifficulty, knownValueWidening, bannedWords,
 	withAtEntry, conceptFileNames,
+	unusedDeclaration, unusedTypeParameter, duplicateTest, duplicateShape, identicalArms, unbuiltVariant,
 }
 
 // builtinPresets are the built-in presets over builtinRules.
@@ -43,9 +44,10 @@ func builtinPresets() []Preset {
 			Rules: on(silentCatch, foreignErrorPublic, foreignWhereStd, deprecated, unboundedCollect, raceForTimeout),
 		},
 		{
-			Name:  Strict,
-			Doc:   "Complexity caps (cognitive and cyclomatic 21, Halstead difficulty 79) and style: known-value widening and banned words.",
-			Rules: on(cognitiveComplexity, cyclomaticComplexity, halsteadDifficulty, knownValueWidening, bannedWords),
+			Name: Strict,
+			Doc:  "Complexity caps (cognitive and cyclomatic 21, Halstead difficulty 79), style (known-value widening, banned words) and dead or duplicate code: unused declarations and type parameters, duplicate tests and shapes, identical arms, unbuilt variants.",
+			Rules: on(cognitiveComplexity, cyclomaticComplexity, halsteadDifficulty, knownValueWidening, bannedWords,
+				unusedDeclaration, unusedTypeParameter, duplicateTest, duplicateShape, identicalArms, unbuiltVariant),
 		},
 		{
 			Name:  Layout,
