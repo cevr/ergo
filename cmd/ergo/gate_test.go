@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,7 +31,8 @@ var gateWork = []string{
 //
 // It kills gate-module-not-replayed, gate-module-key-omits-tree,
 // gate-fmt-not-stored, gate-lint-not-stored, gate-gen-not-stored,
-// gate-gen-key-omits-contract and gate-fmt-key-omits-bytes.
+// gate-gen-key-omits-contract, gate-fmt-key-omits-bytes and
+// ledger-library-resolves-toolchain.
 func TestGateReplaysWhatHolds(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	t.Setenv("ERGO_CACHE", "")
@@ -47,9 +49,20 @@ func TestGateReplaysWhatHolds(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	before := stage.Snapshot()
 	first := runGate(t, mod)
+	after := stage.Snapshot()
 	if len(first.Failed) > 0 {
 		t.Fatalf("first run failed: %v", first.Failed)
+	}
+	// No package has a test, a law or a main, so the first run builds
+	// nothing either: not even the patched compile a build would take
+	// (GATE-CORE-COST: the law ledger's write resolved the toolchain for a
+	// library, a go build of cmd/compile into a cold cache).
+	for _, name := range []string{"go_commands", "processes"} {
+		if after[name] != before[name] {
+			t.Errorf("first run: %s went from %d to %d, want no build", name, before[name], after[name])
+		}
 	}
 	for _, verb := range []string{"check", "fmt", "lint", "test", "gen"} {
 		if first.Computed[verb] == 0 {
@@ -57,9 +70,9 @@ func TestGateReplaysWhatHolds(t *testing.T) {
 		}
 	}
 
-	before := stage.Snapshot()
+	before = stage.Snapshot()
 	second := runGate(t, mod)
-	after := stage.Snapshot()
+	after = stage.Snapshot()
 	if len(second.Failed) > 0 {
 		t.Fatalf("second run failed: %v", second.Failed)
 	}
@@ -120,10 +133,17 @@ func TestGateReplaysWhatHolds(t *testing.T) {
 // runGate runs the gate over the module at dir.
 func runGate(t *testing.T, dir string) gateRun {
 	t.Helper()
+	before := stage.Snapshot()
 	run, err := gateModule(dir)
 	if err != nil {
 		t.Fatalf("gate: %v", err)
 	}
+	after := stage.Snapshot()
+	var work []string
+	for _, name := range gateWork {
+		work = append(work, fmt.Sprintf("%s %d", name, after[name]-before[name]))
+	}
+	t.Logf("gate run: computed %v, replayed %v; work: %s", run.Computed, run.Replayed, strings.Join(work, ", "))
 	return run
 }
 
