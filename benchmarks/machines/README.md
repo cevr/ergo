@@ -26,7 +26,9 @@ action or per-level timer, so nothing observable differs.
   one second per timer).
 - `testdata/control` is the Go reference: switch machines, and S7
   emulated as plusthree's statig and smlang drivers emulate it (a cancel
-  and a schedule effect pushed into a reused buffer).
+  and a schedule effect pushed into a reused buffer). `s1actor` and
+  `s7actor` are the floor of the actor modes: a goroutine that owns the
+  state, asked over one unbuffered channel and answering on another.
 - `measure.ts` takes instructions per event from `perf stat -e
   instructions:u` at N and at 0, and heap bytes per event from the peak
   resident size with `GOGC=off` at N and at 0 (an Ergo program cannot read
