@@ -728,6 +728,86 @@
         "examples:modules/fluid",
         "examples:fluid-gallery"
       ]
+    },
+    {
+      "name": "fl4-press-takes-mirror-signal",
+      "origin": "wf10/fl4 FL4",
+      "file": "modules/fluid/gui/draw.ergo",
+      "from": "\t\t\tDraw[E](f, kids[i])",
+      "to": "\t\t\tDraw[E](f, kids[len(kids)-1-i])",
+      "rule": "Kids are drawn in reverse, so the i-th button sends another press's signal: PressSendsItsSignal (and AccessOfGuiIsAccessOfPart, by order).",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl4-key-binding-dropped",
+      "origin": "wf10/fl4 FL4",
+      "file": "modules/fluid/gui/draw.ergo",
+      "from": "ui.OnKey(f, func(k ui.KeyPress) Option[E] { Bound[E](keys, k) })",
+      "to": "ui.OnKey(f, func(k ui.KeyPress) Option[E] { Bound[E](keys, ui.KeyPress{..k, Name: \"\"}) })",
+      "rule": "A keyed box's keyboard map sends nothing for a key it binds: PressSendsItsSignal.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl4-expanded-always-open",
+      "origin": "wf10/fl4 FL4",
+      "file": "modules/fluid/gui/draw.ergo",
+      "from": "\t\t\ta.Expanded = Some[bool]{Value: x.Yes}",
+      "to": "\t\t\ta.Expanded = Some[bool]{Value: x.Yes || true}",
+      "rule": "A collapsed box is told to a reader as expanded in the window: AccessOfGuiIsAccessOfPart.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl4-paint-rest-only",
+      "origin": "wf10/fl4 FL4",
+      "file": "modules/fluid/gui/paint.ergo",
+      "from": "look.Merge(l.Rest, look.Overlay(l, st))",
+      "to": "look.Merge(l.Rest, look.Overlay(l, if true { look.Rest } else { st }))",
+      "rule": "The paint is taken from the first of the two merged styles, the rest style, and the state's overlay is dropped: HostsResolveAlike.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
+    },
+    {
+      "name": "fl4-dark-painted-light",
+      "origin": "wf10/fl4 FL4",
+      "file": "modules/fluid/gui/paint.ergo",
+      "from": "\t\tif dark { p.Dark } else { p.Light }",
+      "to": "\t\tp.Light",
+      "rule": "A dark scheme is painted with the light value: HostsResolveAlike.",
+      "anchor": {
+        "tests": [
+          "examples:modules/fluid"
+        ]
+      },
+      "killers": [
+        "examples:modules/fluid"
+      ]
     }
   ]
 }
