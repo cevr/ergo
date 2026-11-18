@@ -8,7 +8,8 @@ import (
 // Frontend reachability (binsize BS5; plan design (a)). A build lowers a
 // declaration of a sourced package (the root package and the local
 // packages it imports) only when it is reachable from the build's entry:
-// main for ergo build and ergo run. The test build of ergo test lowers
+// main for ergo build and ergo run, the exported functions for ergo lib.
+// The test build of ergo test lowers
 // every declaration, as before: a law of an imported operation type runs
 // over the root package's providers of it, an edge no syntax names, and a
 // test binary is not shipped. A package let that nothing
@@ -97,6 +98,15 @@ func (l *lowerer) computeReach() {
 	}
 	if main := l.mainFunc(); main != nil {
 		r.object(main)
+	}
+	if l.lib != "" {
+		// A library's entries are the functions it exports to Go: each
+		// wrapper calls its Ergo body (library.go; red #28).
+		for _, e := range l.exportsOf() {
+			if e.reason == "" {
+				r.object(e.fn)
+			}
+		}
 	}
 	for len(r.work) > 0 {
 		di := r.work[len(r.work)-1]
