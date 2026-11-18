@@ -121,7 +121,7 @@ func TestLayoutOwnersAgreeWithReference(t *testing.T) {
 			f.add("", "")
 			f.add("func support() int { 4 }", "")
 			f.add("", "")
-			f.add("func Use() int { helper() }", "")
+			f.add("func Use() int { helper() + Help() }", "")
 			f.add("", "")
 			f.add("func Help() int { 2 }", "")
 			if !tests {
@@ -130,6 +130,8 @@ func TestLayoutOwnersAgreeWithReference(t *testing.T) {
 			tf := &ownerFile{}
 			files[name+"/tests.ergo"] = tf
 			tf.add("func local() int { 3 }", "")
+			tf.add("", "")
+			tf.add("func both() int { local() }", "")
 			tf.add("", "")
 			tf.add("func dbg() needs Console {", "")
 			tf.add("\tConsole.Println(\"t\")", "")
