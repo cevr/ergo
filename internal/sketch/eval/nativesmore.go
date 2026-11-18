@@ -112,6 +112,17 @@ func registerNativesmore() {
 		now, wait := time.Duration(args[0].(int64)), time.Duration(args[1].(int64))
 		return nil, fr.defect(at, "%s", "a Machine built from parts: the timer armed at "+now.String()+" has In "+wait.String()+", which is not positive; a timer waits a positive duration")
 	}
+	// std machines' firing mark (AfterFiring): set and cleared on the
+	// running task, read by a machine's After (machinevalue.go,
+	// everyTimeout).
+	natives["machines.firingOn"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		in.firing = true
+		return unit{}, in.charge(fr, at, 1)
+	}
+	natives["machines.firingOff"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		in.firing = false
+		return unit{}, in.charge(fr, at, 1)
+	}
 }
 
 // clearedCell is the value of an arena cell takeValue emptied: no live
