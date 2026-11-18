@@ -16,7 +16,9 @@ import (
 //
 //   - Run build, the laws validated by a named run: F and H call no Enc;
 //     H calls Read once; P calls no Pick and Read once. G calls Enc, and
-//     its row says AsWritten.
+//     its row says AsWritten. K, a call of the user's Keep marked
+//     `// ergo:aswritten`, is kept the same way, and both marked calls
+//     stay calls (AW-ERGO).
 //   - The reference, -rewrites=off, -rewrites=proved (the law is only
 //     validated) and a missing entry: F calls Enc.
 //   - Test build: F calls v1.Shadow, even with no ledger; G does not.
@@ -34,7 +36,7 @@ import (
 // lf6d-site-index-shared, lf6d-canary-every-ignored,
 // lf6d-canary-go-equality-for-floats, lf6d-canary-default,
 // lf6d-enc-ignored. LF6w: St's statement call is no site; mutant
-// lf6w-stmt-site. Loop's operand reads s, which the loop writes, so LF3's
+// lf6w-stmt-site. AW-ERGO: aw-inline-not-exempt, aw-line-unread. Loop's operand reads s, which the loop writes, so LF3's
 // loop memo does not hoist Read out of the condition (I-FLIP).
 func TestRewriteAtTakesOneDecision(t *testing.T) {
 	const src = `func Enc(s string) string { s + "!" }
@@ -48,6 +50,11 @@ law DecEnc(s string) { Dec(Enc(s)) } == { s }
 func F(t string) string { Dec(Enc(t)) }
 
 func G(t string) string { AsWritten(Dec(Enc(t))) }
+
+// ergo:aswritten
+func Keep[T](v T) T { v }
+
+func K(t string) string { Keep(Dec(Enc(t))) }
 
 func H(t string) string { Dec(Enc(Read(t))) }
 
@@ -104,6 +111,7 @@ func main() {
 	let _ = F("a")
 	let _ = St("k")
 	let _ = G("b")
+	let _ = K("l")
 	let _ = H("c")
 	let _ = P("d")
 	let _ = Q(true)
@@ -173,8 +181,13 @@ func main() {
 	if count(on["P"], "Pick") != 0 || count(on["P"], "Read") != 1 {
 		t.Errorf("run build: P calls %v; want no Pick, and Read still evaluated once, though the right side drops it", on["P"])
 	}
-	if count(on["G"], "Enc") != 1 || len(on["row not applied: AsWritten"]) != 1 {
-		t.Errorf("run build: G calls %v, rows %v; want Enc, kept by AsWritten", on["G"], on)
+	if count(on["G"], "Enc") != 1 || count(on["K"], "Enc") != 1 || len(on["row not applied: AsWritten"]) != 2 {
+		t.Errorf("run build: G calls %v, K calls %v, rows %v; want Enc in both, kept by AsWritten and by the user's Keep", on["G"], on["K"], on)
+	}
+	// AW-ERGO: a marked function's call stays a call (the inliner skips
+	// it), in std and in a user's package alike.
+	if count(on["G"], "AsWritten") != 1 || count(on["K"], "Keep") != 1 {
+		t.Errorf("run build: G calls %v, K calls %v; want the marked call kept as a call", on["G"], on["K"])
 	}
 	// The pass (LF6p): a right side another law matches is rewritten too
 	// (IdId's Dec(Enc(t)) by DecEnc); a site whose operand would move
