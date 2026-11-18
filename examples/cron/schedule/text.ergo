@@ -1,0 +1,44 @@
+// Package schedule is the domain of cron: a table of jobs, and Run, which
+// fires them on a clock in a time zone. The expression, its parser and
+// printer and the next time it fires are std cron's; this package adds
+// the table, the run, and the text of a minute. Everything but Run is
+// pure.
+
+import civil
+import time
+import tz
+
+// minuteLayout is how the program writes and reads a minute.
+func minuteLayout() civil.DateTimeFormat {
+	civil.FromLayout("2006-01-02 15:04 Mon") catch {
+	case civil.BadPattern:
+		Unreachable("a layout of Go's elements")
+	}
+}
+
+// Text is the minute of t in z as "2006-01-02 15:04 Mon".
+func Text(t time.Time, z tz.Zone) string { civil.FormatDateTime(tz.Civil(z, t), minuteLayout()) }
+
+// BadMinute is a text that is not a minute written "2006-01-02 15:04".
+type BadMinute { Text string }
+
+// MinuteIn is the instant of the wall time text, written "2006-01-02
+// 15:04", in z. A minute z skips is read a gap later, and a minute z shows
+// twice at its first showing (tz.Compatible), as std cron fires them.
+func MinuteIn(text string, z tz.Zone) time.Time fails BadMinute {
+	let f = civil.FromLayout("2006-01-02 15:04") catch {
+	case civil.BadPattern:
+		Unreachable("a layout of Go's elements")
+	}
+	let dt = civil.ParseDateTime(f, text) catch {
+	case civil.ParseError:
+		return BadMinute{Text: text}
+	}
+	tz.Compatible(tz.Resolve(z, dt))
+}
+
+// MinuteOf is t with its seconds dropped.
+func MinuteOf(t time.Time) time.Time {
+	let s = time.UnixSeconds(t)
+	time.Unix(if s >= 0 { s / 60 * 60 } else { (s - 59) / 60 * 60 }, 0)
+}

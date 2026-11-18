@@ -31,7 +31,7 @@ import "embed"
 //go:embed csv/*.ergo codec/*.ergo json/*.ergo toml/*.ergo rpc/*.ergo config/*.ergo
 //go:embed testing/*.ergo explore/*.ergo
 //go:embed tasks/*.ergo pubsub/*.ergo stream/*.ergo
-//go:embed schedule/*.ergo
+//go:embed schedule/*.ergo cron/*.ergo
 //go:embed http/*.ergo
 //go:embed actor/*.ergo
 //go:embed journal/*.ergo journal/memory/*.ergo journal/file/*.ergo

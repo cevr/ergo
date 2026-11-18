@@ -1,28 +1,29 @@
+// Package cron is cron expressions (docs/spec/stdlib.md, cron; std-spike
+// D4): Parse reads the five fields of Vixie cron and its macros, Format
+// writes them back, Matches says whether a wall time fires, and Next and
+// Previous find the instants an expression fires in a time zone, over std
+// civil and tz. It was examples/cron's schedule package. Effect's Cron is
+// the reference for the intent: Cron.parse, Cron.match, Cron.next and
+// Cron.sequence; not taken: parseUnsafe (Parse has typed failures) and
+// Either results (a fails row). Go's std has no cron
+// (github.com/robfig/cron is the common package).
+
 import strconv
 import strings
 
-// Field is the values one field of an expression matches, one bit per
-// value. Star is whether the field is * or */s, one part with no list:
-// the day of the month and the day of the week must both match when one
-// of them is a Star, and either may match when neither is (Vixie cron).
-type Field { Bits uint64, Star bool }
+// Field is the values one field of an expression matches. Star is whether
+// the field is * or */s, one part with no list: the day of the month and
+// the day of the week must both match when one of them is a Star, and
+// either may match when neither is (Vixie cron). Only Parse makes one.
+type Field { bits uint64, star bool }
 
 // Expr is a cron expression: minute, hour, day of the month, month and
 // day of the week.
 type Expr { Minute Field, Hour Field, Dom Field, Month Field, Dow Field }
 
-// Bounds is the values a field can take, and the names of its values
+// bounds is the values a field can take, and the names of its values
 // when it has names (months and weekdays).
-type Bounds { Name string, Min int, Max int, Names []string }
-
-// Fields are the five fields' bounds, in order.
-let Fields = []Bounds{
-	Bounds{Name: "minute", Min: 0, Max: 59, Names: []string{}},
-	Bounds{Name: "hour", Min: 0, Max: 23, Names: []string{}},
-	Bounds{Name: "day of month", Min: 1, Max: 31, Names: []string{}},
-	Bounds{Name: "month", Min: 1, Max: 12, Names: MonthNames},
-	Bounds{Name: "day of week", Min: 0, Max: 6, Names: DayNames},
-}
+type bounds { name string, min int, max int, names []string }
 
 // The failures of Parse. Each names the field and the text it refuses.
 
@@ -41,6 +42,17 @@ type BadStep { Field string, Text string }
 // BadRange is a range whose end comes before its start.
 type BadRange { Field string, From int, To int }
 
+// fieldBounds are the five fields' bounds, in order.
+func fieldBounds() []bounds {
+	[]bounds{
+		bounds{name: "minute", min: 0, max: 59, names: []string{}},
+		bounds{name: "hour", min: 0, max: 23, names: []string{}},
+		bounds{name: "day of month", min: 1, max: 31, names: []string{}},
+		bounds{name: "month", min: 1, max: 12, names: []string{"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"}},
+		bounds{name: "day of week", min: 0, max: 6, names: []string{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}},
+	}
+}
+
 // Parse reads text as an expression: five fields separated by spaces, or
 // one of the macros @yearly (@annually), @monthly, @weekly, @daily
 // (@midnight) and @hourly. A field is a list of parts separated by
@@ -52,12 +64,13 @@ func Parse(text string) Expr fails FieldCount | BadValue | OutOfRange | BadStep 
 	if len(words) != 5 {
 		return FieldCount{Got: len(words)}
 	}
+	let b = fieldBounds()
 	Expr{
-		Minute: try field(Fields[0], words[0]),
-		Hour:   try field(Fields[1], words[1]),
-		Dom:    try field(Fields[2], words[2]),
-		Month:  try field(Fields[3], words[3]),
-		Dow:    try field(Fields[4], words[4]),
+		Minute: try field(b[0], words[0]),
+		Hour:   try field(b[1], words[1]),
+		Dom:    try field(b[2], words[2]),
+		Month:  try field(b[3], words[3]),
+		Dow:    try field(b[4], words[4]),
 	}
 }
 
@@ -80,7 +93,7 @@ func macro(text string) string {
 }
 
 // field reads one field's text within b.
-func field(b Bounds, text string) Field fails BadValue | OutOfRange | BadStep | BadRange {
+func field(b bounds, text string) Field fails BadValue | OutOfRange | BadStep | BadRange {
 	let mut bits uint64 = 0
 	for part in strings.Split(text, ",") {
 		let mut base = part
@@ -90,15 +103,15 @@ func field(b Bounds, text string) Field fails BadValue | OutOfRange | BadStep | 
 			base = h.Value.Before
 			step = strconv.Atoi(h.Value.After) catch {
 			case strconv.Malformed, strconv.OutOfRange:
-				return BadStep{Field: b.Name, Text: part}
+				return BadStep{Field: b.name, Text: part}
 			}
 			if step < 1 {
-				return BadStep{Field: b.Name, Text: part}
+				return BadStep{Field: b.name, Text: part}
 			}
 		case None:
 		}
-		let mut from = b.Min
-		let mut to = b.Max
+		let mut from = b.min
+		let mut to = b.max
 		if base != "*" {
 			match strings.Cut(base, "-") {
 			case Some[strings.Halves] as r:
@@ -106,35 +119,35 @@ func field(b Bounds, text string) Field fails BadValue | OutOfRange | BadStep | 
 				to = try value(b, r.Value.After)
 			case None:
 				from = try value(b, base)
-				to = if step > 1 { b.Max } else { from }
+				to = if step > 1 { b.max } else { from }
 			}
 		}
 		if to < from {
-			return BadRange{Field: b.Name, From: from, To: to}
+			return BadRange{Field: b.name, From: from, To: to}
 		}
 		for v in from..to+1 {
 			if (v-from)%step == 0 {
-				bits = bits | bit(if b.Name == "day of week" && v == 7 { 0 } else { v })
+				bits = bits | bit(if b.name == "day of week" && v == 7 { 0 } else { v })
 			}
 		}
 	}
-	Field{Bits: bits, Star: !strings.Contains(text, ",") && strings.HasPrefix(text, "*")}
+	Field{bits: bits, star: !strings.Contains(text, ",") && strings.HasPrefix(text, "*")}
 }
 
 // value reads one value of b: a number, or a name of b's values.
-func value(b Bounds, text string) int fails BadValue | OutOfRange {
-	for i, name in b.Names {
+func value(b bounds, text string) int fails BadValue | OutOfRange {
+	for i, name in b.names {
 		if strings.EqualFold(text, name) {
-			return b.Min + i
+			return b.min + i
 		}
 	}
 	let n = strconv.Atoi(text) catch {
 	case strconv.Malformed, strconv.OutOfRange:
-		return BadValue{Field: b.Name, Text: text}
+		return BadValue{Field: b.name, Text: text}
 	}
-	let max = if b.Name == "day of week" { 7 } else { b.Max }
-	if n < b.Min || n > max {
-		return OutOfRange{Field: b.Name, Value: n, Min: b.Min, Max: max}
+	let max = if b.name == "day of week" { 7 } else { b.max }
+	if n < b.min || n > max {
+		return OutOfRange{Field: b.name, Value: n, Min: b.min, Max: max}
 	}
 	n
 }
@@ -143,37 +156,41 @@ func value(b Bounds, text string) int fails BadValue | OutOfRange {
 func bit(v int) uint64 { uint64(1) << uint64(v) }
 
 // Has reports whether f matches v.
-func Has(f Field, v int64) bool { f.Bits&bit(int(v)) != 0 }
+func Has(f Field, v int) bool { v >= 0 && v < 64 && f.bits&bit(v) != 0 }
+
+// IsStar reports whether f was written as * or */s.
+func IsStar(f Field) bool { f.star }
 
 // Format is the text of e: each field as * when it was written from *
 // and matches all its values, as */s when it was written from * with a
 // step, and otherwise as a list of values and ranges. Parse reads it back
-// to e.
+// to e (law FormatParseRoundTrips).
 func Format(e Expr) string {
 	let fields = []Field{e.Minute, e.Hour, e.Dom, e.Month, e.Dow}
+	let b = fieldBounds()
 	let mut out = []string{}
 	for i, f in fields {
-		out = out.Append(formatField(Fields[i], f))
+		out = out.Append(formatField(b[i], f))
 	}
 	strings.Join(out, " ")
 }
 
 // formatField is the text of f within b.
-func formatField(b Bounds, f Field) string {
+func formatField(b bounds, f Field) string {
 	let mut values = []int{}
-	for v in b.Min..b.Max+1 {
-		if f.Bits&bit(v) != 0 {
+	for v in b.min..b.max+1 {
+		if Has(f, v) {
 			values = values.Append(v)
 		}
 	}
-	if f.Star {
-		if len(values) == b.Max-b.Min+1 {
+	if f.star {
+		if len(values) == b.max-b.min+1 {
 			return "*"
 		}
 		if len(values) >= 2 {
 			return "*/\(values[1] - values[0])"
 		}
-		return "*/\(b.Max - b.Min + 1)"
+		return "*/\(b.max - b.min + 1)"
 	}
 	let mut parts = []string{}
 	let mut i = 0
@@ -186,4 +203,23 @@ func formatField(b Bounds, f Field) string {
 		i = j + 1
 	}
 	strings.Join(parts, ",")
+}
+
+// FormatParseRoundTrips: the text of a drawn expression parses back to it.
+law FormatParseRoundTrips(seed uint64) {
+	let e = drawnExpr(seed)
+	let back = Parse(Format(e)) catch {
+	case FieldCount, BadValue, OutOfRange, BadStep, BadRange:
+		return false
+	}
+	back == e
+}
+
+// WeekdaySevenIsSunday: 7 in the day-of-week field is Sunday, as 0 is,
+// and a name of any case is its number.
+law WeekdaySevenIsSunday() {
+	let a = try Parse("0 0 * * 7")
+	let b = try Parse("0 0 * * 0")
+	let c = try Parse("0 0 * jAn sUN")
+	a == b && Has(c.Month, 1) && Has(c.Dow, 0) && !Has(c.Dow, 7)
 }

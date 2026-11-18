@@ -1,0 +1,179 @@
+// Wall times: whether an expression fires at a minute of the calendar, and
+// the next and previous such minute. A wall minute is counted from
+// 1970-01-01 00:00 as if every day had 1,440 minutes, which a calendar
+// reading does; a zone gives it an instant (next.ergo).
+
+import civil
+import time
+
+// Horizon is how many years NextWall and Next look ahead, and PreviousWall
+// and Previous look back: a 29th of February that is a given weekday
+// comes back within 28 years, so an expression that does not fire within
+// the horizon never fires (0 0 30 2 *).
+func Horizon() int { 28 }
+
+// Matches reports whether e fires at the minute of dt: its minute, hour,
+// month and day fields hold dt's, the seconds of dt aside.
+func Matches(e Expr, dt civil.DateTime) bool { matchesAt(e, wallMinute(dt)) }
+
+// NextWall is the first wall minute after the minute of dt at which e
+// fires, or None when e does not fire within Horizon years.
+func NextWall(e Expr, dt civil.DateTime) Option[civil.DateTime] {
+	match nextAt(e, wallMinute(dt), civil.Year(dt.Date)+Horizon()) {
+	case Some[int64] as w:
+		Some[civil.DateTime]{Value: wallOf(w.Value)}
+	case None:
+		None
+	}
+}
+
+// PreviousWall is the last wall minute before dt at which e fires, or
+// None when e does not fire within Horizon years. The minute of dt counts
+// when dt is past its first second.
+func PreviousWall(e Expr, dt civil.DateTime) Option[civil.DateTime] {
+	let w = wallMinute(dt)
+	let from = if civil.Second(dt.Time) > 0 || civil.Nanosecond(dt.Time) > 0 { w + 1 } else { w }
+	match previousAt(e, from, civil.Year(dt.Date)-Horizon()) {
+	case Some[int64] as p:
+		Some[civil.DateTime]{Value: wallOf(p.Value)}
+	case None:
+		None
+	}
+}
+
+// wallMinute is the wall minute of dt, its seconds dropped.
+func wallMinute(dt civil.DateTime) int64 {
+	civil.UnixDays(dt.Date)*1440 + int64(civil.Hour(dt.Time)*60+civil.Minute(dt.Time))
+}
+
+// dayOf is the day of the wall minute w, counted from 1970-01-01.
+func dayOf(w int64) int64 { if w >= 0 { w / 1440 } else { (w - 1439) / 1440 } }
+
+// wallOf is the calendar reading of the wall minute w.
+func wallOf(w int64) civil.DateTime {
+	let day = dayOf(w)
+	let m = int(w - day*1440)
+	let tod = civil.NewTimeOfDay(m/60, m%60, 0, 0) catch {
+	case civil.NoSuchTime:
+		Unreachable("a minute of the day is 0 to 1439")
+	}
+	civil.DateTime{Date: civil.FromUnixDays(day), Time: tod}
+}
+
+// monthOf and weekdayOf are the numbers a cron field names: 1 to 12, and
+// 0 (Sunday) to 6.
+func monthOf(d civil.Date) int { time.MonthNumber(civil.Month(d)) }
+
+func weekdayOf(d civil.Date) int { time.WeekdayNumber(civil.Weekday(d)) }
+
+// dayMatches reports whether e's day fields match d: both when one is a
+// Star, either when neither is (Vixie cron).
+func dayMatches(e Expr, d civil.Date) bool {
+	if e.Dom.star || e.Dow.star {
+		return Has(e.Dom, civil.Day(d)) && Has(e.Dow, weekdayOf(d))
+	}
+	Has(e.Dom, civil.Day(d)) || Has(e.Dow, weekdayOf(d))
+}
+
+// matchesAt reports whether e fires at the wall minute w.
+func matchesAt(e Expr, w int64) bool {
+	let day = dayOf(w)
+	let d = civil.FromUnixDays(day)
+	let m = int(w - day*1440)
+	Has(e.Minute, m%60) && Has(e.Hour, m/60) && Has(e.Month, monthOf(d)) && dayMatches(e, d)
+}
+
+// nextAt is the first wall minute after w at which e fires, or None past
+// the year limit. It skips a whole month, day or hour that cannot match,
+// so it steps at most a few thousand times a year.
+func nextAt(e Expr, w int64, limit int) Option[int64] {
+	let mut at = w + 1
+	for {
+		let day = dayOf(at)
+		let d = civil.FromUnixDays(day)
+		let m = at - day*1440
+		if civil.Year(d) > limit {
+			return None
+		}
+		if !Has(e.Month, monthOf(d)) {
+			at = civil.UnixDays(civil.AddMonths(civil.StartOf(d, civil.Months), 1)) * 1440
+		} else if !dayMatches(e, d) {
+			at = (day + 1) * 1440
+		} else if !Has(e.Hour, int(m/60)) {
+			at = day*1440 + (m/60+1)*60
+		} else if !Has(e.Minute, int(m%60)) {
+			at = at + 1
+		} else {
+			return Some[int64]{Value: at}
+		}
+	}
+	None
+}
+
+// previousAt is the last wall minute before w at which e fires, or None
+// before the year limit, skipping as nextAt does.
+func previousAt(e Expr, w int64, limit int) Option[int64] {
+	let mut at = w - 1
+	for {
+		let day = dayOf(at)
+		let d = civil.FromUnixDays(day)
+		let m = at - day*1440
+		if civil.Year(d) < limit {
+			return None
+		}
+		if !Has(e.Month, monthOf(d)) {
+			at = civil.UnixDays(civil.StartOf(d, civil.Months))*1440 - 1
+		} else if !dayMatches(e, d) {
+			at = day*1440 - 1
+		} else if !Has(e.Hour, int(m/60)) {
+			at = day*1440 + (m/60)*60 - 1
+		} else if !Has(e.Minute, int(m%60)) {
+			at = at - 1
+		} else {
+			return Some[int64]{Value: at}
+		}
+	}
+	None
+}
+
+// NextWallIsFirstMatch: no wall minute between dt and NextWall(e, dt)
+// fires, and e fires at it: a walk of every minute of two days finds the
+// same minute, or none when NextWall's is later.
+law NextWallIsFirstMatch(seed uint64) {
+	let e = drawnExpr(seed)
+	let dt = drawnWall(seed)
+	let walked = walkWall(e, dt, 2880, 1)
+	let ok = match NextWall(e, dt) {
+	case Some[civil.DateTime] as n:
+		Matches(e, n.Value) && (walked == Some[civil.DateTime]{Value: n.Value} || walked == None && civil.Sub(n.Value, dt) > 2880m)
+	case None:
+		walked == None
+	}
+	ok
+}
+
+// PreviousWallIsLastMatch: as NextWallIsFirstMatch, backward.
+law PreviousWallIsLastMatch(seed uint64) {
+	let e = drawnExpr(seed)
+	let dt = drawnWall(seed)
+	let walked = walkWall(e, dt, 2880, -1)
+	let ok = match PreviousWall(e, dt) {
+	case Some[civil.DateTime] as p:
+		Matches(e, p.Value) && (walked == Some[civil.DateTime]{Value: p.Value} || walked == None && civil.Sub(dt, p.Value) > 2880m)
+	case None:
+		walked == None
+	}
+	ok
+}
+
+// EitherDayMatches: when neither day field is *, a day fires when either
+// field holds it (Vixie cron): 0 0 13 * fri fires each Friday and each
+// 13th. When one is a step of *, both must hold it: 0 0 */10 * fri fires
+// only on a Friday that is the 1st, 11th, 21st or 31st.
+law EitherDayMatches() {
+	let either = try Parse("0 0 13 * fri")
+	let both = try Parse("0 0 */10 * fri")
+	let a = firedDays(either, 1794441600, 6)
+	let b = firedDays(both, 1794096000, 1)
+	a == "1794528000 1795132800 1795737600 1796342400 1796947200 1797120000" && b == "1796947200"
+}
