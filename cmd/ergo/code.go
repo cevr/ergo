@@ -197,6 +197,7 @@ type (
 		Arms    []codeArm   `json:"arms"`
 		Timers  []codeTimer `json:"timers"`
 		Work    []codePlace `json:"work"`
+		Exit    []codePlace `json:"exit"`
 		Unsure  []string    `json:"unsure"`
 	}
 	codeArm struct {
@@ -405,7 +406,7 @@ func codeMachineOf(m facts.MachineGraph, handle, name string) codeMachine {
 		return vs
 	}
 	place := func(p facts.Place) codePlace { return codePlace(p) }
-	out := codeMachine{Handle: handle, Name: name, States: list(m.States), Signals: list(m.Signals), Initial: m.Initial, Arms: []codeArm{}, Timers: []codeTimer{}, Work: []codePlace{}, Unsure: list(m.Unsure)}
+	out := codeMachine{Handle: handle, Name: name, States: list(m.States), Signals: list(m.Signals), Initial: m.Initial, Arms: []codeArm{}, Timers: []codeTimer{}, Work: []codePlace{}, Exit: []codePlace{}, Unsure: list(m.Unsure)}
 	for _, a := range m.Arms {
 		arm := codeArm{At: place(a.At), States: list(a.States), AnyState: a.States == nil, Signals: list(a.Signals), AnySignal: a.Signals == nil, Partial: a.Partial, Edges: []codeTransition{}, Alts: []codeAlt{}}
 		for _, x := range a.Alts {
@@ -421,6 +422,9 @@ func codeMachineOf(m facts.MachineGraph, handle, name string) codeMachine {
 	}
 	for _, w := range m.Work {
 		out.Work = append(out.Work, place(w))
+	}
+	for _, x := range m.Exit {
+		out.Exit = append(out.Exit, place(x))
 	}
 	return out
 }

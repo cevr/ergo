@@ -280,8 +280,12 @@ func machinesIn(seed int, i int, p Package) []MachineGraph {
 		}
 		let mut timers = []Timer{}
 		let mut work = []Place{}
+		let mut exit = []Place{}
 		let mut unsure = []string{}
 		for k, s in states {
+			if roll(seed, salt + 140 + k, 3) == 0 {
+				exit = exit.Append(Place{What: s, File: p.Path + "/m.ergo", Line: 240 + k})
+			}
 			match roll(seed, salt + 100 + k, 5) {
 			case 0:
 				timers = timers.Append(Timer{State: s, Signal: signals[roll(seed, salt + 120 + k, len(signals))], At: at(200 + k)})
@@ -293,7 +297,7 @@ func machinesIn(seed int, i int, p Package) []MachineGraph {
 			}
 		}
 		let initial = if roll(seed, salt + 3, 5) == 0 { "*" } else { states[roll(seed, salt + 4, len(states))] }
-		out = out.Append(MachineGraph{Handle: d.Handle, Name: d.Name, States: states, Signals: signals, Initial: initial, Arms: arms, Timers: timers, Work: work, Unsure: unsure})
+		out = out.Append(MachineGraph{Handle: d.Handle, Name: d.Name, States: states, Signals: signals, Initial: initial, Arms: arms, Timers: timers, Work: work, Exit: exit, Unsure: unsure})
 	}
 	out
 }

@@ -134,31 +134,21 @@ func ergoWriteSlice_14(env *Env, wv text, v []string) text {
 	return wv
 }
 
-func ergoWriteSlice_entry_14(env *Env, wv text, v []string) text {
-	w := &wv
-	(w).raw(string("["))
-	(w).setComma(bool(false))
-	_ = len(v)
-	for _, e := range v {
-		(w).sep()
-		(w).stringBody(string(e))
-		(w).setComma(bool(true))
-	}
-	(w).raw(string("]"))
-	(w).setComma(bool(true))
-	return wv
-}
-
 func ergoWriteCycleOut(env *Env, wv text, v CycleOut) text {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"nodes\":"))
+	(w).raw(string("{"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_14(env, *w, v.Nodes)
 	(w).sep()
-	(w).raw(string("\"path\":"))
+	(w).plainBody(string("nodes"))
+	(w).raw(string(":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_14(env, *w, v.Path)
+	*w = ergoWriteSlice_14(env, *w, v.Nodes)
+	(w).sep()
+	(w).plainBody(string("path"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_14(env, *w, v.Path)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -265,12 +255,29 @@ func ergoDecodeSlice_13(env *Env, r Reader_1) ([]StepOut, error) {
 func ergoWriteStepOut(env *Env, wv text, v StepOut) text {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"kind\":"))
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("kind"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Kind))
-	(w).raw(string(",\"from\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("from"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.From))
-	(w).raw(string(",\"to\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("to"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.To))
+	(w).setComma(bool(true))
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -377,12 +384,29 @@ func ergoDecodeSlice_12(env *Env, r Reader_1) ([]ReachedOut, error) {
 func ergoWriteReachedOut(env *Env, wv text, v ReachedOut) text {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"node\":"))
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("node"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Node))
-	(w).raw(string(",\"kind\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("kind"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Kind))
-	(w).raw(string(",\"by\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("by"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.By))
+	(w).setComma(bool(true))
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -515,16 +539,43 @@ func ergoDecodeSlice_11(env *Env, r Reader_1) ([]HiddenOut, error) {
 func ergoWriteHiddenOut(env *Env, wv text, v HiddenOut) text {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"from\":"))
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("from"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.From))
-	(w).raw(string(",\"to\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("to"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.To))
-	(w).raw(string(",\"package\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("package"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Package))
-	(w).raw(string(",\"via\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("via"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Via))
-	(w).raw(string(",\"how\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("how"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.How))
+	(w).setComma(bool(true))
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -669,12 +720,29 @@ func ergoDecodeSlice_10(env *Env, r Reader_1) ([]FanOut, error) {
 func ergoWriteFanOut(env *Env, wv text, v FanOut) text {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"node\":"))
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("node"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Node))
-	(w).raw(string(",\"in\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("in"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.In))
-	(w).raw(string(",\"out\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("out"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.Out))
+	(w).setComma(bool(true))
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -1098,28 +1166,85 @@ func ergoDecodeRows(env *Env, r Reader_1) (Rows, error) {
 func ergoWriteNodeRow(env *Env, wv text, v NodeRow) text {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"id\":"))
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("id"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.Id))
-	(w).raw(string(",\"kind\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("kind"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Kind))
-	(w).raw(string(",\"sub\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("sub"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Sub))
-	(w).raw(string(",\"parent\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("parent"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.Parent))
-	(w).raw(string(",\"name\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("name"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Name))
-	(w).raw(string(",\"digest\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("digest"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Digest))
-	(w).raw(string(",\"subject\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("subject"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.Subject))
-	(w).raw(string(",\"file\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("file"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.File))
-	(w).raw(string(",\"offset\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("offset"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.Offset))
-	(w).raw(string(",\"line\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("line"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.Line))
-	(w).raw(string(",\"column\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("column"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.Column))
+	(w).setComma(bool(true))
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -1142,22 +1267,64 @@ func ergoWriteSlice_3(env *Env, wv text, v []NodeRow) text {
 func ergoWriteEdgeRow(env *Env, wv text, v EdgeRow) text {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"kind\":"))
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("kind"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Kind))
-	(w).raw(string(",\"how\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("how"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.How))
-	(w).raw(string(",\"from\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("from"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.From))
-	(w).raw(string(",\"to\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("to"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.To))
-	(w).raw(string(",\"file\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("file"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.File))
-	(w).raw(string(",\"offset\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("offset"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.Offset))
-	(w).raw(string(",\"line\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("line"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.Line))
-	(w).raw(string(",\"column\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("column"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.Column))
+	(w).setComma(bool(true))
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -1177,44 +1344,28 @@ func ergoWriteSlice_2(env *Env, wv text, v []EdgeRow) text {
 	return wv
 }
 
-func ergoWriteSlice_entry_3(env *Env, wv text, v []NodeRow) text {
-	w := &wv
-	(w).raw(string("["))
-	(w).setComma(bool(false))
-	_ = len(v)
-	for _, e := range v {
-		*w = ergoWriteNodeRow(env, *w, e)
-	}
-	(w).raw(string("]"))
-	(w).setComma(bool(true))
-	return wv
-}
-
-func ergoWriteSlice_entry_2(env *Env, wv text, v []EdgeRow) text {
-	w := &wv
-	(w).raw(string("["))
-	(w).setComma(bool(false))
-	_ = len(v)
-	for _, e := range v {
-		*w = ergoWriteEdgeRow(env, *w, e)
-	}
-	(w).raw(string("]"))
-	(w).setComma(bool(true))
-	return wv
-}
-
 func ergoWriteRows(env *Env, wv text, v Rows) text {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"version\":"))
-	(w).intBody(int64(v.Version))
-	(w).raw(string(",\"nodes\":"))
+	(w).raw(string("{"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_3(env, *w, v.Nodes)
 	(w).sep()
-	(w).raw(string("\"edges\":"))
+	(w).plainBody(string("version"))
+	(w).raw(string(":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_2(env, *w, v.Edges)
+	(w).sep()
+	(w).intBody(int64(v.Version))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("nodes"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_3(env, *w, v.Nodes)
+	(w).sep()
+	(w).plainBody(string("edges"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_2(env, *w, v.Edges)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -1310,7 +1461,7 @@ func (old Rows) Changed(new_1 Rows) []int {
 				}
 			}
 		inl:
-			;
+			_ = 0
 			t[(v_1 + " " + n.Digest)] = true
 		}
 	}
@@ -1338,7 +1489,7 @@ func (old Rows) Changed(new_1 Rows) []int {
 				}
 			}
 		inl_1:
-			;
+			_ = 0
 			v_6 := Get[string, bool](t_1, (v_4 + " " + n_2.Digest))
 			b = (v_6 == (Option[bool]{}).of1((None{})))
 		}
@@ -1696,6 +1847,13 @@ func (t *text) stringBody(s string) {
 	t.out = ergo.JSONAppendQuoted(t.out, s, t.html)
 }
 
+func (t *text) plainBody(s string) {
+	v := append(t.out, "\""...)
+	v_1 := append(v, s...)
+	v_2 := append(v_1, "\""...)
+	t.out = v_2
+}
+
 type Step struct {
 	Kind string
 	From int
@@ -1736,7 +1894,7 @@ func (r Rows) Find(name string) []int {
 			}
 		}
 	inl:
-		;
+		_ = 0
 		if v_1 == name {
 			out = Append[int](out, i_1)
 		}
@@ -1770,7 +1928,7 @@ func (r Rows) Why(a int, b int) Option[[]Step] {
 		}
 		return (Option[[]Step]{}).of0(Some[[]Step]{Value: out})
 	case 1:
-		return (Option[[]Step]{}).of1(None{})
+		return (Option[[]Step]{tag: 1})
 	default:
 		panic("ergo: defect: no case of the match at std/codegraph/codegraph.ergo:433:2 matched")
 	}
@@ -1942,7 +2100,7 @@ func EncodeMono_i4(env *Env, wT struct {
 }
 
 func (r Rows) Chains(min_1 int) [][]int {
-	v := (r).LevelOf((Level{}).of0(Packages{}), true)
+	v := (r).LevelOf((Level{tag: 0}), true)
 	var out [][]int = [][]int{}
 	v_1 := (v.Graph).Chains(min_1)
 	out = ergo.Reserve(out, len(v_1))
@@ -2024,7 +2182,7 @@ func (t *text) intBody(n int64) {
 }
 
 func (r Rows) Up(layers_1 []string) []Step {
-	v := (r).LevelOf((Level{}).of0(Packages{}), true)
+	v := (r).LevelOf((Level{tag: 0}), true)
 	var out []Step = []Step{}
 	v_1 := (v.Graph).Edges()
 	for _, v_2 := range v_1 {
@@ -2336,7 +2494,7 @@ func Get[K comparable, V any](m map[K]V, k K) Option[V] {
 	if v, ok_1 := m[k]; ok_1 {
 		return (Option[V]{}).of0(Some[V]{Value: v})
 	}
-	return (Option[V]{}).of1(None{})
+	return (Option[V]{tag: 1})
 }
 
 type Option[T any] struct {
@@ -2505,13 +2663,6 @@ func (t *text) quote(s string) {
 	}
 }
 
-func (t *text) plainBody(s string) {
-	v := append(t.out, "\""...)
-	v_1 := append(v, s...)
-	v_2 := append(v_1, "\""...)
-	t.out = v_2
-}
-
 func (t *text) bytesBody(b []uint8) {
 	t.out = ergo.JSONAppendQuotedBytes(t.out, b, t.html)
 }
@@ -2552,7 +2703,7 @@ func (t *text) Null() {
 		}
 	}
 inl:
-	;
+	_ = 0
 	(t).raw("null")
 	(t).setComma(true)
 	return
@@ -2566,7 +2717,7 @@ func (t *text) Number(text_1 string) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	(t).raw(text_1)
 	(t).setComma(true)
 	return
@@ -2580,7 +2731,7 @@ func (t *text) Bool(b bool) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	(t).boolBody(b)
 	(t).setComma(true)
 	return
@@ -2594,7 +2745,7 @@ func (t *text) Int(n int64) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	(t).intBody(n)
 	(t).setComma(true)
 	return
@@ -2608,7 +2759,7 @@ func (t *text) Uint(n uint64) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	(t).uintBody(n)
 	(t).setComma(true)
 	return
@@ -2622,7 +2773,7 @@ func (t *text) Float(f float64) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	(t).floatBody(f)
 	(t).setComma(true)
 	return
@@ -2636,7 +2787,7 @@ func (t *text) String_(s string) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	(t).stringBody(s)
 	(t).setComma(true)
 	return
@@ -2650,7 +2801,7 @@ func (t *text) StringBytes(b []uint8) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	(t).bytesBody(b)
 	(t).setComma(true)
 	return
@@ -2664,7 +2815,7 @@ func (t *text) BeginList(n int) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	(t).raw("[")
 	(t).setComma(false)
 	return
@@ -2684,7 +2835,7 @@ func (t *text) BeginObject(n int) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	(t).raw("{")
 	(t).setComma(false)
 	return
@@ -2698,7 +2849,7 @@ func (t *text) Tag(name string) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	(t).raw("\"_tag\":")
 	{
 		v := plain(name)
@@ -2711,7 +2862,7 @@ inl:
 		}
 	}
 inl_1:
-	;
+	_ = 0
 	(t).setComma(true)
 	return
 }
@@ -2724,7 +2875,7 @@ func (t *text) Key(k string) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	{
 		v := plain(k)
 		if v {
@@ -2736,7 +2887,7 @@ inl:
 		}
 	}
 inl_1:
-	;
+	_ = 0
 	(t).raw(":")
 	(t).setComma(false)
 	return
@@ -2849,7 +3000,7 @@ func (r Rows) dependsOf() depends {
 
 func (g Graph) Path(a int, b int) Option[[]int] {
 	if (((a < int(0)) || (a >= g.Size)) || (b < int(0))) || (b >= g.Size) {
-		return (Option[[]int]{}).of1(None{})
+		return (Option[[]int]{tag: 1})
 	}
 	if a == b {
 		return (Option[[]int]{}).of0(Some[[]int]{Value: []int{a}})
@@ -2874,7 +3025,7 @@ func (g Graph) Path(a int, b int) Option[[]int] {
 			}
 		}
 	}
-	return (Option[[]int]{}).of1(None{})
+	return (Option[[]int]{tag: 1})
 }
 
 func (d depends) stepOf(a int, b int) Step {
@@ -3049,19 +3200,19 @@ func (r Reader) Peek(env *Env) WireKind {
 	v := (r.c).Kind()
 	switch v {
 	case int(0):
-		return (WireKind{}).of0(WireNull{})
+		return (WireKind{tag: 0})
 	case int(1):
-		return (WireKind{}).of1(WireBool{})
+		return (WireKind{tag: 1})
 	case int(2):
-		return (WireKind{}).of2(WireNumber{})
+		return (WireKind{tag: 2})
 	case int(3):
-		return (WireKind{}).of3(WireString{})
+		return (WireKind{tag: 3})
 	case int(4):
-		return (WireKind{}).of4(WireList{})
+		return (WireKind{tag: 4})
 	case int(5):
-		return (WireKind{}).of5(WireObject{})
+		return (WireKind{tag: 5})
 	}
-	return (WireKind{}).of6(WireEnd{})
+	return (WireKind{tag: 6})
 }
 
 func (r Reader) Number(env *Env) (string, error) {
@@ -3515,7 +3666,7 @@ func (g Graph) Order() Option[[]int] {
 		}
 	}
 	if len(out) < g.Size {
-		return (Option[[]int]{}).of1(None{})
+		return (Option[[]int]{tag: 1})
 	} else {
 		return (Option[[]int]{}).of0(Some[[]int]{Value: out})
 	}
@@ -3928,7 +4079,7 @@ type Options struct {
 //line tool.ergo:90:1
 func options(args []string) Options {
 //line tool.ergo:91:2
-	var o Options = Options{Json: false, Tests: false, Level: (Level{}).of0(Packages{}), Min: int(2), Words: []string{}, Bad: ""}
+	var o Options = Options{Json: false, Tests: false, Level: (Level{tag: 0}), Min: int(2), Words: []string{}, Bad: ""}
 //line tool.ergo:92:2
 	var i int = int(0)
 //line tool.ergo:93:2
@@ -3964,15 +4115,15 @@ func options(args []string) Options {
 			switch v {
 			/*line tool.ergo:108:4*/ case "package":
 //line tool.ergo:110:5
-				o.Level = (Level{}).of0(Packages{})
+				o.Level = (Level{tag: 0})
 				/*line tool.ergo:110:5*/
 			case "file":
 //line tool.ergo:112:5
-				o.Level = (Level{}).of1(Files{})
+				o.Level = (Level{tag: 1})
 				/*line tool.ergo:112:5*/
 			case "decl":
 //line tool.ergo:114:5
-				o.Level = (Level{}).of2(Decls{})
+				o.Level = (Level{tag: 2})
 				/*line tool.ergo:114:5*/
 			default:
 //line tool.ergo:116:5
@@ -4068,7 +4219,7 @@ func names(r Rows, ids []int) []string {
 			/*line tool.ergo:146:20*/
 		}
 		/*line tool.ergo:146:20*/ inl:
-		;
+		/*line tool.ergo:146:20*/ _ = 0
 //line tool.ergo:146:9
 		v_3 := Append[string](t, v_1)
 //line tool.ergo:146:20
@@ -4230,7 +4381,7 @@ func stepsOut(r Rows, steps []Step) []StepOut {
 			/*line tool.ergo:175:48*/
 		}
 		/*line tool.ergo:175:48*/ inl:
-		;
+		/*line tool.ergo:175:48*/ _ = 0
 		/*line tool.ergo:175:48*/ t_2 := v_1
 //line tool.ergo:175:81
 		var v_3 string
@@ -4255,7 +4406,7 @@ func stepsOut(r Rows, steps []Step) []StepOut {
 			/*line tool.ergo:175:81*/
 		}
 		/*line tool.ergo:175:81*/ inl_1:
-		;
+		/*line tool.ergo:175:81*/ _ = 0
 //line tool.ergo:175:9
 		v_5 := Append[StepOut](t, StepOut{Kind: t_1, From: t_2, To: v_3})
 //line tool.ergo:175:81
@@ -4492,7 +4643,7 @@ func affected(env *Env, r Rows, o Options, changed []int) []string {
 			/*line tool.ergo:235:37*/
 		}
 		/*line tool.ergo:235:37*/ inl:
-		;
+		/*line tool.ergo:235:37*/ _ = 0
 		/*line tool.ergo:235:37*/ t_1 := v_2
 		/*line tool.ergo:235:37*/ t_2 := x.By.Kind
 		/*line tool.ergo:235:37*/ var v_4 string
@@ -4526,7 +4677,7 @@ func affected(env *Env, r Rows, o Options, changed []int) []string {
 				/*line tool.ergo:235:120*/
 			}
 			/*line tool.ergo:235:120*/ inl_1:
-			;
+			/*line tool.ergo:235:120*/ _ = 0
 			/*line tool.ergo:235:120*/ v_4 = v_5
 			/*line tool.ergo:235:120*/
 		}
@@ -4665,7 +4816,7 @@ func hidden(env *Env, r Rows, o Options) []string {
 			/*line tool.ergo:255:36*/
 		}
 		/*line tool.ergo:255:36*/ inl:
-		;
+		/*line tool.ergo:255:36*/ _ = 0
 		/*line tool.ergo:255:36*/ t_1 := v_2
 //line tool.ergo:255:69
 		var v_4 string
@@ -4690,7 +4841,7 @@ func hidden(env *Env, r Rows, o Options) []string {
 			/*line tool.ergo:255:69*/
 		}
 		/*line tool.ergo:255:69*/ inl_1:
-		;
+		/*line tool.ergo:255:69*/ _ = 0
 		/*line tool.ergo:255:69*/ t_2 := v_4
 //line tool.ergo:255:105
 		var v_6 string
@@ -4715,7 +4866,7 @@ func hidden(env *Env, r Rows, o Options) []string {
 			/*line tool.ergo:255:105*/
 		}
 		/*line tool.ergo:255:105*/ inl_2:
-		;
+		/*line tool.ergo:255:105*/ _ = 0
 		/*line tool.ergo:255:105*/ t_3 := v_6
 		/*line tool.ergo:255:105*/ var v_8 string
 //line tool.ergo:255:142
@@ -4748,7 +4899,7 @@ func hidden(env *Env, r Rows, o Options) []string {
 				/*line tool.ergo:255:169*/
 			}
 			/*line tool.ergo:255:169*/ inl_3:
-			;
+			/*line tool.ergo:255:169*/ _ = 0
 			/*line tool.ergo:255:169*/ v_8 = v_9
 			/*line tool.ergo:255:169*/
 		}
@@ -4982,7 +5133,7 @@ func fan(env *Env, r Rows, o Options) []string {
 			/*line tool.ergo:288:33*/
 		}
 		/*line tool.ergo:288:33*/ inl:
-		;
+		/*line tool.ergo:288:33*/ _ = 0
 //line tool.ergo:288:9
 		v_4 := Append[FanOut](t, FanOut{Node: v_2, In: f.In, Out: f.Out})
 //line tool.ergo:288:33

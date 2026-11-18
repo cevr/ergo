@@ -472,7 +472,7 @@ func ergoEncodeSlice_16(env *Env, w Writer_1, v []Place) {
 }
 
 func ergoEncodeMachineGraph(env *Env, w Writer_1, v MachineGraph) {
-	w.BeginObject(env.task, 9)
+	w.BeginObject(env.task, 10)
 	w.Key(env.task, "handle")
 	w.String(env.task, string(v.Handle))
 	w.Key(env.task, "name")
@@ -489,6 +489,8 @@ func ergoEncodeMachineGraph(env *Env, w Writer_1, v MachineGraph) {
 	ergoEncodeSlice_19(env, w, v.Timers)
 	w.Key(env.task, "work")
 	ergoEncodeSlice_16(env, w, v.Work)
+	w.Key(env.task, "exit")
+	ergoEncodeSlice_16(env, w, v.Exit)
 	w.Key(env.task, "unsure")
 	ergoEncodeSlice_27(env, w, v.Unsure)
 	w.EndObject(env.task)
@@ -1731,7 +1733,7 @@ func ergoDecodeMachineGraph(env *Env, r Reader_2) (MachineGraph, error) {
 		return *new(MachineGraph), err
 	}
 	var out MachineGraph
-	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7, seen_8 bool
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7, seen_8, seen_9 bool
 	for r.More(env.task) {
 		switch r.Key(env.task) {
 		case "handle":
@@ -1793,13 +1795,20 @@ func ergoDecodeMachineGraph(env *Env, r Reader_2) (MachineGraph, error) {
 			}
 			out.Work = f_7
 			seen_7 = true
-		case "unsure":
-			f_8, err_9 := ergoDecodeSlice_27(env, r)
+		case "exit":
+			f_8, err_9 := ergoDecodeSlice_16(env, r)
 			if err_9 != nil {
 				return *new(MachineGraph), err_9
 			}
-			out.Unsure = f_8
+			out.Exit = f_8
 			seen_8 = true
+		case "unsure":
+			f_9, err_10 := ergoDecodeSlice_27(env, r)
+			if err_10 != nil {
+				return *new(MachineGraph), err_10
+			}
+			out.Unsure = f_9
+			seen_9 = true
 		default:
 			r.Skip(env.task)
 		}
@@ -1830,6 +1839,9 @@ func ergoDecodeMachineGraph(env *Env, r Reader_2) (MachineGraph, error) {
 		return *new(MachineGraph), WireMissingField{Path: r.Path(env.task), Field: "work"}
 	}
 	if !seen_8 {
+		return *new(MachineGraph), WireMissingField{Path: r.Path(env.task), Field: "exit"}
+	}
+	if !seen_9 {
 		return *new(MachineGraph), WireMissingField{Path: r.Path(env.task), Field: "unsure"}
 	}
 	return out, nil
@@ -2037,22 +2049,64 @@ func ergoDecodeTables(env *Env, r Reader_2) (Tables, error) {
 func ergoWriteDecl(env *Env, wv text_1, v Decl) text_1 {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"handle\":"))
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("handle"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Handle))
-	(w).raw(string(",\"kind\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("kind"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Kind))
-	(w).raw(string(",\"name\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("name"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Name))
-	(w).raw(string(",\"package\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("package"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Package))
-	(w).raw(string(",\"exported\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("exported"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).boolBody(bool(v.Exported))
-	(w).raw(string(",\"file\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("file"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.File))
-	(w).raw(string(",\"line\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("line"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.Line))
-	(w).raw(string(",\"column\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("column"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.Column))
+	(w).setComma(bool(true))
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -2075,20 +2129,57 @@ func ergoWriteSlice_8(env *Env, wv text_1, v []Decl) text_1 {
 func ergoWriteSite(env *Env, wv text_1, v Site) text_1 {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"symbol\":"))
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("symbol"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Symbol))
-	(w).raw(string(",\"kind\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("kind"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Kind))
-	(w).raw(string(",\"package\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("package"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Package))
-	(w).raw(string(",\"file\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("file"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.File))
-	(w).raw(string(",\"line\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("line"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.Line))
-	(w).raw(string(",\"column\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("column"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.Column))
-	(w).raw(string(",\"in\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("in"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.In))
+	(w).setComma(bool(true))
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -2143,16 +2234,43 @@ func ergoWriteSlice_22(env *Env, wv text_1, v []int) text_1 {
 func ergoWriteCopySite(env *Env, wv text_1, v CopySite) text_1 {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"parameterIndex\":"))
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("parameterIndex"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.ParameterIndex))
-	(w).raw(string(",\"parameter\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("parameter"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Parameter))
-	(w).raw(string(",\"where\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("where"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Where))
-	(w).raw(string(",\"what\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("what"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.What))
-	(w).raw(string(",\"key\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("key"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).boolBody(bool(v.Key))
+	(w).setComma(bool(true))
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -2172,79 +2290,73 @@ func ergoWriteSlice_7(env *Env, wv text_1, v []CopySite) text_1 {
 	return wv
 }
 
-func ergoWriteSlice_entry_27(env *Env, wv text_1, v []string) text_1 {
-	w := &wv
-	(w).raw(string("["))
-	(w).setComma(bool(false))
-	_ = len(v)
-	for _, e := range v {
-		(w).sep()
-		(w).stringBody(string(e))
-		(w).setComma(bool(true))
-	}
-	(w).raw(string("]"))
-	(w).setComma(bool(true))
-	return wv
-}
-
-func ergoWriteSlice_entry_22(env *Env, wv text_1, v []int) text_1 {
-	w := &wv
-	(w).raw(string("["))
-	(w).setComma(bool(false))
-	_ = len(v)
-	for _, e := range v {
-		(w).sep()
-		(w).intBody(int64(e))
-		(w).setComma(bool(true))
-	}
-	(w).raw(string("]"))
-	(w).setComma(bool(true))
-	return wv
-}
-
-func ergoWriteSlice_entry_7(env *Env, wv text_1, v []CopySite) text_1 {
-	w := &wv
-	(w).raw(string("["))
-	(w).setComma(bool(false))
-	_ = len(v)
-	for _, e := range v {
-		*w = ergoWriteCopySite(env, *w, e)
-	}
-	(w).raw(string("]"))
-	(w).setComma(bool(true))
-	return wv
-}
-
 func ergoWriteContract(env *Env, wv text_1, v Contract) text_1 {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"name\":"))
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("name"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Name))
-	(w).raw(string(",\"signature\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("signature"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Signature))
-	(w).raw(string(",\"typeParameters\":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_27(env, *w, v.TypeParameters)
+	(w).setComma(bool(true))
 	(w).sep()
-	(w).raw(string("\"fails\":"))
+	(w).plainBody(string("typeParameters"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_27(env, *w, v.TypeParameters)
+	(w).sep()
+	(w).plainBody(string("fails"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Fails))
-	(w).raw(string(",\"needs\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("needs"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Needs))
-	(w).raw(string(",\"takes\":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_27(env, *w, v.Takes)
+	(w).setComma(bool(true))
 	(w).sep()
-	(w).raw(string("\"takesParameters\":"))
+	(w).plainBody(string("takes"))
+	(w).raw(string(":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_22(env, *w, v.TakesParameters)
+	*w = ergoWriteSlice_27(env, *w, v.Takes)
 	(w).sep()
-	(w).raw(string("\"takesSelf\":"))
+	(w).plainBody(string("takesParameters"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_22(env, *w, v.TakesParameters)
+	(w).sep()
+	(w).plainBody(string("takesSelf"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).boolBody(bool(v.TakesSelf))
-	(w).raw(string(",\"takesInferred\":"))
-	(w).boolBody(bool(v.TakesInferred))
-	(w).raw(string(",\"copies\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("takesInferred"))
+	(w).raw(string(":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_7(env, *w, v.Copies)
+	(w).sep()
+	(w).boolBody(bool(v.TakesInferred))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("copies"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_7(env, *w, v.Copies)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -2267,10 +2379,22 @@ func ergoWriteSlice_6(env *Env, wv text_1, v []Contract) text_1 {
 func ergoWriteBinding(env *Env, wv text_1, v Binding) text_1 {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"capability\":"))
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("capability"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Capability))
-	(w).raw(string(",\"provider\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("provider"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Provider))
+	(w).setComma(bool(true))
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -2290,51 +2414,71 @@ func ergoWriteSlice_4(env *Env, wv text_1, v []Binding) text_1 {
 	return wv
 }
 
-func ergoWriteSlice_entry_4(env *Env, wv text_1, v []Binding) text_1 {
-	w := &wv
-	(w).raw(string("["))
-	(w).setComma(bool(false))
-	_ = len(v)
-	for _, e := range v {
-		*w = ergoWriteBinding(env, *w, e)
-	}
-	(w).raw(string("]"))
-	(w).setComma(bool(true))
-	return wv
-}
-
 func ergoWriteCall(env *Env, wv text_1, v Call) text_1 {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"from\":"))
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("from"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.From))
-	(w).raw(string(",\"to\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("to"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.To))
-	(w).raw(string(",\"file\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("file"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.File))
-	(w).raw(string(",\"line\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("line"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.Line))
-	(w).raw(string(",\"column\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("column"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.Column))
-	(w).raw(string(",\"brings\":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_27(env, *w, v.Brings)
+	(w).setComma(bool(true))
 	(w).sep()
-	(w).raw(string("\"discharged\":"))
+	(w).plainBody(string("brings"))
+	(w).raw(string(":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_27(env, *w, v.Discharged)
+	*w = ergoWriteSlice_27(env, *w, v.Brings)
 	(w).sep()
-	(w).raw(string("\"bound\":"))
+	(w).plainBody(string("discharged"))
+	(w).raw(string(":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_4(env, *w, v.Bound)
+	*w = ergoWriteSlice_27(env, *w, v.Discharged)
 	(w).sep()
-	(w).raw(string("\"raises\":"))
+	(w).plainBody(string("bound"))
+	(w).raw(string(":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_27(env, *w, v.Raises)
+	*w = ergoWriteSlice_4(env, *w, v.Bound)
 	(w).sep()
-	(w).raw(string("\"caught\":"))
+	(w).plainBody(string("raises"))
+	(w).raw(string(":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_27(env, *w, v.Caught)
+	*w = ergoWriteSlice_27(env, *w, v.Raises)
+	(w).sep()
+	(w).plainBody(string("caught"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_27(env, *w, v.Caught)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -2357,10 +2501,22 @@ func ergoWriteSlice_5(env *Env, wv text_1, v []Call) text_1 {
 func ergoWriteNeed(env *Env, wv text_1, v Need) text_1 {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"of\":"))
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("of"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Of))
-	(w).raw(string(",\"capability\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("capability"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Capability))
+	(w).setComma(bool(true))
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -2383,10 +2539,22 @@ func ergoWriteSlice_13(env *Env, wv text_1, v []Need) text_1 {
 func ergoWriteFailing(env *Env, wv text_1, v Failing) text_1 {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"of\":"))
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("of"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Of))
-	(w).raw(string(",\"failure\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("failure"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Failure))
+	(w).setComma(bool(true))
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -2409,25 +2577,29 @@ func ergoWriteSlice_9(env *Env, wv text_1, v []Failing) text_1 {
 func ergoWritePlace(env *Env, wv text_1, v Place) text_1 {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"what\":"))
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("what"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.What))
-	(w).raw(string(",\"file\":"))
-	(w).stringBody(string(v.File))
-	(w).raw(string(",\"line\":"))
-	(w).intBody(int64(v.Line))
-	(w).raw(string("}"))
 	(w).setComma(bool(true))
-	return wv
-}
-
-func ergoWritePlace_entry(env *Env, wv text_1, v Place) text_1 {
-	w := &wv
-	(w).raw(string("{\"what\":"))
-	(w).stringBody(string(v.What))
-	(w).raw(string(",\"file\":"))
+	(w).sep()
+	(w).plainBody(string("file"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.File))
-	(w).raw(string(",\"line\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("line"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.Line))
+	(w).setComma(bool(true))
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -2436,13 +2608,27 @@ func ergoWritePlace_entry(env *Env, wv text_1, v Place) text_1 {
 func ergoWriteTransition(env *Env, wv text_1, v Transition) text_1 {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"decision\":"))
-	(w).stringBody(string(v.Decision))
-	(w).raw(string(",\"to\":"))
-	(w).stringBody(string(v.To))
-	(w).raw(string(",\"at\":"))
+	(w).raw(string("{"))
 	(w).setComma(bool(false))
-	*w = ergoWritePlace_entry(env, *w, v.At)
+	(w).sep()
+	(w).plainBody(string("decision"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).stringBody(string(v.Decision))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("to"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).stringBody(string(v.To))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("at"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWritePlace(env, *w, v.At)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -2465,20 +2651,39 @@ func ergoWriteSlice_20(env *Env, wv text_1, v []Transition) text_1 {
 func ergoWriteAlt(env *Env, wv text_1, v Alt) text_1 {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"states\":"))
+	(w).raw(string("{"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_27(env, *w, v.States)
 	(w).sep()
-	(w).raw(string("\"anyState\":"))
+	(w).plainBody(string("states"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_27(env, *w, v.States)
+	(w).sep()
+	(w).plainBody(string("anyState"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).boolBody(bool(v.AnyState))
-	(w).raw(string(",\"signals\":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_27(env, *w, v.Signals)
+	(w).setComma(bool(true))
 	(w).sep()
-	(w).raw(string("\"anySignal\":"))
+	(w).plainBody(string("signals"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_27(env, *w, v.Signals)
+	(w).sep()
+	(w).plainBody(string("anySignal"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).boolBody(bool(v.AnySignal))
-	(w).raw(string(",\"partial\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("partial"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).boolBody(bool(v.Partial))
+	(w).setComma(bool(true))
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -2498,60 +2703,57 @@ func ergoWriteSlice_1(env *Env, wv text_1, v []Alt) text_1 {
 	return wv
 }
 
-func ergoWriteSlice_entry_20(env *Env, wv text_1, v []Transition) text_1 {
-	w := &wv
-	(w).raw(string("["))
-	(w).setComma(bool(false))
-	_ = len(v)
-	for _, e := range v {
-		*w = ergoWriteTransition(env, *w, e)
-	}
-	(w).raw(string("]"))
-	(w).setComma(bool(true))
-	return wv
-}
-
-func ergoWriteSlice_entry_1(env *Env, wv text_1, v []Alt) text_1 {
-	w := &wv
-	(w).raw(string("["))
-	(w).setComma(bool(false))
-	_ = len(v)
-	for _, e := range v {
-		*w = ergoWriteAlt(env, *w, e)
-	}
-	(w).raw(string("]"))
-	(w).setComma(bool(true))
-	return wv
-}
-
 func ergoWriteArm(env *Env, wv text_1, v Arm) text_1 {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"at\":"))
+	(w).raw(string("{"))
 	(w).setComma(bool(false))
-	*w = ergoWritePlace_entry(env, *w, v.At)
 	(w).sep()
-	(w).raw(string("\"states\":"))
+	(w).plainBody(string("at"))
+	(w).raw(string(":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_27(env, *w, v.States)
+	*w = ergoWritePlace(env, *w, v.At)
 	(w).sep()
-	(w).raw(string("\"anyState\":"))
+	(w).plainBody(string("states"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_27(env, *w, v.States)
+	(w).sep()
+	(w).plainBody(string("anyState"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).boolBody(bool(v.AnyState))
-	(w).raw(string(",\"signals\":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_27(env, *w, v.Signals)
+	(w).setComma(bool(true))
 	(w).sep()
-	(w).raw(string("\"anySignal\":"))
+	(w).plainBody(string("signals"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_27(env, *w, v.Signals)
+	(w).sep()
+	(w).plainBody(string("anySignal"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).boolBody(bool(v.AnySignal))
-	(w).raw(string(",\"partial\":"))
-	(w).boolBody(bool(v.Partial))
-	(w).raw(string(",\"edges\":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_20(env, *w, v.Edges)
+	(w).setComma(bool(true))
 	(w).sep()
-	(w).raw(string("\"alts\":"))
+	(w).plainBody(string("partial"))
+	(w).raw(string(":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_1(env, *w, v.Alts)
+	(w).sep()
+	(w).boolBody(bool(v.Partial))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("edges"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_20(env, *w, v.Edges)
+	(w).sep()
+	(w).plainBody(string("alts"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_1(env, *w, v.Alts)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -2574,13 +2776,27 @@ func ergoWriteSlice_3(env *Env, wv text_1, v []Arm) text_1 {
 func ergoWriteTimer(env *Env, wv text_1, v Timer) text_1 {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"state\":"))
-	(w).stringBody(string(v.State))
-	(w).raw(string(",\"signal\":"))
-	(w).stringBody(string(v.Signal))
-	(w).raw(string(",\"at\":"))
+	(w).raw(string("{"))
 	(w).setComma(bool(false))
-	*w = ergoWritePlace_entry(env, *w, v.At)
+	(w).sep()
+	(w).plainBody(string("state"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).stringBody(string(v.State))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("signal"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).stringBody(string(v.Signal))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("at"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWritePlace(env, *w, v.At)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -2614,77 +2830,67 @@ func ergoWriteSlice_16(env *Env, wv text_1, v []Place) text_1 {
 	return wv
 }
 
-func ergoWriteSlice_entry_3(env *Env, wv text_1, v []Arm) text_1 {
-	w := &wv
-	(w).raw(string("["))
-	(w).setComma(bool(false))
-	_ = len(v)
-	for _, e := range v {
-		*w = ergoWriteArm(env, *w, e)
-	}
-	(w).raw(string("]"))
-	(w).setComma(bool(true))
-	return wv
-}
-
-func ergoWriteSlice_entry_19(env *Env, wv text_1, v []Timer) text_1 {
-	w := &wv
-	(w).raw(string("["))
-	(w).setComma(bool(false))
-	_ = len(v)
-	for _, e := range v {
-		*w = ergoWriteTimer(env, *w, e)
-	}
-	(w).raw(string("]"))
-	(w).setComma(bool(true))
-	return wv
-}
-
-func ergoWriteSlice_entry_16(env *Env, wv text_1, v []Place) text_1 {
-	w := &wv
-	(w).raw(string("["))
-	(w).setComma(bool(false))
-	_ = len(v)
-	for _, e := range v {
-		*w = ergoWritePlace(env, *w, e)
-	}
-	(w).raw(string("]"))
-	(w).setComma(bool(true))
-	return wv
-}
-
 func ergoWriteMachineGraph(env *Env, wv text_1, v MachineGraph) text_1 {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"handle\":"))
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("handle"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Handle))
-	(w).raw(string(",\"name\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("name"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Name))
-	(w).raw(string(",\"states\":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_27(env, *w, v.States)
+	(w).setComma(bool(true))
 	(w).sep()
-	(w).raw(string("\"signals\":"))
+	(w).plainBody(string("states"))
+	(w).raw(string(":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_27(env, *w, v.Signals)
+	*w = ergoWriteSlice_27(env, *w, v.States)
 	(w).sep()
-	(w).raw(string("\"initial\":"))
+	(w).plainBody(string("signals"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_27(env, *w, v.Signals)
+	(w).sep()
+	(w).plainBody(string("initial"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Initial))
-	(w).raw(string(",\"arms\":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_3(env, *w, v.Arms)
+	(w).setComma(bool(true))
 	(w).sep()
-	(w).raw(string("\"timers\":"))
+	(w).plainBody(string("arms"))
+	(w).raw(string(":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_19(env, *w, v.Timers)
+	*w = ergoWriteSlice_3(env, *w, v.Arms)
 	(w).sep()
-	(w).raw(string("\"work\":"))
+	(w).plainBody(string("timers"))
+	(w).raw(string(":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_16(env, *w, v.Work)
+	*w = ergoWriteSlice_19(env, *w, v.Timers)
 	(w).sep()
-	(w).raw(string("\"unsure\":"))
+	(w).plainBody(string("work"))
+	(w).raw(string(":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_27(env, *w, v.Unsure)
+	*w = ergoWriteSlice_16(env, *w, v.Work)
+	(w).sep()
+	(w).plainBody(string("exit"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_16(env, *w, v.Exit)
+	(w).sep()
+	(w).plainBody(string("unsure"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_27(env, *w, v.Unsure)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -2704,133 +2910,67 @@ func ergoWriteSlice_11(env *Env, wv text_1, v []MachineGraph) text_1 {
 	return wv
 }
 
-func ergoWriteSlice_entry_8(env *Env, wv text_1, v []Decl) text_1 {
-	w := &wv
-	(w).raw(string("["))
-	(w).setComma(bool(false))
-	_ = len(v)
-	for _, e := range v {
-		*w = ergoWriteDecl(env, *w, e)
-	}
-	(w).raw(string("]"))
-	(w).setComma(bool(true))
-	return wv
-}
-
-func ergoWriteSlice_entry_18(env *Env, wv text_1, v []Site) text_1 {
-	w := &wv
-	(w).raw(string("["))
-	(w).setComma(bool(false))
-	_ = len(v)
-	for _, e := range v {
-		*w = ergoWriteSite(env, *w, e)
-	}
-	(w).raw(string("]"))
-	(w).setComma(bool(true))
-	return wv
-}
-
-func ergoWriteSlice_entry_6(env *Env, wv text_1, v []Contract) text_1 {
-	w := &wv
-	(w).raw(string("["))
-	(w).setComma(bool(false))
-	_ = len(v)
-	for _, e := range v {
-		*w = ergoWriteContract(env, *w, e)
-	}
-	(w).raw(string("]"))
-	(w).setComma(bool(true))
-	return wv
-}
-
-func ergoWriteSlice_entry_5(env *Env, wv text_1, v []Call) text_1 {
-	w := &wv
-	(w).raw(string("["))
-	(w).setComma(bool(false))
-	_ = len(v)
-	for _, e := range v {
-		*w = ergoWriteCall(env, *w, e)
-	}
-	(w).raw(string("]"))
-	(w).setComma(bool(true))
-	return wv
-}
-
-func ergoWriteSlice_entry_13(env *Env, wv text_1, v []Need) text_1 {
-	w := &wv
-	(w).raw(string("["))
-	(w).setComma(bool(false))
-	_ = len(v)
-	for _, e := range v {
-		*w = ergoWriteNeed(env, *w, e)
-	}
-	(w).raw(string("]"))
-	(w).setComma(bool(true))
-	return wv
-}
-
-func ergoWriteSlice_entry_9(env *Env, wv text_1, v []Failing) text_1 {
-	w := &wv
-	(w).raw(string("["))
-	(w).setComma(bool(false))
-	_ = len(v)
-	for _, e := range v {
-		*w = ergoWriteFailing(env, *w, e)
-	}
-	(w).raw(string("]"))
-	(w).setComma(bool(true))
-	return wv
-}
-
-func ergoWriteSlice_entry_11(env *Env, wv text_1, v []MachineGraph) text_1 {
-	w := &wv
-	(w).raw(string("["))
-	(w).setComma(bool(false))
-	_ = len(v)
-	for _, e := range v {
-		*w = ergoWriteMachineGraph(env, *w, e)
-	}
-	(w).raw(string("]"))
-	(w).setComma(bool(true))
-	return wv
-}
-
 func ergoWritePackage(env *Env, wv text_1, v Package) text_1 {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"path\":"))
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("path"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Path))
-	(w).raw(string(",\"complete\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("complete"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).boolBody(bool(v.Complete))
-	(w).raw(string(",\"diagnostics\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("diagnostics"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.Diagnostics))
-	(w).raw(string(",\"decls\":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_8(env, *w, v.Decls)
+	(w).setComma(bool(true))
 	(w).sep()
-	(w).raw(string("\"sites\":"))
+	(w).plainBody(string("decls"))
+	(w).raw(string(":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_18(env, *w, v.Sites)
+	*w = ergoWriteSlice_8(env, *w, v.Decls)
 	(w).sep()
-	(w).raw(string("\"contracts\":"))
+	(w).plainBody(string("sites"))
+	(w).raw(string(":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_6(env, *w, v.Contracts)
+	*w = ergoWriteSlice_18(env, *w, v.Sites)
 	(w).sep()
-	(w).raw(string("\"calls\":"))
+	(w).plainBody(string("contracts"))
+	(w).raw(string(":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_5(env, *w, v.Calls)
+	*w = ergoWriteSlice_6(env, *w, v.Contracts)
 	(w).sep()
-	(w).raw(string("\"needs\":"))
+	(w).plainBody(string("calls"))
+	(w).raw(string(":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_13(env, *w, v.Needs)
+	*w = ergoWriteSlice_5(env, *w, v.Calls)
 	(w).sep()
-	(w).raw(string("\"fails\":"))
+	(w).plainBody(string("needs"))
+	(w).raw(string(":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_9(env, *w, v.Fails)
+	*w = ergoWriteSlice_13(env, *w, v.Needs)
 	(w).sep()
-	(w).raw(string("\"machines\":"))
+	(w).plainBody(string("fails"))
+	(w).raw(string(":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_11(env, *w, v.Machines)
+	*w = ergoWriteSlice_9(env, *w, v.Fails)
+	(w).sep()
+	(w).plainBody(string("machines"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_11(env, *w, v.Machines)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -2850,29 +2990,30 @@ func ergoWriteSlice_14(env *Env, wv text_1, v []Package) text_1 {
 	return wv
 }
 
-func ergoWriteSlice_entry_14(env *Env, wv text_1, v []Package) text_1 {
-	w := &wv
-	(w).raw(string("["))
-	(w).setComma(bool(false))
-	_ = len(v)
-	for _, e := range v {
-		*w = ergoWritePackage(env, *w, e)
-	}
-	(w).raw(string("]"))
-	(w).setComma(bool(true))
-	return wv
-}
-
 func ergoWriteTables(env *Env, wv text_1, v Tables) text_1 {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"revision\":"))
-	(w).stringBody(string(v.Revision))
-	(w).raw(string(",\"root\":"))
-	(w).stringBody(string(v.Root))
-	(w).raw(string(",\"packages\":"))
+	(w).raw(string("{"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_14(env, *w, v.Packages)
+	(w).sep()
+	(w).plainBody(string("revision"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).stringBody(string(v.Revision))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("root"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).stringBody(string(v.Root))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("packages"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_14(env, *w, v.Packages)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -3035,76 +3176,36 @@ func ergoDecodeSlice_2(env *Env, r Reader_2) ([]ApiChange, error) {
 	return out, nil
 }
 
-func ergoWriteContract_entry(env *Env, wv text_1, v Contract) text_1 {
-	w := &wv
-	(w).raw(string("{\"name\":"))
-	(w).stringBody(string(v.Name))
-	(w).raw(string(",\"signature\":"))
-	(w).stringBody(string(v.Signature))
-	(w).raw(string(",\"typeParameters\":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_27(env, *w, v.TypeParameters)
-	(w).sep()
-	(w).raw(string("\"fails\":"))
-	(w).stringBody(string(v.Fails))
-	(w).raw(string(",\"needs\":"))
-	(w).stringBody(string(v.Needs))
-	(w).raw(string(",\"takes\":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_27(env, *w, v.Takes)
-	(w).sep()
-	(w).raw(string("\"takesParameters\":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_22(env, *w, v.TakesParameters)
-	(w).sep()
-	(w).raw(string("\"takesSelf\":"))
-	(w).boolBody(bool(v.TakesSelf))
-	(w).raw(string(",\"takesInferred\":"))
-	(w).boolBody(bool(v.TakesInferred))
-	(w).raw(string(",\"copies\":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_7(env, *w, v.Copies)
-	(w).raw(string("}"))
-	(w).setComma(bool(true))
-	return wv
-}
-
 func ergoWriteOption(env *Env, wv text_1, v Option[Contract]) text_1 {
 	w := &wv
 	switch v.tag {
 	case 0:
 		x := v.v0
 		(w).sep()
-		(w).raw(string("{\"_tag\":\"Some\",\"value\":"))
+		(w).raw(string("{"))
 		(w).setComma(bool(false))
-		*w = ergoWriteContract_entry(env, *w, x.Value)
+		(w).sep()
+		(w).raw(string("\"_tag\":"))
+		(w).plainBody(string("Some"))
+		(w).setComma(bool(true))
+		(w).sep()
+		(w).plainBody(string("value"))
+		(w).raw(string(":"))
+		(w).setComma(bool(false))
+		*w = ergoWriteContract(env, *w, x.Value)
 		(w).raw(string("}"))
 		(w).setComma(bool(true))
 	case 1:
 		x := None{}
 		_ = x
 		(w).sep()
-		(w).raw(string("{\"_tag\":\"None\"}"))
-		(w).setComma(bool(true))
-	}
-	return wv
-}
-
-func ergoWriteOption_entry(env *Env, wv text_1, v Option[Contract]) text_1 {
-	w := &wv
-	switch v.tag {
-	case 0:
-		x := v.v0
-		(w).raw(string("{\"_tag\":\"Some\",\"value\":"))
+		(w).raw(string("{"))
 		(w).setComma(bool(false))
-		*w = ergoWriteContract_entry(env, *w, x.Value)
-		(w).raw(string("}"))
-		(w).setComma(bool(true))
-	case 1:
-		x := None{}
-		_ = x
 		(w).sep()
-		(w).raw(string("{\"_tag\":\"None\"}"))
+		(w).raw(string("\"_tag\":"))
+		(w).plainBody(string("None"))
+		(w).setComma(bool(true))
+		(w).raw(string("}"))
 		(w).setComma(bool(true))
 	}
 	return wv
@@ -3113,18 +3214,32 @@ func ergoWriteOption_entry(env *Env, wv text_1, v Option[Contract]) text_1 {
 func ergoWriteApiChange(env *Env, wv text_1, v ApiChange) text_1 {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"name\":"))
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("name"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Name))
-	(w).raw(string(",\"old\":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteOption_entry(env, *w, v.Old)
+	(w).setComma(bool(true))
 	(w).sep()
-	(w).raw(string("\"new\":"))
+	(w).plainBody(string("old"))
+	(w).raw(string(":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteOption_entry(env, *w, v.New)
+	*w = ergoWriteOption(env, *w, v.Old)
 	(w).sep()
-	(w).raw(string("\"breaksResourceCallers\":"))
+	(w).plainBody(string("new"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteOption(env, *w, v.New)
+	(w).sep()
+	(w).plainBody(string("breaksResourceCallers"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).boolBody(bool(v.BreaksResourceCallers))
+	(w).setComma(bool(true))
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -3189,6 +3304,7 @@ func ergoCloneMachineGraph(v MachineGraph) MachineGraph {
 	c_1.Arms = ergoCloneSlice_6(v.Arms)
 	c_1.Timers = slices.Clone(v.Timers)
 	c_1.Work = slices.Clone(v.Work)
+	c_1.Exit = slices.Clone(v.Exit)
 	c_1.Unsure = slices.Clone(v.Unsure)
 	return c_1
 }
@@ -3398,13 +3514,27 @@ func ergoDecodeSlice_12(env *Env, r Reader_2) ([]MachineView, error) {
 func ergoWritePair(env *Env, wv text_1, v Pair) text_1 {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"state\":"))
-	(w).stringBody(string(v.State))
-	(w).raw(string(",\"signal\":"))
-	(w).stringBody(string(v.Signal))
-	(w).raw(string(",\"arms\":"))
+	(w).raw(string("{"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_16(env, *w, v.Arms)
+	(w).sep()
+	(w).plainBody(string("state"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).stringBody(string(v.State))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("signal"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).stringBody(string(v.Signal))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("arms"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_16(env, *w, v.Arms)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -3424,69 +3554,35 @@ func ergoWriteSlice_15(env *Env, wv text_1, v []Pair) text_1 {
 	return wv
 }
 
-func ergoWriteMachineGraph_entry(env *Env, wv text_1, v MachineGraph) text_1 {
-	w := &wv
-	(w).raw(string("{\"handle\":"))
-	(w).stringBody(string(v.Handle))
-	(w).raw(string(",\"name\":"))
-	(w).stringBody(string(v.Name))
-	(w).raw(string(",\"states\":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_27(env, *w, v.States)
-	(w).sep()
-	(w).raw(string("\"signals\":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_27(env, *w, v.Signals)
-	(w).sep()
-	(w).raw(string("\"initial\":"))
-	(w).stringBody(string(v.Initial))
-	(w).raw(string(",\"arms\":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_3(env, *w, v.Arms)
-	(w).sep()
-	(w).raw(string("\"timers\":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_19(env, *w, v.Timers)
-	(w).sep()
-	(w).raw(string("\"work\":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_16(env, *w, v.Work)
-	(w).sep()
-	(w).raw(string("\"unsure\":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_27(env, *w, v.Unsure)
-	(w).raw(string("}"))
-	(w).setComma(bool(true))
-	return wv
-}
-
-func ergoWriteSlice_entry_15(env *Env, wv text_1, v []Pair) text_1 {
-	w := &wv
-	(w).raw(string("["))
-	(w).setComma(bool(false))
-	_ = len(v)
-	for _, e := range v {
-		*w = ergoWritePair(env, *w, e)
-	}
-	(w).raw(string("]"))
-	(w).setComma(bool(true))
-	return wv
-}
-
 func ergoWriteMachineView(env *Env, wv text_1, v MachineView) text_1 {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"revision\":"))
-	(w).stringBody(string(v.Revision))
-	(w).raw(string(",\"complete\":"))
-	(w).boolBody(bool(v.Complete))
-	(w).raw(string(",\"graph\":"))
+	(w).raw(string("{"))
 	(w).setComma(bool(false))
-	*w = ergoWriteMachineGraph_entry(env, *w, v.Graph)
 	(w).sep()
-	(w).raw(string("\"reachable\":"))
+	(w).plainBody(string("revision"))
+	(w).raw(string(":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_15(env, *w, v.Reachable)
+	(w).sep()
+	(w).stringBody(string(v.Revision))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("complete"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).boolBody(bool(v.Complete))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("graph"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteMachineGraph(env, *w, v.Graph)
+	(w).sep()
+	(w).plainBody(string("reachable"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_15(env, *w, v.Reachable)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -3565,7 +3661,7 @@ func (t Tables) IndexOf() Index {
 					}
 				}
 			inl:
-				;
+				_ = 0
 				v_7 := Append[int](slices.Clip(slices.Clone(v_4)), len(decls))
 				t_1[t_2] = v_7
 			}
@@ -3594,7 +3690,7 @@ func (t Tables) IndexOf() Index {
 				}
 			}
 		inl_1:
-			;
+			_ = 0
 			v_14 := Append[Site](slices.Clip(slices.Clone(v_11)), site)
 			t_3[t_4] = v_14
 			v_15 := positionOf(site.File, site.Line, site.Column)
@@ -3629,7 +3725,7 @@ func (t Tables) IndexOf() Index {
 			}
 		}
 	inl_2:
-		;
+		_ = 0
 		v_22 := Append[Call](slices.Clip(ergoCloneSlice_7(v_19)), c_1)
 		t_5[t_6] = ergoCloneSlice_7(v_22)
 		t_7 := callsIn
@@ -3650,7 +3746,7 @@ func (t Tables) IndexOf() Index {
 			}
 		}
 	inl_3:
-		;
+		_ = 0
 		v_26 := Append[Call](slices.Clip(ergoCloneSlice_7(v_23)), c_1)
 		t_7[t_8] = ergoCloneSlice_7(v_26)
 	}
@@ -3678,7 +3774,7 @@ func (t Tables) IndexOf() Index {
 				}
 			}
 		inl_4:
-			;
+			_ = 0
 			v_32 := Append[string](slices.Clip(slices.Clone(v_29)), n.Of)
 			t_9[t_10] = v_32
 		}
@@ -3701,7 +3797,7 @@ func (t Tables) IndexOf() Index {
 				}
 			}
 		inl_5:
-			;
+			_ = 0
 			var have []string = slices.Clone(v_34)
 			v_37 := has(have, f.Of)
 			if !v_37 {
@@ -3733,7 +3829,7 @@ func (t Tables) IndexOf() Index {
 				}
 			}
 		inl_6:
-			;
+			_ = 0
 			var by map[string][]Call = maps.Clone(v_42)
 			t_13 := by
 			t_14 := c_2.From
@@ -3753,7 +3849,7 @@ func (t Tables) IndexOf() Index {
 				}
 			}
 		inl_7:
-			;
+			_ = 0
 			v_48 := Append[Call](slices.Clip(ergoCloneSlice_7(v_45)), c_2)
 			t_13[t_14] = ergoCloneSlice_7(v_48)
 			brings[k_5] = by
@@ -3776,7 +3872,7 @@ func (t Tables) IndexOf() Index {
 				}
 			}
 		inl_8:
-			;
+			_ = 0
 			var by_1 map[string][]Call = maps.Clone(v_50)
 			t_15 := by_1
 			t_16 := c_2.From
@@ -3796,7 +3892,7 @@ func (t Tables) IndexOf() Index {
 				}
 			}
 		inl_9:
-			;
+			_ = 0
 			v_56 := Append[Call](slices.Clip(ergoCloneSlice_7(v_53)), c_2)
 			t_15[t_16] = ergoCloneSlice_7(v_56)
 			brings[k_7] = by_1
@@ -3820,7 +3916,7 @@ func (t Tables) IndexOf() Index {
 				}
 			}
 		inl_10:
-			;
+			_ = 0
 			v_61 := Append[Call](slices.Clip(ergoCloneSlice_7(v_58)), c_2)
 			t_17[t_18] = ergoCloneSlice_7(v_61)
 		}
@@ -3844,7 +3940,7 @@ func (t Tables) IndexOf() Index {
 				}
 			}
 		inl_11:
-			;
+			_ = 0
 			v_66 := Append[Call](slices.Clip(ergoCloneSlice_7(v_63)), c_2)
 			t_19[t_20] = ergoCloneSlice_7(v_66)
 		}
@@ -3872,7 +3968,7 @@ func (t Tables) IndexOf() Index {
 					}
 				}
 			inl_12:
-				;
+				_ = 0
 				v_73 := Append[Call](slices.Clip(ergoCloneSlice_7(v_70)), c_2)
 				t_21[t_22] = ergoCloneSlice_7(v_73)
 			}
@@ -3900,7 +3996,7 @@ func (t Tables) IndexOf() Index {
 				}
 			}
 		inl_13:
-			;
+			_ = 0
 			var have_1 []string = slices.Clone(v_77)
 			v_80 := has(have_1, c_3.From)
 			if !v_80 {
@@ -3997,7 +4093,7 @@ func (x Index) Symbols(q SymbolQuery) SymbolPage {
 			}
 		}
 	inl:
-		;
+		_ = 0
 		if v_1 {
 			fit = Append[Decl](fit, d)
 		}
@@ -4033,7 +4129,7 @@ func (x Index) Symbol(env *Env, a string) (Decl, error) {
 
 	}
 inl:
-	;
+	_ = 0
 	if v_1 {
 		v_5, ok_1 := x.at[a]
 		if ok_1 {
@@ -4063,7 +4159,7 @@ inl:
 		}
 	}
 inl_1:
-	;
+	_ = 0
 	if len(v_7) == int(0) {
 		return *new(Decl), NoSymbol{Address: a}
 	}
@@ -4100,7 +4196,7 @@ func (x Index) References(env *Env, q RefQuery) (SitePage, error) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	var fit []Site = slices.Clone(v_1)
 	if len(q.Kinds) > int(0) {
 		fit = []Site{}
@@ -4215,7 +4311,7 @@ func (x Index) Reach(env *Env, q ReachQuery) (ReachPage, error) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	t_3 := v_2
 	var v_5 []string
 	{
@@ -4232,7 +4328,7 @@ inl:
 		}
 	}
 inl_1:
-	;
+	_ = 0
 	t_4 := v_5
 	var v_8 map[string][]Call
 	{
@@ -4249,7 +4345,7 @@ inl_1:
 		}
 	}
 inl_2:
-	;
+	_ = 0
 	t_5 := v_8
 	var v_11 []Call
 	{
@@ -4266,7 +4362,7 @@ inl_2:
 		}
 	}
 inl_3:
-	;
+	_ = 0
 	v_14 := (t).reachPage(t_1, t_2, t_3, t_4, t_5, v_11)
 	return v_14, nil
 }
@@ -4490,20 +4586,48 @@ func ergoDecodeSummary(env *Env, r Reader_2) (Summary, error) {
 func ergoWriteSummary(env *Env, wv text_1, v Summary) text_1 {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"revision\":"))
-	(w).stringBody(string(v.Revision))
-	(w).raw(string(",\"packages\":"))
+	(w).raw(string("{"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_27(env, *w, v.Packages)
 	(w).sep()
-	(w).raw(string("\"complete\":"))
+	(w).plainBody(string("revision"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).stringBody(string(v.Revision))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("packages"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_27(env, *w, v.Packages)
+	(w).sep()
+	(w).plainBody(string("complete"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).boolBody(bool(v.Complete))
-	(w).raw(string(",\"diagnostics\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("diagnostics"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.Diagnostics))
-	(w).raw(string(",\"symbols\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("symbols"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.Symbols))
-	(w).raw(string(",\"sites\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("sites"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.Sites))
+	(w).setComma(bool(true))
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -4584,16 +4708,34 @@ func ergoDecodeSymbolPage(env *Env, r Reader_2) (SymbolPage, error) {
 func ergoWriteSymbolPage(env *Env, wv text_1, v SymbolPage) text_1 {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"revision\":"))
-	(w).stringBody(string(v.Revision))
-	(w).raw(string(",\"decls\":"))
+	(w).raw(string("{"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_8(env, *w, v.Decls)
 	(w).sep()
-	(w).raw(string("\"total\":"))
+	(w).plainBody(string("revision"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).stringBody(string(v.Revision))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("decls"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_8(env, *w, v.Decls)
+	(w).sep()
+	(w).plainBody(string("total"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.Total))
-	(w).raw(string(",\"next\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("next"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.Next))
+	(w).setComma(bool(true))
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -4636,8 +4778,15 @@ func ergoDecodeNoSymbol(env *Env, r Reader_2) (NoSymbol, error) {
 func ergoWriteNoSymbol(env *Env, wv text_1, v NoSymbol) text_1 {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"address\":"))
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("address"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Address))
+	(w).setComma(bool(true))
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -4692,11 +4841,20 @@ func ergoDecodeAmbiguous(env *Env, r Reader_2) (Ambiguous, error) {
 func ergoWriteAmbiguous(env *Env, wv text_1, v Ambiguous) text_1 {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"address\":"))
-	(w).stringBody(string(v.Address))
-	(w).raw(string(",\"candidates\":"))
+	(w).raw(string("{"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_27(env, *w, v.Candidates)
+	(w).sep()
+	(w).plainBody(string("address"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).stringBody(string(v.Address))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("candidates"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_27(env, *w, v.Candidates)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -4790,18 +4948,41 @@ func ergoDecodeSitePage(env *Env, r Reader_2) (SitePage, error) {
 func ergoWriteSitePage(env *Env, wv text_1, v SitePage) text_1 {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"revision\":"))
-	(w).stringBody(string(v.Revision))
-	(w).raw(string(",\"complete\":"))
-	(w).boolBody(bool(v.Complete))
-	(w).raw(string(",\"sites\":"))
+	(w).raw(string("{"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_18(env, *w, v.Sites)
 	(w).sep()
-	(w).raw(string("\"total\":"))
+	(w).plainBody(string("revision"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).stringBody(string(v.Revision))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("complete"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).boolBody(bool(v.Complete))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("sites"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_18(env, *w, v.Sites)
+	(w).sep()
+	(w).plainBody(string("total"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.Total))
-	(w).raw(string(",\"next\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("next"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.Next))
+	(w).setComma(bool(true))
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -4857,10 +5038,22 @@ func ergoDecodeNotCallable(env *Env, r Reader_2) (NotCallable, error) {
 func ergoWriteNotCallable(env *Env, wv text_1, v NotCallable) text_1 {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"address\":"))
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("address"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Address))
-	(w).raw(string(",\"kind\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("kind"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Kind))
+	(w).setComma(bool(true))
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -5021,50 +5214,23 @@ func ergoDecodeCallPage(env *Env, r Reader_2) (CallPage, error) {
 	return out, nil
 }
 
-func ergoWriteCall_entry(env *Env, wv text_1, v Call) text_1 {
-	w := &wv
-	(w).raw(string("{\"from\":"))
-	(w).stringBody(string(v.From))
-	(w).raw(string(",\"to\":"))
-	(w).stringBody(string(v.To))
-	(w).raw(string(",\"file\":"))
-	(w).stringBody(string(v.File))
-	(w).raw(string(",\"line\":"))
-	(w).intBody(int64(v.Line))
-	(w).raw(string(",\"column\":"))
-	(w).intBody(int64(v.Column))
-	(w).raw(string(",\"brings\":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_27(env, *w, v.Brings)
-	(w).sep()
-	(w).raw(string("\"discharged\":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_27(env, *w, v.Discharged)
-	(w).sep()
-	(w).raw(string("\"bound\":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_4(env, *w, v.Bound)
-	(w).sep()
-	(w).raw(string("\"raises\":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_27(env, *w, v.Raises)
-	(w).sep()
-	(w).raw(string("\"caught\":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_27(env, *w, v.Caught)
-	(w).raw(string("}"))
-	(w).setComma(bool(true))
-	return wv
-}
-
 func ergoWriteHop(env *Env, wv text_1, v Hop) text_1 {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"depth\":"))
-	(w).intBody(int64(v.Depth))
-	(w).raw(string(",\"call\":"))
+	(w).raw(string("{"))
 	(w).setComma(bool(false))
-	*w = ergoWriteCall_entry(env, *w, v.Call)
+	(w).sep()
+	(w).plainBody(string("depth"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).intBody(int64(v.Depth))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("call"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteCall(env, *w, v.Call)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -5084,34 +5250,44 @@ func ergoWriteSlice_10(env *Env, wv text_1, v []Hop) text_1 {
 	return wv
 }
 
-func ergoWriteSlice_entry_10(env *Env, wv text_1, v []Hop) text_1 {
-	w := &wv
-	(w).raw(string("["))
-	(w).setComma(bool(false))
-	_ = len(v)
-	for _, e := range v {
-		*w = ergoWriteHop(env, *w, e)
-	}
-	(w).raw(string("]"))
-	(w).setComma(bool(true))
-	return wv
-}
-
 func ergoWriteCallPage(env *Env, wv text_1, v CallPage) text_1 {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"revision\":"))
-	(w).stringBody(string(v.Revision))
-	(w).raw(string(",\"complete\":"))
-	(w).boolBody(bool(v.Complete))
-	(w).raw(string(",\"hops\":"))
+	(w).raw(string("{"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_10(env, *w, v.Hops)
 	(w).sep()
-	(w).raw(string("\"total\":"))
+	(w).plainBody(string("revision"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).stringBody(string(v.Revision))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("complete"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).boolBody(bool(v.Complete))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("hops"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_10(env, *w, v.Hops)
+	(w).sep()
+	(w).plainBody(string("total"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.Total))
-	(w).raw(string(",\"next\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("next"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.Next))
+	(w).setComma(bool(true))
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -5154,8 +5330,15 @@ func ergoDecodeNoPackage(env *Env, r Reader_2) (NoPackage, error) {
 func ergoWriteNoPackage(env *Env, wv text_1, v NoPackage) text_1 {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"package\":"))
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("package"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Package))
+	(w).setComma(bool(true))
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -5223,13 +5406,27 @@ func ergoDecodeApiView(env *Env, r Reader_2) (ApiView, error) {
 func ergoWriteApiView(env *Env, wv text_1, v ApiView) text_1 {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"revision\":"))
-	(w).stringBody(string(v.Revision))
-	(w).raw(string(",\"package\":"))
-	(w).stringBody(string(v.Package))
-	(w).raw(string(",\"functions\":"))
+	(w).raw(string("{"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_6(env, *w, v.Functions)
+	(w).sep()
+	(w).plainBody(string("revision"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).stringBody(string(v.Revision))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("package"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).stringBody(string(v.Package))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("functions"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_6(env, *w, v.Functions)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -5431,11 +5628,20 @@ func ergoDecodeReachPage(env *Env, r Reader_2) (ReachPage, error) {
 func ergoWriteReached(env *Env, wv text_1, v Reached) text_1 {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"function\":"))
-	(w).stringBody(string(v.Function))
-	(w).raw(string(",\"chain\":"))
+	(w).raw(string("{"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_5(env, *w, v.Chain)
+	(w).sep()
+	(w).plainBody(string("function"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).stringBody(string(v.Function))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("chain"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_5(env, *w, v.Chain)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -5455,42 +5661,63 @@ func ergoWriteSlice_17(env *Env, wv text_1, v []Reached) text_1 {
 	return wv
 }
 
-func ergoWriteSlice_entry_17(env *Env, wv text_1, v []Reached) text_1 {
-	w := &wv
-	(w).raw(string("["))
-	(w).setComma(bool(false))
-	_ = len(v)
-	for _, e := range v {
-		*w = ergoWriteReached(env, *w, e)
-	}
-	(w).raw(string("]"))
-	(w).setComma(bool(true))
-	return wv
-}
-
 func ergoWriteReachPage(env *Env, wv text_1, v ReachPage) text_1 {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"revision\":"))
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("revision"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Revision))
-	(w).raw(string(",\"complete\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("complete"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).boolBody(bool(v.Complete))
-	(w).raw(string(",\"of\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("of"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Of))
-	(w).raw(string(",\"kind\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("kind"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Kind))
-	(w).raw(string(",\"reached\":"))
-	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_17(env, *w, v.Reached)
+	(w).setComma(bool(true))
 	(w).sep()
-	(w).raw(string("\"discharges\":"))
+	(w).plainBody(string("reached"))
+	(w).raw(string(":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_5(env, *w, v.Discharges)
+	*w = ergoWriteSlice_17(env, *w, v.Reached)
 	(w).sep()
-	(w).raw(string("\"total\":"))
+	(w).plainBody(string("discharges"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_5(env, *w, v.Discharges)
+	(w).sep()
+	(w).plainBody(string("total"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.Total))
-	(w).raw(string(",\"next\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("next"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).intBody(int64(v.Next))
+	(w).setComma(bool(true))
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -5546,10 +5773,22 @@ func ergoDecodeNotMachine(env *Env, r Reader_2) (NotMachine, error) {
 func ergoWriteNotMachine(env *Env, wv text_1, v NotMachine) text_1 {
 	w := &wv
 	(w).sep()
-	(w).raw(string("{\"address\":"))
+	(w).raw(string("{"))
+	(w).setComma(bool(false))
+	(w).sep()
+	(w).plainBody(string("address"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Address))
-	(w).raw(string(",\"kind\":"))
+	(w).setComma(bool(true))
+	(w).sep()
+	(w).plainBody(string("kind"))
+	(w).raw(string(":"))
+	(w).setComma(bool(false))
+	(w).sep()
 	(w).stringBody(string(v.Kind))
+	(w).setComma(bool(true))
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -5935,6 +6174,7 @@ type MachineGraph struct {
 	Arms    []Arm
 	Timers  []Timer
 	Work    []Place
+	Exit    []Place
 	Unsure  []string
 }
 
@@ -6021,6 +6261,17 @@ func (t *text_1) raw(s string) {
 	t.out = append(t.out, s...)
 }
 
+func (t *text_1) setComma(due bool) {
+	t.comma = due
+}
+
+func (t *text_1) plainBody(s string) {
+	v := append(t.out, "\""...)
+	v_1 := append(v, s...)
+	v_2 := append(v_1, "\""...)
+	t.out = v_2
+}
+
 func (t *text_1) stringBody(s string) {
 	t.out = ergo.JSONAppendQuoted(t.out, s, t.html)
 }
@@ -6031,10 +6282,6 @@ func (t *text_1) boolBody(b bool) {
 
 func (t *text_1) intBody(n int64) {
 	t.out = ergo.JSONAppendInt(t.out, n)
-}
-
-func (t *text_1) setComma(due bool) {
-	t.comma = due
 }
 
 func textBadTables(v BadTables) string {
@@ -6647,32 +6894,48 @@ func (v MachineView) MachineText(env *Env) string {
 		b = (t_13 + ("  work " + t_14 + " at " + v_21 + "\n"))
 		env.task.Check()
 	}
-	for _, v_22 := range g.Unsure {
-		var s string = v_22
-		b = (b + ("  unsure " + s + ": its timer or work is not a literal\n"))
+	v_22 := ergo.SlicesClone[Place](slices.Clip(g.Exit))
+	v_24 := ergo.SlicesSortFunc[Place](v_22, func(p_4 Place, p_5 Place) int {
+		r_2, _ := func(env_4 *Env, x_2 Place, y_2 Place) (int, error) {
+			v_23 := ergo.StringsCompare(x_2.What, y_2.What)
+			return v_23, nil
+		}(env, p_4, p_5)
+		return r_2
+	})
+	for _, v_25 := range v_24 {
+		var x_3 Place = v_25
+		t_15 := b
+		t_16 := x_3.What
+		v_26 := (x_3).placeText()
+		b = (t_15 + ("  exit " + t_16 + " at " + v_26 + "\n"))
 		env.task.Check()
 	}
-	for _, v_23 := range v.Reachable {
-		var p_4 Pair = v_23
+	for _, v_27 := range g.Unsure {
+		var s string = v_27
+		b = (b + ("  unsure " + s + ": its timer, work or exit action is not a literal\n"))
+		env.task.Check()
+	}
+	for _, v_28 := range v.Reachable {
+		var p_6 Pair = v_28
 		var sites []string = []string{}
-		sites = ergo.Reserve(sites, len(p_4.Arms))
-		for _, v_24 := range p_4.Arms {
-			var a_1 Place = v_24
-			t_15 := sites
-			v_25 := (a_1).placeText()
-			v_26 := Append[string](t_15, v_25)
-			sites = v_26
+		sites = ergo.Reserve(sites, len(p_6.Arms))
+		for _, v_29 := range p_6.Arms {
+			var a_1 Place = v_29
+			t_17 := sites
+			v_30 := (a_1).placeText()
+			v_31 := Append[string](t_17, v_30)
+			sites = v_31
 			env.task.Check()
 		}
-		var v_27 string
+		var v_32 string
 		if len(sites) == int(0) {
-			v_27 = "no arm"
+			v_32 = "no arm"
 		} else {
-			v_28 := ergo.StringsJoin(sites, " or ")
-			v_27 = v_28
+			v_33 := ergo.StringsJoin(sites, " or ")
+			v_32 = v_33
 		}
-		var arms string = v_27
-		b = (b + ("  reach (" + p_4.State + ", " + p_4.Signal + ") by " + arms + "\n"))
+		var arms string = v_32
+		b = (b + ("  reach (" + p_6.State + ", " + p_6.Signal + ") by " + arms + "\n"))
 		env.task.Check()
 	}
 	return b
@@ -6888,7 +7151,7 @@ func callsByStep(from map[string][]Call, start string, depth int, inward_1 bool)
 				}
 			}
 		inl:
-			;
+			_ = 0
 			out = ergo.Reserve(out, len(v_2))
 			for _, v_5 := range v_2 {
 				var c_1 Call = v_5
@@ -6915,7 +7178,7 @@ func callsByStep(from map[string][]Call, start string, depth int, inward_1 bool)
 					}
 				}
 			inl_1:
-				;
+				_ = 0
 				if !v_8 {
 					seen[far] = true
 					next = Append[string](next, far)
@@ -7065,7 +7328,7 @@ func (g MachineGraph) reachableBySteps(env *Env) []Pair {
 			}
 		}
 	inl:
-		;
+		_ = 0
 		if !v_2 {
 			reached[s] = true
 			queue = Append[string](queue, s)
@@ -7100,7 +7363,7 @@ func (g MachineGraph) reachableBySteps(env *Env) []Pair {
 							}
 						}
 					inl_1:
-						;
+						_ = 0
 						if !v_12 {
 							reached[x] = true
 							queue = Append[string](queue, x)
@@ -7522,19 +7785,19 @@ func (r Reader_1) Peek(env *Env) WireKind {
 	v := (r.c).Kind()
 	switch v {
 	case int(0):
-		return (WireKind{}).of0(WireNull{})
+		return (WireKind{tag: 0})
 	case int(1):
-		return (WireKind{}).of1(WireBool{})
+		return (WireKind{tag: 1})
 	case int(2):
-		return (WireKind{}).of2(WireNumber{})
+		return (WireKind{tag: 2})
 	case int(3):
-		return (WireKind{}).of3(WireString{})
+		return (WireKind{tag: 3})
 	case int(4):
-		return (WireKind{}).of4(WireList{})
+		return (WireKind{tag: 4})
 	case int(5):
-		return (WireKind{}).of5(WireObject{})
+		return (WireKind{tag: 5})
 	}
-	return (WireKind{}).of6(WireEnd{})
+	return (WireKind{tag: 6})
 }
 
 func (r Reader_1) Number(env *Env) (string, error) {
@@ -7773,13 +8036,6 @@ func (t *text_1) quote(s string) {
 	}
 }
 
-func (t *text_1) plainBody(s string) {
-	v := append(t.out, "\""...)
-	v_1 := append(v, s...)
-	v_2 := append(v_1, "\""...)
-	t.out = v_2
-}
-
 func (t *text_1) bytesBody(b []uint8) {
 	t.out = ergo.JSONAppendQuotedBytes(t.out, b, t.html)
 }
@@ -7816,7 +8072,7 @@ func (t *text_1) Null() {
 		}
 	}
 inl:
-	;
+	_ = 0
 	(t).raw("null")
 	(t).setComma(true)
 	return
@@ -7830,7 +8086,7 @@ func (t *text_1) Number(text_2 string) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	(t).raw(text_2)
 	(t).setComma(true)
 	return
@@ -7844,7 +8100,7 @@ func (t *text_1) Bool(b bool) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	(t).boolBody(b)
 	(t).setComma(true)
 	return
@@ -7858,7 +8114,7 @@ func (t *text_1) Int(n int64) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	(t).intBody(n)
 	(t).setComma(true)
 	return
@@ -7872,7 +8128,7 @@ func (t *text_1) Uint(n uint64) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	(t).uintBody(n)
 	(t).setComma(true)
 	return
@@ -7886,7 +8142,7 @@ func (t *text_1) Float(f float64) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	(t).floatBody(f)
 	(t).setComma(true)
 	return
@@ -7900,7 +8156,7 @@ func (t *text_1) String_(s string) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	(t).stringBody(s)
 	(t).setComma(true)
 	return
@@ -7914,7 +8170,7 @@ func (t *text_1) StringBytes(b []uint8) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	(t).bytesBody(b)
 	(t).setComma(true)
 	return
@@ -7928,7 +8184,7 @@ func (t *text_1) BeginList(n int) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	(t).raw("[")
 	(t).setComma(false)
 	return
@@ -7948,7 +8204,7 @@ func (t *text_1) BeginObject(n int) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	(t).raw("{")
 	(t).setComma(false)
 	return
@@ -7962,7 +8218,7 @@ func (t *text_1) Tag(name string) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	(t).raw("\"_tag\":")
 	{
 		v := plain(name)
@@ -7975,7 +8231,7 @@ inl:
 		}
 	}
 inl_1:
-	;
+	_ = 0
 	(t).setComma(true)
 	return
 }
@@ -7988,7 +8244,7 @@ func (t *text_1) Key(k string) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	{
 		v := plain(k)
 		if v {
@@ -8000,7 +8256,7 @@ inl:
 		}
 	}
 inl_1:
-	;
+	_ = 0
 	(t).raw(":")
 	(t).setComma(false)
 	return
@@ -8067,7 +8323,7 @@ func Get_13[K comparable, V any](m map[K]V, k K) Option[V] {
 	if v, ok := m[k]; ok {
 		return (Option[V]{}).of0(Some[V]{Value: v})
 	}
-	return (Option[V]{}).of1(None{})
+	return (Option[V]{tag: 1})
 }
 
 func IndexFunc[T any](env *Env, xs []T, f func(*Env, T) (bool, error)) (int, error) {
@@ -8231,7 +8487,7 @@ func chainOf(out map[string][]Call, f string) []Call {
 				}
 			}
 		inl:
-			;
+			_ = 0
 			var fresh bool = false
 			for _, v_4 := range v_1 {
 				var c_1 Call = v_4
@@ -8250,7 +8506,7 @@ func chainOf(out map[string][]Call, f string) []Call {
 					}
 				}
 			inl_1:
-				;
+				_ = 0
 				v_8 := Append[Call](slices.Clip(ergoCloneSlice_7(v_5)), c_1)
 				var v_9 []Call
 				{
@@ -8267,7 +8523,7 @@ func chainOf(out map[string][]Call, f string) []Call {
 					}
 				}
 			inl_2:
-				;
+				_ = 0
 				if len(v_9) == int(0) {
 					return v_8
 				}
@@ -8287,7 +8543,7 @@ func chainOf(out map[string][]Call, f string) []Call {
 					}
 				}
 			inl_3:
-				;
+				_ = 0
 				if !v_12 {
 					seen[c_1.To] = true
 					paths[c_1.To] = ergoCloneSlice_7(v_8)
@@ -8311,7 +8567,7 @@ func chainOf(out map[string][]Call, f string) []Call {
 					}
 				}
 			inl_4:
-				;
+				_ = 0
 				v_19 := Append[Call](slices.Clip(ergoCloneSlice_7(v_16)), v_1[int(0)])
 				back = ergoCloneSlice_7(v_19)
 				found = true
@@ -8381,7 +8637,7 @@ func (g MachineGraph) armsFor(env *Env, state_1 string, signal string) []Arm {
 			v_1 = (v_7 >= int(0))
 		}
 	inl:
-		;
+		_ = 0
 		if v_1 {
 			out = Append[Arm](out, ergoCloneArm(a))
 			var v_9 bool
@@ -8415,7 +8671,7 @@ func (g MachineGraph) armsFor(env *Env, state_1 string, signal string) []Arm {
 				v_9 = (v_13 < int(0))
 			}
 		inl_2:
-			;
+			_ = 0
 			if !v_9 {
 				return out
 			}
@@ -8442,7 +8698,7 @@ func (g MachineGraph) pairsOf(env *Env, reached map[string]bool) []Pair {
 			}
 		}
 	inl:
-		;
+		_ = 0
 		if !v_1 {
 			continue
 		}
@@ -9293,7 +9549,7 @@ func (s Set) Parse(env *Env, args []string) (Values, error) {
 				}
 			}
 		inl_1:
-			;
+			_ = 0
 			var v_18 scalarFlag
 			_ = v_18
 			{
@@ -9477,7 +9733,7 @@ func (s Set) Parse(env *Env, args []string) (Values, error) {
 							}
 						}
 					inl_5:
-						;
+						_ = 0
 						v_26, ok := t_2[v_23]
 						if ok {
 							old := Some[value]{Value: v_26}
@@ -9495,7 +9751,7 @@ func (s Set) Parse(env *Env, args []string) (Values, error) {
 						v_21 = listValue{V: v_28}
 					}
 				inl_4:
-					;
+					_ = 0
 					t[t_1] = v_21
 				} else {
 					t_3 := flags
@@ -9612,7 +9868,7 @@ func (s Set) Parse(env *Env, args []string) (Values, error) {
 							}
 						}
 					inl_8:
-						;
+						_ = 0
 						v_34, ok_1 := t_5[v_31]
 						if ok_1 {
 							old_1 := Some[value]{Value: v_34}
@@ -9630,7 +9886,7 @@ func (s Set) Parse(env *Env, args []string) (Values, error) {
 						v_29 = listValue{V: v_36}
 					}
 				inl_7:
-					;
+					_ = 0
 					t_3[t_4] = v_29
 				}
 			}
@@ -9764,7 +10020,7 @@ func (s Set) Parse(env *Env, args []string) (Values, error) {
 						}
 					}
 				inl_11:
-					;
+					_ = 0
 					v_43, ok_2 := t_10[v_40]
 					if ok_2 {
 						old_2 := Some[value]{Value: v_43}
@@ -9782,14 +10038,16 @@ func (s Set) Parse(env *Env, args []string) (Values, error) {
 					v_38 = listValue{V: v_45}
 				}
 			inl_10:
-				;
+				_ = 0
 				t_6[t_7] = v_38
 			}
 			goto kn_11
 		kn_11:
+			_ = 0
 		}
 		goto kn_2
 	kn_2:
+		_ = 0
 	}
 	for _, v_46 := range s.Flags {
 		var f_1 Flag = v_46
@@ -9880,7 +10138,7 @@ func (s Set) Parse(env *Env, args []string) (Values, error) {
 			}
 		}
 	inl_13:
-		;
+		_ = 0
 		if v_47 {
 			t_11 := flags
 			var v_51 string
@@ -9984,7 +10242,7 @@ func (s Set) Parse(env *Env, args []string) (Values, error) {
 				}
 			}
 		inl_15:
-			;
+			_ = 0
 			v_54, ok_3 := t_11[v_51]
 			_ = v_54
 			if ok_3 {
@@ -10032,7 +10290,7 @@ func ownLeaf[C any](commands []Command[C]) Option[Command[C]] {
 			return (Option[Command[C]]{}).of0(Some[Command[C]]{Value: c_1})
 		}
 	}
-	return (Option[Command[C]]{}).of1(None{})
+	return (Option[Command[C]]{tag: 1})
 }
 
 func (s Set) helpAsked(args []string) bool {
@@ -10169,9 +10427,11 @@ func (s Set) helpAsked(args []string) bool {
 			}
 			goto kn_5
 		kn_5:
+			_ = 0
 		}
 		goto kn_2
 	kn_2:
+		_ = 0
 	}
 	return false
 }
@@ -10310,7 +10570,7 @@ func ownLeafMono_i1(commands []Command[Request]) Option[Command[Request]] {
 			return (Option[Command[Request]]{}).of0(Some[Command[Request]]{Value: c_1})
 		}
 	}
-	return (Option[Command[Request]]{}).of1(None{})
+	return (Option[Command[Request]]{tag: 1})
 }
 
 func CommandUsageMono_i1(name string, usage string, commands []Command[Request]) string {
@@ -10374,7 +10634,7 @@ func (f OptionalStringFlag) Get(v Values) Option[string] {
 			panic(ergo.UnreachableAt("flag: optional string has another kind", "std/flag/cardinality.ergo:82:4"))
 		}
 	} else {
-		return (Option[string]{}).of1(None{})
+		return (Option[string]{tag: 1})
 	}
 }
 
@@ -10392,12 +10652,12 @@ func (f OptionalIntFlag) Get(v Values) Option[int] {
 			panic(ergo.UnreachableAt("flag: optional int has another kind", "std/flag/cardinality.ergo:97:4"))
 		}
 	} else {
-		return (Option[int]{}).of1(None{})
+		return (Option[int]{tag: 1})
 	}
 }
 
 func Arg(name string, usage string) ArgSpec {
-	return ArgSpec{name: name, usage: usage, arity: (arity{}).of0(one{})}
+	return ArgSpec{name: name, usage: usage, arity: (arity{tag: 0})}
 }
 
 func (a ArgSpec) Get(v Values) Option[string] {
@@ -10406,7 +10666,7 @@ func (a ArgSpec) Get(v Values) Option[string] {
 		found := Some[string]{Value: v_1}
 		return (Option[string]{}).of0(found)
 	} else {
-		return (Option[string]{}).of1(None{})
+		return (Option[string]{tag: 1})
 	}
 }
 
@@ -10592,7 +10852,7 @@ func validateFlags(flags []Flag) {
 			}
 		}
 	inl:
-		;
+		_ = 0
 		if v_2 == "" {
 			var v_5 string
 			{
@@ -10695,7 +10955,7 @@ func validateFlags(flags []Flag) {
 				}
 			}
 		inl_2:
-			;
+			_ = 0
 			v_1 = []string{v_5}
 		} else {
 			var v_8 string
@@ -10799,7 +11059,7 @@ func validateFlags(flags []Flag) {
 				}
 			}
 		inl_4:
-			;
+			_ = 0
 			t := v_8
 			var v_11 string
 			{
@@ -10902,7 +11162,7 @@ func validateFlags(flags []Flag) {
 				}
 			}
 		inl_6:
-			;
+			_ = 0
 			v_1 = []string{t, v_11}
 		}
 		var names []string = v_1
@@ -11051,7 +11311,7 @@ func findIn(flags []Flag, name string) Option[Flag] {
 			}
 		}
 	inl:
-		;
+		_ = 0
 		b := (v_1 == name)
 		if !b {
 			var v_4 string
@@ -11155,7 +11415,7 @@ func findIn(flags []Flag, name string) Option[Flag] {
 				}
 			}
 		inl_2:
-			;
+			_ = 0
 			b_4 := (v_4 != "")
 			if b_4 {
 				var v_7 string
@@ -11259,7 +11519,7 @@ func findIn(flags []Flag, name string) Option[Flag] {
 					}
 				}
 			inl_4:
-				;
+				_ = 0
 				b_4 = (v_7 == name)
 			}
 			b = b_4
@@ -11268,7 +11528,7 @@ func findIn(flags []Flag, name string) Option[Flag] {
 			return (Option[Flag]{}).of0(Some[Flag]{Value: f})
 		}
 	}
-	return (Option[Flag]{}).of1(None{})
+	return (Option[Flag]{tag: 1})
 }
 
 type scalarFlag struct {
@@ -11712,7 +11972,7 @@ func (v Values) known(f Flag) {
 		}
 	}
 inl:
-	;
+	_ = 0
 	var v_4 Option[Flag]
 	_ = v_4
 	var kp_5 Some[Flag]
@@ -11840,7 +12100,7 @@ kn:
 				}
 			}
 		inl_3:
-			;
+			_ = 0
 			notInSetDropped(v_7)
 			return
 		}
@@ -11949,11 +12209,12 @@ kn_1:
 			}
 		}
 	inl_5:
-		;
+		_ = 0
 		notInSetDropped(v_10)
 		return
 	}
 kn_8:
+	_ = 0
 }
 
 func notInSet(name string) string {
@@ -12065,7 +12326,7 @@ func items(f Flag, v Values) []value {
 			}
 		}
 	inl_1:
-		;
+		_ = 0
 		var v_4 Option[Flag]
 		_ = v_4
 		var kp_5 Some[Flag]
@@ -12193,7 +12454,7 @@ func items(f Flag, v Values) []value {
 					}
 				}
 			inl_4:
-				;
+				_ = 0
 				notInSetDropped(v_7)
 				goto inl
 			}
@@ -12302,14 +12563,15 @@ func items(f Flag, v Values) []value {
 				}
 			}
 		inl_6:
-			;
+			_ = 0
 			notInSetDropped(v_10)
 			goto inl
 		}
 	kn_8:
+		_ = 0
 	}
 inl:
-	;
+	_ = 0
 	t_1 := v.flags
 	var v_13 string
 	{
@@ -12412,7 +12674,7 @@ inl:
 		}
 	}
 inl_8:
-	;
+	_ = 0
 	v_16, ok := t_1[v_13]
 	if ok {
 		x := Some[value]{Value: v_16}
@@ -12539,7 +12801,7 @@ func Defaults(flags []Flag) string {
 				}
 			}
 		inl:
-			;
+			_ = 0
 			if (first || (v_1 > last)) && ((!found) || (v_1 < pick)) {
 				pick = v_1
 				found = true
@@ -12660,7 +12922,7 @@ func Defaults(flags []Flag) string {
 					}
 				}
 			inl_3:
-				;
+				_ = 0
 				t_1 := v_6
 				var v_9 string
 				{
@@ -12752,7 +13014,7 @@ func Defaults(flags []Flag) string {
 					}
 				}
 			inl_5:
-				;
+				_ = 0
 				v_13 := unquote(t_1, v_9)
 				shape, usage = v_13.F0, v_13.F1
 				var v_14 string
@@ -12856,7 +13118,7 @@ func Defaults(flags []Flag) string {
 					}
 				}
 			inl_7:
-				;
+				_ = 0
 				var line string = ("  -" + v_14)
 				var v_17 string
 				{
@@ -12959,7 +13221,7 @@ func Defaults(flags []Flag) string {
 					}
 				}
 			inl_9:
-				;
+				_ = 0
 				if v_17 != "" {
 					t_2 := (line + ", -")
 					var v_20 string
@@ -13063,7 +13325,7 @@ func Defaults(flags []Flag) string {
 						}
 					}
 				inl_11:
-					;
+					_ = 0
 					line = (t_2 + v_20)
 				}
 				if shape != "" {
@@ -14133,7 +14395,7 @@ func rootApi(env *Env, t Tables) []Contract {
 //line tool.ergo:44:3
 		(&env_1).task.Check()
 //line tool.ergo:44:11
-		v_2, err := (&env_1).Reader.Api((&env_1).task, ApiQuery{Package: (Option[string]{}).of1(None{})})
+		v_2, err := (&env_1).Reader.Api((&env_1).task, ApiQuery{Package: (Option[string]{tag: 1})})
 //line tool.ergo:44:3
 		if err != nil {
 			/*line tool.ergo:44:3*/ switch err.(type) {
@@ -15752,7 +16014,7 @@ func commandSymbol() Command[Request] {
 			/*line codecli/cli.ergo#ergo-inline-6:110:3*/
 		}
 		/*line codecli/cli.ergo#ergo-inline-6:110:3*/ inl:
-		;
+		/*line codecli/cli.ergo#ergo-inline-6:110:3*/ _ = 0
 //line codecli/cli.ergo:49:12
 //line codecli/cli.ergo:50:3
 		return SymbolRequest{A: v_2}, nil
@@ -16012,7 +16274,7 @@ func commandMachineOf() Command[Request] {
 			/*line codecli/cli.ergo#ergo-inline-17:110:3*/
 		}
 		/*line codecli/cli.ergo#ergo-inline-17:110:3*/ inl:
-		;
+		/*line codecli/cli.ergo#ergo-inline-17:110:3*/ _ = 0
 //line codecli/cli.ergo:99:12
 //line codecli/cli.ergo:100:3
 		return MachineOfRequest{A: v_2}, nil
