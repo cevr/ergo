@@ -66,7 +66,8 @@ func union(s *solver, a int, b int) {
 // solve is the state of one package's solve, or of one function's (fn):
 // a function's parameters link to no declaration's, they take the slot
 // kinds local holds (kindBracketParams).
-type solve { s store.Store, gens []gen, ext []Ext, sv solver, ownMap bool, fn bool, local Kinds }
+// genAt indexes gens by declaration (genSide).
+type solve { s store.Store, gens []gen, genAt dense.Side[store.Decl, int], ext []Ext, sv solver, ownMap bool, fn bool, local Kinds }
 
 // walker names the variables a walk observes: names[i] is variable
 // vars[i] in file p.
@@ -108,12 +109,7 @@ func localGen(st solve, p syntax.Parsed, x dense.ID[syntax.Node]) int {
 		if store.KindName(int(row.Kind)) != "type" {
 			return -1
 		}
-		for i, g in st.gens {
-			if g.file == int(row.File) && dense.Index(g.name) == int(row.Node) {
-				return i
-			}
-		}
-		-1
+		dense.SideOf(st.genAt, d.Value)
 	case None:
 		-1
 	}
@@ -134,7 +130,7 @@ func slotKinds(st solve, p syntax.Parsed, x dense.ID[syntax.Node]) []int {
 			// type.
 			if st.fn {
 				let mut out = []int{}
-				for k in rawKinds(st.local, t) {
+				for k in rawKinds(st.s, st.local, t) {
 					out = out.Append(if k == KindConflict { kindType } else { k })
 				}
 				return out
@@ -234,7 +230,7 @@ func index(st *solve, w walker, head dense.ID[syntax.Node], indices []dense.ID[s
 		// A parameter passed to a local declaration's conflicted
 		// parameter takes no kind from it (the conflict is reported at
 		// the declaration): it resolves to nothing.
-		let raw = rawKinds(st.local, nameText(w.p, head))
+		let raw = rawKinds(st.s, st.local, nameText(w.p, head))
 		for i, x in indices {
 			let v = self(w, x)
 			if i < len(raw) && raw[i] == KindConflict && v >= 0 {
@@ -382,17 +378,37 @@ func bracketNames(p syntax.Parsed, l dense.ID[syntax.Node]) ([]string, []bool) {
 // of the package, in collect order, with its name: kindType, kindErrors,
 // kindUses or KindConflict per parameter. Raw is the kinds the positions
 // give, before a constraint makes its parameter a type.
-type Kinds { Names []string, Of [][]int, Raw [][]int, Steps int }
+// at indexes them by declaration (genSide).
+type Kinds { Names []string, Of [][]int, Raw [][]int, Steps int, at dense.Side[store.Decl, int] }
 
 // rawKinds is the kinds the positions give the parameters of the local
 // generic type name.
-func rawKinds(k Kinds, name string) []int {
-	for i, n in k.Names {
-		if n == name {
-			return k.Raw[i]
+func rawKinds(s store.Store, k Kinds, name string) []int {
+	match store.Lookup(s, name) {
+	case Some[dense.ID[store.Decl]] as d:
+		let i = dense.SideOf(k.at, d.Value)
+		if i < 0 { []int{} } else { k.Raw[i] }
+	case None:
+		[]int{}
+	}
+}
+
+// genSide indexes gens by declaration: the gen whose file and name row are
+// the declaration's (localGen and the kinds lookups read it in place of a
+// scan of every generic type).
+func genSide(s store.Store, files []syntax.Parsed, gens []gen) dense.Side[store.Decl, int] {
+	let mut side = dense.NewSide[store.Decl, int](-1)
+	for i, g in gens {
+		match store.Lookup(s, nameText(files[g.file], g.name)) {
+		case Some[dense.ID[store.Decl]] as d:
+			let row = store.DeclOf(s, d.Value)
+			if int(row.File) == g.file && int(row.Node) == dense.Index(g.name) && dense.SideOf(side, d.Value) < 0 {
+				dense.SideSet(&side, d.Value, i)
+			}
+		case None:
 		}
 	}
-	[]int{}
+	side
 }
 
 // class is a parameter's kind from the positions seen.
@@ -476,7 +492,7 @@ func gensOf(files []syntax.Parsed) []gen {
 // SolveKinds solves the kinds of the generic type declarations of the
 // package whose store bind.Collect built from files.
 func SolveKinds(s store.Store, files []syntax.Parsed, ext []Ext) Kinds {
-	let mut st = solve{s: s, gens: []gen{}, ext: ext, sv: solver{parent: []int{}, seen: []int{}, steps: 0}, ownMap: false, fn: false, local: Kinds{Names: []string{}, Of: [][]int{}, Raw: [][]int{}, Steps: 0}}
+	let mut st = solve{s: s, gens: []gen{}, genAt: dense.NewSide[store.Decl, int](-1), ext: ext, sv: solver{parent: []int{}, seen: []int{}, steps: 0}, ownMap: false, fn: false, local: Kinds{Names: []string{}, Of: [][]int{}, Raw: [][]int{}, Steps: 0, at: dense.NewSide[store.Decl, int](-1)}}
 	match store.Lookup(s, "Map") {
 	case Some[dense.ID[store.Decl]] as d:
 		st.ownMap = store.KindName(int(store.DeclOf(s, d.Value).Kind)) == "type"
@@ -484,6 +500,7 @@ func SolveKinds(s store.Store, files []syntax.Parsed, ext []Ext) Kinds {
 	}
 	// The variables: one per bracket parameter, in collect order.
 	st.gens = gensOf(files)
+	st.genAt = genSide(s, files, st.gens)
 	for g in st.gens {
 		for i, _ in g.params {
 			st.sv.parent = st.sv.parent.Append(g.base + i)
@@ -521,7 +538,7 @@ func SolveKinds(s store.Store, files []syntax.Parsed, ext []Ext) Kinds {
 			}
 		}
 	}
-	let mut out = Kinds{Names: []string{}, Of: [][]int{}, Raw: [][]int{}, Steps: 0}
+	let mut out = Kinds{Names: []string{}, Of: [][]int{}, Raw: [][]int{}, Steps: 0, at: st.genAt}
 	for g in st.gens {
 		let mut ks = []int{}
 		let mut raw = []int{}
@@ -758,7 +775,7 @@ func solveFuncs(s store.Store, files []syntax.Parsed, ext []Ext, decls Kinds) ([
 		ownMap = store.KindName(int(store.DeclOf(s, d.Value).Kind)) == "type"
 	case None:
 	}
-	let mut st = solve{s: s, gens: []gen{}, ext: ext, sv: solver{parent: []int{}, seen: []int{}, steps: 0}, ownMap: ownMap, fn: true, local: decls}
+	let mut st = solve{s: s, gens: []gen{}, genAt: dense.NewSide[store.Decl, int](-1), ext: ext, sv: solver{parent: []int{}, seen: []int{}, steps: 0}, ownMap: ownMap, fn: true, local: decls}
 	let mut setups = 0
 	setups = setups + 1
 	for f, p in files {

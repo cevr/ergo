@@ -65,18 +65,32 @@ func aliasTarget(s store.Store, d dense.ID[store.Decl], files []syntax.Parsed) O
 }
 
 // parentDecl is the top-level type declaration of p whose name row is
-// node (a declaration's Node is its name's row).
+// node (a declaration's Node is its name's row). The parser records a
+// node after its children and the declarations in order, so the
+// declaration that holds row node is the first whose row is past it: a
+// binary search over the file's declarations, no list built.
 func parentDecl(p syntax.Parsed, node int) dense.Opt[syntax.Node] {
-	for d in topDecls(p) {
-		match syntax.ViewOf(p.Tree, d) {
-		case syntax.TypeDecl as td:
-			if dense.Index(td.Name) == node {
-				return dense.OptOf(d)
-			}
-		case _:
+	let root = syntax.Root(p.Tree)
+	if syntax.KindOf(p.Tree, root) != syntax.KFile {
+		return dense.NoID[syntax.Node]()
+	}
+	let decls = syntax.FileOf(p.Tree, root).Decls
+	let n = syntax.Len(decls)
+	let mut lo = 0
+	let mut hi = n
+	for lo < hi {
+		let mid = (lo + hi) / 2
+		if dense.Index(syntax.Item(p.Tree, decls, mid)) < node {
+			lo = mid + 1
+		} else {
+			hi = mid
 		}
 	}
-	dense.NoID[syntax.Node]()
+	if lo == n {
+		return dense.NoID[syntax.Node]()
+	}
+	let d = syntax.Item(p.Tree, decls, lo)
+	if syntax.KindOf(p.Tree, d) == syntax.KTypeDecl && dense.Index(syntax.TypeDeclOf(p.Tree, d).Name) == node { dense.OptOf(d) } else { dense.NoID[syntax.Node]() }
 }
 
 // Foreign is a type the package can name that is neither its own nor an
@@ -223,14 +237,11 @@ func headOf(s store.Store, e Env, x dense.ID[syntax.Node]) head {
 	HNone
 }
 
-// localKinds is the solved kinds of the package's generic type name.
-func localKinds(e Env, name string) []int {
-	for i, n in e.kinds.Names {
-		if n == name {
-			return e.kinds.Of[i]
-		}
-	}
-	[]int{}
+// localKinds is the solved kinds of the package's generic type
+// declaration d (none for another type).
+func localKinds(e Env, d dense.ID[store.Decl]) []int {
+	let i = dense.SideOf(e.kinds.at, d)
+	if i < 0 { []int{} } else { e.kinds.Of[i] }
 }
 
 func extKinds(e Env, text string) []int {
@@ -247,7 +258,7 @@ func extKinds(e Env, text string) []int {
 func instance(s *store.Store, e Env, h head, indices []dense.ID[syntax.Node]) dense.ID[store.TKey] {
 	let (origin, kinds, arity) = match h {
 	case HLocal as l:
-		let ks = localKinds(e, l.Name)
+		let ks = localKinds(e, l.Decl)
 		(store.XRef{Import: uint32(0), Decl: uint32(dense.Index(l.Decl))}, ks, len(ks))
 	case HImport as hi:
 		let ks = importDecl(e.deps, hi.Ref).Kinds
@@ -621,7 +632,7 @@ func named(s *store.Store, e Env, h head) dense.ID[store.TKey] {
 	case HBasic as b:
 		store.TBasic(s, b.Ord)
 	case HLocal as l:
-		if len(localKinds(e, l.Name)) > 0 {
+		if len(localKinds(e, l.Decl)) > 0 {
 			return invalidType(s)
 		}
 		match aliasTarget(*s, l.Decl, e.files) {

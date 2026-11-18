@@ -20,20 +20,39 @@ type Cycle { File int, Offset int, Inst string, Arg string }
 // places (gen.base + i for a type's, after every type's for a function's).
 type monoEdge { from int, to int, weight int, file int, at int, inst string, arg string }
 
-type mono { edges []monoEdge, steps int }
+// byFrom[v] is the indices in edges of v's edges, in edges' order.
+type mono { edges []monoEdge, byFrom [][]int, steps int }
+
+// edgeAt is the index of the edge from-to, or -1.
+func edgeAt(m mono, from int, to int) int {
+	if from < len(m.byFrom) {
+		for i in m.byFrom[from] {
+			if m.edges[i].to == to {
+				return i
+			}
+		}
+	}
+	-1
+}
+
+// pushEdge appends e and indexes it by its source.
+func pushEdge(m *mono, e monoEdge) {
+	for len(m.byFrom) <= e.from {
+		m.byFrom = m.byFrom.Append([]int{})
+	}
+	m.byFrom[e.from] = m.byFrom[e.from].Append(len(m.edges))
+	m.edges = m.edges.Append(e)
+}
 
 // addEdge adds the edge from-to, or makes an existing one heavier (the
 // heavier kept, in its place).
 func addEdge(m *mono, e monoEdge) {
-	for i, x in m.edges {
-		if x.from == e.from && x.to == e.to {
-			if x.weight < e.weight {
-				m.edges[i] = e
-			}
-			return
-		}
+	let i = edgeAt(*m, e.from, e.to)
+	if i < 0 {
+		pushEdge(m, e)
+	} else if m.edges[i].weight < e.weight {
+		m.edges[i] = e
 	}
-	m.edges = m.edges.Append(e)
 }
 
 // occursIn reports whether the parameter q occurs in t (mono.go occurs).
@@ -423,12 +442,9 @@ func link(c *cyc, o owner, f int, env Env, fd syntax.FuncDecl) {
 
 // linkEdge adds e unless its pair of vertices has an edge already.
 func linkEdge(m *mono, e monoEdge) {
-	for x in m.edges {
-		if x.from == e.from && x.to == e.to {
-			return
-		}
+	if edgeAt(*m, e.from, e.to) < 0 {
+		pushEdge(m, e)
 	}
-	m.edges = m.edges.Append(e)
 }
 
 func typedOf(kinds []int) []bool {
@@ -451,7 +467,7 @@ func Cycles(s store.Store, files []syntax.Parsed, kinds Kinds, funcs []FuncKinds
 	case None:
 	}
 	let gens = gensOf(files)
-	let mut c = cyc{s: s, files: files, gens: gens, kinds: kinds, ext: ext, foreign: foreign, deps: deps, ownMap: ownMap, m: mono{edges: []monoEdge{}, steps: 0}, heads: solve{s: s, gens: gens, ext: ext, sv: solver{parent: []int{}, seen: []int{}, steps: 0}, ownMap: ownMap, fn: false, local: kinds}}
+	let mut c = cyc{s: s, files: files, gens: gens, kinds: kinds, ext: ext, foreign: foreign, deps: deps, ownMap: ownMap, m: mono{edges: []monoEdge{}, byFrom: [][]int{}, steps: 0}, heads: solve{s: s, gens: gens, genAt: genSide(s, files, gens), ext: ext, sv: solver{parent: []int{}, seen: []int{}, steps: 0}, ownMap: ownMap, fn: false, local: kinds}}
 	let mut next = 0
 	for i, g in gens {
 		let mut verts = []int{}
@@ -497,11 +513,9 @@ func visit(m mono, t *tarjan, v int) {
 	t.next = t.next + 1
 	t.stack = t.stack.Append(v)
 	t.on[v] = true
-	for e in m.edges {
-		if e.from != v {
-			continue
-		}
-		let w = e.to
+	let out = if v < len(m.byFrom) { m.byFrom[v] } else { []int{} }
+	for i in out {
+		let w = m.edges[i].to
 		if t.index[w] < 0 {
 			visit(m, t, w)
 			t.low[v] = if t.low[w] < t.low[v] { t.low[w] } else { t.low[v] }
