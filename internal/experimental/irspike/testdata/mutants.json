@@ -108,5 +108,6 @@
     {"name":"ir-ptr-call-on-value","origin":"wf10 IRG4b r2","file":"internal/sketch/lower/ir_pkg.go","from":"\t_, ptr := b.l.info.Types[recv].(*check.Pointer)\n\treturn ptr","to":"\t_, ptr := b.l.info.Types[recv].(*check.Pointer)\n\treturn ptr || true","rule":"A *T function called on an addressable T takes the receiver's address at the call (a place); the IR takes only a call that passes a pointer","killers":["internal/experimental/irspike:TestIRAgreesOnExamples"]},
     {"name":"ir-count-bounds-swapped","origin":"wf10 IRG4b r2","file":"internal/sketch/lower/ir_pkg.go","from":"X: field(\"Start\"), Y: field(\"End\")","to":"X: field(\"End\"), Y: field(\"Start\")","rule":"A for-in over a Range counts from Start up to End, End excluded","killers":["internal/experimental/irspike:TestIRAgreesOnExamples"]},
     {"name":"ir-float-conversion-unchecked","origin":"wf10 IRG4b r2","file":"internal/sketch/lower/ir_pkg.go","from":"\tif helper := floatToInteger(from, to); helper != \"\" {","to":"\tif helper := floatToInteger(from, to); helper != \"\" && false {","rule":"A float converted to an integer goes through the runtime's checked helper (a NaN or an out-of-range value is a defect), never Go's unchecked conversion","killers":["internal/experimental/irspike:TestIRMatchesSource"]}
+
   ]
 }
