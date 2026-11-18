@@ -4,7 +4,7 @@ An Ergo module of this repository (`modules/`, MK0): a web framework for server-
 
 | Package | What |
 | --- | --- |
-| `web` | `Routes[R]` with law `HrefParses`; `To` (a route's link, for `html.Href`); `Site[R, P, F, N]`; `Reply`; `Fetch`; `Request`; `Asset`, `Hashed`, `Stylesheet`, `Link` |
+| `web` | `Routes[R]` with law `HrefParses`; `To` (a route's link, for `html.Href`); `Site[R, P, F, N]`; `Reply`; `Fetch`; `Request`; `Asset`, `Hashed`, `Stylesheet`, `Link`; `Row`, `HrefOf`, `ParseOf` (route tables) |
 | `web/webtest` | `Get`, `Head` and `Post` on a site with no server; `Links` (the hrefs of a page's `<a>` elements) and `Unresolved` (each link to the site that does not answer 200) |
 | `web/static` | the prerender host: `PathOf` (a place's file), `Pages`, `Build` (writes them under a folder, `needs fs.Writes`), `Differences` (what a build writes that `Fetch` would not serve) |
 
@@ -28,6 +28,10 @@ An Ergo module of this repository (`modules/`, MK0): a web framework for server-
 Each answer is `Content-Type: text/html; charset=utf-8` but the 405. The request's path is read as written, escaped: `Fetch` does not unescape it before `Parse` (`ui.Segments` unescapes each segment).
 
 Laws (`app.ergo`, over a site of their own whose loader fails): `HeadIsGetWithoutBody`, `UnknownPathIsNotFound`, `OtherMethodIsNotAllowed`, `KnownPathIsLoadThenView`. `webtest`'s test `FixtureSiteAnswers` drives a three-route site whose loader reads a capability.
+
+## Route tables
+
+A route map may be data: a constant `[]web.Row` of `{Variant, Pattern}`, one row per variant of the route union, read by `HrefOf` and `ParseOf` through the union's derived codec, so a tool reads the map without running a body. A pattern is a path of static segments and `:key` segments, then an optional query part: `"/posts/:slug"`, `"/search?q&limit&desc"`. A key is the field's wire key. A path key's value is one escaped segment; a query key is read by `http.DecodeQuery`'s rule, as its field's type (`limit=x` is no place of an int limit, a scalar given twice is none, a `json.Optional` may be absent), and a key the pattern does not list is not read. A site's map calls them: `func Href(_ Map, r Route) ui.URL { web.HrefOf(table, r) }` and `func Parse(_ Map, u ui.URL) Option[Route] { web.ParseOf[Route](table, u) }`, so `Routes`' law `HrefParses` holds over the table as over a hand-written map. `Fetch` parses a request's path with its query, so a route's query state reaches its loader. Laws: `TableRouteIsServed`, `QueryIsTyped`.
 
 ## Assets
 
