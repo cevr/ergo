@@ -7,7 +7,6 @@ import compiler/check/store
 import compiler/check/types
 import compiler/syntax
 import dense
-import strings
 
 // Dep is an imported package as typing reads it: its import path, its
 // bound store (whose interface the importer's binding read, frozen) and
@@ -45,23 +44,6 @@ func foreignAt(k Pkg, path string, name string) int {
 	-1
 }
 
-// genericAt is foreignAt for a generic type's origin, but only an entry
-// whose qualifier is the package's own name (its path's last element): an
-// instance prints by its entry's qualifier (types.Text), where the Go
-// checker prints the package's name, so an origin known only under an
-// import alias is left unported. A prelude type has no qualifier ("-")
-// and prints by its name, as the Go checker prints it.
-func genericAt(k Pkg, path string, name string) int {
-	let i = strings.LastIndex(path, "/")
-	let own = if i < 0 { path } else { path[i+1 : len(path)] }
-	for j, f in k.Foreign {
-		if f.Path == path && f.Name == name && (f.Qual == own || f.Qual == "-") {
-			return j
-		}
-	}
-	-1
-}
-
 // imported is the type of s's pool that names the type name of the
 // package at path, with args: for an Ergo import of k's, an instance
 // whose origin is k's reference into its interface (types.ImportRef);
@@ -75,7 +57,7 @@ func imported(s *store.Store, k Pkg, path string, name string, args []dense.ID[s
 	case None:
 	}
 	if len(args) > 0 {
-		let f = genericAt(k, path, name)
+		let f = foreignAt(k, path, name)
 		return if f >= 0 { some(store.TInstance(s, store.XRef{Import: uint32(store.ForeignBit), Decl: uint32(f)}, args)) } else { None }
 	}
 	let f = foreignAt(k, path, name)
@@ -167,7 +149,7 @@ func port(s *store.Store, k Pkg, d Dep, dt dense.ID[store.TKey]) Option[dense.ID
 		let o = store.OriginOfType(ds, dt)
 		if int(o.Import) == store.ForeignBit {
 			let df = d.K.Foreign[int(o.Decl)]
-			let f = if df.Path == "-" { -1 } else { genericAt(k, df.Path, df.Name) }
+			let f = if df.Path == "-" { -1 } else { foreignAt(k, df.Path, df.Name) }
 			return if f >= 0 { some(store.TInstance(s, store.XRef{Import: uint32(store.ForeignBit), Decl: uint32(f)}, ops)) } else { None }
 		}
 		return match refName(d, o) {
