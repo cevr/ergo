@@ -148,7 +148,7 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Resource**: A value whose type implements the prelude's `Closer` (its clause names it, or an operation type that includes it), an operation type that includes `Closer` or has an operation that takes a resource, or a record, union, tuple, slice, `Map` or `Option` that holds one (resources R1, R34). A task is owned by its frame; an actor handle is a shared handle, not a resource. Its owner scope releases it. See [resources](docs/spec/resources.md).
 
-**Copy site**: A place where a generic body copies a value of its type parameter `T` (uses it after a hand-off, or hands off a read `T`). The package records it; a call that binds `T` to a resource is refused there, and plain data is admitted. See [resources](docs/spec/resources.md) R44.
+**Own type parameter**: A type parameter its declaration marks `own`, `[T own]`: it may bind a resource, and the body is held to a resource's rules for its values. An unmarked type parameter binds plain data only. Replaces the copy site of #197 L8 A3 (MODES-5). See [types](docs/spec/types.md) Generics 9.
 
 **Crossing type**: A type that holds no resource, so the ownership rules mean nothing for its values: they copy freely. Plain data and shared handles cross; a generic type crosses with its arguments (`Stack[int]` crosses, `Stack[File]` does not). The term is OxCaml's mode crossing. See [resources](docs/spec/resources.md) R1.
 
