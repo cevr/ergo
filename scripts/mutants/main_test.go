@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"ergo.local/prototype/internal/testinputs"
 )
@@ -243,5 +244,22 @@ func TestLedgerEnvReachesItsOwnSuite(t *testing.T) {
 	}
 	if _, _, _, err := suitesFor(root, []Job{{Path: ledgerPath(root, "lower"), Ledger: &Ledger{Env: env}}}); err == nil {
 		t.Error("lower's ledger took an env")
+	}
+	// A test of a nested module's suite (hosts/mygo) gets an emission cache
+	// of its own, which internal/testinputs gives a test of the checkout's
+	// module; a ledger's ERGO_CACHE wins (MUT-MODULES).
+	var e engine
+	cache := func(s Suite) []string {
+		_, _, got := e.argv(&s, "/r", "/b", "TestX", time.Minute)
+		return slices.DeleteFunc(got, func(kv string) bool { return !strings.HasPrefix(kv, "ERGO_CACHE=") })
+	}
+	if got := cache(Suite{Name: "hosts/m", Module: "hosts/m", Package: "./"}); !slices.Equal(got, []string{"ERGO_CACHE=" + filepath.Join("/b", "ergo-cache", "hosts", "m", "TestX")}) {
+		t.Errorf("a nested module's test: ERGO_CACHE %q; want one under the work directory", got)
+	}
+	if got := cache(Suite{Name: "hosts/m", Module: "hosts/m", Package: "./", Env: []string{"ERGO_CACHE=/mine"}}); !slices.Equal(got, []string{"ERGO_CACHE=/mine"}) {
+		t.Errorf("a ledger's ERGO_CACHE: %q; want it alone", got)
+	}
+	if got := cache(Suite{Name: "p", Package: "./p"}); len(got) != 0 {
+		t.Errorf("a test of the checkout's module: ERGO_CACHE %q; want none (testinputs sets it)", got)
 	}
 }
