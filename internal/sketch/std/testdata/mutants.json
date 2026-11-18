@@ -647,6 +647,17 @@
       "rule": "crc32.Update carries the checksum crc over s.",
       "anchor": {"tests":["lower:TestStdMatchesGo"]},
       "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "std-snapshot-std-source-moved",
+      "origin": "wf10 CI-SELECT CS-STD-SNAP",
+      "file": "internal/sketch/std/math/math.ergo",
+      "from": "func Abs(f float64) float64 { math.Abs(f) }",
+      "to": "// An edit that changes no behaviour still moves the std sources.\nfunc Abs(f float64) float64 { math.Abs(f) }",
+      "rule": "Any edit of a std source leaves the embedded std snapshot stale; the compiler refuses it silently, so only the snapshot's own check sees it.",
+      "killers": [
+        "internal/sketchfront:TestStdSnapshotIsCurrent"
+      ]
     }
   ]
 }

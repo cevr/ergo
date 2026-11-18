@@ -3271,6 +3271,17 @@
     {"name":"gb1-no-keeps","origin":"wf10 GB1","file":"internal/sketch/check/hostclauses.go","from":"\tif !ok || w.lending == nil || !w.st.reached || !w.c.hostKeeps(w.info.Types[x]) {","to":"\tif true {","rule":"A Go method's result that holds a handle keeps its receiver's owner: no release of the owner while it is in scope, no escape past it.","killers":["check:TestDriverHandleIsLent"]},
     {"name":"b7e-bindings-not-external","origin":"wf10 B7e","file":"internal/sketch/check/export_user.go","from":"\t\t\tout = append(out, gi.GoBindings())","to":"\t\t\t_ = gi","rule":"The user export names the program's Go bindings as an external, as it names the loader: their lookup is a function value.","killers":["check:TestUserExportCarriesGoImports"]},
     {"name":"b7e-goimp-value","origin":"wf10 B7e","file":"internal/sketch/check/gobinding.go","from":"\tc := newChecker(path, &goImp{s}, prelude().scope)","to":"\tc := newChecker(path, goImp{s}, prelude().scope)","rule":"A binding's checker holds its importer as *goImp, the form the export codec carries.","killers":["check:TestUserExportCarriesGoImports"]},
-    {"name":"b7e-host-not-fixed","origin":"wf10 B7e","file":"internal/sketch/check/export_user.go","from":"func (u *UserExport) fixed(seg int) bool { return seg < u.first || u.host[seg] }","to":"func (u *UserExport) fixed(seg int) bool { return seg < u.first }","rule":"A Go binding package's segment is fixed, like std's: a user segment names its objects by id and Decode reads them as the process holds them.","killers":["check:TestUserExportCarriesGoImports"]}
+    {"name":"b7e-host-not-fixed","origin":"wf10 B7e","file":"internal/sketch/check/export_user.go","from":"func (u *UserExport) fixed(seg int) bool { return seg < u.first || u.host[seg] }","to":"func (u *UserExport) fixed(seg int) bool { return seg < u.first }","rule":"A Go binding package's segment is fixed, like std's: a user segment names its objects by id and Decode reads them as the process holds them.","killers":["check:TestUserExportCarriesGoImports"]},
+    {
+      "name": "std-snapshot-format-moved",
+      "origin": "wf10 CI-SELECT CS-STD-SNAP",
+      "file": "internal/sketch/check/export.go",
+      "from": "const snapshotMagic = \"ergo-std-snapshot-2\\n\"",
+      "to": "const snapshotMagic = \"ergo-std-snapshot-3\\n\"",
+      "rule": "A change of the snapshot's format (the codec, the encoder) leaves the embedded std snapshot stale; the compiler then refuses it silently and checks std from source, so only the snapshot's own check sees it.",
+      "killers": [
+        "internal/sketchfront:TestStdSnapshotIsCurrent"
+      ]
+    }
   ]
 }
