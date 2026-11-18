@@ -23,7 +23,7 @@ import (
 	v1 "ergo.local/prototype/runtime/v1"
 )
 
-// testCommand runs a source's tests: `ergo test FILE [--seed N] [--states N]
+// testCommand runs a source's tests: `ergo test FILE|DIR|DIR/... [MORE...] [--seed N] [--states N]
 // [--law NAME] [--skip-law NAME] [--run NAME] [--receipt FILE]
 // [--explore [dfs|pct|random] [--preempt B] [--depth D] [--schedules S]]
 // [--schedule TOKEN] [-work] [--debug] [--target go]`. --states is the
@@ -56,6 +56,11 @@ import (
 // played: one line per act, in the order the acts ran, each the line std
 // ui's PlayTrace returns for it (testTrace). It takes one package, played
 // plainly: with a pattern or --explore it is a usage error.
+//
+// Several targets (`ergo test ./a ./b c/...`) run one after another, each
+// under its own package line, a failure not stopping the rest
+// (manyTestCommand); options that pick one law, test or receipt take one
+// target.
 func testCommand(args []string) error {
 	args, trace := traceFlag(args)
 	opts, err := parseFileOptions("test", args)
@@ -63,8 +68,11 @@ func testCommand(args []string) error {
 		return invalidInvocation(err)
 	}
 	opts.trace = trace
-	if trace && (recursivePattern(opts.file) || opts.explore || opts.search.mode != "") {
+	if trace && (recursivePattern(opts.file) || len(opts.more) > 0 || opts.explore || opts.search.mode != "") {
 		return invalidInvocation(fmt.Errorf("ergo test: --trace takes one package, played plainly, not a pattern or --explore"))
+	}
+	if len(opts.more) > 0 {
+		return manyTestCommand(opts)
 	}
 	if recursivePattern(opts.file) {
 		if opts.emitted {

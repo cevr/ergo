@@ -185,6 +185,9 @@ type fileOptions struct {
 	// script played (printSteps). A traced run is never cached.
 	trace bool
 	file  string
+	// more are test's targets after the first (`ergo test A B C/...`),
+	// each a file, a folder or a pattern; none for every other command.
+	more []string
 	// args are run's program arguments: every word after the source, as
 	// go run passes them, less one "--" right after the source.
 	args []string
@@ -403,8 +406,14 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--law and --skip-law are only supported by test")
 	case selected && (!validLaw(opts.law) || !validLaw(opts.skipLaw) || opts.law+opts.skipLaw == ""):
 		return opts, fmt.Errorf("--law and --skip-law take a law's name, as a report shows it (Design.Safe)")
-	case len(positional) != 1:
+	case len(positional) != 1 && command != "test":
 		return opts, fmt.Errorf("incorrect arguments for %s", command)
+	}
+	if len(positional) > 1 {
+		if err := severalTargets(opts, positional); err != nil {
+			return opts, err
+		}
+		opts.more = positional[1:]
 	}
 	var err error
 	if opts.platform, err = platformOf(platform, platformed, os.Getenv("GOOS"), os.Getenv("GOARCH")); err != nil {
