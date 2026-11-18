@@ -129,8 +129,12 @@ var childWaitLaws = map[string]bool{"After": true, "TasksTransform": true, "Task
 // as a Send does and ActorLiveState for an answer as State does;
 // runtime/v1/actor_feed_test.go TestActorFeedSourcesEndWithTheActor states
 // that a Feed and a live read on an ended actor fail Stopped at once, and
-// that a fed source never runs after the end returns.
+// that a fed source never runs after the end returns. F-GP4c-1:
+// ActorChanges (std actor's changesOf) and Actor.LatestChanges wait on the
+// subscription Changes waits on; TestActorWaitsAreInterruptible states
+// their interruption too.
 var actorWaitLaws = map[string]bool{"Actor.Send": true, "Actor.Ask": true, "Actor.State": true, "Actor.Changes": true, "Actor.Stop": true,
+	"ActorChanges": true, "Actor.LatestChanges": true,
 	"Actor.Drain": true, "ActorExitKind": true, "ActorFeed": true, "ActorLiveState": true, "Host.Get": true}
 
 // hostWaitLaws are the callerWait bindings that wait for a host process
