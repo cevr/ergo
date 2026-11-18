@@ -1715,12 +1715,29 @@ func (p *parser) parseType(ctx typeCtx) Expr {
 		p.errorf("expected a type, found \"needs\": %s", needsKeywordText)
 		return nil
 	}
+	if p.tok.tok.IsKeyword() && startsType(p.peek(1).tok) {
+		// A keyword followed by a type was meant as a parameter's or a
+		// field's name (`in []int`; PKG G5): say that it is a keyword.
+		kw := p.tok.tok.String()
+		p.errorf("expected a type, found %q: %s is a keyword and is not a name; choose another name", kw, kw)
+		return nil
+	}
 	p.errorf("expected a type, found %s", p.found())
 	return nil
 }
 
 // needsKeywordText ends the S001 at a binder spelled needs (K4,
 // G-ex-d-12): the word is reserved.
+// startsType reports whether a type may start with t: a name, a slice or
+// array, a pointer, or a function type.
+func startsType(t Token) bool {
+	switch t {
+	case IDENT, LBRACK, MUL, FUNC, ESCAPING:
+		return true
+	}
+	return false
+}
+
 const needsKeywordText = "needs is a keyword (the capability row) and is not a name; choose another name"
 
 func (p *parser) parseFuncType(ctx typeCtx) *FuncType {
