@@ -224,6 +224,11 @@ func (l *lowerer) stdFileOf(n syntax.Node) (stdFile, bool) {
 					return sf, true
 				}
 			}
+			admissionNodes(p, func(law, n syntax.Node) {
+				if sf, ok := l.stdSrc[law]; ok {
+					l.stdSrc[n] = sf
+				}
+			})
 		}
 	}
 	return stdFile{}, false

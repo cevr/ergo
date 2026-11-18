@@ -27,6 +27,33 @@
       "to": "mask := ^uint64(0)",
       "rule": "Record magnitude after narrowing, so a smaller integer width shrinks by value rather than wrapping.",
       "killers": ["internal/sketch/lower:TestIntegerShrinksReachBoundary"]
+    },
+    {
+      "name": "c5-near-returns-source",
+      "origin": "wf10/CONSTRAINTS C5 mutant 5",
+      "file": "runtime/testgen/near.go",
+      "from": "\t\tif !Identical(v, src) && admits(v) {\n\t\t\treturn v, true, true",
+      "to": "\t\tif !Identical(v, src) && admits(v) {\n\t\t\treturn src, true, false",
+      "rule": "The near-variant search returns the distinct equal value it finds, not the source itself (else Unfolded's EqualKeysHashEqual passes).",
+      "killers": ["runtime/testgen:TestNearVariantsReachTies"]
+    },
+    {
+      "name": "c5-near-zero-sign-ignored",
+      "origin": "wf10/CONSTRAINTS C5",
+      "file": "runtime/testgen/near.go",
+      "from": "\t\treturn math.Float64bits(a.Float()) == math.Float64bits(b.Float())",
+      "to": "\t\treturn a.Float() == b.Float()",
+      "rule": "Identity reads a float's bits: 0.0 and -0.0 are == yet distinct, the pair hash must agree on (mutant 6's reach).",
+      "killers": ["runtime/testgen:TestNearVariantsReachTies"]
+    },
+    {
+      "name": "c5-near-identity-distinct",
+      "origin": "wf10/CONSTRAINTS C5 mutant 9",
+      "file": "runtime/testgen/near.go",
+      "from": "\treturn src, admits(src), false\n}",
+      "to": "\treturn src, admits(src), true\n}",
+      "rule": "A search that finds no distinct admitted variant reports the source as not distinct, so a run with none is a skip, never ok.",
+      "killers": ["runtime/testgen:TestNearVariantsReachTies"]
     }
   ]
 }

@@ -135,6 +135,13 @@ func canonicalize(u Unit) *canonical {
 			return true
 		})
 	}
+	for p := range c.sourced {
+		admissionNodes(p, func(law, n syntax.Node) {
+			if i, ok := c.nodeSrc[law]; ok {
+				c.nodeSrc[n] = i
+			}
+		})
+	}
 	// Each list is ordered by its declaration's name: an inline variant's
 	// TypeDecl is synthetic (check/shapes.go), and no source holds it.
 	for p := range c.sourced {
@@ -214,6 +221,26 @@ func (c *canonical) sourceOf(n syntax.Node) (int, bool) {
 	}
 	i, ok := c.nodeSrc[n]
 	return i, ok
+}
+
+// admissionNodes calls at with each node an admission law of p made (its
+// declaration, body and statement; the where inside is the law's own
+// syntax; lawnear.go) and the declaration of the law it belongs to, so a
+// location of one is read in that law's file. The order of p's laws does
+// not matter: each call sets one node's file.
+func admissionNodes(p *check.Package, at func(law, n syntax.Node)) {
+	for _, law := range p.Laws {
+		for _, adm := range law.Admit {
+			if adm == nil {
+				continue
+			}
+			at(law.Decl, adm.Decl)
+			at(law.Decl, adm.Decl.Body)
+			for _, s := range adm.Decl.Body.List {
+				at(law.Decl, s)
+			}
+		}
+	}
 }
 
 // sourceIndex is n's source file, or past the last for a node that no

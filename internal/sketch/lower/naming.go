@@ -278,6 +278,7 @@ func (l *lowerer) nameAll() {
 	for _, e := range sortGenerated(generated) {
 		l.pkgName(e.key, e.base)
 	}
+	l.reserveHash() // ir_mapprovider.go
 	if l.ir != nil {
 		l.reserveWitnessValues() // an IR lowering's witness variables (ir_witness.go)
 	}

@@ -178,6 +178,11 @@ func (l *lowerer) nameTests() {
 	}
 	for _, r := range l.runLaws() {
 		l.lawFunc(r.Law)
+		for _, adm := range r.Law.Admit {
+			if adm != nil {
+				l.lawFunc(adm) // its where's function (lawnear.go)
+			}
+		}
 		if r.Law.Rewrite != nil {
 			l.rewriteSide(r.Law, false)
 			l.rewriteSide(r.Law, true)
@@ -827,6 +832,11 @@ func (l *lowerer) testEntry(b *strings.Builder) {
 	for _, r := range l.runLaws() {
 		if lawLowered(r) && r.Law.Decl.Reach == nil {
 			l.lawDecl(r.Law)
+			for _, adm := range r.Law.Admit {
+				if adm != nil {
+					l.lawDecl(adm) // lawnear.go
+				}
+			}
 		}
 	}
 	b.WriteString(l.testRunner())
@@ -1219,6 +1229,7 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 			offset = 1
 		}
 		drawn := make([]string, len(plan.Inputs))
+		admitted, distinct := "", "" // a searched case's flags (lawnear.go)
 		for k, v := range law.Params {
 			input := paramPlans[k]
 			vt := input.Type
@@ -1236,6 +1247,19 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 				gen = l.genRefined(vt, input.Where, r, strconv.Itoa(testDepth), inner, law.Decl)
 			}
 			drawn[k+offset] = a
+			if adm := admissionOf(law, k); adm != nil {
+				// A where over earlier parameters: found by search
+				// (lawnear.go).
+				if admitted == "" {
+					admitted, distinct = inner.alloc("admitted"), inner.alloc("distinct")
+					b.WriteString("\t\t\t" + admitted + ", " + distinct + " := true, false\n")
+				}
+				l.nearDraw(b, law, adm, k, a, vt, gen, args, bind, callee, e, env, r, admitted, distinct, inner, drawn, offset)
+				args = append(args, a)
+				shown = append(shown, strconv.Quote(sep+v.Name+" = "), l.litExpr(vt, a, law.Decl))
+				sep = ", "
+				continue
+			}
 			b.WriteString("\t\t\t" + a + " := " + l.tieExpr(plan, k+offset, drawn, vt, r, gen, law.Decl) + "\n")
 			args = append(args, a)
 			shown = append(shown, strconv.Quote(sep+v.Name+" = "), l.litExpr(vt, a, law.Decl))
@@ -1249,6 +1273,11 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 			s := inner.alloc("s")
 			prefix = "for _, " + s + " := range " + list + " { " + s + "(" + e + "." + l.envField(tg.b[0].Slot) + ") }; "
 		}
+		if admitted != "" {
+			// A case its wheres do not admit is not run (lawnear.go).
+			b.WriteString("\t\t\tif " + admitted + " { " + r + ".admitted++ }; if " + admitted + " && " + distinct + " { " + r + ".distinct++ }\n")
+			prefix = "if !" + admitted + " { return nil }; " + prefix
+		}
 		body := e + " := *" + env + "; " + strings.Join(append(bind, ""), "; ") + prefix +
 			held + ", " + err + " := " + callee + "(" + strings.Join(args, ", ") + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
 		b.WriteString("\t\t\treturn func() string { return " + strings.Join(shown, " + ") + " }, func() error { " + body + " }\n\t\t\t})\n")
@@ -1256,6 +1285,10 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 		okLine := strconv.Quote(fmt.Sprintf("ok %s (%d cases)", tg.label, cases))
 		if l.postRun(law, tg.b) {
 			okLine = strconv.Quote(fmt.Sprintf("ok %s (%d cases, prefixes up to ", tg.label, cases)) + " + " + conv + ".Itoa(" + r + ".deepest) + " + strconv.Quote(" operations)")
+		}
+		if admitted != "" {
+			l.nearReport(b, law, tg.label, cases, r, ok)
+			okLine = strconv.Quote(fmt.Sprintf("ok %s (%d cases, ", tg.label, cases)) + " + " + conv + ".Itoa(" + r + ".distinct) + " + strconv.Quote(" with distinct admitted values)")
 		}
 		b.WriteString("\t\tif " + ok + " {\n\t\t\t" + fmtPkg + ".Println(" + okLine + ")\n")
 		b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n")
@@ -1554,6 +1587,8 @@ func $Record(label string, r *$Rand, why string) {
 	switch {
 	case r == nil:
 		rec += ", \"status\": \"skipped\", \"why\": " + $JSON(why)
+	case r.skip != "" && r.failure == "":
+		rec += ", \"status\": \"skipped\", \"why\": " + $JSON(r.skip)
 	case r.failure != "":
 		rec += ", \"status\": \"refuted\", \"cases\": " + $strconv.Itoa(r.cases) + ", \"counterexample\": " + $JSON(r.failure)
 	case r.proved:
@@ -1753,6 +1788,11 @@ type $Rand struct {
 	// deepest is the longest drawn prefix of a rewrite or post law's
 	// run: the depth of the states its cases reached.
 	deepest int
+	// A run with a where over earlier parameters (lawnear.go): the
+	// admitted cases whose searched values differ from their sources,
+	// and the reason it is a skip when none did.
+	distinct int
+	skip     string
 }
 
 // start begins case i of a run: its size is i/4, and its world is empty,
