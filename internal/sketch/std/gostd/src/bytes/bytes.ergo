@@ -88,6 +88,8 @@ extern go bytes.Clone func Clone(b []byte) []byte needs go.Foreign
 extern go bytes.Compare func Compare(a []byte, b []byte) int needs go.Foreign
 
 // ergo:go func Contains(b []byte, subslice []byte) bool
+// ergo:reads b (vouched: it is Index(b, subslice) != -1)
+// ergo:reads subslice (vouched: it is Index(b, subslice) != -1)
 extern go bytes.Contains func Contains(b []byte, subslice []byte) bool needs go.Foreign
 
 // ergo:go func ContainsAny(b []byte, chars string) bool
@@ -101,6 +103,8 @@ extern go bytes.ContainsFunc func ContainsFunc[CR](b []byte, f func(rune) bool n
 extern go bytes.ContainsRune func ContainsRune(b []byte, r rune) bool needs go.Foreign
 
 // ergo:go func Count(s []byte, sep []byte) int
+// ergo:reads s (vouched: it reaches bytealg.Count (assembly that only loads), utf8.RuneCount and Index)
+// ergo:reads sep (vouched: it reads sep[0] for bytealg.Count, and passes sep to Index)
 extern go bytes.Count func Count(s []byte, sep []byte) int needs go.Foreign
 
 // ergo:go func Cut(s []byte, sep []byte) (before []byte, after []byte, found bool)
@@ -150,12 +154,15 @@ extern go bytes.HasPrefix func HasPrefix(s []byte, prefix []byte) bool needs go.
 extern go bytes.HasSuffix func HasSuffix(s []byte, suffix []byte) bool needs go.Foreign
 
 // ergo:go func Index(s []byte, sep []byte) int
+// ergo:reads s (vouched: it reaches bytealg.Index, IndexByte and Equal, assembly that only loads, and a Rabin-Karp loop that only reads)
+// ergo:reads sep (vouched: it reaches bytealg.Index, IndexByte and Equal, assembly that only loads, and a Rabin-Karp loop that only reads)
 extern go bytes.Index func Index(s []byte, sep []byte) int needs go.Foreign
 
 // ergo:go func IndexAny(s []byte, chars string) int
 extern go bytes.IndexAny func IndexAny(s []byte, chars string) int needs go.Foreign
 
 // ergo:go func IndexByte(b []byte, c byte) int
+// ergo:reads b (vouched: its body is bytealg.IndexByte, assembly that only loads from b)
 extern go bytes.IndexByte func IndexByte(b []byte, c byte) int needs go.Foreign
 
 // ergo:go func IndexFunc(s []byte, f func(r rune) bool) int

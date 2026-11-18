@@ -214,7 +214,7 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Foreign fact**: A statement about what a Go function does with an operand that may change the code at its calls, such as `reads p`: the function only reads `p`. A fact is checked when the pinned Go toolchain derives it (escape analysis, read by `ergo bind go` into the binding's `// ergo:reads` line) and vouched when a reviewed row asserts it. A law can guard a fact; it never licenses one. See [interop](docs/spec/interop.md#foreign-facts).
 
-**Vouched**: The level of a foreign fact that a reviewed row asserts because Go's analysis cannot see it (an assembly body, a function variable, C). A vouched fact with a passing guard law is validated; without one it is assumed. Contrast a checked fact, which the toolchain derives.
+**Vouched**: The level of a foreign fact that a reviewed row asserts because Go's analysis cannot see it (an assembly body, a function variable, C). A vouched fact whose guard has a current, passing line in the ledger is validated, and only then changes code; without one it is assumed. Contrast a checked fact, which the toolchain derives.
 
 ## Constructs, contracts and laws
 

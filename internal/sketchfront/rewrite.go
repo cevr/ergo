@@ -15,12 +15,14 @@ import (
 	"sort"
 	"strings"
 
+	"ergo.local/prototype/internal/gofacts"
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 	"ergo.local/prototype/internal/stage"
+	"ergo.local/prototype/internal/toolchain"
 )
 
 // The law ledger (runtime.md, Tests 10; lower/ledger.go): ergo test writes
@@ -300,7 +302,26 @@ func FreshStdLedger(req BuildRequest) (string, error) {
 			entries[e.Key()] = e
 		}
 	}
+	for _, e := range GuardFactEntries() {
+		entries[e.Key()] = e
+	}
 	return StdLedgerHeader + lower.FormatLedger(entries), nil
+}
+
+// GuardFactEntries runs the guard of every row of the reviewed fact table
+// (internal/gofacts; LAWFFI LF2) and gives its ledger line: validated by
+// guard when the guard passes, refuted when it shows the function writing
+// the operand; with the pinned toolchain, and the row's digest at it.
+func GuardFactEntries() []lower.LedgerEntry {
+	var out []lower.LedgerEntry
+	for _, r := range gofacts.Rows {
+		verdict := "validated"
+		if r.Guard(gofacts.GuardSeed) != nil {
+			verdict = "refuted"
+		}
+		out = append(out, lower.LedgerEntry{Fact: r.Key(), Verdict: verdict, By: "guard", With: toolchain.Version, Digest: r.Digest(toolchain.Version)})
+	}
+	return out
 }
 
 // hasMain reports whether pkg declares main, the run build's entry.

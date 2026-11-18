@@ -1,4 +1,14 @@
 # std law ledger (runtime.md, Tests 10). Written by go run ./scripts/stdlaws; do not edit.
+fact go bytes.Contains reads b validated by guard with go1.27.4 h1:BUbmHPDVsWSAOp9lWTWiR2YaGXGIv1ft9UVSSGoiljk=
+fact go bytes.Contains reads subslice validated by guard with go1.27.4 h1:abxscZhyMI/G5Ia7tZzBhdTkfsqVIr8Iaqpl/sa05Zc=
+fact go bytes.Count reads s validated by guard with go1.27.4 h1:1SE+aT6ZIOpeQXdJfpTono2KiMA1//Zuh6B2mIVx3ZU=
+fact go bytes.Count reads sep validated by guard with go1.27.4 h1:KP7m4R58B470MxRfqctmUVQbKWXLcFpOS5QZAq8fnp4=
+fact go bytes.Index reads s validated by guard with go1.27.4 h1:SzYt7gVRBQqnmai3QjFRDpjoscVnoccz6l1wrjYvyhc=
+fact go bytes.Index reads sep validated by guard with go1.27.4 h1:LUt0VGc3cEIRaSTe24jr7OnR97zkGGNPBtcrIUl8dXE=
+fact go bytes.IndexByte reads b validated by guard with go1.27.4 h1:UA9j9lQDRe8ip2dQWOgVxuLIoBPURa2JQH4NBoinWZU=
+fact go crypto/sha256.Sum256 reads data validated by guard with go1.27.4 h1:HQ4RSjctNpfm9/Z4wTTpIZMVXm/VmieBZKFDrClJO0Y=
+fact go hash/crc32.ChecksumIEEE reads data validated by guard with go1.27.4 h1:lNP3jQdM/4RzJWcPucJL2xMaCUZ27BALpJfcoFloAi8=
+fact go hash/crc32.Update reads p validated by guard with go1.27.4 h1:+pSMddbKkhy2IDDC4raXNBbTks1JOhlMh/SYwNz2CtI=
 law json.Text.PlainIsRaw for json.text at ("None") proved by native with go1.27.4,runtime/v1@438e85120a87 h1:P24bwPrDHj3QjX1evjiHRAlNNyCKPlOncE4bc2ApQWA=
 law json.Text.PlainIsRaw for json.text at ("Some") proved by native with go1.27.4,runtime/v1@438e85120a87 h1:/wTEO9syc+8yq3sFJiYdGoIQJRM16VyqXsde131kNGY=
 law json.Text.PlainIsRaw for json.text at ("a") proved by native with go1.27.4,runtime/v1@438e85120a87 h1:f+H5bnYlh3QaHTB+8vtfalf2Jso69Bpzv4a6YoHO5Ck=

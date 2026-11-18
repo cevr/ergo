@@ -51,7 +51,12 @@ type Decl struct {
 	// Reads are the Ergo binders of the parameters (a method's receiver
 	// included) that Go's escape analysis says the function only reads,
 	// on every platform: the binding's `// ergo:reads` line (Derive).
-	Reads   []string
+	Reads []string
+	// Vouched are the parameters the reviewed table (internal/gofacts)
+	// vouches the function only reads where Go's analysis cannot see it:
+	// one `// ergo:reads p (vouched: reason)` line each. A vouched fact
+	// acts only on a current validated line of the ledger (LAWFFI LF2).
+	Vouched []Vouch
 	Refused string
 	// Members are the refusals of a struct's fields and an interface's
 	// methods, by member name, for a type that maps.
@@ -65,6 +70,10 @@ type Decl struct {
 	refPkgs  []*types.Package
 	readable []readable
 }
+
+// Vouch is a vouched `reads` fact: the parameter's Ergo binder and the
+// reviewer's reason.
+type Vouch struct{ Param, Reason string }
 
 // Line is one field or method of a mapped struct or interface.
 type Line struct {

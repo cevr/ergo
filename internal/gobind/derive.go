@@ -14,6 +14,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"ergo.local/prototype/internal/gofacts"
 )
 
 // Derived foreign facts (LAWFFI LF0; docs/spec/interop.md, Foreign facts).
@@ -263,13 +265,21 @@ func meet(all []Facts) Facts {
 }
 
 // reads sets d.Reads from facts: the Ergo binders of d's readable
-// parameters whose Go name the facts hold.
+// parameters whose Go name the facts hold, and d.Vouched from the reviewed
+// table (gofacts.Rows) for a readable parameter the facts do not hold.
 func (d *Decl) reads(path string, facts Facts) {
 	f := facts[d.Target(path)]
-	d.Reads = nil
+	d.Reads, d.Vouched = nil, nil
+	rows := gofacts.Of(d.Target(path))
 	for _, r := range d.readable {
 		if f[r.goName] {
 			d.Reads = append(d.Reads, r.ergoName)
+			continue
+		}
+		for _, row := range rows {
+			if row.Fact == "reads" && row.Param == r.goName {
+				d.Vouched = append(d.Vouched, Vouch{Param: r.ergoName, Reason: row.Reason})
+			}
 		}
 	}
 }
