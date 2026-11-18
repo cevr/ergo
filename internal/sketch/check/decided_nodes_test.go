@@ -688,7 +688,7 @@ func main() {}
 `, nil},
 	{"core forms", "the expressions and statements Go shares", `
 type P { X int, Y int }
-func g(p *P) int { return p.X }
+func g(p mut P) int { return p.X }
 func f(xs []int, m Map[string, int]) int {
 	let mut p = P{X: 1, Y: 2}
 	p.X = -(g(&p) + 1)
