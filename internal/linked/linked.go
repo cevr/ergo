@@ -23,7 +23,9 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strings"
 
+	"ergo.local/prototype/internal/apigen"
 	"ergo.local/prototype/internal/cligen"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketchfront"
@@ -66,6 +68,7 @@ func Generate(root string, p Package) (map[string][]byte, error) {
 	skip := map[string]bool{}
 	for _, c := range p.CLIs {
 		skip[c.Dir] = true
+		skip[apigen.Dir(path.Base(c.Std))] = true
 	}
 	module, err := readModule(source, skip)
 	if err != nil {
@@ -76,13 +79,24 @@ func Generate(root string, p Package) (map[string][]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		files, err := cligen.Generate(pkg, c.Std, c.Op, "")
+		// The hub first (ergo gen api), in the module beside the cli
+		// package, which is written over it.
+		hub, err := apigen.Generate(pkg, c.Std, c.Op)
+		if err != nil {
+			return nil, fmt.Errorf("linked %s: ergo gen api %s.%s: %w", p.Name, c.Std, c.Op, err)
+		}
+		files, err := cligen.Generate(pkg, c.Std, c.Op, moduleName(module)+"/"+hub.Dir)
 		if err != nil {
 			return nil, fmt.Errorf("linked %s: ergo gen cli %s.%s: %w", p.Name, c.Std, c.Op, err)
 		}
-		for name, text := range files.Files {
-			out[path.Join(p.Dir(), "ergo", c.Dir, name)] = []byte(text)
-			module[path.Join(c.Dir, name)] = text
+		for _, gen := range []struct {
+			dir   string
+			files map[string]string
+		}{{hub.Dir, hub.Files}, {c.Dir, files.Files}} {
+			for name, text := range gen.files {
+				out[path.Join(p.Dir(), "ergo", gen.dir, name)] = []byte(text)
+				module[path.Join(gen.dir, name)] = text
+			}
 		}
 	}
 	a, err := checkModule(module)
@@ -109,6 +123,16 @@ func Generate(root string, p Package) (map[string][]byte, error) {
 		return nil, fmt.Errorf("linked %s: the lowering wrote no %s.go", p.Name, p.Name)
 	}
 	return out, nil
+}
+
+// moduleName is the module line's path of the module's ergo.mod.
+func moduleName(module map[string]string) string {
+	for _, line := range strings.Split(module["ergo.mod"], "\n") {
+		if f := strings.Fields(line); len(f) == 2 && f[0] == "module" {
+			return f[1]
+		}
+	}
+	return ""
 }
 
 // stdPackage is the checked std package at the import path std, which
