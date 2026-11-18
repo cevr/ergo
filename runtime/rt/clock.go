@@ -4,6 +4,7 @@ import (
 	"errors"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -93,8 +94,12 @@ type virtualTimer struct {
 	v    *Virtual
 	when Instant
 	seq  uint64
-	c    chan Instant
-	task *Task // the sleeper of an auto clock's Sleep, nil otherwise
+	c    chan Instant // nil for a sleep's timer
+	// task is the sleeper of a Sleep on a clock with a domain, nil
+	// otherwise. Its timer has no channel: fire sets fired and resumes
+	// the sleeper's park word (FU-virtual-sleep).
+	task  *Task
+	fired atomic.Bool
 }
 
 // NewVirtual returns a virtual clock that reads start.
@@ -107,8 +112,9 @@ func NewVirtual(start time.Time) *Virtual {
 // Now returns the virtual time.
 func (v *Virtual) Now() Instant {
 	v.mu.Lock()
-	defer v.mu.Unlock()
-	return v.now
+	now := v.now
+	v.mu.Unlock() // no defer: Now is read on every timer fire
+	return now
 }
 
 // NewTimer arms a timer d after the virtual now. A deadline at or before now

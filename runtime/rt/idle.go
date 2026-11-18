@@ -308,6 +308,9 @@ func (v *Virtual) fire(t *virtualTimer) {
 		if m := t.task.member.Load(); m != nil && m.d == v.d && m.parked && m.on[0] == any(t) {
 			m.release()
 		}
+		t.fired.Store(true)
+		t.task.wake.unpark()
+		return
 	}
 	t.c <- t.when
 }
@@ -320,9 +323,9 @@ func (v *Virtual) Steps() int {
 }
 
 // sleepGap, when set, runs in sleep between the clock's unlock and the
-// select: the window in which the sleeper's own deadline may have fired
+// wait: the window in which the sleeper's own deadline may have fired
 // (it parked last and moved the clock) and a stop may come before it
-// selects. Only rt's tests set it (TestVirtualSleepTieEndsAsSleep); on
+// looks. Only rt's tests set it (TestVirtualSleepTieEndsAsSleep); on
 // another host or under load a preemption opens the same window.
 var sleepGap func(*Task)
 
@@ -336,22 +339,29 @@ func (v *Virtual) sleep(t *Task, d Span) error {
 	}
 	v.mu.Lock()
 	v.seq++
-	tm := &virtualTimer{v: v, when: v.now + Instant(d), seq: v.seq, c: make(chan Instant, 1), task: t}
+	// The timer has no channel: fire sets fired and resumes t's park word
+	// (FU-virtual-sleep), and t waits on its word as a join does.
+	tm := &virtualTimer{v: v, when: v.now + Instant(d), seq: v.seq, task: t}
 	i := sort.Search(len(v.timers), func(i int) bool { return tm.before(v.timers[i]) })
 	v.timers = append(v.timers, nil)
 	copy(v.timers[i+1:], v.timers[i:])
 	v.timers[i] = tm
 	v.armed.Broadcast()
-	v.mu.Unlock()
-	// Done runs WhenWaiting's hook, so it comes after the timer is armed
-	// (Task.Done), and outside v.mu. A deadline that a move fired in
-	// between is in tm.c, so the sleeper does not park.
-	stop := t.Done()
-	v.mu.Lock()
+	// Waits flushes held output and runs WhenWaiting's hook, so it comes
+	// after the timer is armed (Task.Done), and outside v.mu; with neither
+	// to do the clock stays locked. A deadline that a move fired in
+	// between has set fired, so the sleeper does not park. Inside a mask
+	// the sleep ignores a stop, as Done's nil channel did.
+	if waitFlush.pending.Load() || waitHooks.n.Load() != 0 {
+		v.mu.Unlock()
+		t.Waits()
+		v.mu.Lock()
+	}
+	stoppable := !t.Masked()
 	m := t.member.Load()
 	if m != nil && m.d == v.d {
-		if !(stop != nil && t.stopped.Load()) && len(tm.c) == 0 {
-			m.parked, m.stop, m.on = true, stop != nil, [2]any{tm, nil}
+		if !(stoppable && t.stopped.Load()) && !tm.fired.Load() {
+			m.parked, m.stop, m.on = true, stoppable, [2]any{tm, nil}
 			v.d.parked++
 		}
 		v.d.idle()
@@ -363,22 +373,21 @@ func (v *Virtual) sleep(t *Task, d Span) error {
 		sleepGap(t)
 	}
 	Block(t)
-	select {
-	case <-tm.c:
-		Unblock(t)
-		m.unpark()
-		return nil
-	case <-stop:
-		Unblock(t)
-		m.unpark()
-		// A deadline that came at the same instant as the stop has passed:
-		// the sleep is done, so a tie in tasks.Race keeps its order.
-		select {
-		case <-tm.c:
-			return nil
-		default:
-		}
-		tm.Stop()
-		return Interrupted
+	// Interrupt resumes the word after it sets the stop flag, so the loop
+	// sees either event; a wake that was for an earlier wait costs one
+	// more look.
+	for !tm.fired.Load() && !(stoppable && t.stopped.Load()) {
+		t.wake.park()
 	}
+	Unblock(t)
+	// A fired deadline ends the sleep, even one that came at the same
+	// instant as the stop, so a tie in tasks.Race keeps its order. fire
+	// cleared the parked flag before it set fired, so there is nothing to
+	// unpark.
+	if tm.fired.Load() {
+		return nil
+	}
+	m.unpark()
+	tm.Stop()
+	return Interrupted
 }
