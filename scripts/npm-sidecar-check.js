@@ -68,7 +68,7 @@ function run(binary, count, mode) {
         lintSync({ rule: "vector", weights: nets[0], path: files[i].path, text: files[i].text });
         findings.push("answered");
       } catch (error) {
-        findings.push(error.message);
+        findings.push(`${error.code ?? "-"} ${error.message}`);
       }
     }
     starts = processStarts();
@@ -169,9 +169,14 @@ async function broken() {
   for (const c of cases) {
     const got = await child(c.binary, 5, "broken");
     const last = got.findings[got.findings.length - 1];
-    const ok = got.starts === c.starts && got.findings.every((f) => f !== "answered") && last.includes(c.reason);
+    // Once the sidecar is down, a call says so by its code (the last call is after that).
+    const ok =
+      got.starts === c.starts &&
+      got.findings.every((f) => f !== "answered") &&
+      last.startsWith("TN1_SIDECAR_DOWN ") &&
+      last.includes(c.reason);
     console.log(`${c.binary}: starts ${got.starts}, last reason: ${last}`);
-    if (!ok) fail(`${c.binary}: want ${c.starts} starts and every call failed, the last with "${c.reason}"`);
+    if (!ok) fail(`${c.binary}: want ${c.starts} starts and every call failed, the last with code TN1_SIDECAR_DOWN and "${c.reason}"`);
     if (c.starts === 0 && !got.findings.every((f) => f === got.findings[0]))
       fail(`${c.binary}: a failed start is tried again: ${got.findings.join(" | ")}`);
   }

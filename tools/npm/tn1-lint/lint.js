@@ -16,7 +16,9 @@
 // start (fork failing with ENOMEM in a process that holds much memory, a
 // binary that cannot run), or a worker that stopped answering, fails that
 // call and every later one at once with the same reason: no further start
-// is tried and no call waits again. The process the worker
+// is tried and no call waits again. Such an Error has code
+// "TN1_SIDECAR_DOWN", so a caller (the oxlint rule) can fail its whole run
+// once instead of reporting the same failure on every file. The process the worker
 // starts is in its own process group; it ends when this process's pipe
 // to it closes, and the exit hook below signals that group, the one it
 // started, in case it has not.
@@ -66,11 +68,18 @@ function stop() {
   }
 }
 
+/** The Error of a sidecar that is down for this process: no later call can succeed. */
+function down(reason) {
+  const error = new Error(reason);
+  error.code = "TN1_SIDECAR_DOWN";
+  return error;
+}
+
 /** Diagnostics for request = { rule, weights, path, text }. */
 function lintSync(request) {
   if (sidecar === undefined) start();
   const { port, shared } = sidecar;
-  if (sidecar.broken !== undefined) throw new Error(sidecar.broken);
+  if (sidecar.broken !== undefined) throw down(sidecar.broken);
   Atomics.store(shared, READY, 0);
   port.postMessage({
     rule: String(request.rule),
@@ -80,12 +89,15 @@ function lintSync(request) {
   });
   if (Atomics.wait(shared, READY, 0, HANG_MS) === "timed-out") {
     sidecar.broken = "tn1-lint: the sidecar did not answer (its worker stopped)";
-    throw new Error(sidecar.broken);
+    throw down(sidecar.broken);
   }
   const received = receiveMessageOnPort(port);
   if (received === undefined) throw new Error("tn1-lint: the sidecar's reply was lost");
   const reply = received.message;
-  if (reply.failed) sidecar.broken = reply.error;
+  if (reply.failed) {
+    sidecar.broken = reply.error;
+    throw down(reply.error);
+  }
   if (reply.error) throw new Error(reply.error);
   return reply.diagnostics;
 }
