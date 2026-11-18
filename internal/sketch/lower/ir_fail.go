@@ -504,7 +504,7 @@ func (b *irBuilder) hoist(pre []*irStmt, x *irExpr, call *syntax.CallExpr) ([]*i
 // loopPoll is the back-edge poll that ends each iteration of a loop in a
 // polling frame (the emitter's loopBody). A continue would skip it.
 func (b *irBuilder) loopPoll(s syntax.Stmt, body *syntax.BlockStmt) []*irStmt {
-	if b.env < 0 || !b.fc.frame.polls {
+	if b.env < 0 || !b.fc.frame.polls || b.fc.iterationPolls(body) { // pollplace.go
 		return nil
 	}
 	if b.fc.containsContinue(body) {

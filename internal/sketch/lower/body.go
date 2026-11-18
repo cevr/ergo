@@ -107,6 +107,10 @@ type loopCtx struct {
 	// next labels the back-edge poll that ends each iteration of a polling
 	// loop: a continue jumps to it (loopBody). Empty until a continue needs it.
 	next string
+	// polled: every iteration that reaches the back edge has polled
+	// through a callee, so the loop takes no back-edge poll and its
+	// continue is Go's (pollplace.go).
+	polled bool
 }
 
 // funcCtx writes one Go function body.
@@ -951,7 +955,7 @@ func (fc *funcCtx) forStmt(s *syntax.ForStmt) bool {
 	fc.killWritten(s.Body)
 	mark := fc.factMark()
 	defer fc.factReset(mark)
-	loop := &loopCtx{}
+	loop := &loopCtx{polled: fc.iterationPolls(s.Body)} // pollplace.go
 	fc.loops = append(fc.loops, loop)
 	saved := fc.out
 	fc.out = &strings.Builder{}
@@ -1027,7 +1031,7 @@ func (fc *funcCtx) rangeStmt(s *syntax.RangeStmt) bool {
 			fc.line("}")
 		}()
 	}
-	loop := &loopCtx{}
+	loop := &loopCtx{polled: fc.iterationPolls(s.Body)} // pollplace.go
 	fc.loops = append(fc.loops, loop)
 	saved := fc.out
 	fc.out = &strings.Builder{}
@@ -1131,7 +1135,7 @@ func (fc *funcCtx) loopBody(s syntax.Stmt, loop *loopCtx, body *syntax.BlockStmt
 	} else {
 		terminates = false
 	}
-	if fc.frame.polls && !terminates {
+	if fc.frame.polls && !terminates && !loop.polled {
 		fc.depth++
 		fc.at(s)
 		fc.poll(s)
@@ -1223,7 +1227,7 @@ func (fc *funcCtx) branch(s *syntax.BranchStmt) {
 	}
 	fc.releaseAt(s) // what the iterations' scopes still own (R6)
 	loop := fc.loops[len(fc.loops)-1]
-	if s.Tok == syntax.CONTINUE && fc.frame.polls {
+	if s.Tok == syntax.CONTINUE && fc.frame.polls && !loop.polled {
 		// The back-edge poll ends the iteration (loopBody), so a continue
 		// jumps to it rather than past it.
 		if loop.next == "" {
