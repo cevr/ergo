@@ -367,8 +367,8 @@ func firstLines(b []byte) string {
 // withoutBuildNote is stderr without the note of the one-time IR compiler
 // build (toolchain.BuildNote): the first build in a cache writes it before
 // the program starts, and each test process has a cache of its own
-// (testinputs), so which test makes that build depends on the order the
-// tests run in. It is no message about the signal.
+// (testinputs), so which test or which command of a test makes that build
+// depends on the order they run in. It is no message of the command.
 func withoutBuildNote(stderr string) string {
 	var kept []string
 	for _, line := range strings.SplitAfter(stderr, "\n") {

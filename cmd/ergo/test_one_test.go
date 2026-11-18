@@ -203,7 +203,7 @@ func TestModuleTestMatchesEachPackage(t *testing.T) {
 			if out != wantOut.String() || code != wantCode {
 				fail("ergo test ./...: exit %d, want %d\n--- stdout\n%s--- each package\n%s", code, wantCode, out, wantOut.String())
 			}
-			if errText != wantErr.String() {
+			if withoutBuildNote(errText) != withoutBuildNote(wantErr.String()) {
 				fail("ergo test ./...: stderr\n%s--- each package\n%s", errText, wantErr.String())
 			}
 			if log, err := os.ReadFile(calls); err != nil || strings.Count(string(log), "\n") != 1 {

@@ -68,8 +68,8 @@
       "file": "scripts/gate/main.go",
       "from": "\tif _, set := os.LookupEnv(ergoGo); !set {",
       "to": "\tif _, set := os.LookupEnv(ergoGo); false && !set {",
-      "rule": "A gate step's ergo builds with the system go and never downloads Go, unless the caller sets ERGO_GO.",
-      "killers": ["scripts/gate:TestStepsBuildWithTheSystemGo"]
+      "rule": "A gate step's ergo builds with the go of go.mod's toolchain and never downloads Go, unless the caller sets ERGO_GO.",
+      "killers": ["scripts/gate:TestStepsBuildWithTheModuleGo"]
     },
     {
       "name": "b18-full-tier-package-unrecognized",
@@ -224,8 +224,8 @@
       "name": "gatesandbox-sweep-store-per-step",
       "origin": "wf10 fu-gate-sandbox",
       "file": "scripts/gate/steps.go",
-      "from": "sweepVariable + \"=\" + selection, sweepStdVariable + \"=\" + sweepStdDir()}",
-      "to": "sweepVariable + \"=\" + selection}",
+      "from": "sweepVariable + \"=\" + selection, sweepStdVariable + \"=\" + sweepStdDir(), ",
+      "to": "sweepVariable + \"=\" + selection, ",
       "rule": "The closure sweep steps of a run share one std store, outside each step's TMPDIR.",
       "killers": ["scripts/gate:TestSweepsShareOneStdStore"]
     },
@@ -409,6 +409,7 @@
     {"name":"gs33b-fail-output-dropped","origin":"wf10 GS33b","file":"scripts/gate/observed.go","from":"\t\t\tif b := held[top]; b != nil {\n\t\t\t\twrite(b.String())\n\t\t\t\tdelete(held, top)","to":"\t\t\tif b := held[top]; b != nil {\n\t\t\t\tdelete(held, top)","rule":"A failed test's lines print, as plain go test prints them.","killers":["scripts/gate:TestRenderedTestTextIsPlainGoTest"]},
     {"name":"gs33b-pass-output-shown","origin":"wf10 GS33b","file":"scripts/gate/observed.go","from":"case event.Test == name && (event.Action == \"pass\" || event.Action == \"skip\"):\n\t\t\tdelete(held, top)","to":"case event.Test == name && (event.Action == \"pass\" || event.Action == \"skip\"):","rule":"A passed or skipped test prints nothing, as plain go test.","killers":["scripts/gate:TestRenderedTestTextIsPlainGoTest"]},
     {"name":"gs33b-unended-dropped","origin":"wf10 GS33b","file":"scripts/gate/observed.go","from":"\tfor _, top := range order {\n\t\tif b := held[top]; b != nil {\n\t\t\twrite(b.String())","to":"\tfor _, top := range order {\n\t\tif b := held[top]; b != nil {\n\t\t\t_ = b","rule":"A test that never ended (a timeout, a crash) prints its lines.","killers":["scripts/gate:TestRenderedTestTextIsPlainGoTest"]},
-    {"name":"gs33b-verbose-lines-kept","origin":"wf10 GS33b","file":"scripts/gate/observed.go","from":"\t\t\tif verbose(event.Output) {\n\t\t\t\treturn","to":"\t\t\tif false && verbose(event.Output) {\n\t\t\t\treturn","rule":"The lines -json's implied -v adds are not printed.","killers":["scripts/gate:TestRenderedTestTextIsPlainGoTest"]}
+    {"name":"gs33b-verbose-lines-kept","origin":"wf10 GS33b","file":"scripts/gate/observed.go","from":"\t\t\tif verbose(event.Output) {\n\t\t\t\treturn","to":"\t\t\tif false && verbose(event.Output) {\n\t\t\t\treturn","rule":"The lines -json's implied -v adds are not printed.","killers":["scripts/gate:TestRenderedTestTextIsPlainGoTest"]},
+    {"name":"gate-seed-any-replace-local","origin":"wf10 I19 verify r3 M1","file":"scripts/gate/inputs.go","from":"\t\t\t\tif to := strings.Fields(target); len(to) == 1 && isDirectoryPath(unquoteModule(to[0])) {\n","to":"\t\t\t\tif to := strings.Fields(target); len(to) >= 1 {\n","rule":"The merge tier verifies every downloaded module against go.sum: only a replace by a local directory exempts a require.","killers":["scripts/gate:TestSeedModulesRefusesUnverifiedRequirements"]}
   ]
 }

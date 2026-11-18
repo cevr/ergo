@@ -54,7 +54,7 @@ func TestPathsRoundTrip(t *testing.T) {
 		programs = some
 	}
 	total := map[string]int{}
-	unexported, nodes, decoded := 0, 0, 0
+	nodes, decoded := 0, 0
 	for _, dir := range programs {
 		if only := os.Getenv("ERGO_CENSUS_ONLY"); only != "" && !strings.Contains(dir.name, only) {
 			continue
@@ -88,15 +88,10 @@ func TestPathsRoundTrip(t *testing.T) {
 			t.Fatalf("%s does not check: %v", dir.name, a.Diagnostics[0])
 		}
 		if exportErr != nil {
-			// The cache misses on a package the codec cannot carry (a Go
-			// function value in a binding's state): no reference of it needs
-			// a path. Any other export error is a failure.
-			if !strings.Contains(exportErr.Error(), "a function value of type") {
-				t.Errorf("%s: %v", dir.name, exportErr)
-				continue
-			}
-			t.Logf("%s: not exported: %v", dir.name, exportErr)
-			unexported++
+			// Every program exports, one that imports Go packages too: the
+			// export names the program's Go bindings as it names its loader
+			// (B7e).
+			t.Errorf("%s: %v", dir.name, exportErr)
 			continue
 		}
 		// The fresh check, with the interface-neutral edit.
@@ -186,7 +181,7 @@ func TestPathsRoundTrip(t *testing.T) {
 		rows = append(rows, fmt.Sprintf("  %-22s %6d", typ, n))
 	}
 	sort.Strings(rows)
-	t.Logf("references into earlier user segments, by type:\n%s\nsyntax nodes: %d; programs not exported: %d; segments decoded: %d", strings.Join(rows, "\n"), nodes, unexported, decoded)
+	t.Logf("references into earlier user segments, by type:\n%s\nsyntax nodes: %d; segments decoded: %d", strings.Join(rows, "\n"), nodes, decoded)
 }
 
 // describeObj names an object for comparison across checks: its type and

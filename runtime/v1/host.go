@@ -1141,10 +1141,10 @@ func (l *lineReader) readAll(t *rt.Task) (string, error) {
 	defer l.mu.Unlock()
 	var all strings.Builder
 	if f, ok := l.r.(*os.File); ok {
-		if info, err := f.Stat(); err == nil && info.Mode().IsRegular() && info.Size() > 0 {
+		if size := regularSize(f); size > 0 {
 			// A hint: the offset may be past 0, so this may be more than
 			// the rest, never less unless the file grows.
-			all.Grow(len(l.buf) + int(info.Size()) + 1)
+			all.Grow(len(l.buf) + int(size) + 1)
 		}
 	}
 	growWrite(&all, l.buf)

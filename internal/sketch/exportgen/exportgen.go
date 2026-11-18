@@ -92,7 +92,6 @@ var skipTypes = map[string]string{
 	"UserExport":   "the measure of user segments (export_user.go), never in the model",
 	"CrossRef":     "a reference UserExport records, never in the model",
 	"pathRef":      "a decoder's cache key (export.go), never in the model",
-	"pathWalker":   "the object path walk (objpath.go), never in the model",
 	"declWalk":     "a node path resolver's walk of a declaration (nodepath.go), never in the model",
 	"nodeRef":      "a decoder's cache key (export.go), never in the model",
 	"nodeResolver": "a decoder's node path resolver (nodepath.go), never in the model",

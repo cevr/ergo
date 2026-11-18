@@ -9,12 +9,12 @@ import (
 	"io"
 	"math"
 	"math/big"
-	"reflect"
 	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 
+	"ergo.local/prototype/internal/sketch/reflectread"
 	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -770,7 +770,7 @@ func (e *encoder) failf(format string, args ...any) {
 // external is x's index among the encoder's externals, for an interface
 // value of a type the codec has no case for.
 func (e *encoder) external(x any) (uint64, bool) {
-	if !reflect.TypeOf(x).Comparable() {
+	if !reflectread.Comparable(x) {
 		return 0, false
 	}
 	i, ok := e.ext[x]

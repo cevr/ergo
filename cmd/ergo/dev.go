@@ -200,7 +200,7 @@ func (d *daemon) serve(idle time.Duration, ready func(), stop <-chan os.Signal) 
 	if err := os.Remove(d.socket); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	listener, err := net.Listen("unix", d.socket)
+	listener, err := devListen(d.socket)
 	if err != nil {
 		return fmt.Errorf("ergo dev: %w", err)
 	}
@@ -333,7 +333,7 @@ func askDev(dir, pkg string, args []string) ([]byte, bool) {
 // or ends with no answer: the daemon exited or crashed, and the request,
 // a pure function of its inputs, is answered in process.
 func ask(socket string, req devRequest) (answer devAnswer, ok bool) {
-	conn, err := net.Dial("unix", socket)
+	conn, err := devDial(socket)
 	if err != nil {
 		return devAnswer{}, false
 	}
@@ -346,3 +346,43 @@ func ask(socket string, req devRequest) (answer devAnswer, ok bool) {
 	}
 	return answer, true
 }
+
+// devListen listens on the unix socket at path and devDial connects to
+// it. A socket's path is at most devSocketPathMax bytes, and a deep cache
+// root goes past that, where bind fails with EINVAL (I19 full r4: the
+// nested temporary directories of TestPackageNeverWritesUnderHome). Then
+// both reach the socket through a shorter name of the same path
+// (viaShortPath), so the socket stays under the cache root, the only
+// place the daemon writes.
+func devListen(path string) (net.Listener, error) {
+	var listener *net.UnixListener
+	err := viaShortPath(path, func(name string) error {
+		addr, err := net.ResolveUnixAddr("unix", name)
+		if err != nil {
+			return err
+		}
+		listener, err = net.ListenUnix("unix", addr)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	// serve removes the socket by path: the short name means another
+	// folder, or none, once its descriptor is closed.
+	listener.SetUnlinkOnClose(false)
+	return listener, nil
+}
+
+// devDial connects to the unix socket at path (devListen).
+func devDial(path string) (net.Conn, error) {
+	var conn net.Conn
+	err := viaShortPath(path, func(name string) (err error) {
+		conn, err = net.Dial("unix", name)
+		return err
+	})
+	return conn, err
+}
+
+// devSocketPathMax is the longest socket path every unix host binds:
+// darwin's sun_path of 104 bytes less its NUL (Linux's is 108).
+const devSocketPathMax = 103

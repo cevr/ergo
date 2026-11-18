@@ -96,10 +96,8 @@ func TestTablesAgreeWithScanOnExamples(t *testing.T) {
 		t.Fatal("no example programs")
 	}
 	for _, d := range dirs {
-		// A Go binary of an example (lintpack's policy-lint, a rule pack
-		// process) has no Ergo to tabulate.
 		if src, _ := filepath.Glob(filepath.Join(d, "*.ergo")); len(src) == 0 {
-			continue
+			continue // a Go command of an example (lintpack's policy-lint)
 		}
 		abs, err := filepath.Abs(d)
 		if err != nil {

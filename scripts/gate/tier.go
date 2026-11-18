@@ -683,7 +683,7 @@ func writeFastCPU(root string, limit limiter, packages []string) error {
 			if err != nil {
 				return err
 			}
-			table[pkg] = math.Round(cpu*10) / 10
+			table[pkg] = cpuTenths(cpu)
 			continue
 		}
 		dir := strings.TrimPrefix(path.Clean(pkg), "./")
@@ -702,13 +702,21 @@ func writeFastCPU(root string, limit limiter, packages []string) error {
 		if ran == 0 {
 			return fmt.Errorf("%s: no fast-tier step runs this package", pkg)
 		}
-		table[module+"/"+dir] = math.Round(cpu*10) / 10
+		table[module+"/"+dir] = cpuTenths(cpu)
 	}
 	data, err := json.MarshalIndent(table, "", "  ")
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(filepath.Join(root, fastCPUFile), append(data, '\n'), 0644)
+}
+
+// cpuTenths is a measured CPU time as fastCPUFile records it, in tenths of
+// a second, rounded up: a step that used any CPU keeps a positive row. A
+// warm `go run` of a small program uses under 0.05 s, which rounding to the
+// nearest tenth recorded as 0 (merge tier r4b, batch 19).
+func cpuTenths(seconds float64) float64 {
+	return math.Ceil(seconds*10) / 10
 }
 
 // replayPackage is the recorded pass of a package step at key, or nil when

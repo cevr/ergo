@@ -806,7 +806,17 @@ func (d *direct) compile(p *goPackage) error {
 // back-end concurrency of a compile slot (slot.go) that the caller
 // releases when the compile ends.
 func (d *direct) compileArgs(p *goPackage, pkgPath, key, objdir string) (args []string, release func(), err error) {
-	args = []string{"-o", filepath.Join(objdir, "_pkg_.a"), "-trimpath", p.Dir + "=>" + p.Trim + ";" + objdir + "=>",
+	trim := p.Dir + "=>" + p.Trim + ";" + objdir + "=>"
+	if p.Dir != d.module.Dir && strings.HasPrefix(p.Dir, d.module.Dir+string(filepath.Separator)) {
+		// A package below the module root (the package split, CS4) names
+		// its sources relative to that root (emitName, BS6): the patched
+		// compile resolves its IR file's names against its working
+		// directory, the root. Trimmed as the root package's are, the
+		// object holds no path of the build's directory, so a build in
+		// another cache makes the same archive (TestWarmAnswerAgreesWithFullBuild).
+		trim += ";" + d.module.Dir + "=>" + d.mainPath()
+	}
+	args = []string{"-o", filepath.Join(objdir, "_pkg_.a"), "-trimpath", trim,
 		"-p", pkgPath, "-lang=go" + p.Lang, "-complete", "-buildid", buildID(key, 2),
 		"-goversion", d.plan.Version}
 	c, release := compileSlot(d.c.Root)

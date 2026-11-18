@@ -864,6 +864,17 @@ func irBodies(dir string) ([]opcount.Bodies, error) {
 	return out, nil
 }
 
+// run runs cmd under the memory limit, logging its words.
+func (b builder) run(cmd *exec.Cmd) error {
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	fmt.Fprintf(b.log, "%s\n", strings.Join(cmd.Args, " "))
+	if err := proclimit.Run(cmd, b.o.memory); err != nil {
+		return fmt.Errorf("%s: %v\n%s", strings.Join(cmd.Args, " "), err, out.Bytes())
+	}
+	return nil
+}
+
 // goPackage builds the main package rel (from the repository root) as a
 // module of its own with the emitted module's go line, so one toolchain
 // compiles both sides; hooked adds the exit hook.
@@ -929,18 +940,6 @@ func (b builder) exec(dir, name string, args ...string) error {
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GOWORK=off")
 	return b.run(cmd)
-}
-
-// run runs a build step, bounded, logging its command line.
-func (b builder) run(cmd *exec.Cmd) error {
-	var out bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &out
-	line := strings.Join(cmd.Args, " ")
-	fmt.Fprintln(b.log, line)
-	if err := proclimit.Run(cmd, b.o.memory); err != nil {
-		return fmt.Errorf("%s: %v\n%s", line, err, out.Bytes())
-	}
-	return nil
 }
 
 func commit() string {
