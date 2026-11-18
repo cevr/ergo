@@ -84,8 +84,8 @@ func TestSelfhostFormatAgrees(t *testing.T) {
 	exe := buildDriver(t, "formatapi")
 	replay := "replay: " + seedVariable + "=" + strconv.FormatUint(seed, 10) + " go test -count=1 -run '^TestSelfhostFormatAgrees$' ./internal/selfhostcheck"
 	failed := 0
-	// kinds counts the differing probes by the Ergo side's first differing
-	// line, so a run names every cause (an unsupported node family is one
+	// kinds counts the differing probes by both sides' first differing
+	// lines, so a run names every cause (an unsupported node family is one
 	// line), not only the first three.
 	kinds := map[string]int{}
 	runModeEach(t, exe, "format", cases, 2, func(k int, a []string) {
@@ -95,7 +95,7 @@ func TestSelfhostFormatAgrees(t *testing.T) {
 		failed++
 		p := probes[k]
 		line, g, e := firstDiff(a[0], a[1])
-		kinds[clipLine(e)]++
+		kinds["go "+clipLine(g)+" | ergo "+clipLine(e)]++
 		if failed > 3 {
 			return
 		}
@@ -103,7 +103,7 @@ func TestSelfhostFormatAgrees(t *testing.T) {
 			seed, inputs[p.in].Name, p.limit, line, g, e, inputs[p.in].Src, clip(a[0]), clip(a[1]), replay)
 	})
 	if failed > 0 {
-		t.Errorf("%d of %d probes differ; by the Ergo side's first differing line:\n%s", failed, len(cases), tally(kinds))
+		t.Errorf("%d of %d probes differ; by both sides' first differing lines:\n%s", failed, len(cases), tally(kinds))
 	}
 	broken, judged := 0, 0
 	runModeEach(t, exe, "laws", lawCases, 1, func(k int, v []string) {
@@ -123,10 +123,10 @@ func TestSelfhostFormatAgrees(t *testing.T) {
 	}
 }
 
-// clipLine is a differing line cut to 80 bytes, a tally key.
+// clipLine is a differing line cut to 60 bytes, half a tally key.
 func clipLine(s string) string {
-	if len(s) > 80 {
-		return s[:80] + "…"
+	if len(s) > 60 {
+		return s[:60] + "…"
 	}
 	return s
 }
