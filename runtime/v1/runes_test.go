@@ -367,7 +367,7 @@ var runesLawStatements = map[string]string{
 	"math FMARoundsOnce":                `FMARoundsOnce(k int) { let d = float64((k%1000+1000)%1000+1) * 9.313225746154785e-10 FMA(1.0+d, 1.0-d, -1.0) == -(d * d) }`,
 	"bits RotateLeft64Inverts":          `RotateLeft64Inverts(x uint64, k int) { RotateLeft64(RotateLeft64(x, k), -k) == x }`,
 	"bits RotateLeft32Inverts":          `RotateLeft32Inverts(x uint32, k int) { RotateLeft32(RotateLeft32(x, k), -k) == x }`,
-	"bits RotateKeepsOnes":              `RotateKeepsOnes(x uint64, k int) { OnesCount64(RotateLeft64(x, k)) == OnesCount64(x) }`,
+	"bits RotateKeepsOnes":              `RotateKeepsOnes(x uint64, k int) { OnesCount64(RotateLeft64(x, k)) } == { OnesCount64(x) }`,
 	"bits SubUndoesAdd64":               `SubUndoesAdd64(xh uint64, xl uint64, y uint64) { let (lo, c) = Add64(xl, y, 0) let (hi, _) = Add64(xh, 0, c) let (l2, b) = Sub64(lo, y, 0) let (h2, _) = Sub64(hi, 0, b) l2 == xl && h2 == xh }`,
 	"bits DivUndoesMul64":               `DivUndoesMul64(x uint64, y uint64, r uint64) { if y == 0 { return true } let (hi, lo) = Mul64(x, y) let rem = r % y let (lo2, c) = Add64(lo, rem, 0) let (q, back) = Div64(hi+c, lo2, y) q == x && back == rem }`,
 	"bits LenAndLeadingZeros":           `LenAndLeadingZeros(x uint64) { Len64(x)+LeadingZeros64(x) == 64 }`,

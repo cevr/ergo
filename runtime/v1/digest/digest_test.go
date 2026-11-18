@@ -69,8 +69,8 @@ var digestLaws = map[string]func(r *rand.Rand) (bool, any){
 }
 
 var digestLawStatements = map[string]string{
-	"hex DecodeInvertsEncode":    `DecodeInvertsEncode(s string) { try Decode(Encode(s)) == s }`,
-	"hex EncodeDoublesLength":    `EncodeDoublesLength(s string) { len(Encode(s)) == 2 * len(s) }`,
+	"hex DecodeInvertsEncode":    `DecodeInvertsEncode(s string) { try Decode(Encode(s)) } == { s }`,
+	"hex EncodeDoublesLength":    `EncodeDoublesLength(s string) { len(Encode(s)) } == { 2 * len(s) }`,
 	"base64 DecodeInvertsEncode": `DecodeInvertsEncode(s string) { let std = try Decode(StdEncoding, Encode(StdEncoding, s)) let url = try Decode(URLEncoding, Encode(URLEncoding, s)) std == s && url == s }`,
 	"base64 EncodedLength":       `EncodedLength(s string) { len(Encode(StdEncoding, s)) == (len(s) + 2) / 3 * 4 }`,
 	"sha256 SumIs32Bytes":        `SumIs32Bytes(s string) { len(Sum(s)) == 32 }`,
