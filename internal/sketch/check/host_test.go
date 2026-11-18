@@ -60,6 +60,95 @@ func TestHostRowChargesAmbient(t *testing.T) {
 	}
 }
 
+// fileRowDecls is a user's file provider over Go's os file calls: each
+// operation reads or changes the host's files through a file row.
+const fileRowDecls = `import go os
+import go io/fs
+
+type Disk {
+	Read(path string) []byte fails go.Error,
+	Write(path string, data []byte) fails go.Error,
+	Count(path string) int fails go.Error,
+	Exists(path string) bool,
+	Link(path string) string fails go.Error,
+	Tidy(path string) fails go.Error,
+}
+
+type Real {} implements Disk
+
+func Read(_ Real, path string) []byte fails go.Error needs Ambient {
+	try os.ReadFile(path)
+}
+
+func Write(_ Real, path string, data []byte) fails go.Error needs Ambient {
+	try os.Mkdir("out", fs.FileMode(uint32(0o755)))
+	try os.MkdirAll("out/a", fs.FileMode(uint32(0o755)))
+	try os.WriteFile(path, data, fs.FileMode(uint32(0o644)))
+	try os.Chmod(path, fs.FileMode(uint32(0o600)))
+}
+
+func Count(_ Real, path string) int fails go.Error needs Ambient {
+	len(try os.ReadDir(path))
+}
+
+func Exists(_ Real, path string) bool needs Ambient {
+	let _ = os.Stat(path) catch {
+	case go.Error:
+		return false
+	}
+	let _ = os.Lstat(path) catch {
+	case go.Error:
+		return false
+	}
+	true
+}
+
+func Link(_ Real, path string) string fails go.Error needs Ambient {
+	try os.Readlink(path)
+}
+
+func Tidy(_ Real, path string) fails go.Error needs Ambient {
+	try os.Rename(path, path + ".old")
+	try os.Remove(path + ".old")
+	try os.RemoveAll("out")
+}
+
+func count(d Disk) int { d.Count("out") catch { case go.Error: -1 } }
+`
+
+// TestFileRowsChargeAmbient is HOST-ROW-2's acceptance: Go's os file
+// calls (ReadFile, WriteFile, ReadDir, Stat, Lstat, Mkdir, MkdirAll,
+// Remove, RemoveAll, Rename, Readlink, Chmod) are host rows, so a user's
+// provider whose operations call them needs Ambient and not go.Foreign,
+// exactly as std's fs host provider (NewHost needs Ambient) does; main
+// checks with Console and Ambient alone, and without Ambient the build
+// site says what it needs. Red at base: each call needs go.Foreign.
+//
+// Mutant it alone catches: ffi-host-file-row-missing (os.ReadFile has no
+// row in gofacts.Hosts, so its binding's needs Ambient is refused).
+func TestFileRowsChargeAmbient(t *testing.T) {
+	for _, c := range []struct{ main, want string }{
+		{"func main() needs Console | Ambient {\n\tConsole.Println(\"\\(count(Real))\")\n}\n", ""},
+		{"func main() needs Console {\n\tConsole.Println(\"\\(count(Real))\")\n}\n",
+			"building Real as Disk, whose operations read the host, requires Ambient, which is not in the capability row of function main"},
+	} {
+		src := fileRowDecls + "\n" + c.main
+		f, err := syntax.Parse(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, ds := check.Check("example.test/filerow", []*syntax.File{f}, nil)
+		var got []string
+		for _, d := range ds {
+			got = append(got, d.Code+" "+strconv.Itoa(d.Line)+":"+strconv.Itoa(d.Column)+" "+d.Message)
+		}
+		text := strings.Join(got, "\n")
+		if c.want == "" && text != "" || !strings.Contains(text, c.want) || c.want != "" && len(got) != 1 {
+			t.Errorf("%s\ngot:\n%s\nwant %q", src, text, c.want)
+		}
+	}
+}
+
 // TestHostRowsActOnlyValidated is HOST-ROW's admission of a host row: the
 // binding of os, whose Getenv is bound with needs Ambient and its line,
 // checks clean exactly when the std ledger holds the row's guard line
