@@ -189,6 +189,9 @@ func sortByProgram(seed uint64) (src, want string) {
 	return b.String(), out.String()
 }
 
+// TestSortByAgrees is the property above. It builds Go because SortBy's
+// copies for a provider and the reference's witness are what it
+// compares, and only the built program runs them.
 func TestSortByAgrees(t *testing.T) {
 	needsBuild(t)
 	seeds := []uint64{1, 2, 3, 4}
