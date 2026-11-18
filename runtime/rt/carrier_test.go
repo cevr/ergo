@@ -24,6 +24,9 @@ func goid() uint64 {
 // carrier-close-skips-wake (Close leaves the goroutine parked) are killed
 // only here.
 func TestCarrierRunsChildrenOnOneGoroutine(t *testing.T) {
+	if Exploring {
+		t.Skip("under the explored scheduler GoOn is Go")
+	}
 	synctest.Test(t, func(t *testing.T) {
 		root := Root("carrier")
 		s := NewScope(root)
