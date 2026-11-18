@@ -879,11 +879,12 @@ func probeCopyKeepLinks(from, to string) error {
 	})
 }
 
-func (p *prober) env(d formDir, form probeForm, seed int, kills bool) []string {
+func (p *prober) env(d formDir, name string, form probeForm, seed int, kills bool) []string {
 	set := []string{"GOCACHE=" + d.gocache, "XDG_CACHE_HOME=" + d.xdg, "TMPDIR=" + filepath.Join(d.dir, "tmp"), "GOMAXPROCS=4", "GOTOOLCHAIN=local", "ERGO_GO=system", "GOPROXY=off", "ERGO_STAGE_REPORT=" + filepath.Join(d.dir, "stage.json")}
-	if form.Tree != "overlay" {
+	if name == "go" || name == "control" {
 		// The direct path of ergo refuses a non-empty GOFLAGS (docs/
-		// tooling.md); the Go forms take -p=4 from it.
+		// tooling.md); the Go forms take -p=4 from it, the Ergo forms
+		// (in an overlay or in the tree) do not.
 		set = append(set, "GOFLAGS=-p=4")
 	}
 	if name, ok := strings.CutPrefix(form.Seed, "env "); ok {
@@ -1035,7 +1036,7 @@ func (p *prober) killMatrix(kind string) error {
 		run := func() []probeOutcome {
 			var outs []probeOutcome
 			for _, seed := range seeds {
-				r := runList(d, p.env(d, f, seed, true), form, p.commands(d, f, "edit", seed), probeDeadline)
+				r := runList(d, p.env(d, form, f, seed, true), form, p.commands(d, f, "edit", seed), probeDeadline)
 				o := probeClassify(r)
 				if o.Class == "broken" {
 					p.logf("%s %s seed %d: %s: %s", kind, form, seed, o.Reason, clipTail(r.Output))
@@ -1258,7 +1259,7 @@ func (p *prober) countForm(kind string, fam *probeFamily, form string, round int
 		rep.Refused[form] = append(rep.Refused[form], fmt.Sprintf("round %d: %v", round, err))
 		return
 	}
-	env := p.env(d, f, 1, false)
+	env := p.env(d, form, f, 1, false)
 	add := func(s string, c counted, row probeRow) {
 		if why := probeRefuse(row); why != "" {
 			rep.Refused[form] = append(rep.Refused[form], fmt.Sprintf("round %d %s: %s: %s", round, s, why, clipTail(c.Run.Output)))
@@ -1372,7 +1373,7 @@ func (p *prober) contextLines(kind string, fam *probeFamily, rep *probeKindRepor
 		return
 	}
 	defer os.RemoveAll(d.dir)
-	env := p.env(d, fam.Forms["ergo-check"], 1, false)
+	env := p.env(d, "ergo-check", fam.Forms["ergo-check"], 1, false)
 	if fam.Subject != "" {
 		c := p.countList(d, env, "ergo-check", [][]string{{p.ergo, "check", fam.Subject}})
 		rep.Context = append(rep.Context, fmt.Sprintf("ergo check %s (the subject's own laws, cold, one run): %.1f G instructions, %s %s", fam.Subject, float64(c.Instructions)/1e9, probeClassify(c.Run).Class, probeClassify(c.Run).Reason))
