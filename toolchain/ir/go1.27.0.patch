@@ -296,10 +296,10 @@ index 0000000..4327a15
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_builtin.go b/src/cmd/compile/internal/ergoir/ergoir_builtin.go
 new file mode 100644
-index 0000000..d16dcaa
+index 0000000..f0348dc
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_builtin.go
-@@ -0,0 +1,122 @@
+@@ -0,0 +1,131 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -317,9 +317,10 @@ index 0000000..d16dcaa
 +// x.Name, and writes it as Go's own call of the builtin, with the
 +// signature types2 records for it (types2/builtins.go): the reader then
 +// gives Go's ODELETE, OCOPY, OCLEAR, OMIN, OMAX and OCAP, as Go source
-+// does. append here is append(xs, s...) of a string's bytes; append of
-+// one element is the kind "append". A call with no result (delete,
-+// clear) is void, and only an expression statement takes it.
++// does. append here is append(xs, ys...) of a slice or of a string's
++// bytes; append of one element is the kind "append". A call with no
++// result (delete, clear) is void, and only an expression statement takes
++// it.
 +func (c *ergoChecker) builtinExpr(x *ergoExpr) (syntax.Expr, types2.Type) {
 +	pos := c.pos(x.Pos)
 +	var args []syntax.Expr
@@ -345,8 +346,16 @@ index 0000000..d16dcaa
 +	variadic, dots := false, false
 +	switch x.Name {
 +	case "append":
++		// append(xs, ys...) of a slice of xs's element type (APPEND-SPREAD),
++		// with the signature types2 records, (S, []E), or of a string's
++		// bytes, (S, string).
 +		sl, ok := types2.CoreType(ts[0]).(*types2.Slice)
-+		if !ok || !types2.Identical(sl.Elem(), types2.Typ[types2.Byte]) || !ergoIsString(ts[1]) {
++		ys, spread := types2.CoreType(ts[1]).(*types2.Slice)
++		switch {
++		case ok && spread && types2.Identical(sl.Elem(), ys.Elem()):
++			params = []types2.Type{ts[0], types2.NewSlice(sl.Elem())}
++		case ok && types2.Identical(sl.Elem(), types2.Typ[types2.Byte]) && ergoIsString(ts[1]):
++		default:
 +			c.errorf(x.Pos, "ergoir: append of %v to %v", ts[1], ts[0])
 +			return nil, nil
 +		}
