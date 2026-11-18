@@ -53,8 +53,8 @@ func TestMirrorsInternal(t *testing.T) {
 		})
 		mirrors(t, fset, imp, pkgs)
 	})
-	// A phone's build needs cgo, and this host has no C compiler for
-	// it, so there is no export data: the packages are checked from
+	// A phone's build uses cgo, and this host may have no C compiler
+	// for it, so there is no export data: the packages are checked from
 	// source under the phone's build constraints, with import "C" left
 	// to go/types' fake package.
 	for _, target := range []string{"android/arm64", "ios/arm64"} {
