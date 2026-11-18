@@ -212,7 +212,10 @@ func genCheckProgram(r *rand.Rand) checkProgram {
 // in a folder.
 func (p checkProgram) sources() (helpers, tests string) {
 	var h strings.Builder
-	h.WriteString("extern go strings.ToUpper func upper(s string) string\n\n")
+	// A Go function check time has no native for (goNatives lists
+	// strings.ToUpper, which then runs; MODELCHECK E1 made the table load
+	// for a program's extern too): its test is skipped.
+	h.WriteString("extern go strings.ToTitle func upper(s string) string\n\n")
 	h.WriteString("type Bad { Code int }\n\n")
 	h.WriteString("func boom(n int) int fails Bad {\n\tif n > 0 {\n\t\treturn Bad{Code: n}\n\t}\n\tn\n}\n\n")
 	h.WriteString("func half(x int) int { x / x }\n\n")
