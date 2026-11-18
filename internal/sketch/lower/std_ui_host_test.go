@@ -1554,11 +1554,13 @@ func dialMachine() Machine[int, int, int] {
 	Machine[int, int, int]{Initial: 0, Step: dialStep, After: dialTimer, Work: dialWork, Exit: dialExit}
 }
 
-func canvasOf(shapes []ui.Shape[int]) ([]ui.PaintOp, bool) {
+func canvasOf(shapes []ui.Shape[int], label string) ([]ui.PaintOp, bool) {
 	for x in shapes {
 		match x.Node {
 		case ui.CanvasNode as c:
-			return (c.Paint, true)
+			if c.Label == label {
+				return (c.Paint, true)
+			}
 		case _:
 		}
 	}
@@ -1583,6 +1585,12 @@ func paintFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 		ui.Canvas(f, "board", 120, 80) func(p *ui.Paint) {
 			paintProg(p, prog, s)
 		}
+		ui.Canvas(f, "rest", 120, 80) func(p *ui.Paint) {
+			paintProg(p, prog, s+1)
+			ui.Canvas(f, "inner", 40, 40) func(q *ui.Paint) {
+				paintProg(q, prog, s+2)
+			}
+		}
 	}
 	let a = actor.StartMachine(dialMachine(), 1, func(o int) {})
 	let mut h = ui.NewTestHost(a, view, m, 4) catch {
@@ -1595,9 +1603,14 @@ func paintFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 			return false
 		}
 		let s = ui.StateOf(&h)
-		let (shown, ok) = canvasOf(ui.Screen(&h))
+		let (shown, ok) = canvasOf(ui.Screen(&h), "board")
 		let want = paintModel(prog, s)
-		if !ok || shown != want || ui.Find(&h, "board") == None || strings.Count(ui.Screenshot(&h), "\n") != 4+len(want) {
+		let (rest, okRest) = canvasOf(ui.Screen(&h), "rest")
+		let (inner, okInner) = canvasOf(ui.Screen(&h), "inner")
+		if !ok || shown != want || ui.Find(&h, "board") == None || strings.Count(ui.Screenshot(&h), "\n") != 6+3*len(want) {
+			return false
+		}
+		if !okRest || !okInner || rest != paintModel(prog, s+1) || inner != paintModel(prog, s+2) {
 			return false
 		}
 		let mut g = ui.NewFrame[int]()
