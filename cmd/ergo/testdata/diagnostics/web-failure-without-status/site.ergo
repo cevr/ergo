@@ -34,5 +34,6 @@ func site() web.Site[home, string, gone | locked] {
 			}
 		},
 		NotFound: func(path string) html.Node { html.Text(path) },
+		Assets:   []web.Asset{},
 	}
 }

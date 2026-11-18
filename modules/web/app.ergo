@@ -12,29 +12,37 @@ type Reply { Status int, Page html.Node }
 // what a route's page shows, with the site's typed failures F and the
 // capabilities N it reads), its view (View: a page as a document, pure),
 // its status table (Status: a failure's page and status) and its 404
-// page (NotFound, of the path asked). Status is a function whose match
-// over F is exhaustive, so a failure variant with no page does not
-// compile.
+// page (NotFound, of the path asked), and its Assets (files served as
+// they are, beside the pages). Status is a function whose match over F
+// is exhaustive, so a failure variant with no page does not compile.
 type Site[R comparable, P, F, N] {
 	Routes   Routes[R],
 	Load     func(r R) P fails F needs N,
 	View     func(p P) html.Node,
 	Status   func(f F) Reply,
 	NotFound func(path string) html.Node,
+	Assets   []Asset,
 }
 
-// Fetch is site's answer to req. A path that parses to no route is the
+// Fetch is site's answer to req. The path of an asset is the asset: its
+// bytes with its Content-Type for GET, the same with no body for HEAD,
+// and 405 for another method. A path that parses to no route is the
 // 404 page with status 404. GET of a route is its page, loaded and viewed,
 // with status 200, or the page and status Status gives the load's
 // failure. HEAD is GET's answer with no body. Any other method on a route
 // is 405 with Allow: GET, HEAD (RFC 9110, as std http.Match answers).
 func Fetch[R comparable, P, F, N](site Site[R, P, F, N], req http.Request) http.Response needs N {
+	for a in site.Assets {
+		if a.Path == req.Path {
+			return served(req.Method, a)
+		}
+	}
 	match site.Routes.Parse(ui.URL{Path: req.Path, Query: "", Fragment: ""}) {
 	case None:
 		answer(req.Method, 404, site.NotFound(req.Path))
 	case Some as r:
 		if req.Method != "GET" && req.Method != "HEAD" {
-			return http.Response{Status: 405, Header: []http.Field{http.Field{Name: "Allow", Value: "GET, HEAD"}}, Body: ""}
+			return notAllowed()
 		}
 		let page = site.Load(r.Value) catch {
 		case f:
@@ -43,6 +51,20 @@ func Fetch[R comparable, P, F, N](site Site[R, P, F, N], req http.Request) http.
 		}
 		answer(req.Method, 200, site.View(page))
 	}
+}
+
+// served is the answer to method for asset a.
+func served(method string, a Asset) http.Response {
+	if method != "GET" && method != "HEAD" {
+		return notAllowed()
+	}
+	let header = []http.Field{http.Field{Name: "Content-Type", Value: a.Type}}
+	http.Response{Status: 200, Header: header, Body: if method == "HEAD" { "" } else { a.Body }}
+}
+
+// notAllowed is 405 with Allow: GET, HEAD and no body.
+func notAllowed() http.Response {
+	http.Response{Status: 405, Header: []http.Field{http.Field{Name: "Allow", Value: "GET, HEAD"}}, Body: ""}
 }
 
 // answer is page as an HTML response with status, its body left out for
@@ -119,6 +141,7 @@ func lawSite() Site[lawRoute, string, lawGone] {
 			}
 		},
 		NotFound: func(path string) html.Node { html.P([]html.Child{html.Text("no page at " + path)}) },
+		Assets:   []Asset{lawSheet},
 	}
 }
 
@@ -174,4 +197,20 @@ law KnownPathIsLoadThenView(r lawRoute) {
 		return res.Status == reply.Status && res.Body == html.Render(reply.Page)
 	}
 	res.Status == 200 && res.Body == html.Render(lawSite().View(want)) && http.Header(res.Header, "Content-Type") == Some{"text/html; charset=utf-8"}
+}
+
+// lawSheet is the laws' site's one asset.
+let lawSheet = Stylesheet("site.css", "p { color: red }")
+
+// AssetServedIsItsBytes: GET of an asset's place is its bytes with its
+// Content-Type and status 200, whatever its body; HEAD is the same with
+// no body; another method is 405.
+law AssetServedIsItsBytes(css string, pick int) {
+	let sheet = Stylesheet("a.css", css)
+	let site = Site[lawRoute, string, lawGone]{..lawSite(), Assets: []Asset{sheet}}
+	let get = Fetch(site, Request("GET", sheet.Path))
+	let head = Fetch(site, Request("HEAD", sheet.Path))
+	let methods = []string{"POST", "PUT", "DELETE"}
+	let other = Fetch(site, Request(methods[((pick%3)+3)%3], sheet.Path))
+	get.Status == 200 && get.Body == css && http.Header(get.Header, "Content-Type") == Some{"text/css; charset=utf-8"} && head.Status == 200 && head.Body == "" && slices.Equal(head.Header, get.Header) && other.Status == 405
 }

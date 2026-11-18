@@ -81,6 +81,7 @@ func site() web.Site[route, string, missing, fs.Files] {
 			}
 		},
 		NotFound: func(path string) html.Node { html.P([]html.Child{html.Text("nothing at " + path)}) },
+		Assets:   []web.Asset{},
 	}
 }
 
