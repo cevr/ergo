@@ -362,6 +362,7 @@ type probeEnvelope struct {
 			Name   string `json:"name"`
 			Status string `json:"status"`
 			Cached bool   `json:"cached"`
+			Reason string `json:"reason"`
 		} `json:"obligations"`
 	} `json:"evaluation"`
 }
@@ -393,7 +394,14 @@ func probeClassifyErgoCheck(r probeRun) probeOutcome {
 		}
 		return probeOutcome{"pass", ""}
 	}
-	return probeOutcome{"broken", "evaluation " + env.Evaluation.Status + " (not a pass)"}
+	why := ""
+	for _, o := range env.Evaluation.Obligations {
+		if o.Status != "passed" {
+			why = ": " + o.Name + " " + o.Status + " " + o.Reason
+			break
+		}
+	}
+	return probeOutcome{"broken", "evaluation " + env.Evaluation.Status + " (not a pass)" + why}
 }
 
 // probeKilled is the kill rule: the form passes on the unmutated copy at
@@ -603,24 +611,28 @@ func (p *prober) prepare() error {
 	if err := p.copyTree(tree, ""); err != nil {
 		return err
 	}
+	p.stdCache = filepath.Join(p.work, "template", "gocache")
+	if out, err := p.plain(tree, []string{"GOCACHE=" + p.stdCache}, "go", "build", "std"); err != nil {
+		return fmt.Errorf("go build std: %v\n%s", err, out)
+	}
+	// The sets are made with the go the forms use (ERGO_GO=system), so the
+	// lock of the copy is rewritten to name them (-lock) before ergo is
+	// built from it: ergo embeds the lock, as a release's ergo names its
+	// own sets. Sets given with -sets must come from this tree and go.
+	if p.sets == "" {
+		p.sets = filepath.Join(p.work, "sets")
+		gc := filepath.Join(p.work, "template", "gocache-sets")
+		if out, err := p.plain(tree, []string{"GOCACHE=" + gc, "XDG_CACHE_HOME=" + filepath.Join(p.work, "template", "xdg-sets")}, "go", "run", "./scripts/pinsets", "-o", p.sets, "-target", runtime.GOOS+"/"+runtime.GOARCH, "-lock"); err != nil {
+			p.logf("pinsets failed, cold Ergo runs compile what the sets hold: %v\n%s", err, out)
+		}
+		os.RemoveAll(gc)
+	}
 	bin := filepath.Join(p.work, "bin")
 	p.ergo, p.floor = filepath.Join(bin, "ergo"), filepath.Join(bin, "floor")
 	for _, b := range [][]string{{"go", "build", "-o", p.ergo, "./cmd/ergo"}, {"go", "build", "-o", p.floor, "./scripts/buildcost/testdata/tprobe/floor"}} {
 		if out, err := p.plain(tree, nil, b...); err != nil {
 			return fmt.Errorf("%s: %v\n%s", strings.Join(b, " "), err, out)
 		}
-	}
-	p.stdCache = filepath.Join(p.work, "template", "gocache")
-	if out, err := p.plain(tree, []string{"GOCACHE=" + p.stdCache}, "go", "build", "std"); err != nil {
-		return fmt.Errorf("go build std: %v\n%s", err, out)
-	}
-	if p.sets == "" {
-		p.sets = filepath.Join(p.work, "sets")
-		gc := filepath.Join(p.work, "template", "gocache-sets")
-		if out, err := p.plain(tree, []string{"GOCACHE=" + gc, "XDG_CACHE_HOME=" + filepath.Join(p.work, "template", "xdg-sets")}, "go", "run", "./scripts/pinsets", "-o", p.sets, "-target", runtime.GOOS+"/"+runtime.GOARCH); err != nil {
-			p.logf("pinsets failed, cold Ergo runs compile what the sets hold: %v\n%s", err, out)
-		}
-		os.RemoveAll(gc)
 	}
 	// One ergo test of a one-test file installs the toolchain and the pin
 	// sets into the template; everything else it wrote goes.
