@@ -2,6 +2,7 @@ package selfhostcheck
 
 import (
 	"errors"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -81,41 +82,76 @@ func TestSelfhostFormatAgrees(t *testing.T) {
 	}
 	t.Logf("seed %d: %d inputs, %d formatted by Go, %d probes", seed, len(inputs), len(lawCases), len(probes))
 	exe := buildDriver(t, "formatapi")
-	answers := runMode(t, exe, "format", cases, 2)
 	replay := "replay: " + seedVariable + "=" + strconv.FormatUint(seed, 10) + " go test -count=1 -run '^TestSelfhostFormatAgrees$' ./internal/selfhostcheck"
 	failed := 0
-	for k, a := range answers {
+	// kinds counts the differing probes by the Ergo side's first differing
+	// line, so a run names every cause (an unsupported node family is one
+	// line), not only the first three.
+	kinds := map[string]int{}
+	runModeEach(t, exe, "format", cases, 2, func(k int, a []string) {
 		if a[0] == a[1] {
-			continue
+			return
 		}
 		failed++
-		if failed > 3 {
-			continue
-		}
 		p := probes[k]
 		line, g, e := firstDiff(a[0], a[1])
+		kinds[clipLine(e)]++
+		if failed > 3 {
+			return
+		}
 		t.Errorf("seed %d: input %s, limit %d: the outcomes differ at line %d\n  go:   %q\n  ergo: %q\ninput: %q\n--- go\n%s--- ergo\n%s%s",
 			seed, inputs[p.in].Name, p.limit, line, g, e, inputs[p.in].Src, clip(a[0]), clip(a[1]), replay)
-	}
+	})
 	if failed > 0 {
-		t.Errorf("%d of %d probes differ", failed, len(answers))
+		t.Errorf("%d of %d probes differ; by the Ergo side's first differing line:\n%s", failed, len(cases), tally(kinds))
 	}
-	verdicts := runMode(t, exe, "laws", lawCases, 1)
-	broken := 0
-	for k, v := range verdicts {
+	broken, judged := 0, 0
+	runModeEach(t, exe, "laws", lawCases, 1, func(k int, v []string) {
+		judged++
 		if v[0] == "ok\n" {
-			continue
+			return
 		}
 		broken++
 		if broken > 3 {
-			continue
+			return
 		}
 		in := inputs[lawInputs[k]]
 		t.Errorf("seed %d: input %s: a law of the Ergo formatter fails:\n%s\ninput: %q\n%s", seed, in.Name, clip(v[0]), in.Src, replay)
-	}
+	})
 	if broken > 0 {
-		t.Errorf("laws fail on %d of %d inputs", broken, len(verdicts))
+		t.Errorf("laws fail on %d of %d inputs", broken, judged)
 	}
+}
+
+// clipLine is a differing line cut to 80 bytes, a tally key.
+func clipLine(s string) string {
+	if len(s) > 80 {
+		return s[:80] + "…"
+	}
+	return s
+}
+
+// tally lists counts by key, the largest first.
+func tally(m map[string]int) string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if m[keys[i]] != m[keys[j]] {
+			return m[keys[i]] > m[keys[j]]
+		}
+		return keys[i] < keys[j]
+	})
+	var b strings.Builder
+	for i, k := range keys {
+		if i == 20 {
+			fmt.Fprintf(&b, "  … %d more\n", len(keys)-20)
+			break
+		}
+		fmt.Fprintf(&b, "  %6d  %q\n", m[k], k)
+	}
+	return b.String()
 }
 
 // selfhostSeed is the seed of the generated inputs; the default is

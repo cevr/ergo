@@ -164,6 +164,38 @@ func runMode(t *testing.T, exe, mode string, cases [][]string, answers int) [][]
 	return out
 }
 
+// batchBytes bounds the case bytes one driver process receives in
+// runModeEach: the process and the test then hold one batch's cases and
+// answers, not every probe's (TestSelfhostFormatAgrees's 21,127 probes
+// carried each input's full source and outgrew the 8G memory cap).
+const batchBytes = 4 << 20
+
+// runModeEach is runMode over cases in batches of at most batchBytes of
+// case text (a larger single case is a batch of its own), one driver
+// process per batch, calling each with every case's index and answers in
+// order, so no batch's answers outlive it.
+func runModeEach(t *testing.T, exe, mode string, cases [][]string, answers int, each func(k int, a []string)) {
+	t.Helper()
+	for start := 0; start < len(cases); {
+		end, size := start, 0
+		for end < len(cases) {
+			n := 0
+			for _, s := range cases[end] {
+				n += len(s)
+			}
+			if end > start && size+n > batchBytes {
+				break
+			}
+			size += n
+			end++
+		}
+		for i, a := range runMode(t, exe, mode, cases[start:end], answers) {
+			each(start+i, a)
+		}
+		start = end
+	}
+}
+
 func readFrame(r *bufio.Reader) (string, error) {
 	head, err := r.ReadString(':')
 	if err != nil {
