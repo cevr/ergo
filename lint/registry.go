@@ -418,6 +418,11 @@ type RuleInfo struct {
 	Options         []OptionSpec `json:"options,omitempty"`
 	// Environment names the host variables the rule's pack receives.
 	Environment []string `json:"environment,omitempty"`
+	// Precision is a built-in rule's published precision (the lower of its
+	// corpus and its held-out read sample, capped at 0.95), and Sample
+	// says what it was measured on; both omitted for a rule with none.
+	Precision *float64 `json:"precision,omitempty"`
+	Sample    string   `json:"sample,omitempty"`
 }
 
 // Inspect lists every rule with its effective severity.

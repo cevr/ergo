@@ -21,6 +21,9 @@ type LintFinding struct {
 	Fix         *Fix
 	Related     []sdk.Related
 	Suggestions []sdk.Suggestion
+	// Precision is the rule's published precision as a fraction, nil for
+	// a rule with none.
+	Precision *float64
 }
 
 // SuppressionStatus is the outcome of one admitted suppression directive
@@ -74,7 +77,7 @@ func (r *Result) ReportWithLint(snapshot SourceSnapshot, strict bool, advice *Li
 	project := projector(snapshot)
 	var lint []DiagnosticFinding
 	for _, f := range advice.Findings {
-		finding := DiagnosticFinding{Code: f.Code, Rule: f.Rule, File: f.File, Origin: "lint", Severity: f.Severity, Message: f.Message, Span: f.Span, Fix: f.Fix, Related: f.Related, Suggestions: f.Suggestions}
+		finding := DiagnosticFinding{Code: f.Code, Rule: f.Rule, File: f.File, Origin: "lint", Severity: f.Severity, Message: f.Message, Span: f.Span, Fix: f.Fix, Related: f.Related, Suggestions: f.Suggestions, Precision: f.Precision}
 		lsp := &LSPDiagnostic{Severity: lspSeverity(f.Severity), Code: f.Code, Source: "ergo lint", Message: f.Message}
 		if location, ok := project(f.File, f.Span); ok {
 			finding.LocationAvailable = true

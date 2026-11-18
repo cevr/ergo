@@ -341,7 +341,7 @@ func raceFixes(t *testing.T, src string) (lines, fixed []int) {
 	if !in.Checked {
 		t.Fatalf("the generated program does not check: %v\n%s", sketchfront.Check(src).Diagnostics, numbered(src))
 	}
-	conf, err := lint.Builtin().Configure(lint.Config{Version: lint.ConfigVersion}, nil)
+	conf, err := lint.Builtin().Configure(lint.Config{Version: lint.ConfigVersion}, []string{lint.Justifiers})
 	if err != nil {
 		t.Fatal(err)
 	}
