@@ -1364,6 +1364,9 @@ func (c *checker) builtin(x *syntax.CallExpr, b *Builtin, targ Type) operand {
 		c.silentArgs(x)
 		return bad(x)
 	}
+	if b.Name == "hash" {
+		return c.hashCall(x) // mapprovider.go
+	}
 	if b.Name != "len" {
 		c.errorf(x, CodeType, "unknown built-in %s", b.Name)
 		return bad(x)
@@ -1376,6 +1379,10 @@ func (c *checker) builtin(x *syntax.CallExpr, b *Builtin, targ Type) operand {
 	op := c.valueExpr(x.Args[0], nil)
 	if op.invalid() {
 		return bad(x)
+	}
+	if IsProviderMap(op.typ) {
+		c.mapSites = append(c.mapSites, mapSite{node: x}) // mapprovider.go
+		return operand{mode: modeValue, typ: Typ[Int]}
 	}
 	switch u := under(op.typ).(type) {
 	case *Basic:

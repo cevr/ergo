@@ -652,15 +652,18 @@ type (
 		Elt    Expr
 	}
 
-	// MapType is `Map[K, V]`: Map is the position of the name, Lbrack and
-	// Rbrack of its brackets (#196, eighth round: a prelude name cannot be
-	// redeclared, so the name always means the map type).
+	// MapType is `Map[K, V]` or `Map[K, V, H]`: Map is the position of
+	// the name, Lbrack and Rbrack of its brackets (#196, eighth round: a
+	// prelude name cannot be redeclared, so the name always means the map
+	// type). Hashing is the third type argument, the provider by which
+	// the Map finds its keys, or nil (CONSTRAINTS C5).
 	MapType struct {
-		Map    Pos
-		Lbrack Pos
-		Key    Expr
-		Value  Expr
-		Rbrack Pos
+		Map     Pos
+		Lbrack  Pos
+		Key     Expr
+		Value   Expr
+		Hashing Expr
+		Rbrack  Pos
 	}
 
 	// FuncType is a signature. Func is NoPos in a declaration or method.

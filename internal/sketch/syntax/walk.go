@@ -155,6 +155,9 @@ func Inspect(n Node, f func(Node) bool) {
 		walk(n.Elt)
 	case *MapType:
 		walk(n.Key, n.Value)
+		if n.Hashing != nil {
+			walk(n.Hashing)
+		}
 	case *FuncType:
 		walk(n.Params, n.Results, n.Needs, n.Takes)
 	case *StructType:

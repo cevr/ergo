@@ -24,6 +24,9 @@ type Options struct {
 	// placeLaws reports S115 whatever lawPlacementReported says
 	// (checkWith; lawplace.go).
 	placeLaws bool
+	// mapsRewritten is set on the second check of a package whose Map
+	// forms were rewritten (mapprovider.go), which rewrites nothing more.
+	mapsRewritten bool
 }
 
 // checkWith is Check, with S115 reported when placeLaws is set

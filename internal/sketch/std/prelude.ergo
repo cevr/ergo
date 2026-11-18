@@ -261,6 +261,206 @@ type number {
 	~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr | ~float32 | ~float64,
 }
 
+// Hashing is how a Map finds a key: a hash and an equality that agree
+// (types.md, Maps; CONSTRAINTS C5). Map[K, V, H] finds its keys through
+// H's Equal and Hash. Map[K, V] is Map[K, V, Structural[K]].
+type Hashing[K] {
+	Hash(k K) uint64,
+	Equal(a K, b K) bool,
+
+	// EqualIsReflexive: a key is equal to itself.
+	law EqualIsReflexive(a K) { Equal(a, a) },
+
+	// EqualIsSymmetric: a is equal to b exactly when b is equal to a.
+	law EqualIsSymmetric(a K, b K) { Equal(a, b) == Equal(b, a) },
+
+	// EqualIsTransitive: a equal to b, and b equal to c, gives a equal
+	// to c. b and c are found among the near variants of a and b.
+	law EqualIsTransitive(a K, b K where Equal(a, b), c K where Equal(b, c)) { Equal(a, c) },
+
+	// EqualKeysHashEqual: two equal keys have one hash, so a Map finds
+	// a key by any spelling Equal admits.
+	law EqualKeysHashEqual(a K, b K where Equal(a, b)) { Hash(a) == Hash(b) },
+}
+
+// Structural is the provider of every Map written with two type
+// arguments: the equality == and the generated hash of K's declared type.
+type Structural[K comparable] {} implements Hashing[K]
+
+// Hash is hash(k), the generated hash of k.
+func Hash[K comparable](_ Structural[K], k K) uint64 { hash(k) }
+
+// Equal is a == b.
+func Equal[K comparable](_ Structural[K], a K, b K) bool { a == b }
+
+// hashTable is a Map[K, V, H] whose provider H is not Structural[K]
+// (types.md, Maps): the type Map[K, V, H] is this record, and m.Get(k),
+// m.Put(k, v), m.Delete(k), m.Take(k), m.Clone(), len(m), m[k] = v and
+// `for k, v in m` are its functions. It is an open-addressing table in
+// Ergo alone, as a user could write it: the entries in dense slices in
+// the order they were first put, each with its stored hash, and slots
+// that hold an entry's index plus one (0 is an empty slot). A Delete
+// clears the entry's live mark and keeps its slot, so a probe never ends
+// early at a deleted key; a growth compacts the live entries and places
+// each again by its own stored hash. The zero value is the empty Map,
+// with H's zero value as its provider; maps.Using gives another one.
+type hashTable[K comparable, H Hashing[K], V] {
+	by H,
+	keys []K,
+	vals []V,
+	sums []uint64,
+	live []bool,
+	slots []int,
+	count int,
+}
+
+// find is the entry of k in t, live or deleted, and its slot, or -1 and
+// the empty slot where k's probe ends. sum is H's hash of k.
+func find[K comparable, H Hashing[K], V](t hashTable[K, H, V], k K, sum uint64) (int, int) {
+	if len(t.slots) == 0 {
+		return (-1, -1)
+	}
+	let mask = len(t.slots) - 1
+	let mut j = int(sum & uint64(mask))
+	for t.slots[j] != 0 {
+		let e = t.slots[j] - 1
+		if t.sums[e] == sum && t.by.Equal(t.keys[e], k) {
+			return (e, j)
+		}
+		j = (j + 1) & mask
+	}
+	(-1, j)
+}
+
+// grown is t with room for one more entry: when the entries would fill
+// three quarters of the slots, the live entries move, in order, to new
+// slices, and each takes a slot by its own stored hash.
+func grown[K comparable, H Hashing[K], V](t hashTable[K, H, V]) hashTable[K, H, V] {
+	if (len(t.keys) + 1) * 4 <= len(t.slots) * 3 {
+		return t
+	}
+	let mut size = 8
+	for size * 3 < (t.count + 1) * 8 {
+		size = size * 2
+	}
+	let mut slots = MakeSlice[int](size)
+	for len(slots) < size {
+		slots = slots.Append(0)
+	}
+	let mut keys = MakeSlice[K](t.count)
+	let mut vals = MakeSlice[V](t.count)
+	let mut sums = MakeSlice[uint64](t.count)
+	let mut live = MakeSlice[bool](t.count)
+	let mask = size - 1
+	let mut i = 0
+	for i < len(t.keys) {
+		if t.live[i] {
+			let mut j = int(t.sums[i] & uint64(mask))
+			for slots[j] != 0 {
+				j = (j + 1) & mask
+			}
+			slots[j] = len(keys) + 1
+			keys = keys.Append(t.keys[i])
+			vals = vals.Append(t.vals[i])
+			sums = sums.Append(t.sums[i])
+			live = live.Append(true)
+		}
+		i = i + 1
+	}
+	hashTable[K, H, V]{by: t.by, keys: keys, vals: vals, sums: sums, live: live, slots: slots, count: t.count}
+}
+
+// Get is the value of k in m, Some{v}, or None when m has no key Equal
+// to k.
+func Get[K comparable, H Hashing[K], V](m hashTable[K, H, V], k K) Option[V] {
+	let (e, _) = find(m, k, m.by.Hash(k))
+	if e < 0 || !m.live[e] {
+		return None
+	}
+	Some[V]{Value: m.vals[e]}
+}
+
+// Put is m with v at k. A key that m holds keeps the spelling it was
+// first put with; a new key is stored as written.
+func Put[K comparable, H Hashing[K], V](m hashTable[K, H, V], k K, v V) hashTable[K, H, V] {
+	let mut t = grown(m)
+	let sum = t.by.Hash(k)
+	let (e, j) = find(t, k, sum)
+	if e >= 0 {
+		if !t.live[e] {
+			t.live[e] = true
+			t.keys[e] = k
+			t.count = t.count + 1
+		}
+		t.vals[e] = v
+		return t
+	}
+	t.slots[j] = len(t.keys) + 1
+	t.keys = t.keys.Append(k)
+	t.vals = t.vals.Append(v)
+	t.sums = t.sums.Append(sum)
+	t.live = t.live.Append(true)
+	t.count = t.count + 1
+	t
+}
+
+// Delete is m without the key Equal to k.
+func Delete[K comparable, H Hashing[K], V](m hashTable[K, H, V], k K) hashTable[K, H, V] {
+	let (e, _) = find(m, k, m.by.Hash(k))
+	if e < 0 || !m.live[e] {
+		return m
+	}
+	let mut t = m
+	t.live[e] = false
+	t.count = t.count - 1
+	t
+}
+
+// Take is the value of k in m and m without k.
+func Take[K comparable, H Hashing[K], V](m hashTable[K, H, V], k K) (Option[V], hashTable[K, H, V]) {
+	(m.Get(k), m.Delete(k))
+}
+
+// Clone is a Map with the entries of m.
+func Clone[K comparable, H Hashing[K], V](m hashTable[K, H, V]) hashTable[K, H, V] { m }
+
+// Len is the number of keys in m: len(m).
+func Len[K comparable, H Hashing[K], V](m hashTable[K, H, V]) int { m.count }
+
+// Using is m with the provider by: maps.Using builds a Map with it.
+func Using[K comparable, H Hashing[K], V](m hashTable[K, H, V], by H) hashTable[K, H, V] {
+	let mut t = m
+	t.by = by
+	t
+}
+
+// Stored is the entries of m keyed by their stored spellings, a Map[K, V]:
+// `for k, v in m` reads it, in the sorted order of the stored keys.
+func Stored[K comparable, H Hashing[K], V](m hashTable[K, H, V]) Map[K, V] {
+	let mut out = Map[K, V]{}
+	let mut i = 0
+	for i < len(m.keys) {
+		if m.live[i] {
+			out[m.keys[i]] = m.vals[i]
+		}
+		i = i + 1
+	}
+	out
+}
+
+// StructuralFloatKeysHashEqual: Structural[float64]'s equal keys hash
+// equal; 0.0 and -0.0 are == and must have one hash.
+law StructuralFloatKeysHashEqual(a float64, b float64 where a == b) { hash(a) == hash(b) }
+
+// StructuralIntKeysHashEqual: Structural[int]'s equal keys hash equal.
+// Two ints are == only when identical, so the run reports a skip.
+law StructuralIntKeysHashEqual(a int, b int where a == b) { hash(a) == hash(b) }
+
+// StructuralStringKeysHashEqual: Structural[string]'s equal keys hash
+// equal. Two strings are == only when identical, so the run reports a
+// skip.
+law StructuralStringKeysHashEqual(a string, b string where a == b) { hash(a) == hash(b) }
+
 // Range is the integers from Start up to End, End excluded: `a..b` builds
 // one, and `for i in r` counts through it (#196, one for). A for and `..`
 // take an integer T only; the type itself takes any ordered T.

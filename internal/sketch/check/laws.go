@@ -18,7 +18,9 @@ func (law *Law) Title(from *Package) string {
 	case law.Machine != nil:
 		title = law.Machine.Name + "." + law.Name
 	}
-	if law.Pkg != nil && law.Pkg != from {
+	if law.Pkg != nil && law.Pkg != from && law.Pkg.Path != stdlib.PreludePath {
+		// A prelude name is written bare in every package, so its law
+		// is named bare (Hashing.EqualKeysHashEqual; CONSTRAINTS C5).
 		title = law.Pkg.Name + "." + title
 	}
 	return title
@@ -496,6 +498,19 @@ func (c *checker) planLaw(law *Law) {
 		}
 	}
 	law.Slots = slots
+	for i, adm := range law.Admit {
+		// An admission law quantifies over the slots of the parameters up
+		// to its own (lawwhere.go).
+		if adm == nil {
+			continue
+		}
+		adm.Slots = nil
+		for _, s := range slots {
+			if s.Param <= i {
+				adm.Slots = append(adm.Slots, s)
+			}
+		}
+	}
 }
 
 // lawRuns are the laws the package's test build runs or reports (rule 7):
@@ -920,7 +935,8 @@ func (c *checker) checkLaw(law *Law) {
 			for _, id := range field.Names {
 				v := &Var{Name: id.Name, Type: typ, Pos: id.Pos(), id: id, param: true, used: true}
 				law.Params = append(law.Params, v)
-				if field.Where != nil && !containsInvalid(typ) {
+				relational := field.Where != nil && c.relationalWhere(law, field.Where)
+				if field.Where != nil && !containsInvalid(typ) && !relational {
 					// A law parameter's where (types.md, Refinements 10):
 					// its generator draws inside the predicate.
 					c.refining = true
@@ -947,10 +963,20 @@ func (c *checker) checkLaw(law *Law) {
 				}
 				c.def(id, v)
 				frame.insert(id.Name, v)
+				if relational && !containsInvalid(typ) {
+					c.admission(law, d, len(law.Params)-1, field.Where) // lawwhere.go
+				}
 			}
 		}
 	}
 	law.Ties = c.ties(law.Params, law.Where)
+	for i, a := range law.Admit {
+		// A parameter with a where over earlier parameters is drawn by
+		// search (lawwhere.go), never repeated by the tie rule.
+		if a != nil && i < len(law.Ties) {
+			law.Ties[i] = nil
+		}
+	}
 	if d.Rewrite != nil {
 		c.rewriteLaw(law, tg)
 	} else {

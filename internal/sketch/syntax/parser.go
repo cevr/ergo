@@ -1895,17 +1895,22 @@ func (p *parser) parseFuncType(ctx typeCtx) *FuncType {
 	return p.parseSignature(pos, ctx)
 }
 
-// mapType turns `Map[K, V]` into a MapType: Map is a prelude name that no
-// declaration can take (#196, eighth round), so the name is the map type.
+// mapType turns `Map[K, V]` and `Map[K, V, H]` into a MapType: Map is a
+// prelude name that no declaration can take (#196, eighth round), so the
+// name is the map type.
 func mapType(x Expr) Expr {
 	ix, ok := x.(*IndexExpr)
-	if !ok || len(ix.Indices) != 2 {
+	if !ok || len(ix.Indices) != 2 && len(ix.Indices) != 3 {
 		return x
 	}
 	if id, ok := ix.X.(*Ident); !ok || id.Name != "Map" {
 		return x
 	}
-	return &MapType{Map: ix.X.Pos(), Lbrack: ix.Lbrack, Key: ix.Indices[0], Value: ix.Indices[1], Rbrack: ix.Rbrack}
+	m := &MapType{Map: ix.X.Pos(), Lbrack: ix.Lbrack, Key: ix.Indices[0], Value: ix.Indices[1], Rbrack: ix.Rbrack}
+	if len(ix.Indices) == 3 {
+		m.Hashing = ix.Indices[2]
+	}
+	return m
 }
 
 // parseTypeName parses `name`, `pkg.name` or `go.name` with optional type

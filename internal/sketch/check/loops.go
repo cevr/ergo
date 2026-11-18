@@ -120,6 +120,10 @@ func (c *checker) loopDomain(s *syntax.RangeStmt, x operand) *Loop {
 	if t, ok := c.preludeElem(x.typ, "Seq"); ok {
 		return &Loop{Domain: LoopSeq, Elem: t}
 	}
+	if k, v, _, ok := c.mapParts(x.typ); ok && IsProviderMap(x.typ) {
+		c.mapSites = append(c.mapSites, mapSite{node: s}) // mapprovider.go
+		return &Loop{Domain: LoopMap, Elem: v, Pos: k}
+	}
 	switch u := under(x.typ).(type) {
 	case *Slice:
 		return &Loop{Domain: LoopSlice, Elem: u.Elem, Pos: Typ[Int]}

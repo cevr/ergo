@@ -751,6 +751,7 @@ func (e *encoder) encFieldsMapType(v *MapType) {
 	e.encPos(v.Lbrack)
 	e.encExpr(v.Key)
 	e.encExpr(v.Value)
+	e.encExpr(v.Hashing)
 	e.encPos(v.Rbrack)
 }
 
@@ -2624,6 +2625,7 @@ func (d *decoder) decFieldsMapType(v *MapType) {
 	v.Lbrack = d.decPos()
 	v.Key = d.decExpr()
 	v.Value = d.decExpr()
+	v.Hashing = d.decExpr()
 	v.Rbrack = d.decPos()
 }
 

@@ -1415,7 +1415,21 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 			return invalid
 		}
 		c.mapKeySite(x.Key, k)
-		return &Map{Key: k, Elem: v}
+		var h Type
+		if x.Hashing != nil {
+			h = c.typExpr(x.Hashing, ctx)
+			if isInvalid(h) || isInvalid(k) {
+				return invalid
+			}
+			if hn := c.hashingOf(); hn != nil {
+				cons := c.instantiate(hn.Type.(*Named), []Type{k})
+				if why := c.satisfies(h, cons); why != "" {
+					c.errorf(x.Hashing, CodeType, "%s does not satisfy the constraint %s of Map's H: %s (types.md, Generics 2)", h, cons, why)
+					return invalid
+				}
+			}
+		}
+		return c.mapOf(k, v, h)
 	case *syntax.StarExpr:
 		if ctx == nil || !ctx.param {
 			c.errorf(x, CodeType, "a borrow *T is only a parameter or receiver type (types.md, Borrows 1)")

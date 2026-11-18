@@ -110,6 +110,13 @@ func check(path string, files []*syntax.File, imp Importer, under *Package, opts
 	c.pkg.testOf = under
 	c.placeLaws = lawPlacementReported || opts.placeLaws
 	pkg := c.run(met)
+	if len(c.mapSites) > 0 && !opts.mapsRewritten {
+		rewriteMapSites(c.mapSites, met)
+		// The forms of Maps with a provider are now calls of the table's
+		// functions (mapprovider.go): check the rewritten package.
+		opts.mapsRewritten = true
+		return check(path, files, imp, under, opts)
+	}
 	for _, d := range derivedDiags {
 		d.File = rank[d.File]
 		c.diags = append(c.diags, d)
@@ -525,6 +532,9 @@ type checker struct {
 	// pkgPatterns holds the package-level lets that bind several names
 	// from one value (a pattern, or `let q, r = e`), each checked once.
 	pkgPatterns map[*syntax.VarSpec]*pkgPattern
+	// mapSites are the syntax forms of a Map with a provider that check
+	// rewrites to the table's functions and checks again (mapprovider.go).
+	mapSites []mapSite
 	// mapInstances holds `Map[K, V]` read as the package's own Map (L6).
 	mapInstances map[*syntax.MapType]*syntax.IndexExpr
 	// refining is set while checkRefinements reports; refusedWheres are
@@ -761,7 +771,7 @@ func universe() *Scope {
 		s.insert("error", errName)
 		s.insert("true", &Const{Name: "true", Type: Typ[Bool], Val: true})
 		s.insert("false", &Const{Name: "false", Type: Typ[Bool], Val: false})
-		for _, name := range []string{"len", "with", "encode", "decode", "embedded", WiredName} {
+		for _, name := range []string{"len", "hash", "with", "encode", "decode", "embedded", WiredName} {
 			s.insert(name, &Builtin{Name: name})
 		}
 		// go.Foreign (a capability) and go.Error (an error type) are

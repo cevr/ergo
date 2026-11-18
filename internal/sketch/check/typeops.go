@@ -1210,6 +1210,11 @@ func defaultable(t Type) bool {
 		// The base's zero (0, or length 0) fails the where (Refinements 8).
 		return false
 	}
+	if IsProviderMap(t) {
+		// A Map's default is its empty Map, with its provider's default
+		// (mapprovider.go).
+		return defaultable(t.(*Named).TArgs[1])
+	}
 	switch u := under(t).(type) {
 	case *Basic:
 		return true

@@ -766,6 +766,10 @@ const (
 	// is true when it matches the whole of its first argument (types.md,
 	// Refinements 11). Added in FKre.
 	CallPattern
+	// CallHash is the hash built-in, hash(k): the uint64 hash of a value
+	// of a comparable type, generated from its declared type as == is
+	// (types.md, Maps; CONSTRAINTS C5).
+	CallHash
 	// CallKindCount bounds the call kinds. Keep it last: exhaustive
 	// consumers must account for a newly admitted kind.
 	CallKindCount
@@ -1137,6 +1141,18 @@ type Law struct {
 	// rule; runtime.md, Tests; CONSTRAINTS C2). A parameter of a generic
 	// owner's type parameter ties with another of the same parameter.
 	Ties [][]int
+	// Admit holds, at the index of each parameter whose where names an
+	// earlier parameter or an operation of the law's type (CONSTRAINTS
+	// C5; lawwhere.go), the admission law of that where: a law over the
+	// parameters up to it whose body is the where. A case is admitted
+	// when every admission holds. nil without any.
+	Admit []*Law
+	// Near holds, at the same index, the earlier parameter of an
+	// identical type that the where names, whose near variants the run
+	// searches for the parameter's value, or -1.
+	Near []int
+	// Admits is the law an admission law belongs to (Admit), or nil.
+	Admits *Law
 	// Rewrite is the checked form of a rewrite law (Decl.Rewrite; types.md,
 	// Laws 14), nil for any other law or one whose shape was refused.
 	Rewrite *Rewrite

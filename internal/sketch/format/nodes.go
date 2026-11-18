@@ -1150,8 +1150,16 @@ func (p *printer) expr1(x syntax.Expr, depth int) {
 		p.typ(x.Elt)
 	case *syntax.MapType:
 		p.token(x.Map, "Map")
-		p.list(x.Lbrack, "[", []syntax.Node{x.Key, x.Value}, func(i int) {
-			p.typ([]syntax.Expr{x.Key, x.Value}[i])
+		args := []syntax.Expr{x.Key, x.Value}
+		if x.Hashing != nil {
+			args = append(args, x.Hashing)
+		}
+		nodes := make([]syntax.Node, len(args))
+		for i, a := range args {
+			nodes[i] = a
+		}
+		p.list(x.Lbrack, "[", nodes, func(i int) {
+			p.typ(args[i])
 		}, x.Rbrack, "]")
 	case *syntax.FuncType:
 		p.funcType(x)

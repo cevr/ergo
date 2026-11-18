@@ -431,6 +431,9 @@ var invalid = Typ[Invalid]
 
 func (t *Basic) String() string { return t.Name }
 func (t *Named) String() string {
+	if IsProviderMap(t) {
+		return mapTypeString(t) // mapprovider.go
+	}
 	name := t.Obj.Name
 	if t.Obj.Pkg != nil && t.Obj.Pkg.qualify {
 		name = t.Obj.Pkg.Name + "." + name

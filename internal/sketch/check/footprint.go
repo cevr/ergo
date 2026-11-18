@@ -185,6 +185,13 @@ func (c *checker) footprints() {
 			continue // a machine's reachability law has no body (MU6)
 		}
 		bodies = append(bodies, body{fp.node(l.Decl), l.Decl.Body})
+		for _, adm := range l.Admit {
+			if adm != nil {
+				// A where over earlier parameters, a law of its own
+				// (lawwhere.go).
+				bodies = append(bodies, body{fp.node(adm.Decl), adm.Decl.Body})
+			}
+		}
 	}
 	for key := range info.Literals {
 		switch k := key.(type) {
@@ -593,7 +600,7 @@ func (fp *footprinter) call(n *fpNode, x *syntax.CallExpr, c *Call) {
 			// memory-only call is.
 			n.opaque = true
 		}
-	case CallConversion, CallLen, CallPrelude, CallEmbed, CallPattern:
+	case CallConversion, CallLen, CallPrelude, CallEmbed, CallPattern, CallHash:
 		// These calls add no footprint of their own. CallPrelude is
 		// retained compatibility metadata, never produced by the checker.
 	case CallProviderOp:
