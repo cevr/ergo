@@ -28,7 +28,7 @@ var forwardingFunc = &Rule{
 }
 
 func checkForwardingFunc(p *Pass) {
-	sites := p.Memo(func() any { return callSitesOf(p) }).(*callSites)
+	sites := p.Memo(func() any { return callSitesOf(p, false) }).(*callSites)
 	entry := p.Package.Entry()
 	for _, d := range p.File.Decls {
 		f, ok := d.(*syntax.FuncDecl)

@@ -37,7 +37,7 @@ type callSites struct {
 }
 
 func checkModeParameter(p *Pass) {
-	sites := p.Memo(func() any { return callSitesOf(p) }).(*callSites)
+	sites := p.Memo(func() any { return callSitesOf(p, false) }).(*callSites)
 	entry := p.Package.Entry()
 	for _, d := range p.File.Decls {
 		f, ok := d.(*syntax.FuncDecl)
@@ -95,8 +95,8 @@ func (s *callSites) constantAt(fn *check.Func, i int) bool {
 }
 
 // callSitesOf reads every call and value use of a function in the
-// program.
-func callSitesOf(p *Pass) *callSites {
+// program; with code, only the calls outside tests and laws are read.
+func callSitesOf(p *Pass, code bool) *callSites {
 	s := &callSites{calls: map[*check.Func][][]syntax.Expr{}, value: map[*check.Func]bool{}, info: map[syntax.Expr]*check.Info{}}
 	for _, u := range p.Program() {
 		info := u.Package.Info
@@ -105,6 +105,23 @@ func callSitesOf(p *Pass) *callSites {
 				continue
 			}
 			called := map[*syntax.Ident]bool{}
+			excluded := map[*syntax.CallExpr]bool{}
+			exclude := func(n syntax.Node) bool {
+				if x, ok := n.(*syntax.CallExpr); ok {
+					excluded[x] = true
+				}
+				return true
+			}
+			if code {
+				syntax.Inspect(f.Syntax, func(n syntax.Node) bool {
+					switch n.(type) {
+					case *syntax.TestDecl, *syntax.LawDecl:
+						syntax.Inspect(n, exclude)
+						return false
+					}
+					return true
+				})
+			}
 			syntax.Inspect(f.Syntax, func(n syntax.Node) bool {
 				x, ok := n.(*syntax.CallExpr)
 				if !ok {
@@ -131,7 +148,9 @@ func callSitesOf(p *Pass) *callSites {
 				for _, a := range args {
 					s.info[a] = info
 				}
-				s.calls[c.Func] = append(s.calls[c.Func], args)
+				if !excluded[x] {
+					s.calls[c.Func] = append(s.calls[c.Func], args)
+				}
 				return true
 			})
 			syntax.Inspect(f.Syntax, func(n syntax.Node) bool {

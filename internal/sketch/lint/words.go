@@ -56,6 +56,12 @@ func bannedWord(name string, words []string) (string, bool) {
 	return "", false
 }
 
+// bareVerb reports a name that is one word, and that word one of verbs.
+func bareVerb(name string, verbs []string) bool {
+	words := nameWords(name)
+	return len(words) == 1 && slices.ContainsFunc(verbs, func(v string) bool { return strings.EqualFold(words[0], v) })
+}
+
 // kindSuffix is the kind word a file name ends with, as _kind or .kind
 // before .ergo, when suffixes lists it and the name has a concept before
 // it.
