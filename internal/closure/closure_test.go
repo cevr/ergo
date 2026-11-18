@@ -1285,12 +1285,18 @@ func runObserved(protect, pkg, pkgDir, stem, cache string, cost float64, extra [
 	defer s.remove()
 	log := filepath.Join(s.log, "test.log")
 	identityFile := filepath.Join(s.log, "identity.json")
-	// The binary's own deadline ends inside the run's (runTestTimeout).
+	// The run is stopped when it makes no progress for its quiet window,
+	// or at its end (runWithin). The binary's own deadline ends inside the
+	// run's end (runTestTimeout); with no end, it has none.
 	deadline, err := runDeadline(cost)
 	if err != nil {
 		return fail(err)
 	}
-	args = append([]string{"-test.paniconexit0", "-test.timeout=" + runTestTimeout(deadline).String(), "-test.testlogfile=" + log}, args...)
+	timeout := time.Duration(0)
+	if end := runEnd(); !end.IsZero() {
+		timeout = runTestTimeout(time.Until(end))
+	}
+	args = append([]string{"-test.paniconexit0", "-test.timeout=" + timeout.String(), "-test.testlogfile=" + log}, args...)
 	// The observer of the test binary (testinputs.Main) records the
 	// identity of each access at access time (testinputs.IdentityVariable).
 	// A package the observer cannot observe gets no identity file to write.
