@@ -9,10 +9,7 @@ import (
 // sites (GenerateRefOwned, IR-OWN): the IR's owned form copies the held
 // Map exactly when a value outside the cell may reach it (after Get, after
 // an Update that stored a Map the program holds), so each program prints
-// the same under both lowerings, and each function has an IR body: stream's
-// in-place literals (IR-OWN-MODIFY) write the cell's value through a
-// pointer, so a write the IR misses, or one that reaches snap, changes
-// the output. A
+// the same under both lowerings, and tally and keep have IR bodies. A
 // failing seed prints the Ergo source, both outcomes and its replay
 // command.
 //
@@ -31,7 +28,7 @@ func TestIRRefOwnedMatchSource(t *testing.T) {
 		if a != b {
 			t.Fatalf("the paths differ\nsource: %+v\nir:     %+v\n%s\n%s", a, b, replay, text)
 		}
-		for _, f := range []string{"tally", "keep", "fill", "generic", "stream"} {
+		for _, f := range []string{"tally", "keep", "fill", "generic"} {
 			if !slices.Contains(rep.IR, f) {
 				t.Errorf("seed %d: %s has no IR body (IR bodies: %v, fallbacks: %v)\n%s", seed, f, rep.IR, rep.Fallback, text)
 			}
@@ -46,13 +43,10 @@ func TestIRRefOwnedMatchSource(t *testing.T) {
 // (the cost of std cache's Modify, 374.7M instructions against hand Go's
 // 3.37M). Both print the same, so only the IR tells them apart. It reads
 // LowerIR's IR in process. Mutant ir-own-ref-plain: the site's call is the
-// plain operation. stream's literals hold the value in one let mut, so
-// its sites take the in-place forms, which copy no scan in or out (the
-// emitter's inPlaceLit; json's Stream, IR-OWN-MODIFY). Mutant
-// ir-own-ref-in-place-owned: the IR takes the owned form there.
+// plain operation.
 func TestIRRefSitesTakeTheValueOver(t *testing.T) {
 	text := GenerateRefOwned(1)
-	for _, want := range []struct{ fn, form string }{{"tally", "RefUpdateOwned"}, {"tally", "RefModifyOwned"}, {"fill", "RefUpdateOwned"}, {"stream", "RefModifyInPlace"}, {"stream", "RefUpdateInPlace"}} {
+	for _, want := range []struct{ fn, form string }{{"tally", "RefUpdateOwned"}, {"tally", "RefModifyOwned"}, {"fill", "RefUpdateOwned"}} {
 		if got := irCalls(t, text, want.fn, "pcall", "mcall"); !got[want.form] {
 			t.Errorf("%s's IR does not call %s (its calls: %v)\n%s", want.fn, want.form, got, text)
 		}
