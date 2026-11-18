@@ -7,6 +7,7 @@
 //
 //	tn1-lint lint --rule NAME WEIGHTS FILE...   findings, oxlint JSON; exit 0 (advisory)
 //	tn1-lint record FILE                        the feature record
+//	tn1-lint project FILE...                    each file's version 3 record in the project of FILEs
 //	tn1-lint chunks FILE                        each top-level statement: FROM TO (bytes)
 //	tn1-lint serve                              one reply line per request line, until EOF
 //	tn1-lint --help                             this usage, exit 0
@@ -29,14 +30,15 @@ import strings
 import strconv
 
 // Usage is the text of a usage failure.
-let Usage = "usage: tn1-lint lint --rule NAME WEIGHTS FILE... | tn1-lint record FILE | tn1-lint chunks FILE | tn1-lint serve | tn1-lint --help"
+let Usage = "usage: tn1-lint lint --rule NAME WEIGHTS FILE... | tn1-lint record FILE | tn1-lint project FILE... | tn1-lint chunks FILE | tn1-lint serve | tn1-lint --help"
 
 type Lint { Rule string, Weights string, Files []string }
 type Record { File string }
+type Project { Files []string }
 type Chunks { File string }
 type Help {}
 type Serve {}
-type Command = Lint | Record | Chunks | Serve | Help
+type Command = Lint | Record | Project | Chunks | Serve | Help
 
 func usage() os.Exit { os.Exit{Code: 2, Message: Usage} }
 
@@ -50,6 +52,9 @@ func Parse(args []string) Command fails os.Exit {
 	}
 	if len(args) == 2 && args[0] == "record" {
 		return Record{File: args[1]}
+	}
+	if len(args) >= 2 && args[0] == "project" {
+		return Project{Files: args[1:]}
 	}
 	if len(args) == 2 && args[0] == "chunks" {
 		return Chunks{File: args[1]}
@@ -99,7 +104,7 @@ func Findings(rule string, net tn1.Net, path string, src string) []Diagnostic {
 	// The network reads the lines only, so lint makes no node.
 	let linted = ts.ForLint(src)
 	let mut out = []Diagnostic{}
-	for f in tn1.Run(net, tn1.Features{Language: "ts", Lines: linted.Lines, Nodes: []tn1.Node{}}) {
+	for f in tn1.Run(net, tn1.Features{Version: 2, Language: "ts", Lines: linted.Lines, Nodes: []tn1.Node{}, Packages: []tn1.PackageItem{}, Files: []tn1.FileItem{}}) {
 		let s = linted.Spans[f.Line-1]
 		let lineStart = s.From - lastNewline(src, s.From)
 		out = out.Append(Diagnostic{
@@ -134,6 +139,21 @@ func Run(c Command) string fails os.Exit needs fs.Files | io.Stdin | io.Stdout {
 		""
 	case Record as r:
 		tn1.EncodeRecord(ts.FromSource(try read(r.File)))
+	case Project as p:
+		// Each record after a line "== FILE"; a file's name in the
+		// project is its path as given, so an import resolves among the
+		// FILEs by the same relative paths.
+		let mut named = []tn1.Named{}
+		for f in p.Files {
+			named = named.Append(tn1.Named{Name: f, Text: try read(f)})
+		}
+		let mut b = strings.NewBuilder()
+		let records = ts.Project(named)
+		for i in 0..len(records) {
+			b.WriteString("== \(p.Files[i])\n")
+			b.WriteString(tn1.EncodeRecord(records[i]))
+		}
+		b.String()
 	case Chunks as k:
 		let mut b = strings.NewBuilder()
 		for s in ts.Statements(try read(k.File)) {

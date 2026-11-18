@@ -348,17 +348,20 @@ func node(src string, starts []int, code []Token, cs []Catch, sh uint64, kind tn
 	case tn1.Declared, tn1.Handler, tn1.Module:
 	}
 	tn1.Node{
-		Kind:       kind,
-		Offset:     code[from].From,
-		Length:     code[to-1].To - code[from].From,
-		Line:       line + 1,
-		Column:     code[from].From - starts[line] + 1,
-		NameWords:  nameWords,
-		Params:     ps,
-		Statements: lines,
-		MaxDepth:   deepest,
-		Handlers:   shapes,
-		Shape:      sh,
+		Kind:                  kind,
+		Offset:                code[from].From,
+		Length:                code[to-1].To - code[from].From,
+		Line:                  line + 1,
+		Column:                code[from].From - starts[line] + 1,
+		NameWords:             nameWords,
+		Params:                ps,
+		Statements:            lines,
+		MaxDepth:              deepest,
+		Handlers:              shapes,
+		Shape:                 sh,
+		CallersInPackage:      0,
+		CallersOut:            0,
+		TopCallerPackageShare: 0,
 	}
 }
 

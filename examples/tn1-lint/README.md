@@ -10,6 +10,7 @@ tn1-lint lint --rule narration narration.tn1 src/*.ts > tn1.json
 ```sh
 tn1-lint lint --rule NAME WEIGHTS FILE...   # findings, oxlint JSON; always exit 0 (advisory)
 tn1-lint record FILE                        # the feature record of FILE (a FILE of - is the standard input)
+tn1-lint project FILE...                    # each FILE's record version 3 in the project of FILEs, after "== FILE"
 tn1-lint chunks FILE                        # each top-level statement: FROM TO (bytes)
 tn1-lint serve                              # one JSON reply line per JSON request line, until EOF
 tn1-lint --help                             # the usage; exit 0
@@ -22,7 +23,7 @@ A finding's span is the comment on its line; its probability and the model's id 
 Cases (the `ts` leg: Bun and the pinned `typescript` package of `tools/ts`):
 
 - `agree` is the law of the chunks: on seeded programs (imports, templates, regular expressions, ASI across `?:` and `.pipe` chains, decorators, labels, `Array<Array<X>>`, blocks followed by `;`), the statements `tn1-lint chunks` reads are the ones the TypeScript compiler's parser reports, from `getStart()` to `end`. A failing seed prints the program, both lists and `SEED=n bun ts/agree.ts`.
-- `records` holds the host to the conformance vectors (`modules/tn1/testdata/vectors`): `tn1-lint record` of each `src/*.ts.txt` is its `records/*.record`, byte for byte. oxlint-plugin-effect's ESTree extractor is held to the same records, and its JavaScript engine to `expected.tsv`.
+- `records` holds the host to the conformance vectors (`modules/tn1/testdata/vectors`): `tn1-lint record` of each `src/*.ts.txt` is its `records/*.record`, byte for byte; and `tn1-lint project` over each `projects/P` is its `records/P-*.record` (record version 3: the file's package, the file itself and its declarations' callers in the project's import graph). oxlint-plugin-effect's ESTree extractor is held to the same records, and its JavaScript engine to `expected.tsv`.
 - `lint` is the oxlint report of the narration control on the vectors' TypeScript source.
 - `usage` is a bad command line; `help` is `--help`.
 - `stdin` is `lint` of the standard input (`-`), the way the effect-oxlint rule `tn1Lint` passes a buffer.

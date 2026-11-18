@@ -191,7 +191,17 @@ func EncodeRecord(f Features) string {
 		size += 50 + len(l.CommentText)
 	}
 	b.Grow(size)
-	b.WriteString(RecordHeader + f.Language + "\n")
+	if f.Version == 3 {
+		b.WriteString(RecordHeader3 + f.Language + "\n")
+	} else {
+		b.WriteString(RecordHeader + f.Language + "\n")
+	}
+	for p in f.Packages {
+		b.WriteString("P \(hexOf(p.NameWords, 16)) \(p.Files) \(p.Decls) \(p.Exported) \(p.FanIn) \(p.FanOut) \(p.InternalUses) \(p.ExternalUses) \(p.UpEdges) \(p.Depth) \(hexOf(p.NeighbourWords, 16)) \(p.ChurnTogether)\n")
+	}
+	for x in f.Files {
+		b.WriteString("F \(hexOf(x.NameWords, 16)) \(x.Decls) \(x.UsesInPackage) \(x.UsesOut) \(x.BestOtherPackageShare) \(x.FanIn) \(x.FanOut) \(x.ChurnTogether)\n")
+	}
 	for l in f.Lines {
 		// Piece by piece into the one builder: an interpolated line
 		// would be a string of its own per line.
@@ -218,7 +228,11 @@ func EncodeRecord(f Features) string {
 			}
 			shapes = strings.Join(names, ",")
 		}
-		b.WriteString("N \(nodeKindName(n.Kind)) \(n.Offset) \(n.Length) \(n.Line) \(n.Column) \(hexOf(n.NameWords, 16)) \(n.Params) \(n.Statements) \(n.MaxDepth) \(shapes) \(hexOf(n.Shape, 16))\n")
+		b.WriteString("N \(nodeKindName(n.Kind)) \(n.Offset) \(n.Length) \(n.Line) \(n.Column) \(hexOf(n.NameWords, 16)) \(n.Params) \(n.Statements) \(n.MaxDepth) \(shapes) \(hexOf(n.Shape, 16))")
+		if f.Version == 3 {
+			b.WriteString(" \(n.CallersInPackage) \(n.CallersOut) \(n.TopCallerPackageShare)")
+		}
+		b.WriteByte('\n')
 	}
 	b.String()
 }
@@ -232,4 +246,23 @@ law RecordRoundTrips(text string, depth int, words uint64) {
 		return false
 	}
 	EncodeRecord(r) == RecordHeader+"ts\n"+src+"\n"
+}
+
+// RecordRoundTrips3: a version 3 record (its P, F and wider N items) reads
+// back and writes the same text.
+law RecordRoundTrips3(a int, b int, c int, words uint64) {
+	let x = a & 1023
+	let y = b & 1023
+	let z = c & 1023
+	let s = (x + y + z) % 1001
+	let p = "P \(hexOf(words, 16)) \(x) \(y) \(z) \(x) \(y) \(z) \(x) \(y) \(z) \(hexOf(words>>7, 16)) \(x)"
+	let f = "F \(hexOf(words>>1, 16)) \(z) \(y) \(x) \(s) \(z) \(y) \(x)"
+	let l = "L code \(x & 7) 1 \(hexOf(words, 16)) \(hexOf(words>>5, 16)) "
+	let n = "N function 0 \(y) 1 1 \(hexOf(words>>2, 16)) \(x & 7) \(y) \(z & 15) - \(hexOf(words>>9, 16)) \(x) \(y) \(s)"
+	let text = RecordHeader3 + "ts\n" + p + "\n" + f + "\n" + l + "\n" + n + "\n"
+	let r = ParseRecord(text) catch {
+	case Malformed:
+		return false
+	}
+	r.Version == 3 && EncodeRecord(r) == text
 }
