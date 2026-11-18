@@ -5,14 +5,19 @@
 // control (testdata/control: encoding/json's Decoder, Token, More and
 // Decode into a struct) it reads the bytes once, in place:
 //
-//   - one 64 KiB buffer, refilled as the scan reaches its end: only the
-//     byte being read is in memory, never the log, and nothing is
-//     allocated after the start (no token, no string, no reflection);
-//   - each event is scanned by a parser of this schema: a key is matched by
-//     its bytes, a field's value is checked as the codec checks it (an
-//     integer for id, at and bytes, a string for _tag and reason, any JSON
-//     value for a key the schema does not name) and kept only when the
-//     tally needs it (the tag, the bytes);
+//   - one buffer (64 KiB, doubled only for an event longer than half of
+//     it), refilled between events: only the event being read is in
+//     memory, never the log, and nothing is allocated per event (no token,
+//     no string, no reflection);
+//   - each event is scanned by a parser of this schema over the buffer and
+//     an index held in registers (functions of (b, i) returning i): a key
+//     is matched by its bytes, a field's value is checked as the codec
+//     checks it (an integer for id, at and bytes, a string for _tag and
+//     reason, any JSON value for a key the schema does not name) and kept
+//     only when the tally needs it (the tag, the bytes);
+//   - an event cut by the buffer's end is scanned again from its start once
+//     more input is in: the scan reports "short" (-2) instead of reading on,
+//     so the inner loops check one bound, the buffer's;
 //   - the tag picks the kind and its required fields once the object ends.
 //
 // What stays is the job: every byte is read and checked as JSON, every
@@ -27,233 +32,173 @@ import (
 	"os"
 )
 
-type reader struct {
-	in   io.Reader
-	buf  []byte
-	i, n int
-	off  int // bytes before buf[0]
-	eof  bool
-	err  error
+// short is a scan that reached the buffer's end: more input may complete it.
+const short = -2
+
+// bad is a scan that found malformed JSON at its index (see why).
+const bad = -1
+
+type tally struct{ opened, sent, bytes, closed, failed int }
+
+func space(b []byte, i int) int {
+	for i < len(b) && (b[i] == ' ' || b[i] == '\n' || b[i] == '\r' || b[i] == '\t') {
+		i++
+	}
+	return i
 }
 
-// fill reads more input once buf is used up; it reports whether a byte is there.
-//
-//go:noinline
-func (r *reader) fill() bool {
-	if r.eof {
-		return false
-	}
-	r.off += r.n
-	r.i, r.n = 0, 0
-	for r.n == 0 {
-		n, err := r.in.Read(r.buf)
-		r.n = n
-		if err == io.EOF {
-			r.eof = true
-			return n > 0
-		}
-		if err != nil {
-			r.err, r.eof = err, true
-			return n > 0
-		}
-	}
-	return true
-}
+func hex(c byte) bool { return '0' <= c && c <= '9' || 'a' <= c && c <= 'f' || 'A' <= c && c <= 'F' }
 
-// peek is the next byte, or 0 at the end of the input.
-func (r *reader) peek() byte {
-	if r.i < r.n || r.fill() {
-		return r.buf[r.i]
+// str scans the string at b[i] (a '"'), and returns the index past it
+// and its contents' bounds; escaped is true when it holds an escape.
+func str(b []byte, i int) (next, from, to int, escaped bool) {
+	if i >= len(b) {
+		return short, 0, 0, false
 	}
-	return 0
-}
-
-func (r *reader) skipSpace() byte {
-	for {
-		c := r.peek()
-		if c != ' ' && c != '\n' && c != '\r' && c != '\t' {
-			return c
-		}
-		r.i++
+	if b[i] != '"' {
+		return bad, 0, 0, false
 	}
-}
-
-func (r *reader) fail(why string) error {
-	return fmt.Errorf("not JSON at byte %d: %s", r.off+r.i, why)
-}
-
-func (r *reader) expect(c byte) error {
-	if r.skipSpace() != c {
-		return r.fail(fmt.Sprintf("want %q", c))
-	}
-	r.i++
-	return nil
-}
-
-// str scans a string at the reader; with into, it keeps up to len(into)
-// bytes of it in into and reports how many (more than len(into) when it
-// is longer). The scan checks every escape and refuses control bytes.
-func (r *reader) str(into []byte) (int, error) {
-	if r.skipSpace() != '"' {
-		return 0, r.fail("want a string")
-	}
-	r.i++
-	n := 0
-	for {
-		if r.i >= r.n && !r.fill() {
-			return 0, r.fail("unterminated string")
-		}
-		c := r.buf[r.i]
-		r.i++
+	i++
+	from = i
+	for i < len(b) {
+		c := b[i]
 		switch {
 		case c == '"':
-			return n, nil
+			return i + 1, from, i, escaped
 		case c < 0x20:
-			return 0, r.fail("control byte in a string")
+			return bad, 0, 0, false
 		case c == '\\':
-			e := r.peek()
-			r.i++
-			switch e {
+			escaped = true
+			if i+1 >= len(b) {
+				return short, 0, 0, false
+			}
+			switch b[i+1] {
 			case '"', '\\', '/', 'b', 'f', 'n', 'r', 't':
+				i += 2
 			case 'u':
-				for k := 0; k < 4; k++ {
-					h := r.peek()
-					r.i++
-					if !('0' <= h && h <= '9' || 'a' <= h && h <= 'f' || 'A' <= h && h <= 'F') {
-						return 0, r.fail("bad \\u escape")
-					}
+				if i+6 > len(b) {
+					return short, 0, 0, false
 				}
+				if !hex(b[i+2]) || !hex(b[i+3]) || !hex(b[i+4]) || !hex(b[i+5]) {
+					return bad, 0, 0, false
+				}
+				i += 6
 			default:
-				return 0, r.fail("bad escape")
+				return bad, 0, 0, false
 			}
-			n = len(into) + 1 // an escaped key or tag matches no name of the schema
 		default:
-			if n < len(into) {
-				into[n] = c
-			}
-			n++
+			i++
 		}
 	}
+	return short, 0, 0, false
 }
 
-// integer scans a JSON number that is a Go int.
-func (r *reader) integer() (int, error) {
+// integer scans the JSON number at b[i] that is a Go int.
+func integer(b []byte, i int) (next, v int) {
 	neg := false
-	if r.skipSpace() == '-' {
+	if i < len(b) && b[i] == '-' {
 		neg = true
-		r.i++
+		i++
 	}
-	c := r.peek()
-	if c < '0' || c > '9' {
-		return 0, r.fail("want an integer")
-	}
-	v, digits, first := 0, 0, c
-	for c >= '0' && c <= '9' {
-		if v > (1<<63-1-int(c-'0'))/10 {
-			return 0, r.fail("integer out of range")
+	start := i
+	for i < len(b) && b[i]-'0' <= 9 {
+		d := int(b[i] - '0')
+		if v > (1<<63-1-d)/10 {
+			return bad, 0
 		}
-		v = v*10 + int(c-'0')
-		digits++
-		r.i++
-		c = r.peek()
+		v = v*10 + d
+		i++
 	}
-	if digits > 1 && first == '0' {
-		return 0, r.fail("leading zero")
-	}
-	if c == '.' || c == 'e' || c == 'E' {
-		return 0, r.fail("want an integer")
+	switch {
+	case i == len(b):
+		return short, 0
+	case i == start, i-start > 1 && b[start] == '0', b[i] == '.', b[i] == 'e', b[i] == 'E':
+		return bad, 0
 	}
 	if neg {
 		v = -v
 	}
-	return v, nil
+	return i, v
 }
 
-// skipValue scans any JSON value.
-func (r *reader) skipValue(depth int) error {
+// value scans any JSON value at b[i].
+func value(b []byte, i, depth int) int {
 	if depth > 10000 {
-		return r.fail("too deep")
+		return bad
 	}
-	switch c := r.skipSpace(); {
+	if i = space(b, i); i >= len(b) {
+		return short
+	}
+	switch c := b[i]; {
 	case c == '"':
-		_, err := r.str(nil)
-		return err
-	case c == '{':
-		r.i++
-		if r.skipSpace() == '}' {
-			r.i++
-			return nil
+		next, _, _, _ := str(b, i)
+		return next
+	case c == '{' || c == '[':
+		end := byte('}')
+		if c == '[' {
+			end = ']'
+		}
+		if i = space(b, i+1); i >= len(b) {
+			return short
+		}
+		if b[i] == end {
+			return i + 1
 		}
 		for {
-			if _, err := r.str(nil); err != nil {
-				return err
+			if c == '{' {
+				if i, _, _, _ = str(b, space(b, i)); i < 0 {
+					return i
+				}
+				if i = space(b, i); i >= len(b) {
+					return short
+				}
+				if b[i] != ':' {
+					return bad
+				}
+				i++
 			}
-			if err := r.expect(':'); err != nil {
-				return err
+			if i = value(b, i, depth+1); i < 0 {
+				return i
 			}
-			if err := r.skipValue(depth + 1); err != nil {
-				return err
+			if i = space(b, i); i >= len(b) {
+				return short
 			}
-			switch r.skipSpace() {
+			switch b[i] {
 			case ',':
-				r.i++
-			case '}':
-				r.i++
-				return nil
+				i++
+			case end:
+				return i + 1
 			default:
-				return r.fail("want , or }")
+				return bad
 			}
 		}
-	case c == '[':
-		r.i++
-		if r.skipSpace() == ']' {
-			r.i++
-			return nil
+	case c == '-' || c-'0' <= 9:
+		j := i + 1
+		for j < len(b) && (b[j]-'0' <= 9 || b[j] == '.' || b[j] == 'e' || b[j] == 'E' || b[j] == '+' || b[j] == '-') {
+			j++
 		}
-		for {
-			if err := r.skipValue(depth + 1); err != nil {
-				return err
-			}
-			switch r.skipSpace() {
-			case ',':
-				r.i++
-			case ']':
-				r.i++
-				return nil
-			default:
-				return r.fail("want , or ]")
-			}
+		if j == len(b) {
+			return short
 		}
-	case c == '-' || '0' <= c && c <= '9':
-		if c == '-' {
-			r.i++
+		if c == '-' && j == i+1 {
+			return bad
 		}
-		digits := 0
-		for c = r.peek(); '0' <= c && c <= '9' || c == '.' || c == 'e' || c == 'E' || c == '+' || c == '-'; c = r.peek() {
-			digits++
-			r.i++
-		}
-		if digits == 0 {
-			return r.fail("bad number")
-		}
-		return nil
+		return j
 	default:
 		for _, w := range []string{"true", "false", "null"} {
 			if c == w[0] {
-				for k := 0; k < len(w); k++ {
-					if r.peek() != w[k] {
-						return r.fail("bad literal")
-					}
-					r.i++
+				if i+len(w) > len(b) {
+					return short
 				}
-				return nil
+				if string(b[i:i+len(w)]) != w {
+					return bad
+				}
+				return i + len(w)
 			}
 		}
-		return r.fail("want a value")
+		return bad
 	}
 }
-
-type tally struct{ opened, sent, bytes, closed, failed int }
 
 // Field bits: which fields an event had.
 const (
@@ -264,129 +209,241 @@ const (
 	hasReason
 )
 
-// event scans one event object and counts it.
-func (r *reader) event(t *tally, index int) error {
-	if err := r.expect('{'); err != nil {
-		return err
+// event scans the event object at b[i] and counts it into t, or returns
+// short or bad (t unchanged), or an error of the schema.
+func event(b []byte, i int, t *tally, index int) (int, error) {
+	if i = space(b, i); i >= len(b) {
+		return short, nil
 	}
-	var key, tag [8]byte
-	tagLen, bytes, seen := 0, 0, 0
-	if r.skipSpace() == '}' {
-		r.i++
-		return fmt.Errorf("event [%d]: no _tag", index)
+	if b[i] != '{' {
+		return bad, nil
 	}
-	for {
-		n, err := r.str(key[:])
-		if err != nil {
-			return err
-		}
-		if err := r.expect(':'); err != nil {
-			return err
-		}
-		if n > len(key) {
-			n = 0 // longer than every name of the schema: matches none
-		}
-		switch string(key[:n]) { // compared only: no allocation
-		case "":
-			if err = r.skipValue(0); err != nil {
-				return err
+	if i = space(b, i+1); i >= len(b) {
+		return short, nil
+	}
+	tagFrom, tagTo, bytes, seen := 0, 0, 0, 0
+	if b[i] != '}' {
+		for {
+			next, from, to, escaped := str(b, i)
+			if next < 0 {
+				return next, nil
 			}
-		case "_tag":
-			if tagLen, err = r.str(tag[:]); err != nil {
-				return err
+			if i = space(b, next); i >= len(b) {
+				return short, nil
 			}
-			seen |= hasTag
-		case "id":
-			if _, err = r.integer(); err != nil {
-				return err
+			if b[i] != ':' {
+				return bad, nil
 			}
-			seen |= hasID
-		case "at":
-			if _, err = r.integer(); err != nil {
-				return err
+			if i = space(b, i+1); i >= len(b) {
+				return short, nil
 			}
-			seen |= hasAt
-		case "bytes":
-			if bytes, err = r.integer(); err != nil {
-				return err
+			key := ""
+			if !escaped {
+				key = string(b[from:to]) // compared only: no allocation
 			}
-			seen |= hasBytes
-		case "reason":
-			if _, err = r.str(nil); err != nil {
-				return err
+			switch key {
+			case "_tag":
+				next, from, to, escaped = str(b, i)
+				if !escaped {
+					tagFrom, tagTo = from, to
+				} else {
+					tagFrom, tagTo = 0, 0
+				}
+				seen |= hasTag
+			case "id":
+				next, _ = integer(b, i)
+				seen |= hasID
+			case "at":
+				next, _ = integer(b, i)
+				seen |= hasAt
+			case "bytes":
+				next, bytes = integer(b, i)
+				seen |= hasBytes
+			case "reason":
+				next, _, _, _ = str(b, i)
+				seen |= hasReason
+			default:
+				next = value(b, i, 0)
 			}
-			seen |= hasReason
-		default:
-			if err = r.skipValue(0); err != nil {
-				return err
+			if next < 0 {
+				return next, nil
 			}
-		}
-		c := r.skipSpace()
-		r.i++
-		if c == '}' {
-			break
-		}
-		if c != ',' {
-			r.i--
-			return r.fail("want , or }")
+			if i = space(b, next); i >= len(b) {
+				return short, nil
+			}
+			if b[i] == '}' {
+				break
+			}
+			if b[i] != ',' {
+				return bad, nil
+			}
+			i = space(b, i+1)
 		}
 	}
+	i++
 	if seen&hasTag == 0 {
-		return fmt.Errorf("event [%d]: no _tag", index)
+		return 0, fmt.Errorf("event [%d]: no _tag", index)
 	}
 	need := 0
-	switch string(tag[:min(tagLen, len(tag))]) {
+	switch string(b[tagFrom:tagTo]) {
 	case "Opened":
 		need = hasID | hasAt
-		t.opened++
 	case "Sent":
 		need = hasID | hasBytes
-		t.sent++
-		t.bytes += bytes
 	case "Closed":
 		need = hasID
-		t.closed++
 	case "Failed":
 		need = hasID | hasReason
-		t.failed++
 	default:
-		return fmt.Errorf("event [%d]: no event kind %s", index, tag[:min(tagLen, len(tag))])
+		return 0, fmt.Errorf("event [%d]: no event kind %s", index, string(b[tagFrom:tagTo]))
 	}
 	if seen&need != need {
-		return fmt.Errorf("event [%d]: a field is missing", index)
+		return 0, fmt.Errorf("event [%d]: a field is missing", index)
 	}
-	return nil
+	switch need {
+	case hasID | hasAt:
+		t.opened++
+	case hasID | hasBytes:
+		t.sent++
+		t.bytes += bytes
+	case hasID:
+		t.closed++
+	default:
+		t.failed++
+	}
+	return i, nil
+}
+
+// input is standard input in a buffer: b[i:] is what is read and not yet
+// scanned; off is the input offset of b[0].
+type input struct {
+	in  io.Reader
+	buf []byte
+	b   []byte
+	i   int
+	off int
+	eof bool
+}
+
+// more keeps b[i:] and reads more after it; it reports false at the end
+// of the input.
+func (r *input) more() (bool, error) {
+	if r.eof {
+		return false, nil
+	}
+	rest := len(r.b) - r.i
+	if rest > len(r.buf)/2 {
+		r.buf = make([]byte, 2*len(r.buf))
+	}
+	r.off += r.i
+	n := copy(r.buf, r.b[r.i:])
+	for {
+		m, err := r.in.Read(r.buf[n:])
+		n += m
+		if err == io.EOF {
+			r.eof = true
+			break
+		}
+		if err != nil {
+			return false, err
+		}
+		if m > 0 {
+			break
+		}
+	}
+	r.b, r.i = r.buf[:n], 0
+	return n > rest, nil
+}
+
+func (r *input) fail(at int) error {
+	return fmt.Errorf("not JSON at byte %d", r.off+at)
+}
+
+// expect scans space and then c, reading more input as it needs.
+func (r *input) expect(c byte) error {
+	for {
+		i := space(r.b, r.i)
+		if i < len(r.b) {
+			if r.b[i] != c {
+				return r.fail(i)
+			}
+			r.i = i + 1
+			return nil
+		}
+		r.i = i
+		if ok, err := r.more(); err != nil || !ok {
+			if err == nil {
+				err = r.fail(r.i)
+			}
+			return err
+		}
+	}
+}
+
+// peek is the next byte after space, reading more as it needs; 0 at the end.
+func (r *input) peek() (byte, error) {
+	for {
+		r.i = space(r.b, r.i)
+		if r.i < len(r.b) {
+			return r.b[r.i], nil
+		}
+		if ok, err := r.more(); err != nil || !ok {
+			return 0, err
+		}
+	}
 }
 
 func run(in io.Reader) (tally, error) {
 	var t tally
-	r := &reader{in: in, buf: make([]byte, 65536)}
+	r := &input{in: in, buf: make([]byte, 65536)}
 	if err := r.expect('['); err != nil {
 		return t, err
 	}
-	if r.skipSpace() == ']' {
+	c, err := r.peek()
+	if err != nil {
+		return t, err
+	}
+	if c == ']' {
 		r.i++
 	} else {
 		for index := 0; ; index++ {
-			if err := r.event(&t, index); err != nil {
+			for {
+				i, err := event(r.b, r.i, &t, index)
+				if err != nil {
+					return t, err
+				}
+				if i >= 0 {
+					r.i = i
+					break
+				}
+				if i == bad {
+					return t, r.fail(r.i)
+				}
+				if ok, err := r.more(); err != nil || !ok {
+					if err == nil {
+						err = r.fail(len(r.b))
+					}
+					return t, err
+				}
+			}
+			c, err := r.peek()
+			if err != nil {
 				return t, err
 			}
-			c := r.skipSpace()
 			r.i++
 			if c == ']' {
 				break
 			}
 			if c != ',' {
-				r.i--
-				return t, r.fail("want , or ]")
+				return t, r.fail(r.i - 1)
 			}
 		}
 	}
-	if r.skipSpace() != 0 || r.err != nil {
-		if r.err != nil {
-			return t, r.err
+	if c, err := r.peek(); err != nil || c != 0 {
+		if err == nil {
+			err = r.fail(r.i)
 		}
-		return t, r.fail("data after the log")
+		return t, err
 	}
 	return t, nil
 }
