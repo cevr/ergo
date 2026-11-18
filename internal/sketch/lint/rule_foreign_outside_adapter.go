@@ -9,7 +9,9 @@ import (
 // adapters (catalog EF18 and EF32; AGENTS.md: "the domain package
 // declares the contracts it needs (operation types with laws);
 // implementations live in packages named after their dependency"): an
-// `import go` in a package that declares an operation type. That package
+// `import go` of a package outside the reviewed pure list (math,
+// unicode and the like reach no vendor and no host) in a package that
+// declares an operation type. That package
 // is a domain package, and the Go it imports is an implementation that
 // belongs in an adapter package that provides the operation type.
 var foreignOutsideAdapter = &Rule{
@@ -26,7 +28,7 @@ func checkForeignOutsideAdapter(p *Pass) {
 		return
 	}
 	for _, im := range p.Package.ImportsOf(p.File) {
-		if !check.IsGoImport(im.Pkg) {
+		if !check.IsGoImport(im.Pkg) || check.PureGoPackage(im.Pkg.Path) {
 			continue
 		}
 		p.Report(im.Spec.Pos(), im.Spec.End(), "this package declares an operation type, a contract, and imports Go code that an adapter should hold")

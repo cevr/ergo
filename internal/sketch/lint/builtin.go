@@ -57,7 +57,7 @@ func builtinPresets() []Preset {
 		},
 		{
 			Name:  Layout,
-			Doc:   "The Go layout of AGENTS.md: implementations chosen only at the entry, files named by concept, Go code only in adapters, capabilities run only by their owners, Console written only at the entry, and tests through the exported functions.",
+			Doc:   "The Go layout of AGENTS.md: implementations chosen only at the entry, files named by concept, Go code only in adapters, capabilities run only by their owners, Console kept out of domain packages, and tests through the exported functions.",
 			Rules: on(withAtEntry, conceptFileNames, foreignOutsideAdapter, capabilityOutsideOwner, consoleOutsideEntry, testReadsUnexported),
 		},
 	}

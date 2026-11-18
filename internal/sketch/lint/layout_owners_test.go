@@ -49,19 +49,23 @@ func (f *ownerFile) add(line string, rule string) {
 
 // TestLayoutOwnersAgreeWithReference writes a module of one to three
 // packages, each choosing whether it declares an operation type, imports
-// Go, runs the store's capability, writes Console, and holds tests and a law that call an unexported
-// function of its code, an exported one or a helper beside the tests. The
-// owners option gives store.Store to p0; the entry file and the file of
-// tests write Console too. The
-// reference names each finding from those choices: foreign-outside-adapter
-// on an import go in a package with an operation type,
-// capability-outside-owner on the store's operation outside p0,
-// console-outside-entry on a Console write outside the entry and the
-// tests, test-reads-unexported on a test's call of the
-// code's unexported function. Mutants: lh2d-adapter-any-package,
-// lh2d-console-entry-file,
-// lh2d-console-test-file, lh2d-owner-ignored, lh2d-unexported-helper,
-// lh2d-unexported-exported, lh2d-unexported-law.
+// a pure Go package or an impure one, runs the store's capability, writes
+// Console, and holds tests and a law that call an unexported function of
+// its code, an exported one, one only tests call or a helper beside the
+// tests. The owners
+// option gives store.Store to p0; the entry file, whose package declares
+// an operation type, and the file of tests write Console too. The
+// reference names each finding from those choices:
+// foreign-outside-adapter on an impure import go in a package with an
+// operation type, capability-outside-owner on the store's operation
+// outside p0, console-outside-entry on a Console write in a package with
+// an operation type and no main, outside its tests, and
+// test-reads-unexported on a test's call of the code's unexported
+// function. Mutants: lh2d-adapter-any-package, lh2d-adapter-pure-import,
+// lh2d-console-entry, lh2d-console-contract, lh2d-console-test-file,
+// lh2d-owner-ignored, lh2d-unexported-helper, lh2d-unexported-support,
+// lh2d-unexported-exported,
+// lh2d-unexported-law.
 func TestLayoutOwnersAgreeWithReference(t *testing.T) {
 	conf := ownersConf(t, map[string][]string{"store.Store": {"p0"}})
 	for _, seed := range propertySeeds(12) {
@@ -69,15 +73,18 @@ func TestLayoutOwnersAgreeWithReference(t *testing.T) {
 		files := map[string]*ownerFile{
 			"ergo.mod":          {lines: []string{"module app"}},
 			"store/store.ergo":  {lines: strings.Split("// Store keeps a count.\ntype Store {\n\tGet() int,\n}\n\n// Fixed is a Store of one count.\ntype Fixed { N int } implements Store\n\nfunc Get(f Fixed) int { f.N }", "\n")},
-			"cmd/app/main.ergo": {lines: strings.Split("func show() needs Console {\n\tConsole.Println(\"m\")\n}\n\nfunc main() needs Console {\n\tshow()\n}", "\n")},
+			"cmd/app/main.ergo": {lines: strings.Split("// Op runs.\ntype Op {\n\tRun() int,\n}\n\nfunc show() needs Console {\n\tConsole.Println(\"m\")\n}\n\nfunc main() needs Console {\n\tshow()\n}", "\n")},
 		}
 		for i := range 1 + r.IntN(3) {
 			name := fmt.Sprintf("p%d", i)
-			op, goimp, capab, console, tests := r.IntN(2) == 0, r.IntN(2) == 0, r.IntN(2) == 0, r.IntN(2) == 0, r.IntN(2) == 0
+			op, goimp, capab, console, tests := r.IntN(2) == 0, r.IntN(3), r.IntN(2) == 0, r.IntN(2) == 0, r.IntN(2) == 0
 			f := &ownerFile{}
 			files[name+"/"+name+".ergo"] = f
-			if goimp {
-				f.add("import go unicode/utf8", map[bool]string{true: "foreign-outside-adapter"}[op])
+			switch goimp {
+			case 1:
+				f.add("import go unicode/utf8", "")
+			case 2:
+				f.add("import go os", map[bool]string{true: "foreign-outside-adapter"}[op])
 			}
 			if capab {
 				f.add("import app/store", "")
@@ -90,13 +97,17 @@ func TestLayoutOwnersAgreeWithReference(t *testing.T) {
 				f.add("}", "")
 				f.add("", "")
 			}
-			if goimp {
+			switch goimp {
+			case 1:
 				f.add("func width() int { utf8.RuneLen(65) }", "")
+				f.add("", "")
+			case 2:
+				f.add("func pid() int needs go.Foreign { os.Getpid() }", "")
 				f.add("", "")
 			}
 			if console {
 				f.add("func say() needs Console {", "")
-				f.add("\tConsole.Println(\"x\")", "console-outside-entry")
+				f.add("\tConsole.Println(\"x\")", map[bool]string{true: "console-outside-entry"}[op])
 				f.add("}", "")
 				f.add("", "")
 			}
@@ -107,6 +118,10 @@ func TestLayoutOwnersAgreeWithReference(t *testing.T) {
 				f.add("", "")
 			}
 			f.add("func helper() int { 1 }", "")
+			f.add("", "")
+			f.add("func support() int { 4 }", "")
+			f.add("", "")
+			f.add("func Use() int { helper() }", "")
 			f.add("", "")
 			f.add("func Help() int { 2 }", "")
 			if !tests {
@@ -121,7 +136,7 @@ func TestLayoutOwnersAgreeWithReference(t *testing.T) {
 			tf.add("}", "")
 			for j := range 1 + r.IntN(4) {
 				tf.add("", "")
-				switch r.IntN(4) {
+				switch r.IntN(5) {
 				case 0:
 					tf.add(fmt.Sprintf("test T%d {", j), "")
 					tf.add("\tassert helper() == 1", "test-reads-unexported")
@@ -131,6 +146,9 @@ func TestLayoutOwnersAgreeWithReference(t *testing.T) {
 				case 2:
 					tf.add(fmt.Sprintf("test T%d {", j), "")
 					tf.add("\tassert local() == 3", "")
+				case 4:
+					tf.add(fmt.Sprintf("test T%d {", j), "")
+					tf.add("\tassert support() == 4", "")
 				case 3:
 					tf.add(fmt.Sprintf("law L%d(n int) {", j), "")
 					tf.add("\thelper() + n == 1 + n", "")

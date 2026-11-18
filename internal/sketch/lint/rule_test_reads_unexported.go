@@ -8,9 +8,11 @@ import (
 // testReadsUnexported is the layout hint for testing through the public
 // interface (catalog EF14 and CD3; anti-slop insider-trading): a test (not
 // a law) that calls an unexported function of its own package declared in
-// a file that holds no test or law. The test then pins an internal: a
-// refactor that keeps the package's behaviour breaks it. A helper declared
-// beside the tests is the test's own and is out of scope, as is a law,
+// a file that holds no test or law and called by the package's code
+// outside its tests and laws. The test then pins an internal: a refactor
+// that keeps the package's behaviour breaks it. A helper declared beside
+// the tests, or one only tests and laws call (a trace builder, a
+// decision's reader), is test support and out of scope, as is a law,
 // which states a property of the code it names.
 var testReadsUnexported = &Rule{
 	Name:    "test-reads-unexported",
@@ -40,9 +42,9 @@ func checkTestReadsUnexported(p *Pass) {
 }
 
 // internalFuncs is the program's unexported functions declared in a file
-// that holds no test or law.
+// that holds no test or law and called outside tests and laws.
 func internalFuncs(p *Pass) map[*check.Func]bool {
-	out := map[*check.Func]bool{}
+	declared := map[*check.Func]bool{}
 	for _, u := range p.Program() {
 		for _, f := range u.Files {
 			if f.Syntax == nil || testFile(f.Syntax) {
@@ -54,9 +56,28 @@ func internalFuncs(p *Pass) map[*check.Func]bool {
 					continue
 				}
 				if fn, ok := u.Package.Info.Defs[fd.Name].(*check.Func); ok && !fn.Exported() && fn != u.Package.Entry() {
-					out[fn] = true
+					declared[fn] = true
 				}
 			}
+		}
+	}
+	out := map[*check.Func]bool{}
+	for _, u := range p.Program() {
+		for _, f := range u.Files {
+			if f.Syntax == nil {
+				continue
+			}
+			syntax.Inspect(f.Syntax, func(n syntax.Node) bool {
+				switch x := n.(type) {
+				case *syntax.TestDecl, *syntax.LawDecl:
+					return false
+				case *syntax.CallExpr:
+					if c := u.Package.Info.Calls[x]; c != nil && declared[c.Func] {
+						out[c.Func] = true
+					}
+				}
+				return true
+			})
 		}
 	}
 	return out
