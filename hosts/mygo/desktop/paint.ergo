@@ -291,7 +291,7 @@ func paint[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
 		}
 	}
 	d.soiled = Map[ui.Id[E], bool]{}
-	d.shownFoc = d.focus
+	d.shownFoc = ui.SessionFocus(&d.session)
 	d.w.Present()
 	d.painted = d.painted + 1
 }
@@ -319,7 +319,7 @@ func spread[S, E, D, F](d *Driver[S, E, D, F]) Map[ui.Id[E], bool] {
 	for id, _ in d.soiled {
 		seeds = seeds.Append(id)
 	}
-	for f in []Option[ui.Id[E]]{d.focus, d.shownFoc} {
+	for f in []Option[ui.Id[E]]{ui.SessionFocus(&d.session), d.shownFoc} {
 		match f {
 		case Some[ui.Id[E]] as id:
 			seeds = seeds.Append(id.Value)
@@ -521,10 +521,21 @@ func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b
 		return
 	}
 	d.boxes[id] = b
-	let focus = d.focus == (Some{Value: id})
+	let focus = ui.SessionFocus(&d.session) == (Some{Value: id})
 	let s = spot[E]{id: id, node: n, box: b, clip: clip}
 	match n {
-	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode[E]:
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode:
+		drawKids(d, id, dy, clip, line, soiled, again)
+	case ui.SemanticNode[E] as x:
+		// A Semantic a press sends from (a radio, an option, a link) takes
+		// the pointer and the focus, and shows the focus ring (UC-TAB).
+		if focusable(n) {
+			d.spots = d.spots.Append(s)
+			if focus {
+				ring(d, b, 6)
+			}
+			access(d, id, screen.RoleButton, x.Access.Name, "", b, false, focus)
+		}
 		drawKids(d, id, dy, clip, line, soiled, again)
 	case ui.ScrollNode:
 		d.spots = d.spots.Append(s)

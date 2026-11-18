@@ -77,7 +77,7 @@ type pendingCounts { parent int, entry int, start int, done bool }
 
 // keptTop is one top node of a kept group: what it shows, its identity,
 // its node and its disabled state.
-type keptTop[E] { node Node[E], id ident, ref arena.Ref[node[E]], onText Option[func(t string) E], onPoint Option[func(p PointerEvent) Option[E]], off bool }
+type keptTop[E] { node Node[E], id ident, ref arena.Ref[node[E]], onText Option[func(t string) E], onPoint Option[func(p PointerEvent) Option[E]], onKey Option[func(k KeyPress) Option[E]], off bool }
 
 // groupRec is one group of a pass: its parent spec, identity and slot, the
 // specs it wrote [start, end), the enclosing group (-1 none), whether it
@@ -294,7 +294,7 @@ func putTops[E](f *Frame[E], i int, p int) {
 		return
 	}
 	let x = f.keptList[i].tops[0]
-	let _ = putSpec(f, spec[E]{node: x.node, id: x.id, parent: p, prev: x.ref, ref: x.ref, onText: None, onPoint: None, binds: None, off: x.off, memo: memoOf(f, p), same: None, skip: true, again: true, live: true, first: -1, last: -1, next: -1, before: lastKid(f, p), nkids: 0, pending: false, block: i})
+	let _ = putSpec(f, spec[E]{node: x.node, id: x.id, parent: p, prev: x.ref, ref: x.ref, onText: None, onPoint: None, onKey: None, binds: None, off: x.off, memo: memoOf(f, p), same: None, skip: true, again: true, live: true, first: -1, last: -1, next: -1, before: lastKid(f, p), nkids: 0, pending: false, block: i})
 }
 
 // clearBefore is whether the few nodes written so far under p (at most
@@ -436,7 +436,7 @@ func keepGroups[E](f *Frame[E]) {
 						}
 						allOff = allOff && c.off
 						offSelf = offSelf && c.off == disables(c.node)
-						tops = tops.Append(keptTop[E]{node: c.node, id: c.id, ref: c.ref, onText: c.onText, onPoint: c.onPoint, off: c.off})
+						tops = tops.Append(keptTop[E]{node: c.node, id: c.id, ref: c.ref, onText: c.onText, onPoint: c.onPoint, onKey: c.onKey, off: c.off})
 					}
 				}
 			}

@@ -99,6 +99,12 @@ func Field[E](f *Frame[E], d Draft, placeholder string, at CallSite) {
 	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder, Label: "", Description: "", Invalid: false}, None, Some{Value: d.at}, at)
 }
 
+// LabelledField is a Field that says what it is (FieldLabel), as
+// LabelledInput is an Input that does.
+func LabelledField[E](f *Frame[E], label FieldLabel, d Draft, placeholder string, at CallSite) {
+	let _ = put(f, InputNode{Value: d.Value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid}, None, Some{Value: d.at}, at)
+}
+
 // Toggle shows a check box over fl: a press flips the flag and sends no
 // signal.
 func Toggle[E](f *Frame[E], fl Flag, label string, at CallSite) {
@@ -437,6 +443,9 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 	let mut out = Handled[E]{Signal: None, Changed: false}
 	match event {
 	case Press[E] as p:
+		// A press is a pointer's (or a key's) press and release: no move
+		// after it is a drag until the next Down (FK12-g1).
+		f.down = arena.Null[node[E]]()
 		let n = f.nodes.Get(p.Id.ref) catch {
 		case arena.Stale:
 			return out
@@ -444,6 +453,7 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 		if n.off {
 			return out
 		}
+		f.focus = p.Id.ref
 		match n.node {
 		case PressableNode[E] as x:
 			out.Signal = Some{Value: x.On}
@@ -474,6 +484,7 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 		if n.off {
 			return out
 		}
+		f.focus = x.Id.ref
 		match n.onText {
 		case Some[func(t string) E] as g:
 			out.Signal = Some{Value: g.Value(x.Text)}
@@ -496,6 +507,7 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 		}
 	case Point[E] as p:
 		let mut pe = p.Pointer
+		pe.Phase = gripped(f, p.Id, p.Pointer.Phase)
 		pe.Zone = None
 		match p.Over {
 		case Some[ZoneBox[E]] as o:
@@ -505,6 +517,17 @@ func Handle[E](f *Frame[E], event Event[E]) Handled[E] {
 		out.Signal = pointed(f, p.Id, pe)
 	case KeyDown as k:
 		out.Signal = keyed(f, k.Press)
+		// Tab's default (UC-TAB): with no key function taking it, Tab moves
+		// the focus to the next focusable node and Shift+Tab to the one
+		// before, as a browser's does after an unprevented keydown.
+		let m = k.Press.Mods
+		match out.Signal {
+		case None:
+			if k.Press.Name == "Tab" && !m.Ctrl && !m.Alt && !m.Meta {
+				f.focus = nextFocus(f, m.Shift)
+			}
+		case Some[E]:
+		}
 	case URLChanged as u:
 		out.Signal = routed(f, u.URL)
 	case Committed:

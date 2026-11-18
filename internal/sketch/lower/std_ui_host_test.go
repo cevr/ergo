@@ -1357,7 +1357,7 @@ func onPad(s pad, p ui.PointerEvent) Option[int] {
 		Some{Value: 2000 + int(p.Y)}
 	case ui.Wheel as w:
 		Some{Value: 3000 + int(w.DY)}
-	case ui.Moved:
+	case ui.Moved, ui.Drag:
 		None
 	}
 }
@@ -1786,16 +1786,53 @@ func navigationFollows(seed int, steps int, m time.Manual) bool needs Scheduler 
 		return false
 	}
 	let mut stack = []string{"/"}
+	let mut opened = false
 	let mut shown = 0
+	// A replacement (even steps) or a navigation (odd) opens the session
+	// in place of "/"; the navigation after it pushes.
+	if (steps%2+2)%2 == 0 {
+		ui.ReplaceOn(&h, "/a") catch {
+		case _:
+			return false
+		}
+	} else {
+		ui.Play(&h, []ui.Act{ui.NavigateTo{Href: "/a"}}) catch {
+		case _:
+			return false
+		}
+	}
+	ui.Play(&h, []ui.Act{ui.NavigateTo{Href: "/b?x=1"}}) catch {
+	case _:
+		return false
+	}
+	stack = []string{"/a", "/b?x=1"}
+	opened = true
+	shown = 2
 	for _ in 0..(steps%16+16)%16+1 {
 		let mut act ui.Act = ui.GoBack
-		if draw(&r, 3) != 0 {
+		let kind = draw(&r, 4)
+		if kind != 0 {
 			let mut href = "/nowhere"
 			if draw(&r, 4) != 0 {
 				href = places[draw(&r, len(places))]
 			}
-			act = ui.NavigateTo{Href: href}
-			stack = stack.Append(href)
+			if kind == 3 {
+				// A replacement is no Act: the host's address changes in place.
+				ui.ReplaceOn(&h, href) catch {
+				case _:
+					return false
+				}
+				stack[len(stack)-1] = href
+				act = ui.SettleAll
+			} else {
+				act = ui.NavigateTo{Href: href}
+				if opened {
+					stack = stack.Append(href)
+				} else {
+					stack[len(stack)-1] = href
+				}
+			}
+			opened = true
 		} else if len(stack) > 1 {
 			let mut kept = []string{}
 			for i in 0..len(stack)-1 {
@@ -2901,6 +2938,9 @@ func slowFollow(seed int, bound int) bool needs Scheduler {
 					case _:
 					}
 				}
+				if shown && ui.SessionStats(&session).Signals != 1 {
+					return false
+				}
 			}
 		}
 	}
@@ -3088,14 +3128,17 @@ func phaseCode(p ui.Phase) int {
 		3
 	case ui.Wheel:
 		4
+	case ui.Drag:
+		5
 	}
 }
 
 func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let mut r = seeded(seed)
 	let view = func(f *ui.Frame[int], s int) {
-		ui.Pressable(f, "hide", 99) {
-			ui.Text(f, "hide")
+		ui.OnKey(f, func(k ui.KeyPress) Option[int] { if k.Name == "h" { Some{Value: 99} } else { None } })
+		ui.Pressable(f, "tap", 98) {
+			ui.Text(f, "tap")
 		}
 		ui.Text(f, "top")
 		if s != 99 {
@@ -3116,10 +3159,17 @@ func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 	// actor's state.
 	let mut held = 0
 	let mut state = 0
-	for _ in 0..(steps%24+24)%24+1 {
+	let mut last = 0
+	// The first nine events are fixed: on b a ui.Down, ui.Drag, ui.Up, ui.Moved, ui.Down, a
+	// tap and ui.Moved, then a ui.Down on the ui.Text and a ui.Moved on b; the rest are
+	// drawn.
+	let opening = []ui.Phase{ui.Down, ui.Drag, ui.Up, ui.Moved, ui.Down, ui.Down, ui.Moved, ui.Down, ui.Moved}
+	for i in 0..(steps%24+24)%24+16 {
 		let shownA = state != 99
-		if draw(&r, 8) == 0 {
-			ui.Play(&h, []ui.Act{ui.TapOn{Label: "hide"}}) catch {
+		let other = if i < 9 { if i == 5 { 1 } else { 2 } } else { draw(&r, 8) }
+		if other == 0 {
+			// The key h hides a; a key holds no pointer, so b keeps it.
+			ui.PressKey(&h, ui.KeyPress{Name: "h", Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch {
 			case _:
 				return false
 			}
@@ -3127,11 +3177,22 @@ func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 			if held == 10 {
 				held = 0
 			}
+		} else if other == 1 {
+			// A tap is a press and a release: it lets go of the pointer.
+			ui.Play(&h, []ui.Act{ui.TapOn{Label: "tap"}}) catch {
+			case _:
+				return false
+			}
+			state = 98
+			held = 0
 		} else {
-			let phases = []ui.Phase{ui.Down, ui.Moved, ui.Up, ui.Wheel{DX: 0.0, DY: 1.0}}
-			let phase = phases[draw(&r, 4)]
-			// The node under the pointer: a (when shown), b or the ui.Text.
-			let mut at = []int{10, 20, 0}[draw(&r, 3)]
+			let phases = []ui.Phase{ui.Down, ui.Moved, ui.Up, ui.Wheel{DX: 0.0, DY: 1.0}, ui.Drag}
+			let phase = if i < 9 { opening[i] } else { phases[draw(&r, 5)] }
+			// The node under the pointer: a (when shown), b or the ui.Text; half
+			// the time the one the last event went to (the ui.Area holding the
+			// pointer, if one did), as a pointer stays over a node for a
+			// press, its drag, its release and the hover after.
+			let mut at = if i < 9 { if i == 7 { 0 } else { 20 } } else if draw(&r, 2) == 0 { last } else { []int{10, 20, 0}[draw(&r, 3)] }
 			if at == 10 && !shownA {
 				at = 0
 			}
@@ -3142,6 +3203,7 @@ func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 				return false
 			}
 			let to = if held != 0 { held } else { at }
+			last = if to != 0 { to } else { at }
 			match phase {
 			case ui.Down:
 				if to != 0 {
@@ -3151,8 +3213,14 @@ func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 				held = 0
 			case _:
 			}
+			let seen = match phase {
+			case ui.Moved, ui.Drag:
+				if held != 0 { ui.Drag } else { ui.Moved }
+			case _:
+				phase
+			}
 			if to != 0 {
-				state = to + phaseCode(phase)
+				state = to + phaseCode(seen)
 			}
 		}
 		if ui.StateOf(&h) != state {
@@ -3277,6 +3345,89 @@ func lawEdgeScrollStaysInRange(o int, hh int, c int, yy int, e int, st int) bool
 		return next > at || at == most
 	}
 	next == at
+}
+
+func orderStep(s int, e int) Decision[int, int] {
+	if e == 3 {
+		return Ignore
+	}
+	Enter[int]{Next: e}
+}
+
+func lawPostedOrderKeepsTheCounts(seed int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		postedOrder(seed, m)
+	}
+}
+
+func postedOrder(seed int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let n = draw(&r, 4) + 3
+	let view = func(f *ui.Frame[int], s int) {
+		ui.OnSlow(f, ui.Budget{Signals: 0, Written: 0, Committed: 0, Ops: 0, Painted: 0, Fetches: 2}, func(x ui.Slow) int { 2 })
+		ui.OnKey(f, func(k ui.KeyPress) Option[int] { if s == 0 { Some{Value: 1} } else { None } })
+		ui.Text(f, "s\(s)")
+		if s == 1 {
+			for i in 0..n {
+				ui.Load(f, ui.ByInt(i), func() int { 3 })
+			}
+		}
+	}
+	let posted = queue.New[ui.Event[int]](64)
+	let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: orderStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+	let (s, _) = ui.Start(a, view, func(ev ui.Event[int]) {
+		posted.Push(ev) catch {
+		case queue.Closed:
+		}
+	})
+	let mut session = s
+	let _ = ui.Step(&session, ui.KeyDown{Press: ui.KeyPress{Name: "k", Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}) catch {
+	case actor.Stopped:
+		return false
+	}
+	// Every task runs to its end: n results and the ui.Slow's ui.Committed wait.
+	m.Advance(duration(int64(0)))
+	let mut evs = []ui.Event[int]{}
+	let mut more = true
+	for more {
+		match posted.Poll() {
+		case Some[ui.Event[int]] as ev:
+			evs = evs.Append(ev.Value)
+		case None:
+			more = false
+		}
+	}
+	// Take them in a drawn order (a shuffle), then whatever they posted.
+	for i in 0..len(evs) {
+		let j = i + draw(&r, len(evs)-i)
+		let x = evs[i]
+		evs[i] = evs[j]
+		evs[j] = x
+	}
+	for ev in evs {
+		let _ = ui.Step(&session, ev) catch {
+		case actor.Stopped:
+			return false
+		}
+	}
+	m.Advance(duration(int64(0)))
+	let mut rest = true
+	for rest {
+		match posted.Poll() {
+		case Some[ui.Event[int]] as ev:
+			let _ = ui.Step(&session, ev.Value) catch {
+			case actor.Stopped:
+				return false
+			}
+		case None:
+			rest = false
+		}
+	}
+	let st = ui.SessionStats(&session)
+	let ok = a.State() == 2 && st.Signals == 1 && st.Fetches == 0
+	a.Stop()
+	ok
 }
 
 func lawTransitionEndsAtLayout(seed int, steps int) bool {
@@ -3844,6 +3995,57 @@ func lawAmbiguousActFails(seed int) bool {
 	}
 }
 
+func lawTypeIntoNamesTheField(seed int, count int) bool {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let n = (count%4+4)%4 + 2
+		let s = (seed%64 + 64) % 64
+		let view = func(f *ui.Frame[int], st int) {
+			ui.Column(f, ui.Plain()) {
+				for i in 0..n {
+					ui.LabelledInput(f, ui.FieldLabel{Text: typedLabel(s, i), Description: "", Invalid: false}, "", "ph\(i)", func(t string) int { i*1000 + len(t) })
+				}
+			}
+		}
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: -1, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = ui.NewTestHost(a, view, m, 4) catch {
+		case ui.BadPatch:
+			return false
+		}
+		for i in 0..n {
+			let label = typedLabel(s, i)
+			let mut name = label
+			if name == "" {
+				name = "ph\(i)"
+			}
+			let mut text = ""
+			for _ in 0..i+1 {
+				text = text + "x"
+			}
+			ui.Play(&h, []ui.Act{ui.TypeInto{Label: name, Text: text}, ui.SettleAll}) catch {
+			case _:
+				return false
+			}
+			if ui.StateOf(&h) != i*1000+i+1 {
+				return false
+			}
+			if label != "" {
+				let mut missing = false
+				ui.Play(&h, []ui.Act{ui.TypeInto{Label: "ph\(i)", Text: "y"}}) catch {
+				case ui.NoNode:
+					missing = true
+				case _:
+					return false
+				}
+				if !missing || ui.StateOf(&h) != i*1000+i+1 {
+					return false
+				}
+			}
+		}
+		true
+	}
+}
+
 type chain { at int, last int }
 
 func chainStep(s chain, e int) Decision[chain, int] {
@@ -3959,6 +4161,13 @@ func lastTimer(s int) Option[Timeout[int]] {
 
 func lastWork(s int) Option[func(send func(e int))] {
 	None
+}
+
+func typedLabel(seed int, i int) string {
+	if (seed/(i+1))%2 == 0 {
+		return ""
+	}
+	"lab\(i)"
 }
 
 func lawAccessIsWhatWasDeclared(seed int, count int) bool {
@@ -4188,12 +4397,21 @@ func lawChoiceIsAnnouncedAndReachable(n int, from int, to int, radio bool) bool 
 				ui.Select(f, "pick", options, options[s], on)
 			}
 		}
-		let a = actor.StartMachine(Machine[int, int, int]{Initial: start, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {})
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: start, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = ui.NewTestHost(a, view, m, 4) catch {
 		case ui.BadPatch:
 			return false
 		}
-		if !choiceShown(&h, k, start, radio) || !choiceKey(&h, "Home") || ui.StateOf(&h) != 0 || !choiceShown(&h, k, 0, radio) {
+		if !choiceShown(&h, k, start, radio) {
+			return false
+		}
+		// The keys reach the choice once the focus is in it: a press on its
+		// selected option (UC-FOCUS).
+		ui.Play(&h, []ui.Act{ui.ClickOn{At: ui.WithLabel{Label: options[start]}}}) catch {
+		case _:
+			return false
+		}
+		if ui.StateOf(&h) != start || !choiceKey(&h, "Home") || ui.StateOf(&h) != 0 || !choiceShown(&h, k, 0, radio) {
 			return false
 		}
 		if !choiceWalk(&h, "ArrowDown", k-1, 1) || !choiceShown(&h, k, k-1, radio) {
@@ -4222,6 +4440,71 @@ func lawChoiceIsAnnouncedAndReachable(n int, from int, to int, radio bool) bool 
 			return false
 		}
 		ui.StateOf(&h) == other && choiceShown(&h, k, other, radio)
+	}
+}
+
+func lawChoicesTakeKeysWhenFocused(seed int, steps int) bool {
+	let mut r = seeded(seed)
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let oa = namedOptions("a", draw(&r, 4)+3)
+		let ob = namedOptions("b", draw(&r, 4)+3)
+		let ra = draw(&r, 2) == 0
+		let rb = draw(&r, 2) == 0
+		let mut a = draw(&r, len(oa))
+		let mut b = draw(&r, len(ob))
+		let view = func(f *ui.Frame[int], s int) { twoChoices(f, s, oa, ob, ra, rb) }
+		let start = a*10 + b
+		let app = actor.StartMachine(Machine[int, int, int]{Initial: start, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = ui.NewTestHost(app, view, m, 4) catch {
+		case ui.BadPatch:
+			return false
+		}
+		// focus: 0 none, 1 the first choice, 2 the second.
+		let mut focus = 0
+		let keys = choiceKeys()
+		let mut acts = []int{3 + draw(&r, len(keys)), 1, 3 + draw(&r, len(keys))}
+		for _ in 0..(steps%8+8)%8+6 {
+			acts = acts.Append(draw(&r, 3+len(keys)))
+		}
+		for i, act in acts {
+			if act == 0 || act == 1 {
+				let opts = if act == 0 { oa } else { ob }
+				// The run's first press is on the second choice's selected option.
+				let j = if i == 1 { b } else { draw(&r, len(opts)) }
+				ui.Play(&h, []ui.Act{ui.ClickOn{At: ui.WithLabel{Label: opts[j]}}}) catch {
+				case _:
+					return false
+				}
+				if act == 0 {
+					a = j
+					focus = 1
+				} else {
+					b = j
+					focus = 2
+				}
+			} else if act == 2 {
+				ui.Play(&h, []ui.Act{ui.ClickOn{At: ui.WithLabel{Label: "elsewhere"}}}) catch {
+				case _:
+					return false
+				}
+				focus = 0
+			} else {
+				let key = keys[act-3]
+				if !choiceKey(&h, key) {
+					return false
+				}
+				if focus == 1 {
+					a = modelPick(len(oa), a, key, ra)
+				} else if focus == 2 {
+					b = modelPick(len(ob), b, key, rb)
+				}
+			}
+			if ui.StateOf(&h) != a*10+b {
+				return false
+			}
+		}
+		true
 	}
 }
 
@@ -4286,6 +4569,151 @@ func choiceWalk[D, F](h *ui.TestHost[int, int, D, F], key string, steps int, by 
 		if !choiceKey(h, key) || ui.StateOf(h) != was+by {
 			return false
 		}
+	}
+	true
+}
+
+func namedOptions(p string, n int) []string {
+	let mut out = []string{}
+	for i in 0..n {
+		out = out.Append("\(p)\(i)")
+	}
+	out
+}
+
+func twoChoices(f *ui.Frame[int], s int, oa []string, ob []string, ra bool, rb bool) {
+	let a = s / 10
+	let b = s % 10
+	ui.Column(f, ui.Plain()) {
+		let onA = func(v string) int { choiceIndex(oa, v)*10 + b }
+		let onB = func(v string) int { a*10 + choiceIndex(ob, v) }
+		if ra {
+			ui.Radios(f, "first", oa, oa[a], onA)
+		} else {
+			ui.Select(f, "first", oa, oa[a], onA)
+		}
+		if rb {
+			ui.Radios(f, "second", ob, ob[b], onB)
+		} else {
+			ui.Select(f, "second", ob, ob[b], onB)
+		}
+		ui.Pressable(f, "elsewhere", s) {
+			ui.Text(f, "away")
+		}
+	}
+}
+
+func choiceKeys() []string {
+	[]string{"ArrowDown", "ArrowUp", "ArrowRight", "ArrowLeft", "Home", "End", "x"}
+}
+
+func modelPick(n int, at int, key string, wrap bool) int {
+	if key == "Home" {
+		return 0
+	}
+	if key == "End" {
+		return n - 1
+	}
+	if key == "ArrowDown" || (key == "ArrowRight" && wrap) {
+		return if at+1 < n { at + 1 } else if wrap { 0 } else { n - 1 }
+	}
+	if key == "ArrowUp" || (key == "ArrowLeft" && wrap) {
+		return if at > 0 { at - 1 } else if wrap { n - 1 } else { 0 }
+	}
+	at
+}
+
+func lawTabWalksTheFocusables(seed int, steps int) bool {
+	let mut r = seeded(seed)
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut kinds = []int{}
+		let mut order = []string{}
+		for i in 0..draw(&r, 6)+3 {
+			let k = draw(&r, 7)
+			kinds = kinds.Append(k)
+			if k >= 1 && k <= 4 {
+				order = order.Append("f\(i)")
+			}
+		}
+		let ks = kinds
+		let view = func(f *ui.Frame[int], s int) { tabScreen(f, s, ks) }
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = ui.NewTestHost(a, view, m, 4) catch {
+		case ui.BadPatch:
+			return false
+		}
+		let n = len(order)
+		let mut at = -1
+		for _ in 0..(steps%10+10)%10+4 {
+			let act = draw(&r, 4)
+			if act == 3 && n > 0 {
+				let j = draw(&r, n)
+				ui.Play(&h, []ui.Act{ui.ClickOn{At: ui.WithLabel{Label: order[j]}}}) catch {
+				case _:
+					return false
+				}
+				at = j
+			} else {
+				let back = act == 2
+				if !tabKey(&h, back) {
+					return false
+				}
+				if n > 0 {
+					at = if at < 0 { if back { n - 1 } else { 0 } } else if back { (at + n - 1) % n } else { (at + 1) % n }
+				}
+			}
+			match ui.FocusOf(&h) {
+			case Some[ui.Id[int]] as id:
+				if at < 0 || ui.AccessAt(&h, id.Value).Name != order[at] {
+					return false
+				}
+			case None:
+				if at >= 0 {
+					return false
+				}
+			}
+		}
+		true
+	}
+}
+
+func tabScreen(f *ui.Frame[int], s int, kinds []int) {
+	ui.Column(f, ui.Plain()) {
+		for i, k in kinds {
+			if k == 0 {
+				ui.Text(f, "n\(i)")
+			} else if k == 1 {
+				ui.Pressable(f, "f\(i)", s) {
+					ui.Text(f, "p\(i)")
+				}
+			} else if k == 2 {
+				ui.LabelledInput(f, ui.FieldLabel{Text: "f\(i)", Description: "", Invalid: false}, "", "", func(t string) int { s })
+			} else if k == 3 {
+				ui.Check(f, "f\(i)", false, s)
+			} else if k == 4 {
+				ui.Semantic(f, ui.Named(ui.Button, "f\(i)"), Some{Value: s}, ui.Plain()) {
+					ui.Text(f, "b\(i)")
+				}
+			} else if k == 5 {
+				ui.Semantic(f, ui.Named(ui.Heading, "n\(i)"), None, ui.Plain()) {
+					ui.Text(f, "h\(i)")
+				}
+			} else {
+				ui.Fieldset(f, true, "") {
+					ui.Pressable(f, "n\(i)", s) {
+						ui.Text(f, "q\(i)")
+					}
+				}
+			}
+		}
+	}
+}
+
+func tabKey[S, D, F](h *ui.TestHost[S, int, D, F], back bool) bool {
+	ui.PressKey(h, ui.KeyPress{Name: "Tab", Mods: ui.Mods{Shift: back, Ctrl: false, Alt: false, Meta: false}}) catch {
+	case _:
+		return false
 	}
 	true
 }
@@ -4406,6 +4834,10 @@ test UiEdgeScrollStaysInRange(o int, hh int, c int, yy int, e int, st int) {
 	assert lawEdgeScrollStaysInRange(o, hh, c, yy, e, st)
 }
 
+test UiPostedOrderKeepsTheCounts(seed int) {
+	assert lawPostedOrderKeepsTheCounts(seed)
+}
+
 test UiTransitionEndsAtLayout(seed int, steps int) {
 	assert lawTransitionEndsAtLayout(seed, steps)
 }
@@ -4438,6 +4870,10 @@ test UiAmbiguousActFails(seed int) {
 	assert lawAmbiguousActFails(seed)
 }
 
+test UiTypeIntoNamesTheField(seed int, count int) {
+	assert lawTypeIntoNamesTheField(seed, count)
+}
+
 test UiAccessIsWhatWasDeclared(seed int, count int) {
 	assert lawAccessIsWhatWasDeclared(seed, count)
 }
@@ -4448,6 +4884,14 @@ test UiWithinFindsUnder(seed int) {
 
 test UiChoiceIsAnnouncedAndReachable(n int, from int, to int, radio bool) {
 	assert lawChoiceIsAnnouncedAndReachable(n, from, to, radio)
+}
+
+test UiChoicesTakeKeysWhenFocused(seed int, steps int) {
+	assert lawChoicesTakeKeysWhenFocused(seed, steps)
+}
+
+test UiTabWalksTheFocusables(seed int, steps int) {
+	assert lawTabWalksTheFocusables(seed, steps)
 }
 
 
@@ -4516,6 +4960,7 @@ var stdUIHostStatements = map[string]string{
 	"ui CaptureKeepsThePointer":        `CaptureKeepsThePointer(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { captureFollows(seed, steps, m) } }`,
 	"ui AnnounceSaysEachNewText":       `AnnounceSaysEachNewText(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { announceFollows(seed, steps, m) } }`,
 	"ui EdgeScrollStaysInRange":        `EdgeScrollStaysInRange(o int, hh int, c int, yy int, e int, st int) { let height = Length(float64(posMod(hh, 500) + 1)) let content = Length(float64(posMod(c, 2000))) let offset = Length(float64(posMod(o, 2500))) let y = Length(float64(posMod(yy, 700) - 100)) let edge = Length(float64(posMod(e, 60))) let step = Length(float64(posMod(st, 40) + 1)) let most = if content > height { content - height } else { Length(0.0) } let at = if offset > most { most } else { offset } let next = EdgeScroll(offset, height, content, y, edge, step) if next < Length(0.0) || next > most { return false } if edge > Length(0.0) && y < edge { return next < at || at == Length(0.0) } if edge > Length(0.0) && y > height-edge { return next > at || at == most } next == at }`,
+	"ui PostedOrderKeepsTheCounts":     `PostedOrderKeepsTheCounts(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { postedOrder(seed, m) } }`,
 	"ui TransitionEndsAtLayout":        `TransitionEndsAtLayout(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { let lists = presenceLists(seed) let view = func(f *Frame[int], s int) { OnKey(f, func(k KeyPress) Option[int] { for i in 0..8 { if k.Name == "\(i)" { return Some{Value: i} } } None }) Column(f, Plain()) { Presence(f, lists[s], func(r int) Key { ByInt(r) }, 100ms) func(r int, p Progress) { Text(f, "row \(r)") } } } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: presenceListStep, After: presenceTimer, Work: presenceWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } FrameEvery(&h, 10ms) let mut x = seed for _ in 0..(steps%10+10)%10+1 { x = (x*1103515245 + 12345) % 2147483648 if x < 0 { x = -x } PressKey(&h, KeyPress{Name: "\(x % 8)", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch { case _: return false } Advance(&h, duration(int64(x%15)*int64(10ms))) catch { case _: return false } } Advance(&h, 2s) catch { case _: return false } let s = StateOf(&h) for k in presenceKeys(Screen(&h)) { let (_, motion, t) = k if motion != Present || t != 1.0 { return false } } let mut g = NewFrame[int]() let want = Render(&g, func(f *Frame[int], xs []int) { Column(f, Plain()) { Each(f, xs, func(r int) Key { ByInt(r) }) func(r int) { Box(f, Plain()) { Text(f, "row \(r)") } } } }, lists[s]) let _ = want !WantsFrames(&h) && SameShapes(presenceStripped(Screen(&h)), FrameShape(&g)) } }`,
 	"ui PresenceKeepsTheList":          `PresenceKeepsTheList(seed int, steps int) { let m = time.NewManual(0) with context { Scheduler: m } { let lists = presenceLists(seed) let view = func(f *Frame[int], s int) { OnKey(f, func(k KeyPress) Option[int] { for i in 0..8 { if k.Name == "\(i)" { return Some{Value: i} } } None }) Presence(f, lists[s], func(r int) Key { ByInt(r) }, 50ms) func(r int, p Progress) { Text(f, "row \(r)") } } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: presenceListStep, After: presenceTimer, Work: presenceWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } FrameEvery(&h, 10ms) let mut x = seed + 7 for _ in 0..(steps%14+14)%14+1 { let before = presenceKeys(Screen(&h)) x = (x*1103515245 + 12345) % 2147483648 if x < 0 { x = -x } let i = x % 8 PressKey(&h, KeyPress{Name: "\(i)", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch { case _: return false } let after = presenceKeys(Screen(&h)) let list = lists[StateOf(&h)] // The rows not exiting are the list. let mut staying = []int{} let mut moving = false for k in after { let (key, motion, t) = k if t < 0.0 || t > 1.0 || (motion == Present && t != 1.0) { return false } if motion != Exiting { staying = staying.Append(key) } if motion != Present { moving = true } let mut shown = false for b in before { let (bk, _, _) = b shown = shown || bk == key } let mut listed = false for y in list { listed = listed || y == key } if !shown && (motion != Entering || t != 0.0) { return false } if !listed && motion != Exiting { return false } } if staying != list || WantsFrames(&h) != moving { return false } // A lost row comes right after the row before it, or first. for j, b in before { let (bk, _, _) = b let mut listed = false for y in list { listed = listed || y == bk } if listed { continue } let mut at = -1 for q, k in after { let (key, _, _) = k if key == bk { at = q } } if at < 0 { // gone at once only when it was exiting already, or // had not come in at all (T 0) let (_, bm, bt) = b if bm != Exiting && bt != 0.0 { return false } continue } if j > 0 && at > 0 { let (prev, _, _) = before[j-1] let (got, _, _) = after[at-1] let mut prevListed = false for y in list { prevListed = prevListed || y == prev } if prevListed && got != prev { return false } } } if x%2 == 0 { Advance(&h, 10ms) catch { case _: return false } } } true } }`,
 	"ui ExitTakesItsDuration":          `ExitTakesItsDuration(n int) { let m = time.NewManual(0) with context { Scheduler: m } { let k = (n%10+10)%10 + 1 let lists = [][]int{[]int{0}, []int{0, 1}, []int{0}} let view = func(f *Frame[int], s int) { OnKey(f, func(kp KeyPress) Option[int] { for i in 0..3 { if kp.Name == "\(i)" { return Some{Value: i} } } None }) Presence(f, lists[s], func(r int) Key { ByInt(r) }, 100ms) func(r int, p Progress) { Text(f, "row \(r)") } } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: presenceListStep, After: presenceTimer, Work: presenceWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } FrameEvery(&h, 10ms) let first = presenceKeys(Screen(&h)) if len(first) != 1 || !near(first[0], rowAt(0, Present, 1.0)) { return false } PressKey(&h, KeyPress{Name: "1", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch { case _: return false } // The entry starts at the first frame after the press: k+1 frames // bring it k tenths in. for _ in 0..k+1 { Advance(&h, 10ms) catch { case _: return false } } let reached = presenceKeys(Screen(&h)) let mut t = 1.0 if k < 10 { t = float64(k) / 10.0 } let mut want = rowAt(1, Present, 1.0) if k < 10 { want = rowAt(1, Entering, t) } if len(reached) != 2 || !near(reached[1], want) { return false } PressKey(&h, KeyPress{Name: "2", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch { case _: return false } let removed = presenceKeys(Screen(&h)) if len(removed) != 2 || !near(removed[1], rowAt(1, Exiting, t)) { return false } // The exit starts at the next frame and loses a tenth per frame. for j in 1..k+2 { Advance(&h, 10ms) catch { case _: return false } let shown = presenceKeys(Screen(&h)) let left = t - float64(j-1)/10.0 if left <= 0.000001 { if len(shown) != 1 { return false } } else if len(shown) != 2 || !near(shown[1], rowAt(1, Exiting, left)) { return false } } len(presenceKeys(Screen(&h))) == 1 && !WantsFrames(&h) } }`,
@@ -4524,9 +4969,12 @@ var stdUIHostStatements = map[string]string{
 	"ui PressIsOnePass":                `PressIsOnePass(n int, at int) { let m = time.NewManual(0) with context { Scheduler: m } { let small = (n%8+8)%8 + 2 let row = (at%small + small) % small match (pressCounts(small, row, m), pressCounts(4*small, row, m)) { case (Some[(StepCounts, StepCounts)] as x, Some[(StepCounts, StepCounts)] as y): let (p1, r1) = x.Value let (p4, r4) = y.Value p1.GroupsRan == 1 && p4.GroupsRan == 1 && p4.Ran-p1.Ran == (r4.Ran-p4.Ran)-(r1.Ran-p1.Ran) && p4.Ran > p1.Ran case _: false } } }`,
 	"ui CountsAreTheStep":              `CountsAreTheStep(n int) { let m = time.NewManual(0) with context { Scheduler: m } { let a = actor.StartMachine(Machine[chain, int, int]{Initial: chain{at: 0, last: 1}, Step: chainStep, After: chainTimer, Work: chainWork, Exit: func(s chain) Option[func()] { None }}, 1, func(o int) {}) let mut h = NewTestHost(a, chainView, m, 4) catch { case BadPatch: return false } let mods = Mods{Shift: false, Ctrl: false, Alt: false, Meta: false} PressKey(&h, KeyPress{Name: "go", Mods: mods}) catch { case _: return false } let pressed = Counts(&h) Settle(&h) catch { case _: return false } let settled = Counts(&h) // Each Redraw adds its one pass of one node; a Settle, none. for _ in 0..(n%3+3)%3+1 { let ran = Counts(&h).Ran Redraw(&h) catch { case _: return false } Settle(&h) catch { case _: return false } if Counts(&h).Ran != ran+1 { return false } } PressKey(&h, KeyPress{Name: "noop", Mods: mods}) catch { case _: return false } if Counts(&h) != NoCounts() { return false } // PlayTrace prints that step as its line. let trace = PlayTrace(&h, []Act{KeyIn{Press: KeyPress{Name: "noop", Mods: mods}}}) catch { case _: return false } let line = "step 1 KeyIn \"noop\": no ops; ran 0 nodes, kept 0; groups ran 0, kept 0; visits 0" pressed.Set == 1 && pressed.Ran == 1 && settled == pressed && trace == []string{line} } }`,
 	"ui AmbiguousActFails":             `AmbiguousActFails(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { let k = (seed%4+4)%4 + 2 let view = func(f *Frame[int], s int) { Column(f, Plain()) { Text(f, "at \(s)") for i in 0..k { Pressable(f, "dup", i+1) { Text(f, "x") } Pressable(f, "one\(i)", 50+i) { Text(f, "y") } Input(f, "", "dupi", func(t string) int { 100 + i }) } } } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: lastStep, After: lastTimer, Work: lastWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } let acts = []Act{TapOn{Label: "dup"}, ClickOn{At: WithRole{Role: Button, Name: "dup"}}, ClickOn{At: WithLabel{Label: "dup"}}, TypeInto{Label: "dupi", Text: "t"}, FillIn{At: WithPlaceholder{Text: "dupi"}, Text: "t"}} for act in acts { let mut count = -1 Play(&h, []Act{act}) catch { case Ambiguous as e: count = e.Count case _: return false } Settle(&h) catch { case _: return false } if count != k || StateOf(&h) != 0 { return false } } // A unique label acts, and First names the first match. Play(&h, []Act{TapOn{Label: "one1"}, SettleAll}) catch { case _: return false } if StateOf(&h) != 51 { return false } Play(&h, []Act{ClickOn{At: First{At: WithRole{Role: Button, Name: "dup"}}}, SettleAll}) catch { case _: return false } if StateOf(&h) != 1 { return false } Play(&h, []Act{FillIn{At: First{At: WithPlaceholder{Text: "dupi"}}, Text: "t"}, SettleAll}) catch { case _: return false } let firsts = Locate(&h, First{At: WithLabel{Label: "dup"}}) StateOf(&h) == 100 && len(firsts) == 1 && Find(&h, "dup") == (Some{Value: firsts[0]}) } }`,
+	"ui TypeIntoNamesTheField":         `TypeIntoNamesTheField(seed int, count int) { let m = time.NewManual(0) with context { Scheduler: m } { let n = (count%4+4)%4 + 2 let s = (seed%64 + 64) % 64 let view = func(f *Frame[int], st int) { Column(f, Plain()) { for i in 0..n { LabelledInput(f, FieldLabel{Text: typedLabel(s, i), Description: "", Invalid: false}, "", "ph\(i)", func(t string) int { i*1000 + len(t) }) } } } let a = actor.StartMachine(Machine[int, int, int]{Initial: -1, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } for i in 0..n { let label = typedLabel(s, i) let mut name = label if name == "" { name = "ph\(i)" } let mut text = "" for _ in 0..i+1 { text = text + "x" } Play(&h, []Act{TypeInto{Label: name, Text: text}, SettleAll}) catch { case _: return false } if StateOf(&h) != i*1000+i+1 { return false } if label != "" { let mut missing = false Play(&h, []Act{TypeInto{Label: "ph\(i)", Text: "y"}}) catch { case NoNode: missing = true case _: return false } if !missing || StateOf(&h) != i*1000+i+1 { return false } } } true } }`,
 	"ui AccessIsWhatWasDeclared":       `AccessIsWhatWasDeclared(seed int, count int) { let m = time.NewManual(0) with context { Scheduler: m } { let n = (count%6+6)%6 + 2 let view = func(f *Frame[int], s int) { let ds = semDecls(seed+s*7919, n) Column(f, Plain()) { for i, d in ds { if i%2 == 0 { Semantic(f, d, Some{Value: i + 1}, Plain()) { Text(f, "t\(i)") } } else { Fieldset(f, true, "fs") { Semantic(f, d, Some{Value: i + 1}, Plain()) { Text(f, "t\(i)") } } } } } } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } for s in 0..2 { let ds = semDecls(seed+StateOf(&h)*7919, n) for i, d in ds { let ids = Locate(&h, WithLabel{Label: d.Name}) if len(ids) != 1 { return false } let mut want = d if i%2 == 1 { want.Disabled = true if d.Description == "" { want.Description = "fs" } } if AccessAt(&h, ids[0]) != want { return false } // The matchers of the new states read the same record. if semHolds(&h, d.Name, ToBeSelected) != (want.Selected == (Some{Value: true})) || semHolds(&h, d.Name, ToBeExpanded) != (want.Expanded == (Some{Value: true})) || semHolds(&h, d.Name, ToBeCollapsed) != (want.Expanded == (Some{Value: false})) || semHolds(&h, d.Name, ToBeInvalid) != want.Invalid { return false } } if s == 0 { // A press on the first: the signal when it is enabled. let first = Locate(&h, WithLabel{Label: "n0"}) Tap(&h, first[0]) catch { case _: return false } Settle(&h) catch { case _: return false } if ds[0].Disabled != (StateOf(&h) == 0) { return false } } } true } }`,
 	"ui WithinFindsUnder":              `WithinFindsUnder(seed int) { let m = time.NewManual(0) with context { Scheduler: m } { let mut r = seeded(seed) let mut board = [][]int{} for _ in 0..draw(&r, 4)+1 { let mut col = []int{} for _ in 0..draw(&r, 5) { col = col.Append(draw(&r, 8)) } board = board.Append(col) } let none Option[int] = None let decl = func(role Role, name string, level Option[int]) Access { Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: level} } let view = func(f *Frame[int], s int) { Column(f, Plain()) { for i, col in board { Semantic(f, decl(Region, "col \(i)", None), none, Plain()) { Semantic(f, decl(Heading, "col \(i)", Some{Value: 2}), none, Plain()) { Text(f, "col \(i)") } for j, c in col { if c%2 == 0 { Pressable(f, withinLabel(c/2), 100*i+j) { Text(f, "x") } } else { Box(f, Plain()) { Pressable(f, withinLabel(c/2), 100*i+j) { Text(f, "x") } } } } } } } } let a = actor.StartMachine(Machine[int, int, int]{Initial: -1, Step: semStep, After: semTimer, Work: semWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } for i, col in board { let column = WithRole{Role: Region, Name: "col \(i)"} let found = Locate(&h, Within{In: column, At: WithRole{Role: Button, Name: ""}}) if len(found) != len(col) { return false } for j, c in col { if AccessAt(&h, found[j]).Name != withinLabel(c/2) { return false } } let nested = Locate(&h, Within{In: WithRole{Role: Region, Name: ""}, At: Within{In: column, At: WithRole{Role: Button, Name: ""}}}) if nested != found { return false } for j, c in col { let label = withinLabel(c / 2) let mut first = j for k in 0..j { if withinLabel(col[k]/2) == label && first == j { first = k } } if first == j { Play(&h, []Act{ClickOn{At: First{At: Within{In: column, At: WithLabel{Label: label}}}}, SettleAll}) catch { case _: return false } if StateOf(&h) != 100*i+j { return false } } } } // A column is not within itself, nor within another: none nests. let regions = WithRole{Role: Region, Name: ""} len(Locate(&h, Within{In: WithRole{Role: Region, Name: "col 9"}, At: WithRole{Role: Button, Name: ""}})) == 0 && len(Locate(&h, Within{In: regions, At: regions})) == 0 } }`,
 	"ui ChoiceIsAnnouncedAndReachable": `ChoiceIsAnnouncedAndReachable(n int, from int, to int, radio bool) { let m = time.NewManual(0) with context { Scheduler: m } { let k = (n%4+4)%4 + 3 let options = choiceOptions(k) let start = (from%k + k) % k let target = (to%k + k) % k let view = func(f *Frame[int], s int) { let on = func(v string) int { choiceIndex(options, v) } if radio { Radios(f, "pick", options, options[s], on) } else { Select(f, "pick", options, options[s], on) } } let a = actor.StartMachine(Machine[int, int, int]{Initial: start, Step: semStep, After: semTimer, Work: semWork}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } if !choiceShown(&h, k, start, radio) || !choiceKey(&h, "Home") || StateOf(&h) != 0 || !choiceShown(&h, k, 0, radio) { return false } if !choiceWalk(&h, "ArrowDown", k-1, 1) || !choiceShown(&h, k, k-1, radio) { return false } let _ = choiceKey(&h, if radio { "ArrowRight" } else { "ArrowDown" }) if StateOf(&h) != if radio { 0 } else { k - 1 } || !choiceKey(&h, "End") || StateOf(&h) != k-1 { return false } if !choiceWalk(&h, "ArrowUp", k-1, -1) || !choiceShown(&h, k, 0, radio) { return false } let _ = choiceKey(&h, if radio { "ArrowLeft" } else { "ArrowUp" }) if StateOf(&h) != if radio { k - 1 } else { 0 } { return false } let here = StateOf(&h) let ok = if target >= here { choiceWalk(&h, "ArrowDown", target-here, 1) } else { choiceWalk(&h, "ArrowUp", here-target, -1) } let _ = choiceKey(&h, "x") if !ok || StateOf(&h) != target || !choiceShown(&h, k, target, radio) { return false } let other = (target + 1) % k Play(&h, []Act{ClickOn{At: WithLabel{Label: options[other]}}}) catch { case _: return false } StateOf(&h) == other && choiceShown(&h, k, other, radio) } }`,
+	"ui ChoicesTakeKeysWhenFocused":    `ChoicesTakeKeysWhenFocused(seed int, steps int) { let mut r = seeded(seed) let m = time.NewManual(0) with context { Scheduler: m } { let oa = namedOptions("a", draw(&r, 4)+3) let ob = namedOptions("b", draw(&r, 4)+3) let ra = draw(&r, 2) == 0 let rb = draw(&r, 2) == 0 let mut a = draw(&r, len(oa)) let mut b = draw(&r, len(ob)) let view = func(f *Frame[int], s int) { twoChoices(f, s, oa, ob, ra, rb) } let start = a*10 + b let app = actor.StartMachine(Machine[int, int, int]{Initial: start, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {}) let mut h = NewTestHost(app, view, m, 4) catch { case BadPatch: return false } // focus: 0 none, 1 the first choice, 2 the second. let mut focus = 0 let keys = choiceKeys() let mut acts = []int{3 + draw(&r, len(keys)), 1, 3 + draw(&r, len(keys))} for _ in 0..(steps%8+8)%8+6 { acts = acts.Append(draw(&r, 3+len(keys))) } for i, act in acts { if act == 0 || act == 1 { let opts = if act == 0 { oa } else { ob } // The run's first press is on the second choice's selected option. let j = if i == 1 { b } else { draw(&r, len(opts)) } Play(&h, []Act{ClickOn{At: WithLabel{Label: opts[j]}}}) catch { case _: return false } if act == 0 { a = j focus = 1 } else { b = j focus = 2 } } else if act == 2 { Play(&h, []Act{ClickOn{At: WithLabel{Label: "elsewhere"}}}) catch { case _: return false } focus = 0 } else { let key = keys[act-3] if !choiceKey(&h, key) { return false } if focus == 1 { a = modelPick(len(oa), a, key, ra) } else if focus == 2 { b = modelPick(len(ob), b, key, rb) } } if StateOf(&h) != a*10+b { return false } } true } }`,
+	"ui TabWalksTheFocusables":         `TabWalksTheFocusables(seed int, steps int) { let mut r = seeded(seed) let m = time.NewManual(0) with context { Scheduler: m } { let mut kinds = []int{} let mut order = []string{} for i in 0..draw(&r, 6)+3 { let k = draw(&r, 7) kinds = kinds.Append(k) if k >= 1 && k <= 4 { order = order.Append("f\(i)") } } let ks = kinds let view = func(f *Frame[int], s int) { tabScreen(f, s, ks) } let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {}) let mut h = NewTestHost(a, view, m, 4) catch { case BadPatch: return false } let n = len(order) let mut at = -1 for _ in 0..(steps%10+10)%10+4 { let act = draw(&r, 4) if act == 3 && n > 0 { let j = draw(&r, n) Play(&h, []Act{ClickOn{At: WithLabel{Label: order[j]}}}) catch { case _: return false } at = j } else { let back = act == 2 if !tabKey(&h, back) { return false } if n > 0 { at = if at < 0 { if back { n - 1 } else { 0 } } else if back { (at + n - 1) % n } else { (at + 1) % n } } } match FocusOf(&h) { case Some[Id[int]] as id: if at < 0 || AccessAt(&h, id.Value).Name != order[at] { return false } case None: if at >= 0 { return false } } } true } }`,
 	"ui Location.PushThenBackRestores": `PushThenBackRestores(u URL) { let before = Current() Push(u) let there = Current() Back() && there == u && Current() == before }`,
 	"ui Location.ReplaceKeepsDepth":    `ReplaceKeepsDepth(u URL, v URL) { let before = Current() Push(u) Replace(v) let there = Current() Back() && there == v && Current() == before }`,
 	"ui Location.BackStopsAtTheStart":  `BackStopsAtTheStart(u URL) { Replace(u) for Back() { } let first = Current() !Back() && Current() == first }`,

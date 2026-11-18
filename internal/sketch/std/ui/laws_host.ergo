@@ -578,7 +578,7 @@ func onPad(s pad, p PointerEvent) Option[int] {
 		Some{Value: 2000 + int(p.Y)}
 	case Wheel as w:
 		Some{Value: 3000 + int(w.DY)}
-	case Moved:
+	case Moved, Drag:
 		None
 	}
 }
@@ -1048,12 +1048,17 @@ law HrefParses(seed int) {
 }
 
 // NavigationFollowsModel (H7): over drawn navigations of the user (to a
-// place the app knows, or to one it does not) and presses of back, on the
-// test host of a router app, the history is a model stack: its current
-// place and depth are the model's after each step, back at the first
-// entry does nothing, and the app shows the place of the last change it
-// knows ("/" for one it does not: its second OnURL takes what the first
-// leaves), which reached it as URLChanged.
+// place the app knows, or to one it does not), replacements of the
+// address (ReplaceOn, FK10-g1) and presses of back, on the test host of a
+// router app, the history is a model stack: the first navigation of the
+// fresh session replaces its "/", so its Back depth is 0 (FK9b), each later
+// one pushes, and a replacement changes the top; its current place and
+// depth are the model's after each step, back at the first entry does
+// nothing, and the app shows the place of the last change it knows ("/"
+// for one it does not: its second OnURL takes what the first leaves),
+// which reached it as URLChanged, a replacement's too. Each run opens
+// with a replacement (even steps) or a navigation (odd), then a
+// navigation, which pushes.
 law NavigationFollowsModel(seed int, steps int) {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
@@ -1069,16 +1074,53 @@ func navigationFollows(seed int, steps int, m time.Manual) bool needs Scheduler 
 		return false
 	}
 	let mut stack = []string{"/"}
+	let mut opened = false
 	let mut shown = 0
+	// A replacement (even steps) or a navigation (odd) opens the session
+	// in place of "/"; the navigation after it pushes.
+	if (steps%2+2)%2 == 0 {
+		ReplaceOn(&h, "/a") catch {
+		case _:
+			return false
+		}
+	} else {
+		Play(&h, []Act{NavigateTo{Href: "/a"}}) catch {
+		case _:
+			return false
+		}
+	}
+	Play(&h, []Act{NavigateTo{Href: "/b?x=1"}}) catch {
+	case _:
+		return false
+	}
+	stack = []string{"/a", "/b?x=1"}
+	opened = true
+	shown = 2
 	for _ in 0..(steps%16+16)%16+1 {
 		let mut act Act = GoBack
-		if draw(&r, 3) != 0 {
+		let kind = draw(&r, 4)
+		if kind != 0 {
 			let mut href = "/nowhere"
 			if draw(&r, 4) != 0 {
 				href = places[draw(&r, len(places))]
 			}
-			act = NavigateTo{Href: href}
-			stack = stack.Append(href)
+			if kind == 3 {
+				// A replacement is no Act: the host's address changes in place.
+				ReplaceOn(&h, href) catch {
+				case _:
+					return false
+				}
+				stack[len(stack)-1] = href
+				act = SettleAll
+			} else {
+				act = NavigateTo{Href: href}
+				if opened {
+					stack = stack.Append(href)
+				} else {
+					stack[len(stack)-1] = href
+				}
+			}
+			opened = true
 		} else if len(stack) > 1 {
 			let mut kept = []string{}
 			for i in 0..len(stack)-1 {
@@ -2241,7 +2283,8 @@ func slowExit(s slowLog) Option[func()] { None }
 // budget of written nodes gets one Slow per pass of its input over it,
 // with the count and the bound, none for a pass whose view asked for
 // nothing (an OnSlow holds for its pass), and none for a pass of a commit
-// it did not cause (the one that shows the log).
+// it did not cause (the one that shows the log). The pass that shows a
+// Slow counts its signal (Signals 1, UC-SIGNALS0).
 law SlowAboveTheBudget(seed int, bound int) {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
@@ -2323,6 +2366,9 @@ func slowFollow(seed int, bound int) bool needs Scheduler {
 						shown = shown || x.Node == TextNode{Value: "log \(len(want))", Style: Plain()}
 					case _:
 					}
+				}
+				if shown && SessionStats(&session).Signals != 1 {
+					return false
 				}
 			}
 		}
@@ -2505,12 +2551,15 @@ func zoneFollows(seed int, n int, m time.Manual) bool needs Scheduler {
 }
 
 // CaptureKeepsThePointer (H5g): over drawn pointer events on two Areas, a
-// Text outside them, and a press that removes the first Area, each event
+// Text outside them, a key that removes the first Area and a tap on a
+// Pressable (a press and a release, which lets go: FK12-g1), each event
 // goes where a model of capture says: to the Area that took the last Down
 // with no Up since, while the tree still holds it, else to the node
 // named. Each Area's signal names it and the phase, so the actor's state
 // is the model's after each event, and the host's Captured is the
-// model's.
+// model's. A move, sent as a Moved or as a Drag, reaches the Area as a
+// Drag exactly when an Area holds the pointer: a move without a press is
+// never a drag (FK12-g1).
 law CaptureKeepsThePointer(seed int, steps int) {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
@@ -2528,14 +2577,17 @@ func phaseCode(p Phase) int {
 		3
 	case Wheel:
 		4
+	case Drag:
+		5
 	}
 }
 
 func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let mut r = seeded(seed)
 	let view = func(f *Frame[int], s int) {
-		Pressable(f, "hide", 99) {
-			Text(f, "hide")
+		OnKey(f, func(k KeyPress) Option[int] { if k.Name == "h" { Some{Value: 99} } else { None } })
+		Pressable(f, "tap", 98) {
+			Text(f, "tap")
 		}
 		Text(f, "top")
 		if s != 99 {
@@ -2556,10 +2608,17 @@ func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 	// actor's state.
 	let mut held = 0
 	let mut state = 0
-	for _ in 0..(steps%24+24)%24+1 {
+	let mut last = 0
+	// The first nine events are fixed: on b a Down, Drag, Up, Moved, Down, a
+	// tap and Moved, then a Down on the Text and a Moved on b; the rest are
+	// drawn.
+	let opening = []Phase{Down, Drag, Up, Moved, Down, Down, Moved, Down, Moved}
+	for i in 0..(steps%24+24)%24+16 {
 		let shownA = state != 99
-		if draw(&r, 8) == 0 {
-			Play(&h, []Act{TapOn{Label: "hide"}}) catch {
+		let other = if i < 9 { if i == 5 { 1 } else { 2 } } else { draw(&r, 8) }
+		if other == 0 {
+			// The key h hides a; a key holds no pointer, so b keeps it.
+			PressKey(&h, KeyPress{Name: "h", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}) catch {
 			case _:
 				return false
 			}
@@ -2567,11 +2626,22 @@ func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 			if held == 10 {
 				held = 0
 			}
+		} else if other == 1 {
+			// A tap is a press and a release: it lets go of the pointer.
+			Play(&h, []Act{TapOn{Label: "tap"}}) catch {
+			case _:
+				return false
+			}
+			state = 98
+			held = 0
 		} else {
-			let phases = []Phase{Down, Moved, Up, Wheel{DX: 0.0, DY: 1.0}}
-			let phase = phases[draw(&r, 4)]
-			// The node under the pointer: a (when shown), b or the Text.
-			let mut at = []int{10, 20, 0}[draw(&r, 3)]
+			let phases = []Phase{Down, Moved, Up, Wheel{DX: 0.0, DY: 1.0}, Drag}
+			let phase = if i < 9 { opening[i] } else { phases[draw(&r, 5)] }
+			// The node under the pointer: a (when shown), b or the Text; half
+			// the time the one the last event went to (the Area holding the
+			// pointer, if one did), as a pointer stays over a node for a
+			// press, its drag, its release and the hover after.
+			let mut at = if i < 9 { if i == 7 { 0 } else { 20 } } else if draw(&r, 2) == 0 { last } else { []int{10, 20, 0}[draw(&r, 3)] }
 			if at == 10 && !shownA {
 				at = 0
 			}
@@ -2582,6 +2652,7 @@ func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 				return false
 			}
 			let to = if held != 0 { held } else { at }
+			last = if to != 0 { to } else { at }
 			match phase {
 			case Down:
 				if to != 0 {
@@ -2591,8 +2662,14 @@ func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 				held = 0
 			case _:
 			}
+			let seen = match phase {
+			case Moved, Drag:
+				if held != 0 { Drag } else { Moved }
+			case _:
+				phase
+			}
 			if to != 0 {
-				state = to + phaseCode(phase)
+				state = to + phaseCode(seen)
 			}
 		}
 		if StateOf(&h) != state {
@@ -2732,4 +2809,97 @@ law EdgeScrollStaysInRange(o int, hh int, c int, yy int, e int, st int) {
 		return next > at || at == most
 	}
 	next == at
+}
+
+// orderStep is the law's machine: the key starts the loads (1), a Slow
+// stops them (2), and a load's result changes nothing (3). (a law's
+// helper)
+func orderStep(s int, e int) Decision[int, int] {
+	if e == 3 {
+		return Ignore
+	}
+	Enter[int]{Next: e}
+}
+
+// PostedOrderKeepsTheCounts (UC-SIGNALS-FLAKE): a key whose pass starts
+// more loads than the view's budget of fetches (OnSlow) makes the session
+// send a Slow, which stops the loads. The loads' results and the Slow's
+// Committed are posted by tasks of their own; the law takes them in a
+// drawn order, as a scheduler may post them. In every order the last
+// pass shows the warning, and it counts one signal (the Slow), no fetch
+// and no result: the counts of a pass never depend on scheduling.
+law PostedOrderKeepsTheCounts(seed int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		postedOrder(seed, m)
+	}
+}
+
+func postedOrder(seed int, m time.Manual) bool needs Scheduler {
+	let mut r = seeded(seed)
+	let n = draw(&r, 4) + 3
+	let view = func(f *Frame[int], s int) {
+		OnSlow(f, Budget{Signals: 0, Written: 0, Committed: 0, Ops: 0, Painted: 0, Fetches: 2}, func(x Slow) int { 2 })
+		OnKey(f, func(k KeyPress) Option[int] { if s == 0 { Some{Value: 1} } else { None } })
+		Text(f, "s\(s)")
+		if s == 1 {
+			for i in 0..n {
+				Load(f, ByInt(i), func() int { 3 })
+			}
+		}
+	}
+	let posted = queue.New[Event[int]](64)
+	let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: orderStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+	let (s, _) = Start(a, view, func(ev Event[int]) {
+		posted.Push(ev) catch {
+		case queue.Closed:
+		}
+	})
+	let mut session = s
+	let _ = Step(&session, KeyDown{Press: KeyPress{Name: "k", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}) catch {
+	case actor.Stopped:
+		return false
+	}
+	// Every task runs to its end: n results and the Slow's Committed wait.
+	m.Advance(duration(int64(0)))
+	let mut evs = []Event[int]{}
+	let mut more = true
+	for more {
+		match posted.Poll() {
+		case Some[Event[int]] as ev:
+			evs = evs.Append(ev.Value)
+		case None:
+			more = false
+		}
+	}
+	// Take them in a drawn order (a shuffle), then whatever they posted.
+	for i in 0..len(evs) {
+		let j = i + draw(&r, len(evs)-i)
+		let x = evs[i]
+		evs[i] = evs[j]
+		evs[j] = x
+	}
+	for ev in evs {
+		let _ = Step(&session, ev) catch {
+		case actor.Stopped:
+			return false
+		}
+	}
+	m.Advance(duration(int64(0)))
+	let mut rest = true
+	for rest {
+		match posted.Poll() {
+		case Some[Event[int]] as ev:
+			let _ = Step(&session, ev.Value) catch {
+			case actor.Stopped:
+				return false
+			}
+		case None:
+			rest = false
+		}
+	}
+	let st = SessionStats(&session)
+	let ok = a.State() == 2 && st.Signals == 1 && st.Fetches == 0
+	a.Stop()
+	ok
 }

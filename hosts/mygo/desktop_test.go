@@ -73,6 +73,12 @@ func genScript(r *rand.Rand, app string) string {
 			// below the pad's text and its clear button, which the
 			// window's hit test would give the pointer to instead
 			step = fmt.Sprintf("point pad %s %d %d", pick(r, "down", "up", "move", "wheel"), r.IntN(200), 70+r.IntN(50))
+			if r.IntN(3) == 0 {
+				// a move below the pad, over nothing: the pad gets it only
+				// while it holds the pointer, as a Drag (FK12-g1); a press
+				// or release there would hit nothing in the window
+				step = fmt.Sprintf("point pad move %d %d", r.IntN(200), 125+r.IntN(40))
+			}
 			if r.IntN(4) == 0 {
 				step = "tap clear"
 			}

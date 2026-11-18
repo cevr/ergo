@@ -36,7 +36,6 @@ type Driver[S, E, D, F] {
 	spots     []spot[E],
 	canvases  []spot[E],
 	viewports Map[ui.Id[E], ui.Viewport],
-	focus     Option[ui.Id[E]],
 	pressed   Option[ui.Id[E]],
 	scrolled  Map[ui.Id[E], float32],
 	names     Map[ui.Id[E], int],
@@ -121,7 +120,6 @@ func start[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D
 		spots:     []spot[E]{},
 		canvases:  []spot[E]{},
 		viewports: Map[ui.Id[E], ui.Viewport]{},
-		focus:     None,
 		pressed:   None,
 		scrolled:  Map[ui.Id[E], float32]{},
 		names:     Map[ui.Id[E], int]{},
@@ -335,9 +333,6 @@ func forget[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) {
 	d.drew = d.drew.Delete(id)
 	d.keys = d.keys.Delete(id)
 	d.soiled = d.soiled.Delete(id)
-	if d.focus == (Some{Value: id}) {
-		d.focus = None
-	}
 	if d.pressed == (Some{Value: id}) {
 		d.pressed = None
 	}
@@ -371,14 +366,14 @@ func Feed[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fail
 		match hit {
 		case Some[spot[E]] as s:
 			d.pressed = Some{Value: s.Value.id}
-			if focusable(s.Value.node) && d.focus != (Some{Value: s.Value.id}) {
-				d.focus = Some{Value: s.Value.id}
+			if focusable(s.Value.node) && ui.SessionFocus(&d.session) != (Some{Value: s.Value.id}) {
+				ui.FocusSession(&d.session, Some{Value: s.Value.id})
 				paint(d)
 			}
 			try pointed(d, s.Value, ui.Down, x, y)
 		case None:
-			if d.focus != None {
-				d.focus = None
+			if ui.SessionFocus(&d.session) != None {
+				ui.FocusSession(&d.session, None)
 				paint(d)
 			}
 		}
@@ -491,12 +486,13 @@ func scroll[E comparable, S, D, F](d *Driver[S, E, D, F], x float32, y float32, 
 
 func fmin(a float32, b float32) float32 { if a < b { a } else { b } }
 
-// key handles a key press: Tab and Shift+Tab move the focus, Enter and
-// space press the focused Pressable, Check or Toggle, Backspace deletes
-// the last rune of the focused Input, and the rest go to OnKey.
+// key handles a key press: Enter and space press the focused Pressable,
+// Check, Toggle or sending Semantic, Backspace deletes the last rune of
+// the focused Input, and the rest go to the session, where Tab and
+// Shift+Tab move the focus when no key function takes them (UC-TAB).
 func key[E comparable, S, D, F](d *Driver[S, E, D, F], k ui.KeyPress) fails actor.Stopped | ui.BadPatch needs go.Foreign {
 	if k.Name == "Tab" {
-		d.focus = nextFocus(d, k.Mods.Shift)
+		try step(d, ui.KeyDown{Press: k})
 		paint(d)
 		return
 	}
@@ -541,39 +537,12 @@ func typed[E comparable, S, D, F](d *Driver[S, E, D, F], text string, mods ui.Mo
 
 // focused is the spot of the focused node.
 func focused[S, E, D, F](d *Driver[S, E, D, F]) Option[spot[E]] {
-	match d.focus {
+	match ui.SessionFocus(&d.session) {
 	case Some[ui.Id[E]] as f:
 		spotOf(d, f.Value)
 	case None:
 		None
 	}
-}
-
-// nextFocus is the focusable spot after the focused one in paint order,
-// or before it with back; from the first (or the last), and none when
-// none is focusable.
-func nextFocus[S, E, D, F](d *Driver[S, E, D, F], back bool) Option[ui.Id[E]] {
-	let mut order = []ui.Id[E]{}
-	for s in d.spots {
-		if focusable(s.node) {
-			order = order.Append(s.id)
-		}
-	}
-	let n = len(order)
-	if n == 0 {
-		return None
-	}
-	let mut at = -1
-	for i, id in order {
-		if d.focus == (Some{Value: id}) {
-			at = i
-		}
-	}
-	if at < 0 {
-		return Some{Value: if back { order[n-1] } else { order[0] }}
-	}
-	let next = if back { (at + n - 1) % n } else { (at + 1) % n }
-	Some{Value: order[next]}
 }
 
 // spotOf is id's spot, when it takes input.
@@ -582,6 +551,25 @@ func spotOf[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) Option[spot[E]] {
 		if s.id == id {
 			return Some{Value: s}
 		}
+	}
+	None
+}
+
+// holder is the Area spot that holds the pointer: the one pressed, if it
+// is an Area and still shown.
+func holder[S, E, D, F](d *Driver[S, E, D, F]) Option[spot[E]] {
+	match d.pressed {
+	case Some[ui.Id[E]] as p:
+		match spotOf(d, p.Value) {
+		case Some[spot[E]] as s:
+			match s.Value.node {
+			case ui.AreaNode:
+				return Some{Value: s.Value}
+			case _:
+			}
+		case None:
+		}
+	case None:
 	}
 	None
 }
@@ -609,25 +597,20 @@ func inside[E](s spot[E], x float32, y float32) bool {
 	x >= b.X && y >= b.Y && x < b.X+b.W && y < b.Y+b.H && x >= c.X && y >= c.Y && x < c.X+c.W && y < c.Y+c.H
 }
 
-// pressable is whether a press of the node sends its signal.
+// pressable is whether a press of the node sends its signal: a focusable
+// node other than an Input.
 func pressable[E](n ui.Node[E]) bool {
 	match n {
-	case ui.PressableNode[E], ui.CheckNode[E], ui.ToggleNode:
-		true
-	case _:
+	case ui.InputNode:
 		false
+	case _:
+		ui.Focusable(n)
 	}
 }
 
-// focusable is whether the node takes the keyboard focus.
-func focusable[E](n ui.Node[E]) bool {
-	match n {
-	case ui.PressableNode[E], ui.CheckNode[E], ui.ToggleNode, ui.InputNode:
-		true
-	case _:
-		false
-	}
-}
+// focusable is whether the node takes the keyboard focus (ui.Focusable,
+// the rule Tab follows).
+func focusable[E](n ui.Node[E]) bool { ui.Focusable(n) }
 
 // scrolledBy is how far id's Scroll is scrolled.
 func scrolledBy[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) float32 {
@@ -709,7 +692,7 @@ func Painted[S, E, D, F](d *Driver[S, E, D, F]) int { d.painted }
 func Drawn[S, E, D, F](d *Driver[S, E, D, F]) int { d.drawn }
 
 // FocusId is the focused node, None for none.
-func FocusId[S, E, D, F](d *Driver[S, E, D, F]) Option[ui.Id[E]] { d.focus }
+func FocusId[S, E, D, F](d *Driver[S, E, D, F]) Option[ui.Id[E]] { ui.SessionFocus(&d.session) }
 
 // FocusNode is what the focused node shows, None for none.
 func FocusNode[S, E, D, F](d *Driver[S, E, D, F]) Option[ui.Node[E]] {
