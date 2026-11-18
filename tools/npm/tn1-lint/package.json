@@ -11,6 +11,10 @@
   "exports": {
     ".": "./lint.js",
     "./lint": "./lint.js",
+    "./wire": {
+      "types": "./wire.d.ts",
+      "default": "./wire.js"
+    },
     "./package.json": "./package.json"
   },
   "bin": {
@@ -24,6 +28,8 @@
     "install.js",
     "lint.js",
     "worker.js",
+    "wire.js",
+    "wire.d.ts",
     "README.md"
   ],
   "optionalDependencies": {
