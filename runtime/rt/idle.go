@@ -3,6 +3,7 @@ package rt
 import (
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -58,10 +59,12 @@ import (
 type domain struct {
 	mu *sync.Mutex
 	// live and parked count the members and those parked in a wait the
-	// domain sees. change is closed when a member parks or leaves, so a
-	// Settle looks again.
+	// domain sees. When a member parks or leaves, settles moves on and
+	// each task of settlers, a Settle that waits, is resumed on its park
+	// word, so it looks again (FU-settle-word).
 	live, parked int
-	change       chan struct{}
+	settles      atomic.Uint64
+	settlers     []*Task
 	clocks       []*Virtual
 }
 
@@ -268,9 +271,13 @@ type WakeSource interface {
 // run to their next wait before any clock moves again. d.mu is held.
 func (d *domain) idle() {
 	// A Settle looks again: a member parked or left.
-	if d.change != nil {
-		close(d.change)
-		d.change = nil
+	if len(d.settlers) > 0 {
+		d.settles.Add(1)
+		for i, w := range d.settlers {
+			w.Resume()
+			d.settlers[i] = nil
+		}
+		d.settlers = d.settlers[:0]
 	}
 	if d.live == 0 || d.parked < d.live {
 		return

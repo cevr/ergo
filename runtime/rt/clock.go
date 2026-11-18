@@ -262,33 +262,44 @@ func (v *Virtual) Settle(t *Task) error {
 			v.mu.Unlock()
 			return nil
 		}
-		if d.change == nil {
-			d.change = make(chan struct{})
-		}
-		ch := d.change
+		// The caller waits on its park word until a member parks or
+		// leaves (idle resumes every settler) or it is stopped
+		// (FU-settle-word): no channel and no select. A wake meant for
+		// another wait costs one more look.
+		g := d.settles.Load()
+		d.settlers = append(d.settlers, t)
 		v.mu.Unlock()
-		stop := t.Done()
+		t.Waits()
+		stoppable := !t.Masked()
 		if Exploring {
 			// The settle is a wait the clock does not see: under the
 			// explored scheduler the caller gives the baton away until a
 			// member parks or leaves, or it is stopped.
-			Await(t, func() bool {
-				select {
-				case <-ch:
-					return true
-				case <-stop:
-					return true
-				default:
-					return false
-				}
-			})
+			Await(t, func() bool { return d.settles.Load() != g || stoppable && t.stopped.Load() })
 		}
-		select {
-		case <-ch:
-		case <-stop:
-			return Interrupted
+		for d.settles.Load() == g && !(stoppable && t.stopped.Load()) {
+			t.Suspend()
 		}
 		v.mu.Lock()
+		if d.settles.Load() == g {
+			// Stopped before a member parked or left: t is still a settler.
+			d.dropSettler(t)
+			v.mu.Unlock()
+			return Interrupted
+		}
+	}
+}
+
+// dropSettler takes t out of d's settlers. d.mu is held.
+func (d *domain) dropSettler(t *Task) {
+	for i, w := range d.settlers {
+		if w == t {
+			last := len(d.settlers) - 1
+			d.settlers[i] = d.settlers[last]
+			d.settlers[last] = nil
+			d.settlers = d.settlers[:last]
+			return
+		}
 	}
 }
 
