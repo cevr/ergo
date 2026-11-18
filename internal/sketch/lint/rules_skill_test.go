@@ -295,3 +295,55 @@ func TestTakeOneByLawAgreesWithReference(t *testing.T) {
 		p.check(t, "take-one-by-law", "TestTakeOneByLawAgreesWithReference", seed)
 	}
 }
+
+// A let value of the independent-waits generator (the second let may
+// read x, the first's): its text, the capabilities it exercises
+// (A, B, or none), whether every call in it is known, whether it reads
+// x, and whether it may leave the function early.
+var waitLets = []struct {
+	text  string
+	caps  string
+	known bool
+	reads bool
+	leave bool
+}{
+	{"A.Get()", "A", true, false, false},
+	{"fromA()", "A", true, false, false},
+	{"B.Get()", "B", true, false, false},
+	{"fromB(0)", "B", true, false, false},
+	{"fromB(x)", "B", true, true, false},
+	{"B.Get() + x", "B", true, true, false},
+	{"both()", "AB", true, false, false},
+	{"3 + 4", "", true, false, false},
+	{"g()", "", false, false, false}, // a function value: its footprint is unknown
+	{"if A.Get() > 0 {\n\t\treturn 0\n\t} else {\n\t\t1\n\t}", "A", true, false, true},
+}
+
+// TestIndependentWaitsAgreesWithReference writes functions whose body is
+// two lets in a row, each from waitLets, over operation types A and B,
+// and checks that independent-waits fires on the second exactly when both
+// exercise known capabilities, none shared, and the second reads nothing
+// the first binds, and the first cannot return early. Mutants: sr6-reads,
+// sr6-disjoint, sr6-known, sr6-empty, sr6-leave.
+func TestIndependentWaitsAgreesWithReference(t *testing.T) {
+	for _, seed := range propertySeeds(40) {
+		r := rand.New(rand.NewPCG(seed, 0x5e6))
+		p := newPlanted()
+		p.write("type A {\n\tGet() int,\n}\n\ntype B {\n\tGet() int,\n}\n\nfunc fromA() int needs A {\n\tA.Get()\n}\n\nfunc fromB(n int) int needs B {\n\tB.Get() + n\n}\n\nfunc both() int needs A | B {\n\tA.Get() + B.Get()\n}", false, 0)
+		for i := range 1 + r.IntN(4) {
+			a := waitLets[r.IntN(len(waitLets))]
+			for a.reads {
+				a = waitLets[r.IntN(len(waitLets))]
+			}
+			b := waitLets[r.IntN(len(waitLets))]
+			shared := false
+			for _, c := range a.caps {
+				shared = shared || strings.ContainsRune(b.caps, c)
+			}
+			fires := a.known && b.known && a.caps != "" && b.caps != "" && !shared && !b.reads && !a.leave
+			p.write(fmt.Sprintf("\nfunc run%d(g func() int needs A) int needs A | B {\n\tlet x = %s\n\tlet y = %s\n\tx + y\n}", i, a.text, b.text), fires, 3+strings.Count(a.text, "\n"))
+		}
+		p.write("\nfunc main() {\n}", false, 0)
+		p.check(t, "independent-waits", "TestIndependentWaitsAgreesWithReference", seed)
+	}
+}
