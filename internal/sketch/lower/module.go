@@ -666,6 +666,9 @@ func (l *lowerer) program() ([]byte, error) {
 	if len(l.refusals) > 0 {
 		return nil, &Refused{Refusals: sortedRefusals(l.refusals)}
 	}
+	if l.ir != nil {
+		l.ir.inlineBodies(l) // ir_forms_inline.go: before the call table, which writes the inline table
+	}
 	table := l.callTable()   // before the imports: it may name the runtime package
 	table += l.lineageDecl() // likewise (handover.go)
 	graphs := l.graphAccessor()
