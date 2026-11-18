@@ -32,9 +32,9 @@ func TestMergeTierRecordsForTheSweep(t *testing.T) {
 		return s
 	}
 	steps := []*Step{
-		{Name: fullBuildStep, Argv: []string{"go", "test", "-timeout", "1m", "-run", "^$", "./..."}},
-		{Name: "go test ./a [1/1]", Needs: []string{"go test build"}, Argv: []string{"go", "test", "-timeout", "1m", "-run", "^(TestA)$", "m/a"}},
-		{Name: "go test (other packages)", Needs: []string{"go test build"}, Argv: []string{"go", "test", "-timeout", "1m", "m/b", "m/c"}},
+		{Name: fullBuildStep, Argv: []string{"go", "test", testTimeout, "-run", "^$", "./..."}},
+		{Name: "go test ./a [1/1]", Needs: []string{"go test build"}, Argv: []string{"go", "test", testTimeout, "-run", "^(TestA)$", "m/a"}},
+		{Name: "go test (other packages)", Needs: []string{"go test build"}, Argv: []string{"go", "test", testTimeout, "m/b", "m/c"}},
 		{Name: "go test ./lower [1/1]", Argv: []string{"go", "test", "m/lower"}, Env: cliTestEnvironment},
 		{Name: "explored", Argv: []string{"go", "test", "-tags", "ergoexplore", "./rt"}},
 		sweepOf("a"), sweepOf("b"), sweepOf("lower"), sweepOf("rt"),

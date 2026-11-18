@@ -23,7 +23,7 @@ func TestReuseRefusesWhatASweepWouldNotSee(t *testing.T) {
 	names := []string{"TestA", "TestB"}
 	good := func(base string) testinputs.Record {
 		return testinputs.Record{
-			Package: pkg, Dir: pkgDir, Args: []string{"-test.timeout=10m"},
+			Package: pkg, Dir: pkgDir, Args: []string{"-test.v=true"},
 			Env:   append([]string{"TMPDIR=/nonexistent/loop-probe-x/t", testinputs.RecordVariable + "=" + base}, env...),
 			Cache: filepath.Join(base, "cache", "internal_p"), TreeReadOnly: true, UserNamespaces: testinputs.UserNamespacesRefused + "fork/exec /bin/true: no space left on device",
 		}
