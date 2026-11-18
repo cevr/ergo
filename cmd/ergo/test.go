@@ -56,7 +56,17 @@ import (
 // played: one line per act, in the order the acts ran, each the line std
 // ui's PlayTrace returns for it (testTrace). It takes one package, played
 // plainly: with a pattern or --explore it is a usage error.
+//
+// --cases DIR runs the recorded cases of DIR against the built main
+// package in place of its tests (cases.go, testCases).
 func testCommand(args []string) error {
+	args, casesDir, err := casesFlag(args)
+	if err != nil {
+		return invalidInvocation(err)
+	}
+	if casesDir != "" {
+		return testCases(args, casesDir)
+	}
 	args, trace := traceFlag(args)
 	opts, err := parseFileOptions("test", args)
 	if err != nil {
