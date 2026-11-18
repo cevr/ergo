@@ -492,9 +492,9 @@
     {
       "name": "gt8-readers-skipped",
       "origin": "wf10 GATE2 GT8",
-      "file": "scripts/mutants/coverage.go",
-      "from": "\t\tif b.Start == readBlock {\n\t\t\t// The tests that read the file (reads.go) cover every line.\n\t\t\tfor _, i := range b.Tests {\n\t\t\t\tout[c.Tests[i].ID] = true\n\t\t\t}\n",
-      "to": "\t\tif b.Start == readBlock {\n",
+      "file": "scripts/mutants/covfile/covfile.go",
+      "from": "\t\tif b.Start == ReadBlock {\n\t\t\t// The tests that read the file cover every line.\n\t\t\tfor _, i := range b.Tests {\n\t\t\t\tout[c.Tests[i].ID] = true\n\t\t\t}\n",
+      "to": "\t\tif b.Start == ReadBlock {\n",
       "rule": "The readers of a file cover every line of it.",
       "killers": [
         "scripts/mutants:TestRunnerMatchesModel"
@@ -569,7 +569,10 @@
     {"name":"gtf-family-one-part","origin":"wf10 GATE2 GT-FAMILY","file":"scripts/mutants/runner.go","from":"\treturn \"^\" + regexp.QuoteMeta(name) + \"Part[0-9]+$\"","to":"\treturn \"^\" + regexp.QuoteMeta(name) + \"Part0$\"","rule":"A row that names a test family runs every part of it: a split leaves the rows unchanged, and any failing part kills.","killers":["scripts/mutants:TestRunnerMatchesModel"]},
     {"name":"gtf-family-start-unseen","origin":"wf10 GATE2 GT-FAMILY","file":"scripts/mutants/runner.go","from":"\t\treturn \"=== RUN   \" + test + \"Part\" // any part","to":"\t\treturn \"=== RUN   \" + test + \"\\n\" // any part","rule":"A family has started when any of its parts has: its failure is a kill (GT-NOTESTS).","killers":["scripts/mutants:TestRunnerMatchesModel"]},
     {"name":"gtb-command-measured","origin":"wf10 GATE2 Q15 (GT-BOUND x GT6)","file":"scripts/mutants/coverstore.go","from":"func(s Suite) bool { return s.Commands != nil })","to":"func(s Suite) bool { return false })","rule":"The coverage pass measures go test suites only: a command runs only for the rows that name it.","killers":["scripts/mutants:TestRunnerMatchesModel"]},
-    {"name":"gtn-started-ignored","origin":"wf10 GATE2 GT-NOTESTS","file":"scripts/mutants/judge.go","from":"\t\tcase !o.started:\n","to":"\t\tcase false:\n","rule":"A test whose binary ended before the test started kills nothing: its row is invalid unless another test killed it.","killers":["scripts/mutants:TestRunnerMatchesModel"]}
+    {"name":"gtn-started-ignored","origin":"wf10 GATE2 GT-NOTESTS","file":"scripts/mutants/judge.go","from":"\t\tcase !o.started:\n","to":"\t\tcase false:\n","rule":"A test whose binary ended before the test started kills nothing: its row is invalid unless another test killed it.","killers":["scripts/mutants:TestRunnerMatchesModel"]},
+    {"name":"csr-index-dirty-tree","origin":"wf10 CI-SELECT CS-ROUND","file":"scripts/mutants/coverstore.go","from":"\tif err != nil || len(out) > 0 {\n\t\treturn \"\"\n\t}\n\thead :=","to":"\tif err != nil {\n\t\treturn \"\"\n\t}\n\thead :=","rule":"The index names a commit only for a checkout with no changed tracked file: a reader diffs that commit, so the segment must be its tree's.","killers":["scripts/mutants:TestIndexNamesOnlyCleanCommitsWithStoredSegments"]},
+    {"name":"csr-index-untracked-ignored","origin":"wf10 CI-SELECT CS-ROUND","file":"scripts/mutants/coverstore.go","from":"\"status\", \"--porcelain\", \"--untracked-files=normal\")","to":"\"status\", \"--porcelain\", \"--untracked-files=no\")","rule":"An untracked file makes the checkout dirty for the index: a suite may read it.","killers":["scripts/mutants:TestIndexNamesOnlyCleanCommitsWithStoredSegments"]},
+    {"name":"csr-index-unstored-suite","origin":"wf10 CI-SELECT CS-ROUND","file":"scripts/mutants/coverstore.go","from":"\t\tif _, ok := store.Load(keys[s.Name]); !ok {\n\t\t\tcontinue\n\t\t}\n\t\te := covfile.Entry{","to":"\t\te := covfile.Entry{","rule":"The index holds a suite only when the store holds its segment at its key (a failed or changed suite stores none).","killers":["scripts/mutants:TestIndexNamesOnlyCleanCommitsWithStoredSegments"]}
 
   ]
 }

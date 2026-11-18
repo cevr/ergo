@@ -183,7 +183,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		if store, err := openCoverStore(); err != nil {
 			fmt.Fprintf(stderr, "mutants: no coverage segment reused: %v\n", err)
 		} else {
-			cfg.CoverStore = store.dir
+			cfg.CoverStore = store.Dir
 		}
 	}
 	if measureOnly {
@@ -737,7 +737,7 @@ func record(j Job, results []Result, cov *coverage, now time.Time) {
 				killers := slices.Clone(r.Killers)
 				for _, k := range m.Killers {
 					suite, name := splitID(k)
-					if cov.test(suite+":"+name) != nil && !slices.Contains(killers, k) && !slices.Contains(killers, suite+":"+name) {
+					if cov.Lookup(suite+":"+name) != nil && !slices.Contains(killers, k) && !slices.Contains(killers, suite+":"+name) {
 						killers = append(killers, k)
 					}
 				}

@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"ergo.local/prototype/scripts/mutants/covfile"
 )
 
 // Source reads (GATE2 GT8). A test that reads a file of the checkout, as
@@ -30,7 +32,7 @@ const embedObserveVariable = "ERGO_EMBED_OBSERVE"
 
 // readBlock is the block line of a read: no block of the cover tool
 // starts at line 0.
-const readBlock = 0
+const readBlock = covfile.ReadBlock
 
 // testLogName is the file a coverage run's test log goes to, beside its
 // counters directory.

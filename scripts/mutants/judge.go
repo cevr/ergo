@@ -277,7 +277,7 @@ func (e *engine) baselines(ctx context.Context, items []item, pending []int, jr 
 // coverage pass run, or its baseline.
 func (e *engine) info(id string) *covTest {
 	if e.cov != nil {
-		if t := e.cov.test(id); t != nil {
+		if t := e.cov.Lookup(id); t != nil {
 			return t
 		}
 	}
@@ -322,7 +322,7 @@ func (e *engine) known() *coverage {
 	}
 	var ids []string
 	for id := range e.base {
-		if c.index == nil || c.test(id) == nil {
+		if !c.Indexed() || c.Lookup(id) == nil {
 			ids = append(ids, id)
 		}
 	}
@@ -330,7 +330,7 @@ func (e *engine) known() *coverage {
 	for _, id := range ids {
 		c.Tests = append(c.Tests, e.base[id])
 	}
-	c.reindex()
+	c.Reindex()
 	return c
 }
 
@@ -486,7 +486,7 @@ func (w *worker) judgeCovered(ctx context.Context, m *Mutant, r Result) Result {
 	named := killerIDs(m)
 	// A .ergo file's lines have blocks too (the cover marks of std bodies,
 	// ergolines.go), and every file a test opens covers it (reads.go).
-	covering := w.e.cov.covering(t.file, t.lo, t.hi, t.header, named)
+	covering := w.e.cov.Covering(t.file, t.lo, t.hi, t.header, named)
 	for _, id := range named {
 		if w.e.info(id) != nil {
 			covering[id] = true

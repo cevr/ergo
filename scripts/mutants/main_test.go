@@ -34,7 +34,7 @@ func TestUnjudgedFailsTheRun(t *testing.T) {
 		jobs := []Job{{Path: "l.json", Ledger: &Ledger{Mutants: []*Mutant{m}}}}
 		results := []Result{{Ledger: "l.json", Name: "row", Status: c.status, Detail: c.detail}}
 		cov := &coverage{Tests: []*covTest{{ID: "s:TestRed", Failed: c.status == Unjudged, Detail: "fail"}}}
-		cov.reindex()
+		cov.Reindex()
 		var out strings.Builder
 		if code := report(&out, jobs, results, cov); code != 1 || !strings.Contains(out.String(), c.list) {
 			t.Errorf("a row %s: exit %d, want 1, and %q listed:\n%s", c.status, code, c.list, out.String())
@@ -52,13 +52,13 @@ func TestHeaderLineIsCoveredByWhatReachesIt(t *testing.T) {
 		Tests: []*covTest{{ID: "s:Early"}, {ID: "s:Reaches"}, {ID: "s:Body"}},
 		Files: map[string][]covBlock{"f.go": {{Start: 1, End: 3, Tests: []int{0}}, {Start: 5, End: 6, Tests: []int{1}}, {Start: 8, End: 8, Tests: []int{2}}}},
 	}
-	c.reindex()
+	c.Reindex()
 	header := headerLine("a\nb\n\t\tcase errors.Is(err, x):\n", len("a\nb\n\t\tcase "))
-	got := c.covering("f.go", 7, 7, header, nil)
+	got := c.Covering("f.go", 7, 7, header, nil)
 	if !header || len(got) != 1 || !got["s:Reaches"] {
 		t.Errorf("the tests of a header line at 7 (header %v): %v, want s:Reaches", header, got)
 	}
-	if other := c.covering("f.go", 7, 7, headerLine("var x = \"lit\"\n", 9), nil); len(other) != 0 {
+	if other := c.Covering("f.go", 7, 7, headerLine("var x = \"lit\"\n", 9), nil); len(other) != 0 {
 		t.Errorf("a line in no block that is no header is covered by %v", other)
 	}
 }

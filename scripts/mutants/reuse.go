@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"ergo.local/prototype/scripts/gate/replay"
+	"ergo.local/prototype/scripts/mutants/covfile"
 )
 
 // Verdict reuse (GATE2 GT2): a mutant pass judges a row again only when what
@@ -41,7 +42,7 @@ import (
 const reuseVersion = "ergo-mutants-reuse-v2"
 
 // reuseCacheVariable names the store's directory.
-const reuseCacheVariable = "ERGO_MUTANTS_CACHE"
+const reuseCacheVariable = covfile.CacheVariable
 
 // reuseInputs are what the row keys of one checkout read.
 type reuseInputs struct {
@@ -104,13 +105,9 @@ func rowKey(in *reuseInputs, m *Mutant) string {
 type reuseStore struct{ dir string }
 
 func openReuseStore() (reuseStore, error) {
-	dir := os.Getenv(reuseCacheVariable)
-	if dir == "" {
-		cache, err := os.UserCacheDir()
-		if err != nil {
-			return reuseStore{}, err
-		}
-		dir = filepath.Join(cache, "ergo-mutants")
+	dir, err := covfile.CacheDir()
+	if err != nil {
+		return reuseStore{}, err
 	}
 	return reuseStore{filepath.Join(dir, reuseVersion)}, nil
 }
@@ -268,11 +265,9 @@ func gatherReuse(root string, jobs []Job) (*reuseInputs, error) {
 
 // toolchainOf names the runner's executable and the go command's settings.
 func toolchainOf(root string) (string, error) {
-	query := exec.Command(goCommand(), "env", "GOVERSION", "GOROOT", "GOFLAGS", "GOOS", "GOARCH", "GOAMD64", "GOARM64", "GOEXPERIMENT", "CGO_ENABLED", "CC")
-	query.Dir, query.Env = root, goEnviron()
-	out, err := query.Output()
+	out, err := covfile.GoEnv(goCommand(), root, goEnviron())
 	if err != nil {
-		return "", fmt.Errorf("go env: %w", err)
+		return "", err
 	}
 	self, err := os.Executable()
 	if err != nil {
@@ -282,7 +277,7 @@ func toolchainOf(root string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return "runner " + digest + "\n" + string(out), nil
+	return "runner " + digest + "\n" + out, nil
 }
 
 func fileDigest(name string) (string, error) {

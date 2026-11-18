@@ -4,13 +4,16 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"maps"
-	"path/filepath"
+	"os/exec"
 	"slices"
 	"strings"
+	"time"
 
 	"ergo.local/prototype/scripts/gate/replay"
+	"ergo.local/prototype/scripts/mutants/covfile"
 )
 
 // The coverage store (GATE2 GT6). The coverage pass runs every test of
@@ -30,7 +33,7 @@ import (
 // measures every suite and stores nothing (the reference).
 
 // coverVersion names the coverage store's format and key.
-const coverVersion = "ergo-mutants-coverage-v2"
+const coverVersion = covfile.Version
 
 // segmentKey is the key of a suite's coverage: the suite's identity, the
 // covered packages, the toolchain, and the content of every file the
@@ -45,6 +48,7 @@ func segmentKey(in *reuseInputs, s Suite, cover []string, closure *replay.Closur
 	}
 	put("version", coverVersion)
 	put("toolchain", in.toolchain)
+	put("mode", covfile.Mode)
 	put("suite", s.Name, s.Package, s.Module, s.Tags)
 	put(append([]string{"command"}, s.Command...)...)
 	put(append([]string{"env"}, s.Env...)...)
@@ -128,34 +132,15 @@ func mergeCoverage(key string, segments []*coverage) *coverage {
 			return a.End - b.End
 		})
 	}
-	c.reindex()
+	c.Reindex()
 	return c
 }
 
-// coverStore holds coverage segments by key, one gzip JSON file each.
-type coverStore struct{ dir string }
+// coverStore holds coverage segments by key (covfile.Store).
+type coverStore = covfile.Store
 
 // openCoverStore is the store beside the verdicts' store (reuse.go).
-func openCoverStore() (coverStore, error) {
-	verdicts, err := openReuseStore()
-	if err != nil {
-		return coverStore{}, err
-	}
-	return coverStore{filepath.Join(filepath.Dir(verdicts.dir), coverVersion)}, nil
-}
-
-func (s coverStore) path(key string) string {
-	return filepath.Join(s.dir, key[:2], key+".json.gz")
-}
-
-func (s coverStore) load(key string) (*coverage, bool) {
-	c, err := loadCoverage(s.path(key))
-	return c, err == nil
-}
-
-func (s coverStore) save(key string, c *coverage) error {
-	return saveCoverage(s.path(key), c)
-}
+func openCoverStore() (coverStore, error) { return covfile.Open() }
 
 // assembleCoverage is the coverage of suites under the tree key: each
 // suite's stored segment at its key (keys), and for the rest one measure
@@ -204,25 +189,77 @@ func (e *engine) coverageOfTree(ctx context.Context) (*coverage, error) {
 		e.logf("coverage: measuring every suite (tree %s)", e.key)
 		return e.measure(ctx, suites)
 	}
+	start := cleanCommit(e.cfg.Root)
 	keys, err := e.suiteKeys()
 	if err != nil {
 		e.logf("coverage: no segment reused: %v", err)
 		return e.measure(ctx, suites)
 	}
-	store := coverStore{e.cfg.CoverStore}
+	store := coverStore{Dir: e.cfg.CoverStore}
 	measure := func(suites []Suite) (*coverage, error) {
 		var names []string
 		for _, s := range suites {
 			names = append(names, s.Name)
 		}
-		e.logf("coverage: measuring %s (tree %s); the other suites' segments are stored at %s", strings.Join(names, ", "), e.key, store.dir)
+		e.logf("coverage: measuring %s (tree %s); the other suites' segments are stored at %s", strings.Join(names, ", "), e.key, store.Dir)
 		return e.measure(ctx, suites)
 	}
-	c, measured, err := assembleCoverage(e.key, suites, keys, store.load, measure, e.suiteKeys, store.save)
+	c, measured, err := assembleCoverage(e.key, suites, keys, store.Load, measure, e.suiteKeys, store.Save)
 	if err == nil {
-		e.logf("coverage: %d of %d suites' segments reused from %s", len(suites)-len(measured), len(suites), store.dir)
+		e.logf("coverage: %d of %d suites' segments reused from %s", len(suites)-len(measured), len(suites), store.Dir)
+		if start != "" && cleanCommit(e.cfg.Root) == start {
+			n, err := indexSegments(store, start, e.cfg.Root, suites, keys)
+			if err != nil {
+				e.logf("coverage: index: %v", err)
+			}
+			e.logf("coverage: %d segments indexed at %s", n, start)
+		}
 	}
 	return c, err
+}
+
+// cleanCommit is HEAD of the checkout at root when no tracked file is
+// changed and no untracked file is there, else "": a reader diffs the
+// commit of an index entry against its change, so the segment must be
+// the coverage of that commit's tree.
+func cleanCommit(root string) string {
+	status := exec.Command("git", "--no-optional-locks", "status", "--porcelain", "--untracked-files=normal")
+	status.Dir, status.Env = root, goEnviron()
+	out, err := status.Output()
+	if err != nil || len(out) > 0 {
+		return ""
+	}
+	head := exec.Command("git", "--no-optional-locks", "rev-parse", "HEAD")
+	head.Dir, head.Env = root, goEnviron()
+	out, err = head.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// indexSegments records, at commit, each suite whose segment the store
+// holds at its key (reused or measured and stored): the index a reader
+// finds a commit's segments by (covfile.Entry). It returns how many.
+func indexSegments(store coverStore, commit, root string, suites []Suite, keys map[string]string) (int, error) {
+	goEnv, err := covfile.GoEnv(goCommand(), root, goEnviron())
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	var errs []error
+	for _, s := range suites {
+		if _, ok := store.Load(keys[s.Name]); !ok {
+			continue
+		}
+		e := covfile.Entry{Suite: s.Name, Package: s.Package, Module: s.Module, Tags: s.Tags, Key: keys[s.Name], Mode: covfile.Mode, Commit: commit, GoEnv: goEnv, Recorded: time.Now().UTC()}
+		if err := store.Record(e); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		n++
+	}
+	return n, errors.Join(errs...)
 }
 
 // suiteKeys are the segment keys of the engine's suites over the checkout

@@ -125,7 +125,7 @@ func (m *reuseModel) measure(suites []Suite) *coverage {
 		}
 	}
 	c.Files = k.files()
-	c.reindex()
+	c.Reindex()
 	return c
 }
 
@@ -171,7 +171,7 @@ func checkCoverSeed(t *testing.T, seed, edits int) int {
 	r := rand.New(rand.NewPCG(uint64(seed), 13))
 	m := newReuseModel(r)
 	suites := modelSuites(m)
-	store := coverStore{dir: t.TempDir()}
+	store := coverStore{Dir: t.TempDir()}
 	history := []string{"start"}
 	fail := func(i int, format string, args ...any) {
 		t.Errorf("seed %d, edit %d: %s\nedits:\n  %s\nreplay: %s=%d go test -run TestStoredCoverageAgreesWithAFreshMeasure ./scripts/mutants", seed, i, fmt.Sprintf(format, args...), strings.Join(history, "\n  "), coverSeedVariable, seed)
@@ -197,7 +197,7 @@ func checkCoverSeed(t *testing.T, seed, edits int) int {
 		var saved []string
 		save := func(key string, c *coverage) error {
 			saved = append(saved, key)
-			return store.save(key, c)
+			return store.Save(key, c)
 		}
 		measure := func(s []Suite) (*coverage, error) {
 			if during != "" {
@@ -206,7 +206,7 @@ func checkCoverSeed(t *testing.T, seed, edits int) int {
 			return m.measure(s), nil
 		}
 		ends := func() (map[string]string, error) { return m.keys(suites), nil }
-		got, measured, err := assembleCoverage("tree", suites, keys, store.load, measure, ends, save)
+		got, measured, err := assembleCoverage("tree", suites, keys, store.Load, measure, ends, save)
 		if during != "" {
 			m.files[during] = before
 		}
@@ -219,7 +219,7 @@ func checkCoverSeed(t *testing.T, seed, edits int) int {
 			if !slices.Contains(saved, keys[s.Name]) {
 				continue
 			}
-			if c, ok := store.load(keys[s.Name]); ok && slices.ContainsFunc(c.Tests, func(t *covTest) bool { return t.Failed }) {
+			if c, ok := store.Load(keys[s.Name]); ok && slices.ContainsFunc(c.Tests, func(t *covTest) bool { return t.Failed }) {
 				fail(i, "suite %s: a segment with a failed test was stored", s.Name)
 				return total
 			}
