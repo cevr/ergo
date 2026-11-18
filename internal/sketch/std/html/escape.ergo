@@ -4,30 +4,34 @@ import strings
 // element's text and in a double- or single-quoted attribute value alike:
 // &, <, >, " and ' are written as the references &amp;, &lt;, &gt;, &#34;
 // and &#39;, and every other byte as it is (html/template's and the web
-// control's set). A run with nothing to escape is one write.
+// control's set). A run with nothing to escape is one write. Each byte it
+// replaces is at most '>', so a byte above it (a letter, most of a page's
+// text) takes one compare.
 func escape(b *strings.Builder, s string) {
 	let mut last = 0
 	for i in 0..len(s) {
 		let c = s[i]
-		let r = if c == '&' {
-			"&amp;"
-		} else if c == '<' {
-			"&lt;"
-		} else if c == '>' {
-			"&gt;"
-		} else if c == '"' {
-			"&#34;"
-		} else if c == '\'' {
-			"&#39;"
-		} else {
-			""
-		}
-		if r != "" {
-			if i > last {
-				b.WriteString(strings.Slice(s, last, i))
+		if c <= '>' {
+			let r = if c == '&' {
+				"&amp;"
+			} else if c == '<' {
+				"&lt;"
+			} else if c == '>' {
+				"&gt;"
+			} else if c == '"' {
+				"&#34;"
+			} else if c == '\'' {
+				"&#39;"
+			} else {
+				""
 			}
-			b.WriteString(r)
-			last = i + 1
+			if r != "" {
+				if i > last {
+					b.WriteString(strings.Slice(s, last, i))
+				}
+				b.WriteString(r)
+				last = i + 1
+			}
 		}
 	}
 	if last == 0 {
@@ -51,20 +55,21 @@ func Escape(s string) string {
 // TextIsInert (WEB0): any string, as Text writes it and as an attribute's
 // value writes it, is inert (no byte of it can open a tag or end the
 // value) and reads back as the same string; a string with markup in it,
-// with a reference already in it, or with quotes, included.
+// with a reference already in it, or with quotes, included. A '>' after
+// any string is escaped, the string with nothing else to escape too.
 law TextIsInert(s string, t string) {
 	let x = s + "<a href=\"x\" title='y'>&amp;</a>" + t
 	let e = Escape(x)
 	let text = Render(Text(x))
 	let attr = Render(Span([]Child{Class(x)}))
-	inert(e) && unescape(e) == x && text == e && attr == "<span class=\""+e+"\"></span>"
+	inert(e) && unescape(e) == x && text == e && attr == "<span class=\""+e+"\"></span>" && Escape(s+">") == Escape(s)+"&gt;"
 }
 
 // plain is whether s has none of the characters Escape replaces.
 func plain(s string) bool {
 	for i in 0..len(s) {
 		let c = s[i]
-		if c == '&' || c == '<' || c == '>' || c == '"' || c == '\'' {
+		if c <= '>' && (c == '&' || c == '<' || c == '>' || c == '"' || c == '\'') {
 			return false
 		}
 	}
