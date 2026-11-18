@@ -42,7 +42,10 @@ type IRReport struct {
 	Merge int `json:"merge,omitempty"`
 	// Fold counts the pure Go calls on constants computed at compile
 	// time (ir_fold.go).
-	Fold int    `json:"fold,omitempty"`
+	Fold int `json:"fold,omitempty"`
+	// Seed counts the slice literals the IR bodies seed with room
+	// (seedcap.go).
+	Seed int    `json:"seed,omitempty"`
 	Hash string `json:"hash"`
 	// Forms counts the IR forms the bodies held before erasure, by
 	// kind and layout ("match/flat"; ir_forms.go): in memory only.
@@ -386,6 +389,8 @@ type irBuilder struct {
 	// mergeSites counts the body's calls the merge pass replaced
 	// (ir_merge.go).
 	mergeSites int
+	// seedSites counts the body's seeded slice literals (seedcap.go).
+	seedSites int
 	// foldSites counts the body's calls the fold pass replaced
 	// (ir_fold.go).
 	foldSites int
@@ -642,6 +647,7 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	st.report.Memo += b.memoSites
 	st.report.Merge += b.mergeSites
 	st.report.Fold += b.foldSites
+	st.report.Seed += b.seedSites
 	st.report.FormSites = append(st.report.FormSites, b.forms...) // ir_forms_report.go
 	return true
 }

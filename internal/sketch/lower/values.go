@@ -206,6 +206,8 @@ type valueFacts struct {
 	copied      map[*check.Var]bool // the bindings of a matched Get whose entry is copied
 	// A collect's source whose read in the loop is its last, unshared (lastread.go).
 	lastRead map[*syntax.Ident]bool
+	// Slice literals that seed a let mut the body grows in place (seedcap.go).
+	seeds map[*syntax.CompositeLit]bool
 }
 
 // ownedParam is an owned parameter (V5): its index, counting a dot call's
@@ -244,6 +246,7 @@ func (l *lowerer) valueFacts() *valueFacts {
 			moveRead: map[*syntax.CallExpr]bool{},
 			copied:   map[*check.Var]bool{},
 			lastRead: map[*syntax.Ident]bool{},
+			seeds:    map[*syntax.CompositeLit]bool{},
 		}
 	}
 	return l.vals
@@ -1067,6 +1070,7 @@ func (w *valueWalk) decide() {
 	w.consumes()
 	w.settleLineage()
 	w.lastReads() // lastread.go: once every copy is decided
+	w.seedLits()  // seedcap.go
 }
 
 // takeRest is the let that binds the rest of the Take call, let v, rest =
