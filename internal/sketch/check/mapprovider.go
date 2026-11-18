@@ -248,17 +248,11 @@ func (c *checker) isStructural(h, k Type) bool {
 }
 
 // mapOf is the type Map[k, v, h]: the Map type when h is nil or
-// Structural[k]; keyTable[k, n, h, v] when h has a normal form n
-// (mapshape.go), unless the reference lowering is chosen; else
-// hashTable[k, h, v].
+// Structural[k], else hashTable[k, h, v], which stores its keys by h's
+// NormalForm (mapshape.go).
 func (c *checker) mapOf(k, v, h Type) Type {
 	if h == nil || c.isStructural(h, k) {
 		return &Map{Key: k, Elem: v}
-	}
-	if n := c.normalFormOf(h, k); n != nil {
-		if tn := c.preludeTypeObj("keyTable"); tn != nil {
-			return c.instantiate(tn.Type.(*Named), []Type{k, n, h, v}) // keyTable[K, N, H, V]
-		}
 	}
 	tn := c.preludeTypeObj("hashTable")
 	if tn == nil {
@@ -268,14 +262,14 @@ func (c *checker) mapOf(k, v, h Type) Type {
 }
 
 // IsProviderMap reports whether t is a Map with a provider other than
-// Structural: an instance of the prelude's hashTable or keyTable.
+// Structural: an instance of the prelude's hashTable.
 func IsProviderMap(t Type) bool {
 	_, _, _, ok := providerParts(t)
 	return ok
 }
 
 // providerParts are the key, provider and value types of t, an instance
-// of the prelude's hashTable[K, H, V] or keyTable[K, N, H, V].
+// of the prelude's hashTable[K, H, V].
 func providerParts(t Type) (k, h, v Type, ok bool) {
 	n, isNamed := t.(*Named)
 	if !isNamed {
@@ -285,11 +279,8 @@ func providerParts(t Type) (k, h, v Type, ok bool) {
 	if o == nil || o.Pkg == nil || o.Pkg.Path != stdlib.PreludePath {
 		return nil, nil, nil, false
 	}
-	switch {
-	case o.Name == "hashTable" && len(n.TArgs) == 3:
+	if o.Name == "hashTable" && len(n.TArgs) == 3 {
 		return n.TArgs[0], n.TArgs[1], n.TArgs[2], true
-	case o.Name == "keyTable" && len(n.TArgs) == 4:
-		return n.TArgs[0], n.TArgs[2], n.TArgs[3], true
 	}
 	return nil, nil, nil, false
 }

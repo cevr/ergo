@@ -6,6 +6,9 @@ import (
 	"math/rand/v2"
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 var providerMapSeed = flag.Uint64("providermap.seed", 0, "replay TestProviderMapAgrees at this seed alone")
@@ -22,17 +25,22 @@ var providerMapSeed = flag.Uint64("providermap.seed", 0, "replay TestProviderMap
 // the compaction. A failing seed prints the Ergo source, both outputs and
 // the replay flag.
 //
-// The provider is one of four (CONSTRAINTS C5b): keys equal modulo M with
-// a bucketed hash (the table), or with a normal form k % M, k / M or k
-// (keyTable, types.md Maps 5); a seed checks the checker chose the one
-// the shape gives. The run also compares m == o and m != p, o built of
-// the model's entries in reverse order under another equal spelling and
-// p the same with one value changed.
+// The provider is one of five (CONSTRAINTS C5b, C5d): keys equal modulo M
+// with a bucketed hash (the table), with a normal form k % M, k / M or k
+// that the checker derives (types.md Maps 6), or with a bucketed hash and
+// a written NormalForm and NormalKey k % M; a seed checks the derived
+// NormalForm is the one the shape gives. Each seed runs under the default
+// and the reference lowering (mapLowering=table, every derived NormalForm
+// false). The run also compares m == o and m != p, o built of the model's
+// entries in reverse order under another equal spelling and p the same
+// with one value changed, and reads m through generic functions over the
+// provider.
 //
 // Mutants only it kills (testdata/mutants.json): c5-table-hash-only,
 // c5-table-delete-hole, c5-table-grow-other-hash,
 // c5b-keytable-latest-spelling, c5b-map-equal-structural,
-// c5b-keytable-equal-spelling.
+// c5b-keytable-equal-spelling, c5d-normal-form-ignored,
+// c5d-written-normal-form-ignored.
 func TestProviderMapAgrees(t *testing.T) {
 	seeds := []uint64{}
 	for s := uint64(1); s <= 48; s++ {
@@ -48,7 +56,7 @@ func TestProviderMapAgrees(t *testing.T) {
 		// The provider: keys equal modulo mod with a bucketed hash (the
 		// table), or with a normal form (keyTable, types.md Maps 5):
 		// k % mod, k / mod, or k itself.
-		kind := seed % 4
+		kind := seed % 5
 		norm := func(k int) int {
 			switch kind {
 			case 2:
@@ -63,6 +71,7 @@ func TestProviderMapAgrees(t *testing.T) {
 			fmt.Sprintf("func Hash(_ Mod, k int) uint64 { hash(k %% %[1]d) }\n\nfunc Equal(_ Mod, a int, b int) bool { a %% %[1]d == b %% %[1]d }", mod),
 			fmt.Sprintf("func Hash(_ Mod, k int) uint64 { hash(k / %[1]d) }\n\nfunc Equal(_ Mod, a int, b int) bool { a / %[1]d == b / %[1]d }", mod),
 			"func Hash(_ Mod, k int) uint64 { hash(k) }\n\nfunc Equal(_ Mod, a int, b int) bool { a == b }",
+			fmt.Sprintf("func Hash(_ Mod, k int) uint64 { uint64((k %% %[1]d) %% %[2]d) }\n\nfunc Equal(_ Mod, a int, b int) bool { a %% %[1]d == b %% %[1]d }\n\nfunc NormalForm(_ Mod) bool { true }\n\nfunc NormalKey(_ Mod, k int) int { k %% %[1]d }", mod, buckets),
 		}[kind]
 		type entry struct{ k, v int }
 		var model []entry
@@ -92,7 +101,7 @@ func TestProviderMapAgrees(t *testing.T) {
 					model = append(model[:i], model[i+1:]...)
 				}
 			case 4:
-				fmt.Fprintf(&body, "\tConsole.Println(show(m.Get(%d)))\n", k)
+				fmt.Fprintf(&body, "\tConsole.Println(show(got(m, %d)))\n", k)
 				if i := find(k); i >= 0 {
 					fmt.Fprintf(&want, "%d\n", model[i].v)
 				} else {
@@ -155,24 +164,52 @@ func main() needs Console {
 	for k, v in m {
 		sum = sum + k * 1000 + v
 	}
-	Console.Println("\(len(m)) \(sum)")
+	Console.Println("\(size(m)) \(sum)")
 }
+
+func got[H Hashing[int]](m Map[int, int, H], k int) Option[int] { m.Get(k) }
+
+func size[H Hashing[int]](m Map[int, int, H]) int { len(m) }
 `, provider, body.String())
-		pkg := checked(t, src)
-		shaped := false
-		for _, f := range pkg.Funcs {
-			shaped = shaped || f.Name == "NormalKey"
-		}
-		if shaped != (kind != 0) {
-			t.Fatalf("seed %d: the provider's normal form derived: %v, want %v\n%s", seed, shaped, kind != 0, src)
-		}
-		out, err := RunMain(pkg, DefaultBudget(), Process{})
-		if err != nil {
-			t.Fatalf("seed %d: %v\n%s", seed, err, src)
-		}
-		if out.Skipped != "" || out.Stdout != want.String() {
-			t.Fatalf("seed %d: the table disagrees with the model (skipped %q)\ngot:\n%s\nwant:\n%s\nsource:\n%s\nreplay: go test ./internal/sketch/eval -run TestProviderMapAgrees -providermap.seed %d",
-				seed, out.Skipped, out.Stdout, want.String(), src, seed)
+		for _, lowering := range []string{"", "table"} {
+			restore := check.SetMapLowering(lowering)
+			pkg := checked(t, src)
+			restore()
+			form := derivedNormalForm(pkg)
+			wantForm := "false"
+			switch {
+			case kind == 4:
+				wantForm = "" // written, not derived
+			case kind != 0 && lowering == "":
+				wantForm = "true"
+			}
+			if form != wantForm {
+				t.Fatalf("seed %d, lowering %q: the derived NormalForm is %q, want %q\n%s", seed, lowering, form, wantForm, src)
+			}
+			out, err := RunMain(pkg, DefaultBudget(), Process{})
+			if err != nil {
+				t.Fatalf("seed %d: %v\n%s", seed, err, src)
+			}
+			if out.Skipped != "" || out.Stdout != want.String() {
+				t.Fatalf("seed %d, lowering %q: the Map disagrees with the model (skipped %q)\ngot:\n%s\nwant:\n%s\nsource:\n%s\nreplay: go test ./internal/sketch/eval -run TestProviderMapAgrees -providermap.seed %d",
+					seed, lowering, out.Skipped, out.Stdout, want.String(), src, seed)
+			}
 		}
 	}
+}
+
+// derivedNormalForm is the body of the NormalForm the checker derived in
+// pkg, "true" or "false", or "" when it derived none.
+func derivedNormalForm(pkg *check.Package) string {
+	for _, f := range pkg.Funcs {
+		if f.Name != "NormalForm" || f.Decl == nil || f.Decl.Derived == nil || f.Decl.Body == nil || len(f.Decl.Body.List) != 1 {
+			continue
+		}
+		if s, ok := f.Decl.Body.List[0].(*syntax.ExprStmt); ok {
+			if id, ok := s.X.(*syntax.Ident); ok {
+				return id.Name
+			}
+		}
+	}
+	return ""
 }

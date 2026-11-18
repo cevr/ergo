@@ -2,35 +2,37 @@ package check
 
 import (
 	"reflect"
-	"strings"
 
 	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// The normal-form shape (types.md, Maps 5; CONSTRAINTS C5b). A Hashing
-// provider has it when its Equal(a, b) is n(a) == n(b) and its Hash(k) is
-// hash(n(k)) for one pure, rowless expression n of the key alone: the same
-// expression, up to the name of its parameter, in both bodies, reading
-// neither the provider's value nor anything but the key. Then a Map with
-// that provider is the prelude's keyTable, Go's own map keyed by n's
-// result, each entry holding the key as first put; every other provider
-// keeps hashTable. The shape is read from the two bodies, so the hash and
-// the equality agree by construction, and no law verdict is needed to
-// apply it. It is the same rule for every provider and reads no
-// provider's name.
+// The normal-form shape (types.md, Maps 6; CONSTRAINTS C5b, C5d). Every
+// Hashing provider has the operations NormalForm() bool and NormalKey(k K)
+// K: a Map with a provider stores its keys in Go's own map keyed by
+// NormalKey(k) when NormalForm() is true, and in an open-addressing table
+// that calls Hash and Equal when it is false (the prelude's hashTable).
+// A provider may write both; when it writes neither, the checker writes
+// them beside its Hash, derived from the type (FuncDecl.Derived, as a
+// refinement's parse function is), and checks the package again, as for
+// its Map sites (mapprovider.go):
 //
-// The checker writes the normal form as a function of the provider's
-// package, `func NormalKey(_ P, k K) N { n(k) }`, derived from the type
-// (FuncDecl.Derived, as a refinement's parse function is), and the type
-// implements the prelude's normalKeyed[K, N] with it: the package is
-// checked again, as for its Map sites (mapprovider.go). A program cannot
-// write a derived function, so no other provider implements normalKeyed.
+//   - when its Equal(a, b) is n(a) == n(b) and its Hash(k) is hash(n(k))
+//     for one pure, rowless expression n of the key alone, of the key's
+//     own type (the same expression, up to the name of its parameter, in
+//     both bodies, reading neither the provider's value nor anything but
+//     the key): NormalForm true and NormalKey n(k);
+//   - else NormalForm false and NormalKey k.
+//
+// The shape is read from the two bodies, so the hash, the equality and the
+// normal form agree by construction; Hashing's laws check a written one.
+// It is the same rule for every provider and reads no provider's name.
 
 // mapLowering selects the reference lowering of Maps with a provider:
-// "table" makes every such Map a hashTable, a provider with a normal form
-// included (-X ergo.local/prototype/internal/sketch/check.mapLowering=table,
-// or SetMapLowering in a test). The default lowers by the shape.
+// "table" makes every derived NormalForm false, so every such Map is the
+// table (-X ergo.local/prototype/internal/sketch/check.mapLowering=table,
+// or SetMapLowering in a test). A provider's written NormalForm stands.
+// The default derives it by the shape.
 var mapLowering = ""
 
 // SetMapLowering selects the Map lowering for the checks that follow, and
@@ -41,90 +43,27 @@ func SetMapLowering(v string) (restore func()) {
 	return func() { mapLowering = old }
 }
 
-// normalKeyName is the operation of normalKeyed and the name of the
-// derived function that implements it.
-const normalKeyName = "NormalKey"
+// The operations of Hashing that the checker derives.
+const (
+	normalFormName = "NormalForm"
+	normalKeyName  = "NormalKey"
+)
 
-// normalFormOf is the normal form type N of the provider h of keys k: the
-// N of the normalKeyed[k, N] that h implements, or nil.
-func (c *checker) normalFormOf(h, k Type) Type {
-	n, ok := h.(*Named)
-	if !ok || mapLowering == "table" {
-		return nil
-	}
-	nk := c.preludeTypeObj("normalKeyed")
-	if nk == nil {
-		return nil
-	}
-	for _, o := range c.declaredOps(n) {
-		if o.origin() == nk.Type.(*Named) && len(o.TArgs) == 2 && c.identical(o.TArgs[0], k) {
-			return o.TArgs[1]
-		}
-	}
-	return nil
-}
-
-// normalFormGeneric is the S108 text of t, a Map whose provider has a
-// normal form (keyTable), passed where a Map over a provider type
-// parameter (hashTable[K, H, V] with H a type parameter) is expected, or
-// "". Such a Map is not that generic Map yet: its functions are
-// keyTable's, and a generic body is checked against hashTable's
-// (types.md, Maps 6).
-func (c *checker) normalFormGeneric(t, pt Type) string {
-	n, ok := t.(*Named)
-	if !ok || n.Obj == nil || n.Obj.Name != "keyTable" || !IsProviderMap(t) || !IsProviderMap(pt) {
-		return ""
-	}
-	_, h, _, _ := providerParts(pt)
-	if _, isParam := h.(*TypeParam); !isParam {
-		return ""
-	}
-	_, ph, _, _ := providerParts(t)
-	return "the argument has type " + t.String() + ", whose provider " + ph.String() + " has a normal form, so it is not yet a value of " +
-		pt.String() + " over a type parameter; write the function for " + ph.String() + " (types.md, Maps 6)"
-}
-
-// normalKeyDecl is the derived normal-form function of the type d, or nil.
-func (c *checker) normalKeyDecl(d *syntax.TypeDecl) *syntax.FuncDecl {
+// derivedNormal reports whether the checker derived d's normal form.
+func (c *checker) derivedNormal(d *syntax.TypeDecl) bool {
 	for _, f := range c.files {
 		for _, decl := range f.syntax.Decls {
-			if fd, ok := decl.(*syntax.FuncDecl); ok && fd.Derived == d && fd.Name.Name == normalKeyName {
-				return fd
+			if fd, ok := decl.(*syntax.FuncDecl); ok && fd.Derived == d && fd.Name.Name == normalFormName {
+				return true
 			}
 		}
 	}
-	return nil
+	return false
 }
 
-// shapeClause adds normalKeyed[K, N] to n's declared operation types,
-// when the checker derived its normal form fd: K is the key of the
-// Hashing[K] n implements, N fd's result.
-func (c *checker) shapeClause(n *Named, d *syntax.TypeDecl, ctx *typeCtx) {
-	fd := c.normalKeyDecl(d)
-	if fd == nil || fd.Type.Results == nil || len(fd.Type.Results.List) != 1 {
-		return
-	}
-	hashing, nk := c.hashingOf(), c.preludeTypeObj("normalKeyed")
-	if hashing == nil || nk == nil {
-		return
-	}
-	for i, op := range n.impls {
-		if op.origin() != hashing.Type.(*Named) || len(op.TArgs) != 1 {
-			continue
-		}
-		res := c.typExpr(fd.Type.Results.List[0].Type, ctx)
-		if isInvalid(res) {
-			return
-		}
-		n.impls = append(n.impls, c.instantiate(nk.Type.(*Named), []Type{op.TArgs[0], res}))
-		n.implExprs = append(n.implExprs, n.implExprs[i])
-		return
-	}
-}
-
-// writeShapes derives the normal-form function of each provider of the
-// package that has the shape, beside its Hash, and reports whether it
-// wrote one.
+// writeShapes derives NormalForm and NormalKey for each provider of the
+// package that writes neither, beside its Hash, and reports whether it
+// wrote any.
 func (c *checker) writeShapes() bool {
 	hashing := c.hashingOf()
 	if hashing == nil || c.pkg.Path == stdlib.PreludePath {
@@ -134,7 +73,7 @@ func (c *checker) writeShapes() bool {
 	for _, fi := range c.files {
 		for _, decl := range fi.syntax.Decls {
 			td, ok := decl.(*syntax.TypeDecl)
-			if !ok || td.TypeParams != nil || td.Name == nil {
+			if !ok || td.Name == nil {
 				continue
 			}
 			tn, _ := c.pkg.Scope.names[td.Name.Name].(*TypeName)
@@ -142,56 +81,134 @@ func (c *checker) writeShapes() bool {
 				continue
 			}
 			named, _ := tn.Type.(*Named)
-			if named == nil || c.normalKeyDecl(td) != nil {
+			if named == nil || c.derivedNormal(td) {
 				continue
 			}
 			for _, op := range named.impls {
 				if op.origin() != hashing.Type.(*Named) || len(op.TArgs) != 1 {
 					continue
 				}
-				if fd, file := c.shapeOf(named, td); fd != nil {
-					file.Decls = append(file.Decls, fd)
+				if fds, file := c.normalDecls(named, td); fds != nil {
+					file.Decls = append(file.Decls, fds...)
 					wrote = true
 				}
+				break
 			}
 		}
 	}
 	return wrote
 }
 
-// shapeOf is the derived normal-form function of the provider n, declared
-// by td, and the file that holds its Hash; nil when n's Hash and Equal do
-// not have the shape.
-func (c *checker) shapeOf(n *Named, td *syntax.TypeDecl) (*syntax.FuncDecl, *syntax.File) {
-	if _, own := c.methodOf(n, normalKeyName); own != nil {
-		return nil, nil // the package's own function of that name stands
+// normalDecls are the derived NormalForm and NormalKey of the provider n,
+// declared by td, and the file that holds its Hash; nil when n writes
+// either or has no Hash of its package's own.
+func (c *checker) normalDecls(n *Named, td *syntax.TypeDecl) ([]syntax.Decl, *syntax.File) {
+	for _, name := range []string{normalFormName, normalKeyName} {
+		if _, own := c.methodOf(n, name); own != nil {
+			return nil, nil // the package's own functions stand
+		}
 	}
 	_, hf := c.methodOf(n, "Hash")
-	_, ef := c.methodOf(n, "Equal")
-	if hf == nil || ef == nil || hf.Decl == nil || ef.Decl == nil || hf.Pkg != c.pkg || ef.Pkg != c.pkg ||
-		hf.Decl.Derived != nil || ef.Decl.Derived != nil {
+	if hf == nil || hf.Decl == nil || hf.Pkg != c.pkg || hf.Decl.Type == nil || hf.Decl.Type.Params == nil || hf.Decl.Body == nil {
 		return nil, nil
+	}
+	var file *syntax.File
+	for _, fi := range c.files {
+		for _, d := range fi.syntax.Decls {
+			if d == syntax.Decl(hf.Decl) {
+				file = fi.syntax
+			}
+		}
+	}
+	// The receiver and the key of Hash(p P, k K), as written.
+	ps := hf.Decl.Type.Params.List
+	var recvType, keyType syntax.Expr
+	keyName := ""
+	switch {
+	case len(ps) == 1 && len(ps[0].Names) == 2:
+		recvType, keyType, keyName = ps[0].Type, ps[0].Type, ps[0].Names[1].Name
+	case len(ps) == 2 && len(ps[0].Names) <= 1 && len(ps[1].Names) <= 1:
+		recvType, keyType = ps[0].Type, ps[1].Type
+		if len(ps[1].Names) == 1 {
+			keyName = ps[1].Names[0].Name
+		}
+	}
+	if file == nil || recvType == nil {
+		return nil, nil
+	}
+	form, key := false, syntax.Expr(nil)
+	if nx := c.shapeOf(n, hf); nx != nil && mapLowering != "table" {
+		form, key = true, cloneSyntax(nx)
+	}
+	if key == nil {
+		if keyName == "" || keyName == "_" {
+			keyName = "key"
+		}
+		key = &syntax.Ident{NamePos: hf.Decl.Name.NamePos, Name: keyName}
+	} else if keyName == "" || keyName == "_" {
+		return nil, nil // n reads a key Hash does not name
+	}
+	pos := hf.Decl.Name.NamePos
+	recv := func() *syntax.Field {
+		return &syntax.Field{Names: []*syntax.Ident{{NamePos: pos, Name: "_"}}, Type: cloneSyntax(recvType)}
+	}
+	decl := func(name string, params []*syntax.Field, result syntax.Expr, body syntax.Expr) *syntax.FuncDecl {
+		return &syntax.FuncDecl{
+			Func:       hf.Decl.Func,
+			Recv:       cloneSyntax(hf.Decl.Recv),
+			Name:       &syntax.Ident{NamePos: pos, Name: name},
+			TypeParams: cloneSyntax(hf.Decl.TypeParams),
+			Type: &syntax.FuncType{
+				Func:    hf.Decl.Type.Func,
+				Params:  &syntax.FieldList{List: params},
+				Results: &syntax.FieldList{List: []*syntax.Field{{Type: result}}},
+			},
+			Body: &syntax.BlockStmt{
+				Lbrace: hf.Decl.Body.Lbrace,
+				List:   []syntax.Stmt{&syntax.ExprStmt{X: body}},
+				Rbrace: hf.Decl.Body.Rbrace,
+			},
+			Derived: td,
+		}
+	}
+	formName := "false"
+	if form {
+		formName = "true"
+	}
+	keyField := &syntax.Field{Names: []*syntax.Ident{{NamePos: pos, Name: keyName}}, Type: cloneSyntax(keyType)}
+	return []syntax.Decl{
+		decl(normalFormName, []*syntax.Field{recv()}, &syntax.Ident{NamePos: pos, Name: "bool"}, &syntax.Ident{NamePos: pos, Name: formName}),
+		decl(normalKeyName, []*syntax.Field{recv(), keyField}, cloneSyntax(keyType), key),
+	}, file
+}
+
+// shapeOf is n of the provider's shape, Hash(k) = hash(n(k)) and Equal(a,
+// b) = n(a) == n(b), as Hash writes it, or nil.
+func (c *checker) shapeOf(n *Named, hf *Func) syntax.Expr {
+	_, ef := c.methodOf(n, "Equal")
+	if ef == nil || ef.Decl == nil || ef.Pkg != c.pkg || hf.Decl.Derived != nil || ef.Decl.Derived != nil {
+		return nil
 	}
 	for _, f := range []*Func{hf, ef} {
 		if fp, ok := c.pkg.Info.Footprints[f.Decl]; !ok || !fp.Empty() {
-			return nil, nil // n must be pure and rowless
+			return nil // n must be pure and rowless
 		}
 	}
 	hp, ep := c.paramVars(hf.Decl), c.paramVars(ef.Decl)
 	if len(hp) != 2 || len(ep) != 3 || hp[1] == nil || ep[1] == nil || ep[2] == nil {
-		return nil, nil
+		return nil
 	}
 	he, ee := soleExpr(hf.Decl), soleExpr(ef.Decl)
 	call, ok := unparen(he).(*syntax.CallExpr)
 	if !ok || len(call.Args) != 1 {
-		return nil, nil
+		return nil
 	}
 	if cl := c.pkg.Info.Calls[call]; cl == nil || cl.Kind != CallHash {
-		return nil, nil
+		return nil
 	}
 	bin, ok := unparen(ee).(*syntax.BinaryExpr)
 	if !ok || bin.Op != syntax.EQL {
-		return nil, nil
+		return nil
 	}
 	// The receivers and the other parameter are not n's: n reads its
 	// key alone.
@@ -204,66 +221,13 @@ func (c *checker) shapeOf(n *Named, td *syntax.TypeDecl) (*syntax.FuncDecl, *syn
 	ex, ey, hx := unparen(bin.X), unparen(bin.Y), unparen(call.Args[0])
 	if !c.sameExpr(ex, ey, map[Object]Object{ep[1]: ep[2]}, outside) ||
 		!c.sameExpr(ex, hx, map[Object]Object{ep[1]: hp[1]}, outside) {
-		return nil, nil
+		return nil
 	}
-	name := c.spelling(c.pkg.Info.Types[bin.X])
-	if name == "" {
-		return nil, nil
+	// n maps a key to a key: its result is Equal's key type.
+	if v, ok := ep[1].(*Var); !ok || !c.identical(c.pkg.Info.Types[bin.X], v.Type) {
+		return nil
 	}
-	var file *syntax.File
-	for _, fi := range c.files {
-		for _, d := range fi.syntax.Decls {
-			if d == syntax.Decl(hf.Decl) {
-				file = fi.syntax
-			}
-		}
-	}
-	if file == nil {
-		return nil, nil
-	}
-	pos := hf.Decl.Name.NamePos
-	fd := &syntax.FuncDecl{
-		Func: hf.Decl.Func,
-		Name: &syntax.Ident{NamePos: pos, Name: normalKeyName},
-		Type: &syntax.FuncType{
-			Func:    hf.Decl.Type.Func,
-			Params:  cloneSyntax(hf.Decl.Type.Params),
-			Results: &syntax.FieldList{List: []*syntax.Field{{Type: &syntax.Ident{NamePos: pos, Name: name}}}},
-		},
-		Body: &syntax.BlockStmt{
-			Lbrace: hf.Decl.Body.Lbrace,
-			List:   []syntax.Stmt{&syntax.ExprStmt{X: cloneSyntax(call.Args[0])}},
-			Rbrace: hf.Decl.Body.Rbrace,
-		},
-		Derived: td,
-	}
-	return fd, file
-}
-
-// spelling is the name the package writes the comparable type t with:
-// a basic type, or a type of the package with no type arguments; "" for
-// any other, which keeps its provider on the table.
-func (c *checker) spelling(t Type) string {
-	if t == nil || !comparable(t) {
-		return ""
-	}
-	switch t := t.(type) {
-	case *Basic:
-		if int(t.Kind) < len(Typ) && Typ[t.Kind] == t && !strings.HasPrefix(t.Name, "untyped") {
-			if o, _ := c.universe.lookup(t.Name); o != nil {
-				if tn, ok := o.(*TypeName); ok && tn.Type == t && c.pkg.Scope.names[t.Name] == nil {
-					return t.Name
-				}
-			}
-		}
-	case *Named:
-		if t.Obj != nil && t.Obj.Pkg == c.pkg && len(t.TArgs) == 0 {
-			if tn, ok := c.pkg.Scope.names[t.Obj.Name].(*TypeName); ok && tn == t.Obj {
-				return t.Obj.Name
-			}
-		}
-	}
-	return ""
+	return call.Args[0]
 }
 
 // paramVars are the variables of d's parameters, in order, nil for an
