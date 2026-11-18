@@ -395,7 +395,7 @@ func (m *roundModel) edit() []string {
 			}
 			funcs, _, _ := pieces(src)
 			old := funcs[names[m.r.IntN(len(names))]]
-			m.files["m/b/f0.go"] = strings.Replace(src, old, strings.Replace(old, "\treturn x", "\t// note\n\treturn x", 1), 1)
+			m.files["m/b/f0.go"] = strings.Replace(src, old, strings.Replace(old, "\treturn x", "\t// note\n\t// (two lines: a later body moves past the diff's one-line margin)\n\treturn x", 1), 1)
 			done = append(done, "comment m/b/f0.go")
 		}
 	}

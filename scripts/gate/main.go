@@ -402,7 +402,14 @@ func main() {
 	replayOut := flag.String("o", "", "with -replay-affected: write the rows to this file instead of stdout")
 	replayReds := flag.String("reds", "", "with -replay-affected: the reds file")
 	backtest := flag.Bool("backtest", false, "backtest the round tier over the coverage store and the ledgers at the store's commit nearest to HEAD, replay it from there to HEAD, and exit (the full tier's step \"coverage store backtest\")")
+	blameTarget := flag.String("blame", "", "DIR:TEST with one argument GOOD..BAD: list the first-parent tips of the range whose change reaches the test by the coverage store's record, with the reason, precise ones first, and exit (BULK MODE's bisect)")
 	flag.Parse()
+	if *blameTarget != "" {
+		if flag.NArg() != 1 {
+			fatal(errors.New("-blame DIR:TEST takes one argument, GOOD..BAD"))
+		}
+		os.Exit(runBlame(*blameTarget, flag.Arg(0), os.Stdout))
+	}
 	if *backtest {
 		os.Exit(runBacktest(os.Stdout))
 	}
