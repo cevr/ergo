@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -48,6 +49,9 @@ func buildCommand(args []string) error {
 	if opts.emitted {
 		return printEmitted(opts, build.ModeBuild)
 	}
+	if opts.phone != (gobind.Platform{}) {
+		return buildPhone(opts)
+	}
 	output, err := buildSource(opts, outputPath)
 	if err != nil {
 		return err
@@ -73,8 +77,100 @@ func printEmitted(opts fileOptions, mode build.Mode) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("emitted %s %s/%s\n", digest, opts.platform.GOOS, opts.platform.GOARCH)
+	platform := opts.platform
+	if opts.phone != (gobind.Platform{}) {
+		platform = opts.phone
+	}
+	fmt.Printf("emitted %s %s\n", digest, platform)
 	return nil
+}
+
+// buildPhone is ergo build for a phone platform (gobind.Phones; interop.md,
+// Platforms). It checks the source against the phone's bindings platform,
+// writes the generated Go module into the emission cache as every build
+// does, and stops before the link: a phone program is linked by its
+// packager as a library (a c-archive on iOS, a c-shared one on Android)
+// with cgo and the platform's own C compiler, which no step of ergo runs
+// (MB2: one packager per host, none in the compiler). It prints on stdout
+// how to compile the module: WORK=DIR, the module; GO= and GOROOT=, ergo's
+// go command and the root that holds the patched compile, the only one
+// that reads the IR bodies (the root's bin is the release's, so the go
+// command finds the patched compile only with GOROOT set, as every ergo
+// build sets it); and GOFLAGS=, the flags that hand each package its IR
+// file (build.IRFile), then the build's tags and the user's GOFLAGS. Stock
+// Go refuses the module ("missing function body" at each IR body).
+func buildPhone(opts fileOptions) error {
+	switch {
+	case opts.output != "":
+		return invalidInvocation(fmt.Errorf("-o names an executable, and a build for %s, a phone platform, links none: its packager links the module", opts.phone))
+	case opts.goText != "":
+		return invalidInvocation(fmt.Errorf("-go-text builds for the host platform %s/%s only, not %s", runtime.GOOS, runtime.GOARCH, opts.phone))
+	}
+	l, err := loadForPlatform(opts.file, opts.target, opts.platform)
+	if err != nil {
+		return err
+	}
+	if !l.result.Checked {
+		return refuseUnchecked(l, opts)
+	}
+	root, err := build.DefaultRoot()
+	if err != nil {
+		return err
+	}
+	tc, err := buildAction(opts)
+	if err != nil {
+		return err
+	}
+	module, err := sketchfront.Build(l.analysis, sketchfront.BuildRequest{
+		Mode:      build.ModeBuild,
+		Source:    l.source.Admitted(),
+		Cache:     build.Cache{Root: root},
+		Toolchain: tc,
+		IR:        true,
+		Stderr:    os.Stderr,
+		Ledger:    ledgerPath(opts.file),
+		Locked:    opts.locked,
+		// The module is the product: Build returns it before any link.
+		Reuse: func(build.Module) bool { return true },
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("WORK=%s\nGO=%s\nGOROOT=%s\nGOFLAGS=%s\n", module.Dir, tc.Go, tc.Root, phoneFlags(module.Dir, tc))
+	return nil
+}
+
+// phoneFlags is the GOFLAGS value that compiles the module in dir with the
+// patched compile: for each folder with an IR file, the per-package
+// -gcflags that reads it, the pattern as go build in the module's folder
+// names it ("." the root, "./D" the folder D), each one quoted whole so a
+// path with a space stays one flag; then -tags, then the user's GOFLAGS.
+func phoneFlags(dir string, tc build.Toolchain) string {
+	var rels []string
+	filepath.WalkDir(dir, func(p string, e fs.DirEntry, err error) error {
+		if err == nil && !e.IsDir() && e.Name() == build.IRFile {
+			if rel, err := filepath.Rel(dir, filepath.Dir(p)); err == nil {
+				rels = append(rels, filepath.ToSlash(rel))
+			}
+		}
+		return nil
+	})
+	slices.Sort(rels)
+	var flags []string
+	for _, rel := range rels {
+		pattern := "."
+		if rel != "." {
+			pattern = "./" + rel
+		}
+		flags = append(flags, "'-gcflags="+pattern+"=-ergoir="+filepath.Join(dir, filepath.FromSlash(rel), build.IRFile)+"'")
+	}
+	if len(tc.Tags) > 0 {
+		flags = append(flags, "-tags="+strings.Join(tc.Tags, ","))
+	}
+	if tc.GOFLAGS != "" {
+		flags = append(flags, tc.GOFLAGS)
+	}
+	return strings.Join(flags, " ")
 }
 
 // runCommand builds a native executable into a private temporary
@@ -318,13 +414,36 @@ func goCommand() (toolchain.Toolchain, error) {
 	return toolchain.Select(os.Getenv, root, os.Stderr)
 }
 
-// platformOf is the platform a build links for: --platform OS/ARCH when
-// given (spelled), else GOOS and GOARCH of the environment, each one unset
-// or empty meaning the compiler's own (runtime.GOOS, runtime.GOARCH). A
-// platform outside the target list (gobind.Platforms, the platforms every
-// generated Go binding holds for) is the EF110 refusal. A module binding
-// must also state the selected platform before the build can link it.
+// platformOf is the platform the checker reads the bindings for, of the
+// platform a command is for (targetPlatforms).
 func platformOf(spelled string, given bool, goos, goarch string) (gobind.Platform, error) {
+	checked, _, err := targetPlatforms(spelled, given, goos, goarch)
+	return checked, err
+}
+
+// targetPlatforms is the platform a command is for: --platform OS/ARCH
+// when given (spelled), else GOOS and GOARCH of the environment, each one
+// unset or empty meaning the compiler's own (runtime.GOOS,
+// runtime.GOARCH). It returns the platform the checker reads the bindings
+// for and, for a phone (gobind.Phones), the phone, whose bindings are its
+// Bindings platform's. A platform outside the target list
+// (gobind.Platforms, the platforms every generated Go binding holds for,
+// and gobind.Phones) is the EF110 refusal. A module binding must also
+// state the checked platform before the build can link it.
+func targetPlatforms(spelled string, given bool, goos, goarch string) (checked, phone gobind.Platform, err error) {
+	p, err := targetOf(spelled, given, goos, goarch)
+	if err != nil {
+		return gobind.Platform{}, gobind.Platform{}, err
+	}
+	if ph, ok := gobind.PhoneOf(p); ok {
+		return ph.Bindings, ph.Platform, nil
+	}
+	return p, gobind.Platform{}, nil
+}
+
+// targetOf is platformOf's platform as named, refused when it is not on
+// the target list.
+func targetOf(spelled string, given bool, goos, goarch string) (gobind.Platform, error) {
 	p := gobind.Platform{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
 	if goos != "" {
 		p.GOOS = goos
@@ -339,12 +458,15 @@ func platformOf(spelled string, given bool, goos, goarch string) (gobind.Platfor
 		}
 		p = gobind.Platform{GOOS: goos, GOARCH: goarch}
 	}
-	if slices.Contains(gobind.Platforms, p) {
+	if _, phone := gobind.PhoneOf(p); phone || slices.Contains(gobind.Platforms, p) {
 		return p, nil
 	}
-	names := make([]string, len(gobind.Platforms))
-	for i, listed := range gobind.Platforms {
-		names[i] = listed.String()
+	var names []string
+	for _, listed := range gobind.Platforms {
+		names = append(names, listed.String())
+	}
+	for _, listed := range gobind.Phones {
+		names = append(names, listed.Platform.String())
 	}
 	diagnostic := report.UnsupportedPlatform(p.String(), names)
 	return gobind.Platform{}, fmt.Errorf("%s: %s", diagnostic.Code, diagnostic.Message)

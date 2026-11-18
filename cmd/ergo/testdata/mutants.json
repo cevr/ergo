@@ -170,8 +170,8 @@
       "name": "dist1-platform-unchecked",
       "origin": "wf10 DIST1",
       "file": "cmd/ergo/build.go",
-      "from": "if slices.Contains(gobind.Platforms, p) {",
-      "to": "if true || slices.Contains(gobind.Platforms, p) {",
+      "from": "if _, phone := gobind.PhoneOf(p); phone || slices.Contains(gobind.Platforms, p) {",
+      "to": "if _, phone := gobind.PhoneOf(p); true || phone || slices.Contains(gobind.Platforms, p) {",
       "rule": "A platform outside the target list is the EF110 refusal, however it was named.",
       "killers": ["cmd/ergo:TestFileCommandsRefuseOptionsTheyDoNotTake", "cmd/ergo:TestPlatformOfABuild"]
     },
@@ -545,6 +545,10 @@
       "killers": ["cmd/ergo:TestGoTraceTagsTheBuild"]
     },
     {"name":"version-reads-go-release","origin":"wf10 SPLIT E1","file":"cmd/ergo/version.go","from":"fmt.Printf(\"ergo %s, Go %s\\n\", report.Version,","to":"fmt.Printf(\"ergo %s, Go %s\\n\", report.Go,","rule":"ergo version prints ergo's own version, not the Go release it pins.","killers":["cmd/ergo:TestVersionNamesErgo"]},
-    {"name":"cases-flag-failure-exits-zero","origin":"wf10 SPLIT E2","file":"cmd/ergo/cases.go","from":"\tif l.Run(os.Stdout, output.Path(), loaded, memory) != 0 {\n","to":"\tif l.Run(os.Stdout, output.Path(), loaded, memory) < 0 {\n","rule":"ergo test --cases exits 1 when a case fails, so a script or CI sees the failure.","killers":["cmd/ergo:TestCasesFlagRunsTheBuiltProgram"]}
+    {"name":"cases-flag-failure-exits-zero","origin":"wf10 SPLIT E2","file":"cmd/ergo/cases.go","from":"\tif l.Run(os.Stdout, output.Path(), loaded, memory) != 0 {\n","to":"\tif l.Run(os.Stdout, output.Path(), loaded, memory) < 0 {\n","rule":"ergo test --cases exits 1 when a case fails, so a script or CI sees the failure.","killers":["cmd/ergo:TestCasesFlagRunsTheBuiltProgram"]},
+    {"name":"mb2-phone-other-bindings","origin":"wf10 MB2","file":"internal/gobind/load.go","from":"{Platform{\"ios\", \"arm64\"}, Platform{\"darwin\", \"arm64\"}},","to":"{Platform{\"ios\", \"arm64\"}, Platform{\"darwin\", \"amd64\"}},","rule":"A phone checks against the bindings of the platform Go's build constraints read it as: ios/arm64 against darwin/arm64.","killers":["cmd/ergo:TestPlatformOfABuild"],"anchor":{"tests":["cmd/ergo:TestPlatformOfABuild"]}},
+    {"name":"mb2-phone-run-admitted","origin":"wf10 MB2","file":"cmd/ergo/main.go","from":"command == \"run\" || command == \"test\"","to":"command == \"test\"","rule":"ergo run refuses a phone platform: a phone program is a library its packager links, and nothing here can run it.","killers":["cmd/ergo:TestPlatformOfABuild"],"anchor":{"tests":["cmd/ergo:TestPlatformOfABuild"]}},
+    {"name":"mb2-phone-linked","origin":"wf10 MB2","file":"cmd/ergo/build.go","from":"return buildPhone(opts)","to":"_ = buildPhone","rule":"ergo build for a phone writes the module and stops before the link, printing WORK=, GO=, GOROOT= and GOFLAGS=; it writes no executable.","killers":["cmd/ergo:TestPhoneModuleTypechecks"],"anchor":{"tests":["cmd/ergo:TestPhoneModuleTypechecks"]}},
+    {"name":"mb2-phone-no-ir-flag","origin":"wf10 MB2","file":"cmd/ergo/build.go","from":"flags = append(flags, \"'-gcflags=\"","to":"_ = append(flags, \"'-gcflags=\"","rule":"The GOFLAGS a phone build prints hand each package its IR file; without them the compile stops at missing function body.","killers":["cmd/ergo:TestPhoneModuleTypechecks"],"anchor":{"tests":["cmd/ergo:TestPhoneModuleTypechecks"]}}
   ]
 }
