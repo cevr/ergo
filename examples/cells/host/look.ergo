@@ -414,7 +414,9 @@ func labelOf[E](n ui.Node[E]) Option[string] {
 	case ui.TextNode as x:
 		Some{Value: x.Value}
 	case ui.InputNode as x:
-		Some{Value: x.Placeholder}
+		// A field's name, as ui.Find names it: its label, else its
+		// placeholder (FK9b's LabelledField).
+		Some{Value: if x.Label != "" { x.Label } else { x.Placeholder }}
 	case ui.LiveNode as x:
 		Some{Value: x.Text}
 	case ui.SemanticNode[E] as x:
