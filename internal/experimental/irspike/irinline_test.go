@@ -92,6 +92,24 @@ func TestIRInlineMatchesSource(t *testing.T) {
 		if lower.IRDropOn() && rep.Dropped == 0 {
 			t.Errorf("seed %d: no discarded call named the variant with no result\n%s", seed, replay)
 		}
+		// The arena helpers (DROPPED-IR): the copies of Free and Put hold
+		// sites in std bodies, take's value is zeroed only once Free's copy
+		// wrote it, the Pair put in a freed slot is written field by field,
+		// and the IR builds the variant with no result.
+		for _, c := range []struct {
+			on   bool
+			n    int
+			what string
+		}{
+			{lower.IRInlineOn() && lower.IRStdInlOn(), rep.StdInlined, "call in a library body was inlined"},
+			{lower.IRInlineOn() && lower.IRDeadZeroOn(), rep.DeadZeros, "dead zero value set was dropped"},
+			{lower.IRInlineOn() && lower.IRStoreOn(), rep.StoreFields, "stored record literal was written field by field"},
+			{lower.IRDropOn() && lower.IRDropBodyOn(), rep.DropBodies, "variant with no result was the IR's"},
+		} {
+			if c.on && c.n == 0 {
+				t.Errorf("seed %d: no %s\n%s", seed, c.what, replay)
+			}
+		}
 	}
 }
 
