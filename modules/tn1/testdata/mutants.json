@@ -1,0 +1,11 @@
+{
+  "about": "module tn1's mutants (wf10 TS1): edits of the TN1 engine that the conformance vectors (VectorsAreReproduced) or the law PermilleRises must notice; judged by scripts/examples -modules tn1.",
+  "mutants": [
+    {"name":"ts1-out-scale-dropped","origin":"wf10 TS1","file":"modules/tn1/run.ergo","from":"score += n.outScale * n.out[j] * (sum - n.hiddenBias[j])","to":"score += n.out[j] * (sum - n.hiddenBias[j])","rule":"A hidden unit adds OutScale times its out trit times its excess over its bias.","anchor":{"tests":["examples:modules/tn1"]},"killers":["examples:modules/tn1"]},
+    {"name":"ts1-window-offset","origin":"wf10 TS1","file":"modules/tn1/run.ergo","from":"let at = i + o - 1","to":"let at = i + o","rule":"A hidden unit reads the lines i-1, i, i+1 and i+2.","anchor":{"tests":["examples:modules/tn1"]},"killers":["examples:modules/tn1"]},
+    {"name":"ts1-conv-bias-strict","origin":"wf10 TS1","file":"modules/tn1/run.ergo","from":"if sum >= n.convBias[f] {","to":"if sum > n.convBias[f] {","rule":"A conv window fires when its sum is at least the filter's bias.","anchor":{"tests":["examples:modules/tn1"]},"killers":["examples:modules/tn1"]},
+    {"name":"ts1-no-lowering","origin":"wf10 TS1","file":"modules/tn1/run.ergo","from":"\t\treturn b + 32\n","to":"\t\treturn b\n","rule":"The filters read the comment with A to Z lowered.","anchor":{"tests":["examples:modules/tn1"]},"killers":["examples:modules/tn1"]},
+    {"name":"ts1-low-clamp","origin":"wf10 TS1","file":"modules/tn1/run.ergo","from":"\tif score < -8 {\n\t\treturn sigmoid[0]\n\t}\n","to":"","rule":"A score under -8 has the probability of -8 (law PermilleRises reaches it).","anchor":{"tests":["examples:modules/tn1"]},"killers":["examples:modules/tn1"]},
+    {"name":"ts1-pack-minus","origin":"wf10 TS1","file":"modules/tn1/net.ergo","from":"\t\t\t\tt = 2\n","to":"\t\t\t\tt = 0\n","rule":"A packed -1 trit is the base-3 digit 2, so the model id names the weights.","anchor":{"tests":["examples:modules/tn1"]},"killers":["examples:modules/tn1"]}
+  ]
+}

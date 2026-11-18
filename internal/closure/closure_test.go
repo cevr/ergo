@@ -132,6 +132,10 @@ var declared = map[string][]allowance{
 		"examples/lintpack/policy.json", "examples/lintpack/provider.lint.json", "examples/lintpack/failure.lint.json", "examples/lintpack/bin/policy-lint",
 		"examples/lintpack/testdata/provider_boundary.ergo", "examples/lintpack/testdata/provider_boundary.lint.json",
 		"examples/lintpack/testdata/forbidden_failure.ergo", "examples/lintpack/testdata/forbidden_failure.lint.json"),
+	"internal/sketch/lint/features": {
+		{"examples", subtree, "TestRecordSurvivesWhitespace draws corpus files by seed from every example (filepath.WalkDir)"},
+		{"modules/tn1/testdata/vectors", subtree, "TestVectorRecordsRegenerate reads the conformance vectors' sources and records, which the Ergo module tn1 checks its engine against"},
+	},
 	"internal/sketch/lint": {
 		{"examples", subtree, "TestLayoutPresetOnExamples lints every example module under the layout preset (DiscoverPackages walks each, the loader reads its sources)"},
 	},
