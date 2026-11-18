@@ -1,6 +1,7 @@
 {
   "about": "The mutant ledger of package runtime (runtimefiles): edits of the core runtime packages that a runtime test must kill. Run it with go run ./scripts/mutants ./runtime (docs/tooling.md, \"Mutant ledger\"). Seeded by binsize BS1.",
   "mutants": [
+    {"name":"fusion-embed-drops-fuse","origin":"wf10 FUSION-EVIDENCE","file":"runtime/embed.go","from":"\"explore_on.go\", \"fuse.go\", \"goarg.go\",","to":"\"explore_on.go\", \"goarg.go\",","rule":"The emitted module holds runtime/v1/fuse.go.","killers":["runtime:TestPackagesMatchTheirDirectories"]},
     {
       "name": "bs1-core-imports-crypto",
       "origin": "wf10 binsize BS1",

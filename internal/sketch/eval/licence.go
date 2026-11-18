@@ -208,7 +208,6 @@ func licenceOrdered(pkg *check.Package, law *check.Law, b Budget, corpus []strin
 func (in *interp) licence(law *check.Law, l *Licence, corpus []string) {
 	rw := law.TopRewrite()
 	fr := in.newFrame(law.Pkg, law.Decl)
-	fr.env = lawEnv(law) // a law over function parameters runs at int (licencefuncs.go)
 	// types are the parameters' types as the run reads them, and families
 	// the pure functions a function parameter takes (licencefuncs.go).
 	n := len(law.Params)
@@ -386,7 +385,6 @@ func (in *interp) licence(law *check.Law, l *Licence, corpus []string) {
 		}
 		frameAt := func() *frame {
 			cf := in.newFrame(law.Pkg, law.Decl)
-			cf.env = fr.env
 			for i, v := range law.Params {
 				cf.bind(v, vals[i])
 			}

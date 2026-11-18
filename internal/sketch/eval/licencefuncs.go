@@ -8,9 +8,11 @@ import (
 // The licence run of a law over function parameters (FUSION-EVIDENCE;
 // owner q234; types.md, Laws 14, Over function parameters):
 //
-//  1. The law runs at int: each of its own type parameters stands for int
-//     in the run's frames (lawEnv), as the checker reads its value class
-//     at int, and each parameter's type is read so (lawParamType).
+//  1. The law runs at int: each parameter's type is read with the law's
+//     own type parameters at int (lawParamType), and its classes and
+//     drawn values are ints. No frame needs the binding: a rewrite's sides
+//     are calls over its parameters (S108), and a callee's type
+//     arguments come from its call.
 //  2. A parameter of a function type takes a family of pure functions
 //     (funcFamily) as its classes: each member is a class the run must
 //     reach, alone and paired with each class of each other parameter, and
@@ -31,19 +33,6 @@ import (
 // pure functions, and their failures differ by kind (which elements a
 // stage visits, in which order, and which defect comes first), not by a
 // function's values.
-
-// lawEnv is the run's type environment: each of law's own type
-// parameters stands for int; nil for a law with none.
-func lawEnv(law *check.Law) *tenv {
-	if len(law.TParams) == 0 {
-		return nil
-	}
-	e := &tenv{}
-	for _, tp := range law.TParams {
-		e.bind(tp, rtype{t: check.Typ[check.Int]})
-	}
-	return e
-}
 
 // lawParamType is t with each of law's own type parameters read at int,
 // through slices and function types (the parameter types a fusion law

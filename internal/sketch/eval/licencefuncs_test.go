@@ -8,7 +8,7 @@ import (
 )
 
 // licenceFusionSrc is std slices' Transform, Filter and the one-loop
-// helpers, with the four fusion laws as std states them, and two false
+// helpers, with the four fusion laws as std states them, and three false
 // laws over functions.
 const licenceFusionSrc = `func Transform[T, U, E, R](xs []T, f func(x T) U fails E needs R) []U fails E needs R {
 	let mut out = []U{}
@@ -60,6 +60,8 @@ law FilterThenTransform[T, U comparable](xs []T, p func(x T) bool, f func(x T) U
 law TwiceIsOnce[T comparable](xs []T, f func(x T) T) { Transform(Transform(xs, f), f) } == { Transform(xs, f) }
 
 law FilterBeforeTransform[T comparable](xs []T, f func(x T) T, p func(x T) bool) { Filter(Transform(xs, f), p) } == { FilterTransform(xs, p, f) }
+
+law LenKept(xs []int, f func(x int) int) { len(Transform(xs, f)) } == { len(xs) }
 `
 
 // TestLicenceOverFunctions: the licence run of a law over function
@@ -74,7 +76,8 @@ law FilterBeforeTransform[T comparable](xs []T, f func(x T) T, p func(x T) bool)
 // defect of g first, and is refuted), fusion-licence-no-defect-member (the
 // int family has no function that raises a defect, so no case asks which
 // defect comes first), fusion-licence-unrun (a law over functions is
-// skipped by its Unrun, testplan's reason).
+// skipped by its Unrun, testplan's reason), fusion-licence-defect-both-ways (a left side's defect is read
+// as the right side's outcome too, so LenKept holds).
 func TestLicenceOverFunctions(t *testing.T) {
 	pkg, diags := check.CheckSource(licenceFusionSrc)
 	if pkg == nil || len(diags) > 0 {
@@ -113,5 +116,11 @@ func TestLicenceOverFunctions(t *testing.T) {
 	l := run("FilterBeforeTransform")
 	if l.Verdict != "refuted" || !strings.Contains(l.Line(), "f = func") {
 		t.Errorf("FilterBeforeTransform: %s; want refuted at named family members", l.Line())
+	}
+	// LenKept holds for every total f, but its left side runs f and its
+	// right side never does: at f = func defect at odd x the staged form
+	// defects and the rewritten one returns, which is a refutation.
+	if l := run("LenKept"); l.Verdict != "refuted" || !strings.Contains(l.Line(), "f = func defect at odd x") {
+		t.Errorf("LenKept: %s; want refuted where only the left side defects", l.Line())
 	}
 }
