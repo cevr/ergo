@@ -143,6 +143,11 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 				missed[form] = append(missed[form], rel(fo.dir)+"/"+key)
 			}
 			reach[form] = r
+			// The fixture writes each short form where its context fixes
+			// it: every such site of it is typed.
+			if group, _ := corpusGroup(fo.dir); group == "cases" && !have[key] && (form == "CompositeLit elided" || form == "Ident patbinder") {
+				t.Errorf("%s/%s: the fixture's %s is untyped", rel(fo.dir), key, form)
+			}
 		}
 		// The Go checker accepts every folder it types, so a diagnostic
 		// of the Ergo side is a false one (S3d5).
