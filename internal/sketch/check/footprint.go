@@ -587,7 +587,14 @@ func (fp *footprinter) call(n *fpNode, x *syntax.CallExpr, c *Call) {
 		return
 	}
 	switch c.Kind {
-	case CallConversion, CallLen, CallPrelude, CallGoError, CallEmbed, CallPattern:
+	case CallGoError:
+		if c.Name == "go.New" {
+			// go.New makes a Go value with identity, which no pure frame
+			// may create; with no row (GBX1b) it is opaque as a
+			// memory-only call is.
+			n.opaque = true
+		}
+	case CallConversion, CallLen, CallPrelude, CallEmbed, CallPattern:
 		// These calls add no footprint of their own. CallPrelude is
 		// retained compatibility metadata, never produced by the checker.
 	case CallProviderOp:

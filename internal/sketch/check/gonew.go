@@ -15,9 +15,12 @@ import (
 //
 // T is a Go type of import go, not an interface (Go has no value of one)
 // and not a resource: a zero file or connection is no open one, and its
-// release would run on nothing. The call charges go.Foreign: the value
-// it makes has identity, which no pure frame may create (a pure call may
-// be evaluated once for two uses).
+// release would run on nothing. The value it makes has identity, which no
+// pure frame may create (a pure call may be evaluated once for two uses),
+// so the call is opaque in its frame's footprint. It charges go.Foreign
+// when T reaches a Go type with a host-touching method (GBX1b,
+// goTouchesHost); a T whose methods are all memory-only (an atomic) is
+// made with no row, as its methods are called with none.
 
 // goNewShares is the path of a field of the Go struct t, through its
 // struct fields and arrays, whose type is a slice or a Map, or "". A
@@ -132,20 +135,24 @@ func (c *checker) goNewCall(x *syntax.CallExpr, targ Type) operand {
 			c.errorf(x.Args[0], CodeType, "go.New(v) of %s: its field %s holds a slice or Map that an Ergo value may share, and Go could write it through the go.Ref; take the go.Ref from a Go function", targ, p)
 			return bad(x)
 		}
-		c.charge(x, goForeign()) // a new Go value has identity, as go.New[T]()'s has
-		return operand{mode: modeValue, typ: c.instantiate(universeOnce.ref, []Type{targ})}
+	} else {
+		if targ == nil {
+			c.errorf(x.Fun, CodeType, "go.New needs the Go type it makes: go.New[T](), T a Go type of import go (docs/spec/interop.md)")
+			return bad(x)
+		}
+		if isInvalid(targ) {
+			return bad(x)
+		}
+		if why := c.goNewTarget(targ); why != "" {
+			c.errorf(x.Fun, CodeType, "go.New[%s]: %s", targ, why)
+			return bad(x)
+		}
 	}
-	if targ == nil {
-		c.errorf(x.Fun, CodeType, "go.New needs the Go type it makes: go.New[T](), T a Go type of import go (docs/spec/interop.md)")
-		return bad(x)
+	if c.goTouchesHost(targ) {
+		// A Go value one of whose methods touches the host (GBX1b): making
+		// it is a foreign step, as calling it is. One whose methods are all
+		// memory-only charges nothing; its frame is opaque (footprint.go).
+		c.charge(x, goForeign())
 	}
-	if isInvalid(targ) {
-		return bad(x)
-	}
-	if why := c.goNewTarget(targ); why != "" {
-		c.errorf(x.Fun, CodeType, "go.New[%s]: %s", targ, why)
-		return bad(x)
-	}
-	c.charge(x, goForeign())
 	return operand{mode: modeValue, typ: c.instantiate(universeOnce.ref, []Type{targ})}
 }

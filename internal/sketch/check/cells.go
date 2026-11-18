@@ -325,10 +325,15 @@ func (c *checker) recordCellArgs(tparams []*TypeParam, targs []Type, at syntax.N
 	}
 }
 
-// optionParams reports whether tparams are the prelude Option's or Some's.
-// It is asked only of a site that holds a confined go.Ref, which no
-// prelude declaration does, so the prelude is built by then.
+// optionParams reports whether tparams are go.Ref's, or the prelude
+// Option's or Some's: each holds its value where the walk sees it, and
+// its code sends nothing to a task. It is asked only of a site that holds
+// a confined Go value, which no prelude declaration does, so the prelude
+// is built by then.
 func optionParams(tparams []*TypeParam) bool {
+	if r := universeOnce.ref; r != nil && len(r.TParams) == 1 && len(tparams) == 1 && tparams[0] == r.TParams[0] {
+		return true
+	}
 	for _, name := range []string{"Option", "Some"} {
 		if p := preludeType(name); p != nil && len(p.TParams) == 1 && len(tparams) == 1 && tparams[0] == p.TParams[0] {
 			return true
@@ -346,9 +351,9 @@ func (c *checker) checkCells() {
 		}
 		if h := c.holdsCell(s.arg); h != nil {
 			if goConfinedRef(h) && optionParams(s.of) {
-				// An Option holds its value where the walk sees it, and its
-				// code sends nothing to a task: a Go function's *PCG result
-				// is an Option[go.Ref[PCG]] (goconfined.go).
+				// A go.Ref or an Option holds its value where the walk sees
+				// it: a Go function's *PCG result is an Option[go.Ref[PCG]]
+				// (goconfined.go).
 				continue
 			}
 			seen[s.at] = true
