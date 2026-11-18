@@ -25,7 +25,9 @@ import (
 // reading with its engine; ergo-eager is the engine with the background
 // read started before every handler, as net/http starts it; ergo-entrypoll
 // is ergo with a handler that polls (Check) at entry, as every lowered
-// Ergo handler does through std's http.Serve; ergo-port is the engine with every answer
+// Ergo handler does through std's http.Serve, and ergo-entrypoll-read the
+// same with net/http's background read for the server's peer-close
+// watcher; ergo-port is the engine with every answer
 // through the port of net/http's writer (fastAnswer off); ergo-nethttp
 // is the same Serve on its reference reader, net/http;
 // go is hand net/http with the same guarantees (bounded header and body,
@@ -35,7 +37,7 @@ import (
 // pattern, -bench 'BenchmarkHTTPServeRaw/^go$': an unanchored "go$" also
 // matches "ergo".
 func BenchmarkHTTPServeRaw(b *testing.B) {
-	for _, mode := range []string{"ergo", "ergo-eager", "ergo-entrypoll", "ergo-port", "ergo-nethttp", "go", "floor"} {
+	for _, mode := range []string{"ergo", "ergo-eager", "ergo-entrypoll", "ergo-entrypoll-read", "ergo-port", "ergo-nethttp", "go", "floor"} {
 		b.Run(mode, func(b *testing.B) {
 			ln, err := net.Listen("tcp", "127.0.0.1:0")
 			if err != nil {
@@ -56,7 +58,13 @@ func BenchmarkHTTPServeRaw(b *testing.B) {
 			// ergo-entrypoll's handler polls once at entry, as std's
 			// http.Serve wrapper does before every lowered Ergo handler
 			// (HTTP-FAST-c5's measurement).
-			entryPoll := mode == "ergo-entrypoll"
+			entryPoll := mode == "ergo-entrypoll" || mode == "ergo-entrypoll-read"
+			if mode == "ergo-entrypoll-read" {
+				// The background read in place of the server's
+				// peer-close watcher (HTTP-FAST-c5's watch).
+				engineWatcher = false
+				b.Cleanup(func() { engineWatcher = true })
+			}
 			if mode != "go" && mode != "floor" {
 				s := v1.NewScope(rt.Root("HTTP raw benchmark"))
 				h := v1.Go(&s, "Serve", func(ct *rt.Task) (struct{}, error) {
