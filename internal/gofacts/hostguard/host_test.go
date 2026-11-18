@@ -2,6 +2,7 @@ package hostguard
 
 import (
 	"os"
+	"slices"
 	"sync"
 	"testing"
 
@@ -13,12 +14,16 @@ import (
 // planted false rows, run through the rows' own checks, are refuted: a
 // Getenv that keeps the value it read first (it does not follow the host
 // state), an Environ that hands every caller one slice (its result is not
-// the caller's) and a Getenv that leaves a goroutine running.
+// the caller's) and a Getenv that leaves a goroutine running; and a
+// ReadFile that keeps the bytes it read first (it reads the first state's
+// file in the second state's directory: HOST-ROW-2).
 //
 // Mutants it alone catches: ffi-host-guard-one-state (the guard runs the
 // call under one host state only), ffi-host-guard-shared-result (Environ's
 // check writes nothing to its result) and ffi-host-guard-goroutine-blind
-// (the guard counts no goroutines).
+// (the guard counts no goroutines), ffi-host-file-state-blind (the file
+// fixtures are the same in both states) and
+// ffi-host-file-guards-unregistered (the file rows have no guarded call).
 func TestHostRowsHold(t *testing.T) {
 	var targets []string
 	for _, e := range gofacts.Hosts {
@@ -32,8 +37,9 @@ func TestHostRowsHold(t *testing.T) {
 			t.Errorf("%s: a guarded call with no row in gofacts.Hosts", target)
 		}
 	}
-	var once sync.Once
+	var once, readOnce sync.Once
 	var kept string
+	var first []byte
 	shared := []string{"HOME=/home/a", "HOME=/home/b"}
 	stop := make(chan struct{})
 	defer close(stop)
@@ -46,6 +52,11 @@ func TestHostRowsHold(t *testing.T) {
 		"leaves a goroutine": getenvCheck(func(k string) string {
 			go func() { <-stop }()
 			return os.Getenv(k)
+		}),
+		"keeps the file it read first": readFileCheck(func(name string) ([]byte, error) {
+			var err error
+			readOnce.Do(func() { first, err = os.ReadFile(name) })
+			return slices.Clone(first), err
 		}),
 	}
 	for name, call := range planted {

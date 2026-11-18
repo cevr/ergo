@@ -12,7 +12,8 @@ import go time
 extern go os.Chdir func Chdir(dir string) fails go.Error needs go.Foreign
 
 // ergo:go func Chmod(name string, mode FileMode) error
-extern go os.Chmod func Chmod(name string, mode fs.FileMode) fails go.Error needs go.Foreign
+// ergo:effect ambient (vouched: it changes one file's mode)
+extern go os.Chmod func Chmod(name string, mode fs.FileMode) fails go.Error needs Ambient
 
 // ergo:go func Chown(name string, uid int, gid int) error
 extern go os.Chown func Chown(name string, uid int, gid int) fails go.Error needs go.Foreign
@@ -249,13 +250,16 @@ extern go os.LinkError.Unwrap func (e *LinkError) Unwrap() fails go.Error needs 
 extern go os.LookupEnv func LookupEnv(key string) (string, bool) needs Ambient
 
 // ergo:go func Lstat(name string) (FileInfo, error)
-extern go os.Lstat func Lstat(name string) fs.FileInfo fails go.Error needs go.Foreign
+// ergo:effect ambient (vouched: it reads one file's metadata, not following a symbolic link)
+extern go os.Lstat func Lstat(name string) fs.FileInfo fails go.Error needs Ambient
 
 // ergo:go func Mkdir(name string, perm FileMode) error
-extern go os.Mkdir func Mkdir(name string, perm fs.FileMode) fails go.Error needs go.Foreign
+// ergo:effect ambient (vouched: it makes one directory)
+extern go os.Mkdir func Mkdir(name string, perm fs.FileMode) fails go.Error needs Ambient
 
 // ergo:go func MkdirAll(path string, perm FileMode) error
-extern go os.MkdirAll func MkdirAll(path string, perm fs.FileMode) fails go.Error needs go.Foreign
+// ergo:effect ambient (vouched: it makes a directory and its missing parents)
+extern go os.MkdirAll func MkdirAll(path string, perm fs.FileMode) fails go.Error needs Ambient
 
 // ergo:go func MkdirTemp(dir string, pattern string) (string, error)
 extern go os.MkdirTemp func MkdirTemp(dir string, pattern string) string fails go.Error needs go.Foreign
@@ -422,22 +426,28 @@ extern go os.ProcessState.SystemTime func (p *ProcessState) SystemTime() duratio
 extern go os.ProcessState.UserTime func (p *ProcessState) UserTime() duration needs go.Foreign
 
 // ergo:go func ReadDir(name string) ([]DirEntry, error)
-extern go os.ReadDir func ReadDir(name string) []fs.DirEntry fails go.Error needs go.Foreign
+// ergo:effect ambient (vouched: it lists one directory into a new, sorted slice and closes it)
+extern go os.ReadDir func ReadDir(name string) []fs.DirEntry fails go.Error needs Ambient
 
 // ergo:go func ReadFile(name string) ([]byte, error)
-extern go os.ReadFile func ReadFile(name string) []byte fails go.Error needs go.Foreign
+// ergo:effect ambient (vouched: it reads one file into a new byte slice and closes it)
+extern go os.ReadFile func ReadFile(name string) []byte fails go.Error needs Ambient
 
 // ergo:go func Readlink(name string) (string, error)
-extern go os.Readlink func Readlink(name string) string fails go.Error needs go.Foreign
+// ergo:effect ambient (vouched: it reads one symbolic link's target)
+extern go os.Readlink func Readlink(name string) string fails go.Error needs Ambient
 
 // ergo:go func Remove(name string) error
-extern go os.Remove func Remove(name string) fails go.Error needs go.Foreign
+// ergo:effect ambient (vouched: it removes one file or empty directory)
+extern go os.Remove func Remove(name string) fails go.Error needs Ambient
 
 // ergo:go func RemoveAll(path string) error
-extern go os.RemoveAll func RemoveAll(path string) fails go.Error needs go.Foreign
+// ergo:effect ambient (vouched: it removes a path and everything under it)
+extern go os.RemoveAll func RemoveAll(path string) fails go.Error needs Ambient
 
 // ergo:go func Rename(oldpath string, newpath string) error
-extern go os.Rename func Rename(oldpath string, newpath string) fails go.Error needs go.Foreign
+// ergo:effect ambient (vouched: it renames one path)
+extern go os.Rename func Rename(oldpath string, newpath string) fails go.Error needs Ambient
 
 // ergo:go type Root struct
 extern go os.Root type Root {} implements Closer
@@ -536,7 +546,8 @@ extern go os.Signal type Signal {
 extern go os.StartProcess func StartProcess(name string, argv []string, attr own *ProcAttr) go.Ref[Process] fails go.Error needs go.Foreign
 
 // ergo:go func Stat(name string) (FileInfo, error)
-extern go os.Stat func Stat(name string) fs.FileInfo fails go.Error needs go.Foreign
+// ergo:effect ambient (vouched: it reads one file's metadata, following a symbolic link)
+extern go os.Stat func Stat(name string) fs.FileInfo fails go.Error needs Ambient
 
 // ergo:go var Stderr *File
 extern go os.Stderr let Stderr Option[go.Ref[File]]
@@ -584,4 +595,5 @@ extern go os.UserConfigDir func UserConfigDir() string fails go.Error needs go.F
 extern go os.UserHomeDir func UserHomeDir() string fails go.Error needs go.Foreign
 
 // ergo:go func WriteFile(name string, data []byte, perm FileMode) error
-extern go os.WriteFile func WriteFile(name string, data []byte, perm fs.FileMode) fails go.Error needs go.Foreign
+// ergo:effect ambient (vouched: it writes its bytes to one file, creating or truncating it, and closes it)
+extern go os.WriteFile func WriteFile(name string, data []byte, perm fs.FileMode) fails go.Error needs Ambient

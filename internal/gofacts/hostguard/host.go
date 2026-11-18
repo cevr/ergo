@@ -2,6 +2,7 @@ package hostguard
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -25,7 +26,7 @@ const unsetKey = "ERGO_HOSTGUARD_UNSET"
 // hostCalls are the guarded calls, one per row of gofacts.Hosts: each
 // checks the call under the host state s, entered.
 func hostCalls() map[string]func(s ambient) error {
-	return map[string]func(s ambient) error{
+	calls := map[string]func(s ambient) error{
 		"os.Getenv": getenvCheck(os.Getenv),
 		"os.LookupEnv": func(s ambient) error {
 			if v, ok := os.LookupEnv("HOME"); v != s.home || !ok {
@@ -58,6 +59,8 @@ func hostCalls() map[string]func(s ambient) error {
 			return nil
 		},
 	}
+	maps.Copy(calls, fileCalls()) // files.go
+	return calls
 }
 
 // getenvCheck is the check of a Getenv: it gives the state's HOME.

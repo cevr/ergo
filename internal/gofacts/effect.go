@@ -57,8 +57,9 @@ func EffectOf(target string) (Effect, bool) {
 // The host effect (HOST-ROW, from std-priv NP4f-6; interop.md, Purity and
 // authority and Foreign facts 7). A Go function of a Hosts row reads or
 // changes the host process's own state (its environment, its working
-// directory, its clock) and nothing else: no memory its arguments reach, no
-// goroutine it leaves behind, no callback. Ambient is the authority to
+// directory, its clock, its file system at a path it resolves against the
+// working directory) and nothing else: no memory its arguments reach, no
+// goroutine it leaves behind, no callback, no handle it keeps open. Ambient is the authority to
 // choose the host (stdlib.md, Host packages), so `ergo bind go` writes it
 // with `needs Ambient`, not go.Foreign, and a `// ergo:effect ambient
 // (vouched: <reason>)` line; the checker admits that row only on its guard
@@ -68,7 +69,8 @@ func EffectOf(target string) (Effect, bool) {
 // every binding of it, std's or a user's, gets the same row. Its guard
 // (internal/gofacts/hostguard, host.go) runs the call under the
 // determinism guard's two host states: it must follow each state and keep
-// nothing of the caller's.
+// nothing of the caller's. A file row's state is the files of each state's
+// own working directory (HOST-ROW-2).
 
 // Hosts is the table of host Go functions.
 var Hosts = []Effect{
@@ -77,6 +79,21 @@ var Hosts = []Effect{
 	{Target: "os.Environ", Reason: "it copies the process's environment into a new slice", Source: "a26f3fa0bdc1"},
 	{Target: "os.Getwd", Reason: "it reads the process's working directory", Source: "e751aa1d3b9f"},
 	{Target: "time.Now", Reason: "it reads the host's clock and the process's local zone", Source: "c9ea77d5e6b9"},
+	// The file rows (HOST-ROW-2): each takes paths and values, resolves a
+	// relative path against the working directory, and returns values the
+	// caller owns; none returns or keeps an open file.
+	{Target: "os.ReadFile", Reason: "it reads one file into a new byte slice and closes it", Source: "bb04a2d6e68b"},
+	{Target: "os.WriteFile", Reason: "it writes its bytes to one file, creating or truncating it, and closes it", Source: "c971c9ff32f1"},
+	{Target: "os.ReadDir", Reason: "it lists one directory into a new, sorted slice and closes it", Source: "8723386e817e"},
+	{Target: "os.Stat", Reason: "it reads one file's metadata, following a symbolic link", Source: "e25c7b85e958"},
+	{Target: "os.Lstat", Reason: "it reads one file's metadata, not following a symbolic link", Source: "5c0cd531dbf8"},
+	{Target: "os.Mkdir", Reason: "it makes one directory", Source: "054e02d4d835"},
+	{Target: "os.MkdirAll", Reason: "it makes a directory and its missing parents", Source: "387cad4262ed"},
+	{Target: "os.Remove", Reason: "it removes one file or empty directory", Source: "c04948848952"},
+	{Target: "os.RemoveAll", Reason: "it removes a path and everything under it", Source: "98f8afe7adc2"},
+	{Target: "os.Rename", Reason: "it renames one path", Source: "2e89ed8a4b75"},
+	{Target: "os.Readlink", Reason: "it reads one symbolic link's target", Source: "6a065e85af7a"},
+	{Target: "os.Chmod", Reason: "it changes one file's mode", Source: "354bb99d651b"},
 }
 
 // HostOf is the host row of target, if it has one.
