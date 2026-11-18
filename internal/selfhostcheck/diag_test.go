@@ -311,12 +311,14 @@ func unusedPool(t *testing.T) []unusedFile {
 			}
 			syntax.Inspect(f, func(n syntax.Node) bool {
 				d, ok := n.(*syntax.FuncDecl)
-				if !ok || d.Body == nil {
+				// A function a where derives has a body with no brace of
+				// its own in the source.
+				if !ok || d.Body == nil || int(d.Body.Lbrace) >= len(src) || src[d.Body.Lbrace] != '{' {
 					return true
 				}
 				u.bodies = append(u.bodies, int(d.Body.Lbrace)+1)
 				syntax.Inspect(d.Body, func(n syntax.Node) bool {
-					if blk, ok := n.(*syntax.BlockStmt); ok && blk != d.Body {
+					if blk, ok := n.(*syntax.BlockStmt); ok && blk != d.Body && int(blk.Lbrace) < len(src) && src[blk.Lbrace] == '{' {
 						u.blocks = append(u.blocks, int(blk.Lbrace)+1)
 					}
 					return true
