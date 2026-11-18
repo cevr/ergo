@@ -402,7 +402,17 @@ The building blocks of domain-driven design, as Ergo writes them. [docs/domain.m
 
 **View** (pattern): A read model: a fold over the events of a log, with a law that the fold equals the view computed from the states (`BoardIsFoldOfEvents`). Distinct from a UI view, which is a function that draws a screen.
 
-**Policy** (pattern): A pure function from an event to the commands or notices it causes, `React(e E) []C`, so a replayed log causes the same things. A **follower** of the log runs it: module `domain`'s `Follow` delivers each record after the follower's saved cursor, at least once, and names each command it sends by the follower, the stream, the record's position and the command's index, so a second delivery is a resend. Distinct from a retry policy, which is data a saga reads.
+**Policy** (pattern): A pure function from an event to the commands or notices it causes, `React(e E) []C`, so a replayed log causes the same things. A **follower** of the log runs it: module `domain`'s `Follow` delivers each record after the follower's saved cursor, at least once, and names each command it sends by the follower, the stream, the record's position and the command's index, so a second delivery is a resend. Distinct from a retry policy, which is data a saga reads, and from a **transport policy** (below).
+
+**Api** (pattern): A bounded context's one operation type, in its domain package: its commands and reads are the operations, their failure rows the typed rejections, and its laws stand beside them (docs/domain.md, rule 5). Every surface is a provider or a caller of it. No construct of its own: an Api is an operation type.
+
+**Hub**: The package `ergo gen api` writes for an Api, `<pkg>api`: the operation type as data (`Request`, `Op`, `Reply`, `Failure`, `Outcome`), the one dispatch `Call`, the `Client` over any way to carry a `Request`, and the laws `CallIsTheOperation` and `ClientIsCall`. Every transport is written over it. See [api.md](docs/spec/api.md#ergo-gen-api).
+
+**Projection**: A generator that writes, from the checked Api, the plain Ergo of one surface over the hub (`ergo gen rpc`, `cli`, `mcp`), or the pattern of a UI (docs/domain.md, rule 6). No reflection at run time.
+
+**Transport**: A projection that carries a call: its codecs of `Request` and `Outcome` and a host loop that answers through the hub's `Call` (Effect RPC over HTTP, a command line, MCP tools).
+
+**Transport policy**: What a binary decides about a transport, as functions in `cmd/<name>` over the hub's unions, each an exhaustive `match` (an exit code per `Failure`, an HTTP status), so a new failure does not compile until each binary maps it. Distinct from a **Policy** (above), which reacts to events.
 
 **Saga** (pattern): A process over time as a machine of its own, run durably, whose signals are the events it reacts to and its timers (`after`), and whose `work` calls the world.
 
