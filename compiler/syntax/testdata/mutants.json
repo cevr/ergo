@@ -558,13 +558,13 @@
       "rule": "An unexpected character outside ASCII is named by its code point (U+00A0) before its quoted form."
     },
     {
-      "name": "diag-lookahead-reports-fallback",
+      "name": "diag-raw-string-open-offset",
       "origin": "wf10 TPROBE (diagnostics)",
-      "file": "compiler/syntax/parse.ergo",
-      "from": "\tif p.lexical {\n\t\treturn true\n\t}\n\tbacktrack(p, m.i)\n",
-      "to": "\tbacktrack(p, m.i)\n",
+      "file": "compiler/syntax/scan.ergo",
+      "from": "fail(s, start, 1, \"raw string literal not terminated\")",
+      "to": "fail(s, len(s.src), 1, \"raw string literal not terminated\")",
       "killers": ["internal/sketch/syntax:TestLexicalErrorInLookahead"],
-      "rule": "An attempt that reached the lexical error keeps it: the parser does not go back and report the fallback reading's earlier error."
+      "rule": "A raw string left open is reported at its opening backquote, not at the end of the source."
     },
     {
       "name": "diag-parser-error-at-scan-offset-wins",
