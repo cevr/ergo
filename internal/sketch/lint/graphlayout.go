@@ -157,6 +157,12 @@ func (lr *layoutRows) fileReaches(from, to uint32) bool {
 	return false
 }
 
+// declaresOperation reports whether pkg declares an operation type: a
+// domain package.
+func declaresOperation(pkg *check.Package) bool {
+	return slices.ContainsFunc(pkg.Types, check.OperationType)
+}
+
 // implementations is the program packages that declare a type
 // implementing an operation type another program package declares (a
 // std contract, such as a writer, is no domain's) and declare no
@@ -165,7 +171,7 @@ func (lr *layoutRows) fileReaches(from, to uint32) bool {
 func implementations(units []Unit) map[string]bool {
 	out := map[string]bool{}
 	for _, u := range units {
-		if slices.ContainsFunc(u.Package.Types, check.OperationType) {
+		if declaresOperation(u.Package) {
 			continue
 		}
 		for _, tn := range u.Package.Types {

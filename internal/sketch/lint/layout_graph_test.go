@@ -39,21 +39,22 @@ func graphConf(t *testing.T, layers []string) *lint.Configuration {
 // TestGraphLayoutAgreesWithReference writes a module (GRAPH-LINT, the
 // acceptance of CI-SELECT §12.8): an operation type and a package that
 // implements it, a library and a package that re-exports two of its
-// functions as lets, and one to four packages p0..pN, each importing
-// earlier ones (a layering lists them in a random order, so some imports
-// go up), maybe the implementation (no main: domain-imports-
-// implementation), maybe a re-export used with or without its own
-// import (hidden-dependency only without), and maybe two files that use
-// each other (file-cycle) or one file that uses another one way (none). It checks that the graph rules report exactly
-// the planted findings, and that after fix --lint the module checks, the
-// hidden-dependency findings are gone and every other finding stays.
-// Fixed packages hold the cuts: adapt, an implementation built on
-// another, and both, a domain package that also implements store's type,
-// draw no finding, nor does a file of tests that imports the
-// implementation. A test-only package cycle cannot be planted: the loader
-// refuses every import cycle (S108). Mutants: gl-layer-order, gl-entry,
-// gl-reexport-imported, gl-file-reach, gl-fix-qualifier, gl-fix-import, gl-drop-once, gl-adapter,
-// gl-own-optype, gl-testfile.
+// functions as lets, and one to four packages p0..pN. Each may declare
+// an operation type of its own (a domain package), imports earlier ones
+// (a layering lists them in a random order, so some imports go up), and
+// maybe the implementation (domain-imports-implementation only in a
+// domain package), a re-export used with or without its own import
+// (hidden-dependency only without), two files that use each other
+// (file-cycle) or one file that uses another one way (none). It checks
+// that the graph rules report exactly the planted findings, and that
+// after fix --lint the module checks, the hidden-dependency findings are
+// gone and every other finding stays. Also no finding: an import of
+// both, a domain package that also implements store's type, or the
+// implementation imported by a file of tests. A test-only package cycle
+// cannot be planted: the loader refuses every import cycle (S108).
+// Mutants: gl-layer-order, gl-entry, gl-reexport-imported,
+// gl-file-reach, gl-fix-qualifier, gl-fix-import, gl-drop-once,
+// gl-domain-only, gl-own-optype, gl-testfile.
 func TestGraphLayoutAgreesWithReference(t *testing.T) {
 	for _, seed := range propertySeeds(10) {
 		r := rand.New(rand.NewPCG(seed, 0x6a1))
@@ -63,8 +64,6 @@ func TestGraphLayoutAgreesWithReference(t *testing.T) {
 			"memory/memory.ergo": {lines: strings.Split("import app/store\n\n// Fixed is a Store of one count.\ntype Fixed { N int } implements store.Store\n\nfunc Get(f Fixed) int { f.N }", "\n")},
 			"lib/lib.ergo":       {lines: strings.Split("func Base() int { 7 }\n\nfunc Twice() int { 14 }", "\n")},
 			"re/re.ergo":         {lines: strings.Split("import app/lib\n\nlet Base = lib.Base\n\nlet Twice = lib.Twice", "\n")},
-			// adapt is an implementation built on another: no finding.
-			"adapt/adapt.ergo": {lines: strings.Split("import app/memory\nimport app/store\n\n// Twin is a Store through a Fixed.\ntype Twin { N int } implements store.Store\n\nfunc Get(t Twin) int { memory.Fixed{N: t.N}.N }", "\n")},
 			// both declares an operation type and implements store's: a
 			// domain package, which a domain package may import.
 			"both/both.ergo": {lines: strings.Split("import app/store\n\n// Counter counts.\ntype Counter {\n\tCount() int,\n}\n\n// Plain is a Store of one count.\ntype Plain { N int } implements store.Store\n\nfunc Get(p Plain) int { p.N }", "\n")},
@@ -97,9 +96,10 @@ func TestGraphLayoutAgreesWithReference(t *testing.T) {
 					deps = append(deps, fmt.Sprintf("p%d.F()", j))
 				}
 			}
-			impl, reuse, direct := r.IntN(3) == 0, r.IntN(2) == 0, r.IntN(3) == 0
+			domain, impl, reuse, direct := r.IntN(2) == 0, r.IntN(3) == 0, r.IntN(2) == 0, r.IntN(3) == 0
 			if impl {
-				f.add("import app/memory", "domain-imports-implementation")
+				// Only a domain package is held to it.
+				f.add("import app/memory", map[bool]string{true: "domain-imports-implementation"}[domain])
 				deps = append(deps, "memory.Fixed{N: 1}.N")
 			}
 			if r.IntN(3) == 0 {
@@ -118,6 +118,13 @@ func TestGraphLayoutAgreesWithReference(t *testing.T) {
 				deps = append(deps, "lib.Twice()")
 			}
 			f.add("", "")
+			if domain {
+				f.add("// Op is the package's contract.", "")
+				f.add("type Op {", "")
+				f.add("\tRun() int,", "")
+				f.add("}", "")
+				f.add("", "")
+			}
 			body := strings.Join(append(deps, "1"), " + ")
 			f.add("func F() int { "+body+" }", "")
 			if reuse {
@@ -146,6 +153,12 @@ func TestGraphLayoutAgreesWithReference(t *testing.T) {
 				sum = append(sum, name+".K()")
 			}
 		}
+		// An entry may declare a contract and still choose.
+		mainFile.add("", "")
+		mainFile.add("// Op is the entry's contract.", "")
+		mainFile.add("type Op {", "")
+		mainFile.add("\tRun() int,", "")
+		mainFile.add("}", "")
 		mainFile.add("", "")
 		mainFile.add("func main() needs Console {", "")
 		mainFile.add("\tConsole.Println(\"\\("+strings.Join(sum, " + ")+")\")", "")
@@ -240,7 +253,7 @@ func TestGraphLayoutTexts(t *testing.T) {
 		"memory/memory.ergo": "import app/store\n\n// Fixed is a Store of one count.\ntype Fixed { N int } implements store.Store\n\nfunc Get(f Fixed) int { f.N }\n",
 		"lib/lib.ergo":       "func Base() int { 7 }\n",
 		"re/re.ergo":         "import app/lib\n\nlet Base = lib.Base\n",
-		"low/low.ergo":       "import app/memory\nimport app/re\nimport app/top\n\nfunc F() int { memory.Fixed{N: 1}.N + re.Base() + top.T() + half() }\n\nfunc whole() int { 2 }\n",
+		"low/low.ergo":       "import app/memory\nimport app/re\nimport app/top\n\n// Op is low's contract.\ntype Op {\n\tRun() int,\n}\n\nfunc F() int { memory.Fixed{N: 1}.N + re.Base() + top.T() + half() }\n\nfunc whole() int { 2 }\n",
 		"low/half.ergo":      "func half() int { whole() }\n",
 		"top/top.ergo":       "func T() int { 3 }\n",
 		"cmd/app/main.ergo":  "import app/low\n\nfunc main() needs Console {\n\tConsole.Println(\"\\(low.F())\")\n}\n",
@@ -265,10 +278,10 @@ func TestGraphLayoutTexts(t *testing.T) {
 	slices.Sort(got)
 	want := []string{
 		"low/half.ergo:1:19 L155 file-cycle: this use reaches low/low.ergo, whose uses come back to this file; move the declarations the two files share into one of them, or into a file both use",
-		"low/low.ergo:1:8 L157 domain-imports-implementation: this package has no main and imports app/memory, which implements another package's operation type; need the operation type, and bind the implementation in the binary's main",
+		"low/low.ergo:10:42 L158 hidden-dependency: this name reaches app/lib through a re-export, and this package does not import it; name the declaration itself and import its package",
+		"low/low.ergo:10:61 L155 file-cycle: this use reaches low/half.ergo, whose uses come back to this file; move the declarations the two files share into one of them, or into a file both use",
+		"low/low.ergo:1:8 L157 domain-imports-implementation: this package declares an operation type and imports app/memory, an implementation of another package's operation type; need the operation type, and bind the implementation in the binary's main",
 		"low/low.ergo:3:8 L156 layer: this import goes up the layering: app/top is above app/low; move what the lower package needs from the upper one down, or pass it in",
-		"low/low.ergo:5:42 L158 hidden-dependency: this name reaches app/lib through a re-export, and this package does not import it; name the declaration itself and import its package",
-		"low/low.ergo:5:61 L155 file-cycle: this use reaches low/half.ergo, whose uses come back to this file; move the declarations the two files share into one of them, or into a file both use",
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))

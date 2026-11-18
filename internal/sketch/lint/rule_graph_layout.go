@@ -33,12 +33,12 @@ var layer = &Rule{
 	Options: options(func() layerOptions { return layerOptions{} }, nil),
 }
 
-// domainImportsImplementation: a package other than an entry imports an
+// domainImportsImplementation: a domain package imports an
 // implementation.
 var domainImportsImplementation = &Rule{
 	Name:    "domain-imports-implementation",
 	Code:    "L157",
-	Doc:     "A file of a package with no main that is no implementation itself, other than a file of tests, imports a package that implements another program package's operation type and declares none: only a binary's entry chooses implementations.",
+	Doc:     "A file of a domain package (one that declares an operation type and has no main), other than a file of tests, imports an implementation (a package that implements another program package's operation type and declares none): a domain package holds contracts, and only a binary's entry chooses implementations.",
 	Instead: "need the operation type, and bind the implementation in the binary's main",
 	Default: Warning,
 	Check:   checkDomainImportsImplementation,
@@ -87,16 +87,17 @@ func checkLayer(p *Pass) {
 }
 
 func checkDomainImportsImplementation(p *Pass) {
-	lr := rowsOf(p)
-	impls := lr.impls
-	// An implementation may build on another (an RPC loopback on the
-	// generated client): an entry chooses it as a whole.
-	if p.Package.Entry() != nil || testFile(p.File) || impls[lr.paths[p.Package]] {
+	// Only a domain package, one that declares a contract, is held to
+	// it: a loader, a script host or a server that imports an
+	// implementation is wiring, and a choice it makes is a with that
+	// with-at-entry reports.
+	if p.Package.Entry() != nil || testFile(p.File) || !declaresOperation(p.Package) {
 		return
 	}
+	lr := rowsOf(p)
 	lr.edgesIn(p.Rel(), graphrows.Imports, func(e graphrows.Edge, off syntax.Pos) {
-		if to := lr.path(e.To); impls[to] {
-			p.Report(off, off+1, "this package has no main and imports "+to+", which implements another package's operation type")
+		if to := lr.path(e.To); lr.impls[to] {
+			p.Report(off, off+1, "this package declares an operation type and imports "+to+", an implementation of another package's operation type")
 		}
 	})
 }
