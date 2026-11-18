@@ -214,6 +214,9 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		if !fd.pure && b.env < 0 {
 			irNo("call of an impure function from a pure one")
 		}
+		if pre, e, ok := b.sinkCall(x, c, f, fd, p); ok {
+			return pre, e, false // ir_sink.go: written in place, pure
+		}
 		// Before the operands: a known site's literals are built plain.
 		known := b.knownCall(x, c, fd) // ir_kcb.go
 		args := x.Args
@@ -274,6 +277,12 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		// emitter's typeArgs), never left to Go's inference (ir_pkg.go).
 		if sp := b.copyCall(x, c); sp != "" {
 			// The copy for the known record: one instance (ir_known.go).
+			return pre, mark(&irExpr{K: "call", Pos: p, Name: sp, Args: irArgs}), !fd.pure
+		}
+		if sp := b.instanceCopy(x, c); sp != "" {
+			// The copy for the instance (ir_instance.go): no type
+			// arguments; no inliner mark and no variant with no result,
+			// which name the generic function.
 			return pre, mark(&irExpr{K: "call", Pos: p, Name: sp, Args: irArgs}), !fd.pure
 		}
 		return pre, b.droppedCall(x, c, fd, b.inlineMark(x, c, fd, mark(&irExpr{K: "call", Pos: p, Name: b.ownedCallName(x, f, fd.name), T: b.typeArgs(c, x), Args: irArgs}))), !fd.pure // ir_forms_inline.go, ir_forms_drop.go
