@@ -34,6 +34,9 @@ func (b *irBuilder) call(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr) {
 		}
 		return pre, v
 	}
+	if pre, e, ok := b.fuseAt(x); ok {
+		return pre, e // a site of a law over function parameters (ir_fusion.go)
+	}
 	if b.asWrittenCall(x) {
 		// A call tree inside AsWritten is kept as written (ir_rewrite.go).
 		b.keep++
