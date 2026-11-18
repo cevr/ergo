@@ -301,9 +301,14 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 				lit.Keys = append(lit.Keys, td.fieldName[name])
 			}
 			lit.Elems = b.inOrder(values) // ir_order.go
+			plain := true                 // every element as written: no field conversion or slot adapter
 			for i, e := range lit.Elems {
 				lit.Elems[i] = b.intoField(values[i], e, fts[i])                    // ir_field.go (B-CONVFIELD)
 				lit.Elems[i] = b.intoSlot(td, t, names[i], values[i], lit.Elems[i]) // ir_field.go (OPC-ADAPT2)
+				plain = plain && lit.Elems[i] == e
+			}
+			if plain {
+				lit.FT = b.recordFieldTypes(fts, x) // ir_forms_store.go
 			}
 		default:
 			irNo("literal of %T", t)

@@ -65,6 +65,18 @@ type IRReport struct {
 	// CatchDefects counts the full catches whose default panics with the
 	// unreachable defect, naming no failure (ir_catch_defect.go).
 	CatchDefects int `json:"-"`
+	// StoreFields counts the stored record literals written field by
+	// field (ir_forms_store.go).
+	StoreFields int `json:"-"`
+	// StdInlined counts the calls in library bodies the IR inlined
+	// (IR-STDINL, ir_forms_inline.go).
+	StdInlined int `json:"-"`
+	// DropBodies counts the variants with no result the IR built
+	// (IR-DROPBODY, ir_forms_drop.go).
+	DropBodies int `json:"-"`
+	// DeadZeros counts the zero value sets dropped before an overwrite
+	// (ir_forms_zero.go).
+	DeadZeros int `json:"-"`
 }
 
 // LowerIR is Lower with the IR bodies. The report's Hash names the IR
@@ -372,6 +384,10 @@ type irExpr struct {
 	// from, in memory only, for the known-variant pass that runs after
 	// erasure (ir_forms_variant.go).
 	Was *irVariant `json:"-"`
+	// FT are a record literal's field Go types, one per element, in memory
+	// only: set when the literal names every field of an Ergo record
+	// (ir_expr.go), for the store pass (ir_forms_store.go).
+	FT []string `json:"-"`
 	// C is a pure call's facts, in memory only (ir_merge.go).
 	C *irCall `json:"-"`
 	// CF are a call's facts for the rewrite passes, in memory only
@@ -581,6 +597,13 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 		}
 	}
 	defer st.finish(b, pkg, census, f.Decl, f.Pkg.Std(), &ok)
+	if drop {
+		defer func() {
+			if ok {
+				st.report.DropBodies++ // runs before finish (LIFO), with ok as finish will see it
+			}
+		}()
+	}
 	// A library body (a std body the program reaches, written with no
 	// //line directive) takes an IR body as a sourced one does: its
 	// positions name its std file (pos), so its lines and its defects'
