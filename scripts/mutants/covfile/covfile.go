@@ -242,9 +242,13 @@ type Entry struct {
 	Package string `json:"package,omitempty"`
 	Module  string `json:"module,omitempty"`
 	Tags    string `json:"tags,omitempty"`
-	Key     string `json:"key"`
-	Mode    string `json:"mode"`
-	Commit  string `json:"commit"`
+	// Cover are the packages (./DIR) whose blocks the segment records: a
+	// block of any other package is in no segment, so an edit there is
+	// no edit the segment can place.
+	Cover  []string `json:"cover"`
+	Key    string   `json:"key"`
+	Mode   string   `json:"mode"`
+	Commit string   `json:"commit"`
 	// GoEnv is GoEnv's answer at the measure: a reader with another
 	// toolchain or platform has no record.
 	GoEnv    string    `json:"go_env"`

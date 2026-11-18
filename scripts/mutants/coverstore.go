@@ -208,7 +208,7 @@ func (e *engine) coverageOfTree(ctx context.Context) (*coverage, error) {
 	if err == nil {
 		e.logf("coverage: %d of %d suites' segments reused from %s", len(suites)-len(measured), len(suites), store.Dir)
 		if start != "" && cleanCommit(e.cfg.Root) == start {
-			n, err := indexSegments(store, start, e.cfg.Root, suites, keys)
+			n, err := indexSegments(store, start, e.cfg.Root, suites, keys, e.cfg.Cover)
 			if err != nil {
 				e.logf("coverage: index: %v", err)
 			}
@@ -241,7 +241,7 @@ func cleanCommit(root string) string {
 // indexSegments records, at commit, each suite whose segment the store
 // holds at its key (reused or measured and stored): the index a reader
 // finds a commit's segments by (covfile.Entry). It returns how many.
-func indexSegments(store coverStore, commit, root string, suites []Suite, keys map[string]string) (int, error) {
+func indexSegments(store coverStore, commit, root string, suites []Suite, keys map[string]string, cover []string) (int, error) {
 	goEnv, err := covfile.GoEnv(goCommand(), root, goEnviron())
 	if err != nil {
 		return 0, err
@@ -252,7 +252,7 @@ func indexSegments(store coverStore, commit, root string, suites []Suite, keys m
 		if _, ok := store.Load(keys[s.Name]); !ok {
 			continue
 		}
-		e := covfile.Entry{Suite: s.Name, Package: s.Package, Module: s.Module, Tags: s.Tags, Key: keys[s.Name], Mode: covfile.Mode, Commit: commit, GoEnv: goEnv, Recorded: time.Now().UTC()}
+		e := covfile.Entry{Suite: s.Name, Package: s.Package, Module: s.Module, Tags: s.Tags, Cover: cover, Key: keys[s.Name], Mode: covfile.Mode, Commit: commit, GoEnv: goEnv, Recorded: time.Now().UTC()}
 		if err := store.Record(e); err != nil {
 			errs = append(errs, err)
 			continue

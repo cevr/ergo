@@ -42,7 +42,7 @@ func TestIndexNamesOnlyCleanCommitsWithStoredSegments(t *testing.T) {
 		t.Fatal(err)
 	}
 	suites := []Suite{{Name: "p", Package: "./p"}, {Name: "q", Package: "./q"}}
-	n, err := indexSegments(store, head, repo, suites, map[string]string{"p": stored, "q": missing})
+	n, err := indexSegments(store, head, repo, suites, map[string]string{"p": stored, "q": missing}, []string{"./p"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestIndexNamesOnlyCleanCommitsWithStoredSegments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n != 1 || len(entries) != 1 || entries[0].Suite != "p" || entries[0].Key != stored || entries[0].Package != "./p" || entries[0].Mode != "full" || entries[0].GoEnv == "" {
+	if n != 1 || len(entries) != 1 || entries[0].Suite != "p" || entries[0].Key != stored || entries[0].Package != "./p" || entries[0].Mode != "full" || len(entries[0].Cover) != 1 || entries[0].GoEnv == "" {
 		t.Fatalf("indexed %d: %+v; want the one suite whose segment is stored, in full mode", n, entries)
 	}
 }
