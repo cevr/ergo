@@ -1,4 +1,4 @@
-package main
+package cases
 
 import (
 	"bytes"
@@ -13,10 +13,10 @@ const diffContext = 3
 // both texts whole, one hunk.
 const maxDiffCells = 16 << 20
 
-// unifiedDiff is a unified line diff from want to got, with the headers
+// Diff is a unified line diff from want to got, with the headers
 // "--- want" and "+++ got". A last line without a newline is marked as diff
 // marks it, so a missing final newline shows.
-func unifiedDiff(want, got []byte) string {
+func Diff(want, got []byte) string {
 	a, b := splitLines(want), splitLines(got)
 	ops := lineOps(a, b)
 	var out strings.Builder

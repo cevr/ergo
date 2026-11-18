@@ -1,6 +1,6 @@
 //go:build unix
 
-package main
+package cases
 
 import (
 	"fmt"
@@ -20,7 +20,7 @@ import (
 // gives it back only when the command reports that its stderr write ended.
 // This is the batch-7 TestOutputCap/record failure (rec/c11 [N+1 N+1] got
 // "stdout over …; stderr over …" at load 75-90), made certain.
-// Not parallel: it sets testHookStarted, which every execute reads.
+// Not parallel: it sets TestHookStarted, which every execute reads.
 func TestOutputCapLateStopNamesBothStreams(t *testing.T) {
 	dir := t.TempDir()
 	written := filepath.Join(dir, "written")
@@ -38,9 +38,9 @@ func TestOutputCapLateStopNamesBothStreams(t *testing.T) {
 	if deadline, ok := t.Deadline(); ok {
 		fifo.SetReadDeadline(time.Now().Add(time.Until(deadline) * 9 / 10))
 	}
-	l := newLive()
+	l := NewLive()
 	held := make(chan error, 1)
-	testHookStarted = func([]string) {
+	TestHookStarted = func([]string) {
 		l.mu.Lock()
 		go func() {
 			defer l.mu.Unlock()
@@ -48,21 +48,21 @@ func TestOutputCapLateStopNamesBothStreams(t *testing.T) {
 			held <- err
 		}()
 	}
-	defer func() { testHookStarted = nil }()
-	n := outputCap + 1
+	defer func() { TestHookStarted = nil }()
+	n := OutputCap + 1
 	script := fmt.Sprintf("head -c %d /dev/zero\nhead -c %d /dev/zero >&2\necho written >\"$1\"\n", n, n)
-	o, err := l.execute([]string{"sh", "-c", script, "sh", written}, dir, os.Environ(), "", 0, 0)
+	o, err := l.Execute([]string{"sh", "-c", script, "sh", written}, dir, os.Environ(), "", 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := <-held; err != nil {
 		t.Fatalf("the command never reported its stderr write (the stop did not wait for live.mu?): %v", err)
 	}
-	want := wantOver([2]int{n, n})
-	if got := o.overCap(); got != want[len(want)-1] || !verdictIn(" "+got, want) {
-		t.Errorf("a late stop: report %q, want %q (each stream over the cap before the stop, stdout first)", got, want[len(want)-1])
+	want := fmt.Sprintf("stdout over %d bytes; stderr over %d bytes", OutputCap, OutputCap)
+	if got := o.OverCap(); got != want {
+		t.Errorf("a late stop: report %q, want %q (each stream over the cap before the stop, stdout first)", got, want)
 	}
-	if o.stdout != nil || o.stderr != nil {
-		t.Errorf("over-cap streams kept %d and %d bytes, want none", len(o.stdout), len(o.stderr))
+	if o.Stdout != nil || o.Stderr != nil {
+		t.Errorf("over-cap streams kept %d and %d bytes, want none", len(o.Stdout), len(o.Stderr))
 	}
 }

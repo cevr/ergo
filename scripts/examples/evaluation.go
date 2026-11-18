@@ -23,11 +23,11 @@ import (
 // with the store off too.
 func (r *runner) checkTarget(p *program, target, leg string) *report.Evaluation {
 	o, err := r.tool(r.cfg.testTimeout, "check", target)
-	if err != nil || !o.passed() {
+	if err != nil || !o.Passed() {
 		r.toolFailed(p, leg, o, err)
 		return nil
 	}
-	dec := json.NewDecoder(bytes.NewReader(o.stdout))
+	dec := json.NewDecoder(bytes.NewReader(o.Stdout))
 	e, why := checkedEvaluation(dec)
 	if why == "" && dec.More() {
 		why = "no valid evaluation envelope"
@@ -48,10 +48,10 @@ func (r *runner) checkTarget(p *program, target, leg string) *report.Evaluation 
 // package alone, which reports it as before.
 func (r *runner) checkModule(p *program, order []string) map[string]*report.Evaluation {
 	o, err := r.tool(r.cfg.timeout*time.Duration(len(order)), "check", filepath.Join(p.dir, "..."))
-	if err != nil || o.overCap() != "" || o.timedOut || !o.passed() {
+	if err != nil || o.OverCap() != "" || o.TimedOut || !o.Passed() {
 		return nil
 	}
-	dec := json.NewDecoder(bytes.NewReader(o.stdout))
+	dec := json.NewDecoder(bytes.NewReader(o.Stdout))
 	out := map[string]*report.Evaluation{}
 	for _, pkg := range order {
 		e, why := checkedEvaluation(dec)

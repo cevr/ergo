@@ -1,6 +1,6 @@
 //go:build unix
 
-package main
+package cases
 
 import (
 	"os"
@@ -26,7 +26,7 @@ func stopGroup(process *os.Process) {
 }
 
 // stopSignals stop a run: the runner stops every group it started, removes
-// its directories and exits 128 plus the signal number (live.handleSignals).
+// its directories and exits 128 plus the signal number (live.HandleSignals).
 var stopSignals = []os.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP}
 
 // signalExit names a stop signal and gives the status of a run it stopped.
