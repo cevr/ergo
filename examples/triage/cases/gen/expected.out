@@ -1,0 +1,6 @@
+debug host-1
+debug host-30
+error host-35
+warn host-7
+info host-35
+info host-18

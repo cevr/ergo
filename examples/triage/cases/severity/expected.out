@@ -1,0 +1,8 @@
+error db-1 2
+error db-1 7
+error web-1 5
+warn cache-3 9
+warn web-2 4
+info db-1 6
+info web-2 1
+debug web-1 3
