@@ -179,7 +179,7 @@ func (r *runner) runModule(p *program) {
 		rel, _ := filepath.Rel(p.dir, target)
 		fmt.Fprintf(r.out, "skip %s: test %s: the full tier runs it (%s)\n", p.name, filepath.ToSlash(rel), fullTierFile)
 	}
-	if o, err := r.tool(0, append([]string{"fmt", "--check"}, p.sources...)...); err != nil || !o.passed() {
+	if o, err := r.tool(0, append([]string{"fmt", "--check"}, p.sources...)...); err != nil || !o.Passed() {
 		r.toolFailed(p, "fmt", o, err)
 		return
 	}

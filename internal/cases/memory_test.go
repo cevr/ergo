@@ -1,4 +1,4 @@
-package main
+package cases
 
 import (
 	"strings"
@@ -22,11 +22,11 @@ func TestCappedFaultIsMemory(t *testing.T) {
 	} {
 		for _, status := range []int{2, -1, 0} {
 			for _, memory := range []uint64{256 << 20, 0} {
-				o := outcome{status: status, stderr: []byte(sample.stderr)}
+				o := Outcome{Status: status, Stderr: []byte(sample.stderr)}
 				o.classifyLimit(memory)
 				want := sample.want && status != 0 && memory != 0
-				if o.limited != want {
-					t.Errorf("%s status=%d cap=%d: limited=%t, want %t", sample.name, status, memory, o.limited, want)
+				if o.Limited != want {
+					t.Errorf("%s status=%d cap=%d: limited=%t, want %t", sample.name, status, memory, o.Limited, want)
 				}
 			}
 		}

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"ergo.local/prototype/internal/cases"
 	"ergo.local/prototype/internal/testinputs"
 	"ergo.local/prototype/internal/testwait"
 )
@@ -501,7 +502,7 @@ func TestFmtOrBuildFailureFailsOnlyThatProgram(t *testing.T) {
 		}
 	}
 	content, _ := read(t, filepath.Join(filepath.Dir(f.calls), "cache.log"))
-	caches := lines([]byte(content))
+	caches := cases.Lines([]byte(content))
 	if len(caches) != len(calls) || caches[0] == "unset" || caches[0] == os.Getenv(emissionCacheVariable) {
 		t.Fatalf("compiler calls got %s %q, not the run's own (caller's %q)", emissionCacheVariable, caches, os.Getenv(emissionCacheVariable))
 	}
@@ -534,7 +535,7 @@ func readCalls(t *testing.T, f *fixture) []string {
 	if err != nil && !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
-	return lines(content)
+	return cases.Lines(content)
 }
 
 func read(t *testing.T, name string) (string, bool) {
@@ -676,26 +677,26 @@ func TestExecuteReportsAStartFailureAsAnError(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	missing := filepath.Join(dir, "missing")
-	stopping := newLive()
-	stopping.closed = true
+	stopping := cases.NewLive()
+	stopping.Interrupt() // closes the run: nothing starts after it
 	rows := []struct {
 		what  string
 		live  *live
 		argv  []string
 		stdin string
 	}{
-		{"stdin cannot be opened", newLive(), []string{"sh", "-c", "exit 0"}, missing},
-		{"command cannot be started", newLive(), []string{missing}, ""},
+		{"stdin cannot be opened", cases.NewLive(), []string{"sh", "-c", "exit 0"}, missing},
+		{"command cannot be started", cases.NewLive(), []string{missing}, ""},
 		{"the run is stopping", stopping, []string{"sh", "-c", "exit 0"}, ""},
 	}
 	for _, row := range rows {
-		o, err := row.live.execute(row.argv, dir, os.Environ(), row.stdin, 10*time.Second, 0)
+		o, err := row.live.Execute(row.argv, dir, os.Environ(), row.stdin, 10*time.Second, 0)
 		if err == nil {
 			t.Errorf("%s: no error; outcome %+v", row.what, o)
 		}
 	}
-	if o, err := newLive().execute([]string{"sh", "-c", "exit 4"}, dir, os.Environ(), "", 10*time.Second, 0); err != nil || o.status != 4 {
-		t.Errorf("a command that ran: status %d, error %v; want status 4 and no error", o.status, err)
+	if o, err := cases.NewLive().Execute([]string{"sh", "-c", "exit 4"}, dir, os.Environ(), "", 10*time.Second, 0); err != nil || o.Status != 4 {
+		t.Errorf("a command that ran: status %d, error %v; want status 4 and no error", o.Status, err)
 	}
 }
 
@@ -845,17 +846,17 @@ func TestProgramsRunAtOnceAndPrintInOrder(t *testing.T) {
 
 func TestUnifiedDiff(t *testing.T) {
 	t.Parallel()
-	got := unifiedDiff([]byte("a\nb\nc\n"), []byte("a\nB\nc"))
+	got := cases.Diff([]byte("a\nb\nc\n"), []byte("a\nB\nc"))
 	want := "--- want\n+++ got\n@@ -1,3 +1,3 @@\n a\n-b\n-c\n+B\n+c\n\\ No newline at end of file\n"
 	if got != want {
 		t.Fatalf("diff:\n%s\nwant:\n%s", got, want)
 	}
 	long := strings.Repeat("same\n", 20)
-	got = unifiedDiff([]byte("x\n"+long+"y\n"), []byte("X\n"+long+"Y\n"))
+	got = cases.Diff([]byte("x\n"+long+"y\n"), []byte("X\n"+long+"Y\n"))
 	if strings.Count(got, "@@ -") != 2 || !strings.Contains(got, "@@ -1,4 +1,4 @@\n-x\n+X\n same\n") || !strings.Contains(got, "@@ -19,4 +19,4 @@\n same\n same\n same\n-y\n+Y\n") {
 		t.Fatalf("two distant changes are not two hunks:\n%s", got)
 	}
-	if got := unifiedDiff(nil, []byte("new\n")); got != "--- want\n+++ got\n@@ -0,0 +1,1 @@\n+new\n" {
+	if got := cases.Diff(nil, []byte("new\n")); got != "--- want\n+++ got\n@@ -0,0 +1,1 @@\n+new\n" {
 		t.Fatalf("diff from empty:\n%s", got)
 	}
 }
