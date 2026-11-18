@@ -251,9 +251,12 @@ type lowerer struct {
 	coverMarks bool
 	// fresh holds the fresh temporaries (forms.go).
 	fresh map[freshKey]bool
-	// letUses counts each package let's uses and its uses where a Go
-	// constant is safe (forms.go, constFold).
+	// letUses counts each let's uses and its uses where a Go constant is
+	// safe (forms.go, constFold).
 	letUses map[*check.Var][2]int
+	// localVals are the local lets that may be Go constants, by value
+	// (forms.go, localLets).
+	localVals map[*check.Var]constant.Value
 
 	types  map[*check.TypeName]*typeDecl
 	funcs  map[*check.Func]*funcDecl

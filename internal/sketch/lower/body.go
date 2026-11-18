@@ -449,7 +449,13 @@ func (fc *funcCtx) let(d *syntax.VarDecl) {
 			continue
 		} else {
 			val := fc.assigned(spec.Values[0])
-			if !d.Mut.IsValid() && fc.noteCell(v, spec.Values[0], val) { // cells.go
+			if !d.Mut.IsValid() && fc.l.localConst(v) {
+				// A constant read only where Go's fold cannot fail
+				// (forms.go, localConst), written as its checked value: the
+				// initializer's text may read a package let through v1.Let.
+				fc.l.stats.Consts++
+				fc.line("const " + fc.declare(v) + " " + goType + " = " + fc.constant(v.Type, fc.l.info.Values[spec.Values[0]], spec.Values[0]))
+			} else if !d.Mut.IsValid() && fc.noteCell(v, spec.Values[0], val) { // cells.go
 				// The cell's adapter, by its own Go type (cellLocal).
 				name := fc.declare(v)
 				fc.line(name + " := " + val)
