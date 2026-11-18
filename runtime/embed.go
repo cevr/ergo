@@ -31,7 +31,7 @@ import (
 //go:embed v1/civil.go v1/collections.go
 //go:embed v1/time.go v1/timetext.go v1/timeappend.go v1/tzdata.go v1/tzhost.go v1/wire.go v1/json.go v1/json_append.go v1/json_bytes.go v1/toml.go
 //go:embed v1/gotrace_on.go v1/gotrace_off.go obs/obs.go
-//go:embed v1/sync.go v1/set.go v1/script.go v1/shrink.go v1/hook.go
+//go:embed v1/sync.go v1/set.go v1/script.go v1/shrink.go v1/hook.go v1/allocs.go
 //go:embed v1/path.go v1/numbers.go v1/goerror.go v1/goreads.go v1/goarg.go v1/gocall.go v1/gocallback.go
 //go:embed v1/view.go v1/guard.go v1/guard_unix.go v1/guard_other.go
 //go:embed v1/digest/digest.go v1/digest/keyed.go v1/csv/csv.go v1/rand/rand.go v1/gofmt/gofmt.go v1/hostwalk/hostwalk.go
