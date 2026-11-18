@@ -422,7 +422,14 @@ leave at the handler's first interruption point (a wait, `Check` or
 `Stopped`), the first point a stop can end the handler, not before every
 handler as net/http does; a handler that answers without one costs no
 goroutine, deadline or read for it, and a handler that only loops on
-`Check` is still stopped when its client leaves. The start before
+`Check` is still stopped when its client leaves. Since HTTP-FAST-c6, that
+watch is no read: one watcher per server waits for its connections' peer
+close in the platform's poller (epoll's `EPOLLRDHUP` on Linux, kqueue's
+`EV_EOF` on darwin and the BSDs), so starting it is a flag. It keeps the
+read's rules: bytes ahead of a close end no watch, and a close seen before
+the watch starts stops the request at its start. A connection that is no
+socket, or a platform without such a poller, keeps net/http's background
+read, which `-args -http.watcher=false` selects for all. The start before
 every handler stays selectable (`-args -http.lazywatch=false`).
 
 1. `Listen(addr) net.Listener fails ListenFailed needs Ambient` binds TCP;
