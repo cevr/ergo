@@ -291,10 +291,53 @@ func Start(v Vcs, root string, branch string, commit string) fails work.VcsFaile
 	} else {
 		let _ = try writes(v, root, []string{"switch", "--quiet", "--no-track", "-C", branch, commit})
 	}
-	let origin = try reads(v, root, []string{"remote", "get-url", "origin"})
-	if origin.Status == 0 {
-		let _ = try writes(v, root, []string{"config", "remote.origin.pushurl", Guard})
+}
+
+// GuardPushes gives each remote of the checkout the push URL Guard.
+func GuardPushes(v Vcs, root string) fails work.VcsFailed {
+	for name in exec.Split(try answer(v, root, []string{"remote"})) {
+		let _ = try writes(v, root, []string{"config", "remote.\(name).pushurl", Guard})
 	}
+}
+
+// Locals reads the branches by for-each-ref and the stash entries by
+// git stash list, the newest first.
+func Locals(v Vcs, root string) []work.Local fails work.VcsFailed {
+	let mut out = []work.Local{}
+	for line in exec.Split(try answer(v, root, []string{"for-each-ref", "--format=%(refname) %(objectname)", "refs/heads"})) {
+		let f = strings.Fields(line)
+		if len(f) == 2 {
+			out = out.Append(work.Local{Ref: f[0], Commit: f[1]})
+		}
+	}
+	for i, commit in exec.Split(try answer(v, root, []string{"stash", "list", "--format=%H"})) {
+		out = out.Append(work.Local{Ref: "refs/stash/\(i)", Commit: commit})
+	}
+	out
+}
+
+func Tracked(v Vcs, root string, path string) bool fails work.VcsFailed {
+	(try reads(v, root, []string{"ls-files", "--error-unmatch", "--", path})).Status == 0
+}
+
+// ExcludeScript appends the line $1 to the checkout's info/exclude (where
+// git rev-parse --git-path puts it) unless the file has that line.
+let ExcludeScript = "set -eu\nf=$(git rev-parse --git-path info/exclude)\nmkdir -p \"$(dirname \"$f\")\"\ngrep -qxF -- \"$1\" \"$f\" 2>/dev/null || printf '%s\\n' \"$1\" >> \"$f\"\n"
+
+func Exclude(v Vcs, root string, pattern string) fails work.VcsFailed {
+	let r = v.run.Run(exec.New("sh", []string{"-c", ExcludeScript, "work-exclude", pattern}).WithDir(root)) catch {
+	case exec.NotFound, exec.Denied:
+		return work.VcsFailed{Reason: "sh could not start"}
+	case exec.Failed as f:
+		return work.VcsFailed{Reason: "sh: \(f.Reason)"}
+	}
+	if r.Status != 0 {
+		return work.VcsFailed{Reason: "\(root): info/exclude: \(strings.TrimSpace(r.Stderr))"}
+	}
+}
+
+func Remote(v Vcs, root string, commit string) bool fails work.VcsFailed {
+	try answer(v, root, []string{"for-each-ref", "--count=1", "--contains", commit, "--format=%(refname)", "refs/remotes"}) != ""
 }
 
 func Push(v Vcs, root string, parent string, refs []work.Pushed) fails work.NotFastForward | work.VcsFailed {

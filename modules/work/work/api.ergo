@@ -156,14 +156,22 @@ type GcOptions { Older Option[string], Id Option[string], Idle Option[string], A
 // -idle found, removed or not.
 type Collected { Purged []string, Idle []Idle }
 
-// Idle is a workspace -idle found: removed, or kept back with why (the
-// name of the failure rm gave: NotHeld, HasDescendants, Busy).
-// Archived is the parent's ref that keeps its work when -archive did.
-type Idle { Name string, Id string, Since int64, Removed bool, Why string, Archived string }
+// Idle is a workspace -idle found: removed, or kept back with why
+// (Pinned, InUse, NotKept, or the name of the failure rm gave: NotHeld,
+// HasDescendants, Busy) and the detail. Archived is the base's ref that
+// keeps its working files when -archive did (its branches and stash
+// entries beside it, under ArchivePrefix).
+type Idle { Name string, Id string, Since int64, Removed bool, Why string, Archived string, Detail string }
 
-// ArchiveRef is the ref of an idle workspace's work that gc -archive
-// keeps in the base: one per workspace id, never overwritten.
-func ArchiveRef(name string, id string) string { "refs/work/archive/\(name)/\(id)" }
+// ArchivePrefix is the refs of an idle workspace's work that gc -archive
+// keeps in the base: one folder per workspace id, never overwritten. Its
+// working files are at ArchiveRef, each branch only it had at heads/B and
+// each stash entry at stash/N.
+func ArchivePrefix(name string, id string) string { "refs/work/archive/\(name)/\(id)" }
+
+// ArchiveRef is the ref of an idle workspace's working files, a commit
+// on its HEAD, that gc -archive keeps in the base.
+func ArchiveRef(name string, id string) string { ArchivePrefix(name, id) + "/work" }
 
 // TombWindow is how long the registry keeps the tomb of a purged
 // workspace: 30 days. Within it, rm -expect of the id answers
@@ -199,6 +207,11 @@ type Api {
 	// workspaces whose clone never ended, and names each; -idle removes
 	// the idle workspaces whose work is held first, and reports the rest.
 	Gc(o GcOptions) Collected fails NoBase | BadConfig | BadAge | NoWorkspace | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed | Locked,
+	// Pin keeps a workspace from gc -idle: a pinned one is never removed
+	// as idle. It is the workspace pinned.
+	Pin(name string) Workspace fails NoBase | NoWorkspace | Unkept | Locked,
+	// Unpin lets gc -idle take the workspace again.
+	Unpin(name string) Workspace fails NoBase | NoWorkspace | Unkept | Locked,
 	// Du is the bytes each live workspace takes, exclusive and shared.
 	Du() []Space fails NoBase | Unsupported | Missing | CloneFailed | Unkept,
 	// Ready snapshots the workspace and hands its branch (fast-forward
@@ -356,11 +369,14 @@ func StorageOf(files fs.Files, base string) string {
 // RegistryFile is the registry's journal in a base's storage home.
 func RegistryFile(home string) string { filepath.Join([]string{home, ".registry"}) }
 
-// TrashOf is where rm moves the workspace at path, removed at the Unix
-// second at: a .work-trash folder beside it, so the move is a rename on
-// one file system (an adopted Rift's trash is beside the Rift).
-func TrashOf(path string, at int64) string {
-	filepath.Join([]string{filepath.Dir(path), ".work-trash", filepath.Base(path) + "." + strconv.FormatInt(at, 10)})
+// TrashOf is where rm moves the workspace id at path, removed at the
+// Unix second at: a .work-trash folder beside it, so the move is a
+// rename on one file system (an adopted Rift's trash is beside the
+// Rift). The id is in the name: a name made and removed again in the
+// same second has a trash of its own (the Mac's T3).
+func TrashOf(path string, at int64, id string) string {
+	let stamp = filepath.Base(path) + "." + strconv.FormatInt(at, 10)
+	filepath.Join([]string{filepath.Dir(path), ".work-trash", if id == "" { stamp } else { stamp + "." + id }})
 }
 
 // InTrash reports whether path is a folder of a trash that rm made.
@@ -435,14 +451,34 @@ func live(t Tool, name string) Option[Workspace] fails Unkept {
 }
 
 // taken reports whether a record of any state has name.
+// taken reports whether a workspace that is not trashed has name: a
+// trashed one does not hold its name, so rm then new of a name works
+// before any gc.
 func taken(t Tool, name string) bool fails Unkept {
-	let all = try t.registry.All()
-	for w in all {
+	liveIn(try t.registry.All(), name) != None
+}
+
+// TrashedName is the registry's name of a trashed workspace once its
+// name is taken again: the old name and its id, by a tilde no name
+// holds (CheckName), so gc still finds and purges it.
+func TrashedName(name string, id string) string { name + "~" + id }
+
+// freeName gives a trashed record of name its TrashedName and forgets
+// it under name, so a new record can take name, after every other (as
+// after a gc that purged the trash); under the lock. The renamed record
+// is written first: a crash between the two writes leaves the trash
+// twice, which gc purges, never a trash no record names.
+func freeName(t Tool, name string) fails Unkept {
+	for w in try t.registry.All() {
 		if w.Name == name {
-			return true
+			match w.State {
+			case Trashed:
+				try t.registry.Put(Workspace{..w, Name: TrashedName(w.Name, w.Id)})
+				try t.registry.Drop(name)
+			case Creating, Active, Landing, Landed, Abandoned:
+			}
 		}
 	}
-	false
 }
 
 // moved is w after the signal e at the Unix second at. The lifecycle
@@ -495,6 +531,18 @@ func Init(t Tool) string fails BadConfig | Unkept | fs.Denied | fs.Failed {
 			return f
 		}
 	}
+	// An untracked work.toml would make every clone's status dirty, so
+	// every rm NotHeld: init keeps it out of the base's status (and so of
+	// each clone's) in .git/info/exclude, until the user commits it.
+	let tracked = t.vcs.Tracked(t.base, ConfigFile) catch {
+	case VcsFailed:
+		true
+	}
+	if !tracked {
+		t.vcs.Exclude(t.base, "/"+ConfigFile) catch {
+		case VcsFailed:
+		}
+	}
 	// A clone starts from a fresh index (a stale one makes every Git
 	// command in every clone read each tracked file again).
 	t.vcs.Refresh(t.base) catch {
@@ -514,10 +562,24 @@ func Init(t Tool) string fails BadConfig | Unkept | fs.Denied | fs.Failed {
 // read each tracked file again at its first command.
 func startIn(t Tool, by Cloner, path string, branch string, start string) fails VcsFailed {
 	try t.vcs.Start(path, branch, start)
+	try guarded(t, path)
 	try t.vcs.Configure(path, "core.untrackedCache", "true")
 	if !by.KeepsInodes() {
 		try t.vcs.Configure(path, "core.checkStat", "minimal")
 		try t.vcs.Configure(path, "core.trustctime", "false")
+	}
+}
+
+// guarded stops every push from the workspace at path unless work.toml
+// says push = "origin". A work.toml that does not read guards: the
+// guard is the safe side, and the command that reads it next says why.
+func guarded(t Tool, path string) fails VcsFailed {
+	let c = config(t) catch {
+	case BadConfig:
+		EmptyConfig()
+	}
+	if c.Push != "origin" {
+		try t.vcs.GuardPushes(path)
 	}
 }
 
@@ -655,8 +717,39 @@ func Adopt(t Tool, dir string, o AdoptOptions) Workspace fails NoBase | BadName 
 	if !t.copier.Has(folder) {
 		return Missing{Path: folder}
 	}
-	let w = Workspace{Name: name, Id: idOf(t, name, folder), Path: folder, Parent: t.base, Branch: try t.vcs.Branch(folder), Cloner: "adopted", State: Active, Since: now(t), Base: try t.vcs.Head(folder), Latest: "", Deps: "", Token: "", Moving: ""}
+	try guarded(t, folder)
+	let w = Workspace{Name: name, Id: idOf(t, name, folder), Path: folder, Parent: t.base, Branch: try t.vcs.Branch(folder), Cloner: "adopted", State: Active, Since: now(t), Base: try t.vcs.Head(folder), Latest: "", Deps: "", Token: "", Moving: "", Pinned: false, Until: 0}
 	try put(t, w)
+	w
+}
+
+func Pin(t Tool, name string) Workspace fails NoBase | NoWorkspace | Unkept | Locked { try pinned(t, name, true) }
+
+func Unpin(t Tool, name string) Workspace fails NoBase | NoWorkspace | Unkept | Locked { try pinned(t, name, false) }
+
+// pinned sets the pin of the live workspace name under the lock, from
+// the registry as it is under the lock.
+func pinned(t Tool, name string, on bool) Workspace fails NoBase | NoWorkspace | Unkept | Locked {
+	try initialized(t)
+	try hold(t)
+	let all = t.registry.All() catch {
+	case Unkept as e:
+		t.lock.Release("")
+		return e
+	}
+	let w = match liveIn(all, name) {
+	case Some[Workspace] as found:
+		Workspace{..found.Value, Pinned: on}
+	case None:
+		t.lock.Release("")
+		return NoWorkspace{Name: name}
+	}
+	t.registry.Put(w) catch {
+	case Unkept as e:
+		t.lock.Release("")
+		return e
+	}
+	t.lock.Release("")
 	w
 }
 

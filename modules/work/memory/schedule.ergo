@@ -59,7 +59,11 @@ func scheduled(calls []Call) (World, string, []Caller) {
 // workspace left the registry under a child); and an rm that expected
 // x's first id trashed only that id. With no caller stopped, the records
 // are those of the same calls run one by one in the order their deciding
-// steps ran.
+// steps ran, unless a replace's new of x (a trashed name is free, G8)
+// meets another call of x (reuses): an rm that decides while that new
+// still clones answers Busy, and a new on x that looked at the first x
+// is refused at its claim, where run one by one each acts on the second
+// x, so the order of decisions alone does not fix the records then.
 law SchedulesKeepTheInvariants(calls []Call, seed int, dies bool) {
 	if len(calls) < 2 {
 		return true
@@ -125,7 +129,7 @@ func scheduleHolds(mine []Call, seed int, dies bool) bool {
 		}
 	}
 	let held = expected && invariants(w, all)
-	if stopped || !held {
+	if stopped || !held || reuses(mine) {
 		return held
 	}
 	sameRecords(all, serially(mine, callers))
@@ -199,4 +203,29 @@ func serially(calls []Call, ran []Caller) []work.Workspace {
 	case _:
 		[]work.Workspace{}
 	}
+}
+
+// reuses reports whether a replace makes x again while another call of
+// x runs: an rm, a second replace, or a new on x (whose Look may find the
+// first x and its claim the second, and refuse: NoWorkspace).
+func reuses(calls []Call) bool {
+	let replaces = len(slices.Filter(calls, func(c Call) bool {
+		match c {
+		case ReplaceCall:
+			true
+		case NewCall, RmCall, GcCall:
+			false
+		}
+	}))
+	let rms = len(slices.Filter(calls, func(c Call) bool {
+		match c {
+		case RmCall:
+			true
+		case NewCall as n:
+			n.OnX
+		case ReplaceCall, GcCall:
+			false
+		}
+	}))
+	replaces > 0 && replaces+rms >= 2
 }

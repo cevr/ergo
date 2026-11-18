@@ -1,4 +1,4 @@
-module lint-ts
+module tn1-lint
 
 go 1.27
 

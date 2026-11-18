@@ -165,7 +165,8 @@ func reserve(t Tool, m Making, on Option[string]) Reserved fails NameTaken | NoW
 		}
 	case None:
 	}
-	try t.registry.Put(Workspace{Name: m.Name, Id: m.Id, Path: m.Path, Parent: m.Parent, Branch: m.Branch, Cloner: "", State: Creating, Since: now(t), Base: m.Start, Latest: "", Deps: "", Token: m.Token, Moving: ""})
+	try freeName(t, m.Name)
+	try t.registry.Put(Workspace{Name: m.Name, Id: m.Id, Path: m.Path, Parent: m.Parent, Branch: m.Branch, Cloner: "", State: Creating, Since: now(t), Base: m.Start, Latest: "", Deps: "", Token: m.Token, Moving: "", Pinned: false, Until: 0})
 	if !try t.lock.Hold(m.Id) {
 		return Unkept{Reason: "the lock of the reservation \(m.Id) is held by another work"}
 	}
@@ -266,9 +267,10 @@ func recordCloner(t Tool, m Making, cloner string) fails Unkept | Locked {
 // postcreate hooks run, with no lock.
 func Activate(t Tool, m Making) Created fails Unkept | Locked {
 	// A clone carries its parent's installed packages, which the parent's
-	// lock describes; one that left folders out installs.
-	let installedAs = if len(m.Config.LeaveOut) == 0 { lockDigest(t, m.Path, m.Config) } else { "" }
-	let creating = Workspace{Name: m.Name, Id: m.Id, Path: m.Path, Parent: m.Parent, Branch: m.Branch, Cloner: m.Cloner, State: Creating, Since: now(t), Base: m.Start, Latest: "", Deps: installedAs, Token: m.Token, Moving: ""}
+	// lock describes, not the lock of the branch it now has: a branch whose
+	// lock differs installs, as one that left folders out does.
+	let installedAs = if len(m.Config.LeaveOut) == 0 { lockDigest(t, m.Parent, m.Config) } else { "" }
+	let creating = Workspace{Name: m.Name, Id: m.Id, Path: m.Path, Parent: m.Parent, Branch: m.Branch, Cloner: m.Cloner, State: Creating, Since: now(t), Base: m.Start, Latest: "", Deps: installedAs, Token: m.Token, Moving: "", Pinned: false, Until: 0}
 	let active = moved(creating, Cloned, now(t)) catch {
 	case Busy:
 		Unreachable("a workspace being created takes Cloned")

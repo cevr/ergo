@@ -384,7 +384,7 @@ func newSteps(t work.Tool, name string, o work.NewOptions, wrong sync.Ref[[]stri
 // the lock, the intent, the move and the settle. answers keeps each
 // Removed it answered.
 func rmSteps(t work.Tool, name string, expect Option[string], answers sync.Ref[[]work.Removed]) []func() bool {
-	let intent = sync.NewRef(work.Workspace{Name: "", Id: "", Path: "", Parent: "", Branch: "", Cloner: "", State: work.Trashed, Since: 0, Base: "", Latest: "", Deps: "", Token: "", Moving: ""})
+	let intent = sync.NewRef(work.Workspace{Name: "", Id: "", Path: "", Parent: "", Branch: "", Cloner: "", State: work.Trashed, Since: 0, Base: "", Latest: "", Deps: "", Token: "", Moving: "", Pinned: false, Until: 0})
 	[]func() bool{
 		func() bool {
 			let _ = t.Check(work.EmptyConfig(), name, expect, true) catch {
@@ -394,7 +394,7 @@ func rmSteps(t work.Tool, name string, expect Option[string], answers sync.Ref[[
 			true
 		},
 		func() bool {
-			match (t.Intend(name, expect, true) catch {
+			match (t.Intend(name, expect, true, 0) catch {
 			case _:
 				return false
 			}) {

@@ -1,5 +1,5 @@
 // The chunks law: on seeded TypeScript programs, the top-level statements
-// lint-ts reads (ergo.dev/tn1/ts, Statements) are the statements the
+// tn1-lint reads (ergo.dev/tn1/ts, Statements) are the statements the
 // TypeScript compiler's own parser (typescript-go, through the pinned
 // typescript package's API) reports: the same count, and each one from
 // its first token (getStart) to its end. A failing seed prints the
@@ -13,7 +13,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 const bin = process.env.ERGO_BIN
-if (!bin) throw new Error("ERGO_BIN names the built lint-ts")
+if (!bin) throw new Error("ERGO_BIN names the built tn1-lint")
 
 // splitmix64, so a seed is the same program on every host.
 function rng(seed: number) {
@@ -95,7 +95,7 @@ function program(seed: number): string {
 }
 
 const api = new API()
-const dir = mkdtempSync(join(tmpdir(), "lint-ts-agree-"))
+const dir = mkdtempSync(join(tmpdir(), "tn1-lint-agree-"))
 const one = process.env.SEED
 const seeds = one ? [Number(one)] : Array.from({ length: Number(process.env.SEEDS ?? 150) }, (_, k) => k + 1)
 let failed = false
@@ -108,11 +108,11 @@ for (const seed of seeds) {
   const want = sf.statements.map((s: any) => `${s.getStart(sf)} ${s.end}`)
   retained.dispose?.()
   const run = Bun.spawnSync([bin, "chunks", file])
-  if (run.exitCode !== 0) throw new Error(`lint-ts chunks ${file}: exit ${run.exitCode}: ${run.stderr}`)
+  if (run.exitCode !== 0) throw new Error(`tn1-lint chunks ${file}: exit ${run.exitCode}: ${run.stderr}`)
   const got = run.stdout.toString().split("\n").filter((l) => l !== "")
   if (got.join("\n") !== want.join("\n")) {
     failed = true
-    console.log(`seed ${seed}: lint-ts and TypeScript disagree\n--- program\n${src}\n--- lint-ts\n${got.join("\n")}\n--- typescript\n${want.join("\n")}\nreplay: SEED=${seed} bun ts/agree.ts`)
+    console.log(`seed ${seed}: tn1-lint and TypeScript disagree\n--- program\n${src}\n--- tn1-lint\n${got.join("\n")}\n--- typescript\n${want.join("\n")}\nreplay: SEED=${seed} bun ts/agree.ts`)
     break
   }
 }
