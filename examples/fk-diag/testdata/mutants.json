@@ -76,8 +76,8 @@
     {
       "name": "fk13-view-bound-high", "origin": "wf10/fk13a",
       "file": "examples/fk-diag/lab/view.ergo",
-      "from": "\tcase ViewPhase:\n\t\t200\n",
-      "to": "\tcase ViewPhase:\n\t\t300\n",
+      "from": "\tcase ViewPhase:\n\t\t5000\n",
+      "to": "\tcase ViewPhase:\n\t\t5300\n",
       "rule": "The view work is over the view's bound (law EachWorkloadWarnsItsPhase, case lab).",
       "anchor": {"tests": ["examples:fk-diag"]}, "killers": ["examples:fk-diag"]
     },
@@ -156,7 +156,7 @@
     {
       "name": "fk13-report-silent", "origin": "wf10/fk13a",
       "file": "examples/fk-diag/crash/crash.ergo",
-      "from": "r.log.Update(func(l []string) []string { l.Append(\"crash report: \\(Kind(c))\") })",
+      "from": "r.log.Update(func(l []string) []string { l.Append(\"crash report: \\(Kind(c)) on \\(signalName(c.Signal)) in \\(stateName(c.State))\\(reasonOf(c.Cause))\") })",
       "to": "r.log.Update(func(l []string) []string { l })",
       "rule": "Each crash is reported once (law CrashShowsTheCrashView, case crash).",
       "anchor": {"tests": ["examples:fk-diag"]}, "killers": ["examples:fk-diag"]
@@ -167,6 +167,46 @@
       "from": "try ui.Advance(h, 16ms)",
       "to": "try ui.Advance(h, 15ms)",
       "rule": "A script's frame is one frame period, which ticks the update work's animations (case lab).",
+      "anchor": {"tests": ["examples:fk-diag"]}, "killers": ["examples:fk-diag"]
+    },
+    {
+      "name": "fk13b-reason-not-shown", "origin": "wf10/fk13b",
+      "file": "examples/fk-diag/crash/crash.ergo",
+      "from": "\tcase ui.DefectCrash as d:\n\t\tui.Text(f, d.Reason)\n",
+      "to": "\tcase ui.DefectCrash as d:\n\t\tui.Text(f, \"A defect: \\(len(d.Reason))\")\n",
+      "rule": "The crash view shows the defect's reason, as upstream shows the thrown error's message (law CrashShowsTheCrashView; case crash).",
+      "anchor": {"tests": ["examples:fk-diag"]}, "killers": ["examples:fk-diag"]
+    },
+    {
+      "name": "fk13b-report-wrong-signal", "origin": "wf10/fk13b",
+      "file": "examples/fk-diag/crash/crash.ergo",
+      "from": "\t\tcase ClickedCrash:\n\t\t\t\"ClickedCrash\"\n",
+      "to": "\t\tcase ClickedCrash:\n\t\t\t\"ClickedReload\"\n",
+      "rule": "The report names the signal the app crashed around (law CrashShowsTheCrashView; case crash).",
+      "anchor": {"tests": ["examples:fk-diag"]}, "killers": ["examples:fk-diag"]
+    },
+    {
+      "name": "fk13b-report-no-reason", "origin": "wf10/fk13b",
+      "file": "examples/fk-diag/crash/crash.ergo",
+      "from": "\t\t\": \\(d.Reason)\"\n",
+      "to": "\t\t\": \\(len(d.Reason))\"\n",
+      "rule": "The report carries a defect's reason (law CrashShowsTheCrashView; case crash).",
+      "anchor": {"tests": ["examples:fk-diag"]}, "killers": ["examples:fk-diag"]
+    },
+    {
+      "name": "fk13b-rows-few", "origin": "wf10/fk13b",
+      "file": "examples/fk-diag/lab/lab.ergo",
+      "from": "let PatchRowCount = 4000\n",
+      "to": "let PatchRowCount = 120\n",
+      "rule": "The patch work mounts upstream's 4,000 rows (case lab: row 4000 is found, 4,002 ops).",
+      "anchor": {"tests": ["examples:fk-diag"]}, "killers": ["examples:fk-diag"]
+    },
+    {
+      "name": "fk13b-view-bound-under-the-rows", "origin": "wf10/fk13b",
+      "file": "examples/fk-diag/lab/view.ergo",
+      "from": "\tcase ViewPhase:\n\t\t5000\n",
+      "to": "\tcase ViewPhase:\n\t\t4000\n",
+      "rule": "The view's bound is above the nodes the patch's 4,000 rows write, so a patch run warns of its own phase only (law EachWorkloadWarnsItsPhase).",
       "anchor": {"tests": ["examples:fk-diag"]}, "killers": ["examples:fk-diag"]
     }
   ]

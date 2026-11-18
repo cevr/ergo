@@ -488,6 +488,24 @@
     {"name":"coldcache3-own-cache","origin":"wf10 COLDCACHE3","file":"hosts/mygo/desktop_test.go","from":"\t\terr = os.Setenv(\"ERGO_CACHE\", cache)\n","to":"\t\terr = nil\n","rule":"hosts/mygo's tests give the ergo commands they start a cache of their own: under a Go test ergo refuses the user's cache, so with no ERGO_CACHE from the caller every ergo build fails. Judge it with ERGO_CACHE unset.","killers":["mygo:TestLayoutMatchesMyGo"]},
     {"name":"GP-SHAPE-whole-lines","origin":"wf10 GP-SHAPE (MAPCOPY RU16)","file":"hosts/mygo/screen/screen.go","from":"var composeLines = true\n","to":"var composeLines = false\n","rule":"a line of words the program measured is drawn from their layouts, not shaped again","killers":["mygo/screen:TestMeasuredLinesAreNotShapedAgain"]},
     {"name":"GP-SHAPE-no-space","origin":"wf10 GP-SHAPE (MAPCOPY RU16)","file":"hosts/mygo/screen/screen.go","from":"\t\t\tx += l.Width + space\n","to":"\t\t\tx += l.Width + 0*space\n","rule":"a composed line's words are set one space apart, where the whole line sets them","killers":["mygo/screen:TestComposedLinesDrawAsShaped"]},
-    {"name":"GP-SHAPE-any-text","origin":"wf10 GP-SHAPE (MAPCOPY RU16)","file":"hosts/mygo/screen/screen.go","from":"func composable(s string) bool {\n","to":"func composable(s string) bool {\n\tif s != \"\" {\n\t\treturn true\n\t}\n","rule":"only printable ASCII words one space apart are composed; other text is shaped whole","killers":["mygo/screen:TestComposedLinesDrawAsShaped"]}
+    {"name":"GP-SHAPE-any-text","origin":"wf10 GP-SHAPE (MAPCOPY RU16)","file":"hosts/mygo/screen/screen.go","from":"func composable(s string) bool {\n","to":"func composable(s string) bool {\n\tif s != \"\" {\n\t\treturn true\n\t}\n","rule":"only printable ASCII words one space apart are composed; other text is shaped whole","killers":["mygo/screen:TestComposedLinesDrawAsShaped"]},
+    {
+      "name": "fk12c-control-always-last",
+      "origin": "FK12c",
+      "file": "hosts/mygo/controls/fk-flow/main.go",
+      "from": "status := play(os.Stdin, out, last, func(h *host) {",
+      "to": "status := play(os.Stdin, out, true, func(h *host) {",
+      "rule": "the MyGo control prints what fk-flow prints after each line, not only the last screen (TestFkFlowControlAgrees; the copy check does not see main.go)",
+      "killers": ["mygo:TestFkFlowControlAgrees"]
+    },
+    {
+      "name": "fk12c-opcount-control-drifts",
+      "origin": "FK12c",
+      "file": "examples/fk-flow/testdata/control/model.go",
+      "from": "\tg := channel(8.0, h, lig, c)\n",
+      "to": "\tg := channel(4.0, h, lig, c)\n",
+      "rule": "the control scripts/opcount measures is the MyGo control's model, so it prints what fk-flow prints (TestFkFlowControlAgrees, the copy check; opcount refuses a control that differs, but no test runs opcount)",
+      "killers": ["mygo:TestFkFlowControlAgrees"]
+    }
   ]
 }

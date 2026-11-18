@@ -1,20 +1,23 @@
 # a cold load home, then the gallery (the catalog takes 600 ms)
 @0 open http://localhost/
-@100 go /gallery
+@100 link Gallery
 # leave the gallery while the catalog loads, and come back: no second load
-@300 go /studio
-@400 go /gallery
-# a painting, then the next one (a stay with a new id), then the same one
-@1000 go /gallery/3
-@1200 go /gallery/4
-@1700 go /gallery/4
-# a draft in the studio, saved on leaving (300 ms)
-@1800 go /studio
+@300 link Studio
+@400 link Gallery
+# a painting, then another typed (a stay with a new id: the first one's
+# late answer is ignored), the same one again (no load), and the next
+@1000 link Winter Circuit
+@1200 open /gallery/4
+@1700 open /gallery/4
+@1750 link Next →
+# a draft in the studio, saved on leaving (300 ms) for a painting the
+# gallery does not have
+@1800 link Studio
 @1900 type half-finished thought
-@2000 back /gallery/9
-# leave the studio with an empty draft: nothing is saved
-@2500 go /studio
+@2000 open /gallery/9
+# Back to the studio, and leave it with an empty draft: nothing is saved
+@2500 back
 @2600 type
-@2700 go /nowhere
+@2700 open /nowhere
 @2800 away https://example.com/
 @3000 end
