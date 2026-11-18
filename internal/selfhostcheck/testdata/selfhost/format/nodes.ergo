@@ -60,17 +60,36 @@ func decl(p *Printer, d int) {
 			p.fieldList(p.k(d, "TypeParams"), "[", "]")
 		}
 		p.space()
-		let spec = p.k(d, "Spec")
-		if p.fam(spec) == "InterfaceType" && len(p.ks(spec, "Union")) > 0 {
-			p.unionType(spec)
-			return
+		if p.hasK(d, "Derive") {
+			// As written: the bundle it derives is not printed.
+			p.token(p.at(d, "DerivePos"), "derive")
+			p.space()
+			p.expr(p.k(d, "Derive"))
+		} else {
+			let spec = p.k(d, "Spec")
+			if p.fam(spec) == "InterfaceType" && len(p.ks(spec, "Union")) > 0 {
+				p.unionType(spec)
+			} else {
+				p.expr(spec)
+			}
 		}
-		p.expr(spec)
 		if p.hasK(d, "Where") {
 			p.space()
 			p.token(p.at(d, "WherePos"), "where")
 			p.space()
 			p.expr(p.k(d, "Where"))
+		}
+		let impls = p.ks(d, "Implements")
+		if len(impls) > 0 {
+			p.space()
+			p.token(p.at(d, "ImplementsPos"), "implements")
+			for i, x in impls {
+				if i > 0 {
+					p.synth(",")
+				}
+				p.space()
+				p.typ(x)
+			}
 		}
 	case "FuncDecl":
 		p.externSpec(d)
