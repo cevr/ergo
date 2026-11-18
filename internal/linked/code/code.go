@@ -3151,7 +3151,7 @@ func ergoCloneAlt(v Alt) Alt {
 	return c_1
 }
 
-func ergoCloneSlice_3(v []Alt) []Alt {
+func ergoCloneSlice_5(v []Alt) []Alt {
 	if v == nil {
 		return nil
 	}
@@ -3167,11 +3167,11 @@ func ergoCloneArm(v Arm) Arm {
 	c_1.States = slices.Clone(v.States)
 	c_1.Signals = slices.Clone(v.Signals)
 	c_1.Edges = slices.Clone(v.Edges)
-	c_1.Alts = ergoCloneSlice_3(v.Alts)
+	c_1.Alts = ergoCloneSlice_5(v.Alts)
 	return c_1
 }
 
-func ergoCloneSlice_4(v []Arm) []Arm {
+func ergoCloneSlice_6(v []Arm) []Arm {
 	if v == nil {
 		return nil
 	}
@@ -3186,7 +3186,7 @@ func ergoCloneMachineGraph(v MachineGraph) MachineGraph {
 	c_1 := v
 	c_1.States = slices.Clone(v.States)
 	c_1.Signals = slices.Clone(v.Signals)
-	c_1.Arms = ergoCloneSlice_4(v.Arms)
+	c_1.Arms = ergoCloneSlice_6(v.Arms)
 	c_1.Timers = slices.Clone(v.Timers)
 	c_1.Work = slices.Clone(v.Work)
 	c_1.Unsure = slices.Clone(v.Unsure)
@@ -3199,7 +3199,7 @@ func ergoClonePair(v Pair) Pair {
 	return c_1
 }
 
-func ergoCloneSlice_12(v []Pair) []Pair {
+func ergoCloneSlice_14(v []Pair) []Pair {
 	if v == nil {
 		return nil
 	}
@@ -3213,7 +3213,7 @@ func ergoCloneSlice_12(v []Pair) []Pair {
 func ergoCloneMachineView(v MachineView) MachineView {
 	c_1 := v
 	c_1.Graph = ergoCloneMachineGraph(v.Graph)
-	c_1.Reachable = ergoCloneSlice_12(v.Reachable)
+	c_1.Reachable = ergoCloneSlice_14(v.Reachable)
 	return c_1
 }
 
@@ -3522,7 +3522,7 @@ func ergoCloneCall(v Call) Call {
 	return c_1
 }
 
-func ergoCloneSlice_5(v []Call) []Call {
+func ergoCloneSlice_7(v []Call) []Call {
 	if v == nil {
 		return nil
 	}
@@ -3630,8 +3630,8 @@ func (t Tables) IndexOf() Index {
 		}
 	inl_2:
 		;
-		v_22 := Append[Call](slices.Clip(ergoCloneSlice_5(v_19)), c_1)
-		t_5[t_6] = ergoCloneSlice_5(v_22)
+		v_22 := Append[Call](slices.Clip(ergoCloneSlice_7(v_19)), c_1)
+		t_5[t_6] = ergoCloneSlice_7(v_22)
 		t_7 := callsIn
 		t_8 := c_1.To
 		var v_23 []Call
@@ -3651,8 +3651,8 @@ func (t Tables) IndexOf() Index {
 		}
 	inl_3:
 		;
-		v_26 := Append[Call](slices.Clip(ergoCloneSlice_5(v_23)), c_1)
-		t_7[t_8] = ergoCloneSlice_5(v_26)
+		v_26 := Append[Call](slices.Clip(ergoCloneSlice_7(v_23)), c_1)
+		t_7[t_8] = ergoCloneSlice_7(v_26)
 	}
 	var needers map[string][]string = map[string][]string{}
 	var kinds map[string]string = map[string]string{}
@@ -3754,9 +3754,9 @@ func (t Tables) IndexOf() Index {
 			}
 		inl_7:
 			;
-			v_48 := Append[Call](slices.Clip(ergoCloneSlice_5(v_45)), c_2)
-			t_13[t_14] = ergoCloneSlice_5(v_48)
-			brings[k_5] = maps.Clone(by)
+			v_48 := Append[Call](slices.Clip(ergoCloneSlice_7(v_45)), c_2)
+			t_13[t_14] = ergoCloneSlice_7(v_48)
+			brings[k_5] = by
 		}
 		for _, v_49 := range c_2.Raises {
 			var k_7 string = v_49
@@ -3797,9 +3797,9 @@ func (t Tables) IndexOf() Index {
 			}
 		inl_9:
 			;
-			v_56 := Append[Call](slices.Clip(ergoCloneSlice_5(v_53)), c_2)
-			t_15[t_16] = ergoCloneSlice_5(v_56)
-			brings[k_7] = maps.Clone(by_1)
+			v_56 := Append[Call](slices.Clip(ergoCloneSlice_7(v_53)), c_2)
+			t_15[t_16] = ergoCloneSlice_7(v_56)
+			brings[k_7] = by_1
 		}
 		for _, v_57 := range c_2.Discharged {
 			var k_9 string = v_57
@@ -3821,8 +3821,8 @@ func (t Tables) IndexOf() Index {
 			}
 		inl_10:
 			;
-			v_61 := Append[Call](slices.Clip(ergoCloneSlice_5(v_58)), c_2)
-			t_17[t_18] = ergoCloneSlice_5(v_61)
+			v_61 := Append[Call](slices.Clip(ergoCloneSlice_7(v_58)), c_2)
+			t_17[t_18] = ergoCloneSlice_7(v_61)
 		}
 		for _, v_62 := range c_2.Caught {
 			var k_10 string = v_62
@@ -3845,8 +3845,8 @@ func (t Tables) IndexOf() Index {
 			}
 		inl_11:
 			;
-			v_66 := Append[Call](slices.Clip(ergoCloneSlice_5(v_63)), c_2)
-			t_19[t_20] = ergoCloneSlice_5(v_66)
+			v_66 := Append[Call](slices.Clip(ergoCloneSlice_7(v_63)), c_2)
+			t_19[t_20] = ergoCloneSlice_7(v_66)
 		}
 		var providers []string = []string{}
 		for _, v_67 := range c_2.Bound {
@@ -3873,8 +3873,8 @@ func (t Tables) IndexOf() Index {
 				}
 			inl_12:
 				;
-				v_73 := Append[Call](slices.Clip(ergoCloneSlice_5(v_70)), c_2)
-				t_21[t_22] = ergoCloneSlice_5(v_73)
+				v_73 := Append[Call](slices.Clip(ergoCloneSlice_7(v_70)), c_2)
+				t_21[t_22] = ergoCloneSlice_7(v_73)
 			}
 		}
 	}
@@ -5678,6 +5678,19 @@ func (a *opsReaderAsReader) String(t *rt.Task) (string, error) {
 	return (a.v).String(e)
 }
 
+func (a *opsReaderAsReader) StringBytes(t *rt.Task, p []uint8) ([]uint8, error) {
+	e := a.env
+	if e == nil || e.task != t {
+		c_1 := Env{task: t}
+		if e != nil {
+			c_1 = *e
+			c_1.task = t
+		}
+		e = &c_1
+	}
+	return (a.v).StringBytes(e, p)
+}
+
 func (a *opsReaderAsReader) BeginList(t *rt.Task) error {
 	e := a.env
 	if e == nil || e.task != t {
@@ -5832,6 +5845,7 @@ type Writer_1 interface {
 	Uint(*rt.Task, uint64)
 	Float(*rt.Task, float64)
 	String(*rt.Task, string)
+	StringBytes(*rt.Task, []uint8)
 	BeginList(*rt.Task, int)
 	EndList(*rt.Task)
 	BeginObject(*rt.Task, int)
@@ -5971,6 +5985,7 @@ type Reader_2 interface {
 	Uint(*rt.Task) (uint64, error)
 	Float(*rt.Task) (float64, error)
 	String(*rt.Task) (string, error)
+	StringBytes(*rt.Task, []uint8) ([]uint8, error)
 	BeginList(*rt.Task) error
 	BeginObject(*rt.Task) error
 	Tag(*rt.Task) (string, error)
@@ -6098,6 +6113,10 @@ func (a *opstextAsText) stringBody(_ *rt.Task, p string) {
 	(&a.v).stringBody(p)
 }
 
+func (a *opstextAsText) bytesBody(_ *rt.Task, p []uint8) {
+	(&a.v).bytesBody(p)
+}
+
 func (a *opstextAsText) intBody(_ *rt.Task, p int64) {
 	(&a.v).intBody(p)
 }
@@ -6127,6 +6146,23 @@ func (a *opstextAsText) finish(t *rt.Task, p int) string {
 	return (&a.v).finish(e, p)
 }
 
+func (a *opstextAsText) bytes(_ *rt.Task) []uint8 {
+	return (a.v).bytes()
+}
+
+func (a *opstextAsText) drop(t *rt.Task, p int) {
+	e := a.env
+	if e == nil || e.task != t {
+		c_1 := Env{task: t}
+		if e != nil {
+			c_1 = *e
+			c_1.task = t
+		}
+		e = &c_1
+	}
+	(&a.v).drop(e, p)
+}
+
 func (a *opstextAsText) Null(_ *rt.Task) {
 	(&a.v).Null()
 }
@@ -6153,6 +6189,10 @@ func (a *opstextAsText) Float(_ *rt.Task, p float64) {
 
 func (a *opstextAsText) String(_ *rt.Task, p string) {
 	(&a.v).String_(p)
+}
+
+func (a *opstextAsText) StringBytes(_ *rt.Task, p []uint8) {
+	(&a.v).StringBytes(p)
 }
 
 func (a *opstextAsText) BeginList(_ *rt.Task, p int) {
@@ -6986,7 +7026,7 @@ func (t Tables) reachPage(q ReachQuery, x string, kind_1 string, functions []str
 		t_1 := reached
 		t_2 := f
 		v_2 := chainOf(out, f)
-		v_3 := Append[Reached](t_1, Reached{Function: t_2, Chain: ergoCloneSlice_5(v_2)})
+		v_3 := Append[Reached](t_1, Reached{Function: t_2, Chain: ergoCloneSlice_7(v_2)})
 		reached = v_3
 	}
 	t_3 := t.Revision
@@ -7480,25 +7520,21 @@ func (r Reader_1) TakeNull(env *Env) bool {
 func (r Reader_1) Peek(env *Env) WireKind {
 	env.task.Check()
 	v := (r.c).Kind()
-	if v == int(0) {
-		return WireNull{}
+	switch v {
+	case int(0):
+		return (WireKind{}).of0(WireNull{})
+	case int(1):
+		return (WireKind{}).of1(WireBool{})
+	case int(2):
+		return (WireKind{}).of2(WireNumber{})
+	case int(3):
+		return (WireKind{}).of3(WireString{})
+	case int(4):
+		return (WireKind{}).of4(WireList{})
+	case int(5):
+		return (WireKind{}).of5(WireObject{})
 	}
-	if v == int(1) {
-		return WireBool{}
-	}
-	if v == int(2) {
-		return WireNumber{}
-	}
-	if v == int(3) {
-		return WireString{}
-	}
-	if v == int(4) {
-		return WireList{}
-	}
-	if v == int(5) {
-		return WireObject{}
-	}
-	return WireEnd{}
+	return (WireKind{}).of6(WireEnd{})
 }
 
 func (r Reader_1) Number(env *Env) (string, error) {
@@ -7573,6 +7609,17 @@ func (r Reader_1) String(env *Env) (string, error) {
 	return v, nil
 }
 
+func (r Reader_1) StringBytes(env *Env, into []uint8) ([]uint8, error) {
+	env.task.Check()
+	v := (r.c).StringBytes(into)
+	v_1 := (r.c).Wrong()
+	if v_1 {
+		v_2 := (r.c).Path()
+		return *new([]uint8), WireWrongKind{Path: v_2, Want: "a string"}
+	}
+	return v, nil
+}
+
 func (r Reader_1) BeginList(env *Env) error {
 	env.task.Check()
 	v := (r.c).BeginList()
@@ -7628,42 +7675,42 @@ func (r Reader_1) End(env *Env) {
 	return
 }
 
-type WireKind interface{ isWireKind() }
-
 type WireNull struct {
 }
-
-func (WireNull) isWireKind() {}
 
 type WireBool struct {
 }
 
-func (WireBool) isWireKind() {}
-
 type WireNumber struct {
 }
-
-func (WireNumber) isWireKind() {}
 
 type WireString struct {
 }
 
-func (WireString) isWireKind() {}
-
 type WireList struct {
 }
-
-func (WireList) isWireKind() {}
 
 type WireObject struct {
 }
 
-func (WireObject) isWireKind() {}
-
 type WireEnd struct {
 }
 
-func (WireEnd) isWireKind() {}
+type WireKind struct {
+	tag uint8
+}
+
+func (WireKind) of0(_ WireNull) WireKind   { return WireKind{tag: 0} }
+func (WireKind) of1(_ WireBool) WireKind   { return WireKind{tag: 1} }
+func (WireKind) of2(_ WireNumber) WireKind { return WireKind{tag: 2} }
+func (WireKind) of3(_ WireString) WireKind { return WireKind{tag: 3} }
+func (WireKind) of4(_ WireList) WireKind   { return WireKind{tag: 4} }
+func (WireKind) of5(_ WireObject) WireKind { return WireKind{tag: 5} }
+func (WireKind) of6(_ WireEnd) WireKind    { return WireKind{tag: 6} }
+
+func (x WireKind) ErgoVariant() string {
+	return [...]string{"WireNull", "WireBool", "WireNumber", "WireString", "WireList", "WireObject", "WireEnd"}[x.tag]
+}
 
 func textWireMissingField(v WireMissingField) string {
 	return "{" + "Path:" + v.Path + " Field:" + v.Field + "}"
@@ -7682,11 +7729,14 @@ type Text_2 interface {
 	quote(*rt.Task, string)
 	plainBody(*rt.Task, string)
 	stringBody(*rt.Task, string)
+	bytesBody(*rt.Task, []uint8)
 	intBody(*rt.Task, int64)
 	uintBody(*rt.Task, uint64)
 	boolBody(*rt.Task, bool)
 	floatBody(*rt.Task, float64)
 	finish(*rt.Task, int) string
+	bytes(*rt.Task) []uint8
+	drop(*rt.Task, int)
 	Null(*rt.Task)
 	Number(*rt.Task, string)
 	Bool(*rt.Task, bool)
@@ -7694,6 +7744,7 @@ type Text_2 interface {
 	Uint(*rt.Task, uint64)
 	Float(*rt.Task, float64)
 	String(*rt.Task, string)
+	StringBytes(*rt.Task, []uint8)
 	BeginList(*rt.Task, int)
 	EndList(*rt.Task)
 	BeginObject(*rt.Task, int)
@@ -7729,6 +7780,10 @@ func (t *text_1) plainBody(s string) {
 	t.out = v_2
 }
 
+func (t *text_1) bytesBody(b []uint8) {
+	t.out = ergo.JSONAppendQuotedBytes(t.out, b, t.html)
+}
+
 func (t *text_1) uintBody(n uint64) {
 	t.out = ergo.JSONAppendUint(t.out, n)
 }
@@ -7742,6 +7797,15 @@ func (t *text_1) finish(env *Env, hint int) string {
 	v := FromBytesOwned(slices.Clone(t.out))
 	t.out = ergo.StringsGive(t.out, hint)
 	return v
+}
+
+func (t text_1) bytes() []uint8 {
+	return t.out
+}
+
+func (t *text_1) drop(env *Env, hint int) {
+	env.task.Check()
+	t.out = ergo.StringsGive(t.out, hint)
 }
 
 func (t *text_1) Null() {
@@ -7838,6 +7902,20 @@ func (t *text_1) String_(s string) {
 inl:
 	;
 	(t).stringBody(s)
+	(t).setComma(true)
+	return
+}
+
+func (t *text_1) StringBytes(b []uint8) {
+	{
+		if t.comma {
+			(t).raw(",")
+			goto inl
+		}
+	}
+inl:
+	;
+	(t).bytesBody(b)
 	(t).setComma(true)
 	return
 }
@@ -8173,7 +8251,7 @@ func chainOf(out map[string][]Call, f string) []Call {
 				}
 			inl_1:
 				;
-				v_8 := Append[Call](slices.Clip(ergoCloneSlice_5(v_5)), c_1)
+				v_8 := Append[Call](slices.Clip(ergoCloneSlice_7(v_5)), c_1)
 				var v_9 []Call
 				{
 					var k string = c_1.To
@@ -8212,7 +8290,7 @@ func chainOf(out map[string][]Call, f string) []Call {
 				;
 				if !v_12 {
 					seen[c_1.To] = true
-					paths[c_1.To] = ergoCloneSlice_5(v_8)
+					paths[c_1.To] = ergoCloneSlice_7(v_8)
 					next = Append[string](next, c_1.To)
 					fresh = true
 				}
@@ -8234,8 +8312,8 @@ func chainOf(out map[string][]Call, f string) []Call {
 				}
 			inl_4:
 				;
-				v_19 := Append[Call](slices.Clip(ergoCloneSlice_5(v_16)), v_1[int(0)])
-				back = ergoCloneSlice_5(v_19)
+				v_19 := Append[Call](slices.Clip(ergoCloneSlice_7(v_16)), v_1[int(0)])
+				back = ergoCloneSlice_7(v_19)
 				found = true
 			}
 		}
@@ -9117,153 +9195,166 @@ func (s Set) Parse(env *Env, args []string) (Values, error) {
 			var v_15 string
 			{
 				var v_16 scalarFlag
+				_ = v_16
+				var kp_1 StringFlag
+				_ = kp_1
+				var kp_2 IntFlag
+				_ = kp_2
+				var kp_3 BoolFlag
+				_ = kp_3
+				var kp_4 DurationFlag
+				_ = kp_4
+				var kp_5 ChoiceFlag
+				_ = kp_5
 				{
 					switch v_17 := f.(type) {
 					case StringFlag:
 						s_2 := v_17
-						v_16 = s_2
-						goto inl_2
+						kp_1 = s_2
+						goto kn_3
 					case IntFlag:
 						n := v_17
-						v_16 = n
-						goto inl_2
+						kp_2 = n
+						goto kn_4
 					case BoolFlag:
 						b_3 := v_17
-						v_16 = b_3
-						goto inl_2
+						kp_3 = b_3
+						goto kn_5
 					case DurationFlag:
 						d := v_17
-						v_16 = d
-						goto inl_2
+						kp_4 = d
+						goto kn_7
 					case ChoiceFlag:
 						c_1 := v_17
-						v_16 = c_1
-						goto inl_2
+						kp_5 = c_1
+						goto kn_6
 					case OptionalStringFlag:
 						s_3 := v_17
-						v_16 = s_3.base
-						goto inl_2
+						kp_1 = s_3.base
+						goto kn_3
 					case OptionalIntFlag:
 						n_1 := v_17
-						v_16 = n_1.base
-						goto inl_2
+						kp_2 = n_1.base
+						goto kn_4
 					case RepeatedStringFlag:
 						s_4 := v_17
-						v_16 = s_4.base
-						goto inl_2
+						kp_1 = s_4.base
+						goto kn_3
 					case RepeatedIntFlag:
 						n_2 := v_17
-						v_16 = n_2.base
-						goto inl_2
+						kp_2 = n_2.base
+						goto kn_4
 					case RepeatedBoolFlag:
 						b_4 := v_17
-						v_16 = b_4.base
-						goto inl_2
+						kp_3 = b_4.base
+						goto kn_5
 					case RepeatedDurationFlag:
 						d_1 := v_17
-						v_16 = d_1.base
-						goto inl_2
+						kp_4 = d_1.base
+						goto kn_7
 					case RepeatedChoiceFlag:
 						c_2 := v_17
-						v_16 = c_2.base
-						goto inl_2
+						kp_5 = c_2.base
+						goto kn_6
 					default:
 						_ = v_17
 						panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 					}
 				}
-			inl_2:
-				;
-				switch v_18 := v_16.(type) {
-				case StringFlag:
-					s_5 := v_18
+			kn_3:
+				{
+					s_5 := kp_1
 					v_15 = s_5.name
 					goto inl_1
-				case IntFlag:
-					n_3 := v_18
+				}
+			kn_4:
+				{
+					n_3 := kp_2
 					v_15 = n_3.name
 					goto inl_1
-				case BoolFlag:
-					b_5 := v_18
+				}
+			kn_5:
+				{
+					b_5 := kp_3
 					v_15 = b_5.name
 					goto inl_1
-				case ChoiceFlag:
-					c_3 := v_18
+				}
+			kn_6:
+				{
+					c_3 := kp_5
 					v_15 = c_3.name
 					goto inl_1
-				case DurationFlag:
-					d_2 := v_18
+				}
+			kn_7:
+				{
+					d_2 := kp_4
 					v_15 = d_2.name
 					goto inl_1
-				default:
-					_ = v_18
-					panic("ergo: defect: no case of the match at std/flag/flag.ergo:366:2 matched")
 				}
 			}
 		inl_1:
 			;
-			var v_19 scalarFlag
+			var v_18 scalarFlag
+			_ = v_18
 			{
-				switch v_20 := f.(type) {
+				switch v_19 := f.(type) {
 				case StringFlag:
-					s_6 := v_20
-					v_19 = s_6
-					goto inl_3
+					s_6 := v_19
+					_ = s_6
+					goto kn_10
 				case IntFlag:
-					n_4 := v_20
-					v_19 = n_4
-					goto inl_3
+					n_4 := v_19
+					_ = n_4
+					goto kn_10
 				case BoolFlag:
-					b_6 := v_20
-					v_19 = b_6
-					goto inl_3
+					b_6 := v_19
+					_ = b_6
+					goto kn_9
 				case DurationFlag:
-					d_3 := v_20
-					v_19 = d_3
-					goto inl_3
+					d_3 := v_19
+					_ = d_3
+					goto kn_10
 				case ChoiceFlag:
-					c_4 := v_20
-					v_19 = c_4
-					goto inl_3
+					c_4 := v_19
+					_ = c_4
+					goto kn_10
 				case OptionalStringFlag:
-					s_7 := v_20
-					v_19 = s_7.base
-					goto inl_3
+					s_7 := v_19
+					_ = s_7.base
+					goto kn_10
 				case OptionalIntFlag:
-					n_5 := v_20
-					v_19 = n_5.base
-					goto inl_3
+					n_5 := v_19
+					_ = n_5.base
+					goto kn_10
 				case RepeatedStringFlag:
-					s_8 := v_20
-					v_19 = s_8.base
-					goto inl_3
+					s_8 := v_19
+					_ = s_8.base
+					goto kn_10
 				case RepeatedIntFlag:
-					n_6 := v_20
-					v_19 = n_6.base
-					goto inl_3
+					n_6 := v_19
+					_ = n_6.base
+					goto kn_10
 				case RepeatedBoolFlag:
-					b_7 := v_20
-					v_19 = b_7.base
-					goto inl_3
+					b_7 := v_19
+					_ = b_7.base
+					goto kn_9
 				case RepeatedDurationFlag:
-					d_4 := v_20
-					v_19 = d_4.base
-					goto inl_3
+					d_4 := v_19
+					_ = d_4.base
+					goto kn_10
 				case RepeatedChoiceFlag:
-					c_5 := v_20
-					v_19 = c_5.base
-					goto inl_3
+					c_5 := v_19
+					_ = c_5.base
+					goto kn_10
 				default:
-					_ = v_20
+					_ = v_19
 					panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 				}
 			}
-		inl_3:
-			;
-			switch v_19.(type) {
-			case BoolFlag:
+		kn_9:
+			{
 				if hasValue {
-					v_21, err := ergo.StrconvParseBool(given)
+					v_20, err := ergo.StrconvParseBool(given)
 					if err != nil {
 						switch err.(type) {
 						case ergo.Malformed:
@@ -9274,247 +9365,278 @@ func (s Set) Parse(env *Env, args []string) (Values, error) {
 					}
 					t := flags
 					t_1 := v_15
-					var v_22 value
+					var v_21 value
 					{
 						var flags_1 map[string]value = maps.Clone(flags)
-						var x value = boolValue{V: v_21}
-						v_23 := cardinality(f)
-						if v_23 != int(2) {
-							v_22 = x
+						var x value = boolValue{V: v_20}
+						v_22 := cardinality(f)
+						if v_22 != int(2) {
+							v_21 = x
 							goto inl_4
 						}
 						var xs []value = []value{}
 						t_2 := flags_1
-						var v_24 string
+						var v_23 string
 						{
-							var v_25 scalarFlag
+							var v_24 scalarFlag
+							_ = v_24
+							var kp_6 StringFlag
+							_ = kp_6
+							var kp_7 IntFlag
+							_ = kp_7
+							var kp_8 BoolFlag
+							_ = kp_8
+							var kp_9 DurationFlag
+							_ = kp_9
+							var kp_10 ChoiceFlag
+							_ = kp_10
 							{
-								switch v_26 := f.(type) {
+								switch v_25 := f.(type) {
 								case StringFlag:
-									s_9 := v_26
-									v_25 = s_9
-									goto inl_6
+									s_9 := v_25
+									kp_6 = s_9
+									goto kn_12
 								case IntFlag:
-									n_7 := v_26
-									v_25 = n_7
-									goto inl_6
+									n_7 := v_25
+									kp_7 = n_7
+									goto kn_13
 								case BoolFlag:
-									b_8 := v_26
-									v_25 = b_8
-									goto inl_6
+									b_8 := v_25
+									kp_8 = b_8
+									goto kn_14
 								case DurationFlag:
-									d_5 := v_26
-									v_25 = d_5
-									goto inl_6
+									d_5 := v_25
+									kp_9 = d_5
+									goto kn_16
 								case ChoiceFlag:
-									c_6 := v_26
-									v_25 = c_6
-									goto inl_6
+									c_6 := v_25
+									kp_10 = c_6
+									goto kn_15
 								case OptionalStringFlag:
-									s_10 := v_26
-									v_25 = s_10.base
-									goto inl_6
+									s_10 := v_25
+									kp_6 = s_10.base
+									goto kn_12
 								case OptionalIntFlag:
-									n_8 := v_26
-									v_25 = n_8.base
-									goto inl_6
+									n_8 := v_25
+									kp_7 = n_8.base
+									goto kn_13
 								case RepeatedStringFlag:
-									s_11 := v_26
-									v_25 = s_11.base
-									goto inl_6
+									s_11 := v_25
+									kp_6 = s_11.base
+									goto kn_12
 								case RepeatedIntFlag:
-									n_9 := v_26
-									v_25 = n_9.base
-									goto inl_6
+									n_9 := v_25
+									kp_7 = n_9.base
+									goto kn_13
 								case RepeatedBoolFlag:
-									b_9 := v_26
-									v_25 = b_9.base
-									goto inl_6
+									b_9 := v_25
+									kp_8 = b_9.base
+									goto kn_14
 								case RepeatedDurationFlag:
-									d_6 := v_26
-									v_25 = d_6.base
-									goto inl_6
+									d_6 := v_25
+									kp_9 = d_6.base
+									goto kn_16
 								case RepeatedChoiceFlag:
-									c_7 := v_26
-									v_25 = c_7.base
-									goto inl_6
+									c_7 := v_25
+									kp_10 = c_7.base
+									goto kn_15
 								default:
-									_ = v_26
+									_ = v_25
 									panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 								}
 							}
-						inl_6:
-							;
-							switch v_27 := v_25.(type) {
-							case StringFlag:
-								s_12 := v_27
-								v_24 = s_12.name
+						kn_12:
+							{
+								s_12 := kp_6
+								v_23 = s_12.name
 								goto inl_5
-							case IntFlag:
-								n_10 := v_27
-								v_24 = n_10.name
+							}
+						kn_13:
+							{
+								n_10 := kp_7
+								v_23 = n_10.name
 								goto inl_5
-							case BoolFlag:
-								b_10 := v_27
-								v_24 = b_10.name
+							}
+						kn_14:
+							{
+								b_10 := kp_8
+								v_23 = b_10.name
 								goto inl_5
-							case ChoiceFlag:
-								c_8 := v_27
-								v_24 = c_8.name
+							}
+						kn_15:
+							{
+								c_8 := kp_10
+								v_23 = c_8.name
 								goto inl_5
-							case DurationFlag:
-								d_7 := v_27
-								v_24 = d_7.name
+							}
+						kn_16:
+							{
+								d_7 := kp_9
+								v_23 = d_7.name
 								goto inl_5
-							default:
-								_ = v_27
-								panic("ergo: defect: no case of the match at std/flag/flag.ergo:366:2 matched")
 							}
 						}
 					inl_5:
 						;
-						v_28, ok := t_2[v_24]
+						v_26, ok := t_2[v_23]
 						if ok {
-							old := Some[value]{Value: v_28}
-							switch v_29 := old.Value.(type) {
+							old := Some[value]{Value: v_26}
+							switch v_27 := old.Value.(type) {
 							case listValue:
-								list := v_29
+								list := v_27
 								xs = slices.Clone(list.V)
 							default:
-								_ = v_29
+								_ = v_27
 								panic(ergo.UnreachableAt("flag: a repeated flag has a scalar value", "std/flag/cardinality.ergo:230:4"))
 							}
 						} else {
 						}
-						v_30 := Append[value](xs, x)
-						v_22 = listValue{V: v_30}
+						v_28 := Append[value](xs, x)
+						v_21 = listValue{V: v_28}
 					}
 				inl_4:
 					;
-					t[t_1] = v_22
+					t[t_1] = v_21
 				} else {
 					t_3 := flags
 					t_4 := v_15
-					var v_31 value
+					var v_29 value
 					{
 						var flags_2 map[string]value = maps.Clone(flags)
 						var x_1 value = boolValue{V: true}
-						v_32 := cardinality(f)
-						if v_32 != int(2) {
-							v_31 = x_1
+						v_30 := cardinality(f)
+						if v_30 != int(2) {
+							v_29 = x_1
 							goto inl_7
 						}
 						var xs_1 []value = []value{}
 						t_5 := flags_2
-						var v_33 string
+						var v_31 string
 						{
-							var v_34 scalarFlag
+							var v_32 scalarFlag
+							_ = v_32
+							var kp_11 StringFlag
+							_ = kp_11
+							var kp_12 IntFlag
+							_ = kp_12
+							var kp_13 BoolFlag
+							_ = kp_13
+							var kp_14 DurationFlag
+							_ = kp_14
+							var kp_15 ChoiceFlag
+							_ = kp_15
 							{
-								switch v_35 := f.(type) {
+								switch v_33 := f.(type) {
 								case StringFlag:
-									s_13 := v_35
-									v_34 = s_13
-									goto inl_9
+									s_13 := v_33
+									kp_11 = s_13
+									goto kn_18
 								case IntFlag:
-									n_11 := v_35
-									v_34 = n_11
-									goto inl_9
+									n_11 := v_33
+									kp_12 = n_11
+									goto kn_19
 								case BoolFlag:
-									b_11 := v_35
-									v_34 = b_11
-									goto inl_9
+									b_11 := v_33
+									kp_13 = b_11
+									goto kn_20
 								case DurationFlag:
-									d_8 := v_35
-									v_34 = d_8
-									goto inl_9
+									d_8 := v_33
+									kp_14 = d_8
+									goto kn_22
 								case ChoiceFlag:
-									c_9 := v_35
-									v_34 = c_9
-									goto inl_9
+									c_9 := v_33
+									kp_15 = c_9
+									goto kn_21
 								case OptionalStringFlag:
-									s_14 := v_35
-									v_34 = s_14.base
-									goto inl_9
+									s_14 := v_33
+									kp_11 = s_14.base
+									goto kn_18
 								case OptionalIntFlag:
-									n_12 := v_35
-									v_34 = n_12.base
-									goto inl_9
+									n_12 := v_33
+									kp_12 = n_12.base
+									goto kn_19
 								case RepeatedStringFlag:
-									s_15 := v_35
-									v_34 = s_15.base
-									goto inl_9
+									s_15 := v_33
+									kp_11 = s_15.base
+									goto kn_18
 								case RepeatedIntFlag:
-									n_13 := v_35
-									v_34 = n_13.base
-									goto inl_9
+									n_13 := v_33
+									kp_12 = n_13.base
+									goto kn_19
 								case RepeatedBoolFlag:
-									b_12 := v_35
-									v_34 = b_12.base
-									goto inl_9
+									b_12 := v_33
+									kp_13 = b_12.base
+									goto kn_20
 								case RepeatedDurationFlag:
-									d_9 := v_35
-									v_34 = d_9.base
-									goto inl_9
+									d_9 := v_33
+									kp_14 = d_9.base
+									goto kn_22
 								case RepeatedChoiceFlag:
-									c_10 := v_35
-									v_34 = c_10.base
-									goto inl_9
+									c_10 := v_33
+									kp_15 = c_10.base
+									goto kn_21
 								default:
-									_ = v_35
+									_ = v_33
 									panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 								}
 							}
-						inl_9:
-							;
-							switch v_36 := v_34.(type) {
-							case StringFlag:
-								s_16 := v_36
-								v_33 = s_16.name
+						kn_18:
+							{
+								s_16 := kp_11
+								v_31 = s_16.name
 								goto inl_8
-							case IntFlag:
-								n_14 := v_36
-								v_33 = n_14.name
+							}
+						kn_19:
+							{
+								n_14 := kp_12
+								v_31 = n_14.name
 								goto inl_8
-							case BoolFlag:
-								b_13 := v_36
-								v_33 = b_13.name
+							}
+						kn_20:
+							{
+								b_13 := kp_13
+								v_31 = b_13.name
 								goto inl_8
-							case ChoiceFlag:
-								c_11 := v_36
-								v_33 = c_11.name
+							}
+						kn_21:
+							{
+								c_11 := kp_15
+								v_31 = c_11.name
 								goto inl_8
-							case DurationFlag:
-								d_10 := v_36
-								v_33 = d_10.name
+							}
+						kn_22:
+							{
+								d_10 := kp_14
+								v_31 = d_10.name
 								goto inl_8
-							default:
-								_ = v_36
-								panic("ergo: defect: no case of the match at std/flag/flag.ergo:366:2 matched")
 							}
 						}
 					inl_8:
 						;
-						v_37, ok_1 := t_5[v_33]
+						v_34, ok_1 := t_5[v_31]
 						if ok_1 {
-							old_1 := Some[value]{Value: v_37}
-							switch v_38 := old_1.Value.(type) {
+							old_1 := Some[value]{Value: v_34}
+							switch v_35 := old_1.Value.(type) {
 							case listValue:
-								list_1 := v_38
+								list_1 := v_35
 								xs_1 = slices.Clone(list_1.V)
 							default:
-								_ = v_38
+								_ = v_35
 								panic(ergo.UnreachableAt("flag: a repeated flag has a scalar value", "std/flag/cardinality.ergo:230:4"))
 							}
 						} else {
 						}
-						v_39 := Append[value](xs_1, x_1)
-						v_31 = listValue{V: v_39}
+						v_36 := Append[value](xs_1, x_1)
+						v_29 = listValue{V: v_36}
 					}
 				inl_7:
 					;
-					t_3[t_4] = v_31
+					t_3[t_4] = v_29
 				}
-			case StringFlag, IntFlag, ChoiceFlag, DurationFlag:
+			}
+			goto kn_11
+		kn_10:
+			{
 				if !hasValue {
 					if i >= len(args) {
 						return *new(Values), NeedsValue{Name: name}
@@ -9526,337 +9648,371 @@ func (s Set) Parse(env *Env, args []string) (Values, error) {
 				t_7 := v_15
 				t_8 := f
 				t_9 := maps.Clone(flags)
-				v_40, err_1 := read(env, f, name, given)
+				v_37, err_1 := read(env, f, name, given)
 				if err_1 != nil {
 					return *new(Values), err_1
 				}
-				var v_41 value
+				var v_38 value
 				{
 					var flags_3 map[string]value = t_9
-					var x_2 value = v_40
-					v_42 := cardinality(t_8)
-					if v_42 != int(2) {
-						v_41 = x_2
+					var x_2 value = v_37
+					v_39 := cardinality(t_8)
+					if v_39 != int(2) {
+						v_38 = x_2
 						goto inl_10
 					}
 					var xs_2 []value = []value{}
 					t_10 := flags_3
-					var v_43 string
+					var v_40 string
 					{
-						var v_44 scalarFlag
+						var v_41 scalarFlag
+						_ = v_41
+						var kp_16 StringFlag
+						_ = kp_16
+						var kp_17 IntFlag
+						_ = kp_17
+						var kp_18 BoolFlag
+						_ = kp_18
+						var kp_19 DurationFlag
+						_ = kp_19
+						var kp_20 ChoiceFlag
+						_ = kp_20
 						{
-							switch v_45 := t_8.(type) {
+							switch v_42 := t_8.(type) {
 							case StringFlag:
-								s_17 := v_45
-								v_44 = s_17
-								goto inl_12
+								s_17 := v_42
+								kp_16 = s_17
+								goto kn_24
 							case IntFlag:
-								n_15 := v_45
-								v_44 = n_15
-								goto inl_12
+								n_15 := v_42
+								kp_17 = n_15
+								goto kn_25
 							case BoolFlag:
-								b_14 := v_45
-								v_44 = b_14
-								goto inl_12
+								b_14 := v_42
+								kp_18 = b_14
+								goto kn_26
 							case DurationFlag:
-								d_11 := v_45
-								v_44 = d_11
-								goto inl_12
+								d_11 := v_42
+								kp_19 = d_11
+								goto kn_28
 							case ChoiceFlag:
-								c_12 := v_45
-								v_44 = c_12
-								goto inl_12
+								c_12 := v_42
+								kp_20 = c_12
+								goto kn_27
 							case OptionalStringFlag:
-								s_18 := v_45
-								v_44 = s_18.base
-								goto inl_12
+								s_18 := v_42
+								kp_16 = s_18.base
+								goto kn_24
 							case OptionalIntFlag:
-								n_16 := v_45
-								v_44 = n_16.base
-								goto inl_12
+								n_16 := v_42
+								kp_17 = n_16.base
+								goto kn_25
 							case RepeatedStringFlag:
-								s_19 := v_45
-								v_44 = s_19.base
-								goto inl_12
+								s_19 := v_42
+								kp_16 = s_19.base
+								goto kn_24
 							case RepeatedIntFlag:
-								n_17 := v_45
-								v_44 = n_17.base
-								goto inl_12
+								n_17 := v_42
+								kp_17 = n_17.base
+								goto kn_25
 							case RepeatedBoolFlag:
-								b_15 := v_45
-								v_44 = b_15.base
-								goto inl_12
+								b_15 := v_42
+								kp_18 = b_15.base
+								goto kn_26
 							case RepeatedDurationFlag:
-								d_12 := v_45
-								v_44 = d_12.base
-								goto inl_12
+								d_12 := v_42
+								kp_19 = d_12.base
+								goto kn_28
 							case RepeatedChoiceFlag:
-								c_13 := v_45
-								v_44 = c_13.base
-								goto inl_12
+								c_13 := v_42
+								kp_20 = c_13.base
+								goto kn_27
 							default:
-								_ = v_45
+								_ = v_42
 								panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 							}
 						}
-					inl_12:
-						;
-						switch v_46 := v_44.(type) {
-						case StringFlag:
-							s_20 := v_46
-							v_43 = s_20.name
+					kn_24:
+						{
+							s_20 := kp_16
+							v_40 = s_20.name
 							goto inl_11
-						case IntFlag:
-							n_18 := v_46
-							v_43 = n_18.name
+						}
+					kn_25:
+						{
+							n_18 := kp_17
+							v_40 = n_18.name
 							goto inl_11
-						case BoolFlag:
-							b_16 := v_46
-							v_43 = b_16.name
+						}
+					kn_26:
+						{
+							b_16 := kp_18
+							v_40 = b_16.name
 							goto inl_11
-						case ChoiceFlag:
-							c_14 := v_46
-							v_43 = c_14.name
+						}
+					kn_27:
+						{
+							c_14 := kp_20
+							v_40 = c_14.name
 							goto inl_11
-						case DurationFlag:
-							d_13 := v_46
-							v_43 = d_13.name
+						}
+					kn_28:
+						{
+							d_13 := kp_19
+							v_40 = d_13.name
 							goto inl_11
-						default:
-							_ = v_46
-							panic("ergo: defect: no case of the match at std/flag/flag.ergo:366:2 matched")
 						}
 					}
 				inl_11:
 					;
-					v_47, ok_2 := t_10[v_43]
+					v_43, ok_2 := t_10[v_40]
 					if ok_2 {
-						old_2 := Some[value]{Value: v_47}
-						switch v_48 := old_2.Value.(type) {
+						old_2 := Some[value]{Value: v_43}
+						switch v_44 := old_2.Value.(type) {
 						case listValue:
-							list_2 := v_48
+							list_2 := v_44
 							xs_2 = slices.Clone(list_2.V)
 						default:
-							_ = v_48
+							_ = v_44
 							panic(ergo.UnreachableAt("flag: a repeated flag has a scalar value", "std/flag/cardinality.ergo:230:4"))
 						}
 					} else {
 					}
-					v_49 := Append[value](xs_2, x_2)
-					v_41 = listValue{V: v_49}
+					v_45 := Append[value](xs_2, x_2)
+					v_38 = listValue{V: v_45}
 				}
 			inl_10:
 				;
-				t_6[t_7] = v_41
+				t_6[t_7] = v_38
 			}
+			goto kn_11
+		kn_11:
 		}
 		goto kn_2
 	kn_2:
 	}
-	for _, v_50 := range s.Flags {
-		var f_1 Flag = v_50
-		var v_51 bool
+	for _, v_46 := range s.Flags {
+		var f_1 Flag = v_46
+		var v_47 bool
 		{
-			v_52 := cardinality(f_1)
-			if v_52 != int(0) {
-				v_51 = false
+			v_48 := cardinality(f_1)
+			if v_48 != int(0) {
+				v_47 = false
 				goto inl_13
 			}
-			var v_53 scalarFlag
+			var v_49 scalarFlag
+			_ = v_49
+			var kp_21 StringFlag
+			_ = kp_21
+			var kp_22 IntFlag
+			_ = kp_22
 			{
-				switch v_54 := f_1.(type) {
+				switch v_50 := f_1.(type) {
 				case StringFlag:
-					s_21 := v_54
-					v_53 = s_21
-					goto inl_14
+					s_21 := v_50
+					kp_21 = s_21
+					goto kn_30
 				case IntFlag:
-					n_19 := v_54
-					v_53 = n_19
-					goto inl_14
+					n_19 := v_50
+					kp_22 = n_19
+					goto kn_31
 				case BoolFlag:
-					b_17 := v_54
-					v_53 = b_17
-					goto inl_14
+					b_17 := v_50
+					_ = b_17
+					goto kn_32
 				case DurationFlag:
-					d_14 := v_54
-					v_53 = d_14
-					goto inl_14
+					d_14 := v_50
+					_ = d_14
+					goto kn_32
 				case ChoiceFlag:
-					c_15 := v_54
-					v_53 = c_15
-					goto inl_14
+					c_15 := v_50
+					_ = c_15
+					goto kn_32
 				case OptionalStringFlag:
-					s_22 := v_54
-					v_53 = s_22.base
-					goto inl_14
+					s_22 := v_50
+					kp_21 = s_22.base
+					goto kn_30
 				case OptionalIntFlag:
-					n_20 := v_54
-					v_53 = n_20.base
-					goto inl_14
+					n_20 := v_50
+					kp_22 = n_20.base
+					goto kn_31
 				case RepeatedStringFlag:
-					s_23 := v_54
-					v_53 = s_23.base
-					goto inl_14
+					s_23 := v_50
+					kp_21 = s_23.base
+					goto kn_30
 				case RepeatedIntFlag:
-					n_21 := v_54
-					v_53 = n_21.base
-					goto inl_14
+					n_21 := v_50
+					kp_22 = n_21.base
+					goto kn_31
 				case RepeatedBoolFlag:
-					b_18 := v_54
-					v_53 = b_18.base
-					goto inl_14
+					b_18 := v_50
+					_ = b_18.base
+					goto kn_32
 				case RepeatedDurationFlag:
-					d_15 := v_54
-					v_53 = d_15.base
-					goto inl_14
+					d_15 := v_50
+					_ = d_15.base
+					goto kn_32
 				case RepeatedChoiceFlag:
-					c_16 := v_54
-					v_53 = c_16.base
-					goto inl_14
+					c_16 := v_50
+					_ = c_16.base
+					goto kn_32
 				default:
-					_ = v_54
+					_ = v_50
 					panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 				}
 			}
-		inl_14:
-			;
-			switch v_55 := v_53.(type) {
-			case StringFlag:
-				s_24 := v_55
-				v_51 = s_24.required
+		kn_30:
+			{
+				s_24 := kp_21
+				v_47 = s_24.required
 				goto inl_13
-			case IntFlag:
-				n_22 := v_55
-				v_51 = n_22.required
+			}
+		kn_31:
+			{
+				n_22 := kp_22
+				v_47 = n_22.required
 				goto inl_13
-			case BoolFlag, ChoiceFlag, DurationFlag:
-				_ = v_55
-				v_51 = false
+			}
+		kn_32:
+			{
+				v_47 = false
 				goto inl_13
-			default:
-				_ = v_55
-				panic("ergo: defect: no case of the match at std/flag/parse.ergo:185:2 matched")
 			}
 		}
 	inl_13:
 		;
-		if v_51 {
+		if v_47 {
 			t_11 := flags
-			var v_56 string
+			var v_51 string
 			{
-				var v_57 scalarFlag
+				var v_52 scalarFlag
+				_ = v_52
+				var kp_23 StringFlag
+				_ = kp_23
+				var kp_24 IntFlag
+				_ = kp_24
+				var kp_25 BoolFlag
+				_ = kp_25
+				var kp_26 DurationFlag
+				_ = kp_26
+				var kp_27 ChoiceFlag
+				_ = kp_27
 				{
-					switch v_58 := f_1.(type) {
+					switch v_53 := f_1.(type) {
 					case StringFlag:
-						s_25 := v_58
-						v_57 = s_25
-						goto inl_16
+						s_25 := v_53
+						kp_23 = s_25
+						goto kn_34
 					case IntFlag:
-						n_23 := v_58
-						v_57 = n_23
-						goto inl_16
+						n_23 := v_53
+						kp_24 = n_23
+						goto kn_35
 					case BoolFlag:
-						b_19 := v_58
-						v_57 = b_19
-						goto inl_16
+						b_19 := v_53
+						kp_25 = b_19
+						goto kn_36
 					case DurationFlag:
-						d_16 := v_58
-						v_57 = d_16
-						goto inl_16
+						d_16 := v_53
+						kp_26 = d_16
+						goto kn_38
 					case ChoiceFlag:
-						c_17 := v_58
-						v_57 = c_17
-						goto inl_16
+						c_17 := v_53
+						kp_27 = c_17
+						goto kn_37
 					case OptionalStringFlag:
-						s_26 := v_58
-						v_57 = s_26.base
-						goto inl_16
+						s_26 := v_53
+						kp_23 = s_26.base
+						goto kn_34
 					case OptionalIntFlag:
-						n_24 := v_58
-						v_57 = n_24.base
-						goto inl_16
+						n_24 := v_53
+						kp_24 = n_24.base
+						goto kn_35
 					case RepeatedStringFlag:
-						s_27 := v_58
-						v_57 = s_27.base
-						goto inl_16
+						s_27 := v_53
+						kp_23 = s_27.base
+						goto kn_34
 					case RepeatedIntFlag:
-						n_25 := v_58
-						v_57 = n_25.base
-						goto inl_16
+						n_25 := v_53
+						kp_24 = n_25.base
+						goto kn_35
 					case RepeatedBoolFlag:
-						b_20 := v_58
-						v_57 = b_20.base
-						goto inl_16
+						b_20 := v_53
+						kp_25 = b_20.base
+						goto kn_36
 					case RepeatedDurationFlag:
-						d_17 := v_58
-						v_57 = d_17.base
-						goto inl_16
+						d_17 := v_53
+						kp_26 = d_17.base
+						goto kn_38
 					case RepeatedChoiceFlag:
-						c_18 := v_58
-						v_57 = c_18.base
-						goto inl_16
+						c_18 := v_53
+						kp_27 = c_18.base
+						goto kn_37
 					default:
-						_ = v_58
+						_ = v_53
 						panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 					}
 				}
-			inl_16:
-				;
-				switch v_59 := v_57.(type) {
-				case StringFlag:
-					s_28 := v_59
-					v_56 = s_28.name
+			kn_34:
+				{
+					s_28 := kp_23
+					v_51 = s_28.name
 					goto inl_15
-				case IntFlag:
-					n_26 := v_59
-					v_56 = n_26.name
+				}
+			kn_35:
+				{
+					n_26 := kp_24
+					v_51 = n_26.name
 					goto inl_15
-				case BoolFlag:
-					b_21 := v_59
-					v_56 = b_21.name
+				}
+			kn_36:
+				{
+					b_21 := kp_25
+					v_51 = b_21.name
 					goto inl_15
-				case ChoiceFlag:
-					c_19 := v_59
-					v_56 = c_19.name
+				}
+			kn_37:
+				{
+					c_19 := kp_27
+					v_51 = c_19.name
 					goto inl_15
-				case DurationFlag:
-					d_18 := v_59
-					v_56 = d_18.name
+				}
+			kn_38:
+				{
+					d_18 := kp_26
+					v_51 = d_18.name
 					goto inl_15
-				default:
-					_ = v_59
-					panic("ergo: defect: no case of the match at std/flag/flag.ergo:366:2 matched")
 				}
 			}
 		inl_15:
 			;
-			v_60, ok_3 := t_11[v_56]
-			_ = v_60
+			v_54, ok_3 := t_11[v_51]
+			_ = v_54
 			if ok_3 {
 			} else {
-				v_61 := nameOf_1(f_1)
-				return *new(Values), Missing_1{Name: v_61}
+				v_55 := nameOf_1(f_1)
+				return *new(Values), Missing_1{Name: v_55}
 			}
 		}
 	}
 	var named_1 map[string]string = map[string]string{}
 	var rest []string = []string{}
 	var next int = int(0)
-	for _, v_62 := range s.Args {
-		var a ArgSpec = v_62
-		switch a.arity.(type) {
-		case one:
+	for _, v_56 := range s.Args {
+		var a ArgSpec = v_56
+		s_29 := a.arity
+		switch s_29.tag {
+		case 0:
 			if next >= len(positional) {
 				return *new(Values), Missing_1{Name: a.name}
 			}
 			named_1[a.name] = positional[next]
 			next += int(1)
-		case optional:
+		case 1:
 			if next < len(positional) {
 				named_1[a.name] = positional[next]
 				next += int(1)
 			}
-		case many:
+		case 2:
 			for next < len(positional) {
 				rest = Append[string](rest, positional[next])
 				next += int(1)
@@ -9944,71 +10100,75 @@ func (s Set) helpAsked(args []string) bool {
 		{
 			found := kp
 			var v_10 scalarFlag
+			_ = v_10
 			{
 				var f Flag = found.Value
 				switch v_11 := f.(type) {
 				case StringFlag:
 					s_2 := v_11
-					v_10 = s_2
-					goto inl_1
+					_ = s_2
+					goto kn_4
 				case IntFlag:
 					n := v_11
-					v_10 = n
-					goto inl_1
+					_ = n
+					goto kn_4
 				case BoolFlag:
 					b_1 := v_11
-					v_10 = b_1
-					goto inl_1
+					_ = b_1
+					goto kn_3
 				case DurationFlag:
 					d := v_11
-					v_10 = d
-					goto inl_1
+					_ = d
+					goto kn_4
 				case ChoiceFlag:
 					c_1 := v_11
-					v_10 = c_1
-					goto inl_1
+					_ = c_1
+					goto kn_4
 				case OptionalStringFlag:
 					s_3 := v_11
-					v_10 = s_3.base
-					goto inl_1
+					_ = s_3.base
+					goto kn_4
 				case OptionalIntFlag:
 					n_1 := v_11
-					v_10 = n_1.base
-					goto inl_1
+					_ = n_1.base
+					goto kn_4
 				case RepeatedStringFlag:
 					s_4 := v_11
-					v_10 = s_4.base
-					goto inl_1
+					_ = s_4.base
+					goto kn_4
 				case RepeatedIntFlag:
 					n_2 := v_11
-					v_10 = n_2.base
-					goto inl_1
+					_ = n_2.base
+					goto kn_4
 				case RepeatedBoolFlag:
 					b_2 := v_11
-					v_10 = b_2.base
-					goto inl_1
+					_ = b_2.base
+					goto kn_3
 				case RepeatedDurationFlag:
 					d_1 := v_11
-					v_10 = d_1.base
-					goto inl_1
+					_ = d_1.base
+					goto kn_4
 				case RepeatedChoiceFlag:
 					c_2 := v_11
-					v_10 = c_2.base
-					goto inl_1
+					_ = c_2.base
+					goto kn_4
 				default:
 					_ = v_11
 					panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 				}
 			}
-		inl_1:
-			;
-			switch v_10.(type) {
-			case BoolFlag:
-			case StringFlag, IntFlag, ChoiceFlag, DurationFlag:
+		kn_3:
+			{
+			}
+			goto kn_5
+		kn_4:
+			{
 				if v_5 <= int(0) {
 					i += int(1)
 				}
 			}
+			goto kn_5
+		kn_5:
 		}
 		goto kn_2
 	kn_2:
@@ -10237,7 +10397,7 @@ func (f OptionalIntFlag) Get(v Values) Option[int] {
 }
 
 func Arg(name string, usage string) ArgSpec {
-	return ArgSpec{name: name, usage: usage, arity: one{}}
+	return ArgSpec{name: name, usage: usage, arity: (arity{}).of0(one{})}
 }
 
 func (a ArgSpec) Get(v Values) Option[string] {
@@ -10334,366 +10494,422 @@ func validateFlags(flags []Flag) {
 		var v_2 string
 		{
 			var v_3 scalarFlag
+			_ = v_3
+			var kp StringFlag
+			_ = kp
+			var kp_1 IntFlag
+			_ = kp_1
+			var kp_2 BoolFlag
+			_ = kp_2
+			var kp_3 DurationFlag
+			_ = kp_3
+			var kp_4 ChoiceFlag
+			_ = kp_4
 			{
 				switch v_4 := f.(type) {
 				case StringFlag:
 					s := v_4
-					v_3 = s
-					goto inl_1
+					kp = s
+					goto kn
 				case IntFlag:
 					n := v_4
-					v_3 = n
-					goto inl_1
+					kp_1 = n
+					goto kn_1
 				case BoolFlag:
 					b := v_4
-					v_3 = b
-					goto inl_1
+					kp_2 = b
+					goto kn_2
 				case DurationFlag:
 					d := v_4
-					v_3 = d
-					goto inl_1
+					kp_3 = d
+					goto kn_3
 				case ChoiceFlag:
 					c_1 := v_4
-					v_3 = c_1
-					goto inl_1
+					kp_4 = c_1
+					goto kn_4
 				case OptionalStringFlag:
 					s_1 := v_4
-					v_3 = s_1.base
-					goto inl_1
+					kp = s_1.base
+					goto kn
 				case OptionalIntFlag:
 					n_1 := v_4
-					v_3 = n_1.base
-					goto inl_1
+					kp_1 = n_1.base
+					goto kn_1
 				case RepeatedStringFlag:
 					s_2 := v_4
-					v_3 = s_2.base
-					goto inl_1
+					kp = s_2.base
+					goto kn
 				case RepeatedIntFlag:
 					n_2 := v_4
-					v_3 = n_2.base
-					goto inl_1
+					kp_1 = n_2.base
+					goto kn_1
 				case RepeatedBoolFlag:
 					b_1 := v_4
-					v_3 = b_1.base
-					goto inl_1
+					kp_2 = b_1.base
+					goto kn_2
 				case RepeatedDurationFlag:
 					d_1 := v_4
-					v_3 = d_1.base
-					goto inl_1
+					kp_3 = d_1.base
+					goto kn_3
 				case RepeatedChoiceFlag:
 					c_2 := v_4
-					v_3 = c_2.base
-					goto inl_1
+					kp_4 = c_2.base
+					goto kn_4
 				default:
 					_ = v_4
 					panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 				}
 			}
-		inl_1:
-			;
-			switch v_5 := v_3.(type) {
-			case StringFlag:
-				s_3 := v_5
+		kn:
+			{
+				s_3 := kp
 				v_2 = s_3.alias
 				goto inl
-			case IntFlag:
-				n_3 := v_5
+			}
+		kn_1:
+			{
+				n_3 := kp_1
 				v_2 = n_3.alias
 				goto inl
-			case BoolFlag:
-				b_2 := v_5
+			}
+		kn_2:
+			{
+				b_2 := kp_2
 				v_2 = b_2.alias
 				goto inl
-			case DurationFlag:
-				d_2 := v_5
+			}
+		kn_3:
+			{
+				d_2 := kp_3
 				v_2 = d_2.alias
 				goto inl
-			case ChoiceFlag:
-				c_3 := v_5
+			}
+		kn_4:
+			{
+				c_3 := kp_4
 				v_2 = c_3.alias
 				goto inl
-			default:
-				_ = v_5
-				panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:205:2 matched")
 			}
 		}
 	inl:
 		;
 		if v_2 == "" {
-			var v_6 string
+			var v_5 string
 			{
-				var v_7 scalarFlag
+				var v_6 scalarFlag
+				_ = v_6
+				var kp_5 StringFlag
+				_ = kp_5
+				var kp_6 IntFlag
+				_ = kp_6
+				var kp_7 BoolFlag
+				_ = kp_7
+				var kp_8 DurationFlag
+				_ = kp_8
+				var kp_9 ChoiceFlag
+				_ = kp_9
 				{
-					switch v_8 := f.(type) {
+					switch v_7 := f.(type) {
 					case StringFlag:
-						s_4 := v_8
-						v_7 = s_4
-						goto inl_3
+						s_4 := v_7
+						kp_5 = s_4
+						goto kn_6
 					case IntFlag:
-						n_4 := v_8
-						v_7 = n_4
-						goto inl_3
+						n_4 := v_7
+						kp_6 = n_4
+						goto kn_7
 					case BoolFlag:
-						b_3 := v_8
-						v_7 = b_3
-						goto inl_3
+						b_3 := v_7
+						kp_7 = b_3
+						goto kn_8
 					case DurationFlag:
-						d_3 := v_8
-						v_7 = d_3
-						goto inl_3
+						d_3 := v_7
+						kp_8 = d_3
+						goto kn_10
 					case ChoiceFlag:
-						c_4 := v_8
-						v_7 = c_4
-						goto inl_3
+						c_4 := v_7
+						kp_9 = c_4
+						goto kn_9
 					case OptionalStringFlag:
-						s_5 := v_8
-						v_7 = s_5.base
-						goto inl_3
+						s_5 := v_7
+						kp_5 = s_5.base
+						goto kn_6
 					case OptionalIntFlag:
-						n_5 := v_8
-						v_7 = n_5.base
-						goto inl_3
+						n_5 := v_7
+						kp_6 = n_5.base
+						goto kn_7
 					case RepeatedStringFlag:
-						s_6 := v_8
-						v_7 = s_6.base
-						goto inl_3
+						s_6 := v_7
+						kp_5 = s_6.base
+						goto kn_6
 					case RepeatedIntFlag:
-						n_6 := v_8
-						v_7 = n_6.base
-						goto inl_3
+						n_6 := v_7
+						kp_6 = n_6.base
+						goto kn_7
 					case RepeatedBoolFlag:
-						b_4 := v_8
-						v_7 = b_4.base
-						goto inl_3
+						b_4 := v_7
+						kp_7 = b_4.base
+						goto kn_8
 					case RepeatedDurationFlag:
-						d_4 := v_8
-						v_7 = d_4.base
-						goto inl_3
+						d_4 := v_7
+						kp_8 = d_4.base
+						goto kn_10
 					case RepeatedChoiceFlag:
-						c_5 := v_8
-						v_7 = c_5.base
-						goto inl_3
+						c_5 := v_7
+						kp_9 = c_5.base
+						goto kn_9
 					default:
-						_ = v_8
+						_ = v_7
 						panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 					}
 				}
-			inl_3:
-				;
-				switch v_9 := v_7.(type) {
-				case StringFlag:
-					s_7 := v_9
-					v_6 = s_7.name
+			kn_6:
+				{
+					s_7 := kp_5
+					v_5 = s_7.name
 					goto inl_2
-				case IntFlag:
-					n_7 := v_9
-					v_6 = n_7.name
+				}
+			kn_7:
+				{
+					n_7 := kp_6
+					v_5 = n_7.name
 					goto inl_2
-				case BoolFlag:
-					b_5 := v_9
-					v_6 = b_5.name
+				}
+			kn_8:
+				{
+					b_5 := kp_7
+					v_5 = b_5.name
 					goto inl_2
-				case ChoiceFlag:
-					c_6 := v_9
-					v_6 = c_6.name
+				}
+			kn_9:
+				{
+					c_6 := kp_9
+					v_5 = c_6.name
 					goto inl_2
-				case DurationFlag:
-					d_5 := v_9
-					v_6 = d_5.name
+				}
+			kn_10:
+				{
+					d_5 := kp_8
+					v_5 = d_5.name
 					goto inl_2
-				default:
-					_ = v_9
-					panic("ergo: defect: no case of the match at std/flag/flag.ergo:366:2 matched")
 				}
 			}
 		inl_2:
 			;
-			v_1 = []string{v_6}
+			v_1 = []string{v_5}
 		} else {
-			var v_10 string
+			var v_8 string
 			{
-				var v_11 scalarFlag
+				var v_9 scalarFlag
+				_ = v_9
+				var kp_10 StringFlag
+				_ = kp_10
+				var kp_11 IntFlag
+				_ = kp_11
+				var kp_12 BoolFlag
+				_ = kp_12
+				var kp_13 DurationFlag
+				_ = kp_13
+				var kp_14 ChoiceFlag
+				_ = kp_14
 				{
-					switch v_12 := f.(type) {
+					switch v_10 := f.(type) {
 					case StringFlag:
-						s_8 := v_12
-						v_11 = s_8
-						goto inl_5
+						s_8 := v_10
+						kp_10 = s_8
+						goto kn_12
 					case IntFlag:
-						n_8 := v_12
-						v_11 = n_8
-						goto inl_5
+						n_8 := v_10
+						kp_11 = n_8
+						goto kn_13
 					case BoolFlag:
-						b_6 := v_12
-						v_11 = b_6
-						goto inl_5
+						b_6 := v_10
+						kp_12 = b_6
+						goto kn_14
 					case DurationFlag:
-						d_6 := v_12
-						v_11 = d_6
-						goto inl_5
+						d_6 := v_10
+						kp_13 = d_6
+						goto kn_16
 					case ChoiceFlag:
-						c_7 := v_12
-						v_11 = c_7
-						goto inl_5
+						c_7 := v_10
+						kp_14 = c_7
+						goto kn_15
 					case OptionalStringFlag:
-						s_9 := v_12
-						v_11 = s_9.base
-						goto inl_5
+						s_9 := v_10
+						kp_10 = s_9.base
+						goto kn_12
 					case OptionalIntFlag:
-						n_9 := v_12
-						v_11 = n_9.base
-						goto inl_5
+						n_9 := v_10
+						kp_11 = n_9.base
+						goto kn_13
 					case RepeatedStringFlag:
-						s_10 := v_12
-						v_11 = s_10.base
-						goto inl_5
+						s_10 := v_10
+						kp_10 = s_10.base
+						goto kn_12
 					case RepeatedIntFlag:
-						n_10 := v_12
-						v_11 = n_10.base
-						goto inl_5
+						n_10 := v_10
+						kp_11 = n_10.base
+						goto kn_13
 					case RepeatedBoolFlag:
-						b_7 := v_12
-						v_11 = b_7.base
-						goto inl_5
+						b_7 := v_10
+						kp_12 = b_7.base
+						goto kn_14
 					case RepeatedDurationFlag:
-						d_7 := v_12
-						v_11 = d_7.base
-						goto inl_5
+						d_7 := v_10
+						kp_13 = d_7.base
+						goto kn_16
 					case RepeatedChoiceFlag:
-						c_8 := v_12
-						v_11 = c_8.base
-						goto inl_5
+						c_8 := v_10
+						kp_14 = c_8.base
+						goto kn_15
 					default:
-						_ = v_12
+						_ = v_10
 						panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 					}
 				}
-			inl_5:
-				;
-				switch v_13 := v_11.(type) {
-				case StringFlag:
-					s_11 := v_13
-					v_10 = s_11.name
+			kn_12:
+				{
+					s_11 := kp_10
+					v_8 = s_11.name
 					goto inl_4
-				case IntFlag:
-					n_11 := v_13
-					v_10 = n_11.name
+				}
+			kn_13:
+				{
+					n_11 := kp_11
+					v_8 = n_11.name
 					goto inl_4
-				case BoolFlag:
-					b_8 := v_13
-					v_10 = b_8.name
+				}
+			kn_14:
+				{
+					b_8 := kp_12
+					v_8 = b_8.name
 					goto inl_4
-				case ChoiceFlag:
-					c_9 := v_13
-					v_10 = c_9.name
+				}
+			kn_15:
+				{
+					c_9 := kp_14
+					v_8 = c_9.name
 					goto inl_4
-				case DurationFlag:
-					d_8 := v_13
-					v_10 = d_8.name
+				}
+			kn_16:
+				{
+					d_8 := kp_13
+					v_8 = d_8.name
 					goto inl_4
-				default:
-					_ = v_13
-					panic("ergo: defect: no case of the match at std/flag/flag.ergo:366:2 matched")
 				}
 			}
 		inl_4:
 			;
-			t := v_10
-			var v_14 string
+			t := v_8
+			var v_11 string
 			{
-				var v_15 scalarFlag
+				var v_12 scalarFlag
+				_ = v_12
+				var kp_15 StringFlag
+				_ = kp_15
+				var kp_16 IntFlag
+				_ = kp_16
+				var kp_17 BoolFlag
+				_ = kp_17
+				var kp_18 DurationFlag
+				_ = kp_18
+				var kp_19 ChoiceFlag
+				_ = kp_19
 				{
-					switch v_16 := f.(type) {
+					switch v_13 := f.(type) {
 					case StringFlag:
-						s_12 := v_16
-						v_15 = s_12
-						goto inl_7
+						s_12 := v_13
+						kp_15 = s_12
+						goto kn_18
 					case IntFlag:
-						n_12 := v_16
-						v_15 = n_12
-						goto inl_7
+						n_12 := v_13
+						kp_16 = n_12
+						goto kn_19
 					case BoolFlag:
-						b_9 := v_16
-						v_15 = b_9
-						goto inl_7
+						b_9 := v_13
+						kp_17 = b_9
+						goto kn_20
 					case DurationFlag:
-						d_9 := v_16
-						v_15 = d_9
-						goto inl_7
+						d_9 := v_13
+						kp_18 = d_9
+						goto kn_21
 					case ChoiceFlag:
-						c_10 := v_16
-						v_15 = c_10
-						goto inl_7
+						c_10 := v_13
+						kp_19 = c_10
+						goto kn_22
 					case OptionalStringFlag:
-						s_13 := v_16
-						v_15 = s_13.base
-						goto inl_7
+						s_13 := v_13
+						kp_15 = s_13.base
+						goto kn_18
 					case OptionalIntFlag:
-						n_13 := v_16
-						v_15 = n_13.base
-						goto inl_7
+						n_13 := v_13
+						kp_16 = n_13.base
+						goto kn_19
 					case RepeatedStringFlag:
-						s_14 := v_16
-						v_15 = s_14.base
-						goto inl_7
+						s_14 := v_13
+						kp_15 = s_14.base
+						goto kn_18
 					case RepeatedIntFlag:
-						n_14 := v_16
-						v_15 = n_14.base
-						goto inl_7
+						n_14 := v_13
+						kp_16 = n_14.base
+						goto kn_19
 					case RepeatedBoolFlag:
-						b_10 := v_16
-						v_15 = b_10.base
-						goto inl_7
+						b_10 := v_13
+						kp_17 = b_10.base
+						goto kn_20
 					case RepeatedDurationFlag:
-						d_10 := v_16
-						v_15 = d_10.base
-						goto inl_7
+						d_10 := v_13
+						kp_18 = d_10.base
+						goto kn_21
 					case RepeatedChoiceFlag:
-						c_11 := v_16
-						v_15 = c_11.base
-						goto inl_7
+						c_11 := v_13
+						kp_19 = c_11.base
+						goto kn_22
 					default:
-						_ = v_16
+						_ = v_13
 						panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 					}
 				}
-			inl_7:
-				;
-				switch v_17 := v_15.(type) {
-				case StringFlag:
-					s_15 := v_17
-					v_14 = s_15.alias
+			kn_18:
+				{
+					s_15 := kp_15
+					v_11 = s_15.alias
 					goto inl_6
-				case IntFlag:
-					n_15 := v_17
-					v_14 = n_15.alias
+				}
+			kn_19:
+				{
+					n_15 := kp_16
+					v_11 = n_15.alias
 					goto inl_6
-				case BoolFlag:
-					b_11 := v_17
-					v_14 = b_11.alias
+				}
+			kn_20:
+				{
+					b_11 := kp_17
+					v_11 = b_11.alias
 					goto inl_6
-				case DurationFlag:
-					d_11 := v_17
-					v_14 = d_11.alias
+				}
+			kn_21:
+				{
+					d_11 := kp_18
+					v_11 = d_11.alias
 					goto inl_6
-				case ChoiceFlag:
-					c_12 := v_17
-					v_14 = c_12.alias
+				}
+			kn_22:
+				{
+					c_12 := kp_19
+					v_11 = c_12.alias
 					goto inl_6
-				default:
-					_ = v_17
-					panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:205:2 matched")
 				}
 			}
 		inl_6:
 			;
-			v_1 = []string{t, v_14}
+			v_1 = []string{t, v_11}
 		}
 		var names []string = v_1
-		for _, v_18 := range names {
-			var name string = v_18
-			v_19, ok := seen[name]
-			_ = v_19
+		for _, v_14 := range names {
+			var name string = v_14
+			v_15, ok := seen[name]
+			_ = v_15
 			if ok {
 				panic(ergo.UnreachableAt(("flag: a flag spelling is declared twice: " + name), "std/flag/parse.ergo:204:5"))
 			} else {
@@ -10737,272 +10953,314 @@ func findIn(flags []Flag, name string) Option[Flag] {
 		var v_1 string
 		{
 			var v_2 scalarFlag
+			_ = v_2
+			var kp StringFlag
+			_ = kp
+			var kp_1 IntFlag
+			_ = kp_1
+			var kp_2 BoolFlag
+			_ = kp_2
+			var kp_3 DurationFlag
+			_ = kp_3
+			var kp_4 ChoiceFlag
+			_ = kp_4
 			{
 				switch v_3 := f.(type) {
 				case StringFlag:
 					s := v_3
-					v_2 = s
-					goto inl_1
+					kp = s
+					goto kn
 				case IntFlag:
 					n := v_3
-					v_2 = n
-					goto inl_1
+					kp_1 = n
+					goto kn_1
 				case BoolFlag:
 					b_1 := v_3
-					v_2 = b_1
-					goto inl_1
+					kp_2 = b_1
+					goto kn_2
 				case DurationFlag:
 					d := v_3
-					v_2 = d
-					goto inl_1
+					kp_3 = d
+					goto kn_4
 				case ChoiceFlag:
 					c_1 := v_3
-					v_2 = c_1
-					goto inl_1
+					kp_4 = c_1
+					goto kn_3
 				case OptionalStringFlag:
 					s_1 := v_3
-					v_2 = s_1.base
-					goto inl_1
+					kp = s_1.base
+					goto kn
 				case OptionalIntFlag:
 					n_1 := v_3
-					v_2 = n_1.base
-					goto inl_1
+					kp_1 = n_1.base
+					goto kn_1
 				case RepeatedStringFlag:
 					s_2 := v_3
-					v_2 = s_2.base
-					goto inl_1
+					kp = s_2.base
+					goto kn
 				case RepeatedIntFlag:
 					n_2 := v_3
-					v_2 = n_2.base
-					goto inl_1
+					kp_1 = n_2.base
+					goto kn_1
 				case RepeatedBoolFlag:
 					b_2 := v_3
-					v_2 = b_2.base
-					goto inl_1
+					kp_2 = b_2.base
+					goto kn_2
 				case RepeatedDurationFlag:
 					d_1 := v_3
-					v_2 = d_1.base
-					goto inl_1
+					kp_3 = d_1.base
+					goto kn_4
 				case RepeatedChoiceFlag:
 					c_2 := v_3
-					v_2 = c_2.base
-					goto inl_1
+					kp_4 = c_2.base
+					goto kn_3
 				default:
 					_ = v_3
 					panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 				}
 			}
-		inl_1:
-			;
-			switch v_4 := v_2.(type) {
-			case StringFlag:
-				s_3 := v_4
+		kn:
+			{
+				s_3 := kp
 				v_1 = s_3.name
 				goto inl
-			case IntFlag:
-				n_3 := v_4
+			}
+		kn_1:
+			{
+				n_3 := kp_1
 				v_1 = n_3.name
 				goto inl
-			case BoolFlag:
-				b_3 := v_4
+			}
+		kn_2:
+			{
+				b_3 := kp_2
 				v_1 = b_3.name
 				goto inl
-			case ChoiceFlag:
-				c_3 := v_4
+			}
+		kn_3:
+			{
+				c_3 := kp_4
 				v_1 = c_3.name
 				goto inl
-			case DurationFlag:
-				d_2 := v_4
+			}
+		kn_4:
+			{
+				d_2 := kp_3
 				v_1 = d_2.name
 				goto inl
-			default:
-				_ = v_4
-				panic("ergo: defect: no case of the match at std/flag/flag.ergo:366:2 matched")
 			}
 		}
 	inl:
 		;
 		b := (v_1 == name)
 		if !b {
-			var v_5 string
+			var v_4 string
 			{
-				var v_6 scalarFlag
+				var v_5 scalarFlag
+				_ = v_5
+				var kp_5 StringFlag
+				_ = kp_5
+				var kp_6 IntFlag
+				_ = kp_6
+				var kp_7 BoolFlag
+				_ = kp_7
+				var kp_8 DurationFlag
+				_ = kp_8
+				var kp_9 ChoiceFlag
+				_ = kp_9
 				{
-					switch v_7 := f.(type) {
+					switch v_6 := f.(type) {
 					case StringFlag:
-						s_4 := v_7
-						v_6 = s_4
-						goto inl_3
+						s_4 := v_6
+						kp_5 = s_4
+						goto kn_6
 					case IntFlag:
-						n_4 := v_7
-						v_6 = n_4
-						goto inl_3
+						n_4 := v_6
+						kp_6 = n_4
+						goto kn_7
 					case BoolFlag:
-						b_5 := v_7
-						v_6 = b_5
-						goto inl_3
+						b_5 := v_6
+						kp_7 = b_5
+						goto kn_8
 					case DurationFlag:
-						d_3 := v_7
-						v_6 = d_3
-						goto inl_3
+						d_3 := v_6
+						kp_8 = d_3
+						goto kn_9
 					case ChoiceFlag:
-						c_4 := v_7
-						v_6 = c_4
-						goto inl_3
+						c_4 := v_6
+						kp_9 = c_4
+						goto kn_10
 					case OptionalStringFlag:
-						s_5 := v_7
-						v_6 = s_5.base
-						goto inl_3
+						s_5 := v_6
+						kp_5 = s_5.base
+						goto kn_6
 					case OptionalIntFlag:
-						n_5 := v_7
-						v_6 = n_5.base
-						goto inl_3
+						n_5 := v_6
+						kp_6 = n_5.base
+						goto kn_7
 					case RepeatedStringFlag:
-						s_6 := v_7
-						v_6 = s_6.base
-						goto inl_3
+						s_6 := v_6
+						kp_5 = s_6.base
+						goto kn_6
 					case RepeatedIntFlag:
-						n_6 := v_7
-						v_6 = n_6.base
-						goto inl_3
+						n_6 := v_6
+						kp_6 = n_6.base
+						goto kn_7
 					case RepeatedBoolFlag:
-						b_6 := v_7
-						v_6 = b_6.base
-						goto inl_3
+						b_6 := v_6
+						kp_7 = b_6.base
+						goto kn_8
 					case RepeatedDurationFlag:
-						d_4 := v_7
-						v_6 = d_4.base
-						goto inl_3
+						d_4 := v_6
+						kp_8 = d_4.base
+						goto kn_9
 					case RepeatedChoiceFlag:
-						c_5 := v_7
-						v_6 = c_5.base
-						goto inl_3
+						c_5 := v_6
+						kp_9 = c_5.base
+						goto kn_10
 					default:
-						_ = v_7
+						_ = v_6
 						panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 					}
 				}
-			inl_3:
-				;
-				switch v_8 := v_6.(type) {
-				case StringFlag:
-					s_7 := v_8
-					v_5 = s_7.alias
+			kn_6:
+				{
+					s_7 := kp_5
+					v_4 = s_7.alias
 					goto inl_2
-				case IntFlag:
-					n_7 := v_8
-					v_5 = n_7.alias
+				}
+			kn_7:
+				{
+					n_7 := kp_6
+					v_4 = n_7.alias
 					goto inl_2
-				case BoolFlag:
-					b_7 := v_8
-					v_5 = b_7.alias
+				}
+			kn_8:
+				{
+					b_7 := kp_7
+					v_4 = b_7.alias
 					goto inl_2
-				case DurationFlag:
-					d_5 := v_8
-					v_5 = d_5.alias
+				}
+			kn_9:
+				{
+					d_5 := kp_8
+					v_4 = d_5.alias
 					goto inl_2
-				case ChoiceFlag:
-					c_6 := v_8
-					v_5 = c_6.alias
+				}
+			kn_10:
+				{
+					c_6 := kp_9
+					v_4 = c_6.alias
 					goto inl_2
-				default:
-					_ = v_8
-					panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:205:2 matched")
 				}
 			}
 		inl_2:
 			;
-			b_4 := (v_5 != "")
+			b_4 := (v_4 != "")
 			if b_4 {
-				var v_9 string
+				var v_7 string
 				{
-					var v_10 scalarFlag
+					var v_8 scalarFlag
+					_ = v_8
+					var kp_10 StringFlag
+					_ = kp_10
+					var kp_11 IntFlag
+					_ = kp_11
+					var kp_12 BoolFlag
+					_ = kp_12
+					var kp_13 DurationFlag
+					_ = kp_13
+					var kp_14 ChoiceFlag
+					_ = kp_14
 					{
-						switch v_11 := f.(type) {
+						switch v_9 := f.(type) {
 						case StringFlag:
-							s_8 := v_11
-							v_10 = s_8
-							goto inl_5
+							s_8 := v_9
+							kp_10 = s_8
+							goto kn_12
 						case IntFlag:
-							n_8 := v_11
-							v_10 = n_8
-							goto inl_5
+							n_8 := v_9
+							kp_11 = n_8
+							goto kn_13
 						case BoolFlag:
-							b_8 := v_11
-							v_10 = b_8
-							goto inl_5
+							b_8 := v_9
+							kp_12 = b_8
+							goto kn_14
 						case DurationFlag:
-							d_6 := v_11
-							v_10 = d_6
-							goto inl_5
+							d_6 := v_9
+							kp_13 = d_6
+							goto kn_15
 						case ChoiceFlag:
-							c_7 := v_11
-							v_10 = c_7
-							goto inl_5
+							c_7 := v_9
+							kp_14 = c_7
+							goto kn_16
 						case OptionalStringFlag:
-							s_9 := v_11
-							v_10 = s_9.base
-							goto inl_5
+							s_9 := v_9
+							kp_10 = s_9.base
+							goto kn_12
 						case OptionalIntFlag:
-							n_9 := v_11
-							v_10 = n_9.base
-							goto inl_5
+							n_9 := v_9
+							kp_11 = n_9.base
+							goto kn_13
 						case RepeatedStringFlag:
-							s_10 := v_11
-							v_10 = s_10.base
-							goto inl_5
+							s_10 := v_9
+							kp_10 = s_10.base
+							goto kn_12
 						case RepeatedIntFlag:
-							n_10 := v_11
-							v_10 = n_10.base
-							goto inl_5
+							n_10 := v_9
+							kp_11 = n_10.base
+							goto kn_13
 						case RepeatedBoolFlag:
-							b_9 := v_11
-							v_10 = b_9.base
-							goto inl_5
+							b_9 := v_9
+							kp_12 = b_9.base
+							goto kn_14
 						case RepeatedDurationFlag:
-							d_7 := v_11
-							v_10 = d_7.base
-							goto inl_5
+							d_7 := v_9
+							kp_13 = d_7.base
+							goto kn_15
 						case RepeatedChoiceFlag:
-							c_8 := v_11
-							v_10 = c_8.base
-							goto inl_5
+							c_8 := v_9
+							kp_14 = c_8.base
+							goto kn_16
 						default:
-							_ = v_11
+							_ = v_9
 							panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 						}
 					}
-				inl_5:
-					;
-					switch v_12 := v_10.(type) {
-					case StringFlag:
-						s_11 := v_12
-						v_9 = s_11.alias
+				kn_12:
+					{
+						s_11 := kp_10
+						v_7 = s_11.alias
 						goto inl_4
-					case IntFlag:
-						n_11 := v_12
-						v_9 = n_11.alias
+					}
+				kn_13:
+					{
+						n_11 := kp_11
+						v_7 = n_11.alias
 						goto inl_4
-					case BoolFlag:
-						b_10 := v_12
-						v_9 = b_10.alias
+					}
+				kn_14:
+					{
+						b_10 := kp_12
+						v_7 = b_10.alias
 						goto inl_4
-					case DurationFlag:
-						d_8 := v_12
-						v_9 = d_8.alias
+					}
+				kn_15:
+					{
+						d_8 := kp_13
+						v_7 = d_8.alias
 						goto inl_4
-					case ChoiceFlag:
-						c_9 := v_12
-						v_9 = c_9.alias
+					}
+				kn_16:
+					{
+						c_9 := kp_14
+						v_7 = c_9.alias
 						goto inl_4
-					default:
-						_ = v_12
-						panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:205:2 matched")
 					}
 				}
 			inl_4:
 				;
-				b_4 = (v_9 == name)
+				b_4 = (v_7 == name)
 			}
 			b = b_4
 		}
@@ -11013,13 +11271,50 @@ func findIn(flags []Flag, name string) Option[Flag] {
 	return (Option[Flag]{}).of1(None{})
 }
 
-type scalarFlag interface{ isscalarFlag() }
+type scalarFlag struct {
+	tag uint8
+	p0  string
+	p1  string
+	p2  string
+	p3  bool
+	p4  string
+	p5  int
+	p6  time.Duration
+	p7  []string
+}
 
-func (StringFlag) isscalarFlag()   {}
-func (IntFlag) isscalarFlag()      {}
-func (BoolFlag) isscalarFlag()     {}
-func (DurationFlag) isscalarFlag() {}
-func (ChoiceFlag) isscalarFlag()   {}
+func (scalarFlag) of0(v StringFlag) scalarFlag {
+	return scalarFlag{tag: 0, p0: v.name, p1: v.def, p2: v.usage, p3: v.required, p4: v.alias}
+}
+func (u scalarFlag) as0() StringFlag {
+	return StringFlag{name: u.p0, def: u.p1, usage: u.p2, required: u.p3, alias: u.p4}
+}
+func (scalarFlag) of1(v IntFlag) scalarFlag {
+	return scalarFlag{tag: 1, p0: v.name, p5: v.def, p1: v.usage, p3: v.required, p2: v.alias}
+}
+func (u scalarFlag) as1() IntFlag {
+	return IntFlag{name: u.p0, def: u.p5, usage: u.p1, required: u.p3, alias: u.p2}
+}
+func (scalarFlag) of2(v BoolFlag) scalarFlag {
+	return scalarFlag{tag: 2, p0: v.name, p3: v.def, p1: v.usage, p2: v.alias}
+}
+func (u scalarFlag) as2() BoolFlag { return BoolFlag{name: u.p0, def: u.p3, usage: u.p1, alias: u.p2} }
+func (scalarFlag) of3(v DurationFlag) scalarFlag {
+	return scalarFlag{tag: 3, p0: v.name, p6: v.def, p1: v.usage, p2: v.alias}
+}
+func (u scalarFlag) as3() DurationFlag {
+	return DurationFlag{name: u.p0, def: u.p6, usage: u.p1, alias: u.p2}
+}
+func (scalarFlag) of4(v ChoiceFlag) scalarFlag {
+	return scalarFlag{tag: 4, p0: v.name, p1: v.def, p7: v.choices, p2: v.usage, p4: v.alias}
+}
+func (u scalarFlag) as4() ChoiceFlag {
+	return ChoiceFlag{name: u.p0, def: u.p1, choices: u.p7, usage: u.p2, alias: u.p4}
+}
+
+func (x scalarFlag) ErgoVariant() string {
+	return [...]string{"StringFlag", "IntFlag", "BoolFlag", "DurationFlag", "ChoiceFlag"}[x.tag]
+}
 
 func cardinality(f Flag) int {
 	switch f.(type) {
@@ -11034,67 +11329,67 @@ func cardinality(f Flag) int {
 
 func read(env *Env, f Flag, name string, given string) (value, error) {
 	var v scalarFlag
+	_ = v
+	var kp ChoiceFlag
+	_ = kp
 	{
 		switch v_1 := f.(type) {
 		case StringFlag:
 			s := v_1
-			v = s
-			goto inl
+			_ = s
+			goto kn_3
 		case IntFlag:
 			n := v_1
-			v = n
-			goto inl
+			_ = n
+			goto kn
 		case BoolFlag:
 			b := v_1
-			v = b
-			goto inl
+			_ = b
+			goto kn_3
 		case DurationFlag:
 			d := v_1
-			v = d
-			goto inl
+			_ = d
+			goto kn_1
 		case ChoiceFlag:
 			c_1 := v_1
-			v = c_1
-			goto inl
+			kp = c_1
+			goto kn_2
 		case OptionalStringFlag:
 			s_1 := v_1
-			v = s_1.base
-			goto inl
+			_ = s_1.base
+			goto kn_3
 		case OptionalIntFlag:
 			n_1 := v_1
-			v = n_1.base
-			goto inl
+			_ = n_1.base
+			goto kn
 		case RepeatedStringFlag:
 			s_2 := v_1
-			v = s_2.base
-			goto inl
+			_ = s_2.base
+			goto kn_3
 		case RepeatedIntFlag:
 			n_2 := v_1
-			v = n_2.base
-			goto inl
+			_ = n_2.base
+			goto kn
 		case RepeatedBoolFlag:
 			b_1 := v_1
-			v = b_1.base
-			goto inl
+			_ = b_1.base
+			goto kn_3
 		case RepeatedDurationFlag:
 			d_1 := v_1
-			v = d_1.base
-			goto inl
+			_ = d_1.base
+			goto kn_1
 		case RepeatedChoiceFlag:
 			c_2 := v_1
-			v = c_2.base
-			goto inl
+			kp = c_2.base
+			goto kn_2
 		default:
 			_ = v_1
 			panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 		}
 	}
-inl:
-	;
-	switch v_2 := v.(type) {
-	case IntFlag:
-		_ = v_2
-		v_3, err := ergo.StrconvParseInt(given, int(0), int(64))
+kn:
+	{
+		v_2, err := ergo.StrconvParseInt(given, int(0), int(64))
 		if err != nil {
 			switch err.(type) {
 			case ergo.Malformed:
@@ -11105,10 +11400,11 @@ inl:
 				panic(err)
 			}
 		}
-		return intValue{V: int(v_3)}, nil
-	case DurationFlag:
-		_ = v_2
-		v_4, err_1 := ergo.TimeParseDuration(given)
+		return intValue{V: int(v_2)}, nil
+	}
+kn_1:
+	{
+		v_3, err_1 := ergo.TimeParseDuration(given)
 		if err_1 != nil {
 			switch err_1.(type) {
 			case ergo.ParseError:
@@ -11117,106 +11413,120 @@ inl:
 				panic(err_1)
 			}
 		}
-		return durationValue{V: v_4}, nil
-	case ChoiceFlag:
-		c_3 := v_2
-		for _, v_5 := range c_3.choices {
-			var choice string = v_5
+		return durationValue{V: v_3}, nil
+	}
+kn_2:
+	{
+		c_3 := kp
+		for _, v_4 := range c_3.choices {
+			var choice string = v_4
 			if choice == given {
 				return textValue{V: given}, nil
 			}
 		}
 		t := name
 		t_1 := given
-		v_6 := ergo.StringsJoin(c_3.choices, ", ")
-		return *new(value), Invalid{Name: t, Text: t_1, Reason: ("not one of " + v_6)}
-	case StringFlag, BoolFlag:
-		_ = v_2
+		v_5 := ergo.StringsJoin(c_3.choices, ", ")
+		return *new(value), Invalid{Name: t, Text: t_1, Reason: ("not one of " + v_5)}
+	}
+kn_3:
+	{
 		return textValue{V: given}, nil
-	default:
-		_ = v_2
-		panic("ergo: defect: no case of the match at std/flag/parse.ergo:155:2 matched")
 	}
 }
 
 func nameOf_1(f Flag) string {
 	var v scalarFlag
+	_ = v
+	var kp StringFlag
+	_ = kp
+	var kp_1 IntFlag
+	_ = kp_1
+	var kp_2 BoolFlag
+	_ = kp_2
+	var kp_3 DurationFlag
+	_ = kp_3
+	var kp_4 ChoiceFlag
+	_ = kp_4
 	{
 		switch v_1 := f.(type) {
 		case StringFlag:
 			s := v_1
-			v = s
-			goto inl
+			kp = s
+			goto kn
 		case IntFlag:
 			n := v_1
-			v = n
-			goto inl
+			kp_1 = n
+			goto kn_1
 		case BoolFlag:
 			b := v_1
-			v = b
-			goto inl
+			kp_2 = b
+			goto kn_2
 		case DurationFlag:
 			d := v_1
-			v = d
-			goto inl
+			kp_3 = d
+			goto kn_4
 		case ChoiceFlag:
 			c_1 := v_1
-			v = c_1
-			goto inl
+			kp_4 = c_1
+			goto kn_3
 		case OptionalStringFlag:
 			s_1 := v_1
-			v = s_1.base
-			goto inl
+			kp = s_1.base
+			goto kn
 		case OptionalIntFlag:
 			n_1 := v_1
-			v = n_1.base
-			goto inl
+			kp_1 = n_1.base
+			goto kn_1
 		case RepeatedStringFlag:
 			s_2 := v_1
-			v = s_2.base
-			goto inl
+			kp = s_2.base
+			goto kn
 		case RepeatedIntFlag:
 			n_2 := v_1
-			v = n_2.base
-			goto inl
+			kp_1 = n_2.base
+			goto kn_1
 		case RepeatedBoolFlag:
 			b_1 := v_1
-			v = b_1.base
-			goto inl
+			kp_2 = b_1.base
+			goto kn_2
 		case RepeatedDurationFlag:
 			d_1 := v_1
-			v = d_1.base
-			goto inl
+			kp_3 = d_1.base
+			goto kn_4
 		case RepeatedChoiceFlag:
 			c_2 := v_1
-			v = c_2.base
-			goto inl
+			kp_4 = c_2.base
+			goto kn_3
 		default:
 			_ = v_1
 			panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 		}
 	}
-inl:
-	;
-	switch v_2 := v.(type) {
-	case StringFlag:
-		s_3 := v_2
+kn:
+	{
+		s_3 := kp
 		return s_3.name
-	case IntFlag:
-		n_3 := v_2
+	}
+kn_1:
+	{
+		n_3 := kp_1
 		return n_3.name
-	case BoolFlag:
-		b_2 := v_2
+	}
+kn_2:
+	{
+		b_2 := kp_2
 		return b_2.name
-	case ChoiceFlag:
-		c_3 := v_2
+	}
+kn_3:
+	{
+		c_3 := kp_4
 		return c_3.name
-	case DurationFlag:
-		d_2 := v_2
+	}
+kn_4:
+	{
+		d_2 := kp_3
 		return d_2.name
-	default:
-		_ = v_2
-		panic("ergo: defect: no case of the match at std/flag/flag.ergo:366:2 matched")
 	}
 }
 
@@ -11259,11 +11569,15 @@ func commandHelp[C any](name string, prefix string, commands []Command[C]) strin
 	return out
 }
 
-type arity interface{ isarity() }
+type arity struct {
+	tag uint8
+}
 
-func (one) isarity()      {}
-func (optional) isarity() {}
-func (many) isarity()     {}
+func (arity) of0(_ one) arity      { return arity{tag: 0} }
+func (arity) of1(_ optional) arity { return arity{tag: 1} }
+func (arity) of2(_ many) arity     { return arity{tag: 2} }
+
+func (x arity) ErgoVariant() string { return [...]string{"one", "optional", "many"}[x.tag] }
 
 func commandHelpMono_i1(name string, prefix string, commands []Command[Request]) string {
 	var out string = ""
@@ -11300,106 +11614,120 @@ func (v Values) known(f Flag) {
 	var v_1 string
 	{
 		var v_2 scalarFlag
+		_ = v_2
+		var kp StringFlag
+		_ = kp
+		var kp_1 IntFlag
+		_ = kp_1
+		var kp_2 BoolFlag
+		_ = kp_2
+		var kp_3 DurationFlag
+		_ = kp_3
+		var kp_4 ChoiceFlag
+		_ = kp_4
 		{
 			switch v_3 := f.(type) {
 			case StringFlag:
 				s := v_3
-				v_2 = s
-				goto inl_1
+				kp = s
+				goto kn_2
 			case IntFlag:
 				n := v_3
-				v_2 = n
-				goto inl_1
+				kp_1 = n
+				goto kn_3
 			case BoolFlag:
 				b := v_3
-				v_2 = b
-				goto inl_1
+				kp_2 = b
+				goto kn_4
 			case DurationFlag:
 				d := v_3
-				v_2 = d
-				goto inl_1
+				kp_3 = d
+				goto kn_6
 			case ChoiceFlag:
 				c_1 := v_3
-				v_2 = c_1
-				goto inl_1
+				kp_4 = c_1
+				goto kn_5
 			case OptionalStringFlag:
 				s_1 := v_3
-				v_2 = s_1.base
-				goto inl_1
+				kp = s_1.base
+				goto kn_2
 			case OptionalIntFlag:
 				n_1 := v_3
-				v_2 = n_1.base
-				goto inl_1
+				kp_1 = n_1.base
+				goto kn_3
 			case RepeatedStringFlag:
 				s_2 := v_3
-				v_2 = s_2.base
-				goto inl_1
+				kp = s_2.base
+				goto kn_2
 			case RepeatedIntFlag:
 				n_2 := v_3
-				v_2 = n_2.base
-				goto inl_1
+				kp_1 = n_2.base
+				goto kn_3
 			case RepeatedBoolFlag:
 				b_1 := v_3
-				v_2 = b_1.base
-				goto inl_1
+				kp_2 = b_1.base
+				goto kn_4
 			case RepeatedDurationFlag:
 				d_1 := v_3
-				v_2 = d_1.base
-				goto inl_1
+				kp_3 = d_1.base
+				goto kn_6
 			case RepeatedChoiceFlag:
 				c_2 := v_3
-				v_2 = c_2.base
-				goto inl_1
+				kp_4 = c_2.base
+				goto kn_5
 			default:
 				_ = v_3
 				panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 			}
 		}
-	inl_1:
-		;
-		switch v_4 := v_2.(type) {
-		case StringFlag:
-			s_3 := v_4
+	kn_2:
+		{
+			s_3 := kp
 			v_1 = s_3.name
 			goto inl
-		case IntFlag:
-			n_3 := v_4
+		}
+	kn_3:
+		{
+			n_3 := kp_1
 			v_1 = n_3.name
 			goto inl
-		case BoolFlag:
-			b_2 := v_4
+		}
+	kn_4:
+		{
+			b_2 := kp_2
 			v_1 = b_2.name
 			goto inl
-		case ChoiceFlag:
-			c_3 := v_4
+		}
+	kn_5:
+		{
+			c_3 := kp_4
 			v_1 = c_3.name
 			goto inl
-		case DurationFlag:
-			d_2 := v_4
+		}
+	kn_6:
+		{
+			d_2 := kp_3
 			v_1 = d_2.name
 			goto inl
-		default:
-			_ = v_4
-			panic("ergo: defect: no case of the match at std/flag/flag.ergo:366:2 matched")
 		}
 	}
 inl:
 	;
-	var v_5 Option[Flag]
-	_ = v_5
-	var kp Some[Flag]
-	_ = kp
+	var v_4 Option[Flag]
+	_ = v_4
+	var kp_5 Some[Flag]
+	_ = kp_5
 	{
 		var s_4 Set = t
 		var name string = v_1
-		v_6 := findIn(s_4.Flags, name)
-		v_5 = v_6
+		v_5 := findIn(s_4.Flags, name)
+		v_4 = v_5
 	}
 	{
-		s_5 := v_5
+		s_5 := v_4
 		switch s_5.tag {
 		case 0:
-			kp = s_5.v0
+			kp_5 = s_5.v0
 			goto kn
 		case 1:
 			goto kn_1
@@ -11408,196 +11736,224 @@ inl:
 	}
 kn:
 	{
-		found := kp
-		v_7 := sameHandle(found.Value, f)
-		if !v_7 {
-			var v_8 string
+		found := kp_5
+		v_6 := sameHandle(found.Value, f)
+		if !v_6 {
+			var v_7 string
 			{
-				var v_9 scalarFlag
+				var v_8 scalarFlag
+				_ = v_8
+				var kp_6 StringFlag
+				_ = kp_6
+				var kp_7 IntFlag
+				_ = kp_7
+				var kp_8 BoolFlag
+				_ = kp_8
+				var kp_9 DurationFlag
+				_ = kp_9
+				var kp_10 ChoiceFlag
+				_ = kp_10
 				{
-					switch v_10 := f.(type) {
+					switch v_9 := f.(type) {
 					case StringFlag:
-						s_6 := v_10
-						v_9 = s_6
-						goto inl_4
+						s_6 := v_9
+						kp_6 = s_6
+						goto kn_9
 					case IntFlag:
-						n_4 := v_10
-						v_9 = n_4
-						goto inl_4
+						n_4 := v_9
+						kp_7 = n_4
+						goto kn_10
 					case BoolFlag:
-						b_3 := v_10
-						v_9 = b_3
-						goto inl_4
+						b_3 := v_9
+						kp_8 = b_3
+						goto kn_11
 					case DurationFlag:
-						d_3 := v_10
-						v_9 = d_3
-						goto inl_4
+						d_3 := v_9
+						kp_9 = d_3
+						goto kn_13
 					case ChoiceFlag:
-						c_4 := v_10
-						v_9 = c_4
-						goto inl_4
+						c_4 := v_9
+						kp_10 = c_4
+						goto kn_12
 					case OptionalStringFlag:
-						s_7 := v_10
-						v_9 = s_7.base
-						goto inl_4
+						s_7 := v_9
+						kp_6 = s_7.base
+						goto kn_9
 					case OptionalIntFlag:
-						n_5 := v_10
-						v_9 = n_5.base
-						goto inl_4
+						n_5 := v_9
+						kp_7 = n_5.base
+						goto kn_10
 					case RepeatedStringFlag:
-						s_8 := v_10
-						v_9 = s_8.base
-						goto inl_4
+						s_8 := v_9
+						kp_6 = s_8.base
+						goto kn_9
 					case RepeatedIntFlag:
-						n_6 := v_10
-						v_9 = n_6.base
-						goto inl_4
+						n_6 := v_9
+						kp_7 = n_6.base
+						goto kn_10
 					case RepeatedBoolFlag:
-						b_4 := v_10
-						v_9 = b_4.base
-						goto inl_4
+						b_4 := v_9
+						kp_8 = b_4.base
+						goto kn_11
 					case RepeatedDurationFlag:
-						d_4 := v_10
-						v_9 = d_4.base
-						goto inl_4
+						d_4 := v_9
+						kp_9 = d_4.base
+						goto kn_13
 					case RepeatedChoiceFlag:
-						c_5 := v_10
-						v_9 = c_5.base
-						goto inl_4
+						c_5 := v_9
+						kp_10 = c_5.base
+						goto kn_12
 					default:
-						_ = v_10
+						_ = v_9
 						panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 					}
 				}
-			inl_4:
-				;
-				switch v_11 := v_9.(type) {
-				case StringFlag:
-					s_9 := v_11
-					v_8 = s_9.name
+			kn_9:
+				{
+					s_9 := kp_6
+					v_7 = s_9.name
 					goto inl_3
-				case IntFlag:
-					n_7 := v_11
-					v_8 = n_7.name
+				}
+			kn_10:
+				{
+					n_7 := kp_7
+					v_7 = n_7.name
 					goto inl_3
-				case BoolFlag:
-					b_5 := v_11
-					v_8 = b_5.name
+				}
+			kn_11:
+				{
+					b_5 := kp_8
+					v_7 = b_5.name
 					goto inl_3
-				case ChoiceFlag:
-					c_6 := v_11
-					v_8 = c_6.name
+				}
+			kn_12:
+				{
+					c_6 := kp_10
+					v_7 = c_6.name
 					goto inl_3
-				case DurationFlag:
-					d_5 := v_11
-					v_8 = d_5.name
+				}
+			kn_13:
+				{
+					d_5 := kp_9
+					v_7 = d_5.name
 					goto inl_3
-				default:
-					_ = v_11
-					panic("ergo: defect: no case of the match at std/flag/flag.ergo:366:2 matched")
 				}
 			}
 		inl_3:
 			;
-			notInSetDropped(v_8)
+			notInSetDropped(v_7)
 			return
 		}
 	}
-	goto kn_2
+	goto kn_8
 kn_1:
 	{
-		var v_12 string
+		var v_10 string
 		{
-			var v_13 scalarFlag
+			var v_11 scalarFlag
+			_ = v_11
+			var kp_11 StringFlag
+			_ = kp_11
+			var kp_12 IntFlag
+			_ = kp_12
+			var kp_13 BoolFlag
+			_ = kp_13
+			var kp_14 DurationFlag
+			_ = kp_14
+			var kp_15 ChoiceFlag
+			_ = kp_15
 			{
-				switch v_14 := f.(type) {
+				switch v_12 := f.(type) {
 				case StringFlag:
-					s_10 := v_14
-					v_13 = s_10
-					goto inl_6
+					s_10 := v_12
+					kp_11 = s_10
+					goto kn_15
 				case IntFlag:
-					n_8 := v_14
-					v_13 = n_8
-					goto inl_6
+					n_8 := v_12
+					kp_12 = n_8
+					goto kn_16
 				case BoolFlag:
-					b_6 := v_14
-					v_13 = b_6
-					goto inl_6
+					b_6 := v_12
+					kp_13 = b_6
+					goto kn_17
 				case DurationFlag:
-					d_6 := v_14
-					v_13 = d_6
-					goto inl_6
+					d_6 := v_12
+					kp_14 = d_6
+					goto kn_19
 				case ChoiceFlag:
-					c_7 := v_14
-					v_13 = c_7
-					goto inl_6
+					c_7 := v_12
+					kp_15 = c_7
+					goto kn_18
 				case OptionalStringFlag:
-					s_11 := v_14
-					v_13 = s_11.base
-					goto inl_6
+					s_11 := v_12
+					kp_11 = s_11.base
+					goto kn_15
 				case OptionalIntFlag:
-					n_9 := v_14
-					v_13 = n_9.base
-					goto inl_6
+					n_9 := v_12
+					kp_12 = n_9.base
+					goto kn_16
 				case RepeatedStringFlag:
-					s_12 := v_14
-					v_13 = s_12.base
-					goto inl_6
+					s_12 := v_12
+					kp_11 = s_12.base
+					goto kn_15
 				case RepeatedIntFlag:
-					n_10 := v_14
-					v_13 = n_10.base
-					goto inl_6
+					n_10 := v_12
+					kp_12 = n_10.base
+					goto kn_16
 				case RepeatedBoolFlag:
-					b_7 := v_14
-					v_13 = b_7.base
-					goto inl_6
+					b_7 := v_12
+					kp_13 = b_7.base
+					goto kn_17
 				case RepeatedDurationFlag:
-					d_7 := v_14
-					v_13 = d_7.base
-					goto inl_6
+					d_7 := v_12
+					kp_14 = d_7.base
+					goto kn_19
 				case RepeatedChoiceFlag:
-					c_8 := v_14
-					v_13 = c_8.base
-					goto inl_6
+					c_8 := v_12
+					kp_15 = c_8.base
+					goto kn_18
 				default:
-					_ = v_14
+					_ = v_12
 					panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 				}
 			}
-		inl_6:
-			;
-			switch v_15 := v_13.(type) {
-			case StringFlag:
-				s_13 := v_15
-				v_12 = s_13.name
+		kn_15:
+			{
+				s_13 := kp_11
+				v_10 = s_13.name
 				goto inl_5
-			case IntFlag:
-				n_11 := v_15
-				v_12 = n_11.name
+			}
+		kn_16:
+			{
+				n_11 := kp_12
+				v_10 = n_11.name
 				goto inl_5
-			case BoolFlag:
-				b_8 := v_15
-				v_12 = b_8.name
+			}
+		kn_17:
+			{
+				b_8 := kp_13
+				v_10 = b_8.name
 				goto inl_5
-			case ChoiceFlag:
-				c_9 := v_15
-				v_12 = c_9.name
+			}
+		kn_18:
+			{
+				c_9 := kp_15
+				v_10 = c_9.name
 				goto inl_5
-			case DurationFlag:
-				d_8 := v_15
-				v_12 = d_8.name
+			}
+		kn_19:
+			{
+				d_8 := kp_14
+				v_10 = d_8.name
 				goto inl_5
-			default:
-				_ = v_15
-				panic("ergo: defect: no case of the match at std/flag/flag.ergo:366:2 matched")
 			}
 		}
 	inl_5:
 		;
-		notInSetDropped(v_12)
+		notInSetDropped(v_10)
 		return
 	}
-kn_2:
+kn_8:
 }
 
 func notInSet(name string) string {
@@ -11611,106 +11967,120 @@ func items(f Flag, v Values) []value {
 		var v_1 string
 		{
 			var v_2 scalarFlag
+			_ = v_2
+			var kp StringFlag
+			_ = kp
+			var kp_1 IntFlag
+			_ = kp_1
+			var kp_2 BoolFlag
+			_ = kp_2
+			var kp_3 DurationFlag
+			_ = kp_3
+			var kp_4 ChoiceFlag
+			_ = kp_4
 			{
 				switch v_3 := f.(type) {
 				case StringFlag:
 					s := v_3
-					v_2 = s
-					goto inl_2
+					kp = s
+					goto kn_2
 				case IntFlag:
 					n := v_3
-					v_2 = n
-					goto inl_2
+					kp_1 = n
+					goto kn_3
 				case BoolFlag:
 					b := v_3
-					v_2 = b
-					goto inl_2
+					kp_2 = b
+					goto kn_4
 				case DurationFlag:
 					d := v_3
-					v_2 = d
-					goto inl_2
+					kp_3 = d
+					goto kn_6
 				case ChoiceFlag:
 					c_1 := v_3
-					v_2 = c_1
-					goto inl_2
+					kp_4 = c_1
+					goto kn_5
 				case OptionalStringFlag:
 					s_1 := v_3
-					v_2 = s_1.base
-					goto inl_2
+					kp = s_1.base
+					goto kn_2
 				case OptionalIntFlag:
 					n_1 := v_3
-					v_2 = n_1.base
-					goto inl_2
+					kp_1 = n_1.base
+					goto kn_3
 				case RepeatedStringFlag:
 					s_2 := v_3
-					v_2 = s_2.base
-					goto inl_2
+					kp = s_2.base
+					goto kn_2
 				case RepeatedIntFlag:
 					n_2 := v_3
-					v_2 = n_2.base
-					goto inl_2
+					kp_1 = n_2.base
+					goto kn_3
 				case RepeatedBoolFlag:
 					b_1 := v_3
-					v_2 = b_1.base
-					goto inl_2
+					kp_2 = b_1.base
+					goto kn_4
 				case RepeatedDurationFlag:
 					d_1 := v_3
-					v_2 = d_1.base
-					goto inl_2
+					kp_3 = d_1.base
+					goto kn_6
 				case RepeatedChoiceFlag:
 					c_2 := v_3
-					v_2 = c_2.base
-					goto inl_2
+					kp_4 = c_2.base
+					goto kn_5
 				default:
 					_ = v_3
 					panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 				}
 			}
-		inl_2:
-			;
-			switch v_4 := v_2.(type) {
-			case StringFlag:
-				s_3 := v_4
+		kn_2:
+			{
+				s_3 := kp
 				v_1 = s_3.name
 				goto inl_1
-			case IntFlag:
-				n_3 := v_4
+			}
+		kn_3:
+			{
+				n_3 := kp_1
 				v_1 = n_3.name
 				goto inl_1
-			case BoolFlag:
-				b_2 := v_4
+			}
+		kn_4:
+			{
+				b_2 := kp_2
 				v_1 = b_2.name
 				goto inl_1
-			case ChoiceFlag:
-				c_3 := v_4
+			}
+		kn_5:
+			{
+				c_3 := kp_4
 				v_1 = c_3.name
 				goto inl_1
-			case DurationFlag:
-				d_2 := v_4
+			}
+		kn_6:
+			{
+				d_2 := kp_3
 				v_1 = d_2.name
 				goto inl_1
-			default:
-				_ = v_4
-				panic("ergo: defect: no case of the match at std/flag/flag.ergo:366:2 matched")
 			}
 		}
 	inl_1:
 		;
-		var v_5 Option[Flag]
-		_ = v_5
-		var kp Some[Flag]
-		_ = kp
+		var v_4 Option[Flag]
+		_ = v_4
+		var kp_5 Some[Flag]
+		_ = kp_5
 		{
 			var s_4 Set = t
 			var name string = v_1
-			v_6 := findIn(s_4.Flags, name)
-			v_5 = v_6
+			v_5 := findIn(s_4.Flags, name)
+			v_4 = v_5
 		}
 		{
-			s_5 := v_5
+			s_5 := v_4
 			switch s_5.tag {
 			case 0:
-				kp = s_5.v0
+				kp_5 = s_5.v0
 				goto kn
 			case 1:
 				goto kn_1
@@ -11719,297 +12089,339 @@ func items(f Flag, v Values) []value {
 		}
 	kn:
 		{
-			found := kp
-			v_7 := sameHandle(found.Value, f)
-			if !v_7 {
-				var v_8 string
+			found := kp_5
+			v_6 := sameHandle(found.Value, f)
+			if !v_6 {
+				var v_7 string
 				{
-					var v_9 scalarFlag
+					var v_8 scalarFlag
+					_ = v_8
+					var kp_6 StringFlag
+					_ = kp_6
+					var kp_7 IntFlag
+					_ = kp_7
+					var kp_8 BoolFlag
+					_ = kp_8
+					var kp_9 DurationFlag
+					_ = kp_9
+					var kp_10 ChoiceFlag
+					_ = kp_10
 					{
-						switch v_10 := f.(type) {
+						switch v_9 := f.(type) {
 						case StringFlag:
-							s_6 := v_10
-							v_9 = s_6
-							goto inl_5
+							s_6 := v_9
+							kp_6 = s_6
+							goto kn_9
 						case IntFlag:
-							n_4 := v_10
-							v_9 = n_4
-							goto inl_5
+							n_4 := v_9
+							kp_7 = n_4
+							goto kn_10
 						case BoolFlag:
-							b_3 := v_10
-							v_9 = b_3
-							goto inl_5
+							b_3 := v_9
+							kp_8 = b_3
+							goto kn_11
 						case DurationFlag:
-							d_3 := v_10
-							v_9 = d_3
-							goto inl_5
+							d_3 := v_9
+							kp_9 = d_3
+							goto kn_13
 						case ChoiceFlag:
-							c_4 := v_10
-							v_9 = c_4
-							goto inl_5
+							c_4 := v_9
+							kp_10 = c_4
+							goto kn_12
 						case OptionalStringFlag:
-							s_7 := v_10
-							v_9 = s_7.base
-							goto inl_5
+							s_7 := v_9
+							kp_6 = s_7.base
+							goto kn_9
 						case OptionalIntFlag:
-							n_5 := v_10
-							v_9 = n_5.base
-							goto inl_5
+							n_5 := v_9
+							kp_7 = n_5.base
+							goto kn_10
 						case RepeatedStringFlag:
-							s_8 := v_10
-							v_9 = s_8.base
-							goto inl_5
+							s_8 := v_9
+							kp_6 = s_8.base
+							goto kn_9
 						case RepeatedIntFlag:
-							n_6 := v_10
-							v_9 = n_6.base
-							goto inl_5
+							n_6 := v_9
+							kp_7 = n_6.base
+							goto kn_10
 						case RepeatedBoolFlag:
-							b_4 := v_10
-							v_9 = b_4.base
-							goto inl_5
+							b_4 := v_9
+							kp_8 = b_4.base
+							goto kn_11
 						case RepeatedDurationFlag:
-							d_4 := v_10
-							v_9 = d_4.base
-							goto inl_5
+							d_4 := v_9
+							kp_9 = d_4.base
+							goto kn_13
 						case RepeatedChoiceFlag:
-							c_5 := v_10
-							v_9 = c_5.base
-							goto inl_5
+							c_5 := v_9
+							kp_10 = c_5.base
+							goto kn_12
 						default:
-							_ = v_10
+							_ = v_9
 							panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 						}
 					}
-				inl_5:
-					;
-					switch v_11 := v_9.(type) {
-					case StringFlag:
-						s_9 := v_11
-						v_8 = s_9.name
+				kn_9:
+					{
+						s_9 := kp_6
+						v_7 = s_9.name
 						goto inl_4
-					case IntFlag:
-						n_7 := v_11
-						v_8 = n_7.name
+					}
+				kn_10:
+					{
+						n_7 := kp_7
+						v_7 = n_7.name
 						goto inl_4
-					case BoolFlag:
-						b_5 := v_11
-						v_8 = b_5.name
+					}
+				kn_11:
+					{
+						b_5 := kp_8
+						v_7 = b_5.name
 						goto inl_4
-					case ChoiceFlag:
-						c_6 := v_11
-						v_8 = c_6.name
+					}
+				kn_12:
+					{
+						c_6 := kp_10
+						v_7 = c_6.name
 						goto inl_4
-					case DurationFlag:
-						d_5 := v_11
-						v_8 = d_5.name
+					}
+				kn_13:
+					{
+						d_5 := kp_9
+						v_7 = d_5.name
 						goto inl_4
-					default:
-						_ = v_11
-						panic("ergo: defect: no case of the match at std/flag/flag.ergo:366:2 matched")
 					}
 				}
 			inl_4:
 				;
-				notInSetDropped(v_8)
+				notInSetDropped(v_7)
 				goto inl
 			}
 		}
-		goto kn_2
+		goto kn_8
 	kn_1:
 		{
-			var v_12 string
+			var v_10 string
 			{
-				var v_13 scalarFlag
+				var v_11 scalarFlag
+				_ = v_11
+				var kp_11 StringFlag
+				_ = kp_11
+				var kp_12 IntFlag
+				_ = kp_12
+				var kp_13 BoolFlag
+				_ = kp_13
+				var kp_14 DurationFlag
+				_ = kp_14
+				var kp_15 ChoiceFlag
+				_ = kp_15
 				{
-					switch v_14 := f.(type) {
+					switch v_12 := f.(type) {
 					case StringFlag:
-						s_10 := v_14
-						v_13 = s_10
-						goto inl_7
+						s_10 := v_12
+						kp_11 = s_10
+						goto kn_15
 					case IntFlag:
-						n_8 := v_14
-						v_13 = n_8
-						goto inl_7
+						n_8 := v_12
+						kp_12 = n_8
+						goto kn_16
 					case BoolFlag:
-						b_6 := v_14
-						v_13 = b_6
-						goto inl_7
+						b_6 := v_12
+						kp_13 = b_6
+						goto kn_17
 					case DurationFlag:
-						d_6 := v_14
-						v_13 = d_6
-						goto inl_7
+						d_6 := v_12
+						kp_14 = d_6
+						goto kn_19
 					case ChoiceFlag:
-						c_7 := v_14
-						v_13 = c_7
-						goto inl_7
+						c_7 := v_12
+						kp_15 = c_7
+						goto kn_18
 					case OptionalStringFlag:
-						s_11 := v_14
-						v_13 = s_11.base
-						goto inl_7
+						s_11 := v_12
+						kp_11 = s_11.base
+						goto kn_15
 					case OptionalIntFlag:
-						n_9 := v_14
-						v_13 = n_9.base
-						goto inl_7
+						n_9 := v_12
+						kp_12 = n_9.base
+						goto kn_16
 					case RepeatedStringFlag:
-						s_12 := v_14
-						v_13 = s_12.base
-						goto inl_7
+						s_12 := v_12
+						kp_11 = s_12.base
+						goto kn_15
 					case RepeatedIntFlag:
-						n_10 := v_14
-						v_13 = n_10.base
-						goto inl_7
+						n_10 := v_12
+						kp_12 = n_10.base
+						goto kn_16
 					case RepeatedBoolFlag:
-						b_7 := v_14
-						v_13 = b_7.base
-						goto inl_7
+						b_7 := v_12
+						kp_13 = b_7.base
+						goto kn_17
 					case RepeatedDurationFlag:
-						d_7 := v_14
-						v_13 = d_7.base
-						goto inl_7
+						d_7 := v_12
+						kp_14 = d_7.base
+						goto kn_19
 					case RepeatedChoiceFlag:
-						c_8 := v_14
-						v_13 = c_8.base
-						goto inl_7
+						c_8 := v_12
+						kp_15 = c_8.base
+						goto kn_18
 					default:
-						_ = v_14
+						_ = v_12
 						panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 					}
 				}
-			inl_7:
-				;
-				switch v_15 := v_13.(type) {
-				case StringFlag:
-					s_13 := v_15
-					v_12 = s_13.name
+			kn_15:
+				{
+					s_13 := kp_11
+					v_10 = s_13.name
 					goto inl_6
-				case IntFlag:
-					n_11 := v_15
-					v_12 = n_11.name
+				}
+			kn_16:
+				{
+					n_11 := kp_12
+					v_10 = n_11.name
 					goto inl_6
-				case BoolFlag:
-					b_8 := v_15
-					v_12 = b_8.name
+				}
+			kn_17:
+				{
+					b_8 := kp_13
+					v_10 = b_8.name
 					goto inl_6
-				case ChoiceFlag:
-					c_9 := v_15
-					v_12 = c_9.name
+				}
+			kn_18:
+				{
+					c_9 := kp_15
+					v_10 = c_9.name
 					goto inl_6
-				case DurationFlag:
-					d_8 := v_15
-					v_12 = d_8.name
+				}
+			kn_19:
+				{
+					d_8 := kp_14
+					v_10 = d_8.name
 					goto inl_6
-				default:
-					_ = v_15
-					panic("ergo: defect: no case of the match at std/flag/flag.ergo:366:2 matched")
 				}
 			}
 		inl_6:
 			;
-			notInSetDropped(v_12)
+			notInSetDropped(v_10)
 			goto inl
 		}
-	kn_2:
+	kn_8:
 	}
 inl:
 	;
 	t_1 := v.flags
-	var v_16 string
+	var v_13 string
 	{
-		var v_17 scalarFlag
+		var v_14 scalarFlag
+		_ = v_14
+		var kp_16 StringFlag
+		_ = kp_16
+		var kp_17 IntFlag
+		_ = kp_17
+		var kp_18 BoolFlag
+		_ = kp_18
+		var kp_19 DurationFlag
+		_ = kp_19
+		var kp_20 ChoiceFlag
+		_ = kp_20
 		{
-			switch v_18 := f.(type) {
+			switch v_15 := f.(type) {
 			case StringFlag:
-				s_14 := v_18
-				v_17 = s_14
-				goto inl_9
+				s_14 := v_15
+				kp_16 = s_14
+				goto kn_21
 			case IntFlag:
-				n_12 := v_18
-				v_17 = n_12
-				goto inl_9
+				n_12 := v_15
+				kp_17 = n_12
+				goto kn_22
 			case BoolFlag:
-				b_9 := v_18
-				v_17 = b_9
-				goto inl_9
+				b_9 := v_15
+				kp_18 = b_9
+				goto kn_23
 			case DurationFlag:
-				d_9 := v_18
-				v_17 = d_9
-				goto inl_9
+				d_9 := v_15
+				kp_19 = d_9
+				goto kn_25
 			case ChoiceFlag:
-				c_10 := v_18
-				v_17 = c_10
-				goto inl_9
+				c_10 := v_15
+				kp_20 = c_10
+				goto kn_24
 			case OptionalStringFlag:
-				s_15 := v_18
-				v_17 = s_15.base
-				goto inl_9
+				s_15 := v_15
+				kp_16 = s_15.base
+				goto kn_21
 			case OptionalIntFlag:
-				n_13 := v_18
-				v_17 = n_13.base
-				goto inl_9
+				n_13 := v_15
+				kp_17 = n_13.base
+				goto kn_22
 			case RepeatedStringFlag:
-				s_16 := v_18
-				v_17 = s_16.base
-				goto inl_9
+				s_16 := v_15
+				kp_16 = s_16.base
+				goto kn_21
 			case RepeatedIntFlag:
-				n_14 := v_18
-				v_17 = n_14.base
-				goto inl_9
+				n_14 := v_15
+				kp_17 = n_14.base
+				goto kn_22
 			case RepeatedBoolFlag:
-				b_10 := v_18
-				v_17 = b_10.base
-				goto inl_9
+				b_10 := v_15
+				kp_18 = b_10.base
+				goto kn_23
 			case RepeatedDurationFlag:
-				d_10 := v_18
-				v_17 = d_10.base
-				goto inl_9
+				d_10 := v_15
+				kp_19 = d_10.base
+				goto kn_25
 			case RepeatedChoiceFlag:
-				c_11 := v_18
-				v_17 = c_11.base
-				goto inl_9
+				c_11 := v_15
+				kp_20 = c_11.base
+				goto kn_24
 			default:
-				_ = v_18
+				_ = v_15
 				panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 			}
 		}
-	inl_9:
-		;
-		switch v_19 := v_17.(type) {
-		case StringFlag:
-			s_17 := v_19
-			v_16 = s_17.name
+	kn_21:
+		{
+			s_17 := kp_16
+			v_13 = s_17.name
 			goto inl_8
-		case IntFlag:
-			n_15 := v_19
-			v_16 = n_15.name
+		}
+	kn_22:
+		{
+			n_15 := kp_17
+			v_13 = n_15.name
 			goto inl_8
-		case BoolFlag:
-			b_11 := v_19
-			v_16 = b_11.name
+		}
+	kn_23:
+		{
+			b_11 := kp_18
+			v_13 = b_11.name
 			goto inl_8
-		case ChoiceFlag:
-			c_12 := v_19
-			v_16 = c_12.name
+		}
+	kn_24:
+		{
+			c_12 := kp_20
+			v_13 = c_12.name
 			goto inl_8
-		case DurationFlag:
-			d_11 := v_19
-			v_16 = d_11.name
+		}
+	kn_25:
+		{
+			d_11 := kp_19
+			v_13 = d_11.name
 			goto inl_8
-		default:
-			_ = v_19
-			panic("ergo: defect: no case of the match at std/flag/flag.ergo:366:2 matched")
 		}
 	}
 inl_8:
 	;
-	v_20, ok := t_1[v_16]
+	v_16, ok := t_1[v_13]
 	if ok {
-		x := Some[value]{Value: v_20}
-		switch v_21 := x.Value.(type) {
+		x := Some[value]{Value: v_16}
+		switch v_17 := x.Value.(type) {
 		case listValue:
-			xs := v_21
+			xs := v_17
 			return xs.V
 		default:
-			_ = v_21
+			_ = v_17
 			panic(ergo.UnreachableAt("flag: repeated flag has another kind", "std/flag/cardinality.ergo:112:4"))
 		}
 	} else {
@@ -12029,87 +12441,101 @@ func Defaults(flags []Flag) string {
 			var v_1 string
 			{
 				var v_2 scalarFlag
+				_ = v_2
+				var kp StringFlag
+				_ = kp
+				var kp_1 IntFlag
+				_ = kp_1
+				var kp_2 BoolFlag
+				_ = kp_2
+				var kp_3 DurationFlag
+				_ = kp_3
+				var kp_4 ChoiceFlag
+				_ = kp_4
 				{
 					switch v_3 := f.(type) {
 					case StringFlag:
 						s := v_3
-						v_2 = s
-						goto inl_1
+						kp = s
+						goto kn
 					case IntFlag:
 						n := v_3
-						v_2 = n
-						goto inl_1
+						kp_1 = n
+						goto kn_1
 					case BoolFlag:
 						b := v_3
-						v_2 = b
-						goto inl_1
+						kp_2 = b
+						goto kn_2
 					case DurationFlag:
 						d := v_3
-						v_2 = d
-						goto inl_1
+						kp_3 = d
+						goto kn_4
 					case ChoiceFlag:
 						c_1 := v_3
-						v_2 = c_1
-						goto inl_1
+						kp_4 = c_1
+						goto kn_3
 					case OptionalStringFlag:
 						s_1 := v_3
-						v_2 = s_1.base
-						goto inl_1
+						kp = s_1.base
+						goto kn
 					case OptionalIntFlag:
 						n_1 := v_3
-						v_2 = n_1.base
-						goto inl_1
+						kp_1 = n_1.base
+						goto kn_1
 					case RepeatedStringFlag:
 						s_2 := v_3
-						v_2 = s_2.base
-						goto inl_1
+						kp = s_2.base
+						goto kn
 					case RepeatedIntFlag:
 						n_2 := v_3
-						v_2 = n_2.base
-						goto inl_1
+						kp_1 = n_2.base
+						goto kn_1
 					case RepeatedBoolFlag:
 						b_1 := v_3
-						v_2 = b_1.base
-						goto inl_1
+						kp_2 = b_1.base
+						goto kn_2
 					case RepeatedDurationFlag:
 						d_1 := v_3
-						v_2 = d_1.base
-						goto inl_1
+						kp_3 = d_1.base
+						goto kn_4
 					case RepeatedChoiceFlag:
 						c_2 := v_3
-						v_2 = c_2.base
-						goto inl_1
+						kp_4 = c_2.base
+						goto kn_3
 					default:
 						_ = v_3
 						panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 					}
 				}
-			inl_1:
-				;
-				switch v_4 := v_2.(type) {
-				case StringFlag:
-					s_3 := v_4
+			kn:
+				{
+					s_3 := kp
 					v_1 = s_3.name
 					goto inl
-				case IntFlag:
-					n_3 := v_4
+				}
+			kn_1:
+				{
+					n_3 := kp_1
 					v_1 = n_3.name
 					goto inl
-				case BoolFlag:
-					b_2 := v_4
+				}
+			kn_2:
+				{
+					b_2 := kp_2
 					v_1 = b_2.name
 					goto inl
-				case ChoiceFlag:
-					c_3 := v_4
+				}
+			kn_3:
+				{
+					c_3 := kp_4
 					v_1 = c_3.name
 					goto inl
-				case DurationFlag:
-					d_2 := v_4
+				}
+			kn_4:
+				{
+					d_2 := kp_3
 					v_1 = d_2.name
 					goto inl
-				default:
-					_ = v_4
-					panic("ergo: defect: no case of the match at std/flag/flag.ergo:366:2 matched")
 				}
 			}
 		inl:
@@ -12122,465 +12548,523 @@ func Defaults(flags []Flag) string {
 		if !found {
 			return out
 		}
-		v_5 := findIn(flags, pick)
-		s_4 := v_5
+		v_4 := findIn(flags, pick)
+		s_4 := v_4
 		switch s_4.tag {
 		case 0:
 			f_1 := s_4.v0
 			t := out
-			var v_6 string
+			var v_5 string
 			{
 				var f_2 Flag = f_1.Value
 				var shape string
 				var usage string
-				var v_7 string
+				var v_6 string
 				{
-					var v_8 scalarFlag
+					var v_7 scalarFlag
+					_ = v_7
+					var kp_5 StringFlag
+					_ = kp_5
+					var kp_6 IntFlag
+					_ = kp_6
+					var kp_7 BoolFlag
+					_ = kp_7
+					var kp_8 DurationFlag
+					_ = kp_8
+					var kp_9 ChoiceFlag
+					_ = kp_9
 					{
-						switch v_9 := f_2.(type) {
+						switch v_8 := f_2.(type) {
 						case StringFlag:
-							s_5 := v_9
-							v_8 = s_5
-							goto inl_4
+							s_5 := v_8
+							kp_5 = s_5
+							goto kn_8
 						case IntFlag:
-							n_4 := v_9
-							v_8 = n_4
-							goto inl_4
+							n_4 := v_8
+							kp_6 = n_4
+							goto kn_9
 						case BoolFlag:
-							b_3 := v_9
-							v_8 = b_3
-							goto inl_4
+							b_3 := v_8
+							kp_7 = b_3
+							goto kn_10
 						case DurationFlag:
-							d_3 := v_9
-							v_8 = d_3
-							goto inl_4
+							d_3 := v_8
+							kp_8 = d_3
+							goto kn_12
 						case ChoiceFlag:
-							c_4 := v_9
-							v_8 = c_4
-							goto inl_4
+							c_4 := v_8
+							kp_9 = c_4
+							goto kn_11
 						case OptionalStringFlag:
-							s_6 := v_9
-							v_8 = s_6.base
-							goto inl_4
+							s_6 := v_8
+							kp_5 = s_6.base
+							goto kn_8
 						case OptionalIntFlag:
-							n_5 := v_9
-							v_8 = n_5.base
-							goto inl_4
+							n_5 := v_8
+							kp_6 = n_5.base
+							goto kn_9
 						case RepeatedStringFlag:
-							s_7 := v_9
-							v_8 = s_7.base
-							goto inl_4
+							s_7 := v_8
+							kp_5 = s_7.base
+							goto kn_8
 						case RepeatedIntFlag:
-							n_6 := v_9
-							v_8 = n_6.base
-							goto inl_4
+							n_6 := v_8
+							kp_6 = n_6.base
+							goto kn_9
 						case RepeatedBoolFlag:
-							b_4 := v_9
-							v_8 = b_4.base
-							goto inl_4
+							b_4 := v_8
+							kp_7 = b_4.base
+							goto kn_10
 						case RepeatedDurationFlag:
-							d_4 := v_9
-							v_8 = d_4.base
-							goto inl_4
+							d_4 := v_8
+							kp_8 = d_4.base
+							goto kn_12
 						case RepeatedChoiceFlag:
-							c_5 := v_9
-							v_8 = c_5.base
-							goto inl_4
+							c_5 := v_8
+							kp_9 = c_5.base
+							goto kn_11
 						default:
-							_ = v_9
+							_ = v_8
 							panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 						}
 					}
-				inl_4:
-					;
-					switch v_10 := v_8.(type) {
-					case StringFlag:
-						s_8 := v_10
-						v_7 = s_8.usage
+				kn_8:
+					{
+						s_8 := kp_5
+						v_6 = s_8.usage
 						goto inl_3
-					case IntFlag:
-						n_7 := v_10
-						v_7 = n_7.usage
+					}
+				kn_9:
+					{
+						n_7 := kp_6
+						v_6 = n_7.usage
 						goto inl_3
-					case BoolFlag:
-						b_5 := v_10
-						v_7 = b_5.usage
+					}
+				kn_10:
+					{
+						b_5 := kp_7
+						v_6 = b_5.usage
 						goto inl_3
-					case ChoiceFlag:
-						c_6 := v_10
-						v_7 = c_6.usage
+					}
+				kn_11:
+					{
+						c_6 := kp_9
+						v_6 = c_6.usage
 						goto inl_3
-					case DurationFlag:
-						d_5 := v_10
-						v_7 = d_5.usage
+					}
+				kn_12:
+					{
+						d_5 := kp_8
+						v_6 = d_5.usage
 						goto inl_3
-					default:
-						_ = v_10
-						panic("ergo: defect: no case of the match at std/flag/usage.ergo:96:2 matched")
 					}
 				}
 			inl_3:
 				;
-				t_1 := v_7
-				var v_11 string
+				t_1 := v_6
+				var v_9 string
 				{
-					var v_12 scalarFlag
+					var v_10 scalarFlag
+					_ = v_10
+					var kp_10 ChoiceFlag
+					_ = kp_10
 					{
-						switch v_13 := f_2.(type) {
+						switch v_11 := f_2.(type) {
 						case StringFlag:
-							s_9 := v_13
-							v_12 = s_9
-							goto inl_6
+							s_9 := v_11
+							_ = s_9
+							goto kn_14
 						case IntFlag:
-							n_8 := v_13
-							v_12 = n_8
-							goto inl_6
+							n_8 := v_11
+							_ = n_8
+							goto kn_15
 						case BoolFlag:
-							b_6 := v_13
-							v_12 = b_6
-							goto inl_6
+							b_6 := v_11
+							_ = b_6
+							goto kn_16
 						case DurationFlag:
-							d_6 := v_13
-							v_12 = d_6
-							goto inl_6
+							d_6 := v_11
+							_ = d_6
+							goto kn_18
 						case ChoiceFlag:
-							c_7 := v_13
-							v_12 = c_7
-							goto inl_6
+							c_7 := v_11
+							kp_10 = c_7
+							goto kn_17
 						case OptionalStringFlag:
-							s_10 := v_13
-							v_12 = s_10.base
-							goto inl_6
+							s_10 := v_11
+							_ = s_10.base
+							goto kn_14
 						case OptionalIntFlag:
-							n_9 := v_13
-							v_12 = n_9.base
-							goto inl_6
+							n_9 := v_11
+							_ = n_9.base
+							goto kn_15
 						case RepeatedStringFlag:
-							s_11 := v_13
-							v_12 = s_11.base
-							goto inl_6
+							s_11 := v_11
+							_ = s_11.base
+							goto kn_14
 						case RepeatedIntFlag:
-							n_10 := v_13
-							v_12 = n_10.base
-							goto inl_6
+							n_10 := v_11
+							_ = n_10.base
+							goto kn_15
 						case RepeatedBoolFlag:
-							b_7 := v_13
-							v_12 = b_7.base
-							goto inl_6
+							b_7 := v_11
+							_ = b_7.base
+							goto kn_16
 						case RepeatedDurationFlag:
-							d_7 := v_13
-							v_12 = d_7.base
-							goto inl_6
+							d_7 := v_11
+							_ = d_7.base
+							goto kn_18
 						case RepeatedChoiceFlag:
-							c_8 := v_13
-							v_12 = c_8.base
-							goto inl_6
+							c_8 := v_11
+							kp_10 = c_8.base
+							goto kn_17
 						default:
-							_ = v_13
+							_ = v_11
 							panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 						}
 					}
-				inl_6:
-					;
-					switch v_14 := v_12.(type) {
-					case StringFlag:
-						_ = v_14
-						v_11 = "string"
+				kn_14:
+					{
+						v_9 = "string"
 						goto inl_5
-					case IntFlag:
-						_ = v_14
-						v_11 = "int"
+					}
+				kn_15:
+					{
+						v_9 = "int"
 						goto inl_5
-					case BoolFlag:
-						_ = v_14
-						v_11 = ""
+					}
+				kn_16:
+					{
+						v_9 = ""
 						goto inl_5
-					case ChoiceFlag:
-						c_9 := v_14
-						v_15 := ergo.StringsJoin(c_9.choices, "|")
-						v_11 = v_15
+					}
+				kn_17:
+					{
+						c_9 := kp_10
+						v_12 := ergo.StringsJoin(c_9.choices, "|")
+						v_9 = v_12
 						goto inl_5
-					case DurationFlag:
-						_ = v_14
-						v_11 = "duration"
+					}
+				kn_18:
+					{
+						v_9 = "duration"
 						goto inl_5
-					default:
-						_ = v_14
-						panic("ergo: defect: no case of the match at std/flag/usage.ergo:113:2 matched")
 					}
 				}
 			inl_5:
 				;
-				v_16 := unquote(t_1, v_11)
-				shape, usage = v_16.F0, v_16.F1
+				v_13 := unquote(t_1, v_9)
+				shape, usage = v_13.F0, v_13.F1
+				var v_14 string
+				{
+					var v_15 scalarFlag
+					_ = v_15
+					var kp_11 StringFlag
+					_ = kp_11
+					var kp_12 IntFlag
+					_ = kp_12
+					var kp_13 BoolFlag
+					_ = kp_13
+					var kp_14 DurationFlag
+					_ = kp_14
+					var kp_15 ChoiceFlag
+					_ = kp_15
+					{
+						switch v_16 := f_2.(type) {
+						case StringFlag:
+							s_12 := v_16
+							kp_11 = s_12
+							goto kn_20
+						case IntFlag:
+							n_11 := v_16
+							kp_12 = n_11
+							goto kn_21
+						case BoolFlag:
+							b_8 := v_16
+							kp_13 = b_8
+							goto kn_22
+						case DurationFlag:
+							d_8 := v_16
+							kp_14 = d_8
+							goto kn_24
+						case ChoiceFlag:
+							c_10 := v_16
+							kp_15 = c_10
+							goto kn_23
+						case OptionalStringFlag:
+							s_13 := v_16
+							kp_11 = s_13.base
+							goto kn_20
+						case OptionalIntFlag:
+							n_12 := v_16
+							kp_12 = n_12.base
+							goto kn_21
+						case RepeatedStringFlag:
+							s_14 := v_16
+							kp_11 = s_14.base
+							goto kn_20
+						case RepeatedIntFlag:
+							n_13 := v_16
+							kp_12 = n_13.base
+							goto kn_21
+						case RepeatedBoolFlag:
+							b_9 := v_16
+							kp_13 = b_9.base
+							goto kn_22
+						case RepeatedDurationFlag:
+							d_9 := v_16
+							kp_14 = d_9.base
+							goto kn_24
+						case RepeatedChoiceFlag:
+							c_11 := v_16
+							kp_15 = c_11.base
+							goto kn_23
+						default:
+							_ = v_16
+							panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
+						}
+					}
+				kn_20:
+					{
+						s_15 := kp_11
+						v_14 = s_15.name
+						goto inl_7
+					}
+				kn_21:
+					{
+						n_14 := kp_12
+						v_14 = n_14.name
+						goto inl_7
+					}
+				kn_22:
+					{
+						b_10 := kp_13
+						v_14 = b_10.name
+						goto inl_7
+					}
+				kn_23:
+					{
+						c_12 := kp_15
+						v_14 = c_12.name
+						goto inl_7
+					}
+				kn_24:
+					{
+						d_10 := kp_14
+						v_14 = d_10.name
+						goto inl_7
+					}
+				}
+			inl_7:
+				;
+				var line string = ("  -" + v_14)
 				var v_17 string
 				{
 					var v_18 scalarFlag
+					_ = v_18
+					var kp_16 StringFlag
+					_ = kp_16
+					var kp_17 IntFlag
+					_ = kp_17
+					var kp_18 BoolFlag
+					_ = kp_18
+					var kp_19 DurationFlag
+					_ = kp_19
+					var kp_20 ChoiceFlag
+					_ = kp_20
 					{
 						switch v_19 := f_2.(type) {
 						case StringFlag:
-							s_12 := v_19
-							v_18 = s_12
-							goto inl_8
+							s_16 := v_19
+							kp_16 = s_16
+							goto kn_26
 						case IntFlag:
-							n_11 := v_19
-							v_18 = n_11
-							goto inl_8
+							n_15 := v_19
+							kp_17 = n_15
+							goto kn_27
 						case BoolFlag:
-							b_8 := v_19
-							v_18 = b_8
-							goto inl_8
+							b_11 := v_19
+							kp_18 = b_11
+							goto kn_28
 						case DurationFlag:
-							d_8 := v_19
-							v_18 = d_8
-							goto inl_8
+							d_11 := v_19
+							kp_19 = d_11
+							goto kn_29
 						case ChoiceFlag:
-							c_10 := v_19
-							v_18 = c_10
-							goto inl_8
+							c_13 := v_19
+							kp_20 = c_13
+							goto kn_30
 						case OptionalStringFlag:
-							s_13 := v_19
-							v_18 = s_13.base
-							goto inl_8
+							s_17 := v_19
+							kp_16 = s_17.base
+							goto kn_26
 						case OptionalIntFlag:
-							n_12 := v_19
-							v_18 = n_12.base
-							goto inl_8
+							n_16 := v_19
+							kp_17 = n_16.base
+							goto kn_27
 						case RepeatedStringFlag:
-							s_14 := v_19
-							v_18 = s_14.base
-							goto inl_8
+							s_18 := v_19
+							kp_16 = s_18.base
+							goto kn_26
 						case RepeatedIntFlag:
-							n_13 := v_19
-							v_18 = n_13.base
-							goto inl_8
+							n_17 := v_19
+							kp_17 = n_17.base
+							goto kn_27
 						case RepeatedBoolFlag:
-							b_9 := v_19
-							v_18 = b_9.base
-							goto inl_8
+							b_12 := v_19
+							kp_18 = b_12.base
+							goto kn_28
 						case RepeatedDurationFlag:
-							d_9 := v_19
-							v_18 = d_9.base
-							goto inl_8
+							d_12 := v_19
+							kp_19 = d_12.base
+							goto kn_29
 						case RepeatedChoiceFlag:
-							c_11 := v_19
-							v_18 = c_11.base
-							goto inl_8
+							c_14 := v_19
+							kp_20 = c_14.base
+							goto kn_30
 						default:
 							_ = v_19
 							panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 						}
 					}
-				inl_8:
-					;
-					switch v_20 := v_18.(type) {
-					case StringFlag:
-						s_15 := v_20
-						v_17 = s_15.name
-						goto inl_7
-					case IntFlag:
-						n_14 := v_20
-						v_17 = n_14.name
-						goto inl_7
-					case BoolFlag:
-						b_10 := v_20
-						v_17 = b_10.name
-						goto inl_7
-					case ChoiceFlag:
-						c_12 := v_20
-						v_17 = c_12.name
-						goto inl_7
-					case DurationFlag:
-						d_10 := v_20
-						v_17 = d_10.name
-						goto inl_7
-					default:
-						_ = v_20
-						panic("ergo: defect: no case of the match at std/flag/flag.ergo:366:2 matched")
-					}
-				}
-			inl_7:
-				;
-				var line string = ("  -" + v_17)
-				var v_21 string
-				{
-					var v_22 scalarFlag
+				kn_26:
 					{
-						switch v_23 := f_2.(type) {
-						case StringFlag:
-							s_16 := v_23
-							v_22 = s_16
-							goto inl_10
-						case IntFlag:
-							n_15 := v_23
-							v_22 = n_15
-							goto inl_10
-						case BoolFlag:
-							b_11 := v_23
-							v_22 = b_11
-							goto inl_10
-						case DurationFlag:
-							d_11 := v_23
-							v_22 = d_11
-							goto inl_10
-						case ChoiceFlag:
-							c_13 := v_23
-							v_22 = c_13
-							goto inl_10
-						case OptionalStringFlag:
-							s_17 := v_23
-							v_22 = s_17.base
-							goto inl_10
-						case OptionalIntFlag:
-							n_16 := v_23
-							v_22 = n_16.base
-							goto inl_10
-						case RepeatedStringFlag:
-							s_18 := v_23
-							v_22 = s_18.base
-							goto inl_10
-						case RepeatedIntFlag:
-							n_17 := v_23
-							v_22 = n_17.base
-							goto inl_10
-						case RepeatedBoolFlag:
-							b_12 := v_23
-							v_22 = b_12.base
-							goto inl_10
-						case RepeatedDurationFlag:
-							d_12 := v_23
-							v_22 = d_12.base
-							goto inl_10
-						case RepeatedChoiceFlag:
-							c_14 := v_23
-							v_22 = c_14.base
-							goto inl_10
-						default:
-							_ = v_23
-							panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
-						}
+						s_19 := kp_16
+						v_17 = s_19.alias
+						goto inl_9
 					}
-				inl_10:
-					;
-					switch v_24 := v_22.(type) {
-					case StringFlag:
-						s_19 := v_24
-						v_21 = s_19.alias
+				kn_27:
+					{
+						n_18 := kp_17
+						v_17 = n_18.alias
 						goto inl_9
-					case IntFlag:
-						n_18 := v_24
-						v_21 = n_18.alias
+					}
+				kn_28:
+					{
+						b_13 := kp_18
+						v_17 = b_13.alias
 						goto inl_9
-					case BoolFlag:
-						b_13 := v_24
-						v_21 = b_13.alias
+					}
+				kn_29:
+					{
+						d_13 := kp_19
+						v_17 = d_13.alias
 						goto inl_9
-					case DurationFlag:
-						d_13 := v_24
-						v_21 = d_13.alias
+					}
+				kn_30:
+					{
+						c_15 := kp_20
+						v_17 = c_15.alias
 						goto inl_9
-					case ChoiceFlag:
-						c_15 := v_24
-						v_21 = c_15.alias
-						goto inl_9
-					default:
-						_ = v_24
-						panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:205:2 matched")
 					}
 				}
 			inl_9:
 				;
-				if v_21 != "" {
+				if v_17 != "" {
 					t_2 := (line + ", -")
-					var v_25 string
+					var v_20 string
 					{
-						var v_26 scalarFlag
+						var v_21 scalarFlag
+						_ = v_21
+						var kp_21 StringFlag
+						_ = kp_21
+						var kp_22 IntFlag
+						_ = kp_22
+						var kp_23 BoolFlag
+						_ = kp_23
+						var kp_24 DurationFlag
+						_ = kp_24
+						var kp_25 ChoiceFlag
+						_ = kp_25
 						{
-							switch v_27 := f_2.(type) {
+							switch v_22 := f_2.(type) {
 							case StringFlag:
-								s_20 := v_27
-								v_26 = s_20
-								goto inl_12
+								s_20 := v_22
+								kp_21 = s_20
+								goto kn_32
 							case IntFlag:
-								n_19 := v_27
-								v_26 = n_19
-								goto inl_12
+								n_19 := v_22
+								kp_22 = n_19
+								goto kn_33
 							case BoolFlag:
-								b_14 := v_27
-								v_26 = b_14
-								goto inl_12
+								b_14 := v_22
+								kp_23 = b_14
+								goto kn_34
 							case DurationFlag:
-								d_14 := v_27
-								v_26 = d_14
-								goto inl_12
+								d_14 := v_22
+								kp_24 = d_14
+								goto kn_35
 							case ChoiceFlag:
-								c_16 := v_27
-								v_26 = c_16
-								goto inl_12
+								c_16 := v_22
+								kp_25 = c_16
+								goto kn_36
 							case OptionalStringFlag:
-								s_21 := v_27
-								v_26 = s_21.base
-								goto inl_12
+								s_21 := v_22
+								kp_21 = s_21.base
+								goto kn_32
 							case OptionalIntFlag:
-								n_20 := v_27
-								v_26 = n_20.base
-								goto inl_12
+								n_20 := v_22
+								kp_22 = n_20.base
+								goto kn_33
 							case RepeatedStringFlag:
-								s_22 := v_27
-								v_26 = s_22.base
-								goto inl_12
+								s_22 := v_22
+								kp_21 = s_22.base
+								goto kn_32
 							case RepeatedIntFlag:
-								n_21 := v_27
-								v_26 = n_21.base
-								goto inl_12
+								n_21 := v_22
+								kp_22 = n_21.base
+								goto kn_33
 							case RepeatedBoolFlag:
-								b_15 := v_27
-								v_26 = b_15.base
-								goto inl_12
+								b_15 := v_22
+								kp_23 = b_15.base
+								goto kn_34
 							case RepeatedDurationFlag:
-								d_15 := v_27
-								v_26 = d_15.base
-								goto inl_12
+								d_15 := v_22
+								kp_24 = d_15.base
+								goto kn_35
 							case RepeatedChoiceFlag:
-								c_17 := v_27
-								v_26 = c_17.base
-								goto inl_12
+								c_17 := v_22
+								kp_25 = c_17.base
+								goto kn_36
 							default:
-								_ = v_27
+								_ = v_22
 								panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 							}
 						}
-					inl_12:
-						;
-						switch v_28 := v_26.(type) {
-						case StringFlag:
-							s_23 := v_28
-							v_25 = s_23.alias
+					kn_32:
+						{
+							s_23 := kp_21
+							v_20 = s_23.alias
 							goto inl_11
-						case IntFlag:
-							n_22 := v_28
-							v_25 = n_22.alias
+						}
+					kn_33:
+						{
+							n_22 := kp_22
+							v_20 = n_22.alias
 							goto inl_11
-						case BoolFlag:
-							b_16 := v_28
-							v_25 = b_16.alias
+						}
+					kn_34:
+						{
+							b_16 := kp_23
+							v_20 = b_16.alias
 							goto inl_11
-						case DurationFlag:
-							d_16 := v_28
-							v_25 = d_16.alias
+						}
+					kn_35:
+						{
+							d_16 := kp_24
+							v_20 = d_16.alias
 							goto inl_11
-						case ChoiceFlag:
-							c_18 := v_28
-							v_25 = c_18.alias
+						}
+					kn_36:
+						{
+							c_18 := kp_25
+							v_20 = c_18.alias
 							goto inl_11
-						default:
-							_ = v_28
-							panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:205:2 matched")
 						}
 					}
 				inl_11:
 					;
-					line = (t_2 + v_25)
+					line = (t_2 + v_20)
 				}
 				if shape != "" {
 					line = ((line + " ") + shape)
@@ -12591,12 +13075,12 @@ func Defaults(flags []Flag) string {
 					line = (line + "\n    \t")
 				}
 				t_3 := line
-				v_29 := ergo.StringsReplaceAll(usage, "\n", "\n    \t")
-				t_4 := (t_3 + v_29)
-				v_30 := defaultOf(f_2)
-				v_6 = ((t_4 + v_30) + "\n")
+				v_23 := ergo.StringsReplaceAll(usage, "\n", "\n    \t")
+				t_4 := (t_3 + v_23)
+				v_24 := defaultOf(f_2)
+				v_5 = ((t_4 + v_24) + "\n")
 			}
-			out = (t + v_6)
+			out = (t + v_5)
 		case 1:
 		}
 		last = pick
@@ -12606,12 +13090,13 @@ func Defaults(flags []Flag) string {
 }
 
 func (a ArgSpec) argShape() string {
-	switch a.arity.(type) {
-	case one:
+	s := a.arity
+	switch s.tag {
+	case 0:
 		return a.name
-	case optional:
+	case 1:
 		return (("[" + a.name) + "]")
-	case many:
+	case 2:
 		return (a.name + "...")
 	default:
 		panic("ergo: defect: no case of the match at std/flag/usage.ergo:160:2 matched")
@@ -12626,412 +13111,436 @@ func sameHandle(a Flag, b Flag) bool {
 		return false
 	}
 	var v_2 scalarFlag
+	_ = v_2
+	var kp StringFlag
+	_ = kp
+	var kp_1 IntFlag
+	_ = kp_1
+	var kp_2 BoolFlag
+	_ = kp_2
+	var kp_3 DurationFlag
+	_ = kp_3
+	var kp_4 ChoiceFlag
+	_ = kp_4
 	{
 		switch v_3 := a.(type) {
 		case StringFlag:
 			s := v_3
-			v_2 = s
-			goto inl
+			kp = s
+			goto kn
 		case IntFlag:
 			n := v_3
-			v_2 = n
-			goto inl
+			kp_1 = n
+			goto kn_1
 		case BoolFlag:
 			b_1 := v_3
-			v_2 = b_1
-			goto inl
+			kp_2 = b_1
+			goto kn_2
 		case DurationFlag:
 			d := v_3
-			v_2 = d
-			goto inl
+			kp_3 = d
+			goto kn_3
 		case ChoiceFlag:
 			c_1 := v_3
-			v_2 = c_1
-			goto inl
+			kp_4 = c_1
+			goto kn_4
 		case OptionalStringFlag:
 			s_1 := v_3
-			v_2 = s_1.base
-			goto inl
+			kp = s_1.base
+			goto kn
 		case OptionalIntFlag:
 			n_1 := v_3
-			v_2 = n_1.base
-			goto inl
+			kp_1 = n_1.base
+			goto kn_1
 		case RepeatedStringFlag:
 			s_2 := v_3
-			v_2 = s_2.base
-			goto inl
+			kp = s_2.base
+			goto kn
 		case RepeatedIntFlag:
 			n_2 := v_3
-			v_2 = n_2.base
-			goto inl
+			kp_1 = n_2.base
+			goto kn_1
 		case RepeatedBoolFlag:
 			b_2 := v_3
-			v_2 = b_2.base
-			goto inl
+			kp_2 = b_2.base
+			goto kn_2
 		case RepeatedDurationFlag:
 			d_1 := v_3
-			v_2 = d_1.base
-			goto inl
+			kp_3 = d_1.base
+			goto kn_3
 		case RepeatedChoiceFlag:
 			c_2 := v_3
-			v_2 = c_2.base
-			goto inl
+			kp_4 = c_2.base
+			goto kn_4
 		default:
 			_ = v_3
 			panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 		}
 	}
-inl:
-	;
-	switch v_4 := v_2.(type) {
-	case StringFlag:
-		x := v_4
-		var v_5 scalarFlag
+kn:
+	{
+		x := kp
+		var v_4 scalarFlag
+		_ = v_4
+		var kp_5 StringFlag
+		_ = kp_5
 		{
-			switch v_6 := b.(type) {
+			switch v_5 := b.(type) {
 			case StringFlag:
-				s_3 := v_6
-				v_5 = s_3
-				goto inl_1
+				s_3 := v_5
+				kp_5 = s_3
+				goto kn_6
 			case IntFlag:
-				n_3 := v_6
-				v_5 = n_3
-				goto inl_1
+				n_3 := v_5
+				_ = n_3
+				goto kn_7
 			case BoolFlag:
-				b_3 := v_6
-				v_5 = b_3
-				goto inl_1
+				b_3 := v_5
+				_ = b_3
+				goto kn_7
 			case DurationFlag:
-				d_2 := v_6
-				v_5 = d_2
-				goto inl_1
+				d_2 := v_5
+				_ = d_2
+				goto kn_7
 			case ChoiceFlag:
-				c_3 := v_6
-				v_5 = c_3
-				goto inl_1
+				c_3 := v_5
+				_ = c_3
+				goto kn_7
 			case OptionalStringFlag:
-				s_4 := v_6
-				v_5 = s_4.base
-				goto inl_1
+				s_4 := v_5
+				kp_5 = s_4.base
+				goto kn_6
 			case OptionalIntFlag:
-				n_4 := v_6
-				v_5 = n_4.base
-				goto inl_1
+				n_4 := v_5
+				_ = n_4.base
+				goto kn_7
 			case RepeatedStringFlag:
-				s_5 := v_6
-				v_5 = s_5.base
-				goto inl_1
+				s_5 := v_5
+				kp_5 = s_5.base
+				goto kn_6
 			case RepeatedIntFlag:
-				n_5 := v_6
-				v_5 = n_5.base
-				goto inl_1
+				n_5 := v_5
+				_ = n_5.base
+				goto kn_7
 			case RepeatedBoolFlag:
-				b_4 := v_6
-				v_5 = b_4.base
-				goto inl_1
+				b_4 := v_5
+				_ = b_4.base
+				goto kn_7
 			case RepeatedDurationFlag:
-				d_3 := v_6
-				v_5 = d_3.base
-				goto inl_1
+				d_3 := v_5
+				_ = d_3.base
+				goto kn_7
 			case RepeatedChoiceFlag:
-				c_4 := v_6
-				v_5 = c_4.base
-				goto inl_1
+				c_4 := v_5
+				_ = c_4.base
+				goto kn_7
 			default:
-				_ = v_6
+				_ = v_5
 				panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 			}
 		}
-	inl_1:
-		;
-		switch v_7 := v_5.(type) {
-		case StringFlag:
-			y := v_7
+	kn_6:
+		{
+			y := kp_5
 			return (x == y)
-		default:
-			_ = v_7
+		}
+	kn_7:
+		{
 			return false
 		}
-	case IntFlag:
-		x_1 := v_4
+	}
+kn_1:
+	{
+		x_1 := kp_1
+		var v_6 scalarFlag
+		_ = v_6
+		var kp_6 IntFlag
+		_ = kp_6
+		{
+			switch v_7 := b.(type) {
+			case StringFlag:
+				s_6 := v_7
+				_ = s_6
+				goto kn_10
+			case IntFlag:
+				n_6 := v_7
+				kp_6 = n_6
+				goto kn_9
+			case BoolFlag:
+				b_5 := v_7
+				_ = b_5
+				goto kn_10
+			case DurationFlag:
+				d_4 := v_7
+				_ = d_4
+				goto kn_10
+			case ChoiceFlag:
+				c_5 := v_7
+				_ = c_5
+				goto kn_10
+			case OptionalStringFlag:
+				s_7 := v_7
+				_ = s_7.base
+				goto kn_10
+			case OptionalIntFlag:
+				n_7 := v_7
+				kp_6 = n_7.base
+				goto kn_9
+			case RepeatedStringFlag:
+				s_8 := v_7
+				_ = s_8.base
+				goto kn_10
+			case RepeatedIntFlag:
+				n_8 := v_7
+				kp_6 = n_8.base
+				goto kn_9
+			case RepeatedBoolFlag:
+				b_6 := v_7
+				_ = b_6.base
+				goto kn_10
+			case RepeatedDurationFlag:
+				d_5 := v_7
+				_ = d_5.base
+				goto kn_10
+			case RepeatedChoiceFlag:
+				c_6 := v_7
+				_ = c_6.base
+				goto kn_10
+			default:
+				_ = v_7
+				panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
+			}
+		}
+	kn_9:
+		{
+			y_1 := kp_6
+			return (x_1 == y_1)
+		}
+	kn_10:
+		{
+			return false
+		}
+	}
+kn_2:
+	{
+		x_2 := kp_2
 		var v_8 scalarFlag
+		_ = v_8
+		var kp_7 BoolFlag
+		_ = kp_7
 		{
 			switch v_9 := b.(type) {
 			case StringFlag:
-				s_6 := v_9
-				v_8 = s_6
-				goto inl_2
+				s_9 := v_9
+				_ = s_9
+				goto kn_13
 			case IntFlag:
-				n_6 := v_9
-				v_8 = n_6
-				goto inl_2
+				n_9 := v_9
+				_ = n_9
+				goto kn_13
 			case BoolFlag:
-				b_5 := v_9
-				v_8 = b_5
-				goto inl_2
+				b_7 := v_9
+				kp_7 = b_7
+				goto kn_12
 			case DurationFlag:
-				d_4 := v_9
-				v_8 = d_4
-				goto inl_2
+				d_6 := v_9
+				_ = d_6
+				goto kn_13
 			case ChoiceFlag:
-				c_5 := v_9
-				v_8 = c_5
-				goto inl_2
+				c_7 := v_9
+				_ = c_7
+				goto kn_13
 			case OptionalStringFlag:
-				s_7 := v_9
-				v_8 = s_7.base
-				goto inl_2
+				s_10 := v_9
+				_ = s_10.base
+				goto kn_13
 			case OptionalIntFlag:
-				n_7 := v_9
-				v_8 = n_7.base
-				goto inl_2
+				n_10 := v_9
+				_ = n_10.base
+				goto kn_13
 			case RepeatedStringFlag:
-				s_8 := v_9
-				v_8 = s_8.base
-				goto inl_2
+				s_11 := v_9
+				_ = s_11.base
+				goto kn_13
 			case RepeatedIntFlag:
-				n_8 := v_9
-				v_8 = n_8.base
-				goto inl_2
+				n_11 := v_9
+				_ = n_11.base
+				goto kn_13
 			case RepeatedBoolFlag:
-				b_6 := v_9
-				v_8 = b_6.base
-				goto inl_2
+				b_8 := v_9
+				kp_7 = b_8.base
+				goto kn_12
 			case RepeatedDurationFlag:
-				d_5 := v_9
-				v_8 = d_5.base
-				goto inl_2
+				d_7 := v_9
+				_ = d_7.base
+				goto kn_13
 			case RepeatedChoiceFlag:
-				c_6 := v_9
-				v_8 = c_6.base
-				goto inl_2
+				c_8 := v_9
+				_ = c_8.base
+				goto kn_13
 			default:
 				_ = v_9
 				panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 			}
 		}
-	inl_2:
-		;
-		switch v_10 := v_8.(type) {
-		case IntFlag:
-			y_1 := v_10
-			return (x_1 == y_1)
-		default:
-			_ = v_10
-			return false
-		}
-	case BoolFlag:
-		x_2 := v_4
-		var v_11 scalarFlag
+	kn_12:
 		{
-			switch v_12 := b.(type) {
-			case StringFlag:
-				s_9 := v_12
-				v_11 = s_9
-				goto inl_3
-			case IntFlag:
-				n_9 := v_12
-				v_11 = n_9
-				goto inl_3
-			case BoolFlag:
-				b_7 := v_12
-				v_11 = b_7
-				goto inl_3
-			case DurationFlag:
-				d_6 := v_12
-				v_11 = d_6
-				goto inl_3
-			case ChoiceFlag:
-				c_7 := v_12
-				v_11 = c_7
-				goto inl_3
-			case OptionalStringFlag:
-				s_10 := v_12
-				v_11 = s_10.base
-				goto inl_3
-			case OptionalIntFlag:
-				n_10 := v_12
-				v_11 = n_10.base
-				goto inl_3
-			case RepeatedStringFlag:
-				s_11 := v_12
-				v_11 = s_11.base
-				goto inl_3
-			case RepeatedIntFlag:
-				n_11 := v_12
-				v_11 = n_11.base
-				goto inl_3
-			case RepeatedBoolFlag:
-				b_8 := v_12
-				v_11 = b_8.base
-				goto inl_3
-			case RepeatedDurationFlag:
-				d_7 := v_12
-				v_11 = d_7.base
-				goto inl_3
-			case RepeatedChoiceFlag:
-				c_8 := v_12
-				v_11 = c_8.base
-				goto inl_3
-			default:
-				_ = v_12
-				panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
-			}
-		}
-	inl_3:
-		;
-		switch v_13 := v_11.(type) {
-		case BoolFlag:
-			y_2 := v_13
+			y_2 := kp_7
 			return (x_2 == y_2)
-		default:
-			_ = v_13
+		}
+	kn_13:
+		{
 			return false
 		}
-	case DurationFlag:
-		x_3 := v_4
-		var v_14 scalarFlag
+	}
+kn_3:
+	{
+		x_3 := kp_3
+		var v_10 scalarFlag
+		_ = v_10
+		var kp_8 DurationFlag
+		_ = kp_8
 		{
-			switch v_15 := b.(type) {
+			switch v_11 := b.(type) {
 			case StringFlag:
-				s_12 := v_15
-				v_14 = s_12
-				goto inl_4
+				s_12 := v_11
+				_ = s_12
+				goto kn_16
 			case IntFlag:
-				n_12 := v_15
-				v_14 = n_12
-				goto inl_4
+				n_12 := v_11
+				_ = n_12
+				goto kn_16
 			case BoolFlag:
-				b_9 := v_15
-				v_14 = b_9
-				goto inl_4
+				b_9 := v_11
+				_ = b_9
+				goto kn_16
 			case DurationFlag:
-				d_8 := v_15
-				v_14 = d_8
-				goto inl_4
+				d_8 := v_11
+				kp_8 = d_8
+				goto kn_15
 			case ChoiceFlag:
-				c_9 := v_15
-				v_14 = c_9
-				goto inl_4
+				c_9 := v_11
+				_ = c_9
+				goto kn_16
 			case OptionalStringFlag:
-				s_13 := v_15
-				v_14 = s_13.base
-				goto inl_4
+				s_13 := v_11
+				_ = s_13.base
+				goto kn_16
 			case OptionalIntFlag:
-				n_13 := v_15
-				v_14 = n_13.base
-				goto inl_4
+				n_13 := v_11
+				_ = n_13.base
+				goto kn_16
 			case RepeatedStringFlag:
-				s_14 := v_15
-				v_14 = s_14.base
-				goto inl_4
+				s_14 := v_11
+				_ = s_14.base
+				goto kn_16
 			case RepeatedIntFlag:
-				n_14 := v_15
-				v_14 = n_14.base
-				goto inl_4
+				n_14 := v_11
+				_ = n_14.base
+				goto kn_16
 			case RepeatedBoolFlag:
-				b_10 := v_15
-				v_14 = b_10.base
-				goto inl_4
+				b_10 := v_11
+				_ = b_10.base
+				goto kn_16
 			case RepeatedDurationFlag:
-				d_9 := v_15
-				v_14 = d_9.base
-				goto inl_4
+				d_9 := v_11
+				kp_8 = d_9.base
+				goto kn_15
 			case RepeatedChoiceFlag:
-				c_10 := v_15
-				v_14 = c_10.base
-				goto inl_4
+				c_10 := v_11
+				_ = c_10.base
+				goto kn_16
 			default:
-				_ = v_15
+				_ = v_11
 				panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 			}
 		}
-	inl_4:
-		;
-		switch v_16 := v_14.(type) {
-		case DurationFlag:
-			y_3 := v_16
+	kn_15:
+		{
+			y_3 := kp_8
 			return (x_3 == y_3)
-		default:
-			_ = v_16
+		}
+	kn_16:
+		{
 			return false
 		}
-	case ChoiceFlag:
-		x_4 := v_4
-		var v_17 scalarFlag
+	}
+kn_4:
+	{
+		x_4 := kp_4
+		var v_12 scalarFlag
+		_ = v_12
+		var kp_9 ChoiceFlag
+		_ = kp_9
 		{
-			switch v_18 := b.(type) {
+			switch v_13 := b.(type) {
 			case StringFlag:
-				s_15 := v_18
-				v_17 = s_15
-				goto inl_5
+				s_15 := v_13
+				_ = s_15
+				goto kn_19
 			case IntFlag:
-				n_15 := v_18
-				v_17 = n_15
-				goto inl_5
+				n_15 := v_13
+				_ = n_15
+				goto kn_19
 			case BoolFlag:
-				b_11 := v_18
-				v_17 = b_11
-				goto inl_5
+				b_11 := v_13
+				_ = b_11
+				goto kn_19
 			case DurationFlag:
-				d_10 := v_18
-				v_17 = d_10
-				goto inl_5
+				d_10 := v_13
+				_ = d_10
+				goto kn_19
 			case ChoiceFlag:
-				c_11 := v_18
-				v_17 = c_11
-				goto inl_5
+				c_11 := v_13
+				kp_9 = c_11
+				goto kn_18
 			case OptionalStringFlag:
-				s_16 := v_18
-				v_17 = s_16.base
-				goto inl_5
+				s_16 := v_13
+				_ = s_16.base
+				goto kn_19
 			case OptionalIntFlag:
-				n_16 := v_18
-				v_17 = n_16.base
-				goto inl_5
+				n_16 := v_13
+				_ = n_16.base
+				goto kn_19
 			case RepeatedStringFlag:
-				s_17 := v_18
-				v_17 = s_17.base
-				goto inl_5
+				s_17 := v_13
+				_ = s_17.base
+				goto kn_19
 			case RepeatedIntFlag:
-				n_17 := v_18
-				v_17 = n_17.base
-				goto inl_5
+				n_17 := v_13
+				_ = n_17.base
+				goto kn_19
 			case RepeatedBoolFlag:
-				b_12 := v_18
-				v_17 = b_12.base
-				goto inl_5
+				b_12 := v_13
+				_ = b_12.base
+				goto kn_19
 			case RepeatedDurationFlag:
-				d_11 := v_18
-				v_17 = d_11.base
-				goto inl_5
+				d_11 := v_13
+				_ = d_11.base
+				goto kn_19
 			case RepeatedChoiceFlag:
-				c_12 := v_18
-				v_17 = c_12.base
-				goto inl_5
+				c_12 := v_13
+				kp_9 = c_12.base
+				goto kn_18
 			default:
-				_ = v_18
+				_ = v_13
 				panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 			}
 		}
-	inl_5:
-		;
-		switch v_19 := v_17.(type) {
-		case ChoiceFlag:
-			y_4 := v_19
+	kn_18:
+		{
+			y_4 := kp_9
 			b_13 := ((((x_4.name == y_4.name) && (x_4.def == y_4.def)) && (x_4.usage == y_4.usage)) && (x_4.alias == y_4.alias))
 			if b_13 {
-				v_20 := sameStrings(x_4.choices, y_4.choices)
-				b_13 = v_20
+				v_14 := sameStrings(x_4.choices, y_4.choices)
+				b_13 = v_14
 			}
 			return b_13
-		default:
-			_ = v_19
+		}
+	kn_19:
+		{
 			return false
 		}
-	default:
-		_ = v_4
-		panic("ergo: defect: no case of the match at std/flag/flag.ergo:411:2 matched")
 	}
 }
 
@@ -13081,114 +13590,128 @@ func defaultOf(f Flag) string {
 		return " (repeated)"
 	}
 	var v_2 scalarFlag
+	_ = v_2
+	var kp StringFlag
+	_ = kp
+	var kp_1 IntFlag
+	_ = kp_1
+	var kp_2 BoolFlag
+	_ = kp_2
+	var kp_3 DurationFlag
+	_ = kp_3
+	var kp_4 ChoiceFlag
+	_ = kp_4
 	{
 		switch v_3 := f.(type) {
 		case StringFlag:
 			s := v_3
-			v_2 = s
-			goto inl
+			kp = s
+			goto kn
 		case IntFlag:
 			n := v_3
-			v_2 = n
-			goto inl
+			kp_1 = n
+			goto kn_1
 		case BoolFlag:
 			b := v_3
-			v_2 = b
-			goto inl
+			kp_2 = b
+			goto kn_2
 		case DurationFlag:
 			d := v_3
-			v_2 = d
-			goto inl
+			kp_3 = d
+			goto kn_4
 		case ChoiceFlag:
 			c_1 := v_3
-			v_2 = c_1
-			goto inl
+			kp_4 = c_1
+			goto kn_3
 		case OptionalStringFlag:
 			s_1 := v_3
-			v_2 = s_1.base
-			goto inl
+			kp = s_1.base
+			goto kn
 		case OptionalIntFlag:
 			n_1 := v_3
-			v_2 = n_1.base
-			goto inl
+			kp_1 = n_1.base
+			goto kn_1
 		case RepeatedStringFlag:
 			s_2 := v_3
-			v_2 = s_2.base
-			goto inl
+			kp = s_2.base
+			goto kn
 		case RepeatedIntFlag:
 			n_2 := v_3
-			v_2 = n_2.base
-			goto inl
+			kp_1 = n_2.base
+			goto kn_1
 		case RepeatedBoolFlag:
 			b_1 := v_3
-			v_2 = b_1.base
-			goto inl
+			kp_2 = b_1.base
+			goto kn_2
 		case RepeatedDurationFlag:
 			d_1 := v_3
-			v_2 = d_1.base
-			goto inl
+			kp_3 = d_1.base
+			goto kn_4
 		case RepeatedChoiceFlag:
 			c_2 := v_3
-			v_2 = c_2.base
-			goto inl
+			kp_4 = c_2.base
+			goto kn_3
 		default:
 			_ = v_3
 			panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:33:2 matched")
 		}
 	}
-inl:
-	;
-	switch v_4 := v_2.(type) {
-	case StringFlag:
-		s_3 := v_4
+kn:
+	{
+		s_3 := kp
 		if s_3.required {
 			return " (required)"
 		} else {
 			if s_3.def == "" {
 				return ""
 			} else {
-				v_5 := ergo.StrconvQuote(s_3.def)
-				return ((" (default " + v_5) + ")")
+				v_4 := ergo.StrconvQuote(s_3.def)
+				return ((" (default " + v_4) + ")")
 			}
 		}
-	case IntFlag:
-		n_3 := v_4
+	}
+kn_1:
+	{
+		n_3 := kp_1
 		if n_3.required {
 			return " (required)"
 		} else {
 			if n_3.def == int(0) {
 				return ""
 			} else {
-				v_6 := ergo.StrconvItoa(n_3.def)
-				return ((" (default " + v_6) + ")")
+				v_5 := ergo.StrconvItoa(n_3.def)
+				return ((" (default " + v_5) + ")")
 			}
 		}
-	case BoolFlag:
-		b_2 := v_4
+	}
+kn_2:
+	{
+		b_2 := kp_2
 		if b_2.def {
 			return " (default true)"
 		} else {
 			return ""
 		}
-	case ChoiceFlag:
-		c_3 := v_4
+	}
+kn_3:
+	{
+		c_3 := kp_4
 		if c_3.def == "" {
 			return ""
 		} else {
-			v_7 := ergo.StrconvQuote(c_3.def)
-			return ((" (default " + v_7) + ")")
+			v_6 := ergo.StrconvQuote(c_3.def)
+			return ((" (default " + v_6) + ")")
 		}
-	case DurationFlag:
-		d_2 := v_4
+	}
+kn_4:
+	{
+		d_2 := kp_3
 		if d_2.def == time.Duration(0) {
 			return ""
 		} else {
-			v_8 := ergo.TimeDurationText(d_2.def)
-			return ((" (default " + v_8) + ")")
+			v_7 := ergo.TimeDurationText(d_2.def)
+			return ((" (default " + v_7) + ")")
 		}
-	default:
-		_ = v_4
-		panic("ergo: defect: no case of the match at std/flag/usage.ergo:131:2 matched")
 	}
 }
 
@@ -13861,10 +14384,8 @@ func Machines_1(env *Env, tables string, asJSON bool) []string {
 				}
 				/*line tool.ergo:97:6*/ var v_7 MachineView = v_4
 //line tool.ergo:100:4
-//line tool.ergo:100:12
-				v_8 := Append[MachineView](views, ergoCloneMachineView(v_7))
 //line tool.ergo:100:4
-				views = v_8
+				views = /*line tool.ergo:100:12*/ Append[MachineView](views, ergoCloneMachineView(v_7))
 //line tool.ergo:93:3
 				env.task.Check()
 				/*line tool.ergo:93:3*/
@@ -13921,9 +14442,7 @@ func Machines_1(env *Env, tables string, asJSON bool) []string {
 		v_14 := (v_13).MachineText(env)
 //line tool.ergo:108:3
 		b_2 = (t + v_14)
-//line tool.ergo:107:2
-		env.task.Check()
-		/*line tool.ergo:107:2*/
+		/*line tool.ergo:108:3*/
 	}
 //line tool.ergo:110:2
 	var v_15 string
@@ -13964,10 +14483,8 @@ func Run_2(env *Env, args []string) Output {
 //line codecli/cli.ergo:278:3
 		if (i > int(0)) || (!asJSON) {
 //line codecli/cli.ergo:279:4
-//line codecli/cli.ergo:279:11
-			v_1 := Append[string](rest, a)
 //line codecli/cli.ergo:279:4
-			rest = v_1
+			rest = /*line codecli/cli.ergo:279:11*/ Append[string](rest, a)
 			/*line codecli/cli.ergo:279:4*/
 		}
 //line codecli/cli.ergo:277:2
