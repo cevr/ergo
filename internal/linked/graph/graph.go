@@ -1438,7 +1438,7 @@ func (e BadRows) Error() string {
 }
 
 func (old Rows) Changed(new_1 Rows) []int {
-	var before map[string]string = map[string]string{}
+	var before map[string]bool = map[string]bool{}
 	for k, v := range old.Nodes {
 		var i int = k
 		var n NodeRow = v
@@ -1462,42 +1462,38 @@ func (old Rows) Changed(new_1 Rows) []int {
 			}
 		inl:
 			;
-			t[v_1] = n.Digest
+			t[(v_1 + " " + n.Digest)] = true
 		}
 	}
 	var out []int = []int{}
 	for k_1, v_3 := range new_1.Nodes {
 		var i_1 int = k_1
 		var n_2 NodeRow = v_3
-		if (n_2.Kind != "decl") || (n_2.Digest == "") {
-			continue
+		b := ((n_2.Kind == "decl") && (n_2.Digest != ""))
+		if b {
+			t_1 := before
+			var v_4 string
+			{
+				var n_3 NodeRow = new_1.Nodes[i_1]
+				if n_3.Kind != "decl" {
+					v_4 = n_3.Name
+					goto inl_1
+				}
+				v_5 := (new_1).packageOf(i_1)
+				if v_5 < int(0) {
+					v_4 = n_3.Name
+					goto inl_1
+				} else {
+					v_4 = (new_1.Nodes[v_5].Name + "." + n_3.Name)
+					goto inl_1
+				}
+			}
+		inl_1:
+			;
+			v_6 := Get[string, bool](t_1, (v_4 + " " + n_2.Digest))
+			b = (v_6 == (Option[bool]{}).of1((None{})))
 		}
-		t_1 := before
-		var v_4 string
-		{
-			var n_3 NodeRow = new_1.Nodes[i_1]
-			if n_3.Kind != "decl" {
-				v_4 = n_3.Name
-				goto inl_1
-			}
-			v_5 := (new_1).packageOf(i_1)
-			if v_5 < int(0) {
-				v_4 = n_3.Name
-				goto inl_1
-			} else {
-				v_4 = (new_1.Nodes[v_5].Name + "." + n_3.Name)
-				goto inl_1
-			}
-		}
-	inl_1:
-		;
-		v_6, ok_1 := t_1[v_4]
-		if ok_1 {
-			d := Some[string]{Value: v_6}
-			if d.Value != n_2.Digest {
-				out = Append[int](out, i_1)
-			}
-		} else {
+		if b {
 			out = Append[int](out, i_1)
 		}
 	}
@@ -2494,6 +2490,24 @@ func textBadRows(v BadRows) string {
 	return "{" + "Reason:" + v.Reason + "}"
 }
 
+func Get[K comparable, V any](m map[K]V, k K) Option[V] {
+	if v, ok_1 := m[k]; ok_1 {
+		return (Option[V]{}).of0(Some[V]{Value: v})
+	}
+	return (Option[V]{}).of1(None{})
+}
+
+type Option[T any] struct {
+	tag uint8
+	v0  Some[T]
+}
+
+func (Option[T]) of0(v Some[T]) Option[T] { return Option[T]{tag: 0, v0: v} }
+func (Option[T]) of1(_ None) Option[T]    { return Option[T]{tag: 1} }
+func (x Option[T]) ErgoVariant() string {
+	return [...]func() string{ergo.VariantOf[Some[T]], ergo.VariantOf[None]}[x.tag]()
+}
+
 type LevelGraph struct {
 	Graph Graph
 	Nodes []int
@@ -2936,17 +2950,6 @@ type Range[T ergoOrdered] struct {
 	End   T
 }
 
-type Option[T any] struct {
-	tag uint8
-	v0  Some[T]
-}
-
-func (Option[T]) of0(v Some[T]) Option[T] { return Option[T]{tag: 0, v0: v} }
-func (Option[T]) of1(_ None) Option[T]    { return Option[T]{tag: 1} }
-func (x Option[T]) ErgoVariant() string {
-	return [...]func() string{ergo.VariantOf[Some[T]], ergo.VariantOf[None]}[x.tag]()
-}
-
 type depends struct {
 	Graph Graph
 	Steps []Step
@@ -3058,13 +3061,6 @@ func (g Graph) Succ(n int) []int {
 		return []int{}
 	}
 	return g.Targets[g.Starts[n]:g.Starts[(n+int(1))]]
-}
-
-func Get[K comparable, V any](m map[K]V, k K) Option[V] {
-	if v, ok_1 := m[k]; ok_1 {
-		return (Option[V]{}).of0(Some[V]{Value: v})
-	}
-	return (Option[V]{}).of1(None{})
 }
 
 func (g Graph) Chains(min_1 int) [][]int {

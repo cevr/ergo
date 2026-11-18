@@ -1602,6 +1602,7 @@ The exempt types and their reasons are in their doc comments: `Console`, `Ambien
 | `graph` | `ReachIsTheClosure` | `ReachIsTheClosure(seed int, size int) { reachIsTheClosure(seed, size) }` | `TestStdGraphLawsRun` | tested |
 | `graph` | `ReduceKeepsReach` | `ReduceKeepsReach(seed int, size int) { reduceKeepsReach(seed, size) }` | `TestStdGraphLawsRun` | tested |
 | `codegraph` | `AffectedGrowsWithChanges` | `AffectedGrowsWithChanges(seed int, size int, x int, y int) { affectedGrowsWithChanges(seed, size, x, y) }` | `TestStdGraphLawsRun` | tested |
+| `codegraph` | `ChangedIsTheEdit` | `ChangedIsTheEdit(seed int, size int, x int) { changedIsTheEdit(seed, size, x) }` | `TestStdGraphLawsRun` | tested |
 | `codegraph` | `ChainsAreImports` | `ChainsAreImports(seed int, size int, min int) { chainsAreImports(seed, size, min) }` | `TestStdGraphLawsRun` | tested |
 | `codegraph` | `CohesionIsBounded` | `CohesionIsBounded(seed int, size int) { cohesionIsBounded(seed, size) }` | `TestStdGraphLawsRun` | tested |
 | `codegraph` | `CyclesAreImportCycles` | `CyclesAreImportCycles(seed int, size int) { cyclesAreImportCycles(seed, size) }` | `TestStdGraphLawsRun` | tested |

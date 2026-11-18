@@ -23,6 +23,7 @@ var graphLawStatements = map[string]string{
 	"graph ReachIsTheClosure":                `ReachIsTheClosure(seed int, size int) { reachIsTheClosure(seed, size) }`,
 	"graph ReduceKeepsReach":                 `ReduceKeepsReach(seed int, size int) { reduceKeepsReach(seed, size) }`,
 	"codegraph AffectedGrowsWithChanges":     `AffectedGrowsWithChanges(seed int, size int, x int, y int) { affectedGrowsWithChanges(seed, size, x, y) }`,
+	"codegraph ChangedIsTheEdit":             `ChangedIsTheEdit(seed int, size int, x int) { changedIsTheEdit(seed, size, x) }`,
 	"codegraph ChainsAreImports":             `ChainsAreImports(seed int, size int, min int) { chainsAreImports(seed, size, min) }`,
 	"codegraph CohesionIsBounded":            `CohesionIsBounded(seed int, size int) { cohesionIsBounded(seed, size) }`,
 	"codegraph CyclesAreImportCycles":        `CyclesAreImportCycles(seed int, size int) { cyclesAreImportCycles(seed, size) }`,

@@ -568,31 +568,44 @@ func whyExistsIffAffected(seed int, size int, x int) bool {
 	true
 }
 
-// Changed is the top-level declarations of new whose tokens differ from
-// the declaration of the same name in old, or that old does not have, in
-// id order: what a change touched, for Affected.
+// Changed is the top-level declarations of new that old has no
+// declaration of the same name and tokens (digest) for, in id order: what
+// a change touched, for Affected. A name may name several declarations
+// (the providers of one operation), so a name and a digest are the key.
 func Changed(old Rows, new Rows) []int {
-	let mut before = Map[string, string]{}
+	let mut before = Map[string, bool]{}
 	for i, n in old.Nodes {
 		if n.Kind == "decl" && n.Digest != "" {
-			before[NameOf(old, i)] = n.Digest
+			before["\(NameOf(old, i)) \(n.Digest)"] = true
 		}
 	}
 	let mut out = []int{}
 	for i, n in new.Nodes {
-		if n.Kind != "decl" || n.Digest == "" {
-			continue
-		}
-		match before.Get(NameOf(new, i)) {
-		case Some[string] as d:
-			if d.Value != n.Digest {
-				out = out.Append(i)
-			}
-		case None:
+		if n.Kind == "decl" && n.Digest != "" && before.Get("\(NameOf(new, i)) \(n.Digest)") == None {
 			out = out.Append(i)
 		}
 	}
 	out
+}
+
+// ChangedIsTheEdit: the rows changed against themselves change nothing,
+// and with one declaration's tokens edited they change exactly it.
+law ChangedIsTheEdit(seed int, size int, x int) { changedIsTheEdit(seed, size, x) }
+
+func changedIsTheEdit(seed int, size int, x int) bool {
+	let r = drawnRows(seed, size)
+	if len(Changed(r, r)) != 0 {
+		return false
+	}
+	let k = (x % len(r.Nodes) + len(r.Nodes)) % len(r.Nodes)
+	if r.Nodes[k].Kind != "decl" || r.Nodes[k].Digest == "" {
+		return true
+	}
+	let mut nodes = r.Nodes
+	let mut edited = nodes[k]
+	edited.Digest = "edited"
+	nodes[k] = edited
+	Changed(r, Rows{Version: 1, Nodes: nodes, Edges: r.Edges}) == []int{k}
 }
 
 // HiddenUse is a use from a declaration of one package of a declaration
@@ -914,14 +927,14 @@ func drawnRows(seed int, size int) Rows {
 				let sub = []string{"func", "test", "let"}[(x / 16) % 3]
 				let did = len(nodes)
 				decls = decls.Append(did)
-				let mut row = nodeRow(did, "decl", sub, fid, "D\(f)\(d)")
+				let mut row = nodeRow(did, "decl", sub, fid, "D\(d)")
 				row.Digest = "t\(x % 97)"
 				nodes = nodes.Append(row)
 				x = next(x)
 				if (x / 16) % 3 == 0 {
 					let mid = len(nodes)
 					decls = decls.Append(mid)
-					nodes = nodes.Append(nodeRow(mid, "decl", "field", did, "D\(f)\(d).M"))
+					nodes = nodes.Append(nodeRow(mid, "decl", "field", did, "D\(d).M"))
 				}
 			}
 		}
