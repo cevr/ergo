@@ -676,7 +676,13 @@ func (c *checker) instanceWitnesses(inst *Instance, build func(*Func, []Type) (*
 				return fmt.Sprintf("cannot complete the witness of %s: %s has no operation %s", fn.Name, targs[i], op.Name)
 			}
 			sig := *op.Sig
-			sig.Params = append([]*Var{{Name: "self", Type: targs[i]}}, op.Sig.Params...)
+			self := targs[i]
+			if op.Sig.MutSelf {
+				// mut Bump(): the witness's function writes its receiver
+				// through a pointer (Generics 2; MODES-4).
+				self = &Pointer{Elem: self}
+			}
+			sig.Params = append([]*Var{{Name: "self", Type: self}}, op.Sig.Params...)
 			wo := WitnessOp{Name: op.Name, Sig: &sig, Func: f}
 			if f != nil && f.Sig != nil && len(f.Sig.TParams) > 0 {
 				var why string

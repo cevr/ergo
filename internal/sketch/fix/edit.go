@@ -106,6 +106,32 @@ func (e *editor) clause(file string, d *syntax.TypeDecl, text string) {
 	e.add(file, edit{from: at, to: at, text: sep + text})
 }
 
+// mutOp writes `mut ` before the operation name of the operation type d
+// (MODES-4); one already marked, or written, is left as it is.
+func (e *editor) mutOp(file string, d *syntax.TypeDecl, name string) error {
+	spec, ok := d.Spec.(*syntax.InterfaceType)
+	if !ok {
+		return fmt.Errorf("%s is not an operation type", d.Name.Name)
+	}
+	for _, m := range spec.Methods {
+		if len(m.Names) == 0 || m.Names[0].Name != name {
+			continue
+		}
+		if m.Mut != nil {
+			return nil
+		}
+		at := int(m.Names[0].Pos())
+		for _, x := range e.edits[file] {
+			if x.from == at && x.to == at && x.text == "mut " {
+				return nil
+			}
+		}
+		e.add(file, edit{from: at, to: at, text: "mut "})
+		return nil
+	}
+	return fmt.Errorf("%s declares no operation %s here (an include declares it: mark it where it is declared)", d.Name.Name, name)
+}
+
 // include writes the member `..text` first in the operation type d, and
 // removes d's own operations that op declares (sameOps checked that they
 // are the same operations).

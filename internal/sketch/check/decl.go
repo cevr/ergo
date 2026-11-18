@@ -916,7 +916,7 @@ func (c *checker) resolveNamed(n *Named) {
 			cons := c.constraintExpr(field)
 			for _, name := range field.Names {
 				c.preludeName(name) // D-D3; the parameter still binds
-				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), Lent: field.Lent > 0, id: newID()}
+				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), id: newID()}
 				c.def(name, tp)
 				switch {
 				case cons != nil:
@@ -1008,12 +1008,25 @@ func isErrorName(x syntax.Expr) bool {
 // has no `error` constraint (owner answer 4, stage E1): `[E error]` is S104
 // at `error`, and E stays unconstrained, its kind solved by position like
 // `[E]`.
+// lentGoneText refuses a type parameter marked lent: a type parameter
+// binds no borrow, and a generic function that writes through its
+// argument says x mut T (q169, q172; MODES-4).
+const lentGoneText = "lent is gone: a type parameter binds no borrow; write [T] or [T C], and declare the parameter that the body writes through x mut T (types.md, Generics 2); ergo fix rewrites it"
+
 func (c *checker) constraintExpr(f *syntax.Field) syntax.Expr {
 	if f.Type == nil {
 		return nil
 	}
 	if isErrorName(f.Type) {
 		c.errorf(f.Type, CodeUnknown, "error is not a constraint; write [E]: a parameter in an error row is an error row (types.md, Generics 1)")
+		return nil
+	}
+	if f.Lent > 0 {
+		// [T lent C] (MODES-4): the mark is gone, the constraint stays.
+		c.errorIn(f, f.Lent, f.Lent+4, CodeType, lentGoneText)
+	}
+	if id, ok := f.Type.(*syntax.Ident); ok && id.Name == "lent" && c.lookupType("lent", nil) == nil {
+		c.errorf(f.Type, CodeType, lentGoneText)
 		return nil
 	}
 	if id, ok := f.Type.(*syntax.Ident); ok && id.Name == "any" && c.lookupType("any", nil) == nil {
@@ -1085,6 +1098,9 @@ func (c *checker) interfaceType(spec *syntax.InterfaceType, ctx *typeCtx, owner 
 		sig := c.signature(ft, mctx)
 		if m.Own != nil {
 			sig.TakesSelf = true // own Close(): the operation keeps its receiver
+		}
+		if m.Mut != nil {
+			sig.MutSelf = true // mut Bump(): the operation writes its receiver
 		}
 		if c.pkg.Host() {
 			c.hostClauses(c.pkg.Path+"."+owner+"."+name.Name, sig, m)
@@ -1360,7 +1376,7 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 		return &Map{Key: k, Elem: v}
 	case *syntax.StarExpr:
 		if ctx == nil || !ctx.param {
-			c.errorf(x, CodeType, "a borrow *T is only a parameter or receiver type (types.md, Borrows 1)")
+			c.errorf(x, CodeType, "a borrow mut T is only a parameter or receiver type (types.md, Borrows 1)")
 			return invalid
 		}
 		inner := *ctx
@@ -2302,7 +2318,7 @@ func (c *checker) funcSig(f *Func) *Signature {
 			cons := c.constraintExpr(field)
 			for _, name := range field.Names {
 				c.preludeName(name) // D-D3; the parameter still binds
-				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), Lent: field.Lent > 0, id: newID()}
+				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), id: newID()}
 				c.def(name, tp)
 				switch {
 				case cons != nil:

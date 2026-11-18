@@ -26,7 +26,8 @@ func point(p mut Point) {
 	use(&p.Y)
 }
 
-// A lent type parameter keeps its constraint (types.md, Borrows 7).
+// A lent type parameter still parses and formats, for ergo fix; the
+// checker refuses it (MODES-4).
 // expect: "func bumped[T lent Counter](x T) int {"
 func bumped[T lent   Counter](x T) int {
 	x.Bump()

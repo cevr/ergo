@@ -677,6 +677,16 @@ func main() {}
 `, []string{"S108:2"}},
 	// Round 7 review T2: the node types and fields the inventory
 	// (TestDecidedNodeInventory) found no row building.
+	{"mut operation", "a constraint's mut operation, called on x mut T", `
+type Counter { mut Bump() int }
+type Tally { n int } implements Counter
+func Bump(t mut Tally) int { t.n }
+func twice[C Counter](c mut C) int { c.Bump() + c.Bump() }
+func main() {
+	let mut t = Tally{n: 0}
+	let _ = twice(&t)
+}
+`, nil},
 	{"fails and needs", "try passes a failure on", `
 type Bang {}
 func g() int fails Bang { return 1 }

@@ -161,7 +161,7 @@ func fresh[E](n Node[E], id ident, onText Option[func(t string) E], onPoint Opti
 
 // Render writes view(s) as one pass of f and commits it: f's tree then
 // shows what the view wrote, and the result is the changes a host applies.
-func Render[E comparable, S lent, R](f mut Frame[E], view func(f mut Frame[E], s S) needs R, s S) []Op[E] needs R {
+func Render[E comparable, S, R](f mut Frame[E], view func(f mut Frame[E], s S) needs R, s S) []Op[E] needs R {
 	begin(f)
 	view(f, s)
 	Commit(f)

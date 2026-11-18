@@ -352,7 +352,8 @@ type Field struct {
 	Key   *BasicLit // optional record field key, independent of the codec format
 	Any   Pos
 	// Lent is the position of a type parameter's `lent` written before
-	// its constraint, `[T lent Counter]` (types.md, Borrows 7), or NoPos.
+	// its constraint, `[T lent Counter]`, or NoPos. lent is gone (MODES-4):
+	// the parser keeps it for ergo fix, and the checker refuses it.
 	Lent    Pos
 	Include bool
 	Dots    Pos
@@ -371,6 +372,10 @@ type Field struct {
 	// parameter's type (`func(own File)`), and before an operation's name
 	// for its receiver (`own Close()`). It is a word, not an expression.
 	Own *Word
+	// Mut is the mode word `mut` before an operation's name, `mut Bump()`:
+	// the operation writes its receiver in place (audit CSX §4.3, planner
+	// decision 8; MODES-4), or nil.
+	Mut *Word
 }
 
 // Word is a mode word written in a field (Field.Own): its position.
@@ -384,6 +389,9 @@ func (f *Field) Pos() Pos {
 	}
 	if f.Own != nil && (len(f.Names) == 0 || f.Own.At < f.Names[0].Pos()) {
 		return f.Own.At
+	}
+	if f.Mut != nil {
+		return f.Mut.At
 	}
 	if len(f.Names) > 0 {
 		return f.Names[0].Pos()

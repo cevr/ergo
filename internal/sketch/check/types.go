@@ -165,7 +165,6 @@ type TypeSet uint8
 // The type sets.
 const (
 	SetAll        TypeSet = iota // every type: a method set or no constraint
-	SetLent                      // lent: every type, a borrow included; the body keeps none (types.md, Borrows 7)
 	SetWire                      // wire: the types with a wire form
 	SetComparable                // comparable
 	SetOrdered                   // ordered
@@ -174,8 +173,6 @@ const (
 
 func (s TypeSet) String() string {
 	switch s {
-	case SetLent:
-		return "lent"
 	case SetWire:
 		return "wire"
 	case SetComparable:
@@ -269,6 +266,11 @@ type Signature struct {
 	// R19). Function-type identity reads them in A3 (Gap 39).
 	Takes     []int
 	TakesSelf bool
+	// MutSelf marks an operation written `mut Bump()`: it writes its
+	// receiver, so a type argument's function on mut T implements it at a
+	// constraint, and a generic body calls it on a mut T only (types.md,
+	// Generics 2; MODES-4).
+	MutSelf bool
 }
 
 // Kind is the kind of a type parameter (rows-and-constraints §3: by
@@ -312,9 +314,6 @@ type TypeParam struct {
 	Kind       Kind
 	Constraint Type // nil for none: every type, no operation but assignment
 	Pos        syntax.Pos
-	// Lent: the bracket writes lent before the constraint, `[T lent C]`
-	// (types.md, Borrows 7); `[T lent]` is the constraint lent itself.
-	Lent bool
 	// Slot marks an error row parameter of a function that stands alone as
 	// a type argument of a generic type in the function's signature, such
 	// as F in `func Await[T, F](a Async[T, F]) T fails F` (CK-rowarg). Go

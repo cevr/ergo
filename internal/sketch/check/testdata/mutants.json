@@ -130,7 +130,7 @@
       "file": "internal/sketch/check/escaping.go",
       "from": "if !w.addressed[v] {",
       "to": "if true {",
-      "rule": "Unknown aliases use reference capture; generic call results do not prove uniqueness.",
+      "rule": "A local whose address was taken (&x lent to a call) uses reference capture.",
       "killers": ["lower:TestCaptureRuleModel"]
     },
     {
@@ -3243,6 +3243,10 @@
     {"name":"modes2-star-gone-dropped","origin":"wf10 SIMPLIFY MODES-2","file":"internal/sketch/check/decl.go","from":"\t\tif !x.Mut && !ctx.binding && !isInvalid(elem) {\n","to":"\t\tif false && !x.Mut && !ctx.binding && !isInvalid(elem) {\n","rule":"*T outside a Go binding is S108 naming mut (q169; MODES-2).","killers":["internal/sketch/fix:TestMutSpellsTheBorrow"]},
     {"name":"modes2-star-gone-in-binding","origin":"wf10 SIMPLIFY MODES-2","file":"internal/sketch/check/decl.go","from":"\t\tif !x.Mut && !ctx.binding && !isInvalid(elem) {\n","to":"\t\tif !x.Mut && !isInvalid(elem) {\n","rule":"a Go binding (extern go) keeps *T, Go's pointer (q169; MODES-2).","killers":["internal/sketch/fix:TestMutSpellsTheBorrow"]},
     {"name":"modes3-relend-refused","origin":"wf10 SIMPLIFY MODES-3","file":"internal/sketch/check/operators.go","from":"\tif !ok || !isPointer(t) {\n","to":"\tif true {\n","rule":"&x of a mut parameter passes its borrow on, of type mut T (Borrows 1; MODES-3).","killers":["check:TestBorrowOverlapModel"]},
-    {"name":"modes3-relend-read-param","origin":"wf10 SIMPLIFY MODES-3","file":"internal/sketch/check/operators.go","from":"\tif !ok || !isPointer(t) {\n","to":"\tif !ok {\n","rule":"&x of a read parameter is no re-lend: it is refused, since a borrow could change x (D-D1; MODES-3).","killers":["check:TestBorrowOverlapModel"]}
+    {"name":"modes3-relend-read-param","origin":"wf10 SIMPLIFY MODES-3","file":"internal/sketch/check/operators.go","from":"\tif !ok || !isPointer(t) {\n","to":"\tif !ok {\n","rule":"&x of a read parameter is no re-lend: it is refused, since a borrow could change x (D-D1; MODES-3).","killers":["check:TestBorrowOverlapModel"]},
+    {"name":"modes4-lent-admitted","origin":"wf10 SIMPLIFY MODES-4","file":"internal/sketch/check/decl.go","from":"\tif f.Lent > 0 {\n\t\t// [T lent C]","to":"\tif false {\n\t\t// [T lent C]","rule":"[T lent C] is refused, naming [T C] and x mut T (types.md, Borrows 7; MODES-4).","killers":["check:TestModeDeclarations","internal/sketch/fix:TestMutDropsLent"]},
+    {"name":"modes4-mut-op-on-read","origin":"wf10 SIMPLIFY MODES-4","file":"internal/sketch/check/expr.go","from":"if m != nil && m.Sig != nil && m.Sig.MutSelf && !isPointer(base.typ) {","to":"if false {","rule":"A generic body calls a mut operation only on x mut T (types.md, Generics 2; MODES-4).","killers":["check:TestModeDeclarations"]},
+    {"name":"modes4-ptr-implements-read-op","origin":"wf10 SIMPLIFY MODES-4","file":"internal/sketch/check/typeops.go","from":"\t\tcase fn != nil && fn.Ptr && !ptr && constraint != nil && !m.Sig.MutSelf:","to":"\t\tcase false:","rule":"At a constraint a function on mut T implements only a mut operation (types.md, Generics 2; MODES-4).","killers":["check:TestModeDeclarations"]},
+    {"name":"modes4-tparam-binds-borrow","origin":"wf10 SIMPLIFY MODES-4","file":"internal/sketch/check/borrowconv.go","from":"\t\treturn inst, inst.Func.Sig.TParams[i], a, \"a type parameter binds no borrow\"","to":"\t\tcontinue","rule":"A type parameter binds no borrow (types.md, Borrows 7; MODES-4).","killers":["check:TestBorrowConvModel","check:TestModeDeclarations"]}
   ]
 }

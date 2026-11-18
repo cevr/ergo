@@ -132,6 +132,22 @@ func fixCommand(args []string) error {
 		}
 		fmt.Fprint(out, text)
 	}
+	if write && len(muts.Files) > 0 {
+		// [T lent C] became x mut T above, so each operation of C that a
+		// function on mut T implements is marked mut now (MODES-4): the
+		// implements pass again, over the rewritten files.
+		again, err := fix.Run(fix.Options{Paths: paths, StdRoot: stdRoot, Write: true, Go: goLits})
+		if err != nil {
+			return exitStatusError{code: 1, message: "ergo fix: " + err.Error()}
+		}
+		if len(again.Written) > 0 || len(again.Unwritten) > 0 {
+			out := os.Stdout
+			if asJSON {
+				out = os.Stderr // stdout holds only the JSON
+			}
+			fmt.Fprint(out, again.Text())
+		}
+	}
 	rep := fixReport{Changed: []fix.Change{}, Remaining: []fix.Diagnostic{}}
 	for _, path := range paths {
 		if !fixProgram(path) {

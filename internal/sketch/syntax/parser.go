@@ -646,15 +646,20 @@ func (p *parser) parseMembers() *members {
 		case p.tok.tok == IDENT && p.peek(1).tok == LBRACK && p.bracketsThenParen():
 			p.errorAt(p.peek(1).pos, 1, "an operation has no type parameters; declare them on its type: `type Name[T] { … }`")
 		case p.tok.tok == IDENT && p.peek(1).tok == LPAREN,
-			p.tok.tok == IDENT && p.tok.lit == "own" && p.peek(1).tok == IDENT && p.peek(2).tok == LPAREN:
+			p.tok.tok == IDENT && p.tok.lit == "own" && p.peek(1).tok == IDENT && p.peek(2).tok == LPAREN,
+			p.tok.tok == MUT && p.peek(1).tok == IDENT && p.peek(2).tok == LPAREN:
 			kind = memberOperation
-			var own *Word
-			if p.peek(1).tok != LPAREN {
+			var own, mut *Word
+			switch {
+			case p.tok.tok == MUT:
+				mut = &Word{At: p.tok.pos} // `mut Bump()`: the operation writes its receiver
+				p.next()
+			case p.peek(1).tok != LPAREN:
 				own = &Word{At: p.tok.pos} // `own Close()`: the operation keeps its receiver
 				p.next()
 			}
 			name := p.parseIdent()
-			op := &Field{Doc: doc, Names: []*Ident{name}, Type: p.parseSignature(NoPos, ctxMember), Own: own}
+			op := &Field{Doc: doc, Names: []*Ident{name}, Type: p.parseSignature(NoPos, ctxMember), Own: own, Mut: mut}
 			m.ops = append(m.ops, op)
 			if tupleShaped(op.Type.(*FuncType)) {
 				either = append(either, eitherMember{op, len(m.fields)})

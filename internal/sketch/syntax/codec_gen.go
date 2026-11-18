@@ -401,6 +401,7 @@ func (e *encoder) encFieldsField(v *Field) {
 	e.encT4(v.Pure)
 	e.encPos(v.PurePos)
 	e.encPtrWord(v.Own)
+	e.encPtrWord(v.Mut)
 }
 
 func (e *encoder) encField(v Field) { e.encFieldsField(&v) }
@@ -2142,6 +2143,7 @@ func (d *decoder) decFieldsField(v *Field) {
 	v.Pure = d.decT4()
 	v.PurePos = d.decPos()
 	v.Own = d.decPtrWord()
+	v.Mut = d.decPtrWord()
 }
 
 func (d *decoder) decField() (v Field) {

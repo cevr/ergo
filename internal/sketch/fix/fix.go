@@ -99,6 +99,9 @@ func Run(opts Options) (Report, error) {
 		if p.Op != nil {
 			op = p.Op.String()
 		}
+		if p.MutOp != "" {
+			op = "mut " + p.MutOp
+		}
 		// A package main is the program's own: the one file read alone,
 		// or the package folder being checked.
 		w, a := where, alone
@@ -225,7 +228,7 @@ func Run(opts Options) (Report, error) {
 		if r.where != "" {
 			desc += " in " + r.where
 		}
-		if p.Op == nil {
+		if p.Op == nil && p.MutOp == "" {
 			rep.Unwritten = append(rep.Unwritten, Unwritten{desc, "no instance of the operation type at the type's own parameters (generic), or an include whose operations differ: write it by hand"})
 			continue
 		}
@@ -257,6 +260,16 @@ func Run(opts Options) (Report, error) {
 			continue
 		}
 		if !under(file) {
+			continue
+		}
+		if p.MutOp != "" {
+			// mut Bump(): a function on mut T implements it at a
+			// constraint (MODES-4).
+			if err := ed.mutOp(file, decl, p.MutOp); err != nil {
+				rep.Unwritten = append(rep.Unwritten, Unwritten{desc, err.Error()})
+				continue
+			}
+			rep.Written = append(rep.Written, Written{file, p.Type.Name, "mut " + p.MutOp, strings.Join(r.sites, ", ")})
 			continue
 		}
 		pkgFiles := files

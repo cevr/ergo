@@ -36,7 +36,7 @@ type slot[T] { value stored[T], gen int, next int }
 // only a live Ref permits a read, and Free invalidates it before returning.
 extern go ergo.local/prototype/runtime/v1.ArenaValue type stored[T] { Value T }
 
-extern go ergo.local/prototype/runtime/v1.ArenaTake func takeValue[T](s *stored[T]) T
+extern go ergo.local/prototype/runtime/v1.ArenaTake func takeValue[T](s mut stored[T]) T
 
 // grow is Go's append (an extern of a Go builtin): Put's call is the builtin
 // itself, with no Go function between.

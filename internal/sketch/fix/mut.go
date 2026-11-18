@@ -20,24 +20,93 @@ import (
 // fact and no emitted Go. It is syntactic, so it reads a file that does
 // not check, and it is idempotent: its output has no such `*T`. n is the
 // number of borrows rewritten.
+//
+// It also deletes `lent` (MODES-4): `[T lent C]` becomes `[T C]`, and
+// each parameter of the declaration whose type is that T, in its
+// signature or in a function type or literal inside it, is written
+// `x mut T`: a type parameter binds no borrow, so the borrow the caller
+// lent (`&t`) is the parameter's mode, and C's operations may write it.
+// `[T lent]` becomes `[T]` with its parameters read: T has no operation
+// to write through. n counts these rewrites too.
 func Mut(src string) (out string, n int, err error) {
 	f, err := syntax.Parse(src)
 	if err != nil {
 		return src, 0, err
 	}
-	stars := borrowStars(f)
-	if len(stars) == 0 {
+	var eds []mutEdit
+	for _, at := range borrowStars(f) {
+		eds = append(eds, mutEdit{at: int(at), del: 1, ins: "mut "})
+	}
+	eds = append(eds, lentEdits(f)...)
+	if len(eds) == 0 {
 		return src, 0, nil
 	}
+	sort.Slice(eds, func(i, j int) bool { return eds[i].at < eds[j].at })
 	out = src
-	for i := len(stars) - 1; i >= 0; i-- {
-		at := int(stars[i])
-		out = out[:at] + "mut " + out[at+1:]
+	for i := len(eds) - 1; i >= 0; i-- {
+		e := eds[i]
+		out = out[:e.at] + e.ins + out[e.at+e.del:]
 	}
 	if _, err := syntax.Parse(out); err != nil {
 		return src, 0, fmt.Errorf("the rewritten source does not parse: %w", err)
 	}
-	return out, len(stars), nil
+	return out, len(eds), nil
+}
+
+// mutEdit replaces del bytes at the offset at with ins.
+type mutEdit struct {
+	at, del int
+	ins     string
+}
+
+// lentEdits are the edits that delete `lent` from each declaration's type
+// parameters and write `mut` before each parameter of such a type
+// parameter (Mut).
+func lentEdits(f *syntax.File) []mutEdit {
+	var eds []mutEdit
+	for _, d := range f.Decls {
+		fd, ok := d.(*syntax.FuncDecl)
+		if !ok || fd.TypeParams == nil || fd.Extern != nil {
+			continue
+		}
+		lent := map[string]bool{}
+		for _, field := range fd.TypeParams.List {
+			switch id, bare := field.Type.(*syntax.Ident); {
+			case field.Lent > 0:
+				// [T lent C]: delete `lent ` up to the constraint.
+				eds = append(eds, mutEdit{at: int(field.Lent), del: int(field.Type.Pos() - field.Lent)})
+			case bare && id.Name == "lent":
+				// [T lent]: delete ` lent` after the last name. T has no
+				// operation, so the body writes nothing through it: its
+				// parameters stay read, and a caller that lent a borrow
+				// as T is told to pass the value or write mut there.
+				end := field.Names[len(field.Names)-1].End()
+				eds = append(eds, mutEdit{at: int(end), del: int(id.End() - end)})
+				continue
+			default:
+				continue
+			}
+			for _, name := range field.Names {
+				lent[name.Name] = true
+			}
+		}
+		if len(lent) == 0 {
+			continue
+		}
+		syntax.Inspect(fd, func(node syntax.Node) bool {
+			ft, ok := node.(*syntax.FuncType)
+			if !ok || ft.Params == nil {
+				return true
+			}
+			for _, p := range ft.Params.List {
+				if id, ok := p.Type.(*syntax.Ident); ok && lent[id.Name] {
+					eds = append(eds, mutEdit{at: int(id.Pos()), ins: "mut "})
+				}
+			}
+			return true
+		})
+	}
+	return eds
 }
 
 // borrowStars are the positions, in source order, of the `*` of every

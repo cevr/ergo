@@ -570,8 +570,13 @@ type LegacyPair struct {
 	// Include is set when Type is an operation type: its members `..Op`.
 	Include bool
 	// Site names the reader of the old rule: "conversion", "constraint",
-	// "law", "release".
+	// "law", "release", "mut".
 	Site string
+	// MutOp, with Site "mut", is the operation of the operation type Type
+	// that a function on mut T implements at a constraint, which the old
+	// rule admitted through [T lent C]: the fix writes mut before it
+	// (MODES-4). Op is nil then.
+	MutOp string
 }
 
 // legacyRecord, when set, records each pair the old rule admits (ergo
@@ -627,6 +632,21 @@ func (c *checker) recordLegacy(v Type, op Type, site string) {
 	legacyRecord(pair)
 }
 
+// recordMutOp records, for ergo fix, that the operation op of the
+// constraint t must be marked mut, and reports whether it did.
+func (c *checker) recordMutOp(t Type, op string) bool {
+	n, ok := t.(*Named)
+	if legacyRecord == nil || !ok {
+		return false
+	}
+	o := n.origin()
+	if o.Obj == nil || o.Obj.Decl == nil || o.Obj.Pkg == nil || isHostNamed(o) {
+		return false
+	}
+	legacyRecord(LegacyPair{Type: o.Obj, Pkg: o.Obj.Pkg.Path, Site: "mut", MutOp: op})
+	return true
+}
+
 // sameOps reports whether every operation of op is an operation of k with
 // the same shape, rows and takes.
 func (c *checker) sameOps(k, op *Interface) bool {
@@ -636,7 +656,7 @@ func (c *checker) sameOps(k, op *Interface) bool {
 	for _, m := range op.Methods {
 		km := k.method(m.Name)
 		if km == nil || km.Sig == nil || m.Sig == nil || !c.sameShape(km.Sig, m.Sig) ||
-			km.Sig.Fallible != m.Sig.Fallible || km.Sig.TakesSelf != m.Sig.TakesSelf ||
+			km.Sig.Fallible != m.Sig.Fallible || km.Sig.TakesSelf != m.Sig.TakesSelf || km.Sig.MutSelf != m.Sig.MutSelf ||
 			!km.Sig.Errors.equal(c.types, m.Sig.Errors) || !km.Sig.Uses.equal(c.types, m.Sig.Uses) {
 			return false
 		}
@@ -714,6 +734,9 @@ func (c *checker) recordLegacyReleases() {
 
 // String prints a pair for ergo fix's report.
 func (p LegacyPair) String() string {
+	if p.MutOp != "" {
+		return fmt.Sprintf("%s.%s marks %s mut (%s)", p.Pkg, p.Type.Name, p.MutOp, p.Site)
+	}
 	op := "?"
 	if p.Op != nil {
 		op = p.Op.String()

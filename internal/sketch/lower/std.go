@@ -418,6 +418,10 @@ func (fc *funcCtx) opCall(t check.Type, op *check.Method, result check.Type, val
 	// receiver passes the value it points to.
 	if p, ok := t.(*check.Pointer); ok {
 		if tp, ok := p.Elem.(*check.TypeParam); ok {
+			if op.Sig.MutSelf {
+				// mut Bump(): the witness writes through the pointer.
+				return fc.witnessCall(tp, op, vals, env, site)
+			}
 			return fc.witnessCall(tp, op, append([]string{"*(" + vals[0] + ")"}, vals[1:]...), env, site)
 		}
 	}

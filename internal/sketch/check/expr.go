@@ -1234,6 +1234,12 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 					return bad(x)
 				}
 			}
+			if m != nil && m.Sig != nil && m.Sig.MutSelf && !isPointer(base.typ) {
+				// A mut operation writes its receiver: a value of T is
+				// read, so the call needs a mut T (types.md, Generics 2).
+				c.errorf(x.Sel, CodeType, "%s is a mut operation, which writes its receiver, and %s is a read %s; write %s mut %s where it is declared (types.md, Generics 2)", x.Sel.Name, exprText(x.X), tp.Name, exprText(x.X), tp.Name)
+				return bad(x)
+			}
 		}
 		return operand{mode: modeValue, typ: sig, method: m}
 	}

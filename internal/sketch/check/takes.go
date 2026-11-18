@@ -276,6 +276,22 @@ func copiesOf(f *Func) []CopySite {
 	return out
 }
 
+// typeMentions reports whether a value of type t may hold a value of the
+// type parameter tp. A function value holds none: what it captures was
+// judged where it was captured.
+func typeMentions(t Type, tp *TypeParam) bool {
+	if _, ok := under(t).(*Signature); ok {
+		return false
+	}
+	found := false
+	eachTypeParam(t, func(p *TypeParam) {
+		if p == tp {
+			found = true
+		}
+	})
+	return found
+}
+
 // eachTypeParam calls f for each type parameter t is built from.
 func eachTypeParam(t Type, f func(*TypeParam)) {
 	seen := map[Type]bool{}
