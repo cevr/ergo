@@ -24,6 +24,9 @@ var stdSemverLaws = map[string]string{
 // is checked from its embedded source as std checks it, and the evaluator
 // runs each law; lawledger.Run holds that this runner restates exactly
 // the ledger's semver laws and that each passed.
+//
+// Mutant only it kills (internal/sketch/stdlib/testdata/mutants.json):
+// sq4-word-prefix-equal.
 func TestStdSemverLaws(t *testing.T) {
 	sources, ok := stdlib.Package("semver")
 	if !ok {

@@ -69,7 +69,8 @@ test T {
 // semver.validRange, semver.satisfies and semver.compare. A failing row
 // prints the call and both answers.
 //
-// Mutants only it kills (std testdata/mutants.json): sq4-*.
+// Mutants only it kills (internal/sketch/stdlib/testdata/mutants.json):
+// every sq4- mutant but sq4-word-prefix-equal.
 func TestSemverIsNode(t *testing.T) {
 	pkg := checked(t, semverProbe)
 	funcs := map[string]*check.Func{}
