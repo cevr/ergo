@@ -220,7 +220,11 @@ func (p *irPrinter) stmt(s *irStmt, depth int) {
 	case "range":
 		x := p.header(s.X, false).s
 		head := "for "
-		if s.Key != nil || s.Val != nil {
+		if s.Key != nil && s.Val == nil {
+			// One variable: Go allows no second one over a func (a Seq
+			// loop, ir_seq.go), and k, _ means k over any other domain.
+			head += p.name(*s.Key) + " := "
+		} else if s.Key != nil || s.Val != nil {
 			lhs := []string{"_", "_"}
 			if s.Key != nil {
 				lhs[0] = p.name(*s.Key)

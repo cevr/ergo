@@ -81,12 +81,15 @@ func textCheckOn(t *testing.T, target exampleTarget) {
 //     internal compiler error in gc (mutant ir-scope-positions-unordered);
 //   - printed (IRFIX-TEXT): a tuple result's body went inside its
 //     multi-line struct result type, and a tuple value printed as
-//     (struct{…}){…} (mutants gotext-signature-end, gotext-lit-paren).
+//     (struct{…}){…} (mutants gotext-signature-end, gotext-lit-paren);
+//   - seqloop (PORT-FORIN): a Seq loop ranges over a func with one
+//     variable, which the text spelled k, _ (mutant
+//     gotext-range-func-two-vars).
 //
 // It builds Go for the reason TestIRTextChecks does.
 func TestIRTextRepros(t *testing.T) {
 	src, ir := needsBuild(t)
-	for _, r := range []struct{ name, fn string }{{"duplocals", "two"}, {"shadow", "shadow"}, {"pollend", "firstOf"}, {"negfloat", "near"}, {"scopes", "drive"}, {"printed", "split"}} {
+	for _, r := range []struct{ name, fn string }{{"duplocals", "two"}, {"shadow", "shadow"}, {"pollend", "firstOf"}, {"negfloat", "near"}, {"scopes", "drive"}, {"printed", "split"}, {"seqloop", "total"}} {
 		t.Run(r.name, func(t *testing.T) {
 			u, err := Load(filepath.Join("testdata", r.name+".ergo"))
 			if err != nil {
