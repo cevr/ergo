@@ -5,11 +5,11 @@ package build
 import (
 	"bytes"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 )
 
 // testRoots reports whether root is the user's cache of a Go test that
@@ -72,10 +72,10 @@ func testAncestorsIn(proc string, pid int) []testAncestor {
 		if pid <= 1 {
 			return tests
 		}
-		dir := filepath.Join(proc, strconv.Itoa(pid))
+		dir := proc + "/" + strconv.Itoa(pid)
 		if testBinary(dir) {
 			t := testAncestor{pid: pid}
-			if environ, err := os.ReadFile(filepath.Join(dir, "environ")); err == nil {
+			if environ, err := readProc(dir + "/environ"); err == nil {
 				if user, err := resolveRoot(lookupIn(environ), false); err == nil {
 					t.user = user
 				}
@@ -93,7 +93,7 @@ func testAncestorsIn(proc string, pid int) []testAncestor {
 // program's name ends in .test, as go test names it, or an argument is a
 // testing flag (-test.…).
 func testBinary(dir string) bool {
-	cmdline, err := os.ReadFile(filepath.Join(dir, "cmdline"))
+	cmdline, err := readProc(dir + "/cmdline")
 	if err != nil {
 		return false
 	}
@@ -115,7 +115,7 @@ func testBinary(dir string) bool {
 // parentOf is the parent's pid of the process at dir, from its stat line
 // (the field after the state, which follows the last ')'), or 0.
 func parentOf(dir string) int {
-	stat, err := os.ReadFile(filepath.Join(dir, "stat"))
+	stat, err := readProc(dir + "/stat")
 	if err != nil {
 		return 0
 	}
@@ -136,6 +136,36 @@ func parentOf(dir string) int {
 	}
 	ppid, _ := strconv.Atoi(string(rest[:n]))
 	return ppid
+}
+
+// readProc reads the /proc file at path with plain system calls: no
+// *os.File, so no poller registration, finalizer or fcntl, which were most
+// of the walk's 0.125 M of `ergo version`'s instructions (ERGO-STARTUP-2,
+// measured, sampled). It allocates the returned buffer and nothing else
+// (TestProcReadAllocatesItsBuffer).
+func readProc(path string) ([]byte, error) {
+	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer syscall.Close(fd)
+	buf := make([]byte, 0, 512)
+	for {
+		if len(buf) == cap(buf) {
+			buf = append(buf, 0)[:len(buf)]
+		}
+		n, err := syscall.Read(fd, buf[len(buf):cap(buf)])
+		if err == syscall.EINTR {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if n == 0 {
+			return buf, nil
+		}
+		buf = buf[:len(buf)+n]
+	}
 }
 
 // lookupIn is a getenv over a NUL-separated environment block.
