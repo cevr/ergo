@@ -102,8 +102,8 @@
       "name": "cu1-repeated-int-ignored",
       "origin": "wf10 CU1",
       "file": "internal/sketch/std/flag/cardinality.ergo",
-      "from": "case intValue as n:\n\t\t\tout = out.Append(n.V)",
-      "to": "case intValue:\n\t\t\tout = out",
+      "from": "\t\tout = out.Append(x.n)",
+      "to": "\t\tout = out.Append(len(x.text))",
       "rule": "A repeated integer handle reads every parsed integer, including through its alias.",
       "killers": ["lower:TestFlagTreesAgree"],
       "anchor": {"tests": ["lower:TestFlagTreesAgree"]}
@@ -112,8 +112,8 @@
       "name": "cu1-alias-ignored",
       "origin": "wf10 CU1",
       "file": "internal/sketch/std/flag/flag.ergo",
-      "from": "if nameOf(f) == name || aliasOf(f) != \"\" && aliasOf(f) == name {",
-      "to": "if nameOf(f) == name {",
+      "from": "if long == name || alias != \"\" && alias == name {",
+      "to": "if long == name || alias != \"\" && alias == name + \"\\x00\" {",
       "rule": "A declared short name denotes the same handle as its long name.",
       "killers": ["lower:TestFlagTreeLaws"],
       "anchor": {"tests": ["lower:TestFlagTreeLaws"]}
@@ -122,8 +122,8 @@
       "name": "cu1-optional-default",
       "origin": "wf10 CU1",
       "file": "internal/sketch/std/flag/cardinality.ergo",
-      "from": "func Get(f OptionalStringFlag, v Values) Option[string] {\n\tknown(v, f)\n\tmatch v.flags.Get(f.base.name) {\n\tcase None:\n\t\tNone",
-      "to": "func Get(f OptionalStringFlag, v Values) Option[string] {\n\tknown(v, f)\n\tmatch v.flags.Get(f.base.name) {\n\tcase None:\n\t\tSome[string]{Value: f.base.def}",
+      "from": "func Get(f OptionalStringFlag, v Values) Option[string] {\n\tlet s = v.slots[heldFlag(f, v)]\n\tif s.given == 0 {\n\t\treturn None",
+      "to": "func Get(f OptionalStringFlag, v Values) Option[string] {\n\tlet s = v.slots[heldFlag(f, v)]\n\tif s.given == 0 {\n\t\treturn Some[string]{Value: f.base.def}",
       "rule": "An absent optional string is None, not an explicitly given default.",
       "killers": ["lower:TestFlagTreeLaws"],
       "anchor": {"tests": ["lower:TestFlagTreeLaws"]}
@@ -131,9 +131,9 @@
     {
       "name": "cu1-repeat-last-only",
       "origin": "wf10 CU1",
-      "file": "internal/sketch/std/flag/cardinality.ergo",
-      "from": "listValue{V: xs.Append(x)}",
-      "to": "listValue{V: xs[len(xs):len(xs)].Append(x)}",
+      "file": "internal/sketch/std/flag/parse.ergo",
+      "from": "\t\t\tslots[at].all = slots[at].all.Append(x)",
+      "to": "\t\t\tslots[at].all = []item{x}",
       "rule": "Repeated keeps every occurrence in input order.",
       "killers": ["lower:TestFlagTreeLaws"],
       "anchor": {"tests": ["lower:TestFlagTreeLaws"]}
@@ -6087,6 +6087,12 @@
     {"name":"af3-failing-line-status-zero","origin":"wf10/API-FIRST AF3","file":"internal/sketch/std/api/session.ergo","from":"\t\tout = out.Append(Step{Line: i + 1, Text: text, Output: o})\n","to":"\t\tout = out.Append(Step{Line: i + 1, Text: text, Output: Output{..o, Code: 0}})\n","rule":"The step of a failing line keeps its status (AF3 mutant: a failing line ends the session with exit 0): SessionIsEachLine.","killers":["lower:TestStdLawsRun"],"anchor":{"tests":["lower:TestStdLawsRun"]}},
     {"name":"af3-script-ends-zero","origin":"wf10/API-FIRST AF3","file":"examples/pipeline/cmd/pipeline/main.ergo","from":"\tif last.Code != 0 {\n","to":"\tif false {\n","rule":"pipeline ends a script whose line failed with that line's status (AF3 mutant: a failing line ends the session with exit 0): the badline case.","killers":["examples:pipeline"],"anchor":{"tests":["examples:pipeline"]}},
     {"name":"af3-single-quote-split","origin":"wf10/API-FIRST AF3","file":"internal/sketch/std/api/session.ergo","from":"\t\t\tword = word + line[i+1:i+1+end]\n","to":"\t\t\tlet parts = strings.Split(line[i+1:i+1+end], \" \")\n\t\t\tword = word + parts[0]\n\t\t\tfor k in 1..len(parts) {\n\t\t\t\tout = out.Append(word)\n\t\t\t\tword = parts[k]\n\t\t\t}\n","rule":"A quoted argument is one word (AF3 mutant: a quoted argument split at its space): WordsReadLine.","killers":["lower:TestStdLawsRun"],"anchor":{"tests":["lower:TestStdLawsRun"]}},
-    {"name":"af3-double-quote-split","origin":"wf10/API-FIRST AF3","file":"internal/sketch/std/api/session.ergo","from":"\t\t\t\t} else {\n\t\t\t\t\tword = word + line[i:i+1]\n\t\t\t\t\ti = i + 1\n\t\t\t\t}\n\t\t\t}\n\t\t\tif !closed {\n","to":"\t\t\t\t} else if d == ' ' {\n\t\t\t\t\tout = out.Append(word)\n\t\t\t\t\tword = \"\"\n\t\t\t\t\ti = i + 1\n\t\t\t\t} else {\n\t\t\t\t\tword = word + line[i:i+1]\n\t\t\t\t\ti = i + 1\n\t\t\t\t}\n\t\t\t}\n\t\t\tif !closed {\n","rule":"A double-quoted argument is one word (AF3 mutant: a quoted argument split at its space): the operator case's -why=\"no longer needed\".","killers":["examples:pipeline"],"anchor":{"tests":["examples:pipeline"]}}
+    {"name":"af3-double-quote-split","origin":"wf10/API-FIRST AF3","file":"internal/sketch/std/api/session.ergo","from":"\t\t\t\t} else {\n\t\t\t\t\tword = word + line[i:i+1]\n\t\t\t\t\ti = i + 1\n\t\t\t\t}\n\t\t\t}\n\t\t\tif !closed {\n","to":"\t\t\t\t} else if d == ' ' {\n\t\t\t\t\tout = out.Append(word)\n\t\t\t\t\tword = \"\"\n\t\t\t\t\ti = i + 1\n\t\t\t\t} else {\n\t\t\t\t\tword = word + line[i:i+1]\n\t\t\t\t\ti = i + 1\n\t\t\t\t}\n\t\t\t}\n\t\t\tif !closed {\n","rule":"A double-quoted argument is one word (AF3 mutant: a quoted argument split at its space): the operator case's -why=\"no longer needed\".","killers":["examples:pipeline"],"anchor":{"tests":["examples:pipeline"]}},
+    {"name":"flagfloor-help-stops-at-dashdash","origin":"wf10 FLAG-FLOOR","file":"internal/sketch/std/flag/parse.ergo","from":"\tfor arg in args {\n\t\tlet body = if strings.HasPrefix(arg, \"--\") { strings.Slice(arg, 2, len(arg)) } else if","to":"\tfor arg in args {\n\t\tif arg == \"--\" {\n\t\t\treturn false\n\t\t}\n\t\tlet body = if strings.HasPrefix(arg, \"--\") { strings.Slice(arg, 2, len(arg)) } else if","rule":"Help wins after a flag whose value is \"--\": the help pre-scan looks past \"--\" (HelpWinsInEveryForm).","killers":["lower:TestFlagLaws"],"anchor":{"tests":["lower:TestFlagLaws"]}},
+    {"name":"flagfloor-help-misses-value-form","origin":"wf10 FLAG-FLOOR","file":"internal/sketch/std/flag/parse.ergo","from":"if body == \"h\" || body == \"help\" || strings.HasPrefix(body, \"h=\") || strings.HasPrefix(body, \"help=\") {","to":"if body == \"h\" || body == \"help\" {","rule":"-h=… and --help=… ask for help as -h does (HelpWinsInEveryForm).","killers":["lower:TestFlagLaws"],"anchor":{"tests":["lower:TestFlagLaws"]}},
+    {"name":"flagfloor-given-not-counted","origin":"wf10 FLAG-FLOOR","file":"internal/sketch/std/flag/parse.ergo","from":"\t\tslots[at].given += 1\n","to":"\t\tslots[at].given += 0\n","rule":"A given flag reads its value, not its default (LastWins).","killers":["lower:TestFlagLaws"],"anchor":{"tests":["lower:TestFlagLaws"]}},
+    {"name":"flagfloor-last-not-kept","origin":"wf10 FLAG-FLOOR","file":"internal/sketch/std/flag/parse.ergo","from":"\t\tslots[at].last = x\n","to":"\t\tslots[at].last = item{..x, text: slots[at].last.text}\n","rule":"A scalar flag keeps its last value (LastWins, RenderParseRoundTrip).","killers":["lower:TestFlagLaws"],"anchor":{"tests":["lower:TestFlagLaws"]}},
+    {"name":"flagfloor-remaining-dropped","origin":"wf10 FLAG-FLOOR","file":"internal/sketch/std/flag/parse.ergo","from":"rest = slices.Slice(positional, next, len(positional))","to":"rest = slices.Slice(positional, len(positional), len(positional))","rule":"The Remaining spec takes every positional argument left (DoubleDashEndsFlags).","killers":["lower:TestFlagLaws","lower:TestFlagTreeLaws"],"anchor":{"tests":["lower:TestFlagLaws"]}},
+    {"name":"flagfloor-command-rest-keeps-name","origin":"wf10 FLAG-FLOOR","file":"internal/sketch/std/flag/command.ergo","from":"slices.Slice(args, 1, len(args))","to":"slices.Slice(args, 0, len(args))","rule":"A command parses the arguments after its name, not its name (RenderParseTreeRoundTrip).","killers":["lower:TestFlagTreeLaws"],"anchor":{"tests":["lower:TestFlagTreeLaws"]}}
   ]
 }

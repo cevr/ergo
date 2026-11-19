@@ -540,6 +540,22 @@ test FlagDefaultWhenAbsent {
 	assert name == "r"
 }
 
+test FlagHelpWinsInEveryForm(k int, x string) {
+	let forms = []string{"-h", "--h", "-help", "--help", "-h=" + x, "--help=" + x}
+	let form = forms[((k%6)+6)%6]
+	assert asksHelp([]string{"-s", x, form, "-q"}) && asksHelp([]string{"-s", "--", form, "-q"})
+}
+
+func asksHelp(args []string) bool {
+	flag.Parse(set(), args) catch {
+	case flag.Help:
+		return true
+	case _:
+		return false
+	}
+	false
+}
+
 test FlagUnknownNamesTheFlag(name string) {
 	if name == "" || name == "h" || name == "help" || name == "s" || name == "n" || name == "b" || strings.Contains(name, "=") || strings.HasPrefix(name, "-") {
 		return
@@ -622,6 +638,7 @@ var flagLawStatements = map[string]string{
 	"flag EachCommandReaches":      `EachCommandReaches(i int) { let commands = lawCommands() if i < 0 || i >= len(commands) { return true } commandName(try ParseCommand("law", "", commands, []string{commands[i].Name})) == commands[i].Name }`,
 	"flag FlagCrossesPositional":   `FlagCrossesPositional(p string, a string) { let before = try Parse(lawSet(), []string{"p" + p, "-s=" + a}) Equal(before, try Parse(lawSet(), []string{"-s=" + a, "p" + p})) }`,
 	"flag HelpNamesEveryFlag":      `HelpNamesEveryFlag(names []string) { let mut flags = []Flag{} let mut seen Map[string, bool] for name in names { match seen.Get(name) { case Some[bool]: case None: seen[name] = true flags = flags.Append(String(name, "", "u")) } } let help = Usage(Set{Name: "law", Usage: "", Flags: flags, Args: []ArgSpec{}}) for name in names { if !strings.Contains(help, "\n  -"+name+" string\n") { return false } } true }`,
+	"flag HelpWinsInEveryForm":     `HelpWinsInEveryForm(k int, x string) { let forms = []string{"-h", "--h", "-help", "--help", "-h=" + x, "--help=" + x} let form = forms[((k%6)+6)%6] asksHelp([]string{"-s", x, form, "-q"}) && asksHelp([]string{"-s", "--", form, "-q"}) }`,
 	"flag IndependentFlagsCommute": `IndependentFlagsCommute(a string, n int) { let first = try Parse(lawSet(), []string{"-s=" + a, "-n=" + strconv.Itoa(n)}) Equal(first, try Parse(lawSet(), []string{"-n=" + strconv.Itoa(n), "-s=" + a})) }`,
 	"flag LastWins":                `LastWins(a string, b string) { let v = try Parse(lawSet(), []string{"-s", a, "-s", b}) lawText.Get(v) == b }`,
 	"flag RenderParseRoundTrip":    `RenderParseRoundTrip(args []string) { let v = Parse(lawArgsSet(), args) catch { case _: return true } sameReads(try Parse(lawArgsSet(), Render(v)), v) }`,
