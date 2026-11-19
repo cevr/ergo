@@ -30,8 +30,31 @@ func IndexByte(s []byte, c byte) int {
 // of its package that writes one). TestModuleGoBodies binds such
 // bodies with the row. Mutants (sketchfront mutants.json):
 // lf2m-effectful-unforeign-bound, lf2m-asm-body-effect-free,
-// lf2m-helper-unread.
+// lf2m-helper-unread, lf2m-archsimd-impure. It binds a vector kernel
+// that imports simd/archsimd with no row (LF2m r3).
 func TestModuleBodyEffects(t *testing.T) {
+	// A vector kernel (lane SIMD's U1): archsimd is a pure import, so the
+	// body is effect-free and binds with no row (LF2m r3). The checker
+	// reads the source only, so no GOEXPERIMENT is needed here.
+	const simdSrc = `package simd
+
+import "simd/archsimd"
+
+func Sum(s []int64) int64 {
+	var acc archsimd.Int64x4
+	for len(s) >= 4 {
+		acc = acc.Add(archsimd.LoadInt64x4Slice(s))
+		s = s[4:]
+	}
+	var out [4]int64
+	acc.Store(&out)
+	t := out[0] + out[1] + out[2] + out[3]
+	for _, v := range s {
+		t += v
+	}
+	return t
+}
+`
 	const goSrc = `package gohost
 
 var total int
@@ -53,6 +76,7 @@ func Via(n int) int { return Bump(n) + 1 }
 			"main.ergo S108 1:1 extern go example.com/app/gohost.Bump: its Go body is not effect-free (its body names total, a top-level function or variable of the package); declare needs go.Foreign"},
 		{"module app\n", "extern go example.com/app/gohost.Count func count(s []byte, c byte) int\n", "",
 			"main.ergo S108 1:1 extern go example.com/app/gohost.Count: its Go body is not effect-free (it has no Go body to read (assembly)); declare needs go.Foreign"},
+		{"module app\n", "extern go example.com/app/simd.Sum func sum(s []int64) int64\n", "", ""},
 		{"module app\n", "extern go example.com/app/gohost.Via func via(n int) int\n", "",
 			"main.ergo S108 1:1 extern go example.com/app/gohost.Via: its Go body is not effect-free (it calls Bump, and its body names total, a top-level function or variable of the package); declare needs go.Foreign"},
 	} {
@@ -60,13 +84,14 @@ func Via(n int) int { return Bump(n) + 1 }
 			"go.mod":           "module example.com/app\n\ngo 1.27\n",
 			"ergo.mod":         c.mod,
 			"gohost/gohost.go": goSrc,
+			"simd/simd.go":     simdSrc,
 			"main.ergo":        c.extern + "\n" + c.law + "\nfunc main() {}\n",
 		}
 		a, err := CheckDir(writeTree(t, files))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := diagnosticLines(a); !strings.Contains(got, c.want) {
+		if got := diagnosticLines(a); c.want == "" && got != "" || !strings.Contains(got, c.want) {
 			t.Errorf("ergo.mod %q, %s:\n%s\nwant %q", c.mod, c.extern, got, c.want)
 		}
 	}
