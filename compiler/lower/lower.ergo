@@ -30,8 +30,13 @@
 // the Go method T.name (lower's methodReceiver). Slice S4c4 adds a plain
 // record as the result, its literal (every field set, keyed or in order)
 // and its update T{..base, F: v} of a parameter (lower's updateLit).
-// Lets and calls wait for NAME-LOCAL: a local's and a callee's Go name is
-// program-wide today (selfhost S4c/naming.md).
+//
+// Slice S4c6 follows NAME-LOCAL (selfhost S4c/naming.md, NL-1): a
+// declaration's Go name is its package's alone, bare in the build's root
+// and alias__name elsewhere (declName), and the body's lets are built:
+// `let name = value` of a basic type before the tail, each a local named
+// by its spelling (a spelling another name holds stops: its name_N is
+// not ported). Calls come next.
 
 import compiler/check/bind
 import compiler/check/expr
@@ -71,11 +76,30 @@ type fnb {
 	// params are the parameters' name rows and their locals.
 	params []dense.ID[store.PNode],
 	locals []int,
+	// alias spells the package's declarations (declName): "" for the
+	// build's root and the prelude, else its import path's (pkgAlias).
+	alias string,
+	// prelude is the prelude's declarations, which every package's
+	// yield to (lower's pkgnames.go, rule 5).
+	prelude []string,
 }
 
 // Package builds the IR of every function of the checked package k; paths
-// are its files' paths, File.Files' entries.
-func Package(s store.Store, k expr.Pkg, t expr.Typer, paths []string) Out {
+// are its files' paths, File.Files' entries, path its import path, and root
+// whether it is the build's root package (a program's main package, or the
+// package a test build tests), whose declarations Go spells bare.
+func Package(s store.Store, k expr.Pkg, t expr.Typer, paths []string, path string, root bool) Out {
+	let alias = if root || path == "prelude" { "" } else { pkgAlias(path) }
+	let mut prelude = []string{}
+	if path != "prelude" {
+		for d in k.Ifaces {
+			if d.Path == "prelude" {
+				for x in d.Decls {
+					prelude = prelude.Append(x.Name)
+				}
+			}
+		}
+	}
 	let mut types = dense.NewSide[store.PNode, dense.Opt[store.TKey]](dense.NoID[store.TKey]())
 	for e in t.Entries {
 		dense.SideSet(&types, e.At, dense.OptOf(e.T))
@@ -90,7 +114,7 @@ func Package(s store.Store, k expr.Pkg, t expr.Typer, paths []string) Out {
 	for f in k.Fns {
 		let p = k.Parsed[f.File]
 		let at = syntax.NodePos(p, f.Decl)
-		let mut st = fnb{k: k, s: s, types: types, file: f.File, p: p, lines: lines[f.File], fileIx: uint32(0), params: []dense.ID[store.PNode]{}, locals: []int{}}
+		let mut st = fnb{k: k, s: s, types: types, file: f.File, p: p, lines: lines[f.File], fileIx: uint32(0), params: []dense.ID[store.PNode]{}, locals: []int{}, alias: alias, prelude: prelude}
 		let built = function(&st, &b, f, paths[f.File]) catch {
 		case Unported as u:
 			stops = stops.Append(Stop{File: f.File, At: at, Cause: u.Cause})
@@ -221,15 +245,15 @@ func goName(st fnb, name string, first Option[dense.ID[store.TKey]]) string fail
 	case Some[dense.ID[store.TKey]] as f:
 		f.Value
 	case None:
-		return name
+		return try declName(st, name)
 	}
 	let r = plainRecord(st, t)
 	if r < 0 {
-		return name
+		return try declName(st, name)
 	}
 	for f in st.k.Recs[r].Fields {
 		if f.Name == name {
-			return name
+			return try declName(st, name)
 		}
 	}
 	for h in hostProtocols {
@@ -240,8 +264,41 @@ func goName(st fnb, name string, first Option[dense.ID[store.TKey]]) string fail
 	if goKeyword(name) {
 		return stop("method of a keyword's name")
 	}
-	st.k.Recs[r].Name + "." + name
+	(try declName(st, st.k.Recs[r].Name)) + "." + name
 }
+
+// declName is the Go name of the package's declaration base (lower's
+// pkgnames.go, NAME-LOCAL): bare in the root and the prelude (rule 1),
+// else alias__base (rule 2), a function of the declaration and its
+// package alone. A base Go reserves, a fixed generated name (rule 4) or
+// a prelude declaration (rule 5) holds takes base_N in the package's own
+// numbering, which the slice does not port: it stops.
+func declName(st fnb, base string) string fails Unported {
+	if goReserved(base) || has(fixedNames, base) || has(st.prelude, base) {
+		return stop("declaration name taken (name_N)")
+	}
+	if st.alias == "" { base } else { st.alias + "__" + base }
+}
+
+// pkgAlias spells an import path in a joined name (lower's pkgAlias): one
+// to one, with no "__": '/', '.', '-' and '_' become "_s", "_d", "_h" and
+// "_u", and "ergo" itself is "ergo_e".
+func pkgAlias(path string) string {
+	// "_" first: each later replacement writes one.
+	let out = strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(path, "_", "_u"), "/", "_s"), ".", "_d"), "-", "_h")
+	if out == "ergo" { "ergo_e" } else { out }
+}
+
+// fixedNames are the lowering's fixed generated names (lower's
+// fixedPkgNames, rule 4): the runtime's and Go's imports, the runtime
+// leaves' (ergo + leaf, runtime/v1 Leaves) and the generated tables.
+let fixedNames = []string{"ergo", "rt", "time", "embed", "strconv", "maps", "slices", "Env", "hostConsole", "ergoIs", "ergoNilTag", "ergoCall", "ergoCalls", "ergoCallNames", "ergoDecl", "ergoDecls", "ergoInlines", "ergoInit", "ergoMachineGraph", "ergoMachinePair", "ergoOrdered", "ergoNumber", "ergocsv", "ergodigest", "ergoexec", "ergohttp", "ergorand", "ergoredacted", "ergorpc", "ergoshadow"}
+
+// goPredeclared and goKeywords are what Go reserves (lower's goReserved,
+// with main, init and the blank name).
+let goPredeclared = []string{"main", "init", "_", "any", "bool", "byte", "comparable", "complex64", "complex128", "error", "float32", "float64", "int", "int8", "int16", "int32", "int64", "rune", "string", "uint", "uint8", "uint16", "uint32", "uint64", "uintptr", "true", "false", "iota", "nil", "append", "cap", "clear", "close", "complex", "copy", "delete", "imag", "len", "make", "max", "min", "new", "panic", "print", "println", "real", "recover"}
+
+func goReserved(name string) bool { goKeyword(name) || has(goPredeclared, name) }
 
 func has(names []string, name string) bool {
 	let mut ok = false
@@ -261,6 +318,7 @@ func recordLit(st fnb, x dense.ID[syntax.Node], cl syntax.CompositeLit) (int, []
 	if r < 0 || dense.Unpack(cl.Type) == None {
 		return stop("literal of no plain record")
 	}
+	let _ = try declName(st, st.k.Recs[r].Name)
 	let fields = st.k.Recs[r].Fields
 	let p = st.p
 	let n = syntax.Len(cl.Elts)
@@ -543,7 +601,7 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	case _:
 		return stop("body that is no block")
 	}
-	let tailX = tail(*st, list) catch {
+	let (lets, tailX) = statements(st, list, n) catch {
 	case Unported as u:
 		if sig != "" {
 			return stop(sig + " / body: " + u.Cause)
@@ -553,42 +611,185 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	if sig != "" {
 		return stop(sig + " / body passes")
 	}
+	let gname = try goName(*st, name, if n > 0 { Some[dense.ID[store.TKey]]{Value: ops[0]} } else { None })
 	st.fileIx = ir.FileOf(b, path)
 	let fp = pos(*st, syntax.TokPos(p, d.Func))
 	let end = pos(*st, syntax.TokPos(p, rbrace))
-	let gname = try goName(*st, name, if n > 0 { Some[dense.ID[store.TKey]]{Value: ops[0]} } else { None })
 	try ir.Begin(b, gname, fp, end)
+	let mut roots = []uint32{}
+	for l in lets {
+		// A let is its local and its def; a local no expression reads is
+		// then discarded (lower's irUseLocals).
+		try ir.AddLocal(b, l.name, l.typ, pos(*st, syntax.NodePos(p, l.at)))
+		let at = pos(*st, syntax.TokPos(p, l.tok))
+		let x = try value(*st, b, l.value)
+		roots = roots.Append(try ir.Row(b, ir.KindCode(ir.TStmt, "def"), at, []uint32{uint32(l.local), x}))
+		if !l.read {
+			let r = try ir.Row(b, ir.KindCode(ir.TExpr, "local"), at, []uint32{uint32(l.local)})
+			roots = roots.Append(try ir.Row(b, ir.KindCode(ir.TStmt, "discard"), at, []uint32{r}))
+		}
+	}
 	let x = try value(*st, b, tailX)
-	let ret = try ir.Row(b, ir.KindCode(ir.TStmt, "ret"), pos(*st, syntax.NodePos(p, tailX)), []uint32{x})
-	try ir.End(b, ir.List(b, []uint32{ret}))
+	roots = roots.Append(try ir.Row(b, ir.KindCode(ir.TStmt, "ret"), pos(*st, syntax.NodePos(p, tailX)), []uint32{x}))
+	try ir.End(b, ir.List(b, roots))
 	let _ = lbrace
 	true
 }
 
-// tail is the body's one tail expression, checked whole before the
-// builder writes a row (a stop leaves the builder as it was).
-func tail(st fnb, list syntax.List) dense.ID[syntax.Node] fails Unported {
+// aLet is a let the slice builds: `let name = value` of a basic type.
+type aLet { tok int, at dense.ID[syntax.Node], name string, typ string, value dense.ID[syntax.Node], local int, read bool }
+
+// statements checks the body list whole before the builder writes a row
+// (a stop leaves the builder as it was): its lets, each a local of the
+// function after its n parameters' slots, and its tail expression.
+func statements(st mut fnb, list syntax.List, n int) ([]aLet, dense.ID[syntax.Node]) fails Unported {
 	let p = st.p
-	if syntax.Len(list) != 1 {
-		// A let's local takes a Go name the program decides today
-		// (selfhost S4c/naming.md, NAME-LOCAL).
-		for i in 0..syntax.Len(list) {
-			match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, list, i)) {
-			case syntax.DeclStmt:
-				return stop("local naming (NAME-LOCAL)")
-			case _:
+	let count = syntax.Len(list)
+	if count == 0 {
+		return stop("empty body")
+	}
+	let mut lets = []aLet{}
+	for i in 0..count-1 {
+		let l = try letOf(*st, syntax.Item(p.Tree, list, i), n+i)
+		for e in lets {
+			if e.name == l.name {
+				return stop("let name taken (local name_N)")
 			}
 		}
-		return stop("body of several statements")
+		st.params = st.params.Append(bind.PNodeOf(st.k.Ps, st.file, l.at))
+		st.locals = st.locals.Append(l.local)
+		lets = lets.Append(l)
 	}
-	let tailX = match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, list, 0)) {
+	let tailX = match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, list, count-1)) {
 	case syntax.ExprStmt as es:
 		es.X
 	case _:
 		return stop("statement form")
 	}
-	try check(st, tailX)
-	tailX
+	try check(*st, tailX)
+	// Which lets an expression after them reads (lower's irUseLocals).
+	for j in 0..len(lets) {
+		let at = bind.PNodeOf(st.k.Ps, st.file, lets[j].at)
+		let mut read = reads(*st, tailX, at)
+		for e in lets[j+1 : len(lets)] {
+			read = read || reads(*st, e.value, at)
+		}
+		lets[j].read = read
+	}
+	(lets, tailX)
+}
+
+// letOf checks the statement s as a let the slice builds, its local the
+// function's local'th: no extern, no mut, one name and a value, not _,
+// of a basic type, and a Go name of its own (lower's localName: its
+// spelling unless Go, the lowering's fixed names, the prelude or its own
+// package hold it, which takes name_N: a stop).
+func letOf(st fnb, s dense.ID[syntax.Node], local int) aLet fails Unported {
+	let p = st.p
+	let vd = match syntax.ViewOf(p.Tree, s) {
+	case syntax.DeclStmt as ds:
+		match syntax.ViewOf(p.Tree, ds.Decl) {
+		case syntax.VarDecl as v:
+			v
+		case _:
+			return stop("declaration statement")
+		}
+	case _:
+		return stop("statement form before the tail")
+	}
+	if dense.Unpack(vd.Extern) != None {
+		return stop("extern let")
+	}
+	if vd.Mut >= 0 {
+		return stop("mut let")
+	}
+	let spec = match syntax.ViewOf(p.Tree, vd.Spec) {
+	case syntax.VarSpec as sp:
+		sp
+	case _:
+		return stop("let form")
+	}
+	if syntax.Len(spec.Names) != 1 || dense.Unpack(spec.Pattern) != None {
+		return stop("let pattern")
+	}
+	let value = match dense.Unpack(spec.Value) {
+	case Some[dense.ID[syntax.Node]] as v:
+		v.Value
+	case None:
+		return stop("let without a value")
+	}
+	let at = syntax.Item(p.Tree, spec.Names, 0)
+	let name = nameText(p, at)
+	if name == "" || name == "_" {
+		return stop("let _")
+	}
+	let gt = basicGo(st, try typeOf(st, value, "let value"))
+	if gt == "" {
+		return stop("let of " + typeCause(st, try typeOf(st, value, "let value")))
+	}
+	try check(st, value)
+	if goReserved(name) || has(fixedNames, name) || has(st.prelude, name) || pkgDecl(st, name) {
+		return stop("let name taken (local name_N)")
+	}
+	aLet{tok: vd.Var, at: at, name: name, typ: gt, value: value, local: local, read: false}
+}
+
+// reads reports whether x reads the local declared at the name node at.
+func reads(st fnb, x dense.ID[syntax.Node], at dense.ID[store.PNode]) bool {
+	match syntax.ViewOf(st.p.Tree, x) {
+	case syntax.Name:
+		match bind.ResolutionOf(st.k.U, st.k.Ps, bind.PNodeOf(st.k.Ps, st.file, x)) {
+		case bind.Declared as d:
+			return d.At == at
+		case _:
+			return false
+		}
+	case _:
+	}
+	for c in syntax.Children(st.p.Tree, x, []uint32{}) {
+		if reads(st, syntax.NodeAt(st.p.Tree, int(c)), at) {
+			return true
+		}
+	}
+	false
+}
+
+// pkgDecl reports a declaration of the package named name: a function, a
+// type or a package let.
+func pkgDecl(st fnb, name string) bool {
+	for p in st.k.Parsed {
+		let decls = match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+		case syntax.File as root:
+			root.Decls
+		case _:
+			continue
+		}
+		for i in 0..syntax.Len(decls) {
+			let d = syntax.Item(p.Tree, decls, i)
+			match syntax.ViewOf(p.Tree, d) {
+			case syntax.FuncDecl as fd:
+				if nameText(p, fd.Name) == name {
+					return true
+				}
+			case syntax.TypeDecl as td:
+				if nameText(p, td.Name) == name {
+					return true
+				}
+			case syntax.VarDecl as vd:
+				match syntax.ViewOf(p.Tree, vd.Spec) {
+				case syntax.VarSpec as sp:
+					for j in 0..syntax.Len(sp.Names) {
+						if nameText(p, syntax.Item(p.Tree, sp.Names, j)) == name {
+							return true
+						}
+					}
+				case _:
+				}
+			case _:
+			}
+		}
+	}
+	false
 }
 
 func nameText(p syntax.Parsed, x dense.ID[syntax.Node]) string {
@@ -750,7 +951,7 @@ func value(st fnb, b mut ir.Builder, x dense.ID[syntax.Node]) uint32 fails Unpor
 		for k in names {
 			keyIDs = keyIDs.Append(ir.Text(b, k))
 		}
-		try ir.Row(b, ir.KindCode(ir.TExpr, "lit"), at, []uint32{ir.Text(b, st.k.Recs[r].Name), ir.List(b, elems), ir.List(b, keyIDs)})
+		try ir.Row(b, ir.KindCode(ir.TExpr, "lit"), at, []uint32{ir.Text(b, try declName(st, st.k.Recs[r].Name)), ir.List(b, elems), ir.List(b, keyIDs)})
 	case syntax.SelectorExpr as se:
 		let name = try field(st, se)
 		let i = try paramLocal(st, se.X)

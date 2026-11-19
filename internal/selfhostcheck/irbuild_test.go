@@ -47,9 +47,11 @@ import (
 // no change here. A function built where the Go builder wrote no IR body
 // (it left the body to the emitter: a gate compiler/lower lacks) fails:
 // the Ergo builder builds only what the Go builder builds. A Go function
-// whose name differs only by a program-wide part (the split's X export,
-// a collision suffix _N: irBaseName) is compared under its base name; that
-// naming is the program's, not the function's.
+// is named per declaration and package (NAME-LOCAL, lower's pkgnames.go):
+// bare in a build's root package, alias__name in any other, so irdump is
+// told the roots (-roots). A Go function whose name differs only by the
+// split's X export (irSplitName) is compared under its unexported name;
+// that export is the program's, not the function's (NL-3).
 //
 // It builds compiler/cmd/irdump and runs Go binaries because the Ergo
 // side is a whole compiled program over the corpus (as the other
@@ -65,7 +67,7 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 		t.Fatalf("ergo build ./cmd/irdump: %v\n%s", err, o)
 	}
 	paths := irPathIDs{}
-	goFuncs, unlowered := goIRFuncs(t, paths)
+	goFuncs, unlowered, rootDirs := goIRFuncs(t, paths)
 	for dir, err := range unlowered {
 		t.Logf("%s: the Go builder does not lower its test build (its functions are not compared): %s", rel(dir), err)
 	}
@@ -99,10 +101,13 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 	}
 	close(next)
 	wg.Wait()
-	var manifest []string
+	var manifest, roots []string
 	for i, s := range sides {
 		if !s.ok {
 			continue
+		}
+		if rootDirs[dirs[i]] {
+			roots = append(roots, s.path)
 		}
 		e, f := filepath.Join(tmp, fmt.Sprintf("ext%d", i)), filepath.Join(tmp, fmt.Sprintf("foreign%d", i))
 		writeLines(t, e, s.ext)
@@ -111,11 +116,13 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 	}
 	m := filepath.Join(tmp, "manifest")
 	writeLines(t, m, manifest)
+	rf := filepath.Join(tmp, "roots")
+	writeLines(t, rf, roots)
 
 	reach := map[string]int{}
 	built, failed := 0, 0
 	var files []string
-	for _, l := range runDump(t, ctx, bin, "-std", stdDir(), "-corpus", m) {
+	for _, l := range runDump(t, ctx, bin, "-std", stdDir(), "-roots", rf, "-corpus", m) {
 		kind, rest, _ := strings.Cut(l, " ")
 		switch kind {
 		case "@pkg":
@@ -168,7 +175,7 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 				continue
 			}
 			if wants[i].raw != fn.Name {
-				reach["built, the Go name program-wide (split X, collision _N)"]++
+				reach["built, the Go name exported by the split (X)"]++
 			}
 			if len(wants) > 1 {
 				reach["built, one of the Go bodies the programs differ in"]++
@@ -202,8 +209,8 @@ func (p irPathIDs) id(path string) int {
 
 type irKey struct{ file, line, col int }
 
-// irGoFunc is one Go function: its base name (irBaseName), its name in
-// the program, and its text under the base name.
+// irGoFunc is one Go function: its name unexported (irSplitName), its
+// name in the program, and its text under the unexported names.
 type irGoFunc struct {
 	name, raw string
 	data      []byte
@@ -216,10 +223,9 @@ type irGoIndex map[irKey][]irGoFunc
 // irProgramName is the Go builder's names that are program-wide rather
 // than the function's: the split's export of a name two Go packages use
 // (pkgsplit.go: X before an unexported name, again while taken) and a
-// collision suffix (_N), of a function, a method (T.Xm), a method's
-// record (T_N.m) or a field (irBaseFields).
-// NAME-LOCAL (S4c/naming.md) makes them per package; then names compare
-// exactly.
+// collision suffix (_N) of a field or a literal's key (irBaseFields).
+// Declarations' names follow NAME-LOCAL (S4c/naming.md) and compare
+// under irSplitName alone.
 var irProgramName = regexp.MustCompile(`^X+([a-z_])|_[0-9]+$|_[0-9]+(\.)`)
 
 var irMethodExport = regexp.MustCompile(`\.X+([a-z_])`)
@@ -229,9 +235,19 @@ func irBaseName(name string) string {
 	return irMethodExport.ReplaceAllString(irProgramName.ReplaceAllString(name, "${1}${2}"), ".${1}")
 }
 
+var irSplitExport = regexp.MustCompile(`^X+([a-z_])`)
+
+// irSplitName is a declaration's name without the split's export (X
+// before a name two Go packages use, pkgsplit.go), the one program-wide
+// part of a declaration's Go name NAME-LOCAL leaves (NL-3).
+func irSplitName(name string) string {
+	return irMethodExport.ReplaceAllString(irSplitExport.ReplaceAllString(name, "${1}"), ".${1}")
+}
+
 // irBaseFields gives each field the Go builder reads in fn its base name:
 // the split exports an unexported field two Go packages read (X + name),
-// a program-wide decision too; so are a record literal's type and keys.
+// a program-wide decision too; so are a record literal's keys, and its
+// type's export (irSplitName).
 func irBaseFields(fn *irFunc) {
 	var walk func(v reflect.Value)
 	walk = func(v reflect.Value) {
@@ -251,7 +267,7 @@ func irBaseFields(fn *irFunc) {
 			if e, ok := v.Addr().Interface().(*irExpr); ok && e.K == "lit" {
 				// A literal's record type and keys (the type's Go name is
 				// the program's too: pkgName).
-				e.T = irBaseName(e.T)
+				e.T = irSplitName(e.T)
 				for i, k := range e.Keys {
 					e.Keys[i] = irBaseName(k)
 				}
@@ -296,7 +312,8 @@ func (x irGoIndex) at(k irKey, name string) ([]irGoFunc, string) {
 // goIRFuncs lowers each example program with the Go IR builder and
 // indexes its IR files' functions by declaration position, file indices
 // mapped to source paths.
-func goIRFuncs(t *testing.T, paths irPathIDs) (irGoIndex, map[string]string) {
+// The folders of the builds' root packages are the third result.
+func goIRFuncs(t *testing.T, paths irPathIDs) (irGoIndex, map[string]string, map[string]bool) {
 	t.Helper()
 	idx := irGoIndex{}
 	std := stdDir()
@@ -352,6 +369,10 @@ func goIRFuncs(t *testing.T, paths irPathIDs) (irGoIndex, map[string]string) {
 		t.Fatal(err)
 	}
 	programs = append(programs, program{u: su, module: filepath.Dir(su.Sources[0].Path), reach: funcs})
+	roots := map[string]bool{}
+	for _, pr := range programs[:len(programs)-1] { // the std program's root is no corpus folder
+		roots[filepath.Dir(pr.u.Sources[0].Path)] = true
+	}
 	for _, pr := range programs {
 		out, _, _, err := lower.LowerIRSplitReaching(pr.u, pr.tests, pr.reach)
 		if err != nil && pr.tests {
@@ -386,7 +407,7 @@ func goIRFuncs(t *testing.T, paths irPathIDs) (irGoIndex, map[string]string) {
 					t.Fatalf("%s: %s: %v", file.Path, fn.Name, err)
 				}
 				raw := fn.Name
-				fn.Name = irBaseName(raw)
+				fn.Name = irSplitName(raw)
 				irBaseFields(fn)
 				data, err := json.Marshal(fn)
 				if err != nil {
@@ -403,7 +424,7 @@ func goIRFuncs(t *testing.T, paths irPathIDs) (irGoIndex, map[string]string) {
 			}
 		}
 	}
-	return idx, unlowered
+	return idx, unlowered, roots
 }
 
 // ownFuncs is every function with a body of u's packages and their

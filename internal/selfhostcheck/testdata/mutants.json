@@ -594,6 +594,28 @@
       "killers": [
         "internal/sketch/syntax:TestFormatIsTheCorpusFixpoint"
       ]
+    },
+    {
+      "origin": "wf10/selfhost/S4c6",
+      "file": "compiler/lower/lower.ergo",
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "name": "lower-alias-dropped",
+      "from": "if st.alias == \"\" { base } else { st.alias + \"__\" + base }",
+      "to": "base",
+      "rule": "A declaration of a package other than the build's root is spelled alias__name (NAME-LOCAL rule 2)."
+    },
+    {
+      "origin": "wf10/selfhost/S4c6",
+      "file": "compiler/lower/lower.ergo",
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "name": "lower-let-unread-kept",
+      "from": "\t\tif !l.read {\n",
+      "to": "\t\tif false {\n",
+      "rule": "A let no expression reads is discarded after its def (lower's irUseLocals)."
     }
   ]
 }

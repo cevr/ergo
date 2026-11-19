@@ -7,7 +7,12 @@
 //	                    the P lines)
 //	S PATH OFFSET CAUSE a function lower stopped at, and why
 //
-//	irdump [-std DIR] -corpus MANIFEST
+//	irdump [-std DIR] [-roots FILE] -corpus MANIFEST
+//
+// The roots file names, one per line, the import paths of the packages
+// that are a build's root (a program's main package, a package a test
+// build tests): their declarations' Go names are bare, every other
+// package's alias__name (lower.Package).
 //
 // The manifest is exprdump's (one package per line, "PATH EXT FOREIGN
 // FILE..."), typed by compiler/check/load as exprdump types it. Each
@@ -55,9 +60,9 @@ func unitOf(g []string) load.Unit fails os.Exit needs fs.Files {
 }
 
 // write prints one typed package's IR lines after its "@pkg I" line.
-func write(b mut strings.Builder, i int, u load.Unit, d load.Typed) {
+func write(b mut strings.Builder, i int, u load.Unit, d load.Typed, root bool) {
 	b.WriteString("@pkg \(i)\n")
-	let out = lower.Package(d.S, d.K, d.T, u.Paths)
+	let out = lower.Package(d.S, d.K, d.T, u.Paths, u.Path, root)
 	for j, path in out.File.Files {
 		b.WriteString("P \(j) \(path)\n")
 	}
@@ -80,8 +85,13 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 		std = argv[1]
 		argv = argv[2:len(argv)]
 	}
+	let mut roots = []string{}
+	if len(argv) > 1 && argv[0] == "-roots" {
+		roots = strings.Fields(try read(argv[1]))
+		argv = argv[2:len(argv)]
+	}
 	if len(argv) != 2 || argv[0] != "-corpus" {
-		return os.Exit{Code: 2, Message: "usage: irdump [-std DIR] -corpus MANIFEST"}
+		return os.Exit{Code: 2, Message: "usage: irdump [-std DIR] [-roots FILE] -corpus MANIFEST"}
 	}
 	let mut units = []load.Unit{}
 	for line in strings.Split(try read(argv[1]), "\n") {
@@ -96,7 +106,11 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 	let mut b = strings.NewBuilder()
 	for i in 0..len(p.Loaded) {
 		let ui = p.Units[i]
-		write(&b, ui, units[ui], load.TypeAt(p, i))
+		let mut root = false
+		for r in roots {
+			root = root || r == units[ui].Path
+		}
+		write(&b, ui, units[ui], load.TypeAt(p, i), root)
 	}
 	io.Stdout.Print(b.String())
 }
