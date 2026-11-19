@@ -1,0 +1,54 @@
+// Package memory holds the providers of admit's contracts in Ergo alone:
+// Gate, a capacity counted in a sync.Ref, and Checker, which checks the
+// payloads one after another. ergo test runs the contracts' laws against
+// both; cmd/admit binds them with -memory.
+
+import admit/jobs
+import sync
+
+// Gate is a jobs.Gate whose free capacity is a counter. Every copy of a
+// Gate is the same gate. It cannot wait: a Wait for capacity that is not
+// free is Stopped at once.
+type Gate { capacity int, free sync.Ref[int] } implements jobs.Gate
+
+// New is a Gate of the given capacity, all of it free.
+func New(capacity int) Gate { Gate{capacity: capacity, free: sync.NewRef[int](capacity)} }
+
+// NewGate is a Gate of capacity 4; ergo test runs the jobs.Gate laws
+// against it.
+func NewGate() Gate { New(4) }
+
+// Capacity is the gate's whole capacity.
+func Capacity(g Gate) int { g.capacity }
+
+// Take takes n when n is free.
+func Take(g Gate, n int) bool {
+	sync.Modify(g.free, func(f int) (bool, int) {
+		if n > f {
+			return (false, f)
+		}
+		(true, f - n)
+	})
+}
+
+// Wait takes n when n is free, and is Stopped otherwise.
+func Wait(g Gate, n int) fails jobs.Stopped {
+	if !Take(g, n) {
+		return jobs.Stopped
+	}
+}
+
+// Give gives back n.
+func Give(g Gate, n int) { g.free.Update(func(f int) int { f + n }) }
+
+// Checker is the jobs.Checker that checks each payload in turn.
+type Checker {} implements jobs.Checker
+
+// Check fails with the first bad payload.
+func Check(_ Checker, js []jobs.Job) fails jobs.BadPayload {
+	match jobs.FirstBad(js) {
+	case Some[jobs.BadPayload] as b:
+		return b.Value
+	case None:
+	}
+}

@@ -1,0 +1,9 @@
+# scripts/opcount: `tomlparse check` parses the TOML document of N records
+# that `tomlparse gen -seed 1 -n N` writes and counts its values; the cost
+# of one record is the slope between the two sizes. The control is the
+# hand Go parser of the same design.
+unit record
+sizes 10000 80000
+input self gen -seed 1 -n {n}
+args check {input}
+control cmd/ergo/testdata/tomlparse/control

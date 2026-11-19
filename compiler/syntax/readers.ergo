@@ -486,15 +486,16 @@ func LawDeclOf(t Tree, id dense.ID[Node]) LawDecl {
 	let i = uint32(dense.Index(id))
 	let tok = t.tok[int(i)]
 	return LawDecl{
-		Doc:     otok(fixed(t, i, 8, 0)),
-		Law:     int(tok),
-		Name:    nid(t, fixed(t, i, 8, 1)),
-		Params:  onid(t, fixed(t, i, 8, 2)),
-		Body:    onid(t, fixed(t, i, 8, 3)),
-		Reach:   onid(t, fixed(t, i, 8, 4)),
-		Rewrite: flag(fixed(t, i, 8, 5)),
-		When:    otok(fixed(t, i, 8, 6)),
-		Eq:      otok(fixed(t, i, 8, 7)),
+		Doc:      otok(fixed(t, i, 8, 0)),
+		Law:      int(tok),
+		Name:     nid(t, fixed(t, i, 8, 1)),
+		Params:   onid(t, fixed(t, i, 8, 2)),
+		Body:     onid(t, fixed(t, i, 8, 3)),
+		Reach:    onid(t, fixed(t, i, 8, 4)),
+		Rewrite:  flag(fixed(t, i, 8, 5)),
+		Equation: fixed(t, i, 8, 5) == uint32(2),
+		When:     otok(fixed(t, i, 8, 6)),
+		Eq:       otok(fixed(t, i, 8, 7)),
 	}
 }
 

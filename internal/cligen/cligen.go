@@ -30,10 +30,10 @@ import (
 	"strings"
 	"sync"
 
+	format "ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/rpcgen"
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/format"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 )
 
 // Files is the generated package: its folder name, relative to the
@@ -41,31 +41,25 @@ import (
 type Files = rpcgen.Files
 
 // Generate writes the cli package of the operation type opName of pkg,
-// whose import path is path. rpcPath is the import path of the contract's
-// generated rpc package, whose Request the cli package names, or "" for a
-// Request of its own. The CLI admits the contracts `ergo gen rpc` admits
-// (its output is the wire's JSON) whose parameters have a command-line
-// form.
-func Generate(pkg *check.Package, path, opName, rpcPath string) (Files, error) {
-	ops, err := rpcgen.Ops(pkg, opName)
+// whose import path is path, over its hub (ergo gen api) at the import
+// path apiPath: the cli package names the hub's Request and runs a call
+// through the hub's Call. The CLI admits the contracts `ergo gen rpc`
+// admits (its output is the wire's JSON) whose parameters have a
+// command-line form.
+func Generate(pkg *check.Package, path, opName, apiPath string) (Files, error) {
+	ops, digest, err := rpcgen.Contract(pkg, path, opName)
 	if err != nil {
 		return Files{}, err
 	}
-	wire, err := rpcgen.Generate(pkg, path, opName)
-	if err != nil {
-		return Files{}, err
-	}
-	digest := digestLine().FindString(wire.Files["wire.ergo"])
-	if digest == "" {
-		return Files{}, fmt.Errorf("cligen: the rpc generator wrote no digest line")
+	if apiPath == "" {
+		return Files{}, fmt.Errorf("the cli package is written over the hub; run ergo gen api first")
 	}
 	pkgName := lastElem(path)
 	g := &gen{pkg: pkg, path: path, op: opName, imports: map[string]string{"flag": "flag", "rpc": "rpc", "strconv": "strconv"}}
 	g.importOf(pkg)
-	if rpcPath != "" {
-		g.reqQual = lastElem(rpcPath) + "."
-		g.imports[rpcPath] = lastElem(rpcPath)
-	}
+	g.api = lastElem(apiPath)
+	g.reqQual = g.api + "."
+	g.imports[apiPath] = g.api
 	cmds := make([]*command, 0, len(ops))
 	names := map[string]string{}
 	for _, op := range ops {
@@ -96,10 +90,6 @@ func Generate(pkg *check.Package, path, opName, rpcPath string) (Files, error) {
 	return Files{Dir: pkgName + "cli", Files: map[string]string{"cli.ergo": out}}, nil
 }
 
-// digestLine is the line of an rpc file that names the contract and its
-// digest.
-var digestLine = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^// Contract .*, digest sha256:[0-9a-f]+\.$`) }) // compiled on first use, not at process start (TestStartBuildsNoTables)
-
 func lastElem(path string) string {
 	if i := strings.LastIndex(path, "/"); i >= 0 {
 		return path[i+1:]
@@ -114,10 +104,10 @@ type gen struct {
 	// imports are every package the file may name, by path, with the
 	// name source uses for it.
 	imports map[string]string
-	// reqQual qualifies Request and its variants: "" for the file's own,
-	// "<pkg>rpc." for the rpc package's.
-	reqQual string
-	err     error
+	// api is the name the file uses for the hub's package; reqQual, api
+	// and a dot, qualifies Request's variants.
+	api, reqQual string
+	err          error
 }
 
 func (g *gen) fail(format string, args ...any) {
@@ -128,7 +118,7 @@ func (g *gen) fail(format string, args ...any) {
 
 // importOf records p's import and is the name source uses for it.
 func (g *gen) importOf(p *check.Package) string {
-	if p == nil || p.Path == std.PreludePath {
+	if p == nil || p.Path == stdlib.PreludePath {
 		return ""
 	}
 	if p == g.pkg {
@@ -237,7 +227,7 @@ func convert(kind, conv, e string) string {
 // optionOf is T when t is the prelude's Option[T].
 func optionOf(t check.Type) (check.Type, bool) {
 	n, ok := unalias(t).(*check.Named)
-	if !ok || n.Obj == nil || n.Obj.Name != "Option" || n.Obj.Pkg == nil || n.Obj.Pkg.Path != std.PreludePath || len(n.TArgs) != 1 {
+	if !ok || n.Obj == nil || n.Obj.Name != "Option" || n.Obj.Pkg == nil || n.Obj.Pkg.Path != stdlib.PreludePath || len(n.TArgs) != 1 {
 		return nil, false
 	}
 	return n.TArgs[0], true
@@ -463,7 +453,7 @@ func kebab(s string) string {
 
 // reserved are the names the generated functions use for their locals: an
 // imported package of one of these names would be shadowed.
-var reserved = map[string]bool{"args": true, "asJSON": true, "rest": true, "i": true, "a": true, "r": true, "h": true, "err": true, "x": true, "v": true, "e": true, "s": true, "out": true, "back": true, "encoded": true, "plain": true, "tagged": true}
+var reserved = map[string]bool{"done": true, "rejected": true, "reply": true, "failure": true, "args": true, "asJSON": true, "rest": true, "i": true, "a": true, "r": true, "h": true, "err": true, "x": true, "v": true, "e": true, "s": true, "out": true, "back": true, "encoded": true, "plain": true, "tagged": true}
 
 var localName = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[fatn][0-9]+$`) }) // compiled on first use, not at process start (TestStartBuildsNoTables)
 
@@ -495,21 +485,8 @@ func failTag(t check.Type) string {
 func (g *gen) file(pkgName string, ops []rpcgen.Op, cmds []*command) string {
 	capName := g.importOf(g.pkg) + "." + g.op
 	var b strings.Builder
-	if g.reqQual == "" {
-		var variants []string
-		for _, op := range ops {
-			var fields []string
-			for _, p := range op.Params {
-				fields = append(fields, rpcgen.FieldName(p.Name)+" "+g.expr(p.Type))
-			}
-			variants = append(variants, op.Name+"Request{"+strings.Join(fields, ", ")+"}")
-		}
-		fmt.Fprintf(&b, "// Request is one call of %s: a variant per operation, whose fields\n// are the operation's parameters (the Request of ergo gen rpc).\n", capName)
-		fmt.Fprintf(&b, "type Request = %s\n\n", strings.Join(variants, " | "))
-	} else {
-		fmt.Fprintf(&b, "// Request is one call of %s: the rpc package's Request.\n", capName)
-		fmt.Fprintf(&b, "type Request = %sRequest\n\n", g.reqQual)
-	}
+	fmt.Fprintf(&b, "// Request is one call of %s: the hub's Request.\n", capName)
+	fmt.Fprintf(&b, "type Request = %sRequest\n\n", g.reqQual)
 	b.WriteString("// Output is what Run prints: Out to standard output, Err to standard\n// error, and the exit status.\ntype Output { Out string, Err string, Code int }\n\n")
 
 	var names []string
@@ -572,50 +549,53 @@ func (g *gen) file(pkgName string, ops []rpcgen.Op, cmds []*command) string {
 	fmt.Fprintf(&b, "func Run(args []string) Output needs %s {\n", capName)
 	b.WriteString("let asJSON = len(args) > 0 && (args[0] == \"--json\" || args[0] == \"-json\")\nlet mut rest = []string{}\nfor i, a in args {\nif i > 0 || !asJSON {\nrest = rest.Append(a)\n}\n}\n")
 	b.WriteString("let r = Parse(rest) catch {\ncase flag.Help as h:\nreturn Output{Out: h.Text, Err: \"\", Code: 0}\ncase err:\nreturn Output{Out: \"\", Err: flag.Describe(err) + \"\\n\", Code: 2}\n}\n")
-	b.WriteString("match r {\n")
+	// The one dispatch, the hub's Call; then its Outcome as Output.
+	fmt.Fprintf(&b, "match %s.Call(r) {\ncase %s.Done as done:\nmatch done.Reply {\n", g.api, g.api)
 	for _, c := range cmds {
 		op := c.op
-		v := g.reqQual + op.Name + "Request"
-		var args []string
-		for _, p := range op.Params {
-			args = append(args, "x."+rpcgen.FieldName(p.Name))
+		reply := g.reqQual + op.Name + "Reply"
+		if op.Result == nil {
+			fmt.Fprintf(&b, "case %s:\nanswer(asJSON, \"\", \"null\")\n", reply)
+			continue
 		}
-		if len(op.Params) == 0 {
-			fmt.Fprintf(&b, "case %s:\n", v)
+		fmt.Fprintf(&b, "case %s as reply:\nlet v = reply.Value\n", reply)
+		if _, _, ok := g.scalar(op.Result); ok {
+			b.WriteString("answer(asJSON, \"\\(v)\", rpc.Encode(v))\n")
 		} else {
-			fmt.Fprintf(&b, "case %s as x:\n", v)
+			b.WriteString("let encoded = rpc.Encode(v)\nanswer(asJSON, encoded, encoded)\n")
 		}
-		call := fmt.Sprintf("%s.%s(%s)", capName, op.Name, strings.Join(args, ", "))
-		if op.Result != nil {
-			call = "let v = " + call
+	}
+	fmt.Fprintf(&b, "}\ncase %s.Rejected as rejected:\nmatch rejected.Failure {\n", g.api)
+	fails := failures(ops)
+	for _, f := range fails {
+		fmt.Fprintf(&b, "case %s%s as failure:\n", g.reqQual, rpcgen.FailureVariant(ops, f))
+		if tag := failTag(f); tag != "" {
+			fmt.Fprintf(&b, "failed(asJSON, rpc.Tagged(%q, rpc.Encode(failure.E)))\n", tag)
+		} else {
+			b.WriteString("failed(asJSON, rpc.Encode(failure.E))\n")
 		}
-		b.WriteString(call)
-		if len(op.Fails) > 0 {
-			b.WriteString(" catch {\n")
-			for _, f := range op.Fails {
-				fmt.Fprintf(&b, "case %s as e:\n", g.expr(f))
-				if tag := failTag(f); tag != "" {
-					fmt.Fprintf(&b, "return failed(asJSON, rpc.Tagged(%q, rpc.Encode(e)))\n", tag)
-				} else {
-					b.WriteString("return failed(asJSON, rpc.Encode(e))\n")
-				}
-			}
-			b.WriteString("}")
-		}
-		b.WriteString("\n")
-		switch {
-		case op.Result == nil:
-			b.WriteString("answer(asJSON, \"\", \"null\")\n")
-		default:
-			if _, _, ok := g.scalar(op.Result); ok {
-				b.WriteString("answer(asJSON, \"\\(v)\", rpc.Encode(v))\n")
-			} else {
-				b.WriteString("let encoded = rpc.Encode(v)\nanswer(asJSON, encoded, encoded)\n")
+	}
+	if len(fails) == 0 {
+		fmt.Fprintf(&b, "case %sNoFailure:\nOutput{Out: \"\", Err: \"the hub answered NoFailure, which no operation fails\\n\", Code: 1}\n", g.reqQual)
+	}
+	b.WriteString("}\n}\n}\n")
+	return b.String()
+}
+
+// failures are the failure types of any row of ops, each once, in the
+// order they first appear: the hub's Failure variants.
+func failures(ops []rpcgen.Op) []check.Type {
+	var out []check.Type
+	seen := map[string]bool{}
+	for _, op := range ops {
+		for _, f := range op.Fails {
+			if k := unalias(f).String(); !seen[k] {
+				seen[k] = true
+				out = append(out, f)
 			}
 		}
 	}
-	b.WriteString("}\n}\n")
-	return b.String()
+	return out
 }
 
 // signature is op's signature as the generated package writes its types:

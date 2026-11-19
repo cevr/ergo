@@ -1,0 +1,8 @@
+# scripts/opcount: `irframe bench update N` calls a body that updates the
+# cell in its body, with no exit action, N times (STATIC-EXIT2): the share
+# of the exit workload's cost that is the cell's update and the call, not
+# the frame. The control locks, adds and unlocks in the body.
+unit call
+sizes 409600 2457600
+args bench update {n}
+control benchmarks/frame/testdata/control

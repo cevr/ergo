@@ -381,6 +381,9 @@ func (fc *funcCtx) letPattern(spec *syntax.VarSpec) {
 		if p == nil {
 			ice(spec.Pattern, "a let pattern with no Patterns entry")
 		}
+		if fc.tupleLet(spec, p) {
+			return
+		}
 		x := spec.Values[0]
 		t := fc.typeOf(x)
 		if c, ok := fc.l.info.Implicit[x]; ok {

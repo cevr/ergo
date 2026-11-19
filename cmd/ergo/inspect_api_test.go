@@ -83,4 +83,53 @@ func TestInspectAPIRoute(t *testing.T) {
 	if d := report.Derived[0]; d.Type != "Date" || d.Engine != "direct" || d.Reason == "" || d.States == 0 || d.Allocates {
 		t.Fatalf("derived: %+v", d)
 	}
+	// A derived foreign fact shows at each Go call operand it names, a
+	// method's receiver counted first (LAWFFI LF0; mutants
+	// ffi-check-reads-unread, ffi-check-receiver-index).
+	goCall := filepath.Join(dir, "gocall.ergo")
+	if err := os.WriteFile(goCall, []byte("import go sort\n\nfunc find(xs []int, k int) int {\n\tlet s = sort.IntSlice(xs)\n\tsort.SearchInts(xs, k) + s.Search(k) + len(xs) + len(s)\n}\n\nfunc main() {\n\tlet _ = find([]int{1, 2, 3}, 2)\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	facts := capture("facts", goCall)
+	for _, want := range []string{"gocall.ergo:5:18  fact-go-reads  sort.SearchInts  reads a  (checked: go escape analysis)", "gocall.ergo:5:27  fact-go-reads  sort.IntSlice.Search  reads p  (checked: go escape analysis)"} {
+		if !strings.Contains(facts, want) {
+			t.Fatalf("inspect facts lacks %q:\n%s", want, facts)
+		}
+	}
+}
+
+// TestInspectMachineJSON is the smallest repro of a dead flag: the option
+// parser refused --json for inspect machine, though its help offered it.
+// It checks in process; no generated Go needs to run.
+func TestInspectMachineJSON(t *testing.T) {
+	path := filepath.Join("..", "..", "internal", "sketch", "lower", "testdata", "work", "listen.ergo")
+	f, err := os.CreateTemp(t.TempDir(), "stdout-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	saved := os.Stdout
+	os.Stdout = f
+	err = inspectCommand([]string{"machine", path, "--json"})
+	os.Stdout = saved
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Seek(0, 0); err != nil {
+		t.Fatal(err)
+	}
+	b, err := io.ReadAll(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var views []struct {
+		Graph struct {
+			Name string
+			Arms []struct{ At struct{ File string } }
+		}
+		Reachable []struct{ State, Signal string }
+	}
+	if err := json.Unmarshal(b, &views); err != nil || len(views) != 1 || views[0].Graph.Name != "Finder" || len(views[0].Reachable) == 0 || len(views[0].Graph.Arms) == 0 || views[0].Graph.Arms[0].At.File != path {
+		t.Fatalf("inspect machine --json: %v\n%s", err, b)
+	}
 }

@@ -106,6 +106,26 @@ func termSize(fd int) (cols, rows int, ok bool) {
 // fileIsTerminal reports whether f is a terminal: whether its state can be
 // read, as isatty does. It reads f's descriptor through SyscallConn, so f
 // keeps its blocking mode (Fd would set it blocking).
+// regularSize is f's size when f is a regular file, else 0. It reads
+// fstat on the descriptor, not f.Stat: an os.FileInfo in an interface
+// keeps time.Time's String, and with it the zone loader, in every program
+// that reads its input (SIZE-HELLO: deploys' time facts).
+func regularSize(f *os.File) int64 {
+	rc, err := f.SyscallConn()
+	if err != nil {
+		return 0
+	}
+	var st syscall.Stat_t
+	ok := false
+	if rc.Control(func(fd uintptr) { ok = syscall.Fstat(int(fd), &st) == nil }) != nil || !ok {
+		return 0
+	}
+	if uint32(st.Mode)&syscall.S_IFMT != syscall.S_IFREG {
+		return 0
+	}
+	return st.Size
+}
+
 func fileIsTerminal(f *os.File) bool {
 	rc, err := f.SyscallConn()
 	if err != nil {

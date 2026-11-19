@@ -4,8 +4,7 @@ import strings
 
 // Scan is the dump of one scan of src: "T kind start end" per token,
 // "C start end" per comment, "N lines", then "E code offset length" or
-// "OK". The Go scanner agreement (TestScanAgreesWithGo) prints the Go
-// scanner's tokens in the same form.
+// "OK". internal/sketch/syntax's scanner tests read a failed scan from it.
 func Scan(src string) string {
 	let mut b = strings.NewBuilder()
 	let s = syntax.Scan(src)

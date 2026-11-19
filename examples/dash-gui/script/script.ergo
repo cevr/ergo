@@ -4,8 +4,8 @@
 // the frames a window would show. The sources run as tasks for the whole
 // script and stop when it ends.
 
-import dash/feed
-import dash/panel
+import ergo.local/prototype/examples/dashgui/feed
+import ergo.local/prototype/examples/dashgui/panel
 import io
 import queue
 import strconv
@@ -152,7 +152,7 @@ func Play(lines Seq[string]) fails queue.Closed | tasks.Closed needs feed.Sensor
 				let s = try feed.Advance(b, w)
 				b = s.Board
 				for n in s.Notes {
-					io.Stdout.Println(note(n))
+					io.Stdout.Println(Note(n))
 				}
 			}
 		case Pause as p:
@@ -191,8 +191,8 @@ func sent(b feed.Board, i int, e panel.Event, line string) feed.Board needs io.S
 	s.Board
 }
 
-// note is a panel's note as a line.
-func note(n feed.Notice) string {
+// Note is a panel's note as a line.
+func Note(n feed.Notice) string {
 	match n.Note {
 	case panel.WentStale as s:
 		"\(s.Frame): \(n.Panel) stale"

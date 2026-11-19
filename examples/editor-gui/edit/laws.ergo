@@ -1,6 +1,6 @@
 // The Editor as a machine, and its laws.
 
-import editor/piece
+import ergo.local/prototype/examples/editorgui/piece
 import strings
 
 // Editor is the editor as a machine, started on a text.
@@ -40,6 +40,31 @@ type Editor machine[State, Signal] {
 			let d = DocOf(s)
 			if d.Caret < 0 || d.Caret > piece.Len(d.Buf) {
 				return false
+			}
+		}
+		true
+	},
+
+	// CountIsMatches: after every signal, a search's kept count is the
+	// number of matches of its query in the text. The drawn signals are
+	// followed by a tail random signals seldom reach: back to editing, a
+	// text with matches typed, and a search for them a letter at a time,
+	// one taken back ("a" has more matches than "ab" in "aab").
+	law CountIsMatches(text string, signals []Signal, more string) {
+		let tail = []Signal{Escape, Escape, Type{Text: "aab" + more + "ab"}, Find, Type{Text: "a"}, Type{Text: "b"}, Back, Type{Text: "b"}}
+		let mut script = signals
+		for sig in tail {
+			script = script.Append(sig)
+		}
+		let mut s = Open(text)
+		for sig in script {
+			s = After(s, sig)
+			match s {
+			case Searching as f:
+				if f.Count != piece.Count(f.D.Buf, f.Query) {
+					return false
+				}
+			case Editing, Selecting:
 			}
 		}
 		true

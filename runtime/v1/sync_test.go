@@ -5,6 +5,8 @@ import (
 	"runtime"
 	"sync"
 	"testing"
+
+	"ergo.local/prototype/runtime/rt"
 )
 
 // TestRefSharedByTasks: goroutines that Update one Ref at once lose no
@@ -13,6 +15,7 @@ import (
 // one processor (the mutant "non-atomic Update"). Run with -race, it also
 // shows the lock covers the value.
 func TestRefSharedByTasks(t *testing.T) {
+	rt.Spread() // goroutines of the test's own (rt.Alone)
 	const workers, each = 8, 500
 	r := NewRef(0)
 	var wg sync.WaitGroup
@@ -21,7 +24,7 @@ func TestRefSharedByTasks(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for range each {
-				r.Update(func(v int) int {
+				r.Update(rt.Root("sync"), func(v int) int {
 					runtime.Gosched()
 					return v + 1
 				})
@@ -39,6 +42,7 @@ func TestRefSharedByTasks(t *testing.T) {
 // replaced does; Set and Get from another goroutine meanwhile see whole
 // values only.
 func TestRefModifySharedByTasks(t *testing.T) {
+	rt.Spread() // goroutines of the test's own (rt.Alone)
 	const workers, each = 8, 300
 	r := NewRef(0)
 	got := make([][]int, workers)
@@ -48,7 +52,7 @@ func TestRefModifySharedByTasks(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for range each {
-				got[w] = append(got[w], RefModify(r, func(v int) struct {
+				got[w] = append(got[w], RefModify(rt.Root("sync"), r, func(v int) struct {
 					F0 int
 					F1 int
 				} {
@@ -91,11 +95,11 @@ func TestRefReadsTheLastStore(t *testing.T) {
 		t.Errorf("after Set(b) a copy reads %q", same.Get())
 	}
 	calls := 0
-	same.Update(func(v string) string { calls++; return v + "c" })
+	same.Update(rt.Root("sync"), func(v string) string { calls++; return v + "c" })
 	if r.Get() != "bc" || calls != 1 {
 		t.Errorf("after Update the Ref holds %q with %d calls; want bc and 1", r.Get(), calls)
 	}
-	out := RefModify(r, func(v string) struct {
+	out := RefModify(rt.Root("sync"), r, func(v string) struct {
 		F0 int
 		F1 string
 	} {
@@ -131,9 +135,9 @@ func TestRefPoisonedByADefect(t *testing.T) {
 	}
 	clone := func(v []int) []int { return append([]int(nil), v...) }
 	defects := map[string]func(r *Ref[[]int]){
-		"Update": func(r *Ref[[]int]) { r.Update(func([]int) []int { panic("defect") }) },
+		"Update": func(r *Ref[[]int]) { r.Update(rt.Root("sync"), func([]int) []int { panic("defect") }) },
 		"Modify": func(r *Ref[[]int]) {
-			RefModify(r, func([]int) struct {
+			RefModify(rt.Root("sync"), r, func([]int) struct {
 				F0 int
 				F1 []int
 			} {
@@ -141,10 +145,10 @@ func TestRefPoisonedByADefect(t *testing.T) {
 			})
 		},
 		"UpdateOwned": func(r *Ref[[]int]) {
-			RefUpdateOwned(r, func(v []int) []int {
+			RefUpdateOwned(rt.Root("sync"), r, func(v []int) []int {
 				v[0] = 9 // a write in place, then the defect
 				panic("defect")
-			}, clone, true)
+			}, clone, true, true)
 		},
 	}
 	for name, defect := range defects {
@@ -155,9 +159,9 @@ func TestRefPoisonedByADefect(t *testing.T) {
 		later := map[string]func(){
 			"Get":    func() { r.Get() },
 			"Set":    func() { r.Set([]int{2}) },
-			"Update": func() { r.Update(func(v []int) []int { return v }) },
-			"Modify": func() { RefModify(r, pair) },
-			"Owned":  func() { RefModifyOwned(r, pair, clone, true) },
+			"Update": func() { r.Update(rt.Root("sync"), func(v []int) []int { return v }) },
+			"Modify": func() { RefModify(rt.Root("sync"), r, pair) },
+			"Owned":  func() { RefModifyOwned(rt.Root("sync"), r, pair, clone, true, true) },
 		}
 		for op, f := range later {
 			if p := raised(f); p != refPoisoned {
@@ -183,10 +187,10 @@ func TestRefOwnsItsValue(t *testing.T) {
 	given := map[int]int{0: 0}
 	r := NewRef(given)
 	own := func(k int) {
-		RefUpdateOwned(r, func(m map[int]int) map[int]int {
+		RefUpdateOwned(rt.Root("sync"), r, func(m map[int]int) map[int]int {
 			m[k] = k
 			return m
-		}, clone, true)
+		}, clone, true, true)
 	}
 	own(1)
 	if len(given) != 1 {
@@ -208,7 +212,7 @@ func TestRefOwnsItsValue(t *testing.T) {
 		t.Errorf("an owned Update wrote a value Set stored: %v", set)
 	}
 	outside := map[int]int{8: 8}
-	r.Update(func(map[int]int) map[int]int { return outside })
+	r.Update(rt.Root("sync"), func(map[int]int) map[int]int { return outside })
 	own(5)
 	if len(outside) != 1 {
 		t.Errorf("an owned Update wrote a value a plain Update stored: %v", outside)
@@ -222,6 +226,7 @@ func TestRefOwnsItsValue(t *testing.T) {
 // goroutines at once lose no Update and never write a value a Get
 // returned. A copy made outside the lock (the mutant) loses Updates.
 func TestRefOwnedSharedByTasks(t *testing.T) {
+	rt.Spread() // goroutines of the test's own (rt.Alone)
 	const workers, each = 6, 300
 	r := NewRef(map[int]int{})
 	clone := func(m map[int]int) map[int]int { return maps.Clone(m) }
@@ -231,11 +236,11 @@ func TestRefOwnedSharedByTasks(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for i := range each {
-				RefUpdateOwned(r, func(m map[int]int) map[int]int {
+				RefUpdateOwned(rt.Root("sync"), r, func(m map[int]int) map[int]int {
 					runtime.Gosched()
 					m[w*each+i] = i
 					return m
-				}, clone, true)
+				}, clone, true, true)
 				if i%3 == 0 {
 					g := r.Get()
 					n := len(g)

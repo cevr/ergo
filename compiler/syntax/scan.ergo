@@ -26,12 +26,10 @@ type Scanned {
 // scanner is the state of one scan, with Go's semicolon insertion and the
 // word contexts of import and extern (the Go scanner's doc comment).
 type scanner {
-	src      string,
-	offset   int,
-	ids      dense.Count[Tok],
-	n        int,
-	kind     []uint8,
-	start    []uint32,
+	src    string,
+	offset int,
+	// toks is the token columns; its ids count the tokens.
+	toks     Toks,
 	comments Comments,
 	semi     bool,
 	failed   bool,
@@ -54,15 +52,27 @@ type scanner {
 
 // Scan is the scan of src.
 func Scan(src string) Scanned {
+	let s = scanAll(src)
+	Scanned{
+		Toks:     s.toks,
+		Comments: s.comments,
+		Failed:   s.failed,
+		Message:  s.message,
+		Offset:   s.at,
+		Length:   s.length,
+	}
+}
+
+// scanAll is the scanner at the end of the scan of src, a failure's
+// ILLEGAL and EOF past its tokens. Parse takes it whole: a new value, so
+// its columns move into the parser with no copy.
+func scanAll(src string) scanner {
 	// Room for a token per five bytes: the corpus has one per 6.8.
 	let room = len(src)/5 + 16
 	let mut s = scanner{
 		src:    src,
 		offset: 0,
-		ids:    dense.NewCount[Tok](),
-		n:      0,
-		kind:   zeros8(room),
-		start:  zeros32(room),
+		toks:   Toks{ids: dense.NewCount[Tok](), kind: zeros32(room), start: zeros32(room), end: zeros32(room)},
 		// Room for a comment per 64 bytes: the corpus has one per 132.
 		comments: newComments(len(src)/64 + 4),
 		semi:     false,
@@ -80,32 +90,48 @@ func Scan(src string) Scanned {
 		open:     0,
 	}
 	run(&s)
-	Scanned{
-		Toks:     Toks{ids: s.ids, kind: s.kind, start: s.start},
-		Comments: s.comments,
-		Failed:   s.failed,
-		Message:  s.message,
-		Offset:   s.at,
-		Length:   s.length,
+	if s.failed {
+		failTail(&s)
 	}
+	s
+}
+
+// failTail puts the ILLEGAL and EOF of the Go scanner's fail past the
+// tokens, where Toks keeps room for them and Parse reads them: at the
+// failure, or at the end of the last token when that is past it.
+func failTail(s *scanner) {
+	let n = NumToks(s.toks)
+	let mut at = s.at
+	let mut end = s.at + s.length
+	if n > 0 && int(s.toks.end[n-1]) > at {
+		at = int(s.toks.end[n-1])
+		end = at
+	}
+	s.toks.kind[n] = uint32(Illegal)
+	s.toks.start[n] = uint32(at)
+	s.toks.end[n] = uint32(end)
+	s.toks.kind[n+1] = uint32(EOF)
+	s.toks.start[n+1] = uint32(end)
+	s.toks.end[n+1] = uint32(end)
 }
 
 // growToks doubles the token columns.
 func growToks(s *scanner) {
-	s.kind = slices.AppendAll(s.kind, zeros8(len(s.kind)))
-	s.start = slices.AppendAll(s.start, zeros32(len(s.start)))
+	s.toks.kind = slices.AppendAll(s.toks.kind, zeros32(len(s.toks.kind)))
+	s.toks.start = slices.AppendAll(s.toks.start, zeros32(len(s.toks.start)))
+	s.toks.end = slices.AppendAll(s.toks.end, zeros32(len(s.toks.end)))
 }
 
 // push appends a token with no change of context.
-func push(s *scanner, kind uint8, start int) {
-	let i = s.n
-	if i+2 >= len(s.kind) {
+func push(s *scanner, kind uint8, start int, end int) {
+	let i = NumToks(s.toks)
+	if i+2 >= len(s.toks.kind) {
 		growToks(s)
 	}
-	s.kind[i] = kind
-	s.start[i] = uint32(start)
-	s.n = i + 1
-	let _ = dense.Next(&s.ids)
+	s.toks.kind[i] = uint32(kind)
+	s.toks.start[i] = uint32(start)
+	s.toks.end[i] = uint32(end)
+	let _ = dense.Next(&s.toks.ids)
 }
 
 // semiAfter reports whether a newline after a token of kind inserts a
@@ -129,8 +155,8 @@ func semiRule(kind uint8) bool {
 // emit appends a token and moves the semicolon rule and the word contexts
 // on. It stays small enough for Go to inline: the contexts move in
 // moveContext, only while one is open or one opens.
-func emit(s *scanner, kind uint8, start int) {
-	push(s, kind, start)
+func emit(s *scanner, kind uint8, start int, end int) {
+	push(s, kind, start, end)
 	s.semi = semiAfter(kind)
 	if s.ctx || kind == Import || kind == Extern {
 		moveContext(s, kind)
@@ -183,7 +209,7 @@ func insertSemi(s *scanner, pos int) {
 		s.ctx = false
 	}
 	if s.semi {
-		push(s, Semicolon, pos)
+		push(s, Semicolon, pos, pos)
 		s.semi = false
 	}
 }
@@ -221,7 +247,7 @@ func run(s *scanner) {
 				return
 			}
 			insertSemi(s, n)
-			push(s, EOF, n)
+			push(s, EOF, n, n)
 			return
 		}
 		let start = i
@@ -245,26 +271,37 @@ func run(s *scanner) {
 		}
 		if k&clsLetter != 0 && s.paths == 0 {
 			// An identifier or keyword that starts with an ASCII letter
-			// cannot fail: identifier's ASCII path, with the offset kept here.
-			let end = identRest(src, start+1)
-			emit(s, keyword(src, start, end), start)
+			// cannot fail: identifier's ASCII path, with the offset kept here,
+			// and identRest's ASCII loop written out (a call per word cost
+			// more than its loop, capstone S2f).
+			let mut end = start + 1
+			for end < n && classes[int(src[end])]&(clsLetter|clsDigit) != 0 {
+				end = end + 1
+			}
+			if end < n && src[end] >= 0x80 {
+				end = identRestWide(src, end)
+			}
+			emit(s, keyword(src, start, end), start, end)
 			i = end
 			continue
 		}
 		if punct[int(c)] != byte(0) && s.open == 0 {
 			// Punctuation that is its one byte, outside an interpolation
 			// (where a parenthesis counts depth): operator's kind, at once.
-			emit(s, uint8(punct[int(c)]), start)
+			emit(s, uint8(punct[int(c)]), start, start+1)
 			i = start + 1
 			continue
 		}
-		if s.open == 0 {
-			// An operator its first two bytes decide, kept in this arm.
+		if s.open == 0 && op1[int(c)] != byte(0) {
+			// An operator its first two bytes decide, kept in this arm:
+			// opFast written out (a call per operator cost more than its
+			// body, capstone S2f).
 			let c1 = if start+1 < n { src[start+1] } else { byte(0) }
-			let o = opFast(c, c1)
+			let o = if c1 == '=' { uint8(opEq[int(c)]) } else { opAlone(c, c1) }
 			if o != uint8(0) {
-				emit(s, o, start)
-				i = if c1 == '=' { start + 2 } else { start + 1 }
+				let end = if c1 == '=' { start + 2 } else { start + 1 }
+				emit(s, o, start, end)
+				i = end
 				continue
 			}
 		}
@@ -325,18 +362,23 @@ let opEq = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00
 // comment, or a number after `.`): then run asks operator, opKind and the
 // rest. The token is two bytes long when c1 is `=`, else one.
 func opFast(c byte, c1 byte) uint8 {
-	let k = op1[int(c)]
-	if k == byte(0) {
+	if op1[int(c)] == byte(0) {
 		return 0
 	}
 	if c1 == '=' {
 		return uint8(opEq[int(c)])
 	}
+	opAlone(c, c1)
+}
+
+// opAlone is opFast's kind of an operator byte c followed by c1, which is
+// not `=`; small enough for Go to inline into run.
+func opAlone(c byte, c1 byte) uint8 {
 	let k1 = classes[int(c1)]
 	if c1 == c || k1&clsOpNext != 0 || (c == '.' && k1&clsDigit != 0) {
 		return 0
 	}
-	uint8(k)
+	uint8(op1[int(c)])
 }
 
 // punct is the kind of each punctuation byte that is a token alone (`(`,
@@ -421,7 +463,7 @@ func identifier(s *scanner, start int) {
 		first = d.Size
 	}
 	let end = identRest(src, start+first)
-	emit(s, keyword(src, start, end), start)
+	emit(s, keyword(src, start, end), start, end)
 	s.offset = end
 }
 
@@ -761,10 +803,10 @@ func pathWord(s *scanner, start int) {
 	}
 	s.offset = end
 	if s.pathGo && end-start == 2 && src[start:end] == "go" {
-		emit(s, Go, start)
+		emit(s, Go, start, end)
 		return
 	}
-	emit(s, Path, start)
+	emit(s, Path, start, end)
 }
 
 // digits is the end of the decimal digits and separators from i.
@@ -845,7 +887,7 @@ func prefixed(s *scanner, start int) {
 		fail(s, start, end-start, "'_' must separate successive digits in "+lit)
 		return
 	}
-	emit(s, Int, start)
+	emit(s, Int, start, end)
 	s.offset = end
 }
 
@@ -886,12 +928,12 @@ func numberLit(s *scanner, start int) {
 	}
 	let suffixEnd = identRest(src, end)
 	if suffixEnd == end {
-		emit(s, if float { Float } else { Int }, start)
+		emit(s, if float { Float } else { Int }, start, end)
 		s.offset = end
 		return
 	}
 	if !float && isDurationUnit(src[end:suffixEnd]) {
-		emit(s, Duration, start)
+		emit(s, Duration, start, suffixEnd)
 		s.offset = suffixEnd
 		return
 	}
@@ -906,7 +948,7 @@ func raw(s *scanner, start int) {
 		fail(s, start, 1, "raw string literal not terminated")
 		return
 	}
-	emit(s, String, start)
+	emit(s, String, start, start+close+2)
 	s.offset = start + close + 2
 }
 
@@ -923,7 +965,7 @@ func interpreted(s *scanner, quote int, segStart int, kind uint8) {
 		let c = src[i]
 		if c == '\\' {
 			if i+1 < n && src[i+1] == '(' {
-				emit(s, if kind == String { StringHead } else { StringMid }, segStart)
+				emit(s, if kind == String { StringHead } else { StringMid }, segStart, i+2)
 				openInterpolation(s, quote)
 				s.offset = i + 2
 				return
@@ -937,7 +979,7 @@ func interpreted(s *scanner, quote int, segStart int, kind uint8) {
 			fail(s, quote, 1, "newline in string")
 			return
 		} else if c == '"' {
-			emit(s, if kind == String { String } else { StringTail }, segStart)
+			emit(s, if kind == String { String } else { StringTail }, segStart, i+1)
 			s.offset = i + 1
 			return
 		}
@@ -979,7 +1021,7 @@ func runeLit(s *scanner, start int) {
 				fail(s, start, i+1-start, "invalid rune literal "+src[start:i+1])
 				return
 			}
-			emit(s, Rune, start)
+			emit(s, Rune, start, i+1)
 			s.offset = i + 1
 			return
 		}
@@ -1173,7 +1215,7 @@ func operator(s *scanner, start int) {
 		fail(s, start, 1, "unexpected character "+strconv.QuoteRune(rune(c)))
 		return
 	}
-	emit(s, k, start)
+	emit(s, k, start, start+opLen(k))
 	s.offset = start + opLen(k)
 }
 

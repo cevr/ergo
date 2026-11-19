@@ -1,0 +1,421 @@
+{
+  "about": "lease-sync's application mutants: the program forms of models/replica's mutants, the RPO1 rows and RP3's (the rpc provider, the long poll, the loops) and RPG1's (the paged window); each is judged by the example's tests and laws (scripts/examples lease-sync), not by a compiler test. The law that kills each is named in its rule.",
+  "mutants": [
+    {
+      "name": "rp1-resend-not-recognised",
+      "origin": "wf10/sync RP1 (model m1)",
+      "file": "examples/lease-sync/replica/server/server.ergo",
+      "from": "\tmatch b.Commands.Get(m.ID) {\n",
+      "to": "\tmatch Map[domain.CommandID, C]{}.Get(m.ID) {\n",
+      "rule": "A resend of a kept id is the first receipt and changes nothing: Authority.PushIsIdempotent for memory.Leases.",
+      "anchor": {
+        "tests": [
+          "examples:lease-sync"
+        ]
+      },
+      "killers": [
+        "examples:lease-sync"
+      ]
+    },
+    {
+      "name": "rp1-accepts-ahead",
+      "origin": "wf10/sync RP1 (law A3)",
+      "file": "examples/lease-sync/replica/server/server.ergo",
+      "from": "\tif replica.SeqOf(m.ID, origin) != expected {\n",
+      "to": "\tif replica.SeqOf(m.ID, origin) < expected {\n",
+      "rule": "A command past the client's next one is refused OutOfOrder and keeps nothing, so a client's log has no gap: Authority.AheadIsRefused, StateIsLogReplay, ProtocolHolds.",
+      "anchor": {
+        "tests": [
+          "examples:lease-sync"
+        ]
+      },
+      "killers": [
+        "examples:lease-sync"
+      ]
+    },
+    {
+      "name": "rp1-refusal-not-recorded",
+      "origin": "wf10/sync RP1 (plan 3.9 difference 2)",
+      "file": "examples/lease-sync/replica/server/server.ergo",
+      "from": "\t\treturn []replica.Fact[lease.Event, lease.Refusal]{replica.Refused[lease.Refusal]{Why: why}}\n",
+      "to": "\t\treturn []replica.Fact[lease.Event, lease.Refusal]{}\n",
+      "rule": "A refusal is a fact in the log, so the client reads its reason later: RefusalIsTold within ProtocolHolds.",
+      "anchor": {
+        "tests": [
+          "examples:lease-sync"
+        ]
+      },
+      "killers": [
+        "examples:lease-sync"
+      ]
+    },
+    {
+      "name": "rpo1-snapshot-leaks-refusals",
+      "origin": "wf10/fate RPO1 (risk 2)",
+      "file": "examples/lease-sync/replica/server/server.ergo",
+      "from": "\t\tif r.Position <= from || replica.SeqOf(r.ID, by) == 0 {\n",
+      "to": "\t\tif r.Position <= from {\n",
+      "rule": "A snapshot tells the caller's refusals only, never another client's: SnapshotIsReplay.",
+      "anchor": {
+        "tests": [
+          "examples:lease-sync"
+        ]
+      },
+      "killers": [
+        "examples:lease-sync"
+      ]
+    },
+    {
+      "name": "rpo1-step-drops-snapshot-refusals",
+      "origin": "wf10/fate RPO1 (model m13)",
+      "file": "examples/lease-sync/replica/client.ergo",
+      "from": "\t\t\t\trefused = tell(st.Pending, refused, t.ID, t.Why)\n",
+      "to": "\t\t\t\trefused = refused\n",
+      "rule": "After a snapshot every refused own command it skips is in Refused: RefusalIsTold (replica and replicatest ProtocolHolds).",
+      "anchor": {
+        "tests": [
+          "examples:lease-sync"
+        ]
+      },
+      "killers": [
+        "examples:lease-sync"
+      ]
+    },
+    {
+      "name": "rp1-delta-drops-refusals",
+      "origin": "wf10/sync RP1",
+      "file": "examples/lease-sync/replica/client.ergo",
+      "from": "\t\t\t\trefused = tell(st.Pending, refused, r.ID, x.Why)\n",
+      "to": "\t\t\t\trefused = refused\n",
+      "rule": "A refused own command in a delta joins Refused: RefusalIsTold.",
+      "anchor": {
+        "tests": [
+          "examples:lease-sync"
+        ]
+      },
+      "killers": [
+        "examples:lease-sync"
+      ]
+    },
+    {
+      "name": "rp1-keep-confirmed",
+      "origin": "wf10/sync RP1 (model m3)",
+      "file": "examples/lease-sync/replica/client.ergo",
+      "from": "\t\tPending: above(st.Pending, known, st.id),\n",
+      "to": "\t\tPending: st.Pending,\n",
+      "rule": "A delta that confirms a command takes it out of Pending: ViewIsCommittedPlusPending, ProtocolHolds.",
+      "anchor": {
+        "tests": [
+          "examples:lease-sync"
+        ]
+      },
+      "killers": [
+        "examples:lease-sync"
+      ]
+    },
+    {
+      "name": "rp1-snapshot-no-lastseq",
+      "origin": "wf10/sync RP1 (model m4)",
+      "file": "examples/lease-sync/replica/client.ergo",
+      "from": "\t\t\t\tPending: above(st.Pending, s.LastSeq, st.id),\n",
+      "to": "\t\t\t\tPending: st.Pending,\n",
+      "rule": "A snapshot's LastSeq prunes the commands it holds: ViewIsCommittedPlusPending, ProtocolHolds.",
+      "anchor": {
+        "tests": [
+          "examples:lease-sync"
+        ]
+      },
+      "killers": [
+        "examples:lease-sync"
+      ]
+    },
+    {
+      "name": "rp1-accept-gap",
+      "origin": "wf10/sync RP1 (model m5)",
+      "file": "examples/lease-sync/replica/client.ergo",
+      "from": "\t\t\tif d.From > st.cursor || st.cursor >= d.From+len(d.Records) {\n",
+      "to": "\t\t\tif st.cursor >= d.From+len(d.Records) {\n",
+      "rule": "A delta that starts past the cursor is ignored: the base stays the replay of a log prefix (ViewIsCommittedPlusPending, ProtocolHolds).",
+      "anchor": {
+        "tests": [
+          "examples:lease-sync"
+        ]
+      },
+      "killers": [
+        "examples:lease-sync"
+      ]
+    },
+    {
+      "name": "rp1-accept-old-snapshot",
+      "origin": "wf10/sync RP1 (model m6)",
+      "file": "examples/lease-sync/replica/client.ergo",
+      "from": "\t\t\tif s.At <= st.cursor {\n",
+      "to": "\t\t\tif s.At < 0 {\n",
+      "rule": "A snapshot at or behind the cursor is ignored: replicatest OldFrameIsIgnored (no other law reaches an old snapshot).",
+      "anchor": {
+        "tests": [
+          "examples:lease-sync"
+        ]
+      },
+      "killers": [
+        "examples:lease-sync"
+      ]
+    },
+    {
+      "name": "rp1-no-floor",
+      "origin": "wf10/sync RP1 (model m7)",
+      "file": "examples/lease-sync/replica/client.ergo",
+      "from": "\tif st.cursor < st.floor {\n",
+      "to": "\tif false {\n",
+      "rule": "Below its floor the replica is Loading: ViewIsCommittedPlusPending.",
+      "anchor": {
+        "tests": [
+          "examples:lease-sync"
+        ]
+      },
+      "killers": [
+        "examples:lease-sync"
+      ]
+    },
+    {
+      "name": "rp1-ids-reset-on-dropcache",
+      "origin": "wf10/sync RP1 (model m8)",
+      "file": "examples/lease-sync/replica/client.ergo",
+      "from": "\t\tstay(settle(src, State[S, C, F]{..st, base: src.Initial, cursor: 0}))\n",
+      "to": "\t\tstay(settle(src, State[S, C, F]{..st, base: src.Initial, cursor: 0, next: 1}))\n",
+      "rule": "A dropped cache keeps the next command number, so no id is reused: ProtocolHolds, SettledIsServerState.",
+      "anchor": {
+        "tests": [
+          "examples:lease-sync"
+        ]
+      },
+      "killers": [
+        "examples:lease-sync"
+      ]
+    },
+    {
+      "name": "rp1-drop-on-unlink",
+      "origin": "wf10/sync RP1 (model m9)",
+      "file": "examples/lease-sync/replica/client.ergo",
+      "from": "\t\tstay(State[S, C, F]{..st, Conn: l.Conn, now: l.At})\n",
+      "to": "\t\tstay(State[S, C, F]{..st, Conn: l.Conn, now: l.At, Pending: []domain.Envelope[C]{}})\n",
+      "rule": "A link change never changes Pending: ViewIsCommittedPlusPending, ProtocolHolds, the offline case.",
+      "anchor": {
+        "tests": [
+          "examples:lease-sync"
+        ]
+      },
+      "killers": [
+        "examples:lease-sync"
+      ]
+    },
+    {
+      "name": "rp1-submit-waits",
+      "origin": "wf10/sync RP1 (law C8)",
+      "file": "examples/lease-sync/replica/client.ergo",
+      "from": "\t\tstay(settle(src, State[S, C, F]{..st, Pending: st.Pending.Append(env), next: st.next + 1}))\n",
+      "to": "\t\tstay(State[S, C, F]{..st, Pending: st.Pending.Append(env), next: st.next + 1})\n",
+      "rule": "A press shows at once: the view is the base plus a rerun of Pending after every signal (ViewIsCommittedPlusPending).",
+      "anchor": {
+        "tests": [
+          "examples:lease-sync"
+        ]
+      },
+      "killers": [
+        "examples:lease-sync"
+      ]
+    },
+    {
+      "name": "rp3-retry-changes-id",
+      "origin": "wf10/sync RP3 (plan §6 RP3 mutant 1)",
+      "file": "examples/lease-sync/replica/loop.ergo",
+      "from": "\t\t\ta.Push(m) catch {\n",
+      "to": "\t\t\ta.Push(domain.Envelope[C]{..m, ID: domain.CommandID(\"\\(m.ID)/\\(tries)\")}) catch {\n",
+      "rule": "A retry sends the same envelope, so the authority answers it by its id: replica/rpc RetryResendsTheSameID.",
+      "anchor": {
+        "tests": [
+          "examples:lease-sync"
+        ]
+      },
+      "killers": [
+        "examples:lease-sync"
+      ]
+    },
+    {
+      "name": "rp3-unavailable-not-retried",
+      "origin": "wf10/sync RP3",
+      "file": "examples/lease-sync/replica/loop.ergo",
+      "from": "\t\t\tcase Unavailable as u:\n\t\t\t\treturn u\n",
+      "to": "\t\t\tcase Unavailable as u:\n\t\t\t\treturn ConnOf(u, tries)\n",
+      "rule": "A push the network drops is retried as the Schedule decides: replica/rpc RetryResendsTheSameID.",
+      "anchor": {
+        "tests": [
+          "examples:lease-sync"
+        ]
+      },
+      "killers": [
+        "examples:lease-sync"
+      ]
+    },
+    {
+      "name": "rp3-unauthorized-offline",
+      "origin": "wf10/sync RP3 (plan §6 RP3 mutant 2)",
+      "file": "examples/lease-sync/replica/loop.ergo",
+      "from": "\tcase Unauthorized:\n\t\tNeedsAuth\n",
+      "to": "\tcase Unauthorized:\n\t\tOffline{Attempt: attempt}\n",
+      "rule": "A refused client shows as needing a sign-in, never as offline: replica/rpc RefusedClientNeedsSignIn.",
+      "anchor": {
+        "tests": [
+          "examples:lease-sync"
+        ]
+      },
+      "killers": [
+        "examples:lease-sync"
+      ]
+    },
+    {
+      "name": "rp3-long-poll-spins",
+      "origin": "wf10/sync RP3 (plan §6 RP3 mutant 3)",
+      "file": "examples/lease-sync/replica/server/server.ergo",
+      "from": "\tif len(Records(s)) == from {\n",
+      "to": "\tif false {\n",
+      "rule": "A pull with nothing new is held, so an idle log costs one call per wait: replica/rpc LongPollHolds and IdleCostsOneCallPerWait.",
+      "anchor": {
+        "tests": [
+          "examples:lease-sync"
+        ]
+      },
+      "killers": [
+        "examples:lease-sync"
+      ]
+    },
+    {
+      "name": "rp3-push-rings-nobody",
+      "origin": "wf10/sync RP3",
+      "file": "examples/lease-sync/replica/server/server.ergo",
+      "from": "\t\tring(s.bells)\n",
+      "to": "",
+      "rule": "A kept record ends every held pull at once: replica/rpc LongPollHolds.",
+      "anchor": {
+        "tests": [
+          "examples:lease-sync"
+        ]
+      },
+      "killers": [
+        "examples:lease-sync"
+      ]
+    },
+    {
+      "name": "rp3-wait-ignored",
+      "origin": "wf10/sync RP3",
+      "file": "examples/lease-sync/replica/server/handle.ergo",
+      "from": "\t\tlet f = if p.Wait { Await(s, p.By, p.From, wait) } else { Pull(s, p.By, p.From) }\n",
+      "to": "\t\tlet f = Pull(s, p.By, p.From)\n",
+      "rule": "A Pull call that asks to wait is the long poll: replica/rpc LongPollHolds.",
+      "anchor": {
+        "tests": [
+          "examples:lease-sync"
+        ]
+      },
+      "killers": [
+        "examples:lease-sync"
+      ]
+    },
+    {
+      "name": "rp3-pull-unauthorized-skipped",
+      "origin": "wf10/sync RP3 (plan risk 6)",
+      "file": "examples/lease-sync/replica/server/handle.ergo",
+      "from": "\t\tif !allow(p.By) {\n",
+      "to": "\t\tif false {\n",
+      "rule": "Pull runs the same authorization as Push, so a refused client gets no frame: replica/rpc RefusedClientNeedsSignIn.",
+      "anchor": {
+        "tests": [
+          "examples:lease-sync"
+        ]
+      },
+      "killers": [
+        "examples:lease-sync"
+      ]
+    },
+    {
+      "name": "rpg1-page-doubles-row",
+      "origin": "wf10/sync RPG1",
+      "file": "examples/lease-sync/replica/page/window.ergo",
+      "from": "\t\tif x.ID == r.ID || x.Key == r.Key {\n",
+      "to": "\t\tif false {\n",
+      "rule": "A page that overlaps the window adds no row twice (rows are known by ID and key): replica/page WindowIsTheListsWindow.",
+      "anchor": {
+        "tests": [
+          "examples:lease-sync"
+        ]
+      },
+      "killers": [
+        "examples:lease-sync"
+      ]
+    },
+    {
+      "name": "rpg1-live-row-in-gap",
+      "origin": "wf10/sync RPG1",
+      "file": "examples/lease-sync/replica/page/window.ergo",
+      "from": "\tif w.end {\n\t\treturn Window[K, T]{..w, rows: insert(w.rows, r)}\n",
+      "to": "\tif true {\n\t\treturn Window[K, T]{..w, rows: insert(w.rows, r)}\n",
+      "rule": "A live row joins only a window that holds the list's last row; any other window holds it: replica/page LiveRowStaysAfterLoadedEnd, ConfirmedLocalRowIsNotTwice, WindowIsTheListsWindow.",
+      "anchor": {
+        "tests": [
+          "examples:lease-sync"
+        ]
+      },
+      "killers": [
+        "examples:lease-sync"
+      ]
+    },
+    {
+      "name": "rpg1-failed-page-drops-window",
+      "origin": "wf10/sync RPG1",
+      "file": "examples/lease-sync/replica/page/window.ergo",
+      "from": "{ Window[K, T]{..w, failed: true} }",
+      "to": "{ Window[K, T]{..w, rows: []Row[K, T]{}, failed: true} }",
+      "rule": "A failed page changes no row: replica/page FailedPageChangesNothing, WindowIsTheListsWindow.",
+      "anchor": {
+        "tests": [
+          "examples:lease-sync"
+        ]
+      },
+      "killers": [
+        "examples:lease-sync"
+      ]
+    },
+    {
+      "name": "rpg1-confirmed-local-twice",
+      "origin": "wf10/sync RPG1",
+      "file": "examples/lease-sync/replica/page/window.ergo",
+      "from": "\t\tif !holds(w.rows, p.ID) {\n",
+      "to": "\t\tif true {\n",
+      "rule": "A pending row whose confirmed row arrived is shown once: replica/page ConfirmedLocalRowIsNotTwice, WindowIsTheListsWindow.",
+      "anchor": {
+        "tests": [
+          "examples:lease-sync"
+        ]
+      },
+      "killers": [
+        "examples:lease-sync"
+      ]
+    },
+    {
+      "name": "rpg1-page-leaves-gap",
+      "origin": "wf10/sync RPG1",
+      "file": "examples/lease-sync/replica/page/window.ergo",
+      "from": "\tif len(w.rows) > 0 && !(atMost",
+      "to": "\tif false && len(w.rows) > 0 && !(atMost",
+      "rule": "A page that does not touch the window changes nothing, so the rows have no gap: replica/page WindowIsTheListsWindow.",
+      "anchor": {
+        "tests": [
+          "examples:lease-sync"
+        ]
+      },
+      "killers": [
+        "examples:lease-sync"
+      ]
+    }
+  ]
+}

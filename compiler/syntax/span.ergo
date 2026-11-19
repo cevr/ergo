@@ -1,23 +1,17 @@
 // tokens is what a node's span is read from: the source, the token columns
-// (with the virtual ILLEGAL and EOF of a failed scan, which end at vend) and
-// the start of the first comment, -1 for none.
+// (with the ILLEGAL and EOF of a failed scan) and the start of the first
+// comment, -1 for none.
 type tokens {
 	src    string,
-	kinds  []uint8,
+	kinds  []uint32,
 	starts []uint32,
-	nreal  int,
-	vend   int,
+	ends   []uint32,
 	cmt0   int,
 }
 
 func tokPos(k tokens, j int) int { int(k.starts[j]) }
 
-func tokEnd(k tokens, j int) int {
-	if j >= k.nreal {
-		return k.vend
-	}
-	End(k.src, k.kinds[j], int(k.starts[j]))
-}
+func tokEnd(k tokens, j int) int { int(k.ends[j]) }
 
 // optPos is the offset of the optional token word w.
 func optPos(k tokens, w uint32) int { int(k.starts[int(w)-1]) }
@@ -31,7 +25,7 @@ func posOf(t Tree, k tokens, x uint32) int {
 		return 0
 	}
 	let i = int(x)
-	let kd = t.kind[i]
+	let kd = uint8(t.kind[i])
 	let tok = int(t.tok[i])
 	let a = t.a[i]
 	if kd == KIdent || kd == KBasicLit || kd == KParenExpr || kd == KStarExpr || kd == KUnaryExpr || kd == KTryExpr || kd == KReturnStmt || kd == KBranchStmt || kd == KBlockStmt || kd == KIfStmt || kd == KSwitchStmt || kd == KTypeSwitchStmt || kd == KForStmt || kd == KRangeStmt || kd == KAssertStmt || kd == KSkipStmt || kd == KArrayType || kd == KContextLit || kd == KErrorRow || kd == KMachineType || kd == KImportDecl || kd == KContextDecl || kd == KTestDecl || kd == KLawDecl || kd == KExternSpec || kd == KContextBody || kd == KNeedsClause || kd == KTakesClause || kd == KProvidesClause || kd == KMachineEntry || kd == KCatchArm || kd == KCaseClause {
@@ -137,7 +131,7 @@ func endOf(t Tree, k tokens, x uint32) int {
 		return 0
 	}
 	let i = int(x)
-	let kd = t.kind[i]
+	let kd = uint8(t.kind[i])
 	let tok = int(t.tok[i])
 	let a = t.a[i]
 	let b = t.b[i]

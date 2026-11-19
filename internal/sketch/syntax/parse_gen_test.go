@@ -1,7 +1,7 @@
 package syntax
 
-// A seeded generator of Ergo programs for the parse agreement
-// (TestParseAgreesWithGo). It writes declarations from the grammar's forms with
+// A seeded generator of Ergo programs for the decoder property
+// (TestDecodeAgreesWithView) and the round trip (TestFormatParseRoundTrip). It writes declarations from the grammar's forms with
 // random expressions, types, patterns and statements inside, and now and
 // then a stray token, so both valid trees and diagnostics are reached.
 
@@ -120,7 +120,7 @@ func (g *progGen) params() {
 func (g *progGen) expr() {
 	g.stray()
 	if g.depth > 5 {
-		g.w(g.pick("x", "1", "\"s\"", "y"))
+		g.w(g.pick("x", "1", "\"s\"", "y", "`two\nlines`"))
 		return
 	}
 	g.depth++
@@ -225,7 +225,7 @@ func (g *progGen) expr() {
 	case 14:
 		g.w("context { A: x, B, C: y }")
 	case 15:
-		g.w(g.pick("1", "2.5", "500ms", "'c'", "`raw`", "\"s\"", "0x1F"))
+		g.w(g.pick("1", "2.5", "500ms", "'c'", "`raw`", "`raw\nlines`", "\"s\"", "0x1F"))
 	case 16:
 		g.w("T{..b, F: 1}")
 	default:
@@ -304,7 +304,7 @@ func (g *progGen) stmts() {
 func (g *progGen) decl() {
 	g.stray()
 	if g.r.Intn(4) == 0 {
-		g.w("// doc of the next declaration\n")
+		g.w(g.pick("// doc of the next declaration\n", "/* a block\n   comment */\n"))
 	}
 	switch g.r.Intn(16) {
 	case 0:

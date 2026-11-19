@@ -141,6 +141,7 @@ var testHelpers = []struct{ key, base string }{
 	{"Goal", "ergoGoal"}, {"Witness", "ergoWitness"}, {"Broken", "ergoBroken"}, {"testgen", "testgen"},
 	{"Flag", "ergoFlag"}, {"Source", "ergoSource"}, {"Replay", "ergoReplay"},
 	{"Cached", "ergoCached"}, {"CachedRun", "ergoCachedRun"},
+	{"TestAmbient", "ergoTestAmbient"},
 	{"SkipOf", "ergoSkipOf"}, {"Skipping", "ergoSkipping"}, {"Skipped", "ergoSkipped"}, {"Skippable", "ergoSkippable"}, {"SkipRun", "ergoSkipRun"}, {"SkipNow", "ergoSkipNow"}, {"SkipNote", "ergoSkipNote"},
 }
 
@@ -639,14 +640,7 @@ func (fc *funcCtx) assert(s *syntax.AssertStmt) {
 	if x, lt, rt, ok := fc.l.assertShown(s.X); ok {
 		// A try that starts the assert covers the whole comparison: its
 		// operands are lowered under it, as (try a) == b lowers a (q105).
-		inTry := tried(s.X) != s.X
-		if inTry {
-			fc.tries++
-		}
-		cond, text = fc.assertCompare(x, lt, rt, text)
-		if inTry {
-			fc.tries--
-		}
+		cond, text = fc.underTriedAssert(s.X, func() (string, string) { return fc.assertCompare(x, lt, rt, text) })
 	} else {
 		cond = fc.value(s.X)
 	}
@@ -1294,7 +1288,14 @@ func (l *lowerer) harness() string {
 	return strings.NewReplacer(pairs...).Replace(harnessGo + harnessReachGo)
 }
 
-const harnessGo = `// $Assertion is a failed assert, the panic that ends its case (196l).
+const harnessGo = `// $TestAmbient is the test runner's provider of TestAmbient (rows.md,
+// Test's ambient): the folder of one case, which the with or the law case that
+// builds the context made and removes when the case ends.
+type $TestAmbient struct{ dir string }
+
+func (a $TestAmbient) folder(_ *$Task.Task) string { return a.dir }
+
+// $Assertion is a failed assert, the panic that ends its case (196l).
 // A refuted law is one too: its what is "law refuted", not "assert failed".
 type $Assertion struct{ at, text, what, declaration string }
 
