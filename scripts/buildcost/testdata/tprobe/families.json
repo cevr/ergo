@@ -110,7 +110,7 @@
             "control": true,
             "ergo-check": false,
             "ergo-test": true,
-            "go": false
+            "go": true
           }
         },
         {
@@ -119,8 +119,8 @@
           "kills": {
             "control": true,
             "ergo-check": false,
-            "ergo-test": false,
-            "go": false
+            "ergo-test": true,
+            "go": true
           }
         },
         {
@@ -129,8 +129,8 @@
           "kills": {
             "control": true,
             "ergo-check": false,
-            "ergo-test": false,
-            "go": false
+            "ergo-test": true,
+            "go": true
           }
         },
         {
@@ -139,8 +139,8 @@
           "kills": {
             "control": true,
             "ergo-check": false,
-            "ergo-test": false,
-            "go": false
+            "ergo-test": true,
+            "go": true
           }
         },
         {
@@ -149,8 +149,8 @@
           "kills": {
             "control": true,
             "ergo-check": false,
-            "ergo-test": false,
-            "go": false
+            "ergo-test": true,
+            "go": true
           }
         },
         {
@@ -159,8 +159,8 @@
           "kills": {
             "control": true,
             "ergo-check": false,
-            "ergo-test": false,
-            "go": false
+            "ergo-test": true,
+            "go": true
           }
         },
         {
@@ -169,8 +169,8 @@
           "kills": {
             "control": true,
             "ergo-check": false,
-            "ergo-test": false,
-            "go": false
+            "ergo-test": true,
+            "go": true
           }
         },
         {
@@ -180,7 +180,7 @@
             "control": true,
             "ergo-check": false,
             "ergo-test": true,
-            "go": false
+            "go": true
           }
         },
         {
@@ -189,8 +189,8 @@
           "kills": {
             "control": true,
             "ergo-check": false,
-            "ergo-test": false,
-            "go": false
+            "ergo-test": true,
+            "go": true
           }
         }
       ]
@@ -312,10 +312,10 @@
           "name": "diag-raw-string-open-offset",
           "ledger": "compiler/syntax/testdata/mutants.json",
           "kills": {
-            "control": false,
+            "control": true,
             "ergo-check": false,
-            "ergo-test": false,
-            "go": false
+            "ergo-test": true,
+            "go": true
           }
         },
         {
@@ -424,82 +424,162 @@
         {
           "name": "sh-comment-crosses-token",
           "ledger": "internal/selfhostcheck/testdata/mutants.json",
-          "kills": {}
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": false,
+            "go": true
+          }
         },
         {
           "name": "sh-synth-merges-operator",
           "ledger": "internal/selfhostcheck/testdata/mutants.json",
-          "kills": {}
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": false,
+            "go": true
+          }
         },
         {
           "name": "sh-limit-allows-one-extra-byte",
           "ledger": "internal/selfhostcheck/testdata/mutants.json",
-          "kills": {}
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": true,
+            "go": true
+          }
         },
         {
           "name": "sh-one-line-body-holds-two",
           "ledger": "internal/selfhostcheck/testdata/mutants.json",
-          "kills": {}
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": false,
+            "go": true
+          }
         },
         {
           "name": "sh-forces-break-misses-catch",
           "ledger": "internal/selfhostcheck/testdata/mutants.json",
-          "kills": {}
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": false,
+            "go": true
+          }
         },
         {
           "name": "sh-number-selector-glues",
           "ledger": "internal/selfhostcheck/testdata/mutants.json",
-          "kills": {}
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": false,
+            "go": true
+          }
         },
         {
           "name": "b18-format-law-rewrite-as-body",
           "ledger": "internal/selfhostcheck/testdata/mutants.json",
-          "kills": {}
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": true,
+            "go": true
+          }
         },
         {
           "name": "b18-format-law-rewrite-drops-guard",
           "ledger": "internal/selfhostcheck/testdata/mutants.json",
-          "kills": {}
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": false,
+            "go": true
+          }
         },
         {
           "name": "hostsyntax-format-limit-dropped",
           "ledger": "internal/selfhostcheck/testdata/mutants.json",
-          "kills": {}
+          "kills": {
+            "control": true,
+            "ergo-check": "skipped: the mutant edits Go (internal/hostsyntax/format.go), which no Ergo form runs",
+            "ergo-test": "skipped: the mutant edits Go (internal/hostsyntax/format.go), which no Ergo form runs",
+            "go": true
+          }
         },
         {
           "name": "hostsyntax-format-partial-text",
           "ledger": "internal/selfhostcheck/testdata/mutants.json",
-          "kills": {}
+          "kills": {
+            "control": true,
+            "ergo-check": "skipped: the mutant edits Go (internal/hostsyntax/format.go), which no Ergo form runs",
+            "ergo-test": "skipped: the mutant edits Go (internal/hostsyntax/format.go), which no Ergo form runs",
+            "go": true
+          }
         },
         {
           "name": "sh-implements-dropped",
           "ledger": "internal/selfhostcheck/testdata/mutants.json",
-          "kills": {}
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": true,
+            "go": true
+          }
         },
         {
           "name": "sh-own-dropped",
           "ledger": "internal/selfhostcheck/testdata/mutants.json",
-          "kills": {}
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": false,
+            "go": true
+          }
         },
         {
           "name": "sh-derive-reads-spec",
           "ledger": "internal/selfhostcheck/testdata/mutants.json",
-          "kills": {}
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": true,
+            "go": true
+          }
         },
         {
           "name": "hostsyntax-syntax-failure-swallowed",
           "ledger": "internal/selfhostcheck/testdata/mutants.json",
-          "kills": {}
+          "kills": {
+            "control": true,
+            "ergo-check": "skipped: the mutant edits Go (internal/hostsyntax/format.go), which no Ergo form runs",
+            "ergo-test": "skipped: the mutant edits Go (internal/hostsyntax/format.go), which no Ergo form runs",
+            "go": true
+          }
         },
         {
           "name": "sh-token-skips-merge",
           "ledger": "internal/selfhostcheck/testdata/mutants.json",
-          "kills": {}
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": false,
+            "go": true
+          }
         },
         {
           "name": "sh-line-probe-off-by-one",
           "ledger": "internal/selfhostcheck/testdata/mutants.json",
-          "kills": {}
+          "kills": {
+            "control": true,
+            "ergo-check": false,
+            "ergo-test": true,
+            "go": true
+          }
         }
       ]
     }
