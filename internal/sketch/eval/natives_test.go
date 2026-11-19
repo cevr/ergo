@@ -36,8 +36,7 @@ import (
 // oracle-o1-native-intn-modulo, oracle-o1-native-splitn-count,
 // oracle-o1-native-split-empty-sep, evbuilder-appendfrom-whole-run,
 // evbuilder-appendfrom-end-start, evbuilder-appendbytes-drops-last.
-// The tests read natives directly; a run loads them on first lookup.
-func init() { loadNatives() }
+// The tests read the natives through loadedNatives, which builds them.
 
 func TestNativesAgreeWithRuntime(t *testing.T) {
 	n := 300
@@ -66,9 +65,9 @@ func TestNativesAgreeWithRuntime(t *testing.T) {
 		g := nativeGen{r}
 		for _, c := range nativeCases(g) {
 			in.steps, in.bytes = 0, 0
-			nat := natives[c.name]
+			nat := loadedNatives().std[c.name]
 			if nat == nil {
-				nat = goNatives[c.name]
+				nat = loadedNatives().goLib[c.name]
 			}
 			if nat == nil {
 				t.Fatalf("no native %s", c.name)
@@ -83,7 +82,7 @@ func TestNativesAgreeWithRuntime(t *testing.T) {
 		}
 		// The rand stream, draw for draw.
 		s := r.Uint64N(1 << 20)
-		st, _ := natives["rand.newStream"](in, fr, fr.decl, nil, []Value{s})
+		st, _ := loadedNatives().std["rand.newStream"](in, fr, fr.decl, nil, []Value{s})
 		ref := v1rand.NewStream(s)
 		for k := 0; k < 20; k++ {
 			var got, want string
@@ -130,9 +129,9 @@ func TestNativeWorkIsWhatGoReads(t *testing.T) {
 			args = []Value{s, uint8('b')}
 		}
 		in.steps, in.bytes = 0, 0
-		nat := natives[name]
+		nat := loadedNatives().std[name]
 		if nat == nil {
-			nat = goNatives[name] // reached through std's import go strings
+			nat = loadedNatives().goLib[name] // reached through std's import go strings
 		}
 		if _, ab := nat(in, fr, fr.decl, nil, args); ab != nil {
 			t.Fatalf("%s: %s", name, ab.msg)

@@ -15,7 +15,8 @@ import (
 // grow (Go's append, as the prelude's Append) and takeValue (the stored
 // value, its cell cleared), and machines' notPositive (the defect of a
 // timer that is not positive, in the runtime's text).
-func registerNativesmore() {
+func registerNativesmore(t nativeTables) {
+	natives := t.std
 	natives["slices.WithCapacity"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		n := args[0].(int64)
 		if n < 0 {
