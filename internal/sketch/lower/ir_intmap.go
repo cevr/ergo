@@ -76,7 +76,7 @@ func (b *irBuilder) intMapPrelude(x *syntax.CallExpr, c *check.Call, f *check.Fu
 		if len(list) != 3 {
 			irNo("Map write form")
 		}
-		pre, args := b.operands(list) // ir_fail.go
+		pre, args := b.operands(list)   // ir_fail.go
 		b.valueSource(x, c, list, args) // ir_pkg.go: a copy unless in place
 		pre, v := b.intMapValue(x, p, stmt, pre, args[0], "Put", args[1], args[2])
 		return pre, v, true
