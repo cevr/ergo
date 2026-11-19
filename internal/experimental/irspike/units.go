@@ -276,6 +276,8 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"codec of a type that holds type parameters", "G4"}, // codec witnesses, with witness parameters
 	{"codec *", "G6"},
 	{"encode on a direct writer", "G6"},
+	// JVD-DIRECT: the IR declines a direct reader's decode as it declines the direct writer's encode.
+	{"decode on a direct reader", "G6"},
 	{"call kind 12", "G6"}, // CallEmbed
 	{"call kind 13", "G6"}, // CallPattern: a refinement's matches(it, `…`)
 	{"call kind 9", "G6"},  // CallGoError
