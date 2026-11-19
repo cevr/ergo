@@ -2,13 +2,18 @@
 // run as `control bench KIND N`. KIND fold makes each reply's 64 text
 // deltas as a person writing Go models a stream part (a kind and its
 // fields in one struct, the slice made to size), then folds them with a
-// switch that appends each text to one buffer.
+// switch that appends each text to one buffer. KIND policy asks a script
+// N times as a person writing Go wraps a model call: a fallback loop over
+// the members, a retry loop with a switch on the error's class, and a
+// usage sum (wf10 L2).
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 )
 
 const part = 64
@@ -55,6 +60,73 @@ func fold(ds []delta) string {
 	return string(b)
 }
 
+// The policy kind: one request, one scripted reply, the three wrappers.
+
+type message struct {
+	assistant bool
+	text      string
+}
+
+type usage struct{ input, output int }
+
+type turn struct {
+	text  string
+	usage usage
+}
+
+// class is how a failed ask may be asked again.
+type class uint8
+
+const (
+	safe class = iota
+	unknown
+	unsafe
+)
+
+type failure struct {
+	class class
+	after time.Duration
+}
+
+func (f *failure) Error() string { return "failed" }
+
+// script is the scripted model: the reply numbered by the assistant
+// messages, its deltas folded into the turn's text.
+func script(replies [][]delta, ms []message) (turn, error) {
+	n := 0
+	for i := range ms {
+		if ms[i].assistant {
+			n++
+		}
+	}
+	if n >= len(replies) {
+		return turn{}, &failure{class: unknown}
+	}
+	return turn{text: fold(replies[n]), usage: usage{1, 1}}, nil
+}
+
+// ask is the fallback over members inside a retry of up to retries more
+// asks, its usage added to used.
+func ask(members [][][]delta, ms []message, retries int, used *usage) (turn, error) {
+	for run := 0; ; run++ {
+		var err error
+		for _, m := range members {
+			var t turn
+			t, err = script(m, ms)
+			if err == nil {
+				used.input += t.usage.input
+				used.output += t.usage.output
+				return t, nil
+			}
+		}
+		var f *failure
+		if !errors.As(err, &f) || f.class == unsafe || run == retries {
+			return turn{}, err
+		}
+		time.Sleep(f.after)
+	}
+}
+
 func main() {
 	if len(os.Args) != 4 || os.Args[1] != "bench" {
 		fmt.Fprintln(os.Stderr, "usage: control bench KIND N")
@@ -65,6 +137,19 @@ func main() {
 		os.Exit(2)
 	}
 	t := 0
+	if os.Args[2] == "policy" {
+		members := [][][]delta{{{{kind: text, text: "ok"}}}}
+		ms := []message{{text: "q"}}
+		var used usage
+		for i := 0; i < n; i++ {
+			t1, err := ask(members, ms, 3, &used)
+			if err != nil {
+				os.Exit(1)
+			}
+			t += len(t1.text)
+		}
+		t += used.output
+	}
 	if os.Args[2] == "fold" {
 		for r := 0; r < n/part; r++ {
 			t += len(fold(reply(r)))

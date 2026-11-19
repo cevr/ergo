@@ -2,7 +2,9 @@
 // FLOOR), run as `floor bench KIND N`. KIND fold appends each word of a
 // reply straight to one reused buffer: no delta value, no allocation per
 // reply after the first. A stream reader that hands each text span to its
-// sink does this work and no less.
+// sink does this work and no less. KIND policy is the inner call (the
+// script's reply, made once) and one compare per wrapper: a policy around
+// a model that answers costs no less.
 package main
 
 import (
@@ -15,6 +17,19 @@ const part = 64
 
 var words = []string{"the ", "model ", "said ", "a ", "few ", "short ", "words ", "now "}
 
+type turn struct {
+	text          string
+	input, output int
+}
+
+//go:noinline
+func inner(replies []turn, assistants int) (turn, bool) {
+	if assistants >= len(replies) {
+		return turn{}, false
+	}
+	return replies[assistants], true
+}
+
 func main() {
 	if len(os.Args) != 4 || os.Args[1] != "bench" {
 		fmt.Fprintln(os.Stderr, "usage: floor bench KIND N")
@@ -26,6 +41,22 @@ func main() {
 	}
 	t := 0
 	var b []byte
+	if os.Args[2] == "policy" {
+		replies := []turn{{text: "ok", input: 1, output: 1}}
+		used := 0
+		for i := 0; i < n; i++ {
+			t1, ok := inner(replies, 0)
+			if !ok { // fallback: a next member
+				os.Exit(1)
+			}
+			if t1.text == "" && !ok { // retry: the class of a failure
+				os.Exit(1)
+			}
+			used += t1.output // meter
+			t += len(t1.text)
+		}
+		t += used
+	}
 	if os.Args[2] == "fold" {
 		for r := 0; r < n/part; r++ {
 			b = b[:0]
