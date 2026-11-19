@@ -1427,14 +1427,15 @@ func CodecFieldsOf_include(v *include) CodecFields_include {
 }
 
 type CodecFields_inferer struct {
-	F_c      **checker
-	F_m      *map[*TypeParam]Type
-	F_set    *map[*TypeParam]bool
-	F_joined *map[*TypeParam]bool
+	F_c        **checker
+	F_m        *map[*TypeParam]Type
+	F_set      *map[*TypeParam]bool
+	F_joined   *map[*TypeParam]bool
+	F_notError **Named
 }
 
 func CodecFieldsOf_inferer(v *inferer) CodecFields_inferer {
-	return CodecFields_inferer{F_c: &v.c, F_m: &v.m, F_set: &v.set, F_joined: &v.joined}
+	return CodecFields_inferer{F_c: &v.c, F_m: &v.m, F_set: &v.set, F_joined: &v.joined, F_notError: &v.notError}
 }
 
 type CodecFields_initDeps struct {
