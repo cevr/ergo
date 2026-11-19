@@ -3530,6 +3530,20 @@ var (
 	_ [1]struct{} = [unsafe.Sizeof(BufferDrawHeader{}.Flags) - 4 + 1]struct{}{}
 )
 
+// BufferDrawHeaderRecord is a record that starts with a BufferDrawHeader: one of BufferDrawHeader, BufferDrawClear, BufferDrawFill, BufferDrawTextRecord, BufferDrawCell, BufferDrawBox, BufferDrawCompose, BufferDrawAlpha.
+// A function that takes one passes C the whole record, with its header's
+// autofill fields set and the record's size in its size field.
+type BufferDrawHeaderRecord interface {
+	// record returns the address of a filled copy of the record.
+	record() unsafe.Pointer
+}
+
+// record makes BufferDrawHeader a BufferDrawHeaderRecord.
+func (s BufferDrawHeader) record() unsafe.Pointer {
+	s.fill()
+	return unsafe.Pointer(&s)
+}
+
 // fill sets the autofill fields of s.
 func (s *BufferDrawHeader) fill() {
 	s.structSize = 16
@@ -3552,9 +3566,16 @@ var (
 	_ [1]struct{} = [unsafe.Sizeof(BufferDrawClear{}.Background) - 8 + 1]struct{}{}
 )
 
+// record makes BufferDrawClear a BufferDrawHeaderRecord.
+func (s BufferDrawClear) record() unsafe.Pointer {
+	s.fill()
+	return unsafe.Pointer(&s)
+}
+
 // fill sets the autofill fields of s.
 func (s *BufferDrawClear) fill() {
 	s.Header.fill()
+	s.Header.structSize = 24
 }
 
 // BufferDrawFill is ot_buffer_draw_fill (40 bytes, alignment 4).
@@ -3585,9 +3606,16 @@ var (
 	_ [1]struct{} = [unsafe.Sizeof(BufferDrawFill{}.Background) - 8 + 1]struct{}{}
 )
 
+// record makes BufferDrawFill a BufferDrawHeaderRecord.
+func (s BufferDrawFill) record() unsafe.Pointer {
+	s.fill()
+	return unsafe.Pointer(&s)
+}
+
 // fill sets the autofill fields of s.
 func (s *BufferDrawFill) fill() {
 	s.Header.fill()
+	s.Header.structSize = 40
 }
 
 // BufferDrawTextRecord is ot_buffer_draw_text_record (48 bytes, alignment 4).
@@ -3621,9 +3649,16 @@ var (
 	_ [1]struct{} = [unsafe.Sizeof(BufferDrawTextRecord{}.MaxWidth) - 4 + 1]struct{}{}
 )
 
+// record makes BufferDrawTextRecord a BufferDrawHeaderRecord.
+func (s BufferDrawTextRecord) record() unsafe.Pointer {
+	s.fill()
+	return unsafe.Pointer(&s)
+}
+
 // fill sets the autofill fields of s.
 func (s *BufferDrawTextRecord) fill() {
 	s.Header.fill()
+	s.Header.structSize = 48
 }
 
 // BufferDrawCell is ot_buffer_draw_cell (48 bytes, alignment 4).
@@ -3657,9 +3692,16 @@ var (
 	_ [1]struct{} = [unsafe.Sizeof(BufferDrawCell{}.Background) - 8 + 1]struct{}{}
 )
 
+// record makes BufferDrawCell a BufferDrawHeaderRecord.
+func (s BufferDrawCell) record() unsafe.Pointer {
+	s.fill()
+	return unsafe.Pointer(&s)
+}
+
 // fill sets the autofill fields of s.
 func (s *BufferDrawCell) fill() {
 	s.Header.fill()
+	s.Header.structSize = 48
 }
 
 // BufferDrawBox is ot_buffer_draw_box (104 bytes, alignment 4).
@@ -3702,9 +3744,16 @@ var (
 	_ [1]struct{} = [unsafe.Sizeof(BufferDrawBox{}.BorderChars) - 44 + 1]struct{}{}
 )
 
+// record makes BufferDrawBox a BufferDrawHeaderRecord.
+func (s BufferDrawBox) record() unsafe.Pointer {
+	s.fill()
+	return unsafe.Pointer(&s)
+}
+
 // fill sets the autofill fields of s.
 func (s *BufferDrawBox) fill() {
 	s.Header.fill()
+	s.Header.structSize = 104
 }
 
 // BufferDrawCompose is ot_buffer_draw_compose (40 bytes, alignment 4).
@@ -3738,9 +3787,16 @@ var (
 	_ [1]struct{} = [unsafe.Sizeof(BufferDrawCompose{}.SourceHeight) - 4 + 1]struct{}{}
 )
 
+// record makes BufferDrawCompose a BufferDrawHeaderRecord.
+func (s BufferDrawCompose) record() unsafe.Pointer {
+	s.fill()
+	return unsafe.Pointer(&s)
+}
+
 // fill sets the autofill fields of s.
 func (s *BufferDrawCompose) fill() {
 	s.Header.fill()
+	s.Header.structSize = 40
 }
 
 // BufferDrawAlpha is ot_buffer_draw_alpha (20 bytes, alignment 4).
@@ -3759,9 +3815,16 @@ var (
 	_ [1]struct{} = [unsafe.Sizeof(BufferDrawAlpha{}.Enabled) - 4 + 1]struct{}{}
 )
 
+// record makes BufferDrawAlpha a BufferDrawHeaderRecord.
+func (s BufferDrawAlpha) record() unsafe.Pointer {
+	s.fill()
+	return unsafe.Pointer(&s)
+}
+
 // fill sets the autofill fields of s.
 func (s *BufferDrawAlpha) fill() {
 	s.Header.fill()
+	s.Header.structSize = 20
 }
 
 // BufferGridOptions is ot_buffer_grid_options (76 bytes, alignment 4).
@@ -10120,7 +10183,7 @@ func BufferResize(context *Context, buffer Handle, width uint32, height uint32) 
 }
 
 // BufferDraw calls ot_buffer_draw.
-func BufferDraw(context *Context, target Handle, frame SceneFrameRequest, options BufferDrawHeader, source Handle, text []byte, bottomTitle []byte) error {
+func BufferDraw(context *Context, target Handle, frame SceneFrameRequest, options BufferDrawHeaderRecord, source Handle, text []byte, bottomTitle []byte) error {
 	if err := ready(); err != nil {
 		return err
 	}
@@ -10134,12 +10197,15 @@ func BufferDraw(context *Context, target Handle, frame SceneFrameRequest, option
 		return ErrTooLong
 	}
 	frame.fill()
-	options.fill()
-	_r := c_ot_buffer_draw(context.p, unsafe.Pointer(&target), unsafe.Pointer(&frame), unsafe.Pointer(&options), unsafe.Pointer(&source), sliceData(text), uint32(len(text)), sliceData(bottomTitle), uint32(len(bottomTitle)))
+	var _v3 unsafe.Pointer
+	if options != nil {
+		_v3 = options.record()
+	}
+	_r := c_ot_buffer_draw(context.p, unsafe.Pointer(&target), unsafe.Pointer(&frame), _v3, unsafe.Pointer(&source), sliceData(text), uint32(len(text)), sliceData(bottomTitle), uint32(len(bottomTitle)))
 	_p := cbTake()
 	runtime.KeepAlive(&target)
 	runtime.KeepAlive(&frame)
-	runtime.KeepAlive(&options)
+	runtime.KeepAlive(_v3)
 	runtime.KeepAlive(&source)
 	runtime.KeepAlive(text)
 	runtime.KeepAlive(bottomTitle)

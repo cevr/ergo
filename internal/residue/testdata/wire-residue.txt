@@ -505,9 +505,6 @@ examples/pipeline/pipeline/pipelinemcp/mcp.ergo	*
 examples/pipeline/surfaces/laws.ergo	*
 examples/pipeline/surfaces/surfaces.ergo	*
 examples/pipeline/README.md	the wire's `Request`
-examples/pipeline/README.md	the generated client over the wire, command lines
-examples/pipeline/README.md	holds for the generated client over the wire
-examples/pipeline/README.md	the wire sends two requests in the other order
 examples/pipeline/testdata/mutants.json	*
 scripts/examples/module_test.go	walkrpc/wire.ergo
 examples/fk-domains/domains/domainsrpc/client.ergo	*
@@ -572,3 +569,17 @@ modules/xml/xml.ergo	func Decode[T wire](c Codec[T], text string) T fails Malfor
 runtime/embed.go	"unchecked.go", "unsupported_os.go", "view.go", "wire.go"},
 runtime/embed.go	"unsupported_os.go", "view.go", "wire.go"},
 runtime/embed.go	files:   []string{"actor.go", "actor_host.go", "actor_recover.go", "actor_trace.go", "allocs.go", "atomic.go", "buffer.go", "civil.go", "collections.go", "config_names.go", "context.go", "data.go", "deadline.go", "embed.go", "exchange_darwin.go", "exchange_darwin.s", "exchange_linux.go", "exchange_linux_amd64.go", "exchange_linux_arm64.go", "exchange_other.go", "exit.go", "exits.go", "explore_laws.go", "explore_off.go", "explore_on.go", "fuse.go", "goarg.go", "gocall.go", "gocallback.go", "goerror.go", "goreads.go", "gotrace_off.go", "gotrace_on.go", "guard.go", "guard_other.go", "guard_unix.go", "heap.go", "hook.go", "host.go", "intmap.go", "json.go", "json_append.go", "json_bytes.go", "leaves.go", "lineage.go", "mailbox.go", "mapfile_unix.go", "mapped.go", "moves.go", "numbers.go", "owned.go", "path.go", "queue.go", "runtime.go", "script.go", "sealed.go", "set.go", "shrink.go", "static.go", "stdout.go", "strbuf.go", "sync.go", "task.go", "term.go", "term_bsd.go", "term_darwin.go", "term_linux.go", "term_unix.go", "testhost.go", "text.go", "time.go", "timeappend.go", "timetext.go", "toml.go", "toml_encode.go", "trace.go", "tzdata.go", "tzhost.go", "ui_args.go", "unchecked.go", "unsupported_os.go", "view.go", "wire.go"},
+
+# std explore (MODELCHECK E1, T2): a state key and a trace read through the codec (the wire form and the wire constraint)
+internal/sketch/std/explore/search.ergo	*
+internal/sketch/std/explore/verdict.ergo	*
+internal/sketch/std/explore/conform.ergo	*
+internal/sketch/stdlib/explore_key_test.go	*
+cmd/ergo/conform.go	must be wire types: a trace is read by their codecs
+docs/spec/stdlib.md	the observed members laid over `v`'s wire form
+docs/spec/stdlib.md	the observed fields are laid over a candidate's wire form
+internal/sketch/eval/testdata/mutants.json	so equal Maps have one wire form
+internal/sketch/stdlib/testdata/mutants.json	laid over the candidate's wire form
+internal/sketch/stdlib/testdata/mutants.json	The wire fast path:
+internal/sketch/stdlib/testdata/mutants.json	takes in every part of its wire form
+docs/spec/stdlib.md	func FitOf[T wire](v T, obs json.Value) Fit

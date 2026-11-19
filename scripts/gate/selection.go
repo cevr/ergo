@@ -719,7 +719,7 @@ func writeCoverage(root, cacheDir string, limit limiter, packages []string, out 
 	if len(packages) == 0 {
 		packages = selectPackages
 	}
-	steps, _, err := fastStepsSelected(root, cacheDir, nil)
+	steps, _, err := fastStepsSelected(root, cacheDir, nil, false)
 	if err != nil {
 		return err
 	}

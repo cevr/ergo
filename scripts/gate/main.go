@@ -403,7 +403,28 @@ func main() {
 	cpu := flag.Bool("cpu", false, "with -record-durations: measure the CPU seconds of each test of the named packages (the sharded packages when none is named), one test at a time, and rewrite their rows of "+testCPUFile)
 	coverage := flag.Bool("coverage", false, "with -record-durations: record the per-test coverage and reads of the named packages' fast tests (those of the test-impact selection when none is named) in the gate cache, the base the fast tier selects its tests against")
 	sweeps := flag.Bool("sweeps", false, "with -record-durations: run the closure sweep of the named package directories (every swept package when none is named) one at a time and rewrite their real costs in "+sweepCostFile)
+	affected := flag.Bool("affected", false, "the round tier: every test of each package, without -short, narrowed to those the change since BASE (the one argument; default: the merge base with main) reaches by the mutant runner's coverage store; advisory, never a landing verdict ("+roundSelectionVariable+"=full runs every test)")
+	replaySpan := flag.String("replay-affected", "", "FROM..TO: replay the round tier over the first-parent tips of the range against the coverage store, one row per tip (the share of recorded test seconds selected), and exit; with -reds FILE (lines TIP DIR:TEST) fail when a red test is outside its tip's selection")
+	replayOut := flag.String("o", "", "with -replay-affected: write the rows to this file instead of stdout")
+	replayReds := flag.String("reds", "", "with -replay-affected: the reds file")
+	backtest := flag.Bool("backtest", false, "backtest the round tier over the coverage store and the ledgers at the store's commit nearest to HEAD, replay it from there to HEAD, and exit (the full tier's step \"coverage store backtest\")")
+	blameTarget := flag.String("blame", "", "DIR:TEST with one argument GOOD..BAD: list the first-parent tips of the range whose change reaches the test by the coverage store's record, with the reason, precise ones first, and exit (BULK MODE's bisect)")
 	flag.Parse()
+	if *blameTarget != "" {
+		if flag.NArg() != 1 {
+			fatal(errors.New("-blame DIR:TEST takes one argument, GOOD..BAD"))
+		}
+		os.Exit(runBlame(*blameTarget, flag.Arg(0), os.Stdout))
+	}
+	if *backtest {
+		os.Exit(runBacktest(os.Stdout))
+	}
+	if *replaySpan != "" {
+		os.Exit(runReplayAffected(*replaySpan, *replayOut, *replayReds))
+	}
+	if *affected && (*full || *noCache || *merge || *recordDurations || flag.NArg() > 1) {
+		fatal(errors.New("--affected takes at most one argument, BASE, and no other tier"))
+	}
 	if *fast && !*recordDurations {
 		fatal(errors.New("-fast goes with -record-durations only"))
 	}
@@ -416,10 +437,13 @@ func main() {
 	if *sweeps && (!*recordDurations || *fast || *cpu || *coverage) {
 		fatal(errors.New("-sweeps goes with -record-durations only, without -fast, -cpu or -coverage"))
 	}
-	if flag.NArg() > 0 && !*recordDurations {
+	if flag.NArg() > 0 && !*recordDurations && !*affected {
 		fatal(fmt.Errorf("unexpected arguments %q: only -record-durations takes packages", flag.Args()))
 	}
 	tier := tierFor(*full, *noCache, *merge, *recordDurations)
+	if *affected {
+		tier, roundBase = roundTier, flag.Arg(0)
+	}
 	// Before any process starts, so a stop finds every one (stop.go).
 	stopOnSignals()
 	scope, err := takeScope()
@@ -476,7 +500,10 @@ func main() {
 	// time at the caller's CPU share: 3.1 of the 6.8 s before a std edit's
 	// gate clock started, at 4 CPUs, against 0.8 here (gate-speed GS28).
 	var replayFirst func(*gate)
-	if !*noCache && !*merge {
+	// The round tier's selection depends on its base, which the whole-gate
+	// key does not hold: it never replays a whole gate (its steps still
+	// replay by their keys, which hold their selection).
+	if !*noCache && !*merge && !*affected {
 		replayFirst = func(g *gate) {
 			code, replayed, facts := g.replayWhole(mechanismFact(scope, probed, scopeNote), os.Stdout)
 			if replayed {
@@ -586,7 +613,24 @@ func setUpTier(scope, scopeNote, tier string, beforeSteps func(*gate)) (*gate, e
 		// record of its cache (selectTests, gate-speed GS4).
 		g.steps, g.dropped, err = fastStepsSelected(g.root, g.cacheDir, func(p testPackage, env, names []string) selection {
 			return selectTests(g.root, g.cacheDir, p, env, names)
-		})
+		}, false)
+	} else if tier == roundTier {
+		// The round tier selects every package's tests against the
+		// coverage store's segment at the base (affected.go, CS-ROUND).
+		base := roundBase
+		if base == "" {
+			if base, err = defaultRoundBase(g.root); err != nil {
+				return nil, err
+			}
+		}
+		choose, err := roundSelector(g.root, base)
+		if err != nil {
+			return nil, err
+		}
+		g.steps, g.dropped, err = fastStepsSelected(g.root, g.cacheDir, choose, true)
+		if err != nil {
+			return nil, err
+		}
 	} else {
 		g.steps, err = stepsFor(g.root, tier)
 	}

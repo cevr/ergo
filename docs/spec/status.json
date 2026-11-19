@@ -7,7 +7,7 @@
       "text": ": S001 by the parser `internal/sketch/syntax` ([#195](https://github.com/cevr/ergo/issues/195)), and the other codes by the checker `internal/sketch/check` ([#196](https://github.com/cevr/ergo/issues/196)), which `ergo check` and `ergo diagnostics` run. The checker's code table (`internal/sketch/check/codes.go`) mirrors this page; a test keeps the table, the emitted codes and the rows below in step. `ergo build` and `ergo run` run the checker first, then lower the checked program from the checker's output (`internal/sketch/lower`, check-v1); a form the lowering does not lower yet is refused at build with S109 naming the ticket or stage that owns it, at its position, and nothing is written (`internal/sketchfront`). The checker's fixtures are in `internal/sketch/check/testdata/fixtures`; the prototype's fixtures (first line `// want CODE`) keep their outcome except the changes [the parity table](../../internal/sketch/check/testdata/parity.overrides) lists. The main compiler maps each rule to a code in its EF registry ([#79](https://github.com/cevr/ergo/issues/79); README Gap 18).",
       "witnesses": [
         "cmd/ergo:TestCheckAndDiagnosticsReportLocatedSketchCodes",
-        "internal/sketch/check:TestFixtures"
+        "cmd/ergo:TestCheckerFixtures"
       ]
     },
     {
@@ -155,7 +155,7 @@
       "cell": "Implemented ([#196](https://github.com/cevr/ergo/issues/196), `internal/sketch/check`) for one package; packages and imports of module packages follow in #196's second part",
       "section": "[types](types.md), [rows](rows.md), [diagnostics](diagnostics.md)",
       "witnesses": [
-        "internal/sketch/check:TestFixtures"
+        "cmd/ergo:TestCheckerFixtures"
       ]
     },
     {
@@ -164,7 +164,7 @@
       "cell": "Checked; runs (the standard-library package `timeout`; the alias rule, check-v1 stage D3a, D-D7)",
       "section": "[grammar](grammar.md#declarations)",
       "witnesses": [
-        "internal/sketch/check:TestFixtures",
+        "cmd/ergo:TestCheckerFixtures",
         "internal/sketch/lower:TestAcceptedNodesLowerFamilies"
       ]
     },
