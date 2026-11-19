@@ -46,9 +46,25 @@ func Body(s agent.State) []string {
 		if a.Draft != "" {
 			out = out.Concat(marked("< ", a.Draft+"…"))
 		}
-	case agent.Idle, agent.Waiting, agent.Approving, agent.Running, agent.Ended:
+	case agent.Approving as p:
+		out = out.Concat(marked("? ", Asked(p.Next)+"  allow? y / n"))
+	case agent.Idle, agent.Waiting, agent.Running, agent.Ended:
 	}
 	out
+}
+
+// Asked is how the screen shows a request the person is asked to allow.
+// It names every request, so a new tool stops the build until it is
+// shown.
+func Asked(r agent.Request) string {
+	match r {
+	case agent.ReadFile as f:
+		"read " + f.Path
+	case agent.ListDir as d:
+		"list " + d.Dir
+	case agent.RunShell as s:
+		"$ " + s.Command
+	}
 }
 
 // Transcript is the lines of every row of log, in order.
