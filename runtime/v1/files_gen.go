@@ -290,6 +290,7 @@ var bodyTable = []bodyRow{
 	{"JSONAppendString", bodyFact{body: Body{Params: []Param{{Type: "[]byte"}, {Type: "string"}}, Results: []string{"[]byte"}, Package: Path}}},
 	{"JSONAppendUint", bodyFact{body: Body{Params: []Param{{Type: "[]byte"}, {Type: "uint64"}}, Results: []string{"[]byte"}, Pure: true, Wait: "none", Package: Path}}},
 	{"JSONBytesText", bodyFact{body: Body{Params: []Param{{Type: "[]byte"}}, Results: []string{"string"}, Pure: true, Wait: "none", Package: Path}}},
+	{"JSONIsNumber", bodyFact{body: Body{Params: []Param{{Type: "string"}}, Results: []string{"bool"}, Wait: "none", Package: Path}}},
 	{"JSONMalformed.Error", bodyFact{body: Body{Results: []string{"string"}, Package: Path}}},
 	{"JSONOpen", bodyFact{body: Body{Params: []Param{{Type: "string"}, {Type: "int"}, {Type: "int"}}, Results: []string{"*Cursor", "error"}, Wait: "none", Package: Path}}},
 	{"JSONOpenChecked", bodyFact{body: Body{Params: []Param{{Type: "string"}, {Type: "int"}, {Type: "int"}}, Results: []string{"*Cursor", "error"}, Wait: "none", Package: Path}}},

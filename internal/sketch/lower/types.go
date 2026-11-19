@@ -25,6 +25,9 @@ type typeCtx struct {
 	// bound is the checked type each type parameter of a copy stands for
 	// (record.go), where it names no type parameter itself.
 	bound map[*check.TypeParam]check.Type
+	// readVia is the reader a codec body reads from: 0 the prelude's
+	// Reader interface, i+1 direct reader i (wirereader.go).
+	readVia int
 }
 
 // boundType is t with a type parameter that bound names replaced by its

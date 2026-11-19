@@ -345,6 +345,10 @@ extern go ergo.local/prototype/runtime/v1.JSONOpenChecked func openChecked(text 
 
 extern go ergo.local/prototype/runtime/v1.JSONSettle func settleText(c Cursor) fails Malformed
 
+// isNumber reports that text is one JSON number and nothing else, no white
+// space around it (ParseNum's fast path; JVD-DIRECT).
+extern go ergo.local/prototype/runtime/v1.JSONIsNumber func isNumber(text string) bool
+
 // Reader reads a JSON text for decode[T](r).
 type Reader { c Cursor } implements Reader
 

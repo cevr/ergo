@@ -867,6 +867,22 @@
       "killers": [
         "internal/sketchfront:TestStdSnapshotIsCurrent"
       ]
+    },
+    {
+      "name": "jvd-parsenum-fast-any",
+      "origin": "wf10 JVD-DIRECT",
+      "file": "internal/sketch/std/json/value.ergo",
+      "from": "\tif isNumber(text) {\n",
+      "to": "\tif true {\n",
+      "rule": "stdlib.md json: ParseNum gives what reading the text by Open gives (ParseNumIsOpened).",
+      "anchor": {
+        "tests": [
+          "lower:TestJSONStreamAgrees"
+        ]
+      },
+      "killers": [
+        "lower:TestJSONStreamAgrees"
+      ]
     }
   ]
 }
