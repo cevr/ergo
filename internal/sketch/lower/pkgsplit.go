@@ -261,6 +261,7 @@ type splitGroup struct {
 	decls   []int // indexes into the file's Decls
 	natural int   // the package of its source, -1 for none
 	pin     bool  // stays in the root: main, init, an embedded asset
+	goInit  bool  // a Go func init: never cut into a shard, which would run it first
 	harness bool  // a test build's test or law run: starts in main (FT6)
 	embed   bool
 	generic bool // a generic function or type: its users compile its instantiations
@@ -389,6 +390,7 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 				g.harness = true
 			}
 			g.generic = d.Type.TypeParams != nil
+			g.goInit = isGoInit(d.Name.Name)
 			if !isGoInit(d.Name.Name) {
 				groupOf[d.Name.Name] = len(groups)
 				defOf.add(d.Name.Name, d, i)

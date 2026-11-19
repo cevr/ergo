@@ -82,10 +82,10 @@ func (p *splitPlan) shard(groups []splitGroup, o *shardOpts, name func(g int) st
 		if total < o.pkg {
 			continue
 		}
-		stay := map[int]bool{}
-		if k == 1 {
-			stay = rootReach(groups, members)
-		}
+		// The root keeps its pinned groups; any package keeps its Go inits
+		// (a test build's root, below main, holds the program's init: FT6),
+		// and what reaches them.
+		stay := rootReach(groups, members, k == 1)
 		var free []int
 		for _, g := range members {
 			if !stay[g] {
@@ -137,9 +137,12 @@ func (p *splitPlan) shard(groups []splitGroup, o *shardOpts, name func(g int) st
 	return made
 }
 
-// rootReach is the root's groups that stay in the root: the pinned ones,
-// and every group of members that references one of them.
-func rootReach(groups []splitGroup, members []int) map[int]bool {
+// rootReach is the groups of a package's members that stay in it: its Go
+// inits, the pinned ones when it is the root, and every group of members
+// that references one of them. A shard is imported by its package, so an
+// init cut into one would run before the package's own (law
+// InitsKeepTheirOrder).
+func rootReach(groups []splitGroup, members []int, root bool) map[int]bool {
 	in := map[int]bool{}
 	for _, g := range members {
 		in[g] = true
@@ -155,7 +158,7 @@ func rootReach(groups []splitGroup, members []int) map[int]bool {
 	stay := map[int]bool{}
 	var work []int
 	for _, g := range members {
-		if groups[g].pin {
+		if groups[g].goInit || root && groups[g].pin {
 			stay[g] = true
 			work = append(work, g)
 		}
