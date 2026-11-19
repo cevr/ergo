@@ -554,8 +554,6 @@ var bodyTable = []bodyRow{
 	{"TimeParseDuration", bodyFact{body: Body{Params: []Param{{Type: "string"}}, Results: []string{"time.Duration", "error"}, Pure: true, Wait: "none", Package: Path}}},
 	{"TimeParseDurationISO", bodyFact{body: Body{Params: []Param{{Type: "string"}}, Results: []string{"time.Duration", "error"}, Pure: true, Wait: "none", Package: Path}}},
 	{"TimeRound", bodyFact{body: Body{Params: []Param{{Type: "int64"}, {Type: "int64"}, {Type: "time.Duration"}}, Results: []string{"Reading"}, Pure: true, Wait: "none", Package: Path}}},
-	{"TimeSub", bodyFact{body: Body{Params: []Param{{Type: "int64"}, {Type: "int64"}, {Type: "int64"}, {Type: "int64"}}, Results: []string{"time.Duration"}, Pure: true, Wait: "none", Package: Path}}},
-	{"TimeSubMono", bodyFact{body: Body{Params: []Param{{Type: "int64"}, {Type: "int64"}}, Results: []string{"time.Duration"}, Pure: true, Wait: "none", Package: Path}}},
 	{"TimeTruncate", bodyFact{body: Body{Params: []Param{{Type: "int64"}, {Type: "int64"}, {Type: "time.Duration"}}, Results: []string{"Reading"}, Pure: true, Wait: "none", Package: Path}}},
 	{"Timeline.Advance", bodyFact{body: Body{Hidden: []Hidden{"task"}, Params: []Param{{Type: "time.Duration"}}, Wait: "settle", Package: Path}}},
 	{"Timeline.Alarms", bodyFact{body: Body{Results: []string{"*AlarmClock"}, Wait: "none", Package: Path}}},

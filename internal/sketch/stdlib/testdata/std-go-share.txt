@@ -294,8 +294,6 @@ time	hostNow	library	HOST-ROW: time.Now through import go charges go.Foreign, an
 time	newTimeline	provider
 time	parse	library	GBX6 rows for time (time.ParseInLocation, Time.Unix, Time.Nanosecond bind needs go.Foreign) and GBX3 (time.UTC is a Go variable)
 time	round	library	I22-B22CLASS: Go's Time.Round through import go (batch-22 extern, first class by I22; lane B confirms)
-time	subMono	computation	NP4f-7
-time	subWall	computation	NP4f-7
 time	timeAsleep	provider
 time	truncate	library	I22-B22CLASS: Go's Time.Truncate through import go (batch-22 extern, first class by I22; lane B confirms)
 timeout	After	provider
