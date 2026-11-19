@@ -1081,6 +1081,21 @@ streamed (Rm, item 9). TLS and HTTP/2 configuration are outside this core.
     drawn cuts; `WriteThenRead`, `ChunkingDoesNotMatter` and
     `CutIsNotAnEvent` hold the writer and the reader to each other.
 
+    **The view form (SSE-VIEW).** `FeedEach(r *EventReader, part string,
+    each func(e *EventView))` reads a part into the reader in place and
+    lends each event to `each` as its blank line ends it: Feed's events,
+    with no event value, no joined data and no slice of events. An
+    `EventView` is read through `Event(e)`, `ID(e)`, `DataLines(e)`,
+    `DataLine(e, i)` and `Data(e)` (the joined data, the line itself
+    when there is one); its strings are spans of the parts fed, values a
+    caller may keep. The view itself is a borrow (`*EventView`), so a
+    caller that keeps it past `each`'s return (in a slice, a field, a
+    returned value, an escaping frame) is S108 ([types.md](types.md#borrows)
+    1): the reader reuses its list of data lines from event to event.
+    `Feed` is `FeedEach` copying each view out. The law
+    `FeedEachMatchesModel` holds the views, read inside `each`, to the
+    model over `FeedMatchesModel`'s text and cuts.
+
     Speed (SSE-FLOOR): a line costs no copy of the text before it. The
     reader takes each line as a span of the part, reads it into the
     reader in place (a borrow, no record copy), keeps an event of one data
@@ -1419,7 +1434,8 @@ The exempt types and their reasons are in their doc comments: `Console`, `Ambien
 | `http` | `WriteThenRead` | `WriteThenRead(events []ServerEvent) { let clean = writable(events) let text = WriteEvents(clean) catch { case Unwritable: return false } let back = ReadEvents(text) catch { case Truncated: return false } back == typed(clean) }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `ChunkingDoesNotMatter` | `ChunkingDoesNotMatter(events []ServerEvent, sizes []int) { let clean = writable(events) let text = WriteEvents(clean) catch { case Unwritable: return false } let r, got = feedIn(text, sizes) got == typed(clean) && r.End() == None }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `CutIsNotAnEvent` | `CutIsNotAnEvent(events []ServerEvent, k int, sizes []int) { let clean = writable(events) if len(clean) == 0 { return true } let before = WriteEvents(clean[0:len(clean)-1]) catch { case Unwritable: return false } let whole = WriteEvents(clean) catch { case Unwritable: return false } let last = len(whole) - len(before) let drop = 1 + (if k < 0 { -(k % (last - 1)) } else { k % (last - 1) }) let body = strings.Slice(whole, 0, len(whole)-drop) let r, got = feedIn(body, sizes) got == typed(clean[0:len(clean)-1]) && r.End() == Some[Truncated]{Value: Truncated{Text: strings.Slice(body, len(before), len(body))}} }` | `TestStdHTTPLawsRun` | tested |
-| `http` | `FeedMatchesModel` | `FeedMatchesModel(seed int) { let pieces = []string{"data", "data:", "data: ", "event: ", "event", "id: ", "id", "retry: ", "retry:", "12", "x", " ", ":", "\n", "\n", "\r", "\r\n", "\x00", "-1", bom, "é"} with context { Random: rand.Seeded(uint64(seed)) } { let mut text = if Random.IntN(4) == 0 { bom } else { "" } for _ in 0..Random.IntN(120) { text = text + pieces[Random.IntN(len(pieces))] } let mut sizes = []int{} for _ in 0..1+Random.IntN(8) { sizes = sizes.Append(Random.IntN(10)) } let r, got = feedIn(text, sizes) let want, end, retry = modelRead(text) got == want && r.End() == end && Retry(r) == retry } }` | `TestStdHTTPLawsRun` | tested |
+| `http` | `FeedEachMatchesModel` | `FeedEachMatchesModel(seed int) { with context { Random: rand.Seeded(uint64(seed)) } { let text, sizes = drawnText() let mut r = NewEventReader() let mut got = []ServerEvent{} let mut from = 0 for k in 0..len(text)+1 { if from >= len(text) { break } let s = 1 + sizes[k%len(sizes)] let to = if from+s > len(text) { len(text) } else { from + s } FeedEach(&r, strings.Slice(text, from, to), func(e *EventView) { let mut data = []string{} for i in 0..DataLines(e) { data = data.Append(DataLine(e, i)) } got = got.Append(ServerEvent{Event: Event(e), Data: strings.Join(data, "\n"), ID: ID(e)}) }) from = to } let want, end, retry = modelRead(text) got == want && r.End() == end && Retry(r) == retry } }` | `TestStdHTTPLawsRun` | tested |
+| `http` | `FeedMatchesModel` | `FeedMatchesModel(seed int) { with context { Random: rand.Seeded(uint64(seed)) } { let text, sizes = drawnText() let r, got = feedIn(text, sizes) let want, end, retry = modelRead(text) got == want && r.End() == end && Retry(r) == retry } }` | `TestStdHTTPLawsRun` | tested |
 | `http` | `QueryStringBytesReadsString` | `QueryStringBytesReadsString(s string, pre []byte) { let a = queryReaderOf([]Field{Field{Name: "k", Value: s}}) let b = queryReaderOf([]Field{Field{Name: "k", Value: s}}) try a.BeginObject() try b.BeginObject() let _ = a.Key() let _ = b.Key() let got = try a.StringBytes(pre) utf8.String(got) == utf8.String(pre)+try b.String() }` | `TestStdHTTPLawsRun` | tested |
 | `html` | `TextIsInert` | `TextIsInert(s string, t string) { let x = s + "<a href=\"x\" title='y'>&amp;</a>" + t let e = Escape(x) let text = Render(Text(x)) let attr = Render(Span([]Child{Class(x)})) inert(e) && unescape(e) == x && text == e && attr == "<span class=\""+e+"\"></span>" && Escape(s+">") == Escape(s)+"&gt;" }` | `TestStdHTMLLawsRun` | tested |
 | `html` | `RenderIsAppend` | `RenderIsAppend(a string, c string, k string) { let ta = Render(Text(a)) let tc = Render(Text(c)) let ek = Escape(k) let list = Render(Each([]string{a, c}, Text)) let div = Render(Div([]Child{Text(a), Class(k), Text(c), Id(k)})) let br = Render(Br([]Attr{Class(k)})) let doc = Render(Doc(P([]Child{When(a == c, Text(a)), Int(len(a))}))) list == ta+tc && div == "<div class=\""+ek+"\" id=\""+ek+"\">"+ta+tc+"</div>" && br == "<br class=\""+ek+"\"/>" && doc == "<!DOCTYPE html><p>"+(if a == c { ta } else { "" })+"\(len(a))</p>" }` | `TestStdHTMLLawsRun` | tested |
