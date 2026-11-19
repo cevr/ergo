@@ -104,10 +104,19 @@ func Compare(a Version, b Version) int {
 }
 
 // Compare is an order: it turns over when its sides swap, and two steps
-// up are one step up.
-law CompareIsAntisymmetric(a Version, b Version) { Compare(a, b) == -Compare(b, a) }
+// up are one step up. The laws draw versions through nearby, so that they
+// often tie on MAJOR.MINOR.PATCH and their pre-releases decide.
+law CompareIsAntisymmetric(a Version, b Version) { Compare(nearby(a), nearby(b)) == -Compare(nearby(b), nearby(a)) }
 
-law CompareIsTransitive(a Version, b Version, c Version) { Compare(a, b) > 0 || Compare(b, c) > 0 || Compare(a, c) <= 0 }
+law CompareIsTransitive(a Version, b Version, c Version) {
+	let x = nearby(a)
+	let y = nearby(b)
+	let z = nearby(c)
+	Compare(x, y) > 0 || Compare(y, z) > 0 || Compare(x, z) <= 0
+}
+
+// nearby is v with each of MAJOR, MINOR and PATCH made 0 or 1.
+func nearby(v Version) Version { Version{Major: v.Major & 1, Minor: v.Minor & 1, Patch: v.Patch & 1, Pre: v.Pre, Build: v.Build} }
 
 // Build metadata never changes the order.
 law CompareIgnoresBuild(v Version, build []string) { Compare(v, Version{Major: v.Major, Minor: v.Minor, Patch: v.Patch, Pre: v.Pre, Build: build}) == 0 }

@@ -13,8 +13,8 @@ import (
 
 // stdSemverLaws is the statement of each law of std semver, by ledger key.
 var stdSemverLaws = map[string]string{
-	"semver CompareIsAntisymmetric": `CompareIsAntisymmetric(a Version, b Version) { Compare(a, b) == -Compare(b, a) }`,
-	"semver CompareIsTransitive":    `CompareIsTransitive(a Version, b Version, c Version) { Compare(a, b) > 0 || Compare(b, c) > 0 || Compare(a, c) <= 0 }`,
+	"semver CompareIsAntisymmetric": `CompareIsAntisymmetric(a Version, b Version) { Compare(nearby(a), nearby(b)) == -Compare(nearby(b), nearby(a)) }`,
+	"semver CompareIsTransitive":    `CompareIsTransitive(a Version, b Version, c Version) { let x = nearby(a) let y = nearby(b) let z = nearby(c) Compare(x, y) > 0 || Compare(y, z) > 0 || Compare(x, z) <= 0 }`,
 	"semver CompareIgnoresBuild":    `CompareIgnoresBuild(v Version, build []string) { Compare(v, Version{Major: v.Major, Minor: v.Minor, Patch: v.Patch, Pre: v.Pre, Build: build}) == 0 }`,
 	"semver ParseInvertsFormat":     `ParseInvertsFormat(major int, minor int, patch int, n int, word bool) { let pre = if n%3 == 0 { []string{} } else if word { []string{"rc", "\((n%7+7)%7)"} } else { []string{"\((n%100+100)%100)"} } let v = Version{Major: (major%1000+1000)%1000, Minor: (minor%1000+1000)%1000, Patch: (patch%1000+1000)%1000, Pre: pre, Build: []string{}} let back = Parse(Format(v)) catch { case Malformed: return false } Compare(back, v) == 0 && Format(back) == Format(v) }`,
 	"semver OneComparatorHolds":     `OneComparatorHolds(c Comparator, v Version) { len(v.Pre) > 0 || Satisfies(Range{Sets: [][]Comparator{[]Comparator{c}}}, v) == Holds(c, v) }`,

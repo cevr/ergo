@@ -92,6 +92,14 @@ for (let i = 0; i < 400; i++) {
   if (!semver.valid(c)) continue;
   rows.push(["compare", a, c, semver.compare(a, c)]);
 }
+// Hand ranges whose desugaring turns on a zero part (^0.0.3 is
+// <0.0.4-0, ^0.2.3 is <0.3.0-0), with versions at each edge.
+const fixed = ["^0.0.3", "^0.0.3-beta", "^0.0", "^0.0.x", "^0.2.3", "^0.2", "^0", "~0.0.3", "~0.2", "~0", "^1.2.3", "~1.2.3", "0.0.3 - 0.0.5", ">0.0", "<=0.0"];
+const edges = ["0.0.3", "0.0.4", "0.0.5", "0.0.6", "0.1.0", "0.2.3", "0.2.9", "0.3.0", "0.9.9", "1.0.0", "1.2.3", "1.3.0", "2.0.0", "0.0.3-beta", "0.0.4-0"];
+for (const r of fixed) {
+  rows.push(["range", r, semver.validRange(r)]);
+  for (const v of edges) rows.push(["satisfies", r, v, semver.satisfies(v, r)]);
+}
 for (let i = 0; i < 700; i++) {
   const r = rangeText();
   let valid: string | null = null;
