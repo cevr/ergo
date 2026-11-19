@@ -1,13 +1,16 @@
 package selfhostcheck
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -109,6 +112,9 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 	m := filepath.Join(tmp, "manifest")
 	writeLines(t, m, manifest)
 	gotTypes, gotCalls, gotDiags, gotOwn := make([][]string, len(folders)), make([][]string, len(folders)), make([][]string, len(folders)), make([][]string, len(folders))
+	// The Ergo side's cause of each call it left untyped, by "FILE START
+	// END" (exprdump's U lines).
+	gotCauses := make([]map[string]string, len(folders))
 	at := -1
 	for _, l := range runDump(t, ctx, bin, "-std", stdDir(), "-corpus", m) {
 		switch {
@@ -122,6 +128,13 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 			gotDiags[at] = append(gotDiags[at], l[2:])
 		case at >= 0 && at < len(folders) && strings.HasPrefix(l, "O "):
 			gotOwn[at] = append(gotOwn[at], l[2:])
+		case at >= 0 && at < len(folders) && strings.HasPrefix(l, "U "):
+			if f := strings.SplitN(l[2:], " ", 4); len(f) == 4 {
+				if gotCauses[at] == nil {
+					gotCauses[at] = map[string]string{}
+				}
+				gotCauses[at][strings.Join(f[:3], " ")] = f[3]
+			}
 		}
 	}
 	if at != len(folders)-1 {
@@ -129,6 +142,10 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 	}
 	reach := map[string][2]int{}
 	missed := map[string][]string{} // a few untyped sites of each form
+	// Each call form's untyped sites by the Ergo side's cause, logged and
+	// never pinned (the reach grows by unit).
+	causes := map[string]map[string]int{}
+	kindNames := syntaxKindNames(t)
 	calls := [2]int{}
 	for i, fo := range folders {
 		got := dropChargedTypes(gotTypes[i])
@@ -144,8 +161,18 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 			r[1]++
 			if have[key] {
 				r[0]++
-			} else if len(missed[form]) < 8 {
-				missed[form] = append(missed[form], rel(fo.dir)+"/"+key)
+			} else {
+				if strings.HasPrefix(form, "CallExpr ") {
+					by := causes[form]
+					if by == nil {
+						by = map[string]int{}
+						causes[form] = by
+					}
+					by[kindNames.Replace(cmp.Or(gotCauses[i][key], "no cause line"))]++
+				}
+				if len(missed[form]) < 8 {
+					missed[form] = append(missed[form], rel(fo.dir)+"/"+key)
+				}
 			}
 			reach[form] = r
 			// The fixture writes each short form where its context fixes
@@ -178,6 +205,24 @@ func TestCompilerExprAgreesWithChecker(t *testing.T) {
 	}
 	sort.Strings(lines)
 	t.Logf("typed %d of %d expressions in %d folders; inferred %d of %d generic calls:\n%s", all[0], all[1], len(folders), calls[0], calls[1], strings.Join(lines, "\n"))
+	type count struct {
+		form, cause string
+		n           int
+	}
+	var counts []count
+	for form, by := range causes {
+		for cause, n := range by {
+			counts = append(counts, count{form, cause, n})
+		}
+	}
+	slices.SortFunc(counts, func(a, b count) int {
+		return cmp.Or(strings.Compare(a.form, b.form), cmp.Compare(b.n, a.n), strings.Compare(a.cause, b.cause))
+	})
+	var byCause []string
+	for _, c := range counts {
+		byCause = append(byCause, fmt.Sprintf("%-20s %6d  %s", c.form, c.n, c.cause))
+	}
+	t.Logf("untyped calls by the Ergo side's cause (exprdump U lines):\n%s", strings.Join(byCause, "\n"))
 	if all[0] == 0 || calls[0] == 0 {
 		t.Fatal("the Ergo side typed no expression or inferred no call")
 	}
@@ -219,6 +264,26 @@ func exprDump(t *testing.T, ctx context.Context) string {
 // START END TYPE" lines, as dropCharged does from signatures: the body
 // check charges it to a function whose body calls Go, which this pass
 // does not compute.
+// syntaxKindNames turns exprdump's #N syntax kinds into compiler/syntax's
+// names, read from its K… lets in tree.ergo (the one place that names
+// them).
+func syntaxKindNames(t *testing.T) *strings.Replacer {
+	t.Helper()
+	src, err := os.ReadFile(filepath.Join(repoRoot(), "compiler", "syntax", "tree.ergo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ms := regexp.MustCompile(`(?m)^let K(\w+) = uint8\((\d+)\)$`).FindAllStringSubmatch(string(src), -1)
+	// The Replacer tries its pairs in order: the longer number first, so
+	// #3 never matches the start of #34.
+	slices.SortFunc(ms, func(a, b []string) int { return cmp.Compare(len(b[2]), len(a[2])) })
+	var pairs []string
+	for _, m := range ms {
+		pairs = append(pairs, "#"+m[2], m[1])
+	}
+	return strings.NewReplacer(pairs...)
+}
+
 func dropChargedTypes(ls []string) []string {
 	out := make([]string, len(ls))
 	for i, l := range ls {
