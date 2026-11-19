@@ -17,7 +17,7 @@ import (
 // passed to a Go method that reports it (flag.FlagSet.Func and Parse);
 // and a Go method with two results bound by a tuple let
 // (Regexp.LiteralPrefix; the window's d.w.Poll(), RU17's red); and a
-// field read through a go.Ref (url.URL's Host, NAMING-ICE).
+// field read through a go.Ref a record holds (url.URL's Host, NAMING-ICE).
 // main runs each libN on several inputs and prints the results, so a
 // failure lost, a text changed, a spread dropped or a None read as Some
 // changes the output.
@@ -34,6 +34,7 @@ func GenerateGoLib(seed uint64) string {
 		boxed = " + len(boxed(rp.Value))"
 	}
 	nf := 3 + r.IntN(3)
+	sites := false
 	for i := 0; i < nf; i++ {
 		k := 1 + r.IntN(5)
 		fmt.Fprintf(&b, "func lib%d(t int, s string) int needs go.Foreign {\n", i)
@@ -57,15 +58,20 @@ func GenerateGoLib(seed uint64) string {
 			// A Go method with two results, bound by a tuple let.
 			fmt.Fprintf(&b, "\tmatch regexp.MustCompile(s + \"x*\") {\n\tcase Some[go.Ref[regexp.Regexp]] as re:\n\t\tlet (p, whole) = re.Value.LiteralPrefix()\n\t\tif whole {\n\t\t\tlen(p) * %d + t\n\t\t} else {\n\t\t\tlen(p) + t\n\t\t}\n\tcase None:\n\t\t-1\n\t}\n", k)
 		case 5:
-			// A field read through a go.Ref (a Go *T), as std pace reads
-			// runtime.MemStats' (NAMING-ICE: the IR named the go.Ref as a
-			// declaration): url.Parse's URL, its Host.
-			fmt.Fprintf(&b, "\tlet u = url.Parse(\"http://h\" + s + \".x/p\") catch {\n\tcase go.Error as e:\n\t\treturn len(e.Text) + t\n\t}\n\tlen(u.Host) * %d + t\n", k)
+			// A field read through a go.Ref (a Go *T) a record holds, as
+			// std pace reads its MemStats (NAMING-ICE: the IR named the
+			// go.Ref as a declaration): site's URL, its Host.
+			sites = true
+			fmt.Fprintf(&b, "\tlet w = site(s) catch {\n\tcase go.Error as e:\n\t\treturn len(e.Text) + t\n\t}\n\tlen(w.u.Host) * %d + w.n + t\n", k)
 		default:
 			// A callback that fails, through Go's flag package.
 			fmt.Fprintf(&b, "\tlet mut seen = 0\n\tmatch flag.NewFlagSet(\"g\", flag.ErrorHandling(0)) {\n\tcase Some[go.Ref[flag.FlagSet]] as fs:\n\t\tfs.Value.Func(\"n\", \"a number\", func(v string) fails go.Error {\n\t\t\tif len(v) > %d {\n\t\t\t\treturn go.Error{Text: \"long \\(v)\"}\n\t\t\t}\n\t\t})\n\t\tfs.Value.Parse([]string{\"-n\", s}) catch {\n\t\tcase go.Error as e:\n\t\t\tseen = len(e.Text)\n\t\t}\n\tcase None:\n\t}\n\tseen + t\n", k%3+1)
 		}
 		b.WriteString("}\n\n")
+	}
+	if sites {
+		b.WriteString("type Site {\n\tu go.Ref[url.URL],\n\tn int,\n}\n\n")
+		b.WriteString("func site(s string) Site fails go.Error needs go.Foreign {\n\tSite{u: try url.Parse(\"http://h\" + s + \".x/p\"), n: len(s)}\n}\n\n")
 	}
 	b.WriteString("func main() needs Console | go.Foreign {\n")
 	inputs := []string{`"12"`, `""`, `"zZ1a"`, `"-7"`, `"ab"`}
