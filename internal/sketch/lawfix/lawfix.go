@@ -229,8 +229,9 @@ func lawsFileName(name string) bool {
 // renameLawsFiles names each file of laws that is left after the moves,
 // holding declarations the laws are about (or that nothing names), by
 // its concept: its first machine, else its first exported type, else its
-// first type, else its first exported function, else its first
-// declaration, in lower case. A name another file has keeps the file.
+// first type, else its first exported function, else its first named
+// declaration, in lower case; a file left with tests alone is a test
+// file, tests.ergo. A name another file has keeps the file.
 func renameLawsFiles(res *Result, files []*syntax.File, edits map[*syntax.File]*fileEdit) {
 	taken := map[string]bool{}
 	for _, f := range files {
@@ -255,7 +256,7 @@ func renameLawsFiles(res *Result, files []*syntax.File, edits map[*syntax.File]*
 			left = append(left, d)
 		}
 		concept := ""
-		for rank := 0; rank < 5 && concept == ""; rank++ {
+		for rank := 0; rank < 6 && concept == ""; rank++ {
 			for _, d := range left {
 				name, ok := "", false
 				switch d := d.(type) {
@@ -267,6 +268,8 @@ func renameLawsFiles(res *Result, files []*syntax.File, edits map[*syntax.File]*
 					name = d.Name.Name
 					ok = rank == 3 && isUpper(name) || rank == 4
 				case *syntax.LawDecl:
+				case *syntax.TestDecl:
+					name, ok = "tests", rank == 5
 				default:
 					name, ok = declName(d), rank == 4
 				}
@@ -596,6 +599,10 @@ func declName(d syntax.Decl) string {
 		if len(names) > 0 {
 			return strings.Join(names, ", ")
 		}
+	case *syntax.TestDecl:
+		return d.Name.Name
+	case *syntax.LawDecl:
+		return d.Name.Name
 	}
-	return fmt.Sprintf("%T", d)
+	return ""
 }
