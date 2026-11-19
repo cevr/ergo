@@ -238,10 +238,9 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"runtime leaf's generic function in a generic body", "G4"},
 	{"owned parameters", "G4"},
 	// LY-FIX: a monomorphic, provider or witness copy keeps its emitter
-	// body; a function with a Go row (rowslot.go) and its calls too.
+	// body. (Its Go row gate went with ROWSLOT-IR: such a function and
+	// its calls take IR bodies.)
 	{"copy for an instance", "G4"},
-	{"Go row parameter", "G4"},
-	{"call of a function with a Go row", "G4"},
 	{"variant with no result", "G4"}, // drop.go's variant of a function whose result a call discards
 	{"call without a value", "G4"},
 	{"call without a Calls entry", "G4"},

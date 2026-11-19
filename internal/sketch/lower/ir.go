@@ -714,9 +714,6 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	if len(fc.witness) > 0 {
 		b.witnessGate() // ir_witness.go
 	}
-	if b.l.hasGoRow(f.Sig) {
-		b.gate("Go row parameter") // rowslot.go: F is a Go type parameter the IR spells error (LY-FIX)
-	}
 	if f.Decl.Body == nil {
 		irNo("no body")
 	}
