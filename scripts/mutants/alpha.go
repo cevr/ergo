@@ -357,7 +357,7 @@ func changeCoupling(root, dir string) map[string]int {
 			files[e.Name()] = append(files[e.Name()], string(m[1]))
 		}
 	}
-	cmd := exec.Command("git", "-C", root, "--no-optional-locks", "log", "-n", fmt.Sprint(couplingCommits), "--format=%x00", "--name-only", "--", dir)
+	cmd := exec.Command("git", "--no-optional-locks", "-C", root, "log", "-n", fmt.Sprint(couplingCommits), "--format=%x00", "--name-only", "--", dir)
 	data, err := cmd.Output()
 	if err != nil {
 		return out

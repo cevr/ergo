@@ -73,7 +73,7 @@ func backtestLedgers(store covfile.Store, root, commit string, closures map[stri
 			if !strings.HasSuffix(row.File, ".go") {
 				continue
 			}
-			old, err := exec.Command("git", "-C", root, "--no-optional-locks", "cat-file", "blob", commit+":"+row.File).Output()
+			old, err := exec.Command("git", "--no-optional-locks", "-C", root, "cat-file", "blob", commit+":"+row.File).Output()
 			if err != nil || row.From == "" || strings.Count(string(old), row.From) != 1 {
 				report.Stale++
 				continue

@@ -117,7 +117,7 @@ func runBlame(target, span string, out io.Writer) int {
 	}
 	blob := func(commit string) func(string) ([]byte, bool) {
 		return func(p string) ([]byte, bool) {
-			data, err := exec.Command("git", "-C", root, "--no-optional-locks", "cat-file", "blob", commit+":"+p).Output()
+			data, err := exec.Command("git", "--no-optional-locks", "-C", root, "cat-file", "blob", commit+":"+p).Output()
 			return data, err == nil
 		}
 	}

@@ -34,6 +34,11 @@ type ledgerFile struct {
 		Killers []string `json:"killers"`
 		Gap     string   `json:"gap"`
 		Refused string   `json:"refused"` // scripts/mutants Mutant.Refused
+		// Regenerate is scripts/mutants Mutant.Regenerate (MUT-REGEN).
+		Regenerate *struct {
+			Dir  string   `json:"dir"`
+			Argv []string `json:"argv"`
+		} `json:"regenerate"`
 		Anchor  *struct {
 			File  string   `json:"file"`
 			Text  string   `json:"text"`

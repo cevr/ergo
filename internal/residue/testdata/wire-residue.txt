@@ -476,9 +476,9 @@ examples/pipeline/pipeline/pipelinemcp/mcp.ergo	*
 examples/pipeline/surfaces/laws.ergo	*
 examples/pipeline/surfaces/surfaces.ergo	*
 examples/pipeline/README.md	the wire's `Request`
-examples/pipeline/README.md	the generated client over the wire, command lines
-examples/pipeline/README.md	holds for the generated client over the wire
-examples/pipeline/README.md	the wire sends two requests in the other order
+examples/pipeline/README.md	over a generated transport's `Wire` to a context in th
+examples/pipeline/README.md	generated) | the transport's `Wire` carries every requ
+examples/pipeline/README.md	h each generated transport's `Wire` (command line, MCP
 examples/pipeline/testdata/mutants.json	*
 scripts/examples/module_test.go	walkrpc/wire.ergo
 examples/fk-domains/domains/domainsrpc/client.ergo	*
@@ -575,12 +575,12 @@ internal/sketch/check/pairlaw_test.go	src := "type host { name string }\nfunc pa
 internal/sketch/std/explore/search.ergo	*
 internal/sketch/std/explore/verdict.ergo	*
 internal/sketch/std/explore/conform.ergo	*
-internal/sketch/std/explore_key_test.go	*
+internal/sketch/stdlib/explore_key_test.go	*
 cmd/ergo/conform.go	must be wire types: a trace is read by their codecs
 docs/spec/stdlib.md	the observed members laid over `v`'s wire form
 docs/spec/stdlib.md	the observed fields are laid over a candidate's wire form
 internal/sketch/eval/testdata/mutants.json	so equal Maps have one wire form
-internal/sketch/std/testdata/mutants.json	laid over the candidate's wire form
-internal/sketch/std/testdata/mutants.json	The wire fast path:
-internal/sketch/std/testdata/mutants.json	takes in every part of its wire form
+internal/sketch/stdlib/testdata/mutants.json	laid over the candidate's wire form
+internal/sketch/stdlib/testdata/mutants.json	The wire fast path:
+internal/sketch/stdlib/testdata/mutants.json	takes in every part of its wire form
 docs/spec/stdlib.md	func FitOf[T wire](v T, obs json.Value) Fit

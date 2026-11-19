@@ -544,8 +544,8 @@
       "name": "gtc-compile-counted",
       "origin": "wf10 GATE2 GT-COMPILE",
       "file": "scripts/mutants/compiles.go",
-      "from": "\treturn restore, w.compiles(ctx, m, path, original)\n",
-      "to": "\treturn restore, \"\"\n",
+      "from": "\tif detail := w.compiles(ctx, m, path, original); detail != \"\" {\n",
+      "to": "\tif detail := \"\"; detail != \"\" {\n",
       "rule": "A mutant whose file does not compile is invalid, never killed by a test that fails on the compile error.",
       "killers": [
         "scripts/mutants:TestRunnerMatchesModel"

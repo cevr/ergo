@@ -1,4 +1,4 @@
-package std_test
+package stdlib_test
 
 import (
 	"strings"

@@ -228,10 +228,10 @@ func changesBetween(root, base, tip string) ([]fileChange, error) {
 			continue
 		}
 		c := fileChange{Path: name}
-		if old, err := exec.Command("git", "-C", root, "--no-optional-locks", "cat-file", "blob", base+":"+name).Output(); err == nil {
+		if old, err := exec.Command("git", "--no-optional-locks", "-C", root, "cat-file", "blob", base+":"+name).Output(); err == nil {
 			c.Old, c.Was = old, true
 		}
-		if now, err := exec.Command("git", "-C", root, "--no-optional-locks", "cat-file", "blob", tip+":"+name).Output(); err == nil {
+		if now, err := exec.Command("git", "--no-optional-locks", "-C", root, "cat-file", "blob", tip+":"+name).Output(); err == nil {
 			c.New, c.Is = now, true
 		}
 		out = append(out, c)

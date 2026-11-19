@@ -1,4 +1,4 @@
-package std_test
+package stdlib_test
 
 import (
 	"fmt"
@@ -48,7 +48,7 @@ func TestKeyEqualsEquality(t *testing.T) {
 		g := &keyGen{r: rand.New(rand.NewPCG(seed, 0x6b6579)), reach: reach}
 		src := g.program(12)
 		fail := func(format string, args ...any) {
-			t.Fatalf("seed %d: %s\nErgo source:\n%s\nreplay: ERGO_KEY_SEED=%d go test -run TestKeyEqualsEquality ./internal/sketch/std", seed, fmt.Sprintf(format, args...), src, seed)
+			t.Fatalf("seed %d: %s\nErgo source:\n%s\nreplay: ERGO_KEY_SEED=%d go test -run TestKeyEqualsEquality ./internal/sketch/stdlib", seed, fmt.Sprintf(format, args...), src, seed)
 		}
 		f, err := syntax.Parse(src)
 		if err != nil {
