@@ -6396,6 +6396,8 @@
         "internal/sketch/lower:TestLinkedRuntimeHoldsEveryImport"
       ]
     },
+    {"name":"ui-edge-no-frames","origin":"wf10 EDGE-SCROLL-MODEL","file":"internal/sketch/std/ui/testhost.ergo","from":"\tfor (Animating(&h.session.frame) || edgeMoves(h)) && left >= h.period-h.owed {","to":"\tfor Animating(&h.session.frame) && left >= h.period-h.owed {","rule":"Advance runs frames while a held pointer edge-scrolls a list (H5g)","killers":["lower:TestUIHostModel"]},
+    {"name":"ui-edge-stale-y","origin":"wf10 EDGE-SCROLL-MODEL","file":"internal/sketch/std/ui/testhost.ergo","from":"\th.heldY = p.Y\n","to":"\n","rule":"the edge scroll reads the held pointer's last y","killers":["lower:TestUIHostModel"]},
     {"name":"uc2-never-paints","origin":"wf10 UC2","file":"internal/sketch/std/ansi/ansi.ergo","from":"func On(_ Never) bool { false }","to":"func On(_ Never) bool { true }","rule":"with colour off nothing is painted (NO_COLOR, a pipe)","killers":["lower:TestStdAnsiLawsRun"]},
     {"name":"uc2-bright-offset","origin":"wf10 UC2","file":"internal/sketch/std/ansi/ansi.ergo","from":"base + 60 + n - 8","to":"base + 60 + n","rule":"bright basic colours 8-15 are SGR 90-97 and 100-107","killers":["lower:TestStdAnsiLawsRun"]},
     {"name":"uc2-indexed-unclamped","origin":"wf10 UC2","file":"internal/sketch/std/ansi/ansi.ergo","from":"writeInt(b, clamp(x.N, 255))","to":"writeInt(b, x.N)","rule":"an indexed colour is held to 0-255","killers":["lower:TestStdAnsiLawsRun"]},
