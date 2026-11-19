@@ -1,0 +1,44 @@
+// The window paints each node's look of the state std decides (UG3): for
+// every labelled node the window painted with a look, its state agrees
+// with the test host's (ui.LookStateAt) and the look it painted is the
+// test host's look of that state (ui.LookShownAt), so the pointer, the
+// keys and the passes put both hosts' hover, focus and pressed looks on
+// the same nodes.
+
+import ergo.local/prototype/hosts/mygo/desktop
+import ui
+
+// stateText is a look state as a differ line names it.
+func stateText(s ui.LookState) string {
+	match s {
+	case ui.Rest:
+		"rest"
+	case ui.Hover:
+		"hover"
+	case ui.FocusVisible:
+		"focus"
+	case ui.Active:
+		"active"
+	case ui.Disabled:
+		"disabled"
+	}
+}
+
+// lookStatesDiffer is why a labelled node's look state on the window
+// differs from the test host's, None when they agree. A label the test
+// host finds more than once is skipped.
+func lookStatesDiffer[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Driver[S, E, D, F]) Option[string] {
+	for at in desktop.LookStates(d) {
+		let ids = ui.Locate(h, ui.WithLabel{Label: at.Label})
+		if len(ids) == 1 {
+			let want = ui.LookStateAt(h, ids[0])
+			if at.State != want {
+				return Some{Value: "look state of \(at.Label) is \(stateText(at.State)), want \(stateText(want))"}
+			}
+			if at.Look != ui.LookShownAt(h, ids[0]) {
+				return Some{Value: "look of \(at.Label) is not its \(stateText(want)) look"}
+			}
+		}
+	}
+	None
+}

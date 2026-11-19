@@ -69,17 +69,17 @@ func (r *runner) exploreProgram(p *program) {
 		switch {
 		case err != nil:
 			fmt.Fprintf(r.out, "FAIL %s: %s: could not start: %v\n", p.name, leg, err)
-		case o.overCap() != "":
-			fmt.Fprintf(r.out, "FAIL %s: %s: %s\n", p.name, leg, o.overCap())
-		case o.passed():
-			if why := selectedAlone(o.stdout, e.name); why != "" {
+		case o.OverCap() != "":
+			fmt.Fprintf(r.out, "FAIL %s: %s: %s\n", p.name, leg, o.OverCap())
+		case o.Passed():
+			if why := selectedAlone(o.Stdout, e.name); why != "" {
 				fmt.Fprintf(r.out, "FAIL %s: %s: --run %s %s\n", p.name, leg, e.name, why)
 				break
 			}
-			fmt.Fprintf(r.out, "ok %s: %s (%s)\n", p.name, leg, seconds(o.elapsed))
+			fmt.Fprintf(r.out, "ok %s: %s (%s)\n", p.name, leg, seconds(o.Elapsed))
 			continue
 		default:
-			fmt.Fprintf(r.out, "FAIL %s: %s%s\n", p.name, leg, o.why(r.cfg.testTimeout))
+			fmt.Fprintf(r.out, "FAIL %s: %s%s\n", p.name, leg, o.Why(r.cfg.testTimeout))
 			r.printOutput(o, nil)
 			fmt.Fprintf(r.out, "    %s\n", r.replays(o))
 		}
@@ -116,7 +116,7 @@ func selectedAlone(stdout []byte, name string) string {
 // failure: the same "FAIL explore" verdict, less its counters.
 func (r *runner) replays(o outcome) string {
 	var replay, verdict string
-	for _, line := range strings.Split(string(o.stdout), "\n") {
+	for _, line := range strings.Split(string(o.Stdout), "\n") {
 		if rest, ok := strings.CutPrefix(line, "replay: ergo "); ok {
 			replay = rest
 		}
@@ -135,7 +135,7 @@ func (r *runner) replays(o outcome) string {
 	if err != nil {
 		return "the replay could not start: " + err.Error()
 	}
-	for _, line := range strings.Split(string(again.stdout), "\n") {
+	for _, line := range strings.Split(string(again.Stdout), "\n") {
 		if rest, ok := strings.CutPrefix(line, "FAIL explore replay"); ok && failureOf(rest) == verdict {
 			return "the schedule replays to the same failure: ergo " + replay
 		}

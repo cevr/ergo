@@ -73,19 +73,19 @@ func (d *Drop) Glue() bool {
 // dropOf is the generated release of t, a type that holds a resource, or
 // nil with the reason when a part has no release this checker can derive
 // (a queue's drain and a task's are B3).
-func (c *checker) dropOf(t Type) (*Drop, string) {
+func (c *checker) dropOf(t Type) (*Drop, Type) {
 	w := dropWalk{c: c, seen: map[int32]*Drop{}}
 	d := w.visit(t)
-	if w.bad != "" {
+	if w.bad != nil {
 		return nil, w.bad
 	}
-	return d, ""
+	return d, nil
 }
 
 type dropWalk struct {
 	c    *checker
 	seen map[int32]*Drop
-	bad  string
+	bad  Type
 }
 
 // drain is the release of the values an operation type t keeps (Q7, R13;
@@ -167,7 +167,7 @@ func keepsOf(it *Interface, keeps *Named) (*Method, Type) {
 
 // visit returns t's release, nil when t crosses.
 func (w *dropWalk) visit(t Type) *Drop {
-	if w.bad != "" || !w.c.holdsResource(t) {
+	if w.bad != nil || !w.c.holdsResource(t) {
 		return nil
 	}
 	id, _ := w.c.types.intern(t)
@@ -192,7 +192,7 @@ func (w *dropWalk) visit(t Type) *Drop {
 			return d
 		}
 		if it := asInterface(n); it != nil {
-			if m := hostCloseOp(n, it); m != nil {
+			if m := w.c.hostCloseOp(n, it); m != nil {
 				// A Go interface (io.ReadCloser): its Close operation.
 				d.Close = &Close{Receiver: t, Op: m}
 				return d
@@ -227,20 +227,20 @@ func (w *dropWalk) visit(t Type) *Drop {
 		}
 	case *Interface:
 		if d.Close == nil {
-			d.Close = w.c.closeOperation(t, nil, "Close")
+			d.Close = w.c.closeOperation(t, nil, w.c.closeName())
 		}
 		// The declared drain gives what the value still holds after its
 		// Close (a Task's unread result, Q5) or in place of one (a queue's
 		// values left, Q7).
 		d.Drain = w.drain(t, u)
 		if d.Close == nil && d.Drain == nil {
-			w.bad = t.String()
+			w.bad = t
 		}
 	}
-	if d.Close == nil && len(d.Fields) == 0 && d.Elem == nil && len(d.Variants) == 0 && d.Drain == nil && w.bad == "" {
+	if d.Close == nil && len(d.Fields) == 0 && d.Elem == nil && len(d.Variants) == 0 && d.Drain == nil && w.bad == nil {
 		// Holds a resource the walk cannot reach: a phantom type argument
 		// or a part no rule above releases.
-		w.bad = t.String()
+		w.bad = t
 	}
 	if d.Close != nil && d.Close.Func != nil && d.Close.Op == nil && (len(d.Fields) > 0 || d.Elem != nil || len(d.Variants) > 0) {
 		if n, ok := t.(*Named); ok && w.c.closeMethod(n) == d.Close.Func {
@@ -265,7 +265,7 @@ func (c *checker) closeParts(f *Func) {
 	if !ok || c.closeMethod(n) != f {
 		return
 	}
-	if d, bad := c.dropOf(n); bad == "" && d != nil && d.Own != nil {
+	if d, bad := c.dropOf(n); bad == nil && d != nil && d.Own != nil {
 		f.Pkg.Info.CloseParts[f] = d.Own
 	}
 }

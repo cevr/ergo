@@ -25,7 +25,7 @@ func TestBodiesFollowTheHiddenConvention(t *testing.T) {
 		"OnExit": {Hidden: []Hidden{Frame}, Params: []Param{{Type: "func()", Func: &Body{}}}},
 		// queue.New and slices.WithCapacity take no hidden argument.
 		"New":          {TypeParams: anyT, Params: []Param{{Type: "int"}}, Results: []string{"*Queue[T]"}},
-		"WithCapacity": {TypeParams: anyT, Params: []Param{{Type: "int"}}, Results: []string{"[]T"}},
+		"WithCapacity": {TypeParams: anyT, Params: []Param{{Type: "int"}}, Results: []string{"[]T"}, Pure: true},
 		// The operations of queue.Queue: the caller's task where they wait.
 		"Queue.Push":   {TypeParams: anyT, Hidden: []Hidden{CallerTask}, Params: []Param{{Type: "T"}}, Results: []string{"error"}},
 		"Queue.Pop":    {TypeParams: anyT, Hidden: []Hidden{CallerTask}, Results: []string{"T", "error"}},

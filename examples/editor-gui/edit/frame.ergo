@@ -31,7 +31,7 @@ func Status(s State) string {
 	case Selecting as l:
 		"selecting " + base + " anchor=\(l.Anchor)"
 	case Searching as f:
-		"searching " + base + " find=\"" + f.Query + "\" matches=\(piece.Count(d.Buf, f.Query))"
+		"searching " + base + " find=\"" + f.Query + "\" matches=\(f.Count)"
 	}
 }
 

@@ -76,6 +76,7 @@ func Inspect(n Node, f func(Node) bool) {
 		}
 	case *AssertStmt:
 		walk(n.X)
+	case *SkipStmt:
 	case *VariantSpec:
 		walk(n.Name, n.TypeArgs, n.Fields)
 	case *AsPattern:

@@ -48,9 +48,10 @@ func emptyDir(t *testing.T, dir, what string) {
 // never calls main. The test binary leaves nothing in the working
 // directory or the temporary directory.
 func TestTestCommand(t *testing.T) {
+	t.Parallel()
 	binary := buildTestCLI(t)
 	root := physicalTempDir(t)
-	xdg := filepath.Join(t.TempDir(), "xdg")
+	xdg := testXDG(t, t.TempDir())
 	tmp := t.TempDir()
 	cwd := t.TempDir()
 	write := func(name, text string) string { return smokeWrite(t, root, name, text) }
@@ -63,17 +64,22 @@ func TestTestCommand(t *testing.T) {
 	}
 	main := "func main() needs Console { Console.Println(\"MAIN-MUST-NOT-RUN\") }\n\n"
 	pass := write("pass.ergo", main+"func double(n int) int { n * 2 }\n\ntest Doubles { assert double(2) == 4 }\n\ntest Halves(n int) { assert double(n) - n == n }\n")
-	if stdout, stderr, code := run("test", pass); code != 0 || stdout != "ok Doubles\nok Halves (100 cases)\nPASS (2 tests)\n" {
+	// The evaluator decides both tests (tier 1, TESTSPEED FT1); --native
+	// prints the test binary's lines unmarked.
+	if stdout, stderr, code := run("test", pass); code != 0 || stdout != "ok Doubles (evaluated)\nok Halves (100 cases) (evaluated)\nPASS (2 tests)\n" {
+		t.Fatalf("a passing file: exit %d stdout %q stderr %q", code, stdout, stderr)
+	}
+	if stdout, stderr, code := run("test", pass, "--native"); code != 0 || stdout != "ok Doubles\nok Halves (100 cases)\nPASS (2 tests)\n" {
 		t.Fatalf("a passing file: exit %d stdout %q stderr %q", code, stdout, stderr)
 	}
 	fail := write("fail.ergo", main+"test First { assert 1 == 2 }\n\ntest Second { assert true }\n")
 	stdout, stderr, code := run("test", fail)
-	if code != 1 || !strings.HasPrefix(stdout, "FAIL First: assert failed at fail.ergo:3:14: 1 == 2\nok Second\nFAIL (1 of 2 tests)\n") || strings.Contains(stdout, "PASS") {
+	if code != 1 || !strings.HasPrefix(stdout, "FAIL First: assert failed at fail.ergo:3:14: 1 == 2 (evaluated)\nok Second (evaluated)\nFAIL (1 of 2 tests)\n") || strings.Contains(stdout, "PASS") {
 		t.Fatalf("a failed assert: exit %d stdout %q stderr %q; want exit 1, the later test run, no PASS", code, stdout, stderr)
 	}
 	defect := write("defect.ergo", "func at(xs []int, i int) int { xs[i] }\n\ntest Before { assert true }\n\ntest Panics { assert at([]int{}, 1) == 0 }\n\ntest After { assert true }\n")
 	stdout, stderr, code = run("test", defect)
-	if code != 2 || stdout != "ok Before\nFAIL Panics: a defect, which stops the run\n" || !strings.Contains(stderr, "panic: ") || !strings.Contains(stderr, "defect.ergo:1") {
+	if code != 2 || stdout != "ok Before\nFAIL Panics: a defect, which stops the run\n" || !strings.Contains(stderr, "panic: ") || !strings.Contains(stderr, "\n\tat at defect.ergo:1\n\ttest Panics calls at at defect.ergo:5:22\n") {
 		t.Fatalf("a defect: exit %d stdout %q stderr %q; want exit 2, the run stopped, the runtime's report", code, stdout, stderr)
 	}
 	for _, main := range []string{stdout, stderr} {
@@ -107,14 +113,15 @@ func TestTestCommand(t *testing.T) {
 	// A refuted law prints the command that reruns it alone (X1b): ergo
 	// test on the source as it was given, --law and the seed. That command
 	// prints the same FAIL line, and runs no test.
-	laws := write("replaylaw.ergo", "law Residue(value int) {\n\tvalue % 7 != 3\n}\n\ntest Other { assert true }\n")
+	laws := write("replaylaw.ergo", "law Residue(value int) {\n\tMod7(value) != 3\n}\n\ntest Other { assert true }\n\nfunc Mod7(v int) int { v % 7 }\n")
 	stdout, _, code = run("test", laws, "--seed", "7")
 	rerun, _, code2 := run("test", laws, "--law", "Residue", "--seed", "7")
 	// The refutation is the FAIL line and its positions (EV6: the law's
 	// declaration follows the refuted line), then the replay line.
+	// The evaluator answers the full run (marked); --law runs the test binary.
 	refuted, _, _ := strings.Cut(rerun, "\treplay: ")
 	want := refuted + "\treplay: ergo test " + laws + " --law Residue --seed 7\n"
-	if code != 1 || code2 != 1 || !strings.HasPrefix(refuted, "FAIL law Residue (case ") || !strings.Contains(stdout, "ok Other\n"+want) || rerun != want+"FAIL (1 of 1 tests)\n" {
+	if code != 1 || code2 != 1 || !strings.HasPrefix(refuted, "FAIL law Residue (case ") || !strings.Contains(strings.ReplaceAll(stdout, " (evaluated)\n", "\n"), "ok Other\n"+want) || rerun != want+"FAIL (1 of 1 tests)\n" {
 		t.Fatalf("a refuted law: exit %d %q; its replay: exit %d %q", code, stdout, code2, rerun)
 	}
 	// Usage errors: exit 2, nothing on stdout, nothing run.
@@ -163,8 +170,10 @@ func TestTestCommand(t *testing.T) {
 func testReceipt(t *testing.T, write func(name, text string) string, run func(args ...string) (string, string, int)) {
 	t.Helper()
 	// A machine's reachability law is a law run too, so the receipt has
-	// its entry: proved, with the search's report.
-	laws := write("laws.ergo", "law Twice(b bool) { !!b == b }\n\nlaw Holds(n int) { n == n }\n\nlaw Short(s string) { len(s) < 2 }\n\n"+
+	// its entry: proved, with the search's report. Each top-level law
+	// calls a function of the file, its subject (S115).
+	laws := write("laws.ergo", "law Twice(b bool) { Not(Not(b)) == b }\n\nlaw Holds(n int) { Same(n) == n }\n\nlaw Short(s string) { Size(s) < 2 }\n\n"+
+		"func Not(b bool) bool { !b }\n\nfunc Same(n int) int { n }\n\nfunc Size(s string) int { len(s) }\n\n"+
 		"type Light = Red{} | Green{}\n\ntype Tick = Flip{}\n\n"+
 		"func flip(l Light, _ Tick) Decision[Light, int] {\n\tmatch l {\n\tcase Red:\n\t\tEnter[Light]{Next: Green}\n\tcase Green:\n\t\tEnter[Light]{Next: Red}\n\t}\n}\n\n"+
 		"type Lamp machine[Light, Tick] {\n\tinitial: Red,\n\tstep:    flip,\n\n\tlaw Lit reaches Green,\n}\n")
@@ -225,9 +234,10 @@ func testReceipt(t *testing.T, write func(name, text string) string, run func(ar
 // does `ergo test --explore -work`, whose tag is the link's alone, and the
 // test binary is never written into the module.
 func TestBuildAndTestActionsDiffer(t *testing.T) {
+	t.Parallel()
 	binary := buildTestCLI(t)
 	root := physicalTempDir(t)
-	xdg := filepath.Join(t.TempDir(), "xdg")
+	xdg := testXDG(t, t.TempDir())
 	tmp := t.TempDir()
 	smokeWrite(t, root, "main.ergo", "func main() needs Console { Console.Println(\"main\") }\n\ntest OnlyTest {\n\tassert 2 + 2 == 4\n}\n")
 	stdout, stderr, code := testRunCLI(t, binary, root, xdg, tmp, "build", "main.ergo", "-o", "app", "-work")

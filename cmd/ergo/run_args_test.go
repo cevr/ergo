@@ -31,9 +31,10 @@ func main() needs Console | Ambient {
 // run in place still passes scripts/examples, whose layout check refuses an
 // unexpected dist/.
 func TestErgoRunPassesArguments(t *testing.T) {
+	t.Parallel()
 	binary := buildTestCLI(t)
 	root := physicalTempDir(t)
-	xdg := filepath.Join(t.TempDir(), "xdg")
+	xdg := testXDG(t, t.TempDir())
 	tmp := t.TempDir()
 	program := filepath.Join(root, "examples", "argv")
 	smokeWrite(t, program, "ergo.mod", "module argv\n")

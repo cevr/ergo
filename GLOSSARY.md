@@ -38,11 +38,13 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Constructor**: An ordinary function named as a `context` entry, such as `Orders = OpenPostgres`. Its requirements are satisfied from the same context, and its failures become startup failures of the `with` that builds it.
 
-**Captured provider**: A provider that holds the capabilities its constructor used. Its methods use them without a `needs` clause of their own.
+**Captured provider**: A provider that holds the capabilities its constructor used. Its methods use them without a `needs` clause of their own. Today only `go.Foreign` is captured: a provider whose operations call Go converts to its operation type where it is built, and that site is charged `go.Foreign` (README Gap 17; [rows](docs/spec/rows.md) Context 2).
 
-**Prelude**: The names in scope in every package without an import: `Option`, `Task`, `Decision`, `Clock`, `Scheduler`, `Random`, `Console`, `Ambient` and the function `Unreachable`.
+**Prelude**: The names in scope in every package without an import: `Option`, `Task`, `Decision`, `Clock`, `Scheduler`, `Random`, `Console`, `Ambient`, `TestAmbient` and the functions `Unreachable` and `TestFolder`.
 
 **Ambient**: The prelude capability that is the authority to choose the host. Only the entry gives it to a `main` that lists it. Its one operation is unexported, so no program type implements it and no context binds it. A host package's `NewHost` has it in its row, and so has code that makes a host provider. Pony's `AmbientAuth` and Austral's `RootCapability` are the prior art. See [stdlib](docs/spec/stdlib.md#host-packages).
+
+**Test's ambient**: The prelude capability `TestAmbient`, the authority a test has to reach the host, confined to a fresh folder per case. Its one provider is the test runner, for a named context whose header says `needs TestAmbient`, built by a `with` in a test or by a law case; the runner removes the folder when the case ends. Its providers, `fs.NewTestHost`, `exec.NewTestHost` and `os.NewTestHost`, refuse a path out of the folder with their `Denied`. It is never the host's `Ambient`, which a test never holds. See [rows](docs/spec/rows.md#tests-ambient).
 
 **Host package**: A reviewed standard-library package, such as `os`, `fs`, `net` or `sql`, that calls Go. Only host packages and `import go` reach the host, so every effect appears in some footprint. Its host provider `Host` has construction authority, and its one constructor `NewHost` needs `Ambient`.
 
@@ -150,6 +152,8 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Crossing type**: A type that holds no resource, so the ownership rules mean nothing for its values: they copy freely. Plain data and shared handles cross; a generic type crosses with its arguments (`Stack[int]` crosses, `Stack[File]` does not). The term is OxCaml's mode crossing. See [resources](docs/spec/resources.md) R1.
 
+**Declared root** (EXH1): A value whose type implements `Closer`, or a `*T` borrow of one, seen as the owner of the handles it holds (values of an operation type that is not a resource, such as `sync.Ref` or `actor.Actor`, or values holding one). A handle read from it is lent: it leaves only with the whole root, and a write back to its own place grows the root in place. See [resources](docs/spec/resources.md) R17.
+
 **Takes clause**: `takes p` after a signature's rows: the call hands the parameter `p` off, and the caller cannot use it after the call. Written on every function, exported or not (q137; `ergo fix` writes a missing one), and part of a function type. A bare `takes` on an operation names the value the operation is called on. See [grammar](docs/spec/grammar.md) Declarations 13.
 
 **Owner scope**: The block that owns a resource: the block that acquired it, or the scope it moved to. A loop body is its own owner scope for each iteration.
@@ -164,13 +168,23 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Consume**: Ending a resource early by calling `Close()`, a task's `Wait()`, or a function whose `takes` clause names it. Nothing runs for it at scope end, and a later use is an error. A task's `Stop()` lends; it does not consume ([resources](docs/spec/resources.md#early-release) R19).
 
+**Consume (a value)**: Take a slice, `Map` or record that holds one at a position that may keep or write its storage: the value of a `let mut`, an owned parameter, an owned form's first operand, the source of an `Append`. A consumed value or path is taken in place only when no other use of it can see the write; otherwise the lowering copies it first. A record is consumed by parts when its body consumes its fields on paths that do not overlap ([types](docs/spec/types.md#bindings), *own-parts*). Not the resource sense above: nothing ends early, and a later read is legal, so it is copied.
+
+**Owned parameter**: A parameter whose function's body may write or keep its storage, because every use consumes it or keeps nothing ([types](docs/spec/types.md#bindings) 2). Its caller passes it unshared: a copy only when the argument is shared, none for a dead local, a fresh value or a rebinding `p = f(p, …)`, which hands the old value over.
+
 **Generated Close**: The `Close` the compiler gives a struct with resource fields. It closes those fields in reverse declaration order.
 
 **Task**: A unit of concurrent work started by `task.Go`, of type `Task[T, E]`. It is a resource (it declares `Close()`): one owner, moved by a hand-off, taken by `Wait`, which returns its result; `Stop` interrupts it and waits for it; its owner's end releases it when nothing took it.
 
 **Task tree**: The parent and child relation of tasks. Stopping a task stops every task below it.
 
-**Set**: `tasks.Set(policy)`, a resource that owns an unbounded number of tasks and applies a fail-fast, log or restart policy (G4).
+**Set**: `tasks.Set(policy)`, a resource that owns an unbounded number of tasks and applies a fail-fast, log or restart policy (G4). Not std `set.Set`, a key set.
+
+**Key set**: A value of std `set.Set[K comparable]`: keys with no order, each once, over a Map. It is a value, as a Map is: `set.Add` and `set.Remove` return a new set, and a copy never sees a later change. Effect's `HashSet`; Go's `map[K]struct{}`. See [stdlib](docs/spec/stdlib.md#slices-maps-and-cmp) 13.
+
+**Decimal**: A value of std `decimal.Decimal`: an exact decimal number, a sign, a 128-bit coefficient and a scale (the digits after the point), so 12.50 is 1250 at scale 2. Arithmetic is exact or fails with `Overflow`; only `Round` and `Div` drop digits, by a named **rounding mode** (`HalfUp`, `HalfEven`, `Down`, `Up`, `Floor`, `Ceil`). Effect's `BigDecimal`. See [stdlib](docs/spec/stdlib.md#decimal).
+
+**Secure source**: The operation type std `rand.Secure`, whose `Bytes(n)` is random bytes no one can predict, for keys, tokens and ids. `rand.NewSecureHost()` reads Go's `crypto/rand` and needs `Ambient`; `rand.NewSeededSecure(seed)` replays a stream for tests. It is apart from `Random`, whose draws are fast and replayable and so predictable. `uuid.V4` and `uuid.V7` draw from it. See [stdlib](docs/spec/stdlib.md#keyed-digests).
 
 **Interruption**: A request that a task stop. It is cooperative and is not a typed error: no error row names it.
 
@@ -187,6 +201,8 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 **Machine**: A declaration `type X machine[S, E] { initial v; step f }` of a state machine over the unions `S` and `E`. Its meaning is a plan any lawful provider can run. In the earlier language (specified), a machine is a checked definition of state and event types, transition policies and state-owned behavior.
 
 **Decision**: The value a machine step returns: `Enter{next}`, `Stay{next}`, `Emit{next, output}`, `Ignore{}`, `Reject{}`, `Done{output}` or `Tell{next, output}`. Its type is the prelude `Decision[S, O]`. Only the first state, an `Enter` and an `Emit` open an entry; `Stay` and `Tell` keep the entry's timer and work, and `Emit` and `Tell` give an output (runtime.md, Machines and actors 2).
+
+**State's exit action**: The action a machine's `exit: x` entry gives a state, `x(s) Option[func() needs R]`. The runner runs it once when an entry that holds `s` ends, with the state the entry holds then, on every path that ends it, `Stop` included. Not `actor.Exit`, the value of how an actor ended. See [runtime](docs/spec/runtime.md#machines-and-actors) Machines and actors 12a.
 
 **Actor**: A machine run by `actor.Start` as one task with a bounded mailbox, behind a resource handle with `Send`, `Ask`, `State` and `Stop`. In the earlier language (specified), an actor is an owned, addressable instance of behavior with typed messages and replies and an explicit admission and concurrency policy; an effect without a message interface remains a fiber.
 
@@ -280,11 +296,13 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Evidence kind** ([#170](https://github.com/cevr/ergo/issues/170)): A nominal wrapper type, such as `SortedBy[S, compare]`, whose values carry the proof that a law-backed check has run on the carrier. Only the checking function mints it.
 
-**Law ledger** (owner q116, q122): The checked-in file `ergo.laws` beside `ergo.mod`, module-wide as `go.sum` is, one line per rewrite law, provider and site instance: the verdict of its check run (proved, validated, tested, skipped or refuted), the run that gave it, the **foreign keys** it was given with, and a digest of every input of the verdict (the law, the provider, the functions, types and package lets they reach, whether the provider's construction is closed, the instance, the foreign keys; by tokens, never by position or comment). It also keeps `fact go` lines, a Go function's vouched fact and its guard. `ergo test` of any binary adds or replaces its entries and removes only those the module no longer declares, so the order of the binaries' tests does not matter; `ergo build`, `run` and `inspect` only read it, so the run build is a function of checked-in files. A rewrite applies only on a current entry at a level the admission admits (proved; validated with its run named); a current refuted one refuses the build (S108); a stale or missing one keeps the reference lowering with one printed line, and `--locked` refuses ([runtime](docs/spec/runtime.md#tests), Tests 10). Std ships its own, embedded. Not a law receipt, which records one run for a revision and changes no code.
+**Law subject** (LAWLOC; owner, 2026-11-15): A declaration of a law's own package that the law is about: one its parameters or its body name, or one a law helper it calls names (a function, a type and its operations, variants and fields, a package `let`, a context). A law helper, an unexported function, type, `let` or context that only laws, tests and other helpers use, is not a subject. A top-level law stands in a file that declares one of its subjects (S115); a member or machine law's subject is the type that declares it. `ergo fix` moves a misplaced law beside its main subject, the one its name names ([types](docs/spec/types.md#laws), Laws 15).
 
+**Law ledger** (owner q116, q122): The checked-in file `ergo.laws` beside `ergo.mod`, module-wide as `go.sum` is, one line per rewrite law, provider and site instance: the verdict of its check run (proved, tested or skipped) and a digest of every input of the verdict (the law, the provider, the functions, types and package lets they reach, whether the provider's construction is closed, the instance; by tokens, never by position or comment). `ergo test` of any binary adds or replaces its entries and removes only those the module no longer declares, so the order of the binaries' tests does not matter; `ergo build`, `run` and `inspect` only read it, so the run build is a function of checked-in files. A rewrite applies only on a current, proved entry; a stale or missing one keeps the reference lowering with one printed line, and `--locked` refuses ([runtime](docs/spec/runtime.md#tests), Tests 10). Std ships its own, embedded. Not a law receipt, which records one run for a revision and changes no code.
 **Foreign key** (LAWFFI r2 §3.5; LFL): The pin of a law ledger entry to the Go code its law reaches through `extern go`: the pinned toolchain for Go's standard library, the `go.sum` line of the required module that holds the function (a folder replacement: the hash of the package's Go and assembly files), or, for `runtime/v1` and a trusted module's own Go, the hash of every declaration the function reaches, transitively (widened to the package's files where the walk cannot see). It enters the entry's digest and is shown on its line (`with go1.27.4`), so a stale line names what changed. Not a build key, which keys a cached Go build. See [facts](docs/spec/facts.md#evidence), Evidence 3.
-
 **Validated** (owner q192, q194, q195): The evidence level between proved and tested: a vouched Go fact whose guard has a current, passing ledger entry, or a rewrite law whose licence run (the law-check build, `by native`, or the check-time evaluator, `by eval`) has a current, passing entry and no refutation. It licenses a value-class change of emitted code only (a law rewrite), and of memory-class changes only the shortcut `host-view` rows (q193). Not tested, which is never acted on. See [facts](docs/spec/facts.md#evidence), Evidence 2.
+
+**Skip statement**: `skip "reason"`, a statement of a test or law body that ends that run as skipped, never passed: `ergo test` prints `skip Name: reason` and counts it in the summary's skips, and `ergo check` reports the obligation `skipped` with the reason. The reason is a string literal in the source. `skip` is a contextual keyword: the statement is `skip` followed directly by a string literal, and elsewhere `skip` is an ordinary name ([runtime](docs/spec/runtime.md#tests), Tests 4).
 
 **Law receipt**: The recorded outcome of running a law suite for one revision, seed and target: the status of each law (proved, tested, refuted or skipped), its case count and any counterexample, shrunk. `ergo test DIR --receipt FILE` writes one as JSON ([runtime](docs/spec/runtime.md#tests), Tests 8). A tested law, which held for drawn cases, is not a proved one, which held for every value. The build reads only the canonical receipt; no build reads one yet.
 
@@ -305,6 +323,8 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 **Semantic equivalence baseline** (acceptance term): A matched Ergo and explicit Go program pair that performs the same validation and observable work while preserving the same rows, ownership, cancellation and completed-cleanup behavior. The Go member is an optimized idiomatic Go control with the same contract. The baseline makes an abstraction's generated and runtime costs attributable rather than inferred from unequal examples. Until 2026-10-26 the baseline also had a TypeScript/Effect member; it went with the JavaScript target.
 
 ## Runtime and providers
+
+**Lookup in flight**: In std `cache`, the call of a Get's lookup for a key while it runs. The cache holds one per key; every other Get of that key waits for it to end and then reads the entry it left, or, when it failed or its task stopped, runs its own. Go's `singleflight` call, Effect's pending `Deferred` of a `Cache` entry. See [stdlib](docs/spec/stdlib.md#cache).
 
 **Effect runtime provider** (direction): An implementation of the lawful runtime contract that executes Ergo effects on a target. `runtime/ergo` was the native Go provider of the earlier language (removed in batch 14), and the prototype's `rt` package is the first provider of the Go-shaped language. Pinned Effect as the JavaScript provider went with the JavaScript target on 2026-10-26.
 
@@ -384,7 +404,17 @@ The building blocks of domain-driven design, as Ergo writes them. [docs/domain.m
 
 **View** (pattern): A read model: a fold over the events of a log, with a law that the fold equals the view computed from the states (`BoardIsFoldOfEvents`). Distinct from a UI view, which is a function that draws a screen.
 
-**Policy** (pattern): A pure function from an event to the commands or notices it causes, `React(e E) []C`, so a replayed log causes the same things. A **follower** of the log runs it: module `domain`'s `Follow` delivers each record after the follower's saved cursor, at least once, and names each command it sends by the follower, the stream, the record's position and the command's index, so a second delivery is a resend. Distinct from a retry policy, which is data a saga reads.
+**Policy** (pattern): A pure function from an event to the commands or notices it causes, `React(e E) []C`, so a replayed log causes the same things. A **follower** of the log runs it: module `domain`'s `Follow` delivers each record after the follower's saved cursor, at least once, and names each command it sends by the follower, the stream, the record's position and the command's index, so a second delivery is a resend. Distinct from a retry policy, which is data a saga reads, and from a **transport policy** (below).
+
+**Api** (pattern): A bounded context's one operation type, in its domain package: its commands and reads are the operations, their failure rows the typed rejections, and its laws stand beside them (docs/domain.md, rule 5). Every surface is a provider or a caller of it. No construct of its own: an Api is an operation type.
+
+**Hub**: The package `ergo gen api` writes for an Api, `<pkg>api`: the operation type as data (`Request`, `Op`, `Reply`, `Failure`, `Outcome`), the one dispatch `Call`, the `Client` over any way to carry a `Request`, and the laws `CallIsTheOperation` and `ClientIsCall`. Every transport is written over it. See [api.md](docs/spec/api.md#ergo-gen-api).
+
+**Projection**: A generator that writes, from the checked Api, the plain Ergo of one surface over the hub (`ergo gen rpc`, `cli`, `mcp`), or the pattern of a UI (docs/domain.md, rule 6). No reflection at run time.
+
+**Transport**: A projection that carries a call: its codecs of `Request` and `Outcome` and a host loop that answers through the hub's `Call` (Effect RPC over HTTP, a command line, MCP tools).
+
+**Transport policy**: What a binary decides about a transport, as functions in `cmd/<name>` over the hub's unions, each an exhaustive `match` (an exit code per `Failure`, an HTTP status), so a new failure does not compile until each binary maps it. Distinct from a **Policy** (above), which reacts to events.
 
 **Saga** (pattern): A process over time as a machine of its own, run durably, whose signals are the events it reacts to and its timers (`after`), and whose `work` calls the world.
 
@@ -399,6 +429,30 @@ The building blocks of domain-driven design, as Ergo writes them. [docs/domain.m
 **Kind**: An operation type a stack calls for one kind of cloud object, `Ensure(id, props) A`. Plan and apply are two providers of it.
 
 **Driver**: What a provider module implements for one kind: `Attrs`, `Apply`, `Read` and `Delete`, keyed by id, with the laws `AttrsIsApply`, `RetrySafe`, `ReadAfterApply` and `DeleteIsIdempotent`. Distinct from **Resource**, a value with a checked `Close`.
+
+**Civil date**: A day of the calendar with no zone, `civil.Date`: ISO 8601's proleptic Gregorian calendar, years 1 to 9999. It holds the count of days from 1970-01-01, and only package `civil` builds one, so it is always a real day. Temporal's `PlainDate`; Go's `cloud.google.com/go/civil.Date`. See [stdlib](docs/spec/stdlib.md#civil).
+
+**Period**: An amount of calendar units, `civil.Period { Years, Months, Weeks, Days }`. Adding one moves the years and months as one count of months, with the day clamped to the new month's last day, then the weeks and days. A period is not a duration: a month has no fixed length.
+
+**Civil span**: A range of civil dates with both ends included, `civil.Span`, built only by `NewSpan`. A range of instants is `time.Interval`, half open.
+
+**Civil format**: A format of dates and times as a value, `civil.DateFormat` or `civil.DateTimeFormat`: a list of `civil.Field` values, built once by `Pattern` (LDML letters), `FromLayout` (Go's layout) or `Fields`, and checked when built. Go's layout is a string read on each call. See [stdlib](docs/spec/stdlib.md#civil).
+
+**Relative distance**: How far apart two instants or two dates are, as a count of one unit and a direction, `civil.Approx { Count, Unit, Past }`, by date-fns's `formatDistanceStrict` rule; `civil.Phrase` writes it in a `Words` value ("3 days ago"). See [stdlib](docs/spec/stdlib.md#civil).
+
+**Zone**: A time zone, `tz.Zone`: the offsets from UTC a place has used and the instants it changed them, read from the IANA database's TZif bytes. Go calls it a `Location`. See [stdlib](docs/spec/stdlib.md#tz).
+
+**Zoned time**: An instant seen on a zone's wall clock, `tz.Zoned { At, Zone }`. Its calendar arithmetic (`tz.Add`) moves the wall date and keeps the wall time; its text is RFC 9557's (`2027-03-14T03:30:00-04:00[America/Toronto]`). Temporal calls it a `ZonedDateTime`. See [stdlib](docs/spec/stdlib.md#tz).
+
+**Local zone**: The zone a program's host calls its own, the capability `tz.Local`: a program that shows local time has it in its row, and its context chooses the provider (`tz/host`'s, which reads `TZ`, or a fixed name). Go's `time.Local` is ambient. See [stdlib](docs/spec/stdlib.md#tz).
+
+**Zone database**: The zones by IANA name, the operation type `tz.Zones` in a function's row. Std's own copy of one IANA release (`tz/iana`) is the default provider; the host's zone files (`tz/host`) are an explicit choice.
+
+**Gap**: A wall time a zone skips, as 02:30 on the day clocks go forward: `tz.Gap`, one variant of what `tz.Resolve` gives. No instant shows it.
+
+**Overlap**: A wall time a zone shows twice, as 01:30 on the day clocks go back: `tz.Overlap`, with the earlier and the later instant.
+
+**Cron expression**: When a job fires, as five fields of wall time (minute, hour, day of the month, month, day of the week), `cron.Expr`, read by `cron.Parse`. It fires at wall minutes; in a zone, `cron.Next` gives each the instant `tz.Compatible` chooses, so a minute in a gap fires once, a gap late, and a minute in an overlap fires once, at its first showing. See [stdlib](docs/spec/stdlib.md#cron).
 
 ## Earlier `.ef` language
 
@@ -561,6 +615,28 @@ These terms describe the retired `.ef` language, with its `effect fn`, `run`, `r
 ## Tooling and testing
 
 **`ergo fix`**: The command that writes the missing clauses of a signature on request. A diagnostic for a body that exceeds its signature names the exact clause to add, and `ergo fix` writes that clause into the source. It is the tool half of the tiebreak **Explicit local signatures** beat **inference**: the checker never infers a clause, and the tool writes it for the author ([decision](docs/decisions.md#owner-direction-2026-11-12)).
+
+**Fact table**: What the checker knows about one package, as rows that tools read instead of walking typed trees: its symbols, its sites, their positions, and relations (union to variant, caller to callee, operation to its provider, machines). A table names a symbol of another package by its handle, never by a pointer. Std `code` answers from them, and `ergo code` is its command line ([code](docs/spec/code.md)).
+
+**Site**: One place in source that names a symbol, with a kind: `def`, `read`, `write`, `call`, `typeuse`, `construct`, `match`, `import`, `needs`, `fails`, `provides`, `binds` or `handles`. References, type uses and the uses in a signature are one question with a kind filter.
+
+**Handle**: The printable, stable name of a declaration: its package's import path, a dot and its name (`calc/ast.Parse`), with a member after its type (`calc/ast.Token.Kind`) and a parameter after its function (`calc/ast.Parse.src`). One declaration has one handle, and the declaration at a handle prints that handle back. A local that its declaration binds more than once has none and is named by its position.
+
+**Address**: How a question names a declaration: a handle, a position (`file:line:column`) or a short name (`Parse`, `Token.Kind`). A short name that fits two declarations is `Ambiguous` with every candidate; the reader never picks one.
+
+**Linked Ergo package**: An Ergo module that the `ergo` binary runs as checked-in Go: `go run ./scripts/linked` lowers it, as `ergo lib` does, into `internal/linked/<name>`, and a test fails when the Go is stale. It stands in for the mixed binary of capstone stage S1 ([tooling](docs/tooling.md)).
+
+**Plan**: A computed change to source that writes nothing: its edits, the files and revisions it read, the check of the changed packages in an overlay, its proof class, and the contracts it changes. Only `Apply` of a plan writes, and only against the revisions the plan read.
+
+**Proof class**: What a plan claims about behaviour: `Alpha` (a rename: the fact tables after equal those before under the name map), `SameCode` (the lowered program is equal), `Law` (a rewrite that is a law, with its last run), or `Checked` (the result checks; nothing is claimed about behaviour).
+
+**Name capture**: A rename whose result resolves differently: a use of the renamed declaration now resolves to another one (a local that shadows the new name), or a word now names the renamed declaration. It shows as a fact-table row that differs from the tables before under the name map, and the plan is refused `Capture` ([code](docs/spec/code.md#rename)). Not a pattern's named capture.
+
+**Pattern**: Code to find, written as an Ergo function and checked by the ordinary checker. Its body is the code; a name in it matches a use of the same symbol, whatever the qualifier at the site.
+
+**Hole**: A parameter of a pattern. It matches an expression of its type; used twice, it matches equal code both times.
+
+**Codemod**: A program that changes code through plans: an ordinary Ergo program that imports std `code`, asks a `Reader` for sites, and applies plans with a `Writer`.
 
 **Lint advice**: Optional guidance about an admitted program, distinct from diagnostics that determine whether its contracts are valid.
 

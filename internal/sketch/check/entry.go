@@ -459,6 +459,9 @@ func (c *checker) checkMachine(tn *TypeName) {
 	if spec.Work != nil {
 		c.checkMachineWork(tn, spec.Work, state, signal)
 	}
+	if spec.Exit != nil {
+		c.checkMachineExit(tn, spec.Exit, state)
+	}
 }
 
 // machineStart is the function a machine declaration's initial names, when
@@ -713,7 +716,7 @@ func isPreludeMachine(t Type) bool {
 // machineValue is the prelude Machine[S, E, O, F, R, W] that a value of
 // the machine declaration t converts to (README Gap 46), with the
 // machine's step: O is the step's output, F its error row and R its
-// capability row; W is its work's capability row.
+// capability row; W is its work's and its exit action's capability row.
 // It is nil when t is not a machine declaration, or when its step is not
 // a function of the checked shape (checkMachine reports that).
 func (c *checker) machineValue(t Type) (*Named, *Func) {
@@ -760,6 +763,11 @@ func (c *checker) machineValue(t Type) (*Named, *Func) {
 	works := newRow()
 	if _, wr := c.machineWork(t); wr != nil {
 		works = wr
+	}
+	// The exit action's row is W too (FK9-g1): the runner runs it, a fold
+	// does not.
+	if _, xr := c.machineExit(t); xr != nil {
+		works = works.union(c.types, xr)
 	}
 	if after := c.machineAfter(t); after != nil && c.machineAfterEvery(after.Sig, m.Signal) {
 		// An Every timer's runner reads time.Clock when it fires (FKG1):

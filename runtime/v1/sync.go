@@ -45,9 +45,23 @@ import (
 // Rust's Mutex reports a lock whose holder panicked with a PoisonError.
 // The unlock is deferred, so a poisoned cell is never left locked. Get and
 // Set run no program code under the lock and unlock inline. f has an empty
-// row (the lowering's adaptPlainFunc), so it neither waits nor needs a
-// capability while the lock is held. No operation is an interruption
-// point: none waits for another task beyond the length of one operation.
+// row (the lowering's adaptPlainFunc), so it needs no capability while the
+// lock is held. It may still wait on a handle it captured (a Timeline's
+// Wait, a Queue's Pop); the checker does not refuse that yet (follow-up
+// REF-WAIT), and masked, a stop does not end that wait. No operation is an
+// interruption point: none waits for another task beyond the length of
+// one operation.
+//
+// A stop is not a defect (REF-MASK; ruling of 2026-11-16). f runs with the
+// caller's environment, and its lowered loop heads and impure entries
+// poll a stop there, so a stop requested while f runs would unwind it
+// half way: an owned f leaves a half-written value, and the cell would
+// poison itself on a request. So f runs masked on the caller's task t: a
+// stop requested meanwhile is observed at the caller's next interruption
+// point after the update, and the cell always holds a whole value. Only a
+// defect poisons it. Prior art: Effect's Ref.update and modify are atomic
+// and never interrupted part way; Rust's Mutex is poisoned by a panic, and
+// a cancellation cannot come inside a sync guard.
 //
 // While the program runs one task (rt.Alone: no task or group has been
 // started yet), no other goroutine can reach the cell, and an operation
@@ -132,10 +146,12 @@ func (r *Ref[T]) Set(v T) {
 // in it poisons r and must not leave r locked.
 //
 //ergo:wait none
-func (r *Ref[T]) Update(f func(v T) T) {
+func (r *Ref[T]) Update(t *rt.Task, f func(v T) T) {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	m := t.Mask() // f runs masked on the caller's task (REF-MASK)
+	defer m.Unmask()
 	r.check()
 	r.poison = true // until f returns (check)
 	r.v = f(r.v)
@@ -149,13 +165,15 @@ func (r *Ref[T]) Update(f func(v T) T) {
 // Update, the stored value is shared.
 //
 //ergo:wait none
-func RefModify[T, R any](r *Ref[T], f func(v T) struct {
+func RefModify[T, R any](t *rt.Task, r *Ref[T], f func(v T) struct {
 	F0 R
 	F1 T
 }) R {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	m := t.Mask() // f runs masked on the caller's task (REF-MASK)
+	defer m.Unmask()
 	r.check()
 	r.poison = true // until f returns (check)
 	out := f(r.v)
@@ -174,11 +192,17 @@ func RefModify[T, R any](r *Ref[T], f func(v T) struct {
 // since nothing f runs can start a second goroutine that reaches r.
 //
 //ergo:wait none
-func RefUpdateOwned[T any](r *Ref[T], f func(v T) T, clone func(v T) T, fresh, alone bool) {
+func RefUpdateOwned[T any](t *rt.Task, r *Ref[T], f func(v T) T, clone func(v T) T, fresh, alone bool) {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
 	if !alone || !rt.Alone() {
 		r.mu.Lock()
 		defer r.mu.Unlock()
+	}
+	if !alone {
+		// f runs masked on the caller's task (REF-MASK); an alone f reaches
+		// no interruption point, so it needs no mask.
+		m := t.Mask()
+		defer m.Unmask()
 	}
 	r.check()
 	r.poison = true // until f returns (check)
@@ -196,7 +220,7 @@ func RefUpdateOwned[T any](r *Ref[T], f func(v T) T, clone func(v T) T, fresh, a
 // reaches no part of the value stored.
 //
 //ergo:wait none
-func RefModifyOwned[T, R any](r *Ref[T], f func(v T) struct {
+func RefModifyOwned[T, R any](t *rt.Task, r *Ref[T], f func(v T) struct {
 	F0 R
 	F1 T
 }, clone func(v T) T, fresh, alone bool) R {
@@ -204,6 +228,12 @@ func RefModifyOwned[T, R any](r *Ref[T], f func(v T) struct {
 	if !alone || !rt.Alone() {
 		r.mu.Lock()
 		defer r.mu.Unlock()
+	}
+	if !alone {
+		// f runs masked on the caller's task (REF-MASK); an alone f reaches
+		// no interruption point, so it needs no mask.
+		m := t.Mask()
+		defer m.Unmask()
 	}
 	r.check()
 	r.poison = true // until f returns (check)
@@ -224,11 +254,17 @@ func RefModifyOwned[T, R any](r *Ref[T], f func(v T) struct {
 // value f may have written in part.
 //
 //ergo:wait none
-func RefUpdateInPlace[T any](r *Ref[T], f func(p *T), clone func(v T) T, fresh, alone bool) {
+func RefUpdateInPlace[T any](t *rt.Task, r *Ref[T], f func(p *T), clone func(v T) T, fresh, alone bool) {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
 	if !alone || !rt.Alone() {
 		r.mu.Lock()
 		defer r.mu.Unlock()
+	}
+	if !alone {
+		// f runs masked on the caller's task (REF-MASK); an alone f reaches
+		// no interruption point, so it needs no mask.
+		m := t.Mask()
+		defer m.Unmask()
 	}
 	r.check()
 	r.poison = true // until f returns (check)
@@ -244,11 +280,17 @@ func RefUpdateInPlace[T any](r *Ref[T], f func(p *T), clone func(v T) T, fresh, 
 // through p and returns x (RefUpdateInPlace).
 //
 //ergo:wait none
-func RefModifyInPlace[T, R any](r *Ref[T], f func(p *T) R, clone func(v T) T, fresh, alone bool) R {
+func RefModifyInPlace[T, R any](t *rt.Task, r *Ref[T], f func(p *T) R, clone func(v T) T, fresh, alone bool) R {
 	rt.PointRunning(rt.Op{Kind: rt.OpWrite, On: r})
 	if !alone || !rt.Alone() {
 		r.mu.Lock()
 		defer r.mu.Unlock()
+	}
+	if !alone {
+		// f runs masked on the caller's task (REF-MASK); an alone f reaches
+		// no interruption point, so it needs no mask.
+		m := t.Mask()
+		defer m.Unmask()
 	}
 	r.check()
 	r.poison = true // until f returns (check)

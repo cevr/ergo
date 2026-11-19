@@ -91,7 +91,7 @@ func (c *checker) wireFormReason(t Type) string {
 		s, ok := under(t).(*Struct)
 		p := c.wirePair(t)
 		if !ok || len(s.Fields) != 1 || !isString(s.Fields[0].Type) ||
-			p == nil || !c.identical(p.Base, Typ[String]) || !p.Parse.Sig.Uses.Empty() || !p.Wire.Sig.Uses.Empty() {
+			p == nil || p.Append || !c.identical(p.Base, Typ[String]) || !p.Parse.Sig.Uses.Empty() || !p.Wire.Sig.Uses.Empty() {
 			return "requires one string field and a string Parse/Wire pair for WireNumberText"
 		}
 	case WireMembers:

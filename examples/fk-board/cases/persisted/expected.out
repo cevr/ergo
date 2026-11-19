@@ -5,9 +5,9 @@
   drag: lifted m2 to now 1
   says: Picked up Cool the camera. Use arrow keys to move within column, Tab to move between columns, Space to drop, Escape to cancel.
 > next
-  asks: where a move goes from now 1: later 0
   drag: lifted m2 to later 0
   says: Moved to Later, position 1.
+  asks: where a move goes from now 1: later 0
   asks: focus m2
 > drop
   drag: idle
@@ -20,8 +20,8 @@
 > type Park the scope
   form: open on later, title "Park the scope"
 > submit
-  asks: an id for "Park the scope" in later
   form: shut
+  asks: an id for "Park the scope" in later
   asks: save the board
 > end
   Tonight (1): m1

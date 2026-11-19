@@ -38,6 +38,46 @@ func RotateLeft32(x uint32, k int) uint32 { bits.RotateLeft32(x, k) }
 // RotateLeft64 is x rotated left by k bits; a negative k rotates right.
 func RotateLeft64(x uint64, k int) uint64 { bits.RotateLeft64(x, k) }
 
+// Add64 is x + y + carry (carry 0 or 1): the low 64 bits of the sum and
+// the carry out, 0 or 1. Two calls add 128-bit numbers.
+extern go ergo.local/prototype/runtime/v1.BitsAdd64 func Add64(x uint64, y uint64, carry uint64) (uint64, uint64)
+
+// Sub64 is x - y - borrow (borrow 0 or 1): the low 64 bits of the
+// difference and the borrow out, 0 or 1.
+extern go ergo.local/prototype/runtime/v1.BitsSub64 func Sub64(x uint64, y uint64, borrow uint64) (uint64, uint64)
+
+// Mul64 is the 128-bit product of x and y as its high and low halves.
+extern go ergo.local/prototype/runtime/v1.BitsMul64 func Mul64(x uint64, y uint64) (uint64, uint64)
+
+// Div64 is the quotient and remainder of the 128-bit number (hi, lo) by
+// y. As Go's, y must be above hi, so the quotient fits 64 bits: y of 0 or
+// at most hi is a defect (runtime.md, Defects), as an integer division
+// by zero is.
+extern go ergo.local/prototype/runtime/v1.BitsDiv64 func Div64(hi uint64, lo uint64, y uint64) (uint64, uint64)
+
+// SubUndoesAdd64: subtracting y with the borrow undoes adding it with the
+// carry, in 128 bits.
+law SubUndoesAdd64(xh uint64, xl uint64, y uint64) {
+	let (lo, c) = Add64(xl, y, 0)
+	let (hi, _) = Add64(xh, 0, c)
+	let (l2, b) = Sub64(lo, y, 0)
+	let (h2, _) = Sub64(hi, 0, b)
+	l2 == xl && h2 == xh
+}
+
+// DivUndoesMul64: the 128-bit product of x and y divided by y is x, with
+// no remainder, and a remainder under y adds back.
+law DivUndoesMul64(x uint64, y uint64, r uint64) {
+	if y == 0 {
+		return true
+	}
+	let (hi, lo) = Mul64(x, y)
+	let rem = r % y
+	let (lo2, c) = Add64(lo, rem, 0)
+	let (q, back) = Div64(hi+c, lo2, y)
+	q == x && back == rem
+}
+
 // RotateLeft64Inverts: rotating right by k undoes rotating left by k.
 law RotateLeft64Inverts(x uint64, k int) { RotateLeft64(RotateLeft64(x, k), -k) == x }
 

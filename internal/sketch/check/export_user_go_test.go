@@ -37,7 +37,7 @@ func TestUserExportCarriesGoImports(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := u.Add(pkg); err != nil {
+	if _, err := u.Add(pkg); err != nil {
 		t.Fatalf("export: %v", err)
 	}
 	got, err := u.Decode("lib", func(string) *check.Package { return nil }, imp)

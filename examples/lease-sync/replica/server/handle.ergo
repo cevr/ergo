@@ -1,0 +1,61 @@
+import lease-sync/domain
+import lease-sync/replica
+import rpc
+import time
+
+// Pushed is a command as rpc carries it: its envelope without At, which the
+// authority stamps (the client's At is a prediction; the record's wins).
+type Pushed[C] { ID domain.CommandID, By string, Command C }
+
+// Pulling is a pull as rpc carries it. Wait asks for the long poll (Await).
+type Pulling { By replica.ClientID, From int, Wait bool }
+
+// Codec is the JSON form of a source's commands and frames, written where
+// their types are known (a generic function cannot encode a type that is
+// that has no codec, and Server's parameters are only comparable): both ends
+// of the rpc provider use it.
+type Codec[S, C, E, F] {
+	WritePush  func(p Pushed[C]) string,
+	ReadPush   func(text string) Pushed[C] fails rpc.Transport,
+	WriteFrame func(f replica.Frame[S, E, F]) string,
+	ReadFrame  func(text string) replica.Frame[S, E, F] fails rpc.Transport,
+}
+
+// Handle answers one call of std rpc (rpc.Answer, rpc.Serve,
+// rpc.Loopback) for the authority s: "Push" with a Pushed command and
+// "Pull" with a Pulling. allow is the authorization seam, run before
+// Push and before Pull: a client it refuses gets Unauthorized, so a
+// snapshot is never sent to it. A Pull with Wait waits up to wait. A
+// payload that is not the operation's is the defect RpcError, as a
+// generated Handle answers it.
+func Handle[S wire, C comparable, E comparable, F comparable, R](s Server[S, C, E, F, R], w Codec[S, C, E, F], allow func(by replica.ClientID) bool, wait duration, tag string, payload string) string fails rpc.Failed needs Scheduler | time.Clock {
+	if tag == "Push" {
+		let p = w.ReadPush(payload) catch {
+		case rpc.Transport as t:
+			return rpc.Die[string]("RpcError", t.Reason)
+		}
+		if !allow(Origin(p.ID)) {
+			return rpc.Failed{Text: rpc.Tagged("Unauthorized", rpc.Encode(replica.Unauthorized))}
+		}
+		let now = time.Clock.Now()
+		let r = Push(s, domain.Envelope[C]{ID: p.ID, By: p.By, At: now, Command: p.Command}, now) catch {
+		case replica.OutOfOrder as o:
+			return rpc.Failed{Text: rpc.Tagged("OutOfOrder", rpc.Encode(o))}
+		case replica.IDConflict as x:
+			return rpc.Failed{Text: rpc.Tagged("IDConflict", rpc.Encode(x))}
+		}
+		return rpc.Encode(r)
+	}
+	if tag == "Pull" {
+		let p = rpc.Decode[Pulling]("request", payload) catch {
+		case rpc.Transport as t:
+			return rpc.Die[string]("RpcError", t.Reason)
+		}
+		if !allow(p.By) {
+			return rpc.Failed{Text: rpc.Tagged("Unauthorized", rpc.Encode(replica.Unauthorized))}
+		}
+		let f = if p.Wait { Await(s, p.By, p.From, wait) } else { Pull(s, p.By, p.From) }
+		return w.WriteFrame(f)
+	}
+	rpc.Die[string]("RpcError", "the replica's authority has no operation \(tag)")
+}

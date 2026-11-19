@@ -1,40 +1,78 @@
-// Package script is the host of stage a: it runs the chat as an actor on
-// an in-process echo server (memory.Echo), plays a script of the user's
-// acts and the server's, waits after each until the chat has taken it,
-// and shows the chat. A line is one of:
+// Package script is the host of stage b: it runs the chat as an actor on
+// an in-process echo server (memory.Echo), shows it on std ui's test host,
+// and plays a script of the user's acts, on the screen, and the server's.
+// It settles after each line, so the work's news (an opened line, a
+// frame, an end) is taken, and shows the screen in a line. A line is one
+// of:
 //
-//	connect          Connect (or Try again)
-//	type TEXT        the field's text (the rest of the line)
-//	submit           Send
+//	connect          press Connect to Chat, or Try Again
+//	type TEXT        fill the field with TEXT (the rest of the line)
+//	submit           press Send
+//	enter            press Enter
 //	push TEXT        the server sends TEXT unasked
 //	hangup           the server closes the line
 //	break WHY        the line fails with WHY
 //	refuse WHY       the server refuses the next dial with WHY
+//	stall            the server leaves the next dial unanswered
 //	vanish           the server drops the line without a word
+//	wait MS          the clock moves MS milliseconds
+//	held             the lines held and the lines dialed
+//	stats            the work of the line before (ui.Counts)
+//	quiet            stop showing the screen after each line
 //
-// A blank line or one that starts with # is skipped. The echo of a sent
-// text is held until the send is done (memory.Hold), so the conversation
-// reads the same on every run.
+// A blank line or one that starts with # is skipped. An act on a button
+// or a field the screen does not show does nothing and says so, as a
+// scene that names no node fails. The echo of a sent text is held until
+// the send is done (memory.Hold), so the conversation reads the same on
+// every run.
 
 import actor
 import fkchat/memory
+import fkchat/screen
 import fkchat/talk
 import io
+import strconv
 import strings
+import time
+import ui
 
 // Chat is the running chat.
 type Chat = actor.Actor[talk.Session, talk.Signal, Decision[talk.Session, Never]]
 
-// Bad is a script line the host cannot read.
-type Bad { Line int, Why string }
+// Host is the chat's test host.
+type Host = ui.TestHost[talk.Session, talk.Signal, Decision[talk.Session, Never]]
 
-// Run plays the script on standard input and prints what the chat does.
-// It returns the exit status: 0, or 1 for a line it cannot read. echo is
-// the in-process server, held (memory.Hold), that the entry binds as the
-// chat's talk.Channel; the script plays the server's acts on it.
-func Run(echo memory.Echo) int needs Console | io.Stdin | Scheduler | talk.Channel {
+// Bad is a script line the host cannot read.
+type Bad { Why string }
+
+// Height is the height of the conversation's viewport (upstream's chat is
+// 600 pixels high), which the host reports once the list shows.
+let Height = ui.Length(600.0)
+
+// Run plays the script on standard input and prints what the chat shows.
+// It returns the exit status: 0, or 1 for a line it cannot read or a
+// screen that fails. echo is the in-process server, held (memory.Hold),
+// that the entry binds as the chat's talk.Channel; the script plays the
+// server's acts on it.
+func Run(echo memory.Echo, clock time.Manual) int needs Console | io.Stdin | Scheduler | time.Clock | talk.Channel {
 	let chat = actor.StartMachine(talk.Chat{}, 16, func(n Never) {})
-	let mut shown = talk.Blank
+	let status = play(chat, echo, clock) catch {
+	case actor.Stopped:
+		Console.Println("? the chat stopped")
+		1
+	case ui.BadPatch as p:
+		Console.Println("? a patch is refused: \(p.Why)")
+		1
+	}
+	chat.Stop()
+	status
+}
+
+func play(chat Chat, echo memory.Echo, clock time.Manual) int fails actor.Stopped | ui.BadPatch needs Console | io.Stdin | Scheduler | time.Clock | talk.Channel {
+	let mut h = try ui.NewTestHost(chat, screen.Screen, clock, 16)
+	let mut quiet = false
+	let mut scrolled = false
+	Console.Println(Shown(&h))
 	let mut n = 0
 	for raw in io.Stdin.Lines() {
 		n = n + 1
@@ -43,75 +81,128 @@ func Run(echo memory.Echo) int needs Console | io.Stdin | Scheduler | talk.Chann
 			continue
 		}
 		Console.Println("> " + line)
-		act(chat, echo, line, raw) catch {
+		let shows = act(&h, chat, echo, clock, line, raw) catch {
 		case Bad as b:
 			Console.Println("? line \(n): \(b.Why)")
-			chat.Stop()
 			return 1
+		case actor.Stopped as s:
+			return s
+		case ui.BadPatch as p:
+			return p
 		}
-		let now = chat.State()
-		for l in Changes(shown, now) {
-			Console.Println("  " + l)
+		match ui.Find(&h, screen.ListLabel) {
+		case Some[ui.Id[talk.Signal]] as list:
+			if !scrolled {
+				try ui.ScrollTo(&h, list.Value, 0.0, Height)
+				scrolled = true
+			}
+		case None:
+			scrolled = false
 		}
-		Console.Println("  lines held: \(memory.Held(echo))")
-		shown = now
+		if line == "quiet" {
+			quiet = true
+		}
+		if shows && !quiet {
+			Console.Println(Shown(&h))
+		}
 	}
-	chat.Stop()
 	Console.Println("> stop")
 	Console.Println("  lines held: \(memory.Held(echo)); dialed: \(memory.Dialed(echo))")
 	0
 }
 
-// act does a script line and waits until the chat has taken it.
-func act(chat Chat, echo memory.Echo, line string, raw string) fails Bad needs talk.Channel {
+// act does a script line and settles; it says whether the line acts, so
+// the screen shows after it.
+func act(h *Host, chat Chat, echo memory.Echo, clock time.Manual, line string, raw string) bool fails Bad | actor.Stopped | ui.BadPatch needs Console | Scheduler | time.Clock | talk.Channel {
 	let w = strings.Fields(line)
 	// The rest is the raw line after the word and one space, spaces and all.
 	let rest = strings.TrimPrefix(raw[strings.Index(raw, w[0])+len(w[0]):], " ")
 	match w[0] {
 	case "connect":
-		ask(chat, talk.Connect)
-		wait(chat, func(s talk.Session) bool { !connecting(s) })
+		let label = if ui.Find(h, screen.TryAgainLabel) == None { screen.ConnectLabel } else { screen.TryAgainLabel }
+		try on(h, ui.ClickOn{At: button(label)})
 	case "type":
-		ask(chat, talk.Typed{Text: rest})
+		try on(h, ui.FillIn{At: ui.WithPlaceholder{Text: screen.FieldLabel}, Text: rest})
 	case "submit":
-		ask(chat, talk.Submit)
-		// Send the outbox, first text first; each echo comes after its send.
-		for text in talk.Outbox(chat.State()) {
-			let before = heard(chat.State())
-			memory.Send(echo, text) catch {
-			case talk.Unavailable:
-				ask(chat, talk.Unsent{Why: "Socket unavailable"})
-				return
-			}
-			ask(chat, talk.Sent{Text: text})
-			memory.Flush(echo)
-			wait(chat, func(s talk.Session) bool { heard(s) > before || !online(s) })
-		}
+		try on(h, ui.ClickOn{At: button(screen.SendLabel)})
+		try send(h, chat, echo, clock)
+	case "enter":
+		try on(h, ui.KeyIn{Press: ui.KeyPress{Name: "Enter", Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}})
+		try send(h, chat, echo, clock)
 	case "push":
-		let before = heard(chat.State())
 		memory.Push(echo, rest) catch {
 		case talk.Unavailable:
-			return
+			Console.Println("  (no line open)")
 		}
-		wait(chat, func(s talk.Session) bool { heard(s) > before || !online(s) })
+		try ui.Settle(h)
 	case "hangup":
 		memory.Hangup(echo) catch {
 		case talk.Unavailable:
-			return
+			Console.Println("  (no line open)")
 		}
-		wait(chat, func(s talk.Session) bool { !online(s) })
+		try ui.Settle(h)
 	case "break":
 		memory.Break(echo, rest) catch {
 		case talk.Unavailable:
-			return
+			Console.Println("  (no line open)")
 		}
-		wait(chat, func(s talk.Session) bool { !online(s) })
+		try ui.Settle(h)
 	case "refuse":
 		memory.Refuse(echo, rest)
+	case "stall":
+		memory.Stall(echo)
 	case "vanish":
 		memory.Vanish(echo)
+	case "wait":
+		let ms = strconv.Atoi(rest) catch {
+		case _:
+			return Bad{Why: "wait takes milliseconds: \(rest)"}
+		}
+		try on(h, ui.AdvanceBy{By: time.Times(1ms, ms)})
+	case "held":
+		Console.Println("  lines held: \(memory.Held(echo)); dialed: \(memory.Dialed(echo))")
+		return false
+	case "stats":
+		Console.Println("  stats: \(ui.CountsLine(ui.Counts(h)))")
+		return false
+	case "quiet":
+		return false
 	case _:
-		return Bad{Line: 0, Why: "unknown word \(w[0])"}
+		return Bad{Why: "unknown word \(w[0])"}
+	}
+	true
+}
+
+// on plays a and settles. A locator that finds no node, or more than one,
+// does nothing and says so.
+func on(h *Host, a ui.Act) fails actor.Stopped | ui.BadPatch needs Console {
+	ui.Play(h, []ui.Act{a, ui.SettleAll}) catch {
+	case ui.NoNode as no:
+		Console.Println("  ? no node: \(no.Label)")
+	case ui.Ambiguous as m:
+		Console.Println("  ? \(m.Count) nodes: \(m.At)")
+	case ui.Mismatch:
+	case actor.Stopped as s:
+		return s
+	case ui.BadPatch as p:
+		return p
+	}
+}
+
+// send sends the outbox, first text first, and answers the chat for each:
+// Sent at the clock's time, or Unsent when no line is open. Each echo
+// comes after its send.
+func send(h *Host, chat Chat, echo memory.Echo, clock time.Manual) fails actor.Stopped | ui.BadPatch needs Scheduler | talk.Channel {
+	for text in talk.Outbox(chat.State()) {
+		memory.Send(echo, text) catch {
+		case talk.Unavailable:
+			ask(chat, talk.Unsent{Why: "Socket unavailable"})
+			try ui.Settle(h)
+			return
+		}
+		ask(chat, talk.Sent{Text: text, At: clock.Now()})
+		memory.Flush(echo)
+		try ui.Settle(h)
 	}
 }
 
@@ -123,87 +214,39 @@ func ask(chat Chat, sig talk.Signal) {
 	}
 }
 
-// wait waits for a state that done accepts, the chat's state now
-// included: the news of the line's work comes on its own.
-func wait(chat Chat, done func(s talk.Session) bool) {
-	let _ = actor.WaitFor(chat, done) catch {
-	case actor.Stopped:
-		return
-	}
-}
+func button(label string) ui.Locator { ui.WithRole{Role: ui.Button, Name: label} }
 
-func connecting(s talk.Session) bool {
-	match s.Link {
-	case talk.Connecting:
-		true
-	case talk.Offline, talk.Online, talk.Broken:
-		false
-	}
-}
+// Shown is the screen in a line, in screen order: the field as <VALUE>,
+// each button as [LABEL] ([LABEL, disabled] in a disabled fieldset), each
+// heading as # NAME, each other named region as NAME{...}, and each text.
+func Shown(h *Host) string { strings.Join(tokens(ui.Screen(h), false), " ") }
 
-func online(s talk.Session) bool {
-	match s.Link {
-	case talk.Online:
-		true
-	case talk.Offline, talk.Connecting, talk.Broken:
-		false
-	}
-}
-
-// heard is how many lines of the conversation the server sent.
-func heard(s talk.Session) int {
-	match s.Link {
-	case talk.Online as o:
-		let mut n = 0
-		for x in o.Log {
-			if !x.Mine {
-				n = n + 1
+func tokens(shapes []ui.Shape[talk.Signal], off bool) []string {
+	let mut out = []string{}
+	for s in shapes {
+		match s.Node {
+		case ui.TextNode as t:
+			out = out.Append(t.Value)
+		case ui.InputNode as i:
+			out = out.Append("<\(i.Value)>")
+		case ui.PressableNode as p:
+			out = out.Append(if off { "[\(p.Label), disabled]" } else { "[\(p.Label)]" })
+		case ui.FieldsetNode as fs:
+			for t in tokens(s.Kids, off || fs.Disabled) {
+				out = out.Append(t)
+			}
+		case ui.SemanticNode as g:
+			match g.Access.Role {
+			case ui.Heading:
+				out = out.Append("# \(g.Access.Name)")
+			case _:
+				out = out.Append("\(g.Access.Name){\(strings.Join(tokens(s.Kids, off), " "))}")
+			}
+		case _:
+			for t in tokens(s.Kids, off) {
+				out = out.Append(t)
 			}
 		}
-		n
-	case talk.Offline, talk.Connecting, talk.Broken:
-		0
-	}
-}
-
-// Changes is what changed from before to now: the link, the field, and
-// the conversation's new lines ("< " the server's, "> " this side's).
-func Changes(before talk.Session, now talk.Session) []string {
-	let mut out = []string{}
-	if Word(before.Link) != Word(now.Link) {
-		out = out.Append("chat: " + Word(now.Link))
-	}
-	if before.Input != now.Input {
-		out = out.Append("field: \"\(now.Input)\"")
-	}
-	let was = match before.Link {
-	case talk.Online as o:
-		len(o.Log)
-	case talk.Offline, talk.Connecting, talk.Broken:
-		0
-	}
-	match now.Link {
-	case talk.Online as o:
-		let from = if Word(before.Link) == "online" { was } else { 0 }
-		for i in from..len(o.Log) {
-			let said = o.Log[i]
-			out = out.Append((if said.Mine { "> " } else { "< " }) + said.Text)
-		}
-	case talk.Offline, talk.Connecting, talk.Broken:
 	}
 	out
-}
-
-// Word is how the link shows.
-func Word(l talk.Link) string {
-	match l {
-	case talk.Offline:
-		"offline"
-	case talk.Connecting:
-		"connecting"
-	case talk.Online:
-		"online"
-	case talk.Broken as b:
-		"broken: " + b.Why
-	}
 }

@@ -1,9 +1,10 @@
 // ergo test runs the registry.Registry laws against Table, built by
 // NewTable from generated ports; these tests check its port list and
-// show what a Memo in front of it saves.
+// show what std's cache in front of it saves.
 
 import lru/registry
-import lru/memo
+import cache
+import time
 
 // list is a Table of three names.
 func list() Table {
@@ -21,24 +22,24 @@ test ParseRefusesABadRow {
 	assert at.ports.Get("db fifty") == Some{0}
 }
 
-test MemoSavesLookups {
+test CacheSavesLookups {
 	let t = list()
-	let mut m = try memo.New[string, int](2)
-	with context { registry.Registry: t } {
+	let m = try cache.New[string, int](cache.Config{Capacity: 2, Life: 0s, Idle: 0s})
+	with context { registry.Registry: t, time.Clock: time.NewManual(0) } {
 		for name in []string{"web", "web", "db", "web", "dns", "db"} {
-			let _ = try registry.Lookup(&m, name)
+			let _ = try registry.Lookup(m, name)
 		}
 	}
 	assert t.Lookups() == 4
-	assert m.CountsOf() == memo.Counts{Hits: 2, Misses: 4, Size: 2}
+	assert cache.StatsOf(m) == cache.Stats{Hits: 2, Misses: 4, Size: 2}
 }
 
 test UnknownIsLookedUpEachTime {
 	let t = list()
-	let mut m = try memo.New[string, int](2)
-	with context { registry.Registry: t } {
+	let m = try cache.New[string, int](cache.Config{Capacity: 2, Life: 0s, Idle: 0s})
+	with context { registry.Registry: t, time.Clock: time.NewManual(0) } {
 		for _ in 0..3 {
-			let p = registry.Lookup(&m, "ntp") catch {
+			let p = registry.Lookup(m, "ntp") catch {
 			case registry.Unknown:
 				-1
 			}
