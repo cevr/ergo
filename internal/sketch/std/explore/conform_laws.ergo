@@ -467,7 +467,7 @@ func fitAgrees(a uint64, b uint64, mask uint64) bool {
 // nested tag alone decides (Idle observed as Busy with its k left out,
 // mask 3), which generated masks seldom reach, is always run.
 law FitFastAgreesWithDecode(a uint64, b uint64, mask uint64) {
-	if !fitAgrees(0, 1, 3) || !fitAgrees(1, 0, 3) {
+	if !(fitAgrees(0, 1, 3) && fitAgrees(1, 0, 3)) {
 		return false
 	}
 	let v = fRec(a)
