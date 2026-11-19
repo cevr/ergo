@@ -15,19 +15,23 @@ import (
 )
 
 // storeTo is the target of a store to lhs, a Map's entry or a place
-// (ir_place.go), after the statements its map and key run first. A key
-// that runs statements (a call hoisted to a temporary, FLIP F7
-// PORT-TEMP) runs them after the map is bound to a temporary, so they
-// cannot move it: the emitter's target spills the map when the index
-// emits (body.go), and runs the index's statements after.
+// (ir_place.go), after the statements its map and key, or the place's
+// operands, run first. A key that runs statements (a call hoisted to a
+// temporary, FLIP F7 PORT-TEMP) runs them after the map is bound to a
+// temporary, so they cannot move it: the emitter's target spills the map
+// when the index emits (body.go), and runs the index's statements after.
+// A slice's element orders its slice and index as a read of it does
+// (ir_expr.go's inOrder): the slice is spilled before an index that runs
+// statements.
 func (b *irBuilder) storeTo(lhs syntax.Expr) ([]*irStmt, *irExpr) {
+	place := func() ([]*irStmt, *irExpr) { return nil, b.place(lhs) }
 	x, ok := unparen(lhs).(*syntax.IndexExpr)
 	if !ok || len(x.Indices) != 1 {
-		return nil, b.place(lhs)
+		return b.collect(place)
 	}
 	m, isMap := b.l.info.Types[x.X].(*check.Map)
 	if !isMap {
-		return nil, b.place(lhs)
+		return b.collect(place)
 	}
 	b.goType(m, x)
 	pre, to := b.collect(func() ([]*irStmt, *irExpr) { return nil, b.expr(x.X) })
