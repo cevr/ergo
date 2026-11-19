@@ -430,7 +430,7 @@ new file mode 100644
 index 0000000..be785d3
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_call.go
-@@ -0,0 +1,68 @@
+@@ -0,0 +1,76 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -455,6 +455,14 @@ index 0000000..be785d3
 +		return types2.Typ[types2.Int], u.Elem() // FLIP F7: Go's range over an array
 +	case *types2.Map:
 +		return u.Key(), u.Elem()
++	case *types2.Signature:
++		// for v := range seq, seq a func(yield func(T) bool) (an Ergo Seq
++		// loop): one variable; Stub's rangefunc.Rewrite rewrites the loop.
++		if u.Params().Len() == 1 && u.Results().Len() == 0 {
++			if y, ok := types2.CoreType(u.Params().At(0).Type()).(*types2.Signature); ok && y.Params().Len() == 1 {
++				return y.Params().At(0).Type(), nil
++			}
++		}
 +	}
 +	if ergoIsString(t) {
 +		return types2.Typ[types2.Int], types2.Universe.Lookup("rune").Type()
@@ -2315,7 +2323,7 @@ new file mode 100644
 index 0000000..a54bb61
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_stmt.go
-@@ -0,0 +1,360 @@
+@@ -0,0 +1,366 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -2609,6 +2617,9 @@ index 0000000..a54bb61
 +			if i == 1 {
 +				idx = s.Val
 +			}
++			if want == nil {
++				continue // a range over a func has one variable
++			}
 +			if idx == nil {
 +				lhs.ElemList = append(lhs.ElemList, syntax.NewName(pos, "_"))
 +				continue
@@ -2620,6 +2631,9 @@ index 0000000..a54bb61
 +			lhs.ElemList = append(lhs.ElemList, c.name(s.Pos, v, true))
 +		}
 +		rc := &syntax.RangeClause{Lhs: lhs, Def: true, X: x}
++		if elem == nil {
++			rc.Lhs = lhs.ElemList[0]
++		}
 +		if s.Key == nil && s.Val == nil {
 +			// for range x, as the text view prints it (ergoir_opc.go).
 +			rc = ergoBareRange(x)
@@ -3355,7 +3369,7 @@ new file mode 100644
 index 0000000..22a171b
 --- /dev/null
 +++ b/src/cmd/compile/internal/noder/ergoir_hook.go
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,39 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -3364,22 +3378,36 @@ index 0000000..22a171b
 +
 +import (
 +	"cmd/compile/internal/ergoir"
++	"cmd/compile/internal/rangefunc"
 +	"cmd/compile/internal/syntax"
 +	"cmd/compile/internal/types2"
 +)
 +
 +// The -ergoir reader lives in package ergoir (PATCH-MIN M4). This adapter
 +// is noder's side: ergoFlag for irgen.go's hooks, and ergoStub, which
-+// unified.go's writePkgStub calls once (M2).
++// unified.go's writePkgStub calls once (M2), and which returns the
++// writer's range-over-func literals with the IR bodies' added.
 +
 +var ergoFlag = ergoir.Flag
 +
-+func ergoStub(m posMap, pkg *types2.Package, info *types2.Info, noders []*noder) {
++func ergoStub(m posMap, pkg *types2.Package, info *types2.Info, noders []*noder, other map[*syntax.FuncLit]bool) map[*syntax.FuncLit]bool {
 +	files := make([]*syntax.File, len(noders))
 +	for i, p := range noders {
 +		files[i] = p.file
 +	}
 +	ergoir.Stub(m.makeXPos, pkg, info, files)
++	if ergoFlag.IR == "" {
++		return other
++	}
++	// checkFiles rewrote the source's range-over-func loops before the
++	// IR bodies were attached: Go's rewrite runs once more for theirs.
++	for lit, v := range rangefunc.Rewrite(pkg, info, files) {
++		if other == nil {
++			other = map[*syntax.FuncLit]bool{}
++		}
++		other[lit] = v
++	}
++	return other
 +}
 diff --git a/src/cmd/compile/internal/noder/unified.go b/src/cmd/compile/internal/noder/unified.go
 index 9ec2e40..f02b73d 100644
@@ -3389,7 +3417,7 @@ index 9ec2e40..f02b73d 100644
  // and returns the result.
  func writePkgStub(m posMap, noders []*noder) string {
  	pkg, info, otherInfo := checkFiles(m, noders)
-+	ergoStub(m, pkg, info, noders) // -ergoir (ergoir_flags.go)
++	otherInfo = ergoStub(m, pkg, info, noders, otherInfo) // -ergoir (ergoir_flags.go)
  
  	pw := newPkgWriter(m, pkg, info, otherInfo)
  
