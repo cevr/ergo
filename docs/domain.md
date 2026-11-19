@@ -238,7 +238,8 @@ type Runner {
 func Apply(v View, id string, e run.Event) View {
 	match moved(e) {
 	case Some[Column] as c:
-		let out = View{Queued: without(v.Queued, id), Running: without(v.Running, id), Failing: without(v.Failing, id), Passed: without(v.Passed, id), Stopped: without(v.Stopped, id)}
+		let other = func(x string) bool { x != id }
+		let out = View{Queued: slices.Filter(v.Queued, other), Running: slices.Filter(v.Running, other), Failing: slices.Filter(v.Failing, other), Passed: slices.Filter(v.Passed, other), Stopped: slices.Filter(v.Stopped, other)}
 		put(out, c.Value, id)
 	case None:
 		v
