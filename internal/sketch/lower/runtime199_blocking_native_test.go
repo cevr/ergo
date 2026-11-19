@@ -203,6 +203,12 @@ func blockingRoutes(name string, b runtimeBinding) []string {
 			routes = append(routes, "seq")
 		}
 	}
+	if name == "PopBefore" || name == "PopWithin" {
+		// A wait on a queue and a deadline ends on either: the fire route
+		// readies it by the deadline's fire, which must end the wait
+		// with Expired and take nothing, or lose to a stop.
+		routes = append(routes, "fire")
+	}
 	return routes
 }
 
@@ -217,7 +223,13 @@ func blockingNative(t *testing.T, name, route string) {
 	param, arg := "q queue.Queue[int]", "q"
 	var body, maker string
 	child := "let s = NewLiveScheduler(); s.Sleep(1h); 7"
-	switch route + " " + name {
+	// The fire route is the direct call, readied by its deadline's fire
+	// instead of a value (blockingRoutes).
+	source := route
+	if route == "fire" {
+		source = "direct"
+	}
+	switch source + " " + name {
 	case "direct Sleep":
 		param, body = "_ queue.Queue[int]", child
 	case "direct Queue.Push":
@@ -364,6 +376,12 @@ func blockingNative(t *testing.T, name, route string) {
 				data = replace(data, op.sig, op.sig+"\n\tdefer BlockingEnter("+fmt.Sprintf("%q", op.name)+", BlockingOwner(t))()")
 			}
 		case "ergo/runtime/v1/time.go":
+			if route == "fire" {
+				// The fire route's deadline is an alarm of the probe's
+				// clock, so the harness fires it by advancing the clock.
+				from := "func HostAlarms() *AlarmClock { return hostAlarms }"
+				data = replace(data, from, "func HostAlarms() *AlarmClock {\n\treturn NewAlarmClock(func(d time.Duration, f func()) Alarm { return rt.BlockingClock.AfterFunc(rt.Span(d), f) })\n}")
+			}
 			from := "func (l *Timeline) Wait(t *rt.Task, d time.Duration) {"
 			data = replace(data, from, from+"\n\tdefer BlockingEnter(\"Timeline.Wait\", t)()")
 			data = replace(data, "return &Timeline{v: rt.NewManual(t, start), start: start}", "return &Timeline{v: rt.BlockingClock, start: start}")
@@ -381,7 +399,7 @@ func blockingNative(t *testing.T, name, route string) {
 	}
 	write("ergo/runtime/rt/blocking_probe.go", []byte("package rt\nvar BlockingClock *Virtual\nvar BlockingFinished chan *Task\n"))
 	write("ergo/runtime/v1/blocking_probe.go", []byte(blockingProbe))
-	native := strings.NewReplacer("PRIMITIVE", fmt.Sprintf("%q", name), "SUBJECT_ARG", arg).Replace(blockingNativeTest)
+	native := strings.NewReplacer("PRIMITIVE", fmt.Sprintf("%q", name), "ROUTE", fmt.Sprintf("%q", route), "SUBJECT_ARG", arg).Replace(blockingNativeTest)
 	write("blocking_test.go", []byte(native))
 	output, err := nativeGoTest(t, dir, nil, "-test.v")
 	if err != nil {
@@ -472,6 +490,7 @@ func BlockingRuns[T any](t *Task[T]) *rt.Task { return t.h.Task() }
 
 const blockingNativeTest = `package main
 import (
+ "errors"
  "runtime"
  "strings"
  "sync/atomic"
@@ -481,6 +500,11 @@ import (
  ergo "ergo.local/prototype/runtime/v1"
 )
 const primitive = PRIMITIVE
+const route = ROUTE
+// keptAlarms is the alarm a wait a stop ended may leave on the probe's
+// clock: on the fire route, PopBefore's Deadline is its caller's and stays
+// armed (runtime.md Timeouts 10); PopWithin stops its own.
+func keptAlarms() int { if route == "fire" && primitive == "PopBefore" { return 1 }; return 0 }
 type outcome struct { value int; err error; panicValue any }
 func attempt(f func() (int, error)) (o outcome) {
  defer func() { o.panicValue = recover() }()
@@ -569,6 +593,7 @@ func drive(t *testing.T, phase string, masked, moved bool) {
  }()
  if actual := receive(t, entered); actual != waiter { t.Fatal("binding received another task") }
  ready := func() {
+  if route == "fire" { clock.Advance(rt.Span(time.Hour)); return }
   switch primitive {
   case "Sleep", "Timeline.Wait", "Task.Wait", "Task.Stop": clock.Advance(rt.Span(time.Hour))
   case "Queue.Push": if v, err := q.Pop(control); err != nil || v != 99 { panic("lost original queue value") }
@@ -598,19 +623,22 @@ func drive(t *testing.T, phase string, masked, moved bool) {
  out := receive(t, done); receive(t, finished)
  if strings.HasPrefix(primitive,"Task.") { receive(t,childDone); if phase != "ready-before-stopped-entry" { receive(t,rt.BlockingFinished) } }
  interrupted := out.panicValue == rt.Interrupted
- if out.err != nil || (out.panicValue != nil && !interrupted) { t.Fatalf("exit = %+v; interruption must not be a typed failure or defect", out) }
+ fired := route == "fire" && errors.As(out.err, new(ergo.Expired))
+ if (out.err != nil && !fired) || (out.panicValue != nil && !interrupted) { t.Fatalf("exit = %+v; interruption must not be a typed failure or defect", out) }
  if masked || primitive == "Task.Stop" {
   if interrupted { t.Fatalf("masked or draining primitive was interrupted: %+v", out) }
  } else if phase != "concurrent-ready" && !interrupted { t.Fatalf("stopped primitive delivered a value: %+v", out) }
- if !interrupted { want := 7; if primitive == "Task.Stop" { want = 0 }; if out.value != want { t.Fatalf("value %d, want %d", out.value,want) } }
- if clock.Pending() != 0 { t.Fatalf("%d retained timers", clock.Pending()) }
+ if !interrupted && route == "fire" {
+  if !fired { t.Fatalf("the deadline fired and the wait returned %+v; want Expired", out) }
+ } else if !interrupted { want := 7; if primitive == "Task.Stop" { want = 0 }; if out.value != want { t.Fatalf("value %d, want %d", out.value,want) } }
+ if p := clock.Pending(); p != 0 && !(interrupted && p <= keptAlarms()) { t.Fatalf("%d retained timers", p) }
  q.End(); var remaining []int
  for v := range q.Values(control) { remaining = append(remaining,v) }
  count := 0; for _, v := range remaining { if v == 7 { count++ } }
  if primitive == "Queue.Push" {
   want := 1; if interrupted { want = 0 }; if count != want { t.Fatalf("stopped/accepted Push conservation: %+v, queue %v",out,remaining) }
  } else if primitive == "Queue.Pop" || primitive == "Queue.Values" || primitive == "PopBefore" || primitive == "PopWithin" {
-  want := 0; if madeReady && interrupted { want = 1 }; if count != want { t.Fatalf("stopped Pop/Values took a value: %+v, queue %v",out,remaining) }
+  want := 0; if madeReady && interrupted && route != "fire" { want = 1 }; if count != want { t.Fatalf("stopped Pop/Values took a value: %+v, queue %v",out,remaining) }
  }
 }
 // The returned Task must run with its own environment. The entry barrier
@@ -634,7 +662,7 @@ func TestReturnedTaskEnvironment(t *testing.T) {
  released := make(chan struct{})
  go func() { receive(t,child.Done()); close(release); close(released) }()
  h.Stop(); receive(t,released)
- if clock.Pending() != 0 || ergo.BlockingEntries(&destination) != 0 { t.Fatal("returned Task retained a timer or owner entry") }
+ if clock.Pending() > keptAlarms() || ergo.BlockingEntries(&destination) != 0 { t.Fatal("returned Task retained a timer or owner entry") }
  destination.End(nil)
 }
 `
