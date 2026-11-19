@@ -53,6 +53,7 @@ metrics
 pipeline
 raytrace
 regex
+respd
 routecli
 router
 shards

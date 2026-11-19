@@ -36,6 +36,7 @@ var coverage = map[string][]string{
 	"sha1":     {"crypto/sha1"},
 	"sha256":   {"crypto/sha256"},
 	"sha512":   {"crypto/sha512"},
+	"sql":      {"database/sql"},
 	"slices":   {"slices", "sort"},
 	"strconv":  {"strconv"},
 	"strings":  {"strings"},
@@ -51,7 +52,7 @@ var coverage = map[string][]string{
 // counterpart outside the standard library (errgroup, x/term).
 var coversNone = []string{
 	"actor", "api", "arena", "bench", "build", "cache", "civil", "code", "codec", "codegraph", "config", "cron", "decimal", "dense", "explore", "graph", "io", "journal", "journal/file",
-	"journal/memory", "lint", "llm", "llm/memory", "llm/recorded", "machines", "pace", "prompt", "pubsub", "queue", "rpc", "schedule", "scope", "set", "stream",
+	"journal/memory", "lint", "llm", "llm/memory", "llm/recorded", "machines", "pace", "prompt", "pubsub", "queue", "rpc", "schedule", "scope", "set", "sqltest", "stream",
 	"task", "tasks", "term", "text", "timeout", "toml", "trace", "tz", "tz/host", "tz/iana", "ui", "ui/layout", "uuid",
 }
 

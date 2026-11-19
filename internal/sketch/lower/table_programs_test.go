@@ -39,6 +39,7 @@ var (
 	_ = declarePrograms("TestUITextModel", testBuildProgram("stduitext", stdUITextProbe))
 	_ = declarePrograms("TestStdTextLawsRun", testBuildProgram("stdtext", stdTextLawsProbe))
 	_ = declarePrograms("TestSyncLaws", testBuildProgram("synclaws", syncLawsProbe))
+	_ = declarePrograms("TestSQLLaws", testBuildProgram("sqllaws", sqlLawsProbe))
 	_ = declarePrograms("TestStdPubsubLawsRun", testBuildProgram("stdpubsub", stdPubsubLawsProbe))
 	_ = declarePrograms("TestStdTimeLawsRun", testBuildProgram("stdtime", stdTimeLawsProbe))
 	_ = declarePrograms("TestExecLaws", testBuildProgram("execlaws", execLawsProbe))

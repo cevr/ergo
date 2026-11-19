@@ -30,7 +30,7 @@ explore	same
 filepath	same
 flag	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
 fs	differs	lower: a union of a user package lowers to the flat form, a std union to an interface (flatunion.go keys on isSourced)	follow-up flat-union-std
-fstest	differs	lower: joinResult joins a call into its assignment only in a body with no line directives (std's)	follow-up join-under-directive
+fstest	same
 graph	same
 hex	same
 html	same
@@ -56,6 +56,8 @@ schedule	same
 scope	differs	lower: no exported function a caller can take as a value	follow-up copy-by-call
 sha256	same
 slices	same
+sql	same
+sqltest	same
 strconv	same
 stream	same
 strings	same

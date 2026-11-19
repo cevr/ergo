@@ -33,6 +33,7 @@ import "embed"
 //go:embed tasks/*.ergo pubsub/*.ergo stream/*.ergo
 //go:embed schedule/*.ergo cron/*.ergo
 //go:embed http/*.ergo
+//go:embed sql/*.ergo sqltest/*.ergo
 //go:embed actor/*.ergo
 //go:embed journal/*.ergo journal/memory/*.ergo journal/file/*.ergo
 //go:embed llm/*.ergo llm/memory/*.ergo llm/recorded/*.ergo

@@ -1,0 +1,227 @@
+// Package store is the domain of respd: the contract of a key-value engine
+// with expiry (Engine) and of leases with fencing tokens (Leases), with
+// their laws. Time is a parameter of every operation, never read inside
+// one: a law runs on any time it is given, and the engine has no clock of
+// its own to disagree with its caller's. Package memory keeps both in
+// memory.
+
+import time
+
+// Missing is a key that holds no value at the time asked: never set,
+// deleted, or expired.
+type Missing { Key string }
+
+// Kept is a conditional set that changed nothing: IfAbsent on a key that
+// holds a value, or IfPresent on one that holds none.
+type Kept { Key string }
+
+// NotInteger is an Incr of a key whose value is not a decimal int64.
+type NotInteger { Key string }
+
+// Overflow is an Incr whose result is outside int64. The value stays.
+type Overflow { Key string }
+
+// When is the condition of a Set: always, only if the key holds no value
+// (Redis's NX), or only if it holds one (XX).
+type When = Always{} | IfAbsent{} | IfPresent{}
+
+// Expiry is how long a key holds its value: until it is changed, or until
+// a time.
+type Expiry = Forever{} | Until{At time.Time}
+
+// Engine is the contract of a key-value engine. A key and a value are
+// strings of any bytes. A key holds its value while now is before its
+// expiry; from its expiry on it is Missing to every operation, as if it
+// were deleted then.
+type Engine {
+	// Get is the value key holds at now.
+	Get(key string, now time.Time) string fails Missing,
+	// Set makes key hold value, under the condition when, until the time
+	// in until, or for ever when until is None. It replaces the key's
+	// expiry, as Redis's SET does without KEEPTTL.
+	Set(key string, value string, when When, until Option[time.Time], now time.Time) fails Kept,
+	// Del removes key.
+	Del(key string, now time.Time) fails Missing,
+	// Expire gives key a new expiry: the time in until, or none. A time
+	// now or past removes the key.
+	Expire(key string, until Option[time.Time], now time.Time) fails Missing,
+	// TTL is the expiry of key.
+	TTL(key string, now time.Time) Expiry fails Missing,
+	// Incr adds by to the decimal integer key holds, a missing key holding
+	// 0, keeps its expiry, and is the sum. No other operation of the
+	// engine runs between its read and its write.
+	Incr(key string, by int64, now time.Time) int64 fails NotInteger | Overflow,
+
+	// GetAfterSet: a value set under a key is the value that key gets,
+	// and it holds it for ever.
+	law GetAfterSet(key string, value string, t int) {
+		let now = At(t)
+		Put(key, value, Always, None, now) && Lookup(key, now) == Some[string]{Value: value} && Left(key, now) == Some[Expiry]{Value: Forever}
+	},
+
+	// SetNXKeepsTheFirst: IfPresent on a key that holds nothing is Kept
+	// and leaves it Missing; IfAbsent sets it; a second IfAbsent is Kept
+	// and changes nothing.
+	law SetNXKeepsTheFirst(key string, first string, second string, t int) {
+		let now = At(t)
+		!Put(key, first, IfPresent, None, now) && Lookup(key, now) == None && Put(key, first, IfAbsent, None, now) && !Put(key, second, IfAbsent, None, now) && Lookup(key, now) == Some[string]{Value: first}
+	},
+
+	// ExpiredIsMissing: a key set until a time holds its value before it,
+	// with that expiry, and is Missing from it on to Get, TTL and Del;
+	// IfAbsent sets it again.
+	law ExpiredIsMissing(key string, value string, t int, ttl int, later int) {
+		let now = At(t)
+		let until = now.Add(Span(ttl))
+		let before = until.Add(-1ms)
+		let after = until.Add(Gap(later))
+		Put(key, value, Always, Some[time.Time]{Value: until}, now) && Lookup(key, before) == Some[string]{Value: value} && Left(key, before) == Some[Expiry]{Value: Until{At: until}} && Lookup(key, until) == None && Lookup(key, after) == None && Left(key, after) == None && !Remove(key, after) && Put(key, value, IfAbsent, None, after)
+	},
+
+	// SetClearsTheExpiry: a Set without a time keeps the value for ever,
+	// whatever expiry the key had; Expire with None does too, and keeps
+	// the value.
+	law SetClearsTheExpiry(key string, a string, b string, t int, ttl int) {
+		let now = At(t)
+		let until = Some[time.Time]{Value: now.Add(Span(ttl))}
+		if !Put(key, a, Always, until, now) || !Put(key, b, Always, None, now) || Left(key, now) != (Some[Expiry]{Value: Forever}) {
+			return false
+		}
+		Engine.Expire(key, until, now) catch {
+		case Missing:
+			return false
+		}
+		if Left(key, now) != (Some[Expiry]{Value: Until{At: until.Value}}) {
+			return false
+		}
+		Engine.Expire(key, None, now) catch {
+		case Missing:
+			return false
+		}
+		Left(key, now) == Some[Expiry]{Value: Forever} && Lookup(key, now) == Some[string]{Value: b}
+	},
+
+	// ExpireInThePastDeletes: Expire to now or before removes the key.
+	law ExpireInThePastDeletes(key string, value string, t int, back int) {
+		let now = At(t)
+		if !Put(key, value, Always, None, now) {
+			return false
+		}
+		Engine.Expire(key, Some[time.Time]{Value: now.Add(-Gap(back))}, now) catch {
+		case Missing:
+			return false
+		}
+		Lookup(key, now) == None
+	},
+
+	// DelRemoves: a deleted key is Missing, and a second Del is Missing.
+	law DelRemoves(key string, value string, t int) {
+		let now = At(t)
+		Put(key, value, Always, None, now) && Remove(key, now) && Lookup(key, now) == None && !Remove(key, now)
+	},
+
+	// SetKeepsOthers: a set or a delete of one key changes no other key.
+	law SetKeepsOthers(key string, other string, a string, b string, t int) {
+		if key == other {
+			return true
+		}
+		let now = At(t)
+		Put(other, a, Always, None, now) && Put(key, b, Always, None, now) && Remove(key, now) && Lookup(other, now) == Some[string]{Value: a}
+	},
+
+	// IncrAdds: Incr of a missing key starts from 0, a second Incr adds
+	// to the first, Get reads the sum as its decimal text, and the key
+	// keeps the expiry it had.
+	law IncrAdds(key string, a int, b int, t int, ttl int) {
+		let now = At(t)
+		let x = int64(a % 1000000)
+		let y = int64(b % 1000000)
+		let until = Some[time.Time]{Value: now.Add(Span(ttl))}
+		let first = Engine.Incr(key, x, now) catch {
+		case NotInteger, Overflow:
+			return false
+		}
+		Engine.Expire(key, until, now) catch {
+		case Missing:
+			return false
+		}
+		let second = Engine.Incr(key, y, now) catch {
+		case NotInteger, Overflow:
+			return false
+		}
+		first == x && second == x+y && Lookup(key, now) == Some[string]{Value: "\(x + y)"} && Left(key, now) == Some[Expiry]{Value: Until{At: until.Value}}
+	},
+
+	// IncrRefusesText: Incr of a value that is not a decimal int64 is
+	// NotInteger, and one past int64 is Overflow; neither changes the
+	// value.
+	law IncrRefusesText(key string, word string, t int) {
+		let now = At(t)
+		let text = "v" + word
+		let top = "9223372036854775807"
+		Put(key, text, Always, None, now) && Bump(key, now) == "not an integer" && Lookup(key, now) == Some[string]{Value: text} && Put(key, top, Always, None, now) && Bump(key, now) == "overflow" && Lookup(key, now) == Some[string]{Value: top}
+	},
+}
+
+// Lookup is the value key holds at now, or None.
+func Lookup(key string, now time.Time) Option[string] needs Engine {
+	let v = Engine.Get(key, now) catch {
+	case Missing:
+		return None
+	}
+	Some[string]{Value: v}
+}
+
+// Left is the expiry of key at now, or None when it holds no value.
+func Left(key string, now time.Time) Option[Expiry] needs Engine {
+	let e = Engine.TTL(key, now) catch {
+	case Missing:
+		return None
+	}
+	Some[Expiry]{Value: e}
+}
+
+// Put is whether a Set changed key: false when it was Kept.
+func Put(key string, value string, when When, until Option[time.Time], now time.Time) bool needs Engine {
+	Engine.Set(key, value, when, until, now) catch {
+	case Kept:
+		return false
+	}
+	true
+}
+
+// Remove is whether a Del removed key: false when it was Missing.
+func Remove(key string, now time.Time) bool needs Engine {
+	Engine.Del(key, now) catch {
+	case Missing:
+		return false
+	}
+	true
+}
+
+// Bump is the sum of an Incr of key by 1 as text, or the failure's name.
+func Bump(key string, now time.Time) string needs Engine {
+	let n = Engine.Incr(key, 1, now) catch {
+	case NotInteger:
+		return "not an integer"
+	case Overflow:
+		return "overflow"
+	}
+	"\(n)"
+}
+
+// Epoch is the time the laws count from.
+let Epoch = time.Unix(1700000000, 0)
+
+// day is the span the laws fold their generated integers into, in
+// milliseconds, so no generated time overflows.
+let day = 86400000
+
+// At is ms milliseconds after Epoch, folded into a day either way.
+func At(ms int) time.Time { Epoch.Add(time.Times(1ms, ms%day)) }
+
+// Gap is a span of 0 or more milliseconds, below a day, from any ms.
+func Gap(ms int) duration { time.Times(1ms, (ms%day+day)%day) }
+
+// Span is a span of 1 or more milliseconds, a day at most, from any ms.
+func Span(ms int) duration { Gap(ms) + 1ms }
