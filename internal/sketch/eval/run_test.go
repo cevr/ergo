@@ -72,8 +72,8 @@ law Sampled(n int) { n == n }
 		if i >= len(want) || res.Status != want[i] {
 			t.Fatalf("results %+v, want statuses %v", rep.Results, want)
 		}
-		if res.Steps > rep.Limit {
-			t.Fatalf("%s used %d steps of %d", res.Name, res.Steps, rep.Limit)
+		if res.Steps > rep.Limit*int64(max(1, res.TotalCases)) {
+			t.Fatalf("%s used %d steps of %d for each of %d cases", res.Name, res.Steps, rep.Limit, res.TotalCases)
 		}
 	}
 

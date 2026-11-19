@@ -367,10 +367,16 @@ func TestMachineLawsAgreeWithModel(t *testing.T) {
 			fail("%d results, %d laws", len(rep.Results), k)
 		}
 		// A cut budget: each law that needs more than it is incomplete,
-		// and each other law has the whole run's verdict.
+		// and each other law has the whole run's verdict. The budget is
+		// each case's (TP-BUILT-FAST): a law of n cases may spend n times
+		// it, so its need is its steps over n, rounded up.
+		perCase := func(res Result) int64 {
+			n := int64(max(1, res.TotalCases))
+			return (res.Steps + n - 1) / n
+		}
 		most := int64(0)
 		for _, res := range rep.Results {
-			most = max(most, res.Steps)
+			most = max(most, perCase(res))
 		}
 		if most > 1 {
 			b := DefaultBudget()
@@ -382,8 +388,8 @@ func TestMachineLawsAgreeWithModel(t *testing.T) {
 			for i, res := range cut.Results {
 				whole := rep.Results[i]
 				switch {
-				case whole.Steps > b.Steps && res.Status != Incomplete,
-					whole.Steps <= b.Steps && res.Status != whole.Status:
+				case perCase(whole) > b.Steps && res.Status != Incomplete,
+					perCase(whole) <= b.Steps && res.Status != whole.Status:
 					fail("budget %d: %s is %s (%s), the whole run's %s in %d steps", b.Steps, res.Name, res.Status, res.Reason, whole.Status, whole.Steps)
 				}
 			}
