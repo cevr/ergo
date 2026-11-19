@@ -131,11 +131,20 @@ func ReadingIn[S, E, D, F](s *Session[S, E, D, F], id int) Option[string] {
 func ShownIn[S, E, D, F](s *Session[S, E, D, F], n Node[E]) Node[E] {
 	match n {
 	case ReadoutNode as x:
+		// The Text keeps the readout's Style as every host reads a node's
+		// style, through StyleOf, so the test host shows a readout's look
+		// by the one route a window paints it by.
+		let style = match StyleOf(n) {
+		case Some[Style] as st:
+			st.Value
+		case None:
+			Plain()
+		}
 		match ReadingIn(s, x.Readout) {
 		case Some[string] as t:
-			TextNode{Value: t.Value, Style: x.Style}
+			TextNode{Value: t.Value, Style: style}
 		case None:
-			TextNode{Value: x.Reserve, Style: x.Style}
+			TextNode{Value: x.Reserve, Style: style}
 		}
 	case _:
 		n
