@@ -1,0 +1,11 @@
+// The test file of package files picks the disk its law runs use: each
+// case of edit.Store's laws builds onTestHost, a Disk over the test's own
+// folder, so SaveThenLoad runs on the host's files as the binary's Disk
+// does. The context is unexported, so only the test build's law runs read
+// it.
+
+import ergo.local/prototype/examples/editorgui/edit
+import fs
+
+// onTestHost binds the store to a Disk over the test's folder.
+let onTestHost = context needs TestAmbient { edit.Store: New(fs.NewTestHost()) }
