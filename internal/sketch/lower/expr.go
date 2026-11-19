@@ -469,6 +469,31 @@ func (fc *funcCtx) exprOf(x syntax.Expr) operand {
 	return operand{}
 }
 
+// aliased is the TypeName that package pkg's exported type name stands
+// for: an alias of a named type (`type BoardRequest =
+// pipelineapi.BoardRequest`) stands for the aliased type's own; any other
+// type name for itself. nil when pkg exports no type of that name.
+func aliased(pkg *check.Package, name string) *check.TypeName {
+	for _, o := range pkg.Exported() {
+		tn, ok := o.(*check.TypeName)
+		if !ok || tn.Name != name {
+			continue
+		}
+		for {
+			n, ok := tn.Type.(*check.Named)
+			if !ok {
+				return tn
+			}
+			a, ok := n.Alias().(*check.Named)
+			if !ok || a.Obj == nil || a.Obj == tn {
+				return tn
+			}
+			tn = a.Obj
+		}
+	}
+	return nil
+}
+
 // bareRecord reads the TypeName use of a bare record value. Its checked
 // type holds any type arguments; those arguments are never value indices.
 func (fc *funcCtx) bareRecord(x syntax.Expr) (string, bool) {
@@ -487,19 +512,12 @@ func (fc *funcCtx) bareRecord(x syntax.Expr) (string, bool) {
 		}
 		pn, ok := fc.l.info.Uses[id].(*check.PkgName)
 		named, isNamed := fc.typeOf(x).(*check.Named)
-		if !ok || !isNamed {
+		if !ok || !isNamed || aliased(pn.Pkg, head.Sel.Name) != named.Obj {
 			return "", false
 		}
-		if named.Obj.Pkg != pn.Pkg || named.Obj.Name != head.Sel.Name {
-			// pkg.T where T is an alias of another package's record
-			// (pipelinerpc.BoardRequest = pipelineapi.BoardRequest): the
-			// selected name is a TypeName of pkg (I22).
-			if sel, isType := fc.l.info.Uses[head.Sel].(*check.TypeName); !isType || sel.Pkg != pn.Pkg {
-				return "", false
-			}
-		}
 		// A qualified expression records its package use and final type;
-		// the Named's object is the selected TypeName.
+		// the Named's object is the selected TypeName, or the one an alias
+		// of that name stands for (S109-ALIAS).
 		tn = named.Obj
 	default:
 		return "", false
