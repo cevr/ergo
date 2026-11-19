@@ -34,6 +34,7 @@ type EventReader {
 	started bool,
 	event   string,
 	data    string,
+	hasData bool,
 	id      string,
 	retry   Option[int],
 	open    string,
@@ -46,7 +47,7 @@ let bom = "\xEF\xBB\xBF"
 
 // NewEventReader is a reader at the start of a stream.
 func NewEventReader() EventReader {
-	EventReader{line: "", afterCR: false, started: false, event: "", data: "", id: "", retry: None, open: "", fields: false}
+	EventReader{line: "", afterCR: false, started: false, event: "", data: "", hasData: false, id: "", retry: None, open: "", fields: false}
 }
 
 // Retry is the reconnection time in milliseconds of the last retry field
@@ -57,6 +58,10 @@ func Retry(r EventReader) Option[int] { r.retry }
 // events whose blank line it held, in order. A line end cut between two
 // parts (CR at the end of one, LF at the start of the next) is one line
 // end.
+//
+// The open event's text (End's Truncated) is kept as the span of the part
+// since the last blank line, and joined to the reader's once per part, so
+// a line costs no copy of the text before it.
 func Feed(r EventReader, part string) (EventReader, []ServerEvent) {
 	let mut at = r
 	let mut text = part
@@ -76,38 +81,62 @@ func Feed(r EventReader, part string) (EventReader, []ServerEvent) {
 	if at.afterCR && text[0] == '\n' {
 		i = 1
 	}
-	at = EventReader{..at, afterCR: false}
+	at.afterCR = false
+	// from is where this part's open text begins; carried is the line the
+	// last part left unended, which the first line here completes.
+	let mut from = i
+	let mut carried = at.line
+	let mut lines = 0
 	for _ in 0..len(text)+1 {
 		if i >= len(text) {
 			break
 		}
 		let j = lineEnd(text, i)
 		if j < 0 {
-			at = EventReader{..at, line: at.line + strings.Slice(text, i, len(text))}
 			break
 		}
-		let ln = at.line + strings.Slice(text, i, j)
-		let next, event = lineOf(EventReader{..at, line: ""}, ln)
-		at = next
+		let ln = if at.line == "" { strings.Slice(text, i, j) } else { at.line + strings.Slice(text, i, j) }
+		lines = lines + 1
+		at.line = ""
+		let event = lineOf(&at, ln)
+		let mut after = j + 1
+		if text[j] == '\r' {
+			if j+1 == len(text) {
+				at.afterCR = true
+			} else if text[j+1] == '\n' {
+				after = j + 2
+			}
+		}
+		if ln == "" {
+			// A blank line ends the open text: it starts again after it.
+			at.open = ""
+			carried = ""
+			from = after
+		}
 		match event {
 		case Some[ServerEvent] as e:
 			out = out.Append(e.Value)
 		case None:
 		}
-		if text[j] == '\r' {
-			if j+1 == len(text) {
-				at = EventReader{..at, afterCR: true}
-				i = j + 1
-			} else if text[j+1] == '\n' {
-				i = j + 2
-			} else {
-				i = j + 1
-			}
-		} else {
-			i = j + 1
-		}
+		i = after
 	}
-	(at, out)
+	let rest = strings.Slice(text, i, len(text))
+	let ended = strings.Slice(text, from, i)
+	if lines == 0 {
+		carried = ""
+	}
+	if carried != "" || ended != "" {
+		at.open = at.open + carried + lineFeeds(ended)
+	}
+	(EventReader{..at, line: at.line + rest}, out)
+}
+
+// lineFeeds is s with each line end (CR LF, CR or LF) written as LF.
+func lineFeeds(s string) string {
+	if strings.IndexByte(s, '\r') < 0 {
+		return s
+	}
+	strings.ReplaceAll(strings.ReplaceAll(s, "\r\n", "\n"), "\r", "\n")
 }
 
 // End is the end of the stream: None after a blank line (or a comment),
@@ -142,47 +171,52 @@ func lineEnd(s string, from int) int {
 	-1
 }
 
-// lineOf is r after one whole line, and the event a blank line ends.
-func lineOf(r EventReader, ln string) (EventReader, Option[ServerEvent]) {
+// lineOf reads one whole line into r, and is the event a blank line
+// ends.
+func lineOf(r *EventReader, ln string) Option[ServerEvent] {
 	if ln == "" {
-		let ended = EventReader{..r, event: "", data: "", open: "", fields: false}
-		if r.data == "" {
-			return (ended, None)
+		let had = r.hasData
+		let event = ServerEvent{Event: if r.event == "" { "message" } else { r.event }, Data: r.data, ID: r.id}
+		r.event = ""
+		r.data = ""
+		r.hasData = false
+		r.fields = false
+		if !had {
+			return None
 		}
-		let kind = if r.event == "" { "message" } else { r.event }
-		return (ended, Some[ServerEvent]{Value: ServerEvent{Event: kind, Data: strings.TrimSuffix(r.data, "\n"), ID: r.id}})
+		return Some[ServerEvent]{Value: event}
 	}
-	let seen = EventReader{..r, open: r.open + ln + "\n"}
 	if ln[0] == ':' {
-		return (seen, None)
+		return None
 	}
-	let at = EventReader{..seen, fields: true}
+	r.fields = true
 	let colon = strings.IndexByte(ln, ':')
 	let field = if colon < 0 { ln } else { strings.Slice(ln, 0, colon) }
 	let rest = if colon < 0 { "" } else { strings.Slice(ln, colon+1, len(ln)) }
 	let value = strings.TrimPrefix(rest, " ")
 	match field {
 	case "event":
-		(EventReader{..at, event: value}, None)
+		r.event = value
 	case "data":
-		(EventReader{..at, data: at.data + value + "\n"}, None)
+		// One data line is the event's data as it is; another joins it
+		// after a line feed.
+		r.data = if r.hasData { r.data + "\n" + value } else { value }
+		r.hasData = true
 	case "id":
-		if strings.IndexByte(value, 0) >= 0 {
-			return (at, None)
+		if strings.IndexByte(value, 0) < 0 {
+			r.id = value
 		}
-		(EventReader{..at, id: value}, None)
 	case "retry":
-		if !digits(value) {
-			return (at, None)
+		if digits(value) {
+			let ms = strconv.Atoi(value) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				return None
+			}
+			r.retry = Some[int]{Value: ms}
 		}
-		let ms = strconv.Atoi(value) catch {
-		case strconv.Malformed, strconv.OutOfRange:
-			return (at, None)
-		}
-		(EventReader{..at, retry: Some[int]{Value: ms}}, None)
 	case _:
-		(at, None)
 	}
+	None
 }
 
 // digits reports whether s is one or more ASCII digits.
