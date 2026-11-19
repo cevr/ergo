@@ -97,6 +97,16 @@ func registerNativesjson() {
 		return newSlice(nil), in.charge(fr, at, 1)
 	}
 	natives["civil.bytesText"] = bytesText
+	// openChecked and settleText are Decode's one pass (JSON-VALUE-DECODE).
+	// The evaluator checks the text whole as open does, so a text that is
+	// not JSON fails before the decode, which is the outcome settleText gives,
+	// and settleText has nothing left to find.
+	natives["json.openChecked"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		return natives["json.open"](in, fr, at, fn, args)
+	}
+	natives["json.settleText"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		return unit{}, in.charge(fr, at, 1)
+	}
 	natives["json.open"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		if ab := in.charge(fr, at, 1+argWork(args)); ab != nil {
 			return nil, ab
