@@ -252,7 +252,9 @@ func (b *irBuilder) valueSource(x *syntax.CallExpr, c *check.Call, args []syntax
 		}
 		if keep := "map[" + b.fc.goType(c.TypeArgs[0]) + "]" + b.fc.goType(c.TypeArgs[1]); b.namesTypeParam(keep) {
 			// A generic body's Map type is no package-level type, as
-			// Clip's above (I-FLIP: examples/fk-domains search/cache).
+			// Clip's above (I-FLIP: examples/fk-domains search/cache) and
+			// Append's element (I-FLIP reds #15: pipeline's Book[E]
+			// Streams.Put).
 			b.keepImport("var _ = " + b.l.goPkg("maps") + ".Clone[map[string]bool]")
 		} else {
 			b.keepImport("var _ = " + b.l.goPkg("maps") + ".Clone[" + keep + "]")
@@ -328,6 +330,9 @@ func (b *irBuilder) opCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*irStm
 		irNo("operation call from a pure function")
 	case b.inPlaceSite(x):
 		return b.ownedSiteCall(x, c, b.fc.refSiteOf(x), p) // ir_ownlit.go
+	}
+	if tp, ptr := paramSource(b.l.info.Types[c.Recv]); tp != nil {
+		return b.witnessOpCall(x, c, tp, ptr, p) // ir_witness.go
 	}
 	n, ok := b.l.info.Types[c.Recv].(*check.Named)
 	if !ok {
