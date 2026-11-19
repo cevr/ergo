@@ -25,6 +25,7 @@ import (
 // queue of capacity 0 and one with room, a waiting task.
 const stdLawsProbe = `import queue
 import os
+import api
 import atomic
 import tasks
 import embed
@@ -37,6 +38,84 @@ import trace
 import log
 import strings
 import testing
+
+type apiEcho {} implements api.Transport[string, int]
+
+func Carry(t apiEcho, c string, answer own func(c string) int) int { answer(c) }
+
+type apiDropping {} implements api.Transport[string, int]
+
+func Carry(t apiDropping, c string, answer own func(c string) int) int {
+	if len(c) == 0 {
+		answer(c)
+	} else {
+		answer(c[0:len(c)-1])
+	}
+}
+
+test ApiExitKeepsTheCode(o api.Output) {
+	let want = if o.Code >= 1 && o.Code <= 125 { o.Code } else if o.Code == 0 { 0 } else { 1 }
+	api.ExitOf(o) catch {
+	case os.Exit as e:
+		assert int(e.Code) == want && want != 0
+		return
+	}
+	assert want == 0
+}
+
+test ApiKebabRoundTrips(words []string) {
+	let mut name = ""
+	let mut parts = []string{}
+	for w in words {
+		let mut low = ""
+		for i in 0..len(w) {
+			let c = w[i]
+			if c >= 'a' && c <= 'z' {
+				low = low + w[i:i+1]
+			} else if c >= 'A' && c <= 'Z' {
+				low = low + strings.ToLower(w[i:i+1])
+			}
+		}
+		for len(low) < 2 {
+			low = low + "x"
+		}
+		parts = parts.Append(low)
+		name = name + strings.ToUpper(low[0:1]) + low[1:]
+	}
+	let k = api.Kebab(name)
+	assert k == strings.Join(parts, "-") && api.Kebab(k) == k
+}
+
+test ApiAgreesSeesTheLoss(c string, o int) {
+	assert api.Agrees(apiEcho, c, o) && !api.Agrees(apiDropping, c + "!", o)
+}
+
+test ApiCompletionNamesEachCommand(words []string, shell api.Shell) {
+	let mut commands = []api.Entry{}
+	for w in words {
+		let mut low = ""
+		for i in 0..len(w) {
+			let c = w[i]
+			if c >= 'a' && c <= 'z' {
+				low = low + w[i:i+1]
+			} else if c >= 'A' && c <= 'Z' {
+				low = low + strings.ToLower(w[i:i+1])
+			}
+		}
+		for len(low) < 2 {
+			low = low + "x"
+		}
+		commands = commands.Append(api.Entry{Name: low, Doc: "does " + w + "\nmore"})
+	}
+	let text = api.Completion("prog", shell, commands)
+	let mut at = 0
+	for c in commands {
+		let i = strings.Index(text[at:], c.Name)
+		assert i >= 0
+		at = at + i + len(c.Name)
+	}
+	assert !strings.Contains(text, "\nmore")
+}
 
 test OsCodeWhere(v os.Code) {
 	let it = int(v)
@@ -677,6 +756,10 @@ func stdLawsTestName(pkg, law string) string {
 // holds it equal to the ledger, so a law changed in source fails here
 // until its restatement in the probe is changed with it.
 var stdLawsStatements = map[string]string{
+	"api ExitKeepsTheCode":                 `ExitKeepsTheCode(o Output) { let want = if o.Code >= 1 && o.Code <= 125 { o.Code } else if o.Code == 0 { 0 } else { 1 } ExitOf(o) catch { case os.Exit as e: return int(e.Code) == want && want != 0 } want == 0 }`,
+	"api KebabRoundTrips":                  `KebabRoundTrips(words []string) { let mut name = "" let mut parts = []string{} for w in words { let low = word(w) parts = parts.Append(low) name = name + strings.ToUpper(low[0:1]) + low[1:] } let k = Kebab(name) k == strings.Join(parts, "-") && Kebab(k) == k }`,
+	"api AgreesSeesTheLoss":                `AgreesSeesTheLoss(c string, o int) { Agrees(echo, c, o) && !Agrees(dropping, c+"!", o) }`,
+	"api CompletionNamesEachCommand":       `CompletionNamesEachCommand(words []string, shell Shell) { let mut commands = []Entry{} for w in words { commands = commands.Append(Entry{Name: word(w), Doc: "does " + w + "\nmore"}) } let text = Completion("prog", shell, commands) let mut at = 0 for c in commands { let i = strings.Index(text[at:], c.Name) if i < 0 { return false } at = at + i + len(c.Name) } !strings.Contains(text, "\nmore") }`,
 	"os CodeWhere":                         `CodeWhere(v Code) { let it = int(v) (1 <= it && it <= 125) && try ParseCode(it) == v }`,
 	"atomic InitialValues":                 `InitialValues(value int64, flag bool) { NewInt64(value).Load() == value && NewBool(flag).Load() == flag }`,
 	"atomic Int64.StoresAndAdds":           `StoresAndAdds(a int64, b int64) { Store(a) let sum = Add(b) let seen = Load() let previous = Swap(a) let changed = CompareAndSwap(a, b) let unchanged = !CompareAndSwap(b+1, a) sum == a+b && seen == sum && previous == sum && changed && unchanged && Load() == b }`,
