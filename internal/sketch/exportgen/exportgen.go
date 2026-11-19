@@ -95,7 +95,13 @@ var skipFields = map[string]string{
 	// The derive record (internal/sketch/derive). Std declares no plan
 	// function or derive, so its record is empty and nil means the same;
 	// check.StdSnapshotNow refuses a std package whose record is not empty.
-	"check.Package.Derive":  "an empty derive record, nil when decoded",
+	"check.Package.Derive": "an empty derive record, nil when decoded",
+	// The std mark is the loader's: the std importer marks the package of
+	// each std segment it decodes, and the prelude it installs, as it marks
+	// a std package it checks (check.go); a module segment's stays false.
+	// So no reader of the snapshot's fields decides by std membership
+	// (TestCompilerReadsNoStdMembership).
+	"check.Package.std":     "marked by the std importer that decodes the package",
 	"check.checker.derive":  "the checked package's derive record (check.Package.Derive)",
 	"syntax.File.Expansion": "the file's package's derive record (check.Package.Derive)",
 	// A module's own Go bodies (check/extern.go moduleDoor): std binds no
