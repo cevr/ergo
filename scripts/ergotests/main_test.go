@@ -35,7 +35,14 @@ func TestErgoTestsJudgeEachObligation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("a/a.ergo", "extern go strings.ToUpper func upper(s string) string\n\nfunc twice(n int) int { n + n }\n\n"+
+	// Shouts reaches a Go body of the fixture's own module, which the
+	// evaluator has no native of and never will (licence.go: natives are
+	// std's), so check time leaves it undecided; a std function such as
+	// strings.ToUpper gained a native (ST4) and turned Shouts decided.
+	write("go.mod", "module example.com/app\n\ngo 1.27\n")
+	write("ergo.mod", "module app\ntrust go app\n")
+	write("kern/kern.go", "package kern\n\n//ergo:wait none\nfunc Upper(s string) string { return s }\n")
+	write("a/a.ergo", "extern go example.com/app/kern.Upper func upper(s string) string\n\nfunc twice(n int) int { n + n }\n\n"+
 		"test Good {\n\tassert twice(2) == 4\n}\n\ntest Bad {\n\tassert twice(2) == 5\n}\n\n"+
 		"test Skips {\n\tskip \"not on this host\"\n}\n\nlaw Doubles(n int) { twice(n) - n == n }\n\nlaw Shouts(s string) { upper(s) == upper(s) }\n")
 	write("a/b/b.ergo", "test Nested {\n\tassert 1 + 1 == 2\n}\n")
