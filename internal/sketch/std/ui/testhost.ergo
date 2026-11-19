@@ -147,8 +147,8 @@ func Tap[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E]) fails actor.S
 		try scrimClick(h)
 		return
 	}
-	try point(h, id, None, PointerEvent{Phase: Down, X: 0, Y: 0, Zone: None})
-	try point(h, id, None, PointerEvent{Phase: Up, X: 0, Y: 0, Zone: None})
+	try point(h, id, None, PointerEvent{Pointer: MousePointer, Phase: Down, X: 0, Y: 0, Zone: None})
+	try point(h, id, None, PointerEvent{Pointer: MousePointer, Phase: Up, X: 0, Y: 0, Zone: None})
 	try apply(h, Press[E]{Id: id})
 }
 
@@ -162,8 +162,8 @@ func TypeText[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E], text str
 		try scrimClick(h)
 		return
 	}
-	try point(h, id, None, PointerEvent{Phase: Down, X: 0, Y: 0, Zone: None})
-	try point(h, id, None, PointerEvent{Phase: Up, X: 0, Y: 0, Zone: None})
+	try point(h, id, None, PointerEvent{Pointer: MousePointer, Phase: Down, X: 0, Y: 0, Zone: None})
+	try point(h, id, None, PointerEvent{Pointer: MousePointer, Phase: Up, X: 0, Y: 0, Zone: None})
 	try apply(h, Type[E]{Id: id, Text: text})
 }
 
@@ -297,8 +297,8 @@ func PointAt[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E], p Pointer
 // as the desktop host sends them (UG4).
 func scrimClick[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
 	let r = SessionRoot(&h.session)
-	try point(h, r, None, PointerEvent{Phase: Down, X: 0, Y: 0, Zone: None})
-	try point(h, r, None, PointerEvent{Phase: Up, X: 0, Y: 0, Zone: None})
+	try point(h, r, None, PointerEvent{Pointer: MousePointer, Phase: Down, X: 0, Y: 0, Zone: None})
+	try point(h, r, None, PointerEvent{Pointer: MousePointer, Phase: Up, X: 0, Y: 0, Zone: None})
 }
 
 // KidsAt is the node id's children on the test host, in order (UG4).
@@ -401,7 +401,7 @@ func LooksOf[S, E, D, F](h *TestHost[S, E, D, F], n Node[E]) Looks { LooksIn(Mir
 // PointNowhere moves the pointer off every node, as a pointer that
 // leaves the window does: a Moved to the root (UG3).
 func PointNowhere[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
-	try point(h, SessionRoot(&h.session), None, PointerEvent{Phase: Moved, X: 0, Y: 0, Zone: None})
+	try point(h, SessionRoot(&h.session), None, PointerEvent{Pointer: MousePointer, Phase: Moved, X: 0, Y: 0, Zone: None})
 }
 
 // ClickNowhere clicks where no node is, as a click on a window's

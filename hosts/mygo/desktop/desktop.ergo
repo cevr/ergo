@@ -378,14 +378,14 @@ func markOf[S, E, D, F](d *Driver[S, E, D, F]) lookMark[E] {
 // Area makes its signal, and any spot is where the pointer is, which the
 // frame's hover and pressed states follow (UG3).
 func pointed[E comparable, S, D, F](d *Driver[S, E, D, F], s spot[E], phase ui.Phase, x float32, y float32) fails actor.Stopped | ui.BadPatch needs go.Foreign {
-	try step(d, ui.Point[E]{Id: s.id, Pointer: ui.PointerEvent{Phase: phase, X: float64(x - s.box.X), Y: float64(y - s.box.Y), Zone: None}, Over: None})
+	try step(d, ui.Point[E]{Id: s.id, Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: phase, X: float64(x - s.box.X), Y: float64(y - s.box.Y), Zone: None}, Over: None})
 }
 
 // nowhere tells the frame the pointer is over no node (a move to the
 // root, UG3).
 func nowhere[E comparable, S, D, F](d *Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch needs go.Foreign {
 	if ui.SessionHovered(&d.session) != None {
-		try step(d, ui.Point[E]{Id: ui.SessionRoot(&d.session), Pointer: ui.PointerEvent{Phase: ui.Moved, X: 0, Y: 0, Zone: None}, Over: None})
+		try step(d, ui.Point[E]{Id: ui.SessionRoot(&d.session), Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Moved, X: 0, Y: 0, Zone: None}, Over: None})
 	}
 }
 

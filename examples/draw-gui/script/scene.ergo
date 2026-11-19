@@ -73,11 +73,11 @@ func Scene(pic canvas.Picture, name string, lines Seq[string], clock time.Manual
 func act(s canvas.Signal) ui.Act {
 	match s {
 	case canvas.Down as d:
-		ui.PointOn{Label: "picture", Pointer: ui.PointerEvent{Phase: ui.Down, X: float64(d.At.X), Y: float64(d.At.Y), Zone: None}}
+		ui.PointOn{Label: "picture", Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Down, X: float64(d.At.X), Y: float64(d.At.Y), Zone: None}}
 	case canvas.Drag as d:
-		ui.PointOn{Label: "picture", Pointer: ui.PointerEvent{Phase: ui.Moved, X: float64(d.At.X), Y: float64(d.At.Y), Zone: None}}
+		ui.PointOn{Label: "picture", Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Moved, X: float64(d.At.X), Y: float64(d.At.Y), Zone: None}}
 	case canvas.Up as d:
-		ui.PointOn{Label: "picture", Pointer: ui.PointerEvent{Phase: ui.Up, X: float64(d.At.X), Y: float64(d.At.Y), Zone: None}}
+		ui.PointOn{Label: "picture", Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Up, X: float64(d.At.X), Y: float64(d.At.Y), Zone: None}}
 	case canvas.Pick as k:
 		ui.TapOn{Label: "tool " + canvas.ToolName(k.Tool)}
 	case canvas.Delete:

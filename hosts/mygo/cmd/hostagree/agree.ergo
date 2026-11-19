@@ -278,7 +278,7 @@ func run[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Driver[S,
 		case _:
 			ui.Wheel{DX: 0, DY: y}
 		}
-		both(h, d, ui.PointOn{Label: f[0], Pointer: ui.PointerEvent{Phase: phase, X: x, Y: y, Zone: None}})
+		both(h, d, ui.PointOn{Label: f[0], Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: phase, X: x, Y: y, Zone: None}})
 	case "scroll":
 		let f = strings.Fields(rest)
 		if len(f) != 2 {

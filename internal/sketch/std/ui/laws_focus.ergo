@@ -58,7 +58,7 @@ law HoverCostsNoPass(seed int) {
 				}
 				at = -1
 			} else {
-				Play(&h, []Act{PointOn{Label: "h\(j)", Pointer: PointerEvent{Phase: Moved, X: 1, Y: 1, Zone: None}}}) catch {
+				Play(&h, []Act{PointOn{Label: "h\(j)", Pointer: PointerEvent{Pointer: MousePointer, Phase: Moved, X: 1, Y: 1, Zone: None}}}) catch {
 				case _:
 					return false
 				}
@@ -142,7 +142,7 @@ law PointerCrossesOnce(seed int) {
 					return false
 				}
 			} else {
-				Play(&h, []Act{PointOn{Label: "a\(j)", Pointer: PointerEvent{Phase: Moved, X: 2, Y: 2, Zone: None}}}) catch {
+				Play(&h, []Act{PointOn{Label: "a\(j)", Pointer: PointerEvent{Pointer: MousePointer, Phase: Moved, X: 2, Y: 2, Zone: None}}}) catch {
 				case _:
 					return false
 				}

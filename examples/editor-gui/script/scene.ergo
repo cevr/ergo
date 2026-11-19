@@ -86,7 +86,7 @@ func click(s edit.State, row int, col int) ui.Act {
 	let (from, to) = screen.Shown(d)
 	let l = ui.LayoutText(screen.Mono, piece.Slice(d.Buf, from, to), screen.Font, screen.PageWidth)
 	let k = ui.CaretAt(screen.Mono, l, edit.PointAt(s, row, col)-from)
-	ui.PointOn{Label: "page", Pointer: ui.PointerEvent{Phase: ui.Down, X: float64(k.X), Y: float64(k.Top + k.Height/2.0), Zone: None}}
+	ui.PointOn{Label: "page", Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Down, X: float64(k.X), Y: float64(k.Top + k.Height/2.0), Zone: None}}
 }
 
 // Acts is the window's steps of an editor signal.
