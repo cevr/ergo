@@ -77,3 +77,38 @@ func plain[T](a T) T {
 }
 
 func lend2[T](x T) {}
+
+type Bad {}
+
+func fail(n int) int fails Bad {
+	if n > 5 {
+		return Bad
+	}
+	n
+}
+
+func failTake[T own](c bool, x own T) int fails Bad { //want: flow
+	if c {
+		return Bad
+	}
+	keep(x)
+	0
+}
+
+func runMk[T own](mk func() T, f func(func() T) fails Bad) fails Bad { try f(mk) }
+
+// Only a call that fails leaves the frame under a try: a is handed off
+// before failTake fails, so cond's call drops nothing.
+func tryMovedFirst[T own](a own T, n int) fails Bad {
+	let _ = try failTake(cond(n), a)
+}
+
+// A block is a frame of its own: the try around runMk does not reach its
+// calls, and its untried failure is S105, not a drop of b.
+func tryBlock[T own](mk func() T, n int) fails Bad {
+	try runMk(mk, func(m func() T) fails Bad {
+		let b = m()
+		let _ = fail(n)
+		keep(b)
+	})
+}
