@@ -213,6 +213,7 @@ type Store {
 }
 
 // Delivery sends a code to an address: the application's mail or SMS.
+// law-exempt: a send hands the code to the world outside the program (a mail or SMS gateway), which no law can read back; the Recorder a test binds has no rule of its own, and memory's SentCodeRedeems states what it records.
 type Delivery {
 	// Send sends code for purpose to dest.
 	Send(dest string, purpose string, code string) fails Undelivered,
