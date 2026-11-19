@@ -528,7 +528,7 @@ extern go os.Signal type Signal {
 }
 
 // ergo:go func StartProcess(name string, argv []string, attr *ProcAttr) (*Process, error)
-extern go os.StartProcess func StartProcess(name string, argv []string, attr *ProcAttr) Option[go.Ref[Process]] fails go.Error needs go.Foreign
+extern go os.StartProcess func StartProcess(name string, argv []string, attr *ProcAttr) go.Ref[Process] fails go.Error needs go.Foreign
 
 // ergo:go func Stat(name string) (FileInfo, error)
 extern go os.Stat func Stat(name string) fs.FileInfo fails go.Error needs go.Foreign

@@ -51,7 +51,7 @@ extern go debug/pe.File type File {
 // ergo:refused File.Symbols: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*File).COFFSymbolReadSectionDefAux(idx int) (*COFFSymbolAuxFormat5, error)
-extern go debug/pe.File.COFFSymbolReadSectionDefAux func (f *File) COFFSymbolReadSectionDefAux(idx int) Option[go.Ref[COFFSymbolAuxFormat5]] fails go.Error needs go.Foreign
+extern go debug/pe.File.COFFSymbolReadSectionDefAux func (f *File) COFFSymbolReadSectionDefAux(idx int) go.Ref[COFFSymbolAuxFormat5] fails go.Error needs go.Foreign
 
 // ergo:go func (*File).Close() error
 extern go debug/pe.File.Close func (f own *File) Close() fails go.Error needs go.Foreign

@@ -804,7 +804,7 @@ extern go debug/dwarf.Reader.Next func (r *Reader) Next() Option[go.Ref[Entry]] 
 extern go debug/dwarf.Reader.Seek func (r *Reader) Seek(off Offset) needs go.Foreign
 
 // ergo:go func (*Reader).SeekPC(pc uint64) (*Entry, error)
-extern go debug/dwarf.Reader.SeekPC func (r *Reader) SeekPC(pc uint64) Option[go.Ref[Entry]] fails go.Error needs go.Foreign
+extern go debug/dwarf.Reader.SeekPC func (r *Reader) SeekPC(pc uint64) go.Ref[Entry] fails go.Error needs go.Foreign
 
 // ergo:go func (*Reader).SkipChildren()
 extern go debug/dwarf.Reader.SkipChildren func (r *Reader) SkipChildren() needs go.Foreign

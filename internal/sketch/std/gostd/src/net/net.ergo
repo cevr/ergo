@@ -441,7 +441,7 @@ extern go net.Interface.MulticastAddrs func (ifi *Interface) MulticastAddrs() []
 extern go net.InterfaceAddrs func InterfaceAddrs() []Addr fails go.Error needs go.Foreign
 
 // ergo:go func InterfaceByIndex(index int) (*Interface, error)
-extern go net.InterfaceByIndex func InterfaceByIndex(index int) Option[go.Ref[Interface]] fails go.Error needs go.Foreign
+extern go net.InterfaceByIndex func InterfaceByIndex(index int) go.Ref[Interface] fails go.Error needs go.Foreign
 
 // ergo:go func InterfaceByName(name string) (*Interface, error)
 extern go net.InterfaceByName func InterfaceByName(name string) go.Ref[Interface] fails go.Error needs go.Foreign
@@ -502,13 +502,13 @@ extern go net.ListenConfig.SetMultipathTCP func (lc *ListenConfig) SetMultipathT
 extern go net.ListenIP func ListenIP(network string, laddr own *IPAddr) go.Ref[IPConn] fails go.Error needs go.Foreign
 
 // ergo:go func ListenMulticastUDP(network string, ifi *Interface, gaddr *UDPAddr) (*UDPConn, error)
-extern go net.ListenMulticastUDP func ListenMulticastUDP(network string, ifi own *Interface, gaddr own *UDPAddr) Option[go.Ref[UDPConn]] fails go.Error needs go.Foreign
+extern go net.ListenMulticastUDP func ListenMulticastUDP(network string, ifi own *Interface, gaddr own *UDPAddr) go.Ref[UDPConn] fails go.Error needs go.Foreign
 
 // ergo:go func ListenPacket(network string, address string) (PacketConn, error)
 extern go net.ListenPacket func ListenPacket(network string, address string) PacketConn fails go.Error needs go.Foreign
 
 // ergo:go func ListenTCP(network string, laddr *TCPAddr) (*TCPListener, error)
-extern go net.ListenTCP func ListenTCP(network string, laddr own *TCPAddr) Option[go.Ref[TCPListener]] fails go.Error needs go.Foreign
+extern go net.ListenTCP func ListenTCP(network string, laddr own *TCPAddr) go.Ref[TCPListener] fails go.Error needs go.Foreign
 
 // ergo:go func ListenUDP(network string, laddr *UDPAddr) (*UDPConn, error)
 extern go net.ListenUDP func ListenUDP(network string, laddr own *UDPAddr) go.Ref[UDPConn] fails go.Error needs go.Foreign

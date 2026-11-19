@@ -66,7 +66,7 @@ extern go text/template.Template type Template {
 }
 
 // ergo:go func (*Template).AddParseTree(name string, tree *parse.Tree) (*Template, error)
-extern go text/template.Template.AddParseTree func (t *Template) AddParseTree(name string, tree own *parse.Tree) Option[go.Ref[Template]] fails go.Error needs go.Foreign
+extern go text/template.Template.AddParseTree func (t *Template) AddParseTree(name string, tree own *parse.Tree) go.Ref[Template] fails go.Error needs go.Foreign
 
 // ergo:go func (*Template).Clone() (*Template, error)
 extern go text/template.Template.Clone func (t *Template) Clone() go.Ref[Template] fails go.Error needs go.Foreign
@@ -106,7 +106,7 @@ extern go text/template.Template.New func (t *Template) New(name string) Option[
 extern go text/template.Template.Option func (t *Template) Option(opt []string) Option[go.Ref[Template]] needs go.Foreign
 
 // ergo:go func (*Template).Parse(text string) (*Template, error)
-extern go text/template.Template.Parse func (t *Template) Parse(text string) Option[go.Ref[Template]] fails go.Error needs go.Foreign
+extern go text/template.Template.Parse func (t *Template) Parse(text string) go.Ref[Template] fails go.Error needs go.Foreign
 
 // ergo:go func (*Template).ParseFS(fsys fs.FS, patterns ...string) (*Template, error)
 // ergo:variadic

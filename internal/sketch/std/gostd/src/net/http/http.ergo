@@ -475,10 +475,10 @@ extern go net/http.Pusher type Pusher {
 }
 
 // ergo:go func ReadRequest(b *bufio.Reader) (*Request, error)
-extern go net/http.ReadRequest func ReadRequest(b own *bufio.Reader) Option[go.Ref[Request]] fails go.Error needs go.Foreign
+extern go net/http.ReadRequest func ReadRequest(b own *bufio.Reader) go.Ref[Request] fails go.Error needs go.Foreign
 
 // ergo:go func ReadResponse(r *bufio.Reader, req *Request) (*Response, error)
-extern go net/http.ReadResponse func ReadResponse(r own *bufio.Reader, req own *Request) Option[go.Ref[Response]] fails go.Error needs go.Foreign
+extern go net/http.ReadResponse func ReadResponse(r own *bufio.Reader, req own *Request) go.Ref[Response] fails go.Error needs go.Foreign
 
 // ergo:go func Redirect(w ResponseWriter, r *Request, url string, code int)
 extern go net/http.Redirect func Redirect(w own ResponseWriter, r own *Request, url string, code int) needs go.Foreign

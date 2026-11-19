@@ -26,12 +26,7 @@ func main() needs Console | go.Foreign {
 		Console.Println("no zone: " + e.Text)
 		return
 	}
-	match loc {
-	case Some as l:
-		Console.Println("zone " + l.Value.String())
-	case None:
-		Console.Println("no zone")
-	}
+	Console.Println("zone " + loc.String())
 }
 `
 	o := mustLower(t, "zonecarried", src)

@@ -61,13 +61,10 @@ import go syscall
 func goProcess() string fails go.Error needs go.Foreign {
 	let sys = go.New(syscall.SysProcAttr{..go.Zero[syscall.SysProcAttr](), Setpgid: true})
 	let mut attr = os.ProcAttr{Dir: "", Env: []string{}, Sys: Some{Value: sys}}
-	match try os.StartProcess("/bin/sh", []string{"sh", "-c", "kill -s 0 -- -$$ && exit 3"}, &attr) {
-		case Some as p:
-			match try p.Value.Wait() {
-				case Some as state: "\(state.Value.ExitCode())|\(sys.Setpgid)"
-				case None: "no state"
-			}
-		case None: "no process"
+	let p = try os.StartProcess("/bin/sh", []string{"sh", "-c", "kill -s 0 -- -$$ && exit 3"}, &attr)
+	match try p.Wait() {
+		case Some as state: "\(state.Value.ExitCode())|\(sys.Setpgid)"
+		case None: "no state"
 	}
 }
 
@@ -476,13 +473,10 @@ func proxy(req string) string fails go.Error needs go.Foreign {
 		case Some as sr:
 			match bufio.NewReader(sr.Value) {
 				case Some as br:
-					match try http.ReadRequest(br.Value) {
-						case Some as r:
-							match try http.ProxyFromEnvironment(r.Value) {
-								case Some as p: p.Value.Host
-								case None: "no proxy"
-							}
-						case None: "no request"
+					let r = try http.ReadRequest(br.Value)
+					match try http.ProxyFromEnvironment(r) {
+						case Some as p: p.Value.Host
+						case None: "no proxy"
 					}
 				case None: "no bufio"
 			}

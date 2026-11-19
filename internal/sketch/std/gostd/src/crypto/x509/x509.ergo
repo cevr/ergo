@@ -455,10 +455,10 @@ extern go crypto/x509.ParseECPrivateKey func ParseECPrivateKey(der []byte) Optio
 extern go crypto/x509.ParseOID func ParseOID(oid string) OID fails go.Error needs go.Foreign
 
 // ergo:go func ParsePKCS1PrivateKey(der []byte) (*rsa.PrivateKey, error)
-extern go crypto/x509.ParsePKCS1PrivateKey func ParsePKCS1PrivateKey(der []byte) Option[go.Ref[rsa.PrivateKey]] fails go.Error needs go.Foreign
+extern go crypto/x509.ParsePKCS1PrivateKey func ParsePKCS1PrivateKey(der []byte) go.Ref[rsa.PrivateKey] fails go.Error needs go.Foreign
 
 // ergo:go func ParsePKCS1PublicKey(der []byte) (*rsa.PublicKey, error)
-extern go crypto/x509.ParsePKCS1PublicKey func ParsePKCS1PublicKey(der []byte) Option[go.Ref[rsa.PublicKey]] fails go.Error needs go.Foreign
+extern go crypto/x509.ParsePKCS1PublicKey func ParsePKCS1PublicKey(der []byte) go.Ref[rsa.PublicKey] fails go.Error needs go.Foreign
 
 // ergo:go func ParsePKCS8PrivateKey(der []byte) (key any, err error)
 extern go crypto/x509.ParsePKCS8PrivateKey func ParsePKCS8PrivateKey(der []byte) go.Any fails go.Error needs go.Foreign
@@ -550,7 +550,7 @@ extern go crypto/x509.SignatureAlgorithm type SignatureAlgorithm int
 extern go crypto/x509.SignatureAlgorithm.String func (algo SignatureAlgorithm) String() string needs go.Foreign
 
 // ergo:go func SystemCertPool() (*CertPool, error)
-extern go crypto/x509.SystemCertPool func SystemCertPool() Option[go.Ref[CertPool]] fails go.Error needs go.Foreign
+extern go crypto/x509.SystemCertPool func SystemCertPool() go.Ref[CertPool] fails go.Error needs go.Foreign
 
 // ergo:go type SystemRootsError struct
 extern go crypto/x509.SystemRootsError type SystemRootsError {
