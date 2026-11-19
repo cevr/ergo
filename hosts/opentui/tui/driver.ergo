@@ -55,6 +55,13 @@ type Driver[S, E, D, F] {
 	pressed Option[ui.Id[E]],
 	options Options,
 	history ui.MemoryHistory,
+	// The lists: each Rows node's content height (cells), each written
+	// row's top in its list (cells), and the viewport last reported for
+	// each list; the Area that holds the pointer.
+	lists     Map[ui.Id[E], float64],
+	tops      Map[ui.Id[E], float64],
+	viewports Map[ui.Id[E], ui.Viewport],
+	captured  Option[ui.Id[E]],
 }
 
 // held is a node of the tree and its children, in order.
@@ -103,6 +110,10 @@ func start[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D
 		pressed: None,
 		options: o,
 		history: ui.NewMemoryHistory(ui.URL{Path: "/", Query: "", Fragment: ""}),
+		lists: Map[ui.Id[E], float64]{},
+		tops: Map[ui.Id[E], float64]{},
+		viewports: Map[ui.Id[E], ui.Viewport]{},
+		captured: None,
 	}
 	d.nodes[root] = held[E]{node: ui.BoxNode{Style: ui.Plain()}, kids: []ui.Id[E]{}}
 	d.nums[root] = 0
@@ -140,6 +151,7 @@ func show[E comparable, S, D, F](d *Driver[S, E, D, F], ops []ui.Op[E]) fails ui
 			reset(d, x.Id, x.Node)
 		}
 	}
+	placeRows(d)
 	// A focused node that left or is now disabled loses the focus.
 	match d.focus {
 	case Some[ui.Id[E]] as f:
@@ -148,7 +160,7 @@ func show[E comparable, S, D, F](d *Driver[S, E, D, F], ops []ui.Op[E]) fails ui
 		}
 	case None:
 	}
-	try present(d.s)
+	try repaint(d)
 }
 
 // create makes id's scene node, with its text, style and look; a
@@ -175,6 +187,11 @@ func create[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) needs go.Foreign {
 	case None:
 	}
 	restyle(d, n, None, node)
+	match node {
+	case ui.RowsNode as x:
+		content(d, id, x.Count, x.RowHeight)
+	case _:
+	}
 	relook(d, id)
 	relabel(d, id)
 }
@@ -228,6 +245,11 @@ func reset[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], node ui.Node[E]) need
 	case None:
 	}
 	restyle(d, n, Some{Value: old.node}, node)
+	match node {
+	case ui.RowsNode as x:
+		content(d, id, x.Count, x.RowHeight)
+	case _:
+	}
 	relabel(d, id)
 	match labelText(node) {
 	case Some[string] as t:
@@ -369,6 +391,10 @@ func forget[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) {
 	unnumber(d, id)
 	d.nodes = d.nodes.Delete(id)
 	d.parents = d.parents.Delete(id)
+	d.viewports = d.viewports.Delete(id)
+	if d.captured == (Some{Value: id}) {
+		d.captured = None
+	}
 	if d.focus == (Some{Value: id}) {
 		d.focus = None
 	}
@@ -386,6 +412,8 @@ func unnumber[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E]) {
 	d.ids = d.ids.Delete(n)
 	d.looks = d.looks.Delete(n)
 	d.nums = d.nums.Delete(id)
+	d.lists = d.lists.Delete(id)
+	d.tops = d.tops.Delete(id)
 	match d.labels.Get(id) {
 	case Some[int] as l:
 		d.ids = d.ids.Delete(l.Value)
@@ -409,7 +437,7 @@ func Feed[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fail
 	} else if input.Kind == screen.Paste {
 		try typed(d, oneLine(input.Text))
 	} else if input.Kind == screen.Resize {
-		try present(d.s)
+		try repaint(d)
 	}
 }
 
@@ -499,12 +527,18 @@ func typed[E comparable, S, D, F](d *Driver[S, E, D, F], text string) fails acto
 	}
 }
 
-// mouse handles a mouse press and release: a press focuses the node under
-// it that takes the focus (none under it clears the focus) and puts a
-// field's caret at the cell it went down on, and a release
-// on the node the press went down on presses it.
+// mouse handles the mouse: a press focuses the node under it that takes
+// the focus (none under it clears the focus) and puts a field's caret at
+// the cell it went down on, and a release on the node the press went down
+// on presses it. An Area takes the pointer's presses, moves and releases
+// (Point), and holds it from a press to a release (capture); the wheel
+// goes to the Area and scrolls the list under it (wheel).
 func mouse[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
-	if input.Action == screen.Down {
+	if input.Action == screen.Scroll {
+		try wheel(d, input)
+	} else if input.Action == screen.Move || input.Action == screen.Drag {
+		try moved(d, input)
+	} else if input.Action == screen.Down {
 		let hit = targetAt(d, input.X, input.Y)
 		d.pressed = hit
 		match hit {
@@ -527,7 +561,33 @@ func mouse[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fai
 				try present(d.s)
 			}
 		}
+		match Captured(d) {
+		case Some[ui.Id[E]] as a:
+			try point(d, a.Value, input, ui.Down)
+		case None:
+			match hit {
+			case Some[ui.Id[E]] as id:
+				if isArea(nodeOf(d, id.Value)) {
+					d.captured = hit
+					try point(d, id.Value, input, ui.Down)
+				}
+			case None:
+			}
+		}
 	} else if input.Action == screen.Up {
+		match Captured(d) {
+		case Some[ui.Id[E]] as a:
+			d.captured = None
+			try point(d, a.Value, input, ui.Up)
+		case None:
+			match targetAt(d, input.X, input.Y) {
+			case Some[ui.Id[E]] as id:
+				if isArea(nodeOf(d, id.Value)) {
+					try point(d, id.Value, input, ui.Up)
+				}
+			case None:
+			}
+		}
 		let was = d.pressed
 		d.pressed = None
 		match was {

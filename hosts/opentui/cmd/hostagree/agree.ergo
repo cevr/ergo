@@ -50,7 +50,13 @@ func agree[E comparable, S](m Machine[S, E, int], view own func(f *ui.Frame[E], 
 			}
 			continue
 		}
-		let (a, b) = run(&h, &d, s, line)
+		// "cost STEP" plays STEP and prints the library calls it made.
+		let costed = strings.HasPrefix(line, "cost ")
+		let before = s.Calls()
+		let (a, b) = run(&h, &d, s, strings.TrimPrefix(line, "cost "))
+		if costed {
+			Console.Println("cost \(s.Calls() - before)")
+		}
 		if a != b {
 			Console.Println("differ \(n): \(line): test host \(said(a)), terminal \(said(b))")
 			continue
@@ -81,8 +87,11 @@ func said(r result) string {
 }
 
 // compare is why the hosts differ now, None when they agree: the tree,
-// the app state, and each text's place on the screen.
+// the app state, whether an Area holds the pointer, each list's rows in
+// their places, and each text's place on the screen. First TestHost takes
+// the viewport the terminal reported for each list (follow).
 func compare[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S, E, D, F], s go.Ref[screen.Screen], same func(a S, b S) bool) Option[string] needs go.Foreign {
+	follow(h, d, tui.Screen(d))
 	if !ui.SameShapes(ui.Screen(h), tui.Screen(d)) {
 		return Some{Value: "trees differ:\n\(ui.Screenshot(h))terminal:\n\(shot(tui.Screen(d), ""))"}
 	}
@@ -92,7 +101,116 @@ func compare[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S,
 	if s.Count() != tui.SceneNodes(d) {
 		return Some{Value: "the scene holds \(s.Count()) nodes, the driver \(tui.SceneNodes(d))"}
 	}
-	shown(d, s, tui.Screen(d), s.Rows())
+	let held = ui.Captured(h) != None
+	if held != (tui.Captured(d) != None) {
+		return Some{Value: "an Area holds the pointer on TestHost: \(held); on the terminal: \(!held)"}
+	}
+	let rows = s.Rows()
+	match placed(d, s, tui.Screen(d), rows) {
+	case Some[string] as why:
+		return why
+	case None:
+	}
+	shown(d, s, tui.Screen(d), rows)
+}
+
+// cellH is the DIPs of a cell's height (the driver's default Cell).
+let cellH = 16.0
+
+// placed is why a list is not where it shows, None when each is: the
+// viewport the terminal reported is the list's box height and an offset
+// inside its content, and each row it wrote (a button, by label) is at
+// the list's top plus its index's rows, less the offset, one row high, at
+// the list's left edge, and its label is on the screen's row there when
+// that row is in the list's box.
+func placed[E comparable, S, D, F](d *tui.Driver[S, E, D, F], s go.Ref[screen.Screen], shapes []ui.Shape[E], rows []string) Option[string] needs go.Foreign {
+	for sh in shapes {
+		match sh.Node {
+		case ui.RowsNode as x:
+			let (v, lb) = match (tui.Viewport(d, x.Label), tui.Number(d, x.Label)) {
+			case (Some[ui.Viewport] as v, Some[int] as n):
+				(v.Value, s.BoxOf(n.Value))
+			case _:
+				return Some{Value: "list \(x.Label) has no viewport or node"}
+			}
+			let rh = float64(x.RowHeight) / cellH
+			let off = float64(v.Offset) / cellH
+			let most = float64(x.Count)*rh - float64(lb.Height)
+			if float64(v.Height) != float64(lb.Height)*cellH || off < 0 || (off > 0 && off > most) {
+				return Some{Value: "list \(x.Label): viewport \(off)+\(float64(v.Height) / cellH) rows in a box \(lb.Height) high over \(x.Count) rows"}
+			}
+			for i, k in sh.Kids {
+				match k.Node {
+				case ui.PressableNode[E] as p:
+					match tui.Number(d, p.Label) {
+					case Some[int] as n:
+						let b = s.BoxOf(n.Value)
+						let want = float64(lb.Y) + float64(x.First+i)*rh - off
+						// As wide as the list, less the bar's column.
+						if float64(b.Y) != want || float64(b.Height) != rh || b.X != lb.X || b.Width < lb.Width-1 || b.Width > lb.Width {
+							return Some{Value: "\(p.Label) shows at \(b.X),\(b.Y) \(b.Width)x\(b.Height); want row \(want), \(rh) high, at the list's left edge \(lb.X) (the list at \(lb.X),\(lb.Y) \(lb.Width)x\(lb.Height), offset \(off))"}
+						}
+						if b.Y >= lb.Y && b.Y < lb.Y+lb.Height && b.Y < len(rows) && !strings.Contains(rows[b.Y], p.Label) {
+							return Some{Value: "\(p.Label) is not on the screen's row \(b.Y): \"\(rows[b.Y])\""}
+						}
+					case None:
+						return Some{Value: "\(p.Label) has no node"}
+					}
+				case _:
+				}
+			}
+		case _:
+			match placed[E, S, D, F](d, s, sh.Kids, rows) {
+			case Some[string] as why:
+				return why
+			case None:
+			}
+		}
+	}
+	None
+}
+
+// follow scrolls each list of TestHost to the viewport the terminal
+// reported for it: the terminal decides a list's height and where a
+// person scrolled it, and TestHost, which has no screen, takes it as a
+// host's report (ui.ScrollTo). Then both write the same rows.
+func follow[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S, E, D, F], shapes []ui.Shape[E]) {
+	for sh in shapes {
+		match sh.Node {
+		case ui.RowsNode as x:
+			match (tui.Viewport(d, x.Label), ui.Find(h, x.Label)) {
+			case (Some[ui.Viewport] as v, Some[ui.Id[E]] as id):
+				ui.ScrollTo(h, id.Value, v.Value.Offset, v.Value.Height) catch {
+				// ergo-lint-disable-next-line silent-catch -- a TestHost that cannot take the viewport differs from the terminal in the trees compare reads next
+				case actor.Stopped, ui.BadPatch:
+				}
+			case _:
+			}
+		case _:
+			follow[E, S, D, F](h, d, sh.Kids)
+		}
+	}
+}
+
+// maxOffset is how far the list labelled label scrolls in a viewport
+// height high (DIPs): its content less the height, at least 0; -1 for no
+// such list.
+func maxOffset[E](shapes []ui.Shape[E], label string, height float64) float64 {
+	for sh in shapes {
+		match sh.Node {
+		case ui.RowsNode as x:
+			if x.Label == label {
+				let most = float64(x.Count)*float64(x.RowHeight) - height
+				return if most > 0 { most } else { 0 }
+			}
+		case _:
+		}
+		let m = maxOffset[E](sh.Kids, label, height)
+		if m >= 0 {
+			return m
+		}
+	}
+	-1
 }
 
 // shot is the driver's tree as text, one node a line by its kind and
@@ -101,6 +219,8 @@ func shot[E](shapes []ui.Shape[E], indent string) string {
 	let mut out = ""
 	for sh in shapes {
 		let what = match sh.Node {
+		case ui.RowsNode as x:
+			"rows \"\(x.Label)\" \(x.Count) from \(x.First)"
 		case ui.PressableNode[E] as x:
 			"button \"\(x.Label)\""
 		case ui.TextNode as x:
@@ -117,12 +237,12 @@ func shot[E](shapes []ui.Shape[E], indent string) string {
 
 // shown is why a text is not where the scene says it is, None when each
 // is: every word of a text (the first node of that value, outside a
-// Scroll, whose rows can scroll away) is on the screen's rows that its
-// box covers.
+// Scroll or a list, whose rows can scroll away) is on the screen's rows
+// that its box covers.
 func shown[E comparable, S, D, F](d *tui.Driver[S, E, D, F], s go.Ref[screen.Screen], shapes []ui.Shape[E], rows []string) Option[string] needs go.Foreign {
 	for sh in shapes {
 		match sh.Node {
-		case ui.ScrollNode:
+		case ui.ScrollNode, ui.RowsNode:
 			continue
 		case ui.TextNode as x:
 			match tui.Number(d, x.Value) {
@@ -195,12 +315,87 @@ func run[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S, E, 
 		case _:
 		}
 		both(h, d, act)
+	case "point":
+		let f = strings.Fields(rest)
+		if len(f) != 4 {
+			return (Broke{Why: "point LABEL PHASE X Y"}, Broke{Why: "point LABEL PHASE X Y"})
+		}
+		let x = float64(atoi(f[2]))
+		let y = float64(atoi(f[3]))
+		let phase = match f[1] {
+		case "down":
+			ui.Down
+		case "up":
+			ui.Up
+		case "move":
+			ui.Moved
+		case _:
+			ui.Wheel{DX: 0, DY: y}
+		}
+		both(h, d, ui.PointOn{Label: f[0], Pointer: ui.PointerEvent{Phase: phase, X: x, Y: y, Zone: None}})
+	case "scroll":
+		let f = strings.Fields(rest)
+		if len(f) != 2 {
+			return (Broke{Why: "scroll LABEL N"}, Broke{Why: "scroll LABEL N"})
+		}
+		let to = float64(atoi(f[1]))
+		let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+			try tui.Play(d, []ui.Act{ui.ScrollOn{Label: f[0], Offset: ui.Length(to), Height: 0}})
+		})
+		(found(h, f[0]), landed(d, f[0], b, to))
+	case "wheel":
+		// K turns of the wheel at the list's centre (down for K > 0): the
+		// list moves WheelRows rows a turn, as far as its content goes.
+		let f = strings.Fields(rest)
+		if len(f) != 2 {
+			return (Broke{Why: "wheel LABEL K"}, Broke{Why: "wheel LABEL K"})
+		}
+		let k = atoi(f[1])
+		let (old, box) = match (tui.Viewport(d, f[0]), tui.Number(d, f[0])) {
+		case (Some[ui.Viewport] as v, Some[int] as n):
+			(float64(v.Value.Offset), s.BoxOf(n.Value))
+		case _:
+			return (found(h, f[0]), Missing{Label: f[0]})
+		}
+		let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+			for _ in 0..(if k < 0 { -k } else { k }) {
+				try tui.Send(d, tui.Mouse(if k < 0 { 64 } else { 65 }, box.X+box.Width/2, box.Y+box.Height/2, true))
+			}
+		})
+		let to = old + float64(k*tui.WheelRows)*cellH
+		(found(h, f[0]), landed(d, f[0], b, if to < 0 { 0 } else { to }))
 	case "settle":
 		both(h, d, ui.SettleAll)
 	case "focus":
 		focusPress(h, d, s, atoi(rest))
 	case _:
 		(Broke{Why: "no step \(verb)"}, Broke{Why: "no step \(verb)"})
+	}
+}
+
+// found is whether TestHost holds a node labelled label.
+func found[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], label string) result {
+	match ui.Find(h, label) {
+	case Some[ui.Id[E]]:
+		Done
+	case None:
+		Missing{Label: label}
+	}
+}
+
+// landed is b, unless the list labelled label is not where a step that
+// scrolled it to offset to left it: at to, or as far as its content goes.
+func landed[E comparable, S, D, F](d *tui.Driver[S, E, D, F], label string, b result, to float64) result {
+	match (b, tui.Viewport(d, label)) {
+	case (Done, Some[ui.Viewport] as v):
+		let most = maxOffset(tui.Screen(d), label, float64(v.Value.Height))
+		let want = if to < most { to } else { most }
+		if float64(v.Value.Offset) != want {
+			return Broke{Why: "scrolled to \(float64(v.Value.Offset)), want \(want)"}
+		}
+		b
+	case _:
+		b
 	}
 }
 

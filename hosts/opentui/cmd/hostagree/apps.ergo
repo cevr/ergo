@@ -1,7 +1,7 @@
 // The small apps of the agreement, as hosts/mygo's hostagree has them: a
 // counter with keys, a keyed list with deletes, a form of fields and
-// checks, and a load whose key changes. The pointer pad, the virtual list
-// and the sketch come with areas, lists and canvases (OT4, OT5).
+// checks, and a load whose key changes (the pointer pad and the virtual
+// list are in pointer.ergo; the sketch comes with canvases, OT5).
 
 import ui
 
