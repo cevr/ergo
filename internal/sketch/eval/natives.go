@@ -69,6 +69,7 @@ func buildNatives() nativeTables {
 	registerNativesjson(t)
 	registerNativesmore(t)
 	registerNativesnet(t)
+	registerNativespure(t)
 	registerNativestime(t)
 	registerNativestimeout(t)
 	registerNativestoml(t)
