@@ -1,6 +1,6 @@
-// Package agent is the domain of gent, a small agent harness: the
-// transcript, the contracts it needs (Model, the language model, and
-// Tools, the working directory), and the machine Agent, whose pure step
+// Package agent is the domain of a small agent harness: the transcript,
+// the contracts it declares (Model, the language model, and Tools, the
+// working directory), and the machine Agent, whose pure step
 // is the whole turn loop. The providers live in packages named after
 // what they use: memory (a script and a map of files, for tests and
 // cases) and, later, the host's files and a vendor's API. Nothing here

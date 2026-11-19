@@ -184,6 +184,23 @@ func evaluated(t *testing.T, src string, store *lawcache.Store) map[string]eval.
 	return ran
 }
 
+// checkTimeTargets are the run targets of src that check time runs, by
+// name without "law ", sorted: every target the test build runs but those
+// under a context, which only the test build runs (EvalVerdicts). It reads
+// the targets from the lowering, so the program's laws are not counted by
+// hand.
+func checkTimeTargets(t *testing.T, src string) []string {
+	t.Helper()
+	var names []string
+	for _, target := range lower.RunTargets(checked(t, src).rootPackage()) {
+		if !strings.Contains(target.Label, " under ") {
+			names = append(names, strings.TrimPrefix(target.Label, "law "))
+		}
+	}
+	slices.Sort(names)
+	return names
+}
+
 // TestLawVerdictsStale is the store's property (lawcache; v1 audit 3,
 // F7): over generated programs and generated edits, an edit of a
 // declaration a law reads (its body, a function it calls at any depth, a
@@ -230,8 +247,10 @@ func TestLawVerdictsStale(t *testing.T) {
 				t.Fatalf("seed %d, edit %s (replay: ERGO_VERDICT_SEED=%d go test -run TestLawVerdictsStale ./internal/sketchfront): %s\nbase source:\n%s", seed, e.name, seed, fmt.Sprintf(format, args...), p.source())
 			}
 			store := lawcache.Open(t.TempDir(), "test")
-			if ran := evaluated(t, p.source(), store); len(ran) != 9 {
-				fail("the first evaluation ran %v, want every law but the one under a context", ran)
+			// The first evaluation runs every run target of the program but the
+			// ones under a context, which only the test build runs.
+			if ran, want := evaluated(t, p.source(), store), checkTimeTargets(t, p.source()); !slices.Equal(slices.Sorted(maps.Keys(ran)), want) {
+				fail("the first evaluation ran %v, want the run targets %v", ran, want)
 			}
 			if ran := evaluated(t, p.source(), store); !maps.Equal(ran, map[string]eval.Status{"Wrong": eval.Refuted}) {
 				fail("the same source evaluated again ran %v, want only the refuted law", ran)

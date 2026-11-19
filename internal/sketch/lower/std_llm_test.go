@@ -7,15 +7,20 @@ import (
 	"ergo.local/prototype/internal/lawledger"
 )
 
-// stdLLMLawsProbe restates the laws of std llm and llm/memory (wf10 L1) as
-// Ergo property tests: the Model laws over memory.Scripted (drawn by its
-// NewScripted generator), the Fold, SafetyOf and Valid laws over generated
+// stdLLMLawsProbe restates the laws of std llm and llm/memory (wf10 L1, L2)
+// as Ergo property tests: the Model laws over memory.Scripted (drawn by its
+// NewScripted generator) and over memory.Sequence, the policy laws of
+// llm.Retry, llm.Fallback and llm.Metered over memory.Sequence, the laws
+// of llm/recorded (wf10 L3) over its exported API, the Fold, SafetyOf and Valid laws over generated
 // values, and memory's CutIsTruncated. The helpers are the package's own,
 // restated over its exported API.
 const stdLLMLawsProbe = `import llm
 import llm/memory
+import llm/recorded
+import schedule
 import strings
 import sync
+import testing
 
 type streamed = gotTurn{Turn llm.Turn, Deltas []llm.Delta} | gotFailure{Failure llm.Failure, Deltas []llm.Delta} | sinkFailed{}
 
@@ -107,22 +112,30 @@ func whole(r llm.Request) bool needs llm.Model {
 
 test LlmModelStreamFoldsToGenerate(head []string, tools []string, cut bool, rest []memory.Reply, r llm.Request) {
 	let s = memory.NewScripted(head, tools, cut, rest)
+	let q = memory.NewSequence(rest)
 	assert with context { llm.Model: s } { foldsToGenerate(r) && foldsToGenerate(first(r)) }
+	assert with context { llm.Model: q } { foldsToGenerate(r) && foldsToGenerate(first(r)) }
 }
 
 test LlmModelStreamReturnsItsFold(head []string, tools []string, cut bool, rest []memory.Reply, r llm.Request) {
 	let s = memory.NewScripted(head, tools, cut, rest)
+	let q = memory.NewSequence(rest)
 	assert with context { llm.Model: s } { returnsItsFold(r) && returnsItsFold(first(r)) }
+	assert with context { llm.Model: q } { returnsItsFold(r) && returnsItsFold(first(r)) }
 }
 
 test LlmModelTruncatedIsNotATurn(head []string, tools []string, cut bool, rest []memory.Reply, r llm.Request) {
 	let s = memory.NewScripted(head, tools, cut, rest)
+	let q = memory.NewSequence(rest)
 	assert with context { llm.Model: s } { notATurn(r) && notATurn(first(r)) }
+	assert with context { llm.Model: q } { notATurn(r) && notATurn(first(r)) }
 }
 
 test LlmModelCallsAreWhole(head []string, tools []string, cut bool, rest []memory.Reply, r llm.Request) {
 	let s = memory.NewScripted(head, tools, cut, rest)
+	let q = memory.NewSequence(rest)
 	assert with context { llm.Model: s } { whole(r) && whole(first(r)) }
+	assert with context { llm.Model: q } { whole(r) && whole(first(r)) }
 }
 
 func pieces(text string, cuts []int) []string {
@@ -202,9 +215,9 @@ func cutIsTruncated(first []string, tools []string) bool {
 	let s = memory.NewScripted(first, tools, true, []memory.Reply{})
 	let r = llm.Request{System: "", Messages: []llm.Message{}, Tools: []llm.ToolSpec{}, Choice: llm.Auto, Format: llm.Prose, MaxTokens: 0}
 	let want = llm.Truncated{Text: strings.Join(first, "")}
-	let _ = memory.Generate(s, r) catch {
+	let _ = s.Generate(r) catch {
 	case llm.Truncated as t:
-		let _ = memory.Stream(s, r, func(d llm.Delta) fails llm.SinkFailed {}) catch {
+		let _ = s.Stream(r, func(d llm.Delta) fails llm.SinkFailed {}) catch {
 		case llm.Truncated as u:
 			return t == want && u == want
 		case _:
@@ -218,20 +231,322 @@ func cutIsTruncated(first []string, tools []string) bool {
 }
 
 test MemoryCutIsTruncated(first []string, tools []string) { assert cutIsTruncated(first, tools) }
+
+func plain(text string) llm.Request {
+	llm.Request{System: "", Messages: []llm.Message{llm.User{Text: text}}, Tools: []llm.ToolSpec{}, Choice: llm.Auto, Format: llm.Prose, MaxTokens: 0}
+}
+
+func ok(text string, u llm.Usage) memory.Reply { memory.Says{Deltas: []llm.Delta{llm.Text{Text: text}}, Stop: llm.Ended, Usage: u} }
+
+func none() llm.Usage { llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0} }
+
+func bare(f llm.Failure) llm.Failure {
+	match f {
+	case llm.Truncated:
+		llm.Truncated{Text: ""}
+	case llm.RateLimited, llm.Overloaded, llm.Unauthorized, llm.Refused, llm.Transport, llm.InvalidRequest, llm.InvalidResponse, llm.UnsupportedSchema:
+		f
+	}
+}
+
+func askedOnce(seqs []memory.Sequence) bool {
+	for s in seqs {
+		if memory.Asks(s) != 1 {
+			return false
+		}
+	}
+	true
+}
+
+func retryFollowsSafety(fs []llm.Failure, n int) bool {
+	let budget = (n % 8 + 8) % 8
+	let mut replies = []memory.Reply{}
+	for f in fs {
+		replies = replies.Append(memory.Breaks{Deltas: []llm.Delta{}, Failure: f})
+	}
+	let s = memory.NewSequence(replies.Append(ok("done", none())))
+	let c = testing.NewVirtualClock(0)
+	let mut stop = len(fs)
+	for i, f in fs {
+		if i < stop && (llm.SafetyOf(f) == llm.Unsafe || i == budget) {
+			stop = i
+		}
+	}
+	let t = llm.Retry{Inner: s, Schedule: schedule.Recurs(budget), Clock: c, Sleep: c}.Generate(plain("q")) catch {
+	case f:
+		let got llm.Failure = f
+		return stop < len(fs) && got == bare(fs[stop]) && memory.Asks(s) == stop + 1
+	}
+	stop == len(fs) && t.Text == "done" && memory.Asks(s) == len(fs) + 1
+}
+
+test MemoryRetryFollowsSafety(fs []llm.Failure, n int) { assert retryFollowsSafety(fs, n) }
+
+func retryHonoursAfter(ms int) bool {
+	let wait = (ms % 100000 + 100000) % 100000
+	let c = testing.NewVirtualClock(0)
+	let s = memory.NewSequence([]memory.Reply{memory.Fails{Failure: llm.RateLimited{After: Some[int]{Value: wait}}}, ok("done", none())})
+	let start = c.Now()
+	let t = llm.Retry{Inner: s, Schedule: schedule.Spaced(1ms), Clock: c, Sleep: c}.Generate(plain("q")) catch {
+	case _:
+		return false
+	}
+	let waited = c.Now().Sub(start)
+	t.Text == "done" && waited >= duration(int64(wait) * 1000000) && (wait > 0 || waited == 1ms)
+}
+
+test MemoryRetryHonoursAfter(ms int) { assert retryHonoursAfter(ms) }
+
+func noReplayAfterFirstDelta(text string, f llm.Failure) bool {
+	let r = plain("q")
+	let failing = []memory.Reply{memory.Breaks{Deltas: []llm.Delta{llm.Text{Text: text}}, Failure: f}, ok("again", none())}
+	let s = memory.NewSequence(failing)
+	let c = testing.NewVirtualClock(0)
+	let _ = llm.Retry{Inner: s, Schedule: schedule.Recurs(4), Clock: c, Sleep: c}.Stream(r, func(d llm.Delta) fails llm.SinkFailed {}) catch {
+	case llm.SinkFailed:
+		return false
+	case _:
+		let a = memory.NewSequence(failing)
+		let b = memory.NewSequence([]memory.Reply{ok("other", none())})
+		let _ = llm.Fallback{Members: []llm.Model{a, b}}.Stream(r, func(d llm.Delta) fails llm.SinkFailed {}) catch {
+		case llm.SinkFailed:
+			return false
+		case _:
+			return memory.Asks(s) == 1 && memory.Asks(a) == 1 && memory.Asks(b) == 0
+		}
+		return false
+	}
+	false
+}
+
+test MemoryNoReplayAfterFirstDelta(text string, f llm.Failure) { assert noReplayAfterFirstDelta(text, f) }
+
+func fallbackIsFirstSuccess(fs []llm.Failure, succeeds bool) bool {
+	let mut members = []llm.Model{}
+	let mut seqs = []memory.Sequence{}
+	for f in fs {
+		let s = memory.NewSequence([]memory.Reply{memory.Breaks{Deltas: []llm.Delta{}, Failure: f}})
+		seqs = seqs.Append(s)
+		members = members.Append(s)
+	}
+	let last = memory.NewSequence([]memory.Reply{ok("last", none())})
+	if succeeds {
+		members = members.Append(last)
+	}
+	let t = llm.Fallback{Members: members}.Generate(plain("q")) catch {
+	case f:
+		let got llm.Failure = f
+		let want llm.Failure = if len(fs) == 0 { llm.InvalidRequest{Reason: "a fallback with no member"} } else { bare(fs[len(fs) - 1]) }
+		return !succeeds && got == want && askedOnce(seqs)
+	}
+	succeeds && t.Text == "last" && askedOnce(seqs) && memory.Asks(last) == 1
+}
+
+test MemoryFallbackIsFirstSuccess(fs []llm.Failure, succeeds bool) { assert fallbackIsFirstSuccess(fs, succeeds) }
+
+func metered(m llm.Metered, r llm.Request, stream bool) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+	if stream {
+		return try m.Stream(r, func(d llm.Delta) fails llm.SinkFailed {}) catch {
+		case llm.SinkFailed:
+			Unreachable("a sink that drops every delta failed")
+		}
+	}
+	try m.Generate(r)
+}
+
+type metering { Transparent bool, Summed bool }
+
+func meter(us []llm.Usage, f llm.Failure, stream bool) metering {
+	let mut replies = []memory.Reply{}
+	let mut want = none()
+	for i, u in us {
+		replies = replies.Append(ok("t\(i)", u))
+		want = llm.Usage{Input: want.Input + u.Input, Output: want.Output + u.Output, CacheRead: want.CacheRead + u.CacheRead, CacheWrite: want.CacheWrite + u.CacheWrite}
+	}
+	let m = llm.NewMetered(memory.NewSequence(replies.Append(memory.Breaks{Deltas: []llm.Delta{}, Failure: f})))
+	let alone = memory.NewSequence(replies.Append(memory.Breaks{Deltas: []llm.Delta{}, Failure: f}))
+	let r = plain("q")
+	let mut same = true
+	for i, _ in us {
+		let t = metered(m, r, stream) catch {
+		case _:
+			return metering{Transparent: false, Summed: false}
+		}
+		let b = alone.Generate(r) catch {
+		case _:
+			return metering{Transparent: false, Summed: false}
+		}
+		same = same && t == b && t.Text == "t\(i)"
+	}
+	let _ = metered(m, r, stream) catch {
+	case g:
+		let got llm.Failure = g
+		let _ = alone.Generate(r) catch {
+		case h:
+			let bare llm.Failure = h
+			return metering{Transparent: same && got == bare, Summed: llm.Used(m) == want}
+		}
+		return metering{Transparent: false, Summed: llm.Used(m) == want}
+	}
+	metering{Transparent: false, Summed: llm.Used(m) == want}
+}
+
+test MemoryUsageAdds(us []llm.Usage, f llm.Failure) { assert meter(us, f, false).Summed && meter(us, f, true).Summed }
+
+test MemoryMeteredIsTransparent(us []llm.Usage, f llm.Failure) { assert meter(us, f, false).Transparent && meter(us, f, true).Transparent }
+
+type seen { Deltas []llm.Delta, End recorded.End }
+
+func asked(m llm.Model, r llm.Request, stream bool) seen {
+	if !stream {
+		let g = m.Generate(r) catch {
+		case f:
+			let failure llm.Failure = f
+			return seen{Deltas: []llm.Delta{}, End: recorded.Failed{Failure: failure}}
+		}
+		return seen{Deltas: []llm.Delta{}, End: recorded.Answered{Turn: g}}
+	}
+	let mut ds = []llm.Delta{}
+	let t = m.Stream(r, func(d llm.Delta) fails llm.SinkFailed { ds = ds.Append(d) }) catch {
+	case llm.SinkFailed:
+		Unreachable("a sink that keeps every delta failed")
+	case f:
+		let failure llm.Failure = f
+		return seen{Deltas: ds, End: recorded.Failed{Failure: failure}}
+	}
+	seen{Deltas: ds, End: recorded.Answered{Turn: t}}
+}
+
+func request(pick int) llm.Request {
+	let text = "q\((pick % 3 + 3) % 3)"
+	llm.Request{System: "", Messages: []llm.Message{llm.User{Text: text}}, Tools: []llm.ToolSpec{}, Choice: llm.Auto, Format: llm.Prose, MaxTokens: 0}
+}
+
+func four(picks []int) []int { if len(picks) > 4 { picks[:4] } else { picks } }
+
+func lawReplayIsTheRecording(replies []memory.Reply, drawn []int, recordBy []bool, replayBy []bool) bool {
+	let picks = four(drawn)
+	let rec = recorded.NewRecord(memory.NewSequence(replies))
+	let alone = memory.NewSequence(replies)
+	let mut got = []seen{}
+	for k, p in picks {
+		let want = asked(alone, request(p), true)
+		if asked(rec, request(p), !flag(recordBy, k)) != shown(want, !flag(recordBy, k)) {
+			return false
+		}
+		got = got.Append(want)
+	}
+	let replay = recorded.NewReplay(recorded.Exchanges(rec))
+	let mut i = 0
+	for want in 0..3 {
+		for k, p in picks {
+			if (p % 3 + 3) % 3 != want {
+				continue
+			}
+			let stream = !flag(replayBy, i)
+			i = i + 1
+			if asked(replay, request(p), stream) != shown(got[k], stream) {
+				return false
+			}
+		}
+	}
+	true
+}
+
+func flag(fs []bool, i int) bool { i < len(fs) && fs[i] }
+
+func shown(s seen, stream bool) seen { if stream { s } else { seen{Deltas: []llm.Delta{}, End: s.End} } }
+
+func lawFileIsTheRecording(x recorded.Exchange) bool {
+	let y = recorded.Exchange{Digest: "d", Deltas: []llm.Delta{}, End: recorded.Failed{Failure: llm.Overloaded}}
+	let back = recorded.Read(recorded.Write([]recorded.Exchange{x, y})) catch {
+	case _:
+		return false
+	}
+	back == []recorded.Exchange{x, y}
+}
+
+func lawDigestIsTheRequest(a llm.Request, c llm.Request, part int) bool {
+	let b = spliced(a, c, part)
+	(recorded.Digest(a) == recorded.Digest(b)) == (a == b)
+}
+
+func spliced(a llm.Request, c llm.Request, part int) llm.Request {
+	let k = (part % 6 + 6) % 6
+	llm.Request{System: if k == 0 { c.System } else { a.System }, Messages: if k == 1 { c.Messages } else { a.Messages }, Tools: if k == 2 { c.Tools } else { a.Tools }, Choice: if k == 3 { c.Choice } else { a.Choice }, Format: if k == 4 { c.Format } else { a.Format }, MaxTokens: if k == 5 { c.MaxTokens } else { a.MaxTokens }}
+}
+
+func lawUnknownRequestDiverges(replies []memory.Reply, drawn []int) bool {
+	let picks = four(drawn)
+	let rec = recorded.NewRecord(memory.NewSequence(replies))
+	for p in picks {
+		let _ = asked(rec, request(p), true)
+	}
+	let replay = recorded.NewReplay(recorded.Exchanges(rec))
+	let never = llm.Request{System: "never", Messages: []llm.Message{}, Tools: []llm.ToolSpec{}, Choice: llm.Auto, Format: llm.Prose, MaxTokens: 0}
+	let mut asks = []llm.Request{never}
+	for p in picks {
+		asks = asks.Append(request(p))
+	}
+	if len(picks) > 0 {
+		asks = asks.Append(request(picks[0]))
+	}
+	for k, r in asks {
+		let s = asked(replay, r, true)
+		let last = k == len(asks) - 1 && len(picks) > 0
+		let diverges = s.End == recorded.Failed{Failure: llm.InvalidRequest{Reason: recorded.Diverged(recorded.Digest(r))}}
+		if (k == 0 || last) != diverges {
+			return false
+		}
+	}
+	true
+}
+
+func lawRecordingHoldsNoKey(key string, replies []memory.Reply) bool {
+	let secret = "sk-ant-" + key
+	let r = llm.Request{System: secret, Messages: []llm.Message{llm.User{Text: secret}}, Tools: []llm.ToolSpec{}, Choice: llm.Auto, Format: llm.Prose, MaxTokens: 0}
+	let rec = recorded.NewRecord(memory.NewSequence(replies))
+	let _ = asked(rec, r, true)
+	let bare = recorded.NewRecord(memory.NewSequence(replies))
+	let plain = llm.Request{System: "", Messages: []llm.Message{}, Tools: []llm.ToolSpec{}, Choice: llm.Auto, Format: llm.Prose, MaxTokens: 0}
+	let _ = asked(bare, plain, true)
+	strings.Contains(recorded.Lines(bare), secret) || !strings.Contains(recorded.Lines(rec), secret)
+}
+
+test RecordedReplayIsTheRecording(replies []memory.Reply, drawn []int, recordBy []bool, replayBy []bool) { assert lawReplayIsTheRecording(replies, drawn, recordBy, replayBy) }
+
+test RecordedFileIsTheRecording(x recorded.Exchange) { assert lawFileIsTheRecording(x) }
+
+test RecordedDigestIsTheRequest(a llm.Request, c llm.Request, part int) { assert lawDigestIsTheRequest(a, c, part) }
+
+test RecordedUnknownRequestDiverges(replies []memory.Reply, drawn []int) { assert lawUnknownRequestDiverges(replies, drawn) }
+
+test RecordedRecordingHoldsNoKey(key string, replies []memory.Reply) { assert lawRecordingHoldsNoKey(key, replies) }
 `
 
 // stdLLMLawStatements is the statement of each llm law, as the ledger
 // writes it.
 var stdLLMLawStatements = map[string]string{
-	"llm Model.StreamFoldsToGenerate": `StreamFoldsToGenerate(r Request) { foldsToGenerate(r) && foldsToGenerate(first(r)) }`,
-	"llm Model.StreamReturnsItsFold":  `StreamReturnsItsFold(r Request) { returnsItsFold(r) && returnsItsFold(first(r)) }`,
-	"llm Model.TruncatedIsNotATurn":   `TruncatedIsNotATurn(r Request) { notATurn(r) && notATurn(first(r)) }`,
-	"llm Model.CallsAreWhole":         `CallsAreWhole(r Request) { whole(r) && whole(first(r)) }`,
-	"llm FoldIsChunkFree":             `FoldIsChunkFree(text string, cutsA []int, cutsB []int) { let a = pieces(text, cutsA) let b = pieces(text, cutsB) Fold(chunked(a)) == Fold(chunked(b)) && Fold(chunked(a)).Text == text && Fold(chunked(a)).Calls[0].Arguments == text }`,
-	"llm FoldKeepsCallsApart":         `FoldKeepsCallsApart(a string, b string, cuts []int) { let pa = pieces(a, cuts) let pb = pieces(b, cuts) let mut ds = []Delta{CallStart{Index: 7, Id: "a", Name: "x"}, CallStart{Index: 3, Id: "b", Name: "y"}} let n = if len(pa) > len(pb) { len(pa) } else { len(pb) } for i in 0..n { if i < len(pb) { ds = ds.Append(CallArgs{Index: 3, Text: pb[i]}) } if i < len(pa) { ds = ds.Append(CallArgs{Index: 7, Text: pa[i]}) } } let d = Fold(ds.Append(CallEnd{Index: 3}).Append(CallEnd{Index: 7})) d.Calls == []Call{Call{Id: "a", Name: "x", Arguments: a}, Call{Id: "b", Name: "y", Arguments: b}} && len(d.Open) == 0 }`,
-	"llm RequestFaultsAreUnsafe":      `RequestFaultsAreUnsafe(f Failure) { match f { case Unauthorized, Refused, InvalidRequest, UnsupportedSchema: SafetyOf(f) == Unsafe case RateLimited, Overloaded: SafetyOf(f) == Safe case Transport, Truncated, InvalidResponse: SafetyOf(f) == Unknown } }`,
-	"llm AnsweredCallsAreValid":       `AnsweredCallsAreValid(text string, names []string) { let mut calls = []Call{} let mut results = []Message{} for i, n in names { calls = calls.Append(Call{Id: "call-\(i)", Name: n, Arguments: "{}"}) results = results.Append(Result{CallId: "call-\(i)", Text: n, Failed: false}) } let asked = []Message{User{Text: text}, Assistant{Text: text, Calls: calls}} if !Valid(asked.Concat(results).Append(User{Text: text})) { return false } if len(names) == 0 { return true } let early = []Message{User{Text: text}, results[0], Assistant{Text: text, Calls: calls}}.Concat(results[1:]) let missing = asked.Concat(results[1:]) let twice = asked.Concat(results).Append(results[0]) !Valid(early) && !Valid(missing) && !Valid(twice) }`,
-	"llm/memory CutIsTruncated":       `CutIsTruncated(first []string, tools []string) { let s = NewScripted(first, tools, true, []Reply{}) let r = llm.Request{System: "", Messages: []llm.Message{}, Tools: []llm.ToolSpec{}, Choice: llm.Auto, Format: llm.Prose, MaxTokens: 0} let want = llm.Truncated{Text: strings.Join(first, "")} let _ = Generate(s, r) catch { case llm.Truncated as t: let _ = Stream(s, r, func(d llm.Delta) fails llm.SinkFailed {}) catch { case llm.Truncated as u: return t == want && u == want case _: return false } return false case _: return false } false }`,
+	"llm Model.StreamFoldsToGenerate":     `StreamFoldsToGenerate(r Request) { foldsToGenerate(r) && foldsToGenerate(first(r)) }`,
+	"llm Model.StreamReturnsItsFold":      `StreamReturnsItsFold(r Request) { returnsItsFold(r) && returnsItsFold(first(r)) }`,
+	"llm Model.TruncatedIsNotATurn":       `TruncatedIsNotATurn(r Request) { notATurn(r) && notATurn(first(r)) }`,
+	"llm Model.CallsAreWhole":             `CallsAreWhole(r Request) { whole(r) && whole(first(r)) }`,
+	"llm FoldIsChunkFree":                 `FoldIsChunkFree(text string, cutsA []int, cutsB []int) { let a = pieces(text, cutsA) let b = pieces(text, cutsB) Fold(chunked(a)) == Fold(chunked(b)) && Fold(chunked(a)).Text == text && Fold(chunked(a)).Calls[0].Arguments == text }`,
+	"llm FoldKeepsCallsApart":             `FoldKeepsCallsApart(a string, b string, cuts []int) { let pa = pieces(a, cuts) let pb = pieces(b, cuts) let mut ds = []Delta{CallStart{Index: 7, Id: "a", Name: "x"}, CallStart{Index: 3, Id: "b", Name: "y"}} let n = if len(pa) > len(pb) { len(pa) } else { len(pb) } for i in 0..n { if i < len(pb) { ds = ds.Append(CallArgs{Index: 3, Text: pb[i]}) } if i < len(pa) { ds = ds.Append(CallArgs{Index: 7, Text: pa[i]}) } } let d = Fold(ds.Append(CallEnd{Index: 3}).Append(CallEnd{Index: 7})) d.Calls == []Call{Call{Id: "a", Name: "x", Arguments: a}, Call{Id: "b", Name: "y", Arguments: b}} && len(d.Open) == 0 }`,
+	"llm RequestFaultsAreUnsafe":          `RequestFaultsAreUnsafe(f Failure) { match f { case Unauthorized, Refused, InvalidRequest, UnsupportedSchema: SafetyOf(f) == Unsafe case RateLimited, Overloaded: SafetyOf(f) == Safe case Transport, Truncated, InvalidResponse: SafetyOf(f) == Unknown } }`,
+	"llm AnsweredCallsAreValid":           `AnsweredCallsAreValid(text string, names []string) { let mut calls = []Call{} let mut results = []Message{} for i, n in names { calls = calls.Append(Call{Id: "call-\(i)", Name: n, Arguments: "{}"}) results = results.Append(Result{CallId: "call-\(i)", Text: n, Failed: false}) } let asked = []Message{User{Text: text}, Assistant{Text: text, Calls: calls}} if !Valid(asked.Concat(results).Append(User{Text: text})) { return false } if len(names) == 0 { return true } let early = []Message{User{Text: text}, results[0], Assistant{Text: text, Calls: calls}}.Concat(results[1:]) let missing = asked.Concat(results[1:]) let twice = asked.Concat(results).Append(results[0]) !Valid(early) && !Valid(missing) && !Valid(twice) }`,
+	"llm/memory CutIsTruncated":           `CutIsTruncated(first []string, tools []string) { let s = NewScripted(first, tools, true, []Reply{}) let r = llm.Request{System: "", Messages: []llm.Message{}, Tools: []llm.ToolSpec{}, Choice: llm.Auto, Format: llm.Prose, MaxTokens: 0} let want = llm.Truncated{Text: strings.Join(first, "")} let _ = s.Generate(r) catch { case llm.Truncated as t: let _ = s.Stream(r, func(d llm.Delta) fails llm.SinkFailed {}) catch { case llm.Truncated as u: return t == want && u == want case _: return false } return false case _: return false } false }`,
+	"llm/memory RetryFollowsSafety":       `RetryFollowsSafety(fs []llm.Failure, n int) { let budget = (n%8 + 8) % 8 let mut replies = []Reply{} for f in fs { replies = replies.Append(Breaks{Deltas: []llm.Delta{}, Failure: f}) } let s = NewSequence(replies.Append(ok("done", none()))) let c = testing.NewVirtualClock(0) let mut stop = len(fs) for i, f in fs { if i < stop && (llm.SafetyOf(f) == llm.Unsafe || i == budget) { stop = i } } let t = llm.Retry{Inner: s, Schedule: schedule.Recurs(budget), Clock: c, Sleep: c}.Generate(plain("q")) catch { case f: let got llm.Failure = f return stop < len(fs) && got == bare(fs[stop]) && Asks(s) == stop+1 } stop == len(fs) && t.Text == "done" && Asks(s) == len(fs)+1 }`,
+	"llm/memory RetryHonoursAfter":        `RetryHonoursAfter(ms int) { let wait = (ms%100000 + 100000) % 100000 let c = testing.NewVirtualClock(0) let s = NewSequence([]Reply{Fails{Failure: llm.RateLimited{After: Some[int]{Value: wait}}}, ok("done", none())}) let start = c.Now() let t = llm.Retry{Inner: s, Schedule: schedule.Spaced(1ms), Clock: c, Sleep: c}.Generate(plain("q")) catch { case _: return false } let waited = c.Now().Sub(start) t.Text == "done" && waited >= duration(int64(wait)*1000000) && (wait > 0 || waited == 1ms) }`,
+	"llm/memory NoReplayAfterFirstDelta":  `NoReplayAfterFirstDelta(text string, f llm.Failure) { let r = plain("q") let failing = []Reply{Breaks{Deltas: []llm.Delta{llm.Text{Text: text}}, Failure: f}, ok("again", none())} let s = NewSequence(failing) let c = testing.NewVirtualClock(0) let _ = llm.Retry{Inner: s, Schedule: schedule.Recurs(4), Clock: c, Sleep: c}.Stream(r, func(d llm.Delta) fails llm.SinkFailed {}) catch { case llm.SinkFailed: return false case _: let a = NewSequence(failing) let b = NewSequence([]Reply{ok("other", none())}) let _ = llm.Fallback{Members: []llm.Model{a, b}}.Stream(r, func(d llm.Delta) fails llm.SinkFailed {}) catch { case llm.SinkFailed: return false case _: return Asks(s) == 1 && Asks(a) == 1 && Asks(b) == 0 } return false } false }`,
+	"llm/memory FallbackIsFirstSuccess":   `FallbackIsFirstSuccess(fs []llm.Failure, succeeds bool) { let mut members = []llm.Model{} let mut seqs = []Sequence{} for f in fs { let s = NewSequence([]Reply{Breaks{Deltas: []llm.Delta{}, Failure: f}}) seqs = seqs.Append(s) members = members.Append(s) } let last = NewSequence([]Reply{ok("last", none())}) if succeeds { members = members.Append(last) } let t = llm.Fallback{Members: members}.Generate(plain("q")) catch { case f: let got llm.Failure = f let want llm.Failure = if len(fs) == 0 { llm.InvalidRequest{Reason: "a fallback with no member"} } else { bare(fs[len(fs)-1]) } return !succeeds && got == want && askedOnce(seqs) } succeeds && t.Text == "last" && askedOnce(seqs) && Asks(last) == 1 }`,
+	"llm/memory UsageAdds":                `UsageAdds(us []llm.Usage, f llm.Failure) { meter(us, f, false).Summed && meter(us, f, true).Summed }`,
+	"llm/memory MeteredIsTransparent":     `MeteredIsTransparent(us []llm.Usage, f llm.Failure) { meter(us, f, false).Transparent && meter(us, f, true).Transparent }`,
+	"llm/recorded ReplayIsTheRecording":   `ReplayIsTheRecording(replies []memory.Reply, drawn []int, recordBy []bool, replayBy []bool) { let picks = four(drawn) let rec = NewRecord(memory.NewSequence(replies)) let alone = memory.NewSequence(replies) let mut got = []seen{} for k, p in picks { let want = asked(alone, request(p), true) if asked(rec, request(p), !flag(recordBy, k)) != shown(want, !flag(recordBy, k)) { return false } got = got.Append(want) } let replay = NewReplay(Exchanges(rec)) let mut i = 0 for want in 0..3 { for k, p in picks { if (p%3+3)%3 != want { continue } let stream = !flag(replayBy, i) i = i + 1 if asked(replay, request(p), stream) != shown(got[k], stream) { return false } } } true }`,
+	"llm/recorded FileIsTheRecording":     `FileIsTheRecording(x Exchange) { let y = Exchange{Digest: "d", Deltas: []llm.Delta{}, End: Failed{Failure: llm.Overloaded}} let back = Read(Write([]Exchange{x, y})) catch { case _: return false } back == []Exchange{x, y} }`,
+	"llm/recorded DigestIsTheRequest":     `DigestIsTheRequest(a llm.Request, c llm.Request, part int) { let b = spliced(a, c, part) (Digest(a) == Digest(b)) == (a == b) }`,
+	"llm/recorded UnknownRequestDiverges": `UnknownRequestDiverges(replies []memory.Reply, drawn []int) { let picks = four(drawn) let rec = NewRecord(memory.NewSequence(replies)) for p in picks { let _ = asked(rec, request(p), true) } let replay = NewReplay(Exchanges(rec)) let never = llm.Request{System: "never", Messages: []llm.Message{}, Tools: []llm.ToolSpec{}, Choice: llm.Auto, Format: llm.Prose, MaxTokens: 0} let mut asks = []llm.Request{never} for p in picks { asks = asks.Append(request(p)) } if len(picks) > 0 { asks = asks.Append(request(picks[0])) } for k, r in asks { let s = asked(replay, r, true) let last = k == len(asks)-1 && len(picks) > 0 let diverges = s.End == Failed{Failure: llm.InvalidRequest{Reason: Diverged(Digest(r))}} if (k == 0 || last) != diverges { return false } } true }`,
+	"llm/recorded RecordingHoldsNoKey":    `RecordingHoldsNoKey(key string, replies []memory.Reply) { let secret = "sk-ant-" + key let r = llm.Request{System: secret, Messages: []llm.Message{llm.User{Text: secret}}, Tools: []llm.ToolSpec{}, Choice: llm.Auto, Format: llm.Prose, MaxTokens: 0} let rec = NewRecord(memory.NewSequence(replies)) let _ = asked(rec, r, true) let bare = NewRecord(memory.NewSequence(replies)) let plain = llm.Request{System: "", Messages: []llm.Message{}, Tools: []llm.ToolSpec{}, Choice: llm.Auto, Format: llm.Prose, MaxTokens: 0} let _ = asked(bare, plain, true) strings.Contains(Lines(bare), secret) || !strings.Contains(Lines(rec), secret) }`,
 }
 
 // stdLLMLawTestName is the probe's test of a ledger key: the last element

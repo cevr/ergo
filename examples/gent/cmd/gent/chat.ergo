@@ -79,9 +79,10 @@ func readKeys(events queue.Queue[Event]) needs term.Terminal {
 	}
 }
 
-// follow puts each state the agent of s commits in events.
+// follow puts the agent's latest state in events each time it commits
+// (LatestChanges: a draw needs only the newest state).
 func follow(s agent.Session, events queue.Queue[Event]) {
-	for st in s.Agent.Changes() {
+	for st in s.Agent.LatestChanges() {
 		events.Push(Changed{State: st}) catch {
 		case queue.Closed:
 			return

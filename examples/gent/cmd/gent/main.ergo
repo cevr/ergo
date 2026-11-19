@@ -42,7 +42,7 @@ func run(args []string) fails os.Exit needs io.Stdout | io.Stdin | fs.Files | fs
 	}
 	let replay = replayFlag.Get(v)
 	if replay != "" {
-		let r = try load(replay, json.Codec[agent.Recorded]{MaxBytes: 64 << 20, MaxDepth: 64})
+		let r = try loadRecorded(replay, json.Codec[agent.Recorded]{MaxBytes: 64 << 20, MaxDepth: 64})
 		print(agent.Replay(r).Log)
 		return
 	}
@@ -50,7 +50,7 @@ func run(args []string) fails os.Exit needs io.Stdout | io.Stdin | fs.Files | fs
 	if script == "" {
 		return os.Exit{Code: 2, Message: "gent: no model: pass --script FILE (a live model is a later unit)\n" + usage}
 	}
-	let world = try load(script, json.Codec[memory.World]{MaxBytes: 16 << 20, MaxDepth: 64})
+	let world = try loadWorld(script, json.Codec[memory.World]{MaxBytes: 16 << 20, MaxDepth: 64})
 	let limits = agent.Limits{MaxSteps: stepsFlag.Get(v), MaxRetries: retriesFlag.Get(v)}
 	with context { agent.Model: memory.Scripted{Replies: world.Replies}, agent.Tools: memory.Tree{Files: world.Files} } {
 		let text = promptFlag.Get(v)
@@ -80,13 +80,27 @@ func run(args []string) fails os.Exit needs io.Stdout | io.Stdin | fs.Files | fs
 	}
 }
 
-// load is the value that the JSON file at path holds.
-func load[T wire](path string, c json.Codec[T]) T fails os.Exit needs fs.Files | wired[T] {
-	let text = fs.Files.ReadFile(path) catch {
+// readText is the text of the file at path.
+func readText(path string) string fails os.Exit needs fs.Files {
+	fs.Files.ReadFile(path) catch {
 	case _:
 		return os.Exit{Code: 1, Message: "gent: cannot read " + path}
 	}
-	json.Decode(c, text) catch {
+}
+
+// loadRecorded is the recorded run that the JSON file at path holds.
+func loadRecorded(path string, c json.Codec[agent.Recorded]) agent.Recorded fails os.Exit needs fs.Files {
+	json.Decode(c, try readText(path)) catch {
+	case json.Malformed as m:
+		return os.Exit{Code: 1, Message: "gent: " + path + ": " + m.Reason}
+	case _:
+		return os.Exit{Code: 1, Message: "gent: " + path + " is not a " + "gent file"}
+	}
+}
+
+// loadWorld is the scripted world that the JSON file at path holds.
+func loadWorld(path string, c json.Codec[memory.World]) memory.World fails os.Exit needs fs.Files {
+	json.Decode(c, try readText(path)) catch {
 	case json.Malformed as m:
 		return os.Exit{Code: 1, Message: "gent: " + path + ": " + m.Reason}
 	case _:

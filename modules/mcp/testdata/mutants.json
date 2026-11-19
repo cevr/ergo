@@ -40,6 +40,7 @@
       "to": "\t\t\tlet _ = yield(m)\n",
       "rule": "The memory transport's Messages stops when its consumer breaks: Transport.StopsWhenAsked.",
       "anchor": {"tests": ["examples:modules/mcp"]}, "killers": ["examples:modules/mcp"]
-    }
+    },
+    {"name":"af2-arguments-unchecked","anchor":{"tests":["examples:modules/mcp"]},"origin":"wf10/API-FIRST AF2","file":"modules/mcp/mcp.ergo","from":"\t\t\tif t.Name == name && !Conforms(t.Input, arguments) {\n","to":"\t\t\tif t.Name == name && false {\n","rule":"tools/call refuses arguments outside the tool's input schema with invalid params, and the tool does not run (orchestrator, AF2): ArgumentsOutsideTheSchemaAreRefused.","killers":["examples:modules/mcp"]}
   ]
 }

@@ -210,6 +210,14 @@ func Handle(s Server, message string) Answer {
 		case None:
 			json.Object{Members: []json.Member{}}
 		}
+		// Arguments that do not fit the tool's input schema are a request
+		// the server cannot take, as an unknown tool is: the tool never
+		// sees them.
+		for t in s.Tools {
+			if t.Name == name && !Conforms(t.Input, arguments) {
+				return Refused{ID: at, Code: InvalidParams, Message: "invalid params: the arguments do not fit the input schema of \(name)"}
+			}
+		}
 		let result = Call(s, name, arguments) catch {
 		case UnknownTool as u:
 			return Refused{ID: at, Code: InvalidParams, Message: "unknown tool: \(u.Name)"}

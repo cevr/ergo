@@ -61,7 +61,7 @@ go run ./scripts/examples gent
 
 - **GENT-G1: std `json.Decode` is not pure.** A machine's step that parses a tool call's arguments is refused by `journal.Start` ("requires its parameter m to be pure"), so the calls are parsed in the `Asking` work and the signal `Replied` holds the parsed `Use`s. Owner: std json (SQ).
 - **GENT-G2: a generator constructor that calls `json.Encode`** fails with a nil dereference at its entry inside machine-law runs; `NewCall` builds its JSON by hand. Owner: lower/testgen; a smallest repro is still to be written.
-- **GENT-G3: `duration` has no wire form** in std json codecs, so `RateLimited` holds `AfterMs int`.
+- **GENT-G3: `duration` has no JSON form** in std json codecs, so `RateLimited` holds `AfterMs int`.
 - **GENT-G4: a `sometimes` machine law cannot steer.** The explorer's random runs never reach `Running`, so "some run runs a tool" is the `tools` case, not a law.
 - **One rune is one column.** No display-width function exists in std; wide text wraps wrongly (TEXT-WIDTH).
 - E1 has no shell tool, no ask gate (every request is allowed) and no live model: E2 and E3.

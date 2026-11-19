@@ -11,8 +11,9 @@ import strings
 
 // Reply is one reply of a script: the deltas of a whole reply, with why
 // it stopped and what it used; the deltas of a reply whose stream breaks
-// before its terminal event; or a failed ask.
-type Reply = Says{Deltas []llm.Delta, Stop llm.Stop, Usage llm.Usage} | Cuts{Deltas []llm.Delta} | Fails{Failure llm.Failure}
+// before its terminal event; the deltas of a reply that then fails (a
+// Truncated holds the deltas' text); or a failed ask.
+type Reply = Says{Deltas []llm.Delta, Stop llm.Stop, Usage llm.Usage} | Cuts{Deltas []llm.Delta} | Breaks{Deltas []llm.Delta, Failure llm.Failure} | Fails{Failure llm.Failure}
 
 // Scripted is a Model that plays Replies: the reply to a request is the
 // one numbered by the Assistant messages of its transcript, so the first
@@ -30,8 +31,7 @@ type Scripted { Replies []Reply } implements llm.Model
 // first and the calls named by tools (each with its arguments in two
 // pieces, and an id made from its name, so a name drawn twice gives the
 // reply two calls with one id), cut before its end when cut, and whose
-// later replies are
-// rest. Law runs draw scripts by it (the generator calls a package's
+// later replies are rest. Law runs draw scripts by it (the generator calls a package's
 // New<T>): a first reply then streams text and whole calls, which
 // generated deltas seldom hold.
 func NewScripted(first []string, tools []string, cut bool, rest []Reply) Scripted {
@@ -56,9 +56,9 @@ law CutIsTruncated(first []string, tools []string) {
 	let s = NewScripted(first, tools, true, []Reply{})
 	let r = llm.Request{System: "", Messages: []llm.Message{}, Tools: []llm.ToolSpec{}, Choice: llm.Auto, Format: llm.Prose, MaxTokens: 0}
 	let want = llm.Truncated{Text: strings.Join(first, "")}
-	let _ = Generate(s, r) catch {
+	let _ = s.Generate(r) catch {
 	case llm.Truncated as t:
-		let _ = Stream(s, r, func(d llm.Delta) fails llm.SinkFailed {}) catch {
+		let _ = s.Stream(r, func(d llm.Delta) fails llm.SinkFailed {}) catch {
 		case llm.Truncated as u:
 			return t == want && u == want
 		case _:
@@ -90,38 +90,63 @@ func entry(s Scripted, r llm.Request) Reply {
 }
 
 func Generate(s Scripted, r llm.Request) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
-	match entry(s, r) {
-	case Says as x:
-		try turn(x)
-	case Cuts as x:
-		llm.Truncated{Text: llm.Fold(x.Deltas).Text}
-	case Fails as x:
-		try fail(x.Failure)
-	}
+	try generated(entry(s, r))
 }
 
 func Stream(s Scripted, r llm.Request, put func(d llm.Delta) fails llm.SinkFailed) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema | llm.SinkFailed {
-	match entry(s, r) {
-	case Says as x:
-		for d in x.Deltas {
+	try streamed(entry(s, r), put)
+}
+
+// generated is the turn or the failure a reply gives.
+func generated(x Reply) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+	match x {
+	case Says as y:
+		try turn(y)
+	case Cuts as y:
+		llm.Truncated{Text: llm.Fold(y.Deltas).Text}
+	case Breaks as y:
+		try llm.Raise(broken(y))
+	case Fails as y:
+		try llm.Raise(y.Failure)
+	}
+}
+
+// streamed is generated, with the reply's deltas given to put first.
+func streamed(x Reply, put func(d llm.Delta) fails llm.SinkFailed) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema | llm.SinkFailed {
+	match x {
+	case Says as y:
+		for d in y.Deltas {
 			try put(d)
 		}
-		try turn(x)
-	case Cuts as x:
-		for d in x.Deltas {
+	case Cuts as y:
+		for d in y.Deltas {
 			try put(d)
 		}
-		llm.Truncated{Text: llm.Fold(x.Deltas).Text}
-	case Fails as x:
+	case Breaks as y:
+		for d in y.Deltas {
+			try put(d)
+		}
+	case Fails as y:
 		// A truncated reply came as far as its text.
-		match x.Failure {
+		match y.Failure {
 		case llm.Truncated as t:
 			if t.Text != "" {
 				try put(llm.Text{Text: t.Text})
 			}
 		case llm.RateLimited, llm.Overloaded, llm.Unauthorized, llm.Refused, llm.Transport, llm.InvalidRequest, llm.InvalidResponse, llm.UnsupportedSchema:
 		}
-		try fail(x.Failure)
+	}
+	try generated(x)
+}
+
+// broken is the failure a Breaks gives: a Truncated holds the text its
+// deltas gave, as the contract asks.
+func broken(x Breaks) llm.Failure {
+	match x.Failure {
+	case llm.Truncated:
+		llm.Truncated{Text: llm.Fold(x.Deltas).Text}
+	case llm.RateLimited, llm.Overloaded, llm.Unauthorized, llm.Refused, llm.Transport, llm.InvalidRequest, llm.InvalidResponse, llm.UnsupportedSchema:
+		x.Failure
 	}
 }
 
@@ -140,28 +165,4 @@ func turn(x Says) llm.Turn fails llm.InvalidResponse {
 		}
 	}
 	llm.Turn{Text: d.Text, Calls: d.Calls, Stop: x.Stop, Usage: x.Usage}
-}
-
-// fail fails with f.
-func fail(f llm.Failure) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
-	match f {
-	case llm.RateLimited as x:
-		x
-	case llm.Overloaded as x:
-		x
-	case llm.Unauthorized as x:
-		x
-	case llm.Refused as x:
-		x
-	case llm.Truncated as x:
-		x
-	case llm.Transport as x:
-		x
-	case llm.InvalidRequest as x:
-		x
-	case llm.InvalidResponse as x:
-		x
-	case llm.UnsupportedSchema as x:
-		x
-	}
 }

@@ -109,33 +109,14 @@ func genCommand(args []string) error {
 	if err != nil {
 		return exitStatusError{code: 1, message: name + ": " + err.Error()}
 	}
-	var out rpcgen.Files
-	switch kind {
-	case "api":
-		out, err = apigen.Generate(root.Package, path, opName)
-	case "schema":
-		out, err = rpcgen.GenerateSchema(root.Package, path, opName)
-	default:
-		out, err = genOverHub(root.Package, dir, path, opName, kind)
-	}
+	out, err := genFiles(kind, root.Package, dir, path, opName)
 	if err != nil {
 		return exitStatusError{code: 1, message: name + ": " + err.Error()}
 	}
 	target := filepath.Join(dir, out.Dir)
-	names := make([]string, 0, len(out.Files))
-	for name := range out.Files {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := genNames(out)
 	if *checkOnly {
-		var stale []string
-		for _, name := range names {
-			have, err := os.ReadFile(filepath.Join(target, name))
-			if err != nil || !bytes.Equal(have, []byte(out.Files[name])) {
-				stale = append(stale, filepath.Join(target, name))
-			}
-		}
-		if len(stale) > 0 {
+		if stale := staleFiles(dir, out); len(stale) > 0 {
 			return exitStatusError{code: 1, message: fmt.Sprintf("%s: %s is stale; run %s %s", name, strings.Join(stale, ", "), name, arg)}
 		}
 		return nil
@@ -149,6 +130,44 @@ func genCommand(args []string) error {
 		}
 	}
 	return nil
+}
+
+// genFiles is what `ergo gen KIND` writes now for the operation type
+// opName of the checked package pkg in dir, whose import path is path:
+// the hub for api, a type's schema for schema, else the kind package over
+// the hub (genOverHub).
+func genFiles(kind string, pkg *check.Package, dir, path, opName string) (rpcgen.Files, error) {
+	switch kind {
+	case "api":
+		return apigen.Generate(pkg, path, opName)
+	case "schema":
+		return rpcgen.GenerateSchema(pkg, path, opName)
+	}
+	return genOverHub(pkg, dir, path, opName, kind)
+}
+
+// genNames are the generated files' names, sorted.
+func genNames(out rpcgen.Files) []string {
+	names := make([]string, 0, len(out.Files))
+	for name := range out.Files {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// staleFiles are the files of out, generated for the package in dir, that
+// differ from what dir holds: `ergo gen --check`'s verdict.
+func staleFiles(dir string, out rpcgen.Files) []string {
+	target := filepath.Join(dir, out.Dir)
+	var stale []string
+	for _, name := range genNames(out) {
+		have, err := os.ReadFile(filepath.Join(target, name))
+		if err != nil || !bytes.Equal(have, []byte(out.Files[name])) {
+			stale = append(stale, filepath.Join(target, name))
+		}
+	}
+	return stale
 }
 
 // genOverHub is the kind package of the contract (rpc, cli, mcp or llm), over
