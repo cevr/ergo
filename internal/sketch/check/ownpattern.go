@@ -52,7 +52,7 @@ func (w *ownWalk) resourceParts(parts []patternPart) []patternPart {
 
 func (w *ownWalk) patternRefuse(t Type, at syntax.Node, format string, args ...any) {
 	if w.genericOnly(t) {
-		w.copySite(t, at, fmt.Sprintf(format, args...), false)
+		w.ownSite(t, at, fmt.Sprintf(format, args...))
 		return
 	}
 	w.report(at, format, args...)
@@ -177,8 +177,9 @@ func (w *ownWalk) patternTypeLoans0(t Type, path []int, parts []patternPart, act
 func (w *ownWalk) acquireParts(parts []patternPart, local ownLocal, loans []resourceLoan, at syntax.Node) {
 	for _, p := range parts {
 		_, callable := under(p.v.Type).(*Signature)
-		if !w.tracked(p.v.Type) && !callable {
-			continue
+		kept := slices.ContainsFunc(loans, func(l resourceLoan) bool { return l.kept != "" && w.c.hostKeeps(p.v.Type) })
+		if !w.tracked(p.v.Type) && !callable && !kept {
+			continue // a binding that holds no Go result keeps nothing
 		}
 		l := local
 		l.v, l.loanOnly = p.v, !w.tracked(p.v.Type)

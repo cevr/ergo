@@ -113,6 +113,14 @@ type Body struct {
 	// poisons the storage the owned form would have taken over, so a read
 	// that the consumption proof missed reads poison.
 	Check string
+	// View names the body's view form, from a directive line
+	// "//ergo:view Name" in its doc comment: a body of the same shape that
+	// shares its argument's storage with its result, where the plain body
+	// copies it (BytesView for StringsBytes; LAWFFI LF2b). The lowering
+	// calls it only as a whole argument of a Go call whose parameter's
+	// reads fact is validated and allows a view (lower/view.go); it is
+	// listed in internal/residue/testdata/unsafe.txt.
+	View string
 	// Wait is the body's waiting policy, from the directive line
 	// "//ergo:wait KIND" of its doc comment (WaitKinds): which task a call
 	// of it waits on, or none. It is "" for a body with no mark, which no
@@ -202,8 +210,8 @@ func (b Bodies) Body(name string) (Body, error) {
 	switch {
 	case body.Wait == "":
 		return Body{}, fmt.Errorf("%s states no %sKIND (%s)", name, WaitMark, kindList(WaitKinds))
-	case body.Release != "" || body.BridgeTarget != "" || body.Owned != "" || body.Check != "":
-		return Body{}, fmt.Errorf("%s states a release route, a bridge, an owned form or a checking form, which only runtime/v1's bodies state", name)
+	case body.Release != "" || body.BridgeTarget != "" || body.Owned != "" || body.Check != "" || body.View != "":
+		return Body{}, fmt.Errorf("%s states a release route, a bridge, an owned form, a checking form or a view form, which only runtime/v1's bodies state", name)
 	}
 	return body, nil
 }
@@ -223,6 +231,10 @@ const OwnedMark = "//ergo:owned "
 // CheckMark starts the directive line that names an owned form's checking
 // form (Body.Check): "//ergo:check Name".
 const CheckMark = "//ergo:check "
+
+// ViewMark starts the directive line that names a body's view form
+// (Body.View): "//ergo:view Name".
+const ViewMark = "//ergo:view "
 
 // HostImports are the Go packages each of whose members reaches host
 // state, but those HostImportsExcept names. hostReach refuses an unmarked
@@ -384,7 +396,7 @@ const HostText = Path + "/gofmt"
 // write a value with rt.TypedText: a machine's state in the defect of a
 // timer that is not positive. TestHostTextUsersAreListed holds the list
 // against the call graph of runtime/v1.
-var hostTextUsers = []string{"MachineChild", "MachineStart", "MachineSupervise", "MachineTimerNotPositive"}
+var hostTextUsers = []string{"MachineChild", "MachineStart", "MachineSupervise", "MachineTimerNotPositive", "MachineTimerPanic"}
 
 // NeedsHostText reports whether a program that names the runtime/v1
 // declaration name imports the gofmt leaf (HostText).
@@ -758,7 +770,7 @@ func (d goDecls) body(name string) (Body, error) {
 	for _, f := range []struct {
 		mark, what string
 		to         *string
-	}{{OwnedMark, "owned form", &b.Owned}, {CheckMark, "checking form", &b.Check}} {
+	}{{OwnedMark, "owned form", &b.Owned}, {CheckMark, "checking form", &b.Check}, {ViewMark, "view form", &b.View}} {
 		form := directiveName(g.fn, f.mark)
 		if form == "" {
 			continue

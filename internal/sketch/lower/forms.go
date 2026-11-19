@@ -290,6 +290,16 @@ func (fc *funcCtx) soleFailure(x *syntax.CatchExpr) bool {
 // p changes nothing and the call is written as a statement. lru's eviction
 // stored its index back, a write-barrier check per eviction.
 func (fc *funcCtx) mapStore(s *syntax.AssignStmt) bool {
+	if !fc.mapStoreForm(s) {
+		return false
+	}
+	fc.l.stats.MapStores++
+	return true
+}
+
+// mapStoreForm is mapStore's decision alone, which the IR builder reads
+// too (ir_place.go, store): the stat counts the emitter's stores only.
+func (fc *funcCtx) mapStoreForm(s *syntax.AssignStmt) bool {
 	if !formsOn() || s.Tok != syntax.ASSIGN || len(s.Lhs) != 1 || len(s.Rhs) != 1 {
 		return false
 	}
@@ -310,7 +320,6 @@ func (fc *funcCtx) mapStore(s *syntax.AssignStmt) bool {
 	}
 	// samePlace admits a variable and its fields only, never an element,
 	// whose store into a Map may add its entry.
-	fc.l.stats.MapStores++
 	return true
 }
 

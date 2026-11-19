@@ -115,7 +115,7 @@ func TestExternTargetDomain(t *testing.T) {
 		{"extern go unsafe.F func f(n int) int", "S108", "Ergo has no unsafe; unsafe stays at the FFI edge"},
 		{"extern go strings/x.F func f(n int) int", "S104", `no binding for Go package "strings/x"`},
 		{"extern go strings.F func f(n int) int", "S104", "Go package strings has no exported function F"},
-		{"extern go fmt.Sprint func f(n int) string needs go.Foreign", "S109", "extern go fmt.Sprint is not imported from Go: parameter 1: Ergo has no any"},
+		{"extern go os/signal.Stop func f(n int) needs go.Foreign", "S109", "extern go os/signal.Stop is not imported from Go: parameter 1: Ergo has no channels"},
 		{"extern go time.Duration func f(x float64) duration needs go.Foreign", "S109", "time.Duration is Ergo's duration"},
 		{"extern go strings.Builder func f() int", "S108", "names a Go type, constant or variable"},
 	} {

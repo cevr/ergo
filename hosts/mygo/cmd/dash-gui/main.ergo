@@ -1,0 +1,208 @@
+// dash-gui is examples/dash-gui in a MyGo window (corpus wave GP4c): the
+// example's dashboard app and view (a required Ergo module,
+// hosts/mygo/go.mod) on the desktop driver. It is the only place that
+// chooses: the seeded synthetic sensors, and the window and the live
+// clock, or, with -headless, a window with no screen that plays a scene
+// script from standard input and prints what the example's own
+// `dash-gui scene` prints.
+//
+//	dash-gui [-seed S]                                open the window
+//	dash-gui -headless [-check] [-seed S] [-frames N] play the script
+//
+// The view animates, so the window's display gives it a frame at each of
+// its frames, and each frame the app takes a Next. Headless, the display
+// is the script's: `frames N` draws N frames of the window (each one
+// Frame input, as a display's refresh gives it), with the notes each
+// frame makes after it; `tap LABEL` clicks the button; `show` prints the
+// window's text nodes. -frames N draws N frames before the script.
+// -check holds the driver's kept layout to the tree built anew at every
+// paint (desktop.Check). shot, the scene's screenshot of ui.TestHost, is
+// not a desktop command.
+
+import actor
+import ergo.local/prototype/examples/dashgui/feed
+import dash ergo.local/prototype/examples/dashgui/screen
+import ergo.local/prototype/examples/dashgui/script
+import ergo.local/prototype/examples/dashgui/synth
+import ergo.local/prototype/hosts/mygo/desktop
+import go ergo.local/prototype/hosts/mygo/screen
+import io
+import machines
+import os
+import queue
+import strconv
+import strings
+import sync
+import time
+import ui
+
+let Usage = "usage: dash-gui [-headless [-check] [-frames N]] [-seed S]"
+
+// Width and Height are the window's size in DIPs: the twelve panels in
+// a column, each a line, two buttons and its canvas.
+let Width = 900.0
+
+let Height = 1400.0
+
+// opts is what the arguments chose.
+type opts { headless bool, check bool, seed int, frames int }
+
+func parse(args []string) opts fails os.Exit {
+	let mut o = opts{headless: false, check: false, seed: 1, frames: 0}
+	let mut i = 0
+	for i < len(args) {
+		let a = args[i]
+		if a == "-headless" {
+			o.headless = true
+		} else if a == "-check" {
+			o.check = true
+		} else if (a == "-seed" || a == "-frames") && i+1 < len(args) {
+			i = i + 1
+			let n = strconv.Atoi(args[i]) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				return os.Exit{Code: 2, Message: Usage}
+			}
+			if a == "-seed" {
+				o.seed = n
+			} else if n < 0 {
+				return os.Exit{Code: 2, Message: Usage}
+			} else {
+				o.frames = n
+			}
+		} else {
+			return os.Exit{Code: 2, Message: Usage}
+		}
+		i = i + 1
+	}
+	if (o.check || o.frames > 0) && !o.headless {
+		return os.Exit{Code: 2, Message: Usage}
+	}
+	o
+}
+
+func main() fails os.Exit needs Ambient | go.Foreign {
+	let o = try parse(with context { os.Process: os.NewHost() } { os.Process.Args() })
+	if o.headless {
+		try headless(o)
+		return
+	}
+	with context { Scheduler: NewLiveScheduler(), feed.Sensors: synth.Bank{Seed: o.seed} } {
+		let w = screen.Open("Dashboard", Width, Height) catch {
+		case go.Error as e:
+			return os.Exit{Code: 1, Message: "dash-gui: \(e.Text)"}
+		}
+		let a = actor.StartMachine(machines.Start(dash.App{}, feed.NewBoard()), 8, func(n []feed.Notice) {})
+		desktop.Run(w, a, dash.View) catch {
+		case ui.Closed:
+		case actor.Stopped:
+		case ui.BadPatch as b:
+			return os.Exit{Code: 1, Message: "dash-gui: \(b.Why)"}
+		case go.Error as e:
+			return os.Exit{Code: 1, Message: "dash-gui: \(e.Text)"}
+		}
+	}
+}
+
+// headless plays the scene script on standard input through a window
+// with no screen and prints what the scene prints.
+func headless(o opts) fails os.Exit needs Ambient | go.Foreign {
+	let input = io.NewStdin().ReadAll() catch {
+	case io.ReadFailed:
+		return os.Exit{Code: 1, Message: "dash-gui: cannot read the script"}
+	}
+	let out = io.NewHost()
+	with context { Scheduler: time.NewManual(0), feed.Sensors: synth.Bank{Seed: o.seed} } {
+		let w = screen.Headless(Width, Height) catch {
+		case go.Error as e:
+			return os.Exit{Code: 1, Message: "dash-gui: \(e.Text)"}
+		}
+		let notes = sync.NewRef[[]feed.Notice]([]feed.Notice{})
+		let a = actor.StartMachine(machines.Start(dash.App{}, feed.NewBoard()), 8, func(ns []feed.Notice) {
+			notes.Update(func(old []feed.Notice) []feed.Notice {
+				let mut all = old
+				for n in ns {
+					all = all.Append(n)
+				}
+				all
+			})
+		})
+		let mut d = desktop.New(w, a, dash.View, 8) catch {
+		case ui.BadPatch as b:
+			return os.Exit{Code: 1, Message: "dash-gui: \(b.Why)"}
+		}
+		if o.check {
+			desktop.Check(&d)
+		}
+		frames(&d, w, o.frames, notes, out) catch {
+		case ui.Closed, actor.Stopped:
+			return os.Exit{Code: 1, Message: "dash-gui: the app stopped"}
+		case ui.BadPatch as b:
+			return os.Exit{Code: 1, Message: "dash-gui: the view's patch did not apply: " + b.Why}
+		}
+		for line in strings.Split(input, "\n") {
+			let l = strings.TrimSuffix(line, "\r")
+			if l == "" || strings.HasPrefix(l, "#") || l == "shot" {
+				continue
+			}
+			let words = strings.Split(l, " ")
+			match words[0] {
+			case "frames":
+				let n = strconv.Atoi(if len(words) == 2 { words[1] } else { "" }) catch {
+				case strconv.Malformed, strconv.OutOfRange:
+					out.Println("? \"" + l + "\": want frames N")
+					continue
+				}
+				if n < 0 {
+					out.Println("? \"" + l + "\": want frames N")
+					continue
+				}
+				frames(&d, w, n, notes, out) catch {
+				case ui.Closed, actor.Stopped:
+					return os.Exit{Code: 1, Message: "dash-gui: the app stopped"}
+				case ui.BadPatch as b:
+					return os.Exit{Code: 1, Message: "dash-gui: the view's patch did not apply: " + b.Why}
+				}
+			case "tap":
+				desktop.Play(&d, []ui.Act{ui.TapOn{Label: strings.TrimPrefix(l, "tap ")}}) catch {
+				case ui.NoNode as x:
+					out.Println("? no node " + x.Label)
+				case ui.Mismatch as miss:
+					out.Println("? want " + miss.Want + ", got " + miss.Got)
+				case ui.Closed, actor.Stopped:
+					return os.Exit{Code: 1, Message: "dash-gui: the app stopped"}
+				case ui.BadPatch as b:
+					return os.Exit{Code: 1, Message: "dash-gui: the view's patch did not apply: " + b.Why}
+				}
+			case "show":
+				for t in script.Texts(desktop.Screen(&d)) {
+					out.Println(t)
+				}
+			case _:
+				out.Println("? \"" + l + "\": want frames, tap, show or shot")
+			}
+		}
+		match desktop.Differs(&d) {
+		case Some[string] as why:
+			out.Println("? the kept layout differs from the rebuilt one: " + why.Value)
+		case None:
+		}
+		// The board's queues are made fresh each frame and never ended, so
+		// the app's step cannot fail with queue.Closed.
+		a.Stop() catch {
+		case queue.Closed:
+		}
+	}
+}
+
+// frames draws n frames of the window, each one Frame input the driver
+// takes, and prints the notes each frame makes after it.
+func frames[D, F](d mut desktop.Driver[dash.Dash, dash.Signal, D, F], w go.Ref[screen.Window], n int, notes sync.Ref[[]feed.Notice], out io.Host) fails ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
+	for _ in 0..n {
+		let _ = w.Render()
+		try desktop.Drain(d)
+		for x in notes.Get() {
+			out.Println(script.Note(x))
+		}
+		notes.Set([]feed.Notice{})
+	}
+}

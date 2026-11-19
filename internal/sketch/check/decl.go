@@ -914,11 +914,15 @@ func (c *checker) resolveNamed(n *Named) {
 	ctx := &typeCtx{params: map[string]*TypeParam{}, decl: true}
 	if d.TypeParams != nil {
 		kinds, conflicts := c.bracketKinds(n.Obj)
+		// Option and Some are language types: their T admits a resource
+		// with no mark (types.md, Generics 9).
+		lang := c.pkg.Path == std.PreludePath && (n.Obj.Name == "Option" || n.Obj.Name == "Some")
 		for _, field := range d.TypeParams.List {
 			cons := c.constraintExpr(field)
 			for _, name := range field.Names {
 				c.preludeName(name) // D-D3; the parameter still binds
-				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), Lent: field.Lent > 0, id: newID()}
+				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), Own: field.Own != nil, lang: lang, id: newID()}
+				c.noteOwner(tp, n.Obj.Name)
 				c.def(name, tp)
 				switch {
 				case cons != nil:
@@ -936,6 +940,7 @@ func (c *checker) resolveNamed(n *Named) {
 				n.TParams = append(n.TParams, tp)
 			}
 		}
+		c.ownRowParams(d.TypeParams, n.TParams)
 	}
 	restore := c.monoOwner(n.TParams)
 	defer restore()
@@ -1010,12 +1015,25 @@ func isErrorName(x syntax.Expr) bool {
 // has no `error` constraint (owner answer 4, stage E1): `[E error]` is S104
 // at `error`, and E stays unconstrained, its kind solved by position like
 // `[E]`.
+// lentGoneText refuses a type parameter marked lent: a type parameter
+// binds no borrow, and a generic function that writes through its
+// argument says x mut T (q169, q172; MODES-4).
+const lentGoneText = "lent is gone: a type parameter binds no borrow; write [T] or [T C], and declare the parameter that the body writes through x mut T (types.md, Generics 2); ergo fix rewrites it"
+
 func (c *checker) constraintExpr(f *syntax.Field) syntax.Expr {
 	if f.Type == nil {
 		return nil
 	}
 	if isErrorName(f.Type) {
 		c.errorf(f.Type, CodeUnknown, "error is not a constraint; write [E]: a parameter in an error row is an error row (types.md, Generics 1)")
+		return nil
+	}
+	if f.Lent > 0 {
+		// [T lent C] (MODES-4): the mark is gone, the constraint stays.
+		c.errorIn(f, f.Lent, f.Lent+4, CodeType, lentGoneText)
+	}
+	if id, ok := f.Type.(*syntax.Ident); ok && id.Name == "lent" && c.lookupType("lent", nil) == nil {
+		c.errorf(f.Type, CodeType, lentGoneText)
 		return nil
 	}
 	if id, ok := f.Type.(*syntax.Ident); ok && id.Name == "any" && c.lookupType("any", nil) == nil {
@@ -1032,6 +1050,10 @@ func (c *checker) structType(spec *syntax.StructType, ctx *typeCtx) *Struct {
 	seen := map[string]bool{}
 	for _, field := range spec.Fields.List {
 		t := c.typExpr(field.Type, ctx)
+		if !c.pkg.Host() && mentionsGoAny(t, map[Type]bool{}) {
+			// Ergo has no any (GB2): only a Go struct of a binding holds one.
+			c.errorf(field.Type, CodeType, "an Ergo record does not store a go.Any: Ergo has no any, and only go.As[T] reads one; store the value go.As gives (docs/spec/interop.md, Go any)")
+		}
 		if field.Include {
 			if n := c.includeTarget(field, t); n != nil {
 				s.includes = append(s.includes, &include{member: field, at: len(s.Fields), target: n})
@@ -1074,7 +1096,7 @@ func (c *checker) interfaceType(spec *syntax.InterfaceType, ctx *typeCtx, owner 
 			continue
 		}
 		name := m.Names[0]
-		mctx := &typeCtx{method: true}
+		mctx := &typeCtx{method: true, binding: c.pkg.Host()}
 		if ctx != nil {
 			// A package var's type has no context (FuzzCheck found
 			// var A interface{A()} dereferencing it).
@@ -1083,6 +1105,9 @@ func (c *checker) interfaceType(spec *syntax.InterfaceType, ctx *typeCtx, owner 
 		sig := c.signature(ft, mctx)
 		if m.Own != nil {
 			sig.TakesSelf = true // own Close(): the operation keeps its receiver
+		}
+		if m.Mut != nil {
+			sig.MutSelf = true // mut Bump(): the operation writes its receiver
 		}
 		if c.pkg.Host() {
 			c.hostClauses(c.pkg.Path+"."+owner+"."+name.Name, sig, m)
@@ -1206,6 +1231,7 @@ type typeCtx struct {
 	decl     bool                  // a type declaration: bracket parameters only
 	field    bool                  // a struct field: *T is not a field type (types.md, Borrows 1)
 	param    bool                  // a parameter or receiver: *T allowed
+	binding  bool                  // a Go binding (a host package or extern go): *T is Go's pointer there
 	textTop  syntax.Expr           // a parameter's whole type: fs.Text allowed there (mappedtext.go)
 	scope    *Scope
 	lit      *litParams // a function literal's signature: its untyped parameters (D-E1)
@@ -1357,12 +1383,18 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 		return &Map{Key: k, Elem: v}
 	case *syntax.StarExpr:
 		if ctx == nil || !ctx.param {
-			c.errorf(x, CodeType, "a borrow *T is only a parameter or receiver type (types.md, Borrows 1)")
+			c.errorf(x, CodeType, "a borrow mut T is only a parameter or receiver type (types.md, Borrows 1)")
 			return invalid
 		}
 		inner := *ctx
 		inner.param = false
 		elem := c.typExpr(x.X, &inner)
+		if !x.Mut && !ctx.binding && !isInvalid(elem) {
+			// *T is Go's pointer, written only in a Go binding; Ergo writes
+			// the borrow as the mode mut (q169; MODES-2). The borrow still
+			// checks, so this is the one diagnostic.
+			c.errorf(x, CodeType, "write the borrow as %s: *T is Go's pointer, written only in a Go binding (types.md, Borrows 1)", &Pointer{Elem: elem})
+		}
 		return &Pointer{Elem: elem}
 	case *syntax.FuncType:
 		// A parameter written own may outlive the call it is passed to or
@@ -1678,6 +1710,7 @@ func (c *checker) instantiateExprs(n *Named, args []syntax.Expr, at syntax.Node,
 		targs[i] = t
 	}
 	c.recordInstantiation(n.Obj.Name, n.TParams, targs, at)
+	c.recordTypeMark(n, targs, at)
 	inst := c.instantiate(n, targs)
 	if len(args) > 0 && !c.scriptWritten(inst, args[0]) {
 		return invalid
@@ -2272,7 +2305,7 @@ func (c *checker) funcSig(f *Func) *Signature {
 	c.cur = f.file
 	defer func() { c.cur = saved }()
 	d := f.Decl
-	ctx := &typeCtx{params: map[string]*TypeParam{}}
+	ctx := &typeCtx{params: map[string]*TypeParam{}, binding: c.pkg.Host() || d.Extern != nil}
 	if c.pkg.Host() && d.Recv != nil && len(d.Recv.List) > 0 && len(d.Recv.List[0].Names) > 0 {
 		ctx.hostRecv = d.Recv.List[0].Names[0].Name
 		ctx.method = true
@@ -2293,7 +2326,8 @@ func (c *checker) funcSig(f *Func) *Signature {
 			cons := c.constraintExpr(field)
 			for _, name := range field.Names {
 				c.preludeName(name) // D-D3; the parameter still binds
-				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), Lent: field.Lent > 0, id: newID()}
+				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), Own: field.Own != nil, id: newID()}
+				c.noteOwner(tp, f.Name)
 				c.def(name, tp)
 				switch {
 				case cons != nil:
@@ -2320,6 +2354,7 @@ func (c *checker) funcSig(f *Func) *Signature {
 		p.tp.Constraint = c.constraint(p.x, ctx)
 	}
 	c.kindBracketParams(d.Type, ctx, unconstrained)
+	c.ownRowParams(d.TypeParams, tparams)
 	c.monoLinkSelf(f, ctx)
 	nbracket := len(tparams)
 	c.mono.owner = owner
@@ -2336,6 +2371,9 @@ func (c *checker) funcSig(f *Func) *Signature {
 	c.closeTakes(f)
 	if c.pkg.Host() && d.Extern != nil {
 		c.hostClauses(d.Extern.Target.Value, sig, d)
+	}
+	if d.Extern != nil && !c.pkg.Host() {
+		c.ownExternReviewed(f)
 	}
 	if d.Body == nil {
 		// A bodiless (extern) function's parameters are declared here; a
@@ -2354,6 +2392,26 @@ func (c *checker) funcSig(f *Func) *Signature {
 		sig.Uses = c.types.row(f.useVar)
 	}
 	return sig
+}
+
+// ownRowParams refuses own on a bracket parameter that is a row: the mark
+// says what a type parameter's values may hold (types.md, Generics 9).
+func (c *checker) ownRowParams(l *syntax.FieldList, tparams []*TypeParam) {
+	if l == nil {
+		return
+	}
+	for _, field := range l.List {
+		if field.Own == nil {
+			continue
+		}
+		for _, name := range field.Names {
+			for _, tp := range tparams {
+				if tp.Name == name.Name && tp.Kind != KindType {
+					c.errorIn(field, field.Own.At, field.Own.At+3, CodeType, "own marks a type parameter that a resource may bind, and %s is a row (types.md, Generics 9)", name.Name)
+				}
+			}
+		}
+	}
 }
 
 // kindBracketParams gives each unconstrained bracket parameter of a
@@ -2477,6 +2535,14 @@ func (c *checker) collectSelfFuncs() {
 			if g.opOwner != nil {
 				key = g.opOwner
 			}
+			if g.file != nil && g.file.syntax == collFile && collFile != nil {
+				// Operations of one name on two receiver kinds,
+				// xs.Slice and s.Slice (collop.go, PRIM-4).
+				c.cur = g.file
+				if k, _, ok := c.collOwner(g); ok {
+					key = k
+				}
+			}
 			if name, args, _ := selfOwnerName(g.Decl); name != "" && c.dupNames[name] && g.Name != "main" {
 				// Defensive: selfArgsOK validates receiver arguments without reporting.
 				c.cur = g.file
@@ -2523,8 +2589,11 @@ func (c *checker) collectSelfFuncs() {
 			n.opFuncs[f.Name] = f
 		}
 	}
-	if c.pkg.Path == std.PreludePath {
+	if collFile != nil {
 		for _, f := range c.funcs {
+			if f.file == nil || f.file.syntax != collFile {
+				continue // the operations are the language's file's alone (collop.go)
+			}
 			// Defensive: collOwner classifies a collection receiver without reporting.
 			c.cur = f.file
 			if key, args, ok := c.collOwner(f); ok {
@@ -2532,7 +2601,10 @@ func (c *checker) collectSelfFuncs() {
 					c.pkg.collFuncs = map[collKey]*Func{}
 				}
 				f.selfArgs = args
+				f.collOp = collOps[key] // collop.go
 				c.pkg.collFuncs[key] = f
+			} else {
+				f.collOp = collMakers[f.Name] // collop.go
 			}
 		}
 	}
@@ -2554,9 +2626,24 @@ func (c *checker) collOwner(f *Func) (collKey, []syntax.Expr, bool) {
 		if t.Len != "" {
 			return collKey{}, nil, false // the prelude's are on slices
 		}
+		if id, ok := t.Elt.(*syntax.Ident); ok && id.Name == "byte" {
+			key.on = onBytes // a concrete []byte (PRIM-4)
+			return key, nil, true
+		}
 		args = []syntax.Expr{t.Elt}
 	case *syntax.MapType:
-		args, key.isMap = []syntax.Expr{t.Key, t.Value}, true
+		args, key.on = []syntax.Expr{t.Key, t.Value}, onMap
+	case *syntax.Ident:
+		// The basic string and rune (PRIM-4).
+		switch t.Name {
+		case "string":
+			key.on = onString
+		case "rune":
+			key.on = onRune
+		default:
+			return collKey{}, nil, false
+		}
+		return key, nil, true
 	default:
 		return collKey{}, nil, false
 	}

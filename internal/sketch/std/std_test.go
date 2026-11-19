@@ -243,7 +243,9 @@ func TestEachExternHasItsGoBody(t *testing.T) {
 			t.Errorf("std package %s declares no extern", path)
 		}
 	}
-	for _, name := range []string{"Go", "OnExit", "New", "WithCapacity", "Queue.Push", "Queue.Pop", "Queue.End", "Task.Wait", "Task.Stop", "ContextBound", "ContextValue"} {
+	// WithCapacity binds the language's MakeSlice now (check/collop.go,
+	// PRIM-4), no std declaration.
+	for _, name := range []string{"Go", "OnExit", "New", "Queue.Push", "Queue.Pop", "Queue.End", "Task.Wait", "Task.Stop", "ContextBound", "ContextValue"} {
 		if !bound[name] {
 			t.Errorf("the Go body %s binds no std declaration", name)
 		}
@@ -671,7 +673,7 @@ func TestStdHostProvidersHaveAuthority(t *testing.T) {
 		want      []string
 	}{
 		{"implementer", "type Fake {}\n\nfunc ambient(_ Fake) {}\n", []string{"fixture.Fake implements Ambient, whose one provider is the program entry"}},
-		{"implementer by borrow", "type Fake { n int }\n\nfunc ambient(_ *Fake) {}\n", []string{"fixture.Fake implements Ambient, whose one provider is the program entry"}},
+		{"implementer by borrow", "type Fake { n int }\n\nfunc ambient(_ mut Fake) {}\n", []string{"fixture.Fake implements Ambient, whose one provider is the program entry"}},
 		{"a function of another name", "type Fake {}\n\nfunc other(_ Fake) {}\n", nil},
 		{"unexported named context", "type Fake {}\n\nfunc ambient(_ Fake) {}\n\nlet c = context { Ambient: Fake }\n", []string{"fixture.Fake implements Ambient, whose one provider is the program entry", "fixture.c is a named context that binds Ambient"}},
 		{"named context of another capability", "let C = context { Scheduler: LiveScheduler }\n", nil},
@@ -939,7 +941,7 @@ func Next(_ mint) Tok { Tok{v: 1} }
 
 let Minter = mint
 `, wrapped},
-		{"record passed by borrow to a function the caller supplies", tokBase + "func Give(f func(p *Tok)) {}\n", wrapped},
+		{"record passed by borrow to a function the caller supplies", tokBase + "func Give(f func(p mut Tok)) {}\n", wrapped},
 		// The failure row of an unexported function, handed out as a value.
 		{"record in the failure row of a function value", tokBase + `func raise() int fails Tok { return Tok{v: 1} }
 
@@ -987,7 +989,7 @@ func Next(_ mint) Host { Host{root: "/"} }
 
 let Minter = mint
 `, []string{mentions("Next", "fixture.Host"), builds("Next", "fixture.Host (a literal)")}},
-		{"Host passed by borrow to a function the caller supplies", hostBase + "func Give(f func(p *Host)) {}\n", give},
+		{"Host passed by borrow to a function the caller supplies", hostBase + "func Give(f func(p mut Host)) {}\n", give},
 		{"Host in the failure row of a function value", hostBase + `type Oops { H Host }
 
 func raise() int fails Oops { try raise() }
@@ -1074,7 +1076,7 @@ func Give() M { Give() }
 		// The one exemption: a parameter of Host (or of a record it needs)
 		// itself. A borrow of it, or a record holding it, is none.
 		{"parameter of Host itself", hostBase + "func Clone(h Host) Host { h }\n", nil},
-		{"parameter of a borrow of Host", hostBase + "func Peek(h *Host) int { 1 }\n", []string{mentions("Peek", "fixture.Host")}},
+		{"parameter of a borrow of Host", hostBase + "func Peek(h mut Host) int { 1 }\n", []string{mentions("Peek", "fixture.Host")}},
 		{"parameter of a record holding Host", hostBase + "type Box { H Host }\n\nfunc Unbox(b Box) Host { b.H }\n", []string{mentions("Unbox", "fixture.Host")}},
 		// batch-10 r4 M1: a sealed operation-type provider handed out in an
 		// Option, a slice, a callback, a let, a failure or a needs row.

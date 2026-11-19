@@ -100,7 +100,7 @@ func cgDraw(rng *rand.Rand) cgProgram {
 
 type Box { n int } implements Bag
 
-func Add(b *Box, n int) { b.n = b.n + n }
+func Add(b mut Box, n int) { b.n = b.n + n }
 func seal(b Box) {}
 
 func main() {}

@@ -34,6 +34,11 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"funcCtx.scriptOperations": "a Script adapter's Env literal for the caller's task, as an operation table's (script.go)",
 			"irBuilder.poll":           "the experimental IR's interruption point (Check), as funcCtx.poll's, as an IR node instead of taskOf's text (wf10 IR1)",
 			"irBuilder.callParts":      "the experimental IR's capability operation call, the caller's task first, as funcCtx.callText's, as an IR node (wf10 IR1)",
+			"irBuilder.opCall":         "the experimental IR's program operation call, the caller's task first, as funcCtx.programOpCall's (IRG4b r2)",
+			"irBuilder.hidden":         "the experimental IR's hidden CallerTask of a std operation call, as funcCtx.hiddenArgs's for runtimeCall, whose checks the source path already ran on the same call (IRG4b r2)",
+			"irBuilder.adaptOperand":   "the IR's task block adapter: the Env copy's task is the body's task parameter, as childEnv's (ir_adapt.go, FLIP OPC-adapt)",
+			"irBuilder.closeMasked":    "the IR's checked Close: v1.Release's hidden CallerTask (its body's facts read through runtimeBody), as closeBody's runtimeCall writes it (FLIP F7 FORK unit 4)",
+			"irBuilder.releaseFuncs":   "the IR's static-frame release: StaticBegin's hidden CallerTask, as closeStatic's runtimeCall writes it (FLIP F7 FORK RELEASE-IR)",
 		}},
 		{"taskOf", map[string]string{
 			"funcCtx.hiddenArgs":      "runtimeCall's hidden CallerTask argument",
@@ -60,6 +65,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 		}},
 		{"memberName", map[string]string{
 			"funcCtx.runtimeCall":       "the runtime binding emitter",
+			"irBuilder.stdCloseCall":    "the IR's release of a std operation value: its runtime method with no hidden argument, as opCall's runtimeCall writes it (FLIP F7 FORK RELEASE-IR)",
 			"funcCtx.programOpCall":     "a program-declared operation's method",
 			"funcCtx.callText":          "a capability operation's method",
 			"funcCtx.everyTimers":       "a machines.Every After's Timeout fields In and Signal (FKG1)",
@@ -88,6 +94,9 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"lowerer.scriptType":        "a Script's struct fields (script.go)",
 			"lowerer.rewriteObserve":    "a rewrite law case's drawn operation call on the provider (Laws 14)",
 			"irBuilder.callParts":       "the experimental IR's capability operation method, as funcCtx.callText's (wf10 IR1)",
+			"irBuilder.opCall":          "the experimental IR's program operation method, as funcCtx.programOpCall's (IRG4b r2)",
+			"irBuilder.stdOpCall":       "the experimental IR's std operation method on a runtime type, as runtimeCall's method head (IRG4b r2)",
+			"irBuilder.getArm":          "the experimental IR's Value field of Some, bound in a comma-ok match on Get, as funcCtx.getArmsLower's (FLIP F7 lane B)",
 		}},
 	} {
 		obj := scope.Lookup(c.obj)
@@ -285,6 +294,14 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		// FKG1: a machines.Every After reads the task's firing mark, a
 		// field read; no wait.
 		"MachineFiringNow": true,
+		// LF1: the test build's compare of a reads operand after its Go
+		// call (gofacts.go); a loop of compares, no wait.
+		"GoReadsCheck": true,
+		// LF2b: a view of a string's bytes, and the test build's guarded
+		// copy, its Bytes and its Done after the Go call (view.go); a
+		// conversion, a copy into fresh pages and a protection change, no
+		// wait.
+		"BytesView": true, "GuardBytes": true, "Bytes": true,
 	}
 	// capabilityOps are the owners that call a capability operation on
 	// the Env's provider field outside callText, and the operation: FKG1's

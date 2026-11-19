@@ -89,11 +89,11 @@ type Mismatch { Want string, Got string }
 
 // LocateIn is the nodes of m that loc finds, in tree order. The root is
 // the host's, not the view's, and is never found.
-func LocateIn[E](m *Mirror[E], loc Locator) []Id[E] {
+func LocateIn[E](m mut Mirror[E], loc Locator) []Id[E] {
 	locateUnder(m, m.root, loc, false, "", []Id[E]{})
 }
 
-func locateUnder[E](m *Mirror[E], id Id[E], loc Locator, off bool, desc string, acc []Id[E]) []Id[E] {
+func locateUnder[E](m mut Mirror[E], id Id[E], loc Locator, off bool, desc string, acc []Id[E]) []Id[E] {
 	let mut out = acc
 	match m.nodes.Get(id) {
 	case Some[mirrored[E]] as n:
@@ -130,7 +130,7 @@ func within[E](n Node[E], off bool, desc string) (bool, string) {
 
 // AccessOf is the node id names on m as a locator reads it; a Generic
 // with no name for an Id m does not hold.
-func AccessOf[E](m *Mirror[E], id Id[E]) Access {
+func AccessOf[E](m mut Mirror[E], id Id[E]) Access {
 	let mut off = false
 	let mut desc = ""
 	let mut path = []Node[E]{}
@@ -249,7 +249,7 @@ func finds[E](loc Locator, n Node[E], a Access) bool {
 
 // TextIn is the values of the Texts in the subtree of id on m (id's own
 // included), in tree order, run together: a node's text content.
-func TextIn[E](m *Mirror[E], id Id[E]) string {
+func TextIn[E](m mut Mirror[E], id Id[E]) string {
 	match m.nodes.Get(id) {
 	case Some[mirrored[E]] as n:
 		let mut out = ""
@@ -269,7 +269,7 @@ func TextIn[E](m *Mirror[E], id Id[E]) string {
 
 // ExpectIn checks is against what loc finds on m, failing Mismatch with
 // both sides.
-func ExpectIn[E](m *Mirror[E], loc Locator, is Matcher) fails Mismatch {
+func ExpectIn[E](m mut Mirror[E], loc Locator, is Matcher) fails Mismatch {
 	let ids = LocateIn(m, loc)
 	let want = locatorText(loc) + " " + matcherText(is)
 	match is {

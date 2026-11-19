@@ -277,9 +277,10 @@ type checker struct {
 	// which reads a literal's kind as the walk does: an operation count for the
 	// linear-growth tests (round 17 M2).
 	walkOps int
-	// resMemo caches holdsResource (0) and mayHoldResource (1) by interned
-	// type id; resSteps counts the walk's visits (resource.go).
-	resMemo  [2]map[int32]bool
+	// resMemo caches holdsResource, mayHoldResource and mayHoldAny (the
+	// walk's modes) by interned type id; resSteps counts the walk's visits
+	// (resource.go).
+	resMemo  [3]map[int32]bool
 	resSteps int
 	// ownSteps counts the ownership pass's work: nodes visited and state
 	// slots copied or joined (ownership.go), for the growth guard.
@@ -318,6 +319,9 @@ type checker struct {
 	// resourceSites are the map keys and taken parameters A1's late pass
 	// decides (resource.go); the seen sets keep one site per syntax node.
 	resourceSites []resourceSite
+	// ownMarkSites are the type arguments the late own-mark check decides
+	// (resource.go, checkOwnMarks; types.md, Generics 9).
+	ownMarkSites []ownMarkSite
 	// ownershipSites are the places a value meets an operation type
 	// without Close (R22): a type argument bound by one, and a conversion
 	// in a generic body; ownershipSeen keeps one site per node and type
@@ -703,6 +707,7 @@ type universeState struct {
 	errorName *TypeName
 	goPkg     *Package
 	ref       *Named // go.Ref
+	any       *Named // go.Any
 }
 
 var universeOnce universeState
@@ -726,7 +731,7 @@ func universe() *Scope {
 		basic("byte", Uint8)
 		basic("rune", Int32)
 		// The predeclared constraints (D-E1): each names a type set.
-		for _, set := range []TypeSet{SetLent, SetWire, SetComparable, SetOrdered, SetNumber} {
+		for _, set := range []TypeSet{SetWire, SetComparable, SetOrdered, SetNumber} {
 			s.insert(set.String(), &TypeName{Name: set.String(), Pkg: u, Type: &Interface{Set: set}, id: newID()})
 		}
 		errName := &TypeName{Name: "error", Pkg: u, id: newID()}
@@ -752,14 +757,25 @@ func universe() *Scope {
 		// go.Is and go.As read a go.Error's native chain (IG5, goerror.go).
 		goPkg.Scope.insert("Is", &Builtin{Name: "go.Is"})
 		goPkg.Scope.insert("As", &Builtin{Name: "go.As"})
+		// go.New[T]() is Go's new(T), held as a go.Ref[T] (GBX1, gonew.go).
+		goPkg.Scope.insert("New", &Builtin{Name: "go.New"})
 		// go.Ref[T] is a Go pointer that is stored, returned or held in a
 		// collection: an opaque handle, never nil (owner q32, q38;
 		// docs/spec/interop.md). Ergo's own *T stays a borrow.
 		ref := &TypeName{Name: "Ref", Pkg: goPkg, id: newID()}
-		refT := &TypeParam{Name: "T", id: newID()}
+		// A language type: its T admits a resource with no mark (Generics 9).
+		refT := &TypeParam{Name: "T", lang: true, id: newID()}
 		ref.Type = &Named{Obj: ref, TParams: []*TypeParam{refT}, under: &Pointer{Elem: refT}, state: 2}
 		goPkg.Scope.insert("Ref", ref)
 		universeOnce.ref = ref.Type.(*Named)
+		// go.Any is Go's empty interface at the import go boundary (GB2;
+		// docs/spec/interop.md, Type mapping): a value with a Go form goes
+		// in (goany.go), and only go.As[T] takes one out. Ergo has no any:
+		// no operator, match or Ergo record field takes a go.Any.
+		anyName := &TypeName{Name: "Any", Pkg: goPkg, id: newID()}
+		anyName.Type = &Named{Obj: anyName, under: &Interface{}, state: 2}
+		goPkg.Scope.insert("Any", anyName)
+		universeOnce.any = anyName.Type.(*Named)
 		universeOnce.goPkg = goPkg
 		s.insert("go", &PkgName{Name: "go", Pkg: goPkg, used: true})
 		universeOnce.scope = s
@@ -799,6 +815,14 @@ func prelude() preludeResult {
 			f.Name = name // the embedded name, which the lowering reports (Files)
 			files = append(files, f)
 		}
+		// The slice and Map operations, the language's own file (collop.go).
+		f, err := syntax.Parse(collSource())
+		if err != nil {
+			panic("check: the slice and Map operations do not parse: " + err.Error())
+		}
+		f.Name = collFileName
+		collFile = f
+		files = append(files, f)
 		c := newChecker(std.PreludePath, nil, u)
 		c.pkg.std = true
 		c.pkg.trusted = true // the toolchain vouches for what it ships

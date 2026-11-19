@@ -26,6 +26,9 @@ type operand struct {
 	fail    string
 	failOut *strings.Builder
 	failAt  int
+	// failOnly is set when every path of the call jumps to fail: the site
+	// writes no jump around its handler, which would be unreachable.
+	failOnly bool
 }
 
 func unparen(x syntax.Expr) syntax.Expr {
@@ -318,10 +321,19 @@ func (fc *funcCtx) covered(x syntax.Expr) operand {
 }
 
 func (fc *funcCtx) expr1(x syntax.Expr) operand {
+	if fc.l.vals != nil {
+		if site, ok := fc.l.vals.view[x]; ok {
+			return operand{val: fc.viewOperand(x, site)}
+		}
+	}
 	o := fc.exprOf(x)
 	if fc.l.vals != nil && fc.l.vals.clone[x] {
-		// The value rule's copy (values.go), deep for Go (V8).
-		if fc.l.vals.deep[x] {
+		// The value rule's copy (values.go), deep for Go (V8); the test
+		// build's copy of a reads operand, compared with the value after
+		// the Go call (gofacts.go).
+		if g, ok := fc.l.vals.reads[x]; ok {
+			o.val = fc.readsCopy(x, o.val, g)
+		} else if fc.l.vals.deep[x] {
 			o.val = fc.cloneDeep(fc.typeOf(x), o.val, x)
 		} else {
 			o.val = fc.cloneValue(fc.typeOf(x), o.val, x)
@@ -675,6 +687,10 @@ func (fc *funcCtx) rangeValue(x *syntax.BinaryExpr) string {
 // unary lowers -x, +x, !x, ^x and &x.
 func (fc *funcCtx) unary(x *syntax.UnaryExpr) string {
 	op := x.Op.String()
+	if fc.l.info.Relends[x] {
+		// &x of a mut parameter passes its pointer on (Info.Relends).
+		return fc.value(x.X)
+	}
 	if id, ok := unparen(x.X).(*syntax.Ident); ok && op == "&" && fc.l.info.Handoffs[id] != nil {
 		// A Close through the address of an owned local takes it: its
 		// entry ends here, as at a by-address receiver (place).
@@ -1209,6 +1225,12 @@ func (fc *funcCtx) propagateFailed(o operand) {
 // writes ("" when the failures meet the success path at the join).
 func (fc *funcCtx) failAround(o operand, direct bool) string {
 	if !fc.placeFail(o, direct) {
+		return ""
+	}
+	if o.failOnly {
+		// No success path reaches here: the handler follows the call's
+		// block, with nothing to jump around (go vet: unreachable code).
+		fc.line(o.fail + ":")
 		return ""
 	}
 	past := fc.temp("past")

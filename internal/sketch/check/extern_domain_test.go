@@ -52,9 +52,9 @@ var externForms = []externForm{
 		ctlDecl: "func mk[T](n int) queue.Queue[T] { queue.New[T](n) }\n", ctlRef: "mk[int]",
 	},
 	{
-		name: "slice-explicit", imports: "import slices\n",
-		ref: "slices.WithCapacity[int]", typ: "func(int) []int", args: "(1)",
-		ctlDecl: "func wc[T](n int) []T { slices.WithCapacity[T](n) }\n", ctlRef: "wc[int]",
+		name: "slice-explicit", imports: "",
+		ref: "MakeSlice[int]", typ: "func(int) []int", args: "(1)",
+		ctlDecl: "func wc[T](n int) []T { MakeSlice[T](n) }\n", ctlRef: "wc[int]",
 	},
 	{
 		name: "queue-inferred", imports: "import queue\n",

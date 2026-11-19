@@ -28,7 +28,7 @@ type Missing { V int }
 
 type rng { x int }
 
-func draw(r *rng, n int) int {
+func draw(r mut rng, n int) int {
 	r.x = (r.x*1103515245 + 12345) % 2147483648
 	(r.x / 65536) % n
 }
@@ -37,7 +37,7 @@ func seeded(seed int) rng { rng{x: (seed%2147483648 + 2147483648) % 2147483648} 
 
 let slots = 6
 
-func genProg(r *rng, depth int, bounded bool) prog {
+func genProg(r mut rng, depth int, bounded bool) prog {
 	let kind = draw(r, 12)
 	if kind == 9 && bounded {
 		return pRead{slot: draw(r, slots)}
@@ -78,7 +78,7 @@ func genProg(r *rng, depth int, bounded bool) prog {
 	}
 }
 
-func genState(r *rng) []int {
+func genState(r mut rng) []int {
 	let mut s = []int{}
 	for _ in 0..slots {
 		s = s.Append(draw(r, 64))
@@ -110,7 +110,7 @@ func described(v int) string {
 	""
 }
 
-func swap(f *ui.Frame[int], v int, at CallSite) {
+func swap(f mut ui.Frame[int], v int, at CallSite) {
 	if v%2 == 0 {
 		ui.Text(f, "even \(v)", at)
 	} else {
@@ -118,7 +118,7 @@ func swap(f *ui.Frame[int], v int, at CallSite) {
 	}
 }
 
-func render(f *ui.Frame[int], p prog, s []int, row int) fails Missing | ui.Pending {
+func render(f mut ui.Frame[int], p prog, s []int, row int) fails Missing | ui.Pending {
 	match p {
 	case pText as x:
 		ui.Text(f, "t\(s[x.slot] + row)")
@@ -224,7 +224,7 @@ func render(f *ui.Frame[int], p prog, s []int, row int) fails Missing | ui.Pendi
 	}
 }
 
-func sameBody(f *ui.Frame[int], kids []prog, s []int, row int, dig int) fails Missing | ui.Pending {
+func sameBody(f mut ui.Frame[int], kids []prog, s []int, row int, dig int) fails Missing | ui.Pending {
 	ui.OnKey(f, func(k ui.KeyPress) Option[int] { Some{Value: dig} })
 	let fl = ui.NewFlag(f, false)
 	ui.Toggle(f, fl, "same")
@@ -520,8 +520,8 @@ func boundRows(x pBound, s []int, row int) []int {
 
 func leaf(n ui.Node[int]) ui.Shape[int] { ui.Shape[int]{Node: n, Kids: []ui.Shape[int]{}} }
 
-func pass(f *ui.Frame[int], ps []prog, s []int) []ui.Op[int] {
-	ui.Render(f, func(g *ui.Frame[int], st []int) {
+func pass(f mut ui.Frame[int], ps []prog, s []int) []ui.Op[int] {
+	ui.Render(f, func(g mut ui.Frame[int], st []int) {
 		for p in ps {
 			render(g, p, st, 0) catch {
 			case Missing:
@@ -533,7 +533,7 @@ func pass(f *ui.Frame[int], ps []prog, s []int) []ui.Op[int] {
 	}, s)
 }
 
-func genRoot(r *rng) []prog {
+func genRoot(r mut rng) []prog {
 	let mut ps = []prog{}
 	for _ in 0..draw(r, 4)+1 {
 		ps = ps.Append(genProg(r, 3, false))
@@ -551,7 +551,7 @@ func nodes(shapes []ui.Shape[int]) int {
 
 
 
-func shuffled(xs []int, r *rng) []int {
+func shuffled(xs []int, r mut rng) []int {
 	let mut out = xs
 	for i in 0..len(out) {
 		let j = i + draw(r, len(out)-i)
@@ -562,7 +562,7 @@ func shuffled(xs []int, r *rng) []int {
 	out
 }
 
-func keyedRows(f *ui.Frame[int], xs []int) {
+func keyedRows(f mut ui.Frame[int], xs []int) {
 	ui.Column(f, ui.Plain()) {
 		ui.Each(f, xs, func(x int) ui.Key { ui.ByInt(x) }) func(x int) {
 			ui.Text(f, "row \(x)")
@@ -574,7 +574,7 @@ func keyedRows(f *ui.Frame[int], xs []int) {
 	}
 }
 
-func rowIds(f *ui.Frame[int], xs []int) Map[int, (ui.Id[int], ui.Id[int])] {
+func rowIds(f mut ui.Frame[int], xs []int) Map[int, (ui.Id[int], ui.Id[int])] {
 	let mut out = Map[int, (ui.Id[int], ui.Id[int])]{}
 	let col = ui.Kids(f, ui.Root(f))
 	if len(col) != 1 {
@@ -601,7 +601,7 @@ func sent(o Option[int]) int {
 	}
 }
 
-func signalsAgree(f *ui.Frame[int], id ui.Id[int], off bool) bool {
+func signalsAgree(f mut ui.Frame[int], id ui.Id[int], off bool) bool {
 	let mut ok = true
 	let mut under = off
 	let pressed = sent(ui.Handle(f, ui.Press[int]{Id: id}).Signal)
@@ -713,7 +713,7 @@ func wants(loc ui.Locator, x seen) bool {
 	}
 }
 
-func matches(m *ui.Mirror[int], loc ui.Locator, is ui.Matcher) bool {
+func matches(m mut ui.Mirror[int], loc ui.Locator, is ui.Matcher) bool {
 	ui.ExpectIn(m, loc, is) catch {
 	case ui.Mismatch:
 		return false
@@ -721,14 +721,14 @@ func matches(m *ui.Mirror[int], loc ui.Locator, is ui.Matcher) bool {
 	true
 }
 
-func extras(f *ui.Frame[int], v int) {
+func extras(f mut ui.Frame[int], v int) {
 	ui.Fieldset(f, v%2 == 1, "x\(v)") {
 		let on = ui.NewFlag(f, true)
 		ui.Toggle(f, on, "tg\(v % 3)")
 		ui.Area(f, "area\(v % 2)", ui.Plain(), func(p ui.PointerEvent) Option[int] { None }) {
 			ui.Text(f, "in area")
 		}
-		ui.Canvas(f, "c\(v % 4)", 4, 4) func(p *ui.Paint) {}
+		ui.Canvas(f, "c\(v % 4)", 4, 4) func(p mut ui.Paint) {}
 		ui.Rows(f, "rows", 0, 10, func(i int) ui.Key { ui.ByInt(i) }) func(i int) {}
 	}
 }
@@ -751,7 +751,7 @@ func opsEqual(a []ui.Op[int], b []ui.Op[int]) bool {
 	true
 }
 
-func signalsMatch(f *ui.Frame[int], g *ui.Frame[int], a ui.Id[int], b ui.Id[int]) bool {
+func signalsMatch(f mut ui.Frame[int], g mut ui.Frame[int], a ui.Id[int], b ui.Id[int]) bool {
 	if ui.NodeOf(f, a) != ui.NodeOf(g, b) {
 		return false
 	}
@@ -783,7 +783,7 @@ func signalsMatch(f *ui.Frame[int], g *ui.Frame[int], a ui.Id[int], b ui.Id[int]
 	true
 }
 
-func toggles(f *ui.Frame[int], id ui.Id[int], out []ui.Id[int]) []ui.Id[int] {
+func toggles(f mut ui.Frame[int], id ui.Id[int], out []ui.Id[int]) []ui.Id[int] {
 	let mut all = out
 	match ui.NodeOf(f, id) {
 	case Some[ui.Node[int]] as n:
@@ -826,7 +826,7 @@ func shelfMachine() Machine[shelf, int, int] {
 	Machine[shelf, int, int]{Initial: shelf{rows: []int{}, next: 1}, Step: shelfStep, After: shelfTimer, Work: shelfWork}
 }
 
-func shelfView(f *ui.Frame[int], s shelf) {
+func shelfView(f mut ui.Frame[int], s shelf) {
 	ui.Column(f, ui.Plain()) {
 		ui.Text(f, "\(len(s.rows)) rows")
 		ui.Pressable(f, "add", 0) {
@@ -843,7 +843,7 @@ func shelfView(f *ui.Frame[int], s shelf) {
 	}
 }
 
-func freshShape[S](view func(f *ui.Frame[int], s S), s S) []ui.Shape[int] {
+func freshShape[S](view func(f mut ui.Frame[int], s S), s S) []ui.Shape[int] {
 	let mut g = ui.NewFrame[int]()
 	let _ = ui.Render(&g, view, s)
 	ui.FrameShape(&g)
@@ -931,7 +931,7 @@ func lawCancelledFetchStops(steps int) bool {
 func cancelStops(steps int, m time.Manual) bool needs Scheduler {
 	let started = queue.New[int](64)
 	let ended = queue.New[int](64)
-	let view = func(f *ui.Frame[int], s chosen) {
+	let view = func(f mut ui.Frame[int], s chosen) {
 		let k = s.key
 		ui.Text(f, "key \(k) ready \(s.ready)")
 		ui.Pressable(f, "next", k+1+k%3) {
@@ -1005,7 +1005,7 @@ func spinMachine() Machine[spin, int, int] {
 	Machine[spin, int, int]{Initial: spin{left: 0, at: -1}, Step: spinStep, After: spinTimer, Work: spinWork}
 }
 
-func spinView(f *ui.Frame[int], s spin) {
+func spinView(f mut ui.Frame[int], s spin) {
 	ui.Text(f, "left \(s.left) at \(s.at)")
 	for n in 0..4 {
 		ui.Pressable(f, "go\(n)", n) {
@@ -1113,7 +1113,7 @@ func onPad(s pad, p ui.PointerEvent) Option[int] {
 	}
 }
 
-func padView(f *ui.Frame[int], s pad) {
+func padView(f mut ui.Frame[int], s pad) {
 	ui.Text(f, "last \(s.last) of \(s.n)")
 	if s.open {
 		ui.OnKey(f, func(k ui.KeyPress) Option[int] {
@@ -1209,7 +1209,7 @@ func inputFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 
 type pp = ppFill{k int} | ppStroke{k int} | ppRect{k int} | ppMove{k int, kids []pp} | ppClip{k int, kids []pp}
 
-func genPaint(r *rng, depth int) []pp {
+func genPaint(r mut rng, depth int) []pp {
 	let mut out = []pp{}
 	for _ in 0..draw(r, 4) {
 		let k = draw(r, 50)
@@ -1240,7 +1240,7 @@ func tri(s int, k int) ui.Path {
 	ui.Path{Segs: []ui.Seg{ui.MoveTo{X: num(s, k, 0), Y: num(s, k, 1)}, ui.LineTo{X: num(s, k, 2), Y: num(s, k, 3)}, ui.QuadTo{CX: num(s, k, 4), CY: num(s, k, 5), X: num(s, k, 6), Y: num(s, k, 7)}, ui.CubicTo{C1X: num(s, k, 8), C1Y: num(s, k, 9), C2X: num(s, k, 10), C2Y: num(s, k, 11), X: num(s, k, 12), Y: num(s, k, 13)}, ui.ClosePath}}
 }
 
-func paintProg(p *ui.Paint, prog []pp, s int) {
+func paintProg(p mut ui.Paint, prog []pp, s int) {
 	for op in prog {
 		match op {
 		case ppFill as x:
@@ -1324,12 +1324,12 @@ func lawPaintMatchesList(seed int, steps int) bool {
 func paintFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let mut r = seeded(seed)
 	let prog = genPaint(&r, 2)
-	let view = func(f *ui.Frame[int], s int) {
+	let view = func(f mut ui.Frame[int], s int) {
 		ui.Text(f, "at \(s)")
 		ui.Pressable(f, "next", (s*5+3)%11) {
 			ui.Text(f, "next")
 		}
-		ui.Canvas(f, "board", 120, 80) func(p *ui.Paint) {
+		ui.Canvas(f, "board", 120, 80) func(p mut ui.Paint) {
 			paintProg(p, prog, s)
 		}
 	}
@@ -1406,7 +1406,7 @@ func rowsFollow(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let sizes = []int{0, 3, 50, 1000}
 	let n = sizes[draw(&r, len(sizes))]
 	let rh = float64(draw(&r, 40) + 10)
-	let view = func(f *ui.Frame[int], s roster) {
+	let view = func(f mut ui.Frame[int], s roster) {
 		ui.Pressable(f, "add", 0) {
 			ui.Text(f, "+")
 		}
@@ -1503,7 +1503,7 @@ func routeMachine() Machine[int, int, int] {
 
 func home(u ui.URL) Option[int] { Some{Value: 0} }
 
-func routeView(f *ui.Frame[int], s int) {
+func routeView(f mut ui.Frame[int], s int) {
 	ui.OnURL(f, placeOf)
 	ui.OnURL(f, home)
 	ui.Text(f, "at \(places[s])")
@@ -1608,7 +1608,7 @@ func fetchBC() int needs capB | capC { 10*capB.tagB() + 100*capC.tagC() }
 
 func fetchABC() int needs capA | capB | capC { capA.tagA() + 10*capB.tagB() + 100*capC.tagC() }
 
-func loadFor(f *ui.Frame[int], i int, set int) needs capA | capB | capC {
+func loadFor(f mut ui.Frame[int], i int, set int) needs capA | capB | capC {
 	let base = 1000 * (i + 1)
 	match set {
 	case 1:
@@ -1630,7 +1630,7 @@ func loadFor(f *ui.Frame[int], i int, set int) needs capA | capB | capC {
 	}
 }
 
-func boundView(f *ui.Frame[int], plan []boundLoad, outer []int) needs capA | capB | capC {
+func boundView(f mut ui.Frame[int], plan []boundLoad, outer []int) needs capA | capB | capC {
 	for i, l in plan {
 		ui.Box(f, ui.Plain()) {
 			if l.inner {
@@ -1685,7 +1685,7 @@ func loadsBound(seed int, m time.Manual) bool needs Scheduler {
 	}
 	with context { capA: aIs{v: outer[0]}, capB: bIs{v: outer[1]}, capC: cIs{v: outer[2]} } {
 		let a = actor.StartMachine(logMachine(), 4, func(o int) {})
-		let mut h = ui.NewTestHost(a, func(f *ui.Frame[int], s []int) needs capA | capB | capC { boundView(f, plan, outer) }, m, 8) catch {
+		let mut h = ui.NewTestHost(a, func(f mut ui.Frame[int], s []int) needs capA | capB | capC { boundView(f, plan, outer) }, m, 8) catch {
 		case ui.BadPatch:
 			return false
 		}
@@ -1749,7 +1749,7 @@ func cursorKept(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let sizes = []int{0, 3, 50, 1000}
 	let n = sizes[draw(&r, len(sizes))]
 	let rh = float64(draw(&r, 40) + 10)
-	let view = func(f *ui.Frame[int], s int) {
+	let view = func(f mut ui.Frame[int], s int) {
 		ui.OnKey(f, func(k ui.KeyPress) Option[int] {
 			for i in 0..n+1 {
 				if k.Name == "\(i)" {
@@ -1917,7 +1917,7 @@ func replyMachine(gate queue.Queue[int], last int) Machine[int, int, int] {
 	Machine[int, int, int]{Initial: 0, Step: replyStep, After: replyTimer, Work: replyWork(gate, last)}
 }
 
-func replyView(f *ui.Frame[int], s int) { ui.Text(f, "at \(s)") }
+func replyView(f mut ui.Frame[int], s int) { ui.Text(f, "at \(s)") }
 
 func lawWorkReplyIsShown(n int) bool {
 	let m = time.NewManual(0)
@@ -2052,7 +2052,7 @@ func crashMachine() Machine[int, int, int, Boom] {
 	Machine[int, int, int, Boom]{Initial: 0, Step: crashStep, After: crashTimer, Work: crashWork}
 }
 
-func crashAppView(f *ui.Frame[int], s int) {
+func crashAppView(f mut ui.Frame[int], s int) {
 	ui.Text(f, "count \(s)")
 	ui.Pressable(f, "add", 0) {
 		ui.Text(f, "+")
@@ -2079,7 +2079,7 @@ func crashText(c ui.Crash[Boom]) string {
 	}
 }
 
-func crashOwnView(f *ui.Frame[int], c ui.Crash[Boom]) {
+func crashOwnView(f mut ui.Frame[int], c ui.Crash[Boom]) {
 	ui.Text(f, crashText(c))
 	ui.Pressable(f, "reload", 3) {
 		ui.Text(f, "reload")
@@ -2212,7 +2212,7 @@ func workCrashWork(gate queue.Queue[int]) func(s int) Option[func(send func(e in
 	}
 }
 
-func keyView(f *ui.Frame[int], s int) {
+func keyView(f mut ui.Frame[int], s int) {
 	ui.OnKey(f, func(k ui.KeyPress) Option[int] {
 		if k.Name == "1" {
 			return Some{Value: 1}
@@ -2225,7 +2225,7 @@ func keyView(f *ui.Frame[int], s int) {
 	ui.Text(f, "at \(s)")
 }
 
-func keyCrashView(f *ui.Frame[int], c ui.Crash[Boom]) {
+func keyCrashView(f mut ui.Frame[int], c ui.Crash[Boom]) {
 	ui.OnKey(f, func(k ui.KeyPress) Option[int] { Some{Value: 0} })
 	ui.Text(f, "crashed")
 }
@@ -2234,7 +2234,7 @@ func key(name string) ui.Event[int] {
 	ui.KeyDown{Press: ui.KeyPress{Name: name, Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}
 }
 
-func endedOf(session *ui.Session[int, int, Decision[int, int], Boom], posted queue.Queue[ui.Event[int]], run int) Option[[]ui.Op[int]] {
+func endedOf(session mut ui.Session[int, int, Decision[int, int], Boom], posted queue.Queue[ui.Event[int]], run int) Option[[]ui.Op[int]] {
 	for {
 		let ev = posted.Pop() catch {
 		case queue.Closed:
@@ -2322,7 +2322,7 @@ func crashFollows() bool needs Scheduler {
 	}
 }
 
-func endsQuiet(session *ui.Session[int, int, Decision[int, int], Boom], posted queue.Queue[ui.Event[int]], run int) bool {
+func endsQuiet(session mut ui.Session[int, int, Decision[int, int], Boom], posted queue.Queue[ui.Event[int]], run int) bool {
 	match endedOf(session, posted, run) {
 	case Some[[]ui.Op[int]] as ops:
 		len(ops.Value) == 0
@@ -2347,8 +2347,8 @@ func statsMachine() Machine[int, int, int] {
 	Machine[int, int, int]{Initial: 0, Step: statsStep, After: replyTimer, Work: replyWork(queue.New[int](1), 0)}
 }
 
-func statsView(apps []statsApp) func(f *ui.Frame[int], s int) {
-	func(f *ui.Frame[int], s int) {
+func statsView(apps []statsApp) func(f mut ui.Frame[int], s int) {
+	func(f mut ui.Frame[int], s int) {
 		let st = apps[s]
 		ui.OnKey(f, func(k ui.KeyPress) Option[int] {
 			for i in 0..len(apps) {
@@ -2363,7 +2363,7 @@ func statsView(apps []statsApp) func(f *ui.Frame[int], s int) {
 				ui.Text(f, "t\(j)")
 			}
 			if st.canvas {
-				ui.Canvas(f, "c", 40, 40) func(p *ui.Paint) {
+				ui.Canvas(f, "c", 40, 40) func(p mut ui.Paint) {
 					for j in 0..st.paints {
 						ui.Fill(p, ui.RectPath(float64(j), 0.0, 1.0, 1.0), tone(j, j))
 					}
@@ -2495,7 +2495,7 @@ func lawSlowAboveTheBudget(seed int, bound int) bool {
 
 func slowFollow(seed int, bound int) bool needs Scheduler {
 	let mut r = seeded(seed)
-	let view = func(f *ui.Frame[slowSignal], s slowLog) {
+	let view = func(f mut ui.Frame[slowSignal], s slowLog) {
 		// Every third pass asks for nothing: an ui.OnSlow holds for its pass.
 		if s.texts%3 != 0 {
 			ui.OnSlow(f, ui.Budget{Signals: 0, Written: bound, Committed: 0, Ops: 0, Painted: 0, Fetches: 0}, func(x ui.Slow) slowSignal { WasSlow{S: x} })
@@ -2592,7 +2592,7 @@ func sameHit(a Option[ui.ZoneHit], b Option[ui.ZoneHit]) bool {
 	}
 }
 
-func foundId[S, D, F](h *ui.TestHost[S, int, D, F], label string) ui.Id[int] {
+func foundId[S, D, F](h mut ui.TestHost[S, int, D, F], label string) ui.Id[int] {
 	match ui.Find(h, label) {
 	case Some[ui.Id[int]] as id:
 		id.Value
@@ -2626,7 +2626,7 @@ func zoneFollows(seed int, n int, m time.Manual) bool needs Scheduler {
 		cards = cards.Append(draw(&r, 3) + 1)
 	}
 	let got = sync.NewRef[Option[ui.ZoneHit]](None)
-	let view = func(f *ui.Frame[int], s int) {
+	let view = func(f mut ui.Frame[int], s int) {
 		ui.Pressable(f, "drop", 1) {
 			ui.Text(f, "drop")
 		}
@@ -2740,7 +2740,7 @@ func phaseCode(p ui.Phase) int {
 
 func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 	let mut r = seeded(seed)
-	let view = func(f *ui.Frame[int], s int) {
+	let view = func(f mut ui.Frame[int], s int) {
 		ui.Pressable(f, "hide", 99) {
 			ui.Text(f, "hide")
 		}
@@ -2827,7 +2827,7 @@ func announceFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 	for _ in 0..6 {
 		texts = texts.Append(words[draw(&r, 4)])
 	}
-	let view = func(f *ui.Frame[int], s int) {
+	let view = func(f mut ui.Frame[int], s int) {
 		ui.OnKey(f, func(k ui.KeyPress) Option[int] {
 			for i in 0..6 {
 				if k.Name == "\(i)" {

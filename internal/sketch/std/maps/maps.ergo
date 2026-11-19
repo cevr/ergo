@@ -1,12 +1,12 @@
 // Package maps reads Maps (docs/spec/stdlib.md, Slices and Maps;
 // std-align S2a). It follows Go's maps package: Keys and Values are Seqs,
 // in an unspecified order, as a for over a Map is (types.md, Loops and len
-// 1). slices.Sorted(maps.Keys(m)) gives the keys in a fixed order. Clone
-// binds a runtime/v1 body; the rest is Ergo source.
+// 1). slices.Sorted(maps.Keys(m)) gives the keys in a fixed order. It is
+// Ergo source; Clone is the Map operation m.Clone() (PRIM-4).
 
 // Clone is a new Map with the keys and values of m: Go's maps.Clone. A
 // write to the clone never reaches m.
-extern go ergo.local/prototype/runtime/v1.MapsClone func Clone[K comparable, V](m Map[K, V]) Map[K, V]
+func Clone[K comparable, V](m Map[K, V]) Map[K, V] { m.Clone() }
 
 // GetOr is the value of k in m, or def when m has no key k: Effect's
 // HashMap.get then Option.getOrElse, and Go's comma-ok read with a

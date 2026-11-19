@@ -8,7 +8,7 @@
 extern go ergo.local/prototype/runtime/v1.Closed type Closed {}
 
 // Queue is a queue of T with a fixed capacity.
-extern go ergo.local/prototype/runtime/v1.Queue type Queue[T] {
+extern go ergo.local/prototype/runtime/v1.Queue type Queue[T own] {
 	runtimeOnly(),
 	// Push adds v at the back, waiting while the queue is full. It fails
 	// with Closed when the queue is closed, or closes while it waits. It
@@ -178,4 +178,4 @@ law DrainReleasesLeft(n int) {
 // New makes an open, empty queue that holds up to capacity values no Pop
 // has taken yet; 0 makes each Push wait for its Pop. A negative capacity
 // is a defect.
-extern go ergo.local/prototype/runtime/v1.New func New[T](capacity int) Queue[T]
+extern go ergo.local/prototype/runtime/v1.New func New[T own](capacity int) Queue[T]

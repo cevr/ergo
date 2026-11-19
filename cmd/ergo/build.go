@@ -196,6 +196,7 @@ func buildGoText(l loaded, opts fileOptions, output receipt.Location) error {
 	if err != nil {
 		return err
 	}
+	unit.NoViews = opts.noViews
 	files, _, err := lower.LowerIR(unit)
 	if err != nil {
 		return err

@@ -98,12 +98,12 @@ func init() {
 			if err != nil {
 				var o MathOutOfRange
 				return errors.As(err, &o) && math.Float64bits(o.Value) == math.Float64bits(f) &&
-					(MathIsNaN(f) || f >= hi || MathTrunc(f) < lo), f
+					(math.IsNaN(f) || f >= hi || math.Trunc(f) < lo), f
 			}
-			if MathIsNaN(f) || MathIsInf(f, 0) {
+			if math.IsNaN(f) || math.IsInf(f, 0) {
 				return false, f
 			}
-			return new(big.Float).SetInt(n).Cmp(big.NewFloat(MathTrunc(f))) == 0 && n.Cmp(c.conv(f)) == 0, f
+			return new(big.Float).SetInt(n).Cmp(big.NewFloat(math.Trunc(f))) == 0 && n.Cmp(c.conv(f)) == 0, f
 		}
 	}
 }

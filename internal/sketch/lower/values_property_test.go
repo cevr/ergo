@@ -434,13 +434,13 @@ func upRef(m Map[int, int]) Map[int, int] {
 func dupM(m Map[int, int]) (Map[int, int], Map[int, int]) { (m, m) }
 
 // takeS and dropS move through a borrow (V7): a take, then a reslice.
-func takeS(p *[]int, v int) []int {
+func takeS(p mut []int, v int) []int {
 	let got = *p
 	*p = []int{v}
 	got
 }
 
-func dropS(p *[]int) {
+func dropS(p mut []int) {
 	if len(*p) > 1 {
 		*p = (*p)[1:]
 	}
@@ -470,7 +470,7 @@ func pick(p Pick) needs Console {
 	}
 }
 
-func flushS(p *[]int) needs Console {
+func flushS(p mut []int) needs Console {
 	note1(*p)
 	if len(*p) > 0 {
 		(*p)[0] = 0
@@ -499,7 +499,7 @@ func note3(s []int, f func()) needs Console {
 
 // viaF hands note3 its borrow's slice and f, which may write the slice's
 // root: note3 sees the slice as it was passed.
-func viaF(p *[]int, f func()) needs Console {
+func viaF(p mut []int, f func()) needs Console {
 	note3(*p, f)
 	if len(*p) > 0 {
 		(*p)[0] = 0
@@ -514,7 +514,7 @@ func holdP(s []int) (func() int) needs Console {
 
 // peekW writes through p, which is s's own root at its call, before it
 // reads s: s is the value passed.
-func peekW(s []int, p *[]int) int needs Console {
+func peekW(s []int, p mut []int) int needs Console {
 	Console.Println("peek")
 	if len(*p) > 0 {
 		(*p)[0] = 77
@@ -526,7 +526,7 @@ func peekW(s []int, p *[]int) int needs Console {
 // not in its result.
 type Hold { F func() int }
 
-func stashF(s []int, h *Hold) needs Console {
+func stashF(s []int, h mut Hold) needs Console {
 	Console.Println("stash")
 	h.F = func() int { ds(s) }
 }
@@ -538,7 +538,7 @@ func hold(s []int) func() int { func() int { ds(s) } }
 // binding: neither is a reslice (V7), so the write after reaches neither.
 type Two { A []int, B []int }
 
-func crossS(p *Two) int {
+func crossS(p mut Two) int {
 	p.A = p.B[1:]
 	let mut c = []int{}
 	c = p.B[1:]
@@ -1228,6 +1228,37 @@ func (g *valueGen) keepSlice(b *vbind, v int) {
 	g.reached["keep flush"] = true
 }
 
+// takes writes a Take (PRIM-3) from each Map binding, after the drawn
+// statements, so it draws nothing and the seeds keep their paths: from a
+// let mut, the rest rebound to it, which takes the key in place; from a
+// let, the rest with the source live, which keeps the key. Each prints the
+// rest and the source as the model has them.
+func (g *valueGen) takes() {
+	for _, b := range g.binds {
+		if b.kind != kMap {
+			continue
+		}
+		key := 0 // no draw: the smallest key, or one m does not have
+		if len(b.val.m) > 0 {
+			key = slices.Min(slices.Collect(maps.Keys(b.val.m)))
+		}
+		rest := g.fresh()
+		g.line(fmt.Sprintf("let _, %s = %s.Take(%d)", rest, b.name, key))
+		out := maps.Clone(b.val.m)
+		delete(out, key)
+		if b.mut {
+			g.line(fmt.Sprintf("%s = %s", b.name, rest))
+			b.val.m = out
+			b.written = true
+			g.reached["take in place"] = true
+		} else {
+			g.reached["take live"] = true
+		}
+		g.line(fmt.Sprintf("Console.Println(\"\\(dm(%s)) \\(dm(%s))\")", rest, b.name))
+		fmt.Fprintf(&g.want, "%d %d\n", dmModel(out), dmModel(b.val.m))
+	}
+}
+
 // valueProgram writes the program of seed, shared or not, and the lines
 // it must print.
 func valueProgram(seed uint64, shared bool, reached map[string]bool) (src, want string) {
@@ -1246,6 +1277,7 @@ func valueProgram(seed uint64, shared bool, reached map[string]bool) (src, want 
 	for _, f := range g.pending {
 		f()
 	}
+	g.takes()
 	if shared {
 		g.line("let mut two = Two{A: []int{}, B: []int{1, 2, 3}}")
 		g.line("Console.Println(\"\\(crossS(&two))\")")
@@ -1410,7 +1442,7 @@ var valuePaths = []string{
 	"bind", "reassign", "source literal", "source binding", "source field", "source element", "source result", "source fresh result",
 	"source append live", "source delete live", "source put live", "source append element", "source update",
 	"argument", "pure", "closure", "task", "loop kept", "literal write",
-	"write map", "delete in place", "put in place", "write loop", "write slice", "append in place",
+	"write map", "delete in place", "take live", "take in place", "put in place", "write loop", "write slice", "append in place",
 	"write field map", "write field slice", "append field", "write element",
 	"own rebind", "own loop", "own capture", "own slice", "own field", "own live",
 	"update rebind", "update rebind option", "update field", "update live",

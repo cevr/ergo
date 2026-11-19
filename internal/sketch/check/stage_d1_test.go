@@ -88,16 +88,16 @@ func TestLetMutReassignment(t *testing.T) {
 // parameter is *T, could change x, so x must be a let mut, which the
 // borrow counts as reassigned (Q3).
 func TestLetMutPointers(t *testing.T) {
-	const decls = "type R { N int }\nfunc bump(r *R) { r.N = r.N + 1 }\n"
+	const decls = "type R { N int }\nfunc bump(r mut R) { r.N = r.N + 1 }\n"
 	runD1(t, []d1Case{
-		{"write-through-parameter", decls + "func f(p *R) { p.N = 2 }\n", nil},
-		{"write-through-deref", decls + "func f(p *R) { (*p).N = 2 }\n", nil},
+		{"write-through-parameter", decls + "func f(p mut R) { p.N = 2 }\n", nil},
+		{"write-through-deref", decls + "func f(p mut R) { (*p).N = 2 }\n", nil},
 		{"borrow-let", decls + "func f() int {\n\tlet r = R{N: 1}\n\tlet p = &r\n\tp.bump()\n\tr.N\n}\n", []string{"S108:5"}},
 		{"borrow-let-mut", decls + "func f() int {\n\tlet mut r = R{N: 1}\n\tlet p = &r\n\tp.bump()\n\tr.N\n}\n", nil},
-		{"borrow-parameter", decls + "func take(p *R) {}\nfunc f(r R) { take(&r) }\n", []string{"S108:4"}},
+		{"borrow-parameter", decls + "func take(p mut R) {}\nfunc f(r R) { take(&r) }\n", []string{"S108:4"}},
 		{"implicit-borrow-let", decls + "func f() int {\n\tlet r = R{N: 1}\n\tr.bump()\n\tr.N\n}\n", []string{"S108:5"}},
 		{"implicit-borrow-let-mut", decls + "func f() int {\n\tlet mut r = R{N: 1}\n\tr.bump()\n\tr.N\n}\n", nil},
-		{"reassign-pointer", decls + "func f(a *R, b *R) {\n\tlet p = a\n\tp = b\n\tp.N = 1\n}\n", []string{"S108:5"}},
+		{"reassign-pointer", decls + "func f(a mut R, b mut R) {\n\tlet p = a\n\tp = b\n\tp.N = 1\n}\n", []string{"S108:5"}},
 	})
 }
 
@@ -120,7 +120,7 @@ func TestLetMutNeverReassigned(t *testing.T) {
 		{"dead-append", decls + "func f() []int {\n\tlet mut xs = []int{}\n\txs.Append(1)\n\txs\n}\n", []string{"S110:5"}},
 		// A call through a *T parameter may write: its dropped result is
 		// no dead call.
-		{"pointer-write", decls + "func grow(p *R) int {\n\tp.N = 1\n\t0\n}\nfunc f() int {\n\tlet mut r = R{N: 0}\n\tgrow(&r)\n\tr.N\n}\n", nil},
+		{"pointer-write", decls + "func grow(p mut R) int {\n\tp.N = 1\n\t0\n}\nfunc f() int {\n\tlet mut r = R{N: 0}\n\tgrow(&r)\n\tr.N\n}\n", nil},
 	})
 }
 

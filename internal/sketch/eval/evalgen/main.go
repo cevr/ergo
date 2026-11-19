@@ -145,16 +145,16 @@ func firstOver(xs Seq[int], limit int) int {
 
 type Acc { total int, items []int }
 
-func push(a *Acc, v int) {
+func push(a mut Acc, v int) {
 	a.items = a.items.Append(v)
 	a.total = a.total + v
 }
 
-func bump(a *Acc, i int) { a.items[i] = a.items[i] * 10 }
+func bump(a mut Acc, i int) { a.items[i] = a.items[i] * 10 }
 
 func size(a Acc) int { len(a.items) }
 
-func both(a *Acc, v int) {
+func both(a mut Acc, v int) {
 	push(a, v)
 	if a.size() == 3 {
 		bump(a, 0)
@@ -170,15 +170,15 @@ type FK { x float64 }
 
 type Tab { rows []int }
 
-func tput(t *Tab, v int) Id {
+func tput(t mut Tab, v int) Id {
 	let id = Id{n: uint32(len(t.rows))}
 	t.rows = t.rows.Append(v)
 	id
 }
 
-func tset(t *Tab, id Id, v int) { t.rows[int(id.n)] = v }
+func tset(t mut Tab, id Id, v int) { t.rows[int(id.n)] = v }
 
-func count(c *Map[Id, int], id Id, by int) {
+func count(c mut Map[Id, int], id Id, by int) {
 	match (*c).Get(id) {
 	case Some[int] as s:
 		(*c)[id] = s.Value + by

@@ -20,7 +20,7 @@ type pushed { was ui.Affine, clip bool }
 let curveSteps = 16
 
 // paintCanvas replays ops in the canvas's box b, inside clip.
-func paintCanvas[S, E, D, F](d *Driver[S, E, D, F], ops []ui.PaintOp, b layout.Box, clip layout.Box) needs go.Foreign {
+func paintCanvas[S, E, D, F](d mut Driver[S, E, D, F], ops []ui.PaintOp, b layout.Box, clip layout.Box) needs go.Foreign {
 	let inner = cut(clip, b)
 	d.w.Clip(float64(inner.X), float64(inner.Y), float64(inner.W), float64(inner.H))
 	let mut m = ui.Translate(float64(b.X), float64(b.Y))
@@ -201,7 +201,7 @@ func axisRect(cs [][]pt) bool {
 type crossing { x float64, wind int }
 
 // fillPath fills the contours cs with color, inside clip.
-func fillPath[S, E, D, F](d *Driver[S, E, D, F], cs [][]pt, color uint32, clip layout.Box) needs go.Foreign {
+func fillPath[S, E, D, F](d mut Driver[S, E, D, F], cs [][]pt, color uint32, clip layout.Box) needs go.Foreign {
 	if len(cs) == 0 {
 		return
 	}

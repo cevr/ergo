@@ -77,7 +77,7 @@ func show(ops []ui.Op[int]) string {
 	out
 }
 
-func ids(f *ui.Frame[int], id ui.Id[int]) []ui.Id[int] {
+func ids(f mut ui.Frame[int], id ui.Id[int]) []ui.Id[int] {
 	let mut out = []ui.Id[int]{}
 	for k in ui.Kids(f, id) {
 		out = out.Append(k)
@@ -97,7 +97,7 @@ func sent(o Option[int]) string {
 	}
 }
 
-func step(f *ui.Frame[int], view func(f *ui.Frame[int], s St), s St, press int) needs Console {
+func step(f mut ui.Frame[int], view func(f mut ui.Frame[int], s St), s St, press int) needs Console {
 	let ops = ui.Render(f, view, s)
 	Console.Println("ops \(show(ops)) len \(ui.Len(f))")
 	Console.Println(shot(ui.FrameShape(f), ""))
@@ -117,14 +117,14 @@ func gate(on bool) fails ui.Pending {
 	}
 }
 
-func card(f *ui.Frame[int], it Item) {
+func card(f mut ui.Frame[int], it Item) {
 	ui.Row(f, ui.Plain()) {
 		ui.Check(f, it.Text, it.Done, it.Id)
 		ui.Text(f, "#\(it.Id)")
 	}
 }
 
-func list(f *ui.Frame[int], xs []Item) {
+func list(f mut ui.Frame[int], xs []Item) {
 	ui.Each(f, xs, func(it Item) ui.Key { ui.ByInt(it.Id) }) func(it Item) {
 		card(f, it)
 	}
@@ -144,23 +144,24 @@ func listed(n int, changed int) []Item {
 
 type Counter { N int }
 
-func counted(f *ui.Frame[int], c *Counter) {
+func counted(f mut ui.Frame[int], c Counter) {
 	ui.Text(f, "n \(c.N)")
 }
 
-func counterView(f *ui.Frame[int], c *Counter) {
+func counterView(f mut ui.Frame[int], c Counter) {
 	counted(f, c)
 }
 
-// pointers renders the counter at each of ns, through one pointer: a
-// component whose argument is a pointer is no group, since an equal
-// pointer may reach a changed value.
+// pointers renders the counter at each of ns, one counter changed in
+// place between renders. A type parameter binds no borrow (types.md,
+// Generics 2; MODES-4), so the view takes the counter's value: an equal
+// value is the group's skip, a changed one renders again.
 func pointers(ns []int) needs Console {
 	let mut f = ui.NewFrame[int]()
 	let mut c = Counter{N: 0}
 	for n in ns {
 		c.N = n
-		let ops = ui.Render(&f, counterView, &c)
+		let ops = ui.Render(&f, counterView, c)
 		Console.Println("pointer ops \(show(ops))")
 		Console.Println(shot(ui.FrameShape(&f), ""))
 	}
@@ -168,7 +169,7 @@ func pointers(ns []int) needs Console {
 
 // gated is a card inside a boundary that stops after it at odd A: the
 // card, kept at even A, is written again and then cut (H8a).
-func gated(f *ui.Frame[int], s St) {
+func gated(f mut ui.Frame[int], s St) {
 	ui.Boundary(f) {
 		card(f, s.It)
 		try gate(s.A%2 == 1)
@@ -288,12 +289,12 @@ func (g *uiSkipGen) stmt(i, depth int, indent string) {
 // program writes the components and the view s<seed>view.
 func (g *uiSkipGen) program() {
 	for i := range g.comps {
-		fmt.Fprintf(&g.out, "\nfunc %s(f *ui.Frame[int], a int, it Item) {\n", g.name(i))
+		fmt.Fprintf(&g.out, "\nfunc %s(f mut ui.Frame[int], a int, it Item) {\n", g.name(i))
 		g.stmts(i, 0, "\t")
 		g.out.WriteString("}\n")
 	}
 	fmt.Fprintf(&g.out, `
-func s%dview(f *ui.Frame[int], s St) {
+func s%dview(f mut ui.Frame[int], s St) {
 	%s(f, s.A, s.It)
 	ui.Column(f, ui.Plain()) {
 		ui.Each(f, s.Items, func(it Item) ui.Key { ui.ByInt(it.Id) }) func(it Item) {

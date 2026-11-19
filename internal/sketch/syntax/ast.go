@@ -352,7 +352,8 @@ type Field struct {
 	Key   *BasicLit // optional record field key, independent of the codec format
 	Any   Pos
 	// Lent is the position of a type parameter's `lent` written before
-	// its constraint, `[T lent Counter]` (types.md, Borrows 7), or NoPos.
+	// its constraint, `[T lent Counter]`, or NoPos. lent is gone (MODES-4):
+	// the parser keeps it for ergo fix, and the checker refuses it.
 	Lent    Pos
 	Include bool
 	Dots    Pos

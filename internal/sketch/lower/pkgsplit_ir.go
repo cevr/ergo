@@ -255,14 +255,32 @@ func irHash(files []File) string {
 // function, a package variable, the named part of a type) and member on
 // every field and method name; each may respell it.
 func (fn *irFunc) walk(name, member func(*string)) {
+	// typ respells each package-scope name of a type spelling: a generic
+	// instance's own name and its type arguments (Option[Room], FLIP F1),
+	// a slice's, a pointer's or a map's element.
 	typ := func(t *string) {
-		if *t == "" {
-			return
+		s := *t
+		var out strings.Builder
+		for i := 0; i < len(s); {
+			j := i
+			// An import path (a pcall's package, a runtime type's
+			// qualifier) is one name: its slashes do not split it.
+			for j < len(s) && (isSpellingName(s[j]) || s[j] == '/') {
+				j++
+			}
+			if j == i {
+				out.WriteByte(s[i])
+				i++
+				continue
+			}
+			// A dotted name (path.Name, a path alone) is another
+			// package's: the respellers keep it, and importPaths reads it.
+			n := s[i:j]
+			name(&n)
+			out.WriteString(n)
+			i = j
 		}
-		rest := strings.TrimLeft(*t, "[]*")
-		prefix := (*t)[:len(*t)-len(rest)]
-		name(&rest)
-		*t = prefix + rest
+		*t = out.String()
 	}
 	var expr func(x *irExpr)
 	var stmts func(list []*irStmt)

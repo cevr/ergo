@@ -558,7 +558,7 @@ func isAny(x Expr) bool {
 }
 
 // parseTypeParams parses `[T ordered]`, `[A, B]`, `[K comparable, V]`,
-// `[T lent Counter]` or
+// `[T own]`, `[T own Counter]`, `[T lent Counter]` (for ergo fix) or
 // `[E any, K comparable]` with Go's grouping: names before a constraint
 // share it, names at the end without one have none, and `any` gives a group
 // none where a constrained group follows it.

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 
+	ckpkg "ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/fix"
 	"ergo.local/prototype/internal/sketch/lint"
 )
@@ -105,6 +106,24 @@ func fixCommand(args []string) error {
 		}
 		fmt.Fprint(out, impl.Text())
 	}
+	// A body marked [T own] above holds its T to a resource's rules, so a
+	// generic callee it binds T to needs the mark too (MODES-5): the pass
+	// again over the rewritten files, until it writes no mark.
+	for round := 0; write && round < 8 && impl.WroteOwn(); round++ {
+		if stdRoot != "" {
+			ckpkg.ResetStdForTest() // std is checked again from the rewritten sources
+		}
+		if impl, err = fix.Run(fix.Options{Paths: paths, StdRoot: stdRoot, Write: true, Go: goLits}); err != nil {
+			return exitStatusError{code: 1, message: "ergo fix: " + err.Error()}
+		}
+		if len(impl.Written) > 0 || len(impl.Unwritten) > 0 {
+			out := os.Stdout
+			if asJSON {
+				out = os.Stderr
+			}
+			fmt.Fprint(out, impl.Text())
+		}
+	}
 	// The keep mode's old spellings (takes, escaping) become own (EXM1).
 	// Syntactic: it reads every file under the paths, bindings included,
 	// so the clause pass below checks the new spelling.
@@ -131,6 +150,22 @@ func fixCommand(args []string) error {
 			out = os.Stderr // stdout holds only the JSON
 		}
 		fmt.Fprint(out, text)
+	}
+	if write && len(muts.Files) > 0 {
+		// [T lent C] became x mut T above, so each operation of C that a
+		// function on mut T implements is marked mut now (MODES-4): the
+		// implements pass again, over the rewritten files.
+		again, err := fix.Run(fix.Options{Paths: paths, StdRoot: stdRoot, Write: true, Go: goLits})
+		if err != nil {
+			return exitStatusError{code: 1, message: "ergo fix: " + err.Error()}
+		}
+		if len(again.Written) > 0 || len(again.Unwritten) > 0 {
+			out := os.Stdout
+			if asJSON {
+				out = os.Stderr // stdout holds only the JSON
+			}
+			fmt.Fprint(out, again.Text())
+		}
 	}
 	rep := fixReport{Changed: []fix.Change{}, Remaining: []fix.Diagnostic{}}
 	for _, path := range paths {

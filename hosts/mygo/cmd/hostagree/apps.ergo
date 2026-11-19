@@ -20,7 +20,7 @@ func counterMachine() Machine[int, int, int] {
 	Machine[int, int, int]{Initial: 0, Step: counterStep, After: none[int, int], Work: idle[int, int]}
 }
 
-func counterView(f *ui.Frame[int], s int) {
+func counterView(f mut ui.Frame[int], s int) {
 	let mut col = ui.Plain()
 	col.Gap = 8
 	col.Padding = ui.All(16)
@@ -88,7 +88,7 @@ func shelfMachine() Machine[shelf, int, int] {
 
 // shelfView: every row's delete button is labelled "del", so a script's
 // "del" takes the first row on the screen; the list scrolls.
-func shelfView(f *ui.Frame[int], s shelf) {
+func shelfView(f mut ui.Frame[int], s shelf) {
 	ui.Column(f, ui.Plain()) {
 		ui.Text(f, "\(len(s.rows)) rows")
 		ui.Pressable(f, "add", 0) {
@@ -133,7 +133,7 @@ func formMachine() Machine[form, formEvent, int] {
 	Machine[form, formEvent, int]{Initial: form{name: "", done: false, sent: 0}, Step: formStep, After: none[form, formEvent], Work: idle[form, formEvent]}
 }
 
-func formView(f *ui.Frame[formEvent], s form) {
+func formView(f mut ui.Frame[formEvent], s form) {
 	let mut col = ui.Plain()
 	col.Gap = 6
 	col.Padding = ui.All(12)
@@ -167,7 +167,7 @@ func loadMachine() Machine[chosen, int, int] {
 	Machine[chosen, int, int]{Initial: chosen{key: 0, ready: -1}, Step: chosenStep, After: none[chosen, int], Work: idle[chosen, int]}
 }
 
-func loadView(f *ui.Frame[int], s chosen) {
+func loadView(f mut ui.Frame[int], s chosen) {
 	ui.Column(f, ui.Plain()) {
 		ui.Pressable(f, "next", 1) {
 			ui.Text(f, "Next")
@@ -188,7 +188,7 @@ func padMachine() Machine[pad, int, int] {
 	Machine[pad, int, int]{Initial: pad{last: 0, n: 0}, Step: padStep, After: none[pad, int], Work: idle[pad, int]}
 }
 
-func padView(f *ui.Frame[int], s pad) {
+func padView(f mut ui.Frame[int], s pad) {
 	ui.Text(f, "last \(s.last) of \(s.n)")
 	let mut area = ui.Plain()
 	area.Width = ui.Fixed{Value: 200}
@@ -213,25 +213,29 @@ func padView(f *ui.Frame[int], s pad) {
 }
 
 // list: a virtual list (ui.Rows) of n rows, a button each; "more" adds
-// 25 rows (-1), "less" takes 25 (-2), a row's button names its row. The
-// list has no height of its own, so it takes the window below it.
-type rowsApp { n int, last int }
+// 25 rows (-1), "less" takes 25 (-2), "note" shows or hides a line above
+// the list (-3), a row's button names its row. The list has no height of
+// its own, so it takes the window below it, which the note moves.
+type rowsApp { n int, last int, note bool }
 
 func rowsStep(s rowsApp, e int) Decision[rowsApp, int] {
 	if e == -1 {
-		return Enter[rowsApp]{Next: rowsApp{n: s.n + 25, last: s.last}}
+		return Enter[rowsApp]{Next: rowsApp{n: s.n + 25, last: s.last, note: s.note}}
 	}
 	if e == -2 {
-		return Enter[rowsApp]{Next: rowsApp{n: if s.n > 25 { s.n - 25 } else { 0 }, last: s.last}}
+		return Enter[rowsApp]{Next: rowsApp{n: if s.n > 25 { s.n - 25 } else { 0 }, last: s.last, note: s.note}}
 	}
-	Enter[rowsApp]{Next: rowsApp{n: s.n, last: e}}
+	if e == -3 {
+		return Enter[rowsApp]{Next: rowsApp{n: s.n, last: s.last, note: !s.note}}
+	}
+	Enter[rowsApp]{Next: rowsApp{n: s.n, last: e, note: s.note}}
 }
 
 func rowsMachine() Machine[rowsApp, int, int] {
-	Machine[rowsApp, int, int]{Initial: rowsApp{n: 60, last: -1}, Step: rowsStep, After: none[rowsApp, int], Work: idle[rowsApp, int]}
+	Machine[rowsApp, int, int]{Initial: rowsApp{n: 60, last: -1, note: false}, Step: rowsStep, After: none[rowsApp, int], Work: idle[rowsApp, int]}
 }
 
-func rowsView(f *ui.Frame[int], s rowsApp) {
+func rowsView(f mut ui.Frame[int], s rowsApp) {
 	ui.Column(f, ui.Plain()) {
 		ui.Text(f, "\(s.n) rows, last \(s.last)")
 		ui.Row(f, ui.Plain()) {
@@ -241,6 +245,12 @@ func rowsView(f *ui.Frame[int], s rowsApp) {
 			ui.Pressable(f, "less", -2) {
 				ui.Text(f, "Less")
 			}
+			ui.Pressable(f, "note", -3) {
+				ui.Text(f, "Note")
+			}
+		}
+		if s.note {
+			ui.Text(f, "a note above the list")
 		}
 		ui.Rows(f, "list", s.n, ui.Length(32.0), func(i int) ui.Key { ui.ByInt(i) }, func(i int) {
 			ui.Pressable(f, "row \(i)", i) {
@@ -264,7 +274,7 @@ func sketchMachine() Machine[sketch, int, int] {
 	Machine[sketch, int, int]{Initial: sketch{x: 100, y: 75, n: 0}, Step: sketchStep, After: none[sketch, int], Work: idle[sketch, int]}
 }
 
-func sketchView(f *ui.Frame[int], s sketch) {
+func sketchView(f mut ui.Frame[int], s sketch) {
 	ui.Text(f, "mark \(s.x),\(s.y) of \(s.n)")
 	ui.Area(f, "sketch", ui.Plain(), func(p ui.PointerEvent) Option[int] {
 		match p.Phase {
@@ -274,7 +284,7 @@ func sketchView(f *ui.Frame[int], s sketch) {
 			None
 		}
 	}) {
-		ui.Canvas(f, "ink", 200, 150) func(p *ui.Paint) {
+		ui.Canvas(f, "ink", 200, 150) func(p mut ui.Paint) {
 			ui.Fill(p, ui.RectPath(0, 0, 200, 150), ui.Color{R: 240, G: 240, B: 240, A: 255})
 			let mx = float64(s.x)
 			let my = float64(s.y)

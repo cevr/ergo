@@ -4,7 +4,7 @@ import stackvm/vm
 
 // Gen is an expression of at most depth levels, drawn from d. Literals
 // are small, so a Quot or Rem by zero happens often.
-func Gen(d *vm.Draws, depth int) Expr {
+func Gen(d mut vm.Draws, depth int) Expr {
 	let k = if depth <= 0 { 0 } else { d.Next(8) }
 	match k {
 	case 0, 1:

@@ -8,6 +8,11 @@
 //	stars-gui [-rows H] CATALOG            open the window on CATALOG
 //	stars-gui -headless [-rows H] CATALOG  play the script on standard input
 //
+// Headless, -check holds the driver's kept layout to the tree built anew at
+// every paint (desktop.Check) and prints a line where they differ, and
+// -reference lays out the rebuilt tree only (desktop.Reference), which is
+// what a receipt compares the kept one with.
+//
 // A headless script is the example's: each line is input the window gets
 // where a person gives it. A key goes to the table, so the window's focus
 // is dropped first, as a person clicks the table before the arrows; a
@@ -33,7 +38,7 @@ import time
 import ui
 import ui/layout
 
-let Usage = "usage: stars-gui [-headless] [-rows H] CATALOG"
+let Usage = "usage: stars-gui [-headless [-check | -reference]] [-rows H] CATALOG"
 
 // Width and Height are the window's size in DIPs: wide enough for every
 // button, and tall enough for a list of 12 rows below them.
@@ -42,15 +47,23 @@ let Width = 1000.0
 let Height = 720.0
 
 // opts is what the arguments chose.
-type opts { headless bool, rows int, catalogue string }
+type opts { headless bool, layout Layout, rows int, catalogue string }
+
+// Layout is how the driver lays out: its kept tree, the kept tree checked
+// against the rebuilt one, or the rebuilt one.
+type Layout = Kept{} | Checked{} | Rebuilt{}
 
 func parse(args []string) opts fails os.Exit {
-	let mut o = opts{headless: false, rows: 10, catalogue: ""}
+	let mut o = opts{headless: false, layout: Kept, rows: 10, catalogue: ""}
 	let mut i = 0
 	for i < len(args) {
 		let a = args[i]
 		if a == "-headless" {
 			o.headless = true
+		} else if a == "-check" {
+			o.layout = Checked
+		} else if a == "-reference" {
+			o.layout = Rebuilt
 		} else if a == "-rows" && i+1 < len(args) {
 			i = i + 1
 			o.rows = strconv.Atoi(args[i]) catch {
@@ -64,7 +77,13 @@ func parse(args []string) opts fails os.Exit {
 		}
 		i = i + 1
 	}
-	if o.catalogue == "" || o.rows < 1 {
+	let laidOut = match o.layout {
+	case Kept:
+		true
+	case Checked, Rebuilt:
+		o.headless
+	}
+	if o.catalogue == "" || o.rows < 1 || !laidOut {
 		return os.Exit{Code: 2, Message: Usage}
 	}
 	o
@@ -74,7 +93,7 @@ func main() fails os.Exit needs Ambient | go.Foreign {
 	let o = try parse(with context { os.Process: os.NewHost() } { os.Process.Args() })
 	let rows = try load(o.catalogue)
 	if o.headless {
-		try headless(rows, o.rows)
+		try headless(rows, o.rows, o.layout)
 		return
 	}
 	with context { Scheduler: NewLiveScheduler() } {
@@ -110,7 +129,7 @@ func load(name string) []catalog.Star fails os.Exit needs Ambient {
 
 // headless plays the script on standard input through a window with no
 // screen, height rows a table window, and prints what the scene prints.
-func headless(rows []catalog.Star, height int) fails os.Exit needs Ambient | go.Foreign {
+func headless(rows []catalog.Star, height int, how Layout) fails os.Exit needs Ambient | go.Foreign {
 	let text = io.NewStdin().ReadAll() catch {
 	case io.ReadFailed:
 		return os.Exit{Code: 1, Message: "stars-gui: cannot read the script"}
@@ -128,6 +147,13 @@ func headless(rows []catalog.Star, height int) fails os.Exit needs Ambient | go.
 		let mut d = desktop.New(w, a, window.View, 64) catch {
 		case ui.BadPatch as b:
 			return os.Exit{Code: 1, Message: "stars-gui: \(b.Why)"}
+		}
+		match how {
+		case Kept:
+		case Checked:
+			desktop.Check(&d)
+		case Rebuilt:
+			desktop.Reference(&d)
 		}
 		try follow(&d)
 		for line in strings.Split(text, "\n") {
@@ -150,6 +176,8 @@ func headless(rows []catalog.Star, height int) fails os.Exit needs Ambient | go.
 				send(&d, w, m.Signal) catch {
 				case ui.NoNode as x:
 					out.Println("? no node " + x.Label)
+				case ui.Mismatch as miss:
+					out.Println("? want " + miss.Want + ", got " + miss.Got)
 				case ui.Closed, actor.Stopped:
 					return os.Exit{Code: 1, Message: "stars-gui: the app stopped"}
 				case ui.BadPatch as b:
@@ -162,12 +190,17 @@ func headless(rows []catalog.Star, height int) fails os.Exit needs Ambient | go.
 				refused.Set([]catalog.Refused{})
 			}
 		}
+		match desktop.Differs(&d) {
+		case Some[string] as why:
+			out.Println("? the kept layout differs from the rebuilt one: " + why.Value)
+		case None:
+		}
 		a.Stop()
 	}
 }
 
 // send gives the window the input of a table signal.
-func send[D, F](d *desktop.Driver[catalog.State, window.Signal, D, F], w go.Ref[screen.Window], sig catalog.Signal) fails ui.NoNode | ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
+func send[D, F](d mut desktop.Driver[catalog.State, window.Signal, D, F], w go.Ref[screen.Window], sig catalog.Signal) fails ui.NoNode | ui.Mismatch | ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
 	match sig {
 	case catalog.Type as t:
 		// The field reports its whole text: the window types the letters
@@ -189,7 +222,7 @@ func send[D, F](d *desktop.Driver[catalog.State, window.Signal, D, F], w go.Ref[
 
 // unfocus clicks the list, which takes no focus, so a key goes to the
 // table and not to a focused button or field.
-func unfocus[D, F](d *desktop.Driver[catalog.State, window.Signal, D, F], w go.Ref[screen.Window]) fails ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
+func unfocus[D, F](d mut desktop.Driver[catalog.State, window.Signal, D, F], w go.Ref[screen.Window]) fails ui.Closed | actor.Stopped | ui.BadPatch needs go.Foreign {
 	if desktop.FocusId(d) == None {
 		return
 	}
@@ -205,11 +238,11 @@ func unfocus[D, F](d *desktop.Driver[catalog.State, window.Signal, D, F], w go.R
 }
 
 // follow scrolls the list to the table's window, with the wheel.
-func follow[D, F](d *desktop.Driver[catalog.State, window.Signal, D, F]) fails os.Exit needs go.Foreign {
+func follow[D, F](d mut desktop.Driver[catalog.State, window.Signal, D, F]) fails os.Exit needs go.Foreign {
 	let g = catalog.GridOf(desktop.StateOf(d))
 	let rh = window.RowHeight
 	desktop.Play(d, []ui.Act{ui.ScrollOn{Label: "stars", Offset: rh * ui.Length(float64(g.Top)), Height: rh * ui.Length(float64(g.Height))}}) catch {
-	case ui.NoNode, ui.Closed, actor.Stopped:
+	case ui.NoNode, ui.Mismatch, ui.Closed, actor.Stopped:
 		return os.Exit{Code: 1, Message: "stars-gui: the window has no list to scroll"}
 	case ui.BadPatch as b:
 		return os.Exit{Code: 1, Message: "stars-gui: the view's patch did not apply: " + b.Why}

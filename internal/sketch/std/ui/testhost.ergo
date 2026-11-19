@@ -37,7 +37,7 @@ type NoNode { Label string }
 // tasks sleep on (a test binds it as their Scheduler); only Advance moves
 // it. A fetch's result waits in a queue of room results until the host
 // takes it.
-func NewTestHost[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], view own func(f *Frame[E], s S) needs R, clock time.Manual, room int) TestHost[S, E, D, F] fails BadPatch needs R {
+func NewTestHost[E comparable, S, D, F, R](a actor.Actor[S, E, D, F], view own func(f mut Frame[E], s S) needs R, clock time.Manual, room int) TestHost[S, E, D, F] fails BadPatch needs R {
 	let posted = queue.New[Event[E]](room)
 	let (s, first) = Start(a, view, func(ev Event[E]) {
 		posted.Push(ev) catch {
@@ -56,7 +56,7 @@ func hostOf[E comparable, S, D, F](s own Session[S, E, D, F], first []Op[E], pos
 }
 
 // apply steps one event and shows its patch.
-func apply[E comparable, S, D, F](h *TestHost[S, E, D, F], ev Event[E]) fails actor.Stopped | BadPatch {
+func apply[E comparable, S, D, F](h mut TestHost[S, E, D, F], ev Event[E]) fails actor.Stopped | BadPatch {
 	let ops = try Step(&h.session, ev)
 	try Apply(&h.mirror, ops)
 	for op in ops {
@@ -71,7 +71,7 @@ func apply[E comparable, S, D, F](h *TestHost[S, E, D, F], ev Event[E]) fails ac
 }
 
 // say logs the text of a live region the patch wrote, unless it is empty.
-func say[S, E, D, F](h *TestHost[S, E, D, F], n Node[E]) {
+func say[S, E, D, F](h mut TestHost[S, E, D, F], n Node[E]) {
 	match n {
 	case LiveNode as l:
 		if l.Text != "" {
@@ -82,17 +82,17 @@ func say[S, E, D, F](h *TestHost[S, E, D, F], n Node[E]) {
 }
 
 // Tap presses the node id.
-func Tap[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E]) fails actor.Stopped | BadPatch {
+func Tap[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E]) fails actor.Stopped | BadPatch {
 	try apply(h, Press[E]{Id: id})
 }
 
 // TypeText types text into the node id.
-func TypeText[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E], text string) fails actor.Stopped | BadPatch {
+func TypeText[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E], text string) fails actor.Stopped | BadPatch {
 	try apply(h, Type[E]{Id: id, Text: text})
 }
 
 // Pump takes every result a fetch has posted, without waiting.
-func Pump[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
+func Pump[E comparable, S, D, F](h mut TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
 	for {
 		match h.posted.Poll() {
 		case Some[Event[E]] as ev:
@@ -109,7 +109,7 @@ func Pump[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped | 
 // load's result (models/uiloop SettledShowsLatest). A fetch that waits on
 // the clock waits until an Advance; Settle does not move the clock, so a
 // script advances first.
-func Settle[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
+func Settle[E comparable, S, D, F](h mut TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
 	for {
 		for InFlight(&h.session) > 0 {
 			let ev = h.posted.Pop() catch {
@@ -137,7 +137,7 @@ func Settle[E comparable, S, D, F](h *TestHost[S, E, D, F]) fails actor.Stopped 
 // animating stops the frames: the rest of d passes with no Tick, and
 // nothing is owed. Advance takes no fetch result: a fetch it wakes posts
 // on its own task, and Settle or Pump takes it.
-func Advance[E comparable, S, D, F](h *TestHost[S, E, D, F], d duration) fails actor.Stopped | BadPatch {
+func Advance[E comparable, S, D, F](h mut TestHost[S, E, D, F], d duration) fails actor.Stopped | BadPatch {
 	let mut left = d
 	for Animating(&h.session.frame) && left >= h.period-h.owed {
 		let due = h.period - h.owed
@@ -157,7 +157,7 @@ func Advance[E comparable, S, D, F](h *TestHost[S, E, D, F], d duration) fails a
 
 // FrameEvery sets the frame period of Advance (16ms when made); a period
 // under 1ns leaves it as it is.
-func FrameEvery[S, E, D, F](h *TestHost[S, E, D, F], period duration) {
+func FrameEvery[S, E, D, F](h mut TestHost[S, E, D, F], period duration) {
 	if period >= 1ns {
 		h.period = period
 	}
@@ -165,29 +165,29 @@ func FrameEvery[S, E, D, F](h *TestHost[S, E, D, F], period duration) {
 
 // WantsFrames is whether the view asks for frames: whether its last pass
 // made an Animate (what Run tells a window through Host.Frames).
-func WantsFrames[S, E, D, F](h *TestHost[S, E, D, F]) bool { Animating(&h.session.frame) }
+func WantsFrames[S, E, D, F](h mut TestHost[S, E, D, F]) bool { Animating(&h.session.frame) }
 
 // Frames is the number of Ticks the host has sent.
-func Frames[S, E, D, F](h *TestHost[S, E, D, F]) int { h.frames }
+func Frames[S, E, D, F](h mut TestHost[S, E, D, F]) int { h.frames }
 
 // PointAt sends a pointer event to the node id (the host's hit test, which
 // a test does by naming the node), over no zone. While an Area holds the
 // pointer (a Down went to it, and no Up yet), the event goes to that Area
 // instead, wherever the pointer is, and p is in that Area's box: pointer
 // capture, as a host does it (Host, H5g).
-func PointAt[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E], p PointerEvent) fails actor.Stopped | BadPatch {
+func PointAt[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E], p PointerEvent) fails actor.Stopped | BadPatch {
 	try point(h, id, None, p)
 }
 
 // PointOver sends a pointer event to the Area id over the zone zone, whose
 // box in the Area's box is box (the host's hit test of the topmost zone
 // under the pointer). Capture holds as for PointAt.
-func PointOver[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E], zone Id[E], box Rect, p PointerEvent) fails actor.Stopped | BadPatch {
+func PointOver[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E], zone Id[E], box Rect, p PointerEvent) fails actor.Stopped | BadPatch {
 	try point(h, id, Some{Value: ZoneBox[E]{Id: zone, Box: box}}, p)
 }
 
 // Captured is the Area that holds the pointer, None when none does.
-func Captured[S, E, D, F](h *TestHost[S, E, D, F]) Option[Id[E]] {
+func Captured[S, E, D, F](h mut TestHost[S, E, D, F]) Option[Id[E]] {
 	match h.captured {
 	case Some[Id[E]] as c:
 		if isArea(&h.session.frame, c.Value) {
@@ -201,12 +201,12 @@ func Captured[S, E, D, F](h *TestHost[S, E, D, F]) Option[Id[E]] {
 
 // Announced is what the live regions said, in order: each text a pass
 // newly showed in one (Announce), none for an empty one.
-func Announced[S, E, D, F](h *TestHost[S, E, D, F]) []string { h.said }
+func Announced[S, E, D, F](h mut TestHost[S, E, D, F]) []string { h.said }
 
 // point routes a pointer event as a host does: to the Area that holds the
 // pointer, if one does and the tree still holds it; a Down makes the
 // Area it goes to hold the pointer, and an Up lets go.
-func point[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E], over Option[ZoneBox[E]], p PointerEvent) fails actor.Stopped | BadPatch {
+func point[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E], over Option[ZoneBox[E]], p PointerEvent) fails actor.Stopped | BadPatch {
 	let mut to = id
 	match Captured(h) {
 	case Some[Id[E]] as c:
@@ -226,7 +226,7 @@ func point[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E], over Option
 }
 
 // isArea is whether f holds id and it is an Area.
-func isArea[E](f *Frame[E], id Id[E]) bool {
+func isArea[E](f mut Frame[E], id Id[E]) bool {
 	match NodeOf(f, id) {
 	case Some[Node[E]] as n:
 		match n.Value {
@@ -242,39 +242,39 @@ func isArea[E](f *Frame[E], id Id[E]) bool {
 
 // ScrollTo reports the viewport of the list id: its scroll offset and
 // visible height (a host sends this as it scrolls or sizes the list).
-func ScrollTo[E comparable, S, D, F](h *TestHost[S, E, D, F], id Id[E], offset Length, height Length) fails actor.Stopped | BadPatch {
+func ScrollTo[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E], offset Length, height Length) fails actor.Stopped | BadPatch {
 	try apply(h, Scrolled[E]{Id: id, Offset: offset, Height: height})
 }
 
 // RowRuns is how many row functions of Rows the last pass ran: the work
 // a list costs, which grows with its viewport and not with its count.
-func RowRuns[S, E, D, F](h *TestHost[S, E, D, F]) int { ranRows(&h.session.frame) }
+func RowRuns[S, E, D, F](h mut TestHost[S, E, D, F]) int { ranRows(&h.session.frame) }
 
 // PressKey sends a key press.
-func PressKey[E comparable, S, D, F](h *TestHost[S, E, D, F], k KeyPress) fails actor.Stopped | BadPatch {
+func PressKey[E comparable, S, D, F](h mut TestHost[S, E, D, F], k KeyPress) fails actor.Stopped | BadPatch {
 	try apply(h, KeyDown{Press: k})
 }
 
 // Now is the clock's time.
-func Now[S, E, D, F](h *TestHost[S, E, D, F]) time.Time { h.clock.Now() }
+func Now[S, E, D, F](h mut TestHost[S, E, D, F]) time.Time { h.clock.Now() }
 
 // Screen is what the host shows, built only from the patches.
-func Screen[S, E, D, F](h *TestHost[S, E, D, F]) []Shape[E] { MirrorShape(&h.mirror) }
+func Screen[S, E, D, F](h mut TestHost[S, E, D, F]) []Shape[E] { MirrorShape(&h.mirror) }
 
 // StateOf is the actor's state.
-func StateOf[S, E, D, F](h *TestHost[S, E, D, F]) S { h.session.actor.State() }
+func StateOf[S, E, D, F](h mut TestHost[S, E, D, F]) S { h.session.actor.State() }
 
 // Fetching is the number of fetches in flight.
-func Fetching[S, E, D, F](h *TestHost[S, E, D, F]) int { InFlight(&h.session) }
+func Fetching[S, E, D, F](h mut TestHost[S, E, D, F]) int { InFlight(&h.session) }
 
 // Find is the first node on the screen, in tree order, whose label is
 // label: a Pressable's, a Check's or a Toggle's label, a Text's value, an
 // Input's placeholder.
-func Find[S, E, D, F](h *TestHost[S, E, D, F], label string) Option[Id[E]] {
+func Find[S, E, D, F](h mut TestHost[S, E, D, F], label string) Option[Id[E]] {
 	findIn(&h.mirror, h.mirror.root, label)
 }
 
-func findIn[E](m *Mirror[E], id Id[E], label string) Option[Id[E]] {
+func findIn[E](m mut Mirror[E], id Id[E], label string) Option[Id[E]] {
 	match m.nodes.Get(id) {
 	case Some[mirrored[E]] as n:
 		for k in n.Value.kids {
@@ -324,11 +324,11 @@ func labelOf[E](n Node[E]) Option[string] {
 // History is the test host's history, at "/" when the host starts: the
 // Location a test binds for the program (H7), and the one the user's
 // navigations (Navigate, GoBackOn) move.
-func History[S, E, D, F](h *TestHost[S, E, D, F]) MemoryHistory { h.history }
+func History[S, E, D, F](h mut TestHost[S, E, D, F]) MemoryHistory { h.history }
 
 // Navigate is the user going to href, as a typed address or a link the
 // host follows: a Push of the history, then URLChanged.
-func Navigate[E comparable, S, D, F](h *TestHost[S, E, D, F], href string) fails actor.Stopped | BadPatch {
+func Navigate[E comparable, S, D, F](h mut TestHost[S, E, D, F], href string) fails actor.Stopped | BadPatch {
 	let u = ParseURL(href)
 	Push(h.history, u)
 	try apply(h, URLChanged{URL: u})
@@ -337,7 +337,7 @@ func Navigate[E comparable, S, D, F](h *TestHost[S, E, D, F], href string) fails
 // GoBackOn is the user pressing back: when the history moves, URLChanged
 // with the place it moved to, and true; false at the first entry, with
 // no event.
-func GoBackOn[E comparable, S, D, F](h *TestHost[S, E, D, F]) bool fails actor.Stopped | BadPatch {
+func GoBackOn[E comparable, S, D, F](h mut TestHost[S, E, D, F]) bool fails actor.Stopped | BadPatch {
 	if !Back(h.history) {
 		return false
 	}
@@ -346,13 +346,13 @@ func GoBackOn[E comparable, S, D, F](h *TestHost[S, E, D, F]) bool fails actor.S
 }
 
 // Locate is the nodes on the screen that loc finds, in tree order (H4r).
-func Locate[S, E, D, F](h *TestHost[S, E, D, F], loc Locator) []Id[E] { LocateIn(&h.mirror, loc) }
+func Locate[S, E, D, F](h mut TestHost[S, E, D, F], loc Locator) []Id[E] { LocateIn(&h.mirror, loc) }
 
 // AccessAt is the node id names on the screen as a locator reads it.
-func AccessAt[S, E, D, F](h *TestHost[S, E, D, F], id Id[E]) Access { AccessOf(&h.mirror, id) }
+func AccessAt[S, E, D, F](h mut TestHost[S, E, D, F], id Id[E]) Access { AccessOf(&h.mirror, id) }
 
 // Expect checks is against what loc finds on the screen.
-func Expect[S, E, D, F](h *TestHost[S, E, D, F], loc Locator, is Matcher) fails Mismatch {
+func Expect[S, E, D, F](h mut TestHost[S, E, D, F], loc Locator, is Matcher) fails Mismatch {
 	try ExpectIn(&h.mirror, loc, is)
 }
 
@@ -371,7 +371,7 @@ type GoBack {}
 // Play runs a script in order. A step whose label or locator names no
 // node fails NoNode with that label or locator, and an ExpectOn that does
 // not hold fails Mismatch.
-func Play[E comparable, S, D, F](h *TestHost[S, E, D, F], script []Act) fails NoNode | Mismatch | actor.Stopped | BadPatch {
+func Play[E comparable, S, D, F](h mut TestHost[S, E, D, F], script []Act) fails NoNode | Mismatch | actor.Stopped | BadPatch {
 	for act in script {
 		match act {
 		case TapOn as x:
@@ -402,7 +402,7 @@ func Play[E comparable, S, D, F](h *TestHost[S, E, D, F], script []Act) fails No
 	}
 }
 
-func first[S, E, D, F](h *TestHost[S, E, D, F], loc Locator) Id[E] fails NoNode {
+func first[S, E, D, F](h mut TestHost[S, E, D, F], loc Locator) Id[E] fails NoNode {
 	let ids = Locate(h, loc)
 	if len(ids) == 0 {
 		return NoNode{Label: locatorText(loc)}
@@ -410,7 +410,7 @@ func first[S, E, D, F](h *TestHost[S, E, D, F], loc Locator) Id[E] fails NoNode 
 	ids[0]
 }
 
-func found[S, E, D, F](h *TestHost[S, E, D, F], label string) Id[E] fails NoNode {
+func found[S, E, D, F](h mut TestHost[S, E, D, F], label string) Id[E] fails NoNode {
 	match Find(h, label) {
 	case Some[Id[E]] as id:
 		id.Value
@@ -421,7 +421,7 @@ func found[S, E, D, F](h *TestHost[S, E, D, F], label string) Id[E] fails NoNode
 
 // Screenshot is the screen as text, one node a line, indented by depth:
 // what an agent reads. A canvas's paint list follows it, one op a line.
-func Screenshot[S, E, D, F](h *TestHost[S, E, D, F]) string {
+func Screenshot[S, E, D, F](h mut TestHost[S, E, D, F]) string {
 	let mut out = ""
 	for line in shotLines(Screen(h), "") {
 		out = out + line + "\n"

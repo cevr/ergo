@@ -62,7 +62,7 @@ func Places(v Value) []Place {
 	out
 }
 
-func places(out *[]Place, ptr string, v Value) {
+func places(out mut []Place, ptr string, v Value) {
 	*out = (*out).Append(Place{Pointer: ptr, At: v})
 	match v {
 	case Array as a:

@@ -187,7 +187,7 @@ func dm%[1]s%[2]s(m Map[%[6]s, %[3]s]) int {
 	t
 }
 
-func bump%[1]s%[2]s(r *%[1]s%[2]s, k %[6]s) %[6]s {
+func bump%[1]s%[2]s(r mut %[1]s%[2]s, k %[6]s) %[6]s {
 	r.m[k] = %[4]s
 	k
 }
@@ -196,7 +196,7 @@ func bump%[1]s%[2]s(r *%[1]s%[2]s, k %[6]s) %[6]s {
 	if f.moved {
 		s += fmt.Sprintf(`func find%[1]s%[2]s(m Map[%[5]s, %[3]s], k %[5]s) Option[%[3]s] { m.Get(k) }
 
-func rmw%[1]s%[2]s(r *%[1]s%[2]s, k %[5]s) int {
+func rmw%[1]s%[2]s(r mut %[1]s%[2]s, k %[5]s) int {
 	let mut s = %[4]s
 	match r.m.Get(k) {
 	case Some[%[3]s] as v:
@@ -254,7 +254,7 @@ func (g *copyGen) shape(fam copyFamily, combo int) {
 	}
 	// head opens the function over the store; call is main's call of it,
 	// with the store digest after.
-	head := fmt.Sprintf("func %s(r *%s, k %s) int {\n", name, st, fam.kt)
+	head := fmt.Sprintf("func %s(r mut %s, k %s) int {\n", name, st, fam.kt)
 	if !ptr {
 		head = fmt.Sprintf("func %s(k %s) int {\n\tlet mut r = new%s()\n", name, fam.kt, st)
 	}
@@ -461,6 +461,37 @@ func (g *copyGen) chain(name string, k int, shape, head, body *string, want *int
 	}
 }
 
+// takes writes the three Take shapes (PRIM-3), after the drawn ones, so
+// the seeds keep their paths: "take loop" drains a Map it owns, a Take
+// whose rest is rebound to its source each time, with no copy; "take
+// param" takes from a parameter its caller still holds, from one copy;
+// "take then put" is below.
+func (g *copyGen) takes() {
+	g.n++
+	loop := fmt.Sprintf("tkLoop%d", g.n)
+	g.fns.WriteString(fmt.Sprintf("func %s(n int) int {\n\tlet mut m = Map[int, int]{}\n\tfor i in 0..n {\n\t\tm[i] = i\n\t}\n\tlet mut s = 0\n\tfor i in 0..n {\n\t\tlet v, rest = m.Take(i)\n\t\tm = rest\n\t\tmatch v {\n\t\tcase Some[int] as x:\n\t\t\ts += x.Value\n\t\tcase None:\n\t\t}\n\t}\n\ts * 10 + szM(m)\n}\n\n", loop))
+	g.main.WriteString(fmt.Sprintf("\tConsole.Println(\"\\(%s(%d))\")\n", loop, 4))
+	g.model[loop], g.mapOnly[loop] = 0, true
+	g.order = append(g.order, loop)
+	g.reached["take loop"] = true
+	g.n++
+	param := fmt.Sprintf("tkParam%d", g.n)
+	g.fns.WriteString(fmt.Sprintf("func %s(m Map[int, int], k int) int {\n\tlet _, rest = m.Take(k)\n\tszM(rest)\n}\n\n", param))
+	g.main.WriteString(fmt.Sprintf("\tlet tm%d = Map[int, int]{1: 1, 2: 2}\n\tConsole.Println(\"\\(%s(tm%d, 1)) \\(szM(tm%d))\")\n", g.n, param, g.n, g.n))
+	g.model[param], g.mapOnly[param] = 1, true
+	g.order = append(g.order, param)
+	g.reached["take param"] = true
+	// "take then put": the Take copies m, which stays live; the Take only
+	// reads m, so the Put that follows writes m in place.
+	g.n++
+	put := fmt.Sprintf("tkPut%d", g.n)
+	g.fns.WriteString(fmt.Sprintf("func %s(n int) int {\n\tlet mut m = Map[int, int]{1: 1, 2: 2}\n\tlet _, rest = m.Take(1)\n\tm = m.Put(n, n)\n\tszM(rest) * 10 + szM(m)\n}\n\n", put))
+	g.main.WriteString(fmt.Sprintf("\tConsole.Println(\"\\(%s(%d))\")\n", put, 5))
+	g.model[put], g.mapOnly[put] = 1, true
+	g.order = append(g.order, put)
+	g.reached["take then put"] = true
+}
+
 // copyAdversaries are the agreement-only shapes of the moved family.
 var copyAdversaries = []string{"rmw snapshot", "rmw kept get", "rmw put shared", "rmw literal shared", "rmw across call", "rmw generic", "rmw option fn", "rmw range", "rmw ref get", "rmw same value", "rmw return between", "update snapshot", "update other", "update shared", "update named shared"}
 
@@ -473,7 +504,7 @@ func (g *copyGen) adversary(e copyEntry, which string, ptr bool) {
 	st := fam.pre + e.k
 	sz := "sz" + e.k
 	mt := fmt.Sprintf("Map[string, %s]", e.typ)
-	head := fmt.Sprintf("func %s(r *%s, k string) int {\n", name, st)
+	head := fmt.Sprintf("func %s(r mut %s, k string) int {\n", name, st)
 	if !ptr {
 		head = fmt.Sprintf("func %s(k string) int {\n\tlet mut r = new%s()\n", name, st)
 	}
@@ -520,7 +551,7 @@ func (g *copyGen) adversary(e copyEntry, which string, ptr bool) {
 		// Through a borrow, so the caller reads the store after the
 		// return, which names nothing but X.
 		ptr = true
-		head, tail = fmt.Sprintf("func %s(r *%s, k string) int {\n", name, st), ""
+		head, tail = fmt.Sprintf("func %s(r mut %s, k string) int {\n", name, st), ""
 		body = fmt.Sprintf("\tlet mut s = %s\n\tmatch r.m.Get(k) {\n\tcase Some[%s] as v:\n\t\ts = v.Value\n\tcase None:\n\t}\n\t%s\n\tif len(k) == 1 {\n\t\treturn %s(s)\n\t}\n\tr.m[k] = s\n\tdm%s(r.m) * 3\n", e.zero, e.typ, e.write, sz, st)
 	case "update snapshot":
 		body = fmt.Sprintf("\tlet snap = r.m\n\tr.m = maps.Update(r.m, k, func(_ Option[%s]) %s { %s })\n", e.typ, e.typ, e.zero) + rmw + fmt.Sprintf("\tdm%s(snap) * 3 + dm%s(r.m)%s\n", st, st, tail)
@@ -529,7 +560,7 @@ func (g *copyGen) adversary(e copyEntry, which string, ptr bool) {
 		// table at its type parameters), and the move-out writes one.
 		// Through a borrow: nothing writes r.
 		ptr = true
-		head, tail = fmt.Sprintf("func %s(r *%s, k string) int {\n", name, st), ""
+		head, tail = fmt.Sprintf("func %s(r mut %s, k string) int {\n", name, st), ""
 		body = fmt.Sprintf("\tlet mut t = maps.Update(r.m, k + \"z\", func(_ Option[%[1]s]) %[1]s { %[2]s })\n\tlet mut s = %[2]s\n\tmatch t.Get(k) {\n\tcase Some[%[1]s] as v:\n\t\ts = v.Value\n\tcase None:\n\t}\n\t%[3]s\n\tt[k] = s\n\tdm%[4]s(t) * 3 + dm%[4]s(r.m)%[5]s\n", e.typ, e.zero, e.write, st, tail)
 	case "update named shared":
 		// A callback by name that returns a package let: not fresh.
@@ -582,6 +613,7 @@ func copyProgram(seed uint64, reached map[string]bool) (string, *copyGen) {
 			}
 		}
 	}
+	g.takes()
 	var src strings.Builder
 	src.WriteString(copyPrelude)
 	for _, f := range copyFamilies {
@@ -648,7 +680,7 @@ func copyPaths() []string {
 			}
 		}
 	}
-	out = append(out, "chain param", "chain loop", "chain put", "chain delete", "chain root")
+	out = append(out, "chain param", "chain loop", "chain put", "chain delete", "chain root", "take loop", "take param", "take then put")
 	return out
 }
 

@@ -16,7 +16,7 @@ import (
 // (gate-speed GS32c). The caller adds what only a build needs (output,
 // cache, toolchain, reuse).
 func emissionRequest(opts fileOptions, l loaded, mode build.Mode) sketchfront.BuildRequest {
-	req := sketchfront.BuildRequest{Mode: mode, Source: l.source.Admitted(), IR: true}
+	req := sketchfront.BuildRequest{Mode: mode, Source: l.source.Admitted(), IR: true, NoViews: opts.noViews}
 	if mode == build.ModeBuild {
 		req.Ledger, req.Locked = ledgerPath(opts.file), opts.locked
 	}

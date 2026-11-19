@@ -82,7 +82,9 @@ func TestEveryGoBoundFunctionLowers(t *testing.T) {
 			if path == "time" && strings.Contains(o.src, "\tlet keep = Some{Value: func() time.Time { rm }}\n\tlet r = if c { rm.In(a0) }") {
 				sawCapture = true
 			}
-			if path == "os" && strings.Contains(o.src, "\tlet f = func(p0 int) []fs.DirEntry fails go.Error needs go.Foreign { try recv.ReadDir(p0) }\n\tlet r = if c { try f(") {
+			// []fs.DirEntry holds Go interfaces, so it keeps the file
+			// and the literal uses it inside (keptShort; GB1).
+			if path == "os" && strings.Contains(o.src, "\tlet f = func(p0 int) fails go.Error needs go.Foreign {\n\t\tlet r = try recv.ReadDir(p0)\n\t\tlet _ = r\n\t}\n\tif c { try f(") {
 				sawMethodValue = true
 			}
 		}
@@ -186,7 +188,18 @@ type goBoundUse struct {
 	// binding row states: the checker names them (S102, goBoundReleaseNeed)
 	// and the program writes them in its needs clause (goBoundText).
 	releaseNeeds []string
+	// keptShort is a method value's plain form whose literal uses the
+	// result inside itself instead of returning it: a result that holds a
+	// handle keeps the receiver, so the literal cannot return it past the
+	// captured receiver (interop.md, Resources 5, keeps; GB1). The
+	// checker's keeps diagnostic on the plain form switches to it
+	// (goBoundKept); not a step down.
+	keptShort string
 }
+
+// goBoundKept is the keeps rule's escape diagnostic (check/lend.go,
+// keptEscapeText).
+var goBoundKept = regexp.MustCompile(`this value comes from \S+ and keeps \S+: a Go method's result`)
 
 var (
 	goBoundQualifier = regexp.MustCompile(`\b([a-z][a-z0-9_]*)\.[A-Z]`)
@@ -279,9 +292,10 @@ func goBoundUses(t *testing.T, path string) []goBoundUse {
 		// What the call keeps: the binding's own (before a parameter's
 		// type, or for the receiver before the receiver's type or the
 		// operation's name), and the conservative Go default the checker
-		// adds to it: a parameter or receiver Go may keep unless
-		// runtime/v1's reviewed table lends it (interop.md Resources 5,
-		// check/hostclauses.go). A callback keeps its own mode.
+		// adds to it: a parameter Go may keep unless runtime/v1's
+		// reviewed table lends it (interop.md Resources 5,
+		// check/hostclauses.go); a receiver only by the binding's own.
+		// A callback keeps its own mode.
 		takesRecv := recv != "" && recvOwn
 		if ft.Params != nil {
 			for _, fl := range ft.Params.List {
@@ -305,12 +319,11 @@ func goBoundUses(t *testing.T, path string) []goBoundUse {
 				}
 			}
 		}
-		off, recvIx := 0, -1
+		// A receiver is lent unless the binding writes own (the release,
+		// or a result that may hold the receiver; GB1).
+		off := 0
 		if recv != "" && !op {
-			off, recvIx = 1, 0
-		}
-		if recv != "" && !v1.GoArgLent(target, recvIx) {
-			takesRecv = true
+			off = 1
 		}
 		for i := range taken {
 			if !callback[i] && !v1.GoArgLent(target, i+off) {
@@ -398,9 +411,15 @@ func goBoundUses(t *testing.T, path string) []goBoundUse {
 			// (check.argParam, recvBorrow): the capture holds (types.md,
 			// Function values 3; ESC-idx). Its plain form is the call's.
 			fullC, _ := forms("rm."+fn, args)
+			// let mut rm = recv moves recv, so the use owns it (a Go
+			// receiver is lent, GB1); own on a crossing type narrows.
+			sigC := sig
+			if !takesRecv {
+				sigC = strings.Replace(sig, "recv "+recvType, "recv own "+recvType, 1)
+			}
 			out = append(out, goBoundUse{
 				target:  target + " (captured receiver)",
-				full:    sig + " {\n\tlet mut rm = recv\n\trm = rm\n\tlet keep = Some{Value: func() " + recvType + " { rm }}\n\t" + fullC + "\n\tlet _ = keep\n}\n",
+				full:    sigC + " {\n\tlet mut rm = recv\n\trm = rm\n\tlet keep = Some{Value: func() " + recvType + " { rm }}\n\t" + fullC + "\n\tlet _ = keep\n}\n",
 				short:   sig + " {\n\t" + short + "\n}\n",
 				imports: paths,
 				capture: true,
@@ -429,12 +448,32 @@ func goBoundUses(t *testing.T, path string) []goBoundUse {
 			}
 		}
 		sort.Strings(litPaths)
+		// The kept literal: no result, the result bound and used inside.
+		keptShort := ""
+		if results > 0 && !takesRecv {
+			use := "let r = " + try + callee + "(" + strings.Join(litArgs, ", ") + ")\n\t\tlet _ = r"
+			if results > 1 {
+				names := make([]string, results)
+				for i := range names {
+					names[i] = fmt.Sprintf("r%d", i)
+				}
+				use = "let (" + strings.Join(names, ", ") + ") = " + try + callee + "(" + strings.Join(litArgs, ", ") + ")"
+				for _, n := range names {
+					use += "\n\t\tlet _ = " + n
+				}
+			}
+			keptRows := goBoundRows(qualify(src[resEnd:end]))
+			keptLit := strings.TrimSpace("func("+strings.Join(litParams, ", ")+") "+keptRows) + " {\n\t\t" + use + "\n\t}"
+			call := try + "f(" + strings.Join(args, ", ") + ")"
+			keptShort = sig + " {\n\tlet f = " + keptLit + "\n\tif c { " + call + " } else { " + call + " }\n}\n"
+		}
 		out = append(out, goBoundUse{
 			target:       target + " (method value)",
 			full:         sig + " {\n\tlet f = " + callee + "\n\t" + fullV + "\n}\n",
 			short:        sig + " {\n\tlet f = " + lit + "\n\t" + plainV + "\n}\n",
 			imports:      paths,
 			plainImports: litPaths,
+			keptShort:    keptShort,
 		})
 	}
 	for _, d := range f.Decls {
@@ -485,10 +524,15 @@ func goBoundRows(s string) string {
 // `*S`, q38). Any other type is t.
 func goBoundOwned(t string) string {
 	if s, ok := strings.CutPrefix(t, "*"); ok {
-		return "go.Ref[" + s + "]"
+		return "go.Ref[" + goBoundBorrows.ReplaceAllString(s, "${1}mut ") + "]"
 	}
-	return t
+	// A function type's borrow parameter (func(*Flag)) is the borrow,
+	// written mut in Ergo source (MODES-2).
+	return goBoundBorrows.ReplaceAllString(t, "${1}mut ")
 }
+
+// goBoundBorrows finds a borrow *T written as a function type's parameter.
+var goBoundBorrows = regexp.MustCompile(`([(,] ?|[(,] ?[a-z_][A-Za-z0-9_]* )\*`)
 
 // goBoundOwnFault marks a diagnostic that the generator's own text causes:
 // own on a name whose type is no resource after narrowing, a retired
@@ -632,6 +676,10 @@ func lowerGoBoundUses(t *testing.T, imp check.Importer, path string, uses []goBo
 			m := goBoundCrossing.FindStringSubmatch(l.text)
 			if i := useAt(l.line); m != nil && i >= 0 && !uses[i].crossing[m[1]] && goBoundNames(uses[i], forms[i])[m[1]] {
 				uses[i].crossing[m[1]] = true
+				narrowed = true
+			}
+			if i := useAt(l.line); i >= 0 && forms[i] == goBoundPlain && uses[i].keptShort != "" && goBoundKept.MatchString(l.text) {
+				uses[i].short, uses[i].keptShort, uses[i].plainImports = uses[i].keptShort, "", nil
 				narrowed = true
 			}
 			m = goBoundReleaseNeed.FindStringSubmatch(l.text)

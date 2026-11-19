@@ -433,7 +433,7 @@ func (s *speller) typ(t Type) string {
 		s.hide("Map") // the syntax's Map[K, V] (grammar.md, Parser 8)
 		return "Map[" + s.typ(t.Key) + ", " + s.typ(t.Elem) + "]"
 	case *Pointer:
-		return "*" + s.typ(t.Elem) // a borrow, as a function type's parameter
+		return "mut " + s.typ(t.Elem) // a borrow, as a function type's parameter (MODES-2)
 	case *Tuple:
 		return "(" + s.list(t.Types) + ")"
 	case *RowArg:

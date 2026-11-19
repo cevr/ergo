@@ -83,4 +83,17 @@ func TestInspectAPIRoute(t *testing.T) {
 	if d := report.Derived[0]; d.Type != "Date" || d.Engine != "direct" || d.Reason == "" || d.States == 0 || d.Allocates {
 		t.Fatalf("derived: %+v", d)
 	}
+	// A derived foreign fact shows at each Go call operand it names, a
+	// method's receiver counted first (LAWFFI LF0; mutants
+	// ffi-check-reads-unread, ffi-check-receiver-index).
+	goCall := filepath.Join(dir, "gocall.ergo")
+	if err := os.WriteFile(goCall, []byte("import go sort\n\nfunc find(xs []int, k int) int {\n\tlet s = sort.IntSlice(xs)\n\tsort.SearchInts(xs, k) + s.Search(k) + len(xs) + len(s)\n}\n\nfunc main() {\n\tlet _ = find([]int{1, 2, 3}, 2)\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	facts := capture("facts", goCall)
+	for _, want := range []string{"gocall.ergo:5:18  fact-go-reads  sort.SearchInts  reads a  (checked: go escape analysis)", "gocall.ergo:5:27  fact-go-reads  sort.IntSlice.Search  reads p  (checked: go escape analysis)"} {
+		if !strings.Contains(facts, want) {
+			t.Fatalf("inspect facts lacks %q:\n%s", want, facts)
+		}
+	}
 }

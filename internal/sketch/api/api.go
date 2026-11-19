@@ -1,5 +1,6 @@
 // Package api projects public contracts from a checked package. It does not
-// infer ownership: takes and copies are facts of the checker, not of docs.
+// infer ownership: takes and the own marks are facts of the checker, not of
+// docs.
 package api
 
 import (
@@ -14,18 +15,10 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// Copy is a type parameter's first checked copy site. An empty Where means
-// the body is foreign; it is not an assertion that the parameter moves only.
-type Copy struct {
-	ParameterIndex int
-	Parameter      string
-	Where          string
-	What           string
-	Key            bool
-}
-
 // Function is an exported function, including functions reached as methods.
 // Takes contains parameter names (or "self" for a bare operation takes).
+// Own names the type parameters written [T own], which a resource may bind
+// (types.md, Generics 9).
 type Function struct {
 	Name            string
 	Signature       string
@@ -36,7 +29,7 @@ type Function struct {
 	TakesParameters []int
 	TakesSelf       bool
 	TakesInferred   bool
-	Copies          []Copy
+	Own             []string
 }
 
 func exported(s string) bool { r, _ := utf8.DecodeRuneInString(s); return unicode.IsUpper(r) }
@@ -60,9 +53,12 @@ func Functions(p *check.Package) []Function {
 				name = n.Obj.Name + "." + name
 			}
 		}
-		v := Function{Name: name, Signature: s.String(), Fails: s.Errors.String(), Needs: s.Uses.String(), Takes: []string{}, TakesParameters: []int{}, TakesSelf: s.TakesSelf, Copies: []Copy{}, TypeParameters: []string{}}
+		v := Function{Name: name, Signature: s.String(), Fails: s.Errors.String(), Needs: s.Uses.String(), Takes: []string{}, TakesParameters: []int{}, TakesSelf: s.TakesSelf, Own: []string{}, TypeParameters: []string{}}
 		for _, t := range s.TParams {
 			v.TypeParameters = append(v.TypeParameters, t.Name)
+			if t.Own {
+				v.Own = append(v.Own, t.Name)
+			}
 		}
 		takes := s.Takes
 		// Close's receiver take is inserted by the checker (R1), not
@@ -81,10 +77,6 @@ func Functions(p *check.Package) []Function {
 		}
 		slices.Sort(v.Takes)
 		slices.Sort(v.TakesParameters)
-		for _, c := range check.CopySites(f) {
-			v.Copies = append(v.Copies, Copy{ParameterIndex: c.TParam, Parameter: s.TParams[c.TParam].Name, Where: c.Where, What: c.What, Key: c.Key})
-		}
-		slices.SortFunc(v.Copies, func(a, b Copy) int { return strings.Compare(a.Parameter, b.Parameter) })
 		out = append(out, v)
 	}
 	slices.SortFunc(out, func(a, b Function) int { return strings.Compare(a.Name, b.Name) })
@@ -108,12 +100,8 @@ func Text(fs []Function) string {
 			origin = "inferred"
 		}
 		fmt.Fprintf(&b, "\n  takes %s (%s)\n", takes, origin)
-		for _, c := range f.Copies {
-			where := c.Where
-			if where == "" {
-				where = "foreign body"
-			}
-			fmt.Fprintf(&b, "  copies %s at %s (plain data only): %s\n", c.Parameter, where, c.What)
+		for _, name := range f.Own {
+			fmt.Fprintf(&b, "  own %s (a resource may bind it)\n", name)
 		}
 	}
 	if len(fs) == 0 {
@@ -171,9 +159,9 @@ func Diff(old, next []Function) []Change {
 					c.BreaksResourceCallers = true
 				}
 			}
-			for _, cp := range b.Copies {
-				found := slices.ContainsFunc(a.Copies, func(old Copy) bool { return old.ParameterIndex == cp.ParameterIndex })
-				if !found {
+			// A dropped mark refuses the callers that bind a resource.
+			for _, name := range a.Own {
+				if !slices.Contains(b.Own, name) {
 					c.BreaksResourceCallers = true
 				}
 			}

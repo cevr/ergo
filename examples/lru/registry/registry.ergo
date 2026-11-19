@@ -41,7 +41,7 @@ type Registry {
 }
 
 // Lookup is the port of name, from the Memo when it remembers one.
-func Lookup(m *memo.Memo[string, int], name string) int fails Unknown needs Registry {
+func Lookup(m mut memo.Memo[string, int], name string) int fails Unknown needs Registry {
 	try m.Get(name, func(s string) int fails Unknown needs Registry { try Registry.Port(s) })
 }
 

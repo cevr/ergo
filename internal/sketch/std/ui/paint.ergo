@@ -48,18 +48,18 @@ type PopPaint {}
 type Paint { ops []PaintOp }
 
 // Fill fills path with c.
-func Fill(p *Paint, path Path, c Color) {
+func Fill(p mut Paint, path Path, c Color) {
 	p.ops = p.ops.Append(FillOp{Path: path, Color: c})
 }
 
 // Stroke strokes path with c, width wide.
-func Stroke(p *Paint, path Path, c Color, width float64) {
+func Stroke(p mut Paint, path Path, c Color, width float64) {
 	p.ops = p.ops.Append(StrokeOp{Path: path, Color: c, Width: width})
 }
 
 // Transformed paints body under m, composed with the transforms around
 // it.
-func Transformed(p *Paint, m Affine, body func()) {
+func Transformed(p mut Paint, m Affine, body func()) {
 	p.ops = p.ops.Append(PushTransform{M: m})
 	body()
 	p.ops = p.ops.Append(PopPaint)
@@ -67,7 +67,7 @@ func Transformed(p *Paint, m Affine, body func()) {
 
 // Clipped paints body inside the rectangle at x, y of w by h, in the
 // coordinates of the transforms around it.
-func Clipped(p *Paint, x float64, y float64, w float64, h float64, body func()) {
+func Clipped(p mut Paint, x float64, y float64, w float64, h float64, body func()) {
 	p.ops = p.ops.Append(PushClip{X: x, Y: y, W: w, H: h})
 	body()
 	p.ops = p.ops.Append(PopPaint)
@@ -75,7 +75,7 @@ func Clipped(p *Paint, x float64, y float64, w float64, h float64, body func()) 
 
 // Canvas writes a canvas of width by height whose content is what draw
 // paints, a leaf named label. draw runs during the pass, once.
-func Canvas[E](f *Frame[E], label string, width Length, height Length, draw func(p *Paint), at CallSite) {
+func Canvas[E](f mut Frame[E], label string, width Length, height Length, draw func(p mut Paint), at CallSite) {
 	let mut p = Paint{ops: []PaintOp{}}
 	draw(&p)
 	let _ = put(f, CanvasNode{Label: label, Width: width, Height: height, Paint: p.ops}, None, None, at)
