@@ -16,10 +16,20 @@ import (
 	"testing"
 )
 
-// TestMain removes the folder builtErgo built into.
+// TestMain gives every ergo command the tests start an emission cache of
+// the test process's own, which ergo requires under a Go test (as
+// internal/testinputs does for the repository's packages), and removes it
+// and the folder builtErgo built into.
 func TestMain(m *testing.M) {
 	flag.Parse()
+	cache, err := os.MkdirTemp("", "hostsmygo-cache")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	os.Setenv("ERGO_CACHE", cache)
 	code := m.Run()
+	os.RemoveAll(cache)
 	if ergoDir != "" {
 		os.RemoveAll(ergoDir)
 	}
