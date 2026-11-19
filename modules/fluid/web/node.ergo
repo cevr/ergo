@@ -6,7 +6,8 @@ import strconv
 import strings
 
 // SkinOf is a look's skin: the look and its classes, resolved now. Make skins once (a package
-// value), never per render: a render reads the class string (guard ResolvedOncePerLook).
+// value), never per render: a render reads the class string. SkinOf is pure, so the fold
+// computes a constant look's skin at build time.
 func SkinOf(l look.Look) part.Skin { part.Skin{Look: l, Class: Classes(l)} }
 
 // SkinIn is SkinOf with the classes under names n.

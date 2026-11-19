@@ -11,8 +11,8 @@ per specimen with its stage, and the API reference.
   Every box is drawn with a `look.Look`; the looks resolve to atomic classes
   once, when the program starts (`kit`, `parts`, `chipParts`, `docKit`), and
   the page's head holds the one sheet built from all of them
-  (`web.Style`). The counted guard `ResolvedOncePerLook` (`tests.ergo`)
-  holds that a render resolves no look.
+  (`web.Style`). Resolution is pure, so a page whose looks are constant
+  folds to one constant at build time.
 - `cmd/fluid-gallery` prints the answer to `GET` of each path it is given;
   its cases are the pages.
 - `cmd/fluid-gallery-web FONT-FOLDER [ADDR]` serves the site and the fonts
