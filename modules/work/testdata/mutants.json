@@ -772,8 +772,8 @@
     {
       "name": "wg2-lock-preset-by-lines", "origin": "wf10/semws WG2",
       "file": "modules/work/work/merge.ergo",
-      "from": "\t\t\tout = out.Append(ClassLine{Match: p.Lock, Kind: \"derived\", Sets: []string{}, By: p.By, Driver: \"\"})",
-      "to": "\t\t\tout = out.Append(ClassLine{Match: p.Lock, Kind: \"lines\", Sets: []string{}, By: \"\", Driver: \"\"})",
+      "from": "\t\t\tout = out.Append(ClassLine{Match: p.Lock, Kind: \"derived\", Sets: []string{}, By: p.By, Driver: \"\", Candidate: false, Check: \"\", Version: \"\"})",
+      "to": "\t\t\tout = out.Append(ClassLine{Match: p.Lock, Kind: \"lines\", Sets: []string{}, By: \"\", Driver: \"\", Candidate: false, Check: \"\", Version: \"\"})",
       "rule": "A lock file is derived by its package manager, never merged by its lines (memory's LockIsTheManifests, PresetPicksTheLockThatExists).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
