@@ -297,8 +297,8 @@ func endOf(t Tree, k tokens, x uint32) int {
 		return endOf(t, k, fixed(t, x, 4, 3))
 	}
 	if kd == KLawDecl {
-		let r = fixed(t, x, 8, 4)
-		return if r != uint32(0) { endOf(t, k, r-uint32(1)) } else { endOf(t, k, fixed(t, x, 8, 3)-uint32(1)) }
+		let r = fixed(t, x, 9, 5)
+		return if r != uint32(0) { endOf(t, k, r-uint32(1)) } else { endOf(t, k, fixed(t, x, 9, 4)-uint32(1)) }
 	}
 	if kd == KLawReach {
 		if fixed(t, x, 6, 1) != uint32(0) {

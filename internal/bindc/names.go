@@ -153,7 +153,7 @@ var (
 	// function returned).
 	goLocals = map[string]bool{"err": true, "_r": true, "_e": true, "_p": true, "_ok": true, "_t": true}
 	// goMethods are the methods the emitter gives a struct of the header.
-	goMethods = map[string]bool{"fill": true}
+	goMethods = map[string]bool{"fill": true, "record": true}
 	// goPredeclared are Go's predeclared identifiers.
 	goPredeclared = map[string]bool{}
 )

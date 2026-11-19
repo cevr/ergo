@@ -1,0 +1,38 @@
+// Package counter is the contract of the CLI receipt (API-FIRST spec §3,
+// the CLI row): two operations, one with a record parameter (flags) and
+// one with a positional argument, each with a typed failure.
+
+// Entry is an amount to add to a key.
+type Entry { Key string, N int }
+
+// Negative is an Add of an amount under zero.
+type Negative { N int }
+
+// Unknown is a Get of a key that has no count.
+type Unknown { Key string }
+
+// Counter counts amounts by key.
+type Counter {
+	// Add adds the amount of entry to its key and is the new count.
+	Add(entry Entry) int fails Negative,
+	// Get is the count of key.
+	Get(key string) int fails Unknown,
+}
+
+// Tally is a Counter whose every key starts at its length: it keeps no
+// state, so each call of the receipt costs the same.
+type Tally {} implements Counter
+
+func Add(t Tally, entry Entry) int fails Negative {
+	if entry.N < 0 {
+		return Negative{N: entry.N}
+	}
+	len(entry.Key) + entry.N
+}
+
+func Get(t Tally, key string) int fails Unknown {
+	if key == "" || key[0] == 'z' {
+		return Unknown{Key: key}
+	}
+	len(key)
+}

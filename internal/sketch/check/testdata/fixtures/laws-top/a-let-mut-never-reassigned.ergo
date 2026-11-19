@@ -1,0 +1,4 @@
+law Never(n int) {
+	let mut x = n // want S110
+	x == n
+}
