@@ -480,7 +480,7 @@ func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program
 			if !entry.Type().IsRegular() {
 				problem("%s is not a regular file", file)
 			}
-		case file == "ergo.mod" || file == "ergo.laws" || file == "README.md" || file == "tags" || file == "origin" || file == "record.sh" || file == expectedSkipsFile || file == exploredFile || strings.HasSuffix(file, ".ergo"):
+		case moduleRootFile(file) || file == "tags" || file == "origin" || file == "record.sh" || file == exploredFile:
 			if !entry.Type().IsRegular() {
 				problem("%s is not a regular file", file)
 				continue
@@ -645,7 +645,8 @@ func (p *program) checkedDir(dir string) (sketchfront.Analysis, error) {
 
 // packageSources adds the .ergo files of the package folder dir, and of
 // the package folders under it, to the program's sources. A package
-// folder holds .ergo files and package folders only.
+// folder holds .ergo files and package folders, and the module's own Go
+// where the module's go.mod owns the folder (ownGoFile).
 func packageSources(p *program, dir, label string) []string {
 	return packageAssetSources(p, dir, label, map[string]bool{})
 }
@@ -661,6 +662,10 @@ func packageAssetSources(p *program, dir, label string, assets map[string]bool) 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return []string{err.Error()}
+	}
+	root, rootErr := filepath.Abs(p.dir)
+	if rootErr != nil {
+		return []string{rootErr.Error()}
 	}
 	var problems []string
 	for _, entry := range entries {
@@ -681,8 +686,10 @@ func packageAssetSources(p *program, dir, label string, assets map[string]bool) 
 		case strings.HasSuffix(name, ".ergo") && entry.Type().IsRegular():
 			p.sources = append(p.sources, filepath.Join(dir, name))
 		case assets[filepath.Join(dir, name)] && entry.Type().IsRegular():
+		case ownGoFile(root, dir, name) && entry.Type().IsRegular():
+			// The module's own Go bodies (interop.md Trusted Go 3; LF2m).
 		default:
-			problems = append(problems, fmt.Sprintf("unexpected %s/%s; a package folder holds .ergo files and package folders", label, name))
+			problems = append(problems, fmt.Sprintf("unexpected %s/%s; a package folder holds .ergo files and package folders, and Go files where the module's go.mod owns it", label, name))
 		}
 	}
 	return problems

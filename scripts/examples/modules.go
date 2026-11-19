@@ -87,7 +87,7 @@ func loadModule(dir, name string) (*program, []string) {
 			// only, never source. The original itself is not vendored when its
 			// text has no licence (modules/fluid).
 			problems = append(problems, originNotes(filepath.Join(dir, file))...)
-		case file == "ergo.mod" || file == "go.mod" || file == "go.sum" || file == "README.md" || file == "NOTICE" || file == expectedSkipsFile || file == fullTierFile || strings.HasSuffix(file, ".ergo"):
+		case moduleRootFile(file) || file == "NOTICE" || file == fullTierFile:
 			if !entry.Type().IsRegular() {
 				problem("%s is not a regular file", file)
 				continue
@@ -100,7 +100,7 @@ func loadModule(dir, name string) (*program, []string) {
 		case entry.IsDir():
 			problems = append(problems, packageSources(p, filepath.Join(dir, file), file)...)
 		default:
-			problem("unexpected %s; a module holds ergo.mod, go.mod, README.md and package folders, and may hold go.sum, NOTICE, expected-skips, full-tier, origin/ and testdata/", file)
+			problem("unexpected %s; a module holds ergo.mod, go.mod, README.md and package folders, and may hold go.sum, ergo.laws, NOTICE, expected-skips, full-tier, origin/ and testdata/", file)
 		}
 	}
 	for _, required := range []string{"ergo.mod", "go.mod", "README.md"} {
