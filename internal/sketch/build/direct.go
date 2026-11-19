@@ -98,9 +98,14 @@ func (r Report) String() string {
 // go build when the direct path refuses or fails.
 func (t Toolchain) Build(c Cache, module Module, output string, stderr io.Writer) (Report, error) {
 	var report Report
-	if t.GoBuild {
+	switch {
+	case t.GoBuild:
 		report.Refused = "go build selected"
-	} else {
+	case t.PGO != "":
+		// A profile recompiles std and the runtime with it: no pin set
+		// and no plan's std archives hold those objects.
+		report.Refused = "a PGO profile (release build)"
+	default:
 		d := direct{t: t, c: c, module: module, output: output}
 		err := d.build()
 		if err == nil {

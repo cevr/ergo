@@ -155,6 +155,12 @@ type fileOptions struct {
 	// debug is build's, run's and test's --debug: the link keeps the symbol
 	// table and DWARF, which it leaves out by default (compile-speed CS7).
 	debug bool
+	// release is build's --release: the build compiles with the
+	// program's CPU profile, default.pgo beside its source (go build
+	// -pgo; U4 PGO-RELEASE). profile is that file's absolute path, set by
+	// buildCommand (releaseProfile).
+	release bool
+	profile string
 	// explore is test's --explore: the tests run under the controlled
 	// scheduler (runtime.md, Explored schedules). search is its mode
 	// (dfs, pct, random, or replay with --schedule) and bounds; with no
@@ -354,6 +360,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 			opts.emitted = true
 		case "--debug":
 			opts.debug = true
+		case "--release":
+			opts.release = true
 		case "--explore":
 			opts.explore = true
 			if i+1 < len(args) && slices.Contains(exploreModes, args[i+1]) {
@@ -401,6 +409,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--emitted is only supported by build and test")
 	case opts.debug && command != "build" && command != "run" && command != "test":
 		return opts, fmt.Errorf("--debug is only supported by build, run and test")
+	case opts.release && command != "build":
+		return opts, fmt.Errorf("--release is only supported by build")
 	case opts.receipt != "" && command != "test":
 		return opts, fmt.Errorf("--receipt is only supported by test")
 	case (opts.explore || searched) && command != "test":

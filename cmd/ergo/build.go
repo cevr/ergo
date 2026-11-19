@@ -47,6 +47,11 @@ func buildCommand(args []string) error {
 	if opts.emitted {
 		return printEmitted(opts, build.ModeBuild)
 	}
+	if opts.release {
+		if opts.profile, err = releaseProfile(opts.file); err != nil {
+			return err
+		}
+	}
 	output, err := buildSource(opts, outputPath)
 	if err != nil {
 		return err
@@ -271,8 +276,31 @@ func actionFor(opts fileOptions, selected toolchain.Toolchain) build.Toolchain {
 	tc.Go, tc.Root = selected.Go, selected.Root
 	tc.GOOS, tc.GOARCH = opts.platform.GOOS, opts.platform.GOARCH
 	tc.Level = opts.level
+	tc.PGO = opts.profile
 	tc.Strip = !opts.debug
 	return tc
+}
+
+// releaseProfile is the CPU profile `ergo build --release` compiles with:
+// default.pgo in the source's folder (the folder named, or a file's), as
+// go build -pgo=auto takes default.pgo from the main package's folder.
+// `go run ./scripts/opcount -profile FILE NAME` writes one from the
+// program's own receipt workload. A missing file stops the build: a
+// release build that silently built without its profile would not be
+// the release it names.
+func releaseProfile(source string) (string, error) {
+	dir := source
+	if !isPackageFolder(source) {
+		dir = filepath.Dir(source)
+	}
+	path, err := filepath.Abs(filepath.Join(dir, "default.pgo"))
+	if err != nil {
+		return "", err
+	}
+	if info, err := os.Stat(path); err != nil || info.IsDir() {
+		return "", fmt.Errorf("--release builds with the program's CPU profile, %s, and there is none; write it from the program's workload with go run ./scripts/opcount -profile %s NAME", path, path)
+	}
+	return path, nil
 }
 
 // cutLevel splits --platform's OS/ARCH/LEVEL into OS/ARCH and LEVEL, the
