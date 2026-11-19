@@ -555,7 +555,7 @@
       "name": "lower-method-name",
       "origin": "wf10/selfhost/S4c3",
       "file": "compiler/lower/lower.ergo",
-      "from": "st.k.Recs[r].Name + \".\" + name",
+      "from": "(try declName(st, st.k.Recs[r].Name)) + \".\" + name",
       "to": "name",
       "rule": "A function whose first parameter is a plain record of its package is the Go method T.name.",
       "killers": [
@@ -607,15 +607,15 @@
       "rule": "A declaration of a package other than the build's root is spelled alias__name (NAME-LOCAL rule 2)."
     },
     {
+      "name": "lower-let-local-index",
       "origin": "wf10/selfhost/S4c6",
       "file": "compiler/lower/lower.ergo",
+      "from": "let l = try letOf(*st, syntax.Item(p.Tree, list, i), n+i)",
+      "to": "let l = try letOf(*st, syntax.Item(p.Tree, list, i), i)",
+      "rule": "A let's local follows the function's parameters' slots.",
       "killers": [
         "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
-      ],
-      "name": "lower-let-unread-kept",
-      "from": "\t\tif !l.read {\n",
-      "to": "\t\tif false {\n",
-      "rule": "A let no expression reads is discarded after its def (lower's irUseLocals)."
+      ]
     }
   ]
 }
