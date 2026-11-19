@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -17,7 +18,8 @@ import (
 // Mutants (testdata/mutants.json): ergotests-skip-is-pass,
 // ergotests-run-ignored, ergotests-empty-run-passes,
 // ergotests-testdata-walked, lawkiller-skipped-law-kills,
-// lawkiller-law-name-ignored, lawkiller-test-matches-law.
+// lawkiller-law-name-ignored, lawkiller-test-matches-law,
+// lawkiller-undecided-trusted, lawkiller-ergo-skip-trusted.
 func TestErgoTestsJudgeEachObligation(t *testing.T) {
 	root := t.TempDir()
 	write := func(name, text string) {
@@ -71,11 +73,50 @@ func TestErgoTestsJudgeEachObligation(t *testing.T) {
 		code int
 	}{{"Good", 0}, {"Bad", 1}, {"law:Doubles", 0}, {"law:Shouts", 1}, {"law:Missing", 1}, {"Doubles", 1}, {"law:Good", 1}} {
 		var out strings.Builder
-		if code := runKiller(&out, []string{dir}, c.name); code != c.code {
+		if code := runKiller(&out, []string{dir}, c.name, ""); code != c.code {
 			t.Errorf("ergotests -killer %s: exit %d, want %d\n%s", c.name, code, c.code, out.String())
 		}
 	}
 	if code, out := run(dir, "^law Shouts$"); code != 0 {
 		t.Errorf("-run of a law skipped at check time: exit %d, want 0 (as ergo check)\n%s", code, out)
+	}
+	// With -ergo, a law check time leaves undecided is decided by ergo
+	// test --law in its package's directory (a host module's law kills,
+	// LAW-KILLER); one check time decides runs no ergo. The stand-in ergo
+	// records its directory and words, and answers as told.
+	ergo := func(answer string, code int) (string, string) {
+		log := filepath.Join(root, "ergo-"+strings.ReplaceAll(answer, " ", "-")+".log")
+		bin := log + ".sh"
+		write(strings.TrimPrefix(bin, root+"/"), fmt.Sprintf("#!/bin/sh\necho \"$PWD $*\" > %s\necho %q\nexit %d\n", log, answer, code))
+		if err := os.Chmod(bin, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return bin, log
+	}
+	for _, c := range []struct {
+		law, answer string
+		exit, code  int
+		ran         bool
+	}{
+		{"law:Shouts", "ok law Shouts", 0, 0, true},
+		{"law:Shouts", "refuted law Shouts", 1, 1, true},
+		{"law:Shouts", "skipped law Shouts", 0, 1, true},
+		{"law:Doubles", "never asked", 1, 0, false},
+	} {
+		bin, log := ergo(c.answer, c.exit)
+		var out strings.Builder
+		if code := runKiller(&out, []string{dir}, c.law, bin); code != c.code {
+			t.Errorf("-ergo, -killer %s, ergo says %q: exit %d, want %d\n%s", c.law, c.answer, code, c.code, out.String())
+		}
+		data, err := os.ReadFile(log)
+		if !c.ran {
+			if err == nil {
+				t.Errorf("-killer %s, decided at check time, ran ergo: %s", c.law, data)
+			}
+			continue
+		}
+		if want := dir + " test . --law Shouts\n"; string(data) != want {
+			t.Errorf("ergo ran as %q; want %q", data, want)
+		}
 	}
 }

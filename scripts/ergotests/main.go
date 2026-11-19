@@ -22,6 +22,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -34,13 +35,14 @@ import (
 func main() {
 	run := flag.String("run", "", "run only the obligations whose name matches this regular expression")
 	killer := flag.String("killer", "", "run one test, or law:L for a law, as the mutant runner names a killer; it must pass")
+	ergo := flag.String("ergo", "", "the ergo binary that decides a -killer law check time leaves undecided (ergo test --law)")
 	flag.Parse()
 	if flag.NArg() == 0 || *run != "" && *killer != "" {
 		fmt.Fprintln(os.Stderr, "usage: ergotests [-run REGEXP | -killer NAME] DIR|DIR/...")
 		os.Exit(2)
 	}
 	if *killer != "" {
-		os.Exit(runKiller(os.Stdout, flag.Args(), *killer))
+		os.Exit(runKiller(os.Stdout, flag.Args(), *killer, *ergo))
 	}
 	var sel *regexp.Regexp
 	if *run != "" {
@@ -67,17 +69,76 @@ func runAll(w io.Writer, patterns []string, sel *regexp.Regexp) int {
 // P" for each provider it is checked for). Each must pass: a law skipped
 // or incomplete at check time kills nothing, so it is no killer
 // (LAW-KILLER).
-func runKiller(w io.Writer, patterns []string, name string) int {
-	match := func(r string) bool { return r == name && !strings.HasPrefix(r, "law ") }
-	if law, ok := strings.CutPrefix(name, "law:"); ok {
-		match = func(r string) bool { return r == "law "+law || strings.HasPrefix(r, "law "+law+" for ") }
+//
+// A law check time leaves undecided (skipped at a host call, or out of
+// steps) is decided by `ergo test . --law L` in its package's directory
+// when ergo names the binary: the build that decides laws, so a host
+// module's law (hosts/mygo/desktop's FitIsBroken) kills from the
+// repository root (LAW-KILLER). Its emission cache is a directory of the
+// run's own unless ERGO_CACHE is set.
+func runKiller(w io.Writer, patterns []string, name, ergo string) int {
+	law, isLaw := strings.CutPrefix(name, "law:")
+	if !isLaw {
+		return runPicked(w, patterns, func(r string) bool { return r == name && !strings.HasPrefix(r, "law ") }, true, "-killer "+name)
 	}
-	return runPicked(w, patterns, match, true, "-killer "+name)
+	match := func(r string) bool { return r == "law "+law || strings.HasPrefix(r, "law "+law+" for ") }
+	if ergo == "" {
+		return runPicked(w, patterns, match, true, "-killer "+name)
+	}
+	var undecided []string
+	code := runPickedThen(w, patterns, match, func(dir string, r eval.Result) bool {
+		if r.Status == eval.Skipped || r.Status == eval.Incomplete {
+			if !slices.Contains(undecided, dir) {
+				undecided = append(undecided, dir)
+			}
+			return true
+		}
+		return r.Status == eval.Passed
+	}, "-killer "+name)
+	for _, dir := range undecided {
+		if !ergoTestLaw(w, ergo, dir, law) {
+			code = 1
+		}
+	}
+	return code
+}
+
+// ergoTestLaw runs `ergo test . --law law` in dir and reports whether it
+// passed with no skip.
+func ergoTestLaw(w io.Writer, ergo, dir, law string) bool {
+	cmd := exec.Command(ergo, "test", ".", "--law", law)
+	cmd.Dir = dir
+	cmd.Env = os.Environ()
+	if os.Getenv("ERGO_CACHE") == "" {
+		cache, err := os.MkdirTemp("", "ergotests-cache-")
+		if err != nil {
+			fmt.Fprintf(w, "FAIL %s: law %s: %v\n", dir, law, err)
+			return false
+		}
+		defer os.RemoveAll(cache)
+		cmd.Env = append(cmd.Env, "ERGO_CACHE="+cache)
+	}
+	out, err := cmd.CombinedOutput()
+	w.Write(out)
+	if err != nil {
+		fmt.Fprintf(w, "FAIL %s: ergo test --law %s: %v\n", dir, law, err)
+		return false
+	}
+	if regexp.MustCompile(`(?m)^\s*skip`).Match(out) {
+		fmt.Fprintf(w, "FAIL %s: ergo test --law %s skipped it: a skip kills nothing\n", dir, law)
+		return false
+	}
+	return true
 }
 
 // runPicked runs the obligations match picks (all, when nil); strict makes
 // a law pass only when it passed. A selection that picks none fails.
 func runPicked(w io.Writer, patterns []string, match func(string) bool, strict bool, desc string) int {
+	return runPickedThen(w, patterns, match, func(_ string, r eval.Result) bool { return holds(r, strict) }, desc)
+}
+
+// runPickedThen is runPicked with ok judging each picked result.
+func runPickedThen(w io.Writer, patterns []string, match func(string) bool, ok func(dir string, r eval.Result) bool, desc string) int {
 	var dirs []string
 	for _, p := range patterns {
 		ds, err := packages(p)
@@ -89,7 +150,7 @@ func runPicked(w io.Writer, patterns []string, match func(string) bool, strict b
 	}
 	code, selected := 0, 0
 	for _, dir := range dirs {
-		n, ok := runDir(w, dir, match, strict)
+		n, ok := runDir(w, dir, match, ok)
 		selected += n
 		if !ok {
 			code = 1
@@ -135,7 +196,7 @@ func hasErgo(dir string) bool {
 
 // runDir checks dir, evaluates it and reports each selected obligation. It
 // returns how many it selected and whether they all hold.
-func runDir(w io.Writer, dir string, match func(string) bool, strict bool) (int, bool) {
+func runDir(w io.Writer, dir string, match func(string) bool, judge func(dir string, r eval.Result) bool) (int, bool) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		fmt.Fprintf(w, "FAIL %s: %v\n", dir, err)
@@ -161,7 +222,7 @@ func runDir(w io.Writer, dir string, match func(string) bool, strict bool) (int,
 			continue
 		}
 		n++
-		if holds(r, strict) {
+		if judge(dir, r) {
 			fmt.Fprintf(w, "%s %s: %s\n", r.Status, dir, r.Name)
 			continue
 		}

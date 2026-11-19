@@ -505,6 +505,9 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 // (scripts/ergotests, ST-0).
 var ergoTestsTool = Tool{Name: "ergotests", Package: "./scripts/ergotests", Flags: []string{"-buildvcs=false"}}
 
+// ergoTool is the ergo CLI, as ergoSuites builds it.
+var ergoTool = Tool{Name: "ergo", Package: "./cmd/ergo", Flags: []string{"-buildvcs=false"}}
+
 // ergoPackage says whether dir is an Ergo package with no Go test of its
 // own (compiler/syntax): a killer DIR:Name there is the Ergo test Name,
 // run by ergotests (ST-0). A directory with Go tests stays a Go suite.
@@ -596,7 +599,8 @@ func namedSuite(root, name string) (Suite, []Tool, bool) {
 		return Suite{}, nil, false
 	}
 	if !tagged && ergoPackage(root, dir) {
-		return Suite{Name: name, Command: []string{"{bin:ergotests}", "-killer", "{test}", "{root}/" + dir}}, []Tool{ergoTestsTool}, true
+		// ergo decides a law check time leaves undecided (LAW-KILLER).
+		return Suite{Name: name, Command: []string{"{bin:ergotests}", "-ergo", "{bin:ergo}", "-killer", "{test}", "{root}/" + dir}}, []Tool{ergoTestsTool, ergoTool}, true
 	}
 	if mod := nestedModule(root, dir); mod != "" {
 		return Suite{Name: name, Module: mod, Package: "./" + strings.TrimPrefix(strings.TrimPrefix(dir, mod), "/"), Tags: tags}, nil, true
