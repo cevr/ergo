@@ -944,6 +944,11 @@ func (in *irInliner) cloneStmt(s *irStmt, cp *irCopy) *irStmt {
 			n.Cases[i] = &nc
 		}
 	}
+	local := func(l int) int { return l }
+	if cp != nil {
+		local = cp.local
+	}
+	n.F, n.Was = s.F.copyFor(s.Cases, n.Cases, local), s.Was.copyFor(s.Cases, n.Cases, local) // ir_forms.go
 	if s.Ls != nil {
 		n.Ls = append([]int(nil), s.Ls...)
 	}

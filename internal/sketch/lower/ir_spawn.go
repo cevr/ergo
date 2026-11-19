@@ -114,6 +114,9 @@ func (s *spawnScan) copyStmts(list []*irStmt, sub func(*irExpr) *irExpr) []*irSt
 				n.Cases[j] = &nc
 			}
 		}
+		// A captured subject is read through the capture struct: the
+		// copy holds it in no local (ir_forms.go, copyFor).
+		n.F, n.Was = st.F.copyFor(st.Cases, n.Cases, s.subj), st.Was.copyFor(st.Cases, n.Cases, s.subj)
 		out[i] = &n
 	}
 	return out
@@ -145,6 +148,14 @@ func (s *spawnScan) copyExpr(e *irExpr, sub func(*irExpr) *irExpr) *irExpr {
 }
 
 func (s *spawnScan) outer(i int) bool { return i < s.mark }
+
+// subj is a match form's subject local in the copy: -1 for a captured one.
+func (s *spawnScan) subj(i int) int {
+	if s.outer(i) {
+		return -1
+	}
+	return i
+}
 
 // pointer reports a local of a pointer type.
 func (s *spawnScan) pointer(i int) bool {
