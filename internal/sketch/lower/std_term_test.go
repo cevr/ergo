@@ -456,7 +456,7 @@ let keyTable = []recorded{
 	recorded{bytes: "\x1bOA", key: term.Up},
 	recorded{bytes: "\x1bOD", key: term.Left},
 	recorded{bytes: "\x1b[H", key: term.Home},
-	recorded{bytes: "\x1b[term.F", key: term.End},
+	recorded{bytes: "\x1b[F", key: term.End},
 	recorded{bytes: "\x1bOH", key: term.Home},
 	recorded{bytes: "\x1bOF", key: term.End},
 	recorded{bytes: "\x1b[1~", key: term.Home},
