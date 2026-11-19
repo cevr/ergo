@@ -116,6 +116,29 @@ func Get(f RepeatedIntFlag, v Values) []int {
 	out
 }
 
+// RepeatedIntsKeepOrder: a repeated integer flag reads every integer the
+// command line gave it, in input order, by its long name and its alias
+// alike.
+law RepeatedIntsKeepOrder(ns []int) {
+	let counts = Int("count", 0, "a count").Repeated().WithAlias("c")
+	let s = Set{Name: "law", Usage: "", Flags: []Flag{counts}, Args: []ArgSpec{}}
+	let mut args = []string{}
+	for i, n in ns {
+		let spelling = if i % 2 == 0 { "-c=" } else { "--count=" }
+		args = args.Append(spelling + strconv.Itoa(n))
+	}
+	let got = counts.Get(try Parse(s, args))
+	if len(got) != len(ns) {
+		return false
+	}
+	for i, n in ns {
+		if got[i] != n {
+			return false
+		}
+	}
+	true
+}
+
 func Get(f RepeatedBoolFlag, v Values) []bool {
 	let xs = items(f, v)
 	let mut out = slices.WithCapacity[bool](len(xs))

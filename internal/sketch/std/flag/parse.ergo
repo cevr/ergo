@@ -227,22 +227,76 @@ func isRequired(f Flag) bool {
 
 // A spelling denotes one handle. Declaration errors are defects, not bad
 // user input. Check before help too, so help cannot hide an ambiguous set.
-// Each spelling is compared with those before it: no map is built for the
-// few flags of a command line (FLAG-FLOOR).
 func validateFlags(flags []Flag) {
+	match doubled(flags) {
+	case Some[string] as d:
+		Unreachable("flag: a flag spelling is declared twice: " + d.Value)
+	case None:
+	}
+}
+
+// doubled is the first spelling (a long name or an alias) that flags
+// declare twice, or None. Each spelling is compared with those before it:
+// no map is built for the few flags of a command line (FLAG-FLOOR).
+func doubled(flags []Flag) Option[string] {
 	for i, f in flags {
 		let (name, alias) = spellings(f)
 		if alias != "" && alias == name {
-			Unreachable("flag: a flag spelling is declared twice: " + name)
+			return Some[string]{Value: name}
 		}
 		for j in 0..i {
 			let (gn, ga) = spellings(flags[j])
 			if name == gn || name == ga && ga != "" {
-				Unreachable("flag: a flag spelling is declared twice: " + name)
+				return Some[string]{Value: name}
 			}
 			if alias != "" && (alias == gn || alias == ga) {
-				Unreachable("flag: a flag spelling is declared twice: " + alias)
+				return Some[string]{Value: alias}
 			}
 		}
 	}
+	None
+}
+
+// DoubledSpellingIsFound: doubled finds a spelling exactly when one is
+// declared twice, by long name or alias, and the one it names is declared
+// twice. The spellings come from a small alphabet so that they collide.
+law DoubledSpellingIsFound(picks []int) {
+	let longs = []string{"a", "b", "ab", "c"}
+	let shorts = []string{"", "a", "b", "c"}
+	let mut flags = []Flag{}
+	let mut all = []string{}
+	for p in picks {
+		let k = if p < 0 { -(p + 1) } else { p }
+		let long = longs[k%4]
+		let short = shorts[(k/4)%4]
+		all = all.Append(long)
+		if short == "" {
+			flags = flags.Append(String(long, "", "u"))
+		} else {
+			flags = flags.Append(String(long, "", "u").WithAlias(short))
+			all = all.Append(short)
+		}
+	}
+	match doubled(flags) {
+	case Some[string] as d:
+		occurrences(all, d.Value) >= 2
+	case None:
+		for s in all {
+			if occurrences(all, s) >= 2 {
+				return false
+			}
+		}
+		true
+	}
+}
+
+// occurrences is how many times s is in xs.
+func occurrences(xs []string, s string) int {
+	let mut n = 0
+	for x in xs {
+		if x == s {
+			n += 1
+		}
+	}
+	n
 }

@@ -351,6 +351,15 @@ let Json = flag.Bool("json", false, "print JSON")
 
 func main() needs Console | Ambient {
 	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
+	if args[0] == "doubled" {
+		let _ = flag.Parse(flag.Set{Name: "p", Usage: "", Flags: []flag.Flag{Json, flag.String("json", "", "")}, Args: []flag.ArgSpec{}}, []string{"-h"}) catch {
+		case _:
+			Console.Println("refused")
+			return
+		}
+		Console.Println("parsed")
+		return
+	}
 	let given = if args[1] == "given" { []string{"-json"} } else { []string{} }
 	let v = flag.Parse(flag.Set{Name: "p", Usage: "", Flags: []flag.Flag{Json}, Args: []flag.ArgSpec{}}, given) catch {
 	case _:
@@ -383,6 +392,11 @@ func main() needs Console | Ambient {
 				t.Errorf("%s handle, flag %s: exit %d (want 2), stdout %q, stderr %q", foreign, given, code, stdout, firstLines(stderr, 5))
 			}
 		}
+	}
+	// A set that declares a spelling twice is a defect before help
+	// (validateFlags; mutant flagfloor-doubled-not-checked).
+	if stdout, stderr, code := runExeInput(t, exes["flagforeign"], "", "doubled", "absent"); code != 2 || stdout != "" || !strings.Contains(stderr, "a flag spelling is declared twice: json") {
+		t.Errorf("doubled spelling: exit %d (want 2), stdout %q, stderr %q", code, stdout, firstLines(stderr, 5))
 	}
 }
 

@@ -104,8 +104,8 @@
       "file": "internal/sketch/std/flag/cardinality.ergo",
       "from": "\t\tout = out.Append(x.n)",
       "to": "\t\tout = out.Append(len(x.text))",
-      "rule": "A repeated integer handle reads every parsed integer, including through its alias.",
-      "killers": ["lower:TestFlagTreesAgree"],
+      "rule": "A repeated integer handle reads every parsed integer, including through its alias (law RepeatedIntsKeepOrder).",
+      "killers": ["lower:TestFlagTreeLaws", "lower:TestFlagTreesAgree"],
       "anchor": {"tests": ["lower:TestFlagTreesAgree"]}
     },
     {
@@ -6093,6 +6093,8 @@
     {"name":"flagfloor-given-not-counted","origin":"wf10 FLAG-FLOOR","file":"internal/sketch/std/flag/parse.ergo","from":"\t\tslots[at].given += 1\n","to":"\t\tslots[at].given += 0\n","rule":"A given flag reads its value, not its default (LastWins).","killers":["lower:TestFlagLaws"],"anchor":{"tests":["lower:TestFlagLaws"]}},
     {"name":"flagfloor-last-not-kept","origin":"wf10 FLAG-FLOOR","file":"internal/sketch/std/flag/parse.ergo","from":"\t\tslots[at].last = x\n","to":"\t\tslots[at].last = item{..x, text: slots[at].last.text}\n","rule":"A scalar flag keeps its last value (LastWins, RenderParseRoundTrip).","killers":["lower:TestFlagLaws"],"anchor":{"tests":["lower:TestFlagLaws"]}},
     {"name":"flagfloor-remaining-dropped","origin":"wf10 FLAG-FLOOR","file":"internal/sketch/std/flag/parse.ergo","from":"rest = slices.Slice(positional, next, len(positional))","to":"rest = slices.Slice(positional, len(positional), len(positional))","rule":"The Remaining spec takes every positional argument left (DoubleDashEndsFlags).","killers":["lower:TestFlagLaws","lower:TestFlagTreeLaws"],"anchor":{"tests":["lower:TestFlagLaws"]}},
-    {"name":"flagfloor-command-rest-keeps-name","origin":"wf10 FLAG-FLOOR","file":"internal/sketch/std/flag/command.ergo","from":"slices.Slice(args, 1, len(args))","to":"slices.Slice(args, 0, len(args))","rule":"A command parses the arguments after its name, not its name (RenderParseTreeRoundTrip).","killers":["lower:TestFlagTreeLaws"],"anchor":{"tests":["lower:TestFlagTreeLaws"]}}
+    {"name":"flagfloor-command-rest-keeps-name","origin":"wf10 FLAG-FLOOR","file":"internal/sketch/std/flag/command.ergo","from":"slices.Slice(args, 1, len(args))","to":"slices.Slice(args, 0, len(args))","rule":"A command parses the arguments after its name, not its name (RenderParseTreeRoundTrip).","killers":["lower:TestFlagTreeLaws"],"anchor":{"tests":["lower:TestFlagTreeLaws"]}},
+    {"name":"flagfloor-doubled-not-checked","origin":"wf10 FLAG-FLOOR","file":"internal/sketch/std/flag/parse.ergo","from":"\t\tUnreachable(\"flag: a flag spelling is declared twice: \" + d.Value)\n","to":"\t\tlet _ = d.Value\n","rule":"A set that declares a spelling twice is a defect, before help (validateFlags).","killers":["lower:TestFlagForeignHandle"],"anchor":{"tests":["lower:TestFlagForeignHandle"]}},
+    {"name":"flagfloor-doubled-pairs-skipped","origin":"wf10 FLAG-FLOOR","file":"internal/sketch/std/flag/parse.ergo","from":"\t\tfor j in 0..i {\n\t\t\tlet (gn, ga)","to":"\t\tfor j in i..i {\n\t\t\tlet (gn, ga)","rule":"doubled compares each spelling with every one before it (law DoubledSpellingIsFound).","killers":["lower:TestFlagForeignHandle"],"anchor":{"tests":["lower:TestFlagForeignHandle"]}}
   ]
 }
