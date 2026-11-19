@@ -49,8 +49,8 @@ The receipts compare the two trees on one input.
 
 ## Layout
 
-- `json/`: values, the number machine, the parser, the printers, pointers, the generator and the laws.
-- `flat/`: the flat tree, its reader, printers and pointer walk, and the laws that tie it to `json/`.
+- `json/`: values, the number machine, the parser, the printers, pointers and the generator, each with its laws beside it.
+- `flat/`: the flat tree, its reader, printers and pointer walk; the laws that tie it to `json/` stand beside its reader.
 - `app/`: the `Documents` contract and the commands (`flat.ergo`: the `-flat` ones), from a document's name to output, error line and status.
 - `files/`: `Documents` over a file system (`fs.Files`); `NewDisk` builds one over an `fstest.Memory`, so `Repeatable` runs on it. `memory/`: `Documents` over texts in memory.
 - `workload/`: the generator of the receipts' document.
