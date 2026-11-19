@@ -506,19 +506,19 @@ examples/pipeline/surfaces/surfaces.ergo	*
 examples/pipeline/README.md	the wire's `Request`
 examples/pipeline/testdata/mutants.json	*
 scripts/examples/module_test.go	walkrpc/wire.ergo
-examples/fk-domains/domains/domainsrpc/client.ergo	*
-examples/fk-domains/domains/domainsrpc/server.ergo	*
-examples/fk-domains/domains/domainsrpc/wire.ergo	*
-examples/fk-domains/loopback/loopback.ergo	*
-examples/fk-domains/domains/listing.ergo	*
-examples/fk-domains/domains/registry.ergo	*
-examples/fk-domains/server/origin.ergo	*
-examples/fk-domains/server/recorded/wire.mjs	*
-examples/fk-domains/README.md	*
-examples/fk-domains/expected-skips	*
-examples/fk-domains/origin/README.md	*
-examples/fk-domains/origin/measure/README.md	*
-examples/fk-domains/origin/tests.txt	*
+examples/domain-search/domains/domainsrpc/client.ergo	*
+examples/domain-search/domains/domainsrpc/server.ergo	*
+examples/domain-search/domains/domainsrpc/wire.ergo	*
+examples/domain-search/loopback/loopback.ergo	*
+examples/domain-search/domains/listing.ergo	*
+examples/domain-search/domains/registry.ergo	*
+examples/domain-search/server/origin.ergo	*
+examples/domain-search/server/recorded/wire.mjs	*
+examples/domain-search/README.md	*
+examples/domain-search/expected-skips	*
+examples/domain-search/origin/README.md	*
+examples/domain-search/origin/measure/README.md	*
+examples/domain-search/origin/tests.txt	*
 internal/rpcgen/refined_test.go	*
 examples/jobs-web/loopback/tests.ergo	*
 examples/jobs-web/README.md	is a server through the wire

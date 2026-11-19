@@ -198,7 +198,7 @@ func (s *irSplit) foreignDecls(defs splitDefs, taken map[string]bool, text func(
 				// no value is set by ergoInit, which main runs inside the
 				// root task (a let whose value takes statements), after
 				// every package's Go initialization: a copy holds its zero
-				// value (Q13: fk-routes's people.All read as an empty list,
+				// value (Q13: address-routes's people.All read as an empty list,
 				// "person 3: not found"). The IR body reads it through a
 				// forwarding function instead (files), when the body runs.
 				if len(n.Values) == 0 {

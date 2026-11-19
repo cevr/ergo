@@ -36,8 +36,7 @@ law ScreenMatchesPlain(seed int, chunk Chunk) {
 
 // StylesAreCounted: after any stream, each style's count is the cells
 // that hold it plus one if the pen does, a style with no holder is out
-// of the set and its id free, and a row with a styled cell is flagged
-// (Ghostty's integrity check).
+// of the set and its id free, and a row with a styled cell is flagged.
 law StylesAreCounted(seed int, chunk Chunk) {
 	let mut d = New(ConfigOf(seed))
 	let _ = vt.Play(&d, Input(seed), int(chunk))

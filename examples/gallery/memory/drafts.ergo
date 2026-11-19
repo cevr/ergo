@@ -1,0 +1,30 @@
+// Package memory holds Drafts, a gallery.Drafts in process: the drafts
+// saved, in order, with no store behind them. A save takes no time on the
+// clock, so the studio's exit action holds the site for no wait.
+
+import gallery/gallery
+import sync
+
+// Drafts is the drafts saved, oldest first. Its field is a shared handle,
+// so every copy is the same store.
+type Drafts { saved sync.Ref[[]string] } implements gallery.Drafts
+
+// NewDrafts is a store with nothing saved.
+func NewDrafts() Drafts { Drafts{saved: sync.NewRef[[]string]([]string{})} }
+
+// Save keeps draft as the draft last saved.
+func Save(d Drafts, draft string) {
+	d.saved.Update(func(v []string) []string { v.Append(draft) })
+}
+
+// Last is the draft last saved, or None before any save.
+func Last(d Drafts) Option[string] {
+	let v = d.saved.Get()
+	if len(v) == 0 {
+		return None
+	}
+	Some[string]{Value: v[len(v)-1]}
+}
+
+// All is every draft saved, oldest first.
+func All(d Drafts) []string { d.saved.Get() }

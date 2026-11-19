@@ -17,8 +17,8 @@ import (
 )
 
 // Patterns are the bench's patterns, by the size of their automaton:
-// fk-form's Email, an ISO date, a word of 1 to 12 letters and one of 1 to 20, a UUID, a
-// 1-to-24 character identifier, a SHA-1 in hex, fk-domains' DomainLabel.
+// signup-form's Email, an ISO date, a word of 1 to 12 letters and one of 1 to 20, a UUID, a
+// 1-to-24 character identifier, a SHA-1 in hex, domain-search' DomainLabel.
 var Patterns = []struct{ Name, Source string }{
 	{"Email", `[^\s@]+@[^\s@]+\.[^\s@]+`},
 	{"Date", `\d{4}-\d{2}-\d{2}`},
