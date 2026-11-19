@@ -12,11 +12,10 @@ import ui
 // Label is the Area's label: the board.
 let Label = "Board"
 
-// AddLabel is the label of each column's add button, as upstream's.
+// AddLabel is the label of each column's add button.
 let AddLabel = "+ Add card"
 
-// TitleLabel is the form's input, named by its placeholder (upstream's
-// label "New card title").
+// TitleLabel is the form's input, named by its placeholder.
 let TitleLabel = "New card title"
 
 // Screen is the board: the columns side by side in the Area, each with

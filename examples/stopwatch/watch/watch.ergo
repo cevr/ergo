@@ -11,7 +11,7 @@
 // a signal's data: a tick carries the reading it fired at (machines.Every),
 // and a click, which carries none (a view's button sends a fixed signal),
 // is answered by the entry's work, which reads the clock and sends the
-// press at that reading, as Elm's Time.now runs as a Cmd (FK1-g5,
+// press at that reading (FK1-g5,
 // orchestrator decision 2026-11-15).
 
 import machines

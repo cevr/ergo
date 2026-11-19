@@ -1,4 +1,4 @@
-// Package gallery is the site of upstream's route-transitions example: its
+// Package gallery is the site of route transitions: its
 // routes, its paintings, and the machine Site, whose step reads what a
 // navigation means (an entry, a stay, an exit) from the route before and
 // the route after, with no transition helper.

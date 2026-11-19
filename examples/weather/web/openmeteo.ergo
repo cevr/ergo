@@ -47,8 +47,8 @@ type now {
 type conditions { Current now }
 
 // Fetch finds the place of zip, then the weather there. A geocoding
-// answer that is not 200, or that has no place, is NotFound, as upstream
-// says "Location not found"; any other failure is Unavailable.
+// answer that is not 200, or that has no place, is NotFound ("Location not
+// found"); any other failure is Unavailable.
 func Fetch(o OpenMeteo, zip string) weather.Report fails weather.NotFound | weather.Unavailable {
 	let found = try ask(o.net, GeocodingOrigin, "/v1/search", []http.Field{field("name", zip), field("count", "1"), field("language", "en"), field("format", "json")})
 	if found.Status != 200 {
@@ -130,11 +130,10 @@ func reason(c http.Cause) string {
 }
 
 // Round is f rounded to the nearest integer, half up, as JavaScript's
-// Math.round, which upstream uses: Round(-2.5) is -2.
+// Math.round: Round(-2.5) is -2.
 func Round(f float64) int { int(math.Floor(f + 0.5)) }
 
-// Describe is the text of a WMO weather code, as upstream's
-// weatherCodeToDescription.
+// Describe is the text of a WMO weather code.
 func Describe(code int) string {
 	match code {
 	case 0:

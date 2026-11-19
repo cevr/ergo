@@ -1,5 +1,5 @@
-// Package screen is the desk on a screen (stage b), as upstream's view:
-// the heading, the button that starts a transfer and, while one sends, the
+// Package screen is the desk on a screen (stage b): the heading,
+// the button that starts a transfer and, while one sends, the
 // button that cancels all; then each transfer as a row (its file, its
 // size, its status, and Cancel while it sends or Restart once cancelled),
 // or a line that says there is none. The view reads the desk and loads
@@ -71,8 +71,7 @@ let RowPrefix = "Upload "
 
 func RowName(id int) string { RowPrefix + "\(id)" }
 
-// CancelLabel and RestartLabel are the names of row id's buttons, as
-// upstream's aria-labels.
+// CancelLabel and RestartLabel are the names of row id's buttons.
 func CancelLabel(id int) string { "Cancel upload \(id)" }
 
 func RestartLabel(id int) string { "Restart upload \(id)" }

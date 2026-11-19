@@ -129,7 +129,7 @@ func announce(b Board, next drag.State) string {
 }
 
 // way is the board's step for an arrow: up and left go back, down and
-// right forward (upstream's columns are vertical lists).
+// right forward (a column is a vertical list).
 func way(d drag.Direction) board.Way {
 	match d {
 	case drag.Up, drag.Left:

@@ -14,8 +14,8 @@ type Subscribers {
 	// Join puts a subscription on the list.
 	Join(s Subscription) fails JoinFailed,
 
-	// An address is on the list in any case of its letters, as upstream
-	// compares the lower-cased address.
+	// An address is on the list in any case of its letters: the
+	// lower-cased addresses are compared.
 	law TakenIgnoresCase(n int) { TakenIgnoresCase(n) },
 }
 

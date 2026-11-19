@@ -1,5 +1,5 @@
-// Package screen is the program on a screen (stage b), as upstream's
-// view: the heading, the search box, the two list boxes, the count, and
+// Package screen is the program on a screen (stage b): the heading,
+// the search box, the two list boxes, the count, and
 // the table with a sortable header, or the empty state; or the not-found
 // page with its link back. The table's rows are an Each keyed by name,
 // each row a Same keyed by the dinosaur, so a keystroke runs only the rows
@@ -117,7 +117,7 @@ func browse(f *ui.Frame[explorer.Signal], p explorer.Page, q query.Query) {
 	ui.Text(f, "All filter and sort state lives in the URL. Share it or bookmark it.")
 }
 
-// Label is a column's header text, as upstream's.
+// Label is a column's header text.
 func Label(c query.Column) string {
 	match c {
 	case query.Length:
@@ -143,7 +143,7 @@ func Direction(c query.Column, s query.Sorting) string {
 }
 
 // header is column c's header cell, named by its label, whose button sorts
-// by it; the button's name says the sorting, as upstream's aria-label.
+// by it; the button's name says the sorting.
 func header(f *ui.Frame[explorer.Signal], c query.Column, s query.Sorting) {
 	let dir = Direction(c, s)
 	let name = query.ColumnName(c)
@@ -230,7 +230,7 @@ func list(f *ui.Frame[explorer.Signal], fl explorer.Filter, b listbox.Box, selec
 	}
 }
 
-// Metres is a length in tenths of a metre as upstream prints it.
+// Metres prints a length in tenths of a metre.
 func Metres(tenths int) string {
 	let whole = strconv.Itoa(tenths / 10)
 	if tenths%10 == 0 { whole } else { whole + "." + strconv.Itoa(tenths%10) }

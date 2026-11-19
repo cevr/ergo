@@ -1,7 +1,6 @@
-// 2D Perlin noise and its fractal sum, as upstream's noise.ts. The
-// gradient hash wraps in 32 bits: upstream multiplies in doubles and
-// truncates, which loses low bits for large products, so the two fields
-// differ in their detail but not in kind.
+// 2D Perlin noise and its fractal sum. The gradient hash wraps in 32
+// bits, so no low bits are lost for large products, as they are when the
+// product is taken in doubles and truncated.
 
 extern go math.Cos func cos(x float64) float64
 extern go math.Sin func sin(x float64) float64

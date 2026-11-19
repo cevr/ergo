@@ -6,7 +6,7 @@
 import taskboard/sortkey
 
 // Card is a card of the board. Key orders it in its column; its codec
-// key is upstream's sortKey.
+// key is sortKey.
 type Card { ID string, Title string, Description string, Key string "sortKey" }
 
 // Column is a column of the board and its cards, in key order.
@@ -31,9 +31,8 @@ func Remove(c Column, id string) Removed {
 }
 
 // Insert puts card into c at position at, clamped to the column, with a
-// key between its new neighbours'. (Upstream appends past the end, with a
-// key made as if the column were empty; clamping keeps the keys in
-// order.)
+// key between its new neighbours'. (Clamping keeps the keys in order, where
+// a key made past the end as if the column were empty would not.)
 func Insert(c Column, card Card, at int) Column {
 	let i = if at < 0 { 0 } else if at > len(c.Cards) { len(c.Cards) } else { at }
 	let lo Option[string] = if i == 0 { None } else { Some[string]{Value: c.Cards[i-1].Key} }
@@ -98,8 +97,7 @@ type Spot { Column string, Index int }
 // Step is the spot a keyboard move from at goes to, with item lifted (a
 // step within a column counts its cards without item). A step stops at
 // the column's ends; a move to another column stops at the board's ends
-// and lands at the top. Upstream reads this from the page; here it is the
-// board's.
+// and lands at the top. The board answers it, not the page.
 func Step(columns []Column, item string, at Spot, way Way) Spot {
 	match way {
 	case Back:

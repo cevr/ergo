@@ -2,8 +2,7 @@
 // its two list boxes, the diet's and the period's. For a list box's
 // signal the step runs the list box's step and folds its effects into the
 // page: a Selected becomes the table's choice of that filter, so the
-// table asks for the address; a Focus becomes the host's. Upstream does
-// the same with Update.foldChild and foldOutMessage.
+// table asks for the address; a Focus becomes the host's.
 
 import querytable/dino
 import querytable/listbox
@@ -192,8 +191,8 @@ func Commands(d Decision[Page, []Command]) []Command {
 // its item i asks for the address the table asks for when that filter is
 // chosen directly, then gives the focus back to the list box's button;
 // the list is shut after, and the route is unchanged until the host
-// replaces the address (upstream's story: selecting a diet refocuses the
-// listbox button and replaces the URL).
+// replaces the address (a story test: selecting a diet refocuses the
+// list box's button and replaces the URL).
 law AListChoiceIsTheTableChoice(q query.Query, diet bool, i int where 0 <= i && i <= 3) {
 	let f Filter = if diet { DietFilter } else { PeriodFilter }
 	let p = Page{..Open("/"), Route: query.Browse{Query: q}}

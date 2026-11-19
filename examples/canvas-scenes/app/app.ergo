@@ -1,12 +1,11 @@
 // Package app is the program as a machine, Program: the scene, and the
 // time of the last frame it took. The screen's frames (ui.Animate) give a
-// frame's time since the host started, where upstream's animation frame
-// subscription gives the time since the frame before, counted from when
-// the subscription began. So the program keeps the last frame's time and
+// frame's time since the host started, where an animation frame
+// subscription would give the time since the frame before, counted from
+// when the subscription began. So the program keeps the last frame's time and
 // steps the scene by the difference: the first frame after the frames
 // begin (the start, or play after a pause) starts the count and moves
-// nothing, as upstream's first frame moves the scene by the few
-// milliseconds since its subscription began.
+// nothing (not the few milliseconds since a subscription began).
 
 import canvasscenes/scene
 

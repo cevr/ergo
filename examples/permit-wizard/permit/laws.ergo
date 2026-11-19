@@ -57,7 +57,7 @@ law CodesIgnoreCaseAndSpace(a Allowance, pad int where 0 <= pad && pad <= 3, low
 }
 
 // FilingTakesASecond: a filed permit is confirmed when the office answers,
-// a second after the filing (upstream's PlaceOrder delay), and not a
+// a second after the filing, and not a
 // moment before.
 law FilingTakesASecond(ms int where 0 <= ms && ms <= 2000) {
 	let ok = func(at duration) bool {

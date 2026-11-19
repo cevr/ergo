@@ -1,6 +1,5 @@
-// Package screen is the program on a screen (stage b), as upstream's
-// view: the navigation's four links on every route, then the route's
-// page. A link is a Semantic with the Link role whose press follows its
+// Package screen is the program on a screen (stage b): the
+// navigation's four links on every route, then the route's page. A link is a Semantic with the Link role whose press follows its
 // path (app.Followed); the host pushes it and the address change comes
 // back as app.Navigated, from OnURL.
 
@@ -77,7 +76,7 @@ func peoplePage(f *ui.Frame[app.Signal], p app.Page) {
 	}
 }
 
-// Status is the People page's status line, upstream's texts.
+// Status is the People page's status line.
 func Status(r app.Results) string {
 	match r {
 	case app.Loading:

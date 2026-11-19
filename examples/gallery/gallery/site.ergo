@@ -1,9 +1,9 @@
 import machines
 import time
 
-// The site as a machine. Upstream reads each URL change through its
-// Transition helpers (entered, stayed, exited, coldLoad) and returns
-// commands. Here the step matches the route before and the route after:
+// The site as a machine. Rather than read each URL change through
+// helpers (entered, stayed, exited, a cold load) that return commands,
+// the step matches the route before and the route after:
 // entering the gallery loads the catalog, entering a painting loads it,
 // and staying on a painting with another id loads the new one. The loads
 // are jobs of the site's state, and the machine's work runs them: each
@@ -253,9 +253,8 @@ func Answer(c Command) Signal {
 	}
 }
 
-// Takes is how long a job takes, as upstream's sleeps: the catalog 600
-// ms, a painting 400 ms. Upstream's save sleeps 300 ms too; here the save
-// is the studio's exit action and the store takes no time (memory).
+// Takes is how long a job takes: the catalog 600 ms, a painting 400 ms.
+// The save is the studio's exit action and the store takes no time (memory).
 func Takes(c Command) duration {
 	match c {
 	case LoadCatalog:

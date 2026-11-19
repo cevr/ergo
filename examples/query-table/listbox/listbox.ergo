@@ -1,8 +1,7 @@
 // Package listbox is a list box as a machine: a button that opens a list
 // of Count items, one of them active while the list is open. It knows no
 // table, so it can serve any list of choices (SP1's examples/kit when that
-// lands). Upstream's Listbox is a child component whose
-// OutMessage is Selected; here the step's output is Selected and a Focus
+// lands). The step's output is Selected and a Focus
 // of the button, and the parent matches them.
 
 // Box is the list box: how many items it lists, whether the list is open,

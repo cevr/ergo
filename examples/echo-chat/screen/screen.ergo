@@ -1,5 +1,5 @@
-// Package screen is the chat on a screen (stage b), as upstream's view:
-// the heading, the connection's status, the conversation (or a word that
+// Package screen is the chat on a screen (stage b): the heading,
+// the connection's status, the conversation (or a word that
 // there is none yet), and under it what the link allows: Connect to Chat
 // while offline, a word while the dial is under way, the field and Send
 // while online, and the error with Try Again once the line failed. Send is
@@ -29,7 +29,7 @@ let FieldLabel = "Type a message..."
 let ListLabel = "Messages"
 
 // RowHeight is the height of a line of the conversation: its text and its
-// time, as upstream's bubble.
+// time.
 let RowHeight = ui.Length(56.0)
 
 // Screen is the chat.
@@ -105,9 +105,8 @@ func conversation(f *ui.Frame[talk.Signal], log []talk.Said) {
 	})
 }
 
-// Stamp is a line's time as upstream formats it: two-digit hour, minute
-// and second. Upstream shows the local zone; std time has none, so this is
-// UTC.
+// Stamp is a line's time: two-digit hour, minute and second, in UTC
+// (std time has no local zone).
 func Stamp(t time.Time) string { t.Format(time.TimeOnly) }
 
 // compose is the field and Send, disabled while the field is blank; Enter

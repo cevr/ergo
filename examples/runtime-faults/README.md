@@ -26,7 +26,7 @@ Every phase's work is counted (`ui.Stats`), so a warning is the same on every ru
 | --- | --- | --- | --- |
 | Run update work | 8 animations, so one frame steps a burst of 8 signals | `Signals`, 4 | 8 |
 | Run view work | 5,250 nodes in a group that then stops (`ui.Boundary`), so they reach no patch | `Written`, 5,000 | 5,273 |
-| Run patch work | mounts 4,000 keyed rows, kept from pass to pass by a `ui.Same` keyed by the mount (upstream's lazy rows) | `Ops`, 100 | 4,002 |
+| Run patch work | mounts 4,000 keyed rows, kept from pass to pass by a `ui.Same` keyed by the mount (lazy rows) | `Ops`, 100 | 4,002 |
 | Run dependency extraction | 8 loads, one per dependency | `Fetches`, 4 | 8 |
 
 Each workload is over one bound only. The patch's rows fit the view's bound, and the view work's nodes make no ops.

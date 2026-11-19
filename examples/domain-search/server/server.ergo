@@ -1,6 +1,5 @@
 // Package server is domain-search' HTTP server: the registry's RPC at /rpc,
-// with the original's refusals (src/server/rpc.ts and entry.ts at
-// 039c941a). No page is served yet, so every other request is 404.
+// with the original's refusals. No page is served yet, so every other request is 404.
 
 import http
 import rpc

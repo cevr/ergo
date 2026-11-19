@@ -45,8 +45,8 @@ type Host = ui.TestHost[talk.Session, talk.Signal, Decision[talk.Session, Never]
 // Bad is a script line the host cannot read.
 type Bad { Why string }
 
-// Height is the height of the conversation's viewport (upstream's chat is
-// 600 pixels high), which the host reports once the list shows.
+// Height is the height of the conversation's viewport (600 pixels
+// high), which the host reports once the list shows.
 let Height = ui.Length(600.0)
 
 // Run plays the script on standard input and prints what the chat shows.

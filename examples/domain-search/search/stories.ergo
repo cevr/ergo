@@ -1,5 +1,5 @@
-// The original's 20 search stories (src/client/story/*.story.test.ts at
-// 039c941a), restated on the machine and the Sim host of laws.ergo, on a
+// The original's 20 search stories (conformance/upstream maps each),
+// restated on the machine and the Sim host of laws.ergo, on a
 // manual clock. A story that resolves a command by hand there (the
 // ReadCurrentTime of each planning step, a Query's completion) is a
 // signal here: the step reads the clock itself, and an answer is Answer.

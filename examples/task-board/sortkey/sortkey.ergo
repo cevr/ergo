@@ -1,8 +1,7 @@
 // Package sortkey makes fractional sort keys: text keys that order cards
 // by plain string comparison, where a key can always be made between two
 // others, so a move rewrites the key of the card that moved and of no
-// other. Upstream uses the fractional-indexing library; this is the same
-// idea in a smaller form. A key is a string of the 62 Digits, never empty
+// other: fractional indexing in a small form. A key is a string of the 62 Digits, never empty
 // and never ending in the smallest digit "0", so between any two keys
 // there is room.
 

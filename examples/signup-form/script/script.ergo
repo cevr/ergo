@@ -1,7 +1,6 @@
 // Package script plays a script of form events on the subscription form's
 // screen (stage b), on std ui's test host over the manual clock main
-// binds, and shows the screen after each one, as upstream's scene tests
-// type, click, submit and look.
+// binds, and shows the screen after each one.
 
 import actor
 import signupform/screen
@@ -29,9 +28,9 @@ type Stats {}
 //   - `name TEXT`, `email TEXT`, `note TEXT`: fill that field with TEXT
 //     (the rest of the line after one space, possibly empty);
 //   - `submit`: click the button Subscribe;
-//   - `enter`: press Enter in the form (upstream's submit of the form);
+//   - `enter`: press Enter in the form, which submits it;
 //   - `wait MS`: move the clock MS milliseconds, so a check or a submit
-//     that waits on it answers (upstream's Command.resolve), and settle;
+//     that waits on it answers, and settle;
 //   - `stats`: print the work of the act before it.
 //
 // A blank line or a line that starts with # is skipped.

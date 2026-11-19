@@ -5,7 +5,7 @@
 // the screen, and shows the screen after each one. Package transfer is one
 // transfer, a machine whose Sending state owns its time; package board
 // holds one live actor per transfer (shape A); package emitted is
-// upstream's shape, a machine that emits commands to a registry (shape B);
+// a machine that emits commands to a registry (shape B);
 // package desk is the board as one pure machine for the view, and package
 // screen is the view; package script reads the script and plays it. This
 // binary is the only place that chooses the clock: a time.Manual, so a

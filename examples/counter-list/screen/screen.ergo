@@ -1,7 +1,7 @@
 // Package screen is the list of counters on a screen (stage b): the
 // heading, then each row as a group named after it (counter-N) that holds
 // the counter's own view and a Remove button, then the button that adds a
-// row, as upstream's view.
+// row.
 
 import counterlist/counter
 import counterlist/rows

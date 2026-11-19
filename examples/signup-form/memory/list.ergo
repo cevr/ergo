@@ -3,7 +3,7 @@
 import signupform/subscribe
 import strings
 
-// List is a subscribe.Subscribers whose list holds three addresses, upstream's.
+// List is a subscribe.Subscribers whose list holds three addresses.
 // It refuses a subscription whose address is in the .invalid domain, which
 // takes no mail, so a script can show a refused submit.
 type List {} implements subscribe.Subscribers

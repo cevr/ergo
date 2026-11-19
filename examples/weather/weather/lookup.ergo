@@ -86,7 +86,7 @@ func Busy(l Lookup) bool {
 	}
 }
 
-// Said is the text of a reason, as upstream shows it.
+// Said is the text of a reason.
 func Said(w Why) string {
 	match w {
 	case NoZip:

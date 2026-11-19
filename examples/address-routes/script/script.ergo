@@ -17,7 +17,7 @@
 // navigate (app.Go) when a link, a shortcut or Search is clicked; the host
 // follows it as a browser follows a link: a push of the history, then the
 // address change, which the screen's OnURL gives the program as
-// app.Navigated. The shortcuts are the host's, as upstream's key bindings
+// app.Navigated. The shortcuts are the host's, as key bindings
 // are a subscription, not the view's: a key sends app.Pressed.
 
 import actor

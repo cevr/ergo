@@ -1,5 +1,5 @@
-// Upstream's story tests (managed-resource-layer/src/story.test.ts) that
-// have a restatement, as steps of the screen. Two have none: the screen
+// The story tests that have a restatement (conformance/upstream maps
+// each), as steps of the screen. Two have none: the screen
 // has no StoppedEngine, a lifecycle echo (the end of the entry is the
 // release), and no SkippedCompute (a compute without an engine is
 // ignored in the step, so it is never sent anywhere).

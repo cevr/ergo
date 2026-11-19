@@ -3,8 +3,7 @@
 // The scene keeps about 55 alive: each frame adds up to 3 when fewer
 // are; a press bursts 22 outward from the pointer. A particle dies at the
 // end of its life or well off the canvas. Every number a particle is
-// born with is drawn from the scene's own stream, as upstream's commands
-// draw them from Random.
+// born with is drawn from the scene's own stream.
 
 import canvasscenes/seed
 

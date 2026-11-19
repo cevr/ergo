@@ -1,6 +1,5 @@
 // Package sample is the provider of domains.Registry with the original's
-// deterministic sample data (src/shared/demoDomains.ts and
-// src/server/search.ts at 039c941a): a fixed price per featured TLD,
+// deterministic sample data: a fixed price per featured TLD,
 // 19.99 for every other, a one-year quote that is never premium, and
 // four labels whose .com and .dev are taken.
 

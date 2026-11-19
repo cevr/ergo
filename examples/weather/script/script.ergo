@@ -1,7 +1,6 @@
 // Package script plays a script of form events on the weather lookup's
 // screen (stage b), on std ui's test host over the manual clock main
-// binds, and shows the screen after each one, as upstream's scene tests
-// type, submit and look.
+// binds, and shows the screen after each one.
 
 import actor
 import weather/screen
@@ -31,7 +30,7 @@ type Stats {}
 //   - `submit`: click the button Get Weather;
 //   - `click LABEL`: click the one button named LABEL;
 //   - `wait MS`: move the clock MS milliseconds, so a fetch that waits on
-//     it answers (upstream's Command.resolve), and settle;
+//     it answers, and settle;
 //   - `stats`: print the work of the act before it.
 //
 // A blank line or a line that starts with # is skipped.

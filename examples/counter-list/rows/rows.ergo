@@ -59,8 +59,8 @@ func has(r Rows, key int) bool { slices.IndexFunc(r.Items, func(x Row) bool { x.
 // Counters is the list as a machine.
 type Counters machine[Rows, Signal] { initial: Initial(), step: Step }
 
-// Given is a list of rows with the counts, keys 0 up, as upstream's scene
-// tests give a model to start from.
+// Given is a list of rows with the counts, keys 0 up: a model for a
+// test to start from.
 func Given(counts []int) Rows {
 	let mut items = []Row{}
 	for i, n in counts {
@@ -70,8 +70,8 @@ func Given(counts []int) Rows {
 }
 
 // CountersFrom is the list as a machine that starts from the given counts
-// (Given): its input is what upstream's flags would be.
+// (Given): its input is the program's flags.
 type CountersFrom machine[Rows, Signal] { initial: Given, step: Step }
 
-// Name is the name upstream shows for the row with the key.
+// Name is the name the screen shows for the row with the key.
 func Name(key int) string { "counter-\(key)" }

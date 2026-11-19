@@ -1,8 +1,7 @@
 // Package plan is domain-search' range planner (plan §20.2), a pure
 // function: from what is loaded, what the window shows, the order and
 // the filter to the next range of the catalog to ask the registry for.
-// The ranges are the original's (domainPlanning.ts, domain.ts
-// findDomainRangeForTld): the top four, the rest of the first page of 60,
+// The ranges are the original's: the top four, the rest of the first page of 60,
 // then pages of 60; or the whole catalog when the order or the filter
 // needs every price. One range loads at a time.
 //

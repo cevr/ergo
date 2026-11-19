@@ -10,11 +10,11 @@
 // which fails Unsatisfied for a shorter text.
 type Name string where len(it) >= 2
 
-// Email is a valid email address: upstream's pattern
+// Email is a valid email address: the pattern
 // ^[^\s@]+@[^\s@]+\.[^\s@]+$, a local part, an @, and a domain with a dot
 // that has text on both sides, none of them holding a space or an @. The
 // pattern's \s is ASCII, so the class spells out the other spaces of
-// JavaScript's \s, upstream's. The where derives ParseEmail, which fails
+// JavaScript's \s. The where derives ParseEmail, which fails
 // Unsatisfied for any other text.
 type Email string where matches(it, "[^\\s\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff@]+@[^\\s\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff@]+\\.[^\\s\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff@]+")
 
@@ -61,7 +61,7 @@ func EmailField(text string) Field[Email, EmailWhy] {
 	Field[Email, EmailWhy]{Text: text, Verdict: Checking[Email]{Value: e}}
 }
 
-// NameSaid and EmailSaid are upstream's texts of the reasons.
+// NameSaid and EmailSaid are the texts of the reasons.
 func NameSaid(_ TooShort) string { "Name must be at least 2 characters" }
 
 func EmailSaid(w EmailWhy) string {

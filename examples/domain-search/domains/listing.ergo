@@ -1,7 +1,6 @@
 // Package domains is domain-search' domain: a label, the listing of a domain
 // under one TLD, the catalog of TLDs, and the Api, the operation type
-// Registry with its laws. The original's src/shared/domain.ts and
-// domainsRpc.ts; nothing here knows the wire or a host.
+// Registry with its laws. Nothing here knows the wire or a host.
 
 // Label is the name a search offers under each TLD: 1 to 63 bytes of
 // a to z, 0 to 9 and inner hyphens, the original's DomainLabel pattern

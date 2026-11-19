@@ -6,7 +6,7 @@ import time
 
 // Format is d as MM:SS.cc: whole minutes (two digits at least, not
 // wrapped at an hour), seconds of the minute and hundredths of the second,
-// each rounded down, as upstream's formatTime.
+// each rounded down.
 func Format(d duration) string {
 	let ms = time.Count(d, 1ms)
 	let minutes = ms / 60000

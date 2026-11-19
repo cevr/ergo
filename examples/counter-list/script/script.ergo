@@ -1,6 +1,6 @@
 // Package script plays a script of clicks on the screen of the list of
 // counters (stage b), on std ui's test host, and shows the screen after
-// each click, as upstream's scene tests click and look.
+// each click.
 
 import actor
 import counterlist/rows

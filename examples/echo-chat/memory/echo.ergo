@@ -1,6 +1,6 @@
 // Package memory holds Echo, a talk.Channel to an echo server in
 // process: each frame sent on the open line comes back on it, as
-// upstream's postman echo server does. The server's side is open to the
+// an echo server does. The server's side is open to the
 // host too: it can push a frame, close the line, break it, refuse the
 // next dial, or leave the next dial unanswered, and it counts the lines dialed and the lines still held.
 

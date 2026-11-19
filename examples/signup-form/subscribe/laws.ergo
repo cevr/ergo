@@ -48,9 +48,8 @@ law EditClearsThatFieldsError(f Form, k int, n int, generated string) {
 // entry that owns a check of an older address ends and the runner drops
 // that check's answer (runtime.md, Machines and actors 12); an edit of
 // the name or the note keeps the entry, so a check under way goes on. And
-// an answer when no check is under way changes nothing. Upstream compares
-// the answer's address with the field's; here the old answer never
-// arrives.
+// an answer when no check is under way changes nothing: the old answer
+// never arrives, so no address needs comparing with the field's.
 law StaleCheckIsDropped(f Form, k int, text string, taken bool) {
 	let d = Step(f, edit(k, text))
 	let entry = match f.Stage {
@@ -101,8 +100,8 @@ law SubmitOnlyWhenAllValid(n int, name string, e int, email string, settled bool
 }
 
 // EmailIsThePattern: local@host.top parses back as that address when no
-// part is empty or holds a space or an @; a space (one of JavaScript's \s,
-// upstream's), a second @, or no dot with text on both sides fails the
+// part is empty or holds a space or an @; a space (one of JavaScript's \s),
+// a second @, or no dot with text on both sides fails the
 // where.
 law EmailIsThePattern(local string, host string, top string, cut int, space int) {
 	let a = clean(local, "a")

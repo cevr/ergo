@@ -1,5 +1,4 @@
-// Package dino is the table's data: the dinosaurs, a constant, as
-// upstream's data.ts is.
+// Package dino is the table's data: the dinosaurs, a constant.
 
 // Diet is what a dinosaur ate.
 type Diet = Carnivore{} | Herbivore{} | Omnivore{}

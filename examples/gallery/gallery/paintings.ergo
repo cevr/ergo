@@ -1,5 +1,4 @@
-// The paintings (upstream's data.ts, without the gradients, which are the
-// view's).
+// The paintings, without their gradients, which are the view's.
 
 // Work is a painting of the gallery.
 type Work { ID int, Title string, Artist string }

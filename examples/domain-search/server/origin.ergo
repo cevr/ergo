@@ -7,7 +7,7 @@ import strings
 import domain-search/domains
 import domain-search/sample
 
-// Recorded is the original's server wire at 039c941a (MIT): 20 requests
+// Recorded is the original's server wire (MIT): 20 requests
 // that recorded/wire.mjs sent to its worker, each response, and
 // recorded/index.json with each case's status and headers.
 let Recorded = embedded[embed.FS]("recorded")

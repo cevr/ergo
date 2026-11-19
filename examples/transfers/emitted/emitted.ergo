@@ -1,4 +1,4 @@
-// Package emitted is the same board in shape B, upstream's: one machine
+// Package emitted is the same board in shape B: one machine
 // whose state holds every transfer's status, and whose steps emit
 // commands (start a transfer, interrupt one) for a sink to run. The sink
 // keeps the keyed registry of transfers in flight, as a UI runtime

@@ -37,7 +37,7 @@ type Field { Balls []Ball, NextID int, Seed seed.Seed }
 func New(s seed.Seed) Field { Field{Balls: []Ball{}, NextID: 0, Seed: s} }
 
 // Drop is f with a new ball at (x, y), its heading, speed, radius and
-// colour drawn from f's stream, as upstream's GenerateBall draws them.
+// colour drawn from f's stream.
 func Drop(f Field, x float64, y float64) Field {
 	let angle, s1 = seed.Between(f.Seed, 0.0, fullTurn)
 	let speed, s2 = seed.Between(s1, speedMin, speedMax)

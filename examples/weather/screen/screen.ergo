@@ -1,6 +1,6 @@
 // Package screen is the weather lookup on a screen (stage b): the form (the
 // zip field and the button, which reads "Loading..." and is disabled
-// while a fetch is under way) and the panel, as upstream's view. The
+// while a fetch is under way) and the panel. The
 // panel is written with a typed boundary: the report reads the lookup's
 // value with try ui.Await, and the boundary's catch shows the loading and
 // failed arms. PanelMatched is the same panel as an exhaustive match, the
@@ -18,7 +18,7 @@ let AskLabel = "Get Weather"
 
 let BusyLabel = "Loading..."
 
-// ReportName is the name of the report's region (upstream's article).
+// ReportName is the name of the report's region.
 let ReportName = "Weather report"
 
 // Screen is the lookup: the form, then the panel.
@@ -153,8 +153,8 @@ func asyncOf(p weather.Panel) Option[ui.Async[weather.Report, Refused]] {
 	}
 }
 
-// Failure is the text of a reason: upstream's, and why the forecast could
-// not answer.
+// Failure is the text of a reason, and why the forecast could not
+// answer.
 func Failure(w weather.Why) string {
 	match w {
 	case weather.Unavailable as u:
@@ -164,7 +164,7 @@ func Failure(w weather.Why) string {
 	}
 }
 
-// report is the report's region, as upstream's article: the zip as its
+// report is the report's region: the zip as its
 // heading, the place, the temperature, the sky, the humidity and the wind.
 func report(f *ui.Frame[weather.Signal], r weather.Report) {
 	ui.Semantic(f, named(ui.Region, ReportName, None), None, ui.Plain()) {

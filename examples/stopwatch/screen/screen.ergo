@@ -1,6 +1,6 @@
 // Package screen is the stopwatch's view (stage b): the time as MM:SS.cc,
 // then Reset and one button that is Start while the watch is stopped and
-// Stop while it runs, as upstream's. A button sends a click, which
+// Stop while it runs. A button sends a click, which
 // carries no reading: the watch's work reads the clock (FK1-g5). A watch
 // waiting for its reading shows the buttons of the state it waits from.
 

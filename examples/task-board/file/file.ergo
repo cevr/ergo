@@ -1,6 +1,5 @@
 // Package file holds Sheet, a board.Store that keeps the board in one JSON
-// file, upstream's saved board (model.ts SavedBoard, through
-// Schema.fromJsonString(Schema.toCodecJson(SavedBoard))):
+// file, the saved board:
 //
 //	{"columns":[{"id":"todo","name":"To Do","cards":[{"id":"card-1","title":"Align the finder scope","description":"","sortKey":"V"}]}]}
 //

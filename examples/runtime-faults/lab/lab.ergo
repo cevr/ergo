@@ -1,8 +1,7 @@
 // Package lab is the slow-warnings lab: four
 // buttons that each make one phase of a pass do more counted work than
 // its budget allows, and a log of the warnings the session sends back
-// (ui.OnSlow). Upstream burns CPU for some milliseconds and the runtime
-// times the phase; here every phase's work is counted (ui.Stats), so a
+// (ui.OnSlow). No phase is timed: every phase's work is counted (ui.Stats), so a
 // warning is the same on every run and every host.
 
 import slices

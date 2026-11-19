@@ -12,7 +12,7 @@ type Host = ui.TestHost[desk.Desk, desk.Signal, Decision[desk.Desk, Never]]
 //
 //	Top      the heading, the buttons above the list and the empty line
 //	Rows     `ID NAME WORD` per row group, in screen order, with
-//	         upstream's status words in shape A's (Uploading is sending,
+//	         the status words of shape A (Uploading is sending,
 //	         Done is sent, Cancelled is cancelled)
 //	Actions  each row's button, or "" for a row with none
 //	Counts   the work of the press, from ui.Counts
@@ -25,8 +25,8 @@ type Frame { Top []string, Rows []string, Actions []string, Counts ui.StepCounts
 // line's button and settles; and reads the screen. Then it moves the clock
 // to end and reads the screen again. A press whose button is not on the
 // screen (a cancel of a transfer that does not send, a restart of one that
-// was not cancelled, an id with no row) clicks nothing, as on upstream's
-// screen, where the button is not there. Each frame goes to show as it is
+// was not cancelled, an id with no row) clicks nothing: the button is not
+// there. Each frame goes to show as it is
 // read, so a long script keeps none.
 func PlayScreen[R](lines []Line, end duration, clock time.Manual, show func(f Frame) needs R) fails actor.Stopped | ui.BadPatch needs R | Scheduler {
 	let app = with context { time.Clock: clock } { actor.StartMachine(desk.Desks{}, 16, func(o Never) {}) }

@@ -1,9 +1,9 @@
-// Package screen is the program on a screen (stage b), as upstream's two
+// Package screen is the program on a screen (stage b), in two
 // views: a switch between the scenes, then the balls (canvas-art) or the
 // flow (generative-art). Each has its heading, its canvas in an Area that
 // takes the pointer, its buttons and its count; the flow has its two
-// sliders, each an Area its pointer sets. A canvas paints what upstream's
-// Canvas.Shape list draws, in the same order. While the scene runs, the
+// sliders, each an Area its pointer sets. A canvas paints the scene's
+// shapes in order. While the scene runs, the
 // screen asks for frames (ui.Animate), and each frame is the program's
 // Framed.
 
@@ -118,7 +118,7 @@ func Fixed2(v float64) string {
 	"\(sign)\(a / 100).\(if cents < 10 { "0" } else { "" })\(cents)"
 }
 
-// The flow's paint, as upstream's constants.
+// The flow's paint.
 let glowWidth = 5.0
 let coreWidth = 1.4
 let headRadius = 2.4
@@ -127,7 +127,7 @@ let fadeInMs = 350.0
 let fadeOutMs = 900.0
 let twoPi = 6.283185307179586
 
-// paintFlow paints the flow as upstream's sceneShapes: the background, the
+// paintFlow paints the flow: the background, the
 // three nebula glows, each particle's trail (a glow and a core stroke),
 // each particle's head, the vignette's strips, and the pointer's ring.
 func paintFlow(pt *ui.Paint, fl flow.Field) {

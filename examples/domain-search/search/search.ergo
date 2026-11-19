@@ -6,7 +6,7 @@
 // it tells the host what to fetch, cancel and write in the URL (Effect),
 // and the host gives each answer back as a signal (Loaded or Failed).
 //
-// The original's model.ts, message.ts, update.ts and steps/*.ts. Where
+// The original's model, messages and update. Where
 // the original sends a command and waits for its completion message
 // (ReadCurrentTime; 14 of its 46 messages are empty completions), the
 // step reads the clock itself; where it sleeps 150 ms inside the request,

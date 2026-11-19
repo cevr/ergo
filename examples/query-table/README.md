@@ -39,7 +39,7 @@ The script's words are listed in `script/script.ergo`: `start`, `visit`, `search
   - or the 404 page with `← Back to Dinosaur Explorer`.
   - A list box is a `Group` named `Diet` or `Period`. It holds the button, named by the item selected, which has a popup and says whether it is expanded. While the list is open, it shows a `Menu` of `MenuItem`s, each saying whether it is the selected one. `OnKey` gives the open list the keys.
   - `OnURL` gives the table `Navigated`.
-- Package `dino` is the data, a constant.ts` is. Lengths are tenths of a metre, so the table needs no floats.
+- Package `dino` is the data, a constant. Lengths are tenths of a metre, so the table needs no floats.
 - Package `script` is the host. It runs `Explorer` as an actor on `ui.NewTestHost` and plays each line on the screen. The actor's output goes to a queue, and the host does what it asks:
   - a replacement replaces the history's entry and tells the table `Navigated`;
   - a push is followed with `ui.Navigate`;

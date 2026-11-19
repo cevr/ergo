@@ -1,10 +1,9 @@
-// Package screen is the permit desk on a screen (stage b), as upstream's
-// view with the checkout made a permit: the permit's heading and the
-// step the permit is at, each with its own heading, controls and buttons
-// (Continue and Back, Cancel on every open step), the review's code field
-// and fees, and the inspector: the stage and the log of transitions,
-// newest first. Upstream's view also draws the machine's graph; here the
-// graph is `ergo inspect machine ./permit` (README, The graph).
+// Package screen is the permit desk on a screen (stage b): the permit's
+// heading and the step the permit is at, each with its own heading,
+// controls and buttons (Continue and Back, Cancel on every open step),
+// the review's code field and fees, and the inspector: the stage and the
+// log of transitions, newest first. The machine's graph is not drawn: it
+// is `ergo inspect machine ./permit` (README, The graph).
 
 import permitwizard/desk
 import permitwizard/permit

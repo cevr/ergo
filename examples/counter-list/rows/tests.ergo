@@ -1,13 +1,11 @@
-// Upstream's six story tests (counters/src/story.test.ts), restated, and
-// the blocks branch's init test ("creates distinct parent-owned
-// instances", examples/counters at fe37fb13, read for plan §18.8; no block
-// API is used here). Upstream's ids are strings `counter-N`; here a key is
-// the number N, and Name prints it as upstream does.
+// The story tests, restated (conformance/upstream maps each), and an init
+// test: the first list's counters are distinct. A key is the number N,
+// and Name prints it as `counter-N`.
 
 import counterlist/counter
 import machines
 
-// two is upstream's initialModel: two counters at zero, next key 2.
+// two is the first model: two counters at zero, next key 2.
 func two(a int, b int) Rows {
 	Rows{Items: []Row{Row{Key: 0, Counter: counter.Count{N: a}}, Row{Key: 1, Counter: counter.Count{N: b}}}, Next: 2}
 }
@@ -64,7 +62,7 @@ test RowsAccumulateIndependently {
 }
 
 test InitialHasDistinctFreshCounters {
-	// blocks, fe37fb13: creates distinct parent-owned instances. The list
+	// The list
 	// starts with three counters at zero under three keys, and a signal to
 	// one leaves the other two at zero.
 	let r = after(Initial(), []Signal{At{Key: 1, Sig: counter.Increment}})

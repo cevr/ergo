@@ -2,9 +2,8 @@
 // the machine Dragger, which a
 // pointer or the keyboard drives. A drag that ends on a target gives the
 // output Reordered, and one given up gives Cancelled; the parent reads
-// them as upstream's OutMessage. The machine knows no page: where a
-// keyboard move goes is the host's to answer (Resolve, then Resolved), as
-// upstream asks the DOM.
+// them. The machine knows no page: where a
+// keyboard move goes is the host's to answer (Resolve, then Resolved).
 
 // Point is a position in pixels.
 type Point { X int, Y int }
@@ -22,7 +21,7 @@ type State = Idle{} | Pending{Item string, Container string, Index int, Origin P
 type Drag { ID string, Threshold int, State State }
 
 // Direction is an arrow key of a keyboard drag, or a move to the next or
-// the previous container (upstream binds them to Tab and Shift+Tab).
+// the previous container (Tab and Shift+Tab).
 type Direction = Up{} | Down{} | Left{} | Right{} | NextContainer{} | PreviousContainer{}
 
 // Signal is what the drag reads: a pointer pressed on an item, moved (in
@@ -36,8 +35,7 @@ type Signal = Pressed{Item string, Container string, Index int, Screen Point} | 
 // to focus, or a keyboard move for the host to resolve.
 type Effect = Reordered{Item string, From string, FromIndex int, To string, ToIndex int} | Cancelled{} | Focus{Item string} | Resolve{Item string, Container string, Index int, Way Direction}
 
-// New is an idle drag with id, vertical, with upstream's threshold of
-// 5 pixels.
+// New is an idle drag with id, vertical, with a threshold of 5 pixels.
 func New(id string) Drag { Drag{ID: id, Threshold: 5, State: Idle} }
 
 // Dragger is drag and drop as a machine.
@@ -149,7 +147,7 @@ func After(d Drag, dec Decision[Drag, []Effect]) Drag {
 	}
 }
 
-// Item is the item a drag holds, if any (upstream's maybeDraggedItemId).
+// Item is the item a drag holds, if any.
 func Item(s State) Option[string] {
 	match s {
 	case Pending as p:

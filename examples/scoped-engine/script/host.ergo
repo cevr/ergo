@@ -22,7 +22,7 @@ type Frame { Shown []string, Status string, Held int, Counts ui.StepCounts }
 // the panel and gives the screen once more, with every engine back. A
 // press whose button is not on the screen (Start while the engine runs,
 // Stop while it is off) or is disabled (Compute without an engine) clicks
-// nothing, as on upstream's screen.
+// nothing.
 func PlayScreen[R](lines []Line, end duration, clock time.Manual, pool memory.Pool, show func(f Frame) needs R) fails actor.Stopped | ui.BadPatch needs R | Scheduler | engine.Engines {
 	let app = actor.StartMachine(engine.Panel{}, 4, func(n Never) {})
 	played(app, pool, lines, end, clock, show) catch {

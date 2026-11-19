@@ -1,5 +1,5 @@
-// Package screen is the subscription form on a screen (stage b), as
-// upstream's view: the heading; the three fields, each named by its label
+// Package screen is the subscription form on a screen (stage b): the
+// heading; the three fields, each named by its label
 // and described by what its check says; the submit button, disabled until
 // the form may be sent and labelled for a submit under way; and the
 // answer, a status for a taken subscription or an alert for a refused one.
@@ -12,8 +12,8 @@ import ui
 // Title is the heading.
 let Title = "Get the Release Notes"
 
-// NameLabel, EmailLabel and NoteLabel name the fields (upstream's labels;
-// a ui.Input is named by its placeholder).
+// NameLabel, EmailLabel and NoteLabel name the fields (a ui.Input is
+// named by its placeholder).
 let NameLabel = "Name"
 
 let EmailLabel = "Email"
@@ -74,7 +74,7 @@ func field(f *ui.Frame[subscribe.Signal], label string, text string, said string
 }
 
 // NameSaid and EmailSaid are a field's description: what its check says,
-// or nothing while it has nothing to say (upstream's descriptionView).
+// or nothing while it has nothing to say.
 func NameSaid(v subscribe.Verdict[subscribe.Name, subscribe.TooShort]) string {
 	match v {
 	case subscribe.Invalid[subscribe.TooShort] as i:

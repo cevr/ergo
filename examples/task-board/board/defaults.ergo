@@ -1,5 +1,4 @@
-// The board a first run starts with (upstream's constant.ts names work on
-// a drag-and-drop library; the port's are chores of an observatory).
+// The board a first run starts with: the chores of an observatory.
 
 import taskboard/sortkey
 

@@ -115,7 +115,7 @@ func warnings(f *ui.Frame[Signal], log []Warning) {
 func Title(w Warning) string { "\(Label(w.Phase)) exceeded \(w.Bound) \(Unit(w.Phase))" }
 
 // patchSurface is the patch work's rows, which a Same keeps from pass to
-// pass until the next mount (upstream's lazy rows): a mount writes them
+// pass until the next mount (lazy rows): a mount writes them
 // all, and no other pass writes them again.
 func patchSurface(f *ui.Frame[Signal], s Lab) {
 	ui.Text(f, "Patch surface")

@@ -1,5 +1,5 @@
-// Package screen is the site on a screen (stage b), as upstream's view:
-// the navigation, the route's page, and the transition log with a badge
+// Package screen is the site on a screen (stage b): the navigation,
+// the route's page, and the transition log with a badge
 // per fact of each navigation (a cold load, an entry, an exit, a stay on
 // a painting). A link of the site is a Semantic with the Link role whose
 // press sends gallery.Clicked; the host pushes it, and the address change
@@ -128,7 +128,7 @@ func Entry(l gallery.Logged) string {
 	line
 }
 
-// Badges are the facts of a navigation, as upstream's: a cold load, the
+// Badges are the facts of a navigation: a cold load, the
 // route entered, the route left, a stay on a painting with its ids, or
 // else a stay within the route.
 func Badges(l gallery.Logged) []string {
@@ -152,7 +152,7 @@ func Badges(l gallery.Logged) []string {
 	out
 }
 
-// kind is the name of a route's kind, upstream's tag.
+// kind is the name of a route's kind.
 func kind(r gallery.Route) string {
 	match r {
 	case gallery.Home:

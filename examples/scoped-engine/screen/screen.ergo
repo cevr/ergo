@@ -1,5 +1,5 @@
-// Package screen is the panel on a screen (stage b), as upstream's view:
-// the heading; the engine's status; Start engine while it is off or
+// Package screen is the panel on a screen (stage b): the heading;
+// the engine's status; Start engine while it is off or
 // failed, Stop engine while it boots or is ready; Compute next square,
 // disabled unless the engine is ready; and the last result.
 
@@ -42,7 +42,7 @@ func Screen(f *ui.Frame[engine.Signal], m engine.Mode) {
 	}
 }
 
-// Status is the engine's status line, upstream's texts.
+// Status is the engine's status line.
 func Status(m engine.Mode) string {
 	match m {
 	case engine.Off:

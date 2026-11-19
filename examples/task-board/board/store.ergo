@@ -1,5 +1,4 @@
-// The contract that keeps a board between runs (upstream: localStorage
-// under one key, read at start as the program's flags).
+// The contract that keeps a board between runs, read at start.
 
 // Broken is a store that cannot read or write the board, and why.
 type Broken { Why string }
