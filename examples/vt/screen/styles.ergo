@@ -38,6 +38,24 @@ func release(t *dense.Counted[vt.Style], id dense.Opt[vt.Style]) {
 	}
 }
 
+// retainN counts n more holders of id: a run of cells taking id.
+func retainN(t *dense.Counted[vt.Style], id dense.Opt[vt.Style], n int) {
+	match dense.Unpack(id) {
+	case Some[dense.ID[vt.Style]] as held:
+		t.UseN(held.Value, n)
+	case None:
+	}
+}
+
+// releaseN counts n holders of id less: a run of cells giving id up.
+func releaseN(t *dense.Counted[vt.Style], id dense.Opt[vt.Style], n int) {
+	match dense.Unpack(id) {
+	case Some[dense.ID[vt.Style]] as held:
+		t.ReleaseN(held.Value, n)
+	case None:
+	}
+}
+
 // styleAt is the style of id.
 func styleAt(t dense.Counted[vt.Style], id dense.Opt[vt.Style]) vt.Style {
 	match dense.Unpack(id) {
