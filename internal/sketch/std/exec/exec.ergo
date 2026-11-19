@@ -294,7 +294,7 @@ type Runner {
 			}
 			got = got + k.Text
 		}
-		interleaves(got, want.Stdout, want.Stderr) && p.Wait() == want.Status
+		Interleaves(got, want.Stdout, want.Stderr) && p.Wait() == want.Status
 	},
 
 	// NotFoundNamesTheProgram: a program that is not found is named by its
@@ -310,9 +310,11 @@ type Runner {
 	},
 }
 
-// interleaves reports whether s is a and b merged, each one's bytes kept
-// in its order (StartMergedInterleavesRun).
-func interleaves(s string, a string, b string) bool {
+// Interleaves reports whether s is a and b merged, each one's bytes kept
+// in its order: what a stream of a program whose Stderr is ToStdout holds
+// of the program's two streams (StartMergedInterleavesRun). It takes
+// time len(a) times len(b).
+func Interleaves(s string, a string, b string) bool {
 	if len(s) != len(a)+len(b) {
 		return false
 	}
@@ -329,6 +331,64 @@ func interleaves(s string, a string, b string) bool {
 		}
 	}
 	ok[len(b)]
+}
+
+// InterleavesMatchesModel: Interleaves agrees with a search written apart
+// from it, merged, on a merge of a and b by picks, that merge with its
+// first two bytes swapped, t, and the merge with a byte more (a and b and
+// t cut to 5 bytes).
+law InterleavesMatchesModel(a string, b string, picks []bool, t string) {
+	let x = upTo5(a)
+	let y = upTo5(b)
+	let s = pickMerge(x, y, picks)
+	let checks = []string{s, swapFirst(s), upTo5(t), s + "x"}
+	slices.All(checks, func(u string) bool { Interleaves(u, x, y) == merged(u, x, y) })
+}
+
+// upTo5 is s's first 5 bytes at most, so merged's search stays small.
+func upTo5(s string) string { if len(s) < 5 { s } else { strings.Slice(s, 0, 5) } }
+
+// pickMerge is a and b merged, each in its order: the next byte from a
+// when picks says so (cycling) or b is used up.
+func pickMerge(a string, b string, picks []bool) string {
+	let mut s = ""
+	let mut i = 0
+	let mut j = 0
+	for k in 0..len(a)+len(b) {
+		let fromA = j == len(b) || (i < len(a) && len(picks) > 0 && picks[k%len(picks)])
+		if fromA {
+			s = s + strings.Slice(a, i, i+1)
+			i = i + 1
+		} else {
+			s = s + strings.Slice(b, j, j+1)
+			j = j + 1
+		}
+	}
+	s
+}
+
+// swapFirst is s with its first two bytes swapped.
+func swapFirst(s string) string {
+	if len(s) < 2 {
+		return s
+	}
+	strings.Slice(s, 1, 2) + strings.Slice(s, 0, 1) + strings.Slice(s, 2, len(s))
+}
+
+// merged is Interleaves' model, written apart from it: the first byte of
+// s comes from a or from b, and the rest merges what is left.
+func merged(s string, a string, b string) bool {
+	if a == "" {
+		return s == b
+	}
+	if b == "" {
+		return s == a
+	}
+	if s == "" {
+		return false
+	}
+	let rest = strings.Slice(s, 1, len(s))
+	(s[0] == a[0] && merged(rest, strings.Slice(a, 1, len(a)), b)) || (s[0] == b[0] && merged(rest, a, strings.Slice(b, 1, len(b))))
 }
 
 // Detached names a program started to outlive the code that started it
