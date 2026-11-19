@@ -57,6 +57,9 @@ const (
 	// Go's build cache held it. A plan whose archives come from a pin set
 	// (internal/pinset) takes none.
 	StdExports
+	// ObligationsAffected counts the obligations `ergo test --affected`
+	// found affected or new against its BASE.
+	ObligationsAffected
 	numCounters
 )
 
@@ -68,6 +71,7 @@ var names = [numCounters]string{
 	"bytes_hashed",
 	"go_compiles", "go_compiles_reused", "links", "links_reused",
 	"go_commands", "processes", "bytes_written", "outputs_placed", "std_exports",
+	"obligations_affected",
 }
 
 var counts [numCounters]atomic.Int64

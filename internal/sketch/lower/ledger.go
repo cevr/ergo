@@ -383,6 +383,13 @@ func newDigester() *digester {
 // constructor and, for an operation type, its builder in pkg (check's
 // builders.go), which no name in the law reaches.
 func TargetDigest(pkg *check.Package, law *check.Law, binding []check.LawProvider) string {
+	d, slots := targetWalk(law, binding)
+	return d.sum(pkg, slots)
+}
+
+// targetWalk is TargetDigest's walk: the digester holding what the run
+// reaches, and its slots.
+func targetWalk(law *check.Law, binding []check.LawProvider) (*digester, []string) {
 	d := newDigester()
 	switch {
 	case law.Owner != nil:
@@ -411,7 +418,7 @@ func TargetDigest(pkg *check.Package, law *check.Law, binding []check.LawProvide
 		}
 		slots = append(slots, fmt.Sprintf("%d %s %s %t", k, p.Type, closed, p.Value))
 	}
-	return d.sum(pkg, slots)
+	return d, slots
 }
 
 // ContextDigest is the digest of every input of the verdict of the run of
@@ -424,6 +431,13 @@ func TargetDigest(pkg *check.Package, law *check.Law, binding []check.LawProvide
 // tokens of each (no position). An edit of any of them makes a new
 // digest.
 func ContextDigest(pkg *check.Package, law *check.Law, lc check.LawContext) string {
+	d, slots := contextWalk(law, lc)
+	return d.sum(pkg, slots)
+}
+
+// contextWalk is ContextDigest's walk: the digester holding what the run
+// reaches, and its slots.
+func contextWalk(law *check.Law, lc check.LawContext) (*digester, []string) {
 	d := newDigester()
 	d.typ(law.Owner)
 	d.context(lc.Context)
@@ -453,7 +467,7 @@ func ContextDigest(pkg *check.Package, law *check.Law, lc check.LawContext) stri
 		}
 	}
 	slots = append(slots, "context "+lc.Context.Name, "unrun "+lc.Unrun)
-	return d.sum(pkg, slots)
+	return d, slots
 }
 
 // context adds the declaration of the named context c, and of each
@@ -640,6 +654,8 @@ type digester struct {
 	indexed map[*check.Package]bool
 	// foreign are the `extern go` targets the walk reached.
 	foreign map[string]bool
+	// nodes are the declarations the walk added, in walk order (reach.go).
+	nodes []ReachedDecl
 }
 
 // letDecl is a package let's declaration and its package.
@@ -688,7 +704,9 @@ func (d *digester) let(v *check.Var) {
 
 // decl adds the declaration n of p under key and walks it.
 func (d *digester) decl(key string, p *check.Package, n syntax.Node) {
-	d.decls[key+"\n"+syntax.TokenText(declText(p, n))] = true
+	text := syntax.TokenText(declText(p, n))
+	d.decls[key+"\n"+text] = true
+	d.nodes = append(d.nodes, ReachedDecl{Key: key, Text: text, Pkg: p, Node: n})
 	d.walk(p, n)
 }
 
