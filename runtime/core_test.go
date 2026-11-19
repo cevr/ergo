@@ -50,6 +50,12 @@ var coreAllowed = map[string]string{
 func TestCoreHasNoInitRoots(t *testing.T) {
 	for _, path := range corePackages {
 		for _, name := range packages[path].files {
+			if !strings.HasSuffix(name, ".go") {
+				// An assembly file (exchange_darwin.s) imports nothing
+				// and declares no Go init; its symbols are reached only
+				// from the Go file that names them.
+				continue
+			}
 			data, err := sources.ReadFile(strings.TrimPrefix(path, "runtime/") + "/" + name)
 			if err != nil {
 				t.Fatal(err)
