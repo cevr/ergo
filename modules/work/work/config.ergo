@@ -297,6 +297,16 @@ func Commands(c Config) []string {
 	out
 }
 
+// CandidateCommandsAreTrusted: a candidate line's driver and check are
+// both commands work trust allows, so a changed check asks again.
+law CandidateCommandsAreTrusted(n int, m int) {
+	let c = ParseConfig("[[class]]\nmatch = \"*.go\"\nkind = \"driver\"\ndriver = \"drv \(n)\"\ncandidate = true\ncheck = \"chk \(m)\"\n") catch {
+	case BadConfig:
+		return false
+	}
+	Commands(c) == []string{"class.*.go.driver: drv \(n)", "class.*.go.check: chk \(m)"}
+}
+
 // Digest is the digest of the commands a configuration runs: what work
 // trust allows. A config that runs nothing needs no trust; a changed
 // command asks again.

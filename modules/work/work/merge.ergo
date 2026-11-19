@@ -250,16 +250,6 @@ func MergeCandidate(t Tool, c Config, line ClassLine, path string, base string, 
 	}
 }
 
-// CandidateCommandsAreTrusted: a candidate line's driver and check are
-// both commands work trust allows, so a changed check asks again.
-law CandidateCommandsAreTrusted(n int, m int) {
-	let c = ParseConfig("[[class]]\nmatch = \"*.go\"\nkind = \"driver\"\ndriver = \"drv \(n)\"\ncandidate = true\ncheck = \"chk \(m)\"\n") catch {
-	case BadConfig:
-		return false
-	}
-	Commands(c) == []string{"class.*.go.driver: drv \(n)", "class.*.go.check: chk \(m)"}
-}
-
 // CandidateRun is what a candidate driver's run gave: its merge taken,
 // its own conflict, or a candidate withdrawn and why.
 type CandidateTaken {}
