@@ -18,8 +18,12 @@ func (b *irBuilder) goType(t check.Type, site syntax.Node) string {
 	switch u := t.(type) {
 	case *check.Signature:
 		return b.sigType(u, site) // ir_closure.go
+	case *check.Tuple:
+		if len(u.Types) >= 2 {
+			return b.tupleType(u, site) // ir_tuple.go
+		}
 	case *check.Slice:
-		if hasSig(u) {
+		if hasSig(u) || isTuple(u.Elem) {
 			return "[]" + b.goType(u.Elem, site)
 		}
 	}
@@ -38,6 +42,35 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 	case *check.Slice:
 		b.admit(t.Elem, depth+1)
 		return
+	case *check.Array:
+		b.admit(t.Elem, depth+1) // FLIP F7 (ir_index.go): Go's [N]T
+		return
+	case *check.Map:
+		b.admitMap(t, depth) // ir_pkg.go
+		return
+	case *check.Pointer:
+		// A pointer to an admitted type (FLIP F2; IRG4b r2): a *T
+		// parameter, a receiver, &p.
+		b.admit(t.Elem, depth+1)
+		return
+	case *check.TypeParam:
+		// A type parameter of the generic body (F1): the decoder resolves
+		// its Go name among the function's (and its receiver's) type
+		// parameters. Values of it are moved, never operated on: an
+		// operator admits only basic types (operator).
+		if _, ok := b.fc.params[t]; !ok {
+			irNo("type parameter outside its declaration")
+		}
+		return
+	case *check.Tuple:
+		// A tuple value: the emitter's struct{F0 T0; F1 T1} (ir_tuple.go).
+		if len(t.Types) < 2 {
+			irNo("type *check.Tuple")
+		}
+		for _, e := range t.Types {
+			b.admit(e, depth+1)
+		}
+		return
 	case *check.Signature:
 		// A function value's type (ir_closure.go, sigType).
 		if len(t.Results) > 1 {
@@ -51,11 +84,28 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 		}
 		return
 	case *check.Named:
-		if len(t.TArgs) > 0 || len(t.TParams) > 0 || t.Obj.Decl == nil {
+		if check.IsGoError(t) {
+			// go.Error is the runtime's GoError, a Go type of its own
+			// that every program may name (SP4: a Go call's failure).
+			b.keepImport("var _ " + b.l.rt() + ".GoError")
+			return
+		}
+		if t.Obj.Pkg != nil && t.Obj.Pkg.Host() || isGoRef(t) {
+			b.admitHost(t, depth) // ir_gocall.go (FORK-GOCALL, FORK-GOLIB)
+			return
+		}
+		if len(t.TParams) > 0 || t.Obj.Decl == nil {
 			irNo("generic or declared-elsewhere type")
 		}
+		b.admitArgs(t, depth) // ir_pkg.go
 		if _, ok := t.Obj.Decl.Spec.(*syntax.StructType); !ok {
 			b.admitNamed(t, depth) // ir_union.go
+			return
+		}
+		if check.IsNever(t) {
+			// The prelude's Never, a union of no variants declared with
+			// a record's braces: Go's struct{}, as the emitter's (decls.go
+			// typeDecl), which no body builds.
 			return
 		}
 		s, ok := t.Underlying().(*check.Struct)
@@ -66,14 +116,23 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 			return
 		}
 		for _, f := range s.Fields {
+			if funcField(f.Type) { // ir_machine.go
+				continue
+			}
 			b.admit(f.Type, depth+1)
 		}
 		return
 	case *check.Union:
 		// A row, the error of a fallible call (a catch's `case err:`): a
 		// Go error, its variants the error types (ir_tree.go).
-		if b.fc.goType(t) == "error" {
+		if failureRow(b.fc, t) { // ir_field.go
 			for _, v := range t.Variants {
+				if tp, ok := v.(*check.TypeParam); ok && tp.Kind == check.KindErrors {
+					// An error row parameter of the row: its errors are
+					// the Go error's values, whatever they are (the
+					// emitter's goType of a row), no Go type of their own.
+					continue
+				}
 				b.admit(v, depth+1)
 			}
 			return

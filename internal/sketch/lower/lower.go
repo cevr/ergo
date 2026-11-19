@@ -67,6 +67,13 @@ type Unit struct {
 	// Rewrite is the evidence of the law runs the run build may rewrite
 	// with (rewrite.go); nil rewrites nothing. The test build ignores it.
 	Rewrite RewriteEvidence
+	// Rewrites is ergo build's -rewrites switch for the rewrites over
+	// functions of the IR path (ir_rewrite.go): "" or "on" (proved and
+	// validated laws), "proved" (proved laws only), "off" (the reference:
+	// every site keeps its left side), "canary[=N]" (on, and each N-th
+	// call at a rewritten site checks the left side too; ParseRewrites).
+	// The test build ignores it: it shadows every matched site.
+	Rewrites string
 	// AllLaws asks RewriteChecks for every rewrite and post law of the
 	// unit, not only those its run build's sites use: std's ledger
 	// (FreshStdLedger) holds each law proved once, for every program.
@@ -79,12 +86,22 @@ type Unit struct {
 	// Copies, when set, receives the form of each Append and owned-form
 	// site the lowering decides (handover.go; ergo build -report copies).
 	Copies *CopyReport
+	// NoViews is ergo build -views=off: no Go call takes a view of a
+	// string's bytes, in the run build or the test build (view.go).
+	NoViews bool
+	// NoFallback is ergo build -fallback=off (ERGO_FALLBACK=off): an IR
+	// lowering that keeps any body on the text path is refused with a
+	// FallbackRefused naming each (ir_fallback.go; F8's precondition).
+	NoFallback bool
 }
 
 // Validate reports a unit whose files and sources are not aligned, whose
 // source paths cannot be anchored or are admitted twice, or whose imports
 // are not distinct user packages with flat units.
 func (u Unit) Validate() error {
+	if _, _, err := ParseRewrites(u.Rewrites); err != nil {
+		return fmt.Errorf("lower: %w", err)
+	}
 	seen := map[string]bool{}
 	if err := u.validateFiles(seen); err != nil {
 		return err

@@ -102,6 +102,9 @@ func testLoadedPackage(opts fileOptions, l loaded, keep func(result []byte)) err
 	// initializers never run (empty.go); a schedule search still builds it.
 	if opts.search.mode == "" && nothingToTest(l.analysis.Root().Package) {
 		err := emptyTestRun(opts, l.result.Revision, os.Stdout, os.Stderr)
+		if err == nil && opts.law == "" && opts.skipLaw == "" && opts.run == "" && !opts.explore {
+			err = writeLedger(opts, l)
+		}
 		if err == nil {
 			keep(nil)
 		}
@@ -259,7 +262,10 @@ func runTestBinary(opts fileOptions, l loaded, binary string, prefix []string, s
 	child := testProgramCommand(binary, childArgs, limit)
 	var out bytes.Buffer
 	var result testResult
-	stdout, stderr := []io.Writer{os.Stdout}, []io.Writer{os.Stderr}
+	// A rewrite shadow that finds its law false writes a refutation line
+	// (shadow.RefutedPrefix) before its defect: the ledger records it.
+	shadows := &shadowLines{}
+	stdout, stderr := []io.Writer{os.Stdout}, []io.Writer{os.Stderr, shadows}
 	if verdicts != nil {
 		stdout = append(stdout, &out)
 	}
@@ -275,6 +281,12 @@ func runTestBinary(opts fileOptions, l loaded, binary string, prefix []string, s
 	err = runEntryProcess(child, limit, proclimit.Watch(child))
 	// Each run that printed its ok line held, whatever later runs did.
 	verdicts.Record(out.String())
+	if len(shadows.refs) > 0 {
+		// A failed run too: the refutation is a fact of the sources.
+		if werr := writeRefutations(opts, l, shadows.refs); werr != nil && err == nil {
+			err = werr
+		}
+	}
 	if err != nil {
 		return err
 	}
@@ -285,10 +297,24 @@ func runTestBinary(opts fileOptions, l loaded, binary string, prefix []string, s
 		}
 		return nil
 	}
-	// The passing run writes the law ledger (runtime.md, Tests 10): the
-	// laws and site instances the run build uses, checked alone. In a
-	// module's one test binary (sharedTestCommand) this runs once per
-	// package, as each package's own `ergo test` does.
+	if err := writeLedger(opts, l); err != nil {
+		return err
+	}
+	if store != nil {
+		store(result)
+	}
+	return nil
+}
+
+// writeLedger is a passing full run's write of the law ledger (runtime.md,
+// Tests 10): the laws and site instances the run build uses, checked
+// alone. In a module's one test binary (sharedTestCommand) this runs once
+// per package, as each package's own `ergo test` does. A binary with no
+// test of its own writes it too (testLoadedPackage): its sites may rest on
+// an imported provider's law (LFL: a foreign key change left catalog's
+// entries stale, and its ergo test, which tests nothing, never rewrote
+// them).
+func writeLedger(opts fileOptions, l loaded) error {
 	root, err := build.DefaultRoot()
 	if err != nil {
 		return err
@@ -301,7 +327,7 @@ func runTestBinary(opts fileOptions, l loaded, binary string, prefix []string, s
 		Mode:      build.ModeBuild,
 		Source:    l.source.Admitted(),
 		Cache:     build.Cache{Root: root},
-		Toolchain: tc, // no explore tag: an explored run returned above
+		Toolchain: tc, // no explore tag: an explored run returned before
 		Stderr:    os.Stderr,
 		Ledger:    ledgerPath(opts.file),
 		Laws:      lawStore(),
@@ -312,8 +338,48 @@ func runTestBinary(opts fileOptions, l loaded, binary string, prefix []string, s
 	if changed > 0 {
 		fmt.Fprintf(os.Stderr, "ergo.laws: %d entries changed\n", changed)
 	}
-	if store != nil {
-		store(result)
+	return nil
+}
+
+// shadowLines reads the test program's standard error for the rewrite
+// shadows' refutation lines (sketchfront.ParseShadowLine).
+type shadowLines struct {
+	part []byte
+	refs []sketchfront.ShadowRefutation
+}
+
+func (s *shadowLines) Write(p []byte) (int, error) {
+	s.part = append(s.part, p...)
+	for {
+		i := bytes.IndexByte(s.part, '\n')
+		if i < 0 {
+			break
+		}
+		if r, ok := sketchfront.ParseShadowLine(string(s.part[:i])); ok {
+			s.refs = append(s.refs, r)
+		}
+		s.part = s.part[i+1:]
+	}
+	if len(s.part) > 1<<16 {
+		// A long line is no refutation line: keep only its tail's room.
+		s.part = s.part[:0]
+	}
+	return len(p), nil
+}
+
+// writeRefutations writes the shadows' refutations of a test run into the
+// module's ergo.laws and ergo.cases (sketchfront.RecordRefutations).
+func writeRefutations(opts fileOptions, l loaded, refs []sketchfront.ShadowRefutation) error {
+	changed, err := sketchfront.RecordRefutations(l.analysis, sketchfront.BuildRequest{
+		Source: l.source.Admitted(),
+		Stderr: os.Stderr,
+		Ledger: ledgerPath(opts.file),
+	}, refs)
+	if err != nil {
+		return err
+	}
+	if changed > 0 {
+		fmt.Fprintf(os.Stderr, "ergo.laws: %d entries changed\n", changed)
 	}
 	return nil
 }

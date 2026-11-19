@@ -1,6 +1,6 @@
 # draw-gui
 
-A drawing app: freehand strokes simplified as they are drawn (Douglas-Peucker), rectangles, ellipses and lines on four layers; select, move and delete; pan and zoom; a uniform grid that finds the shape under the pointer; pictures saved as SVG and read back. The model and its headless driver are stage a (corpus wave GP3a); the window's view on `ui.TestHost` is stage b (GP3b). The desktop window comes with the MyGo host (stage c).
+A drawing app: freehand strokes simplified as they are drawn (Douglas-Peucker), rectangles, ellipses and lines on four layers; select, move and delete; pan and zoom; a uniform grid that finds the shape under the pointer; pictures saved as SVG and read back. The model and its headless driver are stage a (corpus wave GP3a); the window's view on `ui.TestHost` is stage b (GP3b). Stage c (GP3c) is the desktop window: `hosts/mygo/cmd/draw-gui` runs the same view on the MyGo host, held to `draw-gui scene` by `TestDrawGuiOnTheDesktop` there, beside a MyGo-direct control. The module is `ergo.local/prototype/examples/drawgui`, so the host can require it.
 
 ```sh
 draw-gui gen [-seed S] [-n N]   # write a script of N strokes of up to 200 points

@@ -1,40 +1,42 @@
 // Package bits counts and moves the bits of unsigned integers (docs/spec/
-// stdlib.md, math and bits; std-text-runes). It is Go's math/bits; each
-// extern binds a pure runtime/v1 body (runtime/v1/numbers.go) that calls
-// Go's function of the same name, which Go compiles to one instruction
-// (POPCNT, LZCNT, TZCNT, ROL) where the target has it.
+// stdlib.md, math and bits; std-text-runes). It is Go's math/bits, bound
+// through import go as a user binds it (NP4f): each function calls Go's of
+// the same name, which Go compiles to one instruction (POPCNT, LZCNT,
+// TZCNT, ROL) where the target has it.
+
+import go math/bits
 
 // OnesCount is the number of one bits in x.
-extern go ergo.local/prototype/runtime/v1.BitsOnesCount func OnesCount(x uint) int
+func OnesCount(x uint) int { bits.OnesCount(x) }
 
 // OnesCount64 is the number of one bits in x.
-extern go ergo.local/prototype/runtime/v1.BitsOnesCount64 func OnesCount64(x uint64) int
+func OnesCount64(x uint64) int { bits.OnesCount64(x) }
 
 // LeadingZeros is the number of zero bits above the highest one bit of
 // x; 64 for 0.
-extern go ergo.local/prototype/runtime/v1.BitsLeadingZeros func LeadingZeros(x uint) int
+func LeadingZeros(x uint) int { bits.LeadingZeros(x) }
 
 // LeadingZeros64 is LeadingZeros for a uint64.
-extern go ergo.local/prototype/runtime/v1.BitsLeadingZeros64 func LeadingZeros64(x uint64) int
+func LeadingZeros64(x uint64) int { bits.LeadingZeros64(x) }
 
 // TrailingZeros is the number of zero bits below the lowest one bit of
 // x; 64 for 0.
-extern go ergo.local/prototype/runtime/v1.BitsTrailingZeros func TrailingZeros(x uint) int
+func TrailingZeros(x uint) int { bits.TrailingZeros(x) }
 
 // TrailingZeros64 is TrailingZeros for a uint64.
-extern go ergo.local/prototype/runtime/v1.BitsTrailingZeros64 func TrailingZeros64(x uint64) int
+func TrailingZeros64(x uint64) int { bits.TrailingZeros64(x) }
 
 // Len is the number of bits needed to write x; 0 for 0.
-extern go ergo.local/prototype/runtime/v1.BitsLen func Len(x uint) int
+func Len(x uint) int { bits.Len(x) }
 
 // Len64 is Len for a uint64.
-extern go ergo.local/prototype/runtime/v1.BitsLen64 func Len64(x uint64) int
+func Len64(x uint64) int { bits.Len64(x) }
 
 // RotateLeft32 is x rotated left by k bits; a negative k rotates right.
-extern go ergo.local/prototype/runtime/v1.BitsRotateLeft32 func RotateLeft32(x uint32, k int) uint32
+func RotateLeft32(x uint32, k int) uint32 { bits.RotateLeft32(x, k) }
 
 // RotateLeft64 is x rotated left by k bits; a negative k rotates right.
-extern go ergo.local/prototype/runtime/v1.BitsRotateLeft64 func RotateLeft64(x uint64, k int) uint64
+func RotateLeft64(x uint64, k int) uint64 { bits.RotateLeft64(x, k) }
 
 // RotateLeft64Inverts: rotating right by k undoes rotating left by k.
 law RotateLeft64Inverts(x uint64, k int) { RotateLeft64(RotateLeft64(x, k), -k) == x }
@@ -43,7 +45,7 @@ law RotateLeft64Inverts(x uint64, k int) { RotateLeft64(RotateLeft64(x, k), -k) 
 law RotateLeft32Inverts(x uint32, k int) { RotateLeft32(RotateLeft32(x, k), -k) == x }
 
 // RotateKeepsOnes: a rotation moves bits and loses none.
-law RotateKeepsOnes(x uint64, k int) { OnesCount64(RotateLeft64(x, k)) == OnesCount64(x) }
+law RotateKeepsOnes(x uint64, k int) { OnesCount64(RotateLeft64(x, k)) } == { OnesCount64(x) }
 
 // LenAndLeadingZeros: the bits of x are its length and the zeros above it.
 law LenAndLeadingZeros(x uint64) { Len64(x)+LeadingZeros64(x) == 64 }

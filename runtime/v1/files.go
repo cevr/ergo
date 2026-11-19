@@ -113,6 +113,14 @@ type Body struct {
 	// poisons the storage the owned form would have taken over, so a read
 	// that the consumption proof missed reads poison.
 	Check string
+	// View names the body's view form, from a directive line
+	// "//ergo:view Name" in its doc comment: a body of the same shape that
+	// shares its argument's storage with its result, where the plain body
+	// copies it (BytesView for StringsBytes; LAWFFI LF2b). The lowering
+	// calls it only as a whole argument of a Go call whose parameter's
+	// reads fact is validated and allows a view (lower/view.go); it is
+	// listed in internal/residue/testdata/unsafe.txt.
+	View string
 	// Wait is the body's waiting policy, from the directive line
 	// "//ergo:wait KIND" of its doc comment (WaitKinds): which task a call
 	// of it waits on, or none. It is "" for a body with no mark, which no
@@ -129,6 +137,12 @@ type Body struct {
 	// with its first operand a zero-field PROVIDER the call erases (the
 	// host Sleep of LiveScheduler).
 	BridgeTarget, BridgeProvider string
+	// AsWritten reports a body marked //ergo:aswritten (AsWrittenMark):
+	// a pure identity of one parameter, whose call keeps the call tree in
+	// its argument as written. A rewrite over functions never takes such a
+	// call tree as its root or a part of its match (docs/spec/types.md,
+	// Laws 14; lower/funcrewrite.go).
+	AsWritten bool
 	// Package is the import path of the body's package: runtime/v1 (Path)
 	// or one of its leaves (Leaves), which the lowering imports to call it.
 	Package string
@@ -148,7 +162,10 @@ const (
 //   - caller: it waits on the caller's task, and a stop of it ends the wait;
 //   - handle: it waits on the task of the handle it is given;
 //   - drain: an uninterruptible stop and completed drain;
-//   - child: the caller is the parent of the children it starts and joins;
+//   - child: the caller is the parent of the children it starts and joins
+//     before it returns; it runs its function operands only on itself and
+//     on those children, so none runs after the call (lower's
+//     joinsChildren: a task's captures end at its join);
 //   - member: the caller becomes the first member of a clock's domain;
 //   - parent: the caller is the parent of the task it starts;
 //   - settle: it waits until the rest of a manual clock's domain is parked;
@@ -202,8 +219,8 @@ func (b Bodies) Body(name string) (Body, error) {
 	switch {
 	case body.Wait == "":
 		return Body{}, fmt.Errorf("%s states no %sKIND (%s)", name, WaitMark, kindList(WaitKinds))
-	case body.Release != "" || body.BridgeTarget != "" || body.Owned != "" || body.Check != "":
-		return Body{}, fmt.Errorf("%s states a release route, a bridge, an owned form or a checking form, which only runtime/v1's bodies state", name)
+	case body.Release != "" || body.BridgeTarget != "" || body.Owned != "" || body.Check != "" || body.View != "" || body.AsWritten:
+		return Body{}, fmt.Errorf("%s states a release route, a bridge, an owned form, a checking form, a view form or %s, which only runtime/v1's bodies state", name, AsWrittenMark)
 	}
 	return body, nil
 }
@@ -216,6 +233,11 @@ const PureMark = "//ergo:pure"
 // state, in the doc comment of an exported function or method.
 const HostMark = "//ergo:host"
 
+// AsWrittenMark is the directive line that marks a body that keeps its
+// argument's call tree as written (Body.AsWritten): a pure function of one
+// parameter whose result is of the parameter's type.
+const AsWrittenMark = "//ergo:aswritten"
+
 // OwnedMark starts the directive line that names a body's owned form
 // (Body.Owned): "//ergo:owned Name".
 const OwnedMark = "//ergo:owned "
@@ -223,6 +245,10 @@ const OwnedMark = "//ergo:owned "
 // CheckMark starts the directive line that names an owned form's checking
 // form (Body.Check): "//ergo:check Name".
 const CheckMark = "//ergo:check "
+
+// ViewMark starts the directive line that names a body's view form
+// (Body.View): "//ergo:view Name".
+const ViewMark = "//ergo:view "
 
 // HostImports are the Go packages each of whose members reaches host
 // state, but those HostImportsExcept names. hostReach refuses an unmarked
@@ -366,13 +392,14 @@ const Path = runtimefiles.Module + "/runtime/v1"
 // Leaves are the leaf packages of runtime/v1, by name: the package Path/LEAF
 // in the directory runtime/v1/LEAF (binsize BS1). A leaf holds the bodies
 // whose Go packages no other body needs (crypto/sha256, encoding/csv,
-// os/exec, math/rand/v2, net/http, encoding/json, log/slog): the Go linker keeps the init task of every
+// os/exec, math/rand/v2, net/http, encoding/json, log/slog; fmt and reflect
+// for a test build's rewrite shadow): the Go linker keeps the init task of every
 // imported package, so a program imports a leaf only when it calls one of
 // its bodies, and a program that calls none links none of those packages.
 // A leaf may import runtime/v1; runtime/v1 imports no leaf. A name is
 // unique across runtime/v1 and its leaves (sourceDecls), so a body is named
 // by its Go name alone, as before, and PackageOf finds its package.
-var Leaves = []string{"csv", "digest", "exec", "http", "rand", "redacted", "rpc"}
+var Leaves = []string{"csv", "digest", "exec", "http", "rand", "redacted", "rpc", "shadow"}
 
 // HostText is the import path of the gofmt leaf, which makes fmt the
 // runtime's text of a value the core cannot write without it (rt.Text,
@@ -384,7 +411,7 @@ const HostText = Path + "/gofmt"
 // write a value with rt.TypedText: a machine's state in the defect of a
 // timer that is not positive. TestHostTextUsersAreListed holds the list
 // against the call graph of runtime/v1.
-var hostTextUsers = []string{"MachineChild", "MachineStart", "MachineSupervise", "MachineTimerNotPositive"}
+var hostTextUsers = []string{"MachineChild", "MachineStart", "MachineSupervise", "MachineTimerNotPositive", "MachineTimerPanic"}
 
 // NeedsHostText reports whether a program that names the runtime/v1
 // declaration name imports the gofmt leaf (HostText).
@@ -758,7 +785,7 @@ func (d goDecls) body(name string) (Body, error) {
 	for _, f := range []struct {
 		mark, what string
 		to         *string
-	}{{OwnedMark, "owned form", &b.Owned}, {CheckMark, "checking form", &b.Check}} {
+	}{{OwnedMark, "owned form", &b.Owned}, {CheckMark, "checking form", &b.Check}, {ViewMark, "view form", &b.View}} {
 		form := directiveName(g.fn, f.mark)
 		if form == "" {
 			continue
@@ -781,6 +808,12 @@ func (d goDecls) body(name string) (Body, error) {
 	}
 	if err := policy(g.fn, &b); err != nil {
 		return Body{}, fmt.Errorf("runtime/v1: %s: %w", name, err)
+	}
+	if marked(g.fn, AsWrittenMark) {
+		if !b.Pure || len(b.Hidden) > 0 || len(b.Params) != 1 || len(b.Results) != 1 || b.Results[0] != b.Params[0].Type {
+			return Body{}, fmt.Errorf("runtime/v1: %s is marked %s, but is no pure function of one parameter whose result has its type", name, AsWrittenMark)
+		}
+		b.AsWritten = true
 	}
 	return b, nil
 }

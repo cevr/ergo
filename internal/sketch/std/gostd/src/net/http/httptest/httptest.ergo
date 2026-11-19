@@ -43,22 +43,22 @@ extern go net/http/httptest.ResponseRecorder type ResponseRecorder {
 }
 
 // ergo:go func (*ResponseRecorder).Flush()
-extern go net/http/httptest.ResponseRecorder.Flush func (rw own *ResponseRecorder) Flush() needs go.Foreign
+extern go net/http/httptest.ResponseRecorder.Flush func (rw *ResponseRecorder) Flush() needs go.Foreign
 
 // ergo:go func (*ResponseRecorder).Header() http.Header
-extern go net/http/httptest.ResponseRecorder.Header func (rw own *ResponseRecorder) Header() http.Header needs go.Foreign
+extern go net/http/httptest.ResponseRecorder.Header func (rw *ResponseRecorder) Header() http.Header needs go.Foreign
 
 // ergo:go func (*ResponseRecorder).Result() *http.Response
-extern go net/http/httptest.ResponseRecorder.Result func (rw own *ResponseRecorder) Result() Option[go.Ref[http.Response]] needs go.Foreign
+extern go net/http/httptest.ResponseRecorder.Result func (rw *ResponseRecorder) Result() Option[go.Ref[http.Response]] needs go.Foreign
 
 // ergo:go func (*ResponseRecorder).Write(buf []byte) (int, error)
-extern go net/http/httptest.ResponseRecorder.Write func (rw own *ResponseRecorder) Write(buf []byte) int fails go.Error needs go.Foreign
+extern go net/http/httptest.ResponseRecorder.Write func (rw *ResponseRecorder) Write(buf []byte) int fails go.Error needs go.Foreign
 
 // ergo:go func (*ResponseRecorder).WriteHeader(code int)
-extern go net/http/httptest.ResponseRecorder.WriteHeader func (rw own *ResponseRecorder) WriteHeader(code int) needs go.Foreign
+extern go net/http/httptest.ResponseRecorder.WriteHeader func (rw *ResponseRecorder) WriteHeader(code int) needs go.Foreign
 
 // ergo:go func (*ResponseRecorder).WriteString(str string) (int, error)
-extern go net/http/httptest.ResponseRecorder.WriteString func (rw own *ResponseRecorder) WriteString(str string) int fails go.Error needs go.Foreign
+extern go net/http/httptest.ResponseRecorder.WriteString func (rw *ResponseRecorder) WriteString(str string) int fails go.Error needs go.Foreign
 
 // ergo:go type Server struct
 extern go net/http/httptest.Server type Server {
@@ -73,16 +73,16 @@ extern go net/http/httptest.Server type Server {
 extern go net/http/httptest.Server.Certificate func (s own *Server) Certificate() Option[go.Ref[x509.Certificate]] needs go.Foreign
 
 // ergo:go func (*Server).Client() *http.Client
-extern go net/http/httptest.Server.Client func (s own *Server) Client() Option[go.Ref[http.Client]] needs go.Foreign
+extern go net/http/httptest.Server.Client func (s *Server) Client() Option[go.Ref[http.Client]] needs go.Foreign
 
 // ergo:go func (*Server).Close()
 extern go net/http/httptest.Server.Close func (s own *Server) Close() needs go.Foreign
 
 // ergo:go func (*Server).CloseClientConnections()
-extern go net/http/httptest.Server.CloseClientConnections func (s own *Server) CloseClientConnections() needs go.Foreign
+extern go net/http/httptest.Server.CloseClientConnections func (s *Server) CloseClientConnections() needs go.Foreign
 
 // ergo:go func (*Server).Start()
-extern go net/http/httptest.Server.Start func (s own *Server) Start() needs go.Foreign
+extern go net/http/httptest.Server.Start func (s *Server) Start() needs go.Foreign
 
 // ergo:go func (*Server).StartTLS()
-extern go net/http/httptest.Server.StartTLS func (s own *Server) StartTLS() needs go.Foreign
+extern go net/http/httptest.Server.StartTLS func (s *Server) StartTLS() needs go.Foreign

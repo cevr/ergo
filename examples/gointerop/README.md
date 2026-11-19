@@ -6,6 +6,7 @@ A checksum and statistics tool written to lean on Go's standard library from Erg
 ergo run cmd/gointerop -- sum a.txt b.txt   # "DIGEST  NAME" per file; no file means standard input, "-"
 ergo run cmd/gointerop -- check list        # "NAME: OK" or "NAME: FAILED" per line of list; exit 1 on a failure
 printf '2 4 4 4 5 5 7 9' | ergo run cmd/gointerop -- stats
+printf '9 4 2 7 4 5' | ergo run cmd/gointerop -- find 4 6   # "4 rank 1 of 6 found", "6 rank 4 of 6 absent"
 ```
 
 ## What a Go programmer would write, and what this program does
@@ -15,6 +16,7 @@ A Go version imports `crypto/sha256`, `encoding/hex` and `bufio`, and maps `strc
 - **SHA-256 is Go's** (`sha256/`): the provider is `hex.Encode(sha256.Sum(text))`, std `sha256` and `hex` over Go's `crypto/sha256` and `encoding/hex`. It replaced a FIPS 180-4 SHA-256 written in Ergo (0.75 s on 50 MB where Go's assembly takes 0.08 s); the FIPS vectors and coreutils' block-edge digests stay as its tests.
 - **The statistics use Go's `math`** (`stats/`): `math.Sqrt` and `math.Abs` are std; `math.Log`, `math.Exp` and `strings.TrimRight`, which std lacks, are user externs.
 - **Go's errors arrive typed where std adapts them**: `stats.Read` reads numbers with std `strconv.ParseFloat`, whose Go `*NumError` is two failures, `Malformed` and `OutOfRange`; `Read` turns them into `NotANumber{Line, Text}` and `TooLarge{Line, Text}`. A user extern of a Go function that returns an `error` now declares `fails go.Error` (its `Text` is the error's message); this program has no such extern: std's typed failures say more.
+- **A Go search on a live index is not a copy** (`index/`): `Rank` is `sort.SearchInts(ix.keys, k)` through `import go sort`. The binding carries `// ergo:reads a`, which Go's own escape analysis derives, so the run build passes the index to Go as it is (`ergo build -report copies` prints `no copy` at the call); a query costs a binary search, not a copy of every key. `ergo test` copies the index at each call and checks that Go left it as it was.
 - **Extern functions are values**: a user or std extern can be passed where a function is expected (a Go callback of an unnamed function type).
 
 ## Layout
@@ -22,12 +24,13 @@ A Go version imports `crypto/sha256`, `encoding/hex` and `bufio`, and maps `strc
 - `checksum/`: the domain. The operation type `Hasher` (`Sum`, `Name`) with the laws `Deterministic`, `FixedWidth` and `Distinguishes`; list entries (`Entry`, `Parse` fails `BadLine`, `Line`); `Verdict = Matches | Differs{Got} | Missing`, `Check` (needs `Hasher`) and `Report`.
 - `sha256/`: `Hasher`, the SHA-256 provider of `checksum.Hasher`, and its tests (vectors and block edges; `ergo test cmd/gointerop` runs the `Hasher` laws against it).
 - `stats/`: `Read`, `Summarize` (Welford's update; fails `Empty`), `Text`, `Lines`; the laws `MeanIsBetween`, `ShiftKeepsSpread`, `GeoMeanAtMostMean`.
+- `index/`: `Index`, `Build`, `Read` (fails `NotAnInt`), `Rank`, `Has`, `Size`; the laws `RankCountsTheLess` and `HoldsWhatItWasGiven`.
 - `cmd/gointerop/main.ergo`: the binary; it binds `checksum.Hasher` to `sha256.Hasher`, `fs.Files` and the standard input to the host. Its tests run on an `fstest.Memory` disk.
 - `testdata/`: `a.txt`, `b.txt` and a `list` with one good, one wrong and one missing entry.
 
 ## Cases
 
-`sum-stdin`, `sum-files` (digests equal `sha256sum`'s), `check` (OK, FAILED, FAILED open or read; exit 1), `stats`, `stats-bad` (`1e999` is too large, exit 1), `usage` (exit 2). `check` counts unreadable files with the mismatches in its warning, where `sha256sum` reports them on a line of their own.
+`sum-stdin`, `sum-files` (digests equal `sha256sum`'s), `check` (OK, FAILED, FAILED open or read; exit 1), `stats`, `find`, `stats-bad` (`1e999` is too large, exit 1), `usage` (exit 2). `check` counts unreadable files with the mismatches in its warning, where `sha256sum` reports them on a line of their own.
 
 ## Limits found
 

@@ -1,6 +1,10 @@
 {
   "about": "Host context interruption acceptance mutants. Run the named CLI killer; it builds emitted programs because the contract is a live foreign wait and completed cleanup.",
   "mutants": [
+    {"name":"lf6d-shadow-lines-unwired","origin":"wf10 LF6d","file":"cmd/ergo/test.go","from":"\tstdout, stderr := []io.Writer{os.Stdout}, []io.Writer{os.Stderr, shadows}\n","to":"\tstdout, stderr := []io.Writer{os.Stdout}, []io.Writer{os.Stderr}\n\t_ = shadows\n","rule":"ergo test reads the test binary's standard error for shadow refutations.","killers":["cmd/ergo:TestTestWritesShadowRefutation"]},
+    {"name":"lf6d-shadow-lines-per-write","origin":"wf10 LF6d","file":"cmd/ergo/test.go","from":"\ts.part = append(s.part, p...)\n","to":"\ts.part = append(s.part[:0], p...)\n","rule":"ergo test reads a refutation line that reaches it in pieces.","killers":["cmd/ergo:TestShadowLinesReadAcrossWrites"]},
+    {"name":"lf6c-advice-ledger-unrecorded","origin":"wf10 LF6c","file":"cmd/ergo/main.go","from":"AdviseLicences(&evaluation, w.fsys(), ","to":"AdviseLicences(&evaluation, nil, ","rule":"ergo check reads the ledger through the warm recorder, so a changed ergo.laws changes the warm answer.","killers":["cmd/ergo:TestCheckAdviceFollowsLedger"]},
+    {"name":"lf6c-check-advice-unwired","origin":"wf10 LF6c","file":"cmd/ergo/main.go","from":"\tif err := l.analysis.AdviseLicences(&evaluation, w.fsys(), ledgerPath(opts.file)); err != nil {\n","to":"\tif err := error(nil); err != nil {\n","rule":"ergo check's envelope carries the advice at a rewrite law its ledger does not license.","killers":["cmd/ergo:TestCheckAdviceFollowsLedger"]},
     {"name":"chk1b-cache-producer-not-shared","origin":"wf10 CHK1b","file":"internal/sketchfront/sketchfront.go","from":"compiler := preparedCompilerIdentity()","to":"compiler := \"\"","rule":"Emission reuses the producer acquired for checked std instead of acquiring it again.","killers":["cmd/ergo:TestProducerSmoke"],"anchor":{"tests":["cmd/ergo:TestProducerSmoke"]}},
     {"name":"e5-receipt-last-wins","origin":"wf10 batch-16b fix-r1","file":"cmd/ergo/recursive.go","from":"one.receipt = filepath.Join(module.receiptDir, filepath.FromSlash(checked.Path)+\".json\")","to":"one.receipt = module.receiptDir","rule":"Recursive receipts retain every package, including an earlier refutation. The CLI subprocess is not instrumented by the package's coverage pass.","killers":["cmd/ergo:TestModuleLawSelectionReceipts"],"anchor":{"tests":["cmd/ergo:TestModuleLawSelectionReceipts"]}},
     {"name":"rcpt-reset-per-run","origin":"wf10 FU-rcpt","file":"internal/sketch/lower/tests.go","from":"b.WriteString(\"\\t\" + l.helper(\"Receipt\") + \".laws = nil\\n\")","to":"_ = 0","rule":"An explored worker runs the tests once per schedule in one process; each run's receipt holds each law run once, equal to a plain run's. The CLI subprocess is not instrumented by the package's coverage pass.","killers":["cmd/ergo:TestExploreReceiptMatchesPlain"],"anchor":{"tests":["cmd/ergo:TestExploreReceiptMatchesPlain"]}},
@@ -353,7 +357,7 @@
       "killers": ["cmd/ergo:TestTestResultCache"],
       "anchor": {"tests": ["cmd/ergo:TestTestResultCache"]}
     },
-    {"name":"cache-fail-kept","origin":"wf10 g-b2","file":"cmd/ergo/test.go","from":"\tverdicts.Record(out.String())\n\tif err != nil {\n\t\treturn err\n\t}\n","to":"\tverdicts.Record(out.String())\n\tif store != nil {\n\t\tstore(result)\n\t}\n\tif err != nil {\n\t\treturn err\n\t}\n","rule":"Only a passing run is cached or kept as a warm answer: a cached verdict is the verdict of a rerun, and a failure runs again (CS8).","killers":["cmd/ergo:TestTestResultCache","cmd/ergo:TestCachedVerdictAgrees"],"anchor":{"tests":["cmd/ergo:TestTestResultCache","cmd/ergo:TestCachedVerdictAgrees"]}},
+    {"name":"cache-fail-kept","origin":"wf10 g-b2","file":"cmd/ergo/test.go","from":"\t\t\terr = werr\n\t\t}\n\t}\n\tif err != nil {\n\t\treturn err\n\t}\n","to":"\t\t\terr = werr\n\t\t}\n\t}\n\tif store != nil {\n\t\tstore(result)\n\t}\n\tif err != nil {\n\t\treturn err\n\t}\n","rule":"Only a passing run is cached or kept as a warm answer: a cached verdict is the verdict of a rerun, and a failure runs again (CS8).","killers":["cmd/ergo:TestTestResultCache","cmd/ergo:TestCachedVerdictAgrees"],"anchor":{"tests":["cmd/ergo:TestTestResultCache","cmd/ergo:TestCachedVerdictAgrees"]}},
     {
       "name": "cache-hit-links",
       "origin": "wf10 g-b2",
@@ -393,8 +397,8 @@
       "name": "irt-build-source-path",
       "origin": "wf10 IRT0b",
       "file": "cmd/ergo/build.go",
-      "from": "\t\tIR:        true,\n\t\tStderr:    stderr,\n\t\tLedger:",
-      "to": "\t\tIR:        false,\n\t\tStderr:    stderr,\n\t\tLedger:",
+      "from": "\t\tIR:         true,\n\t\tRewrites:   opts.rewrites,\n\t\tStderr:     stderr,\n\t\tLedger:",
+      "to": "\t\tIR:         false,\n\t\tRewrites:   opts.rewrites,\n\t\tStderr:     stderr,\n\t\tLedger:",
       "rule": "ergo build lowers every program through IR (plan-tier §1.1): the module holds the IR file the patched compile reads.",
       "killers": ["cmd/ergo:TestBuildGoesThroughIR"]
     },
@@ -487,7 +491,14 @@
       "rule": "ergo build -report copies prints the form of each Append and Concat site (tooling.md; types.md, Bindings 2).",
       "killers": ["cmd/ergo:TestHandoverGrowsLinearly"]
     },
+    {"name":"irf-inspect-reports-fired-when-not","origin":"wf10 IR-FORMS IRF-6","file":"internal/sketch/lower/ir_forms_report.go","from":"\t\tif s.Fired {\n\t\t\tverdict = \"fired\"","to":"\t\tif s.Fired || s.Pass != \"\" {\n\t\t\tverdict = \"fired\"","rule":"inspect.md Forms (IRF-6): a site the pass refused prints not fired, with its reason.","killers":["cmd/ergo:TestInspectFormsRows"]},
+    {"name":"irf-inspect-unrouted","origin":"wf10 IR-FORMS IRF-6","file":"cmd/ergo/inspect.go","from":"\tif len(args) > 0 && args[0] == \"forms\" {","to":"\tif len(args) > 0 && args[0] == \"forms-unrouted\" {","rule":"inspect.md Forms (IRF-6): ergo inspect forms prints the run build's form sites, as text and as JSON.","killers":["cmd/ergo:TestInspectFormsRows"]},
+    {"name":"irf-memo-reason-swapped","origin":"wf10 IR-FORMS IRF-6","file":"internal/sketch/lower/ir_memo.go","from":"\t\t\treturn memoVariant\n","to":"\t\t\treturn memoNotBasic\n","rule":"inspect.md Forms (IRF-6): each refusal of the memo pass names its own reason from the table.","killers":["cmd/ergo:TestInspectFormsRows"]},
     {"name":"opc-hooked-build-host-goroot","origin":"wf10 std-spike c1b22 r3 (opcount program mode)","file":"internal/opcount/hooked/hooked.go","from":"tc.Go, tc.Root = patched.Go, patched.Root","to":"tc.Go, tc.Root = patched.Go, \"\"","rule":"A measured build of an emitted module compiles with the GOROOT of ergo's patched release, whose compile reads the IR bodies (-ergoir); the host GOROOT's compile refuses the flag.","killers":["cmd/ergo:TestEventsStreamCounts"],"anchor":{"tests":["cmd/ergo:TestEventsStreamCounts"]}},
+    {"name":"irf-merge-reason-swapped","origin":"wf10 lawffi LF3b","file":"internal/sketch/lower/ir_merge.go","from":"\t\t\treturn mergeWritten\n","to":"\t\t\treturn mergeNotFirst\n","rule":"inspect.md Forms (LF3b): each refusal of the merge pass names its own reason from the table.","killers":["cmd/ergo:TestInspectFormsRows"]},
+    {"name":"irf-fold-reason-swapped","origin":"wf10 lawffi LF3c","file":"internal/sketch/lower/ir_fold.go","from":"\t\t\tb.formSite(x.C.site, foldNotConst) // ir_forms_report.go\n","to":"\t\t\tb.formSite(x.C.site, foldOtherGo) // ir_forms_report.go\n","rule":"inspect.md Forms (LF3c): each refusal of the fold pass names its own reason from the table.","killers":["cmd/ergo:TestInspectFormsRows"]},
+    {"name":"irf-memo-folds-ignored","origin":"wf10 lawffi LF3c","file":"internal/sketch/lower/ir_memo.go","from":"\tif b.foldable(c.Func, x) { // ir_fold.go\n","to":"\tif false && b.foldable(c.Func, x) { // ir_fold.go\n","rule":"inspect.md Forms (LF3c): the memo pass leaves a call the fold pass computes to it, a constant needing no cache.","killers":["cmd/ergo:TestInspectFormsRows"]},
+    {"name":"irf-memo-const-body-ignored","origin":"wf10 lawffi LF3c","file":"internal/sketch/lower/ir_fold.go","from":"\treturn b.foldableIn(b.l.info, f, x) || b.foldsToConstant(f, x)\n","to":"\treturn b.foldableIn(b.l.info, f, x)\n","rule":"inspect.md Forms (LF3c): the memo pass leaves a call of a function whose body folds to a constant, which Go inlines.","killers":["cmd/ergo:TestInspectFormsRows"]},
     {"name":"dev-socket-path-unshortened","origin":"wf10 I19 full r4","file":"cmd/ergo/dev_unix.go","from":"\tif len(path) <= devSocketPathMax {\n","to":"\tif true || len(path) <= devSocketPathMax {\n","rule":"ergo dev listens and connects on a socket under the cache root whatever the root's depth, so a deep root does not fail bind.","killers":["cmd/ergo:TestDevSocketUnderDeepRoot"]}
   ]
 }

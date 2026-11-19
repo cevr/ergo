@@ -63,18 +63,7 @@ func Load(dir string, env []string, p Platform, patterns ...string) ([]*types.Pa
 	cmd := exec.Command("go", args...)
 	cmd.Dir = dir
 	// The user's GOFLAGS stay (-modcacherw, build tags), but -mod is ours.
-	flags := []string{"-mod=readonly"}
-	for _, kv := range env {
-		if v, ok := strings.CutPrefix(kv, "GOFLAGS="); ok {
-			flags = []string{"-mod=readonly"}
-			for _, f := range strings.Fields(v) {
-				if !strings.HasPrefix(f, "-mod=") && !strings.HasPrefix(f, "--mod=") {
-					flags = append(flags, f)
-				}
-			}
-		}
-	}
-	cmd.Env = append(append([]string{}, env...), "GOOS="+p.GOOS, "GOARCH="+p.GOARCH, "CGO_ENABLED=0", "GOFLAGS="+strings.Join(flags, " "))
+	cmd.Env = goEnv(env, p)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -164,11 +153,17 @@ func Bind(dir string, env []string, goVersion string, patterns ...string) (map[s
 	perPlatform := make([]map[string]*types.Package, len(Platforms))
 	var order []string
 	c := newCloser(Platforms)
+	var facts []Facts
 	for i, p := range Platforms {
 		pkgs, modules, err := Load(dir, env, p, patterns...)
 		if err != nil {
 			return nil, err
 		}
+		f, err := Derive(dir, env, p, patterns...)
+		if err != nil {
+			return nil, err
+		}
+		facts = append(facts, f)
 		if i == 0 {
 			c.modules = modules
 		}
@@ -180,6 +175,9 @@ func Bind(dir string, env []string, goVersion string, patterns ...string) (map[s
 			}
 		}
 	}
+	// The packages patterns name get the facts every platform derives; a
+	// package a binding only names gets none (no fact: the copy stays).
+	c.facts = meet(facts)
 	files := map[string]string{}
 	for i := range Platforms {
 		for _, pkg := range perPlatform[i] {

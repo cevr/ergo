@@ -1,0 +1,70 @@
+// Event is one step of a run, in the order it happened.
+type Event = Started{Name string, Weight int} | Queued{Name string, Weight int} | Finished{Name string} | Refused{Name string, Weight int, Capacity int}
+
+// Run admits jobs in order through the gate: a job that weighs more than
+// the whole capacity is refused, a job whose weight is free starts, and
+// any other is queued. The started jobs then finish, in order, giving
+// their weight back, and each queued job waits for its weight, runs and
+// finishes. Every weight a job took is given back on every path a run
+// returns by.
+func Run(jobs []Job) []Event fails Stopped needs Gate {
+	let capacity = Gate.Capacity()
+	let mut out = []Event{}
+	let mut held = []Job{}
+	let mut later = []Job{}
+	for j in jobs {
+		if j.Weight > capacity {
+			out = out.Append(Refused{Name: j.Name, Weight: j.Weight, Capacity: capacity})
+		} else if Gate.Take(j.Weight) {
+			held = held.Append(j)
+			out = out.Append(Started{Name: j.Name, Weight: j.Weight})
+		} else {
+			later = later.Append(j)
+			out = out.Append(Queued{Name: j.Name, Weight: j.Weight})
+		}
+	}
+	for j in held {
+		Gate.Give(j.Weight)
+		out = out.Append(Finished{Name: j.Name})
+	}
+	for j in later {
+		try Gate.Wait(j.Weight)
+		out = out.Append(Started{Name: j.Name, Weight: j.Weight})
+		Gate.Give(j.Weight)
+		out = out.Append(Finished{Name: j.Name})
+	}
+	out
+}
+
+// Line is an event as admit prints it.
+func Line(e Event) string {
+	match e {
+	case Started as s:
+		"start \(s.Name) (\(s.Weight))"
+	case Queued as q:
+		"queue \(q.Name) (\(q.Weight))"
+	case Finished as f:
+		"finish \(f.Name)"
+	case Refused as r:
+		"refuse \(r.Name) (\(r.Weight) > \(r.Capacity))"
+	}
+}
+
+// RunGivesBack runs jobs of the given weights, then takes the whole
+// capacity.
+func RunGivesBack(weights []int) bool needs Gate {
+	let mut jobs = []Job{}
+	for i, w in weights {
+		jobs = jobs.Append(Job{Name: "j\(i)", Weight: 1 + ((w%6)+6)%6, Payload: "0"})
+	}
+	Run(jobs) catch {
+	case Stopped:
+		return true
+	}
+	let c = Gate.Capacity()
+	let all = Gate.Take(c)
+	if all {
+		Gate.Give(c)
+	}
+	all
+}

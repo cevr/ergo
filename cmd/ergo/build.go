@@ -67,7 +67,7 @@ func printEmitted(opts fileOptions, mode build.Mode) error {
 	if !checked.result.Checked {
 		return refuseUnchecked(checked, opts)
 	}
-	digest, err := sketchfront.EmittedDigest(checked.analysis, sketchfront.BuildRequest{Mode: mode, Source: checked.source.Admitted()})
+	digest, err := sketchfront.EmittedDigest(checked.analysis, sketchfront.BuildRequest{Mode: mode, Source: checked.source.Admitted(), NoViews: opts.noViews, Rewrites: opts.rewrites})
 	if err != nil {
 		return err
 	}
@@ -145,17 +145,20 @@ func buildSource(opts fileOptions, place func(name, output string) string) (rece
 	}
 	stderr := &quiet{w: os.Stderr}
 	module, err := sketchfront.Build(l.analysis, sketchfront.BuildRequest{
-		Mode:      build.ModeBuild,
-		Source:    l.source.Admitted(),
-		Output:    output.Path(),
-		Cache:     build.Cache{Root: root},
-		Toolchain: tc,
-		IR:        true,
-		Stderr:    stderr,
-		Ledger:    ledgerPath(opts.file),
-		Locked:    opts.locked,
-		Report:    &report,
-		Inputs:    w.fsys(),
+		Mode:       build.ModeBuild,
+		Source:     l.source.Admitted(),
+		Output:     output.Path(),
+		Cache:      build.Cache{Root: root},
+		Toolchain:  tc,
+		IR:         true,
+		Rewrites:   opts.rewrites,
+		Stderr:     stderr,
+		Ledger:     ledgerPath(opts.file),
+		Locked:     opts.locked,
+		NoViews:    opts.noViews,
+		NoFallback: opts.noFallback || os.Getenv("ERGO_FALLBACK") == "off",
+		Report:     &report,
+		Inputs:     w.fsys(),
 	})
 	if opts.work && module.Dir != "" {
 		fmt.Fprintf(os.Stderr, "WORK=%s\n", module.Dir)
@@ -205,6 +208,8 @@ func buildGoText(l loaded, opts fileOptions, output receipt.Location) error {
 	if err != nil {
 		return err
 	}
+	unit.NoViews = opts.noViews
+	unit.NoFallback = opts.noFallback || os.Getenv("ERGO_FALLBACK") == "off"
 	files, _, err := lower.LowerIR(unit)
 	if err != nil {
 		return err

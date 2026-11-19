@@ -274,6 +274,9 @@ type BuildRequest struct {
 	// Patch). Every ergo command's build sets it (plan-tier §1.1); the
 	// source lowering stays the test-time reference.
 	IR bool
+	// Rewrites is ergo build's -rewrites switch (lower.Unit.Rewrites): on
+	// (""), proved or off.
+	Rewrites string
 	// Stderr receives the go command's output.
 	Stderr io.Writer
 	// Ledger is the path of the law ledger, ergo.laws beside ergo.mod
@@ -283,6 +286,10 @@ type BuildRequest struct {
 	// Locked refuses a run build that needs a stale or missing ledger
 	// entry (ergo build --locked; owner q122).
 	Locked bool
+	// NoViews is ergo build -views=off (lower.Unit.NoViews).
+	NoViews bool
+	// NoFallback is ergo build -fallback=off (lower.Unit.NoFallback).
+	NoFallback bool
 	// Inputs, when set, is the file system the build reads the ledger
 	// through (a warm request's Recorder); nil reads the host.
 	Inputs FS
@@ -444,6 +451,20 @@ func unitInput(unit lower.Unit, dependencies []build.Dependency, req BuildReques
 	if req.IR {
 		emitter += "+ir"
 	}
+	if req.NoViews {
+		// -views=off lowers other Go (LF2b): its module is another key.
+		emitter += "+noviews"
+	}
+	if req.NoFallback {
+		// -fallback=off refuses what an IR build would link: a cached
+		// module never answers it (FALLBACK-OFF).
+		emitter += "+nofallback"
+	}
+	if unit.Rewrites != "" && unit.Rewrites != "on" {
+		// The switch decides the lowered module (lower.Unit.Rewrites), so
+		// it keys it: an off build never reuses an on build's module.
+		emitter += "+rewrites=" + unit.Rewrites
+	}
 	input := build.Input{
 		Dependencies: dependencies,
 		Compiler:     compiler,
@@ -464,7 +485,8 @@ func unitInput(unit lower.Unit, dependencies []build.Dependency, req BuildReques
 // ledger at req.Ledger and the std ledger (rewrite.go), and prints one
 // line on req.Stderr for each entry a site needs that is stale or
 // missing; such a site keeps the reference lowering. A locked request
-// refuses instead (*LedgerError). A package with no rewrite law that a
+// refuses instead (*LedgerError), and every request refuses a current
+// refuted entry a site met. A package with no rewrite law that a
 // provider's run checks reads no ledger: ev and files are nil, and the
 // caller lowers it as before.
 func lowerWithLedger(a Analysis, unit lower.Unit, req BuildRequest, split bool) (*lower.LedgerEvidence, []lower.File, error) {
@@ -472,7 +494,7 @@ func lowerWithLedger(a Analysis, unit lower.Unit, req BuildRequest, split bool) 
 	if err != nil {
 		return nil, nil, err
 	}
-	ev, err := ledgerEvidence(a, unit, text)
+	ev, err := ledgerEvidence(a, unit, text, req.Inputs)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -494,6 +516,9 @@ func lowerWithLedger(a Analysis, unit lower.Unit, req BuildRequest, split bool) 
 		return nil, nil, err
 	}
 	countLowered(files)
+	if refused := ev.Refusals(); len(refused) > 0 {
+		return nil, nil, &LedgerError{Lines: refused, Refuted: true}
+	}
 	notes := ev.Notes()
 	if req.Locked && len(notes) > 0 {
 		return nil, nil, &LedgerError{Lines: notes}
@@ -532,6 +557,9 @@ func emission(a Analysis, req BuildRequest) (lower.Unit, func(lower.Unit) ([]low
 	if err != nil {
 		return lower.Unit{}, nil, false, err
 	}
+	unit.NoViews = req.NoViews
+	unit.NoFallback = req.NoFallback
+	unit.Rewrites = req.Rewrites
 	split := splitLowering()
 	if split {
 		lowering = splitLowerer(req.Mode == build.ModeTest, req.IR)

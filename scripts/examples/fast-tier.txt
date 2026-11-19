@@ -9,6 +9,7 @@ catalog
 cborpack
 chat
 counter-gui
+cron
 csvreport
 dash-gui
 download

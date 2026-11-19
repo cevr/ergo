@@ -22,6 +22,7 @@ import (
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/eval"
 	"ergo.local/prototype/internal/sketch/lawcache"
+	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/sketchfront"
 	sourcefile "ergo.local/prototype/internal/source"
 	"ergo.local/prototype/internal/stage"
@@ -194,6 +195,16 @@ type fileOptions struct {
 	// Append and Concat site (in place, one extender or copy, and why) on
 	// stderr (OWN1); empty prints none.
 	report string
+	// noViews is build's -views=off: no Go call takes a view of a
+	// string's bytes (LAWFFI LF2b; lower.Unit.NoViews).
+	noViews bool
+	// noFallback is build's -fallback=off, or ERGO_FALLBACK=off: a body
+	// the IR builder cannot lower is an error naming it and its reason,
+	// not a text body (FALLBACK-OFF; lower.Unit.NoFallback).
+	noFallback bool
+	// rewrites is build's -rewrites=on|proved|off|canary[=N] (lower.Unit.Rewrites):
+	// which rewrites over functions the run build applies; empty is on.
+	rewrites string
 }
 
 // parseFileOptions reads the options of command. --strict and --json belong
@@ -262,6 +273,13 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 			opts.evalBytes, bytesGiven = value, true
 			continue
 		}
+		if value, ok := strings.CutPrefix(args[i], "-rewrites="); ok {
+			if _, _, err := lower.ParseRewrites(value); err != nil {
+				return opts, err
+			}
+			opts.rewrites = value
+			continue
+		}
 		if value, ok := strings.CutPrefix(args[i], "--law="); ok {
 			opts.law, selected = value, true
 			continue
@@ -323,6 +341,10 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 			opts.work = true
 		case "--locked":
 			opts.locked = true
+		case "-views=off":
+			opts.noViews = true
+		case "-fallback=off":
+			opts.noFallback = true
 		case "--emitted":
 			opts.emitted = true
 		case "--debug":
@@ -356,8 +378,14 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--platform is only supported by build")
 	case opts.goText != "" && command != "build":
 		return opts, fmt.Errorf("-go-text is only supported by build")
+	case opts.noViews && command != "build":
+		return opts, fmt.Errorf("-views=off is only supported by build")
+	case opts.noFallback && command != "build":
+		return opts, fmt.Errorf("-fallback=off is only supported by build")
 	case opts.report != "" && command != "build":
 		return opts, fmt.Errorf("-report is only supported by build")
+	case opts.rewrites != "" && command != "build":
+		return opts, fmt.Errorf("-rewrites is only supported by build")
 	case opts.report != "" && opts.report != "copies":
 		return opts, fmt.Errorf("-report takes copies, not %q", opts.report)
 	case opts.work && command != "build" && command != "test":
@@ -616,6 +644,12 @@ func checkLoaded(opts fileOptions, l loaded, w *warm) error {
 	evaluation, err := l.analysis.Evaluation(budget, opts.file)
 	boundLaws(store)
 	if err != nil {
+		return err
+	}
+	// A rewrite law in scope that its ledger does not license yet gets
+	// advice (LF6c). The ledger is read through the warm recorder, so a
+	// changed ergo.laws changes the warm key.
+	if err := l.analysis.AdviseLicences(&evaluation, w.fsys(), ledgerPath(opts.file)); err != nil {
 		return err
 	}
 	l.result.SetEvaluation(evaluation)

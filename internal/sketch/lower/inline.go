@@ -220,10 +220,10 @@ type inlineRet struct {
 	// fail is the label the failing returns jump to (failJump), "" when
 	// they jump to label.
 	fail string
-	// failsAlways: the block's last statement jumps to fail and no
-	// return jumps to label (closeInline).
-	failsAlways bool
-	gotos       int
+	// failOnly is set when the block's last statement is the jump to fail:
+	// no success path leaves the block (IRFIX-TEXT).
+	failOnly bool
+	gotos    int
 	// join is the join local the returns write instead of res (scalar.go).
 	join *scalarLocal
 	// known is the fold whose arms the returns jump to (knownmatch.go).
@@ -809,7 +809,7 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 		ic.body(f.Decl.Body.List)
 	}()
 	fc.closeInline(ic.out.String(), ret, before)
-	o := operand{val: ret.res, err: ret.err, fail: ret.fail, failsAlways: ret.failsAlways}
+	o := operand{val: ret.res, err: ret.err, fail: ret.fail, failOnly: ret.failOnly}
 	if ret.join != nil {
 		o.val = ret.join.name
 	} else {
@@ -865,6 +865,31 @@ func (fc *funcCtx) site0(x *syntax.CallExpr, c *check.Call) int {
 
 // closeInline writes an inlined body: its block, then its label when a
 // return jumps to it, then the directive that was current before it.
+// lastJumps reports whether the last top-level statement of an inlined
+// body (one tab deep, after a position comment if any) is `goto label`.
+func lastJumps(body, label string) bool {
+	lines := strings.Split(strings.TrimSuffix(body, "\n"), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		l := lines[i]
+		if l == "" || strings.HasPrefix(l, "//line ") {
+			continue
+		}
+		if !strings.HasPrefix(l, "\t") || strings.HasPrefix(l, "\t\t") {
+			return false
+		}
+		l = l[1:]
+		if strings.HasPrefix(l, "/*line ") {
+			end := strings.Index(l, "*/")
+			if end < 0 {
+				return false
+			}
+			l = l[end+2:]
+		}
+		return l == "goto "+label
+	}
+	return false
+}
+
 func (fc *funcCtx) closeInline(body string, ret *inlineRet, before string) {
 	jump := "goto " + ret.label + "\n"
 	// The block's last return falls through.
@@ -899,9 +924,13 @@ func (fc *funcCtx) closeInline(body string, ret *inlineRet, before string) {
 	if ret.fail != "" && !strings.Contains(body, "goto "+ret.fail+"\n") {
 		ret.fail = "" // no return fails: the site has no label to place
 	}
-	failJump := "goto " + ret.fail + "\n"
-	ret.failsAlways = ret.fail != "" && !strings.Contains(body, jump) &&
-		strings.HasSuffix(body, "\t"+failJump) && !strings.HasSuffix(body, "\t\t"+failJump)
+	ret.failOnly = ret.fail != "" && lastJumps(body, ret.fail)
+	// The error is read at the site's failure label when a return jumps
+	// there; a body that ends in that jump makes a statement after the
+	// block unreachable (go vet, IRFIX-TEXT: kvstore's memory test).
+	if ret.err != "" && ret.fail == "" {
+		fc.line("_ = " + ret.err)
+	}
 	// Only a body with directives changed the current one. Code with
 	// directives names its own again; code with none (a std body, a copy
 	// for a known record, record.go) names no Ergo file again, so a

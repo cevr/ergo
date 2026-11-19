@@ -25,7 +25,7 @@ func Generate(seed uint64) string {
 // the subset, the census reasons of the constructs planted in it: the
 // reference a census of the program must contain.
 func GeneratePlanted(seed uint64) (string, map[string][]string) {
-	g := &gen{r: rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15)), planted: map[string][]string{}, oob: seed%8 == 0}
+	g := &gen{r: rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15)), planted: map[string][]string{}, oob: seed%8 == 0, huge: seed%8 == 4}
 	return g.program(), g.planted
 }
 
@@ -105,6 +105,9 @@ type gen struct {
 	// oob: main ends with an out-of-range read in an IR body (every
 	// eighth seed).
 	oob bool
+	// huge: main ends with a float past int's range converted to an
+	// int in an IR body (every eighth seed, IRG4b r2).
+	huge bool
 }
 
 func (g *gen) n(k int) int { return g.r.IntN(k) }
@@ -132,6 +135,11 @@ func (g *gen) program() string {
 		// The out-of-range negative control, in an IR body: both paths
 		// must fail the same way.
 		g.b.WriteString("func oob(xs []int, i int) int {\n\txs[len(xs) + i*i]\n}\n\n")
+	}
+	if g.huge {
+		// The checked float conversion: the runtime's helper fails where
+		// Go's conversion would return a wrong int.
+		g.b.WriteString("func huge(x float64) int {\n\tint(x * 1e300)\n}\n\n")
 	}
 	g.main()
 	return g.b.String()
@@ -188,7 +196,9 @@ func (g *gen) function(i int) {
 					g.scope = append(g.scope, gvar{name: "flv", t: tInt})
 					f.impure = true
 				case reasonRange:
-					fmt.Fprintf(&g.b, "\tfor k in 0..%d {\n\t\tif k == 7 {\n\t\t\treturn %s\n\t\t}\n\t}\n", 1+g.n(3), g.expr(f.result, 1))
+					// The operator outside a loop's header: the header's
+					// a..b is a counting loop (IRG4b r2).
+					fmt.Fprintf(&g.b, "\tlet rg = 0..%d\n\tfor k in rg {\n\t\tif k == 7 {\n\t\t\treturn %s\n\t\t}\n\t}\n", 1+g.n(3), g.expr(f.result, 1))
 				}
 				g.planted[f.name] = append(g.planted[f.name], p.reason)
 			}
@@ -231,6 +241,10 @@ func (g *gen) value(t gtype, d int) string {
 
 // stmt writes one statement of a function whose result is res.
 func (g *gen) stmt(res gtype, budget int) {
+	if g.depth == 1 && res == tStr && g.n(4) == 0 {
+		g.values() // gen_values.go
+		return
+	}
 	in := g.indent()
 	switch k := g.n(14); {
 	case k < 5 || budget <= 0:
@@ -510,6 +524,8 @@ func (g *gen) expr(t gtype, d int) string {
 		case 8:
 			ops := []string{"&", "|", "^", "&^"}
 			return "(" + g.expr(tInt, d-1) + " " + ops[g.n(4)] + " " + g.expr(tInt, d-1) + ")"
+		case 9:
+			return g.conversion(d) // gen_values.go
 		default:
 			return g.leaf(tInt)
 		}
@@ -548,10 +564,12 @@ func (g *gen) expr(t gtype, d int) string {
 		if v == "" {
 			return g.leaf(tU8)
 		}
-		ops := []string{"+", "-", "*", "&", "|", "^", "<<"}
+		// >> here too: after F1 and F2 merged, int64's shifts alone left
+		// the 16-seed run without one (TestIRMatchesSource's reach).
+		ops := []string{"+", "-", "*", "&", "|", "^", "<<", ">>"}
 		op := ops[g.n(len(ops))]
-		if op == "<<" {
-			return "(" + v + " << (" + g.expr(tU8, d-1) + " & 7))"
+		if op == "<<" || op == ">>" {
+			return "(" + v + " " + op + " (" + g.expr(tU8, d-1) + " & 7))"
 		}
 		return "(" + v + " " + op + " " + g.expr(tU8, d-1) + ")"
 	case tF64:
@@ -732,6 +750,9 @@ func (g *gen) main() {
 	fmt.Fprintf(&g.b, "\t\tConsole.Println(\"op \\(viaOp(%s, %s))\")\n", g.leaf(tInt), g.leaf(tInt))
 	if g.oob {
 		g.b.WriteString("\t\tConsole.Println(\"oob \\(oob([]int{1, 2}, 1))\")\n")
+	}
+	if g.huge {
+		g.b.WriteString("\t\tConsole.Println(\"huge \\(huge(1.5))\")\n")
 	}
 	g.b.WriteString("\t}\n}\n")
 }

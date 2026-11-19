@@ -1,6 +1,15 @@
 {
   "about": "The mutant ledger of internal/sketch/eval, the check-time evaluator (L7). Run it with go run ./scripts/mutants ./internal/sketch/eval; docs/tooling.md, \"Mutant ledger\", says when a change must run it. Seeded by unit EV1 (wf10 l7-eval, 2026-11-10).",
   "mutants": [
+    {"name":"lf6-corpus-unreplayed","origin":"wf10 LF6fu","file":"internal/sketch/eval/licence.go","from":"\tfor _, line := range corpus {\n","to":"\tfor _, line := range corpus[:0] {\n","rule":"A licence run takes the law's corpus cases first.","killers":["internal/sketch/eval:TestLicenceRunFindsEdgeFalsehoods"]},
+    {"name":"lf6-licence-float-by-go-equality","origin":"wf10 LF6fu","file":"internal/sketch/eval/licence.go","from":"\t\tvar outcome [2]string\n","to":"\t\tif res := in.runBodyFrame(frameAt(), law.Decl.Body, true, Result{Name: l.Name}); res.Status != Passed {\n\t\t\tin.licenceStop(l, res.Status, res.Reason, res.Site, args())\n\t\t\treturn false\n\t\t}\n\t\tvar outcome [2]string\n","rule":"A licence run compares a rewrite law's sides by key equality, not by the law's ==: a float law whose sides agree at a NaN holds.","killers":["internal/sketch/eval:TestLicenceRunFindsEdgeFalsehoods"]},
+    {"name":"lf6-second-run-same-state","origin":"wf10 LF6b","file":"internal/sketch/eval/licence.go","from":"\t\t\t\tin.ambient = ambients[s]\n","to":"\t\t\t\tin.ambient = ambients[0]\n","rule":"Each side of a licence run's case runs a second time under another working directory, environment and time zone.","killers":["internal/sketch/eval:TestLicenceRunFindsEdgeFalsehoods"]},
+    {"name":"lf6-edges-after-draws-only-float","origin":"wf10 LF6b","file":"runtime/testgen/classes.go","from":"\t\t{\"=NaN\", math.NaN()},\n","to":"","rule":"A licence run takes a NaN before it draws (a drawn float is finite).","killers":["internal/sketch/eval:TestLicenceRunFindsEdgeFalsehoods"]},
+    {"name":"lf6-edges-after-draws-only-content","origin":"wf10 LF6b","file":"runtime/testgen/classes.go","from":"\t\t{\"ends inside a rune\", \"a\\xe4\\xb8\"},\n","to":"","rule":"A licence run takes a string that ends inside a rune before it draws.","killers":["internal/sketch/eval:TestLicenceRunFindsEdgeFalsehoods"]},
+    {"name":"lf6-edges-after-draws-only-length","origin":"wf10 LF6b","file":"runtime/testgen/classes.go","from":"\t\t{\"len>=4096\", strings.Repeat(\"abcd\", 1024)},\n","to":"","rule":"A licence run takes a string of 4,096 bytes and more before it draws (a drawn string has at most 25 units).","killers":["internal/sketch/eval:TestLicenceRunFindsEdgeFalsehoods"]},
+    {"name":"lf6-vacuous-case-counted","origin":"wf10 LF6b, retargeted LF6fu","file":"internal/sketch/eval/licence.go","from":"\t\tif !run(e.at, k+1, nil) {\n\t\t\treturn\n\t\t}\n\t\tfor _, h := range e.hits {\n\t\t\tcounts[h]++\n\t\t}\n","to":"\t\tfor _, h := range e.hits {\n\t\t\tcounts[h]++\n\t\t}\n\t\tif !run(e.at, k+1, nil) {\n\t\t\treturn\n\t\t}\n","rule":"A class is reached only by a case that held, not by one that ran out of budget.","killers":["internal/sketch/eval:TestLicenceRunFindsEdgeFalsehoods"]},
+    {"name":"lf6-missed-class-licenses","origin":"wf10 LF6b","file":"internal/sketch/eval/licence.go","from":"l.Verdict, l.Reason = \"tested\", why+\"; classes missed\"","to":"l.Verdict, l.Reason = \"validated\", why+\"; classes missed\"","rule":"A licence run that did not reach every class is tested, never validated.","killers":["internal/sketch/eval:TestLicenceRunFindsEdgeFalsehoods"]},
+    {"name":"lf6-skipped-run-licenses","origin":"wf10 LF6b (owner q195)","file":"internal/sketch/eval/licence.go","from":"\t\tl.Verdict, l.Reason = \"skipped\", why\n\tcase Incomplete:","to":"\t\tl.Verdict, l.Reason = \"validated\", why\n\tcase Incomplete:","rule":"A licence run with a skipped case is skipped and licenses nothing: a law the evaluator skips is no licence.","killers":["internal/sketch/eval:TestLicenceRunFindsEdgeFalsehoods"]},
     {
       "name": "ps2-branch-on-term-continues",
       "origin": "wf10 PS2",
@@ -986,30 +995,12 @@
       "killers": ["internal/sketch/eval:TestEvalEffectsAgreeWithModel"]
     },
     {
-      "name": "oracle-o1-native-pad-bytes",
-      "origin": "wf10 ORACLE O1",
-      "file": "internal/sketch/eval/natives.go",
-      "from": "\tn := utf8.RuneCountInString(s)\n\tif n >= width {",
-      "to": "\tn := len(s)\n\tif n >= width {",
-      "rule": "strings.PadLeft and PadRight count the runes of s as fmt's %*s does, an invalid byte as one rune.",
-      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
-    },
-    {
       "name": "oracle-o1-native-parse-range",
       "origin": "wf10 ORACLE O1",
       "file": "internal/sketch/eval/natives.go",
       "from": "\t\t\tcase ok && ne.Err == strconv.ErrRange:",
       "to": "\t\t\tcase ok && ne.Err == strconv.ErrRange && false:",
       "rule": "A number out of its type's range fails strconv.OutOfRange, not Malformed.",
-      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
-    },
-    {
-      "name": "oracle-o1-native-times-wraps",
-      "origin": "wf10 ORACLE O1",
-      "file": "internal/sketch/eval/natives.go",
-      "from": "\tif hi != 0 || lo > limit {",
-      "to": "\tif false && (hi != 0 || lo > limit) {",
-      "rule": "time.Times saturates at the bounds of duration; it never wraps.",
       "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
     },
     {
@@ -1052,8 +1043,8 @@
       "name": "oracle-o1-native-split-empty-sep",
       "origin": "wf10 ORACLE O1",
       "file": "internal/sketch/eval/natives.go",
-      "from": "\tpure(\"strings.Split\", func(a []Value) Value { return list(strings.Split(str(a[0]), str(a[1]))) })",
-      "to": "\tpure(\"strings.Split\", func(a []Value) Value {\n\t\tif str(a[1]) == \"\" {\n\t\t\treturn list([]string{str(a[0])})\n\t\t}\n\t\treturn list(strings.Split(str(a[0]), str(a[1])))\n\t})",
+      "from": "\tgoPure(\"strings.Split\", func(a []Value) Value { return list(strings.Split(str(a[0]), str(a[1]))) })",
+      "to": "\tgoPure(\"strings.Split\", func(a []Value) Value {\n\t\tif str(a[1]) == \"\" {\n\t\t\treturn list([]string{str(a[0])})\n\t\t}\n\t\treturn list(strings.Split(str(a[0]), str(a[1])))\n\t})",
       "rule": "strings.Split with an empty separator splits after each UTF-8 sequence, as Go's does.",
       "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
     },
@@ -1338,20 +1329,11 @@
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     },
     {
-      "name": "oracle-o16-max-by-less",
-      "origin": "wf10 ORACLE O16",
-      "file": "internal/sketch/eval/nativesmore.go",
-      "from": "\t\t\tcase float64:\n\t\t\t\tbest = max(b, x.(float64))\n",
-      "to": "",
-      "rule": "std slices.Max is Go's slices.Max: Go's max over the list, NaN anywhere giving NaN and +0 beating -0 (std slices).",
-      "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
-    },
-    {
       "name": "oracle-o16-stable-sort-reversed",
       "origin": "wf10 ORACLE O16",
       "file": "internal/sketch/eval/nativesmore.go",
-      "from": "\t\t\treturn cmp.Compare(v.(int64), 0)\n\t\t})\n\t\tif stop != nil {\n\t\t\treturn nil, stop\n\t\t}\n\t\treturn newSlice(out), nil\n\t}\n\tnatives[\"slices.largest\"]",
-      "to": "\t\t\treturn cmp.Compare(0, v.(int64))\n\t\t})\n\t\tif stop != nil {\n\t\t\treturn nil, stop\n\t\t}\n\t\treturn newSlice(out), nil\n\t}\n\tnatives[\"slices.largest\"]",
+      "from": "\t\t\treturn cmp.Compare(v.(int64), 0)\n\t\t})\n\t\tif stop != nil {\n\t\t\treturn nil, stop\n\t\t}\n\t\treturn newSlice(out), nil\n\t}\n\tnatives[\"arena.grow\"]",
+      "to": "\t\t\treturn cmp.Compare(0, v.(int64))\n\t\t})\n\t\tif stop != nil {\n\t\t\treturn nil, stop\n\t\t}\n\t\treturn newSlice(out), nil\n\t}\n\tnatives[\"arena.grow\"]",
       "rule": "std slices.SortStableFunc sorts a copy by compare, as Go's slices.SortStableFunc (std slices).",
       "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
     },
@@ -1467,9 +1449,9 @@
       "name": "oracle-o12-ones-count-is-len",
       "origin": "wf10 ORACLE O12",
       "file": "internal/sketch/eval/nativesbits.go",
-      "from": "\tpure(\"bits.OnesCount64\", func(a []Value) Value { return int64(bits.OnesCount64(u(a[0]))) })\n",
-      "to": "\tpure(\"bits.OnesCount64\", func(a []Value) Value { return int64(bits.Len64(u(a[0]))) })\n",
-      "rule": "std bits.OnesCount64 is Go's math/bits.OnesCount64 (stdlib.md; std bits).",
+      "from": "\tgoPure(\"OnesCount64\", func(a []Value) Value { return int64(bits.OnesCount64(u(a[0]))) })\n",
+      "to": "\tgoPure(\"OnesCount64\", func(a []Value) Value { return int64(bits.Len64(u(a[0]))) })\n",
+      "rule": "std bits.OnesCount64 is Go's math/bits.OnesCount64, bound through import go (stdlib.md; std bits).",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     },
     {
@@ -1573,6 +1555,25 @@
       "to": "",
       "rule": "keyOrder's order is a function of the keys alone.",
       "killers": ["internal/sketch/eval:TestEvalReportIsDeterministic"]
+    },
+    {
+      "name": "np4f1-eval-skips-import-go",
+      "origin": "wf10 NP4f-1",
+      "file": "internal/sketch/eval/nativesgo.go",
+      "from": "fn.Pkg == nil || fn.Pkg.Std() {",
+      "to": "fn.Pkg == nil || fn.Pkg.Std() || fn.Pkg.Host() {",
+      "rule": "The evaluator runs a listed Go function a package reaches through import go, as std's bodies now do (NP4f).",
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
+    },
+    {
+      "name": "red18-bytes-op-not-evaluated",
+      "origin": "wf10 red #18 (NP4f x PRIM-4)",
+      "file": "internal/sketch/eval/natives.go",
+      "from": "\tcheck.CollBytes:      \"strings.stringsBytes\",\n",
+      "to": "",
+      "rule": "The evaluator runs the operation s.Bytes(), so check-time evaluation of std's digests (sha256.Sum) agrees with the build.",
+      "anchor": {"tests":["internal/sketch/eval:TestEvalAgreesWithLowering"]},
+      "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     }
   ]
 }

@@ -5,6 +5,7 @@ package lower
 import (
 	"go/constant"
 	"strconv"
+	"strings"
 	"unicode/utf8"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -26,6 +27,11 @@ func irString(s string) string {
 // statements: an if expression inside an operand keeps its source body,
 // since hoisting it would move it before the operands to its left.
 func (b *irBuilder) value(x syntax.Expr) ([]*irStmt, *irExpr) {
+	// The statements its operands run first come first (ir_order.go).
+	return b.collect(func() ([]*irStmt, *irExpr) { return b.valueOf(x) })
+}
+
+func (b *irBuilder) valueOf(x syntax.Expr) ([]*irStmt, *irExpr) {
 	var pre []*irStmt
 	var e *irExpr
 	switch y := unparen(x).(type) {
@@ -35,6 +41,11 @@ func (b *irBuilder) value(x syntax.Expr) ([]*irStmt, *irExpr) {
 			break
 		}
 		pre, e = b.call(y, false)
+		// A whole value may run statements before it, so a loop-invariant
+		// pure call computes its value once there (ir_memo.go).
+		if mpre, me, ok := b.memoCall(y, pre, e); ok {
+			pre, e = mpre, me
+		}
 	case *syntax.IfStmt:
 		b.plain(y)
 		pre, e = b.ifValue(y)
@@ -43,6 +54,9 @@ func (b *irBuilder) value(x syntax.Expr) ([]*irStmt, *irExpr) {
 		pre, e = b.matchValue(y) // ir_match.go
 	case *syntax.TryExpr, *syntax.CatchExpr:
 		pre, e = b.failValue(y) // ir_fail.go
+	case *syntax.TupleExpr:
+		b.plain(y)
+		pre, e = b.tupleValue(y) // ir_tuple.go
 	case *syntax.Ident:
 		sc := b.scalarIdent(y)
 		if sc == nil {
@@ -66,19 +80,18 @@ func (b *irBuilder) value(x syntax.Expr) ([]*irStmt, *irExpr) {
 	default:
 		return nil, b.expr(x) // expr converts
 	}
+	e = b.valueCopy(unparen(x), e) // ir_copy.go
 	if _, ok := b.l.info.Implicit[x]; !ok {
 		x = unparen(x)
 	}
 	return pre, b.implicit(x, e) // ir_union.go
 }
 
-// plain stops x if the emitter does more than compute it: the value
-// rule's copy, an owned temporary or a context value. An implicit
-// conversion is the caller's (implicit, ir_union.go).
+// plain stops x if the emitter does more than compute it: an owned
+// temporary or a context value. The value rule's copy is built
+// (valueCopy, ir_copy.go); an implicit conversion is the caller's
+// (implicit, ir_union.go).
 func (b *irBuilder) plain(x syntax.Expr) {
-	if b.l.vals != nil && b.l.vals.clone[x] {
-		irNo("value copy")
-	}
 	if b.l.info.OwnedTemps[x] != nil {
 		irNo("owned temporary")
 	}
@@ -108,7 +121,7 @@ func (b *irBuilder) operator(op string, t check.Type, site syntax.Node) {
 
 // expr is x after its implicit conversion (implicit, ir_union.go).
 func (b *irBuilder) expr(x syntax.Expr) *irExpr {
-	return b.implicit(x, b.exprOf(x))
+	return b.implicit(x, b.valueCopy(x, b.foldConst(x, b.exprOf(x)))) // ir_constfold.go // ir_copy.go
 }
 
 func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
@@ -127,8 +140,20 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 	case *syntax.Ident:
 		switch o := b.l.info.Uses[x].(type) {
 		case *check.Var:
+			if i, held := b.held[o]; held {
+				return &irExpr{K: "deref", Pos: p, X: &irExpr{K: "local", Pos: p, I: i}} // ir_ownlit.go
+			}
+			if e, bound := b.lawArgs[o]; bound {
+				// A law's parameter, bound to a site's operand while a
+				// side of the law is lowered (ir_rewrite.go).
+				c := *e
+				return &c
+			}
 			if i, known := b.locals[o]; known {
-				return &irExpr{K: "local", Pos: p, I: i}
+				return b.handoff(x, &irExpr{K: "local", Pos: p, I: i}) // ir_own.go
+			}
+			if i, built := b.strBufs[o]; built {
+				return b.strCall("StrGet", i, p) // strbuf.go
 			}
 			if b.scalars[o] != nil {
 				// Its gather writes statements: a value (ir_scalar.go).
@@ -148,6 +173,8 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			}
 		case *check.Const:
 			return &irExpr{K: "const", Pos: p, T: "bool", V: strconv.FormatBool(o.Val)}
+		case *check.Func:
+			return b.funcName(o, t, x, p) // ir_fnname.go
 		case *check.TypeName:
 			if e := b.bareRecord(o, t, x, p); e != nil { // ir_union.go
 				return e
@@ -155,30 +182,52 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		}
 		irNo("name that is not a local")
 	case *syntax.BinaryExpr:
+		if e := b.binaryOther(x, p); e != nil { // ir_equal.go
+			return e
+		}
 		op := x.Op.String()
 		b.operator(op, b.l.info.Types[x.X], x)
-		return &irExpr{K: "bin", Pos: b.pos(x, x.OpPos), Op: op, X: b.expr(x.X), Y: b.expr(x.Y)}
+		return b.binaryOf(x, op) // ir_order.go: operands in order
 	case *syntax.UnaryExpr:
 		op := x.Op.String()
 		switch op {
 		case "!", "-", "+", "^":
+		case "&":
+			b.goType(t, x)
+			return &irExpr{K: "addr", Pos: p, X: b.place(x.X)}
 		default:
 			irNo("unary %s", op)
 		}
 		b.goType(t, x)
 		return &irExpr{K: "un", Pos: p, Op: op, X: b.expr(x.X)}
+	case *syntax.StarExpr:
+		// *p: the value p points at (FLIP F2).
+		b.goType(t, x)
+		return &irExpr{K: "deref", Pos: p, X: b.expr(x.X)}
 	case *syntax.SelectorExpr:
-		n, ok := b.l.info.Types[x.X].(*check.Named)
+		// A field through a pointer (FLIP F2): Go's p.f.
+		n, ok := derefNamed(b.l.info.Types[x.X]) // ir_pkg.go
 		if !ok {
-			irNo("selector on a non-record")
+			return b.selectOther(x, p) // ir_select.go
 		}
 		b.goType(n, x)
 		// goType queued the declaration, unless the runtime's Go type
 		// stands for n (IRG4: a std record such as os.Exit), as fieldName.
 		td := b.l.typeDecl(n.Obj, x)
+		if td.goError {
+			return b.goErrorText(x, td, p) // ir_golib.go
+		}
 		field, ok := td.fieldName[x.Sel.Name]
 		if !ok {
 			irNo("selector that is not a field")
+		}
+		if m, ok := strings.CutSuffix(field, "()"); ok {
+			// A field the runtime's Go type reads by a method (go.Error's
+			// Text, decls.go): the method's call.
+			return &irExpr{K: "mcall", Pos: b.pos(x.Sel, x.Sel.Pos()), Name: m, X: b.expr(x.X)}
+		}
+		if h := b.hoistField(x, field); h != nil { // ir_hoist.go
+			return h
 		}
 		return &irExpr{K: "field", Pos: b.pos(x.Sel, x.Sel.Pos()), Name: field, X: b.expr(x.X)}
 	case *syntax.IndexExpr:
@@ -186,12 +235,15 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			irNo("index form")
 		}
 		if _, ok := b.l.info.Types[x.X].(*check.Slice); !ok {
-			irNo("index of a non-slice")
+			return b.indexOther(x, p) // ir_index.go
 		}
-		return &irExpr{K: "index", Pos: p, X: b.expr(x.X), Y: b.expr(x.Indices[0])}
+		xs := b.inOrder([]syntax.Expr{x.X, x.Indices[0]}) // ir_order.go
+		return &irExpr{K: "index", Pos: p, X: xs[0], Y: xs[1]}
+	case *syntax.SliceExpr:
+		return b.sliceOf(x, p) // ir_slice.go
 	case *syntax.CompositeLit:
 		if x.Base != nil || x.Type == nil {
-			irNo("record update or elided literal type")
+			return b.updateLit(x, t, p) // ir_update.go
 		}
 		if _, ok := b.l.info.Spreads[x]; ok {
 			irNo("spread")
@@ -203,25 +255,70 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 				if _, kv := e.(*syntax.KeyValueExpr); kv {
 					irNo("keyed slice literal")
 				}
-				lit.Elems = append(lit.Elems, b.expr(e))
 			}
+			lit.Elems = b.inOrder(x.Elts) // ir_order.go
+			if b.l.valueFacts().seeds[x] && len(lit.Elems) == 1 {
+				// append(slices.Grow([]T{}, seedCap), e) (seedcap.go).
+				et := b.goType(tt.Elem, x)
+				keep := lit.T
+				if b.namesTypeParam(keep) {
+					keep = "[]int" // a generic body's slice is no package-level type (ir_loops.go)
+				}
+				b.keepImport("var _ = " + b.l.goPkg("slices") + ".Grow[" + keep + "]")
+				room := &irExpr{K: "pcall", Pos: p, T: "slices", Name: "Grow", V: lit.T + ", " + et, Args: []*irExpr{{K: "lit", Pos: p, T: lit.T}, {K: "const", Pos: p, T: "int", V: strconv.Itoa(seedCap)}}}
+				b.seedSites++
+				return &irExpr{K: "append", Pos: p, Args: []*irExpr{room, lit.Elems[0]}}
+			}
+		case *check.Map:
+			lit.Elems = b.mapLit(x) // ir_pkg.go
 		case *check.Named:
 			td := b.l.typeDecl(tt.Obj, x) // queued by goType, as above
+			if td.goError {
+				return b.goErrorLit(x, t, p) // ir_golib.go
+			}
+			if td.kind == kindMachine {
+				return b.machineLit(x, lit) // ir_machine.go
+			}
 			s := tt.Underlying().(*check.Struct)
 			if len(x.Elts) != len(s.Fields) {
 				irNo("record literal without every field")
 			}
-			for _, e := range x.Elts {
-				kv, ok := e.(*syntax.KeyValueExpr)
-				if !ok {
+			var values []syntax.Expr
+			var fts []check.Type
+			var names []string
+			for i, e := range x.Elts {
+				name := ""
+				kv, keyed := e.(*syntax.KeyValueExpr)
+				switch {
+				case keyed:
+					k, ok := kv.Key.(*syntax.Ident)
+					if !ok {
+						irNo("record key")
+					}
+					name = k.Name
+					values = append(values, kv.Value)
+				case i < len(td.fields):
+					// A positional element sets the field of its place (the
+					// emitter's composite).
+					name = td.fields[i].Name
+					values = append(values, e)
+				default:
 					irNo("unkeyed record literal")
 				}
-				k, ok := kv.Key.(*syntax.Ident)
-				if !ok {
-					irNo("record key")
+				var ft check.Type
+				for _, f := range s.Fields {
+					if f.Name == name {
+						ft = f.Type
+					}
 				}
-				lit.Keys = append(lit.Keys, td.fieldName[k.Name])
-				lit.Elems = append(lit.Elems, b.expr(kv.Value))
+				fts = append(fts, ft)
+				names = append(names, name)
+				lit.Keys = append(lit.Keys, td.fieldName[name])
+			}
+			lit.Elems = b.inOrder(values) // ir_order.go
+			for i, e := range lit.Elems {
+				lit.Elems[i] = b.intoField(values[i], e, fts[i])                    // ir_field.go (B-CONVFIELD)
+				lit.Elems[i] = b.intoSlot(td, t, names[i], values[i], lit.Elems[i]) // ir_field.go (OPC-ADAPT2)
 			}
 		default:
 			irNo("literal of %T", t)
@@ -229,13 +326,27 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		return lit
 	case *syntax.InterpolatedString:
 		return b.text(x, p)
+	case *syntax.TupleExpr:
+		tt, ok := t.(*check.Tuple)
+		if !ok || len(tt.Types) != len(x.Elts) || len(tt.Types) < 2 {
+			irNo("type *check.Tuple")
+		}
+		vals := make([]*irExpr, len(x.Elts))
+		for i, e := range x.Elts {
+			vals[i] = b.expr(e)
+		}
+		return b.tupleLit(tt, vals, x, p) // ir_tuple.go
 	case *syntax.FuncLit:
 		return b.closureLit(x, nil) // ir_closure.go
 	case *syntax.CallExpr:
 		pre, e := b.call(x, false)
-		if len(pre) > 0 {
-			irNo("operation call inside an expression")
-		}
+		b.runFirst(pre) // ir_order.go: before the expression that holds it
+		return e
+	case *syntax.TryExpr, *syntax.CatchExpr:
+		// A try or catch inside an expression: its statements run before
+		// the expression, in order, as a call's do (ir_fail.go, ir_order.go).
+		pre, e := b.failValue(x)
+		b.runFirst(pre)
 		return e
 	}
 	irNo("expression %T", x)
@@ -253,10 +364,12 @@ func (b *irBuilder) constant(t check.Type, v constant.Value, x syntax.Expr, p ir
 	}
 	t = bt
 	switch v.Kind() {
+	// Each constant keeps its value as Go reads its spelling, for the
+	// fold of an operation over it (ir_constfold.go).
 	case constant.Bool:
-		return &irExpr{K: "const", Pos: p, T: gt, V: strconv.FormatBool(constant.BoolVal(v))}
+		return b.constValue(&irExpr{K: "const", Pos: p, T: gt, V: strconv.FormatBool(constant.BoolVal(v))}, v)
 	case constant.String:
-		return &irExpr{K: "const", Pos: p, T: gt, V: irString(constant.StringVal(v))}
+		return b.constValue(&irExpr{K: "const", Pos: p, T: gt, V: irString(constant.StringVal(v))}, v)
 	case constant.Int, constant.Float:
 		switch {
 		case isInteger(t) || bt.Kind == check.Duration:
@@ -264,13 +377,13 @@ func (b *irBuilder) constant(t check.Type, v constant.Value, x syntax.Expr, p ir
 			if i.Kind() != constant.Int {
 				irNo("constant kind %s", v.Kind())
 			}
-			return &irExpr{K: "const", Pos: p, T: gt, V: i.ExactString()}
+			return b.constValue(&irExpr{K: "const", Pos: p, T: gt, V: i.ExactString()}, i)
 		case bt.Kind == check.Float64:
 			f, _ := constant.Float64Val(constant.ToFloat(v))
-			return &irExpr{K: "const", Pos: p, T: gt, V: strconv.FormatFloat(f, 'g', -1, 64)}
+			return b.constValue(&irExpr{K: "const", Pos: p, T: gt, V: strconv.FormatFloat(f, 'g', -1, 64)}, constant.MakeFloat64(f))
 		case bt.Kind == check.Float32:
 			f, _ := constant.Float32Val(constant.ToFloat(v))
-			return &irExpr{K: "const", Pos: p, T: gt, V: strconv.FormatFloat(float64(f), 'g', -1, 32)}
+			return b.constValue(&irExpr{K: "const", Pos: p, T: gt, V: strconv.FormatFloat(float64(f), 'g', -1, 32)}, constant.MakeFloat64(float64(f)))
 		}
 	}
 	irNo("constant kind %s", v.Kind())
