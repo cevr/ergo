@@ -915,7 +915,7 @@ func parseLawDecl(p mut parser, doc uint32, top bool) uint32 {
 	// Only a rewrite law over functions takes type parameters (owner
 	// q234): its sides are stated once for every instance a site has.
 	let mut tparams = none
-	let tpos = pos(p)
+	let tparamPos = pos(p)
 	if top && p.tk == LBrack {
 		tparams = some(parseTypeParams(p))
 	}
@@ -933,7 +933,7 @@ func parseLawDecl(p mut parser, doc uint32, top bool) uint32 {
 	let lhs = parseBlock(p)
 	if p.tk != Eql && when == none {
 		if tparams != none {
-			errorAt(p, tpos, 1, "only a rewrite law over functions has type parameters, law L[T](x T) { f(g(x)) } == { x }; state a property at concrete types, or as a member of the protocol's operation type")
+			errorAt(p, tparamPos, 1, "only a rewrite law over functions has type parameters, law L[T](x T) { f(g(x)) } == { x }; state a property at concrete types, or as a member of the protocol's operation type")
 		}
 		return mkLawDecl(&p.t, mark(p.t), doc, lawTok, name, tparams, some(params), some(lhs), none, uint32(0), none, none)
 	}
