@@ -392,3 +392,114 @@ func erfc(x float64) float64 {
 	let r = t * math.Exp(-z*z-1.26551223+t*(1.00002368+t*(0.37409196+t*(0.09678418+t*(-0.18628806+t*(0.27886807+t*(-1.13520398+t*(1.48851587+t*(-0.82215223+t*0.17087277)))))))))
 	if x >= 0.0 { r } else { 2.0 - r }
 }
+
+// The null tables (BENCH-LAW-COST): nullOf builds only the part of the
+// table a caller reads, by counts scaled once, where it built the whole
+// table by halving. refNull is that whole table, kept as the reference,
+// and these laws hold the new paths to it bit for bit.
+
+// refNull is the whole null distribution of the signed-rank statistic for
+// ranks, built as BN1 built it: each rank halves the chances it adds to.
+func refNull(ranks []int) []float64 {
+	let mut top = 0
+	for r in ranks {
+		top = top + r
+	}
+	let mut c = []float64{}
+	for _ in 0..top+1 {
+		c = c.Append(0.0)
+	}
+	c[0] = 1.0
+	let mut reach = 0
+	for r in ranks {
+		reach = reach + r
+		let mut s = reach
+		for s >= 0 {
+			let below = if s >= r { c[s-r] } else { 0.0 }
+			c[s] = 0.5 * (c[s] + below)
+			s = s - 1
+		}
+	}
+	c
+}
+
+// drawnDifferences are n differences drawn from seed: small whole sizes
+// from -4 to 4 (ties and zeros) when whole, else reals in [-0.5, 0.5).
+func drawnDifferences(seed uint64, n int, whole bool) []float64 {
+	let mut d = []float64{}
+	for k in 0..n {
+		d = d.Append(if whole { float64(draw(seed, k, 9) - 4) } else { unit(seed, k) - 0.5 })
+	}
+	d
+}
+
+// NullMatchesReference: the part of the table nullOf builds is the
+// reference table's, for the doubled tied ranks of drawn differences and
+// for the same ranks over their common divisor, up to any cut.
+law NullMatchesReference(seed uint64, size int, whole bool, cut int, divide bool) {
+	let mut sizes = []float64{}
+	for x in drawnDifferences(seed, within(size, 0, 12), whole) {
+		if x != 0.0 {
+			sizes = sizes.Append(if x < 0.0 { -x } else { x })
+		}
+	}
+	let doubled = doubledRanks(sizes)
+	let mut g = 0
+	for r in doubled {
+		g = gcd(g, r)
+	}
+	let mut ranks = []int{}
+	for r in doubled {
+		ranks = ranks.Append(if divide && g > 0 { r / g } else { r })
+	}
+	let want = refNull(ranks)
+	let upto = within(cut, 0, len(want))
+	let got = nullOf(ranks, upto)
+	let mut same = len(got) == (if upto < len(want) { upto + 1 } else { len(want) })
+	for s, x in got {
+		same = same && x == want[s]
+	}
+	same
+}
+
+// SignedRankPMatchesReference: SignedRankP, and its form that reads a
+// Decide's untied table, give the p-value of the reference table.
+law SignedRankPMatchesReference(seed uint64, size int, whole bool) {
+	let d = drawnDifferences(seed, within(size, 0, 12), whole)
+	let mut sizes = []float64{}
+	let mut ups = []bool{}
+	for x in d {
+		if x != 0.0 {
+			sizes = sizes.Append(if x < 0.0 { -x } else { x })
+			ups = ups.Append(x > 0.0)
+		}
+	}
+	let ranks = doubledRanks(sizes)
+	let mut t2 = 0
+	for k, r in ranks {
+		if ups[k] {
+			t2 = t2 + r
+		}
+	}
+	let null = refNull(ranks)
+	let top = len(null) - 1
+	let t = if t2 <= top-t2 { t2 } else { top - t2 }
+	let mut tail = 0.0
+	for k in 0..t+1 {
+		tail = tail + null[k]
+	}
+	let twice = 2.0 * tail
+	let p = if len(sizes) == 0 { 1.0 } else { if twice < 1.0 { twice } else { 1.0 } }
+	SignedRankP(d) == p && signedRankP(d, untiedNull(len(d))) == p
+}
+
+// HodgesLehmannMatchesReference: the interval read from the half table
+// untiedNull is the one read from the reference's whole table, at levels
+// from 0 to 99.9%.
+law HodgesLehmannMatchesReference(seed uint64, size int, pick int) {
+	let d = drawnDifferences(seed, within(size, 0, 12), false)
+	let levels = []float64{0.0, 0.5, 0.9, 0.95, 0.9842, 0.999}
+	let level = levels[within(pick, 0, 5)]
+	let want = hodgesLehmann(d, level, refNull(ranksTo(len(d))))
+	HodgesLehmann(d, level) == want && hodgesLehmann(d, level, untiedNull(len(d))) == want
+}

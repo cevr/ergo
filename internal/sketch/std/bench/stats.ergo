@@ -242,11 +242,12 @@ func exactly(pairs []Pair, d []float64, log bool, c Claim, shift float64) Verdic
 // judge reads the interval of d at level against claim c, whose bound or
 // margin is shift in d's scale.
 func judge(d []float64, log bool, c Claim, shift float64, level float64) Verdict {
-	let hl = HodgesLehmann(d, level)
+	let untied = untiedNull(len(d))
+	let hl = hodgesLehmann(d, level, untied)
 	let covered = hl.Coverage+1e-9 >= level
 	match c {
 	case Change:
-		let of = Difference{Pairs: len(d), Log: log, Estimate: hl.Center, Low: hl.Low, High: hl.High, Coverage: hl.Coverage, P: SignedRankP(d), Exact: false}
+		let of = Difference{Pairs: len(d), Log: log, Estimate: hl.Center, Low: hl.Low, High: hl.High, Coverage: hl.Coverage, P: signedRankP(d, untied), Exact: false}
 		if !covered {
 			return Unclear{Of: of, Needed: Needed(d, shift, level, 0.8)}
 		}
@@ -265,7 +266,7 @@ func judge(d []float64, log bool, c Claim, shift float64, level float64) Verdict
 		for x in d {
 			moved = moved.Append(x - shift)
 		}
-		let of = Difference{Pairs: len(d), Log: log, Estimate: hl.Center, Low: hl.Low, High: hl.High, Coverage: hl.Coverage, P: SignedRankP(moved), Exact: false}
+		let of = Difference{Pairs: len(d), Log: log, Estimate: hl.Center, Low: hl.Low, High: hl.High, Coverage: hl.Coverage, P: signedRankP(moved, untied), Exact: false}
 		if !covered {
 			return Unclear{Of: of, Needed: neededBeside(d, shift, level, 0.8)}
 		}
@@ -335,7 +336,13 @@ type signed { size float64, up bool }
 // distribution is that of those ranks over every sign assignment, built
 // exactly (nullOf the doubled ranks), never the untied distribution or a
 // normal tail. With no nonzero difference it is 1.
-func SignedRankP(d []float64) float64 {
+func SignedRankP(d []float64) float64 { signedRankP(d, []float64{}) }
+
+// signedRankP is SignedRankP, reading the lower half of the untied null
+// distribution from untied (untiedNull of len(d)) when d has no zero and
+// no tie, so a Decide builds that table once for its interval and its
+// p-value; an untied of another length is not read.
+func signedRankP(d []float64, untied []float64) float64 {
 	let mut s = []signed{}
 	for x in d {
 		if x != 0.0 {
@@ -351,11 +358,13 @@ func SignedRankP(d []float64) float64 {
 	// rank (i + j + 2) / 2 each, so i + j + 2 doubled, a whole number.
 	let mut ranks = []int{}
 	let mut t2 = 0
+	let mut tied = false
 	let mut i = 0
 	for i < n {
 		let mut j = i
 		for j+1 < n && sorted[j+1].size == sorted[i].size {
 			j = j + 1
+			tied = true
 		}
 		for k in i..j+1 {
 			let r = i + j + 2
@@ -366,45 +375,85 @@ func SignedRankP(d []float64) float64 {
 		}
 		i = j + 1
 	}
-	let null = nullOf(ranks)
-	let top = len(null) - 1
+	let mut top = 0
+	let mut g = 0
+	for r in ranks {
+		top = top + r
+		g = gcd(g, r)
+	}
 	// The distribution is symmetric, so the smaller tail is the lower tail
 	// at the nearer end; summing that one side keeps p the same, bit for
-	// bit, when the sides swap.
+	// bit, when the sides swap. Only that tail is built, over the ranks
+	// divided by their common divisor (every doubled rank is even when no
+	// size ties), which keeps each sum and its chance.
 	let t = if t2 <= top-t2 { t2 } else { top - t2 }
 	let mut tail = 0.0
-	for k in 0..t+1 {
-		tail = tail + null[k]
+	if !tied && n == len(d) && t/g < len(untied) {
+		// Untied doubled ranks are 2, 4, …, 2n: the untied table at t/2.
+		for k in 0..t/g+1 {
+			tail = tail + untied[k]
+		}
+	} else {
+		let mut scaled = []int{}
+		for r in ranks {
+			scaled = scaled.Append(r / g)
+		}
+		for x in nullOf(scaled, t/g) {
+			tail = tail + x
+		}
 	}
 	let p = 2.0 * tail
 	if p < 1.0 { p } else { 1.0 }
 }
 
-// nullOf is the null distribution of the signed-rank statistic for ranks:
-// nullOf(ranks)[s] is the chance that the ranks given a plus sign sum to s
-// when each sign is a fair coin. Each rank halves the chances it adds to,
-// so no value outgrows a float64 and the sum is 1.
-func nullOf(ranks []int) []float64 {
+// nullOf is the lower part of the null distribution of the signed-rank
+// statistic for ranks: nullOf(ranks, upto)[s], for s from 0 to upto (at
+// most the sum of the ranks), is the chance that the ranks given a plus
+// sign sum to s when each sign is a fair coin. A sum up to upto is made
+// only of smaller sums, so the part is exact without the rest. It counts
+// the sign patterns of each sum (each rank adds the counts r below; a
+// count is at most 2^MaxPairs, inside a float64) and divides by 2^n once
+// at the end, so the work is the counts' additions alone: at most
+// len(ranks) times upto, where the whole table was len(ranks) times the
+// sum, cubic in the pairs.
+func nullOf(ranks []int, upto int) []float64 {
 	let mut top = 0
 	for r in ranks {
 		top = top + r
 	}
+	let u = if upto < top { upto } else { top }
 	let mut c = []float64{}
-	for _ in 0..top+1 {
+	for _ in 0..u+1 {
 		c = c.Append(0.0)
 	}
 	c[0] = 1.0
 	let mut reach = 0
 	for r in ranks {
 		reach = reach + r
-		let mut s = reach
-		for s >= 0 {
-			let below = if s >= r { c[s-r] } else { 0.0 }
-			c[s] = 0.5 * (c[s] + below)
+		let mut s = if reach < u { reach } else { u }
+		for s >= r {
+			c[s] = c[s] + c[s-r]
 			s = s - 1
 		}
 	}
+	let scale = math.Pow(0.5, float64(len(ranks)))
+	for s in 0..u+1 {
+		c[s] = c[s] * scale
+	}
 	c
+}
+
+// gcd is the greatest common divisor of a and b, for a, b >= 0; gcd(0, b)
+// is b.
+func gcd(a int, b int) int {
+	let mut x = a
+	let mut y = b
+	for y != 0 {
+		let r = x % y
+		x = y
+		y = r
+	}
+	x
 }
 
 // Estimate is a Hodges-Lehmann estimate: Center, its interval from Low to
@@ -419,7 +468,24 @@ type Estimate { Center float64, Low float64, High float64, Coverage float64 }
 // 1 - 2 P(T <= c). When even c = 0 is too likely (too few pairs for the
 // level), the interval is [min, max], which covers 1 - 2 P(T = 0). With
 // no differences every field is 0.
-func HodgesLehmann(d []float64, level float64) Estimate {
+func HodgesLehmann(d []float64, level float64) Estimate { hodgesLehmann(d, level, untiedNull(len(d))) }
+
+// untiedNull is the lower half of the null distribution of n untied ranks
+// 1..n: nullOf of them up to their median n(n+1)/4. The distribution is
+// symmetric, so a lower tail below one half lies in it.
+func untiedNull(n int) []float64 { nullOf(ranksTo(n), n*(n+1)/4) }
+
+// ranksTo is the ranks 1..n.
+func ranksTo(n int) []int {
+	let mut ranks = []int{}
+	for k in 1..n+1 {
+		ranks = ranks.Append(k)
+	}
+	ranks
+}
+
+// hodgesLehmann is HodgesLehmann with untied, untiedNull(len(d)), given.
+func hodgesLehmann(d []float64, level float64, untied []float64) Estimate {
 	let n = len(d)
 	if n == 0 {
 		return Estimate{Center: 0.0, Low: 0.0, High: 0.0, Coverage: 0.0}
@@ -433,12 +499,10 @@ func HodgesLehmann(d []float64, level float64) Estimate {
 	let w = slices.Sort(walsh)
 	let m = len(w)
 	let center = if m%2 == 1 { w[m/2] } else { (w[m/2-1] + w[m/2]) / 2.0 }
-	let mut ranks = []int{}
-	for k in 1..n+1 {
-		ranks = ranks.Append(k)
-	}
-	let null = nullOf(ranks)
 	let half = (1.0 - level) / 2.0
+	// A lower tail up to half, below one half, ends inside untied; a level
+	// below 0 asks for more, and builds the whole table.
+	let null = if half < 0.5 { untied } else { nullOf(ranksTo(n), n*(n+1)/2) }
 	let mut acc = 0.0
 	let mut c = -1
 	let mut k = 0
