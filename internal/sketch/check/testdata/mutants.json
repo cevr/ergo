@@ -3377,6 +3377,7 @@
       "killers": [
         "internal/sketchfront:TestStdSnapshotIsCurrent"
       ]
-    }
+    },
+    {"name":"lf2m-rule2-ergo-ignored","origin":"wf10 lawffi LF2m","file":"internal/sketch/check/funcrewrite.go","from":"\tif rhsErgo > lhsErgo || rhsErgo == lhsErgo && rw.RhsCalls >= rw.LhsCalls {","to":"\tif rw.RhsCalls >= rw.LhsCalls && rhsErgo >= 0 && lhsErgo >= 0 {","rule":"types.md Laws 14 rule 2 (LF2m): fewer calls of Ergo bodies first, so a law that trades Go calls for more Ergo calls is no rewrite.","killers":["check:TestFunctionRewriteShapes"]}
   ]
 }

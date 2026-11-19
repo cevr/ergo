@@ -190,6 +190,9 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		// the lowering writes (decls.go intrinsic): a call like a user
 		// function's.
 		intrinsic := b.l.intrinsic(f) != nil
+		if _, own := check.ModuleBodySource(f); own {
+			return b.moduleCall(x, c, f, p) // ir_modulebody.go (LAWFFI LF2m)
+		}
 		if externFunc(f) && !intrinsic {
 			return b.stdCall(x, c, f, p)
 		}

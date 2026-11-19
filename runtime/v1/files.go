@@ -216,6 +216,11 @@ func (b Bodies) Body(name string) (Body, error) {
 	if err != nil {
 		return Body{}, errors.New(strings.Replace(err.Error(), "runtime/v1: ", "", 1))
 	}
+	if body.Wait == "" && b.Effects(name) == "" {
+		// An effect-free body waits on nothing (LAWFFI LF2m): it needs
+		// no mark to say so.
+		body.Wait = "none"
+	}
 	switch {
 	case body.Wait == "":
 		return Body{}, fmt.Errorf("%s states no %sKIND (%s)", name, WaitMark, kindList(WaitKinds))

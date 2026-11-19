@@ -279,11 +279,65 @@ func (c *checker) moduleDoor(f *Func) (msg string, own bool) {
 	if why := moduleShape(f.Sig, body); why != "" {
 		return fmt.Sprintf("extern go %s: %s (docs/spec/interop.md, Trusted Go)", target, why), true
 	}
+	effects := bodies.Effects(name)
+	if effects != "" && !c.pkg.trusted {
+		return fmt.Sprintf("extern go %s: its Go body is not effect-free (%s), and a package binds such a body of its module's own Go only when the root module trusts its Go; write the line `trust go %s` in the root module's ergo.mod (docs/spec/interop.md, Trusted Go)", target, effects, c.pkg.module), true
+	}
 	if c.pkg.goBodies == nil {
 		c.pkg.goBodies = map[string]v1.Body{}
+		c.pkg.goEffects = map[string]string{}
+		c.pkg.goSource = map[string]GoBodySource{}
 	}
 	c.pkg.goBodies[target] = body
+	c.pkg.goEffects[target] = effects
+	if decl, imports, ok := bodies.Source(name); ok {
+		c.pkg.goSource[target] = GoBodySource{Target: target, Name: name, Decl: decl, Imports: imports, Body: body}
+	}
 	return "", true
+}
+
+// GoBodySource is an effect-free module body standing alone (LAWFFI
+// LF2m): its Go name, declaration, the imports it names and its shape,
+// which the licence run's driver compiles and calls.
+type GoBodySource struct {
+	Target, Name, Decl string
+	Imports            []string
+	Body               v1.Body
+}
+
+// ModuleBodySource is the stand-alone Go text of the effect-free module
+// body that the extern f binds, and whether f binds one.
+func ModuleBodySource(f *Func) (GoBodySource, bool) {
+	if _, ok := ModuleBody(f); !ok {
+		return GoBodySource{}, false
+	}
+	path, name := f.Decl.Extern.Split()
+	s, ok := f.Pkg.goSource[path+"."+name]
+	return s, ok
+}
+
+// ModuleBodySources are the effect-free module bodies pkg binds, by
+// target.
+func ModuleBodySources(pkg *Package) []GoBodySource {
+	if pkg == nil {
+		return nil
+	}
+	out := make([]GoBodySource, 0, len(pkg.goSource))
+	for _, s := range pkg.goSource {
+		out = append(out, s)
+	}
+	slices.SortFunc(out, func(a, b GoBodySource) int { return strings.Compare(a.Target, b.Target) })
+	return out
+}
+
+// moduleBodyEffects is why the module body f binds may not be pure ("" for
+// an effect-free one), and whether f binds a module body.
+func moduleBodyEffects(f *Func) (string, bool) {
+	if _, ok := ModuleBody(f); !ok {
+		return "", false
+	}
+	path, name := f.Decl.Extern.Split()
+	return f.Pkg.goEffects[path+"."+name], true
 }
 
 // moduleShape is why the Go body cannot stand for the extern's signature

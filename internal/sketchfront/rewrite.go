@@ -141,7 +141,7 @@ func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 		return 0, err
 	}
 	before := cases.format()
-	fresh, err := licenceEntries(unit.Package, names, old, keys, req.Stderr, cases)
+	fresh, err := licenceEntries(unit.Package, names, old, keys, req.Stderr, cases, req.Toolchain)
 	if err != nil {
 		return 0, err
 	}
@@ -323,7 +323,7 @@ func FreshStdLedger(req BuildRequest, host []gofacts.Entry) (string, error) {
 		}
 		// A top-level rewrite law's licence run is the evaluator's, so
 		// it needs no Go tool (licenceEntries).
-		lic, err := licenceEntries(pkg, nil, nil, lower.ShippedForeignKeys, req.Stderr, nil)
+		lic, err := licenceEntries(pkg, nil, nil, lower.ShippedForeignKeys, req.Stderr, nil, build.Toolchain{})
 		if err != nil {
 			return "", fmt.Errorf("std %s: %w", path, err)
 		}
