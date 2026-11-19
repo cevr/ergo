@@ -48,7 +48,7 @@ func genScript(r *rand.Rand, app string) string {
 		case "shelf":
 			step = pick(r, "tap add", "tap add", "tap del", "tap del", "tap row 1")
 		case "form":
-			step = pick(r, "type name\t"+pick(r, words...), "type note\t"+pick(r, words...), "tap done", "tap bold", "tap send", "key a")
+			step = pick(r, "type name\t"+pick(r, words...), "type note\t"+pick(r, words...), "tap done", "tap bold", "tap send", "key a", "compose name\t"+pick(r, words...), "compose note\t"+pick(r, words...))
 		case "load":
 			step = pick(r, "tap next", "settle", "settle")
 		case "pad":

@@ -41,7 +41,7 @@ func agree[E comparable, S](m Machine[S, E, int], view own func(f *ui.Frame[E], 
 	}
 	for i, line in steps {
 		let n = i + 1
-		let (a, b) = run(&h, &d, w, line)
+		let (a, b) = run(&h, &d, w, line, same)
 		if a != b {
 			Console.Println("differ \(n): \(line): test host \(said(a)), desktop \(said(b))")
 			continue
@@ -88,6 +88,11 @@ func compare[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Drive
 	case Some[string] as why:
 		return why
 	case None:
+	}
+	// The window was told the keyboard the focused field asks for (MB5).
+	let (told, asks) = desktop.Keyboard(d)
+	if told != asks {
+		return Some{Value: "the window was told the \(told) keyboard, the field asks for \(asks)"}
 	}
 	// The root lies inside the insets (MB4): at their top left corner and
 	// no further than their right and bottom edges.
@@ -234,7 +239,7 @@ func follow[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Driver
 }
 
 // run does one step on each host.
-func run[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Driver[S, E, D, F], w go.Ref[screen.Window], line string) (result, result) needs go.Foreign {
+func run[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Driver[S, E, D, F], w go.Ref[screen.Window], line string, same func(a S, b S) bool) (result, result) needs go.Foreign {
 	let (verb, rest) = match strings.Cut(line, " ") {
 	case Some[strings.Halves] as c:
 		(c.Value.Before, c.Value.After)
@@ -374,6 +379,32 @@ func run[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *desktop.Driver[S,
 			try desktop.SetInsets(d, ui.Insets{Top: ui.Length(float64(atoi(f[0]))), Right: ui.Length(float64(atoi(f[1]))), Bottom: ui.Length(float64(atoi(f[2]))), Left: ui.Length(float64(atoi(f[3])))})
 		})
 		(Done, b)
+	case "compose":
+		// An input method composes TEXT over all of the field's text and
+		// commits it (MB5): the program's state stays as it was while the
+		// composition is open, then the field's value is TEXT.
+		match strings.Cut(rest, "\t") {
+		case Some[strings.Halves] as c:
+			let was = desktop.StateOf(d)
+			let mut b = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch needs go.Foreign {
+				try desktop.ComposeOn(d, c.Value.Before, c.Value.After)
+			})
+			if !same(was, desktop.StateOf(d)) {
+				b = Broke{Why: "the state changed while the composition was open"}
+			}
+			match b {
+			case Done:
+				b = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch needs go.Foreign {
+					try desktop.CommitComposition(d)
+				})
+			case _:
+			}
+			(played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch needs go.Foreign {
+				try ui.Play(h, []ui.Act{ui.TypeInto{Label: c.Value.Before, Text: c.Value.After}})
+			}), b)
+		case None:
+			(Broke{Why: "compose needs a tab"}, Broke{Why: "compose needs a tab"})
+		}
 	case "settle":
 		both(h, d, ui.SettleAll)
 	case "away":
