@@ -70,7 +70,7 @@ var Hosts = []string{"func", "test", "literal", "law"}
 // Kinds lists every form a run of seeds must reach.
 var Kinds = []string{
 	"int-assign", "int-op-assign", "narrow-wrap", "conversion",
-	"slice-append-handover", "slice-append-other", "slice-alias", "slice-index-write", "slice-slice",
+	"slice-append-handover", "slice-append-other", "slice-append-all", "slice-alias", "slice-index-write", "slice-slice",
 	"grid-nested-write", "grid-row-alias", "grid-append",
 	"map-write", "map-delete", "map-put", "map-alias", "map-get-match",
 	"array-write", "array-alias", "array-default",
@@ -251,6 +251,9 @@ const record = "Out{n: i0 + 31 * i1 + 7 * i2 + sumArr(a0) + 3 * sumArr(a1) + ran
 // whose tail is record == want.
 func (g *gen) source(want, host string) string {
 	var b strings.Builder
+	if g.kinds["slice-append-all"] > 0 {
+		b.WriteString("import slices\n\n") // an unused import is S110
+	}
 	b.WriteString(decls(int(g.m.base - 10)))
 	body := func(depth int) {
 		tabs := strings.Repeat("\t", depth)
@@ -801,6 +804,19 @@ func (g *gen) simple(c int) (stmt, bool) {
 		s, o, e := g.pick(sliceVars), g.pick(sliceVars), g.intExpr(2)
 		if len(g.ranged) > 0 {
 			return stmt{}, false
+		}
+		if g.r.IntN(3) == 0 {
+			// slices.AppendAll is an extern of Go's append at its spread
+			// shape, append(o, p...) (EVAL-IFP: the evaluator ran it as
+			// the one-element shape, appending ys as one element). ys is
+			// two elements, so a loop grows s as Append does, never
+			// doubling it.
+			e2 := g.intExpr(2)
+			g.kind("slice-append-all")
+			return stmt{line(s + " = slices.AppendAll(" + o + ", []int{" + e.text + ", " + e2.text + "})"), func(m *model) {
+				v, v2 := e.val(m), e2.val(m)
+				m.slices[s] = append(cloneInts(m.slices[o]), v, v2)
+			}}, true
 		}
 		g.kind("slice-append-other")
 		return stmt{line(s + " = " + o + ".Append(" + e.text + ")"), func(m *model) {
