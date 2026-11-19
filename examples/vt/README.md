@@ -1,6 +1,6 @@
 # vt
 
-A minimal terminal emulator with no terminal: it plays recorded terminal output on a screen with scrollback and prints the screen. The parser is the DEC escape-sequence state machine (vt100.net's parser, as Ghostty runs it); it turns the byte stream into events (runs of text, controls, ESC, CSI, OSC, DCS and APC sequences), and the screen acts on them. The screen comes in two forms that keep one contract: a dense one in Ghostty's shape (packed cells in pages, interned and counted styles) and a plain reference. DOD track units DT1 (parser), DT2 (screen) and DT3 (the hand-Go control and its receipts); a view on the cell host comes in DT4.
+A minimal terminal emulator with no terminal: it plays recorded terminal output on a screen with scrollback and prints the screen. The parser is the DEC escape-sequence state machine; it turns the byte stream into events (runs of text, controls, ESC, CSI, OSC, DCS and APC sequences), and the screen acts on them. The screen comes in two forms that keep one contract: a dense one (packed cells in pages, interned and counted styles) and a plain reference. DOD track units DT1 (parser), DT2 (screen) and DT3 (the hand-Go control and its receipts); a view on the cell host comes in DT4.
 
 ```sh
 vt gen 7 2000000 > out.bin     # 2 MB of generated terminal output from seed 7
