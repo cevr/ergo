@@ -73,6 +73,7 @@ func IRInlineOn() bool { return irInlineLowering != "off" }
 type irInline struct {
 	sites  map[*irExpr]*irInlSite
 	bodies map[string]*irInlBody
+	anon   int // the anon copies made, for unique names
 }
 
 // irInlSite is a marked call.
@@ -91,7 +92,20 @@ type irInlSite struct {
 	// fallible is a callee with a failure row that fails at the site: its
 	// call binds a value and an error (def2).
 	fallible bool
+	// result is the call's Go type, "" when the builder does not spell
+	// it: a stored call's temporary (storedCall).
+	result string
+	// anon is a call in a library body: its copy adds no inline site.
+	anon bool
 }
+
+// irStdInlLowering is "off" for the reference: a call in a library body
+// is left to Go's inliner (IR-STDINL).
+var irStdInlLowering string
+
+// IRStdInlOn reports that calls in library bodies are inlined (the
+// property's reach check).
+func IRStdInlOn() bool { return irStdInlLowering != "off" }
 
 // irInlBody is a built body's frame: its parameter slots, each with its
 // Go type ("" when unknown: the slot is only ever passed a local), and
@@ -165,7 +179,12 @@ func (b *irBuilder) inlineMark(x *syntax.CallExpr, c *check.Call, fd *funcDecl, 
 	if f == nil || x.Trailing != nil || c.StartsTask || fd.fallible && (b.dropsErr[e] || len(f.Sig.Results) != 1) || len(f.Sig.Results) > 1 || len(callbackParams(f)) > 0 {
 		return e
 	}
-	if !b.fc.directives || !x.Pos().IsValid() || f.Pkg == nil {
+	// A call in a library body has no identity (calls.go identify): its
+	// copy is no inline site of the table, as the text path's site0 adds
+	// none, and the callee must be a library body too, whose copy takes
+	// the position of the call (IR-STDINL).
+	anon := !b.fc.directives
+	if f.Pkg == nil || !x.Pos().IsValid() || anon && (irStdInlLowering == "off" || b.l.isSourced(f.Pkg)) {
 		return e
 	}
 	if !b.l.inlineBody(f) {
@@ -188,12 +207,19 @@ func (b *irBuilder) inlineMark(x *syntax.CallExpr, c *check.Call, fd *funcDecl, 
 	if fd.method != nil {
 		key = fd.method.name + "." + e.Name
 	}
-	src, _, _, _ := b.l.at(x, x.Pos())
-	st.inl.sites[e] = &irInlSite{
+	src := -1 // a call in a library body has no identity
+	if !anon {
+		src, _, _, _ = b.l.at(x, x.Pos())
+	}
+	site := &irInlSite{
 		f: f, key: key, src: src, offset: int(x.Pos()), tsub: tsub,
 		size: inlineSize(f.Decl.Body), loop: b.loops > 0 || b.fc.hot,
-		leaf: goLeaf(f), sourced: b.l.isSourced(f.Pkg), fallible: fd.fallible,
+		leaf: goLeaf(f), sourced: b.l.isSourced(f.Pkg), fallible: fd.fallible, anon: anon,
 	}
+	if t := b.l.info.Types[x]; t != nil && len(f.Sig.Results) == 1 {
+		site.result = irTypeOrNone(func() string { return b.goType(t, x) })
+	}
+	st.inl.sites[e] = site
 	return e
 }
 
@@ -237,6 +263,8 @@ func (st *irState) inlineBodies(l *lowerer) {
 		// After coalesce: a copy's result local is then the match's own
 		// subject, which the copy's returns set (ir_forms_variant.go).
 		body = in.knownVariants(body)
+		body = in.storeFields(body) // ir_forms_store.go
+		body = in.deadZeros(body)   // ir_forms_zero.go
 		fn.Locals = in.locals(fn.Locals)
 		fn.Body = irScopesIncreaseTagged(irUseLocals(body), in.tagged, fn.Pos)
 		st.report.Inlined += in.count
@@ -294,6 +322,10 @@ func (in *irInliner) stmts(list []*irStmt, p irPath) []*irStmt {
 			out = append(out, spliced...)
 			continue
 		}
+		if spliced := in.storedCall(s, &p); spliced != nil {
+			out = append(out, spliced...)
+			continue
+		}
 		out = append(out, s)
 	}
 	return out
@@ -348,7 +380,13 @@ func (in *irInliner) splice(s *irStmt, p *irPath) []*irStmt {
 		return nil
 	}
 	n := len(in.l.inlineSites)
-	tag := inlineTag + strconv.Itoa(n)
+	id, parent := strconv.Itoa(n), n+1 // the copy's names; the site its lines are in
+	if site.anon {
+		// No site of the table: its lines stay in the enclosing site.
+		id, parent = "s"+strconv.Itoa(in.st.inl.anon), p.parent
+		in.st.inl.anon++
+	}
+	tag := inlineTag + id
 	files := map[int]int{}
 	file := func(k int) int {
 		if j, ok := files[k]; ok {
@@ -384,7 +422,11 @@ func (in *irInliner) splice(s *irStmt, p *irPath) []*irStmt {
 		}
 		subst[i] = nil // bound below, once the copy's locals are known
 	}
-	in.l.inlineSites = append(in.l.inlineSites, inlineSite{src: site.src, offset: site.offset, parent: p.parent})
+	if !site.anon {
+		in.l.inlineSites = append(in.l.inlineSites, inlineSite{src: site.src, offset: site.offset, parent: p.parent})
+	} else {
+		in.st.report.StdInlined++
+	}
 	p.spent += site.size
 	in.count++
 	ren := map[int]int{}
@@ -392,7 +434,7 @@ func (in *irInliner) splice(s *irStmt, p *irPath) []*irStmt {
 		if subst[i] != nil {
 			continue
 		}
-		l := in.newLocal("p"+strconv.Itoa(i)+"_inl"+strconv.Itoa(n), irSubstTypes(frame.params[i], frame.tps, site.tsub), at)
+		l := in.newLocal("p"+strconv.Itoa(i)+"_inl"+id, irSubstTypes(frame.params[i], frame.tps, site.tsub), at)
 		ren[i] = l
 		binds = append(binds, &irStmt{K: "def", Pos: a.Pos, Local: l, X: a})
 	}
@@ -408,16 +450,16 @@ func (in *irInliner) splice(s *irStmt, p *irPath) []*irStmt {
 		}
 	}
 	for j, lc := range callee.Locals {
-		ren[np+j] = in.newLocal(lc.Name+"_inl"+strconv.Itoa(n), irSubstTypes(lc.Type, frame.tps, site.tsub), at)
+		ren[np+j] = in.newLocal(lc.Name+"_inl"+id, irSubstTypes(lc.Type, frame.tps, site.tsub), at)
 	}
-	cp := &irCopy{in: in, n: n, ren: ren, subst: subst, file: file, tps: frame.tps, tsub: site.tsub}
+	cp := &irCopy{in: in, id: id, ren: ren, subst: subst, file: file, tps: frame.tps, tsub: site.tsub}
 	if !site.sourced {
 		call := s.X.Pos
 		cp.at = &call
 	}
 	body := in.clone(callee.Body, cp)
-	body = in.stmts(body, irPath{parent: n + 1, depth: p.depth + 1, loop: p.loop || site.loop, spent: p.spent})
-	end := "inl" + strconv.Itoa(n)
+	body = in.stmts(body, irPath{parent: parent, depth: p.depth + 1, loop: p.loop || site.loop, spent: p.spent})
+	end := "inl" + id
 	r := &irRets{mode: mode, local: s.Local, label: end}
 	if s.Val != nil {
 		r.err = *s.Val
@@ -659,8 +701,8 @@ func (in *irInliner) localType(i int) string {
 	return ""
 }
 
-// localType is the IR type of b's local i.
-func (b *irBuilder) localType(i int) string {
+// localTypeOf is the IR type of b's local i.
+func (b *irBuilder) localTypeOf(i int) string {
 	if j := i - (b.next - len(b.fn.Locals)); j >= 0 && j < len(b.fn.Locals) {
 		return b.fn.Locals[j].Type
 	}
@@ -816,7 +858,7 @@ func irExprWalk(e *irExpr, lit bool, f func(*irExpr, bool)) {
 // the site, its files tagged, its type parameters replaced.
 type irCopy struct {
 	in    *irInliner
-	n     int
+	id    string
 	ren   map[int]int
 	subst map[int]*irExpr
 	file  func(int) int
@@ -846,7 +888,7 @@ func (c *irCopy) label(l string) string {
 	if l == "" {
 		return ""
 	}
-	return l + "_inl" + strconv.Itoa(c.n)
+	return l + "_inl" + c.id
 }
 
 // clone is a deep copy of list, through cp when it is a callee's copy; a
@@ -964,6 +1006,7 @@ func (in *irInliner) cloneExpr(e *irExpr, cp *irCopy) *irExpr {
 			for tp, a := range site.tsub {
 				s.tsub[tp] = irSubstTypes(a, cp.tps, cp.tsub)
 			}
+			s.result = irSubstTypes(site.result, cp.tps, cp.tsub)
 			site = &s
 		}
 		in.st.inl.sites[&n] = site
@@ -980,6 +1023,12 @@ func (in *irInliner) cloneExpr(e *irExpr, cp *irCopy) *irExpr {
 	}
 	for i, p := range n.Params {
 		n.Params[i] = cp.local(p)
+	}
+	if e.FT != nil {
+		n.FT = make([]string, len(e.FT))
+		for i, t := range e.FT {
+			n.FT[i] = irSubstTypes(t, cp.tps, cp.tsub)
+		}
 	}
 	if e.K != "pcall" {
 		n.T = irSubstTypes(e.T, cp.tps, cp.tsub)

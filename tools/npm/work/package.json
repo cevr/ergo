@@ -1,5 +1,5 @@
 {
-  "name": "@cevr/work",
+  "name": "@cvr/work",
   "version": "0.1.0",
   "description": "Copy-on-write workspaces of any Git repository: a full clone (installed packages and build output included) in one call, with a name, an id, a branch and a lifecycle. Replaces Rift.",
   "repository": {
@@ -19,9 +19,9 @@
     "README.md"
   ],
   "optionalDependencies": {
-    "@cevr/work-linux-x64": "0.1.0",
-    "@cevr/work-linux-arm64": "0.1.0",
-    "@cevr/work-darwin-arm64": "0.1.0"
+    "@cvr/work-linux-x64": "0.1.0",
+    "@cvr/work-linux-arm64": "0.1.0",
+    "@cvr/work-darwin-arm64": "0.1.0"
   },
   "engines": {
     "node": ">=18"

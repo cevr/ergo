@@ -247,7 +247,7 @@ func FuzzCheck(f *testing.F) {
 	for _, r := range localRules() {
 		f.Add(localPrelude + r.body)
 	}
-	// The top-level law programs of TestTopLevelLawRules (law-top A2), so
+	// The top-level law programs of sketchtest.LawTopCases (law-top A2), so
 	// the declaration-order oracle meets a law and a test of one name.
 	for _, c := range sketchtest.LawTopCases {
 		f.Add(c.Src)
