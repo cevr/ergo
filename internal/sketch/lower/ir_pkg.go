@@ -563,6 +563,7 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	}
 	hidden := b.hidden(body, x, c, p)
 	pre, args := b.operands(x.Args)
+	mark := b.next // the block's locals and its adapter's are numbered from here (spawnWith)
 	if x.Trailing != nil {
 		args = append(args, b.closureLit(nil, x)) // the block, the last operand
 	}
@@ -595,6 +596,9 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 		pkg = runtimeImport
 	}
 	call := &irExpr{K: "pcall", Pos: p, T: pkg, Name: name, V: targs, Args: append(hidden, args...)}
+	if name == "Go" && pkg == runtimeImport && x.Trailing != nil && targs != "" {
+		call = b.spawnWith(call, targs, mark, p) // ir_spawn.go: task.Go's block, its captures in the Task (GP-SPAWN2)
+	}
 	if isExit {
 		b.noteExit(call, x) // ir_exits.go: the defer form, if the frame keeps it
 	}

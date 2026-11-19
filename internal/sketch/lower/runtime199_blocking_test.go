@@ -42,6 +42,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"irBuilder.hostCloseCall":  "the IR's release of a Go value: v1.Release's hidden CallerTask, as hostRelease's runtimeCall writes it (FLIP F7 FORK-GOCALL)",
 			"irBuilder.goTarget":       "the IR's rt.GoContext, the task as the hidden context.Context of a Go call, as funcCtx.goContext's; it neither waits nor releases (FLIP F7 FORK-GOLIB)",
 			"irBuilder.openScope":      "the IR's frame scope: NewScope of the frame's task, as openFrame writes it (FLIP F7 GP-FRAME)",
+			"irBuilder.taskClose":      "the IR's release of a Task in a frame scope's list: Task.Close with its hidden CallerTask, the frame's (its body's facts read through runtimeBody), as providerRelease's runtimeCall writes it (GP-SPAWN)",
 		}},
 		{"taskOf", map[string]string{
 			"funcCtx.hiddenArgs":      "runtimeCall's hidden CallerTask argument",
@@ -69,6 +70,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 		{"memberName", map[string]string{
 			"funcCtx.runtimeCall":       "the runtime binding emitter",
 			"irBuilder.stdCloseCall":    "the IR's release of a std operation value: its runtime method with no hidden argument, as opCall's runtimeCall writes it (FLIP F7 FORK RELEASE-IR)",
+			"irBuilder.taskClose":       "the IR's release of a Task in a frame scope's list: Task.Close with its hidden CallerTask, the frame's (its body's facts read through runtimeBody), as providerRelease's runtimeCall writes it (GP-SPAWN)",
 			"funcCtx.programOpCall":     "a program-declared operation's method",
 			"funcCtx.callText":          "a capability operation's method",
 			"funcCtx.everyTimers":       "a machines.Every After's Timeout fields In and Signal (FKG1)",
