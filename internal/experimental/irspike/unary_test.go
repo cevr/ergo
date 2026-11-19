@@ -60,6 +60,10 @@ func TestIRUnaryOperandsMatchSource(t *testing.T) {
 //   - appender (SB-FLOOR): a []byte appender called on its receiver, its
 //     operand clipped unless the call writes it in place (the value rule,
 //     V3; mutant sb-std-value-rule-dropped).
+//   - mapkey (FLIP F7 PORT-TEMP, pipeline's failing): a Map key or a
+//     slice index whose calls run statements runs them after the map or
+//     slice and before the value's, and the element is fixed before the
+//     value's (mutants port-temp-key-after-value, port-temp-elem-unbound).
 //
 // It builds Go for the reason TestIRUnaryOperandsMatchSource does.
 func TestIRReprosMatchSource(t *testing.T) {
@@ -67,7 +71,7 @@ func TestIRReprosMatchSource(t *testing.T) {
 	for _, r := range []struct {
 		name string
 		fns  []string
-	}{{"notand", []string{"pick"}}, {"rowslot", []string{"held", "run"}}, {"byteindex", []string{"hex", "pick", "tail"}}, {"gocalls", []string{"show", "pattern", "host", "stored", "split", "zone", "classify", "kept", "eof", "params", "cookie", "limited"}}, {"gonil", []string{"name"}}, {"sleeper", []string{"pop"}}, {"substr", []string{"tail", "cut", "head"}}, {"update", []string{"bump", "Store.moved"}}, {"appender", []string{"shared"}}} {
+	}{{"notand", []string{"pick"}}, {"rowslot", []string{"held", "run"}}, {"byteindex", []string{"hex", "pick", "tail"}}, {"gocalls", []string{"show", "pattern", "host", "stored", "split", "zone", "classify", "kept", "eof", "params", "cookie", "limited"}}, {"gonil", []string{"name"}}, {"sleeper", []string{"pop"}}, {"substr", []string{"tail", "cut", "head"}}, {"update", []string{"bump", "Store.moved"}}, {"appender", []string{"shared"}}, {"mapkey", []string{"keyed", "indexed", "slotted", "both", "Grid.gridded", "stepped", "added", "scaledOwned", "Box.moved", "Outer.bumped"}}} {
 		t.Run(r.name, func(t *testing.T) {
 			text, err := os.ReadFile(filepath.Join("testdata", r.name+".ergo"))
 			if err != nil {
