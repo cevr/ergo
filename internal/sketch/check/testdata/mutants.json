@@ -563,9 +563,9 @@
       "name": "own-check-16-true-false-bindings.go:152",
       "origin": "test-speed plan, own sample (gen.ts 20 11)",
       "file": "internal/sketch/check/bindings.go",
-      "from": "\tif c.preludeName(id) {\n\t\treturn true\n\t}",
-      "to": "\tif c.preludeName(id) {\n\t\treturn false\n\t}",
-      "rule": "localBinder: localBinder runs the binder rules for a local about to bind the name id declares in the current scope: a prelude name (D-D3) first, else shadowing (D-D2).",
+      "from": "\tif c.refusedBinder(id) {\n\t\treturn true\n\t}",
+      "to": "\tif c.refusedBinder(id) {\n\t\treturn false\n\t}",
+      "rule": "localBinder: localBinder runs the binder rules for a local about to bind the name id declares in the current scope: a binder that already has its diagnostic first, else shadowing (D-D2). Re-anchored by PRELUDE-SHADOW (owner q244: D-D3 refuses nothing).",
       "killers": [
         "check:TestRefusedBinderCases"
       ]
@@ -3327,6 +3327,9 @@
     {"name":"gbx2-writes-line","origin":"wf10 GBX2","file":"internal/sketch/check/gobinding.go","from":"\t\t\t\tcase strings.HasPrefix(text, writesMarker):","to":"\t\t\t\tcase false && strings.HasPrefix(text, writesMarker):","rule":"The checker reads a binding's ergo:writes line (not as a reads line).","killers":["lower:TestEveryGoBoundFunctionLowers"]},
     {"name":"gbx2-extern-writes","origin":"wf10 GBX2","file":"internal/sketch/check/extern.go","from":"\tif _, w := GoWrites(bf); w {","to":"\tif _, w := GoWrites(bf); false && w {","rule":"A user extern of a Go function that writes its slice in place is S109.","killers":["check:TestExternTargetDomain"]},
     {"name":"gbx3-package-root","origin":"wf10 GBX3","file":"internal/sketch/check/bindings.go","from":"\tif v := c.packageRoot(x); v != \"\" {","to":"\tif v := c.packageRoot(x); false && v != \"\" {","rule":"An assignment or borrow rooted at another package's variable (os.Args[0] = s) is S108: a Go package variable is read-only in Ergo.","killers":["check:TestDecidedMessages"]},
+    {"name":"prelude-decl-not-declared","origin":"wf10 PRELUDE-SHADOW (owner q244)","file":"internal/sketch/check/decl.go","from":"\tif id.Name == \"_\" {\n\t\treturn false\n\t}\n\tif c.refusedBinder(id) {","to":"\tif id.Name == \"_\" || c.isPreludeName(id.Name) {\n\t\treturn false\n\t}\n\tif c.refusedBinder(id) {","rule":"A package declaration named like a prelude name declares, and the package's uses of the name mean it, not the prelude's (D-D3, owner q244).","killers":["check:TestPreludeNamesCanBeDeclared"]},
+    {"name":"prelude-func-arm-binder-refused","origin":"wf10 PRELUDE-SHADOW (owner q244)","file":"internal/sketch/check/match.go","from":"\t\t\tif preludeObject(o) || r.bindings && reusableBinderName(o) {","to":"\t\t\tif r.bindings && reusableBinderName(o) {","rule":"A match arm's binder named like a prelude function binds and hides it, with no Totality 1 refusal (D-D3, owner q244).","killers":["check:TestBinderNamesAgree"]},
+    {"name":"prelude-func-catch-rest-refused","origin":"wf10 PRELUDE-SHADOW (owner q244)","file":"internal/sketch/check/aspattern.go","from":"\tif preludeObject(o) {\n\t\treturn false\n\t}\n","to":"","rule":"A catch arm's rest name named like a prelude function binds the rest and hides the function, with no Totality 1 refusal (D-D3, owner q244).","killers":["check:TestPreludeNamesCanBeDeclared"]},
     {"name":"gbx1-new-interface","origin":"wf10 GBX1","file":"internal/sketch/check/gonew.go","from":"\tif asInterface(n) != nil {","to":"\tif false && asInterface(n) != nil {","rule":"go.New makes no Go interface: Go has no value of one.","killers":["lower:TestGoNew"]},
     {"name":"gbx1-new-resource","origin":"wf10 GBX1","file":"internal/sketch/check/gonew.go","from":"\tif c.holdsResource(n) || c.hostClose(n) != nil {","to":"\tif false {","rule":"go.New makes no resource: a zero one is not open.","killers":["lower:TestGoNew"]},
     {"name":"gbx1-new-pure","origin":"wf10 GBX1","file":"internal/sketch/check/gonew.go","from":"\tc.charge(x, goForeign())\n","to":"\n","rule":"go.New charges go.Foreign: a pure frame creates no identity.","killers":["lower:TestGoNew"]},

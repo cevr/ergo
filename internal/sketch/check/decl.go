@@ -365,7 +365,6 @@ func (c *checker) collect() {
 				// parameters are distinct local types (196m rule 3) and
 				// reports the redeclaration otherwise.
 				if prev, ok := c.pkg.Scope.names[d.Name.Name].(*Func); ok && d.Name.Name != "_" {
-					c.preludeName(d.Name) // D-D3, at each declaration
 					prev.same = append(prev.same, fn)
 					continue
 				}
@@ -401,9 +400,7 @@ func (c *checker) collect() {
 					for i, name := range spec.Names {
 						// A refused package-level let mut (mutPackageLet)
 						// keeps mut, so its assignments add nothing (D3).
-						// A prelude name binds, refused by D-D3 (declare):
-						// only a value read sees it (P5).
-						v := &Var{Name: name.Name, Pos: name.Pos(), id: name, pkg: true, used: true, mut: d.Mut.IsValid(), refused: c.isPreludeName(name.Name)}
+						v := &Var{Name: name.Name, Pos: name.Pos(), id: name, pkg: true, used: true, mut: d.Mut.IsValid()}
 						if !c.contextNamed(name) {
 							c.declare(name, v)
 						}
@@ -419,7 +416,6 @@ func (c *checker) collect() {
 			case *syntax.LawDecl:
 				c.collectTopLaw(d, fi)
 			case *syntax.ContextDecl:
-				c.preludeName(d.Name) // D-D3; the context still binds
 				w := &Context{Name: d.Name.Name, Pos: d.Name.Pos(), Decl: d, file: fi, pkg: c.pkg}
 				if _, dup := c.pkg.Contexts[w.Name]; dup {
 					c.errorf(d.Name, CodeType, "context %s is declared twice", w.Name)
@@ -446,7 +442,7 @@ func (c *checker) collect() {
 		group := &pkgPattern{spec: p.spec}
 		c.pkgPatterns[p.spec] = group
 		for _, id := range patternNames(p.spec.Pattern, letTests) {
-			v := &Var{Name: id.Name, Pos: id.Pos(), id: id, pkg: true, used: true, refused: c.isPreludeName(id.Name)}
+			v := &Var{Name: id.Name, Pos: id.Pos(), id: id, pkg: true, used: true}
 			if w, ok := c.pkg.Contexts[id.Name]; ok && id.Name != "_" && (w.file.index > p.file.index || w.file == p.file && w.Pos > id.Pos()) {
 				// The pattern is collected after every context: when the
 				// context is the later declaration, it is the duplicate.
@@ -486,16 +482,13 @@ func (c *checker) collect() {
 
 // declare enters a package-level name; a second declaration of one name is
 // S108 (a type and a function share the package's namespace). A prelude
-// name is S108 (D-D3) and still declares, so its uses add nothing, except
-// that a type may take a prelude type's name (preludeTypeName; L6).
+// name is no other declaration: the package's hides it in the package
+// (D-D3, owner q244).
 func (c *checker) declare(id *syntax.Ident, o Object) bool {
 	if id.Name == "_" {
 		return false
 	}
-	// A package type may take a prelude type's name, which it hides in this
-	// package (grammar.md, Reserved names 2; L6, owner q30).
-	_, isType := o.(*TypeName)
-	if !(isType && c.preludeTypeName(id.Name)) && c.preludeName(id) {
+	if c.refusedBinder(id) {
 		// reported; the declaration binds below
 	} else if prev, ok := c.pkg.Scope.names[id.Name]; ok {
 		what := "declared"
@@ -633,12 +626,8 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 		c.bindBrokenImportName(fi, spec, path, lastElement(path))
 		return
 	}
-	if spec.Kind == syntax.ImportNamed {
-		// D-D3; the import still binds. A refused alias has its
-		// diagnostic and adds no D-D7 one.
-		if !c.preludeName(spec.Name) {
-			c.aliases = append(c.aliases, importAlias{fi, spec, path})
-		}
+	if spec.Kind == syntax.ImportNamed && !c.refusedBinder(spec.Name) {
+		c.aliases = append(c.aliases, importAlias{fi, spec, path})
 	}
 	pn := &PkgName{Name: name, Pos: spec.Pos(), Pkg: pkg, spec: spec}
 	if name == "_" {
@@ -932,7 +921,6 @@ func (c *checker) resolveNamed(n *Named) {
 		for _, field := range d.TypeParams.List {
 			cons := c.constraintExpr(field)
 			for _, name := range field.Names {
-				c.preludeName(name) // D-D3; the parameter still binds
 				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), Lent: field.Lent > 0, id: newID()}
 				c.def(name, tp)
 				switch {
@@ -2311,7 +2299,6 @@ func (c *checker) funcSig(f *Func) *Signature {
 		for _, field := range d.TypeParams.List {
 			cons := c.constraintExpr(field)
 			for _, name := range field.Names {
-				c.preludeName(name) // D-D3; the parameter still binds
 				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), Lent: field.Lent > 0, id: newID()}
 				c.def(name, tp)
 				switch {
