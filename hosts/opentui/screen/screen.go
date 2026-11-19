@@ -593,14 +593,10 @@ func (s *Screen) style(c command, h ot.Handle) error {
 // A frame the output queue had no room for (SKIPPED) is painted again
 // once the queue drained, so the last state is never dropped.
 func (s *Screen) frame() error {
-	if err := s.fill(); err != nil {
-		return err
-	}
 	for attempt := 0; attempt < 2; attempt++ {
-		s.calls++
-		req, err := ot.ScenePaint(s.ctx, s.session, [4]uint16{0, 0, 0, 0}, 1, 0)
+		req, err := s.paint()
 		if err != nil {
-			return fmt.Errorf("screen: paint: %w", err)
+			return err
 		}
 		s.calls++
 		st, err := ot.SceneFrameCommit(s.ctx, s.session, req, 0)
@@ -622,36 +618,62 @@ func (s *Screen) frame() error {
 	return errors.New("screen: the frame was skipped twice under output pressure")
 }
 
-// fill gives each Lister with no Height of its own the rows below its
-// top, as the scene lays it out before this frame (owner thread).
-func (s *Screen) fill() error {
-	if len(s.fills) == 0 {
-		return nil
+// paint paints a frame (owner thread). When a Lister that fills the rows
+// below it moved in the frame painted, it is given its new height and the
+// frame is painted again, so the frame drawn has every list's height
+// right; one more paint at most for each list that fills.
+func (s *Screen) paint() (ot.SceneFrameRequest, error) {
+	for tries := 0; ; tries++ {
+		s.calls++
+		req, err := ot.ScenePaint(s.ctx, s.session, [4]uint16{0, 0, 0, 0}, 1, 0)
+		if err != nil {
+			return req, fmt.Errorf("screen: paint: %w", err)
+		}
+		changed, err := s.fill()
+		// A list placed by another that fills settles in as many paints
+		// as there are lists; past that the frame keeps what it has.
+		changed = changed && tries < len(s.fills)
+		if err != nil || changed {
+			s.calls++
+			_ = ot.SceneFrameCancel(s.ctx, s.session, req.FrameId)
+		}
+		if err != nil {
+			return req, err
+		}
+		if !changed {
+			return req, nil
+		}
 	}
-	s.calls++
-	if err := ot.SceneMeasureLayout(s.ctx, s.session, s.root); err != nil {
-		return fmt.Errorf("screen: measure: %w", err)
+}
+
+// fill gives each Lister with no Height of its own the rows below its
+// top, where the frame being prepared places it, and reports whether a
+// height changed (owner thread).
+func (s *Screen) fill() (bool, error) {
+	changed := false
+	if len(s.fills) == 0 {
+		return false, nil
 	}
 	s.mu.Lock()
 	rows := s.rows
 	s.mu.Unlock()
 	for n, was := range s.fills {
 		s.calls++
-		l, err := ot.SceneGetLayout(s.ctx, s.nodes[n], ot.OT_LAYOUT_PUBLIC)
+		l, err := ot.SceneGetLayout(s.ctx, s.nodes[n], ot.OT_LAYOUT_PAINT)
 		if err != nil {
-			return fmt.Errorf("screen: layout of %d: %w", n, err)
+			return false, fmt.Errorf("screen: layout of %d: %w", n, err)
 		}
 		want := max(rows-int(math.Round(l.ScreenY)), 1)
 		if want == was {
 			continue
 		}
-		s.fills[n] = want
+		s.fills[n], changed = want, true
 		s.calls++
 		if err := ot.SceneSetStyle(s.ctx, s.nodes[n], ot.OT_STYLE_DIMENSION, ot.OT_STYLE_VALUE_HEIGHT, ot.OT_EDGE_NONE, ot.OT_UNIT_POINT, float32(want), 0); err != nil {
-			return fmt.Errorf("screen: fill %d: %w", n, err)
+			return false, fmt.Errorf("screen: fill %d: %w", n, err)
 		}
 	}
-	return nil
+	return changed, nil
 }
 
 // flush writes every queued output byte to the terminal (owner thread).
