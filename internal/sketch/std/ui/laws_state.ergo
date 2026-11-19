@@ -15,7 +15,7 @@ type row { a string, b string, on bool }
 // b is read inside the Row, so its cell lives in that row's node.
 func cellRows(f *Frame[int], keys []int) {
 	Column(f, Plain()) {
-		Each(f, keys, func(k int) Key { ByInt(k) }) func(k int) {
+		Each(f, keys, rowKey) func(k int) {
 			let a = NewDraft(f, "")
 			Field(f, a, "a")
 			Text(f, a.Value)
@@ -30,6 +30,15 @@ func cellRows(f *Frame[int], keys []int) {
 			}
 		}
 	}
+}
+
+// rowKey is the Key of cellRows' row k: an int for an even k, a text for
+// an odd one, so a reorder moves rows of both kinds of key.
+func rowKey(k int) Key {
+	if k%2 == 0 {
+		return ByInt(k)
+	}
+	ByText("k\(k)")
 }
 
 // cellShape is what cellRows means for the model rows of keys.
