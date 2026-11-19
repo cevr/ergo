@@ -395,7 +395,8 @@
       "rule": "A union declaration still prints its where and implements clauses.",
       "killers": [
         "internal/sketch/syntax:TestFormatIsTheCorpusFixpoint"
-      ]
+      ],
+      "gap": "survived at its named Go killer (scripts/mutants -run, 2026-11-19, SELFHOST-MERGE x batch 23): the killer runs the linked Go of compiler/, which the runner does not regenerate from the mutated .ergo; it needs an Ergo-test killer (ergotests) or a regenerate step (follow-up, every compiler/ row)"
     },
     {
       "name": "sh-format-include-dropped",
@@ -406,7 +407,8 @@
       "rule": "An operation type's includes (..I) are printed among its members in source order.",
       "killers": [
         "internal/sketch/syntax:TestFormatIsTheCorpusFixpoint"
-      ]
+      ],
+      "gap": "survived at its named Go killer (scripts/mutants -run, 2026-11-19, SELFHOST-MERGE x batch 23): the killer runs the linked Go of compiler/, which the runner does not regenerate from the mutated .ergo; it needs an Ergo-test killer (ergotests) or a regenerate step (follow-up, every compiler/ row)"
     }
   ]
 }
