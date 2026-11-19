@@ -463,6 +463,7 @@
         "runtime/rt:TestVirtualAfterFuncIsTimer"
       ]
     },
-    {"name":"virtual-settle-ignores-alarms","origin":"wf10 std-spike DEADLINE","file":"runtime/rt/clock.go","from":"if d.parked >= d.live-self && d.running == 0 {","to":"if d.parked >= d.live-self {","rule":"runtime.md Timeouts 11: a Settle waits for the alarm functions it started, so a member an alarm wakes runs before the time moves on.","killers":["lower:TestStdLawsRun"],"anchor":{"tests":["lower:TestStdLawsRun"]}}
+    {"name":"virtual-settle-ignores-alarms","origin":"wf10 std-spike DEADLINE","file":"runtime/rt/clock.go","from":"if d.parked >= d.live-self && d.running == 0 {","to":"if d.parked >= d.live-self {","rule":"runtime.md Timeouts 11: a Settle waits for the alarm functions it started, so a member an alarm wakes runs before the time moves on.","killers":["lower:TestStdLawsRun"],"anchor":{"tests":["lower:TestStdLawsRun"]}},
+    {"name":"bs2-other-text-unknown","origin":"wf10 NP4f-15 reland (NS lane)","file":"runtime/rt/text.go","from":"\treturn otherText(v)\n}","to":"\treturn unknownText\n}","rule":"binsize BS2: rt.Text writes a value of any other Go type as Go's runtime writes a panic of it, (T) 0xADDR, without fmt.","killers":["runtime/rt:TestTextWritesAnyGoValue"]}
   ]
 }

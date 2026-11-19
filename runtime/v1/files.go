@@ -290,10 +290,7 @@ func hostMember(path, member string) bool {
 // and format text (NP4f-URL, G2: an entry keyed by Go path that any
 // user's import go reaches trusts Go); net/url's ParseQuery reads the
 // process's GODEBUG urlmaxqueryparams, a setting fixed for the process as
-// every Go program has it, not state that changes between calls. Each
-// panics only with a text or an error, which rt.Text writes without fmt:
-// a program whose only Go packages are these links no gofmt leaf (lower's
-// hostPkg).
+// every Go program has it, not state that changes between calls.
 var PureImports = []string{"strings", "strconv", "unicode", "unicode/utf8", "unicode/utf16", "slices", "sort", "math", "math/bits", "path/filepath", "encoding/hex", "encoding/base64", "crypto/sha256", "hash/crc32", "crypto/sha512", "crypto/sha1", "crypto/hmac", "net/url", "net/netip"}
 
 // PureImportsExcept names, for a package of PureImports, its members that
@@ -411,7 +408,7 @@ var Leaves = []string{"csv", "digest", "exec", "http", "rand", "redacted", "rpc"
 // HostText is the import path of the gofmt leaf, which makes fmt the
 // runtime's text of a value the core cannot write without it (rt.Text,
 // rt.TypedText; binsize BS2). It declares no body: a program imports it
-// for its init alone, when it imports go or names a body of hostTextUsers.
+// for its init alone, when it names a body of hostTextUsers.
 const HostText = Path + "/gofmt"
 
 // hostTextUsers are the exported declarations of runtime/v1 that can
