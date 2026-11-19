@@ -144,7 +144,7 @@ func screenOf(f *ui.Frame[int], laps int, clock ui.Readout, meter ui.Readout) {
 
 // laps is the program's state: the laps counted.
 func laps() Machine[int, int, int] {
-	Machine[int, int, int]{Initial: 0, Step: lapStep, After: noTimer, Work: noWork}
+	Machine[int, int, int]{Initial: 0, Step: lapStep, After: noTimer, Work: noWork, Exit: func(at int) Option[func()] { None }}
 }
 
 func lapStep(s int, e int) Decision[int, int] { Enter[int]{Next: s + e} }

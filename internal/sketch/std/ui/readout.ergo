@@ -323,7 +323,7 @@ law LiveEqualsRerun(seed int, steps int) {
 			readoutRows(f, s.layout, n, func(i int) { Text(f, readWords[s.words[i]]) })
 		}
 		let a = actor.StartMachine(dialMachine(), 1, func(o int) {})
-		let b = actor.StartMachine(Machine[readState, int, int]{Initial: readState{layout: 0, words: zero}, Step: readStep, After: readTimer, Work: readWork}, 1, func(o int) {})
+		let b = actor.StartMachine(Machine[readState, int, int]{Initial: readState{layout: 0, words: zero}, Step: readStep, After: readTimer, Work: readWork, Exit: func(at readState) Option[func()] { None }}, 1, func(o int) {})
 		let mut ha = NewTestHost(a, live, m, 4) catch {
 		case BadPatch:
 			return false

@@ -285,7 +285,7 @@ func layerGate[E](f *Frame[E], event Event[E]) Option[Handled[E]] {
 		if k.Press.Name == "Escape" && !m.Shift && !m.Ctrl && !m.Alt && !m.Meta {
 			let top = topWith(f, true)
 			if top != arena.Null[node[E]]() {
-				return Some{Value: Handled[E]{Signal: dismissOf(f, top), Changed: false}}
+				return Some{Value: Handled[E]{Signal: dismissOf(f, top), Changed: false, Ops: []Op[E]{}}}
 			}
 		}
 		return None
@@ -314,7 +314,7 @@ func layerGate[E](f *Frame[E], event Event[E]) Option[Handled[E]] {
 	}
 	let scrim = topWith(f, false)
 	if scrim != arena.Null[node[E]]() && !inLayer(f, scrim, target) {
-		return Some{Value: Handled[E]{Signal: None, Changed: false}}
+		return Some{Value: Handled[E]{Signal: None, Changed: false, Ops: []Op[E]{}}}
 	}
 	None
 }

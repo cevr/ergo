@@ -242,7 +242,7 @@ law TrackEqualsAnimate(seed int) {
 		let k = float64(draw(&r, 361) + 40)
 		let w = math.Sqrt(k)
 		let c = 2.0 * w * zetas[draw(&r, len(zetas))]
-		let a = actor.StartMachine(Machine[aiming, aimEvent, int]{Initial: aiming{k: k, c: c, target: 0.0, x: 0.0, v: 0.0, at: 0ns}, Step: aimStep, After: aimTimer, Work: aimWork}, 1, func(o int) {})
+		let a = actor.StartMachine(Machine[aiming, aimEvent, int]{Initial: aiming{k: k, c: c, target: 0.0, x: 0.0, v: 0.0, at: 0ns}, Step: aimStep, After: aimTimer, Work: aimWork, Exit: func(at aiming) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, aimView, m, 4) catch {
 		case BadPatch:
 			return false
@@ -299,7 +299,7 @@ law TrackCostsNoPass(seed int) {
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
 		let mut r = seeded(seed)
-		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: stillStep, After: stillTimer, Work: stillWork}, 1, func(o int) {})
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: stillStep, After: stillTimer, Work: stillWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, stillView, m, 4) catch {
 		case BadPatch:
 			return false
