@@ -67,9 +67,9 @@ func TestCheckWantReadsTheMarkers(t *testing.T) {
 		t.Fatalf("argument-mismatch.ergo: want one %q", marker)
 	}
 	for name, wrong := range map[string]string{
-		"code changed":   strings.Replace(src, marker, ") // want S109", 1),
-		"marker moved":   strings.Replace(strings.Replace(src, marker, ")", 1), "func twice(n int64) int64 { return n + n }", "func twice(n int64) int64 { return n + n } // want S108", 1),
-		"marker removed": strings.Replace(src, marker, ")", 1),
+		"code changed":            strings.Replace(src, marker, ") // want S109", 1),
+		"marker moved":            strings.Replace(strings.Replace(src, marker, ")", 1), "func twice(n int64) int64 { return n + n }", "func twice(n int64) int64 { return n + n } // want S108", 1),
+		"marker removed":          strings.Replace(src, marker, ")", 1),
 		"text not in the message": strings.Replace(src, marker, ") // want S108 \"no such words\"", 1),
 	} {
 		file := filepath.Join(t.TempDir(), "fixture.ergo")
