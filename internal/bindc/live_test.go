@@ -27,6 +27,7 @@ var liveChecks = []string{
 	"struct round trip",
 	"struct by value",
 	"record kinds",
+	"optional value",
 	"wrong thread",
 	"stale handle",
 	"destroy",
