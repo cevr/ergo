@@ -98,6 +98,9 @@ func Sleep(l lateEvery, d duration) {
 	l.m.Advance(d + late)
 }
 
+// Alarms is m's, with no lateness.
+func Alarms(l lateEvery) AlarmClock { l.m.Alarms() }
+
 // recorder is the package's own test provider of a capability, derived as
 // testing.Script is (patterns.md, Provider plans): recorder[Screen] has one
 // record.Op field per operation of Screen and implements Screen. record.Op

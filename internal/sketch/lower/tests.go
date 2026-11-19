@@ -141,6 +141,8 @@ var testHelpers = []struct{ key, base string }{
 	{"Goal", "ergoGoal"}, {"Witness", "ergoWitness"}, {"Broken", "ergoBroken"}, {"testgen", "testgen"},
 	{"Flag", "ergoFlag"}, {"Source", "ergoSource"}, {"Replay", "ergoReplay"},
 	{"Cached", "ergoCached"}, {"CachedRun", "ergoCachedRun"},
+	{"TestAmbient", "ergoTestAmbient"},
+	{"SkipOf", "ergoSkipOf"}, {"Skipping", "ergoSkipping"}, {"Skipped", "ergoSkipped"}, {"Skippable", "ergoSkippable"}, {"SkipRun", "ergoSkipRun"}, {"SkipNow", "ergoSkipNow"}, {"SkipNote", "ergoSkipNote"},
 }
 
 // helper is the Go name of the harness entity key.
@@ -638,20 +640,23 @@ func (fc *funcCtx) assert(s *syntax.AssertStmt) {
 	if x, lt, rt, ok := fc.l.assertShown(s.X); ok {
 		// A try that starts the assert covers the whole comparison: its
 		// operands are lowered under it, as (try a) == b lowers a (q105).
-		inTry := tried(s.X) != s.X
-		if inTry {
-			fc.tries++
-		}
-		cond, text = fc.assertCompare(x, lt, rt, text)
-		if inTry {
-			fc.tries--
-		}
+		cond, text = fc.underTriedAssert(s.X, func() (string, string) { return fc.assertCompare(x, lt, rt, text) })
 	} else {
 		cond = fc.value(s.X)
 	}
 	fc.line("if !(" + cond + ") {")
 	fc.line("\t" + fc.l.helper("AssertFail") + "(" + strconv.Quote(fc.l.siteText(s)) + ", " + text + ")")
 	fc.line("}")
+}
+
+// skip lowers `skip "reason"` in the test build: the harness's $SkipNow,
+// which ends the run ($Try). The run build never meets one, as for assert.
+func (fc *funcCtx) skip(s *syntax.SkipStmt) {
+	if fc.l.tests == nil {
+		ice(s, "a skip reached the run build, which lowers no test or law body")
+	}
+	why, _ := s.Text()
+	fc.line(fc.l.helper("SkipNow") + "(" + strconv.Quote(why) + ")")
 }
 
 // assertCompare lowers the comparison x of an assert whose operands the
@@ -881,7 +886,7 @@ func (l *lowerer) testRunner() string {
 	b.WriteString("\tif !" + picked + " {\n")
 	for _, t := range tests {
 		b.WriteString("\tif " + want + "(" + strconv.Quote(t.Name) + ") {\n\t" + total + "++\n")
-		l.testRun(&b, t, scope, env, seed, failed)
+		l.skippable(&b, func() { l.testRun(&b, t, scope, env, seed, failed) })
 		b.WriteString("\t}\n")
 	}
 	b.WriteString("\t}\n")
@@ -907,6 +912,7 @@ func (l *lowerer) testRunner() string {
 	b.WriteString("\tif " + picked + " && !" + matched + " {\n")
 	b.WriteString("\t\t" + fmtPkg + ".Println(\"FAIL no law \" + " + pick + " + \" in this package (--law)\")\n")
 	b.WriteString("\t\treturn " + fmtPkg + ".Errorf(\"no law %s\", " + pick + ")\n\t}\n")
+	b.WriteString("\t" + total + ", " + skips + " = " + total + " - " + l.helper("Skipped") + ", " + skips + " + " + l.helper("Skipped") + "\n")
 	b.WriteString("\t" + shown + " := \"\"\n")
 	b.WriteString("\tif " + skips + " > 0 {\n\t\t" + shown + " = \", \" + " + conv + ".Itoa(" + skips + ") + \" skipped\"\n\t}\n")
 	b.WriteString("\tif " + failed + " > 0 {\n")
@@ -1063,9 +1069,19 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 		// A run whose verdict ergo test found in its store (--cached;
 		// lawcache) prints that verdict, marked, and does not run.
 		b.WriteString("\tif !" + l.helper("CachedRun") + "(" + strconv.Quote(tg.label) + ") {\n")
-		l.lawTarget(b, law, tg.label, tg.b, scope, env, seed, failed, at)
+		l.skippable(b, func() { l.lawTarget(b, law, tg.label, tg.b, scope, env, seed, failed, at) })
 		b.WriteString("\t}\n")
 	}
+}
+
+// skippable writes the run run writes into b inside a function that
+// $Skippable calls: a skip in the run's body ends the run there
+// (runtime.md, Tests 4), after $Case or $Prop printed its skip line, and
+// the runner goes on with the next run.
+func (l *lowerer) skippable(b *strings.Builder, run func()) {
+	b.WriteString("\t" + l.helper("Skippable") + "(func() {\n")
+	run()
+	b.WriteString("\t})\n")
 }
 
 // lawTarget writes the run of law with the binding bd, reported as label.
@@ -1272,7 +1288,14 @@ func (l *lowerer) harness() string {
 	return strings.NewReplacer(pairs...).Replace(harnessGo + harnessReachGo)
 }
 
-const harnessGo = `// $Assertion is a failed assert, the panic that ends its case (196l).
+const harnessGo = `// $TestAmbient is the test runner's provider of TestAmbient (rows.md,
+// Test's ambient): the folder of one case, which the with or the law case that
+// builds the context made and removes when the case ends.
+type $TestAmbient struct{ dir string }
+
+func (a $TestAmbient) folder(_ *$Task.Task) string { return a.dir }
+
+// $Assertion is a failed assert, the panic that ends its case (196l).
 // A refuted law is one too: its what is "law refuted", not "assert failed".
 type $Assertion struct{ at, text, what, declaration string }
 
@@ -1362,6 +1385,8 @@ func $Case(t *$Task.Task, name, at string, args func() string, body func() error
 	case 3:
 		$fmt.Println("FAIL " + name + $Where(args) + ": a defect, which stops the run")
 		$Runtime.Raise(exit)
+	case 4:
+		$Skipping(name, msg)
 	}
 	$fmt.Println("FAIL " + name + $Where(args) + ": " + msg)
 	return false
@@ -1370,7 +1395,8 @@ func $Case(t *$Task.Task, name, at string, args func() string, body func() error
 // $Try runs one case's body on the task t and says how it ended, printing
 // nothing: kind 0 when it held, 1 for a failed assert or a refuted law
 // (msg is the assert's text), 2 for a typed failure that escaped the body
-// declared at at, 3 for any other exit (a defect), which exit holds. A
+// declared at at, 4 for a skip (msg is its reason), 3 for any other
+// exit (a defect), which exit holds. A
 // body that held a Script call and never released it fails with kind 1
 // and the report that names the Script and the operation (stdlib.md,
 // Testing 12); every exit empties the report for the next case.
@@ -1387,6 +1413,10 @@ func $Try(t *$Task.Task, at string, body func() error) (msg string, kind int, ex
 		exit = $Runtime.Capture(t, recover())
 		if a, failed := $Asserted(exit); failed {
 			msg, kind, exit = a.String(), 1, nil
+			return
+		}
+		if why, skipped := $SkipOf(exit); skipped {
+			msg, kind, exit = why, 4, nil
 			return
 		}
 		kind = 3
@@ -1421,6 +1451,8 @@ func $Prop(t *$Task.Task, name, at string, r *$Rand, draw func() (func() string,
 	case 3:
 		$fmt.Println("FAIL " + name + $Where(args) + ": a defect, which stops the run")
 		$Runtime.Raise(exit)
+	case 4:
+		$Skipping(name, msg)
 	}
 	drawn := r.stream.Tape()
 	replay := func(c []uint64) (func() string, string, int) {
@@ -1586,6 +1618,63 @@ func $Asserted(exit error) (first $Assertion, failed bool) {
 		}
 	}
 	return first, failed
+}
+
+// $SkipNote is the panic of skip "reason" (runtime.md, Tests 4), which
+// $SkipNow raises: it ends its case, and $Try reads it as a skip.
+type $SkipNote struct{ why string }
+
+// $SkipNow is skip "reason": it ends the running case as skipped.
+func $SkipNow(why string) { panic($SkipNote{why: why}) }
+
+// $SkipOf is the reason of the skip that ended a case, when every reason
+// of exit is that skip (a with's release that failed beside it is a
+// defect, which stops the run).
+func $SkipOf(exit error) (why string, skipped bool) {
+	c, isCause := exit.(*$Task.Cause)
+	if !isCause || c == nil || len(c.Reasons) != 1 || c.Reasons[0].Kind != $Task.KindDefect {
+		return "", false
+	}
+	v := c.Reasons[0].Value
+	if p, isPanic := v.(*$Runtime.Panic); isPanic {
+		v = p.Value
+	}
+	s, isSkip := v.($SkipNote)
+	return s.why, isSkip
+}
+
+// $Skipped counts the runs a skip ended (runtime.md, Tests 4): the
+// summary counts each as a skip, not as a test.
+var $Skipped int
+
+// $SkipRun is the panic that carries a skipped run from its case to the
+// run's $Skippable.
+type $SkipRun struct{}
+
+// $Skipping ends the run name, a case of which skip ended with
+// why: it prints the skip line, records a law run's receipt entry as
+// skipped, and unwinds to the run's $Skippable, so the rest of its cases
+// do not run and no ok or FAIL line follows.
+func $Skipping(name, why string) {
+	$fmt.Println("skip " + name + ": " + why)
+	if $strings.HasPrefix(name, "law ") {
+		$Record(name, nil, why)
+	}
+	$Skipped++
+	panic($SkipRun{})
+}
+
+// $Skippable runs one test's or one law run's code, which a skip
+// ends early ($Skipping); any other panic goes on.
+func $Skippable(run func()) {
+	defer func() {
+		if p := recover(); p != nil {
+			if _, skipped := p.($SkipRun); !skipped {
+				panic(p)
+			}
+		}
+	}()
+	run()
 }
 
 func $Where(args func() string) string {

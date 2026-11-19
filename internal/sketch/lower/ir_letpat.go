@@ -1,0 +1,65 @@
+package lower
+
+// IR builder: the lets the "let pattern" gate refused that are no tuple
+// (FLIP F7; F4b's letTuple takes `let a, b = x` and `let (a, b) = x`).
+// The census at flip-f1 found the let with no value, `let mut x T`, as the
+// one shape of the family besides tuples: x starts at T's default
+// (types.md, Defaults), as the emitter's let writes it (body.go).
+
+import (
+	"go/constant"
+
+	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/syntax"
+)
+
+// letDefault is `let x T` (no value) in the declaration d: x defined from
+// T's default. A default the emitter builds (one that holds a Map, by a
+// function or a loop: typeCtx.defaultValue) keeps the emitter's body;
+// the defaults of scalars, arrays and slices are Go's zero value: a
+// constant, the literal T{}, nil (a record has no default).
+func (b *irBuilder) letDefault(d *syntax.VarDecl, spec *syntax.VarSpec) []*irStmt {
+	id := spec.Names[0]
+	if id.Name == "_" {
+		return nil
+	}
+	v, ok := b.l.info.Defs[id].(*check.Var)
+	if !ok {
+		irNo("let without a variable")
+	}
+	if b.fc.scalarOf(v) != nil {
+		b.reserve(v)
+		irNo("scalar-form local")
+	}
+	p := b.pos(id, id.Pos())
+	x := b.zeroOf(v.Type, id, p)
+	i := -1
+	b.part(func() { i = b.local(v, id) })
+	if i < 0 {
+		b.reserve(v)
+	}
+	return []*irStmt{{K: "def", Pos: b.pos(d, d.Pos()), Local: i, X: x}}
+}
+
+// zeroOf is the default of t when it is Go's zero value.
+func (b *irBuilder) zeroOf(t check.Type, site syntax.Expr, p irPos) *irExpr {
+	if b.l.holdsMap(t) {
+		irNo("let of a default that holds a Map")
+	}
+	if bt := b.scalarBasic(t); bt != nil { // ir_union.go: a named scalar's too
+		switch {
+		case bt.Kind == check.Bool:
+			return b.constant(t, constant.MakeBool(false), site, p)
+		case bt.Kind == check.String:
+			return b.constant(t, constant.MakeString(""), site, p)
+		default:
+			return b.constant(t, constant.MakeInt64(0), site, p)
+		}
+	}
+	switch t.(type) {
+	case *check.Slice, *check.Array:
+	default:
+		irNo("let of a default of %s", t)
+	}
+	return &irExpr{K: "zero", Pos: p, T: b.goType(t, site)}
+}

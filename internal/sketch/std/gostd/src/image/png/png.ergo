@@ -32,14 +32,14 @@ extern go image/png.Encoder type Encoder {
 }
 
 // ergo:go func (*Encoder).Encode(w io.Writer, m image.Image) error
-extern go image/png.Encoder.Encode func (enc own *Encoder) Encode(w own io.Writer, m own image.Image) fails go.Error needs go.Foreign
+extern go image/png.Encoder.Encode func (enc *Encoder) Encode(w own io.Writer, m own image.Image) fails go.Error needs go.Foreign
 
 // ergo:go type EncoderBuffer struct
 extern go image/png.EncoderBuffer type EncoderBuffer {}
 
 // ergo:go type EncoderBufferPool interface
 extern go image/png.EncoderBufferPool type EncoderBufferPool {
-	own Get() Option[go.Ref[EncoderBuffer]] needs go.Foreign,
+	Get() Option[go.Ref[EncoderBuffer]] needs go.Foreign,
 	Put(p0 own *EncoderBuffer) needs go.Foreign,
 }
 

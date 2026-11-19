@@ -35,7 +35,9 @@ import (
 //
 // The program runs under the new lowering, under the rule before the
 // size test (inlineCostLowering "budget"), with every inlined failure at
-// its call's join (failLowering "join") and under the reference
+// its call's join (failLowering "join"), with each growth guard copied
+// at its inlined site (coldLowering "copy": pushOn, whose guard the rule
+// writes as a call out of line, coldhead.go) and under the reference
 // (inlineLowering "call"); stdout must equal the model's, a Go fold of the
 // same statements, and the exit code and standard error (the typed
 // failure, or the defect with its Ergo frames) must be the same under
@@ -52,10 +54,34 @@ var inlinePaths = []string{
 	"twice", "sign", "sumOf", "dot-place", "dot-borrow", "total", "strs", "print", "spill", "keep",
 	"own-rebind", "own-kept", "update-named-rebind", "update-named-kept", "named-cb", "impure-cb",
 	"end-normal", "end-fail", "end-unreachable", "end-index", "end-literal", "end-exit", "end-named", "loop",
+	"cold-grow", "cold-room",
 }
 
 const inlinePrelude = `import maps
 import scope
+import slices
+
+// Stack's pushOn begins with a growth guard: inlined, the guard calls
+// pushOn out of line (coldhead.go, BUN5-cold).
+type Stack { words []int, top int }
+
+func zerosN(n int) []int { slices.Repeat([]int{0}, n) }
+
+func pushOn(s *Stack, w int) {
+	if s.top >= len(s.words) {
+		s.words = slices.Concat(s.words, zerosN(len(s.words) + 1))
+	}
+	s.words[s.top] = w
+	s.top = s.top + 1
+}
+
+func sdigest(s *Stack) int {
+	let mut d = s.top
+	for i in 0..s.top {
+		d = (d * 31 + s.words[i]) % 1000003
+	}
+	d
+}
 
 type Box[T] { items []T, n int }
 
@@ -303,6 +329,40 @@ type inlineGen struct {
 	mm      map[int]int
 	reached map[string]bool
 	names   int
+	// words and room model the program's Stack st: its pushed words and
+	// the length of its column.
+	words []int
+	room  int
+}
+
+// coldPush writes a push on st (pushOn, whose growth guard is a cold
+// head) from its own stream, and runs it on the model.
+func (g *inlineGen) coldPush(r *rand.Rand) {
+	k := r.IntN(50)
+	if r.IntN(2) == 0 {
+		g.line(fmt.Sprintf("pushOn(&st, %d)", k))
+	} else {
+		// An operand the body binds to a local: the out-of-line call
+		// passes the local.
+		g.line(fmt.Sprintf("pushOn(&st, b.n + %d)", k))
+		k += g.n
+	}
+	if len(g.words) >= g.room {
+		g.room += g.room + 1
+		g.reached["cold-grow"] = true
+	} else {
+		g.reached["cold-room"] = true
+	}
+	g.words = append(g.words, k)
+}
+
+// sdigest is the model of the program's sdigest.
+func (g *inlineGen) sdigest() int {
+	d := len(g.words)
+	for _, x := range g.words {
+		d = (d*31 + x) % 1000003
+	}
+	return d
 }
 
 // dmap is the model of the program's dmap.
@@ -604,15 +664,27 @@ func inlineProgram(seed uint64, reached map[string]bool) (src, want string) {
 	// iteration), where the size test inlines the larger bodies (OPT8),
 	// and keeps the statements each fixed seed writes.
 	loops := rand.New(rand.NewPCG(seed, 0x4c4f4f50))
+	// A third stream writes the pushes on st, so the other statements
+	// stay those each fixed seed wrote before them.
+	cold := rand.New(rand.NewPCG(seed, 0x434f4c44))
+	g.line("let mut st = Stack{words: []int{}, top: 0}")
 	for range 24 {
+		if cold.IntN(2) == 0 {
+			push := func() { g.coldPush(cold) }
+			if cold.IntN(2) == 0 {
+				g.onLoop(push)
+			} else {
+				push()
+			}
+		}
 		if loops.IntN(3) == 0 {
 			g.onLoop(g.stmt)
 		} else {
 			g.stmt()
 		}
 	}
-	g.line("Console.Println(\"\\(digest(&b)) \\(dmap(mm))\")")
-	g.out("%d %d", g.digest(), dmap(g.mm))
+	g.line("Console.Println(\"\\(digest(&b)) \\(dmap(mm)) \\(sdigest(&st))\")")
+	g.out("%d %d %d", g.digest(), dmap(g.mm), g.sdigest())
 	end := func() {
 		g.ending(seed)
 	}
@@ -707,7 +779,9 @@ func TestInlineAgrees(t *testing.T) {
 	// OPT8's size test ("budget", inlineCostLowering), every inlined
 	// failure at its call's join ("join", failLowering; OPT9) and no
 	// inlining ("ref", inlineLowering "call").
-	modes := []string{"", "budget", "join", "ref"}
+	// A fifth, "cold", inlines growth guards as written (coldLowering
+	// "copy", BUN5-cold).
+	modes := []string{"", "budget", "join", "cold", "ref"}
 	stats := map[string]*knownStats{}
 	for _, m := range modes {
 		stats[m] = &knownStats{}
@@ -716,15 +790,19 @@ func TestInlineAgrees(t *testing.T) {
 		src, want := inlineProgram(seed, reached)
 		runs = append(runs, run{seed, src, want})
 		for _, m := range modes {
-			saved, savedFail := inlineCostLowering, failLowering
+			saved, savedFail, savedCold := inlineCostLowering, failLowering, coldLowering
 			if m == "budget" {
 				inlineCostLowering = "budget"
 			}
 			if m == "join" {
 				failLowering = "join"
 			}
+			if m == "cold" {
+				coldLowering = "copy"
+			}
 			p, s := lowerInlineMode(t, fmt.Sprintf("in%d%s", seed, m), src, m == "ref")
-			inlineCostLowering, failLowering = saved, savedFail
+			inlineCostLowering, failLowering, coldLowering = saved, savedFail, savedCold
+			stats[m].ColdCalls += s.ColdCalls
 			stats[m].Inlined += s.Inlined
 			stats[m].Substituted += s.Substituted
 			stats[m].FailsAround += s.FailsAround

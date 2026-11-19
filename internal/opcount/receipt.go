@@ -31,29 +31,52 @@ type Host struct {
 	CPUs      int    `json:"cpus"`
 	GoVersion string `json:"go_version"`
 	Counter   string `json:"counter"` // "user instructions" or why there is none
+	// SamplePeriod is the user instructions between two samples of the
+	// parts (Period): with perf_event_max_sample_rate it sets how many
+	// samples a run takes, so how far a part may lie from its share.
+	SamplePeriod uint64 `json:"sample_period,omitempty"`
 }
 
 // Case is one program (or one target of a command comparison) at its
 // sizes, with each side's series and the comparisons of the sides.
 type Case struct {
-	Case        string       `json:"case"`
-	Unit        string       `json:"unit,omitempty"`
-	Sizes       []int        `json:"sizes,omitempty"`
-	Rounds      int          `json:"rounds"`
-	Workload    *Workload    `json:"workload,omitempty"`
+	Case     string    `json:"case"`
+	Unit     string    `json:"unit,omitempty"`
+	Sizes    []int     `json:"sizes,omitempty"`
+	Rounds   int       `json:"rounds"`
+	Workload *Workload `json:"workload,omitempty"`
+	// Path is how a program's Ergo bodies reached the Go compiler: "ir"
+	// (the product's build, typed IR bodies read by ergo's patched
+	// compile) or "text" (the same IR bodies printed as Go text).
+	Path string `json:"path,omitempty"`
+	// Bodies are the IR path's packages, each with how many of its
+	// functions took their body from IR.
+	Bodies      []Bodies     `json:"bodies,omitempty"`
 	Series      []Series     `json:"series"`
 	Comparisons []Comparison `json:"comparisons,omitempty"`
 }
 
+// Bodies is one Go package of an emitted module: IR of its Funcs function
+// declarations took their body from its IR file (ergoir.json).
+type Bodies struct {
+	Package string `json:"package"`
+	IR      int    `json:"ir"`
+	Funcs   int    `json:"funcs"`
+}
+
 // Kind is the kind of a counter: exact (one value per build or run, held
 // exactly), counted (a hardware count, tight under load, judged over
-// pairs) or timed (time and memory, judged over pairs, never held).
+// pairs), sampled (a counted total split by samples taken every Period
+// instructions: no time in it, so load moves it no more than a count, but
+// with the spread of the samples) or timed (time and memory, judged over
+// pairs, never held).
 type Kind string
 
 // The kinds.
 const (
 	Exact   Kind = "exact"
 	Counted Kind = "counted"
+	Sampled Kind = "sampled"
 	Timed   Kind = "timed"
 )
 

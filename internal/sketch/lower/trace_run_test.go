@@ -53,7 +53,7 @@ func TestErgoRunTracesMachineArms(t *testing.T) {
 	cmd := exec.Command(ergoCLI(t), "run", path)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "ERGO_TRACE="+trace)
-	if out, err := cmd.CombinedOutput(); err != nil || string(out) != "ticks 9\nunavailable\n" {
+	if out, err := cmd.CombinedOutput(); err != nil || string(withoutBuildNote(out)) != "ticks 9\nunavailable\n" {
 		t.Fatalf("ergo run: %v\n%s", err, out)
 	}
 	data, err := os.ReadFile(trace)

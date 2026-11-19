@@ -1,0 +1,53 @@
+import fs
+import fstest
+import rand
+import time
+
+// World is the context a test runs its code in when it wants no host: a
+// fresh file system in memory for fs.Files and fs.Writes, one
+// VirtualClock for time.Clock and Scheduler, and a Random seeded with 1.
+// A test writes `with testing.World() { … }` and reaches each provider
+// through its capability: `fs.Writes.WriteFile(…)` sets a fixture,
+// `time.Clock.Now()` reads the time. Each call makes new providers, so no
+// file, time or draw leaks from one test to the next, and both
+// capabilities of a pair share one provider: a write through fs.Writes is
+// read through fs.Files, and a Sleep moves Now. The calling task joins the
+// clock's domain (NewVirtualClock). A test that needs another seed or a
+// provider of its own binds it in a with inside: the inner entry wins.
+// World is plain Ergo: a user writes the same function. Effect's
+// TestContext (TestClock, a test Random) is the prior art; Go's
+// testing/fstest.MapFS is the file system.
+func World() Context[fs.Files | fs.Writes | time.Clock | Scheduler | Random] {
+	let disk = fstest.NewMemory()
+	let clock = NewVirtualClock(0)
+	context { fs.Files: disk, fs.Writes: disk, time.Clock: clock, Scheduler: clock, Random: rand.Seeded(1) }
+}
+
+// WorldSharesEachPair: a file written through fs.Writes reads back through
+// fs.Files, and a Sleep on Scheduler moves time.Clock by exactly d.
+law WorldSharesEachPair(text string, n int64) {
+	let d = span(n)
+	with World() {
+		try fs.Writes.WriteFile("f", text)
+		let back = try fs.Files.ReadFile("f")
+		let before = time.Clock.Now()
+		Scheduler.Sleep(d)
+		back == text && time.Clock.Now().Sub(before) == d
+	}
+}
+
+// WorldsAreFresh: a file written under one World is not in the next.
+law WorldsAreFresh(text string) {
+	with World() {
+		try fs.Writes.WriteFile("f", text)
+	}
+	with World() {
+		fs.Files.Stat("f") catch {
+		case fs.NotFound:
+			return true
+		case fs.Denied, fs.Failed:
+			return false
+		}
+		false
+	}
+}

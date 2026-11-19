@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -268,7 +269,11 @@ func buildDispatch(t testing.TB, programs []*lowered) map[string]string {
 	}
 	m.write("cmd/dispatch/main.go", []byte(dispatcherMain(names)))
 	dispatcher := dispatchRoot(m.root)
-	if out, ok := m.goCommand("build", "-trimpath", "-o", dispatcher, "./cmd/dispatch"); !ok {
+	if coverGo != "" {
+		if !coverDispatch(m, dispatcher) {
+			return nil
+		}
+	} else if out, ok := m.goCommand("build", "-trimpath", "-o", dispatcher, "./cmd/dispatch"); !ok {
 		m.report("build", out)
 		return nil
 	}
@@ -400,4 +405,55 @@ func mustLower(t *testing.T, name, src string) *lowered {
 		t.Fatalf("%s: refused %+v\n%s", name, o.refused, src)
 	}
 	return o
+}
+
+// sameReport reports two programs' standard error as the same defect. On the
+// targets in boundsValueMisreported, the bracketed value of a bounds panic is
+// left out of the comparison. There Go (go1.27.4 and master) reports a wrong
+// value when the value is a constant outside 0..31 and the length is in a
+// register. cmd/compile's LoweredPanicBoundsCR moves the constant into a
+// register but does not set xIsReg, so the runtime prints that register's
+// number, [0] where amd64 prints [-3]: golang/go#83150
+// (https://github.com/golang/go/issues/83150). One lowering folds
+// the index into a constant and the other does not, so only that value
+// differs, and with it the length clause: Go prints " with length N" (or
+// capacity) after a nonnegative value only, so the misreported [0] has it
+// and the true [-3] does not (verify r4 M2, darwin/arm64 seed 4). The
+// panic's kind, its source line and the exit code still have to agree.
+func sameReport(a, b string) bool { return sameReportOn(runtime.GOARCH, a, b) }
+
+// sameReportOn is sameReport on the target arch.
+func sameReportOn(arch, a, b string) bool {
+	if !boundsValueMisreported[arch] {
+		return a == b
+	}
+	return boundsValue.ReplaceAllString(a, "out of range [?]") == boundsValue.ReplaceAllString(b, "out of range [?]")
+}
+
+// boundsValueMisreported is the set of targets whose LoweredPanicBoundsCR
+// omits xIsReg.
+var boundsValueMisreported = map[string]bool{"arm64": true, "ppc64": true, "ppc64le": true, "riscv64": true, "s390x": true}
+
+// boundsValue is the value part of a bounds panic's message: the bracketed
+// value and the length or capacity clause Go adds after a nonnegative one
+// ("index out of range [0] with length 8", "index out of range [-3]",
+// "slice bounds out of range [:5] with capacity 3", "[2:1]").
+var boundsValue = regexp.MustCompile(`out of range \[[^\]]*\]( with (length|capacity) \d+)?`)
+
+// TestSameReportOnMisreportedBounds: the smallest repro of verify r4's M2,
+// TestLoopIdiomsAgree seed 4 on darwin/arm64, whose two programs printed
+// these lines for one defect. Mutant same-report-keeps-length (the length
+// clause left in the comparison).
+func TestSameReportOnMisreportedBounds(t *testing.T) {
+	idioms := "panic: runtime error: index out of range [-3]\n\ngoroutine 1 [running]:\nmain.main()\n\t/ergo-test/main.ergo:138\n"
+	reference := "panic: runtime error: index out of range [0] with length 8\n\ngoroutine 1 [running]:\nmain.main()\n\t/ergo-test/main.ergo:138\n"
+	if !sameReportOn("arm64", idioms, reference) {
+		t.Errorf("arm64: one bounds defect, reported with and without a length clause, is not the same report")
+	}
+	if sameReportOn("amd64", idioms, reference) {
+		t.Errorf("amd64 reports the value right: the two reports differ there")
+	}
+	if sameReportOn("arm64", idioms, strings.Replace(reference, "main.ergo:138", "main.ergo:139", 1)) {
+		t.Errorf("arm64: reports from two lines are the same report")
+	}
 }

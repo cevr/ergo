@@ -96,6 +96,9 @@ func Step(s U, e U) Decision[U, int] { return Ignore }`, "S104", "Nope"},
 	{"AssertStmt", `test T {
 	assert nope
 }`, "S104", "nope"},
+	{"SkipStmt", `test T {
+	skip " "
+}`, "S108", "\" \""},
 	{"AssignStmt", `func F() int {
 	let mut x = 1
 	x = nope

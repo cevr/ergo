@@ -1,0 +1,82 @@
+// Stopped is a wait for capacity that ended before the capacity was free:
+// its caller was stopped, or the gate cannot wait.
+type Stopped {}
+
+// Gate holds a capacity that running jobs share.
+type Gate {
+	// Capacity is the whole capacity, free or taken.
+	Capacity() int,
+	// Take takes n of the free capacity when n is free, and reports
+	// whether it did; it never waits.
+	Take(n int) bool,
+	// Wait takes n of the capacity, waiting until n is free.
+	Wait(n int) fails Stopped,
+	// Give gives back n that a Take or a Wait took.
+	Give(n int),
+
+	// GiveRestores: what a Take took, a Give makes free again.
+	law GiveRestores(n int) { GiveRestores(n) },
+
+	// NeverOverTakes: a Take of more than the capacity takes nothing.
+	law NeverOverTakes(n int) { NeverOverTakes(n) },
+
+	// WaitTakes: a Wait for free capacity takes it, as a Take would.
+	law WaitTakes(n int) { WaitTakes(n) },
+
+	// RunGivesBack: after a Run, the whole capacity is free again.
+	law RunGivesBack(weights []int) { RunGivesBack(weights) },
+}
+
+// share is a weight from 1 to the gate's capacity, chosen by n.
+func share(n int) int needs Gate {
+	let c = Gate.Capacity()
+	if c < 1 {
+		return 0
+	}
+	1 + ((n%c)+c)%c
+}
+
+// GiveRestores takes a share, gives it back and takes it again.
+func GiveRestores(n int) bool needs Gate {
+	let k = share(n)
+	if k == 0 || !Gate.Take(k) {
+		return true
+	}
+	Gate.Give(k)
+	let again = Gate.Take(k)
+	if again {
+		Gate.Give(k)
+	}
+	again
+}
+
+// NeverOverTakes takes more than the capacity.
+func NeverOverTakes(n int) bool needs Gate {
+	let more = Gate.Capacity() + 1 + ((n%8)+8)%8
+	if Gate.Take(more) {
+		Gate.Give(more)
+		return false
+	}
+	true
+}
+
+// WaitTakes waits for a share of a full gate, then finds the rest of the
+// capacity free and no more.
+func WaitTakes(n int) bool needs Gate {
+	let k = share(n)
+	if k == 0 || !Gate.Take(k) {
+		return true
+	}
+	Gate.Give(k)
+	Gate.Wait(k) catch {
+	case Stopped:
+		return false
+	}
+	let rest = Gate.Capacity() - k
+	let over = Gate.Take(rest + 1)
+	if over {
+		Gate.Give(rest + 1)
+	}
+	Gate.Give(k)
+	!over
+}

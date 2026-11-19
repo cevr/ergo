@@ -378,8 +378,8 @@ func main() needs Console | Ambient {
 		}
 		for _, foreign := range []string{"kind", "default", "set"} {
 			stdout, stderr, code := runExeInput(t, exes["flagforeign"], "", foreign, given)
-			// notInSet's defect is an index out of range (stdlib.md flag 6).
-			if code != 2 || stdout != "" || !strings.HasPrefix(stderr, "panic: runtime error: index out of range") {
+			// notInSet raises its defect with Unreachable (stdlib.md flag 6).
+			if code != 2 || stdout != "" || !strings.HasPrefix(stderr, "panic: unreachable at std/flag/flag.ergo") {
 				t.Errorf("%s handle, flag %s: exit %d (want 2), stdout %q, stderr %q", foreign, given, code, stdout, firstLines(stderr, 5))
 			}
 		}
