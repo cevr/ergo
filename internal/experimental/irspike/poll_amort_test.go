@@ -86,13 +86,13 @@ func TestIRPollAmortBound(t *testing.T) {
 	}
 }
 
-// pollFuncs lowers u to IR with pollLowering mode ("" keeps the build's
+// pollFuncs lowers u to IR with pollAmortLowering mode ("" keeps the build's
 // default, which must be the amortized one) and gives its functions'
 // bodies by name.
 func pollFuncs(t *testing.T, u lower.Unit, mode string, seed uint64, text string) map[string]*pollFunc {
 	t.Helper()
 	if mode != "" {
-		defer lower.SetPollLoweringForTest(mode)()
+		defer lower.SetPollAmortLoweringForTest(mode)()
 	}
 	files, _, err := lower.LowerIR(u)
 	if err != nil {

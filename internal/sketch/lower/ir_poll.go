@@ -27,7 +27,7 @@ package lower
 // through their task.
 //
 // Any other loop keeps a Check at every back edge, as the reference
-// lowering pollLowering "each" gives every loop. The emitter's text body
+// lowering pollAmortLowering "each" gives every loop. The emitter's text body
 // polls every iteration; a quiet loop's iterations do no I/O and touch no
 // other task's state, so the extra iterations a stop may run before it is
 // seen show only in the time they take.
@@ -46,18 +46,18 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// pollLowering selects the back-edge poll of a quiet loop: "amortized"
+// pollAmortLowering selects the back-edge poll of a quiet loop: "amortized"
 // (one Check every pollEvery back edges) or "each", the reference: a
 // Check at every back edge. A test sets it; a whole build selects it with
-// -ldflags=-X=ergo.local/prototype/internal/sketch/lower.pollLowering=each.
-var pollLowering = "amortized"
+// -ldflags=-X=ergo.local/prototype/internal/sketch/lower.pollAmortLowering=each.
+var pollAmortLowering = "amortized"
 
-// SetPollLoweringForTest selects pollLowering ("amortized" or "each") and
+// SetPollAmortLoweringForTest selects pollAmortLowering ("amortized" or "each") and
 // returns a function that restores the previous choice.
-func SetPollLoweringForTest(mode string) func() {
-	old := pollLowering
-	pollLowering = mode
-	return func() { pollLowering = old }
+func SetPollAmortLoweringForTest(mode string) func() {
+	old := pollAmortLowering
+	pollAmortLowering = mode
+	return func() { pollAmortLowering = old }
 }
 
 // PollEvery is the back edges a quiet nest runs between two Checks: the
