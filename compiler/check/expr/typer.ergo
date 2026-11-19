@@ -748,7 +748,14 @@ func exprType(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], w 
 		} else if op == syntax.And {
 			match expr(s, k, t, u.X, Free) {
 			case Some[dense.ID[store.TKey]] as xt:
-				some(store.TPointer(s, xt.Value))
+				// &x of a mut parameter passes its borrow on, mut T
+				// (operators.go relend): a name of a borrow's type is a
+				// parameter, since no local holds a borrow.
+				if syntax.KindOf(tree(k, t.file), unparen(tree(k, t.file), u.X)) == syntax.KIdent && store.KindOfType(*s, xt.Value) == store.KPointer {
+					some(xt.Value)
+				} else {
+					some(store.TPointer(s, xt.Value))
+				}
 			case None:
 				None
 			}
