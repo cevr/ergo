@@ -60,9 +60,6 @@ func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr
 	var endNode syntax.Node
 	if x != nil {
 		list, ft, end, endNode = x.Body.List, x.Type, x.Body.Rbrace, x.Body
-		if b.fc.plainLits[x] {
-			irNo("function literal of a known callback")
-		}
 	} else {
 		n = site.Trailing
 		list, end, endNode = site.Trailing.List, site.Trailing.Rbrace, site.Trailing
@@ -99,6 +96,9 @@ func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr
 	if l.bodyNeedsFrame(list) || l.ownsParams(params) {
 		irNo("function literal that is a frame")
 	}
+	if x != nil && b.fc.plainLits[x] {
+		return b.plainLitIR(x, sig, params, ids, list, end) // a known callback (ir_kcb.go)
+	}
 	p := b.pos(n, n.Pos())
 	typ := b.sigType(sig, n)
 	var result check.Type
@@ -111,10 +111,13 @@ func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr
 	inner.env = "env"
 	inner.frame = newFrame(result, true, framePolls(l.info, n))
 	inner.frame.unit = result == nil
-	fc, env, res, loops, tries, switches, label, law := b.fc, b.env, b.result, b.loops, b.tries, b.switches, b.label, b.law
+	fc, env, res, loops, tries, switches, label, law, memos := b.fc, b.env, b.result, b.loops, b.tries, b.switches, b.label, b.law, b.memos
 	defer func() {
-		b.fc, b.env, b.result, b.loops, b.tries, b.switches, b.label, b.law = fc, env, res, loops, tries, switches, label, law
+		b.fc, b.env, b.result, b.loops, b.tries, b.switches, b.label, b.law, b.memos = fc, env, res, loops, tries, switches, label, law, memos
 	}()
+	// The literal's body is a frame of its own: no loop of the maker's
+	// memoizes a call of it (ir_memo.go).
+	b.memos = nil
 	envLocal := b.temp("env", "*"+l.env(), p)
 	lit := &irExpr{K: "func", Pos: p, T: typ, Params: []int{envLocal}}
 	for i, v := range params {
@@ -204,7 +207,7 @@ func (b *irBuilder) valueCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*ir
 	}
 	if id, ok := unparen(x.Fun).(*syntax.Ident); ok {
 		if v, ok := b.l.info.Uses[id].(*check.Var); ok && b.fc.plain[v] {
-			irNo("call of a known callback")
+			return b.plainCall(x, p) // ir_kcb.go
 		}
 	}
 	if b.env < 0 {

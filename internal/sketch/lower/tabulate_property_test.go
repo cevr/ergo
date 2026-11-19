@@ -317,7 +317,7 @@ func TestTabulatedAgree(t *testing.T) {
 		on, onErr, onCode := runExe(t, exes[fmt.Sprintf("tabulated%d", seed)])
 		off, offErr, offCode := runExe(t, exes[fmt.Sprintf("tabulated%dcall", seed)])
 		ended := (onCode != 0) == defects[seed] && strings.Contains(on, "g0 ")
-		if on != off || onErr != offErr || onCode != offCode || !ended {
+		if on != off || !sameReport(onErr, offErr) || onCode != offCode || !ended {
 			t.Errorf("seed %d: the tables and the reference differ (or the program did not end as written)\nReplay: go test -run '^TestTabulatedAgree$' ./internal/sketch/lower -args -tab.seed=%d\n%s\n--- tables (exit %d)\n%s%s\n--- reference (exit %d)\n%s%s", seed, seed, sources[seed], onCode, on, onErr, offCode, off, offErr)
 		}
 	}

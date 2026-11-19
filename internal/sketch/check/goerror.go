@@ -19,8 +19,12 @@ import (
 // As needs its type argument checked as a host type, which no Ergo
 // signature can state. Both are pure, with no row; neither is a value.
 
-// goErrorBuiltin reports whether b is go.Is or go.As.
-func goErrorBuiltin(b *Builtin) bool { return b.Name == "go.Is" || b.Name == "go.As" }
+// goErrorBuiltin reports whether b is go.Is, go.As or go.New (GBX1,
+// gonew.go): the functions of the go qualifier, which take a written
+// type argument and record a CallGoError.
+func goErrorBuiltin(b *Builtin) bool {
+	return b.Name == "go.Is" || b.Name == "go.As" || b.Name == "go.New" || b.Name == "go.Zero"
+}
 
 // goErrorType is the predeclared go.Error.
 func goErrorType() Type {
@@ -31,6 +35,12 @@ func goErrorType() Type {
 // goErrorCall checks a call of go.Is or go.As; targ is As's written type
 // argument (nil when none is written).
 func (c *checker) goErrorCall(x *syntax.CallExpr, b *Builtin, targ Type) operand {
+	if b.Name == "go.New" {
+		return c.goNewCall(x, targ)
+	}
+	if b.Name == "go.Zero" {
+		return c.goZeroCall(x, targ)
+	}
 	if x.Trailing != nil {
 		c.errorf(x.Trailing, CodeType, "%s takes no block", b.Name)
 		c.silentArgs(x)
@@ -47,7 +57,14 @@ func (c *checker) goErrorCall(x *syntax.CallExpr, b *Builtin, targ Type) operand
 	}
 	ok := true
 	for _, a := range x.Args {
-		op := c.valueExpr(a, goErrorType())
+		var hint Type = goErrorType()
+		if b.Name == "go.As" {
+			hint = nil // a go.Error or a go.Any (GB2)
+		}
+		op := c.valueExpr(a, hint)
+		if b.Name == "go.As" && !op.invalid() && IsGoAny(op.typ) {
+			return c.goAnyAs(x, targ)
+		}
 		if op.invalid() || !c.assign(&op, goErrorType(), "argument") {
 			ok = false
 		}

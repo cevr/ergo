@@ -74,7 +74,7 @@ const cacheVersion = "ergo-examples-cache v2"
 // the lowering emits from std's bodies is in the emitted digest.
 var (
 	driverRoots   = []string{"./cmd/ergo", "./scripts/examples"}
-	emissionRoots = []string{"internal/sketch/check", "internal/sketch/lower", "internal/sketch/std", "internal/sketch/std/gostd"}
+	emissionRoots = []string{"internal/sketch/check", "internal/sketch/lower", "internal/sketch/std", "internal/sketch/stdlib", "internal/sketch/std/gostd"}
 )
 
 // cacheKeep is how many entries of one program the cache keeps: the newest.
@@ -154,19 +154,19 @@ func (r *runner) legKey(h io.Writer, p *program) string {
 		if err != nil {
 			return fmt.Sprintf("ergo %s could not start: %v", strings.Join(args, " "), err)
 		}
-		if over := o.overCap(); over != "" || o.timedOut {
+		if over := o.OverCap(); over != "" || o.TimedOut {
 			return fmt.Sprintf("ergo %s: no result to key", strings.Join(args, " "))
 		}
 		if r.keyed == nil {
 			r.keyed = map[string]outcome{}
 		}
 		r.keyed[keyedCall(args)] = o
-		stdout := o.stdout
+		stdout := o.Stdout
 		if args[0] == "check" {
 			stdout = withoutProducer(stdout)
 		}
 		if pattern != "" && args[0] == "test" {
-			lines, why := emittedLines(o.stdout)
+			lines, why := emittedLines(o.Stdout)
 			if why == "" {
 				why = coveredPackages(p, targets, lines)
 			}
@@ -182,13 +182,13 @@ func (r *runner) legKey(h io.Writer, p *program) string {
 			// The check leg's call (checkModule) takes the envelopes, as
 			// ergo check DIR/... prints them; the call's exit is check's
 			// when every digest was computed, so only a pass is kept.
-			if o.passed() {
+			if o.Passed() {
 				check := o
-				check.stdout = envelopes
+				check.Stdout = envelopes
 				r.keyed[keyedCall([]string{"check", pattern})] = check
 			}
 		}
-		fmt.Fprintf(h, "leg %q status %d %s\nstdout %q\nstderr %q\n", args, o.status, o.signal, stdout, o.stderr)
+		fmt.Fprintf(h, "leg %q status %d %s\nstdout %q\nstderr %q\n", args, o.Status, o.Signal, stdout, o.Stderr)
 	}
 	return ""
 }

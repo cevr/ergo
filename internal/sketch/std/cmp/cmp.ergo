@@ -2,13 +2,32 @@
 // Maps; std-align S2a). It follows Go's cmp package (Effect's Order for an
 // ordered type): Compare is a total order on every ordered type, floats
 // included, in which a NaN is less than every other value and equal to a
-// NaN. The externs bind runtime/v1 bodies (collections.go).
+// NaN. Compare and Less are Ergo (NP4f); Max and Min bind Go's builtin max
+// and min through runtime/v1 bodies (collections.go), whose sign of zero
+// no Ergo body over every ordered type can read.
 
 // Compare is -1 when a is before b, +1 when a is after b, and 0 otherwise.
-extern go ergo.local/prototype/runtime/v1.CmpCompare func Compare[T ordered](a T, b T) int
+func Compare[T ordered](a T, b T) int {
+	if a != a {
+		if b != b {
+			return 0
+		}
+		return -1
+	}
+	if b != b {
+		return 1
+	}
+	if a < b {
+		return -1
+	}
+	if a > b {
+		return 1
+	}
+	0
+}
 
 // Less reports whether a is before b in Compare's order.
-extern go ergo.local/prototype/runtime/v1.CmpLess func Less[T ordered](a T, b T) bool
+func Less[T ordered](a T, b T) bool { (a != a && b == b) || a < b }
 
 // Max is the larger of a and b, as Go's builtin max: for floats, a NaN
 // gives NaN and Max(-0, +0) is +0.

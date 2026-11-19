@@ -795,7 +795,9 @@ func untimed(s int) Option[Timeout[int]] { None }
 
 func unworked(s int) Option[func(send func(e int))] { None }
 
-func tally() Machine[int, int, int] { Machine[int, int, int]{Initial: 0, Step: tallyStep, After: untimed, Work: unworked} }
+func unexited(s int) Option[func()] { None }
+
+func tally() Machine[int, int, int] { Machine[int, int, int]{Initial: 0, Step: tallyStep, After: untimed, Work: unworked, Exit: unexited} }
 
 func ints(xs []int) string {
 	let mut t = "["
@@ -902,13 +904,15 @@ func bellTimer(b Bell) Option[Timeout[int]] { Some[Timeout[int]]{Value: Timeout[
 
 func bellWork(b Bell) Option[func(send func(e int))] { None }
 
+func bellExit(b Bell) Option[func()] { None }
+
 func rung(kind int, pokes int) (int, []int) {
 	let mut trace = []machines.Timed[int]{}
 	for i in 0..((pokes % 10) + 10) % 10 {
 		trace = trace.Append(machines.Timed[int]{At: duration(int64(i+1) * int64(1s)), Signal: 1})
 	}
 	trace = trace.Append(machines.Timed[int]{At: 10s + 500ms, Signal: 1})
-	let m = Machine[Bell, int, int]{Initial: Bell{Count: 0, Kind: kind}, Step: bellStep, After: bellTimer, Work: bellWork}
+	let m = Machine[Bell, int, int]{Initial: Bell{Count: 0, Kind: kind}, Step: bellStep, After: bellTimer, Work: bellWork, Exit: bellExit}
 	let c = testing.NewVirtualClock(0)
 	let o = with context { Scheduler: c, time.Clock: c } { machines.RunTimed(m, trace, 60s) } catch {
 	case machines.Rejected:

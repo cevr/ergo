@@ -30,6 +30,12 @@ const WorkloadFile = "workload"
 //	                      repository root) prints with these arguments
 //	control DIR           the hand Go control: the main package DIR (from the
 //	                      repository root), run with the same arguments
+//	floor DIR             the Go-runtime floor: the main package DIR of a
+//	                      hand-optimized program at the least work the Go
+//	                      runtime allows for the job (packed data, no
+//	                      interface call or allocation it can avoid), run
+//	                      with the same arguments and printing the same
+//	                      output (common.md GO-RUNTIME FLOOR)
 //
 // With an input and no {input} in args, the input is the program's stdin.
 // {n} must appear in args or in the input's arguments, or both sizes would
@@ -46,6 +52,7 @@ type Workload struct {
 	InputDir  string   `json:"input_dir,omitempty"`
 	InputArgs []string `json:"input_args,omitempty"`
 	Control   string   `json:"control,omitempty"`
+	Floor     string   `json:"floor,omitempty"`
 }
 
 // Problem is a line of a workload file that does not read (Line 0: the
@@ -161,8 +168,14 @@ func ParseWorkload(text string) (Workload, []Problem) {
 				continue
 			}
 			w.Control = rest[0]
+		case "floor":
+			if len(rest) != 1 || !cleanRel(rest[0]) {
+				bad(line, "floor takes one Go package folder, relative to the repository root")
+				continue
+			}
+			w.Floor = rest[0]
 		default:
-			bad(line, "unknown key %q; a workload has unit, sizes, args, binary, procs, input and control", key)
+			bad(line, "unknown key %q; a workload has unit, sizes, args, binary, procs, input, control and floor", key)
 		}
 	}
 	for _, key := range []string{"unit", "sizes", "args"} {
@@ -208,16 +221,30 @@ func (w Workload) FromStdin() bool {
 	return true
 }
 
+// Path is where the program folder dir keeps its workload file: dir/workload,
+// or, when workload is a package folder (the document writers of flattree,
+// jsonparse, mdhtml, tomlparse and twig, behind their gen commands), the
+// file workload in that folder.
+func Path(dir string) string {
+	p := filepath.Join(dir, WorkloadFile)
+	if st, err := os.Stat(p); err == nil && st.IsDir() {
+		return filepath.Join(p, WorkloadFile)
+	}
+	return p
+}
+
 // Check reads the workload file of the program folder dir (a module
 // program, with cmd/NAME folders) in the repository root, and returns its
 // problems, the folders it names that do not exist included. A folder with
-// no workload file has none; a folder named workload is a package (the
-// DOD programs' document writers), not the file.
-func Check(root, dir string) (Workload, []Problem, bool) {
-	if st, err := os.Stat(filepath.Join(dir, WorkloadFile)); err == nil && st.IsDir() {
-		return Workload{}, nil, false
-	}
-	data, err := os.ReadFile(filepath.Join(dir, WorkloadFile))
+// no workload file has none. The file is found where Path says.
+func Check(root, dir string) (Workload, []Problem, bool) { return CheckIn(root, dir, dir) }
+
+// CheckIn is Check of the workload file in dir for the program folder
+// program, which holds cmd/NAME (a benchmark kind's folder in its
+// module, benchmarks/forms/step in benchmarks/forms; opcount's folder
+// argument).
+func CheckIn(root, dir, program string) (Workload, []Problem, bool) {
+	data, err := os.ReadFile(Path(dir))
 	if os.IsNotExist(err) {
 		return Workload{}, nil, false
 	}
@@ -225,10 +252,10 @@ func Check(root, dir string) (Workload, []Problem, bool) {
 		return Workload{}, []Problem{{0, err.Error()}}, true
 	}
 	w, problems := ParseWorkload(string(data))
-	binaries, _ := filepath.Glob(filepath.Join(dir, "cmd", "*", "main.ergo"))
+	binaries, _ := filepath.Glob(filepath.Join(program, "cmd", "*", "main.ergo"))
 	switch {
 	case w.Binary != "":
-		if _, err := os.Stat(filepath.Join(dir, "cmd", w.Binary, "main.ergo")); err != nil {
+		if _, err := os.Stat(filepath.Join(program, "cmd", w.Binary, "main.ergo")); err != nil {
 			problems = append(problems, Problem{0, fmt.Sprintf("binary %s: no cmd/%s/main.ergo", w.Binary, w.Binary)})
 		}
 	case len(binaries) != 1:
@@ -236,7 +263,7 @@ func Check(root, dir string) (Workload, []Problem, bool) {
 	default:
 		w.Binary = filepath.Base(filepath.Dir(binaries[0]))
 	}
-	for _, d := range []string{w.InputDir, w.Control} {
+	for _, d := range []string{w.InputDir, w.Control, w.Floor} {
 		if d == "" {
 			continue
 		}

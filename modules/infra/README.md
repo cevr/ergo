@@ -15,7 +15,7 @@ An apply of an object writes its row `Creating`, calls the driver's `Apply`, and
 
 - `Driver`: `AttrsIsApply`, `RetrySafe`, `ReadAfterApply`, `DeleteIsIdempotent`, run for `memory.Dirs` and `memory.Files`.
 - `State`: `PutThenGet`, `RemoveThenGet`; `Lock`: `LockExcludes`, `BreakNamesTheHolder`.
-- `memory.ApplyConverges`: the model-based test after `models/infra`, in a wider scope: six objects of two kinds, any props, two runners taking turns, a crash at any call to the cloud or a store (before or after its effect), then a destroy. After every run the rows and the cloud agree (NoOrphan, LiveIsTrue); a finished run leaves what its stack wants (Converged), and a second plan has no step; a plan calls no host; the destroy leaves the cloud empty. `memory.DestroyIsNewestFirst`: a destroy deletes in the reverse of the order of creation, across kinds.
+- `memory.ApplyConverges`: the model-based test after `models/infra`, in a wider scope: six objects of two kinds, any props, two runners taking turns, a crash at any call to the cloud or a store (before or after its effect), then a destroy. After every run the rows and the cloud agree (NoOrphan, LiveIsTrue); a finished run leaves what its stack wants (Converged), and a second plan has no step; a plan calls no host; the destroy leaves the cloud empty. `memory.DestroyIsNewestFirst`: a destroy deletes in the reverse of the order of creation, across kinds. `memory.PlanCountsEachObjectOnce`: a stack that ensures an object twice with the same props plans one step for it, as a stack that ensures it once (PX7).
 
 ## Outputs
 
@@ -29,7 +29,7 @@ A stack returns a record `O` of its own, one that has a codec. `Deploy` runs it:
 | --- | --- |
 | `plan [-stage S] [-json] [-refresh]` | the changes an apply would make, a line each, then `plan: N changes`. It calls no host; `-refresh` also reads each live object and lists it `drifted` or `gone` (it writes nothing; an apply does not repair drift) |
 | `apply -yes [-stage S] [-json] [-holder H]` | the changes, then the outputs. Without `-yes` it changes nothing and exits 2 |
-| `destroy -yes [-stage S] [-json] [-holder H]` | deletes every object, newest first |
+| `destroy -yes [-stage S] [-json] [-holder H]` | deletes every object, newest first, then the stage's outputs file, which would name objects that are gone |
 | `state [-stage S] [-json]` | the rows and who holds the lock |
 | `unlock [-stage S] HOLDER` | breaks the lock HOLDER holds (a run that crashed) |
 

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"unsafe"
 
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 )
 
 // stdFreeProgram imports no std package.
@@ -71,7 +71,7 @@ func TestStdDecodeGrowsWithImports(t *testing.T) {
 			t.Errorf("a check of the %s program did %+v; want %+v, the std closure %v alone", c.name, got, want, c.closure)
 		}
 	}
-	for _, path := range std.Packages() {
+	for _, path := range stdlib.Packages() {
 		install()
 		if _, err := Std.Import(path); err != nil {
 			t.Fatal(err)
@@ -220,7 +220,7 @@ func TestStdSnapshotInstall(t *testing.T) {
 	}
 	ResetStdForTest()
 	installBytes(t, data)
-	for _, path := range std.Packages() {
+	for _, path := range stdlib.Packages() {
 		p, err := Std.Import(path)
 		if err != nil || p == nil || p.Path != path {
 			t.Fatalf("installed %s: %v, %v", path, p, err)
@@ -230,7 +230,7 @@ func TestStdSnapshotInstall(t *testing.T) {
 		t.Fatal(ds)
 	}
 	got := WorkDone()
-	if want := (Work{StdPackagesDecoded: int64(len(std.Packages())), StdSnapshotBytesRead: got.StdSnapshotBytesRead}); got != want {
+	if want := (Work{StdPackagesDecoded: int64(len(stdlib.Packages())), StdSnapshotBytesRead: got.StdSnapshotBytesRead}); got != want {
 		t.Fatalf("warm snapshot did %+v; want %+v, no source work", got, want)
 	}
 	u, p := universe(), prelude().scope

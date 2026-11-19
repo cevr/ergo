@@ -22,4 +22,5 @@ extern go crypto/sha256.Size224 let Size224 int
 extern go crypto/sha256.Sum224 func Sum224(data []byte) [28]byte
 
 // ergo:go func Sum256(data []byte) [32]byte
+// ergo:reads data (vouched: Write copies data into the digest's buffer and the block function, assembly, only loads from it)
 extern go crypto/sha256.Sum256 func Sum256(data []byte) [32]byte

@@ -1,5 +1,5 @@
 {
-  "about": "The mutant ledger of internal/selfhostcheck and what it tests: the compiler written in Ergo (compiler/, linked as internal/linked/compiler), the Go facade internal/hostsyntax and the linked generator internal/linked. An edit of a compiler/ file is judged through the linked Go: regenerate it (go run ./scripts/linked) on the mutated copy, then run the killer (capstone S1a, CAP-mut).",
+  "about": "The mutant ledger of internal/selfhostcheck and the self-hosting pilot it tests (testdata/selfhost): edits of the Go adapter and of the Ergo tree decoder that TestSelfhostBridgeAgrees, or the adapter's TestFamiliesCoverSyntax, must kill. scripts/mutants judges only check and lower today, and the pilot is a nested Go module; until it has a suite, a unit that changes these files applies each edit by hand and runs the killer (wf10 SH0).",
   "mutants": [
     {
       "name": "sh-comment-crosses-token",
@@ -236,8 +236,8 @@
       "name": "b18-format-law-rewrite-as-body",
       "origin": "batch-18 integration (SH1 x LR1)",
       "file": "compiler/format/nodes.ergo",
-      "from": "\tif x.Rewrite {\n",
-      "to": "\tif false {\n",
+      "from": "\tif x.Rewrite {\n\t\t// The rewrite form (types.md, Laws 14): its Body is synthetic",
+      "to": "\tif false {\n\t\t// The rewrite form (types.md, Laws 14): its Body is synthetic",
       "rule": "A rewrite law prints as `{ lhs } == { rhs }`, as the Go formatter's memberLaw does, not its synthetic Body.",
       "killers": [
         "internal/selfhostcheck:TestSelfhostFormatLaws"
@@ -373,6 +373,17 @@
       "rule": "walkBinary is memoised by row: go/printer's cutoff asks it for every operator of a chain, which without the memo is quadratic in the chain's length (no output changes; SH1 gap 12).",
       "killers": [
         "internal/selfhostcheck:TestFormatWorkGrowsLinearly"
+      ]
+    },
+    {
+      "name": "sh-format-own-dropped",
+      "origin": "wf10/selfhost/RED29b",
+      "file": "compiler/format/nodes.ergo",
+      "from": "\t\tif own {\n\t\t\tif len(names) > 0 {\n\t\t\t\tp.space()\n\t\t\t}\n\t\t\tp.token(p.tp(f.Own), \"own\")\n\t\t}\n",
+      "to": "\t\tif false {\n\t\t\tif len(names) > 0 {\n\t\t\t\tp.space()\n\t\t\t}\n\t\t\tp.token(p.tp(f.Own), \"own\")\n\t\t}\n",
+      "rule": "A parameter's mode word own is printed (grammar Declarations 13); dropped, the formatted text loses it.",
+      "killers": [
+        "internal/selfhostcheck:TestSelfhostFormatLaws"
       ]
     }
   ]

@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"ergo.local/prototype/internal/sketch/check"
 	v1 "ergo.local/prototype/runtime/v1"
 )
 
@@ -68,4 +69,19 @@ func bindingOf(body v1.Body) runtimeBinding {
 // extern's target or a runtime-bound type's operation names.
 func runtimeBody(name string) (v1.Body, error) {
 	return v1.BodyOf(name)
+}
+
+// bodyView is the view form (v1.Body.View, //ergo:view) of the body the
+// extern f binds, for an extern of any package (check.BodyOf), or ""
+// (LAWFFI LF2b, view.go).
+func bodyView(f *check.Func) string {
+	name := check.BodyOf(f).Runtime
+	if name == "" {
+		return ""
+	}
+	body, err := v1.BodyOf(name)
+	if err != nil {
+		return ""
+	}
+	return body.View
 }

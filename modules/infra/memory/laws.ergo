@@ -322,3 +322,38 @@ law DestroyIsNewestFirst(runs []int) {
 	}
 	newestFirst(w, infra.Steps(r))
 }
+
+// planned is the steps of a plan in mode over w of the stack of want, run
+// times times in the one pass.
+func planned(w World, mode infra.Mode, want Want, times int) Option[[]infra.Step] {
+	let r = infra.NewPass(mode)
+	let dirs = infra.Engine[DirProps, Dir]{Kind: "dir", Driver: DirsIn(w.cloud), State: w.dirs, Pass: r}
+	let files = infra.Engine[FileProps, File]{Kind: "file", Driver: FilesIn(w.cloud), State: w.files, Pass: r}
+	for _ in 0..times {
+		with context { infra.Kind[DirProps, Dir]: dirs, infra.Kind[FileProps, File]: files } {
+			stack(want)
+		} catch {
+		case infra.Failed:
+			return None
+		}
+	}
+	Some[[]infra.Step]{Value: infra.Steps(r)}
+}
+
+// PlanCountsEachObjectOnce: a stack that ensures each of its objects twice
+// with the same props plans the steps of a stack that ensures it once,
+// after any apply and with or without -refresh (PX7).
+law PlanCountsEachObjectOnce(applied int, n int, refresh bool) {
+	let w = newWorld()
+	match run(w, infra.Applying, "r1", wantOf(applied)) {
+	case Finished:
+	case Crashed, Locked:
+		return false
+	}
+	let mut mode infra.Mode = infra.Planning
+	if refresh {
+		mode = infra.Refreshing
+	}
+	let once = planned(w, mode, wantOf(n), 1)
+	once != None && planned(w, mode, wantOf(n), 2) == once
+}

@@ -1,0 +1,14 @@
+{
+  "about": "Mutants of the pattern bench's lowered matchers, run with their named killers.",
+  "mutants": [
+    {
+      "name": "b19-pattern-bench-date-first-digit",
+      "origin": "wf10 batch-19 r5 (NO TESTS IS RED)",
+      "file": "docs/research/pattern-bench/matchers.go",
+      "from": "func matchDate(s string) bool {\n\tq := 0\n\tfor _, r := range s {\n\t\tswitch q {\n\t\tcase 0:\n\t\t\tswitch {\n\t\t\tcase r >= '0' && r <= '9':",
+      "to": "func matchDate(s string) bool {\n\tq := 0\n\tfor _, r := range s {\n\t\tswitch q {\n\t\tcase 0:\n\t\t\tswitch {\n\t\t\tcase r >= '0' && r <= '1':",
+      "rule": "Each lowered matcher form answers as Go's regexp does on the bench's inputs.",
+      "killers": ["docs/research/pattern-bench:TestFormsAgreeWithRegexp"]
+    }
+  ]
+}

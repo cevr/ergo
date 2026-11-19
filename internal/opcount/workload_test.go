@@ -38,6 +38,10 @@ func genWorkload(r *rand.Rand) (opcount.Workload, []string) {
 		w.Control = "cmd/x/control"
 		lines = append(lines, "control cmd/x/control")
 	}
+	if r.IntN(2) == 0 {
+		w.Floor = "cmd/x/floor"
+		lines = append(lines, "floor cmd/x/floor")
+	}
 	r.Shuffle(len(lines), func(i, j int) { lines[i], lines[j] = lines[j], lines[i] })
 	var out []string
 	for _, l := range lines {
@@ -56,7 +60,7 @@ func genWorkload(r *rand.Rand) (opcount.Workload, []string) {
 //
 // Mutants: workload-sizes-unordered, workload-unknown-key-admitted,
 // workload-duplicate-admitted, workload-unsized-admitted,
-// workload-required-unchecked.
+// workload-required-unchecked, workload-floor-dropped.
 func TestWorkloadFileReads(t *testing.T) {
 	type spoil struct {
 		name string
@@ -115,5 +119,5 @@ func TestWorkloadFileReads(t *testing.T) {
 func equalWorkload(a, b opcount.Workload) bool {
 	return a.Unit == b.Unit && a.Small == b.Small && a.Large == b.Large && slices.Equal(a.Args, b.Args) &&
 		a.Procs == b.Procs && a.InputKind == b.InputKind && a.InputDir == b.InputDir &&
-		slices.Equal(a.InputArgs, b.InputArgs) && a.Control == b.Control && a.Binary == b.Binary
+		slices.Equal(a.InputArgs, b.InputArgs) && a.Control == b.Control && a.Floor == b.Floor && a.Binary == b.Binary
 }

@@ -1,141 +1,185 @@
-// Package script runs the subscription form as an actor over a script of form
-// events, and shows the form after each one.
+// Package script plays a script of form events on the subscription form's
+// screen (stage b), on std ui's test host over the manual clock main
+// binds, and shows the screen after each one, as upstream's scene tests
+// type, click, submit and look.
 
 import actor
+import fkform/screen
 import fkform/subscribe
 import io
-import machines
+import strconv
 import strings
+import time
+import ui
 
 // BadLine is a line the script cannot read.
 type BadLine { Line int, Why string }
 
-// Event is a read line: its text and the signal it gives.
-type Event { Text string, Signal subscribe.Signal }
+// Line is a read line: its text and what it does.
+type Line { Text string, Do Do }
 
-// Read reads the lines of a script. Each line is `name TEXT`, `email
-// TEXT` or `note TEXT`, which makes TEXT (the rest of the line after one
-// space, possibly empty) that field, or `submit`. A blank line or a line
-// that starts with # is skipped.
-func Read(lines []string) []Event fails BadLine {
-	let mut events = []Event{}
+// Do is what a line does: an act on the screen, or a count of the act
+// before it.
+type Do = Act{Act ui.Act} | Stats
+
+// Stats is the line `stats`.
+type Stats {}
+
+// Read reads the lines of a script. A line is one of:
+//   - `name TEXT`, `email TEXT`, `note TEXT`: fill that field with TEXT
+//     (the rest of the line after one space, possibly empty);
+//   - `submit`: click the button Subscribe;
+//   - `enter`: press Enter in the form (upstream's submit of the form);
+//   - `wait MS`: move the clock MS milliseconds, so a check or a submit
+//     that waits on it answers (upstream's Command.resolve), and settle;
+//   - `stats`: print the work of the act before it.
+//
+// A blank line or a line that starts with # is skipped.
+func Read(lines []string) []Line fails BadLine {
+	let mut out = []Line{}
 	for i, line in lines {
+		let n = i + 1
 		let text = strings.TrimSpace(line)
 		if text == "" || strings.HasPrefix(text, "#") {
 			continue
 		}
 		let word = strings.Fields(text)[0]
 		let rest = strings.TrimPrefix(strings.TrimPrefix(text, word), " ")
-		let s = match word {
+		let do Do = match word {
 		case "name":
-			subscribe.NameEdited{Text: rest}
+			fill(screen.NameLabel, rest)
 		case "email":
-			subscribe.EmailEdited{Text: rest}
+			fill(screen.EmailLabel, rest)
 		case "note":
-			subscribe.NoteEdited{Text: rest}
+			fill(screen.NoteLabel, rest)
 		case "submit":
-			if rest != "" {
-				return BadLine{Line: i + 1, Why: "submit takes no text"}
+			Act{Act: ui.ClickOn{At: ui.WithRole{Role: ui.Button, Name: screen.SubmitLabel}}}
+		case "enter":
+			Act{Act: ui.KeyIn{Press: ui.KeyPress{Name: "Enter", Mods: ui.Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}}
+		case "stats":
+			Stats
+		case "wait":
+			let ms = strconv.Atoi(rest) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				return BadLine{Line: n, Why: "wait takes milliseconds"}
 			}
-			subscribe.Submitted
+			Act{Act: ui.AdvanceBy{By: time.Times(1ms, ms)}}
 		case _:
-			return BadLine{Line: i + 1, Why: "a line is name, email or note TEXT, or submit"}
+			return BadLine{Line: n, Why: "a line is name, email or note TEXT, submit, enter, wait MS or stats"}
 		}
-		events = events.Append(Event{Text: text, Signal: s})
+		out = out.Append(Line{Text: text, Do: do})
 	}
-	events
+	out
 }
 
-// Run reads the script from io.Stdin and plays it against the form on the
-// Subscribers of its context. It prints each event as `> EVENT`, then the
-// form after it, and, when the event started a check or a submit, the
-// form once it has its answer. It returns the exit status: 0, or 1 when
-// the script is refused.
-func Run() int needs Console | io.Stdin | Scheduler | subscribe.Subscribers {
+func fill(label string, text string) Do { Act{Act: ui.FillIn{At: ui.WithPlaceholder{Text: label}, Text: text}} }
+
+// Host is the form on the test host.
+type Host = ui.TestHost[subscribe.Form, subscribe.Signal, Decision[subscribe.Form, Never]]
+
+// Run reads the script from io.Stdin and plays it on the screen, on std
+// ui's test host over clock, with the Subscribers of its context. It shows
+// the screen first and after each line: `> LINE`, then the screen in a
+// line. An act whose locator finds no node, or more than one, does
+// nothing and says so, as a scene that names no node fails. It returns the
+// exit status: 0, or 1 when the script is refused or the screen fails.
+func Run(clock time.Manual) int needs Console | io.Stdin | Scheduler | subscribe.Subscribers {
 	let mut lines = []string{}
 	for line in io.Stdin.Lines() {
 		lines = lines.Append(line)
 	}
-	let events = Read(lines) catch {
+	let script = Read(lines) catch {
 	case BadLine as b:
 		Console.Println("? line \(b.Line): \(b.Why)")
 		return 1
 	}
-	let a = actor.StartMachine(subscribe.Subscribing{}, 8, func(o Never) {})
-	let mut f = a.State()
-	Console.Println(Show(f))
-	for e in events {
-		Console.Println("> " + e.Text)
-		// Only this loop sends, so the form before the signal is f, and
-		// the decision gives the form after it.
-		let d = a.Ask(e.Signal) catch {
-		case actor.Stopped:
-			return 1
-		}
-		let next = machines.Next(f, d)
-		if next == f {
-			Console.Println("  (ignored)")
-			continue
-		}
-		f = next
-		Console.Println(Show(f))
-		if subscribe.Busy(f) {
-			f = actor.WaitFor(a, func(s subscribe.Form) bool { !subscribe.Busy(s) }) catch {
-			case actor.Stopped:
-				return 1
+	let app = actor.StartMachine(subscribe.Subscribing{}, 8, func(o Never) {})
+	let status = play(app, clock, script) catch {
+	case actor.Stopped:
+		Console.Println("? the form stopped")
+		1
+	case ui.BadPatch as p:
+		Console.Println("? a patch is refused: \(p.Why)")
+		1
+	}
+	app.Stop()
+	status
+}
+
+func play(app actor.Actor[subscribe.Form, subscribe.Signal, Decision[subscribe.Form, Never]], clock time.Manual, script []Line) int fails actor.Stopped | ui.BadPatch needs Console {
+	let mut h = try ui.NewTestHost(app, screen.Screen, clock, 8)
+	Console.Println(Shown(&h))
+	for x in script {
+		Console.Println("> \(x.Text)")
+		match x.Do {
+		case Act as a:
+			ui.Play(&h, []ui.Act{a.Act, ui.SettleAll}) catch {
+			case ui.NoNode as no:
+				Console.Println("? no node: \(no.Label)")
+				continue
+			case ui.Ambiguous as m:
+				Console.Println("? \(m.Count) nodes: \(m.At)")
+				continue
+			case ui.Mismatch:
+				continue
+			case actor.Stopped as s:
+				return s
+			case ui.BadPatch as p:
+				return p
 			}
-			Console.Println(Show(f))
+			Console.Println(Shown(&h))
+		case Stats:
+			Console.Println("stats: \(ui.CountsLine(ui.Counts(&h)))")
 		}
 	}
-	a.Stop()
 	0
 }
 
-// Show is the form in one line: each field's text and verdict, then the
-// stage.
-func Show(f subscribe.Form) string {
-	let name = field(f.Name.Text, nameSaid(f.Name.Verdict))
-	let email = field(f.Email.Text, emailSaid(f.Email.Verdict))
-	"name \(name) | email \(email) | note \"\(f.Note)\" | " + stage(f.Stage)
+// Shown is the screen in lines, in screen order, each indented: the
+// heading as # NAME; each field as LABEL<VALUE>, with its description
+// after it in parentheses; each button as [LABEL] ([LABEL, disabled] in a
+// disabled fieldset); a status as status{TEXT} and an alert as
+// alert{TEXT}.
+func Shown(h *Host) string {
+	let mut out = []string{}
+	for t in tokens(ui.Screen(h), false, "") {
+		out = out.Append("  " + t)
+	}
+	strings.Join(out, "\n")
 }
 
-func field(text string, said string) string { "\"\(text)\"" + said }
-
-func nameSaid(v subscribe.Verdict[subscribe.Name, subscribe.TooShort]) string {
-	match v {
-	case subscribe.Unchecked:
-		""
-	case subscribe.Checking[subscribe.Name]:
-		" checking..."
-	case subscribe.Valid[subscribe.Name]:
-		" ok"
-	case subscribe.Invalid[subscribe.TooShort] as i:
-		" (\(subscribe.NameSaid(i.Why)))"
+func tokens(shapes []ui.Shape[subscribe.Signal], off bool, said string) []string {
+	let mut out = []string{}
+	for s in shapes {
+		match s.Node {
+		case ui.TextNode as t:
+			out = out.Append(t.Value)
+		case ui.InputNode as i:
+			out = out.Append(if said == "" { "\(i.Placeholder)<\(i.Value)>" } else { "\(i.Placeholder)<\(i.Value)> (\(said))" })
+		case ui.PressableNode as p:
+			out = out.Append(if off { "[\(p.Label), disabled]" } else { "[\(p.Label)]" })
+		case ui.FieldsetNode as fs:
+			for t in tokens(s.Kids, off || fs.Disabled, if fs.Description == "" { said } else { fs.Description }) {
+				out = out.Append(t)
+			}
+		case ui.SemanticNode as g:
+			match g.Access.Role {
+			case ui.Heading:
+				out = out.Append("# \(g.Access.Name)")
+			case ui.Status:
+				out = out.Append("status{\(strings.Join(tokens(s.Kids, off, said), " "))}")
+			case ui.Alert:
+				out = out.Append("alert{\(strings.Join(tokens(s.Kids, off, said), " "))}")
+			case _:
+				for t in tokens(s.Kids, off, said) {
+					out = out.Append(t)
+				}
+			}
+		case _:
+			for t in tokens(s.Kids, off, said) {
+				out = out.Append(t)
+			}
+		}
 	}
-}
-
-func emailSaid(v subscribe.Verdict[subscribe.Email, subscribe.EmailWhy]) string {
-	match v {
-	case subscribe.Unchecked:
-		""
-	case subscribe.Checking[subscribe.Email]:
-		" checking..."
-	case subscribe.Valid[subscribe.Email]:
-		" ok"
-	case subscribe.Invalid[subscribe.EmailWhy] as i:
-		" (\(subscribe.EmailSaid(i.Why)))"
-	}
-}
-
-func stage(s subscribe.Stage) string {
-	match s {
-	case subscribe.Editing:
-		"not sent"
-	case subscribe.Sending:
-		"sending..."
-	case subscribe.Sent as t:
-		t.Text
-	case subscribe.Refused:
-		"Sorry, the list could not take the subscription. Please try again."
-	}
+	out
 }

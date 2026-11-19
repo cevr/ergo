@@ -1,0 +1,231 @@
+// The pages of the library: its 34 components and its 5 foundation pages,
+// each with the slug of its docs path (/docs/<slug>). The gallery's routes
+// and the pixel harness name pages by these slugs; a component with no
+// slug does not compile (the matches below are exhaustive).
+
+type Accordion {}
+type AskUserQuestions {}
+type Badge {}
+type Banner {}
+type Breadcrumb {}
+type Button {}
+type Calendar {}
+type Card {}
+type CarouselDots {}
+type ChatMessage {}
+type Checkbox {}
+type CheckboxGroup {}
+type ColorPicker {}
+type Combobox {}
+type CommandMenu {}
+type DatePicker {}
+type Dialog {}
+type Dropdown {}
+type Field {}
+type Input {}
+type InputCopy {}
+type InputGroup {}
+type InputMessage {}
+type RadioGroup {}
+type Select {}
+type Sidebar {}
+type Slider {}
+type Switch {}
+type Table {}
+type Tabs {}
+type Textarea {}
+type ThinkingIndicator {}
+type ThinkingSteps {}
+type Tooltip {}
+
+// Component is one of the library's components.
+type Component =
+	| Accordion
+	| AskUserQuestions
+	| Badge
+	| Banner
+	| Breadcrumb
+	| Button
+	| Calendar
+	| Card
+	| CarouselDots
+	| ChatMessage
+	| Checkbox
+	| CheckboxGroup
+	| ColorPicker
+	| Combobox
+	| CommandMenu
+	| DatePicker
+	| Dialog
+	| Dropdown
+	| Field
+	| Input
+	| InputCopy
+	| InputGroup
+	| InputMessage
+	| RadioGroup
+	| Select
+	| Sidebar
+	| Slider
+	| Switch
+	| Table
+	| Tabs
+	| Textarea
+	| ThinkingIndicator
+	| ThinkingSteps
+	| Tooltip
+
+type Motion {}
+type Sizes {}
+type Surfaces {}
+type Scrollbars {}
+type FluidHover {}
+
+// Foundation is one of the pages about what every component shares.
+type Foundation = Motion | Sizes | Surfaces | Scrollbars | FluidHover
+
+// Components lists every component once, in the docs' order.
+func Components() []Component {
+	[]Component{Accordion, AskUserQuestions, Badge, Banner, Breadcrumb, Button, Calendar, Card,
+		CarouselDots, ChatMessage, Checkbox, CheckboxGroup, ColorPicker, Combobox, CommandMenu,
+		DatePicker, Dialog, Dropdown, Field, Input, InputCopy, InputGroup, InputMessage, RadioGroup,
+		Select, Sidebar, Slider, Switch, Table, Tabs, Textarea, ThinkingIndicator, ThinkingSteps, Tooltip}
+}
+
+// Foundations lists every foundation page once, in the docs' order.
+func Foundations() []Foundation {
+	[]Foundation{Motion, Sizes, Surfaces, Scrollbars, FluidHover}
+}
+
+// Slug is the component's docs path segment.
+func Slug(c Component) string {
+	match c {
+	case Accordion:
+		"accordion"
+	case AskUserQuestions:
+		"ask-user-questions"
+	case Badge:
+		"badge"
+	case Banner:
+		"banner"
+	case Breadcrumb:
+		"breadcrumb"
+	case Button:
+		"button"
+	case Calendar:
+		"calendar"
+	case Card:
+		"card"
+	case CarouselDots:
+		"carousel-dots"
+	case ChatMessage:
+		"chat-message"
+	case Checkbox:
+		"checkbox"
+	case CheckboxGroup:
+		"checkbox-group"
+	case ColorPicker:
+		"color-picker"
+	case Combobox:
+		"combobox"
+	case CommandMenu:
+		"command-menu"
+	case DatePicker:
+		"date-picker"
+	case Dialog:
+		"dialog"
+	case Dropdown:
+		"dropdown"
+	case Field:
+		"field"
+	case Input:
+		"input"
+	case InputCopy:
+		"input-copy"
+	case InputGroup:
+		"input-group"
+	case InputMessage:
+		"input-message"
+	case RadioGroup:
+		"radio-group"
+	case Select:
+		"select"
+	case Sidebar:
+		"sidebar"
+	case Slider:
+		"slider"
+	case Switch:
+		"switch"
+	case Table:
+		"table"
+	case Tabs:
+		"tabs"
+	case Textarea:
+		"textarea"
+	case ThinkingIndicator:
+		"thinking-indicator"
+	case ThinkingSteps:
+		"thinking-steps"
+	case Tooltip:
+		"tooltip"
+	}
+}
+
+// FoundationSlug is the foundation page's docs path segment.
+func FoundationSlug(f Foundation) string {
+	match f {
+	case Motion:
+		"motion"
+	case Sizes:
+		"sizes"
+	case Surfaces:
+		"surfaces"
+	case Scrollbars:
+		"scrollbars"
+	case FluidHover:
+		"fluid-hover"
+	}
+}
+
+// ParseComponent is the component whose slug is s, if one has it.
+func ParseComponent(s string) Option[Component] {
+	for c in Components() {
+		if Slug(c) == s {
+			return Some[Component]{Value: c}
+		}
+	}
+	None
+}
+
+// ParseFoundation is the foundation page whose slug is s, if one has it.
+func ParseFoundation(s string) Option[Foundation] {
+	for f in Foundations() {
+		if FoundationSlug(f) == s {
+			return Some[Foundation]{Value: f}
+		}
+	}
+	None
+}
+
+// SlugParses: every component's slug parses back to it, so no two share a
+// slug and the list holds every component.
+law SlugParses(c Component) {
+	ParseComponent(Slug(c)) == Some[Component]{Value: c}
+}
+
+// FoundationSlugParses: the same for the foundation pages.
+law FoundationSlugParses(f Foundation) {
+	ParseFoundation(FoundationSlug(f)) == Some[Foundation]{Value: f}
+}
+
+// ListedOnce: the list names each component once, so a page per entry
+// gives a page per component.
+law ListedOnce(c Component) {
+	let mut n = 0
+	for x in Components() {
+		if x == c {
+			n = n + 1
+		}
+	}
+	n == 1
+}

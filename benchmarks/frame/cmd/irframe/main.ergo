@@ -1,0 +1,71 @@
+// irframe is GP-FRAME's probe: a body that opens a frame scope to register
+// an exit action, called once per unit. Its hand Go twin in
+// ../../testdata/control writes the action as a deferred closure; a
+// workload per kind in ../../KIND (go run ./scripts/opcount -control
+// -rounds 5 benchmarks/frame/KIND).
+//
+//	irframe bench KIND N
+
+import os
+import scope
+import strconv
+import sync
+
+// unit registers an exit action that adds i to cell, and returns a value
+// of its own: the action runs when unit returns.
+func unit(i int, cell sync.Ref[int]) int {
+	scope.OnExit() {
+		cell.Update(func(v int) int { v + i })
+	}
+	i & 7
+}
+
+func benchExit(n int) int {
+	let cell = sync.NewRef[int](0)
+	let mut s = 0
+	for i in 0..n {
+		s = s + unit(i, cell)
+	}
+	s + cell.Get()
+}
+
+// plain is unit's work with no exit action: the update in the body
+// (STATIC-EXIT2's update workload, the share of exit's cost that is the
+// cell's and not the frame's).
+func plain(i int, cell sync.Ref[int]) int {
+	cell.Update(func(v int) int { v + i })
+	i & 7
+}
+
+func benchUpdate(n int) int {
+	let cell = sync.NewRef[int](0)
+	let mut s = 0
+	for i in 0..n {
+		s = s + plain(i, cell)
+	}
+	s + cell.Get()
+}
+
+func run(kind string, n int) int {
+	if kind == "exit" {
+		benchExit(n)
+	} else if kind == "update" {
+		benchUpdate(n)
+	} else {
+		-1
+	}
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	with context { os.Process: os.NewHost() } {
+		let args = os.Process.Args()
+		if len(args) != 3 {
+			return os.Exit{Code: 2, Message: "usage: irframe bench KIND N"}
+		}
+		let n = strconv.Atoi(args[2]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return os.Exit{Code: 2, Message: "irframe: N is not a count"}
+		}
+		Console.Println("\(run(args[1], n))")
+	}
+}

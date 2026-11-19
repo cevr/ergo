@@ -20,6 +20,6 @@ extern go net/http/cookiejar.Options type Options {
 
 // ergo:go type PublicSuffixList interface
 extern go net/http/cookiejar.PublicSuffixList type PublicSuffixList {
-	own PublicSuffix(domain string) string needs go.Foreign,
-	own String() string needs go.Foreign,
+	PublicSuffix(domain string) string needs go.Foreign,
+	String() string needs go.Foreign,
 }

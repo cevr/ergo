@@ -107,7 +107,9 @@ func (b *irBuilder) treeMatch(s syntax.Stmt, subjects []syntax.Expr, clauses []*
 		}
 	}
 	t := &treeIR{b: b, s: s, site: subjects[0], p: p, terminates: ret && to == nil}
-	t.body = func(k int) []*irStmt { return b.arm(clauses[k].Body, ret, to) }
+	t.body = func(k int) []*irStmt {
+		return b.scoped(clauses[k], b.arm(clauses[k].Body, ret, to), b.pos(clauses[k], clauses[k].Pos())) // ir_own.go
+	}
 	if ret || to != nil {
 		t.exit = func(p irPos) []*irStmt { return []*irStmt{noCase(b, s, p)} }
 	}
@@ -180,9 +182,14 @@ func (t *treeIR) write(cols []treeHead, alts [][]*check.Pattern, ep irPos) []*ir
 			exit = "end" + strconv.Itoa(b.labels)
 		}
 		body := append(decls, out...)
+		// No jump follows a statement that terminates (a tree whose every
+		// case jumps to an arm or panics): go vet finds it unreachable
+		// (IRFIX-TEXT: tasks-cli's matches).
+		jumps := 0
 		jump := func() {
-			if exit != "" {
+			if exit != "" && (len(body) == 0 || !irTerminates(body[len(body)-1])) {
 				body = append(body, &irStmt{K: "goto", Pos: ep, Label: exit})
+				jumps++
 			}
 		}
 		jump()
@@ -192,7 +199,9 @@ func (t *treeIR) write(cols []treeHead, alts [][]*check.Pattern, ep irPos) []*ir
 				jump()
 			}
 		}
-		if exit != "" {
+		// The last arm falls through to the end; the end's label is placed
+		// when a jump names it (Go refuses a label no goto names).
+		if exit != "" && jumps > 0 {
 			body = append(body, &irStmt{K: "block", Pos: ep, End: ep, Label: exit})
 		}
 		out = []*irStmt{{K: "block", Pos: p, End: ep, Body: body}}
@@ -277,7 +286,7 @@ func (t *treeIR) node(n *mnode, end irPos) *irStmt {
 		}
 		fu = b.flatOf(ct)
 		if fu != nil {
-			sw.X = b.tagOf(col.I, p)
+			sw.X = b.flatTag(fu, col.I, p, t.s) // ir_golib.go: a niche's tag too
 		} else {
 			if !b.fc.isInterface(ct) {
 				irNo("match tree type switch on a value that is no union")
@@ -285,8 +294,10 @@ func (t *treeIR) node(n *mnode, end irPos) *irStmt {
 			sw.K = "tswitch"
 		}
 	}
+	var arms []irArm // a type switch node's match form (ir_forms.go)
 	for _, c := range n.cases {
 		ic := &irCase{Pos: p}
+		var arm irArm
 		if n.typeSwitch {
 			vt, ok := t.types[c.label]
 			if !ok {
@@ -298,14 +309,17 @@ func (t *treeIR) node(n *mnode, end irPos) *irStmt {
 				if k < 0 {
 					irNo("case of another type")
 				}
+				arm.Tags = []int{k}
 				ic.Vals = []*irExpr{{K: "const", Pos: p, T: "uint8", V: strconv.Itoa(k)}}
 				bound = b.narrow(fu, col.I, k, p, t.s)
 			} else {
 				ic.Types = []string{c.label}
+				arm.Tags = []int{unionTag(ct, vt)}
 				bound = &irExpr{K: "assert", Pos: p, T: c.label, X: col}
 			}
 			l := b.temp(n.bound, b.goType(vt, t.s), p)
-			ic.Body = append(ic.Body, &irStmt{K: "def", Pos: p, Local: l, X: bound})
+			arm.Bind = &irStmt{K: "def", Pos: p, Local: l, X: bound}
+			ic.Body = append(ic.Body, arm.Bind)
 			t.heads[n.bound] = treeHead{l, vt}
 		} else {
 			cp, ok := t.consts[c.label]
@@ -316,16 +330,24 @@ func (t *treeIR) node(n *mnode, end irPos) *irStmt {
 		}
 		ic.Body = append(ic.Body, t.child(c.child, end)...)
 		sw.Cases = append(sw.Cases, ic)
+		arms = append(arms, arm)
 	}
 	delete(t.heads, n.bound)
 	sw.ElsePos = end
 	switch {
 	case !n.def.fail:
 		sw.Cases = append(sw.Cases, &irCase{Pos: p, Def: true, Body: t.child(n.def, end)})
+		arms = append(arms, irArm{})
 	case t.exit != nil:
 		sw.Else = t.exit(end)
 	}
-	return sw
+	if !n.typeSwitch {
+		return sw // a switch on constants: no union
+	}
+	if fu != nil {
+		return b.matchForm(sw, layoutFlat, col.I, arms)
+	}
+	return b.matchForm(sw, layoutIface, col.I, arms)
 }
 
 // child is the statements of the node n below a case.
@@ -407,7 +429,7 @@ func monotone(list []*irStmt, cur *irPos) {
 	}
 	for _, s := range list {
 		switch s.K {
-		case "switch", "tswitch":
+		case "switch", "tswitch", "match":
 			up(&s.Pos)
 			for _, c := range s.Cases {
 				up(&c.Pos)

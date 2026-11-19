@@ -1,0 +1,181 @@
+{
+  "about": "Mutants of the terminal cell host (T1 and NS6, wf10/dod/NS6). Killers are the examples suite (examples:cells: the laws of grid, host and scenes, and the CLI cases); each rule names the law or case that kills it.",
+  "mutants": [
+    {
+      "name": "t1-diff-skips-line-end",
+      "origin": "wf10/dod/NS6",
+      "file": "examples/cells/grid/frame.ergo",
+      "from": "\t\tfor c in 0..next.Cols {\n",
+      "to": "\t\tfor c in 0..next.Cols-1 {\n",
+      "rule": "DiffReplaysToGrid: a frame writes a changed cell at a row's end too (T1's mutant: a cell skipped at a line end).",
+      "anchor": {"tests": ["examples:cells"]},
+      "killers": ["examples:cells"]
+    },
+    {
+      "name": "t1-frame-writes-through",
+      "origin": "wf10/dod/NS6",
+      "file": "examples/cells/grid/frame.ergo",
+      "from": "\t\t\tif cell == At(was, c, r) {\n",
+      "to": "\t\t\tif cell == At(was, c, r) && at != c {\n",
+      "rule": "FrameWritesTheChanges and PatchWritesItsChange (the counted guard): a frame writes only the cells that changed, not the unchanged cells after a run.",
+      "anchor": {"tests": ["examples:cells"]},
+      "killers": ["examples:cells"]
+    },
+    {
+      "name": "t1-frame-marks-per-run",
+      "origin": "wf10/dod/NS6",
+      "file": "examples/cells/grid/frame.ergo",
+      "from": "\t\t\t\tstrings.WriteString(&out, moveTo(c, r))\n",
+      "to": "\t\t\t\tstrings.WriteString(&out, End+Begin+moveTo(c, r))\n",
+      "rule": "FrameIsOneUpdate: a frame is one synchronized update, not one per run of cells.",
+      "anchor": {"tests": ["examples:cells"]},
+      "killers": ["examples:cells"]
+    },
+    {
+      "name": "ns6-draw-rounds-down",
+      "origin": "wf10/dod/NS6",
+      "file": "examples/cells/host/host.ergo",
+      "from": "\tlet at = Span(b)\n",
+      "to": "\tlet at = Rect{C: floor(b.X / CellW), R: floor(b.Y / CellH), W: cellOf(b.X+b.W, CellW) - floor(b.X/CellW), H: cellOf(b.Y+b.H, CellH) - floor(b.Y/CellH)}\n",
+      "rule": "HitMatchesDraw (NS6 item 2's mutant): drawing rounds a box down while hit testing rounds to the nearest grid line; the cell a control is drawn in no longer hits it.",
+      "anchor": {"tests": ["examples:cells"]},
+      "killers": ["examples:cells"]
+    },
+    {
+      "name": "ns6-pressable-name-blank",
+      "origin": "wf10/dod/NS6",
+      "file": "examples/cells/host/host.ergo",
+      "from": "\t\t\td = named(g, x.Label, at.C+1, mid, d, pen)\n",
+      "to": "\t\t\td = named(g, strings.Slice(x.Label, 0, 0), at.C+1, mid, d, pen)\n",
+      "rule": "CellsShowEveryName (NS6 item 1's mutant): a Pressable with only a Canvas (or nothing) inside is drawn as empty cells instead of its name.",
+      "anchor": {"tests": ["examples:cells"]},
+      "killers": ["examples:cells"]
+    },
+    {
+      "name": "ns6-flush-per-op",
+      "origin": "wf10/dod/NS6",
+      "file": "examples/cells/host/host.ergo",
+      "from": "\tfor op in ops {\n\t\tapply(h, op)\n\t}\n",
+      "to": "\tfor op in ops {\n\t\tapply(h, op)\n\t\tdraw(h)\n\t}\n",
+      "rule": "PatchIsOneFrame (NS6 item 3's mutant): a frame after each op of a patch; the fake terminal's log holds more frames than patches.",
+      "anchor": {"tests": ["examples:cells"]},
+      "killers": ["examples:cells"]
+    },
+    {
+      "name": "ns6-check-mark-lost",
+      "origin": "wf10/dod/NS6",
+      "file": "examples/cells/host/look.ergo",
+      "from": "Checked: \"[x] \"",
+      "to": "Checked: \"[ ] \"",
+      "rule": "The marks table: a checked Check shows [x] (case counter-play).",
+      "anchor": {"tests": ["examples:cells"]},
+      "killers": ["examples:cells"]
+    },
+    {
+      "name": "ns6-tap-only-focuses",
+      "origin": "wf10/dod/NS6",
+      "file": "examples/cells/host/input.ergo",
+      "from": "\t\t\t\th.focus = Some{Value: id.Value}\n\t\t\t\tredraw(h)\n",
+      "to": "\t\t\t\th.focus = Some{Value: id.Value}\n\t\t\t\tredraw(h)\n\t\t\t\treturn\n",
+      "rule": "CounterAgrees and TodoAgrees: a tap on a control that takes the focus also presses it, as on the test host.",
+      "anchor": {"tests": ["examples:cells"]},
+      "killers": ["examples:cells"]
+    },
+    {
+      "name": "ns4-expanded-mark-lost",
+      "origin": "wf10/dod/NS6 (NS4 mapping)",
+      "file": "examples/cells/host/look.ergo",
+      "from": "out = out + if e.Value { m.Expanded } else { m.Collapsed }",
+      "to": "out = out + if e.Value { \"\" } else { \"\" }",
+      "rule": "CellsShowEveryName: a Semantic node's declared Expanded state shows its mark (▾ or ▸).",
+      "anchor": {
+        "tests": [
+          "examples:cells"
+        ]
+      },
+      "killers": [
+        "examples:cells"
+      ]
+    },
+    {
+      "name": "ns4-popup-mark-lost",
+      "origin": "wf10/dod/NS6 (NS4 mapping)",
+      "file": "examples/cells/host/look.ergo",
+      "from": "\tif a.HasPopup {\n\t\tout = out + m.Popup\n",
+      "to": "\tif false {\n\t\tout = out + m.Popup\n",
+      "rule": "CellsShowEveryName: a Semantic node that has a popup shows its mark.",
+      "anchor": {
+        "tests": [
+          "examples:cells"
+        ]
+      },
+      "killers": [
+        "examples:cells"
+      ]
+    },
+    {
+      "name": "ns4-semantic-press-lost",
+      "origin": "wf10/dod/NS6 (NS4 mapping)",
+      "file": "examples/cells/host/look.ergo",
+      "from": "\t\tdeclaresPress(x.On)\n\tcase ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.InputNode",
+      "to": "\t\tdeclaresPress(x.On) && false\n\tcase ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.InputNode",
+      "rule": "HitMatchesDraw: a tap on an enabled Semantic node that declares a press sends its signal.",
+      "anchor": {
+        "tests": [
+          "examples:cells"
+        ]
+      },
+      "killers": [
+        "examples:cells"
+      ]
+    },
+    {
+      "name": "ns4-zone-targeted",
+      "origin": "wf10/dod/NS6 (NS4 mapping)",
+      "file": "examples/cells/host/look.ergo",
+      "from": "\tcase ui.ScrollNode, ui.RowsNode, ui.ZoneNode:\n\t\tfalse",
+      "to": "\tcase ui.ScrollNode, ui.RowsNode:\n\t\tfalse\n\tcase ui.ZoneNode:\n\t\ttrue",
+      "rule": "HitMatchesDraw: the hit test names a zone's Area, not the zone, so a tap on a zone reaches the Area.",
+      "anchor": {
+        "tests": [
+          "examples:cells"
+        ]
+      },
+      "killers": [
+        "examples:cells"
+      ]
+    },
+    {
+      "name": "ns4-zone-over-none",
+      "origin": "wf10/dod/NS6 (NS4 mapping)",
+      "file": "examples/cells/host/input.ergo",
+      "from": "\ttopZone(h, area, func(b layout.Box) bool { holds(Span(b), c, r) })",
+      "to": "\tNone",
+      "rule": "HitMatchesDraw: a tap on an Area names the zone drawn in the tapped cell (Point.Over), so the Area's zone event comes.",
+      "anchor": {
+        "tests": [
+          "examples:cells"
+        ]
+      },
+      "killers": [
+        "examples:cells"
+      ]
+    },
+    {
+      "name": "ugb22-field-by-placeholder",
+      "origin": "wf10 UG-B22",
+      "file": "examples/cells/host/look.ergo",
+      "from": "Some{Value: if x.Label != \"\" { x.Label } else { x.Placeholder }}",
+      "to": "Some{Value: x.Placeholder}",
+      "rule": "A script names a labelled field by its label, as ui.Find does (law TodoAgrees; case todo-play).",
+      "anchor": {
+        "tests": [
+          "examples:cells"
+        ]
+      },
+      "killers": [
+        "examples:cells"
+      ]
+    }
+  ]
+}
