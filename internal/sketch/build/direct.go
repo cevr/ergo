@@ -225,11 +225,8 @@ func (d *direct) build() error {
 	// with the host's release tags to learn the standard imports the plan
 	// lists, and again with the plan's, which decide the build.
 	guess := planFile{GOOS: d.goos(), GOARCH: d.goarch(), Version: "go1." + strconv.Itoa(hostMinor())}
-	switch guess.GOARCH {
-	case "amd64":
-		guess.LevelKey, guess.LevelValue = "GOAMD64", cmp.Or(os.Getenv("GOAMD64"), "v1")
-	case "arm64":
-		guess.LevelKey, guess.LevelValue = "GOARM64", cmp.Or(os.Getenv("GOARM64"), "v8.0")
+	if v := LevelVariable(guess.GOARCH); v != "" {
+		guess.LevelKey, guess.LevelValue = v, cmp.Or(d.t.Level, os.Getenv(v), DefaultLevel(guess.GOARCH))
 	}
 	tg, err := d.scan(guess)
 	if err != nil {

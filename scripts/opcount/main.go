@@ -976,7 +976,8 @@ func commit() string {
 }
 
 func host() opcount.Host {
-	h := opcount.Host{OS: runtime.GOOS, Arch: runtime.GOARCH, CPUs: runtime.NumCPU(), GoVersion: runtime.Version(), Counter: "user instructions", SamplePeriod: opcount.Period()}
+	h := opcount.Host{OS: runtime.GOOS, Arch: runtime.GOARCH, CPUs: runtime.NumCPU(), GoVersion: runtime.Version(), Counter: "user instructions",
+		SamplePeriod: opcount.Period(), Level: build.Toolchain{GOARCH: runtime.GOARCH}.TargetLevel()}
 	if out, err := exec.Command("go", "env", "GOVERSION").Output(); err == nil {
 		h.GoVersion = strings.TrimSpace(string(out))
 	}

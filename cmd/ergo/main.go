@@ -204,6 +204,11 @@ type fileOptions struct {
 	args []string
 	// platform is the GOOS/GOARCH the command checks for (platformOf).
 	platform gobind.Platform
+	// level is build's CPU level, the third part of --platform
+	// OS/ARCH/LEVEL (linux/amd64/v3, darwin/arm64/v8.2): GOAMD64 or
+	// GOARM64 of the build (build.Toolchain.Level); empty is the
+	// environment's, else Go's default.
+	level string
 	// phone is the phone platform a build is for (gobind.Phones), whose
 	// bindings are platform's; zero for any other platform. A phone build
 	// writes the module and stops before the link (buildPhone).
@@ -491,6 +496,9 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		opts.more = positional[1:]
 	}
 	var err error
+	if platformed {
+		platform, opts.level = cutLevel(platform)
+	}
 	if opts.platform, opts.phone, err = targetPlatforms(platform, platformed, os.Getenv("GOOS"), os.Getenv("GOARCH")); err != nil {
 		return opts, err
 	}
@@ -498,6 +506,13 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		// A phone program is a library its packager links; nothing here
 		// can run it.
 		return opts, fmt.Errorf("%s does not run a program for %s, a phone platform; ergo build writes its module", command, opts.phone)
+	}
+	if opts.phone != (gobind.Platform{}) && opts.level != "" {
+		// The packager links a phone module for the phone's own levels.
+		return opts, fmt.Errorf("--platform: %s is a phone platform and takes no CPU level; drop /%s", opts.phone, opts.level)
+	}
+	if err := checkLevel(opts.platform.GOARCH, opts.level); err != nil {
+		return opts, err
 	}
 	opts.file = positional[0]
 	opts.uncached = counted
