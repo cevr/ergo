@@ -143,7 +143,9 @@ func formView(f *ui.Frame[formEvent], s form) {
 		let bold = ui.NewFlag(f, false)
 		ui.Toggle(f, bold, "bold")
 		let note = ui.NewDraft(f, "")
-		ui.Field(f, note, "note")
+		// A phone shows the note's field an email keyboard and a Send key
+		// (MB5).
+		ui.HintedField(f, ui.FieldLabel{Text: "", Description: "", Invalid: false}, ui.Hints{Keyboard: ui.EmailKeys, Return: ui.ReturnSend, Capitalize: ui.CapNone, Autocorrect: false}, note, "note")
 		ui.Pressable(f, "send", Sent) {
 			ui.Text(f, "Send \(s.sent)")
 		}

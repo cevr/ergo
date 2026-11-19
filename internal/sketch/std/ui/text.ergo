@@ -285,3 +285,87 @@ func Read(c MemoryClipboard) string { c.text.Get() }
 
 // Write replaces the text.
 func Write(c MemoryClipboard, text string) { c.text.Set(text) }
+
+// Hints are what a text field tells a phone's keyboard (MB5): which keys
+// it shows, what its return key says, what it capitalises and whether it
+// corrects words. A desktop shows its keyboard whatever they say; a
+// password field's text is not read back by the keyboard's suggestions.
+type Hints { Keyboard Keyboard, Return ReturnKey, Capitalize Capitalize, Autocorrect bool }
+
+// PlainHints are a field's hints when it states none: text keys, a return
+// key that says Done, sentences capitalised, words corrected.
+let PlainHints = Hints{Keyboard: TextKeys, Return: ReturnDone, Capitalize: CapSentences, Autocorrect: true}
+
+// Keyboard is the keys a field asks for, as HTML's inputmode and input
+// types name them.
+type Keyboard = TextKeys | EmailKeys | NumberKeys | PhoneKeys | URLKeys | PasswordKeys
+
+// TextKeys are a keyboard's letters.
+type TextKeys {}
+
+// EmailKeys are letters with @ and . at hand.
+type EmailKeys {}
+
+// NumberKeys are digits, a decimal point and a sign.
+type NumberKeys {}
+
+// PhoneKeys are a phone's dial pad.
+type PhoneKeys {}
+
+// URLKeys are letters with / and . at hand.
+type URLKeys {}
+
+// PasswordKeys are letters with no suggestions and the text hidden.
+type PasswordKeys {}
+
+// ReturnKey is what a field's return key says, as HTML's enterkeyhint
+// names it.
+type ReturnKey = ReturnDone | ReturnNext | ReturnSearch | ReturnSend
+
+// ReturnDone ends the editing.
+type ReturnDone {}
+
+// ReturnNext goes to the next field.
+type ReturnNext {}
+
+// ReturnSearch searches for the text.
+type ReturnSearch {}
+
+// ReturnSend sends the text.
+type ReturnSend {}
+
+// Capitalize is what the keyboard capitalises, as HTML's autocapitalize
+// names it.
+type Capitalize = CapNone | CapWords | CapSentences | CapAll
+
+// CapNone capitalises nothing.
+type CapNone {}
+
+// CapWords capitalises each word's first letter.
+type CapWords {}
+
+// CapSentences capitalises each sentence's first letter.
+type CapSentences {}
+
+// CapAll capitalises every letter.
+type CapAll {}
+
+// KeyboardName is k as HTML's inputmode or input type names it: "text",
+// "email", "numeric", "tel", "url" or "password". A host hands it to
+// the platform's text input.
+func KeyboardName(k Keyboard) string {
+	match k {
+	case TextKeys:
+		"text"
+	case EmailKeys:
+		"email"
+	case NumberKeys:
+		"numeric"
+	case PhoneKeys:
+		"tel"
+	case URLKeys:
+		"url"
+	case PasswordKeys:
+		"password"
+	}
+}

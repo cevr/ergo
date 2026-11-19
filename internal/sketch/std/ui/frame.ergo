@@ -614,7 +614,7 @@ func Check[E](f *Frame[E], label string, checked bool, on E, at CallSite) {
 // Input shows a text field with value; a text the host takes in it sends
 // onText(text). The program owns the value (in its machine state).
 func Input[E](f *Frame[E], value string, placeholder string, onText own func(t string) E, at CallSite) {
-	let _ = put(f, InputNode{Value: value, Placeholder: placeholder, Label: "", Description: "", Invalid: false}, Some{Value: onText}, None, at)
+	let _ = put(f, InputNode{Value: value, Placeholder: placeholder, Label: "", Description: "", Invalid: false, Hints: PlainHints}, Some{Value: onText}, None, at)
 }
 
 // FieldLabel is what a labelled Input says of itself (FK3-g5, FK5-g3), as
@@ -629,7 +629,14 @@ type FieldLabel { Text string, Description string, Invalid bool }
 // LabelledInput is an Input that says what it is (FieldLabel): a locator
 // finds it by its label (WithLabel) and a script names it by it.
 func LabelledInput[E](f *Frame[E], label FieldLabel, value string, placeholder string, onText own func(t string) E, at CallSite) {
-	let _ = put(f, InputNode{Value: value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid}, Some{Value: onText}, None, at)
+	let _ = put(f, InputNode{Value: value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid, Hints: PlainHints}, Some{Value: onText}, None, at)
+}
+
+// HintedInput is a LabelledInput that tells a phone's keyboard what it
+// takes (Hints, MB5): an email field asks for EmailKeys, a search field
+// for ReturnSearch.
+func HintedInput[E](f *Frame[E], label FieldLabel, hints Hints, value string, placeholder string, onText own func(t string) E, at CallSite) {
+	let _ = put(f, InputNode{Value: value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid, Hints: hints}, Some{Value: onText}, None, at)
 }
 
 // Each writes row(x) for each x of xs. The nodes a row writes take the

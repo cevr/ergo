@@ -57,13 +57,17 @@ const (
 	Frame
 	// Woken: Wake was called; the program has work of its own queued.
 	Woken
+	// Edited: an input method committed an edit of the focused field,
+	// whose committed text is now Text (textclient.go, MB5).
+	Edited
 )
 
 // Input is one event of the window, in device-independent pixels from
 // the content's top left corner. At is its time in nanoseconds since the
 // window opened, on a frame and on a pointer's Down, Move and Up (a
 // finger's scroll is about when it moved, MB4); Finger is whether a
-// finger on a touchscreen made a pointer input. MyGo's surface at this
+// finger on a touchscreen made a pointer input; Edit numbers an Edited
+// input, from 1. MyGo's surface at this
 // pin names no pointer id, so two fingers are not told apart here yet.
 type Input struct {
 	Kind                   int
@@ -73,6 +77,7 @@ type Input struct {
 	Width, Height          float64
 	At                     int64
 	Finger                 bool
+	Edit                   int
 }
 
 // The roles of Access.
@@ -99,29 +104,13 @@ type Window struct {
 	access  []platform.AccessNode
 	focus   uint64
 	field   platform.TextInputState
-
-	// The strokes of the list being made and of the shown one (a stroke's
-	// op is a placeholder that draw turns into its mask) and their points
-	// (each list's arena, which its strokes index), the one StrokeBegin
-	// opened (inStroke), how many masks draw rasterized, and how many
-	// strokes it drew as Lines since the atlas left their mask out.
-	strokes, shownStrokes, refStrokes []stroke
-	pts, shownPts, refPts             []float32
-	drawing                           stroke
-	inStroke                          bool
-	// published is the accessibility tree last given the surface, and
-	// publishedFocus its focus; pix, q and disc rasterize's buffers.
-	published      []platform.AccessNode
-	publishedFocus uint64
-	pix            []byte
-	q              []float32
-	disc           [][2]float32
-	masks, lined   int
-	// vw and vh are the frame being built's size in device pixels.
-	vw, vh float32
 	z      vec.Rasterizer
 	frames bool
 	start  time.Time
+	// doc is the focused field's document as the input methods see it,
+	// and keyboard the keyboard the field asked for (textclient.go).
+	doc      document
+	keyboard string
 	// manual is the time a Headless window's clock reads once SetClock
 	// set it, -1 while it reads the wall clock.
 	manual  int64
@@ -394,15 +383,19 @@ func chordName(k platform.Key) string {
 // push queues an input for Next and wakes it.
 func (w *Window) push(in Input) {
 	w.mu.Lock()
+	w.queue(in)
+	w.mu.Unlock()
+}
+
+// queue queues an input for Next and wakes it; w.mu is held.
+func (w *Window) queue(in Input) {
 	if w.closed {
-		w.mu.Unlock()
 		return
 	}
 	if in.Kind == Closed {
 		w.closed = true
 	}
 	w.inputs = append(w.inputs, in)
-	w.mu.Unlock()
 	select {
 	case w.wake <- struct{}{}:
 	default:
@@ -479,7 +472,7 @@ func (w *Window) Begin() {
 func (w *Window) begin() {
 	w.pending, w.glyphs, w.clips, w.access = w.pending[:0], w.glyphs[:0], 0, w.access[:0]
 	w.strokes, w.pts, w.inStroke = w.strokes[:0], w.pts[:0], false
-	w.focus, w.field = 0, platform.TextInputState{}
+	w.focus, w.field, w.keyboard = 0, platform.TextInputState{}, ""
 	w.opacity = 1
 	clear(w.segs)
 	w.open = w.open[:0]
@@ -807,11 +800,19 @@ func (w *Window) Access(id int, parent int, role int, label string, value string
 }
 
 // Editing tells the input methods that a text field has the keyboard:
-// its text, and its caret's box. Begin ends it.
-func (w *Window) Editing(value string, x, y, width, height float64) {
-	n := len([]rune(value))
+// its value, the keyboard it asks for (ui's Keyboard: "text", "email",
+// "number", "phone", "url" or "password"; MyGo's surface at this pin
+// takes no kind, so the window only keeps it), and its caret's box. The
+// input methods edit the window's document of the field (textclient.go),
+// which value reconciles once the program took the Edited inputs up to
+// number taken (0: none). Begin ends it.
+func (w *Window) Editing(value, keyboard string, taken int, x, y, width, height float64) {
 	w.mu.Lock()
-	w.field = platform.TextInputState{Active: true, Caret: platform.RectF{X: x, Y: y, W: width, H: height}, Text: value, Start: n, End: n}
+	w.keyboard = keyboard
+	w.reconcile(value, taken)
+	d := &w.doc
+	d.caret = platform.RectF{X: x, Y: y, W: width, H: height}
+	w.field = platform.TextInputState{Active: true, Caret: d.caret, Text: d.text, Start: runeIndex(d.text, d.sel.Range.Start), End: runeIndex(d.text, d.sel.Range.End), Client: textClient{w}}
 	w.mu.Unlock()
 }
 
@@ -833,6 +834,10 @@ func (w *Window) Present() {
 	w.painted++
 	w.turnLayouts()
 	field := w.field
+	if !field.Active {
+		// No field has the keyboard: its document is gone.
+		w.doc = document{}
+	}
 	w.publishAccess(false)
 	w.mu.Unlock()
 	if w.conn != nil {

@@ -99,6 +99,8 @@ type Driver[S, E, D, F] {
 	insets ui.Insets,
 	// fingerAt is the window clock a finger script last set (FingerScroll).
 	fingerAt int64,
+	// edited is the number of the last Edited input taken (text.ergo, MB5).
+	edited int,
 }
 
 // held is a node of the window's tree and its children, in order.
@@ -181,6 +183,7 @@ func start[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D
 		look:      ui.AndroidTouch(),
 		insets:    ui.NoInsets,
 		fingerAt:  int64(0),
+		edited:    0,
 	}
 	learn(&d.metrics, w, "", textSize)
 	d.nodes[root] = held[E]{node: ui.BoxNode{Style: ui.Plain()}, kids: []ui.Id[E]{}}
@@ -471,6 +474,8 @@ func Feed[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fail
 		try key(d, ui.KeyPress{Name: input.Key, Mods: mods})
 	} else if input.Kind == screen.Text {
 		try typed(d, input.Text, mods)
+	} else if input.Kind == screen.Edited {
+		try edited(d, input.Edit, input.Text)
 	} else if input.Kind == screen.Resize {
 		d.width = float32(input.Width)
 		d.height = float32(input.Height)

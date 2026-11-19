@@ -693,7 +693,7 @@ func drawNode[S, E, D, F](d *Driver[S, E, D, F], id ui.Id[E], laid layout.Box, b
 		access(d, id, screen.RoleField, fieldName(x), x.Value, b, false, focus)
 		if focus {
 			let caret = fmin(width(d.metrics, x.Value, textSize), inner.W)
-			d.w.Editing(x.Value, float64(inner.X+caret), float64(inner.Y), 1, float64(line))
+			d.w.Editing(x.Value, ui.KeyboardName(x.Hints.Keyboard), d.edited, float64(inner.X+caret), float64(inner.Y), 1, float64(line))
 			fill(d, layout.Box{X: inner.X + caret, Y: inner.Y, W: 1, H: line}, 0, ink)
 		}
 	}
