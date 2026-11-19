@@ -186,6 +186,11 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		// the program lowers to, by its Go name; an extern that binds the
 		// Ergo runtime calls its runtime/v1 body (ir_pkg.go), whichever
 		// package declares it (SP4: no std read).
+		if g := b.fc.uiGroup(x, c); g != nil {
+			// A component call goes through its frame's group, as the
+			// emitter's does (ir_uigroup.go).
+			return b.groupCall(x, c, g, p)
+		}
 		// A prelude intrinsic (Append) is a Go function of main.go that
 		// the lowering writes (decls.go intrinsic): a call like a user
 		// function's.

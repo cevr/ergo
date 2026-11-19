@@ -52,6 +52,9 @@ func irString(s string) string {
 // statements: an if expression inside an operand keeps its source body,
 // since hoisting it would move it before the operands to its left.
 func (b *irBuilder) value(x syntax.Expr) ([]*irStmt, *irExpr) {
+	if i, ok := b.preset[x]; ok {
+		return nil, &irExpr{K: "local", Pos: b.pos(x, x.Pos()), I: i} // evaluated once already (ir_uigroup.go)
+	}
 	// The statements its operands run first come first (ir_order.go).
 	return b.collect(func() ([]*irStmt, *irExpr) { return b.valueOf(x) })
 }
@@ -146,6 +149,9 @@ func (b *irBuilder) operator(op string, t check.Type, site syntax.Node) {
 
 // expr is x after its implicit conversion (implicit, ir_union.go).
 func (b *irBuilder) expr(x syntax.Expr) *irExpr {
+	if i, ok := b.preset[x]; ok {
+		return &irExpr{K: "local", Pos: b.pos(x, x.Pos()), I: i} // evaluated once already (ir_uigroup.go)
+	}
 	return b.implicit(x, b.valueCopy(x, b.foldConst(x, b.exprOf(x)))) // ir_constfold.go // ir_copy.go
 }
 
