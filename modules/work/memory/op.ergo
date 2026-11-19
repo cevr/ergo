@@ -43,14 +43,318 @@ func small(n int, limit int) int { ((n % limit) + limit) % limit }
 // let theBase is the base the property clones; otherBase is a second
 // base on the same disk, with a workspace in its trash.
 let theBase = "/w/base"
-let otherBase = "/w/other"
-
 // World is a Tool over memory providers and the handles the driver uses.
 type World { tool work.Tool, trees Cloner, vcs Vcs, registry work.Registry, clock time.Manual, disk fstest.Memory, hooks Hooks, lock Lock, runner Runner }
 
 // world is a fresh World: the base committed as c0, initialized; the
 // sharing Cloner refuses every clone when sharing is false.
 func world(sharing bool) World { worldWith(sharing, Map[string, string]{}, "", "") }
+
+// RemovingIsIdempotent: rm -expect of a workspace's id trashes it; the
+// retry answers AlreadyRemoved, and so does a retry after gc purged it
+// (its tomb), and the retries change no record.
+law RemovingIsIdempotent(name int) {
+	let w = world(true)
+	let n = pick(name)
+	let a = w.tool.New(n, fresh(false)) catch {
+	case _:
+		return false
+	}
+	let first = w.tool.Rm(n, expecting(some(a.Id))) catch {
+	case _:
+		return false
+	}
+	let again = []work.Removed{work.Removed{Name: n, Id: a.Id, Trash: "", Already: true}}
+	let second = w.tool.Rm(n, expecting(some(a.Id))) catch {
+	case _:
+		return false
+	}
+	let listed = w.tool.List() catch {
+	case _:
+		return false
+	}
+	let _ = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: some(a.Id), Archive: false}) catch {
+	case _:
+		return false
+	}
+	let third = w.tool.Rm(n, expecting(some(a.Id))) catch {
+	case _:
+		return false
+	}
+	let purged = w.tool.List() catch {
+	case _:
+		return false
+	}
+	len(first) == 1 && first[0].Id == a.Id && !first[0].Already && second == again && third == again && len(listed) == 1 && len(purged) == 0
+}
+
+// expecting are rm's options with the expected id and -abandon.
+func expecting(id Option[string]) work.RmOptions { work.RmOptions{Abandon: true, Expect: id, Tree: false} }
+
+// RemovingSparesTheReplacement: after the workspace at a name was removed
+// and purged (the name is taken until gc) and a new one took the name,
+// rm -expect of the first id answers already and leaves the new one.
+law RemovingSparesTheReplacement() {
+	let w = world(true)
+	let first = w.tool.New("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let _ = w.tool.Rm("a", expecting(None)) catch {
+	case _:
+		return false
+	}
+	let _ = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false}) catch {
+	case _:
+		return false
+	}
+	let second = w.tool.New("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let answer = w.tool.Rm("a", expecting(some(first.Id))) catch {
+	case _:
+		return false
+	}
+	answer == []work.Removed{work.Removed{Name: "a", Id: first.Id, Trash: "", Already: true}} && w.trees.Has(second.Path) && second.Id != first.Id
+}
+
+// ReservingWithATokenTwiceIsOnce: a second new with the token of the
+// first, under any name, answers the workspace the first made and makes
+// no second record.
+law ReservingWithATokenTwiceIsOnce(token string, again int) {
+	if token == "" {
+		return true
+	}
+	let w = world(true)
+	let o = work.NewOptions{..fresh(false), Token: some(token)}
+	let first = w.tool.New("a", o) catch {
+	case _:
+		return false
+	}
+	let second = w.tool.New(pick(again), o) catch {
+	case _:
+		return false
+	}
+	let after = w.tool.List() catch {
+	case _:
+		return false
+	}
+	second.Id == first.Id && second.Path == first.Path && second.Name == "a" && len(after) == 1
+}
+
+// PurgingTouchesOneEntry: gc -id purges that entry only: its record goes
+// (its tomb stays), and every other record and tree stays.
+law PurgingTouchesOneEntry() {
+	let w = world(true)
+	let a = w.tool.New("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let _ = w.tool.New("b", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let _ = w.tool.Rm("a", expecting(None)) catch {
+	case _:
+		return false
+	}
+	let gone = w.tool.Rm("b", expecting(None)) catch {
+	case _:
+		return false
+	}
+	let before = w.tool.List() catch {
+	case _:
+		return false
+	}
+	let purged = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: some(a.Id), Archive: false}) catch {
+	case _:
+		return false
+	}
+	let after = w.tool.List() catch {
+	case _:
+		return false
+	}
+	let tombs = w.registry.Tombs() catch {
+	case work.Unkept:
+		return false
+	}
+	purged.Purged == []string{"a"} && after == slices.Filter(before, func(x work.Workspace) bool { x.Name != "a" }) && w.trees.Has(gone[0].Trash) && slices.IndexFunc(tombs, func(t work.Tomb) bool { t.Id == a.Id }) >= 0
+}
+
+// ClaimReadsTheParentAgain: a new -on x that looked at x and read its
+// branch, and then lost x to an rm (and, when replaced, to a gc and a new
+// x at the same folder), claims nothing: its claim under the lock is
+// NoWorkspace, and no reservation names the x it looked at (rift#56).
+law ClaimReadsTheParentAgain(replaced bool) {
+	let w = world(true)
+	let x = w.tool.New("x", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let o = on("x")
+	let looked = match (w.tool.Look("y", o) catch {
+	case _:
+		return false
+	}) {
+	case work.Making as m:
+		m
+	case work.Created:
+		return false
+	}
+	let begun = w.tool.Begin(looked, o) catch {
+	case _:
+		return false
+	}
+	let _ = w.tool.Rm("x", expecting(None)) catch {
+	case _:
+		return false
+	}
+	if replaced {
+		let _ = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false}) catch {
+		case _:
+			return false
+		}
+		let again = w.tool.New("x", fresh(false)) catch {
+		case _:
+			return false
+		}
+		if again.Path != x.Path || again.Id == x.Id {
+			return false
+		}
+	}
+	let _ = w.tool.Claim(begun, o.On) catch {
+	case work.NoWorkspace as n:
+		let all = w.tool.List() catch {
+		case _:
+			return false
+		}
+		return n.Name == "x" && slices.IndexFunc(all, func(r work.Workspace) bool { r.Name == "y" }) < 0
+	case _:
+		return false
+	}
+	false
+}
+
+// ParityWithLaneRift: a lane made as lane-rift.sh create makes it (a
+// clone and a branch at the base's head) and a workspace ergo work new
+// makes, driven by the same verbs, leave the base's two branches at the
+// same files, each at its side's head after a hand-back, and agree on
+// which verbs succeed.
+law ParityWithLaneRift(verbs []Verb) {
+	let w = world(true)
+	let lane = "/w/lane"
+	let start = Head(w.vcs, theBase) catch {
+	case work.VcsFailed:
+		return false
+	}
+	w.trees.Clone(theBase, lane) catch {
+	case _:
+		return false
+	}
+	w.vcs.Start(lane, "lane", start) catch {
+	case work.VcsFailed:
+		return false
+	}
+	let made = w.tool.New("work", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let path = made.Path
+	let mut n = 0
+	for verb in verbs {
+		n = n + 1
+		match verb {
+		case Change:
+			let both = Write(w.trees, lane, "f.txt", "\(n)\n") && Commit(w.vcs, lane, "l\(n)") && Write(w.trees, path, "f.txt", "\(n)\n") && Commit(w.vcs, path, "w\(n)")
+			if !both {
+				return false
+			}
+		case Hand:
+			let mut pushed = true
+			Push(w.vcs, lane, theBase, []work.Pushed{work.Pushed{From: "HEAD", To: "refs/heads/lane", Force: false}}) catch {
+			case work.NotFastForward, work.VcsFailed:
+				pushed = false
+			}
+			let mut handed = true
+			let _ = w.tool.Ready(work.ReadyOptions{Name: Some[string]{Value: "work"}}) catch {
+			case _:
+				handed = false
+				work.Handed{Name: "", Branch: "", Commit: "", Snapshot: "", Parent: ""}
+			}
+			if pushed != handed || !atHead(w, lane, "lane") || !atHead(w, path, "work") {
+				return false
+			}
+		case Advance:
+			let _ = Write(w.trees, theBase, "main.ergo", "// main \(n)\n") && Commit(w.vcs, theBase, "b\(n)")
+		case Follow:
+			let mut merged = true
+			let _ = Merge(w.vcs, lane, theBase, "main") catch {
+			case work.Conflicted, work.VcsFailed:
+				merged = false
+				""
+			}
+			let mut synced = true
+			let _ = w.tool.Sync(work.SyncOptions{Name: Some[string]{Value: "work"}}) catch {
+			case _:
+				synced = false
+				work.Synced{Commit: "", Deps: work.NoDeps}
+			}
+			if merged != synced {
+				return false
+			}
+		}
+		if !sameBranches(w, "lane", "work") {
+			return false
+		}
+	}
+	true
+}
+
+// Verb is one step of ParityWithLaneRift on both sides: a committed
+// change, a hand-back (lane-rift.sh push; ergo work ready), a commit on
+// the base's main, and a merge of main (git fetch and merge; ergo work
+// sync).
+type Verb = Change{} | Hand{} | Advance{} | Follow{}
+
+// atHead reports whether the base's branch is the head of the checkout at
+// root, once the branch was handed back.
+func atHead(w World, root string, branch string) bool {
+	let held = Ref(w.vcs, theBase, "refs/heads/"+branch) catch {
+	case work.VcsFailed:
+		return false
+	}
+	let head = Head(w.vcs, root) catch {
+	case work.VcsFailed:
+		return false
+	}
+	held == "" || held == head
+}
+
+// sameBranches reports whether the base's two branches are both absent,
+// or both hold the same files.
+func sameBranches(w World, one string, two string) bool {
+	let a = Ref(w.vcs, theBase, "refs/heads/"+one) catch {
+	case work.VcsFailed:
+		return false
+	}
+	let b = Ref(w.vcs, theBase, "refs/heads/"+two) catch {
+	case work.VcsFailed:
+		return false
+	}
+	if a == "" || b == "" {
+		return a == b
+	}
+	let x = treeOf(w.vcs, theBase, a) catch {
+	case work.VcsFailed:
+		return false
+	}
+	let y = treeOf(w.vcs, theBase, b) catch {
+	case work.VcsFailed:
+		return false
+	}
+	x == y
+}
 
 // worldWith is a fresh World whose base also holds the files tree (each
 // committed), installed packages (node_modules, untracked and not
