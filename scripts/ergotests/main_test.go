@@ -35,7 +35,7 @@ func TestErgoTestsJudgeEachObligation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("a/a.ergo", "func twice(n int) int { n + n }\n\n"+
+	write("a/a.ergo", "extern go strings.ToUpper func upper(s string) string\n\nfunc twice(n int) int { n + n }\n\n"+
 		"test Good {\n\tassert twice(2) == 4\n}\n\ntest Bad {\n\tassert twice(2) == 5\n}\n\n"+
 		"test Skips {\n\tskip \"not on this host\"\n}\n\nlaw Doubles(n int) { twice(n) - n == n }\n\nlaw Shouts(s string) { upper(s) == upper(s) }\n")
 	write("a/b/b.ergo", "test Nested {\n\tassert 1 + 1 == 2\n}\n")
