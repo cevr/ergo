@@ -4,7 +4,7 @@ import (
 	"slices"
 	"sort"
 
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -376,11 +376,37 @@ func (c *checker) planLaws() {
 		// constructor builds one per side from the case's arguments.
 		for _, b := range r.Bindings {
 			if b[0].Ctor == nil && b[0].Unrun == "" && !b[0].Value {
-				b[0].Unrun = "a rewrite law runs each side on a fresh provider, and only a constructor func New" + b[0].Type.Obj.Name + "(…) " + b[0].Type.Obj.Name + " builds one"
+				b[0].Unrun = "a rewrite law runs each side on a fresh provider, and only a constructor func " + syntax.ConstructorName(b[0].Type.Obj.Name) + "(…) " + b[0].Type.Obj.Name + " builds one"
 			}
 		}
 		// A run under a named context is planned later (lawContext).
 	}
+}
+
+// pairUngeneratable is why the round-trip law of a by-name pair over t
+// does not run, or "" (types.md, Codecs 7; GX11). The law draws x from t's
+// own generator: the values t's package makes, by its constructor New<T>,
+// or any value of a record or union that every package may build field by
+// field. A generator that only t's own authority makes, a record of an
+// unexported field built field by field or a defined type over a basic
+// type drawn as its base, makes values t's ParseX may refuse, so it is not
+// t's own: the law does not run, and the test build reports why, rather
+// than draw the base type, whose values ParseX almost never reads.
+func (c *checker) pairUngeneratable(t Type) string {
+	n, ok := t.(*Named)
+	if !ok {
+		return ""
+	}
+	if _, built := c.constructorWhy(n); built {
+		return ""
+	}
+	switch n.Underlying().(type) {
+	case *Struct, *Union:
+		if c.ungeneratableFrom(n, nil) == "" {
+			return ""
+		}
+	}
+	return "its pair draws " + n.String() + " from " + n.String() + "'s own generator, and it has none: declare " + syntax.ConstructorName(n.Obj.Name) + ", or make " + n.String() + " a record or union of exported fields"
 }
 
 // planLaw sets the law's slots, or why it does not run (rules 7 and 8).
@@ -418,6 +444,12 @@ func (c *checker) planLaw(law *Law) {
 		if why := c.ungeneratable(v.Type); why != "" {
 			law.Unrun = "its parameter " + v.Name + " has no generator: " + why
 			return
+		}
+		if law.Decl.Pair != nil {
+			if why := c.pairUngeneratable(v.Type); why != "" {
+				law.Unrun = why
+				return
+			}
 		}
 	}
 	if law.Owner != nil {
@@ -657,12 +689,19 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 		}
 		slot = c.instantiate(own, targs)
 	}
+	// A provider whose operations call Go converts only where its build
+	// holds go.Foreign (README Gap 17), which no test does (rows.md, Entry
+	// 4): it provides the operation type, and its laws are reported as
+	// not run, never dropped in silence.
+	captured := false
+	c.capture = &captured
 	a, _ := c.providerAssignability(p, slot)
 	ptr := false
 	value := false
 	if _, record := p.Underlying().(*Struct); record {
 		// A law owns a fresh record and may lend it to *P operations.
 		// This is not a value-to-operation-type conversion (PS3).
+		c.capture = &captured
 		a, _ = c.providerAssignability(&Pointer{Elem: p}, slot)
 		value = a.ok()
 	}
@@ -683,6 +722,10 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 	}
 	c.recordLegacy(p, slot, "law")
 	lp := LawProvider{Type: p, Conv: a.conv, Slot: slot, Ptr: ptr, Value: value}
+	if captured {
+		lp.Unrun = "building " + p.Obj.Name + " as " + slot.String() + " calls Go and requires go.Foreign, which only the program entry holds and a law case never does (README Gap 17)"
+		return lp, true
+	}
 	if _, built := c.constructorWhy(p); built && p.Obj.ctor != nil {
 		lp.Ctor = p.Obj.ctor
 	} else if why := c.ungeneratableFrom(p, p.Obj.Pkg); why != "" {
@@ -720,14 +763,14 @@ func (c *checker) lawProviderFix(law *Law, p LawProvider) string {
 	if law.Owner != nil && len(law.Slots) == 1 && law.Slots[0].Param < 0 {
 		return "; bind one in a named context of a test file, let Name = context { " + p.Slot.String() + ": … }, and the law runs under it"
 	}
-	return "; a func New" + p.Type.Obj.Name + "() " + p.Type.Obj.Name + " with no rows would build one for each case"
+	return "; a func " + syntax.ConstructorName(p.Type.Obj.Name) + "() " + p.Type.Obj.Name + " with no rows would build one for each case"
 }
 
 // lawClosures are, for pkg and each package it sees, the packages each
 // sees: itself, the prelude and its imports at any depth (rule 7).
 func lawClosures(pkg *Package) map[*Package]map[*Package]bool {
 	pre := pkg
-	if pkg.Path != std.PreludePath {
+	if pkg.Path != stdlib.PreludePath {
 		pre = prelude().pkg
 	}
 	out := map[*Package]map[*Package]bool{}

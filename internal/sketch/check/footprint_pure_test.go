@@ -69,7 +69,7 @@ func userTrim(s string) string { hostTrim(s) }
 		"parses":   "pure",
 		"reads":    "Env",
 		"loops":    "pure",
-		"makes":    "pure",
+		"makes":    "pure", // SL2b: slices.WithCapacity is pure (data.go)
 		"sortsBy":  "opaque",
 		"userTrim": "opaque",
 		// lw-pure-prelude: the prelude's Append, Get, Delete and Put are

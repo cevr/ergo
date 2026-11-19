@@ -131,6 +131,8 @@ func (c *checker) stmt(s syntax.Stmt) {
 		c.rangeStmt(s)
 	case *syntax.AssertStmt:
 		c.assertStmt(s)
+	case *syntax.SkipStmt:
+		c.skipStmt(s)
 	default:
 		c.undecided(s, "")
 	}
@@ -240,6 +242,7 @@ func (c *checker) unusedValue(at syntax.Expr, op operand) {
 	if info == nil {
 		return
 	}
+	c.noteDropped(at, call, info)
 	switch {
 	case info.Kind == CallLen:
 		c.errorf(at, CodeUnused, "the value of len is not used")

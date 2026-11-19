@@ -8,7 +8,7 @@ import (
 // Version is the format version of an encoded table. The check snapshot
 // stores a package's table as a section of its own under this version
 // (the snapshot format is the CS lane's; this is the section's body).
-const Version = 1
+const Version = 5
 
 // Encode writes t as bytes: uvarints and length-prefixed strings in the
 // tables' own order, so equal tables give equal bytes.
@@ -39,7 +39,7 @@ func Encode(t *Table) []byte {
 		e.u(uint64(s.Kind))
 		e.u(uint64(s.Flag))
 	}
-	for _, edges := range [][]Edge{t.Variants, t.Calls, t.Ops} {
+	for _, edges := range [][]Edge{t.Variants, t.Calls, t.Ops, t.Needs, t.Brings, t.Discharges, t.Provided, t.Fails, t.Raises, t.Caught} {
 		e.u(uint64(len(edges)))
 		for _, x := range edges {
 			e.u(uint64(x.From))
@@ -65,6 +65,12 @@ func Encode(t *Table) []byte {
 				e.s(x.To)
 				e.place(x.At)
 			}
+			e.u(uint64(len(a.Alts)))
+			for _, x := range a.Alts {
+				e.ss(x.States)
+				e.ss(x.Signals)
+				e.b(x.Partial)
+			}
 		}
 		e.u(uint64(len(m.Timers)))
 		for _, x := range m.Timers {
@@ -74,6 +80,10 @@ func Encode(t *Table) []byte {
 		}
 		e.u(uint64(len(m.Work)))
 		for _, p := range m.Work {
+			e.place(p)
+		}
+		e.u(uint64(len(m.Exit)))
+		for _, p := range m.Exit {
 			e.place(p)
 		}
 		e.ss(m.Unsure)
@@ -130,12 +140,17 @@ func Decode(data []byte) (*Table, error) {
 		return out
 	}
 	t.Variants, t.Calls, t.Ops = edges(), edges(), edges()
+	t.Needs, t.Brings, t.Discharges = edges(), edges(), edges()
+	t.Provided, t.Fails, t.Raises, t.Caught = edges(), edges(), edges(), edges()
 	for range d.n() {
 		m := MachineGraph{Sym: uint32(d.u()), States: d.ss(), Signals: d.ss(), Initial: d.s()}
 		for range d.n() {
 			a := Arm{At: d.place(), States: d.ss(), Signals: d.ss(), Partial: d.b()}
 			for range d.n() {
 				a.Edges = append(a.Edges, Transition{Decision: d.s(), To: d.s(), At: d.place()})
+			}
+			for range d.n() {
+				a.Alts = append(a.Alts, Alt{States: d.ss(), Signals: d.ss(), Partial: d.b()})
 			}
 			m.Arms = append(m.Arms, a)
 		}
@@ -144,6 +159,9 @@ func Decode(data []byte) (*Table, error) {
 		}
 		for range d.n() {
 			m.Work = append(m.Work, d.place())
+		}
+		for range d.n() {
+			m.Exit = append(m.Exit, d.place())
 		}
 		m.Unsure = d.ss()
 		t.Machines = append(t.Machines, m)

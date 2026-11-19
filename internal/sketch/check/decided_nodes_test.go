@@ -17,7 +17,7 @@ var decidedFamilies = []string{
 	"defined type", "refinement", "type parameters", "ordered constraint",
 	"fails and needs", "escaping", "tuple type", "tuple value", "Map type",
 	"first-parameter function", "extern",
-	"test", "assert",
+	"test", "assert", "skip",
 	"if value", "match value", "value match", "type match", "tuple subject",
 	"record pattern", "as pattern", "nested as pattern",
 	"catch arm", "catch-all binding", "or pattern",
@@ -369,6 +369,12 @@ test Adds {
 }
 func main() {}
 `, nil},
+	{"skip", "skip in a function body (runtime.md, Tests 4: S108 outside a test or law)", `
+func f() {
+	skip "no host"
+}
+func main() {}
+`, []string{"S108:3"}},
 	{"assert", "assert in a function body (196l: S108 outside a test or law)", `
 func f() {
 	assert true
@@ -958,10 +964,12 @@ func probe(s State) Option[machines.Work[Signal]] {
 		return None
 	}
 }
+func leave(s State) Option[func()] { None }
 type Breaker machine[State, Signal] {
 	initial: Closed,
 	step:    step,
 	work:    probe,
+	exit:    leave,
 }
 func main() {}
 `, nil},

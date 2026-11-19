@@ -65,7 +65,7 @@ func TestPureBodiesKeepTheAllowlist(t *testing.T) {
 	}
 	for _, name := range []string{
 		"StringsJoin", "StringsSlice", "StrconvAtoi",
-		"TimeFormat", "TimeParse", "TimeSub", "TimeSubMono",
+		"TimeFormat", "TimeAppendUTC", "TimeParse", "TimeTruncate", "TimeRound", "TimeSub", "TimeSubMono",
 		"Append", "Get", "Put", // the prelude's collection intrinsics (lw-pure-prelude; Delete binds Go's delete, OPT7)
 	} {
 		if !slices.Contains(marked, name) {
@@ -73,9 +73,8 @@ func TestPureBodiesKeepTheAllowlist(t *testing.T) {
 		}
 	}
 	// A body that is not marked is not pure, whatever its file imports.
-	// (queue.New allocates a queue; WithCapacity is marked, FUSION.)
-	if b, err := BodyOf("New"); err != nil || b.Pure {
-		t.Errorf("BodyOf(New) = %+v, %v; want not Pure", b, err)
+	if b, err := BodyOf("Let"); err != nil || b.Pure {
+		t.Errorf("BodyOf(Let) = %+v, %v; want not Pure", b, err)
 	}
 }
 

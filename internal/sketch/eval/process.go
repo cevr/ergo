@@ -134,7 +134,7 @@ func RunMain(pkg *check.Package, b Budget, p Process) (out Exit, err error) {
 // whether a for over a Map ran.
 func runMainOrdered(pkg *check.Package, main *check.Func, b Budget, p Process, order mapOrder) (out Exit, ranged bool, err error) {
 	h := newHost(p)
-	in := &interp{budget: b, root: pkg, files: map[syntax.Decl]*syntax.File{}, initials: map[*check.TypeName]Value{}, host: h, mapOrder: order}
+	in := &interp{budget: b, root: pkg, files: map[syntax.Decl]*syntax.File{}, initials: map[*check.TypeName]Value{}, host: h, mapOrder: order, walk: walkOnly.Load()}
 	defer func() {
 		ranged = in.mapRanged
 		if r := recover(); r != nil {

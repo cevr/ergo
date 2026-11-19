@@ -3,7 +3,9 @@ package build
 import (
 	"bytes"
 	"debug/elf"
+	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -227,6 +229,21 @@ func TestCacheInputs(t *testing.T) {
 				t.Fatalf("stripped executable prints %q, want %q", got, want)
 			}
 		})
+		t.Run("Profile", func(t *testing.T) {
+			// The dev profile's compile flags are the action's too: the
+			// module is reused, and the executable prints the same.
+			covered["Toolchain.Profile"] = true
+			tc := hostToolchain()
+			tc.Profile = Dev
+			data := reuse(t, tc)
+			binary := filepath.Join(t.TempDir(), "dev")
+			if err := os.WriteFile(binary, data, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if got, want := runProgram(t, binary), expectedOutput(t, base, "r1", "unset"); got != want {
+				t.Fatalf("dev executable prints %q, want %q", got, want)
+			}
+		})
 		t.Run("GOARCH", func(t *testing.T) {
 			covered["Toolchain.GOARCH"] = true
 			tc := hostToolchain()
@@ -323,6 +340,24 @@ func TestCacheInputs(t *testing.T) {
 				}
 			}
 		})
+		t.Run("Stored", func(t *testing.T) {
+			// A build from the store (TEQ) runs no tool: the direct path
+			// refuses this module (its go line), and go build, its
+			// fallback or the selected path, does not run either. It
+			// kills teq-stored-gobuild.
+			covered["Toolchain.Stored"] = true
+			for _, goBuild := range []bool{false, true} {
+				tc := hostToolchain()
+				tc.GoBuild, tc.Stored = goBuild, true
+				out := filepath.Join(t.TempDir(), "program")
+				if _, err := tc.Build(Cache{Root: root}, module, out, io.Discard); !errors.Is(err, ErrNotStored) {
+					t.Fatalf("GoBuild=%t from the store: %v, want ErrNotStored", goBuild, err)
+				}
+				if _, err := os.Stat(out); !errors.Is(err, fs.ErrNotExist) {
+					t.Fatalf("GoBuild=%t from the store placed an executable (%v)", goBuild, err)
+				}
+			}
+		})
 		t.Run("Pins", func(t *testing.T) {
 			// Pin archive sets (pin.go) only replace compiles the direct
 			// path would run with the same bytes: they key neither the
@@ -337,6 +372,22 @@ func TestCacheInputs(t *testing.T) {
 			}
 			if command := tc.Command(again, "/out/program"); !slices.Equal(command.Args, baseCommand.Args) || !slices.Equal(command.Env, baseCommand.Env) {
 				t.Fatal("pins change go build's action")
+			}
+		})
+		t.Run("Cover", func(t *testing.T) {
+			// A coverage build (cover.go, GT7) is the action's alone: the
+			// same module links from its coverage copy and prints the same.
+			covered["Toolchain.Cover"] = true
+			tc := hostToolchain()
+			tc.Cover = t.TempDir()
+			binary := filepath.Join(t.TempDir(), "program")
+			var stderr strings.Builder
+			report, err := tc.Build(Cache{Root: root}, module, binary, &stderr)
+			if err != nil || !strings.Contains(report.Refused, "coverage build") {
+				t.Fatalf("Cover built by %v: %v\n%s", report, err, stderr.String())
+			}
+			if got, want := runProgram(t, binary), expectedOutput(t, base, "r1", "unset"); got != want {
+				t.Fatalf("the coverage build prints %q, want %q", got, want)
 			}
 		})
 		t.Run("Root", func(t *testing.T) {

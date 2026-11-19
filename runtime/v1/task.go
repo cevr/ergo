@@ -67,6 +67,9 @@ type entry struct {
 	prev, next *entry
 	action     func()
 	own        func()
+	// exit is the exit action this entry is part of (OnExit), nil for
+	// any other entry.
+	exit *exitAction
 	// self is the release of a value that holds this entry itself (a
 	// Task's first owner; selfOwned), in place of own: no closure (PARK2).
 	self selfOwned
@@ -312,6 +315,8 @@ func (s *Scope) release() {
 		s.remove(x)
 		if x.owned() {
 			s.runOwn(x) // a checked Close, which masks itself, or OwnErr's release
+		} else if x.exit != nil {
+			x.exit.run(s) // an exit action, through release
 		} else {
 			x.action() // a release of its own, through release
 		}
@@ -341,33 +346,51 @@ func OnExit(s *Scope, body func()) {
 	if s.ended {
 		panic("scope.OnExit: the frame that would run this exit action has returned")
 	}
+	a := &exitAction{body: body}
+	a.entry.exit = a
+	s.push(&a.entry)
+}
+
+// exitAction is one exit action of a frame: its entry in the frame's
+// list, the block, and the frame the block runs as, in one allocation per
+// registration. Before ONEXIT-COST the entry, a closure over the block
+// and the frame, and the block's frame were three, and the frame's own
+// scope escaped through the closure (std cache: 5 allocations per miss).
+type exitAction struct {
+	entry entry
+	body  func()
+	frame Scope
+}
+
+// run runs the exit action at the end of s, the frame it was registered
+// on (Scope.release).
+func (a *exitAction) run(s *Scope) {
 	t := s.s.Task()
-	s.push(&entry{action: func() {
-		action := &Scope{s: rt.NewScope(t)}
-		prev := s.action
-		s.action = action
-		// The route to the action's frame stays through the block and
-		// through the frame's own release, where nested exit actions run.
-		defer func() { s.action = prev }()
-		// The block and its frame's release are one release of s, which
-		// release reports on a traced tree: the block's frame ends
-		// inside it, so its nested releases report before its own release
-		// event. A panic of the block is recorded by rt as a release defect
-		// after the release-local unwind and before the block's frame ends
-		// with that exit's carried part (after), so the panic event comes
-		// before the nested releases it causes.
-		var nested error
-		release(t, &s.exits, func() {
-			body()
-			nested = action.end(nil)
-		}, func(carried error) error {
-			if action.ended {
-				return carried // the frame's end itself panicked
-			}
-			return action.end(carried)
-		})
-		s.exits.Add(nested)
-	}})
+	action := &a.frame // zero: the action runs once
+	action.s.Begin(t)
+	prev := s.action
+	s.action = action
+	// The route to the action's frame stays through the block and
+	// through the frame's own release, where nested exit actions run.
+	defer func() { s.action = prev }()
+	// The block and its frame's release are one release of s, which
+	// release reports on a traced tree: the block's frame ends
+	// inside it, so its nested releases report before its own release
+	// event. A panic of the block is recorded by rt as a release defect
+	// after the release-local unwind and before the block's frame ends
+	// with that exit's carried part (after), so the panic event comes
+	// before the nested releases it causes.
+	var nested error
+	release(t, &s.exits, func() {
+		a.body()
+		nested = action.end(nil)
+	}, func(carried error) error {
+		if action.ended {
+			return carried // the frame's end itself panicked
+		}
+		return action.end(carried)
+	})
+	s.exits.Add(nested)
 }
 
 // Task is a started task, Ergo's Task[T, E]. Its methods are the prelude's
@@ -933,6 +956,29 @@ func OwningParts[T any](h *Owned, v T, rel func(T, uint64)) T {
 	e = o.e
 	h.s, h.e = o.s, o.e
 	return v
+}
+
+// OwningAt makes h's entry, just registered, release the value at p when
+// it runs, not the value it was registered with: an owned local that the
+// code writes in place, through a *T function or a field, is released
+// with its writes (EXH1; resources R17). The registration keeps the step
+// that receives the value (R8); this only moves where the release reads.
+//
+//ergo:wait none
+func OwningAt[T any](h *Owned, p *T, rel func(T)) {
+	if h != nil && h.e != nil {
+		h.e.own = func() { rel(*p) }
+	}
+}
+
+// OwningPartsAt is OwningAt for a generated release (OwningParts).
+//
+//ergo:wait none
+func OwningPartsAt[T any](h *Owned, p *T, rel func(T, uint64)) {
+	if h != nil && h.e != nil {
+		e := h.e
+		e.own = func() { rel(*p, e.taken) }
+	}
 }
 
 // TakeField marks field k of h's value taken in place: its owner's

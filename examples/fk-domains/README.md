@@ -30,7 +30,7 @@ fk-domains bench 1000             # the P11 workload (below)
   - The index of the rows shown is built again only by an answer, an order, a filter or a new route. A scroll or a resize never rebuilds it (law `ScrollKeepsIndex`, target P3).
   - `laws.ergo` holds the host the laws run on, `Sim`, which uses a manual clock.
     - `SearchFollowsModel` runs drawn scripts: keys, time, answers in any order (also answers to cut loads), changes to the server's data, scrolls, orders, filters, retries and navigations. After each step it checks the model's six invariants and that the URL follows the state.
-    - The timed laws are `BurstMakesOneSearch`, `SettledQueryMakesTwoRequests`, `WarmQueryMakesNone`, `RetryLoadsOnlyTheFailedRange` and `UrlFollowsState`.
+    - The timed checks are the laws `RetryLoadsOnlyTheFailedRange` and `UrlFollowsState`, and the tests `BurstMakesOneSearch`, `SettledQueryMakesTwoRequests` and `WarmQueryMakesNone`, which run the edges of their ranges (the machine reads a wait only against the debounce and the freshness).
   - `stories.ergo` restates the original's stories. `receipts.ergo` holds the counted receipts P1, P6, P7 and P8.
 - `search/` also holds the pure parts of the search page (unit FD2a). Each part is a set of functions on values, with no clock and no `ui`, and the machine holds them in its state.
   - `search/cache` is the original's keyed query cache (`domainsQuery.ts`): an entry stays fresh for a set time, and at most a set number of entries stay settled.

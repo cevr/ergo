@@ -93,10 +93,20 @@ func isBranchStmt(s syntax.Stmt) bool {
 // to (an if expression's branch) instead of returning it.
 func (b *irBuilder) tailTo(list []syntax.Stmt, ret bool, to *yieldTo) []*irStmt {
 	var out []*irStmt
+	skip := 0
 	voidTail := b.voidTail && !ret && to == nil
 	defer func(saved bool) { b.voidTail = saved }(b.voidTail)
 	for i, s := range list {
 		last := i == len(list)-1
+		if skip > 0 {
+			skip--
+			continue
+		}
+		// A run of comparisons of one value, as one switch (chainswitch.go).
+		if n := b.chainSwitch(&out, list, i, ret || to != nil); n > 0 {
+			skip = n - 1
+			continue
+		}
 		b.planFold(list, i) // ir_collectfold.go: a collect only folded next
 		// Only the tail's own branches stay in the tail (failureTail).
 		b.voidTail = voidTail && last && isBranchStmt(s)
@@ -300,6 +310,8 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 	switch s := s.(type) {
 	case *syntax.AssertStmt:
 		return b.assert(s) // ir_assert.go
+	case *syntax.SkipStmt:
+		return b.skip(s) // ir_assert.go
 	case *syntax.DeclStmt:
 		var out []*irStmt
 		for _, spec := range s.Decl.Specs {
@@ -510,7 +522,7 @@ func (b *irBuilder) loopBody(st *irStmt, s syntax.Stmt, body *syntax.BlockStmt) 
 	b.switches, b.label = 0, ""
 	defer func() { b.loops, b.switches, b.label = b.loops-1, switches, label }()
 	st.Body = b.scoped(body, b.tail(body.List, false), b.pos(body, body.Rbrace)) // ir_own.go: the iteration's scope (R6)
-	poll := b.loopPoll(s)
+	poll := b.loopPoll(s, body)
 	// The back-edge poll follows a body that reaches its end: after a
 	// break or a terminating statement it never runs, and go vet calls it
 	// unreachable (ir_end.go).

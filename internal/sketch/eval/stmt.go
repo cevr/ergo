@@ -7,10 +7,19 @@ import (
 
 func (in *interp) stmts(fr *frame, list []syntax.Stmt) *abrupt {
 	for _, s := range list {
+		sf := in.sx(fr, s)
+		if fr.forms() {
+			if sf.sfast != nil || sf.sform != formDone && in.visitStmt(fr, s, sf) {
+				if ab := sf.sfast(in, fr); ab != nil { // compile.go
+					return ab
+				}
+				continue
+			}
+		}
 		if ab := in.stmt(fr, s); ab != nil {
 			return ab
 		}
-		if ab := in.releaseAt(fr, s); ab != nil { // the statement's temporaries (R43)
+		if ab := in.releaseFacts(fr, sf); ab != nil { // the statement's temporaries (R43)
 			return ab
 		}
 	}
@@ -62,15 +71,15 @@ func (in *interp) stmtOnly(fr *frame, s syntax.Stmt) *abrupt {
 		return in.forStmt(fr, s)
 	case *syntax.RangeStmt:
 		return in.rangeStmt(fr, s)
+	case *syntax.SkipStmt:
+		// A skip ends the obligation as skipped, with the test's own
+		// reason and the statement as its site, as an obligation that
+		// reaches a form check-time evaluation does not run ends
+		// (runtime.md, Tests 4): never passed, never refuted.
+		why, _ := s.Text()
+		return fr.abrupt(ctlUnsupported, s, nil, why)
 	case *syntax.AssertStmt:
-		v, ab := in.expr(fr, s.X)
-		if ab != nil {
-			return ab
-		}
-		if !truth(v) {
-			return fr.abrupt(ctlAssert, s, nil, "")
-		}
-		return nil
+		return in.assertStmt(fr, s)
 	}
 	ice("a statement of the kind %T", s)
 	return nil
@@ -140,23 +149,12 @@ func (in *interp) rangeStmt(fr *frame, s *syntax.RangeStmt) *abrupt {
 	if l == nil {
 		ice("a for-in with no Loops entry")
 	}
-	var root *slot
-	var path []step
-	var dom Value
-	var ab *abrupt
-	if l.Domain == check.LoopSlice || l.Domain == check.LoopMap {
-		dom, root, ab = in.peekPath(fr, s.X, &path)
-		if root != nil {
-			root.lend()
-		}
-	} else {
-		dom, ab = in.expr(fr, s.X)
-	}
-	if ab == nil {
-		ab = in.releaseAt(fr, s.X) // the header's temporaries
-	}
+	dom, root, path, ab := in.rangeHead(fr, s, l)
 	if ab != nil {
 		return ab
+	}
+	if _, isTerm := dom.(term); isTerm && in.sym != nil {
+		return in.symStop(fr, s.X, dom)
 	}
 	if l.Domain == check.LoopMap {
 		return in.rangeMap(fr, s, dom.(mapV), root, path) // maporder.go
@@ -168,6 +166,9 @@ func (in *interp) rangeStmt(fr *frame, s *syntax.RangeStmt) *abrupt {
 		q, ok := dom.(seqSource)
 		if !ok {
 			return in.seqLoop(fr, s, dom) // seq.go
+		}
+		if d, ok := q.(seqDone); ok {
+			defer d.done()
 		}
 		for {
 			v, more, ab := q.next(in, fr, s)
@@ -252,6 +253,24 @@ func (in *interp) rangeStmt(fr *frame, s *syntax.RangeStmt) *abrupt {
 	}
 	ice("a for-in over the domain %d", l.Domain)
 	return nil
+}
+
+// rangeHead evaluates a for-in's domain: a slice or a Map read in place,
+// with its root slot (lent) and path, or any other domain's value; then
+// the header's temporaries are released.
+func (in *interp) rangeHead(fr *frame, s *syntax.RangeStmt, l *check.Loop) (dom Value, root *slot, path []step, ab *abrupt) {
+	if l.Domain == check.LoopSlice || l.Domain == check.LoopMap {
+		dom, root, ab = in.peekPath(fr, s.X, &path)
+		if root != nil {
+			root.lend()
+		}
+	} else {
+		dom, ab = in.expr(fr, s.X)
+	}
+	if ab == nil {
+		ab = in.releaseAt(fr, s.X) // the header's temporaries
+	}
+	return dom, root, path, ab
 }
 
 // loopBind binds a for binding: a name, or an irrefutable pattern the
@@ -405,12 +424,35 @@ func (in *interp) letBind(fr *frame, spec *syntax.VarSpec) *abrupt {
 	return nil
 }
 
-// assignOps maps an op-assignment to its operator.
-var assignOps = map[syntax.Token]syntax.Token{
-	syntax.ADD_ASSIGN: syntax.ADD, syntax.SUB_ASSIGN: syntax.SUB, syntax.MUL_ASSIGN: syntax.MUL,
-	syntax.QUO_ASSIGN: syntax.QUO, syntax.REM_ASSIGN: syntax.REM, syntax.AND_ASSIGN: syntax.AND,
-	syntax.OR_ASSIGN: syntax.OR, syntax.XOR_ASSIGN: syntax.XOR, syntax.SHL_ASSIGN: syntax.SHL,
-	syntax.SHR_ASSIGN: syntax.SHR, syntax.AND_NOT_ASSIGN: syntax.AND_NOT,
+// assignOp is the operator of an op-assignment, false for any other
+// token. A switch, where the map it replaces hashed per assignment (a
+// tenth of a counting loop's instructions; ORACLE O34).
+func assignOp(t syntax.Token) (syntax.Token, bool) {
+	switch t {
+	case syntax.ADD_ASSIGN:
+		return syntax.ADD, true
+	case syntax.SUB_ASSIGN:
+		return syntax.SUB, true
+	case syntax.MUL_ASSIGN:
+		return syntax.MUL, true
+	case syntax.QUO_ASSIGN:
+		return syntax.QUO, true
+	case syntax.REM_ASSIGN:
+		return syntax.REM, true
+	case syntax.AND_ASSIGN:
+		return syntax.AND, true
+	case syntax.OR_ASSIGN:
+		return syntax.OR, true
+	case syntax.XOR_ASSIGN:
+		return syntax.XOR, true
+	case syntax.SHL_ASSIGN:
+		return syntax.SHL, true
+	case syntax.SHR_ASSIGN:
+		return syntax.SHR, true
+	case syntax.AND_NOT_ASSIGN:
+		return syntax.AND_NOT, true
+	}
+	return 0, false
 }
 
 // step is one step of a written place's path: a field, or an index (an
@@ -433,13 +475,25 @@ func (in *interp) assign(fr *frame, s *syntax.AssignStmt) *abrupt {
 		_, ab := in.expr(fr, s.Rhs[0])
 		return ab
 	}
-	root, steps, why, ab := in.place(fr, lhs)
+	mark := len(in.stepStack)
+	root, why, ab := in.placePush(fr, lhs)
+	if ab == nil && why == "" {
+		ab = in.assignAt(fr, s, lhs, root, in.stepStack[mark:])
+	}
+	in.popSteps(mark)
 	if ab != nil {
 		return ab
 	}
 	if why != "" {
 		return fr.unsupported(lhs, "an assignment to %s yet", why)
 	}
+	return nil
+}
+
+// assignAt is assign once its place is resolved: root and the path steps
+// from it.
+func (in *interp) assignAt(fr *frame, s *syntax.AssignStmt, lhs syntax.Expr, root *slot, steps []step) *abrupt {
+	var ab *abrupt
 	for _, r := range in.ranges {
 		// A write of the ranged place or of a place on its path replaces
 		// the ranged slice.
@@ -457,7 +511,9 @@ func (in *interp) assign(fr *frame, s *syntax.AssignStmt) *abrupt {
 	}
 	var val Value
 	if call, own := in.handover(fr, root, steps, s); call != nil {
-		val, ab = in.collectionCall(fr, call, fr.info.Calls[call], own)
+		val, ab = in.collectionCall(fr, call, fr.info.Calls[call], own, steps)
+	} else if call := in.appenderHandover(fr, root, steps, s); call != nil {
+		val, ab = in.appenderCall(fr, call, root, steps)
 	} else {
 		val, ab = in.expr(fr, s.Rhs[0])
 	}
@@ -465,7 +521,7 @@ func (in *interp) assign(fr *frame, s *syntax.AssignStmt) *abrupt {
 		return ab
 	}
 	if s.Tok != syntax.ASSIGN {
-		op, ok := assignOps[s.Tok]
+		op, ok := assignOp(s.Tok)
 		if !ok {
 			ice("the assignment %s", s.Tok)
 		}
@@ -487,10 +543,16 @@ func (in *interp) assign(fr *frame, s *syntax.AssignStmt) *abrupt {
 }
 
 // handover is the prelude call of x = x.Append(e), x = x.Put(k, v) or
-// x = x.Delete(k) whose receiver is the local x itself, and x's slot: the
-// assignment replaces x, so the call may take x's own store.
+// x = x.Delete(k) whose receiver is the assigned place itself, and the
+// place's root slot: the assignment replaces the place, so the call may
+// take its own store. The place is the local x, or a field path from it
+// (x.f.g, or s.f through the borrow s), written the same on both sides:
+// a field path evaluates nothing, so reading it as a place is reading it
+// as a value (MX-EVWITNESS: vt's grow appended a row to s.cells one cell
+// at a time, and each Append copied the whole screen, where Go's append
+// extends the slice in place).
 func (in *interp) handover(fr *frame, root *slot, steps []step, s *syntax.AssignStmt) (*syntax.CallExpr, *slot) {
-	if s.Tok != syntax.ASSIGN || len(steps) != 0 {
+	if s.Tok != syntax.ASSIGN {
 		return nil, nil
 	}
 	call, ok := unparen(s.Rhs[0]).(*syntax.CallExpr)
@@ -501,6 +563,15 @@ func (in *interp) handover(fr *frame, root *slot, steps []step, s *syntax.Assign
 	if c == nil || c.Kind != check.CallFunc || !preludeCollection(c.Func) || c.Recv == nil || check.CollOpOf(c.Func) == check.CollGet {
 		return nil, nil
 	}
+	if _, conv := fr.info.Implicit[c.Recv]; conv {
+		return nil, nil
+	}
+	if len(steps) > 0 {
+		if !samePlace(s.Lhs[0], c.Recv) {
+			return nil, nil
+		}
+		return call, root
+	}
 	id, ok := unparen(c.Recv).(*syntax.Ident)
 	if !ok {
 		return nil, nil
@@ -509,16 +580,118 @@ func (in *interp) handover(fr *frame, root *slot, steps []step, s *syntax.Assign
 	if s, _ := fr.vars.get(v); !ok || s != root {
 		return nil, nil
 	}
-	if _, conv := fr.info.Implicit[c.Recv]; conv {
-		return nil, nil
-	}
 	return call, root
+}
+
+// appenderHandover is the call of x = f(x, …) whose callee is a pure
+// extern that takes a slice first and gives a slice of the same type (an
+// appender: Go's append, std strings' Builder writes, json's appends),
+// and whose first argument is the assigned place itself, written as in
+// handover. The assignment replaces the place, and a pure extern keeps
+// nothing of its arguments, so the argument is read without lending its
+// slot (MX-EVSLOT: lzpack's d.out.WriteByte(c), through
+// b.buf = builderAppendByte(b.buf, c), lent the Decoder's slot, and the
+// next d.win[i] = c copied the whole window, where Go copies nothing).
+func (in *interp) appenderHandover(fr *frame, root *slot, steps []step, s *syntax.AssignStmt) *syntax.CallExpr {
+	if s.Tok != syntax.ASSIGN {
+		return nil
+	}
+	call, ok := unparen(s.Rhs[0]).(*syntax.CallExpr)
+	if !ok || call.Trailing != nil || len(call.Args) == 0 {
+		return nil
+	}
+	c := fr.info.Calls[call]
+	if c == nil || c.Kind != check.CallFunc || c.Recv != nil || c.Site != nil {
+		return nil
+	}
+	f := c.Func
+	if f.Decl == nil || f.Decl.Extern == nil || f.Sig == nil || len(f.Sig.Params) == 0 || len(f.Sig.Results) != 1 || len(f.Sig.Takes) > 0 {
+		return nil
+	}
+	if !f.Sig.Uses.Empty() || !f.Sig.Errors.Empty() {
+		return nil
+	}
+	if _, ok := f.Sig.Params[0].Type.(*check.Slice); !ok || f.Sig.Params[0].Type.String() != f.Sig.Results[0].String() {
+		return nil
+	}
+	if _, conv := fr.info.Implicit[call.Args[0]]; conv || !samePlace(s.Lhs[0], call.Args[0]) {
+		return nil
+	}
+	if len(steps) == 0 {
+		id, ok := unparen(call.Args[0]).(*syntax.Ident)
+		if !ok {
+			return nil
+		}
+		v, ok := fr.info.Uses[id].(*check.Var)
+		if s, _ := fr.vars.get(v); !ok || s != root {
+			return nil
+		}
+	}
+	return call
+}
+
+// appenderCall runs the appender call of appenderHandover: its first
+// argument is the place at steps from root, read without a lend; the rest
+// are evaluated left to right, as args does.
+func (in *interp) appenderCall(fr *frame, x *syntax.CallExpr, root *slot, steps []step) (Value, *abrupt) {
+	c := fr.info.Calls[x]
+	if ab := in.charge(fr, x.Args[0], 1); ab != nil {
+		return nil, ab
+	}
+	first, ab := in.read(fr, root.v, steps)
+	if ab != nil {
+		return nil, ab
+	}
+	args := []Value{first}
+	for _, a := range x.Args[1:] {
+		v, ab := in.expr(fr, a)
+		if ab != nil {
+			return nil, ab
+		}
+		args = append(args, v)
+	}
+	in.handParts(fr, x.Args[1:]...)
+	return in.call(fr, x, c.Func, c.TypeArgs, args)
+}
+
+// samePlace reports two field paths written the same: the same name,
+// then the same fields (x.f.g). Each side's root resolves to one slot,
+// since both name the same variable in one scope.
+func samePlace(a, b syntax.Expr) bool {
+	switch a := unparen(a).(type) {
+	case *syntax.Ident:
+		bi, ok := unparen(b).(*syntax.Ident)
+		return ok && a.Name == bi.Name
+	case *syntax.SelectorExpr:
+		bs, ok := unparen(b).(*syntax.SelectorExpr)
+		return ok && a.Sel.Name == bs.Sel.Name && samePlace(a.X, bs.X)
+	}
+	return false
 }
 
 // place resolves an assigned place: its root local's slot and the path
 // from it, each index evaluated. why is what the place is when the
 // evaluator does not write it.
 func (in *interp) place(fr *frame, x syntax.Expr) (*slot, []step, string, *abrupt) {
+	mark := len(in.stepStack)
+	root, why, ab := in.placePush(fr, x)
+	var steps []step
+	if ab == nil && why == "" && len(in.stepStack) > mark {
+		steps = append([]step(nil), in.stepStack[mark:]...)
+	}
+	in.popSteps(mark)
+	if ab != nil || why != "" {
+		return nil, nil, why, ab
+	}
+	return root, steps, "", nil
+}
+
+// placePush is place with the path pushed on the task's step stack
+// (ORACLE O34): an assignment reads it there until the write is done and
+// pops it (popSteps), so a write through a field or an index makes no
+// path slice. A nested place, in an index operand, pushes above it and
+// pops back before this one pushes again.
+func (in *interp) placePush(fr *frame, x syntax.Expr) (*slot, string, *abrupt) {
 	switch x := unparen(x).(type) {
 	case *syntax.Ident:
 		v, ok := in.fx(fr, x).use.(*check.Var)
@@ -527,55 +700,65 @@ func (in *interp) place(fr *frame, x syntax.Expr) (*slot, []step, string, *abrup
 		}
 		s, local := fr.vars.get(v)
 		if !local {
-			return nil, nil, "a package let", nil
+			return nil, "a package let", nil
 		}
-		return s, nil, "", nil
+		return s, "", nil
 	case *syntax.SelectorExpr:
-		if isPointer(fr.typeOf(x.X)) {
-			if in.sym == nil {
-				// A field through a borrow: the lent place.
-				root, steps, ab := in.placeThrough(fr, x.X)
-				return root, append(steps, step{at: x, field: x.Sel.Name}), "", ab
-			}
+		if in.sym != nil && !in.sym.tmpl && isPointer(fr.typeOf(x.X)) {
 			// A field of a provider's cell (symbolic.go).
 			v, ab := in.expr(fr, x.X)
 			if ab != nil {
-				return nil, nil, "", ab
+				return nil, "", ab
 			}
 			c, isCell := v.(*cell)
 			if !isCell {
-				return nil, nil, "a pointer that is no provider cell", nil
+				return nil, "a pointer that is no provider cell", nil
 			}
-			return c.s, []step{{at: x, field: x.Sel.Name}}, "", nil
+			in.stepStack = append(in.stepStack, step{at: x, field: x.Sel.Name})
+			return c.s, "", nil
 		}
-		root, steps, why, ab := in.place(fr, x.X)
-		if ab != nil || why != "" {
-			return nil, nil, why, ab
-		}
-		return root, append(steps, step{at: x, field: x.Sel.Name}), "", nil
-	case *syntax.IndexExpr:
 		var root *slot
-		var steps []step
 		var why string
 		var ab *abrupt
 		if isPointer(fr.typeOf(x.X)) {
-			root, steps, ab = in.placeThrough(fr, x.X)
+			root, ab = in.placeThrough(fr, x.X)
 		} else {
-			root, steps, why, ab = in.place(fr, x.X)
+			root, why, ab = in.placePush(fr, x.X)
 		}
 		if ab != nil || why != "" {
-			return nil, nil, why, ab
+			return nil, why, ab
+		}
+		in.stepStack = append(in.stepStack, step{at: x, field: x.Sel.Name})
+		return root, "", nil
+	case *syntax.IndexExpr:
+		var root *slot
+		var why string
+		var ab *abrupt
+		if isPointer(fr.typeOf(x.X)) {
+			root, ab = in.placeThrough(fr, x.X)
+		} else {
+			root, why, ab = in.placePush(fr, x.X)
+		}
+		if ab != nil || why != "" {
+			return nil, why, ab
 		}
 		iv, ab := in.expr(fr, x.Indices[0])
 		if ab != nil {
-			return nil, nil, "", ab
+			return nil, "", ab
 		}
-		return root, append(steps, step{at: x, index: iv}), "", nil
+		in.stepStack = append(in.stepStack, step{at: x, index: iv})
+		return root, "", nil
 	case *syntax.StarExpr:
-		root, steps, ab := in.placeThrough(fr, x.X)
-		return root, steps, "", ab
+		root, ab := in.placeThrough(fr, x.X)
+		return root, "", ab
 	}
-	return nil, nil, "this place", nil
+	return nil, "this place", nil
+}
+
+// popSteps pops the step stack back to mark, clearing what it held.
+func (in *interp) popSteps(mark int) {
+	clear(in.stepStack[mark:])
+	in.stepStack = in.stepStack[:mark]
 }
 
 // read is the value at the path from v, for an op-assignment.
@@ -590,7 +773,7 @@ func (in *interp) read(fr *frame, v Value, steps []step) (Value, *abrupt) {
 		case sliceV:
 			i, ok := in.index(fr, st.at, st.index, c.n)
 			if !ok {
-				return nil, fr.defect(st.at, "index out of range [%s] with length %d", describe(st.index), c.n)
+				return nil, fr.defect(st.at, "%s", indexError(st.index, c.n))
 			}
 			v = c.b.data[c.off+i]
 		case mapV:
@@ -608,10 +791,13 @@ func (in *interp) read(fr *frame, v Value, steps []step) (Value, *abrupt) {
 // the steps left are full[k:].
 func (in *interp) storePath(fr *frame, root *slot, cur Value, full []step, k int, val Value) (Value, *abrupt) {
 	steps := full[k:]
-	tok := root.own()
 	if len(steps) == 0 {
+		// The value itself replaces the slot's: no store on the path to
+		// own, so no token is made (ORACLE O34). A token made here owned
+		// nothing, and a later write through a path makes it then.
 		return val, nil
 	}
+	tok := root.own()
 	st := steps[0]
 	switch c := cur.(type) {
 	case *record:
@@ -630,7 +816,7 @@ func (in *interp) storePath(fr *frame, root *slot, cur Value, full []step, k int
 	case sliceV:
 		i, ok := in.index(fr, st.at, st.index, c.n)
 		if !ok {
-			return nil, fr.defect(st.at, "index out of range [%s] with length %d", describe(st.index), c.n)
+			return nil, fr.defect(st.at, "%s", indexError(st.index, c.n))
 		}
 		old := c.b
 		oldOff := c.off
@@ -808,6 +994,9 @@ func (in *interp) typeArms(fr *frame, s *syntax.TypeSwitchStmt, subject Value, r
 // match tests v against the checked pattern p, read in the frame's
 // substitution, and binds its names.
 func (in *interp) match(fr *frame, at syntax.Node, p *check.Pattern, v Value) (bool, *abrupt) {
+	if in.sym != nil && in.sym.tmpl && p.Kind != check.PatWildcard && p.Kind != check.PatBind && p.Kind != check.PatAs && (isTerm(v) || p.Kind == check.PatConst && symbolic(v)) {
+		return in.symMatch(fr, at, p, v) // foldvalue.go
+	}
 	switch p.Kind {
 	case check.PatWildcard:
 		return true, nil

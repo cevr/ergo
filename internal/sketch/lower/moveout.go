@@ -43,8 +43,28 @@ import (
 // panic, the program ends (no recover), so no reader sees a half-written
 // entry.
 //
+// The arm form (REUSE RU8: keepCard's Bump, a group-by over a Map) stores
+// the new entry in Some's arm itself, from a value that uses the entry:
+//
+//	match p.cards.Get(key) {
+//	case Some[Card] as v:
+//		p.cards[key] = keepCard(v.Value, k)
+//	case None:
+//		p.cards[key] = Card{…}
+//	}
+//
+// The store's value is evaluated before the store overwrites R[K], so on
+// that route the old entry is read once, by the value, and then left to
+// no binding but what the value keeps: the value takes the entry with no
+// copy (v.Value is fresh). It holds under the conditions above, with the
+// store as the arm's last statement: the arm's binding is used once, in
+// the store's value; R's root is named nowhere in the arm before the
+// store nor in the value; nothing before the store or in the value can
+// fail or leave.
+//
 // The reference is copyLowering "whole" (no V8, no V9). The mutants of
-// the lower ledger named mapcopy-move-* switch each condition off.
+// the lower ledger named mapcopy-move-* and reuse-arm-* switch each
+// condition off.
 
 // moveOut is one read-modify-write of an entry: the match on R.Get(K)
 // whose Some arm is X = v.Value (or X = x), and the store R[K] = X.
@@ -58,8 +78,9 @@ type moveOut struct {
 	key   syntax.Expr // K
 	bind  syntax.Expr // v.Value or x, the value of X's bind in Some's arm
 	some  *check.Var  // v or x
-	x     *check.Var  // X
+	x     *check.Var  // X; nil in the arm form
 	store *syntax.AssignStmt
+	arm   bool // the arm form: the store is Some's arm's last statement
 }
 
 // stmtLists are the statement lists under n: blocks and case bodies.
@@ -144,7 +165,14 @@ func moveOutsIn(info *check.Info, list []syntax.Stmt) []moveOut {
 			continue
 		}
 		some, none, ok := getArmsOf(info, m.Clauses)
-		if !ok || some.clause == none.clause || len(some.clause.Body) != 1 {
+		if !ok || some.clause == none.clause {
+			continue
+		}
+		if mo, ok := armStore(info, list, j, s, call, ops, some); ok {
+			out = append(out, mo)
+			continue
+		}
+		if len(some.clause.Body) != 1 {
 			continue
 		}
 		bind, ok := some.clause.Body[0].(*syntax.AssignStmt)
@@ -186,6 +214,47 @@ func moveOutsIn(info *check.Info, list []syntax.Stmt) []moveOut {
 		}
 	}
 	return out
+}
+
+// armStore is the arm form of a move-out (above): Some's arm ends with
+// R[K] = E, and E uses the arm's binding of the entry. bind is that use:
+// v.Value, or the bound value x.
+func armStore(info *check.Info, list []syntax.Stmt, j int, s syntax.Stmt, call *syntax.CallExpr, ops []syntax.Expr, some getArm) (moveOut, bool) {
+	body := some.clause.Body
+	if len(body) == 0 {
+		return moveOut{}, false
+	}
+	st, ok := body[len(body)-1].(*syntax.AssignStmt)
+	if !ok || st.Tok != syntax.ASSIGN || len(st.Lhs) != 1 || len(st.Rhs) != 1 {
+		return moveOut{}, false
+	}
+	ix, ok := unparen(st.Lhs[0]).(*syntax.IndexExpr)
+	if !ok || len(ix.Indices) != 1 || !samePlace(ix.X, ops[0]) || !sameKey(info, ix.Indices[0], ops[1]) {
+		return moveOut{}, false
+	}
+	var bind syntax.Expr
+	var bound *check.Var
+	uses := 0
+	syntax.Inspect(st.Rhs[0], func(n syntax.Node) bool {
+		switch n := n.(type) {
+		case *syntax.SelectorExpr:
+			if id, ok := unparen(n.X).(*syntax.Ident); ok && some.as != nil && info.Uses[id] == some.as {
+				bind, bound = n, some.as
+				uses++
+				return false
+			}
+		case *syntax.Ident:
+			if some.value != nil && info.Uses[n] == some.value || some.as != nil && info.Uses[n] == some.as {
+				bind, bound = n, some.value
+				uses++
+			}
+		}
+		return true
+	})
+	if uses != 1 || bound == nil {
+		return moveOut{}, false
+	}
+	return moveOut{list: body, at: -1, back: len(body) - 1, match: s, get: call, recv: ops[0], key: ops[1], bind: bind, some: bound, store: st, arm: true}, true
 }
 
 // markEntryWrites records, in the naming pass, the Map types the program
@@ -257,7 +326,7 @@ func (w *valueWalk) matchedGet(get *syntax.CallExpr) bool {
 	if !ok || unparen(g.X) != syntax.Expr(get) {
 		return false
 	}
-	m, ok := w.parent[g].(*syntax.TypeSwitchStmt)
+	m, ok := w.parentOf(g).(*syntax.TypeSwitchStmt)
 	if !ok || len(m.Subjects) != 1 {
 		return false
 	}
@@ -269,7 +338,7 @@ func (w *valueWalk) matchedGet(get *syntax.CallExpr) bool {
 // Some's value: `Some[V] as v` and `Some{x}`.
 func (w *valueWalk) matchBinds(get *syntax.CallExpr) []*check.Var {
 	parent, _ := w.unparenParent(get)
-	m, ok := w.parent[parent].(*syntax.TypeSwitchStmt)
+	m, ok := w.parentOf(parent).(*syntax.TypeSwitchStmt)
 	if !ok {
 		return nil
 	}
@@ -332,7 +401,7 @@ func (w *valueWalk) decideMoveOuts() {
 	for _, list := range stmtLists(w.root.node) {
 		for _, mo := range moveOutsIn(w.info, list) {
 			if w.moveOutHolds(mo, occ) {
-				vf.moved[mo.bind] = true
+				vf.moveOut[mo.bind] = true
 				vf.moveRead[mo.get] = true
 				rid := pathRoot(mo.recv)
 				if o := occ[rid]; o != nil {
@@ -360,6 +429,9 @@ func (w *valueWalk) moveOutHolds(mo moveOut, occ map[*syntax.Ident]*vocc) bool {
 		return false
 	}
 	frame := ro.frame
+	if mo.arm {
+		return w.armHolds(mo, root, frame)
+	}
 	xv := w.varOf(mo.x)
 	if !xv.local || !xv.mut || xv.frame != frame {
 		return false
@@ -381,23 +453,15 @@ func (w *valueWalk) moveOutHolds(mo moveOut, occ map[*syntax.Ident]*vocc) bool {
 		return false
 	}
 	// The key is a literal, or a path of fields from an immutable variable.
-	switch k := unparen(mo.key).(type) {
-	case *syntax.BasicLit:
-	case *syntax.Ident, *syntax.SelectorExpr:
-		id := pathRoot(k)
-		kv, ok := w.info.Uses[id].(*check.Var)
-		if !ok || !fieldPath(k) || w.varOf(kv).mut || w.varOf(kv).ptr {
-			return false
-		}
-	default:
+	if !w.stableKey(mo.key) {
 		return false
 	}
 	// The binding of the entry is used once: in X's bind.
 	if len(w.varOf(mo.some).occs) != 1 {
 		return false
 	}
-	lo, hi := w.post[mo.match], w.pre[mo.store]
-	end := w.post[mo.store]
+	lo, hi := w.postOf(mo.match), w.preOf(mo.store)
+	end := w.postOf(mo.store)
 	for _, o := range root.occs {
 		if o.pre >= lo && o.pre < hi {
 			return false // the root is named between the read and the store
@@ -428,4 +492,52 @@ func (w *valueWalk) moveOutHolds(mo moveOut, occ map[*syntax.Ident]*vocc) bool {
 		})
 	}
 	return !leaves
+}
+
+// armHolds checks the arm form's conditions (above): a stable key, the
+// entry's binding used once (in the store's value), the root named
+// nowhere from the arm's start to the store's value's end but the
+// store's own place, and nothing there that fails or leaves.
+func (w *valueWalk) armHolds(mo moveOut, root *vvar, frame *vframe) bool {
+	if !w.stableKey(mo.key) {
+		return false
+	}
+	sv := w.varOf(mo.some)
+	if len(sv.occs) != 1 || sv.occs[0].frame != frame {
+		return false
+	}
+	rhs := mo.store.Rhs[0]
+	if o := sv.occs[0]; o.pre < w.preOf(rhs) || o.pre >= w.postOf(rhs) {
+		return false
+	}
+	lo := w.preOf(mo.list[0])
+	for _, o := range root.occs {
+		if o.pre >= lo && o.pre < w.preOf(mo.store) || o.pre >= w.preOf(rhs) && o.pre < w.postOf(rhs) {
+			return false // the root is named in the arm or the stored value
+		}
+	}
+	leaves := false
+	for _, n := range append(append([]syntax.Node{}, stmtNodes(mo.list[:mo.back])...), rhs) {
+		syntax.Inspect(n, func(n syntax.Node) bool {
+			switch n := n.(type) {
+			case *syntax.ReturnStmt, *syntax.BranchStmt, *syntax.FuncLit, *syntax.TryExpr:
+				leaves = true
+			case *syntax.CallExpr:
+				if c := w.info.Calls[n]; c == nil || failsHere(c) || n.Trailing != nil {
+					leaves = true
+				}
+			}
+			return !leaves
+		})
+	}
+	return !leaves
+}
+
+// stmtNodes is list as nodes.
+func stmtNodes(list []syntax.Stmt) []syntax.Node {
+	out := make([]syntax.Node, len(list))
+	for i, s := range list {
+		out[i] = s
+	}
+	return out
 }

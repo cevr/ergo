@@ -1,0 +1,134 @@
+// Scan is the reference reader: it keeps the tables as they came and
+// answers every question by reading every row. It is slow and plainly
+// right, and the laws of Reader hold Index to it.
+type Scan { tables Tables } implements Reader
+
+// ScanOf is the reference reader of t.
+func ScanOf(t Tables) Scan { Scan{tables: t} }
+
+// NewScan is the reference reader of the tables Generated(seed) makes:
+// the provider a law run builds.
+func NewScan(seed int) Scan { ScanOf(Generated(seed)) }
+
+func Describe(s Scan) Summary { summaryOf(s.tables) }
+
+func Api(s Scan, q ApiQuery) ApiView fails NoPackage { apiOf(s.tables, q) }
+
+func MachineOf(s Scan, a string) MachineView fails NoSymbol | Ambiguous | NotMachine {
+	let g = try machineTarget(a, try s.Symbol(a), machinesOf(s.tables))
+	MachineView{Revision: s.tables.Revision, Complete: summaryOf(s.tables).Complete, Graph: g, Reachable: reachableByRounds(g)}
+}
+
+func Reach(s Scan, q ReachQuery) ReachPage fails NoSymbol | Ambiguous {
+	let x = try with context { Reader: s } { subjectOf(q, s.tables) }
+	reachByScan(s.tables, q, x)
+}
+
+func Calls(s Scan, q CallQuery) CallPage fails NoSymbol | Ambiguous | NotCallable {
+	let d = try callTarget(q, try s.Symbol(q.Of))
+	callPage(s.tables, q, callsByRounds(edgesOf(s.tables), d.Handle, depthOf(q), inward(q)))
+}
+
+func Symbols(s Scan, q SymbolQuery) SymbolPage {
+	let mut fit = []Decl{}
+	for p in s.tables.Packages {
+		for d in p.Decls {
+			if fits(q, d) {
+				fit = fit.Append(d)
+			}
+		}
+	}
+	let (start, end, next) = window(len(fit), q.Offset, q.Limit)
+	SymbolPage{Revision: s.tables.Revision, Decls: fit[start:end], Total: len(fit), Next: next}
+}
+
+func Symbol(s Scan, a string) Decl fails NoSymbol | Ambiguous {
+	for p in s.tables.Packages {
+		for d in p.Decls {
+			if d.Handle == a {
+				return d
+			}
+		}
+	}
+	if isPosition(a) {
+		for p in s.tables.Packages {
+			for site in p.Sites {
+				if positionOf(site.File, site.Line, site.Column) == a {
+					return try scanHandle(s.tables, site.Symbol, a)
+				}
+			}
+		}
+		return NoSymbol{Address: a}
+	}
+	let mut candidates = []Decl{}
+	for p in s.tables.Packages {
+		for d in p.Decls {
+			if shortFits(a, d) {
+				candidates = candidates.Append(d)
+			}
+		}
+	}
+	if len(candidates) == 0 {
+		return NoSymbol{Address: a}
+	}
+	if len(candidates) > 1 {
+		let mut handles = []string{}
+		for d in candidates {
+			handles = handles.Append(d.Handle)
+		}
+		return Ambiguous{Address: a, Candidates: handles}
+	}
+	candidates[0]
+}
+
+func References(s Scan, q RefQuery) SitePage fails NoSymbol | Ambiguous {
+	let d = try s.Symbol(q.Of)
+	let mut fit = []Site{}
+	for p in s.tables.Packages {
+		for site in p.Sites {
+			if site.Symbol == d.Handle && (len(q.Kinds) == 0 || has(q.Kinds, site.Kind)) {
+				fit = fit.Append(site)
+			}
+		}
+	}
+	let (start, end, next) = window(len(fit), q.Offset, q.Limit)
+	SitePage{Revision: s.tables.Revision, Complete: complete(s.tables), Sites: fit[start:end], Total: len(fit), Next: next}
+}
+
+// scanHandle is the declaration whose handle is h, found by a scan; the
+// address a is what the caller asked for.
+func scanHandle(t Tables, h string, a string) Decl fails NoSymbol {
+	for p in t.Packages {
+		for d in p.Decls {
+			if d.Handle == h {
+				return d
+			}
+		}
+	}
+	NoSymbol{Address: a}
+}
+
+// summaryOf is the summary of the tables t.
+func summaryOf(t Tables) Summary {
+	let mut paths = []string{}
+	let mut diagnostics = 0
+	let mut symbols = 0
+	let mut sites = 0
+	for p in t.Packages {
+		paths = paths.Append(p.Path)
+		diagnostics = diagnostics + p.Diagnostics
+		symbols = symbols + len(p.Decls)
+		sites = sites + len(p.Sites)
+	}
+	Summary{Revision: t.Revision, Packages: paths, Complete: complete(t), Diagnostics: diagnostics, Symbols: symbols, Sites: sites}
+}
+
+// complete is whether every package of t checks.
+func complete(t Tables) bool {
+	for p in t.Packages {
+		if !p.Complete {
+			return false
+		}
+	}
+	true
+}

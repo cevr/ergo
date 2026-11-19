@@ -24,6 +24,31 @@ func irStringConst(p irPos, t, s string) *irExpr {
 	return &irExpr{K: "const", Pos: p, T: t, V: strconv.Quote(s), Op: "quoted"}
 }
 
+// fieldType is the type of record s's field name, or nil.
+func fieldType(s *check.Struct, name string) check.Type {
+	for _, f := range s.Fields {
+		if f.Name == name {
+			return f.Type
+		}
+	}
+	return nil
+}
+
+// intoRow is e, the value of x, as a value of want: a variant that goes
+// into a row type (a Go error, as a generic record's row field holds it)
+// takes an explicit conversion, as Go assigns it implicitly. The checker
+// records no conversion there (the emitter leaves it to Go).
+func (b *irBuilder) intoRow(want check.Type, x syntax.Expr, e *irExpr) *irExpr {
+	if _, ok := want.(*check.Union); !ok || e == nil {
+		return e
+	}
+	gt := b.goType(want, x)
+	if gt != "error" || b.goType(b.operandType(x), x) == gt {
+		return e
+	}
+	return &irExpr{K: "toiface", Pos: e.Pos, T: gt, X: e}
+}
+
 // value is x as an IR expression, after the statements that must run
 // before it (polls, an if expression's branches). Only a whole value takes
 // statements: an if expression inside an operand keeps its source body,
@@ -207,6 +232,27 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		b.goType(t, x)
 		return &irExpr{K: "deref", Pos: p, X: b.expr(x.X)}
 	case *syntax.SelectorExpr:
+		switch o := check.QualifiedMember(b.l.info, x).(type) {
+		case *check.Func:
+			return b.funcName(o, t, x, p) // pkg.F as a value (ir_fnname.go)
+		case *check.TypeName:
+			// pkg.T of a record with no fields, as the bare name T is.
+			if e := b.bareRecord(o, t, x, p); e != nil {
+				return e
+			}
+			irNo("selector on a non-record")
+		case *check.Var:
+			// pkg.v, a package let of another package, as the bare name is.
+			if val, ok := b.l.constVals[o]; ok && b.l.consts[o] {
+				return b.constant(o.Type, val, x, p)
+			}
+			if name, ok := b.l.vars[o]; ok {
+				b.goType(o.Type, x)
+				b.l.reachStdLet(o)
+				return &irExpr{K: "global", Pos: p, Name: name}
+			}
+			irNo("selector on a non-record")
+		}
 		// A field through a pointer (FLIP F2): Go's p.f.
 		n, ok := derefNamed(b.l.info.Types[x.X]) // ir_pkg.go
 		if !ok {
@@ -320,7 +366,17 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			lit.Elems = b.inOrder(values) // ir_order.go
 			plain := true                 // every element as written: no field conversion or slot adapter
 			for i, e := range lit.Elems {
-				lit.Elems[i] = b.intoField(values[i], e, fts[i])                    // ir_field.go (B-CONVFIELD)
+				// A variant that joins a union field goes into it as the
+				// emitter's Go assignment puts it (assignedTo, ir_union.go:
+				// failureCase[A | B]{Error: A{}}); any other value as the
+				// field holds it (intoField, B-CONVFIELD).
+				if fts[i] == nil || b.goType(fts[i], values[i]) == "error" {
+					lit.Elems[i] = b.intoField(values[i], e, fts[i]) // ir_field.go: a row's error
+				} else if a := b.assignedTo(values[i], e, fts[i]); a != e {
+					lit.Elems[i] = a
+				} else {
+					lit.Elems[i] = b.intoField(values[i], e, fts[i]) // ir_field.go
+				}
 				lit.Elems[i] = b.intoSlot(td, t, names[i], values[i], lit.Elems[i]) // ir_field.go (OPC-ADAPT2)
 				plain = plain && lit.Elems[i] == e
 			}

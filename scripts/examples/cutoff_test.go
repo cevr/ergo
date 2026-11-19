@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/internal/cases"
 )
 
 // TestEarlyCutoffKeysWhatTheCompilerChanges is the early cutoff's law
@@ -118,7 +120,7 @@ func TestEarlyCutoffKeysWhatTheCompilerChanges(t *testing.T) {
 func checkLawCacheOff(t *testing.T, f *fixture) {
 	t.Helper()
 	content, _ := read(t, filepath.Join(filepath.Dir(f.calls), "lawcache.log"))
-	got := lines([]byte(content))
+	got := cases.Lines([]byte(content))
 	if len(got) == 0 {
 		t.Fatal("no check call logged its law-verdict store")
 	}

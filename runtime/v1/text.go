@@ -63,6 +63,32 @@ func StringsBuilderGrow(buf []byte, n int) []byte {
 //ergo:wait none
 func StringsBuilderText(buf []byte) string { return string(buf) }
 
+// BuildInFold is std build's InFold: whether the code runs in a
+// build-time fold (CF1, CF2). A built program never does, so it is false
+// here; the evaluator, which computes a fold, answers true (eval natives,
+// build.InFold). A function that branches on it states a law that its
+// branches agree (std/build).
+//
+//ergo:pure
+//ergo:wait none
+func BuildInFold() bool { return false }
+
+// BuildKnown is std build's Known: whether x is known when the program is
+// built. Nothing is, in a built program; in a fold the evaluator answers
+// (eval natives, build.Known).
+//
+//ergo:pure
+//ergo:wait none
+func BuildKnown[T any](x T) bool { return false }
+
+// BuildHole is std build's Hole: whether x is a template's hole. A built
+// program holds none; in a fold the evaluator answers (eval natives,
+// build.Hole).
+//
+//ergo:pure
+//ergo:wait none
+func BuildHole[T any](x T) bool { return false }
+
 // StringsBuilderAppendBytes is buf with the bytes of bs added, as Go's
 // append(buf, bs...).
 //
@@ -334,3 +360,9 @@ func StrconvUnquote(s string) (string, error) {
 	}
 	return u, nil
 }
+
+// UTF8String is Go's string(b): std utf8.String.
+//
+//ergo:pure
+//ergo:wait none
+func UTF8String(b []byte) string { return string(b) }

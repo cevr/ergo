@@ -115,7 +115,7 @@ law ChildrenStayInside(seed int) {
 		let mut items = 0
 		let mut members = 0
 		for i in 0..Size(t) {
-			let id = dense.IDOf(t.ids, i)
+			let id = dense.IDAt(t.ids, i)
 			match ViewOf(t, id) {
 			case Array as a:
 				items += len(a.Items)
@@ -151,7 +151,7 @@ law KeysAreInterned(seed int) {
 		}
 		let mut all = []Member{}
 		for i in 0..Size(t) {
-			match ViewOf(t, dense.IDOf(t.ids, i)) {
+			match ViewOf(t, dense.IDAt(t.ids, i)) {
 			case Object as o:
 				for m in o.Members {
 					all = all.Append(m)
