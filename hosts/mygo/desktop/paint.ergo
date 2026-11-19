@@ -252,6 +252,8 @@ func paint[S, E, D, F](d *Driver[S, E, D, F]) needs go.Foreign {
 	let mut rs = plainStyle()
 	rs.Width = layout.Px{Value: d.width}
 	rs.Height = layout.Px{Value: d.height}
+	// The root lays out inside the insets (MB4).
+	rs.Padding = [4]float32{float32(float64(d.insets.Top)), float32(float64(d.insets.Right)), float32(float64(d.insets.Bottom)), float32(float64(d.insets.Left))}
 	let top = layout.Add(&t, rs)
 	let ids = build(d, &t, d.root, top, top, Map[ui.Id[E], layout.Id]{}, line)
 	let m = d.metrics

@@ -67,7 +67,7 @@ func genScript(r *rand.Rand, app string) string {
 		case "list":
 			// rows past the window's fold and past the overscan, which a
 			// tap reaches by scrolling first or finds no node for
-			step = pick(r, "tap more", "tap less", fmt.Sprintf("scroll list %d", r.IntN(3000)), fmt.Sprintf("tap row %d", r.IntN(90)), fmt.Sprintf("tap row %d", r.IntN(20)))
+			step = pick(r, "tap more", "tap less", fmt.Sprintf("scroll list %d", r.IntN(3000)), fmt.Sprintf("tap row %d", r.IntN(90)), fmt.Sprintf("tap row %d", r.IntN(20)), fmt.Sprintf("finger scroll list %d", r.IntN(3000)), fmt.Sprintf("finger tap row %d", r.IntN(20)))
 		case "sketch":
 			step = fmt.Sprintf("point sketch %s %d %d", pick(r, "down", "down", "up", "move"), r.IntN(200), r.IntN(150))
 		case "looks":
@@ -75,7 +75,7 @@ func genScript(r *rand.Rand, app string) string {
 		case "roles":
 			step = pick(r, "tap next", "tap next", "tap s0", "tap s3")
 		case "layers":
-			step = pick(r, "tap menu", "tap menu", "tap item0", "tap item1", "tap item2", "tap dialog", "tap dialog", "tap ok", "tap inside", "tap plain", "tap plain", "key Escape", "key Escape", "tap pin", fmt.Sprintf("scroll rows %d", r.IntN(200)), fmt.Sprintf("scroll rows %d", r.IntN(800)))
+			step = pick(r, "tap menu", "tap menu", "tap item0", "tap item1", "tap item2", "tap dialog", "tap dialog", "tap ok", "tap inside", "tap plain", "tap plain", "key Escape", "key Escape", "tap pin", fmt.Sprintf("scroll rows %d", r.IntN(200)), fmt.Sprintf("scroll rows %d", r.IntN(800)), "finger tap pin", "finger near pin", fmt.Sprintf("finger scroll rows %d", r.IntN(800)), "insets 47 0 34 0", "insets 0 0 0 0")
 		case "states":
 			step = pick(r, "tap open", "tap close", "tap ask", "tap p1", "tap r1", "key Tab", "key Tab", "key ArrowRight", "key Escape", "point p0 move 3 3", "point r2 move 3 3", "point open move 3 3", "away")
 		}

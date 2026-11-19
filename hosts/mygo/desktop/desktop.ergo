@@ -55,6 +55,14 @@ type Driver[S, E, D, F] {
 	// semantics is the Semantic nodes the last paint put in the
 	// accessibility tree (semantics.ergo).
 	semantics []ui.Id[E],
+	// finger is the finger on the window, or the fling or return it left
+	// (touch.ergo, MB4); look is the touch constants; insets what the
+	// system covers, which the root lays out inside.
+	finger Option[fingered[E]],
+	look   ui.TouchLook,
+	insets ui.Insets,
+	// fingerAt is the window clock a finger script last set (FingerScroll).
+	fingerAt int64,
 }
 
 // held is a node of the window's tree and its children, in order.
@@ -108,6 +116,10 @@ func start[E comparable, S, D, F](w go.Ref[screen.Window], a actor.Actor[S, E, D
 		under:     None,
 		shadowed:  false,
 		semantics: []ui.Id[E]{},
+		finger:    None,
+		look:      ui.AndroidTouch(),
+		insets:    ui.NoInsets,
+		fingerAt:  int64(0),
 	}
 	d.nodes[root] = held[E]{node: ui.BoxNode{Style: ui.Plain()}, kids: []ui.Id[E]{}}
 	try show(&d, first)
@@ -139,7 +151,7 @@ func show[E comparable, S, D, F](d *Driver[S, E, D, F], ops []ui.Op[E]) fails ui
 	let animates = ui.SessionAnimates(&d.session)
 	if animates != d.frames {
 		d.frames = animates
-		d.w.Frames(animates)
+		d.w.Frames(animates || fingerMoving(d))
 	}
 	paint(d)
 	// A stopped actor takes no viewport; the next step it is sent fails
@@ -270,6 +282,9 @@ func Feed[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fail
 	let y = float32(input.Y)
 	if input.Kind == screen.Closed {
 		return ui.Closed
+	} else if input.Finger && (input.Kind == screen.Down || input.Kind == screen.Move || input.Kind == screen.Up) {
+		// A finger scrolls through std ui's touch machine (MB4).
+		try touched(d, input)
 	} else if input.Kind == screen.Down {
 		let hit = hitAt(d, x, y)
 		d.pressed = None
@@ -343,6 +358,7 @@ func Feed[E comparable, S, D, F](d *Driver[S, E, D, F], input screen.Input) fail
 		paint(d)
 		try report(d)
 	} else if input.Kind == screen.Frame {
+		try touchFrame(d, duration(input.At))
 		try step(d, ui.Tick{At: duration(input.At)})
 	}
 }

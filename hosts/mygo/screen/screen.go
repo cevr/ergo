@@ -52,7 +52,11 @@ const (
 )
 
 // Input is one event of the window, in device-independent pixels from
-// the content's top left corner.
+// the content's top left corner. At is its time in nanoseconds since the
+// window opened, on a frame and on a pointer's Down, Move and Up (a
+// finger's scroll is about when it moved, MB4); Finger is whether a
+// finger on a touchscreen made a pointer input. MyGo's surface at this
+// pin names no pointer id, so two fingers are not told apart here yet.
 type Input struct {
 	Kind                   int
 	X, Y, DX, DY           float64
@@ -60,6 +64,7 @@ type Input struct {
 	Shift, Ctrl, Alt, Meta bool
 	Width, Height          float64
 	At                     int64
+	Finger                 bool
 }
 
 // The roles of Access.
@@ -88,6 +93,9 @@ type Window struct {
 	field   platform.TextInputState
 	frames  bool
 	start   time.Time
+	// manual is the time a Headless window's clock reads once SetClock
+	// set it, -1 while it reads the wall clock.
+	manual  int64
 	width   float64
 	height  float64
 	painted int
@@ -118,7 +126,7 @@ type glyphText struct {
 }
 
 func newWindow(width, height float64) *Window {
-	return &Window{wake: make(chan struct{}, 1), start: time.Now(), width: width, height: height, sys: text.Shared(), opacity: 1}
+	return &Window{wake: make(chan struct{}, 1), start: time.Now(), manual: -1, width: width, height: height, sys: text.Shared(), opacity: 1}
 }
 
 // Open opens a desktop window of the size, titled title, once MyGo's app
@@ -198,7 +206,7 @@ func (w *Window) event(ev platform.SurfaceEvent) bool {
 		on := w.frames
 		w.mu.Unlock()
 		if on {
-			w.push(Input{Kind: Frame, At: time.Since(w.start).Nanoseconds()})
+			w.push(Input{Kind: Frame, At: w.now()})
 		}
 	case platform.SurfaceResize:
 		width, height, _ := w.conn.Surface.Size()
@@ -211,7 +219,7 @@ func (w *Window) event(ev platform.SurfaceEvent) bool {
 			return false
 		}
 		kind := map[platform.SurfaceEventKind]int{platform.PointerDown: Down, platform.PointerMove: Move, platform.PointerUp: Up}[ev.Kind]
-		w.push(withMods(Input{Kind: kind, X: ev.X, Y: ev.Y}, ev.Mods))
+		w.push(withMods(Input{Kind: kind, X: ev.X, Y: ev.Y, At: w.now(), Finger: ev.Pointer == platform.PointerTouch}, ev.Mods))
 	case platform.PointerScroll:
 		w.push(withMods(Input{Kind: Scroll, X: ev.X, Y: ev.Y, DX: ev.DX, DY: ev.DY}, ev.Mods))
 	case platform.KeyPressed:
@@ -667,6 +675,41 @@ func (w *Window) Press(x, y float64) {
 // Release releases the primary button at x, y.
 func (w *Window) Release(x, y float64) {
 	w.send(platform.SurfaceEvent{Kind: platform.PointerUp, X: x, Y: y})
+}
+
+// Touch puts a finger down at x, y.
+func (w *Window) Touch(x, y float64) {
+	w.send(platform.SurfaceEvent{Kind: platform.PointerDown, X: x, Y: y, Pointer: platform.PointerTouch})
+}
+
+// TouchMove moves the finger to x, y.
+func (w *Window) TouchMove(x, y float64) {
+	w.send(platform.SurfaceEvent{Kind: platform.PointerMove, X: x, Y: y, Pointer: platform.PointerTouch})
+}
+
+// Lift lifts the finger at x, y.
+func (w *Window) Lift(x, y float64) {
+	w.send(platform.SurfaceEvent{Kind: platform.PointerUp, X: x, Y: y, Pointer: platform.PointerTouch})
+}
+
+// SetClock sets the time the window's inputs carry, in nanoseconds since
+// it opened, from now on: a test moves it as its script says, so a
+// finger's speed is the script's and not the machine's load.
+func (w *Window) SetClock(at int64) {
+	w.mu.Lock()
+	w.manual = at
+	w.mu.Unlock()
+}
+
+// now is the window's time: the manual clock once SetClock set it.
+func (w *Window) now() int64 {
+	w.mu.Lock()
+	m := w.manual
+	w.mu.Unlock()
+	if m >= 0 {
+		return m
+	}
+	return time.Since(w.start).Nanoseconds()
 }
 
 // Hover moves the pointer to x, y.
