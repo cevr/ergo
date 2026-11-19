@@ -52,6 +52,8 @@ var (
 	_ = declarePrograms("TestFSRootTreeAgreesWithHost", entryProgram("fsRoot", fsRootProgram))
 	_ = declarePrograms("TestTimeCivilMatchesGo", entryProgram("timeCivil", timeCivilProgram))
 	_ = declarePrograms("TestStdCivilMatchesModel", entryProgram("civilModel", civilModelProgram))
+	_ = declarePrograms("TestStdURLMatchesGo", entryProgram("url", urlProgram))
+	_ = declarePrograms("TestStdURLLawsRun", testBuildProgram("stdurl", stdURLLawsProbe))
 	_ = declarePrograms("TestStdCivilLawsRun", testBuildProgram("stdcivil", stdCivilLawsProbe))
 	_ = declarePrograms("TestStdTzMatchesGo", entryProgram("tzModel", tzModelProgram))
 	_ = declarePrograms("TestStdCivilFormatMatchesGo", entryProgram("civilFormat", civilFormatProgram))
