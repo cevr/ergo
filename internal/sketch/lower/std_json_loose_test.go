@@ -442,7 +442,9 @@ func looseCaseTests() string {
 	if err != nil {
 		panic(err)
 	}
-	var file struct{ Cases []looseBAMLCase `json:"cases"` }
+	var file struct {
+		Cases []looseBAMLCase `json:"cases"`
+	}
 	if err := json.Unmarshal(data, &file); err != nil {
 		panic(err)
 	}
@@ -472,12 +474,12 @@ func looseCaseTests() string {
 // stdJSONLooseLawStatements is the statement of each loose law, by ledger
 // key; lawledger.Run holds it equal to the ledger.
 var stdJSONLooseLawStatements = map[string]string{
-	"json StrictTextsAgree": `StrictTextsAgree(v fleet, w up) { let r = DecodeLoose(codec(), Encode(codec(), v)) catch { case _: return false } let _ = DecodeLoose(codec(), Encode(looseCodec(), w)) catch { case Malformed: return false case _: return r.Value == v && len(r.Fixes) == 0 } false }`,
-	"json NoiseIsReported": `NoiseIsReported(v up, pre int, post int, fence bool, comma bool, bare bool, single bool, comment bool, cut bool, before bool, after bool) { let w = looseTricky(v) let n = looseNoisy(w, pre, post, fence, comma, bare, single, comment, cut, before, after) let r = DecodeLoose(looseCodec(), n.text) catch { case _: return false } let want = if before { 1 } else { 0 } let mut index = true for f in r.Fixes { match f { case Chose as c: index = c.Index == want case _: } } r.Value == w && looseKinds(r.Fixes) == n.kinds && index }`,
-	"json NoFixMeansStrict": `NoFixMeansStrict(v up, at int, op int, ch int, at2 int, op2 int, ch2 int) { let text = looseMutated(v, at, op, ch, at2, op2, ch2) let r = DecodeLoose(looseCodec(), text) catch { case _: return true } if len(r.Fixes) > 0 { return true } let s = Decode(looseCodec(), text) catch { case _: return false } s == r.Value }`,
-	"json RepairIsIdempotent": `RepairIsIdempotent(v up, at int, op int, ch int, at2 int, op2 int, ch2 int) { let r = DecodeLoose(looseCodec(), looseMutated(v, at, op, ch, at2, op2, ch2)) catch { case _: return true } let again = DecodeLoose(looseCodec(), Encode(looseCodec(), r.Value)) catch { case _: return false } again.Value == r.Value && len(again.Fixes) == 0 }`,
-	"json FixesNameTheirText": `FixesNameTheirText(v up, pre int, fence bool, comma bool, bare bool, comment bool, cut bool, at int, op int, ch int, at2 int, op2 int, ch2 int) { let a = looseNoisy(looseTricky(v), pre, pre, fence, comma, bare, !bare, comment, cut, false, true).text let b = looseMutated(v, at, op, ch, at2, op2, ch2) looseNamed(a) && looseNamed(b) }`,
-	"json CutStringsClose": `CutStringsClose(raw []byte) { let mut s = "\"\\" for b in raw { s = s + looseLetters[int(b)%3] } let text = Encode(Codec[[]string]{MaxBytes: 0, MaxDepth: 0}, []string{s}) let mut ok = true for n in 2..len(text)-2 { ok = ok && looseCutRead(text[:n], s) } ok }`,
+	"json StrictTextsAgree":       `StrictTextsAgree(v fleet, w up) { let r = DecodeLoose(codec(), Encode(codec(), v)) catch { case _: return false } let _ = DecodeLoose(codec(), Encode(looseCodec(), w)) catch { case Malformed: return false case _: return r.Value == v && len(r.Fixes) == 0 } false }`,
+	"json NoiseIsReported":        `NoiseIsReported(v up, pre int, post int, fence bool, comma bool, bare bool, single bool, comment bool, cut bool, before bool, after bool) { let w = looseTricky(v) let n = looseNoisy(w, pre, post, fence, comma, bare, single, comment, cut, before, after) let r = DecodeLoose(looseCodec(), n.text) catch { case _: return false } let want = if before { 1 } else { 0 } let mut index = true for f in r.Fixes { match f { case Chose as c: index = c.Index == want case _: } } r.Value == w && looseKinds(r.Fixes) == n.kinds && index }`,
+	"json NoFixMeansStrict":       `NoFixMeansStrict(v up, at int, op int, ch int, at2 int, op2 int, ch2 int) { let text = looseMutated(v, at, op, ch, at2, op2, ch2) let r = DecodeLoose(looseCodec(), text) catch { case _: return true } if len(r.Fixes) > 0 { return true } let s = Decode(looseCodec(), text) catch { case _: return false } s == r.Value }`,
+	"json RepairIsIdempotent":     `RepairIsIdempotent(v up, at int, op int, ch int, at2 int, op2 int, ch2 int) { let r = DecodeLoose(looseCodec(), looseMutated(v, at, op, ch, at2, op2, ch2)) catch { case _: return true } let again = DecodeLoose(looseCodec(), Encode(looseCodec(), r.Value)) catch { case _: return false } again.Value == r.Value && len(again.Fixes) == 0 }`,
+	"json FixesNameTheirText":     `FixesNameTheirText(v up, pre int, fence bool, comma bool, bare bool, comment bool, cut bool, at int, op int, ch int, at2 int, op2 int, ch2 int) { let a = looseNoisy(looseTricky(v), pre, pre, fence, comma, bare, !bare, comment, cut, false, true).text let b = looseMutated(v, at, op, ch, at2, op2, ch2) looseNamed(a) && looseNamed(b) }`,
+	"json CutStringsClose":        `CutStringsClose(raw []byte) { let mut s = "\"\\" for b in raw { s = s + looseLetters[int(b)%3] } let text = Encode(Codec[[]string]{MaxBytes: 0, MaxDepth: 0}, []string{s}) let mut ok = true for n in 2..len(text)-2 { ok = ok && looseCutRead(text[:n], s) } ok }`,
 	"json BoundsHoldWhenRepaired": `BoundsHoldWhenRepaired(k int) { let depth = looseAt(k, 32) + 1 let r = DecodeLoose(Codec[Value]{MaxBytes: 0, MaxDepth: depth}, looseOpen(depth)) catch { case _: return false } let text = "ok: [1, 2,]" let _ = DecodeLoose(Codec[Value]{MaxBytes: len(text), MaxDepth: 0}, text) catch { case _: return false } len(r.Fixes) > 0 && looseMalformed(Codec[Value]{MaxBytes: 0, MaxDepth: depth}, looseOpen(depth+1)) && looseMalformed(Codec[Value]{MaxBytes: len(text) - 1, MaxDepth: 0}, text) }`,
 }
 
