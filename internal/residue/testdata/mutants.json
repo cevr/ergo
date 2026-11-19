@@ -76,8 +76,8 @@
       "name": "residue-scan-skips-package",
       "origin": "wf10 STD-NOPRIV NP1",
       "file": "internal/residue/std_membership_test.go",
-      "from": "\"internal/sketch/format\", \"internal/sketchfront\", \"internal/tsproj\",\n",
-      "to": "\"internal/sketch/format\", \"internal/sketchfront\",\n",
+      "from": "\"internal/hostsyntax\", \"internal/sketchfront\", \"internal/tsproj\",\n",
+      "to": "\"internal/hostsyntax\", \"internal/sketchfront\",\n",
       "rule": "The rule reads every compiler package: a package left out of the scan would hide its reads.",
       "killers": ["internal/residue:TestCompilerReadsNoStdMembership"],
       "anchor": {"tests": ["internal/residue:TestCompilerReadsNoStdMembership"]}

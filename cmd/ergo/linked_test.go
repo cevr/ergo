@@ -16,8 +16,9 @@ import (
 // module, of a std package it imports, or of the lowering that leaves the
 // checked-in Go behind fails here until `go run ./scripts/linked` has run.
 // It lives in cmd/ergo, the binary that links the packages, and runs in
-// the full tier. Mutant
-// linked-cli-not-written (testdata/mutants.json).
+// the full tier. Mutants linked-source-ignored, linked-exports-all,
+// linked-ir-ignored, library-reach-main-only and linked-cli-not-written
+// (testdata/mutants.json).
 func TestLinkedGoIsFresh(t *testing.T) {
 	if testing.Short() {
 		// The fast tier's CPU budget has no headroom (scripts/gate
