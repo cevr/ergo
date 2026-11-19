@@ -42,6 +42,7 @@ var coverage = map[string][]string{
 	"sync":     {"sync"},
 	"testing":  {"testing"},
 	"time":     {"time"},
+	"url":      {"net/url"},
 	"utf8":     {"unicode/utf8"},
 }
 

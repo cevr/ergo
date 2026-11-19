@@ -477,7 +477,54 @@ test HttpQueryDecodesByTheRule(counts []int, numbers []int, texts []string) {
 	}
 	assert want == "ok" && got == record
 }
+
+func queryVerdict(fields []http.Field) (string, queryProbe) {
+	let none = queryProbe{Load: json.Absent, Name: "", Note: json.Absent, On: json.Absent, Page: 0, Size: json.Absent, Tags: []string{}}
+	let got = http.DecodeQuery[queryProbe](fields) catch {
+	case http.QueryRepeated as q:
+		return ("repeated " + q.Key, none)
+	case WireWrongKind as w:
+		return ("wrong " + w.Path, none)
+	case WireMissingField as f:
+		return ("missing " + f.Field, none)
+	case WireUnknownTag:
+		return ("tag", none)
+	}
+	("ok", got)
+}
+
+func formVerdict(body string) (string, queryProbe) {
+	let none = queryProbe{Load: json.Absent, Name: "", Note: json.Absent, On: json.Absent, Page: 0, Size: json.Absent, Tags: []string{}}
+	let got = http.DecodeForm[queryProbe](body) catch {
+	case http.QueryRepeated as q:
+		return ("repeated " + q.Key, none)
+	case WireWrongKind as w:
+		return ("wrong " + w.Path, none)
+	case WireMissingField as f:
+		return ("missing " + f.Field, none)
+	case WireUnknownTag:
+		return ("tag", none)
+	}
+	("ok", got)
+}
+
+test HttpFormIsQuery(counts []int, texts []string) {
+	let keys = []string{"tags", "page", "other key", "name", "on", "size", "load", "note"}
+	let mut fields = []http.Field{}
+	for j, key in keys {
+		let times = if j < len(counts) { ((counts[j] % 3) + 3) % 3 } else { 1 }
+		for t in 0..times {
+			let text = if len(texts) == 0 { "" } else { texts[(j+t)%len(texts)] }
+			let value = if key == "on" { "true" } else if key == "page" || key == "size" || key == "load" { strconv.Itoa(10*j + t) } else { text }
+			fields = fields.Append(http.Field{Name: key, Value: value})
+		}
+	}
+	assert formVerdict(http.EncodeQuery(fields)) == queryVerdict(fields)
+}
 `
+
+// httpFormStatement is FormIsQuery (STD-SURVEY SM2).
+const httpFormStatement = `FormIsQuery(counts []int, texts []string) { let keys = []string{"tags", "page", "other key", "name", "on", "size", "load", "note"} let mut fields = []Field{} for j, key in keys { let times = if j < len(counts) { ((counts[j] % 3) + 3) % 3 } else { 1 } for t in 0..times { let text = if len(texts) == 0 { "" } else { texts[(j+t)%len(texts)] } let value = if key == "on" { "true" } else if key == "page" || key == "size" || key == "load" { strconv.Itoa(10*j + t) } else { text } fields = fields.Append(Field{Name: key, Value: value}) } } formVerdict(EncodeQuery(fields)) == queryVerdict(fields) }`
 
 const httpQueryStatement = `QueryDecodesByTheRule(counts []int, numbers []int, texts []string) { let keys = []string{"load", "name", "note", "on", "other key", "page", "size", "tags"} let mut pairs = []Field{} let mut raw = "" let mut i = 0 for j, key in keys { let k = if j < len(counts) { ((counts[j] % 6) + 6) % 6 } else { 5 } let times = if k == 0 { 0 } else if k == 1 { 2 } else if k == 2 { 3 } else { 1 } for _ in 0..times { let n = if len(numbers) == 0 { i } else { numbers[i%len(numbers)] } let m = if n < 0 { -(n % 1000) } else { n % 1000 } let text = if len(texts) == 0 { "" } else { texts[i%len(texts)] } let typed = key == "load" || key == "on" || key == "page" || key == "size" let value = if !typed { text } else if m%7 == 6 { text + "x" } else if key == "on" { if m%2 == 0 { "true" } else { "false" } } else { strconv.Itoa(1000 + 13*m) } pairs = pairs.Append(Field{Name: key, Value: value}) let part = queryEscape(key, m%2 == 0, m%3 == 0) + "=" + queryEscape(value, m%5 != 0, m%3 == 1) raw = if i == 0 { part } else { raw + "&" + part } if m%11 == 0 { raw = raw + "&bad=%zz" } i = i + 1 } } let (want, record) = queryExpected(pairs) let got = DecodeQuery[queryProbe](ParseQuery(raw)) catch { case QueryRepeated as q: return want == "repeated "+q.Key case WireWrongKind as w: return want == "wrong "+w.Path case WireMissingField as f: return want == "missing "+f.Field case WireUnknownTag: return false } want == "ok" && got == record }`
 
@@ -500,7 +547,7 @@ func TestStdHTTPLawsRun(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("HTTP laws: exit %d\n%s\n%s", code, stdout, stderr)
 	}
-	statements := map[string]string{"http FailureUsesTable": httpFailureStatement, "http SuccessUsesRoute": httpSuccessStatement, "http BuiltPathMatches": httpBuiltPathStatement, "http AllowIsWhatMatches": httpAllowStatement, "http FilesAsksBeneath": httpFilesStatement, "http StreamIsItsWrites": httpStreamStatement, "http WriteAfterStreamFails": httpLateWriteStatement, "http InMemorySendIntoIsSend": httpInMemoryIntoStatement, "http QueryDecodesByTheRule": httpQueryStatement, "http QueryStringBytesReadsString": httpQueryBytesStatement, "http MatchIsSplitMatch": httpSegmentsStatement, "http SuccessJSONIsSuccess": httpSuccessJSONStatement}
+	statements := map[string]string{"http FailureUsesTable": httpFailureStatement, "http SuccessUsesRoute": httpSuccessStatement, "http BuiltPathMatches": httpBuiltPathStatement, "http AllowIsWhatMatches": httpAllowStatement, "http FilesAsksBeneath": httpFilesStatement, "http StreamIsItsWrites": httpStreamStatement, "http WriteAfterStreamFails": httpLateWriteStatement, "http InMemorySendIntoIsSend": httpInMemoryIntoStatement, "http QueryDecodesByTheRule": httpQueryStatement, "http FormIsQuery": httpFormStatement, "http QueryStringBytesReadsString": httpQueryBytesStatement, "http MatchIsSplitMatch": httpSegmentsStatement, "http SuccessJSONIsSuccess": httpSuccessJSONStatement}
 	lawLabel := func(key string) string { return "Http" + strings.TrimPrefix(key, "http ") }
 	lawledger.Run(t, lawsPassed(t, statements, lawLabel, stdHTTPLawsProbe, stdout, "RouterRefusalsAndHead", "HandlerUnderManual", "FilesAnswersByTheRule"))
 }
