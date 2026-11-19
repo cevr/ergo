@@ -36,13 +36,17 @@ import "testing"
 // PORT-SLICE: a substring, s[lo:hi] of a string or a named type over one
 // ("expression *syntax.SliceExpr"; PF's r01; mutant ps-string-slice-refused).
 //
+// PORT-UPDATE: a record update whose base is computed (a call, a field of
+// a field), T{..fresh(n), F: v} ("record update of a computed base"; PF's
+// r02; mutant pu-computed-base-refused).
+//
 // The programs reach other stops (witness parameters, instance copies),
 // which are not these families: the test reads the report's fallback
 // reasons, not that every body lowers.
 func TestPortCallsTakeIRBodies(t *testing.T) {
 	families := []string{"std call with a converted operand", "std call with a converted result", "dot call of a std function", "task call",
 		"type argument with no value", "statement that releases owned values", "with of a context entry outside the program's sources", "Go call with a result of another type",
-		"expression *syntax.SliceExpr"}
+		"expression *syntax.SliceExpr", "record update of a computed base"}
 	for _, row := range []struct{ name, src string }{
 		{"leaf", `import http
 import io
@@ -125,6 +129,21 @@ func main() {
 	let _ = tail("abc")
 	let _ = cut("abcd", 1, 3)
 	let _ = head(Code("xyz"))
+}
+`},
+		{"update", `type Shelf { Name string, Count int }
+
+type Store { Main Shelf }
+
+func fresh(name string) Shelf { Shelf{Name: name, Count: 0} }
+
+func bump(name string) Shelf { Shelf{..fresh(name), Count: 1} }
+
+func moved(s Store) Shelf { Shelf{..s.Main, Count: s.Main.Count + 1} }
+
+func main() {
+	let _ = bump("a")
+	let _ = moved(Store{Main: fresh("b")})
 }
 `},
 		{"taskset", `import io
