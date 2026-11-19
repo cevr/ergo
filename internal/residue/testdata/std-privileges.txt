@@ -106,7 +106,6 @@ debt	internal/sketchfront/inspect.go:ergoBody	inspect skips std	NP5
 debt	internal/sketchfront/rewrite.go:FreshStdLedger	std's ledger is written by a std-only path	NP5
 debt	internal/tsproj/http.go:httpFailureStatuses	http.FailureStatus by name	NP7
 debt	internal/tsproj/http.go:httpTables	http.Route by name	NP7
-debt	internal/rpcgen/hub.go:StdJSON	json's wire forms by name (moved from tsproj/project.go:stdJSON, one function for the hub's and tsproj's schemas)	NP7
 debt	internal/sketch/check/call.go:IsInForce	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
 seam	internal/sketch/check/export.go:stdSnapshotNow	finds, ships or names std (a seam file); it decides nothing (batch 21 integration)	-
 debt	internal/sketch/check/export_user.go:NewUserExport	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
