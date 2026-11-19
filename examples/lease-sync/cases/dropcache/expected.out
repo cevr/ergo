@@ -1,0 +1,31 @@
+> a take build
+a connecting: [build:a]
+  pending take build
+> a push
+a connecting: [build:a]
+  pending take build
+> a pull
+a connecting: [build:a]
+> a take deploy
+a connecting: [build:a deploy:a]
+  pending take deploy
+> a dropcache
+a connecting: loading
+  pending take deploy
+> a push
+a connecting: loading
+  pending take deploy
+> a pull
+a connecting: [build:a deploy:a]
+> a give build
+a connecting: [deploy:a]
+  pending give build
+> a pull
+a connecting: [deploy:a]
+  pending give build
+> a push
+a connecting: [deploy:a]
+  pending give build
+> a pull
+a connecting: [deploy:a]
+authority: [deploy:a]

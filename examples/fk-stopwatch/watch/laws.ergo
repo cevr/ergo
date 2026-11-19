@@ -52,6 +52,9 @@ func model(m Model, s Signal, now duration) Model {
 		case Reset:
 			Model{Running: false, Banked: 0s, Began: 0s, Shown: 0s}
 		}
+	case Clicked as c:
+		// A click alone resets, or waits for its reading (the work's press).
+		if c.Button == Reset { Model{Running: false, Banked: 0s, Began: 0s, Shown: 0s} } else { m }
 	case Ticked:
 		if m.Running { Model{Running: true, Banked: m.Banked, Began: m.Began, Shown: now} } else { m }
 	}
@@ -151,6 +154,8 @@ func isReset(s Signal) bool {
 	match s {
 	case Pressed as p:
 		p.Button == Reset
+	case Clicked as c:
+		c.Button == Reset
 	case Ticked:
 		false
 	}

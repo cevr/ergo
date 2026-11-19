@@ -22,7 +22,14 @@ func TestRefinedIntConvertsThroughItsBase(t *testing.T) {
 	if err != nil || a.Root().Package == nil {
 		t.Fatalf("the contract does not check: %v %v", err, a.Diagnostics)
 	}
-	out, err := Generate(a.Root().Package, "mod/api", "API")
+	hub, err := GenerateAPI(a.Root().Package, "mod/api", "API")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, src := range hub.Files {
+		writeFile(t, filepath.Join(dir, "api", hub.Dir, name), src)
+	}
+	out, err := Generate(a.Root().Package, "mod/api", "API", "mod/api/"+hub.Dir)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"reflect"
+	"slices"
 	"strconv"
-	"strings"
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -15,7 +16,9 @@ import (
 // generator's model: taking, copying, export-only and plain-data changes.
 // Mutants: omitted copy, missed takes/copy change, plain change breaking,
 // and foreign copy facts omitted by reading only recorded body facts.
-// This seam tests checked docs and diff, not the lowering or Go execution.
+// This seam tests the projected contracts, not the lowering or Go
+// execution; diff is the reference below (std code's ApiDiff has its own
+// laws, ApiDiffBreaksOnANewTake).
 func TestOwnershipAPIModel(t *testing.T) {
 	// Smallest repro of the foreign-fact omission: Reverse has no body, its
 	// runtime/v1 body may copy its T, and only the conservative policy for a
@@ -27,7 +30,7 @@ func TestOwnershipAPIModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, f := range Functions(std) {
-		if f.Name == "Reverse" && (len(f.Copies) != 1 || f.Copies[0].Parameter != "T" || f.Copies[0].Where != "" || f.Copies[0].What == "" || !strings.Contains(Text([]Function{f}), "copies T at foreign body (plain data only)")) {
+		if f.Name == "Reverse" && (len(f.Copies) != 1 || f.Copies[0].Parameter != "T" || f.Copies[0].Where != "" || f.Copies[0].What == "") {
 			t.Fatalf("foreign copy policy lost: %+v", f)
 		}
 		if f.Name == "Clone" && (len(f.Copies) != 1 || f.Copies[0].Parameter != "T") {
@@ -90,22 +93,15 @@ func TestOwnershipAPIModel(t *testing.T) {
 				if (len(f.Copies) > 0) != newCopy {
 					fail("copies: %+v", f)
 				}
-				if newCopy && !strings.Contains(Text(next), "copies T at ") {
-					fail("docs omit copies: %s", Text(next))
-				}
 				if newCopy && (f.Copies[0].Where == "" || f.Copies[0].What == "") {
 					fail("copy site lost its location or reason: %+v", f)
 				}
 			}
-			if f.Name == "Res.Hand" && ((len(f.Takes) > 0) != newTake || !strings.Contains(Text([]Function{f}), "takes ")) {
+			if f.Name == "Res.Hand" && (len(f.Takes) > 0) != newTake {
 				fail("takes: %+v", f)
 			}
 		}
-		changes := Diff(old, next)
-		got := map[string]bool{}
-		for _, c := range changes {
-			got[c.Name] = c.BreaksResourceCallers
-		}
+		got := diff(old, next)
 		want := map[string]bool{}
 		if oldCopy != newCopy {
 			want["Inspect"] = newCopy
@@ -120,7 +116,40 @@ func TestOwnershipAPIModel(t *testing.T) {
 			want["Plain"] = false
 		}
 		if fmt.Sprint(got) != fmt.Sprint(want) {
-			fail("diff %+v, model %v; docs:\n%s", changes, want, DiffText(changes))
+			fail("diff %v, model %v", got, want)
 		}
 	}
+}
+
+// diff is the reference diff of two projections: each name whose contract
+// differs, with whether the new side takes a parameter or self, or copies
+// a type parameter, the old did not.
+func diff(old, next []Function) map[string]bool {
+	before := map[string]Function{}
+	for _, f := range old {
+		before[f.Name] = f
+	}
+	out := map[string]bool{}
+	for _, f := range next {
+		a, had := before[f.Name]
+		delete(before, f.Name)
+		if had && reflect.DeepEqual(a, f) {
+			continue
+		}
+		breaks := false
+		if had {
+			breaks = f.TakesSelf && !a.TakesSelf
+			for _, p := range f.TakesParameters {
+				breaks = breaks || !slices.Contains(a.TakesParameters, p)
+			}
+			for _, c := range f.Copies {
+				breaks = breaks || !slices.ContainsFunc(a.Copies, func(o Copy) bool { return o.ParameterIndex == c.ParameterIndex })
+			}
+		}
+		out[f.Name] = breaks
+	}
+	for n := range before {
+		out[n] = false
+	}
+	return out
 }

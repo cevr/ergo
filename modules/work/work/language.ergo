@@ -1,0 +1,316 @@
+// The language seam (SEMWS §2.13, WG3a): three small contracts, so that a
+// language can give a part and still be admitted. A Splitter (level 1)
+// cuts one file into units; an Indexer (level 2) tells what changed
+// between two snapshots by declaration and where a declaration is used;
+// a Checker (level 2) checks a snapshot with a layer of edited files over
+// it. work reads a language only through them: in process (the Ergo
+// provider, WG3b) or from a child process that speaks the protocol of
+// plugin.ergo. The laws are the admission test: work plugin-test runs
+// them against a plugin on the repository's own files.
+
+import maps
+import slices
+import strings
+
+// Unit is one top-level piece of a file: its key (the names it declares;
+// unique in its file), its kind, its text (with its leading comment), and
+// whether it is exported. Members are the units inside it (an
+// interface's, a class's, an enum's), none for most.
+type Unit { Key string, Kind string, Text string, Exported bool, Members []Unit }
+
+// Edit replaces Cut bytes at At with Insert.
+type Edit { At int, Cut int, Insert string }
+
+// FileEdit is one file of a layer: its text, or None when the layer
+// removes it.
+type FileEdit { Path string, Text Option[string] }
+
+// Snapshot is a tree a level-2 provider reads: the files under Root, with
+// Layer over them (a file of the layer wins, a None removes it). Root ""
+// is no folder: the snapshot is the layer's files alone.
+type Snapshot { Root string, Layer []FileEdit }
+
+// Change is one declaration that differs between two snapshots: its key,
+// its file and its kind, one of ChangeKinds.
+type Change { Key string, File string, Kind string }
+
+// ChangeKinds are the kinds of a Change: a declaration added, removed,
+// with another body, or with another contract (what its users see).
+let ChangeKinds = []string{"added", "removed", "body", "contract"}
+
+// Site is a use of a declaration: its file, line and column (from 1).
+type Site { File string, Line int, Column int }
+
+// Diagnostic is one finding of a Checker: where, and what.
+type Diagnostic { File string, Line int, Column int, Message string }
+
+// Unreadable is a file a Splitter cannot cut: it does not parse.
+type Unreadable { File string, Why string }
+
+// NotProvided is an operation of a level the provider does not have (a
+// level-1 plugin asked for Sites): never an empty answer.
+type NotProvided { Op string }
+
+// ToolMissing is a Checker whose language tool is not there.
+type ToolMissing { Why string }
+
+// Unanswered is a provider that gave no answer: a plugin that died, that
+// wrote what is not an answer, or whose units do not join to the file.
+type Unanswered { Command string, Why string }
+
+// Splitter cuts one file at a time into units (level 1: a parser).
+type Splitter {
+	// Units is the units of file, whose text is text, in order.
+	Units(file string, text string) []Unit fails Unreadable | Unanswered,
+
+	// UnitsAreTheFile: the unit texts, joined in order, are the file: no
+	// byte is lost or added.
+	law UnitsAreTheFile(file string, text string) {
+		let units = Units(file, text) catch {
+		case Unreadable, Unanswered:
+			return true
+		}
+		JoinsToTheFile(text, units)
+	},
+
+	// KeysAreUnique: no two units of a file have one key.
+	law KeysAreUnique(file string, text string) {
+		let units = Units(file, text) catch {
+		case Unreadable, Unanswered:
+			return true
+		}
+		KeysUnique(units)
+	},
+
+	// EditStaysInItsUnit: an edit inside one unit that leaves the file
+	// with as many units changes that unit's text and no other unit's key
+	// or text.
+	law EditStaysInItsUnit(file string, text string, e Edit) {
+		let before = Units(file, text) catch {
+		case Unreadable, Unanswered:
+			return true
+		}
+		let inside = Inside(before, e)
+		if inside < 0 {
+			return true
+		}
+		let after = Units(file, Apply(text, e)) catch {
+		case Unreadable, Unanswered:
+			return true
+		}
+		StaysInItsUnit(before, after, inside)
+	},
+}
+
+// Indexer reads names and uses (level 2: the language's own checker).
+type Indexer {
+	// Changes is every declaration that differs from base to head.
+	Changes(base Snapshot, head Snapshot) []Change fails NotProvided | Unanswered,
+	// Sites is every use of the declaration of key of in snap.
+	Sites(snap Snapshot, of string) []Site fails NotProvided | Unanswered,
+	// Comment is a comment of the language that holds text, a line of its
+	// own with its newline: what the admission test adds to a file.
+	Comment(text string) string fails NotProvided | Unanswered,
+
+	// ChangesOfSameIsEmpty: a snapshot has no change against itself.
+	law ChangesOfSameIsEmpty(files []FileEdit) {
+		let s = Snapshot{Root: "", Layer: files}
+		let changes = Changes(s, s) catch {
+		case NotProvided, Unanswered:
+			return true
+		}
+		len(changes) == 0
+	},
+
+	// CommentEditIsNoChange: a comment added at the end of a file changes
+	// no declaration, and every change has a kind of ChangeKinds.
+	law CommentEditIsNoChange(files []FileEdit, at int, note string) {
+		let s = Snapshot{Root: "", Layer: files}
+		let line = Comment(note) catch {
+		case NotProvided, Unanswered:
+			return true
+		}
+		let head = Commented(s, at, line)
+		let changes = Changes(s, head) catch {
+		case NotProvided, Unanswered:
+			return true
+		}
+		len(changes) == 0 && KindsKnown(try Changes(Snapshot{Root: "", Layer: []FileEdit{}}, s))
+	},
+
+	// SitesAreInTheSnapshot: every use is in a file of the snapshot, at a
+	// line it has.
+	law SitesAreInTheSnapshot(files []FileEdit, of string) {
+		let s = Snapshot{Root: "", Layer: files}
+		let sites = Sites(s, of) catch {
+		case NotProvided, Unanswered:
+			return true
+		}
+		SitesIn(LayerFiles(s.Layer), sites)
+	},
+}
+
+// Checker checks a snapshot (level 2): the check land runs on the merged
+// tree before it writes.
+type Checker {
+	// Check is the diagnostics of base with layer over it.
+	Check(base Snapshot, layer []FileEdit) []Diagnostic fails ToolMissing | NotProvided | Unanswered,
+
+	// CheckIsPure: the same check twice gives the same diagnostics.
+	law CheckIsPure(files []FileEdit, layer []FileEdit) {
+		let base = Snapshot{Root: "", Layer: files}
+		let first = Check(base, layer) catch {
+		case ToolMissing, NotProvided, Unanswered:
+			return true
+		}
+		first == try Check(base, layer)
+	},
+
+	// EmptyLayerIsTheBase: a layer that writes each file of the base as
+	// it is gives the base's own diagnostics.
+	law EmptyLayerIsTheBase(files []FileEdit) {
+		let base = Snapshot{Root: "", Layer: files}
+		let alone = Check(base, []FileEdit{}) catch {
+		case ToolMissing, NotProvided, Unanswered:
+			return true
+		}
+		let mut same = []FileEdit{}
+		for path, text in LayerFiles(files) {
+			same = same.Append(FileEdit{Path: path, Text: Some[string]{Value: text}})
+		}
+		alone == try Check(base, same)
+	},
+}
+
+// JoinsToTheFile reports whether the units' texts, joined in order, are
+// text.
+func JoinsToTheFile(text string, units []Unit) bool {
+	let mut parts = []string{}
+	for u in units {
+		parts = parts.Append(u.Text)
+	}
+	strings.Join(parts, "") == text
+}
+
+// KeysUnique reports whether no two units have one key.
+func KeysUnique(units []Unit) bool {
+	let mut seen = Map[string, bool]{}
+	for u in units {
+		if seen.Get(u.Key) != None {
+			return false
+		}
+		seen[u.Key] = true
+	}
+	true
+}
+
+// Apply is text with e made (At and Cut brought inside the text).
+func Apply(text string, e Edit) string {
+	let at = clampTo(e.At, len(text))
+	let cut = clampTo(e.Cut, len(text)-at)
+	text[0:at] + e.Insert + text[at+cut:]
+}
+
+// Inside is the index of the unit that holds e whole, strictly after its
+// first byte and before its end (so no edit joins or cuts two units), or
+// -1.
+func Inside(units []Unit, e Edit) int {
+	let mut start = 0
+	let mut total = 0
+	for u in units {
+		total = total + len(u.Text)
+	}
+	let at = clampTo(e.At, total)
+	let cut = clampTo(e.Cut, total-at)
+	for i, u in units {
+		let end = start + len(u.Text)
+		if at > start && at+cut < end {
+			return i
+		}
+		start = end
+	}
+	-1
+}
+
+// StaysInItsUnit reports whether after has as many units as before and
+// differs from it only at index i, or has another count (the edit made or
+// joined units, which the law does not judge).
+func StaysInItsUnit(before []Unit, after []Unit, i int) bool {
+	if len(before) != len(after) {
+		return true
+	}
+	for k, u in before {
+		if k != i && (u.Key != after[k].Key || u.Text != after[k].Text) {
+			return false
+		}
+	}
+	true
+}
+
+// LayerFiles is the files a layer over no folder holds: the last edit of
+// each path wins, a None removes it.
+func LayerFiles(layer []FileEdit) Map[string, string] {
+	let mut out = Map[string, string]{}
+	for f in layer {
+		match f.Text {
+		case Some[string] as t:
+			out[f.Path] = t.Value
+		case None:
+			out = out.Delete(f.Path)
+		}
+	}
+	out
+}
+
+// Commented is s with line added at the end of its file number at (none
+// when it has no file), after a newline when that file does not end in
+// one.
+func Commented(s Snapshot, at int, line string) Snapshot {
+	let files = LayerFiles(s.Layer)
+	let paths = slices.Sorted(maps.Keys(files))
+	if len(paths) == 0 {
+		return s
+	}
+	let path = paths[clampTo(((at%len(paths))+len(paths))%len(paths), len(paths)-1)]
+	let text = maps.GetOr(files, path, "")
+	let joined = if text == "" || strings.HasSuffix(text, "\n") { text + line } else { text + "\n" + line }
+	Snapshot{Root: s.Root, Layer: s.Layer.Append(FileEdit{Path: path, Text: Some[string]{Value: joined}})}
+}
+
+// KindsKnown reports whether every change has a kind of ChangeKinds.
+func KindsKnown(changes []Change) bool {
+	for c in changes {
+		if !slices.Contains(ChangeKinds, c.Kind) {
+			return false
+		}
+	}
+	true
+}
+
+// SitesIn reports whether every site is in one of files, at a line and
+// column it has.
+func SitesIn(files Map[string, string], sites []Site) bool {
+	for s in sites {
+		let text = match files.Get(s.File) {
+		case Some[string] as t:
+			t.Value
+		case None:
+			return false
+		}
+		let lines = strings.Split(text, "\n")
+		if s.Line < 1 || s.Line > len(lines) || s.Column < 1 || s.Column > len(lines[s.Line-1])+1 {
+			return false
+		}
+	}
+	true
+}
+
+func clampTo(n int, limit int) int {
+	if limit <= 0 {
+		return 0
+	}
+	if n < 0 {
+		return ((n % (limit + 1)) + limit + 1) % (limit + 1)
+	}
+	if n > limit { n % (limit + 1) } else { n }
+}

@@ -1,0 +1,163 @@
+import ergo.dev/fluid/token
+
+// Tone is a control's emphasis: Solid (the primary action), Soft (a secondary one), Outline
+// (a tertiary one), Bare (a ghost) and Alarm (a destructive one).
+type Tone = Solid{} | Soft{} | Outline{} | Bare{} | Alarm{}
+
+// Tones is every tone.
+func Tones() []Tone { []Tone{Solid, Soft, Outline, Bare, Alarm} }
+
+// Densities is every density.
+func Densities() []token.Density { []token.Density{token.Comfortable, token.Compact} }
+
+// Radii is every radius step.
+func Radii() []token.Radius { []token.Radius{token.Square, token.Small, token.Medium, token.Large, token.Round} }
+
+// Control is the look of a pressable control, in the parts the original builds it from: the
+// box (Root: size, padding, text, the focus ring), a plate one pixel inside it that holds the
+// fill and its edge (Plate), the row of the content (Content) and the label (Label). The plate
+// follows the box's state, so the box is a group.
+type Control { Root Look, Plate Look, Content Look, Label Look }
+
+// ControlLook is the look of a control of tone t at density d with corner radius r; lead and
+// trail say whether the content starts or ends with a glyph (the padding on that side is a
+// glyph's, narrower than a word's).
+func ControlLook(t Tone, d token.Density, r token.Radius, lead bool, trail bool) Control {
+	let height = token.ControlPx(d)
+	let word = match d {
+	case token.Comfortable:
+		16
+	case token.Compact:
+		12
+	}
+	let glyph = word - 4
+	let mut root = []Decl{Display{V: InlineFlex}, Items{V: Center}, Content{V: Center}, Position{V: Relative}, Isolate, Height{V: Px{N: height}}, PadLeft{Px: if lead { glyph } else { word }}, PadRight{Px: if trail { glyph } else { word }}, Nowrap, NoOutline}
+	for x in Gap(6) {
+		root = root.Append(x)
+	}
+	for x in Round(Outer{R: r}) {
+		root = root.Append(x)
+	}
+	for x in Text(token.Body, d, 14, 400) {
+		root = root.Append(x)
+	}
+	match ink(t) {
+	case Some as i:
+		root = root.Append(Ink{V: i.Value})
+	case None:
+	}
+	let mut plate = Inset(1)
+	for x in Round(Inner{R: r}) {
+		plate = plate.Append(x)
+	}
+	for x in fill(t) {
+		plate = plate.Append(x)
+	}
+	let mut content = []Decl{Display{V: Flex}, Items{V: Center}, Content{V: Center}, Position{V: Relative}}
+	for x in Gap(6) {
+		content = content.Append(x)
+	}
+	Control{
+		Root: Look{
+			Rest:     Of(root),
+			Hover:    Empty(),
+			Within:   Empty(),
+			Focus:    Of([]Decl{Shadow{V: Ring{Px: 1, Color: token.Accent}}}),
+			Active:   Empty(),
+			Disabled: Of([]Decl{Opacity{Pct: 50}}),
+			From:     Own,
+			Wide:     []Above{},
+			Marks:    true,
+		},
+		Plate:   Look{Rest: Of(plate), Hover: Of(hovered(t)), Within: Empty(), Focus: Empty(), Active: Of(pressed(t)), Disabled: Of(fill(t)), From: Group, Wide: []Above{}, Marks: false},
+		Content: Plain(content),
+		Label:   Plain([]Decl{Trim}),
+	}
+}
+
+// ink is the text colour of a tone; Soft and Outline take their box's.
+func ink(t Tone) Option[token.Ref] {
+	match t {
+	case Solid:
+		Some{token.OnStrong}
+	case Soft, Outline:
+		None
+	case Bare:
+		Some{token.Muted}
+	case Alarm:
+		Some{token.DangerInk}
+	}
+}
+
+// fill is a tone's plate at rest: its fill and a one-pixel edge in the fill's colour (so a
+// fill and an outline are one shape), or an edge alone.
+func fill(t Tone) []Decl {
+	match t {
+	case Solid:
+		[]Decl{Fill{V: token.Strong}, Shadow{V: Ring{Px: 1, Color: token.Strong}}}
+	case Soft:
+		[]Decl{Fill{V: token.Soft}, Shadow{V: Ring{Px: 1, Color: token.Soft}}}
+	case Outline:
+		[]Decl{Shadow{V: Ring{Px: 1, Color: token.Line}}}
+	case Bare:
+		[]Decl{}
+	case Alarm:
+		[]Decl{Fill{V: token.DangerFill}, Shadow{V: Ring{Px: 1, Color: token.DangerFill}}}
+	}
+}
+
+// hovered is a tone's plate under the pointer: the fill one step toward the page.
+func hovered(t Tone) []Decl {
+	match t {
+	case Solid:
+		[]Decl{Fill{V: token.StrongHover}, Shadow{V: Ring{Px: 1, Color: token.StrongHover}}}
+	case Soft:
+		[]Decl{Fill{V: token.SoftHover}, Shadow{V: Ring{Px: 1, Color: token.SoftHover}}}
+	case Outline, Bare:
+		[]Decl{Fill{V: token.Soft}, Shadow{V: Ring{Px: 1, Color: token.Soft}}}
+	case Alarm:
+		[]Decl{Fill{V: token.DangerHover}, Shadow{V: Ring{Px: 1, Color: token.DangerHover}}}
+	}
+}
+
+// pressed is a tone's plate while pressed: two steps toward the page, and the edge drawn in.
+func pressed(t Tone) []Decl {
+	match t {
+	case Solid:
+		[]Decl{Fill{V: token.StrongPress}, Shadow{V: Ring{Px: 0, Color: token.StrongPress}}}
+	case Soft:
+		[]Decl{Fill{V: token.SoftPress}, Shadow{V: Ring{Px: 0, Color: token.SoftPress}}}
+	case Outline, Bare:
+		[]Decl{Fill{V: token.SoftHover}, Shadow{V: Ring{Px: 0, Color: token.SoftHover}}}
+	case Alarm:
+		[]Decl{Fill{V: token.DangerPress}, Shadow{V: Ring{Px: 0, Color: token.DangerPress}}}
+	}
+}
+
+// LookIsTotal: every tone, density and radius gives a control whose box has a height and
+// padding in every state and whose plate has a look in every state (a state with rest's look
+// would be one no reader can see).
+law LookIsTotal(t Tone, d token.Density, r token.Radius, lead bool, trail bool) {
+	let c = ControlLook(t, d, r, lead, trail)
+	let mut ok = true
+	for s in States() {
+		let root = In(c.Root, s)
+		ok = ok && Get(root, "height") != None && Get(root, "padding-left") != None && Get(root, "border-top-left-radius") != None
+	}
+	let rest = In(c.Plate, Rest)
+	ok && !Same(In(c.Plate, Hover), rest) && !Same(In(c.Plate, Active), rest)
+}
+
+// FocusRingIsVisible: a control focused from the keyboard draws a ring in the accent colour,
+// whatever its tone, and no other state draws it.
+law FocusRingIsVisible(t Tone, d token.Density, r token.Radius) {
+	let c = ControlLook(t, d, r, false, false)
+	let ring = Some[Decl]{Value: Shadow{V: Ring{Px: 1, Color: token.Accent}}}
+	sameDecl(Get(In(c.Root, FocusVisible), "box-shadow"), ring) && !sameDecl(Get(In(c.Root, Rest), "box-shadow"), ring) && !sameDecl(Get(In(c.Root, Hover), "box-shadow"), ring)
+}
+
+// DisabledIsDimmed: a disabled control is drawn at half opacity, and an enabled one at full.
+law DisabledIsDimmed(t Tone, d token.Density, r token.Radius) {
+	let c = ControlLook(t, d, r, false, false)
+	sameDecl(Get(In(c.Root, Disabled), "opacity"), Some[Decl]{Value: Opacity{Pct: 50}}) && Get(In(c.Root, Rest), "opacity") == None
+}

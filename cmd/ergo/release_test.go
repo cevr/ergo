@@ -85,4 +85,8 @@ func TestReleaseBuildUsesTheProfile(t *testing.T) {
 	if _, err := parseFileOptions("run", []string{"--release", dir}); err == nil {
 		t.Error("ergo run --release: want the refusal, --release is build's")
 	}
+	// A phone module's packager links it; the profile would be dropped.
+	if err := buildCommand([]string{"--release", "--platform", "ios/arm64", dir}); err == nil || !strings.Contains(err.Error(), "phone platform") {
+		t.Errorf("ergo build --release --platform ios/arm64: got %v, want the phone refusal", err)
+	}
 }

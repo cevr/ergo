@@ -1,0 +1,103 @@
+// Package local is infra's drivers for the machine it runs on (IA2): a
+// directory, a file and a detached program (Dirs, Files, Processes), each
+// an infra.Driver over std's fs and exec. Every driver writes what it made
+// to a ledger, a file per object in a folder of its own: the object's path,
+// or a program's pid and start time. Read and Delete take only the id, so
+// they read the ledger to find the object. The drivers hold their
+// providers as fields: main gives the host's (fs.NewHost, exec.NewHost),
+// and a law or a test gives memory ones (fstest.Memory, exec.Processes).
+//
+// Prior art: Terraform's local provider (local_file, a resource keyed by
+// its path) and Alchemy's local resources; a pidfile is how a supervisor
+// (daemontools, systemd's PIDFile=) finds a detached program again.
+
+import github.com/cevr/ergo/modules/infra
+import fs
+import hex
+import strconv
+import strings
+
+// Ledger is the folder Root where a driver keeps one file per object it
+// made, named by the object's kind and its id.
+type Ledger { Root string, files fs.Files, writes fs.Writes }
+
+// NewLedger is the ledger at root over files and writes.
+func NewLedger(root string, files fs.Files, writes fs.Writes) Ledger {
+	Ledger{Root: root, files: files, writes: writes}
+}
+
+// entryPath is the file of the object id of kind: the id is hex, so any
+// id names one file in Root.
+func entryPath(l Ledger, kind string, id string) string { l.Root + "/" + kind + "-" + hex.Encode(id) }
+
+// get is the fields of the object id of kind, None when the ledger has
+// none.
+func get(l Ledger, kind string, id string) Option[[]string] fails infra.Failed {
+	let text = l.files.ReadFile(entryPath(l, kind, id)) catch {
+	case fs.NotFound:
+		return None
+	case fs.Denied as e:
+		return infra.Failed{ID: id, Reason: "the ledger cannot read \(e.Path)"}
+	case fs.Failed as e:
+		return infra.Failed{ID: id, Reason: e.Reason}
+	}
+	let mut fields = []string{}
+	for part in strings.Split(text, "\n") {
+		let field = hex.Decode(part) catch {
+		case hex.Malformed:
+			return infra.Failed{ID: id, Reason: "the ledger's entry for \(id) is not one it wrote"}
+		}
+		fields = fields.Append(field)
+	}
+	Some[[]string]{Value: fields}
+}
+
+// put writes the fields of the object id of kind, replacing the entry.
+func put(l Ledger, kind string, id string, fields []string) fails infra.Failed {
+	l.writes.MkdirAll(l.Root) catch {
+	case fs.Denied as e:
+		return infra.Failed{ID: id, Reason: "the ledger cannot write \(e.Path)"}
+	case fs.Failed as e:
+		return infra.Failed{ID: id, Reason: e.Reason}
+	}
+	let mut parts = []string{}
+	for f in fields {
+		parts = parts.Append(hex.Encode(f))
+	}
+	l.writes.WriteFile(entryPath(l, kind, id), strings.Join(parts, "\n")) catch {
+	case fs.NotFound as e:
+		return infra.Failed{ID: id, Reason: "the ledger's folder \(e.Path) is gone"}
+	case fs.Denied as e:
+		return infra.Failed{ID: id, Reason: "the ledger cannot write \(e.Path)"}
+	case fs.Failed as e:
+		return infra.Failed{ID: id, Reason: e.Reason}
+	}
+}
+
+// drop removes the entry of the object id of kind; there may be none.
+func drop(l Ledger, kind string, id string) fails infra.Failed {
+	try remove(l.writes, id, entryPath(l, kind, id))
+}
+
+// remove removes path; a path that is not there is no failure.
+func remove(w fs.Writes, id string, path string) fails infra.Failed {
+	w.Remove(path) catch {
+	case fs.NotFound:
+	case fs.Denied as e:
+		return infra.Failed{ID: id, Reason: "cannot remove \(e.Path)"}
+	case fs.Failed as e:
+		return infra.Failed{ID: id, Reason: e.Reason}
+	}
+}
+
+// under is the path rel names below base: rel's elements, separated by
+// "/", none of them empty, "." or "..", so an object stays below its
+// driver's base folder.
+func under(id string, base string, rel string) string fails infra.Failed {
+	for element in strings.Split(rel, "/") {
+		if element == "" || element == "." || element == ".." {
+			return infra.Failed{ID: id, Reason: "the path \(strconv.Quote(rel)) is not a relative path of named elements"}
+		}
+	}
+	base + "/" + rel
+}

@@ -1,0 +1,10 @@
+{
+  "about": "Feature record filler mutants (wf10 TS1). Killed by TestVectorRecordsRegenerate (the vectors' records are what the parser makes) and TestRecordSurvivesWhitespace (a reformat that keeps the lines keeps the record).",
+  "mutants": [
+    {"name":"ts1-depth-from-indentation","origin":"wf10 TS1","file":"internal/sketch/lint/features/features.go","from":"\t\t\t\t\tl.Depth++\n","to":"\t\t\t\t\tl.Depth = first - from\n","rule":"Depth is the syntactic nesting of the line's first byte, not its indentation.","killers":["internal/sketch/lint/features:TestRecordSurvivesWhitespace"]},
+    {"name":"ts1-comment-text-untrimmed","origin":"wf10 TS1","file":"internal/sketch/lint/features/features.go","from":"l.CommentText = strings.Trim(string(text), \" \\t\")","to":"l.CommentText = strings.TrimLeft(string(text), \" \\t\")","rule":"A comment's text has no trailing spaces or tabs, so trailing whitespace leaves the record.","killers":["internal/sketch/lint/features:TestRecordSurvivesWhitespace"]},
+    {"name":"ts1-doc-from-attachment","origin":"wf10 TS1","file":"internal/sketch/lint/features/features.go","from":"\t\tcase hasDoc[i]:\n","to":"\t\tcase false:\n","rule":"A comment the tree attaches to a declaration or a member (an operation, a law) is a doc comment.","killers":["internal/sketch/lint/features:TestVectorRecordsRegenerate"]},
+    {"name":"ts1-literal-words","origin":"wf10 TS1","file":"internal/sketch/lint/features/features.go","from":"\t\t\tcase inLiteral[p]:\n","to":"\t\t\tcase false:\n","rule":"The words of a literal are not code words.","killers":["internal/sketch/lint/features:TestVectorRecordsRegenerate"]},
+    {"name":"ts1-arm-rethrows","origin":"wf10 TS1","file":"internal/sketch/lint/features/nodes.go","from":"if bound != \"\" && v.Name == bound {","to":"if bound == \"-\" && v.Name == bound {","rule":"An arm whose value is the failure it bound rethrows.","killers":["internal/sketch/lint/features:TestVectorRecordsRegenerate"]}
+  ]
+}

@@ -92,7 +92,7 @@ func prepareWarm(opts fileOptions, tc *build.Toolchain, extra ...string) (*warm,
 			}
 			target += " pgo=" + fmt.Sprintf("%x", sha256.Sum256(data))
 		}
-		parts = append(parts, stamp, tc.Root, target, tc.GOFLAGS, strings.Join(tc.Tags, ","), strconv.FormatBool(tc.GoBuild)+" "+strconv.FormatBool(tc.Strip))
+		parts = append(parts, stamp, tc.Root, target, tc.GOFLAGS, strings.Join(tc.Tags, ","), strconv.FormatBool(tc.GoBuild)+" "+strconv.FormatBool(tc.Strip)+" "+string(tc.Profile))
 	}
 	key := sketchfront.WarmKey(append(slices.Clone(parts), extra...)...)
 	if key == "" {
@@ -129,7 +129,7 @@ func warmToolchain(opts fileOptions) *build.Toolchain {
 // test's answer.
 func warmOptions(opts fileOptions) string {
 	return fmt.Sprintf("%q", []string{opts.target, opts.platform.String(), strconv.FormatBool(opts.locked), strconv.FormatBool(opts.json), strconv.FormatBool(opts.debug),
-		opts.seed, opts.evalSteps, opts.evalBytes, opts.states, opts.law, opts.skipLaw, opts.run, strconv.FormatBool(opts.noViews), strconv.FormatBool(opts.noFallback || os.Getenv("ERGO_FALLBACK") == "off")})
+		opts.seed, opts.evalSteps, opts.evalBytes, opts.states, opts.law, opts.skipLaw, opts.run, strconv.FormatBool(opts.native), strconv.FormatBool(opts.noViews), strconv.FormatBool(opts.noFallback || os.Getenv("ERGO_FALLBACK") == "off")})
 }
 
 // goStamp names the go command: its resolved path, size and modification

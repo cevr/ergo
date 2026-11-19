@@ -3,7 +3,10 @@
 package hostguard
 
 import (
+	"crypto/hmac"
+	"crypto/sha1"
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/base64"
 	"encoding/hex"
 	"hash/crc32"
@@ -20,10 +23,22 @@ import (
 
 // members are the guarded members of v1.PureImports (pure.go).
 var members = map[string]any{
+	"crypto/hmac.Equal":                   hmac.Equal,
+	"crypto/hmac.New":                     hmac.New,
+	"crypto/sha1.New":                     sha1.New,
+	"crypto/sha1.Sum":                     sha1.Sum,
 	"crypto/sha256.New":                   sha256.New,
 	"crypto/sha256.New224":                sha256.New224,
 	"crypto/sha256.Sum224":                sha256.Sum224,
 	"crypto/sha256.Sum256":                sha256.Sum256,
+	"crypto/sha512.New":                   sha512.New,
+	"crypto/sha512.New384":                sha512.New384,
+	"crypto/sha512.New512_224":            sha512.New512_224,
+	"crypto/sha512.New512_256":            sha512.New512_256,
+	"crypto/sha512.Sum384":                sha512.Sum384,
+	"crypto/sha512.Sum512":                sha512.Sum512,
+	"crypto/sha512.Sum512_224":            sha512.Sum512_224,
+	"crypto/sha512.Sum512_256":            sha512.Sum512_256,
 	"encoding/base64.NewDecoder":          base64.NewDecoder,
 	"encoding/base64.NewEncoder":          base64.NewEncoder,
 	"encoding/base64.NewEncoding":         base64.NewEncoding,

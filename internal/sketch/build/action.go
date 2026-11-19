@@ -63,9 +63,50 @@ type Toolchain struct {
 	// own GOFLAGS replaces it, as a later flag does in the go command.
 	// The direct path passes -s -w to the linker where go build does.
 	Strip bool
+	// Cover is the directory of coverage builds (CoverVariable, cover.go),
+	// or empty: Build then links the module as it is.
+	Cover string
 	// Pins are the pin archive sets the direct path may take std's and
 	// the runtime's archives from (pin.go); the zero value is none.
 	Pins Pins
+	// Profile is how the module's own packages compile: Release, as go
+	// build does, or Dev, with inlining off and no DWARF (test-speed FT5).
+	Profile Profile
+	// Stored builds only from the direct path's store: a compile or a
+	// link the store does not hold, or a refusal of the direct path, ends
+	// the build with ErrNotStored, and no tool or go command runs
+	// (TEQ: `ergo test --count 1 ./...` reuses the packages' own stored
+	// test binaries).
+	Stored bool
+}
+
+// Profile is a build's compile profile (test-speed FT5).
+type Profile string
+
+const (
+	// Release compiles every package as go build does: the profile of
+	// `ergo build`, and of any build with --debug.
+	Release Profile = ""
+	// Dev compiles the packages of the module's directory with inlining
+	// off and no DWARF (-l -dwarf=false; about -40 % of a compile,
+	// test-speed plan §3.3a): the profile of `ergo run` and `ergo test`.
+	// The emitted module skips go/format too (sketchfront). The standard
+	// library compiles as in Release, so its archives are shared.
+	Dev Profile = "dev"
+)
+
+// devGcflags is the -gcflags value of the Dev profile: its compile flags
+// for every package whose directory is in the module's directory, as go
+// build matches the pattern ./... against a package's directory.
+const devGcflags = "./...=-l -dwarf=false"
+
+// CompileFlags are the flags the profile adds to the compile of a package
+// of the module's directory: none for Release.
+func (t Toolchain) CompileFlags() []string {
+	if t.Profile == Dev {
+		return []string{"-l", "-dwarf=false"}
+	}
+	return nil
 }
 
 // stripFlags is the GOFLAGS word of a stripped link, quoted as the go
@@ -76,7 +117,7 @@ const stripFlags = `'-ldflags=-s -w'`
 // process environment, the action an unconfigured go build would run. It
 // takes the direct path unless ERGO_GO_BUILD=go selects go build.
 func HostToolchain() Toolchain {
-	return Toolchain{Go: "go", GOOS: os.Getenv("GOOS"), GOARCH: os.Getenv("GOARCH"), GOFLAGS: os.Getenv("GOFLAGS"), GoBuild: os.Getenv(GoBuildVariable) == "go"}
+	return Toolchain{Go: "go", GOOS: os.Getenv("GOOS"), GOARCH: os.Getenv("GOARCH"), GOFLAGS: os.Getenv("GOFLAGS"), GoBuild: os.Getenv(GoBuildVariable) == "go", Cover: os.Getenv(CoverVariable)}
 }
 
 // LevelVariable is the environment variable of goarch's CPU level, or
@@ -121,7 +162,7 @@ func (t Toolchain) TargetLevel() string {
 // with cgo off: the Go bindings a program checks against are typed with
 // CGO_ENABLED=0 (docs/spec/interop.md, Platforms), and a cgo-free link
 // cross-compiles with no C toolchain for the target. The strip flags stand
-// first in GOFLAGS when Strip is set.
+// first in GOFLAGS when Strip is set, then the Dev profile's -gcflags.
 func (t Toolchain) Command(module Module, output string) *exec.Cmd {
 	args := append([]string{"build"}, receipt.GoBuildFlags...)
 	if len(t.Tags) > 0 {
@@ -143,6 +184,9 @@ func (t Toolchain) Command(module Module, output string) *exec.Cmd {
 	child := exec.Command(t.Go, args...)
 	child.Dir = module.Dir
 	goflags := t.GOFLAGS
+	if t.Profile == Dev {
+		goflags = strings.TrimSpace("'-gcflags=" + devGcflags + "' " + goflags)
+	}
 	if t.Strip {
 		goflags = strings.TrimSpace(stripFlags + " " + goflags)
 	}
