@@ -74,6 +74,66 @@ func stepped() []int needs Console {
 	out
 }
 
+// poke writes the element p points at, and its result is 1: an
+// op-assignment reads its place before the value's calls run, so
+// out[0] += poke(&out[0]) is old + 1, never 101 (the emitter's old).
+func poke(p *int) int needs Console {
+	*p = 100
+	seen(1)
+}
+
+func added(values []int) []int fails Bad needs Console {
+	let mut out = []int{0, 0}
+	out[0] += poke(&out[0])
+	for v in values {
+		out[1] += try word(v)
+	}
+	out
+}
+
+func fseen(x float64) float64 needs Console {
+	Console.Println("fseen \(x)")
+	x
+}
+
+func scaled(xs []float64) float64 needs Console {
+	let mut f = 1.5
+	f *= fseen(2.0)
+	let mut out = xs
+	out[0] *= fseen(f)
+	out[0]
+}
+
+type Box { n int }
+
+// moved stores through a let mut pointer the value's statements
+// reassign: the store goes to the record the pointer held before them
+// (the emitter binds the pointer first), for =, op= and *q =.
+func moved(r *Box, k int) int needs Console {
+	let mut other = Box{n: 0}
+	let mut p = r
+	p.n = if k > 1 {
+		p = &other
+		seen(5)
+	} else {
+		k
+	}
+	p.n += if k > 2 {
+		p = r
+		seen(3)
+	} else {
+		seen(1)
+	}
+	let mut q = r
+	*q = if k > 0 {
+		q = &other
+		Box{n: seen(9) + q.n}
+	} else {
+		*q
+	}
+	r.n * 100 + other.n
+}
+
 type Grid { cells []int }
 
 func gridded(g *Grid, n int) needs Console {
@@ -126,6 +186,16 @@ func main() needs Console {
 	Console.Println("both \(len(u))")
 	let w = stepped()
 	Console.Println("stepped \(w[0]) \(w[1]) \(w[2])")
+	let ad = added([]int{2, 3}) catch {
+	case Bad as b:
+		Console.Println("bad \(b.Why)")
+		[]int{0, 0}
+	}
+	Console.Println("added \(ad[0]) \(ad[1])")
+	Console.Println("scaled \(scaled([]float64{0.1}))")
+	let mut box = Box{n: 0}
+	Console.Println("moved \(moved(&box, 3)) \(box.n)")
+	Console.Println("moved \(moved(&box, 1)) \(box.n)")
 	let mut grid = Grid{cells: []int{0, 0, 0}}
 	let g = &grid
 	gridded(g, 2)

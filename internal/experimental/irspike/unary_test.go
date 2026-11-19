@@ -51,7 +51,7 @@ func TestIRReprosMatchSource(t *testing.T) {
 	for _, r := range []struct {
 		name string
 		fns  []string
-	}{{"notand", []string{"pick"}}, {"rowslot", []string{"held", "run"}}, {"byteindex", []string{"hex", "pick", "tail"}}, {"mapkey", []string{"keyed", "indexed", "slotted", "both", "Grid.gridded", "stepped"}}} {
+	}{{"notand", []string{"pick"}}, {"rowslot", []string{"held", "run"}}, {"byteindex", []string{"hex", "pick", "tail"}}, {"mapkey", []string{"keyed", "indexed", "slotted", "both", "Grid.gridded", "stepped", "added", "scaledOwned", "Box.moved"}}} {
 		t.Run(r.name, func(t *testing.T) {
 			text, err := os.ReadFile(filepath.Join("testdata", r.name+".ergo"))
 			if err != nil {
