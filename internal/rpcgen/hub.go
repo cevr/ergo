@@ -124,6 +124,18 @@ func Kebab(s string) string {
 	return b.String()
 }
 
+// StdAPIName is the name a generated transport package imports std api
+// by: api, or ergoapi when a package it imports (by path, with its name)
+// is named api already, such as a contract package named api.
+func StdAPIName(imports map[string]string) string {
+	for path, name := range imports {
+		if name == "api" && path != "api" {
+			return "ergoapi"
+		}
+	}
+	return "api"
+}
+
 // RequestName, ReplyName and OpName are the hub's variants of operation op.
 func RequestName(op string) string { return op + "Request" }
 func ReplyName(op string) string   { return op + "Reply" }
@@ -219,7 +231,7 @@ func (g *hubGen) failures(ops []Op) {
 }
 
 // hubFixed are the hub's own declarations.
-var hubFixed = []string{"Request", "Op", "Reply", "Failure", "Outcome", "Done", "Rejected", "Values", "Client", "NewClient", "OpOf", "Name", "Doc", "Schema", "Call", "CallIsTheOperation", "ClientIsCall", "inRow", "answerOf", "scripted", "valueOf", NoFailure}
+var hubFixed = []string{"Request", "Op", "Reply", "Failure", "Outcome", "Done", "Rejected", "Values", "Given", "OutcomeOf", "Client", "NewClient", "OpOf", "Name", "Doc", "Schema", "Call", "CallIsTheOperation", "ClientIsCall", "inRow", "scripted", "valueOf", NoFailure}
 
 // hubLocals are the names a Client function uses beside the operation's
 // parameters (the only place they are in scope): a parameter of one of
@@ -595,11 +607,12 @@ func (g *hubGen) laws(b *strings.Builder, capName string, ops []Op) {
 	}
 	b.WriteString("}\n}\n\n")
 
-	b.WriteString("// answerOf is the Outcome of r's operation: f when failing and f is in\n// its row, else its value from v.\nfunc answerOf(r Request, v Values, f Failure, failing bool) Outcome {\nif failing && inRow(OpOf(r), f) {\nreturn Rejected{Failure: f}\n}\nmatch r {\n")
+	b.WriteString("// Given is what a law gives a call: a value of each operation's value\n// type, a failure, and whether the call fails with it.\ntype Given { Values Values, Failure Failure, Failing bool }\n\n")
+	b.WriteString("// OutcomeOf is the Outcome g gives r: its failure when g fails and the\n// failure is in the row of r's operation, else the operation's value\n// from g. It is always an Outcome r's operation can have.\nfunc OutcomeOf(r Request, g Given) Outcome {\nif g.Failing && inRow(OpOf(r), g.Failure) {\nreturn Rejected{Failure: g.Failure}\n}\nmatch r {\n")
 	for _, op := range ops {
 		fmt.Fprintf(b, "case %s:\n", RequestName(op.Name))
 		if op.Result != nil {
-			fmt.Fprintf(b, "Done{Reply: %s{Value: v.%s}}\n", ReplyName(op.Name), op.Name)
+			fmt.Fprintf(b, "Done{Reply: %s{Value: g.Values.%s}}\n", ReplyName(op.Name), op.Name)
 		} else {
 			fmt.Fprintf(b, "Done{Reply: %s}\n", ReplyName(op.Name))
 		}
@@ -608,8 +621,8 @@ func (g *hubGen) laws(b *strings.Builder, capName string, ops []Op) {
 
 	fmt.Fprintf(b, "// scripted is a %s that keeps each Request it is sent and answers\n// want.\nfunc scripted(want Outcome, sent sync.Ref[[]Request]) Client {\nNewClient(func(q Request) Outcome {\nsent.Update(func(rs []Request) []Request { rs.Append(q) })\nwant\n})\n}\n\n", capName)
 
-	fmt.Fprintf(b, "// CallIsTheOperation: Call(r) calls r's operation once, with r's\n// arguments, and answers its value or failure as r's own Outcome.\nlaw CallIsTheOperation(r Request, v Values, f Failure, failing bool) {\nlet want = answerOf(r, v, f, failing)\nlet sent = sync.NewRef[[]Request]([]Request{})\nlet got = with context { %s: scripted(want, sent) } { Call(r) }\ngot == want && sent.Get() == []Request{r}\n}\n\n", capName)
-	fmt.Fprintf(b, "// ClientIsCall: a Client whose send is Call answers each call as the\n// provider Call is bound to does.\nlaw ClientIsCall(r Request, v Values, f Failure, failing bool) {\nlet want = answerOf(r, v, f, failing)\nlet sent = sync.NewRef[[]Request]([]Request{})\nlet inner = scripted(want, sent)\nlet outer = NewClient(func(q Request) Outcome {\nwith context { %s: inner } { Call(q) }\n})\nlet got = with context { %s: outer } { Call(r) }\ngot == want && sent.Get() == []Request{r}\n}\n", capName, capName)
+	fmt.Fprintf(b, "// CallIsTheOperation: Call(r) calls r's operation once, with r's\n// arguments, and answers its value or failure as r's own Outcome.\nlaw CallIsTheOperation(r Request, g Given) {\nlet want = OutcomeOf(r, g)\nlet sent = sync.NewRef[[]Request]([]Request{})\nlet got = with context { %s: scripted(want, sent) } { Call(r) }\ngot == want && sent.Get() == []Request{r}\n}\n\n", capName)
+	fmt.Fprintf(b, "// ClientIsCall: a Client whose send is Call answers each call as the\n// provider Call is bound to does.\nlaw ClientIsCall(r Request, g Given) {\nlet want = OutcomeOf(r, g)\nlet sent = sync.NewRef[[]Request]([]Request{})\nlet inner = scripted(want, sent)\nlet outer = NewClient(func(q Request) Outcome {\nwith context { %s: inner } { Call(q) }\n})\nlet got = with context { %s: outer } { Call(r) }\ngot == want && sent.Get() == []Request{r}\n}\n", capName, capName)
 }
 
 // importBlock imports each package the declarations text names.

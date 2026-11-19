@@ -60,6 +60,9 @@ const (
 	// Go's build cache held it. A plan whose archives come from a pin set
 	// (internal/pinset) takes none.
 	StdExports
+	// ObligationsAffected counts the obligations `ergo test --affected`
+	// found affected or new against its BASE.
+	ObligationsAffected
 	// SharedFallbacks counts the `ergo test DIR/...` runs whose module test
 	// binary (TEST-one) did not build, so each package was tested alone.
 	SharedFallbacks
@@ -97,6 +100,7 @@ var names = [numCounters]string{
 	"bytes_hashed",
 	"go_compiles", "go_compiles_reused", "links", "links_reused",
 	"go_commands", "processes", "bytes_written", "outputs_placed", "std_exports",
+	"obligations_affected",
 	"shared_fallbacks", "binaries_ir", "binaries_text",
 	"obligations_evaluated", "eval_steps", "obligations_native", "obligations_stored", "packages_routed",
 	"shared_test_modules",

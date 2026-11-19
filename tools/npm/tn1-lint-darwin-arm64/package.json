@@ -1,7 +1,7 @@
 {
-  "name": "@cevr/tn1-lint-darwin-arm64",
+  "name": "@cvr/tn1-lint-darwin-arm64",
   "version": "0.1.0",
-  "description": "The tn1-lint binary for macOS arm64 (a static Go binary; see @cevr/tn1-lint).",
+  "description": "The tn1-lint binary for macOS arm64 (a static Go binary; see @cvr/tn1-lint).",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/cevr/ergo.git",

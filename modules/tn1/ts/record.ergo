@@ -24,8 +24,26 @@ import ergo.dev/tn1
 import slices
 import strings
 
-// directives are the openings of a tool's directive comment.
-let directives = []string{"// @ts-", "//@ts-", "/// <", "// eslint-", "/* eslint-", "/* eslint ", "// oxlint-", "/* oxlint-", "// prettier-ignore", "// biome-ignore", "// ergo-lint-", "// traits-ignore", "/* istanbul ", "// istanbul ", "/* @vite-ignore", "#!"}
+// directives are the openings of a tool's directive comment, read after
+// its // or /* and any JSDoc gutter: effect-oxlint's list
+// (src/rules/_comment-directives.ts: suppressions, type-check and Effect
+// switches, references, bundler annotations, pragmas, formatter and
+// coverage ignores, a licence, nosemgrep, a source map URL; LANDMINES
+// 4.4), and the openings only TN1 reads (an eslint configuration
+// comment, biome-ignore, ergo-lint-, traits-ignore). The vector
+// src/directives.ts.txt holds them. A comment that only names one later
+// in its prose is prose.
+let directives = []string{
+	"oxlint-disable", "oxlint-enable", "eslint-disable", "eslint-enable", "eslint ",
+	"@effect-diagnostics", "@ts-expect-error", "@ts-ignore", "@ts-nocheck", "@ts-check",
+	"/ <reference", "/<reference", "/ <amd-module", "/ <amd-dependency",
+	"#__PURE__", "@__PURE__", "#__NO_SIDE_EFFECTS__", "@__NO_SIDE_EFFECTS__", "#__KEY__", "@__KEY__",
+	"#__INLINE__", "@__INLINE__", "#__NOINLINE__", "@__NOINLINE__", "@vite-ignore", "@jsx",
+	"prettier-ignore", "oxfmt-ignore", "c8 ignore", "v8 ignore", "istanbul ignore",
+	"!", "@license", "SPDX-License-Identifier:", "nosemgrep", "# sourceMappingURL=", "@ sourceMappingURL=", "#sourceMappingURL=", "@sourceMappingURL=",
+	"# sourceURL=", "@ sourceURL=", "#sourceURL=", "@sourceURL=", "webpack", "turbopackIgnore",
+	"biome-ignore", "ergo-lint-", "traits-ignore",
+}
 
 // control reports a word before "(" that is not a call.
 func control(s string) bool {
@@ -51,9 +69,15 @@ func assign(s string) bool {
 // start with no word.
 let neutral = []string{"function", "type", "branch", "loop", "handler", "return", "", "", "test"}
 
+// directive reports whether a comment token's text is a tool's: a
+// shebang, or a comment whose body opens with one of directives.
 func directive(text string) bool {
+	if strings.HasPrefix(text, "#!") {
+		return true
+	}
+	let body = strings.TrimLeft(strings.Slice(text, lo(2, len(text)), len(text)), "*\n\r\t ")
 	for d in directives {
-		if strings.HasPrefix(text, d) {
+		if strings.HasPrefix(body, d) {
 			return true
 		}
 	}
@@ -290,7 +314,10 @@ func linesOf(src string, s Scanned) []tn1.Line {
 	let mut lines = slices.WithCapacity[tn1.Line](n)
 	for l in 0..n {
 		let from = starts[l]
-		let to = if l+1 < n { starts[l+1] - 1 } else { len(src) }
+		// A line ends before its newline, the file's last line too: its
+		// newline is no code byte (a file's closing comment, such as a
+		// source map URL, was Code).
+		let to = if l+1 < n { starts[l+1] - 1 } else if strings.HasSuffix(src, "\n") { len(src) - 1 } else { len(src) }
 		let mut comment = strings.NewBuilder()
 		let mut hasCode = false
 		for p in from..to {

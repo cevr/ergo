@@ -1,0 +1,82 @@
+// A run of the loop: live, as an actor whose committed signals a journal
+// keeps, and replayed, as a fold of those signals.
+
+import actor
+import journal
+import machines
+import journal/memory
+import strings
+
+// Recorded is a run as data: the limits it started under and the signals
+// it committed, in order.
+type Recorded { Limits Limits, Signals []Signal }
+
+// Replay is the state a recorded run ends in: a fold of its signals with
+// the pure step. It runs no work, reads no clock and asks no model.
+func Replay(r Recorded) State {
+	let o = machines.Run(machines.Start(Agent{}, r.Limits), r.Signals) catch {
+	case machines.Rejected:
+		// Step never rejects.
+		return Start(r.Limits)
+	}
+	machines.LastState(o)
+}
+
+// Session is a live session: the agent's actor and the journal of the
+// signals it committed.
+type Session { Agent actor.Actor[State, Signal, Decision[State, Never]], Journal memory.Journal[State, Signal], Limits Limits }
+
+// Open starts a live session under l. The actor's work asks the Model
+// and runs the Tools in the context; its timer waits on the Scheduler.
+func Open(l Limits) Session needs Model | Tools | Scheduler {
+	let j = memory.New[State, Signal]()
+	let a = journal.Start(machines.Start(Agent{}, l), j, 0, 16, func(n Never) {}) catch {
+	case journal.Failed, journal.Diverged:
+		Unreachable("a new memory journal holds no signal")
+	}
+	Session{Agent: a, Journal: j, Limits: l}
+}
+
+// RecordOf is what s committed so far.
+func RecordOf(s Session) Recorded {
+	let log = s.Journal.Load() catch {
+	case journal.Failed:
+		return Recorded{Limits: s.Limits, Signals: []Signal{}}
+	}
+	Recorded{Limits: s.Limits, Signals: log.Signals}
+}
+
+// Say sends text to s and waits until the turn it starts has ended: the
+// state it ends in. A text of spaces starts no turn.
+func Say(s Session, text string) State {
+	let before = s.Agent.State()
+	let turn = actor.SendAndWait(s.Agent, Submit{Text: text}, func(now State) bool { len(now.Log) > len(before.Log) && settled(now) }) catch {
+	case actor.Stopped:
+		return s.Agent.State()
+	}
+	turn
+}
+
+// settled reports whether s waits for the person, or has ended.
+func settled(s State) bool {
+	match s.Phase {
+	case Idle, Ended:
+		true
+	case Asking, Waiting, Approving, Running:
+		false
+	}
+}
+
+// Headless is a session that asks each of texts in turn, with no
+// terminal, and ends: its last state and its record. A text of spaces is
+// skipped.
+func Headless(l Limits, texts []string) (State, Recorded) needs Model | Tools | Scheduler {
+	let s = Open(l)
+	for text in texts {
+		if strings.TrimSpace(text) != "" {
+			let _ = Say(s, text)
+		}
+	}
+	s.Agent.Stop()
+	(s.Agent.State(), RecordOf(s))
+}
