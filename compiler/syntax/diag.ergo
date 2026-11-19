@@ -17,6 +17,192 @@ let tokenNames = []string{
 	"range", "select", "struct", "switch", "var",
 }
 
+// KeywordTableIsTheRule: keyword says what keywordRule says for every
+// spelling of a kind, each with a letter more and a letter less, and for a
+// word of up to 12 letters drawn from the case.
+law KeywordTableIsTheRule(n int) {
+	let mut ok = true
+	for i in 0..len(tokenNames) {
+		let w = tokenNames[i]
+		ok = ok && kwAgrees(w) && kwAgrees(w+"s") && (len(w) == 0 || kwAgrees(w[:len(w)-1]))
+	}
+	let letters = "abcdefghijklmnopqrstuvwxyz_0"
+	let mut m = n
+	let mut w = ""
+	for j in 0..12 {
+		let d = ((m % 28) + 28) % 28
+		w = w + letters[d:d+1]
+		m = m/28 + j*7919
+		ok = ok && kwAgrees(w)
+	}
+	ok
+}
+
+// keywordRule is the kind of the word src[start:end] by its length and
+// then its bytes: the rule kwTable stands for.
+func keywordRule(src string, start int, end int) uint8 {
+	let n = end - start
+	if n < 2 || n > 11 {
+		return Ident
+	}
+	let c = src[start]
+	if c < 'a' || c > 'w' {
+		return Ident
+	}
+	let w = src[start:end]
+	if n == 2 {
+		if w == "if" {
+			return If
+		}
+		if w == "in" {
+			return In
+		}
+		if w == "as" {
+			return As
+		}
+		if w == "go" {
+			return Go
+		}
+		return Ident
+	}
+	if n == 3 {
+		if c == 'f' {
+			return if w == "for" { For } else { Ident }
+		}
+		if c == 'l' {
+			if w == "let" {
+				return Let
+			}
+			return if w == "law" { Law } else { Ident }
+		}
+		if c == 'm' {
+			if w == "mut" {
+				return Mut
+			}
+			return if w == "map" { KwMap } else { Ident }
+		}
+		if c == 't' {
+			return if w == "try" { Try } else { Ident }
+		}
+		if c == 'v' {
+			return if w == "var" { Var } else { Ident }
+		}
+		return Ident
+	}
+	if n == 4 {
+		if c == 'c' {
+			if w == "case" {
+				return Case
+			}
+			return if w == "chan" { Chan } else { Ident }
+		}
+		if c == 'e' {
+			return if w == "else" { Else } else { Ident }
+		}
+		if c == 'f' {
+			return if w == "func" { Func } else { Ident }
+		}
+		if c == 'g' {
+			return if w == "goto" { Goto } else { Ident }
+		}
+		if c == 't' {
+			if w == "type" {
+				return Type
+			}
+			return if w == "test" { Test } else { Ident }
+		}
+		if c == 'w' {
+			return if w == "with" { With } else { Ident }
+		}
+		return Ident
+	}
+	if n == 5 {
+		if c == 'b' {
+			return if w == "break" { Break } else { Ident }
+		}
+		if c == 'c' {
+			if w == "catch" {
+				return Catch
+			}
+			return if w == "const" { Const } else { Ident }
+		}
+		if c == 'd' {
+			return if w == "defer" { Defer } else { Ident }
+		}
+		if c == 'f' {
+			return if w == "fails" { Fails } else { Ident }
+		}
+		if c == 'm' {
+			return if w == "match" { Match } else { Ident }
+		}
+		if c == 'n' {
+			return if w == "needs" { Needs } else { Ident }
+		}
+		if c == 'r' {
+			return if w == "range" { KwRange } else { Ident }
+		}
+		if c == 't' {
+			return if w == "takes" { Takes } else { Ident }
+		}
+		return Ident
+	}
+	if n == 6 {
+		if c == 'a' {
+			return if w == "assert" { Assert } else { Ident }
+		}
+		if c == 'e' {
+			return if w == "extern" { Extern } else { Ident }
+		}
+		if c == 'i' {
+			return if w == "import" { Import } else { Ident }
+		}
+		if c == 'r' {
+			return if w == "return" { Return } else { Ident }
+		}
+		if c == 's' {
+			if w == "select" {
+				return Select
+			}
+			if w == "struct" {
+				return Struct
+			}
+			return if w == "switch" { Switch } else { Ident }
+		}
+		return Ident
+	}
+	if n == 7 {
+		if w == "context" {
+			return KwContext
+		}
+		if w == "default" {
+			return Default
+		}
+		if w == "machine" {
+			return KwMachine
+		}
+		return if w == "package" { Package } else { Ident }
+	}
+	if n == 8 {
+		if w == "continue" {
+			return Continue
+		}
+		if w == "escaping" {
+			return Escaping
+		}
+		return if w == "provides" { Provides } else { Ident }
+	}
+	if n == 9 {
+		return if w == "interface" { Interface } else { Ident }
+	}
+	if n == 11 {
+		return if w == "fallthrough" { Fallthrough } else { Ident }
+	}
+	Ident
+}
+
+// kwAgrees reports keyword and keywordRule giving one kind for word w.
+func kwAgrees(w string) bool { keyword(w, 0, len(w)) == keywordRule(w, 0, len(w)) }
+
 // tokenName is the spelling of kind k.
 func tokenName(k uint8) string { tokenNames[int(k)] }
 
