@@ -360,15 +360,6 @@
       "killers": ["std:TestStdCopyAgrees"]
     },
     {
-      "name": "copy-normalise-variant-names-kept", "origin": "wf10/ir-forms/STD-COPY-SAME",
-      "file": "internal/sketch/stdlib/copy_test.go",
-      "from": "if n.Recv != nil && n.Name.Name == \"ErgoVariant\" {",
-      "to": "if n.Recv != nil && n.Name.Name == \"ErgoVariant\" && false {",
-      "rule": "An ErgoVariant name is its variant's Go type name, whose uniqueness suffix follows the naming order by package path (ui's Motion Present_1 beside the copy's Present): the normaliser folds it as it folds the identifier.",
-      "anchor": {"tests": ["std:TestStdCopyAgrees"]},
-      "killers": ["std:TestStdCopyAgrees"]
-    },
-    {
       "name": "copy-normalise-same-text-ranked", "origin": "wf10/ir-forms/STD-COPY-SAME",
       "file": "internal/sketch/stdlib/copy_test.go",
       "from": "if i == 0 || keys[n] != keys[names[i-1]] {",

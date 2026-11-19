@@ -7,6 +7,8 @@ import (
 	"go/scanner"
 	"go/token"
 	"go/types"
+	"maps"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,6 +17,7 @@ import (
 	"ergo.local/prototype/internal/sketch/machinegraph"
 	"ergo.local/prototype/internal/sketch/syntax"
 	rtpkg "ergo.local/prototype/runtime/rt"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // Machine plan values (spec D5; runtime.md, Machines and actors 1 and 5).
@@ -322,6 +325,7 @@ func (l *lowerer) machineGraph(td *typeDecl, tc *typeCtx, state, signal string) 
 // graphArg is the hidden graph argument of an actor's start whose states
 // and signals are the Go types state and signal.
 func (l *lowerer) graphArg(state, signal string) string {
+	l.actorStarted = true
 	if graphRegistry() {
 		return l.rt() + ".RegisteredGraph[" + state + ", " + signal + "]"
 	}
@@ -399,48 +403,47 @@ func (l *lowerer) variantName(t string) (string, bool) {
 var variantLowering string
 
 // ergoVariantName is the name a runner gives a value of the variant whose
-// Go type is t: variantName with the head, the variant's Go type name,
-// spelled as its Ergo name; the type arguments stay as Go's runtime spells
-// them. It agrees with the ErgoVariant of a suffixed record
-// (suffixedVariantMethod), which the runtime reads for a value no graph
-// names (TRACE-VARIANT-SUFFIX).
+// Go type is t: variantName, with the head and each type argument whose Go
+// name the lowering suffixed spelled as its Ergo name (Box_1[main.Idle_1]
+// is Box[main.Idle]), by v1.ErgoTypeName over the table typeNamesInit
+// registers, which the runtime reads for a name it computes
+// (TRACE-VARIANT-SUFFIX).
 func (l *lowerer) ergoVariantName(t string) (string, bool) {
 	name, ok := l.variantName(t)
 	if !ok || variantLowering == "go" {
 		return name, ok
 	}
-	head, args, _ := strings.Cut(name, "[")
-	for tn, td := range l.types {
-		if td.name == head && tn.Name != head {
-			if args != "" {
-				return tn.Name + "[" + args, true
-			}
-			return tn.Name, true
-		}
-	}
-	return name, true
+	return v1.ErgoTypeName(name, "main", l.suffixedTypeNames()), true
 }
 
-// suffixedVariantMethod writes the ErgoVariant of the record td when the
-// lowering suffixed its Go name: its Ergo name, and a generic record's
-// type arguments as the runtime spells them (v1.GoVariantOf), so a runner
-// that reads a value's own name (v1 variant, VariantOf) gives the name
-// ergoVariantName writes.
-func (l *lowerer) suffixedVariantMethod(b *strings.Builder, td *typeDecl) {
-	if variantLowering == "go" || td.name == td.tn.Name || strings.Contains(td.name, ".") {
-		return
+// suffixedTypeNames maps the Go name of each type the program declares
+// whose Go name the lowering suffixed to keep it unique to its Ergo name.
+// A host type, named through its package, is never suffixed.
+func (l *lowerer) suffixedTypeNames() map[string]string {
+	names := map[string]string{}
+	for tn, td := range l.types {
+		if td.name != tn.Name && !strings.Contains(td.name, ".") {
+			names[td.name] = tn.Name
+		}
 	}
-	if len(td.tparams) == 0 {
-		b.WriteString("func (" + td.name + ") ErgoVariant() string { return " + strconv.Quote(td.tn.Name) + " }\n\n")
-		return
+	return names
+}
+
+// typeNamesInit registers the program's suffixed type names
+// (v1.RegisterTypeNames) when it starts a machine actor, whose runner
+// names the variants a graph does not (a boxed value, an actor of a
+// shared pair, a generic flat union's): "" when it starts none or no name
+// is suffixed, and under the reference.
+func (l *lowerer) typeNamesInit() string {
+	names := l.suffixedTypeNames()
+	if !l.actorStarted || len(names) == 0 || variantLowering == "go" {
+		return ""
 	}
-	params := make([]string, len(td.tparams))
-	for i := range params {
-		params[i] = "P" + strconv.Itoa(i)
+	var pairs []string
+	for _, goName := range slices.Sorted(maps.Keys(names)) {
+		pairs = append(pairs, strconv.Quote(goName), strconv.Quote(names[goName]))
 	}
-	inst := td.name + "[" + strings.Join(params, ", ") + "]"
-	b.WriteString("func (" + inst + ") ErgoVariant() string { return " + strconv.Quote(td.tn.Name) + " + " +
-		l.rtRef("GoVariantOf") + "[" + inst + "]()[" + strconv.Itoa(len(td.name)) + ":] }\n\n")
+	return "func init() {\n\t" + l.rtRef("RegisterTypeNames") + "(\"main\", " + strings.Join(pairs, ", ") + ")\n}\n\n"
 }
 
 // runtimeSpelling is Go's runtime type string of the type expression x of

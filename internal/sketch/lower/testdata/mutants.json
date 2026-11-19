@@ -4754,12 +4754,12 @@
       ]
     },
     {
-      "name": "trace-variant-no-record-method",
+      "name": "trace-variant-no-names-table",
       "origin": "wf10/ir-forms/TRACE-VARIANT-SUFFIX",
-      "file": "internal/sketch/lower/decls.go",
-      "from": "\t\tl.suffixedVariantMethod(b, td) // a runner's name for it (machine.go)\n",
-      "to": "",
-      "rule": "A record whose Go name the lowering suffixed gives its Ergo name through ErgoVariant, which the runtime reads for a value no graph names.",
+      "file": "internal/sketch/lower/module.go",
+      "from": "\tgraphs := l.graphAccessor() + l.typeNamesInit()\n",
+      "to": "\tgraphs := l.graphAccessor()\n",
+      "rule": "A program that starts a machine actor registers the Ergo names of its suffixed types, by which the runtime names a value no graph names (a boxed variant, an actor of a shared pair, a generic flat union).",
       "killers": [
         "lower:TestTracedVariantsHaveTheirErgoNames"
       ]

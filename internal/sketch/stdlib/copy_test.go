@@ -100,11 +100,11 @@ func TestStdCopyAgrees(t *testing.T) {
 
 // copyNormaliseKeepsMeaning checks the normaliser itself: what it must fold
 // (directives, the call table, the context namespace, positions and files,
-// the order of declarations, a uniqueness suffix in a name and in an
-// ErgoVariant name, which of two declarations of one text a body names)
-// normalises equal, and one planted difference of each kind it must keep
-// (a callee, a type, a hidden argument, an allocation, a rewritten
-// operand, a file, a variant name, a value) normalises different. A
+// the order of declarations, a uniqueness suffix in a name, which of two
+// declarations of one text a body names) normalises equal, and one planted
+// difference of each kind it must keep (a callee, a type, a hidden
+// argument, an allocation, a rewritten operand, a file, a variant name, a
+// suffixed variant name, a value) normalises different. A
 // normaliser that folds too much would let a privilege through.
 func copyNormaliseKeepsMeaning(t *testing.T) {
 	t.Helper()
@@ -162,6 +162,7 @@ var ergoCalls = [...]ergoCall{{Func: "f"}}
 		"rewrite":        {"return g(env, q.Left", "return g(env, p.Left"},
 		"file":           {`File: "std/copyfixture/fixture.ergo"`, `File: "std/copyfixture/other.ergo"`},
 		"variant name":   {`[...]string{"Pair"}`, `[...]string{"Left"}`},
+		"variant suffix": {`[...]string{"Pair"}`, `[...]string{"Pair_1"}`},
 		"value":          {"const none int64 = -1", "const none int64 = -2"},
 		"callee package": {"calls copyfixture.g", "calls other.g"},
 		"callee name":    {"calls copyfixture.g", "calls copyfixture.h"},
@@ -174,7 +175,9 @@ var ergoCalls = [...]ergoCall{{Func: "f"}}
 		case "order":
 			text += e[0]
 		case "suffix":
+			// The Go names: the variant's name stays its Ergo name.
 			text = strings.ReplaceAll(base, e[0], e[1])
+			text = strings.Replace(text, `{"Pair_1"}`, `{"Pair"}`, 1)
 		case "callee path":
 			// A copy's text: its namespace is the copy's too.
 			text = strings.Replace(text, `"std:copyfixture"`, `"copy/copyfixture"`, 1)
@@ -624,8 +627,9 @@ func copyLower(t *testing.T, pair copyPair, src string, copied bool) string {
 //     package's path, std's and a user's alike);
 //   - positions and files written as text: the copy's root /ergo-copy/;
 //   - the suffix of a name the lowering made unique (copyCanonicalNames),
-//     in an identifier and in a flat union's ErgoVariant name, and which
-//     of two declarations of the same text a body names;
+//     in an identifier, and which of two declarations of the same text a
+//     body names; never in a variant's name, which is its Ergo name
+//     (lower machine.go, ergoVariantName);
 //   - the order of the top-level declarations, which means nothing in Go.
 //
 // A text that does not parse is returned whole.
@@ -769,26 +773,9 @@ func copyCanonicalNames(fset *token.FileSet, f *ast.File) {
 		}
 	}
 	ast.Inspect(f, func(n ast.Node) bool {
-		switch n := n.(type) {
-		case *ast.Ident:
+		if n, ok := n.(*ast.Ident); ok {
 			if to, ok := final[n.Name]; ok && !keep[n] {
 				n.Name = to
-			}
-		case *ast.FuncDecl:
-			// A flat union's ErgoVariant names its variants by their Go
-			// types' names (lower flatunion.go, variantNamer), which carry
-			// the same suffixes.
-			if n.Recv != nil && n.Name.Name == "ErgoVariant" {
-				ast.Inspect(n.Body, func(m ast.Node) bool {
-					if b, ok := m.(*ast.BasicLit); ok && b.Kind == token.STRING {
-						if s, err := strconv.Unquote(b.Value); err == nil {
-							if to, ok := final[s]; ok {
-								b.Value = strconv.Quote(to)
-							}
-						}
-					}
-					return true
-				})
 			}
 		}
 		return true
