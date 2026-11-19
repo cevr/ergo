@@ -683,15 +683,52 @@ func letSpec(s mut store.Store, k Pkg, t mut Typer, spec dense.ID[syntax.Node]) 
 		case None:
 			written
 		}
-		if syntax.Len(v.Names) == 1 && v.Pattern == dense.NoID[syntax.Node]() {
-			match vt {
-			case Some[dense.ID[store.TKey]] as ty:
-				def(k, t, syntax.Item(tr, v.Names, 0), ty.Value)
+		match vt {
+		case Some[dense.ID[store.TKey]] as ty:
+			match dense.Unpack(v.Pattern) {
+			case Some[dense.ID[syntax.Node]] as pat:
+				bindTuple(*s, k, t, pat.Value, ty.Value)
 			case None:
+				let n = syntax.Len(v.Names)
+				if n == 1 {
+					def(k, t, syntax.Item(tr, v.Names, 0), ty.Value)
+				} else if store.KindOfType(*s, ty.Value) == store.KTuple && len(store.OperandsOf(*s, ty.Value)) == n {
+					// let a, b = f(): each name a result of the tuple
+					// (the Go checker's tuple assignment).
+					let parts = store.OperandsOf(*s, ty.Value)
+					for i in 0..n {
+						def(k, t, syntax.Item(tr, v.Names, i), parts[i])
+					}
+				}
 			}
+		case None:
 		}
 	} else {
 		walk(s, k, t, spec)
+	}
+}
+
+// bindTuple gives the names of the let pattern x their types from ty: a
+// name takes ty, and a tuple pattern (a, b) of a tuple of its length gives
+// each element its part (the Go checker's tuple destructuring). Another
+// pattern (a variant's) binds nothing here.
+func bindTuple(s store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], ty dense.ID[store.TKey]) {
+	let tr = tree(k, t.file)
+	let kd = syntax.KindOf(tr, x)
+	if kd == syntax.KIdent {
+		def(k, t, x, ty)
+	} else if kd == syntax.KParenExpr {
+		bindTuple(s, k, t, syntax.ParenExprOf(tr, x).X, ty)
+	} else if kd == syntax.KTupleExpr {
+		let te = syntax.TupleExprOf(tr, x)
+		let n = syntax.Len(te.Elts)
+		let u = infer.Unmarked(s, ty)
+		if store.KindOfType(s, u) == store.KTuple && len(store.OperandsOf(s, u)) == n {
+			let parts = store.OperandsOf(s, u)
+			for i in 0..n {
+				bindTuple(s, k, t, syntax.Item(tr, te.Elts, i), parts[i])
+			}
+		}
 	}
 }
 

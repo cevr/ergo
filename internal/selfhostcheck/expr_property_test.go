@@ -184,16 +184,23 @@ func genBad(seed uint32) (string, int) {
 
 // exprForms are the syntax forms (and inferred generic calls) the cases
 // must get typed.
-var exprForms = []string{"Ident", "BasicLit", "BinaryExpr", "UnaryExpr", "ParenExpr", "CallExpr", "CompositeLit", "SelectorExpr", "IndexExpr", "InterpolatedString", "FuncLit", "generic call", "slice operation", "string operation", "[]byte operation", "rune operation"}
+var exprForms = []string{"Ident", "BasicLit", "BinaryExpr", "UnaryExpr", "ParenExpr", "CallExpr", "CompositeLit", "SelectorExpr", "IndexExpr", "InterpolatedString", "FuncLit", "generic call", "slice operation", "string operation", "[]byte operation", "rune operation", "variant argument", "tuple let", "tuple pattern"}
 
 // operationCall is a call of the language's operations the generator
 // writes (case 18), and the receiver it reaches the operation from.
-var operationCall = regexp.MustCompile(`^[\w\[\]{}, ]+\.(Append|Bytes|Text|RuneText)\(\w*\)$`)
+var operationCall = regexp.MustCompile(`^[\w\[\]{}, ]+\.(Append|Bytes|Text|RuneText)\(([\w{}: ]*)\)$`)
+
+// tupleName is a name a tuple let of the generator binds (case 18): by
+// names (vNta) or by a tuple pattern (vNpa).
+var tupleName = regexp.MustCompile(`^v[0-9]+([tp])[ab]$`)
 
 // operationOf is the receiver class of the typed call at line l ("FILE
 // START END TYPE") of src, when it calls one of the language's operations
 // the generator writes: a slice's Append, a string's Bytes, a []byte's
-// Text or a rune's RuneText; else "".
+// Text or a rune's RuneText, and an Append of a variant ([]Shape's
+// Append(Dot{})) as "variant argument", and a use of a name a tuple let
+// binds by names as "tuple let" and by a pattern as "tuple pattern"; else
+// "".
 func operationOf(src, l string) string {
 	f := strings.Fields(l)
 	if len(f) < 3 {
@@ -204,9 +211,15 @@ func operationOf(src, l string) string {
 	if err1 != nil || err2 != nil || start < 0 || end > len(src) || start >= end {
 		return ""
 	}
+	if m := tupleName.FindStringSubmatch(src[start:end]); m != nil {
+		return map[string]string{"t": "tuple let", "p": "tuple pattern"}[m[1]]
+	}
 	m := operationCall.FindStringSubmatch(src[start:end])
 	if m == nil {
 		return ""
+	}
+	if m[1] == "Append" && strings.ContainsRune(m[2], '{') {
+		return "variant argument"
 	}
 	return map[string]string{"Append": "slice operation", "Bytes": "string operation", "Text": "[]byte operation", "RuneText": "rune operation"}[m[1]]
 }
@@ -226,6 +239,7 @@ func genExpr(seed uint32) string {
 		"func first[T](xs []T, d T) T { if len(xs) > 0 { xs[0] } else { d } }",
 		"func boxed[T](x T) Box[T] { Box[T]{v: x} }",
 		"func twice(x int) int { x * 2 }",
+		"func split(x int) (int, string) { (x * 2, \"s\") }",
 		"",
 	}
 	k := func() string { return strconv.Itoa(1 + r.n(9)) }
@@ -247,7 +261,7 @@ func genExpr(seed uint32) string {
 			case 18:
 				// The language's operations on a slice, a string, a
 				// []byte and a rune (builtin.ergo, D-D8).
-				switch r.n(4) {
+				switch r.n(6) {
 				case 0:
 					add("\tlet "+x+" = xs.Append(acc)", "\tacc = acc + len("+x+")")
 				case 1:
@@ -256,6 +270,17 @@ func genExpr(seed uint32) string {
 					add("\tlet "+x+" = []byte{1, 2}.Text()", "\tacc = acc + len("+x+")")
 				case 3:
 					add("\tlet "+x+"r rune = "+k(), "\tlet "+x+" = "+x+"r.RuneText()", "\tacc = acc + len("+x+")")
+				case 4:
+					// A variant argument where T is bound to its union
+					// (INFER-VARIANT-ARG): the receiver binds T first.
+					add("\tlet "+x+" = []Shape{sh}.Append("+[]string{"Dot{}", "Sq{W: acc}"}[r.n(2)]+")", "\tacc = acc + len("+x+")")
+				case 5:
+					// A let of a tuple's parts, by names or by a tuple pattern.
+					if r.n(2) == 0 {
+						add("\tlet "+x+"ta, "+x+"tb = split(acc)", "\tacc = acc + "+x+"ta + len("+x+"tb)")
+					} else {
+						add("\tlet ("+x+"pa, "+x+"pb) = split(acc)", "\tacc = acc + "+x+"pa + len("+x+"pb)")
+					}
 				}
 			case 0:
 				add("\tlet "+x+" = p + "+k(), "\tacc = acc + "+x)
