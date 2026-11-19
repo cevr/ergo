@@ -798,7 +798,8 @@ func Text(s store.Store, n Names, t dense.ID[store.TKey]) string {
 		return "Map[" + Text(s, n, ops[0]) + ", " + Text(s, n, ops[1]) + "]"
 	}
 	if k == store.KPointer {
-		return "*" + Text(s, n, ops[0])
+		// A borrow prints as its mode, mut T (MODES-2: Pointer.String).
+		return "mut " + Text(s, n, ops[0])
 	}
 	if k == store.KOwn {
 		return "own " + Text(s, n, ops[0])
