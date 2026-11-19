@@ -66,5 +66,6 @@ var (
 	_ = declarePrograms("TestStdScheduleLawsRun", testBuildProgram("stdschedule", stdScheduleLawsProbe))
 	_ = declarePrograms("TestStdBenchLawsRun", testBuildProgram("stdbench", stdBenchProgram))
 	_ = declarePrograms("TestStdBenchMatchesReference", testBuildProgram("stdbenchref", stdBenchRefProgram))
+	_ = declarePrograms("TestStdBenchJudgeMatchesReference", testBuildProgram("stdbenchjudge", stdBenchJudgeProgram))
 	_ = declarePrograms("TestOSProcessRuns", entryProgram("osHost", osProgram), entryProgram("osFake", fakeProgram), entryProgram("osParam", paramProgram))
 )
