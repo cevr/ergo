@@ -216,6 +216,9 @@ func Play[E comparable, S, D, F](d *Driver[S, E, D, F], script []ui.Act) fails u
 	}
 }
 
+// Locate is the nodes of the tree loc finds, in tree order.
+func Locate[S, E, D, F](d *Driver[S, E, D, F], loc ui.Locator) []ui.Id[E] { ui.LocateIn(&d.mirror, loc) }
+
 // located is the first node of the tree loc finds.
 func located[E comparable, S, D, F](d *Driver[S, E, D, F], loc ui.Locator) ui.Id[E] fails ui.NoNode {
 	let ids = ui.LocateIn(&d.mirror, loc)

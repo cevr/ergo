@@ -306,7 +306,7 @@ func run[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S, E, 
 						try tui.Play(d, []ui.Act{act})
 					})
 					let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
-						try ui.TypeText(h, id.Value, x.Value+rest)
+						try ui.TypeText(h, twin(h, n.Value, id.Value), x.Value+rest)
 					})
 					return (a, b)
 				}
@@ -332,7 +332,19 @@ func run[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S, E, 
 		case _:
 			ui.Wheel{DX: 0, DY: y}
 		}
-		both(h, d, ui.PointOn{Label: f[0], Pointer: ui.PointerEvent{Phase: phase, X: x, Y: y, Zone: None}})
+		let p = ui.PointerEvent{Phase: phase, X: x, Y: y, Zone: None}
+		let b = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+			try tui.Play(d, []ui.Act{ui.PointOn{Label: f[0], Pointer: p}})
+		})
+		let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
+			match zoneAt(h, d, f[0], x, y) {
+			case Some[zoned[E]] as z:
+				try ui.PointOver(h, z.Value.area, z.Value.zone, z.Value.box, p)
+			case None:
+				try ui.Play(h, []ui.Act{ui.PointOn{Label: f[0], Pointer: p}})
+			}
+		})
+		(a, b)
 	case "scroll":
 		let f = strings.Fields(rest)
 		if len(f) != 2 {
@@ -371,6 +383,32 @@ func run[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S, E, 
 	case _:
 		(Broke{Why: "no step \(verb)"}, Broke{Why: "no step \(verb)"})
 	}
+}
+
+// zoned is a Zone under a pointer on TestHost: the Area, the Zone, and
+// the Zone's box in the Area's box (DIPs).
+type zoned[E] { area ui.Id[E], zone ui.Id[E], box ui.Rect }
+
+// zoneAt is TestHost's hit test of a pointer at x, y (DIPs) in the Area
+// labelled label: the pad's Zone (key 7) when the pointer is in the box
+// the terminal laid it out in, None otherwise. The terminal finds the
+// Zone by its own hit test, through the scene; here it is the box.
+func zoneAt[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S, E, D, F], label string, x float64, y float64) Option[zoned[E]] needs go.Foreign {
+	let (area, zone, mine) = match (ui.Find(h, label), ui.Locate(h, ui.WithZone{Key: ui.ByInt(7)}), tui.Find(d, label), tui.Locate(d, ui.WithZone{Key: ui.ByInt(7)})) {
+	case (Some[ui.Id[E]] as a, zs, Some[ui.Id[E]] as da, dz):
+		if len(zs) == 0 || len(dz) == 0 {
+			return None
+		}
+		(a.Value, zs[0], (tui.Box(d, da.Value), tui.Box(d, dz[0])))
+	case _:
+		return None
+	}
+	let (ab, zb) = mine
+	let r = ui.Rect{X: ui.Length(float64(zb.X-ab.X) * 8), Y: ui.Length(float64(zb.Y-ab.Y) * cellH), W: ui.Length(float64(zb.Width) * 8), H: ui.Length(float64(zb.Height) * cellH)}
+	if x >= float64(r.X) && x < float64(r.X+r.W) && y >= float64(r.Y) && y < float64(r.Y+r.H) {
+		return Some{Value: zoned[E]{area: area, zone: zone, box: r}}
+	}
+	None
 }
 
 // found is whether TestHost holds a node labelled label.
@@ -456,6 +494,23 @@ func focusOrder[E](shapes []ui.Shape[E], into []Option[string]) []Option[string]
 	out
 }
 
+// twin is TestHost's node of the terminal's node n (id on the terminal):
+// the first with n's label. An Id is the host's (an arena's place), so a
+// row a list wrote in other passes on the two hosts has another Id.
+func twin[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], n ui.Node[E], id ui.Id[E]) ui.Id[E] {
+	match labelOfNode(n) {
+	case Some[string] as l:
+		match ui.Find(h, l.Value) {
+		case Some[ui.Id[E]] as t:
+			t.Value
+		case None:
+			id
+		}
+	case None:
+		id
+	}
+}
+
 // labelOfNode is the label of a node that takes the focus.
 func labelOfNode[E](n ui.Node[E]) Option[string] {
 	match n {
@@ -518,7 +573,7 @@ func focusPress[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver
 				try tui.Send(d, "z")
 			})
 			let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
-				try ui.TypeText(h, id.Value, x.Value+"z")
+				try ui.TypeText(h, twin(h, n.Value, id.Value), x.Value+"z")
 			})
 			return (a, b2)
 		case _:
@@ -526,7 +581,7 @@ func focusPress[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver
 				try tui.Send(d, "\r")
 			})
 			let a = played(func() fails ui.NoNode | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
-				try ui.Tap(h, id.Value)
+				try ui.Tap(h, twin(h, n.Value, id.Value))
 			})
 			return (a, b2)
 		}
