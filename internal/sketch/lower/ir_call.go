@@ -128,7 +128,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 	if x.Trailing != nil && (c.Kind != check.CallFunc || c.Func == nil || c.Func.Pkg.Host() || userExtern(c.Func)) {
 		irNo("trailing block")
 	}
-	if c.StartsTask && !b.startsOnFrame(c) {
+	if c.StartsTask && !b.startsOnFrame(c) && !ergoBodyCall(c) { // ir_own.go
 		irNo("task call")
 	}
 	if len(c.TypeArgs) > 0 && c.Kind != check.CallFunc {

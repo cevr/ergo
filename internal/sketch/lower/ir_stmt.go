@@ -129,6 +129,7 @@ func (b *irBuilder) tailTo(list []syntax.Stmt, ret bool, to *yieldTo) []*irStmt 
 			}
 			out = append(out, ss...)
 		})
+		b.fc.killWritten(s) // bounds.go: the statement's writes end the facts over them (ir_bounds.go)
 	}
 	if (ret || to != nil) && len(list) == 0 {
 		irNo("empty body with a result")
@@ -218,7 +219,11 @@ func (b *irBuilder) yield(s syntax.Stmt, to *yieldTo) []*irStmt {
 // says its branches yield, into to or as the result.
 func (b *irBuilder) ifWith(s *syntax.IfStmt, cond *irExpr, ret bool, to *yieldTo) *irStmt {
 	st := &irStmt{K: "if", Pos: b.pos(s, s.Pos()), X: cond, End: b.pos(s.Body, s.Body.Rbrace)}
+	mark := b.fc.factMark()
+	// bounds.go: the facts the condition gives its body (ir_bounds.go).
+	b.fc.assume(s.Cond)
 	st.Then = b.scoped(s.Body, b.tailTo(s.Body.List, ret && to == nil, to), b.pos(s.Body, s.Body.Rbrace)) // ir_own.go
+	b.fc.factReset(mark)
 	switch e := s.Else.(type) {
 	case nil:
 	case *syntax.BlockStmt:
@@ -362,6 +367,9 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 				b.reserve(v)
 			}
 			out = append(out, &irStmt{K: "def", Pos: b.pos(s.Decl, s.Decl.Pos()), Local: i, X: x})
+			if i >= 0 {
+				b.fc.assumeLet(v, spec.Values[0]) // bounds.go (ir_bounds.go)
+			}
 			b.part(func() {
 				out = append(append(out, b.ownLet(v, i, id, spec.Values[0])...), b.releaseAt(spec, b.pos(id, id.Pos()))...)
 			}) // ir_own.go: the let's temporaries (R43)
@@ -453,6 +461,8 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 	case *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
 		return b.matchStmt(s, false, nil) // ir_match.go
 	case *syntax.ForStmt:
+		// bounds.go: at the loop's head (ir_bounds.go).
+		b.fc.killWritten(s.Body)
 		return b.memoLoop(b.next, func() []*irStmt { return b.whileStmt(s) }) // ir_order.go, ir_memo.go
 	case *syntax.BranchStmt:
 		if b.loops == 0 {
@@ -476,6 +486,7 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		}
 		irNo("statement *syntax.BranchStmt %s", s.Tok)
 	case *syntax.RangeStmt:
+		b.fc.killWritten(s.Body) // bounds.go: at the loop's head (ir_bounds.go)
 		lp := b.l.info.Loops[s]
 		if lp != nil && lp.Domain == check.LoopRange {
 			return b.memoLoop(b.next, func() []*irStmt { return b.countLoop(s, lp) }) // ir_pkg.go, ir_memo.go

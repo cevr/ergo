@@ -141,7 +141,9 @@ func (b *irBuilder) withOperand(x *syntax.CallExpr, i int, w *check.With, ret bo
 	if w.Next != nil {
 		return append(out, b.withOperand(x, i+1, w.Next, ret, to)...)
 	}
-	return append(out, b.tailTo(x.Trailing.List, ret && to == nil, to)...)
+	// The block's scope releases what it owns at its end (the emitter's
+	// scoped; PORT-CALLS-2: a Listener and a Task let in main's with).
+	return append(out, b.scoped(x.Trailing, b.tailTo(x.Trailing.List, ret && to == nil, to), b.pos(x.Trailing, x.Trailing.Rbrace))...) // ir_own.go
 }
 
 // opsConv is e, the value of x, through the operations conversion conv:
@@ -242,9 +244,6 @@ func (b *irBuilder) publish(w *check.With, ptr, outer int, site syntax.Node) []*
 		e := a.Entry
 		if !local[e] {
 			irNo("with of a context that embeds a named one")
-		}
-		if _, ok := b.l.sourceOf(e.Provider); !ok {
-			irNo("with of a context entry outside the program's sources")
 		}
 		p := b.pos(e.Provider, e.Provider.Pos())
 		saved := b.env
