@@ -421,6 +421,20 @@ func (q *queueV) opCall(in *interp, fr *frame, at syntax.Node, name string, args
 		}
 		q.buf = append(q.buf, args[0])
 		return unit{}, nil
+	case "Slide":
+		// Slide never waits: the oldest value leaves and v enters in one
+		// step, so v enters exactly once (Queues, Offer and Cap; q5). A
+		// Push still waiting for room keeps waiting.
+		switch {
+		case q.capacity == 0:
+			return nil, fr.defect(at, "queue.Slide: a queue of capacity 0 has no room to slide into")
+		case q.ended:
+			return nil, q.closedFailure(fr, at)
+		case int64(len(q.buf)) >= q.capacity:
+			q.buf = q.buf[1:]
+		}
+		q.buf = append(q.buf, args[0])
+		return unit{}, nil
 	case "Cap":
 		return q.capacity, nil
 	case "Poll":
