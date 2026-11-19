@@ -43,10 +43,11 @@ var coverage = map[string][]string{
 
 // coversNone are the std packages that replace no Go standard-library
 // package: Ergo constructs (machines, actors, rows, schedules), or a Go
-// counterpart outside the standard library (errgroup, x/term).
+// counterpart outside the standard library (errgroup, x/term, x/mod's
+// semver).
 var coversNone = []string{
 	"actor", "arena", "bench", "codec", "config", "dense", "explore", "io", "journal", "journal/file",
-	"journal/memory", "lint", "machines", "prompt", "queue", "rpc", "schedule", "scope",
+	"journal/memory", "lint", "machines", "prompt", "queue", "rpc", "schedule", "scope", "semver",
 	"task", "tasks", "term", "text", "timeout", "toml", "trace", "ui", "ui/layout",
 }
 
