@@ -353,7 +353,7 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 	// scripts/bootstrap, whose closure covers the checker's sources (GS29).
 	// internal/opcount's build through sketchfront lives in its own package
 	// (internal/opcount/hooked), so the checker does not reach opcount.
-	want := []string{"cmd/ergo", "examples/lintpack/policy", "internal/bindc", "internal/experimental/irspike", "internal/gobind", "internal/migrate196", "internal/residue", "internal/rpcgen", "internal/sketch/api", "internal/sketch/check", "internal/sketch/eval", "internal/sketch/facts", "internal/sketch/fix", "internal/sketch/lint", "internal/sketch/lower", "internal/sketch/machinegraph", "internal/sketch/std", "internal/sketch/syntax", "internal/sketchfront", "internal/testinputs/guard", "internal/tsproj", "scripts/bootstrap", "scripts/examples"}
+	want := []string{"cmd/ergo", "examples/lintpack/policy", "internal/bindc", "internal/experimental/irspike", "internal/gobind", "internal/migrate196", "internal/residue", "internal/rpcgen", "internal/sketch/api", "internal/sketch/check", "internal/sketch/eval", "internal/sketch/facts", "internal/sketch/fix", "internal/sketch/lint", "internal/sketch/lower", "internal/sketch/machinegraph", "internal/sketch/stdlib", "internal/sketch/syntax", "internal/sketchfront", "internal/testinputs/guard", "internal/tsproj", "scripts/bootstrap", "scripts/examples"}
 	if !slices.Equal(check, want) {
 		t.Errorf("a checker edit reaches %v; want %v", check, want)
 	}

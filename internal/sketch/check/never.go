@@ -1,7 +1,7 @@
 package check
 
 import (
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -19,14 +19,14 @@ import (
 // emptyUnion reports whether n, declared with the record spec, is the
 // prelude's Never.
 func (c *checker) emptyUnion(n *Named, spec *syntax.StructType) bool {
-	return c.pkg.Path == std.PreludePath && n.Obj.Name == "Never" && len(n.TParams) == 0 &&
+	return c.pkg.Path == stdlib.PreludePath && n.Obj.Name == "Never" && len(n.TParams) == 0 &&
 		(spec.Fields == nil || len(spec.Fields.List) == 0)
 }
 
 // IsNever reports whether t is the prelude's Never.
 func IsNever(t Type) bool {
 	n, ok := t.(*Named)
-	if !ok || n.Obj == nil || n.Obj.Name != "Never" || n.Obj.Pkg == nil || n.Obj.Pkg.Path != std.PreludePath {
+	if !ok || n.Obj == nil || n.Obj.Name != "Never" || n.Obj.Pkg == nil || n.Obj.Pkg.Path != stdlib.PreludePath {
 		return false
 	}
 	u, ok := n.under.(*Union)

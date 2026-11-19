@@ -15,6 +15,31 @@ import (
 // irString is the string constant s as the IR file holds it: JSON text,
 // which carries only UTF-8 (encoding/json writes U+FFFD for any other
 // byte), so a constant that is not stays the emitter's.
+// fieldType is the type of record s's field name, or nil.
+func fieldType(s *check.Struct, name string) check.Type {
+	for _, f := range s.Fields {
+		if f.Name == name {
+			return f.Type
+		}
+	}
+	return nil
+}
+
+// intoRow is e, the value of x, as a value of want: a variant that goes
+// into a row type (a Go error, as a generic record's row field holds it)
+// takes an explicit conversion, as Go assigns it implicitly. The checker
+// records no conversion there (the emitter leaves it to Go).
+func (b *irBuilder) intoRow(want check.Type, x syntax.Expr, e *irExpr) *irExpr {
+	if _, ok := want.(*check.Union); !ok || e == nil {
+		return e
+	}
+	gt := b.goType(want, x)
+	if gt != "error" || b.goType(b.operandType(x), x) == gt {
+		return e
+	}
+	return &irExpr{K: "toiface", Pos: e.Pos, T: gt, X: e}
+}
+
 func irString(s string) string {
 	if !utf8.ValidString(s) {
 		irNo("string constant that is not UTF-8")
@@ -152,6 +177,9 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			if i, known := b.locals[o]; known {
 				return b.handoff(x, &irExpr{K: "local", Pos: p, I: i}) // ir_own.go
 			}
+			if i, built := b.strBufs[o]; built {
+				return b.strCall("StrGet", i, p) // strbuf.go
+			}
 			if b.scalars[o] != nil {
 				// Its gather writes statements: a value (ir_scalar.go).
 				irNo("scalar-form local inside an expression")
@@ -202,6 +230,27 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		b.goType(t, x)
 		return &irExpr{K: "deref", Pos: p, X: b.expr(x.X)}
 	case *syntax.SelectorExpr:
+		switch o := check.QualifiedMember(b.l.info, x).(type) {
+		case *check.Func:
+			return b.funcName(o, t, x, p) // pkg.F as a value (ir_fnname.go)
+		case *check.TypeName:
+			// pkg.T of a record with no fields, as the bare name T is.
+			if e := b.bareRecord(o, t, x, p); e != nil {
+				return e
+			}
+			irNo("selector on a non-record")
+		case *check.Var:
+			// pkg.v, a package let of another package, as the bare name is.
+			if val, ok := b.l.constVals[o]; ok && b.l.consts[o] {
+				return b.constant(o.Type, val, x, p)
+			}
+			if name, ok := b.l.vars[o]; ok {
+				b.goType(o.Type, x)
+				b.l.reachStdLet(o)
+				return &irExpr{K: "global", Pos: p, Name: name}
+			}
+			irNo("selector on a non-record")
+		}
 		// A field through a pointer (FLIP F2): Go's p.f.
 		n, ok := derefNamed(b.l.info.Types[x.X]) // ir_pkg.go
 		if !ok {
@@ -254,6 +303,18 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 				}
 			}
 			lit.Elems = b.inOrder(x.Elts) // ir_order.go
+			if b.l.valueFacts().seeds[x] && len(lit.Elems) == 1 {
+				// append(slices.Grow([]T{}, seedCap), e) (seedcap.go).
+				et := b.goType(tt.Elem, x)
+				keep := lit.T
+				if b.namesTypeParam(keep) {
+					keep = "[]int" // a generic body's slice is no package-level type (ir_loops.go)
+				}
+				b.keepImport("var _ = " + b.l.goPkg("slices") + ".Grow[" + keep + "]")
+				room := &irExpr{K: "pcall", Pos: p, T: "slices", Name: "Grow", V: lit.T + ", " + et, Args: []*irExpr{{K: "lit", Pos: p, T: lit.T}, {K: "const", Pos: p, T: "int", V: strconv.Itoa(seedCap)}}}
+				b.seedSites++
+				return &irExpr{K: "append", Pos: p, Args: []*irExpr{room, lit.Elems[0]}}
+			}
 		case *check.Map:
 			lit.Elems = b.mapLit(x) // ir_pkg.go
 		case *check.Named:
@@ -302,7 +363,17 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			}
 			lit.Elems = b.inOrder(values) // ir_order.go
 			for i, e := range lit.Elems {
-				lit.Elems[i] = b.intoField(values[i], e, fts[i])                    // ir_field.go (B-CONVFIELD)
+				// A variant that joins a union field goes into it as the
+				// emitter's Go assignment puts it (assignedTo, ir_union.go:
+				// failureCase[A | B]{Error: A{}}); any other value as the
+				// field holds it (intoField, B-CONVFIELD).
+				if fts[i] == nil || b.goType(fts[i], values[i]) == "error" {
+					lit.Elems[i] = b.intoField(values[i], e, fts[i]) // ir_field.go: a row's error
+				} else if a := b.assignedTo(values[i], e, fts[i]); a != e {
+					lit.Elems[i] = a
+				} else {
+					lit.Elems[i] = b.intoField(values[i], e, fts[i]) // ir_field.go
+				}
 				lit.Elems[i] = b.intoSlot(td, t, names[i], values[i], lit.Elems[i]) // ir_field.go (OPC-ADAPT2)
 			}
 		default:

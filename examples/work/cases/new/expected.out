@@ -1,0 +1,1 @@
+{"name":"wf10/a","id":"2e891efe91b59730","path":".work/base/wf10-a","branch":"wf10/a","deps":{"_tag":"NoDeps"},"hooks":{"_tag":"HookFailed","hook":"postcreate","command":"echo changed >> a.txt && test ! -e tmp && cat ../../../base/a.txt >&2; exit 3","status":3,"stderr":"hello\n"}}

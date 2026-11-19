@@ -13,8 +13,8 @@ import time
 // until that deadline. Its domain is the task that called NewVirtualClock,
 // from that call on, and every task started below a task of the domain.
 // The waits it sees are a Sleep on it, a queue's Push and Pop, a Task's
-// Wait and Stop, timeout.After, and an actor's inbox, Send, Ask, State,
-// Changes, ExitOf and Host.Get. A wait on anything else (the host's
+// Wait and Stop, timeout.After, an actor's inbox, Send, Ask, State,
+// Changes, ExitOf and Host.Get, and a call through rpc.Loopback. A wait on anything else (the host's
 // input, a file, the host clock, a time.Manual) keeps the time still until
 // it ends. So a test sleeps for hours in no wall time and needs no loop on
 // Sleepers. Every copy of a VirtualClock shares one time. Bind one value
@@ -41,6 +41,10 @@ func Elapsed(c VirtualClock, t time.Time) duration { c.Now().Sub(t) }
 // Sleep suspends the calling task until the clock's time is d past now.
 // A d of zero or less returns at once; a stop of the task ends the sleep.
 func Sleep(c VirtualClock, d duration) { c.line.Wait(d) }
+
+// Alarms is the clock's time as the runtime's waits use it: an alarm's
+// deadline is one the clock moves to when its domain waits.
+func Alarms(c VirtualClock) AlarmClock { c.line.Alarms() }
 
 extern go ergo.local/prototype/runtime/v1.NewVirtualTimeline func newLine(sec int64, nsec int64) time.Timeline
 

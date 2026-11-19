@@ -1,6 +1,10 @@
 // The site's laws (plan §18.3 FK9): what a navigation means, read from
 // the route before and the route after.
 
+import actor
+import sync
+import time
+
 // Routes are one route of each kind; a painting's id comes from the case.
 func routeOf(k int, id int) Route {
 	let ks = []Route{Home, Gallery, Painting{ID: id}, Studio, NotFound{Path: "/nowhere"}}
@@ -22,7 +26,7 @@ func catalogLoads(cs []Command) int {
 		match c {
 		case LoadCatalog:
 			n = n + 1
-		case LoadPainting, SaveDraft, Push, Leave:
+		case LoadPainting, Push, Leave:
 		}
 	}
 	n
@@ -46,7 +50,7 @@ law CatalogueLoadsOncePerVisit(ops []int) {
 		let next = routeOf(op/4, 1+op%7)
 		let entering = next == Gallery && !onGallery
 		let want = entering && !flying
-		let got = catalogLoads(Commands(Step(s, Arrived{URL: Print(next)})))
+		let got = catalogLoads(Commands(s, Step(s, Arrived{URL: Print(next)})))
 		if got != (if want { 1 } else { 0 }) {
 			return false
 		}
@@ -63,22 +67,110 @@ law StayRefetchesOnlyOnIdChange(a int where 1 <= a && a <= 9, b int where 1 <= b
 	let shown Shown = if loaded { ReadyPainting{ID: a} } else { LoadingPainting{ID: a} }
 	let s = Site{..Blank, Route: Some[Route]{Value: Painting{ID: a}}, Painting: shown}
 	let d = Step(s, Arrived{URL: "/gallery/\(b)"})
-	let asked = has(Commands(d), LoadPainting{ID: b})
+	let asked = has(Commands(s, d), LoadPainting{ID: b})
 	let after = After(s, d).Painting
 	let want Shown = if a != b { LoadingPainting{ID: b} } else { shown }
 	asked == (a != b) && after == want
 }
 
-// LeavingStudioSavesDraft: leaving the studio saves its draft once,
-// unless it is empty; staying in it or leaving another page saves
-// nothing.
-law LeavingStudioSavesDraft(text int where 0 <= text && text <= 2, from int where 0 <= from && from <= 4, to int where 0 <= to && to <= 4) {
-	let draft = []string{"", "a", "half-finished thought"}[text]
-	let before = routeOf(from, 2)
-	let next = routeOf(to, 3)
-	let s = Site{..Blank, Route: Some[Route]{Value: before}, Draft: draft}
-	let saves = has(Commands(Step(s, Arrived{URL: Print(next)})), SaveDraft{Draft: draft})
-	saves == (before == Studio && next != Studio && draft != "")
+// kept is a Drafts that keeps every draft saved, in order, for the law.
+type kept { saved sync.Ref[[]string] } implements Drafts
+
+func Save(k kept, draft string) {
+	k.saved.Update(func(v []string) []string { v.Append(draft) })
+}
+
+func Last(k kept) Option[string] {
+	let v = k.saved.Get()
+	if len(v) == 0 {
+		return None
+	}
+	Some[string]{Value: v[len(v)-1]}
+}
+
+// drawn is the law's op: a key typed, a URL arrived at, a link of the
+// site clicked, or (None) a clock move. Half the arrivals are at the
+// studio, so a stay in the studio with a draft is drawn often.
+func drawn(o int) Option[Signal] {
+	let texts = []string{"", "a", "half-finished thought"}
+	let op = if o < 0 { -(o / 2) } else { o }
+	match op % 4 {
+	case 0:
+		Some[Signal]{Value: Drafted{Text: texts[(op/4)%3]}}
+	case 1:
+		let to = if (op/4)%2 == 0 { Studio } else { routeOf(op/8, 1+op%5) }
+		Some[Signal]{Value: Arrived{URL: Print(to)}}
+	case 2:
+		Some[Signal]{Value: Clicked{Link: Internal{URL: Print(routeOf(op/4, 1+op%5))}}}
+	case _:
+		None
+	}
+}
+
+// saved runs the site as an actor on one manual clock over ops (a clock
+// move answers the jobs due by then), stops it, and gives the drafts its
+// exit actions saved, in order.
+func saved(ops []int) []string {
+	let clock = time.NewManual(0)
+	let store = kept{saved: sync.NewRef[[]string]([]string{})}
+	with context { time.Clock: clock, Scheduler: clock, Drafts: store } {
+		let site = actor.StartMachine(Gallerist{}, 16, func(cs []Command) {})
+		for i, o in ops {
+			match drawn(o) {
+			case Some[Signal] as s:
+				site.Send(s.Value) catch {
+				case actor.Stopped:
+					return []string{"? stopped"}
+				}
+			case None:
+				clock.Advance(time.Times(100ms, i%8))
+			}
+		}
+		let _ = site.State()
+		site.Stop()
+	}
+	store.saved.Get()
+}
+
+// leaves is the reference model of the saves: the route and the draft
+// only. Each arrival that leaves the studio with a draft saves it, and so
+// does the end in the studio with a draft.
+func leaves(ops []int) []string {
+	let mut inStudio = false
+	let mut draft = ""
+	let mut want = []string{}
+	for o in ops {
+		match drawn(o) {
+		case Some[Signal] as s:
+			match s.Value {
+			case Drafted as d:
+				draft = d.Text
+			case Arrived as a:
+				let next = Parse(a.URL) == Studio
+				if inStudio && !next && draft != "" {
+					want = want.Append(draft)
+				}
+				inStudio = next
+			case Clicked, CatalogLoaded, PaintingLoaded, Recalled, Dated, Answered:
+			}
+		case None:
+		}
+	}
+	if inStudio && draft != "" {
+		want = want.Append(draft)
+	}
+	want
+}
+
+// LeavingStudioAlwaysSaves: the site runs as an actor on one manual
+// clock, and is sent drawn keys typed, URLs arrived at, links clicked
+// and clock moves (which answer its jobs), then stopped. The drafts it
+// saved are, in order, the draft as last typed at each leave of the
+// studio with a draft, then the draft it ends with if it ends in the
+// studio; no other step saves (a key, a click, a stay in the studio, an
+// answer).
+law LeavingStudioAlwaysSaves(ops []int) {
+	saved(ops) == leaves(ops)
 }
 
 // LogKeepsTheLastTwenty: after n navigations the log holds the last

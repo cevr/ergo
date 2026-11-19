@@ -1,0 +1,222 @@
+import fs
+import filepath
+import strings
+
+// HookFailed is a hook command that did not end with status 0: the hook,
+// the command, its status and what it wrote on stderr.
+type HookFailed { Hook string, Command string, Status int, Stderr string }
+
+// Setting is one environment entry a hook runs with.
+type Setting { Key string, Value string }
+
+// Hooks runs the commands of work.toml's [hooks]: each by sh, in a folder,
+// with the environment Rift gives its hooks under work's names
+// (WORK_SOURCE, WORK_DESTINATION, WORK_ID, WORK_PARENT_ID). The binary
+// chooses the provider; memory's records every run.
+type Hooks {
+	// Run runs one command of hook in dir.
+	Run(hook string, command string, dir string, env []Setting) fails HookFailed,
+
+	// ExitIsAFailure: a command that exits with a status other than 0 is
+	// HookFailed, naming the hook, the command and the status.
+	law ExitIsAFailure(hook string, n int) {
+		let status = (n%125+125)%125 + 1
+		let command = "exit \(status)"
+		Run(hook, command, ".", []Setting{}) catch {
+		case HookFailed as f:
+			return f.Hook == hook && f.Command == command && f.Status == status
+		}
+		false
+	},
+}
+
+// Lock is the registry's locks, each named by a key. The key "" is the
+// mutation lock: a step that changes the registry, or renames a
+// workspace's folder, holds it, and nothing else does (no copy, no hook,
+// no install). A workspace's id is the lock of its reservation: new holds
+// it while it copies, so gc collects a reservation only when its maker is
+// gone. A holder that dies holds nothing (the host's file lock).
+type Lock {
+	// Hold takes the lock of key, or is false when another holder keeps
+	// it: for the provider's wait for the mutation lock, at once for
+	// another key. A second Hold of a held key is false too, as two opens
+	// of one locked file are.
+	Hold(key string) bool fails Unkept,
+	// Release gives the lock of key back.
+	Release(key string),
+	// Held reports whether this holder holds the lock of key.
+	Held(key string) bool,
+
+	// HoldExcludes: a held lock is held, refuses a second hold, and is
+	// free again after its release.
+	law HoldExcludes(key string) {
+		let first = Hold(key) catch {
+		case Unkept:
+			return true
+		}
+		let second = Hold(key) catch {
+		case Unkept:
+			return false
+		}
+		let during = Held(key)
+		Release(key)
+		let after = Held(key)
+		let again = Hold(key) catch {
+		case Unkept:
+			return false
+		}
+		Release(key)
+		first && !second && during && !after && again
+	},
+}
+
+// Locked is a registry whose mutation lock another work held for all of
+// the wait: nothing was changed, and the command can run again.
+type Locked { Path string }
+
+// HooksRan is the hooks of a step, all run: Count commands, each ended
+// with status 0 (0 when work.toml has none).
+type HooksRan { Count int }
+
+// Untrusted is a work.toml whose commands work trust has not allowed:
+// the tool runs none of them. Digest is what work trust would allow.
+type Untrusted { Digest string, Commands []string }
+
+// Hooked is what the hooks of a step did.
+type Hooked = HooksRan | Untrusted | HookFailed
+
+// TrustFile is where work trust keeps the allowed digest of a base: in
+// the base's storage, never in its tree.
+func TrustFile(home string) string { filepath.Join([]string{home, ".trusted"}) }
+
+// trusted reports whether c's commands may run: it runs none, or its
+// digest is the one work trust (or init) allowed.
+func trusted(t Tool, c Config) bool {
+	if len(Commands(c)) == 0 {
+		return true
+	}
+	let text = t.files.ReadFile(TrustFile(t.home)) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	strings.TrimSpace(text) == Digest(c)
+}
+
+func untrusted(c Config) Untrusted { Untrusted{Digest: Digest(c), Commands: Commands(c)} }
+
+// hookEnv is the environment of a hook of the workspace at path, cloned
+// from source.
+func hookEnv(source string, path string, id string, parentId string) []Setting {
+	[]Setting{Setting{Key: "WORK_SOURCE", Value: source}, Setting{Key: "WORK_DESTINATION", Value: path}, Setting{Key: "WORK_ID", Value: id}, Setting{Key: "WORK_PARENT_ID", Value: parentId}}
+}
+
+// runHook runs the commands of the hook name in dir, in order, the first
+// failure stopping it; an untrusted config runs nothing and says so when
+// it has a command for this hook. It never runs while the lock is held:
+// each caller releases before it.
+func runHook(t Tool, c Config, name string, dir string, env []Setting) Hooked {
+	let list = HookList(c.Hooks, name)
+	if len(list) == 0 {
+		return HooksRan{Count: 0}
+	}
+	if !trusted(t, c) {
+		let v Hooked = untrusted(c)
+		return v
+	}
+	let mut n = 0
+	for command in list {
+		t.hooks.Run(name, command, dir, env) catch {
+		case HookFailed as f:
+			let v Hooked = f
+			return v
+		}
+		n = n + 1
+	}
+	HooksRan{Count: n}
+}
+
+// Trusted is what work trust allowed: the digest and the commands.
+type Trusted { Digest string, Commands []string }
+
+// Trust allows the commands of the base's work.toml: it keeps their
+// digest in the base's storage. A changed command asks again.
+func Trust(t Tool) Trusted fails NoBase | BadConfig | Unkept | fs.NotFound | fs.Denied | fs.Failed {
+	try initialized(t)
+	let c = try config(t)
+	try t.writes.WriteFile(TrustFile(t.home), Digest(c)+"\n")
+	Trusted{Digest: Digest(c), Commands: Commands(c)}
+}
+
+// put keeps w in the registry under the lock; a live w first frees its
+// name from a trashed record (freeName).
+func put(t Tool, w Workspace) fails Unkept | Locked {
+	try hold(t)
+	let live = match w.State {
+	case Trashed:
+		false
+	case Creating, Active, Landing, Landed, Abandoned:
+		true
+	}
+	if live {
+		freeName(t, w.Name) catch {
+		case Unkept as e:
+			t.lock.Release("")
+			return e
+		}
+	}
+	t.registry.Put(w) catch {
+	case Unkept as e:
+		t.lock.Release("")
+		return e
+	}
+	t.lock.Release("")
+}
+
+// drop forgets name in the registry under the lock.
+func drop(t Tool, name string) fails Unkept | Locked {
+	try hold(t)
+	t.registry.Drop(name) catch {
+	case Unkept as e:
+		t.lock.Release("")
+		return e
+	}
+	t.lock.Release("")
+}
+
+// hold takes the mutation lock and finishes what a process that died in
+// a removal left: every mutation does, so no intent outlives the next.
+func hold(t Tool) fails Unkept | Locked {
+	if !try t.lock.Hold("") {
+		return Locked{Path: RegistryFile(t.home)}
+	}
+	finish(t) catch {
+	case Unkept as e:
+		t.lock.Release("")
+		return e
+	}
+}
+
+// finish rolls each intent forward, under the lock: the folder moves to
+// the trash if it has not, and the record says it is there.
+func finish(t Tool) fails Unkept {
+	for w in try t.registry.All() {
+		if w.Moving == "" {
+			continue
+		}
+		if t.copier.Has(w.Moving) && t.copier.Has(w.Path) {
+			// Another folder holds the trash's place: dropping the intent
+			// would leave the workspace with no record.
+			return Unkept{Reason: "\(w.Path) is taken: the move of \(w.Moving) to the trash did not end"}
+		}
+		if t.copier.Has(w.Moving) {
+			t.copier.Move(w.Moving, w.Path) catch {
+			case Missing:
+			case Exists:
+				return Unkept{Reason: "\(w.Path) is taken: the move of \(w.Moving) to the trash did not end"}
+			case CloneFailed as e:
+				return Unkept{Reason: "\(w.Moving): the move to the trash did not end: \(e.Reason)"}
+			}
+		}
+		try t.registry.Put(Workspace{..w, Moving: ""})
+	}
+}

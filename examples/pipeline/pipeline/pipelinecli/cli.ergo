@@ -8,11 +8,10 @@
 import flag
 import rpc
 import pipeline/pipeline
-import pipeline/pipeline/pipelinerpc
-import pipeline/run
+import pipeline/pipeline/pipelineapi
 
-// Request is one call of pipeline.Pipeline: the rpc package's Request.
-type Request = pipelinerpc.Request
+// Request is one call of pipeline.Pipeline: the hub's Request.
+type Request = pipelineapi.Request
 
 // Output is what Run prints: Out to standard output, Err to standard
 // error, and the exit status.
@@ -29,7 +28,7 @@ func commandSubmit() flag.Command[Request] {
 	let f1 = flag.RequiredString("run", "c.Run (string)")
 	let f2 = flag.RequiredInt("stages", "c.Stages (int)")
 	flag.Command[Request]{Name: "submit", Usage: "Submit(c pipeline.SubmitRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable", Set: flag.Set{Name: "submit", Usage: "Submit(c pipeline.SubmitRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable", Flags: []flag.Flag{f0, f1, f2}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
-		pipelinerpc.SubmitRequest{C: pipeline.SubmitRun{ID: f0.Get(v), Run: f1.Get(v), Stages: f2.Get(v)}}
+		pipelineapi.SubmitRequest{C: pipeline.SubmitRun{ID: f0.Get(v), Run: f1.Get(v), Stages: f2.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
@@ -39,7 +38,7 @@ func commandCancel() flag.Command[Request] {
 	let f1 = flag.RequiredString("run", "c.Run (string)")
 	let f2 = flag.RequiredString("why", "c.Why (string)")
 	flag.Command[Request]{Name: "cancel", Usage: "Cancel(c pipeline.CancelRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable", Set: flag.Set{Name: "cancel", Usage: "Cancel(c pipeline.CancelRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable", Flags: []flag.Flag{f0, f1, f2}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
-		pipelinerpc.CancelRequest{C: pipeline.CancelRun{ID: f0.Get(v), Run: f1.Get(v), Why: f2.Get(v)}}
+		pipelineapi.CancelRequest{C: pipeline.CancelRun{ID: f0.Get(v), Run: f1.Get(v), Why: f2.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
@@ -49,14 +48,14 @@ func commandRetry() flag.Command[Request] {
 	let f1 = flag.RequiredString("run", "c.Run (string)")
 	let f2 = flag.RequiredInt("stage", "c.Stage (int)")
 	flag.Command[Request]{Name: "retry", Usage: "Retry(c pipeline.RetryRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable", Set: flag.Set{Name: "retry", Usage: "Retry(c pipeline.RetryRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable", Flags: []flag.Flag{f0, f1, f2}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
-		pipelinerpc.RetryRequest{C: pipeline.RetryRun{ID: f0.Get(v), Run: f1.Get(v), Stage: f2.Get(v)}}
+		pipelineapi.RetryRequest{C: pipeline.RetryRun{ID: f0.Get(v), Run: f1.Get(v), Stage: f2.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
 // commandBoard is the command of Board.
 func commandBoard() flag.Command[Request] {
 	flag.Command[Request]{Name: "board", Usage: "Board() board.View", Set: flag.Set{Name: "board", Usage: "Board() board.View", Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
-		pipelinerpc.BoardRequest
+		pipelineapi.BoardRequest
 	}, Commands: []flag.Command[Request]{}}
 }
 
@@ -65,7 +64,7 @@ func commandRunOf() flag.Command[Request] {
 	let a0 = flag.Arg("id", "id (string)")
 	flag.Command[Request]{Name: "run-of", Usage: "RunOf(id string) run.Run fails pipeline.NoSuchRun", Set: flag.Set{Name: "run-of", Usage: "RunOf(id string) run.Run fails pipeline.NoSuchRun", Flags: []flag.Flag{}, Args: []flag.ArgSpec{a0}}, Build: func(v flag.Values) Request fails flag.Failure {
 		let t1 = argText(a0, v)
-		pipelinerpc.RunOfRequest{Id: t1}
+		pipelineapi.RunOfRequest{Id: t1}
 	}, Commands: []flag.Command[Request]{}}
 }
 
@@ -89,27 +88,27 @@ func Parse(args []string) Request fails flag.Failure {
 // each flag as -name=value, then "--" and the positional arguments.
 func Print(r Request) []string {
 	match r {
-	case pipelinerpc.SubmitRequest as x:
+	case pipelineapi.SubmitRequest as x:
 		let mut out = []string{"submit"}
 		out = out.Append("-id=\(x.C.ID)")
 		out = out.Append("-run=\(x.C.Run)")
 		out = out.Append("-stages=\(x.C.Stages)")
 		out
-	case pipelinerpc.CancelRequest as x:
+	case pipelineapi.CancelRequest as x:
 		let mut out = []string{"cancel"}
 		out = out.Append("-id=\(x.C.ID)")
 		out = out.Append("-run=\(x.C.Run)")
 		out = out.Append("-why=\(x.C.Why)")
 		out
-	case pipelinerpc.RetryRequest as x:
+	case pipelineapi.RetryRequest as x:
 		let mut out = []string{"retry"}
 		out = out.Append("-id=\(x.C.ID)")
 		out = out.Append("-run=\(x.C.Run)")
 		out = out.Append("-stage=\(x.C.Stage)")
 		out
-	case pipelinerpc.BoardRequest:
+	case pipelineapi.BoardRequest:
 		[]string{"board"}
-	case pipelinerpc.RunOfRequest as x:
+	case pipelineapi.RunOfRequest as x:
 		let mut out = []string{"run-of"}
 		out = out.Append("--")
 		out = out.Append("\(x.Id)")
@@ -170,68 +169,44 @@ func Run(args []string) Output needs pipeline.Pipeline {
 	case err:
 		return Output{Out: "", Err: flag.Describe(err) + "\n", Code: 2}
 	}
-	match r {
-	case pipelinerpc.SubmitRequest as x:
-		let v = pipeline.Pipeline.Submit(x.C) catch {
-		case run.WrongState as e:
-			return failed(asJSON, rpc.Tagged("WrongState", rpc.Encode(e)))
-		case run.WrongStage as e:
-			return failed(asJSON, rpc.Tagged("WrongStage", rpc.Encode(e)))
-		case run.Closed as e:
-			return failed(asJSON, rpc.Tagged("Closed", rpc.Encode(e)))
-		case run.BadLength as e:
-			return failed(asJSON, rpc.Tagged("BadLength", rpc.Encode(e)))
-		case pipeline.NoSuchRun as e:
-			return failed(asJSON, rpc.Tagged("NoSuchRun", rpc.Encode(e)))
-		case pipeline.Unavailable as e:
-			return failed(asJSON, rpc.Tagged("Unavailable", rpc.Encode(e)))
+	match pipelineapi.Call(r) {
+	case pipelineapi.Done as done:
+		match done.Reply {
+		case pipelineapi.SubmitReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case pipelineapi.CancelReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case pipelineapi.RetryReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case pipelineapi.BoardReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case pipelineapi.RunOfReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
 		}
-		let encoded = rpc.Encode(v)
-		answer(asJSON, encoded, encoded)
-	case pipelinerpc.CancelRequest as x:
-		let v = pipeline.Pipeline.Cancel(x.C) catch {
-		case run.WrongState as e:
-			return failed(asJSON, rpc.Tagged("WrongState", rpc.Encode(e)))
-		case run.WrongStage as e:
-			return failed(asJSON, rpc.Tagged("WrongStage", rpc.Encode(e)))
-		case run.Closed as e:
-			return failed(asJSON, rpc.Tagged("Closed", rpc.Encode(e)))
-		case run.BadLength as e:
-			return failed(asJSON, rpc.Tagged("BadLength", rpc.Encode(e)))
-		case pipeline.NoSuchRun as e:
-			return failed(asJSON, rpc.Tagged("NoSuchRun", rpc.Encode(e)))
-		case pipeline.Unavailable as e:
-			return failed(asJSON, rpc.Tagged("Unavailable", rpc.Encode(e)))
+	case pipelineapi.Rejected as rejected:
+		match rejected.Failure {
+		case pipelineapi.WrongState as failure:
+			failed(asJSON, rpc.Tagged("WrongState", rpc.Encode(failure.E)))
+		case pipelineapi.WrongStage as failure:
+			failed(asJSON, rpc.Tagged("WrongStage", rpc.Encode(failure.E)))
+		case pipelineapi.Closed as failure:
+			failed(asJSON, rpc.Tagged("Closed", rpc.Encode(failure.E)))
+		case pipelineapi.BadLength as failure:
+			failed(asJSON, rpc.Tagged("BadLength", rpc.Encode(failure.E)))
+		case pipelineapi.NoSuchRun as failure:
+			failed(asJSON, rpc.Tagged("NoSuchRun", rpc.Encode(failure.E)))
+		case pipelineapi.Unavailable as failure:
+			failed(asJSON, rpc.Tagged("Unavailable", rpc.Encode(failure.E)))
 		}
-		let encoded = rpc.Encode(v)
-		answer(asJSON, encoded, encoded)
-	case pipelinerpc.RetryRequest as x:
-		let v = pipeline.Pipeline.Retry(x.C) catch {
-		case run.WrongState as e:
-			return failed(asJSON, rpc.Tagged("WrongState", rpc.Encode(e)))
-		case run.WrongStage as e:
-			return failed(asJSON, rpc.Tagged("WrongStage", rpc.Encode(e)))
-		case run.Closed as e:
-			return failed(asJSON, rpc.Tagged("Closed", rpc.Encode(e)))
-		case run.BadLength as e:
-			return failed(asJSON, rpc.Tagged("BadLength", rpc.Encode(e)))
-		case pipeline.NoSuchRun as e:
-			return failed(asJSON, rpc.Tagged("NoSuchRun", rpc.Encode(e)))
-		case pipeline.Unavailable as e:
-			return failed(asJSON, rpc.Tagged("Unavailable", rpc.Encode(e)))
-		}
-		let encoded = rpc.Encode(v)
-		answer(asJSON, encoded, encoded)
-	case pipelinerpc.BoardRequest:
-		let v = pipeline.Pipeline.Board()
-		let encoded = rpc.Encode(v)
-		answer(asJSON, encoded, encoded)
-	case pipelinerpc.RunOfRequest as x:
-		let v = pipeline.Pipeline.RunOf(x.Id) catch {
-		case pipeline.NoSuchRun as e:
-			return failed(asJSON, rpc.Tagged("NoSuchRun", rpc.Encode(e)))
-		}
-		let encoded = rpc.Encode(v)
-		answer(asJSON, encoded, encoded)
 	}
 }

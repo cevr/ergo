@@ -52,6 +52,12 @@ func registerNativesmore() {
 	natives["arena.grow"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return in.appendTo(fr, at, args[0].(sliceV), args[1], nil)
 	}
+	// AppendAll is append(xs, ys...) (dense.Pool's PutList, SL2): xs's
+	// elements then ys's, xs itself unchanged, as len(ys) Appends do it
+	// but in one copy. An empty ys does no work.
+	natives["slices.AppendAll"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		return in.appendAll(fr, at, args[0].(sliceV), args[1].(sliceV))
+	}
 	natives["arena.takeValue"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		p, ok := args[0].(*ptrV)
 		if !ok {
@@ -79,6 +85,17 @@ func registerNativesmore() {
 	natives["machines.notPositive"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		now, wait := time.Duration(args[0].(int64)), time.Duration(args[1].(int64))
 		return nil, fr.defect(at, "%s", "a Machine built from parts: the timer armed at "+now.String()+" has In "+wait.String()+", which is not positive; a timer waits a positive duration")
+	}
+	// std machines' firing mark (AfterFiring): set and cleared on the
+	// running task, read by a machine's After (machinevalue.go,
+	// everyTimeout).
+	natives["machines.firingOn"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		in.firing = true
+		return unit{}, in.charge(fr, at, 1)
+	}
+	natives["machines.firingOff"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		in.firing = false
+		return unit{}, in.charge(fr, at, 1)
 	}
 }
 

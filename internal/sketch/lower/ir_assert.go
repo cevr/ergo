@@ -122,6 +122,23 @@ func (b *irBuilder) lawResult(x syntax.Expr, out []*irStmt) []*irStmt {
 		&irStmt{K: "ret", Pos: p, X: h})
 }
 
+// lawOpCap is the capability a law's bare operation call c calls
+// (CallLawOp): the operation type that declares the law, which the law's
+// run binds to the provider under test (calls.go). Nil for any other call.
+func (b *irBuilder) lawOpCap(c *check.Call) *check.Named {
+	if c.Kind != check.CallLawOp {
+		return nil
+	}
+	if b.law == nil || b.law.Owner == nil {
+		irNo("law operation call outside its law's body")
+	}
+	own, ok := b.law.Owner.Type.(*check.Named)
+	if !ok {
+		irNo("law of an operation type with no name")
+	}
+	return own
+}
+
 // refutedFunc is the harness's Refuted with the law's declaration as one
 // argument: the IR calls no variadic function. The naming pass reserves
 // its name under LowerIR and CensusIR only (nameTests).
@@ -183,6 +200,19 @@ func (b *irBuilder) assert(s *syntax.AssertStmt) []*irStmt {
 	site := &irExpr{K: "const", Pos: p, T: "string", V: l.siteText(s)}
 	fail := &irExpr{K: "call", Pos: p, Name: l.helper("AssertFail"), Args: []*irExpr{site, text}}
 	return append(pre, &irStmt{K: "if", Pos: p, End: p, X: &irExpr{K: "un", Pos: p, Op: "!", X: cond}, Then: []*irStmt{{K: "expr", Pos: p, X: fail}}})
+}
+
+// skip is `skip "reason"`: the harness's $SkipNow with the reason, which
+// ends the run ($Try reads it).
+func (b *irBuilder) skip(s *syntax.SkipStmt) []*irStmt {
+	l := b.l
+	if l.tests == nil {
+		irNo("skip outside the test build")
+	}
+	p := b.pos(s, s.Pos())
+	why, _ := s.Text()
+	call := &irExpr{K: "call", Pos: p, Name: l.helper("SkipNow"), Args: []*irExpr{{K: "const", Pos: p, T: "string", V: why}}}
+	return []*irStmt{{K: "expr", Pos: p, X: call}}
 }
 
 // assertShowFunc is the generated helper that writes a shown assert's

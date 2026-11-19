@@ -84,6 +84,9 @@ type specCopy struct {
 	// bound is each type parameter's type argument, when the call names
 	// one with no type parameter of its own (scalar.go reads it).
 	bound map[*check.TypeParam]check.Type
+	// inst spells the Go type arguments of a copy made by specAt, in f's
+	// type-parameter order: the one instance the copy is.
+	inst string
 }
 
 // recordParam is the index of f's record parameter that its body calls a
@@ -294,6 +297,7 @@ func (fc *funcCtx) specAt(x *syntax.CallExpr, c *check.Call) *specCopy {
 	}
 	args := map[*check.TypeParam]string{}
 	bound := map[*check.TypeParam]check.Type{}
+	var spelled []string
 	j := 0
 	for i, tp := range f.Sig.TParams {
 		if tp.Kind != check.KindType {
@@ -306,6 +310,7 @@ func (fc *funcCtx) specAt(x *syntax.CallExpr, c *check.Call) *specCopy {
 			return nil
 		}
 		args[tp] = fc.goType(c.TypeArgs[i])
+		spelled = append(spelled, args[tp])
 		if t := fc.boundType(c.TypeArgs[i]); !mentionsTypeParam(t) {
 			bound[tp] = t
 		}
@@ -314,13 +319,21 @@ func (fc *funcCtx) specAt(x *syntax.CallExpr, c *check.Call) *specCopy {
 	if j != len(own) {
 		return nil
 	}
+	// The naming pass reserves one copy name per key, so the key's copy is
+	// its first instance's; a call at other type arguments takes the
+	// function itself (Q4: FileRowsOn and ProcessRowsOn went to
+	// DirRowsOn's RowsOn copy).
+	inst := strings.Join(spelled, "\x00")
 	if sp := fc.l.specs[key]; sp != nil {
+		if sp.inst != inst {
+			return nil
+		}
 		return sp
 	}
 	if fc.l.specs == nil {
 		fc.l.specs = map[specKey]*specCopy{}
 	}
-	sp := &specCopy{f: f, fd: fd, name: name, param: k, rec: rec, prov: prov, wit: wit, typeArgs: args, bound: bound}
+	sp := &specCopy{f: f, fd: fd, name: name, param: k, rec: rec, prov: prov, wit: wit, typeArgs: args, bound: bound, inst: inst}
 	fc.l.specs[key] = sp
 	if wit != nil {
 		fc.l.stats.Witnessed++

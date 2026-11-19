@@ -139,6 +139,9 @@ func (d *direct) loadPlan(tg *target) error {
 			return nil
 		}
 	}
+	if d.t.Stored {
+		return ErrNotStored
+	}
 	p, err := d.makePlan(tg, env)
 	if err != nil {
 		return err
