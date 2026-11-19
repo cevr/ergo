@@ -385,6 +385,83 @@
       "killers": [
         "internal/selfhostcheck:TestSelfhostFormatLaws"
       ]
+    },
+    {
+      "name": "ir-invalid-utf8-kept",
+      "origin": "wf10/selfhost/S4a",
+      "file": "compiler/ir/json.ergo",
+      "from": "if d.Rune == 0xFFFD && d.Size == 1 {",
+      "to": "if false {",
+      "rule": "Each byte of an invalid UTF-8 sequence is written as U+FFFD, as Go 1.27's encoding/json writes it.",
+      "killers": [
+        "internal/selfhostcheck:TestIRWriteAgreesWithGo"
+      ]
+    },
+    {
+      "name": "ir-u2029-not-escaped",
+      "origin": "wf10/selfhost/S4a",
+      "file": "compiler/ir/json.ergo",
+      "from": "if d.Rune == 0x2028 || d.Rune == 0x2029 {",
+      "to": "if d.Rune == 0x2028 {",
+      "rule": "U+2028 and U+2029 are both written as escapes.",
+      "killers": [
+        "internal/selfhostcheck:TestIRWriteAgreesWithGo"
+      ]
+    },
+    {
+      "name": "ir-omit-keeps-empty-list",
+      "origin": "wf10/selfhost/S4a",
+      "file": "compiler/ir/json.ergo",
+      "from": "n == 0",
+      "to": "false",
+      "rule": "omitempty drops an empty list that is not nil.",
+      "killers": [
+        "internal/selfhostcheck:TestIRWriteAgreesWithGo"
+      ]
+    },
+    {
+      "name": "ir-int-high-half-dropped",
+      "origin": "wf10/selfhost/S4a",
+      "file": "compiler/ir/json.ergo",
+      "from": "uint64(lo) | uint64(hi)<<uint64(32)",
+      "to": "uint64(lo)",
+      "rule": "An int is the 64 bits of its two words, so a negative or large int is written as Go writes it.",
+      "killers": [
+        "internal/selfhostcheck:TestIRWriteAgreesWithGo"
+      ]
+    },
+    {
+      "name": "ir-null-element-read-as-node",
+      "origin": "wf10/selfhost/S4a",
+      "file": "compiler/ir/json.ergo",
+      "from": "if o == 0 {",
+      "to": "if false {",
+      "rule": "A list element of word 0 is a nil node, written null.",
+      "killers": [
+        "internal/selfhostcheck:TestIRWriteAgreesWithGo"
+      ]
+    },
+    {
+      "name": "ir-type-not-checked",
+      "origin": "wf10/selfhost/S4a",
+      "file": "compiler/ir/json.ergo",
+      "from": "if have != uint32(t) {",
+      "to": "if false {",
+      "rule": "A record of another struct type than its field names is Malformed, never written.",
+      "killers": [
+        "internal/selfhostcheck:TestIRWriteAgreesWithGo"
+      ]
+    },
+    {
+      "name": "ir-zero-pos-not-written",
+      "origin": "wf10/selfhost/S4a",
+      "file": "compiler/ir/json.ergo",
+      "from": "w.b.WriteString(\"[0,0,0]\")",
+      "to": "w.b.WriteString(\"[]\")",
+      "rule": "A position that is not set is Go's zero [3]int.",
+      "killers": [
+        "internal/selfhostcheck:TestIRWriteAgreesWithGo"
+      ]
     }
   ]
 }

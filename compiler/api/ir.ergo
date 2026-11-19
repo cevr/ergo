@@ -1,0 +1,13 @@
+import compiler/ir
+
+// IRWrite is ir.Write over a pool a Go host packed (capstone S4a): "ok\n"
+// and the IR file's text, or "malformed <at> <why>\n" for a pool the
+// writer cannot read. The agreement property of internal/selfhostcheck
+// compares the text with the Go IR builder's encoding/json output.
+func IRWrite(words []uint32, strs []string) string {
+	let text = ir.Write(ir.File{Words: words, Strs: strs}) catch {
+	case ir.Malformed as m:
+		return "malformed \(m.At) " + m.Why + "\n"
+	}
+	"ok\n" + text
+}
