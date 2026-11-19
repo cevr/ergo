@@ -681,6 +681,7 @@ func (l *lowerer) wireEncodeBody(em wireEvents, tc *typeCtx, b *strings.Builder,
 		b.WriteString("for _, " + e + " := range " + v + " {\n" + tc.wireEncodeWith(em, u.Elem, env, w, e) + "\n}\n")
 		b.WriteString(em.close(true, task, w))
 	case *check.Map:
+		l.intMapConflict(u) // intmap.go: the codec reads Go's map
 		k := scope.alloc("k")
 		b.WriteString(em.open(false, "len("+v+")", task, w))
 		b.WriteString("for _, " + k + " := range " + l.pkgName(pkgKey{"import", runtimeImport}, "ergo") + ".WireKeys(" + v + ") {\n")
@@ -858,6 +859,7 @@ func (l *lowerer) wireDecodeBody(tc *typeCtx, b *strings.Builder, t check.Type, 
 		b.WriteString(tc.wireDecode(u.Elem, env, r, e, zero, scope))
 		b.WriteString(out + " = append(" + out + ", " + e + ")\n}\n" + r + ".End(" + task + ")\nreturn " + out + ", nil\n")
 	case *check.Map:
+		l.intMapConflict(u) // intmap.go: the codec makes Go's map
 		out, k := scope.alloc("out"), scope.alloc("k")
 		begin("Object")
 		b.WriteString(out + " := " + goType + "{}\nfor " + r + ".More(" + task + ") {\n" + k + " := " + r + ".Key(" + task + ")\n")

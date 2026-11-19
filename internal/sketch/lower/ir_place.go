@@ -92,6 +92,16 @@ func (b *irBuilder) store(s *syntax.AssignStmt, op string) []*irStmt {
 	}
 	to := b.storeTo(lhs) // ir_mapstore.go: a Map's entry, else a place
 	pre, x := b.value(s.Rhs[0])
+	if to.K == "mapAt" {
+		if ix, ok := unparen(lhs).(*syntax.IndexExpr); ok {
+			if _, ok := b.intMapOf(b.l.info.Types[ix.X]); ok { // ir_intmap.go
+				if op != "" {
+					irNo("int map entry op-assignment")
+				}
+				return append(b.fixEntry(lhs, to, pre), intMapStore(b.pos(s, s.Pos()), to, x))
+			}
+		}
+	}
 	if op == "" && to.K == "mapAt" {
 		return append(b.fixEntry(lhs, to, pre), &irStmt{K: "store", Pos: b.pos(s, s.Pos()), X: to, Y: x}) // ir_mapstore.go
 	}

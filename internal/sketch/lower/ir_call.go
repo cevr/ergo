@@ -158,6 +158,10 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		if len(x.Args) != 1 {
 			irNo("len form")
 		}
+		if _, ok := b.intMapOf(b.l.info.Types[x.Args[0]]); ok { // ir_intmap.go
+			pre, m := b.value(x.Args[0])
+			return pre, tableCall(p, "Len", m), false
+		}
 		// A named type over a slice or Map (a Go package's url.Values)
 		// is Go's len of it too (IR-GOCALLS-3).
 		switch t := b.l.info.Types[x.Args[0]]; underEqual(t).(type) {
@@ -200,6 +204,9 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		// A prelude intrinsic (Append) is a Go function of main.go that
 		// the lowering writes (decls.go intrinsic): a call like a user
 		// function's.
+		if pre, e, ok := b.intMapPrelude(x, c, f, p, stmt); ok { // ir_intmap.go
+			return pre, e, false
+		}
 		intrinsic := b.l.intrinsic(f) != nil
 		if _, own := check.ModuleBodySource(f); own {
 			return b.moduleCall(x, c, f, p) // ir_modulebody.go (LAWFFI LF2m)

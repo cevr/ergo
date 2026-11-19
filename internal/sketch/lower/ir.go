@@ -62,6 +62,11 @@ type IRReport struct {
 	// ConstFolds counts the operations of constants folded into one
 	// (ir_constfold.go).
 	ConstFolds int `json:"-"`
+	// MapRounds is the number of lowerings the int map choice ran
+	// (intmap.go; 1 when no Map type conflicts), and MapConflicts counts
+	// the Map types each cause made Go's map, over every round.
+	MapRounds    int            `json:"-"`
+	MapConflicts map[string]int `json:"-"`
 	// Inlined counts the calls whose callee's IR body the pass copied to
 	// their site (ir_forms_inline.go).
 	Inlined int `json:"-"`
@@ -291,12 +296,35 @@ func lowerIRModule(u Unit, tests *testLowering, formsOff bool) ([]File, map[stri
 	if err := u.Validate(); err != nil {
 		return nil, nil, irModule{}, nil, err
 	}
-	l := newBuildLowerer(u, tests)
-	l.ir = &irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, formsOff: formsOff, noFallback: u.NoFallback}
-	code, err := l.program()
-	if err != nil {
-		return nil, nil, irModule{}, nil, err
+	var (
+		l    *lowerer
+		code []byte
+		err  error
+		ims  intMapState
+		why  = map[string]int{}
+	)
+	for round := 0; ; round++ {
+		l = newBuildLowerer(u, tests)
+		l.ir = &irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, formsOff: formsOff, noFallback: u.NoFallback, maps: ims}
+		if round == intMapRounds {
+			l.ir.maps = intMapState{allGo: true}
+		}
+		code, err = l.program()
+		if err != nil {
+			return nil, nil, irModule{}, nil, err
+		}
+		for k, n := range l.ir.maps.why {
+			why[k] += n
+		}
+		next, again := l.ir.maps.newRound() // intmap.go: a conflict lowers again
+		if !again || round == intMapRounds {
+			l.ir.report.MapRounds, l.ir.report.MapConflicts = round+1, why
+			break
+		}
+		ims = next
 	}
+	// The last round's bodies alone: an earlier round's fallbacks were
+	// the conflicts it lowered again for (intmap.go).
 	if err := l.ir.refuseFallbacks(); err != nil { // ir_fallback.go
 		return nil, nil, irModule{}, nil, err
 	}
@@ -337,8 +365,9 @@ type irState struct {
 	funcApplied map[string]int
 	// formsOff builds no IR form (LowerIRReference; ir_forms.go).
 	formsOff bool
-	ops      *opFacts  // the capability bindings (ir_forms_op.go)
-	inl      *irInline // the inliner's marks and frames (ir_forms_inline.go)
+	ops      *opFacts    // the capability bindings (ir_forms_op.go)
+	inl      *irInline   // the inliner's marks and frames (ir_forms_inline.go)
+	maps     intMapState // MI-2: the int map choice (intmap.go)
 	// noFallback is Unit.NoFallback; fallbacks are the bodies the
 	// builder stopped at, with their reasons (ir_fallback.go).
 	noFallback bool
@@ -358,7 +387,10 @@ func (st *irState) restart() *irState {
 	if census != nil {
 		census = &IRCensus{}
 	}
-	*st = irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, census: census, reach: reach, formsOff: formsOff, noFallback: noFallback}
+	// The round's int map choice stays (its off types and allGo): the
+	// run's conflicts are dropped with its bodies (intmap.go).
+	maps := intMapState{off: st.maps.off, allGo: st.maps.allGo}
+	*st = irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, census: census, reach: reach, formsOff: formsOff, noFallback: noFallback, maps: maps}
 	return st
 }
 
@@ -820,6 +852,7 @@ func (st *irState) finish(b *irBuilder, pkg, name string, decl syntax.Node, std 
 		}
 		st.report.Fallback[u.reason]++
 		b.note(u.reason)
+		b.l.intMapBody(b.l.info, decl, u.reason) // intmap.go: its emitter body writes Go's map operations
 		*ok = false
 		if st.noFallback {
 			st.fallbacks = append(st.fallbacks, IRCensusFunc{Pkg: pkg, Name: name, File: st.fileOf(b, decl), Std: std, Reasons: []string{u.reason}})

@@ -483,6 +483,9 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		if lp == nil || !goRange(lp.Domain) { // ir_pkg.go
 			b.gate("for-in over a non-slice")
 		}
+		if _, ok := b.intMapOf(b.l.info.Types[s.X]); ok && lp.Domain == check.LoopMap {
+			irNo("for-in over an int map") // ir_intmap.go: its emitter body ranges over Go's map
+		}
 		pre, x := b.foldRangeValue(s) // ir_collectfold.go: rangeValue (ir_order.go), run once before the loop, unless fused
 		first := b.next               // before the key and value: ir_memo.go
 		st := &irStmt{K: "range", Pos: b.pos(s, s.Pos()), X: x, End: b.pos(s.Body, s.Body.Rbrace)}
