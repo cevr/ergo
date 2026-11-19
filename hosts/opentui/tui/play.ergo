@@ -105,7 +105,9 @@ func pointOn[E comparable, S, D, F](d *Driver[S, E, D, F], id ui.Id[E], label st
 		try Send(d, Mouse(0, x, y, true))
 	case ui.Up:
 		try Send(d, Mouse(0, x, y, false))
-	case ui.Moved:
+	case ui.Moved, ui.Drag, ui.PointerEnter, ui.PointerLeave:
+		// A move: a drag while an Area holds the pointer (the composer
+		// tells Drag from Moved, not the host).
 		try Send(d, Mouse(if Captured(d) != None { 32 } else { 35 }, x, y, true))
 	case ui.Wheel as w:
 		let (code, by, unit) = if w.DY != 0 { (if w.DY > 0 { 65 } else { 64 }, w.DY, c.H) } else { (if w.DX > 0 { 67 } else { 66 }, w.DX, c.W) }

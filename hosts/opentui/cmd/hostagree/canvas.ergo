@@ -19,7 +19,7 @@ func sketchStep(s sketch, e int) Decision[sketch, int] {
 }
 
 func sketchMachine() Machine[sketch, int, int] {
-	Machine[sketch, int, int]{Initial: sketch{x: 100, y: 75, n: 0}, Step: sketchStep, After: none[sketch, int], Work: idle[sketch, int]}
+	Machine[sketch, int, int]{Initial: sketch{x: 100, y: 75, n: 0}, Step: sketchStep, After: none[sketch, int], Work: idle[sketch, int], Exit: func(s sketch) Option[func()] { None }}
 }
 
 func sketchView(f *ui.Frame[int], s sketch) {
