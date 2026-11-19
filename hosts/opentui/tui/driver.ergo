@@ -625,6 +625,7 @@ func step[E comparable, S, D, F](d *Driver[S, E, D, F], ev ui.Event[E]) fails ac
 	let ops = try ui.Step(&d.session, ev)
 	if len(ops) > 0 {
 		try show(d, ops)
+		try speak(d, ops)
 	}
 }
 

@@ -197,6 +197,8 @@ type Screen struct {
 	done    bool
 	in      *os.File
 	stop    func()
+	// said is each text Notify said (notify.go).
+	said []string
 }
 
 // ErrClosed is the error of a call on a closed screen.
@@ -990,6 +992,10 @@ func (s *Screen) parse(b []byte, now uint64) []Input {
 				in.Kind = Paste
 			case ot.OT_INPUT_FOCUS:
 				in.Kind = Focus
+			case ot.OT_INPUT_REPLY:
+				// A terminal's reply to the setup's queries (notify.go).
+				s.reply(b[e.RawOffset : e.RawOffset+e.RawLen])
+				continue
 			default:
 				continue
 			}
