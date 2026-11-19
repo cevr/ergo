@@ -3,6 +3,7 @@
 // records of three fields and whose signals are Go{K} and Tick, so a trace
 // can leave out a signal's name, its field, and any of the state's fields.
 
+import json
 import strconv
 import strings
 
@@ -384,4 +385,80 @@ law LimitNeverConforms(seed uint64, size uint8, signals uint8, length uint8, mas
 	case _:
 		false
 	}
+}
+
+// FMode and FRec are FitFastAgreesWithDecode's values: a record with a
+// nested union, a bool, a number and an array of bools, the kinds
+// fitValue answers for.
+type FMode = Idle{} | Busy{K int}
+
+type FRec { Mode FMode, On bool, N int, Flags []bool }
+
+func fMode(x uint64) FMode { if x%3 == 0 { Idle } else { Busy{K: int(x/3%2)} } }
+
+func fRec(x uint64) FRec {
+	FRec{Mode: fMode(x), On: x/6%2 == 1, N: int(x/12%3), Flags: []bool{x/36%2 == 1, x/72%2 == 1}}
+}
+
+// fProject is w's wire form with the members (and the nested object's
+// members) mask leaves out dropped; the next mask bit gives the first kept
+// member a value of the wrong kind, and the one after adds a member the
+// type does not have.
+func fProject(w json.Value, mask uint64) json.Value {
+	match w {
+	case json.Object as o:
+		let mut bits = mask
+		let mut ms = []json.Member{}
+		for m in o.Members {
+			let keep = bits%2 == 1
+			bits = bits / 2
+			let mut value = m.Value
+			match m.Value {
+			case json.Object as inner:
+				let mut sub = []json.Member{}
+				for n in inner.Members {
+					if bits%2 == 1 {
+						sub = sub.Append(n)
+					}
+					bits = bits / 2
+				}
+				value = json.Object{Members: sub}
+			case _:
+			}
+			if keep {
+				ms = ms.Append(json.Member{Key: m.Key, Value: value})
+			}
+		}
+		if bits%2 == 1 && len(ms) > 0 {
+			ms[0] = json.Member{Key: ms[0].Key, Value: json.Str{Value: "x"}}
+		}
+		bits = bits / 2
+		if bits%2 == 1 {
+			ms = ms.Append(json.Member{Key: "Extra", Value: json.Boolean{Value: true}})
+		}
+		json.Object{Members: ms}
+	case _:
+		w
+	}
+}
+
+func fitName(f Fit) string {
+	match f {
+	case Fits:
+		"fits"
+	case Differs:
+		"differs"
+	case Bad as b:
+		"bad: " + b.Why
+	}
+}
+
+// FitFastAgreesWithDecode (MODELCHECK T2b): FitOf, which answers from the
+// wire forms when it can, says what the decode alone (fitDecode) says, for
+// an observation of another value with members left out, a member of the
+// wrong kind, or one the type does not have.
+law FitFastAgreesWithDecode(a uint64, b uint64, mask uint64) {
+	let v = fRec(a)
+	let obs = fProject(valueOf(fRec(b)), mask)
+	fitName(FitOf(v, obs)) == fitName(fitDecode(v, valueOf(v), obs))
 }

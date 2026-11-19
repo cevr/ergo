@@ -232,6 +232,13 @@ func fitOn[T wire](v T, base json.Value, obs json.Value) Fit needs wired[T] {
 		return Differs
 	case Unsure:
 	}
+	fitDecode(v, base, obs)
+}
+
+// fitDecode is FitOf without fitValue's fast path: obs laid over base,
+// decoded as T, then compared by key. It is the fast path's reference
+// (law FitFastAgreesWithDecode), and what an Unsure answer falls to.
+func fitDecode[T wire](v T, base json.Value, obs json.Value) Fit needs wired[T] {
 	match overlay(base, obs) {
 	case None:
 		return Differs
