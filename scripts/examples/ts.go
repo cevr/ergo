@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"ergo.local/prototype/internal/cases"
 )
 
 // The ts leg runs the programs tagged ts: an Ergo program with a
@@ -48,7 +50,7 @@ func (r *runner) installTS() (string, error) {
 		return "", errors.New("bun is not on PATH; the ts leg needs Bun and a warmed Bun cache (tools/ts/README.md)")
 	}
 	tools := filepath.Join(r.cfg.root, "tools", "ts")
-	dir, err := r.live.makeDir(r.scratch, "ts-")
+	dir, err := r.live.MakeDir(r.scratch, "ts-")
 	if err != nil {
 		return "", err
 	}
@@ -57,16 +59,16 @@ func (r *runner) installTS() (string, error) {
 			return "", err
 		}
 	}
-	o, err := r.live.execute([]string{"bun", "install", "--frozen-lockfile", "--offline", "--ignore-scripts"}, dir, os.Environ(), "", r.cfg.timeout, 0)
+	o, err := r.live.Execute([]string{"bun", "install", "--frozen-lockfile", "--offline", "--ignore-scripts"}, dir, os.Environ(), "", r.cfg.timeout, 0)
 	if err != nil {
 		return "", fmt.Errorf("bun install could not start: %v", err)
 	}
-	if !o.passed() {
+	if !o.Passed() {
 		var out strings.Builder
-		for _, line := range lines(append(o.stdout, o.stderr...)) {
+		for _, line := range cases.Lines(append(o.Stdout, o.Stderr...)) {
 			fmt.Fprintf(&out, "\n    %s", line)
 		}
-		return "", fmt.Errorf("bun install --frozen-lockfile --offline failed (exit %s%s); warm the Bun cache as tools/ts/README.md says%s", o.statusText(), o.why(r.cfg.timeout), out.String())
+		return "", fmt.Errorf("bun install --frozen-lockfile --offline failed (exit %s%s); warm the Bun cache as tools/ts/README.md says%s", o.StatusText(), o.Why(r.cfg.timeout), out.String())
 	}
 	// ergo-ts itself: its loaders, beside the dependencies they import.
 	pkg := filepath.Join(dir, "node_modules", "ergo-ts")
@@ -90,7 +92,7 @@ func (r *runner) installTS() (string, error) {
 // tsCopy copies the program folder, without its cases, into a fresh
 // folder under the install, and gives it its package.json.
 func (r *runner) tsCopy(p *program, deps string) (string, error) {
-	dir, err := r.live.makeDir(deps, "case-")
+	dir, err := r.live.MakeDir(deps, "case-")
 	if err != nil {
 		return "", err
 	}

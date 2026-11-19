@@ -1,0 +1,8 @@
+# scripts/opcount: `collectbench bench fold N` collects N elements in parts
+# of 64 and only folds each part (GP-FOLD); the cost of one element is the
+# slope between the two sizes. The control collects each part, then folds
+# it, as hand Go does.
+unit element
+sizes 409600 2457600
+args bench fold {n}
+control benchmarks/collect/testdata/control

@@ -328,8 +328,8 @@ func H(a complex128) bool { return a == a }`},
 func F() { missing.Call() }`},
 	{"D3", "unknown-named-import-cascade", "S104", `import m missing/deep
 func F() { m.Call() }`},
-	{"D3", "go-import-cascade", "S109", `import go fmt
-func F() { fmt.Println("x") }`},
+	{"D3", "go-import-cascade", "S109", `import go os/signal
+func F() { signal.Stop("x") }`},
 	{"D3", "unknown-import-type-cascade", "S104", `import missing
 func F(x missing.T) {}`},
 	{"D3", "unknown-type-unused-cascade", "S104", `func F() { let x Missing }`},

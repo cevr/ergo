@@ -26,14 +26,16 @@ import (
 	"ergo.local/prototype/internal/toolchain"
 )
 
-const runHelp = "usage: ergo run [--json] [--locked] [--target go] FILE|DIR [--] [ARGS...]\n" +
+const runHelp = "usage: ergo run [--json] [--locked] [--go-trace] [--target go] FILE|DIR [--] [ARGS...]\n" +
 	"A source that does not check prints one file:line:col: error CODE: message line per finding on stderr\n" +
 	"(the check envelope on stdout with --json), builds nothing and exits 1.\n" +
 	"Builds the program into a private temporary directory and runs it with ARGS, as go run does:\n" +
 	"every word after FILE|DIR is the program's (a -- right after it is dropped), so ergo's options come first.\n" +
 	"The program's exit status passes through; SIGINT and SIGTERM are forwarded (130 and 143 when they end it).\n" +
 	"A rewrite law site whose ergo.laws entry is stale or missing keeps the reference lowering and prints one line;\n" +
-	"--locked refuses the build instead (runtime.md, Tests 10).\n"
+	"--locked refuses the build instead (runtime.md, Tests 10).\n" +
+	"--go-trace links Go's tracer: ERGO_GO_TRACE=FILE writes a Go execution trace of the run, and\n" +
+	"ERGO_GO_TRACE=flight:FILE writes the last seconds of it on a defect (runtime.md, Go's tools).\n"
 
 // buildCommand builds a native executable and prints its path. With -work
 // it also prints WORK=DIR on stderr, DIR being the generated Go module in
@@ -71,7 +73,7 @@ func printEmitted(opts fileOptions, mode build.Mode) error {
 	if !checked.result.Checked {
 		return refuseUnchecked(checked, opts)
 	}
-	digest, err := sketchfront.EmittedDigest(checked.analysis, sketchfront.BuildRequest{Mode: mode, Source: checked.source.Admitted()})
+	digest, err := sketchfront.EmittedDigest(checked.analysis, emissionRequest(opts, checked, mode))
 	if err != nil {
 		return err
 	}
@@ -240,19 +242,10 @@ func buildSource(opts fileOptions, place func(name, output string) string) (rece
 		return receipt.Location{}, err
 	}
 	stderr := &quiet{w: os.Stderr}
-	module, err := sketchfront.Build(l.analysis, sketchfront.BuildRequest{
-		Mode:      build.ModeBuild,
-		Source:    l.source.Admitted(),
-		Output:    output.Path(),
-		Cache:     build.Cache{Root: root},
-		Toolchain: tc,
-		IR:        true,
-		Stderr:    stderr,
-		Ledger:    ledgerPath(opts.file),
-		Locked:    opts.locked,
-		Report:    &report,
-		Inputs:    w.fsys(),
-	})
+	req := emissionRequest(opts, l, build.ModeBuild)
+	req.Output, req.Cache, req.Toolchain = output.Path(), build.Cache{Root: root}, tc
+	req.Stderr, req.Report, req.Inputs = stderr, &report, w.fsys()
+	module, err := sketchfront.Build(l.analysis, req)
 	if opts.work && module.Dir != "" {
 		fmt.Fprintf(os.Stderr, "WORK=%s\n", module.Dir)
 		fmt.Fprintf(os.Stderr, "LINK=%s\n", report)
@@ -261,14 +254,18 @@ func buildSource(opts fileOptions, place func(name, output string) string) (rece
 		return receipt.Location{}, err
 	}
 	if opts.report == "copies" {
-		// The copy report (OWN1): the run build's form of each Append and
-		// Concat site, lowered in process, one line each on stderr.
-		sites, err := sketchfront.CopyReport(l.analysis, l.source.Admitted())
+		// The copy report (OWN1, REUSE RU0): every copy and hand-over site
+		// of the run build, lowered in process, one line each on stderr.
+		report, err := sketchfront.CopyReport(l.analysis, l.source.Admitted())
 		if err != nil {
 			return receipt.Location{}, err
 		}
-		for _, s := range sites {
-			fmt.Fprintf(os.Stderr, "COPY %s:%d:%d %s: %s\n", s.File, s.Line, s.Column, s.Form, s.Why)
+		for _, s := range report.Sites {
+			form := s.Form
+			if s.Kind != "" {
+				form += " " + s.Kind
+			}
+			fmt.Fprintf(os.Stderr, "COPY %s:%d:%d %s: %s\n", s.File, s.Line, s.Column, form, s.Why)
 		}
 	}
 	if report.Direct && report.Executable != "" && !stderr.written {
@@ -301,6 +298,8 @@ func buildGoText(l loaded, opts fileOptions, output receipt.Location) error {
 	if err != nil {
 		return err
 	}
+	unit.NoViews = opts.noViews
+	unit.NoFallback = opts.noFallback || os.Getenv("ERGO_FALLBACK") == "off"
 	files, _, err := lower.LowerIR(unit)
 	if err != nil {
 		return err
@@ -356,11 +355,22 @@ func buildAction(opts fileOptions) (build.Toolchain, error) {
 // (compile-speed CS7: about half of a link's work; a traceback and a
 // defect report are the same). The emitted module is the same for every
 // platform and either link; the link key holds both (build/direct.go).
+// run and test build with the dev profile (build.Dev, test-speed FT5:
+// inlining off, no DWARF, no go/format) unless --debug is given; build
+// keeps the release profile, so a release binary never trades run speed.
 func actionFor(opts fileOptions, selected toolchain.Toolchain) build.Toolchain {
 	tc := build.HostToolchain()
 	tc.Go, tc.Root = selected.Go, selected.Root
 	tc.GOOS, tc.GOARCH = opts.platform.GOOS, opts.platform.GOARCH
 	tc.Strip = !opts.debug
+	if !opts.debug && (opts.command == "run" || opts.command == "test") {
+		tc.Profile = build.Dev
+	}
+	if opts.goTrace {
+		// The tag links runtime/obs into runtime/v1 (gotrace_on.go); the
+		// emitted module is the plain one.
+		tc.Tags = append(tc.Tags, "ergogotrace")
+	}
 	return tc
 }
 

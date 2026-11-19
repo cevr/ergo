@@ -80,7 +80,7 @@ func TestStubsAnswerBeforeReadingArguments(t *testing.T) {
 	want := map[string]string{
 		"edition":      "removed in v1; there is one language and no editions (#205)",
 		"lint receipt": "removed in v1; cost receipts return with rule packs (#203)",
-		"graph":        "removed in v1; semantic tooling returns on the new front end (#203)",
+		"explain":      "removed in v1; semantic tooling returns on the new front end (#203)",
 		"lsp":          "unavailable until ported to the new front end (#203)",
 		"mcp":          "unavailable until ported to the new front end (#203)",
 	}

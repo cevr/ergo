@@ -1,0 +1,23 @@
+// The smallest repro of the printed text's failures on the FLIP line
+// (wf10 IRFIX-TEXT):
+//   - split's result is a tuple: the emitter writes its Go result type
+//     struct { F0 string; F1 string } over several lines, so the body went
+//     inside it (syntax error: unexpected { in struct type), and each
+//     tuple value printed as (struct{…}){…} (cannot parenthesize type in
+//     composite literal);
+//   - shift's function literal names its parameter in the text, where the
+//     IR's function type names none, and Shape's constructor is a method
+//     value whose type keeps its receiver in the IR: the structures
+//     differed in names that are not part of a Go type.
+
+type Shape = Dot{X int} | Line{X int, Y int}
+
+func split(s string) (string, string) {
+	if len(s) > 1 { (s + "a", s) } else { (s, s + "b") }
+}
+
+func shift(n int) Shape {
+	let f = func(k int) int { k + n }
+	let a = f(1)
+	if n > 0 { Dot{X: a} } else { Line{X: n, Y: a} }
+}

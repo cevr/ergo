@@ -25,6 +25,10 @@ func Sleep(c Clock, d duration) {
 	c.m.Advance(d + late)
 }
 
+// Alarms is c's time as the runtime's waits use it: the Manual's, with
+// no jitter.
+func Alarms(c Clock) AlarmClock { c.m.Alarms() }
+
 // Now is c's time.
 func Now(c Clock) time.Time { c.m.Now() }
 

@@ -18,6 +18,11 @@
 // identity that is process-scoped (go run, go test) keeps the store in
 // memory: another process's compiler may differ.
 //
+// The gate's core (cmd/ergo, gate.go) keeps its other verdicts here too,
+// fmt --check, lint, gen --check and a module's whole run, each under a
+// key whose first part names its verb ("gate fmt/1"), so no verdict of
+// one kind has another's key.
+//
 // Prior art: go test caches a package's passing result keyed by its
 // inputs and prints "(cached)"; Bazel caches test actions by their input
 // digests; Lean keeps each declaration's checked proof in its .olean;
@@ -203,8 +208,15 @@ func failed(text string) bool {
 	return false
 }
 
+// midWrite, when set (by the store's tests), runs between the two halves
+// of an entry's write: the moment another reader or writer may meet it.
+var midWrite func(path string)
+
 // writeAtomic writes data to path by a rename, so a reader sees no entry
-// or the whole one.
+// or the whole one: the entry is built beside its place under a name of
+// its own, so two writers of one key never share a file, and the last
+// rename wins whole. There is no completeness marker; the rename is the
+// publication (Bun's and upm's stores, prior-bun2 item 3).
 func writeAtomic(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
@@ -213,7 +225,14 @@ func writeAtomic(path string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	_, werr := part.Write(data)
+	half := len(data) / 2
+	_, werr := part.Write(data[:half])
+	if midWrite != nil {
+		midWrite(path)
+	}
+	if werr == nil {
+		_, werr = part.Write(data[half:])
+	}
 	if cerr := part.Close(); werr == nil {
 		werr = cerr
 	}

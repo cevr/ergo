@@ -1,0 +1,14 @@
+{
+  "about": "The mutant ledger of scripts/tzdata, the writer of std tz/iana's zone copy runtime/tzdata/zones.bin (docs/spec/stdlib.md, tz 2). Run it with go run ./scripts/mutants ./scripts/tzdata.",
+  "mutants": [
+    {
+      "name": "t2-tzdata-name-length-byte",
+      "origin": "wf10 std-spike T2",
+      "file": "scripts/tzdata/main.go",
+      "from": "b.Write(binary.BigEndian.AppendUint16(nil, uint16(len(z.Name))))",
+      "to": "b.WriteByte(byte(len(z.Name)))",
+      "rule": "zones.bin is what Encode writes: each name after a big-endian uint16 length, as runtime/tzdata reads it.",
+      "killers": ["scripts/tzdata:TestZonesBinIsEncoded"]
+    }
+  ]
+}

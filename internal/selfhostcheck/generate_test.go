@@ -373,6 +373,11 @@ func (g *gen) stmt() {
 			g.expr()
 		}
 	case 8:
+		if g.r.IntN(3) == 0 {
+			// skip "reason" (runtime.md, Tests 4): the reason is a literal.
+			g.w("skip ", strconv.Quote(g.pick("no host", "日本語", "")))
+			return
+		}
 		g.w("assert ")
 		g.expr()
 	case 9:
@@ -433,7 +438,7 @@ func (g *gen) decl() {
 	case 2:
 		g.w("type ", g.name(), g.pick("", "[T any]"), " {", g.pick(" ", "\n\t"))
 		g.fields(g.pick(", ", ",\n\t"))
-		g.w(g.pick(" }", ",\n}", "\n}"))
+		g.w(g.pick(" }", ",\n}", "\n}"), g.pick("", "", " implements Store", " implements jobs.Gate,  Checker"))
 	case 3:
 		g.w("type ", g.name(), " = ", g.name(), g.pick("", "{X int}"), " | ", g.name(), "{")
 		g.fields(", ")

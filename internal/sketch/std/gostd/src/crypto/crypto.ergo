@@ -18,8 +18,8 @@ extern go crypto.BLAKE2s_256 let BLAKE2s_256 Hash
 
 // ergo:go type Decapsulator interface
 extern go crypto.Decapsulator type Decapsulator {
-	own Decapsulate(ciphertext []byte) []byte fails go.Error needs go.Foreign,
-	own Encapsulator() Encapsulator needs go.Foreign,
+	Decapsulate(ciphertext []byte) []byte fails go.Error needs go.Foreign,
+	Encapsulator() Encapsulator needs go.Foreign,
 }
 
 // ergo:go type Decrypter interface
@@ -30,8 +30,8 @@ extern go crypto.Decapsulator type Decapsulator {
 
 // ergo:go type Encapsulator interface
 extern go crypto.Encapsulator type Encapsulator {
-	own Bytes() []byte needs go.Foreign,
-	own Encapsulate() ([]byte, []byte) needs go.Foreign,
+	Bytes() []byte needs go.Foreign,
+	Encapsulate() ([]byte, []byte) needs go.Foreign,
 }
 
 // ergo:go type Hash uint
@@ -131,5 +131,5 @@ extern go crypto.Signer type Signer {
 
 // ergo:go type SignerOpts interface
 extern go crypto.SignerOpts type SignerOpts {
-	own HashFunc() Hash needs go.Foreign,
+	HashFunc() Hash needs go.Foreign,
 }

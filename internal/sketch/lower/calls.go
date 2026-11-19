@@ -73,6 +73,9 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 	text, result, fallible := fc.callText(x, c)
 	if op := fc.inlined; op != nil {
 		fc.inlined = nil
+		// A forwarder's taken values leave with the block (holdTaken,
+		// check.HoldsTaken): a defect inside it leaves them to the frame.
+		fc.handCaptures(held, x)
 		return *op // inline.go: its block is written
 	}
 	defer fc.identify(x, c)()
@@ -233,6 +236,11 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			return fc.hostCall(x, c, args), len(c.Func.Sig.Results) > 0, c.Func.Sig.Fallible
 		}
 		if body, name, ok := fc.l.stdBody(fd); ok {
+			if c.Recv != nil && check.CollOpOf(c.Func) != check.CollNone {
+				// An operation of the slice or Map type (PRIM-4): its
+				// receiver is the body's first operand.
+				return fc.stdCall(x, c, append([]syntax.Expr{c.Recv}, args...), body, name)
+			}
 			if c.Recv != nil {
 				ice(x, "a dot call to the std function %s", c.Func.Name)
 			}
@@ -261,6 +269,12 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		if sp == nil && !known {
 			mono = fc.monoAt(x, c, c.Func, c.TypeArgs)
 		}
+		// A call whose result its caller only matches writes the caller's
+		// slots (slot.go).
+		var slot *slotSite
+		if !known && !dropped && sp == nil && mono == nil { // a plain instance copy has no slot variant
+			slot = fc.slotAdmit(x, c, fd)
+		}
 		// An argument for a parameter func(…) T whose T a block with no
 		// value binds needs no adapter: a function value with no result
 		// and the instance's func(…) struct{} are one Go shape (C11).
@@ -281,6 +295,7 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			name := fd.name
 			if fc.l.vals != nil && fc.l.vals.ownCall[x] {
 				// The owned body, a method too (V5).
+				fc.ownedCallSite(x, c)
 				name = fc.l.pkgName(ownedKey(c.Func), c.Func.Name+"Owned")
 			}
 			if known {
@@ -302,6 +317,7 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			if fc.l.vals != nil && fc.l.vals.ownCall[x] {
 				// The body that takes its owned arguments as they are
 				// passed: this call passes them unshared (values.go, V5).
+				fc.ownedCallSite(x, c)
 				name = fc.l.pkgName(ownedKey(c.Func), c.Func.Name+"Owned")
 			}
 			if known {
@@ -310,12 +326,16 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			if dropped {
 				name = fc.l.droppedName(c.Func, fd)
 			}
+			if slot != nil {
+				name = fc.l.slotName(c.Func, fd)
+				vals = append(vals, slotArgs(slot.sl)...)
+			}
 			head, rest = name+fc.typeArgs(c.Func.Sig, c.TypeArgs, x), vals
 			if sp != nil && !known {
 				// The copy for the known record (record.go): one
 				// instance, so no type arguments.
 				head = sp.name
-			} else if !known && !dropped && fd.pure {
+			} else if !known && !dropped && slot == nil && fd.pure {
 				if v, ok := fc.tabAt(c, vals); ok {
 					return v, true, false // the function's table (tabulate.go)
 				}
@@ -456,6 +476,13 @@ func (fc *funcCtx) builtinCall(x *syntax.CallExpr, c *check.Call, args []syntax.
 			return "append(" + vals[0] + ", " + vals[1] + "...)"
 		}
 	}
+	if check.AppendSpreads(c.Func) {
+		// One bulk append (SL2): Go's append(xs, ys...).
+		if builtinLowering == "call" {
+			return fc.l.builtinHelper("appendAll", x) + "(" + vals[0] + ", " + vals[1] + ")"
+		}
+		return "append(" + vals[0] + ", " + vals[1] + "...)"
+	}
 	if builtinLowering == "call" {
 		return fc.l.builtinHelper(b, x) + "(" + strings.Join(vals, ", ") + ")"
 	}
@@ -495,6 +522,9 @@ var builtinHelpers = map[string]string{
 	"delete":       "[K comparable, V any](m map[K]V, k K) map[K]V { delete(m, k); return m }",
 	"min":          "[T ORD.Ordered](a T, b T) T { return min(a, b) }",
 	"max":          "[T ORD.Ordered](a T, b T) T { return max(a, b) }",
+
+	// appendAll is the reference of the spread binding (check.AppendSpreads).
+	"appendAll": "[T any](xs []T, ys []T) []T { return append(xs, ys...) }",
 }
 
 // builtinHelper is the name of the reference's Go function for b, written
@@ -546,6 +576,12 @@ func (fc *funcCtx) hostCall(x *syntax.CallExpr, c *check.Call, args []syntax.Exp
 // extern f: the imported package's name and the target's name.
 func (fc *funcCtx) hostTarget(site syntax.Node, f *check.Func) string {
 	path, name := f.Decl.Extern.Split()
+	if p, typ, m := f.Decl.Extern.SplitMethod(); f.Pkg != nil && f.Pkg.Host() && p == f.Pkg.Path && path != f.Pkg.Path {
+		// A method of a Go type that is an Ergo type of its own, bound as
+		// a function of its receiver (GBX4; gobind ownTypeMethods): Go's
+		// method expression, time.Duration.String.
+		return fc.l.hostPkg(p, site) + "." + typ + "." + m
+	}
 	return fc.l.hostPkg(path, site) + "." + name
 }
 
@@ -1122,6 +1158,9 @@ func (fc *funcCtx) with(x *syntax.CallExpr, i int, w *check.With, d dest) {
 	fc.depth++
 	outer := fc.envExpr(arg)
 	fc.line(env + " := *" + outer)
+	if ta := w.Contexts[0].TestAmbient; ta != nil {
+		fc.testAmbient(env, ta)
+	}
 	if lit {
 		// An empty inline context and a pure body may read no capability.
 		fc.line("_ = " + env)
@@ -1159,6 +1198,25 @@ func (fc *funcCtx) with(x *syntax.CallExpr, i int, w *check.With, d dest) {
 	}
 	fc.depth--
 	fc.line("}")
+}
+
+// testAmbient gives the build of a context that needs TestAmbient
+// (rows.md, Test's ambient) its case's folder: a fresh one made here, which the
+// runner's provider of TestAmbient in env names, and removed when the
+// Go function that holds the with returns, which for a with in a test is
+// the end of the test's case (the checker admits it only in a test).
+func (fc *funcCtx) testAmbient(env string, ta *check.Named) {
+	dir := fc.temp("dir")
+	fc.line(testAmbientOpen(fc.l, env, dir, ta))
+}
+
+// testAmbientOpen is the Go statements that make the folder dir, remove
+// it at the end of the enclosing Go function, and put the runner's
+// provider of the test's ambient ta into the environment env.
+func testAmbientOpen(l *lowerer, env, dir string, ta *check.Named) string {
+	rt := l.rt()
+	return dir + " := " + rt + ".TestFolderOpen(); defer " + rt + ".TestFolderRemove(" + dir + "); " +
+		env + "." + l.envField(ta) + " = " + l.helper("TestAmbient") + "{dir: " + dir + "}"
 }
 
 // scopeCall writes a call of the with scope's method name on recv through
@@ -1221,7 +1279,7 @@ func (l *lowerer) contextBuilder(w *check.With, site syntax.Node) string {
 // context checks a named context declaration. Its builders are written at the
 // withs that use it.
 func (l *lowerer) context(w *check.Context, site syntax.Node) {
-	if w.Decl.Provides != nil || w.Decl.Needs != nil {
+	if w.Decl.Provides != nil || w.Decl.Needs != nil && w.TestAmbient == nil {
 		refuse(w.Decl, "a context header with provides or needs is checked by 196b")
 	}
 }
@@ -1243,6 +1301,7 @@ func (l *lowerer) emitContext(with *check.With, name string, site syntax.Node) {
 	// the declaration table, and it reads its own package's Info.
 	std := l.stdContext(w)
 	fc := newFuncCtx(l, newNamer(l.names), !std)
+	fc.marks = std && l.coverMarks
 	fc.owner = w.Name
 	if std {
 		saved := l.info
@@ -1352,9 +1411,9 @@ func (fc *funcCtx) buildProvider(a *check.Acquisition, target, outer, ws string,
 	defer fc.l.leave(fc.l.enter(e.Provider, nil))
 	if pkg != nil && pkg.Std() {
 		fc.l.info = pkg.Info // leave restores it
-		saved := fc.directives
-		fc.directives = false
-		defer func() { fc.directives = saved }()
+		saved, savedMarks := fc.directives, fc.marks
+		fc.directives, fc.marks = false, fc.l.coverMarks
+		defer func() { fc.directives, fc.marks = saved, savedMarks }()
 	}
 	fc.at(e.Provider)
 	saved := fc.env

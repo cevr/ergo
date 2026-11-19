@@ -64,7 +64,22 @@ func rebuild(s Search) Search {
 			Sorted{Rows: rows, Comparisons: 0}
 		} else {
 			let up = order == route.PriceAscending
-			Sort(rows, func(a int, b int) bool { cheaper(s, a, b, up) })
+			// Each row's rank is read once, and the sort compares the
+			// ranks: n lookups, not two per comparison. The sort orders
+			// the rows' places, stably, so the rows come out as a sort
+			// of the rows themselves would put them.
+			let mut ranks = []rank{}
+			let mut places = []int{}
+			for i, p in rows {
+				ranks = ranks.Append(rankOf(s, p))
+				places = places.Append(i)
+			}
+			let byRank = Sort(places, func(a int, b int) bool { cheaper(ranks[a], ranks[b], up) })
+			let mut out = []int{}
+			for i in byRank.Rows {
+				out = out.Append(rows[i])
+			}
+			Sorted{Rows: out, Comparisons: byRank.Comparisons}
 		}
 	}
 	Search{..s, Index: Listed{Rows: sorted.Rows}, IndexBuilds: built, Comparisons: s.Comparisons + sorted.Comparisons, Window: window.Spec{..s.Window, Count: len(sorted.Rows)}}
@@ -105,10 +120,9 @@ func rankOf(s Search, p int) rank {
 	}
 }
 
-// cheaper is a before b in a price order (up: ascending).
-func cheaper(s Search, a int, b int, up bool) bool {
-	let x = rankOf(s, a)
-	let y = rankOf(s, b)
+// cheaper is whether a row of rank x goes before one of rank y in a
+// price order (up: ascending).
+func cheaper(x rank, y rank, up bool) bool {
 	if x.Group != y.Group {
 		return x.Group < y.Group
 	}

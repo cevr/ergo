@@ -16,7 +16,7 @@ extern go runtime/debug.BuildInfo type BuildInfo {
 // ergo:refused BuildInfo.Deps: a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field
 
 // ergo:go func (*BuildInfo).String() string
-extern go runtime/debug.BuildInfo.String func (bi own *BuildInfo) String() string needs go.Foreign
+extern go runtime/debug.BuildInfo.String func (bi *BuildInfo) String() string needs go.Foreign
 
 // ergo:go type BuildSetting struct
 extern go runtime/debug.BuildSetting type BuildSetting {

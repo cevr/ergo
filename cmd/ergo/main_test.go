@@ -65,6 +65,19 @@ func TestMain(m *testing.M) {
 			return 2
 		}
 		defer os.RemoveAll(cache)
+		processCache = cache
+		if store := os.Getenv(goStoreVariable); store != "" {
+			// The outer run's Go action store, outside the HOME it
+			// watches (TestPackageNeverWritesUnderHome, GS26b).
+			if err := os.MkdirAll(filepath.Join(cache, "ergo"), 0o755); err != nil {
+				fmt.Fprintln(os.Stderr, "cmd/ergo tests: go store:", err)
+				return 2
+			}
+			if err := os.Symlink(store, filepath.Join(cache, "ergo", "go")); err != nil {
+				fmt.Fprintln(os.Stderr, "cmd/ergo tests: go store:", err)
+				return 2
+			}
+		}
 		// The CLI builds in the process's own environment, before any test
 		// overrides Go variables with t.Setenv.
 		testCLI.environment = os.Environ()
@@ -253,7 +266,7 @@ func TestFileCommandsRefuseOptionsTheyDoNotTake(t *testing.T) {
 		want string
 	}{
 		{[]string{"check", path, "--json"}, "--json is only supported by diagnostics"},
-		{[]string{"check", path, "--strict"}, "--strict is only supported by diagnostics"},
+		{[]string{"build", path, "--strict"}, "--strict is only supported by diagnostics, lint and check"},
 		{[]string{"check", path, "--target", "js"}, "EF110: unsupported target js; the only target is go"},
 		{[]string{"run", "-o", "out", path}, "-o is only supported by build"},
 		{[]string{"build", path, "--receipt", "receipt.json"}, "--receipt is only supported by test"},

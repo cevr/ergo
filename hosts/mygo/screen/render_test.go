@@ -11,6 +11,7 @@ import (
 	"github.com/egoist/mygo/drawing/platform"
 	"github.com/egoist/mygo/drawing/scene"
 	"github.com/egoist/mygo/drawing/surface"
+	"github.com/egoist/mygo/drawing/text"
 )
 
 // testSurface is a surface of a size whose native objects are native (a
@@ -61,14 +62,18 @@ func withGPU(t *testing.T, make func(platform.SurfaceNative) (gpuRenderer, error
 	t.Cleanup(func() { newGPU = newGPURenderer })
 }
 
-// attached is a window on surface s, as MyGo attaches its content.
+// attached is a window on surface s, as MyGo attaches its content, with a
+// text system of its own: the shared one's atlases would carry its masks
+// and glyphs into the next test (TestStrokeMaskIsKept counts masks).
 func attached(s *testSurface) *Window {
 	w := newWindow(s.width, s.height)
+	w.sys = text.New()
 	w.AttachContent(&surface.Conn{Surface: s})
 	return w
 }
 
-func frame(w *Window) { w.event(platform.SurfaceEvent{Kind: platform.SurfaceFrame}) }
+// surfaceFrame is the surface asking w for a frame.
+func surfaceFrame(w *Window) { w.event(platform.SurfaceEvent{Kind: platform.SurfaceFrame}) }
 
 // TestFrameNeedsNoPixelPresent draws frames on a surface with a native
 // handle, as a phone's (whose PresentPixels shows nothing): the GPU
@@ -94,22 +99,22 @@ func TestFrameNeedsNoPixelPresent(t *testing.T) {
 	w.Begin()
 	w.Fill(10, 10, 40, 30, 4, 0x3366ccff)
 	w.Present()
-	frame(w)
-	frame(w)
+	surfaceFrame(w)
+	surfaceFrame(w)
 	if s.presents != 0 || len(made) != 1 || len(made[0].ops) != 2 || made[0].ops[0] == 0 {
 		t.Fatalf("after two frames: %d pixel presents, %d renderers, scenes %v; want 0, 1 and two scenes with the fill", s.presents, len(made), opsOf(made))
 	}
 	made[0].fail = true
-	frame(w)
+	surfaceFrame(w)
 	if s.presents != 1 || made[0].released != 1 {
 		t.Fatalf("a frame the renderer failed: %d pixel presents, renderer released %d times; want 1 and 1", s.presents, made[0].released)
 	}
-	frame(w)
+	surfaceFrame(w)
 	if s.presents != 2 || len(made) != 1 {
 		t.Fatalf("the frame after a failure: %d pixel presents, %d renderers; want 2 and 1 (in memory until the surface renews)", s.presents, len(made))
 	}
 	w.event(platform.SurfaceEvent{Kind: platform.SurfaceRenew})
-	frame(w)
+	surfaceFrame(w)
 	if s.presents != 2 || len(made) != 2 || len(made[1].ops) != 1 {
 		t.Fatalf("after SurfaceRenew: %d pixel presents, %d renderers; want 2 and 2, the new one drawing the frame", s.presents, len(made))
 	}
@@ -125,15 +130,15 @@ func opsOf(gs []*testGPU) [][]int {
 
 var renderersSeed = flag.Uint64("renderers.seed", 0, "run TestRenderersAgree on this seed only")
 
-// paint is one call of a generated paint list.
-type paint struct {
+// paintCall is one call of a generated paint list.
+type paintCall struct {
 	kind                      string // fill, border, span, line, clip, unclip, text
 	x, y, w, h, radius, width float64
 	color                     uint32
 	s                         string
 }
 
-func (p paint) String() string {
+func (p paintCall) String() string {
 	switch p.kind {
 	case "unclip":
 		return "unclip"
@@ -148,14 +153,14 @@ func (p paint) String() string {
 // genPaints is the paint list of a seed, on a window of width by height
 // DIPs: fills, borders, canvas spans (a fill one DIP high), lines, clips
 // and lines of text, on whole DIPs.
-func genPaints(seed uint64, width, height int) []paint {
+func genPaints(seed uint64, width, height int) []paintCall {
 	r := rand.New(rand.NewPCG(seed, 0x9e3779b97f4a7c15))
 	colors := []uint32{0x1f6febff, 0xd73a49ff, 0x2da44eff, 0xfbca04ff, 0x24292fff, 0x8250dfff, 0xffffffff, 0x80808080}
 	words := []string{"Save", "todo", "Ergo", "a list", "Done 3/7", "ünïcödé", "WWW"}
-	var ps []paint
+	var ps []paintCall
 	clips := 0
 	for range 6 + r.IntN(14) {
-		p := paint{color: colors[r.IntN(len(colors))]}
+		p := paintCall{color: colors[r.IntN(len(colors))]}
 		p.x, p.y, p.w, p.h = boxIn(r, width, height)
 		switch k := r.IntN(10); {
 		case k < 3:
@@ -192,7 +197,7 @@ func boxIn(r *rand.Rand, width, height int) (x, y, w, h float64) {
 }
 
 // paintOn gives w the list ps, as the desktop driver does, and presents it.
-func paintOn(w *Window, ps []paint) {
+func paintOn(w *Window, ps []paintCall) {
 	w.Begin()
 	for _, p := range ps {
 		switch p.kind {
@@ -249,7 +254,7 @@ func TestRenderersAgree(t *testing.T) {
 			s := &testSurface{native: native, width: width, height: height, scale: scale}
 			w := attached(s)
 			paintOn(w, ps)
-			frame(w)
+			surfaceFrame(w)
 			return s
 		}
 		pw, ph := int(width*scale), int(height*scale)
@@ -310,7 +315,7 @@ func channelDiff(a, b [4]byte) int {
 
 // mean is the mean of the channels of the pixels of a text's box: its
 // width a DIP a rune at most, its line's height.
-func mean(pix []byte, pw int, p paint, scale float64) float64 {
+func mean(pix []byte, pw int, p paintCall, scale float64) float64 {
 	x0, y0 := int(p.x*scale), int(p.y*scale)
 	x1 := min(int((p.x+p.h*float64(len([]rune(p.s))))*scale), pw)
 	y1 := min(int((p.y+p.h*1.2)*scale), len(pix)/4/pw)

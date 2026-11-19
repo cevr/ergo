@@ -15,6 +15,7 @@ import flag
 import json
 import strconv
 import strings
+import time
 import toml
 import utf8
 
@@ -131,6 +132,24 @@ test ConfigNamesInvert(picks []int) {
 	assert config.EnvKey("P", config.EnvName("P", key)) == key
 }
 
+type stamped { At time.Time }
+
+// ConfigReaderStringBytesReadsString restates the law through Load: the
+// reader is private, and a Time, an append-form pair, decodes through its
+// StringBytes, so the instant read back is the one written.
+test ConfigReaderStringBytesReadsString(t time.Time) {
+	let files = Map[string, string]{"c.json": "{\"at\": \"" + t.Format(time.RFC3339Nano) + "\"}"}
+	let spec = config.Spec{Prefix: "", Flags: config.NoFlags(), Files: []config.File{config.File{Path: "c.json", Format: config.JSON}}, Defaults: config.NoDefaults()}
+	let got = with context { config.Config: config.NewMemory(Map[string, string]{}, files) } {
+		config.Load[stamped](spec)
+	} catch {
+	case _:
+		assert false
+		return
+	}
+	assert got.At == t
+}
+
 test ConfigRevealIsTheValue(v string, n int) {
 	assert config.NewRedacted(v).Reveal() == v && config.NewRedacted(n).Reveal() == n
 }
@@ -177,6 +196,7 @@ test ConfigConfigReadIsRepeatable(m config.Memory, path string) {
 // by ledger key; lawledger.Run holds it equal to the ledger.
 var stdConfigLawStatements = map[string]string{
 	"config HigherLayerWins":                `HigherLayerWins(f Option[int], e Option[int], file Option[int], d Option[int]) { let set = flag.Set{Name: "t", Usage: "", Flags: []flag.Flag{flag.OptionalInt("n", "")}, Args: []flag.ArgSpec{}} let mut args = []string{} let mut env = Map[string, string]{} let mut files = Map[string, string]{} let mut defaults = NoDefaults() let mut want Option[int] = None match d { case Some as x: defaults = DefaultsOf(one{N: x.Value}) want = x case None: } match file { case Some as x: files = Map[string, string]{"c.json": "{\"n\": " + strconv.Itoa(x.Value) + "}"} want = x case None: } match e { case Some as x: env = Map[string, string]{"T_N": strconv.Itoa(x.Value), "TN": "0", "T": "0"} want = x case None: } match f { case Some as x: args = []string{"--n=" + strconv.Itoa(x.Value)} want = x case None: } let v = flag.Parse(set, args) catch { case _: return false } let spec = Spec{Prefix: "T", Flags: FromFlags(v), Files: []File{File{Path: "c.json", Format: JSON}, File{Path: "none.toml", Format: TOML}}, Defaults: defaults} let got = with context { Config: NewMemory(env, files) } { loadOne(spec) } catch { case _: return false } got == want }`,
+	"config ReaderStringBytesReadsString":   `ReaderStringBytesReadsString(s string, pre []byte) { let a = newReader(scalar{Value: json.Str{Value: s}, From: FromDefault}) let b = newReader(scalar{Value: json.Str{Value: s}, From: FromDefault}) let got = try a.StringBytes(pre) utf8.String(got) == utf8.String(pre)+try b.String() }`,
 	"config RoundTripsThroughFiles":         `RoundTripsThroughFiles(v settings) { let mut texts = utf8.ValidString(v.Name) && utf8.ValidString(v.Server.Host) for t in v.Tags { texts = texts && utf8.ValidString(t) } if !texts { return true } let asJSON = json.Encode(json.Codec[settings]{MaxBytes: 0, MaxDepth: 0}, v) let asTOML = toml.Encode(v) catch { case toml.Unrepresentable: return false } let files = Map[string, string]{"c.json": asJSON, "c.toml": asTOML} with context { Config: NewMemory(Map[string, string]{}, files) } { loadSettings("c.json", JSON) == Some{Value: v} && loadSettings("c.toml", TOML) == Some{Value: v} } }`,
 	"config NamesInvert":                    `NamesInvert(picks []int) { let words = []string{"port", "apiToken", "httpStatus", "v2Path", "x", "userID", "logLevel"} let mut parts = []string{} for p in picks { parts = parts.Append(words[if p < 0 { -(p % len(words)) } else { p % len(words) }]) } if len(parts) == 0 { return true } let key = strings.Join(parts, ".") FlagKey(FlagName(key)) == key && EnvKey("P", EnvName("P", key)) == key }`,
 	"config RevealIsTheValue":               `RevealIsTheValue(v string, n int) { NewRedacted(v).Reveal() == v && NewRedacted(n).Reveal() == n }`,

@@ -67,12 +67,18 @@ var skipFields = map[string]string{
 	"check.checker.contextLimit": "test hook",
 	"check.checker.withLimit":    "test hook",
 	"check.checker.nodeCheck":    "test hook",
+	"check.stdImporter.sources":  "test hook: a test's library (TestStdImportNamesBrokenPackage)",
 	"check.checker.elidedAs":     "set only while an elided literal is checked",
 	"check.checker.nodeOrder":    "a memo of the source order, rebuilt on use",
 	"check.checker.neverOrigins": "a memo per union origin (never.go), rebuilt on use",
+	"check.cellSite.of":          "read only by checkCells, which ran before the export (cells.go, GB-RACE)",
 	// A module package's importer serves its check alone (check/export.go,
 	// ModuleImporter); the decoded wrapper imports nothing.
 	"check.moduleImporter.next": "the loader of the process that checked the package",
+	// A std package that imports Go (NP4f) holds its own GoBindings, read
+	// from Go's standard library; decoded, a nil lookup reads the same
+	// (GoBindings.Package).
+	"check.GoBindings.lookup": "Go's standard library bindings, nil when decoded",
 	// The derive record (internal/sketch/derive). Std declares no plan
 	// function or derive, so its record is empty and nil means the same;
 	// check.ExportStd refuses a std package whose record is not empty.
@@ -87,9 +93,12 @@ var skipFields = map[string]string{
 // skipTypes are check's struct types an empty interface never holds in
 // the checked model, so its codec has no case for them. Each names why.
 var skipTypes = map[string]string{
-	"UserExport": "the measure of user segments (export_user.go), never in the model",
-	"CrossRef":   "a reference UserExport records, never in the model",
-	"pathRef":    "a decoder's cache key (export.go), never in the model",
+	"UserExport":   "the measure of user segments (export_user.go), never in the model",
+	"CrossRef":     "a reference UserExport records, never in the model",
+	"pathRef":      "a decoder's cache key (export.go), never in the model",
+	"declWalk":     "a node path resolver's walk of a declaration (nodepath.go), never in the model",
+	"nodeRef":      "a decoder's cache key (export.go), never in the model",
+	"nodeResolver": "a decoder's node path resolver (nodepath.go), never in the model",
 }
 
 // Generate returns the generated sources of the syntax codec and the check
@@ -478,7 +487,7 @@ func (e *emitter) emitPointer(name, ts string, p *types.Pointer) {
 		return
 	}
 	if e.syntaxRef(p) {
-		fmt.Fprintf(&e.enc, "func (e *encoder) enc%s(v %s) {\n\tif v == nil {\n\t\te.uint(0)\n\t\treturn\n\t}\n\te.uint(e.nodes.ID(v))\n}\n\n", name, ts)
+		fmt.Fprintf(&e.enc, "func (e *encoder) enc%s(v %s) {\n\tif v == nil {\n\t\te.uint(0)\n\t\treturn\n\t}\n\te.node(v)\n}\n\n", name, ts)
 		fmt.Fprintf(&e.dec, "func (d *decoder) dec%s() %s {\n\tx := d.node()\n\tif x == nil {\n\t\treturn nil\n\t}\n\treturn x.(%s)\n}\n\n", name, ts, ts)
 		return
 	}
@@ -562,7 +571,7 @@ func (e *emitter) emitStruct(name, ts string, n *types.Named, st *types.Struct) 
 
 func (e *emitter) emitInterface(name, ts string, n *types.Named) {
 	if e.syntaxRef(n) {
-		fmt.Fprintf(&e.enc, "func (e *encoder) enc%s(v %s) {\n\tif syntax.IsNil(v) {\n\t\te.uint(0)\n\t\treturn\n\t}\n\te.uint(e.nodes.ID(v))\n}\n\n", name, ts)
+		fmt.Fprintf(&e.enc, "func (e *encoder) enc%s(v %s) {\n\tif syntax.IsNil(v) {\n\t\te.uint(0)\n\t\treturn\n\t}\n\te.node(v)\n}\n\n", name, ts)
 		fmt.Fprintf(&e.dec, "func (d *decoder) dec%s() %s {\n\tx := d.node()\n\tif x == nil {\n\t\treturn nil\n\t}\n\treturn x.(%s)\n}\n\n", name, ts, ts)
 		return
 	}
@@ -625,7 +634,7 @@ func (e *emitter) emitSwitch(name, ts string, impls []types.Type) {
 		// Any syntax object rides in the syntax codec's table; any value the
 		// encoder names as an external (export.go: Std, and the importers
 		// of UserSegmentRefs) by its index.
-		fmt.Fprintf(&enc, "\tdefault:\n\t\tif id, ok := e.nodes.Lookup(x); ok {\n\t\t\te.uint(%d)\n\t\t\te.uint(id)\n\t\t\treturn\n\t\t}\n\t\tif i, ok := e.external(x); ok {\n\t\t\te.uint(%d)\n\t\t\te.uint(i)\n\t\t\treturn\n\t\t}\n\t\te.failf(\"no codec for a %%T in %s\", x)\n\t}\n", tag, tag+1, ts)
+		fmt.Fprintf(&enc, "\tdefault:\n\t\tif syntax.IsObject(x) {\n\t\t\te.uint(%d)\n\t\t\te.node(x)\n\t\t\treturn\n\t\t}\n\t\tif i, ok := e.external(x); ok {\n\t\t\te.uint(%d)\n\t\t\te.uint(i)\n\t\t\treturn\n\t\t}\n\t\te.failf(\"no codec for a %%T in %s\", x)\n\t}\n", tag, tag+1, ts)
 		fmt.Fprintf(&dec, "\tcase %d:\n\t\treturn d.node().(%s)\n\tcase %d:\n\t\treturn d.external().(%s)\n\t}\n\td.failf(\"bad tag in %s\")\n\treturn nil\n", tag, ts, tag+1, ts, ts)
 	} else {
 		fmt.Fprintf(&enc, "\tdefault:\n\t\te.failf(\"no codec for a %%T in %s\", x)\n\t}\n", ts)

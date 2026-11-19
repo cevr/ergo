@@ -263,7 +263,25 @@ func importRules(u Unit) map[*check.Named][]rwRule {
 // an import declares a rewrite or post law a provider's run checks. A
 // unit with none reads no ledger.
 func HasRewriteLaws(u Unit) bool {
-	return len(newRewriter(u.Package, nil).rules) > 0 || len(importRules(u)) > 0
+	return len(newRewriter(u.Package, nil).rules) > 0 || len(importRules(u)) > 0 || hasFuncRewrites(u)
+}
+
+// hasFuncRewrites reports a unit whose package or an import declares a
+// top-level rewrite law over functions (ir_rewrite.go), whose entries the
+// module's ergo.laws holds.
+func hasFuncRewrites(u Unit) bool {
+	pkgs := []*check.Package{u.Package}
+	for _, imp := range u.Imports {
+		pkgs = append(pkgs, imp.Package)
+	}
+	for _, p := range pkgs {
+		for _, law := range p.Laws {
+			if law.FuncRewrite != nil {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // importLawRuns are the law runs of u's imported units whose law is one

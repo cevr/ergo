@@ -178,7 +178,7 @@ func stopCalls(t *testing.T) (calls []stopCall, rules map[string]string, refusal
 				case *ast.CallExpr:
 					if id, ok := x.Fun.(*ast.Ident); ok {
 						switch id.Name {
-						case "refuse", "ice", "unreachable", "entryError", "stop":
+						case "refuse", "ice", "unreachable", "entryError", "factRefuted", "stop":
 							calls = append(calls, stopCall{fn: id.Name + " in " + fd.Name.Name, pos: fset.Position(x.Pos()).String(), args: x.Args})
 						}
 					}
@@ -247,11 +247,17 @@ func TestRefusalsNameOpenOwners(t *testing.T) {
 			if text, ok := stringLit(c.args[1]); !ok || !strings.Contains(text, "main") {
 				t.Errorf("%s: an entry error that does not speak of main: %q", c.pos, text)
 			}
+		case "factRefuted":
+			// A refuted vouched fact (interop.md, Foreign facts 7): a rule
+			// of the evidence, which names the refutation.
+			if text, ok := stringLit(c.args[1]); !ok || !strings.Contains(text, "refuted") || namesOpenOwner(text) {
+				t.Errorf("%s: a fact refusal that does not speak of its refutation, or names an owner: %q", c.pos, text)
+			}
 		case "stop":
 			switch c.fn {
-			case "stop in refuse", "stop in ice", "stop in unreachable", "stop in entryError":
+			case "stop in refuse", "stop in ice", "stop in unreachable", "stop in entryError", "stop in factRefuted":
 			default:
-				t.Errorf("%s: %s calls stop directly; use refuse, ice, unreachable or entryError", c.pos, c.fn)
+				t.Errorf("%s: %s calls stop directly; use refuse, ice, unreachable, entryError or factRefuted", c.pos, c.fn)
 			}
 		}
 	}

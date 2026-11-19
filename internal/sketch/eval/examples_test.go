@@ -35,6 +35,15 @@ import (
 // It is the full tier's (it checks every example program): -short skips it.
 // It builds and runs no Go: the recorded files are the built program's.
 // The setup scripts run under the kernel's memory bound (proclimit).
+// mainBudget is a whole program's budget: the evaluator is the reference
+// a case is held to (FLIP F8), not a check-time obligation, so it runs a
+// main past the obligation's 1,000,000 steps.
+var mainBudget = func() eval.Budget {
+	b := eval.DefaultBudget()
+	b.Steps = 100_000_000
+	return b
+}()
+
 func TestEvalAgreesOnExamples(t *testing.T) {
 	if testing.Short() {
 		t.Skip("full tier: runs every example program")
@@ -94,7 +103,7 @@ func TestEvalAgreesOnExamples(t *testing.T) {
 				}
 			}
 			ran++
-			got, err := eval.RunMain(pkgs[len(pkgs)-1], eval.DefaultBudget(), eval.Process{Args: g.args, Env: g.env, Stdin: g.stdin, Files: files})
+			got, err := eval.RunMain(pkgs[len(pkgs)-1], mainBudget, eval.Process{Args: g.args, Env: g.env, Stdin: g.stdin, Files: files})
 			if err != nil {
 				t.Fatalf("%s: %v", label, err)
 			}
@@ -225,7 +234,12 @@ func setupFiles(t *testing.T, caseDir string) (files []eval.File, why string) {
 	work := t.TempDir()
 	cmd := exec.Command("sh", filepath.Join(caseDir, "setup.sh"), caseDir)
 	cmd.Dir = work
-	cmd.Env = []string{"HOME=" + work}
+	// git commit starts a detached `git maintenance run --auto` (git 2.47
+	// on), which outlives setup.sh and takes and drops
+	// .git/objects/maintenance.lock while the walk below reads the tree:
+	// a race that failed the walk's lstat now and then (MX-EVSLOT). The
+	// setup's git runs no maintenance.
+	cmd.Env = []string{"HOME=" + work, "GIT_CONFIG_COUNT=2", "GIT_CONFIG_KEY_0=maintenance.auto", "GIT_CONFIG_VALUE_0=false", "GIT_CONFIG_KEY_1=gc.auto", "GIT_CONFIG_VALUE_1=0"}
 	if p, ok := os.LookupEnv("PATH"); ok {
 		cmd.Env = append(cmd.Env, "PATH="+p)
 	}

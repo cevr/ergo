@@ -1,0 +1,6 @@
+serve: 5 replies decode; 87 with a field taken out or of the wrong kind, and each with an error beside diagnostics, are refused
+lint: the report decodes; 41 with a field taken out or of the wrong kind are refused
+lintSync throws on a reply with no diagnostics
+lintSync throws on a reply with an error and diagnostics
+lintSync throws on a reply with a span with no offset
+lintSync returns a good reply's diagnostics after a bad one

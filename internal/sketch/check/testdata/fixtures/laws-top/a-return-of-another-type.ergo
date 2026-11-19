@@ -1,0 +1,6 @@
+law Early(n int) {
+	if n < 0 {
+		return 1 // want S108
+	}
+	n >= 0
+}

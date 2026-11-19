@@ -1,0 +1,107 @@
+// Package stream holds the operators of a Seq that read time (Effect
+// Stream's throttle, debounce and groupedWithin; Rx's throttleFirst and
+// debounceTime). Each reads the clock it is given at each value's
+// arrival and decides there: a Seq is a push iterator that one task runs,
+// so a value can leave only when the source yields one or ends. The
+// clock is a value, not a need: a Seq carries no row. A producer that
+// sleeps on the context's Scheduler between values, and the clock that
+// Scheduler moves, give the times; under time.Manual a test sets every
+// arrival (`let m = time.NewManual(0)`, then `stream.Throttle(s, d, m)`
+// with s advancing m).
+//
+// The read at an arrival is Elapsed since the time the operator keeps
+// (the host's reads only its monotonic clock, as Go's time.Since does),
+// and that time moves on by what Elapsed gave (Time.Add): only the first
+// value, and the first of each chunk, reads Now.
+import time
+
+// Throttle keeps the first value of s and each later value that arrives d
+// or more after the last value it kept, and drops the others (Effect's
+// throttle with one unit per d and the enforce strategy; Rx's
+// throttleFirst). A d of zero or less keeps every value.
+func Throttle[T](s Seq[T], d duration, clock time.Clock) Seq[T] {
+	Seq[T](func(yield func(v T) bool) {
+		let mut kept = false
+		let mut last = time.NewTime(0, 0)
+		for v in s {
+			if kept {
+				let e = clock.Elapsed(last)
+				if e < d {
+					continue
+				}
+				last = last.Add(e)
+			} else {
+				kept = true
+				last = clock.Now()
+			}
+			if !yield(v) {
+				return
+			}
+		}
+	})
+}
+
+// Debounce keeps each value of s that the next value arrives d or more
+// after, and the last value, and drops the others: a burst of values less
+// than d apart leaves its last (Effect's debounce, Rx's debounceTime). A
+// kept value leaves when the next one arrives or s ends, the first moment
+// a Seq can tell that d of quiet passed. A d of zero or less keeps every
+// value.
+func Debounce[T](s Seq[T], d duration, clock time.Clock) Seq[T] {
+	Seq[T](func(yield func(v T) bool) {
+		let mut pending Option[T] = None
+		let mut at = time.NewTime(0, 0)
+		for v in s {
+			match pending {
+			case Some[T] as p:
+				let e = clock.Elapsed(at)
+				if e >= d && !yield(p.Value) {
+					return
+				}
+				at = at.Add(e)
+			case None:
+				at = clock.Now()
+			}
+			pending = Some[T]{Value: v}
+		}
+		match pending {
+		case Some[T] as p:
+			yield(p.Value)
+		case None:
+		}
+	})
+}
+
+// GroupedWithin is the values of s in chunks, in order (Effect's
+// groupedWithin): a chunk starts at its first value and closes when it
+// holds n values, or when a value arrives d or more after the chunk's
+// first value, which then starts the next chunk. The last chunk leaves
+// when s ends. No chunk is empty; an n of one or less makes each value a
+// chunk.
+func GroupedWithin[T](s Seq[T], n int, d duration, clock time.Clock) Seq[[]T] {
+	Seq[[]T](func(yield func(v []T) bool) {
+		let mut chunk = []T{}
+		let mut start = time.NewTime(0, 0)
+		for v in s {
+			if len(chunk) > 0 && clock.Elapsed(start) >= d {
+				if !yield(chunk) {
+					return
+				}
+				chunk = []T{}
+			}
+			if len(chunk) == 0 {
+				start = clock.Now()
+			}
+			chunk = chunk.Append(v)
+			if len(chunk) >= n {
+				if !yield(chunk) {
+					return
+				}
+				chunk = []T{}
+			}
+		}
+		if len(chunk) > 0 {
+			yield(chunk)
+		}
+	})
+}

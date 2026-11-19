@@ -1,0 +1,8 @@
+# scripts/opcount: `collectbench bench reslicegap N` is the reslice
+# workload with a statement between the empty let and the collect
+# (GP-RESLICE-EMPTY). The control copies the part into a slice made to
+# size, as reslice's does.
+unit element
+sizes 409600 2457600
+args bench reslicegap {n}
+control benchmarks/collect/testdata/control

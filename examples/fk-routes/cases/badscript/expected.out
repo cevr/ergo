@@ -1,11 +1,9 @@
 > start /
   address: / (0 behind)
-  screen: Welcome Home
-  field: ""
-  history: []
-  results: loading ""
+  nav: <Home> <People> <Files> <Nested>
+  page: # Welcome Home | This is a routing example built with foldkit. Navigate using the links above to see different routes in action.
 > visit /people/3
   address: /people/3 (1 behind)
-  screen: person 3: Carol Davis, Manager
+  page: <← Back to People> | # Carol Davis | ID: 3 | Role: Manager
 > key GX
 ? line 2: a key is GH, GP, GF or GN

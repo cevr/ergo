@@ -23,10 +23,48 @@ type Ambient {
 	ambient(),
 }
 
-// Scheduler suspends the calling task.
-// law-exempt: Sleep returns nothing, and a law over Scheduler alone sees no clock, so it cannot observe a sleep; the sleep laws are on time.Manual, which provides Scheduler and time.Clock together (TestManualClockModel).
+// TestAmbient is the test's ambient (docs/spec/rows.md, Test's ambient;
+// runtime.md, Tests 11): the authority a test has to reach the host,
+// confined to a fresh temporary folder per case, which only the test
+// runner provides. It is never the host's Ambient, which a test never
+// holds. A named context whose header says `needs TestAmbient` may make
+// the confined host providers (fs.NewTestHost, exec.NewTestHost,
+// os.NewTestHost) while it is built:
+//
+//	let onHost = context needs TestAmbient { exec.Runner: exec.NewTestHost() }
+//
+// Each build of such a context, a with of it in a test or one case of a
+// law run under it, gets a fresh empty folder under the test's temporary
+// directory (TMPDIR), and the runner removes the folder and all it holds
+// when the case ends. Its one operation is unexported, so no program type
+// implements it and no context entry binds it.
+// law-exempt: its one operation is unexported, so no law can call it; the confinement it gives is stated by the laws of fstest.Confined, which run over fstest.NewFolder, the Host of fs.NewTestHost in the same folder.
+type TestAmbient {
+	folder() string,
+}
+
+// TestFolder is the absolute path of the case's folder, with its symbolic
+// links resolved. It exists and is empty when the case starts.
+func TestFolder() string needs TestAmbient { TestAmbient.folder() }
+
+// Scheduler suspends the calling task. Alarms is the same time as the
+// runtime's own waits use it: an AlarmClock, on which a wait that runs no
+// Ergo code (http.Serve's bound on each read phase) arms a deadline with
+// no task and no sleep. A provider gives the AlarmClock of the time it
+// sleeps on.
+// law-exempt: Sleep returns nothing, and a law over Scheduler alone sees no clock, so it cannot observe a sleep; the sleep laws are on time.Manual, which provides Scheduler and time.Clock together (TestManualClockModel). An AlarmClock has no operation an Ergo law can call: only the runtime arms an alarm.
 type Scheduler {
 	Sleep(d duration),
+	Alarms() AlarmClock,
+}
+
+// AlarmClock is a Scheduler's time as the runtime's waits use it
+// (Scheduler.Alarms). Only the runtime makes one: LiveScheduler's is the
+// host's timers, and a time.Manual's or a testing.VirtualClock's is its
+// timeline.
+// law-exempt: its one operation is the unexported runtimeOnly, so no law can call it; the runtime's After is held against NewTimer by TestVirtualAfterFuncIsTimer (runtime/rt).
+extern go ergo.local/prototype/runtime/v1.AlarmClock type AlarmClock {
+	runtimeOnly(),
 }
 
 // LiveScheduler is the host's Scheduler provider: Sleep below is its
@@ -46,6 +84,11 @@ func NewLiveScheduler() LiveScheduler needs Ambient { LiveScheduler{live: liveOn
 
 // Sleep suspends the calling task for d on the host's clock.
 extern go ergo.local/prototype/runtime/rt.Sleep func Sleep(s LiveScheduler, d duration)
+
+// Alarms is the host's timers, as the runtime arms them.
+func Alarms(s LiveScheduler) AlarmClock { hostAlarms() }
+
+extern go ergo.local/prototype/runtime/v1.HostAlarms func hostAlarms() AlarmClock
 
 // Random draws random numbers, with the names and meaning of Go's
 // math/rand/v2 (Effect Random). Uint64 is 64 random bits; IntN(n) is in
@@ -119,6 +162,11 @@ type Writer {
 	Uint(n uint64),
 	Float(f float64),
 	String(s string),
+	// StringBytes writes the string whose UTF-8 bytes are b, as String
+	// does (GX10): a by-name pair's append form writes its text through
+	// it, so no string of the text is made. The writer reads b during the
+	// call only and keeps none of it.
+	StringBytes(b []byte),
 	BeginList(n int),
 	EndList(),
 	BeginObject(n int),
@@ -151,6 +199,11 @@ type Reader {
 	Uint() uint64 fails WireWrongKind,
 	Float() float64 fails WireWrongKind,
 	String() string fails WireWrongKind,
+	// StringBytes reads the next string as String does and gives into with
+	// its UTF-8 bytes added (GX12): an append-form pair's decode lends a
+	// buffer and gives its ParseX the bytes, so no string of the text is
+	// made. The reader keeps none of into.
+	StringBytes(into []byte) []byte fails WireWrongKind,
 	BeginList() fails WireWrongKind,
 	BeginObject() fails WireWrongKind,
 	Tag() string fails WireMissingField,
@@ -221,37 +274,100 @@ type Context[R] { install func() needs R }
 // the Go function is never called.
 extern go ergo.local/prototype/runtime/v1.InForce func InForce[R]() Context[R] needs R
 
-// The functions on slices and Maps (#196, fourth round, item 2; spec
-// D-D6). Each is reached only by the dot form on a value of exactly its
-// first parameter's type, xs.Append(x), m.Get(k), m.Delete(k) (D-D8): it
-// is an operation of the slice or Map type, not a name in a package's
-// scope, as MoonBit's fn Array::push is called xs.push(x).
+// The operations of the slice and Map types (#196, fourth round, item 2;
+// spec D-D6; PRIM-2b): xs.Append(x), m.Get(k), m.Put(k, v), m.Delete(k)
+// and m.Take(k). Each is reached only by the dot form on a value of
+// exactly a slice or Map type (D-D8): it is an operation of the type, the
+// same in every program, not a name in a package's scope, as MoonBit's
+// fn Array::push is called xs.push(x). The language declares them
+// (check/collop.go); their laws are these, checked against the Go
+// reference bodies of runtime/v1 (TestCollLaws).
 
-// Append is xs with x added at the end. xs is unchanged: a slice is a
-// value (owner q26; types.md, Bindings), and the lowering appends in place
-// only for xs = xs.Append(x) or a dead xs. With resource elements it takes
-// xs and x: the result is their one owner (#197 L8 A3, resources R14).
-extern go ergo.local/prototype/runtime/v1.Append func Append[T](xs own []T, x own T) []T
+// GetAfterPut: a Get of the key a Put set is Some of the value put.
+law GetAfterPut(m Map[int, int], k int, v int) {
+	match m.Put(k, v).Get(k) {
+	case Some[int] as x:
+		x.Value == v
+	case None:
+		false
+	}
+}
 
-// Get is the value of k in m, Some{v}, or None when m has no key k: a Map
-// read may miss, so it returns an Option.
-extern go ergo.local/prototype/runtime/v1.Get func Get[K comparable, V](m Map[K, V], k K) Option[V]
+// GetAfterDelete: a Get of the key a Delete removed is None.
+law GetAfterDelete(m Map[int, int], k int) {
+	match m.Delete(k).Get(k) {
+	case Some[int]:
+		false
+	case None:
+		true
+	}
+}
 
-// Delete is m without the key k. m is unchanged: a Map is a value (owner
-// q26), and the lowering deletes in place only for m = m.Delete(k) or a
-// dead m. It binds Go's builtin delete (OPT7): the call is the builtin
-// itself, with no Go function between.
-extern go delete func Delete[K comparable, V](m Map[K, V], k K) Map[K, V]
+// TakeIsGetAndDelete: a Take is the Get of its key and the Delete of it,
+// and the Map it took from keeps its entries.
+law TakeIsGetAndDelete(m Map[int, int], k int) {
+	let v, rest = m.Take(k)
+	sameEntry(v, m.Get(k)) && sameEntry(rest.Get(k), None) && len(rest) == len(m.Delete(k))
+}
 
-// Put is m with k set to v: the entry is added, or its value replaced. m
-// is unchanged, as Delete leaves it (owner q26), and the lowering writes
-// in place only for m = m.Put(k, v) or a dead m (#196 item 13, L2).
-extern go ergo.local/prototype/runtime/v1.Put func Put[K comparable, V](m Map[K, V], k K, v V) Map[K, V]
+// AppendIsLast: Append adds one element, at the end.
+law AppendIsLast(xs []int, x int) {
+	let ys = xs.Append(x)
+	len(ys) == len(xs) + 1 && ys[len(xs)] == x
+}
 
-// Take gives up m and returns the value at k (Some, or None if absent)
-// and the map without k. Resource values and the remainder have separate
-// owners. With plain-data values, m is unchanged (mode crossing).
-extern go ergo.local/prototype/runtime/v1.MapTake func Take[K comparable, V](m own Map[K, V], k K) (Option[V], Map[K, V])
+// TakeAtIsIndexAndRest: TakeAt is the element at i and xs without it, in
+// order (PRIM-4).
+law TakeAtIsIndexAndRest(xs []int, i int) {
+	if i < 0 || i >= len(xs) {
+		return true
+	}
+	let x, rest = xs.TakeAt(i)
+	let mut ok = x == xs[i] && len(rest) == len(xs) - 1
+	for k, y in rest {
+		ok = ok && (k < i && y == xs[k] || k >= i && y == xs[k + 1])
+	}
+	ok
+}
+
+// SliceIsWindow: Slice is the elements of xs from i up to j (PRIM-4).
+law SliceIsWindow(xs []int, i int, j int) {
+	if i < 0 || j > len(xs) || i > j {
+		return true
+	}
+	let w = xs.Slice(i, j)
+	let mut ok = len(w) == j - i
+	for k, y in w {
+		ok = ok && y == xs[i + k]
+	}
+	ok
+}
+
+// CloneIsEqual: a Clone has m's entries (PRIM-4).
+law CloneIsEqual(m Map[int, int], k int) {
+	let c = m.Clone()
+	len(c) == len(m) && sameEntry(c.Get(k), m.Get(k))
+}
+
+// sameEntry reports two reads of a Map entry as equal.
+func sameEntry(a Option[int], b Option[int]) bool {
+	match a {
+	case Some[int] as x:
+		match b {
+		case Some[int] as y:
+			x.Value == y.Value
+		case None:
+			false
+		}
+	case None:
+		match b {
+		case Some[int]:
+			false
+		case None:
+			true
+		}
+	}
+}
 
 // Unreachable states that a path cannot run (owner q29, 2026-11-08). When
 // it runs anyway, it raises a defect that holds reason and the call's
@@ -262,6 +378,12 @@ extern go ergo.local/prototype/runtime/v1.MapTake func Take[K comparable, V](m o
 // as the last statement of a body or branch it yields no value and joins
 // any type, as return does (docs/spec/types.md, Unreachable).
 extern go ergo.local/prototype/runtime/v1.Unreachable func Unreachable(reason string)
+
+// AsWritten is v. A call tree inside it is kept as written: a rewrite law
+// over functions never takes it as its root or a part of its match
+// (docs/spec/types.md, Laws 14). The lowering knows it by its body's mark
+// (//ergo:aswritten), never by its name.
+extern go ergo.local/prototype/runtime/v1.AsWritten func AsWritten[T](v T) T
 
 // Seq is an iterator: it calls yield with each value in turn and stops
 // when yield returns false. `for v in s` runs the loop body as yield, and a
@@ -333,11 +455,20 @@ type Timeout[E] { In duration, Signal E }
 // runner needs both. A Machine is also an ordinary record: a test may build
 // one from parts. The work's type is std machines.Work, not a prelude
 // name: every prelude name is one a program cannot declare.
+//
+// Exit is each state's exit action (FK9-g1; runtime.md, Machines and
+// actors 12a): when an entry ends, the runner calls Exit with the state
+// the entry holds then (its last commit, never the next entry's) and, on
+// Some, runs the action, masked, once its children, timer and work ended
+// and before the next entry opens; a Stay ends no entry. A machine with no
+// `exit` entry gives every state None. The action's row is part of W; a
+// fold runs no exit action.
 type Machine[S, E, O, F, R, W] {
 	Initial S,
 	Step func(s S, e E) Decision[S, O] fails F needs R,
 	After func(s S) Option[Timeout[E]],
 	Work func(s S) Option[func(send func(e E)) needs W],
+	Exit func(s S) Option[func() needs W],
 }
 
 // InputMachine is a machine whose initial state is a function of an input
@@ -350,6 +481,7 @@ type InputMachine[I, S, E, O, F, R, W] {
 	Step func(s S, e E) Decision[S, O] fails F needs R,
 	After func(s S) Option[Timeout[E]],
 	Work func(s S) Option[func(send func(e E)) needs W],
+	Exit func(s S) Option[func() needs W],
 }
 
 // Closer is the release contract (resources R1): a type that implements

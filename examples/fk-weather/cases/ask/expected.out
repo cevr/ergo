@@ -1,27 +1,33 @@
-[] -
+<> [Get Weather]
 > type 90210
-[90210] -
+<90210> [Get Weather]
 > submit
-[90210] Fetching weather for 90210...
-[90210] 90210 Beverly Hills, California: 72°F, Clear sky; humidity 45%, wind 10 mph
+<90210> [Loading..., disabled] Fetching weather...
+> wait 500
+<90210> [Get Weather] Weather report{# 90210 Beverly Hills, California 72°F Clear sky 45% 10 mph}
 > type 1
-[1] 90210 Beverly Hills, California: 72°F, Clear sky; humidity 45%, wind 10 mph
+<1> [Get Weather] Weather report{# 90210 Beverly Hills, California 72°F Clear sky 45% 10 mph}
 > type 10001
-[10001] 90210 Beverly Hills, California: 72°F, Clear sky; humidity 45%, wind 10 mph
+<10001> [Get Weather] Weather report{# 90210 Beverly Hills, California 72°F Clear sky 45% 10 mph}
 > submit
-[10001] Fetching weather for 10001...
-[10001] 10001 New York, New York: 41°F, Rain; humidity 88%, wind 14 mph
+<10001> [Loading..., disabled] Fetching weather...
+> submit
+? no node: role button "Get Weather"
+> wait 500
+<10001> [Get Weather] Weather report{# 10001 New York, New York 41°F Rain 88% 14 mph}
 > type
-[] 10001 New York, New York: 41°F, Rain; humidity 88%, wind 14 mph
+<> [Get Weather] Weather report{# 10001 New York, New York 41°F Rain 88% 14 mph}
 > submit
-[] Zip code required
+<> [Get Weather] Zip code required
 > type 00000
-[00000] Zip code required
+<00000> [Get Weather] Zip code required
 > submit
-[00000] Fetching weather for 00000...
-[00000] Location not found
+<00000> [Loading..., disabled] Fetching weather...
+> wait 500
+<00000> [Get Weather] Location not found
 > type 99999
-[99999] Location not found
+<99999> [Get Weather] Location not found
 > submit
-[99999] Fetching weather for 99999...
-[99999] Failed to fetch weather data (the station at 99999 is down)
+<99999> [Loading..., disabled] Fetching weather...
+> wait 500
+<99999> [Get Weather] Failed to fetch weather data (the station at 99999 is down)

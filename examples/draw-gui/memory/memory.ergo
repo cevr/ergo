@@ -1,7 +1,7 @@
 // Package memory is a Store provider over pictures held in memory, for
 // tests. Every copy of a Shelf is the same store.
 
-import draw/canvas
+import ergo.local/prototype/examples/drawgui/canvas
 import sync
 
 // Shelf holds pictures' text by name.

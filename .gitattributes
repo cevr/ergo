@@ -1,0 +1,22 @@
+# Merge classes of `ergo work merge-file` (modules/work/classes, SEMWS
+# §2.6). Git uses a driver only when its config names it; until then these
+# files merge as text. Register the drivers once per clone:
+#
+#   for c in rows measured lines derived; do
+#     git config merge.ergo-$c.name "ergo work merge-file $c"
+#     git config merge.ergo-$c.driver "ergo work merge-file -path %P $c %O %A %B >&2"
+#   done
+#
+# rows: mutant ledgers, row by row by name.
+**/testdata/mutants.json merge=ergo-rows
+# measured: numbers by key path; both sides measured apart keeps ours.
+scripts/gate/durations.json merge=ergo-measured
+scripts/gate/fast-cpu.json merge=ergo-measured
+# lines: allowlists and manifests, a set of lines.
+internal/residue/testdata/*.txt merge=ergo-lines
+internal/sketch/check/testdata/provenance-manifest.txt merge=ergo-lines
+# derived: generated files are made again, never merged (ours is kept).
+*_gen.go merge=ergo-derived
+**/testdata/kills.json merge=ergo-derived
+tools/ts/bun.lock merge=ergo-derived
+toolchain/pin/lock merge=ergo-derived
