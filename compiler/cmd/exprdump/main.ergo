@@ -391,16 +391,34 @@ func callCause(c Causes, x dense.ID[syntax.Node], depth int) string {
 			return "receiver " + partCause(c, rx, depth+1)
 		}
 		return if isTyped(c, fun) {
-			"callee typed, call untyped"
+			"callee typed, call untyped: " + argCause(c, x, depth)
 		} else if isPackage(c, rx) {
 			"package member untyped"
 		} else if declaresFunc(c, types.NameText(c.p, syntax.SelectorExprOf(c.p.Tree, fun).Sel)) {
-			"receiver typed, a function of the name refused the call (inference or arguments)"
+			"receiver typed, a function of the name refused the call: " + argCause(c, x, depth)
 		} else {
 			"receiver typed, no function of the name"
 		}
 	}
-	if isTyped(c, fun) { "callee typed, call untyped" } else { "callee " + partCause(c, fun, depth+1) }
+	if isTyped(c, fun) { "callee typed, call untyped: " + argCause(c, x, depth) } else { "callee " + partCause(c, fun, depth+1) }
+}
+
+// argCause is which argument of the untyped call x is untyped, the first
+// that is no constant literal: an untyped name by what binds it, another
+// argument by its form; "arguments typed" when each is (the inference or
+// the result refused the call).
+func argCause(c Causes, x dense.ID[syntax.Node], depth int) string {
+	let tr = c.p.Tree
+	let args = syntax.CallExprOf(tr, x).Args
+	for i in 0..syntax.Len(args) {
+		let a = syntax.Item(tr, args, i)
+		let kind = syntax.KindOf(tr, a)
+		if isTyped(c, a) || kind == syntax.KBasicLit {
+			continue
+		}
+		return if kind == syntax.KIdent { "argument " + partCause(c, a, depth+1) } else { "argument #\(kind)" }
+	}
+	"arguments typed"
 }
 
 // partCause is why the untyped expression x is untyped: an untyped call's
