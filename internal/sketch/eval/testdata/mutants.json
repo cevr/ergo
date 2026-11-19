@@ -2093,6 +2093,7 @@
       "rule": "The evaluator runs the operation s.Bytes(), so check-time evaluation of std's digests (sha256.Sum) agrees with the build.",
       "anchor": {"tests":["internal/sketch/eval:TestEvalAgreesWithLowering"]},
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
-    }
+    },
+    {"name":"init-steps-obligation","origin":"wf10 LITERAL-LET","file":"internal/sketch/eval/init.go","from":"\tin.budget.Steps = max(steps, initSteps)","to":"\tin.budget.Steps = steps","rule":"a run's package initializers run once under a bound of their own, not one obligation's budget (LITERAL-LET)","killers":["internal/sketch/eval:TestRunInitializesUnderItsOwnBound"]}
   ]
 }

@@ -183,3 +183,35 @@ func TestRunRefusesAnAbsentFootprint(t *testing.T) {
 		t.Fatal("ran a test whose footprint is absent")
 	}
 }
+
+// TestRunInitializesUnderItsOwnBound is the smallest repro of LITERAL-LET's
+// check-time stop: a package let whose initializer takes more steps than
+// one obligation's budget (as a port's let that decodes a large text does)
+// is built once, under the initializers' own bound, and the law that reads
+// it passes within its own budget. Mutant: init-steps-obligation (the
+// initializers run under one obligation's budget, and every obligation is
+// incomplete).
+func TestRunInitializesUnderItsOwnBound(t *testing.T) {
+	pkg := checked(t, `func build() []int {
+	let mut xs = []int{}
+	for i in 0..20000 {
+		xs = xs.Append(i)
+	}
+	xs
+}
+
+let world = build()
+
+law WorldIsBuilt(n int) {
+	let i = (n%20000 + 20000) % 20000
+	world[i] == i
+}
+`)
+	rep, err := Run(pkg, Budget{Steps: 10_000, Depth: 8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Results) != 1 || rep.Results[0].Status != Passed {
+		t.Fatalf("results %+v, want the law passed", rep.Results)
+	}
+}
