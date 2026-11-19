@@ -153,6 +153,20 @@ func TestForgottenCacheIsRefused(t *testing.T) {
 	}
 }
 
+// TestAncestryWalkedOnce: a process walks its ancestors in /proc once,
+// however often it asks for its cache root; every ergo command asks at
+// least twice (main, then the command). It counts walks (procWalks), not
+// time. Mutant: the walk made on each call (start-ancestry-walked-each-call).
+func TestAncestryWalkedOnce(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "ergo")
+	for range 3 {
+		testRoots(root)
+	}
+	if n := procWalks.Load(); n != 1 {
+		t.Errorf("three asks walked the ancestry %d times; want once per process", n)
+	}
+}
+
 // TestTestBinaryIsNamedOrFlagged: a process is a Go test binary when its
 // program's name ends in .test (go test's name, run with no flags) or an
 // argument is a testing flag (a binary of go test -c -o NAME), and not
