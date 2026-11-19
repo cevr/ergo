@@ -42,7 +42,7 @@ go run ./scripts/examples jsonv
 Each is written up with a repro in the lane's gap file (`gaps-ex-d.md`).
 
 - **G-ex-d-6** (half closed in wf10 J1): the scanner and the `Value` union are std json's now. `schema/codec.ergo` stays a hand codec over std's `Value`: a schema's JSON form is JSON Schema's (`"type"` names the kind), not the derived codec's `"_tag"` form.
-- **G-ex-d-8** `jsonv min` of 8 MB is 1.8x jq's time and 2.3x its memory (one run, loaded host); the Go control is pending.
+- **G-ex-d-8** `jsonv min` of 8 MB is slower and larger than a native JSON tool (`docs/receipts/jsonv.md`); the Go control is pending.
 - A required positional argument's `Get` is an `Option` (std-strengths F1, S5a).
 - **G-exup-1** (closed in batch 13): `app.Documents.ReadIsRepeatable` runs against `memory.Shelf`. Since fu7a it runs on `files.Disk` too, built field by field: its `fs.Files` is an `fstest.Memory`, its `io.Stdin` an `io.Input` and its `sync.Ref` a new cell. `files/tests.ergo` restates it with a standard input that drains, as the host's does.
 

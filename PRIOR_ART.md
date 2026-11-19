@@ -304,6 +304,117 @@ These sources inform std `ui`, the MyGo desktop host and module `fluid` (owner, 
 | [ritmo](https://github.com/typeonce-dev/ritmo/tree/4e46848bcb15e6c4bc7c7a5b83b74a8c2a3691a8) `4e46848b` (MIT); `README.md` ("Packages", "Guarantees"), `packages/core/src/{Ops,System,Query,Schedule,Snapshot,Checkpoint,Machine}.ts` | A TypeScript ECS for games written by agents: systems declare their queries and resources, a fixed-step loop, seeded random, a failing system rolls back its writes, rollback and lockstep netcode, headless lints and invariants. Taken as an example port's goal: systems as functions whose rows name what they read and write, the world as a value (rollback by keeping the old one), game modes as machines with laws. | Its TypeScript schema and branding machinery: Ergo's types and rows say the same. Pixi rendering: Ergo draws on the std `ui` canvas. | The gaps a port meets: same-bits float math across machines (ritmo ships fdlibm in `Ops.ts`; Go may fuse `x*y+z` on arm64 unless the product is converted), image ops on the canvas, gamepad, touch and audio hosts, and the cost of a world snapshot each tick. |
 | [Solid 2.0](https://github.com/solidjs/solid/tree/82f71fddb1340cab46167db119da5702038e65ab) `82f71fdd` (`solid-js@2.0.1`; 2.0.0 is `a8186e67`, 2026-11-16; MIT); `documentation/solid-2.0/{01,02,03,04,05,06,10,11,12}-*.md`, `packages/signals/docs/RULES-FUNDAMENTALS.md`, `packages/signals/src/core/heap.ts`, `examples/effect/src/solid-effect.ts`; [SolidStart](https://github.com/solidjs/solid-start/tree/68784294b16692adf687c25bcd58c16c8a625cb3) `68784294` (2.2.3, still on `solid-js ^1.9`) | Owner, 2026-11-18: "solid 2.0 came out which is alsso i think the best ui lib - take that as a prior art, and as a fullstack client side prior art". As the TypeScript client of an Ergo service for app-like browser code (owner q4: "solid + effect + maybe a patch or lib that creates a seamless interop over the two"), over the contract the mapper projects from the `.ergo` file. Into std `ui` as library laws: holds (the last answer stays on screen while a new question loads; a re-ask is quiet), optimistic guesses that revert, ordered reveal. Into `web`: in-order streaming, the single-copy invariant (content as HTML or as data, never both), single-flight replies, a reconnect at an unchanged value that sends nothing. | Signals as an Ergo construct (a signal is a value plus subscribers; any need is a std `ui` library question, measured first). Proxy stores, `"use server"` and out-of-order streaming. Hydration's tracking run, which fakes `fetch` and `Promise` to record dependencies (Ergo's loads name their keys). Its untyped not-ready and error throws, where Ergo puts `Pending` and failures in rows. | The Effect example targets Effect 3 and squashes `Cause` before `<Errored>`, so typed failures need the interop library, or a Solid patch. Whether std `ui` needs dependency tracking is measured by pass cost against hand Go. Bundle sizes: 24.3 kB gzip for Solid with `@solidjs/html`, 35.2 kB with an Effect 4 bridge (probe, 2026-11-18). |
 
+### effect-machine side by side: examples/search, 2026-11-19
+
+Moved from `examples/search/README.md` (EX-NEUTRAL: an example names no inspiration). The effect-machine program is `examples/core/src/services-and-tasks.ts` at the pin in the table above; the Ergo program is `examples/search`.
+
+effect-machine writes this search with a `Context.Service` class for the index, `State`/`Event` schemas, `.task(State.Searching, ({ state }) => Effect.flatMap(Index, c => c.search(state.query)), { name, onSuccess, onFailure })`, an `.on` per (state, event), `.final` states, `Machine.run` with an input, and `Effect.provideService`.
+
+| concern | effect-machine | Ergo here | who checks |
+| --- | --- | --- | --- |
+| the service | a `Context.Service` class with a tag | `type Index { Find(query string) []Entry fails IndexDown, law … }`: an operation type whose laws every provider runs | compiler + laws |
+| the work of a state | `.task(State.Searching, …)` in the builder chain | `work: find`, one function over the state union: one work per state, the match exhaustive | compiler |
+| result → event | `onSuccess` and `onFailure`, pinned by overloads; a missing one is TS2769 "No overload matches this call" | `machines.Attempt` takes both maps as arguments, so a missing one is a call with too few arguments; `IndexDown` is handed on as a `Signal` | compiler |
+| a result after the state's exit | a plain `self.send` from the task fiber; a result queued before a re-entry can reach the new entry (inferred, em-parity §4.2) | the runner drops it by the entry's id | runner (MU4 model and property) |
+| required services | `R` in the machine's type, provided with `Effect.provideService` | `Work[Signal, Index \| Scheduler]`: the work's row, written as `R` is, a union; only `main` binds it | compiler (equal) |
+| debounce | a `.timeout` or a hand timer with a generation counter | `after: Timer`; `Enter` restarts it | runner + law `DebounceCoalesces` |
+| observing | `actor.subscribe` callbacks on the actor's fiber | `for c in actor.Changes(a, 64)`: a loop, no callback, every committed state once, holding 64 at most and reading a typed `Overflowed` after a gap | runner (MU12) |
+
+Where Ergo could not improve:
+
+- **The pins are state data, not a contract.** A provider has no state (M23), so a `Pins { Room, Add fails PinsFull }` contract cannot hold the entries; the pins are the state's data and `Room` a constant.
+- **The latency is the work's, not the index's.** A provider of an operation type cannot wait on the `Scheduler` (its methods name no capability), so the work waits `Latency` before it asks the index; its row is `Index | Scheduler`.
+- **Signatures and type arguments** are written where effect-machine infers (`Some[Timeout[Signal]]{…}`, `Emit[Search, Output]{…}`).
+
+### effect-machine side by side: more examples, 2026-11-19
+
+Moved from each example's README (EX-NEUTRAL: an example names no inspiration).
+
+#### examples/downloads (README's first machine, widened; em-parity plan §2)
+
+| concern | effect-machine | Ergo here | who checks |
+| --- | --- | --- | --- |
+| the fetch | `.task(State.Fetching, …)` with `onSuccess`/`onFailure` | `work: fetching`, with failures that are signals | compiler + runner |
+| retry wait | a `.timeout` per state, or `Schedule.exponential` in the task (inferred) | `after: Timer`, whose `In` is `Backoff(Try)` | runner + laws |
+| the end | `awaitExit` / final state | `Done[End]` and `ExitOf` | runner (MU12) |
+| progress | `subscribe` with a selector | `actor.Select(Changes, ViewOf)`, a loop | runner (MU12) |
+| a child per file | spawn a child actor in the parent's handler; the parent keeps its reference (inferred) | `actor.ChildIn` in the `Running` entry's work, in the entry's `Host`; the entry's end stops the child | runner (MU5, rule 13) + checker (the work's row) |
+| shutdown | interrupt the actor, or a "stopping" state by hand (inferred) | the order `Drain`: the queue finishes, `Done[Report]` has every end, a later add is `Closed` | laws |
+
+Where Ergo could not improve:
+
+- **The manual clock (MB2-G2).** `Play` moves the clock by the wait it reads from the view. The manager runs one file at a time, so there is only one retry timer at a time, and the script's view of the time stays the clock's.
+
+#### examples/pairing
+
+The same flow in effect-machine would use: `State`/`Event` schemas; `Machine.make` with an input; `.on` per (state, event); `.onAny(Event.Cancel)`; `.immediate(State.Options, …)` for the eventless step; `.task(State.SendingCode, …, { onSuccess, onFailure })` and `.task(State.Verifying, …)`; `.timeout(State.Failed, { duration: "30 seconds", event: Event.Back })`; `.background` for the tag reader; `Machine.spawn`, `actor.call`, `actor.waitFor` and `actor.awaitExit`.
+
+| concern | effect-machine | Ergo here | who checks |
+| --- | --- | --- | --- |
+| every state × signal decided | an unhandled event is dropped at run time | `Step` is a total `match`; `(State, _): Ignore` is written | compiler |
+| Cancel from any state | `.onAny(Event.Cancel)`, which a specific `.on` overrides silently | `case (_, Cancel)` is the first arm: no state can override it | compiler (arm order is visible) |
+| eventless step | `.immediate`, run by the runtime before the next event | `Settle`, a plain function applied at every `Enter`, with the law `SettleIsStable` | law |
+| work result → event | `onSuccess`/`onFailure` handlers chosen by overloads (TS2769 when one is missing) | `machines.Attempt` takes both maps as arguments, so a missing one is a call with too few arguments; a failure that is a signal is handed on as a `Signal`, and `DeviceUnreachable` maps to `SendFailed` | compiler |
+| stale work result | a result sent after the state's exit may reach a later state (it is a plain `send`; inferred, em-parity §4.2) | dropped by the entry's epoch | runner (MU4 model and test) |
+| timer | `.timeout` compiles to a task in the state scope | `after: timer`, one function over the state union, exhaustive | compiler + runner |
+| sub-machine (pad) | a child actor, or fields updated in handlers | a pure function on a record field, with laws | law |
+| required services | `R` in the type | `needs Devices` from the work's row | compiler (equal) |
+| tag reader | `.background(effect)`, a device of the machine that runs in every state, with its own `send` | `actor.Feed(a, Taps(reader))`: a plain `Seq` of signals that the actor owns and stops; the machine stays a pure step, and the source is a value a test can read without an actor | runner (`TestActorFeedSourcesEndWithTheActor`) |
+
+Where Ergo could not improve:
+
+- **Signatures and type arguments.** `Stay[Flow]{…}`, `Done[Result]{…}`, `Timeout[Signal]{…}`, `Some[Flow]{…}` are written where effect-machine infers (em-parity §4.5 item 1).
+- **Ignore arms.** Seven `(State, _): Ignore` arms; effect-machine drops unhandled events with no line. The arms are the cost of totality (q40 keeps them explicit).
+- **The reader's beep.** A source's value is a `Send`: it returns when the value is queued, and nothing tells the screen when the flow has stepped it. The reader pushes a beep after each queued tag so the script can wait for it (finding MB2-G1). effect-machine's `.background` has no such answer either (inferred).
+
+#### examples/router (`docs/persistence-and-supervision.md`, ActorHost)
+
+| concern | effect-machine | Ergo here | who checks |
+| --- | --- | --- | --- |
+| requests that wait | no postpone either; a queue in the state or the mailbox (inferred from its docs) | `Board.Queue`, with `Stay` so the current entry goes on | step laws |
+| one answer per request | `call` answers with the transition; a later answer is a second protocol | the answer lives in the state; `WaitFor` reads it; `AnsweredOnce` holds it | law |
+| persistence | `lifecycle.recovery.resolve` at spawn, `durability.save` after each commit | `SuperviseDurable(m, …, recover, save)`: save runs before anyone sees the state; the step must be pure (S108) | runner + checker |
+| supervision | `Supervisor` with a restart schedule | `tasks.Restart{Limit}`; a restart runs `recover` again | runner (MU7 model) |
+| a child named before it runs | `ActorHost.make` with `acquire` | a `Host` in the state, filled once by `ChildIn` in the entry's work, closed with the entry | runner (models/host) + law |
+| a child of a recovered actor | its docs give no rule; the user's recovery code makes the children again (inferred) | a host is entry data: a replay makes it again, empty, and the recovered first entry binds it; the journal keeps no live child | runner (models/host `Recovery`) + law |
+| observing | `subscribe`, `waitFor` | `Changes`, `WaitFor`, loops with no callback | runner (MU12) |
+
+The router and its couriers are one machine (wf10 DH1): `Idle` hosts the couriers and `Applying` checks with the registry, so a courier's crash restarts the router from its journal.
+
+#### examples/shards
+
+The same write in effect-machine would use `.spawn(State.Writing, ({ self }) => self.spawn("runner", runnerMachine) …)` with a child id per child, the child's output sent to the parent by `sendParent` or a forwarded stream, `.task` for the write and the erase, `.timeout` for the write and the summary, `.reenter` for the touch, and `ActorHost` if a consumer must reach the current runner.
+
+| concern | effect-machine | Ergo here | who checks |
+| --- | --- | --- | --- |
+| a child's output type | the parent's event type is not checked against the child's output map (MU5 request) | `toParent` must give the entry's signal type, through `send` | compiler |
+| several children of one machine | distinct string ids in the actor system | values kept by identity; no id | runner (MU5 `byKind` mutant) |
+| a late child answer | the program checks a generation by hand (`ActorHost`) | dropped by the entry's epoch | runner (MU5 model and test) |
+| stop order | not specified | last started first, before the next entry | runner (MU5 model) |
+| re-entry restarts a timer | `.reenter` vs `.on` | `Enter` vs `Stay`, written | compiler (the decision is a value) |
+| every state × signal decided | unhandled events dropped | total `match`, `(State, _): Ignore` written | compiler |
+| the services a work needs | `R` of the task's Effect | `Work[Signal, Targets \| Scheduler]`: the target is a capability the binary binds once (`cmd/shards`), not a value in every state | compiler (rows) |
+
+Where Ergo could not improve:
+
+- **The driver cannot reach a child.** The console talks to the parent machine only; children are owned by their entry (MQ10: no ambient registry). A screen that shows a write's progress would need the child's address handed out as a signal (the `ActorHost` pattern), which this program does not need.
+- Written type arguments and `Ignore` arms, as in pairing.
+
+#### examples/stack-builder
+
+effect-machine would host the editor with `.spawn(State.Editing, ({ self }) => self.spawn("editor", editorMachine, { input }))` and nested editors the same way with distinct ids; a screen would reach the current editor through the actor system by id, or through `ActorHost.acquire`; the hub would keep the page in its state for history, as here.
+
+| concern | effect-machine | Ergo here | who checks |
+| --- | --- | --- | --- |
+| reaching the current child | look up by string id, or `ActorHost` with a generation check | an `actor.Host` in the parent's state, which the entry's work fills with `actor.ChildIn` before the entry is shown; a `Get` after the entry ended fails `Stopped`, and a Send to an ended child fails `Stopped` | compiler (the type) + runner (models/host) |
+| nested children of one machine | distinct ids per depth | identity, no id | runner |
+| child output | `sendParent` with an event the parent may not handle | `toParent` gives the parent's signal type, which the parent's total step decides | compiler |
+| stop order on leaving a state | not specified | innermost first, before the next entry | runner (MU5 model) |
+
+Where Ergo could not improve:
+
+- **A host names its address type.** `actor.NewHost[EditActor]()` writes the address type as a type argument, because a call infers no type argument from its expected type. The alias `EditActor` (F11) keeps it short.
+
 ## Semantic tools
 
 SEMTOOLS ([code](docs/spec/code.md)): questions about code and changes to it, answered from the checker's fact tables. Read 2026-11-14 in the sources named; each row is what Ergo takes and what it does better.
