@@ -43,7 +43,7 @@ func TestGraphAffectedReadsTheBaseRevision(t *testing.T) {
 	write("app/count/count.ergo", "import example.com/lib\n\nfunc Count() int { lib.Size() + 1 }\n")
 	write("app/other/other.ergo", "import example.com/lib\n\nfunc Keep() int { lib.Other() }\n")
 	git := func(args ...string) {
-		cmd := exec.Command("git", args...)
+		cmd := exec.Command("git", append([]string{"--no-optional-locks"}, args...)...)
 		cmd.Dir = repo
 		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t", "GIT_CONFIG_GLOBAL=/dev/null")
 		if out, err := cmd.CombinedOutput(); err != nil {
