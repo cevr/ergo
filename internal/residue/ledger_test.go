@@ -39,7 +39,7 @@ type ledgerFile struct {
 			Dir  string   `json:"dir"`
 			Argv []string `json:"argv"`
 		} `json:"regenerate"`
-		Anchor  *struct {
+		Anchor *struct {
 			File  string   `json:"file"`
 			Text  string   `json:"text"`
 			Tests []string `json:"tests"`
