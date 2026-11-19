@@ -1,11 +1,15 @@
-package v1
+package tz
 
 import "ergo.local/prototype/runtime/tzdata"
 
+// The bodies of std tz/iana and of std tz's laws: std's own copy of the
+// IANA database (runtime/tzdata). A leaf, so a program imports the copy's
+// package only when it calls one of these (binsize BS1): runtime/v1
+// imports neither.
+
 // TzdataZone is the TZif bytes of the zone name in std's own copy of the
 // IANA database (std tz/iana; runtime/tzdata), or "" when the copy has no
-// such zone. Only a program that imports tz/iana calls it, so only such a
-// program links the copy.
+// such zone.
 //
 //ergo:wait none
 func TzdataZone(name string) string { return tzdata.Zone(name) }

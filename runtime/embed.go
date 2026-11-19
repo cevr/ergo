@@ -30,7 +30,7 @@ import (
 //go:embed v1/atomic.go v1/fuse.go
 //go:embed v1/shadow/shadow.go
 //go:embed v1/civil.go v1/collections.go v1/intmap.go
-//go:embed v1/time.go v1/timetext.go v1/timeappend.go v1/tzdata.go v1/tzhost.go v1/wire.go v1/json.go v1/json_append.go v1/json_bytes.go v1/toml.go
+//go:embed v1/time.go v1/timetext.go v1/timeappend.go v1/tzhost.go v1/wire.go v1/json.go v1/json_append.go v1/json_bytes.go v1/toml.go
 //go:embed v1/gotrace_on.go v1/gotrace_off.go obs/obs.go
 //go:embed v1/sync.go v1/set.go v1/script.go v1/shrink.go v1/hook.go v1/allocs.go
 //go:embed v1/path.go v1/numbers.go v1/goerror.go v1/goreads.go v1/goarg.go v1/gocall.go v1/gocallback.go
@@ -47,7 +47,7 @@ import (
 //go:embed v1/exec/exec_unix.go
 //go:embed rt/group.go v1/buffer.go v1/heap.go v1/term_bsd.go v1/unsupported_os.go v1/exec/exec_spawn.go v1/exec/exec_spawn_darwin.go v1/exec/exec_spawn_linux.go v1/exec/exec_spawn_other.go v1/http/http_local.go v1/http/http_query.go
 //go:embed v1/exchange_darwin.go v1/exchange_darwin.s v1/exchange_linux.go v1/exchange_linux_amd64.go v1/exchange_linux_arm64.go v1/exchange_other.go
-//go:embed tzdata/tzdata.go tzdata/zones.bin
+//go:embed tzdata/tzdata.go tzdata/zones.bin v1/tz/tz.go
 var sources embed.FS
 
 // Module is the path of the runtime's Go module, which an emitted module
@@ -74,8 +74,8 @@ var packages = map[string]pkg{
 		files: []string{"alone.go", "carrier.go", "cause.go", "clock.go", "doc.go", "gcknobs.go", "gocontext.go", "group.go", "handle.go", "held.go", "idle.go", "machine.go", "mapfault.go", "pace.go", "park.go", "park_stock.go", "park_word.go", "readsmall.go", "readsmall_other.go", "regions.go", "run.go", "sched.go", "sched_explore.go", "sched_live.go", "scope.go", "stall.go", "task.go", "tasks.go", "text.go", "timeout.go", "trace.go", "values.go"},
 	},
 	"runtime/v1": {
-		files:   []string{"actor.go", "actor_host.go", "actor_recover.go", "actor_trace.go", "allocs.go", "atomic.go", "buffer.go", "civil.go", "collections.go", "config_names.go", "context.go", "data.go", "deadline.go", "embed.go", "exchange_darwin.go", "exchange_darwin.s", "exchange_linux.go", "exchange_linux_amd64.go", "exchange_linux_arm64.go", "exchange_other.go", "exit.go", "exits.go", "explore_laws.go", "explore_off.go", "explore_on.go", "fuse.go", "goarg.go", "gocall.go", "gocallback.go", "goerror.go", "goreads.go", "gotrace_off.go", "gotrace_on.go", "guard.go", "guard_other.go", "guard_unix.go", "heap.go", "hook.go", "host.go", "intmap.go", "json.go", "json_append.go", "json_bytes.go", "leaves.go", "lineage.go", "mailbox.go", "mapfile_unix.go", "mapped.go", "moves.go", "numbers.go", "owned.go", "path.go", "queue.go", "runtime.go", "script.go", "sealed.go", "set.go", "shrink.go", "static.go", "stdout.go", "strbuf.go", "sync.go", "task.go", "term.go", "term_bsd.go", "term_darwin.go", "term_linux.go", "term_unix.go", "testhost.go", "text.go", "time.go", "timeappend.go", "timetext.go", "toml.go", "toml_encode.go", "trace.go", "tzdata.go", "tzhost.go", "ui_args.go", "unchecked.go", "unsupported_os.go", "view.go", "wire.go"},
-		imports: []string{"runtime/explore/sched", "runtime/obs", "runtime/rt", "runtime/rt/rttrace", "runtime/tzdata"},
+		files:   []string{"actor.go", "actor_host.go", "actor_recover.go", "actor_trace.go", "allocs.go", "atomic.go", "buffer.go", "civil.go", "collections.go", "config_names.go", "context.go", "data.go", "deadline.go", "embed.go", "exchange_darwin.go", "exchange_darwin.s", "exchange_linux.go", "exchange_linux_amd64.go", "exchange_linux_arm64.go", "exchange_other.go", "exit.go", "exits.go", "explore_laws.go", "explore_off.go", "explore_on.go", "fuse.go", "goarg.go", "gocall.go", "gocallback.go", "goerror.go", "goreads.go", "gotrace_off.go", "gotrace_on.go", "guard.go", "guard_other.go", "guard_unix.go", "heap.go", "hook.go", "host.go", "intmap.go", "json.go", "json_append.go", "json_bytes.go", "leaves.go", "lineage.go", "mailbox.go", "mapfile_unix.go", "mapped.go", "moves.go", "numbers.go", "owned.go", "path.go", "queue.go", "runtime.go", "script.go", "sealed.go", "set.go", "shrink.go", "static.go", "stdout.go", "strbuf.go", "sync.go", "task.go", "term.go", "term_bsd.go", "term_darwin.go", "term_linux.go", "term_unix.go", "testhost.go", "text.go", "time.go", "timeappend.go", "timetext.go", "toml.go", "toml_encode.go", "trace.go", "tzhost.go", "ui_args.go", "unchecked.go", "unsupported_os.go", "view.go", "wire.go"},
+		imports: []string{"runtime/explore/sched", "runtime/obs", "runtime/rt", "runtime/rt/rttrace"},
 	},
 	// std tz/iana's copy of the IANA zone database: runtime/v1 imports it,
 	// and its index has no package initializer, so Go's linker drops the
@@ -97,6 +97,12 @@ var packages = map[string]pkg{
 	// The leaves of runtime/v1: each brings Go packages of its own (and
 	// their init tasks, which the Go linker keeps for every imported
 	// package), so only a program that calls one imports it (binsize BS1).
+	// std tz/iana and tz's laws: the bodies that read std's zone copy, so
+	// only a program that calls one imports runtime/tzdata.
+	"runtime/v1/tz": {
+		files:   []string{"tz.go"},
+		imports: []string{"runtime/tzdata"},
+	},
 	"runtime/v1/csv": {
 		files: []string{"csv.go"},
 	},

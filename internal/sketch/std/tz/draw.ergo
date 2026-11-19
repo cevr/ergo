@@ -65,6 +65,6 @@ func anyZoned(i int64, s int64, ns int64, fixed bool) Zoned {
 	Zoned{At: anyInstant(s, ns), Zone: z}
 }
 
-extern go ergo.local/prototype/runtime/v1.TzLawNames func ianaNames() []string
+extern go ergo.local/prototype/runtime/v1/tz.TzLawNames func ianaNames() []string
 
-extern go ergo.local/prototype/runtime/v1.TzLawZone func ianaZone(name string) string
+extern go ergo.local/prototype/runtime/v1/tz.TzLawZone func ianaZone(name string) string
