@@ -240,6 +240,38 @@
       "to": "\t\t\"pause\"\n",
       "rule": "A paused panel's button offers to resume it.",
       "killers": ["examples:dash-gui"]
+    },
+    {
+      "name": "dash-play-skips-the-edge", "origin": "wf10 RT-SPIKE PACE1",
+      "file": "examples/dash-gui/script/script.ergo",
+      "from": "\t\tpace.Pacing.Edge()\n",
+      "to": "",
+      "rule": "Play ends each frame with one pacing edge (law PlayPacesEachFrame).",
+      "killers": ["examples:dash-gui"]
+    },
+    {
+      "name": "dash-main-ignores-pace", "origin": "wf10 RT-SPIKE PACE1",
+      "file": "examples/dash-gui/cmd/dash-gui/main.ergo",
+      "from": "\tcase _:\n\t\tpace.NewAtEdges(PaceLimit)\n",
+      "to": "\tcase _:\n\t\tpace.Default\n",
+      "rule": "play's -pace edges, the default, binds pace.NewAtEdges: Go collects between frames.",
+      "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
+    },
+    {
+      "name": "dash-play-never-holds", "origin": "wf10 RT-SPIKE PACE2",
+      "file": "examples/dash-gui/script/script.ergo",
+      "from": "\t\t\tif r.Frames <= hold {",
+      "to": "\t\t\tif false {",
+      "rule": "Play holds the pacing over each run of at most hold frames (law PlayPacesEachFrame).",
+      "killers": ["examples:dash-gui"]
+    },
+    {
+      "name": "dash-main-ignores-hold", "origin": "wf10 RT-SPIKE PACE2",
+      "file": "examples/dash-gui/cmd/dash-gui/main.ergo",
+      "from": "holdFlag.Get(v))",
+      "to": "0)",
+      "rule": "play's -hold N holds each run of at most N frames: one forced collection after a held run.",
+      "killers": ["cmd/ergo:TestDashGuiAgreesWithControl"]
     }
   ]
 }

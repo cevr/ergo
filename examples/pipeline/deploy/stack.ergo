@@ -1,0 +1,177 @@
+// Package deploy is the pipeline's stack (PX6): the objects a stage of
+// pipeline-server needs on a machine (its folder, two files, the server
+// itself) as one function over infra's kinds, and the outputs a client
+// reads to find it. `cmd/pipeline-infra` runs it with infra's command line
+// (plan, apply, destroy) over module infra-local's drivers on the host; the
+// laws here run it over the same drivers on fstest.Memory and
+// exec.Processes.
+
+import github.com/cevr/ergo/modules/infra
+import github.com/cevr/ergo/modules/infra-local/local
+import exec
+import fs
+import fstest
+import json
+import strings
+
+// Outputs is what an apply of a stage gives its clients: the server's URL
+// and port, and the folder it runs in.
+type Outputs { URL string, Port int, Data string }
+
+// Want is a stage as the stack builds it: the server's program (a name
+// the spawner finds) and the port it listens on.
+type Want { Stage string, Program string, Port int }
+
+// Address is the address the server of w listens on.
+func Address(w Want) string { "127.0.0.1:\(w.Port)" }
+
+// Stack ensures w's objects: the folder data, its README and the file
+// address (which names where the server listens, for an operator), and
+// pipeline-server in data, told to listen at Address(w) and up once its
+// /health answers.
+func Stack(w Want) Outputs fails infra.Failed needs infra.Kind[local.DirProps, local.Dir] | infra.Kind[local.FileProps, local.File] | infra.Kind[local.ProcessProps, local.Process] {
+	let data = try infra.Kind[local.DirProps, local.Dir].Ensure("data", local.DirProps{Path: "data"})
+	try infra.Kind[local.FileProps, local.File].Ensure("readme", local.FileProps{Dir: "data", Name: "README", Text: "pipeline-server's folder for stage \(w.Stage), made by pipeline-infra; destroy removes it.\n", Mode: fs.Shared()})
+	try infra.Kind[local.FileProps, local.File].Ensure("address", local.FileProps{Dir: "data", Name: "address", Text: Address(w) + "\n", Mode: fs.Shared()})
+	let server = try infra.Kind[local.ProcessProps, local.Process].Ensure("server", local.ProcessProps{Program: w.Program, Args: "-addr\n" + Address(w), Env: "", Dir: "data", Port: w.Port, Health: "/health"})
+	Outputs{URL: server.URL, Port: w.Port, Data: data.Path}
+}
+
+// Place is where a stage's objects and rows live: a driver and a state
+// store per kind, and the stage's lock. Only main (or a law) chooses them.
+type Place {
+	Dirs        local.Dirs,
+	Files       local.Files,
+	Programs    local.Programs,
+	DirRows     infra.State[local.DirProps],
+	FileRows    infra.State[local.FileProps],
+	ProcessRows infra.State[local.ProcessProps],
+	Lock        infra.Lock,
+}
+
+// Bind is the stack of w at p, over the engines of pass.
+func Bind(p Place, w Want, pass infra.Pass) infra.Bound[Outputs] {
+	let dirs = infra.Engine[local.DirProps, local.Dir]{Kind: "dir", Driver: p.Dirs, State: p.DirRows, Pass: pass}
+	let files = infra.Engine[local.FileProps, local.File]{Kind: "file", Driver: p.Files, State: p.FileRows, Pass: pass}
+	let programs = infra.Engine[local.ProcessProps, local.Process]{Kind: "process", Driver: p.Programs, State: p.ProcessRows, Pass: pass}
+	infra.Bound[Outputs]{Engines: []infra.Sweeper{dirs, files, programs}, Stack: func() Outputs fails infra.Failed {
+		with context { infra.Kind[local.DirProps, local.Dir]: dirs, infra.Kind[local.FileProps, local.File]: files, infra.Kind[local.ProcessProps, local.Process]: programs } {
+			try Stack(w)
+		}
+	}}
+}
+
+// Stages is how pipeline-infra deploys: the Place and the Want of a
+// stage, the writes of the outputs and where they go.
+type Stages {
+	Place   func(stage string) Place,
+	Want    func(stage string) Want,
+	Writes  fs.Writes,
+	Outputs func(stage string) string,
+}
+
+// Deployment is infra's command line over s, as holder.
+func Deployment(s Stages, holder string) infra.Deployment[Outputs] {
+	infra.Deployment[Outputs]{
+		Name:    "pipeline-infra",
+		Holder:  holder,
+		Lock:    func(stage string) infra.Lock { s.Place(stage).Lock },
+		Bind:    func(stage string, pass infra.Pass) infra.Bound[Outputs] { Bind(s.Place(stage), s.Want(stage), pass) },
+		Writes:  s.Writes,
+		Outputs: func(stage string) string { s.Outputs(stage) },
+	}
+}
+
+// memory is a stage's machine in memory: one fstest.Memory for the
+// objects, the ledgers and the rows, and a spawner that knows the program
+// "server".
+type memory { disk fstest.Memory, spawner exec.Processes }
+
+// newMemory is an empty machine.
+func newMemory() memory { memory{disk: fstest.NewMemory(), spawner: exec.NewProcesses([]string{"server"})} }
+
+// stagesIn is pipeline-infra's stages on m, every server up at once, the
+// server of each stage on port.
+func stagesIn(m memory, port int) Stages {
+	let d = m.disk
+	Stages{
+		Place: func(stage string) Place {
+			let base = "/srv/" + stage
+			Place{
+				Dirs:        local.DirsOn(d, d, base, base+"/.infra/dirs"),
+				Files:       local.FilesOn(d, d, base, base+"/.infra/files"),
+				Programs:    local.ProgramsOn(d, d, m.spawner, local.Up, base, base+"/.infra/programs", 0s),
+				DirRows:     local.DirRowsOn(d, d, base+"/.infra/rows/dir"),
+				FileRows:    local.FileRowsOn(d, d, base+"/.infra/rows/file"),
+				ProcessRows: local.ProcessRowsOn(d, d, base+"/.infra/rows/process"),
+				Lock:        local.LockOn(d, d, "/srv/"+stage+".lock"),
+			}
+		},
+		Want:    func(stage string) Want { Want{Stage: stage, Program: "server", Port: port} },
+		Writes:  d,
+		Outputs: func(stage string) string { "/srv/" + stage + ".outputs.json" },
+	}
+}
+
+// outputsOn is the outputs an apply of stage wrote on m, None when there
+// are none.
+func outputsOn(m memory, s Stages, stage string) Option[Outputs] {
+	let text = m.disk.ReadFile(s.Outputs(stage)) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return None
+	}
+	let o = json.Decode(json.Codec[Outputs]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case _:
+		return None
+	}
+	Some[Outputs]{Value: o}
+}
+
+// StackConverges: on any port, a plan of a new stage lists its four
+// creates and changes nothing; an apply makes them and writes the outputs
+// that name the server; a second plan has no change; a destroy ends the
+// server and leaves no row.
+law StackConverges(port int) {
+	let m = newMemory()
+	let s = stagesIn(m, port)
+	let d = Deployment(s, "me")
+	let plan = infra.Exec(d, []string{"plan"})
+	if plan.Out != "create dir/data\ncreate file/readme\ncreate file/address\ncreate process/server\nplan: 4 changes\n" || len(s.Place("dev").DirRows.List()) != 0 {
+		return false
+	}
+	if infra.Exec(d, []string{"apply", "-yes"}).Code != 0 {
+		return false
+	}
+	let want = Outputs{URL: "http://127.0.0.1:\(port)", Port: port, Data: "/srv/dev/data"}
+	if outputsOn(m, s, "dev") != (Some[Outputs]{Value: want}) || infra.Exec(d, []string{"plan"}).Out != "plan: no changes\n" {
+		return false
+	}
+	let found = s.Place("dev").Programs.Find("server") catch {
+	case infra.Failed:
+		return false
+	}
+	let server = match found {
+	case Some[local.Running] as r:
+		r.Value.Detached
+	case None:
+		return false
+	}
+	infra.Exec(d, []string{"destroy", "-yes"}).Code == 0 && infra.Exec(d, []string{"state"}).Out == "no objects\nlock: free\n" && !m.spawner.Alive(server)
+}
+
+// ServerListensOnTheOutputsPort: the server an apply starts is told the
+// port its outputs name, so a client that reads them finds it.
+law ServerListensOnTheOutputsPort(port int) {
+	let m = newMemory()
+	let s = stagesIn(m, port)
+	if infra.Exec(Deployment(s, "me"), []string{"apply", "-yes"}).Code != 0 {
+		return false
+	}
+	match (outputsOn(m, s, "dev"), s.Place("dev").ProcessRows.Get("server")) {
+	case (Some[Outputs] as o, Some[infra.Row[local.ProcessProps]] as r):
+		let args = exec.Split(r.Value.Props.Args)
+		r.Value.Props.Port == o.Value.Port && len(args) == 2 && args[0] == "-addr" && strings.HasSuffix(args[1], ":\(o.Value.Port)")
+	case _:
+		false
+	}
+}

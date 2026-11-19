@@ -19,7 +19,7 @@ import (
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/lower"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 	"ergo.local/prototype/internal/stage"
 	"ergo.local/prototype/internal/toolchain"
@@ -145,7 +145,7 @@ func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	if hasMain(unit.Package) {
+	if HasMain(unit.Package) {
 		// RewriteChecks runs nothing when neither the root nor an import
 		// has a rewrite law: an import's provider is checked at the
 		// root's sites. A library has no run build, so no site of its
@@ -215,7 +215,7 @@ func (s ledgerSource) declares(e lower.LedgerEntry) bool {
 		if e.Provider == "" {
 			// A top-level law's entry (LF6b): the law, in the
 			// rewrite's scope still.
-			return l.Owner == nil && l.Machine == nil && l.Name == law && l.FuncRewrite != nil
+			return l.Owner == nil && l.Machine == nil && l.Name == law && l.TopRewrite() != nil
 		}
 		return l.Owner != nil && l.Owner.Name+"."+l.Name == law
 	})) {
@@ -293,8 +293,8 @@ const StdLedgerHeader = "# std law ledger (runtime.md, Tests 10). Written by go 
 // which the caller runs: the compiler does not link their guards.
 func FreshStdLedger(req BuildRequest, host []gofacts.Entry) (string, error) {
 	entries := map[string]lower.LedgerEntry{}
-	for _, path := range std.Packages() {
-		texts, _ := std.Package(path)
+	for _, path := range stdlib.Packages() {
+		texts, _ := stdlib.Package(path)
 		names := make([]string, 0, len(texts))
 		for n := range texts {
 			names = append(names, n)
@@ -378,8 +378,10 @@ func GuardFactEntries() []lower.LedgerEntry {
 	return out
 }
 
-// hasMain reports whether pkg declares main, the run build's entry.
-func hasMain(pkg *check.Package) bool {
+// HasMain reports whether pkg declares main, the run build's entry. Only
+// such a package's ledger takes a build (UpdateLedger's RewriteChecks), so
+// only its writer needs a toolchain.
+func HasMain(pkg *check.Package) bool {
 	for _, f := range pkg.Funcs {
 		if f.Name == "main" {
 			return true

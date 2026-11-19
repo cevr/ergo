@@ -1,0 +1,265 @@
+// Relative text: how far apart two instants or two dates are, as a count
+// of one unit ("3 days ago", "in 2 hours"), with the number apart from
+// the words, so a UI matches the Approx for its own text and a locale is a
+// Words value.
+
+import strconv
+import strings
+import time
+
+// Now, Seconds, Minutes and Hours are units of an Approx; Days, Months and
+// Years are civil's units (arith.ergo).
+type Now {}
+type Seconds {}
+type Minutes {}
+type Hours {}
+
+// RelUnit is the unit of an Approx. Now is a distance that rounds to no
+// second.
+type RelUnit = Now | Seconds | Minutes | Hours | Days | Months | Years
+
+// Approx is a distance rounded to a count of its largest unit: Past when
+// the second end is before the first.
+type Approx { Count int, Unit RelUnit, Past bool }
+
+// Distance is how far to is from from, by date-fns's formatDistanceStrict
+// rule: the unit is the largest whose threshold the distance reaches, and
+// the count is the distance in that unit rounded to the nearest whole, a
+// half up.
+//
+// | distance x | unit | count |
+// | --- | --- | --- |
+// | x < 0.5 s | Now | 0 |
+// | x < 60 s | Seconds | round(x / 1 s) |
+// | x < 60 min | Minutes | round(x / 1 min) |
+// | x < 24 h | Hours | round(x / 1 h) |
+// | x < 30 days | Days | round(x / 24 h) |
+// | x < 365 days | Months | round(x / 30 days); 12 is 1 Years |
+// | otherwise | Years | round(x / 365 days) |
+//
+// So 59.5 minutes is 60 Minutes and 23.5 hours 24 Hours: the count rounds
+// within the unit the threshold chose, as date-fns does. A day is 24 hours
+// of instants; DistanceDates counts dates.
+func Distance(from time.Time, to time.Time) Approx {
+	let past = time.Before(to, from)
+	let (a, b) = if past { (to, from) } else { (from, to) }
+	let s = time.UnixSeconds(b) - time.UnixSeconds(a)
+	let ns = time.Nanosecond(b) - time.Nanosecond(a)
+	if ns < 0 {
+		return approx(s - 1, ns + 1000000000, past)
+	}
+	approx(s, ns, past)
+}
+
+// DistanceDates is how far to is from from in dates: Distance's rule over
+// whole days, so the day before is 1 Days whatever the hour, and the same
+// date is a count of 0 Days (Phrase writes it as Words.Today).
+func DistanceDates(from Date, to Date) Approx {
+	let n = int64(DaysBetween(from, to))
+	if n == 0 {
+		return Approx{Count: 0, Unit: Days, Past: false}
+	}
+	approx(if n < 0 { -n * 86400 } else { n * 86400 }, 0, n < 0)
+}
+
+// approx is the Approx of a distance of s seconds and ns nanoseconds,
+// 0 <= ns < 10^9 and s >= 0.
+func approx(s int64, ns int64, past bool) Approx {
+	if s < 60 {
+		let c = rounded(s, ns, 1)
+		if c == 0 {
+			return Approx{Count: 0, Unit: Now, Past: false}
+		}
+		return Approx{Count: c, Unit: Seconds, Past: past}
+	}
+	if s < 3600 {
+		return Approx{Count: rounded(s, ns, 60), Unit: Minutes, Past: past}
+	}
+	if s < 86400 {
+		return Approx{Count: rounded(s, ns, 3600), Unit: Hours, Past: past}
+	}
+	if s < 2592000 {
+		return Approx{Count: rounded(s, ns, 86400), Unit: Days, Past: past}
+	}
+	if s < 31536000 {
+		let m = rounded(s, ns, 2592000)
+		if m == 12 {
+			return Approx{Count: 1, Unit: Years, Past: past}
+		}
+		return Approx{Count: m, Unit: Months, Past: past}
+	}
+	Approx{Count: rounded(s, ns, 31536000), Unit: Years, Past: past}
+}
+
+// rounded is (s + ns/10^9) / u rounded to the nearest whole, a half up,
+// in integers: floor((2s + u + 2ns/10^9) / 2u).
+func rounded(s int64, ns int64, u int64) int {
+	let a = 2 * s + u
+	int(a / (2 * u) + (a % (2 * u) * 1000000000 + 2 * ns) / (2 * u * 1000000000))
+}
+
+// Plural is a unit's word for a count of one and for any other count.
+type Plural { One string, Other string }
+
+// Affix is the text before and after a count and its unit.
+type Affix { Before string, After string }
+
+// Words is the text of Phrase: Now's text, the same date's, the affixes of
+// a past and of a future distance, and each unit's words.
+type Words { Now string, Today string, Ago Affix, In Affix, Second Plural, Minute Plural, Hour Plural, Day Plural, Month Plural, Year Plural }
+
+// EnglishWords is Words in English: "just now", "today", "3 days ago",
+// "in 1 hour".
+func EnglishWords() Words {
+	Words{
+		Now: "just now",
+		Today: "today",
+		Ago: Affix{Before: "", After: " ago"},
+		In: Affix{Before: "in ", After: ""},
+		Second: Plural{One: "second", Other: "seconds"},
+		Minute: Plural{One: "minute", Other: "minutes"},
+		Hour: Plural{One: "hour", Other: "hours"},
+		Day: Plural{One: "day", Other: "days"},
+		Month: Plural{One: "month", Other: "months"},
+		Year: Plural{One: "year", Other: "years"},
+	}
+}
+
+// Phrase is a in w's words: Now as w.Now, a count of 0 Days (the same
+// date) as w.Today, otherwise the count, its unit's word for it, and the
+// past or the future affix around them.
+func Phrase(a Approx, w Words) string {
+	let p = match a.Unit {
+	case Now:
+		return w.Now
+	case Seconds:
+		w.Second
+	case Minutes:
+		w.Minute
+	case Hours:
+		w.Hour
+	case Days:
+		if a.Count == 0 {
+			return w.Today
+		}
+		w.Day
+	case Months:
+		w.Month
+	case Years:
+		w.Year
+	}
+	let text = "\(a.Count) \(if a.Count == 1 { p.One } else { p.Other })"
+	if a.Past {
+		return w.Ago.Before + text + w.Ago.After
+	}
+	w.In.Before + text + w.In.After
+}
+
+// DurationWords is d in w's words, exactly: its hours, minutes and seconds
+// that are not zero, largest first, each with its count and its unit's
+// word, separated by spaces ("1 hour 25 minutes", "2 hours 5 seconds"),
+// as date-fns's formatDuration writes a duration. A part of a second is
+// dropped, so a duration under a second is "0 seconds"; a negative one is
+// "-" and the words of its size. Phrase is a distance, rounded to one unit
+// and placed in time; DurationWords is a length, whole.
+func DurationWords(d duration, w Words) string {
+	let n = int64(d) / 1000000000
+	let s = if n < 0 { -n } else { n }
+	let mut text = ""
+	for p in []part{part{Count: s / 3600, Word: w.Hour}, part{Count: s % 3600 / 60, Word: w.Minute}, part{Count: s % 60, Word: w.Second}} {
+		if p.Count != 0 {
+			let word = if p.Count == 1 { p.Word.One } else { p.Word.Other }
+			text = if text == "" { "\(p.Count) \(word)" } else { "\(text) \(p.Count) \(word)" }
+		}
+	}
+	if text == "" {
+		return "0 \(w.Second.Other)"
+	}
+	if n < 0 { "-" + text } else { text }
+}
+
+// part is one count of DurationWords and its unit's words.
+type part { Count int64, Word Plural }
+
+// DurationWordsReadsBack: the counts and units DurationWords writes add
+// up to the whole seconds of d, each unit at most once, largest first,
+// and each under its next unit's size.
+law DurationWordsReadsBack(d int64) {
+	let text = DurationWords(duration(d), EnglishWords())
+	let n = d / 1000000000
+	let want = if n < 0 { -n } else { n }
+	let body = if n < 0 { strings.TrimPrefix(text, "-") } else { text }
+	if want == 0 {
+		return text == "0 seconds"
+	}
+	let words = strings.Fields(body)
+	let mut total = int64(0)
+	let mut last = int64(4000)
+	for i in 0..len(words)/2 {
+		let count = strconv.ParseInt(words[2*i], 10, 64) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return false
+		}
+		let unit = words[2*i+1]
+		let size = if unit == "hour" || unit == "hours" { int64(3600) } else if unit == "minute" || unit == "minutes" { int64(60) } else if unit == "second" || unit == "seconds" { int64(1) } else { int64(0) }
+		if size == 0 || size >= last || count == 0 || size < 3600 && count >= 60 || (count == 1) != (unit == "hour" || unit == "minute" || unit == "second") {
+			return false
+		}
+		last = size
+		total = total + count*size
+	}
+	len(words)%2 == 0 && total == want && (n < 0) == strings.HasPrefix(text, "-")
+}
+
+// rank is u's place from Now (0) to Years (6).
+func rank(u RelUnit) int {
+	match u {
+	case Now:
+		0
+	case Seconds:
+		1
+	case Minutes:
+		2
+	case Hours:
+		3
+	case Days:
+		4
+	case Months:
+		5
+	case Years:
+		6
+	}
+}
+
+// DistanceIsMonotone: a longer distance from the same instant never gives
+// a smaller unit, nor a smaller count in the same unit.
+law DistanceIsMonotone(sec int64, a int64, b int64) {
+	let from = time.NewTime(within(sec, -62135596800, 253402300799), 0)
+	let x = within(a, 0, 4000000000000000000)
+	let y = within(b, 0, 4000000000000000000)
+	let near = Distance(from, time.Add(from, duration(if x < y { x } else { y })))
+	let far = Distance(from, time.Add(from, duration(if x < y { y } else { x })))
+	rank(near.Unit) < rank(far.Unit) || rank(near.Unit) == rank(far.Unit) && near.Count <= far.Count
+}
+
+// DistanceMirrors: swapping the ends flips Past only, and Now is never
+// past.
+law DistanceMirrors(s1 int64, n1 int64, s2 int64, n2 int64) {
+	let a = time.NewTime(within(s1, -62135596800, 253402300799), within(n1, 0, 999999999))
+	let b = time.NewTime(within(s2 / 1000000 + s1, -62135596800, 253402300799), within(n2, 0, 999999999))
+	let there = Distance(a, b)
+	let back = Distance(b, a)
+	there.Count == back.Count && rank(there.Unit) == rank(back.Unit) && (if rank(there.Unit) == 0 { !there.Past && !back.Past } else { there.Past != back.Past })
+}
+
+// DistanceDatesCountsDates: DistanceDates is Distance between the dates'
+// midnights, but for the same date, which is 0 Days.
+law DistanceDatesCountsDates(x int64, k int64) {
+	let a = anyDay(x)
+	let b = anyDay(x + within(k, -800000, 800000))
+	let d = DistanceDates(a, b)
+	if a == b {
+		return d.Count == 0 && rank(d.Unit) == 4 && !d.Past
+	}
+	d == Distance(Instant(DateTime{Date: a, Time: Midnight()}), Instant(DateTime{Date: b, Time: Midnight()}))
+}

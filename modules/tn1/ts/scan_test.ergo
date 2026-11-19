@@ -1,0 +1,44 @@
+// The scanner's byte switch against the list it replaced.
+
+import strings
+
+// puncts are the punctuators of more than one byte, longest first: the
+// reference punctLen is held to.
+let puncts = []string{
+	"...", "===", "!==", "**=", "<<=", "&&=", "||=", "??=",
+	"=>", "==", "!=", "<=", "&&", "||", "??", "?.", "++", "--", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "**", "<<",
+}
+
+// punctByList is the first of puncts at src[i], else 1.
+func punctByList(src string, i int) int {
+	for p in puncts {
+		if strings.HasPrefix(strings.Slice(src, i, len(src)), p) {
+			return len(p)
+		}
+	}
+	1
+}
+
+// punctBytes are the bytes the punctuators are made of, and one that is
+// in none.
+let punctBytes = ".=!*<&|?+-/%^>a"
+
+// Every text of three of punctBytes, at every place: the byte switch
+// reads the list's longest match.
+test PunctLenIsTheListsLongest {
+	let n = len(punctBytes)
+	let mut bad = ""
+	for a in 0..n {
+		for b in 0..n {
+			for c in 0..n {
+				let src = strings.FromBytes([]byte{punctBytes[a], punctBytes[b], punctBytes[c]})
+				for k in 0..3 {
+					if bad == "" && punctLen(src, k) != punctByList(src, k) {
+						bad = "\(src) at \(k): \(punctLen(src, k)), want \(punctByList(src, k))"
+					}
+				}
+			}
+		}
+	}
+	assert bad == ""
+}

@@ -23,6 +23,11 @@ var goNatives = map[string]native{
 	"math.Exp":          goFloat(math.Exp),
 	"strings.TrimLeft":  goStrings(strings.TrimLeft),
 	"strings.TrimRight": goStrings(strings.TrimRight),
+	// The bit conversions reinterpret, as Go's do (cborpack, MX-EVMATHBITS).
+	"math.Float64bits":     goBits(math.Float64bits),
+	"math.Float64frombits": goBits(math.Float64frombits),
+	"math.Float32bits":     goBits(math.Float32bits),
+	"math.Float32frombits": goBits(math.Float32frombits),
 }
 
 // Go's math for float64, which std/math/math.ergo binds through import go,
@@ -31,13 +36,18 @@ func registerNativesgo() {
 	for name, f := range map[string]func(float64) float64{"Abs": math.Abs, "Ceil": math.Ceil, "Floor": math.Floor, "Round": math.Round, "Sqrt": math.Sqrt, "Trunc": math.Trunc} {
 		goNatives["math."+name] = goFloat(f)
 	}
+	// math.Float64bits, which std explore's key binds through import go
+	// (a float keyed by its bits; MODELCHECK E1).
+	goNatives["math.Float64bits"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		return math.Float64bits(args[0].(float64)), in.charge(fr, at, 1)
+	}
 	two := func(f func(float64, float64) float64) native {
 		return func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 			return f(args[0].(float64), args[1].(float64)), in.charge(fr, at, 1)
 		}
 	}
 	goNatives["strings.IndexByte"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
-		if ab := in.charge(fr, at, 1+argWork(args)); ab != nil {
+		if ab := in.charge(fr, at, 1+readsOf["strings.IndexByte"](args)); ab != nil {
 			return nil, ab
 		}
 		return int64(strings.IndexByte(args[0].(string), args[1].(uint8))), nil
@@ -83,11 +93,25 @@ func registerNativesgo() {
 // program's extern of one, or a function of an import go package. A std
 // extern binds runtime/v1, not Go's library, so it has none here.
 func goNativeOf(fn *check.Func) native {
-	if fn.Decl == nil || fn.Decl.Extern == nil || fn.Pkg == nil || fn.Pkg.Std() {
+	if fn.Decl == nil || fn.Decl.Extern == nil || fn.Decl.Extern.Target == nil || fn.Pkg == nil || fn.Pkg.Std() {
 		return nil
 	}
+	// The table fills once, with every native (registerNativesgo); before
+	// this a user package's call reached here before any std call had
+	// filled it, and an entry registered there read as missing.
+	loadNatives()
 	path, name := fn.Decl.Extern.Split()
 	return goNatives[path+"."+name]
+}
+
+// goBits is a one-argument conversion of basic values, one step.
+func goBits[A, R Value](f func(A) R) native {
+	return func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		if ab := in.charge(fr, at, 1); ab != nil {
+			return nil, ab
+		}
+		return f(args[0].(A)), nil
+	}
 }
 
 func goFloat(f func(float64) float64) native {

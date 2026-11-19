@@ -4,6 +4,43 @@
 # covers no match. A row is `path<TAB>excerpt`: the excerpt is text of one line of
 # the file that contains the match; `*` covers the whole file.
 
+# GX10 (2026-11-15): the append-form codec pair and time.Time's wire form
+internal/sketch/std/time/wire.ergo	*
+runtime/v1/timeappend.go	*
+docs/spec/stdlib.md	Std `time` (std-align S2b) follows Go's `time` package for names and meaning, and Effect's `Clock` and `TestClock` for the capability and the test provider. `TestTimeRuns` (lower) runs each function; the laws are in `time/clock.ergo`, `time/laws.ergo` and `time/wire.ergo`, with their rows in [Std laws](#std-laws).
+docs/spec/stdlib.md	| `time` | `WireIsFormat` | `WireIsFormat(sec int64, nsec int64, near bool, pre []byte) { let s = if near { anyYear(sec) } else { sec } let t = Time{sec: s, nsec: within(nsec, 0, 999999999), mono: 0, hasMono: false} utf8.String(t.Wire(pre)) == utf8.String(pre)+t.Format(RFC3339Nano) }` | `TestStdTimeLawsRun` | tested |
+examples/jobs/api/body.ergo	// wire form is its RFC 3339 text in UTC, which the encode appends to the
+internal/sketch/lower/std_time_test.go	assert utf8.String(time.Wire(t, pre)) == utf8.String(pre) + t.Format(time.RFC3339Nano)
+internal/sketch/lower/std_time_test.go	"time WireIsFormat":              `WireIsFormat(sec int64, nsec int64, near bool, pre []byte) { let s = if near { anyYear(sec) } else { sec } let t = Time{sec: s, nsec: within(nsec, 0, 999999999), mono: 0, hasMono: false} utf8.String(t.Wire(pre)) == utf8.String(pre)+t.Format(RFC3339Nano) }`,
+internal/sketch/lower/testdata/mutants.json	{"name":"gx10-pair-append-refused","origin":"wf10 GX10","file":"internal/sketch/check/wirecall.go","from":"base, appends := ws.Results[0], len(ws.Params) == 2","to":"base, appends := ws.Results[0], false","rule":"types.md, Codecs 1 (GX10): Wire(x X, into []byte) []byte with ParseX(s string) X is a by-name pair, the append form, whose base is string.","killers":["internal/sketch/lower:TestStdJSONLawsRun"]},
+internal/sketch/lower/testdata/mutants.json	{"name":"gx10-pair-append-offset","origin":"wf10 GX10","file":"internal/sketch/lower/wire.go","from":"p.Wire, env, tc.site, v, buf+\"[:0]\")","to":"p.Wire, env, tc.site, v, buf+\"[:1]\")","rule":"types.md, Codecs 1 (GX10): an append-form pair's wire form is the text Wire adds to an empty buffer.","killers":["internal/sketch/lower:TestStdJSONLawsRun"]},
+internal/sketch/lower/testdata/mutants.json	{"name":"gx10-time-wire-seconds","origin":"wf10 GX10","file":"internal/sketch/std/time/wire.ergo","from":"appendUTC(into, t.sec, t.nsec, \"2006-01-02T15:04:05.999999999Z07:00\")","to":"appendUTC(into, t.sec, t.nsec, \"2006-01-02T15:04:05Z07:00\")","rule":"stdlib.md, time (GX10): Wire adds Format(t, RFC3339Nano)'s bytes (law WireIsFormat).","killers":["internal/sketch/lower:TestStdTimeLawsRun"]},
+internal/sketch/syntax/testdata/mutants.json	{"name":"gx11-pair-append-no-into","origin":"wf10 GX11","file":"internal/sketch/syntax/pair.go","from":"\tif appends {\n\t\tinto = []Expr{","to":"\tif false {\n\t\tinto = []Expr{","rule":"types.md Codecs 7: the append form's law calls Wire with an empty buffer (GX11).","killers":["internal/sketch/syntax:TestPairLawDraws"]},
+CHANGELOG.md	- A by-name codec pair can now take the append form `ParseX(b []byte) X` with `Wire(x X, into []byte) []byte` (GX10, GX11; [types](docs/spec/types.md#codecs) Codecs 1). The encode gives Wire a buffer on its stack and writes the string from the bytes Wire adds, so no string of the text is made. std time's `Time` is now `wire`: it encodes as its RFC 3339 text in UTC with nanoseconds, the text Go's `MarshalJSON` writes, and it is read back with `time.ParseTime`. The parser derives the append form's round-trip law, `ParseX(x.Wire([]byte{})) == x`, as it does for any pair (GX11).
+docs/decisions.md	- **The append form's `ParseX` reads bytes (GX11).** The pair's append form is `ParseX(b []byte) X` with `Wire(x X, into []byte) []byte`, symmetric as Go's `TextUnmarshaler` and `TextAppender` are, so the parser derives its round-trip law, `ParseX(x.Wire([]byte{})) == x`, with no conversion between bytes and text, which Ergo writes only through a function. Decided by one concept, the pair's one law form; the cost is a decode that copies the string it read into bytes. Reverse by reading `ParseX(s string)` again in check's `wirePair` and syntax's `parseHalf` ([types.md, Codecs](spec/types.md#codecs) 1 and 7).
+internal/sketch/lower/std_time_test.go	let back = time.ParseTime(time.Wire(x, []byte{})) catch {
+docs/decisions.md	- **A pair's round-trip law draws X's own values (GX11 round 2, orchestrator).** The derived law is `XRoundTrips(x X) { try ParseX(x.Wire()) == x }`, over `x` from `X`'s constructor `NewX` or, for a record or union of exported fields, from any value. It never draws the base `B` through `ParseX`: that form passed at the `catch` for almost every case and read as coverage ("worse than none"). A pair whose `X` has no own generator gets a law that does not run, reported as a skip with its reason, as Laws 8 does for any law that cannot run; a compile error would refuse programs that are valid. std time's hand law `WireRoundTrips` is deleted: the derived `TimeRoundTrips` over `NewTime`'s instants kills its mutant ([types.md, Codecs](spec/types.md#codecs) 7).
+docs/spec/stdlib.md	| `ParseTime`, `Wire` | `Time`'s by-name codec pair in its append form ([types.md, Codecs](types.md#codecs) 1; GX10): `ParseTime(b []byte) Time fails ParseError` is `Parse(RFC3339, utf8.String(b))`; `Wire(t Time, into []byte) []byte` is `into` with `Format(t, RFC3339Nano)`'s bytes added (law `WireIsFormat`, and the pair's derived `TimeRoundTrips` over the instants `NewTime` makes). So a `Time` encodes as its RFC 3339 text in UTC with nanoseconds, as Go's `MarshalJSON` writes it, without its monotonic reading | Ergo over `TimeAppendUTC` (timeappend.go: Go's `AppendFormat`, for the years 0 to 9999) and `Format` |
+docs/spec/stdlib.md	| `time` | `TimeRoundTrips` | `TimeRoundTrips(x Time) { try ParseTime(x.Wire([]byte{})) == x }` | `TestStdTimeLawsRun` | tested |
+docs/spec/types.md	7. **Round-trip law of a pair.** A file that declares both `ParseX(b B) X` (no `needs`) and `Wire(x X) B` (no failure, no `needs`) gets the law the parser derives, `law XRoundTrips(x X) { try ParseX(x.Wire()) == x }`, which `ergo test` runs as any law; for the append form (rule 1) the law calls `x.Wire([]byte{})`, the empty buffer (GX11). The dot form `x.Wire()` names `X`'s own `Wire` when the package declares several (196m rule 3); a `ParseX` that fails nothing gets the law without `try`; a `ParseX` with a `needs` clause derives no law, since the law has no provider for it. The law draws `x` from `X`'s **own generator**, the values `X`'s package makes: its constructor `NewX` ([runtime.md, Tests](runtime.md#tests) 6), or any value of a record or union whose fields every package may write (confparse's `LevelRoundTrips`, proved over the four levels; std time's `TimeRoundTrips` over the instants `NewTime` makes). It never draws `B`: `ParseX` refuses almost every drawn `B`, so such a law would read as coverage and test nothing (GX11). An `X` with no own generator, a record with an unexported field and no `NewX` or a defined type over a basic type with none, gets a law that does not run, and the test build reports it as a skip with the reason ("its pair draws X from X's own generator, and it has none: declare NewX, …"), as for any law that cannot run (Laws 8). `X` must be comparable; the formatter does not print the law. A pair whose halves are in two files derives none.
+internal/sketch/lower/std_time_test.go	"time TimeRoundTrips":            `TimeRoundTrips(x Time) { try ParseTime(x.Wire([]byte{})) == x }`,
+internal/sketch/lower/testdata/mutants.json	{"name":"gx10-time-parse-layout","origin":"wf10 GX10","file":"internal/sketch/std/time/wire.ergo","from":"{ try Parse(RFC3339, utf8.String(b)) }","to":"{ try Parse(DateTime, utf8.String(b)) }","rule":"stdlib.md, time (GX10): ParseTime reads back the instant Wire writes (the pair's derived law TimeRoundTrips, GX11).","killers":["internal/sketch/lower:TestStdTimeLawsRun"]},
+docs/spec/stdlib.md	5. **Laws.** `RoundTrips`, `FastAgreesWithWriter` (the direct path writes what the Writer path writes, in a `Text` and an HTML `Text`, inside events too), `HTMLEscaped`, `InvalidBytesEscaped`, `LineSeparatorsEscaped`, `TruncatedFails`, `DepthLimits` and `StringBytesIsString` (the Writer's `StringBytes`, GX10, writes what `String` writes for the string its bytes spell), `StringBytesReadsString` (the Reader's `StringBytes(into)`, GX12, adds to `into` the bytes `String` reads, escapes and all, with no allocation: runtime/v1 `TestCursorStringBytesAllocatesNothing`); lower `TestStdJSONLawsRun` runs them, with `JsonFastRefinedPair` for a refined field and a by-name pair, which std cannot declare, and `JsonTimePair` for `time.Time`, a pair of the append form (types.md, Codecs 1): the encode lends `time.Wire` a buffer on its stack and writes the string event from its bytes, on the direct path and the Writer path alike.
+docs/spec/types.md	1. **wire.** The predeclared constraint `wire` (owner q83; predeclared as `comparable` is, not a keyword, so a declaration named `wire` shadows it) admits the types with a wire form, decided from the type's structure as `comparable` is: `bool`, the integer types but `uintptr`, the float types, `string`, a refined type (its base on the wire, its `ParseN` on decode, [Refinements](#refinements)), a record whose fields are wire and that has no unexported field, a union whose variants are wire, a slice, a Map whose key is `string` or a type over it (not a refined one), a tuple, and a type `X` with a **by-name pair**: its own package declares `ParseX(b B) X fails …` (`parseX` for an unexported `x`, the name rule of a refined type's parse function) and `Wire(x X) B` with no failure, for a wire `B`. The pair's **append form** (GX10, GX11) is `ParseX(b []byte) X` with `Wire(x X, into []byte) []byte`, both halves over bytes as Go's `TextUnmarshaler` and `TextAppender` are: `Wire` gives `into` with the UTF-8 bytes of `x`'s text added, and `x`'s wire form is that text as a string, so an encode lends `Wire` a buffer and writes the string event from the bytes (the prelude Writer's `StringBytes`), making no string of the text, and a decode reads the string event into a buffer it lends (the prelude Reader's `StringBytes(into)`, GX12) and gives `ParseX` those bytes, making no string of the text either; std time's `Time` is such a pair (RFC 3339 with nanoseconds, in UTC). The parser derives its round-trip law as for any pair (rule 7). A pair is looked up in `X`'s package only (coherence: one wire form per type). A function, an operation type, a pointer, `duration`, a complex type, a record that only its package builds and a type parameter without `wire` are not; S108 names the first part that is not, with its path (`Hook.Run`). `wire` is not a keyword: a let, a parameter or a type named `wire` shadows the constraint (196w).
+docs/spec/types.md	2. **encode and decode.** `encode(v, w)` writes the events of `v`'s wire form on `w`, a value of the prelude's operation type `Writer`; `decode[T](r)` reads a `T` from `r`, a `Reader`. Both are predeclared, as `len` is, and take a wire type, which may hold a type parameter under `wire` (rule 6). The events: a record is `BeginObject(n)`, then `Key` and the field for each field in declaration order, then `EndObject`; a union value is its variant's record with `Tag(name)` first, the variant's name as written (`Some`, `None`); a slice or tuple is `BeginList(n)`, its elements, `EndList`; a Map is an object with its keys in order. A string may also come as `StringBytes(b)`, the string b's UTF-8 bytes spell, which the append form of rule 1 writes, and a `Reader` gives one back as `StringBytes(into)`, `into` with the string's bytes added, which the append form reads (GX12); every `Writer` and every `Reader` provider declares its `StringBytes`, as it declares `String`: the prelude gives it no default body, since an operation type's contract is explicit and a default through `String` would make the string the operation exists to avoid (decisions, 2026-11-15). A field's key is its name with its leading run of capitals lowered (`Port` as `port`, `Some.Value` as `value`, Effect's `Schema.Option` encoded form; `ID` as `id`, `URL` as `url`, `X` as `x`); a run that a lower-case letter follows keeps its last capital, which starts the next word (`HTTPStatus` as `httpStatus`, `IOError` as `ioError`) (orchestrator, refining owner q81, 2026-11-10). This one function (`check.WireFieldName`) is every key mapper: the codec, the TS projection and `ergo gen rpc`. The map must be injective on each record: a record with two fields of one key (`ID` and `Id`) has no wire form, and the S108 names both fields and the key. `TestWireKeysFollowTheRule` holds the rule against a reference split into words, and the refusal exactly when two keys meet. An integer is `Int` or `Uint` with its exact value; JSON writes the exact digits.
+internal/sketch/check/pairlaw_test.go	b.WriteString("func Wire(v X, into []byte) []byte { into }\n")
+internal/sketch/check/pairlaw_test.go	b.WriteString("func Wire(v X) string { \"\" }\n")
+internal/sketch/check/pairlaw_test.go	src := "type host { name string }\nfunc parseHost(s string) host { host{name: s} }\nfunc Wire(h host) string { h.name }\n"
+# wf10 RPX1: a sync source's state needs its codec (the wire constraint), and the diagnostic case that pins the refusal
+examples/lease-sync/replica/frame.ergo	[S wire,
+examples/lease-sync/replica/frame.ergo	(`S wire`)
+examples/lease-sync/replica/frame.ergo	source-not-wire
+examples/lease-sync/replica/client.ergo	[S wire,
+examples/lease-sync/replica/server/server.ergo	[S wire,
+examples/lease-sync/replica/server/handle.ergo	[S wire,
+cmd/ergo/diagnostic_cases_test.go	*
+cmd/ergo/testdata/diagnostics/source-not-wire/expected	*
+cmd/ergo/testdata/mutants.json	"from":"type Source[S wire,
 # skipped: the history list (decision 6; docs/research/ef-migrate/*.ergo is parsed
 # in the current syntax and stays checked) and the old-syntax parser
 !docs/receipts/
@@ -19,7 +56,14 @@ internal/sketch/check/wireform.go	*
 internal/sketch/check/wireform_test.go	*
 internal/sketch/eval/codecwalk.go	w.callFunc(w.in.wirePair(r.t).Wire, v)
 internal/sketch/eval/codecwalk.go	w.callFunc(p.Wire, v)
+internal/sketch/eval/codecwalk.go	pairWire is p's Wire of v
+internal/sketch/eval/codecwalk.go	Wire(v, into []byte) []byte (GX10)
+internal/sketch/eval/codecwalk.go	w.in.callResolved(w.fr, w.at, p.Wire, nil
+internal/sketch/eval/codecwalk.go	not a []byte", p.Wire.Name
+internal/sketch/eval/codecwalk.go	unknown bytes", p.Wire.Name
+internal/sketch/eval/testdata/mutants.json	return w.callFunc(p.Wire, v)
 internal/sketch/lower/wireform_test.go	*
+internal/sketch/lower/ir_wire.go	irNo("codec writer of a wire form %v", check.WireFormOf(t))
 docs/spec/types.md	8. **Declared wire forms.**
 docs/spec/types.md	A marker with the wrong structural shape is S108 when used as `wire`.
 docs/spec/types.md	A structural form cannot also declare an independent Parse/Wire pair;
@@ -50,6 +94,7 @@ tools/ts/bun.mjs	*
 tools/ts/esbuild.mjs	*
 tools/ts/vite.mjs	*
 CHANGELOG.md	done: true }`, `todo.done`), so wire keys such as `"done"` keep working,
+CHANGELOG.md	with `Wire(x X, into []byte) []byte` (GX10
 CHANGELOG.md	a derived codec can carry the wire key `"done"`), and a form where
 CHANGELOG.md	`TestHTTPWireVectors` runs the shared wire vectors in `conformance/http/`
 CHANGELOG.md	`http-transport.ef` and compares the wire transcript.
@@ -113,7 +158,7 @@ internal/sketch/lower/testdata/mutants.json	"file":"internal/sketch/std/lint/wir
 internal/sketch/lower/testdata/mutants.json	"file":"internal/sketch/std/lint/wire.ergo","from":"\tcase json.Present[Span] as p:
 internal/sketch/lower/std_lint_test.go	*
 internal/sketch/lower/catch_wired_test.go	*
-internal/sketch/std/laws_test.go	*
+internal/sketch/stdlib/laws_test.go	*
 internal/sketch/std/lint/facts.ergo	*
 internal/sketch/std/lint/laws.ergo	*
 internal/sketch/std/lint/pack.ergo	*
@@ -153,6 +198,7 @@ docs/specs/standard-library-capabilities.md	encoder; explicit secret access and 
 docs/specs/state-machines.md	derived codec therefore carries wire keys such as `"done"`, as Rust
 docs/standard-library.md	external codecs, validation and wire compatibility |
 runtime/v1/wire.go	*
+runtime/v1/testdata/mutants.json	"file":"runtime/v1/wire.go"
 internal/sketch/check/info.go	// WirePairs are the by-name wire forms (types.md, Codecs 1) that this
 internal/sketch/check/testdata/fixtures/negative/codec-rows.ergo	*
 internal/sketch/check/wire.go	*
@@ -181,7 +227,7 @@ internal/tsproj/testdata/runtime.mjs	// seed-selected wire names are independent
 internal/sketch/lower/wire.go	*
 internal/sketch/std/prelude.ergo	// Reader gives the events of a wire form back, in the order
 internal/sketch/std/prelude.ergo	// Writer takes the events of a value's wire form (types.md, Codecs):
-runtime/embed.go	//go:embed v1/time.go v1/timetext.go v1/wire.go v1/json.go
+runtime/embed.go	//go:embed v1/time.go v1/timetext.go v1/timeappend.go v1/tzdata.go v1/tzhost.go v1/wire.go v1/json.go
 # a pinned upstream copy (sha256 in internal/bindc): OpenTUI's opentui.h says wire bytes and wire modifiers
 internal/bindc/testdata/opentui/opentui.h	*
 internal/sketch/check/testdata/fixtures/spec/types-laws.ergo	// Quantity.Wire become its operations.
@@ -360,7 +406,6 @@ internal/sketch/lower/witness.go	// codec (wire.go wireCodecType).
 internal/sketch/syntax/ast_decided.go	// Pair is the Wire function of the by-name codec pair whose round
 internal/sketch/syntax/pair.go	*
 internal/sketch/syntax/pair_test.go	*
-docs/spec/types.md	7. **Round-trip law of a pair.** A file that declares both `ParseX(b B) X` (no `needs`) and `Wire(x X) B` (no failure, no `needs`) gets the law the parser derives, `law XRoundTrips(b B) { let x = ParseX(b) catch { case _: return true } try ParseX(x.Wire()) == x }`, which `ergo test` runs as any law. The dot form `x.Wire()` names `X`'s own `Wire` when the package declares several (196m rule 3); a `ParseX` that fails nothing gets the law without `catch` and `try`; a `ParseX` with a `needs` clause derives no law, since the law has no provider for it. A value of `X` is drawn through `ParseX`, as a decode meets it, so the law needs no generator under `X`'s authority, and a `ParseX` that normalises its input satisfies it. When the file declares `X` open (a record of exported fields, or a union of such records of the file), every value is a valid `X`, so the law draws `x` itself and reaches every value: `law XRoundTrips(x X) { try ParseX(x.Wire()) == x }` (confparse's `LevelRoundTrips`, proved over the four levels). `X` must be comparable; the formatter does not print the law. A pair whose halves are in two files derives none.
 internal/sketch/check/info.go	// a wire one (types.md, Codecs). Added in L11.
 internal/sketch/check/intern.go	vWired         // wired[T]: the decode row of a wire type parameter
 internal/sketch/check/testdata/fixtures/negative/wire-constraint.ergo	*
@@ -387,10 +432,10 @@ docs/spec/stdlib.md	a field's key is its wire name, an unknown key is skipped, a
 docs/spec/stdlib.md	goes on the wire as a string by a by-name pair (`ParseX`, `Wire`;
 runtime/v1/http/http_target_test.go	// this checks the bytes on the wire against it, at a raw loopback
 runtime/v1/http/testdata/webtarget/gen.mjs	// checks on the wire (S-target). Each row is a generated URL (or a base and
+docs/spec/stdlib.md	| `EncodeWith` | `EncodeWith[T wire, U, R](c Codec[T], v T, use func(text []byte) U needs R) U needs R \| wired[T]`: lends `use` v's text in the borrowed buffer, taken back when `use` returns (http SuccessJSON, GX9) | Ergo over `strings.Hint`, `Borrow`, `Give` |
+internal/sketch/std/http/router.ergo	func SuccessJSON[T, V wire](route Route[T], c json.Codec[V], v V) Response needs Streaming | wired[V] {
 docs/spec/stdlib.md	**Typed query** (S-query). `DecodeQuery[T wire](fields) T fails QueryRepeated | wired[T]`
 docs/spec/stdlib.md	follows the codec's one rule: a field's key is its wire name, an
-docs/spec/types.md	1. **wire.** The predeclared constraint `wire` (owner q83; predeclared as `comparable` is, not a keyword, so a declaration named `wire` shadows it) admits the types with a wire form, decided from the type's structure as `comparable` is: `bool`, the integer types but `uintptr`, the float types, `string`, a refined type (its base on the wire, its `ParseN` on decode, [Refinements](#refinements)), a record whose fields are wire and that has no unexported field, a union whose variants are wire, a slice, a Map whose key is `string` or a type over it (not a refined one), a tuple, and a type `X` with a **by-name pair**: its own package declares `ParseX(b B) X fails …` (`parseX` for an unexported `x`, the name rule of a refined type's parse function) and `Wire(x X) B` with no failure, for a wire `B`. A pair is looked up in `X`'s package only (coherence: one wire form per type). A function, an operation type, a pointer, `duration`, a complex type, a record that only its package builds and a type parameter without `wire` are not; S108 names the first part that is not, with its path (`Hook.Run`). `wire` is not a keyword: a let, a parameter or a type named `wire` shadows the constraint (196w).
-docs/spec/types.md	2. **encode and decode.** `encode(v, w)` writes the events of `v`'s wire form on `w`, a value of the prelude's operation type `Writer`; `decode[T](r)` reads a `T` from `r`, a `Reader`. Both are predeclared, as `len` is, and take a wire type, which may hold a type parameter under `wire` (rule 6). The events: a record is `BeginObject(n)`, then `Key` and the field for each field in declaration order, then `EndObject`; a union value is its variant's record with `Tag(name)` first, the variant's name as written (`Some`, `None`); a slice or tuple is `BeginList(n)`, its elements, `EndList`; a Map is an object with its keys in order. A field's key is its name with its leading run of capitals lowered (`Port` as `port`, `Some.Value` as `value`, Effect's `Schema.Option` encoded form; `ID` as `id`, `URL` as `url`, `X` as `x`); a run that a lower-case letter follows keeps its last capital, which starts the next word (`HTTPStatus` as `httpStatus`, `IOError` as `ioError`) (orchestrator, refining owner q81, 2026-11-10). This one function (`check.WireFieldName`) is every key mapper: the codec, the TS projection and `ergo gen rpc`. The map must be injective on each record: a record with two fields of one key (`ID` and `Id`) has no wire form, and the S108 names both fields and the key. `TestWireKeysFollowTheRule` holds the rule against a reference split into words, and the refusal exactly when two keys meet. An integer is `Int` or `Uint` with its exact value; JSON writes the exact digits.
 docs/spec/types.md	3. **Rows.** `decode[T]`'s error row is the union of what `T`'s wire form may fail, computed at the call: `WireWrongKind` always (an event of another kind, or an integer outside its type's range), `WireMissingField` when `T` reaches a record with fields or a union (whose tag may be missing), `WireUnknownTag` when it reaches a union, `Unsatisfied` when it reaches a refined type, and the row of each `ParseX` it reaches, which must be written. `encode` fails nothing.
 internal/sketch/check/bindings.go	// constraint wire is not one (predeclaredAbove).
 internal/sketch/check/predeclared.go	// The constraint wire is not predeclared: a declaration named wire
@@ -459,9 +504,6 @@ examples/pipeline/pipeline/pipelinemcp/mcp.ergo	*
 examples/pipeline/surfaces/laws.ergo	*
 examples/pipeline/surfaces/surfaces.ergo	*
 examples/pipeline/README.md	the wire's `Request`
-examples/pipeline/README.md	the generated client over the wire, command lines
-examples/pipeline/README.md	holds for the generated client over the wire
-examples/pipeline/README.md	the wire sends two requests in the other order
 examples/pipeline/testdata/mutants.json	*
 scripts/examples/module_test.go	walkrpc/wire.ergo
 examples/fk-domains/domains/domainsrpc/client.ergo	*
@@ -523,4 +565,20 @@ internal/sketch/std/ui/location.ergo	func EncodeQuery[T wire](v T) string fails 
 internal/sketch/std/ui/location.ergo	func WithQuery[T wire](u URL, v T) URL fails QueryShape needs wired[T] {
 modules/xml/text.ergo	func Encode[T wire](c Codec[T], v T) string needs wired[T] {
 modules/xml/xml.ergo	func Decode[T wire](c Codec[T], text string) T fails Malformed | wired[T] needs wired[T] {
-runtime/embed.go	files:   []string{"actor.go", "actor_host.go", "actor_recover.go", "actor_trace.go", "atomic.go", "buffer.go", "collections.go", "config_names.go", "context.go", "data.go", "embed.go", "exit.go", "exits.go", "explore_laws.go", "explore_off.go", "explore_on.go", "goarg.go", "gocall.go", "gocallback.go", "goerror.go", "goreads.go", "guard.go", "guard_other.go", "guard_unix.go", "heap.go", "host.go", "intmap.go", "json.go", "json_append.go", "leaves.go", "lineage.go", "mailbox.go", "mapfile_unix.go", "mapped.go", "moves.go", "numbers.go", "owned.go", "path.go", "queue.go", "runtime.go", "script.go", "sealed.go", "set.go", "shrink.go", "static.go", "stdout.go", "strbuf.go", "sync.go", "task.go", "term.go", "term_bsd.go", "term_darwin.go", "term_linux.go", "term_unix.go", "text.go", "time.go", "timetext.go", "toml.go", "toml_encode.go", "trace.go", "ui_args.go", "unchecked.go", "unsupported_os.go", "view.go", "wire.go"},
+runtime/embed.go	"unchecked.go", "unsupported_os.go", "view.go", "wire.go"},
+runtime/embed.go	"unsupported_os.go", "view.go", "wire.go"},
+runtime/embed.go	files:   []string{"actor.go", "actor_host.go", "actor_recover.go", "actor_trace.go", "allocs.go", "atomic.go", "buffer.go", "civil.go", "collections.go", "config_names.go", "context.go", "data.go", "deadline.go", "embed.go", "exchange_darwin.go", "exchange_darwin.s", "exchange_linux.go", "exchange_linux_amd64.go", "exchange_linux_arm64.go", "exchange_other.go", "exit.go", "exits.go", "explore_laws.go", "explore_off.go", "explore_on.go", "fuse.go", "goarg.go", "gocall.go", "gocallback.go", "goerror.go", "goreads.go", "gotrace_off.go", "gotrace_on.go", "guard.go", "guard_other.go", "guard_unix.go", "heap.go", "hook.go", "host.go", "intmap.go", "json.go", "json_append.go", "json_bytes.go", "leaves.go", "lineage.go", "mailbox.go", "mapfile_unix.go", "mapped.go", "moves.go", "numbers.go", "owned.go", "path.go", "queue.go", "runtime.go", "script.go", "sealed.go", "set.go", "shrink.go", "static.go", "stdout.go", "strbuf.go", "sync.go", "task.go", "term.go", "term_bsd.go", "term_darwin.go", "term_linux.go", "term_unix.go", "testhost.go", "text.go", "time.go", "timeappend.go", "timetext.go", "toml.go", "toml_encode.go", "trace.go", "tzdata.go", "tzhost.go", "ui_args.go", "unchecked.go", "unsupported_os.go", "view.go", "wire.go"},
+
+# std explore (MODELCHECK E1, T2): a state key and a trace read through the codec (the wire form and the wire constraint)
+internal/sketch/std/explore/search.ergo	*
+internal/sketch/std/explore/verdict.ergo	*
+internal/sketch/std/explore/conform.ergo	*
+internal/sketch/stdlib/explore_key_test.go	*
+cmd/ergo/conform.go	must be wire types: a trace is read by their codecs
+docs/spec/stdlib.md	the observed members laid over `v`'s wire form
+docs/spec/stdlib.md	the observed fields are laid over a candidate's wire form
+internal/sketch/eval/testdata/mutants.json	so equal Maps have one wire form
+internal/sketch/stdlib/testdata/mutants.json	laid over the candidate's wire form
+internal/sketch/stdlib/testdata/mutants.json	The wire fast path:
+internal/sketch/stdlib/testdata/mutants.json	takes in every part of its wire form
+docs/spec/stdlib.md	func FitOf[T wire](v T, obs json.Value) Fit

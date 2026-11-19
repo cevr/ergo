@@ -18,7 +18,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -90,7 +90,7 @@ func checkerDomain(t *testing.T) []string {
 			return true
 		})
 	}
-	for _, src := range std.Prelude() {
+	for _, src := range stdlib.Prelude() {
 		for _, w := range regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*`).FindAllString(src, -1) {
 			set[w] = true
 		}

@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/stdlib"
 )
 
 // goIfaceTarget is a Go interface of import go, as an Ergo program spells
@@ -149,7 +149,7 @@ func TestValuesIntoGoInterfaces(t *testing.T) {
 	}
 	sealed := 0
 	for _, s := range stdOpTypes(t) {
-		if s.path == std.PreludePath && s.name != "Task" && len(s.members) == 0 {
+		if s.path == stdlib.PreludePath && s.name != "Task" && len(s.members) == 0 {
 			continue
 		}
 		probe := lowerSource("probe", strings.Replace(sealedSource(stdOpType{path: s.path, pkg: s.pkg, name: s.name, tparams: s.tparams, tpnames: s.tpnames, imports: s.imports}, nil, "", "int"), " int { s }", " int { 0 }", 1)+"func main() {}\n", false)

@@ -19,8 +19,8 @@ const refFlipChild = "ERGO_REF_FLIP_CHILD"
 // prove alone (a literal whose footprint starts a task). Each function
 // yields many times after the start and fails if the task's Set finished
 // meanwhile, or saw the cell poisoned by the operation in flight (the
-// mutant "inplace-alone-ignored"; a plain Update that skips its lock is
-// caught too, and its ledger row is owed: I-FLIP red #34). Run with
+// mutant "inplace-alone-ignored"; a plain Update that skips its lock
+// while alone, the mutant "update-skips-lock"). Run with
 // -race, a Set during the function is also a data race on the cell.
 //
 // Alone is the process's history, and this package's other tests start
@@ -31,9 +31,9 @@ func TestRefFlipInsideUpdate(t *testing.T) {
 		t.Skip("the explored build is never alone")
 	}
 	cases := map[string]func(r *Ref[int], f func(int) int){
-		"Update": func(r *Ref[int], f func(int) int) { r.Update(f) },
+		"Update": func(r *Ref[int], f func(int) int) { r.Update(rt.Root("sync"), f) },
 		"InPlace not alone": func(r *Ref[int], f func(int) int) {
-			RefUpdateInPlace(r, func(p *int) { *p = f(*p) }, func(v int) int { return v }, true, false)
+			RefUpdateInPlace(rt.Root("sync"), r, func(p *int) { *p = f(*p) }, func(v int) int { return v }, true, false)
 		},
 	}
 	name := os.Getenv(refFlipChild)

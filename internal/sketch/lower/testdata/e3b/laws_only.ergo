@@ -7,7 +7,7 @@ func square(n int) int {
 
 law SquareNonNegative(n int) { square(n) >= 0 }
 
-law AddCommutes(a int, b int) { a + b == b + a }
+law AddCommutes(a int, b int) { square(a + b) == square(b + a) }
 
 func main() needs Console {
 	Console.Println("\(square(10))")

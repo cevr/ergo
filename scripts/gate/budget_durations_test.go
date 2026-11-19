@@ -1,6 +1,8 @@
 package main
 
 import (
+	"math"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"strings"
@@ -86,6 +88,34 @@ func TestRecordFastCPUWritesOnlyTheFastCPUTable(t *testing.T) {
 	}
 }
 
+// A recorded CPU row (cpuTenths) is the least tenth of a second at or
+// above the measured time: any positive time gives a positive row, and
+// no row is a tenth or more above the time. Checked over seeded times
+// from a microsecond to an hour, a tenth of them under 0.05 s, which
+// rounding to the nearest tenth would record as 0 (merge tier r4b, batch
+// 19). Mutant it catches, which no other test catches at every load:
+// cpuTenths rounding to the nearest tenth (cpu-round-nearest).
+// TestRecordFastCPURecordsAStepByName catches it only when its warm
+// `go run` happens to take under 0.05 CPU-s, which depends on load.
+func TestCPUTenthsRoundsUpProperty(t *testing.T) {
+	t.Parallel()
+	r := rand.New(rand.NewPCG(20261118, 1))
+	for range 10000 {
+		seconds := math.Pow(10, r.Float64()*9.6-6)
+		if r.IntN(10) == 0 {
+			seconds = r.Float64() * 0.05
+		}
+		if seconds == 0 {
+			continue
+		}
+		got := cpuTenths(seconds)
+		tenths := got * 10
+		if got <= 0 || got < seconds || got-seconds >= 0.1+1e-9 || math.Abs(tenths-math.Round(tenths)) > 1e-6 {
+			t.Fatalf("cpuTenths(%g) = %g; want the least tenth at or above it, and positive", seconds, got)
+		}
+	}
+}
+
 // `-record-durations -fast 'examples (default)'` records the examples
 // step, which is no package's, under its step name (fastCPUSteps), after
 // the bin/ergo build it needs. It runs the step's `go run`, because the
@@ -112,8 +142,12 @@ func TestRecordFastCPURecordsAStepByName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cpu, ok := table[examplesStepName]; !ok || cpu <= 0 || table["example.test/step/q"] != 7 || len(table) != 2 {
-		t.Errorf("fast CPU table %v; want a positive row %q and q's row kept", table, examplesStepName)
+	// The row's value is the step's CPU rounded to tenths: this fixture's
+	// empty program takes about 0.05 s, so it rounds to 0 or 0.1 by the
+	// host's accounting (it failed about 1 run in 3). The row's presence is
+	// what the mutant takes away.
+	if cpu, ok := table[examplesStepName]; !ok || cpu < 0 || table["example.test/step/q"] != 7 || len(table) != 2 {
+		t.Errorf("fast CPU table %v; want a row %q and q's row kept", table, examplesStepName)
 	}
 }
 

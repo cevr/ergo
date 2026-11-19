@@ -2,8 +2,11 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,12 +18,17 @@ import (
 	"ergo.local/prototype/internal/sketch/lawcache"
 	"ergo.local/prototype/internal/sketchfront"
 	"ergo.local/prototype/internal/stage"
+	"ergo.local/prototype/runtime/rt"
+	"ergo.local/prototype/runtime/rt/rttrace"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
-// testCommand runs a source's tests: `ergo test FILE [--seed N] [--states N]
+// testCommand runs a source's tests: `ergo test FILE|DIR|DIR/... [MORE...] [--seed N] [--states N]
 // [--law NAME] [--skip-law NAME] [--run NAME] [--receipt FILE]
 // [--explore [dfs|pct|random] [--preempt B] [--depth D] [--schedules S]]
-// [--schedule TOKEN] [-work] [--debug] [--target go]`. --states is the
+// [--schedule TOKEN] [--native] [-work] [--debug] [--target go]`. A package
+// the check-time evaluator decides whole is answered from it, with no
+// build (evaluated.go; --native always builds). --states is the
 // budget of states of each reachability law's search (machine laws;
 // 1,000,000 by default). --law runs only the law NAME and no test;
 // --skip-law runs all but that law, with a skip line. --run runs the one
@@ -45,10 +53,48 @@ import (
 // is cached by everything it reads, and replayed with no link and no run
 // (testcache.go); --count 1 always runs. A package with nothing to test is
 // never built (empty.go).
+//
+// --trace prints, after the run, the trace of every scene script the tests
+// played: one line per act, in the order the acts ran, each the line std
+// ui's PlayTrace returns for it (testTrace). It takes one package, played
+// plainly: with a pattern or --explore it is a usage error. A traced run
+// is never answered from a cache, of results or of law verdicts, since a
+// cached answer has no trace.
+//
+// --cases DIR runs the recorded cases of DIR against the built main
+// package in place of its tests (cases.go, testCases).
+//
+// Several targets (`ergo test ./a ./b c/...`) run one after another, each
+// under its own package line, a failure not stopping the rest
+// (manyTestCommand); options that pick one law, test or receipt take one
+// target.
 func testCommand(args []string) error {
+	args, casesDir, err := casesFlag(args)
+	if err != nil {
+		return invalidInvocation(err)
+	}
+	if casesDir != "" {
+		return testCases(args, casesDir)
+	}
+	args, trace := traceFlag(args)
 	opts, err := parseFileOptions("test", args)
 	if err != nil {
 		return invalidInvocation(err)
+	}
+	opts.trace = trace
+	if trace && (recursivePattern(opts.file) || len(opts.more) > 0 || opts.explore || opts.search.mode != "") {
+		return invalidInvocation(fmt.Errorf("ergo test: --trace takes one package, played plainly, not a pattern or --explore"))
+	}
+	if opts.affected.on {
+		return affectedTestCommand(opts, os.Stdout, func(o fileOptions, l loaded) error { return testLoadedPackage(o, l, nil) })
+	}
+	if opts.emitted && opts.json {
+		// Each package's check envelope and emitted digests, one JSON
+		// line each, from one process (emittedjson.go, gate-speed GS31b).
+		return printEmittedJSON(opts)
+	}
+	if len(opts.more) > 0 {
+		return manyTestCommand(opts)
 	}
 	if recursivePattern(opts.file) {
 		if opts.emitted {
@@ -65,17 +111,43 @@ func testCommand(args []string) error {
 	return testPackage(opts)
 }
 
+// traceFlag removes test's --trace from args, and reports whether it was
+// there. A --trace that is an option's value (--law --trace) stays that
+// option's.
+func traceFlag(args []string) ([]string, bool) {
+	out := make([]string, 0, len(args))
+	trace := false
+	for i, a := range args {
+		if a == "--trace" && (i == 0 || !takesValue(args[i-1])) {
+			trace = true
+			continue
+		}
+		out = append(out, a)
+	}
+	return out, trace
+}
+
+// takesValue reports whether option a reads the next word as its value.
+func takesValue(a string) bool {
+	switch a {
+	case "--target", "-o", "--seed", "--states", "--receipt", "--law", "--skip-law", "--platform", "--eval-steps", "--eval-bytes", "--run", "--preempt", "--depth", "--schedules", "--schedule", "--count":
+		return true
+	}
+	return false
+}
+
 // testPackage tests one package. An unchanged package folder whose last
 // run passed is a warm answer (warm.go; compile-speed CS8): its stored
 // result is replayed with no check, no emission, no link and no process.
-// The request's key adds the law ledger a full run writes.
+// The request's key adds the law ledger a full run writes. A traced run
+// takes no warm answer and keeps none: the answer has no trace.
 func testPackage(opts fileOptions) error {
 	var w *warm
-	if testCacheable(opts) {
+	if testCacheable(opts) && !opts.trace {
 		w = startWarm(opts, warmToolchain(opts), ledgerPart(ledgerPath(opts.file)))
 	}
 	if w != nil && w.hit {
-		return replayTestResult(w.answer.Test, os.Stdout, os.Stderr)
+		return replayTestResult(w.answer.Test, opts.file, os.Stdout, os.Stderr)
 	}
 	l, err := loadThrough(w.fsys(), opts.file, opts.target, opts.platform)
 	if err != nil {
@@ -110,6 +182,9 @@ func testLoadedPackage(opts fileOptions, l loaded, keep func(result []byte)) err
 		}
 		return err
 	}
+	if answered, err := evaluatedTestRun(opts, l, os.Stdout, os.Stderr, keep); answered {
+		return err
+	}
 	dir, err := os.MkdirTemp("", "ergo-test-")
 	if err != nil {
 		return err
@@ -128,7 +203,7 @@ func testLoadedPackage(opts fileOptions, l loaded, keep func(result []byte)) err
 		// The tag chooses the runtime's controlled scheduler at link
 		// time; the emitted module is the one a plain `ergo test` uses
 		// (runtime.md, Explored schedules).
-		tc.Tags = []string{"ergoexplore"}
+		tc.Tags = append(tc.Tags, "ergoexplore")
 	}
 	childArgs, err := testChildArgs(opts, l.result.Revision)
 	if err != nil {
@@ -148,6 +223,10 @@ func testLoadedPackage(opts fileOptions, l loaded, keep func(result []byte)) err
 	cache := build.Cache{Root: root}
 	ledger := ledgerPath(opts.file)
 	key := testResultKey(opts, tc, childArgs, limit, ledger)
+	if opts.trace {
+		// A cached answer has no trace.
+		key = ""
+	}
 	var cached []byte
 	hit := false
 	// A build that printed a note is not answered warm, since the answer
@@ -156,23 +235,17 @@ func testLoadedPackage(opts fileOptions, l loaded, keep func(result []byte)) err
 	// The direct path links nothing for an unchanged module (its action
 	// store holds the executable, build/direct.go); a cached passing
 	// result skips even that.
-	module, err := sketchfront.Build(l.analysis, sketchfront.BuildRequest{
-		Mode:   build.ModeTest,
-		Source: l.source.Admitted(),
-		Output: binary,
-		Reuse: func(m build.Module) bool {
-			if key == "" {
-				return false
-			}
-			data, ok := cache.Result(m, key)
-			cached, hit = data, ok
-			return ok
-		},
-		Cache:     cache,
-		Toolchain: tc,
-		IR:        true,
-		Stderr:    buildStderr,
-	})
+	req := emissionRequest(opts, l, build.ModeTest)
+	req.Output, req.Cache, req.Toolchain, req.Stderr = binary, cache, tc, buildStderr
+	req.Reuse = func(m build.Module) bool {
+		if key == "" {
+			return false
+		}
+		data, ok := cache.Result(m, key)
+		cached, hit = data, ok
+		return ok
+	}
+	module, err := sketchfront.Build(l.analysis, req)
 	if opts.work && module.Dir != "" {
 		fmt.Fprintf(os.Stderr, "WORK=%s\n", module.Dir)
 	}
@@ -183,7 +256,7 @@ func testLoadedPackage(opts fileOptions, l loaded, keep func(result []byte)) err
 		if !buildStderr.written {
 			keep(cached)
 		}
-		return replayTestResult(cached, os.Stdout, os.Stderr)
+		return replayTestResult(cached, opts.file, os.Stdout, os.Stderr)
 	}
 	var store func(testResult)
 	if key != "" {
@@ -197,7 +270,7 @@ func testLoadedPackage(opts fileOptions, l loaded, keep func(result []byte)) err
 			}
 		}
 	}
-	return runTestBinary(opts, l, binary, nil, store)
+	return runTestBinary(opts, l, tc, binary, nil, store)
 }
 
 // runTestBinary runs the tests of the package l in the test binary, its
@@ -205,7 +278,7 @@ func testLoadedPackage(opts fileOptions, l loaded, keep func(result []byte)) err
 // index for a module's one binary (sharedTestCommand). store, when not
 // nil, is given the output of a passing run, after the run wrote the law
 // ledger (testcache.go).
-func runTestBinary(opts fileOptions, l loaded, binary string, prefix []string, store func(testResult)) error {
+func runTestBinary(opts fileOptions, l loaded, tc build.Toolchain, binary string, prefix []string, store func(testResult)) error {
 	args, err := testChildArgs(opts, l.result.Revision)
 	if err != nil {
 		return err
@@ -232,7 +305,7 @@ func runTestBinary(opts fileOptions, l loaded, binary string, prefix []string, s
 	// print it "(cached)" and do not run (lawcache); an explored run
 	// takes none, since it runs under another scheduler.
 	var verdicts *sketchfront.TestVerdicts
-	if !opts.explore && opts.receipt == "" {
+	if !opts.explore && opts.receipt == "" && !opts.trace {
 		seed, states := uint64(1), 0
 		if opts.seed != "" {
 			seed, _ = strconv.ParseUint(opts.seed, 10, 64)
@@ -240,8 +313,11 @@ func runTestBinary(opts fileOptions, l loaded, binary string, prefix []string, s
 		if opts.states != "" {
 			states, _ = strconv.Atoi(opts.states)
 		}
-		verdicts = l.analysis.TestVerdicts(lawStore(), seed, states)
-		if text := verdicts.CachedFile(); text != "" {
+		verdicts = l.analysis.TestVerdicts(lawStore(), seed, states, nativeToolchain(opts, tc))
+		// --native (the gate, CI) runs every law: it reads no stored
+		// verdict, so its pass is a run's, never a replay. It still
+		// stores what held, for the next default run (FT2).
+		if text := verdicts.CachedFile(); text != "" && !opts.native {
 			// A file of this run's own: a module's one test binary runs
 			// once per package (sharedTestCommand).
 			dir, err := os.MkdirTemp("", "ergo-cached-")
@@ -260,12 +336,29 @@ func runTestBinary(opts fileOptions, l loaded, binary string, prefix []string, s
 	// emission cache's trim (lawtrim.go).
 	defer boundLaws(lawStore())
 	child := testProgramCommand(binary, childArgs, limit)
+	tracePath := ""
+	if opts.trace {
+		// The test binary's root records its trace into this file when
+		// main ends (runtime/v1 TraceEnv), whatever the verdict.
+		dir, err := os.MkdirTemp("", "ergo-trace-")
+		if err != nil {
+			return err
+		}
+		defer os.RemoveAll(dir)
+		tracePath = filepath.Join(dir, "trace.jsonl")
+		child.Env = append(child.Env, v1.TraceEnv+"="+tracePath)
+	}
 	var out bytes.Buffer
 	var result testResult
+	// The binary decides the selected obligations natively (FT0's counter).
+	result.obligations = nativeObligations(l.analysis.Root().Package, opts)
+	stage.Add(stage.ObligationsNative, int64(result.obligations))
 	// A rewrite shadow that finds its law false writes a refutation line
 	// (shadow.RefutedPrefix) before its defect: the ledger records it.
 	shadows := &shadowLines{}
-	stdout, stderr := []io.Writer{os.Stdout}, []io.Writer{os.Stderr, shadows}
+	// The printed lines, for the skips the module does not expect.
+	var printed bytes.Buffer
+	stdout, stderr := []io.Writer{os.Stdout, &printed}, []io.Writer{os.Stderr, shadows}
 	if verdicts != nil {
 		stdout = append(stdout, &out)
 	}
@@ -279,6 +372,11 @@ func runTestBinary(opts fileOptions, l loaded, binary string, prefix []string, s
 		child.Stderr = io.MultiWriter(stderr...)
 	}
 	err = runEntryProcess(child, limit, proclimit.Watch(child))
+	if opts.trace {
+		if err := printSteps(os.Stdout, tracePath); err != nil {
+			return err
+		}
+	}
 	// Each run that printed its ok line held, whatever later runs did.
 	verdicts.Record(out.String())
 	if len(shadows.refs) > 0 {
@@ -288,6 +386,12 @@ func runTestBinary(opts fileOptions, l loaded, binary string, prefix []string, s
 		}
 	}
 	if err != nil {
+		return err
+	}
+	// A run that passed with a skip its module does not expect fails: a
+	// law that ergo test did not run is not a pass (runtime.md, Tests 4).
+	// It writes no ledger and is not kept.
+	if err := skipsExit(printed.Bytes(), opts.file); err != nil {
 		return err
 	}
 	if opts.law != "" || opts.skipLaw != "" || opts.run != "" || opts.explore {
@@ -319,9 +423,14 @@ func writeLedger(opts fileOptions, l loaded) error {
 	if err != nil {
 		return err
 	}
-	tc, err := buildAction(opts)
-	if err != nil {
-		return err
+	// A library's ledger takes no build (sketchfront.HasMain), so its
+	// write resolves no toolchain: no go command, and no patched compile
+	// built into a cold cache (GATE-CORE-COST).
+	var tc build.Toolchain
+	if sketchfront.HasMain(l.analysis.Root().Package) {
+		if tc, err = buildAction(opts); err != nil {
+			return err
+		}
 	}
 	changed, err := sketchfront.UpdateLedger(l.analysis, sketchfront.BuildRequest{
 		Mode:      build.ModeBuild,
@@ -448,6 +557,48 @@ func lawStoreOf(compiler string) *lawcache.Store {
 		return nil
 	}
 	return lawcache.Open(root, compiler)
+}
+
+// printSteps writes the step events of the trace at path to w: a line
+// "trace: N steps", then each step's line, in the order the runtime raised
+// them. A trace whose recorder dropped events says so on stderr, as a
+// step may be among them. A run that wrote no trace (it stopped before
+// main ended) prints no step.
+func printSteps(w io.Writer, path string) error {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		fmt.Fprintln(w, "trace: no trace was written")
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	head, rest, _ := bytes.Cut(data, []byte("\n"))
+	var h rttrace.Header
+	if err := json.Unmarshal(head, &h); err != nil {
+		return fmt.Errorf("ergo test --trace: %s: %w", path, err)
+	}
+	var steps []string
+	for _, line := range bytes.Split(rest, []byte("\n")) {
+		if len(line) == 0 {
+			continue
+		}
+		var l rttrace.Line
+		if err := json.Unmarshal(line, &l); err != nil {
+			return fmt.Errorf("ergo test --trace: %s: %w", path, err)
+		}
+		if l.Kind == rt.TraceStep.String() {
+			steps = append(steps, l.Step)
+		}
+	}
+	fmt.Fprintf(w, "trace: %d steps\n", len(steps))
+	for _, s := range steps {
+		fmt.Fprintln(w, s)
+	}
+	if h.Dropped > 0 {
+		fmt.Fprintf(os.Stderr, "ergo test --trace: the recorder dropped %d events, so steps may be missing; run one test with --run\n", h.Dropped)
+	}
+	return nil
 }
 
 // testProgramCommand keeps the test program's collector inside its hard

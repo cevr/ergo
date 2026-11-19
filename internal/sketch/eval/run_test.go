@@ -37,7 +37,9 @@ test After {
 	assert true
 }
 
-law Sampled(n int) { n == n }
+law Sampled(n int) { Same(n) == n }
+
+func Same(n int) int { n }
 `)
 	rep, err := Run(pkg, DefaultBudget())
 	if err != nil {
@@ -61,7 +63,9 @@ test After {
 	assert true
 }
 
-law Sampled(n int) { n == n }
+law Sampled(n int) { Same(n) == n }
+
+func Same(n int) int { n }
 `)
 	rep, err = Run(pkg, Budget{Steps: 10_000, Depth: 8})
 	if err != nil {
@@ -77,6 +81,56 @@ law Sampled(n int) { n == n }
 		}
 	}
 
+}
+
+// TestRunReportsTheSkipsReason: skip "reason" ends a test, a property at
+// the case that reaches it, and a law run, each skipped with the test's
+// own reason and the statement's line (runtime.md, Tests 4), and the
+// other obligations run (the tests in source order, then the laws).
+// Mutant: tskip-eval-reason (the skip's reason is not the test's).
+func TestRunReportsTheSkipsReason(t *testing.T) {
+	pkg := checked(t, `
+
+test Host {
+	skip "git is not on this host"
+}
+
+test Drawn(n int) {
+	if n > 3 {
+		skip "past three"
+	}
+	assert n + n == 2 * n
+}
+
+law Sum(n int) {
+	if n < 0 {
+		skip "not for negatives"
+	}
+	n + n == 2 * n
+}
+
+test After {
+	assert true
+}
+`)
+	rep, err := Run(pkg, DefaultBudget())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []struct {
+		status Status
+		reason string
+		line   int
+	}{{Skipped, "git is not on this host", 4}, {Skipped, "past three", 9}, {Passed, "", 0}, {Skipped, "not for negatives", 16}}
+	if len(rep.Results) != len(want) {
+		t.Fatalf("results %+v, want %d", rep.Results, len(want))
+	}
+	for i, w := range want {
+		r := rep.Results[i]
+		if r.Status != w.status || r.Reason != w.reason || (w.line != 0 && r.Site.Line != w.line) {
+			t.Errorf("%s: %s %q at line %d, want %s %q at line %d", r.Name, r.Status, r.Reason, r.Site.Line, w.status, w.reason, w.line)
+		}
+	}
 }
 
 // TestPreflightAdmitsWhatRuns is the smallest repro of a fixed bug: the

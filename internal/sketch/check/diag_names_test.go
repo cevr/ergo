@@ -21,6 +21,9 @@ func TestDiagnosticMessagesSayWhatHappened(t *testing.T) {
 	for _, tc := range []struct{ name, src, want string }{
 		{"needs-param", "func count(needs []int) int { len(needs) }\n",
 			`expected a type, found "needs": needs is a keyword (the capability row) and is not a name; choose another name`},
+		// PKG G5: any keyword where a parameter or field names itself.
+		{"keyword-param", "func count(in []int) int { len(in) }\n",
+			`expected a type, found "in": in is a keyword and is not a name; choose another name`},
 		{"needs-let", "func f() int {\n\tlet needs = 1\n\tneeds\n}\n",
 			`expected a pattern, found "needs": needs is a keyword`},
 		{"with-no-result", "type Oops {}\nfunc work(n int) fails Oops needs Console {\n\tif n < 0 {\n\t\treturn Oops\n\t}\n\tConsole.Println(\"w\")\n}\nfunc main() needs Console {\n\tlet _ = with context { } { work(1) } catch {\n\tcase Oops:\n\t\treturn\n\t}\n}\n",

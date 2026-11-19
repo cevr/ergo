@@ -10,6 +10,8 @@ models/durable/durable.ergo
 models/free/free.ergo
 models/host/host.ergo
 models/region/region.ergo
+models/replica/replica.ergo
 models/runner/runner.ergo
 models/supervise/supervise.ergo
 models/infra/infra.ergo
+examples/gent/cmd/gent/main.ergo

@@ -455,7 +455,7 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 		sw.Cases = append(sw.Cases, c)
 	}
 	sw.ElsePos = b.pos(x, x.Rbrace)
-	sw.Else = []*irStmt{{K: k, Pos: sw.ElsePos, X: &irExpr{K: "local", Pos: sw.ElsePos, I: e}}}
+	sw.Else = []*irStmt{b.catchDefault(x, k, partial, e, sw.ElsePos)} // ir_catch_defect.go
 	if plain {
 		then = b.armBody(x.Arms[0], result, m.Result)
 	} else if then == nil {
@@ -467,7 +467,7 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 		// The call's value joins the union of the arms' (ir_union.go).
 		val := b.variantInto(b.l.info.Types[src], m.Result, &irExpr{K: "local", Pos: sw.End, I: v}, src)
 		ifs.Else = []*irStmt{{K: "set", Pos: sw.End, Local: result, X: val}}
-		if !patterned && val.K == "local" && val.I == v && b.localType(v) == rt && irArmsLeave(sw, result) {
+		if !patterned && val.K == "local" && val.I == v && b.localTypeOf(v) == rt && irArmsLeave(sw, result) {
 			// Every arm leaves (the emitter's catch, whose arms all
 			// panic or return, yields the call's value in place): the
 			// value is the call's own local, with no caught copy (RED17).
@@ -552,7 +552,7 @@ func (b *irBuilder) operands(list []syntax.Expr) ([]*irStmt, []*irExpr) {
 // definition (owner: lane GP): OPC's operandFits (ir_operand.go) reads it
 // too, and a ConvVariant's target is the case OPC's own copy covered.
 func (b *irBuilder) operandType(a syntax.Expr) check.Type {
-	if conv, ok := b.l.info.Implicit[a]; ok && conv.To != nil {
+	if conv, ok := b.l.info.Implicit[a]; ok && conv.Kind != 0 && conv.To != nil {
 		return conv.To
 	}
 	return b.l.info.Types[a]
@@ -571,10 +571,11 @@ func (b *irBuilder) hoist(pre []*irStmt, x *irExpr, call *syntax.CallExpr) ([]*i
 }
 
 // loopPoll is the back-edge poll that ends each iteration of a loop in a
-// polling frame (the emitter's loopBody). A continue polls before it
-// leaves the iteration (continueStmt), so it skips no poll.
-func (b *irBuilder) loopPoll(s syntax.Stmt) []*irStmt {
-	if !b.loopPolls() {
+// polling frame (the emitter's loopBody), unless every iteration polls
+// through a callee (iterationPolls, pollplace.go). A continue polls before
+// it leaves the iteration (continueStmt).
+func (b *irBuilder) loopPoll(s syntax.Stmt, body *syntax.BlockStmt) []*irStmt {
+	if b.env < 0 || !b.fc.frame.polls || b.fc.iterationPolls(body) { // pollplace.go
 		return nil
 	}
 	return []*irStmt{b.poll(s)}

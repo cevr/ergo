@@ -659,6 +659,7 @@ func (e *encoder) encFieldsLawDecl(v *LawDecl) {
 	e.encPtrCommentGroup(v.Doc)
 	e.encPos(v.Law)
 	e.encPtrIdent(v.Name)
+	e.encPtrFieldList(v.TypeParams)
 	e.encPtrFieldList(v.Params)
 	e.encPtrBlockStmt(v.Body)
 	e.encPtrLawReach(v.Reach)
@@ -730,6 +731,7 @@ func (e *encoder) encFieldsMachineType(v *MachineType) {
 	e.encExpr(v.Step)
 	e.encExpr(v.After)
 	e.encExpr(v.Work)
+	e.encExpr(v.Exit)
 	e.encT14(v.Laws)
 }
 
@@ -865,6 +867,23 @@ func (e *encoder) encFieldsSelectorExpr(v *SelectorExpr) {
 func (e *encoder) encSelectorExpr(v SelectorExpr) { e.encFieldsSelectorExpr(&v) }
 
 func (e *encoder) encPtrSelectorExpr(v *SelectorExpr) {
+	if v == nil {
+		e.uint(0)
+		return
+	}
+	e.uint(e.id(v))
+}
+
+func (e *encoder) encFieldsSkipStmt(v *SkipStmt) {
+	e.encPos(v.Skip)
+	e.encPos(v.ReasonPos)
+	e.encT1(v.Reason)
+	e.encPos(v.ReasonEnd)
+}
+
+func (e *encoder) encSkipStmt(v SkipStmt) { e.encFieldsSkipStmt(&v) }
+
+func (e *encoder) encPtrSkipStmt(v *SkipStmt) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1518,38 +1537,40 @@ func objTag(x any) uint64 {
 		return 51
 	case *SelectorExpr:
 		return 52
-	case *SliceExpr:
+	case *SkipStmt:
 		return 53
-	case *StarExpr:
+	case *SliceExpr:
 		return 54
-	case *StructType:
+	case *StarExpr:
 		return 55
-	case *SwitchStmt:
+	case *StructType:
 		return 56
-	case *TakesClause:
+	case *SwitchStmt:
 		return 57
-	case *TestDecl:
+	case *TakesClause:
 		return 58
-	case *TryExpr:
+	case *TestDecl:
 		return 59
-	case *TupleExpr:
+	case *TryExpr:
 		return 60
-	case *TypeDecl:
+	case *TupleExpr:
 		return 61
-	case *TypeGuard:
+	case *TypeDecl:
 		return 62
-	case *TypeSwitchStmt:
+	case *TypeGuard:
 		return 63
-	case *UnaryExpr:
+	case *TypeSwitchStmt:
 		return 64
-	case *VarDecl:
+	case *UnaryExpr:
 		return 65
-	case *VarSpec:
+	case *VarDecl:
 		return 66
-	case *VariantSpec:
+	case *VarSpec:
 		return 67
-	case *Word:
+	case *VariantSpec:
 		return 68
+	case *Word:
+		return 69
 	}
 	return 0
 }
@@ -1661,6 +1682,8 @@ func (e *encoder) encObj(x any) {
 		e.encFieldsReturnStmt(x)
 	case *SelectorExpr:
 		e.encFieldsSelectorExpr(x)
+	case *SkipStmt:
+		e.encFieldsSkipStmt(x)
 	case *SliceExpr:
 		e.encFieldsSliceExpr(x)
 	case *StarExpr:
@@ -2466,6 +2489,7 @@ func (d *decoder) decFieldsLawDecl(v *LawDecl) {
 	v.Doc = d.decPtrCommentGroup()
 	v.Law = d.decPos()
 	v.Name = d.decPtrIdent()
+	v.TypeParams = d.decPtrFieldList()
 	v.Params = d.decPtrFieldList()
 	v.Body = d.decPtrBlockStmt()
 	v.Reach = d.decPtrLawReach()
@@ -2546,6 +2570,7 @@ func (d *decoder) decFieldsMachineType(v *MachineType) {
 	v.Step = d.decExpr()
 	v.After = d.decExpr()
 	v.Work = d.decExpr()
+	v.Exit = d.decExpr()
 	v.Laws = d.decT14()
 }
 
@@ -2713,6 +2738,26 @@ func (d *decoder) decPtrSelectorExpr() *SelectorExpr {
 		return nil
 	}
 	return x.(*SelectorExpr)
+}
+
+func (d *decoder) decFieldsSkipStmt(v *SkipStmt) {
+	v.Skip = d.decPos()
+	v.ReasonPos = d.decPos()
+	v.Reason = d.decT1()
+	v.ReasonEnd = d.decPos()
+}
+
+func (d *decoder) decSkipStmt() (v SkipStmt) {
+	d.decFieldsSkipStmt(&v)
+	return v
+}
+
+func (d *decoder) decPtrSkipStmt() *SkipStmt {
+	x := d.obj(d.uint())
+	if x == nil {
+		return nil
+	}
+	return x.(*SkipStmt)
 }
 
 func (d *decoder) decFieldsSliceExpr(v *SliceExpr) {
@@ -3434,36 +3479,38 @@ func newObj(tag uint64) any {
 	case 52:
 		return new(SelectorExpr)
 	case 53:
-		return new(SliceExpr)
+		return new(SkipStmt)
 	case 54:
-		return new(StarExpr)
+		return new(SliceExpr)
 	case 55:
-		return new(StructType)
+		return new(StarExpr)
 	case 56:
-		return new(SwitchStmt)
+		return new(StructType)
 	case 57:
-		return new(TakesClause)
+		return new(SwitchStmt)
 	case 58:
-		return new(TestDecl)
+		return new(TakesClause)
 	case 59:
-		return new(TryExpr)
+		return new(TestDecl)
 	case 60:
-		return new(TupleExpr)
+		return new(TryExpr)
 	case 61:
-		return new(TypeDecl)
+		return new(TupleExpr)
 	case 62:
-		return new(TypeGuard)
+		return new(TypeDecl)
 	case 63:
-		return new(TypeSwitchStmt)
+		return new(TypeGuard)
 	case 64:
-		return new(UnaryExpr)
+		return new(TypeSwitchStmt)
 	case 65:
-		return new(VarDecl)
+		return new(UnaryExpr)
 	case 66:
-		return new(VarSpec)
+		return new(VarDecl)
 	case 67:
-		return new(VariantSpec)
+		return new(VarSpec)
 	case 68:
+		return new(VariantSpec)
+	case 69:
 		return new(Word)
 	}
 	return nil
@@ -3576,6 +3623,8 @@ func (d *decoder) decObj(x any) {
 		d.decFieldsReturnStmt(x)
 	case *SelectorExpr:
 		d.decFieldsSelectorExpr(x)
+	case *SkipStmt:
+		d.decFieldsSkipStmt(x)
 	case *SliceExpr:
 		d.decFieldsSliceExpr(x)
 	case *StarExpr:

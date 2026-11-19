@@ -30,11 +30,11 @@ func modEnv() []string {
 // modLeg checks the program's module cache; false when it failed the
 // program.
 func (r *runner) modLeg(p *program) bool {
-	o, err := r.live.execute([]string{"go", "mod", "verify"}, p.dir, modEnv(), "", r.cfg.timeout, 0)
-	if err == nil && o.passed() {
+	o, err := r.live.Execute([]string{"go", "mod", "verify"}, p.dir, modEnv(), "", r.cfg.timeout, 0)
+	if err == nil && o.Passed() {
 		return true
 	}
-	fmt.Fprintf(r.out, "FAIL %s: mod: the module cache does not hold the modules go.mod requires, as downloaded (go mod verify, GOPROXY=off, exit %s%s); warm it with ergo get MODULE@VERSION in %s\n", p.name, o.statusText(), o.why(r.cfg.timeout), p.dir)
+	fmt.Fprintf(r.out, "FAIL %s: mod: the module cache does not hold the modules go.mod requires, as downloaded (go mod verify, GOPROXY=off, exit %s%s); warm it with ergo get MODULE@VERSION in %s\n", p.name, o.StatusText(), o.Why(r.cfg.timeout), p.dir)
 	r.printOutput(o, err)
 	r.fail(p.name + ": mod")
 	return false

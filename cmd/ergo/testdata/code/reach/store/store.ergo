@@ -1,0 +1,18 @@
+// Package store is the smallest repro of SEMTOOLS SEM2c and SEM2e's reach
+// gaps (cmd/ergo TestCodeAnswersAgreeWithTheTables): a context declared
+// in another package than the with that names it, and catch arms that
+// match a record pattern of a failure, of every value and of some.
+
+// Missing is the failure of a key the store does not hold.
+type Missing { Key string }
+
+// Closed is the failure of a store that serves no reads.
+type Closed {}
+
+// Store reads values by key.
+type Store {
+	Get(key string) string fails Missing | Closed,
+}
+
+// Fetch is the value at key.
+func Fetch(key string) string fails Missing | Closed needs Store { try Store.Get(key) }

@@ -104,6 +104,10 @@ type rwMatch struct {
 	keep bool
 	// check is set when a call of the site is a checked side's.
 	check bool
+	// bind is a generic law's type parameters at the site, ops each
+	// parameter's operand in the site's source (ir_fusion.go).
+	bind rwBinding
+	ops  map[*check.Var]syntax.Expr
 }
 
 // rwMark is a body's locals before a site's temporaries.
@@ -125,6 +129,9 @@ func (b *irBuilder) patterns() map[string][]*rwPattern {
 	}
 	b.rwPatterns = map[string][]*rwPattern{}
 	for _, law := range b.l.scopeLaws() {
+		if law.TopRewrite().OverFuncs {
+			continue // decided at the call, from its source (ir_fusion.go fuseAt)
+		}
 		if p := b.pattern(law); p != nil {
 			h := rwHead(p.left)
 			b.rwPatterns[h] = append(b.rwPatterns[h], p)
@@ -153,11 +160,11 @@ func (b *irBuilder) pattern(law *check.Law) (p *rwPattern) {
 	p = &rwPattern{law: law}
 	vals := map[*check.Var]*irExpr{}
 	for i, v := range law.Params {
-		h := &irExpr{K: "hole", I: i, T: b.goType(v.Type, law.FuncRewrite.Lhs)}
+		h := &irExpr{K: "hole", I: i, T: b.goType(v.Type, law.TopRewrite().Lhs)}
 		p.holes = append(p.holes, h)
 		vals[v] = h
 	}
-	pre, left := b.lawSide(law, law.FuncRewrite.Lhs, vals, true)
+	pre, left := b.lawSide(law, law.TopRewrite().Lhs, vals, true)
 	if len(pre) > 0 || left == nil || left.CF == nil {
 		return nil
 	}
@@ -211,7 +218,7 @@ func (b *irBuilder) match(m *rwMatch, p, e *irExpr, typed bool) bool {
 // local or constant.
 func (b *irBuilder) hole(m *rwMatch, p, e *irExpr, typed bool) bool {
 	if prev := m.vals[p.I]; prev != nil {
-		return prev.K == e.K && (e.K == "local" && prev.I == e.I || e.K == "const" && prev.T == e.T && prev.V == e.V)
+		return prev.K == e.K && (e.K == "local" && prev.I == e.I || e.K == "const" && prev.T == e.T && prev.V == e.V && prev.Op == e.Op)
 	}
 	known := typed || e.K == "const" && e.T == p.T || e.K == "local" && b.localTypes[e.I] == p.T
 	if !known {

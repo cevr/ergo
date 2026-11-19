@@ -38,7 +38,11 @@ func main() {}
 // reads a let lowered as a Go constant (decls.go, letRead), which gc
 // inlines. Any other call (a dictionary
 // call, a Map read, a helper the body reaches through) breaks the promise.
-var denseFlatCallees = map[string]bool{"int": true, "uint32": true, "len": true, "Append": true, "panic": true, "ergo.UnreachableAt": true, "ergo.Let": true}
+var denseFlatCallees = map[string]bool{"int": true, "uint32": true, "len": true, "cap": true, "append": true, "Append": true, "panic": true, "ergo.UnreachableAt": true, "ergo.Let": true}
+
+// denseFlatOnce is the call Put makes once for a table of rows of no size
+// (Dense stores 4, SL2b): it takes room for every id.
+const denseFlatOnce = "WithCapacity"
 
 // TestDenseLowersFlat holds the one promised fact of Dense stores 4 on the
 // lowered Go, in process: Put, At and Rows lower to an append, a slice
@@ -72,6 +76,9 @@ func TestDenseLowersFlat(t *testing.T) {
 				if x, ok := f.X.(*ast.Ident); ok {
 					callee = x.Name + "." + f.Sel.Name
 				}
+			}
+			if name == "Put" && strings.HasSuffix(callee, "."+denseFlatOnce) {
+				return true
 			}
 			if !denseFlatCallees[callee] {
 				t.Errorf("dense %s calls %s; its promised form calls none:\n%s", name, callee, body)
@@ -112,6 +119,80 @@ func TestPutGrowsLinearly(t *testing.T) {
 	}
 }
 `
+
+// denseFlatSource puts n rows of no size in a table and returns the room
+// of its rows: Go grows a full slice of rows of no size to exactly one
+// more row, so a table that grows that way has room for n rows, and one
+// that took room for every id has room for 4294967295.
+const denseFlatSource = `import dense
+
+extern go cap func room[T](xs []T) int
+
+type tag {}
+
+func roomAfter(n int) int {
+	let mut t = dense.New[tag]()
+	for _ in 0..n {
+		let _ = t.Put(tag)
+	}
+	room(dense.Rows(t))
+}
+
+func intRoomAfter(n int) int {
+	let mut t = dense.New[int]()
+	for i in 0..n {
+		let _ = t.Put(i)
+	}
+	room(dense.Rows(t))
+}
+
+func main() {}
+`
+
+const denseFlatDriver = `package main
+import (
+	"reflect"
+	"testing"
+)
+func TestFlatTableTakesRoomOnce(t *testing.T) {
+	f := reflect.ValueOf(roomAfter)
+	args := []reflect.Value{reflect.ValueOf(4096)}
+	if f.Type().NumIn() == 2 {
+		args = append([]reflect.Value{reflect.Zero(f.Type().In(0))}, args...)
+	}
+	if got := f.Call(args)[0].Int(); got != 1<<32-1 {
+		t.Fatalf("after 4096 Puts of rows of no size the table has room for %d rows; want 4294967295, room taken once, so no later Put grows it", got)
+	}
+	// Rows with a size never take that room: only rows of no size grow to
+	// exactly one more than they hold.
+	g := reflect.ValueOf(intRoomAfter)
+	for n := 0; n <= 600; n++ {
+		args := []reflect.Value{reflect.ValueOf(n)}
+		if g.Type().NumIn() == 2 {
+			args = append([]reflect.Value{reflect.Zero(g.Type().In(0))}, args...)
+		}
+		if got := g.Call(args)[0].Int(); got > int64(4*n+16) {
+			t.Fatalf("after %d Puts of int rows the table has room for %d rows: a table of rows with a size took the room of rows of no size", n, got)
+		}
+	}
+}
+`
+
+// TestDenseFlatTableRegrowsOnce is the growth guard of a table of rows of
+// no size (Dense stores 4, SL2b): Go grows such a slice on every append, so
+// a Put that does not take room for every id grows it on each of 4096
+// Puts. It reads the room the program's table has at the end: room for
+// every id, taken once, so no Put after it calls growslice; and that a
+// table of int rows, at every length to 600, never takes that room. It
+// kills dense-flat-grows and builtin-cap-copies (cap of a copy took an int
+// table for one of rows of no size).
+//
+// It builds Go because the room of a slice is the built program's
+// (Go's growslice); no in-process check observes it.
+func TestDenseFlatTableRegrowsOnce(t *testing.T) {
+	needsBuild(t)
+	goTestEmitted(t, mustLower(t, "denseflatgrow", denseFlatSource), denseFlatDriver)
+}
 
 // TestDensePutGrowsLinearly is the growth guard of Dense stores 4: it
 // counts the bytes Put allocates at n and 2n rows. It kills
