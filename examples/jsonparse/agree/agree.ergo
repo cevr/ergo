@@ -1,13 +1,12 @@
-// Package agree is the Ergo form of cmd/ergo's
-// TestJSONParseAgreesWithControl (TPROBE, kind built), in process: the
-// pointer tree's and the flat tree's readings of generated documents
-// against what the generator built, with whitespace (a return among it),
-// bytes that are not UTF-8, a control byte and an unknown escape inside a
-// string, and pointers one index past an array's end. Package deep runs
-// what the check-time evaluator cannot (its call depth is 1024): the
-// JSONTestSuite files and the depth limit. It is an overlay of
-// scripts/buildcost's meter, laid over a scratch copy of the tree; it is
-// no test of the product.
+// Package agree holds the two trees of jsonparse to what the generator
+// built: the pointer tree's and the flat tree's readings of generated
+// documents, with whitespace (a return among it), bytes that are not
+// UTF-8, a control byte and an unknown escape inside a string, and
+// pointers one index past an array's end. Package deep holds what the
+// check-time evaluator cannot reach (its call depth is 1024): the
+// JSONTestSuite files and the depth limit. Together they replace cmd/ergo's
+// TestJSONParseAgreesWithControl (wf10 TP-BUILT) and kill its mutants
+// (testdata/mutants.json, killer examples:jsonparse).
 
 import jsonparse/flat
 import jsonparse/json
@@ -127,9 +126,9 @@ func broken(seed int) string needs Random {
 		bad.WriteString(both("not UTF-8", "["+c+",\"x\xffy\"]", "ok ["+c+",\"x\ufffdy\"]"))
 		// A control byte inside a string is the first byte that is not JSON.
 		let ctl = if Random.IntN(2) == 0 { "\n" } else { "\x1f" }
-		bad.WriteString(both("control byte", "["+c+",\"a"+ctl+"b\"]", "fail \(len(c)+4)"))
+		bad.WriteString(both("control byte", "["+c+",\"a"+ctl+"b\"]", "fail \(len(c) + 4)"))
 		// After a backslash, the byte that is no escape.
-		bad.WriteString(both("unknown escape", "["+c+",\"a\\qb\"]", "fail \(len(c)+5)"))
+		bad.WriteString(both("unknown escape", "["+c+",\"a\\qb\"]", "fail \(len(c) + 5)"))
 		// An index one past an array's end names nothing.
 		for p in json.Places(v) {
 			match p.At {

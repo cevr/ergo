@@ -3,7 +3,7 @@
   "families": {
     "built": {
       "goTest": "cmd/ergo:TestJSONParseAgreesWithControl",
-      "about": "examples/jsonparse, linked: both trees against a reference on encoding/json over JSONTestSuite, 200 generated documents and the gen workload. The Ergo forms read the trees in process (package agree) and, past the check-time evaluator's call depth, in a test build (agree/deep: the suite and the depth limit).",
+      "about": "examples/jsonparse, linked: both trees against a reference on encoding/json over JSONTestSuite, 200 generated documents and the gen workload. The Ergo forms are the port in the tree (TP-BUILT): the trees read in process (examples/jsonparse/agree) and, past the check-time evaluator's call depth, in a test build (agree/deep: the suite and the depth limit). The go form runs the Go test, which TP-BUILT deletes: measure it on the commit before the deletion.",
       "package": "./cmd/ergo",
       "subject": "examples/jsonparse/json",
       "edit": {
@@ -21,14 +21,6 @@
         "examples/jsonparse",
         "cmd/ergo/jsonparse_test.go",
         "cmd/ergo/testdata/jsonparse"
-      ],
-      "copies": [
-        {
-          "from": [
-            "examples/jsonparse/testdata/JSONTestSuite-1ef36fa0/test_parsing"
-          ],
-          "to": "examples/jsonparse/agree/deep/suite"
-        }
       ],
       "forms": {
         "control": {
@@ -54,7 +46,7 @@
           ]
         },
         "ergo-check": {
-          "tree": "overlay",
+          "tree": "plain",
           "run": [
             [
               "{ergo}",
@@ -69,7 +61,7 @@
           "seed": "arg"
         },
         "ergo-test": {
-          "tree": "overlay",
+          "tree": "plain",
           "run": [
             [
               "{ergo}",

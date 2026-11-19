@@ -52,9 +52,9 @@ func TestJSONParseAgreesWithControl(t *testing.T) {
 	path := filepath.Join(dir, "p.json")
 	bins := []string{ergoBin, control}
 
-	suite, err := filepath.Glob(filepath.Join("..", "..", "examples", "jsonparse", "testdata", "JSONTestSuite-*", "test_parsing", "*.json"))
+	suite, err := filepath.Glob(filepath.Join("..", "..", "examples", "jsonparse", "agree", "deep", "JSONTestSuite-*", "test_parsing", "*.json"))
 	if err != nil || len(suite) == 0 {
-		t.Fatalf("JSONTestSuite is not in examples/jsonparse/testdata: %v", err)
+		t.Fatalf("JSONTestSuite is not in examples/jsonparse/agree/deep: %v", err)
 	}
 	for _, file := range suite {
 		data, err := os.ReadFile(file)

@@ -39,9 +39,9 @@ func main() {
 	bin = filepath.Join(filepath.Dir(self), "jsonparse")
 	path = filepath.Join(filepath.Dir(self), "p.json")
 
-	suite, _ := filepath.Glob(filepath.Join("examples", "jsonparse", "testdata", "JSONTestSuite-*", "test_parsing", "*.json"))
+	suite, _ := filepath.Glob(filepath.Join("examples", "jsonparse", "agree", "deep", "JSONTestSuite-*", "test_parsing", "*.json"))
 	if len(suite) == 0 {
-		fail("JSONTestSuite is not in examples/jsonparse/testdata")
+		fail("JSONTestSuite is not in examples/jsonparse/agree/deep")
 	}
 	for _, file := range suite {
 		data, err := os.ReadFile(file)

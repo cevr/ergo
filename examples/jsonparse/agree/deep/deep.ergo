@@ -1,23 +1,26 @@
-// Package deep is the part of TPROBE's built form that nests past the
+// Package deep holds jsonparse's agreement tests that nest past the
 // check-time evaluator's call depth: every JSONTestSuite file (y_ files
 // read, n_ files fail, and the two trees agree on each, i_ files too) and
 // the depth limit of both trees (MaxDepth arrays read, one more fails at
-// its bracket). The meter copies the suite into suite/.
+// its bracket). The suite is JSONTestSuite's test_parsing at commit
+// 1ef36fa0, unchanged (JSONTestSuite-1ef36fa0/SOURCE, LICENSE).
 
 import embed
 import jsonparse/agree
 import jsonparse/json
 import strings
 
-let Suite = embedded[embed.FS]("suite")
+// The whole pinned folder, its LICENSE and SOURCE with the files.
+let Suite = embedded[embed.FS]("JSONTestSuite-1ef36fa0")
 
 // SuiteVerdicts: each suite file reads as its name says, into both trees
 // alike.
 test SuiteVerdicts {
-	let names = try Suite.ReadDir("suite")
+	let dir = "JSONTestSuite-1ef36fa0/test_parsing"
+	let names = try Suite.ReadDir(dir)
 	let mut bad = strings.NewBuilder()
 	for name in names {
-		let text = try Suite.ReadFile("suite/" + name)
+		let text = try Suite.ReadFile(dir + "/" + name)
 		let tree = agree.TreeReading(text)
 		let flatRead = agree.FlatReading(text)
 		if flatRead != tree {
@@ -39,8 +42,8 @@ test SuiteVerdicts {
 test DepthLimit {
 	let n = json.MaxDepth
 	let deep = strings.Repeat("[", n) + strings.Repeat("]", n)
-	assert agree.TreeReading(deep) == "ok " + deep
-	assert agree.FlatReading(deep) == "ok " + deep
+	assert agree.TreeReading(deep) == "ok "+deep
+	assert agree.FlatReading(deep) == "ok "+deep
 	let over = strings.Repeat("[", n+1) + strings.Repeat("]", n+1)
 	assert agree.TreeReading(over) == "fail \(n)"
 	assert agree.FlatReading(over) == "fail \(n)"
