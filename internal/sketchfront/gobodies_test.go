@@ -1,6 +1,8 @@
 package sketchfront
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -95,17 +97,7 @@ func Unmarked(t *rt.Task) int { return 0 }
 // (every file is read), body-experiment-unread (GOEXPERIMENT's tags are
 // not set, so the simd file is never read).
 func TestModuleGoBodiesHonourBuildConstraints(t *testing.T) {
-	const good = "//go:build !goexperiment.simd\n\npackage kern\n\n//ergo:wait none\nfunc Index(s string, c uint8) int { return -1 }\n"
-	const bad = "\npackage kern\n\n//ergo:wait none\nfunc Index(s string) int { return -1 }\n"
-	files := map[string]string{
-		"go.mod":          "module example.com/app\n\ngo 1.27\n",
-		"ergo.mod":        "module app\ntrust go app\n",
-		"kern/a.go":       good,
-		"kern/z_plan9.go": bad,
-		"kern/z_simd.go":  "//go:build goexperiment.simd" + bad,
-		"main.ergo":       "import strconv\n\nextern go example.com/app/kern.Index func index(s string, c byte) int\n\nfunc main() needs Console {\n\tConsole.Println(strconv.Itoa(index(\"ab\", 98)))\n}\n",
-	}
-	root := writeTree(t, files)
+	root := kernTree(t)
 	t.Setenv("GOEXPERIMENT", "")
 	a, err := CheckDir(root)
 	if err != nil {
@@ -122,4 +114,74 @@ func TestModuleGoBodiesHonourBuildConstraints(t *testing.T) {
 	if got := diagnosticLines(a); !strings.Contains(got, "S108") {
 		t.Errorf("with GOEXPERIMENT=simd the checker did not read the simd file's body:\n%s", got)
 	}
+}
+
+// TestCheckKeysHoldTheExperiments (U1 SIMD-SCAN): the Go experiments
+// choose a module body's file, so they are in the key of every answer a
+// later check may reuse. The check cache, flipped from no experiment to
+// GOEXPERIMENT=simd with no file edited, checks the program again and
+// reads the simd file's body (S108), where a reused answer would be the
+// stock one; the warm key changes when only the go env file's
+// GOEXPERIMENT changes, which no environment variable holds. Mutants:
+// cache-experiments-unkeyed, warm-experiments-unkeyed.
+func TestCheckKeysHoldTheExperiments(t *testing.T) {
+	root := kernTree(t)
+	t.Setenv("GOEXPERIMENT", "")
+	cache := NewCheckCache()
+	if a, err := cache.CheckDir(root); err != nil || diagnosticLines(a) != "" {
+		t.Fatalf("stock check: %v\n%s", err, diagnosticLines(a))
+	}
+	t.Setenv("GOEXPERIMENT", "simd")
+	checked, _ := checkWork(func() {
+		a, err := cache.CheckDir(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := diagnosticLines(a); !strings.Contains(got, "S108") {
+			t.Errorf("GOEXPERIMENT=simd with no file edited took the stock answer from the check cache:\n%s", got)
+		}
+	})
+	if checked == 0 {
+		t.Errorf("GOEXPERIMENT=simd with no file edited checked no package; want the program checked again")
+	}
+
+	old := compilerIdentity
+	compilerIdentity = func() (string, error) { return "test-compiler", nil }
+	t.Cleanup(func() { compilerIdentity = old })
+	env := filepath.Join(t.TempDir(), "env")
+	t.Setenv("GOENV", env)
+	t.Setenv("GOEXPERIMENT", "")
+	os.Unsetenv("GOEXPERIMENT")
+	key := func(text string) string {
+		if err := os.WriteFile(env, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		k := WarmKey("check", root)
+		if k == "" {
+			t.Fatal("WarmKey is empty: no shared compiler identity")
+		}
+		return k
+	}
+	if key("GOEXPERIMENT=simd\n") == key("") {
+		t.Errorf("the warm key is the same with and without GOEXPERIMENT=simd in the go env file")
+	}
+}
+
+// kernTree is a module whose package kern declares Index three times: in
+// a.go for every build without GOEXPERIMENT=simd, and with a wrong
+// signature, which S108 reports if the checker reads it, in a file for
+// another GOOS by its name and in a file for GOEXPERIMENT=simd by its
+// //go:build line.
+func kernTree(t *testing.T) string {
+	const good = "//go:build !goexperiment.simd\n\npackage kern\n\n//ergo:wait none\nfunc Index(s string, c uint8) int { return -1 }\n"
+	const bad = "\npackage kern\n\n//ergo:wait none\nfunc Index(s string) int { return -1 }\n"
+	files := map[string]string{
+		"go.mod":          "module example.com/app\n\ngo 1.27\n",
+		"ergo.mod":        "module app\ntrust go app\n",
+		"kern/a.go":       good,
+		"kern/z_plan9.go": bad,
+		"kern/z_simd.go":  "//go:build goexperiment.simd" + bad,
+		"main.ergo":       "import strconv\n\nextern go example.com/app/kern.Index func index(s string, c byte) int\n\nfunc main() needs Console {\n\tConsole.Println(strconv.Itoa(index(\"ab\", 98)))\n}\n",
+	}
+	return writeTree(t, files)
 }

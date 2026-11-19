@@ -66,14 +66,43 @@ func (l *loader) buildsFor(name string, data []byte) bool {
 	ctx := build.Default
 	ctx.GOOS, ctx.GOARCH, ctx.CgoEnabled = l.platform.GOOS, l.platform.GOARCH, false
 	ctx.ToolTags = slices.Clone(ctx.ToolTags)
-	for _, e := range strings.Split(os.Getenv("GOEXPERIMENT"), ",") {
-		if e = strings.TrimSpace(e); e != "" && !strings.HasPrefix(e, "no") {
-			ctx.ToolTags = append(ctx.ToolTags, "goexperiment."+e)
-		}
+	for _, e := range l.experiments {
+		ctx.ToolTags = append(ctx.ToolTags, "goexperiment."+e)
 	}
 	ctx.OpenFile = func(string) (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(data)), nil }
 	ok, err := ctx.MatchFile(".", name)
 	return err == nil && ok
+}
+
+// goExperiments is the set of Go experiments GOEXPERIMENT turns on, read
+// from the environment, else from the go env file, as the go command reads
+// it: a comma-separated list where "noX" turns X off and "none" turns off
+// every one named before it. Sorted, each once. The toolchain's default
+// experiments are not listed: they are the toolchain's, in every key that
+// names the toolchain.
+func goExperiments() []string {
+	v, ok := os.LookupEnv("GOEXPERIMENT")
+	if !ok {
+		v = goEnvFile()["GOEXPERIMENT"]
+	}
+	on := map[string]bool{}
+	for _, e := range strings.Split(v, ",") {
+		switch e = strings.TrimSpace(e); {
+		case e == "":
+		case e == "none":
+			clear(on)
+		case strings.HasPrefix(e, "no"):
+			delete(on, strings.TrimPrefix(e, "no"))
+		default:
+			on[e] = true
+		}
+	}
+	out := make([]string, 0, len(on))
+	for e := range on {
+		out = append(out, e)
+	}
+	slices.Sort(out)
+	return out
 }
 
 // goFiles are one Go package's files by name, the fs.FS v1.ReadBodies

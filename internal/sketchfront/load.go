@@ -150,8 +150,12 @@ type program struct {
 type loader struct {
 	fsys     FS
 	platform gobind.Platform
-	root     string // the module root, or the root package's folder
-	module   string // the module name; empty with no ergo.mod
+	// experiments are the Go experiments of the target (goExperiments):
+	// with platform, they choose the module Go files go build compiles
+	// (buildsFor), so both are in every key of a check (environment).
+	experiments []string
+	root        string // the module root, or the root package's folder
+	module      string // the module name; empty with no ergo.mod
 	// trust are the required modules whose Go the root's ergo.mod trusts.
 	trust []string
 	pkgs  map[string]*loadedPackage
@@ -194,7 +198,7 @@ type loader struct {
 // newLoader is a loader of the package folder dir, an absolute path, that
 // reads required modules from the module cache folder modCache.
 func newLoader(fsys FS, platform gobind.Platform, dir, modCache string) *loader {
-	return &loader{fsys: fsys, platform: platform, root: dir, modCache: modCache, pkgs: map[string]*loadedPackage{}, missing: map[string]string{},
+	return &loader{fsys: fsys, platform: platform, experiments: goExperiments(), root: dir, modCache: modCache, pkgs: map[string]*loadedPackage{}, missing: map[string]string{},
 		state: map[*loadedPackage]int{}, texts: map[string]string{}, deps: map[string]*depModule{}}
 }
 
