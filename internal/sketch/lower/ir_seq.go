@@ -53,9 +53,18 @@ func (b *irBuilder) seqRange(s *syntax.RangeStmt, lp *check.Loop, x *irExpr) ([]
 	seq := b.temp("seq", b.goType(b.l.info.Types[s.X], s.X), p)
 	pre := []*irStmt{{K: "def", Pos: p, Local: seq, X: x}}
 	// The callback: func(_ *Env, v T) (bool, error) { return yield(v), nil }.
+	// Its call of yield is at the loop body's brace, not the Seq's
+	// position: gc refuses to inline a call whose position is already on
+	// its inlining stack, as a recursion (inline/inl.go, canInlineCallExpr's
+	// parsePos loop), and the call of the Seq above it is at the Seq's
+	// position. At one position the loop body stayed a closure that
+	// captures its locals, where the emitter's loop inlines it. The brace
+	// comes after the Seq, so the literals' scopes still nest in order.
+	q := b.pos(s.Body, s.Body.Pos())
+	end = q
 	yield, ce, v := b.temp("yield", yieldT, p), b.temp("e", env, p), b.temp("v", elem, p)
 	cb := &irExpr{K: "func", Pos: p, T: "func(" + env + ", " + elem + ") (bool, error)", Params: []int{ce, v}, End: &end,
-		Body: []*irStmt{{K: "ret", Pos: p, X: &irExpr{K: "vcall", Pos: p, X: &irExpr{K: "local", Pos: p, I: yield}, Args: []*irExpr{{K: "local", Pos: p, I: v}}}}}}
+		Body: []*irStmt{{K: "ret", Pos: q, X: &irExpr{K: "vcall", Pos: q, X: &irExpr{K: "local", Pos: q, I: yield}, Args: []*irExpr{{K: "local", Pos: q, I: v}}}}}}
 	// The adapter: func(yield func(T) bool) { _, _ = seq(env, callback) }.
 	r, err := b.temp("r", "struct{}", p), b.temp("err", "error", p)
 	call := &irExpr{K: "vcall", Pos: p, X: &irExpr{K: "local", Pos: p, I: seq}, Args: []*irExpr{{K: "local", Pos: p, I: b.env}, cb}}
