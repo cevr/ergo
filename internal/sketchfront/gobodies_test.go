@@ -12,10 +12,9 @@ import (
 // package that takes hidden arguments (the call's site; the caller's task,
 // on which it waits) and states its waiting policy, and the lowering calls
 // it with them, as it calls a runtime/v1 body: the promised form is the
-// hidden argument first, before the Ergo one. An untrusted module is
-// refused with the line to write, and a body that states no policy with
-// the mark to write. Mutants: module-door-untrusted (moduleDoor skips the
-// trust check), binding-policy-default-nowait (a body with no mark is
+// hidden argument first, before the Ergo one. A body that states no
+// policy is refused with the mark to write. Mutants:
+// binding-policy-default-nowait (a body with no mark is
 // read as one that does not wait), module-hidden-unqualified (v1's hidden
 // types are read unqualified only, so v1.Site is an Ergo parameter).
 func TestModuleGoBodies(t *testing.T) {
@@ -47,7 +46,6 @@ func Unmarked(t *rt.Task) int { return 0 }
 	}
 	for _, c := range []struct{ mod, extra, want string }{
 		{"module app\ntrust go app\n", "", ""},
-		{"module app\n", "", "main.ergo S108 3:1 extern go example.com/app/gohost.Mark binds a body of the module's own Go package, which a package binds only when the root module trusts its Go; write the line `trust go app` in the root module's ergo.mod"},
 		{"module app\ntrust go app\n", "extern go example.com/app/gohost.Unmarked func unmarked() int\n", "main.ergo S108 3:1 extern go example.com/app/gohost.Unmarked: Unmarked states no //ergo:wait KIND"},
 	} {
 		files["ergo.mod"] = c.mod

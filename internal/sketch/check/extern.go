@@ -247,12 +247,13 @@ func (c *checker) runtimeDoor(f *Func) string {
 
 // moduleDoor is the door of an extern f whose target is in a Go package of
 // the module's own (GoSource; docs/spec/interop.md, Trusted Go 3): own
-// reports such a target, and msg is its refusal or "". A trusted package
-// binds a body there that follows the hidden-argument convention and
-// states its waiting policy (v1.Bodies.Body), with an Ergo signature the
-// body's Go parameters and result spell (moduleShape); the checker records
-// it for the lowering (ModuleBody). The Go is the module's, so the same
-// trust line as runtimeDoor's vouches for it.
+// reports such a target, and msg is its refusal or "". A package binds a
+// body there that follows the hidden-argument convention and states its
+// waiting policy (v1.Bodies.Body), with an Ergo signature the body's Go
+// parameters and result spell (moduleShape); the checker records it for
+// the lowering (ModuleBody). The Go is the module's own, so it needs no
+// trust line (LAWFFI LF2m), and no call of it is pure until a validated
+// law makes it so.
 func (c *checker) moduleDoor(f *Func) (msg string, own bool) {
 	src, ok := c.imp.(GoSource)
 	if !ok {
@@ -264,9 +265,9 @@ func (c *checker) moduleDoor(f *Func) (msg string, own bool) {
 		return "", false
 	}
 	target := path + "." + name
-	if !c.pkg.trusted {
-		return fmt.Sprintf("extern go %s binds a body of the module's own Go package, which a package binds only when the root module trusts its Go; write the line `trust go %s` in the root module's ergo.mod (docs/spec/interop.md, Trusted Go)", target, c.pkg.module), true
-	}
+	// The module's own Go needs no trust line (LAWFFI LF2m; owner,
+	// 2026-11-19: "least amount of ceremony"): the module wrote it, and a
+	// call of it is never pure until a validated law makes it so.
 	bodies, err := v1.ReadBodies(fsys)
 	if err != nil {
 		return fmt.Sprintf("extern go %s: its Go package does not parse: %v", target, err), true
@@ -304,16 +305,46 @@ func moduleShape(sig *Signature, body v1.Body) string {
 		return fmt.Sprintf("its Go body returns %d results, and the extern %d (at most one)", len(body.Results), len(sig.Results))
 	}
 	for i, p := range sig.Params {
-		if g := goBasic(p.Type); g == "" || g != body.Params[i].Type {
-			return fmt.Sprintf("parameter %d is %s in Ergo and %s in Go; a module body takes basic types, as Go spells them", i+1, typeString(p.Type), body.Params[i].Type)
+		if g := goParamBasic(p.Type); g == "" || goAlias(g) != goAlias(body.Params[i].Type) {
+			return fmt.Sprintf("parameter %d is %s in Ergo and %s in Go; a module body takes basic types and slices of them, as Go spells them", i+1, typeString(p.Type), body.Params[i].Type)
 		}
 	}
 	for i, r := range sig.Results {
-		if g := goBasic(r); g == "" || g != body.Results[i] {
+		if g := goBasic(r); g == "" || goAlias(g) != goAlias(body.Results[i]) {
 			return fmt.Sprintf("the result is %s in Ergo and %s in Go; a module body returns a basic type, as Go spells it", typeString(r), body.Results[i])
 		}
 	}
 	return ""
+}
+
+// goParamBasic is the Go spelling of a module body's parameter type t
+// (LAWFFI LF2m): a basic type (goBasic), or a slice of one, []byte, which
+// SIMD-style kernels take. The call passes a copy of the slice until the
+// body is pure by a validated law (docs/spec/interop.md, Trusted Go 3).
+func goParamBasic(t Type) string {
+	if s, ok := t.(*Slice); ok {
+		if g := goBasic(s.Elem); g != "" {
+			return "[]" + g
+		}
+		return ""
+	}
+	return goBasic(t)
+}
+
+// goAlias is the Go spelling g with Go's aliases byte and rune spelled as
+// the types they name, so []byte and []uint8 are one type.
+func goAlias(g string) string {
+	elem, slice := strings.CutPrefix(g, "[]")
+	switch elem {
+	case "byte":
+		elem = "uint8"
+	case "rune":
+		elem = "int32"
+	}
+	if slice {
+		return "[]" + elem
+	}
+	return elem
 }
 
 // goBasic is the Go spelling of the basic type t (Go's own name; duration
