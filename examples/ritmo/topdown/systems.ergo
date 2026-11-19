@@ -367,4 +367,3 @@ func inputsOf(seed int, n int) []Controls {
 		Fuzz(n)
 	}
 }
-

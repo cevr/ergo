@@ -2,6 +2,8 @@
 // is, and how each fails. A transport (cmd/topdown's script on standard
 // input) only reads requests and prints replies; it decides nothing.
 
+import strings
+
 // Keep is how many ticks a session rewinds by default: ten seconds at Hz.
 let Keep = 600
 
@@ -29,8 +31,13 @@ type Missing { Slot string }
 // Broken is a store that cannot keep or give back a world.
 type Broken { Slot string, Why string }
 
+// plain is slot made a plain name, the names a store must keep: not
+// empty, no "/", no leading dot.
+func plain(slot string) string { "s" + strings.ReplaceAll(slot, "/", "-") }
+
 // Saves keeps worlds by name between sessions (ritmo's snapshot and
-// load, kept by the host).
+// load, kept by the host). A slot is a plain name (plain); a store may
+// refuse any other as Broken.
 type Saves {
 	// Put keeps w under slot, in place of what slot held.
 	Put(slot string, w World) fails Broken,
@@ -40,9 +47,10 @@ type Saves {
 	// GetSeesPut: a world put under a slot is the world the slot gives,
 	// and the last put wins.
 	law GetSeesPut(slot string, a int, b int) {
-		try Put(slot, Sample(a))
-		try Put(slot, Sample(b))
-		try Get(slot) == Sample(b)
+		let name = plain(slot)
+		try Put(name, Sample(a))
+		try Put(name, Sample(b))
+		try Get(name) == Sample(b)
 	},
 
 	// SlotsAreApart: a put under one slot leaves another's world.
@@ -191,6 +199,9 @@ law RewindKeepsNoMore(seed int, keep int, extra int) {
 	let then = len(worlds) - 1 - size
 	if s.Now() != worlds[then] || s.Kept() != 0 {
 		return false
+	}
+	if then == len(inputs) {
+		return true
 	}
 	Advance(&s, inputs[then])
 	s.Now() == worlds[then+1]
