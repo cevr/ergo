@@ -420,13 +420,15 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 			// The emitter reads the target before a value that writes
 			// statements (assign's old): x = old op v.
 			t := b.l.info.Types[s.Lhs[0]]
-			if op == "*" && isFloatType(t) {
-				irNo("op-assignment of a value with statements") // a float product rounds: T(old * v)
-			}
 			p := b.pos(s, s.Pos())
-			old := b.temp("old", b.goType(t, s), p)
+			gt := b.goType(t, s)
+			old := b.temp("old", gt, p)
+			val := &irExpr{K: "bin", Pos: p, Op: op, X: &irExpr{K: "local", Pos: p, I: old}, Y: x}
+			if op == "*" && floatLowering != "fuse" && isFloatType(t) {
+				val = &irExpr{K: "conv", Pos: p, T: gt, X: val} // a float product rounds: T(old * v)
+			}
 			out := append([]*irStmt{{K: "def", Pos: p, Local: old, X: &irExpr{K: "local", Pos: p, I: i}}}, pre...)
-			return append(out, &irStmt{K: "set", Pos: p, Local: i, X: &irExpr{K: "bin", Pos: p, Op: op, X: &irExpr{K: "local", Pos: p, I: old}, Y: x}})
+			return append(out, &irStmt{K: "set", Pos: p, Local: i, X: val})
 		}
 		return append(pre, &irStmt{K: "set", Pos: b.pos(s, s.Pos()), Local: i, X: x, Op: op})
 	case *syntax.ReturnStmt:
