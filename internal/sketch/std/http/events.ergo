@@ -123,7 +123,7 @@ func End(r EventReader) Option[Truncated] {
 // ReadEvents is the events of a whole body.
 func ReadEvents(body string) []ServerEvent fails Truncated {
 	let r, events = Feed(NewEventReader(), body)
-	match End(r) {
+	match r.End() {
 	case Some[Truncated] as t:
 		t.Value
 	case None:
@@ -247,7 +247,7 @@ func Events(r Request, on func(e ServerEvent) fails SinkFailed) Response fails R
 			try on(e)
 		}
 	})
-	match End(reader.Get()) {
+	match reader.Get().End() {
 	case Some[Truncated] as t:
 		t.Value
 	case None:
@@ -271,8 +271,8 @@ func writable(events []ServerEvent) []ServerEvent {
 	out
 }
 
-// named is events as a reader gives them: a type of "" is "message".
-func named(events []ServerEvent) []ServerEvent {
+// typed is events as a reader gives them: a type of "" is "message".
+func typed(events []ServerEvent) []ServerEvent {
 	let mut out = []ServerEvent{}
 	for e in events {
 		out = out.Append(ServerEvent{..e, Event: if e.Event == "" { "message" } else { e.Event }})
@@ -319,7 +319,7 @@ law WriteThenRead(events []ServerEvent) {
 	case Truncated:
 		return false
 	}
-	back == named(clean)
+	back == typed(clean)
 }
 
 // ChunkingDoesNotMatter: a stream fed in any cuts gives the events of
@@ -331,7 +331,7 @@ law ChunkingDoesNotMatter(events []ServerEvent, sizes []int) {
 		return false
 	}
 	let r, got = feedIn(text, sizes)
-	got == named(clean) && End(r) == None
+	got == typed(clean) && r.End() == None
 }
 
 // CutIsNotAnEvent: a stream that loses some bytes of its last event,
@@ -354,7 +354,7 @@ law CutIsNotAnEvent(events []ServerEvent, k int, sizes []int) {
 	let drop = 1 + (if k < 0 { -(k % (last - 1)) } else { k % (last - 1) })
 	let body = strings.Slice(whole, 0, len(whole)-drop)
 	let r, got = feedIn(body, sizes)
-	got == named(clean[0:len(clean)-1]) && End(r) == Some[Truncated]{Value: Truncated{Text: strings.Slice(body, len(before), len(body))}}
+	got == typed(clean[0:len(clean)-1]) && r.End() == Some[Truncated]{Value: Truncated{Text: strings.Slice(body, len(before), len(body))}}
 }
 
 // FeedMatchesModel: over text of up to 120 pieces drawn from seed, fed
@@ -373,7 +373,7 @@ law FeedMatchesModel(seed int) {
 		}
 		let r, got = feedIn(text, sizes)
 		let want, end, retry = modelRead(text)
-		got == want && End(r) == end && Retry(r) == retry
+		got == want && r.End() == end && Retry(r) == retry
 	}
 }
 

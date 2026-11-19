@@ -199,7 +199,7 @@ test HttpChunkingDoesNotMatter(events []http.ServerEvent, sizes []int) {
 		return
 	}
 	let r, got = sseFeedIn(text, sizes)
-	assert got == sseNamed(clean) && http.End(r) == None
+	assert got == sseNamed(clean) && r.End() == None
 }
 
 test HttpCutIsNotAnEvent(events []http.ServerEvent, k int, sizes []int) {
@@ -221,7 +221,7 @@ test HttpCutIsNotAnEvent(events []http.ServerEvent, k int, sizes []int) {
 	let drop = 1 + (if k < 0 { -(k % (last - 1)) } else { k % (last - 1) })
 	let body = strings.Slice(whole, 0, len(whole)-drop)
 	let r, got = sseFeedIn(body, sizes)
-	assert got == sseNamed(clean[0:len(clean)-1]) && http.End(r) == Some[http.Truncated]{Value: http.Truncated{Text: strings.Slice(body, len(before), len(body))}}
+	assert got == sseNamed(clean[0:len(clean)-1]) && r.End() == Some[http.Truncated]{Value: http.Truncated{Text: strings.Slice(body, len(before), len(body))}}
 }
 
 test HttpFeedMatchesModel(seed int) {
@@ -237,7 +237,7 @@ test HttpFeedMatchesModel(seed int) {
 		}
 		let r, got = sseFeedIn(text, sizes)
 		let want, end, retry = sseModel(text)
-		assert got == want && http.End(r) == end && http.Retry(r) == retry
+		assert got == want && r.End() == end && http.Retry(r) == retry
 	}
 }
 
@@ -689,10 +689,10 @@ const httpInMemoryIntoStatement = `InMemorySendIntoIsSend(status int, body strin
 
 // The SSE laws (NG1), restated by HttpWriteThenRead, HttpChunkingDoesNotMatter,
 // HttpCutIsNotAnEvent and HttpFeedMatchesModel above.
-const sseWriteThenReadStatement = `PENDING`
+const sseWriteThenReadStatement = `WriteThenRead(events []ServerEvent) { let clean = writable(events) let text = WriteEvents(clean) catch { case Unwritable: return false } let back = ReadEvents(text) catch { case Truncated: return false } back == typed(clean) }`
 
-const sseChunkingStatement = `PENDING`
+const sseChunkingStatement = `ChunkingDoesNotMatter(events []ServerEvent, sizes []int) { let clean = writable(events) let text = WriteEvents(clean) catch { case Unwritable: return false } let r, got = feedIn(text, sizes) got == typed(clean) && r.End() == None }`
 
-const sseCutStatement = `PENDING`
+const sseCutStatement = `CutIsNotAnEvent(events []ServerEvent, k int, sizes []int) { let clean = writable(events) if len(clean) == 0 { return true } let before = WriteEvents(clean[0:len(clean)-1]) catch { case Unwritable: return false } let whole = WriteEvents(clean) catch { case Unwritable: return false } let last = len(whole) - len(before) let drop = 1 + (if k < 0 { -(k % (last - 1)) } else { k % (last - 1) }) let body = strings.Slice(whole, 0, len(whole)-drop) let r, got = feedIn(body, sizes) got == typed(clean[0:len(clean)-1]) && r.End() == Some[Truncated]{Value: Truncated{Text: strings.Slice(body, len(before), len(body))}} }`
 
-const sseModelStatement = `PENDING`
+const sseModelStatement = `FeedMatchesModel(seed int) { let pieces = []string{"data", "data:", "data: ", "event: ", "event", "id: ", "id", "retry: ", "retry:", "12", "x", " ", ":", "\n", "\n", "\r", "\r\n", "\x00", "-1", bom, "é"} with context { Random: rand.Seeded(uint64(seed)) } { let mut text = if Random.IntN(4) == 0 { bom } else { "" } for _ in 0..Random.IntN(120) { text = text + pieces[Random.IntN(len(pieces))] } let mut sizes = []int{} for _ in 0..1+Random.IntN(8) { sizes = sizes.Append(Random.IntN(10)) } let r, got = feedIn(text, sizes) let want, end, retry = modelRead(text) got == want && r.End() == end && Retry(r) == retry } }`
