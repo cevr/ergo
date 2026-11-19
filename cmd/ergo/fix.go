@@ -28,6 +28,10 @@ DIR is under a PATH. --go also reads the Ergo programs that .go files hold
 in string literals, each as a program of its own, and edits the literals.
 It prints what it wrote and each pair it could not write, with the repair.
 
+Then it respells the old modes: takes and escaping become own, and the
+borrow *T written outside a Go binding becomes mut T (with --go, in the
+Go string literals too).
+
 Then, for each PATH that is a .ergo file or a folder holding .ergo files,
 it writes the fails, needs and takes clauses that the signatures of the
 file, or of the package in the folder and the local packages it imports,
@@ -109,6 +113,19 @@ func fixCommand(args []string) error {
 		return exitStatusError{code: 1, message: "ergo fix: " + err.Error()}
 	}
 	if text := modes.Text(); text != "" {
+		out := os.Stdout
+		if asJSON {
+			out = os.Stderr // stdout holds only the JSON
+		}
+		fmt.Fprint(out, text)
+	}
+	// The borrow *T becomes the mode word mut T outside a Go binding
+	// (MODES-1; q169). Syntactic, like the keep mode's pass above.
+	muts, err := fix.RunMut(fix.Options{Paths: paths, Write: write, Go: goLits})
+	if err != nil {
+		return exitStatusError{code: 1, message: "ergo fix: " + err.Error()}
+	}
+	if text := muts.Text(); text != "" {
 		out := os.Stdout
 		if asJSON {
 			out = os.Stderr // stdout holds only the JSON

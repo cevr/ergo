@@ -76,19 +76,23 @@ func posOf(t Tree, k tokens, x uint32) int {
 		return posOf(t, k, fixed(t, x, 7, 3))
 	}
 	if kd == KField {
-		let dots = fixed(t, x, 10, 5)
+		let dots = fixed(t, x, 11, 5)
 		if dots != uint32(0) {
 			return optPos(k, dots)
 		}
-		let own = fixed(t, x, 10, 9)
-		let names = items(t, x, 10)
+		let own = fixed(t, x, 11, 9)
+		let names = items(t, x, 11)
 		if own != uint32(0) && (names == 0 || optPos(k, own) < posOf(t, k, item(t, x, 0))) {
 			return optPos(k, own)
+		}
+		let mutW = fixed(t, x, 11, 10)
+		if mutW != uint32(0) {
+			return optPos(k, mutW)
 		}
 		if names > 0 {
 			return posOf(t, k, item(t, x, 0))
 		}
-		return posOf(t, k, fixed(t, x, 10, 1)-uint32(1))
+		return posOf(t, k, fixed(t, x, 11, 1)-uint32(1))
 	}
 	if kd == KVariantSpec {
 		return posOf(t, k, fixed(t, x, 3, 0))
@@ -230,10 +234,11 @@ func endOf(t Tree, k tokens, x uint32) int {
 		return endOf(t, k, fixed(t, x, 5, 4))
 	}
 	if kd == KField {
-		let key = fixed(t, x, 10, 2)
-		let any = fixed(t, x, 10, 3)
-		let where = fixed(t, x, 10, 6)
-		let ty = fixed(t, x, 10, 1)
+		let key = fixed(t, x, 11, 2)
+		let any = fixed(t, x, 11, 3)
+		let where = fixed(t, x, 11, 6)
+		let ty = fixed(t, x, 11, 1)
+		let own = fixed(t, x, 11, 9)
 		if key != uint32(0) {
 			return endOf(t, k, key-uint32(1))
 		}
@@ -243,8 +248,11 @@ func endOf(t Tree, k tokens, x uint32) int {
 		if where != uint32(0) {
 			return endOf(t, k, where-uint32(1))
 		}
+		if ty == uint32(0) && own != uint32(0) {
+			return optPos(k, own) + 3 // [T own]
+		}
 		if ty == uint32(0) {
-			return endOf(t, k, lastItem(t, x, 10))
+			return endOf(t, k, lastItem(t, x, 11))
 		}
 		return endOf(t, k, ty-uint32(1))
 	}

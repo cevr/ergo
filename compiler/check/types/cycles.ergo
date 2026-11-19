@@ -36,7 +36,7 @@ func edgeAt(m mono, from int, to int) int {
 }
 
 // pushEdge appends e and indexes it by its source.
-func pushEdge(m *mono, e monoEdge) {
+func pushEdge(m mut mono, e monoEdge) {
 	for len(m.byFrom) <= e.from {
 		m.byFrom = m.byFrom.Append([]int{})
 	}
@@ -46,7 +46,7 @@ func pushEdge(m *mono, e monoEdge) {
 
 // addEdge adds the edge from-to, or makes an existing one heavier (the
 // heavier kept, in its place).
-func addEdge(m *mono, e monoEdge) {
+func addEdge(m mut mono, e monoEdge) {
 	let i = edgeAt(*m, e.from, e.to)
 	if i < 0 {
 		pushEdge(m, e)
@@ -59,7 +59,7 @@ func addEdge(m *mono, e monoEdge) {
 // The Go walk skips a signature's capability row; a type parameter there
 // is a conflicted one, whose instantiation validArgs refuses, so walking
 // every operand finds the same.
-func occursIn(s *store.Store, t dense.ID[store.TKey], q dense.ID[store.TKey]) bool {
+func occursIn(s mut store.Store, t dense.ID[store.TKey], q dense.ID[store.TKey]) bool {
 	if t == q {
 		return true
 	}
@@ -83,7 +83,7 @@ type cyc { s store.Store, files []syntax.Parsed, gens []gen, kinds Kinds, ext []
 func genIndex(c cyc, p syntax.Parsed, x dense.ID[syntax.Node]) int { localGen(c.heads, p, x) }
 
 // record adds the edges of the instantiation head[indices] at.
-func record(c *cyc, o owner, f int, env Env, head dense.ID[syntax.Node], indices []dense.ID[syntax.Node], at dense.ID[syntax.Node]) {
+func record(c mut cyc, o owner, f int, env Env, head dense.ID[syntax.Node], indices []dense.ID[syntax.Node], at dense.ID[syntax.Node]) {
 	let p = env.p
 	let g = genIndex(*c, p, head)
 	if g < 0 {
@@ -214,7 +214,7 @@ func refused(o owner, p syntax.Parsed, x dense.ID[syntax.Node]) bool {
 // parameter takes parameters of its kind and named types; a row written
 // for a type parameter takes error row parameters and named types; any
 // other argument is a type that resolves.
-func validArgs(c *cyc, o owner, env Env, p syntax.Parsed, ks []int, indices []dense.ID[syntax.Node]) bool {
+func validArgs(c mut cyc, o owner, env Env, p syntax.Parsed, ks []int, indices []dense.ID[syntax.Node]) bool {
 	for i, a in indices {
 		if refused(o, p, a) {
 			return false
@@ -249,7 +249,7 @@ func validArgs(c *cyc, o owner, env Env, p syntax.Parsed, ks []int, indices []de
 	true
 }
 
-func cfields(c *cyc, o owner, f int, env Env, l dense.ID[syntax.Node]) {
+func cfields(c mut cyc, o owner, f int, env Env, l dense.ID[syntax.Node]) {
 	let p = env.p
 	match syntax.ViewOf(p.Tree, l) {
 	case syntax.FieldList as fl:
@@ -273,7 +273,7 @@ func cfields(c *cyc, o owner, f int, env Env, l dense.ID[syntax.Node]) {
 // resolve before it). The walk takes the owner's Env from Cycles, made
 // once from its parameters: reading c.files[f] or making an Env of c's
 // fields per node copies the file whole.
-func cwalk(c *cyc, o owner, f int, env Env, x dense.ID[syntax.Node]) {
+func cwalk(c mut cyc, o owner, f int, env Env, x dense.ID[syntax.Node]) {
 	let p = env.p
 	match syntax.ViewOf(p.Tree, x) {
 	case syntax.ParenExpr as pe:
@@ -368,7 +368,7 @@ func isOps(p syntax.Parsed, body dense.ID[syntax.Node]) bool {
 // is no operation type with distinct parameters of the function, one per
 // type parameter and one per function parameter (mono.go monoLinkSelf;
 // decl.go selfOwner).
-func link(c *cyc, o owner, f int, env Env, fd syntax.FuncDecl) {
+func link(c mut cyc, o owner, f int, env Env, fd syntax.FuncDecl) {
 	let p = env.p
 	let mut first = dense.NoID[syntax.Node]()
 	match syntax.ViewOf(p.Tree, fd.Type) {
@@ -441,7 +441,7 @@ func link(c *cyc, o owner, f int, env Env, fd syntax.FuncDecl) {
 }
 
 // linkEdge adds e unless its pair of vertices has an edge already.
-func linkEdge(m *mono, e monoEdge) {
+func linkEdge(m mut mono, e monoEdge) {
 	if edgeAt(*m, e.from, e.to) < 0 {
 		pushEdge(m, e)
 	}
@@ -507,7 +507,7 @@ func Cycles(s store.Store, files []syntax.Parsed, kinds Kinds, funcs []FuncKinds
 // tarjan is the state of Tarjan's strongly connected components.
 type tarjan { index []int, low []int, on []bool, comp []int, stack []int, next int, ncomp int }
 
-func visit(m mono, t *tarjan, v int) {
+func visit(m mono, t mut tarjan, v int) {
 	t.index[v] = t.next
 	t.low[v] = t.next
 	t.next = t.next + 1

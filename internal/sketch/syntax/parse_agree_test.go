@@ -184,7 +184,11 @@ func (d *dumper) node(depth int, n Node) {
 		if x.Lent > 0 {
 			lent = x.Lent
 		}
-		d.line(depth, "Field %s doc=%d Any=%d Lent=%d Include=%d Dots=%d WherePos=%d Pure=%d PurePos=%d Own=%d", at, d.doc(x.Doc), anyPos, lent, b01(x.Include), dots, x.WherePos, b01(x.Pure), purePos, own)
+		mut := NoPos
+		if x.Mut != nil {
+			mut = x.Mut.At
+		}
+		d.line(depth, "Field %s doc=%d Any=%d Lent=%d Include=%d Dots=%d WherePos=%d Pure=%d PurePos=%d Own=%d Mut=%d", at, d.doc(x.Doc), anyPos, lent, b01(x.Include), dots, x.WherePos, b01(x.Pure), purePos, own, mut)
 		d.list(c, idents(x.Names))
 		d.node(c, x.Type)
 		d.node(c, x.Key)
@@ -272,7 +276,7 @@ func (d *dumper) node(depth int, n Node) {
 		d.list(c, exprs(x.Args))
 		d.node(c, x.Trailing)
 	case *StarExpr:
-		d.line(depth, "StarExpr %s Star=%d", at, x.Star)
+		d.line(depth, "StarExpr %s Star=%d Mut=%d", at, x.Star, b01(x.Mut))
 		d.node(c, x.X)
 	case *UnaryExpr:
 		d.line(depth, "UnaryExpr %s OpPos=%d Op=%d", at, x.OpPos, x.Op)

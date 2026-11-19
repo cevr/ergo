@@ -13,7 +13,7 @@ import compiler/syntax
 import dense
 
 // report records a diagnostic at x, in the function in hand.
-func report(k Pkg, t *Typer, x dense.ID[syntax.Node]) {
+func report(k Pkg, t mut Typer, x dense.ID[syntax.Node]) {
 	t.Diags = t.Diags.Append(Diag{At: pnode(k, t.file, x), Fn: t.fn})
 }
 
@@ -139,7 +139,7 @@ func letMut(k Pkg, at dense.ID[store.PNode]) bool {
 
 // arity reports the call x when it passes n arguments to np parameters
 // (sigParts has already left out a CallSite the call does not pass).
-func arity(k Pkg, t *Typer, x dense.ID[syntax.Node], n int, np int) {
+func arity(k Pkg, t mut Typer, x dense.ID[syntax.Node], n int, np int) {
 	if n != np {
 		report(k, t, x)
 	}

@@ -116,7 +116,7 @@ func hasSig(s store.Store, t dense.ID[store.TKey]) bool {
 
 // declared is a law's or a test's Fn: its parameters' types from the
 // field list params (none when absent) and its result.
-func declared(s *store.Store, env types.Env, p syntax.Parsed, file int, decl dense.ID[syntax.Node], name dense.ID[syntax.Node], params dense.Opt[syntax.Node], result dense.ID[store.TKey], b dense.Opt[syntax.Node]) Fn {
+func declared(s mut store.Store, env types.Env, p syntax.Parsed, file int, decl dense.ID[syntax.Node], name dense.ID[syntax.Node], params dense.Opt[syntax.Node], result dense.ID[store.TKey], b dense.Opt[syntax.Node]) Fn {
 	let mut ts = []dense.ID[store.TKey]{}
 	let mut names = []dense.Opt[syntax.Node]{}
 	match dense.Unpack(params) {
@@ -137,7 +137,7 @@ func declared(s *store.Store, env types.Env, p syntax.Parsed, file int, decl den
 
 // opTypes is recs with p's operation types that have no bracket
 // parameters: each operation a field of its signature's type.
-func opTypes(s *store.Store, p syntax.Parsed, parsed []syntax.Parsed, kinds types.Kinds, ext []types.Ext, foreign []types.Foreign, deps []types.Iface, recs []Rec) []Rec {
+func opTypes(s mut store.Store, p syntax.Parsed, parsed []syntax.Parsed, kinds types.Kinds, ext []types.Ext, foreign []types.Foreign, deps []types.Iface, recs []Rec) []Rec {
 	let mut out = recs
 	let env = types.NewEnv(*s, parsed, p, []string{}, kinds, ext, foreign, deps)
 	match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
@@ -184,7 +184,7 @@ func opTypes(s *store.Store, p syntax.Parsed, parsed []syntax.Parsed, kinds type
 }
 
 // fieldsOf is the written fields of the field list l, resolved in env.
-func fieldsOf(s *store.Store, env types.Env, p syntax.Parsed, l dense.ID[syntax.Node]) []Field {
+func fieldsOf(s mut store.Store, env types.Env, p syntax.Parsed, l dense.ID[syntax.Node]) []Field {
 	let mut out = []Field{}
 	match syntax.ViewOf(p.Tree, l) {
 	case syntax.FieldList as fl:
@@ -239,7 +239,7 @@ func writesWired(p syntax.Parsed, x dense.ID[syntax.Node]) bool {
 // deps (its Ergo imports' interfaces, in s's import list's order; an
 // import the program does not hold is types.EmptyIface), prelude telling
 // whether the package is the prelude.
-func Load(s *store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ext0 []types.Ext, foreign0 []types.Foreign, deps []types.Iface, prelude bool) Pkg {
+func Load(s mut store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ext0 []types.Ext, foreign0 []types.Foreign, deps []types.Iface, prelude bool) Pkg {
 	let mut parsed = []syntax.Parsed{}
 	for f in files {
 		parsed = parsed.Append(f.Parsed)

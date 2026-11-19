@@ -480,6 +480,10 @@ func (p *printer) operationType(t *syntax.InterfaceType) {
 				p.token(m.Own.At, "own")
 				p.space()
 			}
+			if m.Mut != nil {
+				p.token(m.Mut.At, "mut")
+				p.space()
+			}
 			p.ident(m.Names[0])
 			p.signature(m.Type.(*syntax.FuncType))
 		}})
@@ -979,7 +983,12 @@ func (p *printer) expr1(x syntax.Expr, depth int) {
 		p.token(x.OpPos, x.Op.String())
 		p.expr1(x.X, depth)
 	case *syntax.StarExpr:
-		p.token(x.Star, "*")
+		if x.Mut {
+			p.token(x.Star, "mut")
+			p.space()
+		} else {
+			p.token(x.Star, "*")
+		}
 		p.expr1(x.X, 1)
 	case *syntax.ParenExpr:
 		p.token(x.Lparen, "(")

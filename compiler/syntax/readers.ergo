@@ -322,17 +322,18 @@ func InterpolatedStringOf(t Tree, id dense.ID[Node]) InterpolatedString {
 func FieldOf(t Tree, id dense.ID[Node]) Field {
 	let i = uint32(dense.Index(id))
 	return Field{
-		Doc:      otok(fixed(t, i, 10, 0)),
-		Names:    listAt(t, i, 0, items(t, i, 10)),
-		Type:     onid(t, fixed(t, i, 10, 1)),
-		Key:      onid(t, fixed(t, i, 10, 2)),
-		Any:      onid(t, fixed(t, i, 10, 3)),
-		Lent:     onid(t, fixed(t, i, 10, 4)),
-		Dots:     otok(fixed(t, i, 10, 5)),
-		Where:    onid(t, fixed(t, i, 10, 6)),
-		WherePos: otok(fixed(t, i, 10, 7)),
-		PurePos:  otok(fixed(t, i, 10, 8)),
-		Own:      otok(fixed(t, i, 10, 9)),
+		Doc:      otok(fixed(t, i, 11, 0)),
+		Names:    listAt(t, i, 0, items(t, i, 11)),
+		Type:     onid(t, fixed(t, i, 11, 1)),
+		Key:      onid(t, fixed(t, i, 11, 2)),
+		Any:      onid(t, fixed(t, i, 11, 3)),
+		Lent:     onid(t, fixed(t, i, 11, 4)),
+		Dots:     otok(fixed(t, i, 11, 5)),
+		Where:    onid(t, fixed(t, i, 11, 6)),
+		WherePos: otok(fixed(t, i, 11, 7)),
+		PurePos:  otok(fixed(t, i, 11, 8)),
+		Own:      otok(fixed(t, i, 11, 9)),
+		Mut:      otok(fixed(t, i, 11, 10)),
 	}
 }
 

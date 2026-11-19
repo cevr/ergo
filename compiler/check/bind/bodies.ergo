@@ -51,7 +51,7 @@ func DefOf(u Uses, n dense.ID[store.PNode]) Def {
 }
 
 // named marks the Name row id as declaring a law.
-func named(b *binder, id dense.ID[syntax.Node], k uint8) {
+func named(b mut binder, id dense.ID[syntax.Node], k uint8) {
 	b.body.defs = b.body.defs.Append(def{at: pnode(*b, id), v: k})
 }
 
@@ -134,19 +134,19 @@ type binder {
 func mark(b binder) int { dense.Mark(b.locals) }
 
 // enter starts a declaration's scope; leave ends it.
-func enter(b *binder) int {
+func enter(b mut binder) int {
 	b.depth = b.depth + 1
 	mark(*b)
 }
 
-func leave(b *binder, m int) {
+func leave(b mut binder, m int) {
 	release(b, m)
 	b.depth = b.depth - 1
 }
 
 // release ends the scope that started at m: each local since m gives its
 // name back to the binding it shadowed.
-func release(b *binder, m int) {
+func release(b mut binder, m int) {
 	// Each row is read in place: a window bound to a local is a copy.
 	let mut i = dense.Depth(b.locals) - 1
 	for i >= m {
@@ -163,7 +163,7 @@ func pnode(b binder, id dense.ID[syntax.Node]) dense.ID[store.PNode] { PNodeOf(b
 // nameID is the name of text, with a slot in the inner column: the
 // package's id when its names hold text, else the overlay's. A body task
 // interns into its overlay only (C0/plan.md §3.2).
-func nameID(b *binder, text string) nm {
+func nameID(b mut binder, text string) nm {
 	match store.FindName(b.s, text) {
 	case Some[dense.ID[dense.Str]] as n:
 		for !dense.In(b.inner, n.Value) {
@@ -188,7 +188,7 @@ func innerOf(b binder, n nm) uint32 {
 	if n.over { dense.Of(b.innerO, n.id) } else { dense.Of(b.inner, n.id) }
 }
 
-func setInner(b *binder, n nm, v uint32) {
+func setInner(b mut binder, n nm, v uint32) {
 	if n.over {
 		dense.SetOf(&b.innerO, n.id, v)
 	} else {
@@ -211,7 +211,7 @@ func kindOf(b binder, n nm) int {
 }
 
 // define declares the Name row id as a local.
-func define(b *binder, id dense.ID[syntax.Node]) {
+func define(b mut binder, id dense.ID[syntax.Node]) {
 	let t = text(b.p, id)
 	if t == "_" {
 		return
@@ -226,7 +226,7 @@ func define(b *binder, id dense.ID[syntax.Node]) {
 
 // resolveText is what text names here: the innermost local, else the
 // package's declaration, else outside.
-func resolveText(b *binder, t string) uint32 {
+func resolveText(b mut binder, t string) uint32 {
 	let n = nameID(b, t)
 	let l = int(innerOf(*b, n))
 	if l > 0 {
@@ -250,7 +250,7 @@ func resolveText(b *binder, t string) uint32 {
 // selector records sel as a use of an import's declaration when x is a
 // name of an import no local shadows, and the import's interface
 // declares sel's text, exported (C0/plan.md §4: an XRef names no other).
-func selector(b *binder, x dense.ID[syntax.Node], sel dense.ID[syntax.Node]) {
+func selector(b mut binder, x dense.ID[syntax.Node], sel dense.ID[syntax.Node]) {
 	if syntax.KindOf(b.p.Tree, x) != syntax.KIdent {
 		return
 	}
@@ -284,7 +284,7 @@ func selector(b *binder, x dense.ID[syntax.Node], sel dense.ID[syntax.Node]) {
 }
 
 // use records the Name row id as a use.
-func use(b *binder, id dense.ID[syntax.Node]) {
+func use(b mut binder, id dense.ID[syntax.Node]) {
 	let t = text(b.p, id)
 	if t == "_" {
 		return
@@ -300,7 +300,7 @@ func use(b *binder, id dense.ID[syntax.Node]) {
 
 // isType is whether text names a type here (a match pattern's name then
 // tests the value instead of binding it).
-func isType(b *binder, t string) bool {
+func isType(b mut binder, t string) bool {
 	let n = nameID(b, t)
 	if int(innerOf(*b, n)) > 0 {
 		return false
@@ -315,7 +315,7 @@ func isType(b *binder, t string) bool {
 // qualifiers records the package names a derive clause qualifies with:
 // the deriving pass reads the clause, and the Go checker records only the
 // imports it names.
-func qualifiers(b *binder, x dense.ID[syntax.Node]) {
+func qualifiers(b mut binder, x dense.ID[syntax.Node]) {
 	match syntax.ViewOf(b.p.Tree, x) {
 	case syntax.Name:
 	case syntax.SelectorExpr as e:
@@ -335,7 +335,7 @@ func qualifiers(b *binder, x dense.ID[syntax.Node]) {
 
 // isPackageContext is whether the Name row x names a package-level
 // context (no local shadows it).
-func isPackageContext(b *binder, x dense.ID[syntax.Node]) bool {
+func isPackageContext(b mut binder, x dense.ID[syntax.Node]) bool {
 	let t = text(b.p, x)
 	let n = nameID(b, t)
 	if int(innerOf(*b, n)) > 0 {
@@ -408,7 +408,7 @@ func bodyOf(s store.Store, deps []store.Frozen, ps Parents, files []File, tops [
 // the package's names in the overlay's order, its local names are mapped
 // through that, and its entries are set. The result does not depend on
 // how the rows were cut or on when each task ended.
-func Join(s *store.Store, bodies []Body) Uses {
+func Join(s mut store.Store, bodies []Body) Uses {
 	let mut u = newUses()
 	let mut remap = []dense.ID[dense.Str]{}
 	for body in bodies {
@@ -459,14 +459,14 @@ func BindUses(s store.Store, ps Parents, files []File) Uses {
 }
 
 // each walks the items of l.
-func each(b *binder, l syntax.List) {
+func each(b mut binder, l syntax.List) {
 	for i in 0..syntax.Len(l) {
 		walk(b, syntax.Item(b.p.Tree, l, i))
 	}
 }
 
 // opt walks o, if present.
-func opt(b *binder, o dense.Opt[syntax.Node]) {
+func opt(b mut binder, o dense.Opt[syntax.Node]) {
 	match dense.Unpack(o) {
 	case Some[dense.ID[syntax.Node]] as x:
 		walk(b, x.Value)
@@ -475,7 +475,7 @@ func opt(b *binder, o dense.Opt[syntax.Node]) {
 }
 
 // children walks every child row of x.
-func children(b *binder, x dense.ID[syntax.Node]) {
+func children(b mut binder, x dense.ID[syntax.Node]) {
 	let n = dense.Index(pnode(*b, x))
 	for i in 0..numKids(b.ps, n) {
 		walk(b, syntax.NodeAt(b.p.Tree, kidAt(b.ps, n, i)))
@@ -484,7 +484,7 @@ func children(b *binder, x dense.ID[syntax.Node]) {
 
 // params declares the names of a field list's fields, after walking
 // their types (a parameter's type cannot name a later parameter).
-func params(b *binder, o dense.Opt[syntax.Node]) {
+func params(b mut binder, o dense.Opt[syntax.Node]) {
 	match dense.Unpack(o) {
 	case Some[dense.ID[syntax.Node]] as x:
 		if syntax.KindOf(b.p.Tree, x.Value) == syntax.KFieldList {
@@ -513,7 +513,7 @@ func params(b *binder, o dense.Opt[syntax.Node]) {
 
 // fieldTypes walks the types of a field list's fields, not their names
 // (a record's fields, a method's parameters with no body).
-func fieldTypes(b *binder, x dense.ID[syntax.Node]) {
+func fieldTypes(b mut binder, x dense.ID[syntax.Node]) {
 	match syntax.ViewOf(b.p.Tree, x) {
 	case syntax.FieldList as fl:
 		for i in 0..syntax.Len(fl.List) {
@@ -534,7 +534,7 @@ func fieldTypes(b *binder, x dense.ID[syntax.Node]) {
 
 // signature declares a function type's parameters and walks its result
 // and clauses.
-func signature(b *binder, x dense.ID[syntax.Node]) {
+func signature(b mut binder, x dense.ID[syntax.Node]) {
 	if syntax.KindOf(b.p.Tree, x) != syntax.KFuncType {
 		walk(b, x)
 		return
@@ -555,7 +555,7 @@ func signature(b *binder, x dense.ID[syntax.Node]) {
 // pattern declares the names a pattern binds and walks the rest as uses
 // (patterns.go patternNames): in a match a name that names a type tests
 // the value; at a let (let) every name binds.
-func pattern(b *binder, x dense.ID[syntax.Node], atLet bool) {
+func pattern(b mut binder, x dense.ID[syntax.Node], atLet bool) {
 	if syntax.KindOf(b.p.Tree, x) == syntax.KIdent {
 		if !atLet && isType(b, text(b.p, x)) {
 			use(b, x)
@@ -598,7 +598,7 @@ func pattern(b *binder, x dense.ID[syntax.Node], atLet bool) {
 // alternatives declares the names of a case's patterns: every alternative
 // binds the same names, and the first's rows are the declarations (a later
 // one's names declare nothing more).
-func alternatives(b *binder, l syntax.List) {
+func alternatives(b mut binder, l syntax.List) {
 	for i in 0..syntax.Len(l) {
 		let m = mark(*b)
 		pattern(b, syntax.Item(b.p.Tree, l, i), false)
@@ -609,7 +609,7 @@ func alternatives(b *binder, l syntax.List) {
 }
 
 // walk resolves the uses of row x and declares the locals it binds.
-func walk(b *binder, x dense.ID[syntax.Node]) {
+func walk(b mut binder, x dense.ID[syntax.Node]) {
 	// The kind decides first: a name is a use, and a row bind treats as
 	// its children are walks them with no view (a view is a union value,
 	// made per call; capstone S3b's counted guard).
@@ -888,7 +888,7 @@ func apart(k uint8) bool {
 
 // isWithCall is whether call row x may be with's or within's: its first
 // token, its function's, is that word (the view decides the rest).
-func isWithCall(b *binder, x dense.ID[syntax.Node]) bool {
+func isWithCall(b mut binder, x dense.ID[syntax.Node]) bool {
 	let j = syntax.TokStartingAt(b.p, syntax.NodePos(b.p, x))
 	if j < 0 {
 		return false
@@ -899,7 +899,7 @@ func isWithCall(b *binder, x dense.ID[syntax.Node]) bool {
 
 // patternUses walks a package-level pattern for its uses only: its names
 // are the store's declarations.
-func patternUses(b *binder, x dense.ID[syntax.Node]) {
+func patternUses(b mut binder, x dense.ID[syntax.Node]) {
 	match syntax.ViewOf(b.p.Tree, x) {
 	case syntax.Name:
 	case syntax.ParenExpr as e:

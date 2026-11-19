@@ -154,7 +154,7 @@ func declOf(fns []Fn, file int, at dense.ID[syntax.Node]) int {
 
 // literal is the default type of the basic literal x, or of a numeric one
 // with a sign; none for any other expression.
-func literal(s *store.Store, p syntax.Parsed, x dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
+func literal(s mut store.Store, p syntax.Parsed, x dense.ID[syntax.Node]) Option[dense.ID[store.TKey]] {
 	match syntax.ViewOf(p.Tree, x) {
 	case syntax.UnaryExpr as u:
 		let op = syntax.TokKind(p, u.Op)

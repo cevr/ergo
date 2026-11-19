@@ -122,7 +122,7 @@ func lineLen(lines []Line, w Widths, i int) int {
 
 // align sets the widths of column for lines from to to, and of the
 // columns after it within each block.
-func align(w *Widths, lines []Line, from int, to int, column int) {
+func align(w mut Widths, lines []Line, from int, to int, column int) {
 	let mut i = from
 	for i < to {
 		if len(lines[i].Cells) <= column+1 {

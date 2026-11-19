@@ -31,7 +31,7 @@ type Callee { Params []dense.ID[store.TKey], Rows []bool, Base int }
 // not match, an unknown argument, two literals with different defaults
 // for one parameter, or a type parameter nothing binds. The frame is
 // begun on f and cut before Infer returns.
-func Infer(s *store.Store, f *Frame, callee Callee, explicit []dense.ID[store.TKey], args []Arg) Option[[]dense.ID[store.TKey]] {
+func Infer(s mut store.Store, f mut Frame, callee Callee, explicit []dense.ID[store.TKey], args []Arg) Option[[]dense.ID[store.TKey]] {
 	if len(args) != len(callee.Params) || len(explicit) > len(callee.Rows) {
 		return None
 	}
@@ -41,7 +41,7 @@ func Infer(s *store.Store, f *Frame, callee Callee, explicit []dense.ID[store.TK
 	out
 }
 
-func inferIn(s *store.Store, f *Frame, c Call, callee Callee, explicit []dense.ID[store.TKey], args []Arg) Option[[]dense.ID[store.TKey]] {
+func inferIn(s mut store.Store, f mut Frame, c Call, callee Callee, explicit []dense.ID[store.TKey], args []Arg) Option[[]dense.ID[store.TKey]] {
 	for i, t in explicit {
 		Bind(f, c, i, t)
 	}

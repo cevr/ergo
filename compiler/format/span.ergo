@@ -239,6 +239,8 @@ func posOf(t tree.Tree, id int) int {
 			pos(t, id, "Dots")
 		} else if own != NoPos && (len(names) == 0 || own < posOf(t, names[0])) {
 			own
+		} else if has(t, id, "Mut") {
+			pos(t, kid(t, id, "Mut"), "At")
 		} else if len(names) > 0 {
 			posOf(t, kids(t, id, "Names")[0])
 		} else {
@@ -407,6 +409,8 @@ func endOf(t tree.Tree, id int) int {
 			pos(t, id, "Any") + 3
 		} else if has(t, id, "Where") {
 			endOf(t, kid(t, id, "Where"))
+		} else if !has(t, id, "Type") && has(t, id, "Own") {
+			pos(t, kid(t, id, "Own"), "At") + 3
 		} else if !has(t, id, "Type") {
 			endOf(t, last(kids(t, id, "Names")))
 		} else {

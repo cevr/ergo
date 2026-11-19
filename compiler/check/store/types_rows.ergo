@@ -21,10 +21,10 @@ let KWired = 19
 let KWiredNeeds = 20
 
 // TRowValue is the value type of the row of ts, in order.
-func TRowValue(s *Store, ts []dense.ID[TKey]) dense.ID[TKey] { composite(&s.pool, tRowValue, ts) }
+func TRowValue(s mut Store, ts []dense.ID[TKey]) dense.ID[TKey] { composite(&s.pool, tRowValue, ts) }
 
 // TWired is wired[p], p a type parameter, in an error row (uses false) or
 // a capability row (uses true).
-func TWired(s *Store, p dense.ID[TKey], uses bool) dense.ID[TKey] {
+func TWired(s mut Store, p dense.ID[TKey], uses bool) dense.ID[TKey] {
 	composite(&s.pool, if uses { tWiredNeeds } else { tWired }, []dense.ID[TKey]{p})
 }

@@ -61,42 +61,42 @@ func OperandsOf(s Store, t dense.ID[TKey]) []dense.ID[TKey] {
 func OriginOfType(s Store, t dense.ID[TKey]) XRef { OriginOf(s.pool, t) }
 
 // TBasic is the basic type of ordinal n; 0 is the invalid type.
-func TBasic(s *Store, n int) dense.ID[TKey] { Basic(&s.pool, n) }
+func TBasic(s mut Store, n int) dense.ID[TKey] { Basic(&s.pool, n) }
 
 // TParam is the type parameter at position i.
-func TParam(s *Store, i int) dense.ID[TKey] { Param(&s.pool, i) }
+func TParam(s mut Store, i int) dense.ID[TKey] { Param(&s.pool, i) }
 
 // TNamed is the type the package's type declaration d names.
-func TNamed(s *Store, d dense.ID[Decl]) dense.ID[TKey] {
+func TNamed(s mut Store, d dense.ID[Decl]) dense.ID[TKey] {
 	let r = DeclOf(*s, d).Obj
 	intern(&s.pool, TKey{k: uint8(tNamed), a: uint32(indexOf(r)), b: uint32(0)}, false)
 }
 
 // TSlice is []e.
-func TSlice(s *Store, e dense.ID[TKey]) dense.ID[TKey] { Slice(&s.pool, e) }
+func TSlice(s mut Store, e dense.ID[TKey]) dense.ID[TKey] { Slice(&s.pool, e) }
 
 // TMap is Map[k, v], the map type.
-func TMap(s *Store, k dense.ID[TKey], v dense.ID[TKey]) dense.ID[TKey] { MapOf(&s.pool, k, v) }
+func TMap(s mut Store, k dense.ID[TKey], v dense.ID[TKey]) dense.ID[TKey] { MapOf(&s.pool, k, v) }
 
 // TRow is the row of ts.
-func TRow(s *Store, ts []dense.ID[TKey]) dense.ID[TKey] { Row(&s.pool, ts) }
+func TRow(s mut Store, ts []dense.ID[TKey]) dense.ID[TKey] { Row(&s.pool, ts) }
 
 // TInstance is origin o at args.
-func TInstance(s *Store, o XRef, args []dense.ID[TKey]) dense.ID[TKey] { Instance(&s.pool, o, args) }
+func TInstance(s mut Store, o XRef, args []dense.ID[TKey]) dense.ID[TKey] { Instance(&s.pool, o, args) }
 
 // TPointer is *e.
-func TPointer(s *Store, e dense.ID[TKey]) dense.ID[TKey] { composite(&s.pool, tPointer, []dense.ID[TKey]{e}) }
+func TPointer(s mut Store, e dense.ID[TKey]) dense.ID[TKey] { composite(&s.pool, tPointer, []dense.ID[TKey]{e}) }
 
 // TTuple is (ts…); the empty tuple is a signature's absent result.
-func TTuple(s *Store, ts []dense.ID[TKey]) dense.ID[TKey] { composite(&s.pool, tTuple, ts) }
+func TTuple(s mut Store, ts []dense.ID[TKey]) dense.ID[TKey] { composite(&s.pool, tTuple, ts) }
 
 // TOwn marks a parameter's function type written own.
-func TOwn(s *Store, t dense.ID[TKey]) dense.ID[TKey] { composite(&s.pool, tOwn, []dense.ID[TKey]{t}) }
+func TOwn(s mut Store, t dense.ID[TKey]) dense.ID[TKey] { composite(&s.pool, tOwn, []dense.ID[TKey]{t}) }
 
 // TSig is a signature: its operands are the parameters, then the result
 // (a tuple when there are several or none), the error row and the
 // capability row.
-func TSig(s *Store, params []dense.ID[TKey], result dense.ID[TKey], errs dense.ID[TKey], uses dense.ID[TKey]) dense.ID[TKey] {
+func TSig(s mut Store, params []dense.ID[TKey], result dense.ID[TKey], errs dense.ID[TKey], uses dense.ID[TKey]) dense.ID[TKey] {
 	composite(&s.pool, tSig, params.Append(result).Append(errs).Append(uses))
 }
 
@@ -104,13 +104,13 @@ func TSig(s *Store, params []dense.ID[TKey], result dense.ID[TKey], errs dense.I
 // foreign table. (Not an Instance with no arguments: every empty operand
 // list has one start in extra, so two such instances of different origins
 // would share a key; S3t/store-request.md reports it.)
-func TForeign(s *Store, i int) dense.ID[TKey] { intern(&s.pool, TKey{k: uint8(tForeign), a: uint32(i), b: uint32(0)}, false) }
+func TForeign(s mut Store, i int) dense.ID[TKey] { intern(&s.pool, TKey{k: uint8(tForeign), a: uint32(i), b: uint32(0)}, false) }
 
 // TEntry marks a parameter's function type written entry.
-func TEntry(s *Store, t dense.ID[TKey]) dense.ID[TKey] { composite(&s.pool, tEntry, []dense.ID[TKey]{t}) }
+func TEntry(s mut Store, t dense.ID[TKey]) dense.ID[TKey] { composite(&s.pool, tEntry, []dense.ID[TKey]{t}) }
 
 // TArray is [n]e: its operands are the length, as a marked basic, and e.
-func TArray(s *Store, n int, e dense.ID[TKey]) dense.ID[TKey] {
+func TArray(s mut Store, n int, e dense.ID[TKey]) dense.ID[TKey] {
 	composite(&s.pool, tArray, []dense.ID[TKey]{Basic(&s.pool, arrayLenBit|n), e})
 }
 
