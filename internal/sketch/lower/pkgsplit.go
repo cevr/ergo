@@ -875,7 +875,9 @@ func splitPackages(u Unit, origins map[string]*check.Package) (*splitPlan, map[s
 		}
 		index[un.Package] = len(plan.pkgs)
 		for _, s := range un.Sources {
-			ofSource[s.Path] = len(plan.pkgs)
+			// A //line directive names the emitted name (emitName: relative
+			// to the module root, binsize BS6), not the admitted path.
+			ofSource[emitName(u.Root, s.Path)] = len(plan.pkgs)
 		}
 		plan.pkgs = append(plan.pkgs, p)
 	}

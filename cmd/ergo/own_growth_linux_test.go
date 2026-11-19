@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -50,9 +51,10 @@ import (
 // The guard is a ratio of counts, never of time: with d1 = I(2n) - I(n)
 // and d2 = I(4n) - I(2n) the user-space instructions of the whole process,
 // linear work gives d2/d1 near 2 and quadratic work near 4; the bound is
-// 3.0, on the medians of 3 rounds. The collector's marking of a larger
-// heap moved router's linear ratio between 1.7 and 2.4 across runs, and
-// the copying reference's lowest ratio is 3.41. It builds Go because the claim is about
+// 3.0, on the medians of 3 rounds. The programs run with the collector
+// off (ownCount), because a collector's cycles step in number between
+// sizes and moved the head's ratios between 0.56 and 5.47; with it off
+// every program gives 1.96 to 2.03 (2026-11-17). It builds Go because the claim is about
 // the machine work of the built program, which no in-process check of the
 // lowered Go shows. Each program runs bounded by proclimit, and the test
 // waits for its exit. A host with no counter of user-space instructions
@@ -61,9 +63,12 @@ import (
 // Red on the reference: OWN_GROWTH_CLI=<an ergo binary> runs the guard on
 // that binary's builds; an ergo built with
 // -ldflags=-X=ergo.local/prototype/internal/sketch/lower.valueLowering=copy
-// (the copying lowering, which takes no hand-over) gives d2/d1 5.34
-// (mdhtml), 4.75 (router) and 3.41 (ownring), and the head 2.03, 1.96 and
-// 2.08 (2026-11-13). The mutant it alone catches: a hand-over that keeps
+// (the copying lowering, which takes no hand-over) fails: with the
+// collector off, ownring's copies exhaust its 2 GiB bound ("runtime: out
+// of memory"), while the head's ownring stays near a megabyte
+// (2026-11-17). With the collector on (GOGC=100 or 200) the reference gave
+// router 4.97 to 5.95, ownring 3.45 to 3.73 and ownvt 3.69 to 3.84, but
+// mdhtml 1.55 to 2.66, no different from the head. The mutant it alone catches: a hand-over that keeps
 // values right but copies anyway (own-lineage or own-consume never taken,
 // fieldOwned never owning), which no value property sees. It builds with
 // -report copies and checks the growing site's line, so a silent copy
@@ -158,7 +163,18 @@ func TestHandoverGrowsLinearly(t *testing.T) {
 // exit 0.
 func ownCount(t *testing.T, cmd *exec.Cmd, stdin string) uint64 {
 	t.Helper()
-	cmd.Env = append(os.Environ(), "GOMAXPROCS=1")
+	// The count is the mutator's: the collector is off (GOGC=off, no
+	// GOMEMLIMIT), whatever the caller's environment. With it on, a run's
+	// few whole-heap cycles step in number between sizes and move the ratio
+	// either way: the gate's GOGC=400 and GOMEMLIMIT (keyedEnvironment) gave
+	// mdhtml 4.44 and ownedit 0.74 (merge tier at fca9f4f96), and rt.Pace's
+	// 64 MiB floor gave ownedit 3.85 to 5.05 (2026-11-17), where the
+	// mutator's work is linear. A copying lowering still does quadratic work,
+	// or exceeds the run's 2 GiB bound, and fails either way.
+	cmd.Env = append(slices.DeleteFunc(os.Environ(), func(kv string) bool {
+		name, _, _ := strings.Cut(kv, "=")
+		return slices.Contains([]string{"GOGC", "GOMEMLIMIT", "GODEBUG", "GOMAXPROCS"}, name)
+	}), "GOMAXPROCS=1", "GOGC=off")
 	cmd.Stdin = strings.NewReader(stdin)
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out

@@ -714,6 +714,9 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 	if fallible {
 		ret.err = fc.temp("err")
 		fc.line("var " + ret.err + " error")
+		// The use goes before the block: after a block whose every path
+		// fails by a jump it would be unreachable (go vet).
+		fc.line("_ = " + ret.err)
 		if jump && ret.join == nil {
 			// A join local's returns stay at the join: its writes are
 			// the scalar form's (scalar.go), not the result's.

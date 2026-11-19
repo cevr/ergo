@@ -198,6 +198,10 @@ type fileOptions struct {
 	// noViews is build's -views=off: no Go call takes a view of a
 	// string's bytes (LAWFFI LF2b; lower.Unit.NoViews).
 	noViews bool
+	// noFallback is build's -fallback=off, or ERGO_FALLBACK=off: a body
+	// the IR builder cannot lower is an error naming it and its reason,
+	// not a text body (FALLBACK-OFF; lower.Unit.NoFallback).
+	noFallback bool
 	// rewrites is build's -rewrites=on|proved|off|canary[=N] (lower.Unit.Rewrites):
 	// which rewrites over functions the run build applies; empty is on.
 	rewrites string
@@ -339,6 +343,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 			opts.locked = true
 		case "-views=off":
 			opts.noViews = true
+		case "-fallback=off":
+			opts.noFallback = true
 		case "--emitted":
 			opts.emitted = true
 		case "--debug":
@@ -374,6 +380,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("-go-text is only supported by build")
 	case opts.noViews && command != "build":
 		return opts, fmt.Errorf("-views=off is only supported by build")
+	case opts.noFallback && command != "build":
+		return opts, fmt.Errorf("-fallback=off is only supported by build")
 	case opts.report != "" && command != "build":
 		return opts, fmt.Errorf("-report is only supported by build")
 	case opts.rewrites != "" && command != "build":

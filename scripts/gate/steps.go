@@ -176,6 +176,22 @@ func sweepSupported() bool { return sweepOS == "linux" }
 // tier's sandbox, inside its scratch temporary directory.
 const sweepStdVariable = "ERGO_CLOSURE_STD_DIR"
 
+// sweepRunDeadlineVariable (internal/closure, runDeadlineVariable) is the
+// bound of each run of a sweep. sweepRunDeadline only stops a run that
+// hangs: a run's own default, 30 minutes, cut cmd/ergo's runs at 27-28
+// minutes in the merge tiers at fca9f4f96 and 36b1f8335 while they still
+// made progress, and the package takes 58-61 minutes at load 50-120 (I19
+// rerun, verify r4). At 90 minutes, merge tier r4b at fba159c29 still cut
+// both runs of cmd/ergo and one of internal/sketchfront at load 50-80 on 16
+// cores, each still using CPU (3522 CPU-s in 96 minutes for cmd/ergo,
+// whose whole sweep once passed in 3009). AGENTS.md: a deadline only stops
+// a hung test. A deadline from each package's recorded duration, or a
+// detector of a run that has stopped using CPU, is the TM follow-up.
+const (
+	sweepRunDeadlineVariable = "ERGO_CLOSURE_RUN_DEADLINE"
+	sweepRunDeadline         = 3 * time.Hour
+)
+
 // sweepStdDir is the one std store directory of the run's sweeps.
 func sweepStdDir() string {
 	return filepath.Join(os.TempDir(), "ergo-gate", "closure-std")
@@ -192,11 +208,15 @@ func sweepStdDir() string {
 // internal/sketch/lower, which took 2210 s under the batch-16b merge tier's
 // load, reach their own 20 minute deadline (gate16b-fix3). It is a safety
 // net for a sweep that hangs, as every go test step's timeout is.
+//
+// Each run's own deadline is sweepRunDeadline, and the step's timeout adds
+// it to hangDeadline of weight, so a run started late in the step still
+// has all of it.
 func sweepStep(selection string, weight float64) *Step {
 	return &Step{
 		Name:    "closure sweep",
-		Argv:    []string{"go", "test", testTimeoutFor(weight), "-run", "^" + sweepTest + "$", sweepPackage},
-		Env:     []string{sweepVariable + "=" + selection, sweepStdVariable + "=" + sweepStdDir()},
+		Argv:    []string{"go", "test", "-timeout=" + (hangDeadline(weight) + sweepRunDeadline).String(), "-run", "^" + sweepTest + "$", sweepPackage},
+		Env:     []string{sweepVariable + "=" + selection, sweepStdVariable + "=" + sweepStdDir(), sweepRunDeadlineVariable + "=" + sweepRunDeadline.String()},
 		ToolEnv: testTools,
 		Sweep:   selection,
 		Weight:  weight,
@@ -298,8 +318,10 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	// where int is 32 bits: a constant that overflows it fails here
 	// (batch-14 apply 5, runtime/v1/timetext.go). Its Weight is the step's
 	// measured cold-cache seconds (16.1 s at 4 CPUs, 1-minute load 18,
-	// 2026-11-10).
-	add(&Step{Name: "go vet ./cmd/ergo (GOARCH=386)", Argv: []string{"go", "vet", "./cmd/ergo"}, Env: []string{"GOARCH=386"}, Weight: 16.1, Class: classHeavy})
+	// 2026-11-10). The target is linux/386 on every host: darwin has no
+	// 386 port, and darwin/386 asks for a cgo-linked PIE (I19 macOS check
+	// at e08f49831).
+	add(&Step{Name: "go vet ./cmd/ergo (GOARCH=386)", Argv: []string{"go", "vet", "./cmd/ergo"}, Env: []string{"GOOS=linux", "GOARCH=386"}, Weight: 16.1, Class: classHeavy})
 	// Every GOOS the toolchain lists vets, or names why it cannot
 	// (scripts/vetgoos; FU-freebsd). Full tier: it compiles std for 18
 	// systems, 600 s cold at 4 CPUs and 20 s for six warm (load 44 to 55,

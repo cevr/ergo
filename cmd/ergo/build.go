@@ -145,19 +145,20 @@ func buildSource(opts fileOptions, place func(name, output string) string) (rece
 	}
 	stderr := &quiet{w: os.Stderr}
 	module, err := sketchfront.Build(l.analysis, sketchfront.BuildRequest{
-		Mode:      build.ModeBuild,
-		Source:    l.source.Admitted(),
-		Output:    output.Path(),
-		Cache:     build.Cache{Root: root},
-		Toolchain: tc,
-		IR:        true,
-		Rewrites:  opts.rewrites,
-		Stderr:    stderr,
-		Ledger:    ledgerPath(opts.file),
-		Locked:    opts.locked,
-		NoViews:   opts.noViews,
-		Report:    &report,
-		Inputs:    w.fsys(),
+		Mode:       build.ModeBuild,
+		Source:     l.source.Admitted(),
+		Output:     output.Path(),
+		Cache:      build.Cache{Root: root},
+		Toolchain:  tc,
+		IR:         true,
+		Rewrites:   opts.rewrites,
+		Stderr:     stderr,
+		Ledger:     ledgerPath(opts.file),
+		Locked:     opts.locked,
+		NoViews:    opts.noViews,
+		NoFallback: opts.noFallback || os.Getenv("ERGO_FALLBACK") == "off",
+		Report:     &report,
+		Inputs:     w.fsys(),
 	})
 	if opts.work && module.Dir != "" {
 		fmt.Fprintf(os.Stderr, "WORK=%s\n", module.Dir)
@@ -208,6 +209,7 @@ func buildGoText(l loaded, opts fileOptions, output receipt.Location) error {
 		return err
 	}
 	unit.NoViews = opts.noViews
+	unit.NoFallback = opts.noFallback || os.Getenv("ERGO_FALLBACK") == "off"
 	files, _, err := lower.LowerIR(unit)
 	if err != nil {
 		return err

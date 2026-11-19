@@ -65,7 +65,7 @@ func (b *irBuilder) declare(name, typ string, p irPos) int {
 	i := b.next
 	b.next++
 	b.fn.Locals = append(b.fn.Locals, irLocal{Name: name, Type: typ, Pos: p})
-	b.localType(i, typ) // ir_rewrite_pass.go
+	b.setLocalType(i, typ) // ir_rewrite_pass.go (I-FLIP: LF6w's setter, renamed beside RED17's localType)
 	if b.given == nil {
 		b.given = map[string]bool{}
 	}
@@ -135,6 +135,9 @@ type yieldTo struct {
 	// local is -1 when the with has no value.
 	fails bool
 	err   int
+	// fuse marks a fused callee's results (ir_forms_match.go): each is a
+	// jump to the arm its variant reaches.
+	fuse bool
 }
 
 // yield is s in result position: its value is returned, or put in to.
@@ -154,6 +157,12 @@ func (b *irBuilder) yield(s syntax.Stmt, to *yieldTo) []*irStmt {
 				}
 				return b.matchStmt(m, true, to) // ir_match.go: each arm yields
 			}
+		}
+		if to != nil && to.fuse {
+			if _, ok := b.isWith(s.X); ok && !conv {
+				irNo("with in a fused body")
+			}
+			return b.fuseTail(s.X, p) // ir_forms_match.go
 		}
 		if w, ok := b.isWith(s.X); ok && !conv {
 			return b.withStmt(w, true, to) // ir_with.go: the block's tail yields
@@ -262,7 +271,9 @@ func (b *irBuilder) discard(x syntax.Expr) []*irStmt {
 	}
 	if call, ok := x.(*syntax.CallExpr); ok {
 		if c := b.l.info.Calls[call]; c != nil && c.Kind != check.CallConversion && c.Kind != check.CallLen {
+			b.dropping = call // its value is dropped (ir_forms_drop.go)
 			pre, e := b.call(call, true)
+			b.dropping = nil
 			if e == nil {
 				// A function value's call, bound and dropped (ir_closure.go),
 				// or a tried call with no value (call).
@@ -320,6 +331,10 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 			if !ok {
 				irNo("let without a variable")
 			}
+			if sl, ok := b.strLet(v, spec.Values[0], b.pos(s.Decl, s.Decl.Pos())); ok {
+				out = append(out, sl...) // strbuf.go
+				continue
+			}
 			if sl, ok := b.scalarLet(v, spec.Values[0], s.Decl.Mut.IsValid(), b.pos(s.Decl, s.Decl.Pos())); ok {
 				out = append(out, sl...) // ir_scalar.go
 				continue
@@ -364,6 +379,9 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 			pre, x := b.value(s.Rhs[0])
 			return append(pre, b.scatter(sc, x, s, b.pos(s, s.Pos()))...) // ir_scalar.go
 		}
+		if sb, built := b.strBufs[v]; built && ok {
+			return b.strAssign(s, v, sb) // strbuf.go
+		}
 		i, known := b.locals[v]
 		if !ok || !known {
 			irNo("assignment to a non-local")
@@ -387,6 +405,9 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		return append(pre, &irStmt{K: "set", Pos: b.pos(s, s.Pos()), Local: i, X: x, Op: op})
 	case *syntax.ReturnStmt:
 		p := b.pos(s, s.Pos())
+		if b.fuse != nil && len(s.Results) == 1 {
+			return b.fuseTail(s.Results[0], p) // ir_forms_match.go: a fused callee's return
+		}
 		if len(s.Results) == 0 {
 			return b.ret(nil, p) // ir_fail.go
 		}

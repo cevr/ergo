@@ -42,8 +42,14 @@ type IRReport struct {
 	Merge int `json:"merge,omitempty"`
 	// Fold counts the pure Go calls on constants computed at compile
 	// time (ir_fold.go).
-	Fold int    `json:"fold,omitempty"`
-	Hash string `json:"hash"`
+	Fold int `json:"fold,omitempty"`
+	// Seed counts the slice literals the IR bodies seed with room
+	// (seedcap.go).
+	Seed int `json:"seed,omitempty"`
+	// StrBuf counts the string locals the IR bodies build in a buffer
+	// (strbuf.go).
+	StrBuf int    `json:"strbuf,omitempty"`
+	Hash   string `json:"hash"`
 	// Forms counts the IR forms the bodies held before erasure, by
 	// kind and layout ("match/flat"; ir_forms.go): in memory only.
 	Forms map[string]int `json:"-"`
@@ -58,6 +64,15 @@ type IRReport struct {
 	// the Map types each cause made Go's map, over every round.
 	MapRounds    int            `json:"-"`
 	MapConflicts map[string]int `json:"-"`
+	// Inlined counts the calls whose callee's IR body the pass copied to
+	// their site (ir_forms_inline.go).
+	Inlined int `json:"-"`
+	// KnownVariants counts the matches whose union the known-variant pass
+	// stopped building (ir_forms_variant.go).
+	KnownVariants int `json:"-"`
+	// Dropped counts the discarded calls that name the variant with no
+	// result (ir_forms_drop.go).
+	Dropped int `json:"-"`
 }
 
 // LowerIR is Lower with the IR bodies. The report's Hash names the IR
@@ -230,7 +245,7 @@ func lowerIRModule(u Unit, tests *testLowering, formsOff bool) ([]File, map[stri
 	)
 	for round := 0; ; round++ {
 		l = newBuildLowerer(u, tests)
-		l.ir = &irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, formsOff: formsOff, maps: ims}
+		l.ir = &irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, formsOff: formsOff, noFallback: u.NoFallback, maps: ims}
 		if round == intMapRounds {
 			l.ir.maps = intMapState{allGo: true}
 		}
@@ -247,6 +262,11 @@ func lowerIRModule(u Unit, tests *testLowering, formsOff bool) ([]File, map[stri
 			break
 		}
 		ims = next
+	}
+	// The last round's bodies alone: an earlier round's fallbacks were
+	// the conflicts it lowered again for (intmap.go).
+	if err := l.ir.refuseFallbacks(); err != nil { // ir_fallback.go
+		return nil, nil, irModule{}, nil, err
 	}
 	if err := irNoForms(&l.ir.out); err != nil { // ir_forms_erase.go
 		return nil, nil, irModule{}, nil, err
@@ -282,8 +302,13 @@ type irState struct {
 	funcApplied map[string]int
 	// formsOff builds no IR form (LowerIRReference; ir_forms.go).
 	formsOff bool
-	ops      *opFacts // the capability bindings (ir_forms_op.go)
+	ops      *opFacts    // the capability bindings (ir_forms_op.go)
+	inl      *irInline   // the inliner's marks and frames (ir_forms_inline.go)
 	maps     intMapState // MI-2: the int map choice (intmap.go)
+	// noFallback is Unit.NoFallback; fallbacks are the bodies the
+	// builder stopped at, with their reasons (ir_fallback.go).
+	noFallback bool
+	fallbacks  []IRCensusFunc
 }
 
 // restart empties st for a lowering that runs again from the start
@@ -295,11 +320,14 @@ func (st *irState) restart() *irState {
 		return nil
 	}
 	reach := append(st.reached, st.reach...)
-	census, formsOff := st.census, st.formsOff
+	census, formsOff, noFallback := st.census, st.formsOff, st.noFallback
 	if census != nil {
 		census = &IRCensus{}
 	}
-	*st = irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, census: census, reach: reach, formsOff: formsOff}
+	// The round's int map choice stays (its off types and allGo): the
+	// run's conflicts are dropped with its bodies (intmap.go).
+	maps := intMapState{off: st.maps.off, allGo: st.maps.allGo}
+	*st = irState{files: map[string]int{}, report: IRReport{Fallback: map[string]int{}}, census: census, reach: reach, formsOff: formsOff, noFallback: noFallback, maps: maps}
 	return st
 }
 
@@ -356,6 +384,10 @@ type irStmt struct {
 	Ls []int `json:"ls,omitempty"`
 	// F is a "match" form's facts, in memory only (ir_forms.go).
 	F *irMatch `json:"-"`
+	// Was is the facts of the match form this switch was erased from, in
+	// memory only (ir_forms_variant.go); an arm's Bind is only whether
+	// its case's body starts with the binding.
+	Was *irMatch `json:"-"`
 }
 
 type irExpr struct {
@@ -378,6 +410,10 @@ type irExpr struct {
 	End    *irPos    `json:"end,omitempty"`
 	// F is a "variant" form's facts, in memory only (ir_forms.go).
 	F *irVariant `json:"-"`
+	// Was is the facts of the variant form this expression was erased
+	// from, in memory only, for the known-variant pass that runs after
+	// erasure (ir_forms_variant.go).
+	Was *irVariant `json:"-"`
 	// C is a pure call's facts, in memory only (ir_merge.go).
 	C *irCall `json:"-"`
 	// CF are a call's facts for the rewrite passes, in memory only
@@ -413,6 +449,8 @@ type irBuilder struct {
 	// mergeSites counts the body's calls the merge pass replaced
 	// (ir_merge.go).
 	mergeSites int
+	// seedSites counts the body's seeded slice literals (seedcap.go).
+	seedSites int
 	// foldSites counts the body's calls the fold pass replaced
 	// (ir_fold.go).
 	foldSites int
@@ -422,6 +460,10 @@ type irBuilder struct {
 	// tries counts the try expressions being built (ir_fail.go): inside
 	// one, a fallible call fails the frame too.
 	tries int
+	// rawErr is the Go call whose error a plain catch takes unread
+	// (catch_plain.go; ir_fail.go catch): bind leaves it Go's error, not
+	// go.Error (GOERR-BOX).
+	rawErr *syntax.CallExpr
 	// admitted are the unions admitted so far (ir_union.go): one that
 	// holds itself is admitted once.
 	admitted map[*check.TypeName]bool
@@ -435,6 +477,12 @@ type irBuilder struct {
 	labels int
 	// scalars are the locals in the scalar form (ir_scalar.go).
 	scalars map[*check.Var]*irScalar
+	// strVars are the locals in the built string's form, strBufs their
+	// StrBuf locals once declared, and strSites the forms built
+	// (strbuf.go).
+	strVars  map[*check.Var]bool
+	strBufs  map[*check.Var]int
+	strSites int
 	// names allocates the temporaries' names (ir_fail.go, tempNames).
 	names *namer
 	// given are the names the body's locals and temporaries have: a
@@ -470,6 +518,9 @@ type irBuilder struct {
 	// dropsErr marks the calls whose Go error the site drops: a row
 	// empty there (ir_call.go, dropErr).
 	dropsErr map[*irExpr]bool
+	// dropping is the call a statement discards, while it is built
+	// (ir_forms_drop.go).
+	dropping *syntax.CallExpr
 	// voidTail marks the branches of a body with no value whose last
 	// statement ends the body: a tail of an error value fails the frame
 	// (ir_fail.go bodyStmts, ir_stmt.go tailTo).
@@ -500,6 +551,9 @@ type irBuilder struct {
 	exitRegs   []irExitReg
 	exitsSlots bool
 	consts     irConsts // each IR constant's value (ir_constfold.go)
+	// fuse is the fused match whose callee body is being built: its
+	// results jump to the match's arms (ir_forms_match.go).
+	fuse *fuseSite
 }
 
 // gate stops the body for reason; a census records it and goes on.
@@ -638,8 +692,9 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	}
 	b.ops = &irOpBody{f: f, env: b.env} // ir_forms_op.go
 	b.fn = &irFunc{Name: name, Pos: b.pos(f.Decl, f.Decl.Pos()), End: b.pos(f.Decl, f.Decl.Body.Rbrace)}
-	b.names = b.tempNames(f.Decl.Body) // ir_fail.go
-	b.params = map[int]bool{}          // ir_hoist.go: the parameters' locals, before openOwn's
+	b.names = b.tempNames(f.Decl.Body)            // ir_fail.go
+	b.strVars = strBufVars(b.l.info, f.Decl.Body) // strbuf.go
+	b.params = map[int]bool{}                     // ir_hoist.go: the parameters' locals, before openOwn's
 	for _, l := range b.locals {
 		b.params[l] = true
 	}
@@ -665,10 +720,13 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	}
 	b.ownDone(name) // ir_own.go
 	st.out.Funcs = append(st.out.Funcs, *b.fn)
+	st.inlineCallee(b, fd, params) // ir_forms_inline.go
 	st.report.IR = append(st.report.IR, name)
 	st.report.Memo += b.memoSites
 	st.report.Merge += b.mergeSites
 	st.report.Fold += b.foldSites
+	st.report.Seed += b.seedSites
+	st.report.StrBuf += b.strSites
 	st.report.FormSites = append(st.report.FormSites, b.forms...) // ir_forms_report.go
 	return true
 }
@@ -685,18 +743,26 @@ func (st *irState) finish(b *irBuilder, pkg, name string, decl syntax.Node, std 
 		b.note(u.reason)
 		b.l.intMapBody(b.l.info, decl, u.reason) // intmap.go: its emitter body writes Go's map operations
 		*ok = false
+		if st.noFallback {
+			st.fallbacks = append(st.fallbacks, IRCensusFunc{Pkg: pkg, Name: name, File: st.fileOf(b, decl), Std: std, Reasons: []string{u.reason}})
+		}
 		st.rewritesDone(b, false, u.reason) // ir_rewrite.go
 	} else if *ok {
 		st.rewritesDone(b, true, "")
 	}
 	if st.census != nil {
-		file := ""
-		if _, sourced := b.l.sourceOf(decl); sourced {
-			_, file, _, _ = b.l.at(decl, decl.Pos())
-		}
-		st.census.Funcs = append(st.census.Funcs, IRCensusFunc{Pkg: pkg, Name: name, File: file, Std: std, Reasons: b.reasons})
+		st.census.Funcs = append(st.census.Funcs, IRCensusFunc{Pkg: pkg, Name: name, File: st.fileOf(b, decl), Std: std, Reasons: b.reasons})
 		*ok = false
 	}
+}
+
+// fileOf is decl's source file for a sourced body, else "".
+func (st *irState) fileOf(b *irBuilder, decl syntax.Node) string {
+	file := ""
+	if _, sourced := b.l.sourceOf(decl); sourced {
+		_, file, _, _ = b.l.at(decl, decl.Pos())
+	}
+	return file
 }
 
 // intrinsic records f, whose body is the lowerer's own Go text (an extern

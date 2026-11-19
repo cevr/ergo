@@ -86,6 +86,12 @@
     "TestOperatorKernelsAgree": 0,
     "TestRangeSpellings": 0.01
   },
+  "ergo.local/prototype/docs/research/pattern-bench": {},
+  "ergo.local/prototype/examples/lintpack/policy": {
+    "TestFixturesInProcess": 0.05,
+    "TestForbiddenFailureReadsOperatorRows": 0.01,
+    "TestManifestIsThePack": 0
+  },
   "ergo.local/prototype/internal/bindc": {
     "TestCCPolicy": 0.29,
     "TestCOracle": 0.21,
@@ -747,6 +753,13 @@
     "TestSeparateAdjacentComments": 0,
     "TestTranslateMeaningKept": 0.14
   },
+  "ergo.local/prototype/internal/opcount": {
+    "TestCountsTheProcessTree": 0.17,
+    "TestReceiptNumbers": 0,
+    "TestRefusesARunThatDidNotFinish": 0.03,
+    "TestShortCountIsRefused": 0,
+    "TestWorkloadFileReads": 0.02
+  },
   "ergo.local/prototype/internal/pinset": {
     "TestPinSetNameKeysEveryInput": 0
   },
@@ -1349,6 +1362,10 @@
     "TestRunRefusesAnAbsentFootprint": 0,
     "TestRunStopsTheRun": 0
   },
+  "ergo.local/prototype/internal/sketch/facts": {
+    "TestTablesAgreeWithScan": 0.3,
+    "TestTablesAgreeWithScanOnExamples": 9.26
+  },
   "ergo.local/prototype/internal/sketch/fix": {
     "TestFixMigratesModel": 0.51,
     "TestOwnSpellsTheOldModes": 0.39
@@ -1367,6 +1384,20 @@
     "TestMalformedIsRefused": 0.11,
     "TestOutputBound": 0.02,
     "TestSupersededInputs": 0
+  },
+  "ergo.local/prototype/internal/sketch/lint": {
+    "TestBannedWordsAgreesWithReference": 0.01,
+    "TestComplexityAgreesWithReference": 0.09,
+    "TestDeprecatedAgreesWithReference": 0.2,
+    "TestForeignErrorPublicAgreesWithReference": 0.01,
+    "TestForeignWhereStdAgreesWithReference": 0.04,
+    "TestKnownValueWideningAgreesWithReference": 0.02,
+    "TestLayoutPresetOnExamples": 10.52,
+    "TestPackSuppressionAgreesWithModel": 0.08,
+    "TestRaceForTimeoutAgreesWithReference": 0.07,
+    "TestSilentCatchAgreesWithReference": 0.04,
+    "TestSuppressionAgreesWithModel": 0.04,
+    "TestUnboundedCollectAgreesWithReference": 0.02
   },
   "ergo.local/prototype/internal/sketch/lower": {
     "TestAcceptedNodesLowerFamilies": 1.43,
@@ -1713,9 +1744,9 @@
     "TestTimeoutDeadlineIsTheProgramScheduler": 0.58,
     "TestTopLevelLawNamesAbsent": 0.03,
     "TestTopLevelLawsLeaveNoGo": 4.53,
+    "TestTrustedRootBindsRuntime": 0.8,
     "TestTryCoversToTheRight": 1.38,
     "TestTryCoversToTheRightBuilt": 3.01,
-    "TestTrustedRootBindsRuntime": 0.8,
     "TestUnitValidate": 0,
     "TestUnreachableRulesRefuse": 0.01,
     "TestUntypedLetIsRefusedBeforeLowering": 0,
@@ -1874,6 +1905,9 @@
     "TestWatchSeesChangesAfterALookup": 0,
     "TestWatchSkipsWhatOnlyTheTreeChanges": 0
   },
+  "ergo.local/prototype/internal/testinputs/genprogram": {
+    "TestGenerateProgramIsSeeded": 0
+  },
   "ergo.local/prototype/internal/testinputs/guard": {
     "TestEveryTestPackageIsObserved": 0.2,
     "TestObserves": 0
@@ -1899,6 +1933,15 @@
     "TestProjectionRefusesUnsupported": 0,
     "TestProjectionSourceSpans": 0,
     "TestTsProjectionAgrees": 0
+  },
+  "ergo.local/prototype/lint": {
+    "TestApplyValidatesAgainstTheAdmittedSource": 0,
+    "TestEvaluateStatuses": 0,
+    "TestRunCompletesThroughTheProtocol": 1.08,
+    "TestRunFailureMatrix": 0.2,
+    "TestRunTimeoutKillsTheProcessGroup": 1.21,
+    "TestRunValidatesFindingSpans": 0.03,
+    "TestSDKDoesNotImportCompilerInternals": 0
   },
   "ergo.local/prototype/prototypes/actorlib": {
     "TestAgentCallbackDefectIsADefect": 0,
@@ -2231,11 +2274,47 @@
     "TestExecStopEndsAPipeline": 0.02,
     "TestExecStopModel": 5.6
   },
+  "ergo.local/prototype/runtime/v1/http": {
+    "TestHTTPClientMatchesServer": 0.01,
+    "TestHTTPClientRefusedAndStopped": 0,
+    "TestHTTPConcurrentRequestsAndStop": 0.02,
+    "TestHTTPDisconnectAndDefects": 0,
+    "TestHTTPEncodeQueryIsGos": 0,
+    "TestHTTPFetchIntoMatchesModel": 1.12,
+    "TestHTTPFetchIntoStops": 0.03,
+    "TestHTTPFetchSendsTheWebTarget": 0.47,
+    "TestHTTPHandlerRunsOnTheConnection": 0,
+    "TestHTTPLocalMatchesLoopback": 0.93,
+    "TestHTTPNetworkMatchesModel": 0.02,
+    "TestHTTPNetworkStops": 0,
+    "TestHTTPPhasesExpireOnTheScheduler": 0,
+    "TestHTTPServerMatchesModel": 0.16,
+    "TestHTTPStreamFlushesEachPart": 0,
+    "TestHTTPStreamHangUpStopsTheWriter": 0,
+    "TestReadBodyAllocates": 0
+  },
   "ergo.local/prototype/runtime/v1/rand": {
     "TestRandIntNNotPositiveIsADefect": 0,
     "TestRandLaws": 0,
     "TestSeededRandModel": 0,
     "TestStreamSharedByTasks": 0
+  },
+  "ergo.local/prototype/runtime/v1/redacted": {
+    "TestRedactedNeverRenders": 0.01
+  },
+  "ergo.local/prototype/runtime/v1/rpc": {
+    "TestRPCAbortStopsTheCall": 0,
+    "TestRPCCallsStopWithTheCaller": 0,
+    "TestRPCExitsWriteTheValueOnce": 0.01,
+    "TestRPCFailedEmitStopsTheCallsLeft": 0,
+    "TestRPCWireFacts": 0.01
+  },
+  "ergo.local/prototype/scripts/bootstrap": {
+    "TestBuildIsAFunctionOfSourceAndGo": 5.38,
+    "TestCapstoneRowsOfLandedStages": 0,
+    "TestSeedDownloadIsCheckedAgainstTheLock": 1.59,
+    "TestSeedIsReproducedNotTrusted": 3.57,
+    "TestStagesRefuseErgoCompilerPackages": 2.52
   },
   "ergo.local/prototype/scripts/conformance": {
     "TestBehaviorLimitsAndClosedSchemaAreRequired": 0,
@@ -2512,6 +2591,9 @@
   },
   "ergo.local/prototype/scripts/mutants": {
     "TestRunnerMatchesModel": 10.48
+  },
+  "ergo.local/prototype/scripts/specrefs": {
+    "TestWrappedReferencesMove": 0
   },
   "internal/sketchfront": {
     "TestStatSumsReadOnlyWhatChanged": 0.01

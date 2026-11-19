@@ -64,6 +64,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("sizes", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	root := flags.String("root", ".", "the module root")
+	keep := flags.String("keep", "", "copy each fixture's binaries (NAME with symbols, NAME.stripped) into this directory, for a `go tool nm -size` diff (SIZE-HELLO)")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -71,7 +72,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "sizes: the budget is measured on linux/amd64 and the receipt reads ELF; skipped on %s/%s\n", runtime.GOOS, runtime.GOARCH)
 		return 0
 	}
-	receipts, err := measure(*root)
+	receipts, err := measure(*root, *keep)
 	if err != nil {
 		fmt.Fprintln(stderr, "sizes:", err)
 		return 2
@@ -101,8 +102,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 }
 
 // measure builds the control and every fixture in a private directory,
-// removed at the end, and measures them.
-func measure(rootSpelled string) ([]sizes.Receipt, error) {
+// removed at the end, and measures them. With keep set, the fixtures'
+// binaries are copied there first.
+func measure(rootSpelled, keep string) ([]sizes.Receipt, error) {
 	root, err := filepath.Abs(rootSpelled)
 	if err != nil {
 		return nil, err
@@ -116,6 +118,11 @@ func measure(rootSpelled string) ([]sizes.Receipt, error) {
 	if err != nil {
 		return nil, err
 	}
+	if keep != "" {
+		if err := keepBinaries(work, keep, "gohello"); err != nil {
+			return nil, err
+		}
+	}
 	cache := build.Cache{Root: filepath.Join(work, "cache")}
 	var receipts []sizes.Receipt
 	for _, f := range fixtures {
@@ -124,6 +131,11 @@ func measure(rootSpelled string) ([]sizes.Receipt, error) {
 			return nil, fmt.Errorf("%s: %w", f.name, err)
 		}
 		receipts = append(receipts, sizes.Receipt{Fixture: f.name, Binary: b, Control: control})
+		if keep != "" {
+			if err := keepBinaries(work, keep, f.name); err != nil {
+				return nil, err
+			}
+		}
 	}
 	if err := sameDefectReport(root, work, cache); err != nil {
 		return nil, err
@@ -132,6 +144,24 @@ func measure(rootSpelled string) ([]sizes.Receipt, error) {
 		return nil, err
 	}
 	return receipts, nil
+}
+
+// keepBinaries copies work/name, work/name.stripped and work/name.deps,
+// the module's `go list -deps`, into dir.
+func keepBinaries(work, dir, name string) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	for _, n := range []string{name, name + ".stripped", name + ".deps"} {
+		data, err := os.ReadFile(filepath.Join(work, n))
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(dir, n), data, 0o755); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // measureErgo builds the program in dir as `ergo build --debug` does, then
@@ -147,7 +177,7 @@ func measureErgo(dir, work, name string, cache build.Cache) (sizes.Binary, error
 	if err != nil {
 		return sizes.Binary{}, err
 	}
-	b.GoPackages, err = goPackages(module.Dir)
+	b.GoPackages, err = goPackages(module.Dir, filepath.Join(work, name+".deps"))
 	return b, err
 }
 
@@ -254,18 +284,22 @@ func measureGo(dir, work string) (sizes.Binary, error) {
 	if err != nil {
 		return sizes.Binary{}, err
 	}
-	b.GoPackages, err = goPackages(dir)
+	b.GoPackages, err = goPackages(dir, filepath.Join(work, "gohello.deps"))
 	return b, err
 }
 
-// goPackages counts the packages the main package in dir links.
-func goPackages(dir string) (int, error) {
+// goPackages counts the packages the main package in dir links, and
+// writes their list to save, for -keep.
+func goPackages(dir, save string) (int, error) {
 	list := exec.Command("go", "list", "-mod=readonly", "-deps", ".")
 	list.Dir = dir
 	list.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=")
 	out, err := list.Output()
 	if err != nil {
 		return 0, fmt.Errorf("go list -deps in %s: %w", dir, err)
+	}
+	if err := os.WriteFile(save, out, 0o644); err != nil {
+		return 0, err
 	}
 	return len(strings.Fields(string(out))), nil
 }

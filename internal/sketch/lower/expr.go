@@ -217,7 +217,9 @@ func (fc *funcCtx) value(x syntax.Expr) string {
 		if fc.tries == 0 {
 			ice(x, "an untried fallible expression in a value position")
 		}
-		fc.propagate(o.err)
+		// The first call under a try asked for its failures
+		// its label is placed here, as try places it (triedCall).
+		fc.propagateFailed(o)
 	}
 	return o.val
 }
@@ -1156,7 +1158,7 @@ func (fc *funcCtx) try(x *syntax.TryExpr) operand {
 		fc.tries--
 		return o
 	}
-	o := fc.asked(x.X)
+	o := fc.askedFor(x.X, triedCall(x.X))
 	fc.tries--
 	if o.err != "" {
 		fc.propagateFailed(o)
@@ -1166,11 +1168,74 @@ func (fc *funcCtx) try(x *syntax.TryExpr) operand {
 
 // asked lowers x as the operand of a catch or a try that places its
 // inlined failing returns (failJump, inline.go).
-func (fc *funcCtx) asked(x syntax.Expr) operand {
+func (fc *funcCtx) asked(x syntax.Expr) operand { return fc.askedFor(x, unparen(x)) }
+
+// askedFor lowers x, asking for the failures of call (failJump).
+func (fc *funcCtx) askedFor(x syntax.Expr, call syntax.Expr) operand {
 	saved := fc.failJump
-	fc.failJump = unparen(x)
+	fc.failJump = call
 	defer func() { fc.failJump = saved }()
 	return fc.expr(x)
+}
+
+// underTry lowers, until the returned func runs, under the try that
+// starts a shape looked through (tried): it covers the shape's x, and asks
+// for the failures of the call x evaluates first, as fc.try asks.
+func (fc *funcCtx) underTry(x syntax.Expr) func() {
+	fc.tries++
+	saved := fc.failJump
+	fc.failJump = triedCall(x)
+	return func() {
+		fc.failJump = saved
+		fc.tries--
+	}
+}
+
+// underTriedAssert is f, under the try that starts the assert's condition
+// x when one does (underTry).
+func (fc *funcCtx) underTriedAssert(x syntax.Expr, f func() (string, string)) (string, string) {
+	if t := tried(x); t != x {
+		defer fc.underTry(t)()
+	}
+	return f()
+}
+
+// triedCall is the expression whose failures a try over x asks for: the call
+// x evaluates first, through the left operand of a binary expression, a
+// selector, an index and a method call's receiver, past parentheses; or
+// x itself when that is no call. A try never groups (grammar.md,
+// Expressions 1), so try r(4).N * 2 is a try over the product, and its
+// first call is r(4), whose failures (try r(4)).N * 2 asks for too: the
+// two lower to one Go text, as parentheses round a try carry no meaning
+// (q105; batch-19 B7h). value places the label of the first call where
+// its value is read.
+func triedCall(x syntax.Expr) syntax.Expr {
+	x = unparen(x)
+	if c := firstCall(x); c != nil {
+		return c
+	}
+	return x
+}
+
+// firstCall is the call x evaluates first along its leftmost operands, or
+// nil.
+func firstCall(x syntax.Expr) *syntax.CallExpr {
+	switch y := unparen(x).(type) {
+	case *syntax.BinaryExpr:
+		return firstCall(y.X)
+	case *syntax.SelectorExpr:
+		return firstCall(y.X)
+	case *syntax.IndexExpr:
+		return firstCall(y.X)
+	case *syntax.CallExpr:
+		if sel, ok := unparen(y.Fun).(*syntax.SelectorExpr); ok {
+			if c := firstCall(sel.X); c != nil {
+				return c
+			}
+		}
+		return y
+	}
+	return nil
 }
 
 // placeFail places the label of o's inlined failing returns (failJump),

@@ -92,8 +92,9 @@ func (fc *funcCtx) getMatch(s *syntax.TypeSwitchStmt, d dest) (done, terminates 
 	// A try that starts the subject covers the receiver and the key
 	// (tried): (try m).Get(k) and try m.Get(k) lower alike.
 	inTry := subject != s.Subjects[0].X
+	restore := func() {}
 	if inTry {
-		fc.tries++
+		restore = fc.underTry(subject)
 	}
 	// The value rule may copy the receiver so that the Option it returns
 	// does not share the Map (values.go, Escapes). The read takes one
@@ -110,9 +111,7 @@ func (fc *funcCtx) getMatch(s *syntax.TypeSwitchStmt, d dest) (done, terminates 
 		elemCopy = some.as != nil || some.value != nil
 	}
 	vals := fc.callArgs(list, call)
-	if inTry {
-		fc.tries--
-	}
+	restore()
 	v, okName := fc.temp("v"), fc.temp("ok")
 	fc.l.intMapConflict(fc.typeOf(list[0])) // intmap.go: Go's comma-ok read
 	fc.line(v + ", " + okName + " := " + vals[0] + "[" + vals[1] + "]")

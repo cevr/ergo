@@ -83,7 +83,7 @@ func (b *irBuilder) ownedSiteCall(x *syntax.CallExpr, c *check.Call, s *refSite,
 		targs, subst = b.stdTypeArgs(owned, c, x)
 	}
 	cb := s.form.cb
-	if x.Trailing != nil || len(owned.Params) != len(list)+2 || cb >= len(list) || owned.Params[cb].Func == nil {
+	if x.Trailing != nil || len(owned.Params) != len(list)+3 || cb >= len(list) || owned.Params[cb].Func == nil {
 		irNo("owning site of another shape")
 	}
 	for i, q := range owned.Params[:len(list)] {
@@ -116,7 +116,7 @@ func (b *irBuilder) ownedSiteCall(x *syntax.CallExpr, c *check.Call, s *refSite,
 		bind, fn := b.adaptOperand(sig, list[cb], args[cb], owned.Params[cb], p) // ir_adapt.go
 		pre, args[cb] = append(pre, bind...), fn
 	}
-	args = append(args, b.cellCopy(s, p), &irExpr{K: "const", Pos: p, T: "bool", V: strconv.FormatBool(s.fresh)})
+	args = append(args, b.cellCopy(s, p), &irExpr{K: "const", Pos: p, T: "bool", V: strconv.FormatBool(s.fresh)}, &irExpr{K: "const", Pos: p, T: "bool", V: strconv.FormatBool(s.alone)})
 	if targs != "" {
 		b.keepImport("var _ " + b.l.rt() + ".Site") // the instance's types may name the body's type parameters
 	} else {

@@ -24,7 +24,9 @@
 // cycles, the runtime's GC CPU share, the live heap after a final
 // collection and the peak resident set (VmHWM) at the large size. With
 // -control the control must print what the program prints on the small
-// input, or every comparison is refused (NotEquivalent).
+// input, or every comparison is refused (NotEquivalent). -control also
+// measures the workload's floor, the hand-optimized Go-runtime floor, when
+// it names one, under the same rule, and compares the program with each.
 //
 // Command mode compares two commands on each target:
 //
@@ -90,7 +92,7 @@ func run(args []string, stdout, stderr io.Writer) (int, error) {
 	var memory string
 	flags := flag.NewFlagSet("opcount", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	flags.BoolVar(&o.control, "control", false, "also measure the workload's hand Go control, and compare")
+	flags.BoolVar(&o.control, "control", false, "also measure the workload's hand Go control and Go-runtime floor (each it names), and compare")
 	flags.BoolVar(&o.text, "text", false, "build the program's IR bodies as Go text (ergo build -go-text), for comparison with the IR build")
 	flags.BoolVar(&o.cmd, "cmd", false, "command mode: compare -base and -head on each target")
 	flags.IntVar(&o.rounds, "rounds", 3, "rounds; each runs every side once, in alternating order")
@@ -269,8 +271,8 @@ func programCase(o options, name string, log io.Writer) (opcount.Case, error) {
 		}
 		return opcount.Case{}, errors.New(strings.Join(lines, "\n"))
 	}
-	if o.control && w.Control == "" {
-		return opcount.Case{}, fmt.Errorf("%s/%s names no control", rel, opcount.WorkloadFile)
+	if o.control && w.Control == "" && w.Floor == "" {
+		return opcount.Case{}, fmt.Errorf("%s/%s names no control and no floor", rel, opcount.WorkloadFile)
 	}
 	release, err := patchedRelease(log)
 	if err != nil {
@@ -284,11 +286,17 @@ func programCase(o options, name string, log io.Writer) (opcount.Case, error) {
 	program, goLine := ergoSide.bin, ergoSide.goLine
 	sides := []side{{"ergo", program}}
 	if o.control {
-		bin, err := b.goPackage(w.Control, "control", goLine, true)
-		if err != nil {
-			return opcount.Case{}, err
+		// The hand Go control and the Go-runtime floor, each the workload names.
+		for _, ref := range []struct{ name, dir string }{{"control", w.Control}, {"floor", w.Floor}} {
+			if ref.dir == "" {
+				continue
+			}
+			bin, err := b.goPackage(ref.dir, ref.name, goLine, true)
+			if err != nil {
+				return opcount.Case{}, err
+			}
+			sides = append(sides, side{ref.name, bin})
 		}
-		sides = append(sides, side{"control", bin})
 	}
 	inputs := map[int]string{}
 	if w.InputKind != "" {
@@ -339,8 +347,11 @@ func programCase(o options, name string, log io.Writer) (opcount.Case, error) {
 		}
 	}
 	if o.control {
-		for i := range counters {
-			c.Comparisons = append(c.Comparisons, opcount.Compare(c.Series[len(counters)+i], c.Series[i]))
+		// The program against each reference side: ergo/control, ergo/floor.
+		for k := 1; k < len(sides); k++ {
+			for i := range counters {
+				c.Comparisons = append(c.Comparisons, opcount.Compare(c.Series[k*len(counters)+i], c.Series[i]))
+			}
 		}
 		if equivalence != nil {
 			c.Refuse(*equivalence)
@@ -735,13 +746,15 @@ func (b builder) program(cmdDir, name string) (built, error) {
 
 // moduleBuild is ergo's go build action (build.Toolchain.Command) of the
 // emitted module at dir with release, unstripped, the overlay and
-// -checklinkname=0 (the exit hook's linkname) in GOFLAGS: each package
-// that has an IR file is compiled with its -ergoir.
+// -checklinkname=0 (the exit hook's linkname) in GOFLAGS, after the
+// caller's own GOFLAGS (such as -tags=ergo_stockpark, the runtime's stock
+// park body: PARK1): each package that has an IR file is compiled with its
+// -ergoir.
 func moduleBuild(release toolchain.Patched, dir, overlay, bin string) *exec.Cmd {
 	tc := build.HostToolchain()
 	tc.Go, tc.Root = release.Go, release.Root
 	tc.GOOS, tc.GOARCH = runtime.GOOS, runtime.GOARCH
-	tc.GOFLAGS = "'-overlay=" + overlay + "' -ldflags=-checklinkname=0"
+	tc.GOFLAGS = strings.TrimSpace(os.Getenv("GOFLAGS") + " '-overlay=" + overlay + "' -ldflags=-checklinkname=0")
 	tc.GoBuild = true
 	return tc.Command(build.Module{Dir: dir}, bin)
 }

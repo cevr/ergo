@@ -239,10 +239,23 @@ type Actor[S, E, D any] struct {
 	cur *envelope[S, E, D] // the envelope in a step, nil between steps
 	// curEnv holds the envelope in a step, so taking one allocates
 	// nothing (MU18); cur points to it while the step runs.
-	curEnv  envelope[S, E, D]
-	timer   *rt.Handle[struct{}]
-	working *rt.Handle[struct{}] // the entry's work, nil when it has none
-	feeds   []*feed              // the started sources that may still run (rule 14)
+	curEnv envelope[S, E, D]
+	timer  *rt.Handle[struct{}]
+	// timers is the goroutine every entry's timer child runs on, kept for
+	// the actor's life (FU-actor-timer-slot): a timer starts no goroutine.
+	timers rt.Carrier
+	// The timer child's state (arm): its span and hook, made once; the
+	// entry's delay and envelope; the runner it tells; and whether its
+	// sleep is registered yet.
+	timerSpan       string
+	timerRegistered func()
+	timerDelay      time.Duration
+	timerEnv        envelope[S, E, D]
+	timerAt         *rt.Task
+	timerDone       atomic.Bool
+	timerLast       *rt.Handle[struct{}] // the last timer child, for RestartOn
+	working         *rt.Handle[struct{}] // the entry's work, nil when it has none
+	feeds           []*feed              // the started sources that may still run (rule 14)
 	// newHosts are the hosts the running step made (rule 15); hostSlot
 	// binds the actor to its runner's task, so NewHost finds it.
 	newHosts []hostCell
@@ -1124,28 +1137,59 @@ func (a *Actor[S, E, D]) arm(at *rt.Task, s S) {
 	if d <= 0 {
 		panic(MachineTimerNotPositive("", s, d))
 	}
-	env := envelope[S, E, D]{kind: timerSignal, epoch: a.epoch, at: s}
-	holder := rt.NewScope(at)
-	armed := make(chan struct{})
-	var once sync.Once
-	registered := func() { once.Do(func() { close(armed) }) }
-	a.timer = rt.Go(&holder, a.span+" (timer)", func(ct *rt.Task) (struct{}, error) {
-		cancel := rt.WhenWaiting(ct, registered)
-		defer func() {
-			cancel()
-			registered() // the child ended without a wait
-		}()
-		return guarded(ct, func(ct *rt.Task) (struct{}, error) {
-			a.sleeper.Sleep(ct, d)
-			// Closed: the actor ended; the timer has no one to tell.
-			_ = a.inbox.Push(ct, env)
-			return struct{}{}, nil
-		})
-	})
-	if rt.Exploring {
-		rt.Await(at, isClosedTest(armed))
+	// The child's body, its span and its hook are the actor's, made at
+	// its first timer; an arm writes the entry's delay and envelope, which
+	// the child reads after its start, and the previous child has ended
+	// (rule 5) (FU-timer-task-reuse). The runner waits on its own park
+	// word for the child's first wait (FU-actor-timer-slot).
+	if a.timerRegistered == nil {
+		a.timerSpan = a.span + " (timer)"
+		a.timerRegistered = a.timerArmed
 	}
-	<-armed
+	a.timerAt, a.timerDelay = at, d
+	a.timerEnv = envelope[S, E, D]{kind: timerSignal, epoch: a.epoch, at: s}
+	a.timerDone.Store(false)
+	a.timer = rt.RestartOn[struct{}](a.timerLast, &a.timers, at, a.timerSpan, (*actorTimer[S, E, D])(a))
+	a.timerLast = a.timer // reused once its job returned (FU-handle-reuse)
+	if rt.Exploring {
+		rt.Await(at, a.timerDone.Load)
+	}
+	// A wake meant for another wait of the runner (a stop) costs one more
+	// look: the handshake ignores a stop, as the receive it replaced did.
+	for !a.timerDone.Load() {
+		at.Suspend()
+	}
+}
+
+// timerArmed tells the runner that the timer child's sleep is registered,
+// or that the child ended without a wait; the second call does nothing.
+func (a *Actor[S, E, D]) timerArmed() {
+	if a.timerDone.CompareAndSwap(false, true) {
+		a.timerAt.Resume()
+	}
+}
+
+// actorTimer is an actor as the body of its timer children (arm), so a
+// child's start makes no closure.
+type actorTimer[S, E, D any] Actor[S, E, D]
+
+func (at *actorTimer[S, E, D]) Run(ct *rt.Task) (struct{}, error) {
+	a := (*Actor[S, E, D])(at)
+	rt.WhenWaitingHook(ct, a.timerRegistered)
+	defer func() {
+		rt.ClearWaitHook(ct)
+		a.timerRegistered() // the child ended without a wait
+	}()
+	return guarded(ct, at.sleep)
+}
+
+// sleep sleeps the entry's delay, then pushes its timer envelope.
+func (at *actorTimer[S, E, D]) sleep(ct *rt.Task) (struct{}, error) {
+	a := (*Actor[S, E, D])(at)
+	a.sleeper.Sleep(ct, a.timerDelay)
+	// Closed: the actor ended; the timer has no one to tell.
+	_ = a.inbox.Push(ct, a.timerEnv)
+	return struct{}{}, nil
 }
 
 // noTimer is the delay of a state with no timer: no timer waits it.
@@ -1333,6 +1377,8 @@ func (a *Actor[S, E, D]) finish(exit error) {
 		}
 	}
 	a.timer, a.working = nil, nil
+	a.timers.Close() // no entry arms a timer again
+
 	// The sources last (rule 14): admission is closed, so each one's next
 	// send raises; the stop interrupts one that waits.
 	for _, f := range a.feeds {
@@ -1415,25 +1461,38 @@ func (a *Actor[S, E, D]) Ask(t *rt.Task, e E) (D, error) {
 	return r.d, r.err
 }
 
-// replySlot is a reply channel an Ask or a State read reuses (MU18). Every
-// queued Ask and State read is answered exactly once (rules 1 and 8), so a
-// channel whose answer was taken is empty and nobody else holds it; one
-// whose wait was interrupted may still get its answer, so it is never
-// given back.
-// task is the asker's, so the runner can unpark it in a clock's domain
-// before it answers (fua-b).
+// replySlot is the one-value reply an Ask or a State read reuses (MU18).
+// Every queued Ask and State read is answered exactly once (rules 1 and
+// 8), so a slot whose answer was taken is empty and nobody else holds it;
+// one whose wait was interrupted may still get its answer, so it is never
+// given back. task is the asker's: the runner resumes it from its park
+// word (rt park.go, PARK1) once the answer is in, and in a clock's domain
+// unparks it before it answers (fua-b).
 type replySlot[S, D any] struct {
-	ch   chan answer[S, D]
+	ans  answer[S, D]
+	full atomic.Bool // ans holds the answer
 	task *rt.Task
 }
 
 // give answers r's asker. In a clock's domain the asker is unparked first
-// (rt idle.go), so no window shows it parked while it can run; the
-// channel has room for the one answer, so the send never waits.
+// (rt idle.go), so no window shows it parked while it can run. The asker
+// is read before the answer is published: once full is set, the asker may
+// take the answer and give the slot back for another asker.
 func (r *replySlot[S, D]) give(ans answer[S, D]) {
-	k := rt.Waking(r.task, r)
-	r.ch <- ans
+	asker := r.task
+	k := rt.Waking(asker, r)
+	r.ans = ans
+	r.full.Store(true)
 	k.Done()
+	asker.Resume()
+}
+
+// take takes the answer out of a full slot, leaving it empty.
+func (r *replySlot[S, D]) take() answer[S, D] {
+	ans := r.ans
+	r.ans = answer[S, D]{}
+	r.full.Store(false)
+	return ans
 }
 
 // takeReply is the actor's spare reply channel, or a new one when another
@@ -1443,7 +1502,7 @@ func (a *Actor[S, E, D]) takeReply(t *rt.Task) *replySlot[S, D] {
 		r.task = t
 		return r
 	}
-	return &replySlot[S, D]{ch: make(chan answer[S, D], 1), task: t}
+	return &replySlot[S, D]{task: t}
 }
 
 // giveReply keeps r, empty, as the spare, unless another one is there.
@@ -1475,25 +1534,29 @@ func (a *Actor[S, E, D]) State(t *rt.Task) S {
 	return s
 }
 
-// await waits for an answer on t: a stop of t raises rt.Interrupted.
-// In a clock's domain it waits parked on reply (fua-b).
+// await waits for an answer on t: a stop of t raises rt.Interrupted. t
+// parks on its own park word until the runner gives the answer or a stop
+// it can observe comes (rt park.go, PARK1); a stop that comes with the
+// answer wins, as in a task's Wait. In a clock's domain it waits parked on
+// reply (fua-b).
 func (a *Actor[S, E, D]) await(t *rt.Task, reply *replySlot[S, D]) answer[S, D] {
 	t.Check()
 	var p rt.Parked
 	if t.InDomain() {
-		p = rt.Park(t, reply, t.Done(), func() bool { return len(reply.ch) > 0 })
+		p = rt.Park(t, reply, t.Done(), reply.full.Load)
+	} else {
+		t.Waits()
 	}
 	rt.Block(t)
-	select {
-	case r := <-reply.ch:
-		rt.Unblock(t)
-		p.Unpark()
-		return r
-	case <-t.Done():
-		rt.Unblock(t)
-		p.Unpark()
+	for !reply.full.Load() && !t.Stopped() {
+		t.Suspend()
+	}
+	rt.Unblock(t)
+	p.Unpark()
+	if t.Stopped() {
 		panic(rt.Interrupted)
 	}
+	return reply.take()
 }
 
 // waitDone waits on t until the runner has ended. In a clock's domain it

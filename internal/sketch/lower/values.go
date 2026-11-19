@@ -159,6 +159,7 @@ var valueLowering string
 // frame reads) and "own-live" (a parameter read after its bind is owned),
 // and for owned Refs (V6) "hand-nonliteral" (a function value takes the
 // held value over), "store-unfresh" (every site is proved fresh),
+// "site-alone-always" (every site is proved alone, its footprint unread),
 // "share-blind" (every pure call keeps nothing) and "return-blind" (two
 // parts of one returned value count as two returns), and for hand-over
 // (V7) "hand-shared" (an Ergo body's result is taken as sharing only the
@@ -203,9 +204,14 @@ type valueFacts struct {
 	// moves an entry out of (by their type strings) and the Gets it reads.
 	entryWrites map[string]bool
 	moveRead    map[*syntax.CallExpr]bool
-	copied      map[*check.Var]bool // the bindings of a matched Get whose entry is copied
+	copied      map[*check.Var]bool                  // the bindings of a matched Get whose entry is copied
+	borrows     *borrowWrites[borrowSum]             // what a function writes through a borrow parameter (storeread.go, own-read-pass)
+	fieldWrites *borrowWrites[fieldSum]              // the fields it writes through one (storefield.go, own-enter-field)
+	borrowRet   map[*check.Func]map[syntax.Expr]bool // the parts of borrows a function returns shared (borrowret.go)
 	// A collect's source whose read in the loop is its last, unshared (lastread.go).
 	lastRead map[*syntax.Ident]bool
+	// Slice literals that seed a let mut the body grows in place (seedcap.go).
+	seeds map[*syntax.CompositeLit]bool
 }
 
 // ownedParam is an owned parameter (V5): its index, counting a dot call's
@@ -244,6 +250,7 @@ func (l *lowerer) valueFacts() *valueFacts {
 			moveRead: map[*syntax.CallExpr]bool{},
 			copied:   map[*check.Var]bool{},
 			lastRead: map[*syntax.Ident]bool{},
+			seeds:    map[*syntax.CompositeLit]bool{},
 		}
 	}
 	return l.vals
@@ -361,7 +368,8 @@ type vocc struct {
 type owning struct {
 	value syntax.Expr
 	root  *vvar
-	whole bool // the target is the root itself, x = e
+	whole bool   // the target is the root itself, x = e
+	field string // the target is a field of the root, x.f = e (storefield.go)
 }
 
 type valueWalk struct {
@@ -484,7 +492,11 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 		if n.Tok == syntax.ASSIGN && len(n.Lhs) == 1 && len(n.Rhs) == 1 {
 			if id := pathRoot(n.Lhs[0]); id != nil {
 				if v, ok := w.info.Uses[id].(*check.Var); ok {
-					w.owns = append(w.owns, owning{value: n.Rhs[0], root: w.varOf(v), whole: unparen(n.Lhs[0]) == syntax.Expr(id)})
+					o := owning{value: n.Rhs[0], root: w.varOf(v), whole: unparen(n.Lhs[0]) == syntax.Expr(id)}
+					if sel, ok := unparen(n.Lhs[0]).(*syntax.SelectorExpr); ok && unparen(sel.X) == syntax.Expr(id) {
+						o.field = sel.Sel.Name
+					}
+					w.owns = append(w.owns, o)
 				}
 			}
 		}
@@ -873,6 +885,10 @@ func (w *valueWalk) decide() {
 					if vf.handed[o.path] || w.reslices(o.path, vv) || !w.needsCopy(vv, o) {
 						break
 					}
+					if w.sharedReturn(vv, o) {
+						// Its callers copy it (borrowret.go).
+						break
+					}
 					if o.entry && !w.inFlight(vv, o) {
 						// The entry the matched Get gives (V9), which
 						// its arm's bindings then hold unshared.
@@ -895,10 +911,11 @@ func (w *valueWalk) decide() {
 			}
 		}
 	}
-	// A generic result through a borrow (alias.go, borrowResult).
+	// A generic result through a borrow (alias.go, borrowResult), or a
+	// part of a borrow returned shared (borrowret.go), when kept.
 	if valueMutant != "never-copy" && valueMutant != "borrow-blind" {
 		for _, call := range w.ergo {
-			if w.borrowResult(call) && !w.readOnlyUse(call) {
+			if w.borrowResult(call) && !w.readOnlyUse(call) && !w.keptCall(call) {
 				vf.clone[call] = true
 				w.l.stats.BorrowCopies++
 			}
@@ -973,6 +990,16 @@ func (w *valueWalk) decide() {
 				continue
 			}
 			if o.whole && w.slicesOf(o.value, o.root) || w.reslices(o.value, o.root) {
+				continue
+			}
+			if lit, ok := unparen(o.value).(*syntax.CompositeLit); ok && o.root.init != nil && unparen(o.root.init) == syntax.Expr(lit) {
+				// A let mut's literal: a field may enter shared (storefield.go).
+				w.freshenLit(lit, o.root)
+				continue
+			}
+			if o.field != "" && w.sharedField(o.root, o.field, o.value) {
+				// A path of a parameter assigned to a field nothing
+				// writes (storefield.go).
 				continue
 			}
 			w.freshen(o.value)
@@ -1067,6 +1094,7 @@ func (w *valueWalk) decide() {
 	w.consumes()
 	w.settleLineage()
 	w.lastReads() // lastread.go: once every copy is decided
+	w.seedLits()  // seedcap.go
 }
 
 // takeRest is the let that binds the rest of the Take call, let v, rest =
@@ -1671,7 +1699,7 @@ func (w *valueWalk) ownedBind(f *check.Func, vv *vvar) syntax.Expr {
 		if o == bind {
 			continue
 		}
-		if o.frame != w.root || o.pre > bind.pre && valueMutant != "own-live" {
+		if o.frame != w.root && !w.joinedBefore(o.frame) || o.pre > bind.pre && valueMutant != "own-live" {
 			return nil
 		}
 		w.classify(vv, o)
@@ -1683,6 +1711,71 @@ func (w *valueWalk) ownedBind(f *check.Func, vv *vvar) syntax.Expr {
 		return nil
 	}
 	return value
+}
+
+// joinedBefore reports whether the frame f, nested in the root, has ended
+// once the call that opened it returns: f and each frame between it and
+// the root is a function literal or trailing block that is an operand of
+// a call (openingCall), and either cannot outlive that call (opens: not
+// escaping) or is passed to a std function whose runtime/v1 body joins
+// the children it starts (joinsChildren: tasks.Transform). Then nothing
+// runs f after that call returns, so what f captures is no longer read:
+// a task's captures end at its join. An occurrence in f that comes before
+// a bind (ownedBind) is then a use that ends before the bind, as one in
+// the root frame is: bindIn's let mut out = s after tasks.Transform's
+// callback read s.
+func (w *valueWalk) joinedBefore(f *vframe) bool {
+	for ; f != nil && f != w.root; f = f.parent {
+		call := w.openingCall(f.node)
+		if call == nil || f.escaping && !w.joinsChildren(call) {
+			return false
+		}
+	}
+	return f == w.root
+}
+
+// openingCall is the call whose operand, callee or trailing block the
+// frame node n is, or nil: a let-bound literal may run at any later call.
+func (w *valueWalk) openingCall(n syntax.Node) *syntax.CallExpr {
+	if b, ok := n.(*syntax.BlockStmt); ok {
+		if call, ok := w.parent[b].(*syntax.CallExpr); ok && call.Trailing == b {
+			return call
+		}
+		return nil
+	}
+	parent, child := w.unparenParent(n)
+	call, ok := parent.(*syntax.CallExpr)
+	if !ok {
+		return nil
+	}
+	if call.Fun == child {
+		return call
+	}
+	for _, a := range call.Args {
+		if a == child {
+			return call
+		}
+	}
+	return nil
+}
+
+// joinsChildren reports a call of an extern whose runtime body (its body
+// contract, check.BodyOf) states the child waiting policy (v1.WaitKinds):
+// the caller is the parent of the tasks the body starts, and the body
+// joins them before it returns, running its function operands only on
+// itself and on them. So an escaping literal it is given runs no more once
+// the call returns.
+func (w *valueWalk) joinsChildren(call *syntax.CallExpr) bool {
+	c := w.info.Calls[call]
+	if c == nil || c.Kind != check.CallFunc {
+		return false
+	}
+	name := check.BodyOf(c.Func).Runtime
+	if name == "" {
+		return false
+	}
+	body, err := runtimeBody(name)
+	return err == nil && body.Wait == "child"
 }
 
 // failsAfter reports whether f's body can fail after the point at: a call
@@ -2220,11 +2313,13 @@ func (w *valueWalk) inFlight(vv *vvar, o *vocc) bool {
 	// written through by that call (V8: a Get's receiver is read, not
 	// copied, so this case must copy it; a scalar entry's Get and a pure
 	// call's operand under the reference too).
+	// Such a call that writes no storage o's value reaches is apart
+	// (keeps.go, own-call-pass).
 	if vv.ptr {
 		for _, oc := range vv.occs {
 			if oc != o && oc.pre > o.pre && oc.pre < end && oc.path == syntax.Expr(oc.id) {
 				if _, isCall := w.parent[oc.id].(*syntax.CallExpr); isCall || w.dotCall(oc.id) != nil {
-					return true
+					return !w.passedApart(vv, o, o.pre+1, end)
 				}
 			}
 		}

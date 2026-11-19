@@ -3,6 +3,7 @@ package sketchfront
 import (
 	"bytes"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -39,6 +40,29 @@ func pinTestSets(t *testing.T, target PinTarget) (string, pinset.Lock) {
 		t.Fatalf("produced %v, want a std and a runtime set", produced)
 	}
 	return out, lock
+}
+
+// pinProgramPackages is the number of Go packages pinBuild's lowering of
+// pinProgram emits: the program's own packages, which no runtime set
+// holds (the package split gives the std Ergo packages it uses packages of
+// their own, CS4, so it is not only main).
+func pinProgramPackages(t *testing.T) int {
+	t.Helper()
+	unit, lowering, _, err := emission(Check(pinProgram), BuildRequest{Mode: build.ModeBuild, Source: "/x/main.ergo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := lowering(unit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dirs := map[string]bool{}
+	for _, f := range files {
+		if strings.HasSuffix(f.Path, ".go") {
+			dirs[path.Dir(f.Path)] = true
+		}
+	}
+	return len(dirs)
 }
 
 // pinBuild builds pinProgram for target into a new store and returns the
@@ -95,9 +119,10 @@ func TestColdBuildCompilesNoPinPackage(t *testing.T) {
 	var log bytes.Buffer
 	pins := build.Pins{Source: pinset.Source{Dir: t.TempDir(), URL: "file://" + filepath.ToSlash(out), Lock: lock, Log: &log}}
 	got, report, std := pinBuild(t, target, pins)
-	if std != 0 || report.Compiled != 1 || report.Pinned != ref.Compiled-1 {
-		t.Errorf("with sets: %d std archives from the go command, %d compiles, %d from the runtime set; want 0, 1 (main), %d (%s)\n%s",
-			std, report.Compiled, report.Pinned, ref.Compiled-1, report, log.String())
+	own := pinProgramPackages(t)
+	if std != 0 || report.Compiled != own || report.Pinned != ref.Compiled-own {
+		t.Errorf("with sets: %d std archives from the go command, %d compiles, %d from the runtime set; want 0, %d (the program's own packages), %d (%s)\n%s",
+			std, report.Compiled, report.Pinned, own, ref.Compiled-own, report, log.String())
 	}
 	if !bytes.Equal(got, want) {
 		t.Error("the executable built from the sets is not the one built without them")

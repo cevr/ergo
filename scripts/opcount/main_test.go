@@ -33,6 +33,9 @@ func write(t *testing.T, dir string, files map[string]string) {
 // The program builds as the product does: ergo's patched release, and
 // every package with an IR file compiled with its own -ergoir.
 func TestModuleBuildReadsEachPackagesIR(t *testing.T) {
+	// The build keeps the caller's GOFLAGS first (PARK1); the gate sets
+	// its own, so the expected line is checked with none.
+	t.Setenv("GOFLAGS", "")
 	dir := t.TempDir()
 	write(t, dir, map[string]string{
 		"go.mod":            "module ergo.local/program\n\ngo 1.27\n",

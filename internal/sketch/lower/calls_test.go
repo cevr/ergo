@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"ergo.local/prototype/internal/toolchain"
 )
 
 // TestDefectReportNamesErgoCallSites: a defect that escapes main is
@@ -43,12 +41,7 @@ func TestDefectReportNamesErgoCallSites(t *testing.T) {
 	if err == nil {
 		t.Fatalf("the program did not fail:\n%s", out)
 	}
-	// The first build in the test process's cache (testinputs) builds the
-	// IR compiler and says so first; which test makes it depends on the
-	// order the tests run in, and the note is no part of the report.
-	if note, rest, ok := strings.Cut(string(out), "\n"); ok && strings.HasPrefix(note, toolchain.BuildNote) {
-		out = []byte(rest)
-	}
+	out = withoutBuildNote(out)
 	want := "middle\npanic: runtime error: index out of range [5] with length 2\n" +
 		"\tpick at pick.ergo:2\n" +
 		"\tmiddle calls pick at pick.ergo:7:2\n" +
