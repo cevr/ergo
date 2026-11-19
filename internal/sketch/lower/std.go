@@ -699,10 +699,23 @@ func (fc *funcCtx) argSig(arg syntax.Expr, x *syntax.CallExpr) *check.Signature 
 // Go function literal, which reads no variable when it is evaluated: an
 // adapter that calls the value later calls the value as it was here.
 func (fc *funcCtx) bindFunc(fv string) string {
-	if strings.HasPrefix(fv, "func(") {
+	if strings.HasPrefix(stripLineDirective(fv), "func(") {
 		return fv
 	}
 	return fc.spill(fv)
+}
+
+// stripLineDirective is the Go text x without the /*line*/ directive a
+// sourced body writes before an expression (a literal's position): code
+// that reads the expression's form reads it alike in a body with
+// directives and in one with none (STD-COPY-ZERO).
+func stripLineDirective(x string) string {
+	if rest, ok := strings.CutPrefix(x, "/*line "); ok {
+		if _, after, ok := strings.Cut(rest, "*/"); ok {
+			return strings.TrimLeft(after, " ")
+		}
+	}
+	return x
 }
 
 // adaptPlainFunc adapts fv, an Ergo function value of the uniform shape
