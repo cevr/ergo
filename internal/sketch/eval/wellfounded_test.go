@@ -21,8 +21,9 @@ import (
 // graph, decides each type: a property over a type every type it reaches
 // has a finite value is checked and passes at check time; any other is
 // refused by the checker (S108, "has no finite value"). A provider's law
-// runs when its values are generated, else it is skipped with the same
-// reason. Generation never stops at the depth bound: before the fix, an
+// runs and passes when its values are generated, else the checker refuses
+// it at the provider's implements entry with the same reason (LAW-UNFED),
+// and the run is of the program without that law. Generation never stops at the depth bound: before the fix, an
 // operation type whose one builder takes its own type, directly or
 // through a cycle (llm's NewMetered(inner Model)), was admitted and every
 // generation of it recursed until the bound (and, in the Go build, until
@@ -52,25 +53,42 @@ func TestGenerationEndsOrIsRefused(t *testing.T) {
 		replay := fmt.Sprintf("replay: ERGO_BW_SEED=%d go test -run '^TestGenerationEndsOrIsRefused$' ./internal/sketch/eval", seed)
 		// Every type has a property; the checker refuses exactly the
 		// properties over a type the model says has no finite value.
-		src := g.source(g.names)
+		src := g.source(g.names, nil)
 		f, err := syntax.Parse(src)
 		if err != nil {
 			t.Fatalf("seed %d: %v\n%s", seed, err, src)
 		}
 		_, diags := check.Check("main", []*syntax.File{f}, nil)
 		refused := map[string]bool{}
+		unfed := map[string]bool{} // the operation types whose law no case can feed
 		for _, d := range diags {
 			line := strings.Split(src, "\n")[d.Line-1]
-			name, ok := strings.CutPrefix(line, "test Gen")
-			if !ok || d.Code != check.CodeType || !strings.Contains(d.Message, "has no finite value") {
-				t.Fatalf("seed %d: unexpected diagnostic %v\n%s\n%s", seed, d, src, replay)
+			if d.Code == check.CodeType && strings.Contains(d.Message, "has no finite value") {
+				if name, ok := strings.CutPrefix(line, "test Gen"); ok {
+					refused[name[:strings.IndexByte(name, '(')]] = true
+					continue
+				}
+				// A law no case can feed is refused at its provider's
+				// implements entry (LAW-UNFED).
+				if _, ops, ok := strings.Cut(line, " implements "); ok && strings.HasPrefix(d.Message, "law "+ops+".Zero") {
+					unfed[ops] = true
+					continue
+				}
 			}
-			refused[name[:strings.IndexByte(name, '(')]] = true
+			t.Fatalf("seed %d: unexpected diagnostic %v\n%s\n%s", seed, d, src, replay)
 		}
 		var kept []string
 		for _, n := range g.names {
 			if refused[n] == admitted[n] {
 				t.Fatalf("seed %d: %s: model says finite=%v, checker refused=%v\n%s\n%s", seed, n, admitted[n], refused[n], src, replay)
+			}
+			if g.kind[n] == "ops" {
+				if p := "P" + n[1:]; unfed[n] == g.admissible(p) {
+					t.Fatalf("seed %d: %s: model says finite=%v, checker refused its law=%v\n%s\n%s", seed, p, g.admissible(p), unfed[n], src, replay)
+				}
+				if unfed[n] {
+					reach["law refused"]++
+				}
 			}
 			if admitted[n] {
 				kept = append(kept, n)
@@ -79,9 +97,9 @@ func TestGenerationEndsOrIsRefused(t *testing.T) {
 				reach["refused "+g.kind[n]]++
 			}
 		}
-		// The admitted properties and every provider's law run to an
-		// end: passed, or a provider with no generator skipped.
-		src = g.source(kept)
+		// The admitted properties and the law of every provider with a
+		// generator run to an end and pass.
+		src = g.source(kept, unfed)
 		pkg := checked(t, src)
 		b := DefaultBudget()
 		b.Seed = seed
@@ -90,26 +108,16 @@ func TestGenerationEndsOrIsRefused(t *testing.T) {
 			t.Fatalf("seed %d: %v\n%s", seed, err, src)
 		}
 		for _, r := range rep.Results {
-			want := Passed
-			if p, ok := strings.CutPrefix(r.Name, "law "); ok {
-				prov := p[strings.LastIndex(p, " for ")+len(" for "):]
-				if !g.admissible(prov) {
-					want = Skipped
-					reach["law skipped"]++
-					if !strings.Contains(r.Reason, "has no finite value") {
-						t.Fatalf("seed %d: %s is skipped for %q, want no finite value\n%s\n%s", seed, r.Name, r.Reason, src, replay)
-					}
-				} else {
-					reach["law passed"]++
-				}
+			if strings.HasPrefix(r.Name, "law ") {
+				reach["law passed"]++
 			}
-			if r.Status != want {
-				t.Fatalf("seed %d: %s is %s (%s), want %s\n%s\n%s", seed, r.Name, r.Status, r.Reason, want, src, replay)
+			if r.Status != Passed {
+				t.Fatalf("seed %d: %s is %s (%s), want %s\n%s\n%s", seed, r.Name, r.Status, r.Reason, Passed, src, replay)
 			}
 		}
 	}
 	if first == 1 {
-		for _, k := range []string{"admitted record", "refused record", "admitted union", "refused union", "admitted ops", "refused ops", "law passed", "law skipped"} {
+		for _, k := range []string{"admitted record", "refused record", "admitted union", "refused union", "admitted ops", "refused ops", "law passed", "law refused"} {
 			if reach[k] == 0 {
 				t.Errorf("no seed reached %s: %v", k, reach)
 			}
@@ -263,7 +271,7 @@ func (g *typeGraph) admissible(n string) bool {
 }
 
 // source is the program: every type, and a property over each of props.
-func (g *typeGraph) source(props []string) string {
+func (g *typeGraph) source(props []string, lawless map[string]bool) string {
 	var b strings.Builder
 	record := func(n string, extra string) {
 		var fs []string
@@ -280,7 +288,11 @@ func (g *typeGraph) source(props []string) string {
 			fmt.Fprintf(&b, "type %s = %s\n", n, strings.Join(g.vars[n], " | "))
 		case "ops":
 			p, i := "P"+n[1:], n[1:]
-			fmt.Fprintf(&b, "type %s { Op%s() int, law Zero%s() { Op%s() == 0 } }\n", n, i, i, i)
+			if lawless[n] {
+				fmt.Fprintf(&b, "type %s { Op%s() int }\n", n, i)
+			} else {
+				fmt.Fprintf(&b, "type %s { Op%s() int, law Zero%s() { Op%s() == 0 } }\n", n, i, i, i)
+			}
 			record(p, " implements "+n)
 			fmt.Fprintf(&b, "func Op%s(p %s) int { 0 }\n", i, p)
 			var ps, fs []string

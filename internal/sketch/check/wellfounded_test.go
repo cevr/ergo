@@ -23,7 +23,9 @@ func TestGeneratorRankLimitIsAnError(t *testing.T) {
 	}
 	fmt.Fprintf(&b, "test Deep(r R%d) { assert true }\n", n)
 	ds := checkDiagList(t, b.String())
-	want := fmt.Sprintf("%d:11 S108 a property parameter is generated, and R%d cannot be: R%d has no value a generator reaches: its least value is %d levels deep, past %d", n+2, n, n, n+1, check.GenRankLimit)
+	// R_i's least value is i+1 levels deep, so R(n-1) is the first by name
+	// past the limit.
+	want := fmt.Sprintf("%d:13 S108 a property parameter is generated, and R%d cannot be: R%d has no value a generator reaches: its least value is %d levels deep, past %d (196l)", n+2, n, n-1, n, check.GenRankLimit)
 	if len(ds) != 1 {
 		t.Fatalf("got %d diagnostics %v, want\n%s", len(ds), ds, want)
 	}
