@@ -881,6 +881,106 @@
       "killers": [
         "internal/sketchfront:TestStdSnapshotIsCurrent"
       ]
+    },
+    {
+      "name": "np4f15-parse-semicolon-kept",
+      "origin": "wf10 NP4f-15 (NS lane)",
+      "file": "internal/sketch/std/http/query.ergo",
+      "from": "if part == \"\" || strings.IndexByte(part, ';') >= 0 {",
+      "to": "if part == \"\" {",
+      "rule": "std http.ParseQuery reads as Go's url.ParseQuery: a pair with a \";\" in it is dropped.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f15-parse-limit-past",
+      "origin": "wf10 NP4f-15 (NS lane)",
+      "file": "internal/sketch/std/http/query.ergo",
+      "from": "if strings.Count(raw, \"&\") >= 10000 {",
+      "to": "if strings.Count(raw, \"&\") > 10000 {",
+      "rule": "std http.ParseQuery reads as Go's url.ParseQuery: a query of more than 10000 pairs has no fields.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f15-parse-unstable",
+      "origin": "wf10 NP4f-15 (NS lane)",
+      "file": "internal/sketch/std/http/query.ergo",
+      "from": "\tslices.SortStableFunc(fields, func(a Field, b Field) int { strings.Compare(a.Name, b.Name) })\n}",
+      "to": "\tslices.SortStableFunc(fields, func(a Field, b Field) int { strings.Compare(a.Name+a.Value, b.Name+b.Value) })\n}",
+      "rule": "std http.ParseQuery keeps each key's values in the order they came.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f15-unescape-plus",
+      "origin": "wf10 NP4f-15 (NS lane)",
+      "file": "internal/sketch/std/http/query.ergo",
+      "from": "\t\t\tb = b.Append(' ')\n",
+      "to": "\t\t\tb = b.Append('+')\n",
+      "rule": "std http.ParseQuery reads \"+\" as a space, as Go's url.QueryUnescape.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f15-unescape-truncated",
+      "origin": "wf10 NP4f-15 (NS lane)",
+      "file": "internal/sketch/std/http/query.ergo",
+      "from": "if i+2 >= len(s) || !isHex(s[i+1])",
+      "to": "if i+2 > len(s) || !isHex(s[i+1])",
+      "rule": "std http.ParseQuery drops a pair whose \"%\" is not followed by two hex digits.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f15-unhex-lower",
+      "origin": "wf10 NP4f-15 (NS lane)",
+      "file": "internal/sketch/std/http/query.ergo",
+      "from": "\tc - 'a' + 10\n",
+      "to": "\tc - 'a' + 9\n",
+      "rule": "std http.ParseQuery reads a lower-case %xx escape as its byte.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f15-encode-lower-hex",
+      "origin": "wf10 NP4f-15 (NS lane)",
+      "file": "internal/sketch/std/http/query.ergo",
+      "from": "\"0123456789ABCDEF\"[int(c>>4)]",
+      "to": "\"0123456789abcdef\"[int(c>>4)]",
+      "rule": "std http.EncodeQuery escapes as Go's url.QueryEscape: %XX in upper case.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f15-encode-tilde",
+      "origin": "wf10 NP4f-15 (NS lane)",
+      "file": "internal/sketch/std/http/query.ergo",
+      "from": " || c == '.' || c == '~' {",
+      "to": " || c == '.' {",
+      "rule": "std http.EncodeQuery keeps the unreserved \"~\" as it is, as Go's url.QueryEscape.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f15-encode-space",
+      "origin": "wf10 NP4f-15 (NS lane)",
+      "file": "internal/sketch/std/http/query.ergo",
+      "from": "\t\t\tout = out.Append('+')\n",
+      "to": "\t\t\tout = out.Append('%').Append('2').Append('0')\n",
+      "rule": "std http.EncodeQuery writes a space as \"+\", as Go's url.QueryEscape.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
+    },
+    {
+      "name": "np4f15-parse-unsorted",
+      "origin": "wf10 NP4f-15 (NS lane)",
+      "file": "internal/sketch/std/http/query.ergo",
+      "from": "func(a Field, b Field) int { strings.Compare(a.Name, b.Name) })\n}",
+      "to": "func(a Field, b Field) int { 0 })\n}",
+      "rule": "std http.ParseQuery gives the fields in key order, each key's values in the order they came.",
+      "anchor": {"tests":["lower:TestStdMatchesGo"]},
+      "killers": ["lower:TestStdMatchesGo"]
     }
   ]
 }

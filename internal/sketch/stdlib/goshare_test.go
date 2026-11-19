@@ -45,7 +45,7 @@ var stdGoShareCeiling = map[string]int{
 	"host":        33, // I22: +14 batch-22 externs
 	"library":     77, // I22: +14 batch-22 externs (I22-B22CLASS rows)
 	"language":    3,  // I22: +2 batch-22 externs
-	"computation": 53, // I22: +5 batch-22 externs
+	"computation": 51, // I22: +5 batch-22 externs
 	"type":        79, // I22: +4 batch-22 externs
 }
 
