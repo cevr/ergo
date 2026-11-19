@@ -484,6 +484,39 @@
       "killers": [
         "internal/selfhostcheck:TestIRWriteAgreesWithGo"
       ]
+    },
+    {
+      "name": "ir-fileof-keeps-nil",
+      "origin": "wf10/selfhost/S4c",
+      "file": "compiler/ir/build.ergo",
+      "from": "\t\tb.file.FilesNil = false\n",
+      "to": "\n",
+      "rule": "A file the builder names makes the list of files non-nil.",
+      "killers": [
+        "internal/selfhostcheck:TestIRWriteAgreesWithGo"
+      ]
+    },
+    {
+      "name": "ir-begin-keeps-nil",
+      "origin": "wf10/selfhost/S4c",
+      "file": "compiler/ir/build.ergo",
+      "from": "\tb.open = true\n\tb.file.FuncsNil = false\n",
+      "to": "\tb.open = true\n",
+      "rule": "A function the builder begins makes the list of functions non-nil.",
+      "killers": [
+        "internal/selfhostcheck:TestIRWriteAgreesWithGo"
+      ]
+    },
+    {
+      "name": "ir-row-extra-from-first",
+      "origin": "wf10/selfhost/S4c",
+      "file": "compiler/ir/build.ergo",
+      "from": "\t\tfor j in 1..n {",
+      "to": "\t\tfor j in 0..n {",
+      "rule": "A kind of more than two slots keeps its first slot in a and the others in the extra pool.",
+      "killers": [
+        "internal/selfhostcheck:TestIRWriteAgreesWithGo"
+      ]
     }
   ]
 }

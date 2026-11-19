@@ -1,23 +1,30 @@
 import compiler/ir
-import slices
 
-// IRWrite is ir.Write over IR a Go host packed (capstone S4): "ok\n" and
-// the IR file's text, or "malformed <at> <why>\n" for words the reader or
-// the writer cannot read. The agreement property of internal/selfhostcheck
-// (TestIRWriteAgreesWithGo) compares the text with the Go IR builder's
-// encoding/json output. This seam is deleted when compiler/ir's builder
-// writes the rows itself.
+// IRWrite builds an IR file with ir.Builder from the steps a Go host
+// sends, and writes it with ir.Write (capstone S4): "ok\n" and the IR
+// file's text, or "malformed <at> <why>\n". The agreement property of
+// internal/selfhostcheck (TestIRWriteAgreesWithGo) compares the text with
+// the Go IR builder's encoding/json output. The host sends the nodes it
+// read from that output; this seam is deleted when compiler/ir's builder
+// reads the checked program itself.
 //
-// The words, read in order (a list flag is 0 for nil, 1 for a list):
+// The words are 3 (the layout), V's low and high halves, then steps; a
+// step is an op and its words, and a step that makes a word pushes it on
+// a stack (texts are indices of strs):
 //
-//	2 (the layout), V's low and high halves,
-//	files: flag, count, a Strs index per file; shared: count, indices,
-//	funcs: flag, count, then per function: name, pos (3), end (3),
-//	  locals: count, then name, type, pos (3) each,
-//	  rows: count n, then the kinds, a, b, file, line and col columns,
-//	  n words each; extra: count, words; roots.
+//	1 text i             push ir.Text(strs[i])
+//	2 word w             push w
+//	3 pos f l c          push ir.PosAt
+//	4 list n             pop n words, push ir.List of them
+//	5 row k f l c        pop the kind's slot count, push ir.Row's id
+//	6 func i f l c f l c ir.Begin
+//	7 local i j f l c    ir.AddLocal
+//	8 end                pop the roots, ir.End
+//	9 file i             ir.FileOf(strs[i])
+//	10 shared i          ir.Share
+//	11 nofiles, 12 nofuncs
 func IRWrite(words []uint32, strs []string) string {
-	let file = unpack(words, strs) catch {
+	let file = replay(words, strs) catch {
 	case ir.Malformed as m:
 		return "malformed \(m.At) " + m.Why + "\n"
 	}
@@ -31,7 +38,7 @@ func IRWrite(words []uint32, strs []string) string {
 // IRKinds is ir.Table: the kinds and their slots, for the host that packs.
 func IRKinds() string { ir.Table() }
 
-type reader { words []uint32, at int }
+type reader { words []uint32, at int, strs []string, stack []uint32 }
 
 func next(r *reader) uint32 fails ir.Malformed {
 	if r.at >= len(r.words) {
@@ -42,27 +49,12 @@ func next(r *reader) uint32 fails ir.Malformed {
 	v
 }
 
-// column is the next n words, or Malformed when fewer are left.
-func column(r *reader, n int) []uint32 fails ir.Malformed {
-	if n < 0 || r.at+n > len(r.words) {
-		return ir.Malformed{At: r.at, Why: "a column past the end"}
+func str(r *reader) string fails ir.Malformed {
+	let i = int(try next(r))
+	if i >= len(r.strs) {
+		return ir.Malformed{At: r.at - 1, Why: "no text"}
 	}
-	let c = slices.Clone(slices.Slice(r.words, r.at, r.at+n))
-	r.at += n
-	c
-}
-
-func texts(r *reader, strs []string) []string fails ir.Malformed {
-	let n = int(try next(r))
-	let mut out = slices.WithCapacity[string](n)
-	for _ in 0..n {
-		let id = int(try next(r))
-		if id >= len(strs) {
-			return ir.Malformed{At: r.at - 1, Why: "no text"}
-		}
-		out = out.Append(strs[id])
-	}
-	out
+	r.strs[i]
 }
 
 func position(r *reader) ir.Pos fails ir.Malformed {
@@ -72,62 +64,80 @@ func position(r *reader) ir.Pos fails ir.Malformed {
 	ir.Pos{File: a, Line: b, Col: c}
 }
 
-func unpack(words []uint32, strs []string) ir.File fails ir.Malformed {
-	let mut r = reader{words: words, at: 0}
-	let version = try next(&r)
-	if version != 2 {
-		return ir.Malformed{At: 0, Why: "layout " + "\(version)"}
+// pop is the top n words of the stack, bottom first, taken off it.
+func pop(r *reader, n int) []uint32 fails ir.Malformed {
+	if n < 0 || n > len(r.stack) {
+		return ir.Malformed{At: r.at, Why: "the stack holds fewer words"}
+	}
+	let top = len(r.stack) - n
+	let out = r.stack[top:].Clone()
+	r.stack = r.stack[:top]
+	out
+}
+
+func replay(words []uint32, strs []string) ir.File fails ir.Malformed {
+	let mut r = reader{words: words, at: 0, strs: strs, stack: []uint32{}}
+	let layout = try next(&r)
+	if layout != 3 {
+		return ir.Malformed{At: 0, Why: "layout " + "\(layout)"}
 	}
 	let lo = try next(&r)
 	let hi = try next(&r)
-	let filesFlag = try next(&r)
-	let files = try texts(&r, strs)
-	let shared = try texts(&r, strs)
-	let funcsFlag = try next(&r)
-	let nf = int(try next(&r))
-	let mut funcs = slices.WithCapacity[ir.Func](nf)
-	for _ in 0..nf {
-		let name = try next(&r)
-		let p = try position(&r)
-		let e = try position(&r)
-		let nl = int(try next(&r))
-		let mut locals = slices.WithCapacity[ir.Local](nl)
-		for _ in 0..nl {
-			let ln = try next(&r)
-			let lt = try next(&r)
-			let lp = try position(&r)
-			locals = locals.Append(ir.Local{Name: ln, Type: lt, Pos: lp})
-		}
-		let n = int(try next(&r))
-		let kw = try column(&r, n)
-		let mut kinds = slices.WithCapacity[uint8](n)
-		for j in 0..n {
-			if kw[j] > 255 {
-				return ir.Malformed{At: j, Why: "a kind past a byte"}
+	let mut b = ir.NewBuilder(int64(uint64(lo) | uint64(hi)<<uint64(32)))
+	for r.at < len(r.words) {
+		let op = try next(&r)
+		match op {
+		case 1:
+			let s = try str(&r)
+			r.stack = r.stack.Append(ir.Text(&b, s))
+		case 2:
+			let w = try next(&r)
+			r.stack = r.stack.Append(w)
+		case 3:
+			let p = try position(&r)
+			r.stack = r.stack.Append(ir.PosAt(&b, p))
+		case 4:
+			let n = int(try next(&r))
+			let xs = try pop(&r, n)
+			r.stack = r.stack.Append(ir.List(&b, xs))
+		case 5:
+			let k = try next(&r)
+			let at = try position(&r)
+			if k == 0 || int(k) >= ir.NumKinds() {
+				return ir.Malformed{At: r.at, Why: "kind \(k)"}
 			}
-			kinds = kinds.Append(uint8(kw[j]))
+			let slots = try pop(&r, len(ir.KindOf(uint8(k)).Slots))
+			let id = try ir.Row(&b, uint8(k), at, slots)
+			r.stack = r.stack.Append(id)
+		case 6:
+			let name = try str(&r)
+			let p = try position(&r)
+			let e = try position(&r)
+			try ir.Begin(&b, name, p, e)
+		case 7:
+			let name = try str(&r)
+			let typ = try str(&r)
+			let p = try position(&r)
+			try ir.AddLocal(&b, name, typ, p)
+		case 8:
+			let roots = try pop(&r, 1)
+			try ir.End(&b, roots[0])
+		case 9:
+			let path = try str(&r)
+			ir.FileOf(&b, path)
+		case 10:
+			let s = try str(&r)
+			ir.Share(&b, s)
+		case 11:
+			ir.NoFiles(&b)
+		case 12:
+			ir.NoFuncs(&b)
+		case _:
+			return ir.Malformed{At: r.at - 1, Why: "op \(op)"}
 		}
-		let a = try column(&r, n)
-		let b = try column(&r, n)
-		let fc = try column(&r, n)
-		let lc = try column(&r, n)
-		let cc = try column(&r, n)
-		let ne = int(try next(&r))
-		let extra = try column(&r, ne)
-		let roots = try next(&r)
-		let body = ir.Body{Kind: kinds, A: a, B: b, File: fc, Line: lc, Col: cc, Extra: extra, Roots: roots}
-		funcs = funcs.Append(ir.Func{Name: name, Pos: p, End: e, Locals: locals, Body: body})
 	}
-	if r.at != len(words) {
-		return ir.Malformed{At: r.at, Why: "words after the last function"}
+	if len(r.stack) != 0 {
+		return ir.Malformed{At: r.at, Why: "words left on the stack"}
 	}
-	ir.File{
-		V:        int64(uint64(lo) | uint64(hi)<<uint64(32)),
-		Files:    files,
-		FilesNil: filesFlag == 0,
-		Funcs:    funcs,
-		FuncsNil: funcsFlag == 0,
-		Shared:   shared,
-		Strs:     strs,
-	}
+	try ir.Finish(b)
 }

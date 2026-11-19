@@ -22,10 +22,11 @@ import (
 // TestIRWriteAgreesWithGo holds the IR of the self-hosted compiler
 // (compiler/ir, capstone S4: rows of one-byte kinds with their slots, and
 // Write; linked as internal/linked/compiler) to the Go IR builder's file:
-// encoding/json's Marshal of the builder's irFile. It packs an IR file
-// into compiler/ir's rows (irPack, by the kind table compiler/ir exports)
-// and compares compiler/ir's text with Go's, byte for byte, on two
-// domains:
+// encoding/json's Marshal of the builder's irFile. It sends an IR file's
+// nodes, children first, as the steps compiler/api.IRWrite replays into
+// ir.Builder (irPack, by the kind table compiler/ir exports), and compares
+// the text ir.Write writes from the rows built with Go's, byte for byte,
+// on two domains:
 //
 //   - every IR file ergo build writes (lower.LowerIRSplit) for the cmd
 //     package of each examples/ module. The file is read into the mirror
@@ -131,32 +132,33 @@ func TestIRWriteAgreesWithGo(t *testing.T) {
 
 	// IR is never repaired: a statement kind where an expression is
 	// wanted, a kind past the table, and cut words fail.
+	// The statement kind has the expression kind's slot count, so only
+	// Write's struct type check refuses it.
 	var p irPacked
-	for p.firstKind == 0 {
+	exprAt, stmtKind := 0, uint32(0)
+	for exprAt == 0 {
 		var err error
 		if p, err = irPack(kinds, irGen(r, kinds, reached)); err != nil {
 			t.Fatal(err)
 		}
-	}
-	var stmtKind, exprAt uint32
-	for _, k := range kinds.list {
-		if k.class == irTStmt {
-			stmtKind = k.code
-		}
-	}
-	for i, c := range p.firstKinds {
-		if kinds.byCode[c].class == irTExpr {
-			exprAt = uint32(p.firstKind + i)
+		for _, at := range p.rows {
+			k := kinds.byCode[p.words[at]]
+			if k.class != irTExpr {
+				continue
+			}
+			for _, s := range kinds.list {
+				if s.class == irTStmt && len(s.slots) == len(k.slots) {
+					exprAt, stmtKind = at, s.code
+				}
+			}
 		}
 	}
 	var bad [][]uint32
-	if exprAt != 0 {
-		w := append([]uint32(nil), p.words...)
-		w[exprAt] = stmtKind
-		bad = append(bad, w)
-	}
 	w := append([]uint32(nil), p.words...)
-	w[p.firstKind] = uint32(len(kinds.list) + 1)
+	w[exprAt] = stmtKind
+	bad = append(bad, w)
+	w = append([]uint32(nil), p.words...)
+	w[p.rows[0]] = uint32(len(kinds.list) + 1)
 	bad = append(bad, w, p.words[:len(p.words)-1], p.words[:1])
 	for _, w := range bad {
 		got, err := linked.IRWrite(context.Background(), w, p.strs)
@@ -319,134 +321,149 @@ func irKindTable(t *testing.T) irKinds {
 	return ks
 }
 
-// irPacked is a file packed for compiler/api.IRWrite: its words, its
-// texts, and where the first function with rows has its kinds column.
+// irPacked is a file as the steps compiler/api.IRWrite replays into
+// ir.Builder: its words, its texts, and the index in words of each row
+// step's kind.
 type irPacked struct {
-	words      []uint32
-	strs       []string
-	firstKind  int
-	firstKinds []uint32
+	words []uint32
+	strs  []string
+	rows  []int
 }
 
-// irBody is one function's rows under construction.
-type irBody struct {
-	kind, a, b, file, line, col []uint32
-	extra                       []uint32
-}
+// The steps of compiler/api.IRWrite (compiler/api/ir.ergo).
+const (
+	irOpText = 1 + iota
+	irOpWord
+	irOpPos
+	irOpList
+	irOpRow
+	irOpFunc
+	irOpLocal
+	irOpEnd
+	irOpFile
+	irOpShared
+	irOpNoFiles
+	irOpNoFuncs
+)
 
 type irPacker struct {
 	kinds irKinds
-	strs  []string
+	out   irPacked
 	ids   map[string]uint32
 }
 
+// str is the host's index of s in strs (its own table; ir.Builder interns
+// again).
 func (p *irPacker) str(s string) uint32 {
 	if id, ok := p.ids[s]; ok {
 		return id
 	}
-	id := uint32(len(p.strs))
-	p.strs = append(p.strs, s)
+	id := uint32(len(p.out.strs))
+	p.out.strs = append(p.out.strs, s)
 	p.ids[s] = id
 	return id
 }
 
-func irPack(kinds irKinds, f *irFile) (irPacked, error) {
-	p := &irPacker{kinds: kinds, strs: []string{""}, ids: map[string]uint32{"": 0}}
-	w := []uint32{2, uint32(uint64(f.V)), uint32(uint64(f.V) >> 32)}
-	texts := func(s []string) {
-		w = append(w, uint32(len(s)))
-		for _, x := range s {
-			w = append(w, p.str(x))
+func (p *irPacker) emit(ws ...uint32) { p.out.words = append(p.out.words, ws...) }
+
+// pos pushes a position's slot word.
+func (p *irPacker) pos(x irPos) error {
+	ws, err := posWords(x)
+	if err != nil {
+		return err
+	}
+	p.emit(irOpPos)
+	p.emit(ws...)
+	return nil
+}
+
+func posWords(x irPos) ([]uint32, error) {
+	for _, v := range x {
+		if v < 0 || v > math.MaxUint32 {
+			return nil, fmt.Errorf("position %v outside a word", x)
 		}
 	}
-	w = append(w, flag(f.Files != nil))
-	texts(f.Files)
-	texts(f.Shared)
-	w = append(w, flag(f.Funcs != nil), uint32(len(f.Funcs)))
-	out := irPacked{}
+	return []uint32{uint32(x[0]), uint32(x[1]), uint32(x[2])}, nil
+}
+
+// irPack is the steps that build f: the files in File.Files' order (so
+// ir.FileOf gives each its index), the shared texts, then each function's
+// nodes children first.
+func irPack(kinds irKinds, f *irFile) (irPacked, error) {
+	p := &irPacker{kinds: kinds, out: irPacked{strs: []string{""}}, ids: map[string]uint32{"": 0}}
+	p.emit(3, uint32(uint64(f.V)), uint32(uint64(f.V)>>32))
+	seen := map[string]bool{}
+	for _, path := range f.Files {
+		if seen[path] {
+			return p.out, fmt.Errorf("file %q twice", path)
+		}
+		seen[path] = true
+		p.emit(irOpFile, p.str(path))
+	}
+	// The builder makes a list non-nil when it adds to it; only an empty
+	// non-nil one needs a step.
+	if f.Files != nil && len(f.Files) == 0 {
+		p.emit(irOpNoFiles)
+	}
+	for _, s := range f.Shared {
+		p.emit(irOpShared, p.str(s))
+	}
+	if f.Funcs != nil && len(f.Funcs) == 0 {
+		p.emit(irOpNoFuncs)
+	}
 	for i := range f.Funcs {
 		fn := &f.Funcs[i]
-		w = append(w, p.str(fn.Name))
-		for _, pos := range []irPos{fn.Pos, fn.End} {
-			ws, err := posWords(pos)
-			if err != nil {
-				return out, err
-			}
-			w = append(w, ws...)
-		}
-		w = append(w, uint32(len(fn.Locals)))
-		for _, l := range fn.Locals {
-			ws, err := posWords(l.Pos)
-			if err != nil {
-				return out, err
-			}
-			w = append(w, p.str(l.Name), p.str(l.Type))
-			w = append(w, ws...)
-		}
-		b := &irBody{extra: []uint32{0}}
-		roots, err := p.list(b, reflect.ValueOf(fn.Body))
+		pw, err := posWords(fn.Pos)
 		if err != nil {
-			return out, err
+			return p.out, err
 		}
-		n := len(b.kind)
-		w = append(w, uint32(n))
-		if n > 0 && out.firstKind == 0 {
-			out.firstKind, out.firstKinds = len(w), b.kind
+		ew, err := posWords(fn.End)
+		if err != nil {
+			return p.out, err
 		}
-		for _, col := range [][]uint32{b.kind, b.a, b.b, b.file, b.line, b.col} {
-			w = append(w, col...)
+		p.emit(irOpFunc, p.str(fn.Name))
+		p.emit(pw...)
+		p.emit(ew...)
+		for _, l := range fn.Locals {
+			lw, err := posWords(l.Pos)
+			if err != nil {
+				return p.out, err
+			}
+			p.emit(irOpLocal, p.str(l.Name), p.str(l.Type))
+			p.emit(lw...)
 		}
-		w = append(w, uint32(len(b.extra)))
-		w = append(w, b.extra...)
-		w = append(w, roots)
+		if err := p.list(reflect.ValueOf(fn.Body)); err != nil {
+			return p.out, err
+		}
+		p.emit(irOpEnd)
 	}
-	out.words, out.strs = w, p.strs
-	return out, nil
+	return p.out, nil
 }
 
-func flag(b bool) uint32 {
-	if b {
-		return 1
-	}
-	return 0
-}
-
-func posWords(p irPos) ([]uint32, error) {
-	for _, v := range p {
-		if v < 0 || v > math.MaxUint32 {
-			return nil, fmt.Errorf("position %v outside a word", p)
-		}
-	}
-	return []uint32{uint32(p[0]), uint32(p[1]), uint32(p[2])}, nil
-}
-
-// list packs a slice of rows (a nil slice is 0, an empty one the offset
-// of a 0 length; a nil element is id 0).
-func (p *irPacker) list(b *irBody, v reflect.Value) (uint32, error) {
+// list pushes a slice of nodes: 0 for nil, else each element (0 for a nil
+// one) and a list step.
+func (p *irPacker) list(v reflect.Value) error {
 	if v.IsNil() {
-		return 0, nil
+		p.emit(irOpWord, 0)
+		return nil
 	}
-	ids := make([]uint32, v.Len())
-	for i := range ids {
+	for i := range v.Len() {
 		if v.Index(i).IsNil() {
+			p.emit(irOpWord, 0)
 			continue
 		}
-		id, err := p.row(b, v.Index(i))
-		if err != nil {
-			return 0, err
+		if err := p.row(v.Index(i)); err != nil {
+			return err
 		}
-		ids[i] = id
 	}
-	q := uint32(len(b.extra))
-	b.extra = append(b.extra, uint32(len(ids)))
-	b.extra = append(b.extra, ids...)
-	return q, nil
+	p.emit(irOpList, uint32(v.Len()))
+	return nil
 }
 
-// row packs the node *v (an *irStmt, *irExpr or *irCase), its children
-// first, and gives its id. A field Go set outside the kind's slots is an
-// error: the kind table lags the builder.
-func (p *irPacker) row(b *irBody, v reflect.Value) (uint32, error) {
+// row pushes the node *v (an *irStmt, *irExpr or *irCase): its slots'
+// words in the kind's order, then a row step. A field Go set outside the
+// kind's slots is an error: the kind table lags the builder.
+func (p *irPacker) row(v reflect.Value) error {
 	e := v.Elem()
 	class, first, name := uint32(irTCase), 1, ""
 	switch e.Interface().(type) {
@@ -457,129 +474,106 @@ func (p *irPacker) row(b *irBody, v reflect.Value) (uint32, error) {
 	}
 	k, ok := p.kinds.byKey[strconv.Itoa(int(class))+" "+name]
 	if !ok {
-		return 0, fmt.Errorf("kind %q of struct type %d is not in compiler/ir's table", name, class)
-	}
-	pos := e.Field(first - 1).Interface().(irPos)
-	posw, err := posWords(pos)
-	if err != nil {
-		return 0, err
-	}
-	words := map[int]uint32{}
-	for j := first; j < e.NumField(); j++ {
-		word, err := p.field(b, e.Field(j))
-		if err != nil {
-			return 0, err
-		}
-		if word != 0 {
-			words[j] = word
-		}
+		return fmt.Errorf("kind %q of struct type %d is not in compiler/ir's table", name, class)
 	}
 	slotted := map[int]bool{}
 	for _, s := range k.slots {
 		slotted[s] = true
 	}
-	for j := range words {
-		if !slotted[j] {
-			return 0, fmt.Errorf("kind %q sets field %s outside its slots", name, e.Type().Field(j).Name)
+	for j := first; j < e.NumField(); j++ {
+		if !slotted[j] && !e.Field(j).IsZero() {
+			return fmt.Errorf("kind %q sets field %s outside its slots", name, e.Type().Field(j).Name)
 		}
 	}
-	var a, bw uint32
-	switch n := len(k.slots); {
-	case n == 0:
-	case n <= 2:
-		a = words[k.slots[0]]
-		if n == 2 {
-			bw = words[k.slots[1]]
-		}
-	default:
-		a = words[k.slots[0]]
-		bw = uint32(len(b.extra))
-		for _, s := range k.slots[1:] {
-			b.extra = append(b.extra, words[s])
+	for _, s := range k.slots {
+		if err := p.field(e.Field(s)); err != nil {
+			return err
 		}
 	}
-	b.kind = append(b.kind, k.code)
-	b.a = append(b.a, a)
-	b.b = append(b.b, bw)
-	b.file = append(b.file, posw[0])
-	b.line = append(b.line, posw[1])
-	b.col = append(b.col, posw[2])
-	return uint32(len(b.kind)), nil
+	pw, err := posWords(e.Field(first - 1).Interface().(irPos))
+	if err != nil {
+		return err
+	}
+	p.out.rows = append(p.out.rows, len(p.out.words)+1)
+	p.emit(irOpRow, k.code)
+	p.emit(pw...)
+	return nil
 }
 
-// field is the slot word of one field (compiler/ir/ir.ergo's encodings);
-// 0 is Go's zero value.
-func (p *irPacker) field(b *irBody, v reflect.Value) (uint32, error) {
+// field pushes the slot word of one field (compiler/ir/ir.ergo's
+// encodings); Go's zero value is the word 0.
+func (p *irPacker) field(v reflect.Value) error {
 	switch x := v.Interface().(type) {
 	case string:
-		return p.str(x), nil
+		p.emit(irOpText, p.str(x))
 	case int:
 		if x < math.MinInt32 || x > math.MaxInt32 {
-			return 0, fmt.Errorf("int %d outside int32", x)
+			return fmt.Errorf("int %d outside int32", x)
 		}
-		return uint32(int32(x)), nil
+		p.emit(irOpWord, uint32(int32(x)))
 	case *int:
 		if x == nil {
-			return 0, nil
+			p.emit(irOpWord, 0)
+			return nil
 		}
 		if *x < 0 || *x >= math.MaxUint32 {
-			return 0, fmt.Errorf("pointed int %d outside a word", *x)
+			return fmt.Errorf("pointed int %d outside a word", *x)
 		}
-		return uint32(*x) + 1, nil
+		p.emit(irOpWord, uint32(*x)+1)
 	case bool:
-		return flag(x), nil
+		p.emit(irOpWord, flag(x))
 	case irPos:
 		if x == (irPos{}) {
-			return 0, nil
+			p.emit(irOpWord, 0)
+			return nil
 		}
-		return p.pos(b, x)
+		return p.pos(x)
 	case *irPos:
 		if x == nil {
-			return 0, nil
+			p.emit(irOpWord, 0)
+			return nil
 		}
-		return p.pos(b, *x)
+		return p.pos(*x)
 	case *irExpr:
 		if x == nil {
-			return 0, nil
+			p.emit(irOpWord, 0)
+			return nil
 		}
-		return p.row(b, v)
+		return p.row(v)
 	case []string:
 		if x == nil {
-			return 0, nil
+			p.emit(irOpWord, 0)
+			return nil
 		}
-		q := uint32(len(b.extra))
-		b.extra = append(b.extra, uint32(len(x)))
 		for _, s := range x {
-			b.extra = append(b.extra, p.str(s))
+			p.emit(irOpText, p.str(s))
 		}
-		return q, nil
+		p.emit(irOpList, uint32(len(x)))
 	case []int:
 		if x == nil {
-			return 0, nil
+			p.emit(irOpWord, 0)
+			return nil
 		}
-		q := uint32(len(b.extra))
-		b.extra = append(b.extra, uint32(len(x)))
 		for _, n := range x {
 			if n < math.MinInt32 || n > math.MaxInt32 {
-				return 0, fmt.Errorf("int %d outside int32", n)
+				return fmt.Errorf("int %d outside int32", n)
 			}
-			b.extra = append(b.extra, uint32(int32(n)))
+			p.emit(irOpWord, uint32(int32(n)))
 		}
-		return q, nil
+		p.emit(irOpList, uint32(len(x)))
 	case []*irStmt, []*irExpr, []*irCase:
-		return p.list(b, v)
+		return p.list(v)
+	default:
+		return fmt.Errorf("no slot encoding for %s", v.Type())
 	}
-	return 0, fmt.Errorf("no slot encoding for %s", v.Type())
+	return nil
 }
 
-func (p *irPacker) pos(b *irBody, x irPos) (uint32, error) {
-	ws, err := posWords(x)
-	if err != nil {
-		return 0, err
+func flag(b bool) uint32 {
+	if b {
+		return 1
 	}
-	q := uint32(len(b.extra))
-	b.extra = append(b.extra, ws...)
-	return q, nil
+	return 0
 }
 
 // irGen is a seeded IR file built from the kind table: each node is of a
@@ -588,7 +582,12 @@ func (p *irPacker) pos(b *irBody, x irPos) (uint32, error) {
 // records the kinds it built.
 func irGen(r *rand.Rand, kinds irKinds, reached map[string]bool) *irFile {
 	g := &irGenerator{r: r, kinds: kinds, reached: reached}
+	// Files are distinct, as the builder's are (ir.FileOf gives a path one
+	// index).
 	f := &irFile{V: g.int(), Files: g.strList(), Shared: g.strList()}
+	for i, path := range f.Files {
+		f.Files[i] = strconv.Itoa(i) + path
+	}
 	if r.IntN(6) > 0 {
 		f.Funcs = []irFunc{}
 		for range r.IntN(4) {
