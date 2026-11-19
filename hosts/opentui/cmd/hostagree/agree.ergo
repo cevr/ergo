@@ -122,14 +122,17 @@ func compare[E comparable, S, D, F](h *ui.TestHost[S, E, D, F], d *tui.Driver[S,
 // kept is why a list does not show the offset its pass chose, None when
 // each does: a list's node carries the offset the pass used (RowsKeeping
 // moves it to bring a row into view), and the viewport the terminal
-// reported after the step has that offset.
+// reported after the step has that offset, or the list's last offset when
+// the pass's is past it (the scene keeps a scroll inside the content).
 func kept[E comparable, S, D, F](d *tui.Driver[S, E, D, F], shapes []ui.Shape[E]) Option[string] {
 	for sh in shapes {
 		match sh.Node {
 		case ui.RowsNode as x:
 			match tui.Viewport(d, x.Label) {
 			case Some[ui.Viewport] as v:
-				if v.Value.Offset != x.Offset {
+				let (off, want) = (float64(v.Value.Offset), float64(x.Offset))
+				let most = maxOffset(shapes, x.Label, float64(v.Value.Height))
+				if off != want && !(want > most && off == most) {
 					return Some{Value: "list (x.Label): the pass chose offset (float64(x.Offset)), the terminal shows (float64(v.Value.Offset))"}
 				}
 			case None:

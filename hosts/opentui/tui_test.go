@@ -174,7 +174,7 @@ func genScript(r *rand.Rand, app string) string {
 			// the wheel turns down more than up, so it moves a list that
 			// starts at its top
 			wheel := fmt.Sprintf("wheel list %d", pick(r, -2, -1, 1, 2, 3))
-			step = pick(r, "tap more", "tap less", "tap note", "tap jump", fmt.Sprintf("scroll list %d", 16*r.IntN(190)),
+			step = pick(r, "tap more", "tap less", "tap note", "tap down", "tap up", fmt.Sprintf("scroll list %d", 16*r.IntN(190)),
 				wheel, wheel, fmt.Sprintf("tap row %d", r.IntN(90)), fmt.Sprintf("tap row %d", r.IntN(20)))
 		}
 		if r.IntN(5) == 0 && !held {
