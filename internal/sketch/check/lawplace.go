@@ -47,12 +47,6 @@ import (
 // the placement. Ergo checks it, since a law is part of its subject's
 // contract (types.md, Laws 12), not a test of it.
 
-// lawPlacementReported turns S115 on in Check. It is off until the
-// repository's laws stand with their subjects: the integrator merges the
-// rule and ergo fix, runs scripts/lawloc-check migrate, then turns it on
-// (LAWLOC).
-const lawPlacementReported = false
-
 // LawSubject is one subject of a top-level law (Law.Subjects): the name the
 // law (or one of its helpers) uses, and the declaration and file of it.
 type LawSubject struct {
@@ -439,7 +433,7 @@ func (c *checker) checkLawPlacement() {
 // so where its laws belong is not known yet, and the other diagnostic is
 // the one to fix first.
 func (c *checker) reportLawPlacements() {
-	if !c.placeLaws || len(c.diags) > 0 {
+	if len(c.diags) > 0 {
 		return
 	}
 	for _, law := range c.pkg.Laws {

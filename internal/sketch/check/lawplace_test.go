@@ -15,7 +15,7 @@ import (
 // (the file check accepts every file, so the misplaced rows pass) and
 // lawloc-helper-is-subject (a helper pins the law to its own file) and
 // lawloc-reports-over-errors (S115 beside another diagnostic). It checks
-// with S115 on (checkWith), whatever lawPlacementReported says.
+// through check, as every package is checked.
 func TestLawPlacement(t *testing.T) {
 	ints := "type Ints []int\n\nfunc New(n int) Ints { Ints{n} }\n"
 	sum := "func Sum(xs Ints) int {\n\tlet mut s = 0\n\tfor x in xs {\n\t\ts = s + x\n\t}\n\ts\n}\n"
@@ -62,7 +62,7 @@ func TestLawPlacement(t *testing.T) {
 			f.Name = nf[0]
 			files = append(files, f)
 		}
-		_, ds := checkWith("main", files, nil, true)
+		_, ds := check("main", files, nil, nil, Options{})
 		var got []string
 		for _, d := range ds {
 			got = append(got, fmt.Sprintf("%s:%d:%d+%d %s %s", files[d.File].Name, d.Line, d.Column, d.Length, d.Code, d.Message))
