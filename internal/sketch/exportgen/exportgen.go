@@ -88,6 +88,7 @@ var skipFields = map[string]string{
 	// A module's own Go bodies (check/extern.go moduleDoor): std binds no
 	// module Go package, and only a std package is exported.
 	"check.Package.goBodies": "std binds no module Go package (check.ExportStd)",
+	"check.Package.goSource": "std binds no module Go package (check.ExportStd; LAWFFI LF2m)",
 }
 
 // skipTypes are check's struct types an empty interface never holds in
@@ -99,6 +100,7 @@ var skipTypes = map[string]string{
 	"declWalk":     "a node path resolver's walk of a declaration (nodepath.go), never in the model",
 	"nodeRef":      "a decoder's cache key (export.go), never in the model",
 	"nodeResolver": "a decoder's node path resolver (nodepath.go), never in the model",
+	"GoBodySource": "a module's own Go body for the licence run's driver (extern.go, LAWFFI LF2m); std binds none",
 }
 
 // Generate returns the generated sources of the syntax codec and the check
